@@ -1,0 +1,16 @@
+# Build outputs
+*.exe
+*.exe~
+
+# Editor / temp
+*.tmp
+*.swp
+*~
+
+# OMC session state (local only)
+.omc/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
