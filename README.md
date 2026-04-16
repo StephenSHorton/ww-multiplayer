@@ -1,5 +1,7 @@
 # Wind Waker Multiplayer
 
+![splash](docs/img/splash.png)
+
 Real-time visual multiplayer for The Legend of Zelda: The Wind Waker on Dolphin.
 Each player runs the TUI alongside their own Dolphin instance — positions are
 shared over TCP so (eventually) you can see each other's Link sailing around.
