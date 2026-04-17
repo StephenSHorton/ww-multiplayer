@@ -15,33 +15,24 @@
 - **Found workable inject address** (`0x80410000`) — Dolphin's DOL loader refuses `0x803FDxxx` (just past BSS) but accepts addresses further up; still unknown exactly what Dolphin checks
 - **Relocated mailbox** from `0x803F6100` (actually inside game data section D6, corrupting real data) to `0x80410800` (orphan memory between T2 end and `__OSArenaLo`)
 - **End-to-end code injection verified**: main01 hook fires, our C code runs, mailbox counter increments, game continues rendering correctly
+- **Per-frame hook working**: callback-pointer shim at `0x80023204` inside `fapGm_Execute`, with bl-replay via LR-preserving `bctr` tail-call to `0x802449AC`. Mailbox counter ticks at 30Hz in-game. See `docs/05-known-issues.md` → "Per-Frame Hook — SOLVED" for the shim recipe.
 
 ## 🔬 Next Session Priority
 
-**Find a safe per-frame hook point to drive actual multiplayer logic.**
+**Debug `fopAcM_fastCreate(PROC_PLAYER, ...)` — spawn the second Link.**
 
-`main01` fires once; we need per-frame to read Link's position, read the mailbox, update Player 2's actor, etc.
+Per-frame hook is solid (heartbeat-only `multiplayer_update` is stable). Adding
+the spawn block (full `multiplayer_update` with `frame_count >= 300`) triggered
+the same `mDoExt_SaveCurrentHeap != 0` assertion around frame 300 (~10 sec in).
+Root cause is inside the spawn block itself, not the hook mechanism.
 
-### The fapGm_Execute problem
+### Things to try (in order)
 
-Hooking `fapGm_Execute` first instruction (0x800231E4) crashed with:
-`Invalid read from 0x00000014, PC = 0x802abbec` (`checkStreamPlaying` — audio code, null deref on `this`)
-
-Likely cause: Freighter's `hook_branchlink` trampoline at function entry doesn't preserve parameter registers or LR state that the downstream audio code depends on.
-
-### Approaches to try
-
-- [ ] Hook `fapGm_Execute` at a **later instruction** (e.g., `0x80023208` after prologue), not the first instruction — prologue will run normally first
-- [ ] Hook a different per-frame function entirely (scan for callers of `fopDwTg_ToDoPacket` or similar frame-end callbacks)
-- [ ] From `main01`, install our own callback pointer at a known location and have a separate small hook *call* through that pointer — isolates our code from register-convention issues
-- [ ] Inspect Freighter's trampoline assembly to see what it saves/restores
-
-## 🎮 After Per-Frame Works
-
-Once `multiplayer_update` runs every frame:
-
-- [ ] Verify rupee heartbeat (777 every frame, visible in-game)
-- [ ] Test `fopAcM_fastCreate(PROC_PLAYER, ...)` — spawn the second Link
+- [ ] Re-enable spawn guard but increase gate to e.g. 1800 frames (60 sec) so we can rule out "game isn't fully booted yet"
+- [ ] Before `fopAcM_fastCreate`, verify `PLAYER_PTR_ARRAY[0]` looks sane (non-zero, points into 0x80xxxxxx actor range, has a valid actor-struct header at known offsets)
+- [ ] Drop the `PLAYER_PTR_ARRAY[0] = link;` writeback after spawn — the comment said "may overwrite" but that line may itself corrupt actor-registry state
+- [ ] If still crashing: the `fopAcM_fastCreate` at `0x80024614` may need a different call context than what `fapGm_Execute`'s mid-body provides. Consider a LATER per-frame hook site (e.g., inside `fapGm_Execute`'s first called function `0x8003EC84`, after its own prologue)
+- [ ] Instrument via mailbox: write a progress byte before each step (`mailbox->actor2_ptr = 0xAA` → `0xBB` → etc.) so the final value on crash reveals where we died
 - [ ] Wire up network → actor position pipeline (Player A's pos → server → Player B's mailbox → Player B's Link #2 renders)
 - [ ] Add animation state sync (`mCurProc` at actor + `0x31D8`)
 - [ ] Add rotation sync (`shape_angle` at `0x20C`)

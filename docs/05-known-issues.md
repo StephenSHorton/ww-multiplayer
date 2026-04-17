@@ -87,13 +87,76 @@ Historically the advice was that T2 at `0x803FD000` overlaps the tail of BSS zer
 - Double-click a disc image file (ISO, CISO, GCM)
 - `File → Open → <main.dol>` (but this skips disc filesystem — assets missing)
 
-## Per-Frame Hook (fapGm_Execute) Crashes
+## Per-Frame Hook — SOLVED
 
-Hooking `fapGm_Execute` first instruction at `0x800231E4` via `hook_branchlink` immediately crashes:
+### The problem
 
-`Invalid read from 0x00000014, PC = 0x802abbec` (inside `checkStreamPlaying` — audio subsystem)
+`hook_branchlink` overwrites the target instruction with a `bl`. If the target
+is a function's prologue (`stwu r1, -N(r1)`, `stw r31, ...`), that instruction
+is LOST — the function's stack frame is never allocated or a non-volatile reg
+is never saved, and the game crashes downstream. That's why hooking
+`fapGm_Execute` at entry or `+0x0C` both crashed.
 
-Suspect Freighter's trampoline at function entry doesn't preserve something the downstream code depends on. Current workaround: use `main01` for one-shot setup, defer per-frame hook research.
+### The fix — callback-pointer shim + bl-replay
+
+`fapGm_Execute` at `0x800231E4` is a tiny wrapper:
+
+```
+stwu/mflr/stw                   # prologue
+li r3, 0 / lis r4, ... / addi   # args for 1st call
+bl +0x1BA88   # -> 0x8003EC84 (per-frame work #1)
+li r3, 0
+bl +0x2217A8  # -> 0x802449AC (per-frame work #2 — heap bookkeeping)
+lwz/mtlr/addi/blr               # epilogue
+```
+
+Hook at **`0x80023204`** — the SECOND `bl`. Replacing a `bl` is transparent
+to the host (caller already assumes volatile-reg clobber) and past the
+prologue (stack frame valid). But we also have to REPLAY the replaced call,
+because `0x802449AC` is critical — dropping it trips
+`Failed assertion: m_Do_ext.cpp:2755 mDoExt_SaveCurrentHeap != 0` within
+~1 sec of loading a save.
+
+Replay mechanism must preserve LR. `0x802449AC` internally does `mflr` for
+heap bookkeeping, so if LR points into our shim instead of `0x80023208`
+(fapGm_Execute's post-bl address), heap state corrupts and the same
+assertion fires. A `bctrl` replay clobbers LR — use a TAIL-CALL `bctr`
+instead so LR stays = caller's LR.
+
+Final shim shape (see `ww-inject/src/multiplayer.c`):
+
+```asm
+frame_shim:
+    mflr  0                # save caller LR (= 0x80023208)
+    stwu  1, -0x20(1)
+    stw   0, 0x10(1)
+    ; call multiplayer_update via callback pointer (bctrl clobbers LR, that's
+    ; ok — we saved it and restore it below)
+    lis   12, 0x8041
+    lwz   12, 0x0700(12)
+    cmpwi 12, 0
+    beq-  1f
+    mtctr 12
+    bctrl
+1:  lwz   0, 0x10(1)
+    addi  1, 1, 0x20
+    mtlr  0                # LR = 0x80023208 again
+    ; tail-call 0x802449AC — bctr does NOT touch LR, so its blr returns
+    ; directly to 0x80023208 as if the original bl had run
+    li    3, 0
+    lis   12, 0x8024
+    ori   12, 12, 0x49AC
+    mtctr 12
+    bctr
+```
+
+`main01_init` (hooked at `0x80006338`) publishes `&multiplayer_update` at
+`0x80410700` once at thread start; `frame_shim` reads it each frame.
+
+### Verified
+
+Mailbox counter at `0x80410800` increments ~30/sec (matching 29.97 FPS) while
+the game runs normally.
 
 ## Observations Worth Remembering
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
@@ -45,6 +47,25 @@ func main() {
 			runCheck()
 		case "dump":
 			runDump()
+		case "disasm":
+			addr := uint32(0x800231E4)
+			count := 40
+			if len(os.Args) > 2 {
+				var v uint64
+				v, err := strconv.ParseUint(strings.TrimPrefix(os.Args[2], "0x"), 16, 32)
+				if err != nil {
+					fmt.Printf("bad addr: %v\n", err)
+					os.Exit(1)
+				}
+				addr = uint32(v)
+			}
+			if len(os.Args) > 3 {
+				n, err := strconv.Atoi(os.Args[3])
+				if err == nil {
+					count = n
+				}
+			}
+			runDisasm(addr, count)
 		case "help":
 			printHelp()
 		default:
@@ -368,6 +389,130 @@ func runActorScan() {
 		fmt.Println("  (no actors found nearby)")
 	}
 	fmt.Printf("\nFound %d potential actors\n", found)
+}
+
+// classifyPPC returns a short label + operand hint for a PPC instruction.
+// Used by `disasm` to help pick safe hook sites — we care most about:
+//   - `bl` instructions (opcode 18 with LK=1): safest to replace, caller already
+//     assumes volatile reg clobber.
+//   - `stwu r1, -N(r1)` and `stw rN, M(r1)` in a function's prologue: UNSAFE to
+//     replace, losing them corrupts the stack frame / non-volatile reg saves.
+//   - branches that would clobber control flow if replaced.
+func classifyPPC(inst uint32) string {
+	primary := inst >> 26
+	switch primary {
+	case 0:
+		if inst == 0 {
+			return "(zero)"
+		}
+		return "(illegal)"
+	case 14:
+		rt := (inst >> 21) & 0x1F
+		ra := (inst >> 16) & 0x1F
+		si := int16(inst & 0xFFFF)
+		if ra == 0 {
+			return fmt.Sprintf("li    r%d, %d", rt, si)
+		}
+		return fmt.Sprintf("addi  r%d, r%d, %d", rt, ra, si)
+	case 15:
+		rt := (inst >> 21) & 0x1F
+		ra := (inst >> 16) & 0x1F
+		si := inst & 0xFFFF
+		if ra == 0 {
+			return fmt.Sprintf("lis   r%d, 0x%04X", rt, si)
+		}
+		return fmt.Sprintf("addis r%d, r%d, 0x%04X", rt, ra, si)
+	case 16:
+		if inst&1 != 0 {
+			return "bcl"
+		}
+		return "bc"
+	case 18:
+		disp := inst & 0x03FFFFFC
+		if disp&0x02000000 != 0 {
+			disp |= 0xFC000000
+		}
+		if inst&1 != 0 {
+			return fmt.Sprintf("bl    +0x%X", int32(disp))
+		}
+		return fmt.Sprintf("b     +0x%X", int32(disp))
+	case 19:
+		switch inst & 0x07FF {
+		case 0x020:
+			return "blr"
+		case 0x021:
+			return "blrl"
+		case 0x420:
+			return "bctr"
+		case 0x421:
+			return "bctrl"
+		}
+		return "branch-reg"
+	case 31:
+		xo := (inst >> 1) & 0x3FF
+		switch xo {
+		case 339:
+			return "mfspr"
+		case 467:
+			return "mtspr"
+		case 444:
+			rs := (inst >> 21) & 0x1F
+			ra := (inst >> 16) & 0x1F
+			rb := (inst >> 11) & 0x1F
+			if rs == rb {
+				return fmt.Sprintf("mr    r%d, r%d", ra, rs)
+			}
+			return "or"
+		}
+		return fmt.Sprintf("X-form xo=%d", xo)
+	case 32:
+		rt := (inst >> 21) & 0x1F
+		ra := (inst >> 16) & 0x1F
+		d := int16(inst & 0xFFFF)
+		return fmt.Sprintf("lwz   r%d, %d(r%d)", rt, d, ra)
+	case 36:
+		rs := (inst >> 21) & 0x1F
+		ra := (inst >> 16) & 0x1F
+		d := int16(inst & 0xFFFF)
+		return fmt.Sprintf("stw   r%d, %d(r%d)", rs, d, ra)
+	case 37:
+		rs := (inst >> 21) & 0x1F
+		ra := (inst >> 16) & 0x1F
+		d := int16(inst & 0xFFFF)
+		if rs == 1 && ra == 1 {
+			return fmt.Sprintf("stwu  r1, %d(r1)  <PROLOGUE>", d)
+		}
+		return fmt.Sprintf("stwu  r%d, %d(r%d)", rs, d, ra)
+	case 40:
+		return "lhz"
+	case 44:
+		return "sth"
+	case 48:
+		return "lfs"
+	case 52:
+		return "stfs"
+	}
+	return fmt.Sprintf("op=%d", primary)
+}
+
+func runDisasm(addr uint32, count int) {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	data, err := d.ReadAbsolute(addr, count*4)
+	if err != nil {
+		fmt.Printf("read failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Disasm %d instructions from 0x%08X:\n", count, addr)
+	for i := 0; i < count; i++ {
+		inst := binary.BigEndian.Uint32(data[i*4:])
+		fmt.Printf("  0x%08X: %08X  %s\n", addr+uint32(i*4), inst, classifyPPC(inst))
+	}
 }
 
 func runDump() {
