@@ -8,92 +8,63 @@
 - Proven writes to game data (rupees, Link's position/teleport)
 - TCP networking with server and fake clients
 - Freighter setup for C code compilation
-- OnFrame-based code byte injection (230 entries)
-- C2 Gecko hook that branches to our function
-- **Built proper ISO from CISO + patched DOL using `wit` + manual FST shift** (eliminates JIT cache wall)
-- **Confirmed `main01` at 0x80006338 is a one-shot init function (not per-frame)**; per-frame is `fapGm_Execute` at 0x800231E4
-- **Identified the new blocker: `ClearArena()` in `dolphin/os/OS.c:163` zeros memory between OSArenaLo and OSArenaHi during `OSInit`** — runs in crt0 BEFORE main01 thread starts, wipes any code we put past the BSS end
+- **Built proper ISO from CISO + patched DOL using `wit` + FST shift**
+- **Confirmed `main01` at 0x80006338 is a one-shot init function**; per-frame is `fapGm_Execute` at 0x800231E4
+- **Cracked the `ClearArena` wall** by patching OSInit directly (`lis r3, 0x8041 / addi r3, r3, 0x1000` at 0x8030181C-0x80301820) to set `__OSArenaLo = 0x80411000` before `ClearArena`'s memset runs
+- **Discovered Freighter silently clobbers game code** to relocate stack/arena to its own aspirational values — found 5 regions in T0/T1 that must be reverted post-build to keep game rendering correct
+- **Found workable inject address** (`0x80410000`) — Dolphin's DOL loader refuses `0x803FDxxx` (just past BSS) but accepts addresses further up; still unknown exactly what Dolphin checks
+- **Relocated mailbox** from `0x803F6100` (actually inside game data section D6, corrupting real data) to `0x80410800` (orphan memory between T2 end and `__OSArenaLo`)
+- **End-to-end code injection verified**: main01 hook fires, our C code runs, mailbox counter increments, game continues rendering correctly
 
 ## 🔬 Next Session Priority
 
-**Get the second Link to actually spawn.**
+**Find a safe per-frame hook point to drive actual multiplayer logic.**
 
-The JIT cache problem is solved. The new wall is `ClearArena()` zeroing our injected code at `0x803FD000+` before any hook can fire.
+`main01` fires once; we need per-frame to read Link's position, read the mailbox, update Player 2's actor, etc.
 
-### Current state of the build pipeline
+### The fapGm_Execute problem
 
-1. CISO source: `Dolphin-x64/Roms/Legend of Zelda, The - The Wind Waker (USA, Canada).ciso`
-2. Freighter project at `C:/Users/4step/Desktop/ww-inject/` produces `patched.dol`
-3. `wit copy <ciso> <iso> --iso --trunc` decompresses to plain ISO
-4. Python snippet (in conversation history) writes `patched.dol` at the disc's DOL offset and shifts FST by ~1 KB to make room
-5. Output: `Dolphin-x64/Roms/WW_Multiplayer_Patched.iso`
-6. Delete `%APPDATA%/Dolphin Emulator/Cache/gamelist.cache` and restart Dolphin to force a fresh scan
-7. Boot ISO (no patches/Gecko codes enabled — they would fight the DOL)
+Hooking `fapGm_Execute` first instruction (0x800231E4) crashed with:
+`Invalid read from 0x00000014, PC = 0x802abbec` (`checkStreamPlaying` — audio code, null deref on `this`)
 
-### The ClearArena problem in detail
+Likely cause: Freighter's `hook_branchlink` trampoline at function entry doesn't preserve parameter registers or LR state that the downstream audio code depends on.
 
-```c
-// src/dolphin/os/OS.c:163 in zeldaret/tww decomp
-static void ClearArena(void) {
-    if (OSGetResetCode() != 0x80000000) {
-        memset(OSGetArenaLo(), 0U, (u32)OSGetArenaHi() - (u32)OSGetArenaLo());
-        return;
-    }
-    // ... saved-region logic only fires on soft reset
-}
-```
+### Approaches to try
 
-- `OSArenaLo` defaults to end of BSS (~0x803FCFA8), so any T2 section at 0x803FD000 is wiped.
-- Freighter's `New OSArenaLo: ...` override happens too late (in a ctor or main, after ClearArena).
-- Putting `inject_address=0x80002800` (low memory, below game DOL) crashed the game — Freighter's stack/arena math assumes the inject address is high.
+- [ ] Hook `fapGm_Execute` at a **later instruction** (e.g., `0x80023208` after prologue), not the first instruction — prologue will run normally first
+- [ ] Hook a different per-frame function entirely (scan for callers of `fopDwTg_ToDoPacket` or similar frame-end callbacks)
+- [ ] From `main01`, install our own callback pointer at a known location and have a separate small hook *call* through that pointer — isolates our code from register-convention issues
+- [ ] Inspect Freighter's trampoline assembly to see what it saves/restores
 
-### Approaches ranked by viability
+## 🎮 After Per-Frame Works
 
-#### A. Hook `__init_user` to bump `__OSArenaLo` before ClearArena reads it (best)
+Once `multiplayer_update` runs every frame:
 
-`__init_user` is called early in crt0 from `__start.c:112`, BEFORE OSInit and ClearArena. Hooking it lets us write the new OSArenaLo value while ClearArena still sees the bumped one.
-
-**Steps:**
-- [ ] Add a second Freighter hook on `__init_user` that does `__OSArenaLo = 0x803FD500` (past our T2)
-- [ ] Verify ClearArena's memset now skips our region (read 0x803FD000 after boot)
-- [ ] Move hook target back to `fapGm_Execute` for per-frame execution
-- [ ] Confirm rupee heartbeat (777 every frame)
-- [ ] Test `fopAcM_fastCreate(PROC_PLAYER, ...)`
-
-#### B. Patch ClearArena directly
-
-Overwrite the call to `memset` (or its size argument) so it skips 0x803FD000-0x803FD500.
-
-#### C. Test on Dolphin 5.0 Legacy
-
-If 5.0's JIT or DOL loader behaves differently, the OnFrame approach might just work.
-
-**Steps:**
-- [ ] Download Dolphin 5.0 Legacy
-- [ ] Run rupee heartbeat
-- [ ] If it works, establish 5.0 as the supported version for distribution
-
-#### D. GDB stub for JIT-aware writes
-
-Dolphin supports the GDB Remote Serial Protocol. Writing memory via GDB properly invalidates the JIT cache.
-
-**Steps:**
-- [ ] Research Dolphin's GDB stub setup (enable in Config)
-- [ ] Implement minimal GDB client in Go (just needs `M` memory write packet)
-- [ ] Replace `WriteProcessMemory` calls with GDB writes
-- [ ] Test instruction-level patching
-
-## 🎮 After Spawn Works
-
-Once the second Link spawns and we can control its position:
-
-- [ ] Wire up network → actor position pipeline (Player A's position → server → Player B's mailbox → Player B's Link #2 renders)
+- [ ] Verify rupee heartbeat (777 every frame, visible in-game)
+- [ ] Test `fopAcM_fastCreate(PROC_PLAYER, ...)` — spawn the second Link
+- [ ] Wire up network → actor position pipeline (Player A's pos → server → Player B's mailbox → Player B's Link #2 renders)
 - [ ] Add animation state sync (`mCurProc` at actor + `0x31D8`)
 - [ ] Add rotation sync (`shape_angle` at `0x20C`)
 - [ ] Color-differentiate Player 2 (modify TEV palette data)
 - [ ] Handle room/stage transitions (despawn/respawn Player 2 when players change rooms)
 - [ ] Implement presence indicator (show "Player 2 is on Outset Island" when out of view)
 - [ ] Handle Player 2 disconnection gracefully
+
+## 🏗️ Build Pipeline
+
+The full loop, current as of this session:
+
+1. CISO source: `Dolphin-x64/Roms/Legend of Zelda, The - The Wind Waker (USA, Canada).ciso`
+2. Freighter project at `C:/Users/4step/Desktop/ww-inject/` produces `patched.dol` via `python build.py`
+   - Inject address: `0x80410000`
+   - Hooks: main01 (0x80006338) → `multiplayer_update`
+   - Post-build patches: OSInit immediates (four writes) + revert five Freighter clobbers
+3. `wit copy <ciso> <iso> --iso --trunc --overwrite` decompresses to plain ISO
+4. Python snippet writes `patched.dol` at the ISO's DOL offset and shifts the FST past the DOL end (we use a 0x1000-aligned new FST offset)
+5. Update the ISO header's FST offset field (at disc offset `0x424`)
+6. Delete `%APPDATA%/Dolphin Emulator/Cache/gamelist.cache` (if present) and restart Dolphin
+7. Boot the patched ISO — **no Gecko codes / Dolphin patches enabled** (they fight the DOL)
+8. `./ww.exe dump` to verify: mailbox counter at `0x80410800` increments, T2 code at `0x80410000` is intact, main01 hook at `0x80006338` shows `0x484XXXXX` (a `bl`)
 
 ## 🚀 Polish
 

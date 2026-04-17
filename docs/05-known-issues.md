@@ -1,107 +1,99 @@
-# Known Issues and The JIT Cache Wall
+# Known Issues and Hard-Won Learnings
 
-## The Core Problem
+This doc is the graveyard of things that wasted our time and how they were finally resolved. Check here before re-treading.
 
-To spawn a second Link in Wind Waker, we need the emulated PowerPC CPU to execute a call to `fopAcM_fastCreate`. This requires either:
+## The JIT Cache Wall — SOLVED
 
-1. **Patching an existing instruction** to branch to our custom code (requires JIT cache invalidation)
-2. **Injecting a new function** and making the game call it (same requirement)
+### The problem
 
-Both approaches have been blocked by Dolphin's JIT cache behavior in version 2603.
+Dolphin translates PowerPC to x86 at runtime and caches compiled blocks. Writing to a code address via `WriteProcessMemory` / AR codes / OnFrame did NOT invalidate the cache — the JIT kept running stale x86. Only Gecko C2 hooks invalidated the JIT properly.
 
-## What is the JIT Cache?
+### The fix
 
-Dolphin translates PowerPC instructions to x86 instructions at runtime for speed. Compiled blocks are cached. When we modify memory containing PowerPC code that the JIT has already compiled, the JIT continues executing the old x86 translation.
+Build a proper ISO (`wit copy` from CISO) with a Freighter-patched DOL. At boot, Dolphin's apploader emulation loads the patched DOL including our new T2 section, and there is no JIT cache to invalidate (the code is there from the first execution).
 
-To pick up our changes, the JIT must be **invalidated** — told that the memory at a given address has changed so it discards the cached translation and recompiles on the next execution.
+## The ClearArena Wall — SOLVED
 
-## What We Observed
+### The problem
 
-### Gecko C2 hooks DO invalidate JIT
+`ClearArena()` (`dolphin/os/OS.c:163`) zeros memory between `__OSArenaLo` and `__OSArenaHi` during `OSInit`. `__OSArenaLo` defaults to `0x8040EFC0` (the linker's `__ArenaLo` symbol), so any section we put above that gets wiped before `main01` or `fapGm_Execute` ever runs.
 
-When a Gecko C2 hook is enabled via Dolphin's Gecko Codes UI, the JIT is properly invalidated. We verified this by:
-- Hooking `main01` at `0x80006338`
-- Running the game with no code at the branch target
-- Getting the error `Unknown instruction 0x00000000 at PC = 0x803FD108`
+Hooking `__init_user` to bump `__OSArenaLo` doesn't work: **`__init_user` is called AFTER `OSInit` in `__start`, not before** (roadmap originally had this order wrong).
 
-The error proves the emulated CPU executed the new branch and jumped to the target.
+### The fix
 
-### AR codes and OnFrame patches DO NOT invalidate JIT for code sections
+Direct DOL binary patch of OSInit's immediate load of `__ArenaLo`:
 
-Writing the same branch instruction via:
-- AR code: `04006338 483F6EB1`
-- OnFrame: `0x80006338:dword:0x483F6EB1`
-- Gecko 04: `04006338 483F6EB1`
-
-...writes the bytes to memory (we verified via `ReadProcessMemory`), but the JIT continues executing the original instruction. The emulated CPU never takes our branch.
-
-### WriteProcessMemory has dual mapping issues
-
-Our external `WriteProcessMemory` writes to Dolphin's backing store. The JIT reads code from a fastmem mapping that may or may not share pages with the backing store depending on the address.
-
-- For **game data** addresses (save area, actor structs): writes propagate both ways.
-- For **code addresses** and addresses past the DOL end: writes may not be visible to the JIT.
-
-## Things That WASTED Time
-
-### Dolphin caches INI files at startup
-
-I edited `GZLE01.ini` dozens of times during debugging. Each time I said "restart the game" but the user was only closing and reopening the GAME within Dolphin — not restarting Dolphin itself. Dolphin reads the INI once at startup and keeps its copy in memory.
-
-**Rule:** When editing `GZLE01.ini`, the user must close Dolphin entirely and reopen it. A game restart is not enough.
-
-### CISO block boundaries
-
-Wind Waker's DOL spans 2 blocks in the CISO. Our first patcher wrote it as a contiguous block, corrupting block 2 data. Fixed by writing per-block with file offset lookups.
-
-### BSS overlaps with injected sections
-
-Freighter places new text sections at addresses like `0x803FCF20`. But the game's BSS starts at `0x803A2960` and extends to `0x803FCFA8` — **past our code start**. Dolphin zeros BSS after loading sections, wiping the start of our code.
-
-Shrinking the BSS size in the DOL header didn't help either — the game's startup code clears memory past the DOL end regardless.
-
-### Dolphin doesn't show extracted folders in the game list
-
-`Config → Paths → Add <extracted folder>` doesn't cause Dolphin to show the game. The only ways to boot:
-- Double-click a disc image file (ISO, CISO, GCM)
-- `File → Open → <main.dol>` but this skips disc file system, so assets are missing
-
-## ClearArena Wipes Our Code (the new wall)
-
-Even after rebuilding as a proper ISO with a Freighter-patched DOL (which DOES eliminate the JIT cache wall — hooks fire correctly), our injected code at `0x803FD000` is gone by the time main01 runs.
-
-Root cause: `dolphin/os/OS.c:163` `ClearArena()`:
-```c
-memset(OSGetArenaLo(), 0U, OSGetArenaHi() - OSGetArenaLo());
+```
+# OSInit at 0x8030173C. File offsets assume T1 load=0x800056e0 file=0x2620.
+0x80301818: 40820010 bne +16             ->  60000000 nop    (always use our immediate)
+0x8030181C: 3c608041 lis  r3, 0x8041    ->  3c608041 lis  r3, 0x8041  (same, for clarity)
+0x80301820: 3863efc0 addi r3, r3, -0x1040 ->  38631000 addi r3, r3, 0x1000   (r3 = 0x80411000)
+0x80301838: 40820030 bne +0x30            ->  48000030 b    +0x30   (skip debug OSSetArenaLo override)
 ```
 
-`OSArenaLo` defaults to end of BSS (`0x803FCFA8`), so it zeros our T2 section. ClearArena is called from `OSInit` in crt0, BEFORE `main()` and BEFORE the main01 thread starts. Freighter's `__OSArenaLo = ...` override happens too late (in a ctor or main).
+Now `ClearArena`'s memset starts at `0x80411000`, skipping our T2 code at `0x80410000-0x80410448`.
 
-Tried `inject_address=0x80002800` (low memory): broke the game's startup. Freighter's stack/OSArenaLo math assumes a high inject address.
+## Freighter Silently Clobbers Game Code
 
-Best lead: hook `__init_user` (called early in crt0 from `__start.c:112`, before OSInit) and update `__OSArenaLo` there. See `docs/06-roadmap.md` approach A.
+When you tell Freighter `inject_address=0x80410000`, it doesn't just add a new T2 section — it also **overwrites five regions of the game's own text** to relocate the stack and arena to Freighter's aspirational values (`New OSArenaLo: 0x80420560`, `Stack Moved To: 0x80410548`, etc). Those writes are NEVER logged by Freighter.
 
-## Current Workaround Ideas
+Affected regions (file offsets, with inject at 0x80410000):
 
-### 1. Rebuild as a proper ISO (not patch the CISO)
+- `0x00002410` (8B, RAM `0x80005410`) — injects `lis r1, 0x8042 / ori r1, r1, 0x0548` into existing padding
+- `0x000e82ac` (8B, RAM `0x800eb36c`) — overwrites `addi r12, r1, 8 / bl ???` with `lis r3, 0x8042 / ori r3, r3, 0x2660` (debug OSArenaLo)
+- `0x000e82e4` (8B, RAM `0x800eb3a4`) — overwrites `li r0, -1 / stw r0, 4(r3)` with `lis r3, 0x8042 / ori r3, r3, 0x0560` (OSArenaLo)
+- `0x000ee7fc` (12B, RAM `0x800f18bc`) — overwrites float ops with `lis r3, 0x8042 / ori r3, r3, 0x0648 / lis r3, 0x8041`
+- `0x000ee80c` (4B, RAM `0x800f18cc`) — overwrites `rlwinm` with `ori r3, r3, 0x0548` (stack end)
 
-Use a tool like GCIT to extract, modify the DOL, and rebuild as a fresh ISO. Dolphin would boot it as a normal game with proper disc filesystem AND loaded code sections.
+**Symptom:** game boots but most rendering is broken (ocean, sky, terrain, Link invisible; only simple actors like grass/flowers render). The user can move around and the UI works.
 
-### 2. Try Dolphin 5.0 Legacy
+**Fix:** after Freighter produces `patched.dol`, copy those exact byte ranges back from `original.dol`. See `build.py` for the revert table.
 
-The original Windwaker-coop was built for 5.0 Legacy. The JIT cache behavior may be different there. If Gecko codes "just work" on 5.0, we could use that for testing.
+## Dolphin's DOL Loader Refuses Some Addresses
 
-### 3. Find Dolphin's fastmem base
+Addresses where `inject_address` was tested:
 
-Instead of the backing store (what our scanner finds), write to the fastmem mapping that the JIT uses directly. Requires reverse-engineering Dolphin internals.
+| Address | Loads? | Notes |
+|---|---|---|
+| `0x803FD000` | ❌ | Just past BSS end. Dolphin silently drops the section (runtime `0x803FD000` reads all zeros). |
+| `0x80410000` | ✅ | Current chosen address. ~12 KB above default `__ArenaLo`. |
+| `0x80500000` | ✅ | Works but wastes ~1 MB of arena. |
 
-### 4. Use Dolphin's GDB stub
+We don't fully understand Dolphin's rule for rejecting sections. Possibly related to BSS proximity or apploader-emulation heuristics.
 
-Dolphin exposes a GDB remote debugging protocol. Connecting to it lets us write memory with proper JIT invalidation. Would require implementing a GDB client in Go.
+## Mailbox Location Is Not BSS Padding
 
-### 5. Patch only via Gecko C2
+`0x803F6100` **looks** like it's in BSS but is actually inside the game's data section D6 (`0x803F60E0-0x803F6820`). Writing to it corrupts real game data and (depending on what the game does with that word) can cause subtle bugs including visible rendering glitches.
 
-Keep the C2 hook as our hook mechanism (since it works), and use OnFrame only for the code body data (doesn't need JIT invalidation since we control the target address).
+Current mailbox location: `0x80410800` — orphan memory between our T2 code (ends `0x80410448`) and `__OSArenaLo` (`0x80411000`). Not part of any DOL section, not part of the arena, not zeroed by anything.
+
+## Dolphin caches INI files at startup
+
+Edits to `GZLE01.ini` in `User/Config/GameSettings/` are only read once at Dolphin startup. Closing and reopening the GAME does not reload the INI — the USER has to fully quit and restart Dolphin. Wasted multiple sessions on this.
+
+## CISO Block Boundaries
+
+Wind Waker's DOL spans 2 blocks in the CISO. A naive "just write the DOL into the file" patcher corrupts the second block. Use `wit` to convert to plain ISO first and patch that instead.
+
+## BSS Zeroing Overlaps with T2 — BENIGN, see above
+
+Historically the advice was that T2 at `0x803FD000` overlaps the tail of BSS zeroing. Not quite true — the BSS init (via `_bss_init_info` in the DOL's own data) only zeros the declared ranges. The real zeroing culprit was `ClearArena`, not BSS init. That's now handled via the OSInit patch.
+
+## Dolphin Doesn't Show Extracted Folders In Game List
+
+`Config → Paths → Add <extracted folder>` doesn't cause Dolphin to show the game. Only ways to boot:
+
+- Double-click a disc image file (ISO, CISO, GCM)
+- `File → Open → <main.dol>` (but this skips disc filesystem — assets missing)
+
+## Per-Frame Hook (fapGm_Execute) Crashes
+
+Hooking `fapGm_Execute` first instruction at `0x800231E4` via `hook_branchlink` immediately crashes:
+
+`Invalid read from 0x00000014, PC = 0x802abbec` (inside `checkStreamPlaying` — audio subsystem)
+
+Suspect Freighter's trampoline at function entry doesn't preserve something the downstream code depends on. Current workaround: use `main01` for one-shot setup, defer per-frame hook research.
 
 ## Observations Worth Remembering
 

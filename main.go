@@ -375,8 +375,8 @@ func runDump() {
 	if err != nil { fmt.Println(err); os.Exit(1) }
 	defer d.Close()
 
-	addrs := []uint32{0x803C4C0C, 0x80002348, 0x803FD1E8, 0x80006338, 0x80006338}
-	sizes := []int{16, 64, 64, 32, 32}
+	addrs := []uint32{0x80410800, 0x80006338, 0x803C4C0C, 0x803F66C0, 0x80410000, 0x804101E8}
+	sizes := []int{16, 8, 4, 4, 16, 16}
 	for i, addr := range addrs {
 		data, _ := d.ReadAbsolute(addr, sizes[i])
 		fmt.Printf("0x%08X: ", addr)
