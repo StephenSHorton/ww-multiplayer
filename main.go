@@ -521,7 +521,7 @@ func runDump() {
 	defer d.Close()
 
 	addrs := []uint32{0x80410800, 0x80006338, 0x803C4C0C, 0x803F66C0, 0x80410000, 0x804101E8}
-	sizes := []int{16, 8, 4, 4, 16, 16}
+	sizes := []int{48, 8, 4, 4, 16, 16}
 	for i, addr := range addrs {
 		data, _ := d.ReadAbsolute(addr, sizes[i])
 		fmt.Printf("0x%08X: ", addr)
@@ -532,6 +532,12 @@ func runDump() {
 			}
 		}
 		fmt.Println()
+	}
+
+	// Highlight the progress marker (mailbox+0x20) so it's easy to read at a
+	// glance. See multiplayer.c for marker meaning.
+	if progress, err := d.ReadU32(0x80410820); err == nil {
+		fmt.Printf("progress (mailbox+0x20): %d\n", progress)
 	}
 }
 

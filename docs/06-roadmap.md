@@ -19,20 +19,59 @@
 
 ## 🔬 Next Session Priority
 
-**Debug `fopAcM_fastCreate(PROC_PLAYER, ...)` — spawn the second Link.**
+**Debug the downstream crash after queued Link spawn.**
 
-Per-frame hook is solid (heartbeat-only `multiplayer_update` is stable). Adding
-the spawn block (full `multiplayer_update` with `frame_count >= 300`) triggered
-the same `mDoExt_SaveCurrentHeap != 0` assertion around frame 300 (~10 sec in).
-Root cause is inside the spawn block itself, not the hook mechanism.
+### What's working
 
-### Things to try (in order)
+- `fopAcM_create(PROC_PLAYER, 0, link_pos, room, link_angle, 0, -1, 0)` at
+  `0x8002451C` successfully QUEUES the spawn. Returns a valid `fpc_ProcID`
+  (seen `0x233` in live testing).
+- `fpcM_Management` processes the queue next frame; the game renders Outset
+  Island normally, HUD intact.
+- Game runs for ~23 seconds post-spawn before crashing.
 
-- [ ] Re-enable spawn guard but increase gate to e.g. 1800 frames (60 sec) so we can rule out "game isn't fully booted yet"
-- [ ] Before `fopAcM_fastCreate`, verify `PLAYER_PTR_ARRAY[0]` looks sane (non-zero, points into 0x80xxxxxx actor range, has a valid actor-struct header at known offsets)
-- [ ] Drop the `PLAYER_PTR_ARRAY[0] = link;` writeback after spawn — the comment said "may overwrite" but that line may itself corrupt actor-registry state
-- [ ] If still crashing: the `fopAcM_fastCreate` at `0x80024614` may need a different call context than what `fapGm_Execute`'s mid-body provides. Consider a LATER per-frame hook site (e.g., inside `fapGm_Execute`'s first called function `0x8003EC84`, after its own prologue)
-- [ ] Instrument via mailbox: write a progress byte before each step (`mailbox->actor2_ptr = 0xAA` → `0xBB` → etc.) so the final value on crash reveals where we died
+### What's breaking
+
+- Eventually `OSPanic` fires (write to sentinel `0x01234567` from `0x80006D64`,
+  which is inside `OSPanic` at `0x80006C4C`). Game halts via `PPCHalt`.
+- `d_a_player_main.cpp` has 54 `JUT_ASSERT`s — the crash is almost certainly
+  one of them, tripped by Link-the-second's construction or its first execute
+  tick touching singleton/global state (dComIfGp camera, player manager, save
+  slot, etc.).
+- Assertion text isn't visible on screen — probably killed before the next
+  render pass.
+
+### What we tried and ruled out
+
+- `fopAcM_fastCreate` at `0x80024614` (synchronous construction) — trips
+  `mDoExt_restoreCurrentHeap: mDoExt_SaveCurrentHeap != NULL` because the
+  sync construction path runs heap save/restore mid-frame from our shim
+  context, where the heap state isn't NULL-balanced. Switching to the queued
+  `fopAcM_create` gets past this.
+- The 9th `fastCreate` argument (`createFuncData`) — our typedef was missing
+  it; fixed, but didn't help (the synchronous-context heap issue was the
+  root cause, not a garbage-arg issue).
+
+### Recommended approaches (next session)
+
+- [ ] **Isolate: spawn a simpler actor** (rupee, grass, a debug actor) with
+      the same queued mechanism. If it's stable, the crash is PROC_PLAYER-
+      specific — a singleton guard somewhere. If it also crashes, something
+      about our queued-spawn context is still wrong.
+- [ ] Read the `OSPanic` message buffer from memory — the game likely stores
+      the format string + args before calling `PPCHalt`. Finding that reveals
+      the exact assertion.
+- [ ] Scan `d_a_player_main.cpp` for asserts on `this == dComIfGp_getPlayer(0)`,
+      camera IDs, player count, etc. — anything with a singleton assumption.
+- [ ] As a workaround: if second Link is unspawnable, pivot to a different
+      proxy actor for Player 2 (e.g., a tunic-wearing NPC) and sync its
+      position to the remote player's coords.
+
+## Hook + shim recipe (current working baseline)
+
+Documented in `docs/05-known-issues.md` → "Per-Frame Hook — SOLVED". The
+shim at `0x80023204` + callback pointer at `0x80410700` + main01_init hook
+at `0x80006338` is the stable foundation for anything per-frame.
 - [ ] Wire up network → actor position pipeline (Player A's pos → server → Player B's mailbox → Player B's Link #2 renders)
 - [ ] Add animation state sync (`mCurProc` at actor + `0x31D8`)
 - [ ] Add rotation sync (`shape_angle` at `0x20C`)
