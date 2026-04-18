@@ -164,12 +164,14 @@ void multiplayer_update(void) {
             slot->pos_y = link_pos->y;
             slot->pos_z = link_pos->z;
 
-            // Alternate procs per slot so multiple puppets are visually
-            // distinguishable. Even slots get a seagull (flying), odd slots
-            // get a pot (grounded). Both archives are resident on Outset.
-            // unhide-puppet dispatches by actor proc, so no client change
-            // needed to handle mixed procs.
-            s16 proc = (i & 1) ? PROC_TSUBO : PROC_KAMOME;
+            // Per-slot proc for visual differentiation. Trying NPC_OB1
+            // (Rose, Outset villager) on slot 1 to probe whether her
+            // archive is resident on Outset main. If she self-destructs
+            // (progress=10 for that slot), fallback is PROC_TSUBO.
+            s16 proc;
+            if (i == 1) proc = PROC_NPC_OB1;
+            else if (i & 1) proc = PROC_TSUBO;
+            else proc = PROC_KAMOME;
             fpc_ProcID pid = fopAcM_create(proc, 0, link_pos, link_room, link_angle, 0, -1, 0);
             if (pid == fpcM_ERROR_PROCESS_ID_e) {
                 if (best_progress < 6) best_progress = 6;
