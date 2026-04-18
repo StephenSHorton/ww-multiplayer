@@ -47,6 +47,40 @@ func main() {
 			runCheck()
 		case "dump":
 			runDump()
+		case "move-puppet":
+			if len(os.Args) < 5 {
+				fmt.Println("Usage: ww move-puppet <x> <y> <z>")
+				os.Exit(1)
+			}
+			runMovePuppet(os.Args[2], os.Args[3], os.Args[4])
+		case "poke-u32":
+			if len(os.Args) < 4 {
+				fmt.Println("Usage: ww poke-u32 <addr-hex> <value-hex>")
+				os.Exit(1)
+			}
+			runPokeU32(os.Args[2], os.Args[3])
+		case "unhide-puppet":
+			runUnhidePuppet()
+		case "broadcast-link":
+			name := "Player"
+			addr := "localhost:25565"
+			if len(os.Args) > 2 {
+				name = os.Args[2]
+			}
+			if len(os.Args) > 3 {
+				addr = os.Args[3]
+			}
+			runBroadcastLink(name, addr)
+		case "puppet-sync":
+			name := "Viewer"
+			addr := "localhost:25565"
+			if len(os.Args) > 2 {
+				name = os.Args[2]
+			}
+			if len(os.Args) > 3 {
+				addr = os.Args[3]
+			}
+			runPuppetSync(name, addr)
 		case "disasm":
 			addr := uint32(0x800231E4)
 			count := 40
@@ -515,6 +549,206 @@ func runDisasm(addr uint32, count int) {
 	}
 }
 
+// Write a target position into the mailbox's p2_pos slots (+0x08 .. +0x13).
+// The frame hook reads these each frame and writes them into the puppet
+// actor's pos field (+0x1F8). One-shot: writes three big-endian f32s and
+// exits — if the puppet's physics drags it off the target, run again.
+func runMovePuppet(xs, ys, zs string) {
+	parseF32 := func(s string) float32 {
+		v, err := strconv.ParseFloat(s, 32)
+		if err != nil {
+			fmt.Printf("bad float %q: %v\n", s, err)
+			os.Exit(1)
+		}
+		return float32(v)
+	}
+	x, y, z := parseF32(xs), parseF32(ys), parseF32(zs)
+
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	buf := make([]byte, 12)
+	binary.BigEndian.PutUint32(buf[0:4], math.Float32bits(x))
+	binary.BigEndian.PutUint32(buf[4:8], math.Float32bits(y))
+	binary.BigEndian.PutUint32(buf[8:12], math.Float32bits(z))
+	if err := d.WriteAbsolute(0x80410808, buf); err != nil {
+		fmt.Printf("write failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Puppet target set: X=%.1f Y=%.1f Z=%.1f (mailbox+0x08..+0x13)\n", x, y, z)
+}
+
+// Reads local Link's position from Dolphin every 50ms and forwards it to the
+// server. Pair with puppet-sync on a second host (or same host) to see Link's
+// movements mirrored to a puppet actor, proving the full network round-trip.
+func runBroadcastLink(name, addr string) {
+	fmt.Printf("=== Broadcast Link: %s -> %s ===\n\n", name, addr)
+
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	client := network.NewClient(name)
+	client.OnLog = func(msg string) { fmt.Printf("[net] %s\n", msg) }
+	if err := client.Connect(addr); err != nil {
+		fmt.Printf("connect: %v\n", err)
+		os.Exit(1)
+	}
+	defer client.Disconnect()
+
+	for client.IsConnected() {
+		pos, err := d.ReadPlayerPosition()
+		if err == nil && pos != nil {
+			netPos := &network.PlayerPosition{
+				PosX: pos.PosX,
+				PosY: pos.PosY,
+				PosZ: pos.PosZ,
+				RotY: pos.RotY,
+			}
+			if err := client.SendPosition(netPos); err != nil {
+				fmt.Printf("send: %v\n", err)
+				break
+			}
+			fmt.Printf("  link -> X:%10.1f Y:%8.1f Z:%10.1f\r", pos.PosX, pos.PosY, pos.PosZ)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	fmt.Println("\nDisconnected.")
+}
+
+// Reads the live puppet actor pointer from the mailbox and pokes m678 = 2
+// (mode_wait) at actor+0x678 — the one-shot write that flips the pot out of
+// mode_hide so it renders. Must be run AFTER the pot has been alive for a
+// while (≥ a few seconds) so its own mode_hide_init has completed; poking
+// earlier corrupts construction and hangs the game.
+func runUnhidePuppet() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	ptr, err := d.ReadU32(0x80410804) // mailbox.actor2_ptr
+	if err != nil || ptr < 0x80000000 || ptr >= 0x81800000 {
+		fmt.Printf("No live puppet pointer in mailbox (got 0x%08X). Is the game running and past the 10s spawn gate?\n", ptr)
+		os.Exit(1)
+	}
+	target := ptr + 0x678
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, 2)
+	if err := d.WriteAbsolute(target, buf); err != nil {
+		fmt.Printf("write: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Puppet unhidden: wrote m678=2 at 0x%08X (actor 0x%08X)\n", target, ptr)
+}
+
+// Connects to a server, subscribes to remote position broadcasts, and writes
+// the most recent remote player's position into the Dolphin mailbox every
+// frame. The C-side frame hook then mirrors mailbox.p2_pos into the puppet
+// actor's pos each frame. End-to-end loop:
+//   remote player -> server -> puppet-sync -> mailbox -> C hook -> actor pos
+func runPuppetSync(name, addr string) {
+	fmt.Printf("=== Puppet Sync: %s <- %s ===\n\n", name, addr)
+
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	fmt.Println("Dolphin found.")
+
+	client := network.NewClient(name)
+	client.OnLog = func(msg string) {
+		fmt.Printf("[net] %s\n", msg)
+	}
+	if err := client.Connect(addr); err != nil {
+		fmt.Printf("connect: %v\n", err)
+		os.Exit(1)
+	}
+	defer client.Disconnect()
+
+	// Smoothed puppet position. Each tick we nudge curX/Y/Z a fraction
+	// toward the latest received remote target rather than snapping. lerpK
+	// = 0.2 means ~80% of the gap closes in ~5 ticks (~83 ms at 60Hz), a
+	// good balance between responsiveness and smoothness for packets that
+	// arrive at 20Hz (every 50 ms). Raise for snappier tracking, lower for
+	// more butter.
+	const lerpK = 0.2
+	var haveCur bool
+	var curX, curY, curZ float32
+
+	buf := make([]byte, 12)
+	var lastID byte
+	for client.IsConnected() {
+		remotes := client.GetRemotePlayers()
+		for _, rp := range remotes {
+			if rp.Position == nil {
+				continue
+			}
+			tx, ty, tz := rp.Position.PosX, rp.Position.PosY, rp.Position.PosZ
+			if !haveCur {
+				curX, curY, curZ = tx, ty, tz
+				haveCur = true
+			} else {
+				curX += (tx - curX) * lerpK
+				curY += (ty - curY) * lerpK
+				curZ += (tz - curZ) * lerpK
+			}
+			binary.BigEndian.PutUint32(buf[0:4], math.Float32bits(curX))
+			binary.BigEndian.PutUint32(buf[4:8], math.Float32bits(curY))
+			binary.BigEndian.PutUint32(buf[8:12], math.Float32bits(curZ))
+			if err := d.WriteAbsolute(0x80410808, buf); err != nil {
+				fmt.Printf("mailbox write: %v\n", err)
+			}
+			if rp.ID != lastID {
+				fmt.Printf("tracking player %d (%s)\n", rp.ID, rp.Name)
+				lastID = rp.ID
+			}
+			fmt.Printf("  puppet X:%10.1f Y:%8.1f Z:%10.1f  <- target X:%10.1f Z:%10.1f\r",
+				curX, curY, curZ, tx, tz)
+			break // follow the first remote; pick another if needed
+		}
+		time.Sleep(16 * time.Millisecond) // ~60 Hz
+	}
+	fmt.Println("\nDisconnected.")
+}
+
+func runPokeU32(addrHex, valHex string) {
+	parseHex := func(s string) uint32 {
+		v, err := strconv.ParseUint(strings.TrimPrefix(s, "0x"), 16, 32)
+		if err != nil {
+			fmt.Printf("bad hex %q: %v\n", s, err)
+			os.Exit(1)
+		}
+		return uint32(v)
+	}
+	addr := parseHex(addrHex)
+	val := parseHex(valHex)
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, val)
+	if err := d.WriteAbsolute(addr, buf); err != nil {
+		fmt.Printf("write failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Wrote 0x%08X to 0x%08X\n", val, addr)
+}
+
 func runDump() {
 	d, err := dolphin.Find("GZLE01")
 	if err != nil { fmt.Println(err); os.Exit(1) }
@@ -716,11 +950,12 @@ func runFakeClient(name, addr string) {
 	fmt.Println("Connected! Walking in circles...")
 	fmt.Println()
 
-	// Walk in a circle near a common starting position
-	centerX := float32(-199000.0)
-	centerZ := float32(316000.0)
-	radius := float32(500.0)
-	y := float32(80.0)
+	// Walk in a circle near Link's typical Outset spawn. Y bumped to 200 so
+	// the resulting puppet is above ground (Link's standing Y is ~180 there).
+	centerX := float32(-200048.0)
+	centerZ := float32(316367.0)
+	radius := float32(300.0)
+	y := float32(200.0)
 	angle := float64(0)
 
 	for client.IsConnected() {

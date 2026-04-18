@@ -6,7 +6,7 @@ The fundamental problem: to spawn a second Link actor, we need to CALL the game'
 
 DOL injection is the solved path. Build pipeline:
 
-1. Freighter compiles `ww-inject/src/multiplayer.c` → `patched.dol` with a new T2 section at `0x80410000`
+1. Freighter compiles `inject/src/multiplayer.c` → `patched.dol` with a new T2 section at `0x80410000`
 2. `build.py` applies four DOL binary patches to `OSInit` so `__OSArenaLo = 0x80411000` (protects T2 from `ClearArena`)
 3. `build.py` reverts five Freighter silent clobbers of game code (see `docs/05-known-issues.md`)
 4. `wit copy` produces a plain ISO from the CISO; Python shifts FST past the new DOL end

@@ -2,6 +2,12 @@
 *.exe
 *.exe~
 
+# Freighter / DOL injection (inject/)
+inject/patched*.dol
+inject/original.dol
+inject/build/
+inject/__pycache__/
+
 # Editor / temp
 *.tmp
 *.swp

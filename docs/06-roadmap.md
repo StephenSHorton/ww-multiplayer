@@ -16,56 +16,93 @@
 - **Relocated mailbox** from `0x803F6100` (actually inside game data section D6, corrupting real data) to `0x80410800` (orphan memory between T2 end and `__OSArenaLo`)
 - **End-to-end code injection verified**: main01 hook fires, our C code runs, mailbox counter increments, game continues rendering correctly
 - **Per-frame hook working**: callback-pointer shim at `0x80023204` inside `fapGm_Execute`, with bl-replay via LR-preserving `bctr` tail-call to `0x802449AC`. Mailbox counter ticks at 30Hz in-game. See `docs/05-known-issues.md` → "Per-Frame Hook — SOLVED" for the shim recipe.
+- **Queued-spawn pipeline proven end-to-end** (2026-04-18): `fopAcM_create(PROC_GRASS, 0, link_pos, room, link_angle, 0, -1, 0)` queues cleanly (pid `0x232`), `fpcM_Management` constructs the actor next frame, grass tuft renders at Link's position. Frame hook + shim + queued spawn is a stable foundation for syncing a remote player's position to any resident actor. PROC_Obj_Barrel froze (archive not on Outset); PROC_GRASS is always resident.
+- **Full position-sync pipeline proven** (2026-04-18): `PROC_TSUBO` (pot, param=0 → "Always" archive) spawns with valid model pointer at `actor + 0x298` (`mpModel`, not base-class `+0x24C`). Programmatically-spawned pots idle in `mode_hide` (`m678 = 0` at actor+0x678); writing `m678 = 2` (mode_wait) makes them render and accept position writes. Verified live: Go `./ww.exe move-puppet x y z` → mailbox f32s → frame-hook copies to actor+0x1F8 → pot visibly teleports in-game. End-to-end loop from a host-side command to a visible remote actor is complete.
+- **End-to-end network multiplayer working** (2026-04-18): full round-trip
+  verified on a single machine via loopback. Pipeline:
+  `broadcast-link` reads Link's live position → TCP → `server` relays →
+  `puppet-sync` applies client-side lerp smoothing (k=0.2) → mailbox →
+  C frame hook → puppet actor follows Link around Outset with ~80 ms trail.
+  On two machines, swap `broadcast-link` for the remote player's instance
+  and you have actual multiplayer. Three CLI commands now form the runtime:
+  `server`, `broadcast-link <name> <addr>`, `puppet-sync <name> <addr>`,
+  plus one-shot `unhide-puppet` (the m678=2 poke must run ~3 s after spawn
+  — doing it inside the C hook from frame 1 of phase 2 corrupts TSUBO's
+  construction and freezes the game).
 
 ## 🔬 Next Session Priority
 
-**Debug the downstream crash after queued Link spawn.**
+Done as of 2026-04-18: spawn + pos-sync + network + lerp smoothing.
+Remaining for a complete experience, in rough priority order:
+
+1. **Two-machine test.** Confirms the LAN path works when it isn't loopback.
+   Same three commands on each host, just point `broadcast-link` and
+   `puppet-sync` at the shared server IP.
+2. **Humanoid proxy.** One-line proc swap. Candidates to try (prefer ones
+   whose archive is always resident on Outset): NPC_KO1/NPC_KO2 (Joel/Zill),
+   NPC_OB1 (Abe/Sturgeon), or a Kamome seagull as a flying proxy. Apply the
+   same mode_hide → mode_wait recipe.
+3. **Rotation sync.** `broadcast-link` already puts RotY in the network
+   packet; extend the frame hook to copy `mailbox.p2_rot_*` into
+   `actor + 0x20C` (shape_angle). Then the puppet faces the direction the
+   remote player is moving.
+4. **Animation state.** Read Link's `mCurProc` (+0x31D8) on the broadcaster,
+   stash in `mailbox.p2_anim`, find the same field on the puppet and set it
+   per frame. Tricky if the proxy's state machine differs from PLAYER.
+5. **Room transitions.** When players change stages (entering a house,
+   leaving Outset), the puppet needs to despawn/respawn — our current actor
+   reference goes stale on stage change.
+6. **Bake `unhide-puppet` into `puppet-sync`** so a user doesn't have to
+   manually unhide after connecting. Needs a safe delay detector (e.g. wait
+   N seconds after first position arrives) — can't just poke immediately.
+
+### Diagnosis history (2026-04-18)
+
+The "PROC_PLAYER crashes after ~23s" behavior is **not** a singleton
+`JUT_ASSERT`. Dolphin's OSReport log during the crash showed a GameHeap OOM:
+
+```
+Error: Cannot allocate memory 721040 (0xb0090) byte ... from 81523910
+FreeSize=0003d770 TotalFreeSize=0003de00 HeapType=EXPH HeapSize=002ce770 GameHeap
+見積もりヒープが確保できませんでした。
+```
+
+- Link #2 wants ~704 KB of player heap; GameHeap only has ~245 KB free after
+  normal load. The 23-second delay was heap fragmentation tipping it over.
+- `OSPanic` / `PPCHalt` is the *downstream* effect of a null allocation
+  return, not a singleton-guard assertion.
+- This kills the "chase d_a_player_main.cpp asserts" path. Spawning a *second
+  full Link* in a live Outset is memory-bound on the default allocator.
 
 ### What's working
 
-- `fopAcM_create(PROC_PLAYER, 0, link_pos, room, link_angle, 0, -1, 0)` at
-  `0x8002451C` successfully QUEUES the spawn. Returns a valid `fpc_ProcID`
-  (seen `0x233` in live testing).
-- `fpcM_Management` processes the queue next frame; the game renders Outset
-  Island normally, HUD intact.
-- Game runs for ~23 seconds post-spawn before crashing.
+- `fopAcM_create(..., 0, link_pos, room, link_angle, 0, -1, 0)` successfully
+  queues a spawn and `fpcM_Management` processes it next frame.
+- Per-frame hook + callback shim is stable (docs/05).
 
-### What's breaking
+### Current code
 
-- Eventually `OSPanic` fires (write to sentinel `0x01234567` from `0x80006D64`,
-  which is inside `OSPanic` at `0x80006C4C`). Game halts via `PPCHalt`.
-- `d_a_player_main.cpp` has 54 `JUT_ASSERT`s — the crash is almost certainly
-  one of them, tripped by Link-the-second's construction or its first execute
-  tick touching singleton/global state (dComIfGp camera, player manager, save
-  slot, etc.).
-- Assertion text isn't visible on screen — probably killed before the next
-  render pass.
-
-### What we tried and ruled out
-
-- `fopAcM_fastCreate` at `0x80024614` (synchronous construction) — trips
-  `mDoExt_restoreCurrentHeap: mDoExt_SaveCurrentHeap != NULL` because the
-  sync construction path runs heap save/restore mid-frame from our shim
-  context, where the heap state isn't NULL-balanced. Switching to the queued
-  `fopAcM_create` gets past this.
-- The 9th `fastCreate` argument (`createFuncData`) — our typedef was missing
-  it; fixed, but didn't help (the synchronous-context heap issue was the
-  root cause, not a garbage-arg issue).
+`inject/src/multiplayer.c` now spawns `PROC_Obj_Barrel` (0x01CE, ~2 KB)
+instead of `PROC_PLAYER`. A barrel is a visual stand-in purely to isolate
+"queued spawn works" from "second Link won't fit". Needs rebuild +
+ISO-repatch to validate.
 
 ### Recommended approaches (next session)
 
-- [ ] **Isolate: spawn a simpler actor** (rupee, grass, a debug actor) with
-      the same queued mechanism. If it's stable, the crash is PROC_PLAYER-
-      specific — a singleton guard somewhere. If it also crashes, something
-      about our queued-spawn context is still wrong.
-- [ ] Read the `OSPanic` message buffer from memory — the game likely stores
-      the format string + args before calling `PPCHalt`. Finding that reveals
-      the exact assertion.
-- [ ] Scan `d_a_player_main.cpp` for asserts on `this == dComIfGp_getPlayer(0)`,
-      camera IDs, player count, etc. — anything with a singleton assumption.
-- [ ] As a workaround: if second Link is unspawnable, pivot to a different
-      proxy actor for Player 2 (e.g., a tunic-wearing NPC) and sync its
-      position to the remote player's coords.
+- [ ] **Validate barrel spawn.** Rebuild inject, repatch ISO, boot. Expect
+      a barrel to appear next to Link ~10s after load and stay stable. If it
+      crashes too, our spawn context is still wrong (not just a memory issue).
+- [ ] **Pick a humanoid proxy** that's already resident on the current stage
+      so we pay no extra archive-load cost. Candidates to research in the
+      decomp: Outset villagers (Abe, Mesa, Sturgeon, Rose, Joel, Zill),
+      generic NPCs. Look for one whose archive is already loaded at runtime
+      and whose actor heap is small (<100 KB).
+- [ ] **If a humanoid proxy won't fit either:** allocate a dedicated
+      JKRExpHeap in our orphan memory (`0x80411000+`) and pass it to
+      `fopAcM_create`. Only needed if no resident NPC fits.
+- [ ] **Long-term "real Link" path:** would need to grow GameHeap at init
+      (before game actors allocate), or unload something large. Defer —
+      proxy approach covers the visual goal.
 
 ## Hook + shim recipe (current working baseline)
 
@@ -85,7 +122,7 @@ at `0x80006338` is the stable foundation for anything per-frame.
 The full loop, current as of this session:
 
 1. CISO source: `Dolphin-x64/Roms/Legend of Zelda, The - The Wind Waker (USA, Canada).ciso`
-2. Freighter project at `C:/Users/4step/Desktop/ww-inject/` produces `patched.dol` via `python build.py`
+2. Freighter project at `inject/` produces `patched.dol` via `python build.py`
    - Inject address: `0x80410000`
    - Hooks: main01 (0x80006338) → `multiplayer_update`
    - Post-build patches: OSInit immediates (four writes) + revert five Freighter clobbers

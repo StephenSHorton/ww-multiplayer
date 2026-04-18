@@ -123,7 +123,7 @@ heap bookkeeping, so if LR points into our shim instead of `0x80023208`
 assertion fires. A `bctrl` replay clobbers LR — use a TAIL-CALL `bctr`
 instead so LR stays = caller's LR.
 
-Final shim shape (see `ww-inject/src/multiplayer.c`):
+Final shim shape (see `inject/src/multiplayer.c`):
 
 ```asm
 frame_shim:
@@ -157,6 +157,54 @@ frame_shim:
 
 Mailbox counter at `0x80410800` increments ~30/sec (matching 29.97 FPS) while
 the game runs normally.
+
+## PROC_PLAYER Won't Fit — GameHeap OOM
+
+### The problem
+
+Spawning a second Link via `fopAcM_create(PROC_PLAYER, ...)` queued fine and
+even rendered briefly, but the game hard-crashed ~23 seconds later via
+`OSPanic` → `PPCHalt`. The obvious (wrong) hypothesis was a singleton
+`JUT_ASSERT` inside `d_a_player_main.cpp`.
+
+### The actual cause
+
+Dolphin's OSReport log during the crash (View → Show Log → enable OSReport):
+
+```
+Error: Cannot allocate memory 721040 (0xb0090) byte ... from 81523910
+FreeSize=0003d770 TotalFreeSize=0003de00 HeapType=EXPH HeapSize=002ce770 GameHeap
+見積もりヒープが確保できませんでした。  ("Couldn't allocate estimation heap")
+```
+
+Link's actor heap allocation is ~704 KB. The GameHeap (JKRExpHeap, ~2.9 MB
+total) only had ~245 KB free after Outset finished loading. The 23-second
+delay was ongoing fragmentation eating into that free pool until a
+subsequent allocation null'd and tripped an assert downstream.
+
+### Implication
+
+Chasing `dComIfGp`-singleton asserts is a dead end for this failure. A
+second full Link instance is memory-bound, not invariant-bound.
+
+### Path forward
+
+Proxy actor. `multiplayer.c` now spawns `PROC_Obj_Barrel` (~2 KB) to confirm
+the queued-spawn infrastructure itself is sound independent of heap size.
+If that's stable, next step is to find a humanoid NPC whose archive is
+already resident on Outset and use that as Player 2's visual stand-in.
+
+### Diagnostic recipe: read OSReport from Dolphin
+
+Any future "game dies at X seconds" investigation should enable OSReport
+logging BEFORE writing injected diagnostic code:
+
+1. Dolphin → View → Show Log, View → Show Log Configuration
+2. Verbosity: Info; tick Write to Window
+3. Enable OSReport (EXI) channel
+4. Repro the crash; read the tail of the log
+
+Much cheaper than hooking `OSPanic` ourselves.
 
 ## Observations Worth Remembering
 
