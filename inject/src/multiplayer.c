@@ -23,8 +23,10 @@
 // in the shim asm below.
 #define CALLBACK_PTR_ADDR 0x80410700
 
-static fpc_ProcID player2_pid = fpcM_ERROR_PROCESS_ID_e;
-static int spawned = 0;
+// Per-slot state. Parallel arrays to mailbox.puppets[]. pids[i] is the
+// queued-spawn result from fopAcM_create; spawned[i] gates phase 2 sync.
+static fpc_ProcID puppet_pids[MAX_PUPPETS];
+static int puppet_spawned[MAX_PUPPETS];
 static int frame_count = 0;
 
 // Forward decl so main01_init can take its address.
@@ -94,115 +96,115 @@ void frame_shim(void) {
     );
 }
 
-// Per-frame worker. Two phases:
-//   Phase 1 (until spawned): queue the proxy actor via fopAcM_create. Construction
-//     happens on the NEXT frame inside fpcM_Management's heap-bracketed flow.
-//   Phase 2 (every frame after): resolve pid -> actor ptr via fopAcM_SearchByID,
-//     copy mailbox->p2_pos_{x,y,z} into the actor's pos field (+0x1F8). This
-//     turns the spawned proxy into a remote-controlled puppet; Go writes new
-//     coords to the mailbox and the actor teleports each frame.
+// Per-frame worker. Iterates the MAX_PUPPETS slots in the mailbox. For
+// each slot whose `active` flag is set by Go, we either queue a spawn
+// (phase 1) or sync pos/rot from the slot into the live actor (phase 2).
 //
-// Progress markers:
-//    1 = entered, not yet spawned
-//    2 = PLAYER_PTR_ARRAY[0] is non-null
+// Progress encodes "best state across slots this frame":
+//    1 = entered, no active slot yet
 //    3 = frame_count gate passed (~10 sec since boot)
-//    4 = got link_pos/angle/room
-//    5 = fopAcM_create returned
-//    6 = got ERROR_PROCESS_ID (queue full or proc not registered)
-//    7 = got valid pid (queued successfully)
-//    8 = pid published to mailbox, spawned=1, initial target seeded
-//    9 = per-frame sync: resolved actor, wrote pos
-//   10 = per-frame sync: actor has been deleted (SearchByID failed)
+//    5 = at least one spawn queued this frame
+//    6 = a spawn returned ERROR_PROCESS_ID (queue full or proc not
+//        registered)
+//    8 = at least one slot is now spawned=1
+//    9 = at least one live actor resolved and synced
+//   10 = at least one slot's actor has been deleted (cleared spawn)
 //
-// Proxy-actor history:
+// Proxy-actor history (what's inside fopAcM_create for each slot):
 //   PROC_PLAYER     -> OOMs GameHeap (~704 KB alloc vs ~245 KB free).
-//   PROC_Obj_Barrel -> queued OK but froze game on next frame (archive not
-//                      resident on Outset; actor loader spins).
-//   PROC_GRASS      -> spawns and renders stably, but child sprites are baked
-//                      at parent's birth position — moving the parent does
-//                      nothing visible.
-//   PROC_TSUBO pm=0 -> uses the "Always" archive (resident everywhere per
-//                      d_a_tsubo.cpp M_arcname[0]). Single movable entity.
+//   PROC_Obj_Barrel -> queued OK but froze game on next frame (archive
+//                      not resident on Outset; actor loader spins).
+//   PROC_GRASS      -> spawns and renders stably, but child sprites are
+//                      baked at parent's birth pos.
+//   PROC_TSUBO pm=0 -> "Always" archive. Needs m678=2 unhide poke.
+//   PROC_KAMOME pm=0 -> "Always"-ish archive (resident on every island).
+//                      Needs mSwitchNo=0 unhide poke. *Current default.*
+//   PROC_NPC_FA1    -> fairy; renders briefly, self-deletes; respawn
+//                      loops froze the game. Not pursued.
 void multiplayer_update(void) {
     mailbox->spawn_trigger++;
 
     fopAc_ac_c* link = PLAYER_PTR_ARRAY[0];
     if (!link) return;
 
-    if (!spawned) {
+    frame_count++;
+    if (frame_count < 300) {
         mailbox->progress = 1;
-        frame_count++;
-        if (frame_count < 300) return;
-        mailbox->progress = 3;
+        return;
+    }
 
-        cXyz* link_pos = ACTOR_POS(link);
-        csXyz* link_angle = ACTOR_ANGLE(link);
-        s8 room = ACTOR_ROOM(link);
-        mailbox->progress = 4;
+    cXyz* link_pos = ACTOR_POS(link);
+    csXyz* link_angle = ACTOR_ANGLE(link);
+    s8 link_room = ACTOR_ROOM(link);
 
-        // Seed target pos with a point next to Link so the puppet is visible
-        // before Go starts writing coords. +100 units on X puts it off to
-        // the side rather than inside Link's bounding box.
-        mailbox->p2_pos_x = link_pos->x + 100.0f;
-        mailbox->p2_pos_y = link_pos->y;
-        mailbox->p2_pos_z = link_pos->z;
+    u32 best_progress = 3;
 
-        // PROC_KAMOME (seagull): archive resident on every sea-adjacent
-        // island (including Outset), renders with a glide animation,
-        // doesn't fight our pos writes. Needs `./ww.exe unhide-puppet` to
-        // zero mSwitchNo post-spawn (daKamome_Draw guards on that).
-        //
-        // Tried: PROC_NPC_FA1 (fairy, Always archive) rendered briefly
-        // then self-deleted; the respawn loop worked once but subsequent
-        // respawn cycles froze the game (likely allocator thrash or
-        // leftover state between construct/destruct). Not pursuing more.
-        fpc_ProcID pid = fopAcM_create(PROC_KAMOME, 0, link_pos, room, link_angle, 0, -1, 0);
-        mailbox->progress = 5;
+    int i;
+    for (i = 0; i < MAX_PUPPETS; i++) {
+        volatile Puppet* slot = &mailbox->puppets[i];
 
-        if (pid == fpcM_ERROR_PROCESS_ID_e) {
-            mailbox->progress = 6;
-            return;
+        // Go cleared the slot — drop our book-keeping. Actor cleanup is
+        // best-effort; in practice the actor sticks around until the game
+        // unloads the stage. For now we just stop syncing it.
+        if (!slot->active) {
+            if (puppet_spawned[i]) {
+                puppet_spawned[i] = 0;
+                puppet_pids[i] = fpcM_ERROR_PROCESS_ID_e;
+                slot->actor_ptr = 0;
+            }
+            continue;
         }
 
-        player2_pid = pid;
-        spawned = 1;
-        mailbox->actor2_ptr = (u32)pid;
-        mailbox->progress = 8;
-        return;
+        // Phase 1: spawn on the first frame this slot is active. Seed the
+        // slot's target pos with Link's current pos + a small offset (for
+        // visibility before Go writes real coords), one slot to the side
+        // per index so multiple puppets don't overlap on spawn.
+        if (!puppet_spawned[i]) {
+            slot->pos_x = link_pos->x + (f32)(100 + i * 50);
+            slot->pos_y = link_pos->y;
+            slot->pos_z = link_pos->z;
+
+            fpc_ProcID pid = fopAcM_create(PROC_KAMOME, 0, link_pos, link_room, link_angle, 0, -1, 0);
+            if (pid == fpcM_ERROR_PROCESS_ID_e) {
+                if (best_progress < 6) best_progress = 6;
+                continue;
+            }
+            puppet_pids[i] = pid;
+            puppet_spawned[i] = 1;
+            slot->actor_ptr = (u32)pid;  // published as pid until phase 2 resolves
+            if (best_progress < 8) best_progress = 8;
+            continue;
+        }
+
+        // Phase 2: resolve pid to actor and write pos/rot.
+        fopAc_ac_c* actor = 0;
+        if (!fopAcM_SearchByID(puppet_pids[i], &actor) || !actor) {
+            // Actor was deleted externally. Drop our state; Go can re-
+            // activate the slot to request a fresh spawn.
+            puppet_spawned[i] = 0;
+            puppet_pids[i] = fpcM_ERROR_PROCESS_ID_e;
+            slot->actor_ptr = 0;
+            if (best_progress < 10) best_progress = 10;
+            continue;
+        }
+
+        slot->actor_ptr = (u32)actor;
+
+        cXyz* pos = ACTOR_POS(actor);
+        pos->x = slot->pos_x;
+        pos->y = slot->pos_y;
+        pos->z = slot->pos_z;
+
+        // Write rotation to both current.angle (AI/physics) and
+        // shape_angle (visual). See rotation-sync notes in docs/06.
+        csXyz* shape = ACTOR_SHAPE(actor);
+        csXyz* angle = ACTOR_ANGLE(actor);
+        shape->x = angle->x = slot->rot_x;
+        shape->y = angle->y = slot->rot_y;
+        shape->z = angle->z = slot->rot_z;
+
+        if (best_progress < 9) best_progress = 9;
     }
 
-    // Phase 2: actor exists — resolve pid to ptr and write mailbox pos.
-    fopAc_ac_c* actor = 0;
-    if (!fopAcM_SearchByID(player2_pid, &actor) || !actor) {
-        mailbox->progress = 10;
-        return;
-    }
-
-    // Publish the live actor pointer (overwrites the pid value from phase 1).
-    mailbox->actor2_ptr = (u32)actor;
-
-    // NOTE: the pot stays in mode_hide (m678 == 0) until something pokes
-    // m678 = 2. Doing that from here (every frame, starting immediately after
-    // SearchByID returns) FREEZES construction — we clobber state that the
-    // actor's own init sequence hasn't finished writing yet. The working
-    // approach is to let the pot sit quietly in mode_hide for a while, then
-    // poke m678 = 2 once from the host side (Go's `unhide-puppet` command).
-    // See docs/05 "TSUBO puppet: mode_hide wake-up timing" for details.
-
-    cXyz* pos = ACTOR_POS(actor);
-    pos->x = mailbox->p2_pos_x;
-    pos->y = mailbox->p2_pos_y;
-    pos->z = mailbox->p2_pos_z;
-
-    // Rotation sync. shape_angle is the VISUAL rotation (what the model
-    // shows); current.angle is what physics/AI read. Write both so the
-    // puppet faces the remote player's direction regardless of which field
-    // the actor reads.
-    csXyz* shape = ACTOR_SHAPE(actor);
-    csXyz* angle = ACTOR_ANGLE(actor);
-    shape->x = angle->x = mailbox->p2_rot_x;
-    shape->y = angle->y = mailbox->p2_rot_y;
-    shape->z = angle->z = mailbox->p2_rot_z;
-
-    mailbox->progress = 9;
+    mailbox->progress = best_progress;
 }

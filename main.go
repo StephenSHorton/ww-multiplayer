@@ -24,13 +24,23 @@ func main() {
 		case "fake-client":
 			name := "FakePlayer"
 			addr := "localhost:25565"
+			cx := float32(-200048.0)
+			cz := float32(316367.0)
 			if len(os.Args) > 2 {
 				name = os.Args[2]
 			}
 			if len(os.Args) > 3 {
 				addr = os.Args[3]
 			}
-			runFakeClient(name, addr)
+			if len(os.Args) > 5 {
+				if v, err := strconv.ParseFloat(os.Args[4], 32); err == nil {
+					cx = float32(v)
+				}
+				if v, err := strconv.ParseFloat(os.Args[5], 32); err == nil {
+					cz = float32(v)
+				}
+			}
+			runFakeClient(name, addr, cx, cz)
 		case "write-test":
 			runWriteTest()
 		case "teleport-test":
@@ -49,10 +59,16 @@ func main() {
 			runDump()
 		case "move-puppet":
 			if len(os.Args) < 5 {
-				fmt.Println("Usage: ww move-puppet <x> <y> <z>")
+				fmt.Println("Usage: ww move-puppet <x> <y> <z> [slot=0]")
 				os.Exit(1)
 			}
-			runMovePuppet(os.Args[2], os.Args[3], os.Args[4])
+			slot := 0
+			if len(os.Args) > 5 {
+				if v, err := strconv.Atoi(os.Args[5]); err == nil {
+					slot = v
+				}
+			}
+			runMovePuppet(os.Args[2], os.Args[3], os.Args[4], slot)
 		case "poke-u32":
 			if len(os.Args) < 4 {
 				fmt.Println("Usage: ww poke-u32 <addr-hex> <value-hex>")
@@ -549,11 +565,14 @@ func runDisasm(addr uint32, count int) {
 	}
 }
 
-// Write a target position into the mailbox's p2_pos slots (+0x08 .. +0x13).
-// The frame hook reads these each frame and writes them into the puppet
-// actor's pos field (+0x1F8). One-shot: writes three big-endian f32s and
-// exits — if the puppet's physics drags it off the target, run again.
-func runMovePuppet(xs, ys, zs string) {
+// Write a target position into slot `slot` of the mailbox (default 0).
+// The frame hook reads the slot each frame and writes into the
+// corresponding puppet actor's pos. One-shot write.
+func runMovePuppet(xs, ys, zs string, slot int) {
+	if slot < 0 || slot >= maxPuppets {
+		fmt.Printf("slot %d out of range [0, %d)\n", slot, maxPuppets)
+		os.Exit(1)
+	}
 	parseF32 := func(s string) float32 {
 		v, err := strconv.ParseFloat(s, 32)
 		if err != nil {
@@ -575,11 +594,15 @@ func runMovePuppet(xs, ys, zs string) {
 	binary.BigEndian.PutUint32(buf[0:4], math.Float32bits(x))
 	binary.BigEndian.PutUint32(buf[4:8], math.Float32bits(y))
 	binary.BigEndian.PutUint32(buf[8:12], math.Float32bits(z))
-	if err := d.WriteAbsolute(0x80410808, buf); err != nil {
+	if err := d.WriteAbsolute(slotAddr(slot, slotOffPosX), buf); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Puppet target set: X=%.1f Y=%.1f Z=%.1f (mailbox+0x08..+0x13)\n", x, y, z)
+	// Ensure the slot is marked active so the C hook syncs it.
+	one := make([]byte, 4)
+	binary.BigEndian.PutUint32(one, 1)
+	d.WriteAbsolute(slotAddr(slot, slotOffAct), one)
+	fmt.Printf("slot %d target: X=%.1f Y=%.1f Z=%.1f\n", slot, x, y, z)
 }
 
 // Reads local Link's position from Dolphin every 50ms and forwards it to the
@@ -623,11 +646,30 @@ func runBroadcastLink(name, addr string) {
 	fmt.Println("\nDisconnected.")
 }
 
-// Reads the live puppet actor pointer from the mailbox and pokes m678 = 2
-// (mode_wait) at actor+0x678 — the one-shot write that flips the pot out of
-// mode_hide so it renders. Must be run AFTER the pot has been alive for a
-// while (≥ a few seconds) so its own mode_hide_init has completed; poking
-// earlier corrupts construction and hangs the game.
+// Mailbox layout (keep in sync with inject/include/mailbox.h).
+const (
+	mailboxBase    = 0x80410800
+	maxPuppets     = 4
+	puppetSlotBase = mailboxBase + 0x10
+	puppetSlotSize = 0x20
+)
+
+// Byte offsets inside a slot.
+const (
+	slotOffActor = 0x00
+	slotOffAct   = 0x04
+	slotOffPosX  = 0x08
+	slotOffPosY  = 0x0C
+	slotOffPosZ  = 0x10
+	slotOffRotX  = 0x14 // followed by rotY (+0x16), rotZ (+0x18)
+)
+
+func slotAddr(i int, off uint32) uint32 {
+	return puppetSlotBase + uint32(i)*puppetSlotSize + off
+}
+
+// Iterates every active puppet slot and applies the proc-specific unhide
+// poke. Idempotent and safe to call whenever a puppet appears to be hidden.
 func runUnhidePuppet() {
 	d, err := dolphin.Find("GZLE01")
 	if err != nil {
@@ -636,44 +678,39 @@ func runUnhidePuppet() {
 	}
 	defer d.Close()
 
-	ptr, err := d.ReadU32(0x80410804) // mailbox.actor2_ptr
-	if err != nil || ptr < 0x80000000 || ptr >= 0x81800000 {
-		fmt.Printf("No live puppet pointer in mailbox (got 0x%08X). Is the game running and past the 10s spawn gate?\n", ptr)
-		os.Exit(1)
-	}
-
-	// Dispatch by proc. Each actor class has its own reason for being
-	// invisible right after programmatic spawn; the poke depends on the
-	// class. Proc name lives at actor + 0x08 as a big-endian u16, packed
-	// as the high half of the u32 at that address.
-	procWord, err := d.ReadU32(ptr + 0x08)
-	if err != nil {
-		fmt.Printf("proc read: %v\n", err)
-		os.Exit(1)
-	}
-	proc := procWord >> 16
-	buf := make([]byte, 4)
-	switch proc {
-	case 0x01CB: // PROC_TSUBO (pot): mode_hide (m678=0) -> mode_wait (m678=2)
-		binary.BigEndian.PutUint32(buf, 2)
-		if err := d.WriteAbsolute(ptr+0x678, buf); err != nil {
-			fmt.Printf("write: %v\n", err)
-			os.Exit(1)
+	any := false
+	for i := 0; i < maxPuppets; i++ {
+		active, _ := d.ReadU32(slotAddr(i, slotOffAct))
+		if active != 1 {
+			continue
 		}
-		fmt.Printf("Unhid TSUBO pot: m678=2 at 0x%08X (actor 0x%08X)\n", ptr+0x678, ptr)
-	case 0x00C3: // PROC_KAMOME (seagull): clear mSwitchNo at +0x2AA
-		// mSwitchNo is a single byte at +0x2AA; writing a zeroed u32 to
-		// +0x2A8 also clears mAnimState / mMoveState / m2AB, all of which
-		// naturally reset via the execute state machine. Non-zero
-		// mSwitchNo trips daKamome_Draw's skip-draw guard.
-		binary.BigEndian.PutUint32(buf, 0)
-		if err := d.WriteAbsolute(ptr+0x2A8, buf); err != nil {
-			fmt.Printf("write: %v\n", err)
-			os.Exit(1)
+		ptr, err := d.ReadU32(slotAddr(i, slotOffActor))
+		if err != nil || ptr < 0x80000000 || ptr >= 0x81800000 {
+			continue // actor not yet resolved by C; skip this tick
 		}
-		fmt.Printf("Unhid KAMOME seagull: cleared mSwitchNo at 0x%08X (actor 0x%08X)\n", ptr+0x2AA, ptr)
-	default:
-		fmt.Printf("Unknown puppet proc 0x%04X at actor 0x%08X — no unhide recipe wired.\n", proc, ptr)
+		procWord, err := d.ReadU32(ptr + 0x08)
+		if err != nil {
+			continue
+		}
+		proc := procWord >> 16
+		buf := make([]byte, 4)
+		switch proc {
+		case 0x01CB: // TSUBO: m678 = 2
+			binary.BigEndian.PutUint32(buf, 2)
+			d.WriteAbsolute(ptr+0x678, buf)
+			fmt.Printf("slot %d: unhid TSUBO (actor 0x%08X) m678=2\n", i, ptr)
+			any = true
+		case 0x00C3: // KAMOME: clear mSwitchNo at +0x2AA (u32 write at +0x2A8 zeroes 4 safe bytes)
+			binary.BigEndian.PutUint32(buf, 0)
+			d.WriteAbsolute(ptr+0x2A8, buf)
+			fmt.Printf("slot %d: unhid KAMOME (actor 0x%08X) mSwitchNo=0\n", i, ptr)
+			any = true
+		default:
+			fmt.Printf("slot %d: unknown proc 0x%04X at 0x%08X\n", i, proc, ptr)
+		}
+	}
+	if !any {
+		fmt.Println("No active puppet slots resolved yet — is the game past the 10s spawn gate and has puppet-sync populated a slot?")
 		os.Exit(1)
 	}
 }
@@ -704,54 +741,86 @@ func runPuppetSync(name, addr string) {
 	}
 	defer client.Disconnect()
 
-	// Smoothed puppet position. Each tick we nudge curX/Y/Z a fraction
-	// toward the latest received remote target rather than snapping. lerpK
-	// = 0.2 means ~80% of the gap closes in ~5 ticks (~83 ms at 60Hz), a
-	// good balance between responsiveness and smoothness for packets that
-	// arrive at 20Hz (every 50 ms). Raise for snappier tracking, lower for
-	// more butter.
+	// Lerp-smoothed state per slot. lerpK = 0.2 closes ~80% of the gap in
+	// ~5 ticks (~83 ms at 60 Hz). Raise for snappier tracking, lower for
+	// more butter. Rotation is raw passthrough — angular lerp needs
+	// shortest-arc handling; punt until it matters visibly.
 	const lerpK = 0.2
-	var haveCur bool
-	var curX, curY, curZ float32
+	type slotState struct {
+		haveCur          bool
+		curX, curY, curZ float32
+	}
+	var slots [maxPuppets]slotState
+	remoteToSlot := map[byte]int{}
+	zero := make([]byte, 4)
+	one := make([]byte, 4)
+	binary.BigEndian.PutUint32(one, 1)
 
-	buf := make([]byte, 12)
-	var lastID byte
 	for client.IsConnected() {
 		remotes := client.GetRemotePlayers()
+		seen := map[byte]bool{}
 		for _, rp := range remotes {
 			if rp.Position == nil {
 				continue
 			}
+			seen[rp.ID] = true
+			idx, ok := remoteToSlot[rp.ID]
+			if !ok {
+				// Find a free slot. Walk 0..N; first index not already
+				// mapped to a live remote wins.
+				used := map[int]bool{}
+				for _, v := range remoteToSlot {
+					used[v] = true
+				}
+				for i := 0; i < maxPuppets; i++ {
+					if !used[i] {
+						idx = i
+						break
+					}
+				}
+				if used[idx] {
+					// All slots full; drop this remote for now.
+					continue
+				}
+				remoteToSlot[rp.ID] = idx
+				d.WriteAbsolute(slotAddr(idx, slotOffAct), one)
+				fmt.Printf("\nslot %d := player %d (%s)\n", idx, rp.ID, rp.Name)
+			}
+
 			tx, ty, tz := rp.Position.PosX, rp.Position.PosY, rp.Position.PosZ
-			if !haveCur {
-				curX, curY, curZ = tx, ty, tz
-				haveCur = true
+			st := &slots[idx]
+			if !st.haveCur {
+				st.curX, st.curY, st.curZ = tx, ty, tz
+				st.haveCur = true
 			} else {
-				curX += (tx - curX) * lerpK
-				curY += (ty - curY) * lerpK
-				curZ += (tz - curZ) * lerpK
+				st.curX += (tx - st.curX) * lerpK
+				st.curY += (ty - st.curY) * lerpK
+				st.curZ += (tz - st.curZ) * lerpK
 			}
-			binary.BigEndian.PutUint32(buf[0:4], math.Float32bits(curX))
-			binary.BigEndian.PutUint32(buf[4:8], math.Float32bits(curY))
-			binary.BigEndian.PutUint32(buf[8:12], math.Float32bits(curZ))
-			if err := d.WriteAbsolute(0x80410808, buf); err != nil {
-				fmt.Printf("mailbox write: %v\n", err)
-			}
-			// Rotation passthrough (no lerp — rotation smoothing needs
-			// shortest-arc handling; punt until it matters visibly).
+
+			posBuf := make([]byte, 12)
+			binary.BigEndian.PutUint32(posBuf[0:4], math.Float32bits(st.curX))
+			binary.BigEndian.PutUint32(posBuf[4:8], math.Float32bits(st.curY))
+			binary.BigEndian.PutUint32(posBuf[8:12], math.Float32bits(st.curZ))
+			d.WriteAbsolute(slotAddr(idx, slotOffPosX), posBuf)
+
 			rotBuf := make([]byte, 6)
 			binary.BigEndian.PutUint16(rotBuf[0:2], uint16(rp.Position.RotX))
 			binary.BigEndian.PutUint16(rotBuf[2:4], uint16(rp.Position.RotY))
 			binary.BigEndian.PutUint16(rotBuf[4:6], uint16(rp.Position.RotZ))
-			_ = d.WriteAbsolute(0x80410814, rotBuf)
-			if rp.ID != lastID {
-				fmt.Printf("tracking player %d (%s)\n", rp.ID, rp.Name)
-				lastID = rp.ID
-			}
-			fmt.Printf("  puppet X:%10.1f Y:%8.1f Z:%10.1f  <- target X:%10.1f Z:%10.1f\r",
-				curX, curY, curZ, tx, tz)
-			break // follow the first remote; pick another if needed
+			d.WriteAbsolute(slotAddr(idx, slotOffRotX), rotBuf)
 		}
+
+		// Release slots for remotes that have disconnected.
+		for id, idx := range remoteToSlot {
+			if !seen[id] {
+				d.WriteAbsolute(slotAddr(idx, slotOffAct), zero)
+				delete(remoteToSlot, id)
+				slots[idx] = slotState{}
+				fmt.Printf("\nslot %d freed (player %d left)\n", idx, id)
+			}
+		}
+
 		time.Sleep(16 * time.Millisecond) // ~60 Hz
 	}
 	fmt.Println("\nDisconnected.")
@@ -788,24 +857,41 @@ func runDump() {
 	if err != nil { fmt.Println(err); os.Exit(1) }
 	defer d.Close()
 
-	addrs := []uint32{0x80410800, 0x80006338, 0x803C4C0C, 0x803F66C0, 0x80410000, 0x804101E8}
-	sizes := []int{48, 8, 4, 4, 16, 16}
-	for i, addr := range addrs {
-		data, _ := d.ReadAbsolute(addr, sizes[i])
-		fmt.Printf("0x%08X: ", addr)
-		if data != nil {
-			for j, b := range data {
-				fmt.Printf("%02X", b)
-				if j%4 == 3 { fmt.Print(" ") }
-			}
+	// Mailbox header (spawn_trigger, progress, pads)
+	hdr, _ := d.ReadAbsolute(mailboxBase, 16)
+	fmt.Printf("mailbox hdr  @ 0x%08X: ", mailboxBase)
+	for j, b := range hdr {
+		fmt.Printf("%02X", b)
+		if j%4 == 3 { fmt.Print(" ") }
+	}
+	fmt.Println()
+
+	if progress, err := d.ReadU32(mailboxBase + 0x04); err == nil {
+		fmt.Printf("progress: %d (1=gate 3=link-ready 5=spawn-queued 8=spawned 9=syncing 10=actor-lost)\n", progress)
+	}
+
+	// Per-slot state
+	for i := 0; i < maxPuppets; i++ {
+		data, _ := d.ReadAbsolute(slotAddr(i, 0), puppetSlotSize)
+		fmt.Printf("slot %d       @ 0x%08X: ", i, slotAddr(i, 0))
+		for j, b := range data {
+			fmt.Printf("%02X", b)
+			if j%4 == 3 { fmt.Print(" ") }
 		}
 		fmt.Println()
 	}
 
-	// Highlight the progress marker (mailbox+0x20) so it's easy to read at a
-	// glance. See multiplayer.c for marker meaning.
-	if progress, err := d.ReadU32(0x80410820); err == nil {
-		fmt.Printf("progress (mailbox+0x20): %d\n", progress)
+	// Other useful addrs
+	ptrs := []uint32{0x80006338, 0x803C4C0C, 0x803F66C0, 0x80410000}
+	sizes := []int{8, 4, 4, 16}
+	for i, addr := range ptrs {
+		data, _ := d.ReadAbsolute(addr, sizes[i])
+		fmt.Printf("             @ 0x%08X: ", addr)
+		for j, b := range data {
+			fmt.Printf("%02X", b)
+			if j%4 == 3 { fmt.Print(" ") }
+		}
+		fmt.Println()
 	}
 }
 
@@ -967,8 +1053,8 @@ func runServer() {
 	select {}
 }
 
-func runFakeClient(name, addr string) {
-	fmt.Printf("=== Fake Client: %s -> %s ===\n\n", name, addr)
+func runFakeClient(name, addr string, centerX, centerZ float32) {
+	fmt.Printf("=== Fake Client: %s -> %s  center=(%.1f, %.1f) ===\n\n", name, addr, centerX, centerZ)
 
 	client := network.NewClient(name)
 	client.OnLog = func(msg string) {
@@ -984,10 +1070,9 @@ func runFakeClient(name, addr string) {
 	fmt.Println("Connected! Walking in circles...")
 	fmt.Println()
 
-	// Walk in a circle near Link's typical Outset spawn. Y bumped to 200 so
-	// the resulting puppet is above ground (Link's standing Y is ~180 there).
-	centerX := float32(-200048.0)
-	centerZ := float32(316367.0)
+	// Walk in a circle near the passed center. Radius and Y are fixed —
+	// radius 300 keeps the path visible; Y=200 is comfortably above Outset
+	// ground level (~180).
 	radius := float32(300.0)
 	y := float32(200.0)
 	angle := float64(0)
