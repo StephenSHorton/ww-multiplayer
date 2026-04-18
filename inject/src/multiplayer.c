@@ -147,11 +147,15 @@ void multiplayer_update(void) {
         mailbox->p2_pos_y = link_pos->y;
         mailbox->p2_pos_z = link_pos->z;
 
-        // PROC_KAMOME (seagull): archive is guaranteed resident on Outset
-        // (seagulls fly over every island). Invisible by default because
-        // kamome_class has `s8 mbNoDraw` at +0x2BC — zero it post-spawn
-        // via `./ww.exe poke-u32 <actor_ptr+0x2BC> 0`. Fallback: PROC_TSUBO
-        // (0x01CB) which uses the +0x678 mode_hide recipe.
+        // PROC_KAMOME (seagull): archive resident on every sea-adjacent
+        // island (including Outset), renders with a glide animation,
+        // doesn't fight our pos writes. Needs `./ww.exe unhide-puppet` to
+        // zero mSwitchNo post-spawn (daKamome_Draw guards on that).
+        //
+        // Tried: PROC_NPC_FA1 (fairy, Always archive) rendered briefly
+        // then self-deleted; the respawn loop worked once but subsequent
+        // respawn cycles froze the game (likely allocator thrash or
+        // leftover state between construct/destruct). Not pursuing more.
         fpc_ProcID pid = fopAcM_create(PROC_KAMOME, 0, link_pos, room, link_angle, 0, -1, 0);
         mailbox->progress = 5;
 
