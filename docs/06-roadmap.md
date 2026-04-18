@@ -29,6 +29,22 @@
   plus one-shot `unhide-puppet` (the m678=2 poke must run ~3 s after spawn
   — doing it inside the C hook from frame 1 of phase 2 corrupts TSUBO's
   construction and freezes the game).
+- **Rotation sync** (2026-04-18): puppet-sync writes the remote's RotY to
+  `mailbox.p2_rot_*` (s16 BE) every tick; the frame hook copies both
+  `current.angle` (+0x204) and `shape_angle` (+0x20C) so the puppet faces
+  the direction the remote is facing. No angular lerp yet (would need
+  shortest-arc handling); raw copy looks clean at 20 Hz send / 60 Hz apply.
+- **Humanoid-ish proxy working: seagull** (2026-04-18): `PROC_KAMOME`
+  (0x00C3) — archive is resident on every sea-adjacent island. Spawns
+  constructed-but-invisible because `daKamome_Draw` guards on
+  `mSwitchNo != 0 || mbNoDraw != 0`; with param=0 the spawner leaves
+  `mSwitchNo = 1` at `actor + 0x2AA`. Zeroing that byte makes the bird
+  render with its glide animation, tracks Link's position over real TCP,
+  and rotates to match. `unhide-puppet` now dispatches by proc: writes
+  `m678 = 2` for TSUBO, clears `mSwitchNo` for KAMOME. Trying a human
+  humanoid (e.g. NPC_KO1 kid) will first need a proc whose archive is
+  actually resident on Outset outdoors — NPC_KO1 self-destructed during
+  construction because kids' archive isn't loaded there.
 
 ## 🔬 Next Session Priority
 

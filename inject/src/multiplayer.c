@@ -147,7 +147,12 @@ void multiplayer_update(void) {
         mailbox->p2_pos_y = link_pos->y;
         mailbox->p2_pos_z = link_pos->z;
 
-        fpc_ProcID pid = fopAcM_create(PROC_TSUBO, 0, link_pos, room, link_angle, 0, -1, 0);
+        // PROC_KAMOME (seagull): archive is guaranteed resident on Outset
+        // (seagulls fly over every island). Invisible by default because
+        // kamome_class has `s8 mbNoDraw` at +0x2BC — zero it post-spawn
+        // via `./ww.exe poke-u32 <actor_ptr+0x2BC> 0`. Fallback: PROC_TSUBO
+        // (0x01CB) which uses the +0x678 mode_hide recipe.
+        fpc_ProcID pid = fopAcM_create(PROC_KAMOME, 0, link_pos, room, link_angle, 0, -1, 0);
         mailbox->progress = 5;
 
         if (pid == fpcM_ERROR_PROCESS_ID_e) {
@@ -184,5 +189,16 @@ void multiplayer_update(void) {
     pos->x = mailbox->p2_pos_x;
     pos->y = mailbox->p2_pos_y;
     pos->z = mailbox->p2_pos_z;
+
+    // Rotation sync. shape_angle is the VISUAL rotation (what the model
+    // shows); current.angle is what physics/AI read. Write both so the
+    // puppet faces the remote player's direction regardless of which field
+    // the actor reads.
+    csXyz* shape = ACTOR_SHAPE(actor);
+    csXyz* angle = ACTOR_ANGLE(actor);
+    shape->x = angle->x = mailbox->p2_rot_x;
+    shape->y = angle->y = mailbox->p2_rot_y;
+    shape->z = angle->z = mailbox->p2_rot_z;
+
     mailbox->progress = 9;
 }

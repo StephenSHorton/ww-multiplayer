@@ -641,14 +641,41 @@ func runUnhidePuppet() {
 		fmt.Printf("No live puppet pointer in mailbox (got 0x%08X). Is the game running and past the 10s spawn gate?\n", ptr)
 		os.Exit(1)
 	}
-	target := ptr + 0x678
-	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, 2)
-	if err := d.WriteAbsolute(target, buf); err != nil {
-		fmt.Printf("write: %v\n", err)
+
+	// Dispatch by proc. Each actor class has its own reason for being
+	// invisible right after programmatic spawn; the poke depends on the
+	// class. Proc name lives at actor + 0x08 as a big-endian u16, packed
+	// as the high half of the u32 at that address.
+	procWord, err := d.ReadU32(ptr + 0x08)
+	if err != nil {
+		fmt.Printf("proc read: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Puppet unhidden: wrote m678=2 at 0x%08X (actor 0x%08X)\n", target, ptr)
+	proc := procWord >> 16
+	buf := make([]byte, 4)
+	switch proc {
+	case 0x01CB: // PROC_TSUBO (pot): mode_hide (m678=0) -> mode_wait (m678=2)
+		binary.BigEndian.PutUint32(buf, 2)
+		if err := d.WriteAbsolute(ptr+0x678, buf); err != nil {
+			fmt.Printf("write: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Unhid TSUBO pot: m678=2 at 0x%08X (actor 0x%08X)\n", ptr+0x678, ptr)
+	case 0x00C3: // PROC_KAMOME (seagull): clear mSwitchNo at +0x2AA
+		// mSwitchNo is a single byte at +0x2AA; writing a zeroed u32 to
+		// +0x2A8 also clears mAnimState / mMoveState / m2AB, all of which
+		// naturally reset via the execute state machine. Non-zero
+		// mSwitchNo trips daKamome_Draw's skip-draw guard.
+		binary.BigEndian.PutUint32(buf, 0)
+		if err := d.WriteAbsolute(ptr+0x2A8, buf); err != nil {
+			fmt.Printf("write: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Unhid KAMOME seagull: cleared mSwitchNo at 0x%08X (actor 0x%08X)\n", ptr+0x2AA, ptr)
+	default:
+		fmt.Printf("Unknown puppet proc 0x%04X at actor 0x%08X — no unhide recipe wired.\n", proc, ptr)
+		os.Exit(1)
+	}
 }
 
 // Connects to a server, subscribes to remote position broadcasts, and writes
@@ -710,6 +737,13 @@ func runPuppetSync(name, addr string) {
 			if err := d.WriteAbsolute(0x80410808, buf); err != nil {
 				fmt.Printf("mailbox write: %v\n", err)
 			}
+			// Rotation passthrough (no lerp — rotation smoothing needs
+			// shortest-arc handling; punt until it matters visibly).
+			rotBuf := make([]byte, 6)
+			binary.BigEndian.PutUint16(rotBuf[0:2], uint16(rp.Position.RotX))
+			binary.BigEndian.PutUint16(rotBuf[2:4], uint16(rp.Position.RotY))
+			binary.BigEndian.PutUint16(rotBuf[4:6], uint16(rp.Position.RotZ))
+			_ = d.WriteAbsolute(0x80410814, rotBuf)
 			if rp.ID != lastID {
 				fmt.Printf("tracking player %d (%s)\n", rp.ID, rp.Name)
 				lastID = rp.ID

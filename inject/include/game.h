@@ -63,6 +63,8 @@ typedef BOOL (*fopAcM_SearchByID_t)(fpc_ProcID id, fopAc_ac_c** out);
 #define fopAcM_SearchByID ((fopAcM_SearchByID_t)0x800241C0)
 
 #define PROC_PLAYER     0x00A9
+#define PROC_KAMOME     0x00C3
+#define PROC_NPC_KO1    0x0141
 #define PROC_GRASS      0x01B8
 #define PROC_TSUBO      0x01CB
 #define PROC_Obj_Barrel 0x01CE
