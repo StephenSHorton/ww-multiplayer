@@ -41,23 +41,96 @@
   `mSwitchNo = 1` at `actor + 0x2AA`. Zeroing that byte makes the bird
   render with its glide animation, tracks Link's position over real TCP,
   and rotates to match. `unhide-puppet` now dispatches by proc: writes
-  `m678 = 2` for TSUBO, clears `mSwitchNo` for KAMOME. Trying a human
-  humanoid (e.g. NPC_KO1 kid) will first need a proc whose archive is
-  actually resident on Outset outdoors — NPC_KO1 self-destructed during
-  construction because kids' archive isn't loaded there.
+  `m678 = 2` for TSUBO, clears `mSwitchNo` for KAMOME.
+- **Multi-puppet architecture** (2026-04-18): mailbox redesigned around
+  `MAX_PUPPETS = 4` slots of 0x20 B each (`inject/include/mailbox.h`).
+  Each slot is `{actor_ptr, active, pos_xyz, rot_xyz}`. C loops over
+  slots every frame: spawns on active+unspawned, syncs spawned, drops
+  bookkeeping when `active` clears or the actor dies. Go `puppet-sync`
+  maps remote player IDs -> slot indices and writes each remote's pos/rot
+  to its assigned slot. Verified live: two fake-clients on one machine
+  drove two separate puppets (seagull + pot) following two distinct
+  circle patterns on Outset.
+- **Human NPC puppet: Rose** (2026-04-18): `PROC_NPC_OB1` (0x014D) —
+  one of the outdoor Outset villagers — has her archive preloaded with
+  the stage. Spawns cleanly, stays alive, accepts position/rotation writes
+  like any other actor. No mode_hide-style render guard — she renders
+  immediately without an unhide poke. This is the first **human**
+  puppet: Slot 1 in the current demo spawns Rose; a remote player's
+  position makes Rose-the-NPC walk around Outset driven by TCP. Kids
+  (NPC_KO1) still self-destruct because their archive isn't resident
+  outdoors; fairies (NPC_FA1) self-delete after healing — Rose is the
+  proven path for now. Other outdoor villagers (Abe, Mesa, Sturgeon)
+  are likely resident too.
+- **Per-slot proc differentiation** (2026-04-18): slot 0 spawns KAMOME,
+  slot 1 spawns NPC_OB1 (Rose), slot 2 KAMOME, slot 3 TSUBO. Each slot
+  is visually distinct so multiple remote players are immediately
+  identifiable. Proper color tinting would need a mid-draw hook (KAMOME's
+  `daKamome_Draw` rebuilds `actor.tevStr` every frame via
+  `g_env_light.setLightTevColorType`, clobbering any execute-phase
+  color override); mixed procs gives stronger differentiation anyway.
 
 ## 🔬 Next Session Priority
 
-Done as of 2026-04-18: spawn + pos-sync + network + lerp smoothing.
-Remaining for a complete experience, in rough priority order:
+**Get a second Link to render.** Proc-per-slot gives us seagulls, pots,
+and Rose; the actual goal is "the remote player looks like Link." That
+turns this from "neat tech demo" into "real Wind Waker multiplayer."
 
-1. **Two-machine test.** Confirms the LAN path works when it isn't loopback.
-   Same three commands on each host, just point `broadcast-link` and
-   `puppet-sync` at the shared server IP.
-2. **Humanoid proxy.** One-line proc swap. Candidates to try (prefer ones
-   whose archive is always resident on Outset): NPC_KO1/NPC_KO2 (Joel/Zill),
-   NPC_OB1 (Abe/Sturgeon), or a Kamome seagull as a flying proxy. Apply the
-   same mode_hide → mode_wait recipe.
+### The known blocker
+
+`fopAcM_create(PROC_PLAYER, ...)` OOMs the GameHeap during construction:
+Link's actor heap wants ~704 KB; the GameHeap free pool on Outset is
+~245 KB. This was diagnosed via Dolphin's OSReport log (see docs/05
+"PROC_PLAYER Won't Fit"). Link himself already took his slice out of the
+heap — a second allocation of the same size won't fit.
+
+### Angles to try (pick whichever looks cheapest; they're independent)
+
+1. **Override the heap used for Link #2's allocation.** `fopAcM_create`'s
+   6th arg is a `cXyz* scale` (currently 0/NULL) — not a heap. But
+   `fopAcM_entrySolidHeap` / `fopAcM_entryBaseHeap` in the decomp suggest
+   actors pick a heap via a per-class callback (e.g. TSUBO has
+   `solidHeapCB`). Look at `f_op/f_op_actor_mng.h` and
+   `d_a_player_main.cpp`'s `CreateHeap`. If we can inject an allocator
+   that hands out memory from the orphan region (`0x80411000+` up to
+   `__OSArenaHi`), Link #2 gets its 704 KB without touching the
+   GameHeap.
+2. **Share Link #1's already-loaded resources.** Link's J3DModel, anim
+   data, and collision are loaded exactly once for Link #1. Link #2
+   only needs its own runtime state (pos, velocity, matrices, etc.) —
+   maybe 10s of KB, not 700 KB. Find where Link's CreateHeap allocates
+   model/anim data vs. per-instance state, make a subclass or hook that
+   reuses the static resources and only allocates the per-instance
+   bits. Biggest payoff, most research.
+3. **Draw Link's existing model twice per frame.** No second actor.
+   Hook the draw pipeline, render Link's model a second time with a
+   different transform matrix derived from mailbox coords. No heap
+   pressure at all. Risk: Link's state (pose/anim frame) would be
+   identical between the two renders — the remote Link would mirror
+   local Link's animation rather than its own. Still visually
+   dramatic, and a good stepping stone to option 2.
+
+### Working from what we have
+
+- `inject/src/multiplayer.c` already has the per-slot spawn + sync
+  machinery. Getting Link rendering could keep that machinery (with a
+  custom heap for PROC_PLAYER), OR add a separate render-hook path
+  that feeds off mailbox slots without spawning an actor.
+- `unhide-puppet` dispatches by proc; adding a PROC_PLAYER case is
+  trivial once we know what (if anything) needs poking.
+- docs/03-code-injection.md covers the hook infrastructure; docs/05
+  has all the known failure modes and gotchas — read both before
+  inventing new approaches.
+
+### Easier wins (skip if going straight for Link)
+
+- Two-machine LAN test — zero code, just point both machines'
+  `broadcast-link` + `puppet-sync` at the same server IP.
+- More villager variants — try NPC_AB, NPC_SV, etc. for slot 2/3.
+- Bake `unhide-puppet` timing into `puppet-sync` so there's no manual
+  step (wait N ticks after first position, then auto-poke).
+- Room transitions — when the real player changes rooms/stages, the
+  remote actors go stale. Despawn + respawn on room change.
 3. **Rotation sync.** `broadcast-link` already puts RotY in the network
    packet; extend the frame hook to copy `mailbox.p2_rot_*` into
    `actor + 0x20C` (shape_angle). Then the puppet faces the direction the
