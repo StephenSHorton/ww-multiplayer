@@ -18,10 +18,21 @@
 #include "game.h"
 #include "mailbox.h"
 
-// Where main01_init stashes the callback pointer. Orphan memory between T2
-// code (~0x80410000) and __OSArenaLo (0x80411000). Must match CALLBACK_PTR
-// in the shim asm below.
-#define CALLBACK_PTR_ADDR 0x80410700
+// Where main01_init stashes the callback pointer. Must sit OUTSIDE our T2
+// code section. History:
+//   v1 (mod ~0x748 B): 0x80410700. Worked because the linker left 0x700
+//       as padding. Broke when the mod grew past 0x700 — real instructions
+//       landed there and the write corrupted them (crash: invalid read
+//       0x24 @ PC 0x80410704).
+//   v2 (mod ~0x868 B): 0x80410808 = old mailbox+0x08. Broke because the
+//       old mailbox (0x80410800) overlapped the code section — main01_init
+//       was STILL writing inside our code.
+//   v3 (0x80410908 = mailbox+0x08): broke when mod grew past 0x900.
+//   v4 (current):  0x80410F08 = mailbox+0x08 with mailbox now at
+//       0x80410F00 — just below __OSArenaLo (0x80411000), maximum
+//       headroom before we'd ever collide again.
+// MUST match the `lwz 12, 0x0F08(12)` offset in frame_shim asm below.
+#define CALLBACK_PTR_ADDR 0x80410F08
 
 // Per-slot state. Parallel arrays to mailbox.puppets[]. pids[i] is the
 // queued-spawn result from fopAcM_create; spawned[i] gates phase 2 sync.
@@ -29,8 +40,24 @@ static fpc_ProcID puppet_pids[MAX_PUPPETS];
 static int puppet_spawned[MAX_PUPPETS];
 static int frame_count = 0;
 
+// --- Mini-Link state (Option B from roadmap 06) ------------------------
+// Render a second Link from OUR code by creating a J3DModel that shares
+// Link #1's already-loaded J3DModelData. No actor, no PROC_PLAYER spawn,
+// no 704 KB heap carve-out. First prototype: T-pose Link drawn each frame
+// at link_pos + (100, 0, 0). Animation comes later.
+static J3DModelData* mini_link_data = 0;
+static J3DModel* mini_link_model = 0;
+// 0 = not tried yet, 1 = model created + rendering, 0xFF = give up
+static u8 mini_link_state = 0;
+// Link's archive name. Stored here so the compiler emits a real string
+// pointer we can pass to dRes_control_c::getRes. rodata lives in T2.
+static const char LINK_ARCNAME[] = "Link";
+
 // Forward decl so main01_init can take its address.
 void multiplayer_update(void);
+// Forward decl — hooked at 0x80108210 (the bl inside daPy_Draw), runs in
+// draw phase. Calls the original Link draw impl, then submits mini-Link.
+int daPy_draw_hook(void* this_);
 
 // Hooked to main01 (0x80006338) via hook_branchlink. Runs once.
 // Publishes multiplayer_update's address for frame_shim to find.
@@ -77,7 +104,7 @@ void frame_shim(void) {
 
         // --- multiplayer_update ---
         "lis   12, 0x8041       \n"
-        "lwz   12, 0x0700(12)   \n"
+        "lwz   12, 0x0F08(12)   \n"  // = CALLBACK_PTR_ADDR (mailbox+0x08)
         "cmpwi 12, 0            \n"
         "beq-  1f               \n"
         "mtctr 12               \n"
@@ -214,5 +241,110 @@ void multiplayer_update(void) {
         if (best_progress < 9) best_progress = 9;
     }
 
+    // --- Mini-Link render path ----------------------------------------
+    // Progress encoding (reserved 20-29, beats puppet states 1-10):
+    //   20 = getRes returned NULL (archive not resident yet — retry next frame)
+    //   21 = mDoExt_J3DModel__create returned NULL (gave up)
+    //   22 = J3DModel created; rendering each frame
+    //   23 = modelEntryDL called this frame (rendering confirmed)
+    if (mini_link_state == 0) {
+        // Link's archive is loaded by daPy_createHeap as part of Link #1's
+        // phase_2. We've already waited 300 frames + confirmed link != NULL
+        // above, so the archive should be resident.
+        mini_link_data = (J3DModelData*)dRes_getRes_byIdx(
+            LINK_ARCNAME, LINK_BDL_CL,
+            MOBJECT_INFO, OBJECT_INFO_COUNT
+        );
+        if (!mini_link_data) {
+            if (best_progress < 20) best_progress = 20;
+        } else {
+            // ArchiveHeap was a guess — both ZeldaHeap and ArchiveHeap
+            // were confirmed by bisect to starve sky rendering when
+            // modelEntryDL subsequently submits, and the allocation
+            // itself (without any submission) was proven harmless.
+            // So the heap pick probably doesn't matter for the sky bug —
+            // the real culprit is modelEntryDL. Leaving ArchiveHeap as
+            // the destination for now because it's at least the same
+            // heap Link.arc itself lives in. See docs/05 "Mini-Link
+            // render pipeline" for the full investigation.
+            JKRHeap* targetHeap = mDoExt_getArchiveHeap();
+            JKRHeap* oldHeap = JKRHeap_becomeCurrentHeap(targetHeap);
+            mini_link_model = mDoExt_J3DModel__create(mini_link_data, 0x80000, 0x11000022);
+            JKRHeap_becomeCurrentHeap(oldHeap);
+
+            if (!mini_link_model) {
+                mini_link_state = 0xFF;
+                if (best_progress < 21) best_progress = 21;
+            } else {
+                mini_link_state = 1;
+            }
+        }
+    }
+
+    // Per-frame matrix write + modelEntryDL moved to daPy_draw_hook
+    // (see end of file). modelEntryDL from this fapGm_Execute hook
+    // corrupts sky rendering — moving it to the proper draw phase was
+    // the plausible fix, but bisect showed modelEntryDL still breaks
+    // sky even from draw phase. Cause is still open (see docs/05
+    // "Mini-Link render pipeline"). This function now just creates the
+    // J3DModel once; the per-frame matrix+submit happens inside Link's
+    // own daPy_Draw callback where it at least doesn't crash.
+    if (mini_link_state == 1) {
+        if (best_progress < 22) best_progress = 22;
+    }
+
     mailbox->progress = best_progress;
+}
+
+// --- Draw-phase hook -------------------------------------------------
+// Hooked at 0x80108210 via Freighter (replaces the `bl daPy_lk_c::draw`
+// inside daPy_Draw). daPy_Draw runs inside fpcDw_Execute during the
+// actor-draw iteration — i.e. the legitimate draw phase, same as every
+// other actor's draw callback.
+//
+// Flow:
+//   1. Call Link's real draw implementation at 0x80107308 with the
+//      original `this` arg (r3). Preserves ALL existing Link rendering.
+//   2. After Link finishes drawing, submit our mini-Link to j3dSys.
+// Return value propagates Link's original draw result — daPy_Draw just
+// tail-returns it to its caller.
+//
+// Status: hook is wired and firing each frame (progress=23 visible if
+// multiplayer_update didn't overwrite it next tick), but submitting
+// mini-Link from here STILL breaks sky textures — same symptom as the
+// original execute-phase attempt. modelEntryDL is the issue, not the
+// phase. See docs/05 "Mini-Link render pipeline" for open avenues.
+int daPy_draw_hook(void* this_) {
+    int result = daPy_lk_c_draw(this_);
+
+    // Only submit once the J3DModel is created and Link exists. Use
+    // Link's position as our anchor — `this_` IS Link's actor pointer,
+    // so we read pos directly via ACTOR_POS.
+    if (mini_link_model != 0 && mini_link_state == 1) {
+        cXyz* link_pos = ACTOR_POS(this_);
+
+        Mtx* mtx = (Mtx*)((u8*)mini_link_model + J3DMODEL_BASE_TR_MTX_OFFSET);
+        (*mtx)[0][0] = 1.0f; (*mtx)[0][1] = 0.0f; (*mtx)[0][2] = 0.0f;
+        (*mtx)[0][3] = link_pos->x + 100.0f;
+        (*mtx)[1][0] = 0.0f; (*mtx)[1][1] = 1.0f; (*mtx)[1][2] = 0.0f;
+        (*mtx)[1][3] = link_pos->y;
+        (*mtx)[2][0] = 0.0f; (*mtx)[2][1] = 0.0f; (*mtx)[2][2] = 1.0f;
+        (*mtx)[2][3] = link_pos->z;
+
+        // J3DModel_calc() temporarily skipped — calling it crashes Link
+        // at PC 0x8010C53C (lhz r0, 0x301C(r3) with r3=NULL in
+        // checkEquipAnime). Reproduced from BOTH execute phase and draw
+        // phase, so it's not a phase-timing issue. Hypothesis: calc()
+        // sets j3dSys globals (mModel, mCurrentMtxCalc) that Link's
+        // code later reads expecting its own model. Need a save/restore
+        // wrapper before we can enable bone-matrix computation.
+        // Without calc(), the skinned mesh collapses to origin (invisible)
+        // — but we'll at least confirm draw-phase entryDL is crash-free.
+        // J3DModel_calc(mini_link_model);
+        mDoExt_modelEntryDL(mini_link_model);
+
+        mailbox->progress = 23;
+    }
+
+    return result;
 }

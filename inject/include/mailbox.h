@@ -7,7 +7,13 @@
 
 #include "game.h"
 
-#define MAILBOX_ADDR 0x80410800
+// History: 0x80410800 → 0x80410900 → 0x80410F00. Every time we add
+// injected code the mod end crept up and eventually crossed the mailbox
+// address, corrupting game instructions. 0x80410F00 sits right before
+// __OSArenaLo (0x80411000) so we have ~0xF00 bytes of code room from
+// 0x80410000 without any further risk of collision. Mailbox ends at
+// 0x80410F90.
+#define MAILBOX_ADDR 0x80410F00
 
 // Up to this many remote players can be mirrored as puppet actors.
 // Pick a humble number; each slot adds one actor allocation.

@@ -648,7 +648,7 @@ func runBroadcastLink(name, addr string) {
 
 // Mailbox layout (keep in sync with inject/include/mailbox.h).
 const (
-	mailboxBase    = 0x80410800
+	mailboxBase    = 0x80410F00
 	maxPuppets     = 4
 	puppetSlotBase = mailboxBase + 0x10
 	puppetSlotSize = 0x20

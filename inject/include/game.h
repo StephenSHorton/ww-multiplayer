@@ -5,6 +5,7 @@
 typedef unsigned int u32;
 typedef unsigned short u16;
 typedef unsigned char u8;
+typedef signed int s32;
 typedef signed short s16;
 typedef signed char s8;
 typedef float f32;
@@ -86,5 +87,88 @@ typedef BOOL (*fopAcM_SearchByID_t)(fpc_ProcID id, fopAc_ac_c** out);
 #define ACTOR_ANGLE(actor) ((csXyz*)((u8*)(actor) + ACTOR_ANGLE_OFFSET))
 #define ACTOR_SHAPE(actor) ((csXyz*)((u8*)(actor) + ACTOR_SHAPE_OFFSET))
 #define ACTOR_ROOM(actor)  (*((s8*)((u8*)(actor) + ACTOR_ROOM_OFFSET)))
+
+// --- Mini-Link rendering path (Option B, roadmap 06) --------------------
+
+// Dolphin Mtx = f32[3][4], 48 bytes, row-major. Rows 0..2, cols 0..3
+// (m03/m13/m23 = translation). J3DModel::mBaseTransformMtx lives at
+// offset 0x24.
+typedef f32 Mtx[3][4];
+#define J3DMODEL_BASE_TR_MTX_OFFSET 0x24
+
+// Opaque — we never inspect the contents, only hold pointers.
+typedef void J3DModel;
+typedef void J3DModelData;
+
+// dRes_control_c::getRes(const char* arcName, s32 resIdx, dRes_info_c* pInfo,
+// int infoNum) — STATIC member function (no `this`!). The header declares it
+// `static`; the mangled name has no this-adjust. Earlier I typed it as a
+// member function and passed an extra leading pointer — which shifted every
+// real arg by one register. The game then treated `this` as arcName,
+// dereferenced it as bytes, and printed those bytes in the "res nothing"
+// OSReport error. The bytes at &mObjectInfo[0] = "System", which explained
+// the "<System.arc>" log flood.
+//
+// pInfo = &mObjectInfo[0] = 0x803E0BC8 (mObjectInfo sits at offset 0 inside
+// dRes_control_c; the roadmap's "MRES_CONTROL address" was correct, but its
+// usage was wrong). ARRAY_SIZE(mObjectInfo) = 64.
+typedef void* (*dRes_getRes_byIdx_t)(
+    const char* arcName,
+    s32 resIdx,
+    void* pInfo,
+    int infoNum
+);
+#define dRes_getRes_byIdx ((dRes_getRes_byIdx_t)0x8006F208)
+#define MOBJECT_INFO      ((void*)0x803E0BC8)
+#define OBJECT_INFO_COUNT 64
+#define LINK_BDL_CL       0x18
+
+typedef J3DModel* (*mDoExt_J3DModel_create_t)(
+    J3DModelData* modelData,
+    u32 modelFlag,
+    u32 differedDlistFlag
+);
+#define mDoExt_J3DModel__create ((mDoExt_J3DModel_create_t)0x80016BB8)
+
+typedef void (*mDoExt_modelEntryDL_t)(J3DModel* model);
+#define mDoExt_modelEntryDL ((mDoExt_modelEntryDL_t)0x8000F974)
+
+// --- Heap control -------------------------------------------------------
+// `new J3DModel()` inside mDoExt_J3DModel__create allocates from the
+// CURRENT heap. At our fapGm_Execute hook site, the current heap happens
+// to be whatever the game last set (often ArchiveHeap during resource
+// loads). Allocating ~5-10 KB there corrupts unrelated assets (observed:
+// missing sky textures with huge gray patches). Fix: switch to ZeldaHeap
+// — the same heap Link #1's own J3DModel lives in — around the create
+// call, then restore.
+typedef void JKRHeap;
+typedef JKRHeap* (*mDoExt_getZeldaHeap_t)(void);
+#define mDoExt_getZeldaHeap    ((mDoExt_getZeldaHeap_t)0x800118C0)
+#define mDoExt_getGameHeap     ((mDoExt_getZeldaHeap_t)0x800117E4)
+#define mDoExt_getArchiveHeap  ((mDoExt_getZeldaHeap_t)0x80011AB4)
+// Non-static member: `heap->becomeCurrentHeap()` returns the previous
+// current heap. `this` is r3; there are no other args.
+typedef JKRHeap* (*JKRHeap_becomeCurrentHeap_t)(JKRHeap* self);
+#define JKRHeap_becomeCurrentHeap ((JKRHeap_becomeCurrentHeap_t)0x802B03F8)
+
+// --- Per-frame bone computation ----------------------------------------
+// J3DModel::calc is virtual; our model is a plain J3DModel (no derived
+// class), so calling the base implementation directly is equivalent to
+// a vtable dispatch. Without calc(), bone node matrices stay uninitialized
+// and the skinned mesh collapses to the origin (invisible).
+typedef void (*J3DModel_calc_t)(J3DModel* self);
+#define J3DModel_calc ((J3DModel_calc_t)0x802EE8C0)
+
+// --- Link draw hook infrastructure -------------------------------------
+// `daPy_Draw` at 0x80108204 is Link #1's draw thunk; at 0x80108210 it bls
+// the real draw implementation `daPy_lk_c::draw @ 0x80107308`. We hook
+// that bl via Freighter so our shim runs IN THE DRAW PHASE (inside the
+// actor-draw iterator, same context as Kamome/Tsubo/etc draw callbacks).
+// modelEntryDL submissions from here land in j3dSys packet lists
+// correctly. Calling it from our fapGm_Execute hook instead corrupts
+// downstream rendering — observed as missing sky textures with giant
+// gray patches.
+typedef int (*daPy_lk_c_draw_t)(void* this_);
+#define daPy_lk_c_draw ((daPy_lk_c_draw_t)0x80107308)
 
 #endif

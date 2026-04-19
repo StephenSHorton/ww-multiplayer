@@ -47,6 +47,17 @@ def main():
     # a caller of fapGm_Execute to hook instead.
     proj.hook_branchlink("frame_shim", 0x80023204)
 
+    # Draw-phase hook. `daPy_Draw` at 0x80108204 is Link #1's draw thunk;
+    # at 0x80108210 it bls the real draw impl `daPy_lk_c::draw` at
+    # 0x80107308. Freighter replaces that bl with a bl to our
+    # `daPy_draw_hook`, which calls the original implementation and then
+    # runs our per-frame mini-Link work. Intent: get our modelEntryDL
+    # submissions into the legitimate actor-draw iteration. In practice
+    # this still breaks sky textures (same as the execute-phase attempt),
+    # so the hook is parked for the next session to investigate. See
+    # docs/05-known-issues.md → "Mini-Link render pipeline".
+    proj.hook_branchlink("daPy_draw_hook", 0x80108210)
+
     # Set entry function (required for linker)
     proj.set_entry_function("main01_init")
 
@@ -93,6 +104,11 @@ def main():
     # Post-build: patch OSInit so __OSArenaLo starts at 0x80411000 (past our T2
     # at 0x80410000-0x80410448) instead of the linker's 0x8040EFC0. Leaves the
     # arena's original bottom largely intact (only ~12 KB lost).
+    #
+    # Note: we tried bumping to 0x80511000 (1 MB carve-out for Link #2 heap)
+    # but that broke Outset ZeldaHeap loading — MEM1 doesn't have 1 MB of
+    # slack. See docs/06-roadmap.md Path B plan v2: early-alloc from GameHeap
+    # instead of carving the arena.
     T1_LOAD = 0x800056e0
     T1_FILE = 0x2620
     patches = [
