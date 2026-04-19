@@ -34,6 +34,16 @@ Direct DOL binary patch of OSInit's immediate load of `__ArenaLo`:
 
 Now `ClearArena`'s memset starts at `0x80411000`, skipping our T2 code at `0x80410000-0x80410448`.
 
+**Attempted in this project's Path B step 1 (2026-04-18) then REVERTED**: bumping
+to `0x80511000` to carve a 1 MB Link-#2 heap region. The arena shrank by 1 MB,
+which directly shrank ZeldaHeap from ~6.1 MB to ~5.1 MB. Boot log showed
+`Arena : 0x80511000 - 0x817f2120` (our patch landed) followed by dozens of
+`Cannot allocate ... ZeldaHeap` errors while Outset was loading its archives,
+plus `デモデータ読み込みエラー！！` ("Demo data load error") — game fell into a
+demo fallback path instead of the title screen. **Lesson: MEM1 has no spare
+megabyte; ZeldaHeap fills essentially all of the arena.** Path B had to pivot
+away from arena carve-outs.
+
 ## Freighter Silently Clobbers Game Code
 
 When you tell Freighter `inject_address=0x80410000`, it doesn't just add a new T2 section — it also **overwrites five regions of the game's own text** to relocate the stack and arena to Freighter's aspirational values (`New OSArenaLo: 0x80420560`, `Stack Moved To: 0x80410548`, etc). Those writes are NEVER logged by Freighter.
@@ -66,7 +76,72 @@ We don't fully understand Dolphin's rule for rejecting sections. Possibly relate
 
 `0x803F6100` **looks** like it's in BSS but is actually inside the game's data section D6 (`0x803F60E0-0x803F6820`). Writing to it corrupts real game data and (depending on what the game does with that word) can cause subtle bugs including visible rendering glitches.
 
-Current mailbox location: `0x80410800` — orphan memory between our T2 code (ends `0x80410448`) and `__OSArenaLo` (`0x80411000`). Not part of any DOL section, not part of the arena, not zeroed by anything.
+The mailbox lives between our T2 code section end and `__OSArenaLo = 0x80411000`. Address bumped as the mod grew:
+
+| Location | When | Why bumped |
+|---|---|---|
+| `0x80410800` | original | Worked while mod ≤ 0x748 bytes. |
+| `0x80410900` | mini-Link draft | Mod grew to 0x868; old slot fell inside code. |
+| `0x80410F00` | **current** | Mod grew to 0x9A8. Now flush against arena start so there's max headroom before another collision. Callback pointer at `mailbox+0x08` = `0x80410F08`; the asm shim in `frame_shim` encodes this offset as `lwz 12, 0x0F08(12)`. |
+
+**Lesson (learned twice):** any data slot we carve out of orphan memory has to sit ABOVE the eventual mod-end address. Each time mod size crosses the slot, the game's own instructions land at that address and `main01_init`'s write corrupts real code — the symptoms were a crash at `0x80410704` (`Invalid read 0x24`) on v1 and garbage reads from what looked like mailbox slots (slot fields showing `0x7C0803A6 = mtlr r0` instruction bytes) on v2.
+
+## Mini-Link render pipeline — partial (2026-04-19)
+
+Option B plan from `docs/06-roadmap.md`: render a second Link from our code by creating a `J3DModel` that shares Link #1's already-loaded `J3DModelData`, instead of spawning a second `PROC_PLAYER` actor.
+
+**What's working:**
+
+- `dRes_control_c::getRes("Link", LINK_BDL_CL=0x18, &mObjectInfo[0], 64) @ 0x8006F208` returns a valid `J3DModelData*`.
+- `mDoExt_J3DModel__create @ 0x80016BB8` returns a non-NULL `J3DModel*`, allocation routed through `JKRHeap::becomeCurrentHeap` wrapping (currently ArchiveHeap).
+- Draw-phase Freighter hook at `0x80108210` (the `bl daPy_lk_c::draw` inside `daPy_Draw`) fires every frame and calls our C shim, which calls the original `draw()` at `0x80107308` then runs our per-frame matrix+submit work. `daPy_Draw`'s thin trampoline at `0x80108204` stays intact (prologue, epilogue, return-value propagation — we return the original draw's result).
+- No log spam, no crashes (with calc disabled — see below), no freeze, mod size 0x9A8 bytes.
+
+**Two open blockers preventing a visible, animated mini-Link:**
+
+### Blocker 1 — `mDoExt_modelEntryDL` breaks sky rendering
+
+Submitting our `J3DModel` via `mDoExt_modelEntryDL @ 0x8000F974` corrupts sky textures: large gray patches across the skybox. Reproduced from BOTH the `fapGm_Execute` hook (execute phase) AND the `daPy_Draw` hook (draw phase), so it isn't about frame-lifecycle timing. Bisect sequence that established this:
+
+1. Pipeline with `create` + `modelEntryDL` in execute phase → sky gray.
+2. Pipeline with `create` only, no `modelEntryDL` → sky clean. (Isolated `modelEntryDL` as the trigger.)
+3. Pipeline with `create` + `modelEntryDL` in **draw** phase (via the `daPy_Draw` hook) → sky gray again.
+
+Heap choice (ZeldaHeap vs ArchiveHeap) also doesn't change the outcome. Allocation sizes are small (~20 KB for the `J3DModel` + bone matrix buffers) relative to the 7–8 MB per-heap capacity, so heap starvation isn't the mechanism.
+
+Working hypotheses (unverified):
+
+- Our `J3DModel`'s material packets point at the *shared* `J3DMaterial`/`J3DMaterialData` inside Link's `J3DModelData`. `J3DModel::entry()` (called inside `modelEntryDL`) enters these packets into j3dSys bucket lists, and the doubled-up materials leave TEV/texture state that breaks the sky's later render.
+- `viewCalc()` (also called inside `modelEntryDL`) writes `mViewBaseMtx` and reads `j3dSys.getViewMtx()` — might be the specific j3dSys touch that poisons subsequent renders.
+
+Candidate investigations:
+
+- Submit a DIFFERENT J3DModelData (e.g. Tsubo or Kamome) that isn't shared with an existing actor. If that doesn't break sky, shared-modelData state is confirmed as the root cause.
+- Log which j3dSys packet bucket our shape/mat packets land in; check whether the sky uses the same bucket.
+- Try `mDoExt_modelDiff` instead of the `unlock/entry/lock/viewCalc` path in `modelEntryDL`.
+
+### Blocker 2 — `J3DModel::calc() @ 0x802EE8C0` crashes Link
+
+Without `calc()`, the skinned mesh has no bone matrices computed — all joints collapse to the origin and the mesh is invisible. But calling `calc()` from EITHER phase crashes at exactly the same site:
+
+```
+Invalid read from 0x0000301C, PC = 0x8010C53C
+```
+
+`0x8010C53C` is 5 instructions into `checkEquipAnime__9daPy_lk_cCFv @ 0x8010C528`. The faulting instruction is `lhz r0, 0x301C(r3)` with `r3 = NULL` — i.e. Link's `this` pointer became null by the time his own `checkEquipAnime` ran. `checkEquipAnime` is called from within Link's draw path, so our `calc()` is polluting global state that Link reads a few instructions later.
+
+`J3DModel::calc()` starts with `j3dSys.setModel(this)` and then `j3dSys.setCurrentMtxCalc(getModelData()->getBasicMtxCalc())`. The j3dSys globals are written; if Link's draw path reads `j3dSys.mModel` expecting to see its own model (and then walks a pointer chain from there), it'd get OUR model's data — and our model has no legitimate actor backing, so related chases return NULL.
+
+Candidate fix:
+
+- Save `j3dSys.mModel` and `j3dSys.mCurrentMtxCalc` before `calc()`, restore after. If the addresses of those fields are stable, this is a 4-line wrapper.
+- Alternative: don't call `calc()`. Manually populate `mpNodeMtx[]` from the rest-pose data in `J3DModelData` — i.e. re-implement `calcAnmMtx`'s recursive walk, but without touching j3dSys.
+
+### Infrastructure landmarks established this session
+
+- `dRes_control_c::getRes` is a **static** method, not a member function. The Itanium mangling (`F...` without `CCF` / `CFv`) plus the decomp's explicit `static` keyword confirm this. Earlier we typed it as a member with a `this` arg, which shifted every real argument by one register — the game treated `&mObjectInfo[0]` (which at offset 0 inside dRes_control_c has the 14-byte string `"System\0...\0"` of the first archive slot) as `arcName`, which is why broken getRes calls spammed `<System.arc> getRes: res nothing !!` at ~143 logs/sec. **Beware**: static members in the decomp headers are NOT clearly flagged in the mangled names; read the header declaration or the decomp source before building a function-pointer typedef.
+- Draw-phase hooking recipe: `hook_branchlink` at `0x80108210` (the `bl` inside `daPy_Draw`). Our C function must call `daPy_lk_c::draw @ 0x80107308` via function pointer to preserve Link's rendering, then do our own work, then return Link's original result (`BOOL`/`int`) so `daPy_Draw`'s caller sees the right value. This is the generic shape for "run code inside the actor-draw iterator" and should work for any actor's draw we want to piggyback on.
+- Mini-Link J3DModel lives in ArchiveHeap (switched via `mDoExt_getArchiveHeap @ 0x80011AB4` + `JKRHeap::becomeCurrentHeap @ 0x802B03F8`). Neither ZeldaHeap (`mDoExt_getZeldaHeap @ 0x800118C0`) nor GameHeap (`mDoExt_getGameHeap @ 0x800117E4`) are better — heap starvation isn't the failure mode.
 
 ## Dolphin caches INI files at startup
 
