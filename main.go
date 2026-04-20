@@ -680,6 +680,49 @@ func runBroadcastLink(name, addr string) {
 	fmt.Println("\nDisconnected.")
 }
 
+// Mtx layout in pose data is row-major f32[3][4] big-endian (PowerPC native):
+//   bytes  0..15 = row 0 (m00, m01, m02, m03)   m03 = X translation
+//   bytes 16..31 = row 1 (m10, m11, m12, m13)   m13 = Y translation
+//   bytes 32..47 = row 2 (m20, m21, m22, m23)   m23 = Z translation
+// Stride = 48 B per joint.
+const (
+	mtxStride        = 48
+	mtxOffTransX     = 12
+	mtxOffTransY     = 28
+	mtxOffTransZ     = 44
+)
+
+func readBEFloat(b []byte, off int) float32 {
+	return math.Float32frombits(binary.BigEndian.Uint32(b[off : off+4]))
+}
+func writeBEFloat(b []byte, off int, v float32) {
+	binary.BigEndian.PutUint32(b[off:off+4], math.Float32bits(v))
+}
+
+// localizePoseInPlace subtracts (dx, dy, dz) from every joint's translation
+// column, turning a world-space mpNodeMtx blob into a pose relative to the
+// sender's origin. Rotation parts are untouched.
+func localizePoseInPlace(buf []byte, joints int, dx, dy, dz float32) {
+	for j := 0; j < joints; j++ {
+		base := j * mtxStride
+		writeBEFloat(buf, base+mtxOffTransX, readBEFloat(buf, base+mtxOffTransX)-dx)
+		writeBEFloat(buf, base+mtxOffTransY, readBEFloat(buf, base+mtxOffTransY)-dy)
+		writeBEFloat(buf, base+mtxOffTransZ, readBEFloat(buf, base+mtxOffTransZ)-dz)
+	}
+}
+
+// applyPoseAt re-adds (tx, ty, tz) to every joint's translation column.
+// Inverse of localizePoseInPlace; used by the receiver to land the
+// localized pose at any chosen world position.
+func applyPoseAt(buf []byte, joints int, tx, ty, tz float32) {
+	for j := 0; j < joints; j++ {
+		base := j * mtxStride
+		writeBEFloat(buf, base+mtxOffTransX, readBEFloat(buf, base+mtxOffTransX)+tx)
+		writeBEFloat(buf, base+mtxOffTransY, readBEFloat(buf, base+mtxOffTransY)+ty)
+		writeBEFloat(buf, base+mtxOffTransZ, readBEFloat(buf, base+mtxOffTransZ)+tz)
+	}
+}
+
 // Same as broadcast-link but ALSO sends Link's full skeletal pose every
 // tick. The receiver's puppet-sync writes that pose into mailbox.pose_buf
 // and flips shadow_mode=5 so Link #2 animates from the wire instead of
@@ -725,16 +768,24 @@ func runBroadcastPose(name, addr string) {
 		}
 
 		// Pose. Walk daPy_lk_c -> mpCLModel -> mpNodeMtx and ship the
-		// raw 2016 B. Best-effort: a missing chain link just skips the
-		// tick (Link unloaded between rooms, etc).
+		// raw 2016 B AFTER localizing — subtract Link's world position
+		// from each joint's translation column so the pose is relative
+		// to Link's origin (rotation parts unchanged). Receiver re-adds
+		// the remote's world position to land Link #2 at the right
+		// world coords. Without localization, two-Dolphin works but
+		// loopback always overlaps; with localization, the receiver can
+		// render Link #2 anywhere it wants.
 		linkPtr, err := d.GetLinkPtr()
-		if err == nil && linkPtr != 0 {
+		if err == nil && linkPtr != 0 && pos != nil {
 			modelPtr, _ := d.ReadU32(linkPtr + linkMpCLModelOff)
 			if modelPtr >= 0x80000000 && modelPtr < 0x81800000 {
 				nodePtr, _ := d.ReadU32(modelPtr + j3dModelMpNodeMtxOff)
 				if nodePtr >= 0x80000000 && nodePtr < 0x81800000 {
 					data, err := d.ReadAbsolute(nodePtr, poseBytes)
 					if err == nil && data != nil {
+						if os.Getenv("WW_POSE_RAW") == "" {
+							localizePoseInPlace(data, linkJointCount, pos.PosX, pos.PosY, pos.PosZ)
+						}
 						if err := client.SendPose(linkJointCount, data); err != nil {
 							poseErrs++
 							if poseErrs > 5 {
@@ -775,6 +826,22 @@ const (
 
 func slotAddr(i int, off uint32) uint32 {
 	return puppetSlotBase + uint32(i)*puppetSlotSize + off
+}
+
+// envFloat32 reads an environment variable as a float32, returning the
+// fallback if unset or unparseable. Used for tunables that need to be
+// changed per-launch (offsets, throttles) without a recompile.
+func envFloat32(key string, fallback float32) float32 {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	f, err := strconv.ParseFloat(v, 32)
+	if err != nil {
+		fmt.Printf("warn: bad %s=%q (%v); using %g\n", key, v, err, fallback)
+		return fallback
+	}
+	return float32(f)
 }
 
 // Iterates every active puppet slot and applies the proc-specific unhide
@@ -873,6 +940,17 @@ func runPuppetSync(name, addr string) {
 		poseBufPtr    uint32
 		poseModeReady bool
 	)
+	// Render offset added on top of the localized pose's re-application.
+	// Default 0 (real multiplayer renders Link #2 at remote's actual
+	// world coords). Set WW_LINK2_OFFSET_X / _Y / _Z for loopback demos
+	// so Link #2 doesn't overlap your own Link.
+	link2OffsetX := envFloat32("WW_LINK2_OFFSET_X", 0)
+	link2OffsetY := envFloat32("WW_LINK2_OFFSET_Y", 0)
+	link2OffsetZ := envFloat32("WW_LINK2_OFFSET_Z", 0)
+	if link2OffsetX != 0 || link2OffsetY != 0 || link2OffsetZ != 0 {
+		fmt.Printf("Link #2 render offset: (%.0f, %.0f, %.0f)\n",
+			link2OffsetX, link2OffsetY, link2OffsetZ)
+	}
 	ensurePoseMode := func() {
 		if poseModeReady {
 			return
@@ -955,7 +1033,12 @@ func runPuppetSync(name, addr string) {
 			// Pose feed (shadow_mode=5). First remote to deliver any pose
 			// claims the Link-#2 driver slot; subsequent remotes still
 			// puppet through the actor pipeline above. MAX_REMOTE_LINKS=1
-			// for v0.
+			// for v0. Sender ships a LOCALIZED pose (translations
+			// relative to its own world position); receiver re-adds
+			// the smoothed remote position + WW_LINK2_OFFSET so Link #2
+			// lands at the right world coords. The offset is normally 0
+			// for two-Dolphin play; set it to e.g. 500 for loopback
+			// development so Link #2 doesn't overlap your own Link.
 			if rp.PoseMatrices != nil && len(rp.PoseMatrices) == rp.PoseJoints*48 {
 				if linkDriverID == 0 {
 					linkDriverID = rp.ID
@@ -963,10 +1046,20 @@ func runPuppetSync(name, addr string) {
 					if poseModeReady {
 						fmt.Printf("link-driver := player %d (%s)\n", rp.ID, rp.Name)
 					}
+					// Free this remote's puppet actor so we don't see
+					// both a Link #2 AND a KAMOME tracking the same
+					// player. Slot stays bound to this remote ID; we
+					// just deactivate so C drops bookkeeping.
+					d.WriteAbsolute(slotAddr(idx, slotOffAct), zero)
 				}
 				if poseModeReady && rp.ID == linkDriverID && poseBufPtr != 0 {
-					d.WriteAbsolute(poseBufPtr, rp.PoseMatrices)
-					// Bump pose_seq so the C side can detect freshness later.
+					adjusted := make([]byte, len(rp.PoseMatrices))
+					copy(adjusted, rp.PoseMatrices)
+					if os.Getenv("WW_POSE_RAW") == "" {
+						applyPoseAt(adjusted, rp.PoseJoints,
+							st.curX+link2OffsetX, st.curY+link2OffsetY, st.curZ+link2OffsetZ)
+					}
+					d.WriteAbsolute(poseBufPtr, adjusted)
 					sq, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq, 1)
 					next := byte(0)
 					if len(sq) == 1 {
