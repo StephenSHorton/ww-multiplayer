@@ -103,6 +103,19 @@ typedef f32 Mtx[3][4];
 // `model->setUserArea((u32)this)` call sites in d_a_*.cpp.
 #define J3DMODEL_USER_AREA_OFFSET   0x14
 
+// J3DModelData::mJointTree.mBasicMtxCalc (J3DMtxCalc*). The *pose* walker
+// lives HERE, not in mUserArea. J3DModel::calc → calcAnmMtx reads
+// `getModelData()->getBasicMtxCalc()` and runs `recursiveCalc(rootJoint)`
+// through it. Since our mini-Link and Link #1 share the same J3DModelData,
+// whatever animated controller Link #1 installs drives *both* skeletons.
+// Shadowing the daPy_lk_c only controls the peripheral fields read via
+// mUserArea (equip/anim status), not the joint transforms.
+//
+// Layout from zeldaret/tww J3DModelData.h + J3DJointTree.h:
+//   J3DModelData + 0x10 = J3DJointTree (inlined)
+//   J3DJointTree  + 0x14 = J3DMtxCalc* mBasicMtxCalc
+#define J3DMODELDATA_BASIC_MTXCALC_OFFSET 0x24
+
 // Opaque — we never inspect the contents, only hold pointers.
 typedef void J3DModel;
 typedef void J3DModelData;
@@ -162,6 +175,13 @@ typedef JKRHeap* (*mDoExt_getZeldaHeap_t)(void);
 // current heap. `this` is r3; there are no other args.
 typedef JKRHeap* (*JKRHeap_becomeCurrentHeap_t)(JKRHeap* self);
 #define JKRHeap_becomeCurrentHeap ((JKRHeap_becomeCurrentHeap_t)0x802B03F8)
+
+// STATIC allocator. void* JKRHeap::alloc(u32 size, int align, JKRHeap* heap).
+// Passing NULL uses the current heap; we pass the heap explicitly so we
+// don't depend on whatever heap happens to be current at call time.
+// Symbol per zeldaret/tww GZLE01 symbols: alloc__7JKRHeapFUliP7JKRHeap.
+typedef void* (*JKRHeap_alloc_t)(u32 size, int align, JKRHeap* heap);
+#define JKRHeap_alloc ((JKRHeap_alloc_t)0x802B0434)
 
 // --- Per-frame bone computation ----------------------------------------
 // J3DModel::calc is virtual; our model is a plain J3DModel (no derived

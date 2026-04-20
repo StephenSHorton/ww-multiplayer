@@ -75,6 +75,12 @@ func main() {
 				os.Exit(1)
 			}
 			runPokeU32(os.Args[2], os.Args[3])
+		case "shadow-mode":
+			if len(os.Args) < 3 {
+				fmt.Println("Usage: ww shadow-mode <0|1|2|3>  (0=baseline 1=refresh 2=freeze 3=null-basicMtxCalc)")
+				os.Exit(1)
+			}
+			runShadowMode(os.Args[2])
 		case "unhide-puppet":
 			runUnhidePuppet()
 		case "broadcast-link":
@@ -852,6 +858,40 @@ func runPokeU32(addrHex, valHex string) {
 	fmt.Printf("Wrote 0x%08X to 0x%08X\n", val, addr)
 }
 
+// mailbox.shadow_mode lives at +0x90; shadow_latched at +0x91.
+// See inject/include/mailbox.h and docs/06 "Next Session Priority" step 1.
+const mailboxShadowMode = 0x90
+const mailboxShadowLatched = 0x91
+
+func runShadowMode(s string) {
+	v, err := strconv.Atoi(s)
+	if err != nil || v < 0 || v > 3 {
+		fmt.Println("mode must be 0 (baseline), 1 (refresh), 2 (freeze), or 3 (null-basicMtxCalc)")
+		os.Exit(1)
+	}
+	d, err := dolphin.Find("GZLE01")
+	if err != nil { fmt.Println(err); os.Exit(1) }
+	defer d.Close()
+	if err := d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{byte(v)}); err != nil {
+		fmt.Printf("write failed: %v\n", err)
+		os.Exit(1)
+	}
+	// Give the draw hook one frame to react and (in mode 2) latch.
+	time.Sleep(50 * time.Millisecond)
+	latched, _ := d.ReadAbsolute(mailboxBase+mailboxShadowLatched, 1)
+	labels := []string{
+		"baseline (Link #1 direct)",
+		"refresh (copy every frame)",
+		"freeze (copy once)",
+		"null basicMtxCalc around calc (probe shared pose controller)",
+	}
+	latchedStr := fmt.Sprintf("%d", latched[0])
+	if latched[0] == 0xFF {
+		latchedStr = "0xFF (alloc failed — falling back to baseline)"
+	}
+	fmt.Printf("shadow_mode = %d  [%s]   latched=%s\n", v, labels[v], latchedStr)
+}
+
 func runDump() {
 	d, err := dolphin.Find("GZLE01")
 	if err != nil { fmt.Println(err); os.Exit(1) }
@@ -868,6 +908,17 @@ func runDump() {
 
 	if progress, err := d.ReadU32(mailboxBase + 0x04); err == nil {
 		fmt.Printf("progress: %d (1=gate 3=link-ready 5=spawn-queued 8=spawned 9=syncing 10=actor-lost)\n", progress)
+	}
+
+	// Shadow-instance experiment state (mailbox +0x90 / +0x91)
+	if sh, err := d.ReadAbsolute(mailboxBase+mailboxShadowMode, 2); err == nil {
+		fmt.Printf("shadow_mode: %d   shadow_latched: %d\n", sh[0], sh[1])
+	}
+	// Mini-link J3DModelData pointer + current basicMtxCalc value
+	if md, err := d.ReadU32(mailboxBase + 0x94); err == nil {
+		if bc, err := d.ReadU32(mailboxBase + 0x98); err == nil {
+			fmt.Printf("mini_link_data: 0x%08X   basicMtxCalc (@+0x24): 0x%08X\n", md, bc)
+		}
 	}
 
 	// Per-slot state

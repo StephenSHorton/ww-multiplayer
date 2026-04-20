@@ -191,12 +191,21 @@ mDoExt_modelEntryDL(mini_link_model);               // 0x8000F974
 - `mDoExt_modelUpdateDL @ 0x8000F84C` — update variant (no re-entry)
 - `mDoExt_modelEntry @ 0x8000F8F8` — one-shot entry without DL
 - `J3DModel_calc @ 0x802EE8C0`
+- `J3DModel::calcAnmMtx @ 0x802EE5D8` (size 0xA4) — null-deref site
+  for unbound basicMtxCalc is `+0x64` = `0x802EE63C`
+- `J3DModelData + 0x24` = `mJointTree.mBasicMtxCalc` (J3DMtxCalc*) —
+  the shared pose-walker pointer. Swap to control Link #2's pose.
+- `JKRHeap::alloc(size, align, heap) @ 0x802B0434` — static allocator
+  used for the shadow_link buffer (~19 KB from GameHeap).
 - `j3dSys @ 0x803EDA58` — +0x30 = `mCurrentMtxCalc`, +0x38 = `mModel`
 - `settingTevStruct @ 0x80193028` (dScnKy_env_light_c method)
 - `setLightTevColorType @ 0x80193A34` (dScnKy_env_light_c method)
 - `dKy_tevstr_init @ 0x80196EB4` (params: tevStr*, roomNo, 0xFF)
 - `g_env_light @ 0x803E4AB4` (size 0xC9C)
 - `dKy_tevstr_c` size = 0xB0
+- `sizeof(daPy_lk_c) = 0x4C28` (from decomp d_a_player_main.h). Big
+  enough to force runtime allocation (BSS at 19 KB collides with the
+  mailbox at `0x80410F00`).
 - `ALWAYS_BDL_MPM_TUBO = 0x31` (broken-pot-fragment model — the first
   visible geometry ever rendered by our pipeline. For a whole pot use
   a different type index — real Tsubo reads the BDL from
@@ -227,31 +236,67 @@ output is ambiguous — tells you exactly how far each frame reached.
   Wiring it to Link #1's `daPy_lk_c*` each frame fixed everything.
   Full 0x128 snapshot is still kept around calc as a safety net.
 
-### Next step for Link
+### MIRROR BROKEN — pose source identified (2026-04-19 late-late)
 
-Make Link #2 animate INDEPENDENTLY of Link #1. Currently the joint
-callback acts on Link #1's `daPy_lk_c` state, so Link #2 mirrors
-Link #1 frame-perfectly (the "Angle 3" outcome the roadmap originally
-ruled out). To break the mirror, we need callbacks to operate on a
-separate state object. Three approaches, ordered by cost:
+The userArea-shadow hypothesis was wrong. `mUserArea` is read only by
+peripheral callbacks (equip/anim-status checks, `checkEquipAnime @
+0x8010C53C`, the +0x301C field). **The skeletal walker does NOT look
+at mUserArea.** Pose flows through `J3DModelData::mJointTree.mBasicMtxCalc`
+(offset `+0x24`), which is shared between Link #1's model and our
+mini-Link because they share `J3DModelData`.
 
-1. **Synthesize a fake `daPy_lk_c`** (or a stripped subset of its
-   fields) in our own memory. Point `mUserArea` at the fake. Drive
-   the fake's animation/pose fields from network input each frame.
-   The callbacks read positional/anim state from our fake and Link
-   #2's bones land where we tell them. Cost: figure out which
-   `daPy_lk_c` fields the joint callbacks actually read (the +0x301C
-   field that originally crashed is one starting clue; trace from
-   there).
-2. **Replace the joint callbacks themselves** for our model. If we
-   can per-instance override the J3DJoint vtable on our copy of the
-   model's joint tree (or null out the callback), calc would skip
-   the Link-specific logic and just compose the bone hierarchy from
-   the default rig. We'd then have to drive bones manually too.
-3. **Separate ModelData via second archive load** (the original
-   step 3 fallback). Now arguably overkill — the userArea fix
-   covers the calc issue, and step 1 above is cheaper than
-   double-loading 700 KB.
+Decisive evidence chain (all ran on Outset, save mid-session):
+- **shadow_mode 1/2** (memcpy this_ → shadow, swap mUserArea): Link #2
+  still mirrors Link #1. Confirms userArea is not pose-relevant.
+- **shadow_mode 3a** (null out `mBasicMtxCalc` via `*(mini_link_data +
+  0x24) = 0` around calc): Dolphin logs `Invalid read from 0x00000000,
+  PC = 0x802ee63c`. `calcAnmMtx @ 0x802EE5D8` crashes exactly where
+  `j3dSys.getCurrentMtxCalc()->init(...)` dereferences the null. Proves
+  our write lands on the right field.
+- **shadow_mode 3b** (swap `mBasicMtxCalc` to a NO-OP J3DMtxCalc whose
+  vtable slots all point at a `blr` stub): calc completes cleanly,
+  draw_progress 38, spawn_trigger advancing, sky clean. Link #2 **freezes
+  in his last pose while Link #1 keeps animating**. DECOUPLED.
+
+Why freeze instead of T-pose: `mpNodeMtx` on our J3DModel holds the
+last frame's calc output. Skipping the walk (via no-op mtxcalc) leaves
+that buffer untouched, so GX re-uses the previous matrices.
+
+### Control surface unlocked
+
+We now own Link #2's pose via ONE pointer: `J3DModelData + 0x24`.
+Three useful modes fall out of this:
+- **Mirror** (current baseline): leave `mBasicMtxCalc` alone. Cheap,
+  visible, useful for debugging. `shadow_mode = 0` keeps this.
+- **Freeze**: swap to no-op calc. `shadow_mode = 3` gives us this.
+  Useful as a kill-switch and as a way to test whether downstream
+  rendering tolerates a frozen pose.
+- **Driven**: swap to a CUSTOM J3DMtxCalc whose `recursiveCalc` we
+  write, and that reads a pose from wherever we want (network packet,
+  stored animation, programmatic motion). This is the actual goal.
+
+### Next step — driven mode
+
+Write a `recursiveCalc` that accepts a pose buffer and writes joint
+transforms into `mpNodeMtx` for our model. Smallest useful form:
+- Read a "pose" array (one `J3DTransformInfo` per joint, or one Mtx
+  per joint) from a fixed location Go populates.
+- Walk the joint tree, composing matrices via the standard transform
+  chain (scale × rot × trans, relative to parent).
+- End up with `mpNodeMtx[0..jointNum-1]` populated.
+
+Two directions to explore:
+1. **Cheat with Link's own anim**: Before our no-op calc, manually
+   call Link's `J3DMtxCalcAnm::calc(jnt_no)` for each joint but with
+   a different animation frame/id. Harder — requires understanding
+   how Link's anim state is composed and finding the injection point.
+2. **Write matrices directly**: Skip the J3DMtxCalc abstraction
+   entirely. Our basicMtxCalc remains no-op, but before modelEntryDL
+   we `memcpy()` our desired matrices into `mpNodeMtx`. Simpler —
+   avoids reimplementing the walker.
+
+Either way, we're no longer blocked on the "decouple" problem. That's
+solved.
 
 ### Infrastructure landmarks established this session
 

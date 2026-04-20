@@ -49,6 +49,34 @@ static J3DModelData* mini_link_data = 0;
 static J3DModel* mini_link_model = 0;
 // 0 = not tried yet, 1 = model created + rendering, 0xFF = give up
 static u8 mini_link_state = 0;
+
+// Shadow daPy_lk_c buffer for the "own the state" experiment (docs/06).
+// sizeof(daPy_lk_c) per zeldaret/tww decomp (d_a_player_main.h) = 0x4C28.
+// 19 KB is too big for static BSS — Freighter's linker placed shadow_link
+// at 0x804101F8, which collides with the mailbox at 0x80410F00. Fixed by
+// runtime-allocating from GameHeap on first use instead.
+#define SHADOW_LINK_SIZE 0x4C28
+static u32* shadow_link = 0;   // populated on first mode-1/2 frame
+static u8 prev_shadow_mode = 0;
+static int shadow_latched_local = 0;
+
+// No-op J3DMtxCalc for mode 3 (and future custom-pose work).
+// Mode 3 with NULL confirmed `calcAnmMtx` derefs basicMtxCalc (PC 0x802ee63c),
+// but the crash stalls the draw phase. Replacing NULL with a valid pointer
+// whose virtuals all return immediately lets calc() complete while skipping
+// the joint walk — Link #2's mpNodeMtx stays from last real calc → freeze.
+//
+// Vtable layout: 16 slots (over-provisioned — base J3DMtxCalc has 4; derived
+// subclasses may have more if any downstream code pretends our object is a
+// subclass). Every slot points at noop_stub (a bare `blr`).
+static u32 noop_mtxcalc_vtable[16];
+static u32 noop_mtxcalc_obj[16];     // +0x00 = vtable ptr, rest unused
+static int noop_mtxcalc_initialized = 0;
+
+__attribute__((naked))
+static void noop_stub(void) {
+    asm volatile("blr\n");
+}
 // Archive + BDL index for the model we hand to mDoExt_J3DModel__create.
 // Stored in rodata (lives in T2) so the compiler emits a real pointer
 // getRes can dereference.
@@ -364,16 +392,98 @@ int daPy_draw_hook(void* this_) {
             (*mtx)[2][0] = 0.0f; (*mtx)[2][1] = 0.0f; (*mtx)[2][2] = 1.0f;
             (*mtx)[2][3] = link_pos->z;
 
-            // BREAKTHROUGH 2026-04-19+: Link's joint callbacks (bound
-            // to the shared J3DModelData via J3DJoint subclasses)
-            // recover the owning daPy_lk_c via mUserArea (offset 0x14
-            // in J3DModel — see zeldaret/tww J3DModel.h). Without it,
-            // calc derefs NULL inside checkEquipAnime at PC 0x8010C53C.
-            // Set it each frame to Link #1's instance (this_ here).
-            // For now this means mini-Link will MIRROR Link #1's pose
-            // (callback acts on Link #1's state). Independent animation
-            // requires a synthetic daPy_lk_c — future work.
-            *(volatile u32*)((u8*)mini_link_model + J3DMODEL_USER_AREA_OFFSET) = (u32)this_;
+            // Link's joint callbacks (bound to the shared J3DModelData
+            // via J3DJoint subclasses) recover the owning daPy_lk_c via
+            // mUserArea (offset 0x14 in J3DModel). Without it, calc
+            // derefs NULL inside checkEquipAnime at PC 0x8010C53C.
+            //
+            // Shadow-instance experiment (docs/06 "Next Session Priority"
+            // step 1). mailbox->shadow_mode chooses the source:
+            //   0 = userArea = this_ (Link #1, proven mirror recipe)
+            //   1 = refresh: copy this_ → shadow_link each frame, userArea = shadow
+            //   2 = freeze:  copy once on mode entry, userArea = shadow
+            //                Observation (2026-04-19): Link #2 still mirrored
+            //                Link #1 → pose does NOT flow through mUserArea.
+            //                Per J3DModel::calcAnmMtx, the walker uses
+            //                getModelData()->getBasicMtxCalc(), which is
+            //                shared across both models via J3DModelData.
+            //   3 = baseline userArea AND swap basicMtxCalc→NULL around calc
+            //                to probe whether the shared controller is the
+            //                actual pose source. Crash at recursiveCalc ⇒
+            //                controller is the culprit (design replacement).
+            //                Link #2 freezes at last pose ⇒ decoupling proven.
+            u8 mode = mailbox->shadow_mode;
+            if (mode != prev_shadow_mode) {
+                shadow_latched_local = 0;
+                mailbox->shadow_latched = 0;
+            }
+            prev_shadow_mode = mode;
+
+            u32 user_area = (u32)this_;
+            if (mode == 1 || mode == 2) {
+                // Lazy-allocate the shadow buffer from GameHeap. Runs once
+                // the first time Go writes a non-zero shadow_mode. 0x4C28
+                // out of ~245 KB GameHeap free (per docs/06) is safe.
+                // shadow_latched in mailbox becomes 0xFF to signal alloc
+                // failure so Go can distinguish from "latched snapshot".
+                if (!shadow_link) {
+                    shadow_link = (u32*)JKRHeap_alloc(
+                        SHADOW_LINK_SIZE, 0x20, mDoExt_getGameHeap()
+                    );
+                }
+                if (!shadow_link) {
+                    mailbox->shadow_latched = 0xFF;
+                    // fall back to baseline (user_area = this_)
+                } else {
+                    if (mode == 1 || !shadow_latched_local) {
+                        volatile u32* src = (volatile u32*)this_;
+                        int k;
+                        for (k = 0; k < (int)(SHADOW_LINK_SIZE / 4); k++) {
+                            shadow_link[k] = src[k];
+                        }
+                        if (mode == 2) {
+                            shadow_latched_local = 1;
+                            mailbox->shadow_latched = 1;
+                        }
+                    }
+                    user_area = (u32)shadow_link;
+                }
+            }
+            *(volatile u32*)((u8*)mini_link_model + J3DMODEL_USER_AREA_OFFSET) = user_area;
+
+            // Diagnostic: publish what we *think* J3DModelData and its
+            // basicMtxCalc pointer are, every frame, regardless of mode.
+            // If mode-3's NULL write had no effect, these tell us whether
+            // our pointer/offset arithmetic is even landing on the right
+            // field.
+            volatile u32* basic_calc_slot = 0;
+            u32 saved_basic_calc = 0;
+            if (mini_link_data) {
+                basic_calc_slot = (volatile u32*)((u8*)mini_link_data + J3DMODELDATA_BASIC_MTXCALC_OFFSET);
+                saved_basic_calc = *basic_calc_slot;
+                mailbox->dbg_model_data = (u32)mini_link_data;
+                mailbox->dbg_saved_basic = saved_basic_calc;
+            }
+
+            // Mode 3 (verified 2026-04-19): PC 0x802ee63c inside calcAnmMtx
+            // hits a NULL deref when basicMtxCalc is 0 — decoupling proven.
+            // Now swap basicMtxCalc to a no-op J3DMtxCalc so calc() completes
+            // without walking the joint tree. Link #2's mpNodeMtx is left
+            // untouched → he should FREEZE at his last-calc'd pose while
+            // Link #1 keeps animating.
+            if (mode == 3 && basic_calc_slot) {
+                if (!noop_mtxcalc_initialized) {
+                    int vi;
+                    for (vi = 0; vi < 16; vi++) {
+                        noop_mtxcalc_vtable[vi] = (u32)&noop_stub;
+                    }
+                    noop_mtxcalc_obj[0] = (u32)&noop_mtxcalc_vtable[0];
+                    noop_mtxcalc_initialized = 1;
+                }
+                *basic_calc_slot = (u32)&noop_mtxcalc_obj[0];
+            } else {
+                basic_calc_slot = 0;   // don't restore if we didn't swap
+            }
 
             // Full 0x128-byte j3dSys snapshot around calc().
             static u32 j3dsys_snapshot[J3D_SYS_SIZE / 4];
@@ -385,6 +495,11 @@ int daPy_draw_hook(void* this_) {
             }
             mailbox->draw_progress = 35;
             J3DModel_calc(mini_link_model);
+            // Restore basicMtxCalc immediately — Link #1's next-frame code
+            // reads this pointer through the shared J3DModelData.
+            if (basic_calc_slot) {
+                *basic_calc_slot = saved_basic_calc;
+            }
             mailbox->draw_progress = 36;
             for (n = 0; n < (int)(J3D_SYS_SIZE / 4); n++) {
                 j3dsys[n] = j3dsys_snapshot[n];

@@ -132,47 +132,61 @@
 
 ## 🔬 Next Session Priority
 
-**Break the Link #2 mirror — give him independent animation.** As of
-2026-04-19 late, Link #2 renders end-to-end via our pipeline (see
-"Done") but his pose is computed from Link #1's `daPy_lk_c` state
-because that's what we hand to the joint callbacks via `mUserArea`.
-For real multiplayer, Link #2's pose must come from the wire.
+**Mirror BROKEN. Now drive Link #2 from our own pose source.** As of
+2026-04-19 late-late, Link #2 can be fully decoupled from Link #1 by
+swapping `J3DModelData + 0x24` (= `mJointTree.mBasicMtxCalc`) to a
+no-op J3DMtxCalc around our `calc()`. calc completes cleanly, draw
+path 38/38, sky clean, and Link #2 holds his last pose while Link #1
+keeps animating. Proved live: `shadow_mode = 3` in the current build.
+See `docs/05-known-issues.md` "MIRROR BROKEN" for the full chain.
 
-**Attack plan, in order of cost:**
+The shadow-daPy_lk_c work (modes 1/2) was inconclusive on its own
+premise: `mUserArea` doesn't carry pose data. It's used by peripheral
+callbacks only (equip/anim flags). The real control surface is the
+basicMtxCalc pointer.
 
-1. **Synthesize a fake `daPy_lk_c`** with just the fields the joint
-   callbacks read. Hand its address as `mUserArea` instead of Link
-   #1's. Each frame, populate the fake's pose / anim-state fields
-   from the network. Discovery work: figure out exactly which
-   `daPy_lk_c` fields the joint callbacks touch. The +0x301C field
-   that originally crashed (`lhz r0, 0x301C(r3)`) is the first
-   known field — trace from there. Likely candidates: anim ctrl
-   pointer, current frame, sword/shield state, equip state. Probably
-   a small set; full struct (10000+ bytes) doesn't need to be faked.
-2. **Per-instance joint-callback override.** If the J3DJoint vtable
-   pointers can be replaced on our model's joint tree (a copy or a
-   redirect), we skip Link's callbacks entirely and compose bones
-   from base anim + manual matrix writes. More invasive — touching
-   J3DModelData internals — and we'd then have to reproduce the
-   joint-walk math ourselves.
-3. **Network protocol extension.** Once Link #2 is animating from
-   our fake state, wire format must carry whatever subset of fields
-   the callbacks read (current anim, frame, sword state, etc).
-   Existing puppet protocol carries pos+rot only; this adds an
-   anim-state struct. Probably 1-2 dozen bytes per remote.
+### Attack plan — drive Link #2
 
-### Working skinned-Link recipe (keep this handy, it's your baseline)
+Two tracks to explore next session:
 
-Current `inject/src/multiplayer.c` state: `PROBE_ARCNAME = "Link"`,
-`PROBE_BDL_IDX = LINK_BDL_CL`, uses `modelEntryDL` with `calc()`
-wrapped in full 0x128-byte j3dSys snapshot AND `mUserArea` set to
-Link #1's actor each frame. Renders a second Link mirroring Link #1
-at `link_pos + (100, 0, 0)`. To probe a different model: flip
-`PROBE_ARCNAME` / `PROBE_BDL_IDX`. To break the mirror: replace
-`(u32)this_` in the userArea write with the address of a synthetic
-state struct.
+1. **Direct-matrix mode (simpler):** Leave basicMtxCalc as the no-op
+   (Link #2's pose walker does nothing). Between calc() returning and
+   modelEntryDL submitting, `memcpy()` a set of 42 joint matrices
+   (one per joint) from a network-driven pose buffer into
+   `mpNodeMtx[0..jointNum-1]` on our mini_link_model. GX draw then
+   uploads our matrices. Cost: need pose authoring — either capture
+   Link #1's `mpNodeMtx` into a ring buffer and replay it on a delay
+   (gives us a "desynced Link #2"), or fabricate a simple cycle
+   (walk animation, idle, etc.). Right path for the first "Link #2
+   actually does something different" demo.
 
-### Solved this session (2026-04-19 evening + late evening)
+2. **Custom-calc mode (more principled):** Write our own
+   `recursiveCalc` that walks the joint tree and composes transforms
+   from a `J3DTransformInfo[]` we own. Point basicMtxCalc at our
+   custom J3DMtxCalc. Lets us reuse the game's skeleton-walk math
+   instead of flattening to world-space matrices. Longer-term
+   cleaner; more J3D framework grokking needed up front.
+
+Either way: the wire-protocol extension (current-anim id, frame,
+sword/shield) becomes meaningful only once Link #2 is rendering
+*something other than a mirror*. Both above paths can be prototyped
+with zero network work, by generating test poses locally.
+
+### Working skinned-Link recipe (baseline, unchanged)
+
+`inject/src/multiplayer.c`: `PROBE_ARCNAME = "Link"`, `PROBE_BDL_IDX =
+LINK_BDL_CL`, `modelEntryDL` with `calc()` wrapped in full 0x128-byte
+j3dSys snapshot AND `mUserArea` set to Link #1's actor each frame.
+`shadow_mode` mailbox byte (0x90) selects:
+- 0: baseline (mirror) — userArea = this_, basicMtxCalc untouched
+- 1/2: shadow userArea via in-heap copy of daPy_lk_c (kept as lab;
+  didn't affect pose — see docs/05)
+- 3: no-op J3DMtxCalc swapped into basicMtxCalc around calc → Link #2
+  freezes at last pose while Link #1 keeps moving. **Decoupling
+  proven.** Use `./ww.exe shadow-mode <N>` + `./ww.exe dump` to
+  toggle/observe.
+
+### Solved this session (2026-04-19 evening through late-late)
 
 - `modelEntryDL` sky breakage root cause: shared J3DModelData, not
   the function itself.
@@ -188,6 +202,14 @@ state struct.
 - Bisect technique that pinned calc as the singular failure: stub
   `calc + modelEntryDL` separately, watch `draw_progress` markers.
   Cheap, decisive.
+- **Pose source identified and decoupled.** `mBasicMtxCalc` at
+  J3DModelData+0x24, shared between Link #1 and mini-Link via shared
+  J3DModelData, drives the skeletal walk. Swap it to a no-op and Link
+  #2 holds his last pose. `calcAnmMtx @ 0x802EE5D8` is the dispatch
+  site (PC +0x64 = 0x802EE63C is where NULL basicMtxCalc triggered
+  the exception that forced the fix). `JKRHeap::alloc @ 0x802B0434`
+  used for the shadow buffer (kept around for future per-actor
+  state).
 
 ---
 

@@ -43,13 +43,28 @@ typedef struct {
     u32 _reserved;       // +0x1C — keep zero; room for anim state later
 } Puppet;
 
-// Total mailbox size = 0x10 + MAX_PUPPETS * 0x20. With 4 slots: 0x90 B.
+// Total mailbox size = 0x10 + MAX_PUPPETS * 0x20 + 0x04 tail. With 4 slots: 0x94 B.
 typedef struct {
     u32 spawn_trigger;   // +0x00: per-frame heartbeat counter
     u32 progress;        // +0x04: debug marker — see multiplayer.c
     u32 _pad0;           // +0x08: also reused by main01_init as CALLBACK_PTR slot (mailbox+0x08 = 0x80410F08)
     u32 draw_progress;   // +0x0C: draw-hook-only diagnostic — mirrors progress but written only from daPy_draw_hook
     Puppet puppets[MAX_PUPPETS];  // +0x10 .. +0x10 + 0x20*N
+    // Shadow daPy_lk_c experiment (docs/06 "Next Session Priority" step 1).
+    // Go writes shadow_mode to route Link #2's joint callbacks:
+    //   0 = baseline: userArea = Link #1's actor (mirrors Link #1, proven recipe)
+    //   1 = refresh:  copy Link #1 into our shadow each frame, userArea = shadow
+    //                 (same visual as mode 0 if routing works)
+    //   2 = freeze:   copy once on mode entry, userArea = shadow every frame
+    //                 (decisive test: Link #2 should FREEZE while Link #1 moves)
+    // C publishes shadow_latched=1 after it has taken the mode-2 snapshot.
+    u8  shadow_mode;     // +0x90
+    u8  shadow_latched;  // +0x91
+    u8  _pad1[2];        // +0x92
+    // Diagnostics for the mode-3 basicMtxCalc swap. Populated each frame
+    // after Link's draw returns so Go can see what the pointers are.
+    u32 dbg_model_data;      // +0x94 — value of mini_link_data
+    u32 dbg_saved_basic;     // +0x98 — value of *(mini_link_data + 0x24) before our write
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)
