@@ -129,6 +129,26 @@
   save/restore or separate Link archive copy. Diagnostic aid added:
   `mailbox.draw_progress` (+0x0C) so the draw hook's furthest
   execution point is observable independent of execute-phase writes.
+- **Multi-Link plumbing + two-Dolphin launcher** (2026-04-19 latest):
+  Mailbox pose fields converted to per-slot arrays sized
+  `MAX_REMOTE_LINKS`. C side carries `mini_link_models[]` +
+  `pose_bufs[]`, mode 5 iterates slots with per-slot lazy alloc + base
+  matrix + first calc + pose copy + double-calc. Render gated on
+  `pose_seqs[slot] != 0`. Go side `puppet-sync` elects link slots via
+  `pickLinkSlot` and writes per-slot pose bufs; new `pose-fake-loop` CLI
+  ships a captured pose on a +1000 X position offset for multi-Link
+  diagnostic. `dolphin.Find()` selects between multiple Dolphin
+  processes via `WW_DOLPHIN_INDEX` (or `WW_DOLPHIN_PID`). New
+  `scripts/dolphin2.sh` bootstraps a "Dolphin Emulator 2" user dir +
+  launches a 2nd Dolphin against the patched ISO; `scripts/mplay2.sh`
+  spins up server + bidirectional broadcast/sync between both
+  instances. Single-Link mode still works (Sender mirror east of Link
+  via TCP). N>1 hits a J3D shared-`J3DModelData` material-packet
+  pollution issue (per-instance puppets render at correct distinct
+  positions but share the same frozen pose) — `MAX_REMOTE_LINKS = 1`
+  cap until the per-instance packet allocation OR
+  `mDoExt_modelEntry`+`mDoExt_modelUpdateDL` path is wired. Two-Dolphin
+  multiplayer (the immediate MVP) only needs N=1.
 - **MVP — network pose multiplayer end-to-end** (2026-04-19 latest):
   Player A's Link animations travel through TCP and render on Player
   B's Link #2 at ~50 ms lag. New `shadow_mode = 5` (pose-feed) lazy-allocs
@@ -249,18 +269,38 @@ Risks worth watching:
 
 Pick one or more (probably parallel tracks):
 
-1. **Visual differentiation.** Two Links look identical. Color tinting
+1. **Multi-Link N>1 (shared-J3DModelData unblock).** Plumbing landed in
+   commit `1398e8e` — mailbox arrays, per-slot pose buffers, per-slot
+   calc loop, slot-aware Go side (pickLinkSlot, poseBufPtrs[N]). Capped
+   at N=1 because enabling N=2 produced visible-but-frozen second
+   puppets. Decisive observation (single Dolphin, real broadcast-pose +
+   pose-fake-loop): both puppets rendered at distinct world positions
+   but BOTH stuck on the same pose (Sender's mirror stopped following
+   Link). Hypothesis: J3DModel::entry() registers material/shape packets
+   that resolve to the same backing memory when J3DModelData is shared,
+   so the last entry() call wins. Two leads to investigate:
+   - Per-instance material packet allocation. Check `mDoExt_J3DModel__create`
+     flags (currently `0x80000`, `0x11000022`) for an "owned packets"
+     bit. zeldaret/tww `include/J3D/J3DGraphAnimator/J3DModel.h` is the
+     reference.
+   - Switch from `mDoExt_modelEntryDL` (entry+lock+viewCalc per frame)
+     to `mDoExt_modelEntry` (one-shot, addr `0x8000F8F8`) + `mDoExt_modelUpdateDL`
+     (refresh without re-entry, addr `0x8000F84C`). Hypothesis: persistent
+     bucket entries created at init might not collide the way per-frame
+     re-entries do.
+   - Diagnostic harness: re-enable `MAX_REMOTE_LINKS=2`, run real
+     broadcast-pose + `pose-fake-loop FakePlayer localhost:25565`, expect
+     3 Links on screen (you + 1 mirror + 1 frozen). Anything other than
+     "mirror animates while frozen stays still" is the bug.
+2. **Visual differentiation.** Two Links look identical. Color tinting
    via TEV color override (every draw frame, post-mini-link entry).
    Easier than the actor-side work for KAMOME because we own the model.
-2. **Anim-state sync (bandwidth).** Replace 2 KB raw matrix dumps with
+3. **Anim-state sync (bandwidth).** Replace 2 KB raw matrix dumps with
    anim ID + frame counter (~16 B/tick). Requires REing Link's anim
    layer stack (bck/bca/bnk/bnn). Defer until LAN-only assumption breaks.
-3. **Stage / room transitions.** Detect when remote crosses to another
+4. **Stage / room transitions.** Detect when remote crosses to another
    room and either despawn or freeze Link #2. Currently he just renders
    wherever the last received world coord was.
-4. **Multiple remote players via Link #2/#3/#N.** MAX_REMOTE_LINKS = 1
-   today. Going to N means N pose buffers and N J3DModel instances,
-   each with its own mUserArea routing.
 5. **Reconnect / lossy network.** Tonight the protocol assumes TCP
    reliable delivery; UDP with sequence numbers would let us drop
    stale poses without head-of-line blocking.
