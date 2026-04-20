@@ -148,6 +148,15 @@ func (s *Server) handlePlayer(conn net.Conn) {
 			chatData := append([]byte(name+": "), msg.Data...)
 			s.broadcastExcept(id, MsgChat, chatData)
 			s.log(fmt.Sprintf("[Chat] %s: %s", name, string(msg.Data)))
+
+		case MsgPose:
+			// Reuse the sender's payload, prepended with their ID.
+			// Server doesn't decode the matrices; it's just bytes.
+			joints, matrices := DeserializePose(msg.Data)
+			if matrices != nil {
+				relay := PoseRelayMessage(id, joints, matrices)
+				s.broadcastExcept(id, MsgPose, relay)
+			}
 		}
 	}
 

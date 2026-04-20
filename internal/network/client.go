@@ -11,6 +11,12 @@ type RemotePlayer struct {
 	ID       byte
 	Name     string
 	Position *PlayerPosition
+	// PoseJoints + PoseMatrices is the latest received skeletal pose
+	// (raw mpNodeMtx bytes, big-endian, ready to memcpy into a Link
+	// J3DModel's mpNodeMtx via WriteAbsolute). Nil until the remote
+	// has sent a pose at least once.
+	PoseJoints   int
+	PoseMatrices []byte
 }
 
 // Client connects to a server and syncs position data.
@@ -98,6 +104,19 @@ func (c *Client) SendChat(message string) error {
 	return WriteMessage(c.conn, MsgChat, []byte(message))
 }
 
+// SendPose sends the local player's skeletal pose to the server. The
+// matrices slice is wire-ready big-endian (i.e. raw mpNodeMtx bytes).
+func (c *Client) SendPose(joints int, matrices []byte) error {
+	if !c.connected || c.conn == nil {
+		return fmt.Errorf("not connected")
+	}
+	body := SerializePose(joints, matrices)
+	if body == nil {
+		return fmt.Errorf("invalid pose: joints=%d len=%d", joints, len(matrices))
+	}
+	return WriteMessage(c.conn, MsgPose, body)
+}
+
 // GetRemotePlayers returns a snapshot of all remote players.
 func (c *Client) GetRemotePlayers() []RemotePlayer {
 	c.mu.RLock()
@@ -152,6 +171,26 @@ func (c *Client) readLoop() {
 
 		case MsgChat:
 			c.log(string(msg.Data))
+
+		case MsgPose:
+			playerID, joints, matrices := ParsePoseRelayMessage(msg.Data)
+			if matrices != nil {
+				// Copy out so the matrix bytes aren't tied to the
+				// next ReadMessage's buffer (defensive — current
+				// ReadMessage allocates fresh per call, but this
+				// keeps the contract local).
+				poseCopy := make([]byte, len(matrices))
+				copy(poseCopy, matrices)
+				c.mu.Lock()
+				rp, ok := c.remotes[playerID]
+				if !ok {
+					rp = &RemotePlayer{ID: playerID}
+					c.remotes[playerID] = rp
+				}
+				rp.PoseJoints = joints
+				rp.PoseMatrices = poseCopy
+				c.mu.Unlock()
+			}
 		}
 	}
 }

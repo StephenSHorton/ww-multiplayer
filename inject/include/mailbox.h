@@ -86,6 +86,33 @@ typedef struct {
     u8  echo_delay;          // +0xA4
     u8  echo_ring_state;     // +0xA5
     u16 _pad3;               // +0xA6
+    // Pose-sync v0 (shadow_mode 5). Same shape as mode 4 (double-calc with
+    // no-op basicMtxCalc swapped in for the second pass), but the source
+    // for mpNodeMtx is a fixed GameHeap-resident buffer that Go fills from
+    // either a local capture (pose-test) or the network (broadcast-pose).
+    //
+    //   pose_buf_ptr     — C publishes after JKRHeap_alloc succeeds.
+    //                      Go reads, then writes Mtx[joint_count] (=2016 B
+    //                      for Link) directly via WriteProcessMemory.
+    //   pose_joint_count — C publishes (Link = 42). Go must use this to
+    //                      size its writes; if it ever changes mid-run
+    //                      (joint-tree swap) the buffer would need realloc.
+    //   pose_buf_state   — 0 unalloc, 1 ready, 0xFE bad joint count,
+    //                      0xFD JKRHeap_alloc failed.
+    //   pose_seq         — Go bumps each write so future C-side code can
+    //                      detect freshness; v0 just always reads latest.
+    u32 pose_buf_ptr;        // +0xA8
+    u16 pose_joint_count;    // +0xAC
+    u8  pose_buf_state;      // +0xAE
+    u8  pose_seq;            // +0xAF
+    // Diagnostic: every mode-5 draw frame, C publishes `*pose_buf` and
+    // post-second-calc `mpNodeMtx[0]` (first u32 of root joint matrix)
+    // here. Lets Go confirm (a) C is seeing fresh writes to pose_buf
+    // and (b) the second calc isn't reverting the overwrite. If
+    // dbg_pose_first_word changes when Go writes change, the read works.
+    // If dbg_node_mtx_first matches dbg_pose_first_word, the copy works.
+    u32 dbg_pose_first_word; // +0xB0
+    u32 dbg_node_mtx_first;  // +0xB4
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)

@@ -129,6 +129,28 @@
   save/restore or separate Link archive copy. Diagnostic aid added:
   `mailbox.draw_progress` (+0x0C) so the draw hook's furthest
   execution point is observable independent of execute-phase writes.
+- **MVP — network pose multiplayer end-to-end** (2026-04-19 latest):
+  Player A's Link animations travel through TCP and render on Player
+  B's Link #2 at ~50 ms lag. New `shadow_mode = 5` (pose-feed) lazy-allocs
+  a 2 KB GameHeap pose buffer, seeds it from current `mpNodeMtx` so the
+  first-frame overwrite is identity, then runs the same double-calc as
+  mode 4 with the pose source switched from the local echo ring to a
+  Go-populated buffer. Wire protocol added `MsgPose='M'` carrying
+  `[joints:u16][pad:u16][Mtx[joints]:48*N]` (2020 B/packet for Link;
+  ~40 KB/s at 20 Hz). Sender reads `daPy_lk_c + 0x032C → mpCLModel +
+  0x8C → mpNodeMtx`, ships the raw 2016 B unmodified (PowerPC big-endian
+  matches GameCube native, no byteswap). Receiver writes straight to
+  `mailbox.pose_buf_ptr` and bumps `pose_seq`. New CLIs:
+  `./ww.exe broadcast-pose <name> <addr>` (sends Link's pose every 50ms
+  alongside the existing position broadcast) and `./ww.exe pose-test
+  [mirror|freeze]` (offline smoke test that animates pose_buf from a
+  local capture buffer; freeze proved Link #2 was rendering correctly
+  on top of Link #1 in loopback). `puppet-sync` extended to elect a
+  link-driver remote and write pose to pose_buf each tick. Verified
+  live: server + broadcast-pose + puppet-sync on one Dolphin instance,
+  Link #2 mirrored Link #1 over TCP. Two-Dolphin verification is the
+  next milestone. See `docs/05-known-issues.md` "Pose Sync DONE" for
+  the recipe + mailbox layout + ISO-FST shift bookkeeping.
 - **Independent Link #2 pose via mpNodeMtx capture + delayed replay +
   double-calc** (2026-04-19 late-late-late): `shadow_mode = 4` +
   `echo-delay 30` gives a clean Link #2 animating 0.5 s behind Link #1
@@ -166,11 +188,72 @@
 
 ## 🔬 Next Session Priority
 
-**Echo-Link DONE. Link #2 renders an independent pose, driven from a
-ring buffer of captured `mpNodeMtx` snapshots with a configurable
-frame delay.** As of 2026-04-19 late-late-late, `shadow_mode = 4` +
-`echo-delay 30` produces a clean Link #2 animating 0.5 s behind
-Link #1 on Outset: no stretch, no crash, sky clean, draw_progress 41.
+**MVP REACHED — network pose multiplayer is working end-to-end (2026-04-19
+latest).** Player A's Link animations travel through TCP and render on
+Player B's Link #2 at ~50 ms lag. Verified via single-Dolphin loopback:
+`server` + `broadcast-pose Sender` + `puppet-sync Receiver` on the same
+instance, Link #2 mirrored Link #1 over TCP with the ring-buffer-style
+trail, shadow_mode auto-armed to 5 by puppet-sync, slot 0's KAMOME also
+tracking Link's position. See `docs/05-known-issues.md` "Pose Sync DONE"
+for the wire format, sender/receiver recipes, and the loopback overlap
+artifact (Link #2 visually merging with Link #1 because both pose
+samples encode the same world coords — works correctly between two
+distinct Dolphin instances).
+
+### Two-Dolphin verification (next critical milestone)
+
+Loopback proved the pipeline; two-Dolphin proves the experience.
+Concrete plan:
+- Two Dolphin instances on one machine (different `User/` dirs to keep
+  configs separate), or one on each of two machines on the same LAN.
+- Both load Outset from independent saves.
+- Instance A: `./ww.exe broadcast-pose A <server-ip>`
+- Instance B: `./ww.exe broadcast-pose B <server-ip>`
+- One designated host runs `./ww.exe server` (any third or shared
+  process; `localhost` if everyone's on one box).
+- Each instance also runs `./ww.exe puppet-sync <name> <server-ip>` to
+  consume the OTHER player's pose.
+- Expected: each player sees the other's Link walking around Outset at
+  the position+pose of the remote player.
+- Risks worth watching:
+  - Stage mismatch: if A is on Outset interior and B on Outset exterior,
+    pose coords are valid for the other but mini-Link renders in a
+    detached space — punt to "presence indicator" later.
+  - daPy_lk_c offset stability across saves: 0x032C is structural;
+    should be invariant. Verify in dump on both instances.
+  - Heap allocation timing: pose_buf alloc waits for mode 5; puppet-sync
+    arms mode 5 when first remote pose arrives. Race only matters on
+    the first ~50 ms.
+
+### After two-Dolphin works
+
+Pick one or more (probably parallel tracks):
+
+1. **Visual differentiation.** Two Links look identical. Color tinting
+   via TEV color override (every draw frame, post-mini-link entry).
+   Easier than the actor-side work for KAMOME because we own the model.
+2. **Anim-state sync (bandwidth).** Replace 2 KB raw matrix dumps with
+   anim ID + frame counter (~16 B/tick). Requires REing Link's anim
+   layer stack (bck/bca/bnk/bnn). Defer until LAN-only assumption breaks.
+3. **Stage / room transitions.** Detect when remote crosses to another
+   room and either despawn or freeze Link #2. Currently he just renders
+   wherever the last received world coord was.
+4. **Multiple remote players via Link #2/#3/#N.** MAX_REMOTE_LINKS = 1
+   today. Going to N means N pose buffers and N J3DModel instances,
+   each with its own mUserArea routing.
+5. **Reconnect / lossy network.** Tonight the protocol assumes TCP
+   reliable delivery; UDP with sequence numbers would let us drop
+   stale poses without head-of-line blocking.
+6. **TUI integration.** Tonight everything is CLI-driven; the Bubble
+   Tea dashboard should expose `broadcast-pose` + `puppet-sync` and
+   surface remote-player status.
+
+### Echo-Link DONE (2026-04-19 late-late-late)
+
+Track 1 of the original "Next Session Priority" — independent pose via
+delayed mpNodeMtx replay + double-calc. `shadow_mode = 4` + `echo-delay 30`
+produces a clean Link #2 animating 0.5 s behind Link #1 on Outset: no
+stretch, no crash, sky clean, draw_progress 41.
 
 The rubber-banding encountered mid-session (skin stretching between
 delayed joint terminals and current-pose body) was the critical

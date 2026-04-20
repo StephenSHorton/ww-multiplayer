@@ -103,6 +103,16 @@ static int echo_joint_num = 0;   // captured at first alloc; ring frame size = j
 static int echo_frame_u32s = 0;  // joint_num * 12 (Mtx = 3*4 f32s = 12 u32s)
 static int echo_write_idx = 0;
 static int echo_frames_filled = 0;
+
+// --- Pose feed state (shadow_mode 5) ----------------------------------
+// Single GameHeap-resident buffer of joint matrices. Go writes directly to
+// pose_buf via the published mailbox.pose_buf_ptr; C copies into mpNodeMtx
+// each draw, then runs the same no-op-walker second calc as mode 4 to
+// rebuild mpDrawMtxBuf from our pose. Hold-last semantics: C always reads
+// whatever bytes are in pose_buf, no freshness gate yet.
+static u8* pose_buf = 0;
+static int pose_joint_num = 0;
+static int pose_buf_u32s = 0;
 // Archive + BDL index for the model we hand to mDoExt_J3DModel__create.
 // Stored in rodata (lives in T2) so the compiler emits a real pointer
 // getRes can dereference.
@@ -631,6 +641,82 @@ int daPy_draw_hook(void* this_) {
                     *bc_slot = (u32)&noop_mtxcalc_obj[0];
                     J3DModel_calc(mini_link_model);
                     *bc_slot = bc_saved;
+                    mailbox->draw_progress = 41;
+                }
+            }
+
+            // Mode 5: pose feed. Same double-calc shape as mode 4 but the
+            // source for mpNodeMtx is mailbox.pose_buf_ptr (Go-populated
+            // from local capture or network). Lazy-alloc the buffer the
+            // first time mode 5 fires so Go doesn't have to set it up.
+            //
+            // Critical: seed pose_buf from the live mpNodeMtx (just
+            // populated by the first calc with Link's real walker)
+            // BEFORE we declare it "ready". Otherwise the very first
+            // mode-5 frame copies uninitialized JKRHeap bytes into
+            // mpNodeMtx and the second calc rebuilds mpDrawMtxBuf from
+            // garbage → degenerate vertices → invisible Link #2 + TEV
+            // bucket pollution → sky goes gray. Go's pose writes don't
+            // arrive until ~50 ms after the alloc, by which point the
+            // first-frame damage has already propagated.
+            if (mode == 5 && mini_link_data) {
+                u16 jn = mailbox->dbg_joint_num;
+                if (!pose_buf) {
+                    if (jn == 0 || jn > 128) {
+                        mailbox->pose_buf_state = 0xFE;
+                    } else {
+                        pose_joint_num = (int)jn;
+                        pose_buf_u32s = pose_joint_num * 12;
+                        u32 nbytes = (u32)(pose_buf_u32s * 4);
+                        pose_buf = (u8*)JKRHeap_alloc(nbytes, 0x20, mDoExt_getGameHeap());
+                        if (!pose_buf) {
+                            mailbox->pose_buf_state = 0xFD;
+                        } else {
+                            // Seed with current mpNodeMtx so first-frame
+                            // overwrite is a no-op (looks identical to
+                            // mode 0 until Go writes real pose data).
+                            volatile u32* seed_src = (volatile u32*)(*(u32*)((u8*)mini_link_model + J3DMODEL_MP_NODE_MTX_OFFSET));
+                            if (seed_src) {
+                                volatile u32* seed_dst = (volatile u32*)pose_buf;
+                                int si;
+                                for (si = 0; si < pose_buf_u32s; si++) {
+                                    seed_dst[si] = seed_src[si];
+                                }
+                            }
+                            mailbox->pose_buf_ptr = (u32)pose_buf;
+                            mailbox->pose_joint_count = (u16)pose_joint_num;
+                            mailbox->pose_buf_state = 1;
+                        }
+                    }
+                }
+
+                volatile u32* node_mtx = (volatile u32*)(*(u32*)((u8*)mini_link_model + J3DMODEL_MP_NODE_MTX_OFFSET));
+                if (pose_buf && node_mtx && pose_buf_u32s > 0 && basic_calc_slot == 0) {
+                    volatile u32* bc_slot = (volatile u32*)((u8*)mini_link_data + J3DMODELDATA_BASIC_MTXCALC_OFFSET);
+                    u32 bc_saved = *bc_slot;
+
+                    // Copy Go's pose -> mpNodeMtx. Replaces the ring
+                    // capture+replay step from mode 4.
+                    volatile u32* src = (volatile u32*)pose_buf;
+                    int pi;
+                    for (pi = 0; pi < pose_buf_u32s; pi++) {
+                        node_mtx[pi] = src[pi];
+                    }
+                    // Publish what we *think* we just read from pose_buf
+                    // so Go can confirm the read sees its writes.
+                    mailbox->dbg_pose_first_word = src[0];
+                    mailbox->draw_progress = 39;
+
+                    // Second calc with no-op walker — rebuilds mpDrawMtxBuf
+                    // from our just-written mpNodeMtx. Same logic that
+                    // killed mode 4's rubber-banding.
+                    *bc_slot = (u32)&noop_mtxcalc_obj[0];
+                    J3DModel_calc(mini_link_model);
+                    *bc_slot = bc_saved;
+                    // Sample mpNodeMtx[0] AFTER the second calc — if the
+                    // calc is reverting our overwrite, this won't match
+                    // dbg_pose_first_word.
+                    mailbox->dbg_node_mtx_first = node_mtx[0];
                     mailbox->draw_progress = 41;
                 }
             }

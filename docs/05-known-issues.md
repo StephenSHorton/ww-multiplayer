@@ -349,6 +349,129 @@ the per-frame cost of a single calc; no visible frame-rate drop.
 - Stride: `Mtx = f32[3][4] = 48 bytes`. Ring per frame = 42 × 48 = 2016 B.
   60-frame ring ≈ 120 KB from GameHeap (~245 KB free on Outset).
 
+## Pose Sync — DONE (2026-04-19 latest)
+
+Track 2 of docs/06 "Next Session Priority" complete. Player A's Link
+animations travel through TCP and render on Player B's Link #2 at
+~50 ms lag. End-to-end: `daPy_lk_c::mpCLModel.mpNodeMtx` → wire →
+mailbox.pose_buf → `J3DModel::calc` (no-op walker) → mpDrawMtxBuf →
+GX submit. Verified live via single-Dolphin loopback (server +
+broadcast-pose + puppet-sync on the same instance, Link #2 mirrored
+Link #1 over TCP).
+
+### Wire format
+
+```
+client -> server:  MsgPose='M' [joints:u16][_pad:u16][Mtx[joints]:48*N]
+server -> client:  MsgPose='M' [playerID:1][joints:u16][_pad:u16][Mtx[joints]:48*N]
+```
+
+For Link: 4 + 2016 = 2020 B sender-side, +1 = 2021 B relayed. At 20 Hz
+that's ~40 KB/s — trivial for LAN. Joint count is shipped explicitly so
+the protocol survives non-Link rigs (children, fairies, etc.). Matrices
+are raw GameCube big-endian Mtx layout (`f32[3][4]`), which means the
+receiver does **zero byteswap** — `WriteAbsolute(pose_buf, matrices)`
+goes straight into `mpNodeMtx`.
+
+### Receiver recipe (`shadow_mode = 5`)
+
+Same shape as mode 4's double-calc but with the pose source swapped from
+the local echo ring to a Go-populated heap buffer:
+
+```c
+// Lazy-alloc on first mode-5 frame. Crucially, seed pose_buf with the
+// current mpNodeMtx so the first frame's overwrite is identity — without
+// this, copying uninitialized JKRHeap bytes into mpNodeMtx makes the
+// second calc rebuild mpDrawMtxBuf from garbage matrices, killing
+// Link #2 (degenerate vertices) AND the sky (TEV bucket pollution).
+pose_buf = JKRHeap_alloc(joint_num * 48, 0x20, GameHeap);
+memcpy(pose_buf, *(mini_link_model + 0x8C), joint_num * 48);  // seed
+mailbox.pose_buf_ptr = (u32)pose_buf;
+
+// Each subsequent draw frame, after the first calc:
+memcpy(mpNodeMtx, pose_buf, joint_num * 48);     // Go's pose -> mpNodeMtx
+*basicMtxCalc_slot = &noop_mtxcalc;              // disable walker
+J3DModel_calc(mini_link_model);                  // 2nd calc rebuilds mpDrawMtxBuf
+*basicMtxCalc_slot = saved_real_calc;
+```
+
+### Sender recipe (`daPy_lk_c + 0x032C → +0x8C`)
+
+Per zeldaret/tww `include/d/actor/d_a_player_main.h`:
+- `daPy_lk_c + 0x0328 = J3DModelData* mpCLModelData`
+- `daPy_lk_c + 0x032C = J3DModel* mpCLModel`
+
+Verified live by `getModelJointMtx(idx)` returning `mpCLModel->getAnmMtx(idx)`
+— this is the skinned rig, not a side-model. Sender per tick:
+
+```go
+linkPtr := PLAYER_PTR_ARRAY[0]
+modelPtr := *(linkPtr + 0x032C)              // J3DModel*
+nodePtr := *(modelPtr + 0x8C)                // Mtx* mpNodeMtx
+matrices := ReadAbsolute(nodePtr, 42*48)     // 2016 B raw
+client.SendPose(42, matrices)
+```
+
+### The loopback overlap "bug"
+
+Single-Dolphin loopback test (broadcaster + receiver on the same
+instance) makes Link #2 appear to *not animate* — actually he's rendering
+correctly but ON TOP of Link #1. Cause: `mpNodeMtx[0]` is the root joint
+in WORLD space (`base_matrix × root_local`), so when we copy Link #1's
+pose into Link #2's `mpNodeMtx`, Link #2 inherits Link #1's world
+coords. The base matrix we set for Link #2 (`link_pos + 100`) is ignored
+because the overwrite happens AFTER the first calc applied it.
+
+Decisive proof: `pose-test freeze` — capture Link's pose once, walk
+Link #1 away, a frozen Link #2 stays at the capture location. So mode 5
+*is* rendering at the pose's encoded position; loopback just makes that
+position coincide with Link #1.
+
+For real multiplayer this is the CORRECT behavior — Player A's pose
+encodes Player A's world coords, so Link #2 on Player B's screen appears
+at Player A's actual location on the map.
+
+### Diagnostic probes added this session
+
+Mailbox bytes for verifying the C side actually sees Go's writes:
+- `dbg_pose_first_word` (+0xB0): `*(u32*)pose_buf` published every
+  mode-5 frame BEFORE the copy. Should track Go's writes.
+- `dbg_node_mtx_first` (+0xB4): `mpNodeMtx[0]` published AFTER the
+  second calc. Should match `dbg_pose_first_word` (i.e. calc didn't
+  revert our overwrite). If they diverge, the second calc is doing
+  more than just rebuilding mpDrawMtxBuf.
+
+Both probes verified working: each tick `c-saw-pose == c-saw-node-after-calc`
+== latest `go-wrote` value, with small drift from race timing.
+
+### Mailbox bytes added
+
+Mailbox grew from 0xA8 to 0xB8:
+- `pose_buf_ptr` (+0xA8 u32) — C publishes after JKRHeap_alloc
+- `pose_joint_count` (+0xAC u16) — Link = 42
+- `pose_buf_state` (+0xAE u8) — 0 unalloc, 1 ready, 0xFE bad joint count, 0xFD alloc failed
+- `pose_seq` (+0xAF u8) — Go bumps each write
+- `dbg_pose_first_word` (+0xB0 u32), `dbg_node_mtx_first` (+0xB4 u32)
+
+Still flush against `__OSArenaLo = 0x80412000` with 0x48 B headroom.
+
+### ISO reserved-DOL space bumped
+
+Mod grew to 0x12A8 — over the previous 0x3A6400 reserved DOL region by
+~200 B. Instead of a fresh `wit copy` (4 GB regen), shifted the existing
+ISO's FST from `0x3C5000` to `0x500000` in place. Now reserved DOL
+space is `0x4E1400` (~5 MB), comfortable for several more sessions of
+mod growth before another shift is needed.
+
+The shift is one-time and not in any source file — if regenerating the
+ISO from scratch, the new patch_iso.py target is the same; the FST just
+needs to live further out. Recipe:
+
+```python
+# Read FST data, write at new offset (must be all-zero before write),
+# update ISO header at 0x424 with new fst_off, update fst_max at 0x42C.
+```
+
 ### Mailbox + __OSArenaLo shift (mod grew to 0x1048)
 
 Echo-ring code pushed `.text` end to `0x80410FC0` and mod end to

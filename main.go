@@ -87,6 +87,18 @@ func main() {
 				os.Exit(1)
 			}
 			runEchoDelay(os.Args[2])
+		case "pose-test":
+			mode := "mirror"
+			dur := 30
+			if len(os.Args) > 2 {
+				mode = os.Args[2]
+			}
+			if len(os.Args) > 3 {
+				if v, err := strconv.Atoi(os.Args[3]); err == nil {
+					dur = v
+				}
+			}
+			runPoseTest(mode, dur)
 		case "unhide-puppet":
 			runUnhidePuppet()
 		case "broadcast-link":
@@ -99,6 +111,16 @@ func main() {
 				addr = os.Args[3]
 			}
 			runBroadcastLink(name, addr)
+		case "broadcast-pose":
+			name := "Player"
+			addr := "localhost:25565"
+			if len(os.Args) > 2 {
+				name = os.Args[2]
+			}
+			if len(os.Args) > 3 {
+				addr = os.Args[3]
+			}
+			runBroadcastPose(name, addr)
 		case "puppet-sync":
 			name := "Viewer"
 			addr := "localhost:25565"
@@ -658,6 +680,81 @@ func runBroadcastLink(name, addr string) {
 	fmt.Println("\nDisconnected.")
 }
 
+// Same as broadcast-link but ALSO sends Link's full skeletal pose every
+// tick. The receiver's puppet-sync writes that pose into mailbox.pose_buf
+// and flips shadow_mode=5 so Link #2 animates from the wire instead of
+// mirroring locally. Link's J3DModel is at daPy_lk_c + 0x032C; mpNodeMtx
+// is at J3DModel + 0x8C; sizeof(Mtx) = 48; Link has 42 joints.
+func runBroadcastPose(name, addr string) {
+	fmt.Printf("=== Broadcast Link + Pose: %s -> %s ===\n\n", name, addr)
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	client := network.NewClient(name)
+	client.OnLog = func(msg string) { fmt.Printf("[net] %s\n", msg) }
+	if err := client.Connect(addr); err != nil {
+		fmt.Printf("connect: %v\n", err)
+		os.Exit(1)
+	}
+	defer client.Disconnect()
+
+	const linkMpCLModelOff = 0x032C
+	const j3dModelMpNodeMtxOff = 0x8C
+	const linkJointCount = 42
+	const poseBytes = linkJointCount * 48
+
+	posErrs, poseErrs := 0, 0
+	for client.IsConnected() {
+		// Position (cheap; same as broadcast-link).
+		pos, err := d.ReadPlayerPosition()
+		if err == nil && pos != nil {
+			netPos := &network.PlayerPosition{
+				PosX: pos.PosX, PosY: pos.PosY, PosZ: pos.PosZ,
+				RotY: pos.RotY,
+			}
+			if err := client.SendPosition(netPos); err != nil {
+				posErrs++
+				if posErrs > 5 {
+					fmt.Printf("send position: %v\n", err)
+					break
+				}
+			}
+		}
+
+		// Pose. Walk daPy_lk_c -> mpCLModel -> mpNodeMtx and ship the
+		// raw 2016 B. Best-effort: a missing chain link just skips the
+		// tick (Link unloaded between rooms, etc).
+		linkPtr, err := d.GetLinkPtr()
+		if err == nil && linkPtr != 0 {
+			modelPtr, _ := d.ReadU32(linkPtr + linkMpCLModelOff)
+			if modelPtr >= 0x80000000 && modelPtr < 0x81800000 {
+				nodePtr, _ := d.ReadU32(modelPtr + j3dModelMpNodeMtxOff)
+				if nodePtr >= 0x80000000 && nodePtr < 0x81800000 {
+					data, err := d.ReadAbsolute(nodePtr, poseBytes)
+					if err == nil && data != nil {
+						if err := client.SendPose(linkJointCount, data); err != nil {
+							poseErrs++
+							if poseErrs > 5 {
+								fmt.Printf("send pose: %v\n", err)
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+
+		fmt.Printf("  link+pose -> X:%10.1f Y:%8.1f Z:%10.1f\r",
+			pos.PosX, pos.PosY, pos.PosZ)
+		// 50 ms = 20 Hz. ~40 KB/s of pose data — trivial for LAN.
+		time.Sleep(50 * time.Millisecond)
+	}
+	fmt.Println("\nDisconnected.")
+}
+
 // Mailbox layout (keep in sync with inject/include/mailbox.h).
 const (
 	mailboxBase    = 0x80411F00
@@ -768,6 +865,39 @@ func runPuppetSync(name, addr string) {
 	one := make([]byte, 4)
 	binary.BigEndian.PutUint32(one, 1)
 
+	// Pose-feed state. We pick ONE remote to drive Link #2's skeleton;
+	// the rest still get their puppet-slot actor (KAMOME / NPC / TSUBO).
+	// linkDriverID == 0 means "no remote chosen yet".
+	var (
+		linkDriverID  byte
+		poseBufPtr    uint32
+		poseModeReady bool
+	)
+	ensurePoseMode := func() {
+		if poseModeReady {
+			return
+		}
+		// One-time: switch to shadow_mode=5 and wait for the C side
+		// to lazy-alloc pose_buf and publish the pointer.
+		d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{5})
+		for i := 0; i < 60; i++ {
+			time.Sleep(50 * time.Millisecond)
+			state, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState, 1)
+			if len(state) == 1 && state[0] == 1 {
+				poseBufPtr, _ = d.ReadU32(mailboxBase + mailboxPoseBufPtr)
+				if poseBufPtr != 0 {
+					poseModeReady = true
+					fmt.Printf("\npose-feed armed: pose_buf=0x%08X\n", poseBufPtr)
+					return
+				}
+			}
+			if len(state) == 1 && (state[0] == 0xFD || state[0] == 0xFE) {
+				fmt.Printf("\npose-feed alloc failed (state=0x%02X) — falling back to position-only\n", state[0])
+				return
+			}
+		}
+	}
+
 	for client.IsConnected() {
 		remotes := client.GetRemotePlayers()
 		seen := map[byte]bool{}
@@ -821,6 +951,30 @@ func runPuppetSync(name, addr string) {
 			binary.BigEndian.PutUint16(rotBuf[2:4], uint16(rp.Position.RotY))
 			binary.BigEndian.PutUint16(rotBuf[4:6], uint16(rp.Position.RotZ))
 			d.WriteAbsolute(slotAddr(idx, slotOffRotX), rotBuf)
+
+			// Pose feed (shadow_mode=5). First remote to deliver any pose
+			// claims the Link-#2 driver slot; subsequent remotes still
+			// puppet through the actor pipeline above. MAX_REMOTE_LINKS=1
+			// for v0.
+			if rp.PoseMatrices != nil && len(rp.PoseMatrices) == rp.PoseJoints*48 {
+				if linkDriverID == 0 {
+					linkDriverID = rp.ID
+					ensurePoseMode()
+					if poseModeReady {
+						fmt.Printf("link-driver := player %d (%s)\n", rp.ID, rp.Name)
+					}
+				}
+				if poseModeReady && rp.ID == linkDriverID && poseBufPtr != 0 {
+					d.WriteAbsolute(poseBufPtr, rp.PoseMatrices)
+					// Bump pose_seq so the C side can detect freshness later.
+					sq, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq, 1)
+					next := byte(0)
+					if len(sq) == 1 {
+						next = sq[0] + 1
+					}
+					d.WriteAbsolute(mailboxBase+mailboxPoseSeq, []byte{next})
+				}
+			}
 		}
 
 		// Release slots for remotes that have disconnected.
@@ -830,6 +984,13 @@ func runPuppetSync(name, addr string) {
 				delete(remoteToSlot, id)
 				slots[idx] = slotState{}
 				fmt.Printf("\nslot %d freed (player %d left)\n", idx, id)
+				// If the link-driver left, clear the assignment so the
+				// next pose-bearing remote claims the seat. Pose-buf
+				// stays at last value (Link #2 freezes) until then.
+				if id == linkDriverID {
+					linkDriverID = 0
+					fmt.Println("link-driver freed (will be reassigned on next pose)")
+				}
 			}
 		}
 
@@ -872,11 +1033,17 @@ const mailboxDbgJointNum = 0x9C
 const mailboxDbgNodeMtxPtr = 0xA0
 const mailboxEchoDelay = 0xA4
 const mailboxEchoRingState = 0xA5
+const mailboxPoseBufPtr = 0xA8
+const mailboxPoseJointCount = 0xAC
+const mailboxPoseBufState = 0xAE
+const mailboxPoseSeq = 0xAF
+const mailboxDbgPoseFirstWord = 0xB0
+const mailboxDbgNodeMtxFirst = 0xB4
 
 func runShadowMode(s string) {
 	v, err := strconv.Atoi(s)
-	if err != nil || v < 0 || v > 4 {
-		fmt.Println("mode must be 0 (baseline), 1 (refresh), 2 (freeze), 3 (no-op basicMtxCalc), or 4 (echo-ring)")
+	if err != nil || v < 0 || v > 5 {
+		fmt.Println("mode must be 0 (baseline), 1 (refresh), 2 (freeze), 3 (no-op basicMtxCalc), 4 (echo-ring), or 5 (pose-feed)")
 		os.Exit(1)
 	}
 	d, err := dolphin.Find("GZLE01")
@@ -895,6 +1062,7 @@ func runShadowMode(s string) {
 		"freeze (copy once)",
 		"no-op basicMtxCalc (decouple; Link #2 freezes)",
 		"echo-ring (capture + delayed replay; set echo-delay)",
+		"pose-feed (mpNodeMtx from mailbox.pose_buf; run pose-test or broadcast-pose)",
 	}
 	latchedStr := fmt.Sprintf("%d", latched[0])
 	if latched[0] == 0xFF {
@@ -917,6 +1085,187 @@ func runShadowMode(s string) {
 		}
 		fmt.Printf("echo_ring_state=%s  echo_delay=%d\n", rsMsg, echoDelay[0])
 	}
+}
+
+// Smoke test for shadow_mode 5 (pose-feed) without any networking.
+//
+//   mirror — every tick, copy the live mpNodeMtx (already populated by
+//            mini-Link's first calc) into pose_buf. Result should look
+//            identical to mode 0 — proves the pose_buf -> mpNodeMtx
+//            overwrite + double-calc plumbing is non-destructive.
+//   freeze — capture mpNodeMtx ONCE and stop writing. Link #2 should
+//            freeze in that pose while Link #1 keeps animating —
+//            decisive proof that pose_buf is the actual pose source.
+//
+// Either way the dolphin-side allocation happens lazily on the first
+// frame after we set shadow_mode=5, so we poll pose_buf_state until C
+// publishes pose_buf_ptr before sending any pose data.
+func runPoseTest(mode string, durSec int) {
+	if mode != "mirror" && mode != "freeze" {
+		fmt.Println("Usage: ww pose-test [mirror|freeze] [seconds]")
+		os.Exit(1)
+	}
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	// Flip to mode 5; C will lazy-alloc pose_buf and publish the pointer.
+	if err := d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{5}); err != nil {
+		fmt.Printf("set shadow_mode failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	var poseBufPtr uint32
+	var jointCount uint16
+	for i := 0; i < 60; i++ {
+		time.Sleep(50 * time.Millisecond)
+		state, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState, 1)
+		if len(state) == 0 {
+			continue
+		}
+		switch state[0] {
+		case 1:
+			poseBufPtr, _ = d.ReadU32(mailboxBase + mailboxPoseBufPtr)
+			jcBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPoseJointCount, 2)
+			if len(jcBytes) == 2 {
+				jointCount = binary.BigEndian.Uint16(jcBytes)
+			}
+		case 0xFE:
+			fmt.Println("pose_buf_state = 0xFE (bad joint count — is mini-Link rendering?)")
+			os.Exit(1)
+		case 0xFD:
+			fmt.Println("pose_buf_state = 0xFD (GameHeap alloc failed)")
+			os.Exit(1)
+		}
+		if poseBufPtr != 0 {
+			break
+		}
+	}
+	if poseBufPtr == 0 {
+		fmt.Println("timed out waiting for pose_buf_ptr — did mode 5 ever fire? Check ./ww.exe dump")
+		os.Exit(1)
+	}
+	if jointCount == 0 || jointCount > 128 {
+		fmt.Printf("bad joint count from C: %d\n", jointCount)
+		os.Exit(1)
+	}
+	poseSize := int(jointCount) * 48
+	fmt.Printf("pose_buf_ptr = 0x%08X  joint_count = %d  pose_size = %d B\n", poseBufPtr, jointCount, poseSize)
+
+	bumpSeq := func() {
+		seqBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq, 1)
+		next := byte(0)
+		if len(seqBytes) == 1 {
+			next = seqBytes[0] + 1
+		}
+		d.WriteAbsolute(mailboxBase+mailboxPoseSeq, []byte{next})
+	}
+
+	// Read Link #1's mpNodeMtx, NOT mini-Link's. Mini-Link's mpNodeMtx is
+	// what mode 5 overwrites every draw frame, so reading it back gives us
+	// our own previously-written pose (== freeze). Link #1's mpNodeMtx is
+	// the real animation source: daPy_lk_c + 0x032C = J3DModel* mpCLModel
+	// (per zeldaret/tww decomp), then J3DModel + 0x8C = Mtx* mpNodeMtx.
+	// This is also exactly what broadcast-pose will read on the sender.
+	const linkMpCLModelOff = 0x032C
+	const j3dModelMpNodeMtxOff = 0x8C
+	captureFromLinkOne := func() []byte {
+		linkPtr, err := d.GetLinkPtr()
+		if err != nil || linkPtr == 0 {
+			return nil
+		}
+		modelPtr, err := d.ReadU32(linkPtr + linkMpCLModelOff)
+		if err != nil || modelPtr < 0x80000000 || modelPtr >= 0x81800000 {
+			return nil
+		}
+		nodePtr, err := d.ReadU32(modelPtr + j3dModelMpNodeMtxOff)
+		if err != nil || nodePtr < 0x80000000 || nodePtr >= 0x81800000 {
+			return nil
+		}
+		data, err := d.ReadAbsolute(nodePtr, poseSize)
+		if err != nil {
+			return nil
+		}
+		return data
+	}
+
+	deadline := time.Now().Add(time.Duration(durSec) * time.Second)
+
+	if mode == "freeze" {
+		// Wait briefly for at least one calc cycle to populate mpNodeMtx,
+		// capture once, write to pose_buf, then sit and watch.
+		var captured []byte
+		for i := 0; i < 30 && captured == nil; i++ {
+			time.Sleep(50 * time.Millisecond)
+			captured = captureFromLinkOne()
+		}
+		if captured == nil {
+			fmt.Println("could not capture mpNodeMtx — is mini-Link calc running?")
+			os.Exit(1)
+		}
+		if err := d.WriteAbsolute(poseBufPtr, captured); err != nil {
+			fmt.Printf("write pose_buf failed: %v\n", err)
+			os.Exit(1)
+		}
+		bumpSeq()
+		fmt.Printf("freeze: captured %d B and wrote to pose_buf. Link #2 should hold this pose for %ds while Link #1 moves.\n", len(captured), durSec)
+		for time.Now().Before(deadline) {
+			time.Sleep(500 * time.Millisecond)
+		}
+		fmt.Println("done.")
+		return
+	}
+
+	// mirror mode: continuously echo live mpNodeMtx -> pose_buf
+	fmt.Printf("mirror: copying live mpNodeMtx -> pose_buf for %ds. Link #2 should look identical to mode 0.\n", durSec)
+	// One-shot debug: prove the read chain works and the matrices change.
+	if linkPtr, _ := d.GetLinkPtr(); linkPtr != 0 {
+		modelPtr, _ := d.ReadU32(linkPtr + 0x032C)
+		nodePtr, _ := d.ReadU32(modelPtr + 0x8C)
+		fmt.Printf("[debug] link=0x%08X  link+0x032C=0x%08X  +0x8C=0x%08X\n", linkPtr, modelPtr, nodePtr)
+		if nodePtr != 0 {
+			row, _ := d.ReadAbsolute(nodePtr, 16)
+			fmt.Printf("[debug] mpNodeMtx[0] row0: % X\n", row)
+		}
+	}
+	ticks := 0
+	var lastFirstRow []byte
+	changes := 0
+	nextProbe := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		data := captureFromLinkOne()
+		if data != nil {
+			if err := d.WriteAbsolute(poseBufPtr, data); err == nil {
+				bumpSeq()
+				ticks++
+				if lastFirstRow != nil {
+					for i := 0; i < 16 && i < len(data); i++ {
+						if data[i] != lastFirstRow[i] {
+							changes++
+							break
+						}
+					}
+				}
+				lastFirstRow = append(lastFirstRow[:0], data[:16]...)
+			}
+		}
+		if time.Now().After(nextProbe) {
+			nextProbe = time.Now().Add(2 * time.Second)
+			wrote := uint32(0)
+			if data != nil {
+				wrote = binary.BigEndian.Uint32(data[:4])
+			}
+			cSawPose, _ := d.ReadU32(mailboxBase + mailboxDbgPoseFirstWord)
+			cSawNode, _ := d.ReadU32(mailboxBase + mailboxDbgNodeMtxFirst)
+			fmt.Printf("[probe] go-wrote=%08X  c-saw-pose=%08X  c-saw-node-after-calc=%08X\n",
+				wrote, cSawPose, cSawNode)
+		}
+		time.Sleep(16 * time.Millisecond)
+	}
+	fmt.Printf("\ndone. %d ticks written, %d distinct first-row values seen.\n", ticks, changes)
 }
 
 func runEchoDelay(s string) {
@@ -972,6 +1321,19 @@ func runDump() {
 		ed, _ := d.ReadAbsolute(mailboxBase+mailboxEchoDelay, 1)
 		fmt.Printf("echo: joint_num=%d  mpNodeMtx=0x%08X  ring_state=0x%02X  delay=%d\n",
 			jointNum, nmp, rs[0], ed[0])
+	}
+	// Pose-feed (mode 5) diagnostics. pose_buf_state stays 0 until the
+	// first mode-5 frame fires the lazy alloc.
+	if pb, err := d.ReadU32(mailboxBase + mailboxPoseBufPtr); err == nil {
+		jc, _ := d.ReadAbsolute(mailboxBase+mailboxPoseJointCount, 2)
+		ps, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState, 1)
+		sq, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq, 1)
+		jcVal := uint16(0)
+		if len(jc) == 2 {
+			jcVal = binary.BigEndian.Uint16(jc)
+		}
+		fmt.Printf("pose: buf=0x%08X  joint_count=%d  state=0x%02X  seq=%d\n",
+			pb, jcVal, ps[0], sq[0])
 	}
 
 	// Per-slot state
