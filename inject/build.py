@@ -68,6 +68,14 @@ def main():
     proj.common_args.append("-O2")
     proj.common_args.append("-ffreestanding")
     proj.common_args.append("-fno-builtin")
+    # Strip C++ exception / unwind metadata — pure C code, Freighter emits
+    # .eh_frame (~0x158) + .eh_frame_hdr (~0x34) regardless. Those ~0x18C
+    # bytes of dead weight pushed the 2026-04-19 echo-ring build past the
+    # ISO's reserved DOL space by 0x88 bytes. Killing them buys headroom
+    # for future growth without another __OSArenaLo bump.
+    proj.common_args.append("-fno-exceptions")
+    proj.common_args.append("-fno-unwind-tables")
+    proj.common_args.append("-fno-asynchronous-unwind-tables")
 
     # Build
     input_dol = "original.dol"
@@ -101,20 +109,25 @@ def main():
         traceback.print_exc()
         sys.exit(1)
 
-    # Post-build: patch OSInit so __OSArenaLo starts at 0x80411000 (past our T2
-    # at 0x80410000-0x80410448) instead of the linker's 0x8040EFC0. Leaves the
-    # arena's original bottom largely intact (only ~12 KB lost).
+    # Post-build: patch OSInit so __OSArenaLo starts at 0x80412000 (past our
+    # T2 at 0x80410000 + the echo-ring mailbox at 0x80411F00) instead of the
+    # linker's 0x8040EFC0. Arena loses ~16 KB from the original layout.
     #
-    # Note: we tried bumping to 0x80511000 (1 MB carve-out for Link #2 heap)
-    # but that broke Outset ZeldaHeap loading — MEM1 doesn't have 1 MB of
-    # slack. See docs/06-roadmap.md Path B plan v2: early-alloc from GameHeap
-    # instead of carving the arena.
+    # History: was 0x80411000 while mod fit in 0xF00 bytes; echo-ring code
+    # (docs/06 "Next Session Priority" track 1) pushed .text past 0x80411000,
+    # forcing both the mailbox and the arena start to shift up by 0x1000.
+    # Mailbox now lives at 0x80411F00..0x80411FAC; MUST be kept in sync with
+    # MAILBOX_ADDR in inject/include/mailbox.h.
+    #
+    # Do NOT bump further without measuring ZeldaHeap headroom: the 1 MB
+    # carve-out experiment (0x80511000) broke Outset archive loading. A 4 KB
+    # bump is well inside noise (ZeldaHeap ~6 MB).
     T1_LOAD = 0x800056e0
     T1_FILE = 0x2620
     patches = [
         (0x80301818, b"\x60\x00\x00\x00"),  # nop (always fall through)
         (0x8030181C, b"\x3c\x60\x80\x41"),  # lis r3, 0x8041
-        (0x80301820, b"\x38\x63\x10\x00"),  # addi r3, r3, 0x1000  -> r3 = 0x80411000
+        (0x80301820, b"\x38\x63\x20\x00"),  # addi r3, r3, 0x2000  -> r3 = 0x80412000
         (0x80301838, b"\x48\x00\x00\x30"),  # b +0x30 (skip debug path)
     ]
     with open(output_dol, "r+b") as f:

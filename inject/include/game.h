@@ -114,7 +114,18 @@ typedef f32 Mtx[3][4];
 // Layout from zeldaret/tww J3DModelData.h + J3DJointTree.h:
 //   J3DModelData + 0x10 = J3DJointTree (inlined)
 //   J3DJointTree  + 0x14 = J3DMtxCalc* mBasicMtxCalc
+//   J3DJointTree  + 0x18 = u16 mJointNum
 #define J3DMODELDATA_BASIC_MTXCALC_OFFSET 0x24
+#define J3DMODELDATA_JOINT_NUM_OFFSET     0x28
+
+// J3DModel per-instance bone buffers. calc() walks the skeleton through
+// basicMtxCalc and writes joint world-space matrices into mpNodeMtx[0..N-1]
+// (Mtx = f32[3][4] = 48 bytes). A subsequent viewCalc step inside
+// modelEntryDL projects these into mpDrawMtxBuf which GX uploads. Thus
+// overwriting mpNodeMtx between calc() and modelEntryDL propagates through
+// to the GPU — this is the hook for driving Link #2's pose independently.
+#define J3DMODEL_MP_NODE_MTX_OFFSET  0x8C
+#define J3DMODEL_MP_DRAW_MTX_OFFSET  0x94
 
 // Opaque — we never inspect the contents, only hold pointers.
 typedef void J3DModel;

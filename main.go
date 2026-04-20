@@ -77,10 +77,16 @@ func main() {
 			runPokeU32(os.Args[2], os.Args[3])
 		case "shadow-mode":
 			if len(os.Args) < 3 {
-				fmt.Println("Usage: ww shadow-mode <0|1|2|3>  (0=baseline 1=refresh 2=freeze 3=null-basicMtxCalc)")
+				fmt.Println("Usage: ww shadow-mode <0|1|2|3|4>  (0=baseline 1=refresh 2=freeze 3=no-op basicMtxCalc 4=echo-ring)")
 				os.Exit(1)
 			}
 			runShadowMode(os.Args[2])
+		case "echo-delay":
+			if len(os.Args) < 3 {
+				fmt.Println("Usage: ww echo-delay <N>  (0=identity 1..59=delayed replay; requires shadow-mode 4)")
+				os.Exit(1)
+			}
+			runEchoDelay(os.Args[2])
 		case "unhide-puppet":
 			runUnhidePuppet()
 		case "broadcast-link":
@@ -654,7 +660,7 @@ func runBroadcastLink(name, addr string) {
 
 // Mailbox layout (keep in sync with inject/include/mailbox.h).
 const (
-	mailboxBase    = 0x80410F00
+	mailboxBase    = 0x80411F00
 	maxPuppets     = 4
 	puppetSlotBase = mailboxBase + 0x10
 	puppetSlotSize = 0x20
@@ -862,11 +868,15 @@ func runPokeU32(addrHex, valHex string) {
 // See inject/include/mailbox.h and docs/06 "Next Session Priority" step 1.
 const mailboxShadowMode = 0x90
 const mailboxShadowLatched = 0x91
+const mailboxDbgJointNum = 0x9C
+const mailboxDbgNodeMtxPtr = 0xA0
+const mailboxEchoDelay = 0xA4
+const mailboxEchoRingState = 0xA5
 
 func runShadowMode(s string) {
 	v, err := strconv.Atoi(s)
-	if err != nil || v < 0 || v > 3 {
-		fmt.Println("mode must be 0 (baseline), 1 (refresh), 2 (freeze), or 3 (null-basicMtxCalc)")
+	if err != nil || v < 0 || v > 4 {
+		fmt.Println("mode must be 0 (baseline), 1 (refresh), 2 (freeze), 3 (no-op basicMtxCalc), or 4 (echo-ring)")
 		os.Exit(1)
 	}
 	d, err := dolphin.Find("GZLE01")
@@ -883,13 +893,46 @@ func runShadowMode(s string) {
 		"baseline (Link #1 direct)",
 		"refresh (copy every frame)",
 		"freeze (copy once)",
-		"null basicMtxCalc around calc (probe shared pose controller)",
+		"no-op basicMtxCalc (decouple; Link #2 freezes)",
+		"echo-ring (capture + delayed replay; set echo-delay)",
 	}
 	latchedStr := fmt.Sprintf("%d", latched[0])
 	if latched[0] == 0xFF {
 		latchedStr = "0xFF (alloc failed — falling back to baseline)"
 	}
 	fmt.Printf("shadow_mode = %d  [%s]   latched=%s\n", v, labels[v], latchedStr)
+	if v == 4 {
+		ringState, _ := d.ReadAbsolute(mailboxBase+mailboxEchoRingState, 1)
+		echoDelay, _ := d.ReadAbsolute(mailboxBase+mailboxEchoDelay, 1)
+		rsMsg := fmt.Sprintf("%d", ringState[0])
+		switch ringState[0] {
+		case 0:
+			rsMsg = "0 (unallocated — give it a frame)"
+		case 1:
+			rsMsg = "1 (allocated)"
+		case 0xFE:
+			rsMsg = "0xFE (bad jointNum — check dbg_joint_num in dump)"
+		case 0xFD:
+			rsMsg = "0xFD (GameHeap alloc failed)"
+		}
+		fmt.Printf("echo_ring_state=%s  echo_delay=%d\n", rsMsg, echoDelay[0])
+	}
+}
+
+func runEchoDelay(s string) {
+	v, err := strconv.Atoi(s)
+	if err != nil || v < 0 || v > 59 {
+		fmt.Println("delay must be 0..59 (frames; ring holds 60)")
+		os.Exit(1)
+	}
+	d, err := dolphin.Find("GZLE01")
+	if err != nil { fmt.Println(err); os.Exit(1) }
+	defer d.Close()
+	if err := d.WriteAbsolute(mailboxBase+mailboxEchoDelay, []byte{byte(v)}); err != nil {
+		fmt.Printf("write failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("echo_delay = %d frames (~%.2fs at 60fps)\n", v, float64(v)/60.0)
 }
 
 func runDump() {
@@ -919,6 +962,16 @@ func runDump() {
 		if bc, err := d.ReadU32(mailboxBase + 0x98); err == nil {
 			fmt.Printf("mini_link_data: 0x%08X   basicMtxCalc (@+0x24): 0x%08X\n", md, bc)
 		}
+	}
+	// Echo-ring diagnostics (populated after mini-link exists; echo_ring_state
+	// only becomes non-zero after first shadow_mode=4 frame).
+	if jn, err := d.ReadAbsolute(mailboxBase+mailboxDbgJointNum, 2); err == nil {
+		jointNum := binary.BigEndian.Uint16(jn)
+		nmp, _ := d.ReadU32(mailboxBase + mailboxDbgNodeMtxPtr)
+		rs, _ := d.ReadAbsolute(mailboxBase+mailboxEchoRingState, 1)
+		ed, _ := d.ReadAbsolute(mailboxBase+mailboxEchoDelay, 1)
+		fmt.Printf("echo: joint_num=%d  mpNodeMtx=0x%08X  ring_state=0x%02X  delay=%d\n",
+			jointNum, nmp, rs[0], ed[0])
 	}
 
 	// Per-slot state

@@ -7,13 +7,18 @@
 
 #include "game.h"
 
-// History: 0x80410800 → 0x80410900 → 0x80410F00. Every time we add
-// injected code the mod end crept up and eventually crossed the mailbox
-// address, corrupting game instructions. 0x80410F00 sits right before
-// __OSArenaLo (0x80411000) so we have ~0xF00 bytes of code room from
-// 0x80410000 without any further risk of collision. Mailbox ends at
-// 0x80410F90.
-#define MAILBOX_ADDR 0x80410F00
+// History: 0x80410800 → 0x80410900 → 0x80410F00 → 0x80411F00. Every
+// time we add injected code the mod end crept up and crossed the mailbox
+// address, corrupting game instructions. 0x80410F00 fell inside .text
+// once the mini-Link / echo-ring code pushed mod size past 0x0F00.
+//
+// 2026-04-19 late-late: mod grew to 0x11C8 (echo-ring added in
+// docs/06 "Next Session Priority" track 1). .text now ends ~0x80411140.
+// Moved mailbox to 0x80411F00 AND bumped __OSArenaLo to 0x80412000
+// (see inject/build.py OSInit patch). Orphan region is now [mod_end,
+// 0x80412000) and mailbox sits flush against the arena at 0x80411F00.
+// Mailbox ends at 0x80411FAC with new echo diagnostics.
+#define MAILBOX_ADDR 0x80411F00
 
 // Up to this many remote players can be mirrored as puppet actors.
 // Pick a humble number; each slot adds one actor allocation.
@@ -65,6 +70,22 @@ typedef struct {
     // after Link's draw returns so Go can see what the pointers are.
     u32 dbg_model_data;      // +0x94 — value of mini_link_data
     u32 dbg_saved_basic;     // +0x98 — value of *(mini_link_data + 0x24) before our write
+    // Echo-Link ring buffer (shadow_mode 4). See docs/06 "Next Session Priority".
+    //   dbg_joint_num   — mJointNum read from mini_link_data + 0x28 each frame.
+    //                     Used to size the per-frame mpNodeMtx copy. Expected ~42.
+    //   dbg_node_mtx_ptr — value of *(mini_link_model + 0x8C). Must be non-NULL
+    //                     after calc runs or replay writes nowhere.
+    //   echo_delay      — Go writes number of frames to delay the replay.
+    //                     0 = identity overwrite (sanity: same visual as mirror).
+    //                     1..ECHO_BUF_FRAMES-1 = replay from that many frames ago.
+    //   echo_ring_state — C publishes: 0 unalloc, 1 alloc ok, 0xFE bad jointNum,
+    //                     0xFD alloc failed. Lets Go distinguish silent failures.
+    u16 dbg_joint_num;       // +0x9C
+    u16 _pad2;               // +0x9E
+    u32 dbg_node_mtx_ptr;    // +0xA0
+    u8  echo_delay;          // +0xA4
+    u8  echo_ring_state;     // +0xA5
+    u16 _pad3;               // +0xA6
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)

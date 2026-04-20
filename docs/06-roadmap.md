@@ -129,50 +129,115 @@
   save/restore or separate Link archive copy. Diagnostic aid added:
   `mailbox.draw_progress` (+0x0C) so the draw hook's furthest
   execution point is observable independent of execute-phase writes.
+- **Independent Link #2 pose via mpNodeMtx capture + delayed replay +
+  double-calc** (2026-04-19 late-late-late): `shadow_mode = 4` +
+  `echo-delay 30` gives a clean Link #2 animating 0.5 s behind Link #1
+  on Outset with no rubber-banding. Track 1 of the docs/06 "drive
+  Link #2" plan complete. Recipe:
+
+  1. First `J3DModel::calc` runs with Link's real `basicMtxCalc` —
+     `mpNodeMtx` and `mpDrawMtxBuf` both reflect current-frame pose.
+  2. `memcpy` mpNodeMtx into a 60-slot GameHeap ring buffer
+     (42 × 48 B/slot = ~120 KB total). Replay slot
+     `(write_idx - echo_delay) % 60` back into mpNodeMtx.
+  3. Swap `basicMtxCalc` (shared J3DModelData + 0x24) to a no-op
+     J3DMtxCalc (16-slot vtable of `blr` stubs) and run `calc` a
+     SECOND time. Walker is stubbed (mpNodeMtx keeps our delayed
+     overwrite) but calc's envelope/draw-matrix pass rebuilds
+     `mpDrawMtxBuf` from the delayed `mpNodeMtx` → skin and rigid
+     share the same delayed pose.
+  4. Restore `basicMtxCalc`, restore j3dSys, `mDoExt_modelEntryDL`.
+
+  **Rubber-band diagnostic was load-bearing.** Single-calc +
+  post-calc mpNodeMtx overwrite rendered with rigid joints (hat,
+  sword, hands, feet, head, belt-buckle) tracking the delayed pose
+  but enveloped skin (torso, upper limbs) on current pose. The
+  stretch between them pinned the cause: `mpDrawMtxBuf` was baked
+  from current-pose mpNodeMtx inside the first calc and never re-read
+  our overwrite. Fix was one extra `calc` call with a no-op walker.
+  Addresses learned: `J3DModel + 0x8C = mpNodeMtx`, `J3DModel +
+  0x94 = mpDrawMtxBuf`, `J3DJointTree + 0x18 = mJointNum` (accessed
+  as J3DModelData + 0x28; Link = 42 joints). Side bumps: mod grew
+  past `__OSArenaLo = 0x80411000` so the arena immediate was bumped
+  to `0x80412000` and the mailbox moved to `0x80411F00`; Freighter's
+  default `.eh_frame` + `.eh_frame_hdr` stripped via `-fno-exceptions
+  -fno-unwind-tables -fno-asynchronous-unwind-tables` to buy 0x18C
+  bytes of mod budget.
 
 ## 🔬 Next Session Priority
 
-**Mirror BROKEN. Now drive Link #2 from our own pose source.** As of
-2026-04-19 late-late, Link #2 can be fully decoupled from Link #1 by
-swapping `J3DModelData + 0x24` (= `mJointTree.mBasicMtxCalc`) to a
-no-op J3DMtxCalc around our `calc()`. calc completes cleanly, draw
-path 38/38, sky clean, and Link #2 holds his last pose while Link #1
-keeps animating. Proved live: `shadow_mode = 3` in the current build.
-See `docs/05-known-issues.md` "MIRROR BROKEN" for the full chain.
+**Echo-Link DONE. Link #2 renders an independent pose, driven from a
+ring buffer of captured `mpNodeMtx` snapshots with a configurable
+frame delay.** As of 2026-04-19 late-late-late, `shadow_mode = 4` +
+`echo-delay 30` produces a clean Link #2 animating 0.5 s behind
+Link #1 on Outset: no stretch, no crash, sky clean, draw_progress 41.
 
-The shadow-daPy_lk_c work (modes 1/2) was inconclusive on its own
-premise: `mUserArea` doesn't carry pose data. It's used by peripheral
-callbacks only (equip/anim flags). The real control surface is the
-basicMtxCalc pointer.
+The rubber-banding encountered mid-session (skin stretching between
+delayed joint terminals and current-pose body) was the critical
+diagnostic. Fix: double-calc — swap `basicMtxCalc` to a no-op between
+our mpNodeMtx replay and a SECOND `J3DModel::calc`, so calc's
+envelope/draw-matrix pass rebuilds `mpDrawMtxBuf` (+0x94) from our
+delayed `mpNodeMtx` (+0x8C). Skin and rigid now share the same pose.
 
-### Attack plan — drive Link #2
+See `docs/05-known-issues.md` "Echo-Link DONE" for the recipe, address
+table, and the mailbox/__OSArenaLo shift that had to come with it.
 
-Two tracks to explore next session:
+### Working modes (use via `./ww.exe shadow-mode <N>`)
 
-1. **Direct-matrix mode (simpler):** Leave basicMtxCalc as the no-op
-   (Link #2's pose walker does nothing). Between calc() returning and
-   modelEntryDL submitting, `memcpy()` a set of 42 joint matrices
-   (one per joint) from a network-driven pose buffer into
-   `mpNodeMtx[0..jointNum-1]` on our mini_link_model. GX draw then
-   uploads our matrices. Cost: need pose authoring — either capture
-   Link #1's `mpNodeMtx` into a ring buffer and replay it on a delay
-   (gives us a "desynced Link #2"), or fabricate a simple cycle
-   (walk animation, idle, etc.). Right path for the first "Link #2
-   actually does something different" demo.
+- `0` — baseline mirror (userArea = Link #1). Cheap, default.
+- `3` — freeze (no-op basicMtxCalc around calc). Link #2 holds his
+  last pose. Useful kill-switch.
+- `4` — echo-ring. `echo-delay 0` = identity sanity (same visual as
+  mode 0). `echo-delay 1..59` = replay a past frame. Pose authoring
+  proven; can drive Link #2 from any mpNodeMtx source.
 
-2. **Custom-calc mode (more principled):** Write our own
-   `recursiveCalc` that walks the joint tree and composes transforms
-   from a `J3DTransformInfo[]` we own. Point basicMtxCalc at our
-   custom J3DMtxCalc. Lets us reuse the game's skeleton-walk math
-   instead of flattening to world-space matrices. Longer-term
-   cleaner; more J3D framework grokking needed up front.
+### Next session — wire protocol for network pose
 
-Either way: the wire-protocol extension (current-anim id, frame,
-sword/shield) becomes meaningful only once Link #2 is rendering
-*something other than a mirror*. Both above paths can be prototyped
-with zero network work, by generating test poses locally.
+With authoring unlocked, the remaining block is getting real remote-
+player pose data into `mpNodeMtx`. Two sub-problems:
 
-### Working skinned-Link recipe (baseline, unchanged)
+1. **Host-side**: at broadcast time, extract sender's current joint
+   matrices and put them on the wire. Simplest: read the sender's
+   daPy_lk_c → J3DModel → mpNodeMtx each broadcast tick (50 ms).
+   That's 42 × 48 B = 2016 B per packet. Over 20 Hz it's 40 KB/s —
+   fine for LAN. Wire format: raw Mtx[42] blob behind an opcode.
+   Faster path than animation-id+frame sync.
+
+2. **Receiver-side**: replace the echo-ring's "capture from own
+   calc" with "read from a fixed mailbox region that Go writes
+   from the network". Same `mpNodeMtx` overwrite path; same
+   double-calc to rebuild mpDrawMtxBuf. Drop the ring buffer —
+   just one pose slot per remote player.
+
+Concretely:
+
+- Add `MAX_REMOTE_POSES` × 42 × 48 B region to the mailbox (or a
+  separate runtime alloc from GameHeap if it crowds the mailbox).
+- Extend `puppet-sync`: when a remote is driving Link-slot, write
+  their joint matrices into the pose slot each tick.
+- Network protocol: add a `PoseUpdate` opcode carrying `{player_id,
+  joints_count, Mtx[]}`. 2 KB per update.
+- Add `./ww.exe pose-test` that animates slot 0's pose from a local
+  capture buffer as a smoke test without needing the server live.
+- Wire Link #2's mpNodeMtx overwrite source to the slot instead of
+  the echo ring.
+
+The alternative (capture ANIM STATE — anmId/frame/transition — and
+let the remote game run `J3DMtxCalcAnm` locally) is more principled
+but requires RE-ing Link's anim-blend state (bck/bca/bnk/bnn layer
+stack, IK, look-at). Save it for after raw-matrix sync is proven.
+
+### Fall-back tracks (kept for reference, not blocking)
+
+- **Custom J3DMtxCalc subclass**: write our own `recursiveCalc` that
+  composes joint transforms from a `J3DTransformInfo[]` we own. Skip
+  the second calc entirely. Cleaner architecturally; adds one more
+  J3D grok before it pays off.
+- **Anim-state sync via bck/bca IDs**: send animation ID + frame
+  counter, let Link #2's own `J3DMtxCalcAnm` run locally. Bandwidth-
+  efficient but requires replicating Link's anim layer stack.
+
+### Working skinned-Link recipe (baseline)
 
 `inject/src/multiplayer.c`: `PROBE_ARCNAME = "Link"`, `PROBE_BDL_IDX =
 LINK_BDL_CL`, `modelEntryDL` with `calc()` wrapped in full 0x128-byte
@@ -183,8 +248,17 @@ j3dSys snapshot AND `mUserArea` set to Link #1's actor each frame.
   didn't affect pose — see docs/05)
 - 3: no-op J3DMtxCalc swapped into basicMtxCalc around calc → Link #2
   freezes at last pose while Link #1 keeps moving. **Decoupling
-  proven.** Use `./ww.exe shadow-mode <N>` + `./ww.exe dump` to
-  toggle/observe.
+  proven.**
+- 4: echo-ring (pose authoring). Captures `mpNodeMtx` each draw frame
+  into a 60-slot GameHeap ring buffer, replays a slot `echo-delay`
+  frames old, runs a SECOND `J3DModel::calc` with no-op basicMtxCalc
+  to rebuild `mpDrawMtxBuf` from the delayed mpNodeMtx (skin and
+  rigid now share the delayed pose — no rubber-band). **Independent
+  pose authoring proven.**
+
+Toggle/observe: `./ww.exe shadow-mode <N>` and `./ww.exe echo-delay <N>`
+plus `./ww.exe dump` for diagnostics (joint_num, mpNodeMtx pointer,
+ring_state, delay).
 
 ### Solved this session (2026-04-19 evening through late-late)
 

@@ -298,6 +298,86 @@ Two directions to explore:
 Either way, we're no longer blocked on the "decouple" problem. That's
 solved.
 
+### Echo-Link DONE — Link #2 drives its own pose (2026-04-19 late-late-late)
+
+Track 1 from docs/06 "Next Session Priority" complete: `shadow_mode = 4`
++ `echo-delay <N frames>` makes Link #2 animate cleanly `N/60` seconds
+behind Link #1. 60-frame ring buffer in GameHeap holds `mpNodeMtx`
+snapshots; each draw frame captures the current pose and replays a
+delayed slot. Live verified on Outset at delay=30 (0.5 s).
+
+### Working recipe (`shadow_mode = 4`, live verified: no stretch, no crash)
+
+```c
+// Inside daPy_draw_hook, after Link's real draw returns. Wrapped in a
+// full 0x128-byte j3dSys snapshot/restore around BOTH calc() calls.
+J3DModel_calc(mini_link_model);                   // 1st calc: real walker → mpNodeMtx + mpDrawMtxBuf = current pose
+memcpy(ring[write_idx], mpNodeMtx, 42 * 48);      // capture current
+memcpy(mpNodeMtx, ring[(write_idx - delay) % N], 42 * 48);  // replay delayed
+*(basicMtxCalc_slot) = &noop_mtxcalc;             // swap walker to no-op
+J3DModel_calc(mini_link_model);                   // 2nd calc: walker stubbed (mpNodeMtx unchanged)
+                                                  // envelope/draw pass rebuilds mpDrawMtxBuf from delayed mpNodeMtx
+*(basicMtxCalc_slot) = saved_real_mtxcalc;        // restore for Link #1
+mDoExt_modelEntryDL(mini_link_model);
+```
+
+### Why a SECOND calc — the rubber-band diagnosis
+
+Single-calc + post-calc `mpNodeMtx` overwrite alone was attempted first.
+Result: **rubber-banding**. Rigid joint terminals (hands, feet, head,
+belt-buckle, hat, sword, shield) tracked the delayed pose; skin-
+enveloped vertices (torso, upper limbs) stayed on current pose; the
+model stretched between the two. Cause: `J3DModel::calc` populates
+**both** `mpNodeMtx` (+0x8C, per-joint world) AND `mpDrawMtxBuf` (+0x94,
+per-envelope for skinning) in one call. A post-calc write to mpNodeMtx
+doesn't propagate — envelopes already baked from current-pose mpNodeMtx.
+
+The double-calc sidesteps reverse-engineering `mpDrawMtxBuf`'s layout
+(entry-count is NOT joint-count; it's unique-envelope-combination count
+indirected through shape packets). Instead, swap basicMtxCalc to a no-op
+so the 2nd calc's walker does nothing, while its envelope/draw-matrix
+pass re-reads our delayed mpNodeMtx and rebuilds mpDrawMtxBuf. ~1.5×
+the per-frame cost of a single calc; no visible frame-rate drop.
+
+### Addresses / offsets added this session
+
+- `J3DJointTree + 0x18 = u16 mJointNum` (access as `J3DModelData + 0x28`).
+  Link's mJointNum = **42** verified live via `mailbox.dbg_joint_num`.
+- `J3DModel + 0x8C = Mtx* mpNodeMtx` — per-joint world matrices.
+- `J3DModel + 0x94 = Mtx** mpDrawMtxBuf` — per-envelope draw matrices
+  (computed by calc's envelope pass from mpNodeMtx).
+- Stride: `Mtx = f32[3][4] = 48 bytes`. Ring per frame = 42 × 48 = 2016 B.
+  60-frame ring ≈ 120 KB from GameHeap (~245 KB free on Outset).
+
+### Mailbox + __OSArenaLo shift (mod grew to 0x1048)
+
+Echo-ring code pushed `.text` end to `0x80410FC0` and mod end to
+`0x80411048`. Two layout fixes applied:
+
+- **Mailbox moved**: `0x80410F00` → `0x80411F00`. The old address fell
+  inside `.text` once mod grew past 0xF00 — mailbox writes would have
+  corrupted executing code.
+- **__OSArenaLo bumped**: `0x80411000` → `0x80412000` (OSInit patch in
+  build.py: `addi r3, r3, 0x1000` → `addi r3, r3, 0x2000`). Needed
+  because mod end crossed 0x80411000 (ClearArena would have wiped
+  .dtors + tail of .fini). 4 KB ZeldaHeap shrink — noise vs the 1 MB
+  bump that broke Outset archive loads.
+
+Must keep in sync across:
+- `inject/include/mailbox.h` MAILBOX_ADDR
+- `inject/src/multiplayer.c` CALLBACK_PTR_ADDR + `frame_shim` asm offset
+- `inject/build.py` OSInit patch immediate
+- `main.go` `mailboxBase`
+
+### C++ exception metadata strip
+
+Freighter's g++ emits `.eh_frame` (~0x158 B) + `.eh_frame_hdr` (~0x34 B)
+even for plain C. Added `-fno-exceptions -fno-unwind-tables
+-fno-asynchronous-unwind-tables` to `proj.common_args`. Saves ~0x18C B
+per build — enough to keep mod under the ISO's reserved DOL space
+(which otherwise requires a fresh `wit copy` instead of the fast
+patch_iso.py splice).
+
 ### Infrastructure landmarks established this session
 
 - `dRes_control_c::getRes` is a **static** method, not a member function. The Itanium mangling (`F...` without `CCF` / `CFv`) plus the decomp's explicit `static` keyword confirm this. Earlier we typed it as a member with a `this` arg, which shifted every real argument by one register — the game treated `&mObjectInfo[0]` (which at offset 0 inside dRes_control_c has the 14-byte string `"System\0...\0"` of the first archive slot) as `arcName`, which is why broken getRes calls spammed `<System.arc> getRes: res nothing !!` at ~143 logs/sec. **Beware**: static members in the decomp headers are NOT clearly flagged in the mangled names; read the header declaration or the decomp source before building a function-pointer typedef.

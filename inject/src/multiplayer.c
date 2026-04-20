@@ -20,19 +20,16 @@
 
 // Where main01_init stashes the callback pointer. Must sit OUTSIDE our T2
 // code section. History:
-//   v1 (mod ~0x748 B): 0x80410700. Worked because the linker left 0x700
-//       as padding. Broke when the mod grew past 0x700 — real instructions
-//       landed there and the write corrupted them (crash: invalid read
-//       0x24 @ PC 0x80410704).
-//   v2 (mod ~0x868 B): 0x80410808 = old mailbox+0x08. Broke because the
-//       old mailbox (0x80410800) overlapped the code section — main01_init
-//       was STILL writing inside our code.
-//   v3 (0x80410908 = mailbox+0x08): broke when mod grew past 0x900.
-//   v4 (current):  0x80410F08 = mailbox+0x08 with mailbox now at
-//       0x80410F00 — just below __OSArenaLo (0x80411000), maximum
-//       headroom before we'd ever collide again.
-// MUST match the `lwz 12, 0x0F08(12)` offset in frame_shim asm below.
-#define CALLBACK_PTR_ADDR 0x80410F08
+//   v1 (mod ~0x748 B): 0x80410700. Broke when mod grew past 0x700.
+//   v2 (mod ~0x868 B): 0x80410808. Broke when mod grew past 0x800.
+//   v3 (mod ~0x900 B): 0x80410908. Broke when mod grew past 0x900.
+//   v4 (mod ~0x9A8 B): 0x80410F08 @ __OSArenaLo = 0x80411000.
+//   v5 (current, mod ~0x11C8 B): 0x80411F08 @ __OSArenaLo = 0x80412000.
+//       Echo-ring code pushed .text past 0x80411000, so the whole
+//       mailbox + __OSArenaLo pair shifted up by 0x1000. See
+//       inject/build.py for the matching OSInit patch.
+// MUST match the `lwz 12, 0x1F08(12)` offset in frame_shim asm below.
+#define CALLBACK_PTR_ADDR 0x80411F08
 
 // Per-slot state. Parallel arrays to mailbox.puppets[]. pids[i] is the
 // queued-spawn result from fopAcM_create; spawned[i] gates phase 2 sync.
@@ -77,6 +74,35 @@ __attribute__((naked))
 static void noop_stub(void) {
     asm volatile("blr\n");
 }
+
+// --- Echo-Link state (shadow_mode 4) ----------------------------------
+// Ring buffer of per-frame mpNodeMtx snapshots for the delayed-replay
+// experiment (docs/06 "Next Session Priority" track 1).
+//
+// Flow each mode-4 frame inside daPy_draw_hook, AFTER our calc (which
+// ran with the real basicMtxCalc and so populated mini-Link's mpNodeMtx
+// with Link #1's current-frame pose as a byproduct), and BEFORE
+// modelEntryDL (so viewCalc inside it projects our overwrite into
+// mpDrawMtxBuf):
+//   1. memcpy mpNodeMtx -> ring[write_idx]      (capture)
+//   2. if frames_filled >= delay:
+//        memcpy ring[(write_idx - delay + BUF) % BUF] -> mpNodeMtx  (replay)
+//   3. write_idx = (write_idx + 1) % BUF; frames_filled = min(+1, BUF)
+//
+// delay == 0 is the sanity case: replay copies our just-captured frame
+// back over itself. Link #2 should look identical to mirror. If he
+// doesn't, the copy itself is damaging mpNodeMtx.
+// delay > 0 replays a historical frame — the actual desync demo.
+//
+// Heap: GameHeap (same runtime allocator as shadow_link; ~245 KB free per
+// docs/05). 60 frames * ~42 joints * 48 B = ~120 KB, so ECHO_BUF_FRAMES=60
+// leaves enough headroom for normal Outset actor loads.
+#define ECHO_BUF_FRAMES 60
+static u8* echo_ring = 0;
+static int echo_joint_num = 0;   // captured at first alloc; ring frame size = joint_num * 48
+static int echo_frame_u32s = 0;  // joint_num * 12 (Mtx = 3*4 f32s = 12 u32s)
+static int echo_write_idx = 0;
+static int echo_frames_filled = 0;
 // Archive + BDL index for the model we hand to mDoExt_J3DModel__create.
 // Stored in rodata (lives in T2) so the compiler emits a real pointer
 // getRes can dereference.
@@ -149,7 +175,7 @@ void frame_shim(void) {
 
         // --- multiplayer_update ---
         "lis   12, 0x8041       \n"
-        "lwz   12, 0x0F08(12)   \n"  // = CALLBACK_PTR_ADDR (mailbox+0x08)
+        "lwz   12, 0x1F08(12)   \n"  // = CALLBACK_PTR_ADDR (mailbox+0x08) = 0x80411F08
         "cmpwi 12, 0            \n"
         "beq-  1f               \n"
         "mtctr 12               \n"
@@ -463,29 +489,40 @@ int daPy_draw_hook(void* this_) {
                 saved_basic_calc = *basic_calc_slot;
                 mailbox->dbg_model_data = (u32)mini_link_data;
                 mailbox->dbg_saved_basic = saved_basic_calc;
+                // Joint count for echo-ring sizing. Expected ~42 per decomp.
+                mailbox->dbg_joint_num = *(volatile u16*)((u8*)mini_link_data + J3DMODELDATA_JOINT_NUM_OFFSET);
+            }
+            // mpNodeMtx pointer — calc() allocates + writes this. Published
+            // every frame (read AFTER calc below) so Go can confirm non-NULL.
+            mailbox->dbg_node_mtx_ptr = *(volatile u32*)((u8*)mini_link_model + J3DMODEL_MP_NODE_MTX_OFFSET);
+
+            // Lazy-init the no-op J3DMtxCalc used by mode 3 and mode 4.
+            // Vtable of 16 blr stubs; object = {vtable_ptr, padding}.
+            // Cheap to init once; modes that need it swap it into
+            // J3DModelData->basicMtxCalc around J3DModel_calc.
+            if (!noop_mtxcalc_initialized) {
+                int vi;
+                for (vi = 0; vi < 16; vi++) {
+                    noop_mtxcalc_vtable[vi] = (u32)&noop_stub;
+                }
+                noop_mtxcalc_obj[0] = (u32)&noop_mtxcalc_vtable[0];
+                noop_mtxcalc_initialized = 1;
             }
 
             // Mode 3 (verified 2026-04-19): PC 0x802ee63c inside calcAnmMtx
             // hits a NULL deref when basicMtxCalc is 0 — decoupling proven.
-            // Now swap basicMtxCalc to a no-op J3DMtxCalc so calc() completes
+            // Swap basicMtxCalc to a no-op J3DMtxCalc so calc() completes
             // without walking the joint tree. Link #2's mpNodeMtx is left
-            // untouched → he should FREEZE at his last-calc'd pose while
-            // Link #1 keeps animating.
+            // untouched → he FREEZES at his last-calc'd pose while Link #1
+            // keeps animating.
             if (mode == 3 && basic_calc_slot) {
-                if (!noop_mtxcalc_initialized) {
-                    int vi;
-                    for (vi = 0; vi < 16; vi++) {
-                        noop_mtxcalc_vtable[vi] = (u32)&noop_stub;
-                    }
-                    noop_mtxcalc_obj[0] = (u32)&noop_mtxcalc_vtable[0];
-                    noop_mtxcalc_initialized = 1;
-                }
                 *basic_calc_slot = (u32)&noop_mtxcalc_obj[0];
             } else {
                 basic_calc_slot = 0;   // don't restore if we didn't swap
             }
 
-            // Full 0x128-byte j3dSys snapshot around calc().
+            // Full 0x128-byte j3dSys snapshot around calc(). Wraps BOTH
+            // calls in mode 4's double-calc path.
             static u32 j3dsys_snapshot[J3D_SYS_SIZE / 4];
             volatile u32* j3dsys = (volatile u32*)J3D_SYS_ADDR;
             int n;
@@ -501,6 +538,107 @@ int daPy_draw_hook(void* this_) {
                 *basic_calc_slot = saved_basic_calc;
             }
             mailbox->draw_progress = 36;
+
+            // Echo-Link capture + delayed replay (shadow_mode 4). Sits
+            // INSIDE the j3dSys bracket because the second calc below
+            // re-pollutes j3dSys and must be rolled back too.
+            //
+            // First calc (above) ran with Link's real basicMtxCalc →
+            // mpNodeMtx and mpDrawMtxBuf both reflect Link #1's current
+            // pose. We snapshot mpNodeMtx into the ring, then overwrite
+            // it from a delayed slot.
+            //
+            // Problem: the first-calc's mpDrawMtxBuf is still current-
+            // pose (that's where skin envelopes read from). Running the
+            // second calc with a no-op basicMtxCalc leaves mpNodeMtx
+            // alone (the walker is stubbed) but calc's envelope/draw-
+            // matrix pass rebuilds mpDrawMtxBuf from our delayed
+            // mpNodeMtx → both buffers now carry the delayed pose.
+            //
+            // Why not just overwrite mpDrawMtxBuf directly? Its layout
+            // is not 1:1 with joints — it has one entry per unique
+            // envelope combination (count lives in J3DModelData, offset
+            // not yet mapped). The double-calc sidesteps needing to
+            // reverse-engineer that.
+            if (mode == 4 && mini_link_data) {
+                u16 jn = mailbox->dbg_joint_num;
+                // Lazy-allocate ring on first mode-4 frame. Joint count
+                // is captured here so resizes via joint-tree swap don't
+                // blow up the ring mid-flight.
+                if (!echo_ring) {
+                    if (jn == 0 || jn > 128) {
+                        mailbox->echo_ring_state = 0xFE;  // bad jointNum
+                    } else {
+                        echo_joint_num = (int)jn;
+                        echo_frame_u32s = echo_joint_num * 12; // 12 u32 per Mtx
+                        u32 total_bytes = (u32)(ECHO_BUF_FRAMES * echo_frame_u32s * 4);
+                        echo_ring = (u8*)JKRHeap_alloc(total_bytes, 0x20, mDoExt_getGameHeap());
+                        if (!echo_ring) {
+                            mailbox->echo_ring_state = 0xFD;  // alloc failed
+                        } else {
+                            mailbox->echo_ring_state = 1;
+                            echo_write_idx = 0;
+                            echo_frames_filled = 0;
+                        }
+                    }
+                }
+
+                volatile u32* node_mtx = (volatile u32*)(*(u32*)((u8*)mini_link_model + J3DMODEL_MP_NODE_MTX_OFFSET));
+                if (echo_ring && node_mtx && echo_frame_u32s > 0 && basic_calc_slot == 0) {
+                    // basic_calc_slot==0 here means we were not in mode 3;
+                    // mode 4 uses it below to swap basicMtxCalc for the
+                    // second calc. Re-derive a local slot pointer.
+                    volatile u32* bc_slot = (volatile u32*)((u8*)mini_link_data + J3DMODELDATA_BASIC_MTXCALC_OFFSET);
+                    u32 bc_saved = *bc_slot;
+
+                    u8 delay = mailbox->echo_delay;
+                    if (delay >= ECHO_BUF_FRAMES) delay = ECHO_BUF_FRAMES - 1;
+
+                    // Capture: mpNodeMtx -> ring[write_idx] (current pose
+                    // from the first calc that just ran with real walker).
+                    volatile u32* cap_dst = (volatile u32*)(echo_ring + echo_write_idx * echo_frame_u32s * 4);
+                    int ei;
+                    for (ei = 0; ei < echo_frame_u32s; ei++) {
+                        cap_dst[ei] = node_mtx[ei];
+                    }
+                    mailbox->draw_progress = 39;
+
+                    // Replay: ring[(write_idx - delay + BUF) % BUF] -> mpNodeMtx.
+                    // Gate on having at least `delay` historical frames so the
+                    // first few frames after a mode change don't pull random
+                    // pre-alloc bytes (delay == 0 always satisfies since the
+                    // just-captured frame IS that slot — identity overwrite).
+                    if (echo_frames_filled >= (int)delay) {
+                        int replay_idx = echo_write_idx - (int)delay;
+                        if (replay_idx < 0) replay_idx += ECHO_BUF_FRAMES;
+                        volatile u32* rep_src = (volatile u32*)(echo_ring + replay_idx * echo_frame_u32s * 4);
+                        for (ei = 0; ei < echo_frame_u32s; ei++) {
+                            node_mtx[ei] = rep_src[ei];
+                        }
+                    }
+                    mailbox->draw_progress = 40;
+
+                    echo_write_idx++;
+                    if (echo_write_idx >= ECHO_BUF_FRAMES) echo_write_idx = 0;
+                    if (echo_frames_filled < ECHO_BUF_FRAMES) echo_frames_filled++;
+
+                    // Second calc: no-op basicMtxCalc skips the skeleton
+                    // walk (mpNodeMtx keeps our delayed overwrite), but
+                    // calc's envelope/draw-matrix pass rebuilds
+                    // mpDrawMtxBuf from the delayed mpNodeMtx. Without
+                    // this, rigid joints follow the delayed pose but
+                    // skin envelopes stay on current → rubber-banding.
+                    *bc_slot = (u32)&noop_mtxcalc_obj[0];
+                    J3DModel_calc(mini_link_model);
+                    *bc_slot = bc_saved;
+                    mailbox->draw_progress = 41;
+                }
+            }
+
+            // Restore j3dSys after ALL calcs (both first and optional
+            // second for mode 4). Must come AFTER the mode-4 second
+            // calc or that calc's pollution leaks to Link's post-draw
+            // code.
             for (n = 0; n < (int)(J3D_SYS_SIZE / 4); n++) {
                 j3dsys[n] = j3dsys_snapshot[n];
             }
