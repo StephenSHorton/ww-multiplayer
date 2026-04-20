@@ -121,6 +121,16 @@ func main() {
 				addr = os.Args[3]
 			}
 			runBroadcastPose(name, addr)
+		case "pose-fake-loop":
+			name := "FakePlayer"
+			addr := "localhost:25565"
+			if len(os.Args) > 2 {
+				name = os.Args[2]
+			}
+			if len(os.Args) > 3 {
+				addr = os.Args[3]
+			}
+			runPoseFakeLoop(name, addr)
 		case "puppet-sync":
 			name := "Viewer"
 			addr := "localhost:25565"
@@ -806,6 +816,95 @@ func runBroadcastPose(name, addr string) {
 	fmt.Println("\nDisconnected.")
 }
 
+// Captures Link's current pose once and replays it as a separate
+// "fake remote" so loopback testing can demonstrate multi-Link
+// rendering without a second Dolphin. Position is sent as the live
+// Link position + 1000 X offset so the fake walks alongside the real
+// player, frozen in the captured pose. Receiver sees this as a remote
+// distinct from broadcast-pose's player and assigns it a new link slot.
+func runPoseFakeLoop(name, addr string) {
+	fmt.Printf("=== Fake Pose Broadcaster: %s -> %s ===\n\n", name, addr)
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	client := network.NewClient(name)
+	client.OnLog = func(msg string) { fmt.Printf("[net] %s\n", msg) }
+	if err := client.Connect(addr); err != nil {
+		fmt.Printf("connect: %v\n", err)
+		os.Exit(1)
+	}
+	defer client.Disconnect()
+
+	const linkMpCLModelOff = 0x032C
+	const j3dModelMpNodeMtxOff = 0x8C
+	const linkJointCount = 42
+	const poseBytes = linkJointCount * 48
+
+	// One-shot capture: read Link's current world pose, then localize.
+	var captured []byte
+	for try := 0; try < 30 && captured == nil; try++ {
+		linkPtr, err := d.GetLinkPtr()
+		if err != nil || linkPtr == 0 {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		modelPtr, _ := d.ReadU32(linkPtr + linkMpCLModelOff)
+		if modelPtr < 0x80000000 || modelPtr >= 0x81800000 {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		nodePtr, _ := d.ReadU32(modelPtr + j3dModelMpNodeMtxOff)
+		if nodePtr < 0x80000000 || nodePtr >= 0x81800000 {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		data, err := d.ReadAbsolute(nodePtr, poseBytes)
+		if err != nil || data == nil {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		pos, err := d.ReadPlayerPosition()
+		if err != nil || pos == nil {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		localizePoseInPlace(data, linkJointCount, pos.PosX, pos.PosY, pos.PosZ)
+		captured = data
+		fmt.Printf("captured fake pose at (%.0f, %.0f, %.0f)\n", pos.PosX, pos.PosY, pos.PosZ)
+	}
+	if captured == nil {
+		fmt.Println("could not capture initial pose; is Link loaded?")
+		os.Exit(1)
+	}
+
+	// Stream loop: position tracks live Link with +1000 X so the fake
+	// walks beside the real player. Pose stays frozen at the capture.
+	for client.IsConnected() {
+		pos, err := d.ReadPlayerPosition()
+		if err == nil && pos != nil {
+			netPos := &network.PlayerPosition{
+				PosX: pos.PosX + 1000,
+				PosY: pos.PosY,
+				PosZ: pos.PosZ,
+				RotY: pos.RotY,
+			}
+			if err := client.SendPosition(netPos); err != nil {
+				fmt.Printf("send position: %v\n", err)
+				break
+			}
+			if err := client.SendPose(linkJointCount, captured); err != nil {
+				fmt.Printf("send pose: %v\n", err)
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	fmt.Println("\nDisconnected.")
+}
+
 // Mailbox layout (keep in sync with inject/include/mailbox.h).
 const (
 	mailboxBase    = 0x80411F00
@@ -932,14 +1031,14 @@ func runPuppetSync(name, addr string) {
 	one := make([]byte, 4)
 	binary.BigEndian.PutUint32(one, 1)
 
-	// Pose-feed state. We pick ONE remote to drive Link #2's skeleton;
-	// the rest still get their puppet-slot actor (KAMOME / NPC / TSUBO).
-	// linkDriverID == 0 means "no remote chosen yet".
-	var (
-		linkDriverID  byte
-		poseBufPtr    uint32
-		poseModeReady bool
-	)
+	// Pose-feed state. We can drive up to maxRemoteLinks Link puppets
+	// from incoming remote poses. First remote with pose claims Link
+	// slot 0, second claims slot 1, etc. Beyond that, additional
+	// remotes still get their actor-puppet (KAMOME / NPC / TSUBO).
+	remoteToLinkSlot := map[byte]int{}
+	poseBufPtrs := [maxRemoteLinks]uint32{}
+	shadowModeArmed := false
+	announced := map[byte]bool{} // log "link slot := player N" once
 	// Render offset added on top of the localized pose's re-application.
 	// Default 0 (real multiplayer renders Link #2 at remote's actual
 	// world coords). Set WW_LINK2_OFFSET_X / _Y / _Z for loopback demos
@@ -948,32 +1047,54 @@ func runPuppetSync(name, addr string) {
 	link2OffsetY := envFloat32("WW_LINK2_OFFSET_Y", 0)
 	link2OffsetZ := envFloat32("WW_LINK2_OFFSET_Z", 0)
 	if link2OffsetX != 0 || link2OffsetY != 0 || link2OffsetZ != 0 {
-		fmt.Printf("Link #2 render offset: (%.0f, %.0f, %.0f)\n",
+		fmt.Printf("Link #2/3 render offset: (%.0f, %.0f, %.0f)\n",
 			link2OffsetX, link2OffsetY, link2OffsetZ)
 	}
-	ensurePoseMode := func() {
-		if poseModeReady {
-			return
+	armPoseSlot := func(slot int) bool {
+		// One-time per slot: ensure shadow_mode=5 is set, then wait for
+		// C to lazy-alloc pose_bufs[slot] and publish the pointer.
+		if poseBufPtrs[slot] != 0 {
+			return true
 		}
-		// One-time: switch to shadow_mode=5 and wait for the C side
-		// to lazy-alloc pose_buf and publish the pointer.
-		d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{5})
+		if !shadowModeArmed {
+			d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{5})
+			shadowModeArmed = true
+		}
 		for i := 0; i < 60; i++ {
 			time.Sleep(50 * time.Millisecond)
-			state, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState, 1)
+			state, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState(slot), 1)
 			if len(state) == 1 && state[0] == 1 {
-				poseBufPtr, _ = d.ReadU32(mailboxBase + mailboxPoseBufPtr)
-				if poseBufPtr != 0 {
-					poseModeReady = true
-					fmt.Printf("\npose-feed armed: pose_buf=0x%08X\n", poseBufPtr)
-					return
+				ptr, _ := d.ReadU32(mailboxBase + mailboxPoseBufPtr(slot))
+				if ptr != 0 {
+					poseBufPtrs[slot] = ptr
+					fmt.Printf("\npose-feed slot %d armed: pose_buf=0x%08X\n", slot, ptr)
+					return true
 				}
 			}
 			if len(state) == 1 && (state[0] == 0xFD || state[0] == 0xFE) {
-				fmt.Printf("\npose-feed alloc failed (state=0x%02X) — falling back to position-only\n", state[0])
-				return
+				fmt.Printf("\npose-feed slot %d alloc failed (state=0x%02X)\n", slot, state[0])
+				return false
 			}
 		}
+		return false
+	}
+	// Returns the link slot assigned to this remote, or -1 if no slot
+	// is available (all maxRemoteLinks already taken by other remotes).
+	pickLinkSlot := func(remoteID byte) int {
+		if s, ok := remoteToLinkSlot[remoteID]; ok {
+			return s
+		}
+		used := map[int]bool{}
+		for _, s := range remoteToLinkSlot {
+			used[s] = true
+		}
+		for s := 0; s < maxRemoteLinks; s++ {
+			if !used[s] {
+				remoteToLinkSlot[remoteID] = s
+				return s
+			}
+		}
+		return -1
 	}
 
 	for client.IsConnected() {
@@ -1040,32 +1161,29 @@ func runPuppetSync(name, addr string) {
 			// for two-Dolphin play; set it to e.g. 500 for loopback
 			// development so Link #2 doesn't overlap your own Link.
 			if rp.PoseMatrices != nil && len(rp.PoseMatrices) == rp.PoseJoints*48 {
-				if linkDriverID == 0 {
-					linkDriverID = rp.ID
-					ensurePoseMode()
-					if poseModeReady {
-						fmt.Printf("link-driver := player %d (%s)\n", rp.ID, rp.Name)
-					}
-					// Free this remote's puppet actor so we don't see
-					// both a Link #2 AND a KAMOME tracking the same
-					// player. Slot stays bound to this remote ID; we
-					// just deactivate so C drops bookkeeping.
+				linkSlot := pickLinkSlot(rp.ID)
+				if linkSlot >= 0 && armPoseSlot(linkSlot) {
+					// First time this remote got a link slot — also
+					// release their actor-puppet so we don't see both
+					// a Link AND a KAMOME at the same position.
 					d.WriteAbsolute(slotAddr(idx, slotOffAct), zero)
-				}
-				if poseModeReady && rp.ID == linkDriverID && poseBufPtr != 0 {
+					if _, alreadyLogged := announced[rp.ID]; !alreadyLogged {
+						fmt.Printf("link slot %d := player %d (%s)\n", linkSlot, rp.ID, rp.Name)
+						announced[rp.ID] = true
+					}
 					adjusted := make([]byte, len(rp.PoseMatrices))
 					copy(adjusted, rp.PoseMatrices)
 					if os.Getenv("WW_POSE_RAW") == "" {
 						applyPoseAt(adjusted, rp.PoseJoints,
 							st.curX+link2OffsetX, st.curY+link2OffsetY, st.curZ+link2OffsetZ)
 					}
-					d.WriteAbsolute(poseBufPtr, adjusted)
-					sq, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq, 1)
+					d.WriteAbsolute(poseBufPtrs[linkSlot], adjusted)
+					sq, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), 1)
 					next := byte(0)
 					if len(sq) == 1 {
 						next = sq[0] + 1
 					}
-					d.WriteAbsolute(mailboxBase+mailboxPoseSeq, []byte{next})
+					d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{next})
 				}
 			}
 		}
@@ -1077,13 +1195,11 @@ func runPuppetSync(name, addr string) {
 				delete(remoteToSlot, id)
 				slots[idx] = slotState{}
 				fmt.Printf("\nslot %d freed (player %d left)\n", idx, id)
-				// If the link-driver left, clear the assignment so the
-				// next pose-bearing remote claims the seat. Pose-buf
-				// stays at last value (Link #2 freezes) until then.
-				if id == linkDriverID {
-					linkDriverID = 0
-					fmt.Println("link-driver freed (will be reassigned on next pose)")
+				if linkSlot, ok := remoteToLinkSlot[id]; ok {
+					delete(remoteToLinkSlot, id)
+					fmt.Printf("link slot %d freed (will be reassigned on next pose)\n", linkSlot)
 				}
+				delete(announced, id)
 			}
 		}
 
@@ -1126,12 +1242,27 @@ const mailboxDbgJointNum = 0x9C
 const mailboxDbgNodeMtxPtr = 0xA0
 const mailboxEchoDelay = 0xA4
 const mailboxEchoRingState = 0xA5
-const mailboxPoseBufPtr = 0xA8
-const mailboxPoseJointCount = 0xAC
-const mailboxPoseBufState = 0xAE
-const mailboxPoseSeq = 0xAF
-const mailboxDbgPoseFirstWord = 0xB0
-const mailboxDbgNodeMtxFirst = 0xB4
+// Pose-feed slot fields are arrays sized maxRemoteLinks. Layout matches
+// the structs in inject/include/mailbox.h:
+//   pose_buf_ptrs    [N]u32  @ 0xA8 (4 B/slot)
+//   pose_joint_counts[N]u16  @ 0xB0 (2 B/slot)
+//   pose_buf_states  [N]u8   @ 0xB4 (1 B/slot)
+//   pose_seqs        [N]u8   @ 0xB6 (1 B/slot)
+//   dbg_pose_first_word u32  @ 0xB8 (slot 0 only — diagnostic)
+//   dbg_node_mtx_first  u32  @ 0xBC (slot 0 only — diagnostic)
+// Keep in sync with MAX_REMOTE_LINKS in inject/include/mailbox.h.
+// N>1 plumbing is in place but disabled until shared-J3DModelData
+// material-packet pollution is solved (see header comment). Two-Dolphin
+// multiplayer only needs N=1.
+const maxRemoteLinks = 1
+
+func mailboxPoseBufPtr(slot int) uint32     { return uint32(0xA8 + slot*4) }
+func mailboxPoseJointCount(slot int) uint32 { return uint32(0xB0 + slot*2) }
+func mailboxPoseBufState(slot int) uint32   { return uint32(0xB4 + slot) }
+func mailboxPoseSeq(slot int) uint32        { return uint32(0xB6 + slot) }
+
+const mailboxDbgPoseFirstWord = 0xB8
+const mailboxDbgNodeMtxFirst = 0xBC
 
 func runShadowMode(s string) {
 	v, err := strconv.Atoi(s)
@@ -1215,14 +1346,14 @@ func runPoseTest(mode string, durSec int) {
 	var jointCount uint16
 	for i := 0; i < 60; i++ {
 		time.Sleep(50 * time.Millisecond)
-		state, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState, 1)
+		state, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState(0), 1)
 		if len(state) == 0 {
 			continue
 		}
 		switch state[0] {
 		case 1:
-			poseBufPtr, _ = d.ReadU32(mailboxBase + mailboxPoseBufPtr)
-			jcBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPoseJointCount, 2)
+			poseBufPtr, _ = d.ReadU32(mailboxBase + mailboxPoseBufPtr(0))
+			jcBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPoseJointCount(0), 2)
 			if len(jcBytes) == 2 {
 				jointCount = binary.BigEndian.Uint16(jcBytes)
 			}
@@ -1249,12 +1380,12 @@ func runPoseTest(mode string, durSec int) {
 	fmt.Printf("pose_buf_ptr = 0x%08X  joint_count = %d  pose_size = %d B\n", poseBufPtr, jointCount, poseSize)
 
 	bumpSeq := func() {
-		seqBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq, 1)
+		seqBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq(0), 1)
 		next := byte(0)
 		if len(seqBytes) == 1 {
 			next = seqBytes[0] + 1
 		}
-		d.WriteAbsolute(mailboxBase+mailboxPoseSeq, []byte{next})
+		d.WriteAbsolute(mailboxBase+mailboxPoseSeq(0), []byte{next})
 	}
 
 	// Read Link #1's mpNodeMtx, NOT mini-Link's. Mini-Link's mpNodeMtx is
@@ -1417,16 +1548,20 @@ func runDump() {
 	}
 	// Pose-feed (mode 5) diagnostics. pose_buf_state stays 0 until the
 	// first mode-5 frame fires the lazy alloc.
-	if pb, err := d.ReadU32(mailboxBase + mailboxPoseBufPtr); err == nil {
-		jc, _ := d.ReadAbsolute(mailboxBase+mailboxPoseJointCount, 2)
-		ps, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState, 1)
-		sq, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq, 1)
+	for slot := 0; slot < maxRemoteLinks; slot++ {
+		pb, err := d.ReadU32(mailboxBase + mailboxPoseBufPtr(slot))
+		if err != nil {
+			continue
+		}
+		jc, _ := d.ReadAbsolute(mailboxBase+mailboxPoseJointCount(slot), 2)
+		ps, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState(slot), 1)
+		sq, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq(slot), 1)
 		jcVal := uint16(0)
 		if len(jc) == 2 {
 			jcVal = binary.BigEndian.Uint16(jc)
 		}
-		fmt.Printf("pose: buf=0x%08X  joint_count=%d  state=0x%02X  seq=%d\n",
-			pb, jcVal, ps[0], sq[0])
+		fmt.Printf("pose[%d]: buf=0x%08X  joint_count=%d  state=0x%02X  seq=%d\n",
+			slot, pb, jcVal, ps[0], sq[0])
 	}
 
 	// Per-slot state

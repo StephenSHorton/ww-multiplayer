@@ -24,6 +24,23 @@
 // Pick a humble number; each slot adds one actor allocation.
 #define MAX_PUPPETS 4
 
+// Up to this many remote players can be rendered as full Link puppets
+// via the pose-feed pipeline (shadow_mode 5). Each slot allocates its
+// own J3DModel + 42-joint pose buffer (~2 KB each) from ArchiveHeap +
+// GameHeap.
+//
+// CURRENTLY 1: render plumbing is wired for N>1 (mailbox arrays, per-
+// slot calc loop, per-slot modelEntryDL) but enabling it produces
+// SHARED J3DModelData bucket-list pollution — material packets are
+// shared between instances and the last entry() call wins, so all
+// instances render with the most-recently-submitted slot's pose. Both
+// puppets visible (separate base matrices) but stuck on one pose. Real
+// fix needs either per-instance material packet allocation OR the
+// alternate mDoExt_modelEntry-once + mDoExt_modelUpdateDL-per-frame
+// submission path. Future work; two-Dolphin multiplayer only needs N=1
+// (each side renders THE other player) so it's not blocking the MVP.
+#define MAX_REMOTE_LINKS 1
+
 // Per-slot state. Size is 0x20 bytes (nice round hex).
 //   active   — Go sets 1 when a remote player owns this slot, 0 to
 //              release it. C only spawns when active flips 0 -> 1.
@@ -101,18 +118,24 @@ typedef struct {
     //                      0xFD JKRHeap_alloc failed.
     //   pose_seq         — Go bumps each write so future C-side code can
     //                      detect freshness; v0 just always reads latest.
-    u32 pose_buf_ptr;        // +0xA8
-    u16 pose_joint_count;    // +0xAC
-    u8  pose_buf_state;      // +0xAE
-    u8  pose_seq;            // +0xAF
-    // Diagnostic: every mode-5 draw frame, C publishes `*pose_buf` and
-    // post-second-calc `mpNodeMtx[0]` (first u32 of root joint matrix)
-    // here. Lets Go confirm (a) C is seeing fresh writes to pose_buf
-    // and (b) the second calc isn't reverting the overwrite. If
-    // dbg_pose_first_word changes when Go writes change, the read works.
-    // If dbg_node_mtx_first matches dbg_pose_first_word, the copy works.
-    u32 dbg_pose_first_word; // +0xB0
-    u32 dbg_node_mtx_first;  // +0xB4
+    // Pose-feed slots, parallel arrays sized MAX_REMOTE_LINKS:
+    //   pose_buf_ptrs[i]      — C publishes after JKRHeap_alloc per slot.
+    //   pose_joint_counts[i]  — currently always 42 (Link). Per-slot in
+    //                           case we ever drive child / fairy rigs.
+    //   pose_buf_states[i]    — 0 unalloc, 1 ready, 0xFE bad joint count,
+    //                           0xFD GameHeap alloc failed.
+    //   pose_seqs[i]          — Go bumps each write so future C-side
+    //                           freshness gate can drop stale poses.
+    // Stride keeps arrays naturally aligned (u32 first, then u16, u8, u8).
+    u32 pose_buf_ptrs[MAX_REMOTE_LINKS];      // +0xA8
+    u16 pose_joint_counts[MAX_REMOTE_LINKS];  // +0xB0
+    u8  pose_buf_states[MAX_REMOTE_LINKS];    // +0xB4
+    u8  pose_seqs[MAX_REMOTE_LINKS];          // +0xB6
+    // Diagnostic for slot 0 only — every mode-5 draw frame C publishes
+    // `*pose_buf[0]` (before copy) and `mpNodeMtx[0][0]` (after second
+    // calc). Lets Go confirm the read/copy/calc round-trip.
+    u32 dbg_pose_first_word;                  // +0xB8
+    u32 dbg_node_mtx_first;                   // +0xBC
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)
