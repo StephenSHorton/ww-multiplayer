@@ -53,21 +53,22 @@ static u8 mini_link_state = 0;
 // Stored in rodata (lives in T2) so the compiler emits a real pointer
 // getRes can dereference.
 //
-// 2026-04-19 STATUS: parked on "Always"/ALWAYS_BDL_MPM_TUBO (Tsubo
-// fragment model) as a known-good render probe. This combination —
-// non-shared J3DModelData + J3DModel_calc() wrapped in j3dSys save/
-// restore + modelEntryDL — produces a visible, non-crashing object
-// tracking Link in real time. Sky stays clean.
+// 2026-04-19 evening: rigid path (Tsubo, ALWAYS_BDL_MPM_TUBO=0x31)
+// proven end-to-end with 2-field j3dSys save/restore. Tracked Link
+// in real time, sky clean, no crashes.
 //
-// Attempted 2026-04-19: switching to "Link"/LINK_BDL_CL to render a
-// second Link. Crashed at PC 0x8010c53c (lhz r0,0x301C(r3) with
-// r3=NULL inside checkEquipAnime) — Blocker 2 reappeared. calc() on
-// Link's skinned model touches more j3dSys fields (mShapePacket,
-// mMatPacket, etc) than rigid Tsubo does; our 2-field save/restore
-// isn't sufficient. See docs/05 "Mini-Link render pipeline" for
-// next-steps plan.
-static const char PROBE_ARCNAME[] = "Always";
-#define PROBE_BDL_IDX ALWAYS_BDL_MPM_TUBO
+// 2026-04-19+ step 1 of docs/06 "Next Session Priority": flip back
+// to Link with EXPANDED 5-field save/restore (mModel, mCurrentMtxCalc,
+// mMatPacket, mShapePacket, mShape). Hypothesis: skinned-model
+// calc() walks Link's skeleton via mCurrentMtxCalc and writes the
+// three additional fields, leaving mini-Link pointers behind for
+// Link's post-draw checkEquipAnime to deref (PC 0x8010C53C, r3=NULL).
+// If still crashes there → step 2 (full 0x128-byte j3dSys snapshot).
+// If renders but looks wrong → mDoExt_J3DModel__create flags need
+// tuning for skinned/skeleton models. To revert to the rigid baseline,
+// flip both constants back to "Always" / ALWAYS_BDL_MPM_TUBO.
+static const char PROBE_ARCNAME[] = "Link";
+#define PROBE_BDL_IDX LINK_BDL_CL
 
 // Forward decl so main01_init can take its address.
 void multiplayer_update(void);
@@ -337,9 +338,14 @@ int daPy_draw_hook(void* this_) {
     //   31 = Link's real draw returned
     //   32 = mini_link_model non-NULL
     //   33 = mini_link_state == 1 (full gate open)
-    //   34 = matrix written, about to save j3dSys + calc()
-    //   35 = calc() returned, j3dSys restored
-    //   36 = mDoExt_modelEntryDL returned — full path completed
+    //   34 = matrix written (about to snapshot j3dSys)
+    //   35 = j3dSys snapshot done (about to call calc)
+    //   36 = calc returned (about to restore j3dSys)
+    //   37 = j3dSys restored (about to modelEntryDL)
+    //   38 = modelEntryDL returned — full path completed
+    // Diagnostic table: stuck at 36 ⇒ calc itself crashed inside on
+    // Link's data → step 3 (separate ModelData). Reached 38 then crash
+    // later ⇒ pollution lives outside j3dSys (statics or shared MtxCalc).
     mailbox->draw_progress = 30;
     int result = daPy_lk_c_draw(this_);
     mailbox->draw_progress = 31;
@@ -358,19 +364,35 @@ int daPy_draw_hook(void* this_) {
             (*mtx)[2][0] = 0.0f; (*mtx)[2][1] = 0.0f; (*mtx)[2][2] = 1.0f;
             (*mtx)[2][3] = link_pos->z;
 
+            // BREAKTHROUGH 2026-04-19+: Link's joint callbacks (bound
+            // to the shared J3DModelData via J3DJoint subclasses)
+            // recover the owning daPy_lk_c via mUserArea (offset 0x14
+            // in J3DModel — see zeldaret/tww J3DModel.h). Without it,
+            // calc derefs NULL inside checkEquipAnime at PC 0x8010C53C.
+            // Set it each frame to Link #1's instance (this_ here).
+            // For now this means mini-Link will MIRROR Link #1's pose
+            // (callback acts on Link #1's state). Independent animation
+            // requires a synthetic daPy_lk_c — future work.
+            *(volatile u32*)((u8*)mini_link_model + J3DMODEL_USER_AREA_OFFSET) = (u32)this_;
+
+            // Full 0x128-byte j3dSys snapshot around calc().
+            static u32 j3dsys_snapshot[J3D_SYS_SIZE / 4];
+            volatile u32* j3dsys = (volatile u32*)J3D_SYS_ADDR;
+            int n;
             mailbox->draw_progress = 34;
-            // Save j3dSys globals, run calc() to populate mpNodeMtx /
-            // mpDrawMtxBuf from mBaseTransformMtx, then restore globals
-            // so Link's post-draw checkEquipAnime doesn't deref our model.
-            J3DModel* saved_model = *J3D_SYS_M_MODEL;
-            void*     saved_calc  = *J3D_SYS_M_CURRENT_MTX_CALC;
-            J3DModel_calc(mini_link_model);
-            *J3D_SYS_M_MODEL            = saved_model;
-            *J3D_SYS_M_CURRENT_MTX_CALC = saved_calc;
+            for (n = 0; n < (int)(J3D_SYS_SIZE / 4); n++) {
+                j3dsys_snapshot[n] = j3dsys[n];
+            }
             mailbox->draw_progress = 35;
+            J3DModel_calc(mini_link_model);
+            mailbox->draw_progress = 36;
+            for (n = 0; n < (int)(J3D_SYS_SIZE / 4); n++) {
+                j3dsys[n] = j3dsys_snapshot[n];
+            }
+            mailbox->draw_progress = 37;
 
             mDoExt_modelEntryDL(mini_link_model);
-            mailbox->draw_progress = 36;
+            mailbox->draw_progress = 38;
 
             mailbox->progress = 23;
         }

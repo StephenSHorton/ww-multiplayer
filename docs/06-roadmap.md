@@ -83,6 +83,28 @@
   docs/05 "Mini-Link render pipeline"): `mDoExt_modelEntryDL` breaks
   sky rendering regardless of phase; `J3DModel::calc()` crashes Link
   via j3dSys global pollution.
+- **First independent visible Link rendering via our pipeline**
+  (2026-04-19 late): Two Links visible on Outset, no crash, sky clean,
+  `draw_progress=38` (full path) every frame. The missing piece was
+  `J3DModel::mUserArea` (offset 0x14): Link's joint callbacks (bound
+  to the shared J3DModelData via J3DJoint subclasses) recover the
+  owning `daPy_lk_c*` from `model->getUserArea()` during calc, then
+  read its state. With our mini-Link's mUserArea = 0, the callback
+  derefed NULL at PC 0x8010C53C inside checkEquipAnime. Wiring
+  `*(u32*)(mini_link_model + 0x14) = (u32)link_actor` each frame in
+  the draw hook routes the callback to Link #1, calc completes, the
+  bone matrices populate, modelEntryDL submits cleanly. Full 0x128
+  j3dSys snapshot around calc is kept as a safety net but the
+  userArea write is the actual unblock. **Bisect path that found it**:
+  step 1 (5-field j3dSys save/restore) → still stuck at 34. Step 2
+  (full 0x128 snapshot) → still stuck at 35. Stub calc + modelEntryDL
+  → 38 stable, infrastructure proven innocent. Re-enable calc only →
+  back to stuck at 35. Confirmed calc was the singular failure. Hit
+  zeldaret/tww decomp for J3DModel layout: `mUserArea @ +0x14`,
+  every actor with bound callbacks does
+  `model->setUserArea((u32)this)`. Fix verified live — second Link
+  walks/idles/swings sword identically to Link #1 (joint callback
+  acts on Link #1's state). Independent animation is the next wall.
 - **First visible geometry from our render pipeline — rigid model
   working end-to-end** (2026-04-19): Tsubo fragment
   (ALWAYS_BDL_MPM_TUBO=0x31) renders and tracks Link in real time,
@@ -110,62 +132,62 @@
 
 ## 🔬 Next Session Priority
 
-**Get Link's skinned model to coexist with Link #1.** Rigid-model
-rendering is working (see "Done" above: Tsubo tracks Link, sky clean,
-no crashes). The final remaining wall is that `J3DModel::calc()` on
-Link's skinned ModelData touches more j3dSys state than our current
-2-field save/restore protects, so Link still crashes when we try to
-render a second Link using his own ModelData.
+**Break the Link #2 mirror — give him independent animation.** As of
+2026-04-19 late, Link #2 renders end-to-end via our pipeline (see
+"Done") but his pose is computed from Link #1's `daPy_lk_c` state
+because that's what we hand to the joint callbacks via `mUserArea`.
+For real multiplayer, Link #2's pose must come from the wire.
 
 **Attack plan, in order of cost:**
 
-1. **Expand j3dSys save/restore.** Snapshot `mMatPacket @ +0x3C`,
-   `mShapePacket @ +0x40`, `mShape @ +0x44` in addition to the
-   existing `mCurrentMtxCalc @ +0x30` and `mModel @ +0x38`. Simplest
-   extension; no new infrastructure. If Link still crashes at PC
-   0x8010C53C, go to step 2.
-2. **Full j3dSys snapshot** (all 0x128 bytes) around `calc()`. Cheap
-   memcpy on PPC; guaranteed to restore any non-static field. If
-   STILL crashes, the culprit is either static members
-   (`mCurrentMtx`, `mCurrentS`, `mParentS`) or mutation inside the
-   shared `J3DMtxCalc` object itself. Diagnostic: set
-   `draw_progress = 34` right before `calc`, `35` right after. Crash
-   with progress stuck at 34 ⇒ calc entry is fine. Crash with 35 ⇒
-   calc returned cleanly, pollution is in restore-window.
-3. **Separate ModelData for Link #2.** If j3dSys snapshotting can't
-   hermetically isolate calc, we stop sharing at the ModelData level.
-   Load a second copy of Link's archive (possibly under a fresh
-   arcname slot in `mObjectInfo`, or call `setObjectRes` manually for
-   a distinct name like "Link2"). Two independent J3DModelData = two
-   independent packet arrays + two independent MtxCalc instances;
-   the bucket/TEV/material pollution problem disappears at the root.
-   More complex (needs heap room, needs a second 700+KB load) but
-   mirrors how the game itself would handle two distinct instances.
-4. **Animation state.** Once visible, Link #2 renders in whatever
-   pose `calc()` computes from the default animation state. For real
-   multiplayer we need to drive animations from the network —
-   `J3DAnmTransformFull` setup, frame-ctrl, wire protocol for anim
-   index + frame. Scope-heavy but a straight line once #1-3 unblock
-   visibility.
+1. **Synthesize a fake `daPy_lk_c`** with just the fields the joint
+   callbacks read. Hand its address as `mUserArea` instead of Link
+   #1's. Each frame, populate the fake's pose / anim-state fields
+   from the network. Discovery work: figure out exactly which
+   `daPy_lk_c` fields the joint callbacks touch. The +0x301C field
+   that originally crashed (`lhz r0, 0x301C(r3)`) is the first
+   known field — trace from there. Likely candidates: anim ctrl
+   pointer, current frame, sword/shield state, equip state. Probably
+   a small set; full struct (10000+ bytes) doesn't need to be faked.
+2. **Per-instance joint-callback override.** If the J3DJoint vtable
+   pointers can be replaced on our model's joint tree (a copy or a
+   redirect), we skip Link's callbacks entirely and compose bones
+   from base anim + manual matrix writes. More invasive — touching
+   J3DModelData internals — and we'd then have to reproduce the
+   joint-walk math ourselves.
+3. **Network protocol extension.** Once Link #2 is animating from
+   our fake state, wire format must carry whatever subset of fields
+   the callbacks read (current anim, frame, sword state, etc).
+   Existing puppet protocol carries pos+rot only; this adds an
+   anim-state struct. Probably 1-2 dozen bytes per remote.
 
-### Working rigid-model recipe (keep this handy, it's your baseline)
+### Working skinned-Link recipe (keep this handy, it's your baseline)
 
-Current `inject/src/multiplayer.c` state: `PROBE_ARCNAME = "Always"`,
-`PROBE_BDL_IDX = ALWAYS_BDL_MPM_TUBO (0x31)`, uses `modelEntryDL` with
-`calc()` wrapped in 2-field j3dSys save/restore. Renders a broken-pot
-fragment at `link_pos + (100, 0, 0)`. Flip those 2 constants to
-`"Link"` / `LINK_BDL_CL` once the expanded save/restore lands — same
-pipeline, different model.
+Current `inject/src/multiplayer.c` state: `PROBE_ARCNAME = "Link"`,
+`PROBE_BDL_IDX = LINK_BDL_CL`, uses `modelEntryDL` with `calc()`
+wrapped in full 0x128-byte j3dSys snapshot AND `mUserArea` set to
+Link #1's actor each frame. Renders a second Link mirroring Link #1
+at `link_pos + (100, 0, 0)`. To probe a different model: flip
+`PROBE_ARCNAME` / `PROBE_BDL_IDX`. To break the mirror: replace
+`(u32)this_` in the userArea write with the address of a synthetic
+state struct.
 
-### Solved this session (2026-04-19 evening)
+### Solved this session (2026-04-19 evening + late evening)
 
 - `modelEntryDL` sky breakage root cause: shared J3DModelData, not
   the function itself.
 - `calc()` crash for rigid: 2-field j3dSys save/restore (mModel +
   mCurrentMtxCalc) fully sufficient.
+- `calc()` crash for skinned Link: NOT a j3dSys issue. 5-field and
+  full 0x128 snapshot both still crashed. Real cause was joint
+  callbacks reading `model->getUserArea()` and finding NULL. Set
+  it to the live Link actor and the callbacks complete cleanly.
 - Matrix propagation understood: `mBaseTransformMtx` @ +0x24 is input
   only; GX actually uploads from `mpDrawMtxBuf` @ +0x94, populated by
   `calc()` via `mpNodeMtx[]` @ +0x8C. No calc = invisible at origin.
+- Bisect technique that pinned calc as the singular failure: stub
+  `calc + modelEntryDL` separately, watch `draw_progress` markers.
+  Cheap, decisive.
 
 ---
 

@@ -95,6 +95,13 @@ typedef BOOL (*fopAcM_SearchByID_t)(fpc_ProcID id, fopAc_ac_c** out);
 // offset 0x24.
 typedef f32 Mtx[3][4];
 #define J3DMODEL_BASE_TR_MTX_OFFSET 0x24
+// J3DModel::mUserArea (u32) at offset 0x14 — actors stash their
+// `this` pointer here so joint callbacks bound to the J3DModelData
+// can recover the owning actor instance. Link's joint callbacks
+// crash with r3=NULL at PC 0x8010C53C if our mini-Link model leaves
+// mUserArea = 0. See zeldaret/tww J3DModel.h and the dozens of
+// `model->setUserArea((u32)this)` call sites in d_a_*.cpp.
+#define J3DMODEL_USER_AREA_OFFSET   0x14
 
 // Opaque — we never inspect the contents, only hold pointers.
 typedef void J3DModel;
@@ -171,13 +178,27 @@ typedef JKRHeap* (*JKRHeap_becomeCurrentHeap_t)(JKRHeap* self);
 typedef void (*J3DModel_calc_t)(J3DModel* self);
 #define J3DModel_calc ((J3DModel_calc_t)0x802EE8C0)
 
-// j3dSys global + the two fields polluted by J3DModel::calc().
+// j3dSys global + the fields polluted by J3DModel::calc().
 // Layout per JSystem/J3DGraphBase/J3DSys.h:
 //   0x030 mCurrentMtxCalc (J3DMtxCalc*)
 //   0x038 mModel          (J3DModel*)
+//   0x03C mMatPacket      (J3DMatPacket**)
+//   0x040 mShapePacket    (J3DShapePacket**)
+//   0x044 mShape          (J3DShape*)
+// First two are sufficient for rigid models (Tsubo). Skinned models
+// (Link) walk the skeleton via mCurrentMtxCalc and write the next
+// three as well; without saving them, Link's post-draw checkEquipAnime
+// dereferences mini-Link's pointers and crashes at PC 0x8010C53C.
 #define J3D_SYS_ADDR                 0x803EDA58
 #define J3D_SYS_M_CURRENT_MTX_CALC   ((void**)    (J3D_SYS_ADDR + 0x030))
 #define J3D_SYS_M_MODEL              ((J3DModel**)(J3D_SYS_ADDR + 0x038))
+#define J3D_SYS_M_MAT_PACKET         ((void**)    (J3D_SYS_ADDR + 0x03C))
+#define J3D_SYS_M_SHAPE_PACKET       ((void**)    (J3D_SYS_ADDR + 0x040))
+#define J3D_SYS_M_SHAPE              ((void**)    (J3D_SYS_ADDR + 0x044))
+// Full struct size per JSystem/J3DGraphBase/J3DSys.h. Used by daPy_draw_hook
+// for a memcpy-style snapshot around J3DModel_calc(): 5-field save/restore
+// was insufficient for skinned models, so we save the whole thing.
+#define J3D_SYS_SIZE                 0x128
 
 // Alternate submission. mDoExt_modelEntryDL calls entry() every frame
 // (re-registers packets into j3dSys buckets). For a freshly created

@@ -86,14 +86,50 @@ The mailbox lives between our T2 code section end and `__OSArenaLo = 0x80411000`
 
 **Lesson (learned twice):** any data slot we carve out of orphan memory has to sit ABOVE the eventual mod-end address. Each time mod size crosses the slot, the game's own instructions land at that address and `main01_init`'s write corrupts real code — the symptoms were a crash at `0x80410704` (`Invalid read 0x24`) on v1 and garbage reads from what looked like mailbox slots (slot fields showing `0x7C0803A6 = mtlr r0` instruction bytes) on v2.
 
-## Mini-Link render pipeline — RIGID WORKING, SKINNED BLOCKED (2026-04-19)
+## Mini-Link render pipeline — SKINNED LINK WORKING (2026-04-19)
 
 Option B plan from `docs/06-roadmap.md`: render a second model from our
-own code, separate from the actor system. **Breakthrough 2026-04-19**:
-rigid (non-skinned) models render end-to-end. Skinned models (Link)
-still crash Link via j3dSys pollution during `calc()`.
+own code, separate from the actor system. **Breakthrough 2026-04-19
+(late)**: skinned Link renders end-to-end alongside Link #1, no crash,
+sky clean. Mirrors Link #1's pose for now (joint callbacks act on
+Link #1's state) — independent animation comes next.
 
-### Working recipe for rigid models (confirmed: broken-pot fragment tracks Link in real time, no crashes, sky clean)
+### The mUserArea key
+
+Link's joint callbacks are bound to the shared `J3DModelData` via
+`J3DJoint` subclasses. During `calc()` they recover the owning
+`daPy_lk_c*` from `J3DModel::mUserArea` (offset **0x14**) and access
+its state. With our mini-Link's `mUserArea = 0`, the callback
+dereferenced NULL at PC `0x8010C53C` (`lhz r0, 0x301C(r3)` inside
+`checkEquipAnime`). Setting `*(u32*)(model+0x14) = (u32)link_this`
+each frame routes the callback to the live Link #1 instance — calc
+runs cleanly. Pattern verified against the public TWW decomp: every
+actor with bound callbacks does `model->setUserArea((u32)this)`
+right after creation. Without this, calc on shared skinned ModelData
+is unreachable from outside the actor system.
+
+### Working recipe for SKINNED Link (verified live: two Links visible, second mirrors first)
+
+```c
+// Once: resolve shared resident J3DModelData via static getRes.
+// Once: switch heap to ArchiveHeap, create J3DModel, restore heap.
+JKRHeap* prev = JKRHeap_becomeCurrentHeap(mDoExt_getArchiveHeap());
+mini_link_data  = getRes("Link", LINK_BDL_CL, mObjectInfo, 64);
+mini_link_model = mDoExt_J3DModel__create(mini_link_data, 0x80000, 0x11000022);
+JKRHeap_becomeCurrentHeap(prev);
+
+// Each frame inside daPy_Draw hook (after calling Link's real draw):
+write_base_tr_mtx(mini_link_model, world_xform);     // @ model+0x24
+*(u32*)(mini_link_model + 0x14) = (u32)link_actor;   // mUserArea — THE KEY
+// Full 0x128-byte j3dSys snapshot around calc() so post-draw code
+// (checkEquipAnime etc) sees Link #1's state, not our scratch.
+memcpy(snapshot, j3dSys, 0x128);
+J3DModel_calc(mini_link_model);                      // 0x802EE8C0
+memcpy(j3dSys, snapshot, 0x128);
+mDoExt_modelEntryDL(mini_link_model);                // 0x8000F974
+```
+
+### Working recipe for rigid models (kept for reference: broken-pot fragment tracks Link in real time, no crashes, sky clean)
 
 ```c
 // 1. Once: resolve shared resident J3DModelData via static getRes.
@@ -174,16 +210,48 @@ draw returned / model non-NULL / state == 1 / matrix written / calc+
 save/restore done / modelEntryDL returned. Invaluable when the visible
 output is ambiguous — tells you exactly how far each frame reached.
 
+### Solved this session (late 2026-04-19)
+
+- **Step 1 (5-field j3dSys save/restore: mMatPacket, mShapePacket,
+  mShape on top of mModel + mCurrentMtxCalc)**: insufficient.
+  draw_progress stuck at 34 = "calc didn't return".
+- **Step 2 (full 0x128-byte j3dSys snapshot via memcpy)**: also
+  insufficient. draw_progress stuck at 35 = "calc didn't return"
+  even with the entire struct snapshot. Confirmed pollution lives
+  outside j3dSys.
+- **Bisect (calc + modelEntryDL stubbed → re-enable calc only)**:
+  isolated calc as the sole crash trigger. modelEntryDL alone is
+  fine; with calc on, draw_progress stuck at 35.
+- **mUserArea = 0 was the root cause.** Joint callbacks inside
+  `J3DModelData` use `model->getUserArea()` to find the owning actor.
+  Wiring it to Link #1's `daPy_lk_c*` each frame fixed everything.
+  Full 0x128 snapshot is still kept around calc as a safety net.
+
 ### Next step for Link
 
-Expanded save/restore covering at minimum `j3dSys.mMatPacket`,
-`mShapePacket`, `mShape` (maybe a full 0x128-byte snapshot of the
-j3dSys struct). If that still crashes, the issue is J3DSys static
-members (`mCurrentMtx/mCurrentS/mParentS`) or state inside the shared
-`J3DMtxCalc` object itself. If even that fails, the fallback is to
-load a SEPARATE copy of Link's archive (different arcname slot) so
-we have a second independent `J3DModelData`, avoiding the shared-
-state problem at the ModelData level entirely.
+Make Link #2 animate INDEPENDENTLY of Link #1. Currently the joint
+callback acts on Link #1's `daPy_lk_c` state, so Link #2 mirrors
+Link #1 frame-perfectly (the "Angle 3" outcome the roadmap originally
+ruled out). To break the mirror, we need callbacks to operate on a
+separate state object. Three approaches, ordered by cost:
+
+1. **Synthesize a fake `daPy_lk_c`** (or a stripped subset of its
+   fields) in our own memory. Point `mUserArea` at the fake. Drive
+   the fake's animation/pose fields from network input each frame.
+   The callbacks read positional/anim state from our fake and Link
+   #2's bones land where we tell them. Cost: figure out which
+   `daPy_lk_c` fields the joint callbacks actually read (the +0x301C
+   field that originally crashed is one starting clue; trace from
+   there).
+2. **Replace the joint callbacks themselves** for our model. If we
+   can per-instance override the J3DJoint vtable on our copy of the
+   model's joint tree (or null out the callback), calc would skip
+   the Link-specific logic and just compose the bone hierarchy from
+   the default rig. We'd then have to drive bones manually too.
+3. **Separate ModelData via second archive load** (the original
+   step 3 fallback). Now arguably overkill — the userArea fix
+   covers the calc issue, and step 1 above is cheaper than
+   double-loading 700 KB.
 
 ### Infrastructure landmarks established this session
 
