@@ -123,6 +123,11 @@ typedef void* (*dRes_getRes_byIdx_t)(
 #define OBJECT_INFO_COUNT 64
 #define LINK_BDL_CL       0x18
 
+// "Always" archive constants (used as a non-shared model probe for the
+// mini-Link modelEntryDL sky-breakage investigation). mpm_tubo is the
+// small-pot BDL. Rigid, non-skinned — doesn't need J3DModel::calc().
+#define ALWAYS_BDL_MPM_TUBO  0x31
+
 typedef J3DModel* (*mDoExt_J3DModel_create_t)(
     J3DModelData* modelData,
     u32 modelFlag,
@@ -154,10 +159,34 @@ typedef JKRHeap* (*JKRHeap_becomeCurrentHeap_t)(JKRHeap* self);
 // --- Per-frame bone computation ----------------------------------------
 // J3DModel::calc is virtual; our model is a plain J3DModel (no derived
 // class), so calling the base implementation directly is equivalent to
-// a vtable dispatch. Without calc(), bone node matrices stay uninitialized
-// and the skinned mesh collapses to the origin (invisible).
+// a vtable dispatch. calc() is required to propagate mBaseTransformMtx
+// (offset 0x24) into mpNodeMtx / mpDrawMtxBuf (offsets 0x8C / 0x94).
+// Without calc(), GX uploads uninitialized draw matrices and the model
+// renders at origin with degenerate matrices (invisible).
+//
+// The catch: calc() writes j3dSys.mModel and j3dSys.mCurrentMtxCalc
+// globals, which Link's post-draw code reads expecting its own pointers.
+// See docs/05 "Mini-Link render pipeline" Blocker 2. Wrap calls with
+// a save/restore of those two fields.
 typedef void (*J3DModel_calc_t)(J3DModel* self);
 #define J3DModel_calc ((J3DModel_calc_t)0x802EE8C0)
+
+// j3dSys global + the two fields polluted by J3DModel::calc().
+// Layout per JSystem/J3DGraphBase/J3DSys.h:
+//   0x030 mCurrentMtxCalc (J3DMtxCalc*)
+//   0x038 mModel          (J3DModel*)
+#define J3D_SYS_ADDR                 0x803EDA58
+#define J3D_SYS_M_CURRENT_MTX_CALC   ((void**)    (J3D_SYS_ADDR + 0x030))
+#define J3D_SYS_M_MODEL              ((J3DModel**)(J3D_SYS_ADDR + 0x038))
+
+// Alternate submission. mDoExt_modelEntryDL calls entry() every frame
+// (re-registers packets into j3dSys buckets). For a freshly created
+// model, that's correct. Kept here as a backup — see multiplayer.c for
+// which we're using currently. Tsubo's own _draw uses modelUpdateDL
+// which calls update() (no re-entry). Trying entryDL first because
+// our model goes through fewer lifecycle hooks than a real actor.
+typedef void (*mDoExt_modelUpdateDL_t)(J3DModel* model);
+#define mDoExt_modelUpdateDL ((mDoExt_modelUpdateDL_t)0x8000F84C)
 
 // --- Link draw hook infrastructure -------------------------------------
 // `daPy_Draw` at 0x80108204 is Link #1's draw thunk; at 0x80108210 it bls

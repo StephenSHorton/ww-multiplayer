@@ -86,56 +86,104 @@ The mailbox lives between our T2 code section end and `__OSArenaLo = 0x80411000`
 
 **Lesson (learned twice):** any data slot we carve out of orphan memory has to sit ABOVE the eventual mod-end address. Each time mod size crosses the slot, the game's own instructions land at that address and `main01_init`'s write corrupts real code — the symptoms were a crash at `0x80410704` (`Invalid read 0x24`) on v1 and garbage reads from what looked like mailbox slots (slot fields showing `0x7C0803A6 = mtlr r0` instruction bytes) on v2.
 
-## Mini-Link render pipeline — partial (2026-04-19)
+## Mini-Link render pipeline — RIGID WORKING, SKINNED BLOCKED (2026-04-19)
 
-Option B plan from `docs/06-roadmap.md`: render a second Link from our code by creating a `J3DModel` that shares Link #1's already-loaded `J3DModelData`, instead of spawning a second `PROC_PLAYER` actor.
+Option B plan from `docs/06-roadmap.md`: render a second model from our
+own code, separate from the actor system. **Breakthrough 2026-04-19**:
+rigid (non-skinned) models render end-to-end. Skinned models (Link)
+still crash Link via j3dSys pollution during `calc()`.
 
-**What's working:**
+### Working recipe for rigid models (confirmed: broken-pot fragment tracks Link in real time, no crashes, sky clean)
 
-- `dRes_control_c::getRes("Link", LINK_BDL_CL=0x18, &mObjectInfo[0], 64) @ 0x8006F208` returns a valid `J3DModelData*`.
-- `mDoExt_J3DModel__create @ 0x80016BB8` returns a non-NULL `J3DModel*`, allocation routed through `JKRHeap::becomeCurrentHeap` wrapping (currently ArchiveHeap).
-- Draw-phase Freighter hook at `0x80108210` (the `bl daPy_lk_c::draw` inside `daPy_Draw`) fires every frame and calls our C shim, which calls the original `draw()` at `0x80107308` then runs our per-frame matrix+submit work. `daPy_Draw`'s thin trampoline at `0x80108204` stays intact (prologue, epilogue, return-value propagation — we return the original draw's result).
-- No log spam, no crashes (with calc disabled — see below), no freeze, mod size 0x9A8 bytes.
+```c
+// 1. Once: resolve shared resident J3DModelData via static getRes.
+// 2. Once: switch heap to ArchiveHeap, create J3DModel, restore heap.
+JKRHeap* prev = JKRHeap_becomeCurrentHeap(mDoExt_getArchiveHeap());
+mini_link_data  = getRes("Always", ALWAYS_BDL_MPM_TUBO, mObjectInfo, 64);
+mini_link_model = mDoExt_J3DModel__create(mini_link_data, 0x80000, 0x11000022);
+JKRHeap_becomeCurrentHeap(prev);
 
-**Two open blockers preventing a visible, animated mini-Link:**
-
-### Blocker 1 — `mDoExt_modelEntryDL` breaks sky rendering
-
-Submitting our `J3DModel` via `mDoExt_modelEntryDL @ 0x8000F974` corrupts sky textures: large gray patches across the skybox. Reproduced from BOTH the `fapGm_Execute` hook (execute phase) AND the `daPy_Draw` hook (draw phase), so it isn't about frame-lifecycle timing. Bisect sequence that established this:
-
-1. Pipeline with `create` + `modelEntryDL` in execute phase → sky gray.
-2. Pipeline with `create` only, no `modelEntryDL` → sky clean. (Isolated `modelEntryDL` as the trigger.)
-3. Pipeline with `create` + `modelEntryDL` in **draw** phase (via the `daPy_Draw` hook) → sky gray again.
-
-Heap choice (ZeldaHeap vs ArchiveHeap) also doesn't change the outcome. Allocation sizes are small (~20 KB for the `J3DModel` + bone matrix buffers) relative to the 7–8 MB per-heap capacity, so heap starvation isn't the mechanism.
-
-Working hypotheses (unverified):
-
-- Our `J3DModel`'s material packets point at the *shared* `J3DMaterial`/`J3DMaterialData` inside Link's `J3DModelData`. `J3DModel::entry()` (called inside `modelEntryDL`) enters these packets into j3dSys bucket lists, and the doubled-up materials leave TEV/texture state that breaks the sky's later render.
-- `viewCalc()` (also called inside `modelEntryDL`) writes `mViewBaseMtx` and reads `j3dSys.getViewMtx()` — might be the specific j3dSys touch that poisons subsequent renders.
-
-Candidate investigations:
-
-- Submit a DIFFERENT J3DModelData (e.g. Tsubo or Kamome) that isn't shared with an existing actor. If that doesn't break sky, shared-modelData state is confirmed as the root cause.
-- Log which j3dSys packet bucket our shape/mat packets land in; check whether the sky uses the same bucket.
-- Try `mDoExt_modelDiff` instead of the `unlock/entry/lock/viewCalc` path in `modelEntryDL`.
-
-### Blocker 2 — `J3DModel::calc() @ 0x802EE8C0` crashes Link
-
-Without `calc()`, the skinned mesh has no bone matrices computed — all joints collapse to the origin and the mesh is invisible. But calling `calc()` from EITHER phase crashes at exactly the same site:
-
-```
-Invalid read from 0x0000301C, PC = 0x8010C53C
+// 3. Each frame inside daPy_Draw hook (after calling Link's real draw):
+write_base_tr_mtx(mini_link_model, world_xform);    // @ model+0x24
+J3DModel* saved_model = *J3D_SYS_M_MODEL;           // 0x803EDA58 + 0x38
+void*     saved_calc  = *J3D_SYS_M_CURRENT_MTX_CALC; // 0x803EDA58 + 0x30
+J3DModel_calc(mini_link_model);                     // 0x802EE8C0
+*J3D_SYS_M_MODEL            = saved_model;
+*J3D_SYS_M_CURRENT_MTX_CALC = saved_calc;
+mDoExt_modelEntryDL(mini_link_model);               // 0x8000F974
 ```
 
-`0x8010C53C` is 5 instructions into `checkEquipAnime__9daPy_lk_cCFv @ 0x8010C528`. The faulting instruction is `lhz r0, 0x301C(r3)` with `r3 = NULL` — i.e. Link's `this` pointer became null by the time his own `checkEquipAnime` ran. `checkEquipAnime` is called from within Link's draw path, so our `calc()` is polluting global state that Link reads a few instructions later.
+### What we learned
 
-`J3DModel::calc()` starts with `j3dSys.setModel(this)` and then `j3dSys.setCurrentMtxCalc(getModelData()->getBasicMtxCalc())`. The j3dSys globals are written; if Link's draw path reads `j3dSys.mModel` expecting to see its own model (and then walks a pointer chain from there), it'd get OUR model's data — and our model has no legitimate actor backing, so related chases return NULL.
+- **Blocker 1 root cause (modelEntryDL breaks sky)**: SHARED J3DModelData.
+  `J3DModel::entry()` registers material/shape packets into `j3dSys`
+  bucket lists each call. Two J3DModels built from Link's single
+  J3DModelData register overlapping packets → bucket pollution →
+  material/TEV state bleed into the sky render. Using a
+  NON-SHARED J3DModelData (Tsubo) with the identical `modelEntryDL`
+  path leaves the sky untouched. `modelEntryDL` itself is fine; the
+  hazard is sharing the ModelData with a live actor.
+- **Blocker 2 partial fix (calc crashes Link)**: wrapping `J3DModel::calc`
+  in save/restore of `j3dSys.mModel` + `j3dSys.mCurrentMtxCalc` makes
+  it safe **for rigid models**. Verified: Tsubo calc runs, draw
+  matrices get populated from `mBaseTransformMtx`, mesh renders,
+  Link's subsequent `checkEquipAnime` still sees its own state.
+  Attempting the same with Link's own skinned ModelData STILL crashed
+  at the exact same site (PC 0x8010C53C). Hypothesis: calc on a
+  skinned model walks the skeleton via `mCurrentMtxCalc` and writes
+  more j3dSys fields (`mMatPacket @ +0x3C`, `mShapePacket @ +0x40`,
+  `mShape @ +0x44`, possibly static members `mCurrentMtx/mCurrentS/
+  mParentS`). Expanded save/restore needed before Link can run calc
+  alongside Link #1.
+- **Matrix propagation is not automatic.** Writing `mBaseTransformMtx`
+  at J3DModel+0x24 is only the base input. The actual GX upload reads
+  from `mpDrawMtxBuf` (J3DModel+0x94), which is populated by `calc()`
+  via the intermediate `mpNodeMtx[]` (+0x8C). Without `calc()` the
+  draw buffer stays uninitialized and the model renders at origin
+  with degenerate matrices — invisible. This is why the earlier
+  "no calc, just write baseMtx" experiments produced no geometry.
+- **`mDoExt_J3DModel__create` is NOT sufficient to enter the draw
+  bucket by itself.** It calls `entryModelData` (which sets up the
+  model's own packet arrays), NOT `entry()` (which inserts into
+  j3dSys bucket lists). Either use `modelEntryDL` each frame (calls
+  entry + lock + viewCalc) or `modelEntry` once + `modelUpdateDL`
+  each frame (entry once + update/lock/viewCalc). Both work for
+  non-shared ModelData.
 
-Candidate fix:
+### Addresses added this session (GZLE01)
 
-- Save `j3dSys.mModel` and `j3dSys.mCurrentMtxCalc` before `calc()`, restore after. If the addresses of those fields are stable, this is a 4-line wrapper.
-- Alternative: don't call `calc()`. Manually populate `mpNodeMtx[]` from the rest-pose data in `J3DModelData` — i.e. re-implement `calcAnmMtx`'s recursive walk, but without touching j3dSys.
+- `mDoExt_modelUpdateDL @ 0x8000F84C` — update variant (no re-entry)
+- `mDoExt_modelEntry @ 0x8000F8F8` — one-shot entry without DL
+- `J3DModel_calc @ 0x802EE8C0`
+- `j3dSys @ 0x803EDA58` — +0x30 = `mCurrentMtxCalc`, +0x38 = `mModel`
+- `settingTevStruct @ 0x80193028` (dScnKy_env_light_c method)
+- `setLightTevColorType @ 0x80193A34` (dScnKy_env_light_c method)
+- `dKy_tevstr_init @ 0x80196EB4` (params: tevStr*, roomNo, 0xFF)
+- `g_env_light @ 0x803E4AB4` (size 0xC9C)
+- `dKy_tevstr_c` size = 0xB0
+- `ALWAYS_BDL_MPM_TUBO = 0x31` (broken-pot-fragment model — the first
+  visible geometry ever rendered by our pipeline. For a whole pot use
+  a different type index — real Tsubo reads the BDL from
+  `data().m6C` indexed by `mType`.)
+
+### Draw-phase diagnostic: `mailbox.draw_progress`
+
+Mailbox +0x0C is now `draw_progress`, written only from `daPy_draw_hook`
+so execute phase can't overwrite it. Stages 30-36: hook entered / Link
+draw returned / model non-NULL / state == 1 / matrix written / calc+
+save/restore done / modelEntryDL returned. Invaluable when the visible
+output is ambiguous — tells you exactly how far each frame reached.
+
+### Next step for Link
+
+Expanded save/restore covering at minimum `j3dSys.mMatPacket`,
+`mShapePacket`, `mShape` (maybe a full 0x128-byte snapshot of the
+j3dSys struct). If that still crashes, the issue is J3DSys static
+members (`mCurrentMtx/mCurrentS/mParentS`) or state inside the shared
+`J3DMtxCalc` object itself. If even that fails, the fallback is to
+load a SEPARATE copy of Link's archive (different arcname slot) so
+we have a second independent `J3DModelData`, avoiding the shared-
+state problem at the ModelData level entirely.
 
 ### Infrastructure landmarks established this session
 

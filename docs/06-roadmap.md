@@ -83,43 +83,89 @@
   docs/05 "Mini-Link render pipeline"): `mDoExt_modelEntryDL` breaks
   sky rendering regardless of phase; `J3DModel::calc()` crashes Link
   via j3dSys global pollution.
+- **First visible geometry from our render pipeline — rigid model
+  working end-to-end** (2026-04-19): Tsubo fragment
+  (ALWAYS_BDL_MPM_TUBO=0x31) renders and tracks Link in real time,
+  sky clean, no crashes. Recipe: `getRes("Always", 0x31, mObjectInfo,
+  64)` → `mDoExt_J3DModel__create(data, 0x80000, 0x11000022)` in
+  ArchiveHeap; each frame inside `daPy_Draw` hook (after Link's real
+  draw returns): write base matrix @ J3DModel+0x24 → save
+  `j3dSys.mModel`+`mCurrentMtxCalc` (offsets 0x38/0x30 in the j3dSys
+  struct @ 0x803EDA58) → `J3DModel::calc` @ 0x802EE8C0 → restore →
+  `mDoExt_modelEntryDL` @ 0x8000F974. **Unblocked two open blockers
+  from the previous session**: (1) `modelEntryDL`'s sky breakage
+  root cause was SHARED J3DModelData — entry()'s per-frame bucket
+  insertion double-registered Link's material packets. Non-shared
+  data submits cleanly. (2) `calc()`'s crash was confirmed as j3dSys
+  global pollution; a minimal 2-field save/restore is sufficient for
+  rigid models. Matrix propagation (base→node→drawMtx) also proven
+  essential — without `calc()` the GX draw buffer stays uninitialized
+  and renders at origin (invisible), which was silently defeating
+  earlier "no calc" experiments. Skinned Link's model still crashes
+  the same way under calc — its skeleton walk touches additional
+  j3dSys fields beyond the 2 we save. Next session: expanded
+  save/restore or separate Link archive copy. Diagnostic aid added:
+  `mailbox.draw_progress` (+0x0C) so the draw hook's furthest
+  execution point is observable independent of execute-phase writes.
 
 ## 🔬 Next Session Priority
 
-**Pick up mini-Link rendering where 2026-04-19 left off.**
+**Get Link's skinned model to coexist with Link #1.** Rigid-model
+rendering is working (see "Done" above: Tsubo tracks Link, sky clean,
+no crashes). The final remaining wall is that `J3DModel::calc()` on
+Link's skinned ModelData touches more j3dSys state than our current
+2-field save/restore protects, so Link still crashes when we try to
+render a second Link using his own ModelData.
 
-Infrastructure is in place: `getRes` correctly fetches `LINK_BDL_CL`,
-`J3DModel__create` returns a non-NULL model allocated into ArchiveHeap,
-and a Freighter draw-phase hook at `0x80108210` (inside `daPy_Draw`)
-runs our C shim every frame — calls Link's real draw at `0x80107308`,
-then our per-frame matrix+submit. `progress=22` reliably observed;
-progress-23 path enters `mDoExt_modelEntryDL`.
+**Attack plan, in order of cost:**
 
-Two open blockers prevent a visible, non-crashing mini-Link. Both are
-documented in detail in `docs/05-known-issues.md` → "Mini-Link render
-pipeline". Summary of what to attack:
+1. **Expand j3dSys save/restore.** Snapshot `mMatPacket @ +0x3C`,
+   `mShapePacket @ +0x40`, `mShape @ +0x44` in addition to the
+   existing `mCurrentMtxCalc @ +0x30` and `mModel @ +0x38`. Simplest
+   extension; no new infrastructure. If Link still crashes at PC
+   0x8010C53C, go to step 2.
+2. **Full j3dSys snapshot** (all 0x128 bytes) around `calc()`. Cheap
+   memcpy on PPC; guaranteed to restore any non-static field. If
+   STILL crashes, the culprit is either static members
+   (`mCurrentMtx`, `mCurrentS`, `mParentS`) or mutation inside the
+   shared `J3DMtxCalc` object itself. Diagnostic: set
+   `draw_progress = 34` right before `calc`, `35` right after. Crash
+   with progress stuck at 34 ⇒ calc entry is fine. Crash with 35 ⇒
+   calc returned cleanly, pollution is in restore-window.
+3. **Separate ModelData for Link #2.** If j3dSys snapshotting can't
+   hermetically isolate calc, we stop sharing at the ModelData level.
+   Load a second copy of Link's archive (possibly under a fresh
+   arcname slot in `mObjectInfo`, or call `setObjectRes` manually for
+   a distinct name like "Link2"). Two independent J3DModelData = two
+   independent packet arrays + two independent MtxCalc instances;
+   the bucket/TEV/material pollution problem disappears at the root.
+   More complex (needs heap room, needs a second 700+KB load) but
+   mirrors how the game itself would handle two distinct instances.
+4. **Animation state.** Once visible, Link #2 renders in whatever
+   pose `calc()` computes from the default animation state. For real
+   multiplayer we need to drive animations from the network —
+   `J3DAnmTransformFull` setup, frame-ctrl, wire protocol for anim
+   index + frame. Scope-heavy but a straight line once #1-3 unblock
+   visibility.
 
-1. **`modelEntryDL` breaks sky rendering** from both execute and draw
-   phase. Bisect proved the allocation isn't the issue — submission is.
-   Best next move: try a DIFFERENT `J3DModelData` (e.g. Tsubo/Kamome,
-   something not already being drawn by a real actor) to check whether
-   sharing Link's model data is the trigger. If a non-shared model
-   renders without breaking sky, the fix is to stop sharing
-   `J3DModelData` with Link #1 (load a separate Link-shaped archive or
-   manually duplicate the relevant slices).
-2. **`J3DModel::calc()` crashes Link** at `PC 0x8010C53C` (`lhz r0,
-   0x301C(r3)` with `this=NULL` inside `checkEquipAnime`). Same crash
-   from both phases — not a timing bug. Almost certainly j3dSys
-   global pollution (`setModel`/`setCurrentMtxCalc`). First fix to try:
-   save+restore `j3dSys.mModel` and `j3dSys.mCurrentMtxCalc` around
-   our `calc()`. Without `calc()` the bone matrices stay uninitialized
-   and the mesh collapses to origin (invisible).
+### Working rigid-model recipe (keep this handy, it's your baseline)
 
-Earlier blockers that were solved this session: the `getRes` arg-count
-bug (the `<System.arc>` log flood came from treating a static member as
-a non-static one, shifting every arg by one register); the
-progressively-shifting mailbox address (now parked at `0x80410F00`
-against `__OSArenaLo = 0x80411000` for max headroom).
+Current `inject/src/multiplayer.c` state: `PROBE_ARCNAME = "Always"`,
+`PROBE_BDL_IDX = ALWAYS_BDL_MPM_TUBO (0x31)`, uses `modelEntryDL` with
+`calc()` wrapped in 2-field j3dSys save/restore. Renders a broken-pot
+fragment at `link_pos + (100, 0, 0)`. Flip those 2 constants to
+`"Link"` / `LINK_BDL_CL` once the expanded save/restore lands — same
+pipeline, different model.
+
+### Solved this session (2026-04-19 evening)
+
+- `modelEntryDL` sky breakage root cause: shared J3DModelData, not
+  the function itself.
+- `calc()` crash for rigid: 2-field j3dSys save/restore (mModel +
+  mCurrentMtxCalc) fully sufficient.
+- Matrix propagation understood: `mBaseTransformMtx` @ +0x24 is input
+  only; GX actually uploads from `mpDrawMtxBuf` @ +0x94, populated by
+  `calc()` via `mpNodeMtx[]` @ +0x8C. No calc = invisible at origin.
 
 ---
 

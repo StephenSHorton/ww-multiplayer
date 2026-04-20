@@ -47,8 +47,8 @@ typedef struct {
 typedef struct {
     u32 spawn_trigger;   // +0x00: per-frame heartbeat counter
     u32 progress;        // +0x04: debug marker — see multiplayer.c
-    u32 _pad0;           // +0x08
-    u32 _pad1;           // +0x0C
+    u32 _pad0;           // +0x08: also reused by main01_init as CALLBACK_PTR slot (mailbox+0x08 = 0x80410F08)
+    u32 draw_progress;   // +0x0C: draw-hook-only diagnostic — mirrors progress but written only from daPy_draw_hook
     Puppet puppets[MAX_PUPPETS];  // +0x10 .. +0x10 + 0x20*N
 } Mailbox;
 
