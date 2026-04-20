@@ -4,6 +4,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -83,31 +86,55 @@ const (
 	AnimOffset    = 0x31D8    // mCurProc (uint32)
 )
 
-// Find locates the Dolphin emulator process and maps its emulated RAM.
+// Find locates a Dolphin emulator process and maps its emulated RAM.
+// When multiple Dolphin instances are running (two-Dolphin multiplayer),
+// the WW_DOLPHIN_INDEX env var picks which one (0 = lowest PID, 1 = next,
+// ...). Defaults to 0 for the single-Dolphin case.
 func Find(gameID string) (*Dolphin, error) {
-	pid, err := findProcess("Dolphin")
+	idx := 0
+	if v := os.Getenv("WW_DOLPHIN_INDEX"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return nil, fmt.Errorf("bad WW_DOLPHIN_INDEX=%q", v)
+		}
+		idx = n
+	}
+	if pidStr := os.Getenv("WW_DOLPHIN_PID"); pidStr != "" {
+		pid64, err := strconv.ParseUint(pidStr, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("bad WW_DOLPHIN_PID=%q", pidStr)
+		}
+		return openByPID(uint32(pid64), gameID)
+	}
+	pids, err := findAllProcesses("Dolphin")
 	if err != nil {
 		return nil, fmt.Errorf("dolphin not running: %w", err)
 	}
+	if idx >= len(pids) {
+		return nil, fmt.Errorf("WW_DOLPHIN_INDEX=%d but only %d Dolphin instance(s) running", idx, len(pids))
+	}
+	return openByPID(pids[idx], gameID)
+}
 
+func openByPID(pid uint32, gameID string) (*Dolphin, error) {
 	handle, _, _ := procOpenProcess.Call(PROCESS_ALL_ACCESS, 0, uintptr(pid))
 	if handle == 0 {
 		return nil, fmt.Errorf("failed to open dolphin process (pid %d)", pid)
 	}
-
 	d := &Dolphin{
 		handle: syscall.Handle(handle),
 		pid:    pid,
 		gameID: gameID,
 	}
-
 	if err := d.scanForRAM(); err != nil {
 		d.Close()
 		return nil, err
 	}
-
 	return d, nil
 }
+
+// PID returns the underlying Dolphin process ID for diagnostics.
+func (d *Dolphin) PID() uint32 { return d.pid }
 
 // Close releases the process handle.
 func (d *Dolphin) Close() {
@@ -289,9 +316,20 @@ func (d *Dolphin) scanForRAM() error {
 }
 
 func findProcess(name string) (uint32, error) {
+	pids, err := findAllProcesses(name)
+	if err != nil {
+		return 0, err
+	}
+	return pids[0], nil
+}
+
+// findAllProcesses returns every PID whose executable name contains `name`,
+// sorted ascending. Used by Find() so WW_DOLPHIN_INDEX is stable across runs
+// (lower PID = older instance = index 0).
+func findAllProcesses(name string) ([]uint32, error) {
 	snap, _, _ := procCreateToolhelp.Call(TH32CS_SNAPPROCESS, 0)
 	if snap == 0 {
-		return 0, fmt.Errorf("failed to create process snapshot")
+		return nil, fmt.Errorf("failed to create process snapshot")
 	}
 	defer procCloseHandle.Call(snap)
 
@@ -300,14 +338,15 @@ func findProcess(name string) (uint32, error) {
 
 	ret, _, _ := procProcess32First.Call(snap, uintptr(unsafe.Pointer(&entry)))
 	if ret == 0 {
-		return 0, fmt.Errorf("no processes found")
+		return nil, fmt.Errorf("no processes found")
 	}
 
 	nameLower := strings.ToLower(name)
+	var pids []uint32
 	for {
 		exeName := syscall.UTF16ToString(entry.ExeFile[:])
 		if strings.Contains(strings.ToLower(exeName), nameLower) {
-			return entry.ProcessID, nil
+			pids = append(pids, entry.ProcessID)
 		}
 		entry.Size = uint32(unsafe.Sizeof(entry))
 		ret, _, _ = procProcess32Next.Call(snap, uintptr(unsafe.Pointer(&entry)))
@@ -316,5 +355,9 @@ func findProcess(name string) (uint32, error) {
 		}
 	}
 
-	return 0, fmt.Errorf("process %q not found", name)
+	if len(pids) == 0 {
+		return nil, fmt.Errorf("process %q not found", name)
+	}
+	sort.Slice(pids, func(i, j int) bool { return pids[i] < pids[j] })
+	return pids, nil
 }

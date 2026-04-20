@@ -203,27 +203,47 @@ distinct Dolphin instances).
 ### Two-Dolphin verification (next critical milestone)
 
 Loopback proved the pipeline; two-Dolphin proves the experience.
-Concrete plan:
-- Two Dolphin instances on one machine (different `User/` dirs to keep
-  configs separate), or one on each of two machines on the same LAN.
-- Both load Outset from independent saves.
-- Instance A: `./ww.exe broadcast-pose A <server-ip>`
-- Instance B: `./ww.exe broadcast-pose B <server-ip>`
-- One designated host runs `./ww.exe server` (any third or shared
-  process; `localhost` if everyone's on one box).
-- Each instance also runs `./ww.exe puppet-sync <name> <server-ip>` to
-  consume the OTHER player's pose.
-- Expected: each player sees the other's Link walking around Outset at
-  the position+pose of the remote player.
-- Risks worth watching:
-  - Stage mismatch: if A is on Outset interior and B on Outset exterior,
-    pose coords are valid for the other but mini-Link renders in a
-    detached space — punt to "presence indicator" later.
-  - daPy_lk_c offset stability across saves: 0x032C is structural;
-    should be invariant. Verify in dump on both instances.
-  - Heap allocation timing: pose_buf alloc waits for mode 5; puppet-sync
-    arms mode 5 when first remote pose arrives. Race only matters on
-    the first ~50 ms.
+Infrastructure now lives in `scripts/`:
+
+```bash
+# 1. One-time: bootstrap a second Dolphin user dir from your existing one,
+#    then launch a second Dolphin instance against the patched ISO.
+scripts/dolphin2.sh
+
+# 2. Manually load an Outset save in BOTH Dolphin windows.
+#    (The save data was copied from User #1, so it's the same save file.)
+
+# 3. Spin up server + bidirectional broadcast/sync between the two
+#    instances. Hits Ctrl+C to tear down (also resets shadow_mode 5 → 0
+#    in both instances).
+scripts/mplay2.sh
+```
+
+The Go side (broadcast-pose / puppet-sync) selects which Dolphin to
+target via `WW_DOLPHIN_INDEX` (0 = lowest PID = oldest instance, 1 =
+next, etc.). `WW_DOLPHIN_PID=<pid>` overrides for explicit control. Find
+all running Dolphin PIDs by running `tasklist | grep Dolphin` if you
+need to verify.
+
+Expected end state: each player sees the OTHER's Link walking around
+Outset at the other's actual world position. No `WW_LINK2_OFFSET_X`
+needed — pose localization on the sender + remote-position re-application
+on the receiver places Link #2 correctly.
+
+Risks worth watching:
+- Stage mismatch: if A is on Outset interior and B on Outset exterior,
+  pose coords are valid for the other but mini-Link renders in a
+  detached space — punt to "presence indicator" later.
+- daPy_lk_c offset stability across saves: 0x032C is structural;
+  should be invariant. Verify in dump on both instances.
+- Heap allocation timing: pose_buf alloc waits for mode 5; puppet-sync
+  arms mode 5 when first remote pose arrives. Race only matters on
+  the first ~50 ms.
+- Controller binding: by default, both Dolphin instances likely use the
+  same input mapping. The user can only focus one window at a time;
+  the unfocused instance's Link stands idle. To meaningfully drive both
+  Links you'd remap one instance to a separate controller (or unbind
+  one entirely so it acts as a pure observer).
 
 ### After two-Dolphin works
 
