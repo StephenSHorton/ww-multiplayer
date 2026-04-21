@@ -57,15 +57,29 @@ echo "Starting server..."
 launch server "$WW" server
 
 # Give server a moment to listen.
-sleep 1
+sleep 2
+
+# WW_SELF_NAME tells each puppet-sync to ignore its co-located broadcast
+# twin. Without this, puppet-A would write broadcast-A's stream (=
+# Dolphin-0's own Link position) into a puppet actor inside Dolphin 0,
+# which physics-collides with your real Link and knocks you into the
+# ocean. Mirror on Dolphin 1.
+#
+# Stagger client launches by ~0.3s each — four simultaneous connects
+# against a freshly-listening server occasionally produced "expected
+# welcome, got error or wrong type" on Windows (TCP accept + welcome-
+# write race).
 
 echo "Connecting Dolphin index 0 ..."
-WW_DOLPHIN_INDEX=0 launch broadcast-A "$WW" broadcast-pose PlayerA localhost:25565
-WW_DOLPHIN_INDEX=0 launch puppet-A    "$WW" puppet-sync    PlayerA localhost:25565
+WW_DOLPHIN_INDEX=0                      launch broadcast-A "$WW" broadcast-pose PlayerA localhost:25565
+sleep 0.3
+WW_DOLPHIN_INDEX=0 WW_SELF_NAME=PlayerA launch puppet-A    "$WW" puppet-sync    PlayerA localhost:25565
+sleep 0.3
 
 echo "Connecting Dolphin index 1 ..."
-WW_DOLPHIN_INDEX=1 launch broadcast-B "$WW" broadcast-pose PlayerB localhost:25565
-WW_DOLPHIN_INDEX=1 launch puppet-B    "$WW" puppet-sync    PlayerB localhost:25565
+WW_DOLPHIN_INDEX=1                      launch broadcast-B "$WW" broadcast-pose PlayerB localhost:25565
+sleep 0.3
+WW_DOLPHIN_INDEX=1 WW_SELF_NAME=PlayerB launch puppet-B    "$WW" puppet-sync    PlayerB localhost:25565
 
 echo
 echo "Running. Logs: $LOG_DIR"

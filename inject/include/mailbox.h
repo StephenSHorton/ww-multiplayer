@@ -41,6 +41,16 @@
 // (each side renders THE other player) so it's not blocking the MVP.
 #define MAX_REMOTE_LINKS 1
 
+// Layout-reserved slot capacity for the per-slot pose arrays in the
+// Mailbox struct below. Keep this FIXED so Go's hardcoded mailbox
+// offsets (main.go: mailboxPoseBufPtr etc.) stay correct regardless of
+// MAX_REMOTE_LINKS. Runtime only iterates the first MAX_REMOTE_LINKS
+// slots; the rest stays zero. Bumping MAX_REMOTE_LINKS to 2 (once the
+// shared-J3DModelData blocker is unlocked) is free; bumping past
+// MAILBOX_POSE_SLOT_CAP needs a coordinated Mailbox-layout + Go-offset
+// revision.
+#define MAILBOX_POSE_SLOT_CAP 2
+
 // Per-slot state. Size is 0x20 bytes (nice round hex).
 //   active   — Go sets 1 when a remote player owns this slot, 0 to
 //              release it. C only spawns when active flips 0 -> 1.
@@ -127,10 +137,12 @@ typedef struct {
     //   pose_seqs[i]          — Go bumps each write so future C-side
     //                           freshness gate can drop stale poses.
     // Stride keeps arrays naturally aligned (u32 first, then u16, u8, u8).
-    u32 pose_buf_ptrs[MAX_REMOTE_LINKS];      // +0xA8
-    u16 pose_joint_counts[MAX_REMOTE_LINKS];  // +0xB0
-    u8  pose_buf_states[MAX_REMOTE_LINKS];    // +0xB4
-    u8  pose_seqs[MAX_REMOTE_LINKS];          // +0xB6
+    // Sized by MAILBOX_POSE_SLOT_CAP (not MAX_REMOTE_LINKS) so the
+    // offsets below are frozen against the runtime slot count.
+    u32 pose_buf_ptrs[MAILBOX_POSE_SLOT_CAP];      // +0xA8
+    u16 pose_joint_counts[MAILBOX_POSE_SLOT_CAP];  // +0xB0
+    u8  pose_buf_states[MAILBOX_POSE_SLOT_CAP];    // +0xB4
+    u8  pose_seqs[MAILBOX_POSE_SLOT_CAP];          // +0xB6
     // Diagnostic for slot 0 only — every mode-5 draw frame C publishes
     // `*pose_buf[0]` (before copy) and `mpNodeMtx[0][0]` (after second
     // calc). Lets Go confirm the read/copy/calc round-trip.

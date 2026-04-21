@@ -1097,6 +1097,17 @@ func runPuppetSync(name, addr string) {
 		return -1
 	}
 
+	// WW_SELF_NAME lets a puppet-sync attached to the SAME Dolphin as a
+	// broadcast-pose twin ignore its twin's stream. Without this, the
+	// twin's pose (= our local Link's live position) gets written into
+	// a puppet actor that then physics-collides with our own Link. Empty
+	// (default) keeps the loopback "mirror yourself with offset" demo
+	// working. mplay2.sh sets this to match the broadcaster's name.
+	selfName := os.Getenv("WW_SELF_NAME")
+	if selfName != "" {
+		fmt.Printf("Filtering self-echo: remotes named %q will be ignored.\n", selfName)
+	}
+
 	for client.IsConnected() {
 		remotes := client.GetRemotePlayers()
 		seen := map[byte]bool{}
@@ -1104,7 +1115,12 @@ func runPuppetSync(name, addr string) {
 			if rp.Position == nil {
 				continue
 			}
+			if selfName != "" && rp.Name == selfName {
+				continue
+			}
 			seen[rp.ID] = true
+			hasPose := rp.PoseMatrices != nil && rp.PoseJoints > 0 &&
+				len(rp.PoseMatrices) == rp.PoseJoints*48
 			idx, ok := remoteToSlot[rp.ID]
 			if !ok {
 				// Find a free slot. Walk 0..N; first index not already
@@ -1124,8 +1140,17 @@ func runPuppetSync(name, addr string) {
 					continue
 				}
 				remoteToSlot[rp.ID] = idx
-				d.WriteAbsolute(slotAddr(idx, slotOffAct), one)
-				fmt.Printf("\nslot %d := player %d (%s)\n", idx, rp.ID, rp.Name)
+				// Only activate the actor-puppet (KAMOME / Rose / TSUBO)
+				// for remotes without pose data. Pose-driven remotes
+				// render as Link #2 directly; activating the actor too
+				// would overlap an NPC on top of Link #2 at the same
+				// coords, and C-side actor cleanup is best-effort (it
+				// stops syncing but leaves the actor stuck at its last
+				// position), so the duplicate sticks around forever.
+				if !hasPose {
+					d.WriteAbsolute(slotAddr(idx, slotOffAct), one)
+					fmt.Printf("\nslot %d := player %d (%s)\n", idx, rp.ID, rp.Name)
+				}
 			}
 
 			tx, ty, tz := rp.Position.PosX, rp.Position.PosY, rp.Position.PosZ

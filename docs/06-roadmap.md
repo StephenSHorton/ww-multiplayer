@@ -149,6 +149,45 @@
   cap until the per-instance packet allocation OR
   `mDoExt_modelEntry`+`mDoExt_modelUpdateDL` path is wired. Two-Dolphin
   multiplayer (the immediate MVP) only needs N=1.
+- **Two-Dolphin multiplayer working — MVP** (2026-04-20):
+  `scripts/mplay2.sh` drives two real Dolphin instances on the same
+  machine: each player sees the OTHER's Link walking around Outset at
+  the other's actual world coords, no `WW_LINK2_OFFSET` needed. Three
+  bugs surfaced in the first session touching the two-Dolphin path and
+  got fixed here. (a) **Mailbox layout mismatch**: commit `1398e8e`
+  refactored scalar `pose_buf_*` fields into `MAX_REMOTE_LINKS`-sized
+  arrays but Go kept offsets designed for 2-slot spacing while C packed
+  1-slot tight — `armPoseSlot` polled `state==1` at the wrong byte and
+  timed out silently, so pose writes never happened and the C
+  `pose_seqs[slot]==0` gate skipped rendering. Fixed by introducing
+  `MAILBOX_POSE_SLOT_CAP=2` (struct layout constant decoupled from
+  runtime `MAX_REMOTE_LINKS`) so Go's hardcoded offsets stay valid
+  regardless of runtime slot count. (b) **Self-echo NPC spawn**:
+  `puppet-sync` co-located with `broadcast-pose` on the same Dolphin
+  (same `name`) saw its twin's stream as a "remote player", assigned it
+  actor slot 1 → spawned an NPC_OB1 (Rose) AT D's own Link's position,
+  which then physics-collided and knocked Link into the ocean. Fixed
+  with `WW_SELF_NAME` env var that filters same-name remotes (mplay2.sh
+  sets it per Dolphin). (c) **Actor spawn for pose-driven remotes**:
+  even without self-echo, the actor-slot logic ran before pose-feed
+  armed → every pose-driven remote also spawned their actor-puppet
+  (KAMOME/Rose) one tick before `active=0` was written. C-side actor
+  "cleanup" only stops syncing (doesn't despawn — actor persists in the
+  stage until stage unload) so the frozen NPC stuck around forever.
+  Fixed by skipping actor-slot activation when the remote's first
+  message carries pose. Other infra hardening: `scripts/dolphin2.sh`
+  now excludes `Cache/` when bootstrapping the second user dir (primary
+  Dolphin holds exclusive locks on its shader cache); `scripts/mplay2.sh`
+  staggers client connects by 0.3 s each (four simultaneous connects
+  against a freshly-listening server intermittently produced
+  "expected welcome, got error or wrong type" on Windows). One known
+  artifact: Link #2 flickers occasionally — leftover shared-J3DModelData
+  state pollution, matches the N>1 render bug described below but mild
+  at N=1. One known risk: reloading a save in one Dolphin while mplay2
+  is running freezes that Dolphin (our `mini_link_model` holds a
+  dangling reference for a frame while the game tears down Link's
+  J3DModel); defensive re-fetch is future work, for now just tear down
+  mplay2 before reloading saves.
 - **MVP — network pose multiplayer end-to-end** (2026-04-19 latest):
   Player A's Link animations travel through TCP and render on Player
   B's Link #2 at ~50 ms lag. New `shadow_mode = 5` (pose-feed) lazy-allocs
@@ -208,66 +247,16 @@
 
 ## 🔬 Next Session Priority
 
-**MVP REACHED — network pose multiplayer is working end-to-end (2026-04-19
-latest).** Player A's Link animations travel through TCP and render on
-Player B's Link #2 at ~50 ms lag. Verified via single-Dolphin loopback:
-`server` + `broadcast-pose Sender` + `puppet-sync Receiver` on the same
-instance, Link #2 mirrored Link #1 over TCP with the ring-buffer-style
-trail, shadow_mode auto-armed to 5 by puppet-sync, slot 0's KAMOME also
-tracking Link's position. See `docs/05-known-issues.md` "Pose Sync DONE"
-for the wire format, sender/receiver recipes, and the loopback overlap
-artifact (Link #2 visually merging with Link #1 because both pose
-samples encode the same world coords — works correctly between two
-distinct Dolphin instances).
+**TWO-DOLPHIN MULTIPLAYER REACHED (2026-04-20).** Two real Dolphin
+instances running side-by-side, each rendering the other player's Link
+as Link #2 at the remote's actual world coords. Driven entirely by
+`scripts/mplay2.sh` (server + 2× broadcast/sync pairs). See the
+corresponding Done entry above for the three bugs fixed during
+verification (mailbox layout, self-echo NPC spawn, pose-driven actor
+spawn) and the remaining robustness gaps (save-reload-while-mplay2
+races, occasional Link #2 flicker from shared-J3DModelData pollution).
 
-### Two-Dolphin verification (next critical milestone)
-
-Loopback proved the pipeline; two-Dolphin proves the experience.
-Infrastructure now lives in `scripts/`:
-
-```bash
-# 1. One-time: bootstrap a second Dolphin user dir from your existing one,
-#    then launch a second Dolphin instance against the patched ISO.
-scripts/dolphin2.sh
-
-# 2. Manually load an Outset save in BOTH Dolphin windows.
-#    (The save data was copied from User #1, so it's the same save file.)
-
-# 3. Spin up server + bidirectional broadcast/sync between the two
-#    instances. Hits Ctrl+C to tear down (also resets shadow_mode 5 → 0
-#    in both instances).
-scripts/mplay2.sh
-```
-
-The Go side (broadcast-pose / puppet-sync) selects which Dolphin to
-target via `WW_DOLPHIN_INDEX` (0 = lowest PID = oldest instance, 1 =
-next, etc.). `WW_DOLPHIN_PID=<pid>` overrides for explicit control. Find
-all running Dolphin PIDs by running `tasklist | grep Dolphin` if you
-need to verify.
-
-Expected end state: each player sees the OTHER's Link walking around
-Outset at the other's actual world position. No `WW_LINK2_OFFSET_X`
-needed — pose localization on the sender + remote-position re-application
-on the receiver places Link #2 correctly.
-
-Risks worth watching:
-- Stage mismatch: if A is on Outset interior and B on Outset exterior,
-  pose coords are valid for the other but mini-Link renders in a
-  detached space — punt to "presence indicator" later.
-- daPy_lk_c offset stability across saves: 0x032C is structural;
-  should be invariant. Verify in dump on both instances.
-- Heap allocation timing: pose_buf alloc waits for mode 5; puppet-sync
-  arms mode 5 when first remote pose arrives. Race only matters on
-  the first ~50 ms.
-- Controller binding: by default, both Dolphin instances likely use the
-  same input mapping. The user can only focus one window at a time;
-  the unfocused instance's Link stands idle. To meaningfully drive both
-  Links you'd remap one instance to a separate controller (or unbind
-  one entirely so it acts as a pure observer).
-
-### After two-Dolphin works
-
-Pick one or more (probably parallel tracks):
+### Pick next (any order)
 
 1. **Multi-Link N>1 (shared-J3DModelData unblock).** Plumbing landed in
    commit `1398e8e` — mailbox arrays, per-slot pose buffers, per-slot

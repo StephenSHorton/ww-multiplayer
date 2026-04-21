@@ -41,10 +41,20 @@ fi
 
 if [[ ! -d "$USER_DIR_2" ]]; then
     echo "Bootstrapping $USER_DIR_2 from $USER_DIR_1 ..."
-    # cp -r preserves the entire tree including saves (GC/USA/Card.raw),
-    # configs, controller mappings. Cache/ is intentionally not skipped —
-    # gamelist cache regenerates on demand and saves time on first boot.
-    cp -r "$USER_DIR_1" "$USER_DIR_2"
+    # Copy everything EXCEPT Cache/. When the primary Dolphin is running
+    # (the common case for two-Dolphin workflows), it holds exclusive
+    # Windows file locks on Cache/Shaders/*.cache and Cache/GZLE01.uidcache
+    # so cp -r aborts under `set -e`. Cache contents regenerate on first
+    # boot of Dolphin 2 anyway (shader cache + gamelist cache), so dropping
+    # them costs ~10-30 s of recompile on initial launch and nothing after.
+    mkdir -p "$USER_DIR_2"
+    for item in "$USER_DIR_1"/*; do
+        name=$(basename "$item")
+        if [[ "$name" == "Cache" ]]; then
+            continue
+        fi
+        cp -r "$item" "$USER_DIR_2/"
+    done
     echo "Done. ($(du -sh "$USER_DIR_2" | cut -f1))"
 fi
 
