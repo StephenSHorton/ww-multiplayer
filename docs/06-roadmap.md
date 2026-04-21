@@ -149,6 +149,51 @@
   cap until the per-instance packet allocation OR
   `mDoExt_modelEntry`+`mDoExt_modelUpdateDL` path is wired. Two-Dolphin
   multiplayer (the immediate MVP) only needs N=1.
+- **Multi-Link N>1 unblocked + server write race fixed** (2026-04-20):
+  Multiple independent Link puppets now animate correctly in a single
+  scene. Root cause of the N>1 "both puppets stuck on one pose" was a
+  single flag bit: `mDoExt_J3DModel__create(data, 0x80000, ...)` routed
+  `createMatPacket` (`J3DModel.cpp:264`) into the "shared DL" branch,
+  which pointed every instance's `mpMatPacket[i].mpDisplayListObj` at
+  the display list object owned by `J3DModelData`. Each frame every
+  instance's `J3DModel::entry()` called `J3DJoint::entryIn()` →
+  `mesh->calc(anmMtx)` and `mesh->makeDisplayList()`, both of which
+  write into `matPacket->mpDisplayListObj->mpData[active]` — one shared
+  buffer for all N instances. Last writer wins. Flipping the flag to
+  `0` makes `createMatPacket` take the private-DL branch (`J3DModel.cpp:296-309`)
+  which calls `mpMatPacket[i].newDisplayList(size)` per instance. Cost:
+  one DL alloc per material per instance at model-create time (paid
+  once, Link has ~0x40 materials → tens of KB from ArchiveHeap). Also
+  bumped `MAX_REMOTE_LINKS 1→2` in mailbox.h (the runtime loop cap)
+  and `maxRemoteLinks 1→2` in main.go (Go slot loop + dump). Verified
+  live: real `broadcast-pose Sender` + `pose-fake-loop FakePlayer` +
+  `puppet-sync View` on one Dolphin produces 3 Links on Outset, the
+  mirror animates live and the frozen decoy stays frozen — exactly
+  the "mirror animates, frozen stays still" decisive test documented
+  in docs/06 under the N>1 track. Full research report in
+  `.omc/research/j3d-shared-modeldata.md` (gitignored; local).
+
+  Second bug surfaced as a side-effect of enabling N=2: server TCP
+  writes were racing. `broadcastExcept` called `WriteMessage(p.Conn, ...)`
+  with no per-connection mutex, so concurrent sender goroutines
+  interleaved bytes on each client's socket. Latent at N=1 (one
+  broadcaster; single writer per socket most of the time) but
+  GUARANTEED at N=2 (broadcast-A writes MsgPosition+MsgPose to
+  puppet-B's socket while broadcast-B writes MsgPosition+MsgPose to
+  puppet-A's socket, and the player-list broadcaster writes
+  MsgPlayerList to everyone). Clients then read a message header
+  whose body bytes came from a different in-flight message → garbage
+  player names, and one such misparse tried to read 17169 bytes from
+  a 16986-byte buffer and crashed `parsePlayerList` with a slice
+  bounds panic. Fixed with `Player.SendMu` + per-connection
+  lock/unlock around every server-side `WriteMessage` call. Clean
+  logs, no crashes, post-fix.
+
+  Single-remaining cosmetic: when an instance has rendered a second
+  pose slot in a prior run (e.g. via `pose-fake-loop`), its GameHeap
+  `pose_bufs[1]` and `pose_seqs[1]` persist until Dolphin restart, so
+  a frozen decoy Link lingers at the old +1000 X offset even after
+  the harness is torn down. Not blocking; next Dolphin boot clears it.
 - **Two-Dolphin multiplayer working — MVP** (2026-04-20):
   `scripts/mplay2.sh` drives two real Dolphin instances on the same
   machine: each player sees the OTHER's Link walking around Outset at
@@ -247,40 +292,27 @@
 
 ## 🔬 Next Session Priority
 
-**TWO-DOLPHIN MULTIPLAYER REACHED (2026-04-20).** Two real Dolphin
-instances running side-by-side, each rendering the other player's Link
-as Link #2 at the remote's actual world coords. Driven entirely by
-`scripts/mplay2.sh` (server + 2× broadcast/sync pairs). See the
-corresponding Done entry above for the three bugs fixed during
-verification (mailbox layout, self-echo NPC spawn, pose-driven actor
-spawn) and the remaining robustness gaps (save-reload-while-mplay2
-races, occasional Link #2 flicker from shared-J3DModelData pollution).
+**TWO-DOLPHIN MULTIPLAYER + MULTI-LINK N>1 REACHED (2026-04-20).** Two
+real Dolphin instances running side-by-side, each rendering the other
+player's Link as Link #2 at the remote's actual world coords — driven
+by `scripts/mplay2.sh`. Multi-Link N>1 also unblocked the same day
+(`mDoExt_J3DModel__create` flag `0x80000 → 0` so each instance gets
+private material DLs instead of sharing one with every peer). Server
+write race fixed in lockstep (`Player.SendMu`). See Done entries above
+for the full stories + known remaining gap (save-reload-while-mplay2
+freezes the reloading Dolphin — `mini_link_model` holds a dangling
+reference for a frame during stage teardown).
 
 ### Pick next (any order)
 
-1. **Multi-Link N>1 (shared-J3DModelData unblock).** Plumbing landed in
-   commit `1398e8e` — mailbox arrays, per-slot pose buffers, per-slot
-   calc loop, slot-aware Go side (pickLinkSlot, poseBufPtrs[N]). Capped
-   at N=1 because enabling N=2 produced visible-but-frozen second
-   puppets. Decisive observation (single Dolphin, real broadcast-pose +
-   pose-fake-loop): both puppets rendered at distinct world positions
-   but BOTH stuck on the same pose (Sender's mirror stopped following
-   Link). Hypothesis: J3DModel::entry() registers material/shape packets
-   that resolve to the same backing memory when J3DModelData is shared,
-   so the last entry() call wins. Two leads to investigate:
-   - Per-instance material packet allocation. Check `mDoExt_J3DModel__create`
-     flags (currently `0x80000`, `0x11000022`) for an "owned packets"
-     bit. zeldaret/tww `include/J3D/J3DGraphAnimator/J3DModel.h` is the
-     reference.
-   - Switch from `mDoExt_modelEntryDL` (entry+lock+viewCalc per frame)
-     to `mDoExt_modelEntry` (one-shot, addr `0x8000F8F8`) + `mDoExt_modelUpdateDL`
-     (refresh without re-entry, addr `0x8000F84C`). Hypothesis: persistent
-     bucket entries created at init might not collide the way per-frame
-     re-entries do.
-   - Diagnostic harness: re-enable `MAX_REMOTE_LINKS=2`, run real
-     broadcast-pose + `pose-fake-loop FakePlayer localhost:25565`, expect
-     3 Links on screen (you + 1 mirror + 1 frozen). Anything other than
-     "mirror animates while frozen stays still" is the bug.
+1. **Save-reload safety.** Reloading a save while mplay2 is running
+   freezes the reloading Dolphin: the game tears down Link's J3DModel
+   during stage unload, our `mini_link_model` holds a dangling
+   reference for a frame, and the next `daPy_draw_hook` crashes inside
+   `J3DModel::calc`. Defensive re-fetch in the draw hook: compare
+   `mini_link_data` to the current `daPy_lk_c + 0x0328` (mpCLModelData).
+   If they differ, free old mini_link_model, re-run the getRes +
+   J3DModel create path. Small scope, real reliability win.
 2. **Visual differentiation.** Two Links look identical. Color tinting
    via TEV color override (every draw frame, post-mini-link entry).
    Easier than the actor-side work for KAMOME because we own the model.

@@ -29,17 +29,14 @@
 // own J3DModel + 42-joint pose buffer (~2 KB each) from ArchiveHeap +
 // GameHeap.
 //
-// CURRENTLY 1: render plumbing is wired for N>1 (mailbox arrays, per-
-// slot calc loop, per-slot modelEntryDL) but enabling it produces
-// SHARED J3DModelData bucket-list pollution — material packets are
-// shared between instances and the last entry() call wins, so all
-// instances render with the most-recently-submitted slot's pose. Both
-// puppets visible (separate base matrices) but stuck on one pose. Real
-// fix needs either per-instance material packet allocation OR the
-// alternate mDoExt_modelEntry-once + mDoExt_modelUpdateDL-per-frame
-// submission path. Future work; two-Dolphin multiplayer only needs N=1
-// (each side renders THE other player) so it's not blocking the MVP.
-#define MAX_REMOTE_LINKS 1
+// Unblocked 2026-04-20: J3DModel create flag 0x80000 was sharing the
+// material display list across instances — every J3DModel::entry()'s
+// makeDisplayList() patched the same shared buffer, so N>1 all
+// rendered the last-submitted pose. Flipping the flag to 0 in
+// multiplayer.c's mDoExt_J3DModel__create call makes createMatPacket
+// allocate private per-instance DLs (J3DModel.cpp:296-309). N>1 now
+// works. Bump in lockstep with MAILBOX_POSE_SLOT_CAP if needed.
+#define MAX_REMOTE_LINKS 2
 
 // Layout-reserved slot capacity for the per-slot pose arrays in the
 // Mailbox struct below. Keep this FIXED so Go's hardcoded mailbox

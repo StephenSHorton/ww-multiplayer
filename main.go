@@ -1276,10 +1276,10 @@ const mailboxEchoRingState = 0xA5
 //   dbg_pose_first_word u32  @ 0xB8 (slot 0 only — diagnostic)
 //   dbg_node_mtx_first  u32  @ 0xBC (slot 0 only — diagnostic)
 // Keep in sync with MAX_REMOTE_LINKS in inject/include/mailbox.h.
-// N>1 plumbing is in place but disabled until shared-J3DModelData
-// material-packet pollution is solved (see header comment). Two-Dolphin
-// multiplayer only needs N=1.
-const maxRemoteLinks = 1
+// Bumped to 2 on 2026-04-20 after the shared-J3DModelData blocker was
+// unblocked (J3DModel create flag 0x80000 → 0, so each mini-Link gets a
+// private material DL instead of sharing one with every other instance).
+const maxRemoteLinks = 2
 
 func mailboxPoseBufPtr(slot int) uint32     { return uint32(0xA8 + slot*4) }
 func mailboxPoseJointCount(slot int) uint32 { return uint32(0xB0 + slot*2) }

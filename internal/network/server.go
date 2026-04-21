@@ -12,6 +12,14 @@ type Player struct {
 	Name     string
 	Conn     net.Conn
 	Position *PlayerPosition
+	// SendMu serializes writes to Conn. Without it, concurrent
+	// broadcastExcept calls (one per sender goroutine) interleave bytes
+	// on the same TCP socket — receivers then see framed-message headers
+	// whose bodies are actually the start of another message. Latent
+	// before N=2 because a single broadcaster produced no concurrent
+	// writes; two broadcasters + the player-list broadcaster guarantee
+	// the race.
+	SendMu sync.Mutex
 }
 
 // Server manages player connections and relays position data.
@@ -175,7 +183,9 @@ func (s *Server) broadcastExcept(excludeID byte, msgType byte, data []byte) {
 	defer s.mu.RUnlock()
 	for _, p := range s.players {
 		if p.ID != excludeID {
+			p.SendMu.Lock()
 			WriteMessage(p.Conn, msgType, data)
+			p.SendMu.Unlock()
 		}
 	}
 }
@@ -194,6 +204,8 @@ func (s *Server) broadcastPlayerList() {
 	}
 
 	for _, p := range s.players {
+		p.SendMu.Lock()
 		WriteMessage(p.Conn, MsgPlayerList, data)
+		p.SendMu.Unlock()
 	}
 }

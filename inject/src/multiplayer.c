@@ -354,7 +354,21 @@ void multiplayer_update(void) {
             int li;
             int created = 0;
             for (li = 0; li < MAX_REMOTE_LINKS; li++) {
-                mini_link_models[li] = mDoExt_J3DModel__create(mini_link_data, 0x80000, 0x11000022);
+                // flag=0 (not 0x80000): make createMatPacket allocate a
+                // PRIVATE display list per material per instance. Flag
+                // 0x80000 ("Unk80000" in tww decomp) points every
+                // instance's mpMatPacket[i].mpDisplayListObj at the
+                // same shared object owned by J3DModelData — each
+                // J3DModel::entry() call's makeDisplayList() patches
+                // that single buffer, so the LAST writer wins and all
+                // N instances render the last-submitted pose. With
+                // flag=0 (createMatPacket:J3DModel.cpp:296-309)
+                // newDisplayList(size) allocates per-instance memory
+                // and poses no longer collide. Second arg (0x11000022)
+                // is a newDifferedDisplayList flag only consumed inside
+                // the 0x80000 branch, so it becomes dead here — left
+                // as-is to keep the diff tight.
+                mini_link_models[li] = mDoExt_J3DModel__create(mini_link_data, 0, 0x11000022);
                 if (mini_link_models[li]) created++;
             }
             JKRHeap_becomeCurrentHeap(oldHeap);
