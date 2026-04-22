@@ -1,3 +1,11 @@
+// To regenerate the Windows icon resource (ww_windows.syso) after changing
+// docs/img/icon.ico, run:
+//   go install github.com/akavel/rsrc@latest
+//   rsrc -ico docs/img/icon.ico -o ww_windows.syso
+// Go's linker auto-includes any *.syso in the main package; the _windows
+// suffix is a build constraint so non-Windows builds skip it.
+//go:generate rsrc -ico docs/img/icon.ico -o ww_windows.syso
+
 package main
 
 import (
