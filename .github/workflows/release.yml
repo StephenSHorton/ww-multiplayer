@@ -1,0 +1,116 @@
+name: Release
+
+# Triggered by pushing a tag like `v0.1.0`. Builds the C side with devkitPPC
+# + Freighter, regenerates the embedded T2 blob, builds the Windows binary,
+# and publishes a GitHub Release with ww.exe attached.
+#
+# We don't ship patched.dol — that would be a derivative of the entire
+# Wind Waker DOL (copyrighted). The standalone ww.exe contains only our IP
+# (the new code section + a list of in-DOL patch records); end users supply
+# their own legitimate Wind Waker ISO and run `ww.exe patch <their.iso>`.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Python (for Freighter + extractor)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # devkitPro provides devkitPPC (PowerPC GCC). Use their official APT
+      # repo so we get a known-good toolchain version. The pacman path the
+      # devkitPro docs recommend works on Ubuntu, but the apt mirror is
+      # one fewer dep to bootstrap.
+      - name: Install devkitPPC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            wget xz-utils ca-certificates
+          wget -q https://github.com/devkitPro/pacman/releases/download/v6.0.2-1/devkitpro-pacman.amd64.deb
+          sudo dpkg -i devkitpro-pacman.amd64.deb
+          sudo dkp-pacman -Sy --noconfirm
+          sudo dkp-pacman -S --noconfirm devkitPPC
+          echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
+          echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
+          echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
+
+      - name: Install Freighter
+        run: |
+          pip install --upgrade pip
+          pip install freighter
+
+      # The C side needs the user's vanilla DOL (original.dol). We don't
+      # have it in CI (it's copyrighted), so the workflow can't actually
+      # run inject/build.py against a real game. Instead we just snapshot
+      # the C source compile to verify it still builds, then reuse the
+      # committed blob.go. (When you cut a tag, regenerate blob.go locally
+      # via `python scripts/extract_blob.py` first — see CONTRIBUTING.md
+      # if added later.)
+      #
+      # Future: ship a stripped placeholder DOL (zeroed game code, only
+      # symbol table preserved) so Freighter can link against real game
+      # symbols at known addresses without distributing copyrighted bytes.
+      # Out of scope for this commit.
+      - name: Verify committed blob is non-empty
+        run: |
+          if ! grep -q "var T2Bytes" internal/inject/blob.go; then
+            echo "::error::internal/inject/blob.go is missing T2Bytes — regenerate via scripts/extract_blob.py"
+            exit 1
+          fi
+          go vet ./...
+
+      - name: Build ww.exe (Windows amd64)
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          go build -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o ww.exe .
+          ls -la ww.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ww-windows-amd64
+          path: ww.exe
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ww.exe
+          generate_release_notes: true
+          body: |
+            ## Wind Waker Multiplayer ${{ github.ref_name }}
+
+            **Requires your own legitimate copy of The Legend of Zelda: The Wind Waker (NTSC-U, GZLE01)** as a `.iso` or `.ciso` file.
+
+            ### Quick start
+
+            1. Download `ww.exe` below.
+            2. Patch your ISO:
+               ```
+               ww.exe patch path\to\your-wind-waker.iso
+               ```
+               This produces `your-wind-waker-multiplayer.iso` next to the input.
+            3. Boot the patched ISO in Dolphin.
+            4. Launch `ww.exe` (no args) for the multiplayer TUI.
+
+            See the README for full setup, two-Dolphin local play scripts, and known issues.

@@ -79,17 +79,6 @@ func (s *Server) PlayerCount() int {
 	return len(s.players)
 }
 
-// GetPlayers returns a snapshot of connected player info.
-func (s *Server) GetPlayers() []Player {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	result := make([]Player, 0, len(s.players))
-	for _, p := range s.players {
-		result = append(result, *p)
-	}
-	return result
-}
-
 func (s *Server) acceptLoop() {
 	for {
 		conn, err := s.listener.Accept()

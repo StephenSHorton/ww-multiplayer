@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/tui"
 )
@@ -19,6 +20,17 @@ func main() {
 		switch os.Args[1] {
 		case "debug":
 			runDebug()
+		case "patch":
+			if len(os.Args) < 3 {
+				fmt.Println("Usage: ww patch <input.iso|input.ciso> [output.iso]")
+				fmt.Println("  Default output: <input>-multiplayer.iso (next to the input)")
+				os.Exit(1)
+			}
+			out := ""
+			if len(os.Args) > 3 {
+				out = os.Args[3]
+			}
+			runPatch(os.Args[2], out)
 		case "server":
 			runServer()
 		case "fake-client":
@@ -180,12 +192,50 @@ func printHelp() {
 	fmt.Println("Wind Waker Multiplayer")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  ww-multiplayer              Launch TUI")
-	fmt.Println("  ww-multiplayer debug        Test Dolphin memory access")
-	fmt.Println("  ww-multiplayer server       Start headless server on :25565")
-	fmt.Println("  ww-multiplayer fake-client [name] [addr]")
-	fmt.Println("                              Connect a fake client that walks in circles")
-	fmt.Println("  ww-multiplayer help          Show this help")
+	fmt.Println("  ww-multiplayer                                Launch TUI")
+	fmt.Println("  ww-multiplayer patch <vanilla.iso|.ciso> [out.iso]")
+	fmt.Println("                                                Splice the multiplayer mod")
+	fmt.Println("                                                into your own legitimate copy")
+	fmt.Println("                                                of Wind Waker (GZLE01)")
+	fmt.Println("  ww-multiplayer debug                          Test Dolphin memory access")
+	fmt.Println("  ww-multiplayer server                         Start headless server on :25565")
+	fmt.Println("  ww-multiplayer fake-client [name] [addr]      Connect a fake client that walks in circles")
+	fmt.Println("  ww-multiplayer help                           Show this help")
+}
+
+// runPatch is the user-facing wrapper for inject.PatchISO. Picks a sensible
+// default output filename (`<input>-multiplayer.iso`) when the user doesn't
+// supply one, and prints a tiny status line so successful runs aren't
+// silently mysterious.
+func runPatch(in, out string) {
+	if out == "" {
+		base := in
+		// Strip extension before tagging "-multiplayer.iso" so we don't
+		// produce things like "wind-waker.ciso-multiplayer.iso".
+		for i := len(base) - 1; i >= 0; i-- {
+			if base[i] == '.' {
+				base = base[:i]
+				break
+			}
+			if base[i] == '/' || base[i] == '\\' {
+				break
+			}
+		}
+		out = base + "-multiplayer.iso"
+	}
+	fmt.Printf("Wind Waker Multiplayer patcher\n")
+	fmt.Printf("  input : %s\n", in)
+	fmt.Printf("  output: %s\n", out)
+	if err := inject.PatchISO(in, out); err != nil {
+		if err == inject.ErrAlreadyPatched {
+			fmt.Printf("\nThis ISO already contains the multiplayer mod — nothing to do.\n")
+			fmt.Printf("(Detected an existing T2 section at 0x%08X.)\n", inject.T2Address)
+			os.Exit(0)
+		}
+		fmt.Printf("\nERROR: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("\nDone. Boot %s in Dolphin to play multiplayer.\n", out)
 }
 
 func runWriteTest() {

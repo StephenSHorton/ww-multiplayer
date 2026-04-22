@@ -6,37 +6,66 @@ Real-time visual multiplayer for The Legend of Zelda: The Wind Waker on Dolphin.
 Each player runs the TUI alongside their own Dolphin instance — positions are
 shared over TCP so (eventually) you can see each other's Link sailing around.
 
-## Status: work in progress
+## Status
 
 What works today:
-- Reading your own Link's position from a running Dolphin in real time
-- Hosting / joining a TCP session and exchanging positions with other players
+- Reading your own Link's position + skeletal pose from a running Dolphin
+- Hosting / joining a TCP session and exchanging positions + poses
+- **Rendering each other's Link in-game** — your friend's Link walks around
+  on Outset (or wherever you are) at their actual world coords, with their
+  real animations, at ~50 ms latency on LAN
 
-What does **not** work yet:
-- Actually rendering the other player's Link in your game world. Spawning a
-  second player actor at runtime is blocked on a Dolphin/GameCube memory
-  layout problem — see `docs/05-known-issues.md` and `docs/06-roadmap.md`.
+Known limits:
+- Only Outset Island has been heavily tested. Stage / room transitions
+  aren't gracefully handled yet (your friend's Link just renders at the
+  last known coords if they cross to a different room).
+- Local LAN tested. Internet play would work but firewall / NAT traversal
+  isn't included.
+- Windows only (Dolphin process memory access uses Win32 APIs).
 
-So right now this is more of a "shared map dot" tool than a true multiplayer
-experience. Star the repo if you want to follow along.
+See `docs/06-roadmap.md` for the full feature/known-issue list.
+
+## Quick start (end users)
+
+1. Download `ww.exe` from the [latest release](../../releases).
+2. Patch your own legitimate copy of Wind Waker (NTSC-U, game ID `GZLE01`,
+   `.iso` or `.ciso` works):
+   ```
+   ww.exe patch path\to\your-wind-waker.iso
+   ```
+   This produces `your-wind-waker-multiplayer.iso` next to the input. Your
+   original is left untouched. Already-patched ISOs are detected and skipped.
+3. Boot the patched ISO in Dolphin and load a save.
+4. Run `ww.exe` (no args) — the TUI walks you through host vs join.
+
+We don't ship a pre-patched ISO for legal reasons (it would be a derivative
+of the entire Wind Waker DOL). The patcher contains only our injected code
+plus a list of byte-edit records; your vanilla DOL is the source of all
+original game-code bytes.
 
 ## Requirements
 
-- Windows (only platform tested so far)
-- [Dolphin emulator](https://dolphin-emu.org/) with The Wind Waker (NTSC-U,
-  game ID `GZLE01`) running and a save loaded
-- [Go 1.21+](https://go.dev/dl/) to build the client
+- Windows
+- [Dolphin emulator](https://dolphin-emu.org/) — recent stable release
+- Your own legitimate copy of The Wind Waker (NTSC-U, game ID `GZLE01`)
+- [Go 1.21+](https://go.dev/dl/) — only if building from source
 
-## Install & run
+## Building from source
 
 ```bash
 git clone https://github.com/StephenSHorton/ww-multiplayer.git
 cd ww-multiplayer
 go build -o ww.exe .
-./ww.exe
 ```
 
-The TUI walks you through host vs join, IP, and player name.
+The compiled C-side blob is checked in as `internal/inject/blob.go` so plain
+Go builds work without the C toolchain. To rebuild the injected C code, see
+`SETUP.md` (devkitPPC + Freighter), then run:
+
+```bash
+cd inject && python build.py        # rebuilds patched.dol
+cd .. && python scripts/extract_blob.py  # regenerates blob.go
+```
 
 ### Headless / debug commands
 
@@ -56,4 +85,9 @@ The TUI walks you through host vs join, IP, and player name.
 
 ## License
 
-TBD.
+[MIT](LICENSE) — do whatever you want with it, no warranty, not liable.
+
+This project does not include or distribute any Nintendo IP. The patcher
+splices our own injected code into your own legitimately-acquired Wind
+Waker disc image. You are responsible for the legality of your own ISO
+in your jurisdiction.

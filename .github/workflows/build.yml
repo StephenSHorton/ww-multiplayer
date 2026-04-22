@@ -1,0 +1,42 @@
+name: Build
+
+# Sanity-check on every push and PR: does the Go side still build? This
+# catches breakage between releases without needing the full devkitPPC
+# toolchain (which only matters when regenerating the embedded T2 blob).
+# blob.go is committed and treated as source for build purposes.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Cross-build Windows amd64
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -o /tmp/ww.exe .
+
+      - name: Sanity-check embedded blob
+        run: |
+          if ! grep -q "var T2Bytes" internal/inject/blob.go; then
+            echo "::error::internal/inject/blob.go missing T2Bytes"
+            exit 1
+          fi
+          if ! grep -q "var DOLPatches" internal/inject/blob.go; then
+            echo "::error::internal/inject/blob.go missing DOLPatches"
+            exit 1
+          fi
