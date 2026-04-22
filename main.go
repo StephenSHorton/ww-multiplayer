@@ -9,12 +9,17 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
+	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
@@ -28,6 +33,23 @@ func main() {
 		switch os.Args[1] {
 		case "debug":
 			runDebug()
+		case "host":
+			name := ""
+			if len(os.Args) > 2 {
+				name = os.Args[2]
+			}
+			runHost(name)
+		case "join":
+			if len(os.Args) < 3 {
+				fmt.Println("Usage: ww join <host-ip> [name]")
+				os.Exit(1)
+			}
+			addr := os.Args[2]
+			name := ""
+			if len(os.Args) > 3 {
+				name = os.Args[3]
+			}
+			runJoin(addr, name)
 		case "patch":
 			if len(os.Args) < 3 {
 				fmt.Println("Usage: ww patch <input.iso|input.ciso> [output.iso]")
@@ -199,16 +221,22 @@ func main() {
 func printHelp() {
 	fmt.Println("Wind Waker Multiplayer")
 	fmt.Println()
-	fmt.Println("Usage:")
-	fmt.Println("  ww-multiplayer                                Launch TUI")
-	fmt.Println("  ww-multiplayer patch <vanilla.iso|.ciso> [out.iso]")
-	fmt.Println("                                                Splice the multiplayer mod")
-	fmt.Println("                                                into your own legitimate copy")
-	fmt.Println("                                                of Wind Waker (GZLE01)")
-	fmt.Println("  ww-multiplayer debug                          Test Dolphin memory access")
-	fmt.Println("  ww-multiplayer server                         Start headless server on :25565")
-	fmt.Println("  ww-multiplayer fake-client [name] [addr]      Connect a fake client that walks in circles")
-	fmt.Println("  ww-multiplayer help                           Show this help")
+	fmt.Println("Play multiplayer:")
+	fmt.Println("  ww.exe host [name]                        Host a session on :25565 (one process per player)")
+	fmt.Println("  ww.exe join <host-ip> [name]              Join a host's session (host-ip is what `host` prints)")
+	fmt.Println()
+	fmt.Println("Patch an ISO:")
+	fmt.Println("  ww.exe patch <vanilla.iso|.ciso> [out.iso]")
+	fmt.Println("                                            Splice the multiplayer mod into your own")
+	fmt.Println("                                            legitimate copy of Wind Waker (GZLE01)")
+	fmt.Println()
+	fmt.Println("Lower-level CLIs (used by scripts/mplay2.sh):")
+	fmt.Println("  ww.exe server                             Start headless server on :25565")
+	fmt.Println("  ww.exe broadcast-pose [name] [addr]       Stream local Link pose+pos to server")
+	fmt.Println("  ww.exe puppet-sync [name] [addr]          Receive remotes; render as Link #2 / actor puppets")
+	fmt.Println("  ww.exe fake-client [name] [addr]          Connect a fake client that walks in circles")
+	fmt.Println("  ww.exe debug                              Test Dolphin memory access")
+	fmt.Println("  ww.exe help                               Show this help")
 }
 
 // runPatch is the user-facing wrapper for inject.PatchISO. Picks a sensible
@@ -796,21 +824,44 @@ func applyPoseAt(buf []byte, joints int, tx, ty, tz float32) {
 // and flips shadow_mode=5 so Link #2 animates from the wire instead of
 // mirroring locally. Link's J3DModel is at daPy_lk_c + 0x032C; mpNodeMtx
 // is at J3DModel + 0x8C; sizeof(Mtx) = 48; Link has 42 joints.
+//
+// Standalone-CLI wrapper. Preserves the `ww.exe broadcast-pose` entry
+// point that scripts/mplay2.sh relies on.
 func runBroadcastPose(name, addr string) {
+	if err := runBroadcastPoseCtx(context.Background(), name, addr); err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// runBroadcastPoseCtx is the goroutine-friendly variant. Returns an error
+// instead of os.Exit so host/join can surface failures cleanly, and honors
+// ctx cancellation so SIGINT doesn't have to wait for the next 50 ms tick.
+func runBroadcastPoseCtx(ctx context.Context, name, addr string) error {
 	fmt.Printf("=== Broadcast Link + Pose: %s -> %s ===\n\n", name, addr)
 	d, err := dolphin.Find("GZLE01")
 	if err != nil {
-		fmt.Printf("ERROR: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	defer d.Close()
 	client := network.NewClient(name)
 	client.OnLog = func(msg string) { fmt.Printf("[net] %s\n", msg) }
 	if err := client.Connect(addr); err != nil {
-		fmt.Printf("connect: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("connect: %w", err)
 	}
 	defer client.Disconnect()
+
+	// Wrap ctx in a cancellable child so the watcher goroutine below exits
+	// when this function returns (prevents a leak when the parent passed
+	// context.Background()).
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	// Break out of the IsConnected() loop on ctx cancel by closing the
+	// socket — IsConnected() flips false and the main loop exits next tick.
+	go func() {
+		<-ctx.Done()
+		client.Disconnect()
+	}()
 
 	const linkMpCLModelOff = 0x032C
 	const j3dModelMpNodeMtxOff = 0x8C
@@ -829,8 +880,7 @@ func runBroadcastPose(name, addr string) {
 			if err := client.SendPosition(netPos); err != nil {
 				posErrs++
 				if posErrs > 5 {
-					fmt.Printf("send position: %v\n", err)
-					break
+					return fmt.Errorf("send position: %w", err)
 				}
 			}
 		}
@@ -857,8 +907,7 @@ func runBroadcastPose(name, addr string) {
 						if err := client.SendPose(linkJointCount, data); err != nil {
 							poseErrs++
 							if poseErrs > 5 {
-								fmt.Printf("send pose: %v\n", err)
-								break
+								return fmt.Errorf("send pose: %w", err)
 							}
 						}
 					}
@@ -880,9 +929,15 @@ func runBroadcastPose(name, addr string) {
 			fmt.Printf("  link+pose -> [no link — reload in progress?]   \r")
 		}
 		// 50 ms = 20 Hz. ~40 KB/s of pose data — trivial for LAN.
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			// Fall through; IsConnected() will be false next iteration
+			// (watcher goroutine already called Disconnect()).
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 	fmt.Println("\nDisconnected.")
+	return nil
 }
 
 // Captures Link's current pose once and replays it as a separate
@@ -1064,13 +1119,25 @@ func runUnhidePuppet() {
 // frame. The C-side frame hook then mirrors mailbox.p2_pos into the puppet
 // actor's pos each frame. End-to-end loop:
 //   remote player -> server -> puppet-sync -> mailbox -> C hook -> actor pos
+//
+// Standalone-CLI wrapper. Honors WW_SELF_NAME (kept for mplay2.sh); host/
+// join call runPuppetSyncCtx directly with an explicit filter name.
 func runPuppetSync(name, addr string) {
+	if err := runPuppetSyncCtx(context.Background(), name, addr, os.Getenv("WW_SELF_NAME")); err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// runPuppetSyncCtx is the goroutine-friendly variant. Takes the self-filter
+// name as a parameter (rather than reading WW_SELF_NAME) so host/join can
+// plumb the player's name through without exporting an env var.
+func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error {
 	fmt.Printf("=== Puppet Sync: %s <- %s ===\n\n", name, addr)
 
 	d, err := dolphin.Find("GZLE01")
 	if err != nil {
-		fmt.Printf("ERROR: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	defer d.Close()
 	fmt.Println("Dolphin found.")
@@ -1080,10 +1147,18 @@ func runPuppetSync(name, addr string) {
 		fmt.Printf("[net] %s\n", msg)
 	}
 	if err := client.Connect(addr); err != nil {
-		fmt.Printf("connect: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("connect: %w", err)
 	}
 	defer client.Disconnect()
+
+	// Wrap ctx so the watcher goroutine below exits cleanly on return,
+	// then kick the IsConnected() loop out of its sleep on ctx cancel.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		<-ctx.Done()
+		client.Disconnect()
+	}()
 
 	// Lerp-smoothed state per slot. lerpK = 0.2 closes ~80% of the gap in
 	// ~5 ticks (~83 ms at 60 Hz). Raise for snappier tracking, lower for
@@ -1158,7 +1233,11 @@ func runPuppetSync(name, addr string) {
 			shadowModeArmed = true
 		}
 		for i := 0; i < 60; i++ {
-			time.Sleep(50 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(50 * time.Millisecond):
+			}
 			state, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState(slot), 1)
 			if len(state) == 1 && state[0] == 1 {
 				ptr, _ := d.ReadU32(mailboxBase + mailboxPoseBufPtr(slot))
@@ -1205,15 +1284,16 @@ func runPuppetSync(name, addr string) {
 	d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{5})
 	shadowModeArmed = true
 
-	// WW_SELF_NAME lets a puppet-sync attached to the SAME Dolphin as a
+	// selfFilter lets a puppet-sync attached to the SAME Dolphin as a
 	// broadcast-pose twin ignore its twin's stream. Without this, the
 	// twin's pose (= our local Link's live position) gets written into
 	// a puppet actor that then physics-collides with our own Link. Empty
 	// (default) keeps the loopback "mirror yourself with offset" demo
-	// working. mplay2.sh sets this to match the broadcaster's name.
-	selfName := os.Getenv("WW_SELF_NAME")
-	if selfName != "" {
-		fmt.Printf("Filtering self-echo: remotes named %q will be ignored.\n", selfName)
+	// working. mplay2.sh still works because the CLI wrapper above reads
+	// WW_SELF_NAME into this arg; `ww.exe host/join` pass the player name
+	// so users never have to know the env var exists.
+	if selfFilter != "" {
+		fmt.Printf("Filtering self-echo: remotes named %q will be ignored.\n", selfFilter)
 	}
 
 	for client.IsConnected() {
@@ -1223,7 +1303,7 @@ func runPuppetSync(name, addr string) {
 			if rp.Position == nil {
 				continue
 			}
-			if selfName != "" && rp.Name == selfName {
+			if selfFilter != "" && rp.Name == selfFilter {
 				continue
 			}
 			seen[rp.ID] = true
@@ -1343,9 +1423,15 @@ func runPuppetSync(name, addr string) {
 			}
 		}
 
-		time.Sleep(16 * time.Millisecond) // ~60 Hz
+		select {
+		case <-ctx.Done():
+			// Watcher goroutine will Disconnect(); IsConnected() will
+			// flip false on the next iteration and the loop exits.
+		case <-time.After(16 * time.Millisecond): // ~60 Hz
+		}
 	}
 	fmt.Println("\nDisconnected.")
+	return nil
 }
 
 func runPokeU32(addrHex, valHex string) {
@@ -1938,4 +2024,156 @@ func runFakeClient(name, addr string, centerX, centerZ float32) {
 	}
 
 	fmt.Println("\nDisconnected.")
+}
+
+// runHost is the single-process host entry point: binds the TCP server on
+// :25565, then spins up broadcast-pose + puppet-sync goroutines pointing at
+// localhost. Replaces the old "run 3 terminals" workflow. Ctrl+C cancels
+// the ctx, cleanly shuts down both goroutines and the server, and resets
+// the patched ISO's mailbox so the next Dolphin frame doesn't keep rendering
+// a stale Link #2.
+func runHost(name string) {
+	if name == "" {
+		name = "Host"
+	}
+	ctx, cancel := multiplayerContext()
+	defer cancel()
+
+	srv := network.NewServer(25565)
+	srv.OnLog = func(msg string) {
+		fmt.Printf("[srv %s] %s\n", time.Now().Format("15:04:05"), msg)
+	}
+	if err := srv.Start(); err != nil {
+		fmt.Printf("server start: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Hosting as %q on :25565.\n", name)
+	if ips := listHostIPs(); len(ips) > 0 {
+		fmt.Println("Share one of these IPs with your friend:")
+		for _, ip := range ips {
+			fmt.Printf("  %s\n", ip)
+		}
+	} else {
+		fmt.Println("(could not auto-detect a LAN IP — check your network settings)")
+	}
+	fmt.Println("Ctrl+C to stop.")
+
+	runMultiplayerGoroutines(ctx, cancel, name, "localhost:25565")
+
+	srv.Stop()
+	clearMultiplayerState()
+}
+
+// runJoin is the single-process joiner entry point: just broadcast-pose +
+// puppet-sync goroutines pointed at the host's :25565. Same signal handling
+// and mailbox cleanup as runHost.
+func runJoin(addr, name string) {
+	if name == "" {
+		name = "Player"
+	}
+	// Default port to :25565 if the user passed a bare IP.
+	if !strings.Contains(addr, ":") {
+		addr = addr + ":25565"
+	}
+	ctx, cancel := multiplayerContext()
+	defer cancel()
+
+	fmt.Printf("Joining %s as %q.\n", addr, name)
+	fmt.Println("Ctrl+C to stop.")
+
+	runMultiplayerGoroutines(ctx, cancel, name, addr)
+
+	clearMultiplayerState()
+}
+
+// multiplayerContext returns a cancellable context wired to SIGINT/SIGTERM.
+// The returned cancel() is safe to call multiple times; callers should defer
+// it in addition to the signal handler firing.
+func multiplayerContext() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		select {
+		case <-sigCh:
+			fmt.Println("\nShutting down...")
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
+}
+
+// runMultiplayerGoroutines spawns broadcast-pose + puppet-sync against the
+// given server address. Player name is passed as selfFilter so the two
+// in-process clients don't self-echo on the co-located broadcast/puppet
+// twin (the WW_SELF_NAME workaround from mplay2.sh, but automatic). Blocks
+// until either goroutine exits or ctx is cancelled, then waits for both to
+// finish before returning.
+func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		defer cancel()
+		if err := runBroadcastPoseCtx(ctx, name, addr); err != nil {
+			fmt.Printf("broadcast-pose: %v\n", err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		defer cancel()
+		if err := runPuppetSyncCtx(ctx, name, addr, name); err != nil {
+			fmt.Printf("puppet-sync: %v\n", err)
+		}
+	}()
+
+	<-ctx.Done()
+	wg.Wait()
+}
+
+// listHostIPs walks the machine's non-loopback IPv4 addresses so `ww.exe
+// host` can print something the joiner can type. Skips IPv6 (users don't
+// want to type v6 literals), loopback (can't reach from another machine),
+// and link-local.
+func listHostIPs() []string {
+	var out []string
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	for _, a := range addrs {
+		ipnet, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip := ipnet.IP.To4()
+		if ip == nil {
+			continue
+		}
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+			continue
+		}
+		out = append(out, ip.String())
+	}
+	return out
+}
+
+// clearMultiplayerState resets the patched-ISO mailbox so the next Dolphin
+// frame stops rendering Link #2. Writes shadow_mode = 0 (the explicit kill
+// switch) and zeros every pose_seqs[slot] so even if shadow_mode is flipped
+// back to 5 later, nothing renders until a fresh pose arrives. All writes
+// are best-effort: if Dolphin closed first, WriteAbsolute fails silently
+// which is the correct behavior (the mailbox is gone with the process).
+func clearMultiplayerState() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		return
+	}
+	defer d.Close()
+	d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{0})
+	for i := 0; i < maxRemoteLinks; i++ {
+		d.WriteAbsolute(mailboxBase+mailboxPoseSeq(i), []byte{0})
+	}
 }

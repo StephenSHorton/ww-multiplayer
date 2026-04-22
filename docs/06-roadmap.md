@@ -194,6 +194,35 @@
   `pose_bufs[1]` and `pose_seqs[1]` persist until Dolphin restart, so
   a frozen decoy Link lingers at the old +1000 X offset even after
   the harness is torn down. Not blocking; next Dolphin boot clears it.
+- **`ww.exe host` / `ww.exe join` + graceful shutdown** (2026-04-22,
+  v0.1.1): collapsed the five-terminal v0.1.0 workflow (server +
+  broadcast-pose + puppet-sync per player) into one process per player.
+  Host prints its LAN IPs via `net.InterfaceAddrs` so the joiner knows
+  what to type; joiner accepts bare `ww.exe join 192.168.1.42` (defaults
+  port to `:25565`). Both commands install a SIGINT/SIGTERM handler that
+  cancels a shared `context.Context`, waits for the broadcast-pose +
+  puppet-sync goroutines to exit, then writes `shadow_mode = 0` and
+  clears `pose_seqs[*]` in the Dolphin mailbox so Link #2 disappears the
+  instant the user Ctrl+Cs (closes docs/06 item #8's loose end — the
+  mplay2.sh shutdown that left Link #2 frozen forever is now impossible
+  because the shutdown path isn't a best-effort script-side cleanup
+  anymore, it's inline with the ctx cancel). Also resolves both v0.1.0
+  user-testing bugs documented below: (a) TUI no longer matters because
+  `ww.exe host/join` is the real user entry point (TUI is now
+  vestigial — listed in retire-or-rebuild track), and (b) the self-echo
+  ghost-Link bug from running broadcast-pose + puppet-sync on the same
+  machine is fixed automatically — host/join pass the player name as
+  `runPuppetSyncCtx`'s `selfFilter` param, so users never need to set
+  `WW_SELF_NAME` manually. `runBroadcastPose` + `runPuppetSync` were
+  refactored into context-aware `*Ctx` variants (`time.Sleep` → `select
+  { <-ctx.Done(); <-time.After }`, `os.Exit` → `return err`, watcher
+  goroutine that calls `client.Disconnect()` on ctx cancel to break the
+  `for client.IsConnected()` loop immediately). The old CLI wrappers
+  still call the new functions with `context.Background()` + `os.Exit`
+  on error, so `scripts/mplay2.sh` and every existing `./ww.exe server
+  / broadcast-pose / puppet-sync` invocation keeps working unchanged
+  (WW_SELF_NAME env var is now piped through the wrapper into the
+  selfFilter param).
 - **Link #2 hidden by default** (2026-04-21): standalone-booted patched
   ISO now looks visually identical to vanilla Wind Waker — no duplicate
   Link mirroring the player. Two C-side gates in `daPy_draw_hook`:
@@ -456,20 +485,18 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
 
 ### Pick next (any order)
 
-1. **`ww.exe host` and `ww.exe join <ip>` subcommands.** Fixes both
-   v0.1.0 user-testing bugs above in one stroke. ~80 LOC. Each
-   subcommand spawns the right combination of `runServer`,
-   `runBroadcastPose`, `runPuppetSync` as goroutines, with
-   `WW_SELF_NAME` set in-process so the user doesn't see the
-   workaround. README quick-start gets simpler ("`ww.exe host` on
-   one machine, `ww.exe join <ip>` on the other"). After this lands,
-   cut v0.1.1.
-2. **Retire / rebuild the TUI** so people don't fall into bug #1
-   above. Cheapest version: delete `internal/tui/` and have
-   `ww.exe` (no args) print the help text. Better version: a small
-   Bubble Tea wrapper around the new `host`/`join` flows that
-   surfaces remote-player status, log, and `shadow_mode 0` kill
-   switch. Lowest cost first; better TUI is a separate item.
+1. ~~**`ww.exe host` and `ww.exe join <ip>` subcommands.**~~ SHIPPED
+   in v0.1.1 (2026-04-22). See the Done entry above. Both v0.1.0
+   user-testing bugs and item #8's graceful-shutdown loose end are
+   closed in the same change.
+2. **Retire / rebuild the TUI** — now the #1 priority, since
+   `ww.exe` (no args) still launches the broken-by-design Bubble
+   Tea TUI from v0.0. Cheapest fix: delete `internal/tui/` and have
+   `ww.exe` (no args) print the help text pointing at `host/join`.
+   Better version: a small Bubble Tea wrapper around the new
+   `host`/`join` flows that surfaces remote-player status, log, and
+   `shadow_mode 0` kill switch. Lowest cost first; better TUI is a
+   separate item.
 3. **Visual differentiation.** Two Links look identical. Color tinting
    via TEV color override (every draw frame, post-mini-link entry).
    Easier than the actor-side work for KAMOME because we own the model.
@@ -487,15 +514,14 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    shared-J3DModelData state pollution noted previously. Cosmetic,
    not blocking; either a TEV bucket residue from cross-instance
    entry() ordering or a per-frame race against Link #1's own draw.
-8. **`puppet-sync` graceful-shutdown signal handler.** Ctrl+C / kill
-   of `mplay2.sh` doesn't fire the per-remote-leave cleanup (TCP
-   never reports "remote left" because both ends die together), so
-   Link #2 freezes at the last received pose. Workaround today:
-   manually run `./ww.exe shadow-mode 0`. Real fix: install
-   `signal.Notify(c, os.Interrupt, syscall.SIGTERM)` in `puppet-sync`
-   that writes shadow_mode=0 + clears `pose_seqs[*]` before exit.
-   Tiny scope, real polish. Subsumed by item #1 (the new `host`/
-   `join` subcommands should do this cleanup naturally).
+8. ~~**`puppet-sync` graceful-shutdown signal handler.**~~ SHIPPED
+   in v0.1.1 (2026-04-22) as part of `ww.exe host/join`. The signal
+   handler lives on the host/join goroutine orchestrator rather
+   than inside `puppet-sync` proper, so mplay2.sh's Ctrl+C path
+   still has the same limitation (use `./ww.exe host/join` instead,
+   or `./ww.exe shadow-mode 0` after teardown). If someone keeps
+   running `./ww.exe puppet-sync` standalone, adding a signal
+   handler to the CLI wrapper is a 5-line follow-up.
 
 ### Echo-Link DONE (2026-04-19 late-late-late)
 

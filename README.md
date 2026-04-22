@@ -3,8 +3,9 @@
 ![splash](docs/img/splash.png)
 
 Real-time visual multiplayer for The Legend of Zelda: The Wind Waker on Dolphin.
-Each player runs the TUI alongside their own Dolphin instance — positions are
-shared over TCP so (eventually) you can see each other's Link sailing around.
+Each player runs `ww.exe` alongside their own Dolphin instance — positions and
+skeletal poses are shared over TCP so each side sees the other's real Link
+walking around in-game.
 
 ## Status
 
@@ -35,8 +36,17 @@ See `docs/06-roadmap.md` for the full feature/known-issue list.
    ```
    This produces `your-wind-waker-multiplayer.iso` next to the input. Your
    original is left untouched. Already-patched ISOs are detected and skipped.
-3. Boot the patched ISO in Dolphin and load a save.
-4. Run `ww.exe` (no args) — the TUI walks you through host vs join.
+3. Both players: boot the patched ISO in Dolphin and load a save (any save —
+   saves don't have to match, and the other player's Link only appears once
+   their session connects).
+4. Host runs `ww.exe host` and shares the printed LAN IP.
+5. Joiner runs `ww.exe join <host-ip>` (you can also pass a custom name:
+   `ww.exe join 192.168.1.42 Alice`).
+6. You should see each other's Link walking around in-game within a second
+   or two. Ctrl+C in either terminal cleanly shuts down and hides Link #2.
+
+For internet play the host just needs a reachable IP (port-forward :25565
+or use a VPN / relay); the rest of the flow is identical.
 
 We don't ship a pre-patched ISO for legal reasons (it would be a derivative
 of the entire Wind Waker DOL). The patcher contains only our injected code
