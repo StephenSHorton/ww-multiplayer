@@ -76,6 +76,17 @@ typedef BOOL (*fopAcM_SearchByID_t)(fpc_ProcID id, fopAc_ac_c** out);
 // mpPlayerPtr[0] = Link, [1] = companion, [2] = ship
 #define PLAYER_PTR_ARRAY ((fopAc_ac_c**)0x803CA754)
 
+// daPy_lk_c offsets (zeldaret/tww include/d/actor/d_a_player_main.h):
+//   +0x0328 = J3DModelData* mpCLModelData
+//   +0x032C = J3DModel*     mpCLModel
+// Used by the save-reload defensive re-fetch in daPy_draw_hook /
+// multiplayer_update: the game tears down + rebuilds Link's J3DModel
+// (and its J3DModelData) when reloading a save, so our cached
+// mini_link_data must be compared against the live mpCLModelData each
+// frame. Mismatch ⇒ drop our state and re-init.
+#define DAPY_LK_C_MPCLMODELDATA_OFFSET 0x0328
+#define DAPY_LK_C_MPCLMODEL_OFFSET     0x032C
+
 // Actor position offset from actor base
 #define ACTOR_POS_OFFSET   0x1F8
 #define ACTOR_ANGLE_OFFSET 0x204

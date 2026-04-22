@@ -194,6 +194,56 @@
   `pose_bufs[1]` and `pose_seqs[1]` persist until Dolphin restart, so
   a frozen decoy Link lingers at the old +1000 X offset even after
   the harness is torn down. Not blocking; next Dolphin boot clears it.
+- **Save-reload safety DONE** (2026-04-21): reloading a save in either
+  Dolphin while `mplay2.sh` is running no longer freezes that Dolphin.
+  Verified live: D1 reload survives + D2's view of D1 recovers within
+  ~1 frame; symmetric reload from D2 also clean. Three orthogonal bugs
+  surfaced + fixed in this work. (a) **The actual hang** — game tears
+  down Link's J3DModelData during stage unload, our cached
+  `mini_link_model` referenced freed ArchiveHeap memory, next frame's
+  `J3DModel::calc` derefed it. Fix in `inject/src/multiplayer.c`:
+  defensive re-fetch of `*(daPy_lk_c + 0x0328) = mpCLModelData` in
+  BOTH `multiplayer_update` (execute) and `daPy_draw_hook` (draw).
+  Mismatch ⇒ `mini_link_reset_state()` (NULLs all per-instance state +
+  mailbox bookkeeping; never `JKRHeap_free`s — ArchiveHeap is reset
+  wholesale on stage unload, so freeing would scramble the freelists).
+  Existing `mini_link_state == 0` init path picks up next frame and
+  rebuilds against the new mpCLModelData. Belt-and-suspenders: both
+  phases check, so stage teardowns landing between execute and draw
+  are also caught. (b) **`broadcast-pose` crash** — `runBroadcastPose`
+  unconditionally derefed `pos.PosX/Y/Z` in its status `Printf`, but
+  `ReadPlayerPosition` returns nil whenever `PLAYER_PTR_ARRAY[0] == 0`
+  (precisely the brief window during a save reload). The panic killed
+  broadcast-A → TCP dropped → receiving Dolphin's puppet locked at the
+  last received pose forever. Guarded the Printf with `pos != nil` and
+  print a `[no link — reload in progress?]` sentinel instead.
+  (c) **`puppet-sync` cached pose_buf_ptr forever** — `armPoseSlot`
+  returned early as soon as `poseBufPtrs[slot] != 0`. If the C-side
+  ever lazy-realloced the pose_buf at a new address (e.g. after the
+  reset_state above), Go would keep writing fresh poses to the OLD
+  address and the receiving Link would render only the seed pose
+  forever. Now re-polls `mailbox.pose_buf_states[slot]` and
+  `pose_buf_ptrs[slot]` every call; refreshes the cached pointer on
+  change, drops it on state == 0, re-enters the lazy-arm wait if
+  needed. Logs `re-armed` with the old/new addresses on swap so it's
+  observable. (d) **`puppet-sync` never re-asserted shadow_mode = 5**
+  — only written inside the lazy-arm path, so a fresh `mplay2` against
+  a Dolphin that had `shadow_mode` drifted to 0 (from a previous
+  manual `./ww.exe shadow-mode 0`, or any future reset path that
+  clears it) would silently fall back to local-mirror Link with no
+  pose-feed engagement, even with `pose_seq` bumping correctly each
+  tick. Now writes `shadow_mode = 5` once at puppet-sync startup
+  before the main loop, idempotent and cheap.
+
+  Diagnosis path was load-bearing: live `./ww.exe dump` of both
+  Dolphins' mailboxes is what caught (d) — `pose_seq=129/231` (proving
+  Go was writing fresh poses) but `shadow_mode=0` (proving C side was
+  ignoring them) is a single-line tell that no amount of code-reading
+  would have produced. Mailbox diagnostic fields earned their keep.
+
+  Open mild: D1's flicker on Link #2 in the regression test is "every
+  2-4 seconds, very minimal" — same shared-J3DModelData state pollution
+  the previous session noted. Not blocking; punted to track #2 below.
 - **Two-Dolphin multiplayer working — MVP** (2026-04-20):
   `scripts/mplay2.sh` drives two real Dolphin instances on the same
   machine: each player sees the OTHER's Link walking around Outset at
@@ -292,42 +342,42 @@
 
 ## 🔬 Next Session Priority
 
+**SAVE-RELOAD SAFETY DONE (2026-04-21).** mplay2 now survives a save
+reload from either Dolphin: D1 doesn't freeze, D2's view of D1 recovers
+within a frame, and the inverse holds. Three collateral bugs (broadcast
+panic on nil Link, stale puppet-sync pointer cache, missing shadow_mode
+re-assertion) were caught + fixed in the same session — see Done entry.
+
 **TWO-DOLPHIN MULTIPLAYER + MULTI-LINK N>1 REACHED (2026-04-20).** Two
 real Dolphin instances running side-by-side, each rendering the other
 player's Link as Link #2 at the remote's actual world coords — driven
 by `scripts/mplay2.sh`. Multi-Link N>1 also unblocked the same day
 (`mDoExt_J3DModel__create` flag `0x80000 → 0` so each instance gets
 private material DLs instead of sharing one with every peer). Server
-write race fixed in lockstep (`Player.SendMu`). See Done entries above
-for the full stories + known remaining gap (save-reload-while-mplay2
-freezes the reloading Dolphin — `mini_link_model` holds a dangling
-reference for a frame during stage teardown).
+write race fixed in lockstep (`Player.SendMu`).
 
 ### Pick next (any order)
 
-1. **Save-reload safety.** Reloading a save while mplay2 is running
-   freezes the reloading Dolphin: the game tears down Link's J3DModel
-   during stage unload, our `mini_link_model` holds a dangling
-   reference for a frame, and the next `daPy_draw_hook` crashes inside
-   `J3DModel::calc`. Defensive re-fetch in the draw hook: compare
-   `mini_link_data` to the current `daPy_lk_c + 0x0328` (mpCLModelData).
-   If they differ, free old mini_link_model, re-run the getRes +
-   J3DModel create path. Small scope, real reliability win.
-2. **Visual differentiation.** Two Links look identical. Color tinting
+1. **Visual differentiation.** Two Links look identical. Color tinting
    via TEV color override (every draw frame, post-mini-link entry).
    Easier than the actor-side work for KAMOME because we own the model.
-3. **Anim-state sync (bandwidth).** Replace 2 KB raw matrix dumps with
+2. **Anim-state sync (bandwidth).** Replace 2 KB raw matrix dumps with
    anim ID + frame counter (~16 B/tick). Requires REing Link's anim
    layer stack (bck/bca/bnk/bnn). Defer until LAN-only assumption breaks.
-4. **Stage / room transitions.** Detect when remote crosses to another
+3. **Stage / room transitions.** Detect when remote crosses to another
    room and either despawn or freeze Link #2. Currently he just renders
    wherever the last received world coord was.
-5. **Reconnect / lossy network.** Tonight the protocol assumes TCP
+4. **Reconnect / lossy network.** Tonight the protocol assumes TCP
    reliable delivery; UDP with sequence numbers would let us drop
    stale poses without head-of-line blocking.
-6. **TUI integration.** Tonight everything is CLI-driven; the Bubble
+5. **TUI integration.** Tonight everything is CLI-driven; the Bubble
    Tea dashboard should expose `broadcast-pose` + `puppet-sync` and
    surface remote-player status.
+6. **N=1 mild flicker on Link #2.** Observed during this session's
+   regression test as "every 2-4 seconds, very minimal" — same
+   shared-J3DModelData state pollution noted previously. Cosmetic,
+   not blocking; either a TEV bucket residue from cross-instance
+   entry() ordering or a per-frame race against Link #1's own draw.
 
 ### Echo-Link DONE (2026-04-19 late-late-late)
 

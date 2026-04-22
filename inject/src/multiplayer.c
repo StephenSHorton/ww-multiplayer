@@ -141,6 +141,62 @@ void multiplayer_update(void);
 // draw phase. Calls the original Link draw impl, then submits mini-Link.
 int daPy_draw_hook(void* this_);
 
+// Save-reload defensive reset. Called when we detect that Link's
+// mpCLModelData pointer has changed (or our cached one was nulled by an
+// earlier check this frame), meaning the game has torn down and rebuilt
+// Link's J3DModel — typically because the user reloaded a save while
+// mplay2 was running. Our cached J3DModel pointers now reference freed
+// ArchiveHeap memory and the next J3DModel_calc will crash.
+//
+// Strategy: NULL all per-instance state and let the existing
+// mini_link_state == 0 init path in multiplayer_update re-create
+// against the new mpCLModelData. We do NOT call JKRHeap_free — on
+// stage unload ArchiveHeap is reset wholesale, so the pointer is to
+// freed-and-possibly-reallocated memory and freeing it would scramble
+// the heap freelists. The "leak" framing is a misnomer; the heap was
+// reset out from under us.
+//
+// Same logic for pose_bufs / echo_ring / shadow_link in GameHeap —
+// unsure whether GameHeap survives a save reload, so null and skip the
+// free either way (~few KB if it doesn't get reused).
+static void mini_link_reset_state(void) {
+    mini_link_data = 0;
+    mini_link_state = 0;
+    int k;
+    for (k = 0; k < MAX_REMOTE_LINKS; k++) {
+        mini_link_models[k] = 0;
+        pose_bufs[k] = 0;
+    }
+    pose_joint_num = 0;
+    pose_buf_u32s = 0;
+    echo_ring = 0;
+    echo_joint_num = 0;
+    echo_frame_u32s = 0;
+    echo_write_idx = 0;
+    echo_frames_filled = 0;
+    shadow_link = 0;
+    shadow_latched_local = 0;
+
+    // Mirror the reset into the mailbox so Go's view of the slots
+    // matches the real C state. Clearing pose_seqs also fixes the
+    // cosmetic "frozen decoy lingers" carryover noted in docs/06.
+    int s;
+    for (s = 0; s < MAILBOX_POSE_SLOT_CAP; s++) {
+        mailbox->pose_buf_ptrs[s] = 0;
+        mailbox->pose_joint_counts[s] = 0;
+        mailbox->pose_buf_states[s] = 0;
+        mailbox->pose_seqs[s] = 0;
+    }
+    mailbox->echo_ring_state = 0;
+    mailbox->shadow_latched = 0;
+    mailbox->dbg_model_data = 0;
+    mailbox->dbg_saved_basic = 0;
+    mailbox->dbg_joint_num = 0;
+    mailbox->dbg_node_mtx_ptr = 0;
+    mailbox->dbg_pose_first_word = 0;
+    mailbox->dbg_node_mtx_first = 0;
+}
+
 // Hooked to main01 (0x80006338) via hook_branchlink. Runs once.
 // Publishes multiplayer_update's address for frame_shim to find.
 void main01_init(void) {
@@ -324,6 +380,19 @@ void multiplayer_update(void) {
     }
 
     // --- Mini-Link render path ----------------------------------------
+    // Save-reload safety: if the game has rebuilt Link's J3DModelData
+    // (stage unload + reload swaps it out), our cached mini_link_data
+    // points to freed ArchiveHeap memory and the next calc would crash.
+    // Drop all per-instance state so the init block below re-creates
+    // against the fresh mpCLModelData. Also covers the brief window
+    // where mpCLModelData transiently goes NULL during reload.
+    if (mini_link_state != 0) {
+        J3DModelData* current_data = *(J3DModelData**)((u8*)link + DAPY_LK_C_MPCLMODELDATA_OFFSET);
+        if (current_data != mini_link_data || current_data == 0) {
+            mini_link_reset_state();
+        }
+    }
+
     // Progress encoding (reserved 20-29, beats puppet states 1-10):
     //   20 = getRes returned NULL (archive not resident yet — retry next frame)
     //   21 = mDoExt_J3DModel__create returned NULL (gave up)
@@ -435,6 +504,19 @@ int daPy_draw_hook(void* this_) {
     mailbox->draw_progress = 30;
     int result = daPy_lk_c_draw(this_);
     mailbox->draw_progress = 31;
+
+    // Save-reload safety (draw side). Same compare as multiplayer_update
+    // but enforced HERE because the crash site is J3DModel_calc below —
+    // if a stage teardown landed between execute and draw of this frame,
+    // mini_link_models[0] still references freed memory. Skip our
+    // submission this frame; multiplayer_update next frame rebuilds.
+    if (mini_link_models[0] != 0) {
+        J3DModelData* current_data = *(J3DModelData**)((u8*)this_ + DAPY_LK_C_MPCLMODELDATA_OFFSET);
+        if (current_data != mini_link_data || current_data == 0) {
+            mini_link_reset_state();
+            return result;
+        }
+    }
 
     if (mini_link_models[0] != 0) {
         mailbox->draw_progress = 32;

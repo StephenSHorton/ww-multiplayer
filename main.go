@@ -808,8 +808,19 @@ func runBroadcastPose(name, addr string) {
 			}
 		}
 
-		fmt.Printf("  link+pose -> X:%10.1f Y:%8.1f Z:%10.1f\r",
-			pos.PosX, pos.PosY, pos.PosZ)
+		// pos can be nil during a brief reload window where Link's
+		// actor pointer is 0 (player on the main menu / save loading).
+		// Without this guard the Printf below dereferences nil and
+		// crashes broadcast-pose, which drops the TCP connection and
+		// leaves the receiving Dolphin's puppet frozen at the last
+		// pose it ever received. Just print a sentinel and keep
+		// looping; once Link reappears we resume sending.
+		if pos != nil {
+			fmt.Printf("  link+pose -> X:%10.1f Y:%8.1f Z:%10.1f\r",
+				pos.PosX, pos.PosY, pos.PosZ)
+		} else {
+			fmt.Printf("  link+pose -> [no link — reload in progress?]   \r")
+		}
 		// 50 ms = 20 Hz. ~40 KB/s of pose data — trivial for LAN.
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -1051,10 +1062,38 @@ func runPuppetSync(name, addr string) {
 			link2OffsetX, link2OffsetY, link2OffsetZ)
 	}
 	armPoseSlot := func(slot int) bool {
-		// One-time per slot: ensure shadow_mode=5 is set, then wait for
-		// C to lazy-alloc pose_bufs[slot] and publish the pointer.
+		// Re-poll each call: the receiving Dolphin's mini-Link state can
+		// reset when the player reloads a save (mini_link_reset_state in
+		// inject/src/multiplayer.c clears mailbox.pose_buf_ptrs and
+		// pose_buf_states, then the next mode-5 draw lazy-allocs a NEW
+		// pose_buf at a possibly-different address). If we cached the
+		// old pointer, we'd write fresh poses into freed memory while
+		// the new mini-Link reads only its seed, producing a Link that
+		// stays frozen at the seed pose forever. Authoritative source
+		// is the mailbox; use it every tick instead of caching once.
+		state, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState(slot), 1)
+		if len(state) == 1 && state[0] == 1 {
+			ptr, _ := d.ReadU32(mailboxBase + mailboxPoseBufPtr(slot))
+			if ptr != 0 {
+				if poseBufPtrs[slot] != ptr {
+					if poseBufPtrs[slot] == 0 {
+						fmt.Printf("\npose-feed slot %d armed: pose_buf=0x%08X\n", slot, ptr)
+					} else {
+						fmt.Printf("\npose-feed slot %d re-armed: pose_buf=0x%08X (was 0x%08X)\n",
+							slot, ptr, poseBufPtrs[slot])
+					}
+					poseBufPtrs[slot] = ptr
+				}
+				return true
+			}
+		}
+		// State != 1 — C side hasn't allocated yet (first time this slot
+		// is touched, or just reset). Drop our cached pointer so we don't
+		// write to a stale address while waiting, then drive shadow_mode=5
+		// and poll for the new pose_buf.
 		if poseBufPtrs[slot] != 0 {
-			return true
+			fmt.Printf("\npose-feed slot %d disarmed: waiting for C-side re-alloc\n", slot)
+			poseBufPtrs[slot] = 0
 		}
 		if !shadowModeArmed {
 			d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{5})
@@ -1096,6 +1135,17 @@ func runPuppetSync(name, addr string) {
 		}
 		return -1
 	}
+
+	// Puppet-sync only renders network poses if shadow_mode == 5 on the
+	// receiving Dolphin. Old armPoseSlot only wrote shadow_mode=5 in its
+	// lazy-arm path (when state != 1), so if state was already 1 from a
+	// prior puppet-sync run AND shadow_mode had drifted back to 0 (e.g.
+	// from a manual `./ww.exe shadow-mode 0`, or any future reset path
+	// that clears it), the new puppet-sync would silently fail with the
+	// receiver showing local-mirror Link instead of the network pose.
+	// Always assert mode 5 once at startup; cheap and idempotent.
+	d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{5})
+	shadowModeArmed = true
 
 	// WW_SELF_NAME lets a puppet-sync attached to the SAME Dolphin as a
 	// broadcast-pose twin ignore its twin's stream. Without this, the
