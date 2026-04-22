@@ -370,6 +370,17 @@
 
 ## 🔬 Next Session Priority
 
+**v0.1.0 RELEASED (2026-04-21).** First public release. `ww.exe patch
+<vanilla.iso>` produces a working multiplayer ISO from the user's own
+legitimately-acquired Wind Waker disc; `ww.exe` runs the multiplayer
+client. Auto-released on tag push via `.github/workflows/release.yml`.
+
+**FIRST OVER-THE-INTERNET MULTIPLAYER GAME PLAYED (2026-04-21 night).**
+Two physically separate machines, two real players, mutual Link
+rendering, animations syncing — confirmed working end-to-end by the
+project author against a friend over the public internet. Two UX
+bugs surfaced in that session, captured below.
+
 **LINK #2 HIDDEN BY DEFAULT (2026-04-21).** Standalone boot of the
 patched ISO now looks vanilla — no Link #2 unless mplay2 is engaged AND
 a remote has actually sent a pose. `shadow_mode = 0` is the explicit
@@ -389,36 +400,102 @@ by `scripts/mplay2.sh`. Multi-Link N>1 also unblocked the same day
 private material DLs instead of sharing one with every peer). Server
 write race fixed in lockstep (`Player.SendMu`).
 
+### v0.1.0 user-testing bugs (top priority for v0.1.1)
+
+Both bugs surfaced the first time a non-author user tried v0.1.0 (well,
+the author tried with a friend, same difference). Both have the same
+fix: `ww.exe host` and `ww.exe join <ip>` subcommands that internally
+orchestrate `server` + `broadcast-pose` + `puppet-sync` as goroutines
+in one process per player, with `WW_SELF_NAME` wired automatically.
+
+1. **TUI doesn't engage the rendering pipeline.** `ww.exe` (no args)
+   launches the Bubble Tea TUI from `internal/tui/`. The TUI's "host"
+   mode shows local Link position + a log + a connection state, but
+   **does not** start the multiplayer rendering pipeline — no
+   `server` listener that the joiner's `puppet-sync`/`broadcast-pose`
+   protocol will reach, and no `shadow_mode = 5` write to the
+   receiving Dolphin's mailbox. Result: a host running the TUI never
+   sees the joiner's Link, the joiner never sees the host's Link,
+   and neither side's TUI logs the connection (the TUI's network
+   layer predates the pose-feed protocol entirely). The TUI is a
+   leftover from the project's "shared map dot" era and was never
+   updated when the rendering work landed.
+
+   Workaround tonight: run `server` + `broadcast-pose` +
+   `puppet-sync` in 3 terminals on the host and 2 terminals on the
+   joiner. Worked on first try, confirmed real over-the-internet
+   multiplayer.
+
+   Real fix: `ww.exe host` (binds server, starts both broadcast-pose
+   and puppet-sync goroutines, all pointing at localhost:25565) and
+   `ww.exe join <ip>` (just broadcast-pose + puppet-sync goroutines
+   pointing at the host's IP). README quick-start should point at
+   these. TUI should either be rewritten on top of these subcommands
+   or marked deprecated until rebuilt.
+
+2. **Self-echo when running broadcast-pose + puppet-sync on the same
+   machine.** `broadcast-pose Foo` and `puppet-sync Foo` against the
+   same server are two separate TCP connections, both carrying the
+   name "Foo" but tagged with different player IDs by the server.
+   Server's `broadcastExcept` filters by ID, not name — so the
+   `broadcast-pose` stream from "Foo" gets relayed to "Foo"'s own
+   `puppet-sync`, which writes that pose into a remote-link slot and
+   renders it as Link #2 next to the player's real Link. Visible
+   symptom: an extra ghost Link mirroring your own movements,
+   alongside the real remote player's Link.
+
+   Workaround tonight: set `WW_SELF_NAME=Foo` env var on
+   `puppet-sync`. The puppet-sync filter at `main.go:1117-1131`
+   skips remotes whose name matches `WW_SELF_NAME`. Documented in
+   `mplay2.sh` (which sets it per-Dolphin) but not surfaced anywhere
+   user-visible.
+
+   Real fix: same as #1. The new `host` / `join` subcommands know
+   the player's name and set the self-filter automatically. Users
+   never have to know WW_SELF_NAME exists.
+
 ### Pick next (any order)
 
-1. **Visual differentiation.** Two Links look identical. Color tinting
+1. **`ww.exe host` and `ww.exe join <ip>` subcommands.** Fixes both
+   v0.1.0 user-testing bugs above in one stroke. ~80 LOC. Each
+   subcommand spawns the right combination of `runServer`,
+   `runBroadcastPose`, `runPuppetSync` as goroutines, with
+   `WW_SELF_NAME` set in-process so the user doesn't see the
+   workaround. README quick-start gets simpler ("`ww.exe host` on
+   one machine, `ww.exe join <ip>` on the other"). After this lands,
+   cut v0.1.1.
+2. **Retire / rebuild the TUI** so people don't fall into bug #1
+   above. Cheapest version: delete `internal/tui/` and have
+   `ww.exe` (no args) print the help text. Better version: a small
+   Bubble Tea wrapper around the new `host`/`join` flows that
+   surfaces remote-player status, log, and `shadow_mode 0` kill
+   switch. Lowest cost first; better TUI is a separate item.
+3. **Visual differentiation.** Two Links look identical. Color tinting
    via TEV color override (every draw frame, post-mini-link entry).
    Easier than the actor-side work for KAMOME because we own the model.
-2. **Anim-state sync (bandwidth).** Replace 2 KB raw matrix dumps with
+4. **Anim-state sync (bandwidth).** Replace 2 KB raw matrix dumps with
    anim ID + frame counter (~16 B/tick). Requires REing Link's anim
    layer stack (bck/bca/bnk/bnn). Defer until LAN-only assumption breaks.
-3. **Stage / room transitions.** Detect when remote crosses to another
+5. **Stage / room transitions.** Detect when remote crosses to another
    room and either despawn or freeze Link #2. Currently he just renders
    wherever the last received world coord was.
-4. **Reconnect / lossy network.** Tonight the protocol assumes TCP
+6. **Reconnect / lossy network.** Tonight the protocol assumes TCP
    reliable delivery; UDP with sequence numbers would let us drop
    stale poses without head-of-line blocking.
-5. **TUI integration.** Tonight everything is CLI-driven; the Bubble
-   Tea dashboard should expose `broadcast-pose` + `puppet-sync` and
-   surface remote-player status.
-6. **N=1 mild flicker on Link #2.** Observed during this session's
+7. **N=1 mild flicker on Link #2.** Observed during this session's
    regression test as "every 2-4 seconds, very minimal" — same
    shared-J3DModelData state pollution noted previously. Cosmetic,
    not blocking; either a TEV bucket residue from cross-instance
    entry() ordering or a per-frame race against Link #1's own draw.
-7. **`puppet-sync` graceful-shutdown signal handler.** Ctrl+C / kill
+8. **`puppet-sync` graceful-shutdown signal handler.** Ctrl+C / kill
    of `mplay2.sh` doesn't fire the per-remote-leave cleanup (TCP
    never reports "remote left" because both ends die together), so
    Link #2 freezes at the last received pose. Workaround today:
    manually run `./ww.exe shadow-mode 0`. Real fix: install
    `signal.Notify(c, os.Interrupt, syscall.SIGTERM)` in `puppet-sync`
    that writes shadow_mode=0 + clears `pose_seqs[*]` before exit.
-   Tiny scope, real polish.
+   Tiny scope, real polish. Subsumed by item #1 (the new `host`/
+   `join` subcommands should do this cleanup naturally).
 
 ### Echo-Link DONE (2026-04-19 late-late-late)
 
