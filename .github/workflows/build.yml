@@ -20,7 +20,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: go vet
+      # internal/dolphin/* uses Win32 APIs and won't even parse on Linux.
+      # Run all Go steps with GOOS=windows so vet/build see the same target.
+      - name: go vet (Windows target)
+        env:
+          GOOS: windows
+          GOARCH: amd64
         run: go vet ./...
 
       - name: Cross-build Windows amd64

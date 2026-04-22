@@ -29,46 +29,26 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Set up Python (for Freighter + extractor)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      # devkitPro provides devkitPPC (PowerPC GCC). Use their official APT
-      # repo so we get a known-good toolchain version. The pacman path the
-      # devkitPro docs recommend works on Ubuntu, but the apt mirror is
-      # one fewer dep to bootstrap.
-      - name: Install devkitPPC
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            wget xz-utils ca-certificates
-          wget -q https://github.com/devkitPro/pacman/releases/download/v6.0.2-1/devkitpro-pacman.amd64.deb
-          sudo dpkg -i devkitpro-pacman.amd64.deb
-          sudo dkp-pacman -Sy --noconfirm
-          sudo dkp-pacman -S --noconfirm devkitPPC
-          echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
-          echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
-          echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
-
-      - name: Install Freighter
-        run: |
-          pip install --upgrade pip
-          pip install freighter
-
-      # The C side needs the user's vanilla DOL (original.dol). We don't
-      # have it in CI (it's copyrighted), so the workflow can't actually
-      # run inject/build.py against a real game. Instead we just snapshot
-      # the C source compile to verify it still builds, then reuse the
-      # committed blob.go. (When you cut a tag, regenerate blob.go locally
-      # via `python scripts/extract_blob.py` first — see CONTRIBUTING.md
-      # if added later.)
+      # The CI runner doesn't actually rebuild the C-side blob — that needs
+      # both devkitPPC (large install) and the user's vanilla DOL (which
+      # we can't ship). We trust the committed `internal/inject/blob.go`,
+      # regenerated locally via `python scripts/extract_blob.py` before
+      # tagging. The verify step below catches the obvious "blob got
+      # accidentally emptied" case.
       #
-      # Future: ship a stripped placeholder DOL (zeroed game code, only
-      # symbol table preserved) so Freighter can link against real game
-      # symbols at known addresses without distributing copyrighted bytes.
-      # Out of scope for this commit.
-      - name: Verify committed blob is non-empty
+      # Future: ship a stripped placeholder DOL (zeroed game code, symbol
+      # table preserved) so Freighter can link against real game symbols
+      # at known addresses without distributing copyrighted bytes — would
+      # let CI re-extract on every release. Out of scope for v0.1.x.
+      # All Go steps use GOOS=windows because internal/dolphin/* depends on
+      # Win32 APIs (syscall.NewLazyDLL, syscall.Handle, kernel32.dll) — the
+      # package is Windows-only and vet/build under GOOS=linux can't even
+      # parse memory.go. Cross-targeting Linux is meaningless here; the
+      # whole runtime needs ReadProcessMemory.
+      - name: Verify committed blob + go vet (Windows target)
+        env:
+          GOOS: windows
+          GOARCH: amd64
         run: |
           if ! grep -q "var T2Bytes" internal/inject/blob.go; then
             echo "::error::internal/inject/blob.go is missing T2Bytes — regenerate via scripts/extract_blob.py"
