@@ -63,21 +63,12 @@ Simple TCP-based protocol with message framing. Message types:
 
 Server runs on port `25565`. UDP would be lower-latency for position data but TCP is fine for LAN play.
 
-### `internal/tui/`
+### No TUI
 
-[Charm Bubble Tea](https://github.com/charmbracelet/bubbletea) based TUI.
+The v0.0 Bubble Tea TUI in `internal/tui/` was removed in v0.1.2 (it predated the pose-feed protocol and didn't actually engage the rendering pipeline, which had new users thinking the tool was broken). Everything is now CLI:
 
-**Three screens:**
-- **Splash** — Animated Triforce drawing line-by-line, then title and "press any key"
-- **Connect** — Server/Client toggle, IP input, player name, connect button
-- **Dashboard** — Live position panel, log entries with colors, command input
+- `ww.exe host` / `ww.exe join <ip>` — the user-facing multiplayer entry points (one process per player; signal handler resets the mailbox on Ctrl+C).
+- `ww.exe server` / `broadcast-pose` / `puppet-sync` — lower-level building blocks used by `scripts/mplay2.sh` for two-Dolphin local harness.
+- `ww.exe debug`, `ww.exe dump`, `ww.exe shadow-mode` — diagnostic CLIs. Plain-text output — good for piping into agents.
 
-Uses [Lip Gloss](https://github.com/charmbracelet/lipgloss) for styling with a Zelda green/gold aesthetic.
-
-## Screens
-
-See `internal/tui/*.go`. Each screen is a Bubble Tea model with its own `update` and `view`. The top-level `app.go` handles screen transitions via `tea.Msg` (e.g., `connectedMsg`, `backMsg`).
-
-## Debug Mode
-
-A headless mode (`./ww.exe debug`, `./ww.exe server`, etc.) bypasses the TUI for automated testing and Claude Code interaction. Output is plain text — perfect for piping into agents.
+A successor TUI built on top of `host` / `join` could land later (status panel + Ctrl+C-safe shutdown button); see `docs/06-roadmap.md`.

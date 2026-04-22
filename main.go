@@ -25,7 +25,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/tui"
 )
 
 func main() {
@@ -212,10 +211,11 @@ func main() {
 		return
 	}
 
-	if err := tui.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	// No subcommand — print help. The old v0.0 Bubble Tea TUI was removed
+	// in v0.1.2; it predated the pose-feed protocol and silently didn't
+	// engage the rendering pipeline, which had new users thinking the tool
+	// was broken. `ww.exe host` / `ww.exe join` are the real entry points.
+	printHelp()
 }
 
 func printHelp() {

@@ -194,6 +194,19 @@
   `pose_bufs[1]` and `pose_seqs[1]` persist until Dolphin restart, so
   a frozen decoy Link lingers at the old +1000 X offset even after
   the harness is torn down. Not blocking; next Dolphin boot clears it.
+- **Retired the v0.0 Bubble Tea TUI** (2026-04-22, v0.1.2): deleted
+  `internal/tui/` (five files), removed the `tui.Run()` fallback in
+  `main.go` so `ww.exe` (no args) prints help pointing at `host`/`join`,
+  and `go mod tidy` dropped every external dep (Bubble Tea, Lip Gloss,
+  Charm Log, the x/ansi + x/cellbuf + x/term + x/exp/strings tree — the
+  whole thing was only used by the TUI). First time this repo's `go.mod`
+  has no `require` block. The TUI predated the pose-feed protocol and
+  silently didn't engage the rendering pipeline, which had new users
+  thinking the tool was broken — now there's no path to the broken-mode
+  behavior. A successor TUI on top of `host`/`join` remains tracked as a
+  polish item if someone misses the interface (one status panel + log
+  tail + shutdown button — small scope now that all the real work lives
+  in the CLI).
 - **`ww.exe host` / `ww.exe join` + graceful shutdown** (2026-04-22,
   v0.1.1): collapsed the five-terminal v0.1.0 workflow (server +
   broadcast-pose + puppet-sync per player) into one process per player.
@@ -489,14 +502,14 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    in v0.1.1 (2026-04-22). See the Done entry above. Both v0.1.0
    user-testing bugs and item #8's graceful-shutdown loose end are
    closed in the same change.
-2. **Retire / rebuild the TUI** — now the #1 priority, since
-   `ww.exe` (no args) still launches the broken-by-design Bubble
-   Tea TUI from v0.0. Cheapest fix: delete `internal/tui/` and have
-   `ww.exe` (no args) print the help text pointing at `host/join`.
-   Better version: a small Bubble Tea wrapper around the new
-   `host`/`join` flows that surfaces remote-player status, log, and
-   `shadow_mode 0` kill switch. Lowest cost first; better TUI is a
-   separate item.
+2. ~~**Retire / rebuild the TUI.**~~ SHIPPED in v0.1.2 (2026-04-22,
+   cheap path): deleted `internal/tui/` (and its Bubble Tea / Lip
+   Gloss dep tree — `go mod tidy` now reports zero external
+   dependencies, first time this repo has had that), and `ww.exe`
+   (no args) now prints the help text. A successor TUI built on top
+   of `host`/`join` (status panel, log tail, Ctrl+C-safe shutdown
+   button) is tracked as a separate "polish" item if/when someone
+   misses the interface.
 3. **Visual differentiation.** Two Links look identical. Color tinting
    via TEV color override (every draw frame, post-mini-link entry).
    Easier than the actor-side work for KAMOME because we own the model.
