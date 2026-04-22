@@ -559,6 +559,17 @@ int daPy_draw_hook(void* this_) {
             }
             prev_shadow_mode = mode;
 
+            // Mode 0 = OFF: skip the entire Link #2 pipeline (no calc,
+            // no entryDL). The mailbox is zero-initialized at boot, so
+            // a fresh patched-ISO game looks vanilla until something
+            // explicitly opts in (mplay2's puppet-sync writes mode 5;
+            // dev/debug modes 1-4 are picked manually via
+            // `./ww.exe shadow-mode <N>`). Saves a per-frame J3DModel
+            // calc + modelEntryDL submission too.
+            if (mode == 0) {
+                return result;
+            }
+
             u32 user_area = (u32)this_;
             if (mode == 1 || mode == 2) {
                 // Lazy-allocate the shadow buffer from GameHeap. Runs once
@@ -882,7 +893,17 @@ int daPy_draw_hook(void* this_) {
             }
             mailbox->draw_progress = 37;
 
-            mDoExt_modelEntryDL(mini_link_models[0]);
+            // Mode 5 (multiplayer): slot 0 only submits once Go has
+            // written at least one network pose, matching how slots 1+
+            // are gated below. Without this, Link #2 would mirror
+            // Link #1 (from the first calc with the real walker)
+            // during the brief window between mplay2 startup and the
+            // first remote pose arrival — annoying flash visible to
+            // the user. Other modes (1-4 dev/debug) want unconditional
+            // render; they bypass the gate.
+            if (mode != 5 || mailbox->pose_seqs[0] != 0) {
+                mDoExt_modelEntryDL(mini_link_models[0]);
+            }
             // In mode 5, also submit any other slots whose pose buffer
             // has been allocated (i.e. a remote is driving them).
             if (mode == 5) {

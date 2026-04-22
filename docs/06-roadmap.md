@@ -194,6 +194,34 @@
   `pose_bufs[1]` and `pose_seqs[1]` persist until Dolphin restart, so
   a frozen decoy Link lingers at the old +1000 X offset even after
   the harness is torn down. Not blocking; next Dolphin boot clears it.
+- **Link #2 hidden by default** (2026-04-21): standalone-booted patched
+  ISO now looks visually identical to vanilla Wind Waker — no duplicate
+  Link mirroring the player. Two C-side gates in `daPy_draw_hook`:
+  (a) `shadow_mode == 0` returns early before any setup (mailbox is
+  zero-initialized, so a fresh boot defaults to OFF); previous "mode 0
+  = baseline mirror" semantics retired since they were a leftover
+  debug artifact, not a real user mode. (b) inside mode 5, slot 0's
+  `mDoExt_modelEntryDL` now gates on `mailbox->pose_seqs[0] != 0` —
+  same as slots 1+ already did. Without this, the brief window between
+  mplay2 startup and the first remote pose arrival flashed a
+  mirror-Link onto Link #1 (first calc with the real basicMtxCalc
+  populates mpNodeMtx with Link #1's pose). Other modes (1-4, dev/
+  debug) bypass the pose-seq gate so they still render unconditionally
+  for development. Updated `./ww.exe shadow-mode` CLI usage + labels
+  accordingly (`0=off`, `1=mirror-refresh`, `2=mirror-freeze`, etc.)
+  and `puppet-sync` now clears `pose_seqs[linkSlot]` when a remote
+  disconnects gracefully so Link #2 disappears as soon as the other
+  player leaves the session. Verified live both directions on Outset.
+
+  Known limitation: ungraceful `mplay2` shutdown (Ctrl+C the script,
+  process kill, etc.) doesn't run the per-remote-leave cleanup — no
+  TCP "remote left" event reaches the puppet-sync loop because both
+  ends of the connection die simultaneously. Result: Link #2 stays
+  frozen at the last received pose until the user manually runs
+  `./ww.exe shadow-mode 0` (now the explicit kill switch) or restarts
+  Dolphin. A signal handler in `puppet-sync` could write
+  shadow_mode=0 on SIGINT/SIGTERM to fix this; left as a small
+  follow-up.
 - **Save-reload safety DONE** (2026-04-21): reloading a save in either
   Dolphin while `mplay2.sh` is running no longer freezes that Dolphin.
   Verified live: D1 reload survives + D2's view of D1 recovers within
@@ -342,6 +370,11 @@
 
 ## 🔬 Next Session Priority
 
+**LINK #2 HIDDEN BY DEFAULT (2026-04-21).** Standalone boot of the
+patched ISO now looks vanilla — no Link #2 unless mplay2 is engaged AND
+a remote has actually sent a pose. `shadow_mode = 0` is the explicit
+kill switch / default; mode 5 slot 0 gates on pose-seq.
+
 **SAVE-RELOAD SAFETY DONE (2026-04-21).** mplay2 now survives a save
 reload from either Dolphin: D1 doesn't freeze, D2's view of D1 recovers
 within a frame, and the inverse holds. Three collateral bugs (broadcast
@@ -378,6 +411,14 @@ write race fixed in lockstep (`Player.SendMu`).
    shared-J3DModelData state pollution noted previously. Cosmetic,
    not blocking; either a TEV bucket residue from cross-instance
    entry() ordering or a per-frame race against Link #1's own draw.
+7. **`puppet-sync` graceful-shutdown signal handler.** Ctrl+C / kill
+   of `mplay2.sh` doesn't fire the per-remote-leave cleanup (TCP
+   never reports "remote left" because both ends die together), so
+   Link #2 freezes at the last received pose. Workaround today:
+   manually run `./ww.exe shadow-mode 0`. Real fix: install
+   `signal.Notify(c, os.Interrupt, syscall.SIGTERM)` in `puppet-sync`
+   that writes shadow_mode=0 + clears `pose_seqs[*]` before exit.
+   Tiny scope, real polish.
 
 ### Echo-Link DONE (2026-04-19 late-late-late)
 

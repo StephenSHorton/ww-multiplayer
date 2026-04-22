@@ -77,7 +77,7 @@ func main() {
 			runPokeU32(os.Args[2], os.Args[3])
 		case "shadow-mode":
 			if len(os.Args) < 3 {
-				fmt.Println("Usage: ww shadow-mode <0|1|2|3|4>  (0=baseline 1=refresh 2=freeze 3=no-op basicMtxCalc 4=echo-ring)")
+				fmt.Println("Usage: ww shadow-mode <0|1|2|3|4|5>  (0=off 1=mirror-refresh 2=mirror-freeze 3=no-op basicMtxCalc 4=echo-ring 5=pose-feed)")
 				os.Exit(1)
 			}
 			runShadowMode(os.Args[2])
@@ -1272,6 +1272,13 @@ func runPuppetSync(name, addr string) {
 				fmt.Printf("\nslot %d freed (player %d left)\n", idx, id)
 				if linkSlot, ok := remoteToLinkSlot[id]; ok {
 					delete(remoteToLinkSlot, id)
+					// Clear pose_seq so the C-side stops rendering this
+					// link slot. C's mode-5 path gates entry on
+					// pose_seqs[slot] != 0, so without this the
+					// receiving Dolphin would render Link #2 frozen
+					// at the last received pose forever after the
+					// remote disconnects.
+					d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{0})
 					fmt.Printf("link slot %d freed (will be reassigned on next pose)\n", linkSlot)
 				}
 				delete(announced, id)
@@ -1356,16 +1363,16 @@ func runShadowMode(s string) {
 	time.Sleep(50 * time.Millisecond)
 	latched, _ := d.ReadAbsolute(mailboxBase+mailboxShadowLatched, 1)
 	labels := []string{
-		"baseline (Link #1 direct)",
-		"refresh (copy every frame)",
-		"freeze (copy once)",
+		"off (no Link #2 rendered — default at boot)",
+		"mirror-refresh (shadow daPy_lk_c, copy every frame)",
+		"mirror-freeze (shadow daPy_lk_c, copy once)",
 		"no-op basicMtxCalc (decouple; Link #2 freezes)",
 		"echo-ring (capture + delayed replay; set echo-delay)",
 		"pose-feed (mpNodeMtx from mailbox.pose_buf; run pose-test or broadcast-pose)",
 	}
 	latchedStr := fmt.Sprintf("%d", latched[0])
 	if latched[0] == 0xFF {
-		latchedStr = "0xFF (alloc failed — falling back to baseline)"
+		latchedStr = "0xFF (shadow_link alloc failed — falling back to mUserArea=this_)"
 	}
 	fmt.Printf("shadow_mode = %d  [%s]   latched=%s\n", v, labels[v], latchedStr)
 	if v == 4 {
