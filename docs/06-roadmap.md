@@ -527,14 +527,47 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    shared-J3DModelData state pollution noted previously. Cosmetic,
    not blocking; either a TEV bucket residue from cross-instance
    entry() ordering or a per-frame race against Link #1's own draw.
-8. ~~**`puppet-sync` graceful-shutdown signal handler.**~~ SHIPPED
-   in v0.1.1 (2026-04-22) as part of `ww.exe host/join`. The signal
-   handler lives on the host/join goroutine orchestrator rather
-   than inside `puppet-sync` proper, so mplay2.sh's Ctrl+C path
-   still has the same limitation (use `./ww.exe host/join` instead,
-   or `./ww.exe shadow-mode 0` after teardown). If someone keeps
-   running `./ww.exe puppet-sync` standalone, adding a signal
-   handler to the CLI wrapper is a 5-line follow-up.
+8. ~~**`puppet-sync` graceful-shutdown signal handler.**~~ FULLY
+   SHIPPED across v0.1.1 (`ww.exe host/join`) and v0.1.3 (standalone
+   `ww.exe broadcast-pose` + `ww.exe puppet-sync` — both CLI
+   wrappers now install the same `multiplayerContext` SIGINT handler
+   and puppet-sync calls `clearMultiplayerState` on exit, so
+   mplay2.sh's Ctrl+C path resets the mailbox instead of leaving
+   Link #2 frozen).
+9. **Eye rendering on remote Links.** DEFERRED (multi-session
+   investigation). Observed in v0.1.2 live test: host sees joiners
+   with no eyes; joiners see everyone else with no eyes — i.e. every
+   mini-Link (non-self) renders without eyes. Local Link #1 is fine.
+   Two plausible causes (need zeldaret/tww RE to disambiguate):
+   (a) `daPy_lk_c` runs a per-frame btp (tex-pattern) animation
+   that writes to the shared J3DModelData's material block to
+   cycle the eye texture for blinking. Mini-Link's private material
+   DLs (flag=0 from the N>1 fix, `mDoExt_J3DModel__create`) don't
+   pick up those updates — they capture material state at create-
+   time. Fix would be forcing per-frame DL rebuild or manually
+   syncing the eye mat's texNo each frame from Link #1's value.
+   (b) Eyes are a separate sub-BDL that Link loads alongside
+   LINK_BDL_CL (0x18), parented to the head bone, and mini-Link
+   only renders the body BDL so eye geometry literally isn't
+   present. Fix would require loading a second J3DModelData +
+   J3DModel per remote-Link slot, bound to the head bone's
+   mpNodeMtx each frame. Either path needs ~afternoon of work;
+   not blocking gameplay. Low-tech workaround: tweak the fix on
+   track #3 (visual differentiation) to color-tint the face darker
+   so the missing eyes are less distracting.
+10. **Leg morph on slopes.** OBSERVED in v0.1.2 live test: Link #2's
+    legs/feet deform unnaturally when standing on angled terrain.
+    Hypothesis: Link's feet use IK that snaps to the sender's local
+    terrain before `basicMtxCalc` writes to `mpNodeMtx` — when we
+    snapshot the pose on the sender and apply it to the receiver's
+    mini-Link at the sender's reported world coords, the IK-baked
+    joint rotations match the sender's terrain, which may or may
+    not match the receiver's displayed surface. Diagnostic: stand
+    still on a slope in both Dolphins and observe whether morphing
+    persists with zero motion (→ pose-composition bug) or only
+    appears during motion (→ pure lag artifact, 50 ms
+    receiver-side unfixable without anim-state sync). Pick a fix
+    from the diagnostic result.
 
 ### Echo-Link DONE (2026-04-19 late-late-late)
 

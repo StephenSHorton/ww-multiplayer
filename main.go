@@ -826,9 +826,14 @@ func applyPoseAt(buf []byte, joints int, tx, ty, tz float32) {
 // is at J3DModel + 0x8C; sizeof(Mtx) = 48; Link has 42 joints.
 //
 // Standalone-CLI wrapper. Preserves the `ww.exe broadcast-pose` entry
-// point that scripts/mplay2.sh relies on.
+// point that scripts/mplay2.sh relies on. Installs the same SIGINT handler
+// as host/join so Ctrl+C exits cleanly (the broadcast side doesn't touch
+// shadow_mode so there's nothing to clean up — the signal handler just
+// gets us out of the 50ms sleep immediately instead of on the next tick).
 func runBroadcastPose(name, addr string) {
-	if err := runBroadcastPoseCtx(context.Background(), name, addr); err != nil {
+	ctx, cancel := multiplayerContext()
+	defer cancel()
+	if err := runBroadcastPoseCtx(ctx, name, addr); err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
 	}
@@ -1121,9 +1126,16 @@ func runUnhidePuppet() {
 //   remote player -> server -> puppet-sync -> mailbox -> C hook -> actor pos
 //
 // Standalone-CLI wrapper. Honors WW_SELF_NAME (kept for mplay2.sh); host/
-// join call runPuppetSyncCtx directly with an explicit filter name.
+// join call runPuppetSyncCtx directly with an explicit filter name. Installs
+// the same SIGINT handler as host/join so mplay2.sh's Ctrl+C path resets
+// the mailbox (shadow_mode=0 + pose_seqs[*]=0) instead of leaving Link #2
+// frozen at the last received pose.
 func runPuppetSync(name, addr string) {
-	if err := runPuppetSyncCtx(context.Background(), name, addr, os.Getenv("WW_SELF_NAME")); err != nil {
+	ctx, cancel := multiplayerContext()
+	defer cancel()
+	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"))
+	clearMultiplayerState()
+	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
 	}
