@@ -145,6 +145,36 @@ typedef struct {
     // calc). Lets Go confirm the read/copy/calc round-trip.
     u32 dbg_pose_first_word;                  // +0xB8
     u32 dbg_node_mtx_first;                   // +0xBC
+    // --- SENDER SIDE publish buffer (v0.1.3) ---------------------------
+    // Go's broadcast-pose reads Link #1's live mpNodeMtx (2016 B) via
+    // ReadProcessMemory at 20 Hz while the game runs basicMtxCalc each
+    // frame (60 Hz). These reads race — if caught mid-calc we see upper-
+    // body joints from frame N + lower-body joints from frame N-1. On
+    // flat ground the per-frame mpNodeMtx delta is near-zero so torn
+    // reads are invisible; on slopes Link's foot IK re-solves each frame
+    // with large leg-angle swings, so a torn read renders as a leg
+    // flapping 0-90° on the remote's screen (observed v0.1.2 live test).
+    //
+    // Fix: C copies Link #1's mpNodeMtx into this dedicated publish
+    // buffer ONCE per frame inside daPy_draw_hook, AFTER daPy_lk_c_draw
+    // returns (so calc has definitely finished). Go reads from the
+    // publish buffer instead. Publish writes don't race calc (they're
+    // sequential on the PPC thread); Go's read races publish writes
+    // instead, but publish is a fast linear memcpy (2 KB ≈ 5 µs on
+    // Broadway's dcache) with no intermediate "partially valid" state
+    // that resembles a well-formed pose.
+    //
+    // State machine:
+    //   0     = not allocated yet (boot state)
+    //   1     = buffer allocated and published; copy runs every frame
+    //   0xFD  = JKRHeap_alloc failed (no point retrying — give up)
+    //
+    // Seq wraps at 256; Go uses it only as a "did this frame publish"
+    // gate to reject stale reads, not as an ordered sequence number.
+    u32 pose_publish_ptr;                     // +0xC0
+    u16 pose_publish_joint_count;             // +0xC4
+    u8  pose_publish_state;                   // +0xC6
+    u8  pose_publish_seq;                     // +0xC7
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)

@@ -194,6 +194,30 @@
   `pose_bufs[1]` and `pose_seqs[1]` persist until Dolphin restart, so
   a frozen decoy Link lingers at the old +1000 X offset even after
   the harness is torn down. Not blocking; next Dolphin boot clears it.
+- **Slope-IK leg flap on remote Links FIXED via sender-side pose
+  publish buffer** (2026-04-22, v0.1.3): Link #2 (the mini-Link
+  rendering of a remote player) was visibly flapping one leg 0-90°
+  on slopes in v0.1.2 live test, while staying clean on flat
+  ground. Root cause was torn reads: Go's broadcast-pose read
+  Link #1's live `mpNodeMtx` (2016 B) via `ReadProcessMemory` at
+  20 Hz while the game's 60 Hz `basicMtxCalc` wrote that same
+  memory, so the read occasionally mixed upper-body joints from
+  frame N with lower-body from frame N-1. On flat ground per-frame
+  `mpNodeMtx` delta is near-zero so torn reads are invisible; on
+  slopes Link's foot IK re-solves each frame with large leg-angle
+  swings so a torn read renders as a kicked-up leg. Fix: C-side
+  publish buffer. `daPy_draw_hook` memcpys Link #1's `mpNodeMtx`
+  into a GameHeap-resident 2016 B buffer once per frame AFTER
+  `daPy_lk_c_draw` returns (calc has finished, buffer is frozen
+  until next frame), and publishes the pointer via new mailbox
+  fields at `+0xC0..+0xC7` (`pose_publish_ptr / joint_count /
+  state / seq`). Go reads from that buffer instead. Mod size grew
+  0x11C8 → 0x1868 (mailbox end 0xC0 → 0xC8); still well inside
+  the orphan region below `__OSArenaLo = 0x80412000`. Also wires
+  the standalone `ww.exe broadcast-pose` / `ww.exe puppet-sync`
+  CLIs into the same `multiplayerContext` SIGINT handler host/
+  join use, so mplay2.sh's Ctrl+C path now also resets the
+  mailbox (closes docs/06 item #8's residual from v0.1.1).
 - **Retired the v0.0 Bubble Tea TUI** (2026-04-22, v0.1.2): deleted
   `internal/tui/` (five files), removed the `tui.Run()` fallback in
   `main.go` so `ww.exe` (no args) prints help pointing at `host`/`join`,
@@ -555,19 +579,25 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    not blocking gameplay. Low-tech workaround: tweak the fix on
    track #3 (visual differentiation) to color-tint the face darker
    so the missing eyes are less distracting.
-10. **Leg morph on slopes.** OBSERVED in v0.1.2 live test: Link #2's
-    legs/feet deform unnaturally when standing on angled terrain.
-    Hypothesis: Link's feet use IK that snaps to the sender's local
-    terrain before `basicMtxCalc` writes to `mpNodeMtx` — when we
-    snapshot the pose on the sender and apply it to the receiver's
-    mini-Link at the sender's reported world coords, the IK-baked
-    joint rotations match the sender's terrain, which may or may
-    not match the receiver's displayed surface. Diagnostic: stand
-    still on a slope in both Dolphins and observe whether morphing
-    persists with zero motion (→ pose-composition bug) or only
-    appears during motion (→ pure lag artifact, 50 ms
-    receiver-side unfixable without anim-state sync). Pick a fix
-    from the diagnostic result.
+10. ~~**Leg morph on slopes.**~~ SHIPPED in v0.1.3 (2026-04-22).
+    Diagnostic result: leg flap was FLAT-GROUND-ABSENT, appeared
+    reliably on slopes → definitively not a pure-lag artifact.
+    Root cause: Go's broadcast-pose was reading Link #1's live
+    `mpNodeMtx` (2016 B) via `ReadProcessMemory` at 20 Hz while
+    the game's 60 Hz `basicMtxCalc` wrote the same memory,
+    producing torn reads (upper-body joints from frame N mixed
+    with lower-body from frame N-1). Flat ground hides the torn
+    read because per-frame `mpNodeMtx` delta is near-zero; slopes
+    expose it because Link's foot IK re-solves each frame with
+    large leg-angle swings, so a torn read renders as a fully-
+    kicked-up leg on the remote. Fix: C-side publish buffer.
+    `daPy_draw_hook` memcpys Link #1's `mpNodeMtx` into a
+    GameHeap-resident 2016 B buffer AFTER `daPy_lk_c_draw`
+    returns (calc has finished for the frame) and publishes the
+    pointer via new mailbox fields at `+0xC0..+0xC7`.
+    `runBroadcastPoseCtx` reads from that buffer instead of
+    Link's live `mpNodeMtx`. Verified on-device: prior "leg
+    flapping 0-90° on slopes" completely gone.
 
 ### Echo-Link DONE (2026-04-19 late-late-late)
 

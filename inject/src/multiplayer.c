@@ -195,6 +195,13 @@ static void mini_link_reset_state(void) {
     mailbox->dbg_node_mtx_ptr = 0;
     mailbox->dbg_pose_first_word = 0;
     mailbox->dbg_node_mtx_first = 0;
+    // Publish buffer: drop the pointer so next daPy_draw_hook re-allocs
+    // against the rebuilt heaps. Don't free — see comment at the top of
+    // this function re: ArchiveHeap/GameHeap reset behavior.
+    mailbox->pose_publish_ptr = 0;
+    mailbox->pose_publish_joint_count = 0;
+    mailbox->pose_publish_state = 0;
+    mailbox->pose_publish_seq = 0;
 }
 
 // Hooked to main01 (0x80006338) via hook_branchlink. Runs once.
@@ -504,6 +511,48 @@ int daPy_draw_hook(void* this_) {
     mailbox->draw_progress = 30;
     int result = daPy_lk_c_draw(this_);
     mailbox->draw_progress = 31;
+
+    // Publish Link #1's mpNodeMtx so Go-side broadcast-pose can read it
+    // without racing calc. daPy_lk_c_draw has just completed for this
+    // frame, so the joint walker has finished writing mpNodeMtx and the
+    // buffer is stable until the next frame's calc. Lazy-alloc the
+    // 2016 B publish buffer on the first frame, then memcpy every frame.
+    // Runs unconditionally (not gated on shadow_mode) so Go can always
+    // read a stable pose whether or not multiplayer is engaged — the
+    // copy is a ~5 µs linear memcpy, trivial vs the 16 ms frame budget.
+    if (mailbox->pose_publish_state != 0xFD) {
+        J3DModel* link1_model = *(J3DModel**)((u8*)this_ + DAPY_LK_C_MPCLMODEL_OFFSET);
+        J3DModelData* link1_data = *(J3DModelData**)((u8*)this_ + DAPY_LK_C_MPCLMODELDATA_OFFSET);
+        if (link1_model && link1_data) {
+            u16 jn = *(volatile u16*)((u8*)link1_data + J3DMODELDATA_JOINT_NUM_OFFSET);
+            if (jn > 0 && jn <= 128) {
+                if (mailbox->pose_publish_state == 0) {
+                    u32 nbytes = (u32)jn * 48;
+                    u8* buf = (u8*)JKRHeap_alloc(nbytes, 0x20, mDoExt_getGameHeap());
+                    if (buf) {
+                        mailbox->pose_publish_ptr = (u32)buf;
+                        mailbox->pose_publish_joint_count = jn;
+                        mailbox->pose_publish_state = 1;
+                    } else {
+                        mailbox->pose_publish_state = 0xFD;
+                    }
+                }
+                if (mailbox->pose_publish_state == 1) {
+                    u32 src_ptr = *(volatile u32*)((u8*)link1_model + J3DMODEL_MP_NODE_MTX_OFFSET);
+                    if (src_ptr) {
+                        volatile u32* src = (volatile u32*)src_ptr;
+                        volatile u32* dst = (volatile u32*)mailbox->pose_publish_ptr;
+                        int pub_u32s = (int)jn * 12;
+                        int k;
+                        for (k = 0; k < pub_u32s; k++) {
+                            dst[k] = src[k];
+                        }
+                        mailbox->pose_publish_seq++;
+                    }
+                }
+            }
+        }
+    }
 
     // Save-reload safety (draw side). Same compare as multiplayer_update
     // but enforced HERE because the crash site is J3DModel_calc below —

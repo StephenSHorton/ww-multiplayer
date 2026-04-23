@@ -868,8 +868,6 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string) error {
 		client.Disconnect()
 	}()
 
-	const linkMpCLModelOff = 0x032C
-	const j3dModelMpNodeMtxOff = 0x8C
 	const linkJointCount = 42
 	const poseBytes = linkJointCount * 48
 
@@ -890,21 +888,26 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string) error {
 			}
 		}
 
-		// Pose. Walk daPy_lk_c -> mpCLModel -> mpNodeMtx and ship the
-		// raw 2016 B AFTER localizing — subtract Link's world position
-		// from each joint's translation column so the pose is relative
-		// to Link's origin (rotation parts unchanged). Receiver re-adds
-		// the remote's world position to land Link #2 at the right
-		// world coords. Without localization, two-Dolphin works but
-		// loopback always overlaps; with localization, the receiver can
-		// render Link #2 anywhere it wants.
-		linkPtr, err := d.GetLinkPtr()
-		if err == nil && linkPtr != 0 && pos != nil {
-			modelPtr, _ := d.ReadU32(linkPtr + linkMpCLModelOff)
-			if modelPtr >= 0x80000000 && modelPtr < 0x81800000 {
-				nodePtr, _ := d.ReadU32(modelPtr + j3dModelMpNodeMtxOff)
-				if nodePtr >= 0x80000000 && nodePtr < 0x81800000 {
-					data, err := d.ReadAbsolute(nodePtr, poseBytes)
+		// Pose. Read from the sender-side publish buffer rather than
+		// Link #1's live mpNodeMtx. The C draw hook memcpys mpNodeMtx
+		// into this GameHeap-resident buffer once per frame AFTER
+		// daPy_lk_c_draw returns, so our read can't catch mid-calc
+		// torn state. Previous direct-mpNodeMtx reads at 20 Hz raced
+		// the game's 60 Hz calc pass and produced visibly wrong poses
+		// on the receiver when slope-IK made per-frame mpNodeMtx delta
+		// large (observed v0.1.2: leg flapping 0-90° on slopes).
+		//
+		// Protocol: ship the raw 2016 B AFTER localizing — subtract
+		// Link's world position from each joint's translation column so
+		// the pose is relative to Link's origin (rotation parts
+		// unchanged). Receiver re-adds the remote's world position to
+		// land Link #2 at the right world coords.
+		if pos != nil {
+			stateBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPosePublishState, 1)
+			if len(stateBytes) == 1 && stateBytes[0] == 1 {
+				pubPtr, _ := d.ReadU32(mailboxBase + mailboxPosePublishPtr)
+				if pubPtr >= 0x80000000 && pubPtr < 0x81800000 {
+					data, err := d.ReadAbsolute(pubPtr, poseBytes)
 					if err == nil && data != nil {
 						if os.Getenv("WW_POSE_RAW") == "" {
 							localizePoseInPlace(data, linkJointCount, pos.PosX, pos.PosY, pos.PosZ)
@@ -1501,6 +1504,21 @@ func mailboxPoseSeq(slot int) uint32        { return uint32(0xB6 + slot) }
 
 const mailboxDbgPoseFirstWord = 0xB8
 const mailboxDbgNodeMtxFirst = 0xBC
+
+// v0.1.3: sender-side pose publish buffer. The C-side draw hook copies
+// Link #1's mpNodeMtx into this GameHeap-resident buffer ONCE per frame
+// after daPy_lk_c_draw returns, giving broadcast-pose a stable read
+// target that doesn't race the game's calc pass. Keep in sync with the
+// Mailbox layout in inject/include/mailbox.h.
+//
+//   pose_publish_ptr    u32  @ 0xC0 — GameHeap address of the 2016 B buffer
+//   pose_publish_jc     u16  @ 0xC4 — joint count (42 for Link)
+//   pose_publish_state  u8   @ 0xC6 — 0 unalloc, 1 ready, 0xFD alloc failed
+//   pose_publish_seq    u8   @ 0xC7 — bumped every frame after copy
+const mailboxPosePublishPtr = 0xC0
+const mailboxPosePublishJointCount = 0xC4
+const mailboxPosePublishState = 0xC6
+const mailboxPosePublishSeq = 0xC7
 
 func runShadowMode(s string) {
 	v, err := strconv.Atoi(s)
