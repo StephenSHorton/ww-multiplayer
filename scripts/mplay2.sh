@@ -20,12 +20,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WW="$ROOT/ww.exe"
+WW="$ROOT/ww-multiplayer.exe"
 LOG_DIR="$ROOT/.omc/logs/mplay2"
 mkdir -p "$LOG_DIR"
 
 if [[ ! -x "$WW" ]]; then
-    echo "ERROR: $WW not found. Run 'go build -o ww.exe .' first."
+    echo "ERROR: $WW not found. Run 'go build -o ww-multiplayer.exe .' first."
     exit 1
 fi
 

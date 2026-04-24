@@ -667,7 +667,7 @@ int daPy_draw_hook(void* this_) {
             // a fresh patched-ISO game looks vanilla until something
             // explicitly opts in (mplay2's puppet-sync writes mode 5;
             // dev/debug modes 1-4 are picked manually via
-            // `./ww.exe shadow-mode <N>`). Saves a per-frame J3DModel
+            // `./ww-multiplayer.exe shadow-mode <N>`). Saves a per-frame J3DModel
             // calc + modelEntryDL submission too.
             if (mode == 0) {
                 return result;

@@ -67,8 +67,8 @@ Server runs on port `25565`. UDP would be lower-latency for position data but TC
 
 The v0.0 Bubble Tea TUI in `internal/tui/` was removed in v0.1.2 (it predated the pose-feed protocol and didn't actually engage the rendering pipeline, which had new users thinking the tool was broken). Everything is now CLI:
 
-- `ww.exe host` / `ww.exe join <ip>` — the user-facing multiplayer entry points (one process per player; signal handler resets the mailbox on Ctrl+C).
-- `ww.exe server` / `broadcast-pose` / `puppet-sync` — lower-level building blocks used by `scripts/mplay2.sh` for two-Dolphin local harness.
-- `ww.exe debug`, `ww.exe dump`, `ww.exe shadow-mode` — diagnostic CLIs. Plain-text output — good for piping into agents.
+- `ww-multiplayer.exe host` / `ww-multiplayer.exe join <ip>` — the user-facing multiplayer entry points (one process per player; signal handler resets the mailbox on Ctrl+C).
+- `ww-multiplayer.exe server` / `broadcast-pose` / `puppet-sync` — lower-level building blocks used by `scripts/mplay2.sh` for two-Dolphin local harness.
+- `ww-multiplayer.exe debug`, `ww-multiplayer.exe dump`, `ww-multiplayer.exe shadow-mode` — diagnostic CLIs. Plain-text output — good for piping into agents.
 
 A successor TUI built on top of `host` / `join` could land later (status panel + Ctrl+C-safe shutdown button); see `docs/06-roadmap.md`.

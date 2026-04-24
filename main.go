@@ -188,9 +188,9 @@ func main() {
 		case "tint-material":
 			if len(os.Args) < 3 {
 				fmt.Println("Usage:")
-				fmt.Println("  ww.exe tint-material <idx> <rgba-hex>    (8 hex digits, e.g. FF0000FF)")
-				fmt.Println("  ww.exe tint-material <idx> reset         (restore to FFFFFFFF)")
-				fmt.Println("  ww.exe tint-material cycle [seconds=2]   (walk all 24 materials)")
+				fmt.Println("  ww-multiplayer.exe tint-material <idx> <rgba-hex>    (8 hex digits, e.g. FF0000FF)")
+				fmt.Println("  ww-multiplayer.exe tint-material <idx> reset         (restore to FFFFFFFF)")
+				fmt.Println("  ww-multiplayer.exe tint-material cycle [seconds=2]   (walk all 24 materials)")
 				os.Exit(1)
 			}
 			if os.Args[2] == "cycle" {
@@ -205,7 +205,7 @@ func main() {
 				runTintPick()
 			} else if os.Args[2] == "stage" {
 				if len(os.Args) < 5 {
-					fmt.Println("Usage: ww.exe tint-material stage <mat-idx> <stage-idx>")
+					fmt.Println("Usage: ww-multiplayer.exe tint-material stage <mat-idx> <stage-idx>")
 					os.Exit(1)
 				}
 				mi, err1 := strconv.Atoi(os.Args[3])
@@ -259,29 +259,36 @@ func main() {
 	// No subcommand — print help. The old v0.0 Bubble Tea TUI was removed
 	// in v0.1.2; it predated the pose-feed protocol and silently didn't
 	// engage the rendering pipeline, which had new users thinking the tool
-	// was broken. `ww.exe host` / `ww.exe join` are the real entry points.
+	// was broken. `ww-multiplayer.exe host` / `ww-multiplayer.exe join` are
+	// the real entry points.
 	printHelp()
+	// Windows double-click spawns a fresh console that closes the instant
+	// the program returns, hiding the help text. Pause so that path is
+	// readable; terminal users just hit Enter.
+	fmt.Println()
+	fmt.Print("Press Enter to exit...")
+	bufio.NewReader(os.Stdin).ReadString('\n')
 }
 
 func printHelp() {
+	const col = "  %-52s %s\n"
 	fmt.Println("Wind Waker Multiplayer")
 	fmt.Println()
 	fmt.Println("Play multiplayer:")
-	fmt.Println("  ww.exe host [name]                        Host a session on :25565 (one process per player)")
-	fmt.Println("  ww.exe join <host-ip> [name]              Join a host's session (host-ip is what `host` prints)")
+	fmt.Printf(col, "ww-multiplayer.exe host [name]", "Host a session on :25565 (one process per player)")
+	fmt.Printf(col, "ww-multiplayer.exe join <host-ip> [name]", "Join a host's session (host-ip is what `host` prints)")
 	fmt.Println()
 	fmt.Println("Patch an ISO:")
-	fmt.Println("  ww.exe patch <vanilla.iso|.ciso> [out.iso]")
-	fmt.Println("                                            Splice the multiplayer mod into your own")
-	fmt.Println("                                            legitimate copy of Wind Waker (GZLE01)")
+	fmt.Println("  ww-multiplayer.exe patch <vanilla.iso|.ciso> [out.iso]")
+	fmt.Println("    Splice the multiplayer mod into your own legitimate copy of Wind Waker (GZLE01)")
 	fmt.Println()
 	fmt.Println("Lower-level CLIs (used by scripts/mplay2.sh):")
-	fmt.Println("  ww.exe server                             Start headless server on :25565")
-	fmt.Println("  ww.exe broadcast-pose [name] [addr]       Stream local Link pose+pos to server")
-	fmt.Println("  ww.exe puppet-sync [name] [addr]          Receive remotes; render as Link #2 / actor puppets")
-	fmt.Println("  ww.exe fake-client [name] [addr]          Connect a fake client that walks in circles")
-	fmt.Println("  ww.exe debug                              Test Dolphin memory access")
-	fmt.Println("  ww.exe help                               Show this help")
+	fmt.Printf(col, "ww-multiplayer.exe server", "Start headless server on :25565")
+	fmt.Printf(col, "ww-multiplayer.exe broadcast-pose [name] [addr]", "Stream local Link pose+pos to server")
+	fmt.Printf(col, "ww-multiplayer.exe puppet-sync [name] [addr]", "Receive remotes; render as Link #2 / actor puppets")
+	fmt.Printf(col, "ww-multiplayer.exe fake-client [name] [addr]", "Connect a fake client that walks in circles")
+	fmt.Printf(col, "ww-multiplayer.exe debug", "Test Dolphin memory access")
+	fmt.Printf(col, "ww-multiplayer.exe help", "Show this help")
 }
 
 // runPatch is the user-facing wrapper for inject.PatchISO. Picks a sensible
@@ -870,7 +877,7 @@ func applyPoseAt(buf []byte, joints int, tx, ty, tz float32) {
 // mirroring locally. Link's J3DModel is at daPy_lk_c + 0x032C; mpNodeMtx
 // is at J3DModel + 0x8C; sizeof(Mtx) = 48; Link has 42 joints.
 //
-// Standalone-CLI wrapper. Preserves the `ww.exe broadcast-pose` entry
+// Standalone-CLI wrapper. Preserves the `ww-multiplayer.exe broadcast-pose` entry
 // point that scripts/mplay2.sh relies on. Installs the same SIGINT handler
 // as host/join so Ctrl+C exits cleanly (the broadcast side doesn't touch
 // shadow_mode so there's nothing to clean up — the signal handler just
@@ -1337,7 +1344,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error 
 	// receiving Dolphin. Old armPoseSlot only wrote shadow_mode=5 in its
 	// lazy-arm path (when state != 1), so if state was already 1 from a
 	// prior puppet-sync run AND shadow_mode had drifted back to 0 (e.g.
-	// from a manual `./ww.exe shadow-mode 0`, or any future reset path
+	// from a manual `./ww-multiplayer.exe shadow-mode 0`, or any future reset path
 	// that clears it), the new puppet-sync would silently fail with the
 	// receiver showing local-mirror Link instead of the network pose.
 	// Always assert mode 5 once at startup; cheap and idempotent.
@@ -1350,7 +1357,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error 
 	// a puppet actor that then physics-collides with our own Link. Empty
 	// (default) keeps the loopback "mirror yourself with offset" demo
 	// working. mplay2.sh still works because the CLI wrapper above reads
-	// WW_SELF_NAME into this arg; `ww.exe host/join` pass the player name
+	// WW_SELF_NAME into this arg; `ww-multiplayer.exe host/join` pass the player name
 	// so users never have to know the env var exists.
 	if selfFilter != "" {
 		fmt.Printf("Filtering self-echo: remotes named %q will be ignored.\n", selfFilter)
@@ -1670,7 +1677,7 @@ func runPoseTest(mode string, durSec int) {
 		}
 	}
 	if poseBufPtr == 0 {
-		fmt.Println("timed out waiting for pose_buf_ptr — did mode 5 ever fire? Check ./ww.exe dump")
+		fmt.Println("timed out waiting for pose_buf_ptr — did mode 5 ever fire? Check ./ww-multiplayer.exe dump")
 		os.Exit(1)
 	}
 	if jointCount == 0 || jointCount > 128 {
@@ -2699,7 +2706,7 @@ func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, na
 	wg.Wait()
 }
 
-// listHostIPs walks the machine's non-loopback IPv4 addresses so `ww.exe
+// listHostIPs walks the machine's non-loopback IPv4 addresses so `ww-multiplayer.exe
 // host` can print something the joiner can type. Skips IPv6 (users don't
 // want to type v6 literals), loopback (can't reach from another machine),
 // and link-local.

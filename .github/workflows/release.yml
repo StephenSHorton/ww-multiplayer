@@ -2,12 +2,12 @@ name: Release
 
 # Triggered by pushing a tag like `v0.1.0`. Builds the C side with devkitPPC
 # + Freighter, regenerates the embedded T2 blob, builds the Windows binary,
-# and publishes a GitHub Release with ww.exe attached.
+# and publishes a GitHub Release with ww-multiplayer.exe attached.
 #
 # We don't ship patched.dol — that would be a derivative of the entire
-# Wind Waker DOL (copyrighted). The standalone ww.exe contains only our IP
+# Wind Waker DOL (copyrighted). The standalone ww-multiplayer.exe contains only our IP
 # (the new code section + a list of in-DOL patch records); end users supply
-# their own legitimate Wind Waker ISO and run `ww.exe patch <their.iso>`.
+# their own legitimate Wind Waker ISO and run `ww-multiplayer.exe patch <their.iso>`.
 
 on:
   push:
@@ -56,26 +56,26 @@ jobs:
           fi
           go vet ./...
 
-      - name: Build ww.exe (Windows amd64)
+      - name: Build ww-multiplayer.exe (Windows amd64)
         env:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: '0'
         run: |
-          go build -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o ww.exe .
-          ls -la ww.exe
+          go build -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o ww-multiplayer.exe .
+          ls -la ww-multiplayer.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ww-windows-amd64
-          path: ww.exe
+          path: ww-multiplayer.exe
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ww.exe
+          files: ww-multiplayer.exe
           generate_release_notes: true
           body: |
             ## Wind Waker Multiplayer ${{ github.ref_name }}
@@ -84,13 +84,15 @@ jobs:
 
             ### Quick start
 
-            1. Download `ww.exe` below.
+            1. Download `ww-multiplayer.exe` below.
             2. Patch your ISO:
                ```
-               ww.exe patch path\to\your-wind-waker.iso
+               ww-multiplayer.exe patch path\to\your-wind-waker.iso
                ```
                This produces `your-wind-waker-multiplayer.iso` next to the input.
             3. Boot the patched ISO in Dolphin.
-            4. Launch `ww.exe` (no args) for the multiplayer TUI.
+            4. To play:
+               - Host: `ww-multiplayer.exe host [your-name]` (prints the host IP for the other player)
+               - Join: `ww-multiplayer.exe join <host-ip> [your-name]`
 
             See the README for full setup, two-Dolphin local play scripts, and known issues.

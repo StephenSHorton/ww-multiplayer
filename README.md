@@ -3,7 +3,7 @@
 ![splash](docs/img/splash.png)
 
 Real-time visual multiplayer for The Legend of Zelda: The Wind Waker on Dolphin.
-Each player runs `ww.exe` alongside their own Dolphin instance — positions and
+Each player runs `ww-multiplayer.exe` alongside their own Dolphin instance — positions and
 skeletal poses are shared over TCP so each side sees the other's real Link
 walking around in-game.
 
@@ -28,20 +28,20 @@ See `docs/06-roadmap.md` for the full feature/known-issue list.
 
 ## Quick start (end users)
 
-1. Download `ww.exe` from the [latest release](../../releases).
+1. Download `ww-multiplayer.exe` from the [latest release](../../releases).
 2. Patch your own legitimate copy of Wind Waker (NTSC-U, game ID `GZLE01`,
    `.iso` or `.ciso` works):
    ```
-   ww.exe patch path\to\your-wind-waker.iso
+   ww-multiplayer.exe patch path\to\your-wind-waker.iso
    ```
    This produces `your-wind-waker-multiplayer.iso` next to the input. Your
    original is left untouched. Already-patched ISOs are detected and skipped.
 3. Both players: boot the patched ISO in Dolphin and load a save (any save —
    saves don't have to match, and the other player's Link only appears once
    their session connects).
-4. Host runs `ww.exe host` and shares the printed LAN IP.
-5. Joiner runs `ww.exe join <host-ip>` (you can also pass a custom name:
-   `ww.exe join 192.168.1.42 Alice`).
+4. Host runs `ww-multiplayer.exe host` and shares the printed LAN IP.
+5. Joiner runs `ww-multiplayer.exe join <host-ip>` (you can also pass a custom name:
+   `ww-multiplayer.exe join 192.168.1.42 Alice`).
 6. You should see each other's Link walking around in-game within a second
    or two. Ctrl+C in either terminal cleanly shuts down and hides Link #2.
 
@@ -65,7 +65,7 @@ original game-code bytes.
 ```bash
 git clone https://github.com/StephenSHorton/ww-multiplayer.git
 cd ww-multiplayer
-go build -o ww.exe .
+go build -o ww-multiplayer.exe .
 ```
 
 The compiled C-side blob is checked in as `internal/inject/blob.go` so plain
@@ -80,10 +80,10 @@ cd .. && python scripts/extract_blob.py  # regenerates blob.go
 ### Headless / debug commands
 
 ```bash
-./ww.exe debug         # Print Link's position for 5 seconds (sanity check)
-./ww.exe server        # Run a TCP server on :25565 with no UI
-./ww.exe fake-client   # Connect a bot that walks in circles
-./ww.exe help          # Full command list
+./ww-multiplayer.exe debug         # Print Link's position for 5 seconds (sanity check)
+./ww-multiplayer.exe server        # Run a TCP server on :25565 with no UI
+./ww-multiplayer.exe fake-client   # Connect a bot that walks in circles
+./ww-multiplayer.exe help          # Full command list
 ```
 
 ## Contributing / hacking

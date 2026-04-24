@@ -17,7 +17,7 @@
 - **End-to-end code injection verified**: main01 hook fires, our C code runs, mailbox counter increments, game continues rendering correctly
 - **Per-frame hook working**: callback-pointer shim at `0x80023204` inside `fapGm_Execute`, with bl-replay via LR-preserving `bctr` tail-call to `0x802449AC`. Mailbox counter ticks at 30Hz in-game. See `docs/05-known-issues.md` → "Per-Frame Hook — SOLVED" for the shim recipe.
 - **Queued-spawn pipeline proven end-to-end** (2026-04-18): `fopAcM_create(PROC_GRASS, 0, link_pos, room, link_angle, 0, -1, 0)` queues cleanly (pid `0x232`), `fpcM_Management` constructs the actor next frame, grass tuft renders at Link's position. Frame hook + shim + queued spawn is a stable foundation for syncing a remote player's position to any resident actor. PROC_Obj_Barrel froze (archive not on Outset); PROC_GRASS is always resident.
-- **Full position-sync pipeline proven** (2026-04-18): `PROC_TSUBO` (pot, param=0 → "Always" archive) spawns with valid model pointer at `actor + 0x298` (`mpModel`, not base-class `+0x24C`). Programmatically-spawned pots idle in `mode_hide` (`m678 = 0` at actor+0x678); writing `m678 = 2` (mode_wait) makes them render and accept position writes. Verified live: Go `./ww.exe move-puppet x y z` → mailbox f32s → frame-hook copies to actor+0x1F8 → pot visibly teleports in-game. End-to-end loop from a host-side command to a visible remote actor is complete.
+- **Full position-sync pipeline proven** (2026-04-18): `PROC_TSUBO` (pot, param=0 → "Always" archive) spawns with valid model pointer at `actor + 0x298` (`mpModel`, not base-class `+0x24C`). Programmatically-spawned pots idle in `mode_hide` (`m678 = 0` at actor+0x678); writing `m678 = 2` (mode_wait) makes them render and accept position writes. Verified live: Go `./ww-multiplayer.exe move-puppet x y z` → mailbox f32s → frame-hook copies to actor+0x1F8 → pot visibly teleports in-game. End-to-end loop from a host-side command to a visible remote actor is complete.
 - **End-to-end network multiplayer working** (2026-04-18): full round-trip
   verified on a single machine via loopback. Pipeline:
   `broadcast-link` reads Link's live position → TCP → `server` relays →
@@ -195,9 +195,9 @@
   a frozen decoy Link lingers at the old +1000 X offset even after
   the harness is torn down. Not blocking; next Dolphin boot clears it.
 - **Material-inspection + material-probe tools** (2026-04-22, v0.1.4
-  session): added `ww.exe inspect-materials` (dumps all 24 materials
+  session): added `ww-multiplayer.exe inspect-materials` (dumps all 24 materials
   on Link's shared J3DModelData with their material colors and
-  texNo[0..7] values), `ww.exe tint-material cycle/pick/stage` (walk
+  texNo[0..7] values), `ww-multiplayer.exe tint-material cycle/pick/stage` (walk
   materials by toggling `texNo[0]` or `texNo[stage]` to 0x0000 to
   visually identify what each material draws on Link). Used to
   identify eye materials (1, 4 stage 1), tunic set (0, 16, 19), hair,
@@ -224,13 +224,13 @@
   state / seq`). Go reads from that buffer instead. Mod size grew
   0x11C8 → 0x1868 (mailbox end 0xC0 → 0xC8); still well inside
   the orphan region below `__OSArenaLo = 0x80412000`. Also wires
-  the standalone `ww.exe broadcast-pose` / `ww.exe puppet-sync`
+  the standalone `ww-multiplayer.exe broadcast-pose` / `ww-multiplayer.exe puppet-sync`
   CLIs into the same `multiplayerContext` SIGINT handler host/
   join use, so mplay2.sh's Ctrl+C path now also resets the
   mailbox (closes docs/06 item #8's residual from v0.1.1).
 - **Retired the v0.0 Bubble Tea TUI** (2026-04-22, v0.1.2): deleted
   `internal/tui/` (five files), removed the `tui.Run()` fallback in
-  `main.go` so `ww.exe` (no args) prints help pointing at `host`/`join`,
+  `main.go` so `ww-multiplayer.exe` (no args) prints help pointing at `host`/`join`,
   and `go mod tidy` dropped every external dep (Bubble Tea, Lip Gloss,
   Charm Log, the x/ansi + x/cellbuf + x/term + x/exp/strings tree — the
   whole thing was only used by the TUI). First time this repo's `go.mod`
@@ -241,11 +241,11 @@
   polish item if someone misses the interface (one status panel + log
   tail + shutdown button — small scope now that all the real work lives
   in the CLI).
-- **`ww.exe host` / `ww.exe join` + graceful shutdown** (2026-04-22,
+- **`ww-multiplayer.exe host` / `ww-multiplayer.exe join` + graceful shutdown** (2026-04-22,
   v0.1.1): collapsed the five-terminal v0.1.0 workflow (server +
   broadcast-pose + puppet-sync per player) into one process per player.
   Host prints its LAN IPs via `net.InterfaceAddrs` so the joiner knows
-  what to type; joiner accepts bare `ww.exe join 192.168.1.42` (defaults
+  what to type; joiner accepts bare `ww-multiplayer.exe join 192.168.1.42` (defaults
   port to `:25565`). Both commands install a SIGINT/SIGTERM handler that
   cancels a shared `context.Context`, waits for the broadcast-pose +
   puppet-sync goroutines to exit, then writes `shadow_mode = 0` and
@@ -255,7 +255,7 @@
   because the shutdown path isn't a best-effort script-side cleanup
   anymore, it's inline with the ctx cancel). Also resolves both v0.1.0
   user-testing bugs documented below: (a) TUI no longer matters because
-  `ww.exe host/join` is the real user entry point (TUI is now
+  `ww-multiplayer.exe host/join` is the real user entry point (TUI is now
   vestigial — listed in retire-or-rebuild track), and (b) the self-echo
   ghost-Link bug from running broadcast-pose + puppet-sync on the same
   machine is fixed automatically — host/join pass the player name as
@@ -266,7 +266,7 @@
   goroutine that calls `client.Disconnect()` on ctx cancel to break the
   `for client.IsConnected()` loop immediately). The old CLI wrappers
   still call the new functions with `context.Background()` + `os.Exit`
-  on error, so `scripts/mplay2.sh` and every existing `./ww.exe server
+  on error, so `scripts/mplay2.sh` and every existing `./ww-multiplayer.exe server
   / broadcast-pose / puppet-sync` invocation keeps working unchanged
   (WW_SELF_NAME env var is now piped through the wrapper into the
   selfFilter param).
@@ -283,7 +283,7 @@
   mirror-Link onto Link #1 (first calc with the real basicMtxCalc
   populates mpNodeMtx with Link #1's pose). Other modes (1-4, dev/
   debug) bypass the pose-seq gate so they still render unconditionally
-  for development. Updated `./ww.exe shadow-mode` CLI usage + labels
+  for development. Updated `./ww-multiplayer.exe shadow-mode` CLI usage + labels
   accordingly (`0=off`, `1=mirror-refresh`, `2=mirror-freeze`, etc.)
   and `puppet-sync` now clears `pose_seqs[linkSlot]` when a remote
   disconnects gracefully so Link #2 disappears as soon as the other
@@ -294,7 +294,7 @@
   TCP "remote left" event reaches the puppet-sync loop because both
   ends of the connection die simultaneously. Result: Link #2 stays
   frozen at the last received pose until the user manually runs
-  `./ww.exe shadow-mode 0` (now the explicit kill switch) or restarts
+  `./ww-multiplayer.exe shadow-mode 0` (now the explicit kill switch) or restarts
   Dolphin. A signal handler in `puppet-sync` could write
   shadow_mode=0 on SIGINT/SIGTERM to fix this; left as a small
   follow-up.
@@ -333,13 +333,13 @@
   observable. (d) **`puppet-sync` never re-asserted shadow_mode = 5**
   — only written inside the lazy-arm path, so a fresh `mplay2` against
   a Dolphin that had `shadow_mode` drifted to 0 (from a previous
-  manual `./ww.exe shadow-mode 0`, or any future reset path that
+  manual `./ww-multiplayer.exe shadow-mode 0`, or any future reset path that
   clears it) would silently fall back to local-mirror Link with no
   pose-feed engagement, even with `pose_seq` bumping correctly each
   tick. Now writes `shadow_mode = 5` once at puppet-sync startup
   before the main loop, idempotent and cheap.
 
-  Diagnosis path was load-bearing: live `./ww.exe dump` of both
+  Diagnosis path was load-bearing: live `./ww-multiplayer.exe dump` of both
   Dolphins' mailboxes is what caught (d) — `pose_seq=129/231` (proving
   Go was writing fresh poses) but `shadow_mode=0` (proving C side was
   ignoring them) is a single-line tell that no amount of code-reading
@@ -399,8 +399,8 @@
   0x8C → mpNodeMtx`, ships the raw 2016 B unmodified (PowerPC big-endian
   matches GameCube native, no byteswap). Receiver writes straight to
   `mailbox.pose_buf_ptr` and bumps `pose_seq`. New CLIs:
-  `./ww.exe broadcast-pose <name> <addr>` (sends Link's pose every 50ms
-  alongside the existing position broadcast) and `./ww.exe pose-test
+  `./ww-multiplayer.exe broadcast-pose <name> <addr>` (sends Link's pose every 50ms
+  alongside the existing position broadcast) and `./ww-multiplayer.exe pose-test
   [mirror|freeze]` (offline smoke test that animates pose_buf from a
   local capture buffer; freeze proved Link #2 was rendering correctly
   on top of Link #1 in loopback). `puppet-sync` extended to elect a
@@ -446,9 +446,9 @@
 
 ## 🔬 Next Session Priority
 
-**v0.1.0 RELEASED (2026-04-21).** First public release. `ww.exe patch
+**v0.1.0 RELEASED (2026-04-21).** First public release. `ww-multiplayer.exe patch
 <vanilla.iso>` produces a working multiplayer ISO from the user's own
-legitimately-acquired Wind Waker disc; `ww.exe` runs the multiplayer
+legitimately-acquired Wind Waker disc; `ww-multiplayer.exe` runs the multiplayer
 client. Auto-released on tag push via `.github/workflows/release.yml`.
 
 **FIRST OVER-THE-INTERNET MULTIPLAYER GAME PLAYED (2026-04-21 night).**
@@ -480,11 +480,11 @@ write race fixed in lockstep (`Player.SendMu`).
 
 Both bugs surfaced the first time a non-author user tried v0.1.0 (well,
 the author tried with a friend, same difference). Both have the same
-fix: `ww.exe host` and `ww.exe join <ip>` subcommands that internally
+fix: `ww-multiplayer.exe host` and `ww-multiplayer.exe join <ip>` subcommands that internally
 orchestrate `server` + `broadcast-pose` + `puppet-sync` as goroutines
 in one process per player, with `WW_SELF_NAME` wired automatically.
 
-1. **TUI doesn't engage the rendering pipeline.** `ww.exe` (no args)
+1. **TUI doesn't engage the rendering pipeline.** `ww-multiplayer.exe` (no args)
    launches the Bubble Tea TUI from `internal/tui/`. The TUI's "host"
    mode shows local Link position + a log + a connection state, but
    **does not** start the multiplayer rendering pipeline — no
@@ -502,9 +502,9 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    joiner. Worked on first try, confirmed real over-the-internet
    multiplayer.
 
-   Real fix: `ww.exe host` (binds server, starts both broadcast-pose
+   Real fix: `ww-multiplayer.exe host` (binds server, starts both broadcast-pose
    and puppet-sync goroutines, all pointing at localhost:25565) and
-   `ww.exe join <ip>` (just broadcast-pose + puppet-sync goroutines
+   `ww-multiplayer.exe join <ip>` (just broadcast-pose + puppet-sync goroutines
    pointing at the host's IP). README quick-start should point at
    these. TUI should either be rewritten on top of these subcommands
    or marked deprecated until rebuilt.
@@ -532,14 +532,14 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
 
 ### Pick next (any order)
 
-1. ~~**`ww.exe host` and `ww.exe join <ip>` subcommands.**~~ SHIPPED
+1. ~~**`ww-multiplayer.exe host` and `ww-multiplayer.exe join <ip>` subcommands.**~~ SHIPPED
    in v0.1.1 (2026-04-22). See the Done entry above. Both v0.1.0
    user-testing bugs and item #8's graceful-shutdown loose end are
    closed in the same change.
 2. ~~**Retire / rebuild the TUI.**~~ SHIPPED in v0.1.2 (2026-04-22,
    cheap path): deleted `internal/tui/` (and its Bubble Tea / Lip
    Gloss dep tree — `go mod tidy` now reports zero external
-   dependencies, first time this repo has had that), and `ww.exe`
+   dependencies, first time this repo has had that), and `ww-multiplayer.exe`
    (no args) now prints the help text. A successor TUI built on top
    of `host`/`join` (status panel, log tail, Ctrl+C-safe shutdown
    button) is tracked as a separate "polish" item if/when someone
@@ -562,8 +562,8 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    not blocking; either a TEV bucket residue from cross-instance
    entry() ordering or a per-frame race against Link #1's own draw.
 8. ~~**`puppet-sync` graceful-shutdown signal handler.**~~ FULLY
-   SHIPPED across v0.1.1 (`ww.exe host/join`) and v0.1.3 (standalone
-   `ww.exe broadcast-pose` + `ww.exe puppet-sync` — both CLI
+   SHIPPED across v0.1.1 (`ww-multiplayer.exe host/join`) and v0.1.3 (standalone
+   `ww-multiplayer.exe broadcast-pose` + `ww-multiplayer.exe puppet-sync` — both CLI
    wrappers now install the same `multiplayerContext` SIGINT handler
    and puppet-sync calls `clearMultiplayerState` on exit, so
    mplay2.sh's Ctrl+C path resets the mailbox instead of leaving
@@ -674,7 +674,7 @@ delayed `mpNodeMtx` (+0x8C). Skin and rigid now share the same pose.
 See `docs/05-known-issues.md` "Echo-Link DONE" for the recipe, address
 table, and the mailbox/__OSArenaLo shift that had to come with it.
 
-### Working modes (use via `./ww.exe shadow-mode <N>`)
+### Working modes (use via `./ww-multiplayer.exe shadow-mode <N>`)
 
 - `0` — baseline mirror (userArea = Link #1). Cheap, default.
 - `3` — freeze (no-op basicMtxCalc around calc). Link #2 holds his
@@ -709,7 +709,7 @@ Concretely:
   their joint matrices into the pose slot each tick.
 - Network protocol: add a `PoseUpdate` opcode carrying `{player_id,
   joints_count, Mtx[]}`. 2 KB per update.
-- Add `./ww.exe pose-test` that animates slot 0's pose from a local
+- Add `./ww-multiplayer.exe pose-test` that animates slot 0's pose from a local
   capture buffer as a smoke test without needing the server live.
 - Wire Link #2's mpNodeMtx overwrite source to the slot instead of
   the echo ring.
@@ -748,8 +748,8 @@ j3dSys snapshot AND `mUserArea` set to Link #1's actor each frame.
   rigid now share the delayed pose — no rubber-band). **Independent
   pose authoring proven.**
 
-Toggle/observe: `./ww.exe shadow-mode <N>` and `./ww.exe echo-delay <N>`
-plus `./ww.exe dump` for diagnostics (joint_num, mpNodeMtx pointer,
+Toggle/observe: `./ww-multiplayer.exe shadow-mode <N>` and `./ww-multiplayer.exe echo-delay <N>`
+plus `./ww-multiplayer.exe dump` for diagnostics (joint_num, mpNodeMtx pointer,
 ring_state, delay).
 
 ### Solved this session (2026-04-19 evening through late-late)
@@ -1012,7 +1012,7 @@ The full loop, current as of this session:
 5. Update the ISO header's FST offset field (at disc offset `0x424`)
 6. Delete `%APPDATA%/Dolphin Emulator/Cache/gamelist.cache` (if present) and restart Dolphin
 7. Boot the patched ISO — **no Gecko codes / Dolphin patches enabled** (they fight the DOL)
-8. `./ww.exe dump` to verify: mailbox counter at `0x80410F00` increments, T2 code at `0x80410000` is intact, main01 hook at `0x80006338` shows `0x484XXXXX` (a `bl`)
+8. `./ww-multiplayer.exe dump` to verify: mailbox counter at `0x80410F00` increments, T2 code at `0x80410000` is intact, main01 hook at `0x80006338` shows `0x484XXXXX` (a `bl`)
 
 ## 🚀 Polish
 

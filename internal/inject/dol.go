@@ -1,4 +1,4 @@
-// Package inject provides the standalone ISO patcher used by `ww.exe patch`
+// Package inject provides the standalone ISO patcher used by `ww-multiplayer.exe patch`
 // to splice the multiplayer mod into a user-supplied vanilla Wind Waker ISO.
 //
 // The injected delta is captured at build time by scripts/extract_blob.py

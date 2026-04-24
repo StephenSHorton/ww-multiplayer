@@ -55,9 +55,9 @@ rm "%APPDATA%/Dolphin Emulator/Cache/gamelist.cache"
 #    Make sure NO Patches or Gecko Codes are enabled — they fight the DOL.
 
 # 6. Build the Go side
-cd ~/projects/ww-multiplayer && go build -o ww.exe .
-./ww.exe check    # verify hook + injected code state
-./ww.exe debug    # read Link's position for 5 seconds
+cd ~/projects/ww-multiplayer && go build -o ww-multiplayer.exe .
+./ww-multiplayer.exe check    # verify hook + injected code state
+./ww-multiplayer.exe debug    # read Link's position for 5 seconds
 ```
 
 ## See also

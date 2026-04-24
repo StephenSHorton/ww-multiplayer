@@ -1,6 +1,6 @@
 """
 Extract the injected T2 section from Freighter's patched.dol and emit a Go
-source file (internal/inject/blob.go) that the standalone `ww.exe patch`
+source file (internal/inject/blob.go) that the standalone `ww-multiplayer.exe patch`
 subcommand uses to splice the same delta into a user's vanilla Wind Waker
 ISO. Run after `inject/build.py` produces a fresh patched.dol.
 

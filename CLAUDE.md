@@ -10,7 +10,7 @@ Each player sees the other's actual Link in-game, walking around at the
 remote's real world coords with their real animations, ~50ms latency on
 LAN. Two-Dolphin local play is wired up via `scripts/mplay2.sh`.
 
-The mod is shipped as a standalone `ww.exe` patcher (`./ww.exe patch
+The mod is shipped as a standalone `ww-multiplayer.exe` patcher (`./ww-multiplayer.exe patch
 <vanilla.iso>` produces the patched ISO from the user's own legitimate
 Wind Waker disc image). Releases are cut on tag push via GitHub Actions.
 
@@ -25,7 +25,7 @@ ww-multiplayer/
 │   │   ├── inject.go            # LEGACY runtime injection (vestigial; superseded by inject/ patched-ISO approach)
 │   │   ├── inject_code.go       # LEGACY PPC blob (vestigial)
 │   │   └── helpers.go
-│   ├── inject/                  # Standalone ISO patcher (used by `./ww.exe patch`)
+│   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
 │   │   ├── blob.go              # AUTO-GENERATED via scripts/extract_blob.py
 │   │   ├── dol.go               # DOL header editor + T2 splice + in-DOL patches
 │   │   ├── iso.go               # ISO patcher with FST relocation
@@ -55,30 +55,30 @@ ww-multiplayer/
 
 ```bash
 # Build
-go build -o ww.exe .
+go build -o ww-multiplayer.exe .
 
 # End-user entry points
-./ww.exe                                    # Launch TUI (host or join)
-./ww.exe patch <iso|ciso> [out.iso]         # Splice mod into user's own vanilla WW ISO
+./ww-multiplayer.exe                                    # Launch TUI (host or join)
+./ww-multiplayer.exe patch <iso|ciso> [out.iso]         # Splice mod into user's own vanilla WW ISO
 
 # Multiplayer runtime CLIs (used by scripts/mplay2.sh)
-./ww.exe server                             # Headless TCP server on :25565
-./ww.exe broadcast-pose <name> <addr>       # Stream this Dolphin's Link pose+pos to server
-./ww.exe puppet-sync <name> <addr>          # Receive remotes; render them as Link #2 / actor puppets
-./ww.exe broadcast-link <name> <addr>       # Position-only broadcast (cheaper; no pose)
-./ww.exe pose-fake-loop <name> <addr>       # Loopback dev: capture pose once, stream as a fake remote
-./ww.exe pose-test [mirror|freeze] [secs]   # Single-Dolphin sanity test for the pose pipeline
+./ww-multiplayer.exe server                             # Headless TCP server on :25565
+./ww-multiplayer.exe broadcast-pose <name> <addr>       # Stream this Dolphin's Link pose+pos to server
+./ww-multiplayer.exe puppet-sync <name> <addr>          # Receive remotes; render them as Link #2 / actor puppets
+./ww-multiplayer.exe broadcast-link <name> <addr>       # Position-only broadcast (cheaper; no pose)
+./ww-multiplayer.exe pose-fake-loop <name> <addr>       # Loopback dev: capture pose once, stream as a fake remote
+./ww-multiplayer.exe pose-test [mirror|freeze] [secs]   # Single-Dolphin sanity test for the pose pipeline
 
 # Diagnostics
-./ww.exe debug                              # Print Link's position for 5 sec
-./ww.exe dump                               # Dump mailbox state (shadow_mode, pose seqs, etc.)
-./ww.exe check                              # Mailbox + player pointers + BSS sanity check
-./ww.exe shadow-mode <0..5>                 # 0=off, 1/2=mirror dev, 3=freeze, 4=echo-ring, 5=pose-feed
-./ww.exe echo-delay <N>                     # Mode-4 delay frames (for echo-link experiment)
-./ww.exe poke-u32 <addr-hex> <val-hex>      # Direct memory write
-./ww.exe scan-npcs                          # Find NPCs near Link
-./ww.exe move-puppet <x> <y> <z> [slot]     # Manually drive a puppet actor slot
-./ww.exe unhide-puppet                      # Apply per-proc unhide poke (mSwitchNo / m678)
+./ww-multiplayer.exe debug                              # Print Link's position for 5 sec
+./ww-multiplayer.exe dump                               # Dump mailbox state (shadow_mode, pose seqs, etc.)
+./ww-multiplayer.exe check                              # Mailbox + player pointers + BSS sanity check
+./ww-multiplayer.exe shadow-mode <0..5>                 # 0=off, 1/2=mirror dev, 3=freeze, 4=echo-ring, 5=pose-feed
+./ww-multiplayer.exe echo-delay <N>                     # Mode-4 delay frames (for echo-link experiment)
+./ww-multiplayer.exe poke-u32 <addr-hex> <val-hex>      # Direct memory write
+./ww-multiplayer.exe scan-npcs                          # Find NPCs near Link
+./ww-multiplayer.exe move-puppet <x> <y> <z> [slot]     # Manually drive a puppet actor slot
+./ww-multiplayer.exe unhide-puppet                      # Apply per-proc unhide poke (mSwitchNo / m678)
 
 # Multi-Dolphin selection
 WW_DOLPHIN_INDEX=<n>                        # Pick the Nth GZLE01 Dolphin process (0 = first)
@@ -92,7 +92,7 @@ scripts/dolphin2.sh [--reset]               # Boot a 2nd Dolphin instance agains
 scripts/mplay2.sh                           # server + broadcast/puppet pairs for both Dolphins
 ```
 
-## Build pipeline (C side → ww.exe)
+## Build pipeline (C side → ww-multiplayer.exe)
 
 ```bash
 # Iterate on multiplayer.c locally:
@@ -103,7 +103,7 @@ cd inject && rm -f build/temp/multiplayer.c.o && python build.py && python patch
 # patcher uses:
 python scripts/extract_blob.py
 # (Reads inject/{original,patched}.dol, writes internal/inject/blob.go.)
-go build -o ww.exe .
+go build -o ww-multiplayer.exe .
 ```
 
 `internal/inject/blob.go` is committed and treated as source for build

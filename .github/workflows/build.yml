@@ -33,7 +33,7 @@ jobs:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: '0'
-        run: go build -o /tmp/ww.exe .
+        run: go build -o /tmp/ww-multiplayer.exe .
 
       - name: Sanity-check embedded blob
         run: |
