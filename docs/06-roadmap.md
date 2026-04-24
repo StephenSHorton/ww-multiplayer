@@ -194,6 +194,16 @@
   `pose_bufs[1]` and `pose_seqs[1]` persist until Dolphin restart, so
   a frozen decoy Link lingers at the old +1000 X offset even after
   the harness is torn down. Not blocking; next Dolphin boot clears it.
+- **Material-inspection + material-probe tools** (2026-04-22, v0.1.4
+  session): added `ww.exe inspect-materials` (dumps all 24 materials
+  on Link's shared J3DModelData with their material colors and
+  texNo[0..7] values), `ww.exe tint-material cycle/pick/stage` (walk
+  materials by toggling `texNo[0]` or `texNo[stage]` to 0x0000 to
+  visually identify what each material draws on Link). Used to
+  identify eye materials (1, 4 stage 1), tunic set (0, 16, 19), hair,
+  hat, boots, hands, nose, belt buckle etc. — the mapping needed for
+  future tunic-tint and eye-fix work. Groundwork only, no eye fix
+  yet (see "Pick next" item #9 for the deep investigation log).
 - **Slope-IK leg flap on remote Links FIXED via sender-side pose
   publish buffer** (2026-04-22, v0.1.3): Link #2 (the mini-Link
   rendering of a remote player) was visibly flapping one leg 0-90°
@@ -558,27 +568,75 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    and puppet-sync calls `clearMultiplayerState` on exit, so
    mplay2.sh's Ctrl+C path resets the mailbox instead of leaving
    Link #2 frozen).
-9. **Eye rendering on remote Links.** DEFERRED (multi-session
-   investigation). Observed in v0.1.2 live test: host sees joiners
-   with no eyes; joiners see everyone else with no eyes — i.e. every
-   mini-Link (non-self) renders without eyes. Local Link #1 is fine.
-   Two plausible causes (need zeldaret/tww RE to disambiguate):
-   (a) `daPy_lk_c` runs a per-frame btp (tex-pattern) animation
-   that writes to the shared J3DModelData's material block to
-   cycle the eye texture for blinking. Mini-Link's private material
-   DLs (flag=0 from the N>1 fix, `mDoExt_J3DModel__create`) don't
-   pick up those updates — they capture material state at create-
-   time. Fix would be forcing per-frame DL rebuild or manually
-   syncing the eye mat's texNo each frame from Link #1's value.
-   (b) Eyes are a separate sub-BDL that Link loads alongside
-   LINK_BDL_CL (0x18), parented to the head bone, and mini-Link
-   only renders the body BDL so eye geometry literally isn't
-   present. Fix would require loading a second J3DModelData +
-   J3DModel per remote-Link slot, bound to the head bone's
-   mpNodeMtx each frame. Either path needs ~afternoon of work;
-   not blocking gameplay. Low-tech workaround: tweak the fix on
-   track #3 (visual differentiation) to color-tint the face darker
-   so the missing eyes are less distracting.
+9. **Eye rendering on remote Links — INVESTIGATION DEEP BUT BLOCKED**
+   (2026-04-22 session). Confirmed: remote mini-Link's face is blank
+   except for nose + static mouth; pupils, eye outline, eyelids,
+   eyebrows all missing; mouth doesn't animate. Local Link #1 is
+   fine on both sides.
+   **Material/joint mapping identified via Go-side `inspect-materials`
+   + `tint-material pick/stage` diagnostic tools** (shipped in the
+   investigation):
+   - Material 1 stage 1 = left pupil (tex 0x0027 = open)
+   - Material 4 stage 1 = right pupil
+   - Materials 0+16+19 = tunic (upper + sleeves/lower + boots/pants)
+   - Material 7 = face skin, 17 = hair, 18 = hat, 20-23 = other skin
+   - Joint 0x13 = cl_eye, Joint 0x15 = cl_mayu (eyebrow)
+   - Shape cached arrays on daPy_lk_c at +0x0374/0x0384/0x0394
+     (mpZOffBlendShape / mpZOffNoneShape / mpZOnShape, 4 each)
+   **Root cause isolated:** Link's eye/eyebrow decals need a
+   three-pass Z-compare rendering workaround that `daPy_lk_c::draw`
+   runs for Link #1 (see `d_a_player_main.cpp:1827-1897` in
+   zeldaret/tww @ commit 6aa7ba91). Mini-Link only does the
+   single-pass `mDoExt_modelEntryDL` — without the three-pass,
+   eye/eyebrow geometry either Z-fights with the face (invisible)
+   or isn't included in the DL (it's shape-visibility-gated).
+   **Addresses gathered** (all GZLE01):
+   - `J3DModel::viewCalc` = `0x802EEE30`
+   - `J3DModel::lock/unlock` = `0x802EE254 / 0x802EE28C`
+   - `J3DDrawBuffer::entryImm` = `0x802ECCC4`
+   - `J3DJoint::entryIn` = `0x802F58D8`
+   - Packets: `l_onCupOffAupPacket1/2` = `0x803E46DC / 0x803E46F8`
+     `l_offCupOnAupPacket1/2` = `0x803E46A4 / 0x803E46C0`
+   - j3dSys drawBuffer swap via direct writes to `j3dSys+0x48/+0x4C`
+     from `*(u32*)0x803CA92C` (opaListP0), `0x803CA930` (opaListP1),
+     `0x803CA934` (xluListP1)
+   **What didn't work (two crash attempts):**
+   - Attempt A: three-pass using `entryIn` on mini-Link's joints
+     with `j3dSys.mModel` swapped. Crashed — likely stale shape
+     packets (`mpDrawMtx`/`mpNrmMtx` not set for mini-Link).
+   - Attempt B: same three-pass, preceded by manual `J3DModel::viewCalc(mini_link)`
+     to prepare shape packets. Also crashed. Unknown cause —
+     possibly side effects from viewCalc mid-draw, uninitialized
+     packet objects, or additional j3dSys state we weren't saving/
+     restoring.
+   - Attempt C (non-crash but inert): force-bake `texNo[1]=0x27`
+     on materials 1/4 at `mDoExt_J3DModel__create` time to hope
+     the private DL would capture "open eyes". Didn't work —
+     per the tww decomp, `mDoExt_modelEntryDL` actually calls
+     `entry()` per frame (not a one-shot bake), so the DL
+     regeneration isn't what's missing. It's the three-pass
+     Z-compare setup that is.
+   **Also noted:** even if we get the decal pass working, the
+   mouth won't animate without recipe A (install a `J3DAnmTexPattern`
+   player on mini-Link's material anm slots). That's a separate
+   sub-project.
+   **Next session directions** (unblocked by this session's data,
+   pick one):
+   - (1) Full-j3dSys save/restore around the three-pass (save all
+     0x128 bytes of `j3dSys`, not just the 3 fields we tried), in
+     case something else downstream needs the old state.
+   - (2) Reversed order: run `mDoExt_modelEntryDL` first (lets the
+     game run its entry+lock+viewCalc on mini-Link normally), THEN
+     do the three-pass afterward. Violates Link #1's P0→P1 ordering
+     but might at least not crash.
+   - (3) Minimal entryIn-only probe: two `entryIn` calls on mini-
+     Link's cl_eye/cl_mayu joints, no packet entryImm, no draw-
+     buffer swap. Diagnoses whether `entryIn` is the freeze source
+     or whether our packet/buffer manipulation is.
+   - (4) Dolphin breakpoint debugging: run under Dolphin's CPU
+     debugger, set breakpoint at the PPC address where the freeze
+     occurs, get the actual crash PC + register state. No more
+     guessing from behavior alone. Probably the highest-ROI move.
 10. ~~**Leg morph on slopes.**~~ SHIPPED in v0.1.3 (2026-04-22).
     Diagnostic result: leg flap was FLAT-GROUND-ABSENT, appeared
     reliably on slopes → definitively not a pure-lag artifact.

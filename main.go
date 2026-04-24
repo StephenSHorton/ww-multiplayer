@@ -9,6 +9,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -182,6 +183,50 @@ func main() {
 				addr = os.Args[3]
 			}
 			runPuppetSync(name, addr)
+		case "inspect-materials":
+			runInspectMaterials()
+		case "tint-material":
+			if len(os.Args) < 3 {
+				fmt.Println("Usage:")
+				fmt.Println("  ww.exe tint-material <idx> <rgba-hex>    (8 hex digits, e.g. FF0000FF)")
+				fmt.Println("  ww.exe tint-material <idx> reset         (restore to FFFFFFFF)")
+				fmt.Println("  ww.exe tint-material cycle [seconds=2]   (walk all 24 materials)")
+				os.Exit(1)
+			}
+			if os.Args[2] == "cycle" {
+				secs := 2
+				if len(os.Args) > 3 {
+					if v, err := strconv.Atoi(os.Args[3]); err == nil && v > 0 {
+						secs = v
+					}
+				}
+				runTintCycle(secs)
+			} else if os.Args[2] == "pick" {
+				runTintPick()
+			} else if os.Args[2] == "stage" {
+				if len(os.Args) < 5 {
+					fmt.Println("Usage: ww.exe tint-material stage <mat-idx> <stage-idx>")
+					os.Exit(1)
+				}
+				mi, err1 := strconv.Atoi(os.Args[3])
+				si, err2 := strconv.Atoi(os.Args[4])
+				if err1 != nil || err2 != nil || si < 0 || si > 7 {
+					fmt.Println("bad mat-idx or stage-idx (stage must be 0..7)")
+					os.Exit(1)
+				}
+				runTintStage(mi, si)
+			} else {
+				if len(os.Args) < 4 {
+					fmt.Println("missing color arg (rgba-hex or 'reset')")
+					os.Exit(1)
+				}
+				idx, err := strconv.Atoi(os.Args[2])
+				if err != nil {
+					fmt.Printf("bad index: %v\n", err)
+					os.Exit(1)
+				}
+				runTintMaterial(idx, os.Args[3])
+			}
 		case "disasm":
 			addr := uint32(0x800231E4)
 			count := 40
@@ -1843,6 +1888,497 @@ func runDump() {
 		}
 		fmt.Println()
 	}
+}
+
+// runInspectMaterials walks Link's shared J3DModelData and prints every
+// material's index, name, matColor, and texNo[0..7]. Used to identify
+// which material index corresponds to "tunic" vs "eye_tex" vs skin etc.
+// for future work (per-material color tint, eye-render fix).
+//
+// Offsets from zeldaret/tww decomp (commit 6aa7ba91):
+//   J3DModelData + 0x58 = J3DMaterialTable (inline)
+//     + 0x04 = u16 mMaterialNum
+//     + 0x08 = J3DMaterial**    (array of per-index ptrs)
+//     + 0x0C = JUTNameTab*      (index -> name lookup)
+//   J3DMaterial + 0x24 = J3DColorBlock*  (matColor[0..1] at +0x04)
+//   J3DMaterial + 0x2C = J3DTevBlock*    (mTexNo[8] at +0x08, u16 each)
+// JUTNameTab layout (JSystem):
+//   +0x00: u16 count
+//   +0x02: u16 pad
+//   +0x04..: {u16 hash, u16 offset-from-NameTab-base}[count]
+//   strings follow (ASCIIZ)
+func runInspectMaterials() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	// Resolve Link's live J3DModelData via PLAYER_PTR_ARRAY[0] + 0x0328.
+	const daPyMpCLModelDataOff = 0x0328
+	linkPtr, err := d.ReadU32(0x803CA754)
+	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x81800000 {
+		fmt.Println("Link not loaded (PLAYER_PTR_ARRAY[0] null). Load a save and try again.")
+		os.Exit(1)
+	}
+	dataPtr, err := d.ReadU32(linkPtr + daPyMpCLModelDataOff)
+	if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x81800000 {
+		fmt.Printf("Link's mpCLModelData is null (linkPtr=0x%08X).\n", linkPtr)
+		os.Exit(1)
+	}
+	fmt.Printf("Link actor       : 0x%08X\n", linkPtr)
+	fmt.Printf("Link J3DModelData: 0x%08X\n\n", dataPtr)
+
+	matTableBase := dataPtr + 0x58
+	countBytes, _ := d.ReadAbsolute(matTableBase+0x04, 2)
+	if len(countBytes) != 2 {
+		fmt.Println("failed to read material count")
+		os.Exit(1)
+	}
+	count := binary.BigEndian.Uint16(countBytes)
+	matArr, _ := d.ReadU32(matTableBase + 0x08)
+	nameTab, _ := d.ReadU32(matTableBase + 0x0C)
+	fmt.Printf("material count   : %d\n", count)
+	fmt.Printf("material array   : 0x%08X\n", matArr)
+	fmt.Printf("name table       : 0x%08X\n\n", nameTab)
+
+	// Preload the name table count so we can bounds-check per-index reads.
+	var tabCount uint16
+	if nameTab >= 0x80000000 && nameTab < 0x81800000 {
+		if cb, _ := d.ReadAbsolute(nameTab, 2); len(cb) == 2 {
+			tabCount = binary.BigEndian.Uint16(cb)
+		}
+		// Raw dump of nameTab neighborhood for layout reverse-engineering.
+		// 0x200 bytes covers header + 24 item entries + some string pool.
+		const dumpSize = 0x200
+		if raw, _ := d.ReadAbsolute(nameTab, dumpSize); len(raw) == dumpSize {
+			fmt.Printf("raw nameTab[0..0x%x] @ 0x%08X:\n", dumpSize, nameTab)
+			for row := 0; row < dumpSize/16; row++ {
+				fmt.Printf("  +0x%03X: ", row*16)
+				for col := 0; col < 16; col++ {
+					fmt.Printf("%02X ", raw[row*16+col])
+				}
+				fmt.Printf(" |")
+				for col := 0; col < 16; col++ {
+					c := raw[row*16+col]
+					if c >= 0x20 && c < 0x7F {
+						fmt.Printf("%c", c)
+					} else {
+						fmt.Printf(".")
+					}
+				}
+				fmt.Println("|")
+			}
+		}
+		fmt.Printf("parsed tabCount = %d\n\n", tabCount)
+	}
+
+	resolveName := func(idx int) string {
+		if nameTab == 0 || uint16(idx) >= tabCount {
+			return "?"
+		}
+		// item at +0x04 + idx*4: {u16 hash, u16 offset}
+		item, _ := d.ReadAbsolute(nameTab+4+uint32(idx)*4, 4)
+		if len(item) != 4 {
+			return "?"
+		}
+		offset := binary.BigEndian.Uint16(item[2:4])
+		// ASCIIZ string at nameTab + offset. Read up to 64 bytes then trim at null.
+		sbytes, _ := d.ReadAbsolute(nameTab+uint32(offset), 64)
+		n := 0
+		for n < len(sbytes) && sbytes[n] != 0 {
+			n++
+		}
+		return string(sbytes[:n])
+	}
+
+	fmt.Printf("%-4s %-32s %-10s %-10s %s\n", "idx", "name", "mat_ptr", "matColor", "texNo[0..7]")
+	fmt.Println(strings.Repeat("-", 110))
+	for i := 0; i < int(count); i++ {
+		matPtr, err := d.ReadU32(matArr + uint32(i)*4)
+		if err != nil || matPtr < 0x80000000 || matPtr >= 0x81800000 {
+			continue
+		}
+		name := resolveName(i)
+		colBlock, _ := d.ReadU32(matPtr + 0x24)
+		tevBlock, _ := d.ReadU32(matPtr + 0x2C)
+		matColor := []byte{0, 0, 0, 0}
+		if colBlock >= 0x80000000 && colBlock < 0x81800000 {
+			if mc, _ := d.ReadAbsolute(colBlock+0x04, 4); len(mc) == 4 {
+				matColor = mc
+			}
+		}
+		texNos := make([]uint16, 8)
+		if tevBlock >= 0x80000000 && tevBlock < 0x81800000 {
+			if tn, _ := d.ReadAbsolute(tevBlock+0x08, 16); len(tn) == 16 {
+				for s := 0; s < 8; s++ {
+					texNos[s] = binary.BigEndian.Uint16(tn[s*2 : s*2+2])
+				}
+			}
+		}
+		// Format: only print texNo slots that look used (!= 0xFFFF sentinel).
+		var texStr strings.Builder
+		for s, v := range texNos {
+			if v == 0xFFFF {
+				continue
+			}
+			if texStr.Len() > 0 {
+				texStr.WriteString(",")
+			}
+			fmt.Fprintf(&texStr, "%d:0x%04X", s, v)
+		}
+		fmt.Printf("[%3d] %-32s 0x%08X %02X%02X%02X%02X  %s\n",
+			i, truncateName(name, 32), matPtr,
+			matColor[0], matColor[1], matColor[2], matColor[3], texStr.String())
+	}
+}
+
+func truncateName(s string, n int) string {
+	if len(s) > n {
+		return s[:n-1] + "…"
+	}
+	return s
+}
+
+// resolveMaterialColorBlock returns the colorBlock address for material
+// index `idx` in Link's live J3DModelData. Shared helper used by both
+// tint commands and the inspect command.
+func resolveMaterialColorBlock(d *dolphin.Dolphin, idx int) (colBlock uint32, matPtr uint32, err error) {
+	linkPtr, err := d.ReadU32(0x803CA754)
+	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x81800000 {
+		return 0, 0, fmt.Errorf("Link not loaded")
+	}
+	dataPtr, err := d.ReadU32(linkPtr + 0x0328)
+	if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x81800000 {
+		return 0, 0, fmt.Errorf("mpCLModelData is null")
+	}
+	matTableBase := dataPtr + 0x58
+	countBytes, _ := d.ReadAbsolute(matTableBase+0x04, 2)
+	if len(countBytes) != 2 {
+		return 0, 0, fmt.Errorf("failed to read material count")
+	}
+	count := binary.BigEndian.Uint16(countBytes)
+	if idx < 0 || idx >= int(count) {
+		return 0, 0, fmt.Errorf("material index %d out of range [0, %d)", idx, count)
+	}
+	matArr, _ := d.ReadU32(matTableBase + 0x08)
+	matPtr, err = d.ReadU32(matArr + uint32(idx)*4)
+	if err != nil || matPtr < 0x80000000 || matPtr >= 0x81800000 {
+		return 0, 0, fmt.Errorf("material[%d] pointer invalid: 0x%08X", idx, matPtr)
+	}
+	colBlock, err = d.ReadU32(matPtr + 0x24)
+	if err != nil || colBlock < 0x80000000 || colBlock >= 0x81800000 {
+		return 0, matPtr, fmt.Errorf("material[%d] has no colorBlock (got 0x%08X)", idx, colBlock)
+	}
+	return colBlock, matPtr, nil
+}
+
+// runTintMaterial writes matColor[0] of material `idx` to the given
+// 8-hex-digit RGBA value (or resets to white). J3DModelData is shared
+// across all Link instances (Link #1, mini-Link) so this affects every
+// render path on every Dolphin using that archive.
+func runTintMaterial(idx int, colorArg string) {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	colBlock, matPtr, err := resolveMaterialColorBlock(d, idx)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	var rgba []byte
+	if colorArg == "reset" || colorArg == "restore" {
+		rgba = []byte{0xFF, 0xFF, 0xFF, 0xFF}
+	} else {
+		v, err := strconv.ParseUint(strings.TrimPrefix(colorArg, "0x"), 16, 32)
+		if err != nil {
+			fmt.Printf("bad rgba-hex %q: %v\n", colorArg, err)
+			os.Exit(1)
+		}
+		rgba = []byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}
+	}
+	if err := d.WriteAbsolute(colBlock+0x04, rgba); err != nil {
+		fmt.Printf("write failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("material[%d] mat=0x%08X colorBlock=0x%08X matColor[0] := %02X%02X%02X%02X\n",
+		idx, matPtr, colBlock, rgba[0], rgba[1], rgba[2], rgba[3])
+}
+
+// runTintStage swaps a single material's texNo[stage] to 0 and waits for
+// the user to press Enter before restoring. Used to probe materials
+// whose stage 0 is already 0 (e.g. eye materials often leave stage 0
+// unused and drive the real tex through stage 1).
+func runTintStage(matIdx, stage int) {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	linkPtr, err := d.ReadU32(0x803CA754)
+	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x81800000 {
+		fmt.Println("Link not loaded")
+		os.Exit(1)
+	}
+	dataPtr, _ := d.ReadU32(linkPtr + 0x0328)
+	countBytes, _ := d.ReadAbsolute(dataPtr+0x58+0x04, 2)
+	count := int(binary.BigEndian.Uint16(countBytes))
+	matArr, _ := d.ReadU32(dataPtr + 0x58 + 0x08)
+	if matIdx < 0 || matIdx >= count {
+		fmt.Printf("mat-idx %d out of range [0, %d)\n", matIdx, count)
+		os.Exit(1)
+	}
+	matPtr, _ := d.ReadU32(matArr + uint32(matIdx)*4)
+	tb, _ := d.ReadU32(matPtr + 0x2C)
+	if tb < 0x80000000 || tb >= 0x81800000 {
+		fmt.Printf("material[%d] has no tevBlock\n", matIdx)
+		os.Exit(1)
+	}
+	texAddr := tb + 0x08 + uint32(stage)*2
+	orig, _ := d.ReadAbsolute(texAddr, 2)
+	if len(orig) != 2 {
+		fmt.Println("failed to read current texNo")
+		os.Exit(1)
+	}
+	origVal := binary.BigEndian.Uint16(orig)
+	fmt.Printf("material[%d] stage %d: texNo = 0x%04X -> 0x0000\n", matIdx, stage, origVal)
+	fmt.Println("Watch Link in-game. Press Enter to restore.")
+
+	// Signal-safe restore on Ctrl+C.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		d.WriteAbsolute(texAddr, orig)
+		fmt.Println("\nInterrupted — restored.")
+		os.Exit(0)
+	}()
+
+	d.WriteAbsolute(texAddr, []byte{0x00, 0x00})
+	bufio.NewReader(os.Stdin).ReadString('\n')
+	d.WriteAbsolute(texAddr, orig)
+	fmt.Printf("Restored material[%d] stage %d texNo -> 0x%04X\n", matIdx, stage, origVal)
+}
+
+// runTintPick steps through materials interactively. Same texNo[0] swap
+// as runTintCycle but waits for user keystrokes. Enter = next, 'p' =
+// prev, 'j <N>' = jump to idx N, 'q' = restore all + exit.
+func runTintPick() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	linkPtr, err := d.ReadU32(0x803CA754)
+	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x81800000 {
+		fmt.Println("Link not loaded")
+		os.Exit(1)
+	}
+	dataPtr, _ := d.ReadU32(linkPtr + 0x0328)
+	countBytes, _ := d.ReadAbsolute(dataPtr+0x58+0x04, 2)
+	count := int(binary.BigEndian.Uint16(countBytes))
+	matArr, _ := d.ReadU32(dataPtr + 0x58 + 0x08)
+
+	type slot struct {
+		tevBlock uint32
+		origTex0 uint16
+	}
+	slots := make([]slot, count)
+	for i := 0; i < count; i++ {
+		matPtr, _ := d.ReadU32(matArr + uint32(i)*4)
+		if matPtr < 0x80000000 || matPtr >= 0x81800000 {
+			continue
+		}
+		tb, _ := d.ReadU32(matPtr + 0x2C)
+		if tb < 0x80000000 || tb >= 0x81800000 {
+			continue
+		}
+		tn, _ := d.ReadAbsolute(tb+0x08, 2)
+		if len(tn) != 2 {
+			continue
+		}
+		slots[i] = slot{tevBlock: tb, origTex0: binary.BigEndian.Uint16(tn)}
+	}
+
+	apply := func(i int, tex uint16) {
+		if slots[i].tevBlock == 0 {
+			return
+		}
+		d.WriteAbsolute(slots[i].tevBlock+0x08, []byte{byte(tex >> 8), byte(tex)})
+	}
+	restoreAll := func() {
+		for i, s := range slots {
+			if s.tevBlock != 0 {
+				apply(i, s.origTex0)
+			}
+		}
+	}
+	// Always restore on exit, even if the caller Ctrl+C's.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		restoreAll()
+		fmt.Println("\nInterrupted — all materials restored.")
+		os.Exit(0)
+	}()
+	defer restoreAll()
+
+	fmt.Printf("Interactive picker — %d materials available.\n", count)
+	fmt.Println("Commands: Enter = next  |  p = prev  |  j <N> = jump  |  q = quit")
+	fmt.Println("Materials with texNo[0]==0 are skipped (the swap would be a no-op).")
+	fmt.Println()
+
+	reader := bufio.NewReader(os.Stdin)
+	cur := -1
+	advance := func(dir int) {
+		for {
+			cur += dir
+			if cur < 0 || cur >= count {
+				return
+			}
+			if slots[cur].tevBlock != 0 && slots[cur].origTex0 != 0 {
+				return
+			}
+		}
+	}
+	advance(1) // land on first non-skipped material
+
+	for cur >= 0 && cur < count {
+		apply(cur, 0)
+		fmt.Printf("[%3d] tev=0x%08X  texNo[0]: 0x%04X -> 0x0000 (watch Link) > ",
+			cur, slots[cur].tevBlock, slots[cur].origTex0)
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			apply(cur, slots[cur].origTex0)
+			break
+		}
+		apply(cur, slots[cur].origTex0) // restore before moving on
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "" || line == "n" || line == "next":
+			advance(1)
+		case line == "p" || line == "prev":
+			advance(-1)
+		case line == "q" || line == "quit":
+			fmt.Println("quitting — restoring all materials.")
+			return
+		case strings.HasPrefix(line, "j"):
+			var n int
+			if _, err := fmt.Sscanf(strings.TrimPrefix(strings.TrimPrefix(line, "j"), " "), "%d", &n); err == nil {
+				if n >= 0 && n < count {
+					cur = n
+					// If jumped to a skipped one, auto-advance forward
+					if slots[cur].tevBlock == 0 || slots[cur].origTex0 == 0 {
+						advance(1)
+					}
+					continue
+				}
+				fmt.Printf("index %d out of range [0,%d)\n", n, count)
+			} else {
+				fmt.Printf("could not parse jump index from %q\n", line)
+			}
+		default:
+			fmt.Printf("unknown command %q — press Enter for next, 'p' prev, 'j N' jump, 'q' quit\n", line)
+		}
+	}
+	fmt.Println("reached end of material list.")
+}
+
+// runTintCycle walks all 24 materials, swapping each one's texNo[0] to
+// 0x0000 for `secs` seconds then restoring. mTexNo is known to be a
+// per-frame patched field (btp animation rewrites it live for eye
+// blinks), so writes show up instantly — unlike matColor which J3D bakes
+// into a cached display list. The expected visual: the affected material
+// renders with texture slot 0 (which is some shared default, usually
+// drastically different from its normal tex), so it shows up as an
+// obvious color/texture shift on Link.
+func runTintCycle(secs int) {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	linkPtr, err := d.ReadU32(0x803CA754)
+	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x81800000 {
+		fmt.Println("Link not loaded")
+		os.Exit(1)
+	}
+	dataPtr, _ := d.ReadU32(linkPtr + 0x0328)
+	countBytes, _ := d.ReadAbsolute(dataPtr+0x58+0x04, 2)
+	count := int(binary.BigEndian.Uint16(countBytes))
+	matArr, _ := d.ReadU32(dataPtr + 0x58 + 0x08)
+
+	fmt.Printf("Cycling %d materials, %ds each. Watch Link in-game.\n", count, secs)
+	fmt.Println("For each material we swap texNo[0] to 0x0000 so the mesh")
+	fmt.Println("renders with a different texture — the changed patch is the hit.")
+	fmt.Println("Press Ctrl+C to stop early; all materials are restored on exit.")
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	stopped := false
+
+	// Resolve TevBlock addresses + record original texNo[0] for each
+	// material up front. Skip materials whose texNo[0] is already 0x0000
+	// (swap would be a no-op — nothing visible would change).
+	type slot struct {
+		tevBlock uint32
+		origTex0 uint16
+	}
+	slots := make([]slot, count)
+	for i := 0; i < count; i++ {
+		matPtr, _ := d.ReadU32(matArr + uint32(i)*4)
+		if matPtr < 0x80000000 || matPtr >= 0x81800000 {
+			continue
+		}
+		tb, _ := d.ReadU32(matPtr + 0x2C)
+		if tb < 0x80000000 || tb >= 0x81800000 {
+			continue
+		}
+		tn, _ := d.ReadAbsolute(tb+0x08, 2)
+		if len(tn) != 2 {
+			continue
+		}
+		slots[i] = slot{tevBlock: tb, origTex0: binary.BigEndian.Uint16(tn)}
+	}
+
+	for i := 0; i < count && !stopped; i++ {
+		s := slots[i]
+		if s.tevBlock == 0 {
+			fmt.Printf("[%3d] (no tevBlock, skipped)\n", i)
+			continue
+		}
+		if s.origTex0 == 0x0000 {
+			fmt.Printf("[%3d] tev=0x%08X  texNo[0]=0x0000 already (skipped)\n", i, s.tevBlock)
+			continue
+		}
+		fmt.Printf("[%3d] tev=0x%08X  texNo[0] 0x%04X -> 0x0000\n",
+			i, s.tevBlock, s.origTex0)
+		d.WriteAbsolute(s.tevBlock+0x08, []byte{0x00, 0x00})
+		select {
+		case <-sigCh:
+			stopped = true
+		case <-time.After(time.Duration(secs) * time.Second):
+		}
+		d.WriteAbsolute(s.tevBlock+0x08, []byte{byte(s.origTex0 >> 8), byte(s.origTex0)})
+	}
+
+	// Final belt-and-suspenders: restore every material's original
+	// texNo[0] in case something got stuck mid-cycle.
+	for i := 0; i < count; i++ {
+		s := slots[i]
+		if s.tevBlock != 0 {
+			d.WriteAbsolute(s.tevBlock+0x08, []byte{byte(s.origTex0 >> 8), byte(s.origTex0)})
+		}
+	}
+	fmt.Println("Done. All materials restored to original texNo[0].")
 }
 
 func runCheck() {

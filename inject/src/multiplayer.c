@@ -425,6 +425,47 @@ void multiplayer_update(void) {
             // the destination for now because it's at least the same
             // heap Link.arc itself lives in. See docs/05 "Mini-Link
             // render pipeline" for the full investigation.
+
+            // Eye-fix (v0.1.4 attempt): force open-pupil texNo on Link's
+            // eye materials BEFORE creating mini-Link's private matpackets,
+            // so the baked material DLs capture a valid "eyes open" state.
+            // Without this, mini-Link's private DL bakes whatever texNo
+            // btp happened to have set at creation time — often a closed
+            // or mid-blink value that renders as "no pupils" on remote
+            // Links. Link #1 itself is unaffected because Link #1 reads
+            // the shared DL which btp patches live; only mini-Link's
+            // private DLs see the forced value. Restore immediately
+            // after create so Link #1's eyes keep blinking correctly.
+            //
+            // Material/texture mapping discovered 2026-04-22 via Go's
+            // tint-material diagnostic:
+            //   mat[1] stage 1 = left pupil
+            //   mat[4] stage 1 = right pupil
+            //   tex 0x0027 = open-pupil texture
+            //
+            // Layout offsets (zeldaret/tww commit 6aa7ba91):
+            //   J3DModelData + 0x58 = J3DMaterialTable
+            //     + 0x08 = J3DMaterial** (material pointer array)
+            //   J3DMaterial + 0x2C = J3DTevBlock*
+            //   J3DTevBlock + 0x08 + stage*2 = mTexNo[stage] (u16)
+            u32 matArrPtrEye = *(u32*)((u8*)mini_link_data + 0x58 + 0x08);
+            u16 saved_eye_tex[2] = {0, 0};
+            u16* eye_tex_ptrs[2] = {0, 0};
+            {
+                int eye_mat_idx[2] = {1, 4};
+                int em;
+                for (em = 0; em < 2; em++) {
+                    u32 matPtr = *(u32*)(matArrPtrEye + (u32)eye_mat_idx[em] * 4);
+                    if (!matPtr) continue;
+                    u32 tevBlock = *(u32*)(matPtr + 0x2C);
+                    if (!tevBlock) continue;
+                    u16* tex1 = (u16*)(tevBlock + 0x0A); // stage 1
+                    saved_eye_tex[em] = *tex1;
+                    eye_tex_ptrs[em] = tex1;
+                    *tex1 = 0x0027;
+                }
+            }
+
             JKRHeap* targetHeap = mDoExt_getArchiveHeap();
             JKRHeap* oldHeap = JKRHeap_becomeCurrentHeap(targetHeap);
             int li;
@@ -448,6 +489,19 @@ void multiplayer_update(void) {
                 if (mini_link_models[li]) created++;
             }
             JKRHeap_becomeCurrentHeap(oldHeap);
+
+            // Restore the eye texNos so Link #1's btp can keep blinking
+            // naturally. Our force-open write was ONLY for mini-Link's
+            // private-DL bake to capture "open pupils"; Link #1 reads the
+            // shared DL which btp still patches every frame.
+            {
+                int em;
+                for (em = 0; em < 2; em++) {
+                    if (eye_tex_ptrs[em]) {
+                        *eye_tex_ptrs[em] = saved_eye_tex[em];
+                    }
+                }
+            }
 
             if (!mini_link_models[0]) {
                 // Slot 0 is required for modes 0..4; without it nothing works.
@@ -942,6 +996,14 @@ int daPy_draw_hook(void* this_) {
             }
             mailbox->draw_progress = 37;
 
+            // [v0.1.4 eye-fix attempts reverted. TWO attempts both froze
+            // Dolphin once multiplayer engaged (pose_seqs[0] becomes
+            // non-zero). Neither j3dSys swap + entryIn (attempt 1) nor
+            // viewCalc + j3dSys swap + entryIn (attempt 2) worked. Full
+            // design + addresses documented in docs/06 item #9; next
+            // session targets differential-style attempts that don't
+            // touch j3dSys state (see roadmap).]
+
             // Mode 5 (multiplayer): slot 0 only submits once Go has
             // written at least one network pose, matching how slots 1+
             // are gated below. Without this, Link #2 would mirror
@@ -965,6 +1027,7 @@ int daPy_draw_hook(void* this_) {
                     }
                 }
             }
+
             mailbox->draw_progress = 38;
 
             mailbox->progress = 23;
