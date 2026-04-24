@@ -116,6 +116,22 @@ func Find(gameID string) (*Dolphin, error) {
 	return openByPID(pids[idx], gameID)
 }
 
+// FindByPID is the public entry point for opening a Dolphin process by
+// known PID. Used by mp-local (and other multi-instance flows) that
+// enumerate Dolphins upfront via ListPIDs and need to address each one
+// without relying on the WW_DOLPHIN_INDEX env var (which is process-wide
+// and can't differ between goroutines in one binary).
+func FindByPID(pid uint32, gameID string) (*Dolphin, error) {
+	return openByPID(pid, gameID)
+}
+
+// ListPIDs returns the PIDs of every running Dolphin process, sorted
+// ascending. Same ordering Find() uses for WW_DOLPHIN_INDEX, so
+// idx 0 → ListPIDs()[0], idx 1 → ListPIDs()[1], etc.
+func ListPIDs() ([]uint32, error) {
+	return findAllProcesses("Dolphin")
+}
+
 func openByPID(pid uint32, gameID string) (*Dolphin, error) {
 	handle, _, _ := procOpenProcess.Call(PROCESS_ALL_ACCESS, 0, uintptr(pid))
 	if handle == 0 {

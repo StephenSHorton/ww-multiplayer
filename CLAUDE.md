@@ -89,9 +89,18 @@ WW_SELF_NAME=<name>                         # puppet-sync filter for co-located 
 WW_POSE_RAW=1                               # Skip pose localization (debug)
 WW_LINK2_OFFSET_{X,Y,Z}                     # Loopback render offset
 
-# Local two-Dolphin harness
-scripts/dolphin2.sh [--reset]               # Boot a 2nd Dolphin instance against the patched ISO
-scripts/mplay2.sh                           # server + broadcast/puppet pairs for both Dolphins
+# Local two-Dolphin harness (v0.1.6+: Go-native, replaces the bash scripts)
+./ww-multiplayer.exe dolphin2 [--reset]     # Bootstrap & launch a 2nd Dolphin instance
+./ww-multiplayer.exe mp-local [A] [B]       # Server + 2x broadcast-pose + 2x puppet-sync (one process)
+# Env knobs honored by `dolphin2`:
+#   DOLPHIN_EXE   path to Dolphin.exe (default: C:\Users\4step\Desktop\Dolphin-x64\Dolphin.exe)
+#   ISO_PATH      path to patched ISO  (default: ...\Roms\WW_Multiplayer_Patched.iso)
+#   USER_DIR_1    primary Dolphin user dir (default: %APPDATA%\Dolphin Emulator)
+#   USER_DIR_2    second Dolphin user dir  (default: %APPDATA%\Dolphin Emulator 2)
+
+# Legacy bash scripts (kept for now; prefer the Go subcommands above)
+scripts/dolphin2.sh [--reset]               # Same as `ww-multiplayer.exe dolphin2`
+scripts/mplay2.sh                           # Same as `ww-multiplayer.exe mp-local`, but via 5 subprocesses
 ```
 
 ## Build pipeline (C side → ww-multiplayer.exe)
@@ -138,3 +147,4 @@ The old C# Windwaker-coop (progress sync only) lives at `C:\Users\4step\Desktop\
 
 - Memory tests require Dolphin running with Wind Waker (GZLE01) loaded from a save file.
 - Don't claim a test succeeded based only on memory reads — verify observable in-game effects (rupee count change, Link movement, etc.) since the dual-mapping issue can mask failures.
+- **Two-Dolphin loop**: `./ww-multiplayer.exe dolphin2` to boot the second instance, then `./ww-multiplayer.exe mp-local` once both games have loaded a save. Single Ctrl+C tears the whole demo down and resets `shadow_mode` on both Dolphins, so it's safe to iterate quickly.

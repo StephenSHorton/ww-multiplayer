@@ -34,6 +34,18 @@ import (
 // release.yml passes the git tag (e.g. "v0.1.5"); local builds keep "dev".
 var version = "dev"
 
+// openDolphin is the multiplexer between env-driven Find() (CLI flows
+// that respect WW_DOLPHIN_INDEX / WW_DOLPHIN_PID) and explicit-PID
+// FindByPID (mp-local, which enumerates both Dolphins upfront so two
+// in-process goroutines can address different instances without the
+// env-var collision).
+func openDolphin(pid uint32) (*dolphin.Dolphin, error) {
+	if pid == 0 {
+		return dolphin.Find("GZLE01")
+	}
+	return dolphin.FindByPID(pid, "GZLE01")
+}
+
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -252,6 +264,23 @@ func main() {
 				}
 			}
 			runDisasm(addr, count)
+		case "dolphin2":
+			reset := false
+			for _, a := range os.Args[2:] {
+				if a == "--reset" {
+					reset = true
+				}
+			}
+			runDolphin2(reset)
+		case "mp-local":
+			nameA, nameB := "PlayerA", "PlayerB"
+			if len(os.Args) > 2 {
+				nameA = os.Args[2]
+			}
+			if len(os.Args) > 3 {
+				nameB = os.Args[3]
+			}
+			runMpLocal(nameA, nameB)
 		case "help":
 			printHelp()
 		default:
@@ -291,7 +320,11 @@ func printHelp() {
 	fmt.Println("  ww-multiplayer.exe patch <vanilla.iso|.ciso> [out.iso]")
 	fmt.Println("    Splice the multiplayer mod into your own legitimate copy of Wind Waker (GZLE01)")
 	fmt.Println()
-	fmt.Println("Lower-level CLIs (used by scripts/mplay2.sh):")
+	fmt.Println("Local two-Dolphin testing (everything in-process):")
+	fmt.Printf(col, "ww-multiplayer.exe dolphin2 [--reset]", "Bootstrap & launch a 2nd Dolphin instance")
+	fmt.Printf(col, "ww-multiplayer.exe mp-local [nameA] [nameB]", "Run server + broadcast/puppet pairs for both Dolphins")
+	fmt.Println()
+	fmt.Println("Lower-level CLIs:")
 	fmt.Printf(col, "ww-multiplayer.exe server", "Start headless server on :25565")
 	fmt.Printf(col, "ww-multiplayer.exe broadcast-pose [name] [addr]", "Stream local Link pose+pos to server")
 	fmt.Printf(col, "ww-multiplayer.exe puppet-sync [name] [addr]", "Receive remotes; render as Link #2 / actor puppets")
@@ -895,7 +928,7 @@ func runBroadcastPose(name, addr string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	if err := runBroadcastPoseCtx(ctx, name, addr, rep); err != nil {
+	if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep); err != nil {
 		rep.Log(report.Err, err.Error())
 		os.Exit(1)
 	}
@@ -904,9 +937,9 @@ func runBroadcastPose(name, addr string) {
 // runBroadcastPoseCtx is the goroutine-friendly variant. Returns an error
 // instead of os.Exit so host/join can surface failures cleanly, and honors
 // ctx cancellation so SIGINT doesn't have to wait for the next 50 ms tick.
-func runBroadcastPoseCtx(ctx context.Context, name, addr string, rep report.Reporter) error {
+func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint32, rep report.Reporter) error {
 	report.Logf(rep, report.Info, "=== Broadcast Link + Pose: %s -> %s ===", name, addr)
-	d, err := dolphin.Find("GZLE01")
+	d, err := openDolphin(dolphinPID)
 	if err != nil {
 		return err
 	}
@@ -1193,7 +1226,7 @@ func runPuppetSync(name, addr string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"), rep)
+	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"), 0, rep)
 	clearMultiplayerState()
 	if err != nil {
 		rep.Log(report.Err, err.Error())
@@ -1204,10 +1237,10 @@ func runPuppetSync(name, addr string) {
 // runPuppetSyncCtx is the goroutine-friendly variant. Takes the self-filter
 // name as a parameter (rather than reading WW_SELF_NAME) so host/join can
 // plumb the player's name through without exporting an env var.
-func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, rep report.Reporter) error {
+func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphinPID uint32, rep report.Reporter) error {
 	report.Logf(rep, report.Info, "=== Puppet Sync: %s <- %s ===", name, addr)
 
-	d, err := dolphin.Find("GZLE01")
+	d, err := openDolphin(dolphinPID)
 	if err != nil {
 		return err
 	}
@@ -2712,14 +2745,14 @@ func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, na
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		if err := runBroadcastPoseCtx(ctx, name, addr, rep); err != nil {
+		if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep); err != nil {
 			report.Logf(rep, report.Err, "broadcast-pose: %v", err)
 		}
 	}()
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		if err := runPuppetSyncCtx(ctx, name, addr, name, rep); err != nil {
+		if err := runPuppetSyncCtx(ctx, name, addr, name, 0, rep); err != nil {
 			report.Logf(rep, report.Err, "puppet-sync: %v", err)
 		}
 	}()
