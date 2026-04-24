@@ -34,8 +34,10 @@ ww-multiplayer/
 │   │   ├── protocol.go
 │   │   ├── server.go
 │   │   └── client.go
-│   └── tui/                     # Charm Bubble Tea UI
-│       ├── app.go, splash.go, connect.go, dashboard.go, styles.go
+│   ├── report/                  # Reporter interface (Stdout / Discard / TUI impls)
+│   │   └── report.go
+│   └── tui/                     # Charm Bubble Tea UI (resurrected v0.1.5)
+│       ├── app.go, splash.go, connect.go, dashboard.go, session.go, styles.go
 ├── inject/                      # C source for the injected PPC code
 │   ├── src/multiplayer.c        # The mod's C side
 │   ├── include/{game,mailbox}.h

@@ -26,7 +26,13 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
+	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/internal/tui"
 )
+
+// version is overridden at build time by `go build -ldflags "-X main.version=..."`.
+// release.yml passes the git tag (e.g. "v0.1.5"); local builds keep "dev".
+var version = "dev"
 
 func main() {
 	if len(os.Args) > 1 {
@@ -256,18 +262,21 @@ func main() {
 		return
 	}
 
-	// No subcommand — print help. The old v0.0 Bubble Tea TUI was removed
-	// in v0.1.2; it predated the pose-feed protocol and silently didn't
-	// engage the rendering pipeline, which had new users thinking the tool
-	// was broken. `ww-multiplayer.exe host` / `ww-multiplayer.exe join` are
-	// the real entry points.
-	printHelp()
-	// Windows double-click spawns a fresh console that closes the instant
-	// the program returns, hiding the help text. Pause so that path is
-	// readable; terminal users just hit Enter.
-	fmt.Println()
-	fmt.Print("Press Enter to exit...")
-	bufio.NewReader(os.Stdin).ReadString('\n')
+	// No subcommand — launch the TUI. v0.0's Bubble Tea TUI was retired
+	// in v0.1.2 (a35d4ec) because it never wired the connect screen to
+	// the actual pose-feed pipeline, so multiplayer silently didn't
+	// engage. v0.1.5 brings it back with the dashboard driving the same
+	// runHostSession / runJoinSession funcs the CLI subcommands run, and
+	// every Reporter log line surfacing in the dashboard's log panel.
+	if err := tui.Run(version, tui.Hooks{
+		HostSession: runHostSession,
+		JoinSession: runJoinSession,
+	}); err != nil {
+		fmt.Println(err)
+		fmt.Print("Press Enter to exit...")
+		bufio.NewReader(os.Stdin).ReadString('\n')
+		os.Exit(1)
+	}
 }
 
 func printHelp() {
@@ -883,10 +892,11 @@ func applyPoseAt(buf []byte, joints int, tx, ty, tz float32) {
 // shadow_mode so there's nothing to clean up — the signal handler just
 // gets us out of the 50ms sleep immediately instead of on the next tick).
 func runBroadcastPose(name, addr string) {
-	ctx, cancel := multiplayerContext()
+	rep := report.Stdout{}
+	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	if err := runBroadcastPoseCtx(ctx, name, addr); err != nil {
-		fmt.Printf("ERROR: %v\n", err)
+	if err := runBroadcastPoseCtx(ctx, name, addr, rep); err != nil {
+		rep.Log(report.Err, err.Error())
 		os.Exit(1)
 	}
 }
@@ -894,15 +904,15 @@ func runBroadcastPose(name, addr string) {
 // runBroadcastPoseCtx is the goroutine-friendly variant. Returns an error
 // instead of os.Exit so host/join can surface failures cleanly, and honors
 // ctx cancellation so SIGINT doesn't have to wait for the next 50 ms tick.
-func runBroadcastPoseCtx(ctx context.Context, name, addr string) error {
-	fmt.Printf("=== Broadcast Link + Pose: %s -> %s ===\n\n", name, addr)
+func runBroadcastPoseCtx(ctx context.Context, name, addr string, rep report.Reporter) error {
+	report.Logf(rep, report.Info, "=== Broadcast Link + Pose: %s -> %s ===", name, addr)
 	d, err := dolphin.Find("GZLE01")
 	if err != nil {
 		return err
 	}
 	defer d.Close()
 	client := network.NewClient(name)
-	client.OnLog = func(msg string) { fmt.Printf("[net] %s\n", msg) }
+	client.OnLog = func(msg string) { rep.Log(report.Net, msg) }
 	if err := client.Connect(addr); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -977,17 +987,11 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string) error {
 
 		// pos can be nil during a brief reload window where Link's
 		// actor pointer is 0 (player on the main menu / save loading).
-		// Without this guard the Printf below dereferences nil and
-		// crashes broadcast-pose, which drops the TCP connection and
-		// leaves the receiving Dolphin's puppet frozen at the last
-		// pose it ever received. Just print a sentinel and keep
-		// looping; once Link reappears we resume sending.
-		if pos != nil {
-			fmt.Printf("  link+pose -> X:%10.1f Y:%8.1f Z:%10.1f\r",
-				pos.PosX, pos.PosY, pos.PosZ)
-		} else {
-			fmt.Printf("  link+pose -> [no link — reload in progress?]   \r")
-		}
+		// We used to print a per-tick `link+pose -> X:Y:Z\r` heartbeat
+		// here; the TUI dashboard now polls Dolphin position directly
+		// for that field, so the heartbeat just spammed the log panel.
+		// CLI users still see the [net] connect line as proof of life.
+
 		// 50 ms = 20 Hz. ~40 KB/s of pose data — trivial for LAN.
 		select {
 		case <-ctx.Done():
@@ -996,7 +1000,7 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string) error {
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
-	fmt.Println("\nDisconnected.")
+	rep.Log(report.Info, "Disconnected.")
 	return nil
 }
 
@@ -1186,12 +1190,13 @@ func runUnhidePuppet() {
 // the mailbox (shadow_mode=0 + pose_seqs[*]=0) instead of leaving Link #2
 // frozen at the last received pose.
 func runPuppetSync(name, addr string) {
-	ctx, cancel := multiplayerContext()
+	rep := report.Stdout{}
+	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"))
+	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"), rep)
 	clearMultiplayerState()
 	if err != nil {
-		fmt.Printf("ERROR: %v\n", err)
+		rep.Log(report.Err, err.Error())
 		os.Exit(1)
 	}
 }
@@ -1199,19 +1204,19 @@ func runPuppetSync(name, addr string) {
 // runPuppetSyncCtx is the goroutine-friendly variant. Takes the self-filter
 // name as a parameter (rather than reading WW_SELF_NAME) so host/join can
 // plumb the player's name through without exporting an env var.
-func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error {
-	fmt.Printf("=== Puppet Sync: %s <- %s ===\n\n", name, addr)
+func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, rep report.Reporter) error {
+	report.Logf(rep, report.Info, "=== Puppet Sync: %s <- %s ===", name, addr)
 
 	d, err := dolphin.Find("GZLE01")
 	if err != nil {
 		return err
 	}
 	defer d.Close()
-	fmt.Println("Dolphin found.")
+	rep.Log(report.OK, "Dolphin found.")
 
 	client := network.NewClient(name)
 	client.OnLog = func(msg string) {
-		fmt.Printf("[net] %s\n", msg)
+		rep.Log(report.Net, msg)
 	}
 	if err := client.Connect(addr); err != nil {
 		return fmt.Errorf("connect: %w", err)
@@ -1258,7 +1263,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error 
 	link2OffsetY := envFloat32("WW_LINK2_OFFSET_Y", 0)
 	link2OffsetZ := envFloat32("WW_LINK2_OFFSET_Z", 0)
 	if link2OffsetX != 0 || link2OffsetY != 0 || link2OffsetZ != 0 {
-		fmt.Printf("Link #2/3 render offset: (%.0f, %.0f, %.0f)\n",
+		report.Logf(rep, report.Info, "Link #2/3 render offset: (%.0f, %.0f, %.0f)",
 			link2OffsetX, link2OffsetY, link2OffsetZ)
 	}
 	armPoseSlot := func(slot int) bool {
@@ -1277,9 +1282,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error 
 			if ptr != 0 {
 				if poseBufPtrs[slot] != ptr {
 					if poseBufPtrs[slot] == 0 {
-						fmt.Printf("\npose-feed slot %d armed: pose_buf=0x%08X\n", slot, ptr)
+						report.Logf(rep, report.OK, "pose-feed slot %d armed: pose_buf=0x%08X", slot, ptr)
 					} else {
-						fmt.Printf("\npose-feed slot %d re-armed: pose_buf=0x%08X (was 0x%08X)\n",
+						report.Logf(rep, report.OK, "pose-feed slot %d re-armed: pose_buf=0x%08X (was 0x%08X)",
 							slot, ptr, poseBufPtrs[slot])
 					}
 					poseBufPtrs[slot] = ptr
@@ -1292,7 +1297,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error 
 		// write to a stale address while waiting, then drive shadow_mode=5
 		// and poll for the new pose_buf.
 		if poseBufPtrs[slot] != 0 {
-			fmt.Printf("\npose-feed slot %d disarmed: waiting for C-side re-alloc\n", slot)
+			report.Logf(rep, report.Warn, "pose-feed slot %d disarmed: waiting for C-side re-alloc", slot)
 			poseBufPtrs[slot] = 0
 		}
 		if !shadowModeArmed {
@@ -1310,12 +1315,12 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error 
 				ptr, _ := d.ReadU32(mailboxBase + mailboxPoseBufPtr(slot))
 				if ptr != 0 {
 					poseBufPtrs[slot] = ptr
-					fmt.Printf("\npose-feed slot %d armed: pose_buf=0x%08X\n", slot, ptr)
+					report.Logf(rep, report.OK, "pose-feed slot %d armed: pose_buf=0x%08X", slot, ptr)
 					return true
 				}
 			}
 			if len(state) == 1 && (state[0] == 0xFD || state[0] == 0xFE) {
-				fmt.Printf("\npose-feed slot %d alloc failed (state=0x%02X)\n", slot, state[0])
+				report.Logf(rep, report.Err, "pose-feed slot %d alloc failed (state=0x%02X)", slot, state[0])
 				return false
 			}
 		}
@@ -1360,7 +1365,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error 
 	// WW_SELF_NAME into this arg; `ww-multiplayer.exe host/join` pass the player name
 	// so users never have to know the env var exists.
 	if selfFilter != "" {
-		fmt.Printf("Filtering self-echo: remotes named %q will be ignored.\n", selfFilter)
+		report.Logf(rep, report.Info, "Filtering self-echo: remotes named %q will be ignored.", selfFilter)
 	}
 
 	for client.IsConnected() {
@@ -1404,7 +1409,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error 
 				// position), so the duplicate sticks around forever.
 				if !hasPose {
 					d.WriteAbsolute(slotAddr(idx, slotOffAct), one)
-					fmt.Printf("\nslot %d := player %d (%s)\n", idx, rp.ID, rp.Name)
+					report.Logf(rep, report.OK, "slot %d := player %d (%s)", idx, rp.ID, rp.Name)
 				}
 			}
 
@@ -1448,7 +1453,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error 
 					// a Link AND a KAMOME at the same position.
 					d.WriteAbsolute(slotAddr(idx, slotOffAct), zero)
 					if _, alreadyLogged := announced[rp.ID]; !alreadyLogged {
-						fmt.Printf("link slot %d := player %d (%s)\n", linkSlot, rp.ID, rp.Name)
+						report.Logf(rep, report.OK, "link slot %d := player %d (%s)", linkSlot, rp.ID, rp.Name)
 						announced[rp.ID] = true
 					}
 					adjusted := make([]byte, len(rp.PoseMatrices))
@@ -1474,7 +1479,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error 
 				d.WriteAbsolute(slotAddr(idx, slotOffAct), zero)
 				delete(remoteToSlot, id)
 				slots[idx] = slotState{}
-				fmt.Printf("\nslot %d freed (player %d left)\n", idx, id)
+				report.Logf(rep, report.Info, "slot %d freed (player %d left)", idx, id)
 				if linkSlot, ok := remoteToLinkSlot[id]; ok {
 					delete(remoteToLinkSlot, id)
 					// Clear pose_seq so the C-side stops rendering this
@@ -1484,7 +1489,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error 
 					// at the last received pose forever after the
 					// remote disconnects.
 					d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{0})
-					fmt.Printf("link slot %d freed (will be reassigned on next pose)\n", linkSlot)
+					report.Logf(rep, report.Info, "link slot %d freed (will be reassigned on next pose)", linkSlot)
 				}
 				delete(announced, id)
 			}
@@ -1497,7 +1502,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string) error 
 		case <-time.After(16 * time.Millisecond): // ~60 Hz
 		}
 	}
-	fmt.Println("\nDisconnected.")
+	rep.Log(report.Info, "Disconnected.")
 	return nil
 }
 
@@ -2606,42 +2611,60 @@ func runFakeClient(name, addr string, centerX, centerZ float32) {
 // the patched ISO's mailbox so the next Dolphin frame doesn't keep rendering
 // a stale Link #2.
 func runHost(name string) {
+	rep := report.Stdout{}
+	ctx, cancel := cliMultiplayerContext(rep)
+	defer cancel()
+	if err := runHostSession(ctx, cancel, name, rep); err != nil {
+		rep.Log(report.Err, err.Error())
+		os.Exit(1)
+	}
+}
+
+// runHostSession contains the actual host flow without any signal-handler
+// or os.Exit assumptions, so the TUI can drive it from inside its own
+// context without fighting Bubble Tea's Ctrl+C handling.
+func runHostSession(ctx context.Context, cancel context.CancelFunc, name string, rep report.Reporter) error {
 	if name == "" {
 		name = "Host"
 	}
-	ctx, cancel := multiplayerContext()
-	defer cancel()
-
 	srv := network.NewServer(25565)
 	srv.OnLog = func(msg string) {
-		fmt.Printf("[srv %s] %s\n", time.Now().Format("15:04:05"), msg)
+		rep.Log(report.Info, fmt.Sprintf("[srv %s] %s", time.Now().Format("15:04:05"), msg))
 	}
 	if err := srv.Start(); err != nil {
-		fmt.Printf("server start: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("server start: %w", err)
 	}
 
-	fmt.Printf("Hosting as %q on :25565.\n", name)
+	report.Logf(rep, report.OK, "Hosting as %q on :25565.", name)
 	if ips := listHostIPs(); len(ips) > 0 {
-		fmt.Println("Share one of these IPs with your friend:")
+		rep.Log(report.Info, "Share one of these IPs with your friend:")
 		for _, ip := range ips {
-			fmt.Printf("  %s\n", ip)
+			report.Logf(rep, report.Info, "  %s", ip)
 		}
 	} else {
-		fmt.Println("(could not auto-detect a LAN IP — check your network settings)")
+		rep.Log(report.Warn, "(could not auto-detect a LAN IP — check your network settings)")
 	}
-	fmt.Println("Ctrl+C to stop.")
+	rep.Log(report.Info, "Ctrl+C to stop.")
 
-	runMultiplayerGoroutines(ctx, cancel, name, "localhost:25565")
+	runMultiplayerGoroutines(ctx, cancel, name, "localhost:25565", rep)
 
 	srv.Stop()
 	clearMultiplayerState()
+	return nil
 }
 
 // runJoin is the single-process joiner entry point: just broadcast-pose +
 // puppet-sync goroutines pointed at the host's :25565. Same signal handling
 // and mailbox cleanup as runHost.
 func runJoin(addr, name string) {
+	rep := report.Stdout{}
+	ctx, cancel := cliMultiplayerContext(rep)
+	defer cancel()
+	runJoinSession(ctx, cancel, addr, name, rep)
+}
+
+// runJoinSession is the signal-free, exit-free version that the TUI calls.
+func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter) {
 	if name == "" {
 		name = "Player"
 	}
@@ -2649,28 +2672,27 @@ func runJoin(addr, name string) {
 	if !strings.Contains(addr, ":") {
 		addr = addr + ":25565"
 	}
-	ctx, cancel := multiplayerContext()
-	defer cancel()
 
-	fmt.Printf("Joining %s as %q.\n", addr, name)
-	fmt.Println("Ctrl+C to stop.")
+	report.Logf(rep, report.OK, "Joining %s as %q.", addr, name)
+	rep.Log(report.Info, "Ctrl+C to stop.")
 
-	runMultiplayerGoroutines(ctx, cancel, name, addr)
+	runMultiplayerGoroutines(ctx, cancel, name, addr, rep)
 
 	clearMultiplayerState()
 }
 
-// multiplayerContext returns a cancellable context wired to SIGINT/SIGTERM.
-// The returned cancel() is safe to call multiple times; callers should defer
-// it in addition to the signal handler firing.
-func multiplayerContext() (context.Context, context.CancelFunc) {
+// cliMultiplayerContext returns a cancellable context wired to SIGINT/SIGTERM.
+// Only the CLI entry points should use this — the TUI installs its own
+// Ctrl+C handling via Bubble Tea's KeyMsg, and a competing signal.Notify
+// would race with it.
+func cliMultiplayerContext(rep report.Reporter) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		select {
 		case <-sigCh:
-			fmt.Println("\nShutting down...")
+			rep.Log(report.Info, "Shutting down...")
 			cancel()
 		case <-ctx.Done():
 		}
@@ -2684,21 +2706,21 @@ func multiplayerContext() (context.Context, context.CancelFunc) {
 // twin (the WW_SELF_NAME workaround from mplay2.sh, but automatic). Blocks
 // until either goroutine exits or ctx is cancelled, then waits for both to
 // finish before returning.
-func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string) {
+func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		if err := runBroadcastPoseCtx(ctx, name, addr); err != nil {
-			fmt.Printf("broadcast-pose: %v\n", err)
+		if err := runBroadcastPoseCtx(ctx, name, addr, rep); err != nil {
+			report.Logf(rep, report.Err, "broadcast-pose: %v", err)
 		}
 	}()
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		if err := runPuppetSyncCtx(ctx, name, addr, name); err != nil {
-			fmt.Printf("puppet-sync: %v\n", err)
+		if err := runPuppetSyncCtx(ctx, name, addr, name, rep); err != nil {
+			report.Logf(rep, report.Err, "puppet-sync: %v", err)
 		}
 	}()
 
