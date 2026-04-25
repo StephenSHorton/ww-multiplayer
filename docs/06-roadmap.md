@@ -620,23 +620,72 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    mouth won't animate without recipe A (install a `J3DAnmTexPattern`
    player on mini-Link's material anm slots). That's a separate
    sub-project.
-   **Next session directions** (unblocked by this session's data,
-   pick one):
-   - (1) Full-j3dSys save/restore around the three-pass (save all
-     0x128 bytes of `j3dSys`, not just the 3 fields we tried), in
-     case something else downstream needs the old state.
-   - (2) Reversed order: run `mDoExt_modelEntryDL` first (lets the
-     game run its entry+lock+viewCalc on mini-Link normally), THEN
-     do the three-pass afterward. Violates Link #1's P0→P1 ordering
-     but might at least not crash.
-   - (3) Minimal entryIn-only probe: two `entryIn` calls on mini-
-     Link's cl_eye/cl_mayu joints, no packet entryImm, no draw-
-     buffer swap. Diagnoses whether `entryIn` is the freeze source
-     or whether our packet/buffer manipulation is.
-   - (4) Dolphin breakpoint debugging: run under Dolphin's CPU
-     debugger, set breakpoint at the PPC address where the freeze
-     occurs, get the actual crash PC + register state. No more
-     guessing from behavior alone. Probably the highest-ROI move.
+   **Attempt 4 (2026-04-25 session) — recipe replicated stepwise,
+   stuck on a different blocker.** Full recipe + diagnostic toolkit
+   shipped behind a `mailbox.eye_fix_step` byte (0..8 cumulative,
+   0 = off / baseline behavior so commit is safe). Findings:
+   - `mDoExt_offCupOnAupPacket` / `mDoExt_onCupOffAupPacket` are
+     **singletons**: re-entering an already-entered static packet
+     forms a chain cycle. The packet was at the original tail of
+     Link #1's recipe chain (`mpNextPacket = NULL`), and another
+     matpacket entered after it had `mpNextPacket = packet2`. Our
+     re-entry overwrote `packet2.mpNextPacket = packet1_offCupOn`
+     (current head), so walking the chain from the head reaches the
+     other matpacket → `packet2_onCupOff` → `packet1_offCupOn` (head)
+     → infinite loop. **Fix:** allocate 4 own-copy J3DPacket-shaped
+     objects in our blob with the vtable pointer copied from each
+     `l_*Packet1/2` static. Independent `mpNextPacket` field, no
+     cycle. Cycles confirmed — game freeze on entryOpa-only step
+     when using shared statics, clean when using own copies.
+   - With own packets: steps 1, 2, 3 are all clean. Step 4 (adds
+     `entryIn(cl_eye, cl_mayu)`) brings back the same face/hair-
+     invisible-on-Link-#1 symptom we saw in attempts A/B. Steps
+     5-8 don't fix it; reverting to step 0 immediately recovers,
+     so it's per-frame state, not persistent.
+   - Probed face + hair shape `mFlags` at step 4 — both are 0 (HIDE
+     bit clear). So it's NOT shape-vis state being mutated.
+   - Walked `opa_p0` bucket[0] chain via `mpNextPacket` at step 0
+     baseline AND step 4 broken state (new `eye-fix-chain` Go
+     subcommand). Face shape `0x8153D450` and hair shape `0x8153D0D8`
+     **don't appear in either chain** — even at baseline where they
+     visibly render. Either the J3DDrawPacket→J3DShapePacket field-
+     offset reading is off (J3DPacket.h shows `mpShape @ +0x24` but
+     that overlaps with J3DDrawPacket's `mpDisplayListObj @ +0x20`,
+     which is suspicious), or face/hair render via a draw buffer we
+     haven't dumped. Possible candidates: `mpOpaList` (the default
+     OPA list, distinct from `mpOpaListP0/P1`), `mpOpaListSky`,
+     `mpOpaListBG`, etc. — all stored sequentially around
+     `0x803CA8xx`.
+   **Diagnostic infrastructure shipped in this session** (kept as
+   investigation tools):
+   - `./ww-multiplayer.exe eye-fix-step <0..8>` — write the gate.
+   - `./ww-multiplayer.exe eye-fix-probe` — walk J3DModelData→joint→mtl
+     chain and print each link_root mtl's shape mFlags.
+   - `./ww-multiplayer.exe eye-fix-chain` — dump opa_p0 bucket[0]
+     chain via mpNextPacket walk. `WW_DRAWLIST_PTR=<addr>` overrides
+     the drawlist field address (use `0x803CA930` for opa_p1, etc.).
+   **Next session directions:**
+   - (1) Sweep all the OTHER J3DDrawBuffer instances around
+     `0x803CA8xx-0x803CA9xx` looking for face/hair shapes. Once we
+     find which buffer they're in, we know the actual submission
+     path Link #1 uses, and our run_eye_fix can be aimed at the
+     right place.
+   - (2) Verify J3DShapePacket layout by reading the constructor's
+     instructions at `0x802DB524` — figure out the actual offset
+     of `mpShape` (the source comment may be off-by-one or the field
+     might be at a non-obvious location due to multiple-inheritance
+     padding rules).
+   - (3) Dolphin CPU debugger route — set a breakpoint at
+     `mDoExt_modelEntryDL` (`0x8000F974`) entry and step through to
+     see which buffer face/hair end up in. Same for the post-mDoExt
+     restore loop in `daPy_lk_c::draw` to see the exact GX command
+     flow. Highest-ROI move per the previous session's note.
+   - (4) Skip-the-recipe approach — instead of replicating the
+     four-pass, COPY mini_link's instance-private mpDrawMtx into
+     Link #1's matpacket's shape packet so Link #1's recipe naturally
+     includes mini_link's eye decals at mini_link's pose. Risky
+     because it modifies Link #1's render but might be tractable
+     during the brief window between Link's draw and the flush.
 10. **Leverage existing Dolphin cheats for test setup.** Manual test
     setup eats time getting Link into a state where multiplayer
     features are exercisable (sailing for ocean tests, specific items
