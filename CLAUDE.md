@@ -147,4 +147,12 @@ The old C# Windwaker-coop (progress sync only) lives at `C:\Users\4step\Desktop\
 
 - Memory tests require Dolphin running with Wind Waker (GZLE01) loaded from a save file.
 - Don't claim a test succeeded based only on memory reads — verify observable in-game effects (rupee count change, Link movement, etc.) since the dual-mapping issue can mask failures.
-- **Two-Dolphin loop**: `./ww-multiplayer.exe dolphin2` to boot the second instance, then `./ww-multiplayer.exe mp-local` once both games have loaded a save. Single Ctrl+C tears the whole demo down and resets `shadow_mode` on both Dolphins, so it's safe to iterate quickly.
+- **Two-Dolphin loop (default test pattern)**:
+  ```
+  SAVE_STATE=$(pwd)/saves/start.sav ./ww-multiplayer.exe dolphin2
+  ./ww-multiplayer.exe mp-local
+  ```
+  Both Dolphins boot directly to the saved spot, mp-local's readiness gate detects them, and Dolphin B's Link gets warped by (+50, 0, +50) so the two players don't visually overlap. Single Ctrl+C tears everything down and resets `shadow_mode` on both Dolphins, so iteration is fast. Override the offset via `MP_LOCAL_SHIFT_X/Y/Z` env, or set all three to 0 to disable.
+- **Save state ↔ C-blob coupling**: Dolphin save states snapshot the entire PPC RAM, including our injected mod blob at `0x80410000+`. Any change to `inject/src/multiplayer.c` or `inject/include/mailbox.h` (which triggers a blob regen) invalidates `saves/start.sav` — loading the old state restores the OLD blob over the freshly-patched ISO's new code. After a C-side change: kill Dolphins, boot fresh (`./ww-multiplayer.exe dolphin2` with no `SAVE_STATE`), have the user navigate menus once, Shift+F1 to capture a new state, then `cp` it from `<USER_DIR>/StateSaves/GZLE01.s01` to `saves/start.sav`. Pure Go-side changes don't invalidate the save state.
+- **Diagnostic toolkit** (`find-pos`, `scan-pos`, `peek`, `poke-vec3`, `track-pos`, `warp`, `warp-force[-off]`) is available for memory probing when something doesn't behave as expected. See main.go's switch table; not in `printHelp` to keep the user-facing help clean.
+- Don't claim a test succeeded based only on memory reads — verify observable in-game effects (Link visibly moves, rupee count changes, etc.). The dual-mapping issue can mask failures.
