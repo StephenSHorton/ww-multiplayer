@@ -298,6 +298,8 @@ func main() {
 			runEyeFixProbe()
 		case "eye-fix-chain":
 			runEyeFixChain()
+		case "eye-fix-find-shape":
+			runEyeFixFindShape()
 		case "eye-fix-step":
 			if len(os.Args) < 3 {
 				fmt.Println("Usage: ww-multiplayer.exe eye-fix-step <0..8>")
@@ -1971,6 +1973,277 @@ func runEyeFixChain() {
 	}
 	if cur == 0 {
 		fmt.Println("--- chain terminates at NULL ---")
+	}
+}
+
+// runEyeFixFindShape exhaustively searches every bucket of opa_p0, opa_p1,
+// xlu_p1 (the three known dDlst_list_c drawlists) for the face (mtl 2) and
+// hair (mtl 5) shape pointer values. For each non-empty bucket it walks the
+// chain via mpNextPacket@+0x04, and for each packet scans the first 0x40
+// bytes for the target shape addresses. Prints which drawlist + bucket index
+// + packet address + byte-offset-within-packet contains face/hair, plus a
+// hex dump of every matching packet so we can confirm matpacket layout.
+//
+// Also dumps each J3DDrawBuffer's first 0x40 bytes so the layout (mpBuf
+// offset, NumBuckets) can be cross-checked. Honors WW_NUM_BUCKETS to
+// override the bucket count to walk (default 256).
+//
+// Background: eye-fix-chain only walks bucket[0] of opa_p0 and assumes
+// matpacket+0x2C → shapepacket+0x24 → shape. That dump didn't show face
+// or hair even at baseline (where they visibly render), so either the
+// offsets are wrong or face/hair are in different buckets/lists. This
+// command bypasses both assumptions by scanning packet bytes directly.
+func runEyeFixFindShape() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	// Resolve face + hair shape addrs via mailbox.dbg_model_data.
+	modelData, err := d.ReadU32(mailboxBase + 0x94)
+	if err != nil || modelData == 0 {
+		fmt.Printf("dbg_model_data not published (got 0x%08X, err=%v)\n", modelData, err)
+		os.Exit(1)
+	}
+	jointArr, err := d.ReadU32(modelData + 0x2C)
+	if err != nil || jointArr == 0 {
+		fmt.Printf("joint array NULL: %v\n", err)
+		os.Exit(1)
+	}
+	linkRoot, err := d.ReadU32(jointArr)
+	if err != nil || linkRoot == 0 {
+		fmt.Printf("link_root NULL: %v\n", err)
+		os.Exit(1)
+	}
+	mtl, err := d.ReadU32(linkRoot + 0x60)
+	if err != nil || mtl == 0 {
+		fmt.Printf("link_root mMesh NULL: %v\n", err)
+		os.Exit(1)
+	}
+	var faceShape, hairShape uint32
+	for i := 0; i < 16 && mtl != 0; i++ {
+		s, _ := d.ReadU32(mtl + 0x08)
+		if i == 2 {
+			faceShape = s
+		} else if i == 5 {
+			hairShape = s
+		}
+		mtl, _ = d.ReadU32(mtl + 0x04)
+	}
+	fmt.Printf("Targets: faceShape=0x%08X  hairShape=0x%08X\n\n", faceShape, hairShape)
+
+	numBuckets := 256
+	if env := os.Getenv("WW_NUM_BUCKETS"); env != "" {
+		if v, err := strconv.Atoi(env); err == nil && v > 0 {
+			numBuckets = v
+		}
+	}
+
+	// Sweep the dComIfGd_drawlist region for every u32 that looks like a
+	// J3DDrawBuffer pointer. We know opa_p0 / opa_p1 / xlu_p1 live at
+	// 0x803CA92C / 0x930 / 0x934, and the buffers themselves sit in a heap
+	// allocation around 0x8068B8E0 (the live snapshot from this build), so
+	// scan ±0x100 around the 3 known drawlist fields and accept any u32
+	// pointer that falls inside MEM1 (0x80000000..0x817FFFFF).
+	type drawlist struct {
+		name    string
+		fieldAt uint32
+		bufPtr  uint32
+	}
+	knownNames := map[uint32]string{
+		0x803CA92C: "opa_p0",
+		0x803CA930: "opa_p1",
+		0x803CA934: "xlu_p1",
+	}
+	scanLo, scanHi := uint32(0x803CA820), uint32(0x803CAA20)
+	scanBuf, err := d.ReadAbsolute(scanLo, int(scanHi-scanLo))
+	if err != nil {
+		fmt.Printf("drawlist scan failed: %v\n", err)
+		os.Exit(1)
+	}
+	var lists []drawlist
+	for o := 0; o+4 <= len(scanBuf); o += 4 {
+		v := binary.BigEndian.Uint32(scanBuf[o : o+4])
+		if v < 0x80000000 || v >= 0x81800000 {
+			continue
+		}
+		fieldAt := scanLo + uint32(o)
+		name, ok := knownNames[fieldAt]
+		if !ok {
+			name = fmt.Sprintf("dl@0x%08X", fieldAt)
+		}
+		lists = append(lists, drawlist{name, fieldAt, v})
+	}
+	fmt.Printf("Scanned 0x%08X..0x%08X for drawlist fields: found %d MEM1-pointer candidates\n",
+		scanLo, scanHi, len(lists))
+	fmt.Println()
+
+	// Dedupe: multiple drawlist fields can point to the same J3DDrawBuffer
+	// (or the same memory region). Walk each unique bufPtr exactly once.
+	seenBuf := map[uint32]bool{}
+	for _, dl := range lists {
+		if seenBuf[dl.bufPtr] {
+			continue
+		}
+		seenBuf[dl.bufPtr] = true
+
+		fmt.Printf("=== %s (field @ 0x%08X → bufPtr 0x%08X) ===\n", dl.name, dl.fieldAt, dl.bufPtr)
+
+		hdr, err := d.ReadAbsolute(dl.bufPtr, 0x40)
+		if err != nil {
+			fmt.Printf("  header read failed: %v\n\n", err)
+			continue
+		}
+		fmt.Printf("  header[0x00..0x40]:\n")
+		for off := 0; off < len(hdr); off += 16 {
+			line := fmt.Sprintf("    +0x%02X: ", off)
+			for k := 0; k < 16 && off+k < len(hdr); k += 4 {
+				w := binary.BigEndian.Uint32(hdr[off+k : off+k+4])
+				line += fmt.Sprintf(" %08X", w)
+			}
+			fmt.Println(line)
+		}
+
+		mpBuf := binary.BigEndian.Uint32(hdr[0:4])
+		mNumBuckets := binary.BigEndian.Uint32(hdr[4:8])
+		// Reject anything that doesn't look like a real J3DDrawBuffer.
+		if mpBuf < 0x80000000 || mpBuf >= 0x81800000 || mNumBuckets == 0 || mNumBuckets > 4096 {
+			fmt.Printf("  not a J3DDrawBuffer (mpBuf=0x%08X, mNumBuckets=%d) — skip\n\n",
+				mpBuf, mNumBuckets)
+			continue
+		}
+		// Allow override but cap to mNumBuckets.
+		walkN := int(mNumBuckets)
+		if numBuckets > 0 && numBuckets < walkN {
+			walkN = numBuckets
+		}
+		fmt.Printf("  mpBuf=0x%08X mNumBuckets=%d — walking %d buckets\n", mpBuf, mNumBuckets, walkN)
+
+		bucketBytes, err := d.ReadAbsolute(mpBuf, walkN*4)
+		if err != nil {
+			fmt.Printf("  bucket array read failed: %v\n\n", err)
+			continue
+		}
+
+		nonEmpty, totalPkts, hits := 0, 0, 0
+		// Wider scan window: J3DShapePacket constructor is 0x60 bytes per
+		// the symbol map, but the field layout is unknown — read 0x100 to
+		// cover any plausible mpShape offset.
+		const pktBytes = 0x100
+		dumpAll := os.Getenv("WW_DUMP_ALL") != ""
+		for b := 0; b < walkN; b++ {
+			head := binary.BigEndian.Uint32(bucketBytes[b*4 : b*4+4])
+			if head == 0 {
+				continue
+			}
+			nonEmpty++
+			seen := map[uint32]bool{}
+			cur := head
+			depth := 0
+			for cur != 0 && depth < 1000 {
+				if seen[cur] {
+					fmt.Printf("  bucket[%d] CYCLE detected at 0x%08X (depth %d)\n", b, cur, depth)
+					break
+				}
+				seen[cur] = true
+
+				pkt, err := d.ReadAbsolute(cur, pktBytes)
+				if err != nil {
+					fmt.Printf("  bucket[%d] read failed @ 0x%08X: %v\n", b, cur, err)
+					break
+				}
+				totalPkts++
+
+				if dumpAll {
+					vtable := binary.BigEndian.Uint32(pkt[0:4])
+					next := binary.BigEndian.Uint32(pkt[4:8])
+					f24 := binary.BigEndian.Uint32(pkt[0x24:0x28])
+					f28 := binary.BigEndian.Uint32(pkt[0x28:0x2C])
+					f2C := binary.BigEndian.Uint32(pkt[0x2C:0x30])
+					fmt.Printf("    [%2d] pkt=0x%08X  vtbl=0x%08X next=0x%08X  +24=0x%08X +28=0x%08X +2C=0x%08X\n",
+						depth, cur, vtable, next, f24, f28, f2C)
+				}
+
+				match := func(v uint32) (string, bool) {
+					if faceShape != 0 && v == faceShape {
+						return "FACE", true
+					}
+					if hairShape != 0 && v == hairShape {
+						return "HAIR", true
+					}
+					return "", false
+				}
+
+				dumpPkt := func(addr uint32, raw []byte) {
+					for off := 0; off < len(raw); off += 16 {
+						line := fmt.Sprintf("        +0x%02X: ", off)
+						for k := 0; k < 16 && off+k < len(raw); k += 4 {
+							w := binary.BigEndian.Uint32(raw[off+k : off+k+4])
+							line += fmt.Sprintf(" %08X", w)
+						}
+						fmt.Println(line)
+					}
+				}
+
+				directHit := false
+				for o := 0; o+4 <= len(pkt); o += 4 {
+					v := binary.BigEndian.Uint32(pkt[o : o+4])
+					if label, ok := match(v); ok {
+						fmt.Printf("  *** %s direct in %s bucket[%d] packet 0x%08X at +0x%02X ***\n",
+							label, dl.name, b, cur, o)
+						dumpPkt(cur, pkt)
+						hits++
+						directHit = true
+						break
+					}
+				}
+				if directHit {
+					cur = binary.BigEndian.Uint32(pkt[4:8])
+					depth++
+					continue
+				}
+
+				// One-level dereference: if any heap pointer in the packet's
+				// first 0x40 bytes (where mpShapePacket-style fields live)
+				// points at an object whose first 0x40 bytes contain face or
+				// hair, report it. That catches the matpacket → shapepacket
+				// → mpShape indirection where the matpacket itself doesn't
+				// store the shape pointer.
+				for o := 0; o+4 <= 0x40; o += 4 {
+					v := binary.BigEndian.Uint32(pkt[o : o+4])
+					if v < 0x80000000 || v >= 0x81800000 {
+						continue
+					}
+					if v == cur || (cur != 0 && v == binary.BigEndian.Uint32(pkt[4:8])) {
+						continue
+					}
+					sub, err := d.ReadAbsolute(v, 0x40)
+					if err != nil {
+						continue
+					}
+					for so := 0; so+4 <= len(sub); so += 4 {
+						sv := binary.BigEndian.Uint32(sub[so : so+4])
+						if label, ok := match(sv); ok {
+							fmt.Printf("  *** %s indirect in %s bucket[%d]: packet 0x%08X +0x%02X → 0x%08X +0x%02X ***\n",
+								label, dl.name, b, cur, o, v, so)
+							fmt.Printf("      packet @ 0x%08X:\n", cur)
+							dumpPkt(cur, pkt[:0x80])
+							fmt.Printf("      derefd  @ 0x%08X:\n", v)
+							dumpPkt(v, sub)
+							hits++
+							break
+						}
+					}
+				}
+
+				cur = binary.BigEndian.Uint32(pkt[4:8])
+				depth++
+			}
+		}
+		fmt.Printf("  summary: %d non-empty buckets, %d packets walked, %d face/hair hits\n\n",
+			nonEmpty, totalPkts, hits)
 	}
 }
 

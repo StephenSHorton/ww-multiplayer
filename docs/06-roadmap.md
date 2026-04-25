@@ -664,22 +664,76 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    - `./ww-multiplayer.exe eye-fix-chain` — dump opa_p0 bucket[0]
      chain via mpNextPacket walk. `WW_DRAWLIST_PTR=<addr>` overrides
      the drawlist field address (use `0x803CA930` for opa_p1, etc.).
-   **Next session directions:**
-   - (1) Sweep all the OTHER J3DDrawBuffer instances around
-     `0x803CA8xx-0x803CA9xx` looking for face/hair shapes. Once we
-     find which buffer they're in, we know the actual submission
-     path Link #1 uses, and our run_eye_fix can be aimed at the
-     right place.
-   - (2) Verify J3DShapePacket layout by reading the constructor's
-     instructions at `0x802DB524` — figure out the actual offset
-     of `mpShape` (the source comment may be off-by-one or the field
-     might be at a non-obvious location due to multiple-inheritance
-     padding rules).
-   - (3) Dolphin CPU debugger route — set a breakpoint at
-     `mDoExt_modelEntryDL` (`0x8000F974`) entry and step through to
-     see which buffer face/hair end up in. Same for the post-mDoExt
-     restore loop in `daPy_lk_c::draw` to see the exact GX command
-     flow. Highest-ROI move per the previous session's note.
+   - `./ww-multiplayer.exe eye-fix-find-shape` — exhaustive sweep of
+     every drawlist field in `0x803CA820..0x803CAA20`, walks every
+     valid `J3DDrawBuffer`'s `mNumBuckets` bucket chains, scans each
+     packet's first 0x100 bytes for face/hair shape pointer values,
+     plus 1-level deref of any heap pointer found in the packet's
+     first 0x40 bytes. Reports list/bucket/packet/offset for every
+     hit. `WW_DUMP_ALL=1` prints every packet in every chain with
+     `+0x24/+0x28/+0x2C` interpretations. `WW_NUM_BUCKETS=N` caps
+     bucket walk count. (Built on 2026-04-25.)
+   **Attempt-4 follow-up findings (2026-04-25 session 2):**
+   - **Matpacket field layout VERIFIED via direct memory inspection
+     at baseline (step=0):** `J3DMatPacket+0x24` and `+0x28` both
+     hold `J3DShapePacket*` (the duplicate is intentional — likely
+     a primary/secondary slot for layered passes). `+0x2C` holds
+     `J3DMaterial*`. `J3DShapePacket+0x24` holds `J3DShape*`. The
+     pre-existing `eye-fix-chain` Go diagnostic was reading
+     `matpacket+0x2C → shapepacket+0x24`, which is actually
+     `material+0x24` (some other material field), so its dump never
+     showed face/hair even at baseline. `eye-fix-find-shape`'s
+     1-level-deref scan found the hits.
+   - **Face/hair really do render through opa_p0** at baseline. At
+     step=0, Link #1's draw enters 18 matpackets into opa_p0
+     bucket[0], including face matpacket `0x815F9490` (mtl `0x8153F4DC`
+     → shape `0x8153D450`) and hair matpacket `0x815F96E8` (mtl
+     `0x815410AC` → shape `0x8153D0D8`). The recipe IS targeting the
+     right buffer.
+   - **At step=4, Link #1 silently drops 9 of his own 18 matpackets
+     from opa_p0** — including face (`0x8153F4DC`) and hair
+     (`0x815410AC`) materials. That's why the user sees Link #1's
+     face+hair go invisible: his draw is short-circuiting their
+     entry. Hat/ears/nose/mouth still render because their
+     matpackets ARE still entered. We don't yet know what in Link
+     #1's draw decides to skip the missing 9 mats; suspicion is
+     that our previous-frame shape-vis state (zOffNone left SHOWN
+     instead of HIDDEN — the recipe normally exits with all 12
+     hidden) flips a path inside `daPy_lk_c::draw` that gates
+     link_root mat submission.
+   - **mini-Link's `mDoExt_modelEntryDL` is landing in opa_p0,
+     not opa_p1.** At step=4, opa_p0 bucket[0] contains all 14 of
+     mini-link's matpackets followed by Link #1's 9 (23 total).
+     `run_eye_fix` ends with `*j3d_opabuf_slot = opa_p1` (writing
+     to `j3dSys+0x48`), but post-hook `mDoExt_modelEntryDL` is
+     still submitting to opa_p0. **Strong evidence that
+     `J3D_SYS_DRAWBUFFER_OPA_OFFSET = 0x48` is wrong.** The
+     drawbuffer-swap mechanism (direct writes to j3dSys+0x48/0x4C)
+     does not appear to match what `dComIfGd_setListP0/P1` inlines
+     actually do.
+   **Next session directions (revised):**
+   - (1) **Find the real j3dSys drawbuffer field offset.** Use the
+     Dolphin debugger or scan j3dSys mid-frame: read 0x80 bytes
+     from `J3D_SYS_ADDR` and look for the u32 that equals one of
+     the known bufPtrs (e.g. `0x8068B924` for opa_p1). That offset
+     is the real drawbuffer field. Or call
+     `dComIfGd_setListP0/setListP1` directly via their addresses
+     (need to find them) instead of writing j3dSys fields by
+     offset.
+   - (2) Once the drawbuffer swap works, mini-Link's
+     `mDoExt_modelEntryDL` will correctly submit to opa_p1, and
+     the chain pollution in opa_p0 should clear. Then re-test
+     step=4 — the missing-Link-#1-matpackets symptom may resolve
+     too (if it's a downstream consequence of the wrong-buffer
+     pollution).
+   - (3) If step=4 still drops Link #1's matpackets even with
+     correct drawbuffer routing, attack the shape-vis-state-leakage
+     hypothesis: ensure `run_eye_fix` exits with **the same
+     shape-vis state Link #1's recipe normally exits with**
+     (all 12 eye-decal shapes HIDDEN). At step=4 we currently exit
+     with zOffNone SHOWN. Fixing this might require running steps
+     6-8's restorations even at step 4 (gate them on shape-vis
+     restore, not on full pass execution).
    - (4) Skip-the-recipe approach — instead of replicating the
      four-pass, COPY mini_link's instance-private mpDrawMtx into
      Link #1's matpacket's shape packet so Link #1's recipe naturally
