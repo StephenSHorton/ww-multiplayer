@@ -697,6 +697,29 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
     u32 opa_p1 = *(volatile u32*)DRAWLIST_OPA_LIST_P1_PTR;
     u32 xlu_p1 = *(volatile u32*)DRAWLIST_XLU_LIST_P1_PTR;
 
+    // Full j3dSys snapshot. run_eye_fix mutates several j3dSys fields
+    // (mModel, mTexture, mDrawBuffer OPA/XLU). Plus J3DJoint::entryIn
+    // writes drawbuffer+0x1C (matrix-ptr) on both OPA and XLU buffers.
+    // Diagnostic at step=4 showed Link #1's NEXT-FRAME draw silently
+    // skipping his entire eye-decal four-pass recipe (no l_*AupPacket1/2
+    // entries in opa_p0, and a totally different set of his mat-packets
+    // submitted) — which points at residual j3dSys state being
+    // load-bearing across frames. Snapshot at start, restore at end so
+    // run_eye_fix is fully non-destructive.
+    //
+    // Also restore the three drawbuffer+0x1C matrix-ptr fields entryIn
+    // clobbered (those live in heap, not in j3dSys, so the j3dSys
+    // memcpy doesn't catch them).
+    static u32 eye_fix_j3dsys_snapshot[J3D_SYS_SIZE / 4];
+    volatile u32* j3dsys_words = (volatile u32*)J3D_SYS_ADDR;
+    int eye_n;
+    for (eye_n = 0; eye_n < (int)(J3D_SYS_SIZE / 4); eye_n++) {
+        eye_fix_j3dsys_snapshot[eye_n] = j3dsys_words[eye_n];
+    }
+    u32 saved_opa_p0_mtx = *(volatile u32*)(opa_p0 + 0x1C);
+    u32 saved_opa_p1_mtx = *(volatile u32*)(opa_p1 + 0x1C);
+    u32 saved_xlu_p1_mtx = *(volatile u32*)(xlu_p1 + 0x1C);
+
     // J3DTexture* shared via J3DModelData → J3DMaterialTable → mTexture.
     u32 model_tex = *(volatile u32*)((u8*)model_data + J3DMODELDATA_TEXTURE_OFFSET);
 
@@ -811,13 +834,29 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
         }
     }
 
-    // Switch back to P1 for the modelEntryDL caller's body submission.
+    // Restore j3dSys to its pre-our-work state. mDoExt_modelEntryDL
+    // (called right after this function returns) takes the model as an
+    // argument and will set j3dSys.mModel itself via its internal
+    // J3DModel::entry call, so we don't need to leave mini-Link in
+    // j3dSys for that. Restoring also keeps NEXT-FRAME Link #1's draw
+    // from seeing stale state from us.
+    for (eye_n = 0; eye_n < (int)(J3D_SYS_SIZE / 4); eye_n++) {
+        j3dsys_words[eye_n] = eye_fix_j3dsys_snapshot[eye_n];
+    }
+
+    // After the restore, j3dSys.drawbuffer is whatever Link #1 left it
+    // at — empirically that's NOT opa_p1 (it's some other OPA list like
+    // dl@0x803CA940 = 0x8068BF20). For mini-Link's body submission via
+    // mDoExt_modelEntryDL to land in the standard P1 list (where normal
+    // actor bodies render), force-set the drawbuffer slots to P1 here.
     *j3d_opabuf_slot = opa_p1;
     *j3d_xlubuf_slot = xlu_p1;
-    // Note: j3dSys.{mModel,mTexture} are left pointing at mini-Link;
-    // the next mDoExt_modelEntryDL call will use j3dSys's state to
-    // submit our body, which is what we want. Whatever runs after
-    // our hook returns will re-setModel as needed.
+
+    // Restore drawbuffer+0x1C matrix pointers that entryIn clobbered
+    // (these live in the J3DDrawBuffer heap objects, not in j3dSys).
+    *(volatile u32*)(opa_p0 + 0x1C) = saved_opa_p0_mtx;
+    *(volatile u32*)(opa_p1 + 0x1C) = saved_opa_p1_mtx;
+    *(volatile u32*)(xlu_p1 + 0x1C) = saved_xlu_p1_mtx;
 }
 
 // --- Draw-phase hook -------------------------------------------------

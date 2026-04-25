@@ -300,6 +300,25 @@ func main() {
 			runEyeFixChain()
 		case "eye-fix-find-shape":
 			runEyeFixFindShape()
+		case "j3dsys-probe":
+			runJ3DSysProbe()
+		case "ppc-disasm":
+			if len(os.Args) < 3 {
+				fmt.Println("Usage: ww-multiplayer.exe ppc-disasm <addr-hex> [num-words=32]")
+				os.Exit(1)
+			}
+			addr, err := strconv.ParseUint(strings.TrimPrefix(os.Args[2], "0x"), 16, 32)
+			if err != nil {
+				fmt.Printf("bad addr %q: %v\n", os.Args[2], err)
+				os.Exit(1)
+			}
+			n := 32
+			if len(os.Args) > 3 {
+				if v, err := strconv.Atoi(os.Args[3]); err == nil {
+					n = v
+				}
+			}
+			runPPCDisasm(uint32(addr), n)
 		case "eye-fix-step":
 			if len(os.Args) < 3 {
 				fmt.Println("Usage: ww-multiplayer.exe eye-fix-step <0..8>")
@@ -1973,6 +1992,187 @@ func runEyeFixChain() {
 	}
 	if cur == 0 {
 		fmt.Println("--- chain terminates at NULL ---")
+	}
+}
+
+// runPPCDisasm reads num*4 bytes from the given absolute address and prints
+// each word as a partially-decoded PPC instruction. Decodes the most common
+// memory-access opcodes (lwz/stw/stwu/lhz/lbz/stb) plus branches (b/bl/bla)
+// because that's what we need to identify when a function writes to or
+// reads from j3dSys (e.g. is mDoExt_modelEntryDL clobbering j3dSys+0x48?).
+// Other opcodes print as raw hex with the primary-opcode field decoded.
+func runPPCDisasm(addr uint32, num int) {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	buf, err := d.ReadAbsolute(addr, num*4)
+	if err != nil {
+		fmt.Printf("read failed: %v\n", err)
+		os.Exit(1)
+	}
+	for i := 0; i+4 <= len(buf); i += 4 {
+		insn := binary.BigEndian.Uint32(buf[i : i+4])
+		pc := addr + uint32(i)
+		op := (insn >> 26) & 0x3F
+		rD := (insn >> 21) & 0x1F
+		rA := (insn >> 16) & 0x1F
+		d16 := int32(int16(insn & 0xFFFF))
+		mnem := ""
+		switch op {
+		case 32:
+			mnem = fmt.Sprintf("lwz   r%d, %d(r%d)", rD, d16, rA)
+		case 33:
+			mnem = fmt.Sprintf("lwzu  r%d, %d(r%d)", rD, d16, rA)
+		case 34:
+			mnem = fmt.Sprintf("lbz   r%d, %d(r%d)", rD, d16, rA)
+		case 36:
+			mnem = fmt.Sprintf("stw   r%d, %d(r%d)", rD, d16, rA)
+		case 37:
+			mnem = fmt.Sprintf("stwu  r%d, %d(r%d)", rD, d16, rA)
+		case 38:
+			mnem = fmt.Sprintf("stb   r%d, %d(r%d)", rD, d16, rA)
+		case 40:
+			mnem = fmt.Sprintf("lhz   r%d, %d(r%d)", rD, d16, rA)
+		case 14:
+			imm := int32(int16(insn & 0xFFFF))
+			if rA == 0 {
+				mnem = fmt.Sprintf("li    r%d, %d", rD, imm)
+			} else {
+				mnem = fmt.Sprintf("addi  r%d, r%d, %d", rD, rA, imm)
+			}
+		case 15:
+			imm := int32(int16(insn & 0xFFFF))
+			mnem = fmt.Sprintf("addis r%d, r%d, %d   (=0x%04X)", rD, rA, imm, uint16(imm))
+		case 18:
+			// b/bl/bla
+			li := int32(insn&0x03FFFFFC) << 6 >> 6 // sign-extend 26-bit
+			absBit := insn & 0x2
+			lkBit := insn & 0x1
+			target := uint32(int32(pc) + li)
+			if absBit != 0 {
+				target = uint32(li)
+			}
+			s := "b"
+			if lkBit != 0 {
+				s = "bl"
+			}
+			if absBit != 0 {
+				s += "a"
+			}
+			mnem = fmt.Sprintf("%s    0x%08X", s, target)
+		case 19:
+			// blr / bctr / bclr family — decode by sub-opcode
+			sub := (insn >> 1) & 0x3FF
+			switch sub {
+			case 16:
+				mnem = "blr   "
+			case 528:
+				mnem = "bctr  "
+			default:
+				mnem = fmt.Sprintf("ctrl-19 sub=%d", sub)
+			}
+		case 31:
+			// extended op family: many things; show sub
+			sub := (insn >> 1) & 0x3FF
+			rB := (insn >> 11) & 0x1F
+			switch sub {
+			case 23:
+				mnem = fmt.Sprintf("lwzx  r%d, r%d, r%d", rD, rA, rB)
+			case 151:
+				mnem = fmt.Sprintf("stwx  r%d, r%d, r%d", rD, rA, rB)
+			case 467:
+				mnem = "mtspr "
+			case 339:
+				mnem = "mfspr "
+			case 444:
+				mnem = fmt.Sprintf("or    r%d, r%d, r%d", rA, rD, rB)
+			default:
+				mnem = fmt.Sprintf("ext31 sub=%d  rD=%d rA=%d rB=%d", sub, rD, rA, rB)
+			}
+		default:
+			mnem = fmt.Sprintf("op=%d (0x%02X)", op, op)
+		}
+		fmt.Printf("  0x%08X: %08X    %s\n", pc, insn, mnem)
+	}
+}
+
+// runJ3DSysProbe dumps the first 0x128 bytes of the j3dSys global at
+// 0x803EDA58 and, for every u32 in there, reports whether it matches one
+// of the three known drawbuffer pointers (opa_p0/opa_p1/xlu_p1, looked up
+// via the dDlst_list_c fields at 0x803CA92C/0x930/0x934). The matching
+// offset is the real `mDrawBuffer` slot. game.h currently assumes
+// J3D_SYS_DRAWBUFFER_OPA_OFFSET=0x48 / XLU_OFFSET=0x4C, but evidence from
+// eye-fix-find-shape (mini-link body landing in opa_p0 instead of opa_p1
+// after a "swap to P1" write) suggests those offsets are wrong.
+func runJ3DSysProbe() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	const j3dSysAddr = uint32(0x803EDA58)
+	const j3dSysSize = 0x128
+
+	// Resolve the three known drawbuffer pointers.
+	type dl struct {
+		name   string
+		bufPtr uint32
+	}
+	var dls []dl
+	for _, x := range []struct {
+		name string
+		addr uint32
+	}{
+		{"opa_p0", 0x803CA92C},
+		{"opa_p1", 0x803CA930},
+		{"xlu_p1", 0x803CA934},
+	} {
+		v, err := d.ReadU32(x.addr)
+		if err == nil && v != 0 {
+			dls = append(dls, dl{x.name, v})
+		}
+	}
+	fmt.Println("Known drawbuffers:")
+	for _, x := range dls {
+		fmt.Printf("  %s = 0x%08X\n", x.name, x.bufPtr)
+	}
+	fmt.Println()
+
+	buf, err := d.ReadAbsolute(j3dSysAddr, j3dSysSize)
+	if err != nil {
+		fmt.Printf("read failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("j3dSys @ 0x%08X (0x%X bytes):\n", j3dSysAddr, j3dSysSize)
+
+	for off := 0; off < len(buf); off += 16 {
+		line := fmt.Sprintf("  +0x%03X:", off)
+		for k := 0; k < 16 && off+k < len(buf); k += 4 {
+			w := binary.BigEndian.Uint32(buf[off+k : off+k+4])
+			line += fmt.Sprintf(" %08X", w)
+		}
+		fmt.Println(line)
+	}
+
+	fmt.Println()
+	fmt.Println("Drawbuffer-pointer matches:")
+	hits := 0
+	for off := 0; off+4 <= len(buf); off += 4 {
+		v := binary.BigEndian.Uint32(buf[off : off+4])
+		for _, x := range dls {
+			if v == x.bufPtr {
+				fmt.Printf("  +0x%03X = 0x%08X (%s)\n", off, v, x.name)
+				hits++
+			}
+		}
+	}
+	if hits == 0 {
+		fmt.Println("  (none — drawbuffer ptrs not currently held in j3dSys, sample a busier frame)")
 	}
 }
 

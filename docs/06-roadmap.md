@@ -711,35 +711,83 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
      drawbuffer-swap mechanism (direct writes to j3dSys+0x48/0x4C)
      does not appear to match what `dComIfGd_setListP0/P1` inlines
      actually do.
-   **Next session directions (revised):**
-   - (1) **Find the real j3dSys drawbuffer field offset.** Use the
-     Dolphin debugger or scan j3dSys mid-frame: read 0x80 bytes
-     from `J3D_SYS_ADDR` and look for the u32 that equals one of
-     the known bufPtrs (e.g. `0x8068B924` for opa_p1). That offset
-     is the real drawbuffer field. Or call
-     `dComIfGd_setListP0/setListP1` directly via their addresses
-     (need to find them) instead of writing j3dSys fields by
-     offset.
-   - (2) Once the drawbuffer swap works, mini-Link's
-     `mDoExt_modelEntryDL` will correctly submit to opa_p1, and
-     the chain pollution in opa_p0 should clear. Then re-test
-     step=4 — the missing-Link-#1-matpackets symptom may resolve
-     too (if it's a downstream consequence of the wrong-buffer
-     pollution).
-   - (3) If step=4 still drops Link #1's matpackets even with
-     correct drawbuffer routing, attack the shape-vis-state-leakage
-     hypothesis: ensure `run_eye_fix` exits with **the same
-     shape-vis state Link #1's recipe normally exits with**
-     (all 12 eye-decal shapes HIDDEN). At step=4 we currently exit
-     with zOffNone SHOWN. Fixing this might require running steps
-     6-8's restorations even at step 4 (gate them on shape-vis
-     restore, not on full pass execution).
-   - (4) Skip-the-recipe approach — instead of replicating the
-     four-pass, COPY mini_link's instance-private mpDrawMtx into
-     Link #1's matpacket's shape packet so Link #1's recipe naturally
-     includes mini_link's eye decals at mini_link's pose. Risky
-     because it modifies Link #1's render but might be tractable
-     during the brief window between Link's draw and the flush.
+   **Attempt-4 follow-up #2 (2026-04-25 session 3) — j3dSys snapshot
+   approach: partial improvement, did not converge.** Built two more
+   diagnostics: `j3dsys-probe` (dumps j3dSys + flags any u32 that
+   matches a known drawbuffer pointer) and `ppc-disasm` (tiny PPC
+   disassembler for stw/lwz/branches/extended ops). Findings:
+   - `J3D_SYS_DRAWBUFFER_OPA_OFFSET = 0x48` and `XLU = 0x4C` ARE the
+     real offsets — `j3dsys-probe` consistently sees a known OPA
+     drawbuffer pointer (e.g. `0x8068BF20` = `dl@0x803CA940`) at
+     `j3dSys+0x48` and a corresponding XLU at `+0x4C`. The previous
+     session's hypothesis (offsets wrong) was incorrect.
+   - `J3DJoint::entryIn` (0x802F58D8) disasm reveals it does TWO
+     writes: `*(j3dSys+0x48 buf + 0x1C) = joint_matrix_ptr` and the
+     same for the XLU buf. So `entryIn(cl_eye/cl_mayu)` clobbers
+     `drawbuffer+0x1C` matrix pointers on whatever drawbuffers j3dSys
+     points at when called.
+   - `mDoExt_modelEntryDL` (0x8000F974) disasm shows it does NOT set
+     the drawbuffer slots — it inherits whatever j3dSys is set to.
+   - `J3DModel::lock/unlock` (0x802EE254 / 0x802EE28C) disasm shows
+     they only flip bit 0 of each matpacket+0x10. They don't touch
+     j3dSys.
+   - **Step=0 vs step=4 chain pattern is highly asymmetric.** At
+     step=0, Link #1 enters 18 packets into opa_p0 — the four
+     `l_*AupPacket1/2` shared statics (vtbl `0x80371B84`/`0x80371B9C`
+     at addrs `0x803E46A4/D8/C0/F8`) plus 14 of his own matpackets
+     (vtbl `0x8039D910`, in his J3DModel's mpMatPacket array around
+     `0x815F94xx-0x815F96xx`). At step=4 (broken), the four preset
+     packets are GONE, and Link #1's matpackets in opa_p0 come from
+     a DIFFERENT range (`0x815F92EC..0x815F9850`) covering different
+     materials. So Link #1's daPy_lk_c::draw is silently SKIPPING
+     his eye-decal four-pass entirely at step=4 — not just missing
+     entries, but executing a different code path through draw.
+   - **Tried full j3dSys snapshot/restore + drawbuffer+0x1C restore
+     + force-set j3dSys.opa/xlu to opa_p1 at end of `run_eye_fix`**
+     (the current state of `inject/src/multiplayer.c`). Net visual
+     result: black-rectangle artifact on remote link is gone, BUT
+     remote link's eyes/pupils still don't render and the **client
+     link's head goes invisible** on one of the two Dolphins (the
+     bug is asymmetric across Dolphins A/B). The asymmetry strongly
+     suggests timing-dependent state corruption that won't yield to
+     more save/restore patches without understanding *what's
+     gating Link's recipe* in `daPy_lk_c::draw`.
+   - **Own-copy packet addresses are stable**: `my_packet_onCupOff2`
+     lives at `0x804100D0` (in our blob's BSS region); the others
+     are adjacent. The diagnostic confirms our entryImm reaches the
+     chain at step=2.
+   **Diagnostic infrastructure added in session 3** (kept):
+   - `./ww-multiplayer.exe j3dsys-probe` — dump j3dSys (0x803EDA58,
+     0x128 bytes) and report any offset that matches a known
+     drawbuffer pointer.
+   - `./ww-multiplayer.exe ppc-disasm <addr-hex> [num-words]` —
+     decode lwz/stw/lhz/lbz/stb/li/addi/addis/b/bl/bla/blr/bctr/
+     mfspr/mtspr/lwzx/stwx/or. Crude but enough to identify field
+     accesses + branch targets in J3D internals.
+   **Next session directions (revised again):**
+   - (1) **Disassemble `daPy_lk_c::draw` (0x80107308) and trace
+     what gates the eye-decal four-pass recipe.** The decomp at
+     d_a_player_main.cpp:1827-1881 has the recipe; find the
+     conditional that runs it and identify what state we're
+     disturbing. Use `ppc-disasm` Go tool. This is the missing
+     piece — we've been guessing at state-leak hypotheses; this
+     gives ground truth. No save-state cycles needed (Go-only).
+   - (2) **Skip-the-recipe approach.** Don't replicate the
+     four-pass for mini-link at all. Instead, intercept BEFORE
+     Link #1's daPy_lk_c::draw runs (or piggyback on his recipe)
+     by temporarily swapping the matrix in the relevant shape
+     packets — Link #1's recipe will then naturally render the
+     eye decals at mini-link's pose. Architecturally cleaner: no
+     shared-joint/shared-mat-vis state to worry about. The
+     shapepackets at addresses like `0x815F8D04` (face shape's
+     shapepacket) have an `mpDrawMtx` field that points at
+     Link's mpDrawMtxBuf — swap that pointer to mini-link's buf
+     for one frame, let the recipe run, swap back.
+   - (3) Current `run_eye_fix` C-side state has the j3dSys
+     snapshot + drawbuffer+0x1C restore + force-opa_p1. Decision
+     for next session: keep it (it's strictly safer than the
+     pre-session-3 version since it eliminates known state leaks)
+     or revert if direction (2) makes the recipe unnecessary.
 10. **Leverage existing Dolphin cheats for test setup.** Manual test
     setup eats time getting Link into a state where multiplayer
     features are exercisable (sailing for ocean tests, specific items
