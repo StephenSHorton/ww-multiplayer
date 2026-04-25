@@ -895,6 +895,62 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    — swap shapepacket mpDrawMtx pointers so Link's own recipe
    submits the eye decals at mini-link's pose). That sidesteps the
    gating mystery entirely.
+
+   **Attempt-4 follow-up #5 (2026-04-25 session 5) — SOLVED: four-pass
+   DOES execute at step=4; entries vanish in run_eye_fix.** Took the
+   instrumentation route (direction 1 from session 4 part 2):
+   - **Disasm of full daPy_lk_c::draw confirmed NO 5th gate.** Both
+     Block A (`b 0x80107B8C` at 0x8010778C) and Block B (`b 0x80107B8C`
+     at 0x8010785C) jump to the function epilogue. Four-pass body at
+     0x80107860 is reached only via the attention-bit-clear `beq` at
+     0x801077A0 — i.e. when `!checkPlayerNoDraw && r24==0 &&
+     attention_bit==0`. The 4 gates `eye-fix-gates` already measures
+     are exhaustive.
+   - **Sentinel-write methodology was unreliable + crashed game.**
+     Writing 0xDEADBEEF to the 4 statics' .next fields and
+     transitioning step=0→4 showed only Pass-4's static was being
+     re-entered each frame. Result was misleading because the chain
+     walker followed DEADBEEF and hard-faulted; suggests writes to
+     the static-data region make it through but with timing issues
+     between Go pokes and frame boundaries.
+   - **C-side post-draw chain snapshot is the clean answer.** Added
+     `eye_fix_post_chain[10] + count` to mailbox (+0xEC..+0x115). In
+     `daPy_draw_hook`, immediately after `daPy_lk_c_draw(this_)`
+     returns and BEFORE `run_eye_fix` runs, walk opa_p0 bucket[0] up
+     to 4 hops via `*(opa_p0)→*(mpBuf)→head→head.next×3` and store
+     each into the mailbox slots. Manually unrolled — a `for` loop
+     with `break` crashed Dolphin's boot loop on this Freighter +
+     WW codegen combo (depth ≥ 4 unrolled depth boots clean).
+     Read via new `./ww-multiplayer.exe eye-fix-post-chain` Go cmd.
+   - **Empirical result**: at step=0 baseline AND step=4, the
+     post-draw chain snapshot is IDENTICAL: head = 0x803E46A4
+     (l_onCupOffAupPacket1, the head-most static), then Link's
+     0x815F9508 / 95BC / 9364 matpackets. Same bytes, same values.
+     **The four-pass body DOES execute at step=4.** Link's recipe
+     populates the chain with all 4 statics + 14 link mtls.
+   - **The corruption happens during run_eye_fix.** A second
+     `eye-fix-chain` walk done AFTER `run_eye_fix` + `mDoExt_modelEntryDL`
+     completes at step=4 shows the broken state we documented before:
+     head = 0x80F042F8 (mini-link mtl), 23 entries (14 mini-link +
+     9 Link), no statics. So `run_eye_fix`'s entryIn calls (the only
+     thing that differs at step=4 vs step=3) reset bucket[0] head
+     and rewire the chain destructively — exactly the failure mode
+     session-4-part-2 hypothesized.
+   - **Decision**: pivot to direction 2 (skip-the-recipe via
+     shapepacket mpDrawMtx swap). The state-mutation strategy of
+     `run_eye_fix` is incompatible with Link's already-submitted
+     chain at step=4 onward; pursuing it deeper would require
+     reverse-engineering J3DJoint::entryIn's chain-mutation logic.
+     Direction 2 sidesteps that entirely by riding Link's own
+     four-pass — which we now know runs cleanly — and just patching
+     the mpDrawMtx pointers Link's eye decals consume.
+   **Diagnostic infrastructure shipped this session** (committed):
+   - `eye_fix_post_chain[10] + count` mailbox fields (+0xEC..+0x115).
+   - C-side post-draw snapshot in `daPy_draw_hook` (4-deep unrolled).
+   - `./ww-multiplayer.exe eye-fix-post-chain` Go subcommand.
+   - `ppc-disasm` extended further (already in session 4) covers
+     `bl/bctrl/blr` plus enough fpr/branch coverage to follow the
+     full daPy_lk_c::draw structure end-to-end.
 10. **Leverage existing Dolphin cheats for test setup.** Manual test
     setup eats time getting Link into a state where multiplayer
     features are exercisable (sailing for ocean tests, specific items

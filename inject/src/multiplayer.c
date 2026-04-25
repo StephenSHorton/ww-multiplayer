@@ -896,6 +896,45 @@ int daPy_draw_hook(void* this_) {
     int result = daPy_lk_c_draw(this_);
     mailbox->draw_progress = 31;
 
+    // Post-draw chain snapshot. Walks opa_p0 bucket[0] via mpNextPacket@+4
+    // up to 8 hops. Captured BEFORE run_eye_fix mutates anything so it
+    // reflects the pure result of Link's daPy_lk_c::draw. Compare across
+    // step=0 vs step=4 to settle whether the four-pass eye-decal recipe
+    // actually executed. Manually unrolled — a `for (hop=0; hop<N; hop++)
+    // { break-if-bad; }` loop generated bad PPC at this Freighter / WW
+    // codegen combo and crashed boot. Unroll dodges that.
+    #define EYE_FIX_CHAIN_OK(p) \
+        ((p) >= 0x80000000 && (p) < 0x817FFFF8 && ((p) & 3) == 0)
+    {
+        int ec;
+        for (ec = 0; ec < 10; ec++) mailbox->eye_fix_post_chain[ec] = 0;
+        u8 cnt = 0;
+        u32 opa_p0 = *(volatile u32*)DRAWLIST_OPA_LIST_P0_PTR;
+        if (EYE_FIX_CHAIN_OK(opa_p0)) {
+            u32 mpBuf = *(volatile u32*)opa_p0;
+            if (EYE_FIX_CHAIN_OK(mpBuf)) {
+                u32 h0 = *(volatile u32*)mpBuf;
+                if (EYE_FIX_CHAIN_OK(h0)) {
+                    mailbox->eye_fix_post_chain[0] = h0; cnt = 1;
+                    u32 h1 = *(volatile u32*)(h0 + 4);
+                    if (EYE_FIX_CHAIN_OK(h1)) {
+                        mailbox->eye_fix_post_chain[1] = h1; cnt = 2;
+                        u32 h2 = *(volatile u32*)(h1 + 4);
+                        if (EYE_FIX_CHAIN_OK(h2)) {
+                            mailbox->eye_fix_post_chain[2] = h2; cnt = 3;
+                            u32 h3 = *(volatile u32*)(h2 + 4);
+                            if (EYE_FIX_CHAIN_OK(h3)) {
+                                mailbox->eye_fix_post_chain[3] = h3; cnt = 4;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        mailbox->eye_fix_post_chain_count = cnt;
+    }
+    #undef EYE_FIX_CHAIN_OK
+
     // Publish Link #1's mpNodeMtx so Go-side broadcast-pose can read it
     // without racing calc. daPy_lk_c_draw has just completed for this
     // frame, so the joint walker has finished writing mpNodeMtx and the

@@ -302,6 +302,8 @@ func main() {
 			runEyeFixFindShape()
 		case "eye-fix-gates":
 			runEyeFixGates()
+		case "eye-fix-post-chain":
+			runEyeFixPostChain()
 		case "j3dsys-probe":
 			runJ3DSysProbe()
 		case "ppc-disasm":
@@ -2012,6 +2014,69 @@ func runEyeFixGates() {
 		if freezeBit && !r24 && !attentionBit {
 			fmt.Println("  - freeze bit 0x800 set → hideHatAndBackle (no eye-decal recipe)")
 		}
+	}
+}
+
+// runEyeFixPostChain reads the post-draw chain snapshot the C blob writes
+// each frame at mailbox+0xEC..+0x114. The C side captures opa_p0 bucket[0]
+// head and walks .next up to 10 hops AFTER daPy_lk_c_draw returns and
+// BEFORE run_eye_fix mutates anything. This is the definitive test for
+// whether the four-pass body executed: the 4 statics
+// (l_offCupOnAupPacket1=0x803E46DC, l_onCupOffAupPacket2=0x803E46F8,
+//  l_offCupOnAupPacket2=0x803E46C0, l_onCupOffAupPacket1=0x803E46A4)
+// appear in the chain only if the four-pass ran.
+//
+// At step=0 baseline we expect to see at least 1-2 statics in the first
+// 10 entries (chain has 18 entries with statics interleaved). At step=4
+// if the four-pass body ran, same; if it didn't, no statics appear.
+func runEyeFixPostChain() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	const postChainOff = 0xEC
+	buf, err := d.ReadAbsolute(mailboxBase+postChainOff, 0x29)
+	if err != nil {
+		fmt.Printf("read post-chain snapshot: %v\n", err)
+		os.Exit(1)
+	}
+	stepBytes, _ := d.ReadAbsolute(mailboxBase+mailboxEyeFixStep, 1)
+	var step byte
+	if len(stepBytes) == 1 {
+		step = stepBytes[0]
+	}
+	count := buf[0x28]
+
+	statics := map[uint32]string{
+		0x803E46A4: "l_onCupOffAupPacket1",
+		0x803E46C0: "l_offCupOnAupPacket2",
+		0x803E46DC: "l_offCupOnAupPacket1",
+		0x803E46F8: "l_onCupOffAupPacket2",
+	}
+
+	fmt.Printf("eye_fix_step:         %d\n", step)
+	fmt.Printf("post-draw chain depth: %d (out of 10 max)\n\n", count)
+
+	staticHits := 0
+	for i := 0; i < int(count) && i < 10; i++ {
+		v := binary.BigEndian.Uint32(buf[i*4 : i*4+4])
+		label := ""
+		if name, ok := statics[v]; ok {
+			label = "  *** STATIC: " + name + " ***"
+			staticHits++
+		}
+		fmt.Printf("  [%2d] 0x%08X%s\n", i, v, label)
+	}
+	fmt.Println()
+	if staticHits > 0 {
+		fmt.Printf("Verdict: four-pass DID execute — %d/4 statics in first %d hops\n",
+			staticHits, count)
+	} else {
+		fmt.Printf("Verdict: four-pass DID NOT execute — no statics in first %d hops\n", count)
+		fmt.Println("(or all 4 statics live deeper than 10 hops; expected at least 1 if it ran)")
 	}
 }
 

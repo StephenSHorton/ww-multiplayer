@@ -232,6 +232,20 @@ typedef struct {
     // to N-1 from Go, iterate. ONE save-state cycle covers all 8 levels.
     u8  eye_fix_step;                         // +0xE8
     u8  _pad6[3];                             // +0xE9
+    // --- EYE-FIX POST-DRAW CHAIN SNAPSHOT (session 5) ------------------
+    // Right after daPy_lk_c_draw returns and BEFORE run_eye_fix touches
+    // anything, snapshot opa_p0 bucket[0] head plus first 10 chain
+    // entries via .next walk. The 4 static packets (l_*AupPacket1/2
+    // at 0x803E46A4/C0/DC/F8) are entered by daPy_lk_c::draw's
+    // four-pass eye-decal recipe; their presence/absence in the
+    // post-draw chain is the definitive test for whether the four-pass
+    // body actually executed. Resolves the session-4-part-2 anomaly:
+    // eye-fix-gates says four-pass should run at step=4, but find-shape
+    // never sees the statics. Either gates are misanalyzed (eliminated
+    // by session-5 disasm) or entries are vanishing post-submission.
+    u32 eye_fix_post_chain[10];               // +0xEC..+0x113
+    u8  eye_fix_post_chain_count;             // +0x114
+    u8  _pad7[3];                             // +0x115
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)
