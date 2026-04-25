@@ -154,6 +154,25 @@ func runMpLocal(nameA, nameB string) {
 		os.Exit(1)
 	}
 
+	// When both Dolphins boot from the same SAVE_STATE, both Links
+	// spawn at literally the same world coords and visually overlap.
+	// Use the C-side warp handler to teleport Dolphin B's Link by a
+	// small offset. Unlike a raw memory poke, the warp handler writes
+	// home/old/current.pos in lockstep and zeros mOldSpeed so Link
+	// stays at the new position instead of being snapped back by the
+	// next physics tick. Defaults to +500 X; set any of
+	// MP_LOCAL_SHIFT_X/Y/Z to override, or all to 0 to disable.
+	dx := envFloat32("MP_LOCAL_SHIFT_X", 500)
+	dy := envFloat32("MP_LOCAL_SHIFT_Y", 0)
+	dz := envFloat32("MP_LOCAL_SHIFT_Z", 0)
+	if dx != 0 || dy != 0 || dz != 0 {
+		if err := warpDolphinB(pidA, pidB, dx, dy, dz); err != nil {
+			report.Logf(rep, report.Warn, "couldn't warp Dolphin B Link: %v", err)
+		} else {
+			report.Logf(rep, report.OK, "Warped Dolphin B Link by (%.0f, %.0f, %.0f) so the two players don't overlap.", dx, dy, dz)
+		}
+	}
+
 	// Server
 	srv := network.NewServer(25565)
 	srvRep := prefixReporter{inner: rep, prefix: "[server]"}
@@ -228,29 +247,66 @@ func runMpLocal(nameA, nameB string) {
 	rep.Log(report.OK, "Done.")
 }
 
-// waitForReady blocks until both Dolphins report IsInGame() = true,
-// the context is cancelled, or the timeout elapses. Logs a "still
-// waiting…" line every 5 s so the user knows mp-local is alive
-// rather than wedged.
-func waitForReady(ctx context.Context, rep report.Reporter, pidA, pidB uint32, timeout time.Duration) error {
+// warpDolphinB reads Dolphin A's Link position, computes target =
+// pos_A + (dx, dy, dz), and asks the C-side warp handler in Dolphin B
+// to teleport Link there. We anchor on A's position rather than B's so
+// both Dolphins agree on world coords even if their cosmetic states
+// drifted slightly (animation phase, camera, etc.).
+func warpDolphinB(pidA, pidB uint32, dx, dy, dz float32) error {
 	dA, err := dolphin.FindByPID(pidA, "GZLE01")
 	if err != nil {
-		return fmt.Errorf("open Dolphin A: %w", err)
+		return fmt.Errorf("open A: %w", err)
 	}
 	defer dA.Close()
+	posA, err := dA.ReadPlayerPosition()
+	if err != nil {
+		return fmt.Errorf("read A pos: %w", err)
+	}
+
 	dB, err := dolphin.FindByPID(pidB, "GZLE01")
 	if err != nil {
-		return fmt.Errorf("open Dolphin B: %w", err)
+		return fmt.Errorf("open B: %w", err)
 	}
 	defer dB.Close()
+	return warpLink(dB, posA.PosX+dx, posA.PosY+dy, posA.PosZ+dz, 1*time.Second)
+}
 
+// waitForReady blocks until both Dolphins report IsInGame() = true,
+// the context is cancelled, or the timeout elapses. Both the FindByPID
+// and the IsInGame call are retried each tick: FindByPID can fail if
+// Dolphin's process is alive but its emulated RAM mapping hasn't
+// finished bootstrapping yet (especially right after a fresh launch),
+// and IsInGame is false until Link's actor pointer is in RAM range.
+// Logs a "still waiting…" line every 5 s so it's clear mp-local is
+// alive rather than wedged.
+func waitForReady(ctx context.Context, rep report.Reporter, pidA, pidB uint32, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	rep.Log(report.Info, "Waiting for both Dolphins to load to an in-game save state...")
 
+	var dA, dB *dolphin.Dolphin
+	defer func() {
+		if dA != nil {
+			dA.Close()
+		}
+		if dB != nil {
+			dB.Close()
+		}
+	}()
+
 	lastLogged := time.Now()
 	for {
-		aReady := dA.IsInGame()
-		bReady := dB.IsInGame()
+		if dA == nil {
+			if d, err := dolphin.FindByPID(pidA, "GZLE01"); err == nil {
+				dA = d
+			}
+		}
+		if dB == nil {
+			if d, err := dolphin.FindByPID(pidB, "GZLE01"); err == nil {
+				dB = d
+			}
+		}
+		aReady := dA != nil && dA.IsInGame()
+		bReady := dB != nil && dB.IsInGame()
 		if aReady && bReady {
 			rep.Log(report.OK, "Both Dolphins in-game — proceeding.")
 			return nil

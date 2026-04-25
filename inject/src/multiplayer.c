@@ -299,6 +299,94 @@ void multiplayer_update(void) {
     fopAc_ac_c* link = PLAYER_PTR_ARRAY[0];
     if (!link) return;
 
+    // Warp handler. Sits ABOVE the frame_count puppet-creation gate so
+    // it fires the moment Link's actor pointer is valid (just after the
+    // save-load-stable point). Triggered by Go bumping mailbox->warp_seq.
+    // We write the target into all three actor_place position fields
+    // (home, old, current) — offsets verified against zeldaret/tww
+    // include/f_op/f_op_actor.h:
+    //   home.pos     +0x1D0
+    //   old.pos      +0x1E4
+    //   current.pos  +0x1F8
+    // Setting old==current makes the game's velocity-from-frame-delta
+    // computation (current - old) read zero, so Link doesn't snap back.
+    // Then we zero daPy_lk_c::mOldSpeed at +0x3694 so any cached momentum
+    // from before the warp is dropped — without this, applying the warp
+    // mid-walk would send Link sliding from the target in his pre-warp
+    // direction. Ack the consume so Go can poll for completion.
+    // Force-warp mode (diagnostic): re-apply target every frame so we can
+    // distinguish "one-shot warp gets reverted by execute()" from "warp
+    // hits a deeper reset". Treat exactly like a fresh warp_seq bump.
+    int do_warp = (mailbox->warp_seq != mailbox->warp_ack) || (mailbox->warp_force != 0);
+    if (do_warp) {
+        u8* link_bytes = (u8*)link;
+        cXyz target;
+        target.x = mailbox->warp_x;
+        target.y = mailbox->warp_y;
+        target.z = mailbox->warp_z;
+        cXyz zero = { 0.0f, 0.0f, 0.0f };
+        // Position fields, found via the find-pos diagnostic — every
+        // 4-byte-aligned (x,y,z) triplet in Link's actor memory that
+        // tracks live world position. Writing only some of them lets
+        // others drag Link back via posMove's collision-correction or
+        // foot-pos snap; we write all six.
+        //
+        //   0x1D0  fopAc_ac_c::home.pos
+        //   0x1E4  fopAc_ac_c::old.pos
+        //   0x1F8  fopAc_ac_c::current.pos      (the visible one)
+        //   0x4AC  daPy_lk_c (unnamed cached pos — likely render or pre-step)
+        //   0x3498 daPy_lk_c (unnamed cached pos)
+        //   0x3748 daPy_lk_c::m3748              (last unnamed cXyz block)
+        *(cXyz*)(link_bytes + 0x01D0) = target;
+        *(cXyz*)(link_bytes + 0x01E4) = target;
+        *(cXyz*)(link_bytes + 0x01F8) = target;
+        *(cXyz*)(link_bytes + 0x04AC) = target;
+        *(cXyz*)(link_bytes + 0x3498) = target;
+        *(cXyz*)(link_bytes + 0x3748) = target;
+        // Clear all velocity / momentum so posMoveFromFootPos's
+        // `current.pos += speed` doesn't slide Link out of the warp:
+        //   0x220  fopAc_ac_c::speed   (cXyz)  — primary velocity
+        //   0x254  fopAc_ac_c::speedF  (f32)   — forward speed scalar
+        //   0x3694 daPy_lk_c::mOldSpeed (cXyz) — last frame's velocity
+        *(cXyz*)(link_bytes + 0x0220) = zero;
+        *(f32*)(link_bytes + 0x0254) = 0.0f;
+        *(cXyz*)(link_bytes + 0x3694) = zero;
+        // mStts.m_cc_move at +0x3FE8 (mStts) + 0x00 (m_cc_move offset in
+        // cCcD_Stts) = +0x3FE8. posMove() does
+        // `current.pos += *mStts.GetCCMoveP()` and m_cc_move is the
+        // collision-correction displacement that pulls Link back toward
+        // his pre-warp physics-body position. Zeroing it kills that
+        // pull-back. Verified offsets against zeldaret/tww
+        // include/SSystem/SComponent/c_cc_d.h.
+        *(cXyz*)(link_bytes + 0x3FE8) = zero;
+        // mAcch.m_flags |= 0x1: makes dBgS_Acch::CrrPos early-return
+        // for this frame. CrrPos runs AFTER posMove in execute() and
+        // performs the heavy collision correction (MoveBgCrrPos +
+        // WallCorrect + LineCheck) that snaps Link back to where the
+        // collision system thinks he should be. Setting bit 0 makes
+        // CrrPos skip entirely so our writes survive. We OR-set rather
+        // than overwrite so other flag bits are preserved; gameplay's
+        // own code can clear bit 0 when it next runs the controller.
+        // mAcch is at +0x46C, m_flags at +0x28 of dBgS_Acch ⇒ +0x494.
+        u32* mAcch_flags = (u32*)(link_bytes + 0x494);
+        *mAcch_flags |= 0x1;
+        // l_debug_keep_pos at 0x803E440C is the file-global cXyz that
+        // execute() restores current.pos from at the START of every
+        // frame (line 11322 in zeldaret/tww d_a_player_main.cpp,
+        // gated `#if VERSION > VERSION_DEMO` which IS active in the
+        // shipped retail build). Without writing here, our warp gets
+        // immediately reverted next frame as Link's execute begins.
+        // Address verified empirically via scan-pos + poke-vec3.
+        *(volatile cXyz*)0x803E440C = target;
+        // Diagnostic: publish (u32)link so Go can compare against
+        // GetLinkPtr(), and read-back of current.pos.x so we can verify
+        // our write actually landed in memory before something resets
+        // it next frame.
+        mailbox->warp_dbg_link_addr = (u32)link;
+        mailbox->warp_dbg_post_x = ((cXyz*)(link_bytes + 0x1F8))->x;
+        mailbox->warp_ack = mailbox->warp_seq;
+    }
+
     frame_count++;
     if (frame_count < 300) {
         mailbox->progress = 1;

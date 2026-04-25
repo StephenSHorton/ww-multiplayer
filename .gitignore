@@ -16,6 +16,11 @@ inject/__pycache__/
 # OMC session state (local only)
 .omc/
 
+# Local Dolphin save states for the two-Dolphin testing loop —
+# captured per-machine via SAVE_STATE. ~27 MB binary blobs each;
+# regenerate locally rather than commit.
+saves/
+
 # OS / IDE
 .DS_Store
 .vscode/

@@ -264,6 +264,55 @@ func main() {
 				}
 			}
 			runDisasm(addr, count)
+		case "scan-pos":
+			runScanPos()
+		case "poke-vec3":
+			if len(os.Args) < 6 {
+				fmt.Println("Usage: ww-multiplayer.exe poke-vec3 <addr-hex> <x> <y> <z>")
+				os.Exit(1)
+			}
+			runPokeVec3(os.Args[2], os.Args[3], os.Args[4], os.Args[5])
+		case "peek":
+			if len(os.Args) < 3 {
+				fmt.Println("Usage: ww-multiplayer.exe peek <addr-hex> [n=4]")
+				os.Exit(1)
+			}
+			n := uint32(4)
+			if len(os.Args) > 3 {
+				if v, err := strconv.ParseUint(os.Args[3], 10, 32); err == nil {
+					n = uint32(v)
+				}
+			}
+			runPeek(os.Args[2], n)
+		case "warp-force":
+			if len(os.Args) < 5 {
+				fmt.Println("Usage: ww-multiplayer.exe warp-force <x> <y> <z>")
+				fmt.Println("  Sets warp target + warp_force flag so C re-applies the warp")
+				fmt.Println("  every frame. Use `warp-force-off` to release.")
+				os.Exit(1)
+			}
+			runWarpForce(os.Args[2], os.Args[3], os.Args[4], true)
+		case "warp-force-off":
+			runWarpForce("", "", "", false)
+		case "find-pos":
+			runFindPos()
+		case "track-pos":
+			secs := 5
+			if len(os.Args) > 2 {
+				if v, err := strconv.Atoi(os.Args[2]); err == nil {
+					secs = v
+				}
+			}
+			runTrackPos(secs)
+		case "warp":
+			if len(os.Args) < 5 {
+				fmt.Println("Usage: ww-multiplayer.exe warp <x> <y> <z>")
+				fmt.Println("  Teleports Link in the env-selected Dolphin (WW_DOLPHIN_INDEX/PID)")
+				fmt.Println("  to the given world coordinates. Useful for testing, debugging,")
+				fmt.Println("  and as a programmatic primitive for other tools.")
+				os.Exit(1)
+			}
+			runWarp(os.Args[2], os.Args[3], os.Args[4])
 		case "dolphin2":
 			reset := false
 			for _, a := range os.Args[2:] {
@@ -330,6 +379,7 @@ func printHelp() {
 	fmt.Printf(col, "ww-multiplayer.exe puppet-sync [name] [addr]", "Receive remotes; render as Link #2 / actor puppets")
 	fmt.Printf(col, "ww-multiplayer.exe fake-client [name] [addr]", "Connect a fake client that walks in circles")
 	fmt.Printf(col, "ww-multiplayer.exe debug", "Test Dolphin memory access")
+	fmt.Printf(col, "ww-multiplayer.exe warp <x> <y> <z>", "Teleport Link to world coords (uses C warp handler)")
 	fmt.Printf(col, "ww-multiplayer.exe help", "Show this help")
 }
 
@@ -1609,6 +1659,340 @@ const mailboxPosePublishPtr = 0xC0
 const mailboxPosePublishJointCount = 0xC4
 const mailboxPosePublishState = 0xC6
 const mailboxPosePublishSeq = 0xC7
+
+// v0.1.8: warp request — Go bumps warp_seq with a target position; the
+// C handler in multiplayer_update writes it into Link's home/old/current
+// pos (so velocity-from-(current-old) reads zero) and clears mOldSpeed
+// (so cached momentum doesn't snap Link back), then bumps warp_ack so
+// Go can poll for completion. See inject/include/mailbox.h.
+const (
+	mailboxWarpSeq         = 0xC8
+	mailboxWarpAck         = 0xCC
+	mailboxWarpX           = 0xD0
+	mailboxWarpY           = 0xD4
+	mailboxWarpZ           = 0xD8
+	mailboxWarpDbgLinkAddr = 0xDC
+	mailboxWarpDbgPostX    = 0xE0
+	mailboxWarpForce       = 0xE4
+)
+
+func runPokeVec3(addrHex, xs, ys, zs string) {
+	a, _ := strconv.ParseUint(strings.TrimPrefix(addrHex, "0x"), 16, 32)
+	x, _ := strconv.ParseFloat(xs, 32)
+	y, _ := strconv.ParseFloat(ys, 32)
+	z, _ := strconv.ParseFloat(zs, 32)
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	buf := make([]byte, 12)
+	binary.BigEndian.PutUint32(buf[0:4], math.Float32bits(float32(x)))
+	binary.BigEndian.PutUint32(buf[4:8], math.Float32bits(float32(y)))
+	binary.BigEndian.PutUint32(buf[8:12], math.Float32bits(float32(z)))
+	if err := d.WriteAbsolute(uint32(a), buf); err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Wrote (%.2f, %.2f, %.2f) to 0x%08X\n", x, y, z, a)
+}
+
+// runScanPos scans a wide RAM range for cXyz triplets matching Link's
+// current.pos — used to find globals like l_debug_keep_pos that live
+// outside Link's actor block. Defaults to 0x80300000..0x80800000
+// (the .data/.bss region above DOL code, below mailbox).
+func runScanPos() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	pos, err := d.ReadPlayerPosition()
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	fmt.Printf("Current pos: (%.2f, %.2f, %.2f) — scanning 0x80300000..0x80800000 for triplets:\n",
+		pos.PosX, pos.PosY, pos.PosZ)
+	const chunkSize = 0x10000
+	for base := uint32(0x80300000); base < 0x80800000; base += chunkSize {
+		buf, err := d.ReadAbsolute(base, chunkSize+8)
+		if err != nil {
+			continue
+		}
+		for off := 0; off+12 <= len(buf); off += 4 {
+			x := math.Float32frombits(binary.BigEndian.Uint32(buf[off : off+4]))
+			if abs32(x-pos.PosX) > 1.0 {
+				continue
+			}
+			y := math.Float32frombits(binary.BigEndian.Uint32(buf[off+4 : off+8]))
+			z := math.Float32frombits(binary.BigEndian.Uint32(buf[off+8 : off+12]))
+			if abs32(y-pos.PosY) < 1.0 && abs32(z-pos.PosZ) < 1.0 {
+				fmt.Printf("  0x%08X = (%.2f, %.2f, %.2f)\n", base+uint32(off), x, y, z)
+			}
+		}
+	}
+}
+
+// runPeek reads and prints n bytes at an absolute PPC RAM address —
+// in u32 BE chunks plus per-word float interpretation.
+func runPeek(addrHex string, n uint32) {
+	addr64, err := strconv.ParseUint(strings.TrimPrefix(addrHex, "0x"), 16, 32)
+	if err != nil {
+		fmt.Printf("bad addr: %v\n", err)
+		os.Exit(1)
+	}
+	addr := uint32(addr64)
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	buf, err := d.ReadAbsolute(addr, int(n))
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	for i := uint32(0); i+4 <= n; i += 4 {
+		u := binary.BigEndian.Uint32(buf[i : i+4])
+		f := math.Float32frombits(u)
+		fmt.Printf("  0x%08X: 0x%08X  (f32: %.4f)\n", addr+i, u, f)
+	}
+}
+
+// runWarpForce toggles the C-side force-warp mode. When on, the warp
+// handler re-applies the target position every frame regardless of
+// seq/ack. Used to test whether continuous writes can outpace whatever
+// is reverting our one-shot warp.
+func runWarpForce(xs, ys, zs string, on bool) {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	if on {
+		x, _ := strconv.ParseFloat(xs, 32)
+		y, _ := strconv.ParseFloat(ys, 32)
+		z, _ := strconv.ParseFloat(zs, 32)
+		posBuf := make([]byte, 12)
+		binary.BigEndian.PutUint32(posBuf[0:4], math.Float32bits(float32(x)))
+		binary.BigEndian.PutUint32(posBuf[4:8], math.Float32bits(float32(y)))
+		binary.BigEndian.PutUint32(posBuf[8:12], math.Float32bits(float32(z)))
+		d.WriteAbsolute(mailboxBase+mailboxWarpX, posBuf)
+		d.WriteAbsolute(mailboxBase+mailboxWarpForce, []byte{1})
+		fmt.Printf("Force-warp ON: target=(%.1f, %.1f, %.1f). Use `warp-force-off` to release.\n", x, y, z)
+	} else {
+		d.WriteAbsolute(mailboxBase+mailboxWarpForce, []byte{0})
+		fmt.Println("Force-warp OFF.")
+	}
+}
+
+// runTrackPos polls current.pos + speed at 100 ms intervals for the
+// given duration and prints the temporal evolution. Used to diagnose
+// whether a warp reverts as a slow drift (something setting velocity
+// each frame) or a clean snap (something hard-resetting current.pos).
+func runTrackPos(secs int) {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	linkPtr, err := d.GetLinkPtr()
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	fmt.Printf("Tracking Link @ 0x%08X for %ds (50 ms tick)...\n", linkPtr, secs)
+	fmt.Println("  t(ms)        X        Y        Z   speed.x   speed.y   speed.z   speedF")
+	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+	start := time.Now()
+	for time.Now().Before(deadline) {
+		posBuf, err := d.ReadAbsolute(linkPtr+0x1F8, 12)
+		if err != nil {
+			break
+		}
+		spdBuf, err := d.ReadAbsolute(linkPtr+0x220, 12)
+		if err != nil {
+			break
+		}
+		spdFBuf, err := d.ReadAbsolute(linkPtr+0x254, 4)
+		if err != nil {
+			break
+		}
+		x := math.Float32frombits(binary.BigEndian.Uint32(posBuf[0:4]))
+		y := math.Float32frombits(binary.BigEndian.Uint32(posBuf[4:8]))
+		z := math.Float32frombits(binary.BigEndian.Uint32(posBuf[8:12]))
+		sx := math.Float32frombits(binary.BigEndian.Uint32(spdBuf[0:4]))
+		sy := math.Float32frombits(binary.BigEndian.Uint32(spdBuf[4:8]))
+		sz := math.Float32frombits(binary.BigEndian.Uint32(spdBuf[8:12]))
+		sf := math.Float32frombits(binary.BigEndian.Uint32(spdFBuf))
+		fmt.Printf("  %4d  %9.1f  %7.1f  %9.1f  %8.2f  %8.2f  %8.2f  %7.2f\n",
+			time.Since(start).Milliseconds(), x, y, z, sx, sy, sz, sf)
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// runFindPos dumps Link's actor memory and reports every 4-byte-aligned
+// f32 within ±1.0 of a target X (and matching Y/Z for "triplet" tagging).
+// Defaults to current.pos.X but accepts an explicit target via args —
+// useful for finding hidden source-of-truth fields when force-warp is
+// active and current.pos oscillates.
+func runFindPos() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	pos, err := d.ReadPlayerPosition()
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	linkPtr, err := d.GetLinkPtr()
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	tx, ty, tz := pos.PosX, pos.PosY, pos.PosZ
+	if len(os.Args) >= 5 {
+		if v, err := strconv.ParseFloat(os.Args[2], 32); err == nil {
+			tx = float32(v)
+		}
+		if v, err := strconv.ParseFloat(os.Args[3], 32); err == nil {
+			ty = float32(v)
+		}
+		if v, err := strconv.ParseFloat(os.Args[4], 32); err == nil {
+			tz = float32(v)
+		}
+	}
+	const dumpSize = 0x4000
+	mem, err := d.ReadAbsolute(linkPtr, dumpSize)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	fmt.Printf("Link @ 0x%08X — searching for f32 ≈ (%.1f, %.1f, %.1f)\n", linkPtr, tx, ty, tz)
+	for off := 0; off+4 <= dumpSize; off += 4 {
+		v := math.Float32frombits(binary.BigEndian.Uint32(mem[off : off+4]))
+		if abs32(v-tx) < 1.0 {
+			next4, next8 := float32(0), float32(0)
+			if off+12 <= dumpSize {
+				next4 = math.Float32frombits(binary.BigEndian.Uint32(mem[off+4 : off+8]))
+				next8 = math.Float32frombits(binary.BigEndian.Uint32(mem[off+8 : off+12]))
+			}
+			marker := ""
+			if abs32(next4-ty) < 1.0 && abs32(next8-tz) < 1.0 {
+				marker = "  <-- triplet"
+			}
+			fmt.Printf("  +0x%04X = %12.2f   (+4: %12.2f, +8: %12.2f)%s\n", off, v, next4, next8, marker)
+		}
+	}
+}
+
+func abs32(f float32) float32 {
+	if f < 0 {
+		return -f
+	}
+	return f
+}
+
+// runWarp is the CLI entry point for ad-hoc Link teleporting. Honors the
+// usual env knobs for Dolphin selection (WW_DOLPHIN_INDEX / WW_DOLPHIN_PID).
+func runWarp(xs, ys, zs string) {
+	x, err := strconv.ParseFloat(xs, 32)
+	if err != nil {
+		fmt.Printf("bad X: %v\n", err)
+		os.Exit(1)
+	}
+	y, err := strconv.ParseFloat(ys, 32)
+	if err != nil {
+		fmt.Printf("bad Y: %v\n", err)
+		os.Exit(1)
+	}
+	z, err := strconv.ParseFloat(zs, 32)
+	if err != nil {
+		fmt.Printf("bad Z: %v\n", err)
+		os.Exit(1)
+	}
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	if err := warpLink(d, float32(x), float32(y), float32(z), 1*time.Second); err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	// Diagnostic: read what the C handler stashed about its write so we
+	// can tell if the write reached memory and what actor it hit.
+	dbgAddrBuf, _ := d.ReadAbsolute(mailboxBase+mailboxWarpDbgLinkAddr, 4)
+	dbgPostBuf, _ := d.ReadAbsolute(mailboxBase+mailboxWarpDbgPostX, 4)
+	dbgAddr := binary.BigEndian.Uint32(dbgAddrBuf)
+	dbgPostX := math.Float32frombits(binary.BigEndian.Uint32(dbgPostBuf))
+	linkPtr, _ := d.GetLinkPtr()
+	fmt.Printf("Warped Link to (%.1f, %.1f, %.1f).\n", x, y, z)
+	fmt.Printf("  C handler saw link=0x%08X (Go GetLinkPtr=0x%08X) — %s\n",
+		dbgAddr, linkPtr,
+		map[bool]string{true: "MATCH", false: "MISMATCH!"}[dbgAddr == linkPtr])
+	fmt.Printf("  Post-write current.pos.x = %.2f (target %.2f) — %s\n",
+		dbgPostX, x,
+		map[bool]string{true: "write landed", false: "write was reverted within frame"}[abs32(dbgPostX-float32(x)) < 1.0])
+	posAfter, _ := d.ReadPlayerPosition()
+	if posAfter != nil {
+		fmt.Printf("  Read-after-warp current.pos = (%.2f, %.2f, %.2f) — %s\n",
+			posAfter.PosX, posAfter.PosY, posAfter.PosZ,
+			map[bool]string{true: "stuck!", false: "REVERTED"}[abs32(posAfter.PosX-float32(x)) < 1.0])
+	}
+}
+
+// warpLink writes the target position into the warp mailbox slot, bumps
+// warp_seq, and polls warp_ack until the C side has consumed the request
+// (or the timeout expires). Used by mp-local to space the two Links
+// after both Dolphins boot from the same SAVE_STATE, and exposed as the
+// `warp` subcommand for ad-hoc teleporting.
+func warpLink(d *dolphin.Dolphin, x, y, z float32, timeout time.Duration) error {
+	// Bump from whatever seq is currently set (cold start = 0).
+	prevSeqBuf, err := d.ReadAbsolute(mailboxBase+mailboxWarpSeq, 4)
+	if err != nil {
+		return fmt.Errorf("read warp_seq: %w", err)
+	}
+	nextSeq := binary.BigEndian.Uint32(prevSeqBuf) + 1
+
+	// Write coords first, THEN the seq bump — C reads seq under a single
+	// frame's tick, and a torn write where seq updates before coords
+	// would warp Link to whatever stale (x,y,z) was in the slot.
+	posBuf := make([]byte, 12)
+	binary.BigEndian.PutUint32(posBuf[0:4], math.Float32bits(x))
+	binary.BigEndian.PutUint32(posBuf[4:8], math.Float32bits(y))
+	binary.BigEndian.PutUint32(posBuf[8:12], math.Float32bits(z))
+	if err := d.WriteAbsolute(mailboxBase+mailboxWarpX, posBuf); err != nil {
+		return fmt.Errorf("write warp coords: %w", err)
+	}
+	seqBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(seqBuf, nextSeq)
+	if err := d.WriteAbsolute(mailboxBase+mailboxWarpSeq, seqBuf); err != nil {
+		return fmt.Errorf("write warp_seq: %w", err)
+	}
+
+	// Poll for ack — game runs at 60 Hz so we'd expect this within ~17 ms,
+	// but be generous in case the multiplayer_update hook missed a tick.
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		ackBuf, err := d.ReadAbsolute(mailboxBase+mailboxWarpAck, 4)
+		if err == nil && binary.BigEndian.Uint32(ackBuf) == nextSeq {
+			return nil
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out waiting for warp_ack to bump (timeout=%s)", timeout)
+}
 
 func runShadowMode(s string) {
 	v, err := strconv.Atoi(s)

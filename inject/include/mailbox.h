@@ -175,6 +175,33 @@ typedef struct {
     u16 pose_publish_joint_count;             // +0xC4
     u8  pose_publish_state;                   // +0xC6
     u8  pose_publish_seq;                     // +0xC7
+    // --- WARP REQUEST (v0.1.8) -----------------------------------------
+    // Go bumps warp_seq when it wants Link teleported to (warp_x, warp_y,
+    // warp_z). C compares warp_seq to warp_ack each frame; on mismatch
+    // it writes the target into Link's home.pos (+0x1D0), old.pos
+    // (+0x1E4), and current.pos (+0x1F8) — overwriting all three so the
+    // game's velocity-from-(current-old) computation reads zero, then
+    // also zeros mOldSpeed (+0x3694) so last-frame momentum doesn't snap
+    // Link back. After the writes, C copies warp_seq into warp_ack.
+    //
+    // Both fields are u32 so a wrap is impossible across a single test
+    // session. Go can poll warp_ack to know the warp landed.
+    u32 warp_seq;                             // +0xC8
+    u32 warp_ack;                             // +0xCC
+    f32 warp_x;                               // +0xD0
+    f32 warp_y;                               // +0xD4
+    f32 warp_z;                               // +0xD8
+    // Warp diagnostics — populated each time the warp handler fires so
+    // Go can verify the write actually reached memory and identify
+    // which actor we're writing to.
+    u32 warp_dbg_link_addr;                   // +0xDC — value of (u32)link
+    f32 warp_dbg_post_x;                      // +0xE0 — current.pos.x AFTER our write (proves write landed)
+    // Force-warp mode: when nonzero, C writes (warp_x, warp_y, warp_z)
+    // to all known position fields EVERY frame, ignoring warp_seq/ack.
+    // Diagnostic tool — lets us tell whether one-shot warps are being
+    // reverted by Link's per-frame execute() vs hitting a deeper reset.
+    u8  warp_force;                           // +0xE4
+    u8  _pad5[3];                             // +0xE5
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)
