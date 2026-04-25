@@ -156,15 +156,16 @@ func runMpLocal(nameA, nameB string) {
 
 	// When both Dolphins boot from the same SAVE_STATE, both Links
 	// spawn at literally the same world coords and visually overlap.
-	// Use the C-side warp handler to teleport Dolphin B's Link by a
-	// small offset. Unlike a raw memory poke, the warp handler writes
-	// home/old/current.pos in lockstep and zeros mOldSpeed so Link
-	// stays at the new position instead of being snapped back by the
-	// next physics tick. Defaults to +500 X; set any of
-	// MP_LOCAL_SHIFT_X/Y/Z to override, or all to 0 to disable.
-	dx := envFloat32("MP_LOCAL_SHIFT_X", 500)
+	// Use the C-side warp handler (which sets l_debug_keep_pos +
+	// current.pos + old.pos so the next frame's execute() doesn't
+	// snap-revert) to nudge Dolphin B's Link diagonally a bit.
+	// Defaults of (+50, 0, +50) put the two Links visibly distinct
+	// but still side-by-side — a few Link-heights apart, both on the
+	// same patch of ground. Override via MP_LOCAL_SHIFT_X/Y/Z env, or
+	// set all three to 0 to disable.
+	dx := envFloat32("MP_LOCAL_SHIFT_X", 50)
 	dy := envFloat32("MP_LOCAL_SHIFT_Y", 0)
-	dz := envFloat32("MP_LOCAL_SHIFT_Z", 0)
+	dz := envFloat32("MP_LOCAL_SHIFT_Z", 50)
 	if dx != 0 || dy != 0 || dz != 0 {
 		if err := warpDolphinB(pidA, pidB, dx, dy, dz); err != nil {
 			report.Logf(rep, report.Warn, "couldn't warp Dolphin B Link: %v", err)

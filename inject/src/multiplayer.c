@@ -359,17 +359,6 @@ void multiplayer_update(void) {
         // pull-back. Verified offsets against zeldaret/tww
         // include/SSystem/SComponent/c_cc_d.h.
         *(cXyz*)(link_bytes + 0x3FE8) = zero;
-        // mAcch.m_flags |= 0x1: makes dBgS_Acch::CrrPos early-return
-        // for this frame. CrrPos runs AFTER posMove in execute() and
-        // performs the heavy collision correction (MoveBgCrrPos +
-        // WallCorrect + LineCheck) that snaps Link back to where the
-        // collision system thinks he should be. Setting bit 0 makes
-        // CrrPos skip entirely so our writes survive. We OR-set rather
-        // than overwrite so other flag bits are preserved; gameplay's
-        // own code can clear bit 0 when it next runs the controller.
-        // mAcch is at +0x46C, m_flags at +0x28 of dBgS_Acch ⇒ +0x494.
-        u32* mAcch_flags = (u32*)(link_bytes + 0x494);
-        *mAcch_flags |= 0x1;
         // l_debug_keep_pos at 0x803E440C is the file-global cXyz that
         // execute() restores current.pos from at the START of every
         // frame (line 11322 in zeldaret/tww d_a_player_main.cpp,
