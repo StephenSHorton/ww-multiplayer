@@ -893,7 +893,42 @@ int daPy_draw_hook(void* this_) {
     // Link's data → step 3 (separate ModelData). Reached 38 then crash
     // later ⇒ pollution lives outside j3dSys (statics or shared MtxCalc).
     mailbox->draw_progress = 30;
-    int result = daPy_lk_c_draw(this_);
+
+    // EYE-FIX V5 modes 1 & 2 (approach-(2) prototype). Pre-draw, swap
+    // Link's mClModel pointer to mini_link_models[0] so daPy_lk_c::draw's
+    // four-pass + body submission consume mini-link's matpackets, which
+    // have mpDrawMtx pointing at mini-link's mpDrawMtxBuf (filled by our
+    // double-calc with the network-fed pose). That gives us mini-link's
+    // body + eye decals at mini-link's pose without touching the chain
+    // post-Link's-draw — sidesteps the run_eye_fix/entryIn corruption.
+    //
+    // Mode 1: single draw with the swap → Link is invisible, mini-link
+    //   gets everything. Diagnostic: confirms the swap reaches the four-
+    //   pass before we commit to the cost of double-drawing.
+    // Mode 2: double draw — first swapped (mini-link), restore, second
+    //   draw renders Link normally. Both visible.
+    u8 ef_mode = mailbox->eye_fix_mode;
+    if ((ef_mode == 1 || ef_mode == 2) && mini_link_models[0]) {
+        J3DModel** mClModel_slot =
+            (J3DModel**)((u8*)this_ + DAPY_LK_C_MPCLMODEL_OFFSET);
+        J3DModel* saved_mClModel = *mClModel_slot;
+        *mClModel_slot = mini_link_models[0];
+        daPy_lk_c_draw(this_);
+        *mClModel_slot = saved_mClModel;
+    }
+
+    // Mode 1: skip Link's own draw entirely (local Link invisible). The
+    // post-draw pipeline (pose publish, network pose calc, etc.) still
+    // runs so mini-link's mpNodeMtxBuf gets the remote pose and renders
+    // animated. Mode 2 also runs Link's normal draw — but its four-pass
+    // re-enters the SAME shared statics that mode-2's first draw already
+    // entered, creating a chain cycle that hangs the GPU. Keep mode 2
+    // wired for future use once we've sorted out own-copy statics or
+    // a separate-drawlist approach.
+    int result = 0;
+    if (ef_mode != 1) {
+        result = daPy_lk_c_draw(this_);
+    }
     mailbox->draw_progress = 31;
 
     // Post-draw chain snapshot. Walks opa_p0 bucket[0] via mpNextPacket@+4
@@ -1383,8 +1418,14 @@ int daPy_draw_hook(void* this_) {
             // Step is read once per frame so every slot probes at the
             // same level.
             u8 eye_step = mailbox->eye_fix_step;
+            // EYE-FIX V5 mode 2: mini-link's body + eye decals were
+            // already submitted by the pre-draw mClModel-swap call
+            // (slot 0 only). Skip the legacy run_eye_fix + mDoExt path
+            // for slot 0 to avoid double-submitting. Other slots still
+            // use the legacy path until we wire mClModel-swap for them.
+            int skip_legacy_slot0 = (ef_mode == 1 || ef_mode == 2);
 
-            if (mode != 5 || mailbox->pose_seqs[0] != 0) {
+            if ((mode != 5 || mailbox->pose_seqs[0] != 0) && !skip_legacy_slot0) {
                 run_eye_fix(mini_link_models[0], this_, mini_link_data, eye_step);
                 mDoExt_modelEntryDL(mini_link_models[0]);
             }

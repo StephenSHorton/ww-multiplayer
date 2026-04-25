@@ -246,6 +246,26 @@ typedef struct {
     u32 eye_fix_post_chain[10];               // +0xEC..+0x113
     u8  eye_fix_post_chain_count;             // +0x114
     u8  _pad7[3];                             // +0x115
+    // --- EYE-FIX V5 MULTI-MODE EXPERIMENT (session 5) ----------------
+    // Approach-(2) variants ("skip the recipe — let Link's own four-pass
+    // submit eye decals at mini-link's pose"). Set via
+    // `./ww-multiplayer.exe eye-fix-mode <N>`:
+    //   0 = legacy behavior (run_eye_fix gated by eye_fix_step + mDoExt
+    //       mini-link). Session-5 confirmed entries vanish in
+    //       run_eye_fix's entryIn at step ≥ 4.
+    //   1 = mClModel-swap one-draw: pre-draw, swap *(this+0x32C) to
+    //       mini_link_models[0]. Link's daPy_lk_c::draw then consumes
+    //       mini-link's matpackets / mpDrawMtxBuf. Skip run_eye_fix and
+    //       skip the mDoExt mini-link submit (already submitted by the
+    //       swapped draw). Expected: Link invisible, mini-link renders
+    //       full body + eye decals at mini-link's pose. Confirms the
+    //       swap reaches the four-pass before we double-draw.
+    //   2 = two-draw: same swap as mode 1, then RESTORE mClModel and
+    //       call daPy_lk_c_draw a second time so Link draws normally.
+    //       Skip run_eye_fix; skip mDoExt mini-link. Final visual:
+    //       both Links render with eye decals.
+    u8  eye_fix_mode;                         // +0x118
+    u8  _pad8[3];                             // +0x119
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)

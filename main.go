@@ -304,6 +304,20 @@ func main() {
 			runEyeFixGates()
 		case "eye-fix-post-chain":
 			runEyeFixPostChain()
+		case "eye-fix-mode":
+			if len(os.Args) < 3 {
+				fmt.Println("Usage: ww-multiplayer.exe eye-fix-mode <0|1|2>")
+				fmt.Println("  0 = legacy (run_eye_fix + mDoExt mini-link)")
+				fmt.Println("  1 = mClModel-swap one-draw (Link invisible, mini-link only)")
+				fmt.Println("  2 = mClModel-swap two-draw (both visible, mini-link gets eye decals)")
+				os.Exit(1)
+			}
+			n, err := strconv.Atoi(os.Args[2])
+			if err != nil || n < 0 || n > 2 {
+				fmt.Printf("mode must be 0..2, got %q\n", os.Args[2])
+				os.Exit(1)
+			}
+			runEyeFixMode(byte(n))
 		case "j3dsys-probe":
 			runJ3DSysProbe()
 		case "ppc-disasm":
@@ -1772,6 +1786,7 @@ const (
 	mailboxWarpDbgPostX    = 0xE0
 	mailboxWarpForce       = 0xE4
 	mailboxEyeFixStep      = 0xE8
+	mailboxEyeFixMode      = 0x118
 )
 
 func runPokeVec3(addrHex, xs, ys, zs string) {
@@ -1903,6 +1918,22 @@ func runEyeFixStep(step byte) {
 		os.Exit(1)
 	}
 	fmt.Printf("eye_fix_step = %d\n", step)
+}
+
+// runEyeFixMode writes mailbox.eye_fix_mode (V5 multi-mode experiment).
+// 0 = legacy run_eye_fix; 1 = mClModel-swap one-draw; 2 = two-draw.
+func runEyeFixMode(mode byte) {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	if err := d.WriteAbsolute(mailboxBase+mailboxEyeFixMode, []byte{mode}); err != nil {
+		fmt.Printf("write failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("eye_fix_mode = %d\n", mode)
 }
 
 // runEyeFixGates reads Link #1's three gating-state fields that

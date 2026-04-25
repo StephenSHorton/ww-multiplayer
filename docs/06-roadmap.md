@@ -951,6 +951,71 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    - `ppc-disasm` extended further (already in session 4) covers
      `bl/bctrl/blr` plus enough fpr/branch coverage to follow the
      full daPy_lk_c::draw structure end-to-end.
+
+   **Approach-(2) prototype (session 5b, 2026-04-25) — eye decals
+   confirmed renderable via mClModel-swap, but animation broken.**
+   - New mailbox field `eye_fix_mode` (+0x118) selects experiment
+     variants. New `./ww-multiplayer.exe eye-fix-mode <0|1|2>` Go cmd.
+   - Mode 1 = mClModel-swap one-draw: at the start of `daPy_draw_hook`,
+     swap `*(this+0x32C)` (Link's mClModel) to `mini_link_models[0]`,
+     call `daPy_lk_c_draw(this_)`, restore. Then SKIP Link's own draw
+     entirely (so local Link is invisible). The post-draw flow (pose
+     publish, mode-5 multi-slot calc, mDoExt of slots 1+) was supposed
+     to still run, with `skip_legacy_slot0 = (ef_mode == 1 || == 2)`
+     suppressing only slot 0's legacy `run_eye_fix + mDoExt` path.
+   - **EYE DECALS RENDER ON MINI-LINK.** Live opa_p0 chain at mode 1
+     shows the canonical 18-entry recipe shape but with mini-link
+     matpackets (0x80F04xxx) instead of Link's (0x815F9xxx). Same
+     baseline interleaving: 4 statics + 14 mtls. So Link's four-pass
+     does pick up `*(this+0x32C)` and use it for matpacket lookup —
+     swap propagates correctly through the recipe. Visually confirmed
+     via user: in both Dolphins, local Link invisible, mini-link
+     renders full body + face + eye decals (pupils, eyelids, brows)
+     at the +50/+50 offset. *This is the fix the prior 3 attempts
+     failed to land.*
+   - **OUTSTANDING: mini-link is FROZEN.** Mode 1's post-draw calc
+     loop (which writes the network-fed pose into mini-link's
+     mpNodeMtxBuf) doesn't appear to run. `draw_progress` stays at
+     31 (= "Link's real draw returned") and never reaches 32+ on
+     either Dolphin. Network pose seqs ARE incrementing (broadcast
+     side works), but the consumer side stops. Suspicion: the
+     save-reload safety check at line ~1020 (`if (current_data !=
+     mini_link_data) return;`) fires after the swapped draw because
+     the swapped draw modifies `this->mClModelData` in some way we
+     haven't traced. Diagnostic peek of `*(this+0x328)` post-frame
+     reads back the right value (= mini_link_data), so the
+     modification — if any — is undone before our next frame's read
+     window. The check itself is the only `return` between
+     draw_progress=31 and =32; it's the most likely culprit but not
+     definitively proven yet.
+   - Mode 2 = mClModel-swap two-draw (mini-link draw + restore +
+     Link's own draw). FAILS via chain cycle: both draws submit the
+     same 4 shared statics into opa_p0 bucket[0], and the second
+     submission creates a `head → ... → static[A] → static[B] →
+     ... → head` cycle that hangs the GPU on chain walk. Proven
+     by chain-walker dump showing `[18] CYCLE: same as [0]`. Mode 2
+     was tested and freezes both Dolphin windows; reverting to mode
+     0 doesn't recover (GPU is stuck), need to kill+relaunch.
+     Definitively rules out naive double-draw; future approaches
+     need either own-copy statics for the mini-link pass or
+     separate drawlists with chain-bleed handling.
+   **Next session priorities:**
+   - (a) Fix mode-1 frozen animation. Add a C-side `dbg_postswap_mclmodeldata`
+     mailbox field that captures `*(this+0x328)` immediately after the
+     swapped draw + restore. Read from Go to confirm whether the
+     save-reload safety check is firing. If yes, either bypass the
+     check in modes 1/2 or save/restore mClModelData explicitly.
+   - (b) Mode 3 design: render mini-link via opa_p1 (separate
+     drawlist) so static cycle is sidestepped. Need to swap
+     `*(0x803CA92C)` (the drawlist field the four-pass body reads)
+     to opa_p1's J3DDrawBuffer pointer for the swapped draw, then
+     restore. Will probably still have the static-bleed issue (same
+     statics, .next field shared) but each chain has its own bucket
+     head, so the immediate freeze might be avoided — verify chain
+     walks terminate.
+   - (c) If both (a) and (b) work, mode 2 (with separate drawlists)
+     should land: local Link visible AND mini-link visible with eye
+     decals. That is the v0.1.x ship target.
 10. **Leverage existing Dolphin cheats for test setup.** Manual test
     setup eats time getting Link into a state where multiplayer
     features are exercisable (sailing for ocean tests, specific items
