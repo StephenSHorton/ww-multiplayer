@@ -263,4 +263,74 @@ typedef void (*mDoExt_modelUpdateDL_t)(J3DModel* model);
 typedef int (*daPy_lk_c_draw_t)(void* this_);
 #define daPy_lk_c_draw ((daPy_lk_c_draw_t)0x80107308)
 
+// --- Eye-fix recipe (item #9, daPy_lk_c::draw 1827-1881) ---------------
+// J3D opaque types — fields accessed via byte offset since the game is
+// C++ and we don't want to mirror class layouts in C.
+typedef void J3DJoint;
+typedef void J3DMaterial;
+typedef void J3DShape;
+typedef void J3DTexture;
+typedef void J3DDrawBuffer;
+typedef void J3DPacket;
+
+// J3DDrawBuffer::entryImm(packet, idx) — submits a packet's GX-state
+// commands into the draw buffer. Used by mDoExt_*Packet::entryOpa()
+// inlines as `j3dSys.getDrawBuffer(0)->entryImm(this, 0)`.
+typedef int (*J3DDrawBuffer_entryImm_t)(J3DDrawBuffer* self, J3DPacket* packet, int idx);
+#define J3DDrawBuffer_entryImm ((J3DDrawBuffer_entryImm_t)0x802ECCC4)
+
+// J3DJoint::entryIn() — submits the joint's mesh chain (with current
+// shape-vis flags) into j3dSys's currently-set draw buffer. Reads
+// j3dSys.mModel for the model whose mpDrawMtx feeds the GX cmds, so
+// callers MUST set j3dSys.mModel = target before calling.
+typedef void (*J3DJoint_entryIn_t)(J3DJoint* self);
+#define J3DJoint_entryIn ((J3DJoint_entryIn_t)0x802F58D8)
+
+// dDlst_list_c field storage. Read these to get the J3DDrawBuffer*
+// for each list, then write into j3dSys+0x48/+0x4C to switch lists
+// (= what dComIfGd_setListP0()/setListP1() inlines do).
+//   setListP0 = write opa_p0 to BOTH j3dSys+0x48 (OPA) and +0x4C (XLU).
+//   setListP1 = write opa_p1 to +0x48, xlu_p1 to +0x4C.
+#define DRAWLIST_OPA_LIST_P0_PTR  0x803CA92C
+#define DRAWLIST_OPA_LIST_P1_PTR  0x803CA930
+#define DRAWLIST_XLU_LIST_P1_PTR  0x803CA934
+
+// j3dSys offsets (per JSystem/J3DGraphBase/J3DSys.h).
+#define J3D_SYS_DRAWBUFFER_OPA_OFFSET 0x48
+#define J3D_SYS_DRAWBUFFER_XLU_OFFSET 0x4C
+#define J3D_SYS_M_TEXTURE_OFFSET      0x58
+
+// Eye-decal Z-compare preset packets in BSS (mDoExt_offCupOnAupPacket /
+// mDoExt_onCupOffAupPacket instances). Used in pairs: packet 2 first
+// (passes 1+2 in P0), packet 1 after link_root (passes 4+5).
+#define L_OFF_CUP_ON_AUP_PACKET1  ((J3DPacket*)0x803E46A4)
+#define L_OFF_CUP_ON_AUP_PACKET2  ((J3DPacket*)0x803E46C0)
+#define L_ON_CUP_OFF_AUP_PACKET1  ((J3DPacket*)0x803E46DC)
+#define L_ON_CUP_OFF_AUP_PACKET2  ((J3DPacket*)0x803E46F8)
+
+// J3D struct field offsets.
+#define J3DJOINT_MESH_OFFSET            0x60   // J3DMaterial* mMesh
+#define J3DMATERIAL_NEXT_OFFSET         0x04   // J3DMaterial* mNext
+#define J3DMATERIAL_SHAPE_OFFSET        0x08   // J3DShape* mShape
+#define J3DSHAPE_FLAGS_OFFSET           0x0C   // u32 mFlags
+#define J3DSHAPE_FLAG_HIDE              0x0001 // J3DShpFlag_Hide
+
+// J3DModelData::getTexture() = mMaterialTable.mTexture, with
+// mMaterialTable @ ModelData+0x58 and mTexture @ MaterialTable+0x18.
+#define J3DMODELDATA_TEXTURE_OFFSET     0x70
+
+// J3DJointTree starts at ModelData+0x10; mJointNodePointer @ tree+0x1C.
+// So joint(i) = (*(J3DJoint***)(ModelData + 0x2C))[i].
+#define J3DMODELDATA_JOINT_NODE_PTR_OFFSET 0x2C
+
+// daPy_lk_c shape arrays (4 J3DShape* each). All three live on the
+// daPy_lk_c instance; pointers are SHARED with mini-Link via
+// J3DModelData (toggling mFlags affects both renders, so any toggle
+// must be undone before frame end).
+#define DAPY_MP_Z_OFF_BLEND_SHAPE_OFFSET 0x0374
+#define DAPY_MP_Z_OFF_NONE_SHAPE_OFFSET  0x0384
+#define DAPY_MP_Z_ON_SHAPE_OFFSET        0x0394
+#define LINK_CL_EYE_JOINT_INDEX  0x13
+#define LINK_CL_MAYU_JOINT_INDEX 0x15
+
 #endif

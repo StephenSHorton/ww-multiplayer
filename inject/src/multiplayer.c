@@ -24,12 +24,13 @@
 //   v2 (mod ~0x868 B): 0x80410808. Broke when mod grew past 0x800.
 //   v3 (mod ~0x900 B): 0x80410908. Broke when mod grew past 0x900.
 //   v4 (mod ~0x9A8 B): 0x80410F08 @ __OSArenaLo = 0x80411000.
-//   v5 (current, mod ~0x11C8 B): 0x80411F08 @ __OSArenaLo = 0x80412000.
-//       Echo-ring code pushed .text past 0x80411000, so the whole
-//       mailbox + __OSArenaLo pair shifted up by 0x1000. See
+//   v5 (mod ~0x11C8 B): 0x80411F08 @ __OSArenaLo = 0x80412000.
+//   v6 (current, mod ~0x1FC8 B): 0x80412F08 @ __OSArenaLo = 0x80413000.
+//       Eye-fix recipe pushed .text past 0x80411F00, so the whole
+//       mailbox + __OSArenaLo pair shifted up by another 0x1000. See
 //       inject/build.py for the matching OSInit patch.
-// MUST match the `lwz 12, 0x1F08(12)` offset in frame_shim asm below.
-#define CALLBACK_PTR_ADDR 0x80411F08
+// MUST match the `lwz 12, 0x2F08(12)` offset in frame_shim asm below.
+#define CALLBACK_PTR_ADDR 0x80412F08
 
 // Per-slot state. Parallel arrays to mailbox.puppets[]. pids[i] is the
 // queued-spawn result from fopAcM_create; spawned[i] gates phase 2 sync.
@@ -249,7 +250,7 @@ void frame_shim(void) {
 
         // --- multiplayer_update ---
         "lis   12, 0x8041       \n"
-        "lwz   12, 0x1F08(12)   \n"  // = CALLBACK_PTR_ADDR (mailbox+0x08) = 0x80411F08
+        "lwz   12, 0x2F08(12)   \n"  // = CALLBACK_PTR_ADDR (mailbox+0x08) = 0x80412F08
         "cmpwi 12, 0            \n"
         "beq-  1f               \n"
         "mtctr 12               \n"
@@ -604,6 +605,219 @@ void multiplayer_update(void) {
     }
 
     mailbox->progress = best_progress;
+}
+
+// --- Our-own copies of the eye-decal preset packets ------------------
+// The static l_*Packet1/2 objects are SINGLETONS shared across the
+// entire process. Link #1's daPy_lk_c::draw entries them once per
+// frame as part of his recipe; if WE entryImm them too, Link #1's
+// already-entered chain bottom (the first matpacket entered after
+// l_onCupOffAupPacket2 in his Pass 1) still references that packet,
+// and OUR re-entry overwrites the packet's mpNextPacket from NULL
+// to our current bucket head — which forms a CYCLE when the chain
+// walks reach the bottom and follow back through our overwrite.
+// drawHead loops infinitely → game freezes.
+//
+// Fix: maintain our own 0x10-byte J3DPacket-shaped objects with the
+// SAME vtable pointer as the originals (so .draw() dispatches to the
+// same GFSetBlendModeEtc setup). They have independent mpNextPacket
+// fields; re-entering them doesn't touch Link #1's static instances.
+static u32 my_packet_onCupOff1[4]; // size 0x10 (J3DPacket layout)
+static u32 my_packet_onCupOff2[4];
+static u32 my_packet_offCupOn1[4];
+static u32 my_packet_offCupOn2[4];
+static int my_packets_initialized = 0;
+
+static void init_my_eye_packets(void) {
+    if (my_packets_initialized) return;
+    // Copy vtable pointer (offset 0) from each original. mpNextPacket,
+    // mpFirstChild, mpUserData stay 0 (BSS zero-init).
+    my_packet_onCupOff1[0] = *(volatile u32*)L_ON_CUP_OFF_AUP_PACKET1;
+    my_packet_onCupOff2[0] = *(volatile u32*)L_ON_CUP_OFF_AUP_PACKET2;
+    my_packet_offCupOn1[0] = *(volatile u32*)L_OFF_CUP_ON_AUP_PACKET1;
+    my_packet_offCupOn2[0] = *(volatile u32*)L_OFF_CUP_ON_AUP_PACKET2;
+    my_packets_initialized = 1;
+}
+
+// --- Eye-decal recipe (item #9, attempt 4) ----------------------------
+// Replicates daPy_lk_c::draw lines 1827-1881 (zeldaret/tww @ 6aa7ba91)
+// for our mini-Link model so the face decals — pupils, eye outline,
+// eyelids, eyebrows — render. mDoExt_modelEntryDL alone does a single-
+// pass submission that puts the body in P1 and skips the four-pass
+// Z-compare setup the eye decals need to overcome face self-occlusion.
+//
+// The recipe in summary (see d_a_player_main.cpp:1827-1881):
+//   setListP0
+//   Pass 1: l_onCupOffAupPacket2.entryOpa  + cl_eye/cl_mayu entryIn
+//           (zOffBlend hide, zOn hide, zOffNone show)
+//   Pass 2: l_offCupOnAupPacket2.entryOpa  + cl_eye/cl_mayu entryIn
+//           (zOffBlend show, zOffNone hide)
+//   Pass 3: hide all link_root mtls except face(2)+hair(5),
+//           link_root.entryIn, re-set j3dSys.{mModel,mTexture}
+//   Pass 4: l_onCupOffAupPacket1.entryOpa  + cl_eye/cl_mayu entryIn
+//           (zOffBlend hide, zOn show, zOffNone hide)
+//   Pass 5: l_offCupOnAupPacket1.entryOpa  (zOn hide)
+//   restore link_root mtl vis
+//   setListP1
+//
+// `step` argument is the cumulative gate from mailbox.eye_fix_step:
+//   1 = j3dSys.setModel + setListP0/P1 swap only
+//   2 = + Pass 1's entryOpa(packet2_onCupOff) only (no shape vis, no entryIn)
+//   3 = + Pass 1's shape-vis toggle (still no entryIn)
+//   4 = + Pass 1's entryIn(cl_eye, cl_mayu)
+//   5 = + Pass 2 (entryOpa + shape vis + entryIn)
+//   6 = + Pass 3 (link_root vis + entryIn + setModel restore)
+//   7 = + Pass 4
+//   8 = + Pass 5 (full recipe)
+// Stepwise so we can iterate via Go without re-patching the C blob;
+// each save-state cycle covers all 8 levels.
+//
+// Caller-provided invariants (must hold for safety):
+//   - Link #1's daPy_lk_c::draw has already returned this frame
+//     (otherwise his shape-vis state isn't at the post-restore values
+//     we're toggling from).
+//   - The j3dSys global has been restored to its pre-our-calc state
+//     (so we're free to clobber + we'll restore to P1 + Link #1's
+//     mModel at the end).
+//   - mini-Link's calc has already run (mpDrawMtx is current for
+//     entryIn's GX submission).
+static void run_eye_fix(J3DModel* model, void* link1_actor,
+                        J3DModelData* model_data, u8 step) {
+    if (step == 0 || !model || !link1_actor || !model_data) return;
+    init_my_eye_packets();
+
+    // j3dSys field slots.
+    volatile u32* j3d_model_slot   = (volatile u32*)(J3D_SYS_ADDR + 0x38);
+    volatile u32* j3d_texture_slot = (volatile u32*)(J3D_SYS_ADDR + J3D_SYS_M_TEXTURE_OFFSET);
+    volatile u32* j3d_opabuf_slot  = (volatile u32*)(J3D_SYS_ADDR + J3D_SYS_DRAWBUFFER_OPA_OFFSET);
+    volatile u32* j3d_xlubuf_slot  = (volatile u32*)(J3D_SYS_ADDR + J3D_SYS_DRAWBUFFER_XLU_OFFSET);
+
+    // Drawlist pointers — what dComIfGd_setListP0/P1 inlines read from.
+    u32 opa_p0 = *(volatile u32*)DRAWLIST_OPA_LIST_P0_PTR;
+    u32 opa_p1 = *(volatile u32*)DRAWLIST_OPA_LIST_P1_PTR;
+    u32 xlu_p1 = *(volatile u32*)DRAWLIST_XLU_LIST_P1_PTR;
+
+    // J3DTexture* shared via J3DModelData → J3DMaterialTable → mTexture.
+    u32 model_tex = *(volatile u32*)((u8*)model_data + J3DMODELDATA_TEXTURE_OFFSET);
+
+    // Joint pointers (shared modelData).
+    void* joint_arr_void = *(void**)((u8*)model_data + J3DMODELDATA_JOINT_NODE_PTR_OFFSET);
+    if (!joint_arr_void) return;
+    J3DJoint** joint_arr = (J3DJoint**)joint_arr_void;
+    J3DJoint* link_root = joint_arr[0x00];
+    J3DJoint* cl_eye    = joint_arr[LINK_CL_EYE_JOINT_INDEX];
+    J3DJoint* cl_mayu   = joint_arr[LINK_CL_MAYU_JOINT_INDEX];
+    if (!link_root || !cl_eye || !cl_mayu) return;
+
+    // Shape-vis arrays (4 J3DShape* each) on Link #1's actor instance.
+    J3DShape** zoff_blend = (J3DShape**)((u8*)link1_actor + DAPY_MP_Z_OFF_BLEND_SHAPE_OFFSET);
+    J3DShape** zoff_none  = (J3DShape**)((u8*)link1_actor + DAPY_MP_Z_OFF_NONE_SHAPE_OFFSET);
+    J3DShape** zon        = (J3DShape**)((u8*)link1_actor + DAPY_MP_Z_ON_SHAPE_OFFSET);
+
+    // Step 1+: swap j3dSys to mini-Link, list := P0.
+    *j3d_model_slot   = (u32)model;
+    *j3d_texture_slot = model_tex;
+    *j3d_opabuf_slot  = opa_p0;   // setListP0 writes opa_p0 into BOTH slots.
+    *j3d_xlubuf_slot  = opa_p0;
+
+    int i;
+
+    // Step 2 isolates the entryOpa packet submission alone — no shape-vis
+    // toggles, no entryIn — so we can tell whether the missing-face/hair
+    // regression at higher steps comes from the packet's GX state or from
+    // entryIn's bucket-chain mutation.
+    if (step >= 2) {
+        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p0, (J3DPacket*)my_packet_onCupOff2, 0);
+    }
+    // Step 3 adds Pass 1's shape-vis toggle (still no entryIn).
+    if (step >= 3) {
+        for (i = 0; i < 4; i++) {
+            if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
+            if (zon[i])        *(volatile u32*)((u8*)zon[i]        + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
+            if (zoff_none[i])  *(volatile u32*)((u8*)zoff_none[i]  + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
+        }
+    }
+    // Step 4 adds Pass 1's eye+brow entryIn (= old step 2 final state).
+    if (step >= 4) {
+        J3DJoint_entryIn(cl_eye);
+        J3DJoint_entryIn(cl_mayu);
+    }
+
+    if (step >= 5) {
+        // Pass 2: packet 2 with cup-off/aup-on, swap to zOffBlendShape.
+        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p0, (J3DPacket*)my_packet_offCupOn2, 0);
+        for (i = 0; i < 4; i++) {
+            if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
+            if (zoff_none[i])  *(volatile u32*)((u8*)zoff_none[i]  + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
+        }
+        J3DJoint_entryIn(cl_eye);
+        J3DJoint_entryIn(cl_mayu);
+    }
+
+    // Pass 3 saves up to 16 link_root materials' shape pointers for
+    // restoration; the chain length on Link is 7 in the decomp.
+    J3DShape* mtl_shapes[16];
+    int mtl_count = 0;
+    if (step >= 6) {
+        // Pass 3: hide all link_root mesh shapes except face(2) + hair(5),
+        // then submit link_root joint into P0.
+        J3DMaterial* mtl = *(J3DMaterial**)((u8*)link_root + J3DJOINT_MESH_OFFSET);
+        while (mtl != 0 && mtl_count < 16) {
+            J3DShape* shape = *(J3DShape**)((u8*)mtl + J3DMATERIAL_SHAPE_OFFSET);
+            mtl_shapes[mtl_count] = shape;
+            if (mtl_count != 2 && mtl_count != 5 && shape) {
+                *(volatile u32*)((u8*)shape + J3DSHAPE_FLAGS_OFFSET) |= J3DSHAPE_FLAG_HIDE;
+            }
+            mtl = *(J3DMaterial**)((u8*)mtl + J3DMATERIAL_NEXT_OFFSET);
+            mtl_count++;
+        }
+        J3DJoint_entryIn(link_root);
+        // Decomp re-asserts j3dSys.{mModel,mTexture} after the link_root
+        // entryIn — entry() may walk into states that overwrite them.
+        *j3d_model_slot   = (u32)model;
+        *j3d_texture_slot = model_tex;
+    }
+
+    if (step >= 7) {
+        // Pass 4: packet 1 with cup-on/aup-off, swap to zOnShape.
+        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p0, (J3DPacket*)my_packet_onCupOff1, 0);
+        for (i = 0; i < 4; i++) {
+            if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
+            if (zon[i])        *(volatile u32*)((u8*)zon[i]        + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
+            if (zoff_none[i])  *(volatile u32*)((u8*)zoff_none[i]  + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
+        }
+        J3DJoint_entryIn(cl_eye);
+        J3DJoint_entryIn(cl_mayu);
+    }
+
+    if (step >= 8) {
+        // Pass 5: packet 1 with cup-off/aup-on, then hide zOn so the
+        // shape-vis state at exit matches Link #1's post-recipe state
+        // (everything hidden, ready for next frame's first toggle).
+        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p0, (J3DPacket*)my_packet_offCupOn1, 0);
+        for (i = 0; i < 4; i++) {
+            if (zon[i]) *(volatile u32*)((u8*)zon[i] + J3DSHAPE_FLAGS_OFFSET) |= J3DSHAPE_FLAG_HIDE;
+        }
+    }
+
+    // Restore link_root material visibility so our subsequent
+    // mDoExt_modelEntryDL submits the full body, and so next frame's
+    // Link #1 draw starts from the same baseline.
+    if (step >= 6) {
+        for (i = 0; i < mtl_count; i++) {
+            if (mtl_shapes[i]) {
+                *(volatile u32*)((u8*)mtl_shapes[i] + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
+            }
+        }
+    }
+
+    // Switch back to P1 for the modelEntryDL caller's body submission.
+    *j3d_opabuf_slot = opa_p1;
+    *j3d_xlubuf_slot = xlu_p1;
+    // Note: j3dSys.{mModel,mTexture} are left pointing at mini-Link;
+    // the next mDoExt_modelEntryDL call will use j3dSys's state to
+    // submit our body, which is what we want. Whatever runs after
+    // our hook returns will re-setModel as needed.
 }
 
 // --- Draw-phase hook -------------------------------------------------
@@ -1073,14 +1287,6 @@ int daPy_draw_hook(void* this_) {
             }
             mailbox->draw_progress = 37;
 
-            // [v0.1.4 eye-fix attempts reverted. TWO attempts both froze
-            // Dolphin once multiplayer engaged (pose_seqs[0] becomes
-            // non-zero). Neither j3dSys swap + entryIn (attempt 1) nor
-            // viewCalc + j3dSys swap + entryIn (attempt 2) worked. Full
-            // design + addresses documented in docs/06 item #9; next
-            // session targets differential-style attempts that don't
-            // touch j3dSys state (see roadmap).]
-
             // Mode 5 (multiplayer): slot 0 only submits once Go has
             // written at least one network pose, matching how slots 1+
             // are gated below. Without this, Link #2 would mirror
@@ -1089,7 +1295,19 @@ int daPy_draw_hook(void* this_) {
             // first remote pose arrival — annoying flash visible to
             // the user. Other modes (1-4 dev/debug) want unconditional
             // render; they bypass the gate.
+            //
+            // Eye-fix runs after the j3dSys restore so it operates on
+            // Link #1's post-draw state (the recipe assumes that's the
+            // baseline, since that's what daPy_lk_c::draw runs from).
+            // run_eye_fix swaps to P0, runs the 5 passes, swaps back to
+            // P1, leaves j3dSys.mModel pointing at our mini-Link so the
+            // following modelEntryDL submits the body via that state.
+            // Step is read once per frame so every slot probes at the
+            // same level.
+            u8 eye_step = mailbox->eye_fix_step;
+
             if (mode != 5 || mailbox->pose_seqs[0] != 0) {
+                run_eye_fix(mini_link_models[0], this_, mini_link_data, eye_step);
                 mDoExt_modelEntryDL(mini_link_models[0]);
             }
             // In mode 5, also submit any other slots whose pose buffer
@@ -1100,6 +1318,7 @@ int daPy_draw_hook(void* this_) {
                     // Same gate as the calc loop: a slot only renders
                     // once Go has written at least one pose to it.
                     if (mini_link_models[es] && pose_bufs[es] && mailbox->pose_seqs[es] != 0) {
+                        run_eye_fix(mini_link_models[es], this_, mini_link_data, eye_step);
                         mDoExt_modelEntryDL(mini_link_models[es]);
                     }
                 }

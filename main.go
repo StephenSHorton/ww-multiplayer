@@ -294,6 +294,25 @@ func main() {
 			runWarpForce(os.Args[2], os.Args[3], os.Args[4], true)
 		case "warp-force-off":
 			runWarpForce("", "", "", false)
+		case "eye-fix-probe":
+			runEyeFixProbe()
+		case "eye-fix-chain":
+			runEyeFixChain()
+		case "eye-fix-step":
+			if len(os.Args) < 3 {
+				fmt.Println("Usage: ww-multiplayer.exe eye-fix-step <0..8>")
+				fmt.Println("  Stepwise probe for the mini-Link eye-decal recipe.")
+				fmt.Println("  0 = off; 1 = list swap; 2..4 bisect Pass 1 (entryOpa,")
+				fmt.Println("  shape-vis, entryIn); 5..8 add Passes 2..5 cumulatively.")
+				fmt.Println("  See inject/include/mailbox.h eye_fix_step comment.")
+				os.Exit(1)
+			}
+			n, err := strconv.Atoi(os.Args[2])
+			if err != nil || n < 0 || n > 8 {
+				fmt.Printf("step must be an integer 0..8, got %q\n", os.Args[2])
+				os.Exit(1)
+			}
+			runEyeFixStep(byte(n))
 		case "find-pos":
 			runFindPos()
 		case "track-pos":
@@ -1203,7 +1222,7 @@ func runPoseFakeLoop(name, addr string) {
 
 // Mailbox layout (keep in sync with inject/include/mailbox.h).
 const (
-	mailboxBase    = 0x80411F00
+	mailboxBase    = 0x80412F00
 	maxPuppets     = 4
 	puppetSlotBase = mailboxBase + 0x10
 	puppetSlotSize = 0x20
@@ -1727,6 +1746,7 @@ const (
 	mailboxWarpDbgLinkAddr = 0xDC
 	mailboxWarpDbgPostX    = 0xE0
 	mailboxWarpForce       = 0xE4
+	mailboxEyeFixStep      = 0xE8
 )
 
 func runPokeVec3(addrHex, xs, ys, zs string) {
@@ -1841,6 +1861,172 @@ func runWarpForce(xs, ys, zs string, on bool) {
 	} else {
 		d.WriteAbsolute(mailboxBase+mailboxWarpForce, []byte{0})
 		fmt.Println("Force-warp OFF.")
+	}
+}
+
+// runEyeFixStep writes mailbox.eye_fix_step. See the field comment in
+// inject/include/mailbox.h for what each value enables.
+func runEyeFixStep(step byte) {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	if err := d.WriteAbsolute(mailboxBase+mailboxEyeFixStep, []byte{step}); err != nil {
+		fmt.Printf("write failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("eye_fix_step = %d\n", step)
+}
+
+// runEyeFixChain dumps the OPA P0 draw buffer's bucket-0 chain so we can
+// see in what order packets render, whether the chain has cycles, and
+// where Link #1's face/hair matpackets sit. Reads mpOpaListP0 from
+// 0x803CA92C, then J3DDrawBuffer.mpBuf[0] (offset 0x00 → first u32),
+// then walks via mpNextPacket at packet offset 0x04. Stops at NULL or
+// after 200 entries.
+func runEyeFixChain() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	listAddrEnv := os.Getenv("WW_DRAWLIST_PTR")
+	listAddr := uint32(0x803CA92C)
+	if listAddrEnv != "" {
+		v, _ := strconv.ParseUint(strings.TrimPrefix(listAddrEnv, "0x"), 16, 32)
+		listAddr = uint32(v)
+	}
+	bufPtr, err := d.ReadU32(listAddr)
+	if err != nil || bufPtr == 0 {
+		fmt.Printf("buf ptr NULL @ 0x%08X (got 0x%08X, err=%v)\n", listAddr, bufPtr, err)
+		os.Exit(1)
+	}
+	fmt.Printf("J3DDrawBuffer @ 0x%08X (from drawlist 0x%08X)\n", bufPtr, listAddr)
+
+	mpBuf, err := d.ReadU32(bufPtr) // mpBuf field at offset 0
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	fmt.Printf("mpBuf array @ 0x%08X\n", mpBuf)
+
+	bucket0, err := d.ReadU32(mpBuf) // mpBuf[0]
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	fmt.Printf("bucket[0] head = 0x%08X\n", bucket0)
+
+	// Read face + hair shape addresses via mailbox model_data → joint chain.
+	var faceShape, hairShape uint32
+	if md, err := d.ReadU32(mailboxBase + 0x94); err == nil && md != 0 {
+		if jointArr, err := d.ReadU32(md + 0x2C); err == nil && jointArr != 0 {
+			if linkRoot, err := d.ReadU32(jointArr); err == nil && linkRoot != 0 {
+				if mtl, err := d.ReadU32(linkRoot + 0x60); err == nil && mtl != 0 {
+					for i := 0; i < 16 && mtl != 0; i++ {
+						s, _ := d.ReadU32(mtl + 0x08)
+						if i == 2 {
+							faceShape = s
+						} else if i == 5 {
+							hairShape = s
+						}
+						mtl, _ = d.ReadU32(mtl + 0x04)
+					}
+				}
+			}
+		}
+	}
+
+	seen := map[uint32]int{}
+	cur := bucket0
+	for i := 0; cur != 0 && i < 200; i++ {
+		if prev, ok := seen[cur]; ok {
+			fmt.Printf("[%3d] 0x%08X  *** CYCLE: same as [%d] ***\n", i, cur, prev)
+			break
+		}
+		seen[cur] = i
+		// Read mpShapePacket (matpacket+0x2C) → mpShape (shapepacket+0x24)
+		shapePkt, _ := d.ReadU32(cur + 0x2C)
+		var shape uint32
+		if shapePkt != 0 {
+			shape, _ = d.ReadU32(shapePkt + 0x24)
+		}
+		marker := ""
+		if shape != 0 && shape == faceShape {
+			marker = "  (face)"
+		} else if shape != 0 && shape == hairShape {
+			marker = "  (hair)"
+		}
+		fmt.Printf("[%3d] 0x%08X  shape=0x%08X%s\n", i, cur, shape, marker)
+		next, err := d.ReadU32(cur + 0x04) // mpNextPacket
+		if err != nil {
+			fmt.Printf("        read next failed: %v\n", err)
+			break
+		}
+		cur = next
+	}
+	if cur == 0 {
+		fmt.Println("--- chain terminates at NULL ---")
+	}
+}
+
+// runEyeFixProbe walks the live J3D pointer chain via mailbox.dbg_model_data
+// to read link_root.mMesh[i].mShape.mFlags for every material on link_root.
+// Prints whether the HIDE bit is set per material. Used to figure out
+// whether our run_eye_fix is leaving face/hair (mtl indices 2 and 5) with
+// the J3DShpFlag_Hide bit set, vs the visibility loss being caused by GX
+// state pollution that doesn't touch mFlags.
+func runEyeFixProbe() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	modelData, err := d.ReadU32(mailboxBase + 0x94) // dbg_model_data
+	if err != nil || modelData == 0 {
+		fmt.Printf("dbg_model_data not published yet (got 0x%08X, err=%v)\n", modelData, err)
+		os.Exit(1)
+	}
+	fmt.Printf("link J3DModelData @ 0x%08X\n", modelData)
+
+	jointArr, err := d.ReadU32(modelData + 0x2C) // mJointNodePointer
+	if err != nil || jointArr == 0 {
+		fmt.Printf("joint array NULL (got 0x%08X, err=%v)\n", jointArr, err)
+		os.Exit(1)
+	}
+	linkRoot, err := d.ReadU32(jointArr) // joint_arr[0]
+	if err != nil || linkRoot == 0 {
+		fmt.Printf("link_root NULL (got 0x%08X, err=%v)\n", linkRoot, err)
+		os.Exit(1)
+	}
+	fmt.Printf("link_root joint @ 0x%08X\n", linkRoot)
+
+	mtl, err := d.ReadU32(linkRoot + 0x60) // mMesh
+	if err != nil || mtl == 0 {
+		fmt.Printf("link_root mMesh NULL (got 0x%08X, err=%v)\n", mtl, err)
+		os.Exit(1)
+	}
+	for i := 0; i < 16 && mtl != 0; i++ {
+		shape, _ := d.ReadU32(mtl + 0x08) // mShape
+		flags := uint32(0)
+		if shape != 0 {
+			flags, _ = d.ReadU32(shape + 0x0C) // mFlags
+		}
+		hidden := flags & 0x0001
+		marker := "       "
+		if i == 2 {
+			marker = "(face) "
+		} else if i == 5 {
+			marker = "(hair) "
+		}
+		fmt.Printf("  mtl[%2d]%s shape=0x%08X mFlags=0x%08X HIDE=%d\n", i, marker, shape, flags, hidden)
+		mtl, _ = d.ReadU32(mtl + 0x04) // mNext
 	}
 }
 

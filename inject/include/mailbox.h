@@ -7,18 +7,21 @@
 
 #include "game.h"
 
-// History: 0x80410800 → 0x80410900 → 0x80410F00 → 0x80411F00. Every
-// time we add injected code the mod end crept up and crossed the mailbox
-// address, corrupting game instructions. 0x80410F00 fell inside .text
-// once the mini-Link / echo-ring code pushed mod size past 0x0F00.
+// History: 0x80410800 → 0x80410900 → 0x80410F00 → 0x80411F00 → 0x80412F00.
+// Every time we add injected code the mod end crept up and crossed the
+// mailbox address, corrupting game instructions. 0x80410F00 fell inside
+// .text once the mini-Link / echo-ring code pushed mod size past 0x0F00.
 //
 // 2026-04-19 late-late: mod grew to 0x11C8 (echo-ring added in
 // docs/06 "Next Session Priority" track 1). .text now ends ~0x80411140.
-// Moved mailbox to 0x80411F00 AND bumped __OSArenaLo to 0x80412000
-// (see inject/build.py OSInit patch). Orphan region is now [mod_end,
-// 0x80412000) and mailbox sits flush against the arena at 0x80411F00.
-// Mailbox ends at 0x80411FAC with new echo diagnostics.
-#define MAILBOX_ADDR 0x80411F00
+// Moved mailbox to 0x80411F00 AND bumped __OSArenaLo to 0x80412000.
+//
+// 2026-04-25: eye-fix recipe (item #9 attempt 4) added the run_eye_fix
+// helper plus its decomp lookups, growing mod to 0x1FC8 (~8 KiB). Mod
+// end at 0x80411FC8 crossed into the old mailbox at 0x80411F00. Bumped
+// mailbox to 0x80412F00 and __OSArenaLo to 0x80413000 (see
+// inject/build.py OSInit patch). Mailbox sits flush against the arena.
+#define MAILBOX_ADDR 0x80412F00
 
 // Up to this many remote players can be mirrored as puppet actors.
 // Pick a humble number; each slot adds one actor allocation.
@@ -202,6 +205,33 @@ typedef struct {
     // reverted by Link's per-frame execute() vs hitting a deeper reset.
     u8  warp_force;                           // +0xE4
     u8  _pad5[3];                             // +0xE5
+    // --- EYE-FIX STEPWISE PROBE (v0.1.7+) -------------------------------
+    // Mini-Link's face is blank: pupils, eye outline, eyelids, eyebrows
+    // missing. daPy_lk_c::draw runs a 5-pass eye-decal recipe (see
+    // d_a_player_main.cpp:1827-1881 in zeldaret/tww @ 6aa7ba91) that
+    // mDoExt_modelEntryDL alone doesn't reproduce. Three previous
+    // attempts (A: entryIn-only, B: viewCalc + entryIn, C: bake texNo)
+    // all crashed or were inert.
+    //
+    // To dodge the per-attempt save-state regen friction, all 5 passes
+    // are wired into the C blob ONCE behind this byte: Go flips the
+    // value, observation is immediate. Each step is cumulative.
+    //   0 = baseline (current behavior — single mDoExt_modelEntryDL)
+    //   1 = + j3dSys.setModel(mini_link) + setListP0 / setListP1 swap
+    //       (no entryOpa / entryIn yet — pure list state probe)
+    //   2 = + Pass 1's l_onCupOffAupPacket2.entryOpa ONLY
+    //       (no shape vis, no entryIn — isolates entryOpa side effects)
+    //   3 = + Pass 1's shape vis toggle (zOffBlend/zOn hide, zOffNone show)
+    //       (still no entryIn — isolates shape-vis side effects)
+    //   4 = + Pass 1's cl_eye/cl_mayu entryIn (= old step 2 state)
+    //   5 = + Pass 2 (l_offCupOnAupPacket2 + flipped shape vis + entryIn)
+    //   6 = + Pass 3 (link_root entryIn with face+hair-only material vis)
+    //   7 = + Pass 4 (l_onCupOffAupPacket1 + zOn-shown + entryIn)
+    //   8 = + Pass 5 (l_offCupOnAupPacket1 + zOn-hidden) = full recipe
+    // If step N crashes Dolphin, kill + restart with save state, set step
+    // to N-1 from Go, iterate. ONE save-state cycle covers all 8 levels.
+    u8  eye_fix_step;                         // +0xE8
+    u8  _pad6[3];                             // +0xE9
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)

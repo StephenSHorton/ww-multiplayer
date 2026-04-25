@@ -109,25 +109,25 @@ def main():
         traceback.print_exc()
         sys.exit(1)
 
-    # Post-build: patch OSInit so __OSArenaLo starts at 0x80412000 (past our
-    # T2 at 0x80410000 + the echo-ring mailbox at 0x80411F00) instead of the
-    # linker's 0x8040EFC0. Arena loses ~16 KB from the original layout.
+    # Post-build: patch OSInit so __OSArenaLo starts at 0x80413000 (past our
+    # T2 at 0x80410000 + the eye-fix mailbox at 0x80412F00) instead of the
+    # linker's 0x8040EFC0. Arena loses ~20 KB from the original layout.
     #
     # History: was 0x80411000 while mod fit in 0xF00 bytes; echo-ring code
-    # (docs/06 "Next Session Priority" track 1) pushed .text past 0x80411000,
-    # forcing both the mailbox and the arena start to shift up by 0x1000.
-    # Mailbox now lives at 0x80411F00..0x80411FAC; MUST be kept in sync with
-    # MAILBOX_ADDR in inject/include/mailbox.h.
+    # (docs/06 track 1) pushed .text past 0x80411000, bumping to 0x80412000.
+    # Eye-fix recipe (item #9 attempt 4) grew mod past 0x80411F00, bumping
+    # to 0x80413000. Mailbox now lives at 0x80412F00..0x80412FEC; MUST be
+    # kept in sync with MAILBOX_ADDR in inject/include/mailbox.h.
     #
     # Do NOT bump further without measuring ZeldaHeap headroom: the 1 MB
-    # carve-out experiment (0x80511000) broke Outset archive loading. A 4 KB
-    # bump is well inside noise (ZeldaHeap ~6 MB).
+    # carve-out experiment (0x80511000) broke Outset archive loading. A few
+    # KB is well inside noise (ZeldaHeap ~6 MB).
     T1_LOAD = 0x800056e0
     T1_FILE = 0x2620
     patches = [
         (0x80301818, b"\x60\x00\x00\x00"),  # nop (always fall through)
         (0x8030181C, b"\x3c\x60\x80\x41"),  # lis r3, 0x8041
-        (0x80301820, b"\x38\x63\x20\x00"),  # addi r3, r3, 0x2000  -> r3 = 0x80412000
+        (0x80301820, b"\x38\x63\x30\x00"),  # addi r3, r3, 0x3000  -> r3 = 0x80413000
         (0x80301838, b"\x48\x00\x00\x30"),  # b +0x30 (skip debug path)
     ]
     with open(output_dol, "r+b") as f:
