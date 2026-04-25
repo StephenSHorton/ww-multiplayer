@@ -637,7 +637,26 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
      debugger, set breakpoint at the PPC address where the freeze
      occurs, get the actual crash PC + register state. No more
      guessing from behavior alone. Probably the highest-ROI move.
-10. ~~**Leg morph on slopes.**~~ SHIPPED in v0.1.3 (2026-04-22).
+10. **Leverage existing Dolphin cheats for test setup.** Manual test
+    setup eats time getting Link into a state where multiplayer
+    features are exercisable (sailing for ocean tests, specific items
+    for interaction sync, story flags for door behavior). Dolphin
+    already supports Action Replay + Gecko codes via
+    `<USER_DIR>/GameSettings/GZLE01.ini` (and per-game GCI). There are
+    plenty of existing WW code packs (give all items, story-skip,
+    instant-warp-to-island, etc.).
+    
+    Goal is **integration, not authoring**: bundle a curated `.ini`
+    in the repo (e.g. `cheats/GZLE01.ini`), and have `dolphin2` copy
+    or symlink it into both `USER_DIR_1` and `USER_DIR_2` if missing.
+    User picks which cheats to enable via Dolphin's GUI. Combined
+    with `SAVE_STATE` and our `warp` subcommand, that's a complete
+    "skip the playthrough" test pipeline without us writing any
+    Game Boy Advance addresses ourselves.
+    
+    Lightweight; no decomp work, no `cheat` subcommand to build. ~30 min.
+
+11. ~~**Leg morph on slopes.**~~ SHIPPED in v0.1.3 (2026-04-22).
     Diagnostic result: leg flap was FLAT-GROUND-ABSENT, appeared
     reliably on slopes → definitively not a pure-lag artifact.
     Root cause: Go's broadcast-pose was reading Link #1's live
