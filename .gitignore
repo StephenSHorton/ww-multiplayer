@@ -13,6 +13,9 @@ inject/__pycache__/
 *.swp
 *~
 
+# Decomp scratch (downloaded source for cross-reference, not committed)
+.tmp_decomp/
+
 # OMC session state (local only)
 .omc/
 

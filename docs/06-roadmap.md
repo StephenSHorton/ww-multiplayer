@@ -788,6 +788,113 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
      for next session: keep it (it's strictly safer than the
      pre-session-3 version since it eliminates known state leaks)
      or revert if direction (2) makes the recipe unnecessary.
+   **Attempt-4 follow-up #3 (2026-04-25 session 4) — daPy_lk_c::draw
+   gating mapped from disasm; new Go diagnostics shipped.** Took
+   direction (1) via Go-only disasm:
+   - **`ppc-disasm` extended.** Now reads from an offline DOL file
+     when `WW_DOL_PATH=inject/original.dol` is set (no Dolphin
+     needed for static-code disasm). Decoder also gained `cmpwi`,
+     `cmplwi`, `cmpw`, `cmplw`, `fcmpu`/`fcmpo`, `bc` with full
+     condition-code mnemonics (`beq`/`bne`/`blt`/`bge`/`bgt`/`ble`),
+     `lfs`/`lfd`/`stfs`/`stfd`, `rlwinm` (with MB/ME), `ori`/`oris`,
+     `andi.`/`andis.`. Enough to follow the gating logic.
+   - **Three gating fields identified** in `daPy_lk_c::draw`. The
+     four-pass body at `0x80107860` is reached only when ALL hold:
+     1. `r24 == 0` where `r24 = (field_0x2b0 <= -85.0f)`. The
+        sequence at `0x801076A0..0x801076B8` is `lfs f1, 0x2B0(this);
+        lfs f0, -23128(r2)  // = -85.0f; fcmpo cr0, f1, f0; cror
+        cr0[2]=cr0[0]|cr0[2]; mfcr r0; rlwinm. r24, r0, 3, 31, 31;
+        beq cr0, 0x80107790`. **Subtle:** the `rlwinm.` (Rc=1)
+        OVERWRITES CR0[eq] = (r24 == 0), so the `beq` is taken when
+        r24 IS ZERO — i.e. when "<=" is FALSE = field_0x2b0 > -85.0f.
+        That routes to the elseif-attention check, which can route
+        on into the four-pass.
+     2. `cameraInfo[mCameraInfoIdx] & 0x20 == 0` (the
+        `dComIfGp_checkCameraAttentionStatus(mCameraInfoIdx, 0x20)`
+        elseif). Inlined at `0x80107790..0x801077A0` as `lwz r0,
+        0x356C(this); mulli r0, r0, 0x34; lwzx r0, r26, r0; rlwinm.
+        r0, r0, 0, 26, 26; beq cr0, 0x80107860`. r26 was set to
+        `0x803CA720` at function entry (= cameraInfo array base).
+     3. `(this+0x2A0) & 0x800 == 0` (= `!checkFreezeState()`). Tested
+        at the start of the four-pass body itself: `lwz r0, 0x2A0(this);
+        rlwinm. r0, r0, 0, 20, 20; bne 0x80107AC4`.
+   - **Decomp source/disasm reconciled.** d_a_player_main.cpp:1775
+     has `BOOL r24 = field_0x2b0 <= -85.0f; if (r24) {...}`. The disasm
+     matches this exactly once you account for the `rlwinm.`'s side
+     effect on CR0[eq] (which I initially missed, leading to a long
+     detour). Block A (fall-through 0x801076BC: hide-12 + cl_LhandA/
+     cl_RhandA hides + iter mtl with i==3 keep) IS the if-r24 body,
+     reached when r24=TRUE. Block B (branch target 0x80107790: attention
+     check + elseif body with cl_hana hide) is reached when r24=FALSE.
+   - **`./ww-multiplayer.exe eye-fix-gates`** — new Go diagnostic.
+     Reads Link's three gating fields and prints the four-pass-runs
+     verdict. Run before and after `eye-fix-step 4` to see which gate
+     (if any) is flipping. Doesn't require a save-state cycle (Go-only).
+   **Hypothesis to test next:** at step=4 the user observed Link #1's
+   four-pass is silently skipped on the next frame, with a different
+   set of his matpackets in opa_p0. One of the three gates above is
+   being flipped. `eye-fix-gates` at step=0 baseline vs step=4 should
+   identify which. Most likely candidates given what step=4 introduces
+   (`J3DJoint::entryIn(cl_eye/cl_mayu)`):
+   - `field_0x2b0` corruption: unlikely (we don't write to Link's
+     actor data; this+0x2B0 is a float on the actor).
+   - `this+0x2A0` flag corruption: unlikely (same reason).
+   - `cameraInfo[mCameraInfoIdx]` bit 0x20 corruption: unlikely
+     (we don't write the camera info table).
+   If NONE of the three is flipping, the issue must be elsewhere
+   (e.g. a different conditional in the recipe body that we
+   haven't disassembled yet, OR our `j3dSys` snapshot/restore isn't
+   actually round-tripping all relevant state). In that case the
+   next step is to disasm `J3DJoint::entryIn` (0x802F58D8 — partial
+   disasm done this session, shows it writes drawbuffer+0x1C AND
+   matpacket+0x28 for each entered shape) and verify all of those
+   side effects.
+   **Attempt-4 follow-up #4 (2026-04-25 session 4 part 2) — empirical
+   measurement: ALL gates favor four-pass at step=4, yet the 4
+   statics are MISSING.** Ran the full two-Dolphin harness via
+   `dolphin2 SAVE_STATE=...` and `mp-local`, set step=0/3/4, and
+   dumped opa_p0/opa_p1 chains directly:
+   - **step=0 baseline opa_p0**: full 18-entry recipe
+     (`l_offCupOnAupPacket1` at head, then 14 of Link's matpackets
+     interleaved with the other 3 statics, terminating with
+     `l_onCupOffAupPacket2` at tail). Confirms four-pass runs.
+   - **step=3 opa_p0**: 19 entries — same 18 baseline entries +
+     our `my_packet_onCupOff2` at head. Four-pass runs cleanly,
+     own-copy entryImm appends correctly. **opa_p1** at step=3:
+     10 other-actor entries (0x81693xxx/0x8168xxxx range) + 12
+     mini-link entries (0x80F04xxx). Force-set j3dSys.OPA = opa_p1
+     at end of run_eye_fix is working — mini-link lands in opa_p1.
+   - **step=4 opa_p0** (BROKEN): 23 entries = 14 mini-link
+     (0x80F04xxx) + 9 Link matpackets (0x815F92EC..0x815F9850),
+     **NO 4 statics anywhere**. **opa_p1** also has the same
+     14 mini-link + 9 Link entries (chain bleed-over from broken
+     mpNextPacket linking after step=4's entryIn calls).
+   - **All 4 known gates measured at step=4 favor four-pass running**:
+     field_0x2b0=0.0 (r24=FALSE), this+0x2A0=0x0 (freeze=FALSE),
+     cameraInfo[0]=0x00000410 (attention 0x20 = FALSE, noDraw 0x02
+     = FALSE), mNoResetFlg0=0x00000180 (NO_DRAW 0x08000000 = FALSE),
+     so checkPlayerNoDraw() = FALSE.
+   - **Mystery**: `eye-fix-gates` says four-pass should run; chain
+     dump says it didn't (no 4 statics). Either (a) there's a 5th
+     gate we haven't identified, or (b) Link's daPy_lk_c::draw IS
+     entering the four-pass body at 0x80107860 but the entryOpa()
+     calls produce no chain entries (drawbuffer corruption?).
+   - **NEW: 4th gate added to `eye-fix-gates`** — `mNoResetFlg0`
+     at this+0x29C (`daPyFlg0_NO_DRAW = 0x08000000`) and the 0x02
+     bit of cameraInfo entry, both gating the
+     `checkPlayerNoDraw()` early-return path at line 1696.
+   **Hypothesis for next session**: Add a C-side instrumentation
+   counter that increments inside the four-pass body (e.g. just
+   before `l_onCupOffAupPacket2.entryOpa()` would be hooked at
+   0x80107888, or via a Gecko-style code patch). Read the counter
+   from Go to confirm whether the four-pass body actually executes
+   at step=4. If it executes → entries are vanishing post-submission
+   (drawbuffer chain mutation). If it doesn't → there's a 5th gate
+   or an early-return path we missed.
+   Alternative: skip the recipe entirely (direction 2 from session 3
+   — swap shapepacket mpDrawMtx pointers so Link's own recipe
+   submits the eye decals at mini-link's pose). That sidesteps the
+   gating mystery entirely.
 10. **Leverage existing Dolphin cheats for test setup.** Manual test
     setup eats time getting Link into a state where multiplayer
     features are exercisable (sailing for ocean tests, specific items

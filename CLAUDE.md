@@ -143,16 +143,91 @@ multiplayer.c has changed since the last release.
 
 The old C# Windwaker-coop (progress sync only) lives at `C:\Users\4step\Desktop\Windwaker-coop\`. It was upgraded to .NET 9 with WPF UI and released as v0.8.0 at `StephenSHorton/Windwaker-coop`. This Go project supersedes it but the memory layout knowledge carried over.
 
-## Testing
+## Working autonomously
 
-- Memory tests require Dolphin running with Wind Waker (GZLE01) loaded from a save file.
-- Don't claim a test succeeded based only on memory reads — verify observable in-game effects (rupee count change, Link movement, etc.) since the dual-mapping issue can mask failures.
-- **Two-Dolphin loop (default test pattern)**:
-  ```
-  SAVE_STATE=$(pwd)/saves/start.sav ./ww-multiplayer.exe dolphin2
-  ./ww-multiplayer.exe mp-local
-  ```
-  Both Dolphins boot directly to the saved spot, mp-local's readiness gate detects them, and Dolphin B's Link gets warped by (+50, 0, +50) so the two players don't visually overlap. Single Ctrl+C tears everything down and resets `shadow_mode` on both Dolphins, so iteration is fast. Override the offset via `MP_LOCAL_SHIFT_X/Y/Z` env, or set all three to 0 to disable.
-- **Save state ↔ C-blob coupling**: Dolphin save states snapshot the entire PPC RAM, including our injected mod blob at `0x80410000+`. Any change to `inject/src/multiplayer.c` or `inject/include/mailbox.h` (which triggers a blob regen) invalidates `saves/start.sav` — loading the old state restores the OLD blob over the freshly-patched ISO's new code. After a C-side change: kill Dolphins, boot fresh (`./ww-multiplayer.exe dolphin2` with no `SAVE_STATE`), have the user navigate menus once, Shift+F1 to capture a new state, then `cp` it from `<USER_DIR>/StateSaves/GZLE01.s01` to `saves/start.sav`. Pure Go-side changes don't invalidate the save state.
-- **Diagnostic toolkit** (`find-pos`, `scan-pos`, `peek`, `poke-vec3`, `track-pos`, `warp`, `warp-force[-off]`) is available for memory probing when something doesn't behave as expected. See main.go's switch table; not in `printHelp` to keep the user-facing help clean.
-- Don't claim a test succeeded based only on memory reads — verify observable in-game effects (Link visibly moves, rupee count changes, etc.). The dual-mapping issue can mask failures.
+**Claude can run the full stack end-to-end without asking the user.** The
+ONLY two things that still require the human in the loop are (a) capturing
+a fresh `saves/start.sav` after a C-blob change, which needs Shift+F1 in
+Dolphin, and (b) visual-effect validation (eyes rendered? black rectangle?).
+Memory probing, chain dumping, building, patching, launching Dolphins,
+running the multiplayer pipeline, and tearing it all down are scripted —
+just run them.
+
+### Standard session bootstrap (no save-state cycle needed)
+
+```bash
+# Launch both Dolphins with the existing save state. Returns immediately;
+# Dolphins boot in the background.
+SAVE_STATE=$(pwd)/saves/start.sav ./ww-multiplayer.exe dolphin2
+
+# Start the multiplayer pipeline (server + 2x broadcast + 2x puppet-sync
+# in one process). Blocks; run with run_in_background. Its readiness gate
+# waits until both Dolphins are in-game, then prints
+# "Local multiplayer running." and the pipeline is live.
+./ww-multiplayer.exe mp-local
+```
+
+After "Local multiplayer running." appears, every Go-side diagnostic
+(`eye-fix-gates`, `eye-fix-chain`, `j3dsys-probe`, `dump`, `peek`,
+`ppc-disasm` against live Dolphin, etc.) works against the running
+Dolphins. Use `WW_DOLPHIN_INDEX=0` / `=1` to pick which Dolphin to
+talk to — index 0 = the first PID found, index 1 = the second.
+
+For static-code analysis (disassembling the original DOL), set
+`WW_DOL_PATH=inject/original.dol` so `ppc-disasm` reads from the file —
+no Dolphin needed at all.
+
+### Tearing down
+
+`mp-local` runs in the foreground (or as a background task). A single
+Ctrl+C stops the pipeline cleanly and resets `shadow_mode` on both
+Dolphins. The Dolphin processes themselves keep running unless you kill
+them — that's intentional, so you can re-run `mp-local` without rebooting.
+
+### Save-state ↔ C-blob coupling (the one manual step)
+
+Dolphin save states snapshot the entire PPC RAM, including our injected
+mod blob at `0x80410000+`. Any change to `inject/src/multiplayer.c` or
+`inject/include/mailbox.h` (which triggers a blob regen via `python
+build.py`) invalidates `saves/start.sav` — loading the old state restores
+the OLD blob over the freshly-patched ISO's new code.
+
+After a C-side change, the cycle is:
+
+1. Claude: rebuild the blob (`cd inject && rm -f build/temp/multiplayer.c.o && python build.py && python patch_iso.py && cd .. && python scripts/extract_blob.py && go build -o ww-multiplayer.exe .`)
+2. Claude: kill any running Dolphins (or launch fresh without `SAVE_STATE`).
+3. Claude: `./ww-multiplayer.exe dolphin2` (no `SAVE_STATE`).
+4. **User**: navigate menus to the gameplay spot, Shift+F1 to save a state.
+5. Claude: `cp <USER_DIR>/StateSaves/GZLE01.s01 saves/start.sav`.
+6. Claude: relaunch with `SAVE_STATE=$(pwd)/saves/start.sav` for the next iterations.
+
+Only step 4 needs the user. Pure Go-side changes don't invalidate the save
+state — skip the whole cycle.
+
+### Visual validation (the other manual step)
+
+Memory reads can lie under Dolphin's dual mapping. **Don't claim a test
+succeeded based only on memory reads.** When testing rendering/visual
+behavior (eye decals, mini-link visibility, leg morph, etc.) the user
+has to look at the Dolphin window and report what they see. State that
+explicitly: "I've made the change. Can you check what Dolphin A and
+Dolphin B look like in-game?"
+
+For non-rendering tests (mailbox state, position sync, network protocol),
+memory reads + structured diagnostics are usually sufficient — no human
+eyes needed.
+
+## Testing reference
+
+- Memory tests require Dolphin running with Wind Waker (GZLE01) loaded.
+- For visual tests, see "Visual validation" above — get user confirmation.
+- **Two-Dolphin loop** is the default test pattern (see "Standard session
+  bootstrap" above). Dolphin B's Link gets warped by (+50, 0, +50) so the
+  two players don't visually overlap. Override via
+  `MP_LOCAL_SHIFT_X/Y/Z` env, or set all three to 0 to disable.
+- **Diagnostic toolkit** (`find-pos`, `scan-pos`, `peek`, `poke-vec3`,
+  `track-pos`, `warp`, `warp-force[-off]`, `eye-fix-step`,
+  `eye-fix-gates`, `eye-fix-chain`, `eye-fix-find-shape`, `j3dsys-probe`,
+  `ppc-disasm`) is available for memory probing when something doesn't
+  behave as expected. See main.go's switch table; not in `printHelp` to
+  keep the user-facing help clean.

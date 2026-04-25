@@ -300,6 +300,8 @@ func main() {
 			runEyeFixChain()
 		case "eye-fix-find-shape":
 			runEyeFixFindShape()
+		case "eye-fix-gates":
+			runEyeFixGates()
 		case "j3dsys-probe":
 			runJ3DSysProbe()
 		case "ppc-disasm":
@@ -1901,6 +1903,118 @@ func runEyeFixStep(step byte) {
 	fmt.Printf("eye_fix_step = %d\n", step)
 }
 
+// runEyeFixGates reads Link #1's three gating-state fields that
+// daPy_lk_c::draw consults to decide whether to run the eye-decal
+// four-pass recipe (matched to the disasm at 0x80107308 against the
+// decomp d_a_player_main.cpp:1775-1891):
+//
+//   - field_0x2b0 (this+0x2B0, float): r24 = (field_0x2b0 <= -85.0f).
+//     The fcmpo+cror+rlwinm.+beq at 0x801076A0..0x801076B8 routes
+//     r24=TRUE to block A (if-r24 body, legs-only). Subtle: the
+//     `rlwinm.` (Rc=1) RESETS CR0[eq] = (r24 == 0), so the following
+//     `beq` is taken when r24==0 (i.e. when "<=" is FALSE), routing
+//     to 0x80107790 (the elseif-attention check).
+//   - this+0x2A0 (u32): bit 0x800 = checkFreezeState(). The four-pass
+//     body at 0x80107860 starts with `lwz r0, 0x2A0(this); rlwinm. r0,
+//     r0, 0, 20, 20; bne 0x80107AC4` — if freeze set, skips four-pass
+//     and runs hideHatAndBackle path.
+//   - mCameraInfoIdx (this+0x356C, u32) → cameraInfo[idx] at
+//     0x803CA720 + idx*0x34. Bit 0x20 = the elseif-attention gate.
+//     0x80107790..0x801077A0 reads the entry, masks 0x20, and
+//     `beq cr0, 0x80107860` jumps to four-pass if the bit is CLEAR.
+//
+// Four-pass recipe RUNS when ALL hold:
+//   (field_0x2b0 > -85.0f) AND (cameraInfo & 0x20 == 0) AND (NOT freeze)
+//
+// Run this BEFORE and AFTER setting eye_fix_step > 0 to see which
+// gate (if any) is being flipped — that's the state our run_eye_fix
+// is corrupting between frames.
+func runEyeFixGates() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	linkPtr, err := d.GetLinkPtr()
+	if err != nil || linkPtr == 0 {
+		fmt.Printf("Link actor not loaded: %v\n", err)
+		os.Exit(1)
+	}
+	field2b0, err := d.ReadF32(linkPtr + 0x2B0)
+	if err != nil {
+		fmt.Printf("read field_0x2b0: %v\n", err)
+		os.Exit(1)
+	}
+	flags2a0, err := d.ReadU32(linkPtr + 0x2A0)
+	if err != nil {
+		fmt.Printf("read this+0x2a0: %v\n", err)
+		os.Exit(1)
+	}
+	camIdx, err := d.ReadU32(linkPtr + 0x356C)
+	if err != nil {
+		fmt.Printf("read mCameraInfoIdx: %v\n", err)
+		os.Exit(1)
+	}
+	camEntryAddr := uint32(0x803CA720) + camIdx*0x34
+	camEntry, err := d.ReadU32(camEntryAddr)
+	if err != nil {
+		fmt.Printf("read cameraInfo[%d]: %v\n", camIdx, err)
+		os.Exit(1)
+	}
+	// mNoResetFlg0 at this+0x29C — checkPlayerNoDraw() at line 1696
+	// returns TRUE if (cameraInfo & 0x02) || (mNoResetFlg0 & daPyFlg0_NO_DRAW
+	// = 0x08000000). If TRUE, daPy_lk_c::draw early-returns BEFORE the four-pass.
+	noResetFlg0, err := d.ReadU32(linkPtr + 0x29C)
+	if err != nil {
+		fmt.Printf("read mNoResetFlg0: %v\n", err)
+		os.Exit(1)
+	}
+	stepBytes, _ := d.ReadAbsolute(mailboxBase+mailboxEyeFixStep, 1)
+	var step byte
+	if len(stepBytes) == 1 {
+		step = stepBytes[0]
+	}
+
+	r24 := field2b0 <= -85.0
+	freezeBit := (flags2a0 & 0x800) != 0
+	attentionBit := (camEntry & 0x20) != 0
+	camAttn02 := (camEntry & 0x02) != 0
+	noDrawBit := (noResetFlg0 & 0x08000000) != 0
+	playerNoDraw := camAttn02 || noDrawBit
+
+	fmt.Printf("Link actor:           0x%08X\n", linkPtr)
+	fmt.Printf("eye_fix_step:         %d\n", step)
+	fmt.Println()
+	fmt.Printf("field_0x2b0:          %f  (r24 = (<= -85.0) = %v)\n", field2b0, r24)
+	fmt.Printf("this+0x2A0:           0x%08X  (& 0x800 freeze → %v)\n", flags2a0, freezeBit)
+	fmt.Printf("mCameraInfoIdx:       %d  → cameraInfo @ 0x%08X = 0x%08X\n",
+		camIdx, camEntryAddr, camEntry)
+	fmt.Printf("                                         (& 0x20 attention → %v)\n", attentionBit)
+	fmt.Printf("                                         (& 0x02 noDraw    → %v)\n", camAttn02)
+	fmt.Printf("mNoResetFlg0 (+0x29C): 0x%08X  (& 0x08000000 NO_DRAW → %v)\n", noResetFlg0, noDrawBit)
+	fmt.Printf("checkPlayerNoDraw() = %v  (early-returns at draw line 1696 if true)\n", playerNoDraw)
+	fmt.Println()
+	if !playerNoDraw && !r24 && !attentionBit && !freezeBit {
+		fmt.Println("Four-pass: RUNS  (no early-return, r24=FALSE, attention=clear, !freeze)")
+	} else {
+		fmt.Println("Four-pass: SKIPPED — gate(s) routing elsewhere:")
+		if playerNoDraw {
+			fmt.Println("  - checkPlayerNoDraw() TRUE → EARLY RETURN at line 1696 (no draw at all)")
+		}
+		if r24 {
+			fmt.Println("  - r24=TRUE (field_0x2b0 <= -85.0) → block A (legs-only body)")
+		}
+		if attentionBit && !r24 {
+			fmt.Println("  - attention bit 0x20 set (and r24=FALSE) → block B (elseif body)")
+		}
+		if freezeBit && !r24 && !attentionBit {
+			fmt.Println("  - freeze bit 0x800 set → hideHatAndBackle (no eye-decal recipe)")
+		}
+	}
+}
+
 // runEyeFixChain dumps the OPA P0 draw buffer's bucket-0 chain so we can
 // see in what order packets render, whether the chain has cycles, and
 // where Link #1's face/hair matpackets sit. Reads mpOpaListP0 from
@@ -1997,106 +2111,281 @@ func runEyeFixChain() {
 
 // runPPCDisasm reads num*4 bytes from the given absolute address and prints
 // each word as a partially-decoded PPC instruction. Decodes the most common
-// memory-access opcodes (lwz/stw/stwu/lhz/lbz/stb) plus branches (b/bl/bla)
-// because that's what we need to identify when a function writes to or
-// reads from j3dSys (e.g. is mDoExt_modelEntryDL clobbering j3dSys+0x48?).
-// Other opcodes print as raw hex with the primary-opcode field decoded.
+// memory-access opcodes (lwz/stw/stwu/lhz/lbz/stb), float loads (lfs/lfd),
+// integer/float compares (cmpwi/cmplwi/cmpw/cmplw/fcmpu), branches
+// (b/bl/bla and conditional bc with beq/bne/blt/bge/bgt/ble mnemonics).
+// That's enough to trace the gating conditional structure inside daPy_lk_c::draw
+// (which has FP comparisons against -85.0f and integer-flag tests).
+//
+// Source: WW_DOL_PATH env var picks an offline DOL file (no Dolphin needed —
+// preferred for static-code disassembly like daPy_lk_c::draw at 0x80107308).
+// If unset, reads from the live Dolphin process.
 func runPPCDisasm(addr uint32, num int) {
-	d, err := dolphin.Find("GZLE01")
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	defer d.Close()
-	buf, err := d.ReadAbsolute(addr, num*4)
-	if err != nil {
-		fmt.Printf("read failed: %v\n", err)
-		os.Exit(1)
+	var buf []byte
+	if dolPath := os.Getenv("WW_DOL_PATH"); dolPath != "" {
+		var err error
+		buf, err = readDOLBytes(dolPath, addr, num*4)
+		if err != nil {
+			fmt.Printf("DOL read failed: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		d, err := dolphin.Find("GZLE01")
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		defer d.Close()
+		buf, err = d.ReadAbsolute(addr, num*4)
+		if err != nil {
+			fmt.Printf("read failed: %v\n", err)
+			os.Exit(1)
+		}
 	}
 	for i := 0; i+4 <= len(buf); i += 4 {
 		insn := binary.BigEndian.Uint32(buf[i : i+4])
 		pc := addr + uint32(i)
-		op := (insn >> 26) & 0x3F
-		rD := (insn >> 21) & 0x1F
-		rA := (insn >> 16) & 0x1F
-		d16 := int32(int16(insn & 0xFFFF))
-		mnem := ""
-		switch op {
-		case 32:
-			mnem = fmt.Sprintf("lwz   r%d, %d(r%d)", rD, d16, rA)
-		case 33:
-			mnem = fmt.Sprintf("lwzu  r%d, %d(r%d)", rD, d16, rA)
-		case 34:
-			mnem = fmt.Sprintf("lbz   r%d, %d(r%d)", rD, d16, rA)
-		case 36:
-			mnem = fmt.Sprintf("stw   r%d, %d(r%d)", rD, d16, rA)
-		case 37:
-			mnem = fmt.Sprintf("stwu  r%d, %d(r%d)", rD, d16, rA)
-		case 38:
-			mnem = fmt.Sprintf("stb   r%d, %d(r%d)", rD, d16, rA)
-		case 40:
-			mnem = fmt.Sprintf("lhz   r%d, %d(r%d)", rD, d16, rA)
-		case 14:
-			imm := int32(int16(insn & 0xFFFF))
-			if rA == 0 {
-				mnem = fmt.Sprintf("li    r%d, %d", rD, imm)
-			} else {
-				mnem = fmt.Sprintf("addi  r%d, r%d, %d", rD, rA, imm)
+		fmt.Printf("  0x%08X: %08X    %s\n", pc, insn, decodePPC(insn, pc))
+	}
+}
+
+// decodePPC returns a partial mnemonic for a PPC instruction at the given PC.
+// Covers what we need to read daPy_lk_c::draw and similar J3D internals;
+// unknown ops fall back to "op=NN".
+func decodePPC(insn, pc uint32) string {
+	op := (insn >> 26) & 0x3F
+	rD := (insn >> 21) & 0x1F
+	rA := (insn >> 16) & 0x1F
+	d16 := int32(int16(insn & 0xFFFF))
+	switch op {
+	case 32:
+		return fmt.Sprintf("lwz   r%d, %d(r%d)", rD, d16, rA)
+	case 33:
+		return fmt.Sprintf("lwzu  r%d, %d(r%d)", rD, d16, rA)
+	case 34:
+		return fmt.Sprintf("lbz   r%d, %d(r%d)", rD, d16, rA)
+	case 36:
+		return fmt.Sprintf("stw   r%d, %d(r%d)", rD, d16, rA)
+	case 37:
+		return fmt.Sprintf("stwu  r%d, %d(r%d)", rD, d16, rA)
+	case 38:
+		return fmt.Sprintf("stb   r%d, %d(r%d)", rD, d16, rA)
+	case 40:
+		return fmt.Sprintf("lhz   r%d, %d(r%d)", rD, d16, rA)
+	case 44:
+		return fmt.Sprintf("sth   r%d, %d(r%d)", rD, d16, rA)
+	case 48:
+		return fmt.Sprintf("lfs   f%d, %d(r%d)", rD, d16, rA)
+	case 50:
+		return fmt.Sprintf("lfd   f%d, %d(r%d)", rD, d16, rA)
+	case 52:
+		return fmt.Sprintf("stfs  f%d, %d(r%d)", rD, d16, rA)
+	case 54:
+		return fmt.Sprintf("stfd  f%d, %d(r%d)", rD, d16, rA)
+	case 14:
+		imm := int32(int16(insn & 0xFFFF))
+		if rA == 0 {
+			return fmt.Sprintf("li    r%d, %d", rD, imm)
+		}
+		return fmt.Sprintf("addi  r%d, r%d, %d", rD, rA, imm)
+	case 15:
+		imm := int32(int16(insn & 0xFFFF))
+		return fmt.Sprintf("addis r%d, r%d, %d   (=0x%04X)", rD, rA, imm, uint16(imm))
+	case 10:
+		// cmpli (cmplwi when L=0): unsigned compare with imm.
+		crfD := (insn >> 23) & 0x7
+		uimm := uint32(insn & 0xFFFF)
+		return fmt.Sprintf("cmplwi cr%d, r%d, 0x%X", crfD, rA, uimm)
+	case 11:
+		// cmpi (cmpwi when L=0): signed compare with imm.
+		crfD := (insn >> 23) & 0x7
+		return fmt.Sprintf("cmpwi cr%d, r%d, %d", crfD, rA, d16)
+	case 16:
+		// bc — conditional branch. BO field = rD, BI field = rA, displacement
+		// in bottom 16 bits (sign-extended, low 2 bits 0).
+		bo := rD
+		bi := rA
+		bd := int32(int16(insn&0xFFFC)) // already low-2-zero by encoding
+		absBit := insn & 0x2
+		lkBit := insn & 0x1
+		target := uint32(int32(pc) + bd)
+		if absBit != 0 {
+			target = uint32(bd)
+		}
+		// Branch-if-condition: BO bit 0x10 means "decrement CTR not used"
+		// In typical compiler output: BO=12 → branch if CR[BI]==1; BO=4 → branch if CR[BI]==0.
+		crf := bi >> 2
+		bit := bi & 0x3 // 0=lt, 1=gt, 2=eq, 3=so
+		bitName := []string{"lt", "gt", "eq", "so"}[bit]
+		var mnem string
+		switch bo {
+		case 12: // branch-if-true
+			switch bit {
+			case 0:
+				mnem = "blt"
+			case 1:
+				mnem = "bgt"
+			case 2:
+				mnem = "beq"
+			case 3:
+				mnem = "bso"
 			}
-		case 15:
-			imm := int32(int16(insn & 0xFFFF))
-			mnem = fmt.Sprintf("addis r%d, r%d, %d   (=0x%04X)", rD, rA, imm, uint16(imm))
-		case 18:
-			// b/bl/bla
-			li := int32(insn&0x03FFFFFC) << 6 >> 6 // sign-extend 26-bit
-			absBit := insn & 0x2
-			lkBit := insn & 0x1
-			target := uint32(int32(pc) + li)
-			if absBit != 0 {
-				target = uint32(li)
-			}
-			s := "b"
-			if lkBit != 0 {
-				s = "bl"
-			}
-			if absBit != 0 {
-				s += "a"
-			}
-			mnem = fmt.Sprintf("%s    0x%08X", s, target)
-		case 19:
-			// blr / bctr / bclr family — decode by sub-opcode
-			sub := (insn >> 1) & 0x3FF
-			switch sub {
-			case 16:
-				mnem = "blr   "
-			case 528:
-				mnem = "bctr  "
-			default:
-				mnem = fmt.Sprintf("ctrl-19 sub=%d", sub)
-			}
-		case 31:
-			// extended op family: many things; show sub
-			sub := (insn >> 1) & 0x3FF
-			rB := (insn >> 11) & 0x1F
-			switch sub {
-			case 23:
-				mnem = fmt.Sprintf("lwzx  r%d, r%d, r%d", rD, rA, rB)
-			case 151:
-				mnem = fmt.Sprintf("stwx  r%d, r%d, r%d", rD, rA, rB)
-			case 467:
-				mnem = "mtspr "
-			case 339:
-				mnem = "mfspr "
-			case 444:
-				mnem = fmt.Sprintf("or    r%d, r%d, r%d", rA, rD, rB)
-			default:
-				mnem = fmt.Sprintf("ext31 sub=%d  rD=%d rA=%d rB=%d", sub, rD, rA, rB)
+		case 4: // branch-if-false
+			switch bit {
+			case 0:
+				mnem = "bge"
+			case 1:
+				mnem = "ble"
+			case 2:
+				mnem = "bne"
+			case 3:
+				mnem = "bns"
 			}
 		default:
-			mnem = fmt.Sprintf("op=%d (0x%02X)", op, op)
+			mnem = fmt.Sprintf("bc(BO=%d,BI=%d:%s)", bo, bi, bitName)
 		}
-		fmt.Printf("  0x%08X: %08X    %s\n", pc, insn, mnem)
+		if lkBit != 0 {
+			mnem += "l"
+		}
+		if absBit != 0 {
+			mnem += "a"
+		}
+		return fmt.Sprintf("%s   cr%d, 0x%08X", mnem, crf, target)
+	case 18:
+		// b/bl/bla
+		li := int32(insn&0x03FFFFFC) << 6 >> 6
+		absBit := insn & 0x2
+		lkBit := insn & 0x1
+		target := uint32(int32(pc) + li)
+		if absBit != 0 {
+			target = uint32(li)
+		}
+		s := "b"
+		if lkBit != 0 {
+			s = "bl"
+		}
+		if absBit != 0 {
+			s += "a"
+		}
+		return fmt.Sprintf("%s    0x%08X", s, target)
+	case 19:
+		sub := (insn >> 1) & 0x3FF
+		switch sub {
+		case 16:
+			return "blr   "
+		case 528:
+			return "bctr  "
+		case 257:
+			return "crand "
+		case 449:
+			return "cror  "
+		default:
+			return fmt.Sprintf("ctrl-19 sub=%d", sub)
+		}
+	case 21:
+		// rlwinm — common bitfield extract; show MB/ME for clarity.
+		sh := (insn >> 11) & 0x1F
+		mb := (insn >> 6) & 0x1F
+		me := (insn >> 1) & 0x1F
+		return fmt.Sprintf("rlwinm r%d, r%d, %d, %d, %d", rA, rD, sh, mb, me)
+	case 24:
+		return fmt.Sprintf("ori   r%d, r%d, 0x%X", rA, rD, uint16(insn))
+	case 25:
+		return fmt.Sprintf("oris  r%d, r%d, 0x%X", rA, rD, uint16(insn))
+	case 28:
+		return fmt.Sprintf("andi. r%d, r%d, 0x%X", rA, rD, uint16(insn))
+	case 29:
+		return fmt.Sprintf("andis. r%d, r%d, 0x%X", rA, rD, uint16(insn))
+	case 31:
+		sub := (insn >> 1) & 0x3FF
+		rB := (insn >> 11) & 0x1F
+		switch sub {
+		case 0:
+			crfD := (insn >> 23) & 0x7
+			return fmt.Sprintf("cmpw  cr%d, r%d, r%d", crfD, rA, rB)
+		case 32:
+			crfD := (insn >> 23) & 0x7
+			return fmt.Sprintf("cmplw cr%d, r%d, r%d", crfD, rA, rB)
+		case 23:
+			return fmt.Sprintf("lwzx  r%d, r%d, r%d", rD, rA, rB)
+		case 151:
+			return fmt.Sprintf("stwx  r%d, r%d, r%d", rD, rA, rB)
+		case 467:
+			return "mtspr "
+		case 339:
+			return "mfspr "
+		case 444:
+			return fmt.Sprintf("or    r%d, r%d, r%d", rA, rD, rB)
+		case 28:
+			return fmt.Sprintf("and   r%d, r%d, r%d", rA, rD, rB)
+		case 24:
+			return fmt.Sprintf("slw   r%d, r%d, r%d", rA, rD, rB)
+		case 536:
+			return fmt.Sprintf("srw   r%d, r%d, r%d", rA, rD, rB)
+		case 266:
+			return fmt.Sprintf("add   r%d, r%d, r%d", rD, rA, rB)
+		case 40:
+			return fmt.Sprintf("subf  r%d, r%d, r%d", rD, rA, rB)
+		default:
+			return fmt.Sprintf("ext31 sub=%d  rD=%d rA=%d rB=%d", sub, rD, rA, rB)
+		}
+	case 63:
+		// FP extended ops. fcmpu = sub 0, fcmpo = sub 32, fmr = sub 72, fneg = sub 40.
+		sub := (insn >> 1) & 0x3FF
+		fA := rA
+		fB := (insn >> 11) & 0x1F
+		crfD := (insn >> 23) & 0x7
+		switch sub {
+		case 0:
+			return fmt.Sprintf("fcmpu cr%d, f%d, f%d", crfD, fA, fB)
+		case 32:
+			return fmt.Sprintf("fcmpo cr%d, f%d, f%d", crfD, fA, fB)
+		case 72:
+			return fmt.Sprintf("fmr   f%d, f%d", rD, fB)
+		case 40:
+			return fmt.Sprintf("fneg  f%d, f%d", rD, fB)
+		default:
+			return fmt.Sprintf("fp63  sub=%d f%d,f%d", sub, fA, fB)
+		}
+	default:
+		return fmt.Sprintf("op=%d (0x%02X)", op, op)
 	}
+}
+
+// readDOLBytes opens a Wii/GC DOL file and returns `n` bytes starting at the
+// given virtual load address (e.g. 0x80107308 for daPy_lk_c::draw). The DOL
+// file format places its 0x100-byte header at file offset 0:
+//   +0x00..+0x47 — file offsets[0..17]   (7 text + 11 data)
+//   +0x48..+0x8F — load addrs[0..17]
+//   +0x90..+0xD7 — section sizes[0..17]
+// We linearly find the section containing addr and read from
+// fileOffset[i] + (addr - loadAddr[i]).
+func readDOLBytes(path string, addr uint32, n int) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var hdr [0x100]byte
+	if _, err := f.ReadAt(hdr[:], 0); err != nil {
+		return nil, err
+	}
+	for i := 0; i < 18; i++ {
+		off := binary.BigEndian.Uint32(hdr[i*4:])
+		la := binary.BigEndian.Uint32(hdr[0x48+i*4:])
+		sz := binary.BigEndian.Uint32(hdr[0x90+i*4:])
+		if sz == 0 || la == 0 {
+			continue
+		}
+		if addr >= la && addr+uint32(n) <= la+sz {
+			out := make([]byte, n)
+			if _, err := f.ReadAt(out, int64(off+(addr-la))); err != nil {
+				return nil, err
+			}
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("addr 0x%08X (n=%d) not contained in any DOL section of %s", addr, n, path)
 }
 
 // runJ3DSysProbe dumps the first 0x128 bytes of the j3dSys global at
