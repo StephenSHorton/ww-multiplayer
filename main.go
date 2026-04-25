@@ -963,6 +963,27 @@ func applyPoseAt(buf []byte, joints int, tx, ty, tz float32) {
 	}
 }
 
+// lerpPoseInPlace closes `dst` toward `target` by fraction k per call,
+// element-wise across every BE f32 in the joint matrix blob (12 floats
+// per joint × N joints). Acts as a per-frame EMA: a steady stream of
+// fresh `target` poses converges `dst` toward each one over a few
+// frames, smoothing out any jitter between sender and receiver clocks.
+// Rotation columns aren't strictly orthonormal during the transition
+// but per-frame angular delta is small enough that visible vertex
+// drift is bounded; full quaternion slerp can replace this if needed.
+func lerpPoseInPlace(dst, target []byte, k float32) {
+	if len(dst) != len(target) {
+		return
+	}
+	n := len(dst) / 4
+	for i := 0; i < n; i++ {
+		off := i * 4
+		dv := readBEFloat(dst, off)
+		tv := readBEFloat(target, off)
+		writeBEFloat(dst, off, dv+(tv-dv)*k)
+	}
+}
+
 // Same as broadcast-link but ALSO sends Link's full skeletal pose every
 // tick. The receiver's puppet-sync writes that pose into mailbox.pose_buf
 // and flips shadow_mode=5 so Link #2 animates from the wire instead of
@@ -973,7 +994,7 @@ func applyPoseAt(buf []byte, joints int, tx, ty, tz float32) {
 // point that scripts/mplay2.sh relies on. Installs the same SIGINT handler
 // as host/join so Ctrl+C exits cleanly (the broadcast side doesn't touch
 // shadow_mode so there's nothing to clean up — the signal handler just
-// gets us out of the 50ms sleep immediately instead of on the next tick).
+// gets us out of the send tick immediately instead of on the next tick).
 func runBroadcastPose(name, addr string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
@@ -1075,12 +1096,16 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 		// for that field, so the heartbeat just spammed the log panel.
 		// CLI users still see the [net] connect line as proof of life.
 
-		// 50 ms = 20 Hz. ~40 KB/s of pose data — trivial for LAN.
+		// 16 ms ≈ 60 Hz, matching Dolphin's render rate so the receiver
+		// gets a fresh pose every game frame. ~120 KB/s of pose data —
+		// trivial for LAN; fine for typical home upload over the
+		// internet too. Was 50 ms before v0.1.7 — the 3-frame cadence
+		// mismatch made remote Links visibly snap between samples.
 		select {
 		case <-ctx.Done():
 			// Fall through; IsConnected() will be false next iteration
 			// (watcher goroutine already called Disconnect()).
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(16 * time.Millisecond):
 		}
 	}
 	rep.Log(report.Info, "Disconnected.")
@@ -1338,6 +1363,19 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	poseBufPtrs := [maxRemoteLinks]uint32{}
 	shadowModeArmed := false
 	announced := map[byte]bool{} // log "link slot := player N" once
+
+	// Per-link-slot displayed pose. Each tick we lerp this toward the
+	// latest received pose for the slot's remote (poseLerpK fraction
+	// per tick). Even at 60 Hz send, TCP arrival is bursty, so a hard
+	// snap to the latest pose looks visibly jittery; EMA-style smoothing
+	// soaks the jitter while staying responsive (k=0.5 closes ~94% of
+	// the gap in 4 frames ≈ 66 ms). Allocated lazily on first pose so
+	// we don't pre-commit a buffer size before knowing the joint count.
+	const poseLerpK float32 = 0.5
+	type linkSlotState struct {
+		displayed []byte
+	}
+	var linkSlots [maxRemoteLinks]linkSlotState
 	// Render offset added on top of the localized pose's re-application.
 	// Default 0 (real multiplayer renders Link #2 at remote's actual
 	// world coords). Set WW_LINK2_OFFSET_X / _Y / _Z for loopback demos
@@ -1539,8 +1577,19 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 						report.Logf(rep, report.OK, "link slot %d := player %d (%s)", linkSlot, rp.ID, rp.Name)
 						announced[rp.ID] = true
 					}
-					adjusted := make([]byte, len(rp.PoseMatrices))
-					copy(adjusted, rp.PoseMatrices)
+					ls := &linkSlots[linkSlot]
+					if ls.displayed == nil || len(ls.displayed) != len(rp.PoseMatrices) {
+						// First pose for this slot, or joint count
+						// changed — snap to the target so we don't
+						// EMA from zero (which would render a degenerate
+						// pose for the first few frames).
+						ls.displayed = make([]byte, len(rp.PoseMatrices))
+						copy(ls.displayed, rp.PoseMatrices)
+					} else {
+						lerpPoseInPlace(ls.displayed, rp.PoseMatrices, poseLerpK)
+					}
+					adjusted := make([]byte, len(ls.displayed))
+					copy(adjusted, ls.displayed)
 					if os.Getenv("WW_POSE_RAW") == "" {
 						applyPoseAt(adjusted, rp.PoseJoints,
 							st.curX+link2OffsetX, st.curY+link2OffsetY, st.curZ+link2OffsetZ)
@@ -1572,6 +1621,10 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 					// at the last received pose forever after the
 					// remote disconnects.
 					d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{0})
+					// Drop the EMA buffer so the next remote to claim
+					// this slot snaps to its first pose instead of
+					// lerping from the previous occupant's last frame.
+					linkSlots[linkSlot] = linkSlotState{}
 					report.Logf(rep, report.Info, "link slot %d freed (will be reassigned on next pose)", linkSlot)
 				}
 				delete(announced, id)
