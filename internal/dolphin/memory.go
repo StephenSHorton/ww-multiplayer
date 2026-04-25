@@ -217,6 +217,24 @@ func (d *Dolphin) GetLinkPtr() (uint32, error) {
 	return d.ReadU32(PlayerPtrAddr)
 }
 
+// IsInGame reports whether the Dolphin instance is in a playable scene
+// (Link's actor pointer is non-zero and in the GC RAM range). Returns
+// false during title screen, save-file menu, world-map cutscenes, or
+// the brief reload window between scenes — anything where mpPlayerPtr[0]
+// is null or unmapped.
+//
+// Used by mp-local's "wait until both Dolphins ready" gate so the
+// connect sequence doesn't kick off into a Dolphin that hasn't loaded
+// a save yet (which would have broadcast-pose hammering ReadU32 on a
+// zero pointer and puppet-sync writing actor poses into nothing).
+func (d *Dolphin) IsInGame() bool {
+	ptr, err := d.GetLinkPtr()
+	if err != nil {
+		return false
+	}
+	return ptr >= 0x80000000 && ptr < 0x81800000
+}
+
 // ReadPlayerPosition reads Link's current position and rotation.
 func (d *Dolphin) ReadPlayerPosition() (*PlayerPosition, error) {
 	linkPtr, err := d.GetLinkPtr()

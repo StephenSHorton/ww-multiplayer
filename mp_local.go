@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -32,6 +33,12 @@ func runDolphin2(reset bool) {
 	appData := os.Getenv("APPDATA")
 	userDir1 := envOrDefault("USER_DIR_1", filepath.Join(appData, "Dolphin Emulator"))
 	userDir2 := envOrDefault("USER_DIR_2", filepath.Join(appData, "Dolphin Emulator 2"))
+	// Optional save-state autoload: when set, both Dolphins boot directly
+	// into the given .sav file (Dolphin's --save_state CLI flag), skipping
+	// the title screen + save-select menus entirely. The user records a
+	// state once via Dolphin's File > Save State menu, exports the .sav,
+	// and points SAVE_STATE at it.
+	saveState := os.Getenv("SAVE_STATE")
 
 	if reset {
 		report.Logf(rep, report.Info, "Removing %s ...", userDir2)
@@ -49,6 +56,12 @@ func runDolphin2(reset bool) {
 		report.Logf(rep, report.Err, "Patched ISO not found at %s", isoPath)
 		report.Logf(rep, report.Err, "Run `./ww-multiplayer.exe patch <vanilla.iso>` or set ISO_PATH.")
 		os.Exit(1)
+	}
+	if saveState != "" {
+		if _, err := os.Stat(saveState); err != nil {
+			report.Logf(rep, report.Err, "SAVE_STATE=%s does not exist", saveState)
+			os.Exit(1)
+		}
 	}
 	if _, err := os.Stat(userDir1); err != nil {
 		report.Logf(rep, report.Err, "Primary Dolphin user dir not found at %s", userDir1)
@@ -91,14 +104,18 @@ func runDolphin2(reset bool) {
 	}
 
 	for _, p := range plan {
-		pid, err := launchDolphinDetached(dolphinExe, p.userDir, isoPath)
+		pid, err := launchDolphinDetached(dolphinExe, p.userDir, isoPath, saveState)
 		if err != nil {
 			report.Logf(rep, report.Err, "launch %s: %v", p.label, err)
 			os.Exit(1)
 		}
 		report.Logf(rep, report.OK, "Launched %s (pid %d, user dir %s)", p.label, pid, p.userDir)
 	}
-	rep.Log(report.Info, "Wait for both games to load to a save state, then run `./ww-multiplayer.exe mp-local`.")
+	if saveState != "" {
+		report.Logf(rep, report.Info, "Both Dolphins booting with save state %s. mp-local's wait-loop will detect when they're in-game.", saveState)
+	} else {
+		rep.Log(report.Info, "Wait for both games to load to a save state, then run `./ww-multiplayer.exe mp-local`. (Set SAVE_STATE=<path> to skip the menus next time.)")
+	}
 }
 
 // runMpLocal is the Go port of scripts/mplay2.sh — spins up the relay
@@ -126,6 +143,16 @@ func runMpLocal(nameA, nameB string) {
 	}
 	pidA, pidB := pids[0], pids[1]
 	report.Logf(rep, report.OK, "Found Dolphin A (pid %d) and B (pid %d).", pidA, pidB)
+
+	// Wait until both Dolphins have a save loaded — IsInGame returns
+	// true when Link's actor pointer is in RAM range (not zero, not
+	// during reload). 60 s timeout protects against the user never
+	// loading a save; 1 s poll interval is responsive without
+	// hammering the process snapshots.
+	if err := waitForReady(ctx, rep, pidA, pidB, 60*time.Second); err != nil {
+		rep.Log(report.Err, err.Error())
+		os.Exit(1)
+	}
 
 	// Server
 	srv := network.NewServer(25565)
@@ -199,6 +226,57 @@ func runMpLocal(nameA, nameB string) {
 		d.Close()
 	}
 	rep.Log(report.OK, "Done.")
+}
+
+// waitForReady blocks until both Dolphins report IsInGame() = true,
+// the context is cancelled, or the timeout elapses. Logs a "still
+// waiting…" line every 5 s so the user knows mp-local is alive
+// rather than wedged.
+func waitForReady(ctx context.Context, rep report.Reporter, pidA, pidB uint32, timeout time.Duration) error {
+	dA, err := dolphin.FindByPID(pidA, "GZLE01")
+	if err != nil {
+		return fmt.Errorf("open Dolphin A: %w", err)
+	}
+	defer dA.Close()
+	dB, err := dolphin.FindByPID(pidB, "GZLE01")
+	if err != nil {
+		return fmt.Errorf("open Dolphin B: %w", err)
+	}
+	defer dB.Close()
+
+	deadline := time.Now().Add(timeout)
+	rep.Log(report.Info, "Waiting for both Dolphins to load to an in-game save state...")
+
+	lastLogged := time.Now()
+	for {
+		aReady := dA.IsInGame()
+		bReady := dB.IsInGame()
+		if aReady && bReady {
+			rep.Log(report.OK, "Both Dolphins in-game — proceeding.")
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out after %s waiting for Dolphins to load (A ready: %v, B ready: %v)",
+				timeout, aReady, bReady)
+		}
+		if time.Since(lastLogged) >= 5*time.Second {
+			report.Logf(rep, report.Info, "  still waiting (A: %s, B: %s)",
+				readyLabel(aReady), readyLabel(bReady))
+			lastLogged = time.Now()
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("cancelled before Dolphins were ready")
+		case <-time.After(1 * time.Second):
+		}
+	}
+}
+
+func readyLabel(ready bool) string {
+	if ready {
+		return "ready"
+	}
+	return "still loading"
 }
 
 // prefixReporter wraps another Reporter and prepends a static label to
@@ -281,8 +359,16 @@ func copyFile(src, dst string) error {
 // of ours. ww-multiplayer.exe returns immediately; Dolphin keeps running
 // after we exit. stdout/stderr go to the null device so Dolphin's spam
 // doesn't clutter our terminal.
-func launchDolphinDetached(exe, userDir, iso string) (int, error) {
-	cmd := exec.Command(exe, "-u", userDir, "-e", iso)
+//
+// When saveState is non-empty, --save_state=<path> is appended so the
+// game boots directly into the given save state — bypassing the title
+// screen + save-select menus.
+func launchDolphinDetached(exe, userDir, iso, saveState string) (int, error) {
+	args := []string{"-u", userDir, "-e", iso}
+	if saveState != "" {
+		args = append(args, "--save_state="+saveState)
+	}
+	cmd := exec.Command(exe, args...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	cmd.Stdin = nil
