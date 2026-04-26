@@ -557,13 +557,37 @@ void multiplayer_update(void) {
                 // J3DModel::entry() call's makeDisplayList() patches
                 // that single buffer, so the LAST writer wins and all
                 // N instances render the last-submitted pose. With
-                // flag=0 (createMatPacket:J3DModel.cpp:296-309)
-                // newDisplayList(size) allocates per-instance memory
-                // and poses no longer collide. Second arg (0x11000022)
-                // is a newDifferedDisplayList flag only consumed inside
-                // the 0x80000 branch, so it becomes dead here — left
-                // as-is to keep the diff tight.
-                mini_link_models[li] = mDoExt_J3DModel__create(mini_link_data, 0, 0x11000022);
+                // Args: (modelData, modelFlag=0, differedFlag=0x37221222).
+                //
+                // modelFlag=0 looks like it should give private per-instance
+                // material DLs (J3DModel::createMatPacket:296-309), but
+                // mDoExt_J3DModel__create internally FORCES modelFlag to
+                // 0x80000 (shared) when modelData->getModelDataType() == 1
+                // (which Link is). So we always end up in the shared-DL
+                // branch — that's fine: the shared material DL is a shape
+                // template, not where animated state lives.
+                //
+                // The differedFlag is what actually matters for animation.
+                // It's a packed encoding of LightObjNum / TexGenNum /
+                // TexNoNum / TevStageNum that sizes the per-instance
+                // DOUBLE-BUFFERED SHAPE DL (where J3DMaterial::load writes
+                // each frame's TX_SETIMAGE3 / TEV / mtx BP commands).
+                //
+                // Session 7 used 0x11000022 (the ubiquitous WW actor
+                // default — see d_a_*.cpp). That has TexNoNum=0, meaning
+                // ZERO space allocated for per-frame texno writes. Static
+                // actors are fine, but Link's eyes (btp animates 2 texnos:
+                // stage 0 + stage 1) had nowhere to write — so eye decals
+                // and mouth froze on bake-time values.
+                //
+                // Real Link's body uses 0x37221222 (d_a_player_main.cpp:
+                // 11985 — initModel(&mpCLModel, LINK_BDL_CL, 0x37221222)).
+                // That has TexNoNum=2, TexGenNum=2, TevStageNum=2,
+                // LightObjNum=2, plus extra sDifferedRegister bits. Using
+                // the same flag for mini-link gives the differed buffer
+                // enough space for the per-frame texno writes that drive
+                // eye / mouth animation. Confirmed via decomp matching.
+                mini_link_models[li] = mDoExt_J3DModel__create(mini_link_data, 0, 0x37221222);
                 if (mini_link_models[li]) created++;
             }
             JKRHeap_becomeCurrentHeap(oldHeap);

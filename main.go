@@ -17,6 +17,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -304,6 +305,46 @@ func main() {
 			runEyeFixGates()
 		case "eye-fix-post-chain":
 			runEyeFixPostChain()
+		case "eye-anim-find":
+			runEyeAnimFind()
+		case "eye-anim-dl-dump":
+			if len(os.Args) < 3 {
+				fmt.Println("Usage: ww-multiplayer.exe eye-anim-dl-dump <model-addr-hex> [n=256]")
+				os.Exit(1)
+			}
+			n := uint32(256)
+			if len(os.Args) > 3 {
+				if v, err := strconv.ParseUint(os.Args[3], 10, 32); err == nil {
+					n = uint32(v)
+				}
+			}
+			runEyeAnimDLDump(os.Args[2], n)
+		case "eye-anim-watch":
+			if len(os.Args) < 4 {
+				fmt.Println("Usage: ww-multiplayer.exe eye-anim-watch <addr-hex> <size-hex> [secs=10]")
+				fmt.Println("  Watches a memory range for byte-level changes over time.")
+				fmt.Println("  Reports byte offsets that ever differ from the initial sample.")
+				os.Exit(1)
+			}
+			secs := 10
+			if len(os.Args) > 4 {
+				if v, err := strconv.Atoi(os.Args[4]); err == nil {
+					secs = v
+				}
+			}
+			runEyeAnimWatch(os.Args[2], os.Args[3], secs)
+		case "eye-anim-poke":
+			if len(os.Args) < 3 {
+				fmt.Println("Usage: ww-multiplayer.exe eye-anim-poke <model-addr-hex> [secs=10]")
+				os.Exit(1)
+			}
+			secs := 10
+			if len(os.Args) > 3 {
+				if v, err := strconv.Atoi(os.Args[3]); err == nil {
+					secs = v
+				}
+			}
+			runEyeAnimPoke(os.Args[2], secs)
 		case "eye-fix-mode":
 			if len(os.Args) < 3 {
 				fmt.Println("Usage: ww-multiplayer.exe eye-fix-mode <0|1|2>")
@@ -2141,6 +2182,504 @@ func runEyeFixGates() {
 // At step=0 baseline we expect to see at least 1-2 statics in the first
 // 10 entries (chain has 18 entries with statics interleaved). At step=4
 // if the four-pass body ran, same; if it didn't, no statics appear.
+// runEyeAnimFind scans MEM1 for J3DModel candidates whose +0x10 (mModelData)
+// equals mailbox.dbg_model_data (mini_link_data). Filters by sanity checks on
+// other header fields and cross-references mailbox.dbg_node_mtx_ptr (= the
+// known *(mini_link_model+0x8C) value) to identify which candidate is
+// mini_link_models[0]. Prints all candidates with their headers.
+func runEyeAnimFind() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	modelData, err := d.ReadU32(mailboxBase + 0x94)
+	if err != nil || modelData == 0 {
+		fmt.Printf("mini_link_data not published yet (got 0x%08X)\n", modelData)
+		os.Exit(1)
+	}
+	dbgNodeMtx, _ := d.ReadU32(mailboxBase + 0xA0)
+	fmt.Printf("mini_link_data       = 0x%08X (mailbox+0x94)\n", modelData)
+	fmt.Printf("dbg_node_mtx_ptr     = 0x%08X (mailbox+0xA0; = *(mini_link_models[0]+0x8C))\n\n", dbgNodeMtx)
+
+	const memLo, memHi = uint32(0x80000000), uint32(0x81800000)
+	const chunk = uint32(2 * 1024 * 1024)
+	// J3DModel layout — mModelData is at +0x04 (not +0x10 as initially assumed).
+	const modelDataOff = uint32(0x04)
+	hits := []uint32{}
+	for base := memLo; base < memHi; base += chunk {
+		size := chunk
+		if base+size > memHi {
+			size = memHi - base
+		}
+		buf, err := d.ReadAbsolute(base, int(size))
+		if err != nil {
+			continue
+		}
+		for o := 0; o+4 <= len(buf); o += 4 {
+			if binary.BigEndian.Uint32(buf[o:o+4]) != modelData {
+				continue
+			}
+			candAt := base + uint32(o)
+			if candAt < modelDataOff {
+				continue
+			}
+			cand := candAt - modelDataOff
+			hits = append(hits, cand)
+		}
+	}
+	fmt.Printf("MEM1 scan: %d u32-aligned addresses had +0x04 == mini_link_data\n\n", len(hits))
+
+	isMEM1 := func(v uint32) bool { return v >= 0x80000000 && v < 0x81800000 }
+	matched := 0
+	for _, h := range hits {
+		hdr, err := d.ReadAbsolute(h, 0xC0)
+		if err != nil {
+			continue
+		}
+		vtable := binary.BigEndian.Uint32(hdr[0x00:0x04])
+		flag := binary.BigEndian.Uint32(hdr[0x0C:0x10])
+		userArea := binary.BigEndian.Uint32(hdr[0x14:0x18])
+		nodeMtx := binary.BigEndian.Uint32(hdr[0x8C:0x90])
+		matField := binary.BigEndian.Uint32(hdr[0xB4:0xB8])
+		// Skip obvious non-J3DModels: vtable must be a code-region pointer,
+		// userArea + matField sane.
+		if !isMEM1(vtable) || vtable >= 0x80800000 {
+			continue
+		}
+		mark := ""
+		if dbgNodeMtx != 0 && nodeMtx == dbgNodeMtx {
+			mark = "  *** matches dbg_node_mtx_ptr (mini_link_models[0]) ***"
+			matched++
+		}
+		fmt.Printf("J3DModel @ 0x%08X%s\n", h, mark)
+		fmt.Printf("  +0x00 vtable=0x%08X  +0x04 modelData=0x%08X  +0x0C flag=0x%08X\n", vtable, modelData, flag)
+		fmt.Printf("  +0x14 userArea=0x%08X  +0x8C mpNodeMtx=0x%08X  +0xB4 matpktField=0x%08X\n",
+			userArea, nodeMtx, matField)
+	}
+
+	// Second pass: scan MEM1 for ANY u32 == dbgNodeMtx — print all locations
+	// (no J3DModel filter). Helps diagnose if the dbg_node_mtx_ptr is published
+	// from an unexpected source.
+	fmt.Println("\n--- Locations holding the value 0x80EFD124 (= dbg_node_mtx_ptr) ---")
+	if dbgNodeMtx == 0 {
+		fmt.Println("(skipped: dbg_node_mtx_ptr is zero)")
+		return
+	}
+	rawHits := []uint32{}
+	for base := memLo; base < memHi; base += chunk {
+		size := chunk
+		if base+size > memHi {
+			size = memHi - base
+		}
+		buf, err := d.ReadAbsolute(base, int(size))
+		if err != nil {
+			continue
+		}
+		for o := 0; o+4 <= len(buf); o += 4 {
+			if binary.BigEndian.Uint32(buf[o:o+4]) == dbgNodeMtx {
+				rawHits = append(rawHits, base+uint32(o))
+			}
+		}
+	}
+	fmt.Printf("Found %d locations holding the value 0x%08X:\n", len(rawHits), dbgNodeMtx)
+	for _, h := range rawHits {
+		// For each hit, show the context of preceding 0x10 bytes (model header
+		// would put +0x10 = modelData if this is +0x8C of a model).
+		// Print the value at h-0x8C+0x10 = h-0x7C to check if it's modelData.
+		var md uint32
+		if h >= 0x7C {
+			md, _ = d.ReadU32(h - 0x7C)
+		}
+		mark := ""
+		if md == modelData {
+			mark = "  *** model+0x10 == mini_link_data — HIT ***"
+		}
+		// And +0x14 of model would be h - 0x78
+		var ua uint32
+		if h >= 0x78 {
+			ua, _ = d.ReadU32(h - 0x78)
+		}
+		fmt.Printf("  @ 0x%08X  (if model+0x8C: model=0x%08X, +0x10=0x%08X, +0x14=0x%08X)%s\n",
+			h, h-0x8C, md, ua, mark)
+	}
+	if matched == 0 {
+		fmt.Println("\n(no candidate matched dbg_node_mtx_ptr — slot 0 may not be initialized)")
+	}
+}
+
+// dumpHexLine prints one 16-byte line of hex starting at baseAddr+off.
+// Bytes whose value matches `highlight` are prefixed with `*`.
+func dumpHexLine(buf []byte, baseAddr uint32, indent string, highlight byte, hasHL bool) {
+	for off := 0; off < len(buf); off += 16 {
+		end := off + 16
+		if end > len(buf) {
+			end = len(buf)
+		}
+		line := fmt.Sprintf("%s+0x%03X:", indent, off)
+		for k := off; k < end; k++ {
+			tag := " "
+			if hasHL && buf[k] == highlight {
+				tag = "*"
+			}
+			line += fmt.Sprintf("%s%02X", tag, buf[k])
+		}
+		fmt.Println(line)
+	}
+}
+
+// runEyeAnimDLDump dumps mini-Link's matpacket entries for mat[0..5], traces
+// every MEM1-pointer-shaped field in matpacket[i] (looking for a J3DDisplayListObj
+// candidate), and for each candidate dumps the first n bytes of memory it points
+// to with byte 0x27 (the eye-open texno baked into mini-link's private DL)
+// highlighted. Use the model address from `eye-anim-find`.
+func runEyeAnimDLDump(modelAddrHex string, n uint32) {
+	addr64, err := strconv.ParseUint(strings.TrimPrefix(modelAddrHex, "0x"), 16, 32)
+	if err != nil {
+		fmt.Printf("bad model addr %q: %v\n", modelAddrHex, err)
+		os.Exit(1)
+	}
+	modelAddr := uint32(addr64)
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	hdr, err := d.ReadAbsolute(modelAddr, 0xC0)
+	if err != nil {
+		fmt.Printf("read model header: %v\n", err)
+		os.Exit(1)
+	}
+	modelData := binary.BigEndian.Uint32(hdr[0x10:0x14])
+	matPktField := binary.BigEndian.Uint32(hdr[0xB4:0xB8])
+	fmt.Printf("J3DModel @ 0x%08X:  +0x10=0x%08X (modelData)  +0xB4=0x%08X (matpacket field)\n\n",
+		modelAddr, modelData, matPktField)
+
+	const stride = uint32(0x3C)
+	type baseCand struct {
+		name string
+		addr uint32
+	}
+	bases := []baseCand{
+		{"matpkt-field-as-pointer", matPktField},
+		{"in-place-at-model+0xB4", modelAddr + 0xB4},
+	}
+	isMEM1 := func(v uint32) bool { return v >= 0x80000000 && v < 0x81800000 }
+	matIdx := []int{0, 1, 2, 3, 4, 5}
+
+	for _, b := range bases {
+		fmt.Printf("=== matpacket base candidate: %s @ 0x%08X ===\n", b.name, b.addr)
+		if !isMEM1(b.addr) {
+			fmt.Println("  (out of MEM1)")
+			fmt.Println()
+			continue
+		}
+		for _, i := range matIdx {
+			pktAddr := b.addr + uint32(i)*stride
+			pkt, err := d.ReadAbsolute(pktAddr, int(stride))
+			if err != nil {
+				fmt.Printf("  matpacket[%d] @ 0x%08X — read failed: %v\n", i, pktAddr, err)
+				break
+			}
+			role := ""
+			switch i {
+			case 1:
+				role = "  // left pupil eye material"
+			case 4:
+				role = "  // right pupil eye material"
+			}
+			fmt.Printf("  matpacket[%d] @ 0x%08X%s\n", i, pktAddr, role)
+			for off := uint32(0); off < stride; off += 16 {
+				line := fmt.Sprintf("    +0x%02X:", off)
+				for k := uint32(0); k < 16 && off+k < stride; k += 4 {
+					w := binary.BigEndian.Uint32(pkt[off+k : off+k+4])
+					line += fmt.Sprintf(" %08X", w)
+				}
+				fmt.Println(line)
+			}
+			if i == 1 || i == 4 {
+				tryOffs := []uint32{0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C, 0x20, 0x24, 0x28, 0x2C, 0x30, 0x34, 0x38}
+				for _, o := range tryOffs {
+					v := binary.BigEndian.Uint32(pkt[o : o+4])
+					if !isMEM1(v) {
+						continue
+					}
+					objHdr, err := d.ReadAbsolute(v, 0x10)
+					if err != nil {
+						continue
+					}
+					p0 := binary.BigEndian.Uint32(objHdr[0:4])
+					p1 := binary.BigEndian.Uint32(objHdr[4:8])
+					p2 := binary.BigEndian.Uint32(objHdr[8:12])
+					fmt.Printf("    [+0x%02X→0x%08X] obj{+0x00:%08X +0x04:%08X +0x08:%08X}\n",
+						o, v, p0, p1, p2)
+					if isMEM1(p0) && p1 > 0 && p1 < 0x100000 {
+						raw, err := d.ReadAbsolute(p0, int(min32(n, p1)))
+						if err == nil {
+							fmt.Printf("      DL bytes @ 0x%08X (size 0x%X), highlighting 0x27:\n", p0, p1)
+							dumpHexLine(raw, p0, "        ", 0x27, true)
+						}
+					} else if v >= 0x80000000 && v < 0x81800000 {
+						raw, err := d.ReadAbsolute(v, int(n))
+						if err == nil {
+							hits := 0
+							for _, bb := range raw {
+								if bb == 0x27 {
+									hits++
+								}
+							}
+							if hits > 0 {
+								fmt.Printf("      raw bytes @ 0x%08X, %d occurrences of 0x27, dumping with highlight:\n", v, hits)
+								dumpHexLine(raw, v, "        ", 0x27, true)
+							}
+						}
+					}
+				}
+			}
+			fmt.Println()
+		}
+	}
+}
+
+func min32(a, b uint32) uint32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// runEyeAnimWatch reads `size` bytes at `addr` repeatedly for `secs` seconds,
+// comparing against the initial snapshot. Reports every byte offset that ever
+// differs and the set of distinct values observed at that offset. Used to find
+// where btp is patching DL bytes per frame (if anywhere).
+func runEyeAnimWatch(addrHex, sizeHex string, secs int) {
+	addr64, err := strconv.ParseUint(strings.TrimPrefix(addrHex, "0x"), 16, 32)
+	if err != nil {
+		fmt.Printf("bad addr: %v\n", err)
+		os.Exit(1)
+	}
+	addr := uint32(addr64)
+	size64, err := strconv.ParseUint(strings.TrimPrefix(sizeHex, "0x"), 16, 32)
+	if err != nil {
+		fmt.Printf("bad size: %v\n", err)
+		os.Exit(1)
+	}
+	size := uint32(size64)
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	initial, err := d.ReadAbsolute(addr, int(size))
+	if err != nil {
+		fmt.Printf("initial read: %v\n", err)
+		os.Exit(1)
+	}
+	seenValues := make(map[uint32]map[byte]bool)
+	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+	samples := 0
+	for time.Now().Before(deadline) {
+		buf, err := d.ReadAbsolute(addr, int(size))
+		if err != nil {
+			continue
+		}
+		for i := uint32(0); i < size; i++ {
+			if buf[i] != initial[i] {
+				if seenValues[i] == nil {
+					seenValues[i] = map[byte]bool{initial[i]: true}
+				}
+				seenValues[i][buf[i]] = true
+			}
+		}
+		samples++
+		time.Sleep(8 * time.Millisecond)
+	}
+
+	fmt.Printf("Watched 0x%X bytes at 0x%08X for %ds (%d samples)\n", size, addr, secs, samples)
+	if len(seenValues) == 0 {
+		fmt.Println("No bytes changed during the watch window.")
+		return
+	}
+	fmt.Printf("%d byte offsets changed during watch:\n", len(seenValues))
+	keys := make([]uint32, 0, len(seenValues))
+	for k := range seenValues {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	for _, off := range keys {
+		vals := seenValues[off]
+		valList := make([]byte, 0, len(vals))
+		for v := range vals {
+			valList = append(valList, v)
+		}
+		sort.Slice(valList, func(i, j int) bool { return valList[i] < valList[j] })
+		fmt.Printf("  +0x%04X (abs 0x%08X): values seen = ", off, addr+off)
+		for i, v := range valList {
+			if i > 0 {
+				fmt.Print(", ")
+			}
+			fmt.Printf("0x%02X", v)
+		}
+		fmt.Println()
+	}
+}
+
+// runEyeAnimPoke is the per-frame DL-byte-poke probe (Option C from session 7
+// roadmap). Given a J3DModel address, identifies mat[1] (left pupil) and
+// mat[4] (right pupil) private-DL byte regions and patches every occurrence
+// of the bytes 0x27 / 0x06 (the texno bytes baked at create time) with
+// whatever value btp is currently writing to the SHARED TevBlock at
+// J3DMaterial+0x2C+0x08 each tick. Runs for `secs` seconds at 60 Hz.
+//
+// Goal: prove that overwriting these DL bytes makes mini-Link's eyes blink
+// in sync with Link #1's eyes. Once visually confirmed, port to C-side.
+func runEyeAnimPoke(modelAddrHex string, secs int) {
+	addr64, err := strconv.ParseUint(strings.TrimPrefix(modelAddrHex, "0x"), 16, 32)
+	if err != nil {
+		fmt.Printf("bad model addr %q: %v\n", modelAddrHex, err)
+		os.Exit(1)
+	}
+	modelAddr := uint32(addr64)
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	hdr, err := d.ReadAbsolute(modelAddr, 0xC0)
+	if err != nil {
+		fmt.Printf("read model: %v\n", err)
+		os.Exit(1)
+	}
+	modelData := binary.BigEndian.Uint32(hdr[0x10:0x14])
+	matPktField := binary.BigEndian.Uint32(hdr[0xB4:0xB8])
+	matArrPtr, err := d.ReadU32(modelData + 0x58 + 0x08)
+	if err != nil || matArrPtr == 0 {
+		fmt.Printf("can't resolve material array via modelData=0x%08X\n", modelData)
+		os.Exit(1)
+	}
+
+	isMEM1 := func(v uint32) bool { return v >= 0x80000000 && v < 0x81800000 }
+	resolveMatpacketBase := func() uint32 {
+		if isMEM1(matPktField) {
+			return matPktField
+		}
+		return modelAddr + 0xB4
+	}
+	matpktBase := resolveMatpacketBase()
+	const stride = uint32(0x3C)
+
+	type matInfo struct {
+		idx        int
+		pktAddr    uint32
+		sharedTev  uint32
+		dlBytesPtr uint32
+		dlBytesLen uint32
+		texHits    []uint32
+	}
+	mats := []matInfo{}
+	for _, idx := range []int{1, 4} {
+		matPtr, _ := d.ReadU32(matArrPtr + uint32(idx)*4)
+		if matPtr == 0 {
+			fmt.Printf("mat[%d]: NULL ptr — skip\n", idx)
+			continue
+		}
+		tevBlock, _ := d.ReadU32(matPtr + 0x2C)
+		if tevBlock == 0 {
+			fmt.Printf("mat[%d]: NULL tevBlock — skip\n", idx)
+			continue
+		}
+
+		pktAddr := matpktBase + uint32(idx)*stride
+		pkt, err := d.ReadAbsolute(pktAddr, int(stride))
+		if err != nil {
+			fmt.Printf("mat[%d]: matpacket read fail: %v\n", idx, err)
+			continue
+		}
+		// Try each plausible offset for the J3DDisplayListObj* and pick the
+		// one whose DL bytes contain 0x27 occurrences (= baked texno).
+		var bestPtr, bestLen, bestObj uint32
+		var bestHits []uint32
+		for _, o := range []uint32{0x18, 0x1C, 0x20, 0x24, 0x28, 0x2C, 0x30, 0x34, 0x38} {
+			v := binary.BigEndian.Uint32(pkt[o : o+4])
+			if !isMEM1(v) {
+				continue
+			}
+			oh, err := d.ReadAbsolute(v, 8)
+			if err != nil {
+				continue
+			}
+			p0 := binary.BigEndian.Uint32(oh[0:4])
+			p1 := binary.BigEndian.Uint32(oh[4:8])
+			if !isMEM1(p0) || p1 == 0 || p1 > 0x10000 {
+				continue
+			}
+			raw, err := d.ReadAbsolute(p0, int(p1))
+			if err != nil {
+				continue
+			}
+			var hits []uint32
+			for k := 0; k < len(raw); k++ {
+				if raw[k] == 0x27 {
+					hits = append(hits, uint32(k))
+				}
+			}
+			if len(hits) > len(bestHits) {
+				bestHits = hits
+				bestPtr = p0
+				bestLen = p1
+				bestObj = v
+			}
+		}
+		if bestPtr == 0 {
+			fmt.Printf("mat[%d]: no DL pointer with 0x27 occurrences found in matpacket bytes\n", idx)
+			continue
+		}
+		fmt.Printf("mat[%d]: DLObj=0x%08X dlBytes=0x%08X size=0x%X tevBlock=0x%08X — %d 0x27 hits\n",
+			idx, bestObj, bestPtr, bestLen, tevBlock, len(bestHits))
+		mats = append(mats, matInfo{
+			idx: idx, pktAddr: pktAddr,
+			sharedTev: tevBlock, dlBytesPtr: bestPtr, dlBytesLen: bestLen,
+			texHits: bestHits,
+		})
+	}
+	if len(mats) == 0 {
+		fmt.Println("No mat DLs identified; cannot poke. Run eye-anim-dl-dump first.")
+		os.Exit(1)
+	}
+
+	fmt.Printf("\nPoking each frame for %d seconds at 60 Hz...\n", secs)
+	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+	frames := 0
+	for time.Now().Before(deadline) {
+		for _, m := range mats {
+			tx, err := d.ReadAbsolute(m.sharedTev+0x08, 4)
+			if err != nil {
+				continue
+			}
+			// tx[0..1] = texNo[0] (BE u16), tx[2..3] = texNo[1] (BE u16).
+			// Write low byte of each occurrence based on heuristic: the baked
+			// value 0x27 = low byte of texNo[1] (eye-open). All occurrences
+			// of 0x27 in the DL are presumed to be that low byte.
+			lowByte := tx[3]
+			payload := []byte{lowByte}
+			for _, off := range m.texHits {
+				_ = d.WriteAbsolute(m.dlBytesPtr+off, payload)
+			}
+		}
+		frames++
+		time.Sleep(16 * time.Millisecond)
+	}
+	fmt.Printf("Done. Wrote %d frame batches.\n", frames)
+}
+
 func runEyeFixPostChain() {
 	d, err := dolphin.Find("GZLE01")
 	if err != nil {

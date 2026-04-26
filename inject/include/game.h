@@ -180,6 +180,21 @@ typedef J3DModel* (*mDoExt_J3DModel_create_t)(
 typedef void (*mDoExt_modelEntryDL_t)(J3DModel* model);
 #define mDoExt_modelEntryDL ((mDoExt_modelEntryDL_t)0x8000F974)
 
+// J3DModel::newDifferedDisplayList(u32 flag) — iterates all shape packets
+// and allocates each one's mpDisplayListObj as a double-buffered J3DDisplayListObj
+// sized from calcDifferedBufferSize(flag). This is what J3DMatPacket::beginDiff
+// / J3DMaterial::load write the per-frame texno→TX_SETIMAGE3 bake into. Without
+// this call, mpInitShapePacket->mpDisplayListObj is NULL and the per-frame
+// rebake silently no-ops, so btp/btk-driven animations (eyes blinking, mouth
+// patterns, UV scrolls) freeze on bake-time values.
+//
+// mDoExt_J3DModel__create only invokes this internally when modelFlag has
+// 0x80000 set (the SHARED-DL path) — but we explicitly DON'T set 0x80000
+// because that breaks N>1 (sharing material DL across instances). So with
+// modelFlag=0, we have to make this call ourselves on each created model.
+typedef s32 (*J3DModel_newDifferedDisplayList_t)(J3DModel* model, u32 flag);
+#define J3DModel_newDifferedDisplayList ((J3DModel_newDifferedDisplayList_t)0x802EE1D4)
+
 // --- Heap control -------------------------------------------------------
 // `new J3DModel()` inside mDoExt_J3DModel__create allocates from the
 // CURRENT heap. At our fapGm_Execute hook site, the current heap happens
