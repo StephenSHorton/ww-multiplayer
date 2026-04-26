@@ -1142,6 +1142,86 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    the remote link. Mode 2 remains hard. Direction-2 ("skip the
    recipe via shapepacket mpDrawMtx swap") was NOT tried this
    session; remains an open lead for a future session.
+
+   **Attempt-4 follow-up #7 (2026-04-26 session 7) — MODE-2-EQUIVALENT
+   LANDS! Both Links visible with full eye decals (animation pending).**
+   Pursued the opa_p1 routing path (session-6-part-2's hung GPU) Go-only
+   first to skip C-side iteration cycles. Three nested fixes converged
+   on the working recipe:
+   - **Cycle root cause identified via existing `eye-fix-chain` Go
+     diagnostic with `WW_DRAWLIST_PTR=0x803CA930` (opa_p1).** At step=4
+     the chain has a real cycle: matpacket `0x80F042F8` (mini-link slot 0
+     eye-decal mp) appears at indices [5] and [19]. Chain walker hits
+     [19] → `.next` points back to where [5]'s `.next` pointed → revisit
+     → infinite loop = GPU freeze. Cause: `J3DJoint::entryIn(cl_eye/cl_mayu)`
+     in run_eye_fix Pass 1 enters mini-link slot 0's eye-decal matpackets
+     into opa_p1; then `mDoExt_modelEntryDL`'s `J3DModel::entry` walks
+     ALL joints and re-enters the same matpackets (entry's joint loop
+     at 0x802EAACC iterates `modelData[0x2C][i]` and tail-calls vtable[3],
+     which dispatches per-joint entryIn-equivalent). Same matpacket entered
+     twice → its single `.next` field is overwritten → cycle. opa_p0
+     stayed clean throughout (Link's recipe intact at all steps) — the
+     drawlist routing protected Link.
+   - **Lock-bit experiment (NOT a gate).** J3DModel::lock at 0x802EE254
+     iterates matpackets at model+0xB4 (stride 0x3C) and sets bit 0 of
+     mp+0x10. mDoExt_modelEntryDL auto-calls J3DModel::unlock at 0x8000F9C4
+     unless the halfword at `0x803E724A` is non-zero (gated check at
+     0x8000F9B4). Hypothesis: lock + skip-unlock → entryIn skips locked.
+     **Tested and FALSE**: J3DJoint::entryIn at 0x802F595C does read
+     mp+0x10 bit 0 and branches at 0x802F5964 to a DIFFERENT code path
+     (0x802F59CC), but BOTH paths still push the matpacket onto the
+     drawbuffer chain. Lock selects pipeline state, not skip-vs-enter.
+     Cycle persisted with lock approach. Documented in multiplayer.c
+     comment so future sessions don't re-investigate.
+   - **Skip-mDoExt confirmed cycle source.** Bypassing mDoExt at step >= 4
+     made opa_p1 cycle-free (visually: floating eye-region with black
+     rectangle, body gone). Definitive proof mDoExt was the conflict.
+   - **Joint-mesh-NULL approach SOLVES it.** J3DModel::entry's joint loop
+     reads `joint+0x60` (= J3DJOINT_MESH_OFFSET, the mMesh material chain
+     ptr) and SKIPS the joint entirely if zero (`beq → 0x802EAAF4` advances
+     loop counter without dispatching vtable[3]). Wrapper
+     `mDoExt_skip_recipe_joints` zeroes cl_eye + cl_mayu's mMesh BEFORE
+     calling mDoExt, restores AFTER. mDoExt iterates all OTHER joints and
+     enters their matpackets (arms, legs, hat, ears, body parts) into
+     opa_p1 — no double-entry, no cycle, body renders.
+   - **Pass 3 (link_root entryIn) had to be SKIPPED.** Initial try also
+     nulled link_root's mMesh (since Pass 3 entered it via recipe). Result:
+     only ~4 matpackets entered by mDoExt — the body geometry lives mostly
+     under link_root, so nulling it gutted the body. Trade-off: skip
+     Pass 3's link_root entryIn entirely (the decomp uses it for
+     recipe-middle face+hair Z-state interaction with eye decals); let
+     mDoExt enter link_root naturally with all 14 link_root mtls. Visual
+     outcome verified against mode-1 (mClModel-swap) baseline — face/hair
+     render correctly with normal Z-state in the post-recipe chain
+     position. The four-pass eye-decal multi-pass on cl_eye/cl_mayu still
+     runs as before (Passes 1, 2, 4, 5).
+   - **Defaulted eye_fix_step to 8** in daPy_draw_hook so the win ships
+     out of the box without manual `eye-fix-step 8` from Go. Mailbox=0
+     is treated as "use default 8"; explicit non-zero values 1-8 are
+     honored as overrides for diagnosis.
+   **What changed (committed in this session):**
+   - `inject/include/game.h`: J3DModel_lock/unlock function-pointer
+     defines + MDOEXT_SKIP_UNLOCK_FLAG_ADDR (kept for future use).
+   - `inject/include/mailbox.h`: eye_fix_step semantics doc updated to
+     reflect default-on behavior.
+   - `inject/src/multiplayer.c`: `mDoExt_skip_recipe_joints` wrapper;
+     Pass 3 skip in run_eye_fix; eye_step default-to-8 logic in hook;
+     long comment block documenting the lock-bit dead-end.
+   - `internal/inject/blob.go` regenerated.
+   - `saves/start.sav` regenerated for the new blob.
+   **Net session 7 result**: BOTH Dolphins ship full mini-link rendering
+   by default — body + face + hair + eye decals (whites, pupils, eyebrows,
+   eyelids). Local Link untouched on both. opa_p0 chain identical to
+   single-player Link draw; opa_p1 contains 4 own-copy state packets +
+   12 cl_eye/cl_mayu mtls (3 visibility-sliced subsets, no duplicates) +
+   11 mDoExt body mtls + ~9 baseline-existing entries. No cycle, no GPU
+   hang, draw_progress=38 stable.
+   **One remaining issue, to be addressed as a separate sub-project**:
+   eye/mouth ANIMATION. The eye decals render but don't blink, the
+   mouth shapes don't move. This is recipe A from the session-1
+   notes: install a `J3DAnmTexPattern` player on mini-link's material
+   anm slots so per-frame texture-pattern indices update. Orthogonal
+   to the chain-submission work that landed this session.
 10. **Leverage existing Dolphin cheats for test setup.** Manual test
     setup eats time getting Link into a state where multiplayer
     features are exercisable (sailing for ocean tests, specific items

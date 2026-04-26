@@ -809,29 +809,17 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
         J3DJoint_entryIn(cl_mayu);
     }
 
-    // Pass 3 saves up to 16 link_root materials' shape pointers for
-    // restoration; the chain length on Link is 7 in the decomp.
+    // Pass 3 (link_root entryIn) is SKIPPED in our setup. The decomp uses
+    // it to enter face+hair into the chain at the recipe-middle position
+    // for proper Z-state interaction with eye decals. But re-entering
+    // link_root via mDoExt later (which we need for body parts: tunic,
+    // sleeves, boots, hat, ears, etc.) creates a cycle on the 6 mtls
+    // Pass 3 entered. Trade-off: face+hair render via mDoExt with normal
+    // chain position instead of recipe-middle. Visual outcome verified
+    // against mode-1 (mClModel-swap) baseline. mtl_count kept = 0 so the
+    // restore loop below is a no-op.
     J3DShape* mtl_shapes[16];
     int mtl_count = 0;
-    if (step >= 6) {
-        // Pass 3: hide all link_root mesh shapes except face(2) + hair(5),
-        // then submit link_root joint into P0.
-        J3DMaterial* mtl = *(J3DMaterial**)((u8*)link_root + J3DJOINT_MESH_OFFSET);
-        while (mtl != 0 && mtl_count < 16) {
-            J3DShape* shape = *(J3DShape**)((u8*)mtl + J3DMATERIAL_SHAPE_OFFSET);
-            mtl_shapes[mtl_count] = shape;
-            if (mtl_count != 2 && mtl_count != 5 && shape) {
-                *(volatile u32*)((u8*)shape + J3DSHAPE_FLAGS_OFFSET) |= J3DSHAPE_FLAG_HIDE;
-            }
-            mtl = *(J3DMaterial**)((u8*)mtl + J3DMATERIAL_NEXT_OFFSET);
-            mtl_count++;
-        }
-        J3DJoint_entryIn(link_root);
-        // Decomp re-asserts j3dSys.{mModel,mTexture} after the link_root
-        // entryIn — entry() may walk into states that overwrite them.
-        *j3d_model_slot   = (u32)model;
-        *j3d_texture_slot = model_tex;
-    }
 
     if (step >= 7) {
         // Pass 4: packet 1 with cup-on/aup-off, swap to zOnShape.
@@ -889,6 +877,50 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
     *(volatile u32*)(opa_p0 + 0x1C) = saved_opa_p0_mtx;
     *(volatile u32*)(opa_p1 + 0x1C) = saved_opa_p1_mtx;
     *(volatile u32*)(xlu_p1 + 0x1C) = saved_xlu_p1_mtx;
+}
+
+// Lock-bit approach (J3DModel_lock + skip-unlock + mDoExt) was tried and
+// did NOT prevent the cycle: J3DJoint::entryIn at 0x802F5964 reads the
+// lock bit but only branches to a DIFFERENT rendering path (0x802F59CC),
+// which still pushes the matpacket onto the drawbuffer chain. So both
+// locked and unlocked code paths add to the chain — the lock bit selects
+// pipeline state, not skip-vs-enter. Diagnostic kept here as a note so
+// future sessions don't re-investigate.
+//
+// What DOES gate entry per-joint: J3DModel::entry at 0x802EAADC reads
+// joint+0x60 (= J3DJOINT_MESH_OFFSET, the mMesh material chain ptr) and
+// SKIPS the joint if zero (`beq → 0x802EAAF4` advances loop counter).
+// So zeroing cl_eye/cl_mayu/link_root's mMesh before mDoExt makes
+// J3DModel::entry's joint loop skip exactly the joints whose matpackets
+// the recipe already entered — no double-entry, no cycle, body still
+// renders via the other joints (arms, legs, hat, ears, nose, mouth).
+//
+// Joint pointers come from J3DModelData → joint array (shared across
+// all instances using the same modelData), so this temporarily affects
+// Link's joints too. Safe because daPy_draw_hook runs AFTER Link's draw
+// has completed for this frame; the restore happens before any other
+// code can read these joints.
+static void mDoExt_skip_recipe_joints(J3DModel* model, J3DModelData* model_data, u8 step) {
+    (void)step;  // currently unused — Pass 3 (link_root entryIn) is skipped
+                 // in run_eye_fix, so link_root never enters via recipe and
+                 // only cl_eye/cl_mayu need to be skipped in mDoExt.
+    void* joint_arr_void = *(void**)((u8*)model_data + J3DMODELDATA_JOINT_NODE_PTR_OFFSET);
+    if (!joint_arr_void) {
+        mDoExt_modelEntryDL(model);
+        return;
+    }
+    J3DJoint** joint_arr = (J3DJoint**)joint_arr_void;
+    J3DJoint* cl_eye    = joint_arr[LINK_CL_EYE_JOINT_INDEX];
+    J3DJoint* cl_mayu   = joint_arr[LINK_CL_MAYU_JOINT_INDEX];
+
+    u32 saved_eye = 0, saved_mayu = 0;
+    if (cl_eye)  { saved_eye  = *(volatile u32*)((u8*)cl_eye  + J3DJOINT_MESH_OFFSET); *(volatile u32*)((u8*)cl_eye  + J3DJOINT_MESH_OFFSET) = 0; }
+    if (cl_mayu) { saved_mayu = *(volatile u32*)((u8*)cl_mayu + J3DJOINT_MESH_OFFSET); *(volatile u32*)((u8*)cl_mayu + J3DJOINT_MESH_OFFSET) = 0; }
+
+    mDoExt_modelEntryDL(model);
+
+    if (cl_eye)  *(volatile u32*)((u8*)cl_eye  + J3DJOINT_MESH_OFFSET) = saved_eye;
+    if (cl_mayu) *(volatile u32*)((u8*)cl_mayu + J3DJOINT_MESH_OFFSET) = saved_mayu;
 }
 
 // --- Draw-phase hook -------------------------------------------------
@@ -1470,7 +1502,14 @@ int daPy_draw_hook(void* this_) {
             // following modelEntryDL submits the body via that state.
             // Step is read once per frame so every slot probes at the
             // same level.
+            // Default to step=8 (full recipe: eye decals + body + face/hair via
+            // mDoExt with cl_eye+cl_mayu joints temporarily NULL'd to prevent
+            // the chain cycle). Mailbox value 0 = "use default 8"; non-zero =
+            // explicit override (1-8 = intermediate recipe stages for diagnosis).
+            // See docs/06-roadmap.md "Eye-fix attempt 4 session 7" for the
+            // full recipe-vs-mDoExt conflict resolution that made this work.
             u8 eye_step = mailbox->eye_fix_step;
+            if (eye_step == 0) eye_step = 8;
             // EYE-FIX V5 mode 2: mini-link's body + eye decals were
             // already submitted by the pre-draw mClModel-swap call
             // (slot 0 only). Skip the legacy run_eye_fix + mDoExt path
@@ -1480,7 +1519,11 @@ int daPy_draw_hook(void* this_) {
 
             if ((mode != 5 || mailbox->pose_seqs[0] != 0) && !skip_legacy_slot0) {
                 run_eye_fix(mini_link_models[0], this_, mini_link_data, eye_step);
-                mDoExt_modelEntryDL(mini_link_models[0]);
+                if (eye_step >= 4) {
+                    mDoExt_skip_recipe_joints(mini_link_models[0], mini_link_data, eye_step);
+                } else {
+                    mDoExt_modelEntryDL(mini_link_models[0]);
+                }
             }
             // In mode 5, also submit any other slots whose pose buffer
             // has been allocated (i.e. a remote is driving them).
@@ -1491,7 +1534,11 @@ int daPy_draw_hook(void* this_) {
                     // once Go has written at least one pose to it.
                     if (mini_link_models[es] && pose_bufs[es] && mailbox->pose_seqs[es] != 0) {
                         run_eye_fix(mini_link_models[es], this_, mini_link_data, eye_step);
-                        mDoExt_modelEntryDL(mini_link_models[es]);
+                        if (eye_step >= 4) {
+                            mDoExt_skip_recipe_joints(mini_link_models[es], mini_link_data, eye_step);
+                        } else {
+                            mDoExt_modelEntryDL(mini_link_models[es]);
+                        }
                     }
                 }
             }

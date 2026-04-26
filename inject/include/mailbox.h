@@ -225,7 +225,8 @@ typedef struct {
     // To dodge the per-attempt save-state regen friction, all 5 passes
     // are wired into the C blob ONCE behind this byte: Go flips the
     // value, observation is immediate. Each step is cumulative.
-    //   0 = baseline (current behavior — single mDoExt_modelEntryDL)
+    //   0 = use default (= step 8). Default-on so baseline boot ships
+    //       eye decals without manual `eye-fix-step 8` from Go.
     //   1 = + j3dSys.setModel(mini_link) + setListP0 / setListP1 swap
     //       (no entryOpa / entryIn yet — pure list state probe)
     //   2 = + Pass 1's l_onCupOffAupPacket2.entryOpa ONLY
@@ -234,9 +235,10 @@ typedef struct {
     //       (still no entryIn — isolates shape-vis side effects)
     //   4 = + Pass 1's cl_eye/cl_mayu entryIn (= old step 2 state)
     //   5 = + Pass 2 (l_offCupOnAupPacket2 + flipped shape vis + entryIn)
-    //   6 = + Pass 3 (link_root entryIn with face+hair-only material vis)
+    //   6 = + Pass 3 (link_root entryIn — SKIPPED in our codepath since it
+    //       cycles with mDoExt's link_root re-entry; effectively == step 5)
     //   7 = + Pass 4 (l_onCupOffAupPacket1 + zOn-shown + entryIn)
-    //   8 = + Pass 5 (l_offCupOnAupPacket1 + zOn-hidden) = full recipe
+    //   8 = + Pass 5 (l_offCupOnAupPacket1 + zOn-hidden) = full recipe (DEFAULT)
     // If step N crashes Dolphin, kill + restart with save state, set step
     // to N-1 from Go, iterate. ONE save-state cycle covers all 8 levels.
     u8  eye_fix_step;                         // +0xE8

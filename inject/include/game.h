@@ -220,6 +220,21 @@ typedef void* (*JKRHeap_alloc_t)(u32 size, int align, JKRHeap* heap);
 typedef void (*J3DModel_calc_t)(J3DModel* self);
 #define J3DModel_calc ((J3DModel_calc_t)0x802EE8C0)
 
+// J3DModel::lock / unlock. Both iterate matpackets (model+0xB4 array,
+// stride 0x3C bytes) and flip bit 0 of mp[i]+0x10. lock sets, unlock
+// clears. J3DJoint::entryIn at 0x802F595C reads that bit and takes a
+// different code path when set — used as a "this matpacket is already
+// entered, skip re-entry" gate by the chain submission. mDoExt_modelEntryDL
+// auto-calls unlock at 0x8000F9C4 unless the halfword at 0x803E724A is
+// non-zero (gated check at 0x8000F9B4).
+typedef void (*J3DModel_lock_t)(J3DModel* self);
+#define J3DModel_lock   ((J3DModel_lock_t)0x802EE254)
+#define J3DModel_unlock ((J3DModel_lock_t)0x802EE28C)
+// Halfword (signed) at 0x803E724A = 0x803E7094 + 0x1B6. When non-zero,
+// mDoExt_modelEntryDL skips its J3DModel::unlock call. Set this around
+// our mDoExt calls so locks survive into entry().
+#define MDOEXT_SKIP_UNLOCK_FLAG_ADDR 0x803E724A
+
 // j3dSys global + the fields polluted by J3DModel::calc().
 // Layout per JSystem/J3DGraphBase/J3DSys.h:
 //   0x030 mCurrentMtxCalc (J3DMtxCalc*)
