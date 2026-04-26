@@ -1016,6 +1016,132 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    - (c) If both (a) and (b) work, mode 2 (with separate drawlists)
      should land: local Link visible AND mini-link visible with eye
      decals. That is the v0.1.x ship target.
+
+   **Attempt-4 follow-up #6 (2026-04-25 session 6) — MODE 1 LANDS!
+   Mini-link animates AND has eye decals. Root cause was a stale arena
+   layout, not the safety check.** Took the user's prescribed
+   diagnostic-first approach (direction (a) above):
+   - **Mailbox was overflowing the arena boundary.** The mailbox struct
+     had grown to 0x11C bytes (post session 5b's `eye_fix_mode` at
+     +0x118), but `__OSArenaLo` was still patched to 0x80413000 = only
+     0x100 bytes after `MAILBOX_ADDR` 0x80412F00. Mailbox bytes
+     +0x100..+0x11B (`eye_fix_post_chain[5..9]`,
+     `eye_fix_post_chain_count`, `eye_fix_mode`, `_pad8`) lived inside
+     the game's OS arena. The allocator was intermittently writing
+     through those addresses, randomly corrupting mailbox state. That
+     produced the "draw_progress stuck at 31" symptom.
+   - **Fix: bumped `__OSArenaLo` to 0x80414000** (build.py OSInit
+     patch), giving the mailbox 0x1000 = 4 KB of headroom. The
+     mailbox is no longer flush against the arena, so further
+     diagnostic fields can be added without revisiting build.py.
+   - **Diagnostics added (kept as tooling).** Five new mailbox fields
+     at +0x11C..+0x12F published every frame from `daPy_draw_hook`:
+     `dbg_mini_link_data_cached`, `dbg_pre_mclmodeldata` (read at
+     hook entry), `dbg_postswap_mclmodeldata` (read after swap+
+     restore in mode 1/2), `dbg_safety_check_current` (read at the
+     safety-check site), and `dbg_safety_fired_count` (saturating
+     counter that increments per safety-check return). Read via new
+     `./ww-multiplayer.exe eye-fix-mode-probe` Go subcommand. In
+     mode 1 over a 30-second sample these confirmed: all three
+     `*(this+0x328)` reads = `mini_link_data` (no drift, the safety
+     check would not fire even if it ran), and `dbg_safety_fired_count`
+     stayed at 0. The safety check was never the cause; the original
+     freeze was just memory corruption from the arena overflow.
+   - **Result.** Both Dolphins at `eye-fix-mode 1`: local Link
+     invisible (mode-1 design); mini-link rendered with full body
+     + face skin + eye decals (pupils, eyelids, eyebrows) AND
+     ANIMATED via the mode-5 multi-slot pose-feed pipeline.
+     User-confirmed visually. `pose_seq` increments steadily,
+     `draw_progress` holds at 38 (full pipeline) for 30 s+,
+     `dbg_safety_fired_count` stays at 0.
+
+   **What changed (committed in this session):**
+   - `inject/build.py`: `__OSArenaLo` patch 0x80413000 → 0x80414000.
+   - `inject/include/mailbox.h`: 5 new debug fields at +0x11C..+0x12F.
+   - `inject/src/multiplayer.c`: instrumentation in `daPy_draw_hook`
+     that publishes the 5 fields and increments the safety-fire
+     counter on bail.
+   - `main.go`: `eye-fix-mode-probe` subcommand + 5 mailbox-offset
+     constants.
+   - `docs/06-roadmap.md`: this entry.
+
+   **Next-session direction (issue 2 — mode 2's static cycle).** Mode
+   1 ships eye decals on the remote link but hides the local Link.
+   The ultimate target (mode 2 with both visible) still has the
+   static-cycle problem documented in session 5b: the 4 shared
+   `l_*AupPacket1/2` statics get re-entered into opa_p0 bucket[0]
+   during Link's normal draw, after mini-link's swapped draw already
+   chained them, producing a `head→...→static→head` cycle that
+   freezes the GPU.
+   - The drawlist swap idea (direction (b) from session 5b — point
+     `*0x803CA92C` at opa_p1 for the swapped draw so it lands in
+     opa_p1's bucket) sidesteps the immediate freeze (different
+     bucket heads) but does NOT solve the bleed: the same 4 static
+     packets are entered into both buckets, and Link's draw rewrites
+     each `static.next` to a Link-mtl that lives in opa_p0 — so
+     opa_p1's chain bleeds into opa_p0 mid-walk.
+   - The own-copy-statics approach is needed in concert: have
+     mini-link's swapped draw enter OUR own-copy packets (already
+     present in the blob's BSS as `my_packet_*`) instead of the
+     shared statics, so Link's draw can freely rewrite the original
+     statics' `.next` without breaking mini-link's chain. But the
+     four-pass body's `addi r4, r30, OFFSET` instructions hard-code
+     the static addresses via r30 = 0x803E43E8, so we'd need either
+     live-code patching (`stw` to .text — risky, JIT cache may not
+     invalidate per docs/05) or to find a hook point earlier than
+     the four-pass that lets us swap a context pointer the four-pass
+     reads from.
+   - **Assessment**: mode 1 alone is a viable v0.1.x ship target —
+     the remote player's Link is now COMPLETE (body + face + eye
+     decals + animated). The local Link being invisible is unusual
+     for single-player but in a multiplayer mod where the focus is
+     seeing the remote player, that may be acceptable. Decision
+     pending user input.
+
+   **Attempt-4 follow-up #6 part 2 — opa_p1 routing experiment did
+   not unlock step ≥ 4.** Pivoted from mode 2 to a smaller intermediate
+   experiment: rerouted `run_eye_fix` from opa_p0 to opa_p1 (set
+   `*j3d_opabuf_slot = opa_p1` and changed all four `entryImm` calls
+   to target opa_p1) so that the recipe's chain mutations land in
+   opa_p1's bucket — separate from Link's opa_p0 chain. Also
+   enlarged the own-copy packets `my_packet_*` from 0x10 to 0x1C
+   bytes (matching the originals' actual spacing in memory at
+   0x803E46A4..0x803E46F8) and full-memcpy'd the originals'
+   contents (vtable + DL pointer + inner fields) instead of just
+   the vtable.
+   - **step=2** (single own-copy packet entry into opa_p1): clean,
+     no visual change, draw_progress=38, no freezes. Confirms
+     the own-copy packet itself is structurally OK after the
+     0x1C-byte fix.
+   - **step=4** (Pass 1 entryOpa + shape vis + entryIn(cl_eye/cl_mayu)
+     into opa_p1): GPU hangs on the dolphin where step=4 is set.
+     CPU keeps running (draw_progress still ticks 38, mailbox
+     writes still take), but the screen freezes — opa_p1 chain walk
+     by GPU appears to cycle/loop. Reverting step to 0 from Go does
+     NOT recover the GPU; only kill+relaunch does.
+   - The opa_p0 chain dump at step=8 (taken on the frozen Dolphin
+     before kill) showed Link's chain INTACT: 18-entry baseline
+     shape with all 4 statics + 14 Link mtls, terminating at NULL.
+     So the opa_p1 routing DID succeed at protecting Link's
+     opa_p0 chain — Link's mtls are not corrupted anymore.
+     The freeze is purely an opa_p1 issue.
+   - **Conclusion**: separating the recipe's drawlist from Link's
+     fixes the original "drops 9 of Link's mtls" regression but
+     introduces a new opa_p1 chain hang at step ≥ 4. Direct cause
+     not yet pinned — most likely candidate is the cl_eye/cl_mayu
+     entryIn pulling in mat-packets whose mpDrawMtx pointers, set
+     up for the original (Link) drawlist context, don't hold up
+     under our opa_p1 chain submission. Or: chain cycle when
+     `J3DJoint::entryIn` walks the joint hierarchy and re-enters
+     packets whose .next was mutated earlier in this same recipe.
+     Each test iteration costs a kill+relaunch+save-state-cycle
+     (~3-5 min) so further bisection requires either committing
+     to a longer iteration budget or a totally different strategy.
+
+   **Net session 6 result**: mode 1 ships eye decals + animation on
+   the remote link. Mode 2 remains hard. Direction-2 ("skip the
+   recipe via shapepacket mpDrawMtx swap") was NOT tried this
+   session; remains an open lead for a future session.
 10. **Leverage existing Dolphin cheats for test setup.** Manual test
     setup eats time getting Link into a state where multiplayer
     features are exercisable (sailing for ocean tests, specific items

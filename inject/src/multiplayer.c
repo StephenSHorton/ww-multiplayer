@@ -618,24 +618,43 @@ void multiplayer_update(void) {
 // walks reach the bottom and follow back through our overwrite.
 // drawHead loops infinitely → game freezes.
 //
-// Fix: maintain our own 0x10-byte J3DPacket-shaped objects with the
-// SAME vtable pointer as the originals (so .draw() dispatches to the
-// same GFSetBlendModeEtc setup). They have independent mpNextPacket
-// fields; re-entering them doesn't touch Link #1's static instances.
-static u32 my_packet_onCupOff1[4]; // size 0x10 (J3DPacket layout)
-static u32 my_packet_onCupOff2[4];
-static u32 my_packet_offCupOn1[4];
-static u32 my_packet_offCupOn2[4];
+// Fix: maintain our own J3DPacket-shaped objects with the SAME contents
+// as the originals (so .draw() dispatches to the same setup AND any
+// inner field reads — display list pointers, command stream pointers —
+// see real game data, not BSS zeros). They have independent mpNextPacket
+// fields once entryImm runs on them; re-entering them doesn't touch
+// Link #1's static instances.
+//
+// SESSION 6: bumped buffer size from 0x10 to 0x1C bytes per packet, to
+// match the originals' actual size in memory (the 4 statics are spaced
+// exactly 0x1C apart at 0x803E46A4..0x803E46F8). The 0x10-byte version
+// only copied the vtable; vtable-method reads of fields past +0x10
+// (display-list pointer, GX command stream, etc.) read uninitialized
+// BSS = zeros = GPU hangs at first chain walk through our packet.
+// init_my_eye_packets now memcpys the FULL 0x1C bytes from each original.
+#define MY_PACKET_SIZE 0x1C
+static u32 my_packet_onCupOff1[MY_PACKET_SIZE / 4];
+static u32 my_packet_onCupOff2[MY_PACKET_SIZE / 4];
+static u32 my_packet_offCupOn1[MY_PACKET_SIZE / 4];
+static u32 my_packet_offCupOn2[MY_PACKET_SIZE / 4];
 static int my_packets_initialized = 0;
 
 static void init_my_eye_packets(void) {
     if (my_packets_initialized) return;
-    // Copy vtable pointer (offset 0) from each original. mpNextPacket,
-    // mpFirstChild, mpUserData stay 0 (BSS zero-init).
-    my_packet_onCupOff1[0] = *(volatile u32*)L_ON_CUP_OFF_AUP_PACKET1;
-    my_packet_onCupOff2[0] = *(volatile u32*)L_ON_CUP_OFF_AUP_PACKET2;
-    my_packet_offCupOn1[0] = *(volatile u32*)L_OFF_CUP_ON_AUP_PACKET1;
-    my_packet_offCupOn2[0] = *(volatile u32*)L_OFF_CUP_ON_AUP_PACKET2;
+    // Copy the FULL packet (vtable + display-list pointer + any other
+    // inner fields) from each original. mpNextPacket (+0x04) gets reset
+    // every time entryImm runs on the packet, so it doesn't matter
+    // what's in there at copy time.
+    volatile u32* src;
+    int k;
+    src = (volatile u32*)L_ON_CUP_OFF_AUP_PACKET1;
+    for (k = 0; k < (int)(MY_PACKET_SIZE / 4); k++) my_packet_onCupOff1[k] = src[k];
+    src = (volatile u32*)L_ON_CUP_OFF_AUP_PACKET2;
+    for (k = 0; k < (int)(MY_PACKET_SIZE / 4); k++) my_packet_onCupOff2[k] = src[k];
+    src = (volatile u32*)L_OFF_CUP_ON_AUP_PACKET1;
+    for (k = 0; k < (int)(MY_PACKET_SIZE / 4); k++) my_packet_offCupOn1[k] = src[k];
+    src = (volatile u32*)L_OFF_CUP_ON_AUP_PACKET2;
+    for (k = 0; k < (int)(MY_PACKET_SIZE / 4); k++) my_packet_offCupOn2[k] = src[k];
     my_packets_initialized = 1;
 }
 
@@ -737,11 +756,24 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
     J3DShape** zoff_none  = (J3DShape**)((u8*)link1_actor + DAPY_MP_Z_OFF_NONE_SHAPE_OFFSET);
     J3DShape** zon        = (J3DShape**)((u8*)link1_actor + DAPY_MP_Z_ON_SHAPE_OFFSET);
 
-    // Step 1+: swap j3dSys to mini-Link, list := P0.
+    // SESSION 6: route the recipe to opa_p1 instead of opa_p0. Session 5
+    // diagnosed that run_eye_fix's entryIn calls clobber opa_p0's bucket
+    // chain (`reset bucket[0] head and rewire the chain destructively`),
+    // dropping 9 of Link's 18 matpackets — including face and hair —
+    // from his draw. j3dSys+0x48 (= mDrawBuffer OPA slot) is what
+    // entryIn writes drawbuffer+0x1C through, AND what entryImm
+    // implicitly targets when called via the variant that doesn't take
+    // a drawbuffer arg. By pointing j3dSys.opa at opa_p1 instead, the
+    // recipe's chain mutations land in opa_p1's bucket — completely
+    // separate from Link's opa_p0 chain. Mini-link's body (submitted
+    // via mDoExt_modelEntryDL after run_eye_fix) ALSO already goes to
+    // opa_p1 (set explicitly at the end of this function), so the
+    // recipe + body now share the same drawlist. Local Link is
+    // untouched.
     *j3d_model_slot   = (u32)model;
     *j3d_texture_slot = model_tex;
-    *j3d_opabuf_slot  = opa_p0;   // setListP0 writes opa_p0 into BOTH slots.
-    *j3d_xlubuf_slot  = opa_p0;
+    *j3d_opabuf_slot  = opa_p1;   // route entryImm/entryIn into P1
+    *j3d_xlubuf_slot  = opa_p1;
 
     int i;
 
@@ -750,7 +782,7 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
     // regression at higher steps comes from the packet's GX state or from
     // entryIn's bucket-chain mutation.
     if (step >= 2) {
-        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p0, (J3DPacket*)my_packet_onCupOff2, 0);
+        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_onCupOff2, 0);
     }
     // Step 3 adds Pass 1's shape-vis toggle (still no entryIn).
     if (step >= 3) {
@@ -768,7 +800,7 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
 
     if (step >= 5) {
         // Pass 2: packet 2 with cup-off/aup-on, swap to zOffBlendShape.
-        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p0, (J3DPacket*)my_packet_offCupOn2, 0);
+        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_offCupOn2, 0);
         for (i = 0; i < 4; i++) {
             if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
             if (zoff_none[i])  *(volatile u32*)((u8*)zoff_none[i]  + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
@@ -803,7 +835,7 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
 
     if (step >= 7) {
         // Pass 4: packet 1 with cup-on/aup-off, swap to zOnShape.
-        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p0, (J3DPacket*)my_packet_onCupOff1, 0);
+        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_onCupOff1, 0);
         for (i = 0; i < 4; i++) {
             if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
             if (zon[i])        *(volatile u32*)((u8*)zon[i]        + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
@@ -817,7 +849,7 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
         // Pass 5: packet 1 with cup-off/aup-on, then hide zOn so the
         // shape-vis state at exit matches Link #1's post-recipe state
         // (everything hidden, ready for next frame's first toggle).
-        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p0, (J3DPacket*)my_packet_offCupOn1, 0);
+        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_offCupOn1, 0);
         for (i = 0; i < 4; i++) {
             if (zon[i]) *(volatile u32*)((u8*)zon[i] + J3DSHAPE_FLAGS_OFFSET) |= J3DSHAPE_FLAG_HIDE;
         }
@@ -894,6 +926,13 @@ int daPy_draw_hook(void* this_) {
     // later ⇒ pollution lives outside j3dSys (statics or shared MtxCalc).
     mailbox->draw_progress = 30;
 
+    // SESSION 6 mode-1 freeze diagnostics. Capture the safety-check
+    // inputs every frame so Go can decide if the safety check is the
+    // freeze culprit. See mailbox.h dbg_*_mclmodeldata field comments.
+    mailbox->dbg_mini_link_data_cached = (u32)mini_link_data;
+    mailbox->dbg_pre_mclmodeldata =
+        *(volatile u32*)((u8*)this_ + DAPY_LK_C_MPCLMODELDATA_OFFSET);
+
     // EYE-FIX V5 modes 1 & 2 (approach-(2) prototype). Pre-draw, swap
     // Link's mClModel pointer to mini_link_models[0] so daPy_lk_c::draw's
     // four-pass + body submission consume mini-link's matpackets, which
@@ -915,6 +954,13 @@ int daPy_draw_hook(void* this_) {
         *mClModel_slot = mini_link_models[0];
         daPy_lk_c_draw(this_);
         *mClModel_slot = saved_mClModel;
+        // Capture *(this+0x328) immediately after the swap+restore.
+        // If this differs from dbg_pre_mclmodeldata, the swapped draw
+        // mutated mClModelData (probably reading model->getModelData()
+        // and syncing it back), so the safety check just below will
+        // see a different pointer than mini_link_data.
+        mailbox->dbg_postswap_mclmodeldata =
+            *(volatile u32*)((u8*)this_ + DAPY_LK_C_MPCLMODELDATA_OFFSET);
     }
 
     // Mode 1: skip Link's own draw entirely (local Link invisible). The
@@ -1019,7 +1065,14 @@ int daPy_draw_hook(void* this_) {
     // submission this frame; multiplayer_update next frame rebuilds.
     if (mini_link_models[0] != 0) {
         J3DModelData* current_data = *(J3DModelData**)((u8*)this_ + DAPY_LK_C_MPCLMODELDATA_OFFSET);
+        // SESSION 6: publish the live read for Go-side diagnosis.
+        mailbox->dbg_safety_check_current = (u32)current_data;
         if (current_data != mini_link_data || current_data == 0) {
+            // SESSION 6: bump bail counter (saturating, but u32 won't
+            // wrap in any reasonable session). Lets Go tell at-a-glance
+            // whether this check is the freeze culprit in mode 1.
+            mailbox->dbg_safety_fired_count =
+                mailbox->dbg_safety_fired_count + 1;
             mini_link_reset_state();
             return result;
         }

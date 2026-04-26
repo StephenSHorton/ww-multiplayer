@@ -21,6 +21,15 @@
 // end at 0x80411FC8 crossed into the old mailbox at 0x80411F00. Bumped
 // mailbox to 0x80412F00 and __OSArenaLo to 0x80413000 (see
 // inject/build.py OSInit patch). Mailbox sits flush against the arena.
+//
+// 2026-04-25 session 6: mailbox grew to 0x130 B (mode-1 freeze
+// diagnostics: dbg_pre_mclmodeldata + dbg_postswap_mclmodeldata +
+// dbg_safety_check_current_data + dbg_safety_fired_count +
+// dbg_mini_link_data_cached). Bumped __OSArenaLo to 0x80414000 to give
+// the mailbox 0x1000 = 4 KB of headroom — mailbox is no longer flush
+// against the arena, so we can add a few more diagnostic fields here
+// without revisiting build.py. MAILBOX_ADDR itself stays at
+// 0x80412F00 (no struct-offset breakage on the Go side).
 #define MAILBOX_ADDR 0x80412F00
 
 // Up to this many remote players can be mirrored as puppet actors.
@@ -266,6 +275,49 @@ typedef struct {
     //       both Links render with eye decals.
     u8  eye_fix_mode;                         // +0x118
     u8  _pad8[3];                             // +0x119
+    // --- EYE-FIX V5 SESSION 6: MODE-1 FREEZE DIAGNOSTICS ---------------
+    // Mode 1 (mClModel-swap one-draw) makes mini-link's eye decals
+    // render but mini-link is FROZEN — draw_progress sticks at 31, so
+    // the mode-5 multi-slot calc loop (which copies the network pose
+    // into mini-link's mpNodeMtxBuf) never runs. The only `return`
+    // between draw_progress=31 and =32 is the save-reload safety check
+    // at multiplayer.c ~line 1020:
+    //     if (current_data != mini_link_data || current_data == 0)
+    //         return result;
+    // where current_data = *(this+0x328) (Link's live mClModelData
+    // pointer). These five fields capture the comparison's inputs each
+    // frame so Go can confirm whether the safety check is the culprit
+    // and, if so, why current_data drifted.
+    //
+    //   dbg_mini_link_data_cached   — value of the C static
+    //                                 mini_link_data, published at hook
+    //                                 entry. Equals what the safety
+    //                                 check compares against.
+    //   dbg_pre_mclmodeldata        — *(this+0x328) at hook entry,
+    //                                 BEFORE the mode-1/2 swap. Should
+    //                                 equal mini_link_data in steady
+    //                                 state.
+    //   dbg_postswap_mclmodeldata   — *(this+0x328) immediately after
+    //                                 the mode-1/2 swap+restore. Only
+    //                                 written when ef_mode is 1 or 2.
+    //                                 If this differs from
+    //                                 dbg_pre_mclmodeldata, the swapped
+    //                                 daPy_lk_c::draw mutated +0x328.
+    //   dbg_safety_check_current   — *(this+0x328) read at the safety
+    //                                 check site itself.
+    //   dbg_safety_fired_count      — saturating count of frames the
+    //                                 safety check returned early. In
+    //                                 mode 0 baseline this should stay
+    //                                 at 0 (or near 0 across stage
+    //                                 transitions). In mode 1, if it's
+    //                                 incrementing every frame, the
+    //                                 safety check is the freeze
+    //                                 culprit.
+    u32 dbg_mini_link_data_cached;            // +0x11C
+    u32 dbg_pre_mclmodeldata;                 // +0x120
+    u32 dbg_postswap_mclmodeldata;            // +0x124
+    u32 dbg_safety_check_current;             // +0x128
+    u32 dbg_safety_fired_count;               // +0x12C
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)

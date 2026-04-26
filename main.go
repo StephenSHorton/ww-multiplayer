@@ -318,6 +318,8 @@ func main() {
 				os.Exit(1)
 			}
 			runEyeFixMode(byte(n))
+		case "eye-fix-mode-probe":
+			runEyeFixModeProbe()
 		case "j3dsys-probe":
 			runJ3DSysProbe()
 		case "ppc-disasm":
@@ -1787,6 +1789,14 @@ const (
 	mailboxWarpForce       = 0xE4
 	mailboxEyeFixStep      = 0xE8
 	mailboxEyeFixMode      = 0x118
+	// SESSION 6 mode-1 freeze diagnostics. See mailbox.h dbg_*_mclmodeldata
+	// field comments. Fields published unconditionally each frame from
+	// daPy_draw_hook (entry + post-swap + safety-check site).
+	mailboxDbgMiniLinkDataCached = 0x11C
+	mailboxDbgPreMcLModelData    = 0x120
+	mailboxDbgPostswapMcLModelData = 0x124
+	mailboxDbgSafetyCheckCurrent = 0x128
+	mailboxDbgSafetyFiredCount   = 0x12C
 )
 
 func runPokeVec3(addrHex, xs, ys, zs string) {
@@ -1934,6 +1944,77 @@ func runEyeFixMode(mode byte) {
 		os.Exit(1)
 	}
 	fmt.Printf("eye_fix_mode = %d\n", mode)
+}
+
+// runEyeFixModeProbe reads the SESSION 6 diagnostic fields populated
+// every frame by daPy_draw_hook. Use to diagnose the mode-1 freeze:
+// at mode 0 baseline, dbg_pre/postswap/safety_check_current should all
+// equal dbg_mini_link_data_cached, and dbg_safety_fired_count should
+// stay stable. At mode 1, if safety_fired_count is incrementing, the
+// safety check is the freeze culprit; compare pre vs postswap vs
+// safety_check_current to localize WHERE *(this+0x328) drifted.
+//
+// Reads twice with a short delay so Go can confirm whether the safety
+// counter is incrementing live (rate ≈ 60/sec when actively bailing).
+func runEyeFixModeProbe() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	read := func() (efMode byte, cached, pre, post, safetyCur, safetyCnt uint32) {
+		efBuf, _ := d.ReadAbsolute(mailboxBase+mailboxEyeFixMode, 1)
+		if len(efBuf) > 0 {
+			efMode = efBuf[0]
+		}
+		cached, _ = d.ReadU32(mailboxBase + mailboxDbgMiniLinkDataCached)
+		pre, _ = d.ReadU32(mailboxBase + mailboxDbgPreMcLModelData)
+		post, _ = d.ReadU32(mailboxBase + mailboxDbgPostswapMcLModelData)
+		safetyCur, _ = d.ReadU32(mailboxBase + mailboxDbgSafetyCheckCurrent)
+		safetyCnt, _ = d.ReadU32(mailboxBase + mailboxDbgSafetyFiredCount)
+		return
+	}
+	dprog0, _ := d.ReadU32(mailboxBase + 0x0C) // draw_progress
+	efMode0, cached0, pre0, post0, sc0, sn0 := read()
+	time.Sleep(500 * time.Millisecond)
+	dprog1, _ := d.ReadU32(mailboxBase + 0x0C)
+	_, _, _, _, _, sn1 := read()
+
+	fmt.Printf("eye_fix_mode = %d\n", efMode0)
+	fmt.Printf("draw_progress: t0=%d  t1=%d (38=full pipeline ok, 31=stuck pre-safety-check)\n", dprog0, dprog1)
+	fmt.Printf("\nSafety-check inputs (compare these against mini_link_data_cached):\n")
+	fmt.Printf("  mini_link_data (cached, C static):  0x%08X\n", cached0)
+	fmt.Printf("  *(this+0x328) at hook entry:        0x%08X  %s\n", pre0, eyeFixCmp(pre0, cached0))
+	fmt.Printf("  *(this+0x328) post swap+restore:    0x%08X  %s\n", post0, eyeFixPostswapCmp(post0, cached0, efMode0))
+	fmt.Printf("  *(this+0x328) at safety-check site: 0x%08X  %s\n", sc0, eyeFixCmp(sc0, cached0))
+	fmt.Printf("\nSafety-check bail counter:\n")
+	fmt.Printf("  count: t0=%d  t1=%d  delta=%d (%s)\n", sn0, sn1, sn1-sn0, eyeFixSafetyVerdict(sn1-sn0))
+}
+
+func eyeFixCmp(observed, want uint32) string {
+	if observed == want {
+		return "= cached (OK)"
+	}
+	return fmt.Sprintf("DIFFERS from cached (Δ = 0x%08X)", observed^want)
+}
+
+func eyeFixPostswapCmp(observed, cached uint32, efMode byte) string {
+	if efMode != 1 && efMode != 2 {
+		return "(not written; mode != 1, 2)"
+	}
+	return eyeFixCmp(observed, cached)
+}
+
+func eyeFixSafetyVerdict(delta uint32) string {
+	switch {
+	case delta == 0:
+		return "stable — safety check NOT firing"
+	case delta < 5:
+		return "occasional bails — likely transient"
+	default:
+		return "FIRING EVERY FRAME — this is the freeze cause"
+	}
 }
 
 // runEyeFixGates reads Link #1's three gating-state fields that
