@@ -1,10 +1,12 @@
 #!/bin/bash
 # Builds the macOS release artifacts:
 #   1. A universal binary (`ww-multiplayer`) that runs natively on both
-#      Apple Silicon and Intel Macs — produced by lipo'ing per-arch builds.
-#   2. A minimal `WW Multiplayer.app` bundle that double-clicks open into
-#      Terminal.app and `sudo`-runs the binary, since reading Dolphin's
-#      process memory needs root on macOS (task_for_pid is gated by SIP).
+#      Apple Silicon and Intel Macs — produced by lipo'ing per-arch builds,
+#      then ad-hoc signed with the `com.apple.security.cs.debugger`
+#      entitlement so AMFI permits task_for_pid against Dolphin.
+#   2. A `WW Multiplayer.app` bundle wrapping the same signed binary,
+#      Finder-clickable, no sudo prompt (works against a non-hardened
+#      Dolphin — see scripts/setup-mac-dolphin.sh).
 #
 # Outputs into ./dist/. cgo is required (mach_vm_* lives in C) so this
 # script must run on macOS — Linux/Windows runners can't cross-build it.
@@ -19,6 +21,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 DIST="$ROOT/dist"
+ENT="$ROOT/scripts/cs-debugger.entitlements"
 rm -rf "$DIST"
 mkdir -p "$DIST"
 
@@ -46,6 +49,14 @@ lipo -create \
 rm "$DIST/ww-multiplayer-arm64" "$DIST/ww-multiplayer-amd64"
 file "$DIST/ww-multiplayer"
 
+# Ad-hoc signing the binary with cs.debugger lets AMFI permit
+# task_for_pid against non-hardened processes (which is what Dolphin
+# becomes after running setup-mac-dolphin.sh once). Without this, even
+# sudo can't read Dolphin's memory under SIP.
+echo "==> Code-signing with cs.debugger entitlement..."
+codesign -s - --entitlements "$ENT" --force "$DIST/ww-multiplayer"
+codesign -d --entitlements - "$DIST/ww-multiplayer" 2>&1 | grep -A1 "cs.debugger" || true
+
 echo "==> Building WW Multiplayer.app bundle..."
 APP="$DIST/WW Multiplayer.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -53,10 +64,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$DIST/ww-multiplayer" "$APP/Contents/Resources/ww-multiplayer"
 
 # launcher is the bundle's CFBundleExecutable. Finder runs it on
-# double-click; we then hand off to Terminal.app so the TUI has a real
-# tty. `sudo` is required because task_for_pid is denied without
-# either root or the com.apple.security.cs.debugger entitlement
-# (which itself requires Apple Developer signing).
+# double-click; we hand off to Terminal.app so the TUI has a real tty.
 cat > "$APP/Contents/MacOS/launcher" <<'LAUNCHER'
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -64,7 +72,7 @@ BIN="$DIR/../Resources/ww-multiplayer"
 osascript <<APPLESCRIPT
 tell application "Terminal"
     activate
-    do script "echo 'Wind Waker Multiplayer requires sudo to read Dolphin process memory on macOS.' && sudo '$BIN'"
+    do script "'$BIN'"
 end tell
 APPLESCRIPT
 LAUNCHER
@@ -103,6 +111,10 @@ TARBALL="$DIST/ww-multiplayer-macos.tar.gz"
 
 echo
 echo "==> Built:"
-echo "    $DIST/ww-multiplayer       (universal binary; run with 'sudo')"
+echo "    $DIST/ww-multiplayer       (universal binary, signed with cs.debugger)"
 echo "    $DIST/WW Multiplayer.app   (Finder-clickable wrapper)"
 echo "    $TARBALL"
+echo
+echo "==> First-time macOS setup: run scripts/setup-mac-dolphin.sh once"
+echo "    to copy /Applications/Dolphin.app to ~/Applications/ and strip"
+echo "    the hardened runtime so this binary can read its memory."

@@ -28,7 +28,14 @@ func dolphin2Defaults() (exe, iso, userDir1, userDir2 string) {
 	home, _ := os.UserHomeDir()
 	switch runtime.GOOS {
 	case "darwin":
-		exe = "/Applications/Dolphin.app/Contents/MacOS/Dolphin"
+		// ~/Applications/Dolphin.app is the user-writable copy created
+		// by scripts/setup-mac-dolphin.sh — re-signed without the
+		// hardened runtime so AMFI permits task_for_pid against it.
+		// Falls back to /Applications if the user copy isn't there.
+		exe = filepath.Join(home, "Applications", "Dolphin.app", "Contents", "MacOS", "Dolphin")
+		if _, err := os.Stat(exe); err != nil {
+			exe = "/Applications/Dolphin.app/Contents/MacOS/Dolphin"
+		}
 		iso = filepath.Join(home, "Roms", "WW_Multiplayer_Patched.iso")
 		userDir1 = filepath.Join(cfg, "Dolphin")
 		userDir2 = filepath.Join(cfg, "Dolphin 2")
