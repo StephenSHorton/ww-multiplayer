@@ -1,9 +1,9 @@
 name: Build
 
-# Sanity-check on every push and PR: does the Go side still build? This
-# catches breakage between releases without needing the full devkitPPC
-# toolchain (which only matters when regenerating the embedded T2 blob).
-# blob.go is committed and treated as source for build purposes.
+# Sanity-check on every push and PR: does the Go side still build on
+# every supported target (Windows + macOS)? Catches breakage between
+# releases without needing the full devkitPPC toolchain — blob.go is
+# committed and treated as source for build purposes.
 
 on:
   push:
@@ -12,7 +12,7 @@ on:
     branches: [master]
 
 jobs:
-  go:
+  windows:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,8 +20,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # internal/dolphin/* uses Win32 APIs and won't even parse on Linux.
-      # Run all Go steps with GOOS=windows so vet/build see the same target.
+      # internal/dolphin/memory_windows.go uses Win32 APIs (kernel32.dll)
+      # so vet/build needs GOOS=windows for that file to parse.
       - name: go vet (Windows target)
         env:
           GOOS: windows
@@ -45,3 +45,35 @@ jobs:
             echo "::error::internal/inject/blob.go missing DOLPatches"
             exit 1
           fi
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # internal/dolphin/memory_darwin.go uses cgo + Mach VM, so we have
+      # to actually run on a Mac. Build native arm64 (the runner) and
+      # cross to amd64 to make sure both architectures still compile.
+      - name: go vet
+        run: go vet ./...
+
+      - name: Build arm64
+        env:
+          GOOS: darwin
+          GOARCH: arm64
+          CGO_ENABLED: '1'
+        run: go build -o /tmp/ww-multiplayer-arm64 .
+
+      - name: Build amd64 (cross from arm64 host)
+        env:
+          GOOS: darwin
+          GOARCH: amd64
+          CGO_ENABLED: '1'
+        run: |
+          SDK=$(xcrun --sdk macosx --show-sdk-path)
+          CC="clang -target x86_64-apple-macos11 -isysroot $SDK" \
+            SDKROOT=$SDK \
+            go build -o /tmp/ww-multiplayer-amd64 .

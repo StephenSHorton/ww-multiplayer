@@ -1,67 +1,17 @@
 package dolphin
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
-	"sort"
 	"strconv"
-	"strings"
-	"syscall"
-	"unsafe"
 )
-
-var (
-	kernel32             = syscall.NewLazyDLL("kernel32.dll")
-	procOpenProcess      = kernel32.NewProc("OpenProcess")
-	procReadProcessMem   = kernel32.NewProc("ReadProcessMemory")
-	procWriteProcessMem  = kernel32.NewProc("WriteProcessMemory")
-	procCloseHandle      = kernel32.NewProc("CloseHandle")
-	procVirtualQueryEx   = kernel32.NewProc("VirtualQueryEx")
-	procCreateToolhelp   = kernel32.NewProc("CreateToolhelp32Snapshot")
-	procProcess32First   = kernel32.NewProc("Process32FirstW")
-	procProcess32Next    = kernel32.NewProc("Process32NextW")
-)
-
-const (
-	PROCESS_VM_READ       = 0x0010
-	PROCESS_VM_WRITE      = 0x0020
-	PROCESS_VM_OPERATION  = 0x0008
-	PROCESS_QUERY_INFO    = 0x0400
-	PROCESS_ALL_ACCESS    = PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION | PROCESS_QUERY_INFO
-	TH32CS_SNAPPROCESS    = 0x00000002
-	MEM_COMMIT            = 0x1000
-	PAGE_READWRITE        = 0x04
-	PAGE_EXECUTE_READWRITE = 0x40
-)
-
-type memoryBasicInfo struct {
-	BaseAddress       uintptr
-	AllocationBase    uintptr
-	AllocationProtect uint32
-	RegionSize        uintptr
-	State             uint32
-	Protect           uint32
-	Type              uint32
-}
-
-type processEntry32 struct {
-	Size            uint32
-	CntUsage        uint32
-	ProcessID       uint32
-	DefaultHeapID   uintptr
-	ModuleID        uint32
-	CntThreads      uint32
-	ParentProcessID uint32
-	PriClassBase    int32
-	Flags           uint32
-	ExeFile         [260]uint16
-}
 
 // Dolphin represents a connection to a running Dolphin emulator process.
 type Dolphin struct {
-	handle    syscall.Handle
+	handle    procHandle
 	pid       uint32
 	gcRamBase uintptr // Start of emulated GameCube RAM in Dolphin's process
 	gameID    string
@@ -80,10 +30,10 @@ type PlayerPosition struct {
 // Wind Waker GZLE01 addresses
 const (
 	PlayerPtrAddr = 0x803CA754 // mpPlayerPtr[0] — pointer to Link's actor
-	PosOffset     = 0x1F8     // current.pos (3x float32)
-	RotOffset     = 0x204     // current.angle (3x int16)
-	RoomOffset    = 0x20A     // current.roomNo (int8)
-	AnimOffset    = 0x31D8    // mCurProc (uint32)
+	PosOffset     = 0x1F8      // current.pos (3x float32)
+	RotOffset     = 0x204      // current.angle (3x int16)
+	RoomOffset    = 0x20A      // current.roomNo (int8)
+	AnimOffset    = 0x31D8     // mCurProc (uint32)
 )
 
 // Find locates a Dolphin emulator process and maps its emulated RAM.
@@ -106,7 +56,7 @@ func Find(gameID string) (*Dolphin, error) {
 		}
 		return openByPID(uint32(pid64), gameID)
 	}
-	pids, err := findAllProcesses("Dolphin")
+	pids, err := ListPIDs()
 	if err != nil {
 		return nil, fmt.Errorf("dolphin not running: %w", err)
 	}
@@ -129,16 +79,16 @@ func FindByPID(pid uint32, gameID string) (*Dolphin, error) {
 // ascending. Same ordering Find() uses for WW_DOLPHIN_INDEX, so
 // idx 0 → ListPIDs()[0], idx 1 → ListPIDs()[1], etc.
 func ListPIDs() ([]uint32, error) {
-	return findAllProcesses("Dolphin")
+	return listProcessesByName("Dolphin")
 }
 
 func openByPID(pid uint32, gameID string) (*Dolphin, error) {
-	handle, _, _ := procOpenProcess.Call(PROCESS_ALL_ACCESS, 0, uintptr(pid))
-	if handle == 0 {
-		return nil, fmt.Errorf("failed to open dolphin process (pid %d)", pid)
+	handle, err := openProc(pid)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open dolphin process (pid %d): %w", pid, err)
 	}
 	d := &Dolphin{
-		handle: syscall.Handle(handle),
+		handle: handle,
 		pid:    pid,
 		gameID: gameID,
 	}
@@ -154,9 +104,9 @@ func (d *Dolphin) PID() uint32 { return d.pid }
 
 // Close releases the process handle.
 func (d *Dolphin) Close() {
-	if d.handle != 0 {
-		procCloseHandle.Call(uintptr(d.handle))
-		d.handle = 0
+	if !procHandleZero(d.handle) {
+		closeProc(d.handle)
+		d.handle = zeroProcHandle()
 	}
 }
 
@@ -168,13 +118,8 @@ func (d *Dolphin) ReadAbsolute(gcAddr uint32, size int) ([]byte, error) {
 	offset := uintptr(gcAddr - 0x80000000)
 	addr := d.gcRamBase + offset
 	buf := make([]byte, size)
-	var bytesRead uintptr
-	ret, _, _ := procReadProcessMem.Call(
-		uintptr(d.handle), addr, uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(size), uintptr(unsafe.Pointer(&bytesRead)),
-	)
-	if ret == 0 {
-		return nil, fmt.Errorf("read failed at 0x%X", gcAddr)
+	if err := readProc(d.handle, addr, buf); err != nil {
+		return nil, fmt.Errorf("read failed at 0x%X: %w", gcAddr, err)
 	}
 	return buf, nil
 }
@@ -183,13 +128,8 @@ func (d *Dolphin) ReadAbsolute(gcAddr uint32, size int) ([]byte, error) {
 func (d *Dolphin) WriteAbsolute(gcAddr uint32, data []byte) error {
 	offset := uintptr(gcAddr - 0x80000000)
 	addr := d.gcRamBase + offset
-	var bytesWritten uintptr
-	ret, _, _ := procWriteProcessMem.Call(
-		uintptr(d.handle), addr, uintptr(unsafe.Pointer(&data[0])),
-		uintptr(len(data)), uintptr(unsafe.Pointer(&bytesWritten)),
-	)
-	if ret == 0 {
-		return fmt.Errorf("write failed at 0x%X", gcAddr)
+	if err := writeProc(d.handle, addr, data); err != nil {
+		return fmt.Errorf("write failed at 0x%X: %w", gcAddr, err)
 	}
 	return nil
 }
@@ -261,137 +201,60 @@ func (d *Dolphin) ReadPlayerPosition() (*PlayerPosition, error) {
 	}, nil
 }
 
-// scanForRAM searches Dolphin's process memory for the emulated GameCube RAM.
+// scanForRAM searches Dolphin's process memory for the emulated GameCube
+// RAM. Strategy is platform-agnostic: walk every committed,
+// readable+writable region the OS reports for the target process; first
+// look for a region of at least 24 MiB whose first bytes are the game
+// ID, then fall back to scanning at 4 KiB intervals inside any region
+// of at least 1 MiB.
 func (d *Dolphin) scanForRAM() error {
 	expected := []byte(d.gameID)
-	var addr uintptr
-	maxAddr := uintptr(0x7FFFFFFFFFFF)
 
-	for addr < maxAddr {
-		var mbi memoryBasicInfo
-		ret, _, _ := procVirtualQueryEx.Call(
-			uintptr(d.handle), addr,
-			uintptr(unsafe.Pointer(&mbi)),
-			unsafe.Sizeof(mbi),
-		)
-		if ret == 0 {
-			break
+	regions, err := walkRegions(d.handle)
+	if err != nil {
+		return fmt.Errorf("enumerate regions: %w", err)
+	}
+
+	header := make([]byte, len(expected))
+
+	for _, r := range regions {
+		if r.size < 0x1800000 {
+			continue
 		}
-
-		regionSize := mbi.RegionSize
-		regionBase := mbi.BaseAddress
-
-		if mbi.State == MEM_COMMIT && regionSize >= 0x1800000 &&
-			(mbi.Protect == PAGE_READWRITE || mbi.Protect == PAGE_EXECUTE_READWRITE) {
-			header := make([]byte, len(expected))
-			var bytesRead uintptr
-			ret, _, _ := procReadProcessMem.Call(
-				uintptr(d.handle), regionBase,
-				uintptr(unsafe.Pointer(&header[0])),
-				uintptr(len(expected)),
-				uintptr(unsafe.Pointer(&bytesRead)),
-			)
-			if ret != 0 && string(header) == d.gameID {
-				d.gcRamBase = regionBase
-				return nil
-			}
+		if err := readProc(d.handle, r.base, header); err != nil {
+			continue
 		}
-
-		addr = regionBase + regionSize
-		if addr <= regionBase {
-			break
+		if bytes.Equal(header, expected) {
+			d.gcRamBase = r.base
+			return nil
 		}
 	}
 
-	// Second pass: search inside larger regions at 4KB intervals
-	addr = 0
-	for addr < maxAddr {
-		var mbi memoryBasicInfo
-		ret, _, _ := procVirtualQueryEx.Call(
-			uintptr(d.handle), addr,
-			uintptr(unsafe.Pointer(&mbi)),
-			unsafe.Sizeof(mbi),
-		)
-		if ret == 0 {
-			break
+	for _, r := range regions {
+		if r.size < 0x100000 {
+			continue
 		}
-
-		regionSize := mbi.RegionSize
-		regionBase := mbi.BaseAddress
-
-		if mbi.State == MEM_COMMIT && regionSize >= 0x100000 {
-			scanLimit := regionSize
-			if scanLimit > 0x100000 {
-				scanLimit = 0x100000
-			}
-			for offset := uintptr(0); offset < scanLimit; offset += 0x1000 {
-				header := make([]byte, len(expected))
-				var bytesRead uintptr
-				ret, _, _ := procReadProcessMem.Call(
-					uintptr(d.handle), regionBase+offset,
-					uintptr(unsafe.Pointer(&header[0])),
-					uintptr(len(expected)),
-					uintptr(unsafe.Pointer(&bytesRead)),
-				)
-				if ret != 0 && string(header) == d.gameID {
-					d.gcRamBase = regionBase + offset
-					return nil
-				}
-			}
+		scanLimit := r.size
+		if scanLimit > 0x100000 {
+			scanLimit = 0x100000
 		}
-
-		addr = regionBase + regionSize
-		if addr <= regionBase {
-			break
+		for offset := uintptr(0); offset < scanLimit; offset += 0x1000 {
+			if err := readProc(d.handle, r.base+offset, header); err != nil {
+				continue
+			}
+			if bytes.Equal(header, expected) {
+				d.gcRamBase = r.base + offset
+				return nil
+			}
 		}
 	}
 
 	return fmt.Errorf("could not find GameCube RAM (game ID: %s)", d.gameID)
 }
 
-func findProcess(name string) (uint32, error) {
-	pids, err := findAllProcesses(name)
-	if err != nil {
-		return 0, err
-	}
-	return pids[0], nil
-}
-
-// findAllProcesses returns every PID whose executable name contains `name`,
-// sorted ascending. Used by Find() so WW_DOLPHIN_INDEX is stable across runs
-// (lower PID = older instance = index 0).
-func findAllProcesses(name string) ([]uint32, error) {
-	snap, _, _ := procCreateToolhelp.Call(TH32CS_SNAPPROCESS, 0)
-	if snap == 0 {
-		return nil, fmt.Errorf("failed to create process snapshot")
-	}
-	defer procCloseHandle.Call(snap)
-
-	var entry processEntry32
-	entry.Size = uint32(unsafe.Sizeof(entry))
-
-	ret, _, _ := procProcess32First.Call(snap, uintptr(unsafe.Pointer(&entry)))
-	if ret == 0 {
-		return nil, fmt.Errorf("no processes found")
-	}
-
-	nameLower := strings.ToLower(name)
-	var pids []uint32
-	for {
-		exeName := syscall.UTF16ToString(entry.ExeFile[:])
-		if strings.Contains(strings.ToLower(exeName), nameLower) {
-			pids = append(pids, entry.ProcessID)
-		}
-		entry.Size = uint32(unsafe.Sizeof(entry))
-		ret, _, _ = procProcess32Next.Call(snap, uintptr(unsafe.Pointer(&entry)))
-		if ret == 0 {
-			break
-		}
-	}
-
-	if len(pids) == 0 {
-		return nil, fmt.Errorf("process %q not found", name)
-	}
-	sort.Slice(pids, func(i, j int) bool { return pids[i] < pids[j] })
-	return pids, nil
+// region is a single committed, readable+writable memory region in the
+// target process — the platform-agnostic shape returned by walkRegions.
+type region struct {
+	base uintptr
+	size uintptr
 }

@@ -1,6 +1,8 @@
 # Build outputs
 *.exe
 *.exe~
+/ww-multiplayer
+/dist/
 
 # Freighter / DOL injection (inject/)
 inject/patched*.dol

@@ -17,6 +17,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,6 +35,19 @@ import (
 // version is overridden at build time by `go build -ldflags "-X main.version=..."`.
 // release.yml passes the git tag (e.g. "v0.1.5"); local builds keep "dev".
 var version = "dev"
+
+// exeCmd is the binary as the user types it on this platform —
+// "ww-multiplayer.exe" on Windows (the path users see in PowerShell),
+// "./ww-multiplayer" everywhere else (the convention for binaries that
+// aren't on $PATH). Help text and error messages embed this so a
+// macOS user copying a command from `help` doesn't end up with a `.exe`
+// suffix that doesn't exist.
+var exeCmd = func() string {
+	if runtime.GOOS == "windows" {
+		return "ww-multiplayer.exe"
+	}
+	return "./ww-multiplayer"
+}()
 
 // openDolphin is the multiplexer between env-driven Find() (CLI flows
 // that respect WW_DOLPHIN_INDEX / WW_DOLPHIN_PID) and explicit-PID
@@ -460,28 +474,29 @@ func main() {
 
 func printHelp() {
 	const col = "  %-52s %s\n"
+	x := exeCmd
 	fmt.Println("Wind Waker Multiplayer")
 	fmt.Println()
 	fmt.Println("Play multiplayer:")
-	fmt.Printf(col, "ww-multiplayer.exe host [name]", "Host a session on :25565 (one process per player)")
-	fmt.Printf(col, "ww-multiplayer.exe join <host-ip> [name]", "Join a host's session (host-ip is what `host` prints)")
+	fmt.Printf(col, x+" host [name]", "Host a session on :25565 (one process per player)")
+	fmt.Printf(col, x+" join <host-ip> [name]", "Join a host's session (host-ip is what `host` prints)")
 	fmt.Println()
 	fmt.Println("Patch an ISO:")
-	fmt.Println("  ww-multiplayer.exe patch <vanilla.iso|.ciso> [out.iso]")
+	fmt.Println("  " + x + " patch <vanilla.iso|.ciso> [out.iso]")
 	fmt.Println("    Splice the multiplayer mod into your own legitimate copy of Wind Waker (GZLE01)")
 	fmt.Println()
 	fmt.Println("Local two-Dolphin testing (everything in-process):")
-	fmt.Printf(col, "ww-multiplayer.exe dolphin2 [--reset]", "Bootstrap & launch a 2nd Dolphin instance")
-	fmt.Printf(col, "ww-multiplayer.exe mp-local [nameA] [nameB]", "Run server + broadcast/puppet pairs for both Dolphins")
+	fmt.Printf(col, x+" dolphin2 [--reset]", "Bootstrap & launch a 2nd Dolphin instance")
+	fmt.Printf(col, x+" mp-local [nameA] [nameB]", "Run server + broadcast/puppet pairs for both Dolphins")
 	fmt.Println()
 	fmt.Println("Lower-level CLIs:")
-	fmt.Printf(col, "ww-multiplayer.exe server", "Start headless server on :25565")
-	fmt.Printf(col, "ww-multiplayer.exe broadcast-pose [name] [addr]", "Stream local Link pose+pos to server")
-	fmt.Printf(col, "ww-multiplayer.exe puppet-sync [name] [addr]", "Receive remotes; render as Link #2 / actor puppets")
-	fmt.Printf(col, "ww-multiplayer.exe fake-client [name] [addr]", "Connect a fake client that walks in circles")
-	fmt.Printf(col, "ww-multiplayer.exe debug", "Test Dolphin memory access")
-	fmt.Printf(col, "ww-multiplayer.exe warp <x> <y> <z>", "Teleport Link to world coords (uses C warp handler)")
-	fmt.Printf(col, "ww-multiplayer.exe help", "Show this help")
+	fmt.Printf(col, x+" server", "Start headless server on :25565")
+	fmt.Printf(col, x+" broadcast-pose [name] [addr]", "Stream local Link pose+pos to server")
+	fmt.Printf(col, x+" puppet-sync [name] [addr]", "Receive remotes; render as Link #2 / actor puppets")
+	fmt.Printf(col, x+" fake-client [name] [addr]", "Connect a fake client that walks in circles")
+	fmt.Printf(col, x+" debug", "Test Dolphin memory access")
+	fmt.Printf(col, x+" warp <x> <y> <z>", "Teleport Link to world coords (uses C warp handler)")
+	fmt.Printf(col, x+" help", "Show this help")
 }
 
 // runPatch is the user-facing wrapper for inject.PatchISO. Picks a sensible
