@@ -22,9 +22,10 @@ Known limits:
   last known coords if they cross to a different room).
 - Local LAN tested. Internet play would work but firewall / NAT traversal
   isn't included.
-- macOS requires running with `sudo` (or a binary signed with the
-  `com.apple.security.cs.debugger` entitlement) — `task_for_pid` is gated
-  by SIP. The bundled `WW Multiplayer.app` handles the sudo prompt for you.
+- macOS first-run requires a one-time setup step: `scripts/setup-mac-dolphin.sh`
+  copies `/Applications/Dolphin.app` to `~/Applications/Dolphin.app` and
+  re-signs it without the hardened runtime, which lets AMFI permit
+  `task_for_pid` against it. After that, no sudo is needed.
 
 See `docs/06-roadmap.md` for the full feature/known-issue list.
 
@@ -54,19 +55,28 @@ See `docs/06-roadmap.md` for the full feature/known-issue list.
 1. Download `ww-multiplayer-macos.tar.gz` from the [latest release](../../releases),
    untar it. You'll get a universal binary (`ww-multiplayer`) and a
    Finder-clickable wrapper (`WW Multiplayer.app`).
-2. Patch your own legitimate copy of Wind Waker:
+2. **One-time setup** — re-sign Dolphin without the hardened runtime so
+   the binary can read its memory:
+   ```
+   ./scripts/setup-mac-dolphin.sh
+   ```
+   This copies `/Applications/Dolphin.app` to `~/Applications/Dolphin.app`
+   and strips the hardened runtime flag from its main executable. Your
+   original `/Applications/Dolphin.app` is left alone. Re-run this script
+   any time you update Dolphin.
+3. Patch your own legitimate copy of Wind Waker:
    ```
    ./ww-multiplayer patch ~/Roms/your-wind-waker.iso
    ```
-3. Both players: boot the patched ISO in Dolphin and load a save.
-4. Host: `sudo ./ww-multiplayer host` (or double-click `WW Multiplayer.app`,
-   which opens Terminal and runs the sudo prompt for you).
-5. Joiner: `sudo ./ww-multiplayer join <host-ip>` — same caveats.
+4. Boot the patched ISO in your `~/Applications/Dolphin.app` copy and
+   load a save.
+5. Host: `./ww-multiplayer host` (or double-click `WW Multiplayer.app`).
+6. Joiner: `./ww-multiplayer join <host-ip>`.
 
-The `sudo` requirement is unavoidable on stock macOS: reading another
-process's memory needs the `com.apple.security.cs.debugger` entitlement,
-which itself needs Apple Developer signing. We don't ship a signed build
-yet — patches welcome.
+No sudo. The shipped binary is ad-hoc signed with the
+`com.apple.security.cs.debugger` entitlement, and once Dolphin's
+hardened runtime is off (step 2 above), AMFI lets the entitled binary
+attach with `task_for_pid` from your normal user account.
 
 For internet play the host just needs a reachable IP (port-forward :25565
 or use a VPN / relay); the rest of the flow is identical.
