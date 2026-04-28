@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,34 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 )
+
+// dolphin2Defaults returns OS-appropriate fallback paths for the
+// dolphin2 bootstrap when DOLPHIN_EXE / ISO_PATH / USER_DIR_{1,2} are
+// unset. Picked so that a fresh checkout on either platform "just works"
+// once the user installs Dolphin and patches an ISO into the standard
+// location for their OS.
+func dolphin2Defaults() (exe, iso, userDir1, userDir2 string) {
+	cfg, _ := os.UserConfigDir()
+	home, _ := os.UserHomeDir()
+	switch runtime.GOOS {
+	case "darwin":
+		exe = "/Applications/Dolphin.app/Contents/MacOS/Dolphin"
+		iso = filepath.Join(home, "Roms", "WW_Multiplayer_Patched.iso")
+		userDir1 = filepath.Join(cfg, "Dolphin")
+		userDir2 = filepath.Join(cfg, "Dolphin 2")
+	case "windows":
+		exe = `C:\Users\4step\Desktop\Dolphin-x64\Dolphin.exe`
+		iso = `C:\Users\4step\Desktop\Dolphin-x64\Roms\WW_Multiplayer_Patched.iso`
+		userDir1 = filepath.Join(cfg, "Dolphin Emulator")
+		userDir2 = filepath.Join(cfg, "Dolphin Emulator 2")
+	default:
+		exe = "dolphin-emu"
+		iso = filepath.Join(home, "Roms", "WW_Multiplayer_Patched.iso")
+		userDir1 = filepath.Join(cfg, "dolphin-emu")
+		userDir2 = filepath.Join(cfg, "dolphin-emu-2")
+	}
+	return
+}
 
 // runDolphin2 is the Go port of scripts/dolphin2.sh — bootstraps the
 // "Dolphin Emulator 2" user dir and launches the missing Dolphin
@@ -28,11 +57,11 @@ import (
 func runDolphin2(reset bool) {
 	rep := report.Stdout{}
 
-	dolphinExe := envOrDefault("DOLPHIN_EXE", `C:\Users\4step\Desktop\Dolphin-x64\Dolphin.exe`)
-	isoPath := envOrDefault("ISO_PATH", `C:\Users\4step\Desktop\Dolphin-x64\Roms\WW_Multiplayer_Patched.iso`)
-	appData := os.Getenv("APPDATA")
-	userDir1 := envOrDefault("USER_DIR_1", filepath.Join(appData, "Dolphin Emulator"))
-	userDir2 := envOrDefault("USER_DIR_2", filepath.Join(appData, "Dolphin Emulator 2"))
+	defExe, defIso, defUd1, defUd2 := dolphin2Defaults()
+	dolphinExe := envOrDefault("DOLPHIN_EXE", defExe)
+	isoPath := envOrDefault("ISO_PATH", defIso)
+	userDir1 := envOrDefault("USER_DIR_1", defUd1)
+	userDir2 := envOrDefault("USER_DIR_2", defUd2)
 	// Optional save-state autoload: when set, both Dolphins boot directly
 	// into the given .sav file (Dolphin's --save_state CLI flag), skipping
 	// the title screen + save-select menus entirely. The user records a

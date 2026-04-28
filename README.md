@@ -3,9 +3,9 @@
 ![splash](docs/img/splash.png)
 
 Real-time visual multiplayer for The Legend of Zelda: The Wind Waker on Dolphin.
-Each player runs `ww-multiplayer.exe` alongside their own Dolphin instance — positions and
+Each player runs `ww-multiplayer` alongside their own Dolphin instance — positions and
 skeletal poses are shared over TCP so each side sees the other's real Link
-walking around in-game.
+walking around in-game. Runs on **Windows and macOS** (Apple Silicon + Intel).
 
 ## Status
 
@@ -22,11 +22,15 @@ Known limits:
   last known coords if they cross to a different room).
 - Local LAN tested. Internet play would work but firewall / NAT traversal
   isn't included.
-- Windows only (Dolphin process memory access uses Win32 APIs).
+- macOS requires running with `sudo` (or a binary signed with the
+  `com.apple.security.cs.debugger` entitlement) — `task_for_pid` is gated
+  by SIP. The bundled `WW Multiplayer.app` handles the sudo prompt for you.
 
 See `docs/06-roadmap.md` for the full feature/known-issue list.
 
 ## Quick start (end users)
+
+### Windows
 
 1. Download `ww-multiplayer.exe` from the [latest release](../../releases).
 2. Patch your own legitimate copy of Wind Waker (NTSC-U, game ID `GZLE01`,
@@ -45,6 +49,25 @@ See `docs/06-roadmap.md` for the full feature/known-issue list.
 6. You should see each other's Link walking around in-game within a second
    or two. Ctrl+C in either terminal cleanly shuts down and hides Link #2.
 
+### macOS
+
+1. Download `ww-multiplayer-macos.tar.gz` from the [latest release](../../releases),
+   untar it. You'll get a universal binary (`ww-multiplayer`) and a
+   Finder-clickable wrapper (`WW Multiplayer.app`).
+2. Patch your own legitimate copy of Wind Waker:
+   ```
+   ./ww-multiplayer patch ~/Roms/your-wind-waker.iso
+   ```
+3. Both players: boot the patched ISO in Dolphin and load a save.
+4. Host: `sudo ./ww-multiplayer host` (or double-click `WW Multiplayer.app`,
+   which opens Terminal and runs the sudo prompt for you).
+5. Joiner: `sudo ./ww-multiplayer join <host-ip>` — same caveats.
+
+The `sudo` requirement is unavoidable on stock macOS: reading another
+process's memory needs the `com.apple.security.cs.debugger` entitlement,
+which itself needs Apple Developer signing. We don't ship a signed build
+yet — patches welcome.
+
 For internet play the host just needs a reachable IP (port-forward :25565
 or use a VPN / relay); the rest of the flow is identical.
 
@@ -55,17 +78,23 @@ original game-code bytes.
 
 ## Requirements
 
-- Windows
+- Windows 10+, or macOS 11+ (Apple Silicon or Intel)
 - [Dolphin emulator](https://dolphin-emu.org/) — recent stable release
 - Your own legitimate copy of The Wind Waker (NTSC-U, game ID `GZLE01`)
-- [Go 1.21+](https://go.dev/dl/) — only if building from source
+- [Go 1.21+](https://go.dev/dl/) — only if building from source. macOS
+  builds also need the Xcode command-line tools (`xcode-select --install`)
+  because the Mach VM bridge uses cgo.
 
 ## Building from source
 
 ```bash
 git clone https://github.com/StephenSHorton/ww-multiplayer.git
 cd ww-multiplayer
+# Windows / Linux dev
 go build -o ww-multiplayer.exe .
+# macOS — universal binary + .app bundle
+./scripts/build-mac.sh dev
+# outputs dist/ww-multiplayer (universal) and dist/WW Multiplayer.app
 ```
 
 The compiled C-side blob is checked in as `internal/inject/blob.go` so plain

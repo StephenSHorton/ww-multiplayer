@@ -1,13 +1,12 @@
 name: Release
 
-# Triggered by pushing a tag like `v0.1.0`. Builds the C side with devkitPPC
-# + Freighter, regenerates the embedded T2 blob, builds the Windows binary,
-# and publishes a GitHub Release with ww-multiplayer.exe attached.
+# Triggered by pushing a tag like `v0.1.0`. Builds Windows + macOS
+# binaries and publishes a single GitHub Release with both attached.
 #
 # We don't ship patched.dol — that would be a derivative of the entire
-# Wind Waker DOL (copyrighted). The standalone ww-multiplayer.exe contains only our IP
-# (the new code section + a list of in-DOL patch records); end users supply
-# their own legitimate Wind Waker ISO and run `ww-multiplayer.exe patch <their.iso>`.
+# Wind Waker DOL (copyrighted). The shipped binaries contain only our IP
+# (the new code section + a list of in-DOL patch records); end users
+# supply their own legitimate Wind Waker ISO and run `<binary> patch`.
 
 on:
   push:
@@ -19,7 +18,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  windows:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,22 +28,10 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # The CI runner doesn't actually rebuild the C-side blob — that needs
-      # both devkitPPC (large install) and the user's vanilla DOL (which
-      # we can't ship). We trust the committed `internal/inject/blob.go`,
-      # regenerated locally via `python scripts/extract_blob.py` before
-      # tagging. The verify step below catches the obvious "blob got
-      # accidentally emptied" case.
-      #
-      # Future: ship a stripped placeholder DOL (zeroed game code, symbol
-      # table preserved) so Freighter can link against real game symbols
-      # at known addresses without distributing copyrighted bytes — would
-      # let CI re-extract on every release. Out of scope for v0.1.x.
-      # All Go steps use GOOS=windows because internal/dolphin/* depends on
-      # Win32 APIs (syscall.NewLazyDLL, syscall.Handle, kernel32.dll) — the
-      # package is Windows-only and vet/build under GOOS=linux can't even
-      # parse memory.go. Cross-targeting Linux is meaningless here; the
-      # whole runtime needs ReadProcessMemory.
+      # Verify committed blob hasn't accidentally been emptied. We don't
+      # rebuild the C side here (needs devkitPPC + the user's vanilla
+      # DOL); regenerate locally via `python scripts/extract_blob.py`
+      # before tagging.
       - name: Verify committed blob + go vet (Windows target)
         env:
           GOOS: windows
@@ -71,28 +58,69 @@ jobs:
           name: ww-windows-amd64
           path: ww-multiplayer.exe
 
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: go vet
+        run: go vet ./...
+
+      # scripts/build-mac.sh handles per-arch compile, lipo into a
+      # universal binary, and packaging into a .app + tarball.
+      - name: Build universal binary + .app bundle
+        run: ./scripts/build-mac.sh "${GITHUB_REF_NAME}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ww-macos-universal
+          path: dist/ww-multiplayer-macos.tar.gz
+
+  release:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ww-windows-amd64
+          path: artifacts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ww-macos-universal
+          path: artifacts
+
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ww-multiplayer.exe
+          files: |
+            artifacts/ww-multiplayer.exe
+            artifacts/ww-multiplayer-macos.tar.gz
           generate_release_notes: true
           body: |
             ## Wind Waker Multiplayer ${{ github.ref_name }}
 
             **Requires your own legitimate copy of The Legend of Zelda: The Wind Waker (NTSC-U, GZLE01)** as a `.iso` or `.ciso` file.
 
-            ### Quick start
+            ### Windows
 
-            1. Download `ww-multiplayer.exe` below.
-            2. Patch your ISO:
-               ```
-               ww-multiplayer.exe patch path\to\your-wind-waker.iso
-               ```
-               This produces `your-wind-waker-multiplayer.iso` next to the input.
+            1. Download `ww-multiplayer.exe`.
+            2. `ww-multiplayer.exe patch path\to\your-wind-waker.iso`
             3. Boot the patched ISO in Dolphin.
-            4. To play:
-               - Host: `ww-multiplayer.exe host [your-name]` (prints the host IP for the other player)
-               - Join: `ww-multiplayer.exe join <host-ip> [your-name]`
+            4. Host: `ww-multiplayer.exe host [name]`. Join: `ww-multiplayer.exe join <host-ip> [name]`.
 
-            See the README for full setup, two-Dolphin local play scripts, and known issues.
+            ### macOS (Apple Silicon + Intel)
+
+            1. Download and untar `ww-multiplayer-macos.tar.gz`. Inside you'll find `ww-multiplayer` (universal binary) and `WW Multiplayer.app` (Finder-clickable wrapper).
+            2. `./ww-multiplayer patch ~/Roms/your-wind-waker.iso`
+            3. Boot the patched ISO in Dolphin.
+            4. **macOS requires sudo** to read Dolphin's process memory (the kernel gates `task_for_pid` behind SIP). Run as `sudo ./ww-multiplayer host [name]` / `sudo ./ww-multiplayer join <host-ip> [name]`. The `.app` bundle does this automatically.
+
+            See the README for full setup, two-Dolphin local play, and known issues.
