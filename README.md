@@ -55,8 +55,15 @@ See `docs/06-roadmap.md` for the full feature/known-issue list.
 1. Download `ww-multiplayer-macos.tar.gz` from the [latest release](../../releases),
    untar it. You'll get a universal binary (`ww-multiplayer`) and a
    Finder-clickable wrapper (`WW Multiplayer.app`).
-2. **One-time setup** — re-sign Dolphin without the hardened runtime so
-   the binary can read its memory:
+2. **Strip the Gatekeeper quarantine flag** — macOS adds it to anything
+   downloaded from the internet, and the binary isn't signed by an Apple
+   Developer cert. Without this step you'll get *"Apple could not verify
+   'WW Multiplayer' is free of malware…"*:
+   ```
+   xattr -cr ww-multiplayer "WW Multiplayer.app"
+   ```
+3. **One-time Dolphin setup** — re-sign Dolphin without the hardened
+   runtime so the binary can read its memory:
    ```
    ./scripts/setup-mac-dolphin.sh
    ```
@@ -64,14 +71,14 @@ See `docs/06-roadmap.md` for the full feature/known-issue list.
    and strips the hardened runtime flag from its main executable. Your
    original `/Applications/Dolphin.app` is left alone. Re-run this script
    any time you update Dolphin.
-3. Patch your own legitimate copy of Wind Waker:
+4. Patch your own legitimate copy of Wind Waker:
    ```
    ./ww-multiplayer patch ~/Roms/your-wind-waker.iso
    ```
-4. Boot the patched ISO in your `~/Applications/Dolphin.app` copy and
+5. Boot the patched ISO in your `~/Applications/Dolphin.app` copy and
    load a save.
-5. Host: `./ww-multiplayer host` (or double-click `WW Multiplayer.app`).
-6. Joiner: `./ww-multiplayer join <host-ip>`.
+6. Host: `./ww-multiplayer host` (or double-click `WW Multiplayer.app`).
+7. Joiner: `./ww-multiplayer join <host-ip>`.
 
 No sudo. The shipped binary is ad-hoc signed with the
 `com.apple.security.cs.debugger` entitlement, and once Dolphin's
