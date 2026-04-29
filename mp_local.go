@@ -461,6 +461,9 @@ func launchDolphinDetached(exe, userDir, iso, saveState string) (int, error) {
 	if saveState != "" {
 		args = append(args, "--save_state="+saveState)
 	}
+	if runtime.GOOS == "darwin" {
+		return launchDolphinDetachedDarwin(exe, args)
+	}
 	cmd := exec.Command(exe, args...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
@@ -476,4 +479,48 @@ func launchDolphinDetached(exe, userDir, iso, saveState string) (int, error) {
 		return pid, fmt.Errorf("release: %w", err)
 	}
 	return pid, nil
+}
+
+// launchDolphinDetachedDarwin launches Dolphin via `open -n -a` instead
+// of a direct exec of Contents/MacOS/Dolphin. Direct exec from a Go
+// child silently ends up loading the canonical /Applications/Dolphin
+// binary (still hardened-runtime, AMFI denies task_for_pid against it)
+// even when we point at the user-copy path under ~/Applications. Going
+// through `open` drives LaunchServices, which honours the distinct
+// CFBundleIdentifier set by setup-mac-dolphin.sh and actually launches
+// the ad-hoc-resigned binary we want to attach to.
+//
+// `open` exits immediately after spawning Dolphin and gives us no PID,
+// so we snapshot Dolphin PIDs before the call and poll until a new one
+// shows up. mp_local launches the two Dolphins sequentially, so the
+// snapshot/poll pattern is race-free.
+func launchDolphinDetachedDarwin(exe string, args []string) (int, error) {
+	// exe = "<bundle>/Contents/MacOS/Dolphin"; trim back to the .app.
+	appPath := strings.TrimSuffix(exe, "/Contents/MacOS/Dolphin")
+	if appPath == exe {
+		return 0, fmt.Errorf("DOLPHIN_EXE %q is not an app-bundle binary; expected path ending in .app/Contents/MacOS/Dolphin", exe)
+	}
+
+	before, _ := dolphin.ListPIDs()
+	beforeSet := make(map[uint32]bool, len(before))
+	for _, p := range before {
+		beforeSet[p] = true
+	}
+
+	openArgs := append([]string{"-n", "-a", appPath, "--args"}, args...)
+	if err := exec.Command("/usr/bin/open", openArgs...).Run(); err != nil {
+		return 0, fmt.Errorf("open: %w", err)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		cur, _ := dolphin.ListPIDs()
+		for _, p := range cur {
+			if !beforeSet[p] {
+				return int(p), nil
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return 0, fmt.Errorf("launched Dolphin via `open` but no new PID appeared within 10s")
 }

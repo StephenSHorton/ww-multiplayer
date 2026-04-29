@@ -41,14 +41,37 @@ cp -R "$SRC" "$DST"
 echo "==> Stripping com.apple.provenance and other locking xattrs..."
 xattr -cr "$DST" 2>/dev/null || true
 
+# Both bundles share the same CFBundleIdentifier upstream
+# (org.dolphin-emu.dolphin), so LaunchServices treats them as a single
+# app and silently re-routes any launch of the user copy to whichever
+# is currently registered as canonical (typically /Applications). The
+# child process then runs out of the hardened-runtime binary at
+# /Applications and AMFI denies task_for_pid against it. Giving the
+# user copy a distinct bundle ID breaks the LS dedup tie.
+NEW_ID="org.dolphin-emu.dolphin-unhardened"
+echo "==> Setting CFBundleIdentifier to $NEW_ID (avoids LaunchServices tie with /Applications)..."
+plutil -replace CFBundleIdentifier -string "$NEW_ID" "$DST/Contents/Info.plist"
+
 echo "==> Re-signing main Dolphin executable without hardened runtime..."
 codesign --force --sign - "$DST/Contents/MacOS/Dolphin"
+
+# Force LaunchServices to re-register the user copy under its new
+# bundle ID so future bundle-ID lookups don't silently fall back to
+# /Applications.
+echo "==> Registering with LaunchServices..."
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+"$LSREGISTER" -f "$DST" || true
 
 echo "==> Verifying..."
 FLAGS=$(codesign -d -vvv "$DST/Contents/MacOS/Dolphin" 2>&1 | grep "flags=" || true)
 echo "    $FLAGS"
 if echo "$FLAGS" | grep -q "runtime"; then
     echo "ERROR: hardened runtime still set — re-sign failed."
+    exit 1
+fi
+ACTUAL_ID=$(plutil -extract CFBundleIdentifier raw "$DST/Contents/Info.plist")
+if [ "$ACTUAL_ID" != "$NEW_ID" ]; then
+    echo "ERROR: bundle ID is $ACTUAL_ID, expected $NEW_ID"
     exit 1
 fi
 

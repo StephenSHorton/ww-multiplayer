@@ -645,6 +645,71 @@ logging BEFORE writing injected diagnostic code:
 
 Much cheaper than hooking `OSPanic` ourselves.
 
+## macOS: User-Copy Dolphin Silently Replaced by /Applications/ — SOLVED
+
+### The symptom
+
+`task_for_pid(pid) failed: kern_return=5` against a freshly-launched
+Dolphin, even though:
+
+- `ww-multiplayer` was ad-hoc signed with `com.apple.security.cs.debugger`
+- `~/Applications/Dolphin.app/Contents/MacOS/Dolphin` was re-signed without
+  the hardened runtime by `scripts/setup-mac-dolphin.sh`
+- `dolphin2` was passed the path to the user copy
+
+### The diagnosis
+
+`lsof -p <pid> | awk '$4=="txt"'` showed the running Dolphin's text
+segment was mapped from `/Applications/Dolphin.app/Contents/MacOS/Dolphin`
+(still hardened-runtime), not the user copy at `~/Applications/...`.
+Direct shell exec of the user-copy binary loaded the user copy correctly;
+only Go's `exec.Command` (and only Go's — even with `</dev/null` and
+detached process group) was getting silently re-routed.
+
+### The root cause
+
+Two-part:
+
+1. Both `Dolphin.app` bundles shipped with the same `CFBundleIdentifier`
+   (`org.dolphin-emu.dolphin`). LaunchServices treats them as a single
+   logical app and picks one as canonical (defaults to `/Applications`).
+2. Go's `exec.Command` of `<bundle>/Contents/MacOS/Dolphin` ends up
+   passing through LaunchServices on macOS, which substitutes the
+   canonical-app binary at exec time. The shell does not.
+
+The result: `dolphin2` thought it launched the user copy, but every
+running Dolphin process was actually the hardened-runtime binary at
+`/Applications/`, against which AMFI denies `task_for_pid` regardless
+of the caller's `cs.debugger` entitlement.
+
+### The fix
+
+Two changes, both required:
+
+1. `scripts/setup-mac-dolphin.sh` now sets
+   `CFBundleIdentifier=org.dolphin-emu.dolphin-unhardened` on the user
+   copy and runs `lsregister -f` so LaunchServices treats it as a
+   separate app from the canonical `/Applications/Dolphin.app`.
+2. `mp_local.go`'s `launchDolphinDetached` routes through
+   `/usr/bin/open -n -a <bundle> --args ...` on darwin instead of
+   `exec.Command` on the inner binary. `open` drives LaunchServices
+   directly using bundle ID, so the distinct ID actually takes effect.
+   PID is recovered by snapshotting `dolphin.ListPIDs()` before the
+   call and polling for the new entry.
+
+### Diagnostic recipe
+
+If `task_for_pid` ever starts failing on macOS again, before chasing
+entitlements or hardened-runtime configuration:
+
+```bash
+lsof -p <dolphin-pid> | awk '$4=="txt"' | grep Dolphin
+```
+
+If the path is `/Applications/...` instead of `~/Applications/...`,
+LaunchServices is re-routing — the entitlement chain is fine, the
+process is just the wrong binary.
+
 ## Observations Worth Remembering
 
 - Picking up a rupee triggers a display refresh. Before the pickup, the displayed rupee count may lag behind the stored value.
