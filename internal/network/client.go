@@ -17,6 +17,13 @@ type RemotePlayer struct {
 	// has sent a pose at least once.
 	PoseJoints   int
 	PoseMatrices []byte
+	// FaceState is the optional trailing payload appended by v0.2+
+	// senders to a pose message (session 9). Empty if the remote is
+	// running an older build that didn't ship face data. Layout
+	// matches inject/include/mailbox.h FaceState (8 B = mat1_tex0,
+	// mat1_tex1, mat4_tex0, mat4_tex1, all u16 BE) with room for
+	// future face mats appended at the tail.
+	FaceState []byte
 }
 
 // Client connects to a server and syncs position data.
@@ -106,11 +113,13 @@ func (c *Client) SendChat(message string) error {
 
 // SendPose sends the local player's skeletal pose to the server. The
 // matrices slice is wire-ready big-endian (i.e. raw mpNodeMtx bytes).
-func (c *Client) SendPose(joints int, matrices []byte) error {
+// `face` is an optional trailing payload — empty []byte for legacy /
+// pose-only senders, or 8 B (eye-only face state) for session 9+.
+func (c *Client) SendPose(joints int, matrices []byte, face []byte) error {
 	if !c.connected || c.conn == nil {
 		return fmt.Errorf("not connected")
 	}
-	body := SerializePose(joints, matrices)
+	body := SerializePose(joints, matrices, face)
 	if body == nil {
 		return fmt.Errorf("invalid pose: joints=%d len=%d", joints, len(matrices))
 	}
@@ -173,7 +182,7 @@ func (c *Client) readLoop() {
 			c.log(string(msg.Data))
 
 		case MsgPose:
-			playerID, joints, matrices := ParsePoseRelayMessage(msg.Data)
+			playerID, joints, matrices, face := ParsePoseRelayMessage(msg.Data)
 			if matrices != nil {
 				// Copy out so the matrix bytes aren't tied to the
 				// next ReadMessage's buffer (defensive — current
@@ -181,6 +190,11 @@ func (c *Client) readLoop() {
 				// keeps the contract local).
 				poseCopy := make([]byte, len(matrices))
 				copy(poseCopy, matrices)
+				var faceCopy []byte
+				if len(face) > 0 {
+					faceCopy = make([]byte, len(face))
+					copy(faceCopy, face)
+				}
 				c.mu.Lock()
 				rp, ok := c.remotes[playerID]
 				if !ok {
@@ -189,6 +203,7 @@ func (c *Client) readLoop() {
 				}
 				rp.PoseJoints = joints
 				rp.PoseMatrices = poseCopy
+				rp.FaceState = faceCopy
 				c.mu.Unlock()
 			}
 		}

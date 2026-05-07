@@ -84,6 +84,14 @@ typedef struct {
     u32 _reserved;       // +0x1C — keep zero; room for anim state later
 } Puppet;
 
+// See "FACE-STATE NETWORK SYNC" block in Mailbox below for context.
+typedef struct {
+    u16 mat1_tex0;
+    u16 mat1_tex1;
+    u16 mat4_tex0;
+    u16 mat4_tex1;
+} FaceState;
+
 // Total mailbox size = 0x10 + MAX_PUPPETS * 0x20 + 0x04 tail. With 4 slots: 0x94 B.
 typedef struct {
     u32 spawn_trigger;   // +0x00: per-frame heartbeat counter
@@ -320,6 +328,77 @@ typedef struct {
     u32 dbg_postswap_mclmodeldata;            // +0x124
     u32 dbg_safety_check_current;             // +0x128
     u32 dbg_safety_fired_count;               // +0x12C
+    // --- FACE-STATE NETWORK SYNC (session 9) ---------------------------
+    // Per-slot face animation state that mini-link should render with,
+    // independent of the LOCAL Link's animation state.
+    //
+    // Background: J3DTevBlock is one-per-J3DModelData. btp animates eye
+    // pupils each frame by writing texno values into the SHARED TevBlock
+    // at +0x08..+0x0B for mat[1] (left pupil) and mat[4] (right pupil).
+    // Without this channel, mini-link's render path bakes the same texno
+    // values btp wrote for the LOCAL Link — i.e. mini-link blinks when
+    // the local player blinks, not when the remote player blinks.
+    //
+    // Fix: vtable-hook J3DMatPacket::draw on mini-link's eye matpackets;
+    // when those matpackets are drawn (during the chain walker's serial
+    // pass), the hook temporarily swaps the shared TevBlock+0x08..+0x0B
+    // bytes to the remote's values from this struct, calls the original
+    // draw (which bakes those bytes into the per-instance differed shape
+    // DL), then restores so subsequent matpackets see the original.
+    // Single-threaded chain walker = no race.
+    //
+    // Wire: Go's broadcast-pose reads its local TevBlock+0x08..+0x0B
+    // every tick and appends 8 B per slot to the pose message. puppet-sync
+    // writes here + bumps face_seqs[slot]. C-side hook gates on
+    // face_seqs[slot] != 0 (so first-frame stale zeros don't render
+    // closed-eye).
+    //
+    // Field naming: matN_texT = J3DTevBlock+0x08+T*2 (u16) for material N.
+    // FaceState is declared near the top of this file (before Mailbox)
+    // so other TUs / tests can include it without unwrapping the Mailbox
+    // struct.
+    FaceState face_state[MAILBOX_POSE_SLOT_CAP];  // +0x130 (8 B each)
+    u8  face_seqs[MAILBOX_POSE_SLOT_CAP];         // +0x140 (1 B each)
+    u8  _pad9[2];                                 // +0x142 (align)
+    // Diagnostics for the face-state hook so Go can confirm it fired.
+    //   face_hook_state — 0 unset, 1 vtable copied + matpackets patched,
+    //                     0xFE J3DMatPacket vtable[draw] mismatch (skipped),
+    //                     0xFD matpackets array NULL (skipped).
+    //   face_hook_swaps — saturating count of frames the shim actually
+    //                     swapped tevBlock bytes for any slot. Bumped
+    //                     once per draw call, not once per slot.
+    u8  face_hook_state;                          // +0x144
+    // Kill-switch / arm flag for the J3DMatPacket vtable patch.
+    // Default 0 = don't touch matpackets at create time. Go writes 1
+    // to ARM (next frame, the C side validates the layout and patches
+    // mat[1]/mat[4] vtable pointers). Go writes 0 to DISARM (next
+    // frame, the C side restores original vtable pointers and stops
+    // patching).
+    //
+    // Why arm/disarm vs always-on: the matpacket layout assumption
+    // (stride 0x3C, mpInitShapePacket@+0x24, mpMaterial@+0x2C) was
+    // wrong-by-default in session 9 first attempt — install eagerly
+    // from create would have corrupted neighboring matpacket fields
+    // if the offsets were wrong. With the arm/disarm gate we can
+    // re-verify the layout from Go (peek the matpacket array, confirm
+    // consecutive vtable pointers, etc.) BEFORE flipping the switch.
+    // Same gate also lets us toggle the hook off in-flight if a future
+    // build's matpacket layout drifts.
+    u8  face_hook_enable;                         // +0x145
+    u8  _pad10[2];                                // +0x146
+    u32 face_hook_swaps;                          // +0x148
+    // Sanity-check fields published by the C-side install. Read by Go
+    // to decide whether arming was successful.
+    //   face_hook_mp_size      — observed matpacket stride (computed
+    //                            by walking consecutive vtable ptrs in
+    //                            the live matpacket array). 0 until
+    //                            install runs. Should == 0x3C.
+    //   face_hook_patched_count — how many matpacket vtable slots we
+    //                            actually rewrote (target = 2 per
+    //                            mini-link slot when armed).
+    u8  face_hook_mp_size;                        // +0x14C
+    u8  face_hook_patched_count;                  // +0x14D
+    u8  _pad11[2];                                // +0x14E
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)

@@ -137,6 +137,74 @@ typedef f32 Mtx[3][4];
 // to the GPU — this is the hook for driving Link #2's pose independently.
 #define J3DMODEL_MP_NODE_MTX_OFFSET  0x8C
 #define J3DMODEL_MP_DRAW_MTX_OFFSET  0x94
+// J3DModel + 0xB4 = J3DMatPacket* mpMatPacket (array of 0x40-byte entries,
+// one per material in the model's J3DModelData). Set by createMatPacket
+// inside J3DModel::create. Each entry's +0x00 is a vtable pointer that
+// normally points at __vt__12J3DMatPacket (0x8039D910); session 9's
+// face-state hook makes mini-link's eye matpackets point at a private
+// vtable copy with a shimmed [draw] entry.
+#define J3DMODEL_MP_MAT_PACKET_OFFSET 0xB4
+
+// J3DMatPacket layout (zeldaret/tww J3DPacket.h declares size 0x40,
+// but the GZLE01 build actually emits stride 0x3C — verified at runtime
+// session 9 by walking consecutive 0x8039D910 vtable pointers in the
+// matpacket array allocated by createMatPacket. Treat the decomp size
+// as an upper bound; trust the live layout):
+//   +0x00  vtable
+//   +0x04  mpNextPacket  (J3DPacket base)
+//   +0x08  mpFirstChild
+//   +0x0C  mpUserData
+//   +0x10  mpDisplayListObj   (J3DDrawPacket base)
+//   +0x14  mFlags
+//   +0x18  ?  (per-instance differed-DL or related buffer)
+//   +0x1C  ?
+//   +0x20  ?
+//   +0x24  mpInitShapePacket
+//   +0x28  mpShapePacket
+//   +0x2C  mpMaterial         ← shared J3DMaterial (vs Link / mini-link)
+//   +0x30  mDiffFlag
+//   +0x34  mpTexture
+//   +0x38  ?  (mpMaterialAnm in the decomp; may be elided here)
+//   = 0x3C bytes per matpacket
+#define J3DMATPACKET_SIZE                  0x3C
+#define J3DMATPACKET_VTABLE_OFFSET         0x00
+#define J3DMATPACKET_MP_INIT_SHAPE_OFFSET  0x24
+#define J3DMATPACKET_MP_MATERIAL_OFFSET    0x2C
+
+// J3DShapePacket layout (J3DPacket.h:191, size 0x44):
+//   +0x40  mpModel  ← back-pointer to owning J3DModel (set by createShapePacket)
+#define J3DSHAPEPACKET_MP_MODEL_OFFSET     0x40
+
+// J3DMaterial layout (J3DMaterial.h:131):
+//   +0x14  u16 mIndex            ← material array index this lives at
+//   +0x2C  J3DTevBlock* mTevBlock
+#define J3DMATERIAL_MINDEX_OFFSET   0x14
+#define J3DMATERIAL_TEV_BLOCK_OFFSET 0x2C
+
+// J3DTevBlock + 0x08 = u16 mTexNo[N]. btp animates per-frame texno
+// values here (e.g. eye blink cycles texno[0..1] for mat[1] and mat[4]).
+// The full struct size depends on the subclass (TevBlock 8-stage, 4, 2,
+// Null), but +0x08..+0x0B is layout-stable across all subclasses since
+// mTexNo is the first field of every variant (see J3DMatBlock.h:266,
+// 354, 432).
+#define J3DTEVBLOCK_TEXNO0_OFFSET   0x08
+#define J3DTEVBLOCK_TEXNO1_OFFSET   0x0A
+
+// __vt__12J3DMatPacket lives at .data:0x8039D910 (size 0x18 = 6 entries).
+// PowerPC SystemV vtable layout: +0x00 top-offset, +0x04 typeinfo,
+// +0x08 first virtual. J3DMatPacket overrides ~ (0x802DB3C4), entry
+// (0x800EB328), draw (0x802DB494), isSame (0x802DB950) in that
+// declaration order.
+//   +0x00  0
+//   +0x04  0
+//   +0x08  ~J3DMatPacket    = 0x802DB3C4
+//   +0x0C  entry            = 0x800EB328
+//   +0x10  draw             = 0x802DB494   ← session-9 face-state hook target
+//   +0x14  isSame           = 0x802DB950
+#define J3D_MATPACKET_VTABLE         ((volatile u32*)0x8039D910)
+#define J3D_MATPACKET_VTABLE_SIZE    0x18
+#define J3D_MATPACKET_VTABLE_DRAW_IX 4   // index into u32 array (0x10/4)
+#define J3D_MATPACKET_DRAW_FN        0x802DB494
 
 // Opaque — we never inspect the contents, only hold pointers.
 typedef void J3DModel;

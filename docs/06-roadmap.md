@@ -1222,6 +1222,98 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    notes: install a `J3DAnmTexPattern` player on mini-link's material
    anm slots so per-frame texture-pattern indices update. Orthogonal
    to the chain-submission work that landed this session.
+
+   **Attempt 5 (2026-04-26 sessions 9–12) — face sync MECHANISM
+   working, propagation across the network proven; visual confirmation
+   under non-lockstep conditions still pending.**
+
+   Sessions 9–11 (uncommitted attempts, ruled out):
+   - Session 9: hook `J3DMatPacket::draw` (`0x802DB494`), swap shared
+     `tev_block` to `face_state[slot]` around `orig_draw` call. Hook
+     fires, swap commits to RAM, `face-sync-tev-poll` catches the swap
+     value ~0.44 % of polls. Visual: zero change. Reason: matpacket.draw
+     is just the chain-walker's DL-playback dispatcher; the per-frame
+     BP emit (`TX_SETIMAGE3` etc.) reads `tev_block` somewhere
+     UPSTREAM of matpacket.draw, so the swap arrives too late.
+   - Session 10: write `face_state` texno LSB into the shared DLObj's
+     DL bytes (`matpkt+0x20` → `0x80CC3B80 / 0x240`). Writes commit
+     (Go-side readback stable), but visual: zero change for any Link
+     or mini-link, even when corrupting the entire `TX_SETIMAGE3_I0`
+     command to NOPs. Implication: the static DL at `0x80CC3B80` is
+     NOT what carries the per-frame texno BPs (or Dolphin caches
+     parsed DLs and external `WriteProcessMemory` pokes don't
+     invalidate; couldn't disambiguate).
+   - Session 11: from inside the matpacket.draw shim, manually call
+     `material.vtable[7]` (= `0x802DEBA0`) with `tev_block` swapped.
+     Result: GP FIFO corruption ("Unknown Opcode (0xfe …)") within
+     seconds of arming. Reason: vtable[7] tail-calls `tev_block.vtable[10]`
+     which writes BP commands directly to WGPipe; calling it from inside
+     a chain-walk shim interleaves writes with the matpacket's
+     pre-baked DL execution and desyncs FIFO read/write pointers.
+
+   Session 12 (working solution, committed):
+   - **Empirical breakthrough:** `face-tev-hammer 0x0006` from Go on
+     ONE Dolphin at 60 Hz blacked out BOTH local Link AND mini-link's
+     eyes there; the other Dolphin stayed normal. Disproves session 9's
+     "tev_block isn't read at this point" reading — the right reading
+     was "tev_block isn't read AT MATPACKET DRAW TIME". The per-frame
+     BP emit reads `tev_block` somewhere between `daPy_lk_c::draw`
+     return and matpacket.draw fire, and Go-side hammering at 60 Hz
+     overwrote btp's writes consistently enough to dominate. Mini-link
+     inheriting the hammered value confirmed it shares Link's GX state
+     (no own per-frame `vtable[7]` call), which means decoupling
+     mini-link from Link can't be done by tweaking `tev_block` at a
+     point where both reads have already happened.
+   - **Working bracket:** in `daPy_draw_hook`, just BEFORE each call
+     to `run_eye_fix(...) + mDoExt_modelEntryDL/mDoExt_skip_recipe_joints`
+     for a mini-link slot, swap mat[1] and mat[4] `tev_block.texno`
+     bytes to `mailbox->face_state[slot]` values. Restore right after.
+     Gated on `face_hook_enable=1 && face_seqs[slot]!=0`. Functions
+     live in `inject/src/multiplayer.c`: `face_emit_resolve_tevblocks`
+     (lazy-cache mat[1]/mat[4] tev_blocks via shared modelData),
+     `face_emit_swap_for_slot`, `face_emit_restore`.
+   - `face_hook_draw_shim` is now a true no-op — just calls `orig_draw`
+     and bumps a swap counter for diagnostics. The s9/s10/s11 swap-at-
+     matpacket.draw approach is dead — wrong timing.
+   - **Verified asymmetric:** with `face-tev-hammer` running on D1 and
+     `face-hook-arm` set on D0, D1 shows BOTH Links with closed eyes
+     (D1 has no `face_emit` swap; mini-link inherits hammered
+     tev_block) while D0 shows local Link blinking normally + mini-link
+     with closed eyes (D0's face_state[0] received D1's hammered value
+     via the broadcast/puppet pipeline; `face_emit_swap_for_slot`
+     wrote it into D0's tev_block during mini-link's bake window).
+
+   **Open follow-ups for next session(s):**
+   - Visual confirmation under real divergence — both Dolphins boot
+     from the same save state in lockstep, so their natural btp
+     animations are bit-identical and face sync is invisible. Walking
+     one Link around DOESN'T desync btp (timer-driven, not motion-
+     driven). Need to either run the two Dolphins from intentionally
+     diverged save states, or do something that breaks btp lockstep
+     (e.g., trigger a cutscene on one only). Until that's set up, the
+     hammer test is the only proof we have.
+   - **Auto-arm in `mp-local`**: currently you have to call
+     `face-hook-arm` manually on each Dolphin after `mp-local` starts.
+     ~15-line Go change to auto-write `face_hook_enable=1` to both
+     mailboxes once both Dolphins are in-game.
+   - **Mouth sync**: same `face_emit_*` pattern, applied to whichever
+     `mat[N]` is the mouth (probe via per-material hammer). Extend
+     `FaceState` in mailbox.h to carry mouth texno fields. Same
+     C-rebuild + save-state recapture cycle.
+   - `face_hook_state=0xFC` (stride mismatch) after install — cosmetic;
+     the install function bails because the matpacket-array stride
+     probe doesn't match `J3DMATPACKET_SIZE`. Doesn't matter for
+     correctness because the swap fires from `daPy_draw_hook`, not
+     from the (no-op) shim. But misleading diagnostic. Worth a quick
+     investigation when convenient.
+   - The actual per-frame BAKE site (where `tev_block` is read and
+     `TX_SETIMAGE3` is emitted) is still unknown. We sidestepped it
+     with the bracket. If we ever want surgical control (e.g., per-
+     material face_state, decal pass control, etc.), finding this site
+     would unlock it.
+
+   Save-state cycle: `saves/start.sav` is current as of session 12
+   blob (mod size 0x2A28, mod end `0x80412A28`).
 10. **Leverage existing Dolphin cheats for test setup.** Manual test
     setup eats time getting Link into a state where multiplayer
     features are exercisable (sailing for ocean tests, specific items

@@ -119,48 +119,58 @@ func ParsePositionMessage(data []byte) (byte, *PlayerPosition) {
 // so the receiver can WriteProcessMemory straight into mpNodeMtx with no
 // byteswap):
 //
-//   client -> server:  [joints:u16][_pad:u16][Mtx[joints]:48*N B]
-//   server -> client:  [playerID:1][joints:u16][_pad:u16][Mtx[joints]:48*N B]
+//   client -> server:  [joints:u16][_pad:u16][Mtx[joints]:48*N B][face?:N B]
+//   server -> client:  [playerID:1][joints:u16][_pad:u16][Mtx[joints]:48*N B][face?:N B]
 //
 // For Link this is 4 + 2016 = 2020 B sender-side, +1 B = 2021 B relayed.
 // The 2-byte pad keeps the matrices 4-byte aligned after the playerID.
 //
 // Joint count is shipped explicitly so the protocol survives if we ever
 // drive a non-Link rig (e.g. a child puppet with a different skeleton).
+//
+// Session 9: an optional face-state suffix follows the matrix block.
+// Length is implicit (= total payload - 4 - joints*48). If zero, the
+// receiver leaves face_state untouched. Zero-length is the legacy
+// format from v0.1.x; a v0.2 sender appends 8 bytes (eye-only) or
+// more. Both ends share the layout via mailboxFaceState* constants.
 
 // SerializePose builds a raw client->server pose payload. `matrices` must
 // already be GameCube-format big-endian bytes (i.e. exactly what was just
-// read out of mpNodeMtx) — no conversion happens here.
-func SerializePose(joints int, matrices []byte) []byte {
+// read out of mpNodeMtx) — no conversion happens here. `face` is an
+// optional trailing payload (len 0 if unused).
+func SerializePose(joints int, matrices []byte, face []byte) []byte {
 	if joints <= 0 || joints > 0xFFFF || len(matrices) != joints*48 {
 		return nil
 	}
-	buf := make([]byte, 4+len(matrices))
+	buf := make([]byte, 4+len(matrices)+len(face))
 	binary.BigEndian.PutUint16(buf[0:2], uint16(joints))
 	// buf[2:4] = padding (zero)
 	copy(buf[4:], matrices)
+	if len(face) > 0 {
+		copy(buf[4+len(matrices):], face)
+	}
 	return buf
 }
 
-// DeserializePose parses the joints + matrix-bytes pair from a payload
-// (used both for client->server frames and the post-playerID slice of
-// server->client frames).
-func DeserializePose(data []byte) (int, []byte) {
+// DeserializePose parses the joints + matrix-bytes + (optional) face
+// suffix from a payload (used both for client->server frames and the
+// post-playerID slice of server->client frames).
+func DeserializePose(data []byte) (int, []byte, []byte) {
 	if len(data) < 4 {
-		return 0, nil
+		return 0, nil, nil
 	}
 	joints := int(binary.BigEndian.Uint16(data[0:2]))
 	need := 4 + joints*48
 	if joints <= 0 || len(data) < need {
-		return 0, nil
+		return 0, nil, nil
 	}
-	return joints, data[4:need]
+	return joints, data[4:need], data[need:]
 }
 
 // PoseRelayMessage builds the server->client pose frame: same payload
 // as the client sent, with the sender's player ID prepended.
-func PoseRelayMessage(playerID byte, joints int, matrices []byte) []byte {
-	body := SerializePose(joints, matrices)
+func PoseRelayMessage(playerID byte, joints int, matrices []byte, face []byte) []byte {
+	body := SerializePose(joints, matrices, face)
 	if body == nil {
 		return nil
 	}
@@ -172,11 +182,11 @@ func PoseRelayMessage(playerID byte, joints int, matrices []byte) []byte {
 
 // ParsePoseRelayMessage decodes a server->client pose frame into
 // (sender ID, joint count, raw matrix bytes ready to write straight
-// into mpNodeMtx).
-func ParsePoseRelayMessage(data []byte) (byte, int, []byte) {
+// into mpNodeMtx, optional face-state suffix).
+func ParsePoseRelayMessage(data []byte) (byte, int, []byte, []byte) {
 	if len(data) < 5 {
-		return 0, 0, nil
+		return 0, 0, nil, nil
 	}
-	joints, matrices := DeserializePose(data[1:])
-	return data[0], joints, matrices
+	joints, matrices, face := DeserializePose(data[1:])
+	return data[0], joints, matrices, face
 }

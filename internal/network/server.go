@@ -149,9 +149,10 @@ func (s *Server) handlePlayer(conn net.Conn) {
 		case MsgPose:
 			// Reuse the sender's payload, prepended with their ID.
 			// Server doesn't decode the matrices; it's just bytes.
-			joints, matrices := DeserializePose(msg.Data)
+			// Face state (optional trailer) passes through untouched.
+			joints, matrices, face := DeserializePose(msg.Data)
 			if matrices != nil {
-				relay := PoseRelayMessage(id, joints, matrices)
+				relay := PoseRelayMessage(id, joints, matrices, face)
 				s.broadcastExcept(id, MsgPose, relay)
 			}
 		}

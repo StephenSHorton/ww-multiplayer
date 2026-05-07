@@ -359,6 +359,68 @@ func main() {
 				}
 			}
 			runEyeAnimPoke(os.Args[2], secs)
+		case "face-sync-status":
+			runFaceSyncStatus()
+		case "face-sync-watch":
+			secs := 10
+			if len(os.Args) > 2 {
+				if v, err := strconv.Atoi(os.Args[2]); err == nil {
+					secs = v
+				}
+			}
+			runFaceSyncWatch(secs)
+		case "face-hook-arm":
+			runFaceHookArm(true)
+		case "face-hook-disarm":
+			runFaceHookArm(false)
+		case "face-tev-hammer":
+			secs := 5
+			texHex := "0099"
+			if len(os.Args) > 2 {
+				if v, err := strconv.Atoi(os.Args[2]); err == nil {
+					secs = v
+				}
+			}
+			if len(os.Args) > 3 {
+				texHex = os.Args[3]
+			}
+			runFaceTevHammer(secs, texHex)
+		case "face-sync-tev-poll":
+			secs := 3
+			faceHex := "9988997799669955"
+			if len(os.Args) > 2 {
+				if v, err := strconv.Atoi(os.Args[2]); err == nil {
+					secs = v
+				}
+			}
+			if len(os.Args) > 3 {
+				faceHex = strings.TrimPrefix(os.Args[3], "0x")
+			}
+			runFaceSyncTevPoll(secs, faceHex)
+		case "face-dl-loop":
+			secs := 0 // 0 = until Ctrl+C
+			forceLsb := -1
+			if len(os.Args) > 2 {
+				if v, err := strconv.Atoi(os.Args[2]); err == nil {
+					secs = v
+				}
+			}
+			if len(os.Args) > 3 {
+				h := strings.TrimPrefix(os.Args[3], "0x")
+				if v, err := strconv.ParseUint(h, 16, 8); err == nil {
+					forceLsb = int(v)
+				}
+			}
+			runFaceDlLoop(secs, forceLsb)
+		case "face-sync-fake":
+			if len(os.Args) < 4 {
+				fmt.Println("Usage: ww-multiplayer.exe face-sync-fake <slot> <hex8>")
+				fmt.Println("  hex8 = 8 hex bytes for [mat1_t0:u16][mat1_t1:u16][mat4_t0:u16][mat4_t1:u16]")
+				fmt.Println("  e.g. 00000027000000270 to force open eyes; 0000FFFF0000FFFF for closed")
+				os.Exit(1)
+			}
+			slot, _ := strconv.Atoi(os.Args[2])
+			runFaceSyncFake(slot, os.Args[3])
 		case "eye-fix-mode":
 			if len(os.Args) < 3 {
 				fmt.Println("Usage: ww-multiplayer.exe eye-fix-mode <0|1|2>")
@@ -1153,6 +1215,52 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 	const linkJointCount = 42
 	const poseBytes = linkJointCount * 48
 
+	// Session 9: face-state capture. Each tick we read the LOCAL Link's
+	// shared J3DTevBlock+0x08..+0x0B for mat[1] (left pupil) and mat[4]
+	// (right pupil) — that's the 8 B btp animates per-frame for blink.
+	// Cache the tevBlock addresses lazily; reset them on save reload
+	// (J3DModelData rebuilt → matTable + tevBlocks at fresh addresses).
+	// 0 = not yet resolved this session-attempt; nonzero = ready.
+	var faceTevMat1, faceTevMat4 uint32
+	var faceLinkData uint32 // mpCLModelData when we resolved; reset triggers re-resolve
+	resolveFaceTevs := func() {
+		// Walk PLAYER_PTR_ARRAY[0] → daPy_lk_c+0x328 → +0x58+0x08 → mat[1/4] → +0x2C.
+		linkPtr, err := d.ReadU32(0x803CA754)
+		if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x81800000 {
+			return
+		}
+		dataPtr, err := d.ReadU32(linkPtr + 0x0328)
+		if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x81800000 {
+			return
+		}
+		if dataPtr == faceLinkData && faceTevMat1 != 0 && faceTevMat4 != 0 {
+			return // cached and modelData hasn't changed
+		}
+		matArr, err := d.ReadU32(dataPtr + 0x58 + 0x08)
+		if err != nil || matArr < 0x80000000 || matArr >= 0x81800000 {
+			return
+		}
+		readTev := func(idx int) uint32 {
+			matPtr, err := d.ReadU32(matArr + uint32(idx)*4)
+			if err != nil || matPtr < 0x80000000 || matPtr >= 0x81800000 {
+				return 0
+			}
+			tev, err := d.ReadU32(matPtr + 0x2C)
+			if err != nil || tev < 0x80000000 || tev >= 0x81800000 {
+				return 0
+			}
+			return tev
+		}
+		t1 := readTev(1)
+		t4 := readTev(4)
+		if t1 != 0 && t4 != 0 {
+			faceTevMat1 = t1
+			faceTevMat4 = t4
+			faceLinkData = dataPtr
+			report.Logf(rep, report.OK, "face capture armed: mat1.tev=0x%08X mat4.tev=0x%08X", t1, t4)
+		}
+	}
+
 	posErrs, poseErrs := 0, 0
 	for client.IsConnected() {
 		// Position (cheap; same as broadcast-link).
@@ -1194,7 +1302,24 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 						if os.Getenv("WW_POSE_RAW") == "" {
 							localizePoseInPlace(data, linkJointCount, pos.PosX, pos.PosY, pos.PosZ)
 						}
-						if err := client.SendPose(linkJointCount, data); err != nil {
+						// Capture the LOCAL Link's eye texno bytes
+						// for transmission. tevBlock+0x08..+0x0B for
+						// mat[1] (left pupil) → bytes [0:4]; mat[4]
+						// (right pupil) → bytes [4:8]. Bytes are
+						// already big-endian on the wire (we read
+						// raw, write raw).
+						resolveFaceTevs()
+						var face []byte
+						if faceTevMat1 != 0 && faceTevMat4 != 0 {
+							b1, e1 := d.ReadAbsolute(faceTevMat1+0x08, 4)
+							b4, e4 := d.ReadAbsolute(faceTevMat4+0x08, 4)
+							if e1 == nil && e4 == nil && len(b1) == 4 && len(b4) == 4 {
+								face = make([]byte, 8)
+								copy(face[0:4], b1)
+								copy(face[4:8], b4)
+							}
+						}
+						if err := client.SendPose(linkJointCount, data, face); err != nil {
 							poseErrs++
 							if poseErrs > 5 {
 								return fmt.Errorf("send pose: %w", err)
@@ -1307,7 +1432,7 @@ func runPoseFakeLoop(name, addr string) {
 				fmt.Printf("send position: %v\n", err)
 				break
 			}
-			if err := client.SendPose(linkJointCount, captured); err != nil {
+			if err := client.SendPose(linkJointCount, captured, nil); err != nil {
 				fmt.Printf("send pose: %v\n", err)
 				break
 			}
@@ -1717,6 +1842,32 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 						next = sq[0] + 1
 					}
 					d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{next})
+
+					// Session 9: face-state suffix (eye texno values).
+					// Writer is the C-side J3DMatPacket vtable hook —
+					// it reads mailbox.face_state[slot] when mini-link's
+					// eye matpackets draw, and only swaps when
+					// face_seqs[slot] != 0. So we ALWAYS write fresh
+					// bytes + bump the seq when we have face data,
+					// even if it didn't change frame-to-frame (the C
+					// hook reads a fresh memory location each draw,
+					// not a stale cache; bumping the seq is just for
+					// the gating).
+					if len(rp.FaceState) >= 8 {
+						d.WriteAbsolute(mailboxBase+mailboxFaceState(linkSlot), rp.FaceState[:8])
+						fsq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), 1)
+						fnext := byte(1)
+						if len(fsq) == 1 {
+							fnext = fsq[0] + 1
+							if fnext == 0 {
+								// Wrap from 0 means "not yet armed"
+								// per the C-side gate; skip 0 on
+								// rollover so the gate stays open.
+								fnext = 1
+							}
+						}
+						d.WriteAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), []byte{fnext})
+					}
 				}
 			}
 		}
@@ -1737,6 +1888,13 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 					// at the last received pose forever after the
 					// remote disconnects.
 					d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{0})
+					// Clear face_seq for the same reason — without it
+					// the J3DMatPacket vtable hook would keep swapping
+					// the dead remote's last-known eye state into the
+					// shared TevBlock when mini-link's eye matpackets
+					// draw, instead of letting btp's local value pass
+					// through.
+					d.WriteAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), []byte{0})
 					// Drop the EMA buffer so the next remote to claim
 					// this slot snaps to its first pose instead of
 					// lerping from the previous occupant's last frame.
@@ -1853,7 +2011,28 @@ const (
 	mailboxDbgPostswapMcLModelData = 0x124
 	mailboxDbgSafetyCheckCurrent = 0x128
 	mailboxDbgSafetyFiredCount   = 0x12C
+	// Session 9 face-state network sync (see inject/include/mailbox.h
+	// "FACE-STATE NETWORK SYNC"). Per-slot 8-byte struct of u16 BE
+	// values mirroring J3DTevBlock+0x08..+0x0B for mat[1] (left pupil)
+	// and mat[4] (right pupil). Receiver writes these and bumps
+	// faceSeqs[slot]; the C-side J3DMatPacket vtable hook reads them
+	// when mini-link's eye matpackets draw.
+	mailboxFaceStateBase = 0x130        // [MAILBOX_POSE_SLOT_CAP] of 8 B
+	mailboxFaceStateStride = 8
+	mailboxFaceSeqsBase  = 0x140        // [MAILBOX_POSE_SLOT_CAP] of 1 B
+	mailboxFaceHookState  = 0x144        // 0=disarmed 1=installed 0xFC=stride mismatch 0xFE=vtable mismatch 0xFD=null array
+	mailboxFaceHookEnable = 0x145        // arm/disarm flag (Go writes; C side acts next frame)
+	mailboxFaceHookSwaps  = 0x148        // u32 saturating count of shim swaps
+	mailboxFaceHookMpSize = 0x14C        // u8 observed matpacket stride; 0 until install runs (expect 0x3C)
+	mailboxFaceHookPatched = 0x14D       // u8 matpacket slots written by the most recent install pass
 )
+
+// Per-slot mailbox offsets for the face-state channel.
+func mailboxFaceState(slot int) uint32 { return uint32(mailboxFaceStateBase + slot*mailboxFaceStateStride) }
+func mailboxFaceSeq(slot int) uint32   { return uint32(mailboxFaceSeqsBase + slot) }
+
+// Size of the per-slot wire payload appended to a pose message.
+const faceStateWireBytes = 8
 
 func runPokeVec3(addrHex, xs, ys, zs string) {
 	a, _ := strconv.ParseUint(strings.TrimPrefix(addrHex, "0x"), 16, 32)
@@ -2693,6 +2872,692 @@ func runEyeAnimPoke(modelAddrHex string, secs int) {
 		time.Sleep(16 * time.Millisecond)
 	}
 	fmt.Printf("Done. Wrote %d frame batches.\n", frames)
+}
+
+// runFaceDlLoop is the Go-side stand-in for the C-side shim's intended
+// behavior. The session-10 C-shim has a bug: it reads dl_len from
+// DLObj+0x04 but the actual layout puts it at +0x08 (DLObj+0x04 holds a
+// duplicate of the start ptr, not a length). install bails the bounds
+// check, face_hook_dl_count stays 0, shim no-ops.
+//
+// Rather than recompile + recapture save state to test the fix, this
+// loop replicates the intended write path entirely from Go: each tick,
+// read face_state[slot] from mailbox, walk to mini-link's mat[1] and
+// mat[4] matpacket DL bytes, and overwrite the texno-LSB byte at each
+// 0x06/0x27 offset. If this makes mini-link's pupil reflect the remote
+// face_state (rather than local btp), the mechanism is proven and we
+// just need to fix the C-side install offset.
+//
+// secs: 0 = run until Ctrl+C, else run for that many seconds then exit.
+// forceLsb: if >= 0, write this byte value to ALL cached DL offsets each
+// tick (skipping the mailbox face_state read). Useful for asymmetric
+// visual tests — set forceLsb to a wildly wrong value (e.g. 0x99) and
+// observe whether mini-link's pupil glitches in only this Dolphin.
+func runFaceDlLoop(secs int, forceLsb int) {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	// Locate mini-link's J3DModel via mailbox dbg_node_mtx_ptr scan.
+	// Same logic as runEyeAnimFind condensed: scan MEM1 for J3DModel
+	// candidates whose +0x04 == mini_link_data, then pick the one with
+	// +0x8C == dbg_node_mtx_ptr.
+	miniData, err := d.ReadU32(mailboxBase + 0x94)
+	if err != nil || miniData < 0x80000000 || miniData >= 0x81800000 {
+		fmt.Printf("mini_link_data not published (got 0x%08X)\n", miniData)
+		os.Exit(1)
+	}
+	dbgNodeMtx, _ := d.ReadU32(mailboxBase + 0xA0)
+	if dbgNodeMtx == 0 {
+		fmt.Println("dbg_node_mtx_ptr is 0; mini-link not yet alive. Run mp-local first.")
+		os.Exit(1)
+	}
+
+	// Find ALL J3DModels with the same modelData. With MAX_REMOTE_LINKS=2,
+	// expect 2-3 candidates: mini_link_models[0], mini_link_models[1],
+	// and Link's own model. The two whose +0x8C is in heap (not in
+	// the local-Link's range) are the mini-links.
+	const memLo, memHi = uint32(0x80000000), uint32(0x81800000)
+	const chunk = uint32(2 * 1024 * 1024)
+	type candidate struct {
+		addr     uint32
+		matpkts  uint32
+		nodeMtx  uint32
+	}
+	var cands []candidate
+	for base := memLo; base < memHi; base += chunk {
+		size := chunk
+		if base+size > memHi {
+			size = memHi - base
+		}
+		buf, err := d.ReadAbsolute(base, int(size))
+		if err != nil {
+			continue
+		}
+		for o := 0; o+4 <= len(buf); o += 4 {
+			if binary.BigEndian.Uint32(buf[o:o+4]) != miniData {
+				continue
+			}
+			candAt := base + uint32(o)
+			if candAt < 4 {
+				continue
+			}
+			cand := candAt - 4
+			hdr, err := d.ReadAbsolute(cand, 0xC0)
+			if err != nil {
+				continue
+			}
+			vt := binary.BigEndian.Uint32(hdr[0:4])
+			if vt < 0x80000000 || vt >= 0x80800000 {
+				continue
+			}
+			nm := binary.BigEndian.Uint32(hdr[0x8C:0x90])
+			mp := binary.BigEndian.Uint32(hdr[0xB4:0xB8])
+			if nm == 0 || mp < 0x80000000 || mp >= 0x81800000 {
+				continue
+			}
+			cands = append(cands, candidate{addr: cand, matpkts: mp, nodeMtx: nm})
+		}
+	}
+	if len(cands) == 0 {
+		fmt.Println("no J3DModel candidates found")
+		os.Exit(1)
+	}
+
+	// Identify slot for each candidate. dbg_node_mtx_ptr matches
+	// mini_link_models[0]. Other mini-link slots have unique nodeMtx
+	// addresses but no dbg field; pick by exclusion (anything that's
+	// not Link's own model — Link's model is the one whose userArea
+	// matches the live Link actor, which we can identify by it not
+	// appearing in mini-link slot scans).
+	const matpacketSize = uint32(0x3C)
+	const matLeft = 1
+	const matRight = 4
+	type slotInfo struct {
+		slot     int
+		modelAt  uint32
+		dlPtr    [2]uint32 // [0]=mat[1], [1]=mat[4]
+		dlLen    [2]uint32
+		dlOffs   [2][]uint32 // 0x06/0x27 byte offsets per mat
+	}
+	var slots []slotInfo
+	// Easier strategy: pick the first 2 candidates that have userArea
+	// != 0 (Link's actor pointer) and aren't Link's own model. Since
+	// MAX_REMOTE_LINKS = 2, that gives us slot 0 and slot 1.
+	// dbg_node_mtx_ptr identifies slot 0; any other valid candidate
+	// with the same userArea is slot 1.
+	for _, c := range cands {
+		// Skip Link's own model. Mini-link models have mpNodeMtx in
+		// the allocated mod/heap range (~0x80EF..0x810F); Link's own
+		// is up in 0x815F**. Filter on nodeMtx range to keep only
+		// mini-links.
+		if c.nodeMtx < 0x80000000 || c.nodeMtx >= 0x81100000 {
+			continue
+		}
+		var slot int
+		if c.nodeMtx == dbgNodeMtx {
+			slot = 0
+		} else {
+			slot = 1
+		}
+		s := slotInfo{slot: slot, modelAt: c.addr}
+		// Walk to mat[1] and mat[4] matpackets via matpkts + idx*0x3C.
+		mats := [2]int{matLeft, matRight}
+		for mi, idx := range mats {
+			mpAddr := c.matpkts + uint32(idx)*matpacketSize
+			dlObj, err := d.ReadU32(mpAddr + 0x20)
+			if err != nil || dlObj < 0x80000000 || dlObj >= 0x81800000 {
+				continue
+			}
+			dlPtr, _ := d.ReadU32(dlObj + 0x00)
+			dlLen, _ := d.ReadU32(dlObj + 0x08) // CORRECTED: length at +0x08 (not +0x04)
+			if dlPtr < 0x80000000 || dlPtr >= 0x81800000 || dlLen == 0 || dlLen > 0x10000 {
+				continue
+			}
+			raw, err := d.ReadAbsolute(dlPtr, int(dlLen))
+			if err != nil {
+				continue
+			}
+			var hits []uint32
+			for k := 0; k < len(raw); k++ {
+				if raw[k] == 0x06 || raw[k] == 0x27 {
+					hits = append(hits, uint32(k))
+				}
+			}
+			s.dlPtr[mi] = dlPtr
+			s.dlLen[mi] = dlLen
+			s.dlOffs[mi] = hits
+		}
+		slots = append(slots, s)
+	}
+	if len(slots) == 0 {
+		fmt.Println("no mini-link slots resolved")
+		os.Exit(1)
+	}
+	for _, s := range slots {
+		fmt.Printf("slot %d: model@0x%08X  mat[1] dl=0x%08X len=0x%X hits=%d  mat[4] dl=0x%08X len=0x%X hits=%d\n",
+			s.slot, s.modelAt, s.dlPtr[0], s.dlLen[0], len(s.dlOffs[0]),
+			s.dlPtr[1], s.dlLen[1], len(s.dlOffs[1]))
+	}
+
+	fmt.Println("\nLooping: face_state -> mini-link DL bytes at ~60 Hz. Ctrl+C to stop.")
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)
+	var deadline time.Time
+	if secs > 0 {
+		deadline = time.Now().Add(time.Duration(secs) * time.Second)
+	}
+	ticks := 0
+	for {
+		select {
+		case <-stop:
+			fmt.Printf("\nstopped after %d ticks\n", ticks)
+			return
+		default:
+		}
+		if secs > 0 && time.Now().After(deadline) {
+			fmt.Printf("\ntime's up after %d ticks\n", ticks)
+			return
+		}
+
+		// Read face_state for each slot.
+		for _, s := range slots {
+			var mat1Lsb, mat4Lsb byte
+			if forceLsb >= 0 {
+				mat1Lsb = byte(forceLsb)
+				mat4Lsb = byte(forceLsb)
+			} else {
+				seq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(s.slot), 1)
+				if len(seq) != 1 || seq[0] == 0 {
+					continue // gate: skip until first network sample
+				}
+				fs, _ := d.ReadAbsolute(mailboxBase+mailboxFaceState(s.slot), 8)
+				if len(fs) != 8 {
+					continue
+				}
+				// mat1_tex1 at bytes [2..4], LSB at [3]. mat4_tex1 at [6..8], LSB at [7].
+				mat1Lsb = fs[3]
+				mat4Lsb = fs[7]
+			}
+			if s.dlPtr[0] != 0 && len(s.dlOffs[0]) > 0 {
+				payload := []byte{mat1Lsb}
+				for _, off := range s.dlOffs[0] {
+					_ = d.WriteAbsolute(s.dlPtr[0]+off, payload)
+				}
+			}
+			if s.dlPtr[1] != 0 && len(s.dlOffs[1]) > 0 {
+				payload := []byte{mat4Lsb}
+				for _, off := range s.dlOffs[1] {
+					_ = d.WriteAbsolute(s.dlPtr[1]+off, payload)
+				}
+			}
+		}
+		ticks++
+		// Every ~1 sec, sample mini-link's DL bytes at the cached
+		// offsets to see what's actually in memory. If our writes
+		// dominate (most reads = our LSB value), the writes commit
+		// and persist long enough that whatever consumes them sees
+		// our value.
+		if ticks%60 == 0 {
+			for _, s := range slots {
+				if s.dlPtr[0] != 0 && len(s.dlOffs[0]) > 0 {
+					counts := map[byte]int{}
+					for _, off := range s.dlOffs[0] {
+						b, _ := d.ReadAbsolute(s.dlPtr[0]+off, 1)
+						if len(b) == 1 {
+							counts[b[0]]++
+						}
+					}
+					var keys []byte
+					for k := range counts {
+						keys = append(keys, k)
+					}
+					sort.Slice(keys, func(i, j int) bool { return counts[keys[i]] > counts[keys[j]] })
+					summary := ""
+					for _, k := range keys {
+						summary += fmt.Sprintf(" 0x%02X×%d", k, counts[k])
+					}
+					fmt.Printf("[t+%4ds] slot %d mat[1] dl readback:%s\n", ticks/60, s.slot, summary)
+				}
+			}
+		}
+		time.Sleep(16 * time.Millisecond)
+	}
+}
+
+// runFaceSyncTevPoll forces face_state[0] to a clearly-non-btp value at
+// high rate while polling the shared mat[1]/mat[4] tev_block contents
+// from outside Dolphin, also at high rate. Goal: detect whether the
+// session-9 shim's transient swap (between tex_ptr[0]=new_t0 and the
+// post-orig_draw restore) ever lands in RAM observably.
+//
+// Hook must be armed for this to be meaningful. mp-local must be running
+// (otherwise mini-link doesn't render and the matpacket draws don't fire).
+//
+// Interpretation:
+//   - Swap value appears in poll histogram -> shim writes commit; issue
+//     is timing/GPU-read (GPU consumed tev_block earlier in the frame
+//     than our shim runs).
+//   - Swap value never appears, only btp values seen -> shim's writes
+//     either aren't being emitted as PPC stores or the tev_block we
+//     hooked isn't the same address PPC writes hit.
+func runFaceSyncTevPoll(secs int, faceHex string) {
+	if len(faceHex) != 16 {
+		fmt.Printf("face_hex must be 16 hex chars (8 bytes), got %d\n", len(faceHex))
+		os.Exit(1)
+	}
+	face := make([]byte, 8)
+	for i := 0; i < 8; i++ {
+		v, err := strconv.ParseUint(faceHex[i*2:i*2+2], 16, 8)
+		if err != nil {
+			fmt.Printf("bad hex at byte %d: %v\n", i, err)
+			os.Exit(1)
+		}
+		face[i] = byte(v)
+	}
+	swapMat1 := binary.BigEndian.Uint32(face[0:4]) // expected mat[1] swap value
+	swapMat4 := binary.BigEndian.Uint32(face[4:8]) // expected mat[4] swap value
+
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	linkPtr, err := d.ReadU32(0x803CA754)
+	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x81800000 {
+		fmt.Printf("link actor not resolved (linkPtr=0x%08X)\n", linkPtr)
+		os.Exit(1)
+	}
+	dataPtr, err := d.ReadU32(linkPtr + 0x0328)
+	if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x81800000 {
+		fmt.Printf("mpCLModel not resolved (dataPtr=0x%08X)\n", dataPtr)
+		os.Exit(1)
+	}
+	matArr, err := d.ReadU32(dataPtr + 0x58 + 0x08)
+	if err != nil || matArr < 0x80000000 || matArr >= 0x81800000 {
+		fmt.Printf("matArr not resolved (0x%08X)\n", matArr)
+		os.Exit(1)
+	}
+	resolveTev := func(idx int) uint32 {
+		matPtr, err := d.ReadU32(matArr + uint32(idx)*4)
+		if err != nil || matPtr < 0x80000000 || matPtr >= 0x81800000 {
+			return 0
+		}
+		tev, err := d.ReadU32(matPtr + 0x2C)
+		if err != nil || tev < 0x80000000 || tev >= 0x81800000 {
+			return 0
+		}
+		return tev
+	}
+	mat1Tev := resolveTev(1)
+	mat4Tev := resolveTev(4)
+	if mat1Tev == 0 || mat4Tev == 0 {
+		fmt.Printf("tev resolution failed (mat1=0x%08X mat4=0x%08X)\n", mat1Tev, mat4Tev)
+		os.Exit(1)
+	}
+	fmt.Printf("mat[1] tev=0x%08X  mat[4] tev=0x%08X\n", mat1Tev, mat4Tev)
+	fmt.Printf("expected swap_mat1=0x%08X  swap_mat4=0x%08X\n", swapMat1, swapMat4)
+
+	// Sanity: snapshot face_hook_state and face_hook_swaps before/after
+	// so we can verify the shim was firing during the poll window.
+	state0, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookState, 1)
+	swaps0, _ := d.ReadU32(mailboxBase + mailboxFaceHookSwaps)
+	fmt.Printf("face_hook_state=0x%02X  swaps=%d (pre)\n", state0[0], swaps0)
+	if state0[0] != 1 {
+		fmt.Println("WARNING: face_hook_state != 1 (hook not installed). Run face-hook-arm first; results below are meaningless.")
+	}
+
+	type sample struct{ mat1, mat4 uint32 }
+	counts := make(map[sample]int)
+	hitsMat1 := 0
+	hitsMat4 := 0
+	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+	polls := 0
+	for time.Now().Before(deadline) {
+		// Re-assert face_state and seq each iteration so puppet-sync's
+		// 60 Hz writes don't overwrite our value.
+		_ = d.WriteAbsolute(mailboxBase+mailboxFaceState(0), face)
+		_ = d.WriteAbsolute(mailboxBase+mailboxFaceSeq(0), []byte{1})
+
+		b1, _ := d.ReadAbsolute(mat1Tev+0x08, 4)
+		b4, _ := d.ReadAbsolute(mat4Tev+0x08, 4)
+		if len(b1) != 4 || len(b4) != 4 {
+			continue
+		}
+		s := sample{
+			mat1: binary.BigEndian.Uint32(b1),
+			mat4: binary.BigEndian.Uint32(b4),
+		}
+		counts[s]++
+		if s.mat1 == swapMat1 {
+			hitsMat1++
+		}
+		if s.mat4 == swapMat4 {
+			hitsMat4++
+		}
+		polls++
+	}
+
+	state1, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookState, 1)
+	swaps1, _ := d.ReadU32(mailboxBase + mailboxFaceHookSwaps)
+
+	type entry struct {
+		s sample
+		n int
+	}
+	sorted := make([]entry, 0, len(counts))
+	for s, n := range counts {
+		sorted = append(sorted, entry{s, n})
+	}
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].n > sorted[j].n })
+
+	fmt.Printf("\nPolled %d samples over %ds\n", polls, secs)
+	fmt.Printf("face_hook_state=0x%02X  swaps=%d (post; Δ=%d)\n", state1[0], swaps1, swaps1-swaps0)
+	fmt.Printf("Top tev (mat1, mat4) tuples seen:\n")
+	for i, e := range sorted {
+		if i >= 25 {
+			fmt.Printf("  ...%d more rare tuples\n", len(sorted)-25)
+			break
+		}
+		marker := ""
+		if e.s.mat1 == swapMat1 || e.s.mat4 == swapMat4 {
+			marker = "  <-- swap-value"
+		}
+		fmt.Printf("  mat1=0x%08X  mat4=0x%08X  ×%d%s\n", e.s.mat1, e.s.mat4, e.n, marker)
+	}
+	fmt.Printf("\nmat[1] swap-value hits: %d / %d  (%.2f%%)\n",
+		hitsMat1, polls, 100*float64(hitsMat1)/float64(polls))
+	fmt.Printf("mat[4] swap-value hits: %d / %d  (%.2f%%)\n",
+		hitsMat4, polls, 100*float64(hitsMat4)/float64(polls))
+	if hitsMat1 == 0 && hitsMat4 == 0 && swaps1 > swaps0 {
+		fmt.Println("\nDIAGNOSIS: hook fired during the window (swaps incremented), but our")
+		fmt.Println("swap value was NEVER observed in tev_block. Shim's writes are not")
+		fmt.Println("reaching this address — wrong tev_block, or stores compiled away,")
+		fmt.Println("or restore happens too quickly to be observable from outside.")
+	} else if hitsMat1 > 0 || hitsMat4 > 0 {
+		fmt.Println("\nDIAGNOSIS: shim writes ARE committing to RAM. The visual-no-op")
+		fmt.Println("must be on the GPU side — likely tev_block is consumed earlier")
+		fmt.Println("in the frame than our shim runs (per-frame load cache), or the")
+		fmt.Println("matpacket we hooked draws to a hidden buffer / null shape.")
+	} else if swaps1 == swaps0 {
+		fmt.Println("\nDIAGNOSIS: hook didn't fire during poll. Hook may not be armed,")
+		fmt.Println("or mini-link wasn't being rendered. Check mp-local + face-hook-arm.")
+	}
+
+	// Don't reset face_state — leave it at the test value so subsequent
+	// face-sync-watch / status calls show the post-test state. Caller
+	// can run face-hook-disarm or write 0 to face_seqs[0] to clear.
+}
+
+// runFaceHookArm flips mailbox.face_hook_enable. C-side processes the
+// flag once per frame in multiplayer_update — install_for_model probes
+// the matpacket layout and refuses to write if the stride doesn't
+// match J3DMATPACKET_SIZE (0x3C). Idempotent across calls.
+func runFaceHookArm(arm bool) {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	v := byte(0)
+	if arm {
+		v = 1
+	}
+	if err := d.WriteAbsolute(mailboxBase+mailboxFaceHookEnable, []byte{v}); err != nil {
+		fmt.Printf("write face_hook_enable failed: %v\n", err)
+		os.Exit(1)
+	}
+	// Wait one frame so the C side has a chance to process the change.
+	time.Sleep(50 * time.Millisecond)
+	state, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookState, 1)
+	mpsize, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookMpSize, 1)
+	patched, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookPatched, 1)
+	fmt.Printf("face_hook_enable := %d\n", v)
+	fmt.Printf("face_hook_state  : 0x%02X (1=installed, 0=disarmed, 0xFC=stride mismatch, 0xFE=vtable mismatch, 0xFD=null array)\n", state[0])
+	fmt.Printf("face_hook_mp_size: 0x%02X (expect 0x3C)\n", mpsize[0])
+	fmt.Printf("face_hook_patched: %d (this-frame writes; 0 in steady state once installed)\n", patched[0])
+}
+
+// runFaceTevHammer is the session-10 first diagnostic: prove (or rule out)
+// that mini-link's pupil is rendered through Link's shared J3DTevBlock.
+// Resolves Link's mat[1] and mat[4] tevBlocks the same way broadcast-pose
+// does (PLAYER[0] -> +0x0328 -> +0x58+0x08 -> mat[i] -> +0x2C), snapshots
+// the 4 texno bytes at +0x08, then writes a clearly-different texno value
+// (default 0x0099 for both texNo[0] and texNo[1]) at 60 Hz for `secs`
+// seconds. Restores originals on exit. While running, the user looks at
+// THIS Dolphin's window:
+//   - Both Link's eye AND mini-link's eye change -> shared tevBlock IS
+//     the source for both renders; shim/face-state can drive mini-link
+//     with the right bracketing.
+//   - Only Link's eye changes  -> mini-link's pupil is rendered from a
+//     recipe-packet-baked DL with the texture address pre-resolved.
+//     Need to replace DL bytes per-slot or hook recipe draw.
+//   - Neither changes  -> btp's writes are winning the race; freeze btp
+//     first or pick another test.
+//
+// Use WW_DOLPHIN_INDEX=0 / =1 to pick which Dolphin to hammer.
+func runFaceTevHammer(secs int, texHex string) {
+	tex, err := strconv.ParseUint(strings.TrimPrefix(texHex, "0x"), 16, 16)
+	if err != nil {
+		fmt.Printf("bad texno %q: %v\n", texHex, err)
+		os.Exit(1)
+	}
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	linkPtr, err := d.ReadU32(0x803CA754)
+	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x81800000 {
+		fmt.Printf("link actor not resolved (linkPtr=0x%08X)\n", linkPtr)
+		os.Exit(1)
+	}
+	dataPtr, err := d.ReadU32(linkPtr + 0x0328)
+	if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x81800000 {
+		fmt.Printf("mpCLModel not resolved (dataPtr=0x%08X)\n", dataPtr)
+		os.Exit(1)
+	}
+	matArr, err := d.ReadU32(dataPtr + 0x58 + 0x08)
+	if err != nil || matArr < 0x80000000 || matArr >= 0x81800000 {
+		fmt.Printf("matArr not resolved (0x%08X)\n", matArr)
+		os.Exit(1)
+	}
+	type matSlot struct {
+		idx  int
+		tev  uint32
+		orig []byte
+	}
+	slots := []matSlot{}
+	for _, idx := range []int{1, 4} {
+		matPtr, err := d.ReadU32(matArr + uint32(idx)*4)
+		if err != nil || matPtr < 0x80000000 || matPtr >= 0x81800000 {
+			fmt.Printf("mat[%d] ptr bad (0x%08X) — skip\n", idx, matPtr)
+			continue
+		}
+		tev, err := d.ReadU32(matPtr + 0x2C)
+		if err != nil || tev < 0x80000000 || tev >= 0x81800000 {
+			fmt.Printf("mat[%d] tevBlock bad (0x%08X) — skip\n", idx, tev)
+			continue
+		}
+		orig, err := d.ReadAbsolute(tev+0x08, 4)
+		if err != nil || len(orig) != 4 {
+			fmt.Printf("mat[%d] tev+0x08 read failed: %v\n", idx, err)
+			continue
+		}
+		slots = append(slots, matSlot{idx: idx, tev: tev, orig: orig})
+		fmt.Printf("mat[%d] tev=0x%08X  orig texno bytes = %02X %02X %02X %02X (texNo[0]=0x%02X%02X texNo[1]=0x%02X%02X)\n",
+			idx, tev, orig[0], orig[1], orig[2], orig[3], orig[0], orig[1], orig[2], orig[3])
+	}
+	if len(slots) == 0 {
+		fmt.Println("no tevBlocks resolved; aborting")
+		os.Exit(1)
+	}
+
+	// Build the 4-byte payload: same u16 in texNo[0] and texNo[1].
+	hi := byte((tex >> 8) & 0xFF)
+	lo := byte(tex & 0xFF)
+	payload := []byte{hi, lo, hi, lo}
+	fmt.Printf("\nHammering tev+0x08..+0x0B = %02X %02X %02X %02X for %d s at 60 Hz on %d slot(s).\n",
+		payload[0], payload[1], payload[2], payload[3], secs, len(slots))
+	fmt.Println("Look at the Dolphin window: did Link's eye change? Did mini-link's eye change?")
+
+	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+	frames := 0
+	for time.Now().Before(deadline) {
+		for _, s := range slots {
+			_ = d.WriteAbsolute(s.tev+0x08, payload)
+		}
+		frames++
+		time.Sleep(16 * time.Millisecond)
+	}
+	// Restore.
+	for _, s := range slots {
+		_ = d.WriteAbsolute(s.tev+0x08, s.orig)
+	}
+	fmt.Printf("Done. Wrote %d frames; restored original texno bytes.\n", frames)
+}
+
+// runFaceSyncStatus prints the C-side face-state hook diagnostic fields.
+// Quick health check after launching mp-local: face_hook_state should be
+// 1 (vtable patched + matpackets repointed) and face_hook_swaps should
+// be increasing if at least one slot has fresh face_seqs.
+func runFaceSyncStatus() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	state, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookState, 1)
+	enable, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookEnable, 1)
+	mpsize, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookMpSize, 1)
+	swaps, _ := d.ReadU32(mailboxBase + mailboxFaceHookSwaps)
+	fmt.Printf("face_hook_enable: %d (Go arm/disarm flag)\n", enable[0])
+	fmt.Printf("face_hook_state : 0x%02X (1=installed, 0=disarmed, 0xFC=stride mismatch, 0xFE=vtable mismatch, 0xFD=null array)\n", state[0])
+	fmt.Printf("face_hook_mp_size: 0x%02X (expect 0x3C)\n", mpsize[0])
+	fmt.Printf("face_hook_swaps : %d (saturating)\n", swaps)
+	for slot := 0; slot < maxRemoteLinks; slot++ {
+		seq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(slot), 1)
+		fs, _ := d.ReadAbsolute(mailboxBase+mailboxFaceState(slot), 8)
+		var sb byte
+		if len(seq) == 1 {
+			sb = seq[0]
+		}
+		var t1_0, t1_1, t4_0, t4_1 uint16
+		if len(fs) == 8 {
+			t1_0 = binary.BigEndian.Uint16(fs[0:2])
+			t1_1 = binary.BigEndian.Uint16(fs[2:4])
+			t4_0 = binary.BigEndian.Uint16(fs[4:6])
+			t4_1 = binary.BigEndian.Uint16(fs[6:8])
+		}
+		fmt.Printf("slot %d: seq=%3d  mat1=(0x%04X, 0x%04X)  mat4=(0x%04X, 0x%04X)\n",
+			slot, sb, t1_0, t1_1, t4_0, t4_1)
+	}
+}
+
+// runFaceSyncWatch polls face_state[0..N] + face_hook_swaps every 100 ms
+// for `secs` seconds, printing transitions. Confirms the receiver is
+// writing fresh values and the C hook is firing on those values.
+func runFaceSyncWatch(secs int) {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	fmt.Printf("Watching face_state for %d seconds...\n", secs)
+	type slotState struct{ seq byte; t1_0, t1_1, t4_0, t4_1 uint16 }
+	prev := make([]slotState, maxRemoteLinks)
+	var lastSwaps uint32
+	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+	tick := 0
+	for time.Now().Before(deadline) {
+		tick++
+		swaps, _ := d.ReadU32(mailboxBase + mailboxFaceHookSwaps)
+		if tick%10 == 0 || swaps != lastSwaps {
+			delta := swaps - lastSwaps
+			fmt.Printf("[t+%5dms] hook_swaps=%d (Δ=%d)\n",
+				tick*100, swaps, delta)
+			lastSwaps = swaps
+		}
+		for slot := 0; slot < maxRemoteLinks; slot++ {
+			seq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(slot), 1)
+			fs, _ := d.ReadAbsolute(mailboxBase+mailboxFaceState(slot), 8)
+			if len(seq) != 1 || len(fs) != 8 {
+				continue
+			}
+			cur := slotState{
+				seq:   seq[0],
+				t1_0:  binary.BigEndian.Uint16(fs[0:2]),
+				t1_1:  binary.BigEndian.Uint16(fs[2:4]),
+				t4_0:  binary.BigEndian.Uint16(fs[4:6]),
+				t4_1:  binary.BigEndian.Uint16(fs[6:8]),
+			}
+			if cur != prev[slot] {
+				fmt.Printf("[t+%5dms] slot %d: seq=%d mat1=(%04X,%04X) mat4=(%04X,%04X)\n",
+					tick*100, slot, cur.seq, cur.t1_0, cur.t1_1, cur.t4_0, cur.t4_1)
+				prev[slot] = cur
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// runFaceSyncFake writes a hardcoded 8-byte face state into mailbox.face_state[slot]
+// and bumps face_seqs[slot]. Lets you test the C hook in isolation without
+// needing a remote sender — useful for "did mini-link just visibly blink?".
+// hex8 example: "0006002700060027" forces both eyes to texno=(0x0006, 0x0027).
+func runFaceSyncFake(slot int, hex8 string) {
+	if slot < 0 || slot >= maxRemoteLinks {
+		fmt.Printf("slot must be 0..%d\n", maxRemoteLinks-1)
+		os.Exit(1)
+	}
+	hex8 = strings.TrimPrefix(hex8, "0x")
+	if len(hex8) != 16 {
+		fmt.Printf("hex8 must be 16 hex chars (8 bytes), got %d\n", len(hex8))
+		os.Exit(1)
+	}
+	buf := make([]byte, 8)
+	for i := 0; i < 8; i++ {
+		v, err := strconv.ParseUint(hex8[i*2:i*2+2], 16, 8)
+		if err != nil {
+			fmt.Printf("bad hex at byte %d: %v\n", i, err)
+			os.Exit(1)
+		}
+		buf[i] = byte(v)
+	}
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	if err := d.WriteAbsolute(mailboxBase+mailboxFaceState(slot), buf); err != nil {
+		fmt.Printf("write face_state failed: %v\n", err)
+		os.Exit(1)
+	}
+	fsq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(slot), 1)
+	next := byte(1)
+	if len(fsq) == 1 {
+		next = fsq[0] + 1
+		if next == 0 {
+			next = 1
+		}
+	}
+	if err := d.WriteAbsolute(mailboxBase+mailboxFaceSeq(slot), []byte{next}); err != nil {
+		fmt.Printf("write face_seq failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("slot %d face_state := %02X%02X %02X%02X %02X%02X %02X%02X  seq -> %d\n",
+		slot, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], next)
 }
 
 func runEyeFixPostChain() {
