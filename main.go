@@ -421,6 +421,19 @@ func main() {
 			}
 			slot, _ := strconv.Atoi(os.Args[2])
 			runFaceSyncFake(slot, os.Args[3])
+		case "face-sync-fake-loop":
+			if len(os.Args) < 4 {
+				fmt.Println("Usage: ww-multiplayer.exe face-sync-fake-loop <slot> <hex8> [secs=0]")
+				os.Exit(1)
+			}
+			slot, _ := strconv.Atoi(os.Args[2])
+			secs := 0
+			if len(os.Args) > 4 {
+				if v, err := strconv.Atoi(os.Args[4]); err == nil {
+					secs = v
+				}
+			}
+			runFaceSyncFakeLoop(slot, os.Args[3], secs)
 		case "eye-fix-mode":
 			if len(os.Args) < 3 {
 				fmt.Println("Usage: ww-multiplayer.exe eye-fix-mode <0|1|2>")
@@ -3558,6 +3571,75 @@ func runFaceSyncFake(slot int, hex8 string) {
 	}
 	fmt.Printf("slot %d face_state := %02X%02X %02X%02X %02X%02X %02X%02X  seq -> %d\n",
 		slot, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], next)
+}
+
+// runFaceSyncFakeLoop hammers face_state[slot] at hzTarget Hz while
+// mp-local runs in parallel. puppet-sync is also writing face_state[slot]
+// at game-tick rate (~60 Hz); to dominate that race we need >120 Hz so
+// our value is what the bracket reads at most mini-link bakes. Open the
+// Dolphin handle once and write in a tight loop — vs the 49 ms-per-call
+// overhead of repeated face-sync-fake invocations.
+func runFaceSyncFakeLoop(slot int, hex8 string, secs int) {
+	if slot < 0 || slot >= maxRemoteLinks {
+		fmt.Printf("slot must be 0..%d\n", maxRemoteLinks-1)
+		os.Exit(1)
+	}
+	hex8 = strings.TrimPrefix(hex8, "0x")
+	if len(hex8) != 16 {
+		fmt.Printf("hex8 must be 16 hex chars (8 bytes), got %d\n", len(hex8))
+		os.Exit(1)
+	}
+	buf := make([]byte, 8)
+	for i := 0; i < 8; i++ {
+		v, err := strconv.ParseUint(hex8[i*2:i*2+2], 16, 8)
+		if err != nil {
+			fmt.Printf("bad hex at byte %d: %v\n", i, err)
+			os.Exit(1)
+		}
+		buf[i] = byte(v)
+	}
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	stopCh := make(chan os.Signal, 1)
+	signal.Notify(stopCh, os.Interrupt)
+	defer signal.Stop(stopCh)
+
+	var deadline time.Time
+	if secs > 0 {
+		deadline = time.Now().Add(time.Duration(secs) * time.Second)
+	}
+	fmt.Printf("Hammering slot %d face_state := %s at ~250Hz (Ctrl+C to stop)...\n", slot, hex8)
+
+	stateAddr := mailboxBase + mailboxFaceState(slot)
+	seqAddr := mailboxBase + mailboxFaceSeq(slot)
+	tick := time.NewTicker(4 * time.Millisecond)
+	defer tick.Stop()
+	writes := 0
+	var seq byte = 1
+	for {
+		select {
+		case <-stopCh:
+			fmt.Printf("\nStopped after %d writes.\n", writes)
+			return
+		case <-tick.C:
+			d.WriteAbsolute(stateAddr, buf)
+			seq++
+			if seq == 0 {
+				seq = 1
+			}
+			d.WriteAbsolute(seqAddr, []byte{seq})
+			writes++
+			if !deadline.IsZero() && time.Now().After(deadline) {
+				fmt.Printf("\nDone (%d writes).\n", writes)
+				return
+			}
+		}
+	}
 }
 
 func runEyeFixPostChain() {

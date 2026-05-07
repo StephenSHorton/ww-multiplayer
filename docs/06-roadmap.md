@@ -1314,6 +1314,54 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
 
    Save-state cycle: `saves/start.sav` is current as of session 12
    blob (mod size 0x2A28, mod end `0x80412A28`).
+
+   **Session 13 (2026-05-06) — auto-arm + visual proof under synthetic
+   divergence:**
+
+   - **Auto-arm landed.** `mp-local` now writes `face_hook_enable=1` to
+     both Dolphins after `waitForReady` succeeds, and writes 0 + clears
+     `face_seqs` in teardown alongside the existing `shadow_mode` /
+     `pose_seqs` reset. Eliminates the manual `face-hook-arm` step.
+     Verified: both mailboxes show `enable=1` immediately after "Local
+     multiplayer running."; `face_hook_swaps` climbs at ~60 Hz; slot 0
+     `face_state` updates via the broadcast → puppet-sync chain.
+
+   - **Visual proof via `face-sync-fake-loop`.** Added a tight-loop
+     subcommand (~250 Hz) that hammers `mailbox.face_state[slot]` from
+     Go-side, dominating puppet-sync's 60 Hz writes. With Dolphin 0's
+     slot 0 hammered to `0x0000FFFF0000FFFF` (out-of-range texno), the
+     hammered Dolphin's mini-link rendered with **missing pupils** —
+     the bracket carries face_state values to the rendered pixel,
+     confirmed visually under synthetic divergence. Local Link in the
+     same window kept blinking normally (bracket only touches mini-
+     link's bake), and the OTHER Dolphin's mini-link rendered normally
+     most of the time. **Visual proof of s12 secured under non-lockstep
+     conditions.**
+
+   - **New: broadcast-pose tev_block read race surfaced.** Under the
+     hammer test, the OTHER Dolphin's mini-link occasionally also
+     showed missing pupils. Cause: `broadcast-pose` reads
+     `tev_block + 0x08` from Go-side via `ReadProcessMemory` async
+     from the emu CPU. The s12 bracket (save → swap → bake → restore)
+     leaves `tev_block` overwritten for a microsecond window every
+     frame. If the Go-side read lands inside that window, broadcast-
+     pose ships the swapped value (e.g. `0xFFFF`) to the remote, who
+     renders THIS Dolphin's mini-link with the bad value for that
+     frame. Harmless under real btp values (any captured value is a
+     valid texno) — only surfaces under synthetic out-of-range hammer
+     tests. Filed as future cleanup, not a blocker.
+
+     **Fix sketch for next session:** snapshot the natural `tev_block`
+     value into a stable mailbox slot at the top of `daPy_draw_hook`
+     (before any bracket fires), and have `broadcast-pose` read from
+     that mailbox slot instead of `tev_block` directly. ~10 lines
+     C-side + ~5 lines Go-side; eliminates the race entirely.
+
+   - **Visual proof under NATURAL divergence still pending.** Both
+     Dolphins still boot from the same save state in lockstep, so btp
+     phase is bit-identical and natural face-sync remains invisible
+     without synthetic intervention. Diverged save states or per-
+     Dolphin cutscene triggers still on the to-do list.
 10. **Leverage existing Dolphin cheats for test setup.** Manual test
     setup eats time getting Link into a state where multiplayer
     features are exercisable (sailing for ocean tests, specific items
