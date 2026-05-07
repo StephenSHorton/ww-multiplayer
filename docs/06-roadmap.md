@@ -1338,24 +1338,33 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
      most of the time. **Visual proof of s12 secured under non-lockstep
      conditions.**
 
-   - **New: broadcast-pose tev_block read race surfaced.** Under the
-     hammer test, the OTHER Dolphin's mini-link occasionally also
-     showed missing pupils. Cause: `broadcast-pose` reads
-     `tev_block + 0x08` from Go-side via `ReadProcessMemory` async
-     from the emu CPU. The s12 bracket (save → swap → bake → restore)
-     leaves `tev_block` overwritten for a microsecond window every
-     frame. If the Go-side read lands inside that window, broadcast-
-     pose ships the swapped value (e.g. `0xFFFF`) to the remote, who
-     renders THIS Dolphin's mini-link with the bad value for that
-     frame. Harmless under real btp values (any captured value is a
-     valid texno) — only surfaces under synthetic out-of-range hammer
-     tests. Filed as future cleanup, not a blocker.
+   - **broadcast-pose tev_block read race — FIXED (session 14, 2026-
+     05-07).** Surfaced under the s13 hammer test: the OTHER Dolphin's
+     mini-link occasionally also showed missing pupils because
+     `broadcast-pose`'s `ReadProcessMemory` of `tev_block + 0x08` was
+     async from the emu CPU and could land inside the s12 bracket's
+     save → swap → bake → restore window, shipping the swapped value
+     (e.g. `0xFFFF`) cross-network.
 
-     **Fix sketch for next session:** snapshot the natural `tev_block`
-     value into a stable mailbox slot at the top of `daPy_draw_hook`
-     (before any bracket fires), and have `broadcast-pose` read from
-     that mailbox slot instead of `tev_block` directly. ~10 lines
-     C-side + ~5 lines Go-side; eliminates the race entirely.
+     **Fix:** added `mailbox.face_state_local` (8 B at +0x150) and
+     `face_emit_publish_local()` called at the very top of
+     `daPy_draw_hook` (before any swap). Snapshots btp's natural
+     `tev_block + 0x08` bytes for mat[1] and mat[4] into the mailbox
+     slot. `broadcast-pose` reads from that slot instead of resolving
+     and reading tev_block directly. The slot is written exactly once
+     per frame at hook entry, so cross-process reads never see a
+     transient swapped value.
+
+     **Verified:** under the same `face-sync-fake-loop 0xFFFF...`
+     hammer on Dolphin 0, the OTHER Dolphin's mini-link is now totally
+     clean — no occasional missing-pupil flickering. Pre-fix, the
+     other Dolphin's mini-link briefly flashed missing pupils
+     whenever broadcast-pose's read landed in the bracket's swap
+     window. Post-fix, that read path can't reach the swapped value.
+
+     The general pattern — publish stable state for cross-process
+     reads instead of reading the live racy address — should be
+     applied to any future swap-style hooks (e.g. mouth sync).
 
    - **Visual proof under NATURAL divergence still pending.** Both
      Dolphins still boot from the same save state in lockstep, so btp

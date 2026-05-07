@@ -1228,51 +1228,11 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 	const linkJointCount = 42
 	const poseBytes = linkJointCount * 48
 
-	// Session 9: face-state capture. Each tick we read the LOCAL Link's
-	// shared J3DTevBlock+0x08..+0x0B for mat[1] (left pupil) and mat[4]
-	// (right pupil) — that's the 8 B btp animates per-frame for blink.
-	// Cache the tevBlock addresses lazily; reset them on save reload
-	// (J3DModelData rebuilt → matTable + tevBlocks at fresh addresses).
-	// 0 = not yet resolved this session-attempt; nonzero = ready.
-	var faceTevMat1, faceTevMat4 uint32
-	var faceLinkData uint32 // mpCLModelData when we resolved; reset triggers re-resolve
-	resolveFaceTevs := func() {
-		// Walk PLAYER_PTR_ARRAY[0] → daPy_lk_c+0x328 → +0x58+0x08 → mat[1/4] → +0x2C.
-		linkPtr, err := d.ReadU32(0x803CA754)
-		if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x81800000 {
-			return
-		}
-		dataPtr, err := d.ReadU32(linkPtr + 0x0328)
-		if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x81800000 {
-			return
-		}
-		if dataPtr == faceLinkData && faceTevMat1 != 0 && faceTevMat4 != 0 {
-			return // cached and modelData hasn't changed
-		}
-		matArr, err := d.ReadU32(dataPtr + 0x58 + 0x08)
-		if err != nil || matArr < 0x80000000 || matArr >= 0x81800000 {
-			return
-		}
-		readTev := func(idx int) uint32 {
-			matPtr, err := d.ReadU32(matArr + uint32(idx)*4)
-			if err != nil || matPtr < 0x80000000 || matPtr >= 0x81800000 {
-				return 0
-			}
-			tev, err := d.ReadU32(matPtr + 0x2C)
-			if err != nil || tev < 0x80000000 || tev >= 0x81800000 {
-				return 0
-			}
-			return tev
-		}
-		t1 := readTev(1)
-		t4 := readTev(4)
-		if t1 != 0 && t4 != 0 {
-			faceTevMat1 = t1
-			faceTevMat4 = t4
-			faceLinkData = dataPtr
-			report.Logf(rep, report.OK, "face capture armed: mat1.tev=0x%08X mat4.tev=0x%08X", t1, t4)
-		}
-	}
+	// Session 14: face-state capture reads from mailbox.face_state_local,
+	// which the C side publishes once per frame at the top of
+	// daPy_draw_hook BEFORE any face_emit_swap_for_slot fires. Eliminates
+	// the s13 race where direct tev_block reads could catch the bracket's
+	// transient swapped value and ship that to the remote.
 
 	posErrs, poseErrs := 0, 0
 	for client.IsConnected() {
@@ -1315,22 +1275,17 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 						if os.Getenv("WW_POSE_RAW") == "" {
 							localizePoseInPlace(data, linkJointCount, pos.PosX, pos.PosY, pos.PosZ)
 						}
-						// Capture the LOCAL Link's eye texno bytes
-						// for transmission. tevBlock+0x08..+0x0B for
-						// mat[1] (left pupil) → bytes [0:4]; mat[4]
-						// (right pupil) → bytes [4:8]. Bytes are
-						// already big-endian on the wire (we read
-						// raw, write raw).
-						resolveFaceTevs()
+						// Capture the LOCAL Link's eye texno bytes from
+						// the mailbox slot the C side publishes at the
+						// top of daPy_draw_hook (before any face_emit
+						// swap fires). Race-free vs reading tev_block
+						// directly from emu RAM. Wire layout matches
+						// FaceState: 8 B = (mat1_tex0:u16 BE)
+						// (mat1_tex1:u16 BE)(mat4_tex0:u16 BE)
+						// (mat4_tex1:u16 BE).
 						var face []byte
-						if faceTevMat1 != 0 && faceTevMat4 != 0 {
-							b1, e1 := d.ReadAbsolute(faceTevMat1+0x08, 4)
-							b4, e4 := d.ReadAbsolute(faceTevMat4+0x08, 4)
-							if e1 == nil && e4 == nil && len(b1) == 4 && len(b4) == 4 {
-								face = make([]byte, 8)
-								copy(face[0:4], b1)
-								copy(face[4:8], b4)
-							}
+						if fb, err := d.ReadAbsolute(mailboxBase+mailboxFaceStateLocal, faceStateWireBytes); err == nil && len(fb) == faceStateWireBytes {
+							face = fb
 						}
 						if err := client.SendPose(linkJointCount, data, face); err != nil {
 							poseErrs++
@@ -2038,6 +1993,12 @@ const (
 	mailboxFaceHookSwaps  = 0x148        // u32 saturating count of shim swaps
 	mailboxFaceHookMpSize = 0x14C        // u8 observed matpacket stride; 0 until install runs (expect 0x3C)
 	mailboxFaceHookPatched = 0x14D       // u8 matpacket slots written by the most recent install pass
+	// Session 14: LOCAL Link's natural btp face state, published by
+	// the C side at the top of daPy_draw_hook BEFORE any swap. Layout
+	// matches FaceState (8 B = mat1_tex0, mat1_tex1, mat4_tex0,
+	// mat4_tex1, all u16 BE). broadcast-pose reads from here instead
+	// of resolving the live tev_block (which races with the bracket).
+	mailboxFaceStateLocal = 0x150
 )
 
 // Per-slot mailbox offsets for the face-state channel.

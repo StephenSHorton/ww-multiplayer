@@ -399,6 +399,28 @@ typedef struct {
     u8  face_hook_mp_size;                        // +0x14C
     u8  face_hook_patched_count;                  // +0x14D
     u8  _pad11[2];                                // +0x14E
+    // --- FACE-STATE LOCAL SNAPSHOT (session 14) -------------------------
+    // The LOCAL Link's natural btp face state, snapshotted from
+    // tev_block at the top of daPy_draw_hook BEFORE any
+    // face_emit_swap_for_slot fires. Layout matches FaceState above
+    // (8 B = mat1_tex0, mat1_tex1, mat4_tex0, mat4_tex1, all u16 BE).
+    //
+    // Why: broadcast-pose used to read tev_block+0x08 directly from
+    // Go-side via ReadProcessMemory. That read is async from the emu
+    // CPU and could land inside the bracket's save→swap→bake→restore
+    // window — shipping the swapped face_state value to the remote
+    // instead of btp's natural value. Surfaced visually under
+    // `face-sync-fake-loop 0xFFFF` testing 2026-05-06: the OTHER
+    // Dolphin's mini-link occasionally rendered missing pupils too,
+    // because broadcast-pose on the hammered Dolphin captured the
+    // bracket's transient FFFF and shipped it cross-network.
+    //
+    // Fix: publish btp's value here at hook entry (before swaps
+    // fire). broadcast-pose reads from this mailbox slot instead of
+    // tev_block — no race possible because this slot is only written
+    // at one point in the frame (hook entry, pre-swap), and Go-side
+    // reads see the latest stable value.
+    FaceState face_state_local;                   // +0x150 (8 B)
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)

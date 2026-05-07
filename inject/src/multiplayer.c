@@ -155,6 +155,10 @@ static u8* face_emit_mat4_tev = 0;     // J3DTevBlock* for mat[4] (cached)
 static u32 face_emit_saved_mat1 = 0;   // 4 bytes at tev+0x08 (texNo[0]:u16 BE | texNo[1]:u16 BE)
 static u32 face_emit_saved_mat4 = 0;
 static int face_emit_swap_active = 0;
+// Forward decl — defined alongside face_emit_swap_for_slot (search for
+// "session 14"). Called from daPy_draw_hook entry to snapshot btp's
+// natural value into the mailbox for race-free broadcast-pose capture.
+static void face_emit_publish_local(void* model_data);
 
 // Save-reload defensive reset. Called when we detect that Link's
 // mpCLModelData pointer has changed (or our cached one was nulled by an
@@ -922,6 +926,27 @@ static void face_emit_restore(void) {
     face_emit_swap_active = 0;
 }
 
+// Publish the LOCAL Link's natural btp face state into the mailbox
+// so broadcast-pose can read it cross-process without racing the
+// bracket's tev_block save/swap/restore window. Called once per
+// frame at the very top of daPy_draw_hook, BEFORE any swap fires —
+// so tev_block holds btp's true value at this point.
+//
+// Resolves tev_blocks on first call and caches them in the same
+// statics the swap path uses (so this is essentially free in steady
+// state — just two volatile reads and 8 mailbox bytes).
+static void face_emit_publish_local(void* model_data) {
+    if (!model_data) return;
+    face_emit_resolve_tevblocks(model_data);
+    if (!face_emit_mat1_tev || !face_emit_mat4_tev) return;
+    u32 m1 = *(volatile u32*)(face_emit_mat1_tev + J3DTEVBLOCK_TEXNO0_OFFSET);
+    u32 m4 = *(volatile u32*)(face_emit_mat4_tev + J3DTEVBLOCK_TEXNO0_OFFSET);
+    mailbox->face_state_local.mat1_tex0 = (u16)(m1 >> 16);
+    mailbox->face_state_local.mat1_tex1 = (u16)(m1 & 0xFFFF);
+    mailbox->face_state_local.mat4_tex0 = (u16)(m4 >> 16);
+    mailbox->face_state_local.mat4_tex1 = (u16)(m4 & 0xFFFF);
+}
+
 // Initialize face_hook_vtable: copy the original J3DMatPacket vtable
 // (0x18 B from 0x8039D910), verify [draw] still equals 0x802DB494,
 // override [draw] with our shim. If the verification fails (game
@@ -1368,6 +1393,13 @@ int daPy_draw_hook(void* this_) {
     // Link's data → step 3 (separate ModelData). Reached 38 then crash
     // later ⇒ pollution lives outside j3dSys (statics or shared MtxCalc).
     mailbox->draw_progress = 30;
+
+    // SESSION 14: snapshot LOCAL Link's natural btp eye state into
+    // mailbox.face_state_local for race-free broadcast-pose capture.
+    // Must run BEFORE any face_emit_swap_for_slot call below — at this
+    // point tev_block still holds btp's frame value (no swap has fired
+    // yet this draw). No-op if mini_link_data isn't resolved yet.
+    face_emit_publish_local(mini_link_data);
 
     // SESSION 6 mode-1 freeze diagnostics. Capture the safety-check
     // inputs every frame so Go can decide if the safety check is the
