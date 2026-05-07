@@ -190,6 +190,22 @@ func runMpLocal(nameA, nameB string) {
 		os.Exit(1)
 	}
 
+	// Auto-arm the face-state sync hook on both Dolphins. C side
+	// (face_hook_process_arm) picks this up next frame and installs
+	// once mini_link_state == 1. Symmetrical disarm in teardown below.
+	for i, pid := range []uint32{pidA, pidB} {
+		d, err := dolphin.FindByPID(pid, "GZLE01")
+		if err != nil {
+			report.Logf(rep, report.Warn, "couldn't arm face-hook on Dolphin %c (pid %d): %v", 'A'+rune(i), pid, err)
+			continue
+		}
+		if err := d.WriteAbsolute(mailboxBase+mailboxFaceHookEnable, []byte{1}); err != nil {
+			report.Logf(rep, report.Warn, "couldn't arm face-hook on Dolphin %c: %v", 'A'+rune(i), err)
+		}
+		d.Close()
+	}
+	rep.Log(report.OK, "Face-state sync armed on both Dolphins.")
+
 	// When both Dolphins boot from the same SAVE_STATE, both Links
 	// spawn at literally the same world coords and visually overlap.
 	// Use the C-side warp handler (which sets l_debug_keep_pos +
@@ -276,8 +292,10 @@ func runMpLocal(nameA, nameB string) {
 			continue
 		}
 		d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{0})
+		d.WriteAbsolute(mailboxBase+mailboxFaceHookEnable, []byte{0})
 		for j := 0; j < maxRemoteLinks; j++ {
 			d.WriteAbsolute(mailboxBase+mailboxPoseSeq(j), []byte{0})
+			d.WriteAbsolute(mailboxBase+mailboxFaceSeq(j), []byte{0})
 		}
 		d.Close()
 	}
