@@ -1371,6 +1371,51 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
      phase is bit-identical and natural face-sync remains invisible
      without synthetic intervention. Diverged save states or per-
      Dolphin cutscene triggers still on the to-do list.
+
+   **Session 15 (2026-05-07) — mouth sync landed:**
+
+   - **Mouth materials identified.** `face-mat-list` enumerates Link's
+     J3DModelData (24 materials). `face-mat-hammer <idx>` hammers a
+     single material's `tev_block.texno` so we can probe what each
+     material renders. Confirmed: **mat[14] and mat[15] are the
+     mouth.** Both visibly highlight the mouth area when their texno
+     is hammered to 0x0099. Idle texno values: mat[14]=(0x001D,
+     0x0023), mat[15]=(0x0025, 0x0023). Other findings: mat[1]/mat[4]
+     = pupils (known), mat[2]/mat[5] = symmetric eye-related material
+     (eyelid or eye white?), mat[3]/mat[6] = no visible effect.
+
+   - **FaceState extended 8 B → 16 B.** Added mat14_tex0/tex1 and
+     mat15_tex0/tex1 fields. Mailbox layout shifted: `face_seqs`
+     0x140→0x150, all `face_hook_*` fields +0x10, `face_state_local`
+     0x150→0x160. `faceStateWireBytes = 16`. Old wire/blob
+     incompatible; single-developer project so no backward-compat
+     shim. Required save-state recapture; `saves/start.sav` refreshed
+     against the new blob.
+
+   - **Bracket extended to 4 materials.** `face_emit_resolve_tevblocks`,
+     `face_emit_swap_for_slot`, `face_emit_restore`, and
+     `face_emit_publish_local` all gained mat[14]/mat[15] branches
+     using the same idiom as the eye materials.
+
+   - **Verified asymmetric end-to-end.** With mp-local running,
+     hammering D-0 mat[14] tev_block produced:
+     - D-0 local Link mouth = highlighted (direct hammer)
+     - D-0 mini-link mouth = normal (D-0.face_state[0] = D-1's natural)
+     - D-1 local Link mouth = normal (untouched)
+     - D-1 mini-link mouth = highlighted (D-1.face_state[0] received
+       D-0's hammered value via the publish→broadcast→puppet-sync
+       chain)
+
+     Each window shows ONE Link with highlighted mouth — different
+     Link in each window. Exactly the predicted propagation. Mouth
+     state goes through the same plumbing as eyes; the bracket and
+     mailbox layout are the load-bearing pieces, per-material wiring
+     is mechanical.
+
+   - **Open follow-ups still pending:** visual proof under natural
+     btp divergence (still requires diverged save states or async
+     cutscene), and the cosmetic `face_hook_state=0xFC` from the
+     no-op shim's stride probe.
 10. **Leverage existing Dolphin cheats for test setup.** Manual test
     setup eats time getting Link into a state where multiplayer
     features are exercisable (sailing for ocean tests, specific items

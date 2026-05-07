@@ -85,11 +85,23 @@ typedef struct {
 } Puppet;
 
 // See "FACE-STATE NETWORK SYNC" block in Mailbox below for context.
+//
+// Session 15: extended from 8 B to 16 B to also carry mouth state.
+// mat[14] and mat[15] are Link's two mouth materials (confirmed via
+// per-material hammer probe — both visibly highlight the mouth area
+// when their tev_block.texno is hammered to a foreign value). Layout
+// matches J3DTevBlock+0x08..+0x0B for each material:
+//   matN_tex0 = u16 BE @ tev+0x08
+//   matN_tex1 = u16 BE @ tev+0x0A
 typedef struct {
-    u16 mat1_tex0;
+    u16 mat1_tex0;    // left pupil
     u16 mat1_tex1;
-    u16 mat4_tex0;
+    u16 mat4_tex0;    // right pupil
     u16 mat4_tex1;
+    u16 mat14_tex0;   // mouth A (texno[0]=0x001D in default state)
+    u16 mat14_tex1;
+    u16 mat15_tex0;   // mouth B (texno[0]=0x0025 in default state)
+    u16 mat15_tex1;
 } FaceState;
 
 // Total mailbox size = 0x10 + MAX_PUPPETS * 0x20 + 0x04 tail. With 4 slots: 0x94 B.
@@ -357,9 +369,9 @@ typedef struct {
     // FaceState is declared near the top of this file (before Mailbox)
     // so other TUs / tests can include it without unwrapping the Mailbox
     // struct.
-    FaceState face_state[MAILBOX_POSE_SLOT_CAP];  // +0x130 (8 B each)
-    u8  face_seqs[MAILBOX_POSE_SLOT_CAP];         // +0x140 (1 B each)
-    u8  _pad9[2];                                 // +0x142 (align)
+    FaceState face_state[MAILBOX_POSE_SLOT_CAP];  // +0x130 (16 B each, session 15)
+    u8  face_seqs[MAILBOX_POSE_SLOT_CAP];         // +0x150 (1 B each)
+    u8  _pad9[2];                                 // +0x152 (align)
     // Diagnostics for the face-state hook so Go can confirm it fired.
     //   face_hook_state — 0 unset, 1 vtable copied + matpackets patched,
     //                     0xFE J3DMatPacket vtable[draw] mismatch (skipped),
@@ -367,7 +379,7 @@ typedef struct {
     //   face_hook_swaps — saturating count of frames the shim actually
     //                     swapped tevBlock bytes for any slot. Bumped
     //                     once per draw call, not once per slot.
-    u8  face_hook_state;                          // +0x144
+    u8  face_hook_state;                          // +0x154
     // Kill-switch / arm flag for the J3DMatPacket vtable patch.
     // Default 0 = don't touch matpackets at create time. Go writes 1
     // to ARM (next frame, the C side validates the layout and patches
@@ -384,9 +396,9 @@ typedef struct {
     // consecutive vtable pointers, etc.) BEFORE flipping the switch.
     // Same gate also lets us toggle the hook off in-flight if a future
     // build's matpacket layout drifts.
-    u8  face_hook_enable;                         // +0x145
-    u8  _pad10[2];                                // +0x146
-    u32 face_hook_swaps;                          // +0x148
+    u8  face_hook_enable;                         // +0x155
+    u8  _pad10[2];                                // +0x156
+    u32 face_hook_swaps;                          // +0x158
     // Sanity-check fields published by the C-side install. Read by Go
     // to decide whether arming was successful.
     //   face_hook_mp_size      — observed matpacket stride (computed
@@ -396,14 +408,14 @@ typedef struct {
     //   face_hook_patched_count — how many matpacket vtable slots we
     //                            actually rewrote (target = 2 per
     //                            mini-link slot when armed).
-    u8  face_hook_mp_size;                        // +0x14C
-    u8  face_hook_patched_count;                  // +0x14D
-    u8  _pad11[2];                                // +0x14E
+    u8  face_hook_mp_size;                        // +0x15C
+    u8  face_hook_patched_count;                  // +0x15D
+    u8  _pad11[2];                                // +0x15E
     // --- FACE-STATE LOCAL SNAPSHOT (session 14) -------------------------
     // The LOCAL Link's natural btp face state, snapshotted from
     // tev_block at the top of daPy_draw_hook BEFORE any
     // face_emit_swap_for_slot fires. Layout matches FaceState above
-    // (8 B = mat1_tex0, mat1_tex1, mat4_tex0, mat4_tex1, all u16 BE).
+    // (16 B as of session 15 — eyes + mouth, all u16 BE).
     //
     // Why: broadcast-pose used to read tev_block+0x08 directly from
     // Go-side via ReadProcessMemory. That read is async from the emu
@@ -420,7 +432,7 @@ typedef struct {
     // tev_block — no race possible because this slot is only written
     // at one point in the frame (hook entry, pre-swap), and Go-side
     // reads see the latest stable value.
-    FaceState face_state_local;                   // +0x150 (8 B)
+    FaceState face_state_local;                   // +0x160 (16 B, session 15)
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)

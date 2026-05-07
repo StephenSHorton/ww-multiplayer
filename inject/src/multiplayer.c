@@ -150,10 +150,14 @@ static void face_hook_process_arm(void);
 // face_emit_* statics live up here (not next to their definitions further
 // down) because mini_link_reset_state references them on save reload, and
 // C requires declarations to precede references.
-static u8* face_emit_mat1_tev = 0;     // J3DTevBlock* for mat[1] (cached)
-static u8* face_emit_mat4_tev = 0;     // J3DTevBlock* for mat[4] (cached)
+static u8* face_emit_mat1_tev = 0;     // J3DTevBlock* for mat[1]  (left pupil)
+static u8* face_emit_mat4_tev = 0;     // J3DTevBlock* for mat[4]  (right pupil)
+static u8* face_emit_mat14_tev = 0;    // J3DTevBlock* for mat[14] (mouth A) — session 15
+static u8* face_emit_mat15_tev = 0;    // J3DTevBlock* for mat[15] (mouth B) — session 15
 static u32 face_emit_saved_mat1 = 0;   // 4 bytes at tev+0x08 (texNo[0]:u16 BE | texNo[1]:u16 BE)
 static u32 face_emit_saved_mat4 = 0;
+static u32 face_emit_saved_mat14 = 0;
+static u32 face_emit_saved_mat15 = 0;
 static int face_emit_swap_active = 0;
 // Forward decl — defined alongside face_emit_swap_for_slot (search for
 // "session 14"). Called from daPy_draw_hook entry to snapshot btp's
@@ -240,6 +244,8 @@ static void mini_link_reset_state(void) {
     // face_emit_resolve_tevblocks lazy-recaches on the next swap call.
     face_emit_mat1_tev = 0;
     face_emit_mat4_tev = 0;
+    face_emit_mat14_tev = 0;
+    face_emit_mat15_tev = 0;
     face_emit_swap_active = 0;
 }
 
@@ -876,7 +882,8 @@ static void face_hook_draw_shim(void* matpacket_v) {
 // cache them in the face_emit_mat1_tev / face_emit_mat4_tev statics
 // declared near the top of the file (alongside the other forward decls).
 static void face_emit_resolve_tevblocks(void* model_data_v) {
-    if (face_emit_mat1_tev && face_emit_mat4_tev) return;
+    if (face_emit_mat1_tev && face_emit_mat4_tev
+        && face_emit_mat14_tev && face_emit_mat15_tev) return;
     if (!model_data_v) return;
     u8* model_data = (u8*)model_data_v;
     // J3DModelData + 0x58 = mMaterialTable. mMaterialTable + 0x08 =
@@ -884,10 +891,14 @@ static void face_emit_resolve_tevblocks(void* model_data_v) {
     // main.go: dataPtr + 0x58 + 0x08).
     u8** matarr = *(u8***)(model_data + 0x58 + 0x08);
     if (!matarr) return;
-    u8* m1 = matarr[1];
-    u8* m4 = matarr[4];
-    if (m1) face_emit_mat1_tev = *(u8**)(m1 + J3DMATERIAL_TEV_BLOCK_OFFSET);
-    if (m4) face_emit_mat4_tev = *(u8**)(m4 + J3DMATERIAL_TEV_BLOCK_OFFSET);
+    u8* m1  = matarr[1];
+    u8* m4  = matarr[4];
+    u8* m14 = matarr[14];
+    u8* m15 = matarr[15];
+    if (m1)  face_emit_mat1_tev  = *(u8**)(m1  + J3DMATERIAL_TEV_BLOCK_OFFSET);
+    if (m4)  face_emit_mat4_tev  = *(u8**)(m4  + J3DMATERIAL_TEV_BLOCK_OFFSET);
+    if (m14) face_emit_mat14_tev = *(u8**)(m14 + J3DMATERIAL_TEV_BLOCK_OFFSET);
+    if (m15) face_emit_mat15_tev = *(u8**)(m15 + J3DMATERIAL_TEV_BLOCK_OFFSET);
 }
 
 // Swap mat[1] / mat[4] tev_block.texno to face_state[slot] values.
@@ -901,17 +912,22 @@ static void face_emit_swap_for_slot(int slot, void* model_data) {
     if (mailbox->face_seqs[slot] == 0) return;
     if (face_emit_swap_active) return;  // defensive — should never nest
     face_emit_resolve_tevblocks(model_data);
-    if (!face_emit_mat1_tev || !face_emit_mat4_tev) return;
+    if (!face_emit_mat1_tev  || !face_emit_mat4_tev
+     || !face_emit_mat14_tev || !face_emit_mat15_tev) return;
 
-    face_emit_saved_mat1 = *(volatile u32*)(face_emit_mat1_tev + J3DTEVBLOCK_TEXNO0_OFFSET);
-    face_emit_saved_mat4 = *(volatile u32*)(face_emit_mat4_tev + J3DTEVBLOCK_TEXNO0_OFFSET);
+    face_emit_saved_mat1  = *(volatile u32*)(face_emit_mat1_tev  + J3DTEVBLOCK_TEXNO0_OFFSET);
+    face_emit_saved_mat4  = *(volatile u32*)(face_emit_mat4_tev  + J3DTEVBLOCK_TEXNO0_OFFSET);
+    face_emit_saved_mat14 = *(volatile u32*)(face_emit_mat14_tev + J3DTEVBLOCK_TEXNO0_OFFSET);
+    face_emit_saved_mat15 = *(volatile u32*)(face_emit_mat15_tev + J3DTEVBLOCK_TEXNO0_OFFSET);
 
-    u32 mat1_val = ((u32)mailbox->face_state[slot].mat1_tex0 << 16)
-                 | (u32)mailbox->face_state[slot].mat1_tex1;
-    u32 mat4_val = ((u32)mailbox->face_state[slot].mat4_tex0 << 16)
-                 | (u32)mailbox->face_state[slot].mat4_tex1;
-    *(volatile u32*)(face_emit_mat1_tev + J3DTEVBLOCK_TEXNO0_OFFSET) = mat1_val;
-    *(volatile u32*)(face_emit_mat4_tev + J3DTEVBLOCK_TEXNO0_OFFSET) = mat4_val;
+    u32 mat1_val  = ((u32)mailbox->face_state[slot].mat1_tex0  << 16) | (u32)mailbox->face_state[slot].mat1_tex1;
+    u32 mat4_val  = ((u32)mailbox->face_state[slot].mat4_tex0  << 16) | (u32)mailbox->face_state[slot].mat4_tex1;
+    u32 mat14_val = ((u32)mailbox->face_state[slot].mat14_tex0 << 16) | (u32)mailbox->face_state[slot].mat14_tex1;
+    u32 mat15_val = ((u32)mailbox->face_state[slot].mat15_tex0 << 16) | (u32)mailbox->face_state[slot].mat15_tex1;
+    *(volatile u32*)(face_emit_mat1_tev  + J3DTEVBLOCK_TEXNO0_OFFSET) = mat1_val;
+    *(volatile u32*)(face_emit_mat4_tev  + J3DTEVBLOCK_TEXNO0_OFFSET) = mat4_val;
+    *(volatile u32*)(face_emit_mat14_tev + J3DTEVBLOCK_TEXNO0_OFFSET) = mat14_val;
+    *(volatile u32*)(face_emit_mat15_tev + J3DTEVBLOCK_TEXNO0_OFFSET) = mat15_val;
 
     face_emit_swap_active = 1;
     u32 cur = mailbox->face_hook_swaps;
@@ -920,9 +936,12 @@ static void face_emit_swap_for_slot(int slot, void* model_data) {
 
 static void face_emit_restore(void) {
     if (!face_emit_swap_active) return;
-    if (!face_emit_mat1_tev || !face_emit_mat4_tev) return;
-    *(volatile u32*)(face_emit_mat1_tev + J3DTEVBLOCK_TEXNO0_OFFSET) = face_emit_saved_mat1;
-    *(volatile u32*)(face_emit_mat4_tev + J3DTEVBLOCK_TEXNO0_OFFSET) = face_emit_saved_mat4;
+    if (!face_emit_mat1_tev  || !face_emit_mat4_tev
+     || !face_emit_mat14_tev || !face_emit_mat15_tev) return;
+    *(volatile u32*)(face_emit_mat1_tev  + J3DTEVBLOCK_TEXNO0_OFFSET) = face_emit_saved_mat1;
+    *(volatile u32*)(face_emit_mat4_tev  + J3DTEVBLOCK_TEXNO0_OFFSET) = face_emit_saved_mat4;
+    *(volatile u32*)(face_emit_mat14_tev + J3DTEVBLOCK_TEXNO0_OFFSET) = face_emit_saved_mat14;
+    *(volatile u32*)(face_emit_mat15_tev + J3DTEVBLOCK_TEXNO0_OFFSET) = face_emit_saved_mat15;
     face_emit_swap_active = 0;
 }
 
@@ -938,13 +957,20 @@ static void face_emit_restore(void) {
 static void face_emit_publish_local(void* model_data) {
     if (!model_data) return;
     face_emit_resolve_tevblocks(model_data);
-    if (!face_emit_mat1_tev || !face_emit_mat4_tev) return;
-    u32 m1 = *(volatile u32*)(face_emit_mat1_tev + J3DTEVBLOCK_TEXNO0_OFFSET);
-    u32 m4 = *(volatile u32*)(face_emit_mat4_tev + J3DTEVBLOCK_TEXNO0_OFFSET);
-    mailbox->face_state_local.mat1_tex0 = (u16)(m1 >> 16);
-    mailbox->face_state_local.mat1_tex1 = (u16)(m1 & 0xFFFF);
-    mailbox->face_state_local.mat4_tex0 = (u16)(m4 >> 16);
-    mailbox->face_state_local.mat4_tex1 = (u16)(m4 & 0xFFFF);
+    if (!face_emit_mat1_tev  || !face_emit_mat4_tev
+     || !face_emit_mat14_tev || !face_emit_mat15_tev) return;
+    u32 m1  = *(volatile u32*)(face_emit_mat1_tev  + J3DTEVBLOCK_TEXNO0_OFFSET);
+    u32 m4  = *(volatile u32*)(face_emit_mat4_tev  + J3DTEVBLOCK_TEXNO0_OFFSET);
+    u32 m14 = *(volatile u32*)(face_emit_mat14_tev + J3DTEVBLOCK_TEXNO0_OFFSET);
+    u32 m15 = *(volatile u32*)(face_emit_mat15_tev + J3DTEVBLOCK_TEXNO0_OFFSET);
+    mailbox->face_state_local.mat1_tex0  = (u16)(m1  >> 16);
+    mailbox->face_state_local.mat1_tex1  = (u16)(m1  & 0xFFFF);
+    mailbox->face_state_local.mat4_tex0  = (u16)(m4  >> 16);
+    mailbox->face_state_local.mat4_tex1  = (u16)(m4  & 0xFFFF);
+    mailbox->face_state_local.mat14_tex0 = (u16)(m14 >> 16);
+    mailbox->face_state_local.mat14_tex1 = (u16)(m14 & 0xFFFF);
+    mailbox->face_state_local.mat15_tex0 = (u16)(m15 >> 16);
+    mailbox->face_state_local.mat15_tex1 = (u16)(m15 & 0xFFFF);
 }
 
 // Initialize face_hook_vtable: copy the original J3DMatPacket vtable
