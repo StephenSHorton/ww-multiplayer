@@ -50,7 +50,7 @@ ww-multiplayer/
 │   └── release.yml              # CI: build + release on tag push
 └── docs/                        # IMPORTANT - read before debugging
     ├── 01-architecture.md, 02-dolphin-memory.md, 03-code-injection.md
-    ├── 04-ww-addresses.md, 05-known-issues.md, 06-roadmap.md
+    ├── 04-ww-addresses.md, 05-known-issues.md, 06-history.md
 ```
 
 ## Commands

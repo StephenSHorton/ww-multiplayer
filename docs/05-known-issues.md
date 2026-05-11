@@ -88,7 +88,7 @@ The mailbox lives between our T2 code section end and `__OSArenaLo = 0x80411000`
 
 ## Mini-Link render pipeline — SKINNED LINK WORKING (2026-04-19)
 
-Option B plan from `docs/06-roadmap.md`: render a second model from our
+Option B plan from `docs/06-history.md`: render a second model from our
 own code, separate from the actor system. **Breakthrough 2026-04-19
 (late)**: skinned Link renders end-to-end alongside Link #1, no crash,
 sky clean. Mirrors Link #1's pose for now (joint callbacks act on

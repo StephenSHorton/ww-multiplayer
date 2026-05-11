@@ -29,7 +29,7 @@ Known limits:
   re-signs it without the hardened runtime, which lets AMFI permit
   `task_for_pid` against it. After that, no sudo is needed.
 
-See `docs/06-roadmap.md` for the full feature/known-issue list.
+Active work is tracked in [GitHub issues](../../issues) — epics group related items, sub-issues are concrete tasks. `docs/06-history.md` is the session-by-session log of how the pipeline was built (precious for debugging).
 
 ## Quick start (end users)
 
@@ -137,7 +137,8 @@ cd .. && python scripts/extract_blob.py  # regenerates blob.go
 ## Contributing / hacking
 
 - `docs/01-architecture.md` — how the pieces fit together
-- `docs/06-roadmap.md` — what's next
+- `docs/06-history.md` — session-by-session log of what was built and why
+- [GitHub issues](../../issues) — what's next, organized by epic
 - `SETUP.md` — what you need to install if you want to work on the C
   injection side (devkitPPC, Freighter, wit, etc.)
 

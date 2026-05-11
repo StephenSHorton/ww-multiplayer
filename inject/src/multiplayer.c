@@ -1975,7 +1975,7 @@ int daPy_draw_hook(void* this_) {
             // mDoExt with cl_eye+cl_mayu joints temporarily NULL'd to prevent
             // the chain cycle). Mailbox value 0 = "use default 8"; non-zero =
             // explicit override (1-8 = intermediate recipe stages for diagnosis).
-            // See docs/06-roadmap.md "Eye-fix attempt 4 session 7" for the
+            // See docs/06-history.md "Eye-fix attempt 4 session 7" for the
             // full recipe-vs-mDoExt conflict resolution that made this work.
             u8 eye_step = mailbox->eye_fix_step;
             if (eye_step == 0) eye_step = 8;

@@ -71,4 +71,4 @@ The v0.0 Bubble Tea TUI in `internal/tui/` was removed in v0.1.2 (it predated th
 - `ww-multiplayer.exe server` / `broadcast-pose` / `puppet-sync` — lower-level building blocks used by `scripts/mplay2.sh` for two-Dolphin local harness.
 - `ww-multiplayer.exe debug`, `ww-multiplayer.exe dump`, `ww-multiplayer.exe shadow-mode` — diagnostic CLIs. Plain-text output — good for piping into agents.
 
-A successor TUI built on top of `host` / `join` could land later (status panel + Ctrl+C-safe shutdown button); see `docs/06-roadmap.md`.
+A successor TUI built on top of `host` / `join` could land later (status panel + Ctrl+C-safe shutdown button); tracked in [issue #19](https://github.com/StephenSHorton/ww-multiplayer/issues/19).

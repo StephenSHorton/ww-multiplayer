@@ -46,7 +46,7 @@ cd inject && python build.py && python patch_iso.py
 wit copy "<roms>/Wind Waker.ciso" "<roms>/WW_Multiplayer_Patched.iso" --iso --trunc --overwrite
 
 # 3. Patch DOL into the ISO and shift the FST (Python snippet — see git history
-#    or docs/06-roadmap.md for the exact code; ~20 lines)
+#    or docs/06-history.md "Build Pipeline" for the exact code; ~20 lines)
 
 # 4. Force Dolphin to re-scan
 rm "%APPDATA%/Dolphin Emulator/Cache/gamelist.cache"
@@ -62,5 +62,6 @@ cd ~/projects/ww-multiplayer && go build -o ww-multiplayer.exe .
 
 ## See also
 - `CLAUDE.md` — context for AI sessions
-- `docs/01-architecture.md` through `docs/06-roadmap.md` — design + history + next steps
+- `docs/01-architecture.md` through `docs/06-history.md` — design + session-by-session history
+- [GitHub issues](https://github.com/StephenSHorton/ww-multiplayer/issues) — open work, grouped by epic
 - `docs/05-known-issues.md` — current blocker (ClearArena wipes injected code)

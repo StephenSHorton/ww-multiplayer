@@ -1,4 +1,8 @@
-# Roadmap
+# Project History & Learnings
+
+This doc is the session-by-session log of how the multiplayer pipeline was built — what was tried, what failed, and the working recipes that emerged. It's deliberately verbose: future debugging often hinges on knowing what's been ruled out and *why*.
+
+**Looking for what's next?** Open work is tracked in [GitHub issues](https://github.com/StephenSHorton/ww-multiplayer/issues) — epics group related items, sub-issues are concrete tasks.
 
 ## ✅ Done
 
@@ -544,23 +548,7 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
    of `host`/`join` (status panel, log tail, Ctrl+C-safe shutdown
    button) is tracked as a separate "polish" item if/when someone
    misses the interface.
-3. **Visual differentiation.** Two Links look identical. Color tinting
-   via TEV color override (every draw frame, post-mini-link entry).
-   Easier than the actor-side work for KAMOME because we own the model.
-4. **Anim-state sync (bandwidth).** Replace 2 KB raw matrix dumps with
-   anim ID + frame counter (~16 B/tick). Requires REing Link's anim
-   layer stack (bck/bca/bnk/bnn). Defer until LAN-only assumption breaks.
-5. **Stage / room transitions.** Detect when remote crosses to another
-   room and either despawn or freeze Link #2. Currently he just renders
-   wherever the last received world coord was.
-6. **Reconnect / lossy network.** Tonight the protocol assumes TCP
-   reliable delivery; UDP with sequence numbers would let us drop
-   stale poses without head-of-line blocking.
-7. **N=1 mild flicker on Link #2.** Observed during this session's
-   regression test as "every 2-4 seconds, very minimal" — same
-   shared-J3DModelData state pollution noted previously. Cosmetic,
-   not blocking; either a TEV bucket residue from cross-instance
-   entry() ordering or a per-frame race against Link #1's own draw.
+3-7. *Moved to [GitHub issues](https://github.com/StephenSHorton/ww-multiplayer/issues) — see epics #24 (rendering) and #25 (network).*
 8. ~~**`puppet-sync` graceful-shutdown signal handler.**~~ FULLY
    SHIPPED across v0.1.1 (`ww-multiplayer.exe host/join`) and v0.1.3 (standalone
    `ww-multiplayer.exe broadcast-pose` + `ww-multiplayer.exe puppet-sync` — both CLI
@@ -1063,7 +1051,7 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
      counter on bail.
    - `main.go`: `eye-fix-mode-probe` subcommand + 5 mailbox-offset
      constants.
-   - `docs/06-roadmap.md`: this entry.
+   - `docs/06-history.md`: this entry.
 
    **Next-session direction (issue 2 — mode 2's static cycle).** Mode
    1 ships eye decals on the remote link but hides the local Link.
@@ -1416,24 +1404,7 @@ in one process per player, with `WW_SELF_NAME` wired automatically.
      btp divergence (still requires diverged save states or async
      cutscene), and the cosmetic `face_hook_state=0xFC` from the
      no-op shim's stride probe.
-10. **Leverage existing Dolphin cheats for test setup.** Manual test
-    setup eats time getting Link into a state where multiplayer
-    features are exercisable (sailing for ocean tests, specific items
-    for interaction sync, story flags for door behavior). Dolphin
-    already supports Action Replay + Gecko codes via
-    `<USER_DIR>/GameSettings/GZLE01.ini` (and per-game GCI). There are
-    plenty of existing WW code packs (give all items, story-skip,
-    instant-warp-to-island, etc.).
-    
-    Goal is **integration, not authoring**: bundle a curated `.ini`
-    in the repo (e.g. `cheats/GZLE01.ini`), and have `dolphin2` copy
-    or symlink it into both `USER_DIR_1` and `USER_DIR_2` if missing.
-    User picks which cheats to enable via Dolphin's GUI. Combined
-    with `SAVE_STATE` and our `warp` subcommand, that's a complete
-    "skip the playthrough" test pipeline without us writing any
-    Game Boy Advance addresses ourselves.
-    
-    Lightweight; no decomp work, no `cheat` subcommand to build. ~30 min.
+10. *Moved to [GitHub issue #17](https://github.com/StephenSHorton/ww-multiplayer/issues/17) — bundle Dolphin cheats .ini for test setup.*
 
 11. ~~**Leg morph on slopes.**~~ SHIPPED in v0.1.3 (2026-04-22).
     Diagnostic result: leg flap was FLAT-GROUND-ABSENT, appeared
@@ -1785,13 +1756,6 @@ stable foundation for anything per-frame. A third `hook_branchlink` was
 added 2026-04-19 at `0x80108210` inside `daPy_Draw` for running code in
 Link's draw phase — see `docs/05-known-issues.md` → "Mini-Link render
 pipeline" for the shape.
-- [ ] Wire up network → actor position pipeline (Player A's pos → server → Player B's mailbox → Player B's Link #2 renders)
-- [ ] Add animation state sync (`mCurProc` at actor + `0x31D8`)
-- [ ] Add rotation sync (`shape_angle` at `0x20C`)
-- [ ] Color-differentiate Player 2 (modify TEV palette data)
-- [ ] Handle room/stage transitions (despawn/respawn Player 2 when players change rooms)
-- [ ] Implement presence indicator (show "Player 2 is on Outset Island" when out of view)
-- [ ] Handle Player 2 disconnection gracefully
 
 ## 🏗️ Build Pipeline
 
@@ -1811,25 +1775,3 @@ The full loop, current as of this session:
 6. Delete `%APPDATA%/Dolphin Emulator/Cache/gamelist.cache` (if present) and restart Dolphin
 7. Boot the patched ISO — **no Gecko codes / Dolphin patches enabled** (they fight the DOL)
 8. `./ww-multiplayer.exe dump` to verify: mailbox counter at `0x80410F00` increments, T2 code at `0x80410000` is intact, main01 hook at `0x80006338` shows `0x484XXXXX` (a `bl`)
-
-## 🚀 Polish
-
-- [ ] Better TUI dashboard: show remote players' positions on a mini-map
-- [ ] Chat system (already have protocol support, need UI)
-- [ ] Audio notifications when players join/leave
-- [ ] Configurable port / multiplayer settings
-- [ ] Installer / distribution: bundle Go binary + DOL patcher tool
-
-## 🤔 Long-Term Questions
-
-- How do we handle save files? Two players have separate saves with their own progress.
-- What about combat? If one player attacks an enemy, does the other see it die?
-- Puzzle rooms: one player solves a puzzle, does the door open for both?
-- This starts to sound like a genuine co-op mod, not just a multiplayer viewer. Scope carefully.
-
-## Known Untested
-
-- Multiple clients connecting at once (server was tested with 2 fake clients, not stress-tested)
-- IPv6 support
-- Network reliability over the internet (tested on LAN only)
-- Firewall / NAT traversal for non-LAN play
