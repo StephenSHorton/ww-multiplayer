@@ -2,6 +2,8 @@
 
 ![splash](docs/img/splash.png)
 
+![Two Dolphin windows showing each player's Link rendered in the other's game on Outset Island](docs/img/two-links-ingame.png)
+
 Real-time visual multiplayer for The Legend of Zelda: The Wind Waker on Dolphin.
 Each player runs `ww-multiplayer` alongside their own Dolphin instance — positions and
 skeletal poses are shared over TCP so each side sees the other's real Link
