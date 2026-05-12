@@ -1,0 +1,18 @@
+# Normalize all text files to LF in the repo and on disk on every platform.
+# Avoids the Windows-side CRLF stat-cache headache without needing
+# core.autocrlf set per-machine.
+* text=auto eol=lf
+
+# Shell scripts must be LF — CRLF breaks bash on Linux/macOS.
+*.sh text eol=lf
+
+# Explicit binaries — never touched by line-ending rules.
+*.png binary
+*.ico binary
+*.syso binary
+*.dol binary
+*.iso binary
+*.ciso binary
+*.exe binary
+*.sav binary
+*.bin binary
