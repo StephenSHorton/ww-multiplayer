@@ -997,6 +997,14 @@ static void face_hook_init_vtable(void) {
     face_hook_vtable_initialized = 1;
 }
 
+// Cached stride from the first successful probe. Stride is a build
+// constant (0x3C for GZLE01), so once observed it can never change.
+// Caching is load-bearing: after the first install rewrites mat[1]'s
+// vtable, the probe's [+0x30, +0x60) scan no longer finds the original
+// vtable at +0x3C and would return 0, flipping face_hook_state to 0xFC
+// every subsequent frame even though the install was already good.
+static u32 face_hook_cached_stride = 0;
+
 // Self-test the matpacket layout by walking consecutive vtable
 // pointers in the live matpacket array and computing the stride.
 // Returns the observed stride (0x3C in the GZLE01 build) or 0 if
@@ -1047,7 +1055,11 @@ static int face_hook_install_for_model(void* model_v, int slot) {
         return 0;
     }
 
-    u32 stride = face_hook_probe_stride(mp_array, 5);
+    u32 stride = face_hook_cached_stride;
+    if (stride == 0) {
+        stride = face_hook_probe_stride(mp_array, 5);
+        if (stride == J3DMATPACKET_SIZE) face_hook_cached_stride = stride;
+    }
     if (stride != 0) mailbox->face_hook_mp_size = (u8)stride;
     if (stride != J3DMATPACKET_SIZE) {
         mailbox->face_hook_state = 0xFC;
