@@ -58,6 +58,16 @@ def main():
     # docs/05-known-issues.md → "Mini-Link render pipeline".
     proj.hook_branchlink("daPy_draw_hook", 0x80108210)
 
+    # Input-injection hook. JUTGamePad::read at 0x802C3980 calls
+    # PADRead at 0x802C39A0; we replace that bl with a bl to
+    # pad_read_shim, which calls real PADRead first then optionally
+    # overrides mPadStatus[0] from the mailbox. JUTGamePad::read's
+    # downstream .update() derivations then pick up our synthetic
+    # values, so mPadButton[0] / mPadMStick[0] / mPadSStick[0] —
+    # what the game's logic actually reads — reflect the override.
+    # Disabled at idle (input_enable=0 ⇒ pass-through).
+    proj.hook_branchlink("pad_read_shim", 0x802C39A0)
+
     # Set entry function (required for linker)
     proj.set_entry_function("main01_init")
 

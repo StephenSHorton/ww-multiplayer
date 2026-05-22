@@ -75,6 +75,8 @@ go build -o ww-multiplayer.exe .
 
 # Diagnostics
 ./ww-multiplayer.exe screenshot [path]                  # PNG of the selected Dolphin's window (Win32; default path = dolphin-<pid>-<ts>.png)
+./ww-multiplayer.exe input <btns-hex> <stickX> <stickY> [ms=1000]   # Drive synthetic controller input via pad_read_shim. ms=0 holds until input-release.
+./ww-multiplayer.exe input-release                      # Disable pad_read_shim override (zero input_enable). Pair with `input ... 0`.
 ./ww-multiplayer.exe debug                              # Print Link's position for 5 sec
 ./ww-multiplayer.exe dump                               # Dump mailbox state (shadow_mode, pose seqs, etc.)
 ./ww-multiplayer.exe check                              # Mailbox + player pointers + BSS sanity check
@@ -229,6 +231,27 @@ something about the capture itself is broken — that's the new bar.
 For non-rendering tests (mailbox state, position sync, network protocol),
 memory reads + structured diagnostics are usually sufficient — no
 screenshot needed.
+
+### Driving the game with input
+
+`input` writes a synthetic PADStatus to the mailbox; the C-side
+`pad_read_shim` (hooked over `bl PADRead` at 0x802C39A0 inside
+`JUTGamePad::read`) overwrites `mPadStatus[0]` each frame while
+`input_enable` is set. Button masks: A=0x100 B=0x200 X=0x400 Y=0x800
+Start=0x1000 Z=0x10 R=0x20 L=0x40 DPad L=1 R=2 D=4 U=8. Stick X/Y are
+signed bytes (-128..+127). Don't write to `0x803ED84A` directly — that's
+`mPadButton[0]+2`, a downstream cache the game ignores for live input
+(only AR/Gecko *conditions* read it).
+
+Typical scripted-walk pattern:
+```bash
+WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe input 0x0000 0 100 2000   # stick forward 2s
+WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe input 0x0000 100 0 1000   # stick right 1s
+```
+
+Menu navigation from a cold ISO boot also works (intro skip with Start,
+file select with A); see how `auto-recapture` builds save states from
+scratch.
 
 ## Testing reference
 
