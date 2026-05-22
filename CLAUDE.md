@@ -74,6 +74,7 @@ go build -o ww-multiplayer.exe .
 ./ww-multiplayer.exe pose-test [mirror|freeze] [secs]   # Single-Dolphin sanity test for the pose pipeline
 
 # Diagnostics
+./ww-multiplayer.exe screenshot [path]                  # PNG of the selected Dolphin's window (Win32; default path = dolphin-<pid>-<ts>.png)
 ./ww-multiplayer.exe debug                              # Print Link's position for 5 sec
 ./ww-multiplayer.exe dump                               # Dump mailbox state (shadow_mode, pose seqs, etc.)
 ./ww-multiplayer.exe check                              # Mailbox + player pointers + BSS sanity check
@@ -148,12 +149,12 @@ The old C# Windwaker-coop (progress sync only) lives at `C:\Users\4step\Desktop\
 ## Working autonomously
 
 **Claude can run the full stack end-to-end without asking the user.** The
-ONLY two things that still require the human in the loop are (a) capturing
-a fresh `saves/start.sav` after a C-blob change, which needs Shift+F1 in
-Dolphin, and (b) visual-effect validation (eyes rendered? black rectangle?).
-Memory probing, chain dumping, building, patching, launching Dolphins,
-running the multiplayer pipeline, and tearing it all down are scripted —
-just run them.
+ONE thing that still requires the human is capturing a fresh
+`saves/start.sav` after a C-blob change (needs Shift+F1 in Dolphin).
+Everything else — memory probing, chain dumping, building, patching,
+launching Dolphins, running the multiplayer pipeline, **visually
+validating renders via `./ww-multiplayer.exe screenshot`**, and tearing
+it all down — is scripted. Just run them.
 
 ### Standard session bootstrap (no save-state cycle needed)
 
@@ -206,23 +207,33 @@ After a C-side change, the cycle is:
 Only step 4 needs the user. Pure Go-side changes don't invalidate the save
 state — skip the whole cycle.
 
-### Visual validation (the other manual step)
+### Visual validation (now self-serve)
 
-Memory reads can lie under Dolphin's dual mapping. **Don't claim a test
-succeeded based only on memory reads.** When testing rendering/visual
-behavior (eye decals, mini-link visibility, leg morph, etc.) the user
-has to look at the Dolphin window and report what they see. State that
-explicitly: "I've made the change. Can you check what Dolphin A and
-Dolphin B look like in-game?"
+Memory reads can lie under Dolphin's dual mapping. **Don't claim a
+rendering test succeeded based only on memory reads.** Instead, capture
+the actual frame and look at it yourself:
+
+```bash
+WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe screenshot /tmp/ww-A.png
+WW_DOLPHIN_INDEX=1 ./ww-multiplayer.exe screenshot /tmp/ww-B.png
+# then Read the PNGs back into your context
+```
+
+`screenshot` uses Win32 `PrintWindow` with `PW_RENDERFULLCONTENT`, so
+DirectX 12 / Vulkan backends are captured correctly (no black PNGs).
+For A/B comparisons (eye decals, mini-link visibility, leg morph, TEV
+tint, the #3 flicker, etc.) take one screenshot before the change, one
+after, and diff them by eye. Only ask the user to look manually if
+something about the capture itself is broken — that's the new bar.
 
 For non-rendering tests (mailbox state, position sync, network protocol),
-memory reads + structured diagnostics are usually sufficient — no human
-eyes needed.
+memory reads + structured diagnostics are usually sufficient — no
+screenshot needed.
 
 ## Testing reference
 
 - Memory tests require Dolphin running with Wind Waker (GZLE01) loaded.
-- For visual tests, see "Visual validation" above — get user confirmation.
+- For visual tests, see "Visual validation" above — capture via `screenshot` and look at the PNG yourself.
 - **Two-Dolphin loop** is the default test pattern (see "Standard session
   bootstrap" above). Dolphin B's Link gets warped by (+50, 0, +50) so the
   two players don't visually overlap. Override via
