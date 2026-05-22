@@ -13,10 +13,12 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"image/png"
 	"math"
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -66,6 +68,12 @@ func main() {
 		switch os.Args[1] {
 		case "debug":
 			runDebug()
+		case "screenshot":
+			out := ""
+			if len(os.Args) > 2 {
+				out = os.Args[2]
+			}
+			runScreenshot(out)
 		case "host":
 			name := ""
 			if len(os.Args) > 2 {
@@ -5762,6 +5770,60 @@ func runDebug() {
 		time.Sleep(200 * time.Millisecond)
 	}
 	fmt.Println("\nDone.")
+}
+
+// runScreenshot captures Dolphin's window via Win32 PrintWindow and
+// writes a PNG to the given path (or a sensible default if empty). Picks
+// the Dolphin instance using the standard env knobs — WW_DOLPHIN_PID
+// for an exact PID, WW_DOLPHIN_INDEX for the Nth GZLE01 process, or the
+// first match if neither is set.
+//
+// PrintWindow with PW_RENDERFULLCONTENT works for DirectX/Vulkan
+// backends on Windows 8.1+. If Dolphin's renderer happens to refuse it,
+// the call returns a clear error rather than a silently-black PNG.
+func runScreenshot(out string) {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	pid := d.PID()
+	d.Close()
+
+	hwnd, err := dolphin.FindWindowByPID(pid)
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	title := dolphin.WindowTitle(hwnd)
+
+	img, err := dolphin.CaptureWindow(hwnd)
+	if err != nil {
+		fmt.Printf("ERROR: capture: %v\n", err)
+		os.Exit(1)
+	}
+
+	if out == "" {
+		out = fmt.Sprintf("dolphin-%d-%s.png", pid, time.Now().Format("20060102-150405"))
+	}
+	if dir := filepath.Dir(out); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			fmt.Printf("ERROR: mkdir %s: %v\n", dir, err)
+			os.Exit(1)
+		}
+	}
+	f, err := os.Create(out)
+	if err != nil {
+		fmt.Printf("ERROR: create %s: %v\n", out, err)
+		os.Exit(1)
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		fmt.Printf("ERROR: encode: %v\n", err)
+		os.Exit(1)
+	}
+	b := img.Bounds()
+	fmt.Printf("Captured pid %d (%q) %dx%d → %s\n", pid, title, b.Dx(), b.Dy(), out)
 }
 
 func runServer() {
