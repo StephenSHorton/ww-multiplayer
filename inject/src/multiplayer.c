@@ -2040,3 +2040,51 @@ int daPy_draw_hook(void* this_) {
 
     return result;
 }
+
+// --- Input injection hook (synthetic PADStatus override) -------------
+// Replaces the bl PADRead at 0x802C39A0 inside JUTGamePad::read. The
+// shim calls real PADRead first so all four ports get populated as
+// usual, then conditionally overrides port-0 fields from the mailbox.
+// JUTGamePad::read then continues with its mPadButton/mPadMStick
+// .update() calls and derives downstream state from our synthetic
+// values — which is what game logic eventually reads. No race against
+// Dolphin's SI poll because we're inside the PPC call chain, not
+// hammering memory from outside the emulator.
+
+typedef struct {
+    u16 button;        // 0x00
+    s8  stick_x;       // 0x02
+    s8  stick_y;       // 0x03
+    s8  substick_x;    // 0x04
+    s8  substick_y;    // 0x05
+    u8  trigger_l;     // 0x06
+    u8  trigger_r;     // 0x07
+    u8  analog_a;      // 0x08
+    u8  analog_b;      // 0x09
+    s8  err;           // 0x0A
+    u8  _pad;          // 0x0B (alignment)
+} PADStatus;
+
+typedef u32 (*pad_read_fn)(PADStatus *buf);
+#define PADRead_orig ((pad_read_fn)0x80315A20)
+
+u32 pad_read_shim(PADStatus *buf) {
+    u32 result = PADRead_orig(buf);
+    if (mailbox->input_enable) {
+        buf[0].button     = mailbox->input_buttons;
+        buf[0].stick_x    = mailbox->input_stick_x;
+        buf[0].stick_y    = mailbox->input_stick_y;
+        buf[0].substick_x = mailbox->input_substick_x;
+        buf[0].substick_y = mailbox->input_substick_y;
+        buf[0].trigger_l  = mailbox->input_trigger_l;
+        buf[0].trigger_r  = mailbox->input_trigger_r;
+        buf[0].analog_a   = mailbox->input_analog_a;
+        buf[0].analog_b   = mailbox->input_analog_b;
+        // Force err=0 (PAD_ERR_NONE) so the game treats port 0 as a
+        // valid responding controller, not a disconnected one.
+        buf[0].err        = 0;
+        u32 cur = mailbox->input_overrides;
+        if (cur != 0xFFFFFFFFU) mailbox->input_overrides = cur + 1;
+    }
+    return result;
+}

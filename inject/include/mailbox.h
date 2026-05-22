@@ -433,6 +433,33 @@ typedef struct {
     // at one point in the frame (hook entry, pre-swap), and Go-side
     // reads see the latest stable value.
     FaceState face_state_local;                   // +0x160 (16 B, session 15)
+    // --- INPUT INJECTION (synthetic PADStatus override) ----------------
+    // Go writes input_enable=1 to make pad_read_shim (hooked over the
+    // bl PADRead inside JUTGamePad::read at 0x802C39A0) override
+    // mPadStatus[0] right after PADRead returns. Derivation downstream
+    // (mPadButton[0], mPadMStick[0], mPadSStick[0]) then picks up the
+    // synthetic values cleanly — no race with Dolphin's SI poll.
+    //
+    // Set input_enable=0 to release; pad_read_shim then becomes a
+    // pass-through. All input_* fields are zero in idle.
+    //
+    // Layout mirrors PADStatus from libogc/Dolphin (12 B total). We only
+    // override port 0 — that's the active player. Other ports are
+    // unchanged.
+    u8  input_enable;                             // +0x170
+    u8  _pad12[1];                                // +0x171
+    u16 input_buttons;                            // +0x172 — PADStatus.button bitfield
+    s8  input_stick_x;                            // +0x174 — main analog X (-128..+127, 0 centred)
+    s8  input_stick_y;                            // +0x175 — main analog Y
+    s8  input_substick_x;                         // +0x176 — C-stick X
+    s8  input_substick_y;                         // +0x177 — C-stick Y
+    u8  input_trigger_l;                          // +0x178 — L analog
+    u8  input_trigger_r;                          // +0x179 — R analog
+    u8  input_analog_a;                           // +0x17A — pressure on A
+    u8  input_analog_b;                           // +0x17B — pressure on B
+    // Diagnostic: bumped each time pad_read_shim performs an override.
+    // Lets Go confirm the shim is wired and live; saturates at 0xFFFF_FFFF.
+    u32 input_overrides;                          // +0x17C
 } Mailbox;
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)

@@ -152,6 +152,49 @@ func main() {
 				}
 			}
 			runMovePuppet(os.Args[2], os.Args[3], os.Args[4], slot)
+		case "input":
+			// input <buttons-hex> <stickX-s8> <stickY-s8> [ms=1000]
+			// Drives synthetic controller input through the C-side
+			// pad_read_shim. If ms > 0, holds for that duration then
+			// releases (input_enable=0). If ms == 0, sets-and-leaves —
+			// caller is responsible for releasing.
+			if len(os.Args) < 5 {
+				fmt.Println("Usage: ww-multiplayer.exe input <buttons-hex> <stickX> <stickY> [ms=1000]")
+				fmt.Println("  buttons mask: A=0x100 B=0x200 X=0x400 Y=0x800 Start=0x1000")
+				fmt.Println("                Z=0x10 R=0x20 L=0x40")
+				fmt.Println("                DPad L=1 R=2 D=4 U=8")
+				fmt.Println("  stickX/Y: -128..+127 (0 = neutral)")
+				fmt.Println("  ms: hold duration; 0 = set-and-leave (manual release)")
+				os.Exit(1)
+			}
+			ms := 1000
+			if len(os.Args) > 5 {
+				if v, err := strconv.Atoi(os.Args[5]); err == nil {
+					ms = v
+				}
+			}
+			runInput(os.Args[2], os.Args[3], os.Args[4], ms)
+		case "input-release":
+			runInputRelease()
+		case "input-probe":
+			// input-probe <buttons-hex> <stickX-s8> <stickY-s8> [ms=2000]
+			// Direct write to JUTGamePad::mPadStatus[0] at 0x803ED818.
+			// KNOWN NOT TO WORK: writes survive same-process readback
+			// but don't propagate to game logic — either dual-mapping
+			// or per-frame SI overwrite races. Kept as a diagnostic
+			// for memory-write reachability against the input region.
+			// For real input use the `input` subcommand instead.
+			if len(os.Args) < 5 {
+				fmt.Println("Usage: ww-multiplayer.exe input-probe <buttons-hex> <stickX> <stickY> [ms=2000]")
+				os.Exit(1)
+			}
+			ms := 2000
+			if len(os.Args) > 5 {
+				if v, err := strconv.Atoi(os.Args[5]); err == nil {
+					ms = v
+				}
+			}
+			runInputProbe(os.Args[2], os.Args[3], os.Args[4], ms)
 		case "poke-u32":
 			if len(os.Args) < 4 {
 				fmt.Println("Usage: ww poke-u32 <addr-hex> <value-hex>")
@@ -2030,6 +2073,21 @@ const (
 	// here instead of resolving the live tev_block (which races with
 	// the bracket).
 	mailboxFaceStateLocal = 0x160
+	// --- Input injection (synthetic PADStatus override) -----------------
+	// Layout mirrors PADStatus from libogc; see mailbox.h. C-side
+	// pad_read_shim (hooked over bl PADRead in JUTGamePad::read at
+	// 0x802C39A0) overrides mPadStatus[0] when input_enable is non-zero.
+	mailboxInputEnable     = 0x170 // u8: 0=passthrough, !=0=override port 0
+	mailboxInputButtons    = 0x172 // u16: PADStatus.button bitfield
+	mailboxInputStickX     = 0x174 // s8
+	mailboxInputStickY     = 0x175 // s8
+	mailboxInputSubstickX  = 0x176 // s8
+	mailboxInputSubstickY  = 0x177 // s8
+	mailboxInputTriggerL   = 0x178 // u8
+	mailboxInputTriggerR   = 0x179 // u8
+	mailboxInputAnalogA    = 0x17A // u8
+	mailboxInputAnalogB    = 0x17B // u8
+	mailboxInputOverrides  = 0x17C // u32 saturating override counter
 )
 
 // Per-slot mailbox offsets for the face-state channel.
@@ -5824,6 +5882,197 @@ func runScreenshot(out string) {
 	}
 	b := img.Bounds()
 	fmt.Printf("Captured pid %d (%q) %dx%d → %s\n", pid, title, b.Dx(), b.Dy(), out)
+}
+
+// runInput drives synthetic controller input via the C-side mailbox.
+// The pad_read_shim (hooked over bl PADRead in JUTGamePad::read at
+// 0x802C39A0) consults mailbox.input_enable each frame; when set, it
+// overrides mPadStatus[0] with the values below before JUTGamePad's
+// downstream .update() derivations run. This is the bullet-proof path
+// — works regardless of frame phase, no race against Dolphin's SI poll.
+//
+// Setup: the input_* mailbox fields are written FIRST, then
+// input_enable is flipped to 1. On release we flip input_enable back to
+// 0 before zeroing the fields so the shim never sees half-updated state.
+func runInput(buttonsHex, stickXStr, stickYStr string, ms int) {
+	buttons64, err := strconv.ParseUint(strings.TrimPrefix(buttonsHex, "0x"), 16, 16)
+	if err != nil {
+		fmt.Printf("ERROR: parse buttons %q: %v\n", buttonsHex, err)
+		os.Exit(1)
+	}
+	stickX64, err := strconv.ParseInt(stickXStr, 10, 8)
+	if err != nil {
+		fmt.Printf("ERROR: parse stickX %q: %v\n", stickXStr, err)
+		os.Exit(1)
+	}
+	stickY64, err := strconv.ParseInt(stickYStr, 10, 8)
+	if err != nil {
+		fmt.Printf("ERROR: parse stickY %q: %v\n", stickYStr, err)
+		os.Exit(1)
+	}
+	buttons := uint16(buttons64)
+	stickX := int8(stickX64)
+	stickY := int8(stickY64)
+
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	// Snapshot pos for delta reporting.
+	var beforeX, beforeZ float32
+	if p, err := d.ReadPlayerPosition(); err == nil {
+		beforeX, beforeZ = p.PosX, p.PosZ
+	}
+	overridesBefore, _ := d.ReadU32(mailboxBase + mailboxInputOverrides)
+
+	// Write payload first, then enable. Big-endian u16 for buttons,
+	// raw signed bytes for sticks.
+	buttonsBE := []byte{byte(buttons >> 8), byte(buttons & 0xFF)}
+	d.WriteAbsolute(mailboxBase+mailboxInputButtons, buttonsBE)
+	d.WriteAbsolute(mailboxBase+mailboxInputStickX, []byte{byte(stickX)})
+	d.WriteAbsolute(mailboxBase+mailboxInputStickY, []byte{byte(stickY)})
+	// substick / triggers / analogs default to 0 (neutral) — explicitly
+	// zero so leftover state from a previous call doesn't leak.
+	d.WriteAbsolute(mailboxBase+mailboxInputSubstickX, []byte{0, 0, 0, 0, 0, 0}) // 0x176..0x17B
+	d.WriteAbsolute(mailboxBase+mailboxInputEnable, []byte{1})
+
+	if ms == 0 {
+		fmt.Printf("Input held: buttons=0x%04X stickX=%d stickY=%d (manual release via `input-release`)\n",
+			buttons, stickX, stickY)
+		return
+	}
+
+	fmt.Printf("Input: buttons=0x%04X stickX=%d stickY=%d for %dms\n",
+		buttons, stickX, stickY, ms)
+	time.Sleep(time.Duration(ms) * time.Millisecond)
+
+	// Release: disable first so the shim becomes a pass-through, then
+	// zero the fields.
+	d.WriteAbsolute(mailboxBase+mailboxInputEnable, []byte{0})
+	d.WriteAbsolute(mailboxBase+mailboxInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}) // 0x172..0x17B
+
+	overridesAfter, _ := d.ReadU32(mailboxBase + mailboxInputOverrides)
+	frames := overridesAfter - overridesBefore
+	var afterX, afterZ float32
+	if p, err := d.ReadPlayerPosition(); err == nil {
+		afterX, afterZ = p.PosX, p.PosZ
+	}
+	dx := afterX - beforeX
+	dz := afterZ - beforeZ
+	fmt.Printf("Released. shim_overrides=+%d (target ~%.0f for %dms@60Hz)  pos delta=(%+.1f, %+.1f)\n",
+		frames, float64(ms)*0.06, ms, dx, dz)
+}
+
+// runInputRelease zeros input_enable so the shim becomes a pass-through.
+// Useful for recovering when a long-hold `input ... 0` got abandoned.
+func runInputRelease() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	d.WriteAbsolute(mailboxBase+mailboxInputEnable, []byte{0})
+	d.WriteAbsolute(mailboxBase+mailboxInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+	fmt.Println("Input released (pad_read_shim is now pass-through).")
+}
+
+// runInputProbe is an exploratory write loop that drops a synthetic
+// PADStatus into 0x803ED84A for the given duration. The address is
+// documented as the WW button bitfield in docs/04-ww-addresses.md, but
+// whether *writing* there moves Link depends on whether Dolphin's SI
+// poll overwrites our value each frame. Hammering >60Hz from Go is the
+// cheapest way to find out — if Link drifts, the address is good and
+// we can graduate this into a proper `input` subcommand.
+//
+// Layout assumed (standard libogc PADStatus, big-endian on PPC):
+//   0x803ED84A: u16 button        (e.g. 0x0008 = DPad Up)
+//   0x803ED84C: s8  stickX        (-128..+127, 0 = centred)
+//   0x803ED84D: s8  stickY        (-128..+127, 0 = centred)
+func runInputProbe(buttonsHex, stickXStr, stickYStr string, ms int) {
+	buttons64, err := strconv.ParseUint(strings.TrimPrefix(buttonsHex, "0x"), 16, 16)
+	if err != nil {
+		fmt.Printf("ERROR: parse buttons %q: %v\n", buttonsHex, err)
+		os.Exit(1)
+	}
+	stickX64, err := strconv.ParseInt(stickXStr, 10, 8)
+	if err != nil {
+		fmt.Printf("ERROR: parse stickX %q: %v\n", stickXStr, err)
+		os.Exit(1)
+	}
+	stickY64, err := strconv.ParseInt(stickYStr, 10, 8)
+	if err != nil {
+		fmt.Printf("ERROR: parse stickY %q: %v\n", stickYStr, err)
+		os.Exit(1)
+	}
+	buttons := uint16(buttons64)
+	stickX := int8(stickX64)
+	stickY := int8(stickY64)
+
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	defer d.Close()
+
+	posBefore, _ := d.ReadPlayerPosition()
+	fmt.Printf("Before: pos=(%.1f, %.1f, %.1f)  buttons=0x%04X  stickX=%d  stickY=%d  duration=%dms\n",
+		posBefore.PosX, posBefore.PosY, posBefore.PosZ, buttons, stickX, stickY, ms)
+
+	// Big-endian u16 button + signed-byte sticks, packed into 4 bytes
+	// covering 0x803ED84A..0x803ED84D.
+	payload := []byte{
+		byte(buttons >> 8),
+		byte(buttons & 0xFF),
+		byte(stickX),
+		byte(stickY),
+	}
+
+	// 0x803ED818 = JUTGamePad::mPadStatus[0] (PADStatus port 0). This is
+	// the SOURCE the game's JUTGamePad::read() consumes each frame —
+	// it then derives mPadButton[0] (0x803ED848) and mPadMStick[0]
+	// (0x803ED908) from it. Writing to mPadStatus[0] before .update()
+	// fires is what propagates input into game logic. 0x803ED84A
+	// (which earlier tests targeted) is a downstream cache and writes
+	// there get clobbered by the next derivation.
+	const padStatusAddr = uint32(0x803ED818)
+	deadline := time.Now().Add(time.Duration(ms) * time.Millisecond)
+	writes := 0
+	readbackHits := 0
+	readbackSamples := 0
+	for time.Now().Before(deadline) {
+		if err := d.WriteAbsolute(padStatusAddr, payload); err != nil {
+			fmt.Printf("WARN: write failed: %v\n", err)
+		}
+		writes++
+		// Immediately read back: did our write survive the next SI poll?
+		if got, err := d.ReadU32(padStatusAddr); err == nil {
+			readbackSamples++
+			wantHi := uint32(buttons)<<16 | uint32(uint8(stickX))<<8 | uint32(uint8(stickY))
+			if got == wantHi {
+				readbackHits++
+			}
+		}
+		// ~250Hz — well above the 60Hz emulated SI poll, so even if
+		// Dolphin overwrites every frame we still land between polls.
+		time.Sleep(4 * time.Millisecond)
+	}
+	fmt.Printf("Readback: %d/%d samples saw our value (%.1f%%)\n",
+		readbackHits, readbackSamples, 100*float64(readbackHits)/float64(readbackSamples))
+	// Release: write all zeros so Link doesn't keep moving after the probe.
+	d.WriteAbsolute(padStatusAddr, []byte{0, 0, 0, 0})
+
+	posAfter, _ := d.ReadPlayerPosition()
+	dx := posAfter.PosX - posBefore.PosX
+	dy := posAfter.PosY - posBefore.PosY
+	dz := posAfter.PosZ - posBefore.PosZ
+	moved := dx*dx+dy*dy+dz*dz > 1
+	fmt.Printf("After:  pos=(%.1f, %.1f, %.1f)  delta=(%+.1f, %+.1f, %+.1f)  writes=%d  moved=%v\n",
+		posAfter.PosX, posAfter.PosY, posAfter.PosZ, dx, dy, dz, writes, moved)
 }
 
 func runServer() {

@@ -93,9 +93,35 @@ Defined in `include/d/d_procname.h` in the decomp.
 
 ## Controller Input
 
-Controller state is at `0x803ED84A` (u16, bitfield). Used by AR codes like `0A3ED84A 00000020` (if R pressed).
+WW uses libogc's `JUTGamePad`. Per-frame flow inside `JUTGamePad::read()`
+(`0x802C3980`):
+1. `bl PADRead` (`0x802C39A0` → `0x80315A20`) fills `mPadStatus[4]`.
+2. Per port, `mPadMStick[i].update(...)` / `mPadSStick[i].update(...)` /
+   `mPadButton[i].update(&mPadStatus[i], ...)` derive the processed
+   state that game logic actually reads.
 
-Bit masks:
+PPC addresses (from `tww-decomp/config/GZLE01/symbols.txt`):
+| Symbol | Address | Size | Notes |
+|---|---|---|---|
+| `JUTGamePad::mPadStatus[4]` | `0x803ED818` | `0x30` | Raw `PADStatus` array, 12 B per port. Port 0 = active player. |
+| `JUTGamePad::mPadButton[4]` | `0x803ED848` | `0xC0` | Derived button state; *not* the live read site for game logic. AR codes' `28...`/`0A...` conditions read `0x803ED84A` (mPadButton[0]+0x02) from here. |
+| `JUTGamePad::mPadMStick[4]` | `0x803ED908` | `0x40` | Derived main-stick state. |
+
+`PADStatus` layout (libogc, 12 B):
+| Offset | Type | Field |
+|---|---|---|
+| `+0x00` | `u16` | `button` bitfield (BE on PPC) |
+| `+0x02` | `s8` | `stick_x` (-128..+127, 0 = centred) |
+| `+0x03` | `s8` | `stick_y` |
+| `+0x04` | `s8` | `substick_x` |
+| `+0x05` | `s8` | `substick_y` |
+| `+0x06` | `u8` | `trigger_l` |
+| `+0x07` | `u8` | `trigger_r` |
+| `+0x08` | `u8` | `analog_a` |
+| `+0x09` | `u8` | `analog_b` |
+| `+0x0A` | `s8` | `err` (PAD_ERR_NONE = 0) |
+
+Button bit masks (`button` u16):
 - `0x0001` — DPad Left
 - `0x0002` — DPad Right
 - `0x0004` — DPad Down
@@ -107,3 +133,13 @@ Bit masks:
 - `0x0200` — B
 - `0x0400` — X
 - `0x0800` — Y
+- `0x1000` — Start
+
+**Writing input from Go: don't.** External `WriteProcessMemory` writes to
+`mPadStatus[0]` survive readback in the writing process but don't
+propagate to the game's read path (race against per-frame PADRead and/or
+Dolphin's dual memory mapping, see `docs/02`). Use the C-side
+`pad_read_shim` hook instead: write the mailbox `input_*` fields and set
+`input_enable=1`, then `JUTGamePad::read()`'s downstream derivations
+pick up the synthetic values cleanly. See `inject/src/multiplayer.c`
+and the `input` subcommand in `main.go`.
