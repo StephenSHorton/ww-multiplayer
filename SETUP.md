@@ -60,6 +60,25 @@ cd ~/projects/ww-multiplayer && go build -o ww-multiplayer.exe .
 ./ww-multiplayer.exe debug    # read Link's position for 5 seconds
 ```
 
+## Bundled Dolphin cheat pack (optional, for testing)
+
+`cheats/GZLE01.ini` ships a curated set of gameplay Gecko codes
+(invincible, max rupees, moon jump, walk through walls, super speed, no
+small/boss keys, etc.) sourced from gamemasterplc and the gc-forever
+WW thread. When you run `./ww-multiplayer.exe dolphin2`, the binary
+drops this file into `<USER_DIR>/GameSettings/GZLE01.ini` for **both**
+Dolphin instances *only if* no GZLE01.ini exists there yet — your own
+edits to either user dir are never overwritten.
+
+Nothing is enabled by default. Enable individual codes via Dolphin →
+right-click WW in the game list → **Properties** → **Gecko Codes** →
+tick the ones you want.
+
+> Caveat: the legacy code-injection workflow used Gecko C2 hooks *to
+> install the mod*. The codes in this pack are gameplay-only and don't
+> touch our in-DOL patch sites at `0x80006338`, `0x80023204`,
+> `0x80108210`, or `0x80410000+`, so they coexist with the patched ISO.
+
 ## See also
 - `CLAUDE.md` — context for AI sessions
 - `docs/01-architecture.md` through `docs/06-history.md` — design + session-by-session history

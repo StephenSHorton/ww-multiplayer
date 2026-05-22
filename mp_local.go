@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"io"
 	"io/fs"
@@ -17,6 +18,13 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 )
+
+// bundledCheatsIni is the curated cheats/GZLE01.ini shipped in the repo,
+// baked into the binary so the released ww-multiplayer.exe can drop it
+// into Dolphin user dirs without needing the source tree alongside it.
+//
+//go:embed cheats/GZLE01.ini
+var bundledCheatsIni []byte
 
 // dolphin2Defaults returns OS-appropriate fallback paths for the
 // dolphin2 bootstrap when DOLPHIN_EXE / ISO_PATH / USER_DIR_{1,2} are
@@ -119,6 +127,9 @@ func runDolphin2(reset bool) {
 		rep.Log(report.OK, "Bootstrap complete.")
 	}
 
+	ensureCheatsIni(rep, userDir1)
+	ensureCheatsIni(rep, userDir2)
+
 	pids, err := dolphin.ListPIDs()
 	if err != nil {
 		report.Logf(rep, report.Warn, "couldn't enumerate Dolphin PIDs: %v (will launch both)", err)
@@ -152,6 +163,39 @@ func runDolphin2(reset bool) {
 	} else {
 		rep.Log(report.Info, "Wait for both games to load to a save state, then run `./ww-multiplayer.exe mp-local`. (Set SAVE_STATE=<path> to skip the menus next time.)")
 	}
+}
+
+// ensureCheatsIni drops the bundled cheats/GZLE01.ini into
+// <userDir>/GameSettings/GZLE01.ini if no GZLE01.ini exists there yet.
+// If one already exists, we leave it alone — the user (or a previously
+// installed cheat pack) owns it, and silently merging Gecko sections
+// would surprise them. The user can manually merge from the repo's
+// cheats/GZLE01.ini if they want.
+//
+// Best-effort: any failure is logged as a warning but does not abort
+// dolphin2 — cheats are a convenience, not a requirement.
+func ensureCheatsIni(rep report.Reporter, userDir string) {
+	if len(bundledCheatsIni) == 0 || userDir == "" {
+		return
+	}
+	dir := filepath.Join(userDir, "GameSettings")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		report.Logf(rep, report.Warn, "cheats: mkdir %s: %v", dir, err)
+		return
+	}
+	target := filepath.Join(dir, "GZLE01.ini")
+	if _, err := os.Stat(target); err == nil {
+		report.Logf(rep, report.Info, "cheats: %s already exists, leaving it untouched (merge from cheats/GZLE01.ini if you want the bundled codes)", target)
+		return
+	} else if !os.IsNotExist(err) {
+		report.Logf(rep, report.Warn, "cheats: stat %s: %v", target, err)
+		return
+	}
+	if err := os.WriteFile(target, bundledCheatsIni, 0o644); err != nil {
+		report.Logf(rep, report.Warn, "cheats: write %s: %v", target, err)
+		return
+	}
+	report.Logf(rep, report.OK, "cheats: installed bundled GZLE01.ini at %s (enable individual codes via Dolphin → game properties → Gecko Codes)", target)
 }
 
 // runMpLocal is the Go port of scripts/mplay2.sh — spins up the relay
