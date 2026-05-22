@@ -43,6 +43,8 @@ ww-multiplayer/
 │   ├── include/{game,mailbox}.h
 │   ├── build.py                 # Freighter wrapper — builds patched.dol from original.dol
 │   └── patch_iso.py             # Local-dev ISO splicer (relies on `wit copy`-prepped ISO)
+├── cheats/
+│   └── GZLE01.ini               # Curated Gecko code pack, copied into <USER_DIR>/GameSettings by `dolphin2`
 ├── scripts/
 │   └── extract_blob.py          # Diffs original.dol vs patched.dol → internal/inject/blob.go
 ├── .github/workflows/
