@@ -151,15 +151,10 @@ func runAutoRecapture(outPath string) {
 		fmt.Println("Dolphin builds reject synthetic keyboard events for hotkeys).")
 		fmt.Println()
 		fmt.Printf("PLEASE: click on the Dolphin window (pid %d) and press Shift+F1\n", pid)
-		fmt.Println("now. Auto-recapture will detect the save and copy it.")
-		fmt.Println()
-		fmt.Println("Waiting up to 90 s...")
+		fmt.Println("whenever you're ready. Auto-recapture will detect the save and")
+		fmt.Println("copy it. No deadline — Ctrl+C to cancel.")
 		fmt.Println("─────────────────────────────────────────────────────────────")
-		if !waitForSaveFileUpdate(saveFile, prevMtime, 90*time.Second) {
-			report.Logf(rep, report.Err, "save file %s did not update within 90 s — aborting", saveFile)
-			report.Logf(rep, report.Info, "Dolphin window (pid %d) is still running; press Shift+F1 manually and run `cp` to %s yourself", pid, outPath)
-			os.Exit(1)
-		}
+		waitForSaveFileUpdateBlocking(saveFile, prevMtime)
 		rep.Log(report.OK, "save state detected — proceeding with copy")
 	}
 
@@ -307,6 +302,20 @@ func waitForSaveFileUpdate(path string, since time.Time, timeout time.Duration) 
 		time.Sleep(200 * time.Millisecond)
 	}
 	return false
+}
+
+// waitForSaveFileUpdateBlocking polls until the file's mtime advances
+// past `since` — forever. No deadline; the caller is expected to
+// Ctrl+C to cancel if the user gives up. Used after the auto Shift+F1
+// path is known to have failed and we're waiting on a manual press.
+func waitForSaveFileUpdateBlocking(path string, since time.Time) {
+	for {
+		mt := safeMtime(path)
+		if !mt.IsZero() && mt.After(since) {
+			return
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
 }
 
 // safeMtime returns os.Stat ModTime, or the zero Time if the file
