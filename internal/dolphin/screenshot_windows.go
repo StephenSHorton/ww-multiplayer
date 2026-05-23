@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -29,6 +30,17 @@ var (
 	procGetDC                     = user32.NewProc("GetDC")
 	procReleaseDC                 = user32.NewProc("ReleaseDC")
 	procPrintWindow               = user32.NewProc("PrintWindow")
+	procPostMessageW              = user32.NewProc("PostMessageW")
+	procSendMessageW              = user32.NewProc("SendMessageW")
+	procMapVirtualKeyW            = user32.NewProc("MapVirtualKeyW")
+	procSetForegroundWindow       = user32.NewProc("SetForegroundWindow")
+	procShowWindow                = user32.NewProc("ShowWindow")
+	procSendInput                 = user32.NewProc("SendInput")
+	procGetFocus                  = user32.NewProc("GetFocus")
+	procGetForegroundWindow       = user32.NewProc("GetForegroundWindow")
+	procEnumChildWindows          = user32.NewProc("EnumChildWindows")
+	procAttachThreadInput         = user32.NewProc("AttachThreadInput")
+	procGetCurrentThreadId        = kernel32.NewProc("GetCurrentThreadId")
 
 	procCreateCompatibleDC = gdi32.NewProc("CreateCompatibleDC")
 	procCreateDIBSection   = gdi32.NewProc("CreateDIBSection")
@@ -97,6 +109,179 @@ func FindWindowByPID(pid uint32) (uintptr, error) {
 		return 0, fmt.Errorf("no visible top-level window found for pid %d", pid)
 	}
 	return found, nil
+}
+
+// Virtual-key codes and Win32 message IDs for the hotkey path.
+const (
+	wmKeyDown = 0x0100
+	wmKeyUp   = 0x0101
+	wmSysKeyDown = 0x0104
+	wmSysKeyUp   = 0x0105
+
+	mapVKVKToVSC = 0 // MapVirtualKey: VK → scan code
+
+	VKShift = 0x10
+	VKCtrl  = 0x11
+	VKAlt   = 0x12
+	VKF1    = 0x70
+	VKF2    = 0x71
+	VKF3    = 0x72
+)
+
+// keyLParam encodes WM_KEYDOWN/WM_KEYUP lParam for a press of key `vk`.
+// Qt's QShortcut machinery doesn't fire on plain lParam=0 — it expects
+// a populated scan code (bits 16-23) and repeat count (bits 0-15).
+// `down` is true for keydown (transition state bit 31 = 0), false for
+// keyup (bit 31 = 1, and previous-key-state bit 30 = 1).
+func keyLParam(vk uint32, down bool) uintptr {
+	scan, _, _ := procMapVirtualKeyW.Call(uintptr(vk), mapVKVKToVSC)
+	lp := uint32(1) // repeat count
+	lp |= (uint32(scan) & 0xFF) << 16
+	if !down {
+		lp |= 1 << 30 // previous state = down
+		lp |= 1 << 31 // transition  = release
+	}
+	return uintptr(lp)
+}
+
+// SendKeyChord posts a modifier+key chord (e.g. Shift+F1) to the
+// target window via PostMessage. Doesn't require the window to be
+// foreground — Qt apps process WM_KEYDOWN from their message queue
+// and route the resulting QKeyEvent through QShortcut handlers, which
+// is how Dolphin's save-state hotkeys are wired.
+func SendKeyChord(hwnd uintptr, modifier, key uint32) error {
+	if hwnd == 0 {
+		return fmt.Errorf("SendKeyChord: nil hwnd")
+	}
+	// Press modifier first so the chord matches Qt's QKeySequence
+	// comparison (which checks held modifiers at the moment the key
+	// fires).
+	procPostMessageW.Call(hwnd, wmKeyDown, uintptr(modifier), keyLParam(modifier, true))
+	procPostMessageW.Call(hwnd, wmKeyDown, uintptr(key), keyLParam(key, true))
+	procPostMessageW.Call(hwnd, wmKeyUp, uintptr(key), keyLParam(key, false))
+	procPostMessageW.Call(hwnd, wmKeyUp, uintptr(modifier), keyLParam(modifier, false))
+	return nil
+}
+
+// SendKey posts a single key (no modifier) to the target window.
+func SendKey(hwnd uintptr, key uint32) error {
+	if hwnd == 0 {
+		return fmt.Errorf("SendKey: nil hwnd")
+	}
+	procPostMessageW.Call(hwnd, wmKeyDown, uintptr(key), keyLParam(key, true))
+	procPostMessageW.Call(hwnd, wmKeyUp, uintptr(key), keyLParam(key, false))
+	return nil
+}
+
+// ForegroundWindow brings the given window to the foreground. Some
+// apps only accept synthetic input when foreground; PostMessage paths
+// usually don't need this but it's available as a fallback.
+//
+// SetForegroundWindow is restricted by Windows: it works only from the
+// foreground process or with specific permissions. To work around, we
+// AttachThreadInput to the target's UI thread, which lets us call
+// SetForegroundWindow as if we were the same input queue.
+func ForegroundWindow(hwnd uintptr) {
+	const swShow = 5
+	procShowWindow.Call(hwnd, swShow)
+
+	// Try plain SetForegroundWindow first.
+	if ret, _, _ := procSetForegroundWindow.Call(hwnd); ret != 0 {
+		return
+	}
+
+	// Brief Alt tap to break the foreground lock — Windows allows
+	// SetForegroundWindow from a process that owns the most recent
+	// keyboard input. Sending Alt down + up via SendInput makes us
+	// that process for an instant.
+	altDown := []keybdInput{{Type: inputKeyboard, VK: VKAlt, Flags: keyEventKeyDown}}
+	altUp := []keybdInput{{Type: inputKeyboard, VK: VKAlt, Flags: keyEventKeyUp}}
+	stride := uintptr(unsafe.Sizeof(keybdInput{}))
+	procSendInput.Call(1, uintptr(unsafe.Pointer(&altDown[0])), stride)
+	procSendInput.Call(1, uintptr(unsafe.Pointer(&altUp[0])), stride)
+	if ret, _, _ := procSetForegroundWindow.Call(hwnd); ret != 0 {
+		return
+	}
+
+	// Last resort: attach to the target's input thread so we share
+	// its foreground state.
+	targetThread, _, _ := procGetWindowThreadProcessID.Call(hwnd, 0)
+	ourThread, _, _ := procGetCurrentThreadId.Call()
+	if targetThread != 0 && targetThread != ourThread {
+		procAttachThreadInput.Call(ourThread, targetThread, 1)
+		procSetForegroundWindow.Call(hwnd)
+		procAttachThreadInput.Call(ourThread, targetThread, 0)
+	}
+}
+
+// keyboardInput / keybdInput mirror Win32's INPUT struct (type=1 keyboard).
+// Layout: type(4) + padding(4) + KEYBDINPUT(24).
+type keybdInput struct {
+	Type    uint32
+	_       uint32 // padding on 64-bit
+	VK      uint16
+	Scan    uint16
+	Flags   uint32
+	Time    uint32
+	ExtraInfo uintptr
+	_       [8]byte // pad to MOUSEINPUT max-size union
+}
+
+const (
+	inputKeyboard    = 1
+	keyEventKeyDown  = 0x0000
+	keyEventKeyUp    = 0x0002
+	keyEventScancode = 0x0008
+)
+
+// SendChordToFocusedWindow injects modifier+key into the SYSTEM input
+// queue via SendInput. The currently-focused window receives it, which
+// must be `hwnd` (or a descendant) for the chord to land on Dolphin.
+// Caller is responsible for foregrounding `hwnd` first.
+//
+// SendInput differs from PostMessage in that it goes through the
+// low-level keyboard hook chain and the OS input subsystem, which is
+// what Qt apps consume for QKeySequence shortcuts that PostMessage
+// can't reach. Includes scan codes (via MapVirtualKey) and dispatches
+// each press/release as its own SendInput call with a small delay,
+// because Dolphin's polling loop only samples keys at ~250 Hz — events
+// dispatched too tightly can be coalesced and missed.
+func SendChordToFocusedWindow(modifier, key uint32) error {
+	stride := uintptr(unsafe.Sizeof(keybdInput{}))
+	send := func(in keybdInput) error {
+		ret, _, _ := procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), stride)
+		if ret != 1 {
+			return fmt.Errorf("SendInput returned %d", ret)
+		}
+		time.Sleep(50 * time.Millisecond)
+		return nil
+	}
+	modScan, _, _ := procMapVirtualKeyW.Call(uintptr(modifier), mapVKVKToVSC)
+	keyScan, _, _ := procMapVirtualKeyW.Call(uintptr(key), mapVKVKToVSC)
+	// KEYEVENTF_SCANCODE = 0x0008 — tells SendInput to ignore VK and use
+	// the hardware scan code as if from a real keyboard. Some apps that
+	// filter LLKHF_INJECTED also check for missing scan codes; supplying
+	// a valid one minimises that surface.
+	events := []keybdInput{
+		{Type: inputKeyboard, Scan: uint16(modScan), Flags: keyEventKeyDown | keyEventScancode},
+		{Type: inputKeyboard, Scan: uint16(keyScan), Flags: keyEventKeyDown | keyEventScancode},
+		{Type: inputKeyboard, Scan: uint16(keyScan), Flags: keyEventKeyUp | keyEventScancode},
+		{Type: inputKeyboard, Scan: uint16(modScan), Flags: keyEventKeyUp | keyEventScancode},
+	}
+	for _, ev := range events {
+		if err := send(ev); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetFocusedWindow returns the hwnd of the currently focused window
+// (system-wide). Diagnostic helper for verifying which Qt child has
+// keyboard focus after ForegroundWindow.
+func GetFocusedWindow() uintptr {
+	hwnd, _, _ := procGetForegroundWindow.Call()
+	return hwnd
 }
 
 // WindowTitle returns the window title for diagnostic logging.
