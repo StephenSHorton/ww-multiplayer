@@ -74,6 +74,17 @@ func main() {
 				out = os.Args[2]
 			}
 			runScreenshot(out)
+		case "auto-recapture":
+			out := ""
+			if len(os.Args) > 2 {
+				out = os.Args[2]
+			}
+			runAutoRecapture(out)
+		case "send-shift-f1":
+			// Diagnostic: sends Shift+F1 via Win32 PostMessage to the
+			// selected Dolphin window. Used to validate the hotkey
+			// path without re-running the full auto-recapture flow.
+			runSendShiftF1()
 		case "host":
 			name := ""
 			if len(os.Args) > 2 {
@@ -5828,6 +5839,43 @@ func runDebug() {
 		time.Sleep(200 * time.Millisecond)
 	}
 	fmt.Println("\nDone.")
+}
+
+// runSendShiftF1 is a diagnostic that probes whether the user's Dolphin
+// build accepts synthetic Shift+F1 (some forks do; mainline 2603a
+// filters LLKHF_INJECTED events for hotkeys). Auto-recapture calls the
+// same two Win32 paths internally — this command lets you confirm
+// which (if any) of them works on your setup before relying on it.
+//
+// To verify: snapshot <USER_DIR>/StateSaves/GZLE01.s01 mtime, run this,
+// snapshot again 3 s later. mtime advanced → your Dolphin accepts
+// synthetic Shift+F1; auto-recapture will be fully hands-off.
+func runSendShiftF1() {
+	d, err := dolphin.Find("GZLE01")
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	pid := d.PID()
+	d.Close()
+
+	hwnd, err := dolphin.FindWindowByPID(pid)
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	dolphin.ForegroundWindow(hwnd)
+	time.Sleep(200 * time.Millisecond)
+
+	// Try both paths. SendInput → system input queue (may be filtered).
+	// PostMessage → window message queue (may not reach Qt's hotkey handler).
+	_ = dolphin.SendChordToFocusedWindow(dolphin.VKShift, dolphin.VKF1)
+	time.Sleep(500 * time.Millisecond)
+	_ = dolphin.SendKeyChord(hwnd, dolphin.VKShift, dolphin.VKF1)
+
+	fmt.Printf("Sent Shift+F1 to Dolphin pid %d via SendInput + PostMessage.\n", pid)
+	fmt.Println("Watch <USER_DIR>/StateSaves/GZLE01.s01 — if mtime advances, your Dolphin")
+	fmt.Println("build accepts synthetic hotkeys and auto-recapture will run fully unattended.")
 }
 
 // runScreenshot captures Dolphin's window via Win32 PrintWindow and

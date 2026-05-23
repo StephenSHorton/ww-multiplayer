@@ -77,6 +77,8 @@ go build -o ww-multiplayer.exe .
 ./ww-multiplayer.exe screenshot [path]                  # PNG of the selected Dolphin's window (Win32; default path = dolphin-<pid>-<ts>.png)
 ./ww-multiplayer.exe input <btns-hex> <stickX> <stickY> [ms=1000]   # Drive synthetic controller input via pad_read_shim. ms=0 holds until input-release.
 ./ww-multiplayer.exe input-release                      # Disable pad_read_shim override (zero input_enable). Pair with `input ... 0`.
+./ww-multiplayer.exe auto-recapture [out=saves/start.sav]   # Cold-boot Dolphin + drive menus + prompt for one Shift+F1 + cp the new state. Win-only.
+./ww-multiplayer.exe send-shift-f1                      # Diagnostic: probe whether your Dolphin build accepts synthetic Shift+F1 hotkeys
 ./ww-multiplayer.exe debug                              # Print Link's position for 5 sec
 ./ww-multiplayer.exe dump                               # Dump mailbox state (shadow_mode, pose seqs, etc.)
 ./ww-multiplayer.exe check                              # Mailbox + player pointers + BSS sanity check
@@ -151,12 +153,14 @@ The old C# Windwaker-coop (progress sync only) lives at `C:\Users\4step\Desktop\
 ## Working autonomously
 
 **Claude can run the full stack end-to-end without asking the user.** The
-ONE thing that still requires the human is capturing a fresh
-`saves/start.sav` after a C-blob change (needs Shift+F1 in Dolphin).
-Everything else — memory probing, chain dumping, building, patching,
-launching Dolphins, running the multiplayer pipeline, **visually
-validating renders via `./ww-multiplayer.exe screenshot`**, and tearing
-it all down — is scripted. Just run them.
+ONE remaining human-in-loop step is *one keystroke* (Shift+F1) when
+recapturing `saves/start.sav` after a C-blob change — kicked off by
+`./ww-multiplayer.exe auto-recapture`, which handles everything else
+(kill, boot, menu navigation, screenshot, file watch, cp). Everything
+else — memory probing, chain dumping, building, patching, launching
+Dolphins, running the multiplayer pipeline, **visually validating
+renders via `./ww-multiplayer.exe screenshot`**, **driving Link with
+`./ww-multiplayer.exe input`**, and tearing it all down — is scripted.
 
 ### Standard session bootstrap (no save-state cycle needed)
 
@@ -197,17 +201,28 @@ mod blob at `0x80410000+`. Any change to `inject/src/multiplayer.c` or
 build.py`) invalidates `saves/start.sav` — loading the old state restores
 the OLD blob over the freshly-patched ISO's new code.
 
-After a C-side change, the cycle is:
+After a C-side change, the recapture cycle reduces to:
 
 1. Claude: rebuild the blob (`cd inject && rm -f build/temp/multiplayer.c.o && python build.py && python patch_iso.py && cd .. && python scripts/extract_blob.py && go build -o ww-multiplayer.exe .`)
-2. Claude: kill any running Dolphins (or launch fresh without `SAVE_STATE`).
-3. Claude: `./ww-multiplayer.exe dolphin2` (no `SAVE_STATE`).
-4. **User**: navigate menus to the gameplay spot, Shift+F1 to save a state.
-5. Claude: `cp <USER_DIR>/StateSaves/GZLE01.s01 saves/start.sav`.
-6. Claude: relaunch with `SAVE_STATE=$(pwd)/saves/start.sav` for the next iterations.
+2. Claude: `./ww-multiplayer.exe auto-recapture`. This kills running Dolphins,
+   cold-boots the patched ISO, drives the title/intro/file-select menus to
+   in-game via input injection, screenshots the spawn spot, then prompts the
+   user with a clearly-fenced message and watches `<USER_DIR>/StateSaves/GZLE01.s01`
+   for up to 90 s.
+3. **User**: focus the Dolphin window, press Shift+F1 once. Auto-recapture
+   detects the file write and copies it to `saves/start.sav`.
+4. Claude: relaunch with `SAVE_STATE=$(pwd)/saves/start.sav` for the next iterations.
 
-Only step 4 needs the user. Pure Go-side changes don't invalidate the save
-state — skip the whole cycle.
+Only step 3 needs the user, and only for one keystroke — menu navigation is
+fully automated. Pure Go-side changes don't invalidate the save state, so
+skip the whole cycle.
+
+**Why is the Shift+F1 still manual?** Mainline Dolphin's hotkey handler
+filters synthetic input (`LLKHF_INJECTED`) for hotkeys, so PostMessage,
+SendInput-with-VK, SendInput-with-scancode, and foreground-locked variants
+all silently drop. Some Dolphin forks accept synthetic events — run
+`./ww-multiplayer.exe send-shift-f1` while Dolphin's in-game to probe your
+build; if mtime advances, auto-recapture will run fully unattended.
 
 ### Visual validation (now self-serve)
 
