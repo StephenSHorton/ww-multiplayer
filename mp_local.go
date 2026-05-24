@@ -82,7 +82,15 @@ func runDolphin2(reset bool) {
 	// the title screen + save-select menus entirely. The user records a
 	// state once via Dolphin's File > Save State menu, exports the .sav,
 	// and points SAVE_STATE at it.
+	//
+	// SAVE_STATE_2, if set, overrides the save state used for Dolphin 2
+	// (the second-launched instance). When both env vars are set, the
+	// two Dolphins boot with distinct save states — used to force a btp
+	// animation phase divergence so face-sync can be visually validated
+	// under natural (non-synthetic) conditions (issue #5). Capture a
+	// pair via `./ww-multiplayer.exe auto-recapture-pair`.
 	saveState := os.Getenv("SAVE_STATE")
+	saveState2 := os.Getenv("SAVE_STATE_2")
 
 	if reset {
 		report.Logf(rep, report.Info, "Removing %s ...", userDir2)
@@ -104,6 +112,16 @@ func runDolphin2(reset bool) {
 	if saveState != "" {
 		if _, err := os.Stat(saveState); err != nil {
 			report.Logf(rep, report.Err, "SAVE_STATE=%s does not exist", saveState)
+			os.Exit(1)
+		}
+	}
+	if saveState2 != "" {
+		if _, err := os.Stat(saveState2); err != nil {
+			report.Logf(rep, report.Err, "SAVE_STATE_2=%s does not exist", saveState2)
+			os.Exit(1)
+		}
+		if saveState == "" {
+			report.Logf(rep, report.Err, "SAVE_STATE_2 is set but SAVE_STATE is not; set both or neither")
 			os.Exit(1)
 		}
 	}
@@ -136,22 +154,32 @@ func runDolphin2(reset bool) {
 	}
 
 	type launchPlan struct {
-		label   string
-		userDir string
+		label     string
+		userDir   string
+		saveState string
+	}
+	// Dolphin 2 uses saveState2 when set; otherwise it falls back to
+	// saveState (preserving the prior single-save-state behavior).
+	saveState2Effective := saveState2
+	if saveState2Effective == "" {
+		saveState2Effective = saveState
 	}
 	var plan []launchPlan
 	switch len(pids) {
 	case 0:
-		plan = []launchPlan{{"Dolphin 1", userDir1}, {"Dolphin 2", userDir2}}
+		plan = []launchPlan{
+			{"Dolphin 1", userDir1, saveState},
+			{"Dolphin 2", userDir2, saveState2Effective},
+		}
 	case 1:
-		plan = []launchPlan{{"Dolphin 2", userDir2}}
+		plan = []launchPlan{{"Dolphin 2", userDir2, saveState2Effective}}
 	default:
 		rep.Log(report.Info, "Two or more Dolphins already running — nothing to do.")
 		return
 	}
 
 	for _, p := range plan {
-		pid, err := launchDolphinDetached(dolphinExe, p.userDir, isoPath, saveState)
+		pid, err := launchDolphinDetached(dolphinExe, p.userDir, isoPath, p.saveState)
 		if err != nil {
 			report.Logf(rep, report.Err, "launch %s: %v", p.label, err)
 			os.Exit(1)
@@ -159,7 +187,11 @@ func runDolphin2(reset bool) {
 		report.Logf(rep, report.OK, "Launched %s (pid %d, user dir %s)", p.label, pid, p.userDir)
 	}
 	if saveState != "" {
-		report.Logf(rep, report.Info, "Both Dolphins booting with save state %s. mp-local's wait-loop will detect when they're in-game.", saveState)
+		if saveState2 != "" && saveState2 != saveState {
+			report.Logf(rep, report.Info, "Dolphin 1 booting from %s; Dolphin 2 from %s. Distinct btp phases — face-sync should bridge them once mp-local arms.", saveState, saveState2)
+		} else {
+			report.Logf(rep, report.Info, "Both Dolphins booting with save state %s. mp-local's wait-loop will detect when they're in-game.", saveState)
+		}
 	} else {
 		rep.Log(report.Info, "Wait for both games to load to a save state, then run `./ww-multiplayer.exe mp-local`. (Set SAVE_STATE=<path> to skip the menus next time.)")
 	}

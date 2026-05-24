@@ -328,3 +328,131 @@ func safeMtime(path string) time.Time {
 	return info.ModTime()
 }
 
+// runAutoRecapturePair cold-boots Dolphin once, drives menus to in-game,
+// then prompts for TWO Shift+F1 keystrokes separated by `delay`. The two
+// resulting save states are copied to out1 and out2. Used to produce a
+// pair of saves at distinct btp animation phases so the two-Dolphin
+// mp-local harness can prove face-sync under natural divergence
+// (issue #5). delay defaults to 5s if zero.
+func runAutoRecapturePair(out1, out2 string, delay time.Duration) {
+	if out1 == "" {
+		out1 = filepath.Join("saves", "start.sav")
+	}
+	if out2 == "" {
+		out2 = filepath.Join("saves", "start2.sav")
+	}
+	if delay <= 0 {
+		delay = 5 * time.Second
+	}
+	rep := report.Stdout{}
+
+	if runtime.GOOS != "windows" {
+		report.Logf(rep, report.Err, "auto-recapture-pair requires Windows; got %s", runtime.GOOS)
+		os.Exit(1)
+	}
+
+	if err := killAllDolphins(); err != nil {
+		report.Logf(rep, report.Warn, "kill stragglers: %v", err)
+	}
+
+	defExe, defIso, defUd1, _ := dolphin2Defaults()
+	dolphinExe := envOrDefault("DOLPHIN_EXE", defExe)
+	isoPath := envOrDefault("ISO_PATH", defIso)
+	userDir := envOrDefault("USER_DIR_1", defUd1)
+
+	if _, err := os.Stat(dolphinExe); err != nil {
+		report.Logf(rep, report.Err, "Dolphin not found at %s (set DOLPHIN_EXE to override)", dolphinExe)
+		os.Exit(1)
+	}
+	if _, err := os.Stat(isoPath); err != nil {
+		report.Logf(rep, report.Err, "Patched ISO not found at %s (set ISO_PATH to override)", isoPath)
+		os.Exit(1)
+	}
+	if _, err := os.Stat(userDir); err != nil {
+		report.Logf(rep, report.Err, "Dolphin user dir not found at %s", userDir)
+		os.Exit(1)
+	}
+	saveFile := filepath.Join(userDir, "StateSaves", "GZLE01.s01")
+
+	report.Logf(rep, report.Info, "auto-recapture-pair starting (delay between captures: %s)", delay)
+	report.Logf(rep, report.Info, "  out1: %s", out1)
+	report.Logf(rep, report.Info, "  out2: %s", out2)
+
+	pid, err := launchDolphinDetached(dolphinExe, userDir, isoPath, "")
+	if err != nil {
+		report.Logf(rep, report.Err, "launch Dolphin: %v", err)
+		os.Exit(1)
+	}
+	report.Logf(rep, report.OK, "launched Dolphin (pid %d)", pid)
+	defer func() { _ = killProcess(uint32(pid)) }()
+
+	if err := waitForModBlob(uint32(pid), 30*time.Second); err != nil {
+		report.Logf(rep, report.Err, "mod blob never came live: %v", err)
+		os.Exit(1)
+	}
+	rep.Log(report.OK, "mod blob live (main01_init fired)")
+
+	time.Sleep(3 * time.Second)
+
+	if err := driveMenusToInGame(uint32(pid), rep); err != nil {
+		report.Logf(rep, report.Err, "menu navigation: %v", err)
+		os.Exit(1)
+	}
+
+	hwnd, err := dolphin.FindWindowByPID(uint32(pid))
+	if err != nil {
+		report.Logf(rep, report.Err, "find Dolphin window: %v", err)
+		os.Exit(1)
+	}
+
+	if err := captureOneShiftF1(rep, hwnd, pid, saveFile, out1, "first"); err != nil {
+		os.Exit(1)
+	}
+
+	report.Logf(rep, report.Info, "first save captured; letting btp animation advance for %s before second capture", delay)
+	time.Sleep(delay)
+
+	if err := captureOneShiftF1(rep, hwnd, pid, saveFile, out2, "second"); err != nil {
+		os.Exit(1)
+	}
+
+	report.Logf(rep, report.OK, "pair captured: %s and %s", out1, out2)
+	report.Logf(rep, report.Info, "next run: SAVE_STATE=$(pwd)/%s SAVE_STATE_2=$(pwd)/%s ./ww-multiplayer.exe dolphin2", out1, out2)
+}
+
+// captureOneShiftF1 attempts the auto Shift+F1 path, falls back to a
+// blocking prompt, then copies the new save state to outPath. Label is
+// included in user-facing messages so the prompt distinguishes between
+// captures in a multi-capture flow ("first save", "second save").
+func captureOneShiftF1(rep report.Reporter, hwnd uintptr, pid int, saveFile, outPath, label string) error {
+	prevMtime := safeMtime(saveFile)
+
+	dolphin.ForegroundWindow(hwnd)
+	time.Sleep(200 * time.Millisecond)
+	report.Logf(rep, report.Info, "attempting auto Shift+F1 for %s save", label)
+	_ = dolphin.SendChordToFocusedWindow(dolphin.VKShift, dolphin.VKF1)
+	time.Sleep(500 * time.Millisecond)
+	_ = dolphin.SendKeyChord(hwnd, dolphin.VKShift, dolphin.VKF1)
+
+	if !waitForSaveFileUpdate(saveFile, prevMtime, 5*time.Second) {
+		fmt.Println()
+		fmt.Println("─────────────────────────────────────────────────────────────")
+		fmt.Printf("PLEASE: click on the Dolphin window (pid %d) and press Shift+F1\n", pid)
+		fmt.Printf("for the %s save state. No deadline — Ctrl+C to cancel.\n", label)
+		fmt.Println("─────────────────────────────────────────────────────────────")
+		waitForSaveFileUpdateBlocking(saveFile, prevMtime)
+	}
+	report.Logf(rep, report.OK, "%s save state detected", label)
+
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		report.Logf(rep, report.Err, "mkdir %s: %v", filepath.Dir(outPath), err)
+		return err
+	}
+	if err := copyFile(saveFile, outPath); err != nil {
+		report.Logf(rep, report.Err, "copy save: %v", err)
+		return err
+	}
+	report.Logf(rep, report.OK, "%s save copied to %s", label, outPath)
+	return nil
+}
+

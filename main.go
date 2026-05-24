@@ -80,6 +80,21 @@ func main() {
 				out = os.Args[2]
 			}
 			runAutoRecapture(out)
+		case "auto-recapture-pair":
+			out1, out2 := "", ""
+			delaySecs := 5
+			if len(os.Args) > 2 {
+				out1 = os.Args[2]
+			}
+			if len(os.Args) > 3 {
+				out2 = os.Args[3]
+			}
+			if len(os.Args) > 4 {
+				if n, err := strconv.Atoi(os.Args[4]); err == nil && n > 0 {
+					delaySecs = n
+				}
+			}
+			runAutoRecapturePair(out1, out2, time.Duration(delaySecs)*time.Second)
 		case "send-shift-f1":
 			// Diagnostic: sends Shift+F1 via Win32 PostMessage to the
 			// selected Dolphin window. Used to validate the hotkey

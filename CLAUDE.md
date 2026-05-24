@@ -78,6 +78,7 @@ go build -o ww-multiplayer.exe .
 ./ww-multiplayer.exe input <btns-hex> <stickX> <stickY> [ms=1000]   # Drive synthetic controller input via pad_read_shim. ms=0 holds until input-release.
 ./ww-multiplayer.exe input-release                      # Disable pad_read_shim override (zero input_enable). Pair with `input ... 0`.
 ./ww-multiplayer.exe auto-recapture [out=saves/start.sav]   # Cold-boot Dolphin + drive menus + prompt for one Shift+F1 + cp the new state. Win-only.
+./ww-multiplayer.exe auto-recapture-pair [out1=saves/start.sav] [out2=saves/start2.sav] [delay-secs=5]   # Same as auto-recapture, but captures TWO states with a delay between (distinct btp phases). Pair with SAVE_STATE_2 in dolphin2 to validate face-sync (#5).
 ./ww-multiplayer.exe send-shift-f1                      # Diagnostic: probe whether your Dolphin build accepts synthetic Shift+F1 hotkeys
 ./ww-multiplayer.exe debug                              # Print Link's position for 5 sec
 ./ww-multiplayer.exe dump                               # Dump mailbox state (shadow_mode, pose seqs, etc.)
@@ -104,6 +105,8 @@ WW_LINK2_OFFSET_{X,Y,Z}                     # Loopback render offset
 #   ISO_PATH      path to patched ISO  (default: %USERPROFILE%\Desktop\Dolphin-x64\Roms\WW_Multiplayer_Patched.iso)
 #   USER_DIR_1    primary Dolphin user dir (default: %APPDATA%\Dolphin Emulator)
 #   USER_DIR_2    second Dolphin user dir  (default: %APPDATA%\Dolphin Emulator 2)
+#   SAVE_STATE    .sav loaded into both Dolphins (skips menus). If unset, both boot to title screen.
+#   SAVE_STATE_2  .sav loaded into Dolphin 2 only (requires SAVE_STATE). Produces distinct btp phases for face-sync visual proof (#5).
 
 # Legacy bash scripts (kept for now; prefer the Go subcommands above)
 scripts/dolphin2.sh [--reset]               # Same as `ww-multiplayer.exe dolphin2`
