@@ -23,7 +23,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 DOL_PATH = os.path.join(_HERE, "patched.dol")
 ISO_PATH = os.environ.get(
     "WW_ISO_PATH",
-    r"C:\Users\4step\Desktop\Dolphin-x64\Roms\WW_Multiplayer_Patched.iso",
+    os.path.expanduser(r"~\Desktop\Dolphin-x64\Roms\WW_Multiplayer_Patched.iso"),
 )
 DOLPHIN_CACHE = os.path.expandvars(
     r"%APPDATA%\Dolphin Emulator\Cache\gamelist.cache"

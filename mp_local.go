@@ -48,8 +48,8 @@ func dolphin2Defaults() (exe, iso, userDir1, userDir2 string) {
 		userDir1 = filepath.Join(cfg, "Dolphin")
 		userDir2 = filepath.Join(cfg, "Dolphin 2")
 	case "windows":
-		exe = `C:\Users\4step\Desktop\Dolphin-x64\Dolphin.exe`
-		iso = `C:\Users\4step\Desktop\Dolphin-x64\Roms\WW_Multiplayer_Patched.iso`
+		exe = filepath.Join(home, "Desktop", "Dolphin-x64", "Dolphin.exe")
+		iso = filepath.Join(home, "Desktop", "Dolphin-x64", "Roms", "WW_Multiplayer_Patched.iso")
 		userDir1 = filepath.Join(cfg, "Dolphin Emulator")
 		userDir2 = filepath.Join(cfg, "Dolphin Emulator 2")
 	default:

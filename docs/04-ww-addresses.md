@@ -4,7 +4,7 @@ All addresses are for the **NTSC-U** version (Game ID `GZLE01`). Other versions 
 
 ## Reference Documentation
 
-Primary source: the [zeldaret/tww decompilation](https://github.com/zeldaret/tww) at `C:\Users\4step\Desktop\tww-decomp`.
+Primary source: the [zeldaret/tww decompilation](https://github.com/zeldaret/tww). Clone it locally for symbol lookups and reading game source.
 
 The symbol file is at `config/GZLE01/symbols.txt` — contains every known function and global address.
 

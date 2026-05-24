@@ -100,8 +100,8 @@ WW_LINK2_OFFSET_{X,Y,Z}                     # Loopback render offset
 ./ww-multiplayer.exe dolphin2 [--reset]     # Bootstrap & launch a 2nd Dolphin instance
 ./ww-multiplayer.exe mp-local [A] [B]       # Server + 2x broadcast-pose + 2x puppet-sync (one process)
 # Env knobs honored by `dolphin2`:
-#   DOLPHIN_EXE   path to Dolphin.exe (default: C:\Users\4step\Desktop\Dolphin-x64\Dolphin.exe)
-#   ISO_PATH      path to patched ISO  (default: ...\Roms\WW_Multiplayer_Patched.iso)
+#   DOLPHIN_EXE   path to Dolphin.exe (default: %USERPROFILE%\Desktop\Dolphin-x64\Dolphin.exe)
+#   ISO_PATH      path to patched ISO  (default: %USERPROFILE%\Desktop\Dolphin-x64\Roms\WW_Multiplayer_Patched.iso)
 #   USER_DIR_1    primary Dolphin user dir (default: %APPDATA%\Dolphin Emulator)
 #   USER_DIR_2    second Dolphin user dir  (default: %APPDATA%\Dolphin Emulator 2)
 
@@ -148,7 +148,7 @@ multiplayer.c has changed since the last release.
 
 ## Related Project
 
-The old C# Windwaker-coop (progress sync only) lives at `C:\Users\4step\Desktop\Windwaker-coop\`. It was upgraded to .NET 9 with WPF UI and released as v0.8.0 at `StephenSHorton/Windwaker-coop`. This Go project supersedes it but the memory layout knowledge carried over.
+The old C# Windwaker-coop (progress sync only) was upgraded to .NET 9 with WPF UI and released as v0.8.0 at `StephenSHorton/Windwaker-coop`. This Go project supersedes it but the memory layout knowledge carried over.
 
 ## Working autonomously
 

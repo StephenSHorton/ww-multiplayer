@@ -33,7 +33,7 @@ This repo is just the Go side. To actually build a patched ISO and test code inj
 - Used to convert CISO → plain ISO so we can patch the DOL in place.
 
 ### 6. zeldaret/tww decomp (reference only)
-- <https://github.com/zeldaret/tww> at `~/Desktop/tww-decomp/`
+- Clone <https://github.com/zeldaret/tww> locally.
 - Used for symbol lookups (`config/GZLE01/symbols.txt`) and reading game source for hook-target research.
 
 ## End-to-end build pipeline

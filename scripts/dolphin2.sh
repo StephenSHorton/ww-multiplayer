@@ -14,8 +14,8 @@
 
 set -euo pipefail
 
-DOLPHIN_EXE="${DOLPHIN_EXE:-/c/Users/4step/Desktop/Dolphin-x64/Dolphin.exe}"
-ISO_PATH="${ISO_PATH:-/c/Users/4step/Desktop/Dolphin-x64/Roms/WW_Multiplayer_Patched.iso}"
+DOLPHIN_EXE="${DOLPHIN_EXE:-$HOME/Desktop/Dolphin-x64/Dolphin.exe}"
+ISO_PATH="${ISO_PATH:-$HOME/Desktop/Dolphin-x64/Roms/WW_Multiplayer_Patched.iso}"
 USER_DIR_1="${APPDATA}/Dolphin Emulator"
 USER_DIR_2="${APPDATA}/Dolphin Emulator 2"
 
