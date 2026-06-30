@@ -7,9 +7,12 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"runtime"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	isatty "github.com/mattn/go-isatty"
 )
 
 type screen int
@@ -118,11 +121,57 @@ func (m model) View() string {
 // Run starts the TUI. The version string is shown on the splash; hooks
 // inject the multiplayer-session functions from main so this package
 // stays free of dolphin / network imports.
+//
+// stdin must be attached to a usable interactive terminal. When launched
+// from Git Bash / MSYS2 MinTTY, os.Stdin is frequently a non-console
+// handle even though a real console is attached to the process; passing
+// tea.WithInputTTY() makes Bubble Tea open a fresh console input handle
+// (CONIN$ on Windows, /dev/tty elsewhere) instead of trusting that
+// possibly-broken inherited handle, which is what fixes the "error making
+// raw: The parameter is incorrect" crash. If stdin isn't attached to any
+// interactive terminal at all (piped/redirected input, no console), we
+// bail out before ever touching Bubble Tea with a clear, actionable error
+// instead of letting the raw-mode call die cryptically.
 func Run(version string, hooks Hooks) error {
-	p := tea.NewProgram(newModel(hooks, version), tea.WithAltScreen())
+	if !hasInteractiveStdin() {
+		return fmt.Errorf(
+			"no interactive terminal detected on stdin.\n"+
+				"Run %s from a real console (Windows Terminal, PowerShell, or cmd.exe), "+
+				"or skip the TUI entirely and use:\n"+
+				"  %s host [name]\n"+
+				"  %s join <host-ip> [name]",
+			exeName, exeName, exeName,
+		)
+	}
+
+	p := tea.NewProgram(newModel(hooks, version), tea.WithAltScreen(), tea.WithInputTTY())
 	_, err := p.Run()
 	if err != nil {
 		return fmt.Errorf("TUI error: %w", err)
 	}
 	return nil
 }
+
+// hasInteractiveStdin reports whether stdin looks attached to something a
+// human could type into. isatty.IsTerminal covers a real Windows console /
+// unix tty; IsCygwinTerminal additionally covers the MSYS2/Cygwin pty pipes
+// MinTTY (Git Bash) uses, which IsTerminal alone doesn't recognize. Piped
+// or redirected stdin (e.g. `... < file`, or no console at all) returns
+// false from both, which is the genuinely-headless case we want to refuse
+// up front rather than crash inside Bubble Tea.
+//
+// It's a package-level var rather than a plain func so tests can stub it
+// out instead of needing a real interactive terminal attached to `go test`.
+var hasInteractiveStdin = func() bool {
+	fd := os.Stdin.Fd()
+	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
+}
+
+// exeName is the binary as the user types it on this platform, used in the
+// headless-stdin error so the suggested commands are copy-pasteable.
+var exeName = func() string {
+	if runtime.GOOS == "windows" {
+		return "ww-multiplayer.exe"
+	}
+	return "./ww-multiplayer"
+}()
