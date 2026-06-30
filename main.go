@@ -29,6 +29,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/tui"
@@ -37,6 +38,12 @@ import (
 // version is overridden at build time by `go build -ldflags "-X main.version=..."`.
 // release.yml passes the git tag (e.g. "v0.1.5"); local builds keep "dev".
 var version = "dev"
+
+// defaultPort is the server port used when the user doesn't pass --port
+// (host/server) or an explicit :port (join). Keep this in sync with the
+// mp-local / dolphin2 test harness in mp_local.go, which intentionally
+// stays hardcoded to 25565 (internal test rig, not user-facing).
+const defaultPort = 25565
 
 // exeCmd is the binary as the user types it on this platform —
 // "ww-multiplayer.exe" on Windows (the path users see in PowerShell),
@@ -101,11 +108,12 @@ func main() {
 			// path without re-running the full auto-recapture flow.
 			runSendShiftF1()
 		case "host":
+			port, rest := extractPortFlag(os.Args[2:], defaultPort)
 			name := ""
-			if len(os.Args) > 2 {
-				name = os.Args[2]
+			if len(rest) > 0 {
+				name = rest[0]
 			}
-			runHost(name)
+			runHost(name, port)
 		case "join":
 			if len(os.Args) < 3 {
 				fmt.Println("Usage: ww join <host-ip> [name]")
@@ -129,7 +137,8 @@ func main() {
 			}
 			runPatch(os.Args[2], out)
 		case "server":
-			runServer()
+			port, _ := extractPortFlag(os.Args[2:], defaultPort)
+			runServer(port)
 		case "fake-client":
 			name := "FakePlayer"
 			addr := "localhost:25565"
@@ -633,8 +642,13 @@ func main() {
 	// engage. v0.1.5 brings it back with the dashboard driving the same
 	// runHostSession / runJoinSession funcs the CLI subcommands run, and
 	// every Reporter log line surfacing in the dashboard's log panel.
+	// The TUI doesn't expose port configuration (#18 is CLI-only), so
+	// runHostSession is wrapped to pin it at defaultPort here rather than
+	// changing the tui.Hooks.HostSession signature.
 	if err := tui.Run(version, tui.Hooks{
-		HostSession: runHostSession,
+		HostSession: func(ctx context.Context, cancel context.CancelFunc, name string, rep report.Reporter) error {
+			return runHostSession(ctx, cancel, name, defaultPort, rep)
+		},
 		JoinSession: runJoinSession,
 	}); err != nil {
 		fmt.Println(err)
@@ -650,7 +664,7 @@ func printHelp() {
 	fmt.Println("Wind Waker Multiplayer")
 	fmt.Println()
 	fmt.Println("Play multiplayer:")
-	fmt.Printf(col, x+" host [name]", "Host a session on :25565 (one process per player)")
+	fmt.Printf(col, x+" host [name] [--port N]", "Host a session on :25565 (one process per player)")
 	fmt.Printf(col, x+" join <host-ip> [name]", "Join a host's session (host-ip is what `host` prints)")
 	fmt.Println()
 	fmt.Println("Patch an ISO:")
@@ -662,7 +676,7 @@ func printHelp() {
 	fmt.Printf(col, x+" mp-local [nameA] [nameB]", "Run server + broadcast/puppet pairs for both Dolphins")
 	fmt.Println()
 	fmt.Println("Lower-level CLIs:")
-	fmt.Printf(col, x+" server", "Start headless server on :25565")
+	fmt.Printf(col, x+" server [--port N]", "Start headless server on :25565")
 	fmt.Printf(col, x+" broadcast-pose [name] [addr]", "Stream local Link pose+pos to server")
 	fmt.Printf(col, x+" puppet-sync [name] [addr]", "Receive remotes; render as Link #2 / actor puppets")
 	fmt.Printf(col, x+" fake-client [name] [addr]", "Connect a fake client that walks in circles")
@@ -6138,11 +6152,11 @@ func runInputProbe(buttonsHex, stickXStr, stickYStr string, ms int) {
 		posAfter.PosX, posAfter.PosY, posAfter.PosZ, dx, dy, dz, writes, moved)
 }
 
-func runServer() {
+func runServer(port int) {
 	fmt.Println("=== WW Multiplayer Server ===")
 	fmt.Println()
 
-	srv := network.NewServer(25565)
+	srv := network.NewServer(port)
 	srv.OnLog = func(msg string) {
 		fmt.Printf("[%s] %s\n", time.Now().Format("15:04:05"), msg)
 	}
@@ -6210,17 +6224,38 @@ func runFakeClient(name, addr string, centerX, centerZ float32) {
 	fmt.Println("\nDisconnected.")
 }
 
+// extractPortFlag scans args for a "--port N" pair (in any position, so it
+// works whether the user wrote `host --port 25566 Alice` or `host Alice
+// --port 25566`) and returns the parsed port plus the remaining args with
+// the flag and its value removed. Falls back to defaultPort when the flag
+// is absent or its value isn't a positive integer.
+func extractPortFlag(args []string, defaultPort int) (port int, rest []string) {
+	port = defaultPort
+	rest = make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--port" && i+1 < len(args) {
+			if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
+				port = n
+			}
+			i++ // skip the value
+			continue
+		}
+		rest = append(rest, args[i])
+	}
+	return port, rest
+}
+
 // runHost is the single-process host entry point: binds the TCP server on
-// :25565, then spins up broadcast-pose + puppet-sync goroutines pointing at
-// localhost. Replaces the old "run 3 terminals" workflow. Ctrl+C cancels
-// the ctx, cleanly shuts down both goroutines and the server, and resets
-// the patched ISO's mailbox so the next Dolphin frame doesn't keep rendering
-// a stale Link #2.
-func runHost(name string) {
+// the given port (defaultPort unless --port overrides it), then spins up
+// broadcast-pose + puppet-sync goroutines pointing at localhost. Replaces
+// the old "run 3 terminals" workflow. Ctrl+C cancels the ctx, cleanly shuts
+// down both goroutines and the server, and resets the patched ISO's
+// mailbox so the next Dolphin frame doesn't keep rendering a stale Link #2.
+func runHost(name string, port int) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	if err := runHostSession(ctx, cancel, name, rep); err != nil {
+	if err := runHostSession(ctx, cancel, name, port, rep); err != nil {
 		rep.Log(report.Err, err.Error())
 		os.Exit(1)
 	}
@@ -6229,11 +6264,11 @@ func runHost(name string) {
 // runHostSession contains the actual host flow without any signal-handler
 // or os.Exit assumptions, so the TUI can drive it from inside its own
 // context without fighting Bubble Tea's Ctrl+C handling.
-func runHostSession(ctx context.Context, cancel context.CancelFunc, name string, rep report.Reporter) error {
+func runHostSession(ctx context.Context, cancel context.CancelFunc, name string, port int, rep report.Reporter) error {
 	if name == "" {
 		name = "Host"
 	}
-	srv := network.NewServer(25565)
+	srv := network.NewServer(port)
 	srv.OnLog = func(msg string) {
 		rep.Log(report.Info, fmt.Sprintf("[srv %s] %s", time.Now().Format("15:04:05"), msg))
 	}
@@ -6241,7 +6276,7 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 		return fmt.Errorf("server start: %w", err)
 	}
 
-	report.Logf(rep, report.OK, "Hosting as %q on :25565.", name)
+	report.Logf(rep, report.OK, "Hosting as %q on :%d.", name, port)
 	if ips := listHostIPs(); len(ips) > 0 {
 		rep.Log(report.Info, "Share one of these IPs with your friend:")
 		for _, ip := range ips {
@@ -6252,7 +6287,7 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 	}
 	rep.Log(report.Info, "Ctrl+C to stop.")
 
-	runMultiplayerGoroutines(ctx, cancel, name, "localhost:25565", rep)
+	runMultiplayerGoroutines(ctx, cancel, name, fmt.Sprintf("localhost:%d", port), rep)
 
 	srv.Stop()
 	clearMultiplayerState()
@@ -6260,8 +6295,8 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 }
 
 // runJoin is the single-process joiner entry point: just broadcast-pose +
-// puppet-sync goroutines pointed at the host's :25565. Same signal handling
-// and mailbox cleanup as runHost.
+// puppet-sync goroutines pointed at the host's address. Same signal
+// handling and mailbox cleanup as runHost.
 func runJoin(addr, name string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
@@ -6274,10 +6309,11 @@ func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name s
 	if name == "" {
 		name = "Player"
 	}
-	// Default port to :25565 if the user passed a bare IP.
-	if !strings.Contains(addr, ":") {
-		addr = addr + ":25565"
-	}
+	// Default port to defaultPort if the user passed a bare host/IP.
+	// netutil.NormalizeAddr is IPv6-aware (bracketed and bare literals),
+	// unlike a naive strings.Contains(addr, ":") check, which would
+	// double-append a port onto bare IPv6 addresses like "::1".
+	addr = netutil.NormalizeAddr(addr, defaultPort)
 
 	report.Logf(rep, report.OK, "Joining %s as %q.", addr, name)
 	rep.Log(report.Info, "Ctrl+C to stop.")
