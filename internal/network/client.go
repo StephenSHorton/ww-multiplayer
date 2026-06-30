@@ -36,6 +36,17 @@ type Client struct {
 	connected bool
 	OnLog     func(string)
 	OnPlayerList func([]RemotePlayer)
+	// OnJoin / OnLeave fire once per distinct remote player name, the
+	// first time a genuinely new id (≠ myID) appears under that name /
+	// once the last remaining id under that name disappears. Both checks
+	// matter: a single human occupies two connections under the same
+	// name at once (one broadcast-pose, one puppet-sync; see
+	// runMultiplayerGoroutines in main.go), so without the name dedup a
+	// real join/leave would double-fire, and without comparing against
+	// our own `name` we'd treat our own second connection as a stranger
+	// walking in. Both optional (nil = no-op), nil-checked like OnLog.
+	OnJoin  func(name string)
+	OnLeave func(name string)
 }
 
 // NewClient creates a client with the given player name.
@@ -49,6 +60,18 @@ func NewClient(name string) *Client {
 func (c *Client) log(msg string) {
 	if c.OnLog != nil {
 		c.OnLog(msg)
+	}
+}
+
+func (c *Client) fireJoin(name string) {
+	if c.OnJoin != nil {
+		c.OnJoin(name)
+	}
+}
+
+func (c *Client) fireLeave(name string) {
+	if c.OnLeave != nil {
+		c.OnLeave(name)
 	}
 }
 
@@ -172,9 +195,26 @@ func (c *Client) readLoop() {
 				leaveID := msg.Data[0]
 				c.mu.Lock()
 				if rp, ok := c.remotes[leaveID]; ok {
-					c.log(fmt.Sprintf("%s left the game", rp.Name))
+					leftName := rp.Name
+					c.log(fmt.Sprintf("%s left the game", leftName))
+					delete(c.remotes, leaveID)
+					// Only fire OnLeave once no remaining remote shares
+					// this name (collapses a human's broadcast-pose +
+					// puppet-sync sibling connections into one leave
+					// event) and never for our own name.
+					stillPresent := false
+					for _, other := range c.remotes {
+						if other.Name == leftName {
+							stillPresent = true
+							break
+						}
+					}
+					if !stillPresent && leftName != c.name {
+						c.fireLeave(leftName)
+					}
+				} else {
+					delete(c.remotes, leaveID)
 				}
-				delete(c.remotes, leaveID)
 				c.mu.Unlock()
 			}
 
@@ -232,7 +272,21 @@ func (c *Client) parsePlayerList(data []byte) {
 			if rp, ok := c.remotes[id]; ok {
 				rp.Name = name
 			} else {
+				// Count existing remotes under this name BEFORE
+				// inserting, so a human's second connection
+				// (broadcast-pose + puppet-sync register under the same
+				// display name) doesn't trigger a second join chime.
+				firstForName := true
+				for _, other := range c.remotes {
+					if other.Name == name {
+						firstForName = false
+						break
+					}
+				}
 				c.remotes[id] = &RemotePlayer{ID: id, Name: name}
+				if firstForName && name != c.name {
+					c.fireJoin(name)
+				}
 			}
 			c.log(fmt.Sprintf("Player %s (ID:%d) in game", name, id))
 		}

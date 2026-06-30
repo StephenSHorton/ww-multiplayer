@@ -27,6 +27,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/audio"
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
@@ -1607,7 +1608,10 @@ func runPuppetSync(name, addr string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"), 0, rep)
+	// nil, nil: the standalone `puppet-sync` subcommand is a dev/test
+	// harness path (mplay2.sh, manual diagnostics) and must stay silent —
+	// only the user-facing `host`/`join` flows wire join/leave audio.
+	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"), 0, rep, nil, nil)
 	clearMultiplayerState()
 	if err != nil {
 		rep.Log(report.Err, err.Error())
@@ -1618,7 +1622,16 @@ func runPuppetSync(name, addr string) {
 // runPuppetSyncCtx is the goroutine-friendly variant. Takes the self-filter
 // name as a parameter (rather than reading WW_SELF_NAME) so host/join can
 // plumb the player's name through without exporting an env var.
-func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphinPID uint32, rep report.Reporter) error {
+//
+// onJoin/onLeave (issue #21) are optional callbacks wired onto the
+// internal network.Client's OnJoin/OnLeave — nil from every dev/test
+// caller (runPuppetSync above, mp_local.go), and audio.PlayJoin/PlayLeave
+// only from runMultiplayerGoroutines's join-side wiring. puppet-sync is
+// deliberately the only one of the two host/join goroutines (the other
+// being broadcast-pose) that gets wired, since both goroutines connect
+// as separate network.Client instances observing the same player-list
+// broadcasts — wiring both would double-chime every real join/leave.
+func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphinPID uint32, rep report.Reporter, onJoin, onLeave func(string)) error {
 	report.Logf(rep, report.Info, "=== Puppet Sync: %s <- %s ===", name, addr)
 
 	d, err := openDolphin(dolphinPID)
@@ -1632,6 +1645,8 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	client.OnLog = func(msg string) {
 		rep.Log(report.Net, msg)
 	}
+	client.OnJoin = onJoin
+	client.OnLeave = onLeave
 	if err := client.Connect(addr); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -6237,6 +6252,24 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 	srv.OnLog = func(msg string) {
 		rep.Log(report.Info, fmt.Sprintf("[srv %s] %s", time.Now().Format("15:04:05"), msg))
 	}
+	// Issue #21: play a short system sound (NOT through Dolphin) when a
+	// remote player connects/disconnects. `name` filters out our own
+	// connection — runMultiplayerGoroutines below dials this server
+	// twice from this same process (broadcast-pose + puppet-sync, both
+	// under our own name) so we can render/send our own position; those
+	// aren't remotes and must stay silent.
+	srv.OnJoin = func(joinedName string) {
+		if joinedName == name {
+			return
+		}
+		audio.PlayJoin()
+	}
+	srv.OnLeave = func(leftName string) {
+		if leftName == name {
+			return
+		}
+		audio.PlayLeave()
+	}
 	if err := srv.Start(); err != nil {
 		return fmt.Errorf("server start: %w", err)
 	}
@@ -6252,7 +6285,9 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 	}
 	rep.Log(report.Info, "Ctrl+C to stop.")
 
-	runMultiplayerGoroutines(ctx, cancel, name, "localhost:25565", rep)
+	// nil, nil: host-side audio comes from srv.OnJoin/OnLeave above, not
+	// from this process's own loopback client connections.
+	runMultiplayerGoroutines(ctx, cancel, name, "localhost:25565", rep, nil, nil)
 
 	srv.Stop()
 	clearMultiplayerState()
@@ -6282,7 +6317,14 @@ func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name s
 	report.Logf(rep, report.OK, "Joining %s as %q.", addr, name)
 	rep.Log(report.Info, "Ctrl+C to stop.")
 
-	runMultiplayerGoroutines(ctx, cancel, name, addr, rep)
+	// Issue #21: audio.PlayJoin/PlayLeave fire from the puppet-sync
+	// goroutine's network.Client (see runMultiplayerGoroutines), which
+	// already filters out our own name and dedupes our own
+	// broadcast-pose sibling connection — see network.Client.OnJoin/OnLeave.
+	runMultiplayerGoroutines(ctx, cancel, name, addr, rep,
+		func(string) { audio.PlayJoin() },
+		func(string) { audio.PlayLeave() },
+	)
 
 	clearMultiplayerState()
 }
@@ -6312,7 +6354,14 @@ func cliMultiplayerContext(rep report.Reporter) (context.Context, context.Cancel
 // twin (the WW_SELF_NAME workaround from mplay2.sh, but automatic). Blocks
 // until either goroutine exits or ctx is cancelled, then waits for both to
 // finish before returning.
-func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter) {
+//
+// onJoin/onLeave (issue #21) are wired only onto the puppet-sync
+// goroutine's client, never broadcast-pose's — both goroutines connect
+// as separate network.Client instances that independently observe the
+// same player-list broadcasts, so wiring both would double-chime every
+// real join/leave. Callers pass nil, nil to opt out entirely (runHostSession,
+// since host-side audio comes from the Server callbacks instead).
+func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter, onJoin, onLeave func(string)) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
@@ -6325,7 +6374,7 @@ func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, na
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		if err := runPuppetSyncCtx(ctx, name, addr, name, 0, rep); err != nil {
+		if err := runPuppetSyncCtx(ctx, name, addr, name, 0, rep, onJoin, onLeave); err != nil {
 			report.Logf(rep, report.Err, "puppet-sync: %v", err)
 		}
 	}()

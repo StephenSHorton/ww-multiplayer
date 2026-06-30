@@ -30,6 +30,15 @@ type Server struct {
 	mu       sync.RWMutex
 	port     int
 	OnLog    func(string) // callback for log messages
+	// OnJoin / OnLeave fire once per distinct player name when its first
+	// connection arrives / its last connection drops -- not once per raw
+	// socket. A single human occupies two connections at once (one
+	// broadcast-pose, one puppet-sync; see runMultiplayerGoroutines in
+	// main.go), so a naive per-connection callback would double-fire for
+	// every real join/leave. Both are nil-checked like OnLog, and both
+	// are optional (nil = no-op).
+	OnJoin  func(name string)
+	OnLeave func(name string)
 }
 
 // NewServer creates a server on the given port.
@@ -44,6 +53,18 @@ func NewServer(port int) *Server {
 func (s *Server) log(msg string) {
 	if s.OnLog != nil {
 		s.OnLog(msg)
+	}
+}
+
+func (s *Server) fireJoin(name string) {
+	if s.OnJoin != nil {
+		s.OnJoin(name)
+	}
+}
+
+func (s *Server) fireLeave(name string) {
+	if s.OnLeave != nil {
+		s.OnLeave(name)
 	}
 }
 
@@ -110,9 +131,23 @@ func (s *Server) handlePlayer(conn net.Conn) {
 		Conn: conn,
 	}
 	s.players[id] = player
+	// A single human opens two connections under the same name (see
+	// OnJoin doc comment), so only fire the join callback for the FIRST
+	// connection seen under this name -- otherwise every real join
+	// double-chimes.
+	firstForName := true
+	for otherID, p := range s.players {
+		if otherID != id && p.Name == name {
+			firstForName = false
+			break
+		}
+	}
 	s.mu.Unlock()
 
 	s.log(fmt.Sprintf("%s (ID:%d) connected", name, id))
+	if firstForName {
+		s.fireJoin(name)
+	}
 
 	// Send welcome with assigned ID
 	WriteMessage(conn, MsgWelcome, []byte{id})
@@ -161,9 +196,21 @@ func (s *Server) handlePlayer(conn net.Conn) {
 	// Player disconnected
 	s.mu.Lock()
 	delete(s.players, id)
+	// Mirror the join-side dedup: only fire the leave callback once the
+	// LAST connection under this name has dropped.
+	lastForName := true
+	for _, p := range s.players {
+		if p.Name == name {
+			lastForName = false
+			break
+		}
+	}
 	s.mu.Unlock()
 
 	s.log(fmt.Sprintf("%s disconnected", name))
+	if lastForName {
+		s.fireLeave(name)
+	}
 	s.broadcastExcept(id, MsgLeave, []byte{id})
 	s.broadcastPlayerList()
 }

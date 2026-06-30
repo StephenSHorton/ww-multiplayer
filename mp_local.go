@@ -332,7 +332,10 @@ func runMpLocal(nameA, nameB string) {
 					report.Logf(r, report.Err, "%v", err)
 				}
 			} else {
-				if err := runPuppetSyncCtx(ctx, name, addr, name, pid, r); err != nil {
+				// nil, nil: mp-local is a local dev/test harness (both
+				// "players" are this one process) and must stay silent —
+				// see runPuppetSyncCtx's doc comment in main.go.
+				if err := runPuppetSyncCtx(ctx, name, addr, name, pid, r, nil, nil); err != nil {
 					report.Logf(r, report.Err, "%v", err)
 				}
 			}
