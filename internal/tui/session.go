@@ -8,9 +8,26 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 )
 
-// Hooks lets main package inject its multiplayer-session functions
-// without forcing internal/tui to import internal/dolphin or internal/network.
-// Keeps the TUI a pure UI layer.
+// PlayerView is a tui-local, network-free snapshot of one player in a running
+// session. main converts network.RemotePlayer -> PlayerView inside the Players
+// hook, so internal/tui can render presence/positions without ever importing
+// internal/network. Position fields are the remote's real world coords (0 when
+// unknown).
+type PlayerView struct {
+	ID      byte
+	Name    string
+	X, Y, Z float32
+}
+
+// Hooks lets main package inject its multiplayer-session functions and a set of
+// data-only accessors WITHOUT forcing internal/tui to import internal/dolphin
+// or internal/network. Keeps the TUI a pure UI layer.
+//
+// Every accessor field is OPTIONAL: it is nil whenever the value is not
+// applicable (CLI paths never set any of them; a given role may not populate
+// all of them). Callers MUST nil-check before invoking. Accessors are expected
+// to be cheap and race-free — main snapshots the live network objects behind
+// its own lock — so the dashboard can poll them on a tick.
 type Hooks struct {
 	// HostSession runs the host flow (TCP server + broadcast-pose +
 	// puppet-sync). Returns when ctx is cancelled OR any underlying
@@ -21,6 +38,35 @@ type Hooks struct {
 	// JoinSession runs the joiner flow (broadcast-pose + puppet-sync only,
 	// no server). Returns when ctx is cancelled OR the connection drops.
 	JoinSession func(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter)
+
+	// Players returns a snapshot of the remote players in the running session,
+	// or nil when there is no session / it isn't wired. Data-only (PlayerView).
+	Players func() []PlayerView
+
+	// LocalPos returns this player's own world position; ok=false when unknown.
+	// Nil for now — PR-C (minimap) populates it.
+	LocalPos func() (x, y, z float32, ok bool)
+
+	// PlayerCount returns how many players the session sees. Host role reports
+	// the server's connection count; join role reports remotes + self. 0 when
+	// unknown / idle.
+	PlayerCount func() int
+
+	// HostIPs returns the host's shareable LAN IPs (host role only); nil on
+	// join or when idle.
+	HostIPs func() []string
+
+	// Latency returns the client<->server round-trip time, or 0 if not yet
+	// measured / unknown.
+	Latency func() time.Duration
+
+	// SendChat sends a chat line to the session. Nil for now — PR-B (chat)
+	// populates it.
+	SendChat func(text string) error
+
+	// ChatCh returns a receive-only channel of incoming chat lines. Nil for
+	// now — PR-B (chat) populates it.
+	ChatCh func() <-chan string
 }
 
 // session holds the running multiplayer goroutine + its log channel.

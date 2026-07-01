@@ -332,7 +332,7 @@ func runMpLocal(nameA, nameB string) {
 					report.Logf(r, report.Err, "%v", err)
 				}
 			} else {
-				if err := runPuppetSyncCtx(ctx, name, addr, name, pid, r); err != nil {
+				if err := runPuppetSyncCtx(ctx, name, addr, name, pid, r, nil); err != nil {
 					report.Logf(r, report.Err, "%v", err)
 				}
 			}
