@@ -645,11 +645,23 @@ func main() {
 	// The TUI doesn't expose port configuration (#18 is CLI-only), so
 	// runHostSession is wrapped to pin it at defaultPort here rather than
 	// changing the tui.Hooks.HostSession signature.
+	// ls is the status bridge shared across every session the user starts in
+	// this TUI run. The session funcs register their server/client into it;
+	// the accessor closures below read it (nil-safe) for the #19 status panel.
+	// LocalPos / SendChat / ChatCh are deliberately left nil here — PR-C
+	// (minimap) and PR-B (chat) populate those.
+	ls := &liveState{}
 	if err := tui.Run(version, tui.Hooks{
 		HostSession: func(ctx context.Context, cancel context.CancelFunc, name string, rep report.Reporter) error {
-			return runHostSession(ctx, cancel, name, defaultPort, rep)
+			return runHostSession(ctx, cancel, name, defaultPort, rep, ls)
 		},
-		JoinSession: runJoinSession,
+		JoinSession: func(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter) {
+			runJoinSession(ctx, cancel, addr, name, rep, ls)
+		},
+		Players:     func() []tui.PlayerView { return ls.players() },
+		PlayerCount: func() int { return ls.playerCount() },
+		HostIPs:     func() []string { return ls.hostIPList() },
+		Latency:     func() time.Duration { return ls.latency() },
 	}); err != nil {
 		fmt.Println(err)
 		fmt.Print("Press Enter to exit...")
@@ -1622,7 +1634,7 @@ func runPuppetSync(name, addr string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"), 0, rep)
+	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"), 0, rep, nil)
 	clearMultiplayerState()
 	if err != nil {
 		rep.Log(report.Err, err.Error())
@@ -1633,7 +1645,13 @@ func runPuppetSync(name, addr string) {
 // runPuppetSyncCtx is the goroutine-friendly variant. Takes the self-filter
 // name as a parameter (rather than reading WW_SELF_NAME) so host/join can
 // plumb the player's name through without exporting an env var.
-func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphinPID uint32, rep report.Reporter) error {
+//
+// onClient, when non-nil, is invoked once with the freshly-created
+// *network.Client so a caller (the TUI bridge) can register it for its status
+// panel. The client survives reconnects (#8) — it's the same object across
+// ReconnectLoop iterations — so a single registration is sufficient. CLI
+// callers pass nil.
+func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphinPID uint32, rep report.Reporter, onClient func(*network.Client)) error {
 	report.Logf(rep, report.Info, "=== Puppet Sync: %s <- %s ===", name, addr)
 
 	d, err := openDolphin(dolphinPID)
@@ -1646,6 +1664,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	client := network.NewClient(name)
 	client.OnLog = func(msg string) {
 		rep.Log(report.Net, msg)
+	}
+	if onClient != nil {
+		onClient(client)
 	}
 
 	// Lerp-smoothed state per slot. lerpK = 0.2 closes ~80% of the gap in
@@ -6398,6 +6419,193 @@ func extractPortFlag(args []string, defaultPort int) (port int, rest []string) {
 	return port, rest
 }
 
+// liveState is the mutable, mutex-guarded bridge between a running multiplayer
+// session (the *network.Server / *network.Client that main owns) and the TUI's
+// data-only tui.Hooks accessors. internal/tui never imports internal/network;
+// instead the hook closures below read this holder under the lock and hand the
+// TUI plain values / tui.PlayerView.
+//
+// One liveState is created in main() before tui.Run and shared across every
+// session the user starts (Host -> Esc -> Join, etc.). runHostSession /
+// runJoinSession call begin() at start and reset() on return, so when no
+// session is live every accessor returns a zero value (which the panel renders
+// as 0 / "—" / "waiting").
+//
+// Concurrency: mu guards the role/selfName/client/srv/hostIPs fields only. The
+// network methods it calls (GetRemotePlayers, PlayerCount, LastRTT) are
+// internally synchronized and GetRemotePlayers returns a deep copy, so the
+// accessors snapshot the pointer under mu, release it, then call the network
+// method — never holding a *network.RemotePlayer.
+type liveState struct {
+	mu       sync.Mutex
+	role     string          // "Host", "Join", or "" when idle
+	selfName string          // this player's display name (for self-echo filtering)
+	client   *network.Client // puppet-sync client (remote players + RTT)
+	srv      *network.Server // host-only; nil on join / idle
+	hostIPs  []string        // host-only shareable LAN IPs; nil otherwise
+}
+
+// begin marks the start of a session with the given role + local player name,
+// resetting any prior client/server registration. hostIPs is nil for the join
+// role. selfName is used to filter this player's OWN co-located connections out
+// of the remote list (see remoteViews).
+func (ls *liveState) begin(role, selfName string, hostIPs []string) {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	ls.role = role
+	ls.selfName = selfName
+	ls.client = nil
+	ls.srv = nil
+	ls.hostIPs = hostIPs
+}
+
+// reset clears the bridge when a session ends.
+func (ls *liveState) reset() { ls.begin("", "", nil) }
+
+func (ls *liveState) setServer(s *network.Server) {
+	ls.mu.Lock()
+	ls.srv = s
+	ls.mu.Unlock()
+}
+
+func (ls *liveState) setClient(c *network.Client) {
+	ls.mu.Lock()
+	ls.client = c
+	ls.mu.Unlock()
+}
+
+// players returns the OTHER humans in the session, one entry per person, as
+// network-free tui.PlayerView values. Returns nil when no client is registered
+// yet. The raw client snapshot is de-duplicated (see remoteViews +
+// dedupePlayersByName) so the ~2x connection fan-out doesn't leak into the UI.
+func (ls *liveState) players() []tui.PlayerView {
+	ls.mu.Lock()
+	c, self := ls.client, ls.selfName
+	ls.mu.Unlock()
+	return dedupePlayersByName(remoteViews(c, self))
+}
+
+// playerCount reports the truthful HUMAN count for BOTH roles. Whenever a
+// puppet-sync client is registered, it's the de-duplicated other-humans count
+// + 1 (self) — which stays correct even though each human opens two server
+// connections. It falls back to the server's raw connection count only before
+// the host's own client has registered (a brief startup window). 0 when idle.
+func (ls *liveState) playerCount() int {
+	ls.mu.Lock()
+	c, s, self := ls.client, ls.srv, ls.selfName
+	ls.mu.Unlock()
+	if c != nil {
+		return len(dedupePlayersByName(remoteViews(c, self))) + 1
+	}
+	if s != nil {
+		return s.PlayerCount()
+	}
+	return 0
+}
+
+// remoteViews snapshots the puppet-sync client's remotes and converts them to
+// network-free tui.PlayerView values, dropping this player's OWN co-located
+// connections. Each human runs two connections (broadcast-pose + puppet-sync)
+// under the same name; the puppet-sync client that backs the TUI therefore also
+// sees its own broadcast twin as a same-named remote (GetRemotePlayers does NOT
+// self-filter — the render loop does, via selfFilter). Dropping name==selfName
+// here mirrors that render-side filter so the count/presence reflect real
+// people. Returns nil when no client is registered. Position is nil for
+// connections that haven't broadcast yet (e.g. a remote's own puppet leg),
+// which dedupePlayersByName then collapses into the positioned twin.
+func remoteViews(c *network.Client, selfName string) []tui.PlayerView {
+	if c == nil {
+		return nil
+	}
+	remotes := c.GetRemotePlayers() // deep copy under the client's RLock
+	out := make([]tui.PlayerView, 0, len(remotes))
+	for _, rp := range remotes {
+		if selfName != "" && rp.Name == selfName {
+			continue // our own broadcast/puppet twin — not another human
+		}
+		pv := tui.PlayerView{ID: rp.ID, Name: rp.Name}
+		if rp.Position != nil {
+			pv.X, pv.Y, pv.Z = rp.Position.PosX, rp.Position.PosY, rp.Position.PosZ
+		}
+		out = append(out, pv)
+	}
+	return out
+}
+
+// dedupePlayersByName collapses the duplicate remote-player entries the network
+// layer produces: every human opens TWO server connections (broadcast-pose +
+// puppet-sync) under the SAME name, so both land in the server player list and
+// in GetRemotePlayers. Entries are keyed by Name (falling back to a per-ID key
+// when Name==""), so each human appears exactly once. When several entries
+// share a key, the one carrying a known (non-zero) position wins — the
+// broadcast connection carries the real pose, which PR-C's minimap needs — else
+// the first seen is kept. Input order is otherwise preserved. Pure: no shared
+// state, safe to unit-test with canned input.
+func dedupePlayersByName(in []tui.PlayerView) []tui.PlayerView {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]tui.PlayerView, 0, len(in))
+	pos := make(map[string]int, len(in)) // key -> index into out
+	for _, p := range in {
+		key := p.Name
+		if key == "" {
+			key = "\x00id:" + strconv.Itoa(int(p.ID))
+		}
+		if i, ok := pos[key]; ok {
+			// Same human already recorded: upgrade to the positioned entry when
+			// the one we kept has no known position but this one does.
+			if isZeroPos(out[i]) && !isZeroPos(p) {
+				out[i] = p
+			}
+			continue
+		}
+		pos[key] = len(out)
+		out = append(out, p)
+	}
+	return out
+}
+
+// isZeroPos reports whether a view has no known position (all coords zero). WW
+// world coords are effectively never exactly the origin, so this cleanly
+// distinguishes an un-broadcast connection from a positioned one.
+func isZeroPos(p tui.PlayerView) bool {
+	return p.X == 0 && p.Y == 0 && p.Z == 0
+}
+
+// latency reports the client<->server RTT, or 0 when unknown.
+func (ls *liveState) latency() time.Duration {
+	ls.mu.Lock()
+	c := ls.client
+	ls.mu.Unlock()
+	if c == nil {
+		return 0
+	}
+	return c.LastRTT()
+}
+
+// hostIPList returns a copy of the host's shareable LAN IPs (nil on join/idle).
+func (ls *liveState) hostIPList() []string {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	if len(ls.hostIPs) == 0 {
+		return nil
+	}
+	out := make([]string, len(ls.hostIPs))
+	copy(out, ls.hostIPs)
+	return out
+}
+
+// liveStateClientSetter adapts a *liveState into the onClient callback
+// runMultiplayerGoroutines expects, returning nil (no registration) when ls is
+// nil so CLI callers stay unaffected.
+func liveStateClientSetter(ls *liveState) func(*network.Client) {
+	if ls == nil {
+		return nil
+	}
+	return ls.setClient
+}
+
 // runHost is the single-process host entry point: binds the TCP server on
 // the given port (defaultPort unless --port overrides it), then spins up
 // broadcast-pose + puppet-sync goroutines pointing at localhost. Replaces
@@ -6408,7 +6616,7 @@ func runHost(name string, port int) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	if err := runHostSession(ctx, cancel, name, port, rep); err != nil {
+	if err := runHostSession(ctx, cancel, name, port, rep, nil); err != nil {
 		rep.Log(report.Err, err.Error())
 		os.Exit(1)
 	}
@@ -6417,7 +6625,10 @@ func runHost(name string, port int) {
 // runHostSession contains the actual host flow without any signal-handler
 // or os.Exit assumptions, so the TUI can drive it from inside its own
 // context without fighting Bubble Tea's Ctrl+C handling.
-func runHostSession(ctx context.Context, cancel context.CancelFunc, name string, port int, rep report.Reporter) error {
+// ls, when non-nil (the TUI path), is the shared status bridge: this session
+// registers its server, host IPs, and puppet-sync client into it for the #19
+// status panel, and clears it on return. CLI callers pass nil.
+func runHostSession(ctx context.Context, cancel context.CancelFunc, name string, port int, rep report.Reporter, ls *liveState) error {
 	if name == "" {
 		name = "Host"
 	}
@@ -6429,8 +6640,15 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 		return fmt.Errorf("server start: %w", err)
 	}
 
+	ips := listHostIPs()
+	if ls != nil {
+		ls.begin("Host", name, ips)
+		ls.setServer(srv)
+		defer ls.reset()
+	}
+
 	report.Logf(rep, report.OK, "Hosting as %q on :%d.", name, port)
-	if ips := listHostIPs(); len(ips) > 0 {
+	if len(ips) > 0 {
 		rep.Log(report.Info, "Share one of these IPs with your friend:")
 		for _, ip := range ips {
 			report.Logf(rep, report.Info, "  %s", ip)
@@ -6440,7 +6658,7 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 	}
 	rep.Log(report.Info, "Ctrl+C to stop.")
 
-	runMultiplayerGoroutines(ctx, cancel, name, fmt.Sprintf("localhost:%d", port), rep)
+	runMultiplayerGoroutines(ctx, cancel, name, fmt.Sprintf("localhost:%d", port), rep, liveStateClientSetter(ls))
 
 	srv.Stop()
 	clearMultiplayerState()
@@ -6454,11 +6672,14 @@ func runJoin(addr, name string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	runJoinSession(ctx, cancel, addr, name, rep)
+	runJoinSession(ctx, cancel, addr, name, rep, nil)
 }
 
 // runJoinSession is the signal-free, exit-free version that the TUI calls.
-func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter) {
+// ls, when non-nil (the TUI path), is the shared status bridge: the join role
+// registers only its puppet-sync client (no server, no host IPs) and clears the
+// bridge on return. CLI callers pass nil.
+func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter, ls *liveState) {
 	if name == "" {
 		name = "Player"
 	}
@@ -6468,10 +6689,15 @@ func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name s
 	// double-append a port onto bare IPv6 addresses like "::1".
 	addr = netutil.NormalizeAddr(addr, defaultPort)
 
+	if ls != nil {
+		ls.begin("Join", name, nil)
+		defer ls.reset()
+	}
+
 	report.Logf(rep, report.OK, "Joining %s as %q.", addr, name)
 	rep.Log(report.Info, "Ctrl+C to stop.")
 
-	runMultiplayerGoroutines(ctx, cancel, name, addr, rep)
+	runMultiplayerGoroutines(ctx, cancel, name, addr, rep, liveStateClientSetter(ls))
 
 	clearMultiplayerState()
 }
@@ -6501,7 +6727,10 @@ func cliMultiplayerContext(rep report.Reporter) (context.Context, context.Cancel
 // twin (the WW_SELF_NAME workaround from mplay2.sh, but automatic). Blocks
 // until either goroutine exits or ctx is cancelled, then waits for both to
 // finish before returning.
-func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter) {
+// onClient, when non-nil, is forwarded to the puppet-sync goroutine so its
+// *network.Client can be registered with the TUI status bridge. CLI callers
+// pass nil.
+func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter, onClient func(*network.Client)) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
@@ -6514,7 +6743,7 @@ func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, na
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		if err := runPuppetSyncCtx(ctx, name, addr, name, 0, rep); err != nil {
+		if err := runPuppetSyncCtx(ctx, name, addr, name, 0, rep, onClient); err != nil {
 			report.Logf(rep, report.Err, "puppet-sync: %v", err)
 		}
 	}()

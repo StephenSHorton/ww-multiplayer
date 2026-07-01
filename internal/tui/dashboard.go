@@ -3,13 +3,14 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// dashboardModel renders the running multiplayer session: a status header
-// and a rolling log panel fed by the tuiReporter the session goroutines
+// dashboardModel renders the running multiplayer session: a compact status
+// panel + a rolling log panel fed by the tuiReporter the session goroutines
 // write to. Esc tears the session down and emits a backMsg so the app
 // transitions back to connect.
 type dashboardModel struct {
@@ -17,11 +18,35 @@ type dashboardModel struct {
 	name string
 	addr string
 
+	hooks Hooks // data-only accessors for the status panel (#19)
+
 	sess *session
 	logs []logEntry // ring of last logCap entries
+
+	// Status-panel state, refreshed by statusTick (~250ms) from hooks.
+	// Every source accessor is nil-checked; these hold the last read.
+	playerCount int
+	hostIPs     []string
+	latency     time.Duration
+	players     []PlayerView
 }
 
 const logCap = 200
+
+// statusInterval is how often the dashboard re-reads the Hooks accessors into
+// its status-panel state. 250ms is snappy enough for a presence/latency panel
+// without spinning the render loop.
+const statusInterval = 250 * time.Millisecond
+
+// statusTickMsg fires every statusInterval to refresh the status panel.
+type statusTickMsg struct{}
+
+// statusTick schedules the next status refresh.
+func statusTick() tea.Cmd {
+	return tea.Tick(statusInterval, func(time.Time) tea.Msg {
+		return statusTickMsg{}
+	})
+}
 
 // logArrivedMsg wraps a single log entry pulled off the session's logCh.
 // We re-issue the drain cmd inside Update on each receive so the channel
@@ -44,15 +69,36 @@ func drainLog(s *session) tea.Cmd {
 func newDashboard(hooks Hooks, role, name, addr string) dashboardModel {
 	s := startSession(hooks, role, name, addr)
 	return dashboardModel{
-		role: role,
-		name: name,
-		addr: addr,
-		sess: s,
+		role:  role,
+		name:  name,
+		addr:  addr,
+		hooks: hooks,
+		sess:  s,
 	}
 }
 
 func (m dashboardModel) initCmd() tea.Cmd {
-	return drainLog(m.sess)
+	// Drain the log AND start the status-panel refresh ticker.
+	return tea.Batch(drainLog(m.sess), statusTick())
+}
+
+// refreshStatus re-reads every non-nil status accessor into the model. Value
+// receiver so it fits the (dashboardModel, tea.Cmd) update contract; returns
+// the updated copy.
+func (m dashboardModel) refreshStatus() dashboardModel {
+	if m.hooks.PlayerCount != nil {
+		m.playerCount = m.hooks.PlayerCount()
+	}
+	if m.hooks.HostIPs != nil {
+		m.hostIPs = m.hooks.HostIPs()
+	}
+	if m.hooks.Latency != nil {
+		m.latency = m.hooks.Latency()
+	}
+	if m.hooks.Players != nil {
+		m.players = m.hooks.Players()
+	}
+	return m
 }
 
 func (m dashboardModel) update(msg tea.Msg) (dashboardModel, tea.Cmd) {
@@ -63,6 +109,10 @@ func (m dashboardModel) update(msg tea.Msg) (dashboardModel, tea.Cmd) {
 			m.logs = m.logs[len(m.logs)-logCap:]
 		}
 		return m, drainLog(m.sess)
+
+	case statusTickMsg:
+		m = m.refreshStatus()
+		return m, statusTick()
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -109,9 +159,15 @@ func (m dashboardModel) view(width, height int) string {
 	b.WriteString(header)
 	b.WriteString("\n")
 
+	// Status panel (#19) — compact presence/latency block above the log.
+	statusPanel := renderStatus(m.role, width, m.playerCount, m.hostIPs, m.latency, m.players)
+	b.WriteString(statusPanel)
+	b.WriteString("\n")
+	statusLines := lipgloss.Height(statusPanel)
+
 	// Log panel — fills remaining vertical space, leaving room for header
-	// (3 rows including border) and footer (2 rows).
-	logHeight := height - 6
+	// (1 row + newline), the status panel, and footer (2 rows).
+	logHeight := height - 6 - statusLines
 	if logHeight < 8 {
 		logHeight = 8
 	}
@@ -144,4 +200,60 @@ func (m dashboardModel) view(width, height int) string {
 	b.WriteString(footer)
 
 	return b.String()
+}
+
+// formatLatency renders an RTT for the status panel. Per #19, a zero/unknown
+// latency shows an em dash rather than a fabricated "0ms"; a sub-millisecond
+// but non-zero RTT shows "<1ms" so it's clearly live.
+func formatLatency(d time.Duration) string {
+	if d <= 0 {
+		return "—"
+	}
+	if ms := d.Milliseconds(); ms > 0 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	return "<1ms"
+}
+
+// renderStatus builds the compact #19 status panel. It is PURE (state in,
+// string out) so it can be unit-tested without a running tea.Program: feed it
+// canned count/ips/latency/players and assert the output contains them.
+//
+//	role     "Host" shows the shareable Host IP line; "Join" omits it.
+//	count    connected player count (0 renders as "0").
+//	ips      host LAN IPs (host role only; ignored when empty / on join).
+//	latency  client<->server RTT; 0/unknown renders "—" (never invented).
+//	players  remote players; their names (or "player N") form the presence row.
+func renderStatus(role string, width, count int, ips []string, latency time.Duration, players []PlayerView) string {
+	if width < 60 {
+		width = 60
+	}
+
+	line1 := labelStyle.Render("Players ") + valueStyle.Render(fmt.Sprintf("%d", count)) +
+		labelStyle.Render("    Latency ") + valueStyle.Render(formatLatency(latency))
+
+	lines := []string{line1}
+
+	if role == "Host" && len(ips) > 0 {
+		lines = append(lines, labelStyle.Render("Host IP ")+valueStyle.Render(strings.Join(ips, ", ")))
+	}
+
+	if len(players) > 0 {
+		names := make([]string, 0, len(players))
+		for _, p := range players {
+			n := p.Name
+			if n == "" {
+				n = fmt.Sprintf("player %d", p.ID)
+			}
+			names = append(names, n)
+		}
+		lines = append(lines, labelStyle.Render("In game ")+valueStyle.Render(strings.Join(names, ", ")))
+	} else {
+		lines = append(lines, labelStyle.Render("In game ")+labelStyle.Render("(waiting for players…)"))
+	}
+
+	body := strings.Join(lines, "\n")
+	return panelStyle.Width(width - 2).Render(
+		panelTitleStyle.Render("Status") + "\n" + body,
+	)
 }
