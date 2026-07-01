@@ -1319,22 +1319,6 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 	defer d.Close()
 	client := network.NewClient(name)
 	client.OnLog = func(msg string) { rep.Log(report.Net, msg) }
-	if err := client.Connect(addr); err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
-	defer client.Disconnect()
-
-	// Wrap ctx in a cancellable child so the watcher goroutine below exits
-	// when this function returns (prevents a leak when the parent passed
-	// context.Background()).
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	// Break out of the IsConnected() loop on ctx cancel by closing the
-	// socket — IsConnected() flips false and the main loop exits next tick.
-	go func() {
-		<-ctx.Done()
-		client.Disconnect()
-	}()
 
 	const linkJointCount = 42
 	const poseBytes = linkJointCount * 48
@@ -1345,91 +1329,111 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 	// the s13 race where direct tev_block reads could catch the bracket's
 	// transient swapped value and ship that to the remote.
 
-	posErrs, poseErrs := 0, 0
-	for client.IsConnected() {
-		// Position (cheap; same as broadcast-link).
-		pos, err := d.ReadPlayerPosition()
-		if err == nil && pos != nil {
-			netPos := &network.PlayerPosition{
-				PosX: pos.PosX, PosY: pos.PosY, PosZ: pos.PosZ,
-				RotY: pos.RotY,
-			}
-			if err := client.SendPosition(netPos); err != nil {
-				posErrs++
-				if posErrs > 5 {
-					return fmt.Errorf("send position: %w", err)
+	// Auto-reconnect (#8): connect/run callbacks drive a ReconnectLoop.
+	// A transient drop ends run() and ReconnectLoop re-dials with
+	// exponential backoff; only a real ctx-cancel ends this function.
+	connect := func() error { return client.Connect(addr) }
+	run := func(ctx context.Context) error {
+		defer client.Disconnect()
+		// Child ctx scopes the watcher goroutine to THIS session (no
+		// per-reconnect leak) while still honoring the parent cancel.
+		// Closing the socket flips IsConnected() false so the loop exits
+		// on the next tick.
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go func() {
+			<-ctx.Done()
+			client.Disconnect()
+		}()
+
+		posErrs, poseErrs := 0, 0
+		for client.IsConnected() {
+			// Position (cheap; same as broadcast-link).
+			pos, err := d.ReadPlayerPosition()
+			if err == nil && pos != nil {
+				netPos := &network.PlayerPosition{
+					PosX: pos.PosX, PosY: pos.PosY, PosZ: pos.PosZ,
+					RotY: pos.RotY,
+				}
+				if err := client.SendPosition(netPos); err != nil {
+					posErrs++
+					if posErrs > 5 {
+						return fmt.Errorf("send position: %w", err)
+					}
 				}
 			}
-		}
 
-		// Pose. Read from the sender-side publish buffer rather than
-		// Link #1's live mpNodeMtx. The C draw hook memcpys mpNodeMtx
-		// into this GameHeap-resident buffer once per frame AFTER
-		// daPy_lk_c_draw returns, so our read can't catch mid-calc
-		// torn state. Previous direct-mpNodeMtx reads at 20 Hz raced
-		// the game's 60 Hz calc pass and produced visibly wrong poses
-		// on the receiver when slope-IK made per-frame mpNodeMtx delta
-		// large (observed v0.1.2: leg flapping 0-90° on slopes).
-		//
-		// Protocol: ship the raw 2016 B AFTER localizing — subtract
-		// Link's world position from each joint's translation column so
-		// the pose is relative to Link's origin (rotation parts
-		// unchanged). Receiver re-adds the remote's world position to
-		// land Link #2 at the right world coords.
-		if pos != nil {
-			stateBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPosePublishState, 1)
-			if len(stateBytes) == 1 && stateBytes[0] == 1 {
-				pubPtr, _ := d.ReadU32(mailboxBase + mailboxPosePublishPtr)
-				if pubPtr >= 0x80000000 && pubPtr < 0x81800000 {
-					data, err := d.ReadAbsolute(pubPtr, poseBytes)
-					if err == nil && data != nil {
-						if os.Getenv("WW_POSE_RAW") == "" {
-							localizePoseInPlace(data, linkJointCount, pos.PosX, pos.PosY, pos.PosZ)
-						}
-						// Capture the LOCAL Link's eye texno bytes from
-						// the mailbox slot the C side publishes at the
-						// top of daPy_draw_hook (before any face_emit
-						// swap fires). Race-free vs reading tev_block
-						// directly from emu RAM. Wire layout matches
-						// FaceState: 8 B = (mat1_tex0:u16 BE)
-						// (mat1_tex1:u16 BE)(mat4_tex0:u16 BE)
-						// (mat4_tex1:u16 BE).
-						var face []byte
-						if fb, err := d.ReadAbsolute(mailboxBase+mailboxFaceStateLocal, faceStateWireBytes); err == nil && len(fb) == faceStateWireBytes {
-							face = fb
-						}
-						if err := client.SendPose(linkJointCount, data, face); err != nil {
-							poseErrs++
-							if poseErrs > 5 {
-								return fmt.Errorf("send pose: %w", err)
+			// Pose. Read from the sender-side publish buffer rather than
+			// Link #1's live mpNodeMtx. The C draw hook memcpys mpNodeMtx
+			// into this GameHeap-resident buffer once per frame AFTER
+			// daPy_lk_c_draw returns, so our read can't catch mid-calc
+			// torn state. Previous direct-mpNodeMtx reads at 20 Hz raced
+			// the game's 60 Hz calc pass and produced visibly wrong poses
+			// on the receiver when slope-IK made per-frame mpNodeMtx delta
+			// large (observed v0.1.2: leg flapping 0-90° on slopes).
+			//
+			// Protocol: ship the raw 2016 B AFTER localizing — subtract
+			// Link's world position from each joint's translation column so
+			// the pose is relative to Link's origin (rotation parts
+			// unchanged). Receiver re-adds the remote's world position to
+			// land Link #2 at the right world coords.
+			if pos != nil {
+				stateBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPosePublishState, 1)
+				if len(stateBytes) == 1 && stateBytes[0] == 1 {
+					pubPtr, _ := d.ReadU32(mailboxBase + mailboxPosePublishPtr)
+					if pubPtr >= 0x80000000 && pubPtr < 0x81800000 {
+						data, err := d.ReadAbsolute(pubPtr, poseBytes)
+						if err == nil && data != nil {
+							if os.Getenv("WW_POSE_RAW") == "" {
+								localizePoseInPlace(data, linkJointCount, pos.PosX, pos.PosY, pos.PosZ)
+							}
+							// Capture the LOCAL Link's eye texno bytes from
+							// the mailbox slot the C side publishes at the
+							// top of daPy_draw_hook (before any face_emit
+							// swap fires). Race-free vs reading tev_block
+							// directly from emu RAM. Wire layout matches
+							// FaceState: 8 B = (mat1_tex0:u16 BE)
+							// (mat1_tex1:u16 BE)(mat4_tex0:u16 BE)
+							// (mat4_tex1:u16 BE).
+							var face []byte
+							if fb, err := d.ReadAbsolute(mailboxBase+mailboxFaceStateLocal, faceStateWireBytes); err == nil && len(fb) == faceStateWireBytes {
+								face = fb
+							}
+							if err := client.SendPose(linkJointCount, data, face); err != nil {
+								poseErrs++
+								if poseErrs > 5 {
+									return fmt.Errorf("send pose: %w", err)
+								}
 							}
 						}
 					}
 				}
 			}
-		}
 
-		// pos can be nil during a brief reload window where Link's
-		// actor pointer is 0 (player on the main menu / save loading).
-		// We used to print a per-tick `link+pose -> X:Y:Z\r` heartbeat
-		// here; the TUI dashboard now polls Dolphin position directly
-		// for that field, so the heartbeat just spammed the log panel.
-		// CLI users still see the [net] connect line as proof of life.
+			// pos can be nil during a brief reload window where Link's
+			// actor pointer is 0 (player on the main menu / save loading).
+			// We used to print a per-tick `link+pose -> X:Y:Z\r` heartbeat
+			// here; the TUI dashboard now polls Dolphin position directly
+			// for that field, so the heartbeat just spammed the log panel.
+			// CLI users still see the [net] connect line as proof of life.
 
-		// 16 ms ≈ 60 Hz, matching Dolphin's render rate so the receiver
-		// gets a fresh pose every game frame. ~120 KB/s of pose data —
-		// trivial for LAN; fine for typical home upload over the
-		// internet too. Was 50 ms before v0.1.7 — the 3-frame cadence
-		// mismatch made remote Links visibly snap between samples.
-		select {
-		case <-ctx.Done():
-			// Fall through; IsConnected() will be false next iteration
-			// (watcher goroutine already called Disconnect()).
-		case <-time.After(16 * time.Millisecond):
+			// 16 ms ≈ 60 Hz, matching Dolphin's render rate so the receiver
+			// gets a fresh pose every game frame. ~120 KB/s of pose data —
+			// trivial for LAN; fine for typical home upload over the
+			// internet too. Was 50 ms before v0.1.7 — the 3-frame cadence
+			// mismatch made remote Links visibly snap between samples.
+			select {
+			case <-ctx.Done():
+				// Fall through; IsConnected() will be false next iteration
+				// (watcher goroutine already called Disconnect()).
+			case <-time.After(16 * time.Millisecond):
+			}
 		}
+		rep.Log(report.Info, "Disconnected.")
+		return nil
 	}
-	rep.Log(report.Info, "Disconnected.")
-	return nil
+
+	return network.ReconnectLoop(ctx, connect, run, network.NewBackoff(), network.SleepCtx)
 }
 
 // Captures Link's current pose once and replays it as a separate
@@ -1646,24 +1650,15 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	client.OnLog = func(msg string) {
 		rep.Log(report.Net, msg)
 	}
-	if err := client.Connect(addr); err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
-	defer client.Disconnect()
-
-	// Wrap ctx so the watcher goroutine below exits cleanly on return,
-	// then kick the IsConnected() loop out of its sleep on ctx cancel.
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go func() {
-		<-ctx.Done()
-		client.Disconnect()
-	}()
 
 	// Lerp-smoothed state per slot. lerpK = 0.2 closes ~80% of the gap in
 	// ~5 ticks (~83 ms at 60 Hz). Raise for snappier tracking, lower for
 	// more butter. Rotation is raw passthrough — angular lerp needs
 	// shortest-arc handling; punt until it matters visibly.
+	//
+	// ALL of the following state lives at function scope so it SURVIVES
+	// reconnects (#8): the connect/run callbacks for ReconnectLoop close
+	// over it, and a transient drop must not lose slot assignments.
 	const lerpK = 0.2
 	type slotState struct {
 		haveCur          bool
@@ -1681,8 +1676,25 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	// remotes still get their actor-puppet (KAMOME / NPC / TSUBO).
 	remoteToLinkSlot := map[byte]int{}
 	poseBufPtrs := [maxRemoteLinks]uint32{}
+	// armedEpoch[slot] = the sessionEpoch the slot's pose_buf was last
+	// validated in. A mismatch forces armPoseSlot to re-poll — defeating the
+	// stale-buffer trap where pose_buf_state still reads 1 (with a now-freed
+	// pointer) from the prior session after a reconnect.
+	armedEpoch := [maxRemoteLinks]int{}
+	for i := range armedEpoch {
+		armedEpoch[i] = -1
+	}
 	shadowModeArmed := false
 	announced := map[byte]bool{} // log "link slot := player N" once
+	// parked[id] marks a remote whose despawn reservation expired (its link
+	// slot was freed for reuse); it's skipped until a fresh pose un-parks it.
+	parked := map[byte]bool{}
+	// sessionEpoch increments on every successful (re)connect; lastServerEpoch
+	// tracks the server's boot epoch so a restart (epoch change) triggers a
+	// full reset.
+	sessionEpoch := 0
+	var lastServerEpoch uint64
+	haveServerEpoch := false
 
 	// Per-link-slot displayed pose. Each tick we lerp this toward the
 	// latest received pose for the slot's remote (poseLerpK fraction
@@ -1694,6 +1706,13 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	const poseLerpK float32 = 0.5
 	type linkSlotState struct {
 		displayed []byte
+		// Vanished-sender state (#10 / D4). frozen: stop bumping pose_seq so
+		// the C side holds the last frame (Link freezes in place). despawned:
+		// slot cleared (Link gone) but RESERVED ~despawnReserve so the same
+		// remote resumes in place; despawnAt timestamps it for that timer.
+		frozen    bool
+		despawned bool
+		despawnAt time.Time
 	}
 	var linkSlots [maxRemoteLinks]linkSlotState
 	// Render offset added on top of the localized pose's re-application.
@@ -1707,7 +1726,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		report.Logf(rep, report.Info, "Link #2/3 render offset: (%.0f, %.0f, %.0f)",
 			link2OffsetX, link2OffsetY, link2OffsetZ)
 	}
-	armPoseSlot := func(slot int) bool {
+	armPoseSlot := func(ctx context.Context, slot int) bool {
 		// Re-poll each call: the receiving Dolphin's mini-Link state can
 		// reset when the player reloads a save (mini_link_reset_state in
 		// inject/src/multiplayer.c clears mailbox.pose_buf_ptrs and
@@ -1717,26 +1736,34 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		// the new mini-Link reads only its seed, producing a Link that
 		// stays frozen at the seed pose forever. Authoritative source
 		// is the mailbox; use it every tick instead of caching once.
-		state, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState(slot), 1)
-		if len(state) == 1 && state[0] == 1 {
-			ptr, _ := d.ReadU32(mailboxBase + mailboxPoseBufPtr(slot))
-			if ptr != 0 {
-				if poseBufPtrs[slot] != ptr {
-					if poseBufPtrs[slot] == 0 {
-						report.Logf(rep, report.OK, "pose-feed slot %d armed: pose_buf=0x%08X", slot, ptr)
-					} else {
-						report.Logf(rep, report.OK, "pose-feed slot %d re-armed: pose_buf=0x%08X (was 0x%08X)",
-							slot, ptr, poseBufPtrs[slot])
+		//
+		// forceRepoll: on the FIRST arm of a new session (sessionEpoch
+		// changed), don't trust a pose_buf_state that still reads 1 from the
+		// prior session — its pointer may be freed. Fall through to the poll
+		// path, which re-asserts shadow_mode=5 and re-validates the pointer.
+		forceRepoll := armedEpoch[slot] != sessionEpoch
+		if !forceRepoll {
+			state, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState(slot), 1)
+			if len(state) == 1 && state[0] == 1 {
+				ptr, _ := d.ReadU32(mailboxBase + mailboxPoseBufPtr(slot))
+				if ptr != 0 {
+					if poseBufPtrs[slot] != ptr {
+						if poseBufPtrs[slot] == 0 {
+							report.Logf(rep, report.OK, "pose-feed slot %d armed: pose_buf=0x%08X", slot, ptr)
+						} else {
+							report.Logf(rep, report.OK, "pose-feed slot %d re-armed: pose_buf=0x%08X (was 0x%08X)",
+								slot, ptr, poseBufPtrs[slot])
+						}
+						poseBufPtrs[slot] = ptr
 					}
-					poseBufPtrs[slot] = ptr
+					armedEpoch[slot] = sessionEpoch
+					return true
 				}
-				return true
 			}
 		}
-		// State != 1 — C side hasn't allocated yet (first time this slot
-		// is touched, or just reset). Drop our cached pointer so we don't
-		// write to a stale address while waiting, then drive shadow_mode=5
-		// and poll for the new pose_buf.
+		// State != 1, or a new session forced a re-poll. Drop our cached
+		// pointer so we don't write to a stale address while waiting, then
+		// drive shadow_mode=5 and poll for the (re-published) pose_buf.
 		if poseBufPtrs[slot] != 0 {
 			report.Logf(rep, report.Warn, "pose-feed slot %d disarmed: waiting for C-side re-alloc", slot)
 			poseBufPtrs[slot] = 0
@@ -1756,6 +1783,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 				ptr, _ := d.ReadU32(mailboxBase + mailboxPoseBufPtr(slot))
 				if ptr != 0 {
 					poseBufPtrs[slot] = ptr
+					armedEpoch[slot] = sessionEpoch
 					report.Logf(rep, report.OK, "pose-feed slot %d armed: pose_buf=0x%08X", slot, ptr)
 					return true
 				}
@@ -1786,16 +1814,70 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		return -1
 	}
 
-	// Puppet-sync only renders network poses if shadow_mode == 5 on the
-	// receiving Dolphin. Old armPoseSlot only wrote shadow_mode=5 in its
-	// lazy-arm path (when state != 1), so if state was already 1 from a
-	// prior puppet-sync run AND shadow_mode had drifted back to 0 (e.g.
-	// from a manual `./ww-multiplayer.exe shadow-mode 0`, or any future reset path
-	// that clears it), the new puppet-sync would silently fail with the
-	// receiver showing local-mirror Link instead of the network pose.
-	// Always assert mode 5 once at startup; cheap and idempotent.
-	d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{5})
-	shadowModeArmed = true
+	// Vanished-sender thresholds (#10). freezeAfter: hold the last pose;
+	// despawnAfter: clear the slot. despawnReserve keeps a despawned slot
+	// reserved so the same remote resumes in place before it's freed for
+	// reuse (the server's MsgLeave at serverReadTimeout is the slower
+	// backstop).
+	freezeAfter, despawnAfter := network.PoseLivenessDefaults()
+	const despawnReserve = 10 * time.Second
+
+	// freeLinkSlot fully releases a pose-feed link slot: stop the C-side
+	// render (zero pose_seq + face_seq), drop the EMA buffer + id mapping,
+	// and invalidate the arm cache so the next claimant re-arms from scratch.
+	freeLinkSlot := func(linkSlot int, id byte) {
+		d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{0})
+		d.WriteAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), []byte{0})
+		delete(remoteToLinkSlot, id)
+		linkSlots[linkSlot] = linkSlotState{}
+		armedEpoch[linkSlot] = -1
+		poseBufPtrs[linkSlot] = 0
+	}
+
+	// connect (re)establishes the session and RE-ARMS the mailbox (#8 + D3).
+	// Runs at startup and after every reconnect. A change in the welcome's
+	// server epoch means the server restarted → full puppet reset.
+	connect := func() error {
+		if err := client.Connect(addr); err != nil {
+			return err
+		}
+		sessionEpoch++
+		ep := client.ServerEpoch()
+		serverRestarted := haveServerEpoch && ep != 0 && ep != lastServerEpoch
+		lastServerEpoch = ep
+		haveServerEpoch = true
+
+		// Re-arm every pose slot: zero seqs + assert shadow_mode=5, and
+		// invalidate cached pointers/epoch so armPoseSlot re-polls this
+		// session (handles the stale pose_buf_state==1 trap). Mirrors
+		// clearMultiplayerState + the re-arm half of armPoseSlot.
+		for s := 0; s < maxRemoteLinks; s++ {
+			resetPuppetSyncMailbox(d, s)
+			poseBufPtrs[s] = 0
+			armedEpoch[s] = -1
+		}
+		shadowModeArmed = true
+
+		if serverRestarted {
+			// New server instance ⇒ new player ids; old slots are stale.
+			// Drop every actor-puppet + link-slot mapping so fresh remotes
+			// re-arm cleanly with no double-rendered orphan.
+			for id, idx := range remoteToSlot {
+				d.WriteAbsolute(slotAddr(idx, slotOffAct), zero)
+				delete(remoteToSlot, id)
+				slots[idx] = slotState{}
+			}
+			for s := range linkSlots {
+				linkSlots[s] = linkSlotState{}
+			}
+			remoteToLinkSlot = map[byte]int{}
+			announced = map[byte]bool{}
+			parked = map[byte]bool{}
+			rep.Log(report.Warn, "server restarted (epoch changed): full puppet reset")
+		}
+		report.Logf(rep, report.OK, "puppet-sync session %d armed (server epoch %d)", sessionEpoch, ep)
+		return nil
+	}
 
 	// selfFilter lets a puppet-sync attached to the SAME Dolphin as a
 	// broadcast-pose twin ignore its twin's stream. Without this, the
@@ -1809,190 +1891,263 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		report.Logf(rep, report.Info, "Filtering self-echo: remotes named %q will be ignored.", selfFilter)
 	}
 
-	for client.IsConnected() {
-		remotes := client.GetRemotePlayers()
-		seen := map[byte]bool{}
-		for _, rp := range remotes {
-			if rp.Position == nil {
-				continue
-			}
-			if selfFilter != "" && rp.Name == selfFilter {
-				continue
-			}
-			seen[rp.ID] = true
-			hasPose := rp.PoseMatrices != nil && rp.PoseJoints > 0 &&
-				len(rp.PoseMatrices) == rp.PoseJoints*48
-			idx, ok := remoteToSlot[rp.ID]
-			if !ok {
-				// Find a free slot. Walk 0..N; first index not already
-				// mapped to a live remote wins.
-				used := map[int]bool{}
-				for _, v := range remoteToSlot {
-					used[v] = true
-				}
-				for i := 0; i < maxPuppets; i++ {
-					if !used[i] {
-						idx = i
-						break
-					}
-				}
-				if used[idx] {
-					// All slots full; drop this remote for now.
+	// run owns one live session: the 60 Hz receive→mailbox loop. Returns on
+	// a drop (ReconnectLoop reconnects) or ctx-cancel (function ends).
+	run := func(ctx context.Context) error {
+		defer client.Disconnect()
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go func() {
+			<-ctx.Done()
+			client.Disconnect()
+		}()
+
+		for client.IsConnected() {
+			remotes := client.GetRemotePlayers()
+			now := time.Now()
+			seen := map[byte]bool{}
+			for _, rp := range remotes {
+				if rp.Position == nil {
 					continue
 				}
-				remoteToSlot[rp.ID] = idx
-				// Only activate the actor-puppet (KAMOME / Rose / TSUBO)
-				// for remotes without pose data. Pose-driven remotes
-				// render as Link #2 directly; activating the actor too
-				// would overlap an NPC on top of Link #2 at the same
-				// coords, and C-side actor cleanup is best-effort (it
-				// stops syncing but leaves the actor stuck at its last
-				// position), so the duplicate sticks around forever.
-				if !hasPose {
-					d.WriteAbsolute(slotAddr(idx, slotOffAct), one)
-					report.Logf(rep, report.OK, "slot %d := player %d (%s)", idx, rp.ID, rp.Name)
+				if selfFilter != "" && rp.Name == selfFilter {
+					continue
 				}
-			}
-
-			tx, ty, tz := rp.Position.PosX, rp.Position.PosY, rp.Position.PosZ
-			st := &slots[idx]
-			if !st.haveCur {
-				st.curX, st.curY, st.curZ = tx, ty, tz
-				st.haveCur = true
-			} else {
-				st.curX += (tx - st.curX) * lerpK
-				st.curY += (ty - st.curY) * lerpK
-				st.curZ += (tz - st.curZ) * lerpK
-			}
-
-			posBuf := make([]byte, 12)
-			binary.BigEndian.PutUint32(posBuf[0:4], math.Float32bits(st.curX))
-			binary.BigEndian.PutUint32(posBuf[4:8], math.Float32bits(st.curY))
-			binary.BigEndian.PutUint32(posBuf[8:12], math.Float32bits(st.curZ))
-			d.WriteAbsolute(slotAddr(idx, slotOffPosX), posBuf)
-
-			rotBuf := make([]byte, 6)
-			binary.BigEndian.PutUint16(rotBuf[0:2], uint16(rp.Position.RotX))
-			binary.BigEndian.PutUint16(rotBuf[2:4], uint16(rp.Position.RotY))
-			binary.BigEndian.PutUint16(rotBuf[4:6], uint16(rp.Position.RotZ))
-			d.WriteAbsolute(slotAddr(idx, slotOffRotX), rotBuf)
-
-			// Pose feed (shadow_mode=5). First remote to deliver any pose
-			// claims the Link-#2 driver slot; subsequent remotes still
-			// puppet through the actor pipeline above. MAX_REMOTE_LINKS=1
-			// for v0. Sender ships a LOCALIZED pose (translations
-			// relative to its own world position); receiver re-adds
-			// the smoothed remote position + WW_LINK2_OFFSET so Link #2
-			// lands at the right world coords. The offset is normally 0
-			// for two-Dolphin play; set it to e.g. 500 for loopback
-			// development so Link #2 doesn't overlap your own Link.
-			if rp.PoseMatrices != nil && len(rp.PoseMatrices) == rp.PoseJoints*48 {
-				linkSlot := pickLinkSlot(rp.ID)
-				if linkSlot >= 0 && armPoseSlot(linkSlot) {
-					// First time this remote got a link slot — also
-					// release their actor-puppet so we don't see both
-					// a Link AND a KAMOME at the same position.
-					d.WriteAbsolute(slotAddr(idx, slotOffAct), zero)
-					if _, alreadyLogged := announced[rp.ID]; !alreadyLogged {
-						report.Logf(rep, report.OK, "link slot %d := player %d (%s)", linkSlot, rp.ID, rp.Name)
-						announced[rp.ID] = true
+				seen[rp.ID] = true
+				hasPose := rp.PoseMatrices != nil && rp.PoseJoints > 0 &&
+					len(rp.PoseMatrices) == rp.PoseJoints*48
+				idx, ok := remoteToSlot[rp.ID]
+				if !ok {
+					// Find a free slot. Walk 0..N; first index not already
+					// mapped to a live remote wins.
+					used := map[int]bool{}
+					for _, v := range remoteToSlot {
+						used[v] = true
 					}
-					ls := &linkSlots[linkSlot]
-					if ls.displayed == nil || len(ls.displayed) != len(rp.PoseMatrices) {
-						// First pose for this slot, or joint count
-						// changed — snap to the target so we don't
-						// EMA from zero (which would render a degenerate
-						// pose for the first few frames).
-						ls.displayed = make([]byte, len(rp.PoseMatrices))
-						copy(ls.displayed, rp.PoseMatrices)
-					} else {
-						lerpPoseInPlace(ls.displayed, rp.PoseMatrices, poseLerpK)
+					for i := 0; i < maxPuppets; i++ {
+						if !used[i] {
+							idx = i
+							break
+						}
 					}
-					adjusted := make([]byte, len(ls.displayed))
-					copy(adjusted, ls.displayed)
-					if os.Getenv("WW_POSE_RAW") == "" {
-						applyPoseAt(adjusted, rp.PoseJoints,
-							st.curX+link2OffsetX, st.curY+link2OffsetY, st.curZ+link2OffsetZ)
+					if used[idx] {
+						// All slots full; drop this remote for now.
+						continue
 					}
-					d.WriteAbsolute(poseBufPtrs[linkSlot], adjusted)
-					sq, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), 1)
-					next := byte(0)
-					if len(sq) == 1 {
-						next = sq[0] + 1
+					remoteToSlot[rp.ID] = idx
+					// Only activate the actor-puppet (KAMOME / Rose / TSUBO)
+					// for remotes without pose data. Pose-driven remotes
+					// render as Link #2 directly; activating the actor too
+					// would overlap an NPC on top of Link #2 at the same
+					// coords, and C-side actor cleanup is best-effort (it
+					// stops syncing but leaves the actor stuck at its last
+					// position), so the duplicate sticks around forever.
+					if !hasPose {
+						d.WriteAbsolute(slotAddr(idx, slotOffAct), one)
+						report.Logf(rep, report.OK, "slot %d := player %d (%s)", idx, rp.ID, rp.Name)
 					}
-					d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{next})
+				}
 
-					// Session 9: face-state suffix (eye texno values).
-					// Writer is the C-side J3DMatPacket vtable hook —
-					// it reads mailbox.face_state[slot] when mini-link's
-					// eye matpackets draw, and only swaps when
-					// face_seqs[slot] != 0. So we ALWAYS write fresh
-					// bytes + bump the seq when we have face data,
-					// even if it didn't change frame-to-frame (the C
-					// hook reads a fresh memory location each draw,
-					// not a stale cache; bumping the seq is just for
-					// the gating).
-					if len(rp.FaceState) >= faceStateWireBytes {
-						d.WriteAbsolute(mailboxBase+mailboxFaceState(linkSlot), rp.FaceState[:faceStateWireBytes])
-						fsq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), 1)
-						fnext := byte(1)
-						if len(fsq) == 1 {
-							fnext = fsq[0] + 1
-							if fnext == 0 {
-								// Wrap from 0 means "not yet armed"
-								// per the C-side gate; skip 0 on
-								// rollover so the gate stays open.
-								fnext = 1
+				tx, ty, tz := rp.Position.PosX, rp.Position.PosY, rp.Position.PosZ
+				st := &slots[idx]
+				if !st.haveCur {
+					st.curX, st.curY, st.curZ = tx, ty, tz
+					st.haveCur = true
+				} else {
+					st.curX += (tx - st.curX) * lerpK
+					st.curY += (ty - st.curY) * lerpK
+					st.curZ += (tz - st.curZ) * lerpK
+				}
+
+				posBuf := make([]byte, 12)
+				binary.BigEndian.PutUint32(posBuf[0:4], math.Float32bits(st.curX))
+				binary.BigEndian.PutUint32(posBuf[4:8], math.Float32bits(st.curY))
+				binary.BigEndian.PutUint32(posBuf[8:12], math.Float32bits(st.curZ))
+				d.WriteAbsolute(slotAddr(idx, slotOffPosX), posBuf)
+
+				rotBuf := make([]byte, 6)
+				binary.BigEndian.PutUint16(rotBuf[0:2], uint16(rp.Position.RotX))
+				binary.BigEndian.PutUint16(rotBuf[2:4], uint16(rp.Position.RotY))
+				binary.BigEndian.PutUint16(rotBuf[4:6], uint16(rp.Position.RotZ))
+				d.WriteAbsolute(slotAddr(idx, slotOffRotX), rotBuf)
+
+				// Pose feed (shadow_mode=5). First remote to deliver any pose
+				// claims the Link-#2 driver slot; subsequent remotes still
+				// puppet through the actor pipeline above. MAX_REMOTE_LINKS=1
+				// for v0. Sender ships a LOCALIZED pose (translations
+				// relative to its own world position); receiver re-adds
+				// the smoothed remote position + WW_LINK2_OFFSET so Link #2
+				// lands at the right world coords. The offset is normally 0
+				// for two-Dolphin play; set it to e.g. 500 for loopback
+				// development so Link #2 doesn't overlap your own Link.
+				if rp.PoseMatrices != nil && len(rp.PoseMatrices) == rp.PoseJoints*48 {
+					// Vanished-sender classification (#10). LastPose stops
+					// advancing the moment the remote's pose stream goes silent
+					// (crash / cable pull), well before the server's MsgLeave at
+					// serverReadTimeout.
+					frozenNow, despawnedNow := network.PoseLiveness(rp.LastPose, now, freezeAfter, despawnAfter)
+
+					// A parked remote (reservation expired, slot freed) stays
+					// skipped until a fresh pose un-parks it.
+					if parked[rp.ID] {
+						if !frozenNow && !despawnedNow {
+							delete(parked, rp.ID)
+						} else {
+							continue
+						}
+					}
+
+					linkSlot := pickLinkSlot(rp.ID)
+					if linkSlot >= 0 {
+						ls := &linkSlots[linkSlot]
+
+						// Sender RESUMED after a freeze/despawn: re-arm the
+						// mailbox for this slot and snap back to live rendering.
+						if !frozenNow && !despawnedNow && (ls.frozen || ls.despawned) {
+							resetPuppetSyncMailbox(d, linkSlot)
+							poseBufPtrs[linkSlot] = 0
+							armedEpoch[linkSlot] = -1
+							ls.displayed = nil
+							ls.frozen = false
+							ls.despawned = false
+							report.Logf(rep, report.OK, "link slot %d resumed: player %d pose fresh again", linkSlot, rp.ID)
+						}
+
+						switch {
+						case despawnedNow:
+							// Silent long enough → clear the slot (Link vanishes)
+							// but keep it RESERVED so a late resume from the same
+							// remote lands back here. A dual safety net alongside
+							// the server's MsgLeave-on-timeout.
+							if !ls.despawned {
+								d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{0})
+								d.WriteAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), []byte{0})
+								ls.despawned = true
+								ls.frozen = true
+								ls.despawnAt = now
+								report.Logf(rep, report.Warn, "link slot %d despawned: player %d silent (no MsgLeave yet)", linkSlot, rp.ID)
+							}
+						case frozenNow:
+							// Brief silence → stop bumping pose_seq; the C side
+							// holds the last pose so Link visually FREEZES rather
+							// than snapping to a stale sample or vanishing.
+							if !ls.frozen {
+								ls.frozen = true
+								report.Logf(rep, report.Info, "link slot %d frozen: player %d pose stalled", linkSlot, rp.ID)
+							}
+						default:
+							// Normal path: arm + write the fresh pose.
+							if armPoseSlot(ctx, linkSlot) {
+								// First time this remote got a link slot — also
+								// release their actor-puppet so we don't see both
+								// a Link AND a KAMOME at the same position.
+								d.WriteAbsolute(slotAddr(idx, slotOffAct), zero)
+								if _, alreadyLogged := announced[rp.ID]; !alreadyLogged {
+									report.Logf(rep, report.OK, "link slot %d := player %d (%s)", linkSlot, rp.ID, rp.Name)
+									announced[rp.ID] = true
+								}
+								if ls.displayed == nil || len(ls.displayed) != len(rp.PoseMatrices) {
+									// First pose for this slot, or joint count
+									// changed — snap to the target so we don't
+									// EMA from zero (which would render a degenerate
+									// pose for the first few frames).
+									ls.displayed = make([]byte, len(rp.PoseMatrices))
+									copy(ls.displayed, rp.PoseMatrices)
+								} else {
+									lerpPoseInPlace(ls.displayed, rp.PoseMatrices, poseLerpK)
+								}
+								adjusted := make([]byte, len(ls.displayed))
+								copy(adjusted, ls.displayed)
+								if os.Getenv("WW_POSE_RAW") == "" {
+									applyPoseAt(adjusted, rp.PoseJoints,
+										st.curX+link2OffsetX, st.curY+link2OffsetY, st.curZ+link2OffsetZ)
+								}
+								d.WriteAbsolute(poseBufPtrs[linkSlot], adjusted)
+								sq, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), 1)
+								next := byte(0)
+								if len(sq) == 1 {
+									next = sq[0] + 1
+								}
+								d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{next})
+
+								// Session 9: face-state suffix (eye texno values).
+								// Writer is the C-side J3DMatPacket vtable hook —
+								// it reads mailbox.face_state[slot] when mini-link's
+								// eye matpackets draw, and only swaps when
+								// face_seqs[slot] != 0. So we ALWAYS write fresh
+								// bytes + bump the seq when we have face data,
+								// even if it didn't change frame-to-frame (the C
+								// hook reads a fresh memory location each draw,
+								// not a stale cache; bumping the seq is just for
+								// the gating).
+								if len(rp.FaceState) >= faceStateWireBytes {
+									d.WriteAbsolute(mailboxBase+mailboxFaceState(linkSlot), rp.FaceState[:faceStateWireBytes])
+									fsq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), 1)
+									fnext := byte(1)
+									if len(fsq) == 1 {
+										fnext = fsq[0] + 1
+										if fnext == 0 {
+											// Wrap from 0 means "not yet armed"
+											// per the C-side gate; skip 0 on
+											// rollover so the gate stays open.
+											fnext = 1
+										}
+									}
+									d.WriteAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), []byte{fnext})
+								}
 							}
 						}
-						d.WriteAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), []byte{fnext})
 					}
 				}
 			}
-		}
 
-		// Release slots for remotes that have disconnected.
-		for id, idx := range remoteToSlot {
-			if !seen[id] {
-				d.WriteAbsolute(slotAddr(idx, slotOffAct), zero)
-				delete(remoteToSlot, id)
-				slots[idx] = slotState{}
-				report.Logf(rep, report.Info, "slot %d freed (player %d left)", idx, id)
-				if linkSlot, ok := remoteToLinkSlot[id]; ok {
-					delete(remoteToLinkSlot, id)
-					// Clear pose_seq so the C-side stops rendering this
-					// link slot. C's mode-5 path gates entry on
-					// pose_seqs[slot] != 0, so without this the
-					// receiving Dolphin would render Link #2 frozen
-					// at the last received pose forever after the
-					// remote disconnects.
-					d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{0})
-					// Clear face_seq for the same reason — without it
-					// the J3DMatPacket vtable hook would keep swapping
-					// the dead remote's last-known eye state into the
-					// shared TevBlock when mini-link's eye matpackets
-					// draw, instead of letting btp's local value pass
-					// through.
-					d.WriteAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), []byte{0})
-					// Drop the EMA buffer so the next remote to claim
-					// this slot snaps to its first pose instead of
-					// lerping from the previous occupant's last frame.
-					linkSlots[linkSlot] = linkSlotState{}
-					report.Logf(rep, report.Info, "link slot %d freed (will be reassigned on next pose)", linkSlot)
+			// Release slots for remotes that have disconnected (MsgLeave, or the
+			// server's read-timeout teardown removed them from the player list).
+			for id, idx := range remoteToSlot {
+				if !seen[id] {
+					d.WriteAbsolute(slotAddr(idx, slotOffAct), zero)
+					delete(remoteToSlot, id)
+					slots[idx] = slotState{}
+					report.Logf(rep, report.Info, "slot %d freed (player %d left)", idx, id)
+					if linkSlot, ok := remoteToLinkSlot[id]; ok {
+						// freeLinkSlot zeroes pose_seq + face_seq (C-side stops
+						// rendering Link #2; otherwise it'd stay frozen at the
+						// last pose forever), drops the EMA buffer, and clears
+						// the arm cache so the next claimant re-arms cleanly.
+						freeLinkSlot(linkSlot, id)
+						report.Logf(rep, report.Info, "link slot %d freed (will be reassigned on next pose)", linkSlot)
+					}
+					delete(announced, id)
+					delete(parked, id)
 				}
-				delete(announced, id)
+			}
+
+			// Reservation expiry (#10): a slot despawned longer than
+			// despawnReserve is freed for reuse by ANOTHER remote even if the
+			// dead sender hasn't formally left yet (its MsgLeave may lag). The
+			// remote is parked so it won't immediately re-grab the slot; a fresh
+			// pose un-parks it.
+			for id, linkSlot := range remoteToLinkSlot {
+				ls := &linkSlots[linkSlot]
+				if ls.despawned && !ls.despawnAt.IsZero() && now.Sub(ls.despawnAt) > despawnReserve {
+					freeLinkSlot(linkSlot, id)
+					parked[id] = true
+					report.Logf(rep, report.Info, "link slot %d reservation expired: freed for reuse (player %d)", linkSlot, id)
+				}
+			}
+
+			select {
+			case <-ctx.Done():
+				// Watcher goroutine will Disconnect(); IsConnected() will
+				// flip false on the next iteration and the loop exits.
+			case <-time.After(16 * time.Millisecond): // ~60 Hz
 			}
 		}
-
-		select {
-		case <-ctx.Done():
-			// Watcher goroutine will Disconnect(); IsConnected() will
-			// flip false on the next iteration and the loop exits.
-		case <-time.After(16 * time.Millisecond): // ~60 Hz
-		}
+		rep.Log(report.Info, "Disconnected.")
+		return nil
 	}
-	rep.Log(report.Info, "Disconnected.")
-	return nil
+
+	return network.ReconnectLoop(ctx, connect, run, network.NewBackoff(), network.SleepCtx)
 }
 
 func runPokeU32(addrHex, valHex string) {
@@ -6413,4 +6568,17 @@ func clearMultiplayerState() {
 	for i := 0; i < maxRemoteLinks; i++ {
 		d.WriteAbsolute(mailboxBase+mailboxPoseSeq(i), []byte{0})
 	}
+}
+
+// resetPuppetSyncMailbox re-arms a single pose-feed slot after a reconnect
+// (D3) or a sender resume (D4): it re-asserts shadow_mode=5 and zeroes the
+// slot's pose_seq + face_seq so the C side stops rendering whatever stale
+// pose it was holding. Mirrors the seq-zeroing half of clearMultiplayerState
+// plus the re-arm intent of armPoseSlot. The CALLER must also invalidate its
+// cached pose_buf_ptr (and armed-epoch) for the slot so armPoseSlot re-polls
+// — this function only touches the mailbox, not the in-process cache.
+func resetPuppetSyncMailbox(d *dolphin.Dolphin, slot int) {
+	d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{5})
+	d.WriteAbsolute(mailboxBase+mailboxPoseSeq(slot), []byte{0})
+	d.WriteAbsolute(mailboxBase+mailboxFaceSeq(slot), []byte{0})
 }

@@ -10,12 +10,27 @@ import (
 // Message types
 const (
 	MsgJoin       byte = 'J' // Client -> Server: player name
-	MsgWelcome    byte = 'W' // Server -> Client: assigned player ID
+	MsgWelcome    byte = 'W' // Server -> Client: assigned player ID (+ epoch)
 	MsgPosition   byte = 'P' // Both: position update
 	MsgPlayerList byte = 'L' // Server -> Client: list of connected players
 	MsgLeave      byte = 'D' // Server -> Client: player disconnected
 	MsgChat       byte = 'C' // Both: text message
 	MsgPose       byte = 'M' // Both: full skeletal pose (Mtx[joints])
+
+	// Heartbeat / liveness. A peer sends MsgPing carrying an 8-byte BE
+	// monotonic-nanos timestamp; the receiver echoes the SAME bytes back as
+	// MsgPong. The original sender then computes RTT = now - echoedTs. Pings
+	// also serve as keepalives that reset the peer's read deadline, so a
+	// quiet-but-live player (paused / in a menu) isn't reaped as an
+	// ungraceful disconnect.
+	//
+	// NOTE: the design brief proposed MsgPong = 'P', but 'P' is already
+	// MsgPosition. To avoid a wire collision that would corrupt position
+	// sync, Pong uses 'Q' (next free byte). Ping is 'K' as specified. Old
+	// peers ignore unknown types (no default case in any switch), so this
+	// stays backward-compatible; framing is unchanged.
+	MsgPing byte = 'K' // Both: liveness ping (8-byte BE monotonic-nanos)
+	MsgPong byte = 'Q' // Both: liveness pong (echo of the ping's 8 bytes)
 )
 
 // PlayerPosition is the core position data synced between players.
@@ -96,6 +111,49 @@ func ReadMessage(r io.Reader) (*Message, error) {
 	}
 
 	return &Message{Type: msgType, Data: data}, nil
+}
+
+// WelcomeMessage builds the server->client welcome payload:
+//
+//	[id:1][serverEpoch:8 BE]
+//
+// serverEpoch is constant per Server instance (its boot-time nanos) so a
+// client can detect a server restart across a reconnect. Legacy clients read
+// only Data[0] and ignore the 8-byte tail, keeping this backward-compatible.
+func WelcomeMessage(id byte, serverEpoch uint64) []byte {
+	data := make([]byte, 9)
+	data[0] = id
+	binary.BigEndian.PutUint64(data[1:9], serverEpoch)
+	return data
+}
+
+// ParseWelcome extracts the assigned id and (optional) server epoch from a
+// welcome payload. epochOK is false for a legacy 1-byte welcome (epoch 0).
+func ParseWelcome(data []byte) (id byte, serverEpoch uint64, epochOK bool) {
+	if len(data) < 1 {
+		return 0, 0, false
+	}
+	id = data[0]
+	if len(data) >= 9 {
+		return id, binary.BigEndian.Uint64(data[1:9]), true
+	}
+	return id, 0, false
+}
+
+// PingPayload encodes an 8-byte BE timestamp for a MsgPing/MsgPong.
+func PingPayload(ts int64) []byte {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, uint64(ts))
+	return b
+}
+
+// ParsePingTimestamp decodes the 8-byte BE timestamp echoed in a ping/pong
+// payload. ok is false if the payload is shorter than 8 bytes.
+func ParsePingTimestamp(data []byte) (ts int64, ok bool) {
+	if len(data) < 8 {
+		return 0, false
+	}
+	return int64(binary.BigEndian.Uint64(data[:8])), true
 }
 
 // PositionMessage adds a player ID to a position update.
