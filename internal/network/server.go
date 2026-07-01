@@ -1,9 +1,11 @@
 package network
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"sync"
+	"time"
 )
 
 // Player represents a connected player on the server.
@@ -29,15 +31,29 @@ type Server struct {
 	nextID   byte
 	mu       sync.RWMutex
 	port     int
-	OnLog    func(string) // callback for log messages
+	// epoch is constant for the life of this Server instance (its boot-time
+	// nanos). It rides along in every welcome so a reconnecting client can
+	// tell that the server process restarted and trigger a full resync.
+	epoch uint64
+	// Timing captured at construction so the accept/handle/heartbeat
+	// goroutines never read the package-level tunables directly (tests
+	// retune those). Static in production, so capturing once is lossless.
+	heartbeatEvery time.Duration
+	readTimeout    time.Duration
+	writeTimeout   time.Duration
+	OnLog          func(string) // callback for log messages
 }
 
 // NewServer creates a server on the given port.
 func NewServer(port int) *Server {
 	return &Server{
-		players: make(map[byte]*Player),
-		nextID:  1,
-		port:    port,
+		players:        make(map[byte]*Player),
+		nextID:         1,
+		port:           port,
+		epoch:          uint64(time.Now().UnixNano()),
+		heartbeatEvery: heartbeatInterval,
+		readTimeout:    serverReadTimeout,
+		writeTimeout:   writeTimeout,
 	}
 }
 
@@ -72,6 +88,15 @@ func (s *Server) Stop() {
 	s.mu.Unlock()
 }
 
+// Addr returns the listener's bound address (nil before Start). Handy for
+// tests that listen on :0 and need the OS-assigned port.
+func (s *Server) Addr() net.Addr {
+	if s.listener == nil {
+		return nil
+	}
+	return s.listener.Addr()
+}
+
 // PlayerCount returns the number of connected players.
 func (s *Server) PlayerCount() int {
 	s.mu.RLock()
@@ -92,7 +117,14 @@ func (s *Server) acceptLoop() {
 func (s *Server) handlePlayer(conn net.Conn) {
 	defer conn.Close()
 
-	// Wait for join message
+	// s.readTimeout was captured at construction, so this goroutine never
+	// reads the package var (tests retune it). Wait for the join message
+	// (deadline-bounded so a connection that never sends a join doesn't pin
+	// a goroutine forever).
+	readTimeout := s.readTimeout
+	if readTimeout > 0 {
+		conn.SetReadDeadline(time.Now().Add(readTimeout))
+	}
 	msg, err := ReadMessage(conn)
 	if err != nil || msg.Type != MsgJoin {
 		return
@@ -114,14 +146,31 @@ func (s *Server) handlePlayer(conn net.Conn) {
 
 	s.log(fmt.Sprintf("%s (ID:%d) connected", name, id))
 
-	// Send welcome with assigned ID
-	WriteMessage(conn, MsgWelcome, []byte{id})
+	// Send welcome with assigned ID + the server epoch (for restart
+	// detection). Old clients read Data[0] and ignore the 8-byte tail.
+	// The player is already in s.players, so this write MUST hold SendMu:
+	// another player's broadcastExcept pose relay could otherwise interleave
+	// bytes on this conn and corrupt the welcome. writePlayer does that.
+	s.writePlayer(player, MsgWelcome, WelcomeMessage(id, s.epoch))
 
 	// Broadcast player list to everyone
 	s.broadcastPlayerList()
 
+	// Per-player heartbeat: ping every heartbeatInterval so a quiet-but-
+	// live client's read deadline stays alive, and so we'd notice a dead
+	// peer even if it never sends. Stopped when handlePlayer returns.
+	done := make(chan struct{})
+	defer close(done)
+	go s.heartbeatLoop(player, done)
+
 	// Read loop
 	for {
+		// Reset the read deadline each iteration. A net.Error Timeout from
+		// an ungracefully-gone peer surfaces as an ordinary read error →
+		// the normal teardown (delete + MsgLeave) runs below.
+		if readTimeout > 0 {
+			conn.SetReadDeadline(time.Now().Add(readTimeout))
+		}
 		msg, err := ReadMessage(conn)
 		if err != nil {
 			break
@@ -155,6 +204,16 @@ func (s *Server) handlePlayer(conn net.Conn) {
 				relay := PoseRelayMessage(id, joints, matrices, face)
 				s.broadcastExcept(id, MsgPose, relay)
 			}
+
+		case MsgPing:
+			// Echo the timestamp straight back so the client can compute
+			// RTT. The read deadline was already reset above for this
+			// successful read, so the ping also served as a keepalive.
+			s.writePlayer(player, MsgPong, msg.Data)
+
+		case MsgPong:
+			// Reply to one of our heartbeat pings — liveness only. The
+			// read deadline reset above is the whole point.
 		}
 	}
 
@@ -168,14 +227,48 @@ func (s *Server) handlePlayer(conn net.Conn) {
 	s.broadcastPlayerList()
 }
 
+// heartbeatLoop pings one player every heartbeatInterval until done is
+// closed (handlePlayer returning). The client echoes each ping as a MsgPong,
+// which resets the server's read deadline for that player — so a live client
+// that's gone quiet (paused / menu) is kept alive instead of being reaped as
+// an ungraceful disconnect. A write error means the socket is already gone;
+// the read loop will observe the same and tear down.
+func (s *Server) heartbeatLoop(p *Player, done chan struct{}) {
+	t := time.NewTicker(s.heartbeatEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-t.C:
+			ts := make([]byte, 8)
+			binary.BigEndian.PutUint64(ts, uint64(monotonicNanos()))
+			if err := s.writePlayer(p, MsgPing, ts); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// writePlayer sends one framed message to a player under its SendMu (so
+// writers never interleave on the socket) and bounds the write with a
+// deadline (so a stalled peer errors instead of wedging every caller — in
+// particular broadcastExcept, which writes while holding s.mu.RLock).
+func (s *Server) writePlayer(p *Player, msgType byte, data []byte) error {
+	p.SendMu.Lock()
+	defer p.SendMu.Unlock()
+	if s.writeTimeout > 0 {
+		p.Conn.SetWriteDeadline(time.Now().Add(s.writeTimeout))
+	}
+	return WriteMessage(p.Conn, msgType, data)
+}
+
 func (s *Server) broadcastExcept(excludeID byte, msgType byte, data []byte) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, p := range s.players {
 		if p.ID != excludeID {
-			p.SendMu.Lock()
-			WriteMessage(p.Conn, msgType, data)
-			p.SendMu.Unlock()
+			s.writePlayer(p, msgType, data)
 		}
 	}
 }
@@ -194,8 +287,6 @@ func (s *Server) broadcastPlayerList() {
 	}
 
 	for _, p := range s.players {
-		p.SendMu.Lock()
-		WriteMessage(p.Conn, MsgPlayerList, data)
-		p.SendMu.Unlock()
+		s.writePlayer(p, MsgPlayerList, data)
 	}
 }
