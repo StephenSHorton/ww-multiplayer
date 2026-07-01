@@ -648,10 +648,11 @@ func main() {
 	// ls is the status bridge shared across every session the user starts in
 	// this TUI run. The session funcs register their server/client into it;
 	// the accessor closures below read it (nil-safe) for the #19 status panel.
-	// SendChat / ChatCh are deliberately left nil here — PR-B (chat)
-	// populates those. LocalPos is #22's minimap bridge: runBroadcastPoseCtx
-	// (via liveStateLocalPosSetter) feeds ls.setLocalPos every tick; this
-	// closure just reads it back out, same pattern as Players/PlayerCount.
+	// LocalPos is #22's minimap bridge: runBroadcastPoseCtx (via
+	// liveStateLocalPosSetter) feeds ls.setLocalPos every tick; the closure
+	// just reads it back out, same pattern as Players/PlayerCount. SendChat /
+	// ChatCh back the #20 chat panel: sendChat forwards through the registered
+	// puppet-sync client; chatChan hands the TUI the incoming-line channel.
 	ls := &liveState{}
 	if err := tui.Run(version, tui.Hooks{
 		HostSession: func(ctx context.Context, cancel context.CancelFunc, name string, rep report.Reporter) error {
@@ -665,6 +666,8 @@ func main() {
 		PlayerCount: func() int { return ls.playerCount() },
 		HostIPs:     func() []string { return ls.hostIPList() },
 		Latency:     func() time.Duration { return ls.latency() },
+		SendChat:    func(text string) error { return ls.sendChat(text) },
+		ChatCh:      func() <-chan string { return ls.chatChan() },
 	}); err != nil {
 		fmt.Println(err)
 		fmt.Print("Press Enter to exit...")
@@ -6462,7 +6465,19 @@ type liveState struct {
 	// forever, on CLI paths that never wire a liveState at all).
 	localX, localY, localZ float32
 	hasLocalPos            bool
+
+	// chatCh carries incoming chat lines ("name: text") from the puppet-sync
+	// client's OnChat callback to the TUI chat panel (#20). It is buffered and
+	// pushed to non-blocking (dropped when full) so a chat burst never stalls
+	// the client read loop. See chatChan for why it is a STABLE channel that
+	// begin() drains rather than replaces.
+	chatCh chan string
 }
+
+// chatBufferCap bounds the incoming-chat buffer between the client read loop
+// and the TUI. A chat backlog beyond this is dropped rather than blocking the
+// network path.
+const chatBufferCap = 64
 
 // begin marks the start of a session with the given role + local player name,
 // resetting any prior client/server registration. hostIPs is nil for the join
@@ -6478,6 +6493,67 @@ func (ls *liveState) begin(role, selfName string, hostIPs []string) {
 	ls.hostIPs = hostIPs
 	ls.localX, ls.localY, ls.localZ = 0, 0, 0
 	ls.hasLocalPos = false
+	// Start the chat panel clean: drain any lines left over from a prior
+	// session. The channel is NOT replaced here (see chatChan) — at begin()
+	// time no client is connected yet, so nothing is racing this drain.
+	ls.ensureChatChLocked()
+	for {
+		select {
+		case <-ls.chatCh:
+		default:
+			return
+		}
+	}
+}
+
+// ensureChatChLocked lazily creates the chat channel. Caller holds ls.mu.
+func (ls *liveState) ensureChatChLocked() {
+	if ls.chatCh == nil {
+		ls.chatCh = make(chan string, chatBufferCap)
+	}
+}
+
+// chatChan returns the current incoming-chat channel (receive-only), creating
+// it on first use. The channel is STABLE for the life of the liveState — it is
+// deliberately NOT replaced per session. begin() runs inside the session
+// goroutine, so replacing the channel there would race the TUI's drain Cmd,
+// which captures the channel out of band; a replace could leave the drain
+// blocked forever on an orphaned channel. Instead the channel is stable and
+// begin() drains it to start clean. Bubble Tea's single Update loop then
+// guarantees every drained line is appended to the CURRENT dashboard, no
+// matter which (possibly prior-session) drain goroutine delivers it.
+func (ls *liveState) chatChan() <-chan string {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	ls.ensureChatChLocked()
+	return ls.chatCh
+}
+
+// pushChat delivers one formatted chat line to the TUI, non-blocking: if the
+// buffer is full it drops the line rather than block the client read loop.
+func (ls *liveState) pushChat(line string) {
+	ls.mu.Lock()
+	ls.ensureChatChLocked()
+	ch := ls.chatCh
+	ls.mu.Unlock()
+	select {
+	case ch <- line:
+	default:
+	}
+}
+
+// sendChat forwards a chat line through the registered puppet-sync client.
+// Nil-safe: a no-op (nil error) when no client is registered yet (e.g. the user
+// types before the session has connected). Client.SendChat already bounds the
+// write with the shared write deadline, so no extra timeout wrapping is needed.
+func (ls *liveState) sendChat(text string) error {
+	ls.mu.Lock()
+	c := ls.client
+	ls.mu.Unlock()
+	if c == nil {
+		return nil
+	}
+	return c.SendChat(text)
 }
 
 // reset clears the bridge when a session ends.
@@ -6641,12 +6717,20 @@ func (ls *liveState) hostIPList() []string {
 
 // liveStateClientSetter adapts a *liveState into the onClient callback
 // runMultiplayerGoroutines expects, returning nil (no registration) when ls is
-// nil so CLI callers stay unaffected.
+// nil so CLI callers stay unaffected. Besides registering the client for the
+// #19 status panel, it wires the client's OnChat (BEFORE Connect — onClient is
+// invoked pre-Connect in runPuppetSyncCtx) to push "name: text" lines onto the
+// TUI chat channel (#20).
 func liveStateClientSetter(ls *liveState) func(*network.Client) {
 	if ls == nil {
 		return nil
 	}
-	return ls.setClient
+	return func(c *network.Client) {
+		c.OnChat = func(from, text string) {
+			ls.pushChat(from + ": " + text)
+		}
+		ls.setClient(c)
+	}
 }
 
 // liveStateLocalPosSetter adapts a *liveState into the onPos callback

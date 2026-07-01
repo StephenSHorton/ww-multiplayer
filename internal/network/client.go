@@ -65,6 +65,13 @@ type Client struct {
 
 	OnLog        func(string)
 	OnPlayerList func([]RemotePlayer)
+
+	// OnChat is invoked from the read loop for each incoming chat frame,
+	// with the authoritative sender name and text the server relayed. Nil
+	// for clients that don't surface chat (CLI broadcast-pose / puppet-sync,
+	// which fall back to logging it via OnLog). Mirrors the OnLog /
+	// OnPlayerList callback pattern.
+	OnChat func(from, text string)
 }
 
 // NewClient creates a client with the given player name.
@@ -308,7 +315,23 @@ func (c *Client) readLoop(conn net.Conn) {
 			}
 
 		case MsgChat:
-			c.log(string(msg.Data))
+			from, text := ParseChatRelay(msg.Data)
+			// Self-filter: each human runs TWO connections under one name
+			// (broadcast-pose + puppet-sync). The server relays a message to
+			// our OTHER connection, so drop anything whose sender is us —
+			// mirroring the render loop's selfFilter (name == self). The
+			// sending connection is already excluded server-side by
+			// broadcastExcept; this covers only the co-located twin.
+			if from == c.name {
+				break
+			}
+			if c.OnChat != nil {
+				c.OnChat(from, text)
+			} else {
+				// No chat sink (CLI): preserve the pre-#20 behavior of
+				// surfacing incoming chat as a "name: text" log line.
+				c.log(from + ": " + text)
+			}
 
 		case MsgPose:
 			playerID, joints, matrices, face := ParsePoseRelayMessage(msg.Data)

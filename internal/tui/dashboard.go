@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -22,6 +23,14 @@ type dashboardModel struct {
 
 	sess *session
 	logs []logEntry // ring of last logCap entries
+
+	// Chat panel state (#20). chatInput is the bubbles textinput row; chatLines
+	// is a ring of the last chatCap rendered lines ("name: text"); chatCh is the
+	// incoming-line channel captured once from hooks.ChatCh() (nil when chat is
+	// not wired, e.g. in tests).
+	chatInput textinput.Model
+	chatLines []string
+	chatCh    <-chan string
 
 	// Status-panel state, refreshed by statusTick (~250ms) from hooks.
 	// Every source accessor is nil-checked; these hold the last read.
@@ -43,6 +52,13 @@ type dashboardModel struct {
 }
 
 const logCap = 200
+
+// chatCap bounds the chat scrollback ring; chatVisibleRows is how many of those
+// lines the chat panel shows at once.
+const (
+	chatCap         = 50
+	chatVisibleRows = 6
+)
 
 // statusInterval is how often the dashboard re-reads the Hooks accessors into
 // its status-panel state. 250ms is snappy enough for a presence/latency panel
@@ -77,8 +93,69 @@ func drainLog(s *session) tea.Cmd {
 	}
 }
 
+// chatArrivedMsg wraps one incoming chat line pulled off hooks.ChatCh().
+type chatArrivedMsg struct{ line string }
+
+// drainChat mirrors drainLog for the chat channel: it blocks on ch and emits
+// one chatArrivedMsg per line, re-issued in Update so the channel is drained
+// continuously without stalling the UI. Returns nil (no Cmd) when chat isn't
+// wired, so the dashboard simply has no chat feed.
+func drainChat(ch <-chan string) tea.Cmd {
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		line, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return chatArrivedMsg{line: line}
+	}
+}
+
+// appendChat pushes a line onto the bounded chat ring, trimming to chatCap.
+func appendChat(lines []string, line string) []string {
+	lines = append(lines, line)
+	if len(lines) > chatCap {
+		lines = lines[len(lines)-chatCap:]
+	}
+	return lines
+}
+
+// chatScrollback renders the tail of the chat ring into exactly `rows` lines
+// (older lines dropped, blank-padded when short), joined by newlines. PURE:
+// lines + rows in, string out — so it can be unit-tested without a tea.Program.
+func chatScrollback(lines []string, rows int) string {
+	if rows < 1 {
+		rows = 1
+	}
+	start := 0
+	if len(lines) > rows {
+		start = len(lines) - rows
+	}
+	visible := append([]string(nil), lines[start:]...)
+	for len(visible) < rows {
+		visible = append(visible, "")
+	}
+	return strings.Join(visible, "\n")
+}
+
 func newDashboard(hooks Hooks, role, name, addr string) dashboardModel {
 	s := startSession(hooks, role, name, addr)
+
+	ti := textinput.New()
+	ti.Placeholder = "Type a message, Enter to send…"
+	ti.Prompt = "> "
+	ti.CharLimit = 200
+	ti.Focus()
+
+	// Capture the incoming-chat channel once (nil when chat isn't wired). It is
+	// stable for the liveState's lifetime, so a single capture is safe.
+	var chatCh <-chan string
+	if hooks.ChatCh != nil {
+		chatCh = hooks.ChatCh()
+	}
+
 	return dashboardModel{
 		role:         role,
 		name:         name,
@@ -86,12 +163,15 @@ func newDashboard(hooks Hooks, role, name, addr string) dashboardModel {
 		hooks:        hooks,
 		sess:         s,
 		minimapScale: minimapScaleFromEnv(),
+		chatInput:    ti,
+		chatCh:       chatCh,
 	}
 }
 
 func (m dashboardModel) initCmd() tea.Cmd {
-	// Drain the log AND start the status-panel refresh ticker.
-	return tea.Batch(drainLog(m.sess), statusTick())
+	// Drain the log + chat channels, start the status-panel ticker, and start
+	// the textinput cursor blink.
+	return tea.Batch(drainLog(m.sess), drainChat(m.chatCh), statusTick(), textinput.Blink)
 }
 
 // refreshStatus re-reads every non-nil status accessor into the model. Value
@@ -125,6 +205,10 @@ func (m dashboardModel) update(msg tea.Msg) (dashboardModel, tea.Cmd) {
 		}
 		return m, drainLog(m.sess)
 
+	case chatArrivedMsg:
+		m.chatLines = appendChat(m.chatLines, msg.line)
+		return m, drainChat(m.chatCh)
+
 	case statusTickMsg:
 		m = m.refreshStatus()
 		return m, statusTick()
@@ -134,11 +218,38 @@ func (m dashboardModel) update(msg tea.Msg) (dashboardModel, tea.Cmd) {
 		case "esc":
 			// Stop the session and pop back to connect. stop() is
 			// synchronous so the next host attempt finds :25565 free.
+			// (textinput never consumes Esc, so this always fires even while
+			// the chat input is focused.)
 			m.sess.stop()
 			return m, func() tea.Msg { return backMsg{} }
+
+		case "enter":
+			text := strings.TrimSpace(m.chatInput.Value())
+			m.chatInput.SetValue("")
+			if text == "" {
+				return m, nil
+			}
+			if m.hooks.SendChat != nil {
+				// Fire-and-forget: a send error (e.g. not connected yet) just
+				// means the line doesn't go out; we still echo it locally.
+				_ = m.hooks.SendChat(text)
+				// Local echo: the server excludes the sender's own connection
+				// from the relay (and the client self-filters its own name),
+				// so a sent line never comes back — show it directly.
+				m.chatLines = appendChat(m.chatLines, m.name+": "+text)
+			}
+			return m, nil
 		}
+		// Any other key is text input for the chat row.
+		var cmd tea.Cmd
+		m.chatInput, cmd = m.chatInput.Update(msg)
+		return m, cmd
 	}
-	return m, nil
+
+	// Non-key messages (e.g. the textinput cursor blink) still drive the input.
+	var cmd tea.Cmd
+	m.chatInput, cmd = m.chatInput.Update(msg)
+	return m, cmd
 }
 
 func (m dashboardModel) view(width, height int) string {
@@ -188,12 +299,24 @@ func (m dashboardModel) view(width, height int) string {
 	b.WriteString("\n")
 	minimapLines := lipgloss.Height(minimapPanel)
 
-	// Log panel — fills remaining vertical space, leaving room for header
-	// (1 row + newline), the status panel, the minimap panel, and footer
-	// (2 rows).
-	logHeight := height - 6 - statusLines - minimapLines
-	if logHeight < 8 {
-		logHeight = 8
+	// Chat panel (#20) — scrollback + an input row. Built here so its measured
+	// height can be subtracted from the log's; it is written to the output
+	// AFTER the log panel (see below), so it sits just above the footer.
+	m.chatInput.Width = width - 8
+	chatPanel := panelStyle.Width(width - 2).Render(
+		panelTitleStyle.Render("Chat") + "\n" +
+			chatScrollback(m.chatLines, chatVisibleRows) + "\n" +
+			m.chatInput.View(),
+	)
+	chatLines := lipgloss.Height(chatPanel)
+
+	// Log panel — fills the remaining vertical space, leaving room for the
+	// header (1 row + newline), the status panel, the minimap panel, the chat
+	// panel, and the footer (2 rows). Recompute against ALL measured panel
+	// heights (like #40) so nothing overlaps.
+	logHeight := height - 6 - statusLines - minimapLines - chatLines
+	if logHeight < 4 {
+		logHeight = 4
 	}
 
 	// Tail the log ring to the visible window
@@ -217,10 +340,13 @@ func (m dashboardModel) view(width, height int) string {
 	b.WriteString(logPanel)
 	b.WriteString("\n")
 
+	b.WriteString(chatPanel)
+	b.WriteString("\n")
+
 	// Footer
-	footer := helpStyle.Width(width).Render(fmt.Sprintf(
-		"esc: back to connect    ctrl+c: quit",
-	))
+	footer := helpStyle.Width(width).Render(
+		"type + enter: chat    esc: back to connect    ctrl+c: quit",
+	)
 	b.WriteString(footer)
 
 	return b.String()

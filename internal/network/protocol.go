@@ -173,6 +173,47 @@ func ParsePositionMessage(data []byte) (byte, *PlayerPosition) {
 	return data[0], DeserializePosition(data[1:])
 }
 
+// Chat-message wire format:
+//
+//	client -> server:  [text]                     (plain UTF-8 bytes)
+//	server -> client:  [nameLen:1][name][text]     (sender name + text)
+//
+// The client sends only the text; the server stamps the authoritative sender
+// name onto the relay (a client can't forge another player's name) using the
+// structured [nameLen][name][text] layout below so the receiver can split the
+// sender from the text cleanly (a plain "name: text" string can't be un-joined
+// reliably when a name itself contains ": "). nameLen is a single byte, so the
+// name is clamped to 255 bytes — fine for the short display names this tool
+// uses.
+
+// ChatRelayMessage builds the server->client chat payload
+// [nameLen:1][name][text]. The name is clamped to 255 bytes.
+func ChatRelayMessage(name, text string) []byte {
+	nb := []byte(name)
+	if len(nb) > 255 {
+		nb = nb[:255]
+	}
+	buf := make([]byte, 0, 1+len(nb)+len(text))
+	buf = append(buf, byte(len(nb)))
+	buf = append(buf, nb...)
+	buf = append(buf, text...)
+	return buf
+}
+
+// ParseChatRelay extracts the sender name and text from a chat relay payload.
+// Returns empty strings for a malformed / too-short payload (never panics), so
+// a garbled or foreign frame is simply ignored by the caller.
+func ParseChatRelay(data []byte) (name, text string) {
+	if len(data) < 1 {
+		return "", ""
+	}
+	nameLen := int(data[0])
+	if 1+nameLen > len(data) {
+		return "", ""
+	}
+	return string(data[1 : 1+nameLen]), string(data[1+nameLen:])
+}
+
 // Pose-message wire format (game wants raw GameCube big-endian Mtx layout
 // so the receiver can WriteProcessMemory straight into mpNodeMtx with no
 // byteswap):
