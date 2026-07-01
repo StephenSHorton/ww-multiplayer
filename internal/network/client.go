@@ -100,7 +100,12 @@ func (c *Client) Connect(addr string) error {
 		return fmt.Errorf("connect: %w", err)
 	}
 
-	// Send join message
+	// Send join message. Bound it with the same write deadline every other
+	// client write goes through (via writeOn) so a half-dead server with a
+	// full send buffer errors out here instead of wedging the handshake.
+	if c.writeTimeout > 0 {
+		conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
+	}
 	if err := WriteMessage(conn, MsgJoin, []byte(c.name)); err != nil {
 		conn.Close()
 		return fmt.Errorf("send join: %w", err)
