@@ -190,10 +190,13 @@ func (s *Server) handlePlayer(conn net.Conn) {
 			}
 
 		case MsgChat:
-			// Prefix with player name and broadcast
-			chatData := append([]byte(name+": "), msg.Data...)
-			s.broadcastExcept(id, MsgChat, chatData)
-			s.log(fmt.Sprintf("[Chat] %s: %s", name, string(msg.Data)))
+			// Relay to every OTHER player, stamping the authoritative sender
+			// name into a structured [nameLen][name][text] payload (a client
+			// can't forge another player's name). broadcastExcept excludes the
+			// sender's own connection and retires any writer that fails (#39).
+			text := string(msg.Data)
+			s.broadcastExcept(id, MsgChat, ChatRelayMessage(name, text))
+			s.log(fmt.Sprintf("[Chat] %s: %s", name, text))
 
 		case MsgPose:
 			// Reuse the sender's payload, prepended with their ID.

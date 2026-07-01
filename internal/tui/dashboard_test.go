@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // ansiRE strips the SGR escape sequences lipgloss injects so substring
@@ -86,6 +89,91 @@ func TestRenderStatus_NoPlayers(t *testing.T) {
 	named := plain(renderStatus("Join", 100, 2, nil, 5*time.Millisecond, []PlayerView{{ID: 7}}))
 	if !strings.Contains(named, "player 7") {
 		t.Errorf("renderStatus should label a nameless remote as %q\n---\n%s", "player 7", named)
+	}
+}
+
+// TestChatScrollback asserts the pure scrollback renderer: it surfaces recent
+// lines, always emits exactly `rows` lines (blank-padded when short), and keeps
+// only the newest lines when the history overflows the window.
+func TestChatScrollback(t *testing.T) {
+	// Short history: both lines present, padded to the requested row count.
+	out := chatScrollback([]string{"Link: hi", "Zelda: hey"}, 4)
+	if got := strings.Count(out, "\n") + 1; got != 4 {
+		t.Errorf("chatScrollback padded to %d rows, want 4:\n%q", got, out)
+	}
+	for _, want := range []string{"Link: hi", "Zelda: hey"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("chatScrollback missing %q\n---\n%q", want, out)
+		}
+	}
+
+	// Overflow: only the newest `rows` lines survive.
+	full := []string{"a: 1", "b: 2", "c: 3", "d: 4", "e: 5"}
+	tail := chatScrollback(full, 2)
+	if strings.Count(tail, "\n")+1 != 2 {
+		t.Errorf("chatScrollback(rows=2) should emit 2 lines, got:\n%q", tail)
+	}
+	if !strings.Contains(tail, "d: 4") || !strings.Contains(tail, "e: 5") {
+		t.Errorf("chatScrollback tail should keep the newest lines, got:\n%q", tail)
+	}
+	if strings.Contains(tail, "a: 1") {
+		t.Errorf("chatScrollback tail leaked an evicted line:\n%q", tail)
+	}
+}
+
+// TestChatSendPath_ForwardsAndEchoes: pressing Enter with text forwards it to
+// hooks.SendChat, echoes it locally as "name: text", and clears the input.
+func TestChatSendPath_ForwardsAndEchoes(t *testing.T) {
+	var got string
+	called := 0
+	m := dashboardModel{
+		name:      "Me",
+		hooks:     Hooks{SendChat: func(text string) error { called++; got = text; return nil }},
+		chatInput: textinput.New(),
+	}
+	m.chatInput.SetValue("hello world")
+
+	m2, _ := m.update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if called != 1 || got != "hello world" {
+		t.Fatalf("SendChat forwarded (%d, %q), want (1, %q)", called, got, "hello world")
+	}
+	if m2.chatInput.Value() != "" {
+		t.Errorf("input not cleared after send: %q", m2.chatInput.Value())
+	}
+	echoed := false
+	for _, l := range m2.chatLines {
+		if l == "Me: hello world" {
+			echoed = true
+		}
+	}
+	if !echoed {
+		t.Errorf("local echo missing; chatLines=%v", m2.chatLines)
+	}
+}
+
+// TestChatSendPath_NilSendChatSafe: a nil SendChat hook must be a safe no-op —
+// no panic, input cleared, and nothing echoed (there was no send).
+func TestChatSendPath_NilSendChatSafe(t *testing.T) {
+	m := dashboardModel{name: "Me", hooks: Hooks{}, chatInput: textinput.New()}
+	m.chatInput.SetValue("hi")
+
+	m2, _ := m.update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m2.chatInput.Value() != "" {
+		t.Errorf("input not cleared on no-op send: %q", m2.chatInput.Value())
+	}
+	if len(m2.chatLines) != 0 {
+		t.Errorf("nil SendChat should not echo; chatLines=%v", m2.chatLines)
+	}
+}
+
+// TestChatArrivedAppends: an incoming chat line is appended to the scrollback.
+func TestChatArrivedAppends(t *testing.T) {
+	m := dashboardModel{chatInput: textinput.New()}
+	m2, _ := m.update(chatArrivedMsg{line: "Zelda: hi there"})
+	if len(m2.chatLines) != 1 || m2.chatLines[0] != "Zelda: hi there" {
+		t.Fatalf("chatArrivedMsg not appended; chatLines=%v", m2.chatLines)
 	}
 }
 
