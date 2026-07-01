@@ -61,6 +61,7 @@ type Client struct {
 	// package vars are static in production, so capturing once is lossless.
 	heartbeatEvery time.Duration
 	readTimeout    time.Duration
+	writeTimeout   time.Duration
 
 	OnLog        func(string)
 	OnPlayerList func([]RemotePlayer)
@@ -73,6 +74,7 @@ func NewClient(name string) *Client {
 		remotes:        make(map[byte]*RemotePlayer),
 		heartbeatEvery: heartbeatInterval,
 		readTimeout:    clientReadTimeout,
+		writeTimeout:   writeTimeout,
 	}
 }
 
@@ -85,6 +87,13 @@ func (c *Client) log(msg string) {
 // Connect joins a server at the given address. Safe to call again on the
 // same Client after a drop (the reconnect loop does exactly that): it spins
 // up a fresh read loop + heartbeat ticker for the new connection.
+//
+// Invariant: Connect and Disconnect must alternate — every Connect is
+// preceded by a completed Disconnect of the prior session (ReconnectLoop's
+// run closure guarantees this by waiting for its ctx watcher's Disconnect
+// before returning). Connect is not safe to call concurrently, nor twice
+// without an intervening Disconnect (that would orphan the previous conn +
+// heartbeat goroutine).
 func (c *Client) Connect(addr string) error {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -165,10 +174,16 @@ func (c *Client) LastRTT() time.Duration { return time.Duration(c.lastRTT.Load()
 func (c *Client) ServerEpoch() uint64 { return c.serverEpoch.Load() }
 
 // writeOn serializes a framed write to the given connection. All client
-// writers funnel through here so they never interleave on the socket.
+// writers funnel through here so they never interleave on the socket. A write
+// deadline bounds the write so a stalled peer (full TCP send buffer) surfaces
+// as an error instead of blocking the writer (and, via writeMu, every other
+// writer) indefinitely.
 func (c *Client) writeOn(conn net.Conn, msgType byte, data []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
+	if c.writeTimeout > 0 {
+		conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
+	}
 	return WriteMessage(conn, msgType, data)
 }
 

@@ -34,6 +34,19 @@ var (
 	backoffBase = 100 * time.Millisecond
 	backoffCap  = envSeconds("WW_BACKOFF_MAX_SECS", 8*time.Second)
 
+	// minHealthySession is the floor a run() must live to count as a real
+	// session. A shorter run (server accepts-then-RSTs, or the >5-send-error
+	// bail) is treated as a failed attempt so the reconnect loop backs off
+	// instead of hot-spinning connect→run→connect.
+	minHealthySession = envSeconds("WW_MIN_SESSION_SECS", 1*time.Second)
+
+	// writeTimeout bounds every socket write on both sides. A peer with a
+	// full TCP send buffer would otherwise block the writer indefinitely —
+	// on the server that means blocking broadcastExcept under s.mu.RLock and
+	// wedging every join/leave/position. A deadline turns the stall into an
+	// ordinary write error that releases the lock.
+	writeTimeout = envSeconds("WW_WRITE_TIMEOUT_SECS", 10*time.Second)
+
 	// poseFreezeAfter / poseDespawnAfter drive the receiver-side
 	// vanished-sender UX (a remote Link freezes, then despawns, when its
 	// pose stream goes silent — a faster, local safety net than waiting for

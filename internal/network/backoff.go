@@ -4,9 +4,37 @@ import (
 	"context"
 	"math/rand"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// RunSession runs fn(ctx) for one connection lifetime with a ctx-scoped
+// teardown watcher, and GUARANTEES the watcher's teardown has completed
+// before RunSession returns.
+//
+// This is what makes a reconnect loop safe to call in a tight loop: teardown
+// is typically a session-agnostic Client.Disconnect(), so a stale watcher
+// from the prior session that ran AFTER the next connect would close the
+// freshly-dialed conn — a self-chaining flap. RunSession derives a child ctx,
+// lets the watcher be the SOLE teardown caller, and on return cancels the
+// child (unblocking the watcher's teardown of THIS session) then waits for
+// it, so no teardown ever straddles the next session.
+func RunSession(ctx context.Context, teardown func(), fn func(context.Context) error) error {
+	ctx, cancel := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		teardown()
+	}()
+	defer func() {
+		cancel()
+		wg.Wait()
+	}()
+	return fn(ctx)
+}
 
 // NextBackoff returns the delay for the given (1-based or 0-based) retry
 // attempt: min(base*2^attempt, capDur), then ±20% jitter drawn from rng.
@@ -79,16 +107,18 @@ func SleepCtx(ctx context.Context, d time.Duration) error {
 }
 
 // ReconnectLoop drives the connect → run → (drop) → reconnect lifecycle with
-// exponential backoff between failed connects.
+// exponential backoff between failed connects and a floor against flap storms.
 //
 //   - connect establishes a session (dial + handshake). On failure the loop
 //     increments the attempt counter and sleeps backoff(attempt).
 //   - run owns the live session and blocks until the connection drops (it
 //     returns) or ctx is cancelled. Its return value (drop vs. error) is not
 //     distinguished — either way the loop reconnects, UNLESS ctx is done.
-//   - A successful connect resets the attempt counter to 0.
-//   - ctx cancellation ends the loop and returns nil (a clean shutdown, not
-//     an error).
+//   - A run that lived at least minHealthySession counts as a healthy session
+//     and resets the attempt counter to 0. A shorter run is treated as a
+//     failed attempt (attempt++ then backoff) so a server that accepts-then-
+//     drops can't drive a hot connect→run→connect spin.
+//   - ctx cancellation ends the loop and returns nil (a clean shutdown).
 //
 // sleep is injectable purely for testability; production callers pass
 // SleepCtx. backoff is typically a NewBackoff() closure.
@@ -98,6 +128,19 @@ func ReconnectLoop(
 	run func(context.Context) error,
 	backoff func(attempt int) time.Duration,
 	sleep func(context.Context, time.Duration) error,
+) error {
+	return reconnectLoop(ctx, connect, run, backoff, sleep, time.Now)
+}
+
+// reconnectLoop is the clock-injectable core of ReconnectLoop. Tests pass a
+// fake `now` so they can control session duration without wall-clock waits.
+func reconnectLoop(
+	ctx context.Context,
+	connect func() error,
+	run func(context.Context) error,
+	backoff func(attempt int) time.Duration,
+	sleep func(context.Context, time.Duration) error,
+	now func() time.Time,
 ) error {
 	attempt := 0
 	for {
@@ -112,14 +155,22 @@ func ReconnectLoop(
 			}
 			continue
 		}
-		attempt = 0
+		start := now()
 		_ = run(ctx)
-		// run returned: either a transient drop (reconnect) or ctx-cancel.
 		if ctx.Err() != nil {
 			return nil
 		}
-		// Transient drop — loop straight back into connect() with the
-		// attempt counter reset; backoff only kicks in if THAT connect fails.
+		if now().Sub(start) >= minHealthySession {
+			// Healthy session that dropped → reconnect promptly, no backoff.
+			attempt = 0
+			continue
+		}
+		// Flap: run returned almost immediately. Treat it as a failed
+		// attempt so the loop backs off instead of hot-spinning.
+		attempt++
+		if serr := sleep(ctx, backoff(attempt)); serr != nil {
+			return nil
+		}
 	}
 }
 

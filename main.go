@@ -1333,19 +1333,13 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 	// A transient drop ends run() and ReconnectLoop re-dials with
 	// exponential backoff; only a real ctx-cancel ends this function.
 	connect := func() error { return client.Connect(addr) }
-	run := func(ctx context.Context) error {
-		defer client.Disconnect()
-		// Child ctx scopes the watcher goroutine to THIS session (no
-		// per-reconnect leak) while still honoring the parent cancel.
-		// Closing the socket flips IsConnected() false so the loop exits
-		// on the next tick.
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		go func() {
-			<-ctx.Done()
-			client.Disconnect()
-		}()
-
+	// sessionLoop is one live session's 16 ms send loop. network.RunSession
+	// (in run, below) wraps it with a ctx-scoped teardown watcher and WAITS
+	// for that watcher before returning, so a reconnect can't overlap a
+	// stale watcher's (session-agnostic) Disconnect with the next session's
+	// freshly-dialed conn — the self-chaining flap. The child ctx passed
+	// here also drives the select below, so a parent cancel exits promptly.
+	sessionLoop := func(ctx context.Context) error {
 		posErrs, poseErrs := 0, 0
 		for client.IsConnected() {
 			// Position (cheap; same as broadcast-link).
@@ -1425,12 +1419,15 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 			select {
 			case <-ctx.Done():
 				// Fall through; IsConnected() will be false next iteration
-				// (watcher goroutine already called Disconnect()).
+				// (RunSession's watcher already called Disconnect()).
 			case <-time.After(16 * time.Millisecond):
 			}
 		}
 		rep.Log(report.Info, "Disconnected.")
 		return nil
+	}
+	run := func(ctx context.Context) error {
+		return network.RunSession(ctx, client.Disconnect, sessionLoop)
 	}
 
 	return network.ReconnectLoop(ctx, connect, run, network.NewBackoff(), network.SleepCtx)
@@ -1891,17 +1888,12 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		report.Logf(rep, report.Info, "Filtering self-echo: remotes named %q will be ignored.", selfFilter)
 	}
 
-	// run owns one live session: the 60 Hz receive→mailbox loop. Returns on
-	// a drop (ReconnectLoop reconnects) or ctx-cancel (function ends).
-	run := func(ctx context.Context) error {
-		defer client.Disconnect()
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		go func() {
-			<-ctx.Done()
-			client.Disconnect()
-		}()
-
+	// sessionLoop owns one live session: the 60 Hz receive→mailbox loop.
+	// network.RunSession (in run, below) wraps it with a ctx-scoped teardown
+	// watcher and WAITS for that watcher before returning, so a reconnect
+	// can't overlap a stale watcher's (session-agnostic) Disconnect with the
+	// next session's freshly-dialed conn — the self-chaining flap.
+	sessionLoop := func(ctx context.Context) error {
 		for client.IsConnected() {
 			remotes := client.GetRemotePlayers()
 			now := time.Now()
@@ -2132,19 +2124,25 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 				if ls.despawned && !ls.despawnAt.IsZero() && now.Sub(ls.despawnAt) > despawnReserve {
 					freeLinkSlot(linkSlot, id)
 					parked[id] = true
+					// Drop the "announced" mark so a resume-after-expiry
+					// re-logs the slot assignment.
+					delete(announced, id)
 					report.Logf(rep, report.Info, "link slot %d reservation expired: freed for reuse (player %d)", linkSlot, id)
 				}
 			}
 
 			select {
 			case <-ctx.Done():
-				// Watcher goroutine will Disconnect(); IsConnected() will
+				// RunSession's watcher will Disconnect(); IsConnected() will
 				// flip false on the next iteration and the loop exits.
 			case <-time.After(16 * time.Millisecond): // ~60 Hz
 			}
 		}
 		rep.Log(report.Info, "Disconnected.")
 		return nil
+	}
+	run := func(ctx context.Context) error {
+		return network.RunSession(ctx, client.Disconnect, sessionLoop)
 	}
 
 	return network.ReconnectLoop(ctx, connect, run, network.NewBackoff(), network.SleepCtx)

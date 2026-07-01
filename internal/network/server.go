@@ -40,6 +40,7 @@ type Server struct {
 	// retune those). Static in production, so capturing once is lossless.
 	heartbeatEvery time.Duration
 	readTimeout    time.Duration
+	writeTimeout   time.Duration
 	OnLog          func(string) // callback for log messages
 }
 
@@ -52,6 +53,7 @@ func NewServer(port int) *Server {
 		epoch:          uint64(time.Now().UnixNano()),
 		heartbeatEvery: heartbeatInterval,
 		readTimeout:    serverReadTimeout,
+		writeTimeout:   writeTimeout,
 	}
 }
 
@@ -146,7 +148,10 @@ func (s *Server) handlePlayer(conn net.Conn) {
 
 	// Send welcome with assigned ID + the server epoch (for restart
 	// detection). Old clients read Data[0] and ignore the 8-byte tail.
-	WriteMessage(conn, MsgWelcome, WelcomeMessage(id, s.epoch))
+	// The player is already in s.players, so this write MUST hold SendMu:
+	// another player's broadcastExcept pose relay could otherwise interleave
+	// bytes on this conn and corrupt the welcome. writePlayer does that.
+	s.writePlayer(player, MsgWelcome, WelcomeMessage(id, s.epoch))
 
 	// Broadcast player list to everyone
 	s.broadcastPlayerList()
@@ -204,9 +209,7 @@ func (s *Server) handlePlayer(conn net.Conn) {
 			// Echo the timestamp straight back so the client can compute
 			// RTT. The read deadline was already reset above for this
 			// successful read, so the ping also served as a keepalive.
-			player.SendMu.Lock()
-			WriteMessage(conn, MsgPong, msg.Data)
-			player.SendMu.Unlock()
+			s.writePlayer(player, MsgPong, msg.Data)
 
 		case MsgPong:
 			// Reply to one of our heartbeat pings — liveness only. The
@@ -240,14 +243,24 @@ func (s *Server) heartbeatLoop(p *Player, done chan struct{}) {
 		case <-t.C:
 			ts := make([]byte, 8)
 			binary.BigEndian.PutUint64(ts, uint64(monotonicNanos()))
-			p.SendMu.Lock()
-			err := WriteMessage(p.Conn, MsgPing, ts)
-			p.SendMu.Unlock()
-			if err != nil {
+			if err := s.writePlayer(p, MsgPing, ts); err != nil {
 				return
 			}
 		}
 	}
+}
+
+// writePlayer sends one framed message to a player under its SendMu (so
+// writers never interleave on the socket) and bounds the write with a
+// deadline (so a stalled peer errors instead of wedging every caller — in
+// particular broadcastExcept, which writes while holding s.mu.RLock).
+func (s *Server) writePlayer(p *Player, msgType byte, data []byte) error {
+	p.SendMu.Lock()
+	defer p.SendMu.Unlock()
+	if s.writeTimeout > 0 {
+		p.Conn.SetWriteDeadline(time.Now().Add(s.writeTimeout))
+	}
+	return WriteMessage(p.Conn, msgType, data)
 }
 
 func (s *Server) broadcastExcept(excludeID byte, msgType byte, data []byte) {
@@ -255,9 +268,7 @@ func (s *Server) broadcastExcept(excludeID byte, msgType byte, data []byte) {
 	defer s.mu.RUnlock()
 	for _, p := range s.players {
 		if p.ID != excludeID {
-			p.SendMu.Lock()
-			WriteMessage(p.Conn, msgType, data)
-			p.SendMu.Unlock()
+			s.writePlayer(p, msgType, data)
 		}
 	}
 }
@@ -276,8 +287,6 @@ func (s *Server) broadcastPlayerList() {
 	}
 
 	for _, p := range s.players {
-		p.SendMu.Lock()
-		WriteMessage(p.Conn, MsgPlayerList, data)
-		p.SendMu.Unlock()
+		s.writePlayer(p, MsgPlayerList, data)
 	}
 }
