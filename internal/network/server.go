@@ -265,17 +265,21 @@ func (s *Server) writePlayer(p *Player, msgType byte, data []byte) error {
 
 func (s *Server) broadcastExcept(excludeID byte, msgType byte, data []byte) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	var failed []*Player
 	for _, p := range s.players {
 		if p.ID != excludeID {
-			s.writePlayer(p, msgType, data)
+			if err := s.writePlayer(p, msgType, data); err != nil {
+				failed = append(failed, p)
+			}
 		}
 	}
+	s.mu.RUnlock()
+
+	s.retirePlayers(failed)
 }
 
 func (s *Server) broadcastPlayerList() {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	// Format: [count:1][id:1][nameLen:1][name:variable]...
 	var data []byte
@@ -286,7 +290,27 @@ func (s *Server) broadcastPlayerList() {
 		data = append(data, []byte(p.Name)...)
 	}
 
+	var failed []*Player
 	for _, p := range s.players {
-		s.writePlayer(p, MsgPlayerList, data)
+		if err := s.writePlayer(p, MsgPlayerList, data); err != nil {
+			failed = append(failed, p)
+		}
+	}
+	s.mu.RUnlock()
+
+	s.retirePlayers(failed)
+}
+
+// retirePlayers closes the connection of every player whose write just
+// failed (e.g. writePlayer's deadline tripped on a stalled peer). Closing
+// unblocks that player's handlePlayer read loop, which runs the normal
+// teardown (delete from s.players + MsgLeave broadcast) — so a stalled
+// client is reaped immediately instead of limping along half-written until
+// its ~15s read deadline expires. Must be called with s.mu NOT held: it may
+// be invoked from broadcastExcept/broadcastPlayerList right after they
+// release their RLock, and handlePlayer's teardown below needs s.mu.Lock().
+func (s *Server) retirePlayers(failed []*Player) {
+	for _, p := range failed {
+		p.Conn.Close()
 	}
 }
