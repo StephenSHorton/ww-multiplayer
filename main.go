@@ -6431,32 +6431,36 @@ func extractPortFlag(args []string, defaultPort int) (port int, rest []string) {
 // session is live every accessor returns a zero value (which the panel renders
 // as 0 / "—" / "waiting").
 //
-// Concurrency: mu guards the role/client/srv/hostIPs fields only. The network
-// methods it calls (GetRemotePlayers, PlayerCount, LastRTT) are internally
-// synchronized and GetRemotePlayers returns a deep copy, so the accessors
-// snapshot the pointer under mu, release it, then call the network method —
-// never holding a *network.RemotePlayer.
+// Concurrency: mu guards the role/selfName/client/srv/hostIPs fields only. The
+// network methods it calls (GetRemotePlayers, PlayerCount, LastRTT) are
+// internally synchronized and GetRemotePlayers returns a deep copy, so the
+// accessors snapshot the pointer under mu, release it, then call the network
+// method — never holding a *network.RemotePlayer.
 type liveState struct {
-	mu      sync.Mutex
-	role    string          // "Host", "Join", or "" when idle
-	client  *network.Client // puppet-sync client (remote players + RTT)
-	srv     *network.Server // host-only; nil on join / idle
-	hostIPs []string        // host-only shareable LAN IPs; nil otherwise
+	mu       sync.Mutex
+	role     string          // "Host", "Join", or "" when idle
+	selfName string          // this player's display name (for self-echo filtering)
+	client   *network.Client // puppet-sync client (remote players + RTT)
+	srv      *network.Server // host-only; nil on join / idle
+	hostIPs  []string        // host-only shareable LAN IPs; nil otherwise
 }
 
-// begin marks the start of a session with the given role, resetting any prior
-// client/server registration. hostIPs is nil for the join role.
-func (ls *liveState) begin(role string, hostIPs []string) {
+// begin marks the start of a session with the given role + local player name,
+// resetting any prior client/server registration. hostIPs is nil for the join
+// role. selfName is used to filter this player's OWN co-located connections out
+// of the remote list (see remoteViews).
+func (ls *liveState) begin(role, selfName string, hostIPs []string) {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 	ls.role = role
+	ls.selfName = selfName
 	ls.client = nil
 	ls.srv = nil
 	ls.hostIPs = hostIPs
 }
 
 // reset clears the bridge when a session ends.
-func (ls *liveState) reset() { ls.begin("", nil) }
+func (ls *liveState) reset() { ls.begin("", "", nil) }
 
 func (ls *liveState) setServer(s *network.Server) {
 	ls.mu.Lock()
@@ -6470,18 +6474,55 @@ func (ls *liveState) setClient(c *network.Client) {
 	ls.mu.Unlock()
 }
 
-// players converts the puppet-sync client's remote snapshot into network-free
-// tui.PlayerView values. Returns nil when no client is registered yet.
+// players returns the OTHER humans in the session, one entry per person, as
+// network-free tui.PlayerView values. Returns nil when no client is registered
+// yet. The raw client snapshot is de-duplicated (see remoteViews +
+// dedupePlayersByName) so the ~2x connection fan-out doesn't leak into the UI.
 func (ls *liveState) players() []tui.PlayerView {
 	ls.mu.Lock()
-	c := ls.client
+	c, self := ls.client, ls.selfName
 	ls.mu.Unlock()
+	return dedupePlayersByName(remoteViews(c, self))
+}
+
+// playerCount reports the truthful HUMAN count for BOTH roles. Whenever a
+// puppet-sync client is registered, it's the de-duplicated other-humans count
+// + 1 (self) — which stays correct even though each human opens two server
+// connections. It falls back to the server's raw connection count only before
+// the host's own client has registered (a brief startup window). 0 when idle.
+func (ls *liveState) playerCount() int {
+	ls.mu.Lock()
+	c, s, self := ls.client, ls.srv, ls.selfName
+	ls.mu.Unlock()
+	if c != nil {
+		return len(dedupePlayersByName(remoteViews(c, self))) + 1
+	}
+	if s != nil {
+		return s.PlayerCount()
+	}
+	return 0
+}
+
+// remoteViews snapshots the puppet-sync client's remotes and converts them to
+// network-free tui.PlayerView values, dropping this player's OWN co-located
+// connections. Each human runs two connections (broadcast-pose + puppet-sync)
+// under the same name; the puppet-sync client that backs the TUI therefore also
+// sees its own broadcast twin as a same-named remote (GetRemotePlayers does NOT
+// self-filter — the render loop does, via selfFilter). Dropping name==selfName
+// here mirrors that render-side filter so the count/presence reflect real
+// people. Returns nil when no client is registered. Position is nil for
+// connections that haven't broadcast yet (e.g. a remote's own puppet leg),
+// which dedupePlayersByName then collapses into the positioned twin.
+func remoteViews(c *network.Client, selfName string) []tui.PlayerView {
 	if c == nil {
 		return nil
 	}
 	remotes := c.GetRemotePlayers() // deep copy under the client's RLock
 	out := make([]tui.PlayerView, 0, len(remotes))
 	for _, rp := range remotes {
+		if selfName != "" && rp.Name == selfName {
+			continue // our own broadcast/puppet twin — not another human
+		}
 		pv := tui.PlayerView{ID: rp.ID, Name: rp.Name}
 		if rp.Position != nil {
 			pv.X, pv.Y, pv.Z = rp.Position.PosX, rp.Position.PosY, rp.Position.PosZ
@@ -6491,23 +6532,45 @@ func (ls *liveState) players() []tui.PlayerView {
 	return out
 }
 
-// playerCount reports the session's player count. Host role uses the server's
-// connection count; join role uses remotes + self. 0 when idle / not wired.
-func (ls *liveState) playerCount() int {
-	ls.mu.Lock()
-	role, c, s := ls.role, ls.client, ls.srv
-	ls.mu.Unlock()
-	switch role {
-	case "Host":
-		if s != nil {
-			return s.PlayerCount()
-		}
-	case "Join":
-		if c != nil {
-			return len(c.GetRemotePlayers()) + 1
-		}
+// dedupePlayersByName collapses the duplicate remote-player entries the network
+// layer produces: every human opens TWO server connections (broadcast-pose +
+// puppet-sync) under the SAME name, so both land in the server player list and
+// in GetRemotePlayers. Entries are keyed by Name (falling back to a per-ID key
+// when Name==""), so each human appears exactly once. When several entries
+// share a key, the one carrying a known (non-zero) position wins — the
+// broadcast connection carries the real pose, which PR-C's minimap needs — else
+// the first seen is kept. Input order is otherwise preserved. Pure: no shared
+// state, safe to unit-test with canned input.
+func dedupePlayersByName(in []tui.PlayerView) []tui.PlayerView {
+	if len(in) == 0 {
+		return nil
 	}
-	return 0
+	out := make([]tui.PlayerView, 0, len(in))
+	pos := make(map[string]int, len(in)) // key -> index into out
+	for _, p := range in {
+		key := p.Name
+		if key == "" {
+			key = "\x00id:" + strconv.Itoa(int(p.ID))
+		}
+		if i, ok := pos[key]; ok {
+			// Same human already recorded: upgrade to the positioned entry when
+			// the one we kept has no known position but this one does.
+			if isZeroPos(out[i]) && !isZeroPos(p) {
+				out[i] = p
+			}
+			continue
+		}
+		pos[key] = len(out)
+		out = append(out, p)
+	}
+	return out
+}
+
+// isZeroPos reports whether a view has no known position (all coords zero). WW
+// world coords are effectively never exactly the origin, so this cleanly
+// distinguishes an un-broadcast connection from a positioned one.
+func isZeroPos(p tui.PlayerView) bool {
+	return p.X == 0 && p.Y == 0 && p.Z == 0
 }
 
 // latency reports the client<->server RTT, or 0 when unknown.
@@ -6579,7 +6642,7 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 
 	ips := listHostIPs()
 	if ls != nil {
-		ls.begin("Host", ips)
+		ls.begin("Host", name, ips)
 		ls.setServer(srv)
 		defer ls.reset()
 	}
@@ -6627,7 +6690,7 @@ func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name s
 	addr = netutil.NormalizeAddr(addr, defaultPort)
 
 	if ls != nil {
-		ls.begin("Join", nil)
+		ls.begin("Join", name, nil)
 		defer ls.reset()
 	}
 
