@@ -648,8 +648,10 @@ func main() {
 	// ls is the status bridge shared across every session the user starts in
 	// this TUI run. The session funcs register their server/client into it;
 	// the accessor closures below read it (nil-safe) for the #19 status panel.
-	// LocalPos / SendChat / ChatCh are deliberately left nil here — PR-C
-	// (minimap) and PR-B (chat) populate those.
+	// SendChat / ChatCh are deliberately left nil here — PR-B (chat)
+	// populates those. LocalPos is #22's minimap bridge: runBroadcastPoseCtx
+	// (via liveStateLocalPosSetter) feeds ls.setLocalPos every tick; this
+	// closure just reads it back out, same pattern as Players/PlayerCount.
 	ls := &liveState{}
 	if err := tui.Run(version, tui.Hooks{
 		HostSession: func(ctx context.Context, cancel context.CancelFunc, name string, rep report.Reporter) error {
@@ -659,6 +661,7 @@ func main() {
 			runJoinSession(ctx, cancel, addr, name, rep, ls)
 		},
 		Players:     func() []tui.PlayerView { return ls.players() },
+		LocalPos:    func() (x, y, z float32, ok bool) { return ls.localPos() },
 		PlayerCount: func() int { return ls.playerCount() },
 		HostIPs:     func() []string { return ls.hostIPList() },
 		Latency:     func() time.Duration { return ls.latency() },
@@ -1313,7 +1316,7 @@ func runBroadcastPose(name, addr string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep); err != nil {
+	if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep, nil); err != nil {
 		rep.Log(report.Err, err.Error())
 		os.Exit(1)
 	}
@@ -1322,7 +1325,10 @@ func runBroadcastPose(name, addr string) {
 // runBroadcastPoseCtx is the goroutine-friendly variant. Returns an error
 // instead of os.Exit so host/join can surface failures cleanly, and honors
 // ctx cancellation so SIGINT doesn't have to wait for the next 50 ms tick.
-func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint32, rep report.Reporter) error {
+// onPos, when non-nil (the TUI path via liveStateLocalPosSetter), is invoked
+// every tick this Dolphin's own position resolves — #22's minimap bridge.
+// CLI callers pass nil.
+func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint32, rep report.Reporter, onPos func(x, y, z float32)) error {
 	report.Logf(rep, report.Info, "=== Broadcast Link + Pose: %s -> %s ===", name, addr)
 	d, err := openDolphin(dolphinPID)
 	if err != nil {
@@ -1366,6 +1372,12 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 					if posErrs > 5 {
 						return fmt.Errorf("send position: %w", err)
 					}
+				}
+				// #22 minimap: publish this Dolphin's own position into
+				// liveState (TUI path only — onPos is nil on every CLI
+				// entry point).
+				if onPos != nil {
+					onPos(pos.PosX, pos.PosY, pos.PosZ)
 				}
 			}
 
@@ -6443,6 +6455,13 @@ type liveState struct {
 	client   *network.Client // puppet-sync client (remote players + RTT)
 	srv      *network.Server // host-only; nil on join / idle
 	hostIPs  []string        // host-only shareable LAN IPs; nil otherwise
+
+	// localX/Y/Z + hasLocalPos back tui.Hooks.LocalPos (#22 minimap): the
+	// broadcaster's own world position, refreshed every broadcast-pose tick
+	// via setLocalPos. hasLocalPos is false until the first tick lands (or
+	// forever, on CLI paths that never wire a liveState at all).
+	localX, localY, localZ float32
+	hasLocalPos            bool
 }
 
 // begin marks the start of a session with the given role + local player name,
@@ -6457,6 +6476,8 @@ func (ls *liveState) begin(role, selfName string, hostIPs []string) {
 	ls.client = nil
 	ls.srv = nil
 	ls.hostIPs = hostIPs
+	ls.localX, ls.localY, ls.localZ = 0, 0, 0
+	ls.hasLocalPos = false
 }
 
 // reset clears the bridge when a session ends.
@@ -6471,6 +6492,18 @@ func (ls *liveState) setServer(s *network.Server) {
 func (ls *liveState) setClient(c *network.Client) {
 	ls.mu.Lock()
 	ls.client = c
+	ls.mu.Unlock()
+}
+
+// setLocalPos records this player's own latest world position (#22
+// minimap). Called from runBroadcastPoseCtx's send loop every tick it
+// successfully reads Link's position — see the onPos callback threaded
+// through runMultiplayerGoroutines, mirroring how onClient wires the
+// puppet-sync *network.Client into liveState.
+func (ls *liveState) setLocalPos(x, y, z float32) {
+	ls.mu.Lock()
+	ls.localX, ls.localY, ls.localZ = x, y, z
+	ls.hasLocalPos = true
 	ls.mu.Unlock()
 }
 
@@ -6584,6 +6617,16 @@ func (ls *liveState) latency() time.Duration {
 	return c.LastRTT()
 }
 
+// localPos reports this player's own last-known world position for the #22
+// minimap's centered "@". ok is false until the first broadcast-pose tick
+// has landed (or forever, when no session is live / this liveState was
+// never wired to a broadcaster).
+func (ls *liveState) localPos() (x, y, z float32, ok bool) {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	return ls.localX, ls.localY, ls.localZ, ls.hasLocalPos
+}
+
 // hostIPList returns a copy of the host's shareable LAN IPs (nil on join/idle).
 func (ls *liveState) hostIPList() []string {
 	ls.mu.Lock()
@@ -6604,6 +6647,17 @@ func liveStateClientSetter(ls *liveState) func(*network.Client) {
 		return nil
 	}
 	return ls.setClient
+}
+
+// liveStateLocalPosSetter adapts a *liveState into the onPos callback
+// runMultiplayerGoroutines / runBroadcastPoseCtx expect, returning nil (no
+// registration) when ls is nil so CLI callers stay unaffected. Mirrors
+// liveStateClientSetter above.
+func liveStateLocalPosSetter(ls *liveState) func(x, y, z float32) {
+	if ls == nil {
+		return nil
+	}
+	return ls.setLocalPos
 }
 
 // runHost is the single-process host entry point: binds the TCP server on
@@ -6658,7 +6712,7 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 	}
 	rep.Log(report.Info, "Ctrl+C to stop.")
 
-	runMultiplayerGoroutines(ctx, cancel, name, fmt.Sprintf("localhost:%d", port), rep, liveStateClientSetter(ls))
+	runMultiplayerGoroutines(ctx, cancel, name, fmt.Sprintf("localhost:%d", port), rep, liveStateClientSetter(ls), liveStateLocalPosSetter(ls))
 
 	srv.Stop()
 	clearMultiplayerState()
@@ -6697,7 +6751,7 @@ func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name s
 	report.Logf(rep, report.OK, "Joining %s as %q.", addr, name)
 	rep.Log(report.Info, "Ctrl+C to stop.")
 
-	runMultiplayerGoroutines(ctx, cancel, name, addr, rep, liveStateClientSetter(ls))
+	runMultiplayerGoroutines(ctx, cancel, name, addr, rep, liveStateClientSetter(ls), liveStateLocalPosSetter(ls))
 
 	clearMultiplayerState()
 }
@@ -6728,15 +6782,17 @@ func cliMultiplayerContext(rep report.Reporter) (context.Context, context.Cancel
 // until either goroutine exits or ctx is cancelled, then waits for both to
 // finish before returning.
 // onClient, when non-nil, is forwarded to the puppet-sync goroutine so its
-// *network.Client can be registered with the TUI status bridge. CLI callers
-// pass nil.
-func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter, onClient func(*network.Client)) {
+// *network.Client can be registered with the TUI status bridge. onPos, when
+// non-nil, is forwarded to the broadcast-pose goroutine so this Dolphin's own
+// position can be registered with the TUI's #22 minimap bridge. CLI callers
+// pass nil for both.
+func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep); err != nil {
+		if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep, onPos); err != nil {
 			report.Logf(rep, report.Err, "broadcast-pose: %v", err)
 		}
 	}()

@@ -29,6 +29,17 @@ type dashboardModel struct {
 	hostIPs     []string
 	latency     time.Duration
 	players     []PlayerView
+
+	// Minimap state (#22), refreshed alongside the above on the same
+	// statusTick. localOK mirrors hooks.LocalPos's ok return -- false until
+	// the broadcaster's first tick resolves a position (or when the hook
+	// itself is nil, e.g. CLI-only paths that never construct a dashboard).
+	localX, localZ float32
+	localOK        bool
+
+	// minimapScale is read ONCE from WW_MINIMAP_SCALE at construction (see
+	// newDashboard) rather than per render.
+	minimapScale float32
 }
 
 const logCap = 200
@@ -69,11 +80,12 @@ func drainLog(s *session) tea.Cmd {
 func newDashboard(hooks Hooks, role, name, addr string) dashboardModel {
 	s := startSession(hooks, role, name, addr)
 	return dashboardModel{
-		role:  role,
-		name:  name,
-		addr:  addr,
-		hooks: hooks,
-		sess:  s,
+		role:         role,
+		name:         name,
+		addr:         addr,
+		hooks:        hooks,
+		sess:         s,
+		minimapScale: minimapScaleFromEnv(),
 	}
 }
 
@@ -97,6 +109,9 @@ func (m dashboardModel) refreshStatus() dashboardModel {
 	}
 	if m.hooks.Players != nil {
 		m.players = m.hooks.Players()
+	}
+	if m.hooks.LocalPos != nil {
+		m.localX, _, m.localZ, m.localOK = m.hooks.LocalPos()
 	}
 	return m
 }
@@ -165,9 +180,18 @@ func (m dashboardModel) view(width, height int) string {
 	b.WriteString("\n")
 	statusLines := lipgloss.Height(statusPanel)
 
+	// Minimap panel (#22) — compact top-down X-Z plot, below status and
+	// above the log. Same "measure the rendered height" pattern statusPanel
+	// uses, so the log panel below still gets whatever room is left.
+	minimapPanel := renderMinimap(width, m.localX, m.localZ, m.localOK, m.players, m.minimapScale)
+	b.WriteString(minimapPanel)
+	b.WriteString("\n")
+	minimapLines := lipgloss.Height(minimapPanel)
+
 	// Log panel — fills remaining vertical space, leaving room for header
-	// (1 row + newline), the status panel, and footer (2 rows).
-	logHeight := height - 6 - statusLines
+	// (1 row + newline), the status panel, the minimap panel, and footer
+	// (2 rows).
+	logHeight := height - 6 - statusLines - minimapLines
 	if logHeight < 8 {
 		logHeight = 8
 	}

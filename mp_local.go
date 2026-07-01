@@ -328,7 +328,7 @@ func runMpLocal(nameA, nameB string) {
 			defer cancel()
 			r := prefixReporter{inner: rep, prefix: "[" + label + "]"}
 			if broadcast {
-				if err := runBroadcastPoseCtx(ctx, name, addr, pid, r); err != nil {
+				if err := runBroadcastPoseCtx(ctx, name, addr, pid, r, nil); err != nil {
 					report.Logf(r, report.Err, "%v", err)
 				}
 			} else {
