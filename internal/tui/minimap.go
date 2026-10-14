@@ -59,7 +59,12 @@ func minimapScaleFromEnv() float32 {
 // it's PURE (state in, string out) so it's unit-testable without a running
 // tea.Program.
 //
-//	width                 panel width; floors like renderStatus.
+//	width                 panel width, border included. The grid narrows
+//	                      to fit when the panel is slimmer than a full grid.
+//	rows                  body rows under the title. The grid uses up to
+//	                      minimapRows of them (kept odd, so self has a
+//	                      center row) and the rest pad the panel, so it can
+//	                      match the height of a panel beside it.
 //	selfX, selfZ, selfOK  this player's own world coords (LocalPos). selfOK
 //	                      false means LocalPos hasn't resolved yet, which
 //	                      renders a graceful "no position yet" fallback
@@ -67,20 +72,34 @@ func minimapScaleFromEnv() float32 {
 //	players               remote players, plotted relative to self.
 //	scale                 world units per character cell (WW_MINIMAP_SCALE,
 //	                      or defaultMinimapScale when scale <= 0).
-func renderMinimap(width int, selfX, selfZ float32, selfOK bool, players []PlayerView, scale float32) string {
-	if width < 60 {
-		width = 60
-	}
+func renderMinimap(width, rows int, selfX, selfZ float32, selfOK bool, players []PlayerView, scale float32) string {
+	inner := width - 4 // border + padding
 
-	var body string
+	var body []string
 	if !selfOK {
-		body = labelStyle.Render("no position yet")
+		body = []string{truncate(labelStyle.Render("no position yet"), inner)}
 	} else {
-		body = strings.Join(minimapGridLines(selfX, selfZ, players, scale), "\n")
+		cols := clampInt(inner, 1, minimapCols)
+		gridRows := clampInt(rows, 1, minimapRows)
+		if cols%2 == 0 {
+			cols--
+		}
+		if gridRows%2 == 0 {
+			gridRows--
+		}
+		body = minimapGridLines(selfX, selfZ, players, scale, cols, gridRows)
+		for i := range body {
+			// A wide glyph (a CJK initial) makes its row one cell
+			// wider than cols; cut it rather than let the panel wrap.
+			body[i] = truncate(body[i], inner)
+		}
+	}
+	for len(body) < rows {
+		body = append(body, "")
 	}
 
 	return panelStyle.Width(width - 2).Render(
-		panelTitleStyle.Render("Minimap") + "\n" + body,
+		panelTitleStyle.Render("Minimap") + "\n" + strings.Join(body, "\n"),
 	)
 }
 
@@ -90,15 +109,17 @@ func renderMinimap(width int, selfX, selfZ float32, selfOK bool, players []Playe
 // (or '•' when nameless). +X moves right, +Z moves down -- an arbitrary but
 // internally consistent top-down orientation. Split out from renderMinimap
 // so tests can assert exact cell contents without stripping ANSI/border
-// styling.
-func minimapGridLines(selfX, selfZ float32, players []PlayerView, scale float32) []string {
+// styling. cols and rows size the grid (minimapCols x minimapRows at full
+// size); both should be odd so the center cell is unambiguous.
+func minimapGridLines(selfX, selfZ float32, players []PlayerView, scale float32, cols, rows int) []string {
 	if scale <= 0 {
 		scale = defaultMinimapScale
 	}
+	halfCols, halfRows := cols/2, rows/2
 
-	grid := make([][]rune, minimapRows)
+	grid := make([][]rune, rows)
 	for r := range grid {
-		row := make([]rune, minimapCols)
+		row := make([]rune, cols)
 		for c := range row {
 			row[c] = minimapEmpty
 		}
@@ -106,18 +127,18 @@ func minimapGridLines(selfX, selfZ float32, players []PlayerView, scale float32)
 	}
 
 	for _, p := range players {
-		col := minimapHalfCols + int(math.Round(float64((p.X-selfX)/scale)))
-		row := minimapHalfRows + int(math.Round(float64((p.Z-selfZ)/scale)))
-		col = clampInt(col, 0, minimapCols-1)
-		row = clampInt(row, 0, minimapRows-1)
+		col := halfCols + int(math.Round(float64((p.X-selfX)/scale)))
+		row := halfRows + int(math.Round(float64((p.Z-selfZ)/scale)))
+		col = clampInt(col, 0, cols-1)
+		row = clampInt(row, 0, rows-1)
 		grid[row][col] = minimapGlyph(p.Name)
 	}
 
 	// Self last so it always wins a same-cell collision with a remote --
 	// "@" must always be visible at the center.
-	grid[minimapHalfRows][minimapHalfCols] = minimapSelf
+	grid[halfRows][halfCols] = minimapSelf
 
-	lines := make([]string, minimapRows)
+	lines := make([]string, rows)
 	for i, row := range grid {
 		lines[i] = string(row)
 	}

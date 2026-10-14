@@ -18,75 +18,91 @@ var ansiRE = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 func plain(s string) string { return ansiRE.ReplaceAllString(s, "") }
 
-// TestRenderStatus_Host asserts the pure #19 status renderer surfaces the
-// player count, the host IPs, a formatted latency, and remote player names.
-func TestRenderStatus_Host(t *testing.T) {
+// TestRenderStatus asserts the pure #19 status renderer surfaces the player
+// count, a formatted latency, and remote player names.
+func TestRenderStatus(t *testing.T) {
 	out := plain(renderStatus(
-		"Host",
 		100,
 		3,
-		[]string{"192.168.1.10", "10.0.0.5"},
 		42*time.Millisecond,
 		[]PlayerView{{ID: 2, Name: "Zelda"}, {ID: 3, Name: "Ganon"}},
 	))
 
 	for _, want := range []string{
-		"Status",       // panel title
-		"Players",      // count label
-		"3",            // the count
-		"Latency",      // latency label
-		"42ms",         // formatted RTT
-		"Host IP",      // host-only line
-		"192.168.1.10", // first IP verbatim
-		"10.0.0.5",     // second IP verbatim
-		"Zelda",        // remote name
-		"Ganon",        // remote name
+		"Status",  // panel title
+		"Players", // count label
+		"3",       // the count
+		"Latency", // latency label
+		"42ms",    // formatted RTT
+		"Zelda",   // remote name
+		"Ganon",   // remote name
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("renderStatus(host) output missing %q\n---\n%s", want, out)
+			t.Errorf("renderStatus output missing %q\n---\n%s", want, out)
 		}
 	}
 }
 
-// TestRenderStatus_JoinZeroLatency asserts join role omits the Host IP line and
-// that a zero/unknown latency renders the em dash rather than a fabricated
-// "0ms" (the explicit #19 requirement).
-func TestRenderStatus_JoinZeroLatency(t *testing.T) {
+// TestRenderHeader_HostIPs asserts the host header carries the role and the
+// shareable IPs (moved here from the status panel so they can't scroll off),
+// and that a join header never shows IPs even when some are supplied.
+func TestRenderHeader_HostIPs(t *testing.T) {
+	host := plain(renderHeader(100, "Host", "Link", "", []string{"192.168.1.10", "10.0.0.5"}, false))
+	for _, want := range []string{"Hosting", "Link", "Host IP", "192.168.1.10", "10.0.0.5", "25565"} {
+		if !strings.Contains(host, want) {
+			t.Errorf("renderHeader(host) missing %q\n---\n%s", want, host)
+		}
+	}
+
+	join := plain(renderHeader(100, "Join", "Zelda", "192.168.1.10", []string{"10.9.9.9"}, false))
+	for _, want := range []string{"Joining", "Zelda", "192.168.1.10"} {
+		if !strings.Contains(join, want) {
+			t.Errorf("renderHeader(join) missing %q\n---\n%s", want, join)
+		}
+	}
+	if strings.Contains(join, "Host IP") || strings.Contains(join, "10.9.9.9") {
+		t.Errorf("renderHeader(join) leaked a host IP into the join view\n---\n%s", join)
+	}
+
+	ended := plain(renderHeader(100, "Host", "Link", "", []string{"192.168.1.10"}, true))
+	if !strings.Contains(ended, "Session ended") || strings.Contains(ended, "Hosting") {
+		t.Errorf("renderHeader(ended) should say the session ended, not Hosting\n---\n%s", ended)
+	}
+	if strings.Contains(ended, "192.168.1.10") {
+		t.Errorf("renderHeader(ended) should stop advertising the host IPs\n---\n%s", ended)
+	}
+}
+
+// TestRenderStatus_ZeroLatency asserts that a zero/unknown latency renders the
+// em dash rather than a fabricated "0ms" (the explicit #19 requirement).
+func TestRenderStatus_ZeroLatency(t *testing.T) {
 	out := plain(renderStatus(
-		"Join",
 		100,
 		2,
-		[]string{"192.168.1.10"}, // ips supplied but must be ignored on join
-		0,                        // unknown latency
+		0, // unknown latency
 		[]PlayerView{{ID: 1, Name: "Link"}},
 	))
 
-	if strings.Contains(out, "Host IP") {
-		t.Errorf("renderStatus(join) unexpectedly rendered the Host IP line\n---\n%s", out)
-	}
-	if strings.Contains(out, "192.168.1.10") {
-		t.Errorf("renderStatus(join) leaked a host IP into the join view\n---\n%s", out)
-	}
 	if !strings.Contains(out, "—") {
-		t.Errorf("renderStatus(join) with zero latency should render an em dash, got:\n%s", out)
+		t.Errorf("renderStatus with zero latency should render an em dash, got:\n%s", out)
 	}
 	if strings.Contains(out, "0ms") {
-		t.Errorf("renderStatus(join) fabricated a 0ms latency instead of the em dash\n---\n%s", out)
+		t.Errorf("renderStatus fabricated a 0ms latency instead of the em dash\n---\n%s", out)
 	}
 	if !strings.Contains(out, "Link") {
-		t.Errorf("renderStatus(join) missing remote name %q\n---\n%s", "Link", out)
+		t.Errorf("renderStatus missing remote name %q\n---\n%s", "Link", out)
 	}
 }
 
 // TestRenderStatus_NoPlayers asserts the waiting-state presence line and that a
 // nameless remote falls back to a stable "player N" label.
 func TestRenderStatus_NoPlayers(t *testing.T) {
-	out := plain(renderStatus("Host", 100, 1, nil, 0, nil))
+	out := plain(renderStatus(100, 1, 0, nil))
 	if !strings.Contains(out, "waiting for players") {
 		t.Errorf("renderStatus with no players missing the waiting hint:\n%s", out)
 	}
 
-	named := plain(renderStatus("Join", 100, 2, nil, 5*time.Millisecond, []PlayerView{{ID: 7}}))
+	named := plain(renderStatus(100, 2, 5*time.Millisecond, []PlayerView{{ID: 7}}))
 	if !strings.Contains(named, "player 7") {
 		t.Errorf("renderStatus should label a nameless remote as %q\n---\n%s", "player 7", named)
 	}
@@ -97,7 +113,7 @@ func TestRenderStatus_NoPlayers(t *testing.T) {
 // only the newest lines when the history overflows the window.
 func TestChatScrollback(t *testing.T) {
 	// Short history: both lines present, padded to the requested row count.
-	out := chatScrollback([]string{"Link: hi", "Zelda: hey"}, 4)
+	out := chatScrollback([]string{"Link: hi", "Zelda: hey"}, 4, 80)
 	if got := strings.Count(out, "\n") + 1; got != 4 {
 		t.Errorf("chatScrollback padded to %d rows, want 4:\n%q", got, out)
 	}
@@ -109,7 +125,7 @@ func TestChatScrollback(t *testing.T) {
 
 	// Overflow: only the newest `rows` lines survive.
 	full := []string{"a: 1", "b: 2", "c: 3", "d: 4", "e: 5"}
-	tail := chatScrollback(full, 2)
+	tail := chatScrollback(full, 2, 80)
 	if strings.Count(tail, "\n")+1 != 2 {
 		t.Errorf("chatScrollback(rows=2) should emit 2 lines, got:\n%q", tail)
 	}

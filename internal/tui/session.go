@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -81,6 +82,7 @@ type session struct {
 	cancel context.CancelFunc
 	done   chan struct{} // closed when the session goroutine returns
 	logCh  chan logEntry
+	rep    *tuiReporter
 }
 
 // tuiReporter pushes Reporter.Log calls onto a buffered channel that the
@@ -88,9 +90,20 @@ type session struct {
 // 20 Hz tick and puppet-sync's 60 Hz tick must never stall on UI.
 type tuiReporter struct {
 	ch chan logEntry
+
+	// lastErr is the newest Err-level message, kept even when the channel
+	// drops it: it becomes the session-ended reason. mu guards it because
+	// both session goroutines log concurrently.
+	mu      sync.Mutex
+	lastErr string
 }
 
 func (r *tuiReporter) Log(level report.Level, msg string) {
+	if level == report.Err {
+		r.mu.Lock()
+		r.lastErr = msg
+		r.mu.Unlock()
+	}
 	entry := logEntry{
 		t:     time.Now(),
 		level: level,
@@ -134,6 +147,7 @@ func startSession(hooks Hooks, role, name, addr string) *session {
 		logCh: make(chan logEntry, 256),
 	}
 	rep := &tuiReporter{ch: s.logCh}
+	s.rep = rep
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	go func() {
@@ -165,6 +179,21 @@ func (s *session) stop() {
 	if s.done != nil {
 		<-s.done
 	}
+}
+
+// endReason explains why the session goroutine returned: the newest
+// Err-level line it logged (HostSession's returned error and every
+// runMultiplayerGoroutines failure are logged at Err), or a neutral
+// fallback when it ended without one. Meaningful once done is closed.
+func (s *session) endReason() string {
+	if s.rep != nil {
+		s.rep.mu.Lock()
+		defer s.rep.mu.Unlock()
+		if s.rep.lastErr != "" {
+			return s.rep.lastErr
+		}
+	}
+	return "no error was reported"
 }
 
 // missingHookMsg returns a user-facing message when hooks has no session
