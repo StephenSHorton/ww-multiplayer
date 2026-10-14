@@ -7,6 +7,8 @@
 #   2. A `WW Multiplayer.app` bundle wrapping the same signed binary,
 #      Finder-clickable, no sudo prompt (works against a non-hardened
 #      Dolphin — see scripts/setup-mac-dolphin.sh).
+#   3. `ww-multiplayer-macos.tar.gz` (the release download): both of the
+#      above plus scripts/setup-mac-dolphin.sh and LICENSE.
 #
 # Outputs into ./dist/. cgo is required (mach_vm_* lives in C) so this
 # script must run on macOS — Linux/Windows runners can't cross-build it.
@@ -33,13 +35,13 @@ LDFLAGS="-s -w -X main.version=${VERSION}"
 echo "==> Building arm64..."
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 \
     SDKROOT="$SDK" \
-    go build -ldflags="$LDFLAGS" -o "$DIST/ww-multiplayer-arm64" .
+    go build -trimpath -ldflags="$LDFLAGS" -o "$DIST/ww-multiplayer-arm64" .
 
 echo "==> Building amd64..."
 GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 \
     SDKROOT="$SDK" \
     CC="clang -target x86_64-apple-macos11 -isysroot $SDK" \
-    go build -ldflags="$LDFLAGS" -o "$DIST/ww-multiplayer-amd64" .
+    go build -trimpath -ldflags="$LDFLAGS" -o "$DIST/ww-multiplayer-amd64" .
 
 echo "==> Combining into universal binary..."
 lipo -create \
@@ -105,15 +107,29 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# The README's first-run steps run ./scripts/setup-mac-dolphin.sh from
+# the untarred folder, so ship it at that same relative path, plus the
+# MIT notice that has to travel with the binaries.
+mkdir -p "$DIST/scripts"
+cp "$ROOT/scripts/setup-mac-dolphin.sh" "$DIST/scripts/setup-mac-dolphin.sh"
+chmod +x "$DIST/scripts/setup-mac-dolphin.sh"
+cp "$ROOT/LICENSE" "$DIST/LICENSE"
+
 # Tarball for release upload (preserves +x bits across download).
 TARBALL="$DIST/ww-multiplayer-macos.tar.gz"
-( cd "$DIST" && tar -czf "$TARBALL" "ww-multiplayer" "WW Multiplayer.app" )
+( cd "$DIST" && tar -czf "$TARBALL" "ww-multiplayer" "WW Multiplayer.app" \
+    "scripts/setup-mac-dolphin.sh" "LICENSE" )
+LISTING="$(tar -tzf "$TARBALL")"
+for f in "ww-multiplayer" "scripts/setup-mac-dolphin.sh" "LICENSE"; do
+    grep -qx "$f" <<<"$LISTING" || { echo "ERROR: $TARBALL is missing $f"; exit 1; }
+done
 
 echo
 echo "==> Built:"
 echo "    $DIST/ww-multiplayer       (universal binary, signed with cs.debugger)"
 echo "    $DIST/WW Multiplayer.app   (Finder-clickable wrapper)"
 echo "    $TARBALL"
+echo "      (also carries scripts/setup-mac-dolphin.sh and LICENSE)"
 echo
 echo "==> First-time macOS setup: run scripts/setup-mac-dolphin.sh once"
 echo "    to copy /Applications/Dolphin.app to ~/Applications/ and strip"
