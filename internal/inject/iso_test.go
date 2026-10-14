@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The owner's known-good case (a scrubbed CISO, zeros at 0x500000): the
@@ -223,6 +224,9 @@ func TestPatchISOFile(t *testing.T) {
 	out := filepath.Join(dir, "ww-multiplayer.iso")
 	writeFile(t, in, b.img)
 	writeFile(t, out, []byte("stale output from an earlier run"))
+	if err := os.Chmod(out, 0o640); err != nil {
+		t.Fatal(err)
+	}
 
 	res, err := PatchISO(in, out)
 	if err != nil {
@@ -235,9 +239,9 @@ func TestPatchISOFile(t *testing.T) {
 	if !bytes.Equal(readFile(t, in), b.img) {
 		t.Error("input file changed")
 	}
-	if runtime.GOOS != "windows" {
-		if st, err := os.Stat(out); err != nil || st.Mode().Perm() != 0o644 {
-			t.Errorf("output mode = %v (%v), want 0644", st.Mode().Perm(), err)
+	if runtime.GOOS != "windows" { // the replaced output keeps its mode, as with os.WriteFile
+		if st, err := os.Stat(out); err != nil || st.Mode().Perm() != 0o640 {
+			t.Errorf("output mode = %v (%v), want the old output's 0640", st.Mode().Perm(), err)
 		}
 	}
 	checkNoTempFiles(t, dir, "ww.iso", "ww-multiplayer.iso")
@@ -282,6 +286,85 @@ func TestPatchISOFileFailureWritesNothing(t *testing.T) {
 	}
 }
 
+// PatchISO itself writes atomically: when the final rename fails after a
+// successful patch, the old output survives and the temp file is removed.
+func TestPatchISOFileRenameFailureKeepsOldOutput(t *testing.T) {
+	b := vanillaLike().build(t)
+	dir := t.TempDir()
+	in := filepath.Join(dir, "ww.iso")
+	out := filepath.Join(dir, "ww-multiplayer.iso")
+	writeFile(t, in, b.img)
+	writeFile(t, out, []byte("keep me"))
+
+	injected := errors.New("injected rename failure")
+	calls := 0
+	defer func(orig func(string, string) error) { replaceFile = orig }(replaceFile)
+	replaceFile = func(oldpath, newpath string) error {
+		calls++
+		if newpath != out || filepath.Dir(oldpath) != dir {
+			t.Errorf("rename %s -> %s, want a temp file in %s renamed to %s", oldpath, newpath, dir, out)
+		}
+		b.checkPatched(t, readFile(t, oldpath), wwSafeFSTOff) // the temp holds the whole image
+		return injected
+	}
+
+	if _, err := PatchISO(in, out); !errors.Is(err, injected) {
+		t.Fatalf("err = %v, want the rename failure", err)
+	}
+	if calls != 1 {
+		t.Errorf("rename called %d times, want 1", calls)
+	}
+	if got := readFile(t, out); string(got) != "keep me" {
+		t.Errorf("existing output overwritten with %d bytes", len(got))
+	}
+	checkNoTempFiles(t, dir, "ww.iso", "ww-multiplayer.iso")
+}
+
+// An output path that is a symlink is written through, as os.WriteFile
+// would: the link's target gets the patched image and the link stays.
+func TestPatchISOFileFollowsOutputSymlink(t *testing.T) {
+	b := vanillaLike().build(t)
+	dir, ext := t.TempDir(), t.TempDir()
+	in := filepath.Join(dir, "ww.iso")
+	target := filepath.Join(ext, "ww-multiplayer.iso")
+	link := filepath.Join(dir, "ww-multiplayer.iso")
+	writeFile(t, in, b.img)
+	writeFile(t, target, []byte("stale output on another drive"))
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("can't create symlinks here: %v", err)
+	}
+
+	if _, err := PatchISO(in, link); err != nil {
+		t.Fatal(err)
+	}
+	if !isSymlink(t, link) {
+		t.Fatal("output link replaced by a regular file")
+	}
+	b.checkPatched(t, readFile(t, target), wwSafeFSTOff)
+	checkNoTempFiles(t, dir, "ww.iso", "ww-multiplayer.iso")
+	checkNoTempFiles(t, ext, "ww-multiplayer.iso")
+}
+
+// A dangling output symlink is an error, not a regular file in its place.
+func TestPatchISOFileDanglingOutputSymlink(t *testing.T) {
+	b := vanillaLike().build(t)
+	dir := t.TempDir()
+	in := filepath.Join(dir, "ww.iso")
+	link := filepath.Join(dir, "ww-multiplayer.iso")
+	writeFile(t, in, b.img)
+	if err := os.Symlink(filepath.Join(dir, "unplugged", "ww-multiplayer.iso"), link); err != nil {
+		t.Skipf("can't create symlinks here: %v", err)
+	}
+
+	if _, err := PatchISO(in, link); err == nil {
+		t.Fatal("patched through a dangling symlink")
+	}
+	if !isSymlink(t, link) {
+		t.Error("dangling link replaced by a regular file")
+	}
+	checkNoTempFiles(t, dir, "ww.iso", "ww-multiplayer.iso")
+}
+
 func TestPatchISORefusesSamePath(t *testing.T) {
 	b := vanillaLike().build(t)
 	dir := t.TempDir()
@@ -300,6 +383,9 @@ func TestPatchISORefusesSamePath(t *testing.T) {
 	if link := filepath.Join(dir, "hardlink.iso"); os.Link(in, link) == nil {
 		outs["hard link"] = link
 	}
+	if link := filepath.Join(dir, "symlink.iso"); os.Symlink(in, link) == nil {
+		outs["symlink"] = link
+	}
 	if upper := filepath.Join(dir, "WW.ISO"); fileExists(upper) { // case-insensitive FS (macOS, Windows)
 		outs["case-only difference"] = upper
 	}
@@ -317,7 +403,7 @@ func TestPatchISORefusesSamePath(t *testing.T) {
 	if !bytes.Equal(readFile(t, in), b.img) {
 		t.Fatal("input file changed")
 	}
-	checkNoTempFiles(t, dir, "ww.iso", "hardlink.iso", "sub")
+	checkNoTempFiles(t, dir, "ww.iso", "hardlink.iso", "symlink.iso", "sub")
 }
 
 func TestPatchISOFileUnsupportedFormat(t *testing.T) {
@@ -337,6 +423,9 @@ func TestPatchISOFileUnsupportedFormat(t *testing.T) {
 }
 
 func TestWriteFileAtomicCleansUpOnFailure(t *testing.T) {
+	// On Windows this fails with ERROR_ACCESS_DENIED, which is retried; skip the waits.
+	defer func(orig func(time.Duration)) { renameSleep = orig }(renameSleep)
+	renameSleep = func(time.Duration) {}
 	dir := t.TempDir()
 	target := filepath.Join(dir, "out.iso")
 	if err := os.Mkdir(target, 0o755); err != nil { // renaming onto a directory fails
@@ -357,6 +446,15 @@ func writeFile(t *testing.T, path string, data []byte) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func isSymlink(t *testing.T, path string) bool {
+	t.Helper()
+	fi, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Mode()&os.ModeSymlink != 0
 }
 
 func fileExists(path string) bool {

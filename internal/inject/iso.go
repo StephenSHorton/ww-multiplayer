@@ -5,8 +5,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io/fs"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 // Gamecube disc header offsets we care about.
@@ -295,9 +298,20 @@ func sameFile(a, b string) bool {
 
 // writeFileAtomic writes data to a temp file in path's directory and
 // renames it over path, so path holds either its old content or all of
-// data — never a partial write.
+// data — never a partial write. Apart from that it behaves like
+// os.WriteFile: a symlink at path is followed (its target is replaced and
+// the link stays a link), an existing file keeps its permission bits, and a
+// new file gets perm minus the umask. A hard link to the old file is the
+// one difference: it keeps the old content.
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("resolve symlink: %w", err)
+		}
+		path = target
+	}
+	f, err := createTempNear(path, perm)
 	if err != nil {
 		return err
 	}
@@ -318,14 +332,31 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp, perm); err != nil {
-		return err
+	if st, err := os.Stat(path); err == nil && st.Mode().IsRegular() {
+		if err := os.Chmod(tmp, st.Mode().Perm()); err != nil {
+			return err
+		}
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := replaceFile(tmp, path); err != nil {
 		return err
 	}
 	committed = true
 	return nil
+}
+
+// createTempNear creates a new file named <path>.<random>.tmp, so it sits
+// in path's directory (and on its filesystem, for the rename). Unlike
+// os.CreateTemp's fixed 0600 it is opened with perm, which the umask then
+// trims exactly as it would for os.WriteFile.
+func createTempNear(path string, perm os.FileMode) (*os.File, error) {
+	for range 100 {
+		name := path + "." + strconv.FormatUint(uint64(rand.Uint32()), 10) + ".tmp"
+		f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, perm)
+		if !errors.Is(err, fs.ErrExist) {
+			return f, err
+		}
+	}
+	return nil, fmt.Errorf("create temp file next to %s: too many name collisions", path)
 }
 
 // Detect CISO by 4-byte magic.
