@@ -66,11 +66,31 @@ Addresses where `inject_address` was tested:
 
 | Address | Loads? | Notes |
 |---|---|---|
-| `0x803FD000` | ❌ | Just past BSS end. Dolphin silently drops the section (runtime `0x803FD000` reads all zeros). |
-| `0x80410000` | ✅ | Current chosen address. ~12 KB above default `__ArenaLo`. |
+| `0x803FD000` | ❌ | Just past BSS end, inside the main stack (see the correction below). Dolphin silently drops the section (runtime `0x803FD000` reads all zeros). |
+| `0x80410000` | ✅ | Current chosen address. ~4 KB (0x1040) above the default `__ArenaLo` (`0x8040EFC0`), ~12 KB above the main stack top. |
 | `0x80500000` | ✅ | Works but wastes ~1 MB of arena. |
 
-We don't fully understand Dolphin's rule for rejecting sections. Possibly related to BSS proximity or apploader-emulation heuristics.
+**Correction (2026-10-14, #23): `0x803FD000` is probably not a Dolphin loader rule.** We used to
+say we didn't understand why Dolphin rejects it, perhaps because of BSS proximity or an
+apploader heuristic. The address is inside the game's main stack, which is the likelier cause
+(inferred; not re-tested):
+
+- BSS ends at `0x803FCFA8` (tww `config/GZLE01/splits.txt:3328`, the last `.sbss2` range).
+  The 64 KB main stack sits right above it and grows down from `0x8040CFA8`; above that are
+  the 8 KB debug stack and the default `__ArenaLo` of `0x8040EFC0`. The stack range comes
+  from the standard linker layout, not from a symbol: BSS end + 64 KB + 8 KB, rounded up to
+  32 bytes, gives exactly that `__ArenaLo`. Boot writes one word just above the stack top:
+  `__init_hardware`'s callees save LR at `0x8040CFAC`, which keeps `0x8000336C` (tww
+  `src/dolphin/os/__start.c:173-183`, `OS.c:623-624`).
+- At boot, `__OSThreadInit` sets the main thread's `stack_end` to `_stack_end` and calls
+  `OSClearStack(0)` (tww `src/dolphin/os/OSThread.c:164-169`). That zeroes every word from
+  `stack_end + 4` up to the current stack pointer (`OSThread.c:924-933`), so a section at
+  `0x803FD000` reads back as zeros. Even if it survived, the main thread's stack would later
+  grow into it.
+
+`0x80410000` is above the stack top, which fits the table. docs/08 §4.5 (option B) considers
+`0x8040D000` (above the stack top, inside the debug stack) only after a live read-back proves
+the section survives boot.
 
 ## Mailbox Location Is Not BSS Padding
 
@@ -519,6 +539,10 @@ Wind Waker's DOL spans 2 blocks in the CISO. A naive "just write the DOL into th
 
 Historically the advice was that T2 at `0x803FD000` overlaps the tail of BSS zeroing. Not quite true — the BSS init (via `_bss_init_info` in the DOL's own data) only zeros the declared ranges. The real zeroing culprit was `ClearArena`, not BSS init. That's now handled via the OSInit patch.
 
+**Correction (2026-10-14):** `ClearArena` explains the zeroing above `__ArenaLo`, not at
+`0x803FD000`, which is below `__ArenaLo` and inside the main stack. There the likely cause is
+`OSClearStack`; see "Dolphin's DOL Loader Refuses Some Addresses" above.
+
 ## Dolphin Doesn't Show Extracted Folders In Game List
 
 `Config → Paths → Add <extracted folder>` doesn't cause Dolphin to show the game. Only ways to boot:
@@ -543,11 +567,14 @@ is never saved, and the game crashes downstream. That's why hooking
 ```
 stwu/mflr/stw                   # prologue
 li r3, 0 / lis r4, ... / addi   # args for 1st call
-bl +0x1BA88   # -> 0x8003EC84 (per-frame work #1)
+bl +0x1BA88   # -> 0x8003EC84 fpcM_Management(0, fapGm_After): the whole frame
 li r3, 0
-bl +0x2217A8  # -> 0x802449AC (per-frame work #2 — heap bookkeeping)
+bl +0x2217A8  # -> 0x802449AC cCt_Counter(0): frame counters
 lwz/mtlr/addi/blr               # epilogue
 ```
+
+(tww `src/f_ap/f_ap_game.cpp:77-81`; `fpcM_Management` is sym:1154 and `cCt_Counter` is
+sym:8240 in `config/GZLE01/symbols.txt`.)
 
 Hook at **`0x80023204`** — the SECOND `bl`. Replacing a `bl` is transparent
 to the host (caller already assumes volatile-reg clobber) and past the
@@ -562,6 +589,18 @@ heap bookkeeping, so if LR points into our shim instead of `0x80023208`
 assertion fires. A `bctrl` replay clobbers LR — use a TAIL-CALL `bctr`
 instead so LR stays = caller's LR.
 
+**Correction (2026-10-14, #23): `0x802449AC` is `cCt_Counter`, not heap bookkeeping.**
+The decomp has it as a 0x48-byte leaf that bumps the two global frame counters in
+`g_Counter` and calls nothing (tww `src/SSystem/SComponent/c_counter.cpp:11-20`, a matching
+object). It never reads LR, so the "does `mflr` for heap bookkeeping" explanation above is
+wrong. The observations still stand: dropping the call, and the `bctrl` replay, both tripped
+the assertion, which comes from `mDoExt_restoreCurrentHeap` (tww
+`src/m_Do/m_Do_ext.cpp:1108-1116`; 2755 is the USA line number). Neither failure was
+root-caused. The tail call is still the right shape, because it does exactly what the
+original `bl` did: `cCt_Counter` runs every frame, right after our `multiplayer_update`,
+and returns straight to `0x80023208`. `inject/build.py`'s hook comment ("we lose whatever
+0x802449AC was doing") is stale for the same reason.
+
 Final shim shape (see `inject/src/multiplayer.c`):
 
 ```asm
@@ -572,7 +611,7 @@ frame_shim:
     ; call multiplayer_update via callback pointer (bctrl clobbers LR, that's
     ; ok — we saved it and restore it below)
     lis   12, 0x8041
-    lwz   12, 0x0700(12)
+    lwz   12, 0x2F08(12)       # callback pointer at mailbox+0x08 = 0x80412F08
     cmpwi 12, 0
     beq-  1f
     mtctr 12
@@ -590,12 +629,16 @@ frame_shim:
 ```
 
 `main01_init` (hooked at `0x80006338`) publishes `&multiplayer_update` at
-`0x80410700` once at thread start; `frame_shim` reads it each frame.
+`0x80412F08` (`CALLBACK_PTR_ADDR`, mailbox+0x08) once at thread start; `frame_shim` reads
+it each frame. The listing above matches `frame_shim` in `inject/src/multiplayer.c`
+today. When this section was first written the slot was at `0x80410700`
+(`lwz 12, 0x0700(12)`); it has moved several times since and now lives in the mailbox, and
+the hard-coded `lwz` offset has to move with it.
 
 ### Verified
 
-Mailbox counter at `0x80410800` increments ~30/sec (matching 29.97 FPS) while
-the game runs normally.
+Mailbox counter (`spawn_trigger`, then at `0x80410800`, now at `0x80412F00`) increments
+~30/sec (matching 29.97 FPS) while the game runs normally.
 
 ## PROC_PLAYER Won't Fit — GameHeap OOM
 

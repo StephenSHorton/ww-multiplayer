@@ -1,0 +1,386 @@
+package addr
+
+import (
+	"testing"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+)
+
+// rel is one arithmetic relation: an absolute address written as a literal
+// must equal the base plus the struct offsets it is made of.
+type rel struct {
+	name      string
+	got, want uint32
+}
+
+func checkRels(t *testing.T, rels []rel) {
+	t.Helper()
+	for _, r := range rels {
+		if r.got != r.want {
+			t.Errorf("%s = 0x%08X, want 0x%08X", r.name, r.got, r.want)
+		}
+	}
+}
+
+// TestGameInfoLayout ties the gameInfo, save and play bases together, and
+// to the relations the co-op design states (§3, §4.2).
+func TestGameInfoLayout(t *testing.T) {
+	checkRels(t, []rel{
+		{"SaveInfo", SaveInfo, GameInfo},
+		{"SaveImage", SaveImage, SaveInfo + InfoOffSavedata},
+		{"Play", Play, GameInfo + SaveInfoSize},
+		{"Play (design: gameInfo + 0x12A0)", Play, GameInfo + 0x12A0},
+		{"LiveMemBit", LiveMemBit, SaveInfo + InfoOffMemory},
+		{"LiveMemBit (design: gameInfo + 0x778)", LiveMemBit, GameInfo + 0x778},
+		{"Reserve (design: gameInfo + 0x724)", Reserve, GameInfo + 0x724},
+		{"CurStage (design: play + 0x3E94)", CurStage, Play + 0x3E94},
+		{"Dan", Dan, SaveInfo + InfoOffDan},
+		{"Zones", Zones, SaveInfo + InfoOffZone},
+		{"Restart", Restart, SaveInfo + InfoOffRestart},
+		{"Tmp", Tmp, SaveInfo + InfoOffTmp},
+		{"TurnRestart", TurnRestart, SaveInfo + InfoOffTurnRestart},
+		{"DataNum", DataNum, SaveInfo + InfoOffDataNum},
+	})
+	// play ends where drawlist starts (d_com_inf_game.h:916).
+	if SaveInfoSize+PlaySize != 0x5D1C || SaveInfoSize+PlaySize > GameInfoSize {
+		t.Errorf("save + play = 0x%X, want drawlist at +0x5D1C", SaveInfoSize+PlaySize)
+	}
+}
+
+// TestImageFields checks every absolute image field against SaveImage +
+// its Off* constant.
+func TestImageFields(t *testing.T) {
+	img := func(off int) uint32 { return SaveImage + uint32(off) }
+	checkRels(t, []rel{
+		{"MaxLife", MaxLife, img(OffMaxLife)},
+		{"Life", Life, img(OffLife)},
+		{"Rupee", Rupee, img(OffRupee)},
+		{"SelectItem", SelectItem, img(OffSelectItem)},
+		{"SelectEquip", SelectEquip, img(OffSelectEquip)},
+		{"WalletSize", WalletSize, img(OffWalletSize)},
+		{"MaxMagic", MaxMagic, img(OffMaxMagic)},
+		{"Magic", Magic, img(OffMagic)},
+		{"DateIPL", DateIPL, img(OffDateIPL)},
+		{"ReturnPlace", ReturnPlace, img(OffReturnPlace)},
+		{"Items", Items, img(OffItems)},
+		{"GetItem", GetItem, img(OffGetItem)},
+		{"ItemMax", ItemMax, img(OffItemMax)},
+		{"ArrowMax", ArrowMax, img(OffArrowMax)},
+		{"BombMax", BombMax, img(OffBombMax)},
+		{"GetBagItem", GetBagItem, img(OffGetBagItem)},
+		{"BeastFlags", BeastFlags, img(OffBeastFlags)},
+		{"BaitFlags", BaitFlags, img(OffBaitFlags)},
+		{"Collect", Collect, img(OffCollect)},
+		{"Tact", Tact, img(OffTact)},
+		{"Triforce", Triforce, img(OffTriforce)},
+		{"Symbol", Symbol, img(OffSymbol)},
+		{"Map", Map, img(OffMap)},
+		{"MapGet", MapGet, img(OffMapGet)},
+		{"MapOpen", MapOpen, img(OffMapOpen)},
+		{"MapComplete", MapComplete, img(OffMapComplete)},
+		{"FmapBits", FmapBits, img(OffFmapBits)},
+		{"MapTriforce", MapTriforce, img(OffMapTriforce)},
+		{"PlayerName", PlayerName, img(OffPlayerName)},
+		{"ClearCount", ClearCount, img(OffClearCount)},
+		{"SavedMemBit", SavedMemBit, img(OffMemory)},
+		{"Ocean", Ocean, img(OffOcean)},
+		{"Event", Event, img(OffEvent)},
+		{"Reserve", Reserve, img(OffReserve)},
+		{"LiveKeyNum", LiveKeyNum, LiveMemBit + MemBitOffKeyNum},
+		{"LiveDungeonItem", LiveDungeonItem, LiveMemBit + MemBitOffDungeonItem},
+		{"DanStageNo", DanStageNo, Dan + DanOffStageNo},
+		{"DanSwitch", DanSwitch, Dan + DanOffSwitch},
+	})
+}
+
+// TestPlayFields checks the play-side gate and counter addresses against
+// Play + member offsets.
+func TestPlayFields(t *testing.T) {
+	checkRels(t, []rel{
+		{"CurStage", CurStage, Play + PlayOffCurStage},
+		{"CurStageName", CurStageName, CurStage + StageOffName},
+		{"CurStagePoint", CurStagePoint, CurStage + StageOffPoint},
+		{"CurStageRoomNo", CurStageRoomNo, CurStage + StageOffRoomNo},
+		{"CurStageLayer", CurStageLayer, CurStage + StageOffLayer},
+		{"NextStage", NextStage, Play + PlayOffNextStage},
+		{"NextStageEnable", NextStageEnable, NextStage + NextOffEnable},
+		{"StagInfoPtr", StagInfoPtr, Play + PlayOffStageData + StageDtOffStag},
+		{"EvtOrderCount", EvtOrderCount, Play + PlayOffEvtCtrl + EvtOffOrderCnt},
+		{"EvtMode", EvtMode, Play + PlayOffEvtCtrl + EvtOffMode},
+		{"PlayerPtr", PlayerPtr, Play + PlayOffPlayerPtr},
+		{"ItemLifeCount", ItemLifeCount, Play + PlayOffItemLifeCount},
+		{"ItemRupeeCount", ItemRupeeCount, Play + PlayOffItemRupeeCount},
+		{"ItemKeyNumCount", ItemKeyNumCount, Play + PlayOffItemKeyNumCount},
+		{"ItemMaxLifeCount", ItemMaxLifeCount, Play + PlayOffItemMaxLifeCount},
+		{"ItemMaxMagicCount", ItemMaxMagicCount, Play + PlayOffItemMaxMagicCount},
+		{"PlaySelectItem", PlaySelectItem, Play + PlayOffSelectItem},
+		{"PlaySelectEquip", PlaySelectEquip, Play + PlayOffSelectEquip},
+		{"PlayerInfoBufStageNo", PlayerInfoBufStageNo, Play + PlayOffPlayerInfoBufStageNo},
+		{"MiniGameType", MiniGameType, Play + PlayOffMiniGameType},
+		{"SpawnTrigger", SpawnTrigger, Mailbox},
+		{"WarpSeq", WarpSeq, Mailbox + 0xC8},
+	})
+	for _, off := range []int{PlayOffCurStage, PlayOffNextStage, PlayOffStageData, PlayOffEvtCtrl,
+		PlayOffMiniGameType} {
+		if off >= PlaySize {
+			t.Errorf("play offset 0x%X is past PlaySize 0x%X", off, PlaySize)
+		}
+	}
+	// mpPlayerPtr is 3 pointers, then f32 mItemScopeWipeScale, then
+	// mItemLifeCount (d_com_inf_game.h:791-793).
+	if PlayOffItemLifeCount != PlayOffPlayerPtr+3*4+4 {
+		t.Errorf("mItemLifeCount at +0x%X, want mpPlayerPtr[3] + f32", PlayOffItemLifeCount)
+	}
+	// mItemKeyNumCount .. mItemMaxMagicCount are consecutive s16s
+	// (d_com_inf_game.h:799-803).
+	if PlayOffItemMaxLifeCount != PlayOffItemKeyNumCount+2 || PlayOffItemMaxMagicCount != PlayOffItemKeyNumCount+8 {
+		t.Error("pending s16 counters are not consecutive")
+	}
+	if PlayOffSelectEquip != PlayOffSelectItem+4 {
+		t.Error("play mSelectEquip does not follow mSelectItem[4]")
+	}
+}
+
+// TestStructChains walks each struct member by member: every member must
+// start where the previous one (plus its documented padding) ends, and the
+// last must end at the STATIC_ASSERTed size.
+func TestStructChains(t *testing.T) {
+	type link struct {
+		name     string
+		off, end int // member start; where it ends (next start minus padding)
+	}
+	chains := map[string]struct {
+		links []link
+		size  int
+	}{
+		"dSv_player_c": {[]link{
+			{"status_a", OffStatusA, OffStatusA + StatusASize},
+			{"status_b", OffStatusB, OffStatusB + StatusBSize},
+			{"return_place", OffReturnPlace, OffReturnPlace + ReturnPlaceSize},
+			{"item", OffItems, OffItems + ItemsSize},
+			{"get_item", OffGetItem, OffGetItem + GetItemSize},
+			{"item_record", OffItemRecord, OffItemRecord + ItemRecordSize},
+			{"item_max", OffItemMax, OffItemMax + ItemMaxSize},
+			{"bag_item + 2 pad", OffBagItem, OffBagItem + BagItemSize + 2},
+			{"get_bag_item", OffGetBagItem, OffGetBagItem + GetBagItemSize},
+			{"bag_item_record", OffBagItemRecord, OffBagItemRecord + BagItemRecordSize},
+			{"collect + 3 pad", OffCollect, OffCollect + CollectSize + 3},
+			{"map", OffMap, OffMap + MapSize},
+			{"info", OffInfo, OffInfo + InfoSize},
+			{"config + 3 pad", OffConfig, OffConfigPad + 3},
+			{"priest", OffPriest, OffPriest + PriestSize},
+			{"status_c[4]", OffStatusC, OffStatusC + StatusCCount*StatusCSize},
+			{"pad", OffPlayerPad, OffPlayerPad + 4},
+		}, PlayerSize},
+		"dSv_save_c": {[]link{
+			{"player", OffPlayer, OffPlayer + PlayerSize},
+			{"memory[16]", OffMemory, OffMemory + TableCount*MemBitSize},
+			{"ocean", OffOcean, OffOcean + OceanSize},
+			{"event", OffEvent, OffEvent + EventSize},
+			{"reserve", OffReserve, OffReserve + ReserveSize},
+			{"pad", OffImagePad, OffImagePad + 4},
+		}, SaveImageSize},
+		"dSv_info_c": {[]link{
+			{"savedata", InfoOffSavedata, InfoOffSavedata + SaveImageSize},
+			{"memory", InfoOffMemory, InfoOffMemory + MemBitSize},
+			{"dan", InfoOffDan, InfoOffDan + DanSize},
+			{"zone[32]", InfoOffZone, InfoOffZone + ZoneCount*ZoneSize},
+			{"restart", InfoOffRestart, InfoOffRestart + RestartSize},
+			{"tmp", InfoOffTmp, InfoOffTmp + TmpSize},
+			{"turn_restart", InfoOffTurnRestart, InfoOffTurnRestart + TurnRestartSize},
+			// mDataNum, mNewFile, mNoFile, pad, u64 mMemCardCheckID at 0x1298.
+			{"data_num .. check_id", InfoOffDataNum, 0x1298 + 8},
+		}, SaveInfoSize},
+		"dSv_memBit_c": {[]link{
+			{"tbox", MemBitOffTbox, MemBitOffTbox + 4},
+			{"switch[4]", MemBitOffSwitch, MemBitOffSwitch + 16},
+			{"item[1]", MemBitOffItem, MemBitOffItem + 4},
+			{"visited[2]", MemBitOffVisited, MemBitOffVisited + 8},
+			{"key_num", MemBitOffKeyNum, MemBitOffKeyNum + 1},
+			{"dungeon_item", MemBitOffDungeonItem, MemBitOffDungeonItem + 1},
+			{"pad", MemBitOffPad, MemBitOffPad + 2},
+		}, MemBitSize},
+		"dSv_zone_c": {[]link{
+			{"room_no + 1 pad", ZoneOffRoomNo, ZoneOffRoomNo + 2},
+			{"switch[3]", ZoneOffSwitch, ZoneOffSwitch + 6},
+			{"item + 2 pad", ZoneOffItem, ZoneOffItem + 4},
+			{"actor[16]", ZoneOffActor, ZoneOffActor + ZoneActorCount/8},
+		}, ZoneSize},
+		"dSv_danBit_c": {[]link{
+			{"stage_no", DanOffStageNo, DanOffStageNo + 1},
+			{"gba_rupee + 2 pad", DanOffGbaRupee, DanOffGbaRupee + 3},
+			{"switch[2]", DanOffSwitch, DanOffSwitch + DanSwitchCount/8},
+		}, DanSize},
+		"dSv_ocean_c": {[]link{{"grids", 0, 2 * OceanGridCount}}, OceanSize},
+	}
+	for name, c := range chains {
+		at := 0
+		for _, l := range c.links {
+			if l.off != at {
+				t.Errorf("%s.%s starts at 0x%X, want 0x%X", name, l.name, l.off, at)
+			}
+			at = l.end
+		}
+		if at != c.size {
+			t.Errorf("%s ends at 0x%X, want size 0x%X", name, at, c.size)
+		}
+	}
+
+	// Play members that sit back to back (d_com_inf_game.h:723-726).
+	if PlayOffNextStage != PlayOffCurStage+StageSize || PlayOffStageData != PlayOffNextStage+NextStageSize+2 {
+		t.Error("mCurStage / mNextStage / mStageData offsets don't chain")
+	}
+	if RoomStatusSize != RoomCount*RoomStatusStride {
+		t.Errorf("mStatus is 0x%X bytes, want 64 x 0x114", RoomStatusSize)
+	}
+	if SwitchEnd != MemBitSwitchCount+DanSwitchCount+ZoneSwitchCount {
+		t.Errorf("SwitchEnd 0x%X != memory + dan + zone switch counts", SwitchEnd)
+	}
+}
+
+// TestDesignTableAddresses spot-checks the per-table and per-room formulas
+// the design writes out by hand (§3, §6.4, Appendix A).
+func TestDesignTableAddresses(t *testing.T) {
+	for tb := 0; tb < TableCount; tb++ {
+		a, err := SavedMemBitAddr(tb)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a != 0x803C4F88+0x24*uint32(tb) {
+			t.Errorf("SavedMemBitAddr(%d) = 0x%08X", tb, a)
+		}
+		// §6.4: the saved key byte is 0x803C4FA8 + 0x24*t.
+		if a+MemBitOffKeyNum != 0x803C4FA8+0x24*uint32(tb) {
+			t.Errorf("saved keyNum for table %d = 0x%08X", tb, a+MemBitOffKeyNum)
+		}
+		if SaveImage+uint32(OffMemBit(tb)) != a {
+			t.Errorf("OffMemBit(%d) disagrees with SavedMemBitAddr", tb)
+		}
+	}
+	for z := 0; z < ZoneCount; z++ {
+		a, err := ZoneAddr(z)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// §3: zone switches at 0x803C53B0+0x4C*z+2, actor bits at 0x803C53BC+0x4C*z.
+		if a+ZoneOffSwitch != 0x803C53B0+0x4C*uint32(z)+2 || a+ZoneOffActor != 0x803C53BC+0x4C*uint32(z) {
+			t.Errorf("zone %d fields at 0x%08X", z, a)
+		}
+	}
+	for room := 0; room < RoomCount; room++ {
+		a, err := ZoneNoAddr(room)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a != 0x803BDC88+0x114*uint32(room)+0x107 {
+			t.Errorf("ZoneNoAddr(%d) = 0x%08X", room, a)
+		}
+	}
+	if Zones+ZoneCount*ZoneSize != Restart {
+		t.Errorf("mZone[32] ends at 0x%08X, want mRestart 0x%08X", Zones+ZoneCount*ZoneSize, Restart)
+	}
+	// §3: event registers span 0x803C52A5..0x803C532B and the unnamed
+	// bytes 0x803C526E..0x803C52A4.
+	if Event+EventRegFirst != 0x803C52A5 || Event+EventSize-1 != 0x803C532B {
+		t.Error("event register span disagrees with the design")
+	}
+	if Event+EventUnnamedLo != 0x803C526E || Event+EventRegFirst-1 != 0x803C52A4 {
+		t.Error("unnamed event span disagrees with the design")
+	}
+	if EventUnnamedLo != EventBitBytes {
+		t.Error("the unnamed event bytes must start right after the bit bytes")
+	}
+}
+
+// TestCheckedHelpersRefuseBadArguments: every helper a write address comes
+// from rejects what the game would assert on.
+func TestCheckedHelpersRefuseBadArguments(t *testing.T) {
+	if _, err := SavedMemBitAddr(-1); err == nil {
+		t.Error("SavedMemBitAddr(-1) accepted")
+	}
+	if _, err := SavedMemBitAddr(TableCount); err == nil {
+		t.Error("SavedMemBitAddr(16) accepted")
+	}
+	if _, err := ZoneAddr(ZoneCount); err == nil {
+		t.Error("ZoneAddr(32) accepted")
+	}
+	if _, err := ZoneAddr(-1); err == nil {
+		t.Error("ZoneAddr(-1) accepted")
+	}
+	if _, err := RoomStatusAddr(RoomCount); err == nil {
+		t.Error("RoomStatusAddr(64) accepted")
+	}
+	if _, err := ZoneNoAddr(-1); err == nil {
+		t.Error("ZoneNoAddr(-1) accepted")
+	}
+}
+
+// TestEverythingInMEM1 guards against an address that slipped a digit.
+func TestEverythingInMEM1(t *testing.T) {
+	all := map[string]uint32{
+		"GameInfo": GameInfo, "Play": Play, "LiveMemBit": LiveMemBit, "Zones": Zones,
+		"CurStage": CurStage, "NextStageEnable": NextStageEnable, "StagInfoPtr": StagInfoPtr,
+		"EvtMode": EvtMode, "PlayerPtr": PlayerPtr, "ItemMaxMagicCount": ItemMaxMagicCount,
+		"MiniGameType": MiniGameType, "RoomStatus": RoomStatus, "StayNo": StayNo,
+		"MenuPause": MenuPause, "ActorQueue": ActorQueue, "FopAcType": FopAcType,
+		"GameHeapPtr": GameHeapPtr, "ZeldaHeapPtr": ZeldaHeapPtr, "ArchiveHeapPtr": ArchiveHeapPtr,
+		"GameHeapErrors": GameHeapErrors, "ZeldaHeapErrors": ZeldaHeapErrors,
+		"ArchiveHeapErrors": ArchiveHeapErrors, "OSArenaLo": OSArenaLo,
+		"JKRHeapCodeEnd": JKRHeapCodeEnd, "DMC": DMC, "T2Base": T2Base, "Mailbox": Mailbox,
+		"PatchedArenaLo": PatchedArenaLo,
+	}
+	for name, a := range all {
+		if a < MEM1Base || a >= MEM1End {
+			t.Errorf("%s = 0x%08X is outside MEM1", name, a)
+		}
+	}
+	if GameInfo+GameInfoSize > MEM1End || RoomStatus+RoomStatusSize > GameInfo {
+		t.Error("gameInfo or mStatus overruns its neighbours")
+	}
+}
+
+// TestModRegions pins the mod's RAM layout (§4.5) to the blob it ships
+// with: T2 must end at or before the mailbox, the mailbox must end at or
+// before the patched arena, and the canary regions must sit in the gaps.
+func TestModRegions(t *testing.T) {
+	if T2Base != inject.T2Address {
+		t.Fatalf("T2Base 0x%08X != inject.T2Address 0x%08X", T2Base, inject.T2Address)
+	}
+	t2End := T2Base + uint32(len(inject.T2Bytes))
+	if t2End > Mailbox {
+		t.Errorf("T2 ends at 0x%08X, past the mailbox at 0x%08X", t2End, Mailbox)
+	}
+	if Mailbox+MailboxSize > PatchedArenaLo {
+		t.Errorf("mailbox ends past the arena")
+	}
+	if MainStack.End != MainStackHeader.Start || MainStackHeader.End != CanaryTRK.Start || MainStack.Size() != 0x10000 {
+		t.Errorf("main stack %08X-%08X and its header %08X-%08X do not end where the TRK canary starts",
+			MainStack.Start, MainStack.End, MainStackHeader.Start, MainStackHeader.End)
+	}
+	if BootLRSlot != MainStack.End+4 || !MainStackHeader.Contains(BootLRSlot, 4) || CanaryTRK.Contains(BootLRSlot, 4) {
+		t.Errorf("boot LR slot 0x%08X is not 4(_stack_addr) inside the stack header", BootLRSlot)
+	}
+	if CanaryTRK.End != T2Base || CanaryArena.Start != Mailbox+MailboxSize || CanaryArena.End != PatchedArenaLo {
+		t.Error("canary regions do not border T2, the mailbox and the arena")
+	}
+	if CanaryTRK.Size() != 0x3050 || CanaryArena.Size() != 0xF80 {
+		t.Errorf("canary sizes 0x%X / 0x%X, want 0x3050 / 0xF80 (§4.5)", CanaryTRK.Size(), CanaryArena.Size())
+	}
+	for _, r := range []Region{CanaryTRK, CanaryArena} {
+		if r.Contains(SpawnTrigger, 4) || r.Contains(T2Base, 4) {
+			t.Errorf("%s overlaps the mod", r.Name)
+		}
+	}
+	if !CanaryArena.Contains(CanaryArena.Start, int(CanaryArena.Size())) || CanaryArena.Contains(CanaryArena.Start, int(CanaryArena.Size())+1) {
+		t.Error("Region.Contains bounds are off by one")
+	}
+}
+
+// TestMatchesDolphinPackage keeps the one address internal/dolphin already
+// hard-codes in step with this table.
+func TestMatchesDolphinPackage(t *testing.T) {
+	if PlayerPtr != dolphin.PlayerPtrAddr {
+		t.Errorf("PlayerPtr 0x%08X != dolphin.PlayerPtrAddr 0x%08X", PlayerPtr, uint32(dolphin.PlayerPtrAddr))
+	}
+}
