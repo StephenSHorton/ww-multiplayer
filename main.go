@@ -1319,7 +1319,7 @@ func runBroadcastPose(name, addr string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep, nil); err != nil {
+	if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep, nil, nil); err != nil {
 		rep.Log(report.Err, err.Error())
 		os.Exit(1)
 	}
@@ -1328,10 +1328,12 @@ func runBroadcastPose(name, addr string) {
 // runBroadcastPoseCtx is the goroutine-friendly variant. Returns an error
 // instead of os.Exit so host/join can surface failures cleanly, and honors
 // ctx cancellation so SIGINT doesn't have to wait for the next 50 ms tick.
+// connLog reports failed connects to addr; nil makes one that logs through
+// rep (host/join pass one shared with puppet-sync so each line shows once).
 // onPos, when non-nil (the TUI path via liveStateLocalPosSetter), is invoked
 // every tick this Dolphin's own position resolves — #22's minimap bridge.
 // CLI callers pass nil.
-func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint32, rep report.Reporter, onPos func(x, y, z float32)) error {
+func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint32, rep report.Reporter, connLog *network.ConnectLog, onPos func(x, y, z float32)) error {
 	report.Logf(rep, report.Info, "=== Broadcast Link + Pose: %s -> %s ===", name, addr)
 	d, err := openDolphin(dolphinPID)
 	if err != nil {
@@ -1353,7 +1355,13 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 	// Auto-reconnect (#8): connect/run callbacks drive a ReconnectLoop.
 	// A transient drop ends run() and ReconnectLoop re-dials with
 	// exponential backoff; only a real ctx-cancel ends this function.
-	connect := func() error { return client.Connect(addr) }
+	// connLog turns the otherwise silent retries into log lines.
+	if connLog == nil {
+		connLog = newConnectLog(addr, rep)
+	}
+	connect := func(ctx context.Context) error {
+		return connLog.Observe(ctx, client.ConnectContext(ctx, addr))
+	}
 	// sessionLoop is one live session's 16 ms send loop. network.RunSession
 	// (in run, below) wraps it with a ctx-scoped teardown watcher and WAITS
 	// for that watcher before returning, so a reconnect can't overlap a
@@ -1649,7 +1657,7 @@ func runPuppetSync(name, addr string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"), 0, rep, nil)
+	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"), 0, rep, nil, nil)
 	clearMultiplayerState()
 	if err != nil {
 		rep.Log(report.Err, err.Error())
@@ -1661,12 +1669,15 @@ func runPuppetSync(name, addr string) {
 // name as a parameter (rather than reading WW_SELF_NAME) so host/join can
 // plumb the player's name through without exporting an env var.
 //
+// connLog reports failed connects to addr, as in runBroadcastPoseCtx; nil
+// makes one that logs through rep.
+//
 // onClient, when non-nil, is invoked once with the freshly-created
 // *network.Client so a caller (the TUI bridge) can register it for its status
 // panel. The client survives reconnects (#8) — it's the same object across
 // ReconnectLoop iterations — so a single registration is sufficient. CLI
 // callers pass nil.
-func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphinPID uint32, rep report.Reporter, onClient func(*network.Client)) error {
+func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphinPID uint32, rep report.Reporter, connLog *network.ConnectLog, onClient func(*network.Client)) error {
 	report.Logf(rep, report.Info, "=== Puppet Sync: %s <- %s ===", name, addr)
 
 	d, err := openDolphin(dolphinPID)
@@ -1870,8 +1881,11 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	// connect (re)establishes the session and RE-ARMS the mailbox (#8 + D3).
 	// Runs at startup and after every reconnect. A change in the welcome's
 	// server epoch means the server restarted → full puppet reset.
-	connect := func() error {
-		if err := client.Connect(addr); err != nil {
+	if connLog == nil {
+		connLog = newConnectLog(addr, rep)
+	}
+	connect := func(ctx context.Context) error {
+		if err := connLog.Observe(ctx, client.ConnectContext(ctx, addr)); err != nil {
 			return err
 		}
 		sessionEpoch++
@@ -6870,26 +6884,39 @@ func cliMultiplayerContext(rep report.Reporter) (context.Context, context.Cancel
 // non-nil, is forwarded to the broadcast-pose goroutine so this Dolphin's own
 // position can be registered with the TUI's #22 minimap bridge. CLI callers
 // pass nil for both.
+//
+// Both goroutines dial the same addr, so they share one ConnectLog and an
+// unreachable host is reported once rather than once per connection.
 func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) {
+	connLog := newConnectLog(addr, rep)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep, onPos); err != nil {
+		if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep, connLog, onPos); err != nil {
 			report.Logf(rep, report.Err, "broadcast-pose: %v", err)
 		}
 	}()
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		if err := runPuppetSyncCtx(ctx, name, addr, name, 0, rep, onClient); err != nil {
+		if err := runPuppetSyncCtx(ctx, name, addr, name, 0, rep, connLog, onClient); err != nil {
 			report.Logf(rep, report.Err, "puppet-sync: %v", err)
 		}
 	}()
 
 	<-ctx.Done()
 	wg.Wait()
+}
+
+// newConnectLog returns a network.ConnectLog that reports connect failures
+// to addr (and the recovery after them) through rep, so they reach the CLI
+// output or the TUI log panel.
+func newConnectLog(addr string, rep report.Reporter) *network.ConnectLog {
+	return network.NewConnectLog(addr,
+		func(msg string) { rep.Log(report.Warn, msg) },
+		func(msg string) { rep.Log(report.OK, msg) })
 }
 
 // listHostIPs walks the machine's non-loopback IPv4 addresses so `ww-multiplayer.exe

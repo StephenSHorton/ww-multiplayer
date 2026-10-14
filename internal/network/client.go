@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -62,6 +63,12 @@ type Client struct {
 	heartbeatEvery time.Duration
 	readTimeout    time.Duration
 	writeTimeout   time.Duration
+	dialTimeout    time.Duration
+
+	// dialContext opens the TCP connection. It is net.Dialer.DialContext in
+	// production; a field only so tests can substitute a dial that never
+	// completes and check that dialTimeout and ctx cancellation still end it.
+	dialContext func(ctx context.Context, network, address string) (net.Conn, error)
 
 	OnLog        func(string)
 	OnPlayerList func([]RemotePlayer)
@@ -82,6 +89,8 @@ func NewClient(name string) *Client {
 		heartbeatEvery: heartbeatInterval,
 		readTimeout:    clientReadTimeout,
 		writeTimeout:   writeTimeout,
+		dialTimeout:    dialTimeout,
+		dialContext:    (&net.Dialer{}).DialContext,
 	}
 }
 
@@ -91,42 +100,53 @@ func (c *Client) log(msg string) {
 	}
 }
 
-// Connect joins a server at the given address. Safe to call again on the
-// same Client after a drop (the reconnect loop does exactly that): it spins
-// up a fresh read loop + heartbeat ticker for the new connection.
+// Connect joins a server at the given address. It is ConnectContext with a
+// context that is never cancelled, for the one-shot CLI tools that have no
+// shutdown context to pass.
+func (c *Client) Connect(addr string) error {
+	return c.ConnectContext(context.Background(), addr)
+}
+
+// ConnectContext joins a server at the given address. Safe to call again on
+// the same Client after a drop (the reconnect loop does exactly that): it
+// spins up a fresh read loop + heartbeat ticker for the new connection.
 //
-// Invariant: Connect and Disconnect must alternate — every Connect is
+// The dial is bounded by dialTimeout, and cancelling ctx ends the attempt
+// promptly at any stage: during the dial, or during the join/welcome
+// handshake (the conn is closed under the blocked write or read). That is
+// what lets a TUI Esc or a Ctrl+C tear down a session that is still trying
+// to reach an unreachable or silent host, instead of waiting out the OS
+// connect timeout or the 15 s handshake read deadline.
+//
+// Invariant: ConnectContext and Disconnect must alternate — every connect is
 // preceded by a completed Disconnect of the prior session (ReconnectLoop's
 // run closure guarantees this by waiting for its ctx watcher's Disconnect
-// before returning). Connect is not safe to call concurrently, nor twice
-// without an intervening Disconnect (that would orphan the previous conn +
-// heartbeat goroutine).
-func (c *Client) Connect(addr string) error {
-	conn, err := net.Dial("tcp", addr)
+// before returning). It has one caller at a time: it is not safe to call
+// concurrently, nor twice without an intervening Disconnect (that would
+// orphan the previous conn + heartbeat goroutine).
+func (c *Client) ConnectContext(ctx context.Context, addr string) error {
+	dialCtx := ctx
+	if c.dialTimeout > 0 {
+		var cancel context.CancelFunc
+		dialCtx, cancel = context.WithTimeout(ctx, c.dialTimeout)
+		defer cancel()
+	}
+	conn, err := c.dialContext(dialCtx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
 
-	// Send join message. Bound it with the same write deadline every other
-	// client write goes through (via writeOn) so a half-dead server with a
-	// full send buffer errors out here instead of wedging the handshake.
-	if c.writeTimeout > 0 {
-		conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
+	// Cancelling ctx mid-handshake closes conn, which fails the blocked join
+	// write or welcome read below at once.
+	stopWatch := context.AfterFunc(ctx, func() { conn.Close() })
+	msg, err := c.handshake(conn)
+	if !stopWatch() {
+		// The watcher already ran: ctx was cancelled and conn is closed.
+		return fmt.Errorf("connect: %w", ctx.Err())
 	}
-	if err := WriteMessage(conn, MsgJoin, []byte(c.name)); err != nil {
+	if err != nil {
 		conn.Close()
-		return fmt.Errorf("send join: %w", err)
-	}
-
-	// Wait for welcome. Bound the handshake read so a half-dead server
-	// doesn't wedge a reconnect attempt forever.
-	if c.readTimeout > 0 {
-		conn.SetReadDeadline(time.Now().Add(c.readTimeout))
-	}
-	msg, err := ReadMessage(conn)
-	if err != nil || msg.Type != MsgWelcome || len(msg.Data) < 1 {
-		conn.Close()
-		return fmt.Errorf("expected welcome, got error or wrong type")
+		return err
 	}
 
 	id, epoch, _ := ParseWelcome(msg.Data)
@@ -144,6 +164,34 @@ func (c *Client) Connect(addr string) error {
 	go c.readLoop(conn)
 	go c.heartbeatLoop(conn, stop)
 	return nil
+}
+
+// handshake sends our join on a freshly dialed conn and waits for the
+// server's welcome.
+func (c *Client) handshake(conn net.Conn) (*Message, error) {
+	// Send join message. Bound it with the same write deadline every other
+	// client write goes through (via writeOn) so a half-dead server with a
+	// full send buffer errors out here instead of wedging the handshake.
+	if c.writeTimeout > 0 {
+		conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
+	}
+	if err := WriteMessage(conn, MsgJoin, []byte(c.name)); err != nil {
+		return nil, fmt.Errorf("send join: %w", err)
+	}
+
+	// Wait for welcome. Bound the handshake read so a half-dead server
+	// doesn't wedge a reconnect attempt forever.
+	if c.readTimeout > 0 {
+		conn.SetReadDeadline(time.Now().Add(c.readTimeout))
+	}
+	msg, err := ReadMessage(conn)
+	if err != nil {
+		return nil, fmt.Errorf("expected welcome: %w", err)
+	}
+	if msg.Type != MsgWelcome || len(msg.Data) < 1 {
+		return nil, fmt.Errorf("expected welcome, got message type %d (%d bytes)", msg.Type, len(msg.Data))
+	}
+	return msg, nil
 }
 
 // Disconnect closes the connection and stops the heartbeat ticker.

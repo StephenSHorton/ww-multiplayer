@@ -328,11 +328,11 @@ func runMpLocal(nameA, nameB string) {
 			defer cancel()
 			r := prefixReporter{inner: rep, prefix: "[" + label + "]"}
 			if broadcast {
-				if err := runBroadcastPoseCtx(ctx, name, addr, pid, r, nil); err != nil {
+				if err := runBroadcastPoseCtx(ctx, name, addr, pid, r, nil, nil); err != nil {
 					report.Logf(r, report.Err, "%v", err)
 				}
 			} else {
-				if err := runPuppetSyncCtx(ctx, name, addr, name, pid, r, nil); err != nil {
+				if err := runPuppetSyncCtx(ctx, name, addr, name, pid, r, nil, nil); err != nil {
 					report.Logf(r, report.Err, "%v", err)
 				}
 			}
