@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -20,7 +21,10 @@ const connectLogRepeat = 30 * time.Second
 //   - the first failure of an outage is logged at once, with the address,
 //     the error, and that the loop keeps retrying;
 //   - further failures are logged at most once per connectLogRepeat;
-//   - the first success after a failure logs one line saying so.
+//   - the first success after a failure logs one line saying so;
+//   - a fatal error (errors.Is ErrFatal: a reject or a version mismatch,
+//     which ReconnectLoop does not retry) logs one "can't join" line with
+//     the reason, and never claims to be retrying.
 //
 // A failure while ctx is cancelled is a shutdown, not an outage, and is not
 // logged. A ConnectLog is safe for concurrent use, so the two reconnect loops
@@ -36,6 +40,7 @@ type ConnectLog struct {
 	failing   bool      // an outage is in progress
 	firstFail time.Time // when the current outage started
 	lastLog   time.Time // when its last failure line was logged
+	fatal     bool      // a fatal error was already logged
 }
 
 // NewConnectLog returns a ConnectLog for connects to addr. warn receives the
@@ -70,6 +75,14 @@ func (l *ConnectLog) Observe(ctx context.Context, err error) error {
 func (l *ConnectLog) record(err error, now time.Time) (line string, failed bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if errors.Is(err, ErrFatal) {
+		// Both loops of a session hit the same reject; say it once.
+		if l.fatal {
+			return "", true
+		}
+		l.fatal = true
+		return fmt.Sprintf("Can't join %s: %v", l.addr, err), true
+	}
 	if err == nil {
 		if !l.failing {
 			return "", false

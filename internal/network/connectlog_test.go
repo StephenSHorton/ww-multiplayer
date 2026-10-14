@@ -165,3 +165,25 @@ func TestConnectLogNilSinks(t *testing.T) {
 	l.Observe(context.Background(), errUnreachable)
 	l.Observe(context.Background(), nil)
 }
+
+// TestConnectLogFatal: a fatal connect error (a reject or a version
+// mismatch, which ReconnectLoop gives up on) logs one "can't join" line with
+// the reason instead of the "retrying" wording, once across both loops.
+func TestConnectLogFatal(t *testing.T) {
+	f := newFakeConnectLog("192.0.2.1:25565")
+	fatal := &RejectError{Code: RejectVersion, Reason: "host runs an older ww-multiplayer"}
+	ctx := context.Background()
+
+	if err := f.Observe(ctx, fatal); err != fatal {
+		t.Fatalf("Observe returned %v, want the error unchanged", err)
+	}
+	f.Observe(ctx, fatal) // the session's other loop
+	got := f.take()
+	if len(got) != 1 {
+		t.Fatalf("logged %q, want exactly one line", got)
+	}
+	if !strings.HasPrefix(got[0], "WARN Can't join 192.0.2.1:25565: ") ||
+		!strings.Contains(got[0], "older ww-multiplayer") || strings.Contains(got[0], "etrying") {
+		t.Fatalf("line %q: want a can't-join line with the reason and no retry claim", got[0])
+	}
+}
