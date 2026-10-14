@@ -58,6 +58,7 @@ type peer struct {
 	candidate *candidate
 
 	complained map[wire.NoticeCode]time.Time
+	tablesNote string // the last NOTICE saying why it has no TableFeatures
 	rejected   int
 	dups       int
 	dead       bool // its outbox overflowed or a send failed: it is closing
@@ -70,6 +71,9 @@ func (p *peer) String() string { return fmt.Sprintf("%s (co-op %d)", p.name, p.i
 func (p *peer) welcomed() bool { return p.state == StateUnbound || p.state == StateBound }
 
 func (p *peer) bound() bool { return p.state == StateBound }
+
+// switches reports whether p takes part in memory switch sync.
+func (p *peer) switches() bool { return p.features&FeatureSwitches != 0 }
 
 // candidate is an unbound file's image as the bind check sees it.
 type candidate struct {
@@ -137,8 +141,6 @@ func (h *Hub) onHello(p *peer, m *wire.CoHello) {
 	switch {
 	case m.ClassHash != wire.ClassHash():
 		h.refuse(p, wire.NoticeSchema, "your co-op class table (%016x) differs from the host's (%016x): a modded build? Co-op is off for this session, pose sync still works", m.ClassHash, wire.ClassHash())
-	case m.StageTblHash != h.cfg.StageTblHash:
-		h.refuse(p, wire.NoticeSchema, "your stage tables (%016x) differ from the host's (%016x): a modded or randomizer disc? Co-op is off for this session, pose sync still works", m.StageTblHash, h.cfg.StageTblHash)
 	case m.ClearCount != worldClearCount:
 		h.refuse(p, wire.NoticeClearCount, "your file has clear count %d: second-quest files can't join co-op", m.ClearCount)
 	case m.FileState == wire.FileForeign:
@@ -146,12 +148,47 @@ func (h *Hub) onHello(p *peer, m *wire.CoHello) {
 	case m.FileState == wire.FileBound && wid != h.id:
 		h.refuse(p, wire.NoticeWorldMismatch, "your file is bound to co-op world %s, but the host runs %s. Pose sync still works", m.WorldID, h.id)
 	case m.FileState == wire.FileBound:
+		h.noteTables(p)
 		h.onBoundHello(p, m)
 	case Feature(m.Want)&AskBind != 0:
+		h.noteTables(p)
 		h.onBindHello(p, m)
 	default:
+		h.noteTables(p)
 		h.onUnboundHello(p, m)
 	}
+}
+
+// tablesMatch reports whether p's M1 stage tables are the host's: the
+// same identity, and not 0, which means none (Config.StageTblHash).
+func (h *Hub) tablesMatch(p *peer) bool {
+	return h.cfg.StageTblHash != 0 && p.hello != nil && p.hello.StageTblHash == h.cfg.StageTblHash
+}
+
+// noteTables tells p, once per reason, why it gets none of the
+// TableFeatures it wants and the host allows: the host or p has no stage
+// tables, or they differ. Its session goes on without them.
+func (h *Hub) noteTables(p *peer) {
+	if h.features&p.want&TableFeatures == 0 || h.tablesMatch(p) {
+		return
+	}
+	// Each text fits a NOTICE (wire.MaxNoticeLen) unclipped.
+	const off = "so memory switches, room puzzles and kills don't sync this session; chests, items, maps and the rest do"
+	var text string
+	switch {
+	case h.cfg.StageTblHash == 0:
+		text = "the host has no co-op stage tables for its disc (it can run patch on its vanilla ISO again, or pass --coop-iso), " + off
+	case p.hello.StageTblHash == 0:
+		text = "you have no co-op stage tables for your disc (run patch on your vanilla ISO again, or pass --coop-iso <the ISO Dolphin runs>), " + off
+	default:
+		text = fmt.Sprintf("your co-op stage tables (%016x) aren't the host's (%016x): another disc or ww-multiplayer version? %s", p.hello.StageTblHash, h.cfg.StageTblHash, off)
+	}
+	if text == p.tablesNote {
+		return
+	}
+	p.tablesNote = text
+	h.notify(p, wire.NoticeSchema, text)
+	h.logf("co-op: %s: %s", p, text)
 }
 
 // refuse ends p's co-op for this session: a NOTICE saying why, and a
@@ -308,6 +345,11 @@ func (h *Hub) onWorld(p *peer, m *wire.World) {
 		h.complain(p, wire.NoticeWorldMismatch, "your WORLD names world %s; the host runs %s", m.WorldID, h.id)
 		return
 	}
+	if !p.switches() {
+		var n int
+		img, n = withoutSwitches(&img)
+		p.rejected += n
+	}
 	r, err := h.store.Merge(p.id, &img)
 	if err != nil {
 		h.logf("co-op: merging %s's WORLD: %v", p, err)
@@ -330,6 +372,12 @@ func (h *Hub) onWorld(p *peer, m *wire.World) {
 // preflight records an unbound file's image and tells the replica when it
 // can't bind without --coop-merge.
 func (h *Hub) preflight(p *peer, img *world.Image) {
+	if !p.switches() {
+		// Its switches would never be merged, so they don't make it
+		// divergent.
+		stripped, _ := withoutSwitches(img)
+		img = &stripped
+	}
 	w := h.store.World()
 	cur := w.Image()
 	c := &candidate{file: keyOf(p.hello), image: *img, gains: w.Merge(img).Delta}
@@ -367,8 +415,14 @@ func (h *Hub) onGains(p *peer, m *wire.GainsUp) {
 		return
 	}
 	p.batch, p.haveBatch = m.Batch, true
-	gs := make([]world.Gain, len(m.Gains))
-	for i, g := range m.Gains {
+	in := m.Gains
+	if !p.switches() {
+		var n int
+		in, n = dropSwitches(in)
+		p.rejected += n
+	}
+	gs := make([]world.Gain, len(in))
+	for i, g := range in {
 		gs[i] = world.Gain(g)
 	}
 	r, err := h.store.ApplyGains(p.id, gs)
@@ -394,7 +448,20 @@ func (h *Hub) relay(origin *peer, r world.Result, toOrigin bool) {
 	to := h.sorted(func(q *peer) bool {
 		return q.bound() && q.features&FeatureImage != 0 && (toOrigin || q != origin)
 	})
-	h.sendAll(to, &wire.GainsDown{Seq: r.Seq, Origin: byte(origin.id), Gains: gs})
+	// A peer without switch sync gets the delta without its memory
+	// switch bytes, or nothing when that is all it was.
+	var with, without []*peer
+	for _, q := range to {
+		if q.switches() {
+			with = append(with, q)
+		} else {
+			without = append(without, q)
+		}
+	}
+	h.sendAll(with, &wire.GainsDown{Seq: r.Seq, Origin: byte(origin.id), Gains: gs})
+	if rest, _ := dropSwitches(gs); len(rest) > 0 {
+		h.sendAll(without, &wire.GainsDown{Seq: r.Seq, Origin: byte(origin.id), Gains: rest})
+	}
 }
 
 // rejects counts what the world refused of p's proposal and tells p about
@@ -416,9 +483,14 @@ func (h *Hub) rejects(p *peer, rej []world.Reject) {
 	}
 }
 
-// sendWorld sends p the world image.
+// sendWorld sends p the world image, without the memory switches unless
+// p syncs them.
 func (h *Hub) sendWorld(p *peer) {
-	h.send(p, &wire.World{WorldID: wire.ID(h.id), Seq: h.store.Seq(), Image: wire.Image(h.store.Image())})
+	img := h.store.Image()
+	if !p.switches() {
+		img, _ = withoutSwitches(&img)
+	}
+	h.send(p, &wire.World{WorldID: wire.ID(h.id), Seq: h.store.Seq(), Image: wire.Image(img)})
 }
 
 // sendTombstones tells p every bit the host blocked, so its replica never
@@ -592,7 +664,7 @@ func (h *Hub) regrant(p *peer) {
 	old := p.features
 	p.features = h.grant(p)
 	h.send(p, &wire.Ctrl{Op: wire.CtrlCoopOff, Arg: uint32(p.features)})
-	if p.bound() && old&FeatureImage == 0 && p.features&FeatureImage != 0 {
+	if p.bound() && p.features&FeatureImage != 0 && p.features&^old&(FeatureImage|FeatureSwitches) != 0 {
 		h.send(p, &wire.Ctrl{Op: wire.CtrlResync})
 	}
 }

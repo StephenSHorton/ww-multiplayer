@@ -10,11 +10,14 @@
 package tablestest
 
 import (
+	"encoding/binary"
+
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/hearts"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 )
 
 // Names are the l_objectName entries the fixture places, with the
@@ -177,3 +180,44 @@ func Disc(stages []stagetest.Stage) *stagetest.Disc {
 
 // ISO is a disc image of Disc(stages) with DOL as its main.dol.
 func ISO(stages []stagetest.Stage) []byte { return Disc(stages).ISO(DOL()) }
+
+// PatchableDOL is a main.dol carrying Names that inject.PatchDOL can patch,
+// which DOL is too short for: its text section, a blr and zeros, runs past
+// every in-DOL patch site of this build's blob (inject.DOLPatches), and
+// l_objectName follows in its data section, which no patch site reaches.
+// So patching it changes the DOL's bytes, and so its hash and its cache
+// file, but not the tables read from it.
+func PatchableDOL() []byte {
+	const textAddr, textOff, before, after = 0x80003100, 0x100, 0x18, 0x24
+	end := uint32(textOff + 0x20)
+	for _, p := range inject.DOLPatches {
+		end = max(end, p.FileOff+uint32(len(p.Bytes)))
+	}
+	textSize := (end - textOff + 0x1F) &^ 0x1F
+	data := make([]byte, before, before+stagetest.ObjectNameCount*0xC+after)
+	data = append(data, stagetest.ObjectNameTable(Names()...)...)
+	data = append(data, make([]byte, after)...)
+	dataOff := textOff + textSize
+	out := make([]byte, int(dataOff)+len(data))
+	be := binary.BigEndian
+	be.PutUint32(out[0x00:], textOff)
+	be.PutUint32(out[0x48:], textAddr)
+	be.PutUint32(out[0x90:], textSize)
+	be.PutUint32(out[0x1C:], dataOff)
+	be.PutUint32(out[0x64:], stagetest.ObjectNameAddr-before)
+	be.PutUint32(out[0xAC:], uint32(len(data)))
+	be.PutUint32(out[0xE0:], textAddr)
+	be.PutUint32(out[textOff:], 0x4E800020) // blr
+	copy(out[dataOff:], data)
+	return out
+}
+
+// PatchableISO is a disc image of Disc(stages) with PatchableDOL as its
+// main.dol: one `patch` accepts (inject.PatchISOInMemory). Zeros follow
+// the DOL, room for the T2 section the patch appends to it (as `wit copy`
+// leaves before the FST), since the files would otherwise start right
+// where the patched DOL grows.
+func PatchableISO(stages []stagetest.Stage) []byte {
+	dol := PatchableDOL()
+	return Disc(stages).ISO(append(dol, make([]byte, len(inject.T2Bytes)+0x100)...))
+}

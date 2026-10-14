@@ -40,6 +40,7 @@ func TestExtractCoopFlags(t *testing.T) {
 		{name: "--yes alone", args: []string{"--yes", "Link"}, rest: []string{"--yes", "Link"}},
 		{name: "--coop-merge alone", args: []string{"--coop-merge"}, rest: []string{"--coop-merge"}},
 		{name: "after --", args: []string{"Link", "--", "--coop"}, rest: []string{"Link", "--", "--coop"}},
+		{name: "M3's options alone", args: []string{"--coop-dry-run", "--coop-live-switches", "--coop-iso", "ww.iso"}, rest: []string{"--coop-dry-run", "--coop-live-switches", "--coop-iso", "ww.iso"}},
 
 		{name: "--coop", args: []string{"--coop"}, want: coopFlags{on: true}, rest: []string{}},
 		{name: "anywhere", args: []string{"Link", "--coop", "--port", "9000"}, want: coopFlags{on: true}, rest: []string{"Link", "--port", "9000"}},
@@ -48,11 +49,16 @@ func TestExtractCoopFlags(t *testing.T) {
 		{name: "world ID", args: []string{"--coop=" + strings.ToUpper(id)}, want: coopFlags{on: true, world: id}, rest: []string{}},
 		{name: "twice the same", args: []string{"--coop", "--coop=new", "--coop=new"}, want: coopFlags{on: true, world: coopWorldNew}, rest: []string{}},
 		{name: "-- ends the options", args: []string{"--coop", "Link", "--", "--yes"}, want: coopFlags{on: true}, rest: []string{"Link", "--", "--yes"}},
+		{name: "M3", args: []string{"Link", "--coop", "--coop-dry-run", "--coop-live-switches", "--coop-iso", "ww.iso"}, want: coopFlags{on: true, dryRun: true, liveSwitches: true, iso: "ww.iso"}, rest: []string{"Link"}},
+		{name: "--coop-iso=", args: []string{"--coop-iso=C:/Roms/ww.iso", "--coop"}, want: coopFlags{on: true, iso: "C:/Roms/ww.iso"}, rest: []string{}},
+		{name: "--coop-iso after --", args: []string{"--coop", "--", "--coop-iso", "x"}, want: coopFlags{on: true}, rest: []string{"--", "--coop-iso", "x"}},
 
 		{name: "bad world", args: []string{"--coop=xyz"}, wantErr: "--coop=new, or a world ID"},
 		{name: "zero world", args: []string{"--coop=0000000000000000"}, wantErr: "--coop=new, or a world ID"},
 		{name: "empty world", args: []string{"--coop="}, wantErr: "--coop=new, or a world ID"},
 		{name: "two worlds", args: []string{"--coop=new", "--coop=" + id}, wantErr: "give one world"},
+		{name: "--coop-iso without a path", args: []string{"--coop", "--coop-iso"}, wantErr: "needs the path"},
+		{name: "two discs", args: []string{"--coop", "--coop-iso=a", "--coop-iso=b"}, wantErr: "give one disc image"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -84,6 +90,8 @@ func TestCoopFlagsForJoin(t *testing.T) {
 		{coopFlags{on: true, world: coopWorldNew}, "the host picks the world"},
 		{coopFlags{on: true, world: "0123456789abcdef"}, "the host picks the world"},
 		{coopFlags{on: true, merge: true}, "the host's choice"},
+		{coopFlags{on: true, liveSwitches: true}, "--coop-live-switches is the host's choice"},
+		{coopFlags{on: true, dryRun: true, iso: "ww.iso"}, ""},
 	}
 	for _, tt := range tests {
 		err := tt.f.forJoin()
@@ -220,7 +228,9 @@ func TestCoopPrompter(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("--yes", func(t *testing.T) {
-		p := newCoopPrompter(true, nil)
+		// A "n" waiting in stdin is no answer: --yes answers every
+		// question, and the reader runs only for the commands.
+		p := newCoopPrompter(true, strings.NewReader("n\n/help\n"))
 		log := &coLog{}
 		if !p.ask(ctx, log, "Bind this?\n  details\nBind it?") {
 			t.Error("--yes answered no")
@@ -228,8 +238,24 @@ func TestCoopPrompter(t *testing.T) {
 		if !log.has("Bind this?") || !log.has("  details") || !log.has("yes (--yes)") {
 			t.Errorf("log:\n%s", log)
 		}
-		if p.lines != nil {
-			t.Error("--yes started the stdin reader")
+		if l, ok := <-p.cmds; !ok || l.text != "/help" {
+			t.Errorf("the command read: %q, %v", l.text, ok)
+		}
+	})
+
+	t.Run("a command is no answer", func(t *testing.T) {
+		r, w := coInput(t)
+		p := newCoopPrompter(false, r)
+		if p.ask(ctx, coAnswering(w, func(string) string { return "/warp\nn" }), "Bind it?") {
+			t.Fatal("answered yes")
+		}
+		select {
+		case l := <-p.cmds:
+			if l.text != "/warp" {
+				t.Errorf("command %q", l.text)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the command never reached the console")
 		}
 	})
 
@@ -810,11 +836,25 @@ func TestCoopSyncHostWithoutCoop(t *testing.T) {
 		t.Fatalf("run returned %v before the session ended", err)
 	case <-time.After(100 * time.Millisecond):
 	}
+	if n := log.count("co-op is off"); n != 1 || log.has("type /coop on") {
+		t.Errorf("said %d times, or offered /coop on:\n%s", n, log)
+	}
+	// The replica no longer ticks: an escape is answered at once, and
+	// not as one to try again in a moment; /coop on cannot bring it back.
+	select {
+	case res := <-s.r.Escape(replica.EscapeRefresh):
+		if res.Err == nil || errors.Is(res.Err, replica.ErrNotNow) {
+			t.Fatalf("/refresh after co-op gave up: %+v", res)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no answer to /refresh after co-op gave up")
+	}
+	s.command(ctx, coopCommand{verb: "coop on"})
+	if st := s.r.Status(); st.WritesOff == "" || !log.has("/coop on cannot help") {
+		t.Fatalf("/coop on after co-op gave up: writes off %q\n%s", st.WritesOff, log)
+	}
 	cancel()
 	if err := <-done; err != nil {
 		t.Errorf("run = %v", err)
-	}
-	if n := log.count("co-op is off"); n != 1 {
-		t.Errorf("said %d times:\n%s", n, log)
 	}
 }

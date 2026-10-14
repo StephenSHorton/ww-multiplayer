@@ -356,7 +356,10 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 		return func(r report.Reporter) error { return runBroadcastPoseCtx(ctx, name, addr, pid, r, nil, nil) }
 	}
 	puppet := func(name string, pid uint32) func(report.Reporter) error {
-		return func(r report.Reporter) error { return runPuppetSyncCtx(ctx, name, addr, name, pid, r, nil, nil) }
+		// With --coop, each Dolphin's warp to the partner takes the other's
+		// position from this client; without, onClient stays nil.
+		onClient := coop.withPoseClient(name, nil)
+		return func(r report.Reporter) error { return runPuppetSyncCtx(ctx, name, addr, name, pid, r, nil, onClient) }
 	}
 
 	// 0.3 s stagger between connects: four simultaneous accepts against

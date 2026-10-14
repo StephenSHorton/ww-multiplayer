@@ -15,15 +15,24 @@
 //     WORLD once (again after the Differ re-baselines) and then GAINS
 //     (SCOPED too, when those features are granted);
 //  5. runs the Planner against its view of the world (WORLD, GAINS from
-//     the hub) and, in this version, only logs what it would write
-//     ("dry-run: would set ...").
+//     the hub) and, with Config.Apply (M3), the reconciler: the writes of
+//     the plan whose time has come go through a FrameWriter and its
+//     WriteGuard right after the next heartbeat, and are verified on the
+//     next tick (reconcile.go). Without Apply (M2, --coop-dry-run) it only
+//     logs what it would write ("dry-run: would set ...").
 //
-// M2 is a dry run for game data (§5.1 principle 5). The only game-RAM
-// writes the replica makes are the binding tag's (bind.Bind) and a leaked
-// tag's scrub (bind.Scrub): each is offered to the user (Config.OnOffer),
-// made only after Confirm, behind the gates, and verified by reading
-// back. The WriteGuard is computed and checks every planned address, and
-// FrameWriter is a stub that refuses, for M3 to fill in.
+// M3 writes the stage progress bits, the memory switches the hub grants,
+// the ocean, the charts and the sea map, and nothing else: every byte is
+// checked by the WriteGuard (M3Targets, the gates, never a clear), and
+// too many faults turn co-op off by itself (Breaker). TurnOff is "coop
+// off". At the user's word it also makes the escape hatches (§6.7,
+// Escape: refresh area and warp to partner), a stage-change or warp
+// request through the same WriteGuard (TargetEscape), when IDLE. The
+// other game-RAM writes the replica makes are the binding
+// tag's (bind.Bind) and a leaked tag's scrub (bind.Scrub): each is
+// offered to the user (Config.OnOffer), made only after Confirm, behind
+// the gates, and verified by reading back. A dry run makes only those, as
+// M2 did (§5.1 principle 5).
 //
 // The session follows internal/coop/hub (whose Feature bits it uses):
 //
@@ -110,14 +119,30 @@ type Config struct {
 	// StageTblHash is the identity of this build's M1 tables, sent in
 	// CO_HELLO (the hub refuses a replica whose tables differ).
 	StageTblHash uint64
-	// Want is the session features to ask for; 0 asks for
-	// hub.FeatureImage, all M2 uses. Bits outside hub.SessionFeatures
-	// are ignored.
+	// Want is the session features to ask for; 0 asks for what the
+	// replica uses: hub.FeatureImage, and with Apply hub.FeatureSwitches
+	// and hub.FeatureLiveSwitches too (the host decides whether to allow
+	// the live-switch opt-in, --coop-live-switches). A dry run asks for
+	// what M2 did, hub.FeatureImage. Bits outside hub.SessionFeatures are
+	// ignored.
 	Want hub.Feature
-	// Policy limits what the replica proposes and plans to the bits
-	// that sync; nil is world.DefaultPolicy (no memory switch or story
-	// bit), which is also the hub's default.
+	// Policy limits what the replica proposes, plans and writes to the
+	// bits that sync; nil is world.DefaultPolicy (no memory switch or
+	// story bit), which is also the hub's default. A session with M1
+	// tables passes hub.SwitchPolicy over their switch verdict, the
+	// host's policy.
 	Policy *world.Policy
+	// Apply makes the replica write the world's progress into the game
+	// (M3): the reconciler hands the plan's writes to a FrameWriter
+	// through a WriteGuard of M3Targets. False is M2's dry run
+	// (--coop-dry-run): the plan is logged, never written.
+	Apply bool
+	// Breaker is the writes' off switch (auto-disable, §4.2); nil makes
+	// one with the default thresholds. Unused without Apply.
+	Breaker *Breaker
+	// BeatTimeout is how long a tick's writes wait for the heartbeat; 0
+	// is BeatTimeout.
+	BeatTimeout time.Duration
 	// Label names an image bit (bit -1: the byte) for the dry-run log;
 	// nil is DefaultLabel. coop-watch's saveLabel in package main fits
 	// behind a two-line adapter: image offsets are dSv_info_c offsets,
@@ -136,6 +161,11 @@ type Config struct {
 	// OnPreflight is called, likewise, with each new join preflight of
 	// an unbound file against the hub's world.
 	OnPreflight func(PreflightReport)
+	// PartnerPos returns the partner's position, the latest pose sync
+	// has, for a warp to the partner on the same stage (Escape). It is
+	// called under the replica's lock, so it must not call back into
+	// the replica. Nil leaves only the warps that change stage.
+	PartnerPos func() (Pos, bool)
 }
 
 // Offer is a tag write waiting for the user's yes.
@@ -194,6 +224,19 @@ type Report struct {
 	Planned    int  // byte writes planned (dry run: none is made)
 	Held       int  // world bits the holds keep back
 	TagWritten bool // a confirmed bind or scrub wrote the tag this tick
+
+	// With Config.Apply:
+	Wrote    int          // bytes the reconciler wrote this tick
+	Waiting  int          // planned M3 writes not due this tick (§6.3's room change, a closed gate)
+	WriteErr error        // why this tick's writes stopped or were not made, nil if they all went
+	Verify   VerifyReport // the last tick's writes, checked against this tick's snapshot
+	// RoomChange: this tick is the first STABLE one after a room or stage
+	// change, when the writes §6.3 defers are made.
+	RoomChange bool
+	// Escape is the escape (§6.7) this tick tried to write, 0 for none,
+	// and EscapeErr why it was not written.
+	Escape    EscapeKind
+	EscapeErr error
 }
 
 // Status is the replica's state for the TUI and tests.
@@ -207,7 +250,14 @@ type Status struct {
 	Planned  []Write
 	Held     []HeldBit
 	Queued   int
-	Offer    *Offer // waiting for Confirm or Decline
+	// DryRun: the replica writes no game data (no Config.Apply).
+	DryRun bool
+	// WritesOff is why the replica's writes are off ("coop off", or an
+	// auto-disable), "" while they run.
+	WritesOff string
+	// Writes counts what the FrameWriter did.
+	Writes WriterStats
+	Offer  *Offer // waiting for Confirm or Decline
 	// Preflight is the last join preflight, while the file is unbound.
 	Preflight *PreflightReport
 	// Partner is the last PRESENCE the hub relayed.
@@ -256,6 +306,11 @@ type Replica struct {
 	presAt   time.Time
 	partner  *wire.Presence
 	bad      int // malformed payloads dropped
+	// early is a WORLD that came before the CO_WELCOME naming the
+	// session's world, which a joiner learns there (onWorld): kept for
+	// the welcome. The hub sends the welcome first (hub.onUnboundHello),
+	// so only a reordering transport brings one.
+	early *wire.World
 
 	// What outlives a connection.
 	sessionWorld bind.WorldID
@@ -274,7 +329,21 @@ type Replica struct {
 	scopedIn  map[scopeKey][]uint32
 	scopedOut int // SCOPED stores refused at maxScopedIn
 
-	// The dry-run log.
+	// The reconciler.
+	room    roomWatch
+	toWrite []Write // this tick's writes, made once the lock is released
+	window  bool    // they are the room-change window's (§6.3)
+
+	// The escape hatches (escape.go).
+	esc     *escapeReq // asked for, waiting for a tick
+	escNow  *escapeReq // this tick's, made after the reconciler's writes
+	follow  *followWarp
+	stopped bool              // Run has returned: no tick comes to make an escape
+	entries map[entryKey]int8 // entrances this game came in by, and their rooms
+	heard   map[entryKey]int8 // the partner's, from its PRESENCE (inferred)
+	track   partnerTrack
+
+	// The plan, and what of it was logged.
 	planned    []Write
 	held       []HeldBit
 	loggedOR   world.BitSet
@@ -318,6 +387,8 @@ func New(cfg Config) (*Replica, error) {
 		scopedIn: map[scopeKey][]uint32{},
 		loggedSc: map[scopeKey][]uint32{},
 		declined: map[helloKey]bool{},
+		entries:  map[entryKey]int8{},
+		heard:    map[entryKey]int8{},
 	}
 	if r.policy == nil {
 		r.policy = world.DefaultPolicy()
@@ -334,9 +405,18 @@ func New(cfg Config) (*Replica, error) {
 	if r.now == nil {
 		r.now = time.Now
 	}
-	r.writer = &FrameWriter{Mem: r.m, Guard: r.guard}
+	w, err := NewFrameWriter(WriterConfig{Mem: r.m, DryRun: true})
+	if cfg.Apply {
+		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | TargetEscape, Policy: r.policy, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
+		w, err = NewFrameWriter(WriterConfig{Mem: r.m, Guard: wg, BeatTimeout: cfg.BeatTimeout, Logf: r.logf, Label: r.label})
+	}
+	if err != nil {
+		return nil, err
+	}
+	r.writer = w
 	r.differ = NewDiffer(r.policy)
 	r.planner = NewPlanner(r.policy)
+	r.planner.writes = !r.writer.DryRun()
 	r.sessionWorld = cfg.World
 	return r, nil
 }
@@ -347,22 +427,43 @@ func (r *Replica) Guard() *Guard { return r.guard }
 // want is the session features the replica asks for.
 func (r *Replica) want() hub.Feature {
 	if r.cfg.Want == 0 {
+		if r.cfg.Apply {
+			return hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches
+		}
 		return hub.FeatureImage
 	}
 	return r.cfg.Want & hub.SessionFeatures
 }
 
-// Run ticks every TickEvery until ctx ends.
+// Run ticks every TickEvery until ctx ends. Once it returns, an escape
+// waiting for a tick, and one asked for until Run is called again, is
+// answered ErrStopped.
 func (r *Replica) Run(ctx context.Context) {
+	r.mu.Lock()
+	r.stopped = false
+	r.mu.Unlock()
+	defer r.stop()
 	t := time.NewTicker(TickEvery)
 	defer t.Stop()
 	for {
-		r.Tick()
+		r.tickContext(ctx)
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 		}
+	}
+}
+
+// stop is Run's end: the escape waiting for a tick is answered, and a
+// warp's second step dropped.
+func (r *Replica) stop() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stopped, r.follow = true, nil
+	if q := r.esc; q != nil {
+		r.esc = nil
+		q.done <- EscapeResult{Kind: q.kind, Err: ErrStopped}
 	}
 }
 
@@ -400,7 +501,8 @@ func (r *Replica) resetSession() {
 	r.tr, r.hello, r.welcome = nil, nil, nil
 	r.helloKey = helloKey{}
 	r.features, r.worldUp, r.armedNow = 0, false, false
-	r.presence, r.partner = nil, nil
+	r.presence, r.partner, r.early = nil, nil, nil
+	r.track = partnerTrack{}
 	r.bindAsk, r.bindGranted = nil, false
 }
 
@@ -460,9 +562,12 @@ func (r *Replica) Status() Status {
 		Planned:  append([]Write(nil), r.planned...),
 		Held:     append([]HeldBit(nil), r.held...),
 		Queued:   r.queuedN,
+		DryRun:   r.writer.DryRun(),
+		Writes:   r.writer.Stats(),
 		Offer:    r.offer,
 		Partner:  r.partner,
 	}
+	_, st.WritesOff = r.writer.Disabled()
 	if r.preflight != nil {
 		pf := *r.preflight
 		st.Preflight = &pf
@@ -512,22 +617,48 @@ func (r *Replica) unlockAndFlush(o *outbox) {
 	}
 }
 
-// Tick takes one snapshot and runs one tick.
-func (r *Replica) Tick() Report {
+// Tick takes one snapshot and runs one tick: the session's part under the
+// replica's lock, then, with Config.Apply, the tick's writes once it is
+// released, as they wait for the heartbeat.
+func (r *Replica) Tick() Report { return r.tickContext(context.Background()) }
+
+func (r *Replica) tickContext(ctx context.Context) Report {
 	s, err := snap.Read(r.m)
 	r.mu.Lock()
 	var out outbox
 	rep := r.tick(s, err, &out)
+	ws, window, q := r.toWrite, r.window, r.escNow
+	r.toWrite, r.window, r.escNow = nil, false, nil
 	r.unlockAndFlush(&out)
+	if len(ws) > 0 {
+		res, err := r.writer.ApplyContext(ctx, ws)
+		r.mu.Lock()
+		r.applied(res, err, window, &rep)
+		r.mu.Unlock()
+	}
+	if q != nil {
+		// After the plan's writes: an escape changes stage or moves Link,
+		// and the plan's bytes were judged against this tick's snapshot.
+		res, err := r.writer.ApplyFields(ctx, q.fields)
+		r.mu.Lock()
+		r.escaped(q, res, err, &rep)
+		r.mu.Unlock()
+		if q.done != nil {
+			q.done <- EscapeResult{Kind: q.kind, Did: q.did, Err: err}
+		}
+	}
 	return rep
 }
 
 func (r *Replica) tick(s *snap.Snapshot, err error, out *outbox) Report {
+	r.toWrite, r.window, r.escNow = nil, false, nil
 	if err != nil {
 		st := r.gates.Observe(nil)
+		r.writer.Observe(nil, st, false)
 		r.differ.Drop()
 		r.last = nil
 		r.armedNow = false
+		r.failEscape(err)
 		return Report{Err: err, Gates: st, State: StateOff, Why: "the game state could not be read: " + err.Error()}
 	}
 	st := r.gates.Observe(s)
@@ -548,8 +679,14 @@ func (r *Replica) tick(s *snap.Snapshot, err error, out *outbox) Report {
 	r.sayHello(o, v, out, &rep)
 
 	armed := r.armed(o, v)
+	rep.Verify = r.writer.observe(s, st, armed, o.file, o.boss)
+	r.room.observe(o)
 	if armed && !r.armedNow {
-		r.logf("co-op: armed in world %s (dry run: planned writes are logged, not made)", r.sessionWorld)
+		if r.writer.DryRun() {
+			r.logf("co-op: armed in world %s (dry run: planned writes are logged, not made)", r.sessionWorld)
+		} else {
+			r.logf("co-op: armed in world %s: the world's chests, pickups, rooms, dungeon items, switches, ocean and charts are written to this game", r.sessionWorld)
+		}
 		r.everArmed = r.sessionWorld
 	}
 	r.armedNow = armed
@@ -602,6 +739,8 @@ func (r *Replica) tick(s *snap.Snapshot, err error, out *outbox) Report {
 	r.pruneScoped(o)
 	r.plan(o, armed)
 	rep.Planned, rep.Held = len(r.planned), len(r.held)
+	r.reconcile(o, armed, &rep)
+	r.escapeTick(o, armed)
 	r.runPreflight(o, v, out)
 	rep.State, rep.Why = r.state(o, v)
 	return rep
@@ -765,6 +904,8 @@ func (r *Replica) handle(m wire.Msg, out *outbox) {
 		r.onScoped(m)
 	case *wire.Presence:
 		p := *m
+		r.notePartnerRest(&p)
+		r.learnPartner(&p)
 		r.partner = &p
 	case *wire.Notice:
 		r.logf("co-op: the host says (%s): %s", m.Code, m.Text)
@@ -789,6 +930,12 @@ func (r *Replica) onWelcome(m *wire.CoWelcome) {
 			r.logf("co-op: the host now serves world %s (was %s)", w, r.sessionWorld)
 		}
 		r.sessionWorld = w
+	}
+	if e := r.early; e != nil {
+		r.early = nil
+		if m.Status != wire.StatusRefused && bind.WorldID(e.WorldID) == r.sessionWorld {
+			r.onWorld(e)
+		}
 	}
 	if n := bind.Nonce(r.hello.BindNonce); m.Status != wire.StatusRefused && !n.IsZero() && bind.WorldID(r.hello.WorldID) == w {
 		// A refusal (Hub.refuse) says nothing of fresh binds: its
@@ -835,13 +982,21 @@ func (r *Replica) viewOf(w bind.WorldID) bool {
 
 func (r *Replica) onWorld(m *wire.World) {
 	w := bind.WorldID(m.WorldID)
+	if r.sessionWorld.IsZero() && r.welcome == nil && !w.IsZero() {
+		c := *m
+		r.early = &c // the welcome says whether it is the session's
+		return
+	}
 	if w != r.sessionWorld || !r.viewOf(w) {
 		r.logf("co-op: ignored a WORLD of world %s, not this session's %s", w, r.sessionWorld)
 		return
 	}
 	img := world.Image(m.Image)
 	img = world.Shared(&img)
-	if !r.haveView || m.Seq >= r.viewSeq {
+	// GAINS relayed before the first WORLD are in the view (and viewSeq)
+	// already: a WORLD older than them, the hub's answer to this
+	// replica's WORLD delivered after them, is joined like any late one.
+	if m.Seq >= r.viewSeq {
 		r.view = img // the hub's image at its seq is the world
 	} else {
 		r.view = world.Join(&r.view, &img) // a late one takes nothing back
@@ -1034,9 +1189,10 @@ func presenceOf(o *obs, armed bool) *wire.Presence {
 	return p
 }
 
-// --- the planner (dry run) ----------------------------------------------------
+// --- the planner ---------------------------------------------------------------
 
-// plan runs the planner on a consistent armed tick and logs what is new.
+// plan runs the planner on a consistent armed tick and, in a dry run,
+// logs what is new (the reconciler logs the rest).
 func (r *Replica) plan(o *obs, armed bool) {
 	if !armed || !r.haveView || r.viewWorld != r.sessionWorld {
 		r.planned, r.held = nil, nil
@@ -1046,7 +1202,11 @@ func (r *Replica) plan(o *obs, armed bool) {
 	if !o.consistent() {
 		return // keep the last plan: this tick's image can't be trusted
 	}
-	ws, held := r.planner.Plan(&r.view, &o.raw, &o.local, int(o.s.Table))
+	view := r.view
+	if !r.writer.DryRun() {
+		view = r.desired()
+	}
+	ws, held := r.planner.Plan(&view, &o.raw, &o.local, int(o.s.Table))
 	for _, w := range ws {
 		for _, a := range w.Addrs() {
 			if !r.guard.Allows(a, 1) || r.guard.Mask(a)&w.Bits != w.Bits && !w.Max {
@@ -1057,8 +1217,28 @@ func (r *Replica) plan(o *obs, armed bool) {
 		}
 	}
 	r.planned, r.held = ws, held
-	r.logPlan(ws, held)
+	if r.writer.DryRun() {
+		r.logPlan(ws, held)
+	}
 	r.planScoped(o)
+}
+
+// desired is the view without what the host tombstoned (CTRL TOMBSTONE
+// took the bits out of the view already; a GAINS relayed after it must not
+// bring them back): a MAX value with a tombstoned bit is dropped whole, as
+// the world refuses it.
+func (r *Replica) desired() world.Image {
+	v := r.view
+	for off, t := range r.tomb {
+		switch {
+		case t == 0:
+		case class.Of(off).Class == class.Max && v[off]&t != 0:
+			v[off] = 0
+		default:
+			v[off] &^= t
+		}
+	}
+	return v
 }
 
 // logPlan logs the planned writes and holds not logged before, and forgets

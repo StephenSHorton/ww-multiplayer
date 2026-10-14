@@ -127,7 +127,7 @@ func main() {
 				err = co.forJoin()
 			}
 			if err != nil {
-				exitUsage(err, "join <host-ip[:port]> [name] [--port N] [--coop] [--yes]")
+				exitUsage(err, "join <host-ip[:port]> [name] [--port N] "+coopJoinFlagsUsage)
 			}
 			addr, name, err := parseJoinArgs(rest)
 			if err != nil {
@@ -789,6 +789,7 @@ func runPatch(in, out string) {
 		case errors.Is(err, inject.ErrAlreadyPatched):
 			fmt.Printf("\nThis ISO already contains this version of the multiplayer mod — nothing to do.\n")
 			fmt.Printf("(Detected an existing T2 section at 0x%08X.)\n", inject.T2Address)
+			cacheCoopTablesForPatch(os.Stdout, in) // the disc Dolphin will run; never fails the patch
 			os.Exit(0)
 		case errors.Is(err, inject.ErrPatchedByOtherVersion):
 			fmt.Printf("\nThis ISO was patched by a different ww-multiplayer version.\n")
@@ -802,6 +803,9 @@ func runPatch(in, out string) {
 		fmt.Printf("  FST   : moved 0x%X -> 0x%X (0x%X bytes) to make room for the mod\n",
 			res.OldFSTOffset, res.NewFSTOffset, res.FSTSize)
 	}
+	// The co-op stage tables of the disc just written, for --coop
+	// sessions: read-only on it, and a warning at worst.
+	cacheCoopTablesForPatch(os.Stdout, out)
 	fmt.Printf("\nDone. Boot %s in Dolphin to play multiplayer.\n", out)
 }
 
@@ -7146,12 +7150,16 @@ func cliMultiplayerContext(rep report.Reporter) (context.Context, context.Cancel
 // Both goroutines dial the same addr, so they share one ConnectLog and an
 // unreachable host is reported once rather than once per connection.
 // coop, when non-nil (--coop), adds a third pipeline, coop-sync, with its
-// own Dolphin handle and co-op connection (runCoopSyncCtx); nil runs the
-// two pose pipelines alone, as before co-op.
+// own Dolphin handle and co-op connection (runCoopSyncCtx), and hears the
+// puppet-sync client for its warps (coopSession.withPoseClient); nil runs
+// the two pose pipelines alone, as before co-op.
 // Returns runPipelines' result: the first real failure, or nil on a normal
 // ctx-cancel shutdown.
 func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter, onClient func(*network.Client), onPos func(x, y, z float32), coop *coopSession) error {
 	connLog := newConnectLog(addr, rep)
+	// A warp to the partner takes its position from pose sync (nil-safe:
+	// without co-op, onClient is as given).
+	onClient = coop.withPoseClient(name, onClient)
 	ps := []pipeline{
 		{"broadcast-pose", func(ctx context.Context) error {
 			return runBroadcastPoseCtx(ctx, name, addr, 0, rep, connLog, onPos)

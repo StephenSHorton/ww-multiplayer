@@ -222,14 +222,46 @@ func build(src Source, dol []byte, id ID, st *Stats) (*Tables, error) {
 	for _, s := range stages {
 		t.Rooms += len(s.Rooms)
 	}
+	errs := make([]error, len(builders))
 	var wg sync.WaitGroup
-	wg.Go(func() { t.Keys = keys.Build(stages, names) })
-	wg.Go(func() { t.Hearts = hearts.Build(stages, names) })
-	wg.Go(func() { t.Switches = switches.Build(stages, names) })
-	wg.Go(func() { t.Enemies = enemies.Build(stages, names) })
+	for i, b := range builders {
+		wg.Go(func() { errs[i] = b.run(t, stages, names) })
+	}
 	wg.Wait()
 	st.Build = time.Since(start)
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
 	return t, nil
+}
+
+// builder is one section's builder.
+type builder struct {
+	section Section
+	build   func(t *Tables, stages []*stagedata.Stage, names *stagedata.ObjectNames)
+}
+
+// builders are the four, in Sections order. A variable so a test can make
+// one fail.
+var builders = []builder{
+	{SectionKeys, func(t *Tables, s []*stagedata.Stage, n *stagedata.ObjectNames) { t.Keys = keys.Build(s, n) }},
+	{SectionHearts, func(t *Tables, s []*stagedata.Stage, n *stagedata.ObjectNames) { t.Hearts = hearts.Build(s, n) }},
+	{SectionSwitches, func(t *Tables, s []*stagedata.Stage, n *stagedata.ObjectNames) { t.Switches = switches.Build(s, n) }},
+	{SectionEnemies, func(t *Tables, s []*stagedata.Stage, n *stagedata.ObjectNames) { t.Enemies = enemies.Build(s, n) }},
+}
+
+// run runs b, turning a panic into an error: the builders run on their own
+// goroutines, where a bug tripped by an unusual disc would otherwise end
+// the process (patch builds the tables after writing its image, and must
+// not fail for them).
+func (b builder) run(t *Tables, stages []*stagedata.Stage, names *stagedata.ObjectNames) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("tables: the %s builder failed on this disc (a bug; please report it): %v", b.section, r)
+		}
+	}()
+	b.build(t, stages, names)
+	return nil
 }
 
 // countingSource counts the files and bytes stagedata.Load reads.

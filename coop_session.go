@@ -1,12 +1,15 @@
 package main
 
-// Co-op sessions (#23; docs/08-coop-design.md §4.1-4.2, §5, §9 M2): what
-// --coop adds to host, join and mp-local.
+// Co-op sessions (#23; docs/08-coop-design.md §4.1-4.2, §5, §6.7, §9
+// M2-M3): what --coop adds to host, join and mp-local.
 //
 //   - host and mp-local run the CoopHub (internal/coop/hub) on their
 //     server. It serves one world: the only one on disk, the one
 //     --coop=<id> names, or, with --coop=new, one founded from the host's
-//     loaded, idle file (§5.3);
+//     loaded, idle file (§5.3). It grants memory switch sync by the M1
+//     stage tables of the session's disc (coop_tables_runtime.go:
+//     --coop-iso, or the disc patch last wrote), and the live-switch
+//     opt-in with --coop-live-switches (§6.3);
 //   - every side backs up its memory cards, read-only, when the session
 //     starts (internal/coop/backup, §5.4). Without that backup no tag is
 //     written this session;
@@ -14,11 +17,18 @@ package main
 //     puppet-sync, with its own Dolphin handle by PID and its own role-1
 //     connection (network.RunCoop). Its replica (internal/coop/replica)
 //     reads a snapshot ten times a second, runs the gates and the differ,
-//     sends GAINS, and only logs what its planner would write: M2 is a
-//     dry run (§5.1 principle 5);
+//     sends GAINS and, from M3, writes the world's progress into its game
+//     through a FrameWriter and the WriteGuard (§4.2): the stage progress
+//     bits, the latching memory switches, the ocean, charts and sea map.
+//     Too many faults turn the writes off by themselves, said once, and
+//     pose sync goes on (auto-disable). --coop-dry-run keeps M2's dry
+//     run: the plan is only logged (§5.1 principle 5);
 //   - the replica's two tag writes, a bind and a leaked tag's scrub, are
 //     asked on the command line (y/N on stdin; --yes answers yes) and made
-//     only after the yes, behind the gates (internal/coop/bind).
+//     only after the yes, behind the gates (internal/coop/bind);
+//   - stdin also takes the session's commands (coop_session_console.go):
+//     /refresh and /warp, the escape hatches (§6.7), /coop off and on,
+//     /status and /help.
 //
 // Without --coop none of this runs: host, join and mp-local open the same
 // connections, send the same frames and print the same lines as before.
@@ -63,21 +73,36 @@ type coopFlags struct {
 	merge bool
 	// yes is --yes: every bind and scrub question is answered yes.
 	yes bool
+	// dryRun is --coop-dry-run: M2's dry run. This side's replicas write
+	// no game data but a binding tag after a yes; the plan is logged.
+	dryRun bool
+	// liveSwitches is --coop-live-switches (§6.3), the host's choice: the
+	// current table's memory switches apply when IDLE, not at the next
+	// room change.
+	liveSwitches bool
+	// iso is --coop-iso: the disc image whose M1 stage tables the session
+	// uses; "" for the disc patch last wrote.
+	iso string
 }
 
 // coopWorldNew is --coop=new: found a world from the host's loaded file.
 const coopWorldNew = "new"
 
 // coopFlagsUsage is the co-op part of host's and mp-local's usage lines;
-// join takes only --coop and --yes.
-const coopFlagsUsage = "[--coop[=new|<world-id>]] [--coop-merge] [--yes]"
+// coopJoinFlagsUsage is join's, which leaves the world and the host's
+// choices out.
+const (
+	coopFlagsUsage     = "[--coop[=new|<world-id>]] [--coop-merge] [--coop-live-switches] [--coop-dry-run] [--coop-iso <iso>] [--yes]"
+	coopJoinFlagsUsage = "[--coop] [--coop-dry-run] [--coop-iso <iso>] [--yes]"
+)
 
 // extractCoopFlags takes the co-op options out of args (in any position
 // before a bare "--", which ends the options) and returns the rest, in
 // order, for the command's own parser. When args hold no --coop at all,
 // they are returned untouched and co-op is off, so a command line without
-// co-op parses exactly as it did before: --coop-merge or --yes alone stay
-// in rest, where the command's parser treats them as it always has.
+// co-op parses exactly as it did before: --coop-merge, --coop-dry-run,
+// --coop-live-switches, --coop-iso or --yes alone stay in rest, where the
+// command's parser treats them as it always has.
 func extractCoopFlags(args []string) (coopFlags, []string, error) {
 	var f coopFlags
 	if !slices.ContainsFunc(coopOptionArgs(args), func(a string) bool {
@@ -85,6 +110,11 @@ func extractCoopFlags(args []string) (coopFlags, []string, error) {
 	}) {
 		return f, args, nil
 	}
+	iso, args, err := takeCoopISO(args)
+	if err != nil {
+		return coopFlags{}, nil, err
+	}
+	f.iso = iso
 	rest := make([]string, 0, len(args))
 	for i, a := range args {
 		switch {
@@ -105,6 +135,10 @@ func extractCoopFlags(args []string) (coopFlags, []string, error) {
 			f.on, f.world = true, v
 		case a == "--coop-merge":
 			f.merge = true
+		case a == "--coop-dry-run":
+			f.dryRun = true
+		case a == "--coop-live-switches":
+			f.liveSwitches = true
 		case a == "--yes":
 			f.yes = true
 		default:
@@ -122,14 +156,17 @@ func coopOptionArgs(args []string) []string {
 	return args
 }
 
-// forJoin checks f for join: a joiner serves no world, so the world and
-// --coop-merge are the host's to choose.
+// forJoin checks f for join: a joiner serves no world, so the world,
+// --coop-merge and --coop-live-switches are the host's to choose.
+// --coop-dry-run and --coop-iso are each side's own.
 func (f coopFlags) forJoin() error {
 	switch {
 	case f.world != "":
 		return fmt.Errorf("--coop=%s: the host picks the world; join with --coop", f.world)
 	case f.merge:
 		return errors.New("--coop-merge is the host's choice, not the joiner's")
+	case f.liveSwitches:
+		return errors.New("--coop-live-switches is the host's choice, not the joiner's")
 	}
 	return nil
 }
@@ -148,8 +185,13 @@ type coopEnv struct {
 	openMem func() (mem.Mem, func(), error)
 	// tick waits between the snapshots of a founding (coopTick).
 	tick func()
-	// input, if set, replaces stdin as the source of y/N answers.
+	// input, if set, replaces stdin as the source of y/N answers and
+	// commands.
 	input io.Reader
+	// tables loads the M1 stage tables of the disc iso names, "" for the
+	// one patch last wrote (loadCoopStageTables). Nil runs the session
+	// without tables, saying nothing of them: no memory switch syncs.
+	tables func(iso string) (*coopStageTables, error)
 }
 
 // defaultCoopEnv is the production environment for a session whose host
@@ -167,7 +209,8 @@ func defaultCoopEnv(pid uint32) coopEnv {
 			}
 			return mem.NewDolphinMem(d), d.Close, nil
 		},
-		tick: coopTick,
+		tick:   coopTick,
+		tables: loadCoopStageTables,
 	}
 }
 
@@ -195,22 +238,51 @@ type coopSession struct {
 	noTags error
 	prompt *coopPrompter
 	rep    report.Reporter
+	// tables are the session's M1 stage tables, nil without (every
+	// method is nil-safe).
+	tables *coopStageTables
+	// console runs the commands typed on stdin for the session's
+	// coop-sync pipelines.
+	console *coopConsole
+	// poses are the puppet-sync clients of the session's Dolphins, by
+	// player name: where a warp finds the partner's position.
+	posesMu sync.Mutex
+	poses   map[string]*network.Client
 }
 
 // startCoopSession begins a joiner's co-op side, and is the first step of
 // a host's: it backs up the memory cards, and without a backup it turns
 // tag writes off for the session (§5.4: the card is backed up before a
 // file is bound).
+//
+// It also loads the session's M1 stage tables (env.tables): a host's hub
+// grants memory switches by them, and a writing replica sends their
+// identity in CO_HELLO. A dry-run joiner, which M2 ran without them,
+// does not.
 func startCoopSession(rep report.Reporter, f coopFlags, env coopEnv) *coopSession {
-	cs := &coopSession{flags: f, rep: rep, prompt: newCoopPrompter(f.yes, env.input)}
+	cs := startCoopSide(rep, f, env, false)
+	cs.console.help()
+	return cs
+}
+
+// startCoopSide is startCoopSession for a host (host: its hub needs the
+// tables even in a dry run) or a joiner.
+func startCoopSide(rep report.Reporter, f coopFlags, env coopEnv, host bool) *coopSession {
+	cs := &coopSession{flags: f, rep: rep, prompt: newCoopPrompter(f.yes, env.input), poses: map[string]*network.Client{}}
+	cs.console = newCoopConsole(rep, cs.prompt.cmds)
 	b, err := backup.Create(env.userDirs, backup.Options{Root: env.backups, Label: "co-op session start"})
 	if err != nil {
 		cs.noTags = err
 		report.Logf(rep, report.Warn, "co-op: could not back up the memory cards: %v. No co-op tag is written this session (set USER_DIR_1 if Dolphin keeps its user folder elsewhere).", err)
-		return cs
+	} else {
+		report.Logf(rep, report.OK, "co-op: backed up %d memory-card file(s) to %s (`coop-world restore %s --yes`, with Dolphin closed, puts them back). Check that these are your cards:", len(b.Files), b.Dir, b.ID)
+		logBackupCards(rep, b)
 	}
-	report.Logf(rep, report.OK, "co-op: backed up %d memory-card file(s) to %s (`coop-world restore %s --yes`, with Dolphin closed, puts them back). Check that these are your cards:", len(b.Files), b.Dir, b.ID)
-	logBackupCards(rep, b)
+	if env.tables != nil && (host || !f.dryRun) {
+		st, err := env.tables(f.iso)
+		logCoopStageTables(rep, st, err)
+		cs.tables = st
+	}
 	return cs
 }
 
@@ -249,7 +321,7 @@ func logBackupCards(rep report.Reporter, b *backup.Backup) {
 // the caller sets as its server's Coop before Start. srvLog gets the
 // hub's lines, beside the server's own. Stop it with stop.
 func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string), f coopFlags, env coopEnv) (*coopSession, error) {
-	cs := startCoopSession(rep, f, env)
+	cs := startCoopSide(rep, f, env, true)
 	root, err := env.worldsRoot()
 	if err != nil {
 		return nil, err
@@ -285,11 +357,17 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 		}
 		logWorldLoad(rep, lr)
 	}
+	features := hub.DefaultFeatures
+	if f.liveSwitches {
+		features |= hub.FeatureLiveSwitches
+	}
 	h, err := hub.New(hub.Config{
-		Store:    st,
-		Features: hub.DefaultFeatures,
-		Merge:    f.merge,
-		Logf:     func(format string, args ...any) { srvLog(fmt.Sprintf(format, args...)) },
+		Store:        st,
+		StageTblHash: cs.tables.hash(),
+		SyncedSwitch: cs.tables.switchVerdict(),
+		Features:     features,
+		Merge:        f.merge,
+		Logf:         func(format string, args ...any) { srvLog(fmt.Sprintf(format, args...)) },
 	})
 	if err != nil {
 		st.Stop()
@@ -305,7 +383,17 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 	if f.merge {
 		merge = "; --coop-merge: files with progress the world lacks may bind"
 	}
-	report.Logf(rep, report.OK, "Co-op world %s at seq %d (dry run: planned writes are logged, not made; only a binding tag is ever written, after a yes%s).", cs.world, st.Seq(), merge)
+	if f.dryRun {
+		report.Logf(rep, report.OK, "Co-op world %s at seq %d (dry run: planned writes are logged, not made; only a binding tag is ever written, after a yes%s).", cs.world, st.Seq(), merge)
+		cs.console.help()
+		return cs, nil
+	}
+	live := ""
+	if f.liveSwitches {
+		live = "; --coop-live-switches: the current room's switches apply at once"
+	}
+	report.Logf(rep, report.OK, "Co-op world %s at seq %d: the world's chests, pickups, rooms, dungeon items, latching switches, ocean and charts are written into each bound game (--coop-dry-run only logs them%s%s).", cs.world, st.Seq(), merge, live)
+	cs.console.help()
 	return cs, nil
 }
 
@@ -518,11 +606,14 @@ func readCoopMarker(dir string) (string, bool) {
 func removeCoopMarker(dir string) { os.Remove(filepath.Join(dir, coopMarkerName)) }
 
 // coopPrompter asks the replicas' yes/no questions on the command line,
-// one at a time, so mp-local's two Dolphins never ask at once.
+// one at a time, so mp-local's two Dolphins never ask at once. Its reader
+// also hands the console the commands typed (a line starting with '/'),
+// which are never an answer.
 type coopPrompter struct {
 	yes   bool
 	mu    sync.Mutex        // held for a whole question
-	lines <-chan promptLine // the lines read, oldest first; closed at EOF; nil with --yes
+	lines <-chan promptLine // the answers read, oldest first; closed at EOF
+	cmds  <-chan promptLine // the commands read; closed at EOF
 	in    *promptInput
 	now   func() time.Time
 }
@@ -544,20 +635,20 @@ const (
 	promptSettleMax = time.Second
 )
 
-// newCoopPrompter returns a session's prompter. Unless yes answers every
-// question, it starts reading in (stdin when nil) at once, when the session
-// starts: a line counts only if it was read after its question was asked,
-// so whatever was typed before, even a line already waiting in the
-// terminal when the session started, never answers one.
+// newCoopPrompter returns a session's prompter. It starts reading in
+// (stdin when nil) at once, when the session starts, for the commands and
+// the answers: a line counts as an answer only if it was read after its
+// question was asked, so whatever was typed before, even a line already
+// waiting in the terminal when the session started, never answers one.
+// With yes every question is answered yes, and only the commands are
+// read.
 func newCoopPrompter(yes bool, in io.Reader) *coopPrompter {
 	p := &coopPrompter{yes: yes, now: time.Now}
-	if !yes {
-		if in == nil {
-			in = os.Stdin
-		}
-		p.in = &promptInput{r: in, start: time.Now()}
-		p.lines = readPromptLines(p.in, p.now)
+	if in == nil {
+		in = os.Stdin
 	}
+	p.in = &promptInput{r: in, start: time.Now()}
+	p.lines, p.cmds = readPromptLines(p.in, p.now)
 	return p
 }
 
@@ -595,22 +686,30 @@ func (in *promptInput) settle(ctx context.Context) {
 }
 
 // readPromptLines reads in line by line on its own goroutine, stamping each
-// line the moment it is read. It never waits for ask to take a line, so a
-// stamp is never later than the read: a full queue drops the line.
-func readPromptLines(in *promptInput, now func() time.Time) <-chan promptLine {
-	ch := make(chan promptLine, promptQueue)
+// line the moment it is read, and hands a command (isCoopCommand) to cmds
+// and any other line to answers. It never waits for a reader to take a
+// line, so a stamp is never later than the read: a full queue drops the
+// line.
+func readPromptLines(in *promptInput, now func() time.Time) (answers, cmds <-chan promptLine) {
+	ach := make(chan promptLine, promptQueue)
+	cch := make(chan promptLine, promptQueue)
 	go func() {
-		defer close(ch)
+		defer close(ach)
+		defer close(cch)
 		defer in.eof.Store(true)
 		sc := bufio.NewScanner(in)
 		for sc.Scan() {
+			ch := ach
+			if isCoopCommand(sc.Text()) {
+				ch = cch
+			}
 			select {
 			case ch <- promptLine{text: sc.Text(), at: now()}:
 			default:
 			}
 		}
 	}()
-	return ch
+	return ach, cch
 }
 
 // ask logs question and waits for the answer: true only for "y" or "yes".
@@ -657,6 +756,7 @@ func (p *coopPrompter) ask(ctx context.Context, rep report.Reporter, question st
 // and a co-op connection to the host's hub.
 type coopSync struct {
 	cs     *coopSession
+	name   string // the player's name: the console's handle on it
 	rep    report.Reporter
 	m      mem.Mem
 	r      *replica.Replica
@@ -664,6 +764,14 @@ type coopSync struct {
 
 	mu    sync.Mutex
 	asked map[coopFileKey]bool // files a bind was asked for this session
+	over  string               // why run gave up co-op for the session ("" while it has not)
+}
+
+// gaveUp returns why run gave up co-op for the session, or "".
+func (s *coopSync) gaveUp() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.over
 }
 
 // coopFileKey is a file as the bind questions remember it: one is asked
@@ -690,20 +798,41 @@ func runCoopSyncCtx(ctx context.Context, name, addr string, dolphinPID uint32, r
 	return s.run(ctx, addr)
 }
 
-// newSync builds a coop-sync pipeline over m. Its offers are asked with
-// ctx, the session's.
+// newSync builds a coop-sync pipeline over m and hands it to the
+// session's console. Its offers are asked, and its commands run, with ctx,
+// the session's.
+//
+// Unless --coop-dry-run, its replica writes (replica.Config.Apply) with
+// the session's stage tables: their identity in CO_HELLO and their
+// memory switch verdict as its policy, the host hub's own
+// (hub.SwitchPolicy). Its Breaker says once, as a warning, why the writes
+// turned off; the pipeline keeps running, and pose sync with it. A dry run
+// is M2's replica, configured as M2 configured it.
 func (cs *coopSession) newSync(ctx context.Context, name string, m mem.Mem, rep report.Reporter) (*coopSync, error) {
-	s := &coopSync{cs: cs, rep: rep, m: m, asked: map[coopFileKey]bool{}}
+	s := &coopSync{cs: cs, name: name, rep: rep, m: m, asked: map[coopFileKey]bool{}}
 	logf := func(format string, args ...any) {
 		rep.Log(report.Info, strings.TrimRight(fmt.Sprintf(format, args...), "\n")) // a preflight summary ends in one
 	}
-	r, err := replica.New(replica.Config{
+	cfg := replica.Config{
 		Mem:         m,
 		World:       cs.world,
 		Logf:        logf,
 		OnOffer:     func(o replica.Offer) { s.offer(ctx, o) },
 		OnPreflight: s.preflight,
-	})
+	}
+	if !cs.flags.dryRun {
+		cfg.Apply = true
+		cfg.StageTblHash = cs.tables.hash()
+		cfg.Policy = cs.tables.policy()
+		cfg.Breaker = replica.NewBreaker(replica.BreakerConfig{Logf: func(format string, args ...any) {
+			if s.gaveUp() != "" {
+				return // run said why, and /coop on cannot help
+			}
+			report.Logf(rep, report.Warn, "%s. Pose sync goes on; type /coop on to write the world again.", fmt.Sprintf(format, args...))
+		}})
+		cfg.PartnerPos = cs.partnerPos(name)
+	}
+	r, err := replica.New(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -711,15 +840,67 @@ func (cs *coopSession) newSync(ctx context.Context, name string, m mem.Mem, rep 
 	s.client = network.NewCoopClient(name, 0)
 	s.client.OnLog = func(msg string) { rep.Log(report.Net, msg) }
 	s.client.OnCoop = r.Handle
+	cs.console.add(ctx, s)
 	return s, nil
+}
+
+// withPoseClient returns an onClient for name's puppet-sync pipeline that
+// records its client for the warps (partnerPos), then calls next if set.
+// A nil session returns next.
+func (cs *coopSession) withPoseClient(name string, next func(*network.Client)) func(*network.Client) {
+	if cs == nil {
+		return next
+	}
+	return func(c *network.Client) {
+		cs.posesMu.Lock()
+		cs.poses[name] = c
+		cs.posesMu.Unlock()
+		if next != nil {
+			next(c)
+		}
+	}
+}
+
+// partnerPos is replica.Config.PartnerPos for player name: the position
+// of the one other player its puppet-sync client hears (pose sync), not
+// itself (mp-local's twins each see the other) and not a remote that has
+// sent no position yet. With more than one other player it has none: the
+// warp is for the two players v1.0 supports.
+func (cs *coopSession) partnerPos(name string) func() (replica.Pos, bool) {
+	return func() (replica.Pos, bool) {
+		cs.posesMu.Lock()
+		c := cs.poses[name]
+		cs.posesMu.Unlock()
+		if c == nil {
+			return replica.Pos{}, false
+		}
+		var (
+			p     replica.Pos
+			other string
+		)
+		for _, rp := range c.GetRemotePlayers() {
+			switch {
+			case rp.Name == name || rp.Position == nil:
+				continue
+			case other != "" && rp.Name != other:
+				return replica.Pos{}, false
+			}
+			other = rp.Name
+			p = replica.Pos{X: rp.Position.PosX, Y: rp.Position.PosY, Z: rp.Position.PosZ}
+		}
+		return p, other != ""
+	}
 }
 
 // run ticks the replica and keeps its connection up until ctx ends. A
 // host that refuses co-op (it runs without --coop) or another fatal
-// connect error turns co-op off for the session, said once; the pipeline
-// then waits for the session to end, as pose sync goes on without it.
-// Reachability is the pose pipelines' to report: they dial the same host,
-// so the co-op connection's retries are not logged twice.
+// connect error turns co-op off for the session, said once: the replica's
+// writes are turned off, its ticks stop (an escape waiting for one is
+// answered replica.ErrStopped, as is any asked for later), and /coop on
+// refuses; the pipeline then waits for the session to end, as pose sync
+// goes on without it. Reachability is the pose pipelines' to report: they
+// dial the same host, so the co-op connection's retries are not logged
+// twice.
 func (s *coopSync) run(ctx context.Context, addr string) error {
 	tctx, stopTicks := context.WithCancel(ctx)
 	ticks := make(chan struct{})
@@ -735,7 +916,12 @@ func (s *coopSync) run(ctx context.Context, addr string) error {
 	if err == nil || ctx.Err() != nil {
 		return nil
 	}
-	report.Logf(s.rep, report.Warn, "co-op is off for this session: %v", err)
+	why := fmt.Sprintf("co-op is off for this session: %v", err)
+	s.mu.Lock()
+	s.over = why
+	s.mu.Unlock()
+	s.r.TurnOff(why)
+	report.Logf(s.rep, report.Warn, "%s", why)
 	stopTicks()
 	<-ctx.Done()
 	return nil
