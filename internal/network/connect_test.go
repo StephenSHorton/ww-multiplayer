@@ -29,8 +29,18 @@ func TestConnectDialTimeout(t *testing.T) {
 	c.dialTimeout = 50 * time.Millisecond
 	c.dialContext = blockingDial(make(chan struct{}))
 
+	// Connect runs off the test goroutine so a dial timeout that stops
+	// working fails here in a second instead of hanging until go test's
+	// global timeout.
 	start := time.Now()
-	err := c.Connect("192.0.2.1:25565")
+	done := make(chan error, 1)
+	go func() { done <- c.Connect("192.0.2.1:25565") }()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Connect still dialing after 1s; dialTimeout not applied")
+	}
 	elapsed := time.Since(start)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Connect = %v, want a dial deadline error", err)

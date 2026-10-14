@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// TestExtractPortFlag covers both flag spellings in any position, and that a
-// bad value or an unknown "--" option is an error instead of silently
+// TestExtractPortFlag covers every flag spelling in any position, and that
+// a bad value or an unknown "-"/"--" option is an error instead of silently
 // falling back to the default port or becoming the player name.
 func TestExtractPortFlag(t *testing.T) {
 	cases := []struct {
@@ -34,6 +34,13 @@ func TestExtractPortFlag(t *testing.T) {
 		{"flag as value", []string{"--port", "--verbose"}, 0, nil, "invalid port"},
 		{"unknown option", []string{"--name", "Alice"}, 0, nil, `unknown option "--name"`},
 		{"typo option", []string{"--prot=25566", "Alice"}, 0, nil, "unknown option"},
+		{"single-dash form", []string{"-port", "25566", "Alice"}, 25566, []string{"Alice"}, ""},
+		{"single-dash equals", []string{"Alice", "-port=25567"}, 25567, []string{"Alice"}, ""},
+		{"single-dash bad value", []string{"-port", "abc"}, 0, nil, "invalid port"},
+		{"single-dash missing value", []string{"-port"}, 0, nil, "needs a value"},
+		{"single-dash unknown", []string{"-p", "25566"}, 0, nil, `unknown option "-p"`},
+		{"single-dash typo", []string{"-portt=25566"}, 0, nil, `unknown option "-portt=25566"`},
+		{"lone dash is positional", []string{"-"}, defaultPort, []string{"-"}, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -79,6 +86,10 @@ func TestParseJoinArgs(t *testing.T) {
 		{"addr port non-numeric", []string{"1.2.3.4:abc"}, "", "", "invalid port"},
 		{"empty host", []string{":25566"}, "", "", "missing the host"},
 		{"bad --port", []string{"1.2.3.4", "--port", "x"}, "", "", "invalid port"},
+		{"-port applies", []string{"1.2.3.4", "-port", "25566"}, "1.2.3.4:25566", "", ""},
+		{"-port never a name", []string{"1.2.3.4", "-prot", "25566"}, "", "", "unknown option"},
+		{"bare port as 3rd arg", []string{"1.2.3.4", "Bob", "25566"}, "", "", `unexpected argument "25566" (did you mean --port 25566?)`},
+		{"extra word", []string{"1.2.3.4", "Bob", "Carol"}, "", "", `unexpected argument "Carol"`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -94,6 +105,78 @@ func TestParseJoinArgs(t *testing.T) {
 			}
 			if addr != c.wantAddr || name != c.wantName {
 				t.Errorf("parseJoinArgs(%q) = (%q, %q), want (%q, %q)", c.args, addr, name, c.wantAddr, c.wantName)
+			}
+		})
+	}
+}
+
+// TestParseHostArgs: `host` takes at most a name, so a port typed without
+// the flag is an error instead of being dropped while hosting on 25565.
+func TestParseHostArgs(t *testing.T) {
+	cases := []struct {
+		name     string
+		args     []string
+		wantName string
+		wantPort int
+		wantErr  string // substring; "" = no error
+	}{
+		{"no args", nil, "", defaultPort, ""},
+		{"name", []string{"Alice"}, "Alice", defaultPort, ""},
+		{"name + --port", []string{"Alice", "--port", "25566"}, "Alice", 25566, ""},
+		{"-port + name", []string{"-port", "25566", "Alice"}, "Alice", 25566, ""},
+		{"bare port after name", []string{"Alice", "25566"}, "", 0, `unexpected argument "25566" (did you mean --port 25566?)`},
+		{"two names", []string{"Alice", "Bob"}, "", 0, `unexpected argument "Bob"`},
+		{"-port never a name", []string{"-port"}, "", 0, "needs a value"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			name, port, err := parseHostArgs(c.args)
+			if c.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+					t.Fatalf("parseHostArgs(%q) error = %v, want one containing %q", c.args, err, c.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseHostArgs(%q) error = %v", c.args, err)
+			}
+			if name != c.wantName || port != c.wantPort {
+				t.Errorf("parseHostArgs(%q) = (%q, %d), want (%q, %d)", c.args, name, port, c.wantName, c.wantPort)
+			}
+		})
+	}
+}
+
+// TestParseServerArgs: `server` takes no positional args at all.
+func TestParseServerArgs(t *testing.T) {
+	cases := []struct {
+		name     string
+		args     []string
+		wantPort int
+		wantErr  string // substring; "" = no error
+	}{
+		{"no args", nil, defaultPort, ""},
+		{"--port", []string{"--port", "25566"}, 25566, ""},
+		{"--port=", []string{"--port=25566"}, 25566, ""},
+		{"-port", []string{"-port", "25566"}, 25566, ""},
+		{"bare port", []string{"25566"}, 0, `unexpected argument "25566" (did you mean --port 25566?)`},
+		{"stray word", []string{"now"}, 0, `unexpected argument "now"`},
+		{"bad value", []string{"--port", "99999"}, 0, "invalid port"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			port, err := parseServerArgs(c.args)
+			if c.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+					t.Fatalf("parseServerArgs(%q) error = %v, want one containing %q", c.args, err, c.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseServerArgs(%q) error = %v", c.args, err)
+			}
+			if port != c.wantPort {
+				t.Errorf("parseServerArgs(%q) = %d, want %d", c.args, port, c.wantPort)
 			}
 		})
 	}

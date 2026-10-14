@@ -109,13 +109,9 @@ func main() {
 			// path without re-running the full auto-recapture flow.
 			runSendShiftF1()
 		case "host":
-			port, rest, err := extractPortFlag(os.Args[2:], defaultPort)
+			name, port, err := parseHostArgs(os.Args[2:])
 			if err != nil {
 				exitUsage(err, "host [name] [--port N]")
-			}
-			name := ""
-			if len(rest) > 0 {
-				name = rest[0]
 			}
 			runHost(name, port)
 		case "join":
@@ -136,7 +132,7 @@ func main() {
 			}
 			runPatch(os.Args[2], out)
 		case "server":
-			port, _, err := extractPortFlag(os.Args[2:], defaultPort)
+			port, err := parseServerArgs(os.Args[2:])
 			if err != nil {
 				exitUsage(err, "server [--port N]")
 			}
@@ -6435,16 +6431,21 @@ func runFakeClient(name, addr string, centerX, centerZ float32) {
 // extractPortFlag scans args for a "--port N" pair or a "--port=N" arg (in
 // any position, so it works whether the user wrote `host --port 25566 Alice`
 // or `host Alice --port=25566`) and returns the parsed port plus the
-// remaining args with the flag and its value removed. Returns defaultPort
-// when the flag is absent. A missing, non-numeric or out-of-range value, or
-// any other "--" arg, is an error, so a typo can't silently fall back to the
+// remaining args with the flag and its value removed. The Go-flag spelling
+// "-port N" / "-port=N" works too. Returns defaultPort when the flag is
+// absent. A missing, non-numeric or out-of-range value, or any other "-" or
+// "--" option, is an error, so a typo can't silently fall back to the
 // default port or end up as the player name.
 func extractPortFlag(args []string, defaultPort int) (port int, rest []string, err error) {
 	port = defaultPort
 	rest = make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if strings.HasPrefix(a, "-port") {
+			a = "-" + a // "-port N" / "-port=N" -> the "--" form
+		}
 		var val string
-		switch a := args[i]; {
+		switch {
 		case a == "--port":
 			if i+1 >= len(args) {
 				return 0, nil, errors.New("--port needs a value, e.g. --port 25566")
@@ -6453,8 +6454,8 @@ func extractPortFlag(args []string, defaultPort int) (port int, rest []string, e
 			val = args[i]
 		case strings.HasPrefix(a, "--port="):
 			val = strings.TrimPrefix(a, "--port=")
-		case strings.HasPrefix(a, "--"):
-			return 0, nil, fmt.Errorf("unknown option %q", a)
+		case len(a) > 1 && a[0] == '-':
+			return 0, nil, fmt.Errorf("unknown option %q", args[i])
 		default:
 			rest = append(rest, a)
 			continue
@@ -6477,6 +6478,48 @@ func parsePort(s string) (int, error) {
 	return n, nil
 }
 
+// rejectExtraArgs errors when rest holds more than limit positional args,
+// so a port typed without the flag (`server 25566`, `host Alice 25566`)
+// stops the command instead of being dropped while it quietly uses 25565.
+func rejectExtraArgs(rest []string, limit int) error {
+	if len(rest) <= limit {
+		return nil
+	}
+	extra := rest[limit]
+	if _, err := parsePort(extra); err == nil {
+		return fmt.Errorf("unexpected argument %q (did you mean --port %s?)", extra, extra)
+	}
+	return fmt.Errorf("unexpected argument %q", extra)
+}
+
+// parseHostArgs parses `host [name] [--port N]` into the player name ("" =
+// let runHost pick one) and the port to listen on.
+func parseHostArgs(args []string) (name string, port int, err error) {
+	port, rest, err := extractPortFlag(args, defaultPort)
+	if err != nil {
+		return "", 0, err
+	}
+	if err := rejectExtraArgs(rest, 1); err != nil {
+		return "", 0, err
+	}
+	if len(rest) > 0 {
+		name = rest[0]
+	}
+	return name, port, nil
+}
+
+// parseServerArgs parses `server [--port N]` into the port to listen on.
+func parseServerArgs(args []string) (port int, err error) {
+	port, rest, err := extractPortFlag(args, defaultPort)
+	if err != nil {
+		return 0, err
+	}
+	if err := rejectExtraArgs(rest, 0); err != nil {
+		return 0, err
+	}
+	return port, nil
+}
+
 // parseJoinArgs parses `join <host-ip[:port]> [name] [--port N]` into the
 // address to dial and the player name. The address gets defaultPort, or the
 // --port value, when it names no port of its own. An address port that
@@ -6488,6 +6531,9 @@ func parseJoinArgs(args []string) (addr, name string, err error) {
 	}
 	if len(rest) == 0 {
 		return "", "", errors.New("missing the host's address")
+	}
+	if err := rejectExtraArgs(rest, 2); err != nil {
+		return "", "", err
 	}
 	if len(rest) > 1 {
 		name = rest[1]
