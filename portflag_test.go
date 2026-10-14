@@ -41,6 +41,10 @@ func TestExtractPortFlag(t *testing.T) {
 		{"single-dash unknown", []string{"-p", "25566"}, 0, nil, `unknown option "-p"`},
 		{"single-dash typo", []string{"-portt=25566"}, 0, nil, `unknown option "-portt=25566"`},
 		{"lone dash is positional", []string{"-"}, defaultPort, []string{"-"}, ""},
+		{"-- ends options", []string{"--port", "25566", "--", "-Alice-"}, 25566, []string{"-Alice-"}, ""},
+		{"-- keeps later flags positional", []string{"--", "--port", "1"}, defaultPort, []string{"--port", "1"}, ""},
+		{"-- alone", []string{"Alice", "--"}, defaultPort, []string{"Alice"}, ""},
+		{"dash name hints at --", []string{"-Alice"}, 0, nil, "put -- before a name"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -90,6 +94,9 @@ func TestParseJoinArgs(t *testing.T) {
 		{"-port never a name", []string{"1.2.3.4", "-prot", "25566"}, "", "", "unknown option"},
 		{"bare port as 3rd arg", []string{"1.2.3.4", "Bob", "25566"}, "", "", `unexpected argument "25566" (did you mean --port 25566?)`},
 		{"extra word", []string{"1.2.3.4", "Bob", "Carol"}, "", "", `unexpected argument "Carol"`},
+		{"dash name after --", []string{"1.2.3.4", "--", "-Bob"}, "1.2.3.4:25565", "-Bob", ""},
+		{"name too long", []string{"1.2.3.4", strings.Repeat("b", 33)}, "", "", "max 32"},
+		{"name with control char", []string{"1.2.3.4", "Bo\tb"}, "", "", "control character"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -127,6 +134,10 @@ func TestParseHostArgs(t *testing.T) {
 		{"bare port after name", []string{"Alice", "25566"}, "", 0, `unexpected argument "25566" (did you mean --port 25566?)`},
 		{"two names", []string{"Alice", "Bob"}, "", 0, `unexpected argument "Bob"`},
 		{"-port never a name", []string{"-port"}, "", 0, "needs a value"},
+		{"dash name after --", []string{"--port", "25566", "--", "-Alice"}, "-Alice", 25566, ""},
+		{"name at max length", []string{strings.Repeat("a", 32)}, strings.Repeat("a", 32), defaultPort, ""},
+		{"name too long", []string{strings.Repeat("a", 33)}, "", 0, "max 32"},
+		{"name not UTF-8", []string{"Al\xffce"}, "", 0, "not valid UTF-8"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

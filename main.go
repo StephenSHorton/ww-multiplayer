@@ -623,6 +623,11 @@ func main() {
 			if len(os.Args) > 3 {
 				nameB = os.Args[3]
 			}
+			for _, n := range []string{nameA, nameB} {
+				if err := network.ValidatePlayerName(n); err != nil {
+					exitUsage(err, "mp-local [nameA] [nameB]")
+				}
+			}
 			runMpLocal(nameA, nameB)
 		case "help":
 			printHelp()
@@ -6459,7 +6464,8 @@ func runFakeClient(name, addr string, centerX, centerZ float32) {
 // "-port N" / "-port=N" works too. Returns defaultPort when the flag is
 // absent. A missing, non-numeric or out-of-range value, or any other "-" or
 // "--" option, is an error, so a typo can't silently fall back to the
-// default port or end up as the player name.
+// default port or end up as the player name. A bare "--" ends the options:
+// everything after it is positional, for a name that starts with '-'.
 func extractPortFlag(args []string, defaultPort int) (port int, rest []string, err error) {
 	port = defaultPort
 	rest = make([]string, 0, len(args))
@@ -6478,8 +6484,13 @@ func extractPortFlag(args []string, defaultPort int) (port int, rest []string, e
 			val = args[i]
 		case strings.HasPrefix(a, "--port="):
 			val = strings.TrimPrefix(a, "--port=")
+		case a == "--":
+			// Everything after "--" is positional, so a player name may
+			// start with '-'.
+			rest = append(rest, args[i+1:]...)
+			return port, rest, nil
 		case len(a) > 1 && a[0] == '-':
-			return 0, nil, fmt.Errorf("unknown option %q", args[i])
+			return 0, nil, fmt.Errorf("unknown option %q (put -- before a name that starts with '-')", args[i])
 		default:
 			rest = append(rest, a)
 			continue
@@ -6517,7 +6528,9 @@ func rejectExtraArgs(rest []string, limit int) error {
 }
 
 // parseHostArgs parses `host [name] [--port N]` into the player name ("" =
-// let runHost pick one) and the port to listen on.
+// let runHost pick one) and the port to listen on. A name the host would
+// refuse (too long, control characters) is an error here, before Dolphin
+// is touched.
 func parseHostArgs(args []string) (name string, port int, err error) {
 	port, rest, err := extractPortFlag(args, defaultPort)
 	if err != nil {
@@ -6528,6 +6541,9 @@ func parseHostArgs(args []string) (name string, port int, err error) {
 	}
 	if len(rest) > 0 {
 		name = rest[0]
+		if err := network.ValidatePlayerName(name); err != nil {
+			return "", 0, err
+		}
 	}
 	return name, port, nil
 }
@@ -6547,7 +6563,8 @@ func parseServerArgs(args []string) (port int, err error) {
 // parseJoinArgs parses `join <host-ip[:port]> [name] [--port N]` into the
 // address to dial and the player name. The address gets defaultPort, or the
 // --port value, when it names no port of its own. An address port that
-// isn't a valid port, or one that disagrees with --port, is an error.
+// isn't a valid port, or one that disagrees with --port, is an error, and so
+// is a name the host would refuse.
 func parseJoinArgs(args []string) (addr, name string, err error) {
 	flagPort, rest, err := extractPortFlag(args, 0) // 0 = no --port given
 	if err != nil {
@@ -6561,6 +6578,9 @@ func parseJoinArgs(args []string) (addr, name string, err error) {
 	}
 	if len(rest) > 1 {
 		name = rest[1]
+		if err := network.ValidatePlayerName(name); err != nil {
+			return "", "", err
+		}
 	}
 	port := flagPort
 	if port == 0 {
