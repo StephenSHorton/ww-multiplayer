@@ -168,13 +168,16 @@ func chatScrollback(lines []string, rows, width int) string {
 	return strings.Join(wrapTail(visible, rows, width), "\n")
 }
 
-func newDashboard(hooks Hooks, role, name, addr string) dashboardModel {
+// newDashboard starts the session and builds its dashboard. width is the
+// terminal width as last reported (0 before the first WindowSizeMsg).
+func newDashboard(hooks Hooks, role, name, addr string, width int) dashboardModel {
 	s := startSession(hooks, role, name, addr)
 
 	ti := textinput.New()
 	ti.Placeholder = "Type a message, Enter to send…"
 	ti.Prompt = "> "
 	ti.CharLimit = 200
+	ti.Width = chatInputWidth(width)
 	ti.Focus()
 
 	// Capture the incoming-chat channel once (nil when chat isn't wired). It is
@@ -248,6 +251,17 @@ func (m dashboardModel) update(msg tea.Msg) (dashboardModel, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.WindowSizeMsg:
+		// The textinput scrolls its value sideways in Update, against the
+		// Width stored here, so it has to live in the model, not be set on
+		// view's copy. Parking the cursor at the end and back makes it
+		// recompute the visible window for the new width.
+		m.chatInput.Width = chatInputWidth(msg.Width)
+		pos := m.chatInput.Position()
+		m.chatInput.CursorEnd()
+		m.chatInput.SetCursor(pos)
+		return m, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":
@@ -296,6 +310,16 @@ const (
 	dashDefaultHeight = 24
 	dashMinWidth      = 30
 )
+
+// chatInputWidth is the chat textinput's Width for a terminal width cells
+// wide (0 when unknown): the chat panel's inner width less the "> " prompt,
+// the cursor cell and one spare, so the input stays on one row.
+func chatInputWidth(width int) int {
+	if width <= 0 {
+		width = dashDefaultWidth
+	}
+	return max(width, dashMinWidth) - 8
+}
 
 // Row budget for the panels between the status panel and the footer. A
 // panel's chrome is its border (top + bottom) and title row; the chat panel
@@ -403,8 +427,10 @@ func (m dashboardModel) view(width, height int) string {
 	}
 	w := max(width, dashMinWidth)
 
-	// Header, then status (#19), always: the header carries the role and
-	// the Host IPs to share, so it must never be what overflow pushes off.
+	// Header, then status (#19): the header carries the role and the Host
+	// IPs to share, so it must never be what overflow pushes off. The status
+	// panel is left out, rather than half-cut, on a terminal too short for
+	// both (a multi-row header of IPs on a tiny one).
 	header := renderHeader(w, m.role, m.name, m.addr, m.hostIPs, m.ended)
 	var status string
 	if m.ended {
@@ -412,16 +438,20 @@ func (m dashboardModel) view(width, height int) string {
 	} else {
 		status = renderStatus(w, m.playerCount, m.latency, m.players)
 	}
+	parts := []string{header}
+	used := lipgloss.Height(header)
+	if used+lipgloss.Height(status) <= height {
+		parts = append(parts, status)
+		used += lipgloss.Height(status)
+	}
 	help := "type + enter: chat    esc: back to connect    ctrl+c: quit"
 	if m.ended {
 		help = "esc: back to connect (your fields are kept)    ctrl+c: quit"
 	}
 	footer := helpStyle.Width(w).Render(truncate(help, w))
 
-	avail := height - lipgloss.Height(header) - lipgloss.Height(status) - lipgloss.Height(footer)
+	avail := height - used - lipgloss.Height(footer)
 	l := planLayout(w, avail, m.localOK)
-
-	parts := []string{header, status}
 
 	// Log panel, with the minimap (#22) above it or beside it.
 	if l.logRows > 0 {
@@ -443,13 +473,16 @@ func (m dashboardModel) view(width, height int) string {
 	}
 
 	// Chat panel (#20) — scrollback + an input row, just above the footer.
+	// The input's Width is kept in the model (newDashboard, WindowSizeMsg) so
+	// a long line scrolls inside one row; truncate is the backstop for a
+	// frame drawn before the input has caught up with a resize.
 	if l.chat {
-		m.chatInput.Width = w - 8
 		chatBody := panelTitleStyle.Render("Chat") + "\n"
 		if l.chatRows > 0 {
 			chatBody += chatScrollback(m.chatLines, l.chatRows, w-4) + "\n"
 		}
-		parts = append(parts, panelStyle.Width(w-2).Render(chatBody+m.chatInput.View()))
+		input := truncate(m.chatInput.View(), w-4)
+		parts = append(parts, panelStyle.Width(w-2).Render(chatBody+input))
 	}
 
 	parts = append(parts, footer)
@@ -475,14 +508,17 @@ func renderLogPanel(width, rows int, logs []logEntry) string {
 	)
 }
 
-// renderHeader builds the dashboard's top line: role, player name, and either
-// the Host IPs to share (host) or the address being joined. It is the one row
+// renderHeader builds the dashboard's header: role, player name, and either
+// the Host IPs to share (host) or the address being joined. It is the part
 // that is always on screen, so the Host IPs live here rather than in the
-// status panel. Truncated to width, never wrapped. PURE.
+// status panel. Usually one row; when a host's IPs don't fit beside the name
+// they move to rows of their own below it (hostIPRows), so no IP is ever cut.
+// Other text is truncated to width, never wrapped. PURE.
 //
 //	ended  swaps the role label for "Session ended" and drops the IPs, which
 //	       are no longer worth sharing.
 func renderHeader(width int, role, name, addr string, hostIPs []string, ended bool) string {
+	inner := width - 4
 	label := panelTitleStyle.Render("Joining")
 	if role == "Host" {
 		label = panelTitleStyle.Render("Hosting")
@@ -490,23 +526,87 @@ func renderHeader(width int, role, name, addr string, hostIPs []string, ended bo
 	if ended {
 		label = statusErr.Padding(0, 1).Render("Session ended")
 	}
-	s := label + " " + valueStyle.Render(name)
+	rows := []string{label + " " + valueStyle.Render(name)}
 	switch {
 	case role != "Host":
-		s += " " + labelStyle.Render("→ "+addr)
+		rows[0] += " " + labelStyle.Render("→ "+addr)
 	case !ended:
-		if len(hostIPs) > 0 {
-			s += "   " + labelStyle.Render("Host IP ") + valueStyle.Render(strings.Join(hostIPs, ", "))
-		}
 		// The TUI always hosts on the default port (see main's Hooks).
-		s += "   " + labelStyle.Render("port 25565")
+		port := "   " + labelStyle.Render("port 25565")
+		ips := labelStyle.Render(hostIPLabel) + valueStyle.Render(strings.Join(hostIPs, ", "))
+		if len(hostIPs) > 0 && lipgloss.Width(rows[0]+"   "+ips+port) <= inner {
+			rows[0] += "   " + ips + port
+		} else {
+			if len(hostIPs) > 0 {
+				rows = append(rows, hostIPRows(hostIPs, inner)...)
+			}
+			rows = placePort(rows, port, inner)
+		}
+	}
+	for i, r := range rows {
+		rows[i] = truncate(r, inner)
 	}
 	return lipgloss.NewStyle().
 		Background(zeldaDark).
 		Foreground(white).
 		Width(width).
 		Padding(0, 2).
-		Render(truncate(s, width-4))
+		Render(strings.Join(rows, "\n"))
+}
+
+const hostIPLabel = "Host IP "
+
+// placePort appends port to the first header row with room for it, or adds
+// it as a row of its own, indented under the IPs. PURE.
+func placePort(rows []string, port string, width int) []string {
+	for i, r := range rows {
+		if lipgloss.Width(r+port) <= width {
+			rows[i] += port
+			return rows
+		}
+	}
+	return append(rows, strings.Repeat(" ", lipgloss.Width(hostIPLabel))+strings.TrimLeft(port, " "))
+}
+
+// hostIPRows lays out the Host IPs as "Host IP a, b," rows at most width
+// cells wide, with later rows indented under the first IP. IPs are packed
+// whole: a host with a LAN address plus WSL, VirtualBox and VPN adapters
+// gets every one on screen, wherever the LAN one falls in the list. Only an
+// IP wider than a row by itself (an IPv6 literal at the minimum width) is
+// split across rows. PURE.
+func hostIPRows(ips []string, width int) []string {
+	indent := lipgloss.Width(hostIPLabel)
+	space := max(width-indent, 1)
+	var lines []string
+	cur := ""
+	for i, ip := range ips {
+		tok := ip
+		if i < len(ips)-1 {
+			tok += ","
+		}
+		switch {
+		case cur == "":
+			cur = tok
+		case lipgloss.Width(cur+" "+tok) <= space:
+			cur += " " + tok
+		default:
+			lines = append(lines, cur)
+			cur = tok
+		}
+	}
+	lines = append(lines, cur)
+
+	var rows []string
+	for _, l := range lines {
+		for _, part := range wrapRows(l, space) {
+			prefix := strings.Repeat(" ", indent)
+			if len(rows) == 0 {
+				prefix = labelStyle.Render(hostIPLabel)
+			}
+			rows = append(rows, prefix+valueStyle.Render(strings.TrimRight(part, " ")))
+		}
+	}
+	return rows
 }
 
 // formatLatency renders an RTT for the status panel. Per #19, a zero/unknown

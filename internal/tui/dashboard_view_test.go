@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -115,6 +116,16 @@ func TestDashboardView_FitsWithColor(t *testing.T) {
 		lines := checkFits(t, out, sz[0], sz[1])
 		if head := plain(lines[0]); !strings.Contains(head, "Hosting") || !strings.Contains(head, "10.0.0.5") {
 			t.Errorf("%dx%d: header row = %q, want the role and IPs", sz[0], sz[1], head)
+		}
+	}
+
+	// A header wrapped over several rows measures and fits the same way.
+	m.hostIPs = multiAdapterIPs
+	lines := checkFits(t, m.view(80, 24), 80, 24)
+	toks := headerTokens(lines)
+	for _, ip := range multiAdapterIPs {
+		if !toks[ip] {
+			t.Errorf("styled 80x24 header is missing host IP %s", ip)
 		}
 	}
 }
@@ -262,4 +273,182 @@ func TestRenderEnded_LongReasonWraps(t *testing.T) {
 	if !strings.Contains(plain(long), "…") {
 		t.Errorf("long reason should be cut with an ellipsis\n%s", plain(long))
 	}
+}
+
+// multiAdapterIPs is what listHostIPs returns on a typical Windows gaming
+// PC: WSL/Hyper-V and VirtualBox adapters ahead of the real LAN address,
+// then a VPN.
+var multiAdapterIPs = []string{"172.29.160.1", "192.168.56.1", "192.168.1.23", "10.8.0.2"}
+
+// headerTokens returns the words (split on spaces and commas) of the header
+// rows: every row above the status panel's top border.
+func headerTokens(lines []string) map[string]bool {
+	toks := map[string]bool{}
+	for _, l := range lines {
+		if strings.Contains(l, "╭") {
+			break
+		}
+		for _, f := range strings.FieldsFunc(plain(l), func(r rune) bool { return r == ' ' || r == ',' }) {
+			toks[f] = true
+		}
+	}
+	return toks
+}
+
+// TestDashboardView_HeaderKeepsEveryHostIP: a host with several adapters and
+// a long name still has every IP on screen, whole, at any size the panels
+// fit, instead of the tail of the list being cut with an ellipsis.
+func TestDashboardView_HeaderKeepsEveryHostIP(t *testing.T) {
+	sizes := [][2]int{{80, 24}, {100, 30}, {120, 30}, {200, 60}}
+	for w := dashMinWidth; w <= 220; w += 7 {
+		sizes = append(sizes, [2]int{w, 40})
+	}
+	for _, sz := range sizes {
+		w, h := sz[0], sz[1]
+		m := busyDashboard("Host")
+		m.name = "LinkTheHeroOfTheWind" // nameMaxLen
+		m.hostIPs = multiAdapterIPs
+		lines := checkFits(t, m.view(w, h), w, h)
+		if head := plain(lines[0]); !strings.Contains(head, "Hosting") {
+			t.Errorf("%dx%d: top row should be the header, got %q", w, h, head)
+		}
+		toks := headerTokens(lines)
+		for _, ip := range multiAdapterIPs {
+			if !toks[ip] {
+				t.Errorf("%dx%d: header is missing host IP %s\n---\n%s", w, h, ip, plain(strings.Join(lines, "\n")))
+			}
+		}
+		if !toks["25565"] {
+			t.Errorf("%dx%d: header is missing the port", w, h)
+		}
+	}
+}
+
+// TestRenderHeader_IPRows: the IPs share the first row when they fit and get
+// rows of their own when they don't, each within the width.
+func TestRenderHeader_IPRows(t *testing.T) {
+	if got := lipgloss.Height(renderHeader(120, "Host", "Link", "", []string{"192.168.1.10", "10.0.0.5"}, false)); got != 1 {
+		t.Errorf("two IPs at 120 columns took %d header rows, want 1", got)
+	}
+	h := renderHeader(80, "Host", "LinkTheHeroOfTheWind", "", multiAdapterIPs, false)
+	rows := strings.Split(plain(h), "\n")
+	if len(rows) < 2 {
+		t.Fatalf("four IPs and a 20-character name should wrap the header, got %q", rows)
+	}
+	for i, r := range rows {
+		if lipgloss.Width(r) != 80 {
+			t.Errorf("header row %d is %d cells, want 80: %q", i, lipgloss.Width(r), r)
+		}
+		if strings.Contains(r, "…") {
+			t.Errorf("header row %d was cut: %q", i, r)
+		}
+	}
+	if !strings.Contains(rows[1], "Host IP 172.29.160.1,") {
+		t.Errorf("second header row should start the IP list, got %q", rows[1])
+	}
+}
+
+// TestHostIPRows_PacksWhole: IPs are never split unless one alone is wider
+// than a row, and then its pieces add back up to the whole address.
+func TestHostIPRows_PacksWhole(t *testing.T) {
+	const width = 34 // two IPv4s share a row; the IPv6 literal doesn't fit one
+	v6 := "2001:db8:85a3::8a2e:370:7334"
+	rows := hostIPRows([]string{"192.168.1.23", "10.8.0.2", v6, "10.0.0.5"}, width)
+	var text strings.Builder
+	for i, r := range rows {
+		if lw := lipgloss.Width(r); lw > width {
+			t.Errorf("row %d is %d cells, want <= %d: %q", i, lw, width, plain(r))
+		}
+		text.WriteString(strings.TrimPrefix(strings.TrimSpace(plain(r)), strings.TrimSpace(hostIPLabel)))
+	}
+	joined := strings.ReplaceAll(text.String(), " ", "")
+	if want := "192.168.1.23,10.8.0.2," + v6 + ",10.0.0.5"; joined != want {
+		t.Errorf("hostIPRows text = %q, want %q", joined, want)
+	}
+	if !strings.Contains(plain(rows[0]), "192.168.1.23, 10.8.0.2,") {
+		t.Errorf("first row should pack the two IPv4s together, got %q", plain(rows[0]))
+	}
+}
+
+// typeChat sends s through update one rune at a time, the way a typist does.
+func typeChat(m dashboardModel, s string) dashboardModel {
+	for _, r := range s {
+		m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	return m
+}
+
+// checkChatRow asserts a view with a long chat line still ends in the chat
+// panel and footer, with the input on one row showing its newest text.
+func checkChatRow(t *testing.T, m dashboardModel, w, h int, tail string) {
+	t.Helper()
+	lines := checkFits(t, m.view(w, h), w, h)
+	n := len(lines)
+	if n < 3 {
+		t.Fatalf("%dx%d: only %d rows", w, h, n)
+	}
+	if !strings.Contains(plain(lines[n-1]), "esc: back") {
+		t.Errorf("%dx%d: last row should be the footer, got %q", w, h, plain(lines[n-1]))
+	}
+	if !strings.Contains(lines[n-2], "╰") {
+		t.Errorf("%dx%d: the chat panel's bottom border is missing, got %q", w, h, plain(lines[n-2]))
+	}
+	if in := plain(lines[n-3]); !strings.Contains(in, "> ") || !strings.Contains(in, tail) {
+		t.Errorf("%dx%d: input row should show the end of the line being typed (%q), got %q", w, h, tail, in)
+	}
+}
+
+// TestDashboard_LongChatInputScrolls: a chat line near CharLimit scrolls
+// sideways inside the one input row, so it can't grow the chat panel and
+// push the footer and the cursor off the bottom.
+func TestDashboard_LongChatInputScrolls(t *testing.T) {
+	long := strings.Repeat("a", 199) + "Z"
+
+	t.Run("resize", func(t *testing.T) {
+		m := busyDashboard("Host")
+		m.chatInput.Focus()
+		m, _ = m.update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		m = typeChat(m, long)
+		checkChatRow(t, m, 80, 24, "aaaZ")
+
+		// Typed wide, then shrunk: the window is recomputed for the new
+		// width right away, not on the next keypress.
+		m, _ = m.update(tea.WindowSizeMsg{Width: 200, Height: 30})
+		checkChatRow(t, m, 200, 30, "aaaZ")
+		m, _ = m.update(tea.WindowSizeMsg{Width: 60, Height: 24})
+		checkChatRow(t, m, 60, 24, "aaaZ")
+	})
+
+	t.Run("app", func(t *testing.T) {
+		// Through the app: the dashboard is built at the width the app
+		// already knows, with no further WindowSizeMsg.
+		hooks := Hooks{JoinSession: func(context.Context, context.CancelFunc, string, string, report.Reporter) {}}
+		var app tea.Model = newModel(hooks, "test")
+		app, _ = app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		app, _ = app.Update(connectedMsg{role: "Join", addr: "10.0.0.5", name: "Link"})
+		m := app.(model).dashboard
+		t.Cleanup(m.sess.stop)
+		if m.chatInput.Width != chatInputWidth(80) {
+			t.Fatalf("dashboard chat input Width = %d, want %d", m.chatInput.Width, chatInputWidth(80))
+		}
+		m = typeChat(m, long)
+		checkChatRow(t, m, 80, 24, "aaaZ")
+
+		// A later resize reaches the dashboard through the app.
+		app, _ = app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+		if got := app.(model).dashboard.chatInput.Width; got != chatInputWidth(100) {
+			t.Errorf("after a resize the chat input Width = %d, want %d", got, chatInputWidth(100))
+		}
+	})
+
+	t.Run("no width yet", func(t *testing.T) {
+		// Width never set: truncation still keeps the input on one row.
+		m := busyDashboard("Host")
+		m.chatInput.Focus()
+		m.chatInput.SetValue(long)
+		lines := checkFits(t, m.view(80, 24), 80, 24)
+		if !strings.Contains(plain(lines[len(lines)-1]), "esc: back") {
+			t.Errorf("last row should be the footer, got %q", plain(lines[len(lines)-1]))
+		}
+	})
 }

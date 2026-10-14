@@ -81,7 +81,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.connect.err = errMsg
 			return m, nil
 		}
-		m.dashboard = newDashboard(m.hooks, msg.role, msg.name, msg.addr)
+		m.dashboard = newDashboard(m.hooks, msg.role, msg.name, msg.addr, m.width)
 		m.screen = screenDashboard
 		return m, m.dashboard.initCmd()
 
