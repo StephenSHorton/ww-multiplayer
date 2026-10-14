@@ -70,7 +70,9 @@ var ErrOutputIsInput = errors.New("output is the input file")
 // room. Every write is checked against the file extents listed in the FST,
 // so no file data is ever overwritten; if there's no safe gap, it errors.
 //
-// The output is always the same size as the input. Caller is expected to
+// The output is the same size as the input, except for a trimmed image with
+// no free gap inside it: there the FST is appended past its end, which grows
+// the output (always staying under the disc size cap). Caller is expected to
 // write it to a fresh path; we never mutate `iso` in place.
 func PatchISOInMemory(iso []byte) ([]byte, error) {
 	out, _, err := patchImage(iso)
@@ -163,6 +165,9 @@ func patchImage(iso []byte) ([]byte, Result, error) {
 	if err != nil {
 		return nil, Result{}, err
 	}
+	if end := int(newFSTOff) + len(fst); end > len(out) {
+		out = append(out, make([]byte, end-len(out))...) // the EOF append
+	}
 	copy(out[newFSTOff:], fst)
 	copy(out[dolOff:], patchedDOL)
 
@@ -176,21 +181,27 @@ func patchImage(iso []byte) ([]byte, Result, error) {
 }
 
 // chooseFSTRelocation picks where the relocated FST should land: a 64 KB
-// aligned range past the end of the patched DOL (dolEnd), inside both the
-// image and the standard disc size, that overlaps nothing in used.
+// aligned range past the end of the patched DOL (dolEnd), below the standard
+// disc size, that overlaps nothing in used.
 //  1. Prefer wwSafeFSTOff (0x500000) — the slot vanilla WW leaves free, and
 //     the one the patcher has always used. Junk padding there (raw 1:1
 //     dumps keep it; scrubbed images and CISOs have zeros) doesn't matter:
 //     no file lives there, so nothing reads those bytes.
 //  2. Otherwise the lowest free aligned gap.
-//  3. No gap: refuse. Appending past EOF/the disc size cap breaks the game
-//     at runtime, so there's no point producing that image.
+//  3. No gap inside the image, but the image is smaller than a full disc (a
+//     trimmed dump): append past EOF, as the patcher always has for these.
+//     The FST still ends below the disc size cap, so the game reads it.
+//  4. Otherwise refuse. Past the disc size cap the game's file mounts fail
+//     at runtime (see wwSafeFSTOff), so there's no point producing that image.
 func chooseFSTRelocation(used []extent, fstSize uint32, dolEnd, imageSize uint64) (uint32, error) {
 	limit := min(imageSize, gcDiscSize)
 	off, ok := findFreeSlot(used, uint64(fstSize), isoFSTAlignment, dolEnd, limit, wwSafeFSTOff)
+	if !ok && imageSize < gcDiscSize {
+		off, ok = findFreeSlot(used, uint64(fstSize), isoFSTAlignment, max(dolEnd, imageSize), gcDiscSize, 0)
+	}
 	if !ok {
-		return 0, fmt.Errorf("iso: no free space found to relocate the FST (0x%x bytes, between 0x%x and 0x%x); please report this",
-			fstSize, dolEnd, limit)
+		return 0, fmt.Errorf("iso: no free space found to relocate the FST (0x%x bytes, between 0x%x and the disc size cap 0x%x); please report this",
+			fstSize, dolEnd, uint64(gcDiscSize))
 	}
 	return uint32(off), nil
 }

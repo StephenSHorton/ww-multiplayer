@@ -193,6 +193,9 @@ func (b builtDisc) want(t testing.TB, newFST uint32) []byte {
 		t.Fatalf("PatchDOL(vanilla test DOL): %v", err)
 	}
 	exp := bytes.Clone(b.img)
+	if end := int(newFST) + len(b.fst); end > len(exp) {
+		exp = append(exp, make([]byte, end-len(exp))...) // FST appended at EOF
+	}
 	if newFST != b.fstOff {
 		copy(exp[newFST:], b.fst)
 		put32(exp, isoHeaderFSTOff, newFST)
@@ -205,8 +208,9 @@ func (b builtDisc) want(t testing.TB, newFST uint32) []byte {
 // with targeted failures before the whole-image comparison.
 func (b builtDisc) checkPatched(t *testing.T, out []byte, newFST uint32) {
 	t.Helper()
-	if len(out) != len(b.img) {
-		t.Fatalf("output is %d bytes, input %d (the patcher must not grow the image)", len(out), len(b.img))
+	// The image grows only when the FST is appended past its end.
+	if want := max(len(b.img), int(newFST)+len(b.fst)); len(out) != want {
+		t.Fatalf("output is %d bytes, want %d (input %d, FST at 0x%x)", len(out), want, len(b.img), newFST)
 	}
 	if got := be32(out, isoHeaderFSTOff); got != newFST {
 		t.Fatalf("header FST offset = 0x%x, want 0x%x", got, newFST)

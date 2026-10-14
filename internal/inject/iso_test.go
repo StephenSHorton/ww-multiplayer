@@ -66,9 +66,10 @@ func TestPatchISOAvoidsFileAt0x500000(t *testing.T) {
 	}
 }
 
-// When files fill everything past the patched DOL, refuse instead of
-// appending at EOF (past the disc-size cap the game breaks at runtime).
-func TestPatchISONoFreeSpace(t *testing.T) {
+// When files fill everything past the patched DOL in an image smaller than a
+// full disc (a trimmed dump), the FST is appended at EOF, the way the
+// patcher always handled these: it still ends under the disc-size cap.
+func TestPatchISONoFreeSpaceAppendsAtEOF(t *testing.T) {
 	d := vanillaLike()
 	d.junk = true
 	fstEnd := uint32(alignUp64(uint64(d.dolOff)+uint64(testDOLSize), 0x100)) + 0x5000 // past the padded FST
@@ -81,10 +82,11 @@ func TestPatchISONoFreeSpace(t *testing.T) {
 	if int(b.fstOff)+len(b.fst) > int(fstEnd) {
 		t.Fatalf("test layout: FST [0x%x..0x%x] runs into the first file at 0x%x", b.fstOff, int(b.fstOff)+len(b.fst), fstEnd)
 	}
-	_, err := PatchISOInMemory(b.img)
-	if err == nil || !strings.Contains(err.Error(), "no free space found to relocate the FST") {
-		t.Fatalf("err = %v, want a no-free-space error", err)
+	out, err := PatchISOInMemory(b.img)
+	if err != nil {
+		t.Fatal(err)
 	}
+	b.checkPatched(t, out, uint32(alignUp64(uint64(len(b.img)), isoFSTAlignment)))
 }
 
 // An FST smaller than the DOL growth with a file right after it: the old
@@ -214,6 +216,14 @@ func TestChooseFSTRelocationStaysUnderDiscCap(t *testing.T) {
 	// A bigger FST only fits past the cap, even though the image is larger.
 	if off, err := chooseFSTRelocation(used, 0x8001, 0, gcDiscSize+0x10000000); err == nil {
 		t.Errorf("0x8001-byte FST placed at 0x%x, past the disc-size cap", off)
+	}
+	// A trimmed image appends at EOF, but never past the cap either.
+	if off, err := chooseFSTRelocation(used, 0x8000, 0, gcDiscSize-0x8000); err != nil || off != gcDiscSize-0x8000 {
+		t.Errorf("EOF append of 0x8000 bytes: off 0x%x err %v, want 0x%x", off, err, gcDiscSize-0x8000)
+	}
+	if off, err := chooseFSTRelocation(used, 0x8001, 0, gcDiscSize-0x8000); err == nil ||
+		!strings.Contains(err.Error(), "no free space found to relocate the FST") {
+		t.Errorf("EOF append of 0x8001 bytes: off 0x%x err %v, want a no-free-space error", off, err)
 	}
 }
 
