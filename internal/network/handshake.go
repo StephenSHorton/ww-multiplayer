@@ -152,6 +152,10 @@ func writeJoin(w io.Writer, name string) error {
 	return err
 }
 
+// legacyHostReason is the version error for a host that predates the
+// handshake (v0.2.x or earlier).
+const legacyHostReason = "host runs an older ww-multiplayer (v0.2.x or earlier); both players need the same version"
+
 // checkWelcome vets the server's first frame after our join. A *RejectError
 // (errors.Is ErrFatal) means retrying can't help: the server refused us with
 // MsgReject, or it speaks a different protocol version (including none at
@@ -165,6 +169,13 @@ func checkWelcome(msg *Message) error {
 			reason = "no reason given"
 		}
 		return &RejectError{Code: code, Reason: "host refused the connection: " + reason}
+	case MsgPosition, MsgPose, MsgPlayerList, MsgLeave, MsgChat:
+		// A current server writes the welcome before any relay can reach
+		// a new player (server.go holds SendMu across it). A v0.2.x server
+		// adds the player to its broadcast list first, so another player's
+		// position or pose can arrive ahead of the welcome; that is the
+		// same old host as a short welcome, so say so instead of retrying.
+		return &RejectError{Code: RejectVersion, Reason: legacyHostReason}
 	default:
 		return fmt.Errorf("expected welcome, got message type %q (%d bytes)", msg.Type, len(msg.Data))
 	}
@@ -173,8 +184,7 @@ func checkWelcome(msg *Message) error {
 	}
 	version, ok := WelcomeProtocolVersion(msg.Data)
 	if !ok {
-		return &RejectError{Code: RejectVersion,
-			Reason: "host runs an older ww-multiplayer (v0.2.x or earlier); both players need the same version"}
+		return &RejectError{Code: RejectVersion, Reason: legacyHostReason}
 	}
 	if version != ProtocolVersion {
 		return &RejectError{Code: RejectVersion,

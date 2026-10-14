@@ -263,6 +263,23 @@ func TestNewClientStopsOnOldServer(t *testing.T) {
 	}
 }
 
+// TestCheckWelcomeOldHostRelayFirst: a v0.2.x host can relay another
+// player's traffic to us before our welcome. Such a first frame is the same
+// fatal "older host" error as a short welcome, while an unknown first frame
+// stays a plain, retryable error.
+func TestCheckWelcomeOldHostRelayFirst(t *testing.T) {
+	for _, typ := range []byte{MsgPosition, MsgPose, MsgPlayerList, MsgLeave, MsgChat} {
+		err := checkWelcome(&Message{Type: typ, Data: []byte{1, 2, 3}})
+		var rej *RejectError
+		if !errors.As(err, &rej) || rej.Code != RejectVersion || !strings.Contains(err.Error(), "older ww-multiplayer") {
+			t.Errorf("first frame %q: err = %v, want the older-host version reject", typ, err)
+		}
+	}
+	if err := checkWelcome(&Message{Type: 'Z'}); err == nil || errors.Is(err, ErrFatal) {
+		t.Errorf("unknown first frame: err = %v, want a non-fatal error", err)
+	}
+}
+
 // --- rejects -----------------------------------------------------------------
 
 // TestServerRejectsProtocolMismatch: a hello with another version (or a
