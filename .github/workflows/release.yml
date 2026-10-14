@@ -1,7 +1,9 @@
 name: Release
 
 # Triggered by pushing a tag like `v0.1.0`. Builds Windows + macOS
-# binaries and publishes a single GitHub Release with both attached.
+# binaries and publishes a single GitHub Release with both attached,
+# plus a SHA256SUMS file covering every artifact. Tags containing a '-'
+# (e.g. `v0.3.0-rc1`) are published as prereleases.
 #
 # We don't ship patched.dol — that would be a derivative of the entire
 # Wind Waker DOL (copyrighted). The shipped binaries contain only our IP
@@ -21,10 +23,14 @@ jobs:
   windows:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          # Full history so the blob-freshness gate below can see which
+          # commits last touched the C source and blob.go.
+          fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
@@ -41,7 +47,29 @@ jobs:
             echo "::error::internal/inject/blob.go is missing T2Bytes — regenerate via scripts/extract_blob.py"
             exit 1
           fi
+          if ! grep -q "var DOLPatches" internal/inject/blob.go; then
+            echo "::error::internal/inject/blob.go is missing DOLPatches — regenerate via scripts/extract_blob.py"
+            exit 1
+          fi
           go vet ./...
+
+      # CLAUDE.md's "regenerate blob.go before tagging" rule, enforced:
+      # if the newest commit touching the C source (inject/src,
+      # inject/include) is newer than the newest commit touching
+      # internal/inject/blob.go, the release would ship stale PPC code.
+      - name: Check blob.go is not older than the C source
+        run: |
+          SRC=$(git log -1 --format=%ct -- inject/src inject/include)
+          BLOB=$(git log -1 --format=%ct -- internal/inject/blob.go)
+          echo "C source last changed: ${SRC}  blob.go last changed: ${BLOB}"
+          if [ -z "$SRC" ] || [ -z "$BLOB" ]; then
+            echo "::error::could not read commit times (is the checkout shallow?)"
+            exit 1
+          fi
+          if [ "$SRC" -gt "$BLOB" ]; then
+            echo "::error::inject/src or inject/include changed after internal/inject/blob.go — rebuild the C side and run scripts/extract_blob.py before tagging"
+            exit 1
+          fi
 
       - name: Build ww-multiplayer.exe (Windows amd64)
         env:
@@ -49,7 +77,7 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: '0'
         run: |
-          go build -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o ww-multiplayer.exe .
+          go build -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o ww-multiplayer.exe .
           ls -la ww-multiplayer.exe
 
       - name: Upload artifact
@@ -61,18 +89,20 @@ jobs:
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
       - name: go vet
         run: go vet ./...
 
-      # scripts/build-mac.sh handles per-arch compile, lipo into a
-      # universal binary, and packaging into a .app + tarball.
+      # scripts/build-mac.sh handles per-arch compile (-trimpath, version
+      # stamped via -X main.version), lipo into a universal binary, and
+      # packaging into a .app + tarball that also carries
+      # scripts/setup-mac-dolphin.sh and LICENSE.
       - name: Build universal binary + .app bundle
         run: ./scripts/build-mac.sh "${GITHUB_REF_NAME}"
 
@@ -97,30 +127,46 @@ jobs:
           name: ww-macos-universal
           path: artifacts
 
+      - name: Write SHA256SUMS
+        working-directory: artifacts
+        run: |
+          sha256sum ww-multiplayer.exe ww-multiplayer-macos.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             artifacts/ww-multiplayer.exe
             artifacts/ww-multiplayer-macos.tar.gz
+            artifacts/SHA256SUMS
           generate_release_notes: true
           body: |
             ## Wind Waker Multiplayer ${{ github.ref_name }}
 
             **Requires your own legitimate copy of The Legend of Zelda: The Wind Waker (NTSC-U, GZLE01)** as a `.iso` or `.ciso` file.
 
+            **Both players must run the same version.** v0.3.0 and later are not compatible with v0.2.x (for example, a newer host disconnects an older client within about 15 seconds), so both players must upgrade. Check with `ww-multiplayer.exe version` (Windows) or `./ww-multiplayer version` (macOS).
+
             ### Windows
 
             1. Download `ww-multiplayer.exe`.
             2. `ww-multiplayer.exe patch path\to\your-wind-waker.iso`
             3. Boot the patched ISO in Dolphin.
-            4. Host: `ww-multiplayer.exe host [name]`. Join: `ww-multiplayer.exe join <host-ip> [name]`.
+            4. Double-click `ww-multiplayer.exe` for the menu (host or join), or from a terminal: host with `ww-multiplayer.exe host [name]`, join with `ww-multiplayer.exe join <host-ip> [name]`.
 
             ### macOS (Apple Silicon + Intel)
 
-            1. Download and untar `ww-multiplayer-macos.tar.gz`. Inside you'll find `ww-multiplayer` (universal binary) and `WW Multiplayer.app` (Finder-clickable wrapper).
-            2. `./ww-multiplayer patch ~/Roms/your-wind-waker.iso`
-            3. Boot the patched ISO in Dolphin.
-            4. **macOS requires sudo** to read Dolphin's process memory (the kernel gates `task_for_pid` behind SIP). Run as `sudo ./ww-multiplayer host [name]` / `sudo ./ww-multiplayer join <host-ip> [name]`. The `.app` bundle does this automatically.
+            1. Download and untar `ww-multiplayer-macos.tar.gz`. Inside you'll find `ww-multiplayer` (universal binary), `WW Multiplayer.app` (Finder-clickable wrapper), `scripts/setup-mac-dolphin.sh` and `LICENSE`.
+            2. In Terminal, from the untarred folder, clear the download quarantine (the binary is ad-hoc signed, not notarized): `xattr -cr ww-multiplayer "WW Multiplayer.app" scripts`
+            3. One-time Dolphin setup (re-run after every Dolphin update): `./scripts/setup-mac-dolphin.sh`. It copies `/Applications/Dolphin.app` to `~/Applications/Dolphin.app` and re-signs the copy without the hardened runtime so ww-multiplayer can read its memory.
+            4. `./ww-multiplayer patch ~/Roms/your-wind-waker.iso`
+            5. Boot the patched ISO in the `~/Applications/Dolphin.app` copy.
+            6. Host: `./ww-multiplayer host [name]` (or double-click `WW Multiplayer.app`). Join: `./ww-multiplayer join <host-ip> [name]`. No sudo needed.
 
-            See the README for full setup, two-Dolphin local play, and known issues.
+            ### Verify your download
+
+            `SHA256SUMS` lists the SHA-256 of every file above. macOS / Linux: `shasum -a 256 -c SHA256SUMS --ignore-missing`. Windows (PowerShell): `Get-FileHash ww-multiplayer.exe` and compare with the matching line.
+
+            See the README for full setup, internet play, two-Dolphin local play, and known issues.
