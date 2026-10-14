@@ -1348,7 +1348,7 @@ func runBroadcastPose(name, addr string) {
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
 	if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep, nil, nil); err != nil {
-		rep.Log(report.Err, err.Error())
+		logSessionErr(rep, err)
 		os.Exit(1)
 	}
 }
@@ -1686,7 +1686,7 @@ func runPuppetSync(name, addr string) {
 	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"), 0, rep, nil, nil)
 	clearMultiplayerState()
 	if err != nil {
-		rep.Log(report.Err, err.Error())
+		logSessionErr(rep, err)
 		os.Exit(1)
 	}
 }
