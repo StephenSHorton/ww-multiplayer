@@ -12,6 +12,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"image/png"
 	"math"
@@ -659,7 +660,10 @@ func main() {
 			return runHostSession(ctx, cancel, name, defaultPort, rep, ls)
 		},
 		JoinSession: func(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter) {
-			runJoinSession(ctx, cancel, addr, name, rep, ls)
+			// Log the failure the way the TUI logs a HostSession error.
+			if err := runJoinSession(ctx, cancel, addr, name, rep, ls); err != nil {
+				rep.Log(report.Err, err.Error())
+			}
 		},
 		Players:     func() []tui.PlayerView { return ls.players() },
 		LocalPos:    func() (x, y, z float32, ok bool) { return ls.localPos() },
@@ -6780,6 +6784,8 @@ func runHost(name string, port int) {
 // ls, when non-nil (the TUI path), is the shared status bridge: this session
 // registers its server, host IPs, and puppet-sync client into it for the #19
 // status panel, and clears it on return. CLI callers pass nil.
+// Returns a server start failure or the first pipeline failure (not yet
+// logged), or nil when the session ended by ctx cancel.
 func runHostSession(ctx context.Context, cancel context.CancelFunc, name string, port int, rep report.Reporter, ls *liveState) error {
 	if name == "" {
 		name = "Host"
@@ -6810,11 +6816,11 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 	}
 	rep.Log(report.Info, "Ctrl+C to stop.")
 
-	runMultiplayerGoroutines(ctx, cancel, name, fmt.Sprintf("localhost:%d", port), rep, liveStateClientSetter(ls), liveStateLocalPosSetter(ls))
+	err := runMultiplayerGoroutines(ctx, cancel, name, fmt.Sprintf("localhost:%d", port), rep, liveStateClientSetter(ls), liveStateLocalPosSetter(ls))
 
 	srv.Stop()
 	clearMultiplayerState()
-	return nil
+	return err
 }
 
 // runJoin is the single-process joiner entry point: just broadcast-pose +
@@ -6824,14 +6830,18 @@ func runJoin(addr, name string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	runJoinSession(ctx, cancel, addr, name, rep, nil)
+	if err := runJoinSession(ctx, cancel, addr, name, rep, nil); err != nil {
+		rep.Log(report.Err, err.Error())
+		os.Exit(1)
+	}
 }
 
 // runJoinSession is the signal-free, exit-free version that the TUI calls.
 // ls, when non-nil (the TUI path), is the shared status bridge: the join role
 // registers only its puppet-sync client (no server, no host IPs) and clears the
-// bridge on return. CLI callers pass nil.
-func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter, ls *liveState) {
+// bridge on return. CLI callers pass nil. Returns the first pipeline failure
+// (not yet logged), or nil when the session ended by ctx cancel.
+func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter, ls *liveState) error {
 	if name == "" {
 		name = "Player"
 	}
@@ -6849,15 +6859,20 @@ func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name s
 	report.Logf(rep, report.OK, "Joining %s as %q.", addr, name)
 	rep.Log(report.Info, "Ctrl+C to stop.")
 
-	runMultiplayerGoroutines(ctx, cancel, name, addr, rep, liveStateClientSetter(ls), liveStateLocalPosSetter(ls))
+	err := runMultiplayerGoroutines(ctx, cancel, name, addr, rep, liveStateClientSetter(ls), liveStateLocalPosSetter(ls))
 
 	clearMultiplayerState()
+	return err
 }
 
 // cliMultiplayerContext returns a cancellable context wired to SIGINT/SIGTERM.
 // Only the CLI entry points should use this — the TUI installs its own
 // Ctrl+C handling via Bubble Tea's KeyMsg, and a competing signal.Notify
 // would race with it.
+//
+// Only the FIRST signal is caught. The handler is then removed, so a second
+// Ctrl+C gets the default behavior and kills the process at once — the way
+// out if teardown is ever stuck.
 func cliMultiplayerContext(rep report.Reporter) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigCh := make(chan os.Signal, 1)
@@ -6865,9 +6880,11 @@ func cliMultiplayerContext(rep report.Reporter) (context.Context, context.Cancel
 	go func() {
 		select {
 		case <-sigCh:
-			rep.Log(report.Info, "Shutting down...")
+			signal.Stop(sigCh)
+			rep.Log(report.Info, "Shutting down... (press Ctrl+C again to force quit)")
 			cancel()
 		case <-ctx.Done():
+			signal.Stop(sigCh)
 		}
 	}()
 	return ctx, cancel
@@ -6887,27 +6904,65 @@ func cliMultiplayerContext(rep report.Reporter) (context.Context, context.Cancel
 //
 // Both goroutines dial the same addr, so they share one ConnectLog and an
 // unreachable host is reported once rather than once per connection.
-func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) {
+// Returns runPipelines' result: the first real failure, or nil on a normal
+// ctx-cancel shutdown.
+func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) error {
 	connLog := newConnectLog(addr, rep)
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		defer cancel()
-		if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep, connLog, onPos); err != nil {
-			report.Logf(rep, report.Err, "broadcast-pose: %v", err)
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		defer cancel()
-		if err := runPuppetSyncCtx(ctx, name, addr, name, 0, rep, connLog, onClient); err != nil {
-			report.Logf(rep, report.Err, "puppet-sync: %v", err)
-		}
-	}()
+	return runPipelines(ctx, cancel, rep,
+		pipeline{"broadcast-pose", func(ctx context.Context) error {
+			return runBroadcastPoseCtx(ctx, name, addr, 0, rep, connLog, onPos)
+		}},
+		pipeline{"puppet-sync", func(ctx context.Context) error {
+			return runPuppetSyncCtx(ctx, name, addr, name, 0, rep, connLog, onClient)
+		}},
+	)
+}
 
-	<-ctx.Done()
+// pipeline is one named, long-running half of a multiplayer session
+// (broadcast-pose or puppet-sync) for runPipelines.
+type pipeline struct {
+	name string
+	run  func(context.Context) error
+}
+
+// runPipelines runs every pipeline concurrently under ctx. When any of them
+// returns, it cancels ctx (via cancel) so the others stop too — a session
+// with one dead half isn't left looking alive — and waits for all of them.
+//
+// It returns the first real failure, prefixed with that pipeline's name and
+// NOT yet logged, so callers can log it once and exit non-zero. A pipeline
+// that returns nil or context.Canceled ended because of a normal Ctrl+C or
+// Esc shutdown and doesn't count. Any further failures are logged here as
+// they happen, since only one error can be returned.
+func runPipelines(ctx context.Context, cancel context.CancelFunc, rep report.Reporter, ps ...pipeline) error {
+	var (
+		wg    sync.WaitGroup
+		mu    sync.Mutex
+		first error
+	)
+	for _, p := range ps {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer cancel()
+			err := p.run(ctx)
+			if err == nil || errors.Is(err, context.Canceled) {
+				return
+			}
+			err = fmt.Errorf("%s: %w", p.name, err)
+			mu.Lock()
+			isFirst := first == nil
+			if isFirst {
+				first = err
+			}
+			mu.Unlock()
+			if !isFirst {
+				rep.Log(report.Err, err.Error())
+			}
+		}()
+	}
 	wg.Wait()
+	return first
 }
 
 // newConnectLog returns a network.ConnectLog that reports connect failures
