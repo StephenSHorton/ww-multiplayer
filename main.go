@@ -1344,7 +1344,6 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 	client := network.NewClient(name)
 	client.OnLog = func(msg string) { rep.Log(report.Net, msg) }
 
-	const linkJointCount = 42
 	const poseBytes = linkJointCount * 48
 
 	// Session 14: face-state capture reads from mailbox.face_state_local,
@@ -1493,7 +1492,6 @@ func runPoseFakeLoop(name, addr string) {
 
 	const linkMpCLModelOff = 0x032C
 	const j3dModelMpNodeMtxOff = 0x8C
-	const linkJointCount = 42
 	const poseBytes = linkJointCount * 48
 
 	// One-shot capture: read Link's current world pose, then localize.
@@ -1734,6 +1732,11 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	// parked[id] marks a remote whose despawn reservation expired (its link
 	// slot was freed for reuse); it's skipped until a fresh pose un-parks it.
 	parked := map[byte]bool{}
+	// Log-once marks for poses we refuse to write into emulated RAM:
+	// badRig[id] for a remote whose pose isn't a 42-joint Link skeleton,
+	// badPoseBuf[slot] for the last out-of-MEM1 pose_buf pointer reported.
+	badRig := map[byte]bool{}
+	badPoseBuf := [maxRemoteLinks]uint32{}
 	// sessionEpoch increments on every successful (re)connect; lastServerEpoch
 	// tracks the server's boot epoch so a restart (epoch change) triggers a
 	// full reset.
@@ -1858,6 +1861,21 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		}
 		return -1
 	}
+	// poseBufOK guards the write of a remote's pose through a slot's
+	// pose_buf pointer. The pointer comes back out of the mailbox, which
+	// WriteAbsolute won't check, so the whole Link-sized write must land
+	// inside MEM1. Reports each bad pointer value once.
+	poseBufOK := func(slot int) bool {
+		ptr := poseBufPtrs[slot]
+		if poseDstInMEM1(ptr, linkJointCount*mtxBytes) {
+			return true
+		}
+		if badPoseBuf[slot] != ptr {
+			badPoseBuf[slot] = ptr
+			report.Logf(rep, report.Err, "pose-feed slot %d: pose_buf 0x%08X is outside MEM1; not writing poses there", slot, ptr)
+		}
+		return false
+	}
 
 	// Vanished-sender thresholds (#10). freezeAfter: hold the last pose;
 	// despawnAfter: clear the slot. despawnReserve keeps a despawned slot
@@ -1921,6 +1939,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 			remoteToLinkSlot = map[byte]int{}
 			announced = map[byte]bool{}
 			parked = map[byte]bool{}
+			badRig = map[byte]bool{}
 			rep.Log(report.Warn, "server restarted (epoch changed): full puppet reset")
 		}
 		report.Logf(rep, report.OK, "puppet-sync session %d armed (server epoch %d)", sessionEpoch, ep)
@@ -1957,8 +1976,15 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 					continue
 				}
 				seen[rp.ID] = true
-				hasPose := rp.PoseMatrices != nil && rp.PoseJoints > 0 &&
-					len(rp.PoseMatrices) == rp.PoseJoints*48
+				// Only a whole 42-joint Link pose can drive a Link slot: the
+				// C side's pose buffers are sized for exactly that. A remote
+				// sending any other rig is shown as an actor puppet instead.
+				hasPose := linkPoseUsable(rp.PoseJoints, len(rp.PoseMatrices))
+				if rp.PoseMatrices != nil && !hasPose && !badRig[rp.ID] {
+					badRig[rp.ID] = true
+					report.Logf(rep, report.Warn, "player %d (%s) sent a %d-joint pose (%d B); Link has %d joints, so it won't drive a Link slot",
+						rp.ID, rp.Name, rp.PoseJoints, len(rp.PoseMatrices), linkJointCount)
+				}
 				idx, ok := remoteToSlot[rp.ID]
 				if !ok {
 					// Find a free slot. Walk 0..N; first index not already
@@ -2023,7 +2049,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 				// lands at the right world coords. The offset is normally 0
 				// for two-Dolphin play; set it to e.g. 500 for loopback
 				// development so Link #2 doesn't overlap your own Link.
-				if rp.PoseMatrices != nil && len(rp.PoseMatrices) == rp.PoseJoints*48 {
+				if hasPose {
 					// Vanished-sender classification (#10). LastPose stops
 					// advancing the moment the remote's pose stream goes silent
 					// (crash / cable pull), well before the server's MsgLeave at
@@ -2079,8 +2105,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 								report.Logf(rep, report.Info, "link slot %d frozen: player %d pose stalled", linkSlot, rp.ID)
 							}
 						default:
-							// Normal path: arm + write the fresh pose.
-							if armPoseSlot(ctx, linkSlot) {
+							// Normal path: arm + write the fresh pose (only through
+							// a pose_buf pointer that keeps the write in MEM1).
+							if armPoseSlot(ctx, linkSlot) && poseBufOK(linkSlot) {
 								// First time this remote got a link slot — also
 								// release their actor-puppet so we don't see both
 								// a Link AND a KAMOME at the same position.
@@ -2106,12 +2133,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 										st.curX+link2OffsetX, st.curY+link2OffsetY, st.curZ+link2OffsetZ)
 								}
 								d.WriteAbsolute(poseBufPtrs[linkSlot], adjusted)
-								sq, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), 1)
-								next := byte(0)
-								if len(sq) == 1 {
-									next = sq[0] + 1
-								}
-								d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{next})
+								// nextSeq skips 0, which C reads as "no pose
+								// yet" and would skip this slot for a frame.
+								bumpSeqByte(d, mailboxBase+mailboxPoseSeq(linkSlot))
 
 								// Session 9: face-state suffix (eye texno values).
 								// Writer is the C-side J3DMatPacket vtable hook —
@@ -2125,18 +2149,10 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 								// the gating).
 								if len(rp.FaceState) >= faceStateWireBytes {
 									d.WriteAbsolute(mailboxBase+mailboxFaceState(linkSlot), rp.FaceState[:faceStateWireBytes])
-									fsq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), 1)
-									fnext := byte(1)
-									if len(fsq) == 1 {
-										fnext = fsq[0] + 1
-										if fnext == 0 {
-											// Wrap from 0 means "not yet armed"
-											// per the C-side gate; skip 0 on
-											// rollover so the gate stays open.
-											fnext = 1
-										}
-									}
-									d.WriteAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), []byte{fnext})
+									// 0 means "not yet armed" per the C-side
+									// gate; nextSeq skips it on rollover so the
+									// gate stays open.
+									bumpSeqByte(d, mailboxBase+mailboxFaceSeq(linkSlot))
 								}
 							}
 						}
@@ -2162,6 +2178,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 					}
 					delete(announced, id)
 					delete(parked, id)
+					delete(badRig, id)
 				}
 			}
 
@@ -3854,15 +3871,8 @@ func runFaceSyncFake(slot int, hexStr string) {
 		fmt.Printf("write face_state failed: %v\n", err)
 		os.Exit(1)
 	}
-	fsq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(slot), 1)
-	next := byte(1)
-	if len(fsq) == 1 {
-		next = fsq[0] + 1
-		if next == 0 {
-			next = 1
-		}
-	}
-	if err := d.WriteAbsolute(mailboxBase+mailboxFaceSeq(slot), []byte{next}); err != nil {
+	next, err := bumpSeqByte(d, mailboxBase+mailboxFaceSeq(slot))
+	if err != nil {
 		fmt.Printf("write face_seq failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -4074,10 +4084,7 @@ func runFaceSyncFakeLoop(slot int, hexStr string, secs int) {
 			return
 		case <-tick.C:
 			d.WriteAbsolute(stateAddr, buf)
-			seq++
-			if seq == 0 {
-				seq = 1
-			}
+			seq = nextSeq(seq)
 			d.WriteAbsolute(seqAddr, []byte{seq})
 			writes++
 			if !deadline.IsZero() && time.Now().After(deadline) {
@@ -5235,12 +5242,7 @@ func runPoseTest(mode string, durSec int) {
 	fmt.Printf("pose_buf_ptr = 0x%08X  joint_count = %d  pose_size = %d B\n", poseBufPtr, jointCount, poseSize)
 
 	bumpSeq := func() {
-		seqBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq(0), 1)
-		next := byte(0)
-		if len(seqBytes) == 1 {
-			next = seqBytes[0] + 1
-		}
-		d.WriteAbsolute(mailboxBase+mailboxPoseSeq(0), []byte{next})
+		bumpSeqByte(d, mailboxBase+mailboxPoseSeq(0))
 	}
 
 	// Read Link #1's mpNodeMtx, NOT mini-Link's. Mini-Link's mpNodeMtx is
