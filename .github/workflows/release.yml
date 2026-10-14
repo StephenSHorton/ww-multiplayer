@@ -57,13 +57,20 @@ jobs:
       # if the newest commit touching the C source (inject/src,
       # inject/include) is newer than the newest commit touching
       # internal/inject/blob.go, the release would ship stale PPC code.
+      # A shallow clone can't answer that: its tip commit is a graft root,
+      # so both lookups return the tip's time and the comparison passes
+      # whatever the blob's real age. Fail instead of passing silently.
       - name: Check blob.go is not older than the C source
         run: |
+          if [ "$(git rev-parse --is-shallow-repository)" != false ]; then
+            echo "::error::blob-freshness gate needs the full history (fetch-depth: 0 on actions/checkout)"
+            exit 1
+          fi
           SRC=$(git log -1 --format=%ct -- inject/src inject/include)
           BLOB=$(git log -1 --format=%ct -- internal/inject/blob.go)
           echo "C source last changed: ${SRC}  blob.go last changed: ${BLOB}"
           if [ -z "$SRC" ] || [ -z "$BLOB" ]; then
-            echo "::error::could not read commit times (is the checkout shallow?)"
+            echo "::error::no commit found touching inject/src, inject/include or internal/inject/blob.go"
             exit 1
           fi
           if [ "$SRC" -gt "$BLOB" ]; then

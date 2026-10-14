@@ -111,14 +111,17 @@ the command line for another port.
 **The command line** does the same thing:
 
 ```
-ww-multiplayer host [name] [--port N]     # default port 25565
-ww-multiplayer join <host> [name]         # <host> is an IP or hostname
-ww-multiplayer join 192.168.1.42:26000    # host used --port 26000
-ww-multiplayer join [2001:db8::42]:26000  # IPv6: brackets when giving a port
+ww-multiplayer host [name] [--port N]       # default port 25565
+ww-multiplayer join <host> [name]           # <host> is an IP or hostname
+ww-multiplayer join 192.168.1.42:26000      # host used --port 26000
+ww-multiplayer join "[2001:db8::42]:26000"  # IPv6: brackets when giving a port
 ```
 
-(`ww-multiplayer.exe` on Windows, `./ww-multiplayer` on macOS.) A bare
-IPv6 address without a port, such as `join 2001:db8::42`, also works.
+(`ww-multiplayer.exe` on Windows, `./ww-multiplayer` on macOS.) Keep the
+quotes around a bracketed IPv6 address: macOS's default shell (zsh)
+otherwise reads the brackets as a filename pattern and refuses to run the
+command. A bare IPv6 address without a port, such as
+`join 2001:db8::42`, needs no quotes.
 
 **Over the internet.** The joiner has to reach the host's port (TCP 25565
 unless the host passed `--port`). Either forward that TCP port on the
