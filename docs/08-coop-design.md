@@ -114,7 +114,7 @@ A golden test assigns every byte of the 0x778-byte `dSv_save_c` to exactly one c
 - Write only if `0 <= mStatus[room].mZoneNo < 32` and `mZone[z].mRoomNo == room`.
 - Key zone state by (stage name, room), never by zone slot. Slots are allocated first-free on each machine (`d_save.cpp:1525-1537`).
 
-**Assert hazard.** `JUT_ASSERT` is live in retail and calls `OSPanic` (`JUTAssert.h:9`, `m_Do_printf.cpp:208-233`). The game halts on any `dSv_info_c` call with switch number 0xF0-0xFE, room outside 0..63, an unmapped zone, or actor id ≥ 512 (`d_save.cpp:1540-1701`). Go validates every such argument before any write or RPC.
+**Assert hazard.** `JUT_ASSERT` is live in retail and calls `OSPanic` (`JUTAssert.h:9`, `m_Do_printf.cpp:208-230`). The game halts on any `dSv_info_c` call with switch number 0xF0-0xFE, room outside 0..63, an unmapped zone, or actor id ≥ 512 (`d_save.cpp:1540-1701`). Go validates every such argument before any write or RPC.
 
 ### 3.2 Gates (evaluated from one snapshot per tick)
 
@@ -472,7 +472,7 @@ When Go sees a LEAKED tag (fails V2-V5) it **scrubs** it: it zeroes the 0x30 byt
   - Timers clear switches: `d_a_obj_timer.cpp:72-74`; `d_a_andsw0.cpp:98-107`; `swhit0` timer types 347-367.
 
 ### 6.2 Switch classification (M1, from the user's own ISO)
-- `internal/coop/stagedata` parses every stage's DZS/DZR (ACTR, TGOB, SCOB, TGDR, DOOR and layer chunks). It maps object names to procs through `l_objectName` (`d_stage.cpp:451+` table in the DOL).
+- `internal/coop/stagedata` parses every stage's DZS/DZR (ACTR, TGOB, TRES, TGSC, SCOB, TGDR, DOOR and the ACTn/SCOn/TREn layer chunks; Appendix C item 16). It maps object names to procs through `l_objectName` (`d_stage.cpp:437-1262`, read from the user's own main.dol at .data 0x80372818, 0x26AC bytes, sym:14693; Appendix C item 15).
 - **Latching setters (sync):**
   - un-timed crystals and torches;
   - floor switches types 0/3;
@@ -481,20 +481,34 @@ When Go sees a LEAKED tag (fails V2-V5) it **scrubs** it: it zeroes the 0x30 byt
   - chest switches;
   - breakables;
   - one-shot `andsw2`;
-  - key-door switches (`prm & 0xFF`, set by `keyInit`, `d_door.cpp:434-448`).
+  - key-door switches (`prm & 0xFF`, set by `keyInit` below 0x80, `d_door.cpp:433-447`).
 - **Unsafe (never sync):**
-  - `SW_C00` area switches;
-  - `tag_evsw`;
+  - `SW_C00` area switches of type 0 (types 1-3 latch; Appendix C item 27);
+  - `tag_evsw` (classed Event, carried by §6.5's story batch; Appendix C item 27);
   - `ObjTime`;
   - timed `SW_HIT0` and torches;
   - momentary floor switches (swpush type 1; swheavy types 0/1, which clear on release, `d_a_obj_swheavy.cpp:364-390`);
   - inverted floor switches (swpush type 2, FLAG_ON_IS_UP, which clears on press, `d_a_obj_swpush.cpp:544-551`) and toggling iron-boots switches (swheavy type 2, `rev_switch`, `d_a_obj_swheavy.cpp:333-334`);
   - continuous `andsw2`;
-  - `andsw0`;
+  - `andsw0` behaviours other than 0 and 3, which latch (Appendix C item 26);
   - any AND switch fed by an unsafe input (this prevents remote ambush triggers);
-  - push-block path switches (`d_a_obj_movebox.cpp:1163-1206`, which encode a path index; OR-ing two of them gives a corrupt third).
-- A switch is synced only if every setter of that (table or stage/room, number) is latching.
+  - push-block path switches (`d_a_obj_movebox.cpp:1153-1198`, which encode a path index; OR-ing two of them gives a corrupt third).
+- A switch is synced only if every setter of that (scope, number) is latching. The scope is the save table for memory and dan switches (dan switches are kept per table, Appendix C item 25) and the stage and room for zone and room switches.
+- Appendix C items 25-31 list the setters and refinements M1 added from the decomp.
 - The table is cached under the user config directory, keyed by DOL hash, and also built by `patch`. Its hash travels in CO_HELLO.
+
+**Running it (`coop-tables`, M1).** On the owner machine, run `./ww-multiplayer.exe coop-tables <your vanilla .iso or .ciso>` (the patched ISO works too; its DOL hash differs, so it gets its own cache file with the same tables).
+- Output: a status line, then a header (main.dol SHA-256, stage and room counts), the **Acceptance** block, and the four section reports.
+- Flags: `--section keys|hearts|switches|enemies` limits the report to one section. `--json` prints the tables as JSON on stdout, with the status on stderr. `--no-cache` rebuilds from the disc and neither reads nor writes the cache.
+- The cache is `ww-multiplayer/coop-tables/<main.dol SHA-256>.json` under `os.UserConfigDir` (`%AppData%` on Windows, `~/Library/Application Support` on macOS). A file written with another schema, by another ww-multiplayer build, or for another stage-file listing is rebuilt over, as is one that doesn't parse. Development builds with uncommitted changes share one build ID, so after editing a builder, pass `--no-cache`.
+- The status line says whether the tables came from the cache or were built, with the time of each step (main.dol, stage archives read and expanded, the builders). The M1 target is under 5 s for a build.
+- Compare the Acceptance block with:
+  - small keys and key doors (sources/doors): DRC 4/4, FW 1/1, TotG 2/2, ET 3/3, WT 2/2, and no key doors outside tables 3-7;
+  - 44 heart pieces and 6 containers. The pieces are counted from the stage files plus the 14 catalogue rewards, 3 of them unverified minigames (Appendix C item 23);
+  - a non-empty push-block exclusion list;
+  - for M6's go/no-go, the enemy setID share and the duplicate (stage, room, setID) keys. These are INFO lines with no target.
+- A FAIL line gives the count. The section below lists every source, door and problem behind it.
+- Also read the switches section's "Undecoded switch users" (Appendix C item 30).
 
 ### 6.3 Apply policy
 | Class | Default | Opt-in |
@@ -511,14 +525,14 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
 ### 6.4 Derived small keys (coupled to door switches)
 - **Sources and doors per table** come from M1:
   - the 12 vanilla sources: DRC 4, FW 1, TotG 2, ET 3, WT 2 (wwrando `logic/item_locations.txt`; ww-online `docs/small-keys.md` §0);
-  - key doors are door10 types 4/5 and door12 type 1, each with switch `prm & 0xFF` (inferred encoding; validated in M1 against `keyInit` events seen by `coop-watch`).
+  - key doors are door10 types 4/5, door12 type 1 and kddoor type 2, each with switch `prm & 0xFF`. `keyInit` records the switch only below 0x80 (`d_door.cpp:433-447`; Appendix C items 19-20). `coop-watch` still confirms the `keyInit` events live.
 - **Target per table:** `keys(t) = |sources set| − |doors set|`, computed over the receiver's **own applied flags** (live ∪ saved for t), not the world image. A key decrement therefore takes effect only once the matching door switch is in the receiver's copy. When the receiver next approaches that door, its lock is gone (§6.1). No phantom-lock soft-block can occur.
 - **Correction** runs only when IDLE, settled (no local key change in the last 1 s) and with no write pending for that table:
   - Current table with the key HUD on (`stagInfo->mProp & 1`; stagInfo pointer 0x803C9DA0; `d_stage.h:1023-1029`): the delta goes into `mItemKeyNumCount` (0x803CA77C), which `dMeter_keyMove` applies and animates (`d_meter.cpp:5242-5257`).
   - Current table without the HUD: write the live `mKeyNum`.
   - Other tables: write the saved byte 0x803C4FA8 + 0x24·t.
 - **Duplicates self-correct.** Both players open the same key chest, or a key is spent on a door the partner already opened: the count converges to the derived value.
-- **Key sync is enabled per table** only when that table's M1 invariant (sources == vanilla count) passes. A key from an unknown source is never removed.
+- **Key sync is enabled per table** only when that table's M1 invariant passes: sources == doors == the vanilla count, and every source and door is recorded in a saved bit (Appendix C item 21). A key from an unknown source is never removed.
 - **Known exploit, documented:** using a key on a *different* door during the deferral window can open one extra door.
 
 ### 6.5 Story event bits
@@ -534,7 +548,7 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
   - The last two lock boat boarding (`d_a_ship.cpp:4224-4229`, per ww-online).
 - **Batching.** The sender sends a batch of new bits only after its game has been IDLE for at least 1 s, so a cutscene's side-effect bits travel together.
 - **Applying.**
-  - Before M7: Go writes the receiver's pending bits **on transition**, on the first tick where `mNextStage.mEnable` (0x803C9D54) == 1. Event bits are not copied by `getSave`/`putSave`, so they persist into the next stage, whose layers (`getLayerNo` 0x80052400, `d_com_inf_game.cpp:185-245`) and actors read them at creation (inferred).
+  - Before M7: Go writes the receiver's pending bits **on transition**, on the first tick where `mNextStage.mEnable` (0x803C9D54) == 1. Event bits are not copied by `getSave`/`putSave`, so they persist into the next stage, whose layers (`getLayerNo` 0x80052400, `d_com_inf_game.cpp:185-269`) and actors read them at creation (inferred).
   - From M7: the getSave shim applies them.
   - A cutscene-trigger switch (`daTag_Event` swbit, stage `mSpawnSwitchNo`, `d_event_manager.cpp:42-47`) is never sent without its batch.
 
@@ -566,10 +580,10 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
 ## 7. Combat sync plan
 
 ### 7.1 Facts
-- **Room actors** are created by `dStage_actorInit` (0x800423C0, `d_stage.cpp:1688-1708`). It copies each ACTR entry's u16 `setID` (ACTR +0x1E; wwrando `wwlib/dzx.py`) into `fopAc_ac_c::setID` (+0x1BC). It skips any actor whose `dComIfGs_isActor(setID, roomNo)` is set.
+- **Room actors** are created by `dStage_actorInit` (0x800423C0, `d_stage.cpp:1688-1708`). It copies each ACTR entry's u16 `setID` (ACTR +0x1E; wwrando `wwlib/dzx.py`) into `fopAc_ac_c::setID` (+0x1BC). It skips any actor whose `dComIfGs_isActor(setID, roomNo)` is set. That check covers only the 0x20-byte chunks (ACTR, TGOB, TRES, ACTn, TREn). Entries of the 0x24-byte TGSC, SCOB, DOOR, TGDR and SCOn chunks keep their setID but go through `dStage_tgscInfoInit`, which never checks it (`d_stage.cpp:1712-1730`; Appendix C item 32).
 - **Runtime spawns** (`fopAcM_create`/`fastCreate`) get setID 0xFFFF (`f_op_actor_mng.cpp:78-91`). Their room is whatever the caller passes (`:104`), so filter on setID, not room. They can never be synced.
 - **Death record.** `fopAcM_onActor` sets zone actor bit `setID` for the actor's `home.roomNo` (`f_op_actor_mng.h:444-446`; `d_save.cpp:1671-1683`).
-- **Zone lifetime.** Zones are wiped on stage entry (`d_stage.cpp:118-140`) and removed two room changes away (`:236`, `:248-266`), so vanilla respawns enemies on re-entry.
+- **Zone lifetime.** Zones are wiped on stage entry at a start point ≥ 0 (`d_stage.cpp:124-126`) and removed two room changes away (`:236`, `:248-266`), so vanilla respawns enemies on re-entry.
 - **Enemy code lives in RELs at dynamic addresses** (`f_pc_load.cpp:29`), so only DOL functions can be hooked.
 - **Writing `health = 0` does not kill an enemy.** Death transitions happen inside each enemy's own hit handler (for example `d_a_bk.cpp:3615-3628`, inferred from the pattern).
 - **`enemy_ice()`** (0x8001C0B4, `c_damagereaction.cpp:117-171`) is polled at the top of execute by every enemy that embeds `enemyice`. When `mLightShrinkTimer` (enemyice +6, `c_damagereaction.h:12-16`) is non-zero, it runs the generic light-arrow death:
@@ -582,13 +596,13 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
 ### 7.2 MVP (M6, Go-only): kill union plus K1 light-shrink
 
 **Identity**
-- Key: (stage name at 0x803C9D3C, `home.roomNo` +0x1E2, `setID` +0x1BC), with setID != 0xFFFF.
-- Cross-checked against the M1 enemy ACTR table: procName +0x08, `home.pos` +0x1D0, params +0xB0. Keese and Kargaroc move `home.pos`, so for them it is captured at first sight by process ID.
+- Key: (stage name at 0x803C9D3C, `home.roomNo` +0x1E2, `setID` +0x1BC), with setID < 0x200. 0xFFFF is never recorded, and a setID of 0x200-0xFFFE halts the game in `isActor`/`onActor` (Appendix C item 33).
+- Cross-checked against the M1 enemy ACTR table: procName +0x08, `home.pos` +0x1D0, params +0xB0. Keese, Kargaroc, a searchlight Bokoblin (`stand2`), Kalle Demos and Helmaroc King move `home.pos` (Appendix C item 34), so for them it is captured at first sight by process ID.
 - The cross-checks catch layer mismatches: the two players can load different layers (`getLayerNo` 0x80052400).
 
 **Detection**
 - Diff the zone actor bits of each live zone; the room is `mZone[z].mRoomNo`. Send SCOPED KILL.
-- For allowlisted classes that never call `onActor` (Kargaroc `bb`, and the NonMatching stubs once checked live), use observation instead: last health ≤ 0, or group leaves ENEMY, then the actor disappears while the stage is unchanged and its room is still loaded. The killer's Go then writes **its own** zone bit, so everything flows through one union.
+- For allowlisted classes that never call `onActor` (Kargaroc `bb`, Morth `ks`, and the NonMatching stubs once checked live), use observation instead: last health ≤ 0, or group leaves ENEMY, then the actor disappears while the stage is unchanged and its room is still loaded. The killer's Go then writes **its own** zone bit, so everything flows through one union.
 
 **Store**
 - KILL is kept per (stage, room) while any player is in that stage, and sent to a player when they join or enter the stage.
@@ -634,7 +648,7 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
 | Poe `pw` | 0xD5 | +0x88A | NonMatching; live check first |
 | Boko Baba `bo` | 0xD7 | +0xA02 | NonMatching; live check first |
 
-The proc numbers are from the research briefs; M1 checks them against the `fpcNm` enum.
+The proc numbers are from the research briefs. M1 checked them against the GZLE01 `fpcNm` enum (`f_pc_name.h`); all 16 match, as do the timer offsets.
 
 **Exclusions**
 - Bosses and mini-bosses: BOSS status, plus the proc denylist bdk, bmd, bwd, bst, btd, bgn*, gnd, bpw, fganon, daiocta, and the gm (Mothula) and wz mini-boss variants. Ordinary Mothulas and Wizzrobes stay eligible for the M7 KILL op.
@@ -651,7 +665,7 @@ The proc numbers are from the research briefs; M1 checks them against the `fpcNm
 ### 7.3 Later
 
 **M7 (C)**
-- The `isActor` call-site shim with stage-keyed dead tables, so partner-killed enemies never spawn.
+- The `isActor` call-site shim with stage-keyed dead tables, so partner-killed enemies never spawn. Entries of the 0x24-byte chunks are not dead-checked and still respawn (Appendix C item 32).
 - KILL op = `fopAcM_delete(procID)` plus `onActor` for stage-placed classes without `enemyice` (Magtail, Wizzrobe, Octorok, Rat, Bubble, Mothula). Gyorgs are excluded: GyCtrl spawns them at runtime with setID 0xFFFF (`d_a_gy_ctrl.cpp:345`). Each class needs a live check first.
 - K1 stays the default wherever it applies, because it runs the death switch and the drop.
 
@@ -907,10 +921,10 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 | `enemy_ice` | 0x8001C0B4 | sym:552; c_damagereaction.cpp:117-171 |
 | `fopAcM_delete(actor*)` / `fopAcM_delete(procID)` | 0x80024478 / 0x800244B8 | sym:643-644 |
 | `fopAcM_myRoomSearchEnemy` | 0x80027970 | sym:711; f_op_actor_mng.cpp:1271-1294 |
-| `dComIfG_play_c::getLayerNo` | 0x80052400 | sym:1640; d_com_inf_game.cpp:185-245 |
+| `dComIfG_play_c::getLayerNo` | 0x80052400 | sym:1640; d_com_inf_game.cpp:185-269 |
 | `dMeter_LifeMove` / `dMeter_keyMove` | 0x801F15EC / 0x801FCF28 | sym:7264,7337 |
 | `cCt_Counter` (still run by frame_shim's tail call) | 0x802449AC | sym:8240; f_ap_game.cpp:77-81 |
-| `OSPanic` (JUT_ASSERT target) | 0x80006C4C | sym:55; m_Do_printf.cpp:208-233 |
+| `OSPanic` (JUT_ASSERT target) | 0x80006C4C | sym:55; m_Do_printf.cpp:208-230 |
 | `dScnPly_Execute` (Archipelago's execItemGet hook, prior art) | 0x80234FD0 | sym:7941 |
 
 ## Appendix B: Behaviour references used by this design
@@ -956,3 +970,89 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 12. **docs/05:63-73, T2 at 0x803FD000.** The section was inside the main stack (0x803FCFA8..0x8040CFA8), so `OSClearStack` is the likely cause (inferred).
 13. **Return values, if entry hooks are ever used:** a wrapper must return the trampoline's r3 (for example from `revSwitch` and `isActor`), not the incoming r3. This doc avoids entry hooks entirely.
 14. **The TRK canary starts at 0x8040CFB0, not at `_stack_addr` (0x8040CFA8).** Boot saves LR at 4(`_stack_addr`) = 0x8040CFAC and never clears it (0x8000336C, §4.5 table), so a canary from 0x8040CFA8 found a busy word on every booted game and `region-probe arm` refused it without `--force`.
+
+**Found while building M1 against the decomp** (zeldaret/tww at 4d78c99; the code cites each point at file:line):
+
+*Stage readers (§6.2, §6.5)*
+
+15. **`l_objectName` is declared at `d_stage.cpp:437`**, not :451. Its entries are lines 438-1262: 825 entries of 0xC bytes, 0x26AC bytes in all. Line 451 is the "door10" entry. The symbol (sym:14693, .data 0x80372818, size 0x26AC) is as the design says.
+16. **Chunks.** The game also places actors from TRES (chests, `d_stage.cpp:2160`, `:2204`) and TGSC (`:2165`, `:2204`), so both are parsed. The only layer chunks are ACTn, SCOn and TREn (`:2072-2148`); TGOB is read on every layer. Only the first chunk of each tag is read: `dStage_dt_c_decode` stops at the first match (`:2032-2038`), so a duplicate chunk is ignored.
+17. **`getLayerNo` runs `d_com_inf_game.cpp:185-269`**, not 185-245: the M2tower, GanonK and GTower cases come after 245. Only the sea gives different rooms different layers (`:192-209`).
+    - Room numbers come from the `Room<N>.arc` names (`d_s_room.cpp:52`). RTBL, FILI and LBNK aren't needed; LBNK only picks the Demo archive (`:206-215`).
+    - The game can't load a stage name longer than 7 characters (`d_resorce.cpp:707-708`).
+18. **Inferred, not in the decomp:** RARC's "." and ".." entries in each node, the convention that a node's type is its directory name upper-cased and space-padded ("dzs" gives "DZS "), and the DOL header layout. The readers don't depend on the first two.
+    - The game's RARC lookup lowercases the query and compares it with the stored name case-sensitively, with a hash (`JKRArchivePri.cpp:45-50`, `:189-224`). The reader folds both sides, which gives the same result for the game's lowercase names.
+    - The game's unbuffered `JKRMemArchive::fetchResource` returns a compressed entry's raw bytes; only the buffered fetch decompresses (`JKRMemArchive.cpp:149-184`). The reader always decompresses.
+    - Confirmed: setID is at ACTR +0x1E (`f_op_actor_mng.h:42` via `d_stage.h:195`). STAG `mProp` bit 0 is the key HUD and bits 1-7 the save table; the stage type is in `TypeAndSchbit` bits 16-18 (`d_stage.h:1023-1033`).
+    - Names the design leaves implicit: torches are "bonbori" (`fpcNm_EP_e`); the room's heart container is "Bitem" (`fpcNm_BOSSITEM_e`); "ObjTime" is `fpcNm_Obj_Timer_e` (0x1E1), not `fpcNm_TIMER_e`, the HUD timer.
+
+*Small keys (§6.4)*
+
+19. **A third key-door class.** kddoor (`fpcNm_KDDOOR_e` 0x132; "doorKD", "ZenshKD", "K_ZshKD", "doorSH", "doorSZ", `d_stage.cpp:460-464`) has a small-key lock in type 2 (`chkMakeKey`, `d_a_kddoor.cpp:12-14`; `keyCreate(0)`, `:578-579`).
+    - door10 types 4/5, door12 type 1 and switch = `prm & 0xFF` are confirmed (`d_door.cpp:16-18`, `:26-28`; `d_a_door10.cpp:13-24`; `d_a_door12.cpp:39-49`).
+    - door10 type 1 and door12 type 3 are boss-key doors. door12's create forces type 3 when `getArg1` is 9 or 0xC (`d_a_door12.cpp:576-578`).
+20. **The key-door switch encoding is no longer inferred**, but `keyInit` records the switch only below 0x80 (`d_door.cpp:433-447`).
+    - A key door with a dan switch (0x80-0xBF) or 0xFF spends the key, but its lock comes back.
+    - With a zone switch, `setKey` reads it for room -1, which `isSwitch` asserts against (`d_save.cpp:1596`).
+    - M1 reports both as problems of the table.
+21. **The key invariant** is checked three ways: sources == the vanilla count (§6.4), sources == doors, and every source and door recorded in a saved bit, since keys(t) can count only saved flags.
+
+*Hearts (§3, §11 items 8 and 11)*
+
+22. **Helmaroc King creates no heart container.** It sets `STAGE_BOSS_ENEMY` (`d_a_bdk.cpp:3232`, `:4235`), but unlike the other five bosses (`d_a_btd.cpp:1082`, `d_a_bmd.cpp:747`, `d_a_bst.cpp:2504`, `d_a_bpw.cpp:2856`, `d_a_bwd.cpp:1704`) it makes no container, so Forsaken Fortress's comes from a Bitem or a placed one.
+    - Every container is recorded only by `STAGE_LIFE`: for the stage's save table, or for table 2 (Forsaken Fortress) when taken on the sea (`d_item.cpp:588-604`).
+    - A Bitem is not a separate container: it re-creates the boss's while that bit is clear (`d_a_boss_item.cpp:24-41`).
+23. **44 or 46 pieces (item 11) needs the real disc.** The catalogue has 11 decomp-verified rewards plus 3 minigames whose grant code is not decompiled (`d_a_npc_kg1`; `d_a_npc_kg2` `evn_createItem_init`, `:167-170`; `d_a_npc_bmcon1` `eventGetItemInit`, `:159-162`). The stage files must supply 30 to reach 44.
+    - Carlov and Old Man Ho Ho appear to give item 7 (`d_a_npc_mt.cpp:823`, `d_a_npc_ah.cpp:550`), but only from bits nothing in the decomp sets, so they are not in the catalogue.
+    - The decompiled mail-sorting game pays only rupees (`d_a_npc_bmsw.cpp:743`).
+24. **Salvage ocean bits.** For kinds 2-4, entry checks the bit for the map room unless the save number is 31 (`d_salvage.cpp:96-105`). Kind 4's night check and `end_salvage` use the actor's room (`:115`; `d_a_salvage.cpp:323-326`, `:504`, `:517`). `isOceanSvBit` and `onOceanSvBit` assert on any grid past 0x31 or bit of 16 or more (`d_save.cpp:1164-1173`).
+    - A map room past 0x31 (the actor's room, or `(prm >> 12) & 0xFF` for a room-0 point) halts the game. So does a kind-4 save number of 16-255, 31 included. This is the same halt as a setID past 0x1FF (item 33). M1 marks these sources `halt` and reports each one as a problem of its table.
+    - Only a room-0 point whose map room is 1-0x31, with a save number up to 15, records into grid 0, which entry never reads. M1 counts that one as unsaved.
+    - An item bit of 0x50-0x7E halts the same way (`dSv_info_c::isItem`, `d_save.cpp:1651-1652`; `fopAcM_createItemFromTable`, `f_op_actor_mng.cpp:806`). Its sources are reported as halting too.
+    - Grass and flowers place no item. `daGrass_Create` keeps only items 0x20-0x3F, the random drop tables (`d_a_grass.cpp:144-145`, `:173-174`), so M1 reads none of their entries.
+
+*Switches (§6.2, §6.3)*
+
+25. **Dan switches (0x80-0xBF) are kept per save table, not per stage.** `dStage_stagInfoInit` calls `dComIfGs_initDan` with the STAG save table (`d_stage.cpp:1669-1677`), and `dSv_danBit_c::init` clears only when the table changes (`d_save.cpp:1225-1235`). M1 scopes them like memory switches. §6.3's stage-name match for live dan writes is kept as apply policy.
+26. **`andsw0` is not unsafe across the board.**
+    - Behaviours 0 (one-shot) and 3 (one-shot, 65 frames later) only set their output (`d_a_andsw0.cpp:40-57`, `:129-135`), so they are latching ANDs.
+    - Behaviour 2 is timed and clears all its inputs on timeout (`:101-127`), so its output ends up unsafe through propagation.
+    - The other behaviours are continuous and clear the output (`:59-82`), so they are unsafe.
+    - num 0xFF is the Forest Haven special and sets no switch.
+27. **`SW_C00` and the event tags.**
+    - Only `SW_C00` type 0 sets and clears every frame, and clears at create (`d_a_swc00.cpp:11-33`, `:53-56`). Types 1-3 set once, delete themselves, and don't create if the switch is already on, so they latch.
+    - `tag_evsw` type 1 never clears (`d_a_tag_evsw.cpp:17-23`, `:39-45`). It is classed Event, since it is derived from an event bit that §6.5's story batch carries. TAG_EVENT and TAG_ISLAND set their switches as their story events start, so they are Event too.
+    - No Event writer is synced on its own.
+28. **Floor and iron-boots switch types are 3 bits wide** (`d_a_obj_swpush.h` `PRM_TYPE_W` = 3; `d_a_obj_swheavy.h:31-32`). `M_attr` has only four entries, indexed without a check, so types 4-7 are classed Unknown.
+    - Torch types 0 and 3, even untimed, also clear their switch when water covers the flame (`d_a_ep.cpp:311-319`, `:476-484`). They stay latching as §6.2 asks.
+    - A torch timer of 0 counts as timed; only 0xFF means untimed.
+29. **Setters §6.2 doesn't list.** M1 classifies these, with citations in `internal/coop/tables/switches`.
+    - Latching: kill-all door bars (door10 front type 2 and back type 5, door12 front type 2, kddoor front type 1 and back types 2/4, mbdoor type 1); chest open switches (`home.angle.z`) and enemy-chest switches routed in the room from `home.angle.x`; enemy death switches (BK, MO2, ST, TN); the boss Bokoblin's room switches 0xE0/0xE1; many breakables and one-shot objects.
+    - Unsafe: Helmaroc King's dan 0x80, Jalhalla's light switches, Phantom Ganon's second switch, the Tingle Tuner switches (agbsw0), the propeller switch (it toggles), Obj_Correct, the Ferris wheel, the pig dig spot (TAG_KB_ITEM), Tag_Volcano, Zephos/Cyclos (NPC_HR), the second switch of the hammer switch (MhmrSW0), and sun switches (swlight type 1).
+30. **Switch users the decomp can't decode** are listed in the switches report under "Undecoded switch users".
+    - They are Obj_Swflat (the Hfbot1A-C floor switches) and NonMatching actors whose switch getters are empty: Itnak, Vds, Ashut, Ekskz, Firewall, Flame, Hami2, Htetu1, Kanoke, Msdan, Tapestry, TnTrap, Tribox, BigElf, Kk1, P2, PT, WZ.
+    - A switch one of them shares with latching setters can wrongly show as synced, so the owner reviews the list on the real ISO.
+    - Obj_Try has a real switch field but no decoded code, so its writers are classed Unknown.
+    - The switch a stage's EVNT entry sets as its event starts (`dEvent_exception_c::setStartDemo`, `d_event_manager.cpp:23-48`) is not covered: stagedata keeps no EVNT entries.
+31. **Line fixes:** the push-block path code is at `d_a_obj_movebox.cpp:1153-1198` (§6.2 said 1163-1206). The `enemy_ice` death switch is set at `c_damagereaction.cpp:165-166` and `:348-349`.
+
+*Enemies (§7)*
+
+32. **Only 0x20-byte entries are dead-checked.** §7.1's "`dStage_actorInit` skips actors whose setID is recorded dead" holds for ACTR, TGOB, TRES, ACTn and TREn only.
+    - TGSC, SCOB, DOOR, TGDR and SCOn go through `dStage_tgscInfoInit`, which never checks the record (`d_stage.cpp:1712-1730`). An enemy there keeps its setID but respawns however dead it is recorded, so §7.3's `isActor` shim doesn't keep it away either.
+    - The enemy report counts these as "unchecked".
+33. **setID must be below 0x200, not just != 0xFFFF.** A zone holds setIDs 0-511 (`d_save.h:780`), and `isActor` and `onActor` assert above that (`d_save.cpp:1676`, `:1690-1692`). `JUT_ASSERT` is compiled into GZLE01 (`JUTAssert.h:9`) and its `OSPanic` halts the game (`m_Do_printf.cpp:208-230`).
+    - So a setID of 0x200-0xFFFE halts the game when a dead-checked entry's room loads, or when an unchecked one's death is recorded. It never writes out of bounds.
+    - M6 requires setID < 0x200. The enemy table counts such entries in `Halting`, named or not.
+34. **Detection and `home.pos`.**
+    - Morth (`ks`) never calls `fopAcM_onActor` either. Like Kargaroc it records its death only through `enemy_ice` (`c_damagereaction.cpp:159`, `:369`), so it needs §7.2's observation path.
+    - Being in `fopAc_ENV_e`, Morth is never counted by room-clear logic (`enemySearchJugge`, `f_op_actor_mng.cpp:1275`).
+    - Besides Keese and Kargaroc, a Bokoblin on a searchlight (`stand2`, `d_a_bk.cpp:1455-1463`), Kalle Demos (`d_a_bmd.cpp:2001`) and Helmaroc King (`d_a_bdk.cpp:680-690`) move `home.pos`.
+35. **The `fopAc_ENEMY_e` group includes non-enemies:** Orca (NPC_JI1, `d_a_npc_ji1.cpp:5532`), the Warship (OSHIP), a Forbidden Woods tentacle that `d_a_shand.cpp` calls an Object, and boss-created parts (ATT, BWDG, FGMAHOU, BMDHAND, BMDFOOT).
+    - A live filter of group == 2 alone would include them; the K1 allowlist excludes them.
+    - setID also serves NPC event cuts as an actor handle ("SetId", `d_npc_event_cut.inc:106-111`, `:353`), so a nonzero setID on an NPC need not be a zone bit.
+36. **The BOSS gate and the denylist.**
+    - Phantom Ganon and Big Octo never get BOSS status (profiles at `d_a_fganon.cpp:2970`, `d_a_daiocta.cpp:1771`), so §7.2's proc denylist is required.
+    - Some ordinary-looking K1 entries do get BOSS status at creation, so the BOSS gate always skips them: a Stalfos, Moblin or Darknut with a memory death switch (u8 of `angle.z` 1-0x7F), a Darknut with behaviour 13 or 14, and a Bokoblin of type 0xA.
+    - Darknut's file matches D44J01 only (`configure.py:1858`), so its rule and `onActor` site hold for GZLE01 by inference.
+37. **Minor citation fixes.** Zones are cleared at stage entry only when the start point is ≥ 0 (`d_stage.cpp:124-126`; §7.1 cited 118-140). `OSPanic` spans `m_Do_printf.cpp:208-230` (§3.2 and Appendix A said 208-233). Every §7.2 K1 proc number and timer offset (enemyice member + 6) matches `f_pc_name.h` and the headers.

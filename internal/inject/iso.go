@@ -222,12 +222,27 @@ func extractDOL(iso []byte, dolOff, capOff uint32) ([]byte, error) {
 	if uint64(dolOff)+dolHeaderSize > uint64(len(iso)) {
 		return nil, fmt.Errorf("dol: header runs past end of iso")
 	}
-	hdr := iso[dolOff : dolOff+dolHeaderSize]
+	maxEnd, err := dolFileSize(iso[dolOff : dolOff+dolHeaderSize])
+	if err != nil {
+		return nil, err
+	}
+	if uint64(dolOff)+maxEnd > uint64(capOff) {
+		return nil, fmt.Errorf("dol: declared end (0x%x) past FST offset (0x%x)",
+			uint64(dolOff)+maxEnd, capOff)
+	}
+	if uint64(dolOff)+maxEnd > uint64(len(iso)) {
+		return nil, fmt.Errorf("dol: declared end (0x%x) past EOF (%d)", uint64(dolOff)+maxEnd, len(iso))
+	}
+	out := make([]byte, maxEnd)
+	copy(out, iso[dolOff:uint64(dolOff)+maxEnd])
+	return out, nil
+}
 
-	// Compute the DOL's actual size: max(section_file_off + section_size)
-	// across all 7 text + 11 data sections, clamped to the header's BSS
-	// region (BSS isn't in-file). Largest end-of-section is the file end.
-	// 64-bit sums: a crafted header can't wrap them past the checks below.
+// dolFileSize returns the size of the DOL whose 0x100-byte header is hdr:
+// max(section_file_off + section_size) across all 7 text + 11 data
+// sections. BSS isn't in-file, so the largest end-of-section is the file
+// end. 64-bit sums: a crafted header can't wrap them past the cap.
+func dolFileSize(hdr []byte) (uint64, error) {
 	var maxEnd uint64 = dolHeaderSize
 	for i := 0; i < 7; i++ {
 		off := uint64(binary.BigEndian.Uint32(hdr[0x00+4*i:]))
@@ -245,19 +260,10 @@ func extractDOL(iso []byte, dolOff, capOff uint32) ([]byte, error) {
 	}
 
 	if maxEnd > dolMaxSize {
-		return nil, fmt.Errorf("dol: header declares 0x%x bytes of sections, more than fits in GameCube RAM (0x%x); corrupt DOL?",
+		return 0, fmt.Errorf("dol: header declares 0x%x bytes of sections, more than fits in GameCube RAM (0x%x); corrupt DOL?",
 			maxEnd, dolMaxSize)
 	}
-	if uint64(dolOff)+maxEnd > uint64(capOff) {
-		return nil, fmt.Errorf("dol: declared end (0x%x) past FST offset (0x%x)",
-			uint64(dolOff)+maxEnd, capOff)
-	}
-	if uint64(dolOff)+maxEnd > uint64(len(iso)) {
-		return nil, fmt.Errorf("dol: declared end (0x%x) past EOF (%d)", uint64(dolOff)+maxEnd, len(iso))
-	}
-	out := make([]byte, maxEnd)
-	copy(out, iso[dolOff:uint64(dolOff)+maxEnd])
-	return out, nil
+	return maxEnd, nil
 }
 
 // PatchISO is the file-on-disk wrapper around PatchISOInMemory. Reads the
