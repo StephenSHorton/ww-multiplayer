@@ -187,3 +187,23 @@ func TestConnectLogFatal(t *testing.T) {
 		t.Fatalf("line %q: want a can't-join line with the reason and no retry claim", got[0])
 	}
 }
+
+// TestConnectLogFatalSink: with Fatal set, the one can't-join line goes to
+// Fatal instead of warn, and ordinary failures still go to warn.
+func TestConnectLogFatalSink(t *testing.T) {
+	f := newFakeConnectLog("192.0.2.1:25565")
+	f.Fatal = func(s string) { f.add("FATAL " + s) }
+	ctx := context.Background()
+
+	f.Observe(ctx, errUnreachable)
+	if got := f.take(); len(got) != 1 || !strings.HasPrefix(got[0], "WARN ") {
+		t.Fatalf("ordinary failure logged %q, want one WARN line", got)
+	}
+	fatal := &RejectError{Code: RejectServerFull, Reason: "server full"}
+	f.Observe(ctx, fatal)
+	f.Observe(ctx, fatal)
+	got := f.take()
+	if len(got) != 1 || !strings.HasPrefix(got[0], "FATAL Can't join 192.0.2.1:25565: ") {
+		t.Fatalf("fatal failure logged %q, want one FATAL can't-join line", got)
+	}
+}

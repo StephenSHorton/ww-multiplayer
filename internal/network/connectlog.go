@@ -36,6 +36,12 @@ type ConnectLog struct {
 	ok   func(string) // the recovery line
 	now  func() time.Time
 
+	// Fatal, when set, receives the one "can't join" line for a fatal
+	// error instead of warn. A host/join session points it at its error
+	// level and treats a returned ErrFatal as already reported, so the
+	// reason is printed exactly once.
+	Fatal func(string)
+
 	mu        sync.Mutex
 	failing   bool      // an outage is in progress
 	firstFail time.Time // when the current outage started
@@ -62,6 +68,9 @@ func (l *ConnectLog) Observe(ctx context.Context, err error) error {
 		emit := l.ok
 		if failed {
 			emit = l.warn
+			if l.Fatal != nil && errors.Is(err, ErrFatal) {
+				emit = l.Fatal
+			}
 		}
 		if emit != nil {
 			emit(line)

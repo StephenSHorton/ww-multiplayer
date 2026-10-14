@@ -656,13 +656,16 @@ func main() {
 	ls := &liveState{}
 	if err := tui.Run(version, tui.Hooks{
 		HostSession: func(ctx context.Context, cancel context.CancelFunc, name string, rep report.Reporter) error {
-			return runHostSession(ctx, cancel, name, defaultPort, rep, ls)
+			// The TUI logs a returned error itself; a fatal connect error
+			// was already logged by the session's ConnectLog.
+			if err := runHostSession(ctx, cancel, name, defaultPort, rep, ls); !errors.Is(err, network.ErrFatal) {
+				return err
+			}
+			return nil
 		},
 		JoinSession: func(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter) {
 			// Log the failure the way the TUI logs a HostSession error.
-			if err := runJoinSession(ctx, cancel, addr, name, rep, ls); err != nil {
-				rep.Log(report.Err, err.Error())
-			}
+			logSessionErr(rep, runJoinSession(ctx, cancel, addr, name, rep, ls))
 		},
 		Players:     func() []tui.PlayerView { return ls.players() },
 		LocalPos:    func() (x, y, z float32, ok bool) { return ls.localPos() },
@@ -6908,7 +6911,7 @@ func runHost(name string, port int) {
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
 	if err := runHostSession(ctx, cancel, name, port, rep, nil); err != nil {
-		rep.Log(report.Err, err.Error())
+		logSessionErr(rep, err)
 		os.Exit(1)
 	}
 }
@@ -6985,7 +6988,7 @@ func runJoin(addr, name string) {
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
 	if err := runJoinSession(ctx, cancel, addr, name, rep, nil); err != nil {
-		rep.Log(report.Err, err.Error())
+		logSessionErr(rep, err)
 		os.Exit(1)
 	}
 }
@@ -7103,14 +7106,20 @@ func runPipelines(ctx context.Context, cancel context.CancelFunc, rep report.Rep
 			if err == nil || errors.Is(err, context.Canceled) {
 				return
 			}
-			err = fmt.Errorf("%s: %w", p.name, err)
+			// A fatal connect error (reject, version mismatch) was already
+			// printed once by the shared ConnectLog, and both pipelines hit
+			// the same one, so it is returned as is and never logged here.
+			fatal := errors.Is(err, network.ErrFatal)
+			if !fatal {
+				err = fmt.Errorf("%s: %w", p.name, err)
+			}
 			mu.Lock()
 			isFirst := first == nil
 			if isFirst {
 				first = err
 			}
 			mu.Unlock()
-			if !isFirst {
+			if !isFirst && !fatal {
 				rep.Log(report.Err, err.Error())
 			}
 		}()
@@ -7122,10 +7131,25 @@ func runPipelines(ctx context.Context, cancel context.CancelFunc, rep report.Rep
 // newConnectLog returns a network.ConnectLog that reports connect failures
 // to addr (and the recovery after them) through rep, so they reach the CLI
 // output or the TUI log panel.
+//
+// A fatal error ("Can't join <addr>: <reason>") is logged at Err, once for
+// the session; callers then skip logging the returned ErrFatal error (see
+// logSessionErr), so the reason appears exactly once and becomes the TUI's
+// session-ended reason.
 func newConnectLog(addr string, rep report.Reporter) *network.ConnectLog {
-	return network.NewConnectLog(addr,
+	l := network.NewConnectLog(addr,
 		func(msg string) { rep.Log(report.Warn, msg) },
 		func(msg string) { rep.Log(report.OK, msg) })
+	l.Fatal = func(msg string) { rep.Log(report.Err, msg) }
+	return l
+}
+
+// logSessionErr logs a host/join session's returned error unless it is a
+// fatal connect error, which the session's ConnectLog already reported.
+func logSessionErr(rep report.Reporter, err error) {
+	if err != nil && !errors.Is(err, network.ErrFatal) {
+		rep.Log(report.Err, err.Error())
+	}
 }
 
 // listHostIPs walks the machine's non-loopback IPv4 addresses so `ww-multiplayer.exe

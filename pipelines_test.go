@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 )
 
 // runPipelinesWithin runs runPipelines on a fresh ctx and fails the test if
@@ -119,5 +121,29 @@ func TestRunPipelinesEndsWhenOneReturnsNil(t *testing.T) {
 	}
 	if strings.TrimSpace(rep.joined()) != "" {
 		t.Errorf("logged %q, want nothing", rep.lines)
+	}
+}
+
+// TestRunPipelinesFatalReportedOnce: a fatal connect error (the host refused
+// us) hits both pipelines, and the shared ConnectLog has already printed it.
+// runPipelines returns it unprefixed and logs neither copy, and the callers'
+// logSessionErr skips it, so the reason appears exactly once.
+func TestRunPipelinesFatalReportedOnce(t *testing.T) {
+	reject := &network.RejectError{Code: network.RejectServerFull, Reason: "host refused the connection: server full"}
+	rep := &recordingReporter{}
+	err := runPipelinesWithin(t, rep,
+		pipeline{"broadcast-pose", func(context.Context) error { return reject }},
+		pipeline{"puppet-sync", func(context.Context) error { return reject }},
+	)
+	if err != error(reject) {
+		t.Fatalf("runPipelines = %v, want the reject unchanged", err)
+	}
+	logSessionErr(rep, err)
+	if len(rep.lines) != 0 {
+		t.Errorf("logged %q; a fatal error is the ConnectLog's to report", rep.lines)
+	}
+	logSessionErr(rep, errors.New("dolphin not running"))
+	if len(rep.lines) != 1 {
+		t.Errorf("logSessionErr logged %q for an ordinary failure, want one line", rep.lines)
 	}
 }
