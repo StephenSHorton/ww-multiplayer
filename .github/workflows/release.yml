@@ -154,7 +154,7 @@ jobs:
 
             **Requires your own legitimate copy of The Legend of Zelda: The Wind Waker (NTSC-U, GZLE01)** as a `.iso` or `.ciso` file.
 
-            **Both players must run the same version.** v0.3.0 and later are not compatible with v0.2.x (for example, a newer host disconnects an older client within about 15 seconds), so both players must upgrade. Check with `ww-multiplayer.exe version` (Windows) or `./ww-multiplayer version` (macOS).
+            **Both players must run the same version.** v0.3.0 and later can't play with v0.2.x: a v0.3.0 host turns a v0.2.x player away with an upgrade message, and a v0.3.0 player joining a v0.2.x host stops with "host runs an older ww-multiplayer". Check with `ww-multiplayer.exe version` (Windows) or `./ww-multiplayer version` (macOS).
 
             ### Windows
 
