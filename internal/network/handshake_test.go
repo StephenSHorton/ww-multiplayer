@@ -209,7 +209,7 @@ func TestOldClientToldToUpgrade(t *testing.T) {
 // after it, so the name is intact.
 func TestNewClientStopsOnOldServer(t *testing.T) {
 	defer restoreNetTimers(saveNetTimers())
-	clientReadTimeout = 1 * time.Second // bounds a (buggy) second attempt
+	clientReadTimeout = 1 * time.Second // bounds a (buggy) stalled handshake
 
 	cases := []struct {
 		name    string
@@ -224,13 +224,26 @@ func TestNewClientStopsOnOldServer(t *testing.T) {
 			addr := serveOnce(t, v021Server(tc.welcome, first))
 
 			client := NewClient("joiner")
+			// A loop that ignores ErrFatal would otherwise spin forever
+			// (zero backoff, a sleep that never fails, a listener that
+			// stopped accepting), so a second connect cancels it and fails.
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 			connects, sleeps := 0, 0
-			connect := func(context.Context) error { connects++; return client.Connect(addr) }
+			connect := func(context.Context) error {
+				connects++
+				if connects > 1 {
+					t.Error("connect retried after the old server's welcome")
+					cancel()
+					return errors.New("retry")
+				}
+				return client.Connect(addr)
+			}
 			run := func(context.Context) error { t.Error("run called: the session must not start"); return nil }
 			backoff := func(int) time.Duration { return 0 }
 			sleep := func(ctx context.Context, _ time.Duration) error { sleeps++; return ctx.Err() }
 
-			err := ReconnectLoop(context.Background(), connect, run, backoff, sleep)
+			err := ReconnectLoop(ctx, connect, run, backoff, sleep)
 			if !errors.Is(err, ErrFatal) {
 				t.Fatalf("ReconnectLoop = %v, want an ErrFatal error", err)
 			}
@@ -788,11 +801,20 @@ func TestReadLoopRecoversFromPanic(t *testing.T) {
 // error still backs off and retries.
 func TestReconnectLoopStopsOnFatal(t *testing.T) {
 	fatal := fmt.Errorf("send join: %w", &RejectError{Code: RejectVersion, Reason: "version mismatch"})
+	// A loop that ignores ErrFatal would otherwise spin forever (zero
+	// backoff, a sleep that never fails), so a third connect cancels it.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	calls, sleeps := 0, 0
 	connect := func(context.Context) error {
 		calls++
-		if calls == 1 {
+		switch {
+		case calls == 1:
 			return errors.New("connection refused") // transient
+		case calls > 2:
+			t.Error("connect retried after the fatal error")
+			cancel()
+			return errors.New("retry")
 		}
 		return fatal
 	}
@@ -800,7 +822,7 @@ func TestReconnectLoopStopsOnFatal(t *testing.T) {
 	backoff := func(int) time.Duration { return 0 }
 	sleep := func(ctx context.Context, _ time.Duration) error { sleeps++; return ctx.Err() }
 
-	err := ReconnectLoop(context.Background(), connect, run, backoff, sleep)
+	err := ReconnectLoop(ctx, connect, run, backoff, sleep)
 	if err != fatal {
 		t.Fatalf("ReconnectLoop = %v, want the fatal connect error", err)
 	}
