@@ -29,6 +29,47 @@ func TestRun_NoInteractiveStdin_ReturnsClearError(t *testing.T) {
 	}
 }
 
+// TestBackMsg_KeepsConnectFields: Esc back from the dashboard returns to the
+// connect screen with the role, IP, name and focus the user had, minus any
+// stale error, so a retry is one Enter.
+func TestBackMsg_KeepsConnectFields(t *testing.T) {
+	m := newModel(Hooks{}, "test")
+	m.screen = screenDashboard
+	m.connect = connectModel{role: 1, ipInput: "10.0.0.9", nameInput: "Bob", focused: 3, err: "old error"}
+
+	next, _ := m.Update(backMsg{})
+	got := next.(model)
+
+	if got.screen != screenConnect {
+		t.Fatalf("screen = %v after backMsg, want the connect screen", got.screen)
+	}
+	want := connectModel{role: 1, ipInput: "10.0.0.9", nameInput: "Bob", focused: 3}
+	if got.connect != want {
+		t.Errorf("connect after backMsg = %+v, want %+v", got.connect, want)
+	}
+}
+
+// TestConnectedMsg_NilHookShowsInlineError: with no session func wired for
+// the chosen role, the app stays on the connect screen with an inline error
+// instead of starting a session that would panic.
+func TestConnectedMsg_NilHookShowsInlineError(t *testing.T) {
+	for _, role := range []string{"Host", "Join"} {
+		m := newModel(Hooks{}, "test")
+		m.screen = screenConnect
+		m.connect = newConnect()
+
+		next, cmd := m.Update(connectedMsg{role: role, addr: "10.0.0.5", name: "Link"})
+		got := next.(model)
+
+		if got.screen != screenConnect || cmd != nil {
+			t.Errorf("%s with a nil hook left the connect screen (screen=%v, cmd=%v)", role, got.screen, cmd != nil)
+		}
+		if !strings.Contains(got.connect.err, "isn't available") {
+			t.Errorf("%s with a nil hook: connect error = %q, want the missing-hook message", role, got.connect.err)
+		}
+	}
+}
+
 // TestHasInteractiveStdin_RegularFile exercises the real (non-stubbed)
 // detection against stdin redirected to a plain file, which is neither a
 // console/tty nor a MinTTY/Cygwin pty pipe — the genuinely-headless case

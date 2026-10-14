@@ -75,12 +75,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case connectedMsg:
+		// A nil session hook would panic in the session goroutine; stay
+		// on the connect screen and say so instead.
+		if errMsg := missingHookMsg(m.hooks, msg.role); errMsg != "" {
+			m.connect.err = errMsg
+			return m, nil
+		}
 		m.dashboard = newDashboard(m.hooks, msg.role, msg.name, msg.addr)
 		m.screen = screenDashboard
 		return m, m.dashboard.initCmd()
 
 	case backMsg:
-		m.connect = newConnect()
+		// Keep what the user typed (role, IP, name, focus) so a retry
+		// after a failed session is one Enter; only drop a stale error.
+		m.connect.err = ""
 		m.screen = screenConnect
 		return m, nil
 	}

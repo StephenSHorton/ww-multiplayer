@@ -32,11 +32,13 @@ type Hooks struct {
 	// HostSession runs the host flow (TCP server + broadcast-pose +
 	// puppet-sync). Returns when ctx is cancelled OR any underlying
 	// goroutine errors. Should be safe to call repeatedly across Esc -> back
-	// transitions in the TUI (server is unbound between calls).
+	// transitions in the TUI (server is unbound between calls). When nil,
+	// choosing Host shows an inline error instead of starting a session.
 	HostSession func(ctx context.Context, cancel context.CancelFunc, name string, rep report.Reporter) error
 
 	// JoinSession runs the joiner flow (broadcast-pose + puppet-sync only,
 	// no server). Returns when ctx is cancelled OR the connection drops.
+	// Nil is handled like a nil HostSession.
 	JoinSession func(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter)
 
 	// Players returns a snapshot of the remote players in the running session,
@@ -136,6 +138,12 @@ func startSession(hooks Hooks, role, name, addr string) *session {
 	s.cancel = cancel
 	go func() {
 		defer close(s.done)
+		// The app checks this before building a dashboard; this guard
+		// keeps any other caller from panicking on a nil func.
+		if msg := missingHookMsg(hooks, role); msg != "" {
+			rep.Log(report.Err, msg)
+			return
+		}
 		if role == "Host" {
 			if err := hooks.HostSession(ctx, cancel, name, rep); err != nil {
 				rep.Log(report.Err, err.Error())
@@ -157,4 +165,16 @@ func (s *session) stop() {
 	if s.done != nil {
 		<-s.done
 	}
+}
+
+// missingHookMsg returns a user-facing message when hooks has no session
+// func for role, or "" when the session can start.
+func missingHookMsg(hooks Hooks, role string) string {
+	if role == "Host" && hooks.HostSession == nil {
+		return "Hosting isn't available in this build (no HostSession hook)"
+	}
+	if role != "Host" && hooks.JoinSession == nil {
+		return "Joining isn't available in this build (no JoinSession hook)"
+	}
+	return ""
 }
