@@ -209,16 +209,31 @@ func (m connectModel) tryConnect() (connectModel, tea.Cmd) {
 
 // fieldView renders a text field's value plus the cursor block, keeping
 // the tail in view (behind an ellipsis) once it outgrows the box.
-func fieldView(value string) string {
-	room := fieldBoxWidth - 2 - 1 // padding, then the cursor cell
+func fieldView(value string, boxW int) string {
+	room := boxW - 2 - 1 // padding, then the cursor cell
 	if r := []rune(value); len(r) > room {
 		value = "…" + string(r[len(r)-(room-1):])
 	}
 	return value + "█"
 }
 
+// labelRow renders a field label with its hint, dropping the hint when the
+// pair would wrap in width cells: a wrapped row pushes the form past the
+// terminal height.
+func labelRow(label, hint string, width int) string {
+	row := labelStyle.Render(label)
+	if withHint := row + hintStyle.Render(hint); lipgloss.Width(withHint) <= width {
+		row = withHint
+	}
+	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(row)
+}
+
 func (m connectModel) view(width int) string {
 	var b strings.Builder
+
+	// The field boxes shrink with a narrow terminal (the border adds 2
+	// cells) instead of wrapping; their values scroll inside.
+	boxW := clampInt(width-2, 16, fieldBoxWidth)
 
 	b.WriteString(titleStyle.Width(width).Render("The Wind Waker"))
 	b.WriteString("\n")
@@ -249,16 +264,14 @@ func (m connectModel) view(width int) string {
 	// IP field (Join only). The TUI has no port field, so the hint says
 	// how to reach a host on a non-default port.
 	if m.role == 1 {
-		b.WriteString(lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(
-			labelStyle.Render("Host IP") + hintStyle.Render("  (add :port if it isn't 25565)"),
-		))
+		b.WriteString(labelRow("Host IP", "  (add :port if it isn't 25565)", width))
 		b.WriteString("\n")
-		ipBox := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Width(fieldBoxWidth)
+		ipBox := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Width(boxW)
 		if m.isIPFocused() {
 			ipBox = ipBox.BorderForeground(zeldaGreen)
 		}
 		b.WriteString(lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(
-			ipBox.Render(fieldView(m.ipInput)),
+			ipBox.Render(fieldView(m.ipInput, boxW)),
 		))
 		b.WriteString("\n\n")
 	}
@@ -266,16 +279,14 @@ func (m connectModel) view(width int) string {
 	// Name field (always). The hint sits on the label row so it costs no
 	// height: the Join screen with an error already uses 23 of 24 rows.
 	// Same-name players currently filter each other out as "self".
-	b.WriteString(lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(
-		labelStyle.Render("Player Name") + hintStyle.Render("  (each player needs a different name)"),
-	))
+	b.WriteString(labelRow("Player Name", "  (each player needs a different name)", width))
 	b.WriteString("\n")
-	nameBox := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Width(fieldBoxWidth)
+	nameBox := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Width(boxW)
 	if m.isNameFocused() {
 		nameBox = nameBox.BorderForeground(zeldaGreen)
 	}
 	b.WriteString(lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(
-		nameBox.Render(fieldView(m.nameInput)),
+		nameBox.Render(fieldView(m.nameInput, boxW)),
 	))
 	b.WriteString("\n\n")
 
@@ -300,7 +311,7 @@ func (m connectModel) view(width int) string {
 	))
 
 	b.WriteString("\n\n")
-	b.WriteString(helpStyle.Width(width).Render("tab: next  ←/→: toggle  enter: select  ctrl+c: quit"))
+	b.WriteString(helpStyle.Width(width).Render(truncate("tab: next  ←/→: toggle  enter: select  ctrl+c: quit", width)))
 
 	return b.String()
 }

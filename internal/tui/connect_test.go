@@ -197,3 +197,28 @@ func TestConnect_ViewHintAndFit(t *testing.T) {
 		t.Errorf("a value longer than its box should scroll behind an ellipsis\n---\n%s", plain(out))
 	}
 }
+
+// TestConnect_ViewNarrow: on a terminal narrower than the field boxes, the
+// boxes shrink and the hints drop instead of wrapping, so the form keeps
+// its 80-column height and never runs past the right edge.
+func TestConnect_ViewNarrow(t *testing.T) {
+	m := joinIP()
+	m.ipInput = strings.Repeat("a", ipMaxLen)
+	m.nameInput = "Link"
+	wantH := lipgloss.Height(m.view(80))
+	for _, w := range []int{60, 46, 40, 30, 20} {
+		out := m.view(w)
+		if got := lipgloss.Width(out); got > w {
+			t.Errorf("width %d: view is %d cells wide\n---\n%s", w, got, plain(out))
+		}
+		if got := lipgloss.Height(out); got != wantH {
+			t.Errorf("width %d: view is %d rows, want %d (nothing wrapped)\n---\n%s", w, got, wantH, plain(out))
+		}
+		if !strings.Contains(plain(out), "Link█") {
+			t.Errorf("width %d: name field lost its value\n---\n%s", w, plain(out))
+		}
+	}
+	if !strings.Contains(plain(m.view(60)), "different name") {
+		t.Error("the different-names hint should still show at 60 columns")
+	}
+}
