@@ -150,7 +150,7 @@ func TestStalledPeerRetiredWhileHealthyPeerKeepsServing(t *testing.T) {
 	if tcpConn, ok := stalledConn.(*net.TCPConn); ok {
 		_ = tcpConn.SetReadBuffer(1) // ask for the smallest receive window the OS will give us
 	}
-	if err := WriteMessage(stalledConn, MsgJoin, []byte("stalled")); err != nil {
+	if err := writeJoin(stalledConn, "stalled"); err != nil { // join + version hello
 		t.Fatalf("stalled join: %v", err)
 	}
 	wmsg, err := ReadMessage(stalledConn)

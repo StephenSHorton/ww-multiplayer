@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -62,6 +63,12 @@ type Client struct {
 	heartbeatEvery time.Duration
 	readTimeout    time.Duration
 	writeTimeout   time.Duration
+	dialTimeout    time.Duration
+
+	// dialContext opens the TCP connection. It is net.Dialer.DialContext in
+	// production; a field only so tests can substitute a dial that never
+	// completes and check that dialTimeout and ctx cancellation still end it.
+	dialContext func(ctx context.Context, network, address string) (net.Conn, error)
 
 	OnLog        func(string)
 	OnPlayerList func([]RemotePlayer)
@@ -82,6 +89,8 @@ func NewClient(name string) *Client {
 		heartbeatEvery: heartbeatInterval,
 		readTimeout:    clientReadTimeout,
 		writeTimeout:   writeTimeout,
+		dialTimeout:    dialTimeout,
+		dialContext:    (&net.Dialer{}).DialContext,
 	}
 }
 
@@ -91,31 +100,89 @@ func (c *Client) log(msg string) {
 	}
 }
 
-// Connect joins a server at the given address. Safe to call again on the
-// same Client after a drop (the reconnect loop does exactly that): it spins
-// up a fresh read loop + heartbeat ticker for the new connection.
+// Connect joins a server at the given address. It is ConnectContext with a
+// context that is never cancelled, for the one-shot CLI tools that have no
+// shutdown context to pass.
+func (c *Client) Connect(addr string) error {
+	return c.ConnectContext(context.Background(), addr)
+}
+
+// ConnectContext joins a server at the given address. Safe to call again on
+// the same Client after a drop (the reconnect loop does exactly that): it
+// spins up a fresh read loop + heartbeat ticker for the new connection.
 //
-// Invariant: Connect and Disconnect must alternate — every Connect is
+// The dial is bounded by dialTimeout, and cancelling ctx ends the attempt
+// promptly at any stage: during the dial, or during the join/welcome
+// handshake (the conn is closed under the blocked write or read). That is
+// what lets a TUI Esc or a Ctrl+C tear down a session that is still trying
+// to reach an unreachable or silent host, instead of waiting out the OS
+// connect timeout or the 15 s handshake read deadline.
+//
+// Invariant: ConnectContext and Disconnect must alternate — every connect is
 // preceded by a completed Disconnect of the prior session (ReconnectLoop's
 // run closure guarantees this by waiting for its ctx watcher's Disconnect
-// before returning). Connect is not safe to call concurrently, nor twice
-// without an intervening Disconnect (that would orphan the previous conn +
-// heartbeat goroutine).
-func (c *Client) Connect(addr string) error {
-	conn, err := net.Dial("tcp", addr)
+// before returning). It has one caller at a time: it is not safe to call
+// concurrently, nor twice without an intervening Disconnect (that would
+// orphan the previous conn + heartbeat goroutine).
+func (c *Client) ConnectContext(ctx context.Context, addr string) error {
+	dialCtx := ctx
+	if c.dialTimeout > 0 {
+		var cancel context.CancelFunc
+		dialCtx, cancel = context.WithTimeout(ctx, c.dialTimeout)
+		defer cancel()
+	}
+	conn, err := c.dialContext(dialCtx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
 
-	// Send join message. Bound it with the same write deadline every other
-	// client write goes through (via writeOn) so a half-dead server with a
-	// full send buffer errors out here instead of wedging the handshake.
+	// Cancelling ctx mid-handshake closes conn, which fails the blocked join
+	// write or welcome read below at once.
+	stopWatch := context.AfterFunc(ctx, func() { conn.Close() })
+	msg, err := c.handshake(conn)
+	if !stopWatch() {
+		// The watcher already ran: ctx was cancelled and conn is closed.
+		return fmt.Errorf("connect: %w", ctx.Err())
+	}
+	if err != nil {
+		conn.Close()
+		return err
+	}
+
+	id, epoch, _ := ParseWelcome(msg.Data)
+	prevEpoch := c.serverEpoch.Swap(epoch)
+
+	stop := make(chan struct{})
+	c.mu.Lock()
+	c.myID = id
+	c.conn = conn
+	c.stopHeartbeat = stop
+	if prevEpoch != 0 && epoch != prevEpoch {
+		// The server restarted: it hands out IDs afresh, so every remote
+		// we hold is stale, and one may even carry the ID we now have.
+		c.remotes = make(map[byte]*RemotePlayer)
+	}
+	c.mu.Unlock()
+	c.connected.Store(true)
+	c.log(fmt.Sprintf("Connected as player %d", id))
+
+	go c.readLoop(conn)
+	go c.heartbeatLoop(conn, stop)
+	return nil
+}
+
+// handshake sends our join on a freshly dialed conn and waits for the
+// server's welcome.
+func (c *Client) handshake(conn net.Conn) (*Message, error) {
+	// Send join message (+ the version hello; see handshake.go). Bound it
+	// with the same write deadline every other client write goes through
+	// (via writeOn) so a half-dead server with a full send buffer errors
+	// out here instead of wedging the handshake.
 	if c.writeTimeout > 0 {
 		conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
 	}
-	if err := WriteMessage(conn, MsgJoin, []byte(c.name)); err != nil {
-		conn.Close()
-		return fmt.Errorf("send join: %w", err)
+	if err := writeJoin(conn, c.name); err != nil {
+		return nil, fmt.Errorf("send join: %w", err)
 	}
 
 	// Wait for welcome. Bound the handshake read so a half-dead server
@@ -124,26 +191,15 @@ func (c *Client) Connect(addr string) error {
 		conn.SetReadDeadline(time.Now().Add(c.readTimeout))
 	}
 	msg, err := ReadMessage(conn)
-	if err != nil || msg.Type != MsgWelcome || len(msg.Data) < 1 {
-		conn.Close()
-		return fmt.Errorf("expected welcome, got error or wrong type")
+	if err != nil {
+		return nil, fmt.Errorf("expected welcome: %w", err)
 	}
-
-	id, epoch, _ := ParseWelcome(msg.Data)
-	c.serverEpoch.Store(epoch)
-
-	stop := make(chan struct{})
-	c.mu.Lock()
-	c.myID = id
-	c.conn = conn
-	c.stopHeartbeat = stop
-	c.mu.Unlock()
-	c.connected.Store(true)
-	c.log(fmt.Sprintf("Connected as player %d", id))
-
-	go c.readLoop(conn)
-	go c.heartbeatLoop(conn, stop)
-	return nil
+	// A reject or a version mismatch comes back as a *RejectError, which
+	// ends ReconnectLoop (errors.Is ErrFatal) instead of retrying.
+	if err := checkWelcome(msg); err != nil {
+		return nil, err
+	}
+	return msg, nil
 }
 
 // Disconnect closes the connection and stops the heartbeat ticker.
@@ -216,8 +272,12 @@ func (c *Client) SendPosition(pos *PlayerPosition) error {
 	return c.send(MsgPosition, pos.Serialize())
 }
 
-// SendChat sends a chat message to the server.
+// SendChat sends a chat message to the server. Text over MaxChatLen bytes is
+// refused here, since the server would drop it.
 func (c *Client) SendChat(message string) error {
+	if len(message) > MaxChatLen {
+		return fmt.Errorf("chat message is %d bytes long (max %d)", len(message), MaxChatLen)
+	}
 	return c.send(MsgChat, []byte(message))
 }
 
@@ -267,6 +327,20 @@ func (c *Client) heartbeatLoop(conn net.Conn, stop chan struct{}) {
 }
 
 func (c *Client) readLoop(conn net.Conn) {
+	// Safety net: a bug in handling one server frame (a parser, or an
+	// OnChat/OnLog callback) must cost this session, not the whole exe,
+	// which also runs the TUI and our other connection. Ending the session
+	// hands over to the reconnect path like any other drop. c.mu is never
+	// held when this runs: no callback is called under it below.
+	defer func() {
+		if r := recover(); r != nil {
+			c.abandonSession(conn)
+			func() {
+				defer func() { recover() }() // the log callback may be what panicked
+				c.log(fmt.Sprintf("Disconnected: internal error handling a server message: %v", r))
+			}()
+		}
+	}()
 	for c.connected.Load() {
 		// Read deadline = the ungraceful-disconnect detector. A peer that
 		// stops sending (crash, cable pull, hang) trips this, which is
@@ -307,15 +381,21 @@ func (c *Client) readLoop(conn net.Conn) {
 			if len(msg.Data) > 0 {
 				leaveID := msg.Data[0]
 				c.mu.Lock()
-				if rp, ok := c.remotes[leaveID]; ok {
-					c.log(fmt.Sprintf("%s left the game", rp.Name))
-				}
+				rp, ok := c.remotes[leaveID]
 				delete(c.remotes, leaveID)
 				c.mu.Unlock()
+				// Log outside c.mu: a callback that panicked while we held
+				// the lock would leave it locked past the recover above.
+				if ok {
+					c.log(fmt.Sprintf("%s left the game", rp.Name))
+				}
 			}
 
 		case MsgChat:
-			from, text := ParseChatRelay(msg.Data)
+			from, text, err := ParseChatRelay(msg.Data)
+			if err != nil {
+				break // garbled or foreign frame
+			}
 			// Self-filter: each human runs TWO connections under one name
 			// (broadcast-pose + puppet-sync). The server relays a message to
 			// our OTHER connection, so drop anything whose sender is us —
@@ -334,8 +414,8 @@ func (c *Client) readLoop(conn net.Conn) {
 			}
 
 		case MsgPose:
-			playerID, joints, matrices, face := ParsePoseRelayMessage(msg.Data)
-			if matrices != nil {
+			playerID, joints, matrices, face, err := ParsePoseRelayMessage(msg.Data)
+			if err == nil {
 				// Copy out so the matrix bytes aren't tied to the
 				// next ReadMessage's buffer (defensive — current
 				// ReadMessage allocates fresh per call, but this
@@ -378,31 +458,57 @@ func (c *Client) readLoop(conn net.Conn) {
 	}
 }
 
+// parsePlayerList applies a MsgPlayerList. The list is authoritative: the
+// server sends the full roster after every join and leave, including right
+// after our own welcome, so a remote missing from it is gone. That drops,
+// for example, a player who left while we were reconnecting (we never got
+// their MsgLeave). A malformed list is ignored whole, not half-applied.
 func (c *Client) parsePlayerList(data []byte) {
-	if len(data) < 1 {
+	entries, err := ParsePlayerList(data)
+	if err != nil {
+		c.log(fmt.Sprintf("Ignoring a malformed player list: %v", err))
 		return
 	}
-	count := int(data[0])
-	offset := 1
 
+	var logs []string
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for i := 0; i < count && offset < len(data); i++ {
-		id := data[offset]
-		offset++
-		nameLen := int(data[offset])
-		offset++
-		name := string(data[offset : offset+nameLen])
-		offset += nameLen
-
-		if id != c.myID {
-			if rp, ok := c.remotes[id]; ok {
-				rp.Name = name
-			} else {
-				c.remotes[id] = &RemotePlayer{ID: id, Name: name}
-			}
-			c.log(fmt.Sprintf("Player %s (ID:%d) in game", name, id))
+	listed := make(map[byte]bool, len(entries))
+	for _, e := range entries {
+		if e.ID == c.myID {
+			continue
+		}
+		listed[e.ID] = true
+		if rp, ok := c.remotes[e.ID]; ok {
+			rp.Name = e.Name
+		} else {
+			c.remotes[e.ID] = &RemotePlayer{ID: e.ID, Name: e.Name}
+		}
+		logs = append(logs, fmt.Sprintf("Player %s (ID:%d) in game", e.Name, e.ID))
+	}
+	for id, rp := range c.remotes {
+		if !listed[id] {
+			delete(c.remotes, id)
+			logs = append(logs, fmt.Sprintf("Player %s (ID:%d) is no longer in game", rp.Name, id))
 		}
 	}
+	c.mu.Unlock()
+
+	// Log outside c.mu, as in the MsgLeave case.
+	for _, l := range logs {
+		c.log(l)
+	}
+}
+
+// abandonSession ends the session on conn after its read loop gave up on
+// it. connected is cleared only while conn is still the live connection, so
+// a stale loop can't mark a newer session disconnected; conn is closed so
+// the server notices at once.
+func (c *Client) abandonSession(conn net.Conn) {
+	c.mu.RLock()
+	current := c.conn == conn
+	c.mu.RUnlock()
+	if current {
+		c.connected.Store(false)
+	}
+	conn.Close()
 }

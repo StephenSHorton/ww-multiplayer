@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"os"
 	"sync"
@@ -109,8 +110,11 @@ func SleepCtx(ctx context.Context, d time.Duration) error {
 // ReconnectLoop drives the connect → run → (drop) → reconnect lifecycle with
 // exponential backoff between failed connects and a floor against flap storms.
 //
-//   - connect establishes a session (dial + handshake). On failure the loop
-//     increments the attempt counter and sleeps backoff(attempt).
+//   - connect establishes a session (dial + handshake) under the loop's ctx,
+//     so a cancel interrupts an attempt in progress (Client.ConnectContext
+//     honors it). On failure the loop increments the attempt counter and
+//     sleeps backoff(attempt). The loop itself never logs the failure; wrap
+//     connect with a ConnectLog to tell the user about it.
 //   - run owns the live session and blocks until the connection drops (it
 //     returns) or ctx is cancelled. Its return value (drop vs. error) is not
 //     distinguished — either way the loop reconnects, UNLESS ctx is done.
@@ -119,12 +123,15 @@ func SleepCtx(ctx context.Context, d time.Duration) error {
 //     failed attempt (attempt++ then backoff) so a server that accepts-then-
 //     drops can't drive a hot connect→run→connect spin.
 //   - ctx cancellation ends the loop and returns nil (a clean shutdown).
+//   - A connect error matching ErrFatal (the host refused us, or runs an
+//     incompatible version) ends the loop and is returned: retrying can't
+//     fix it, and the caller should show the user why.
 //
 // sleep is injectable purely for testability; production callers pass
 // SleepCtx. backoff is typically a NewBackoff() closure.
 func ReconnectLoop(
 	ctx context.Context,
-	connect func() error,
+	connect func(context.Context) error,
 	run func(context.Context) error,
 	backoff func(attempt int) time.Duration,
 	sleep func(context.Context, time.Duration) error,
@@ -136,7 +143,7 @@ func ReconnectLoop(
 // fake `now` so they can control session duration without wall-clock waits.
 func reconnectLoop(
 	ctx context.Context,
-	connect func() error,
+	connect func(context.Context) error,
 	run func(context.Context) error,
 	backoff func(attempt int) time.Duration,
 	sleep func(context.Context, time.Duration) error,
@@ -147,8 +154,11 @@ func reconnectLoop(
 		if ctx.Err() != nil {
 			return nil
 		}
-		if err := connect(); err != nil {
+		if err := connect(ctx); err != nil {
 			attempt++
+			if errors.Is(err, ErrFatal) {
+				return err
+			}
 			if serr := sleep(ctx, backoff(attempt)); serr != nil {
 				// ctx cancelled during the backoff wait → clean shutdown.
 				return nil

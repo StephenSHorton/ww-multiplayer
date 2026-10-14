@@ -10,7 +10,7 @@ import (
 // players, the grid renders self ('@') at the exact center cell and nothing
 // else.
 func TestMinimapGridLines_SelfCenteredWhenAlone(t *testing.T) {
-	lines := minimapGridLines(100, 200, nil, defaultMinimapScale)
+	lines := minimapGridLines(100, 200, nil, defaultMinimapScale, minimapCols, minimapRows)
 
 	if len(lines) != minimapRows {
 		t.Fatalf("minimapGridLines returned %d rows, want %d", len(lines), minimapRows)
@@ -44,7 +44,7 @@ func TestMinimapGridLines_RemotePlusX(t *testing.T) {
 	scale := float32(10)
 	players := []PlayerView{{ID: 2, Name: "Zelda", X: selfX + 50, Y: 0, Z: selfZ}}
 
-	lines := minimapGridLines(selfX, selfZ, players, scale)
+	lines := minimapGridLines(selfX, selfZ, players, scale, minimapCols, minimapRows)
 	wantCol := minimapHalfCols + 5 // 50 world units / scale(10) = 5 cells
 	row := []rune(lines[minimapHalfRows])
 
@@ -68,7 +68,7 @@ func TestMinimapGridLines_RemotePlusZ(t *testing.T) {
 	scale := float32(10)
 	players := []PlayerView{{ID: 3, Name: "ganon", X: selfX, Y: 0, Z: selfZ + 50}}
 
-	lines := minimapGridLines(selfX, selfZ, players, scale)
+	lines := minimapGridLines(selfX, selfZ, players, scale, minimapCols, minimapRows)
 	wantRow := minimapHalfRows + 5 // 50 / 10 = 5 cells down
 
 	if wantRow <= minimapHalfRows {
@@ -86,7 +86,7 @@ func TestMinimapGridLines_RemotePlusZ(t *testing.T) {
 // causing an out-of-range panic.
 func TestMinimapGridLines_ClampsFarRemoteToEdge(t *testing.T) {
 	players := []PlayerView{{ID: 4, Name: "Far", X: 100000, Y: 0, Z: -100000}}
-	lines := minimapGridLines(0, 0, players, defaultMinimapScale)
+	lines := minimapGridLines(0, 0, players, defaultMinimapScale, minimapCols, minimapRows)
 
 	topRow := []rune(lines[0])
 	if topRow[minimapCols-1] != 'F' {
@@ -115,7 +115,7 @@ func TestMinimapGlyph(t *testing.T) {
 // TestRenderMinimap_NoPositionYet asserts the graceful !ok fallback text
 // renders instead of a grid when LocalPos hasn't resolved.
 func TestRenderMinimap_NoPositionYet(t *testing.T) {
-	out := plain(renderMinimap(100, 0, 0, false, nil, defaultMinimapScale))
+	out := plain(renderMinimap(100, minimapRows, 0, 0, false, nil, defaultMinimapScale))
 	if !strings.Contains(out, "no position yet") {
 		t.Errorf("renderMinimap with selfOK=false missing the fallback text:\n%s", out)
 	}
@@ -127,7 +127,7 @@ func TestRenderMinimap_NoPositionYet(t *testing.T) {
 // TestRenderMinimap_Title asserts the panel is present and titled, and draws
 // the grid (self glyph) when a position IS known.
 func TestRenderMinimap_Title(t *testing.T) {
-	out := plain(renderMinimap(100, 10, 10, true, nil, defaultMinimapScale))
+	out := plain(renderMinimap(100, minimapRows, 10, 10, true, nil, defaultMinimapScale))
 	if !strings.Contains(out, "Minimap") {
 		t.Errorf("renderMinimap missing panel title:\n%s", out)
 	}

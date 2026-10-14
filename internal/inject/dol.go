@@ -11,6 +11,7 @@
 package inject
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 )
@@ -27,9 +28,9 @@ const dolNumText = 7
 // responsible for writing the result back into the ISO at the right offset.
 //
 // Idempotency: if the DOL already contains a T2 section pointing at our
-// T2Address, it's treated as already-patched and we return ErrAlreadyPatched
-// rather than corrupting the existing patch. Same for the in-DOL patches —
-// if the bytes already match what we'd write, that patch is a no-op.
+// T2Address, we never patch it again. If that section and every in-DOL
+// patch site hold exactly what this build writes, it's ErrAlreadyPatched;
+// otherwise a different mod version patched it (ErrPatchedByOtherVersion).
 func PatchDOL(vanilla []byte) ([]byte, error) {
 	if len(vanilla) < dolHeaderSize {
 		return nil, fmt.Errorf("dol: input too small (%d bytes, need at least %d)",
@@ -52,7 +53,10 @@ func PatchDOL(vanilla []byte) ([]byte, error) {
 			continue
 		}
 		if addr == T2Address {
-			return nil, ErrAlreadyPatched
+			if hasCurrentPatch(out, off, size) {
+				return nil, ErrAlreadyPatched
+			}
+			return nil, ErrPatchedByOtherVersion
 		}
 	}
 	if freeSlot < 0 {
@@ -89,6 +93,32 @@ func PatchDOL(vanilla []byte) ([]byte, error) {
 // a friendly "looks like this ISO is already patched" message rather than
 // a hard error.
 var ErrAlreadyPatched = fmt.Errorf("dol: already patched (T2 section at 0x%08X exists)", T2Address)
+
+// ErrPatchedByOtherVersion is returned by PatchDOL when the DOL has a
+// section at T2Address whose bytes (or in-DOL patches) differ from this
+// build's blob: the ISO was patched by an older or newer ww-multiplayer.
+// Patching on top of it can't work, so the user has to start from their
+// vanilla ISO.
+var ErrPatchedByOtherVersion = fmt.Errorf("dol: patched by a different ww-multiplayer version "+
+	"(the T2 section at 0x%08X doesn't match this build); patch your vanilla ISO instead", T2Address)
+
+// hasCurrentPatch reports whether the T2 section at file offset off (size
+// bytes) and every DOLPatches site in dol hold exactly what PatchDOL writes.
+func hasCurrentPatch(dol []byte, off, size uint32) bool {
+	if int(size) != len(T2Bytes) || uint64(off)+uint64(size) > uint64(len(dol)) {
+		return false
+	}
+	if !bytes.Equal(dol[off:off+size], T2Bytes) {
+		return false
+	}
+	for _, p := range DOLPatches {
+		end := uint64(p.FileOff) + uint64(len(p.Bytes))
+		if end > uint64(len(dol)) || !bytes.Equal(dol[p.FileOff:end], p.Bytes) {
+			return false
+		}
+	}
+	return true
+}
 
 func readU32BE(b []byte, off int) uint32 {
 	return binary.BigEndian.Uint32(b[off : off+4])

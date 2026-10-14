@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -32,11 +33,13 @@ type Hooks struct {
 	// HostSession runs the host flow (TCP server + broadcast-pose +
 	// puppet-sync). Returns when ctx is cancelled OR any underlying
 	// goroutine errors. Should be safe to call repeatedly across Esc -> back
-	// transitions in the TUI (server is unbound between calls).
+	// transitions in the TUI (server is unbound between calls). When nil,
+	// choosing Host shows an inline error instead of starting a session.
 	HostSession func(ctx context.Context, cancel context.CancelFunc, name string, rep report.Reporter) error
 
 	// JoinSession runs the joiner flow (broadcast-pose + puppet-sync only,
 	// no server). Returns when ctx is cancelled OR the connection drops.
+	// Nil is handled like a nil HostSession.
 	JoinSession func(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter)
 
 	// Players returns a snapshot of the remote players in the running session,
@@ -79,6 +82,7 @@ type session struct {
 	cancel context.CancelFunc
 	done   chan struct{} // closed when the session goroutine returns
 	logCh  chan logEntry
+	rep    *tuiReporter
 }
 
 // tuiReporter pushes Reporter.Log calls onto a buffered channel that the
@@ -86,9 +90,20 @@ type session struct {
 // 20 Hz tick and puppet-sync's 60 Hz tick must never stall on UI.
 type tuiReporter struct {
 	ch chan logEntry
+
+	// lastErr is the newest Err-level message, kept even when the channel
+	// drops it: it becomes the session-ended reason. mu guards it because
+	// both session goroutines log concurrently.
+	mu      sync.Mutex
+	lastErr string
 }
 
 func (r *tuiReporter) Log(level report.Level, msg string) {
+	if level == report.Err {
+		r.mu.Lock()
+		r.lastErr = msg
+		r.mu.Unlock()
+	}
 	entry := logEntry{
 		t:     time.Now(),
 		level: level,
@@ -132,10 +147,17 @@ func startSession(hooks Hooks, role, name, addr string) *session {
 		logCh: make(chan logEntry, 256),
 	}
 	rep := &tuiReporter{ch: s.logCh}
+	s.rep = rep
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	go func() {
 		defer close(s.done)
+		// The app checks this before building a dashboard; this guard
+		// keeps any other caller from panicking on a nil func.
+		if msg := missingHookMsg(hooks, role); msg != "" {
+			rep.Log(report.Err, msg)
+			return
+		}
 		if role == "Host" {
 			if err := hooks.HostSession(ctx, cancel, name, rep); err != nil {
 				rep.Log(report.Err, err.Error())
@@ -157,4 +179,31 @@ func (s *session) stop() {
 	if s.done != nil {
 		<-s.done
 	}
+}
+
+// endReason explains why the session goroutine returned: the newest
+// Err-level line it logged (HostSession's returned error and every
+// runMultiplayerGoroutines failure are logged at Err), or a neutral
+// fallback when it ended without one. Meaningful once done is closed.
+func (s *session) endReason() string {
+	if s.rep != nil {
+		s.rep.mu.Lock()
+		defer s.rep.mu.Unlock()
+		if s.rep.lastErr != "" {
+			return s.rep.lastErr
+		}
+	}
+	return "no error was reported"
+}
+
+// missingHookMsg returns a user-facing message when hooks has no session
+// func for role, or "" when the session can start.
+func missingHookMsg(hooks Hooks, role string) string {
+	if role == "Host" && hooks.HostSession == nil {
+		return "Hosting isn't available in this build (no HostSession hook)"
+	}
+	if role != "Host" && hooks.JoinSession == nil {
+		return "Joining isn't available in this build (no JoinSession hook)"
+	}
+	return ""
 }

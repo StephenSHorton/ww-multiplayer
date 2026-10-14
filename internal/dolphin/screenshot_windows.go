@@ -79,12 +79,16 @@ type bitmapInfo struct {
 	Colors [3]uint32 // unused for biRGB but keeps the struct shaped like the C version
 }
 
-// FindWindowByPID walks all top-level windows and returns the first
-// visible one owned by the given process id. Dolphin's Qt main window
-// is the only visible top-level window per process, so first-match is
-// fine.
+// FindWindowByPID returns the visible top-level window of the given
+// process that shows the game. Dolphin can own several: the game-list
+// main window, a separate render window titled "... | The Wind Waker
+// (GZLE01)" when "Render to Main Window" is off, and transient popups
+// such as the "Update available" dialog. pickGameWindow prefers the
+// render window, then the largest window, so screenshots and hotkeys
+// land on the game rather than whichever window happens to enumerate
+// first.
 func FindWindowByPID(pid uint32) (uintptr, error) {
-	var found uintptr
+	var cands []windowCandidate
 	cb := syscall.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
 		var winPID uint32
 		procGetWindowThreadProcessID.Call(hwnd, uintptr(unsafe.Pointer(&winPID)))
@@ -98,13 +102,15 @@ func FindWindowByPID(pid uint32) (uintptr, error) {
 		// Skip zero-area windows (Qt creates invisible helper top-levels).
 		var r rect
 		procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
-		if r.Right-r.Left <= 0 || r.Bottom-r.Top <= 0 {
+		w, h := int64(r.Right-r.Left), int64(r.Bottom-r.Top)
+		if w <= 0 || h <= 0 {
 			return 1
 		}
-		found = hwnd
-		return 0 // stop iteration
+		cands = append(cands, windowCandidate{hwnd: hwnd, title: WindowTitle(hwnd), area: w * h})
+		return 1
 	})
 	procEnumWindows.Call(cb, 0)
+	found := pickGameWindow(cands)
 	if found == 0 {
 		return 0, fmt.Errorf("no visible top-level window found for pid %d", pid)
 	}

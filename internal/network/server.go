@@ -28,7 +28,7 @@ type Player struct {
 type Server struct {
 	listener net.Listener
 	players  map[byte]*Player
-	nextID   byte
+	nextID   byte // where allocIDLocked starts its search for a free ID
 	mu       sync.RWMutex
 	port     int
 	// epoch is constant for the life of this Server instance (its boot-time
@@ -41,6 +41,7 @@ type Server struct {
 	heartbeatEvery time.Duration
 	readTimeout    time.Duration
 	writeTimeout   time.Duration
+	helloTimeout   time.Duration
 	OnLog          func(string) // callback for log messages
 }
 
@@ -54,6 +55,7 @@ func NewServer(port int) *Server {
 		heartbeatEvery: heartbeatInterval,
 		readTimeout:    serverReadTimeout,
 		writeTimeout:   writeTimeout,
+		helloTimeout:   helloTimeout,
 	}
 }
 
@@ -132,26 +134,57 @@ func (s *Server) handlePlayer(conn net.Conn) {
 
 	name := string(msg.Data)
 
-	// Assign ID
-	s.mu.Lock()
-	id := s.nextID
-	s.nextID++
-	player := &Player{
-		ID:   id,
-		Name: name,
-		Conn: conn,
+	// Version handshake (handshake.go): a current client sends MsgHello
+	// right behind its join. A client that doesn't predates the handshake,
+	// and is told to upgrade instead of being admitted to a session it
+	// can't keep (it never answers heartbeats).
+	if s.helloTimeout > 0 {
+		conn.SetReadDeadline(time.Now().Add(s.helloTimeout))
 	}
-	s.players[id] = player
-	s.mu.Unlock()
+	hello, err := ReadMessage(conn)
+	if err != nil || hello.Type != MsgHello {
+		if isTimeout(err) {
+			s.refuseLegacy(conn, name)
+		}
+		return
+	}
+	if version, err := ParseHello(hello.Data); err != nil || version != ProtocolVersion {
+		s.refuse(conn, name, RejectVersion, versionMismatchReason(version))
+		return
+	}
+	// Reject rather than clean up a bad name: names are matched for
+	// self-filtering, so a silently altered name would break it.
+	if err := ValidatePlayerName(name); err != nil {
+		s.refuse(conn, name, RejectBadName, "invalid player name: "+err.Error())
+		return
+	}
 
-	s.log(fmt.Sprintf("%s (ID:%d) connected", name, id))
+	// Assign an ID. Lock the new player's SendMu BEFORE it becomes visible
+	// in s.players and hold it until the welcome is written: from the moment
+	// it is in the map, other players' relays (broadcastExcept) can write to
+	// this conn, and the client must read its welcome first.
+	player := &Player{Name: name, Conn: conn}
+	player.SendMu.Lock()
+	s.mu.Lock()
+	id, ok := s.allocIDLocked()
+	if ok {
+		player.ID = id
+		s.players[id] = player
+	}
+	s.mu.Unlock()
+	if !ok {
+		player.SendMu.Unlock()
+		s.refuse(conn, name, RejectServerFull, "server full: all 255 player IDs are in use")
+		return
+	}
 
 	// Send welcome with assigned ID + the server epoch (for restart
-	// detection). Old clients read Data[0] and ignore the 8-byte tail.
-	// The player is already in s.players, so this write MUST hold SendMu:
-	// another player's broadcastExcept pose relay could otherwise interleave
-	// bytes on this conn and corrupt the welcome. writePlayer does that.
-	s.writePlayer(player, MsgWelcome, WelcomeMessage(id, s.epoch))
+	// detection) + the protocol version. Old readers take the fields they
+	// know from the front and ignore the rest.
+	s.writePlayerLocked(player, MsgWelcome, WelcomeMessage(id, s.epoch))
+	player.SendMu.Unlock()
+
+	s.log(fmt.Sprintf("%s (ID:%d) connected", name, id))
 
 	// Broadcast player list to everyone
 	s.broadcastPlayerList()
@@ -164,6 +197,7 @@ func (s *Server) handlePlayer(conn net.Conn) {
 	go s.heartbeatLoop(player, done)
 
 	// Read loop
+	poseWarned := false // log a stream of bad pose frames once, not per frame
 	for {
 		// Reset the read deadline each iteration. A net.Error Timeout from
 		// an ungracefully-gone peer surfaces as an ordinary read error →
@@ -194,6 +228,11 @@ func (s *Server) handlePlayer(conn net.Conn) {
 			// name into a structured [nameLen][name][text] payload (a client
 			// can't forge another player's name). broadcastExcept excludes the
 			// sender's own connection and retires any writer that fails (#39).
+			// Oversize text is dropped here so the relay stays in bounds.
+			if len(msg.Data) > MaxChatLen {
+				s.log(fmt.Sprintf("dropped a %d-byte chat message from %s (max %d)", len(msg.Data), name, MaxChatLen))
+				break
+			}
 			text := string(msg.Data)
 			s.broadcastExcept(id, MsgChat, ChatRelayMessage(name, text))
 			s.log(fmt.Sprintf("[Chat] %s: %s", name, text))
@@ -202,9 +241,17 @@ func (s *Server) handlePlayer(conn net.Conn) {
 			// Reuse the sender's payload, prepended with their ID.
 			// Server doesn't decode the matrices; it's just bytes.
 			// Face state (optional trailer) passes through untouched.
-			joints, matrices, face := DeserializePose(msg.Data)
-			if matrices != nil {
-				relay := PoseRelayMessage(id, joints, matrices, face)
+			// DeserializePose rejects joint counts over MaxPoseJoints and
+			// face trailers over MaxFaceBytes, which keeps the relay small.
+			joints, matrices, face, err := DeserializePose(msg.Data)
+			if err != nil {
+				if !poseWarned {
+					poseWarned = true
+					s.log(fmt.Sprintf("dropping bad pose frames from %s: %v", name, err))
+				}
+				break
+			}
+			if relay := PoseRelayMessage(id, joints, matrices, face); relay != nil {
 				s.broadcastExcept(id, MsgPose, relay)
 			}
 
@@ -220,9 +267,12 @@ func (s *Server) handlePlayer(conn net.Conn) {
 		}
 	}
 
-	// Player disconnected
+	// Player disconnected. IDs are unique among live players, so the entry
+	// is ours; the check just keeps teardown from ever evicting another.
 	s.mu.Lock()
-	delete(s.players, id)
+	if s.players[id] == player {
+		delete(s.players, id)
+	}
 	s.mu.Unlock()
 
 	s.log(fmt.Sprintf("%s disconnected", name))
@@ -260,13 +310,44 @@ func (s *Server) heartbeatLoop(p *Player, done chan struct{}) {
 func (s *Server) writePlayer(p *Player, msgType byte, data []byte) error {
 	p.SendMu.Lock()
 	defer p.SendMu.Unlock()
+	return s.writePlayerLocked(p, msgType, data)
+}
+
+// writePlayerLocked is writePlayer for a caller that already holds p.SendMu.
+func (s *Server) writePlayerLocked(p *Player, msgType byte, data []byte) error {
 	if s.writeTimeout > 0 {
 		p.Conn.SetWriteDeadline(time.Now().Add(s.writeTimeout))
 	}
 	return WriteMessage(p.Conn, msgType, data)
 }
 
+// allocIDLocked returns a free player ID, searching on from s.nextID so IDs
+// are reused as late as possible. IDs are 1..255: 0 is never assigned (it
+// marks the welcome of a refused pre-handshake client, see refuseLegacy). ok
+// is false when all 255 are taken. The caller holds s.mu.
+func (s *Server) allocIDLocked() (id byte, ok bool) {
+	for i := 0; i < 256; i++ {
+		id = s.nextID
+		s.nextID++
+		if id == 0 {
+			continue
+		}
+		if _, taken := s.players[id]; !taken {
+			return id, true
+		}
+	}
+	return 0, false
+}
+
 func (s *Server) broadcastExcept(excludeID byte, msgType byte, data []byte) {
+	// Ingress caps (handlePlayer) keep every relay far below MaxPayload.
+	// Should one ever exceed it anyway, drop it here: WriteMessage would
+	// fail for every recipient, and failed writers are retired below, so
+	// one sender's bad frame would disconnect everyone else.
+	if len(data) > MaxPayload {
+		s.log(fmt.Sprintf("dropped a %d-byte %q relay (max %d)", len(data), msgType, MaxPayload))
+		return
+	}
 	s.mu.RLock()
 	var failed []*Player
 	for _, p := range s.players {
@@ -285,12 +366,16 @@ func (s *Server) broadcastPlayerList() {
 	s.mu.RLock()
 
 	// Format: [count:1][id:1][nameLen:1][name:variable]...
-	var data []byte
-	data = append(data, byte(len(s.players)))
+	entries := make([]PlayerEntry, 0, len(s.players))
 	for _, p := range s.players {
-		data = append(data, p.ID)
-		data = append(data, byte(len(p.Name)))
-		data = append(data, []byte(p.Name)...)
+		entries = append(entries, PlayerEntry{ID: p.ID, Name: p.Name})
+	}
+	data, err := PlayerListMessage(entries)
+	if err != nil {
+		// Unreachable: IDs are 1..255 and names are capped at join.
+		s.mu.RUnlock()
+		s.log(fmt.Sprintf("not sending player list: %v", err))
+		return
 	}
 
 	var failed []*Player

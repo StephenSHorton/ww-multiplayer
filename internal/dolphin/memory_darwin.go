@@ -7,6 +7,7 @@ package dolphin
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/types.h>
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
 #include <libproc.h>
@@ -78,18 +79,42 @@ int dolphin_next_region(mach_port_t task, unsigned long long start_addr,
 // Finds PIDs whose executable basename (case-insensitive) contains
 // `needle`. Writes up to max_pids ascending PIDs into out_pids.
 // Returns the count written, or a negative errno-ish value on error.
+//
+// libproc contract (XNU libsyscall/wrappers/libproc/libproc.c and
+// bsd/kern/proc_info.c):
+//   int proc_listallpids(void *buffer, int buffersize)
+//   - buffersize is in BYTES.
+//   - The return value is a PID COUNT, not bytes: libproc divides the
+//     kernel's byte count by sizeof(int) ("return numpids / sizeof(int);").
+//   - buffer == NULL copies nothing and returns an estimated count
+//     (nprocs + 20).
+//   - The kernel fills at most buffersize / sizeof(int) PIDs, newest
+//     process first, so a return equal to the buffer's capacity means
+//     the list may have been cut short.
+//   - Failure returns 0.
+// An earlier version read both returns as byte counts, so it allocated
+// and scanned only about the newest 1/8 of processes and missed an
+// older Dolphin.
 int dolphin_find_pids_by_name(const char *needle, int *out_pids, int max_pids) {
-    int byte_size = proc_listallpids(NULL, 0);
-    if (byte_size <= 0) return -1;
-    // proc_listallpids quirk: passing the exact size sometimes truncates,
-    // so over-allocate.
-    byte_size *= 2;
-    int *all = (int *)malloc((size_t)byte_size);
-    if (!all) return -2;
+    int est = proc_listallpids(NULL, 0);
+    if (est <= 0) return -1;
 
-    int got = proc_listallpids(all, byte_size);
-    if (got <= 0) { free(all); return -3; }
-    int n = got / (int)sizeof(int);
+    // Pad the estimate for processes spawned between the two calls. If
+    // the kernel still fills every slot, double the buffer and ask again.
+    int cap = est + 64;
+    pid_t *all = NULL;
+    int n = 0;
+    for (int attempt = 0; ; attempt++) {
+        pid_t *grown = (pid_t *)realloc(all, (size_t)cap * sizeof(pid_t));
+        if (!grown) { free(all); return -2; }
+        all = grown;
+
+        n = proc_listallpids(all, cap * (int)sizeof(pid_t));
+        if (n <= 0) { free(all); return -3; }
+        if (n > cap) n = cap; // never read past what we allocated
+        if (n < cap || attempt == 4) break; // complete, or stop growing
+        cap *= 2;
+    }
 
     char low_needle[256];
     int nlen = (int)strlen(needle);

@@ -21,6 +21,15 @@ inject/__pycache__/
 # OMC session state (local only)
 .omc/
 
+# Wind Waker disc images (copyrighted; vanilla or patched) in any format
+# Dolphin reads, and `screenshot`'s default dolphin-<pid>-<ts>.png output.
+*.iso
+*.ciso
+*.rvz
+*.gcz
+*.wia
+dolphin-*.png
+
 # Local Dolphin save states for the two-Dolphin testing loop —
 # captured per-machine via SAVE_STATE. ~27 MB binary blobs each;
 # regenerate locally rather than commit.

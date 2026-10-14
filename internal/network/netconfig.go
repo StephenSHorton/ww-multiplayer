@@ -15,6 +15,7 @@ import (
 //	WW_READ_TIMEOUT_SECS read deadline before a peer is declared    default 15s
 //	                     ungracefully gone (server + client share it)
 //	WW_BACKOFF_MAX_SECS  upper bound on reconnect backoff           default 8s
+//	WW_DIAL_TIMEOUT_SECS bound on one TCP connect attempt           default 5s
 //	WW_FREEZE_SECS       silent-sender freeze threshold (receiver)  default 2s
 //	WW_DESPAWN_SECS      silent-sender despawn threshold (receiver) default 5s
 var (
@@ -33,6 +34,12 @@ var (
 	// backoffBase / backoffCap bound the exponential reconnect backoff.
 	backoffBase = 100 * time.Millisecond
 	backoffCap  = envSeconds("WW_BACKOFF_MAX_SECS", 8*time.Second)
+
+	// dialTimeout bounds one TCP connect attempt. Without it a joiner who
+	// typed a wrong or firewalled address waits out the OS connect timeout
+	// (about 21 s on Windows) per attempt before the reconnect loop can
+	// report the failure and try again.
+	dialTimeout = envSeconds("WW_DIAL_TIMEOUT_SECS", 5*time.Second)
 
 	// minHealthySession is the floor a run() must live to count as a real
 	// session. A shorter run (server accepts-then-RSTs, or the >5-send-error

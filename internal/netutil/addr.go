@@ -4,9 +4,13 @@
 package netutil
 
 import (
+	"errors"
+	"fmt"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // NormalizeAddr ensures addr carries an explicit port, appending
@@ -51,4 +55,86 @@ func NormalizeAddr(addr string, defaultPort int) string {
 
 	// Bare hostname or IPv4 literal with no port.
 	return net.JoinHostPort(addr, port)
+}
+
+// ValidateAddr reports whether addr looks like something a joiner can dial:
+// an IPv4/IPv6 literal or a hostname, with an optional port, in any form
+// NormalizeAddr accepts. It catches the typos that would otherwise turn
+// into a silent reconnect loop: an empty field, embedded spaces, a
+// partial IP such as "192.168.1." or "192.168.1", and a port outside
+// 1-65535. It does no DNS lookup, so a well-formed but unknown hostname
+// still passes. The trailing-dot FQDN form ("host.example.") is rejected
+// on purpose: it is far more often a half-typed IP than a real FQDN.
+func ValidateAddr(addr string) error {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return errors.New("address is empty")
+	}
+	if strings.IndexFunc(addr, unicode.IsSpace) >= 0 {
+		return errors.New("address must not contain spaces")
+	}
+	if strings.Contains(addr, "://") {
+		return errors.New("leave out the scheme (e.g. http://)")
+	}
+
+	// Validate exactly what NormalizeAddr will hand to the dialer. The
+	// default port only fills in a missing one, so any valid value works.
+	host, port, err := net.SplitHostPort(NormalizeAddr(addr, 1))
+	if err != nil {
+		return fmt.Errorf("%q is not a valid host:port", addr)
+	}
+	if !validPort(port) {
+		return fmt.Errorf("port %q is not a number from 1 to 65535", port)
+	}
+	if !validHost(host) {
+		return fmt.Errorf("%q is not a valid IP address or hostname", host)
+	}
+	return nil
+}
+
+// validPort reports whether p is a decimal port number in 1-65535. Signs
+// and other forms strconv.Atoi would accept ("+5") are rejected.
+func validPort(p string) bool {
+	if p == "" || len(p) > 5 {
+		return false
+	}
+	for _, c := range p {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	n, err := strconv.Atoi(p)
+	return err == nil && n >= 1 && n <= 65535
+}
+
+// validHost accepts an IP literal (IPv6 zones included) or a hostname made
+// of dot-separated labels of letters, digits, '-' and '_' (underscores show
+// up in Windows machine names). A hostname whose last label is all digits
+// is rejected: that is a mistyped IPv4 address ("192.168.1",
+// "10.0.0.256"), never a real name.
+func validHost(host string) bool {
+	if _, err := netip.ParseAddr(host); err == nil {
+		return true
+	}
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	labels := strings.Split(host, ".")
+	for _, label := range labels {
+		if label == "" || len(label) > 63 {
+			return false
+		}
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, c := range label {
+			ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' ||
+				c >= '0' && c <= '9' || c == '-' || c == '_'
+			if !ok {
+				return false
+			}
+		}
+	}
+	last := labels[len(labels)-1]
+	return strings.TrimLeft(last, "0123456789") != ""
 }

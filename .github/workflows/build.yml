@@ -15,8 +15,8 @@ jobs:
   windows:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
@@ -35,6 +35,14 @@ jobs:
           CGO_ENABLED: '0'
         run: go build -o /tmp/ww-multiplayer.exe .
 
+      # Native Linux pass: internal/dolphin has a stub backend on
+      # platforms without process-memory support (memory_other.go), so
+      # the whole module vets and its unit tests run here.
+      - name: go vet + go test (native Linux)
+        run: |
+          go vet ./...
+          go test -race -count=1 ./...
+
       - name: Sanity-check embedded blob
         run: |
           if ! grep -q "var T2Bytes" internal/inject/blob.go; then
@@ -49,8 +57,8 @@ jobs:
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
@@ -59,6 +67,9 @@ jobs:
       # cross to amd64 to make sure both architectures still compile.
       - name: go vet
         run: go vet ./...
+
+      - name: go test
+        run: go test -count=1 ./...
 
       - name: Build arm64
         env:

@@ -87,7 +87,7 @@ func TestRunSessionNoOverlapAcrossReconnects(t *testing.T) {
 	sessions := 0
 	killedLive := false // set if teardown ever closed the live session
 
-	connect := func() error {
+	connect := func(context.Context) error {
 		mu.Lock()
 		nextID++
 		openSession = nextID
@@ -193,7 +193,7 @@ func TestReconnectLoop(t *testing.T) {
 	now := func() time.Time { return clock }
 
 	var connectCalls, runCalls int
-	connect := func() error {
+	connect := func(context.Context) error {
 		connectCalls++
 		// Fail attempts 1,2 and 4; succeed on 3 and 5. The fail at 4 proves
 		// the attempt counter reset after the healthy session at 3.
@@ -261,7 +261,7 @@ func TestReconnectLoopStormFloor(t *testing.T) {
 	now := func() time.Time { return time.Time{} } // clock never advances
 
 	connectCalls := 0
-	connect := func() error { connectCalls++; return nil } // always succeeds
+	connect := func(context.Context) error { connectCalls++; return nil } // always succeeds
 	runCalls := 0
 	run := func(ctx context.Context) error {
 		runCalls++
@@ -310,13 +310,45 @@ func TestReconnectLoopReturnsNilOnPreCancelledCtx(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already done
 
-	connect := func() error { t.Fatal("connect should not be called"); return nil }
+	connect := func(context.Context) error { t.Fatal("connect should not be called"); return nil }
 	run := func(context.Context) error { t.Fatal("run should not be called"); return nil }
 	backoff := func(int) time.Duration { return 0 }
 	sleep := func(context.Context, time.Duration) error { return nil }
 
 	if err := ReconnectLoop(ctx, connect, run, backoff, sleep); err != nil {
 		t.Fatalf("ReconnectLoop on cancelled ctx = %v, want nil", err)
+	}
+}
+
+// TestReconnectLoopCancelInterruptsConnect: connect gets the loop's ctx, so a
+// shutdown (TUI Esc, Ctrl+C) that lands while a connect attempt is blocked —
+// a dial to a black-holed address, a server that never sends the welcome —
+// ends that attempt and the loop at once instead of waiting it out.
+func TestReconnectLoopCancelInterruptsConnect(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	entered := make(chan struct{})
+	connect := func(ctx context.Context) error {
+		close(entered)
+		<-ctx.Done() // a connect that only a cancel can end
+		return ctx.Err()
+	}
+	run := func(context.Context) error { t.Fatal("run should not be called"); return nil }
+	backoff := func(int) time.Duration { return time.Hour }
+
+	done := make(chan error, 1)
+	go func() { done <- ReconnectLoop(ctx, connect, run, backoff, SleepCtx) }()
+
+	<-entered
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ReconnectLoop = %v, want nil on cancel", err)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("cancel did not reach the blocked connect")
 	}
 }
 

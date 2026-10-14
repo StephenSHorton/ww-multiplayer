@@ -43,6 +43,9 @@ var (
 			Foreground(subtle).
 			Align(lipgloss.Center)
 
+	hintStyle = lipgloss.NewStyle().
+			Foreground(subtle)
+
 	logTime = lipgloss.NewStyle().
 		Foreground(subtle)
 

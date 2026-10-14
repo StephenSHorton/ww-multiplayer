@@ -91,7 +91,7 @@ func TestSilentClientReapedAndMsgLeaveBroadcast(t *testing.T) {
 		t.Fatalf("silent dial: %v", err)
 	}
 	defer silent.Close()
-	if err := WriteMessage(silent, MsgJoin, []byte("silent")); err != nil {
+	if err := writeJoin(silent, "silent"); err != nil { // join + version hello
 		t.Fatalf("silent join: %v", err)
 	}
 	wmsg, err := ReadMessage(silent)
@@ -129,7 +129,7 @@ func TestPingingClientNotReaped(t *testing.T) {
 		t.Fatalf("dial: %v", err)
 	}
 	defer conn.Close()
-	if err := WriteMessage(conn, MsgJoin, []byte("pinger")); err != nil {
+	if err := writeJoin(conn, "pinger"); err != nil { // join + version hello
 		t.Fatalf("join: %v", err)
 	}
 	if _, err := ReadMessage(conn); err != nil {

@@ -2,6 +2,7 @@ package network
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -31,7 +32,42 @@ const (
 	// stays backward-compatible; framing is unchanged.
 	MsgPing byte = 'K' // Both: liveness ping (8-byte BE monotonic-nanos)
 	MsgPong byte = 'Q' // Both: liveness pong (echo of the ping's 8 bytes)
+
+	// Version handshake (see handshake.go). A current client follows its
+	// MsgJoin with a MsgHello; the server answers with MsgWelcome or, when
+	// it won't take the client, with MsgReject and a close.
+	MsgHello  byte = 'H' // Client -> Server: protocol version (after MsgJoin)
+	MsgReject byte = 'R' // Server -> Client: [code:1][reason], then close
 )
+
+// Payload caps. The server enforces them at ingress so that every frame it
+// builds from client input (chat and pose relays, the player list) stays far
+// below MaxPayload: a relay too big to frame would fail to send to every
+// recipient, and the broadcast path retires recipients whose writes fail.
+const (
+	// MaxPayload is the most data one frame can carry: the length field
+	// is a u16.
+	MaxPayload = 0xFFFF
+
+	// MaxNameLen caps a player name in bytes (the TUI allows 20).
+	MaxNameLen = 32
+
+	// MaxChatLen caps one chat message's text in bytes (the TUI's chat
+	// box allows 200 characters).
+	MaxChatLen = 1024
+
+	// MaxPoseJoints caps a pose frame's joint count. Link has 42, and the
+	// C side refuses rigs over 128 (pose_joint_num in multiplayer.c).
+	MaxPoseJoints = 128
+
+	// MaxFaceBytes caps a pose frame's optional face-state trailer
+	// (16 B today; faceStateWireBytes in package main).
+	MaxFaceBytes = 64
+)
+
+// ErrFrameTooLarge is returned by WriteMessage for a payload over
+// MaxPayload. Nothing is written, so the stream stays in sync.
+var ErrFrameTooLarge = errors.New("frame payload too large")
 
 // PlayerPosition is the core position data synced between players.
 type PlayerPosition struct {
@@ -76,8 +112,14 @@ type Message struct {
 	Data []byte
 }
 
-// WriteMessage sends a framed message to a writer.
+// WriteMessage sends a framed message to a writer. A payload over
+// MaxPayload is refused with ErrFrameTooLarge before anything is written:
+// the u16 length field would otherwise wrap, and the receiver would parse
+// the rest of the payload as further frames.
 func WriteMessage(w io.Writer, msgType byte, data []byte) error {
+	if len(data) > MaxPayload {
+		return fmt.Errorf("%w: type %q, %d bytes (max %d)", ErrFrameTooLarge, msgType, len(data), MaxPayload)
+	}
 	header := make([]byte, 3)
 	header[0] = msgType
 	binary.BigEndian.PutUint16(header[1:3], uint16(len(data)))
@@ -115,15 +157,20 @@ func ReadMessage(r io.Reader) (*Message, error) {
 
 // WelcomeMessage builds the server->client welcome payload:
 //
-//	[id:1][serverEpoch:8 BE]
+//	[id:1][serverEpoch:8 BE][protocolVersion:2 BE]
 //
 // serverEpoch is constant per Server instance (its boot-time nanos) so a
-// client can detect a server restart across a reconnect. Legacy clients read
-// only Data[0] and ignore the 8-byte tail, keeping this backward-compatible.
+// client can detect a server restart across a reconnect. protocolVersion is
+// the version the session runs: always ProtocolVersion, since this server
+// rejects any other. Older readers take only the fields they know from the
+// front (v0.2.x reads Data[0], the first epoch-aware build Data[0:9]), so
+// the tail stays backward-compatible. A welcome too short to carry the
+// version tells a current client that the server predates the handshake.
 func WelcomeMessage(id byte, serverEpoch uint64) []byte {
-	data := make([]byte, 9)
+	data := make([]byte, 11)
 	data[0] = id
 	binary.BigEndian.PutUint64(data[1:9], serverEpoch)
+	binary.BigEndian.PutUint16(data[9:11], ProtocolVersion)
 	return data
 }
 
@@ -138,6 +185,16 @@ func ParseWelcome(data []byte) (id byte, serverEpoch uint64, epochOK bool) {
 		return id, binary.BigEndian.Uint64(data[1:9]), true
 	}
 	return id, 0, false
+}
+
+// WelcomeProtocolVersion extracts the protocol version from a welcome
+// payload. ok is false for a welcome from a server that predates the
+// version handshake (v0.2.x sends 1 byte, the first epoch-aware build 9).
+func WelcomeProtocolVersion(data []byte) (version uint16, ok bool) {
+	if len(data) < 11 {
+		return 0, false
+	}
+	return binary.BigEndian.Uint16(data[9:11]), true
 }
 
 // PingPayload encodes an 8-byte BE timestamp for a MsgPing/MsgPong.
@@ -184,7 +241,7 @@ func ParsePositionMessage(data []byte) (byte, *PlayerPosition) {
 // sender from the text cleanly (a plain "name: text" string can't be un-joined
 // reliably when a name itself contains ": "). nameLen is a single byte, so the
 // name is clamped to 255 bytes — fine for the short display names this tool
-// uses.
+// uses (the server only admits names up to MaxNameLen).
 
 // ChatRelayMessage builds the server->client chat payload
 // [nameLen:1][name][text]. The name is clamped to 255 bytes.
@@ -201,17 +258,72 @@ func ChatRelayMessage(name, text string) []byte {
 }
 
 // ParseChatRelay extracts the sender name and text from a chat relay payload.
-// Returns empty strings for a malformed / too-short payload (never panics), so
+// It returns an error for a malformed / too-short payload (never panics), so
 // a garbled or foreign frame is simply ignored by the caller.
-func ParseChatRelay(data []byte) (name, text string) {
+func ParseChatRelay(data []byte) (name, text string, err error) {
 	if len(data) < 1 {
-		return "", ""
+		return "", "", errors.New("chat relay: empty payload")
 	}
 	nameLen := int(data[0])
 	if 1+nameLen > len(data) {
-		return "", ""
+		return "", "", fmt.Errorf("chat relay: %d-byte name overruns the %d-byte payload", nameLen, len(data))
 	}
-	return string(data[1 : 1+nameLen]), string(data[1+nameLen:])
+	return string(data[1 : 1+nameLen]), string(data[1+nameLen:]), nil
+}
+
+// PlayerEntry is one row of a MsgPlayerList.
+type PlayerEntry struct {
+	ID   byte
+	Name string
+}
+
+// Player-list wire format (server -> client, the full roster, sent after
+// every join and leave):
+//
+//	[count:1] then count x [id:1][nameLen:1][name]
+
+// PlayerListMessage encodes a MsgPlayerList payload. It fails rather than
+// wrap a length byte: more than 255 entries, or a name over 255 bytes. The
+// server can produce neither (IDs are 1..255, and names are capped at
+// MaxNameLen when the player joins).
+func PlayerListMessage(players []PlayerEntry) ([]byte, error) {
+	if len(players) > 255 {
+		return nil, fmt.Errorf("player list: %d entries (max 255)", len(players))
+	}
+	data := []byte{byte(len(players))}
+	for _, p := range players {
+		if len(p.Name) > 255 {
+			return nil, fmt.Errorf("player list: player %d's name is %d bytes (max 255)", p.ID, len(p.Name))
+		}
+		data = append(data, p.ID, byte(len(p.Name)))
+		data = append(data, p.Name...)
+	}
+	return data, nil
+}
+
+// ParsePlayerList decodes a MsgPlayerList payload. It returns an error (never
+// panics) for an empty payload or an entry that runs past the end. Bytes
+// after the last entry are ignored, so a later server can append fields.
+func ParsePlayerList(data []byte) ([]PlayerEntry, error) {
+	if len(data) < 1 {
+		return nil, errors.New("player list: empty payload")
+	}
+	count := int(data[0])
+	players := make([]PlayerEntry, 0, count)
+	offset := 1
+	for i := 0; i < count; i++ {
+		if offset+2 > len(data) {
+			return nil, fmt.Errorf("player list: entry %d of %d is cut off at byte %d", i+1, count, offset)
+		}
+		id, nameLen := data[offset], int(data[offset+1])
+		offset += 2
+		if offset+nameLen > len(data) {
+			return nil, fmt.Errorf("player list: entry %d of %d has a %d-byte name that runs past the %d-byte payload", i+1, count, nameLen, len(data))
+		}
+		players = append(players, PlayerEntry{ID: id, Name: string(data[offset : offset+nameLen])})
+		offset += nameLen
+	}
+	return players, nil
 }
 
 // Pose-message wire format (game wants raw GameCube big-endian Mtx layout
@@ -236,9 +348,11 @@ func ParseChatRelay(data []byte) (name, text string) {
 // SerializePose builds a raw client->server pose payload. `matrices` must
 // already be GameCube-format big-endian bytes (i.e. exactly what was just
 // read out of mpNodeMtx) — no conversion happens here. `face` is an
-// optional trailing payload (len 0 if unused).
+// optional trailing payload (len 0 if unused). It returns nil unless
+// 1 <= joints <= MaxPoseJoints, len(matrices) == joints*48 and
+// len(face) <= MaxFaceBytes, the limits the server enforces.
 func SerializePose(joints int, matrices []byte, face []byte) []byte {
-	if joints <= 0 || joints > 0xFFFF || len(matrices) != joints*48 {
+	if joints <= 0 || joints > MaxPoseJoints || len(matrices) != joints*48 || len(face) > MaxFaceBytes {
 		return nil
 	}
 	buf := make([]byte, 4+len(matrices)+len(face))
@@ -253,17 +367,25 @@ func SerializePose(joints int, matrices []byte, face []byte) []byte {
 
 // DeserializePose parses the joints + matrix-bytes + (optional) face
 // suffix from a payload (used both for client->server frames and the
-// post-playerID slice of server->client frames).
-func DeserializePose(data []byte) (int, []byte, []byte) {
+// post-playerID slice of server->client frames). It returns an error for a
+// truncated payload, a joint count outside 1..MaxPoseJoints, or a face
+// trailer over MaxFaceBytes; the server drops such frames at ingress.
+func DeserializePose(data []byte) (joints int, matrices, face []byte, err error) {
 	if len(data) < 4 {
-		return 0, nil, nil
+		return 0, nil, nil, fmt.Errorf("pose: %d-byte payload is shorter than its 4-byte header", len(data))
 	}
-	joints := int(binary.BigEndian.Uint16(data[0:2]))
+	joints = int(binary.BigEndian.Uint16(data[0:2]))
+	if joints <= 0 || joints > MaxPoseJoints {
+		return 0, nil, nil, fmt.Errorf("pose: joint count %d outside 1..%d", joints, MaxPoseJoints)
+	}
 	need := 4 + joints*48
-	if joints <= 0 || len(data) < need {
-		return 0, nil, nil
+	if len(data) < need {
+		return 0, nil, nil, fmt.Errorf("pose: %d joints need %d bytes, payload has %d", joints, need, len(data))
 	}
-	return joints, data[4:need], data[need:]
+	if len(data)-need > MaxFaceBytes {
+		return 0, nil, nil, fmt.Errorf("pose: %d-byte face trailer (max %d)", len(data)-need, MaxFaceBytes)
+	}
+	return joints, data[4:need], data[need:], nil
 }
 
 // PoseRelayMessage builds the server->client pose frame: same payload
@@ -281,11 +403,15 @@ func PoseRelayMessage(playerID byte, joints int, matrices []byte, face []byte) [
 
 // ParsePoseRelayMessage decodes a server->client pose frame into
 // (sender ID, joint count, raw matrix bytes ready to write straight
-// into mpNodeMtx, optional face-state suffix).
-func ParsePoseRelayMessage(data []byte) (byte, int, []byte, []byte) {
-	if len(data) < 5 {
-		return 0, 0, nil, nil
+// into mpNodeMtx, optional face-state suffix), or an error under the
+// same rules as DeserializePose.
+func ParsePoseRelayMessage(data []byte) (playerID byte, joints int, matrices, face []byte, err error) {
+	if len(data) < 1 {
+		return 0, 0, nil, nil, errors.New("pose relay: empty payload")
 	}
-	joints, matrices, face := DeserializePose(data[1:])
-	return data[0], joints, matrices, face
+	joints, matrices, face, err = DeserializePose(data[1:])
+	if err != nil {
+		return 0, 0, nil, nil, err
+	}
+	return data[0], joints, matrices, face, nil
 }

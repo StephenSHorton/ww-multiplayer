@@ -54,13 +54,17 @@ func decompressCISO(ciso []byte) ([]byte, error) {
 		return nil, fmt.Errorf("ciso: no present blocks (input is empty)")
 	}
 
-	expectedSize := cisoHeaderSize + presentCount*int(blockSize)
-	if len(ciso) < expectedSize {
+	outSize, err := cisoDecodedSize(blockSize, lastPresent+1)
+	if err != nil {
+		return nil, err
+	}
+
+	expectedSize := uint64(cisoHeaderSize) + uint64(presentCount)*uint64(blockSize)
+	if uint64(len(ciso)) < expectedSize {
 		return nil, fmt.Errorf("ciso: payload truncated — expected %d bytes (header + %d × 0x%x), got %d",
 			expectedSize, presentCount, blockSize, len(ciso))
 	}
 
-	outSize := (lastPresent + 1) * int(blockSize)
 	out := make([]byte, outSize)
 
 	src := cisoHeaderSize
@@ -74,4 +78,19 @@ func decompressCISO(ciso []byte) ([]byte, error) {
 	}
 
 	return out, nil
+}
+
+// cisoDecodedSize returns the size of the image a CISO decodes to, given
+// how many table entries it spans (last present block index + 1). Absent
+// blocks cost nothing in the file but decode to zeros, so a tiny crafted
+// CISO marking only a far-out block present would otherwise make us
+// allocate gigabytes. A GameCube disc never needs more blocks than cover
+// gcDiscSize, so cap the output at gcDiscSize rounded up to a block.
+func cisoDecodedSize(blockSize uint32, blocks int) (uint64, error) {
+	maxBlocks := (uint64(gcDiscSize) + uint64(blockSize) - 1) / uint64(blockSize)
+	if uint64(blocks) > maxBlocks {
+		return 0, fmt.Errorf("ciso: block table spans %d blocks of 0x%x bytes, more than a GameCube disc (0x%x bytes) needs",
+			blocks, blockSize, gcDiscSize)
+	}
+	return uint64(blocks) * uint64(blockSize), nil
 }

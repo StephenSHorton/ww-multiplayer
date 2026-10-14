@@ -12,6 +12,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"image/png"
 	"math"
@@ -40,7 +41,7 @@ import (
 var version = "dev"
 
 // defaultPort is the server port used when the user doesn't pass --port
-// (host/server) or an explicit :port (join). Keep this in sync with the
+// (host/server/join) or an explicit :port (join). Keep this in sync with the
 // mp-local / dolphin2 test harness in mp_local.go, which intentionally
 // stays hardcoded to 25565 (internal test rig, not user-facing).
 const defaultPort = 25565
@@ -108,26 +109,20 @@ func main() {
 			// path without re-running the full auto-recapture flow.
 			runSendShiftF1()
 		case "host":
-			port, rest := extractPortFlag(os.Args[2:], defaultPort)
-			name := ""
-			if len(rest) > 0 {
-				name = rest[0]
+			name, port, err := parseHostArgs(os.Args[2:])
+			if err != nil {
+				exitUsage(err, "host [name] [--port N]")
 			}
 			runHost(name, port)
 		case "join":
-			if len(os.Args) < 3 {
-				fmt.Println("Usage: ww join <host-ip> [name]")
-				os.Exit(1)
-			}
-			addr := os.Args[2]
-			name := ""
-			if len(os.Args) > 3 {
-				name = os.Args[3]
+			addr, name, err := parseJoinArgs(os.Args[2:])
+			if err != nil {
+				exitUsage(err, "join <host-ip[:port]> [name] [--port N]")
 			}
 			runJoin(addr, name)
 		case "patch":
 			if len(os.Args) < 3 {
-				fmt.Println("Usage: ww patch <input.iso|input.ciso> [output.iso]")
+				fmt.Printf("Usage: %s patch <input.iso|input.ciso> [output.iso]\n", exeCmd)
 				fmt.Println("  Default output: <input>-multiplayer.iso (next to the input)")
 				os.Exit(1)
 			}
@@ -137,7 +132,10 @@ func main() {
 			}
 			runPatch(os.Args[2], out)
 		case "server":
-			port, _ := extractPortFlag(os.Args[2:], defaultPort)
+			port, err := parseServerArgs(os.Args[2:])
+			if err != nil {
+				exitUsage(err, "server [--port N]")
+			}
 			runServer(port)
 		case "fake-client":
 			name := "FakePlayer"
@@ -625,9 +623,16 @@ func main() {
 			if len(os.Args) > 3 {
 				nameB = os.Args[3]
 			}
+			for _, n := range []string{nameA, nameB} {
+				if err := network.ValidatePlayerName(n); err != nil {
+					exitUsage(err, "mp-local [nameA] [nameB]")
+				}
+			}
 			runMpLocal(nameA, nameB)
 		case "help":
 			printHelp()
+		case "version", "--version":
+			fmt.Println(versionLine())
 		default:
 			fmt.Printf("Unknown command: %s\n", os.Args[1])
 			printHelp()
@@ -656,10 +661,16 @@ func main() {
 	ls := &liveState{}
 	if err := tui.Run(version, tui.Hooks{
 		HostSession: func(ctx context.Context, cancel context.CancelFunc, name string, rep report.Reporter) error {
-			return runHostSession(ctx, cancel, name, defaultPort, rep, ls)
+			// The TUI logs a returned error itself; a fatal connect error
+			// was already logged by the session's ConnectLog.
+			if err := runHostSession(ctx, cancel, name, defaultPort, rep, ls); !errors.Is(err, network.ErrFatal) {
+				return err
+			}
+			return nil
 		},
 		JoinSession: func(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter) {
-			runJoinSession(ctx, cancel, addr, name, rep, ls)
+			// Log the failure the way the TUI logs a HostSession error.
+			logSessionErr(rep, runJoinSession(ctx, cancel, addr, name, rep, ls))
 		},
 		Players:     func() []tui.PlayerView { return ls.players() },
 		LocalPos:    func() (x, y, z float32, ok bool) { return ls.localPos() },
@@ -679,11 +690,11 @@ func main() {
 func printHelp() {
 	const col = "  %-52s %s\n"
 	x := exeCmd
-	fmt.Println("Wind Waker Multiplayer")
+	fmt.Println("Wind Waker Multiplayer " + version)
 	fmt.Println()
 	fmt.Println("Play multiplayer:")
-	fmt.Printf(col, x+" host [name] [--port N]", "Host a session on :25565 (one process per player)")
-	fmt.Printf(col, x+" join <host-ip> [name]", "Join a host's session (host-ip is what `host` prints)")
+	fmt.Printf(col, x+" host [name] [--port N]", "Host a session (port 25565 unless --port; one process per player)")
+	fmt.Printf(col, x+" join <host-ip[:port]> [name]", "Join a host's session (type the address `host` prints)")
 	fmt.Println()
 	fmt.Println("Patch an ISO:")
 	fmt.Println("  " + x + " patch <vanilla.iso|.ciso> [out.iso]")
@@ -694,13 +705,20 @@ func printHelp() {
 	fmt.Printf(col, x+" mp-local [nameA] [nameB]", "Run server + broadcast/puppet pairs for both Dolphins")
 	fmt.Println()
 	fmt.Println("Lower-level CLIs:")
-	fmt.Printf(col, x+" server [--port N]", "Start headless server on :25565")
+	fmt.Printf(col, x+" server [--port N]", "Start headless server (port 25565 unless --port)")
 	fmt.Printf(col, x+" broadcast-pose [name] [addr]", "Stream local Link pose+pos to server")
 	fmt.Printf(col, x+" puppet-sync [name] [addr]", "Receive remotes; render as Link #2 / actor puppets")
 	fmt.Printf(col, x+" fake-client [name] [addr]", "Connect a fake client that walks in circles")
 	fmt.Printf(col, x+" debug", "Test Dolphin memory access")
 	fmt.Printf(col, x+" warp <x> <y> <z>", "Teleport Link to world coords (uses C warp handler)")
+	fmt.Printf(col, x+" version", "Print the version (both players should match)")
 	fmt.Printf(col, x+" help", "Show this help")
+}
+
+// versionLine is what `version` / `--version` prints, e.g.
+// "ww-multiplayer v0.3.0" for a release build or "ww-multiplayer dev".
+func versionLine() string {
+	return "ww-multiplayer " + version
 }
 
 // runPatch is the user-facing wrapper for inject.PatchISO. Picks a sensible
@@ -726,14 +744,24 @@ func runPatch(in, out string) {
 	fmt.Printf("Wind Waker Multiplayer patcher\n")
 	fmt.Printf("  input : %s\n", in)
 	fmt.Printf("  output: %s\n", out)
-	if err := inject.PatchISO(in, out); err != nil {
-		if err == inject.ErrAlreadyPatched {
-			fmt.Printf("\nThis ISO already contains the multiplayer mod — nothing to do.\n")
+	res, err := inject.PatchISO(in, out)
+	if err != nil {
+		switch {
+		case errors.Is(err, inject.ErrAlreadyPatched):
+			fmt.Printf("\nThis ISO already contains this version of the multiplayer mod — nothing to do.\n")
 			fmt.Printf("(Detected an existing T2 section at 0x%08X.)\n", inject.T2Address)
 			os.Exit(0)
+		case errors.Is(err, inject.ErrPatchedByOtherVersion):
+			fmt.Printf("\nThis ISO was patched by a different ww-multiplayer version.\n")
+			fmt.Printf("Patch your vanilla (unmodified) Wind Waker ISO with this version instead.\n")
+			os.Exit(1)
 		}
 		fmt.Printf("\nERROR: %v\n", err)
 		os.Exit(1)
+	}
+	if res.FSTMoved() {
+		fmt.Printf("  FST   : moved 0x%X -> 0x%X (0x%X bytes) to make room for the mod\n",
+			res.OldFSTOffset, res.NewFSTOffset, res.FSTSize)
 	}
 	fmt.Printf("\nDone. Boot %s in Dolphin to play multiplayer.\n", out)
 }
@@ -1319,8 +1347,8 @@ func runBroadcastPose(name, addr string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep, nil); err != nil {
-		rep.Log(report.Err, err.Error())
+	if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep, nil, nil); err != nil {
+		logSessionErr(rep, err)
 		os.Exit(1)
 	}
 }
@@ -1328,10 +1356,12 @@ func runBroadcastPose(name, addr string) {
 // runBroadcastPoseCtx is the goroutine-friendly variant. Returns an error
 // instead of os.Exit so host/join can surface failures cleanly, and honors
 // ctx cancellation so SIGINT doesn't have to wait for the next 50 ms tick.
+// connLog reports failed connects to addr; nil makes one that logs through
+// rep (host/join pass one shared with puppet-sync so each line shows once).
 // onPos, when non-nil (the TUI path via liveStateLocalPosSetter), is invoked
 // every tick this Dolphin's own position resolves — #22's minimap bridge.
 // CLI callers pass nil.
-func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint32, rep report.Reporter, onPos func(x, y, z float32)) error {
+func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint32, rep report.Reporter, connLog *network.ConnectLog, onPos func(x, y, z float32)) error {
 	report.Logf(rep, report.Info, "=== Broadcast Link + Pose: %s -> %s ===", name, addr)
 	d, err := openDolphin(dolphinPID)
 	if err != nil {
@@ -1341,7 +1371,6 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 	client := network.NewClient(name)
 	client.OnLog = func(msg string) { rep.Log(report.Net, msg) }
 
-	const linkJointCount = 42
 	const poseBytes = linkJointCount * 48
 
 	// Session 14: face-state capture reads from mailbox.face_state_local,
@@ -1353,7 +1382,13 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 	// Auto-reconnect (#8): connect/run callbacks drive a ReconnectLoop.
 	// A transient drop ends run() and ReconnectLoop re-dials with
 	// exponential backoff; only a real ctx-cancel ends this function.
-	connect := func() error { return client.Connect(addr) }
+	// connLog turns the otherwise silent retries into log lines.
+	if connLog == nil {
+		connLog = newConnectLog(addr, rep)
+	}
+	connect := func(ctx context.Context) error {
+		return connLog.Observe(ctx, client.ConnectContext(ctx, addr))
+	}
 	// sessionLoop is one live session's 16 ms send loop. network.RunSession
 	// (in run, below) wraps it with a ctx-scoped teardown watcher and WAITS
 	// for that watcher before returning, so a reconnect can't overlap a
@@ -1484,7 +1519,6 @@ func runPoseFakeLoop(name, addr string) {
 
 	const linkMpCLModelOff = 0x032C
 	const j3dModelMpNodeMtxOff = 0x8C
-	const linkJointCount = 42
 	const poseBytes = linkJointCount * 48
 
 	// One-shot capture: read Link's current world pose, then localize.
@@ -1649,10 +1683,10 @@ func runPuppetSync(name, addr string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"), 0, rep, nil)
+	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"), 0, rep, nil, nil)
 	clearMultiplayerState()
 	if err != nil {
-		rep.Log(report.Err, err.Error())
+		logSessionErr(rep, err)
 		os.Exit(1)
 	}
 }
@@ -1661,12 +1695,15 @@ func runPuppetSync(name, addr string) {
 // name as a parameter (rather than reading WW_SELF_NAME) so host/join can
 // plumb the player's name through without exporting an env var.
 //
+// connLog reports failed connects to addr, as in runBroadcastPoseCtx; nil
+// makes one that logs through rep.
+//
 // onClient, when non-nil, is invoked once with the freshly-created
 // *network.Client so a caller (the TUI bridge) can register it for its status
 // panel. The client survives reconnects (#8) — it's the same object across
 // ReconnectLoop iterations — so a single registration is sufficient. CLI
 // callers pass nil.
-func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphinPID uint32, rep report.Reporter, onClient func(*network.Client)) error {
+func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphinPID uint32, rep report.Reporter, connLog *network.ConnectLog, onClient func(*network.Client)) error {
 	report.Logf(rep, report.Info, "=== Puppet Sync: %s <- %s ===", name, addr)
 
 	d, err := openDolphin(dolphinPID)
@@ -1722,6 +1759,11 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	// parked[id] marks a remote whose despawn reservation expired (its link
 	// slot was freed for reuse); it's skipped until a fresh pose un-parks it.
 	parked := map[byte]bool{}
+	// Log-once marks for poses we refuse to write into emulated RAM:
+	// badRig[id] for a remote whose pose isn't a 42-joint Link skeleton,
+	// badPoseBuf[slot] for the last out-of-MEM1 pose_buf pointer reported.
+	badRig := map[byte]bool{}
+	badPoseBuf := [maxRemoteLinks]uint32{}
 	// sessionEpoch increments on every successful (re)connect; lastServerEpoch
 	// tracks the server's boot epoch so a restart (epoch change) triggers a
 	// full reset.
@@ -1846,6 +1888,21 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		}
 		return -1
 	}
+	// poseBufOK guards the write of a remote's pose through a slot's
+	// pose_buf pointer. The pointer comes back out of the mailbox, which
+	// WriteAbsolute won't check, so the whole Link-sized write must land
+	// inside MEM1. Reports each bad pointer value once.
+	poseBufOK := func(slot int) bool {
+		ptr := poseBufPtrs[slot]
+		if poseDstInMEM1(ptr, linkJointCount*mtxBytes) {
+			return true
+		}
+		if badPoseBuf[slot] != ptr {
+			badPoseBuf[slot] = ptr
+			report.Logf(rep, report.Err, "pose-feed slot %d: pose_buf 0x%08X is outside MEM1; not writing poses there", slot, ptr)
+		}
+		return false
+	}
 
 	// Vanished-sender thresholds (#10). freezeAfter: hold the last pose;
 	// despawnAfter: clear the slot. despawnReserve keeps a despawned slot
@@ -1870,8 +1927,11 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	// connect (re)establishes the session and RE-ARMS the mailbox (#8 + D3).
 	// Runs at startup and after every reconnect. A change in the welcome's
 	// server epoch means the server restarted → full puppet reset.
-	connect := func() error {
-		if err := client.Connect(addr); err != nil {
+	if connLog == nil {
+		connLog = newConnectLog(addr, rep)
+	}
+	connect := func(ctx context.Context) error {
+		if err := connLog.Observe(ctx, client.ConnectContext(ctx, addr)); err != nil {
 			return err
 		}
 		sessionEpoch++
@@ -1906,6 +1966,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 			remoteToLinkSlot = map[byte]int{}
 			announced = map[byte]bool{}
 			parked = map[byte]bool{}
+			badRig = map[byte]bool{}
 			rep.Log(report.Warn, "server restarted (epoch changed): full puppet reset")
 		}
 		report.Logf(rep, report.OK, "puppet-sync session %d armed (server epoch %d)", sessionEpoch, ep)
@@ -1942,8 +2003,15 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 					continue
 				}
 				seen[rp.ID] = true
-				hasPose := rp.PoseMatrices != nil && rp.PoseJoints > 0 &&
-					len(rp.PoseMatrices) == rp.PoseJoints*48
+				// Only a whole 42-joint Link pose can drive a Link slot: the
+				// C side's pose buffers are sized for exactly that. A remote
+				// sending any other rig is shown as an actor puppet instead.
+				hasPose := linkPoseUsable(rp.PoseJoints, len(rp.PoseMatrices))
+				if rp.PoseMatrices != nil && !hasPose && !badRig[rp.ID] {
+					badRig[rp.ID] = true
+					report.Logf(rep, report.Warn, "player %d (%s) sent a %d-joint pose (%d B); Link has %d joints, so it won't drive a Link slot",
+						rp.ID, rp.Name, rp.PoseJoints, len(rp.PoseMatrices), linkJointCount)
+				}
 				idx, ok := remoteToSlot[rp.ID]
 				if !ok {
 					// Find a free slot. Walk 0..N; first index not already
@@ -2008,7 +2076,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 				// lands at the right world coords. The offset is normally 0
 				// for two-Dolphin play; set it to e.g. 500 for loopback
 				// development so Link #2 doesn't overlap your own Link.
-				if rp.PoseMatrices != nil && len(rp.PoseMatrices) == rp.PoseJoints*48 {
+				if hasPose {
 					// Vanished-sender classification (#10). LastPose stops
 					// advancing the moment the remote's pose stream goes silent
 					// (crash / cable pull), well before the server's MsgLeave at
@@ -2064,8 +2132,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 								report.Logf(rep, report.Info, "link slot %d frozen: player %d pose stalled", linkSlot, rp.ID)
 							}
 						default:
-							// Normal path: arm + write the fresh pose.
-							if armPoseSlot(ctx, linkSlot) {
+							// Normal path: arm + write the fresh pose (only through
+							// a pose_buf pointer that keeps the write in MEM1).
+							if armPoseSlot(ctx, linkSlot) && poseBufOK(linkSlot) {
 								// First time this remote got a link slot — also
 								// release their actor-puppet so we don't see both
 								// a Link AND a KAMOME at the same position.
@@ -2091,12 +2160,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 										st.curX+link2OffsetX, st.curY+link2OffsetY, st.curZ+link2OffsetZ)
 								}
 								d.WriteAbsolute(poseBufPtrs[linkSlot], adjusted)
-								sq, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), 1)
-								next := byte(0)
-								if len(sq) == 1 {
-									next = sq[0] + 1
-								}
-								d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{next})
+								// nextSeq skips 0, which C reads as "no pose
+								// yet" and would skip this slot for a frame.
+								bumpSeqByte(d, mailboxBase+mailboxPoseSeq(linkSlot))
 
 								// Session 9: face-state suffix (eye texno values).
 								// Writer is the C-side J3DMatPacket vtable hook —
@@ -2110,18 +2176,10 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 								// the gating).
 								if len(rp.FaceState) >= faceStateWireBytes {
 									d.WriteAbsolute(mailboxBase+mailboxFaceState(linkSlot), rp.FaceState[:faceStateWireBytes])
-									fsq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), 1)
-									fnext := byte(1)
-									if len(fsq) == 1 {
-										fnext = fsq[0] + 1
-										if fnext == 0 {
-											// Wrap from 0 means "not yet armed"
-											// per the C-side gate; skip 0 on
-											// rollover so the gate stays open.
-											fnext = 1
-										}
-									}
-									d.WriteAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), []byte{fnext})
+									// 0 means "not yet armed" per the C-side
+									// gate; nextSeq skips it on rollover so the
+									// gate stays open.
+									bumpSeqByte(d, mailboxBase+mailboxFaceSeq(linkSlot))
 								}
 							}
 						}
@@ -2147,6 +2205,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 					}
 					delete(announced, id)
 					delete(parked, id)
+					delete(badRig, id)
 				}
 			}
 
@@ -3839,15 +3898,8 @@ func runFaceSyncFake(slot int, hexStr string) {
 		fmt.Printf("write face_state failed: %v\n", err)
 		os.Exit(1)
 	}
-	fsq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(slot), 1)
-	next := byte(1)
-	if len(fsq) == 1 {
-		next = fsq[0] + 1
-		if next == 0 {
-			next = 1
-		}
-	}
-	if err := d.WriteAbsolute(mailboxBase+mailboxFaceSeq(slot), []byte{next}); err != nil {
+	next, err := bumpSeqByte(d, mailboxBase+mailboxFaceSeq(slot))
+	if err != nil {
 		fmt.Printf("write face_seq failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -4059,10 +4111,7 @@ func runFaceSyncFakeLoop(slot int, hexStr string, secs int) {
 			return
 		case <-tick.C:
 			d.WriteAbsolute(stateAddr, buf)
-			seq++
-			if seq == 0 {
-				seq = 1
-			}
+			seq = nextSeq(seq)
 			d.WriteAbsolute(seqAddr, []byte{seq})
 			writes++
 			if !deadline.IsZero() && time.Now().After(deadline) {
@@ -5220,12 +5269,7 @@ func runPoseTest(mode string, durSec int) {
 	fmt.Printf("pose_buf_ptr = 0x%08X  joint_count = %d  pose_size = %d B\n", poseBufPtr, jointCount, poseSize)
 
 	bumpSeq := func() {
-		seqBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq(0), 1)
-		next := byte(0)
-		if len(seqBytes) == 1 {
-			next = seqBytes[0] + 1
-		}
-		d.WriteAbsolute(mailboxBase+mailboxPoseSeq(0), []byte{next})
+		bumpSeqByte(d, mailboxBase+mailboxPoseSeq(0))
 	}
 
 	// Read Link #1's mpNodeMtx, NOT mini-Link's. Mini-Link's mpNodeMtx is
@@ -6413,25 +6457,157 @@ func runFakeClient(name, addr string, centerX, centerZ float32) {
 	fmt.Println("\nDisconnected.")
 }
 
-// extractPortFlag scans args for a "--port N" pair (in any position, so it
-// works whether the user wrote `host --port 25566 Alice` or `host Alice
-// --port 25566`) and returns the parsed port plus the remaining args with
-// the flag and its value removed. Falls back to defaultPort when the flag
-// is absent or its value isn't a positive integer.
-func extractPortFlag(args []string, defaultPort int) (port int, rest []string) {
+// extractPortFlag scans args for a "--port N" pair or a "--port=N" arg (in
+// any position, so it works whether the user wrote `host --port 25566 Alice`
+// or `host Alice --port=25566`) and returns the parsed port plus the
+// remaining args with the flag and its value removed. The Go-flag spelling
+// "-port N" / "-port=N" works too. Returns defaultPort when the flag is
+// absent. A missing, non-numeric or out-of-range value, or any other "-" or
+// "--" option, is an error, so a typo can't silently fall back to the
+// default port or end up as the player name. A bare "--" ends the options:
+// everything after it is positional, for a name that starts with '-'.
+func extractPortFlag(args []string, defaultPort int) (port int, rest []string, err error) {
 	port = defaultPort
 	rest = make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--port" && i+1 < len(args) {
-			if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
-				port = n
+		a := args[i]
+		if strings.HasPrefix(a, "-port") {
+			a = "-" + a // "-port N" / "-port=N" -> the "--" form
+		}
+		var val string
+		switch {
+		case a == "--port":
+			if i+1 >= len(args) {
+				return 0, nil, errors.New("--port needs a value, e.g. --port 25566")
 			}
-			i++ // skip the value
+			i++ // consume the value
+			val = args[i]
+		case strings.HasPrefix(a, "--port="):
+			val = strings.TrimPrefix(a, "--port=")
+		case a == "--":
+			// Everything after "--" is positional, so a player name may
+			// start with '-'.
+			rest = append(rest, args[i+1:]...)
+			return port, rest, nil
+		case len(a) > 1 && a[0] == '-':
+			return 0, nil, fmt.Errorf("unknown option %q (put -- before a name that starts with '-')", args[i])
+		default:
+			rest = append(rest, a)
 			continue
 		}
-		rest = append(rest, args[i])
+		n, err := parsePort(val)
+		if err != nil {
+			return 0, nil, fmt.Errorf("--port: %w", err)
+		}
+		port = n
 	}
-	return port, rest
+	return port, rest, nil
+}
+
+// parsePort parses a TCP port number, accepting only 1-65535.
+func parsePort(s string) (int, error) {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 || n > 65535 {
+		return 0, fmt.Errorf("invalid port %q: must be a number from 1 to 65535", s)
+	}
+	return n, nil
+}
+
+// rejectExtraArgs errors when rest holds more than limit positional args,
+// so a port typed without the flag (`server 25566`, `host Alice 25566`)
+// stops the command instead of being dropped while it quietly uses 25565.
+func rejectExtraArgs(rest []string, limit int) error {
+	if len(rest) <= limit {
+		return nil
+	}
+	extra := rest[limit]
+	if _, err := parsePort(extra); err == nil {
+		return fmt.Errorf("unexpected argument %q (did you mean --port %s?)", extra, extra)
+	}
+	return fmt.Errorf("unexpected argument %q", extra)
+}
+
+// parseHostArgs parses `host [name] [--port N]` into the player name ("" =
+// let runHost pick one) and the port to listen on. A name the host would
+// refuse (too long, control characters) is an error here, before Dolphin
+// is touched.
+func parseHostArgs(args []string) (name string, port int, err error) {
+	port, rest, err := extractPortFlag(args, defaultPort)
+	if err != nil {
+		return "", 0, err
+	}
+	if err := rejectExtraArgs(rest, 1); err != nil {
+		return "", 0, err
+	}
+	if len(rest) > 0 {
+		name = rest[0]
+		if err := network.ValidatePlayerName(name); err != nil {
+			return "", 0, err
+		}
+	}
+	return name, port, nil
+}
+
+// parseServerArgs parses `server [--port N]` into the port to listen on.
+func parseServerArgs(args []string) (port int, err error) {
+	port, rest, err := extractPortFlag(args, defaultPort)
+	if err != nil {
+		return 0, err
+	}
+	if err := rejectExtraArgs(rest, 0); err != nil {
+		return 0, err
+	}
+	return port, nil
+}
+
+// parseJoinArgs parses `join <host-ip[:port]> [name] [--port N]` into the
+// address to dial and the player name. The address gets defaultPort, or the
+// --port value, when it names no port of its own. An address port that
+// isn't a valid port, or one that disagrees with --port, is an error, and so
+// is a name the host would refuse.
+func parseJoinArgs(args []string) (addr, name string, err error) {
+	flagPort, rest, err := extractPortFlag(args, 0) // 0 = no --port given
+	if err != nil {
+		return "", "", err
+	}
+	if len(rest) == 0 {
+		return "", "", errors.New("missing the host's address")
+	}
+	if err := rejectExtraArgs(rest, 2); err != nil {
+		return "", "", err
+	}
+	if len(rest) > 1 {
+		name = rest[1]
+		if err := network.ValidatePlayerName(name); err != nil {
+			return "", "", err
+		}
+	}
+	port := flagPort
+	if port == 0 {
+		port = defaultPort
+	}
+	// netutil.NormalizeAddr is IPv6-aware and always returns host:port.
+	addr = netutil.NormalizeAddr(rest[0], port)
+	host, p, _ := net.SplitHostPort(addr)
+	if host == "" {
+		return "", "", fmt.Errorf("missing the host in address %q", rest[0])
+	}
+	n, err := parsePort(p)
+	if err != nil {
+		return "", "", fmt.Errorf("address %q: %w", rest[0], err)
+	}
+	if flagPort != 0 && n != flagPort {
+		return "", "", fmt.Errorf("address %q has port %d but --port says %d; give the port once", rest[0], n, flagPort)
+	}
+	return addr, name, nil
+}
+
+// exitUsage reports a command-line mistake with the command's usage line and
+// exits non-zero.
+func exitUsage(err error, usage string) {
+	fmt.Printf("ERROR: %v\n", err)
+	fmt.Printf("Usage: %s %s\n", exeCmd, usage)
+	os.Exit(1)
 }
 
 // liveState is the mutable, mutex-guarded bridge between a running multiplayer
@@ -6755,7 +6931,7 @@ func runHost(name string, port int) {
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
 	if err := runHostSession(ctx, cancel, name, port, rep, nil); err != nil {
-		rep.Log(report.Err, err.Error())
+		logSessionErr(rep, err)
 		os.Exit(1)
 	}
 }
@@ -6766,6 +6942,8 @@ func runHost(name string, port int) {
 // ls, when non-nil (the TUI path), is the shared status bridge: this session
 // registers its server, host IPs, and puppet-sync client into it for the #19
 // status panel, and clears it on return. CLI callers pass nil.
+// Returns a server start failure or the first pipeline failure (not yet
+// logged), or nil when the session ended by ctx cancel.
 func runHostSession(ctx context.Context, cancel context.CancelFunc, name string, port int, rep report.Reporter, ls *liveState) error {
 	if name == "" {
 		name = "Host"
@@ -6778,7 +6956,7 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 		return fmt.Errorf("server start: %w", err)
 	}
 
-	ips := listHostIPs()
+	ips := shareAddrs(listHostIPs(), port)
 	if ls != nil {
 		ls.begin("Host", name, ips)
 		ls.setServer(srv)
@@ -6787,7 +6965,11 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 
 	report.Logf(rep, report.OK, "Hosting as %q on :%d.", name, port)
 	if len(ips) > 0 {
-		rep.Log(report.Info, "Share one of these IPs with your friend:")
+		if port == defaultPort {
+			rep.Log(report.Info, "Share one of these IPs with your friend:")
+		} else {
+			rep.Log(report.Info, "Share one of these addresses with your friend (the :port is needed):")
+		}
 		for _, ip := range ips {
 			report.Logf(rep, report.Info, "  %s", ip)
 		}
@@ -6796,11 +6978,26 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 	}
 	rep.Log(report.Info, "Ctrl+C to stop.")
 
-	runMultiplayerGoroutines(ctx, cancel, name, fmt.Sprintf("localhost:%d", port), rep, liveStateClientSetter(ls), liveStateLocalPosSetter(ls))
+	err := runMultiplayerGoroutines(ctx, cancel, name, fmt.Sprintf("localhost:%d", port), rep, liveStateClientSetter(ls), liveStateLocalPosSetter(ls))
 
 	srv.Stop()
 	clearMultiplayerState()
-	return nil
+	return err
+}
+
+// shareAddrs turns the host's IPs into what a joiner should type: the bare
+// IP on the default port (join adds it), ip:port otherwise, so a joiner
+// doesn't silently dial the default port and retry forever. IPv6 literals
+// are bracketed.
+func shareAddrs(ips []string, port int) []string {
+	if port == defaultPort {
+		return ips
+	}
+	out := make([]string, len(ips))
+	for i, ip := range ips {
+		out[i] = net.JoinHostPort(ip, strconv.Itoa(port))
+	}
+	return out
 }
 
 // runJoin is the single-process joiner entry point: just broadcast-pose +
@@ -6810,14 +7007,18 @@ func runJoin(addr, name string) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	runJoinSession(ctx, cancel, addr, name, rep, nil)
+	if err := runJoinSession(ctx, cancel, addr, name, rep, nil); err != nil {
+		logSessionErr(rep, err)
+		os.Exit(1)
+	}
 }
 
 // runJoinSession is the signal-free, exit-free version that the TUI calls.
 // ls, when non-nil (the TUI path), is the shared status bridge: the join role
 // registers only its puppet-sync client (no server, no host IPs) and clears the
-// bridge on return. CLI callers pass nil.
-func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter, ls *liveState) {
+// bridge on return. CLI callers pass nil. Returns the first pipeline failure
+// (not yet logged), or nil when the session ended by ctx cancel.
+func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter, ls *liveState) error {
 	if name == "" {
 		name = "Player"
 	}
@@ -6835,15 +7036,20 @@ func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name s
 	report.Logf(rep, report.OK, "Joining %s as %q.", addr, name)
 	rep.Log(report.Info, "Ctrl+C to stop.")
 
-	runMultiplayerGoroutines(ctx, cancel, name, addr, rep, liveStateClientSetter(ls), liveStateLocalPosSetter(ls))
+	err := runMultiplayerGoroutines(ctx, cancel, name, addr, rep, liveStateClientSetter(ls), liveStateLocalPosSetter(ls))
 
 	clearMultiplayerState()
+	return err
 }
 
 // cliMultiplayerContext returns a cancellable context wired to SIGINT/SIGTERM.
 // Only the CLI entry points should use this — the TUI installs its own
 // Ctrl+C handling via Bubble Tea's KeyMsg, and a competing signal.Notify
 // would race with it.
+//
+// Only the FIRST signal is caught. The handler is then removed, so a second
+// Ctrl+C gets the default behavior and kills the process at once — the way
+// out if teardown is ever stuck.
 func cliMultiplayerContext(rep report.Reporter) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigCh := make(chan os.Signal, 1)
@@ -6851,9 +7057,11 @@ func cliMultiplayerContext(rep report.Reporter) (context.Context, context.Cancel
 	go func() {
 		select {
 		case <-sigCh:
-			rep.Log(report.Info, "Shutting down...")
+			signal.Stop(sigCh)
+			rep.Log(report.Info, "Shutting down... (press Ctrl+C again to force quit)")
 			cancel()
 		case <-ctx.Done():
+			signal.Stop(sigCh)
 		}
 	}()
 	return ctx, cancel
@@ -6870,26 +7078,98 @@ func cliMultiplayerContext(rep report.Reporter) (context.Context, context.Cancel
 // non-nil, is forwarded to the broadcast-pose goroutine so this Dolphin's own
 // position can be registered with the TUI's #22 minimap bridge. CLI callers
 // pass nil for both.
-func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) {
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		defer cancel()
-		if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep, onPos); err != nil {
-			report.Logf(rep, report.Err, "broadcast-pose: %v", err)
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		defer cancel()
-		if err := runPuppetSyncCtx(ctx, name, addr, name, 0, rep, onClient); err != nil {
-			report.Logf(rep, report.Err, "puppet-sync: %v", err)
-		}
-	}()
+//
+// Both goroutines dial the same addr, so they share one ConnectLog and an
+// unreachable host is reported once rather than once per connection.
+// Returns runPipelines' result: the first real failure, or nil on a normal
+// ctx-cancel shutdown.
+func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) error {
+	connLog := newConnectLog(addr, rep)
+	return runPipelines(ctx, cancel, rep,
+		pipeline{"broadcast-pose", func(ctx context.Context) error {
+			return runBroadcastPoseCtx(ctx, name, addr, 0, rep, connLog, onPos)
+		}},
+		pipeline{"puppet-sync", func(ctx context.Context) error {
+			return runPuppetSyncCtx(ctx, name, addr, name, 0, rep, connLog, onClient)
+		}},
+	)
+}
 
-	<-ctx.Done()
+// pipeline is one named, long-running half of a multiplayer session
+// (broadcast-pose or puppet-sync) for runPipelines.
+type pipeline struct {
+	name string
+	run  func(context.Context) error
+}
+
+// runPipelines runs every pipeline concurrently under ctx. When any of them
+// returns, it cancels ctx (via cancel) so the others stop too — a session
+// with one dead half isn't left looking alive — and waits for all of them.
+//
+// It returns the first real failure, prefixed with that pipeline's name and
+// NOT yet logged, so callers can log it once and exit non-zero. A pipeline
+// that returns nil or context.Canceled ended because of a normal Ctrl+C or
+// Esc shutdown and doesn't count. Any further failures are logged here as
+// they happen, since only one error can be returned.
+func runPipelines(ctx context.Context, cancel context.CancelFunc, rep report.Reporter, ps ...pipeline) error {
+	var (
+		wg    sync.WaitGroup
+		mu    sync.Mutex
+		first error
+	)
+	for _, p := range ps {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer cancel()
+			err := p.run(ctx)
+			if err == nil || errors.Is(err, context.Canceled) {
+				return
+			}
+			// A fatal connect error (reject, version mismatch) was already
+			// printed once by the shared ConnectLog, and both pipelines hit
+			// the same one, so it is returned as is and never logged here.
+			fatal := errors.Is(err, network.ErrFatal)
+			if !fatal {
+				err = fmt.Errorf("%s: %w", p.name, err)
+			}
+			mu.Lock()
+			isFirst := first == nil
+			if isFirst {
+				first = err
+			}
+			mu.Unlock()
+			if !isFirst && !fatal {
+				rep.Log(report.Err, err.Error())
+			}
+		}()
+	}
 	wg.Wait()
+	return first
+}
+
+// newConnectLog returns a network.ConnectLog that reports connect failures
+// to addr (and the recovery after them) through rep, so they reach the CLI
+// output or the TUI log panel.
+//
+// A fatal error ("Can't join <addr>: <reason>") is logged at Err, once for
+// the session; callers then skip logging the returned ErrFatal error (see
+// logSessionErr), so the reason appears exactly once and becomes the TUI's
+// session-ended reason.
+func newConnectLog(addr string, rep report.Reporter) *network.ConnectLog {
+	l := network.NewConnectLog(addr,
+		func(msg string) { rep.Log(report.Warn, msg) },
+		func(msg string) { rep.Log(report.OK, msg) })
+	l.Fatal = func(msg string) { rep.Log(report.Err, msg) }
+	return l
+}
+
+// logSessionErr logs a host/join session's returned error unless it is a
+// fatal connect error, which the session's ConnectLog already reported.
+func logSessionErr(rep report.Reporter, err error) {
+	if err != nil && !errors.Is(err, network.ErrFatal) {
+		rep.Log(report.Err, err.Error())
+	}
 }
 
 // listHostIPs walks the machine's non-loopback IPv4 addresses so `ww-multiplayer.exe

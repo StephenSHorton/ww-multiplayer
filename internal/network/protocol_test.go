@@ -13,9 +13,10 @@ func TestPingPongTypesDistinct(t *testing.T) {
 		MsgJoin: "Join", MsgWelcome: "Welcome", MsgPosition: "Position",
 		MsgPlayerList: "PlayerList", MsgLeave: "Leave", MsgChat: "Chat",
 		MsgPose: "Pose", MsgPing: "Ping", MsgPong: "Pong",
+		MsgHello: "Hello", MsgReject: "Reject",
 	}
-	if len(types) != 9 {
-		t.Fatalf("expected 9 distinct message types, got %d (collision?)", len(types))
+	if len(types) != 11 {
+		t.Fatalf("expected 11 distinct message types, got %d (collision?)", len(types))
 	}
 	if MsgPong == MsgPosition {
 		t.Fatal("MsgPong collides with MsgPosition")
@@ -37,22 +38,26 @@ func TestPingPayloadRoundTrip(t *testing.T) {
 	}
 }
 
-// TestWelcomeBackwardCompat asserts the extended [id][epoch:8] welcome still
-// lets an OLD 1-byte-welcome reader recover the id from Data[0], and that a
-// legacy 1-byte welcome parses with epochOK=false.
+// TestWelcomeBackwardCompat asserts the extended [id][epoch:8][version:2]
+// welcome still lets an OLD 1-byte-welcome reader recover the id from
+// Data[0] (and the first epoch-aware reader the epoch from Data[1:9]), and
+// that legacy 1- and 9-byte welcomes parse with epochOK=false / no version.
 func TestWelcomeBackwardCompat(t *testing.T) {
 	const id byte = 7
 	const epoch uint64 = 0x1122334455667788
 
 	data := WelcomeMessage(id, epoch)
-	if len(data) != 9 {
-		t.Fatalf("WelcomeMessage len = %d, want 9", len(data))
+	if len(data) != 11 {
+		t.Fatalf("WelcomeMessage len = %d, want 11", len(data))
 	}
 
-	// New reader gets id + epoch.
+	// New reader gets id + epoch + version.
 	gotID, gotEpoch, ok := ParseWelcome(data)
 	if !ok || gotID != id || gotEpoch != epoch {
 		t.Errorf("ParseWelcome = (%d, %#x, %v), want (%d, %#x, true)", gotID, gotEpoch, ok, id, epoch)
+	}
+	if v, ok := WelcomeProtocolVersion(data); !ok || v != ProtocolVersion {
+		t.Errorf("WelcomeProtocolVersion = (%d, %v), want (%d, true)", v, ok, ProtocolVersion)
 	}
 
 	// OLD 1-byte reader: still recovers the id from Data[0], ignores the tail.
@@ -65,6 +70,13 @@ func TestWelcomeBackwardCompat(t *testing.T) {
 	lid, lep, lok := ParseWelcome(legacy)
 	if lid != id || lep != 0 || lok {
 		t.Errorf("ParseWelcome(legacy) = (%d, %d, %v), want (%d, 0, false)", lid, lep, lok, id)
+	}
+
+	// Neither legacy welcome carries a version.
+	for _, old := range [][]byte{legacy, data[:9]} {
+		if v, ok := WelcomeProtocolVersion(old); ok {
+			t.Errorf("WelcomeProtocolVersion(%d-byte legacy welcome) = (%d, true), want ok=false", len(old), v)
+		}
 	}
 }
 
