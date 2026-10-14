@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"os"
 	"sync"
@@ -122,6 +123,9 @@ func SleepCtx(ctx context.Context, d time.Duration) error {
 //     failed attempt (attempt++ then backoff) so a server that accepts-then-
 //     drops can't drive a hot connect→run→connect spin.
 //   - ctx cancellation ends the loop and returns nil (a clean shutdown).
+//   - A connect error matching ErrFatal (the host refused us, or runs an
+//     incompatible version) ends the loop and is returned: retrying can't
+//     fix it, and the caller should show the user why.
 //
 // sleep is injectable purely for testability; production callers pass
 // SleepCtx. backoff is typically a NewBackoff() closure.
@@ -152,6 +156,9 @@ func reconnectLoop(
 		}
 		if err := connect(ctx); err != nil {
 			attempt++
+			if errors.Is(err, ErrFatal) {
+				return err
+			}
 			if serr := sleep(ctx, backoff(attempt)); serr != nil {
 				// ctx cancelled during the backoff wait → clean shutdown.
 				return nil

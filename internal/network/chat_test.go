@@ -16,16 +16,16 @@ func TestChatRelayRoundTrip(t *testing.T) {
 		{"weird: name", "text with : colons"}, // name containing ": " must round-trip
 	}
 	for _, c := range cases {
-		gotName, gotText := ParseChatRelay(ChatRelayMessage(c.name, c.text))
-		if gotName != c.name || gotText != c.text {
-			t.Errorf("round-trip(%q,%q) = (%q,%q)", c.name, c.text, gotName, gotText)
+		gotName, gotText, err := ParseChatRelay(ChatRelayMessage(c.name, c.text))
+		if err != nil || gotName != c.name || gotText != c.text {
+			t.Errorf("round-trip(%q,%q) = (%q,%q,%v)", c.name, c.text, gotName, gotText, err)
 		}
 	}
 
-	// Malformed payloads must yield empty strings, never panic.
+	// Malformed payloads must yield an error and empty strings, never panic.
 	for _, bad := range [][]byte{nil, {}, {5, 'a'}, {200}} {
-		if n, tx := ParseChatRelay(bad); n != "" || tx != "" {
-			t.Errorf("ParseChatRelay(%v) = (%q,%q), want empty", bad, n, tx)
+		if n, tx, err := ParseChatRelay(bad); err == nil || n != "" || tx != "" {
+			t.Errorf("ParseChatRelay(%v) = (%q,%q,%v), want empty strings and an error", bad, n, tx, err)
 		}
 	}
 }
