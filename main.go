@@ -41,7 +41,7 @@ import (
 var version = "dev"
 
 // defaultPort is the server port used when the user doesn't pass --port
-// (host/server) or an explicit :port (join). Keep this in sync with the
+// (host/server/join) or an explicit :port (join). Keep this in sync with the
 // mp-local / dolphin2 test harness in mp_local.go, which intentionally
 // stays hardcoded to 25565 (internal test rig, not user-facing).
 const defaultPort = 25565
@@ -109,21 +109,19 @@ func main() {
 			// path without re-running the full auto-recapture flow.
 			runSendShiftF1()
 		case "host":
-			port, rest := extractPortFlag(os.Args[2:], defaultPort)
+			port, rest, err := extractPortFlag(os.Args[2:], defaultPort)
+			if err != nil {
+				exitUsage(err, "host [name] [--port N]")
+			}
 			name := ""
 			if len(rest) > 0 {
 				name = rest[0]
 			}
 			runHost(name, port)
 		case "join":
-			if len(os.Args) < 3 {
-				fmt.Println("Usage: ww join <host-ip> [name]")
-				os.Exit(1)
-			}
-			addr := os.Args[2]
-			name := ""
-			if len(os.Args) > 3 {
-				name = os.Args[3]
+			addr, name, err := parseJoinArgs(os.Args[2:])
+			if err != nil {
+				exitUsage(err, "join <host-ip[:port]> [name] [--port N]")
 			}
 			runJoin(addr, name)
 		case "patch":
@@ -138,7 +136,10 @@ func main() {
 			}
 			runPatch(os.Args[2], out)
 		case "server":
-			port, _ := extractPortFlag(os.Args[2:], defaultPort)
+			port, _, err := extractPortFlag(os.Args[2:], defaultPort)
+			if err != nil {
+				exitUsage(err, "server [--port N]")
+			}
 			runServer(port)
 		case "fake-client":
 			name := "FakePlayer"
@@ -686,8 +687,8 @@ func printHelp() {
 	fmt.Println("Wind Waker Multiplayer")
 	fmt.Println()
 	fmt.Println("Play multiplayer:")
-	fmt.Printf(col, x+" host [name] [--port N]", "Host a session on :25565 (one process per player)")
-	fmt.Printf(col, x+" join <host-ip> [name]", "Join a host's session (host-ip is what `host` prints)")
+	fmt.Printf(col, x+" host [name] [--port N]", "Host a session (port 25565 unless --port; one process per player)")
+	fmt.Printf(col, x+" join <host-ip[:port]> [name]", "Join a host's session (type the address `host` prints)")
 	fmt.Println()
 	fmt.Println("Patch an ISO:")
 	fmt.Println("  " + x + " patch <vanilla.iso|.ciso> [out.iso]")
@@ -698,7 +699,7 @@ func printHelp() {
 	fmt.Printf(col, x+" mp-local [nameA] [nameB]", "Run server + broadcast/puppet pairs for both Dolphins")
 	fmt.Println()
 	fmt.Println("Lower-level CLIs:")
-	fmt.Printf(col, x+" server [--port N]", "Start headless server on :25565")
+	fmt.Printf(col, x+" server [--port N]", "Start headless server (port 25565 unless --port)")
 	fmt.Printf(col, x+" broadcast-pose [name] [addr]", "Stream local Link pose+pos to server")
 	fmt.Printf(col, x+" puppet-sync [name] [addr]", "Receive remotes; render as Link #2 / actor puppets")
 	fmt.Printf(col, x+" fake-client [name] [addr]", "Connect a fake client that walks in circles")
@@ -6431,25 +6432,92 @@ func runFakeClient(name, addr string, centerX, centerZ float32) {
 	fmt.Println("\nDisconnected.")
 }
 
-// extractPortFlag scans args for a "--port N" pair (in any position, so it
-// works whether the user wrote `host --port 25566 Alice` or `host Alice
-// --port 25566`) and returns the parsed port plus the remaining args with
-// the flag and its value removed. Falls back to defaultPort when the flag
-// is absent or its value isn't a positive integer.
-func extractPortFlag(args []string, defaultPort int) (port int, rest []string) {
+// extractPortFlag scans args for a "--port N" pair or a "--port=N" arg (in
+// any position, so it works whether the user wrote `host --port 25566 Alice`
+// or `host Alice --port=25566`) and returns the parsed port plus the
+// remaining args with the flag and its value removed. Returns defaultPort
+// when the flag is absent. A missing, non-numeric or out-of-range value, or
+// any other "--" arg, is an error, so a typo can't silently fall back to the
+// default port or end up as the player name.
+func extractPortFlag(args []string, defaultPort int) (port int, rest []string, err error) {
 	port = defaultPort
 	rest = make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--port" && i+1 < len(args) {
-			if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
-				port = n
+		var val string
+		switch a := args[i]; {
+		case a == "--port":
+			if i+1 >= len(args) {
+				return 0, nil, errors.New("--port needs a value, e.g. --port 25566")
 			}
-			i++ // skip the value
+			i++ // consume the value
+			val = args[i]
+		case strings.HasPrefix(a, "--port="):
+			val = strings.TrimPrefix(a, "--port=")
+		case strings.HasPrefix(a, "--"):
+			return 0, nil, fmt.Errorf("unknown option %q", a)
+		default:
+			rest = append(rest, a)
 			continue
 		}
-		rest = append(rest, args[i])
+		n, err := parsePort(val)
+		if err != nil {
+			return 0, nil, fmt.Errorf("--port: %w", err)
+		}
+		port = n
 	}
-	return port, rest
+	return port, rest, nil
+}
+
+// parsePort parses a TCP port number, accepting only 1-65535.
+func parsePort(s string) (int, error) {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 || n > 65535 {
+		return 0, fmt.Errorf("invalid port %q: must be a number from 1 to 65535", s)
+	}
+	return n, nil
+}
+
+// parseJoinArgs parses `join <host-ip[:port]> [name] [--port N]` into the
+// address to dial and the player name. The address gets defaultPort, or the
+// --port value, when it names no port of its own. An address port that
+// isn't a valid port, or one that disagrees with --port, is an error.
+func parseJoinArgs(args []string) (addr, name string, err error) {
+	flagPort, rest, err := extractPortFlag(args, 0) // 0 = no --port given
+	if err != nil {
+		return "", "", err
+	}
+	if len(rest) == 0 {
+		return "", "", errors.New("missing the host's address")
+	}
+	if len(rest) > 1 {
+		name = rest[1]
+	}
+	port := flagPort
+	if port == 0 {
+		port = defaultPort
+	}
+	// netutil.NormalizeAddr is IPv6-aware and always returns host:port.
+	addr = netutil.NormalizeAddr(rest[0], port)
+	host, p, _ := net.SplitHostPort(addr)
+	if host == "" {
+		return "", "", fmt.Errorf("missing the host in address %q", rest[0])
+	}
+	n, err := parsePort(p)
+	if err != nil {
+		return "", "", fmt.Errorf("address %q: %w", rest[0], err)
+	}
+	if flagPort != 0 && n != flagPort {
+		return "", "", fmt.Errorf("address %q has port %d but --port says %d; give the port once", rest[0], n, flagPort)
+	}
+	return addr, name, nil
+}
+
+// exitUsage reports a command-line mistake with the command's usage line and
+// exits non-zero.
+func exitUsage(err error, usage string) {
+	fmt.Printf("ERROR: %v\n", err)
+	fmt.Printf("Usage: %s %s\n", exeCmd, usage)
+	os.Exit(1)
 }
 
 // liveState is the mutable, mutex-guarded bridge between a running multiplayer
@@ -6798,7 +6866,7 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 		return fmt.Errorf("server start: %w", err)
 	}
 
-	ips := listHostIPs()
+	ips := shareAddrs(listHostIPs(), port)
 	if ls != nil {
 		ls.begin("Host", name, ips)
 		ls.setServer(srv)
@@ -6807,7 +6875,11 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 
 	report.Logf(rep, report.OK, "Hosting as %q on :%d.", name, port)
 	if len(ips) > 0 {
-		rep.Log(report.Info, "Share one of these IPs with your friend:")
+		if port == defaultPort {
+			rep.Log(report.Info, "Share one of these IPs with your friend:")
+		} else {
+			rep.Log(report.Info, "Share one of these addresses with your friend (the :port is needed):")
+		}
 		for _, ip := range ips {
 			report.Logf(rep, report.Info, "  %s", ip)
 		}
@@ -6821,6 +6893,21 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 	srv.Stop()
 	clearMultiplayerState()
 	return err
+}
+
+// shareAddrs turns the host's IPs into what a joiner should type: the bare
+// IP on the default port (join adds it), ip:port otherwise, so a joiner
+// doesn't silently dial the default port and retry forever. IPv6 literals
+// are bracketed.
+func shareAddrs(ips []string, port int) []string {
+	if port == defaultPort {
+		return ips
+	}
+	out := make([]string, len(ips))
+	for i, ip := range ips {
+		out[i] = net.JoinHostPort(ip, strconv.Itoa(port))
+	}
+	return out
 }
 
 // runJoin is the single-process joiner entry point: just broadcast-pose +
