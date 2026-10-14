@@ -179,7 +179,7 @@ var hasInteractiveStdin = func() bool {
 // headless-stdin error so the suggested commands are copy-pasteable.
 var exeName = func() string {
 	if runtime.GOOS == "windows" {
-		return "ww-multiplayer.exe"
+		return `.\ww-multiplayer.exe` // PowerShell needs the .\ ; cmd.exe accepts it
 	}
 	return "./ww-multiplayer"
 }()

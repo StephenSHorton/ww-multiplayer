@@ -47,14 +47,16 @@ var version = "dev"
 const defaultPort = 25565
 
 // exeCmd is the binary as the user types it on this platform —
-// "ww-multiplayer.exe" on Windows (the path users see in PowerShell),
-// "./ww-multiplayer" everywhere else (the convention for binaries that
-// aren't on $PATH). Help text and error messages embed this so a
-// macOS user copying a command from `help` doesn't end up with a `.exe`
-// suffix that doesn't exist.
+// ".\ww-multiplayer.exe" on Windows (PowerShell, the default Windows
+// Terminal shell, won't run a program from the current folder by bare
+// name, and cmd.exe accepts the .\ form too), "./ww-multiplayer"
+// everywhere else (the convention for binaries that aren't on $PATH).
+// Help text and error messages embed this so a macOS user copying a
+// command from `help` doesn't end up with a `.exe` suffix that doesn't
+// exist.
 var exeCmd = func() string {
 	if runtime.GOOS == "windows" {
-		return "ww-multiplayer.exe"
+		return `.\ww-multiplayer.exe`
 	}
 	return "./ww-multiplayer"
 }()
