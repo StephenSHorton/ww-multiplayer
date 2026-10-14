@@ -101,8 +101,9 @@ func TestConnectContextCancelDuringHandshake(t *testing.T) {
 			return
 		}
 		close(gotJoin)
-		// Never answer. The next read ends only when the client closes.
-		if _, err := conn.Read(make([]byte, 1)); err == io.EOF {
+		// Never answer. Drain the hello that follows the join; the copy
+		// ends cleanly (nil error) only when the client closes.
+		if _, err := io.Copy(io.Discard, conn); err == nil {
 			close(serverSawClose)
 		}
 	}()
@@ -151,8 +152,9 @@ func TestConnectHandshakeErrorNamesCause(t *testing.T) {
 		if err != nil {
 			return
 		}
-		ReadMessage(conn)
-		conn.Close() // hang up without a welcome
+		ReadMessage(conn) // join
+		ReadMessage(conn) // hello; unread bytes would turn the close into a reset
+		conn.Close()      // hang up without a welcome
 	}()
 
 	err = NewClient("joiner").Connect(ln.Addr().String())
