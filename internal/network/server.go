@@ -29,8 +29,12 @@ type Server struct {
 	listener net.Listener
 	players  map[byte]*Player
 	nextID   byte // where allocIDLocked starts its search for a free ID
-	mu       sync.RWMutex
-	port     int
+	// coops are the co-op connections (RoleCoop), by co-op ID. They are
+	// never in players: no relay, roster or player count sees them.
+	coops      map[byte]*CoopConn
+	nextCoopID byte
+	mu         sync.RWMutex
+	port       int
 	// epoch is constant for the life of this Server instance (its boot-time
 	// nanos). It rides along in every welcome so a reconnecting client can
 	// tell that the server process restarted and trigger a full resync.
@@ -43,6 +47,11 @@ type Server struct {
 	writeTimeout   time.Duration
 	helloTimeout   time.Duration
 	OnLog          func(string) // callback for log messages
+
+	// Coop receives the co-op connections (coop.go). Set it before Start.
+	// Nil means co-op is off: a co-op hello is then refused with
+	// RejectRole, and player connections behave exactly as without it.
+	Coop CoopHandler
 }
 
 // NewServer creates a server on the given port.
@@ -50,6 +59,8 @@ func NewServer(port int) *Server {
 	return &Server{
 		players:        make(map[byte]*Player),
 		nextID:         1,
+		coops:          make(map[byte]*CoopConn),
+		nextCoopID:     1,
 		port:           port,
 		epoch:          uint64(time.Now().UnixNano()),
 		heartbeatEvery: heartbeatInterval,
@@ -86,6 +97,9 @@ func (s *Server) Stop() {
 	s.mu.Lock()
 	for _, p := range s.players {
 		p.Conn.Close()
+	}
+	for _, c := range s.coops {
+		c.Close()
 	}
 	s.mu.Unlock()
 }
@@ -152,10 +166,25 @@ func (s *Server) handlePlayer(conn net.Conn) {
 		s.refuse(conn, name, RejectVersion, versionMismatchReason(version))
 		return
 	}
+	_, role, caps, err := ParseHelloRole(hello.Data)
+	if err != nil {
+		s.refuse(conn, name, RejectVersion, "malformed "+err.Error())
+		return
+	}
 	// Reject rather than clean up a bad name: names are matched for
 	// self-filtering, so a silently altered name would break it.
 	if err := ValidatePlayerName(name); err != nil {
 		s.refuse(conn, name, RejectBadName, "invalid player name: "+err.Error())
+		return
+	}
+	switch role {
+	case RolePlayer:
+	case RoleCoop:
+		// A co-op connection never becomes a player (coop.go).
+		s.handleCoop(conn, name, caps)
+		return
+	default:
+		s.refuse(conn, name, RejectRole, fmt.Sprintf("unknown connection role %d; both players need the same ww-multiplayer version", role))
 		return
 	}
 
@@ -198,6 +227,7 @@ func (s *Server) handlePlayer(conn net.Conn) {
 
 	// Read loop
 	poseWarned := false // log a stream of bad pose frames once, not per frame
+	coopWarned := false // and co-op frames on this player connection
 	for {
 		// Reset the read deadline each iteration. A net.Error Timeout from
 		// an ungracefully-gone peer surfaces as an ordinary read error →
@@ -264,6 +294,14 @@ func (s *Server) handlePlayer(conn net.Conn) {
 		case MsgPong:
 			// Reply to one of our heartbeat pings — liveness only. The
 			// read deadline reset above is the whole point.
+
+		case MsgCoop:
+			// Co-op frames belong on a co-op connection (handleCoop),
+			// never on a player's: drop them.
+			if !coopWarned {
+				coopWarned = true
+				s.log(fmt.Sprintf("dropping co-op frames from %s: not a co-op connection", name))
+			}
 		}
 	}
 
@@ -287,6 +325,12 @@ func (s *Server) handlePlayer(conn net.Conn) {
 // an ungraceful disconnect. A write error means the socket is already gone;
 // the read loop will observe the same and tear down.
 func (s *Server) heartbeatLoop(p *Player, done chan struct{}) {
+	s.pingLoop(func(msgType byte, data []byte) error { return s.writePlayer(p, msgType, data) }, done)
+}
+
+// pingLoop sends a MsgPing through write every heartbeatInterval until done
+// is closed or a write fails. Player and co-op connections share it.
+func (s *Server) pingLoop(write func(msgType byte, data []byte) error, done <-chan struct{}) {
 	t := time.NewTicker(s.heartbeatEvery)
 	defer t.Stop()
 	for {
@@ -296,7 +340,7 @@ func (s *Server) heartbeatLoop(p *Player, done chan struct{}) {
 		case <-t.C:
 			ts := make([]byte, 8)
 			binary.BigEndian.PutUint64(ts, uint64(monotonicNanos()))
-			if err := s.writePlayer(p, MsgPing, ts); err != nil {
+			if err := write(MsgPing, ts); err != nil {
 				return
 			}
 		}
@@ -326,13 +370,20 @@ func (s *Server) writePlayerLocked(p *Player, msgType byte, data []byte) error {
 // marks the welcome of a refused pre-handshake client, see refuseLegacy). ok
 // is false when all 255 are taken. The caller holds s.mu.
 func (s *Server) allocIDLocked() (id byte, ok bool) {
+	return allocFrom(&s.nextID, func(id byte) bool { _, taken := s.players[id]; return taken })
+}
+
+// allocFrom returns the first ID in 1..255 at or after *next (wrapping)
+// that is not taken, and moves *next past it. ok is false when all 255 are
+// taken.
+func allocFrom(next *byte, taken func(byte) bool) (id byte, ok bool) {
 	for i := 0; i < 256; i++ {
-		id = s.nextID
-		s.nextID++
+		id = *next
+		*next++
 		if id == 0 {
 			continue
 		}
-		if _, taken := s.players[id]; !taken {
+		if !taken(id) {
 			return id, true
 		}
 	}

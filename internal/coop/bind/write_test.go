@@ -1,0 +1,330 @@
+package bind
+
+import (
+	"bytes"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
+)
+
+// TestBindWritesTheTag: a confirmed bind writes exactly the planned tag in
+// one write, the tag decodes to what was asked for, and the rest of
+// mReserve stays as it was.
+func TestBindWritesTheTag(t *testing.T) {
+	r := newRig(t)
+	r.realFile(1, "Link")
+	tail := bytes.Repeat([]byte{0x77}, addr.ReserveSize-TagSize)
+	r.must(r.m.Store(addr.Reserve+TagSize, tail)) // whatever the rest holds, it isn't ours
+	r.m.Record(true)
+
+	s, st := r.settle()
+	p, err := PlanBind(s, st, BindRequest{World: worldA, Nonce: nonce1, WorldSeq: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Fresh {
+		t.Error("a saved and loaded file's bind is marked fresh")
+	}
+	want := Tag{Layout: LayoutV1, Slot: 1, World: worldA, Nonce: nonce1, WorldSeq: 42, NameHash: NameHash([]byte("Link"))}
+	if p.Tag != want || p.Bytes() != want.Encode() {
+		t.Fatalf("planned %+v, want %+v", p.Tag, want)
+	}
+	p.Confirm()
+	got, err := Bind(r.m, p, s, st)
+	if err != nil || got != want {
+		t.Fatalf("Bind = %+v, %v", got, err)
+	}
+	enc := want.Encode()
+	ws := r.m.Writes()
+	if len(ws) != 1 || ws[0].Addr != addr.Reserve || !bytes.Equal(ws[0].Data, enc[:]) {
+		t.Errorf("writes: %+v", ws)
+	}
+	if b := r.tagBytes(); !bytes.Equal(b[TagSize:], tail) {
+		t.Errorf("mReserve +0x30.. = % X, changed", b[TagSize:])
+	}
+	if _, err := Bind(r.m, p, s, st); !errors.Is(err, ErrUsed) {
+		t.Errorf("a second Bind with the same plan: %v", err)
+	}
+	r.auditWrites()
+}
+
+// TestApplyRefuses: every reason a confirmed-or-not plan is not carried
+// out, each without a single write.
+func TestApplyRefuses(t *testing.T) {
+	cases := []struct {
+		name string
+		// do runs between the plan and the write; it returns the tick to
+		// apply on, or nil for a fresh settle.
+		do      func(r *rig, p *Plan) error
+		confirm bool
+		want    error
+	}{
+		{"not confirmed", nil, false, ErrNotConfirmed},
+		{"pause menu opened", func(r *rig, p *Plan) error {
+			r.g.SetPauseMenu(true)
+			return nil
+		}, true, ErrGate},
+		{"emulation paused", func(r *rig, p *Plan) error {
+			s, err := snap.Read(r.m)
+			if err != nil {
+				return err
+			}
+			var tr gate.Tracker
+			tr.Observe(s)
+			st := tr.Observe(s) // no frame ran: the heartbeat stalled
+			_, err = Bind(r.m, p, s, st)
+			return err
+		}, true, ErrGate},
+		{"another file loaded", func(r *rig, p *Plan) error {
+			r.load(2)
+			return nil
+		}, true, ErrChanged},
+		{"renamed under the snapshot", func(r *rig, p *Plan) error {
+			s, st := r.settle()
+			r.must(r.m.Store(addr.PlayerName, []byte("Medli\x00")))
+			_, err := Bind(r.m, p, s, st)
+			return err
+		}, true, ErrChanged},
+		{"a stale tick's snapshot", func(r *rig, p *Plan) error {
+			s, st := r.settle()
+			s.Save[infoOffClear] = 1
+			_, err := Bind(r.m, p, s, st)
+			return err
+		}, true, ErrChanged},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t)
+			r.realFile(2, "Aryll")
+			r.realFile(0, "Link")
+			s, st := r.settle()
+			p, err := PlanBind(s, st, BindRequest{World: worldA})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.confirm {
+				p.Confirm()
+			}
+			r.m.Record(true)
+			var got error
+			if c.do != nil {
+				got = c.do(r, p)
+			}
+			if got == nil {
+				s, st := r.settle()
+				_, got = Bind(r.m, p, s, st)
+			}
+			if !errors.Is(got, c.want) {
+				t.Errorf("Bind: %v, want %v", got, c.want)
+			}
+			if ws := r.m.Writes(); len(ws) != 0 {
+				t.Errorf("%d writes made: %+v", len(ws), ws)
+			}
+		})
+	}
+}
+
+// dropWrites is a Mem whose writes vanish, as a write lost to the game's
+// card_to_memory would.
+type dropWrites struct{ mem.Mem }
+
+func (dropWrites) Write(uint32, []byte) error { return nil }
+
+// TestVerifyFails: a write that doesn't read back is ErrVerify, and the
+// plan is spent.
+func TestVerifyFails(t *testing.T) {
+	r := newRig(t)
+	r.realFile(0, "Link")
+	s, st := r.settle()
+	p, err := PlanBind(s, st, BindRequest{World: worldA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Confirm()
+	if _, err := Bind(dropWrites{r.m}, p, s, st); !errors.Is(err, ErrVerify) {
+		t.Errorf("Bind through a Mem that drops writes: %v", err)
+	}
+	if _, err := Bind(r.m, p, s, st); !errors.Is(err, ErrUsed) {
+		t.Errorf("Bind again: %v", err)
+	}
+}
+
+// TestPlanBindRefuses: the files a bind is never planned for.
+func TestPlanBindRefuses(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(r *rig)
+		req   BindRequest
+		want  error
+	}{
+		{"already bound", func(r *rig) { r.bind(worldA, nil) }, BindRequest{World: worldA}, ErrAlreadyBound},
+		{"bound to another world", func(r *rig) { r.bind(worldB, nil) }, BindRequest{World: worldA}, ErrForeign},
+		{"a newer tool's tag", func(r *rig) {
+			b := sampleTag().Encode()
+			b[offLayout] = 2
+			r.must(r.m.Store(addr.Reserve, b[:]))
+		}, BindRequest{World: worldA}, ErrForeign},
+		{"another tool's bytes", func(r *rig) { r.must(r.m.Store(addr.Reserve, []byte("ARCH"))) }, BindRequest{World: worldA}, ErrNotOurs},
+		{"second quest", func(r *rig) { r.must(r.m.Store(addr.ClearCount, []byte{1})) }, BindRequest{World: worldA}, ErrSecondQuest},
+		{"pause menu", func(r *rig) { r.g.SetPauseMenu(true) }, BindRequest{World: worldA}, ErrGate},
+		{"a boss refight", func(r *rig) { r.g.SetRefight(2) }, BindRequest{World: worldA}, ErrGate},
+		{"file select", func(r *rig) { r.g.EnterFileSelect() }, BindRequest{World: worldA}, ErrGate},
+		{"no world", nil, BindRequest{}, nil},
+		{"no file slot", func(r *rig) { r.must(r.m.Store(addr.DataNum, []byte{3})) }, BindRequest{World: worldA}, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t)
+			r.realFile(0, "Link")
+			if c.setup != nil {
+				c.setup(r)
+			}
+			s, st := r.settle()
+			p, err := PlanBind(s, st, c.req)
+			if p != nil || err == nil || (c.want != nil && !errors.Is(err, c.want)) {
+				t.Errorf("PlanBind = %v, %v; want %v", p, err, c.want)
+			}
+		})
+	}
+}
+
+// TestBindOverStaleTags: a leaked or damaged tag is ours and binds over.
+func TestBindOverStaleTags(t *testing.T) {
+	for _, name := range []string{"leaked", "damaged"} {
+		r := newRig(t)
+		r.realFile(0, "Link")
+		r.bind(worldB, nil)
+		r.save()
+		if name == "leaked" {
+			r.realFile(1, "Tetra") // a New Game saved and loaded with world B's tag
+		} else {
+			r.must(r.m.Store(addr.Reserve+offWorldSeq, []byte{0xFF}))
+		}
+		before := r.classify(Expect{World: worldA})
+		if (name == "leaked") != (before.State == Leaked) || (name == "damaged") != before.Damaged {
+			t.Fatalf("%s: set up %s (%s)", name, before.State, before.Why)
+		}
+		p := r.bind(worldA, nil)
+		if !strings.Contains(p.Prompt, "replaced") {
+			t.Errorf("%s: the prompt doesn't say the old tag goes:\n%s", name, p.Prompt)
+		}
+		if v := r.classify(Expect{World: worldA}); v.State != Bound {
+			t.Errorf("%s: after binding: %s (%s)", name, v.State, v.Why)
+		}
+	}
+}
+
+// TestPlanScrubAndClear: a scrub is planned only for a leak; a clear for
+// any non-zero tag bytes, and it zeroes only the tag's 0x30.
+func TestPlanScrubAndClear(t *testing.T) {
+	r := newRig(t)
+	r.realFile(0, "Link")
+	s, st := r.settle()
+	if _, err := PlanScrub(s, st, Expect{World: worldA}); !errors.Is(err, ErrNotLeaked) {
+		t.Errorf("scrub of an unbound file: %v", err)
+	}
+	if _, err := PlanClear(s, st, Expect{}); !errors.Is(err, ErrNoTag) {
+		t.Errorf("clear of an unbound file: %v", err)
+	}
+	r.bind(worldA, nil)
+	s, st = r.settle()
+	for _, e := range []Expect{{World: worldA}, {World: worldB}, {}} {
+		if _, err := PlanScrub(s, st, e); !errors.Is(err, ErrNotLeaked) {
+			t.Errorf("scrub of a bound file, expecting %s: %v", e.World, err)
+		}
+	}
+
+	// Clear a bound file: the tag goes, the rest of mReserve stays.
+	tail := bytes.Repeat([]byte{0x55}, addr.ReserveSize-TagSize)
+	r.must(r.m.Store(addr.Reserve+TagSize, tail))
+	r.m.Record(true)
+	s, st = r.settle()
+	p, err := PlanClear(s, st, Expect{World: worldA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(p.Prompt, worldA.String()) || !strings.HasSuffix(p.Prompt, "?") {
+		t.Errorf("clear prompt:\n%s", p.Prompt)
+	}
+	if err := Scrub(r.m, p, s, st); !errors.Is(err, ErrNotConfirmed) {
+		t.Errorf("unconfirmed clear: %v", err)
+	}
+	p.Confirm()
+	if _, err := Bind(r.m, p, s, st); err == nil {
+		t.Error("Bind took a clear plan")
+	}
+	if err := Scrub(r.m, p, s, st); err != nil {
+		t.Fatal(err)
+	}
+	b := r.tagBytes()
+	if !allZero(b[:TagSize]) || !bytes.Equal(b[TagSize:], tail) {
+		t.Errorf("mReserve after the clear: % X", b)
+	}
+	r.auditWrites()
+
+	// Another tool's bytes can be cleared too, and only its first 0x30.
+	r.must(r.m.Store(addr.Reserve, bytes.Repeat([]byte{0xAB}, addr.ReserveSize)))
+	s, st = r.settle()
+	p, err = PlanClear(s, st, Expect{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Confirm()
+	r.must(Scrub(r.m, p, s, st))
+	b = r.tagBytes()
+	if !allZero(b[:TagSize]) || !bytes.Equal(b[TagSize:], bytes.Repeat([]byte{0xAB}, addr.ReserveSize-TagSize)) {
+		t.Errorf("mReserve after clearing garbage: % X", b)
+	}
+	r.auditWrites()
+}
+
+// TestPrompts: each prompt names the file and the bytes, and asks.
+func TestPrompts(t *testing.T) {
+	r := newRig(t)
+	r.realFile(0, "Link")
+	s, st := r.settle()
+	p, err := PlanBind(s, st, BindRequest{World: worldA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{worldA.String(), `"Link"`, "slot 0", "0x803C532C", "0x30-byte"} {
+		if !strings.Contains(p.Prompt, want) {
+			t.Errorf("bind prompt lacks %q:\n%s", want, p.Prompt)
+		}
+	}
+	p.Confirm()
+	s, st = r.settle()
+	if _, err := Bind(r.m, p, s, st); err != nil {
+		t.Fatal(err)
+	}
+	r.newGame(2, "Tetra")
+	s, st = r.settle()
+	sp, err := PlanScrub(s, st, Expect{World: worldA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"V2 failed", "V4 failed", "V5 failed", `"Tetra"`, "Scrub it?"} {
+		if !strings.Contains(sp.Prompt, want) {
+			t.Errorf("scrub prompt lacks %q:\n%s", want, sp.Prompt)
+		}
+	}
+	if strings.Contains(sp.Prompt, "V3") {
+		t.Errorf("scrub prompt names a rule that held:\n%s", sp.Prompt)
+	}
+
+	r = newRig(t)
+	r.newGame(1, "Aryll")
+	s, st = r.settle()
+	fp, err := PlanBind(s, st, BindRequest{World: worldA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fp.Fresh || !strings.Contains(fp.Prompt, "save in-game soon") {
+		t.Errorf("fresh bind prompt:\n%s", fp.Prompt)
+	}
+}

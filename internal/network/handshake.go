@@ -22,6 +22,7 @@ import (
 //
 //	client -> server  MsgJoin    [name]            unchanged: old servers read the whole payload as the name
 //	client -> server  MsgHello   [version:2 BE]    old servers ignore unknown types
+//	              or  MsgHello   [version:2 BE][role:1][caps:2 BE]   (protocol 2+, a co-op connection)
 //	server -> client  MsgWelcome [id][epoch:8][version:2 BE]
 //	              or  MsgReject  [code:1][reason], then close
 //
@@ -34,10 +35,30 @@ import (
 // client that sends none predates the handshake. It gets a welcome it
 // accepts (ID 0, which is never assigned), then a plain-text MsgChat that it
 // prints as a log line telling the player to upgrade, and is disconnected.
+//
+// Connection roles (protocol 2). Every connection so far was a player's: it
+// streams position and pose and gets the relays and the roster. The co-op
+// pipeline (docs/08-coop-design.md §4.4) opens a connection of its own with
+// role RoleCoop in its hello. That connection never becomes a player: it is
+// not in the roster, the player count or the 255-player limit, gets no
+// relay, and carries MsgCoop frames to and from the server's CoopHandler
+// (coop.go). A player's hello stays the 2-byte form, so a player connection
+// sends the same frames as under protocol 1 apart from the version number;
+// a hello with no role byte is a player's. Bytes after caps are ignored, so
+// a later client can append fields.
 
 // ProtocolVersion is the wire protocol this build speaks. Bump it on any
 // change an older build can't handle: client and server must match.
-const ProtocolVersion uint16 = 1
+//
+//	1  v0.3.0: the version handshake
+//	2  co-op: the hello's role and caps, MsgCoop
+const ProtocolVersion uint16 = 2
+
+// Connection roles, the hello's role byte.
+const (
+	RolePlayer byte = 0 // a player: pose, position, chat and the roster (also a hello with no role byte)
+	RoleCoop   byte = 1 // the co-op pipeline: MsgCoop only, routed to the server's CoopHandler
+)
 
 // helloTimeout is how long a server waits after a join for the client's
 // MsgHello before treating it as a pre-handshake (v0.2.x) client. A current
@@ -52,7 +73,8 @@ const lingerTimeout = 2 * time.Second
 const (
 	RejectVersion    byte = 1 // client and server protocol versions differ
 	RejectBadName    byte = 2 // empty, too long, not UTF-8, or has control characters
-	RejectServerFull byte = 3 // no free player ID
+	RejectServerFull byte = 3 // no free player ID (or, for a co-op connection, co-op ID)
+	RejectRole       byte = 4 // the server doesn't take the hello's role: co-op is off, or the role is unknown
 )
 
 // ErrFatal is matched (errors.Is) by connect errors that retrying can't fix:
@@ -94,6 +116,37 @@ func ParseHello(data []byte) (version uint16, err error) {
 	return binary.BigEndian.Uint16(data[0:2]), nil
 }
 
+// helloRoleLen is the length of a hello that carries a role:
+// [version:2][role:1][caps:2].
+const helloRoleLen = 5
+
+// HelloRoleMessage builds a protocol-2 MsgHello payload that carries a
+// connection role: [version:2 BE][role:1][caps:2 BE]. caps is passed to the
+// server's CoopHandler as is; the network layer gives it no meaning.
+func HelloRoleMessage(version uint16, role byte, caps uint16) []byte {
+	b := binary.BigEndian.AppendUint16(nil, version)
+	b = append(b, role)
+	return binary.BigEndian.AppendUint16(b, caps)
+}
+
+// ParseHelloRole decodes a MsgHello payload with its optional role and
+// caps. A 2-byte hello (protocol 1, or a protocol-2 player) is RolePlayer
+// with caps 0. A hello cut off inside role and caps (3 or 4 bytes) is an
+// error. Bytes after caps are ignored, as ParseHello ignores bytes after the
+// version.
+func ParseHelloRole(data []byte) (version uint16, role byte, caps uint16, err error) {
+	version, err = ParseHello(data)
+	switch {
+	case err != nil:
+		return 0, 0, 0, err
+	case len(data) == 2:
+		return version, RolePlayer, 0, nil
+	case len(data) < helloRoleLen:
+		return 0, 0, 0, fmt.Errorf("hello: %d-byte payload cuts off its role and caps (want 2 or at least %d bytes)", len(data), helloRoleLen)
+	}
+	return version, data[2], binary.BigEndian.Uint16(data[3:5]), nil
+}
+
 // RejectMessage builds a MsgReject payload: [code:1][reason]. The reason is
 // cut to fit a frame.
 func RejectMessage(code byte, reason string) []byte {
@@ -133,19 +186,29 @@ func ValidatePlayerName(name string) error {
 	return nil
 }
 
-// writeJoin sends the client's half of the handshake, MsgJoin then MsgHello,
+// writeJoin sends a player's half of the handshake, MsgJoin then MsgHello,
 // in a single write so the server gets the hello right behind the join. A
 // name the server would refuse fails here as a *RejectError instead, since
 // reconnecting can't fix it.
 func writeJoin(w io.Writer, name string) error {
+	return writeJoinRole(w, name, RolePlayer, 0)
+}
+
+// writeJoinRole is writeJoin for a connection of any role. A player's hello
+// is the 2-byte form; any other role's carries role and caps.
+func writeJoinRole(w io.Writer, name string, role byte, caps uint16) error {
 	if err := ValidatePlayerName(name); err != nil {
 		return &RejectError{Code: RejectBadName, Reason: err.Error()}
+	}
+	hello := HelloMessage(ProtocolVersion)
+	if role != RolePlayer {
+		hello = HelloRoleMessage(ProtocolVersion, role, caps)
 	}
 	var buf bytes.Buffer
 	if err := WriteMessage(&buf, MsgJoin, []byte(name)); err != nil {
 		return err
 	}
-	if err := WriteMessage(&buf, MsgHello, HelloMessage(ProtocolVersion)); err != nil {
+	if err := WriteMessage(&buf, MsgHello, hello); err != nil {
 		return err
 	}
 	_, err := w.Write(buf.Bytes())

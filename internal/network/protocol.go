@@ -38,6 +38,13 @@ const (
 	// it won't take the client, with MsgReject and a close.
 	MsgHello  byte = 'H' // Client -> Server: protocol version (after MsgJoin)
 	MsgReject byte = 'R' // Server -> Client: [code:1][reason], then close
+
+	// Co-op (protocol 2, docs/08-coop-design.md §4.4). Travels only on a
+	// co-op connection (RoleCoop in the hello), both ways, between the
+	// co-op pipeline and the server's CoopHandler; the payload is
+	// [sub:1][body], encoded by package internal/coop/wire. The server
+	// drops one that arrives on a player connection.
+	MsgCoop byte = 'O' // Both: co-op sub-message
 )
 
 // Payload caps. The server enforces them at ingress so that every frame it

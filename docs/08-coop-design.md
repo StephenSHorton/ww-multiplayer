@@ -731,6 +731,23 @@ Run `mp-local` in the background.
 
 `stage-hop` (M0, debug) can stand in for F2-F5 if dungeons load without story progress (inferred).
 
+**Running M2 (dry run).** M2 writes nothing to the game except the binding tag, and only after a yes. The planner only logs. Owner steps for the M2 acceptance:
+1. Load the file to share in Dolphin 1 and stand in game, out of menus and cutscenes. Run `mp-local --coop=new` (or `host --coop=new`) to found the world from that file.
+   - The first lines list the memory cards backed up, each with its files and whether Dolphin.ini selects it ("in use"), then the world ID. Check that they are your cards: the card location comes from Dolphin's source, not the decomp (§5.4). A warning that no card is in use means the backup may have missed yours: set `USER_DIR_1` to your Dolphin user folder.
+   - Later sessions use `--coop` (serves the only world) or `--coop=<world-id>`.
+   - A second machine joins with `join <host> --coop`.
+2. Answer each question with `y` and Enter, or pass `--yes` to answer them all. "Bind it?" asks to bind the file; a leaked tag gets "Scrub it?" as well.
+   - Then save in game, so the card keeps the tag.
+   - `coop-tag show` (with `WW_DOLPHIN_INDEX`) must read Bound after a save and reload. Before the reload, a file bound fresh reads Bound only on the host, whose world file records the pending fresh bind; on a joiner's machine it reads "leaked, or a pending fresh bind".
+3. Play on both Dolphins. Each log shows its dry-run plan: "would set …" and "would raise …" lines for the partner's progress, never for life, rupees or another PER_PLAYER byte. `coop-world list` shows the world's seq growing.
+4. Check that ww-multiplayer wrote nothing but the tag: `coop-watch` on each Dolphin shows only the game's own edges, and `peek 0x803C532C 48` holds the tag.
+5. Run the recovery drills, with the session stopped (Ctrl+C):
+   - `coop-world restore` lists the card backups; `coop-world restore <backup> --yes` puts one back, and only while Dolphin is closed.
+   - `coop-world block <world-id> chest <table> <no> --yes` tombstones a bit.
+   - `coop-tag clear --yes` unbinds a file.
+   - Restart `mp-local --coop`: the world comes back at the same seq.
+6. Run host, join and mp-local once without `--coop`: they behave exactly as before.
+
 ### 8.3 Day-0 read-only probes (runnable now with today's binary)
 ```
 WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803C9D3C 12   # stage name ("sea\0..."), point s16, room, layer
@@ -1056,3 +1073,121 @@ Also needed from the owner, and not a decision: capture the fixture save states 
     - Some ordinary-looking K1 entries do get BOSS status at creation, so the BOSS gate always skips them: a Stalfos, Moblin or Darknut with a memory death switch (u8 of `angle.z` 1-0x7F), a Darknut with behaviour 13 or 14, and a Bokoblin of type 0xA.
     - Darknut's file matches D44J01 only (`configure.py:1858`), so its rule and `onActor` site hold for GZLE01 by inference.
 37. **Minor citation fixes.** Zones are cleared at stage entry only when the start point is ≥ 0 (`d_stage.cpp:124-126`; §7.1 cited 118-140). `OSPanic` spans `m_Do_printf.cpp:208-230` (§3.2 and Appendix A said 208-233). Every §7.2 K1 proc number and timer offset (enemyice member + 6) matches `f_pc_name.h` and the headers.
+
+**Found while building M2 against the decomp** (same checkout; the code cites each point at file:line):
+
+*Protocol and codecs (§4.4)*
+
+38. **SCOPED words index the game's own arrays.** §4.4's `{word:u8, bits:u32}` suggests u32 words everywhere, but zone switches are `u16 mSwitch[3]` (`d_save.h:770`), set at `i_no >> 4` (`d_save.cpp:1279-1282`). The codec follows the decomp:
+    - DAN: words 0-1, u32 (`d_save.h:754`).
+    - ZONE: words 0-1, u16, so bits must fit in 0xFFFF.
+    - ROOMEDGE: word 2 only, u16; `clearRoomSwitch` zeroes it (`d_save.cpp:1274-1276`).
+    - KILL: words 0-15, u32 (`mActorFlags[16]`, `d_save.h:782`).
+39. **Wire ranges from the decomp.**
+    - Stage names are `strcpy`'d into `char[8]` (`d_stage.cpp:112`, `d_stage.h:949`), so a name is at most 7 characters, and RAM can keep an older name's tail after the NUL. The wire takes only the canonical form: printable ASCII without spaces, then NUL padding.
+    - CO_HELLO's slot is 0..2: `mDataNum` holds the file-select cursor (`d_file_select.cpp:458-471`), and the card has three files (`gamedata[3]`, `m_Do_MemCardRWmng.h:39`).
+    - PRESENCE's layer is -1..11: -1 means the game picks the layer by the time of day (`d_com_inf_game.cpp:185-190`).
+40. **WORLD strips more than §4.4 says.** Besides the PER_PLAYER, NEVER and TAG bytes, the bits outside a merging byte's class mask are zeroed (an event register's local bits, `mDungeonItem` bits 6-7). DERIVED bytes travel, because the hub's preflight reads them. `wire.StripLocal` makes exactly this image.
+41. **Encodings §4.4 leaves open.**
+    - CO_WELCOME status: 1 OK, 2 UNBOUND, 3 REFUSED; 0 is invalid, so an unset field never reads as OK. `reason` is a NOTICE code (0 for none); a REFUSED welcome has a reason and features 0.
+    - NOTICE codes 1-7 and CTRL ops 1-3 follow §4.4's order. A TOMBSTONE's arg is `off<<8 | mask`, checked like a gain.
+    - GAINS offsets are strictly ascending, so n ≤ 0x778 and each batch has one encoding (`wire.CanonicalGains`). An s→c origin is the co-op connection ID; 0 is the hub.
+    - Feature bits live in `internal/coop/hub`: FeatureImage, FeaturePuzzle and FeatureCombat, plus the grant-only FeatureMerge (1<<8) and FeatureBind (1<<9) and the hello-only AskBind (1<<31) and AskUnsaved (1<<30), which carry §5.3's bind request and fresh bind.
+    - A GAINS batch is a repeat when `int32(batch - last) <= 0`, so the counter can wrap.
+    - NOTICE text is valid UTF-8 without control characters, at most 255 bytes, as player names are. `ClassHash` is FNV-1a 64 over the class spans.
+42. **Kept as specified, a limit:** a relayed PRESENCE or SCOPED carries no sender. That is fine for two players; more would need an origin byte and a Schema bump.
+43. **Player connections are protocol 1 apart from the version.** Players still send the 2-byte hello; only co-op connections send `[version][role][caps]`. Co-op connections get a normal MsgWelcome with an ID from their own 1..255 space. RejectRole (4) is fatal, so a co-op client stops at once against a host without `--coop`.
+44. **A known client race, not fixed (internal/network).** `readLoop`'s error path marks the client disconnected without checking that its conn is still the current one; `abandonSession` does check. A Disconnect followed at once by a Connect on the same Client can lose the new session. RunCoop never hits it, and not because of a backoff: after a session that lived `minHealthySession` it redials at once. Its `live` ends a session early only after the read loop itself has cleared `connected`, which is that loop's last write, and `Replica.Session` returns only when its context ends, so no stale read loop is left to clear the next session's flag. A session function that returns while its connection is still open would need the race fixed first. coop-sync keeps one Client per pipeline, as the player pipelines do.
+
+*Binding tag (§5.2)*
+
+45. **What the tag hashes and checks.** `nameHash` is 32-bit FNV-1a over `mPlayerName` up to its NUL: the name is set with `strcpy` (`d_save.h:446`, `d_save.cpp:969`), which leaves an older name's bytes after the NUL. The CRC is CRC-32 (IEEE) over +0x00..+0x27.
+    - Layout 1 defines no flags and writes 0. A layout-1 tag with flags or the reserved u32 set is a newer writer's, so it is Foreign; non-zero bytes at +0x2C..+0x2F are damage.
+46. **V1 failures and leaks.**
+    - All-zero bytes, bytes that are not "WWCO", and a damaged tag are Unbound; a newer layout is Foreign.
+    - Bind refuses to write over bytes that are not "WWCO" (another tool may own them; `coop-tag clear` zeroes them), but writes over damaged and leaked tags.
+    - A tag failing any of V2-V5 is Leaked even when it names another world: a stale tag binds nothing.
+47. **Leak sources §5.2 doesn't list.** File select's Copy copies the whole `card_gamedata`, tag included, into another slot (`d_file_select.cpp:1817-1830`), which V2 catches. ExDataSave saves into the slot the player picks (`d_file_select.cpp:3626-3641`), so a second quest can fail V2 as well as V3.
+48. **Gates and refusals.**
+    - Bind and Scrub need STABLE, HEARTBEAT and IDLE (`gate.CanWriteIdle`): IDLE keeps the pause and save menus from copying `mReserve` to the card mid-write.
+    - `PlanBind` and the hub refuse any file with `mClearCount` ≠ 0 (§2 non-goal; V3 rejects it anyway).
+    - A remaining edge, like §5.2's documented one: while a fresh bind's nonce is pending, a same-name New Game in the same slot also passes V5. It is harmless, since both files are fresh.
+49. **Scrub offers.** Failures of V2-V4 are offered at once. A V5-only failure naming the session's world is offered once a welcome says it is no pending fresh bind. A REFUSED welcome says nothing either way (its FreshBind is always false), so the replica learns fresh binds only from OK and UNBOUND welcomes: a host restarted on another build must not turn a pending fresh bind into a scrub offer. A V5-only failure naming another world is never offered, because only that world's host knows; `coop-tag clear` remains.
+    - `coop-tag show` and `coop-tag clear` read the pending fresh binds from the world files on the machine. Without the tag's world file (a joiner), a V5-only failure is shown as "leaked, or a pending fresh bind", with no advice to clear it, and clear warns that it may unbind the file.
+50. **Citation fix:** `initdata_to_card` zeroes `dSv_reserve_c` at `d_save.cpp:2007-2010` (§5.2 said 2006-2010; 2006 is blank).
+
+*Backups (§5.4)*
+
+51. **The card locations come from Dolphin's source, not the decomp**, and need the owner's confirmation in M2 (§8.2). That covers the EXIDeviceType values (1 raw, 8 GCI folder), the default file and folder names, and how configured paths get a region code.
+    - Because a wrong guess means no backup, every card that exists is backed up. The session start lists each card with the files copied from it and whether Dolphin.ini selects it ("in use"), and warns when it selects none; `coop-world restore <backup>` marks them the same way, and the backup's `manifest.json` records them. GCI folders contribute Wind Waker's files (GZLE) only.
+    - Restore refuses whenever the Dolphin process list is unavailable (Linux, macOS without cgo), and counts Dolphin's own tools as Dolphin.
+
+*World file and hub (§4.4, §5.5)*
+
+52. **Tombstones lower the world.** A tombstone also clears the bits from the image (the only operation that lowers a byte) and refuses them afterwards. On a MAX byte, any value containing a tombstoned bit is refused. Files that already have the bits keep them, as §4.4 says. The hub sends every tombstone (CTRL TOMBSTONE) with each bound peer's welcome.
+53. **The default policy fails closed for OR_MASKED bytes.** Memory switches wait for the M1 latching grant (`world.GrantSwitches`) and story bits for M4's SyncMask: a bit accepted into a grow-only world stays forever. The policy filters proposals only; it is not saved.
+54. **World file details.**
+    - The journal replays: lines carry values and a CRC, and Load replays records above the file's seq, on top of replicas re-proposing. An old world file copied back by hand gets the later records replayed over it, so tombstones are the only way to take bits out.
+    - A file of another version stops the load (`ErrVersion`), with no fallback past it, so an older build never overwrites a newer world.
+    - The world file also keeps the pending fresh binds (V5), at most 16.
+    - Every change bumps the one seq (image, tombstones, fresh binds), so GAINS seqs can skip.
+    - Flushes wait at most 1 s; backups `.1`-`.5` are taken at session start and hourly.
+    - Scoped stores are not saved: the game forgets them too.
+55. **Scoped store lifetimes.**
+    - DAN lives while anyone is in that save table, keyed by (stage, table) for §6.3's stage-match rule. This is item 25's finding: `dSv_danBit_c::init` clears only on a table change (`d_save.cpp:1225-1235`). It is called from `dStage_stagInfoInit` (`d_stage.cpp:1669-1677`) and reset at `dSv_info_c::init` (`d_save.cpp:1392`) and at game start (`d_s_name.cpp:1489`).
+    - ZONE is keyed by (stage, table, room) and dropped when the room empties.
+    - KILL is keyed by room but kept alive by anyone in the stage, and sent on stage entry: zones are re-initialised at stage entry (`d_stage.cpp:124-126`, `dSv_zone_c::init` `d_save.cpp:1338-1342`).
+    - ROOMEDGE is relayed, never stored.
+    - A SCOPED is accepted only from a player whose PRESENCE is in that scope, so a replica sends PRESENCE first.
+    - That bounds ZONE and KILL by where players are, but not DAN, which outlives its stage while a peer can name stage after stage in one table. Each table holds at most `world.MaxDanStores` (256) DAN stores, about twice the stages the game has (its audio's stage list, `JAIZelBasic::spot_dir_name`, `JAIZelScene.cpp:281-406`, names 115); past that a new one is refused with a NOTICE. M2 loads no M1 tables into a session (item 67), so unknown stage names can't be refused outright. The stores are indexed by stage and by table, so a PRESENCE costs what is near it, not every store.
+56. **Hub choices §4.4 leaves open.**
+    - A refused peer stays connected, because pose sync is unaffected. Policy refusals are counted silently; only tombstone refusals get a NOTICE, at most one per second.
+    - The host is the loopback connection unless `Config.IsHost` says otherwise.
+    - GAINS are relayed to every bound peer, sender included, so each sees what was accepted. A WORLD's delta goes to the other peers; the sender gets the merged image.
+    - PRESENCE also reaches unbound peers, and a detach relays a "nowhere" PRESENCE.
+    - A WORLD with a seq above the world's is logged as lost commits and merged.
+57. **Far behind can't fire in M2.** The resume milestones (`l_checkData`, `d_com_inf_game.cpp:1304-1311`; §5.3 cited 1302-1320) are story bits, which the default policy keeps out of the world. The check is tested with the full policy and matters from M4.
+
+*Replica (§4.2, §6.5)*
+
+58. **Doc vs decomp: the Differ does not re-baseline on a table, stage or room change. The code follows the decomp.**
+    - `getSave` and `putSave` only move the current table's bits between its live and saved copies (`d_save.cpp:1506-1515`), so the folded image sees the same bits either way. `initDan`, `clearRoomSwitch` and the zone init never touch the image.
+    - `dMap_c::mapMoveAll` sets the visited-room bit on room entry outside sea- and FF1-type stages (`d_map.cpp:1662-1665`); a re-baseline on the room change would swallow it.
+    - So the baseline is dropped only off the game (title, file select, no table), on another file, on a heartbeat regression or on a read error.
+    - The tick that takes the new baseline reports no gains, so the replica follows it with its whole WORLD (`Edges.Rebased`). Otherwise what rose in the gap, such as a save state's chest or one opened across a failed read, would reach the world only at the next reconnect. The hub's merge only adds, so a WORLD from an older state is harmless.
+    - A tick is skipped without Link, or while the STAG save table differs from `mDan.mStageNo`: `getSave` runs before `initDan` (`d_stage.cpp:1674-1675`).
+    - Scoped words re-baseline per scope, as designed.
+59. **Holds (§6.5).**
+    - The boat lock has a third clause the doc omits: UNK_3E10 without UNK_3F80 (`d_a_ship.cpp:4224-4229`; ids at `d_save_event_flag.inc:476`, `:480`). It is a hold now.
+    - The 0x2D10 hold uses `checkMasterSwordEquip`: `mSelectEquip[0]` is 0x39, 0x3A or 0x3E (`d_a_player.h:600-604`; `d_item_data.h:64-65`, `:69`).
+60. **Smaller replica choices.**
+    - A file with progress the world lacks, while the world adds nothing new ("ahead"), needs `--coop-merge`, as the hub denies such a bind without Merge.
+    - Gains seen while offline are queued and sent after the reconnect WORLD.
+    - The replica keeps a SCOPED only after an OK welcome granting its kind's feature, as the hub sends them, and only for the stage and table Link is in: every tick in game drops the others, and it keeps at most 258 (two stages' worth), so a hostile host can't grow it.
+    - Labels come from `replica.DefaultLabel` or `Config.Label`.
+    - The WriteGuard leaves out `mMaxLife` and `mMaxMagic` (they move only through their pending counters), the zone item bits, `mRoomNo` and the K1 timer bytes (M6 validates those per write). It covers the image merge masks, the DERIVED bytes, the tag, the live memBit, the dan and zone words, the three pending counters and `play.mSelectItem`.
+
+*The `--coop` session (§5.3, §8.2)*
+
+61. **Flags.**
+    - `host` and `mp-local` take `--coop` (the only world on disk), `--coop=new` (found one) or `--coop=<world-id>`, plus `--coop-merge` and `--yes`. `join` takes `--coop` and `--yes`: the host picks the world and the merge.
+    - A command line without `--coop` is parsed exactly as before.
+    - §5.3's `host --coop new [--name]` became `--coop=new`. There is no `--name`: a world has no name field, and `coop-world list` shows the IDs.
+    - The TUI passes no co-op flags; its panel and prompts are M8's.
+62. **Founding (§5.3 differs).** §5.3 has the founding write the tag. In M2 the host founds `world.wwco` from its loaded, idle file, refusing a second quest and a Bound, Foreign or non-tag `dSv_reserve_c`. The host's own replica then binds the file through the usual prompt.
+    - The file and the new world are the same, so the preflight says "same" and no `--coop-merge` is needed. This settles item 60's founding gap.
+    - The tag is still written only after a yes (§5.1).
+63. **Session start.** Every side, host and joiner, backs up the cards of both Dolphin user directories (USER_DIR_1/2). Without a backup, no tag is written that session: the bind is not asked and a scrub is declined, each with a reason.
+64. **Prompts.**
+    - Questions go one at a time on stdin, y/N; mp-local's two Dolphins share one prompter. A line typed before a question is dropped, and EOF or the end of the session means no. The reader starts with the session (without `--yes`) and stamps each line as it reads it; a question waits until the reader has had nothing to read for 50 ms, then takes only lines read after it was asked. So neither a line waiting in the terminal at session start nor extra lines typed for an earlier question answer it.
+    - A bind is asked at most once per file (slot, clear count, name) per pipeline, reconnects included. After a no, a leaked tag still gets its scrub question.
+65. **A host without `--coop`** refuses the co-op connection (RejectRole). The pipeline says "co-op is off for this session" once and waits for the session to end, so pose sync is unaffected. The co-op connection's dial failures are not logged: the pose pipelines report reachability.
+66. **`coop-world block` (§4.4).**
+    - The syntax is `coop-world block <world-id> (byte <off> <mask> | event <0xHHLL> | switch|chest|item <table> <no>) [--yes] [--force]`.
+    - Event bits follow `onEventBit` (`d_save.cpp:1187-1189`). Chests, memory switches and pickups follow `onTbox`, `onSwitch` and `onItem` (`d_save.cpp:1072-1075`, `:1084-1087`, `:1112-1115`) at their `dSv_memBit_c` offsets (`d_save.h:684-686`).
+    - `onItem` accepts 0..63 though `mItem` is a single u32, so items 32-63 land in `mVisitedRoom[0]`; block follows the game.
+    - Register bytes (0x79-0xFF) are blocked with `byte`. Dan, zone and kill bits are not in the world image and can't be blocked.
+    - Block edits the world file only while no session serves it: a running hub keeps the world in memory, and its next write would undo the edit. The host marks the world in use with `session.lock` in its directory. `--force` overrides a marker a crash left, and the next host start warns about it.
+    - In-session blocking is the hub's CTRL TOMBSTONE path (`hub.Hub.Tombstone`), which M8's panel will drive. Bound replicas learn a block at their next welcome.
+    - `coop-world list` (read-only) was added beside block and restore.
+67. **`stageTblHash` is 0 on both sides in M2:** no M1 tables are loaded into a session yet. M3 sends their identity.
