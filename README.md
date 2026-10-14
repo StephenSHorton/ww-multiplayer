@@ -22,8 +22,8 @@ Known limits:
 - Only Outset Island has been heavily tested. Stage / room transitions
   aren't gracefully handled yet (your friend's Link just renders at the
   last known coords if they cross to a different room).
-- Local LAN tested. Internet play would work but firewall / NAT traversal
-  isn't included.
+- Internet play needs a port-forward or a VPN such as Tailscale (see
+  [Playing](#playing)); there's no built-in NAT traversal.
 - macOS first-run requires a one-time setup step: `scripts/setup-mac-dolphin.sh`
   copies `/Applications/Dolphin.app` to `~/Applications/Dolphin.app` and
   re-signs it without the hardened runtime, which lets AMFI permit
@@ -46,7 +46,8 @@ Active work is tracked in [GitHub issues](../../issues) — epics group related 
 3. Both players: boot the patched ISO in Dolphin and load a save (any save —
    saves don't have to match, and the other player's Link only appears once
    their session connects).
-4. Host runs `ww-multiplayer.exe host` and shares the printed LAN IP.
+4. Host runs `ww-multiplayer.exe host` and shares the printed LAN IP (or
+   double-clicks `ww-multiplayer.exe` and picks Host — see [Playing](#playing)).
 5. Joiner runs `ww-multiplayer.exe join <host-ip>` (you can also pass a custom name:
    `ww-multiplayer.exe join 192.168.1.42 Alice`).
 6. You should see each other's Link walking around in-game within a second
@@ -55,14 +56,16 @@ Active work is tracked in [GitHub issues](../../issues) — epics group related 
 ### macOS
 
 1. Download `ww-multiplayer-macos.tar.gz` from the [latest release](../../releases),
-   untar it. You'll get a universal binary (`ww-multiplayer`) and a
-   Finder-clickable wrapper (`WW Multiplayer.app`).
+   untar it. You'll get a universal binary (`ww-multiplayer`), a
+   Finder-clickable wrapper (`WW Multiplayer.app`), the one-time setup
+   script (`scripts/setup-mac-dolphin.sh`) and `LICENSE`. Run the commands
+   below in Terminal from that untarred folder.
 2. **Strip the Gatekeeper quarantine flag** — macOS adds it to anything
    downloaded from the internet, and the binary isn't signed by an Apple
    Developer cert. Without this step you'll get *"Apple could not verify
    'WW Multiplayer' is free of malware…"*:
    ```
-   xattr -cr ww-multiplayer "WW Multiplayer.app"
+   xattr -cr ww-multiplayer "WW Multiplayer.app" scripts
    ```
 3. **One-time Dolphin setup** — re-sign Dolphin without the hardened
    runtime so the binary can read its memory:
@@ -84,16 +87,46 @@ Active work is tracked in [GitHub issues](../../issues) — epics group related 
 
 No sudo. The shipped binary is ad-hoc signed with the
 `com.apple.security.cs.debugger` entitlement, and once Dolphin's
-hardened runtime is off (step 2 above), AMFI lets the entitled binary
+hardened runtime is off (step 3 above), AMFI lets the entitled binary
 attach with `task_for_pid` from your normal user account.
-
-For internet play the host just needs a reachable IP (port-forward :25565
-or use a VPN / relay); the rest of the flow is identical.
 
 We don't ship a pre-patched ISO for legal reasons (it would be a derivative
 of the entire Wind Waker DOL). The patcher contains only our injected code
 plus a list of byte-edit records; your vanilla DOL is the source of all
 original game-code bytes.
+
+## Playing
+
+**Both players must run the same version.** `ww-multiplayer version`
+prints it. v0.3.0 and later can't play with v0.2.x, so upgrade together.
+
+**The menu.** Run `ww-multiplayer` with no arguments — double-click
+`ww-multiplayer.exe` on Windows or `WW Multiplayer.app` on macOS. Pick
+Host or Join, enter a player name (and the host's address, to join), and
+the dashboard shows who's connected, the host's IP to share, a minimap
+and chat. **Each player needs a different name**: two players with the
+same name can't see each other. The menu always hosts on port 25565; use
+the command line for another port.
+
+**The command line** does the same thing:
+
+```
+ww-multiplayer host [name] [--port N]     # default port 25565
+ww-multiplayer join <host> [name]         # <host> is an IP or hostname
+ww-multiplayer join 192.168.1.42:26000    # host used --port 26000
+ww-multiplayer join [2001:db8::42]:26000  # IPv6: brackets when giving a port
+```
+
+(`ww-multiplayer.exe` on Windows, `./ww-multiplayer` on macOS.) A bare
+IPv6 address without a port, such as `join 2001:db8::42`, also works.
+
+**Over the internet.** The joiner has to reach the host's port (TCP 25565
+unless the host passed `--port`). Either forward that TCP port on the
+host's router to the host's PC and have the joiner use the host's public
+IP, or put both machines on a VPN such as [Tailscale](https://tailscale.com)
+and join the host's Tailscale IP (`100.x.y.z`) — no port-forwarding
+needed. A Windows host should allow `ww-multiplayer.exe` through the
+firewall when Windows asks.
 
 ## Requirements
 
@@ -109,12 +142,19 @@ original game-code bytes.
 ```bash
 git clone https://github.com/StephenSHorton/ww-multiplayer.git
 cd ww-multiplayer
-# Windows / Linux dev
+# Windows (run on Windows)
 go build -o ww-multiplayer.exe .
+# Windows, cross-compiled from Linux or macOS
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o ww-multiplayer.exe .
 # macOS — universal binary + .app bundle
 ./scripts/build-mac.sh dev
 # outputs dist/ww-multiplayer (universal) and dist/WW Multiplayer.app
 ```
+
+Linux isn't a supported player platform yet. `go build .` and
+`go test ./...` work on Linux, and the resulting binary can `patch` an ISO
+or run a headless `server`, but anything that reads Dolphin's memory fails
+with "dolphin process memory access is not implemented on linux".
 
 The compiled C-side blob is checked in as `internal/inject/blob.go` so plain
 Go builds work without the C toolchain. To rebuild the injected C code, see
