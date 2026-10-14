@@ -154,14 +154,14 @@ jobs:
 
             **Requires your own legitimate copy of The Legend of Zelda: The Wind Waker (NTSC-U, GZLE01)** as a `.iso` or `.ciso` file.
 
-            **Both players must run the same version.** v0.3.0 and later can't play with v0.2.x: a v0.3.0 host turns a v0.2.x player away with an upgrade message, and a v0.3.0 player joining a v0.2.x host stops with "host runs an older ww-multiplayer". Check with `ww-multiplayer.exe version` (Windows) or `./ww-multiplayer version` (macOS).
+            **Both players must run the same version.** v0.3.0 and later can't play with v0.2.x: a v0.3.0 host turns a v0.2.x player away with an upgrade message, and a v0.3.0 player joining a v0.2.x host stops with "host runs an older ww-multiplayer". Check with `.\ww-multiplayer.exe version` (Windows) or `./ww-multiplayer version` (macOS).
 
             ### Windows
 
             1. Download `ww-multiplayer.exe`.
-            2. `ww-multiplayer.exe patch path\to\your-wind-waker.iso`
+            2. In a terminal opened in the download folder: `.\ww-multiplayer.exe patch path\to\your-wind-waker.iso`
             3. Boot the patched ISO in Dolphin.
-            4. Double-click `ww-multiplayer.exe` for the menu (host or join), or from a terminal: host with `ww-multiplayer.exe host [name]`, join with `ww-multiplayer.exe join <host-ip> [name]`.
+            4. Double-click `ww-multiplayer.exe` for the menu (host or join), or from a terminal: host with `.\ww-multiplayer.exe host [name]`, join with `.\ww-multiplayer.exe join <host-ip> [name]`.
 
             ### macOS (Apple Silicon + Intel)
 
@@ -176,4 +176,4 @@ jobs:
 
             `SHA256SUMS` lists the SHA-256 of every file above. macOS / Linux: `shasum -a 256 -c SHA256SUMS --ignore-missing`. Windows (PowerShell): `Get-FileHash ww-multiplayer.exe` and compare with the matching line.
 
-            See the README for full setup, internet play, two-Dolphin local play, and known issues.
+            See the README for full setup, internet play, and known issues.

@@ -39,17 +39,17 @@ Active work is tracked in [GitHub issues](../../issues) — epics group related 
 2. Patch your own legitimate copy of Wind Waker (NTSC-U, game ID `GZLE01`,
    `.iso` or `.ciso` works):
    ```
-   ww-multiplayer.exe patch path\to\your-wind-waker.iso
+   .\ww-multiplayer.exe patch path\to\your-wind-waker.iso
    ```
    This produces `your-wind-waker-multiplayer.iso` next to the input. Your
    original is left untouched. Already-patched ISOs are detected and skipped.
 3. Both players: boot the patched ISO in Dolphin and load a save (any save —
    saves don't have to match, and the other player's Link only appears once
    their session connects).
-4. Host runs `ww-multiplayer.exe host` and shares the printed LAN IP (or
+4. Host runs `.\ww-multiplayer.exe host` and shares the printed LAN IP (or
    double-clicks `ww-multiplayer.exe` and picks Host — see [Playing](#playing)).
-5. Joiner runs `ww-multiplayer.exe join <host-ip>` (you can also pass a custom name:
-   `ww-multiplayer.exe join 192.168.1.42 Alice`).
+5. Joiner runs `.\ww-multiplayer.exe join <host-ip>` (you can also pass a custom name:
+   `.\ww-multiplayer.exe join 192.168.1.42 Alice`).
 6. You should see each other's Link walking around in-game within a second
    or two. Ctrl+C in either terminal cleanly shuts down and hides Link #2.
 
@@ -117,7 +117,7 @@ ww-multiplayer join 192.168.1.42:26000      # host used --port 26000
 ww-multiplayer join "[2001:db8::42]:26000"  # IPv6: brackets when giving a port
 ```
 
-(`ww-multiplayer.exe` on Windows, `./ww-multiplayer` on macOS.) Keep the
+(`.\ww-multiplayer.exe` on Windows, `./ww-multiplayer` on macOS.) Keep the
 quotes around a bracketed IPv6 address: macOS's default shell (zsh)
 otherwise reads the brackets as a filename pattern and refuses to run the
 command. A bare IPv6 address without a port, such as
@@ -133,7 +133,7 @@ firewall when Windows asks.
 
 ## Requirements
 
-- Windows 10+, or macOS 11+ (Apple Silicon or Intel)
+- Windows 10+, or macOS 12+ (Apple Silicon or Intel)
 - [Dolphin emulator](https://dolphin-emu.org/) — recent stable release
 - Your own legitimate copy of The Wind Waker (NTSC-U, game ID `GZLE01`)
 - [Go 1.21+](https://go.dev/dl/) — only if building from source. macOS

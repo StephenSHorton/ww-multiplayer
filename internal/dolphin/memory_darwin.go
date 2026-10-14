@@ -166,7 +166,7 @@ func openProc(pid uint32) (procHandle, error) {
 	var task C.mach_port_t
 	kr := C.dolphin_task_for_pid(C.int(pid), &task)
 	if kr != 0 {
-		return 0, fmt.Errorf("task_for_pid(%d) failed: kern_return=%d — needs sudo or a binary signed with com.apple.security.cs.debugger", pid, int(kr))
+		return 0, fmt.Errorf("task_for_pid(%d) failed: kern_return=%d — run scripts/setup-mac-dolphin.sh once (again after each Dolphin update), then boot the game from ~/Applications/Dolphin.app, not /Applications/Dolphin.app", pid, int(kr))
 	}
 	return task, nil
 }
