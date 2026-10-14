@@ -122,7 +122,7 @@ func main() {
 			runJoin(addr, name)
 		case "patch":
 			if len(os.Args) < 3 {
-				fmt.Println("Usage: ww patch <input.iso|input.ciso> [output.iso]")
+				fmt.Printf("Usage: %s patch <input.iso|input.ciso> [output.iso]\n", exeCmd)
 				fmt.Println("  Default output: <input>-multiplayer.iso (next to the input)")
 				os.Exit(1)
 			}
@@ -727,14 +727,24 @@ func runPatch(in, out string) {
 	fmt.Printf("Wind Waker Multiplayer patcher\n")
 	fmt.Printf("  input : %s\n", in)
 	fmt.Printf("  output: %s\n", out)
-	if err := inject.PatchISO(in, out); err != nil {
-		if err == inject.ErrAlreadyPatched {
-			fmt.Printf("\nThis ISO already contains the multiplayer mod — nothing to do.\n")
+	res, err := inject.PatchISO(in, out)
+	if err != nil {
+		switch {
+		case errors.Is(err, inject.ErrAlreadyPatched):
+			fmt.Printf("\nThis ISO already contains this version of the multiplayer mod — nothing to do.\n")
 			fmt.Printf("(Detected an existing T2 section at 0x%08X.)\n", inject.T2Address)
 			os.Exit(0)
+		case errors.Is(err, inject.ErrPatchedByOtherVersion):
+			fmt.Printf("\nThis ISO was patched by a different ww-multiplayer version.\n")
+			fmt.Printf("Patch your vanilla (unmodified) Wind Waker ISO with this version instead.\n")
+			os.Exit(1)
 		}
 		fmt.Printf("\nERROR: %v\n", err)
 		os.Exit(1)
+	}
+	if res.FSTMoved() {
+		fmt.Printf("  FST   : moved 0x%X -> 0x%X (0x%X bytes) to make room for the mod\n",
+			res.OldFSTOffset, res.NewFSTOffset, res.FSTSize)
 	}
 	fmt.Printf("\nDone. Boot %s in Dolphin to play multiplayer.\n", out)
 }
