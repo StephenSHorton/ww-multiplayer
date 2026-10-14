@@ -626,6 +626,8 @@ func main() {
 			runMpLocal(nameA, nameB)
 		case "help":
 			printHelp()
+		case "version", "--version":
+			fmt.Println(versionLine())
 		default:
 			fmt.Printf("Unknown command: %s\n", os.Args[1])
 			printHelp()
@@ -680,7 +682,7 @@ func main() {
 func printHelp() {
 	const col = "  %-52s %s\n"
 	x := exeCmd
-	fmt.Println("Wind Waker Multiplayer")
+	fmt.Println("Wind Waker Multiplayer " + version)
 	fmt.Println()
 	fmt.Println("Play multiplayer:")
 	fmt.Printf(col, x+" host [name] [--port N]", "Host a session (port 25565 unless --port; one process per player)")
@@ -701,7 +703,14 @@ func printHelp() {
 	fmt.Printf(col, x+" fake-client [name] [addr]", "Connect a fake client that walks in circles")
 	fmt.Printf(col, x+" debug", "Test Dolphin memory access")
 	fmt.Printf(col, x+" warp <x> <y> <z>", "Teleport Link to world coords (uses C warp handler)")
+	fmt.Printf(col, x+" version", "Print the version (both players should match)")
 	fmt.Printf(col, x+" help", "Show this help")
+}
+
+// versionLine is what `version` / `--version` prints, e.g.
+// "ww-multiplayer v0.3.0" for a release build or "ww-multiplayer dev".
+func versionLine() string {
+	return "ww-multiplayer " + version
 }
 
 // runPatch is the user-facing wrapper for inject.PatchISO. Picks a sensible
