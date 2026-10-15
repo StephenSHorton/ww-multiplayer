@@ -563,11 +563,13 @@ func (w coopWorldInfo) String() string {
 		s += ", loads from " + w.from
 	}
 	if m := w.marker; m != nil {
-		switch w.use {
-		case markerStale:
+		switch {
+		case w.use == markerStale:
 			s += fmt.Sprintf(", stale session marker (%s; that process has ended)", m)
-		case markerUnknown:
+		case w.use == markerUnknown:
 			s += fmt.Sprintf(", in use?: %s (can't tell: %s)", m, w.useWhy)
+		case w.use == markerLive && w.useWhy != "":
+			s += fmt.Sprintf(", in use: %s (by its pid alone: %s)", m, w.useWhy)
 		default:
 			s += fmt.Sprintf(", in use: %s", m)
 		}

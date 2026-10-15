@@ -180,6 +180,22 @@ func TestSelectCoopWorld(t *testing.T) {
 		!strings.Contains(out.String(), "stale session marker (pid 4242 since 2026-10-15 17:16:19; that process has ended)") || strings.Count(out.String(), "in use") != 1 {
 		t.Errorf("list with a stale marker: %v\n%s", err, out.String())
 	}
+
+	// One of a running process is in use, and says so when it is judged
+	// by its pid alone, as block and the host start do.
+	coSetProcState(t, coProcs(map[int]string{os.Getpid(): "self", 4243: "t1"}))
+	for _, c := range []struct{ file, want string }{
+		{"pid 4243 since 2026-10-15 17:16:19\nhost=" + coopHostname() + " start=t1\n", "in use: pid 4243 since 2026-10-15 17:16:19\n"},
+		{"pid 4243 since 2026-10-15 17:16:19\n", "in use: pid 4243 since 2026-10-15 17:16:19 (by its pid alone: this marker has no start time)\n"},
+	} {
+		if err := os.WriteFile(filepath.Join(world.Path(root, young), coopMarkerName), []byte(c.file), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out.Reset()
+		if err := coopWorldList(&out, root); err != nil || !strings.Contains(out.String(), c.want) {
+			t.Errorf("list with marker %q: %v\n%s\nwant %q", c.file, err, out.String(), c.want)
+		}
+	}
 }
 
 func TestCoopMarker(t *testing.T) {
@@ -519,7 +535,7 @@ func TestCoopWorldBlock(t *testing.T) {
 	t.Run("running", func(t *testing.T) {
 		coSetProcState(t, coProcs(map[int]string{4243: "t1"}))
 		for _, c := range []struct{ file, want string }{
-			{"pid 4243 since 2026-10-15 17:16:19\nhost=" + coopHostname() + " start=t1\n", "is in use by a running session (pid 4243 since 2026-10-15 17:16:19): stop that host first"},
+			{"pid 4243 since 2026-10-15 17:16:19\nhost=" + coopHostname() + " start=t1\n", "is in use by a running session (pid 4243 since 2026-10-15 17:16:19): stop that host first (Ctrl+C), or pass --force if you know no host serves the world"},
 			{"pid 4243 since 2026-10-15 17:16:19\n", "may be in use by a session (pid 4243 since 2026-10-15 17:16:19): a process with pid 4243 runs, but this marker has no start time, so it may not be that host; stop that host first (Ctrl+C), or pass --force if no host serves the world"},
 		} {
 			if err := os.WriteFile(marker, []byte(c.file), 0o644); err != nil {
