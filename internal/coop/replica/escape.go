@@ -99,7 +99,7 @@ var errRoomNotLoaded = errors.New("not loaded here")
 const FollowTimeout = time.Minute
 
 // PartnerSettle is how long the partner must have been in its stage, with
-// no stage change pending, before a warp to its side on Link's stage, by
+// no stage change pending, before a warp onto it on Link's stage, by
 // the partner's own PRESENCE. The position comes over pose sync, another
 // connection than PRESENCE's, so a position heard just as the partner
 // arrives may still be the one it left on its last stage. Pose sync sends

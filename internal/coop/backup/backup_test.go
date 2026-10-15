@@ -231,6 +231,11 @@ func TestLocate(t *testing.T) {
 	writeFile(t, filepath.Join(saves, "DEV", "USA", "01-GZLE-gczelda.gci"), string(gci("GZLE", "Dolphin 2512's")))
 	lower := filepath.Join(t.TempDir(), "eur")
 	writeFile(t, filepath.Join(lower, "USA", "01-GZLE-gczelda.gci"), string(gci("GZLE", "under eur")))
+	// A folder already for the US disc, with a save copied one level
+	// down into the slot's own folder, which Locate also tries.
+	nested := filepath.Join(t.TempDir(), "nested", "USA")
+	writeFile(t, filepath.Join(nested, "01-GZLE-gczelda.gci"), string(gci("GZLE", "link")))
+	writeFile(t, filepath.Join(nested, "USA", "Card A", "01-GZLE-gczelda.gci"), string(gci("GZLE", "a level down")))
 	cardA := u.path("GC/USA/Card A")
 	defRawA := []string{
 		fmt.Sprintf("A raw card %s no %q", rawA2, "default"),
@@ -273,6 +278,10 @@ func TestLocate(t *testing.T) {
 			fmt.Sprintf("A GCI folder %s yes %q", usSaves, "Dolphin.ini [Core] GCIFolderAPath"),
 			fmt.Sprintf("A GCI folder %s no %q", filepath.Join(saves, "DEV", "USA"), "Dolphin.ini [Core] GCIFolderAPath"))},
 		// Dolphin matches the region directory with its case.
+		{"GCIFolderAPath ending in USA, with a save in USA/Card A under it", []string{"GCIFolderAPath = " + nested}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"),
+			fmt.Sprintf("A GCI folder %s yes %q", nested, "Dolphin.ini [Core] GCIFolderAPath"),
+			fmt.Sprintf("A GCI folder %s no %q", filepath.Join(nested, "USA", "Card A"), "Dolphin.ini [Core] GCIFolderAPath"))},
 		{"GCIFolderAPath ending in eur", []string{"GCIFolderAPath = " + lower}, append(slices.Clone(defRawA),
 			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"),
 			fmt.Sprintf("A GCI folder %s yes %q", filepath.Join(lower, "USA"), "Dolphin.ini [Core] GCIFolderAPath"))},
@@ -309,8 +318,9 @@ func TestGCIFolderPath(t *testing.T) {
 		{"/s/EUR", "/s/USA"}, {"/s/JPN", "/s/USA"}, {"/s/DEV", "/s/USA"}, {"/s/USA", "/s/USA"},
 		{"/s/EUR/", "/s/USA"}, {"/s/EUR//", "/s/USA"}, {"/s", "/s/USA"}, {"s/EUR", "s/USA"},
 		// One region directory goes, matched with its case and as a whole
-		// name. JAP is a raw card's region code, not a folder's.
-		{"/s/USA/EUR", "/s/USA/USA"}, {"/s/eur", "/s/eur/USA"}, {"/s/XEUR", "/s/XEUR/USA"}, {"/s/JAP", "/s/JAP/USA"},
+		// name. JAP, the legacy name of the default Japanese folder and raw
+		// card, is not a configured path's region directory (JPN is).
+		{"/s/USA/EUR", "/s/USA/USA"}, {"/s/EUR/USA", "/s/EUR/USA"}, {"/s/EUR/JPN", "/s/EUR/USA"}, {"/s/eur", "/s/eur/USA"}, {"/s/XEUR", "/s/XEUR/USA"}, {"/s/JAP", "/s/JAP/USA"},
 		{"EUR", "EUR/USA"},
 		// Nothing is cleaned first.
 		{"/s/EUR/.", "/s/EUR/./USA"}, {"/", "/USA"},

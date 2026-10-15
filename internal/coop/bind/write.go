@@ -299,8 +299,8 @@ func bindPrompt(p *Plan) string {
 		// Only the tag's own world's host knows that world's pending
 		// fresh binds, so this may be one of them (Appendix C items 49
 		// and 133).
-		fmt.Fprintf(&b, "  Its current tag, of world %s, fails only V5 (a never-saved New Game): it may\n", p.Verdict.Tag.World)
-		b.WriteString("  be a fresh bind to that world not yet loaded from the card, or a tag leaked from another\n")
+		fmt.Fprintf(&b, "  Its current tag, of world %s, fails only V5: the file has not been loaded from the\n", p.Verdict.Tag.World)
+		b.WriteString("  card since it was tagged. It may be a fresh bind to that world, or a tag leaked from another\n")
 		b.WriteString("  file, and only that world's host can tell. Binding replaces it; if it is that world's\n")
 		b.WriteString("  bind, the file leaves that world.\n")
 	case p.Verdict.State == Leaked:

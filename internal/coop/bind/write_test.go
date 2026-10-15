@@ -246,8 +246,8 @@ func TestBindPromptOtherWorldV5(t *testing.T) {
 				t.Fatal(err)
 			}
 			maybe := []string{
-				"Its current tag, of world " + worldB.String() + ", fails only V5 (a never-saved New Game)",
-				"be a fresh bind to that world not yet loaded from the card, or a tag leaked from another",
+				"Its current tag, of world " + worldB.String() + ", fails only V5: the file has not been loaded from the",
+				"card since it was tagged. It may be a fresh bind to that world, or a tag leaked from another",
 				"only that world's host can tell. Binding replaces it;",
 			}
 			stale := []string{"Its current tag is stale and will be replaced: the tag leaked from another file ("}

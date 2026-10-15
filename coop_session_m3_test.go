@@ -589,7 +589,7 @@ func coPose(t *testing.T, cs *coopSession, name, at string) *network.Client {
 //     world got from the games;
 //   - the console's /refresh reloads A's area by its entrance, /warp
 //     takes A to B on the same stage and B to A on another (its
-//     entrance, then its side), and an escape with a gate closed is not
+//     entrance, then onto it), and an escape with a gate closed is not
 //     made;
 //   - /coop off stops A's writes within a tick, and /coop on resumes
 //     them; a storm of save-state loads turns B's writes off, said once,
