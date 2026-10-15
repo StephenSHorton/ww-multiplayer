@@ -33,11 +33,11 @@ import (
 //     (mailbox.h:211-225), which multiplayer_update carries out on the
 //     next frame Link exists and acknowledges in warp_ack
 //     (multiplayer.c:365-421). The spot is one the partner walked over in
-//     its room, 100-500 units from it (escape_trail.go); with none, and
-//     on the sea, it is the partner's own position (pose sync's). On
-//     another stage it asks for the partner's stage by the point the
-//     partner's PRESENCE names, then warps to the partner's side once
-//     there.
+//     its room, 100-500 units from it, in a walk that ends where it
+//     stands (escape_trail.go); with none, and on the sea, it is the
+//     partner's own position (pose sync's). On another stage it asks for
+//     the partner's stage by the point the partner's PRESENCE names, then
+//     warps to the partner's side once there.
 //
 // Both are best effort and inferred (§6.7). dComIfGp_setNextStage also
 // records the last scene's speed and mode, with the shield and soup bits,
@@ -447,10 +447,10 @@ func (r *Replica) finishWarp(o *obs, armed bool, f *followWarp) ([]Field, string
 // partner has been at rest in its stage for PartnerSettle, into a room
 // whose collision this game has loaded (mpBgW), with no warp still under
 // way (warp_seq == warp_ack). It lands beside the partner, on the newest
-// spot of its trail in its room LandMin..LandMax from its position
-// (partnerTrail.landing). With no such spot, and on the sea, where a
-// spot beside it can be open water, it lands on the partner's position
-// from pose sync (Config.PartnerPos).
+// spot of its last walk, which ends where it stands, in its room
+// LandMin..LandMax from its position (partnerTrail.landing). With no such
+// spot, and on the sea, where a spot beside it can be open water, it
+// lands on the partner's position from pose sync (Config.PartnerPos).
 func (r *Replica) sameStageWarp(o *obs, p *wire.Presence) ([]Field, string, error) {
 	if r.cfg.PartnerPos == nil {
 		return nil, "", errors.New("this session has no pose sync to take the partner's position from")

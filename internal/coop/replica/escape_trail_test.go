@@ -2,6 +2,7 @@ package replica
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -32,6 +33,40 @@ func alongX(x0, x1, y float32) []Pos {
 	return ps
 }
 
+// ramp raises ps by one unit for each run units along X.
+func ramp(ps []Pos, run float32) []Pos {
+	for i := range ps {
+		ps[i].Y += ps[i].X / run
+	}
+	return ps
+}
+
+// atZ moves ps to z.
+func atZ(ps []Pos, z float32) []Pos {
+	for i := range ps {
+		ps[i].Z = z
+	}
+	return ps
+}
+
+// onThePartner is what a warp that lands on the partner at p, in room 44,
+// says when the partner's walk gives no spot beside it.
+func onThePartner(p Pos) string {
+	return fmt.Sprintf("warping to the partner at (%.0f, %.0f, %.0f) in room 44 (it has not walked far enough in this room for a spot beside it)", p.X, p.Y, p.Z)
+}
+
+// landedOnThePartner checks that warp number seq landed on the partner at
+// p, and that res says so.
+func (er *escRig) landedOnThePartner(seq uint32, res EscapeResult, p Pos) {
+	er.t.Helper()
+	if got := er.landed(seq); got != p {
+		er.t.Fatalf("landed at %+v, want on the partner, %+v", got, p)
+	}
+	if want := onThePartner(p); res.Did != want {
+		er.t.Errorf("did %q, want %q", res.Did, want)
+	}
+}
+
 // landed is where the warp request asks Link to go, after warp number seq.
 func (er *escRig) landed(seq uint32) Pos {
 	er.t.Helper()
@@ -58,13 +93,13 @@ func (er *escRig) warpTo() EscapeResult {
 func TestEscapeWarpLandsOnThePartnersTrail(t *testing.T) {
 	cases := []struct {
 		name string
-		y    func(x float32) float32
+		walk []Pos
 		want Pos
 		did  string
 	}{
-		{"on level ground", func(float32) float32 { return 5 }, Pos{X: 300, Y: 5}, "warping to the partner's side at (300, 5, 0), 100 units from it, in room 44"},
-		// A climb of 10 a step of 20 is a walk, not a jump.
-		{"up a slope", func(x float32) float32 { return x / 2 }, Pos{X: 300, Y: 150}, "warping to the partner's side at (300, 150, 0), 100 units from it, in room 44"},
+		{"on level ground", alongX(0, 400, 5), Pos{X: 300, Y: 5}, "warping to the partner's side at (300, 5, 0), 100 units from it, in room 44"},
+		// A climb of 2 a tick is within walkDY: a walk, not a glide.
+		{"up a gentle slope", ramp(alongX(0, 400, 0), 10), Pos{X: 300, Y: 30}, "warping to the partner's side at (300, 30, 0), 100 units from it, in room 44"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -72,11 +107,7 @@ func TestEscapeWarpLandsOnThePartnersTrail(t *testing.T) {
 			er.presence("sea", 0, 0, 44, inGame)
 			er.loadRoom(44, true)
 			er.settled()
-			ps := alongX(0, 400, 0)
-			for i := range ps {
-				ps[i].Y = c.y(ps[i].X)
-			}
-			er.walk(ps...)
+			er.walk(c.walk...)
 			// The user goes to the other console: the trail has no age
 			// limit.
 			for range 3 {
@@ -94,47 +125,68 @@ func TestEscapeWarpLandsOnThePartnersTrail(t *testing.T) {
 	}
 }
 
-// A jump's or a fall's arc is no walk: no spot of it is landed on.
-func TestEscapeWarpTrailSkipsJumpsAndFalls(t *testing.T) {
-	t.Run("a jump", func(t *testing.T) {
-		er := newEscRig(t)
-		er.presence("sea", 0, 0, 44, inGame)
-		er.loadRoom(44, true)
-		er.settled()
-		er.walk(alongX(-400, 0, 0)...)
+// A crossing that is no walk (a jump, a fall, a Deku Leaf glide, a
+// hookshot pull, a climb) ends the partner's walk: no spot of it is landed on, nor
+// one on the side the partner came from. The partner here crosses a gap
+// and stops just past it, too near for a spot beside it on the far side,
+// so the warp lands on it.
+func TestEscapeWarpTrailEndsAtACrossing(t *testing.T) {
+	cases := []struct {
+		name  string
+		walk  []Pos // up to the edge
+		cross []Pos // the crossing
+		on    []Pos // past it
+	}{
 		// Link's vertical speed falls by 25 a tick: 50, 25, 0, -25, -50.
-		er.walk(Pos{X: 20, Y: 50}, Pos{X: 40, Y: 75}, Pos{X: 60, Y: 75}, Pos{X: 80, Y: 50}, Pos{X: 100})
-		er.walk(alongX(120, 180, 0)...)
-		er.warpTo()
-		if got := er.landed(1); got != (Pos{X: -20}) {
-			t.Fatalf("landed at %+v, want the last spot before the jump, (-20, 0, 0)", got)
-		}
-	})
-	t.Run("a fall", func(t *testing.T) {
-		er := newEscRig(t)
-		er.presence("sea", 0, 0, 44, inGame)
-		er.loadRoom(44, true)
-		er.settled()
-		er.walk(alongX(-200, 0, 300)...) // a floor 300 up, too far above to land on
-		// Off its edge, falling faster, then 60 a tick, steeper than a
-		// slope: the spots 80 and 20 up are in reach of the floor below.
-		er.walk(Pos{X: 20, Y: 290}, Pos{X: 40, Y: 260}, Pos{X: 60, Y: 200}, Pos{X: 80, Y: 140}, Pos{X: 100, Y: 80}, Pos{X: 120, Y: 20}, Pos{X: 140})
-		er.walk(alongX(160, 240, 0)...)
-		res := er.warpTo()
-		if got := er.landed(1); got != (Pos{X: 240}) {
-			t.Fatalf("landed at %+v, want on the partner, (240, 0, 0)", got)
-		}
-		if want := "warping to the partner at (240, 0, 0) in room 44 (it has not walked far enough in this room for a spot beside it)"; res.Did != want {
-			t.Errorf("did %q, want %q", res.Did, want)
-		}
-	})
+		{"a jump across a gap", alongX(-400, 0, 0),
+			[]Pos{{X: 20, Y: 50}, {X: 40, Y: 75}, {X: 60, Y: 75}, {X: 80, Y: 50}, {X: 100}},
+			alongX(120, 180, 0)},
+		// A floor 300 up, too far above to land on. Off its edge, falling
+		// faster, then 60 a tick, far from level: the spots 80 and 20 up
+		// are in reach of the floor below.
+		{"a fall", alongX(-200, 0, 300),
+			[]Pos{{X: 20, Y: 290}, {X: 40, Y: 260}, {X: 60, Y: 200}, {X: 80, Y: 140}, {X: 100, Y: 80}, {X: 120, Y: 20}, {X: 140}},
+			alongX(160, 240, 0)},
+		// Off a ledge 200 up, 12 a frame across and 2 down, 36 and 6 a
+		// tick (procFanGlide), onto a floor 140 up across the gap.
+		{"a glide across a gap", alongX(-400, 0, 200),
+			[]Pos{{X: 36, Y: 194}, {X: 72, Y: 188}, {X: 108, Y: 182}, {X: 144, Y: 176}, {X: 180, Y: 170}, {X: 216, Y: 164}, {X: 252, Y: 158}, {X: 288, Y: 152}, {X: 324, Y: 146}, {X: 360, Y: 140}},
+			[]Pos{{X: 370, Y: 140}, {X: 380, Y: 140}, {X: 380, Y: 140}}},
+		// Pulled level at 189 a tick to a target past the gap, then on to
+		// stand on the floor under it.
+		{"a hookshot pull across a gap", alongX(-400, 0, 0),
+			[]Pos{{X: 189}, {X: 378}, {X: 567}},
+			[]Pos{{X: 610}, {X: 610}, {X: 610}}},
+		// Up a wall onto a ledge 60 up, 3 a tick up and 1 across: no step
+		// climbs more than walkDY, but the climb is too steep for a walk.
+		{"a slow climb up a wall", alongX(-400, 0, 0),
+			func() (ps []Pos) {
+				for i := float32(1); i <= 20; i++ {
+					ps = append(ps, Pos{X: i, Y: 3 * i})
+				}
+				return ps
+			}(),
+			alongX(40, 100, 60)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			er := newEscRig(t)
+			er.presence("sea", 0, 0, 44, inGame)
+			er.loadRoom(44, true)
+			er.settled()
+			er.walk(c.walk...)
+			er.walk(c.cross...)
+			er.walk(c.on...)
+			er.landedOnThePartner(1, er.warpTo(), c.on[len(c.on)-1])
+		})
+	}
 }
 
 // A spot is landed on only in the partner's room, and only from its stay
-// in the stage: a reload of the stage starts the trail over. Across a
-// door the room PRESENCE names can lag the pose or lead it: the spots of
-// the last three ticks before a room change are dropped, and none is kept
-// from the first three in the new room.
+// in the stage: a reload of the stage starts the trail over. A room
+// change ends the partner's walk, and across a door the room PRESENCE
+// names can lead the pose: no spot is kept from the first three ticks in
+// the new room.
 func TestEscapeWarpTrailIsPerRoomAndStay(t *testing.T) {
 	t.Run("another room", func(t *testing.T) {
 		er := newEscRig(t)
@@ -163,11 +215,14 @@ func TestEscapeWarpTrailIsPerRoomAndStay(t *testing.T) {
 		er.walk(alongX(420, 440, 0)...)
 		er.presence("sea", 0, 0, 5, inGame)
 		er.walk(Pos{X: 460})
-		er.warpTo()
-		// 360 and 380 were walked over in the last three ticks before
-		// PRESENCE said room 6.
-		if got := er.landed(1); got != (Pos{X: 340}) {
-			t.Fatalf("landed at %+v, want (340, 0, 0)", got)
+		// The walk in room 5 ended when PRESENCE said room 6: none of its
+		// spots is joined to where the partner stands.
+		res := er.warpTo()
+		if got := er.landed(1); got != (Pos{X: 460}) {
+			t.Fatalf("landed at %+v, want on the partner, (460, 0, 0)", got)
+		}
+		if want := "in room 5 (it has not walked far enough in this room"; !strings.Contains(res.Did, want) {
+			t.Errorf("did %q, want %q", res.Did, want)
 		}
 	})
 	t.Run("the room ahead of the pose", func(t *testing.T) {
@@ -204,8 +259,8 @@ func TestEscapeWarpTrailIsPerRoomAndStay(t *testing.T) {
 	})
 }
 
-// A jump of the partner's position, faster than Link runs, drops the
-// spots of the last three ticks, and no spot is judged across it.
+// A jump of the partner's position, faster than Link runs, ends its
+// walk: no spot from before it is landed on.
 func TestEscapeWarpTrailJumps(t *testing.T) {
 	t.Run("a warp mid-walk", func(t *testing.T) {
 		er := newEscRig(t)
@@ -214,11 +269,20 @@ func TestEscapeWarpTrailJumps(t *testing.T) {
 		er.settled()
 		er.walk(alongX(0, 400, 0)...)
 		er.walk(Pos{X: 400, Z: 450}) // 450 in one tick
+		er.landedOnThePartner(1, er.warpTo(), Pos{X: 400, Z: 450})
+	})
+	t.Run("a warp, then a walk", func(t *testing.T) {
+		er := newEscRig(t)
+		er.presence("sea", 0, 0, 44, inGame)
+		er.loadRoom(44, true)
+		er.settled()
+		er.walk(alongX(0, 400, 0)...)
+		er.walk(atZ(alongX(400, 600, 0), 450)...)
 		res := er.warpTo()
-		if got := er.landed(1); got != (Pos{X: 340}) {
-			t.Fatalf("landed at %+v, want (340, 0, 0)", got)
+		if got := er.landed(1); got != (Pos{X: 500, Z: 450}) {
+			t.Fatalf("landed at %+v, want on the walk after the warp, (500, 0, 450)", got)
 		}
-		if want := "warping to the partner's side at (340, 0, 0), 454 units from it, in room 44"; res.Did != want {
+		if want := "warping to the partner's side at (500, 0, 450), 100 units from it, in room 44"; res.Did != want {
 			t.Errorf("did %q, want %q", res.Did, want)
 		}
 	})
@@ -239,8 +303,8 @@ func TestEscapeWarpTrailJumps(t *testing.T) {
 		er.presence("sea", 0, 0, 44, inGame)
 		er.loadRoom(44, true)
 		er.settled()
-		// Standing is no walk: no spot is kept there, so the jump has none
-		// older than three ticks to leave.
+		// Standing keeps no spot, and the jump to the partner's own
+		// position ends the walk: the spots after it are too near.
 		er.walk(Pos{}, Pos{}, Pos{}, Pos{}, Pos{}, Pos{}, Pos{}, Pos{})
 		er.walk(Pos{X: 450}, Pos{X: 470}, Pos{X: 490})
 		er.warpTo()
@@ -267,6 +331,74 @@ func TestEscapeWarpTrailNotSampledInEventOrPaused(t *testing.T) {
 				t.Fatalf("landed at %+v, want on the partner, (400, 0, 0)", got)
 			}
 		})
+	}
+}
+
+// The partner's walk goes on across ticks with no sample (an event, a
+// pause, a tick missed) only if it stood still across them: in between it
+// may have done anything.
+func TestEscapeWarpTrailAcrossMissingSamples(t *testing.T) {
+	walked := func(t *testing.T) *escRig {
+		er := newEscRig(t)
+		er.presence("sea", 0, 0, 44, inGame)
+		er.loadRoom(44, true)
+		er.settled()
+		er.walk(alongX(0, 400, 0)...)
+		return er
+	}
+	t.Run("an event it stood through", func(t *testing.T) {
+		er := walked(t)
+		er.presence("sea", 0, 0, 44, inGame|wire.PresenceInEvent)
+		er.walk(Pos{X: 400}, Pos{X: 400})
+		er.presence("sea", 0, 0, 44, inGame)
+		er.walk(Pos{X: 400})
+		er.warpTo()
+		if got := er.landed(1); got != (Pos{X: 300}) {
+			t.Fatalf("landed at %+v, want (300, 0, 0)", got)
+		}
+	})
+	t.Run("an event that carried it", func(t *testing.T) {
+		er := walked(t)
+		// One tick: 200 in two ticks would pass for a walk.
+		er.presence("sea", 0, 0, 44, inGame|wire.PresenceInEvent)
+		er.walk(Pos{X: 400, Z: 200})
+		er.presence("sea", 0, 0, 44, inGame)
+		er.walk(Pos{X: 400, Z: 200})
+		er.landedOnThePartner(1, er.warpTo(), Pos{X: 400, Z: 200})
+	})
+	t.Run("a warp in an event that carried it", func(t *testing.T) {
+		er := walked(t)
+		er.presence("sea", 0, 0, 44, inGame|wire.PresenceInEvent)
+		er.pos.set(Pos{X: 400, Z: 200})
+		er.landedOnThePartner(1, er.warpTo(), Pos{X: 400, Z: 200})
+	})
+	t.Run("ticks missed while it walked", func(t *testing.T) {
+		er := walked(t)
+		er.clk.advance(2 * TickEvery)
+		er.walk(alongX(460, 480, 0)...)
+		er.landedOnThePartner(1, er.warpTo(), Pos{X: 480})
+	})
+}
+
+// A tick that comes early, 10 ms after the last, can still see a whole
+// frame of the partner's run, 17 units: a step is allowed a tick's walk
+// at least, and the walk goes on.
+func TestEscapeWarpTrailEarlyTick(t *testing.T) {
+	er := newEscRig(t)
+	er.presence("sea", 0, 0, 44, inGame)
+	er.loadRoom(44, true)
+	er.settled()
+	er.walk(alongX(0, 300, 0)...)
+	er.clk.advance(10 * time.Millisecond)
+	er.pos.set(Pos{X: 317})
+	er.tick()
+	er.clk.advance(TickEvery - 10*time.Millisecond)
+	er.pos.set(Pos{X: 340})
+	er.tick()
+	er.walk(alongX(360, 400, 0)...)
+	er.warpTo()
+	if got := er.landed(1); got != (Pos{X: 300}) {
+		t.Fatalf("landed at %+v, want (300, 0, 0)", got)
 	}
 }
 
@@ -305,7 +437,8 @@ func TestPartnerTrailStep(t *testing.T) {
 }
 
 // The second step of a warp to another stage lands beside the partner
-// too: its trail is sampled while Link changes stage.
+// too: its trail is sampled while Link waits in the stage for the
+// partner's room to load.
 func TestEscapeWarpSecondStepUsesTrail(t *testing.T) {
 	er := newEscRig(t)
 	er.presence("sea", 0, 0, 44, inGame)
@@ -350,6 +483,10 @@ func TestEscapeWarpFallsBackOntoThePartner(t *testing.T) {
 			"warping to the partner at (100, 5, -200) in room 44 (it has not walked far enough in this room for a spot beside it)"},
 		{"a short walk", nil, alongX(0, 80, 5),
 			"warping to the partner at (80, 5, 0) in room 44 (it has not walked far enough in this room for a spot beside it)"},
+		// A climb of 10 a tick is more than walkDY: a ramp walked that
+		// fast looks like a glide or a fall, and keeps no spot.
+		{"up a steep slope", nil, ramp(alongX(0, 400, 0), 2),
+			"warping to the partner at (400, 200, 0) in room 44 (it has not walked far enough in this room for a spot beside it)"},
 		{"on the sea", func(er *escRig) { er.g.SetStageType(stageTypeSea) }, alongX(0, 400, 5),
 			"warping to the partner at (400, 5, 0) in room 44 (on the sea a spot beside it can be open water)"},
 	}
