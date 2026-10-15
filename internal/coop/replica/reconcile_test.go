@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -35,8 +36,14 @@ type beatMem struct {
 	tick   int    // the test's tick the writes belong to
 	writes []auditWrite
 	places []gamePlace // where the game was as each tick began, by tick number
+	young  []int       // by tick number, the executes of the youngest room's actors as it began (-1: none)
 	hook   func(n int) // run before the n-th heartbeat read since onHeartbeat, from 1
 	hbn    int
+	actors []fakegame.Actor // run on every frame (FakeGame.FrameWith)
+	actErr error            // the first error an actor returned
+	// ages follows how long each room's actors have run, on every frame,
+	// for the audit's room hold.
+	ages fakegame.RoomAges
 }
 
 // gamePlace is where a fake game is, read from its memory as a tick
@@ -83,6 +90,8 @@ func placeOf(m mem.Mem) (gamePlace, error) {
 // ticks, so it comes that many after the change), or a later such tick
 // when every one before it since the change found the heartbeat stalled
 // or the game moved on (ErrStall, ErrAborted: nothing could be tried).
+// The loaded table's memory switches wait for the room hold as well, so
+// their tick can come later (switchTicks).
 func roomWindows(reps []Report, places []gamePlace) []bool {
 	win := make([]bool, len(reps))
 	due := false
@@ -101,6 +110,59 @@ func roomWindows(reps []Report, places []gamePlace) []bool {
 	return win
 }
 
+// changesAt is, for each tick, the last tick at or before it on which the
+// game's place differed from the tick before's, or -1 before the first.
+func changesAt(n int, changed func(i int) bool) []int {
+	at := make([]int, n)
+	last := -1
+	for i := range at {
+		if i > 0 && changed(i) {
+			last = i
+		}
+		at[i] = last
+	}
+	return at
+}
+
+// switchTicks checks the ticks the loaded table's memory switches §6.3
+// defers are written on, by the game's places alone (changes, from
+// changesAt) and in write order: each comes after a change of place, and
+// one tick since each change writes them, or a later one when every tick
+// before it that wrote some since the change ended stalled or aborted
+// (ErrStall, ErrAborted: its batch is tried again). Which tick that is
+// the room hold decides, which the audit checks apart (RoomAges). It
+// returns the reason a write at tick is out of place, or "".
+type switchTicks struct {
+	changes []int
+	last    map[int]int // by change, the last tick that wrote a switch
+}
+
+func (s *switchTicks) check(tick int, retried func(tick int) bool) string {
+	c := s.changes[tick]
+	if c < 0 {
+		return "before any room change"
+	}
+	if s.last == nil {
+		s.last = map[int]int{}
+	}
+	if lt, ok := s.last[c]; ok && lt != tick && !retried(lt) {
+		return fmt.Sprintf("on a second tick since the room change on tick %d (tick %d wrote them)", c, lt)
+	}
+	s.last[c] = tick
+	return ""
+}
+
+// youngWrite reports why a write of a switch that every room's actors read
+// came too early for a shutter, or "": the youngest room's actors had run
+// fewer than fakegame.ShutterFrames executes as it was made, so a shutter
+// created with them would not see it change (§6.1, the room hold).
+func youngWrite(room, execs int) string {
+	if room < 0 || execs >= fakegame.ShutterFrames {
+		return ""
+	}
+	return fmt.Sprintf("room %d's actors had run %d frames: a new shutter there would not see it (the room hold)", room, execs)
+}
+
 // auditWrite is one write the replica made.
 type auditWrite struct {
 	tick       int
@@ -109,6 +171,9 @@ type auditWrite struct {
 	old, val   byte   // the first byte's
 	prev, data []byte // every byte's
 	table      int8   // mDan.mStageNo as the write was made
+	// young is the room whose actors had run the fewest frames as the
+	// write was made (fakegame.RoomAges; -1 for none), and execs how many.
+	young, execs int
 }
 
 func (b *beatMem) Read(a uint32, n int) ([]byte, error) {
@@ -130,9 +195,38 @@ func (b *beatMem) Read(a uint32, n int) ([]byte, error) {
 		hook(hbn)
 	}
 	if beat {
-		b.game.Frame()
+		b.frame()
 	}
 	return b.FakeMem.Read(a, n)
+}
+
+// frame runs one frame of the game, with the actors set by setActors and
+// the rooms' ages.
+func (b *beatMem) frame() {
+	b.mu.Lock()
+	actors := append([]fakegame.Actor{&b.ages}, b.actors...)
+	b.mu.Unlock()
+	if err := b.game.FrameWith(actors...); err != nil {
+		b.mu.Lock()
+		if b.actErr == nil {
+			b.actErr = err
+		}
+		b.mu.Unlock()
+	}
+}
+
+// setActors makes actors run on every frame from now, the test's own and
+// the writer's beats alike; the first error one returns is actorErr's.
+func (b *beatMem) setActors(actors ...fakegame.Actor) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.actors = actors
+}
+
+func (b *beatMem) actorErr() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.actErr
 }
 
 // onHeartbeat runs hook before each heartbeat read from now, numbered from
@@ -155,9 +249,10 @@ func (b *beatMem) Write(a uint32, d []byte) error {
 	if err := b.FakeMem.Write(a, d); err != nil {
 		return err
 	}
+	young, execs := b.ages.Youngest()
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	w := auditWrite{tick: b.tick, a: a, n: len(d), prev: old, data: bytes.Clone(d), table: int8(t[0])}
+	w := auditWrite{tick: b.tick, a: a, n: len(d), prev: old, data: bytes.Clone(d), table: int8(t[0]), young: young, execs: execs}
 	if len(d) > 0 {
 		w.old, w.val = old[0], d[0]
 	}
@@ -172,10 +267,23 @@ func (b *beatMem) setTick(n int) {
 	if err != nil {
 		panic(err)
 	}
+	room, execs := b.ages.Youngest()
+	if room < 0 {
+		execs = -1
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.tick = n
 	b.places = append(b.places[:min(n, len(b.places))], p)
+	b.young = append(b.young[:min(n, len(b.young))], execs)
+}
+
+// youngAt is, by tick number, the executes of the youngest room's actors
+// as each tick began (-1: no room's actors existed).
+func (b *beatMem) youngAt() []int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]int(nil), b.young...)
 }
 
 func (b *beatMem) placesSeen() []gamePlace {
@@ -207,10 +315,11 @@ func (b *beatMem) written() []auditWrite {
 // empty.
 type recRig struct {
 	*replicaRig
-	bm    *beatMem
-	hello *wire.CoHello
-	seq   uint64
-	reps  []Report // every tick's, by tick number
+	bm     *beatMem
+	hello  *wire.CoHello
+	seq    uint64
+	reps   []Report // every tick's, by tick number
+	frames int      // the game's frames before each tick; 0 is 1
 }
 
 func newRecRig(t *testing.T, cfg Config, f hub.Feature) *recRig {
@@ -294,10 +403,13 @@ func (rr *recRig) splitLoad(s fakegame.Stage) {
 	}
 }
 
-// tick runs a frame, then one replica tick (with its writes).
+// tick runs a frame (rr.frames of them), then one replica tick (with its
+// writes).
 func (rr *recRig) tick() Report {
 	rr.t.Helper()
-	rr.g.Frame()
+	for range max(rr.frames, 1) {
+		rr.bm.frame()
+	}
 	rr.bm.setTick(len(rr.reps))
 	rep := rr.r.Tick()
 	rr.reps = append(rr.reps, rep)
@@ -313,6 +425,15 @@ func (rr *recRig) ticks(n int) int {
 	}
 	return wrote
 }
+
+// holdTicks is how many ticks the room hold takes (roomSettle IDLE frames)
+// for rooms whose actors were just created, at rr.frames frames a tick,
+// with two to spare.
+func (rr *recRig) holdTicks() int { return roomSettle/max(rr.frames, 1) + 2 }
+
+// settleRooms runs ticks enough for the room hold of rooms whose actors
+// were just created, and returns the bytes they wrote.
+func (rr *recRig) settleRooms() int { return rr.ticks(rr.holdTicks()) }
 
 // untilWrite ticks until a tick writes, at most n ticks, and returns its
 // number, or -1.
@@ -379,16 +500,23 @@ func loadedSlot(a uint32, t int8) (rel int, ok bool) {
 // DERIVED or TAG byte), sets bits and clears none, is made on a tick
 // whose gates were open, and sets no bit an earlier write set at the same
 // place (no re-sends). A byte of the loaded table is written only when
-// IDLE, and a memory switch of it only on a room-change tick (or, with
-// live switches, when IDLE); the ocean, charts and sea map only on a
-// room-change tick. Which ticks are room-change ones the audit works out
-// from places (roomWindows), not from the replica's reports.
+// IDLE. A memory switch of it is written only once every room's actors
+// have run fakegame.ShutterFrames frames (the room hold, by
+// fakegame.RoomAges), and only on the one tick since a room change that
+// writes them, ARMED (switchTicks), or, with live switches, when IDLE.
+// The ocean, charts and sea map are written only on a room-change tick.
+// Which ticks are room-change ones the audit works out from places
+// (roomWindows, switchTicks), not from the replica's reports.
 func auditWrites(t *testing.T, ws []auditWrite, reps []Report, places []gamePlace, liveSwitches bool) {
 	t.Helper()
 	if len(places) != len(reps) {
 		t.Fatalf("%d ticks reported, %d places recorded", len(reps), len(places))
 	}
 	win := roomWindows(reps, places)
+	sw := switchTicks{changes: changesAt(len(places), func(i int) bool { return places[i] != places[i-1] })}
+	retried := func(tick int) bool {
+		return errors.Is(reps[tick].WriteErr, ErrStall) || errors.Is(reps[tick].WriteErr, ErrAborted)
+	}
 	g := NewGuardFor(M3Targets)
 	type place struct {
 		a     uint32
@@ -427,12 +555,19 @@ func auditWrites(t *testing.T, ws []auditWrite, reps []Report, places []gamePlac
 		if rel, ok := loadedSlot(w.a, w.table); ok {
 			isSwitch := rel >= addr.MemBitOffSwitch && rel < addr.MemBitOffItem
 			switch {
-			case isSwitch && liveSwitches && !rep.Gates.Idle && !window:
+			case isSwitch && liveSwitches && !rep.Gates.Idle:
 				at("a live switch, not IDLE")
-			case isSwitch && !liveSwitches && !window:
-				at("a switch of the loaded table, off a room change")
+			case isSwitch && !liveSwitches && rep.State != StateArmed:
+				at("a switch of the loaded table, not armed")
+			case isSwitch && !liveSwitches:
+				if why := sw.check(w.tick, retried); why != "" {
+					at("a switch of the loaded table, %s", why)
+				}
 			case !isSwitch && !rep.Gates.Idle:
 				at("the loaded table's progress, not IDLE")
+			}
+			if why := youngWrite(w.young, w.execs); isSwitch && why != "" {
+				at("a switch of the loaded table while %s", why)
 			}
 		}
 		p := place{a: w.a}
@@ -452,7 +587,7 @@ func TestReconcileAsksForSwitches(t *testing.T) {
 		cfg  Config
 		want hub.Feature
 	}{
-		{"writing", Config{Apply: true}, hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches | hub.M4Features},
+		{"writing", Config{Apply: true}, hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches | hub.M4Features | hub.FeaturePuzzle},
 		{"a dry run asks for what M2 did", Config{}, hub.FeatureImage},
 		{"Want wins", Config{Apply: true, Want: hub.FeatureImage | hub.FeaturePuzzle}, hub.FeatureImage | hub.FeaturePuzzle},
 	}
@@ -559,8 +694,10 @@ func TestReconcileStageProgress(t *testing.T) {
 // TestReconcileSwitchWaitsForRoomChange: a memory switch of another table
 // goes to its saved slot as soon as STABLE; one of the loaded table waits
 // for the receiver's next room change and is written on the first STABLE
-// tick after it, at least gate.StableTicks later. Once the receiver's game
-// clears it, it is never written again; a save state starts that over.
+// tick after it on which every shown room's actors have had the room
+// hold's roomSettle frames, at least gate.StableTicks later. Once the
+// receiver's game clears it, it is never written again; a save state
+// starts that over.
 func TestReconcileSwitchWaitsForRoomChange(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage|hub.FeatureSwitches)
 	seaSw, m := switchImageByte(addr.TableSea, 0x05)
@@ -584,20 +721,23 @@ func TestReconcileSwitchWaitsForRoomChange(t *testing.T) {
 		t.Fatalf("%d bytes written with no room change", n)
 	}
 
-	rr.enter(7, 6)
+	rr.enter(7, 6) // rooms 6 and 7 get zones: their actors are new
 	changed := len(rr.reps)
-	w := rr.untilWrite(gate.StableTicks + 4)
+	w := rr.untilWrite(gate.StableTicks + rr.holdTicks())
+	young := rr.bm.youngAt()
 	switch {
 	case w < 0:
 		t.Fatalf("not written after the room change:\n%s", rr.log)
 	case w-changed < gate.StableTicks:
 		t.Fatalf("written %d ticks after the room change, want at least %d", w-changed, gate.StableTicks)
-	case !rr.reps[w].RoomChange:
-		t.Fatalf("the writing tick is not the room-change one: %+v", rr.reps[w])
+	case !rr.reps[w].SwitchWindow:
+		t.Fatalf("the writing tick is not the memory switches' window: %+v", rr.reps[w])
+	case young[w] < roomSettle:
+		t.Fatalf("written when the newest room's actors had run %d frames, want the room hold's %d", young[w], roomSettle)
 	}
 	for i := changed; i < w; i++ {
-		if rr.reps[i].Gates.CanWrite() {
-			t.Fatalf("tick %d was STABLE before the write on %d: not the first", i, w)
+		if rr.reps[i].Gates.CanWrite() && young[i] >= roomSettle {
+			t.Fatalf("tick %d was STABLE with every room settled before the write on %d: not the first", i, w)
 		}
 	}
 	if rr.liveByte(seaSw)&m == 0 || rr.savedByte(seaSw)&m == 0 || rr.liveByte(off10)&m10 != 0 {
@@ -643,7 +783,7 @@ func TestReconcileSwitchWaitsForRoomChange(t *testing.T) {
 		t.Fatal("written after the save state, before a room change")
 	}
 	rr.enter(3)
-	if w := rr.untilWrite(gate.StableTicks + 4); w < 0 || rr.liveByte(seaSw)&m == 0 {
+	if w := rr.untilWrite(gate.StableTicks + rr.holdTicks()); w < 0 || rr.liveByte(seaSw)&m == 0 {
 		t.Fatalf("not applied again after the save state and a room change:\n%s", rr.log)
 	}
 }
@@ -651,7 +791,8 @@ func TestReconcileSwitchWaitsForRoomChange(t *testing.T) {
 // A room change seen before the session could write the deferred
 // writes, before the hub's WORLD came or before its welcome armed it,
 // is not theirs: the loaded table's switch the first WORLD brings waits
-// for the next room change.
+// for the next room change, though the room hold of the change seen had
+// not passed when the session armed.
 func TestReconcileDropsAWindowSeenUnarmed(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -677,11 +818,11 @@ func TestReconcileDropsAWindowSeenUnarmed(t *testing.T) {
 			var img world.Image
 			img[sw] = m
 			rr.world(img) // the session's first
-			if n := rr.ticks(20); n != 0 {
+			if n := rr.ticks(rr.holdTicks() + 20); n != 0 {
 				t.Fatalf("%d bytes written in a room change window seen unarmed\n%s", n, rr.log)
 			}
 			rr.enter(8)
-			if w := rr.untilWrite(gate.StableTicks + 4); w < 0 || rr.liveByte(sw)&m == 0 {
+			if w := rr.untilWrite(gate.StableTicks + rr.holdTicks()); w < 0 || rr.liveByte(sw)&m == 0 {
 				t.Fatalf("not written after the next room change:\n%s", rr.log)
 			}
 			rr.audit(false)
@@ -689,36 +830,67 @@ func TestReconcileDropsAWindowSeenUnarmed(t *testing.T) {
 	}
 }
 
-// The window is one tick: after it wrote, a switch of the loaded table
-// the world gains on the next tick waits for the next room change.
+// The deferred writes' windows are one tick each: the room change's, in
+// which the ocean goes, and the memory switches', the first STABLE tick
+// after it that the room hold allows. A switch of the loaded table the
+// world gains between the two is written in the second; one it gains
+// after that waits for the next room change.
 func TestReconcileWindowIsOneTick(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage|hub.FeatureSwitches)
+	rr := newRecRig(t, Config{Apply: true, Policy: switchPolicy(t, 0x05, 0x06, 0x07)}, hub.FeatureImage|hub.FeatureSwitches)
 	var img world.Image
 	img[addr.OffOcean+5] = 0x04
+	sw, m5 := switchImageByte(addr.TableSea, 0x05)
+	_, m6 := switchImageByte(addr.TableSea, 0x06)
+	_, m7 := switchImageByte(addr.TableSea, 0x07)
+	img[sw] = m5
 	rr.world(img)
 	rr.enter(7, 6)
 	w := rr.untilWrite(gate.StableTicks + 4)
-	if w < 0 || !rr.reps[w].RoomChange {
-		t.Fatalf("the ocean was not written in the window:\n%s", rr.log)
+	if w < 0 || !rr.reps[w].RoomChange || rr.reps[w].SwitchWindow || rr.reps[w].Wrote != 1 || rr.liveByte(sw) != 0 {
+		t.Fatalf("the room change's tick wrote more than the ocean, or nothing:\n%s", rr.log)
 	}
-	sw, m := switchImageByte(addr.TableSea, 0x05)
-	img[sw] = m
+	img[sw] |= m6
 	rr.world(img)
-	if n := rr.ticks(20); n != 0 || rr.liveByte(sw)&m != 0 {
-		t.Fatalf("%d bytes written after the window closed\n%s", n, rr.log)
+	w = rr.untilWrite(rr.holdTicks())
+	if w < 0 || !rr.reps[w].SwitchWindow || rr.liveByte(sw) != m5|m6 {
+		t.Fatalf("the switches' tick did not write both switches:\n%s", rr.log)
+	}
+	img[sw] |= m7
+	rr.world(img)
+	if n := rr.ticks(rr.holdTicks()); n != 0 || rr.liveByte(sw)&m7 != 0 {
+		t.Fatalf("%d bytes written after the windows closed\n%s", n, rr.log)
 	}
 	rr.enter(8)
-	if w := rr.untilWrite(gate.StableTicks + 4); w < 0 || rr.liveByte(sw)&m == 0 {
+	if w := rr.untilWrite(gate.StableTicks + rr.holdTicks()); w < 0 || rr.liveByte(sw)&m7 == 0 {
 		t.Fatalf("not written at the next room change:\n%s", rr.log)
 	}
 	rr.audit(false)
 }
 
+// switchPolicy is the default policy with switches nos of the sea and DRC
+// tables granted, as the M1 table would mark latching ones.
+func switchPolicy(t *testing.T, nos ...int) *world.Policy {
+	t.Helper()
+	p := world.DefaultPolicy()
+	for _, tb := range []int{addr.TableSea, addr.TableDRC} {
+		for _, no := range nos {
+			if err := p.GrantSwitch(tb, no); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return p
+}
+
 // TestReconcileLiveSwitches: with --coop-live-switches the loaded table's
-// switches go when IDLE, with no room change.
+// switches go when IDLE, with no room change, once the room hold allows:
+// after a room change into rooms whose actors are new, they have their
+// roomSettle frames first.
 func TestReconcileLiveSwitches(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage|hub.FeatureSwitches|hub.FeatureLiveSwitches)
+	rr := newRecRig(t, Config{Apply: true, Policy: switchPolicy(t, 0x05, 0x06)}, hub.FeatureImage|hub.FeatureSwitches|hub.FeatureLiveSwitches)
+	rr.settleRooms()
 	seaSw, m := switchImageByte(addr.TableSea, 0x05)
+	_, m6 := switchImageByte(addr.TableSea, 0x06)
 	var img world.Image
 	img[seaSw] = m
 	rr.g.SetPauseMenu(true)
@@ -730,7 +902,103 @@ func TestReconcileLiveSwitches(t *testing.T) {
 	if rep := rr.tick(); rep.Wrote != 2 || rep.RoomChange || rr.liveByte(seaSw)&m == 0 {
 		t.Fatalf("live switch: %+v", rep)
 	}
+
+	rr.enter(7, 6)
+	img[seaSw] |= m6
+	rr.world(img)
+	w := rr.untilWrite(gate.StableTicks + rr.holdTicks())
+	if young := rr.bm.youngAt(); w < 0 || young[w] < roomSettle || rr.liveByte(seaSw)&m6 == 0 {
+		t.Fatalf("the live switch after the room change: written on tick %d, the newest room's actors at %v frames\n%s", w, young[max(w, 0)], rr.log)
+	}
+	if !rr.log.has("waits for the room hold") {
+		t.Errorf("log lacks the hold:\n%s", rr.log)
+	}
 	rr.audit(true)
+}
+
+// TestReconcileSwitchRoomHold: Link comes through a door into a room
+// whose shutter waits on a memory switch of the loaded table, and the
+// partner's latching switch lands right after the room change. A shutter
+// ignores a switch that changes in its first 30 executes
+// (fakegame.Shutter; d_a_shutter.cpp:71-87, 133-142, 233-243), and a
+// memory switch reaches it through the live memBit as a dan or zone
+// switch does (dSv_info_c::isSwitch, d_save.cpp:1586-1603). The deferred
+// write used to come on the first STABLE tick after the change, and the
+// live one on the first IDLE tick, both gate.StableTicks ticks on, when
+// the shutter had run a few frames: it stayed shut with its switch set.
+// Both now wait for the room hold, and the shutter opens. An event or the
+// pause menu after the door, whose frames no actor executes, makes the
+// write wait longer.
+func TestReconcileSwitchRoomHold(t *testing.T) {
+	// door is Link coming through a door from room from into room to: the
+	// door shows room to (d_door.cpp:282), whose actors are created on
+	// the next frame, Link enters it, and the door hides room from behind
+	// him (d_door.cpp:305).
+	door := func(rr *recRig, from, to int) {
+		rr.t.Helper()
+		if err := rr.g.ShowRoom(to); err != nil {
+			rr.t.Fatal(err)
+		}
+		rr.enter(to, from)
+		if err := rr.g.HideRoom(from); err != nil {
+			rr.t.Fatal(err)
+		}
+	}
+	const no = 0x05 // latching in DRC's table (switch5Policy)
+	for _, c := range []struct {
+		name  string
+		f     hub.Feature
+		pause func(rr *recRig, on bool) // the game not IDLE right after the door, for 25 ticks
+	}{
+		{name: "deferred to the room change", f: hub.FeatureImage | hub.FeatureSwitches},
+		{name: "live switches", f: hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches},
+		{name: "deferred, with an event after the door", f: hub.FeatureImage | hub.FeatureSwitches,
+			pause: func(rr *recRig, on bool) {
+				if on {
+					rr.g.SetEvent(1, 0)
+				} else {
+					rr.g.SetEvent(0, 0)
+				}
+			}},
+		{name: "live, with the pause menu after the door", f: hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches,
+			pause: func(rr *recRig, on bool) { rr.g.SetPauseMenu(on) }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rr := newRecRig(t, Config{Apply: true}, c.f)
+			rr.load(drc)
+			rr.enter(1, 2)
+			sh := &fakegame.Shutter{Stage: drc.Name, Room: 1, No: no}
+			rr.bm.setActors(sh)
+			door(rr, 1, 2) // into room 2: room 1's shutter is deleted with its actors
+			rr.settleRooms()
+			door(rr, 2, 1) // and back: a new shutter in room 1
+			if c.pause != nil {
+				c.pause(rr, true)
+			}
+			off, m := switchImageByte(addr.TableDRC, no)
+			var img world.Image
+			img[off] = m
+			rr.world(img) // the partner's, right after the room change
+			if c.pause != nil {
+				if n := rr.ticks(25); n != 0 {
+					t.Fatalf("%d bytes written while the game was not idle", n)
+				}
+				c.pause(rr, false)
+			}
+			at := rr.untilWrite(gate.StableTicks + rr.holdTicks() + 2)
+			if at < 0 || rr.liveByte(off)&m == 0 {
+				t.Fatalf("never written:\n%s", rr.log)
+			}
+			rr.ticks(2)
+			if err := rr.bm.actorErr(); err != nil {
+				t.Fatal(err)
+			}
+			if !sh.Open() {
+				t.Fatalf("the shutter stayed shut: written after its %d executes\n%s", sh.Executes(), rr.log)
+			}
+			rr.audit(c.f&hub.FeatureLiveSwitches != 0)
+		})
+	}
 }
 
 // TestReconcileNoSwitchesUngranted: without FeatureSwitches no memory
@@ -977,14 +1245,16 @@ func TestReconcileTurnOff(t *testing.T) {
 	}
 }
 
-// TestReconcileStallKeepsTheWindow: a heartbeat stall on the room-change
-// tick writes nothing and leaves the deferred writes for the next STABLE
-// tick, which is still the one after the change.
+// TestReconcileStallKeepsTheWindow: a heartbeat stall on a deferred
+// window's tick writes nothing and leaves its writes for the next STABLE
+// tick, which is still that window's: the room change's, with the ocean,
+// and then the memory switches', after the room hold.
 func TestReconcileStallKeepsTheWindow(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, BeatTimeout: testBeat}, hub.FeatureImage|hub.FeatureSwitches)
 	seaSw, m := switchImageByte(addr.TableSea, 0x05)
 	var img world.Image
 	img[seaSw] = m
+	img[addr.OffOcean+5] = 0x04
 	rr.world(img)
 	rr.tick()
 	rr.enter(6)
@@ -995,7 +1265,20 @@ func TestReconcileStallKeepsTheWindow(t *testing.T) {
 	if !rep.RoomChange || !errors.Is(rep.WriteErr, ErrStall) || rep.Wrote != 0 {
 		t.Fatalf("the stalled room-change tick: %+v", rep)
 	}
-	if rep := rr.tick(); !rep.RoomChange || rep.Wrote != 2 {
+	if rep := rr.tick(); !rep.RoomChange || rep.SwitchWindow || rep.Wrote != 1 {
+		t.Fatalf("the next tick: %+v", rep)
+	}
+	rr.bm.setStall(true)
+	for range rr.holdTicks() {
+		if rep = rr.tick(); rep.SwitchWindow {
+			break
+		}
+	}
+	rr.bm.setStall(false)
+	if !rep.SwitchWindow || !errors.Is(rep.WriteErr, ErrStall) || rep.Wrote != 0 {
+		t.Fatalf("the stalled switches' tick: %+v", rep)
+	}
+	if rep := rr.tick(); !rep.SwitchWindow || rep.Wrote != 2 || rr.liveByte(seaSw)&m == 0 {
 		t.Fatalf("the next tick: %+v", rep)
 	}
 	rr.audit(false)

@@ -593,13 +593,13 @@ func TestReconcileM4Keys(t *testing.T) {
 		open(rr, 1)
 		rr.ticks(m4Settle)
 		// The partner used the same key on door 0x10. Its switch waits for
-		// the receiver's next room change, and so does the key: the door
-		// still locks here.
+		// the receiver's next room change (and the room hold), and so does
+		// the key: the door still locks here.
 		world(rr, []int{1}, []int{0x10})
 		rr.ticks(m4Settle)
 		want(rr, 1)
 		rr.enter(2, 1)
-		rr.ticks(m4Settle)
+		rr.ticks(m4Settle + rr.holdTicks())
 		want(rr, 0)
 		rr.auditM4(false)
 	})

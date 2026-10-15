@@ -82,8 +82,8 @@ type coopFlags struct {
 	// no game data but a binding tag after a yes; the plan is logged.
 	dryRun bool
 	// liveSwitches is --coop-live-switches (§6.3), the host's choice: the
-	// current table's memory switches apply when IDLE, not at the next
-	// room change.
+	// current table's memory switches apply when IDLE, once the room hold
+	// has passed, not at the next room change.
 	liveSwitches bool
 	// iso is --coop-iso: the disc image whose M1 stage tables the session
 	// uses; "" for the disc patch last wrote.
@@ -290,6 +290,7 @@ func startCoopSide(rep report.Reporter, f coopFlags, env coopEnv, host bool) *co
 	}
 	if !f.dryRun {
 		logCoopProgression(rep, cs.m1())
+		logCoopPuzzles(rep, cs.m1())
 	}
 	return cs
 }
@@ -432,6 +433,7 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 		Store:        st,
 		StageTblHash: cs.tables.hash(),
 		SyncedSwitch: cs.tables.switchVerdict(),
+		SyncedScoped: cs.tables.scopedVerdict(),
 		Features:     features,
 		Merge:        f.merge,
 		Logf:         func(format string, args ...any) { srvLog(fmt.Sprintf(format, args...)) },
@@ -441,6 +443,7 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 		return nil, err
 	}
 	cs.hub, cs.store, cs.world, cs.dir = h, st, bind.WorldID(st.ID()), st.Dir()
+	cs.console.setHub(h.Status)
 	if prev, err := writeCoopMarker(cs.dir); err != nil {
 		report.Logf(rep, report.Warn, "co-op: %v", err)
 	} else if prev != "" {
@@ -457,7 +460,7 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 	}
 	live := ""
 	if f.liveSwitches {
-		live = "; --coop-live-switches: the current room's switches apply at once"
+		live = "; --coop-live-switches: the current table's switches apply when idle, once every shown room's actors have run 2 s"
 	}
 	report.Logf(rep, report.OK, "Co-op world %s at seq %d: the world's chests, pickups, rooms, dungeon items, latching switches, ocean, charts, story bits and items are written into each bound game, and its small keys, max hearts and max magic derived (--coop-dry-run only logs them%s%s).", cs.world, st.Seq(), merge, live)
 	cs.console.help()

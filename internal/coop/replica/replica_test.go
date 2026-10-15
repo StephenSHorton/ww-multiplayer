@@ -192,6 +192,7 @@ func TestReplicaDryRunNeverWrites(t *testing.T) {
 	stage, _ := wire.MakeStage(outset.Name)
 	sea := int8(addr.TableSea)
 	room := outset.Room
+	rr.meet(outset, int(room))
 	say(t, rr.r,
 		&wire.GainsDown{Seq: 11, Origin: 2, Gains: []wire.Gain{{Off: uint16(addr.OffGetItem + 3), Val: 0xFF}}},
 		&wire.Scoped{Kind: wire.ScopeDan, Stage: stage, Table: sea, Room: -1, Words: []wire.ScopedWord{{Word: 0, Bits: 0x0F}}},
@@ -405,13 +406,14 @@ func TestReplicaScopedBounded(t *testing.T) {
 	t.Run("sent with the welcome, before the replica arms", func(t *testing.T) {
 		rr := bound(t, hub.DefaultFeatures)
 		say(t, rr.r, dan, worldOf(1, world.Image{}))
-		rr.settle()
+		rr.meet(outset, int(outset.Room))
 		if !rr.log.has("would set dan switch 0x80") {
 			t.Fatalf("the store sent with the welcome was not planned:\n%s", rr.log)
 		}
 	})
 	t.Run("a flood of stages", func(t *testing.T) {
 		rr := armedRig(t, Config{})
+		rr.meet(outset, int(outset.Room))
 		for i := range 5000 {
 			say(t, rr.r, kill(t, i))
 			if n := held(rr.r); n > maxScopedIn {

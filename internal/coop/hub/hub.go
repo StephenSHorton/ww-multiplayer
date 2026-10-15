@@ -17,8 +17,10 @@
 //	                   tombstones allow; relay the effective delta (origin, seq)
 //	PRESENCE        -> relay to the other peers; for a bound peer, scope the
 //	                   stores and send what it newly reaches
-//	SCOPED          -> OR into the store (ROOMEDGE: relay only) and relay the
-//	                   new bits to the bound peers in that scope
+//	SCOPED          -> keep the bits the host's M1 verdict grants
+//	                   (Config.SyncedScoped), OR them into the store (ROOMEDGE:
+//	                   relay only) and relay the new bits to the bound peers
+//	                   in that scope
 //	CTRL            -> RESYNC: send the world; COOP_OFF: the features the replica
 //	                   now wants; TOMBSTONE: the host blocks a bit
 //
@@ -32,18 +34,19 @@
 // stage tables are not the host's (or either side has none) runs without
 // the features that read them (TableFeatures): its memory switch bytes
 // are neither taken nor sent, and only the latching switches of the
-// host's table enter the world at all (Config.SyncedSwitch). From M4 the
-// story bits of the SyncMask enter the world too (DefaultPolicy), from
-// and to the players granted FeatureStory, and with them a file can be far
-// behind the world (§5.3).
+// host's table enter the world or the scoped stores at all
+// (Config.SyncedSwitch, Config.SyncedScoped). From M4 the story bits of
+// the SyncMask enter the world too (DefaultPolicy), from and to the
+// players granted FeatureStory, and with them a file can be far behind
+// the world (§5.3).
 //
 // Nothing a peer does can stall the hub or the other peers: a peer's
 // inbound frames wait in a bounded share of the hub's queue, and its
 // outbound messages in a bounded outbox with a writer of its own; a peer
 // that overruns either is disconnected, and its replica resyncs on
 // reconnect (CO_HELLO, then WORLD both ways, §5.5). The scoped stores a
-// peer can make are bounded, and a PRESENCE costs only the stores near
-// it (world.Scopes, world.MaxDanStores).
+// peer can make are bounded by where the players are, and a PRESENCE
+// costs only the stores near it (world.Scopes).
 //
 // Citations follow internal/coop/addr: file:line is the zeldaret/tww
 // decomp at 4d78c994, §N a section of docs/08-coop-design.md.
@@ -133,9 +136,18 @@ type Config struct {
 	// SyncedSwitch's grants (SwitchPolicy); without, they are as given
 	// (none in DefaultPolicy).
 	Policy *world.Policy
-	// ScopeFilter is the scoped stores' filter (world.SwitchFilter over
-	// the M1 table); nil keeps every bit.
-	ScopeFilter func(world.Key, int) uint32
+	// SyncedScoped is the host's M1 verdict on the switches SCOPED
+	// carries (tables.Tables.SyncedScopedSwitch, from the tables
+	// StageTblHash names): whether stage switch no, 0x80-0xEF, latches as
+	// an actor of save table table, stage stage and room room writes it
+	// (room -1 for a dan switch, which is the table's). The scoped stores
+	// keep and relay only the dan, zone and room-edge bits it grants
+	// (ScopeFilter); every other such bit of a SCOPED is dropped and
+	// counted (PeerStatus.ScopedRefused), without a NOTICE, as
+	// SwitchPolicy's refusals are. Nil, a host without tables, grants
+	// none (and such a host grants no FeaturePuzzle anyway). Kill bits
+	// are not switches: they pass.
+	SyncedScoped func(table int, stage string, room, no int) bool
 	// IsHost reports whether a connection is the host's own, which alone
 	// may tombstone over the wire (CTRL TOMBSTONE). Nil means a
 	// connection from a loopback address.
@@ -228,7 +240,7 @@ func newHub(cfg Config, direct bool) (*Hub, error) {
 		pol = SwitchPolicy(pol, cfg.SyncedSwitch)
 	}
 	h.store.SetPolicy(pol)
-	h.scopes.Filter = cfg.ScopeFilter
+	h.scopes.Filter = ScopeFilter(cfg.SyncedScoped)
 	return h, nil
 }
 
@@ -640,6 +652,9 @@ type PeerStatus struct {
 	// tombstones); Duplicates the GAINS batches dropped as repeats.
 	Rejected   int
 	Duplicates int
+	// ScopedRefused counts the bits of its SCOPED words the host's M1
+	// verdict refused (Config.SyncedScoped).
+	ScopedRefused int
 }
 
 // Status is a snapshot of the hub, for the TUI and tests.
@@ -660,6 +675,7 @@ func (h *Hub) Status() (Status, error) {
 			ps := PeerStatus{
 				ID: byte(p.id), Name: p.name, Host: p.host, State: p.state, Reason: p.reason,
 				Features: p.features, Place: p.place, Rejected: p.rejected, Duplicates: p.dups,
+				ScopedRefused: p.scopedRefused,
 			}
 			if p.hello != nil {
 				ps.File = p.hello.FileState

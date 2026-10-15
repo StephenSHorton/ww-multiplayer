@@ -9,7 +9,8 @@ package main
 //	/warp [player]          go to the partner: same stage, to its side;
 //	                        another stage, to its entrance, then its side
 //	/coop off|on [player]   stop, or resume, writing the world into the game
-//	/status [player]        where co-op is
+//	/status [player]        where co-op is (on a host, its hub's peers
+//	                        and scoped stores too)
 //	/help                   these lines
 //
 // player picks a Dolphin when the session runs two (mp-local); it may be
@@ -105,6 +106,16 @@ type coopConsole struct {
 	syncs []*coopSync
 	once  sync.Once
 	told  bool
+	// hubSt is the host's hub's Status, for /status's host lines; nil on
+	// a joiner.
+	hubSt func() (hub.Status, error)
+}
+
+// setHub hands the console the host's hub's Status.
+func (c *coopConsole) setHub(status func() (hub.Status, error)) {
+	c.mu.Lock()
+	c.hubSt = status
+	c.mu.Unlock()
 }
 
 func newCoopConsole(rep report.Reporter, cmds <-chan promptLine) *coopConsole {
@@ -163,10 +174,18 @@ func (c *coopConsole) do(ctx context.Context, line string) {
 	ss, err := c.pick(cmd)
 	if err != nil {
 		report.Logf(c.rep, report.Warn, "co-op: %v", err)
-		return
 	}
 	for _, s := range ss {
 		s.command(ctx, cmd)
+	}
+	if cmd.verb == "status" {
+		// A host's hub, whether or not a pipeline runs yet.
+		c.mu.Lock()
+		status := c.hubSt
+		c.mu.Unlock()
+		if status != nil {
+			logHubStatus(c.rep, status)
+		}
 	}
 }
 
@@ -244,7 +263,7 @@ func (s *coopSync) command(ctx context.Context, cmd coopCommand) {
 		}
 		report.Logf(s.rep, report.Info, "co-op: %s: %s; world %s at seq %d; %s; %d bytes written, %d escapes, %d verify failures",
 			s.name, where, st.World, st.Seq, writesState(st), st.Writes.Written, st.Writes.Escapes, st.Writes.Failed)
-		for _, l := range progressionStatus(st) {
+		for _, l := range append(progressionStatus(st), puzzleStatus(st)) {
 			report.Logf(s.rep, report.Info, "co-op: %s:   %s", s.name, l)
 		}
 	}

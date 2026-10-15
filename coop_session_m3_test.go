@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"math/rand/v2"
@@ -45,6 +46,9 @@ type coBeat struct {
 	writes []coWrite
 	landed []replica.Pos // where each warp put Link
 	places []coPlace     // where the game was as each tick began, by tick number
+	// ages follows how long each room's actors have run, on every frame,
+	// for the audit's room hold.
+	ages fakegame.RoomAges
 }
 
 // coPlace is where a fake game is, read from its memory as a tick begins:
@@ -88,7 +92,9 @@ func coPlaceOf(m mem.Mem) (coPlace, error) {
 // the game's places alone: the first tick since the place last changed
 // that is ARMED with the gates open, or a later such tick when every one
 // before it since the change found the heartbeat stalled or the game
-// moved on (replica.ErrStall, replica.ErrAborted).
+// moved on (replica.ErrStall, replica.ErrAborted). The loaded table's
+// memory switches wait for the room hold as well, so their tick can come
+// later (coSwitchTicks).
 func coRoomWindows(reps []replica.Report, places []coPlace) []bool {
 	win := make([]bool, len(reps))
 	due := false
@@ -107,12 +113,56 @@ func coRoomWindows(reps []replica.Report, places []coPlace) []bool {
 	return win
 }
 
+// coSwitchTicks checks the ticks the loaded table's memory switches §6.3
+// defers are written on, by the game's places alone and in write order:
+// each comes after a change of place, and one tick since each change
+// writes them, or a later one when every tick before it that wrote some
+// since the change ended stalled or aborted (replica.ErrStall,
+// replica.ErrAborted: its batch is tried again). Which tick that is the
+// room hold decides, which the audit checks apart (fakegame.RoomAges).
+type coSwitchTicks struct {
+	reps    []replica.Report
+	changes []int       // by tick, the last tick at or before it whose place changed, or -1
+	last    map[int]int // by change, the last tick that wrote a switch
+}
+
+func newCoSwitchTicks(reps []replica.Report, places []coPlace) *coSwitchTicks {
+	s := &coSwitchTicks{reps: reps, changes: make([]int, len(places)), last: map[int]int{}}
+	c := -1
+	for i := range places {
+		if i > 0 && places[i] != places[i-1] {
+			c = i
+		}
+		s.changes[i] = c
+	}
+	return s
+}
+
+// check returns why a write at tick is out of place, or "".
+func (s *coSwitchTicks) check(tick int) string {
+	c := s.changes[tick]
+	if c < 0 {
+		return "before any room change"
+	}
+	if lt, ok := s.last[c]; ok && lt != tick && !errors.Is(s.reps[lt].WriteErr, replica.ErrStall) && !errors.Is(s.reps[lt].WriteErr, replica.ErrAborted) {
+		return fmt.Sprintf("on a second tick since the room change on tick %d (tick %d wrote them)", c, lt)
+	}
+	s.last[c] = tick
+	return ""
+}
+
 // coWrite is one write a pipeline made.
 type coWrite struct {
 	tick     int
 	a        uint32
 	old, val []byte
 	table    int8 // mDan.mStageNo as it was made
+	// zone is the stage and the zone table as a write into the dan or
+	// zone bytes was made (coScopedRegion); nil for any other.
+	zone *coZoneAt
+	// young is the room whose actors had run the fewest frames as the
+	// write was made (fakegame.RoomAges; -1 for none), and execs how many.
+	young, execs int
 }
 
 func newCoBeat(cg *coGame) *coBeat { return &coBeat{FakeMem: cg.m, g: cg.g} }
@@ -137,21 +187,32 @@ func (b *coBeat) Write(a uint32, d []byte) error {
 	if err != nil {
 		return err
 	}
+	var zone *coZoneAt
+	if coScopedRegion(a) {
+		z, err := coZoneAtOf(b.FakeMem)
+		if err != nil {
+			return err
+		}
+		zone = &z
+	}
 	if err := b.FakeMem.Write(a, d); err != nil {
 		return err
 	}
+	young, execs := b.ages.Youngest()
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.writes = append(b.writes, coWrite{tick: b.tick, a: a, old: old, val: bytes.Clone(d), table: int8(t[0])})
+	b.writes = append(b.writes, coWrite{tick: b.tick, a: a, old: old, val: bytes.Clone(d), table: int8(t[0]), zone: zone, young: young, execs: execs})
 	return nil
 }
 
-// frame runs a game frame, then the warp handler as multiplayer_update
-// runs it, right after spawn_trigger++ whenever Link exists
-// (multiplayer.c:341-345, 365-421): a warp_seq that differs from warp_ack
-// puts Link at warp_x/y/z and acknowledges it.
+// frame runs a game frame, with the rooms' ages, then the warp handler as
+// multiplayer_update runs it, right after spawn_trigger++ whenever Link
+// exists (multiplayer.c:341-345, 365-421): a warp_seq that differs from
+// warp_ack puts Link at warp_x/y/z and acknowledges it.
 func (b *coBeat) frame() {
-	b.g.Frame()
+	if err := b.g.FrameWith(&b.ages); err != nil {
+		panic(err) // RoomAges never fails
+	}
 	link, err := mem.ReadU32(b.FakeMem, addr.PlayerPtr)
 	if err != nil || link == 0 {
 		return
@@ -293,13 +354,17 @@ func (m *coM3) play(p *coPlayer, rng *rand.Rand) {
 // and every other write one byte inside M3's allowlist (so no PER_PLAYER,
 // NEVER, DERIVED or TAG byte), setting bits and clearing none, ARMED with
 // the gates open, no bit set twice at one place, the loaded table's bytes
-// only when IDLE and its memory switches only on a room-change tick (no
-// --coop-live-switches), the ocean, charts and sea map only on a
-// room-change tick, which it works out from where the game was as each
-// tick began (coRoomWindows), not from the reports. From M4 a session's
+// only when IDLE and its memory switches (no --coop-live-switches) only on
+// the one tick since a room change that writes them (coSwitchTicks) and
+// once every room's actors have run fakegame.ShutterFrames frames (the
+// room hold, by fakegame.RoomAges), the ocean, charts and sea map only on
+// a room-change tick, which it works out from where the game was as each
+// tick began (coRoomWindows, coSwitchTicks), not from the reports. From M4 a session's
 // replicas write M4's targets too, which coAuditM4Write checks by M4's
 // rules; the writes at the derive targets must be exactly those the
-// derive path reports. It counts what it saw.
+// derive path reports. From M5 they write the dan and zone switch bytes
+// too (TargetScoped), which coAuditM5Write checks by M5's rules, and no
+// dan or zone switch is set twice in one scope. It counts what it saw.
 func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 	t.Helper()
 	places := p.beat.placesSeen()
@@ -307,10 +372,12 @@ func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 		t.Fatalf("%s: %d ticks reported, %d places recorded", p.name, len(p.reps), len(places))
 	}
 	win := coRoomWindows(p.reps, places)
+	sw := newCoSwitchTicks(p.reps, places)
 	n.cats = map[replica.Category]int{}
 	n.m4 = map[replica.Target]int{}
 	m3 := replica.NewGuardFor(replica.M3Targets)
 	m4 := replica.NewGuardFor(replica.M3Targets | replica.M4Targets)
+	m5 := replica.NewGuardFor(replica.M3Targets | replica.M4Targets | replica.M5Targets)
 	esc := replica.NewGuardFor(replica.TargetEscape)
 	type place struct {
 		a     uint32
@@ -318,6 +385,8 @@ func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 	}
 	set := map[place]byte{}
 	m4set := map[place]byte{} // M4's OR bytes, by address
+	m5set := map[coSwitchAt]bool{}
+	tb := p.s.cs.m1()
 	for _, w := range p.beat.written() {
 		bad := func(format string, args ...any) {
 			t.Helper()
@@ -345,6 +414,22 @@ func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 				bad("an escape while %s", rep.State)
 			case !rep.Gates.CanWriteIdle():
 				bad("an escape with a gate closed: %s", rep.Gates.Why())
+			}
+			continue
+		case m5.TargetOf(w.a) == replica.TargetScoped:
+			for _, at := range coAuditM5Write(w, rep, tb, bad) {
+				n.scoped = append(n.scoped, at)
+				if addr.ClassifySwitch(at.no) == addr.SwitchRoom {
+					continue // every room change clears a room switch
+				}
+				k := at
+				if k.room < 0 {
+					k.stage = "" // one mDan per save table (d_save.cpp:1225-1235)
+				}
+				if m5set[k] {
+					bad("switch 0x%02X set again in its scope", at.no)
+				}
+				m5set[k] = true
 			}
 			continue
 		case m4.TargetOf(w.a)&replica.M4Targets != 0:
@@ -402,9 +487,15 @@ func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 		}
 		if loaded {
 			switch isSwitch := rel >= addr.MemBitOffSwitch && rel < addr.MemBitOffItem; {
-			case isSwitch && !window:
-				bad("a memory switch of the loaded table, off a room change")
-			case !isSwitch && !rep.Gates.Idle:
+			case isSwitch:
+				n.deferred++
+				if why := sw.check(w.tick); why != "" {
+					bad("a memory switch of the loaded table, %s", why)
+				}
+				if w.young >= 0 && w.execs < fakegame.ShutterFrames {
+					bad("a memory switch of the loaded table while room %d's actors had run %d frames: a new shutter there would not see it (the room hold)", w.young, w.execs)
+				}
+			case !rep.Gates.Idle:
 				bad("the loaded table's progress, not IDLE")
 			}
 		}
@@ -423,14 +514,17 @@ func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 	return n
 }
 
-// coAuditCount is what coAuditM3 saw: progress bytes (by category),
-// escape writes and tag writes, and M4's writes by target, those at the
-// derive targets counted apart.
+// coAuditCount is what coAuditM3 saw: progress bytes (by category), of
+// them the loaded table's memory switch bytes (deferred), escape writes
+// and tag writes, M4's writes by target, those at the derive targets
+// counted apart, and every switch the scoped path set, with its scope, in
+// write order.
 type coAuditCount struct {
-	progress, escapes, tags int
-	cats                    map[replica.Category]int
-	m4                      map[replica.Target]int
-	derived                 int
+	progress, deferred, escapes, tags int
+	cats                              map[replica.Category]int
+	m4                                map[replica.Target]int
+	derived                           int
+	scoped                            []coSwitchAt
 }
 
 // coRoomLoaded gives room of cg's stage collision: mStatus[room].mpBgW
@@ -617,7 +711,11 @@ func TestCoopSessionM3(t *testing.T) {
 	}
 
 	// Quiesce: no more play but room changes (the writes §6.3 defers wait
-	// for one), until both games hold the world's M3 bytes.
+	// for one), until both games hold the world's M3 bytes. Link goes back
+	// and forth between rooms 1 and 2, which keep their zones (the room he
+	// came from does not count down, d_stage.cpp:250-267), so their actors
+	// are not created again and the room hold, which the loaded table's
+	// switches wait for, passes.
 	converge := func(why string) {
 		t.Helper()
 		waitArmed(why)
@@ -625,7 +723,8 @@ func TestCoopSessionM3(t *testing.T) {
 		for i := 0; ; i++ {
 			for _, p := range players {
 				if i%20 == 19 {
-					if err := p.g.EnterRoom((i/20)%addr.RoomCount, 0); err != nil {
+					r := 1 + (i/20)%2
+					if err := p.g.EnterRoom(r, 3-r); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -865,8 +964,10 @@ func TestCoopSessionM3(t *testing.T) {
 
 	// The audit, over everything either pipeline wrote.
 	cats := map[replica.Category]int{}
+	deferred := 0
 	for _, p := range players {
 		n := coAuditM3(t, p)
+		deferred += n.deferred
 		if n.tags != 1 {
 			t.Errorf("%s: %d tag writes, want the bind", p.name, n.tags)
 		}
@@ -881,6 +982,10 @@ func TestCoopSessionM3(t *testing.T) {
 	if cats[replica.CatStage] == 0 || cats[replica.CatSwitch] == 0 || cats[replica.CatOcean] == 0 {
 		t.Errorf("the pipelines wrote %v: want stage progress, latching switches and the ocean", cats)
 	}
+	if deferred == 0 {
+		t.Error("no memory switch of a loaded table was written: the room-change window and the room hold were not covered")
+	}
+	t.Logf("%d memory switch bytes of a loaded table written, after a room change and the room hold", deferred)
 	for _, p := range players {
 		if n := welcomes(p); n < 2 || !p.rep.has("armed offline") {
 			t.Errorf("%s: %d welcomes, offline %v: the reconnects did not happen", p.name, n, p.rep.has("armed offline"))

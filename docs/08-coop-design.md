@@ -78,7 +78,7 @@ The early releases (v0.4 to v0.8) do all of this from the Go process, with no re
 | Class | Examples | Where it lives (address / struct) | Sync rule | Merge rule | Needs C? |
 |---|---|---|---|---|---|
 | Stage progress bits | chest opened `mTbox`, pickup `mItem`, `mVisitedRoom`, `mDungeonItem` bits 0-5 (map, compass, boss key, boss dead, heart taken, boss demo; `d_save.h:637-690`) | `dSv_memBit_c`: saved 0x803C4F88+0x24·t (+0x00 / +0x14 / +0x18 / +0x21); live copy of the current table 0x803C5380 (`d_save.h:992`) | live for the current table: chests and pickups are read only when their actors are created (`d_a_tbox.cpp:447-455`, `d_a_item.cpp:227-237`), so a write fires no event. Dungeon items 3 and 5 (boss dead, boss demo) are the exception: a boss stage reads them every frame (`dMeter_recollect_boss_data`, `d_meter.cpp:1069-1085`; the boss gauge, `:3682-3687`; Gohma's floor, `d_a_dr2.cpp:560-575`; Helmaroc King, `d_a_bdk.cpp:2741-2744`), so in a boss stage they wait until Link leaves it (item 85). On load for other tables | grow-only OR | No. M7 moves it to C. |
-| Memory switches 0x00-0x7F | door unlocked, gate raised, room-clear switch, crystal (un-timed) | memBit `mSwitch[4]` +0x04 (live 0x803C5384); bit n is `mSwitch[n>>5] \|= 1<<(n&31)` (`d_save.cpp:1084-1087`) | on load by default (receiver's next room change for the current table; immediately for cold tables); live is opt-in (`--coop-live-switches`) | set-only OR, applied once per bit ("ever-had" set), **latching setters only** (M1 table), clears never sent | No. M7 makes stage-load application exact; the room-change write stays in Go (§6.3). |
+| Memory switches 0x00-0x7F | door unlocked, gate raised, room-clear switch, crystal (un-timed) | memBit `mSwitch[4]` +0x04 (live 0x803C5384); bit n is `mSwitch[n>>5] \|= 1<<(n&31)` (`d_save.cpp:1084-1087`) | on load by default (receiver's next room change, after the room hold, for the current table; immediately for cold tables); live is opt-in (`--coop-live-switches`) | set-only OR, applied once per bit ("ever-had" set), **latching setters only** (M1 table), clears never sent | No. M7 makes stage-load application exact; the room-change write stays in Go (§6.3). |
 | Small keys | `mKeyNum` per dungeon | memBit +0x20 (live 0x803C53A0); HUD pending counter `mItemKeyNumCount` 0x803CA77C | derived, applied when idle and settled | `keys(t) = \|key sources set\| − \|key doors set\|` over the receiver's *applied* flags (§6.4) | No |
 | Ocean and charts | salvage bits, charts owned / deciphered / salvaged, `mFmapBits`, Triforce charts | `mOcean` 0x803C51C8 (0x64); `dSv_player_map_c` 0x803C4CCC (0x84) | on load | OR | No |
 | Story event bits | bytes 0x00-0x41 (487 named bits, `d_save_event_flag.inc`) | `mEvent` 0x803C522C; bit id 0xHHLL = byte HH, mask LL (`d_save.cpp:1187-1199`) | on load (Go writes them during the receiver's stage transition; M7 shim writes them at getSave) | OR under the generated SyncMask, minus LocalOnly, D8 and refight bits; receiver-side holds (§6.5) | No. M7 makes it exact. |
@@ -88,8 +88,8 @@ The early releases (v0.4 to v0.8) do all of this from the Go process, with no re
 | Capacities | wallet size, arrow max, bomb max | 0x803C4C1A, 0x803C4C77, 0x803C4C78 | live when idle | MAX; never lowered | No |
 | Max magic | magic meter and its upgrade | `mMaxMagic` u8 0x803C4C1B; pending `mItemMaxMagicCount` 0x803CA784 | derived, live when idle | from source flags (Deku Leaf, event 0x3180); **add-only** | No |
 | Max life | heart pieces and containers | `mMaxLife` u16 0x803C4C08 (quarter hearts); pending `mItemMaxLifeCount` 0x803CA77E | derived, live when idle | 12 + pieces + 4·containers from source flags; **add-only** | No |
-| Dan switches 0x80-0xBF | dungeon-temporary puzzle state | `mDan.mSwitch[2]` 0x803C53A8 | live, only when both players are in the same stage name and table | set-only, latching setters only | No |
-| Zone switches 0xC0-0xDF | room puzzle state | `mZone[z].mZoneBit.mSwitch[0..1]` 0x803C53B0+0x4C·z+2; z from `mStatus[room].mZoneNo` 0x803BDC88+0x114·room+0x107 | live, only when both players are in the same stage and room and the receiver's zone exists | set-only, latching only, kept per (stage, room) while that room is occupied | No |
+| Dan switches 0x80-0xBF | dungeon-temporary puzzle state | `mDan.mSwitch[2]` 0x803C53A8 | live when IDLE, only while both players are in the same stage name and table (the receiver checks the partner's PRESENCE, item 122) and every shown room's actors have settled (item 121) | set-only, latching setters only, kept per (stage, table) while someone is there (item 114); never set again in a save table where the receiver's game had it (item 125) | No |
+| Zone switches 0xC0-0xDF | room puzzle state | `mZone[z].mZoneBit.mSwitch[0..1]` 0x803C53B0+0x4C·z+2; z from `mStatus[room].mZoneNo` 0x803BDC88+0x114·room+0x107 | live when IDLE, only while both players are in the same stage and room, the receiver's zone exists and the room's actors have settled (items 121, 122) | set-only, latching only, kept per (stage, table, room) while that room is occupied | No |
 | Room one-shot switches 0xE0-0xEF | drop-down ladders, room-visit state | `mZone[z].mSwitch[2]`, zeroed on every room change (`clearRoomSwitch`, `d_save.cpp:1273-1275`) | live edge only, both players in the same room at that moment | never stored; never re-applied after a room change | No |
 | Enemy kills | stage-placed enemies by `setID` | zone actor bits 0x803C53BC+0x4C·z (512 bits); actor `setID` +0x1BC, `home.roomNo` +0x1E2 | live, scoped to (stage, room) | union per (stage, room), dropped when no player is in the stage | No (K1 light-shrink). M7 adds the `isActor` shim and KILL. |
 | Per player | `mLife` 0x803C4C0A, `mMagic`, rupees 0x803C4C0C, ammo and picture counts, bottles, bag contents, delivery bag and trade flags, `mSelectItem`, status_b (time, day, wind), `mReturnPlace` 0x803C4C38, `mInfo` (name, deaths, `mClearCount` 0x803C4DA8), config, `mPriest`, `mStatusC` | `dSv_player_c` | never | — | — |
@@ -300,13 +300,13 @@ Ring entries carry `seq` plus an XOR check byte.
 | 0x04 GAINS | c→s | `[batch:u32][n:u16] n×{off:u16, val:u8}` | Validate each offset's class; merge (OR within the class mask, or MAX); drop tombstoned bits |
 | 0x04 GAINS | s→c | `[seq:u64][origin:u8][n:u16] n×{off:u16, val:u8}` | Only bytes that changed the world; n ≤ 21841 per frame ((0xFFFF − 12) / 3), and in practice n ≤ 0x778 |
 | 0x05 PRESENCE | c→s, relayed | `[stage:8][table:s8][room:s8][layer:s8][point:s16][flags:u8 inGame, inEvent, transitioning, paused, armed]`, sent on change and at 1 Hz | Scopes the dan, zone and kill stores. Also usable by finish-plan C5 (#9). |
-| 0x06 SCOPED | both | `[kind:u8 DAN=1, ZONE=2, ROOMEDGE=3, KILL=4][stage:8][table:s8][room:s8][n:u8] n×{word:u8, bits:u32}` | DAN: OR into store[stage]. ZONE: OR into store[stage, room]. ROOMEDGE: relay only, never stored. KILL: words 0-15 of the 512-bit actor field, OR into store[stage, room]. Relayed only to peers whose presence matches. |
+| 0x06 SCOPED | both | `[kind:u8 DAN=1, ZONE=2, ROOMEDGE=3, KILL=4][stage:8][table:s8][room:s8][n:u8] n×{word:u8, bits:u32}` | DAN: OR into store[stage, table] (the game keeps dan switches per table; item 114). ZONE: OR into store[stage, table, room]. ROOMEDGE: relay only, never stored. KILL: words 0-15 of the 512-bit actor field, OR into store[stage, table, room]. A dan, zone or room switch bit is kept or relayed only if the host's M1 table marks it latching for that scope; the rest are counted (item 113). Relayed only to peers whose presence matches and who are granted the kind's feature. |
 | 0x07 NOTICE | s→c | `[code:u8][len:u8][utf8]` | Codes: WORLD_MISMATCH, NOT_BOUND, DIVERGENT, CLEARCOUNT, SCHEMA, REJECTED, TOMBSTONE |
 | 0x08 CTRL | both | `[op:u8][arg:u32]` | Ops: RESYNC, COOP_OFF (host feature mask), TOMBSTONE (host only) |
 
 **CoopHub** (one goroutine owns all world state):
 - **World image** with per-class merge and a monotonic `seq`.
-- **Scoped stores.** Dan per stage; zone and kill per (stage, room). Each is dropped when its last occupant leaves.
+- **Scoped stores.** Dan per (stage, table); zone and kill per (stage, table, room). A dan or zone store is dropped when the last player leaves its stage and table, or its room; a kill store when the last player leaves the stage. A player entering a scope is sent what is stored there (items 113-114).
 - **World file:** `os.UserConfigDir()/ww-multiplayer/worlds/<worldID>/world.wwco`.
   - Header "WWCOWRLD", version, worldID, seq, CRC32, then TLV sections.
   - Written atomically: tmp file, fsync, rename.
@@ -464,6 +464,7 @@ When Go sees a LEAKED tag (fails V2-V5) it **scrubs** it: it zeroes the 0x30 byt
   - `d_a_andsw2` (87-136).
 
   Each orders its own OTHER event with actor2 = player 0 (`f_op_actor_mng.cpp:692-740`). `demoCheck` does not check Link's state (`d_event.cpp:297-329`), so the receiver can lose the camera mid-combat.
+- **A new shutter ignores its switch for 30 frames.** `daShutter_c::Create` reads the switch to stand open or shut and sets `mFrameTimer = 30` (`d_a_shutter.cpp:71-87`). Each execute counts the timer down and ends by copying the switch into `mbIsSwitch` (`d_a_shutter.cpp:133-142`). `demo` starts the opening only when the switch differs from `mbIsSwitch` and the timer has run out (`d_a_shutter.cpp:233-243`). A switch set within the first 30 executes is therefore never seen: the shutter stays shut with its switch set until its room's actors are created again, and a latched switch is not set again. The shutter does not execute while an event runs (`moveApproval` gives it NOMOVE, `d_event.cpp:626-670`; `fopAc_Execute`, `f_op_actor.cpp:178-200`) or while the pause menu is up (`f_op_actor.cpp:175`). A room's actors are created when a door shows the room (`d_door.cpp:282`; `objectSetCheck`, `d_s_room.cpp:72-76`) and deleted when it hides it (`d_door.cpp:305`; `d_s_room.cpp:79-83`). So M5's receiver holds a partner's switch until the actors of its room have run for 2 s (item 121). M3's memory switches of the current table wait for the same hold, since a shutter reads them the same way (item 126).
 - **Light bridges react with no event** (`d_a_lbridge.cpp:135-189`). A remote *clear* makes the bridge vanish under the local Link. Clears are never sent.
 - **Key doors** (`door10`/`door12`): `execute` resets the action to `actionInit` whenever `checkExecute()` returns 0 (`d_a_door10.cpp:804-813`; `d_a_door12.cpp:823-831`). That happens when Link is not adjacent or is in another room (`d_door.cpp:156-171`). `actionInit` calls `setKey()` (`d_a_door10.cpp:748-749`; `d_a_door12.cpp:766`), which re-reads the switch. So **a key lock disappears when the receiver next approaches**, but only if the door's switch is already in the receiver's live copy. The door refuses to open while locked at `keyNum == 0` (`d_a_door10.cpp:359-372`).
 - **Create-only state** (chests `d_a_tbox.cpp:447-455`, items `d_a_item.cpp:227-237`, `obj_stair` 150-151): a partner's change shows only after a room reload. Duplicate pickups in the receiver's current room are possible (§6.7).
@@ -515,13 +516,23 @@ When Go sees a LEAKED tag (fails V2-V5) it **scrubs** it: it zeroes the 0x30 byt
 | Class | Default | Opt-in |
 |---|---|---|
 | Memory switches, cold tables | written to the saved slot as soon as STABLE | — |
-| Memory switches, receiver's current table | **deferred to the receiver's next room change** (written on the first STABLE tick after `mStayNo` changes, at least 4 ticks or about 400 ms later. The entered room is already loaded by then (`dStage_RoomCheck`, `d_stage.cpp:2263-2289`), so its polling actors still react; only actors of rooms still being created read the bit at creation (inferred)) | `--coop-live-switches`: apply when IDLE |
-| Dan switches 0x80-0xBF | live when IDLE, only if the stage name and table match | — |
-| Zone switches 0xC0-0xDF | live when IDLE, only if the stage and room match and the zone exists | — |
-| Room switches 0xE0-0xEF | applied on the edge only, if both players are in that room at that moment; never stored or replayed | — |
-| Never | clears; unsafe switches; event registers outside the allowlist; `mTmp` | — |
+| Memory switches, receiver's current table | **deferred to the receiver's next room change, then held until the rooms settle** (written on the first STABLE tick after `mStayNo` changes on which every shown room's actors have had 2 s of IDLE frames since they were created: the room hold, items 121, 126. That is at least 4 ticks (about 400 ms) after the change, and usually about 2 s. Until then the write waits; it is not dropped. The entered room is already loaded by then (`dStage_RoomCheck`, `d_stage.cpp:2263-2289`), so its polling actors still react, and a new shutter sees the switch change (§6.1); only actors of rooms still being created read the bit at creation (inferred)) | `--coop-live-switches`: apply when IDLE, once the room hold has passed |
+| Dan switches 0x80-0xBF | live when IDLE, from the store of the receiver's stage name and save table, only while the partner's last PRESENCE puts it in that stage and table too (items 114, 122), once every shown room's actors have had 2 s of IDLE frames (the room hold, item 121) | — |
+| Zone switches 0xC0-0xDF | live when IDLE, from the store of the receiver's stage, table and room, into the zone the receiver's own game has for that room, checked again on the write tick (item 115), only while the partner's last PRESENCE puts it in that room too (item 122), once the room's actors have had 2 s of IDLE frames (item 121) | — |
+| Room switches 0xE0-0xEF | applied on the edge only, once: written if Link is still in the room he was in when the edge came (the same visit, item 124) on the first tick the gates open and the room has settled, after at most 10 ticks of closed gates; never stored or replayed (item 116) | — |
+| Never | clears; unsafe switches; event registers outside the allowlist; `mTmp`; a dan, zone or room switch set again in a scope where the receiver's own game ever had it: a dan switch's scope is the save table (items 117, 125) | — |
 
 From M7 the getSave shim applies memory switches at every stage load as well. The deferred current-table write stays, because room changes do not call `getSave`.
+
+**As built (M5).** Dan, zone and room switches travel in SCOPED (§4.4), and the M1 switch table judges them on both sides (`tables.Tables.SyncedScopedSwitch`, item 113):
+- The host's hub keeps and relays only the switches its table marks latching for that scope. Each writing replica proposes only those, and writes only those its own table marks latching.
+- `hub.FeaturePuzzle` is a table feature: a player whose stage tables are not the host's is not granted it (item 69), and its replica says so.
+- The sender proposes the latching dan and zone words whole on entering their scope and every 10 ticks, so players who meet in a room catch up. Room switches go as edges only (item 118).
+- Every write is one byte ORed in, through the WriteGuard and the FrameWriter's scoped path. The path reads Link's room and its zone slot again on the write tick and verifies on the next one (item 115).
+- A bit is never written twice in a scope, and never where the receiver's own game already had it, so a bit the game clears stays cleared (item 117). A dan bit's scope there is the save table, as the game keeps one `mDan` (item 125).
+- The receiver writes a dan or zone store only while the partner's last PRESENCE is in the store's scope, and keeps a store only while it is in that scope itself. The hub sends the store again when the receiver enters (items 122, 123).
+- Every write waits until the actors that read the switch have had 2 s of IDLE frames since they were created (the room hold, item 121). A shutter ignores a switch that changes in its first 30 frames (§6.1).
+- `--coop-dry-run` asks for the image alone, so it gets and writes no room puzzle (item 119).
 
 ### 6.4 Derived small keys (coupled to door switches)
 - **Sources and doors per table** come from M1:
@@ -716,6 +727,7 @@ The proc numbers are from the research briefs. M1 checked them against the GZLE0
 - no clear ever propagates through transition storms;
 - the current table's switches are deferred to a room change;
 - zone writes happen only for a valid `mZoneNo` with a matching room;
+- room edges are applied once and never replayed after a room change, and no timed or unsafe switch travels (M5);
 - derived keys and hearts match the formulas in scripted scenarios (same key twice, door opened remotely, key spent on an open door, phantom-free door coupling);
 - capacity is never lowered by an ordered grant.
 
@@ -792,10 +804,10 @@ Acceptance:
   - When A beats the boss, B's log says `holding … back: the boss stage reads them every frame` while B is in the boss room itself, and the bits are written once B leaves it (item 85).
   - Pair: B's map screen before and after.
 - **A3 Latching switches, deferred for the current table.** On F5, A lights the un-timed crystal while B stands in that room.
-  - Nothing changes in B's room. The log says `… waits for the next room or stage change`, then `set … switch 0x..` when B leaves.
+  - Nothing changes in B's room. The log says `… waits for the next room or stage change`, then `set … switch 0x..` about 2 s after B leaves, once the actors of B's new room have run (the room hold, item 126).
   - When B comes back, the barred door stays open. Pair: B at the barred door before, and after the room change.
   - A push block or a timed switch must not sync (M1's verdict, §6.2).
-  - With `--coop-live-switches` on the host, the switch applies at once once B is IDLE (no menu, no event).
+  - With `--coop-live-switches` on the host, the switch applies once B is IDLE (no menu, no event) and the actors of every room B's game shows have run for 2 s. In a room B has been in for a while, that is at once.
 - **A4 Ocean and charts.** A sails into a sea square B hasn't visited, and salvages a chart.
   - After B's next room change, B's sea chart shows the square revealed and the chart owned.
   - Pair: B's sea chart before and after.
@@ -882,6 +894,52 @@ Acceptance:
 
 Last: run P1 again with `--coop --coop-dry-run`. B's log says `dry-run: would set t03 DRC chest <n> …`, derives no key (a dry run loads no tables), and `peek 0x803C53A0 1` is unchanged. Run `host`, `join` and `mp-local` once without `--coop`: they behave exactly as before.
 
+**Running M5 (live room puzzles).** `--coop` now also writes a partner's latching dan switches (0x80-0xBF) while both players are in the same stage and save table, its latching zone switches (0xC0-0xDF) while both are in the same room, and its room switches (0xE0-0xEF) as edges while both are in the room. Each switch is written once the room's actors have run for 2 s (the room hold, item 121). `--coop-dry-run` is still M2's dry run, with no room puzzles (item 119). Z1-Z6 are M5's acceptance items. Nothing defined them before, so they are defined here (item 120).
+
+Before the steps:
+1. Have the stage tables loaded as for M3 (M3 step 1). Each side's first lines then include:
+   - `co-op: room puzzles this session: a partner's latching dan switches (<n> in <t> save table(s)) sync while both are in the same stage, its zone switches (<n>) while both are in the same room, and its room switches (<n>) as it sets them, in <r> room(s); timed and other switches that clear never travel.`
+   - Without tables, the warning `co-op: room puzzles are off this session: …` instead.
+2. Pick the rooms with `coop-tables <iso> --section switches`. Each dungeon lists its switches by store, stage, room and number (`zone M_NewD2 r1 0xC3`, `dan t3 0x85`). A line marked `ok` syncs and names its setters (`set by …`); an unmarked line says why it doesn't. The tests need:
+   - Z1: a crystal switch (`SWHIT0`) marked `ok` in a room with a shutter or barred door: F5.
+   - Z2: a room whose enemies, once all are dead, set a switch marked `ok`: the `ALLDIE` tag, which sets its switch 65 frames after the room's last enemy is gone (`daAlldie_c::actionCheck`/`actionTimer`, `d_a_alldie.cpp:28-47`). F3 if its switch is marked `ok`.
+   - Z3: a timed crystal, which the list leaves unmarked: its writer clears the switch when its timer runs out (`daSwhit0_c::actionOnTimer`, `d_a_swhit0.cpp:346-362`).
+   - Each switch must be a dan or zone switch (0x80-0xDF). A memory switch below 0x80 is M3's, written at B's next room change (§6.3).
+3. Start `mp-local --coop` with both files bound (M2 steps 1-2; M4 step 2 for one file on both cards).
+   - Once the host grants the room puzzles, each pipeline logs `co-op: room puzzles: written to this game when idle: the partner's latching dan switches (same stage and save table) and zone switches (same room), and its room switches as it sets them, while both are in the room`.
+   - Otherwise `co-op: a partner's dan, zone and room switches are not written to this game: …` says why: the two sides' stage tables differ (the host's NOTICE says how), or the host turned it off.
+4. `/status` adds a line per player: `room puzzles: on; Link is in <stage> (table <t>, room <r>), zone slot <z>; <n> partner switch(es) set, <n> refused as not latching here, <n> room edge(s) dropped`.
+   - On the host it also prints `co-op: host: room puzzles allowed; scoped stores held: <n> dan, <n> zone, <n> kill`, then a line for each player: `<name> (<state>): in <place>; puzzles granted; <n> scoped bit(s) refused by the host's tables`.
+   - With equal tables both refusal counts stay 0. A joiner on another machine sees only its own lines.
+5. Take each screenshot as `WW_DOLPHIN_INDEX=<n> ./ww-multiplayer.exe screenshot shots/m5-<item>-<before|after>.png` and read each pair by eye. A readback alone accepts nothing visual.
+
+Acceptance:
+- **Z1 A latching crystal opens the shutter for both.** On F5 both players stand in the room, its shutter closed, and B has been in the room for more than 2 s. A hits the crystal.
+  - B's log says `co-op: room puzzles: wrote 1 switch bytes after heartbeat …`, then `set the partner's zone switch 0x.. in room <r> (zone slot <z>) (0x… |= 0x..)`, or `dan switch 0x..` for a dan crystal.
+  - B's shutter plays its opening with no input on B. The shutter polls its switch every frame and starts its open event when it changes (`daShutter_c::demo`, `d_a_shutter.cpp:233-243`).
+  - `zone-dump` on B shows the bit in the slot `/status` names, which need not be A's slot. `/status` counts 1 more partner switch set.
+  - Pairs: B's view of the shutter before and after, and A's.
+- **Z2 A cleared room opens its shutter for both.** On F3 both players stand in the room. A kills the room's last enemy.
+  - Once A's ALLDIE sets its switch, 65 frames after the last kill, B's log sets it too, and B's shutter opens, though B's own enemies may still stand: kills are M6's.
+  - Pairs: B's shutter before and after.
+- **Z3 A timed switch does not sync.** Both stand in the timed crystal's room. A hits it.
+  - Nothing is logged on B, `zone-dump` on B doesn't show the bit, and B's door stays shut while A's opens and then closes again when the timer runs out. A's sender never proposes the bit, so the host's refusal count stays 0 too.
+  - Pairs: B's door before and after A's hit, and A's door at the same moment.
+- **Z4 Players in different rooms see nothing until they enter.** B waits in another room of the same dungeon stage. A hits Z1's crystal (reload F5 first, or use another `ok` crystal).
+  - B's log stays quiet and B's `zone-dump` doesn't change. `/status` on the host shows both players' rooms.
+  - B walks into A's room. B's log sets A's switch once B's zone for the room exists, B is IDLE, and the room's actors have run for 2 s since the door showed the room (the room hold, item 121). The shutter then opens, up to about 2 s after B arrives. It never stands open on arrival: B's shutter is created as the door shows the room, before the switch can be written, and a switch set in its first 30 frames would be lost (§6.1). *Corrected (doc vs decomp, item 121):* this said the shutter stands open or opens as B arrives.
+  - Do the same for a dan switch with B in another stage of the dungeon (its boss stage, or the sea): nothing reaches B until B enters A's stage, though the game keeps dan switches per save table (item 114). If A leaves the stage before B is IDLE there, nothing reaches B (item 122).
+  - Pairs: B's view of the shutter on arrival, and one from before B left its room.
+- **Z5 (if a room has one) A room switch arrives once and is not replayed.** Find a room switch (0xE0-0xEF) marked `ok`. Both stand in that room, and A sets it.
+  - B's log says `set the partner's room switch 0xE. …` once.
+  - B leaves and comes back. B's game clears room switches on every room change (`clearRoomSwitch`, `d_save.cpp:1273-1276`), and nothing is written again: the edge is never stored.
+  - Pairs: B's view after A sets it, and after B comes back.
+- **Z6 A storm writes no wrong slot.** Both in Z1's room. B runs through a loading zone and back, and between rooms, several times while A hits switches.
+  - `/status` on B keeps `0 verify failures`, and no co-op line warns. `zone-dump` on B shows co-op's bits only in the slot whose room is B's room at the time.
+  - B's switches that its own game reset stay reset: a zone wiped at a stage entry, or by moving two rooms away, is not refilled from A (item 117).
+
+Last: run Z1 again with `--coop --coop-dry-run`. B's `/status` says `room puzzles: none in a dry run, …`, B's log sets nothing, and `zone-dump` on B is unchanged. Run `host`, `join` and `mp-local` once without `--coop`: they behave exactly as before.
+
 ### 8.3 Day-0 read-only probes (runnable now with today's binary)
 ```
 WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803C9D3C 12   # stage name ("sea\0..."), point s16, room, layer
@@ -938,7 +996,7 @@ The structured milestone list gives scope and acceptance for each one. The summa
 - **M2.** Binding tag (V1-V6, scrub), backups, Hello role byte, 'O' codecs, CoopHub, world file, and the coop-sync pipeline in **dry run** with the join preflight.
 - **M3.** The first release that writes game data. memBit OR classes, latching memory switches (deferred for the current table), ocean and charts. FrameWriter, WriteGuard, verify, auto-disable. Refresh area and warp.
 - **M4.** Inventory union with ordered grants; derived keys, hearts and magic; story bits applied on transition, with holds; the register allowlist; `--coop-merge`; offline `save-diff`/`save-merge`.
-- **M5.** Dan and zone sync for co-present players; room-edge relay.
+- **M5.** Dan and zone sync for co-present players; room-edge relay. As built: §6.3 and items 113-120.
 - **M6.** Kill union and the K1 applier.
 - **M7.** Make room; the getSave shim; the isActor shim; `coop_frame` live OR and the op ring. Go switches to image and ops.
 - **M8.** TUI co-op panel, soak tests, docs, release.
@@ -1267,7 +1325,7 @@ Also needed from the owner, and not a decision: capture the fixture save states 
     - Every change bumps the one seq (image, tombstones, fresh binds), so GAINS seqs can skip.
     - Flushes wait at most 1 s; backups `.1`-`.5` are taken at session start and hourly.
     - Scoped stores are not saved: the game forgets them too.
-55. **Scoped store lifetimes.**
+55. **Scoped store lifetimes.** *Superseded in M5 by item 114:* a DAN store now lives while someone is in its stage and table, so the first and last bullets no longer hold, and `world.MaxDanStores` and `ErrScopesFull` are gone. The other bullets stand.
     - DAN lives while anyone is in that save table, keyed by (stage, table) for §6.3's stage-match rule. This is item 25's finding: `dSv_danBit_c::init` clears only on a table change (`d_save.cpp:1225-1235`). It is called from `dStage_stagInfoInit` (`d_stage.cpp:1669-1677`) and reset at `dSv_info_c::init` (`d_save.cpp:1392`) and at game start (`d_s_name.cpp:1489`).
     - ZONE is keyed by (stage, table, room) and dropped when the room empties.
     - KILL is keyed by room but kept alive by anyone in the stage, and sent on stage entry: zones are re-initialised at stage entry (`d_stage.cpp:124-126`, `dSv_zone_c::init` `d_save.cpp:1338-1342`).
@@ -1562,3 +1620,110 @@ Also needed from the owner, and not a decision: capture the fixture save states 
     - Why: under OR 0xFF a player who had held a potion the partner hadn't looked divergent at bind, and needed `--coop-merge`. The world kept each player's bottle history and charm worn, though no receiver wrote them (item 99), and save-diff listed them as OR differences. save-merge already took bit 0 only, through the planner's `inventory.FlagMask`, so its output does not change.
     - save-diff now lists a flag bit outside its byte's class mask under PER_PLAYER. coop-watch names `mGetItem` and `mCollect[0..4]` bits by their array index (`mGetItem[5] bit 0`), since the table now splits both arrays.
     - The class table's hash changes with it, so a peer on an older build is refused with NOTICE SCHEMA. A world file written before keeps those bits until it is loaded: its decode strips them and counts them, like any bit outside the table.
+
+*M5: room puzzles (§4.4, §6.2, §6.3)*
+
+113. **The latching verdict, on both sides.**
+    - `tables.(*Tables).SyncedScopedSwitch(table, stage, room, no)` judges a dan switch per save table, and a zone or room switch per (stage, room) with a room of 0..63.
+    - It is false for a memory switch; for -1 and 0xFF (no switch, `d_save.cpp:1544-1546`); for 0xF0 and above (the assert at `d_save.cpp:1541-1542`); for a table outside 0..15 (`d_save.cpp:1507`); for a switch no placed actor writes, or one that any of its writers clears (§6.2); and without tables.
+    - The host's hub keeps and relays only the bits that verdict takes (`hub.Config.SyncedScoped`, through `hub.ScopeFilter`). The rest are counted per peer (`PeerStatus.ScopedRefused`), without a NOTICE, as the memory-switch policy's are.
+    - A writing replica's sender proposes only what the same filter takes over its own tables (`Differ.ShareScopes`), and its receiver writes only what its own tables mark latching. `FeaturePuzzle` is a table feature (item 69), so a granted peer has the host's tables and its count stays 0. Only another build's sender is ever refused.
+    - KILL bits pass unfiltered, for M6 to decide (§7.2).
+    - *API change:* `hub.Config.ScopeFilter` (nil kept every bit; only hub tests set it) is replaced by `Config.SyncedScoped`. A nil verdict keeps no dan, zone or room switch bit.
+114. **Dan switches are per save table in the game, and per (stage, table) in co-op. Corrects §4.4; supersedes item 55.**
+    - The game keeps dan switches per save table: `dStage_stagInfoInit` calls `initDan` with the STAG's table at every stage load (`d_stage.cpp:1668-1677`), and `dSv_danBit_c::init` clears them only when the table differs from the last one (`d_save.cpp:1225-1235`). So a dungeon's stages share them: DRC's `M_NewD2` and its boss stage `M_DragB`.
+    - §4.4 said `store[stage]`. The store is keyed by (stage, table) and lives while someone is in that stage and table; §6.3's apply rule (same stage name and table) is kept as policy. A receiver in another stage of the same table gets the partner's dan switch only once it enters the partner's stage, and only while the partner is still there (item 122). That is conservative: the bit sits in the one `mDan` either way.
+    - Item 55's lifetime is gone: a store lived while anyone was in the table, with at most `world.MaxDanStores` (256) per table and a NOTICE past that. It never held for a lone player anyway. Between two stages the old play scene's delete clears the player pointer (`dScnPly_Delete` ends in `dComIfGp_init`, `d_s_play.cpp:1136`; `d_com_inf_game.cpp:60-69`), so PRESENCE says nowhere and the table's stores went.
+    - `MaxDanStores` and `ErrScopesFull` are removed. The stores are bounded by where players are: one DAN store per occupied stage. What a player's game carries from one stage of a table to the next, its sender proposes again on entering it (item 118).
+115. **Zone writes (§3.1).**
+    - The receiver writes a zone switch into the zone its own game has for Link's room, `mStatus[room].mZoneNo` (`dSv_info_c::onSwitch`, `d_save.cpp:1552-1556`), never into the sender's slot: slots are taken first-free on each machine (`createZone`, `d_save.cpp:1525-1537`).
+    - A zone is written only if `0 <= mZoneNo < 32` and its `mRoomNo` is the room. The game's own setter checks neither the room nor, past its assert, the zone (`d_save.cpp:1553-1556`).
+    - The FrameWriter's scoped path (`FrameWriter.ApplyScoped`) reads both again on the write tick. The next tick's verify skips a byte if the stage, table, file, `mStayNo` or slot changed in between.
+    - Writes are single bytes ORed in, not words: the game sets a dan switch with a u32 read-modify-write of `mDan.mSwitch` (`d_save.cpp:1237-1241`) and a zone switch with a u16 one (`d_save.cpp:1279-1282`), so a word write could undo a bit the game set in between.
+    - A same-stage reload between plan and write that recreates the room's zone in the same slot does not stop the write: the slot is still the zone of Link's room, so the bit lands in the fresh zone and verifies. A zone moved to another slot, or a change of `mStayNo`, stops it.
+    - The verify assumes a stage change lasts many ticks. On the console a stage change runs through a wipe overlap first (`fopScnM_ChangeReq` with an overlap from `l_wipeType`, `d_s_play.cpp:291-314`), so a zone is never wiped and recreated in place between one 100 ms tick and the next. The FakeGame does both in one call, so the session test wipes or moves a zone only when the pipeline's last tick wrote no scoped byte.
+    - At a negative start point the game keeps the zones and each room's zone number across a stage load (`d_stage.cpp:124-126`, `:134-138`). That covers restart (-1, `d_stage.cpp:2369`), turn restart (-3, `:2380`) and back to the sea from a ship (-2, `:2317-2320`). A sender then proposes a kept zone's words for the new stage's room with that number, which its own game treats as that room's zone. The receiver still checks its own zone at every write.
+116. **Room edges: the same visit, not the same tick (corrects §6.3).**
+    - §6.3 said an edge applies only if both players are in the room "at that moment". Taken literally, every edge that arrives while a gate is briefly closed (an event, a menu) would be lost.
+    - Built: an edge is kept for the visit Link is in when it arrives. A visit is the same stage, table, room, zone slot and `mOldStayNo`, unbroken, with no stage change pending and none of the visit's room switches gone (item 124). The edge is written on the first tick the gates open and the room has settled (item 121). It waits at most 10 ticks of closed gates (about a second, `edgeTicks`); otherwise it is dropped, logged once and counted in `/status`. Ticks of the room hold with the gates open do not count.
+    - A pending stage change ends the visit, so a same-stage reload is a new visit. An edge is never stored and never replayed after a room change: `clearRoomSwitch` zeroes the room switches on every room change (`d_save.cpp:1273-1276`; `zoneCountCheck`, `d_stage.cpp:250-267`).
+    - Room switches are sent only as edges, never whole, so a room switch set before the sender's first look at the room is never sent.
+    - Known race, not fixed: the receiver's own sender sees a bit the reconciler wrote as a rising edge and proposes it. That is harmless for the stores, since the hub relays only what a store lacks. But an echoed room edge could reach the partner's next visit if the partner left and re-entered the room within the round trip: milliseconds, against room changes that take seconds.
+117. **The ever-had set: a reset bit is not refilled.**
+    - A bit the receiver's game ever had in a scope, seen on a consistent tick or written by the scoped path, is never written there again. So a bit its own game clears stays cleared, and a scope entered again gets only the bits it never had.
+    - The set lives with the loaded file. For a writing replica it also starts over on a save-state load and at the title or file select. It is not cleared on a stage change. It is capped at 64 × (1 + 64) scopes: at the cap, other stages' and tables' scopes are dropped first, and the dan bits of Link's table are kept. Dan bits are kept per save table (item 125).
+    - Consequence, by design: a receiver whose own game reset bits does not get them back from the partner, so the two diverge on those bits. The resets are `initDan` on a table change, a zone removed two room changes away (`d_stage.cpp:250-267`), and a reload's `initZone` (`d_stage.cpp:124-126`). The game resets those rooms for that player, and co-op does not undo it. *Corrected (item 125):* as first built, `initDan`'s resets were refilled from another stage of the same table, since the set kept dan bits per (stage, table).
+    - The acceptance test checks convergence only on bits set after each game's last reset.
+118. **The sender proposes whole words on entry and every 10 ticks (gap, decided).**
+    - The hub keeps a store only while someone is in its scope, and M2's sender sent only edges. So players entering a room together never caught up with each other, nor did they after a reconnect, after a host restart, or when the sender wasn't armed on its entry tick.
+    - A sharing Differ (`ShareScopes`, writing replicas only) proposes the latching dan and zone words whole on entering their scope and again every 10 ticks, one PRESENCE period. The hub relays only what a store lacks, so a refresh costs one SCOPED of each kind and no relay.
+    - Room switches and kill words stay edges.
+
+*M5 in the `--coop` session (§8.2)*
+
+119. **The wiring.**
+    - The host's hub gets `SyncedScoped: cs.tables.scopedVerdict()`, the session tables' `SyncedScopedSwitch`, which is nil without tables, so no puzzle bit is kept.
+    - Writing replicas ask for `FeaturePuzzle` with M3's and M4's features. `--coop-dry-run` asks for the image alone, so it is sent no SCOPED and writes nothing. Its `/status` line says `room puzzles: none in a dry run, …`.
+    - The startup log names the room puzzles and how many dan, zone and room switches the session's tables mark latching (`co-op: room puzzles this session: …`), or warns that they are off without tables. The replica says once per grant whether they are written, and why not.
+    - `/status` adds a `room puzzles:` line per player: on or why not, the place (stage, table, room) and zone slot of the stores Link takes, and the partner switches set, refused as not latching here, and room edges dropped (`replica.Status.Puzzle`). "Link" there is the game's character, whatever the player is called.
+    - On the host, `/status` also prints the hub's lines: whether it allows the room puzzles, the scoped stores it holds by kind, and each peer's place, grant and refused bits (`hub.Status`). They print even before a pipeline runs. A joiner's console has no hub and prints none.
+    - `beatSlack` went from 2 to 4: a tick can now wait on the merge, derive and scoped batches before an escape's.
+    - Without `--coop`, `host`, `join`, `mp-local`, `patch` and the TUI are unchanged.
+120. **Acceptance and tests.**
+    - `TestCoopSessionM5` extends M4's session test. It runs two FakeGames, a real `network.Server` with the CoopHub on loopback, and two writing pipelines, with a fixture whose DRC rooms hold latching and timed crystals for dan, zone and room switches. Its scripted play covers:
+      - latching against timed switches;
+      - a player in another room, then coming in;
+      - the boss stage of the same table;
+      - a zone wiped and not refilled;
+      - a zone moved to another slot;
+      - a switch the game cleared, never set again.
+    - Then 1000 random steps, with reordered, repeated and dropped messages, reconnects and a host restart from the world file.
+    - It checks:
+      - co-present convergence on latching dan, zone and fresh room switches;
+      - that no pipeline set a switch the partner's game never had in that scope, and no room switch more often than the partner raised it;
+      - that a room edge is not replayed;
+      - a tap on every SCOPED either way, which never carries an unsafe switch;
+      - the startup lines, `/status` and the hub's lines.
+    - `coAuditM3` now accepts dan and zone bytes only under M5's rules (`coAuditM5Write`): one byte; no clear; IDLE with the gates open; a zone byte only in the slot of Link's room as the write was made; only switches the tables mark latching; none set twice in a scope. Every earlier rule still holds.
+    - `TestReconcileM5Status`, `TestLogCoopPuzzles`, `TestPuzzleStatus` and `TestHubPuzzleStatus` cover the wiring.
+    - Z1-Z6 are M5's owner checks (§8.2).
+    - `FuzzHubFrames` runs slowly (1-2k execs, then none), at HEAD as well, so it was not caused by M5.
+
+*M5 review fixes*
+
+121. **The room hold: a new shutter ignores its switch for 30 frames (gap, decided; corrects §6.1, §6.3 and Z4).**
+    - The facts are in §6.1: `daShutter_c` sets a 30-frame timer in `Create` and sees only a switch change after it has run out (`d_a_shutter.cpp:71-87`, `133-142`, `233-243`). Its frames run only outside events and the pause menu. A partner's switch written within that window is lost on the receiver: the shutter stays shut while its switch reads set, and a latched switch is never set again. That is the case Z4 describes: B comes through a door, and B's store arrives as B's PRESENCE enters.
+    - Built (`replica/reconcile_m5_rooms.go`): the receiver keeps a clock per room of the IDLE frames its actors have had. A clock counts the heartbeat's frames between two consecutive IDLE ticks, at most one tick's worth (`maxBeatRate` × `TickEvery`, 24 frames). A longer gap could hide an event, so it adds nothing. A clock starts over when anything its actors rest on changes:
+      - the room's zone slot;
+      - its room scene's `mProcID` (`mStatus[room]` +0x10C, written by `phase_0`, `d_s_room.cpp:150-152`);
+      - its status flags 0x01-0x08 (+0x104: loaded, being created, being deleted, hidden; `d_stage.cpp:214-240`, `d_s_room.cpp:89-101`, `:120`).
+      Every clock starts over on a save state, on a read that failed, and on a change of stage or save table. A hidden room's clock does not run.
+    - A zone or room switch is written once the clock of Link's room reaches 60 frames (`roomSettle`, 2 s at 30 fps). A dan switch is written once every shown room's clock has, since every loaded room's actors read the dan switches. A dry run plans the same way.
+    - The shutter needs 31 frames. The rest of the 2 s covers its own create, which waits for its archive (`dComIfG_resLoad`, `d_a_shutter.cpp:103-106`) after the room scene asked for it. That margin is inferred, not measured.
+    - The probe is two reads per in-game tick, apart from the snapshot: `mStayNo` with `mOldStayNo` (2 bytes), and `mStatus` (0x4500 bytes). *Residual window:* a door that shows a room in the one or two frames between a tick's probe and its write is not seen by that write. Only a dan write is exposed, since the room shown is not Link's. This is not fixed.
+    - The FakeGame models the window (`fakegame.Shutter`, `HideRoom`, `ShowRoom`, `ReloadRoom`). `TestReconcileM5RoomHold` opens a shutter for a zone switch through a door, a dan switch onto a newly shown room, and each with an event or the pause menu in between. `TestM5RoomClocks` covers the clocks, and `TestShutter` covers the model.
+122. **Co-presence is checked by the receiver (corrects the M5 build; §2 and §6.3 claimed it).**
+    - The hub keeps a store while either player is in its scope, and relays a bit as it comes. So a store sent while the receiver was not idle was written later, after the partner had left. The receiver also wrote the stores the hub sent as it entered a room the partner had already left.
+    - Built (`Replica.partnerIn`): a dan store is written only while the partner's last relayed PRESENCE is in game in the same stage and save table. A zone store also needs the same room. The hub relays every PRESENCE as it comes and a gone peer's as nowhere (`hub.leaveView`); a relayed PRESENCE names no sender, which is enough for two players (item 42). A bit that came while the receiver was not idle waits for the partner to come back.
+    - Room edges need no check: the hub relays them only between players in the room, and the receiver keeps one only for the visit it came in (item 116).
+    - The partner's PRESENCE lags it by the round trip, so a store may be written that long after the partner left. The bit was the partner's while both were there.
+123. **The receiver's copy of a store lives only while it is in the store's scope (corrects the M5 build).**
+    - The replica kept a DAN or ZONE store the hub had dropped: across a room change, a stage reload, the title or another file. It then wrote the store into a room's fresh zone on a later visit, with no new SCOPED.
+    - Built (`pruneScoped`): each tick drops a DAN store unless Link is in game in its stage and save table. It also drops a ZONE store unless he is in its room. A new session clears them all (`resetSession`). Link in no game is the title, file select or a stage load, when his PRESENCE says nowhere (`hub.placeOf`). This is the hub's own lifetime for the receiver, which sends the stores again as the receiver's PRESENCE enters their scope (`hub.onPresence`, `world.Scopes.SetPresence`), if anyone is still there. The dry run's record of what it logged follows the same rule.
+    - `TestReconcileM5MirrorInScope` covers a room left until its zone is freed, a room left and re-entered, a stage reload, a title trip, another table and back, and a reconnect.
+124. **Room bounces (extends item 116).**
+    - Two room changes between two ticks (1 → 2 → 1) leave `mStayNo` and the zone slot as they were. Each change still clears every zone's room switches (`zoneCountCheck`, `d_stage.cpp:250-267`). An edge waiting across such a bounce was replayed. A room-edge byte written before it was judged a failed write when the game cleared it.
+    - Built: the visit includes `mOldStayNo` (0x803F6A79, `sym:18668`), which `setStayNo` moves at every room change (`d_stage.cpp:171-173`). It also ends when a room switch the visit had reads clear.
+    - The scoped path reads `mOldStayNo` again on the write tick and aborts if it moved. The verify does not judge a room-edge byte if `mOldStayNo` moved, or if the zone's room switches all read 0.
+    - *Limit, not fixed:* a bounce back into the room Link came from leaves `mOldStayNo` as it was. With no room switch set, nothing a tick reads shows it. An edge waiting across it is written in the new visit. A room-edge byte written before it is judged a failed write if the game sets another room switch of that byte before the next tick. Both need two room changes in one tick (100 ms). Each room change takes a door or a walk, so that is inferred to be rare. The cost is a room switch the partner set while in the room, or one verify failure for the breaker. `TestReconcileM5RoomBounce` pins both sides of the limit.
+125. **The ever-had set keeps dan bits per save table (corrects item 117).**
+    - The set keyed dan bits by (stage, table). So a dan bit the receiver's game had in `M_NewD2` and then lost to `initDan` was written again in `M_DragB` from the partner's store. The game keeps one `mDan`, for the table `initDan` last ran for (`d_save.cpp:1225-1235`; `d_stage.cpp:1668-1677`). A bit had in one stage of a table was therefore had in all of them.
+    - Built: the ever-had key for dan bits is the table alone (`everKey`). At the cap the set drops other stages' and tables' scopes first, and keeps the dan bits of Link's table. The write audits (`auditM5Writes`, `coAuditM3`) key "never set twice" the same way. `TestReconcileM5DanEverHadPerTable` and `TestM5EverHadBound` cover it.
+    - The tests now also cover the slot's `mRoomNo` at the guard (`TestWriteGuardScopedZones`: Link's zone freed, or now another room's). They cover the writer's write-tick re-read: `mRoomNo`, `mOldStayNo`, and an event or the pause menu starting while the batch waits (`TestFrameWriterScoped`).
+126. **M3's current-table memory-switch write waits for the room hold too (gap, fixed; corrects §6.3).**
+    - Verified in the decomp: a memory switch reaches a shutter. `daShutter_c` takes its switch from its params (`getSwitchNo`, `prm & 0xFF`, `d_a_shutter.h:60`) and reads it with `fopAcM_isSwitch`, which calls `dComIfGs_isSwitch` with the actor's home room (`f_op_actor_mng.h:374-376`). `dSv_info_c::isSwitch` reads a switch below 0x80 (`MEMORY_SWITCH`, `d_save.h:982`) from the live `memBit` (`d_save.cpp:1586-1592`), the copy M3 writes for the loaded table. So a shutter on a memory switch has the 30-frame window of §6.1 (`mFrameTimer = 30`, `d_a_shutter.cpp:87`; `mbIsSwitch` copied each execute, `:142`; the opening only once the timer has run out, `:236`).
+    - The old write came on the first STABLE tick after the room change, at least 4 ticks (about 400 ms, 12 frames) later. A door shows the next room, and creates its actors, as it opens (`d_door.cpp:282`; `d_s_room.cpp:72-76`). A shutter created less than 30 frames before the write ignored it and stayed shut. `TestReconcileSwitchRoomHold` shows this in the FakeGame: with the write not held, the shutter stays shut.
+    - Of the actors read, only `daShutter_c` has the pattern. It alone checks for a change since its last execute with a timer that starts at its create. Others that keep the switch's last value set it in their create and react on their next execute, with no timer: `daShutter2_c` (`d_a_shutter2.cpp:60`, `98`, `166`), `lstair` (`d_a_lstair.cpp:101`, `177`, `205`), the wind tag (`d_a_wind_tag.cpp:139`, `353`), `obj_bemos` (`d_a_obj_bemos.cpp:426`, `1332`) and `fire` (`d_a_fire.cpp:122`, `316-325`). The ladder (`d_a_obj_ladder.cpp:150-153`), the hanging lift (`d_a_obj_hlift.cpp:110-114`, `159-163`), a chest waiting on a switch (`actionSwOnWait`, `d_a_tbox.cpp:1000-1016`) and `andsw2` read the switch every frame, so a late write is still seen.
+    - Built (`replica/reconcile.go`): a room or stage change opens two windows. The ocean, the charts and the sea map keep the first STABLE tick after the change. The loaded table's memory switches get their own window: the first STABLE tick after the change on which the room hold allows them. That is the dan switches' rule (`m5Rooms.calm`: every shown room's clock has reached `roomSettle`, item 121), on the same clocks. The window stays open until then, so a waiting switch is not dropped. When it lands, it goes through the same gates and WriteGuard checks as before. A switch gained between the change and the hold is written in the same window. With `--coop-live-switches` the switches are written when IDLE and the hold allows them. The clocks are now read before the reconcilers run (`m5Observe` moved into `tick`), so M3 and M5 read the same clocks each tick. Writes to cold tables are not affected. A room change seen while the session is not armed still closes both windows. A stalled or aborted write keeps its window, as before.
+    - The cost: the write now usually comes about 2 s after the room change, while Link is in the room, so polling actors there react to it in view, as with M5's dan switches. An event or the pause menu adds no frames to the clocks, so it delays the write further.
+    - Tests: `TestReconcileSwitchRoomHold` lands a partner's memory switch right after a door, deferred and with `--coop-live-switches`, each also with an event or the pause menu after the door; the shutter opens. `fakegame.RoomAges` counts each room's actor executes; `TestRoomAges` covers it, and `TestShutter` now runs the shutter on memory, dan and zone switches. The write audits (`auditWrites`, `coAuditM3`) fail any current-table memory-switch write made while a shown room's actors have run fewer than 30 frames. `FuzzReconcileM5` adds world memory switches between its steps. The M3 timing tests (`TestReconcileSwitchWaitsForRoomChange`, `TestReconcileWindowIsOneTick`, `TestReconcileLiveSwitches`, `TestReconcileStallKeepsTheWindow`, `TestReconcileDropsAWindowSeenUnarmed`) now expect the hold.

@@ -86,7 +86,7 @@ func newWritingPlayer(t *testing.T, ctx context.Context, h *host, cfg Config, na
 }
 
 func (p *m3Player) step() {
-	p.g.Frame()
+	p.bm.frame()
 	p.u.deliver()
 	p.bm.setTick(len(p.reps))
 	p.reps = append(p.reps, p.r.Tick())

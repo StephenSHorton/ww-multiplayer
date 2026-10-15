@@ -144,8 +144,14 @@ type rig struct {
 	log   *logLines
 }
 
-// fullCfg allows every default feature and every class-mask bit.
-func fullCfg() Config { return Config{Features: DefaultFeatures, Policy: world.FullPolicy()} }
+// fullCfg allows every default feature, every class-mask bit and every
+// scoped switch the game takes.
+func fullCfg() Config {
+	return Config{Features: DefaultFeatures, Policy: world.FullPolicy(), SyncedScoped: syncAll}
+}
+
+// syncAll is an M1 verdict on the scoped switches that grants them all.
+func syncAll(int, string, int, int) bool { return true }
 
 // newRig starts a hub over a new world in a temporary directory, sending
 // directly (no writers), so a test reads what the hub sent after sync.
@@ -873,31 +879,28 @@ func TestScopedFeatures(t *testing.T) {
 	}
 }
 
-// TestScopedDanFlood: a bound peer naming stage after stage in one save
-// table, with a DAN store in each, gets at most world.MaxDanStores of them
-// kept: past that its SCOPED is refused with a NOTICE, and the honest
+// TestScopedStageFlood: a bound peer naming stage after stage, with a DAN
+// and a ZONE store in each, holds only the stores of where it is: each
+// goes as it leaves (world.Scopes), with nothing refused, and the honest
 // peers' relays go on.
-func TestScopedDanFlood(t *testing.T) {
+func TestScopedStageFlood(t *testing.T) {
 	r := newRig(t, fullCfg())
 	a := r.join(newConn(1, "alice"))
 	b := r.join(newConn(2, "bob"))
 	m := r.join(newConn(3, "mallory"))
 	r.send(a, presence("M_NewD2", 3, 1))
 	r.send(b, presence("M_NewD2", 3, 1))
-	for i := range world.MaxDanStores + 20 {
+	for i := range 300 {
 		st := fmt.Sprintf("Z%06d", i)
 		r.send(m, presence(st, 3, 0))
 		r.send(m, scoped(wire.ScopeDan, st, 3, -1, wire.ScopedWord{Word: 0, Bits: 1}))
+		r.send(m, scoped(wire.ScopeZone, st, 3, 0, wire.ScopedWord{Word: 0, Bits: 1}))
+		if n := len(r.status().Scopes); n != 2 {
+			t.Fatalf("%d scoped stores held in mallory's stage %d, want her DAN and ZONE", n, i)
+		}
 	}
-	if n := len(r.status().Scopes); n != world.MaxDanStores {
-		t.Fatalf("%d scoped stores held, want %d", n, world.MaxDanStores)
-	}
-	refused := false
-	for _, n := range pick[*wire.Notice](m.take(t)) {
-		refused = refused || n.Code == wire.NoticeRejected && strings.Contains(n.Text, "DAN stores")
-	}
-	if !refused {
-		t.Fatal("mallory was not told her SCOPED was refused")
+	if got := codes(m.take(t)); len(got) != 0 {
+		t.Fatalf("mallory got NOTICEs %v for the stores of where she is", got)
 	}
 	a.take(t)
 	b.take(t)
@@ -905,13 +908,11 @@ func TestScopedDanFlood(t *testing.T) {
 	if got := pick[*wire.Scoped](b.take(t)); len(got) != 1 || got[0].Kind != wire.ScopeZone {
 		t.Fatalf("bob got %+v after the flood, want alice's zone word", got)
 	}
-	// The stores live while anyone is in table 3 (world.Scopes), and go
-	// once everyone has left it.
 	for _, c := range []*fakeConn{m, a, b} {
 		r.send(c, presence("sea", 0, 11))
 	}
 	if n := len(r.status().Scopes); n != 0 {
-		t.Fatalf("%d scoped stores held after everyone left table 3, want none", n)
+		t.Fatalf("%d scoped stores held after everyone left, want none", n)
 	}
 }
 
@@ -1220,11 +1221,11 @@ func TestInboundFloodDisconnects(t *testing.T) {
 // that peer and leaves the hub serving.
 func TestHandlerPanicCostsOnePeer(t *testing.T) {
 	cfg := fullCfg()
-	cfg.ScopeFilter = func(k world.Key, w int) uint32 {
-		if k.Stage == "Boom" {
-			panic("filter bug")
+	cfg.SyncedScoped = func(table int, stage string, room, no int) bool {
+		if stage == "Boom" {
+			panic("verdict bug")
 		}
-		return 0xFFFFFFFF
+		return true
 	}
 	r := newRig(t, cfg)
 	a := r.join(newConn(1, "alice"))

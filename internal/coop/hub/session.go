@@ -3,6 +3,7 @@ package hub
 import (
 	"errors"
 	"fmt"
+	"math/bits"
 	"strings"
 	"time"
 	"unicode"
@@ -70,11 +71,12 @@ type peer struct {
 	// world when it asks to bind (§5.3); nil until it sends one.
 	candidate *candidate
 
-	complained map[wire.NoticeCode]time.Time
-	tablesNote string // the last NOTICE saying why it has no TableFeatures
-	rejected   int
-	dups       int
-	dead       bool // its outbox overflowed or a send failed: it is closing
+	complained    map[wire.NoticeCode]time.Time
+	tablesNote    string // the last NOTICE saying why it has no TableFeatures
+	rejected      int
+	dups          int
+	scopedRefused int  // SCOPED bits the M1 verdict refused
+	dead          bool // its outbox overflowed or a send failed: it is closing
 }
 
 func (p *peer) String() string { return fmt.Sprintf("%s (co-op %d)", p.name, p.id) }
@@ -596,7 +598,7 @@ func (h *Hub) onPresence(p *peer, m *wire.Presence) {
 	p.place = placeOf(m)
 	if p.bound() {
 		mv := h.scopes.SetPresence(p.id, p.place)
-		h.sendEntries(p, mv.Enter)
+		h.sendEntries(p, mv.Enter, p.features)
 		h.dropped(mv.Dropped)
 	}
 	h.sendAll(h.sorted(func(q *peer) bool { return q != p && q.welcomed() }), m)
@@ -612,7 +614,7 @@ func (h *Hub) sendPresences(p *peer) {
 // enterScopes puts a newly bound peer where it is.
 func (h *Hub) enterScopes(p *peer) {
 	mv := h.scopes.SetPresence(p.id, p.place)
-	h.sendEntries(p, mv.Enter)
+	h.sendEntries(p, mv.Enter, p.features)
 	h.dropped(mv.Dropped)
 }
 
@@ -671,8 +673,13 @@ func (h *Hub) onScoped(p *peer, m *wire.Scoped) {
 		h.complain(p, wire.NoticeRejected, "refused SCOPED: %v", err)
 		return
 	}
-	if len(r.Filtered) > 0 {
-		p.rejected += len(r.Filtered)
+	// The bits the M1 verdict refuses are only counted, as the memory
+	// switch policy's are (rejects): a replica granted FeaturePuzzle has
+	// the host's tables (TableFeatures) and its sender proposes with the
+	// same verdict (ScopeFilter), so only another build's sender, or a
+	// buggy one, is ever refused.
+	for _, w := range r.Filtered {
+		p.scopedRefused += bits.OnesCount32(w.Bits)
 	}
 	if len(r.Delta) == 0 {
 		return
@@ -686,10 +693,11 @@ func (h *Hub) onScoped(p *peer, m *wire.Scoped) {
 	h.sendAll(to, scopedMsg(m.Stage, k, r.Delta))
 }
 
-// sendEntries sends p the stored content it newly reaches.
-func (h *Hub) sendEntries(p *peer, es []world.Entry) {
+// sendEntries sends p the stored content es of the kinds features f
+// cover: what p newly reaches, or newly may take.
+func (h *Hub) sendEntries(p *peer, es []world.Entry, f Feature) {
 	for _, e := range es {
-		if p.features&scopeFeature(wire.ScopeKind(e.Key.Kind)) == 0 || len(e.Words) == 0 {
+		if f&scopeFeature(wire.ScopeKind(e.Key.Kind)) == 0 || len(e.Words) == 0 {
 			continue
 		}
 		st, err := wire.MakeStage(e.Key.Stage)
@@ -739,13 +747,20 @@ func (h *Hub) onCtrl(p *peer, m *wire.Ctrl) {
 // regrant recomputes p's features and tells it (CTRL COOP_OFF with the
 // features it now has). A bound peer that gets the image, its switches or
 // its story bits back is asked for a fresh WORLD, since it missed those
-// relays and the hub dropped those bytes of its proposals.
+// relays and the hub dropped those bytes of its proposals. One that gets
+// puzzle or combat sync back is sent the stores of that kind its place
+// reaches, as on entering it: it missed their relays too, and its own
+// sender proposes its words again on its next scope entry or refresh
+// (replica.Differ.ShareScopes).
 func (h *Hub) regrant(p *peer) {
 	old := p.features
 	p.features = h.grant(p)
 	h.send(p, &wire.Ctrl{Op: wire.CtrlCoopOff, Arg: uint32(p.features)})
 	if p.bound() && p.features&FeatureImage != 0 && p.features&^old&(FeatureImage|gated) != 0 {
 		h.send(p, &wire.Ctrl{Op: wire.CtrlResync})
+	}
+	if gained := p.features &^ old & (FeaturePuzzle | FeatureCombat); p.bound() && gained != 0 {
+		h.sendEntries(p, h.scopes.Reached(p.id), gained)
 	}
 }
 
