@@ -17,6 +17,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 )
 
@@ -57,9 +58,12 @@ const (
 	// buttons' items, refreshed by the derive path after a slot changes
 	// (§6.6). M4.
 	TargetSelectItem
-	// TargetScoped is the dan switch words and every zone's switch words,
-	// which a writer still validates against the live zone table (§3.1).
-	// M5.
+	// TargetScoped is the dan switch words and every zone's switch words
+	// (§6.3), written only by the scoped path. The WriteGuard itself holds
+	// each byte to the zone table of the tick's snapshot (Tick.Zones): a
+	// zone byte only in the slot mStatus[room].mZoneNo of the room Link is
+	// in, whose mRoomNo is that room, a dan byte only while mDan.mStageNo
+	// holds a save table (§3.1). M5.
 	TargetScoped
 	// TargetKills is every zone's dead-actor words (§7.2). M6. The K1
 	// timer bytes live in actors on the heap, so M6 validates them per
@@ -89,9 +93,13 @@ const (
 	M3Targets = TargetStage | TargetOcean
 	// M4Targets is what M4's receiver adds (§9 M4): the story bits and
 	// registers, the inventory and capacities, the derived bytes, the
-	// pending counters and the buttons' items. A replica that writes
-	// guards M3Targets | M4Targets | TargetEscape.
+	// pending counters and the buttons' items.
 	M4Targets = TargetStory | TargetInventory | TargetDerived | TargetCounters | TargetSelectItem
+	// M5Targets is what M5's receiver adds (§9 M5): the dan and zone
+	// switch words, the room switches of a room edge among them. A
+	// replica that writes guards M3Targets | M4Targets | M5Targets |
+	// TargetEscape.
+	M5Targets = TargetScoped
 )
 
 var targetNames = [...]string{
@@ -153,6 +161,9 @@ type byteRule struct {
 //     compare-and-set;
 //   - pathEscape, FrameWriter.ApplyFields: mNextStage and the mailbox
 //     warp request (§6.7);
+//   - pathScoped, FrameWriter.ApplyScoped: the dan and zone switch bytes
+//     (M5), each a fresh read with the planned bits ORed in, after the zone
+//     table they rest on was read again (§3.1);
 //   - pathTag: the binding tag, which package bind writes itself (§5.2);
 //     no FrameWriter call takes it.
 type path uint8
@@ -162,10 +173,11 @@ const (
 	pathDerive
 	pathEscape
 	pathTag
+	pathScoped
 
 	// pathAny is WriteGuard.Check's: a byte judged as written by its own
 	// path, whichever that is.
-	pathAny = pathMerge | pathDerive | pathEscape | pathTag
+	pathAny = pathMerge | pathDerive | pathEscape | pathTag | pathScoped
 )
 
 func (p path) String() string {
@@ -178,6 +190,7 @@ func (p path) String() string {
 		{pathDerive, "the derive path (FrameWriter.ApplyDerived)"},
 		{pathEscape, "an escape (FrameWriter.ApplyFields)"},
 		{pathTag, "a bind or scrub (package bind)"},
+		{pathScoped, "the scoped path (FrameWriter.ApplyScoped)"},
 	} {
 		if p&n.p != 0 {
 			parts = append(parts, n.name)
@@ -239,10 +252,11 @@ func betterVariant(s inventory.Slot, old, val byte) bool {
 //     and mMaxMagic are not in it: they change only through their pending
 //     counters (§3);
 //   - the live memBit, with the classes of a saved slot;
-//   - the dan switch words (mDan.mSwitch) and every zone's switch and
-//     dead-actor words (dSv_zone_c +0x02..+0x07 and +0x0C..+0x4B; the
-//     zone's own item bits and its mRoomNo are not), which a writer
-//     still validates against the live zone table (§3.1);
+//   - the dan switch words (mDan.mSwitch) and every zone's switch words
+//     (dSv_zone_c +0x02..+0x07), through the scoped path only, each held
+//     to the zone table of the tick (WriteGuard.Check), and every zone's
+//     dead-actor words (+0x0C..+0x4B), which M6's writer validates per
+//     write; the zone's own item bits and its mRoomNo are not in it;
 //   - the three pending counters, mItemKeyNumCount, mItemMaxLifeCount
 //     and mItemMaxMagicCount (§6.4), through the derive path only;
 //   - play.mSelectItem[0..2], the buttons X, Y and Z (u8 mSelectItem[4],
@@ -321,10 +335,10 @@ func NewGuardFor(t Target) *Guard {
 	}
 	add(addr.LiveMemBit, live, "live memBit")
 
-	add(addr.DanSwitch, whole(addr.DanSize-addr.DanOffSwitch, ruleOR, TargetScoped, pathMerge), "mDan.mSwitch")
+	add(addr.DanSwitch, whole(addr.DanSize-addr.DanOffSwitch, ruleOR, TargetScoped, pathScoped), "mDan.mSwitch")
 	for z := range addr.ZoneCount {
 		base, _ := addr.ZoneAddr(z)
-		add(base+addr.ZoneOffSwitch, whole(addr.ZoneOffItem-addr.ZoneOffSwitch, ruleOR, TargetScoped, pathMerge), fmt.Sprintf("mZone[%d] switches", z))
+		add(base+addr.ZoneOffSwitch, whole(addr.ZoneOffItem-addr.ZoneOffSwitch, ruleOR, TargetScoped, pathScoped), fmt.Sprintf("mZone[%d] switches", z))
 		add(base+addr.ZoneOffActor, whole(addr.ZoneSize-addr.ZoneOffActor, ruleOR, TargetKills, pathMerge), fmt.Sprintf("mZone[%d] dead actors", z))
 	}
 
@@ -559,7 +573,7 @@ type Refusal uint8
 
 const (
 	RefuseOff    Refusal = iota + 1 // co-op is off (turned off, or auto-disabled)
-	RefuseTarget                    // the byte is not in the allowlist, or the write's addresses don't match its image byte
+	RefuseTarget                    // the byte is not in the allowlist, the write's addresses don't match its image byte, or a zone byte is not of the zone of Link's room
 	RefuseGate                      // a gate the byte's target needs is closed this tick
 	RefusePolicy                    // the policy opens none of the byte's bits (an unsynced switch)
 	RefuseMask                      // a changed bit outside the byte's mask (class mask and policy)
@@ -615,7 +629,7 @@ func (e *RefusalError) Is(target error) bool {
 }
 
 // Tick is what one tick's snapshot tells the WriteGuard (§3.2): the
-// gates, ARMED, and the save table the live memBit holds.
+// gates, ARMED, the save table the live memBit holds and the zone table.
 type Tick struct {
 	Gates gate.Status
 	// Armed: the loaded file is bound to the session's world and passes
@@ -627,6 +641,88 @@ type Tick struct {
 	// Boss: the loaded stage polls its boss bits every frame
 	// (bossStage), so the live memBit's may not change.
 	Boss bool
+	// Zones is the snapshot's zone table: the room Link is in, each
+	// room's zone slot and each slot's room. A zone switch byte is let
+	// through only into the zone of the room Link is in (scopedClosed).
+	Zones ZoneTable
+}
+
+// ZoneTable is the zone allocation one snapshot read (§3.1): mStayNo,
+// each room's mStatus.mZoneNo and each zone slot's mRoomNo. Slots are
+// allocated first-free on each machine (createZone, d_save.cpp:1525-1537)
+// and freed by removeZone setting mRoomNo to -1 alone (d_save.h:969,
+// :793), so a slot is a room's only while the two name each other.
+type ZoneTable struct {
+	// Valid: the table was read (ZoneTableOf); the zero ZoneTable lets no
+	// zone byte through.
+	Valid  bool
+	Stay   int8
+	ZoneNo [addr.RoomCount]int8
+	RoomNo [addr.ZoneCount]int8
+}
+
+// ZoneTableOf is s's zone table. mStayNo, mZoneNo and the zones' mRoomNo
+// come from the snapshot's own reads (snap.Read).
+func ZoneTableOf(s *snap.Snapshot) ZoneTable {
+	zt := ZoneTable{Valid: true, Stay: s.StayNo, ZoneNo: s.ZoneNo}
+	for z := range addr.ZoneCount {
+		zt.RoomNo[z] = int8(s.Save[addr.InfoOffZone+z*addr.ZoneSize+addr.ZoneOffRoomNo])
+	}
+	return zt
+}
+
+// SlotOf returns the zone slot of room: mStatus[room].mZoneNo, if it is
+// 0..31 and that slot's mRoomNo is room (the §3.1 rule, as
+// snap.Snapshot.ZoneFor has it).
+func (zt *ZoneTable) SlotOf(room int) (int, bool) {
+	if !zt.Valid || room < 0 || room >= addr.RoomCount {
+		return 0, false
+	}
+	z := int(zt.ZoneNo[room])
+	if z < 0 || z >= addr.ZoneCount || int(zt.RoomNo[z]) != room {
+		return 0, false
+	}
+	return z, true
+}
+
+// scopedClosed returns why the byte at a, a dan or zone switch byte
+// (TargetScoped), may not be written this tick, or "":
+//
+//   - a dan byte needs a save table in mDan.mStageNo: the dan switches
+//     are the table initDan last ran for (dSv_danBit_c::init,
+//     d_save.cpp:1225-1235);
+//   - a zone byte needs the zone table, and its slot to be the zone of the
+//     room Link is in: the slot's mRoomNo is that room, and the room's
+//     mZoneNo names the slot back, as onSwitch's lookup and asserts have it
+//     (dComIfGp_roomControl_getZoneNo, d_save.cpp:1552-1556). A freed slot
+//     keeps its old bits (removeZone, d_save.h:969), and a slot reused for
+//     another room is that room's, so neither takes a write.
+func (t *Tick) scopedClosed(a uint32) string {
+	if a >= addr.DanSwitch && a < addr.DanSwitch+addr.DanSize-addr.DanOffSwitch {
+		if !addr.ValidTable(int(t.Table)) {
+			return "mDan.mStageNo holds no save table, so the dan switches are no table's"
+		}
+		return ""
+	}
+	if a < addr.Zones || a >= addr.Zones+addr.ZoneCount*addr.ZoneSize {
+		return "it is no dan or zone switch byte"
+	}
+	z := int(a-addr.Zones) / addr.ZoneSize
+	zt := &t.Zones
+	room := int(zt.RoomNo[z])
+	switch slot, ok := zt.SlotOf(room); {
+	case !zt.Valid:
+		return "no zone table was read this tick"
+	case !ok || slot != z:
+		zn := int8(-1)
+		if room >= 0 && room < addr.RoomCount {
+			zn = zt.ZoneNo[room]
+		}
+		return fmt.Sprintf("zone slot %d is no room's: its mRoomNo is %d, whose mZoneNo is %d", z, room, zn)
+	case room != int(zt.Stay):
+		return fmt.Sprintf("zone slot %d is room %d's, but Link is in room %d", z, room, zt.Stay)
+	}
+	return ""
 }
 
 // opens returns "" if target tg may be written at a this tick, or why
@@ -765,7 +861,10 @@ type GuardConfig struct {
 //     byte, a capacity, must not fall), and a slot, an equipment byte or
 //     a button must not move to a lesser variant;
 //   - a change to the live memBit's boss bits while a boss stage is
-//     loaded (Tick.Boss).
+//     loaded (Tick.Boss);
+//   - a dan switch byte while mDan holds no save table, and a zone switch
+//     byte outside the zone of the room Link is in, by the tick's zone
+//     table (Tick.scopedClosed).
 //
 // A live memBit byte takes the classes and policy of the table SetTick
 // says is loaded, and nothing while none is. A WriteGuard is safe for
@@ -939,6 +1038,11 @@ func (w *WriteGuard) judge(a uint32, old, val byte, p path) (string, Refusal, st
 	}
 	if why := w.tick.bossClosed(a, old, val); why != "" {
 		return what, RefuseGate, why
+	}
+	if br.target == TargetScoped {
+		if why := w.tick.scopedClosed(a); why != "" {
+			return what, RefuseTarget, why
+		}
 	}
 	r, why := judgeByte(br, old, val)
 	return what, r, why

@@ -125,14 +125,25 @@ func FuzzMerge(f *testing.F) {
 }
 
 // FuzzScopes runs arbitrary presence changes and scoped reports: four
-// bytes per step (player, op, a, b). It never panics, and every store
-// left is non-empty and kept alive by someone.
+// bytes per step (player, op, a, b). It never panics; every store left is
+// non-empty and kept alive by someone in its scope; every relay goes only
+// to other players in the scope; and no store holds, and no relay
+// carries, a switch bit the filter (SwitchFilter over a verdict that
+// syncs one switch in three) refuses: none of 0xF0-0xFF, of a room
+// outside 0..63, or outside its kind's store.
 func FuzzScopes(f *testing.F) {
 	f.Add([]byte{1, 0, 0, 1, 2, 0, 0, 1, 1, 1, 0, 0xFF, 1, 2, 1, 0x0F, 2, 3, 0, 0})
 	f.Add([]byte{1, 0, 3, 3, 1, 4, 2, 9, 2, 0, 3, 3, 2, 5, 0, 0})
+	f.Add([]byte{1, 0, 1, 4, 2, 0, 1, 4, 1, 2, 0, 0xFF, 1, 3, 2, 0xFF, 1, 4, 2, 0xFF, 2, 0, 7, 4})
 	stages := []string{"sea", "M_NewD2", "M_DragB", "sea_T", "", "kindan"}
+	synced := func(k Key, no int) bool { return no%3 == 0 }
+	filter := SwitchFilter(synced)
+	allowed := func(k Key, w int, bits uint32) bool {
+		return k.Kind == ScopeKill || bits&^filter(k, w) == 0
+	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		s := NewScopes()
+		s.Filter = filter
 		for b := data; len(b) >= 4; b = b[4:] {
 			p, op, a, c := Player(b[0]%4), b[1]%8, int(b[2]), int(b[3])
 			switch op {
@@ -146,16 +157,34 @@ func FuzzScopes(f *testing.F) {
 				if k.Kind == ScopeDan {
 					k.Room = -1
 				}
-				s.Apply(p, k, []Word{{Word: uint8(a % 18), Bits: uint32(c) << (a % 25)}})
+				r, err := s.Apply(p, k, []Word{{Word: uint8(a % 18), Bits: uint32(c) << (a % 25)}})
+				if err != nil {
+					continue
+				}
+				for _, w := range r.Delta {
+					if !allowed(k, int(w.Word), w.Bits) {
+						t.Fatalf("%s relays word %d bits 0x%X the filter refuses", k, w.Word, w.Bits)
+					}
+				}
+				for _, q := range r.To {
+					if at, _ := s.PlaceOf(q); q == p || !k.reaches(at) {
+						t.Fatalf("%s relayed to %d at %s", k, q, at)
+					}
+				}
 			}
 		}
 		for _, k := range s.Keys() {
 			alive := false
 			for _, at := range s.at {
-				alive = alive || k.keeps(at)
+				alive = alive || k.reaches(at)
 			}
-			if !alive || len(s.Get(k)) == 0 {
+			if !alive || len(s.Get(k)) == 0 || k.Kind == ScopeRoomEdge {
 				t.Fatalf("store %s: alive %v, words %v", k, alive, s.Get(k))
+			}
+			for _, w := range s.Get(k) {
+				if !allowed(k, int(w.Word), w.Bits) {
+					t.Fatalf("store %s holds word %d bits 0x%X the filter refuses", k, w.Word, w.Bits)
+				}
 			}
 		}
 		if err := checkIndex(s); err != nil {

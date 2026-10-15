@@ -123,10 +123,10 @@ type Config struct {
 	StageTblHash uint64
 	// Want is the session features to ask for; 0 asks for what the
 	// replica uses: hub.FeatureImage, and with Apply hub.FeatureSwitches,
-	// hub.FeatureLiveSwitches and hub.M4Features too (the host decides
-	// whether to allow the live-switch opt-in, --coop-live-switches). A
-	// dry run asks for what M2 did, hub.FeatureImage. Bits outside
-	// hub.SessionFeatures are ignored.
+	// hub.FeatureLiveSwitches, hub.M4Features and hub.FeaturePuzzle too
+	// (the host decides whether to allow the live-switch opt-in,
+	// --coop-live-switches). A dry run asks for what M2 did,
+	// hub.FeatureImage. Bits outside hub.SessionFeatures are ignored.
 	Want hub.Feature
 	// Policy limits what the replica proposes, plans and writes to the
 	// bits that sync; nil is world.DefaultPolicy (no memory switch or
@@ -135,9 +135,10 @@ type Config struct {
 	// host's policy.
 	Policy *world.Policy
 	// Apply makes the replica write the world's progress into the game
-	// (M3, M4): the reconciler hands the plan's writes to a FrameWriter
-	// through a WriteGuard of M3Targets | M4Targets. False is M2's dry
-	// run (--coop-dry-run): the plan is logged, never written.
+	// (M3, M4) and a co-present partner's room puzzles (M5): the
+	// reconcilers hand their writes to a FrameWriter through a WriteGuard
+	// of M3Targets | M4Targets | M5Targets. False is M2's dry run
+	// (--coop-dry-run): the plan is logged, never written.
 	Apply bool
 	// Tables are the M1 tables of the user's own disc, which the derived
 	// small keys and max life are counted from (derive.Config.Tables);
@@ -233,12 +234,18 @@ type Report struct {
 
 	// With Config.Apply:
 	Wrote    int          // bytes the reconciler wrote this tick
-	Waiting  int          // planned M3 writes not due this tick (§6.3's room change, a closed gate)
+	Waiting  int          // planned M3 writes not due this tick (§6.3's room change, the room hold, a closed gate)
 	WriteErr error        // why this tick's writes stopped or were not made, nil if they all went
 	Verify   VerifyReport // the last tick's writes, checked against this tick's snapshot
 	// RoomChange: this tick is the first STABLE one after a room or stage
 	// change, when the writes §6.3 defers are made.
 	RoomChange bool
+	// SwitchWindow: this tick is the one the loaded table's memory
+	// switches §6.3 defers are made in: the first STABLE tick after a
+	// room or stage change on which every shown room's actors have
+	// settled (the room hold, reconcile_m5_rooms.go). It is RoomChange's
+	// tick or a later one.
+	SwitchWindow bool
 	// Escape is the escape (§6.7) this tick tried to write, 0 for none,
 	// and EscapeErr why it was not written.
 	Escape    EscapeKind
@@ -271,6 +278,9 @@ type Status struct {
 	// Derive is how the derived small keys and max life stand (the
 	// Deriver's tables, and each key table's last tick).
 	Derive derive.Status
+	// Puzzle is how the room puzzles stand (M5): where Link is, and the
+	// partner's dan, zone and room switches written and refused.
+	Puzzle PuzzleStatus
 }
 
 // helloKey is what a CO_HELLO describes: when it changes, the replica
@@ -342,10 +352,12 @@ type Replica struct {
 	// The reconciler.
 	room    roomWatch
 	toWrite []Write // this tick's writes, made once the lock is released
-	window  bool    // they are the room-change window's (§6.3)
+	window  windows // the deferred writes' windows they are made in (§6.3)
 
 	// The M4 receiver (reconcile_m4.go).
 	m4 m4
+	// The M5 receiver (reconcile_m5.go).
+	m5 m5
 
 	// The escape hatches (escape.go).
 	esc     *escapeReq // asked for, waiting for a tick
@@ -420,7 +432,7 @@ func New(cfg Config) (*Replica, error) {
 	}
 	w, err := NewFrameWriter(WriterConfig{Mem: r.m, DryRun: true})
 	if cfg.Apply {
-		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | TargetEscape, Policy: r.policy, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
+		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | TargetEscape, Policy: r.policy, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
 		w, err = NewFrameWriter(WriterConfig{Mem: r.m, Guard: wg, BeatTimeout: cfg.BeatTimeout, Logf: r.logf, Label: r.label})
 	}
 	if err != nil {
@@ -428,11 +440,16 @@ func New(cfg Config) (*Replica, error) {
 	}
 	r.writer = w
 	r.m4 = newM4(cfg.Tables)
+	r.m5 = newM5()
 	r.differ = NewDiffer(r.policy)
 	if cfg.Apply {
 		// M4's sender pace (differ_pace.go). A dry run is M2's replica,
 		// which sent every edge at once.
 		r.differ.Pace(nil)
+		// M5's scoped sender (differ_scoped.go): the latching switches of
+		// this side's M1 verdict, which is the host's when the hub grants
+		// FeaturePuzzle; nil tables propose none.
+		r.differ.ShareScopes(hub.ScopeFilter(cfg.Tables.SyncedScopedSwitch))
 	}
 	r.planner = NewPlanner(r.policy)
 	r.planner.writes = !r.writer.DryRun()
@@ -447,7 +464,7 @@ func (r *Replica) Guard() *Guard { return r.guard }
 func (r *Replica) want() hub.Feature {
 	if r.cfg.Want == 0 {
 		if r.cfg.Apply {
-			return hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches | hub.M4Features
+			return hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches | hub.M4Features | hub.FeaturePuzzle
 		}
 		return hub.FeatureImage
 	}
@@ -523,6 +540,10 @@ func (r *Replica) resetSession() {
 	r.presence, r.partner, r.early = nil, nil, nil
 	r.track = partnerTrack{}
 	r.bindAsk, r.bindGranted = nil, false
+	// The next session's hub sends the stores again as the first PRESENCE
+	// enters their scopes, and an old one's are no store it holds.
+	clear(r.scopedIn)
+	clear(r.loggedSc)
 }
 
 // RequestBind asks for the loaded file to be bound to the session's
@@ -586,6 +607,7 @@ func (r *Replica) Status() Status {
 		Offer:    r.offer,
 		Partner:  r.partner,
 		Derive:   r.m4.deriver.Status(),
+		Puzzle:   r.puzzleStatus(),
 	}
 	_, st.WritesOff = r.writer.Disabled()
 	if r.preflight != nil {
@@ -649,7 +671,8 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 	rep := r.tick(s, err, &out)
 	ws, window, q := r.toWrite, r.window, r.escNow
 	ds := r.m4.take()
-	r.toWrite, r.window, r.escNow = nil, false, nil
+	sc := r.m5.take()
+	r.toWrite, r.window, r.escNow = nil, windows{}, nil
 	r.unlockAndFlush(&out)
 	var werr error
 	if len(ws) > 0 {
@@ -660,6 +683,7 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 		r.mu.Unlock()
 	}
 	r.applyDerived(ctx, ds, werr, &rep)
+	r.applyScoped(ctx, sc, &rep)
 	if q != nil {
 		// After the plan's writes: an escape changes stage or moves Link,
 		// and the plan's bytes were judged against this tick's snapshot.
@@ -675,12 +699,13 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 }
 
 func (r *Replica) tick(s *snap.Snapshot, err error, out *outbox) Report {
-	r.toWrite, r.window, r.escNow = nil, false, nil
+	r.toWrite, r.window, r.escNow = nil, windows{}, nil
 	if err != nil {
 		st := r.gates.Observe(nil)
 		r.writer.Observe(nil, st, false)
 		r.differ.Drop()
 		r.m4Reset()
+		r.m5.leave()
 		r.last = nil
 		r.armedNow = false
 		r.failEscape(err)
@@ -772,8 +797,10 @@ func (r *Replica) tick(s *snap.Snapshot, err error, out *outbox) Report {
 	r.pruneScoped(o)
 	r.plan(o, armed)
 	rep.Planned, rep.Held = len(r.planned), len(r.held)
+	r.m5Observe(o) // the rooms' clocks, which M3's memory switches wait on too
 	r.reconcile(o, armed, &rep)
 	r.reconcileM4(o, armed, &rep)
+	r.reconcileM5(o, armed)
 	r.escapeTick(o, armed)
 	r.runPreflight(o, v, out)
 	rep.State, rep.Why = r.state(o, v)
@@ -1041,7 +1068,8 @@ func (r *Replica) onWorld(m *wire.World) {
 	r.preflightDue = true
 }
 
-// onScoped keeps (or, for a room edge, logs) a scoped store the hub sent.
+// onScoped keeps a scoped store the hub sent, or, for a room edge, hands
+// it to the M5 receiver for the room Link is in (m5Edge).
 // The hub sends them only to a bound peer granted the kind's feature
 // (hub.onScoped, sendEntries), so anything else is dropped: a host can't
 // make a replica it never welcomed as bound keep stores. The stores kept
@@ -1055,15 +1083,7 @@ func (r *Replica) onScoped(m *wire.Scoped) {
 	if m.Kind == wire.ScopeRoomEdge {
 		// Relayed live, never kept (§6.3): only the room it is for, at
 		// this moment, could apply it.
-		if o := r.last; o != nil && o.screen == screenGame && o.s.StageName == m.Stage.String() && o.s.StayNo == m.Room {
-			for _, w := range m.Words {
-				for b := range 16 {
-					if w.Bits&(1<<b) != 0 {
-						r.logf("co-op: dry-run: would set %s in room %d now (a room edge)", scopedLabel(m.Kind, int(w.Word), b), m.Room)
-					}
-				}
-			}
-		}
+		r.m5Edge(m)
 		return
 	}
 	if k.kind == wire.ScopeDan {
@@ -1325,27 +1345,36 @@ func (r *Replica) logPlan(ws []Write, held []HeldBit) {
 	}
 }
 
-// pruneScoped drops the stores of a stage or table other than the one o
-// shows Link in, and what was logged of them: the hub sends a stage's
-// stores again on entry. It runs on every tick in game, armed or not, so
-// what a host sends can't pile up.
+// pruneScoped drops the stores of a scope o does not show Link in, and
+// what was logged of them, so the receiver keeps a store no longer than
+// the hub sends it one (world.Scopes): a stage or table other than Link's,
+// a ZONE store of another room than mStayNo, and off the game every DAN
+// and ZONE store. The PRESENCE this very tick sends says the same place
+// (presenceOf), and the hub sends a scope's store again when a PRESENCE
+// enters it (hub.onPresence, sendEntries), if anyone is still there; a
+// relay that crosses the PRESENCE goes on the next tick. It runs on every
+// tick, armed or not, so what a host sends can't pile up.
 func (r *Replica) pruneScoped(o *obs) {
-	if o.screen != screenGame {
-		return
-	}
+	in := o.screen == screenGame
 	stage, _ := wire.MakeStage(o.s.StageName) // an invalid name matches no store
 	for _, m := range []map[scopeKey][]uint32{r.scopedIn, r.loggedSc} {
 		for k := range m {
-			if k.stage != stage || k.table != o.s.Table {
+			switch {
+			case k.kind == wire.ScopeDan || k.kind == wire.ScopeZone:
+				if !in || k.stage != stage || k.table != o.s.Table || k.kind == wire.ScopeZone && k.room != o.s.StayNo {
+					delete(m, k)
+				}
+			case in && (k.stage != stage || k.table != o.s.Table):
 				delete(m, k)
 			}
 		}
 	}
 }
 
-// planScoped logs the dan, zone and kill bits the hub sent that the
-// receiver's scopes lack, with §6.3's and §7.2's apply rule. pruneScoped
-// has dropped this tick the stores of a stage or table the receiver left.
+// planScoped logs the kill bits the hub sent that the receiver's scopes
+// lack, with §7.2's apply rule (M6). The dan and zone stores are the M5
+// receiver's (reconcileM5). pruneScoped has dropped this tick the stores
+// of a stage or table the receiver left.
 func (r *Replica) planScoped(o *obs) {
 	s := o.s
 	keys := make([]scopeKey, 0, len(r.scopedIn))
@@ -1361,16 +1390,6 @@ func (r *Replica) planScoped(o *obs) {
 		var local []uint32
 		var when string
 		switch k.kind {
-		case wire.ScopeDan:
-			d := danWords(s)
-			local, when = d[:], "live when idle, while the stage and table match"
-		case wire.ScopeZone:
-			z, ok := s.ZoneFor(int(k.room))
-			if !ok || k.room != s.StayNo {
-				continue
-			}
-			zw := zoneWords(s, z)
-			local, when = []uint32{uint32(zw[0]), uint32(zw[1])}, "live when idle, while in this room"
 		case wire.ScopeKill:
 			z, ok := s.ZoneFor(int(k.room))
 			if !ok {

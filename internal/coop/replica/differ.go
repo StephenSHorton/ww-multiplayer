@@ -79,10 +79,14 @@ type obs struct {
 	// boss: the loaded stage polls its table's boss bits every frame
 	// (bossStage).
 	boss bool
+	// rooms is the M5 receiver's probe of the rooms (readRoomProbe), read
+	// in game only.
+	rooms roomProbe
 }
 
 // observe decodes s. It reads a few more bytes from m: the STAG chunk's
-// mProp and stage type, through mStageData.mpStagInfo.
+// mProp and stage type, through mStageData.mpStagInfo, and in game the
+// rooms' probe for the M5 receiver (readRoomProbe).
 func observe(m mem.Mem, s *snap.Snapshot, st gate.Status) *obs {
 	o := &obs{s: s, st: st, file: bind.FileOf(s), screen: screenOf(s), stagTable: -1}
 	o.key = keyOf(o.file)
@@ -93,6 +97,9 @@ func observe(m mem.Mem, s *snap.Snapshot, st gate.Status) *obs {
 		o.stagTable = table
 	}
 	o.boss = bossStage(typ, ok, s.Table)
+	if o.screen == screenGame {
+		o.rooms = readRoomProbe(m)
+	}
 	return o
 }
 
@@ -176,6 +183,10 @@ type Edges struct {
 // (differ_pace.go): the story bits and registers in batches, and the
 // inventory until the game is IDLE.
 //
+// From M5 a sharing Differ (ShareScopes) proposes only the scoped bits
+// the host's M1 verdict takes, and the latching dan and zone words whole
+// on entering their scope and every second (differ_scoped.go).
+//
 // A Differ is not safe for concurrent use.
 type Differ struct {
 	policy *world.Policy
@@ -184,8 +195,9 @@ type Differ struct {
 	file fileKey
 	base world.Image
 
-	sc   scopeBase
-	pace pace
+	sc    scopeBase
+	pace  pace
+	share func(world.Key, int) uint32 // ShareScopes' filter; nil: M2's edges
 }
 
 // scopeBase is the scoped words' baselines.
@@ -201,6 +213,10 @@ type scopeBase struct {
 	zone     [3]uint16 // mSwitch[0..1] zone switches, mSwitch[2] room switches
 
 	kills [addr.RoomCount]killBase
+
+	// refresh counts the ticks until a sharing Differ proposes the dan
+	// and zone words whole again (scopeRefresh).
+	refresh int
 }
 
 type killBase struct {
@@ -301,27 +317,42 @@ func (d *Differ) scoped(s *snap.Snapshot) []wire.Scoped {
 		return nil
 	}
 	sc := &d.sc
-	if !sc.have || sc.stage != stage || sc.table != s.Table {
+	entered := !sc.have || sc.stage != stage || sc.table != s.Table
+	if entered {
 		*sc = scopeBase{have: true, stage: stage, table: s.Table}
 		sc.dan = danWords(s)
 	}
+	// whole: a sharing Differ proposes the latching dan and zone words
+	// whole this tick, not only their rises (differ_scoped.go).
+	whole := d.share != nil && sc.due(entered)
 	var out []wire.Scoped
 	add := func(kind wire.ScopeKind, room int8, ws []wire.ScopedWord) {
-		if len(ws) > 0 {
+		if ws = d.shared(kind, s, room, ws); len(ws) > 0 {
 			out = append(out, wire.Scoped{Kind: kind, Stage: stage, Table: s.Table, Room: room, Words: ws})
 		}
 	}
 
 	dan := danWords(s)
-	add(wire.ScopeDan, -1, rises32(sc.dan[:], dan[:], 0))
+	if whole {
+		add(wire.ScopeDan, -1, rises32(make([]uint32, len(dan)), dan[:], 0))
+	} else {
+		add(wire.ScopeDan, -1, rises32(sc.dan[:], dan[:], 0))
+	}
 	sc.dan = dan
 
 	if z, ok := s.ZoneFor(int(s.StayNo)); !ok {
 		sc.zoneHave = false
 	} else {
 		zw := zoneWords(s, z)
-		if sc.zoneHave && sc.room == s.StayNo && sc.slot == z {
+		same := sc.zoneHave && sc.room == s.StayNo && sc.slot == z
+		switch {
+		case d.share != nil && (whole || !same):
+			add(wire.ScopeZone, s.StayNo, rises16(make([]uint16, 2), zw[:2], 0))
+		case same:
 			add(wire.ScopeZone, s.StayNo, rises16(sc.zone[:2], zw[:2], 0))
+		}
+		if same {
+			// The room switches only ever go as edges (§6.3).
 			add(wire.ScopeRoomEdge, s.StayNo, rises16(sc.zone[2:], zw[2:], 2))
 		}
 		sc.zoneHave, sc.room, sc.slot, sc.zone = true, s.StayNo, z, zw

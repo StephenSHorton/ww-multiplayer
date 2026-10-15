@@ -6,6 +6,8 @@ import (
 	"math/rand/v2"
 	"slices"
 	"testing"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 )
 
 const (
@@ -34,8 +36,8 @@ func mustApply(t *testing.T, s *Scopes, origin Player, k Key, words ...Word) Sco
 
 // TestScopeLifetimes walks two players through Dragon Roost Cavern and
 // its boss stage (both save table 3) and checks what each store keeps,
-// relays, sends on entry and drops, per the game's own lifetimes (see
-// scope.go).
+// relays, sends on entry and drops: each lives while someone is in its
+// scope (see scope.go).
 func TestScopeLifetimes(t *testing.T) {
 	const drc, boss = "M_NewD2", "M_DragB"
 	s := NewScopes()
@@ -61,20 +63,36 @@ func TestScopeLifetimes(t *testing.T) {
 	if m := s.SetPresence(playerA, at(drc, 3, 3)); !slices.Equal(m.Dropped, []Key{roomKey(ScopeZone, drc, 3, 1)}) {
 		t.Errorf("A to room 3 dropped %v", m.Dropped)
 	}
-	// A takes the boss door: same table, so the dan store stays, and B
-	// still keeps the stage's kills.
+	// A takes the boss door: same table, so his game keeps the dan
+	// switches, and B, still in M_NewD2, keeps the stage's stores.
 	if m := s.SetPresence(playerA, at(boss, 3, 0)); len(m.Enter) != 0 || len(m.Dropped) != 0 {
 		t.Errorf("A to the boss stage: %+v", m)
 	}
-	// B follows: nobody is in M_NewD2 any more, so its kills go, but the
-	// table (and its dan switches) is still loaded.
-	if m := s.SetPresence(playerB, at(boss, 3, 0)); !slices.Equal(m.Dropped, []Key{roomKey(ScopeKill, drc, 3, 2)}) {
+	// B follows: nobody is in M_NewD2 any more, so its dan and kill
+	// stores go with their last occupant, though the table is still
+	// loaded (§6.3: a partner's dan switches reach a player only in the
+	// same stage name and table).
+	if m := s.SetPresence(playerB, at(boss, 3, 0)); !slices.Equal(m.Dropped, []Key{danKey(drc, 3), roomKey(ScopeKill, drc, 3, 2)}) {
 		t.Errorf("B to the boss stage dropped %v", m.Dropped)
 	}
-	// Back in M_NewD2, B gets the stage's dan switches on entry.
-	m := s.SetPresence(playerB, at(drc, 3, 1))
-	if want := []Entry{{Key: danKey(drc, 3), Words: []Word{{0, 1 << 1}}}}; !slices.EqualFunc(m.Enter, want, entryEqual) {
-		t.Errorf("B back in DRC got %+v, want %+v", m.Enter, want)
+	// A dan switch in the boss stage reaches B there.
+	if r := mustApply(t, s, playerA, danKey(boss, 3), Word{1, 1}); !slices.Equal(r.To, []Player{playerB}) {
+		t.Errorf("boss stage DAN relayed to %v", r.To)
+	}
+	// Back in M_NewD2, B gets nothing: no store outlived the stage. A's
+	// game still holds both stages' dan switches (one table); his sender
+	// proposes them again as he comes back, and they reach B then.
+	if m := s.SetPresence(playerB, at(drc, 3, 1)); len(m.Enter) != 0 || len(m.Dropped) != 0 {
+		t.Errorf("B back in DRC: %+v", m)
+	}
+	if r := mustApply(t, s, playerA, danKey(boss, 3), Word{0, 1 << 3}); r.To != nil {
+		t.Errorf("a dan switch in the boss stage reached %v in M_NewD2", r.To)
+	}
+	if m := s.SetPresence(playerA, at(drc, 3, 1)); len(m.Enter) != 0 || !slices.Equal(m.Dropped, []Key{danKey(boss, 3)}) {
+		t.Errorf("A back in DRC: %+v", m)
+	}
+	if r := mustApply(t, s, playerA, danKey(drc, 3), Word{0, 1<<1 | 1<<3}, Word{1, 1}); !slices.Equal(r.To, []Player{playerB}) || !slices.Equal(r.Delta, []Word{{0, 1<<1 | 1<<3}, {1, 1}}) {
+		t.Errorf("A's dan words again in DRC: %+v", r)
 	}
 	// Both on the sea: table 0 clears the dungeon's switches in the game
 	// (dSv_danBit_c::init), and the store goes with them.
@@ -273,7 +291,7 @@ func TestScopeInvariants(t *testing.T) {
 		for _, k := range s.Keys() {
 			alive := false
 			for _, q := range players {
-				if qa, ok := s.PlaceOf(q); ok && k.keeps(qa) {
+				if qa, ok := s.PlaceOf(q); ok && k.reaches(qa) {
 					alive = true
 				}
 			}
@@ -289,8 +307,8 @@ func TestScopeInvariants(t *testing.T) {
 }
 
 // checkIndex reports how s's indexes disagree with its stores: every store
-// is in the set of its stage (ZONE, KILL) or table (DAN), every key in a
-// set is a store, and no set is empty.
+// is in the set of its stage and table, every key in a set is a store, and
+// no set is empty.
 func checkIndex(s *Scopes) error {
 	n := 0
 	for g, ix := range s.byStage {
@@ -298,19 +316,8 @@ func checkIndex(s *Scopes) error {
 			return fmt.Errorf("an empty index for %s table %d", g.stage, g.table)
 		}
 		for k := range ix {
-			if s.entries[k] == nil || k.Kind == ScopeDan || k.Stage != g.stage || k.Table != g.table {
+			if s.entries[k] == nil || k.Stage != g.stage || k.Table != g.table {
 				return fmt.Errorf("%s indexed under %s table %d", k, g.stage, g.table)
-			}
-		}
-		n += len(ix)
-	}
-	for t, ix := range s.byTable {
-		if ix != nil && len(ix) == 0 {
-			return fmt.Errorf("an empty index for table %d", t)
-		}
-		for k := range ix {
-			if s.entries[k] == nil || k.Kind != ScopeDan || k.Table != t {
-				return fmt.Errorf("%s indexed under table %d", k, t)
 			}
 		}
 		n += len(ix)
@@ -321,59 +328,62 @@ func checkIndex(s *Scopes) error {
 	return nil
 }
 
-// TestScopeDanBound: a player naming stage after stage within one table
-// makes at most MaxDanStores DAN stores there. Past that a new one is
-// refused (ErrScopesFull), while the stores held go on taking bits and
-// other tables are unaffected.
-func TestScopeDanBound(t *testing.T) {
+// TestScopeStoresBounded: a player naming stage after stage within one
+// table, with every kind of store in each, holds only the stores of the
+// stage it is in: each goes as it leaves, while the stores of the stage
+// another player is in stay and go on taking bits. So no table fills up
+// with stores nobody reaches.
+func TestScopeStoresBounded(t *testing.T) {
 	s := NewScopes()
-	s.SetPresence(playerB, at("M_NewD2", 3, 1)) // keeps table 3's stores alive
-	for i := range MaxDanStores + 50 {
+	s.SetPresence(playerB, at("M_NewD2", 3, 1))
+	mustApply(t, s, playerB, danKey("M_NewD2", 3), Word{0, 1})
+	for i := range 1000 {
 		st := fmt.Sprintf("Z%06d", i)
 		s.SetPresence(playerA, at(st, 3, 0))
-		_, err := s.Apply(playerA, danKey(st, 3), []Word{{0, 1}})
-		if want := i < MaxDanStores; want != (err == nil) || err != nil && !errors.Is(err, ErrScopesFull) {
-			t.Fatalf("DAN store %d: %v", i+1, err)
+		mustApply(t, s, playerA, danKey(st, 3), Word{0, 1})
+		mustApply(t, s, playerA, roomKey(ScopeZone, st, 3, 0), Word{0, 1})
+		mustApply(t, s, playerA, roomKey(ScopeKill, st, 3, 5), Word{0, 1})
+		if n := len(s.Keys()); n != 4 {
+			t.Fatalf("stage %d: %d stores held, want B's DAN and A's three", i, n)
 		}
 	}
-	if n := len(s.Keys()); n != MaxDanStores {
-		t.Fatalf("%d stores held, want %d", n, MaxDanStores)
+	if r := mustApply(t, s, playerB, danKey("M_NewD2", 3), Word{0, 2}); !slices.Equal(r.Delta, []Word{{0, 2}}) {
+		t.Fatalf("B's store refused a new bit: %+v", r)
 	}
-	s.SetPresence(playerA, at("Z000000", 3, 0))
-	if r := mustApply(t, s, playerA, danKey("Z000000", 3), Word{0, 2}); !slices.Equal(r.Delta, []Word{{0, 2}}) || len(r.To) != 0 {
-		t.Fatalf("a store held refused a new bit: %+v", r)
+	if d := s.Leave(playerA); len(d) != 3 {
+		t.Fatalf("A's leave dropped %v, want its three stores", d)
 	}
-	s.SetPresence(playerA, at("kindan", 4, 0))
-	mustApply(t, s, playerA, danKey("kindan", 4), Word{0, 1})
-	// Once nobody is in table 3 its stores go, and it takes new ones.
-	if m := s.SetPresence(playerB, at("kindan", 4, 0)); len(m.Dropped) != MaxDanStores {
-		t.Fatalf("leaving table 3 dropped %d stores, want %d", len(m.Dropped), MaxDanStores)
+	if ks := s.Keys(); !slices.Equal(ks, []Key{danKey("M_NewD2", 3)}) {
+		t.Fatalf("stores left %v, want B's", ks)
 	}
-	s.SetPresence(playerA, at("M_NewD2", 3, 1))
-	mustApply(t, s, playerA, danKey("M_NewD2", 3), Word{0, 1})
 	if err := checkIndex(s); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// BenchmarkScopePresence moves one player between two rooms while every
-// table holds MaxDanStores DAN stores: a move costs what is near it, not
-// what is held.
+// BenchmarkScopePresence moves one player between two rooms while 200
+// others each hold a stage's dan store, a zone store and 64 kill stores:
+// a move costs what is near it, not what is held.
 func BenchmarkScopePresence(b *testing.B) {
 	s := NewScopes()
-	for tbl := range 16 {
-		s.SetPresence(Player(tbl+1), at("M_NewD2", tbl, 1))
-		for i := range MaxDanStores {
-			st := fmt.Sprintf("Z%06d", i)
-			s.SetPresence(Player(tbl+1), at(st, tbl, 0))
-			if _, err := s.Apply(Player(tbl+1), danKey(st, tbl), []Word{{0, 1}}); err != nil {
+	for i := range 200 {
+		p, st := Player(i+1), fmt.Sprintf("Z%06d", i)
+		s.SetPresence(p, at(st, i%16, 0))
+		if _, err := s.Apply(p, danKey(st, i%16), []Word{{0, 1}}); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := s.Apply(p, roomKey(ScopeZone, st, i%16, 0), []Word{{0, 1}}); err != nil {
+			b.Fatal(err)
+		}
+		for room := range 64 {
+			if _, err := s.Apply(p, roomKey(ScopeKill, st, i%16, room), []Word{{0, 1}}); err != nil {
 				b.Fatal(err)
 			}
 		}
 	}
 	b.ResetTimer()
 	for i := range b.N {
-		s.SetPresence(100, at("sea", 0, i%2))
+		s.SetPresence(250, at("sea", 0, i%2))
 	}
 }
 
@@ -410,5 +420,90 @@ func TestSwitchFilter(t *testing.T) {
 	s.SetPresence(playerB, at("M_NewD2", 3, 1))
 	if r := mustApply(t, s, playerA, edge, Word{2, 0x0003}); !slices.Equal(r.Delta, []Word{{2, 2}}) || !slices.Equal(r.Filtered, []Word{{2, 1}}) {
 		t.Errorf("room edge through the filter: %+v", r)
+	}
+}
+
+// TestSwitchFilterHazard: whatever the verdict says, a bit is kept only
+// if its switch number is one the game's setter routes to the kind's own
+// store, from a room and table it accepts (d_save.cpp:1540-1560), and the
+// verdict is never asked about anything else.
+func TestSwitchFilterHazard(t *testing.T) {
+	var asked []int
+	f := SwitchFilter(func(k Key, no int) bool {
+		asked = append(asked, no)
+		return true
+	})
+	dan, zone, edge := danKey("M_NewD2", 3), roomKey(ScopeZone, "M_NewD2", 3, 1), roomKey(ScopeRoomEdge, "M_NewD2", 3, 1)
+	for _, c := range []struct {
+		name string
+		k    Key
+		w    int
+		want uint32
+	}{
+		{"dan word 0: 0x80-0x9F", dan, 0, 0xFFFFFFFF},
+		{"dan word 1: 0xA0-0xBF", dan, 1, 0xFFFFFFFF},
+		{"dan word 2 would be the zone switches", dan, 2, 0},
+		{"dan word -1 would be memory switches", dan, -1, 0},
+		{"zone word 0: 0xC0-0xCF", zone, 0, 0xFFFF},
+		{"zone word 1: 0xD0-0xDF", zone, 1, 0xFFFF},
+		{"zone word 2 is the room switches", zone, 2, 0},
+		{"room-edge word 2: 0xE0-0xEF", edge, 2, 0xFFFF},
+		{"room-edge word 3 would be 0xF0-0xFF, which the setters assert on", edge, 3, 0},
+		{"room-edge word 0 is the zone switches", edge, 0, 0},
+		{"a zone of room 64", roomKey(ScopeZone, "M_NewD2", 3, 64), 0, 0},
+		{"a zone of room -1", roomKey(ScopeZone, "M_NewD2", 3, -1), 0, 0},
+		{"a room edge of room 64", roomKey(ScopeRoomEdge, "M_NewD2", 3, 64), 2, 0},
+		{"a dan store of table 16", danKey("M_NewD2", 16), 0, 0},
+		{"a zone of table -1", roomKey(ScopeZone, "M_NewD2", -1, 1), 0, 0},
+	} {
+		asked = nil
+		if got := f(c.k, c.w); got != c.want {
+			t.Errorf("%s: 0x%08X, want 0x%08X", c.name, got, c.want)
+		}
+		for _, no := range asked {
+			if no < addr.SwitchDanFirst || no >= addr.SwitchEnd {
+				t.Errorf("%s: the verdict was asked about switch 0x%X", c.name, no)
+			}
+		}
+		if c.want == 0 && len(asked) > 0 {
+			t.Errorf("%s: the verdict was asked about %v", c.name, asked)
+		}
+	}
+}
+
+// TestScopeReached: Reached is what a player's place reaches now, as an
+// entry would send it, without moving it.
+func TestScopeReached(t *testing.T) {
+	s := NewScopes()
+	s.SetPresence(playerA, at("M_Dai", 6, 4))
+	s.SetPresence(playerB, at("M_Dai", 6, 4))
+	mustApply(t, s, playerA, danKey("M_Dai", 6), Word{0, 1})
+	mustApply(t, s, playerA, roomKey(ScopeZone, "M_Dai", 6, 4), Word{1, 2})
+	mustApply(t, s, playerA, roomKey(ScopeKill, "M_Dai", 6, 5), Word{3, 4})
+	want := []Entry{
+		{Key: danKey("M_Dai", 6), Words: []Word{{0, 1}}},
+		{Key: roomKey(ScopeKill, "M_Dai", 6, 5), Words: []Word{{3, 4}}},
+		{Key: roomKey(ScopeZone, "M_Dai", 6, 4), Words: []Word{{1, 2}}},
+	}
+	if got := s.Reached(playerB); !slices.EqualFunc(got, want, entryEqual) {
+		t.Errorf("Reached(B) = %+v\nwant %+v", got, want)
+	}
+	// It moves nothing: the same place still enters nothing new.
+	if m := s.SetPresence(playerB, at("M_Dai", 6, 4)); len(m.Enter) != 0 {
+		t.Errorf("after Reached, the same place entered %+v", m.Enter)
+	}
+	// In another room of the stage: the stage's stores, not room 4's zone.
+	s.SetPresence(playerB, at("M_Dai", 6, 5))
+	if got := s.Reached(playerB); !slices.EqualFunc(got, want[:2], entryEqual) {
+		t.Errorf("Reached(B) in room 5 = %+v", got)
+	}
+	for _, p := range []Place{Nowhere, at("sea", 0, 1)} {
+		s.SetPresence(playerB, p)
+		if got := s.Reached(playerB); len(got) != 0 {
+			t.Errorf("Reached(B) at %s = %+v", p, got)
+		}
+	}
+	if got := s.Reached(9); got != nil {
+		t.Errorf("Reached of an unknown player = %+v", got)
 	}
 }

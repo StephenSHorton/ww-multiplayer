@@ -62,6 +62,11 @@ func seedStreams(t testing.TB) [][]byte {
 			step{who: 0, msg: scoped(wire.ScopeZone, "M_NewD2", 3, 1, wire.ScopedWord{Word: 0, Bits: 1})},
 			step{who: 1, msg: scoped(wire.ScopeKill, "M_NewD2", 3, 1, wire.ScopedWord{Word: 15, Bits: 1 << 31})},
 			step{who: 0, msg: scoped(wire.ScopeRoomEdge, "M_NewD2", 3, 1, wire.ScopedWord{Word: 2, Bits: 0x8000})},
+			step{who: 1, msg: scoped(wire.ScopeDan, "M_NewD2", 3, -1, wire.ScopedWord{Word: 0, Bits: 0xFFFFFFFF}, wire.ScopedWord{Word: 1, Bits: 0x12345678})},
+			step{who: 0, msg: scoped(wire.ScopeZone, "M_NewD2", 3, 1, wire.ScopedWord{Word: 0, Bits: 0xFFFF}, wire.ScopedWord{Word: 1, Bits: 0xFFFF})},
+			step{who: 0, msg: scoped(wire.ScopeRoomEdge, "M_NewD2", 3, 1, wire.ScopedWord{Word: 2, Bits: 0xFFFF})},
+			step{who: 1, msg: presence("M_NewD2", 3, 2)}, step{who: 1, msg: presence("M_NewD2", 3, 1)},
+			step{who: 1, msg: presence("sea", 0, 11)}, step{who: 1, msg: presence("M_NewD2", 3, 1)},
 			step{who: 2, msg: &wire.Ctrl{Op: wire.CtrlTombstone, Arg: wire.TombstoneArg(offOR, 1)}},
 			step{who: 0, msg: &wire.Ctrl{Op: wire.CtrlCoopOff, Arg: uint32(FeatureImage)}},
 			step{who: 0x80, msg: bound(1)},
@@ -101,6 +106,7 @@ func newSyncHub(t *testing.T) *syncHub {
 	s := &syncHub{t: t, store: st, log: &logLines{}}
 	cfg := fullCfg()
 	cfg.Store, cfg.StageTblHash, cfg.Logf = st, testTables, s.log.logf
+	cfg.SyncedScoped = fuzzVerdict
 	cfg.Now = func() time.Time { return time.Unix(1_800_000_000, 0) }
 	if s.h, err = newHub(cfg, true); err != nil {
 		t.Fatal(err)
@@ -132,6 +138,37 @@ func (s *syncHub) frame(c *fakeConn, payload []byte) {
 	}
 }
 
+// fuzzVerdict is an M1 verdict on the scoped switches that grants about
+// two in three, by scope and switch.
+func fuzzVerdict(table int, stage string, room, no int) bool {
+	return (table+len(stage)+room+no)%3 != 0
+}
+
+// checkScoped fails t unless SCOPED m, which c got, is one the hub may
+// send it: c's peer is bound, granted m's kind's feature and in m's scope
+// (§4.4, §6.3), and m holds only switch bits the verdict grants.
+func checkScoped(t *testing.T, h *Hub, c *fakeConn, m *wire.Scoped, keep func(world.Key, int) uint32) {
+	t.Helper()
+	k := keyOfScoped(m)
+	p := h.peers[c]
+	switch {
+	case p == nil || !p.bound():
+		t.Fatalf("%s, not bound, got SCOPED %s", c.name, k)
+	case p.features&scopeFeature(m.Kind) == 0:
+		t.Fatalf("%s got SCOPED %s without %s", p, k, scopeFeature(m.Kind))
+	}
+	at, _ := h.scopes.PlaceOf(p.id)
+	room := k.Kind == world.ScopeZone || k.Kind == world.ScopeRoomEdge
+	if at.Stage != k.Stage || at.Table != k.Table || room && at.Room != k.Room {
+		t.Fatalf("%s at %s got SCOPED %s", p, at, k)
+	}
+	for _, w := range m.Words {
+		if out := w.Bits &^ keep(k, int(w.Word)); out != 0 {
+			t.Fatalf("%s got bits 0x%X of %s word %d, which the verdict refuses", p, out, k, w.Word)
+		}
+	}
+}
+
 func FuzzHubFrames(f *testing.F) {
 	for _, s := range seedStreams(f) {
 		f.Add(s)
@@ -150,6 +187,7 @@ func FuzzHubFrames(f *testing.F) {
 			conns[i] = mk(i)
 			s.attach(conns[i])
 		}
+		keep := ScopeFilter(fuzzVerdict)
 		var seq uint64
 		for len(data) >= 3 {
 			who, n := data[0], int(binary.BigEndian.Uint16(data[1:3]))
@@ -167,7 +205,18 @@ func FuzzHubFrames(f *testing.F) {
 			s.frame(conns[i], payload)
 
 			for _, c := range conns {
-				c.take(t) // fails on anything that does not decode
+				for _, m := range c.take(t) { // fails on anything that does not decode
+					if sc, ok := m.(*wire.Scoped); ok {
+						checkScoped(t, s.h, c, sc, keep)
+					}
+				}
+			}
+			for _, k := range s.h.scopes.Keys() {
+				for _, w := range s.h.scopes.Get(k) {
+					if out := w.Bits &^ keep(k, int(w.Word)); out != 0 {
+						t.Fatalf("store %s holds bits 0x%X of word %d, which the verdict refuses", k, out, w.Word)
+					}
+				}
 			}
 			if q := s.store.Seq(); q < seq {
 				t.Fatalf("seq went from %d to %d", seq, q)

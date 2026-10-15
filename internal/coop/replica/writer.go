@@ -35,7 +35,8 @@ var (
 	// ErrAborted is a batch skipped because the game moved on between the
 	// tick's snapshot and the beat: the stage, the pending stage change,
 	// the loaded table or the loaded file changed, a save state was loaded,
-	// or, for an escape, the game stopped being IDLE.
+	// or, for an escape or a scoped write, the game stopped being IDLE, and
+	// for a zone write, the zone table moved (ApplyScoped).
 	ErrAborted = errors.New("replica: the game moved on since the snapshot: nothing was written")
 )
 
@@ -131,6 +132,8 @@ type FrameWriter struct {
 	pending []pendingByte
 	pendAt  seen         // the tick the pending bytes were written in
 	drains  []drainWatch // the counters ApplyDerived wrote, until the HUD takes them
+	scoped  []pendingScoped
+	scAt    seen // the tick the scoped bytes were written in
 	stats   WriterStats
 }
 
@@ -142,11 +145,16 @@ type seen struct {
 	table      int8
 	heartbeat  uint32
 	file       bind.File // the loaded file, as ARMED was judged on it
-	at         time.Time
+	zones      ZoneTable // the zone table the scoped path's bytes rest on
+	// oldStay is mOldStayNo, read just after the snapshot (oldStayOf);
+	// oldOK is false if that read failed or mStayNo had moved by then.
+	oldStay int8
+	oldOK   bool
+	at      time.Time
 }
 
 func seenOf(s *snap.Snapshot, f bind.File, at time.Time) seen {
-	return seen{stage: s.StageName, nextEnable: s.NextEnable, table: s.Table, heartbeat: s.Heartbeat, file: f, at: at}
+	return seen{stage: s.StageName, nextEnable: s.NextEnable, table: s.Table, heartbeat: s.Heartbeat, file: f, zones: ZoneTableOf(s), at: at}
 }
 
 // The heartbeat's pace (waitBeat). The game runs fapGm_Execute, and so
@@ -157,9 +165,10 @@ const (
 	// move at: 8 times the game's 30, for an emulator running unthrottled.
 	maxBeatRate = 240
 	// beatSlack is the frames allowed past maxBeatRate's count, between a
-	// snapshot and the first heartbeat read of its writes: the plan's own
-	// beat before an escape's, and a frame of rounding.
-	beatSlack = 2
+	// snapshot and the first heartbeat read of its writes: the beats of
+	// the tick's earlier batches (the merge, derive and scoped paths')
+	// before an escape's, and a frame of rounding.
+	beatSlack = 4
 	// maxBeatJump is the most a heartbeat poll may move by at once. The
 	// poll is a tight loop, so a jump of more is a save state loaded, or
 	// the poller descheduled for frames; either way the tick's view is
@@ -269,7 +278,13 @@ func (w *FrameWriter) observe(s *snap.Snapshot, st gate.Status, armed bool, f bi
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	var old int8
+	var oldOK bool
+	if s != nil {
+		old, oldOK = w.oldStayOf(s)
+	}
 	rep := w.verify(s, st, f)
+	w.verifyScoped(s, st, f, old, oldOK, &rep)
 	w.watchDrains(s, st, f)
 	if st.Regressed {
 		w.wg.brk.Regressed()
@@ -280,7 +295,8 @@ func (w *FrameWriter) observe(s *snap.Snapshot, st gate.Status, armed bool, f bi
 		return rep
 	}
 	w.tick, w.have = seenOf(s, f, time.Now()), true
-	w.wg.SetTick(Tick{Gates: st, Armed: armed, Table: s.Table, Boss: boss})
+	w.tick.oldStay, w.tick.oldOK = old, oldOK
+	w.wg.SetTick(Tick{Gates: st, Armed: armed, Table: s.Table, Boss: boss, Zones: w.tick.zones})
 	return rep
 }
 
@@ -364,6 +380,7 @@ type WriterStats struct {
 	Aborted    int // batches dropped because the game moved on
 	Escapes    int // escapes written (ApplyFields): refreshes and warps, §6.7
 	Derived    int // derive writes made (ApplyDerived)
+	Scoped     int // dan and zone switch bytes written (ApplyScoped)
 	Stale      int // derive writes dropped: their bytes moved since the plan
 	Drained    int // pending counters written that the HUD then took
 }
@@ -395,7 +412,7 @@ func (w *FrameWriter) Stop(why string) {
 	}
 	w.wg.brk.TurnOff(why)
 	w.mu.Lock()
-	w.pending, w.drains = nil, nil
+	w.pending, w.drains, w.scoped = nil, nil, nil
 	w.mu.Unlock()
 }
 

@@ -32,13 +32,15 @@ const (
 	// gets the GAINS relay.
 	FeatureImage Feature = 1 << 0
 	// FeaturePuzzle is the dan, zone and room-edge switches (SCOPED DAN,
-	// ZONE, ROOMEDGE; §6.3, M5).
+	// ZONE, ROOMEDGE; §6.3, M5): the latching ones of the host's M1
+	// verdict (Config.SyncedScoped, ScopeFilter).
 	FeaturePuzzle Feature = 1 << 1
 	// FeatureCombat is the kill union (SCOPED KILL; §7.2, M6).
 	FeatureCombat Feature = 1 << 2
 	// FeatureLiveSwitches is --coop-live-switches (§6.3): the current
-	// table's memory switches apply when IDLE rather than at the next
-	// room change. The hub only passes the host's choice on.
+	// table's memory switches apply when IDLE, once the room hold has
+	// passed, rather than at the next room change. The hub only passes
+	// the host's choice on.
 	FeatureLiveSwitches Feature = 1 << 3
 	// FeatureSwitches is memory switch sync (§6.2-6.3, M3): the latching
 	// memory switches 0x00-0x7F of the host's M1 switch table travel in

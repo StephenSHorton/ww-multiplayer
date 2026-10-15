@@ -16,10 +16,15 @@ import (
 // is dropped when the last occupant leaves. Presence (PRESENCE, §4.4)
 // drives it.
 //
-// Each kind follows the game's own lifetime for the state:
+// Each kind follows the game's own lifetime for the state, and §6.3's
+// rule that a partner's switches reach a player only while both are in
+// the same scope. A store lives while either player is in its scope, so
+// the receiver holds the rest of that rule: it writes a store only while
+// the partner's PRESENCE is in its scope too, and keeps it no longer than
+// it is there itself (replica's partnerIn and pruneScoped):
 //
 //	kind      stored per            relayed to, sent on entry    dropped when nobody is in
-//	DAN       stage, table          the stage (and table)        the table
+//	DAN       stage, table          the stage (and table)        the stage (and table)
 //	ZONE      stage, table, room    the room                     the room
 //	KILL      stage, table, room    the stage                    the stage
 //	ROOMEDGE  never stored          the room                     -
@@ -31,11 +36,22 @@ import (
 // (d_save.cpp:1225-1235); dSv_info_c::init (d_save.cpp:1392) and starting
 // the game from file select (dComIfGs_resetDan, d_s_name.cpp:1489) force
 // the next load to clear. So a dungeon's switches survive moving between
-// its stages, and the store lives as long as anyone is in the table. Its
-// content stays keyed by stage as well, because a partner's dan switches
-// are applied only when the stage name and table both match (§6.3, kept
-// as apply policy by Appendix C item 25): within one table, two stages'
-// switches are separate entries.
+// its stages, in each player's game. The store is keyed by stage and
+// table all the same, and lives while someone is in that stage and table,
+// because a partner's dan switches are applied only while both players
+// are in the same stage name and table (§6.3, kept as apply policy by
+// Appendix C item 25): a store kept for a stage nobody is in could only
+// reach a player whose partner is elsewhere. What a player's game carries
+// from one stage of a table to the next, its sender proposes again on
+// entering it (replica.Differ.ShareScopes), so nothing is lost when the
+// store goes.
+//
+// (M2 kept a DAN store while anyone was in its table, Appendix C item 55.
+// That never held for a lone player anyway: between two stages Link is
+// gone, the old play scene's delete clears mpPlayerPtr (dScnPly_Delete
+// ends in dComIfGp_init, d_s_play.cpp:1136; d_com_inf_game.cpp:60-69),
+// and the replica's PRESENCE says nowhere, which dropped the table's
+// stores.)
 //
 // ZONE: a room's switches 0xC0-0xDF live in the zone the room was given
 // (dSv_zoneBit_c, d_save.cpp:1279-1282), keyed by (stage, room) because
@@ -57,13 +73,21 @@ import (
 // relayed to the players in that room at that moment and never kept
 // (Appendix C item 2).
 //
-// Bounds. A player reports only for a scope its presence is in (Apply), so
-// the ZONE stores are at most one per occupied room and the KILL stores
-// 64 per occupied stage. DAN alone outlives its stage, and a player could
-// name stage after stage within one table, so each table holds at most
-// MaxDanStores of them. A presence change looks only at the stores it can
-// enter or leave (they are indexed by stage and by table), never at all of
-// them.
+// Bounds. A player reports only for a scope its presence is in (Apply),
+// and a store lives only while a player is in its scope, so the stores are
+// at most one DAN and 64 KILL stores per occupied stage and one ZONE store
+// per occupied room: a peer naming stage after stage drops each one's
+// stores as it leaves. A presence change looks only at the stores it can
+// enter or leave (they are indexed by stage), never at all of them.
+//
+// The assert hazard (§3.1). The game's switch setters halt on a switch
+// number of 0xF0-0xFE, a room outside 0..63 or a zone the room lacks
+// (JUT_ASSERT, live in GZLE01, d_save.cpp:1541-1556). A key's room and
+// table are checked (Key.check), a word's number range is its kind's
+// (ScopeKind.words), and SwitchFilter keeps only bits whose switch number
+// is in the store the kind names, so nothing past 0xEF is ever kept or
+// relayed. The zone the receiver's own game has for the room is the
+// receiver's to check, at every write.
 
 // Player is a co-op connection: network.CoopConn.ID, 1..255.
 type Player uint8
@@ -207,22 +231,14 @@ func (k Key) check() error {
 	return nil
 }
 
-// reaches reports whether a player at p gets k's relays and its content
-// on entry: same stage and table, and for ZONE and ROOMEDGE the same room.
+// reaches reports whether a player at p is in k's scope: it gets k's
+// relays and its content on entry, and keeps store k alive. That is the
+// same stage and table, and for ZONE and ROOMEDGE the same room.
 func (k Key) reaches(p Place) bool {
 	if !p.inStage() || p.Stage != k.Stage || p.Table != k.Table {
 		return false
 	}
 	return (k.Kind != ScopeZone && k.Kind != ScopeRoomEdge) || p.Room == k.Room
-}
-
-// keeps reports whether a player at p keeps store k alive: anyone in the
-// table for DAN, else whoever k reaches.
-func (k Key) keeps(p Place) bool {
-	if k.Kind == ScopeDan {
-		return p.inStage() && p.Table == k.Table
-	}
-	return k.reaches(p)
 }
 
 // Word is one word of a scoped store: element Word of the game array its
@@ -244,16 +260,7 @@ var (
 	// ErrNotPresent is wrapped by Apply's error when the origin's
 	// presence is not in the scope it reports for.
 	ErrNotPresent = errors.New("world: player is not in that scope")
-	// ErrScopesFull is wrapped by Apply's error when a new DAN store
-	// would make its table hold more than MaxDanStores.
-	ErrScopesFull = errors.New("world: too many scoped stores")
 )
-
-// MaxDanStores is the most DAN stores one save table holds: about twice
-// the stages the game has (the audio's stage list,
-// JAIZelBasic::spot_dir_name, JAIZelScene.cpp:281-406, names 115), so
-// only a peer naming stages that don't exist reaches it.
-const MaxDanStores = 256
 
 // Scopes holds the scoped stores and every player's place. The zero value
 // is not usable; call NewScopes.
@@ -265,10 +272,8 @@ type Scopes struct {
 
 	at      map[Player]Place
 	entries map[Key]*[maxWords]uint32
-	// The keys of entries by where they are: each stage's ZONE and KILL
-	// stores, each table's DAN stores.
+	// The keys of entries by the stage and table they are in.
 	byStage map[stageTable]map[Key]struct{}
-	byTable [addr.TableCount]map[Key]struct{}
 }
 
 // stageTable is a stage in a save table.
@@ -282,37 +287,22 @@ func NewScopes() *Scopes {
 	return &Scopes{at: map[Player]Place{}, entries: map[Key]*[maxWords]uint32{}, byStage: map[stageTable]map[Key]struct{}{}}
 }
 
-// index returns the set k is kept in: its table's for DAN, its stage's
-// otherwise. With add it makes the set if there is none.
-func (s *Scopes) index(k Key, add bool) map[Key]struct{} {
-	if k.Kind == ScopeDan {
-		if s.byTable[k.Table] == nil && add {
-			s.byTable[k.Table] = map[Key]struct{}{}
-		}
-		return s.byTable[k.Table]
-	}
-	g := stageTable{k.Stage, k.Table}
-	if s.byStage[g] == nil && add {
-		s.byStage[g] = map[Key]struct{}{}
-	}
-	return s.byStage[g]
-}
-
 func (s *Scopes) store(k Key, e *[maxWords]uint32) {
 	s.entries[k] = e
-	s.index(k, true)[k] = struct{}{}
+	g := stageTable{k.Stage, k.Table}
+	if s.byStage[g] == nil {
+		s.byStage[g] = map[Key]struct{}{}
+	}
+	s.byStage[g][k] = struct{}{}
 }
 
 func (s *Scopes) drop(k Key) {
 	delete(s.entries, k)
-	if ix := s.index(k, false); ix != nil {
+	g := stageTable{k.Stage, k.Table}
+	if ix := s.byStage[g]; ix != nil {
 		delete(ix, k)
 		if len(ix) == 0 {
-			if k.Kind == ScopeDan {
-				s.byTable[k.Table] = nil
-			} else {
-				delete(s.byStage, stageTable{k.Stage, k.Table})
-			}
+			delete(s.byStage, g)
 		}
 	}
 }
@@ -328,17 +318,40 @@ type Moved struct {
 }
 
 // SetPresence records that p is at place and returns what that changes.
+// Enter is sent once per entry: a place that did not move reaches nothing
+// new.
 func (s *Scopes) SetPresence(p Player, place Place) Moved {
 	old, had := s.at[p]
 	if !had {
 		old = Nowhere
 	}
 	s.at[p] = place
-	var m Moved
-	if place.inStage() && (!old.inStage() || old.Stage != place.Stage || old.Table != place.Table) {
+	stage := place.inStage() && (!old.inStage() || old.Stage != place.Stage || old.Table != place.Table)
+	room := place.inRoom() && (!old.inRoom() || old.Stage != place.Stage || old.Table != place.Table || old.Room != place.Room)
+	return Moved{Enter: s.reached(place, stage, room), Dropped: s.vacate(old, place)}
+}
+
+// Reached returns all the stored content p's place reaches now, as a
+// presence change would send it on entering that stage and room: for a
+// player that could not take it when it entered (the hub sends a store
+// only to a player granted its kind's feature) and can now.
+func (s *Scopes) Reached(p Player) []Entry {
+	place, ok := s.at[p]
+	if !ok {
+		return nil
+	}
+	return s.reached(place, place.inStage(), place.inRoom())
+}
+
+// reached is the stored content a player at place gets: with stage, the
+// DAN store and every room's KILL store of its stage; with room, the ZONE
+// store of its room.
+func (s *Scopes) reached(place Place, stage, room bool) []Entry {
+	var out []Entry
+	if stage {
 		dan := Key{Kind: ScopeDan, Stage: place.Stage, Table: place.Table, Room: -1}
 		if e, ok := s.entry(dan); ok {
-			m.Enter = append(m.Enter, e)
+			out = append(out, e)
 		}
 		var kills []Key
 		for k := range s.byStage[stageTable{place.Stage, place.Table}] {
@@ -349,17 +362,16 @@ func (s *Scopes) SetPresence(p Player, place Place) Moved {
 		slices.SortFunc(kills, compareKeys)
 		for _, k := range kills {
 			e, _ := s.entry(k)
-			m.Enter = append(m.Enter, e)
+			out = append(out, e)
 		}
 	}
-	if place.inRoom() && (!old.inRoom() || old.Stage != place.Stage || old.Table != place.Table || old.Room != place.Room) {
+	if room {
 		zone := Key{Kind: ScopeZone, Stage: place.Stage, Table: place.Table, Room: place.Room}
 		if e, ok := s.entry(zone); ok {
-			m.Enter = append(m.Enter, e)
+			out = append(out, e)
 		}
 	}
-	m.Dropped = s.vacate(old, place)
-	return m
+	return out
 }
 
 // Leave forgets p (its connection ended) and returns the stores nobody
@@ -394,9 +406,8 @@ type Scoped struct {
 // Apply ORs origin's words into store k (or, for ROOMEDGE, only relays
 // them) and returns the effective delta and who gets it. Words may come in
 // any order, with duplicates. It fails if k or a word is malformed
-// (ErrScope), origin is not where k is (ErrNotPresent): only a player in
-// a scope reports for it, or k would be a DAN store past its table's
-// MaxDanStores (ErrScopesFull).
+// (ErrScope), or origin is not where k is (ErrNotPresent): only a player
+// in a scope reports for it.
 func (s *Scopes) Apply(origin Player, k Key, words []Word) (Scoped, error) {
 	if err := k.check(); err != nil {
 		return Scoped{}, err
@@ -432,9 +443,6 @@ func (s *Scopes) Apply(origin Player, k Key, words []Word) (Scoped, error) {
 		if e == nil {
 			if in == ([maxWords]uint32{}) {
 				return r, nil // nothing to keep
-			}
-			if n := len(s.byTable[k.Table]); k.Kind == ScopeDan && n >= MaxDanStores {
-				return r, fmt.Errorf("%w: table %d holds %d DAN stores already, so %s is refused", ErrScopesFull, k.Table, n, k)
 			}
 			e = new([maxWords]uint32)
 			s.store(k, e)
@@ -481,34 +489,29 @@ func (s *Scopes) entry(k Key) (Entry, bool) {
 	return Entry{Key: k, Words: nonZero(e)}, true
 }
 
-// vacate drops the stores a player moving from old to now no longer keeps
-// alive and nobody else does, and returns their keys, sorted. Only the
-// stores old kept can lose their last keeper: its table's DAN stores and
-// its stage's ZONE and KILL stores.
+// vacate drops the stores a player moving from old to now no longer
+// reaches and nobody else does, and returns their keys, sorted. Only the
+// stores old reached can lose their last occupant: those of its stage.
 func (s *Scopes) vacate(old, now Place) []Key {
 	if !old.inStage() {
 		return nil
 	}
 	var dropped []Key
-	check := func(ix map[Key]struct{}) {
-		for k := range ix {
-			if k.keeps(now) || !k.keeps(old) {
-				continue
-			}
-			alive := false
-			for _, at := range s.at {
-				if k.keeps(at) {
-					alive = true
-					break
-				}
-			}
-			if !alive {
-				dropped = append(dropped, k)
+	for k := range s.byStage[stageTable{old.Stage, old.Table}] {
+		if k.reaches(now) || !k.reaches(old) {
+			continue
+		}
+		alive := false
+		for _, at := range s.at {
+			if k.reaches(at) {
+				alive = true
+				break
 			}
 		}
+		if !alive {
+			dropped = append(dropped, k)
+		}
 	}
-	check(s.byTable[old.Table])
-	check(s.byStage[stageTable{old.Stage, old.Table}])
 	for _, k := range dropped {
 		s.drop(k)
 	}
@@ -522,21 +525,37 @@ func (s *Scopes) vacate(old, now Place) []Key {
 // of dan word w is 0x80 + 32w + b (dSv_danBit_c::onSwitch,
 // d_save.cpp:1238-1241), bit b of zone word w is 0xC0 + 16w + b
 // (dSv_zoneBit_c::onSwitch, d_save.cpp:1279-1282). With the M1 table that
-// is switches.KeyFor(k.Table, k.Stage, k.Room, no) and Table.Synced.
+// is tables.Tables.SyncedScopedSwitch(k.Table, k.Stage, k.Room, no).
+//
+// Whatever synced says, a bit is kept only if its switch number is one
+// the game's setter routes to the kind's own store (addr.ClassifySwitch,
+// the routing of dSv_info_c::onSwitch, d_save.cpp:1540-1560): dan words
+// hold 0x80-0xBF, zone words 0xC0-0xDF and the room-edge word 0xE0-0xEF.
+// So a word outside its kind (dan word 2 would be 0xC0-0xDF, zone word 2
+// the room switches, room-edge word 3 the 0xF0-0xFF the setters assert
+// on, d_save.cpp:1541-1542), a zone or room switch of a room outside
+// 0..63 (d_save.cpp:1553) and a key of a save table outside 0..15 keep
+// nothing, and synced is not asked about them.
 func SwitchFilter(synced func(k Key, no int) bool) func(Key, int) uint32 {
 	return func(k Key, w int) uint32 {
 		var base, bits int
+		var store addr.SwitchStore
 		switch k.Kind {
 		case ScopeDan:
-			base, bits = addr.SwitchDanFirst+32*w, 32
-		case ScopeZone, ScopeRoomEdge:
-			base, bits = addr.SwitchZoneFirst+16*w, 16
+			base, bits, store = addr.SwitchDanFirst+32*w, 32, addr.SwitchDan
+		case ScopeZone:
+			base, bits, store = addr.SwitchZoneFirst+16*w, 16, addr.SwitchZone
+		case ScopeRoomEdge:
+			base, bits, store = addr.SwitchZoneFirst+16*w, 16, addr.SwitchRoom
 		default:
 			return 0xFFFFFFFF
 		}
+		if w < 0 || !addr.ValidTable(k.Table) || k.Kind != ScopeDan && !validRoom(k.Room) {
+			return 0
+		}
 		var keep uint32
 		for b := 0; b < bits; b++ {
-			if synced(k, base+b) {
+			if no := base + b; addr.ClassifySwitch(no) == store && synced(k, no) {
 				keep |= 1 << b
 			}
 		}

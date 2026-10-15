@@ -35,8 +35,11 @@ const (
 	// and written on the first STABLE tick after it (§6.3), so a
 	// partner's bit does not change what the actors of the receiver's
 	// room are doing. The current table's memory switches, which polling
-	// actors answer with camera events (§6.1); --coop-live-switches
-	// (hub.FeatureLiveSwitches) applies them when IDLE instead. And the
+	// actors answer with camera events (§6.1), wait as well for the room
+	// hold (every shown room's actors have had roomSettle IDLE frames,
+	// reconcile_m5_rooms.go), as a new shutter swallows a switch set in
+	// its first 30 frames; --coop-live-switches (hub.FeatureLiveSwitches)
+	// applies them when IDLE and past the room hold instead. And the
 	// ocean, the charts and the sea map, §3's "on load": they have one
 	// copy, which actors read at creation (salvage points register only
 	// unsalvaged ones, d_salvage.cpp:85-110, called from daSalvage_c's
