@@ -6,9 +6,10 @@ package main
 //
 //   - `patch` builds the tables of the disc it writes, after writing it,
 //     caches them by the patched main.dol's hash, and records that disc as
-//     the one last patched (tables.RecordPatched). That only reads the
-//     image, and a failure is one warning line: the patched ISO is the
-//     same byte for byte, and patch succeeds all the same.
+//     the one last patched (tables.RecordPatched), even when the tables
+//     can't be built from it. That only reads the image, and a failure is
+//     one warning line: the patched ISO is the same byte for byte, and
+//     patch succeeds all the same.
 //   - A session takes the tables of --coop-iso <path> when given (cached,
 //     or built and cached), else those of the disc last patched
 //     (tables.GetPatched): the one Dolphin most likely runs.
@@ -34,7 +35,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"strings"
 	"time"
 
@@ -54,9 +54,12 @@ var coopTablesCacheDir = tables.CacheDir
 const coopISOFlag = "--coop-iso"
 
 // errNoCoopTables is loadCoopStageTables's error when nothing names the
-// disc: no --coop-iso, and no disc patched since M3.
-var errNoCoopTables = errors.New("no co-op stage tables for your disc: patch has not recorded one. " +
-	"Run patch on your vanilla ISO again (it records the disc it writes), or pass " + coopISOFlag + " <the ISO Dolphin runs>")
+// disc: no --coop-iso, and no last-patched record (tables.ErrNoRecord).
+// patch records the disc it writes whether or not its tables build, so
+// this build has not patched on this machine, or patch could not open or
+// record the disc it wrote (and said so).
+var errNoCoopTables = errors.New("no co-op stage tables for your disc: patch has recorded no disc on this machine. " +
+	"Run patch on your vanilla ISO with this build (it records the disc it writes), or pass " + coopISOFlag + " <the ISO Dolphin runs>")
 
 // coopStageTables are the M1 tables a co-op session runs with. A nil
 // *coopStageTables is a session without tables: identity 0, no memory
@@ -121,10 +124,13 @@ func (st *coopStageTables) syncedCount() (switches, saveTables int) {
 // loadCoopStageTables finds the tables of the disc the session's Dolphin
 // runs: iso's (--coop-iso) when given, from the cache or built from the
 // image (and cached), otherwise those of the disc patch last wrote. It
-// fails when neither gives tables (errNoCoopTables when nothing names a
-// disc); the session then runs without switch sync (logCoopStageTables).
-// A rebuild reads the image's stage archives, a few seconds on a real
-// disc, so a process loads them once.
+// fails when neither gives tables, and the error says why and what to do:
+// errNoCoopTables when nothing names a disc, a build that fails on the
+// disc (a *tables.BuildError, which neither patching again nor --coop-iso
+// changes), or an image or record that can't be read. The session then
+// runs without switch sync (logCoopStageTables). A rebuild reads the
+// image's stage archives, a few seconds on a real disc, so a process
+// loads them once.
 func loadCoopStageTables(iso string) (*coopStageTables, error) {
 	dir, dirErr := coopTablesCacheDir()
 	var (
@@ -142,7 +148,12 @@ func loadCoopStageTables(iso string) (*coopStageTables, error) {
 		defer d.Close()
 		var st tables.Stats
 		t, st, err = tables.Get(d, dir)
-		if err != nil {
+		var be *tables.BuildError
+		switch {
+		case errors.As(err, &be):
+			return nil, fmt.Errorf("co-op stage tables: this build can't make them from %s: %w. Patching again won't change that; "+
+				"if it is your unmodified Wind Waker (GZLE01) image, or patch made it from one, please report this line", iso, err)
+		case err != nil:
 			return nil, fmt.Errorf("co-op stage tables: %s: %w", iso, err)
 		}
 		from = fmt.Sprintf("%s %s", iso, coopTablesHow(st))
@@ -153,9 +164,14 @@ func loadCoopStageTables(iso string) (*coopStageTables, error) {
 		var ps tables.PatchedStats
 		var err error
 		t, ps, err = tables.GetPatched(dir)
+		var be *tables.BuildError
 		switch {
-		case errors.Is(err, fs.ErrNotExist):
+		case errors.Is(err, tables.ErrNoRecord):
 			return nil, errNoCoopTables
+		case errors.As(err, &be):
+			return nil, fmt.Errorf("co-op stage tables: this build can't make them from %s (the disc last patched, %s): %w. Patching again or %s won't change that; "+
+				"if patch made it from your unmodified Wind Waker (GZLE01) image, please report this line",
+				ps.Record.Image, ps.Record.At.Local().Format(time.DateTime), be, coopISOFlag)
 		case err != nil:
 			return nil, fmt.Errorf("co-op stage tables: %w; run patch on your vanilla ISO again, or pass %s <the ISO Dolphin runs>", err, coopISOFlag)
 		}
@@ -238,22 +254,32 @@ func takeCoopISO(args []string) (iso string, rest []string, err error) {
 
 // cacheCoopTablesForPatch builds and caches the co-op stage tables of
 // image, the disc patch just wrote (or found already patched), and records
-// it as the disc last patched, for --coop sessions. It reads image and
-// writes only under coopTablesCacheDir, and it never fails the patch: any
-// problem, a panic included, is one warning line on w.
+// it as the disc last patched, for --coop sessions, even when they can't
+// be built. It reads image and writes only under coopTablesCacheDir, and
+// it never fails the patch: it prints one line on w, and a failure, a
+// panic included, is a warning that says what it means for co-op.
 func cacheCoopTablesForPatch(w io.Writer, image string) {
 	start := time.Now()
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Fprintf(w, "  co-op : WARNING: building the co-op stage tables failed (a bug; please report it: %v). The patched ISO is fine; --coop sessions will need %s to sync memory switches.\n", r, coopISOFlag)
+			fmt.Fprintf(w, "  co-op : WARNING: building the co-op stage tables failed (a bug; please report it: %v). The patched ISO is fine, but --coop sessions may run without memory switch sync.\n", r)
 		}
 	}()
 	note, err := coopTablesForPatch(image)
-	if err != nil {
+	var be *tables.BuildError
+	switch {
+	case errors.As(err, &be):
+		// The build reads the disc the same way each time, so the
+		// session's rebuild and --coop-iso fail as this one did.
+		fmt.Fprintf(w, "  co-op : WARNING: this build can't make the co-op stage tables of this disc (%s). "+
+			"The patched ISO is fine, but --coop sessions run without memory switch sync, and patching again or %s won't change that. "+
+			"The disc is recorded, so a later build that can read it needs no new patch. "+
+			"If you patched your unmodified Wind Waker (GZLE01) image, please report this line.\n", oneLine(err), coopISOFlag)
+	case err != nil:
 		fmt.Fprintf(w, "  co-op : WARNING: no co-op stage tables for this disc (%s). The patched ISO is fine; --coop sessions will need %s to sync memory switches.\n", oneLine(err), coopISOFlag)
-		return
+	default:
+		fmt.Fprintf(w, "  co-op : stage tables %s in %.1f s, for --coop sessions\n", note, time.Since(start).Seconds())
 	}
-	fmt.Fprintf(w, "  co-op : stage tables %s in %.1f s, for --coop sessions\n", note, time.Since(start).Seconds())
 }
 
 // oneLine puts err's text on one line: a failed stage-table build names
@@ -261,7 +287,12 @@ func cacheCoopTablesForPatch(w io.Writer, image string) {
 func oneLine(err error) string { return strings.ReplaceAll(err.Error(), "\n", "; ") }
 
 // coopTablesForPatch does cacheCoopTablesForPatch's work and says what it
-// did.
+// did. It records image even when its tables can't be built (Get's
+// *tables.BuildError, returned once the disc is recorded) or cached: a
+// session then reads the image again, and says why there are no tables
+// rather than that no disc is recorded. Recording also replaces the
+// record of a disc patched before, whose tables a session would otherwise
+// take while Dolphin runs this one.
 func coopTablesForPatch(image string) (string, error) {
 	dir, err := coopTablesCacheDir()
 	if err != nil {
@@ -273,18 +304,27 @@ func coopTablesForPatch(image string) (string, error) {
 	}
 	defer d.Close()
 	t, st, err := tables.Get(d, dir)
+	var be *tables.BuildError
+	if errors.As(err, &be) {
+		if rerr := tables.RecordPatched(dir, image, st.ID, time.Now()); rerr != nil {
+			return "", fmt.Errorf("%v; and the disc can't be recorded: %w", err, rerr)
+		}
+		return "", err
+	}
 	if err != nil {
 		return "", err
 	}
-	if st.SaveErr != nil {
-		return "", fmt.Errorf("built, but not cached: %w", st.SaveErr)
-	}
 	if err := tables.RecordPatched(dir, image, t.ID, time.Now()); err != nil {
+		if st.SaveErr != nil {
+			return "", fmt.Errorf("built, but not cached (%v) and not recorded: %w", st.SaveErr, err)
+		}
 		return "", err
 	}
-	note := "built and cached"
-	if st.Cached {
-		note = "already cached"
+	switch {
+	case st.SaveErr != nil:
+		return fmt.Sprintf("built (not cached: %s; each --coop session builds them again)", oneLine(st.SaveErr)), nil
+	case st.Cached:
+		return "already cached", nil
 	}
-	return note, nil
+	return "built and cached", nil
 }

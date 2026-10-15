@@ -233,9 +233,9 @@ func (h *Hub) noteTables(p *peer) {
 	var text string
 	switch {
 	case h.cfg.StageTblHash == 0:
-		text = "the host has no co-op stage tables for its disc (it can run patch on its vanilla ISO again, or pass --coop-iso), " + off
+		text = "the host has no co-op stage tables for its disc (the host's log says why), " + off
 	case p.hello.StageTblHash == 0:
-		text = "you have no co-op stage tables for your disc (run patch on your vanilla ISO again, or pass --coop-iso <the ISO Dolphin runs>), " + off
+		text = "you have no co-op stage tables for your disc (the co-op warning in your log says why and what to do), " + off
 	default:
 		text = fmt.Sprintf("your co-op stage tables (%016x) aren't the host's (%016x): another disc or ww-multiplayer version? %s", p.hello.StageTblHash, h.cfg.StageTblHash, off)
 	}

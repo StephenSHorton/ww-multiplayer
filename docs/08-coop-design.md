@@ -790,8 +790,9 @@ From M3, `--coop` writes (below); add `--coop-dry-run` to run these M2 steps as 
 
 Before the steps:
 1. Run `patch` on your vanilla ISO with this build, which records the disc for the stage tables, or pass `--coop-iso <the ISO Dolphin runs>` to `mp-local`, `host` and `join`.
+   - `patch`'s `co-op :` line says whether it built the tables. It records the disc even when they can't be built.
    - Each side's first lines must include `co-op: stage tables <id>, … N latching memory switch(es) in M save table(s) sync`.
-   - Without tables memory switches don't sync, and the host says why in a NOTICE. The rest syncs.
+   - Without tables memory switches don't sync. The rest syncs. That side's log says why in one `co-op:` warning, with what to do: no disc recorded (run `patch` with this build, or pass `--coop-iso`), a recorded image or a record that can't be read (run `patch` again, or pass `--coop-iso`), or a disc this build can't make tables from (patching again won't help; report the line). The hub's NOTICE only says which side has none (item 134).
 2. Start `mp-local --coop` (both Dolphins in one session), or `host --coop` and `join <host> --coop` on two machines. Bind both files (M2 steps 1-2).
    - Each pipeline logs `armed in world …: the world's chests, … are written to this game`.
    - The log explains the console once: type `/help` for the list. Under `mp-local`, `/refresh` and `/warp` take the player's name (`/warp PlayerB`).
@@ -1398,7 +1399,7 @@ Also needed from the owner, and not a decision: capture the fixture save states 
     - `--coop-dry-run` builds M2's replica exactly as M2 did: no Apply, no tables, and a CO_HELLO that asks for the image only. A dry-run joiner doesn't load tables. A dry-run host still loads them and runs the M3 hub, which can serve writing joiners.
     - `--coop-dry-run`, `--coop-live-switches` and `--coop-iso <path>` are taken only once `--coop` is present. Without it, every command line parses exactly as before.
     - `--coop-live-switches` is the host's choice (`hub.FeatureLiveSwitches`), so `join` rejects it. The TUI still passes no co-op flags.
-69. **Stage tables in a session.** Each side loads them once: the tables of `--coop-iso`, else those of the disc `patch` last recorded (`loadCoopStageTables`). A failure is one warning, and that side runs without switch sync: for a `stageTblHash` of 0 on either side, or one that differs from the host's, the hub grants every feature but `hub.TableFeatures` (memory switches, live switches, puzzle, combat) and says why in a NOTICE, once per reason. Only a differing `classHash` is refused outright (features 0). This settles item 67.
+69. **Stage tables in a session.** Each side loads them once: the tables of `--coop-iso`, else those of the disc `patch` last recorded (`loadCoopStageTables`). A failure is one warning, and that side runs without switch sync: for a `stageTblHash` of 0 on either side, or one that differs from the host's, the hub grants every feature but `hub.TableFeatures` (memory switches, live switches, puzzle, combat) and says in a NOTICE, once per reason, which side has none or that they differ; a side with none says why in its own log. Only a differing `classHash` is refused outright (features 0). This settles item 67. *Corrected (item 134):* the NOTICE first told a side without tables to run `patch` again or pass `--coop-iso`, though the hub can't know why it has none.
 70. **The console.** §6.7 named no way to ask for an escape before M8's panel. A stdin line starting with `/` is a command:
     - The commands are `/refresh`, `/warp`, `/coop off|on`, `/status` and `/help`, each taking an optional player name for `mp-local`'s two Dolphins.
     - Commands are read by the bind prompts' one reader, and a command is never taken as an answer. So the reader now runs under `--yes` too (item 64 said it started only without it).

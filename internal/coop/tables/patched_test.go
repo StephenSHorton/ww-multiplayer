@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
 )
@@ -20,8 +21,8 @@ var patchedAt = time.Date(2026, 10, 14, 12, 0, 0, 123_456_789, time.UTC)
 func TestRecordPatched(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "coop-tables")
 	tb := buildFixture(t, tablestest.Vanilla())
-	if _, err := ReadLastPatched(dir); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("ReadLastPatched without a record = %v, want fs.ErrNotExist", err)
+	if _, err := ReadLastPatched(dir); !errors.Is(err, ErrNoRecord) || !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("ReadLastPatched without a record = %v, want ErrNoRecord and fs.ErrNotExist", err)
 	}
 	t.Chdir(t.TempDir())
 	if err := RecordPatched(dir, "ww-multiplayer.iso", tb.ID, patchedAt); err != nil {
@@ -109,8 +110,8 @@ func TestGetPatched(t *testing.T) {
 	if err := os.WriteFile(img, tablestest.PatchableISO(tablestest.Vanilla()), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := GetPatched(dir); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("GetPatched without a record = %v, want fs.ErrNotExist", err)
+	if _, _, err := GetPatched(dir); !errors.Is(err, ErrNoRecord) || !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("GetPatched without a record = %v, want ErrNoRecord and fs.ErrNotExist", err)
 	}
 	want := buildFixture(t, tablestest.Vanilla())
 	built, err := Build(openISO(t, tablestest.PatchableISO(tablestest.Vanilla())))
@@ -166,7 +167,11 @@ func TestGetPatched(t *testing.T) {
 	if err := os.Remove(img); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := GetPatched(dir); err == nil || !strings.Contains(err.Error(), "not cached, and the image can't be read") {
+	// The image is gone, not the record: that is not ErrNoRecord, though
+	// the image's error matches fs.ErrNotExist too.
+	_, _, err = GetPatched(dir)
+	var be *BuildError
+	if err == nil || !strings.Contains(err.Error(), "not cached, and the image can't be read") || errors.Is(err, ErrNoRecord) || errors.As(err, &be) {
 		t.Errorf("GetPatched with nothing left = %v", err)
 	}
 
@@ -176,6 +181,58 @@ func TestGetPatched(t *testing.T) {
 	}
 	if _, _, err := GetPatched(dir); err == nil {
 		t.Error("GetPatched read tables from a 6-byte image")
+	}
+}
+
+// TestGetPatchedBuildFails: a recorded disc whose tables can't be built is
+// Get's *BuildError, through GetPatched, naming the image; a binary that
+// can build them takes them from the same record, as it stands.
+func TestGetPatchedBuildFails(t *testing.T) {
+	dir := t.TempDir()
+	bad := new(stagetest.Disc)
+	bad.Add("res/Stage/bad/Stage.arc", []byte("not an archive"))
+	img := filepath.Join(t.TempDir(), "broken.iso")
+	if err := os.WriteFile(img, bad.ISO(tablestest.DOL()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id, err := Identify(openISO(t, bad.ISO(tablestest.DOL())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordPatched(dir, img, id, patchedAt); err != nil {
+		t.Fatal(err)
+	}
+	_, ps, err := GetPatched(dir)
+	var be *BuildError
+	if !errors.As(err, &be) || !strings.Contains(err.Error(), "res/Stage/bad/Stage.arc") || !strings.Contains(err.Error(), img) || ps.Record.Image != img {
+		t.Fatalf("GetPatched on a broken disc = %+v, %v; want a *BuildError naming the image", ps, err)
+	}
+
+	// The same record, read by a binary whose builders fail and then by
+	// one whose builders don't: no new record is needed.
+	good := filepath.Join(t.TempDir(), "ww-multiplayer.iso")
+	if err := os.WriteFile(good, tablestest.ISO(tablestest.Vanilla()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	vanilla := buildFixture(t, tablestest.Vanilla())
+	if err := RecordPatched(dir, good, vanilla.ID, patchedAt); err != nil {
+		t.Fatal(err)
+	}
+	saved := builders
+	t.Cleanup(func() { builders = saved })
+	builders = append([]builder(nil), saved...)
+	builders[2].build = func(*Tables, []*stagedata.Stage, *stagedata.ObjectNames) { panic("index out of range") }
+	_, _, err = GetPatched(dir)
+	builders = saved
+	if !errors.As(err, &be) {
+		t.Fatalf("GetPatched with a failing builder = %v, want a *BuildError", err)
+	}
+	tb, ps, err := GetPatched(dir)
+	if err != nil || ps.Cached || ps.Changed || tb.ID != vanilla.ID {
+		t.Fatalf("GetPatched once the builders work = %+v, %v", ps, err)
+	}
+	if rec, err := ReadLastPatched(dir); err != nil || rec.ID != vanilla.ID || rec.Image != good || !rec.At.Equal(patchedAt.Truncate(time.Millisecond)) {
+		t.Errorf("the record changed: %+v, %v", rec, err)
 	}
 }
 

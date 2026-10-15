@@ -347,7 +347,9 @@ func TestPreflightCountsSwitches(t *testing.T) {
 }
 
 // TestHostWithoutTables: a host with no stage tables shares no switch,
-// and tells each player that wants them why.
+// and tells each player that wants them so, whole in one NOTICE. The hub
+// knows only that the host has none, not why, so the NOTICE points to the
+// host's log and gives no advice of its own.
 func TestHostWithoutTables(t *testing.T) {
 	r := startRig(t, Config{Features: DefaultFeatures}, true)
 	a := newConn(1, "alice")
@@ -357,7 +359,9 @@ func TestHostWithoutTables(t *testing.T) {
 		t.Fatalf("welcome %+v", w)
 	}
 	ns := pick[*wire.Notice](ms)
-	if len(ns) != 1 || ns[0].Code != wire.NoticeSchema || !containsAll(ns[0].Text, "the host has no co-op stage tables", "memory switches") || strings.HasSuffix(ns[0].Text, "...") {
+	if len(ns) != 1 || ns[0].Code != wire.NoticeSchema || !containsAll(ns[0].Text, "the host has no co-op stage tables", "the host's log says why", "memory switches") ||
+		strings.HasSuffix(ns[0].Text, "...") || !strings.HasSuffix(ns[0].Text, "the rest do") || len(ns[0].Text) > wire.MaxNoticeLen ||
+		strings.Contains(ns[0].Text, "run patch") || strings.Contains(ns[0].Text, "--coop-iso") {
 		t.Fatalf("notices %+v", ns)
 	}
 	r.send(a, up(1, switchGain(t, 0, 0), world.Gain{Off: offOR, Val: 1}))
@@ -388,7 +392,7 @@ func TestTablesNotice(t *testing.T) {
 		{other(testTables^1, DefaultFeatures), true, "aren't the host's"},
 		{other(testTables^1, DefaultFeatures), false, ""},
 		{other(testTables^2, DefaultFeatures), true, "aren't the host's"},
-		{other(0, DefaultFeatures), true, "you have no co-op stage tables"},
+		{other(0, DefaultFeatures), true, "you have no co-op stage tables for your disc (the co-op warning in your log says why and what to do)"},
 		{other(0, FeatureImage), false, ""},
 		{other(testTables, DefaultFeatures), false, ""},
 	}
@@ -398,8 +402,11 @@ func TestTablesNotice(t *testing.T) {
 		if s.notice != (len(ns) == 1) || len(ns) > 1 || s.notice && !containsAll(ns[0].Text, s.text, "memory switches") {
 			t.Errorf("step %d: notices %+v, want one: %v (%q)", i, ns, s.notice, s.text)
 		}
-		if len(ns) == 1 && strings.HasSuffix(ns[0].Text, "...") {
+		if len(ns) == 1 && (strings.HasSuffix(ns[0].Text, "...") || !strings.HasSuffix(ns[0].Text, "the rest do") || len(ns[0].Text) > wire.MaxNoticeLen) {
 			t.Errorf("step %d: the notice was clipped: %q", i, ns[0].Text)
+		}
+		if len(ns) == 1 && (strings.Contains(ns[0].Text, "run patch") || strings.Contains(ns[0].Text, "--coop-iso")) {
+			t.Errorf("step %d: the notice gives advice the hub can't know is right: %q", i, ns[0].Text)
 		}
 		wantF := Feature(s.hello.Want) & DefaultFeatures
 		if s.hello.StageTblHash != testTables {
