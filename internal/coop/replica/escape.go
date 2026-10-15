@@ -95,7 +95,7 @@ var ErrStopped = errors.New("co-op has stopped for this session: no escape is ma
 var errRoomNotLoaded = errors.New("not loaded here")
 
 // FollowTimeout is how long a warp to a partner on another stage waits,
-// after the stage change it asked for, to warp to the partner's side.
+// after the stage change it asked for, to warp onto the partner.
 const FollowTimeout = time.Minute
 
 // PartnerSettle is how long the partner must have been in its stage, with
@@ -242,7 +242,7 @@ type escapeReq struct {
 }
 
 // followWarp is the second step of a warp that changed stage: once Link
-// is in stage, warp to the partner's side.
+// is in stage, warp onto the partner.
 type followWarp struct {
 	stage string
 	until time.Time
@@ -348,7 +348,7 @@ func (r *Replica) escaped(q *escapeReq, res Result, err error, rep *Report) {
 	rep.Escape, rep.EscapeErr = q.kind, err
 	if err != nil {
 		if q.done == nil {
-			r.logf("co-op: warp to the partner's side failed: %v", err)
+			r.logf("co-op: warp onto the partner failed: %v", err)
 		}
 		return
 	}
@@ -408,7 +408,7 @@ func (r *Replica) planEscape(o *obs, armed bool, k EscapeKind) ([]Field, string,
 	if err != nil {
 		return nil, "", nil, err
 	}
-	return h.Fields(), fmt.Sprintf("going to %s, the partner's entrance (%s), then to the partner's side", h, how), r.newFollow(stage), nil
+	return h.Fields(), fmt.Sprintf("going to %s, the partner's entrance (%s), then onto the partner", h, how), r.newFollow(stage), nil
 }
 
 // notArmedWhy is why the session is not armed for o's file.
@@ -430,7 +430,7 @@ func (r *Replica) finishWarp(o *obs, armed bool, f *followWarp) ([]Field, string
 	p := r.partner
 	switch {
 	case r.now().After(f.until):
-		return nil, "", fmt.Errorf("gave up warping to the partner's side: Link was not in %s, settled, within %v", f.stage, FollowTimeout)
+		return nil, "", fmt.Errorf("gave up warping onto the partner: Link was not in %s, settled, within %v", f.stage, FollowTimeout)
 	case p != nil && p.Flags&wire.PresenceInGame != 0 && p.Flags&wire.PresenceTransitioning == 0 && p.Stage.String() != f.stage:
 		return nil, "", fmt.Errorf("the partner left %s for %s: warp again to follow", f.stage, p.Stage)
 	case o.screen != screenGame || !armed || !o.st.CanWriteIdle() || o.s.StageName != f.stage || p == nil:

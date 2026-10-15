@@ -867,7 +867,7 @@ func TestCoopSessionM3(t *testing.T) {
 	must(a.g.LoadStage(woods))
 	steady("B never saw A in the woods", partnerAt(b, woods.Name, 3, 5))
 	escape(b, joinKeys, "/warp", func() bool {
-		return b.rep.has("co-op: warp: going to kindan by point 3 into room 5, layer -1, the partner's entrance (as the partner came in by it), then to the partner's side")
+		return b.rep.has("co-op: warp: going to kindan by point 3 into room 5, layer -1, the partner's entrance (as the partner came in by it), then onto the partner")
 	})
 	if name, point, room, layer, enable := coNextStage(b.coGame); name != woods.Name || point != 3 || room != 5 || layer != -1 || enable != 1 {
 		t.Fatalf("B's warp left mNextStage %q point %d room %d layer %d enable %d", name, point, room, layer, enable)

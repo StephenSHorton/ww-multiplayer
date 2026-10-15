@@ -1052,7 +1052,7 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 18. **coop: derived max hearts and magic, add-only.** Heart source table plus the NPC reward catalogue; apply through `mItemMaxLifeCount` while IDLE. Magic from the Deku Leaf and 0x3180.
 19. **coop: story bits with a generated SyncMask, LocalOnly, holds and on-transition apply.** `gen_event_masks.py` works from the 50 `offEventBit` sites plus the D8 and refight lists. Holds cover MET_KORL, 0801, 0808, 2401, 2D10 and 3804.
 20. **coop: offline save-diff and save-merge for GCI.** Parse `card_savedata` (`m_Do_MemCardRWmng.cpp:336-357` checksums) with the packed↔RAM map. Write only to a new file and verify by parsing it back.
-21. **coop: refresh area and warp to partner.** A best-effort Go `mNextStage` write before M7 and the `SET_NEXT_STAGE` op after it. Same-stage warps use the mailbox `warp_seq`.
+21. **coop: refresh area and warp to partner.** A best-effort Go `mNextStage` write before M7 and the `SET_NEXT_STAGE` op after it. Same-stage warps use the mailbox `warp_seq`. A warp lands on the partner's own position; a landing beside it waits for M7, which can check B's own collision at the spot first (item 132).
 
 **Epic E5: Live puzzles and combat**
 22. **coop: dan and zone switch sync for co-present players.** Scoped by stage (dan) and by stage plus room (zone), using the latching table. 0xE0-0xEF are relayed live only and never stored.
