@@ -169,9 +169,10 @@ type Config struct {
 	// an unbound file against the hub's world.
 	OnPreflight func(PreflightReport)
 	// PartnerPos returns the partner's position, the latest pose sync
-	// has, for a warp to the partner on the same stage (Escape). It is
-	// called under the replica's lock, so it must not call back into
-	// the replica. Nil leaves only the warps that change stage.
+	// has, for a warp to the partner on the same stage (Escape), and each
+	// tick for the partner's trail, the spots beside it a warp lands on.
+	// It is called under the replica's lock, so it must not call back
+	// into the replica. Nil leaves only the warps that change stage.
 	PartnerPos func() (Pos, bool)
 }
 
@@ -367,6 +368,7 @@ type Replica struct {
 	entries map[entryKey]int8 // entrances this game came in by, and their rooms
 	heard   map[entryKey]int8 // the partner's, from its PRESENCE (inferred)
 	track   partnerTrack
+	trail   partnerTrail // the spots the partner walked over (escape_trail.go)
 
 	// The plan, and what of it was logged.
 	planned    []Write
@@ -538,7 +540,7 @@ func (r *Replica) resetSession() {
 	r.helloKey = helloKey{}
 	r.features, r.worldUp, r.armedNow = 0, false, false
 	r.presence, r.partner, r.early = nil, nil, nil
-	r.track = partnerTrack{}
+	r.track, r.trail = partnerTrack{}, partnerTrail{}
 	r.bindAsk, r.bindGranted = nil, false
 	// The next session's hub sends the stores again as the first PRESENCE
 	// enters their scopes, and an old one's are no store it holds.

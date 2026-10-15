@@ -836,8 +836,9 @@ func TestCoopSessionM3(t *testing.T) {
 	}
 	must(a.g.ChangeStage())
 
-	// /warp takes A to B's side on the same stage, the position pose sync
-	// has of B, in a room A's game has loaded.
+	// /warp takes A to B on the same stage, the position pose sync has of
+	// B, in a room A's game has loaded. B has stood still, so there is no
+	// spot beside it to land on; the replica's tests walk the partner.
 	posA := network.PlayerPosition{PosX: -800, PosY: 0, PosZ: 2500}
 	posB := network.PlayerPosition{PosX: 1200, PosY: 30, PosZ: -450}
 	pa, pb := coPose(t, cs, "Link", h.addr), coPose(t, jcs, "Tetra", h.addr)
@@ -856,12 +857,12 @@ func TestCoopSessionM3(t *testing.T) {
 	if w := a.beat.warps()[0]; w != (replica.Pos{X: posB.PosX, Y: posB.PosY, Z: posB.PosZ}) {
 		t.Errorf("A warped to %+v, want B's %+v", w, posB)
 	}
-	if !a.rep.has("co-op: warp: warping to the partner at (1200, 30, -450) in room 3") {
+	if !a.rep.has("co-op: warp: warping to the partner at (1200, 30, -450) in room 3 (it has not walked far enough in this room for a spot beside it)") {
 		t.Errorf("the warp was not logged:\n%s", a.rep)
 	}
 
 	// /warp takes B to A on another stage: A's entrance, which B learned
-	// from A's arrival, then A's side.
+	// from A's arrival, then A, which stood still there too.
 	woods := coWoods
 	woods.Point, woods.Room = 3, 5
 	must(a.g.LoadStage(woods))
@@ -878,6 +879,9 @@ func TestCoopSessionM3(t *testing.T) {
 	if w := b.beat.warps()[0]; w != (replica.Pos{X: posA.PosX, Y: posA.PosY, Z: posA.PosZ}) {
 		t.Errorf("B warped to %+v, want A's %+v", w, posA)
 	}
+	steady("the second step was not logged", func() bool {
+		return b.rep.has("co-op: warp: warping to the partner at (-800, 0, 2500) in room 5 (it has not walked far enough in this room for a spot beside it)")
+	})
 
 	// /coop off: A writes nothing from the tick it turned off on, while
 	// B's progress still reaches the world; /coop on writes it.

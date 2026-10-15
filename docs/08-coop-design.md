@@ -607,7 +607,7 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
   - same stage: the existing mailbox `warp_seq` (`mailbox.h:211-225`);
   - other stage: the partner's PRESENCE stage and point.
 - Before M7 both are Go writes of `mNextStage` (0x803C9D48..0x803C9D55). They are inferred and best-effort, because `dComIfGp_setNextStage` (0x800537C8, `d_com_inf_game.cpp:666-690`) also records the last scene's speed and mode, and the start point when asked, which a raw write skips. So an escape's arrival replays the mode of the last stage change the game asked for: Link's create picks its entry from it (crawling in, getting up from a fall, a demo) and takes the shields' state and the soup from it (`d_a_player_main.cpp:12280-12297`, `:12444-12550`, `:12601-12616`; item 76). The start point (`mStartCode`) matters only to the volcano and ice island actors. M7 replaces both writes with the `SET_NEXT_STAGE` op. Both ship from M3 as the softlock escape.
-- **M3 as built** (items 70-75): the console's `/refresh` and `/warp`. Refresh writes back the request `mNextStage` still holds (`d_s_play.cpp:1277-1278`). The other-stage warp asks for the partner's stage by its entrance point, into the room that entrance starts in, which the replica learns from arrivals and never guesses, then warps to the partner's side. A same-stage warp goes only into a room whose collision this game has loaded, and only once the partner has been in its stage for a second (item 82).
+- **M3 as built** (items 70-75): the console's `/refresh` and `/warp`. Refresh writes back the request `mNextStage` still holds (`d_s_play.cpp:1277-1278`). The other-stage warp asks for the partner's stage by its entrance point, into the room that entrance starts in, which the replica learns from arrivals and never guesses, then warps to the partner's side. A same-stage warp goes only into a room whose collision this game has loaded, and only once the partner has been in its stage for a second (item 82). It lands beside the partner, not on it: on the newest spot the partner's Link walked over in its room since it came into the stage, 100-500 units from it across the ground and within 100 in height (item 132). With no such spot, and on the sea, it lands on the partner's position, and the two Links overlap until one moves.
 
 ---
 
@@ -831,12 +831,13 @@ Escapes (§6.7):
   - After a void-out (Link restarted at point -1, `dStage_restartRoom`) or a turn restart (point -3, `dStage_turnRestart`, `dStage_escapeRestart`; `d_stage.cpp:2368-2404`), `/refresh` says to go through a door first and writes nothing.
   - After a death and Continue the game asked for the file's return place, an entrance (`d_a_player_dproc.inc:1091-1094`, `d_com_inf_game.cpp:1397-1406`), so `/refresh` reloads it.
 - **R2 `/warp`, same stage.** Put A and B in different rooms of DRC and type `/warp` for B.
-  - B's Link stands at A's side. Pair: B's view before and after.
+  - Walk A across its room for a second or two first (over 100 units). B's Link lands 100-500 units from A, on a spot A walked over in that room since it came into the stage, so each sees the other. The log says `warping to the partner's side at (x, y, z), N units from it, in room r`. Pair: B's view before and after.
+  - If A has not walked that far in its room, B lands on A itself, and the two overlap until one moves. The log then says `warping to the partner at … (it has not walked far enough in this room for a spot beside it)`. On the sea it always lands on A and says `(on the sea a spot beside it can be open water)` (item 132).
   - If A's room isn't loaded in B's game, B first reloads the stage by A's entrance, then warps.
   - Right after A comes into the stage, `/warp` says `not now: the partner has only just come into …` for a second: pose sync may still have A's last stage's position (item 82).
 - **R3 `/warp`, another stage.** A goes through a door on Outset while B stays in DRC. B must see A arrive, so start the session first: the room an entrance starts in is learned from arrivals (item 73). Then type `/warp` for B.
   - The log says `going to <stage> by point <p> into room <r>, layer -1, the partner's entrance …`.
-  - B loads A's stage, then warps to A's side. Pairs: after the stage change, and after the warp.
+  - B loads A's stage, then warps to A's side, on a spot A walked over in its room as in R2: walk A for a second or two once it is through the door. If it has not walked that far, B lands on A itself. Pairs: after the stage change, and after the warp.
   - If the entrance's room isn't known yet, the warp says so and writes nothing.
 - **R4 Refusals.** With the pause menu open, or during a cutscene, `/refresh` and `/warp` say `not now: … try again in a moment` and write nothing. `peek 0x803C9D48 14` is unchanged.
 
@@ -1427,6 +1428,7 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 74. **The same-stage warp, only into a loaded room.**
     - The warp writes `warp_x/y/z`, then `warp_seq` + 1 (warpLink's order; `mailbox.h:211-225`). `multiplayer_update` carries it out on the next frame Link exists and acknowledges it in `warp_ack` (`multiplayer.c:341-345`, `:365-421`). The C side is unchanged.
     - The position is pose sync's: the puppet-sync client's one other remote (`partnerPos`). It is never the player's own, since `mp-local`'s twins hear each other, and there is none with two others.
+    - *Changed by item 132:* the warp lands beside the partner, on the newest spot of its trail in its room 100-500 units from it across the ground and within 100 in height. With no such spot, and on the sea, it lands on the partner's position, as it always did before.
     - The warp waits while `warp_seq` ≠ `warp_ack`.
     - It goes only into a room whose collision this game has loaded, `mStatus[room].mpBgW` (`d_stage.h:865`; the BG actor sets and clears it, `d_a_bg.cpp:213`, `:241`). Otherwise it reloads by the partner's entrance first (inferred: an unloaded room has no floor).
 75. **The escapes' allowlist and writes.**
