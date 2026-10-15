@@ -237,14 +237,14 @@ type Report struct {
 	Waiting  int          // planned M3 writes not due this tick (§6.3's room change, the room hold, a closed gate)
 	WriteErr error        // why this tick's writes stopped or were not made, nil if they all went
 	Verify   VerifyReport // the last tick's writes, checked against this tick's snapshot
-	// RoomChange: this tick is the first STABLE one after a room or stage
-	// change, when the writes §6.3 defers are made.
+	// RoomChange: this tick is the first STABLE and IDLE one after a room
+	// or stage change, when the writes §6.3 defers are made.
 	RoomChange bool
 	// SwitchWindow: this tick is the one the loaded table's memory
-	// switches §6.3 defers are made in: the first STABLE tick after a
-	// room or stage change on which every shown room's actors have
-	// settled (the room hold, reconcile_m5_rooms.go). It is RoomChange's
-	// tick or a later one.
+	// switches §6.3 defers are made in: the first STABLE and IDLE tick
+	// after a room or stage change on which every shown room's actors
+	// have settled (the room hold, reconcile_m5_rooms.go). It is
+	// RoomChange's tick or a later one.
 	SwitchWindow bool
 	// Escape is the escape (§6.7) this tick tried to write, 0 for none,
 	// and EscapeErr why it was not written.

@@ -730,10 +730,15 @@ func (t *Tick) scopedClosed(a uint32) string {
 //
 //   - every target but the tag needs ARMED (a bind writes the tag of a
 //     file not yet bound);
-//   - stage progress bits, memory switches and the ocean need STABLE and
-//     HEARTBEAT, the gates of any write. When within that a planner may
-//     write them (the current table's switches at a room change, §6.3)
-//     is the planner's rule, which the CI write audit checks;
+//   - stage progress bits and memory switches need STABLE and HEARTBEAT,
+//     the gates of any write: another table's are written while the
+//     game is not IDLE too (Appendix C item 128). When within that a
+//     planner may write them (the current table's bits when IDLE, its
+//     switches at a room change, §6.3) is the planner's rule, which the
+//     CI write audit checks;
+//   - the ocean, the charts and the sea map need IDLE as well: the sea
+//     chart writes them while the pause menu is open (d_menu_fmap.cpp:
+//     3271, d_menu_fmap2.cpp:1045; Appendix C item 129);
 //   - story bits and the allowlisted registers (TargetStory) are written
 //     only on the TRANSITION tick (§6.5): gate.Status.OnTransition, with
 //     HEARTBEAT and ARMED. OnTransition is STABLE's other conditions
@@ -756,7 +761,7 @@ func (t *Tick) opens(tg Target, a uint32) string {
 		return "the file is not armed in this world"
 	}
 	switch tg {
-	case TargetStage, TargetOcean:
+	case TargetStage:
 		if !st.CanWrite() {
 			return closedWhy(st)
 		}

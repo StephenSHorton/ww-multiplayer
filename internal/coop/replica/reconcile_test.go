@@ -86,12 +86,13 @@ func placeOf(m mem.Mem) (gamePlace, error) {
 
 // roomWindows says which ticks may make room-change writes (§6.3), by the
 // game's places alone: the first tick since the place last changed that
-// is ARMED with the gates open (STABLE needs gate.StableTicks unchanged
-// ticks, so it comes that many after the change), or a later such tick
-// when every one before it since the change found the heartbeat stalled
-// or the game moved on (ErrStall, ErrAborted: nothing could be tried).
-// The loaded table's memory switches wait for the room hold as well, so
-// their tick can come later (switchTicks).
+// is ARMED with STABLE, IDLE and HEARTBEAT open (STABLE needs
+// gate.StableTicks unchanged ticks, so it comes that many after the
+// change; IDLE keeps it out of the pause menu and events, Appendix C item
+// 129), or a later such tick when every one before it since the change
+// found the heartbeat stalled or the game moved on (ErrStall, ErrAborted:
+// nothing could be tried). The loaded table's memory switches wait for
+// the room hold as well, so their tick can come later (switchTicks).
 func roomWindows(reps []Report, places []gamePlace) []bool {
 	win := make([]bool, len(reps))
 	due := false
@@ -99,7 +100,7 @@ func roomWindows(reps []Report, places []gamePlace) []bool {
 		if i > 0 && i < len(places) && places[i] != places[i-1] {
 			due = true
 		}
-		if !due || rep.State != StateArmed || !rep.Gates.CanWrite() {
+		if !due || rep.State != StateArmed || !rep.Gates.CanWriteIdle() {
 			continue
 		}
 		win[i] = true
@@ -503,8 +504,9 @@ func loadedSlot(a uint32, t int8) (rel int, ok bool) {
 // IDLE. A memory switch of it is written only once every room's actors
 // have run fakegame.ShutterFrames frames (the room hold, by
 // fakegame.RoomAges), and only on the one tick since a room change that
-// writes them, ARMED (switchTicks), or, with live switches, when IDLE.
-// The ocean, charts and sea map are written only on a room-change tick.
+// writes them, ARMED and IDLE (switchTicks), or, with live switches, when
+// IDLE. The ocean, charts and sea map are written only on a room-change
+// tick, which is IDLE too.
 // Which ticks are room-change ones the audit works out from places
 // (roomWindows, switchTicks), not from the replica's reports.
 func auditWrites(t *testing.T, ws []auditWrite, reps []Report, places []gamePlace, liveSwitches bool) {
@@ -559,6 +561,8 @@ func auditWrites(t *testing.T, ws []auditWrite, reps []Report, places []gamePlac
 				at("a live switch, not IDLE")
 			case isSwitch && !liveSwitches && rep.State != StateArmed:
 				at("a switch of the loaded table, not armed")
+			case isSwitch && !liveSwitches && !rep.Gates.Idle:
+				at("a switch of the loaded table at a room change, not IDLE")
 			case isSwitch && !liveSwitches:
 				if why := sw.check(w.tick, retried); why != "" {
 					at("a switch of the loaded table, %s", why)
@@ -694,8 +698,8 @@ func TestReconcileStageProgress(t *testing.T) {
 // TestReconcileSwitchWaitsForRoomChange: a memory switch of another table
 // goes to its saved slot as soon as STABLE; one of the loaded table waits
 // for the receiver's next room change and is written on the first STABLE
-// tick after it on which every shown room's actors have had the room
-// hold's roomSettle frames, at least gate.StableTicks later. Once the
+// and IDLE tick after it on which every shown room's actors have had the
+// room hold's roomSettle frames, at least gate.StableTicks later. Once the
 // receiver's game clears it, it is never written again; a save state
 // starts that over.
 func TestReconcileSwitchWaitsForRoomChange(t *testing.T) {
@@ -792,7 +796,9 @@ func TestReconcileSwitchWaitsForRoomChange(t *testing.T) {
 // writes, before the hub's WORLD came or before its welcome armed it,
 // is not theirs: the loaded table's switch the first WORLD brings waits
 // for the next room change, though the room hold of the change seen had
-// not passed when the session armed.
+// not passed when the session armed. Nor is one seen unarmed while the
+// pause menu was open, though an armed session opens no window under the
+// menu.
 func TestReconcileDropsAWindowSeenUnarmed(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -809,6 +815,15 @@ func TestReconcileDropsAWindowSeenUnarmed(t *testing.T) {
 			rr.enter(7, 6)
 			rr.ticks(gate.StableTicks + 4)
 			rr.welcome(hub.FeatureImage | hub.FeatureSwitches)
+			return rr
+		}},
+		{"before the welcome, under the pause menu", func(t *testing.T) *recRig {
+			rr := newRecRigNoWelcome(t, Config{Apply: true})
+			rr.enter(7, 6)
+			rr.g.SetPauseMenu(true)
+			rr.ticks(gate.StableTicks + 4)
+			rr.welcome(hub.FeatureImage | hub.FeatureSwitches)
+			rr.g.SetPauseMenu(false)
 			return rr
 		}},
 	} {
@@ -830,11 +845,12 @@ func TestReconcileDropsAWindowSeenUnarmed(t *testing.T) {
 	}
 }
 
-// The deferred writes' windows are one tick each: the room change's, in
-// which the ocean goes, and the memory switches', the first STABLE tick
-// after it that the room hold allows. A switch of the loaded table the
-// world gains between the two is written in the second; one it gains
-// after that waits for the next room change.
+// The deferred writes' windows are one tick each: the room change's (the
+// first STABLE and IDLE tick after it), in which the ocean goes, and the
+// memory switches', the first STABLE and IDLE tick after it that the room
+// hold allows. A switch of the loaded table the world gains between the
+// two is written in the second; one it gains after that waits for the
+// next room change.
 func TestReconcileWindowIsOneTick(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, Policy: switchPolicy(t, 0x05, 0x06, 0x07)}, hub.FeatureImage|hub.FeatureSwitches)
 	var img world.Image
@@ -928,7 +944,10 @@ func TestReconcileLiveSwitches(t *testing.T) {
 // the shutter had run a few frames: it stayed shut with its switch set.
 // Both now wait for the room hold, and the shutter opens. An event or the
 // pause menu after the door, whose frames no actor executes, makes the
-// write wait longer.
+// write wait longer. Walking into a room whose actors have settled, the
+// hold has passed already, and the deferred write waits for IDLE: an
+// event or the pause menu right after the room change holds it until it
+// ends (Appendix C item 129).
 func TestReconcileSwitchRoomHold(t *testing.T) {
 	// door is Link coming through a door from room from into room to: the
 	// door shows room to (d_door.cpp:282), whose actors are created on
@@ -945,33 +964,47 @@ func TestReconcileSwitchRoomHold(t *testing.T) {
 		}
 	}
 	const no = 0x05 // latching in DRC's table (switch5Policy)
+	event := func(rr *recRig, on bool) {
+		if on {
+			rr.g.SetEvent(1, 0)
+		} else {
+			rr.g.SetEvent(0, 0)
+		}
+	}
 	for _, c := range []struct {
 		name  string
 		f     hub.Feature
-		pause func(rr *recRig, on bool) // the game not IDLE right after the door, for 25 ticks
+		pause func(rr *recRig, on bool) // the game not IDLE right after the room change, for 25 ticks
+		// settled: Link walks into room 1 from room 2, both shown all
+		// along, so the shutter has settled before the room change.
+		settled bool
 	}{
 		{name: "deferred to the room change", f: hub.FeatureImage | hub.FeatureSwitches},
 		{name: "live switches", f: hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches},
-		{name: "deferred, with an event after the door", f: hub.FeatureImage | hub.FeatureSwitches,
-			pause: func(rr *recRig, on bool) {
-				if on {
-					rr.g.SetEvent(1, 0)
-				} else {
-					rr.g.SetEvent(0, 0)
-				}
-			}},
+		{name: "deferred, with an event after the door", f: hub.FeatureImage | hub.FeatureSwitches, pause: event},
 		{name: "live, with the pause menu after the door", f: hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches,
 			pause: func(rr *recRig, on bool) { rr.g.SetPauseMenu(on) }},
+		{name: "deferred, with the pause menu after walking into a settled room", f: hub.FeatureImage | hub.FeatureSwitches,
+			pause: func(rr *recRig, on bool) { rr.g.SetPauseMenu(on) }, settled: true},
+		{name: "deferred, with an event after walking into a settled room", f: hub.FeatureImage | hub.FeatureSwitches,
+			pause: event, settled: true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			rr := newRecRig(t, Config{Apply: true}, c.f)
 			rr.load(drc)
-			rr.enter(1, 2)
 			sh := &fakegame.Shutter{Stage: drc.Name, Room: 1, No: no}
-			rr.bm.setActors(sh)
-			door(rr, 1, 2) // into room 2: room 1's shutter is deleted with its actors
-			rr.settleRooms()
-			door(rr, 2, 1) // and back: a new shutter in room 1
+			if c.settled {
+				rr.enter(2, 1)
+				rr.bm.setActors(sh)
+				rr.settleRooms()
+				rr.enter(1, 2) // the room hold has passed: only IDLE holds the write
+			} else {
+				rr.enter(1, 2)
+				rr.bm.setActors(sh)
+				door(rr, 1, 2) // into room 2: room 1's shutter is deleted with its actors
+				rr.settleRooms()
+				door(rr, 2, 1) // and back: a new shutter in room 1
+			}
 			if c.pause != nil {
 				c.pause(rr, true)
 			}
@@ -1018,14 +1051,28 @@ func TestReconcileNoSwitchesUngranted(t *testing.T) {
 }
 
 // TestReconcileOceanAtRoomChange: the ocean, the charts and the sea map
-// are written on the first STABLE tick after a room or stage change.
+// are written on the first STABLE and IDLE tick after a room or stage
+// change. The pause menu or an event right after the change, before
+// STABLE opens, holds them until it ends: the sea chart writes them under
+// the menu (Appendix C item 129).
 func TestReconcileOceanAtRoomChange(t *testing.T) {
 	for _, move := range []struct {
 		name string
 		do   func(rr *recRig)
+		busy func(rr *recRig, on bool) // the game not IDLE right after the change; nil: IDLE
 	}{
-		{"a room change", func(rr *recRig) { rr.enter(45) }},
-		{"a stage change", func(rr *recRig) { rr.load(drc) }},
+		{name: "a room change", do: func(rr *recRig) { rr.enter(45) }},
+		{name: "a stage change", do: func(rr *recRig) { rr.load(drc) }},
+		{name: "a room change, then the pause menu", do: func(rr *recRig) { rr.enter(45) },
+			busy: func(rr *recRig, on bool) { rr.g.SetPauseMenu(on) }},
+		{name: "a room change, then an event", do: func(rr *recRig) { rr.enter(45) },
+			busy: func(rr *recRig, on bool) {
+				if on {
+					rr.g.SetEvent(1, 0)
+				} else {
+					rr.g.SetEvent(0, 0)
+				}
+			}},
 	} {
 		t.Run(move.name, func(t *testing.T) {
 			rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage|hub.FeatureSwitches)
@@ -1040,8 +1087,21 @@ func TestReconcileOceanAtRoomChange(t *testing.T) {
 				t.Fatalf("%d bytes written before a room change", n)
 			}
 			move.do(rr)
-			if w := rr.untilWrite(gate.StableTicks + 4); w < 0 || rr.reps[w].Wrote != 5 || !rr.reps[w].RoomChange {
+			idle := -1 // with busy, the first tick the game is IDLE again
+			if move.busy != nil {
+				move.busy(rr, true)
+				if n := rr.ticks(gate.StableTicks + 10); n != 0 {
+					t.Fatalf("%d bytes written while the game was not idle\n%s", n, rr.log)
+				}
+				move.busy(rr, false)
+				idle = len(rr.reps)
+			}
+			w := rr.untilWrite(gate.StableTicks + 4)
+			if w < 0 || rr.reps[w].Wrote != 5 || !rr.reps[w].RoomChange {
 				t.Fatalf("after %s: %+v\n%s", move.name, rr.reps[len(rr.reps)-1], rr.log)
+			}
+			if idle >= 0 && w != idle {
+				t.Fatalf("written on tick %d, want the first idle one, %d\n%s", w, idle, rr.log)
 			}
 			got := rr.image()
 			for off := range img {

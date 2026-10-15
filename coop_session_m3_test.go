@@ -90,9 +90,10 @@ func coPlaceOf(m mem.Mem) (coPlace, error) {
 
 // coRoomWindows says which ticks may make room-change writes (§6.3), by
 // the game's places alone: the first tick since the place last changed
-// that is ARMED with the gates open, or a later such tick when every one
-// before it since the change found the heartbeat stalled or the game
-// moved on (replica.ErrStall, replica.ErrAborted). The loaded table's
+// that is ARMED with STABLE, IDLE and HEARTBEAT open (IDLE since Appendix
+// C item 129), or a later such tick when every one before it since the
+// change found the heartbeat stalled or the game moved on
+// (replica.ErrStall, replica.ErrAborted). The loaded table's
 // memory switches wait for the room hold as well, so their tick can come
 // later (coSwitchTicks).
 func coRoomWindows(reps []replica.Report, places []coPlace) []bool {
@@ -102,7 +103,7 @@ func coRoomWindows(reps []replica.Report, places []coPlace) []bool {
 		if i > 0 && i < len(places) && places[i] != places[i-1] {
 			due = true
 		}
-		if !due || rep.State != replica.StateArmed || !rep.Gates.CanWrite() {
+		if !due || rep.State != replica.StateArmed || !rep.Gates.CanWriteIdle() {
 			continue
 		}
 		win[i] = true
@@ -358,13 +359,14 @@ func (m *coM3) play(p *coPlayer, rng *rand.Rand) {
 // the one tick since a room change that writes them (coSwitchTicks) and
 // once every room's actors have run fakegame.ShutterFrames frames (the
 // room hold, by fakegame.RoomAges), the ocean, charts and sea map only on
-// a room-change tick, which it works out from where the game was as each
-// tick began (coRoomWindows, coSwitchTicks), not from the reports. From M4 a session's
-// replicas write M4's targets too, which coAuditM4Write checks by M4's
-// rules; the writes at the derive targets must be exactly those the
-// derive path reports. From M5 they write the dan and zone switch bytes
-// too (TargetScoped), which coAuditM5Write checks by M5's rules, and no
-// dan or zone switch is set twice in one scope. It counts what it saw.
+// a room-change tick, IDLE as well, which it works out from where the
+// game was as each tick began (coRoomWindows, coSwitchTicks), not from the
+// reports. From M4 a session's replicas write M4's targets too, which
+// coAuditM4Write checks by M4's rules; the writes at the derive targets
+// must be exactly those the derive path reports. From M5 they write the
+// dan and zone switch bytes too (TargetScoped), which coAuditM5Write
+// checks by M5's rules, and no dan or zone switch is set twice in one
+// scope. It counts what it saw.
 func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 	t.Helper()
 	places := p.beat.placesSeen()
@@ -491,6 +493,9 @@ func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 				n.deferred++
 				if why := sw.check(w.tick); why != "" {
 					bad("a memory switch of the loaded table, %s", why)
+				}
+				if !rep.Gates.Idle {
+					bad("a memory switch of the loaded table, not IDLE")
 				}
 				if w.young >= 0 && w.execs < fakegame.ShutterFrames {
 					bad("a memory switch of the loaded table while room %d's actors had run %d frames: a new shutter there would not see it (the room hold)", w.young, w.execs)

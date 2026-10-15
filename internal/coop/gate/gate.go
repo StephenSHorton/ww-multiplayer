@@ -5,9 +5,11 @@
 //     the title or file select, a save table is loaded, no stage change is
 //     pending, and the stage and room have not changed for StableTicks
 //     ticks;
-//   - IDLE, needed for inventory, counters, story bits, live switches and
-//     kills: no event, pause menu, minigame or boss-refight snapshot, and
-//     the pending counter about to be written is 0;
+//   - IDLE, needed for every write but the stage progress bits and memory
+//     switches of a save table other than the loaded one (STABLE alone,
+//     §6.3) and the story bits and registers (the transition tick, §6.5):
+//     no event, pause menu, minigame or boss-refight snapshot, and the
+//     pending counter about to be written is 0;
 //   - HEARTBEAT: the mod's per-frame counter advanced since the last tick.
 //     When it stalls (emulation paused, a vanilla ISO) every write stops.
 //
