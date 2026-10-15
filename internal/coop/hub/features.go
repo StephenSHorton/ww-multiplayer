@@ -32,6 +32,12 @@ const (
 	// table's memory switches apply when IDLE rather than at the next
 	// room change. The hub only passes the host's choice on.
 	FeatureLiveSwitches Feature = 1 << 3
+	// FeatureSwitches is memory switch sync (§6.2-6.3, M3): the latching
+	// memory switches 0x00-0x7F of the host's M1 switch table travel in
+	// the image (SwitchPolicy). Without it the hub neither takes a
+	// player's memory switch bytes nor sends it any, and its replica
+	// writes none.
+	FeatureSwitches Feature = 1 << 4
 
 	// FeatureMerge says the host runs with --coop-merge (§5.3): a file
 	// with progress the world lacks (divergent) or one far behind it may
@@ -60,11 +66,21 @@ const (
 
 // SessionFeatures is every session feature: what a replica may want and a
 // host may allow.
-const SessionFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureLiveSwitches
+const SessionFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureLiveSwitches | FeatureSwitches
 
 // DefaultFeatures is what a host allows unless told otherwise: everything
 // but the live-switch opt-in.
-const DefaultFeatures = FeatureImage | FeaturePuzzle | FeatureCombat
+const DefaultFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureSwitches
+
+// TableFeatures are the session features that read the M1 stage tables
+// (internal/coop/tables): which switches latch (memory switches, the live
+// opt-in, the dan and zone switches of FeaturePuzzle) and which setIDs
+// name which enemies (FeatureCombat). A player gets them only when its
+// tables' identity, CO_HELLO's stageTblHash, is the host's and not 0
+// (Config.StageTblHash); otherwise the hub grants the rest and says why in
+// a NOTICE. The image's other classes (chests, pickups, visited rooms,
+// dungeon items, ocean, charts and the sea map, §3) need no table.
+const TableFeatures = FeatureSwitches | FeatureLiveSwitches | FeaturePuzzle | FeatureCombat
 
 var featureNames = []struct {
 	f    Feature
@@ -74,6 +90,7 @@ var featureNames = []struct {
 	{FeaturePuzzle, "puzzle"},
 	{FeatureCombat, "combat"},
 	{FeatureLiveSwitches, "live-switches"},
+	{FeatureSwitches, "switches"},
 	{FeatureMerge, "merge"},
 	{FeatureBind, "bind"},
 	{AskUnsaved, "ask-unsaved"},

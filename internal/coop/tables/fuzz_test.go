@@ -58,3 +58,35 @@ func FuzzDecode(f *testing.F) {
 		_ = got.Acceptance()
 	})
 }
+
+// Fuzz target for the last-patched record, which `patch` writes and a
+// co-op session reads from the same directory:
+//
+//	go test -run='^$' -fuzz=FuzzDecodeLastPatched -fuzztime=20s ./internal/coop/tables/
+func FuzzDecodeLastPatched(f *testing.F) {
+	tb := buildFixture(f, tablestest.Vanilla())
+	good, err := json.Marshal(LastPatched{Schema: LastPatchedSchema, ID: tb.ID, Image: "/discs/ww-multiplayer.iso", At: patchedAt})
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, seed := range [][]byte{good, good[:len(good)/2], nil, []byte("{}"), []byte(`{"schema":1}`), []byte("null"), []byte(`{"schema":1,"image":"C:\\x.iso"}`)} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		rec, err := decodeLastPatched(data)
+		if err != nil {
+			return
+		}
+		if err := rec.check(); err != nil {
+			t.Fatalf("decoded a record RecordPatched would refuse: %v", err)
+		}
+		b, err := json.Marshal(rec)
+		if err != nil {
+			t.Fatalf("re-encoding: %v", err)
+		}
+		again, err := decodeLastPatched(b)
+		if err != nil || again.ID != rec.ID || again.Image != rec.Image || !again.At.Equal(rec.At) {
+			t.Fatalf("re-decoding %s: %+v, %v", b, again, err)
+		}
+	})
+}

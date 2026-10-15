@@ -27,8 +27,12 @@
 // can see the world (for the join preflight) and ask to bind (AskBind,
 // §5.3); a leaked tag is unbound until the replica scrubs it; a file
 // bound to another world, a second-quest file, and a replica whose class
-// or stage tables differ from the host's are refused: no co-op for that
-// session, while pose sync goes on over the player connection.
+// table differs from the host's are refused: no co-op for that session,
+// while pose sync goes on over the player connection. A replica whose M1
+// stage tables are not the host's (or either side has none) runs without
+// the features that read them (TableFeatures): its memory switch bytes
+// are neither taken nor sent, and only the latching switches of the
+// host's table enter the world at all (Config.SyncedSwitch).
 //
 // Nothing a peer does can stall the hub or the other peers: a peer's
 // inbound frames wait in a bounded share of the hub's queue, and its
@@ -100,9 +104,18 @@ type Config struct {
 	// stops it, which writes what is left.
 	Store *world.Store
 	// StageTblHash is the identity of the host's M1 tables (CO_HELLO's
-	// stageTblHash). A replica whose hash differs is refused, as is one
-	// whose class table differs from this build's (wire.ClassHash).
+	// stageTblHash, tables.Tables.Identity), 0 when the host has none. A
+	// replica whose hash differs, or is 0, or any replica of a host
+	// without tables, gets no TableFeatures, with a NOTICE saying why;
+	// the rest of its session runs. (One whose class table differs from
+	// this build's, wire.ClassHash, is refused outright.)
 	StageTblHash uint64
+	// SyncedSwitch is the host's M1 verdict on memory switch no of save
+	// table t (tables.Tables.SyncedMemorySwitch, from the tables
+	// StageTblHash names): only these enter the world, everything else in
+	// the memory switch bytes is refused (SwitchPolicy). Nil, a host
+	// without tables, keeps every memory switch out, as M2 did.
+	SyncedSwitch func(t, no int) bool
 	// Features is what the host allows (DefaultFeatures, or less);
 	// SetFeatures changes it while the hub runs. Bits outside
 	// SessionFeatures are ignored.
@@ -110,10 +123,11 @@ type Config struct {
 	// Merge is --coop-merge (§5.3): a file with progress the world lacks,
 	// or one far behind it, may bind.
 	Merge bool
-	// Policy narrows what the world accepts below the class masks; nil
-	// keeps world.DefaultPolicy, under which no memory switch or story bit
-	// enters the world. The host grants the latching switches of its M1
-	// table (world.Policy.GrantSwitches over switches.Table.Synced).
+	// Policy narrows what the world accepts below the class masks; nil is
+	// world.DefaultPolicy, under which no story bit enters the world. With
+	// SyncedSwitch set, its memory switch bytes are replaced by
+	// SyncedSwitch's grants (SwitchPolicy); without, they are as given
+	// (none in world.DefaultPolicy).
 	Policy *world.Policy
 	// ScopeFilter is the scoped stores' filter (world.SwitchFilter over
 	// the M1 table); nil keeps every bit.
@@ -202,9 +216,14 @@ func newHub(cfg Config, direct bool) (*Hub, error) {
 	if h.isHost == nil {
 		h.isHost = fromLoopback
 	}
-	if cfg.Policy != nil {
-		h.store.SetPolicy(cfg.Policy)
+	pol := cfg.Policy
+	if pol == nil {
+		pol = world.DefaultPolicy()
 	}
+	if cfg.SyncedSwitch != nil {
+		pol = SwitchPolicy(pol, cfg.SyncedSwitch)
+	}
+	h.store.SetPolicy(pol)
 	h.scopes.Filter = cfg.ScopeFilter
 	return h, nil
 }
@@ -537,9 +556,13 @@ func (h *Hub) sorted(keep func(*peer) bool) []*peer {
 }
 
 // grant is the features p runs with: what the host allows and p wants,
-// and whether the host merges divergent files.
+// less TableFeatures unless p's stage tables are the host's, and whether
+// the host merges divergent files.
 func (h *Hub) grant(p *peer) Feature {
 	f := h.features & p.want & SessionFeatures
+	if !h.tablesMatch(p) {
+		f &^= TableFeatures
+	}
 	if h.cfg.Merge {
 		f |= FeatureMerge
 	}

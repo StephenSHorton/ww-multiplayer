@@ -385,10 +385,13 @@ type coHost struct {
 	srv  *network.Server
 	port int
 	addr string
+	// flags are the last start's, for a restart.
+	flags coopFlags
 }
 
 func (h *coHost) start(f coopFlags) {
 	h.t.Helper()
+	h.flags = f
 	cs, err := startCoopHost(h.ctx, h.rep, func(s string) { h.rep.Log(report.Net, s) }, f, h.env)
 	if err != nil {
 		h.t.Fatalf("startCoopHost: %v\n%s", err, h.rep)
@@ -416,12 +419,15 @@ func (h *coHost) stop() {
 	h.srv = nil
 }
 
-// restart stops the host and starts it again with plain --coop, which
-// serves the only world on disk: the world comes back from its file.
+// restart stops the host and starts it again with plain --coop (and the
+// last start's other flags), which serves the only world on disk: the
+// world comes back from its file.
 func (h *coHost) restart() {
 	h.t.Helper()
 	h.stop()
-	h.start(coopFlags{on: true, yes: true})
+	f := h.flags
+	f.world = ""
+	h.start(f)
 }
 
 // world is the hub's world now.
@@ -435,14 +441,29 @@ type coPlayer struct {
 	s    *coopSync
 	u    *coWire
 	rep  *coLog
+	// beat, if set, is the Mem the pipeline runs over (a writing
+	// replica's), and runs the game's frames.
+	beat *coBeat
+	reps []replica.Report // every tick's, by tick number
 }
 
 // newCoPlayer starts cg's coop-sync pipeline in session cs, logging to
 // log, and connects it to h.
 func newCoPlayer(t *testing.T, ctx context.Context, h *coHost, cs *coopSession, cg *coGame, name string, log *coLog, audit *coAudit, seed uint64) *coPlayer {
 	t.Helper()
-	p := &coPlayer{coGame: cg, name: name, rep: log}
-	s, err := cs.newSync(ctx, name, cg.m, p.rep)
+	return newCoPlayerOver(t, ctx, h, cs, cg, nil, name, log, audit, seed)
+}
+
+// newCoPlayerOver is newCoPlayer with the pipeline over beat, a Mem over
+// cg's (nil: over cg's FakeMem itself).
+func newCoPlayerOver(t *testing.T, ctx context.Context, h *coHost, cs *coopSession, cg *coGame, beat *coBeat, name string, log *coLog, audit *coAudit, seed uint64) *coPlayer {
+	t.Helper()
+	p := &coPlayer{coGame: cg, name: name, rep: log, beat: beat}
+	var m mem.Mem = cg.m
+	if beat != nil {
+		m = beat
+	}
+	s, err := cs.newSync(ctx, name, m, p.rep)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,9 +482,16 @@ func newCoPlayer(t *testing.T, ctx context.Context, h *coHost, cs *coopSession, 
 // step runs a frame of the game, hands the replica what arrived, and runs
 // one replica tick, as coopSync.run's ticker would.
 func (p *coPlayer) step() {
-	p.g.Frame()
+	if p.beat != nil {
+		p.beat.frame()
+	} else {
+		p.g.Frame()
+	}
 	p.u.deliver()
-	p.s.r.Tick()
+	if p.beat != nil {
+		p.beat.setTick(len(p.reps))
+	}
+	p.reps = append(p.reps, p.s.r.Tick())
 }
 
 // planned is the image the player's game would reach if the replica's
@@ -517,7 +545,8 @@ func coDiff(a, b *world.Image) string {
 }
 
 // TestCoopSessionConverges is M2's end-to-end check of the --coop
-// plumbing. The host founds a world from game A's file (--coop=new) and
+// plumbing, run as M2 ran it: with --coop-dry-run on both sides
+// (TestCoopSessionM3 runs M3's writes). The host founds a world from game A's file (--coop=new) and
 // runs A's coop-sync pipeline in its own session, as host and mp-local do;
 // B joins from a session of its own (join --coop). Both bind their files
 // through the --yes prompts (B's carries a leaked tag); then both games
@@ -559,7 +588,7 @@ func TestCoopSessionConverges(t *testing.T) {
 		openMem:  func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
 		tick:     func() { ga.g.Frames(3) },
 	}}
-	h.start(coopFlags{on: true, world: coopWorldNew, yes: true})
+	h.start(coopFlags{on: true, world: coopWorldNew, yes: true, dryRun: true})
 	defer h.stop()
 	if !h.rep.has("founded world") || !h.rep.has("backed up 1 memory-card file") {
 		t.Fatalf("the host did not back up and found:\n%s", h.rep)
@@ -569,7 +598,7 @@ func TestCoopSessionConverges(t *testing.T) {
 		t.Fatalf("the founded world is not A's file: %s", coDiff(&founded, &a))
 	}
 	cs := h.cs
-	jcs := startCoopSession(&coLog{}, coopFlags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}})
+	jcs := startCoopSession(&coLog{}, coopFlags{on: true, yes: true, dryRun: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}})
 	if jcs.noTags != nil {
 		t.Fatalf("the joiner's backup: %v", jcs.noTags)
 	}

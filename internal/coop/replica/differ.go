@@ -76,20 +76,23 @@ type obs struct {
 	// (dStage_stagInfo_GetSaveTbl, d_stage.h:1027-1029), or -1 when its
 	// pointer is null or unreadable.
 	stagTable int
+	// boss: the loaded stage polls its table's boss bits every frame
+	// (bossStage).
+	boss bool
 }
 
-// observe decodes s. It reads one more byte from m: the STAG chunk's
-// mProp, through mStageData.mpStagInfo.
+// observe decodes s. It reads a few more bytes from m: the STAG chunk's
+// mProp and stage type, through mStageData.mpStagInfo.
 func observe(m mem.Mem, s *snap.Snapshot, st gate.Status) *obs {
 	o := &obs{s: s, st: st, file: bind.FileOf(s), screen: screenOf(s), stagTable: -1}
 	o.key = keyOf(o.file)
 	o.raw = world.Image(s.Image())
 	o.local = world.Shared(&o.raw)
-	if s.StagInfo != 0 {
-		if prop, err := mem.ReadU8(m, s.StagInfo+addr.StagOffProp); err == nil {
-			o.stagTable = addr.StagSaveTable(prop)
-		}
+	table, typ, ok := readStag(m, s.StagInfo)
+	if ok {
+		o.stagTable = table
 	}
+	o.boss = bossStage(typ, ok, s.Table)
 	return o
 }
 

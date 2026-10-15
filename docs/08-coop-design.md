@@ -77,7 +77,7 @@ The early releases (v0.4 to v0.8) do all of this from the Go process, with no re
 
 | Class | Examples | Where it lives (address / struct) | Sync rule | Merge rule | Needs C? |
 |---|---|---|---|---|---|
-| Stage progress bits | chest opened `mTbox`, pickup `mItem`, `mVisitedRoom`, `mDungeonItem` bits 0-5 (map, compass, boss key, boss dead, heart taken, boss demo; `d_save.h:637-690`) | `dSv_memBit_c`: saved 0x803C4F88+0x24·t (+0x00 / +0x14 / +0x18 / +0x21); live copy of the current table 0x803C5380 (`d_save.h:992`) | live for the current table (these bits are read only when actors are created, `d_a_tbox.cpp:447-455`, `d_a_item.cpp:227-237`, so a write fires no event); on load for other tables | grow-only OR | No. M7 moves it to C. |
+| Stage progress bits | chest opened `mTbox`, pickup `mItem`, `mVisitedRoom`, `mDungeonItem` bits 0-5 (map, compass, boss key, boss dead, heart taken, boss demo; `d_save.h:637-690`) | `dSv_memBit_c`: saved 0x803C4F88+0x24·t (+0x00 / +0x14 / +0x18 / +0x21); live copy of the current table 0x803C5380 (`d_save.h:992`) | live for the current table: chests and pickups are read only when their actors are created (`d_a_tbox.cpp:447-455`, `d_a_item.cpp:227-237`), so a write fires no event. Dungeon items 3 and 5 (boss dead, boss demo) are the exception: a boss stage reads them every frame (`dMeter_recollect_boss_data`, `d_meter.cpp:1069-1085`; the boss gauge, `:3682-3687`; Gohma's floor, `d_a_dr2.cpp:560-575`; Helmaroc King, `d_a_bdk.cpp:2741-2744`), so in a boss stage they wait until Link leaves it (item 85). On load for other tables | grow-only OR | No. M7 moves it to C. |
 | Memory switches 0x00-0x7F | door unlocked, gate raised, room-clear switch, crystal (un-timed) | memBit `mSwitch[4]` +0x04 (live 0x803C5384); bit n is `mSwitch[n>>5] \|= 1<<(n&31)` (`d_save.cpp:1084-1087`) | on load by default (receiver's next room change for the current table; immediately for cold tables); live is opt-in (`--coop-live-switches`) | set-only OR, applied once per bit ("ever-had" set), **latching setters only** (M1 table), clears never sent | No. M7 makes stage-load application exact; the room-change write stays in Go (§6.3). |
 | Small keys | `mKeyNum` per dungeon | memBit +0x20 (live 0x803C53A0); HUD pending counter `mItemKeyNumCount` 0x803CA77C | derived, applied when idle and settled | `keys(t) = \|key sources set\| − \|key doors set\|` over the receiver's *applied* flags (§6.4) | No |
 | Ocean and charts | salvage bits, charts owned / deciphered / salvaged, `mFmapBits`, Triforce charts | `mOcean` 0x803C51C8 (0x64); `dSv_player_map_c` 0x803C4CCC (0x84) | on load | OR | No |
@@ -294,7 +294,7 @@ Ring entries carry `seq` plus an XOR check byte.
 
 | Sub | Dir | Body | Server action |
 |---|---|---|---|
-| 0x01 CO_HELLO | c→s | `[schema:u16][classHash:u64][stageTblHash:u64][worldID:8][bindNonce:8][slot:u8][clearCount:u8][nameHash:u32][fileState:u8 (0 unbound, 1 bound, 2 leaked, 3 foreign)][want:u32]` = 45 B | Classify; a mismatched `classHash` or `stageTblHash` (modded or rando data) gets features = 0 plus a NOTICE |
+| 0x01 CO_HELLO | c→s | `[schema:u16][classHash:u64][stageTblHash:u64][worldID:8][bindNonce:8][slot:u8][clearCount:u8][nameHash:u32][fileState:u8 (0 unbound, 1 bound, 2 leaked, 3 foreign)][want:u32]` = 45 B | Classify. A `classHash` that differs from the host's (a modded build) is refused: features = 0, plus a NOTICE. A `stageTblHash` that differs from the host's (another disc, or rando data), or is 0 on either side (no stage tables), keeps the other features but loses `hub.TableFeatures` (memory switches, live switches, puzzle, combat), plus a NOTICE saying why (item 69) |
 | 0x02 CO_WELCOME | s→c | `[status:u8][reason:u8][features:u32][worldID:8][seq:u64][freshBind:u8]` = 23 B | — |
 | 0x03 WORLD | both | `[worldID:8][seq:u64][len:u16=0x778][image]` (PER_PLAYER, NEVER and TAG bytes zeroed; current-table live copy folded into its saved slot) ≈ 1.9 KB | c→s at join, reconnect and resync: merge per class, reply with the merged image, relay the effective delta as GAINS |
 | 0x04 GAINS | c→s | `[batch:u32][n:u16] n×{off:u16, val:u8}` | Validate each offset's class; merge (OR within the class mask, or MAX); drop tombstoned bits |
@@ -573,7 +573,8 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
 - **Refresh area** reloads the current stage, point and room. **Warp to partner:**
   - same stage: the existing mailbox `warp_seq` (`mailbox.h:211-225`);
   - other stage: the partner's PRESENCE stage and point.
-- Before M7 both are Go writes of `mNextStage` (0x803C9D48..0x803C9D55). They are inferred and best-effort, because `dComIfGp_setNextStage` (0x800537C8, `d_com_inf_game.cpp:666-684`) also sets Link restart mode bits that a raw write skips. M7 replaces them with the `SET_NEXT_STAGE` op. Both ship from M3 as the softlock escape.
+- Before M7 both are Go writes of `mNextStage` (0x803C9D48..0x803C9D55). They are inferred and best-effort, because `dComIfGp_setNextStage` (0x800537C8, `d_com_inf_game.cpp:666-690`) also records the last scene's speed and mode, and the start point when asked, which a raw write skips. So an escape's arrival replays the mode of the last stage change the game asked for: Link's create picks its entry from it (crawling in, getting up from a fall, a demo) and takes the shields' state and the soup from it (`d_a_player_main.cpp:12280-12297`, `:12444-12550`, `:12601-12616`; item 76). The start point (`mStartCode`) matters only to the volcano and ice island actors. M7 replaces both writes with the `SET_NEXT_STAGE` op. Both ship from M3 as the softlock escape.
+- **M3 as built** (items 70-75): the console's `/refresh` and `/warp`. Refresh writes back the request `mNextStage` still holds (`d_s_play.cpp:1277-1278`). The other-stage warp asks for the partner's stage by its entrance point, into the room that entrance starts in, which the replica learns from arrivals and never guesses, then warps to the partner's side. A same-stage warp goes only into a room whose collision this game has loaded, and only once the partner has been in its stage for a second (item 82).
 
 ---
 
@@ -747,6 +748,63 @@ Run `mp-local` in the background.
    - `coop-tag clear --yes` unbinds a file.
    - Restart `mp-local --coop`: the world comes back at the same seq.
 6. Run host, join and mp-local once without `--coop`: they behave exactly as before.
+
+From M3, `--coop` writes (below); add `--coop-dry-run` to run these M2 steps as M2 ran them.
+
+**Running M3 (writes).** `--coop` now writes the world's chests, pickups, visited rooms, dungeon items, latching memory switches, ocean and charts into each bound game. `--coop-dry-run` gives M2's dry run instead. A1-A6 are M3's acceptance items and R1-R4 the escapes'. Nothing defined them before, so they are defined here (item 79).
+
+Before the steps:
+1. Run `patch` on your vanilla ISO with this build, which records the disc for the stage tables, or pass `--coop-iso <the ISO Dolphin runs>` to `mp-local`, `host` and `join`.
+   - Each side's first lines must include `co-op: stage tables <id>, … N latching memory switch(es) in M save table(s) sync`.
+   - Without tables memory switches don't sync, and the host says why in a NOTICE. The rest syncs.
+2. Start `mp-local --coop` (both Dolphins in one session), or `host --coop` and `join <host> --coop` on two machines. Bind both files (M2 steps 1-2).
+   - Each pipeline logs `armed in world …: the world's chests, … are written to this game`.
+   - The log explains the console once: type `/help` for the list. Under `mp-local`, `/refresh` and `/warp` take the player's name (`/warp PlayerB`).
+3. Take every screenshot as `WW_DOLPHIN_INDEX=<n> ./ww-multiplayer.exe screenshot shots/m3-<item>-<before|after>.png`. Read each pair by eye; a memory readback alone accepts nothing.
+
+Acceptance:
+- **A1 Chests.** On F2, A opens the small-key chest while B is in another room of the dungeon.
+  - B's log says `set t03 DRC chest <n>`. When B walks into the chest's room, the chest stands open.
+  - Pair: B's view of the closed chest before A opens it, and the open chest after B enters.
+  - A chest in B's *current* room stays closed until B leaves and comes back, or types `/refresh` (R1, §6.7).
+- **A2 Pickups, visited rooms, dungeon items.** A picks up the dungeon map (or compass) and walks through two new rooms.
+  - B's pause-menu map shows the map and both rooms after B's next room change.
+  - When A beats the boss, B's log says `holding … back: the boss stage reads them every frame` while B is in the boss room itself, and the bits are written once B leaves it (item 85).
+  - Pair: B's map screen before and after.
+- **A3 Latching switches, deferred for the current table.** On F5, A lights the un-timed crystal while B stands in that room.
+  - Nothing changes in B's room. The log says `… waits for the next room or stage change`, then `set … switch 0x..` when B leaves.
+  - When B comes back, the barred door stays open. Pair: B at the barred door before, and after the room change.
+  - A push block or a timed switch must not sync (M1's verdict, §6.2).
+  - With `--coop-live-switches` on the host, the switch applies at once once B is IDLE (no menu, no event).
+- **A4 Ocean and charts.** A sails into a sea square B hasn't visited, and salvages a chart.
+  - After B's next room change, B's sea chart shows the square revealed and the chart owned.
+  - Pair: B's sea chart before and after.
+- **A5 Nothing else is written, and nothing while a gate is closed.**
+  - `coop-watch` on B shows the partner's progress arriving only as edges in chests, items, visited rooms, dungeon items, switches, the ocean and charts.
+  - B keeps its own life, rupees, magic, inventory and story bits: `peek 0x803C4C08 4` before and after.
+  - Hold B's pause menu open while A makes progress: nothing applies until it closes. The same holds during a cutscene and a loading zone.
+- **A6 The off switches.**
+  - Type `/coop off` (with B's name under `mp-local`). B's log says `co-op writes are off for <B>: you typed /coop off. Pose sync goes on; type /coop on to write the world again.`
+  - A's progress no longer reaches B's game, while the mini-Link keeps moving: a screenshot pair shows it in two places.
+  - `/coop on` resumes, and B catches up at its next room change. `/status` says where co-op is.
+  - Then load save states on B five times within a minute. B turns its writes off once, saying `… save-state loads in …`, and pose sync goes on.
+
+Escapes (§6.7):
+- **R1 `/refresh`.** Stand in a room of B's with a chest A opened after B came in, and type `/refresh` for B.
+  - The room reloads by the entrance B came in by, and the chest stands open. Pair: before and after.
+  - After a void-out (Link restarted at point -1, `dStage_restartRoom`) or a turn restart (point -3, `dStage_turnRestart`, `dStage_escapeRestart`; `d_stage.cpp:2368-2404`), `/refresh` says to go through a door first and writes nothing.
+  - After a death and Continue the game asked for the file's return place, an entrance (`d_a_player_dproc.inc:1091-1094`, `d_com_inf_game.cpp:1397-1406`), so `/refresh` reloads it.
+- **R2 `/warp`, same stage.** Put A and B in different rooms of DRC and type `/warp` for B.
+  - B's Link stands at A's side. Pair: B's view before and after.
+  - If A's room isn't loaded in B's game, B first reloads the stage by A's entrance, then warps.
+  - Right after A comes into the stage, `/warp` says `not now: the partner has only just come into …` for a second: pose sync may still have A's last stage's position (item 82).
+- **R3 `/warp`, another stage.** A goes through a door on Outset while B stays in DRC. B must see A arrive, so start the session first: the room an entrance starts in is learned from arrivals (item 73). Then type `/warp` for B.
+  - The log says `going to <stage> by point <p> into room <r>, layer -1, the partner's entrance …`.
+  - B loads A's stage, then warps to A's side. Pairs: after the stage change, and after the warp.
+  - If the entrance's room isn't known yet, the warp says so and writes nothing.
+- **R4 Refusals.** With the pause menu open, or during a cutscene, `/refresh` and `/warp` say `not now: … try again in a moment` and write nothing. `peek 0x803C9D48 14` is unchanged.
+
+Last: run `host`, `join` and `mp-local` once without `--coop` (they behave exactly as before), and once with `--coop --coop-dry-run` (the M2 steps hold).
 
 ### 8.3 Day-0 read-only probes (runnable now with today's binary)
 ```
@@ -1191,3 +1249,84 @@ Also needed from the owner, and not a decision: capture the fixture save states 
     - In-session blocking is the hub's CTRL TOMBSTONE path (`hub.Hub.Tombstone`), which M8's panel will drive. Bound replicas learn a block at their next welcome.
     - `coop-world list` (read-only) was added beside block and restore.
 67. **`stageTblHash` is 0 on both sides in M2:** no M1 tables are loaded into a session yet. M3 sends their identity.
+
+*M3 in the `--coop` session (§6.3, §6.7, §8.2)*
+
+68. **`--coop` writes from M3; `--coop-dry-run` is M2.**
+    - With `--coop`, each coop-sync replica writes (`replica.Config.Apply`) with the session's stage tables. Their identity goes in CO_HELLO, and their memory-switch verdict is its policy, the host hub's own (`hub.SwitchPolicy`).
+    - Its Breaker's reason is printed once, as a warning that ends "Pose sync goes on; type /coop on to write the world again." The pipeline keeps its connection, PRESENCE and view; pose sync runs apart from it.
+    - `--coop-dry-run` builds M2's replica exactly as M2 did: no Apply, no tables, and a CO_HELLO that asks for the image only. A dry-run joiner doesn't load tables. A dry-run host still loads them and runs the M3 hub, which can serve writing joiners.
+    - `--coop-dry-run`, `--coop-live-switches` and `--coop-iso <path>` are taken only once `--coop` is present. Without it, every command line parses exactly as before.
+    - `--coop-live-switches` is the host's choice (`hub.FeatureLiveSwitches`), so `join` rejects it. The TUI still passes no co-op flags.
+69. **Stage tables in a session.** Each side loads them once: the tables of `--coop-iso`, else those of the disc `patch` last recorded (`loadCoopStageTables`). A failure is one warning, and that side runs without switch sync: for a `stageTblHash` of 0 on either side, or one that differs from the host's, the hub grants every feature but `hub.TableFeatures` (memory switches, live switches, puzzle, combat) and says why in a NOTICE, once per reason. Only a differing `classHash` is refused outright (features 0). This settles item 67.
+70. **The console.** §6.7 named no way to ask for an escape before M8's panel. A stdin line starting with `/` is a command:
+    - The commands are `/refresh`, `/warp`, `/coop off|on`, `/status` and `/help`, each taking an optional player name for `mp-local`'s two Dolphins.
+    - Commands are read by the bind prompts' one reader, and a command is never taken as an answer. So the reader now runs under `--yes` too (item 64 said it started only without it).
+    - The session's first lines explain the console once.
+    - The escapes go through `Replica.Escape`, which M8's panel can drive too, and are made on the replica's next tick.
+71. **Refresh area, from the decomp.**
+    - The new play scene copies `mNextStage` to `mCurStage` and only clears `mEnable` (`d_s_play.cpp:1277-1278`), so `mNextStage` still holds the request that loaded the stage.
+    - Refresh writes that request back, then `mWipe` 0, then `mEnable` 1 last: the fields `dStage_nextStage_c::set` fills (`d_stage.cpp:26-31`). `dScnPly_Draw` then changes the scene behind the wipe, as for a loading zone (`d_s_play.cpp:291-308`).
+    - It refuses a request that names another stage, and a restart point: -1..-3 take the save's restart data, not an entrance (`d_stage.cpp:1444-1454`).
+72. **Request bounds (doc vs decomp: the design's "PRESENCE stage and point" needs bounds).** A point ≥ 0 is matched against the `(u8)angle.z` of the stage's PLYR entries, and no match is a JUT_ASSERT that halts the game (`d_stage.cpp:1455-1463`). The WriteGuard (TargetEscape) holds `mNextStage` to:
+    - a point of 0..255;
+    - a room of 0..63;
+    - a layer of -1..11: -1 lets `getLayerNo` pick (`d_com_inf_game.cpp:185-190`), and 0..11 index the 12-entry `l_layerFuncTable_p` (`d_stage.cpp:2144-2150`);
+    - a wipe of 0..11 (`l_wipeType` and its assert, `d_s_play.cpp:292-308`);
+    - a name of NUL-terminated letters, digits and `_`.
+    - The partner's point is safe, since its game just took it. Escapes ask with layer -1, as the game's own exits do (`d_stage.cpp:2362`).
+73. **Another stage: the entrance's room is learned, never guessed (inferred).**
+    - PRESENCE carries the stage and point but not the room that entrance starts in, which the game's exits ask for through SCLS (`d_stage.cpp:2362`). `dStage_Create` loads the requested room first (`d_stage.cpp:2221-2234`), then the PLYR entries are searched for the point. What a wrong room does depends on where the stage keeps them:
+      - PLYR in `stage.dzs`: the entry found names Link's room, which overrides the request (`d_stage.cpp:1479-1480`), so a wrong room only loads a room for nothing first;
+      - PLYR in the room files: only the requested room's are searched, and a point missing there is a JUT_ASSERT that halts the game (`d_stage.cpp:1455-1463`).
+    - So the room is never guessed.
+    - The replica learns the room from this game's own arrivals (exact): `mNextStage` after a load, while it names the current stage and point.
+    - It also learns it from the partner's (inferred): the first settled PRESENCE after the partner changed stage.
+    - *Corrected (doc vs decomp):* this item said the new play scene takes the new name from `mNextStage` before it clears `mpPlayerPtr`, so a first PRESENCE could carry the old table and room. The decomp has the old scene's delete clear `mpPlayerPtr` first (`dScnPly_Delete` ends in `dComIfGp_init`, `d_s_play.cpp:1136`; `d_com_inf_game.cpp:60-69`), before the new scene's create copies `mNextStage` (`d_s_play.cpp:1277-1278`). So a PRESENCE in game with the new name already has the new table and room.
+    - The skip stays, relabelled as a guard against a snapshot read across those frames (`snap.Read` reads the name, the table and `mStayNo` apart): an arrival with the old table and room, and no PRESENCE without Link before it, is not learned from. It costs only an entrance whose room has the old one's number in the same table, which the warp then says it does not know.
+    - Each map holds at most 512 entrances.
+    - After the stage change the replica warps to the partner's side once both are settled there, giving up after a minute or if the partner leaves.
+74. **The same-stage warp, only into a loaded room.**
+    - The warp writes `warp_x/y/z`, then `warp_seq` + 1 (warpLink's order; `mailbox.h:211-225`). `multiplayer_update` carries it out on the next frame Link exists and acknowledges it in `warp_ack` (`multiplayer.c:341-345`, `:365-421`). The C side is unchanged.
+    - The position is pose sync's: the puppet-sync client's one other remote (`partnerPos`). It is never the player's own, since `mp-local`'s twins hear each other, and there is none with two others.
+    - The warp waits while `warp_seq` ≠ `warp_ack`.
+    - It goes only into a room whose collision this game has loaded, `mStatus[room].mpBgW` (`d_stage.h:865`; the BG actor sets and clears it, `d_a_bg.cpp:213`, `:241`). Otherwise it reloads by the partner's entrance first (inferred: an unloaded room has no floor).
+75. **The escapes' allowlist and writes.**
+    - TargetEscape covers `mNextStage`'s 14 bytes (item 72's rules), `warp_seq` and `warp_x/y/z`.
+    - The brief named only `mNextStage` and `warp_seq`, but a `warp_seq` without its coordinates warps to wherever the last warp left them. `warp_ack` (the C side's) and `warp_force` (a diagnostic that warps every frame) stay out.
+    - `M3Targets` stays the reconciler's; only a replica's own guard adds TargetEscape. The escapes need ARMED, STABLE, IDLE and HEARTBEAT, and are never made in a dry run or while co-op is off.
+    - `FrameWriter.ApplyFields` checks every byte before the heartbeat wait (all or nothing) and writes `mEnable` and `warp_seq` last. It does not run the gates again after the wait; it reads again the game state they rest on (item 81): the heartbeat from the snapshot's on (no save state loaded since), the stage, `mNextStage.mEnable`, the loaded table and the loaded file (tag, slot, name, `mDateIPL`), and IDLE's inputs (the event mode and order count, the pause menu, the minigame, the refight). Any change drops the escape, writing nothing.
+    - The escapes are not verified on the next tick: the game consumes them by clearing `mEnable` and acking `warp_seq`.
+76. **Citation fix (§6.7):** `dComIfGp_setNextStage` runs `d_com_inf_game.cpp:666-690`, not 666-684. Besides `mNextStage` it records the last scene's speed and mode (`setLastSceneInfo`, with the Dragon shield, tinkle shield and soup bits) and, when asked, the start point (`:671-690`). A raw write keeps the previous ones, and their effect is on the escape's own arrival, not on a later death or reset (this item said so before; corrected):
+    - Link's create reads the last scene mode as it enters: crawling in (modes 2, 3), getting up from a fall (4, 5), a demo (6), the ship's start, and the shields and soup from its high bits (`d_a_player_main.cpp:12280-12297`, `:12444-12550`, `:12601-12616`). So an escape's arrival replays the mode of the last stage change the game asked for: a `/refresh` after crawling out of a crawlspace crawls in again (inferred).
+    - The start point (`dSv_restart_c::mStartCode`) is read only by the volcano and ice island actors (`d_a_obj_volcano.cpp:174`, `d_a_tag_volcano.cpp:37`, `:46`, `d_a_obj_iceisland.cpp:63`).
+    - `/refresh` does not neutralise the mode: a write of the restart info would be a write outside TargetEscape, and M7's `SET_NEXT_STAGE` op calls `dComIfGp_setNextStage` itself.
+77. **`/coop off` within a tick.**
+    - It turns the Breaker off, and the FrameWriter checks the Breaker before every byte, so nothing is written after the tick it turns off on. `TestCoopSessionM3` checks this.
+    - `/coop on` resets the Breaker, and the replica catches up at the next room change.
+    - An escape asked while writes are off is refused at once, and so is one in a dry run.
+78. **A WORLD before a joiner's welcome.**
+    - A joiner learns the session's world from CO_WELCOME, which the hub sends before the WORLD (`hub.onUnboundHello`). M2's replica dropped a WORLD that came first, so an unbound joiner then waited for its next reconnect to get its preflight.
+    - TCP never reorders a connection, but the integration tests do. M2's convergence test bound its joiner only because the leaked tag's scrub re-sent CO_HELLO.
+    - The replica now keeps an early WORLD for the welcome, which takes it if it names the welcome's world.
+79. **Acceptance and tests.**
+    - A1-A6 and R1-R4 were not defined anywhere, so §8.2 defines them.
+    - `TestCoopSessionConverges` runs with `--coop-dry-run`, as M2's test.
+    - `TestCoopSessionM3` is M3's session test. It covers convergence on the M3 bytes with the fixture's latching switches, `/refresh`, both `/warp`s and a refusal, `/coop off|on`, a save-state storm, and §8.1's write audit over every byte both pipelines wrote.
+    - The fake game has no BG actors, so the tests mark a room loaded through `mpBgW`.
+80. **Left as they were.**
+    - `mp-local`'s startup warp of Dolphin B (`MP_LOCAL_SHIFT_X/Y/Z`, through `warpLink`) predates co-op. It writes `warp_x/y/z` and `warp_seq` outside the WriteGuard, with or without `--coop`.
+    - `patch` now prints one line about the stage tables after writing the ISO. The ISO is the same byte for byte.
+
+*M3 review fixes*
+
+81. **A save state loaded between the snapshot and the beat.** The tick's snapshot records the heartbeat, the loaded file (`bind.File`: tag, slot, clear count, name, `mDateIPL`) and the time it was read. The FrameWriter then follows the heartbeat from the snapshot's, not from its own first read:
+    - its first read below the snapshot's, or further ahead than 2 frames plus 240 a second since the snapshot, is `ErrAborted`;
+    - while it polls, a heartbeat that goes back, or jumps more than 2 frames at once, is `ErrAborted` (the game beats once a frame, 30 a second, `d_s_play.cpp:1352`);
+    - after the beat, the recheck reads the file again; a save state of another file standing in the same stage and table, with its heartbeat where the game's would be, is caught there;
+    - an escape also reads IDLE's inputs again (`recheckIdle`).
+    - A batch the recheck drops writes nothing, and its verify on the next tick is skipped when the stage, the table or the file changed (the bytes then belong to another place).
+82. **`/warp` waits for a partner still arriving.** The partner's position comes over pose sync, another connection than PRESENCE's, so the position heard as the partner arrives on Link's stage may still be its last stage's. A same-stage warp, the user's and a warp's second step, waits until the partner has been in its stage, in game with no change pending, at the same stage and point, for `replica.PartnerSettle` (a second; inferred). A room change in the stage keeps the partner settled; a reload of its stage does not. *Doc vs decomp:* the review read the partner's room as stale too; per item 73's correction the room is the new stage's, and only the position lags.
+83. **A fatal connect error answers the escapes.** When `coopSync.run` gives up co-op for the session (the host refuses co-op), it turns the replica's writes off (the Breaker's "/coop on" hint is not printed), stops its ticks, and `/coop on` says it cannot help. `Replica.Run` answers the escape waiting for a tick, and any asked for later, with `replica.ErrStopped`, which is not `ErrNotNow`: the console does not say to try again.
+84. **The audits work out room changes themselves.** `auditWrites` and `coAuditM3` record where the fake game is as each tick begins (stage name, `mDan.mStageNo`, `mStayNo`, `mNextStage.mEnable`, `mpPlayerPtr`). They accept a room-change write only on the first armed tick with the gates open since the place changed, or a later one when every such tick before it found the heartbeat stalled or the game moved on. They no longer trust `Report.RoomChange`.
+85. **The boss bits wait in a boss stage.** Dungeon items 3 and 5 of the loaded table (boss defeated, boss demo seen) are read every frame in a boss stage (§3's table). In a stage whose STAG type is BOSS (`(mStageTypeAndSchbit >> 16) & 7 == 3`, `d_stage.h:20`, `:1031-1033`), in the FF table (Helmaroc King, `d_meter.cpp:3684`; inferred), or when the STAG can't be read, the planner holds them (`bossHold`), and the WriteGuard refuses them at the live memBit. They are written once Link leaves: live in another stage of the same table, else to the saved slot. A dry run plans as before.

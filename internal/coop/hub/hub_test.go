@@ -155,6 +155,16 @@ func newRig(t *testing.T, cfg Config) *rig {
 
 func newRigMode(t *testing.T, cfg Config, direct bool) *rig {
 	t.Helper()
+	if cfg.StageTblHash == 0 {
+		cfg.StageTblHash = testTables
+	}
+	return startRig(t, cfg, direct)
+}
+
+// startRig is newRigMode with cfg as given: StageTblHash 0 is a host
+// without stage tables.
+func startRig(t *testing.T, cfg Config, direct bool) *rig {
+	t.Helper()
 	root := t.TempDir()
 	st, err := world.Create(root, world.New(testWorld, time.Unix(1_800_000_000, 0)), world.Options{})
 	if err != nil {
@@ -163,9 +173,6 @@ func newRigMode(t *testing.T, cfg Config, direct bool) *rig {
 	r := &rig{t: t, root: root, store: st, log: &logLines{}}
 	cfg.Store = st
 	cfg.Logf = r.log.logf
-	if cfg.StageTblHash == 0 {
-		cfg.StageTblHash = testTables
-	}
 	h, err := newHub(cfg, direct)
 	if err != nil {
 		t.Fatal(err)
@@ -384,7 +391,18 @@ func TestHelloClassification(t *testing.T) {
 			m := hello(wire.FileBound, testWorld, 1)
 			m.StageTblHash ^= 1
 			return m
-		}, status: wire.StatusRefused, reason: wire.NoticeSchema, notice: []wire.NoticeCode{wire.NoticeSchema}, state: StateRefused},
+		}, status: wire.StatusOK, features: DefaultFeatures &^ TableFeatures, notice: []wire.NoticeCode{wire.NoticeSchema}, state: StateBound},
+		{name: "no stage tables", hello: func() *wire.CoHello {
+			m := hello(wire.FileBound, testWorld, 1)
+			m.StageTblHash = 0
+			return m
+		}, status: wire.StatusOK, features: DefaultFeatures &^ TableFeatures, notice: []wire.NoticeCode{wire.NoticeSchema}, state: StateBound},
+		{name: "no stage tables, unbound", hello: func() *wire.CoHello {
+			m := hello(wire.FileUnbound, world.ID{}, 0)
+			m.StageTblHash = 0
+			return m
+		}, status: wire.StatusUnbound, reason: wire.NoticeNotBound, features: DefaultFeatures &^ TableFeatures,
+			notice: []wire.NoticeCode{wire.NoticeSchema, wire.NoticeNotBound}, world: true, state: StateUnbound},
 		{name: "second quest", hello: func() *wire.CoHello {
 			m := hello(wire.FileUnbound, world.ID{}, 0)
 			m.ClearCount = 1
@@ -1280,7 +1298,7 @@ func TestFeatureString(t *testing.T) {
 		want string
 	}{
 		{0, "none"},
-		{DefaultFeatures, "image|puzzle|combat"},
+		{DefaultFeatures, "image|puzzle|combat|switches"},
 		{FeatureBind | AskBind | 1<<20, "bind|ask-bind|0x100000"},
 	}
 	for _, tc := range cases {

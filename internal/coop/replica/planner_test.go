@@ -54,8 +54,8 @@ func TestPlannerTargets(t *testing.T) {
 		{"a memory switch of another table", addr.OffMemBit(addr.TableFW) + swBit.Off, swBit.Mask, CatSwitch, OnLoad, false, 0},
 		{"a visited room of the loaded table", addr.OffMemBit(cur) + addr.MemBitOffVisited, 0x80, CatStage, Live, false, live(cur, addr.MemBitOffVisited)},
 		{"a dungeon item of the loaded table", addr.OffMemBit(cur) + addr.MemBitOffDungeonItem, 0x01, CatStage, Live, false, live(cur, addr.MemBitOffDungeonItem)},
-		{"an ocean grid", addr.OffOcean + 5, 0x04, CatOcean, OnLoad, false, 0},
-		{"a chart", addr.OffMapGet + 2, 0x10, CatOcean, OnLoad, false, 0},
+		{"an ocean grid", addr.OffOcean + 5, 0x04, CatOcean, OnRoomChange, false, 0},
+		{"a chart", addr.OffMapGet + 2, 0x10, CatOcean, OnRoomChange, false, 0},
 		{"a story bit", zelda, zeldaMask, CatStory, OnTransition, false, 0},
 		{"an OR event register", registerOR, class.Of(registerOR).Mask & -class.Of(registerOR).Mask, CatRegister, OnLoad, false, 0},
 		{"a MAX event register", register, class.Of(register).Mask & -class.Of(register).Mask, CatRegister, OnLoad, true, 0},
@@ -82,6 +82,8 @@ func TestPlannerTargets(t *testing.T) {
 
 func TestPlannerMissing(t *testing.T) {
 	chestOff, chestMask := chest(addr.TableSea, 3)
+	swOff, swMask := switchImageByte(addr.TableSea, 0x05)
+	openOff := addr.OffMapOpen + 1
 	wallet := addr.OffWalletSize
 	story, storyMask := eventBit(evZeldaAwakened)
 
@@ -116,23 +118,128 @@ func TestPlannerMissing(t *testing.T) {
 	t.Run("a bit the receiver ever had is suppressed", func(t *testing.T) {
 		p := NewPlanner(world.FullPolicy())
 		var had world.Image
-		had[story], had[chestOff], had[wallet] = storyMask, chestMask, 3
+		had[story], had[swOff], had[openOff], had[wallet] = storyMask, swMask, 0x04, 3
 		p.observe(consistentObs(addr.TableSea, had))
-		// The game cleared the story bit and the chest (and lowered the
-		// wallet); the world still has them.
+		// The game cleared the story bit, the switch and the chart's
+		// deciphered bit (and lowered the wallet); the world still has
+		// them.
 		var view, now world.Image
-		view[story], view[chestOff], view[wallet] = storyMask, chestMask, 3
+		view[story], view[swOff], view[openOff], view[wallet] = storyMask, swMask, 0x04, 3
 		p.observe(consistentObs(addr.TableSea, now))
 		if ws, _ := p.Plan(&view, &now, &now, addr.TableSea); len(ws) != 0 {
 			t.Fatalf("plan %+v, want nothing: the game cleared them itself", ws)
 		}
-		if ever := p.EverHad(); !ever.Has(story, storyMask) {
-			t.Error("EverHad lacks the story bit")
+		if ever := p.EverHad(); !ever.Has(story, storyMask) || !ever.Has(swOff, swMask) {
+			t.Error("EverHad lacks the story bit or the switch")
 		}
 		// A higher wallet than ever had is planned.
 		view[wallet] = 4
 		if ws, _ := p.Plan(&view, &now, &now, addr.TableSea); len(ws) != 1 || ws[0].Bits != 4 {
 			t.Fatalf("plan %+v, want wallet 4", ws)
+		}
+	})
+	t.Run("the dry run suppresses every bit the receiver ever had, as M2 did", func(t *testing.T) {
+		p := NewPlanner(world.FullPolicy())
+		var had, view, now world.Image
+		had[chestOff], had[addr.OffMapGet] = chestMask, 0x01
+		view = had
+		p.observe(consistentObs(addr.TableSea, had))
+		p.observe(consistentObs(addr.TableSea, now))
+		if ws, _ := p.Plan(&view, &now, &now, addr.TableSea); len(ws) != 0 {
+			t.Fatalf("plan %+v, want nothing", ws)
+		}
+		o := consistentObs(addr.TableSea, now)
+		o.st.Regressed = true
+		p.observe(o)
+		if ws, _ := p.Plan(&view, &now, &now, addr.TableSea); len(ws) != 0 {
+			t.Fatalf("plan %+v after a save state, want nothing", ws)
+		}
+	})
+	t.Run("a bit the game never clears is planned again whenever it is missing", func(t *testing.T) {
+		// Lost all the same, or never kept by a file loaded from the card
+		// again: the stage progress bits, the ocean, the charts owned and
+		// the sea map heal when the plan is written.
+		visOff, visMask := visited(addr.TableDRC, 9)
+		heal := []struct {
+			off  int
+			mask byte
+		}{
+			{chestOff, chestMask},
+			{visOff, visMask},
+			{addr.OffMemBit(addr.TableDRC) + addr.MemBitOffDungeonItem, 0x04},
+			{addr.OffOcean + 7, 0x10},
+			{addr.OffMapGet + 2, 0x01},
+			{addr.OffFmapBits + 3, 0x02},
+		}
+		p := NewPlanner(world.FullPolicy())
+		p.writes = true
+		var had, view, now world.Image
+		for _, h := range heal {
+			had[h.off] |= h.mask
+			view[h.off] |= h.mask
+		}
+		p.observe(consistentObs(addr.TableSea, had))
+		p.observe(consistentObs(addr.TableSea, now))
+		ws, _ := p.Plan(&view, &now, &now, addr.TableSea)
+		if got := Planned(&now, ws); got != view {
+			t.Fatalf("plan %+v: planned image lacks %s", ws, fmtGains(world.Diff(&got, &view)))
+		}
+	})
+	t.Run("the charts deciphered and salvaged and the Triforce charts are apply-once", func(t *testing.T) {
+		// Getting a chart clears its deciphered and salvaged bits
+		// (item_func_collectmapNN, d_item.cpp:1476-2023; chart 8's
+		// Triforce bit, :1958), and the sea chart menu clears them for a
+		// chart not owned (d_menu_fmap2.cpp:3174-3192).
+		for _, off := range []int{addr.OffMapOpen + 3, addr.OffMapComplete, addr.OffMapTriforce} {
+			if healing(off) {
+				t.Errorf("%s heals: the game clears it", DefaultLabel(off, -1))
+			}
+		}
+		for _, off := range []int{addr.OffMapGet, addr.OffOcean, addr.OffFmapBits, addr.OffMemBit(addr.TableFW) + addr.MemBitOffItem} {
+			if !healing(off) {
+				t.Errorf("%s is apply-once: the game never clears it", DefaultLabel(off, -1))
+			}
+		}
+		if healing(swOff) || healing(story) || healing(addr.OffGetItem) {
+			t.Error("a switch, a story bit or an item heals")
+		}
+	})
+	t.Run("a bit the reconciler wrote is ever-had before a tick reads it", func(t *testing.T) {
+		p := NewPlanner(world.FullPolicy())
+		p.writes = true
+		var none, view world.Image
+		p.observe(consistentObs(addr.TableSea, none))
+		p.wrote(swOff, swMask)
+		view[swOff] = swMask
+		if ws, _ := p.Plan(&view, &none, &none, addr.TableSea); len(ws) != 0 {
+			t.Fatalf("plan %+v: a switch written once and cleared at once is planned again", ws)
+		}
+	})
+	t.Run("a save state or a trip through file select starts ever-had over", func(t *testing.T) {
+		for _, c := range []struct {
+			name  string
+			reset func(o *obs)
+		}{
+			{"a save state", func(o *obs) { o.st.Regressed = true }}, // the heartbeat went backwards
+			{"file select", func(o *obs) { o.screen, o.stagTable = screenOut, -1 }},
+		} {
+			p := NewPlanner(world.FullPolicy())
+			p.writes = true
+			var had, view, now world.Image
+			had[swOff] = swMask
+			view[swOff] = swMask
+			p.observe(consistentObs(addr.TableSea, had))
+			p.observe(consistentObs(addr.TableSea, now))
+			if ws, _ := p.Plan(&view, &now, &now, addr.TableSea); len(ws) != 0 {
+				t.Fatalf("%s: plan %+v, want the cleared switch suppressed", c.name, ws)
+			}
+			o := consistentObs(addr.TableSea, now)
+			c.reset(o)
+			p.observe(o)
+			p.observe(consistentObs(addr.TableSea, now))
+			if ws, _ := p.Plan(&view, &now, &now, addr.TableSea); len(ws) != 1 || ws[0].Bits != swMask {
+				t.Fatalf("%s: plan %+v, want the switch: the loaded game never had it", c.name, ws)
+			}
 		}
 	})
 	t.Run("an inconsistent tick adds nothing to ever-had", func(t *testing.T) {
@@ -387,5 +494,89 @@ func TestFrameWriterIsADryRun(t *testing.T) {
 	}
 	if n := len(m.Writes()); n != 0 {
 		t.Fatalf("Apply wrote %d times", n)
+	}
+}
+
+// TestPlannerBossHold: while the loaded stage is a boss stage, the
+// reconciler's planner holds the loaded table's boss bits (bits 3 and 5
+// of mDungeonItem) and plans the rest of the byte; another table's boss
+// bits, which go to its saved slot only, are not held, and neither is
+// anything in a dry run, M2's planner.
+func TestPlannerBossHold(t *testing.T) {
+	drcItems := addr.OffMemBit(addr.TableDRC) + addr.MemBitOffDungeonItem
+	fwItems := addr.OffMemBit(addr.TableFW) + addr.MemBitOffDungeonItem
+	var view world.Image
+	view[drcItems], view[fwItems] = 0x2B, 0x08
+	cases := []struct {
+		name   string
+		writes bool
+		boss   bool
+		drc    byte // what is planned of DRC's byte
+		held   byte
+	}{
+		{"a boss stage", true, true, 0x03, bossBits & 0x2B},
+		{"a dungeon stage of the same table", true, false, 0x2B, 0},
+		{"a dry run", false, true, 0x2B, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := NewPlanner(world.FullPolicy())
+			p.writes = c.writes
+			var now world.Image
+			o := consistentObs(addr.TableDRC, now)
+			o.boss = c.boss
+			p.observe(o)
+			ws, held := p.Plan(&view, &now, &now, addr.TableDRC)
+			got := writesImage(ws, world.Image{})
+			if got[drcItems] != c.drc || got[fwItems] != 0x08 {
+				t.Fatalf("planned DRC 0x%02X, FW 0x%02X; want DRC 0x%02X and FW's boss bit", got[drcItems], got[fwItems], c.drc)
+			}
+			var h byte
+			for _, b := range held {
+				if int(b.Off) == drcItems {
+					h |= b.Mask
+					if b.Hold.Why == "" {
+						t.Error("a hold without a reason")
+					}
+				}
+			}
+			if h != c.held {
+				t.Fatalf("held 0x%02X of DRC's dungeon items, want 0x%02X", h, c.held)
+			}
+		})
+	}
+}
+
+// TestBossStage: the stages that poll the boss bits every frame.
+func TestBossStage(t *testing.T) {
+	cases := []struct {
+		name  string
+		typ   int
+		ok    bool
+		table int8
+		want  bool
+	}{
+		{"a BOSS-type stage", stageTypeBoss, true, addr.TableDRC, true},
+		{"a dungeon", 1, true, addr.TableDRC, false},
+		{"a miniboss room", 6, true, addr.TableDRC, false},
+		{"the sea", 7, true, addr.TableSea, false},
+		{"Forsaken Fortress's table, Helmaroc King's", 1, true, addr.TableFF, true},
+		{"an unreadable STAG", 0, false, addr.TableSea, true},
+	}
+	for _, c := range cases {
+		if got := bossStage(c.typ, c.ok, c.table); got != c.want {
+			t.Errorf("%s: bossStage = %v, want %v", c.name, got, c.want)
+		}
+	}
+	m := mem.NewFakeMem()
+	const stag = 0x80A01000
+	if err := m.Store(stag+addr.StagOffProp, []byte{byte(addr.TableDRC << 1), 0, 0, 0, 0x03}); err != nil {
+		t.Fatal(err)
+	}
+	if table, typ, ok := readStag(m, stag); !ok || table != addr.TableDRC || typ != stageTypeBoss {
+		t.Fatalf("readStag = %d, %d, %v", table, typ, ok)
+	}
+	if _, _, ok := readStag(m, 0); ok {
+		t.Fatal("readStag of a null pointer")
 	}
 }
