@@ -268,7 +268,8 @@ func TestCacheCoopTablesForPatch(t *testing.T) {
 				!strings.Contains(got, "The patched ISO is fine") || strings.Count(got, "\n") != 1 {
 				t.Errorf("says %q, want one warning about %q", got, c.want)
 			}
-			if c.built && (strings.Contains(got, "will need --coop-iso") || !strings.Contains(got, "The disc is recorded") || !strings.Contains(got, "please report this line")) {
+			if c.built && (strings.Contains(got, "will need --coop-iso") || !strings.Contains(got, "The disc is recorded, so a later build that can read it needs no new patch for its tables") ||
+				!strings.Contains(got, "please report this line")) {
 				t.Errorf("says %q, which doesn't say a new patch won't help", got)
 			}
 			if c.dir == "" {
@@ -326,17 +327,23 @@ func TestCacheCoopTablesForPatchUncached(t *testing.T) {
 }
 
 // TestCacheCoopTablesForPatchNoRecord: when the disc can't be recorded
-// either, the patch step's warning names both errors and sends sessions to
-// --coop-iso, the one way left to name the disc.
+// either, the patch step's warning names both errors. Tables built but not
+// cached send sessions to --coop-iso, the one way left to name the disc. A
+// disc whose tables can't be built says that patching again or --coop-iso,
+// which run the same build, won't change that.
 func TestCacheCoopTablesForPatchNoRecord(t *testing.T) {
 	for _, c := range []struct {
-		name, want string
-		img        []byte
-		noCache    bool // a directory where the cache file goes, too
+		name, prefix string
+		img          []byte
+		noCache      bool     // a directory where the cache file goes, too
+		want, not    []string // in the warning, and not in it
 	}{
-		{"a disc whose tables can't be built", "; and the disc can't be recorded: ",
-			tablestest.Disc([]stagetest.Stage{{Name: "a", DZS: []byte{1}}}).ISO(tablestest.PatchableDOL()), false},
-		{"tables that can't be cached", "built, but not cached (", tablestest.PatchableISO(tablestest.Vanilla()), true},
+		{"a disc whose tables can't be built", "  co-op : WARNING: this build can't make the co-op stage tables of this disc (tables: stagedata: res/Stage/a/Stage.arc: ",
+			tablestest.Disc([]stagetest.Stage{{Name: "a", DZS: []byte{1}}}).ISO(tablestest.PatchableDOL()), false,
+			[]string{"), and the disc can't be recorded either (tables: ", "The patched ISO is fine", "patching again or --coop-iso won't change that", "please report this line"},
+			[]string{"will need --coop-iso", "The disc is recorded"}},
+		{"tables that can't be cached", "  co-op : WARNING: no co-op stage tables for this disc (", tablestest.PatchableISO(tablestest.Vanilla()), true,
+			[]string{"built, but not cached (", "The patched ISO is fine", "--coop sessions will need --coop-iso"}, []string{"The disc is recorded"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -363,9 +370,19 @@ func TestCacheCoopTablesForPatchNoRecord(t *testing.T) {
 			}
 			var w bytes.Buffer
 			cacheCoopTablesForPatch(&w, img)
-			if got := w.String(); !strings.HasPrefix(got, "  co-op : WARNING: no co-op stage tables for this disc (") || !strings.Contains(got, c.want) ||
-				!strings.Contains(got, "--coop sessions will need --coop-iso") || strings.Contains(got, "The disc is recorded") || strings.Count(got, "\n") != 1 {
-				t.Errorf("patch says %q", got)
+			got := w.String()
+			if !strings.HasPrefix(got, c.prefix) || strings.Count(got, "\n") != 1 {
+				t.Errorf("patch says %q, want one line starting %q", got, c.prefix)
+			}
+			for _, s := range c.want {
+				if !strings.Contains(got, s) {
+					t.Errorf("patch says %q, which lacks %q", got, s)
+				}
+			}
+			for _, s := range c.not {
+				if strings.Contains(got, s) {
+					t.Errorf("patch says %q, which has %q", got, s)
+				}
 			}
 		})
 	}
@@ -433,7 +450,9 @@ func TestCoopStageTablesWhy(t *testing.T) {
 			}
 			return ""
 		}, false, []string{"this build can't make them from ", "broken.iso (the disc last patched, ", stageErr,
-			"Patching again or --coop-iso won't change that", "if patch made it from your unmodified Wind Waker (GZLE01) image, please report this line"}, noPatch},
+			"Patching that disc again won't change that; if Dolphin runs another disc, run patch on it or pass --coop-iso <the ISO Dolphin runs>; " +
+				"if patch made this one from your unmodified Wind Waker (GZLE01) image, please report this line"},
+			[]string{"Run patch", "run patch on your vanilla ISO", "Patching again or --coop-iso", "recorded no disc"}},
 		{"--coop-iso on a disc whose tables can't be built", func(t *testing.T, _ string) string { return broken(t) }, false,
 			[]string{"this build can't make them from ", "broken.iso: tables: " + stageErr, "Patching again won't change that",
 				"if it is your unmodified Wind Waker (GZLE01) image, or patch made it from one, please report this line"},
@@ -493,6 +512,38 @@ func TestCoopTablesAfterAFailedPatch(t *testing.T) {
 	}
 	if _, err := tables.Load(dir, rec.ID); err != nil {
 		t.Errorf("the record doesn't name the new disc's cached tables: %v", err)
+	}
+}
+
+// TestCoopTablesAfterAnotherDiscFails: patching a disc whose tables can't
+// be built replaces the record of a disc patched before, so the session
+// doesn't take the earlier disc's tables while Dolphin runs this one. It
+// says why there are none, and its advice holds when Dolphin runs the
+// earlier disc after all: --coop-iso, or patching that disc again, gives
+// its tables.
+func TestCoopTablesAfterAnotherDiscFails(t *testing.T) {
+	dir := t.TempDir()
+	useTablesDir(t, dir)
+	good := writeImage(t, "ww-multiplayer.iso", tablestest.PatchableISO(tablestest.Vanilla()))
+	cacheCoopTablesForPatch(io.Discard, good)
+	broken := writeImage(t, "broken.iso", tablestest.Disc([]stagetest.Stage{{Name: "a", DZS: []byte{1}}}).ISO(tablestest.PatchableDOL()))
+	var w bytes.Buffer
+	cacheCoopTablesForPatch(&w, broken)
+	if got := w.String(); !strings.HasPrefix(got, "  co-op : WARNING: this build can't make the co-op stage tables of this disc (") {
+		t.Fatalf("patch says %q", got)
+	}
+	st, err := loadCoopStageTables("")
+	if st != nil || err == nil || !strings.Contains(err.Error(), broken+" (the disc last patched, ") || strings.Contains(err.Error(), good) {
+		t.Fatalf("the session after patching %s, then %s: %+v, %v; want %s's build failure", good, broken, st, err, broken)
+	}
+
+	want := fixtureIdentity(t)
+	if st, err := loadCoopStageTables(good); err != nil || st.hash() != want || !strings.HasSuffix(st.from, "from the cache") {
+		t.Errorf("--coop-iso %s: %v %+v", good, err, st)
+	}
+	cacheCoopTablesForPatch(io.Discard, good)
+	if st, err := loadCoopStageTables(""); err != nil || st.hash() != want || !strings.Contains(st.from, good+" (the disc last patched, ") {
+		t.Errorf("the session after patching %s again: %v %+v", good, err, st)
 	}
 }
 
