@@ -239,7 +239,9 @@ func ensureCheatsIni(rep report.Reporter, userDir string) {
 // of both user dirs are backed up, the server runs the CoopHub over the
 // world co picks (--coop=new founds it from Dolphin A's file), and each
 // Dolphin gets a coop-sync goroutine with its own handle and co-op
-// connection. Without it nothing here changes.
+// connection. It also turns the startup shift of Dolphin B's Link off
+// (startupShift, mp_local_shift.go). Without it none of the co-op pieces
+// run, and the startup shift moves B only when the two Links overlap.
 func runMpLocal(nameA, nameB string, co coopFlags) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)

@@ -185,3 +185,55 @@ func TestWarpLinkAckRace(t *testing.T) {
 		t.Errorf("warp_seq %d, warp_ack %d, want both 1", seq, ack)
 	}
 }
+
+// loadMem stands in for a save state loaded just as warpLinkMem bumps
+// warp_seq: in place of that write, the mailbox goes back to the state's,
+// with warp_seq = warp_ack = 0 and warp_x/y/z = 0, as in a state captured
+// from a cold boot.
+type loadMem struct {
+	*mem.FakeMem
+	t *testing.T
+}
+
+func (l loadMem) Write(a uint32, b []byte) error {
+	if a == mailboxBase+mailboxWarpSeq {
+		store(l.t, l.FakeMem, mailboxBase+mailboxWarpSeq, make([]byte, 20)) // warp_seq, warp_ack, warp_x/y/z
+		return nil
+	}
+	return l.FakeMem.Write(a, b)
+}
+
+// TestWarpLinkSaveStateLoaded: a save state loaded under the request
+// takes it away, and warpLinkMem then leaves the mailbox as the state
+// left it. A withdraw would write warp_ack = 1 over the state's warp_seq
+// of 0, and the next frame would warp Link to the state's (0, 0, 0).
+func TestWarpLinkSaveStateLoaded(t *testing.T) {
+	fm := mem.NewFakeMem()
+	start := [3]float32{-200000, 120, 300000}
+	store(t, fm, addr.PlayerPtr, u32b(fakegame.PlayerActor))
+	store(t, fm, fakegame.PlayerActor+actorOffCurPos, posBytes(start))
+	warps := runWarpHandler(t, fm)
+	fm.Record(true)
+	err := warpLinkMem(loadMem{FakeMem: fm, t: t}, [3]float32{10, 20, 30}, 50*time.Millisecond)
+	fm.Record(false)
+	const want = "warp not acknowledged within 50ms, and warp_seq is now 0, not 1 (a save state loaded?); left as it is"
+	if err == nil || err.Error() != want {
+		t.Errorf("got %v, want %q", err, want)
+	}
+	for _, w := range fm.Writes() {
+		if w.Addr != mailboxBase+mailboxWarpX {
+			t.Errorf("wrote % X at %#x; want only the coordinates, which the load overwrote", w.Data, w.Addr)
+		}
+	}
+	for range 5 { // later frames
+		if fakeWarpHandler(t, fm) {
+			t.Errorf("a later frame warped Link to %v", readLinkPos(t, fm))
+		}
+	}
+	if n := warps(); n != 0 {
+		t.Errorf("%d warps, want 0", n)
+	}
+	if got := readLinkPos(t, fm); got != start {
+		t.Errorf("Link at %v, want %v", got, start)
+	}
+}

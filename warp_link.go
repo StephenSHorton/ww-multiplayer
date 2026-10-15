@@ -38,6 +38,14 @@ func warpLink(d *dolphin.Dolphin, x, y, z float32, timeout time.Duration) error 
 // still differs from warp_ack and is carried out. In that race the error
 // says withdrawn although Link was moved.
 //
+// The withdraw is made only while warp_seq still reads the new value. A
+// save state loaded meanwhile restores the mailbox with the rest of MEM1,
+// so warp_seq = warp_ack again and warp_x/y/z are the state's: writing
+// warp_ack = the new warp_seq then would arm a warp to those coordinates.
+// The mailbox is then left as it is, and so it is when another writer has
+// bumped warp_seq since. A load between that read and the write is still
+// missed, but that window is microseconds wide.
+//
 // warp_ack is no WriteGuard target (§6.7, docs/08 item 75). warpLink runs
 // only from mp-local's startup shift, which never runs under --coop, and
 // from the `warp` dev CLI (docs/08 item 131).
@@ -75,9 +83,13 @@ func warpLinkMem(m mem.Mem, p [3]float32, timeout time.Duration) error {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	// Withdraw, unless the game took it after the last poll.
+	// Withdraw, unless the game took it after the last poll, or warp_seq
+	// is no longer ours.
 	if ack, err := mem.ReadU32(m, ackAddr); err == nil && ack == nextSeq {
 		return nil
+	}
+	if seq, err := mem.ReadU32(m, seqAddr); err == nil && seq != nextSeq {
+		return fmt.Errorf("warp not acknowledged within %s, and warp_seq is now %d, not %d (a save state loaded?); left as it is", timeout, seq, nextSeq)
 	}
 	if err := mem.WriteU32(m, ackAddr, nextSeq); err != nil {
 		return fmt.Errorf("warp not acknowledged within %s, and withdrawing it failed: %w", timeout, err)
