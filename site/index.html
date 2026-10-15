@@ -315,12 +315,12 @@ footer a:hover { text-decoration: underline; }
 			<p class="sub">On the same home network, just join the host's LAN IP. Across the internet, the joiner needs to reach the host on TCP port 25565.</p>
 			<div class="grid2">
 				<div class="card">
-					<h3>Easiest: Tailscale</h3>
-					<p>Install <a href="https://tailscale.com">Tailscale</a> on both PCs, then join the host's Tailscale address (<code class="i">100.x.y.z</code>). No router setup at all.</p>
+					<h3>Easiest: Radmin VPN</h3>
+					<p>Free, no router setup. Everyone installs <a href="https://www.radmin-vpn.com/">Radmin VPN</a>. The host creates a network, friends join it with its name and password, and joiners use the host's Radmin IP (<code class="i">26.x.x.x</code>). If Windows asks, allow <code class="i">ww-multiplayer.exe</code> on all networks. Windows only.</p>
 				</div>
 				<div class="card">
 					<h3>Port forwarding</h3>
-					<p>On the host's router, forward TCP <code class="i">25565</code> to the host's PC. The joiner uses the host's public IP. Use <code class="i">--port</code> to pick a different port.</p>
+					<p>Works on Windows and macOS. On the host's router, forward TCP <code class="i">25565</code> to the host's PC. The joiner uses the host's public IP. Use <code class="i">--port</code> to pick a different port.</p>
 				</div>
 			</div>
 		</section>
@@ -341,7 +341,7 @@ footer a:hover { text-decoration: underline; }
 					<h3>Known limits</h3>
 					<ul>
 						<li>Outset Island is the most tested. Room and stage changes aren't smooth yet.</li>
-						<li>No built-in NAT traversal: use Tailscale or a port forward.</li>
+						<li>No built-in NAT traversal: use Radmin VPN or a port forward.</li>
 						<li>Linux can patch and run a server, but can't play yet.</li>
 					</ul>
 				</div>
