@@ -234,7 +234,13 @@ func ensureCheatsIni(rep report.Reporter, userDir string) {
 // server + 4 client goroutines (broadcast-pose × 2, puppet-sync × 2)
 // inside this process so a single Ctrl+C tears the whole demo down and
 // resets shadow_mode on both Dolphins.
-func runMpLocal(nameA, nameB string) {
+//
+// co.on (--coop) makes it a co-op session too (coop_session.go): the cards
+// of both user dirs are backed up, the server runs the CoopHub over the
+// world co picks (--coop=new founds it from Dolphin A's file), and each
+// Dolphin gets a coop-sync goroutine with its own handle and co-op
+// connection. Without it nothing here changes.
+func runMpLocal(nameA, nameB string, co coopFlags) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
@@ -306,8 +312,21 @@ func runMpLocal(nameA, nameB string) {
 	srv := network.NewServer(25565)
 	srvRep := prefixReporter{inner: rep, prefix: "[server]"}
 	srv.OnLog = func(msg string) { srvRep.Log(report.Info, msg) }
+	var coop *coopSession
+	if co.on {
+		var err error
+		if coop, err = startCoopHost(ctx, rep, srv.OnLog, co, defaultCoopEnv(pidA)); err != nil {
+			if ctx.Err() != nil {
+				return // Ctrl+C while founding waited for the game
+			}
+			rep.Log(report.Err, err.Error())
+			os.Exit(1)
+		}
+		srv.Coop = coop.hub
+	}
 	if err := srv.Start(); err != nil {
 		report.Logf(rep, report.Err, "server start: %v", err)
+		coop.stop()
 		os.Exit(1)
 	}
 	rep.Log(report.OK, "Server listening on :25565")
@@ -319,37 +338,47 @@ func runMpLocal(nameA, nameB string) {
 	addr := "localhost:25565"
 	var wg sync.WaitGroup
 
-	// spawn launches one client goroutine. broadcast=true means
-	// runBroadcastPoseCtx, false means runPuppetSyncCtx.
-	spawn := func(label, name string, pid uint32, broadcast bool) {
+	// spawn launches one client goroutine running run with the label's
+	// prefixed reporter: runBroadcastPoseCtx, runPuppetSyncCtx or, with
+	// --coop, runCoopSyncCtx.
+	spawn := func(label string, run func(r report.Reporter) error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer cancel()
 			r := prefixReporter{inner: rep, prefix: "[" + label + "]"}
-			if broadcast {
-				if err := runBroadcastPoseCtx(ctx, name, addr, pid, r, nil, nil); err != nil {
-					report.Logf(r, report.Err, "%v", err)
-				}
-			} else {
-				if err := runPuppetSyncCtx(ctx, name, addr, name, pid, r, nil, nil); err != nil {
-					report.Logf(r, report.Err, "%v", err)
-				}
+			if err := run(r); err != nil {
+				report.Logf(r, report.Err, "%v", err)
 			}
 		}()
+	}
+	broadcast := func(name string, pid uint32) func(report.Reporter) error {
+		return func(r report.Reporter) error { return runBroadcastPoseCtx(ctx, name, addr, pid, r, nil, nil) }
+	}
+	puppet := func(name string, pid uint32) func(report.Reporter) error {
+		return func(r report.Reporter) error { return runPuppetSyncCtx(ctx, name, addr, name, pid, r, nil, nil) }
 	}
 
 	// 0.3 s stagger between connects: four simultaneous accepts against
 	// a freshly-listening server occasionally produced "expected welcome,
 	// got error or wrong type" on Windows pre-staggering (TCP accept +
 	// welcome-write race). Same delay as scripts/mplay2.sh.
-	spawn("bcast-A", nameA, pidA, true)
+	spawn("bcast-A", broadcast(nameA, pidA))
 	time.Sleep(300 * time.Millisecond)
-	spawn("puppet-A", nameA, pidA, false)
+	spawn("puppet-A", puppet(nameA, pidA))
 	time.Sleep(300 * time.Millisecond)
-	spawn("bcast-B", nameB, pidB, true)
+	spawn("bcast-B", broadcast(nameB, pidB))
 	time.Sleep(300 * time.Millisecond)
-	spawn("puppet-B", nameB, pidB, false)
+	spawn("puppet-B", puppet(nameB, pidB))
+	if coop != nil {
+		for _, d := range []struct {
+			label, name string
+			pid         uint32
+		}{{"coop-A", nameA, pidA}, {"coop-B", nameB, pidB}} {
+			time.Sleep(300 * time.Millisecond)
+			spawn(d.label, func(r report.Reporter) error { return runCoopSyncCtx(ctx, d.name, addr, d.pid, r, coop) })
+		}
+	}
 
 	rep.Log(report.OK, "Local multiplayer running. Walk in either Dolphin — the other should render Link #2 at your real coords.")
 	rep.Log(report.Info, "Ctrl+C to stop.")
@@ -358,6 +387,7 @@ func runMpLocal(nameA, nameB string) {
 	rep.Log(report.Info, "Tearing down...")
 	wg.Wait()
 	srv.Stop()
+	coop.stop()
 
 	// Reset both Dolphins to baseline mirror so Link #2 doesn't stay
 	// frozen at the last received pose forever.

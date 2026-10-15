@@ -79,6 +79,17 @@ type Client struct {
 	// which fall back to logging it via OnLog). Mirrors the OnLog /
 	// OnPlayerList callback pattern.
 	OnChat func(from, text string)
+
+	// role and caps go in the hello: RolePlayer for NewClient, RoleCoop
+	// for NewCoopClient (coop.go).
+	role byte
+	caps uint16
+
+	// OnCoop is invoked from the read loop with each MsgCoop payload a
+	// co-op client (NewCoopClient) receives; the payload is the
+	// callback's to keep. A player client drops MsgCoop. Like OnChat, it
+	// runs on the read loop, so it must hand slow work off.
+	OnCoop func(payload []byte)
 }
 
 // NewClient creates a client with the given player name.
@@ -164,7 +175,11 @@ func (c *Client) ConnectContext(ctx context.Context, addr string) error {
 	}
 	c.mu.Unlock()
 	c.connected.Store(true)
-	c.log(fmt.Sprintf("Connected as player %d", id))
+	if c.role == RoleCoop {
+		c.log(fmt.Sprintf("Connected for co-op (co-op ID %d)", id))
+	} else {
+		c.log(fmt.Sprintf("Connected as player %d", id))
+	}
 
 	go c.readLoop(conn)
 	go c.heartbeatLoop(conn, stop)
@@ -181,7 +196,7 @@ func (c *Client) handshake(conn net.Conn) (*Message, error) {
 	if c.writeTimeout > 0 {
 		conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
 	}
-	if err := writeJoin(conn, c.name); err != nil {
+	if err := writeJoinRole(conn, c.name, c.role, c.caps); err != nil {
 		return nil, fmt.Errorf("send join: %w", err)
 	}
 
@@ -224,7 +239,7 @@ func (c *Client) Disconnect() {
 // IsConnected returns whether the client is connected.
 func (c *Client) IsConnected() bool { return c.connected.Load() }
 
-// MyID returns this client's player ID.
+// MyID returns this client's player ID (a co-op client's co-op ID).
 func (c *Client) MyID() byte {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -453,6 +468,13 @@ func (c *Client) readLoop(conn net.Conn) {
 				if rtt := monotonicNanos() - ts; rtt >= 0 {
 					c.lastRTT.Store(rtt)
 				}
+			}
+
+		case MsgCoop:
+			// Only a co-op connection takes them (coop.go); the server
+			// never sends one to a player.
+			if c.role == RoleCoop && c.OnCoop != nil {
+				c.OnCoop(msg.Data)
 			}
 		}
 	}
