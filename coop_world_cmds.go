@@ -204,13 +204,15 @@ func coopWorldBlock(w io.Writer, root string, id world.ID, t blockTarget, yes, f
 		return fmt.Errorf("co-op world %s: %w", id, err)
 	}
 	if m, ok := readCoopMarker(dir); ok && !force {
-		switch use, why := m.state(); use {
-		case markerStale:
+		switch use, why := m.state(); {
+		case use == markerStale:
 			// The marker stays: the next host start says the session did
 			// not end cleanly.
 			fmt.Fprintf(w, "World %s has a stale session marker (%s; that process has ended): its last session did not end cleanly.\n", id, m)
-		case markerUnknown:
+		case use == markerUnknown:
 			return fmt.Errorf("co-op world %s may be in use by a session (%s): can't tell whether that process still runs (%s); stop that host first (Ctrl+C), or pass --force if you know it ended", id, m, why)
+		case use == markerLive && why != "": // by its pid alone
+			return fmt.Errorf("co-op world %s may be in use by a session (%s): a process with pid %d runs, but %s, so it may not be that host; stop that host first (Ctrl+C), or pass --force if no host serves the world", id, m, m.pid, why)
 		default:
 			return fmt.Errorf("co-op world %s is in use by a running session (%s): stop that host first (Ctrl+C), or pass --force if that pid now belongs to another program", id, m)
 		}

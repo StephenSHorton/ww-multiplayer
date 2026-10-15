@@ -455,7 +455,11 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 		case markerSelf:
 			report.Logf(rep, report.Warn, "co-op: world %s was marked in use by this process (%s): its earlier session here did not stop", cs.world, prev)
 		case markerLive:
-			report.Logf(rep, report.Warn, "co-op: world %s is marked in use by a process that still runs (%s): if that is another host serving it, stop one of them, or one host's changes are lost", cs.world, prev)
+			if why == "" {
+				report.Logf(rep, report.Warn, "co-op: world %s is marked in use by a process that still runs (%s): if that is another host serving it, stop one of them, or one host's changes are lost", cs.world, prev)
+			} else {
+				report.Logf(rep, report.Warn, "co-op: world %s was marked in use (%s), and a process with pid %d runs, but %s, so it may not be that host: if another host serves it, stop one of them, or one host's changes are lost", cs.world, prev, prev.pid, why)
+			}
 		default:
 			report.Logf(rep, report.Warn, "co-op: world %s was marked in use (%s), and whether that session still runs can't be told (%s): if another host serves it, stop one of them, or one host's changes are lost", cs.world, prev, why)
 		}
@@ -544,7 +548,7 @@ type coopWorldInfo struct {
 	err     error           // why it can't be loaded
 	marker  *coopMarker     // its session marker, if any
 	use     coopMarkerState // what the marker says, judged as the list is made
-	useWhy  string          // why use is markerUnknown
+	useWhy  string          // why use is markerUnknown, or markerLive by pid alone (coopMarker.state)
 }
 
 func (w coopWorldInfo) String() string {
@@ -695,7 +699,7 @@ func (m coopMarker) String() string {
 type coopMarkerState int
 
 const (
-	markerLive    coopMarkerState = iota // a process with its pid runs on this machine
+	markerLive    coopMarkerState = iota // a process with its pid (and start token, if both have one) runs on this machine
 	markerSelf                           // this process wrote it
 	markerStale                          // its process has ended: its session did not end cleanly
 	markerUnknown                        // it can't be checked, so it is taken as in use
@@ -714,15 +718,17 @@ func coopHostname() string {
 	return h
 }
 
-// state judges whether m's session may still run, and for markerUnknown
-// says why it can't tell. Only positive evidence makes a marker stale: no
-// process on this machine has its pid, or the one that has it started at
-// another time than the marker records (the pid was reused). A marker
-// without a start token (one an older version wrote, or one written where
-// procState gives none, as on macOS) is judged by its pid alone. The time
-// on the first line is not used: it is local time with no zone, so a
-// clock or zone change could make a running host look newer than its
-// marker.
+// state judges whether m's session may still run. For markerUnknown it
+// says why it can't tell, and for markerLive judged by pid alone why the
+// start tokens weren't compared ("" when they were). Only positive
+// evidence makes a marker stale: no process on this machine has its pid,
+// or the one that has it started at another time than the marker records
+// (the pid was reused). A marker without a start token (one an older
+// version wrote, or one written where procState gives none, as on macOS)
+// is judged by its pid alone, as is one whose process's token procState
+// can't read. The time on the first line is not used: it is local time
+// with no zone, so a clock or zone change could make a running host look
+// newer than its marker.
 func (m coopMarker) state() (coopMarkerState, string) {
 	if m.pid <= 0 {
 		return markerUnknown, "it names no process"
@@ -743,6 +749,10 @@ func (m coopMarker) state() (coopMarkerState, string) {
 		return markerSelf, ""
 	case !alive || reused:
 		return markerStale, ""
+	case m.start == "":
+		return markerLive, "this marker has no start time"
+	case start == "":
+		return markerLive, "its start time can't be read"
 	}
 	return markerLive, ""
 }

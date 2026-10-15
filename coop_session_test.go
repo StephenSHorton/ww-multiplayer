@@ -213,14 +213,14 @@ func TestCoopMarker(t *testing.T) {
 		why        string
 	}{
 		{"one line, its process ended", "pid 4242 since 2026-10-15 17:16:19\n", markerStale, ""},
-		{"one line, its process runs", "pid 4243 since 2026-10-15 17:16:19\n", markerLive, ""},
+		{"one line, its process runs", "pid 4243 since 2026-10-15 17:16:19\n", markerLive, "this marker has no start time"},
 		{"one line, this process", fmt.Sprintf("pid %d since 2026-10-15 17:16:19\n", self), markerSelf, ""},
 		{"this pid, started at another time", fmt.Sprintf("pid %d since 2026-10-15 17:16:19\nhost=%s start=other\n", self, here), markerStale, ""},
 		{"its process runs", "pid 4243 since 2026-10-15 17:16:19\nhost=" + here + " start=t1\n", markerLive, ""},
 		{"its pid reused", "pid 4243 since 2026-10-15 17:16:19\nhost=" + here + " start=t0\n", markerStale, ""},
 		{"its process ended", "pid 4242 since 2026-10-15 17:16:19\nhost=" + here + " start=t1\n", markerStale, ""},
-		{"no start token now", "pid 4244 since 2026-10-15 17:16:19\nhost=" + here + " start=t1\n", markerLive, ""},
-		{"no start token then", "pid 4243 since 2026-10-15 17:16:19\nhost=" + here + " start=\n", markerLive, ""},
+		{"no start token now", "pid 4244 since 2026-10-15 17:16:19\nhost=" + here + " start=t1\n", markerLive, "its start time can't be read"},
+		{"no start token then", "pid 4243 since 2026-10-15 17:16:19\nhost=" + here + " start=\n", markerLive, "this marker has no start time"},
 		{"no host", "pid 4242 since 2026-10-15 17:16:19\nhost= start=t1\n", markerStale, ""},
 		{"another machine", "pid 4242 since 2026-10-15 17:16:19\nhost=elsewhere-" + here + " start=t1\n", markerUnknown, "another machine, elsewhere-"},
 		{"no pid", "pid x since 2026-10-15 17:16:19\n", markerUnknown, "names no process"},
@@ -507,9 +507,29 @@ func TestCoopWorldBlock(t *testing.T) {
 	if _, _, err := writeCoopMarker(world.Path(root, id)); err != nil {
 		t.Fatal(err)
 	}
-	if err := coopWorldBlock(&out, root, id, chest, true, false); err == nil || !strings.Contains(err.Error(), "in use") {
+	inUse := "in use by a running session"
+	if !procStateSupported {
+		inUse = "may be in use by a session"
+	}
+	if err := coopWorldBlock(&out, root, id, chest, true, false); err == nil || !strings.Contains(err.Error(), inUse) {
 		t.Errorf("in use: %v", err)
 	}
+	// Another process with the marker's pid runs. By its start token it
+	// is the marker's; by its pid alone it may not be.
+	t.Run("running", func(t *testing.T) {
+		coSetProcState(t, coProcs(map[int]string{4243: "t1"}))
+		for _, c := range []struct{ file, want string }{
+			{"pid 4243 since 2026-10-15 17:16:19\nhost=" + coopHostname() + " start=t1\n", "is in use by a running session (pid 4243 since 2026-10-15 17:16:19): stop that host first"},
+			{"pid 4243 since 2026-10-15 17:16:19\n", "may be in use by a session (pid 4243 since 2026-10-15 17:16:19): a process with pid 4243 runs, but this marker has no start time, so it may not be that host; stop that host first (Ctrl+C), or pass --force if no host serves the world"},
+		} {
+			if err := os.WriteFile(marker, []byte(c.file), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := coopWorldBlock(&out, root, id, chest, true, false); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("marker %q: %v, want %q", c.file, err, c.want)
+			}
+		}
+	})
 	// One that can't be checked is taken as in use.
 	if err := os.WriteFile(marker, []byte(fmt.Sprintf("pid %d since 2026-10-15 17:16:19\nhost=elsewhere-%s start=1\n", os.Getpid(), coopHostname())), 0o644); err != nil {
 		t.Fatal(err)
@@ -706,9 +726,29 @@ func TestStartCoopHost(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer cs.stop()
 		if cs.world != id || !log.has("but that process has ended: its last session did not end cleanly") {
 			t.Errorf("restart after a kill: world %s, want %s\n%s", cs.world, id, log)
+		}
+		cs.stop()
+		// Another process with the marker's pid runs: by its start token,
+		// the marker's; by its pid alone, maybe not.
+		coSetProcState(t, coProcs(map[int]string{4243: "t1"}))
+		for _, c := range []struct{ file, want string }{
+			{"pid 4243 since 2026-10-15 17:16:19\nhost=" + coopHostname() + " start=t1\n", "is marked in use by a process that still runs (pid 4243 since 2026-10-15 17:16:19)"},
+			{"pid 4243 since 2026-10-15 17:16:19\n", "was marked in use (pid 4243 since 2026-10-15 17:16:19), and a process with pid 4243 runs, but this marker has no start time, so it may not be that host: if another host serves it"},
+		} {
+			if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte(c.file), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			log = &coLog{}
+			cs, err = startCoopHost(ctx, log, func(string) {}, on, e)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cs.stop()
+			if cs.world != id || !log.has(c.want) {
+				t.Errorf("restart with marker %q: world %s, want %s and %q\n%s", c.file, cs.world, id, c.want, log)
+			}
 		}
 	})
 	t.Run("no backup", func(t *testing.T) {
