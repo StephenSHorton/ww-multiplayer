@@ -193,13 +193,13 @@ func TestReplicaDryRunNeverWrites(t *testing.T) {
 	sea := int8(addr.TableSea)
 	room := outset.Room
 	say(t, rr.r,
-		&wire.GainsDown{Seq: 11, Origin: 2, Gains: []wire.Gain{{Off: uint16(addr.OffGetItem), Val: 0xFF}}},
+		&wire.GainsDown{Seq: 11, Origin: 2, Gains: []wire.Gain{{Off: uint16(addr.OffGetItem + 3), Val: 0xFF}}},
 		&wire.Scoped{Kind: wire.ScopeDan, Stage: stage, Table: sea, Room: -1, Words: []wire.ScopedWord{{Word: 0, Bits: 0x0F}}},
 		&wire.Scoped{Kind: wire.ScopeZone, Stage: stage, Table: sea, Room: room, Words: []wire.ScopedWord{{Word: 1, Bits: 0x3}}},
 		&wire.Scoped{Kind: wire.ScopeRoomEdge, Stage: stage, Table: sea, Room: room, Words: []wire.ScopedWord{{Word: 2, Bits: 0x8}}},
 		&wire.Scoped{Kind: wire.ScopeKill, Stage: stage, Table: sea, Room: room, Words: []wire.ScopedWord{{Word: 3, Bits: 0x80}}},
 		&wire.Notice{Code: wire.NoticeTombstone, Text: "the host blocked something"},
-		&wire.Ctrl{Op: wire.CtrlTombstone, Arg: wire.TombstoneArg(uint16(addr.OffGetItem), 0x01)},
+		&wire.Ctrl{Op: wire.CtrlTombstone, Arg: wire.TombstoneArg(uint16(addr.OffGetItem+3), 0x01)},
 		&wire.Ctrl{Op: wire.CtrlResync},
 		&wire.Ctrl{Op: wire.CtrlCoopOff, Arg: uint32(hub.FeatureImage)},
 	)

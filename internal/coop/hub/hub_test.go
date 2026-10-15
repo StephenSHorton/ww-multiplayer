@@ -28,7 +28,7 @@ const testTables uint64 = 0x5747_4D31_7461_626C
 // Image bytes the tests merge: two OR bytes, a MAX byte, and a memory
 // switch byte (OR_MASKED, which the default policy keeps out).
 var (
-	offOR     = uint16(addr.OffGetItem)                                        // mGetItem, OR 0xFF
+	offOR     = uint16(addr.OffGetItem + 3)                                    // mGetItem[3], OR 0xFF ([0..2] share bit 0 only)
 	offOR2    = uint16(addr.OffTact)                                           // mTact, OR 0xFF
 	offMax    = uint16(addr.OffWalletSize)                                     // mWalletSize, MAX 0xFF
 	offSwitch = uint16(addr.OffMemBit(3) + 4)                                  // mMemory[3].mSwitch, OR_MASKED
@@ -1298,7 +1298,8 @@ func TestFeatureString(t *testing.T) {
 		want string
 	}{
 		{0, "none"},
-		{DefaultFeatures, "image|puzzle|combat|switches"},
+		{DefaultFeatures, "image|puzzle|combat|switches|story|inventory|keys|life|magic"},
+		{TableFeatures, "puzzle|combat|live-switches|switches|keys|life"},
 		{FeatureBind | AskBind | 1<<20, "bind|ask-bind|0x100000"},
 	}
 	for _, tc := range cases {

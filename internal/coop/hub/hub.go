@@ -32,7 +32,10 @@
 // stage tables are not the host's (or either side has none) runs without
 // the features that read them (TableFeatures): its memory switch bytes
 // are neither taken nor sent, and only the latching switches of the
-// host's table enter the world at all (Config.SyncedSwitch).
+// host's table enter the world at all (Config.SyncedSwitch). From M4 the
+// story bits of the SyncMask enter the world too (DefaultPolicy), from
+// and to the players granted FeatureStory, and with them a file can be far
+// behind the world (§5.3).
 //
 // Nothing a peer does can stall the hub or the other peers: a peer's
 // inbound frames wait in a bounded share of the hub's queue, and its
@@ -124,10 +127,11 @@ type Config struct {
 	// or one far behind it, may bind.
 	Merge bool
 	// Policy narrows what the world accepts below the class masks; nil is
-	// world.DefaultPolicy, under which no story bit enters the world. With
+	// DefaultPolicy: the story bits of the SyncMask, the registers of the
+	// allowlist, and every OR and MAX byte, but no memory switch. With
 	// SyncedSwitch set, its memory switch bytes are replaced by
 	// SyncedSwitch's grants (SwitchPolicy); without, they are as given
-	// (none in world.DefaultPolicy).
+	// (none in DefaultPolicy).
 	Policy *world.Policy
 	// ScopeFilter is the scoped stores' filter (world.SwitchFilter over
 	// the M1 table); nil keeps every bit.
@@ -218,7 +222,7 @@ func newHub(cfg Config, direct bool) (*Hub, error) {
 	}
 	pol := cfg.Policy
 	if pol == nil {
-		pol = world.DefaultPolicy()
+		pol = DefaultPolicy()
 	}
 	if cfg.SyncedSwitch != nil {
 		pol = SwitchPolicy(pol, cfg.SyncedSwitch)

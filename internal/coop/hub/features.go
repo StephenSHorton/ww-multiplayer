@@ -11,11 +11,19 @@ import (
 // host decides what a session runs (§11 item 28: a host-authoritative
 // feature mask), and replicas read them from here.
 //
-// The low byte is the session features: a replica asks for them in
-// CO_HELLO's want, the host allows some (Config.Features, SetFeatures),
-// and CO_WELCOME grants the intersection. The next byte is what the host
-// tells a replica about binding. The top bits are hello flags: they ask
-// for something in one CO_HELLO and are never granted back.
+// The low byte and the third are the session features: a replica asks
+// for them in CO_HELLO's want, the host allows some (Config.Features,
+// SetFeatures), and CO_WELCOME grants the intersection. The second byte
+// is what the host tells a replica about binding. The top bits are hello
+// flags: they ask for something in one CO_HELLO and are never granted
+// back.
+//
+// Two session features carry image bytes of their own, which the hub
+// neither takes from a player without them nor sends it (gateOf):
+// FeatureSwitches the memory switches, FeatureStory the story bits. The
+// others either need no bytes beyond FeatureImage's or are what the
+// replica does with the image (the live-switch timing, the inventory, the
+// derived counts), and the hub only passes the host's choice on.
 type Feature uint32
 
 const (
@@ -38,6 +46,40 @@ const (
 	// player's memory switch bytes nor sends it any, and its replica
 	// writes none.
 	FeatureSwitches Feature = 1 << 4
+	// FeatureStory is story sync (§6.5, M4): the story bits of
+	// class.SyncMask travel in the image (DefaultPolicy), every named bit
+	// of mEvent 0x00-0x41 but the LocalOnly, game-cleared and refight
+	// ones, and the replica writes the world's on its next stage
+	// transition, the holds' aside, with the allowlisted event registers.
+	// Without it the hub neither takes a player's story bit bytes nor
+	// sends it any, as for FeatureSwitches; a bind is judged on them all
+	// the same, as on the memory switches, since the bound file's later
+	// sessions may have it. The registers have been image bytes since M2
+	// (FeatureImage); FeatureStory is the replica writing them.
+	FeatureStory Feature = 1 << 5
+	// FeatureInventory is the inventory (§6.6, M4): the replica writes the
+	// world's get-item and collect flags, songs, Triforce shards, pearls,
+	// spoils and bait flags, the item slots and equipment it derives from
+	// them, and the wallet, quiver and bomb bag capacities by MAX. Those
+	// flags and capacities have been image bytes since M2 (FeatureImage),
+	// so the hub only passes the host's choice on.
+	FeatureInventory Feature = 1 << 6
+	// FeatureKeys is derived small keys (§6.4, M4): the replica sets each
+	// dungeon's key count to the key sources minus the key doors its own
+	// game has open. Those come from the M1 key table (TableFeatures); the
+	// count itself is DERIVED and never enters the world.
+	FeatureKeys Feature = 1 << 7
+
+	// FeatureLife is derived max life (§3 "Max life", M4): 12 quarter
+	// hearts plus the pieces and four per container the replica's own game
+	// has collected, raised through the HUD's pending counter, never
+	// lowered. The heart sources come from the M1 heart table
+	// (TableFeatures).
+	FeatureLife Feature = 1 << 16
+	// FeatureMagic is derived max magic (§3 "Max magic", M4): from the
+	// Deku Leaf's get-item flag and event 0x3180, which need no table,
+	// raised through the HUD's pending counter, never lowered.
+	FeatureMagic Feature = 1 << 17
 
 	// FeatureMerge says the host runs with --coop-merge (§5.3): a file
 	// with progress the world lacks (divergent) or one far behind it may
@@ -64,23 +106,30 @@ const (
 	AskBind Feature = 1 << 31
 )
 
+// M4Features are M4's session features (§9 M4): story bits, inventory and
+// the derived keys, max life and max magic.
+const M4Features = FeatureStory | FeatureInventory | FeatureKeys | FeatureLife | FeatureMagic
+
 // SessionFeatures is every session feature: what a replica may want and a
 // host may allow.
-const SessionFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureLiveSwitches | FeatureSwitches
+const SessionFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureLiveSwitches | FeatureSwitches | M4Features
 
-// DefaultFeatures is what a host allows unless told otherwise: everything
-// but the live-switch opt-in.
-const DefaultFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureSwitches
+// DefaultFeatures is what a host allows unless told otherwise (a --coop
+// session): everything but the live-switch opt-in.
+const DefaultFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureSwitches | M4Features
 
 // TableFeatures are the session features that read the M1 stage tables
 // (internal/coop/tables): which switches latch (memory switches, the live
-// opt-in, the dan and zone switches of FeaturePuzzle) and which setIDs
-// name which enemies (FeatureCombat). A player gets them only when its
-// tables' identity, CO_HELLO's stageTblHash, is the host's and not 0
-// (Config.StageTblHash); otherwise the hub grants the rest and says why in
-// a NOTICE. The image's other classes (chests, pickups, visited rooms,
-// dungeon items, ocean, charts and the sea map, §3) need no table.
-const TableFeatures = FeatureSwitches | FeatureLiveSwitches | FeaturePuzzle | FeatureCombat
+// opt-in, the dan and zone switches of FeaturePuzzle), which setIDs name
+// which enemies (FeatureCombat), and which chests, pickups and doors are
+// key sources and key doors (FeatureKeys) and heart sources
+// (FeatureLife). A player gets them only when its tables' identity,
+// CO_HELLO's stageTblHash, is the host's and not 0 (Config.StageTblHash);
+// otherwise the hub grants the rest and says why in a NOTICE. The image's
+// other classes (chests, pickups, visited rooms, dungeon items, ocean,
+// charts and the sea map, story bits, registers, inventory and
+// capacities, §3) and max magic need no table.
+const TableFeatures = FeatureSwitches | FeatureLiveSwitches | FeaturePuzzle | FeatureCombat | FeatureKeys | FeatureLife
 
 var featureNames = []struct {
 	f    Feature
@@ -91,6 +140,11 @@ var featureNames = []struct {
 	{FeatureCombat, "combat"},
 	{FeatureLiveSwitches, "live-switches"},
 	{FeatureSwitches, "switches"},
+	{FeatureStory, "story"},
+	{FeatureInventory, "inventory"},
+	{FeatureKeys, "keys"},
+	{FeatureLife, "life"},
+	{FeatureMagic, "magic"},
 	{FeatureMerge, "merge"},
 	{FeatureBind, "bind"},
 	{AskUnsaved, "ask-unsaved"},

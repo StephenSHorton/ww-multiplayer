@@ -57,10 +57,18 @@ type m3Player struct {
 
 func newM3Player(t *testing.T, ctx context.Context, h *host, pol *world.Policy, name string, nonce bind.Nonce, seed uint64) *m3Player {
 	t.Helper()
+	return newWritingPlayer(t, ctx, h, Config{StageTblHash: m3TblHash, Policy: pol}, name, nonce, seed)
+}
+
+// newWritingPlayer is a loopback player whose replica writes, with cfg's
+// policy, tables and stage tables' identity.
+func newWritingPlayer(t *testing.T, ctx context.Context, h *host, cfg Config, name string, nonce bind.Nonce, seed uint64) *m3Player {
+	t.Helper()
 	p := &player{rig: newRig(t, name), log: &logBuf{}}
 	p.tag(p.tagFor(testWorld, nonce))
 	bm := &beatMem{FakeMem: p.m, game: p.g}
-	r, err := New(Config{Mem: bm, Logf: p.log.logf, Apply: true, StageTblHash: m3TblHash, Policy: pol, BeatTimeout: time.Second})
+	cfg.Mem, cfg.Logf, cfg.Apply, cfg.BeatTimeout = bm, p.log.logf, true, time.Second
+	r, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

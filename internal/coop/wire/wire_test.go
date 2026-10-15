@@ -39,7 +39,8 @@ var (
 
 // Image offsets the tests use, one per class (internal/coop/class).
 var (
-	offGetItem   = uint16(addr.OffGetItem)                                          // OR, mask 0xFF
+	offGetItem   = uint16(addr.OffGetItem + 3)                                      // OR, mask 0xFF (mGetItem[3]; [0..2] sync bit 0 only)
+	offBottles   = uint16(addr.OffGetItem)                                          // OR, mask 0x01 (bits 1-7 are bottle history)
 	offWallet    = uint16(addr.OffWalletSize)                                       // MAX, mask 0xFF
 	offSwitch3   = uint16(addr.OffMemBit(addr.TableDRC) + addr.MemBitOffSwitch)     // OR_MASKED
 	offDungeon4  = uint16(addr.OffMemBit(addr.TableFW) + addr.MemBitOffDungeonItem) // OR, mask 0x3F
@@ -57,7 +58,7 @@ func TestClassesOfTestOffsets(t *testing.T) {
 		class class.Class
 		mask  byte
 	}{
-		{offGetItem, class.OR, 0xFF}, {offWallet, class.Max, 0xFF}, {offSwitch3, class.ORMasked, 0xFF},
+		{offGetItem, class.OR, 0xFF}, {offBottles, class.OR, 0x01}, {offWallet, class.Max, 0xFF}, {offSwitch3, class.ORMasked, 0xFF},
 		{offDungeon4, class.OR, addr.DungeonItemMask}, {offLetterReg, class.Max, 0x03},
 		{offLife, class.PerPlayer, 0}, {offMaxLife, class.Derived, 0}, {offReserve, class.Tag, 0}, {offImagePad, class.Never, 0},
 	} {
@@ -97,7 +98,7 @@ var golden = []struct {
 	}, "02 | 03 | 04 | 00000000 | a0a1a2a3a4a5a6a7 | 0000000000000000 | 00"},
 	{"GAINS c->s", Up, &GainsUp{
 		Batch: 0x01020304, Gains: []Gain{{offWallet, 0x02}, {offGetItem, 0x81}, {offSwitch3, 0x10}},
-	}, "04 | 01020304 | 0003 | 0012 02 | 0051 81 | 03f0 10"},
+	}, "04 | 01020304 | 0003 | 0012 02 | 0054 81 | 03f0 10"},
 	{"GAINS c->s empty", Up, &GainsUp{Batch: 9}, "04 | 00000009 | 0000"},
 	{"GAINS s->c", Down, &GainsDown{
 		Seq: 0xA, Origin: 2, Gains: []Gain{{offDungeon4, 0x05}},
@@ -124,7 +125,7 @@ var golden = []struct {
 	{"NOTICE", Down, &Notice{Code: NoticeWorldMismatch, Text: "wrong world"},
 		"07 | 01 | 0b | 77726f6e6720776f726c64"},
 	{"NOTICE empty", Down, &Notice{Code: NoticeRejected}, "07 | 06 | 00"},
-	{"CTRL TOMBSTONE", Up, &Ctrl{Op: CtrlTombstone, Arg: TombstoneArg(offGetItem, 0x80)}, "08 | 03 | 00005180"},
+	{"CTRL TOMBSTONE", Up, &Ctrl{Op: CtrlTombstone, Arg: TombstoneArg(offGetItem, 0x80)}, "08 | 03 | 00005480"},
 	{"CTRL RESYNC", Down, &Ctrl{Op: CtrlResync}, "08 | 01 | 00000000"},
 	{"CTRL COOP_OFF", Down, &Ctrl{Op: CtrlCoopOff, Arg: 0xFFFFFFFF}, "08 | 02 | ffffffff"},
 }
@@ -423,6 +424,7 @@ func TestDecodeRejects(t *testing.T) {
 		{"WORLD padding byte", Down, worldWith(t, offImagePad, 1), "NEVER"},
 		{"WORLD MAX bit outside mask", Up, worldWith(t, offLetterReg, 0x04), "local bits 0x04"},
 		{"WORLD dungeon-item bit 6", Up, worldWith(t, offDungeon4, 0x40), "local bits 0x40"},
+		{"WORLD bottle history", Up, worldWith(t, offBottles, 0x05), "local bits 0x04"},
 
 		{"GAINS c->s no header", Up, []byte{byte(SubGains), 0, 0}, "shorter than its header"},
 		{"GAINS c->s no count", Up, []byte{byte(SubGains), 0, 0, 0, 0, 0}, "cut off before its count"},
@@ -435,6 +437,7 @@ func TestDecodeRejects(t *testing.T) {
 		{"GAINS c->s tag", Up, gainsUp(Gain{offReserve, 1}), "TAG, which never travels"},
 		{"GAINS c->s never", Up, gainsUp(Gain{offImagePad, 1}), "NEVER, which never travels"},
 		{"GAINS c->s outside mask", Up, gainsUp(Gain{offLetterReg, 0x04}), "bits 0x04 are outside its MAX mask 0x03"},
+		{"GAINS c->s bottle history", Up, gainsUp(Gain{offBottles, 0x04}), "bits 0x04 are outside its OR mask 0x01"},
 		{"GAINS c->s duplicate", Up, gainsUp(Gain{offGetItem, 1}, Gain{offGetItem, 2}), "not strictly ascending"},
 		{"GAINS c->s descending", Up, gainsUp(Gain{offGetItem, 1}, Gain{offWallet, 2}), "not strictly ascending"},
 		{"GAINS s->c no header", Down, []byte{byte(SubGains), 0, 0, 0, 0, 0, 0, 0, 0}, "shorter than its header"},
@@ -488,8 +491,8 @@ func TestDecodeRejects(t *testing.T) {
 		{"CTRL long", Up, []byte{byte(SubCtrl), 1, 0, 0, 0, 0, 0}, "CTRL body is 6 bytes"},
 		{"CTRL op 0", Up, []byte{byte(SubCtrl), 0, 0, 0, 0, 0}, "op 0"},
 		{"CTRL op 4", Down, []byte{byte(SubCtrl), 4, 0, 0, 0, 0}, "op 4"},
-		{"TOMBSTONE high bits", Up, []byte{byte(SubCtrl), 3, 1, 0, 0x51, 0x80}, "bits above its offset"},
-		{"TOMBSTONE no bit", Up, []byte{byte(SubCtrl), 3, 0, 0, 0x51, 0}, "names no bit"},
+		{"TOMBSTONE high bits", Up, []byte{byte(SubCtrl), 3, 1, 0, byte(offGetItem), 0x80}, "bits above its offset"},
+		{"TOMBSTONE no bit", Up, []byte{byte(SubCtrl), 3, 0, 0, byte(offGetItem), 0}, "names no bit"},
 		{"TOMBSTONE past image", Up, []byte{byte(SubCtrl), 3, 0, 0x07, 0x78, 1}, "outside the 0x778-byte image"},
 		{"TOMBSTONE per-player", Up, []byte{byte(SubCtrl), 3, 0, 0, byte(offLife), 1}, "PER_PLAYER"},
 		{"TOMBSTONE outside mask", Up, []byte{byte(SubCtrl), 3, 0, byte(offLetterReg >> 8), byte(offLetterReg), 0x80}, "outside its MAX mask"},

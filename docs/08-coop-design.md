@@ -82,9 +82,9 @@ The early releases (v0.4 to v0.8) do all of this from the Go process, with no re
 | Small keys | `mKeyNum` per dungeon | memBit +0x20 (live 0x803C53A0); HUD pending counter `mItemKeyNumCount` 0x803CA77C | derived, applied when idle and settled | `keys(t) = \|key sources set\| − \|key doors set\|` over the receiver's *applied* flags (§6.4) | No |
 | Ocean and charts | salvage bits, charts owned / deciphered / salvaged, `mFmapBits`, Triforce charts | `mOcean` 0x803C51C8 (0x64); `dSv_player_map_c` 0x803C4CCC (0x84) | on load | OR | No |
 | Story event bits | bytes 0x00-0x41 (487 named bits, `d_save_event_flag.inc`) | `mEvent` 0x803C522C; bit id 0xHHLL = byte HH, mask LL (`d_save.cpp:1187-1199`) | on load (Go writes them during the receiver's stage transition; M7 shim writes them at getSave) | OR under the generated SyncMask, minus LocalOnly, D8 and refight bits; receiver-side holds (§6.5) | No. M7 makes it exact. |
-| Event registers | bytes 0x79-0xFF (131 multi-bit registers, `setEventReg` is mask-and-set, `d_save.cpp:1202-1210`) | 0x803C52A5..0x803C532B | on load | per player, except an allowlist: the 17 figurine masks from `l_figure_comp` (`d_a_obj_figure.cpp:43-61`): 0x80FF-0x84FF, 0x8CFF-0x95FF, 0x9CFF, 0xB1FF use OR; letter, Beedle-points and Ghost Ship registers use MAX within their mask (monotone: inferred) | No |
+| Event registers | bytes 0x79-0xFF (131 multi-bit registers, `setEventReg` is mask-and-set, `d_save.cpp:1202-1210`) | 0x803C52A5..0x803C532B | on load: from M4, on the stage transition with the story bits (Appendix C item 89) | per player, except an allowlist: the 17 figurine masks from `l_figure_comp` (`d_a_obj_figure.cpp:43-61`): 0x80FF-0x84FF, 0x8CFF-0x95FF, 0x9CFF, 0xB1FF use OR; letter, Beedle-points and Ghost Ship registers use MAX within their mask (monotone: inferred) | No |
 | Unnamed event bytes 0x42-0x78 | Archipelago uses 0x60-0x61 | 0x803C526E..0x803C52A4 | never | — | — |
-| Inventory and collection | `mGetItem` flags, `mCollect[0..4]` (swords, shields, bracelets, charms), songs `mTact`, `mTriforce`, `mSymbol`, beast and bait flags | 0x803C4C59 (0x15), 0x803C4CBC-0x803C4CC7, 0x803C4C9C | live when idle | OR flags, then derive slots `mItems` 0x803C4C44 (best variant, fill empty or lesser slots only) and equipment; grants ordered base then upgrade; context rules for the FF1 sword and the GTower bow (§6.6) | No (Go mirrors the `item_func_*` side effects). M7 adds `execItemGet` as an option. |
+| Inventory and collection | `mGetItem` flags, `mCollect[0..4]` (swords, shields, bracelets, charms), songs `mTact`, `mTriforce`, `mSymbol`, beast and bait flags | 0x803C4C59 (0x15), 0x803C4CBC-0x803C4CC7, 0x803C4C9C | live when idle | OR flags, then derive slots `mItems` 0x803C4C44 (best variant, fill empty or lesser slots only) and equipment; grants ordered base then upgrade; context rules for the FF1 sword and the GTower bow (§6.6). `mGetItem[0..2]` and `mCollect[4]` sync bit 0 only: the telescope, sail and Wind Waker, and the Hero's Charm owned (`item_func_heros_omamori`, `d_item.cpp:895-898`). Bits 1-7 of `mGetItem[0..2]` record which bottle contents the player has held (`onBottleItem`, `d_save.cpp:224-282`), and `mCollect[4]` bit 1 is the charm worn (`d_menu_collect.cpp:1283-1286`): both stay each player's (item 112) | No (Go mirrors the `item_func_*` side effects). M7 adds `execItemGet` as an option. |
 | Capacities | wallet size, arrow max, bomb max | 0x803C4C1A, 0x803C4C77, 0x803C4C78 | live when idle | MAX; never lowered | No |
 | Max magic | magic meter and its upgrade | `mMaxMagic` u8 0x803C4C1B; pending `mItemMaxMagicCount` 0x803CA784 | derived, live when idle | from source flags (Deku Leaf, event 0x3180); **add-only** | No |
 | Max life | heart pieces and containers | `mMaxLife` u16 0x803C4C08 (quarter hearts); pending `mItemMaxLifeCount` 0x803CA77E | derived, live when idle | 12 + pieces + 4·containers from source flags; **add-only** | No |
@@ -427,9 +427,10 @@ When Go sees a LEAKED tag (fails V2-V5) it **scrubs** it: it zeroes the 0x30 byt
 | UNBOUND, subset | the file's shared classes are a subset of the world (fresh file, or an older copy of this world's file) | prompt "Bind this file?"; on yes, back up and arm |
 | UNBOUND, divergent | both sides have unique progress | the preflight lists per-class gains for each side and the held bits; binding needs `--coop-merge` on the host |
 | refused | `mClearCount` differs; either player is in a boss refight; the file is FOREIGN | refuse |
-| far behind | a fresh file joining a world whose resume-stage milestones (RODE_KORL 0x2A08, MET_KORL 0x0F80, 0x0801, 0x0808, 0x2401; `d_com_inf_game.cpp:1302-1320`) are set | recommend `coop-world export/import` (copy the host's file) over a union; a union is allowed only with `--coop-merge`, and holds apply |
+| far behind | a fresh file joining a world whose resume-stage milestones (RODE_KORL 0x2A08, MET_KORL 0x0F80, 0x0801, 0x0808, 0x2401; `d_com_inf_game.cpp:1302-1320`) are set | recommend copying the host's save in over a union (Dolphin's Memory Card Manager exports and imports it; the `coop-world export/import` once named here was never built, Appendix C item 107). The game keeps all three files in one card file, so the copy replaces all three of the joiner's files, and the copied file is the host's own, already bound. A union is allowed only with `--coop-merge`, and holds apply. RODE_KORL is LocalOnly, so the check rests on the other four (item 88) |
 
 - Binding is always an explicit prompt. Go never auto-binds a file that has progress.
+- The hub judges a bind on every byte the world takes, the story bits and memory switches included, whatever the joiner is granted that session (a `--coop-dry-run` join, or stage tables that aren't the host's). A bound file is never judged again, and its later sessions merge its whole WORLD (§5.5). Files bound before M4 were never judged on story, since no world held story bits then: their first M4 session unions their story bits into the world (item 111).
 
 ### 5.4 Backups
 - At every co-op session start, Go copies the Dolphin card (raw `.raw` image or GCI folder, read-only) to `<config>/ww-multiplayer/backups/<ts>/`. It keeps 10 rotations.
@@ -444,7 +445,7 @@ When Go sees a LEAKED tag (fails V2-V5) it **scrubs** it: it zeroes the 0x30 byt
 | Host server stops or crashes | The joiner behaves as above. The host restarts on the same world file; unflushed commits self-heal from the replicas. |
 | Host runs a different world | NOTICE WORLD_MISMATCH: the joiner disarms. Pose still works. |
 | A replica loads an older save or a Dolphin save state | The tag's `worldSeq` (+0x18) drops below the value Go last wrote, or the heartbeat regresses, which is detected (the bindNonce is unchanged). The replica is re-classified and catches up at its next stage load. Regressed bits are never proposed as clears. |
-| A bound file is played solo (no Go) | Its progress is offline progress. It is merged into the world at the next session. The tag stays, and the game never touches it. |
+| A bound file is played solo (no Go) | Its progress is offline progress. It is merged into the world at the next session, with no bind judgement and no `--coop-merge`. The tag stays, and the game never touches it. So `save-merge` keeps a bound file's tag only when the other file adds nothing or is bound to the same world (item 108). |
 | Playing solo afterwards, unbound | `coop-tag clear` zeroes the tag; it persists at the next in-game save. That file is never written again. |
 | A different file is loaded mid-session | It is re-classified. Writes stop unless it is bound to this world. The TUI shows "file not bound". |
 | Second quest | Refused (V3). The ExDataSave leak is scrubbed. |
@@ -534,11 +535,16 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
 - **Duplicates self-correct.** Both players open the same key chest, or a key is spent on a door the partner already opened: the count converges to the derived value.
 - **Key sync is enabled per table** only when that table's M1 invariant passes: sources == doors == the vanilla count, and every source and door is recorded in a saved bit (Appendix C item 21). A key from an unknown source is never removed.
 - **Known exploit, documented:** using a key on a *different* door during the deferral window can open one extra door.
+- **M4 as built** (`internal/coop/derive`; items 94-98):
+  - The target is `min(max(keys(t) + extra, 0), 99)`. `extra` counts the keys from sources the table doesn't know: each rise of the count, while the Deriver tracks the file, that no known source explains. It starts at 0 on the Deriver's first tick of a file and after every reset (a failed read, a save state, the title, a restart of the tool): with the invariant passing, a count above `keys(t)` there is a door's key not yet taken or a duplicate, and is taken out. A door spends an extra key like any other (item 94).
+  - The counter is written only while the stage shows the key HUD. For the loaded table without it, only the live `mKeyNum` is written, never the saved byte too, because `putSave` copies the live memBit over the saved slot (`d_save.cpp:1511-1514`). Every derive write is compare-and-set, since the game moves the same counter (+1 `d_item.cpp:666`, -1 with the door's switch `d_door.cpp:439`) (item 95).
+  - The derive writes are a second heartbeat batch after the merge batch (`FrameWriter.ApplyDerived`), the only path the WriteGuard lets reach a DERIVED byte or a pending counter. Each counter is written whole, only while it reads 0, and only while IDLE and settled (1 s with no local change and no write of that table in flight) (item 98).
+  - The hub grants `FeatureKeys` only when both sides' stage tables match (`hub.TableFeatures`). The startup log names the tables whose keys are derived and why any other is not, and `/status` gives each table's count, sources taken, doors open and target (`derive.Status`).
 
 ### 6.5 Story event bits
 - **SyncMask:** every named bit in bytes 0x00-0x41, minus:
   - **LocalOnly:** every bit passed to `offEventBit` (50 call sites in 10 files, excluding `d_save.cpp`; 0x2D01's only clear is the debug map-select menu, `d_s_menu.cpp:244`), plus ENDLESS_NIGHT 0x0A02, RODE_KORL 0x2A08, 0x3820 and 0x3B20;
-  - the 34 game-cleared bits (D8): 0x0E08, 0x1108, 0x1110, 0x1140, 0x1301, 0x1302, 0x1304, 0x2002, 0x2004, 0x2080, 0x2680, 0x2801, 0x2802, 0x2804, 0x2940, 0x2980, 0x2D01, 0x2F01, 0x3080, 0x3410, 0x3820, 0x3B01, 0x3C02-0x3C80, 0x3F01, 0x4008, 0x4020, 0x4040, 0x4080;
+  - the 34 game-cleared bits (D8): 0x0E08, 0x1108, 0x1110, 0x1140, 0x1301, 0x1302, 0x1304, 0x2002, 0x2004, 0x2080, 0x2680, 0x2801, 0x2802, 0x2804, 0x2940, 0x2980, 0x2D01, 0x2F01, 0x3080, 0x3410, 0x3820, 0x3B01, 0x3C02-0x3C80, 0x3F01, 0x4008, 0x4020, 0x4040, 0x4080. *Corrected (doc vs decomp, item 86):* in GZLE01 D8 is 31 bits. 0x0E08, 0x1108 and 0x1110 are cleared only by demo-build code, so they sync, and LocalOnly is 34 bits;
   - the refight snapshot bits 0x3D80, 0x3D40, 0x3D20 and 0x3D10 (`d_meter.cpp:1070-1085`).
 - `scripts/gen_event_masks.py` generates the mask from the decomp, with citations. It is cross-checked against ww-online's 37-bit LocalOnly list (`docs/event-flags.md`, MIT) and committed as Go data.
 - **Holds** (receiver side: the bits stay in the world but are not applied locally yet):
@@ -551,6 +557,12 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
   - Before M7: Go writes the receiver's pending bits **on transition**, on the first tick where `mNextStage.mEnable` (0x803C9D54) == 1. Event bits are not copied by `getSave`/`putSave`, so they persist into the next stage, whose layers (`getLayerNo` 0x80052400, `d_com_inf_game.cpp:185-269`) and actors read them at creation (inferred).
   - From M7: the getSave shim applies them.
   - A cutscene-trigger switch (`daTag_Event` swbit, stage `mSpawnSwitchNo`, `d_event_manager.cpp:42-47`) is never sent without its batch.
+- **M4 as built** (`internal/coop/story`, `internal/coop/class/syncmask_gen.go`; items 86-93):
+  - **Holds.** MET_KORL itself is held until the receiver has it, so sync never applies it. RODE_KORL is LocalOnly, so far behind rests on the other four milestones (item 88). A third boat hold was added: 0x3E10 waits for 0x3F80 (`d_a_ship.cpp:4227`, `:4229`). `/status` lists each held bit and why.
+  - **Batching** is the sender's pace (`replica.Differ.Pace`, `differ_pace.go`), on only for a writing replica. Story bits and the allowlisted registers wait in one batch until the game has been IDLE for `story.BatchIdle` (1 s) and the batch has gained nothing for as long. A memory switch that rises while the game is busy or a batch waits goes with the batch. A reconnect's WORLD leaves the waiting bits out (`Differ.Withhold`) (item 90). The switch coupling is partial (item 91).
+  - **Registers** travel in the story batch and are written on the same transition tick as the bits, not on load (item 89).
+  - **Policy.** The hub's `DefaultPolicy` opens the SyncMask, and a session's policy is `hub.SessionPolicy(verdict)` everywhere: the hub, each writing replica and the world a host founds (item 92). The hub gates the story bytes 0x00-0x41 with `FeatureStory`.
+  - **Applying.** The receiver (`story.Receiver`) hands the pending bits to the merge path on the first tick with `mNextStage.mEnable` == 1, and the log says `a stage change starts: writing N story bits and M registers of the world`. The FrameWriter's recheck keeps that batch only while `mEnable` still reads what the snapshot read (`writer.go`).
 
 ### 6.6 Inventory and equipment
 - Slots are derived from the merged `mGetItem` flags. The best variant is used (bow slot 12: bits 0/1/2 give bow, fire-ice, light), the same model the game uses itself (`d_s_play.cpp:1385-1392`). A slot is only filled if it is empty (0xFF) or holds a lesser variant; nothing is ever removed.
@@ -563,6 +575,14 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
   - No bow, magic arrows or light arrows while the start stage is "GTower" (`d_s_play.cpp:1376-1384`).
 - **HUD refresh.** After a slot changes, refresh `play.mSelectItem[btn]` (0x803CA7DB) for any button bound to that slot (`d_com_inf_game.h:2924-2938`). Whether Link's sword model updates on a live `mSelectEquip` change is inferred; otherwise it updates at the next stage load.
 - **Bottles, bags and the delivery bag** are per player in v1.0. This is a known limit: a bottle only one player found stays theirs.
+- **M4 as built** (`internal/coop/inventory`; items 99-104). `inventory.Pending` plans in the grants' order: flags, then capacities, slots, equipment, then buttons.
+  - The flags (OR) and capacities (MAX) go through the merge path while IDLE. The slots, equipment and buttons go through the derive path (`ApplyDerived`), each compare-and-set against the byte the plan read.
+  - *Corrected (doc vs decomp):* `item_func_bomb_bag` sets both the bomb count and the max to 30 (`d_item.cpp:792-797`), not only the max. The upgrades are `d_item.cpp:1368-1390`, and they fill the ammo to 60/99 as well (item 100).
+  - Only bit 0 of `mGetItem[0..2]` and of `mCollect[4]` is taken. Their other bits are the bottle contents ever held and the Hero's Charm worn, both each player's own (items 99, 112).
+  - A first bow or bomb bag arrives with no ammo. Its fill of 30 would go through the HUD's ammo counters, which are no WriteGuard target before M7, so it is logged and not written (item 100).
+  - Equipment (`mSelectEquip`) changes wait for the receiver's stage-entry window: the first IDLE tick after a stage load, when Link holds nothing (item 101). This settles the open question above about a live sword change.
+  - A button is refreshed only when it shows nothing, or a lesser variant of its slot's item. Buttons bound to bottles or bags are never touched (item 102).
+  - World capacities are capped at the most the game sets (wallet 2, arrows and bombs 99) before the MAX. The GTower rule matches the exact name "GTower". The FF1 rule fails closed when the STAG can't be read (item 103).
 
 ### 6.7 Create-only staleness and escape hatches
 - **Until M9:** chests, freestanding items, bombable walls and other create-only actors in the receiver's *current* room stay stale until a room reload. Effects of a duplicate pickup:
@@ -805,6 +825,62 @@ Escapes (§6.7):
 - **R4 Refusals.** With the pause menu open, or during a cutscene, `/refresh` and `/warp` say `not now: … try again in a moment` and write nothing. `peek 0x803C9D48 14` is unchanged.
 
 Last: run `host`, `join` and `mp-local` once without `--coop` (they behave exactly as before), and once with `--coop --coop-dry-run` (the M2 steps hold).
+
+**Running M4 (shared progression).** `--coop` now also writes the world's story bits and allowlisted event registers (at the receiver's next stage change), its items, songs and capacities (while IDLE), and the small keys, max hearts and max magic each game's own flags then give. `--coop-dry-run` is still M2's dry run (item 106). P1-P9 are M4's acceptance items.
+
+Before the steps:
+1. Have the stage tables loaded as for M3 (M3 step 1). Each side's first lines then include:
+   - `co-op: shared progression this session: story bits and event registers (written at stage changes), items, songs and capacities (when idle) and max magic; derived from the stage tables: the small keys of DRC, FW, TotG, ET, WT and max hearts.`
+   - A `co-op: the small keys of table <t> (<dungeon>) are not derived: …` or `co-op: max hearts are not derived: …` warning for each derive whose M1 check fails. Without tables the line ends `without co-op stage tables no small keys or max hearts are derived.`
+2. Start from one file on both cards, so both bind into one world as subsets (§5.3). Export the file to share from Dolphin 1's card with Dolphin's Memory Card Manager and import it into Dolphin 2's card, before either is bound (`coop-tag clear --yes` first if it ever was). P1-P2 need DRC open (F2), P3 needs F4, and P4-P6 need a file that can still learn a song, open the bow's chest and see a story cutscene. Save states of those spots taken after binding stay bound.
+3. Start `mp-local --coop` and bind both files (M2 steps 1-2).
+   - Each pipeline logs `armed in world …: written to this game: the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (at room changes); its story bits and event registers (at stage changes); its items, songs and capacities (when idle); the small keys, max hearts and max magic this game's own flags give`.
+   - A class the host does not grant is named once: `co-op: the world's small keys and max hearts are not written to this game this session: …`, with the reason (the stage tables differ, see the host's NOTICE, or the host turned it off).
+4. `/status` (with B's name) now adds `progression granted: story|inventory|keys|life|magic`, `story bits held back: none` (or the held bits and why), a `small keys of table <t> (<dungeon>): …` line per key table, and `max hearts: derived`.
+5. Take each screenshot as `WW_DOLPHIN_INDEX=<n> ./ww-multiplayer.exe screenshot shots/m4-<item>-<before|after>.png` and read each pair by eye. A readback alone accepts nothing visual.
+
+Acceptance:
+- **P1 A chest key shows on B's key HUD.** On F2, B stands in DRC, out of the chest's room. A opens the small-key chest.
+  - B's log says `set t03 DRC chest <n>`. Once B is IDLE and settled, it says `the derive path wrote 1 of 1 writes after heartbeat …`, then `wrote key counter +1 at 0x803CA77C: small keys, table 3: 0 -> 1: 1 of 4 source(s) taken, 0 of 4 door(s) open`.
+  - B's key HUD counts up to 1 (`dMeter_keyMove`, `d_meter.cpp:5242-5257`). `peek 0x803C53A0 1` reads 1 and `/status` says `small keys of table 3 (DRC): 1 key(s), 1 of 4 source(s) taken, 0 of 4 door(s) open`.
+  - Pair: B's HUD before and after.
+  - Duplicate: had B stood in the chest's room, the chest would have stayed closed for B (§6.7). B opening it too counts up to 2, and the derive path takes the count back to 1 (item 94).
+- **P2 A door A opens takes B's key.** Both hold that key. A unlocks a DRC key door while B is in another room.
+  - B's count stays 1 while B stays in its room: the door's switch waits for B's next room change (§6.3), and the key with it (no phantom lock).
+  - At B's room change the log says `set t03 DRC switch 0x..`, then `wrote key counter -1 … 1 -> 0: 1 of 4 source(s) taken, 1 of 4 door(s) open`.
+  - Pairs: B's HUD before and after the room change, and the door B reaches standing open with no lock.
+- **P3 A heart piece.** On F4, A takes the heart piece.
+  - B's log shows the piece's flag set, then `wrote max-life counter +1 at 0x803CA77E: max life: <n> -> <n+1> quarter hearts: …`. `peek 0x803C4C08 2` on B goes up by 1.
+  - B's hearts refill to the new maximum's whole hearts: that is the game's own meter (`d_meter.cpp:1426-1427`), not a co-op write.
+  - Pair: B's quest-status screen (pause menu) piece count before and after.
+- **P4 A song.** A learns a song (`item_func_tact_song1..6`, `d_item.cpp:1090-1117`).
+  - Once B is IDLE, B's log says `set mTact bit <n>`. `peek 0x803C4CC5 1` on B has the bit.
+  - Pair: B's collection screen (the songs) before and after.
+- **P5 The bow, with arrows.** A opens the bow's chest.
+  - Once B is IDLE, B's log says `set mGetItem bit 0 (0x803C4C65 |= 0x01)`, and the arrow max is raised to 30 (`peek 0x803C4C77 1` reads 0x1E). Then the derive path writes the bow into slot 12 (`peek 0x803C4C50 1` reads 0x27).
+  - B's arrows stay as they were, 0 for a first bow, and the log says `not written: … (the HUD's ammo counters are no WriteGuard target before M7)` (item 100).
+  - Pairs: B's item screen before and after, and B firing an arrow once it has picked some up.
+  - If B already has a quiver upgrade, its 60 or 99 max stays: a capacity is never lowered.
+- **P6 A story cutscene's bits arrive at B's next stage change.** A watches a story cutscene while B stays in one stage.
+  - A's bits leave together, one batch about a second after A's game is IDLE again. `coop-watch` on A shows them set during the cutscene.
+  - Nothing reaches B's game while B stays in its stage. At B's next loading zone, B's log says `a stage change starts: writing N story bits and M registers of the world`.
+  - `coop-watch` on B shows the bits set on that tick only.
+  - Pick a cutscene whose bits change a stage's layer (`getLayerNo`, `d_com_inf_game.cpp:185-269`; for example the Outset sea room reads 0x0101, 0x0E20 and 0x0520, `:193-199`). Pair: B's view of that stage before and after the stage change.
+  - A resume milestone, or a boat bit, that B's game isn't ready for is listed by `/status` as `story bits held back until this game catches up: event 0x0F80 (moves where the file resumes, to Windfall)` and is not written.
+- **P7 (optional) Max magic.** A gets the Deku Leaf. B's log says `wrote max-magic counter +16 …`.
+  - B's meter appears, empty: the meter clamps magic to its maximum but does not fill it (`d_meter.cpp:4105-4107`), and the leaf's own fill is A's (item 97).
+  - Pair: B's HUD before and after.
+- **P8 save-diff after saving both files.** Stop moving, let both logs go quiet, take both through a loading zone, then save in game on both Dolphins.
+  - Export each file with the Memory Card Manager. `save-diff a.gci b.gci` (or the cards' raw images, read only) prints the differences by class.
+  - Expect PER_PLAYER (life, rupees, magic, ammo, bottles, the place) and TAG (each file's own tag).
+  - OR may differ only by bits a game hasn't taken yet: the stale room's. The bottle contents above bit 0 of `mGetItem[0..2]` and the Hero's Charm worn are listed under PER_PLAYER (item 112).
+  - OR_MASKED may differ only by LocalOnly and held story bits and unsynced switches. DERIVED may differ by a game's own `extra` keys or pieces. Nothing else.
+- **P9 Far behind and divergent files.** Join with a fresh file (one that hasn't met the King of Red Lions) into a world that has.
+  - B's log says `co-op: the world is far ahead of this file: copy the host's save in, or the host can run with --coop-merge to union them; pose sync goes on`, and that the copy replaces all three of B's files with the host's. Nothing is asked, bound or written.
+  - Join again with `--coop --coop-dry-run` and the same file: the host's NOTICE still says the world is far ahead (item 111), and a bind asked for is refused.
+  - With `--coop-merge` on the host, the bind is asked. After a yes, the milestones B lacks stay held (`/status`), so B's file still resumes where its own progress says.
+
+Last: run P1 again with `--coop --coop-dry-run`. B's log says `dry-run: would set t03 DRC chest <n> …`, derives no key (a dry run loads no tables), and `peek 0x803C53A0 1` is unchanged. Run `host`, `join` and `mp-local` once without `--coop`: they behave exactly as before.
 
 ### 8.3 Day-0 read-only probes (runnable now with today's binary)
 ```
@@ -1330,3 +1406,159 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 83. **A fatal connect error answers the escapes.** When `coopSync.run` gives up co-op for the session (the host refuses co-op), it turns the replica's writes off (the Breaker's "/coop on" hint is not printed), stops its ticks, and `/coop on` says it cannot help. `Replica.Run` answers the escape waiting for a tick, and any asked for later, with `replica.ErrStopped`, which is not `ErrNotNow`: the console does not say to try again.
 84. **The audits work out room changes themselves.** `auditWrites` and `coAuditM3` record where the fake game is as each tick begins (stage name, `mDan.mStageNo`, `mStayNo`, `mNextStage.mEnable`, `mpPlayerPtr`). They accept a room-change write only on the first armed tick with the gates open since the place changed, or a later one when every such tick before it found the heartbeat stalled or the game moved on. They no longer trust `Report.RoomChange`.
 85. **The boss bits wait in a boss stage.** Dungeon items 3 and 5 of the loaded table (boss defeated, boss demo seen) are read every frame in a boss stage (§3's table). In a stage whose STAG type is BOSS (`(mStageTypeAndSchbit >> 16) & 7 == 3`, `d_stage.h:20`, `:1031-1033`), in the FF table (Helmaroc King, `d_meter.cpp:3684`; inferred), or when the STAG can't be read, the planner holds them (`bossHold`), and the WriteGuard refuses them at the live memBit. They are written once Link leaves: live in another stage of the same table, else to the saved slot. A dry run plans as before.
+
+*M4: story bits and registers (§6.5)*
+
+86. **D8 is 31 bits in GZLE01, not 34 (doc vs decomp; decomp followed).**
+    - `scripts/gen_event_masks.py` (standard library; `--check` compares its output with the committed `internal/coop/class/syncmask_gen.go`) finds the design's 50 `offEventBit` call sites in 10 files outside `d_save.cpp`. 46 of them, in 9 files, are compiled into GZLE01; the script works that out from the `#if`/`VERSION_SELECT` guards, the splits and configure.py's match status.
+    - 0x0E08, 0x1110 and 0x1108 are cleared only by demo-build code: `d_a_npc_rsh1.cpp:1703`, `:1709` and `:1715` under `#if VERSION == VERSION_DEMO` (`:1690-1718`), and `d_a_obj_YLzou.cpp:482` (`:480-485`). Both files match GZLE01, so those three bits sync.
+    - LocalOnly is the 31 D8 bits plus 0x0A02, 0x2A08 and 0x3B20: 34 bits. 0x3820 is in both lists, still cleared in GZLE01 at `d_a_obj_YLzou.cpp:143`.
+87. **0x2D01 stays LocalOnly (a gap).** Its only clear is the debug map-select toggle (`d_s_menu.cpp:244`), but §6.5 keeps it out, and so does the generator.
+    - `getLayerNo` reads it for the Windfall sea room and M2tower (`d_com_inf_game.cpp:202`, `:252`). So a partner's milestone does not change the receiver's Windfall or tower layers until the receiver's own game sets the bit.
+    - The story task's cross-check: LocalOnly and the four refight bits are ww-online's 37-bit list plus 0x2D01.
+88. **Holds as built.**
+    - MET_KORL is itself held until the receiver has it (`UntilLocal`), so sync never applies it. It stays in the world and only releases 0x0801, 0x0808 and 0x2401.
+    - RODE_KORL (0x2A08) is LocalOnly, so no world ever holds it, and far behind (§5.3; `l_checkData`, `d_com_inf_game.cpp:1304-1311`) rests on MET_KORL, 0x0801, 0x0808 and 0x2401. The design's list of five is corrected.
+    - MET_KORL is set as the MEETSHISHIOH event starts (`d_event_manager.cpp:599-600`). That it comes before boarding on every path is inferred.
+    - A third boat hold, beyond §6.5's two: 0x3E10 waits for 0x3F80 (`d_a_ship.cpp:4227`, `:4229`; item 59). 0x2D10 waits for a Master Sword equipped (`checkMasterSwordEquip`, `d_a_player.h:600-604`), and HYRULE_COURTYARD_CUTSCENE 0x3804 for ZELDA_AWAKENED 0x2D02. A bit that waits for a partner bit may arrive in the same write as it.
+    - The hub's far-behind and divergent NOTICEs list the held bits by name, as many as fit in `wire.MaxNoticeLen` (255 bytes), then "and N more".
+89. **Registers on the transition tick (changed from §3's "on load"; inferred).**
+    - The allowlisted registers travel in the story batch, and the receiver writes them on the same transition tick as the story bits. The WriteGuard classes them with the story bits, and the planner's `timingOf` gives both `OnTransition`.
+    - Each change is still an edge: an OR register's new bits, or a MAX register's higher value. The decomp doesn't show when registers are read.
+    - *Citation fix:* `getEventReg` is `d_save.cpp:1207-1210`, and `setEventReg` `:1201-1205`. `:1196-1198` is `isEventBit`.
+90. **The sender's pace (`replica.Differ.Pace`, `differ_pace.go`).**
+    - It is on only for a writing replica (`Config.Apply`). A dry run is M2's, unpaced: every rising edge is sent on the tick it is found, as FuzzDiffer and the M2/M3 tests expect.
+    - The pace's clock counts ticks (`TickEvery` each). The replica's ticker never runs faster and skips the ticks a slow one overran, so a batch waits at least `story.BatchIdle` (1 s) of real time.
+    - The WORLD a writing replica sends when armed, and on every reconnect, goes through `Differ.Withhold`, which takes out what the batch holds. The waiting bits then follow as gains in their time. `Differ.Drop` resets the pace with the baseline, and the next tick's WORLD carries what waited.
+    - Gap (accepted): an edge found on the very tick a WORLD is built isn't the pace's yet, so it rides in that WORLD unbatched. It costs at most one tick's bits arriving apart from their batch (`replica.go`).
+    - The inventory, collection flags and capacities wait for the sender to be IDLE. That assumes a chest's demo item grants its flag as it is deleted, before its event ends (`daDitem_c::Delete`, `d_a_demo_item.cpp:438-441`; inferred). It also covers the Ganon's Tower refight's item swap (`d_s_play.cpp:1394-1400`; `d_com_inf_game.cpp:1440`, swapped back at `:1579`).
+91. **Cutscene-trigger switches are coupled only in part.**
+    - A memory switch that rises during an event, or while a batch waits, waits with that batch. `setStartDemo` sets the EVNT spawn switch as its event starts and skips the event when the switch is already set (`d_event_manager.cpp:42-47`). `daTag_Event` sets its swbit on demo accept (`d_a_tag_event.cpp:222-228`, `:386-391`).
+    - Not covered:
+      - (a) Stage-temp (dan) and zone switches go as SCOPED words, which the batch never sees.
+      - (b) On the receiver, the current table's switches apply at a room change but story bits only at a stage transition. So a coupled switch can land first, and the receiver then skips that event.
+      - (c) A switch set on a tick that already reads IDLE, with no batch waiting, goes at once.
+    - Fixing (b) means applying the coupled switches at the transition too. M7's getSave shim applies both at the stage load.
+92. **One policy for the session.**
+    - `hub.DefaultPolicy()` is `story.Policy(world.DefaultPolicy())`: it opens the SyncMask's story bits. `world.DefaultPolicy()` still fails closed on them, which keeps the world package, its tools and their tests unchanged.
+    - A session's policy is `hub.SessionPolicy(verdict)` = `SwitchPolicy(DefaultPolicy(), verdict)`, and the hub, each writing replica (`newSync`) and the founding world use it.
+    - *Bug fixed (latent since M3):* `foundFrom` merged the host's file into a world under `world.DefaultPolicy`, so the latching switches and, from M4, the story bits it held were left out of the founded world. The host's own file then looked ahead of the world at its bind. `foundFrom` now calls `SetPolicy` with the session's policy before the merge (`TestFoundFromSessionPolicy`).
+    - Only the story bytes 0x00-0x41 are gated by a hub feature (`FeatureStory`). The inventory, collection flags, capacities and registers have been image bytes since M2: M2/M3 replicas and their tests already share them, and `FeatureInventory` only tells a replica to write them.
+    - A bind is judged again when its request arrives, so a file can be refused (divergent or far behind) if the world grew after its WORLD (`TestBindJudgedAgain`).
+93. **Citation fixes.** `dKy_checkEventNightStop`'s use in `getLayerNo` is `d_com_inf_game.cpp:189`, not `:188`. `checkMasterSwordEquip` is `d_a_player.h:600-604`.
+
+*M4: small keys, max life and max magic (§6.4, §3)*
+
+94. **Keys: `extra` reconciles "duplicates self-correct" with "a key from an unknown source is never removed".**
+    - The target is `min(max(keys(t) + extra, 0), 99)`. `extra` counts the keys from sources the table doesn't know: every rise of the count, while the Deriver tracks the file, that no known source explains. It never goes down while the file is tracked. The clamp comes last, so a door takes its key from the whole: once `keys(t)` is 0 or below, a door (the player's or the partner's) spends an extra key, and the derive never gives it back.
+    - `extra` starts at 0 on the Deriver's first tick of a file, and again after every reset: a failed snapshot read, a save state (heartbeat regression), the title or file select, a restart of the tool. The table is derived only while its M1 invariant passes, so every source its dungeon has is a known saved bit. A count above `keys(t)` then is a door's key not yet taken (a partner's door whose switch reached the file before the decrement could, or a door an M3 session synced with no key derive) or a duplicate left in the file, and the derive takes it out once the table settles. So "a key from an unknown source is never removed" holds only while the file is tracked: a cheat's key goes at the next reset.
+    - *Fixed in review:* the first build measured `extra` on the first tick as the keys held beyond `max(keys(t), 0)`, and clamped `keys(t)` before adding it. A reset between a partner's door switch landing and its decrement turned that key into `extra` for good, and with `keys(t)` at 0 each door spent was refilled: one key opened every door of the table (`TestResetTakesTheDoorsKey`, `TestUnknownKey`, `TestM3FileDoorKey`).
+    - A rise counts as a duplicate, and is taken back, only while a source in the current stage had its flag set during this visit. That is the stale actor of §6.7 (`d_a_tbox.cpp:447-455`, `d_a_item.cpp:227-237`).
+    - This relies on the Deriver seeing a file's first tick before the replica's first write for it. The Deriver runs every tick, armed or not.
+95. **Where a key write goes.**
+    - The key counter is applied only while the stage shows the key HUD (`dMeter_keyMove`, `d_meter.cpp:5242-5257`). It takes a negative count and stops at 0.
+    - Without the HUD the count would stay pending until the next HUD stage and land on that stage's table. Only `itemInit` at file select clears it (`d_com_inf_game.cpp:72-84`; `d_s_name.cpp:1253`, `:1374`). So the counter is never written without the HUD.
+    - For the loaded table without the HUD, only the live `mKeyNum` is written. §3.1's general rule would write the live byte and the saved one, but `putSave` copies the live memBit over the saved slot (`d_save.cpp:1511-1514`).
+    - The game moves the same counter (+1 `d_item.cpp:666`, -1 with the door's switch `d_door.cpp:439`). So every derive write carries the bytes it expects, the FrameWriter compares and sets, and a mismatch is `Dropped` and planned again.
+96. **Max life is derived only when the whole M1 heart table passes.**
+    - A real disc that misses the 44-piece / 6-container totals turns it off entirely; the startup log and `/status` say why.
+    - Rewards no save bit records (the three minigames, and those whose grant isn't decompiled) can't be counted. A player's own such pieces are kept by max life's own `extra`, which, unlike the keys' (item 94), is measured on the file's first tick: max life is add-only, so an over-measured `extra` can only fail to raise it, never give a heart twice.
+    - A positive max-life counter also refills current life to the new maximum's whole hearts (`dMeter_LifeMove`, `d_meter.cpp:1426-1427`). So a partner's heart piece fully heals the receiver. That is the game's own pickup effect on per-player `mLife`, accepted and documented.
+    - The 1 s settle and the in-flight rule apply to life and magic as to keys, so a write can't race a pickup still in progress.
+97. **Max magic: event 0x3180 is not shown by the decomp (doc vs decomp).**
+    - The Great Fairy actor isn't decompiled (`daBigelf_c::getEventFlag`, `d_a_bigelf.cpp:199-202`). 0x3180's only decompiled reader is a list of seven bits in `d_a_npc_photo.cpp:2190-2197`.
+    - The upgrade is item 0xB2, `item_func_max_mp_up1`: +32 (`d_item.cpp:1396-1398`), capped at 0x20 (`d_meter.cpp:4069-4076`). So max magic is 0, 16 or 32.
+    - The live derive follows §3 and reads 0x3180 (inferred); the SyncMask syncs the bit, so a partner's upgrade reaches the receiver. The offline save-merge doesn't read it: it takes max(a, b, 16 if the merged Deku Leaf flag is set). The two derives agree whenever a file with 32 has the bit.
+    - The max-magic counter does not fill current magic: the meter only clamps `mMagic` to the maximum (`d_meter.cpp:4105-4107`). `item_func_deku_leaf`'s own +16 of current magic (`d_item.cpp:814`) isn't mirrored, because `mMagic` is per player, so a receiver whose meter came from co-op starts it empty.
+    - Each Deku Leaf pickup adds 16 again (`d_item.cpp:813`), so taking the leaf twice can reach 32 without the upgrade. The derive is add-only, so that is kept, and logged.
+    - The inventory package mirrors none of `item_func_deku_leaf`'s, `item_func_kakera_heart`'s, `item_func_utuwa_heart`'s or `item_func_max_mp_up1`'s counter side effects: the derive package owns those counters, and both would grant twice.
+98. **The derive path.**
+    - The derive writes (keys, life, magic, and the inventory's slots, equipment and buttons) are a second heartbeat batch made after the merge batch (`FrameWriter.ApplyDerived`). They are skipped when the merge batch stalled or aborted, because the slots follow the flags that batch carries.
+    - The WriteGuard enforces the paths itself: `ApplyContext` writes merging bytes, `ApplyDerived` derived bytes, counters and buttons, `ApplyFields` the escapes, and bind the tag. A derived byte sent any other way is refused.
+    - A counter is written whole, only while it reads 0, and only while IDLE. The HUD's drain is watched; one that never drains turns writes off through the Breaker.
+    - The Deriver plans whatever the hub grants. A derive whose feature isn't granted is dropped, and planned again a settle time later, and the log says once why it is not written.
+    - When the HUD takes a counter follows the decomp: max life only outside minigame 6 (Orca), max magic only while `mpPlayerPtr[1]` is null (`d_meter.cpp:815-816`, `:1561-1571`, `:4015-4040`). That the counters don't drain while the pause menu is open is inferred. The seagull (`m_hyoi_kamome`) case is not modelled, nor are the minigame, partner and pause cases in the fake game's HUD, so the tests drive those with heartbeat-only frames.
+
+*M4: inventory (§6.6)*
+
+99. **Two bytes merge fewer bits than the class table says (decomp followed).**
+    - `mGetItem[0..2]` are classed OR 0xFF, but their bits above bit 0 record which bottle contents a player ever held (`onBottleItem`, `d_save.cpp:224-282`). The game reads them: `checkItemGet`'s first-get checks (`d_item.cpp:539-545`, `:2349-2392`), Beedle's shop (`d_a_npc_bs1.cpp:838`) and Grandma's soup dialogue (`d_a_npc_ba1.cpp:678`).
+    - `mCollect[4]` bit 1 is whether the Hero's Charm is worn. The collection menu turns it on and off (`d_menu_collect.cpp:1283`, `:1286`), and the HUD (`d_meter.cpp:3669`, `:3682`) and Link (`d_a_player_main.cpp:5675`) read it.
+    - The plan takes only bit 0 of those bytes (owned: `item_func_heros_omamori`, `d_item.cpp:894-896`, for the charm). The world still merges the other bits and the receiver never writes them. Classing these bytes ORMasked 0x01 in `internal/coop/class` would say so in the table too; it was left for the class table's owner. Item 112 does it, as OR 0x01.
+100. **Bomb bag and ammo (doc vs decomp).**
+    - `item_func_bomb_bag` sets both the bomb count and the max to 30 (`d_item.cpp:792-797`). The upgrades are `d_item.cpp:1368-1390`, and they fill the ammo to 60/99 too. The plan doesn't copy the upgrades' fill, because ammo is per player.
+    - The plan's first-grant fill of 30 (a first bow or bomb bag) would go through the HUD's ammo counters, `mItemArrowNumCount` 0x803CA788 and `mItemBombNumCount` 0x803CA78C. Those are no WriteGuard target before M7, so the fill is logged once and not written, and a first bow arrives with no arrows.
+    - `RuleAmmoBusy` holds a first bow or bomb bag grant while its ammo counter is not 0, so the fill would keep IDLE's rule that a counter is written only while it reads 0.
+101. **Equipment waits for the stage-entry window** (the question §6.6 left open). That is the first IDLE tick after a stage load: Link is created with nothing in hand (`d_a_player_main.cpp:12179`), the blade is built when Link draws the sword (`:3847-3850`), and the game rebuilds it when it changes the sword itself (`d_a_player_dproc.inc:274-281`).
+    - Leftover risk: a player who draws the sword in the 400 ms or more before the window opens.
+    - A session started mid-stage equips at the next load. The `mCollect` flags themselves land live.
+102. **The button refresh is upgrade-only.**
+    - A button is refreshed only when it shows nothing or a lesser variant of its slot's item. That also corrects the game's own stale button after the deluxe picto box (`item_func_camera2`, `d_item.cpp:727-731`, which does no refresh), the same as `dComIfGp_setSelectItem` would do.
+    - Buttons bound to bottles or bags are never touched.
+    - *Doc vs decomp:* `play.mSelectItem[i]` is set to 0 at init (`d_com_inf_game.cpp:115`), not 0xFF. A button that still reads 0 is left to the game's own `dComIfGp_setSelectItem`.
+103. **Caps and context rules.**
+    - The world's capacities are capped at the most the game ever sets before the MAX: wallet 2, arrows and bombs 99. `getRupeeMax` treats 2 and anything higher as 5000 (`d_save.h:21-30`). The receiver's own higher value is never lowered.
+    - The GTower rule matches the exact stage name "GTower", because `dComIfGp_getStartStageName` is `mCurStage` (`d_com_inf_game.h:283`). Other Ganon stages are not covered.
+    - The FF1 rule fails closed when the STAG can't be read, but only while 0x0801 is set.
+    - During a Ganon's Tower refight `revPlayerRecollectionData` restores collect, equipment and capacities from its snapshot (`d_com_inf_game.cpp:1579+`). No grant is lost only because IDLE stays closed while the refight stage number is nonzero.
+104. **Compare-and-set.** The FrameWriter's merge path only ORs and MAXes. The slot, equipment and button writes go through `ApplyDerived` with the byte the plan read, and are made only while a fresh read still equals it. Otherwise they could overwrite a byte the game changed since the plan.
+
+*M4 in the `--coop` session (§5.3, §8.2)*
+
+105. **The wiring.**
+    - With `--coop`, `newSync` gives each writing replica the session's stage tables (`Config.Tables`, which the Deriver needs) and the session's policy. The replica asks for `hub.M4Features` with M3's.
+    - The startup log names M4's classes: `shared progression this session: …`. It names the key tables derived, and warns for each table whose M1 invariant fails, for a failing heart table, and when there are no tables.
+    - The armed line says what is written to that game, by the features granted. A welcome that grants fewer M4 classes than asked says which are off and why, once per change: the stage tables (the host's NOTICE gives the reason) or the host.
+    - `/status` adds the features granted, the held story bits and each key table's state (`derive.Status`).
+    - The TUI still passes no co-op flags. Without `--coop`, `host`, `join`, `mp-local` and `patch` are unchanged.
+106. **`--coop-dry-run` stays M2's dry run.** It has no tables, M2's policy, asks for the image only, and its Differ is unpaced.
+    - So it plans no story bit, key or max heart. It logs the inventory's flags and slots, the capacities and max magic as `dry-run: would …`.
+    - A world a writing host founds holds story bits that a dry-run replica's policy doesn't show. A dry run therefore never proposes or plans them.
+107. **Far behind: copy the host's save (corrects §5.3).**
+    - §5.3 recommended `coop-world export/import`, which was never built. The joiner's preflight now says `the world is far ahead of this file: copy the host's save in, or the host can run with --coop-merge to union them; pose sync goes on`, and the hub's refusal says the same.
+    - The game keeps all three file-select files in one card file (`card_savedata.gamedata[3]`, `m_Do_MemCardRWmng.h:39`, in the one card file "gczelda" the game opens or creates, `m_Do_MemCard.cpp:116`, `:134`), and the Memory Card Manager moves that whole file. So the log goes on to say that the copy replaces all three of the joiner's files with the host's (export them first; the session's card backup holds them too), and that the copied file is the host's own, already bound to the world. The hub's NOTICE says `it replaces all three of your files`. No tool copies a single slot.
+    - With `--coop-merge` on the host the bind is asked, and the milestones the file lacks stay held.
+108. **Offline `save-diff` and `save-merge` (`internal/coop/savefile`, `coop_save_cmds.go`).**
+    - They work on GCI files, or a raw card image read only. A slot is numbered 0-2 (`mDataNum`, top to bottom on the file select), printed "slot n (file n+1)". Second-quest slots are refused.
+    - Merge: max life is a's value plus the pieces and containers the merge newly set, capped at 0x50 (`d_meter.cpp:1432`). The absolute 12 + pieces + 4·containers would ignore a's unrecorded rewards. A reward counts by its record as the live derive reads it (`tables.RecordOf`): an event bit, or a letter register reading READ. The letters merge by MAX, and the mailbox hands over only a stocked letter (`d_a_obj_toripost.cpp:270`) while nothing stocks a read one (`d_letter.cpp:53-62`), so a letter merged in as read brings its piece or none ever comes. *Fixed in review:* the first build counted event-bit rewards only, so a letter merged in as read lost its piece for good. Max magic is item 97's.
+    - Keys, where the merge changed a source or door, are the live derive's target over the merged flags with no `extra`, `derive.KeyTarget` (`min(max(keys(t), 0), 99)`): what the live derive brings a's file to once those flags land, its baseline taking no `extra` (item 94). Keys a holds beyond its own flags are a door's key not yet taken or a duplicate, and go; the note says how many. *Fixed in review:* the first build kept them as `max(0, a's keys − keys(t)a)` with `keys(t)a` unclamped, so a file with more doors open than sources (§6.4's exploit, or a merge's own output) gained a key from nowhere, and its cap was 0xFF.
+    - Without `--iso` every DERIVED byte and the memory switches stay a's, and a printed warning says so: a merged file may then hold, say, the hookshot's get-item flag with an empty slot.
+    - Holds are judged against a's image after deriving, so a Master Sword derived from b's `mCollect` releases 0x2D10. The resume milestones print only a warning.
+    - Kept from a: the header block (banner, icon, comment) and the photos. The other two slots are written as the game would have repaired them on load, the decomp's slot-1 quirk included (`m_Do_MemCardRWmng.cpp:139`).
+    - Store-side facts reproduced: the game's load (Restore) never checks the outer `card_savedata` checksum. Store bumps `save_count`, sets `data_version` to 0, zeroes the padding and writes the same data to both copies (`m_Do_MemCardRWmng.cpp:32-106`).
+    - a's binding tag (`mergedTag`): a bound file's progress enters its world at its next session unjudged (§5.5), so the tag stays only where that brings the world nothing it wouldn't get anyway: b adds no OR, OR_MASKED or MAX byte, or b's slot is bound to the same world (b's own next session brings the same), which the warning says. Otherwise the tag is cleared, the warning says why, and the merged file joins as an unbound file the host judges like any other: a subset binds after a prompt, and progress the world lacks or a far-behind file needs `--coop-merge`. A tag that binds a to no world (leaked, or a newer layout's) is kept as it is and named for what it is. Each slot's tag is classified by V1-V5 (`bind.Classify`; mDataNum is the slot, mDateIPL the card copy's stamp). *Fixed in review:* the first build kept a's tag and warned that b's progress "needs the host's --coop-merge", which no host checks for a bound file, and called a leaked tag a binding.
+    - save-merge refuses an output that exists or names an input, writes it exclusively, and reads it back to check its checksums before it reports success.
+109. **Left as they were.**
+    - The replica's join preflight judges against the world it is sent, which the hub strips to its features (a dry run's has no story bits), and under its own policy. It can therefore offer a bind the hub then refuses with a NOTICE; the hub's judgement is the one that counts (item 111).
+    - The planner's holds (`replica.Holds`) duplicate `class.Holds`; `save-merge` and `/status` print the planner's reasons.
+    - The Deriver's first-tick notes repeat the startup log's off reasons, once per pipeline.
+    - `coopStageTables.policy()` is M3's policy, memory switches without story bits. `newSync` and the world's founding use `hub.SessionPolicy` (`coopSession.policy`); `save-merge --iso` starts from `policy()` and adds the story bits itself, and the M3 session test plans with it. *Fixed in review:* `coop_tables_runtime.go`'s doc comment said the replica policy was `st.policy()`.
+    - ww-online could not be read this round (403), so nothing was cross-checked against it.
+110. **Acceptance and tests.**
+    - `TestCoopSessionM4` extends M3's session test: two FakeGames, a real `network.Server` with the CoopHub on loopback, and two writing pipelines with the vanilla fixture's tables. Its scripted play covers:
+      - the same heart piece taken twice, the Deku Leaf, the bow with its quiver, a register;
+      - a cutscene's two story bits that leave together and reach B only at its next stage change, with MET_KORL's holds;
+      - in DRC, the same key twice, a partner's key counted in, a door whose key goes only at B's next room change (no phantom lock), and a key spent twice on one door counted once.
+    - Then 400 random steps with reordered, repeated and dropped messages, reconnects and a host restart from the world file.
+    - It checks:
+      - convergence on every M4 class, with keys, max life and max magic matching the formulas over each game's own flags;
+      - that no capacity, max life or max magic ever fell;
+      - `/status`;
+      - the write audit: story bits only on a transition tick, derive targets only through the derive path, no PER_PLAYER, NEVER or TAG byte, and no write while a gate is closed.
+    - `TestCoopSessionM3`'s audit now accepts M4 targets only under M4's rules (`coAuditM4Write`), and counts the derive writes against the replica's own count.
+    - `TestReplicaPace`, `TestWrittenClasses`, `TestSayUngranted`, `TestFoundFromSessionPolicy`, `TestLogCoopProgression`, `TestProgressionStatus` and `derive.TestStatus` cover the wiring.
+    - Random play stays clear of §6.4's documented exploit: no key is spent on another door while a world door waits.
+    - P1-P9 are M4's owner checks (§8.2).
+
+*M4 review fixes*
+
+111. **A bind is judged on everything the world takes, whatever the session grants (§5.3).**
+    - The first build judged a bind under the joiner's grant: without `FeatureStory` (a `--coop-dry-run` join asks for the image alone) neither the file's story bits nor the world's milestones counted, and without `FeatureSwitches` (stage tables not the host's) its memory switches didn't either, as since M3. But a bind outlasts the session: `onBoundHello` never judges a bound file again, and a later session that grants more merges its whole WORLD and writes the world's story into it. So a fresh Outset file bound by a dry run joined a later session far behind, with no `--coop-merge`.
+    - `judge` now counts every byte the world's policy takes, and the milestones and holds, for every bind (`TestStoryBind`'s dry-run cases, `TestPreflightCountsSwitches`).
+    - Not fixed: files bound under M2 or M3 were judged when no world held story bits, and a world doesn't record what a bind was judged on. Their first M4 session unions their story bits with the world's, holds aside (§5.3).
+112. **Bottle history and the charm worn stay local.**
+    - The class table now matches `inventory.FlagMask`: `mGetItem[0..2]` and `mCollect[4]` are OR with mask 0x01, not 0xFF. The world image, the hub's bind judgement (divergent or a subset), the join preflight and save-diff now carry and compare bit 0 of them only.
+    - Bits 1-7 of `mGetItem[0..2]` record which bottle contents the player has held (`onBottleItem`, `d_save.cpp:224-282`). Bit 0 is the telescope, sail and Wind Waker. `mCollect[4]` bit 0 is the Hero's Charm owned (`item_func_heros_omamori`, `d_item.cpp:895-898`), and bit 1 is whether it is worn, which the collection menu turns on and off (`d_menu_collect.cpp:1283-1286`).
+    - Why: under OR 0xFF a player who had held a potion the partner hadn't looked divergent at bind, and needed `--coop-merge`. The world kept each player's bottle history and charm worn, though no receiver wrote them (item 99), and save-diff listed them as OR differences. save-merge already took bit 0 only, through the planner's `inventory.FlagMask`, so its output does not change.
+    - save-diff now lists a flag bit outside its byte's class mask under PER_PLAYER. coop-watch names `mGetItem` and `mCollect[0..4]` bits by their array index (`mGetItem[5] bit 0`), since the table now splits both arrays.
+    - The class table's hash changes with it, so a peer on an older build is refused with NOTICE SCHEMA. A world file written before keeps those bits until it is loaded: its decode strips them and counts them, like any bit outside the table.

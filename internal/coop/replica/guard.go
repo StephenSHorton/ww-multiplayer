@@ -1,7 +1,9 @@
 package replica
 
 import (
+	"bytes"
 	"cmp"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"slices"
@@ -11,7 +13,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 )
@@ -30,22 +34,28 @@ const (
 	// TargetOcean is mOcean, the charts and the sea map (§3 "Ocean and
 	// charts"). M3.
 	TargetOcean
-	// TargetStory is the named event bits and the allowlisted event
-	// registers (§6.5). M4.
+	// TargetStory is the named event bits of class.SyncMask and the
+	// allowlisted event registers (§6.5, §3 "Event registers"), written
+	// only as a stage change starts. M4.
 	TargetStory
-	// TargetInventory is mGetItem, mCollect[0..4], the songs, Triforce,
-	// pearls, beast and bait flags, and the MAX capacities (§6.6). M4.
+	// TargetInventory is the inventory's flag bits (inventory.FlagMask:
+	// mGetItem, mCollect[0..4], the songs, Triforce, pearls, beast and
+	// bait flags) and the MAX capacities (§6.6). M4.
 	TargetInventory
-	// TargetDerived is what each receiver derives: the mItems slots,
-	// mSelectEquip and every table's mKeyNum, saved and live (§6.4,
-	// §6.6). mMaxLife and mMaxMagic are not in it: they change only
-	// through their pending counters (§3). M4.
+	// TargetDerived is what each receiver derives: the item slots
+	// inventory derives (every mItems slot but the bottles),
+	// mSelectEquip[0..2] and every table's mKeyNum, saved and live
+	// (§6.4, §6.6), written only by the derive path. mMaxLife and
+	// mMaxMagic are not in it: they change only through their pending
+	// counters (§3). M4.
 	TargetDerived
 	// TargetCounters is the HUD's pending counters mItemKeyNumCount,
-	// mItemMaxLifeCount and mItemMaxMagicCount (§6.4). M4.
+	// mItemMaxLifeCount and mItemMaxMagicCount (§6.4), written only by
+	// the derive path. M4.
 	TargetCounters
-	// TargetSelectItem is play.mSelectItem, refreshed after a slot
-	// changes (§6.6). M4.
+	// TargetSelectItem is play.mSelectItem[0..2], the X, Y and Z
+	// buttons' items, refreshed by the derive path after a slot changes
+	// (§6.6). M4.
 	TargetSelectItem
 	// TargetScoped is the dan switch words and every zone's switch words,
 	// which a writer still validates against the live zone table (§3.1).
@@ -77,6 +87,11 @@ const (
 	// sea map. A replica's WriteGuard adds TargetEscape for the escape
 	// hatches M3 ships too.
 	M3Targets = TargetStage | TargetOcean
+	// M4Targets is what M4's receiver adds (§9 M4): the story bits and
+	// registers, the inventory and capacities, the derived bytes, the
+	// pending counters and the buttons' items. A replica that writes
+	// guards M3Targets | M4Targets | TargetEscape.
+	M4Targets = TargetStory | TargetInventory | TargetDerived | TargetCounters | TargetSelectItem
 )
 
 var targetNames = [...]string{
@@ -104,13 +119,15 @@ func (t Target) String() string {
 type rule uint8
 
 const (
-	ruleNone  rule = iota // not a write target
-	ruleOR                // set bits within the mask, never clear one: OR and OR_MASKED bytes, the scoped words
-	ruleMax               // raise the value within the mask, never lower it: MAX bytes
-	ruleSet               // any value within the mask: DERIVED bytes, the counters, mSelectItem, the tag, the warp request
-	ruleName              // a stage name's byte: NUL, or a letter, digit or '_'
-	ruleRange             // a signed value in [lo, hi]
-	ruleArm               // 0 to 1 and nothing else: mNextStage.mEnable
+	ruleNone   rule = iota // not a write target
+	ruleOR                 // set bits within the mask, never clear one: OR and OR_MASKED bytes, the scoped words
+	ruleMax                // raise the value within the mask, never lower it: MAX bytes
+	ruleSet                // any value within the mask: the counters' bytes, the tag, the warp request
+	ruleName               // a stage name's byte: NUL, or a letter, digit or '_'
+	ruleRange              // a signed value in [lo, hi]: mNextStage's numbers, a key count
+	ruleArm                // 0 to 1 and nothing else: mNextStage.mEnable
+	ruleSlot               // a derived slot: from nothing or a lesser variant of its item to a better one
+	ruleButton             // a button's item: from nothing or a lesser variant to a better one of some derived slot
 )
 
 // byteRule is what the allowlist says of one byte.
@@ -118,26 +135,119 @@ type byteRule struct {
 	mask   byte // the bits a write may change
 	rule   rule
 	target Target
+	paths  path // the FrameWriter calls that may write it
 	lo, hi int8 // ruleRange's bounds
+	slot   int8 // ruleSlot's slot, an index into derivedSlots
+}
+
+// path is a FrameWriter call a write comes through (§4.2). Each byte of
+// the allowlist names the paths that may write it, and each path is
+// judged as itself, so a byte reaches the game only through its own:
+//
+//   - pathMerge, FrameWriter.ApplyContext: the merging image bytes,
+//     saved and live (OR, OR_MASKED and MAX), and the scoped words, each
+//     a fresh read with the planned bits ORed in or the value raised;
+//   - pathDerive, FrameWriter.ApplyDerived: the DERIVED bytes, the
+//     pending counters and play.mSelectItem, each as part of a
+//     DeriveWrite of the kind that owns it (WriteGuard.checkDerive), by
+//     compare-and-set;
+//   - pathEscape, FrameWriter.ApplyFields: mNextStage and the mailbox
+//     warp request (§6.7);
+//   - pathTag: the binding tag, which package bind writes itself (§5.2);
+//     no FrameWriter call takes it.
+type path uint8
+
+const (
+	pathMerge path = 1 << iota
+	pathDerive
+	pathEscape
+	pathTag
+
+	// pathAny is WriteGuard.Check's: a byte judged as written by its own
+	// path, whichever that is.
+	pathAny = pathMerge | pathDerive | pathEscape | pathTag
+)
+
+func (p path) String() string {
+	var parts []string
+	for _, n := range []struct {
+		p    path
+		name string
+	}{
+		{pathMerge, "the merge path (FrameWriter.ApplyContext)"},
+		{pathDerive, "the derive path (FrameWriter.ApplyDerived)"},
+		{pathEscape, "an escape (FrameWriter.ApplyFields)"},
+		{pathTag, "a bind or scrub (package bind)"},
+	} {
+		if p&n.p != 0 {
+			parts = append(parts, n.name)
+		}
+	}
+	if len(parts) == 0 {
+		return "no path"
+	}
+	return strings.Join(parts, " or ")
+}
+
+// derivedSlots are the item slots and equipment bytes a receiver derives
+// from its flags (inventory.ItemSlots, inventory.EquipSlots): ruleSlot's
+// variants. mItems' four bottles are each player's own and not among
+// them, nor is mSelectEquip[3], which has no setter
+// (dComIfGs_setSelectEquip, d_com_inf_game.cpp:1786-1822).
+var derivedSlots = append(inventory.ItemSlots(), inventory.EquipSlots()...)
+
+// buttonSlots are the slots a button's item may come from: the derived
+// item slots (the equipment is on no button).
+var buttonSlots = inventory.ItemSlots()
+
+// derivedSlotAt returns the index in derivedSlots of the slot whose byte is
+// image byte off, or -1.
+func derivedSlotAt(off int) int {
+	return slices.IndexFunc(derivedSlots, func(s inventory.Slot) bool { return s.Off == off })
+}
+
+// isKeyByte reports whether image byte off is a save table's mKeyNum
+// (dSv_memBit_c +0x20, d_save.h:684-689).
+func isKeyByte(off int) bool {
+	_, rel, ok := memBitTable(off)
+	return ok && rel == addr.MemBitOffKeyNum
+}
+
+// betterVariant reports whether s may go from old to val: val is one of
+// its variants, and old is nothing or a lesser variant (inventory.Slot.
+// Derive's rule: nothing is ever taken away, §6.6).
+func betterVariant(s inventory.Slot, old, val byte) bool {
+	rv, ro := s.Rank(val), s.Rank(old)
+	return rv >= 0 && (old == inventory.ItemNone || ro >= 0 && ro < rv)
 }
 
 // Guard is the static allowlist of the WriteGuard (§4.2): the bytes the
-// co-op pipeline may write, the bits of each it may change and how, for a
-// set of Targets. It is computed from the class table and the address
-// table. AllTargets covers:
+// co-op pipeline may write, the bits of each it may change and how, and
+// the FrameWriter call that may write it (path), for a set of Targets. It
+// is computed from the class table and the address table. AllTargets
+// covers:
 //
-//   - the image bytes that merge (OR, OR_MASKED, MAX: their class mask)
-//     and the DERIVED bytes a receiver recomputes (mItems slots,
-//     mSelectEquip, each table's mKeyNum), except mMaxLife and
-//     mMaxMagic, which change only through their pending counters (§3);
+//   - the image bytes that merge (OR, OR_MASKED, MAX: their class mask),
+//     the story bits narrowed to class.SyncMask and the inventory's flag
+//     bytes to inventory.FlagMask (so neither the LocalOnly, game-cleared
+//     and refight story bits nor the bottle contents ever held and the
+//     Hero's Charm worn are targets);
+//   - the DERIVED bytes a receiver recomputes, through the derive path
+//     only: the item slots and mSelectEquip[0..2] (derivedSlots), each
+//     only ever moved up to a better variant, and each table's mKeyNum,
+//     0..99 (dMeter_keyMove's clamp, d_meter.cpp:5248-5254). mMaxLife
+//     and mMaxMagic are not in it: they change only through their pending
+//     counters (§3);
 //   - the live memBit, with the classes of a saved slot;
 //   - the dan switch words (mDan.mSwitch) and every zone's switch and
 //     dead-actor words (dSv_zone_c +0x02..+0x07 and +0x0C..+0x4B; the
 //     zone's own item bits and its mRoomNo are not), which a writer
 //     still validates against the live zone table (§3.1);
 //   - the three pending counters, mItemKeyNumCount, mItemMaxLifeCount
-//     and mItemMaxMagicCount (§6.4);
-//   - play.mSelectItem, refreshed after a slot changes (§6.6);
+//     and mItemMaxMagicCount (§6.4), through the derive path only;
+//   - play.mSelectItem[0..2], the buttons X, Y and Z (u8 mSelectItem[4],
+//     d_com_inf_game.h:830; dItemBtn_COUNT_e is 3, :1115), refreshed
+//     through the derive path after a slot changes (§6.6);
 //   - the binding tag (bind.TagRegion), the first 0x30 bytes of the
 //     image's mReserve;
 //   - the escape hatches' mNextStage and mailbox warp request (§6.7),
@@ -147,10 +257,13 @@ type byteRule struct {
 // rupees, ammo, bottles, names or options, and no padding.
 //
 // A merging byte is grow-only: an OR byte may gain bits but never lose
-// one, a MAX byte may rise but never fall. DERIVED bytes, the counters,
-// mSelectItem and the tag take any value within the mask; M4 adds their
-// own rules. A Guard is immutable and safe for concurrent use; a
-// WriteGuard adds the gates and the policy.
+// one, a MAX byte, a capacity included, may rise but never fall. A slot,
+// an equipment byte or a button only ever moves to a better variant. A
+// key count may fall (a key the receiver's own door took), within 0..99.
+// The counters' bytes take any value here; the derive path holds each
+// counter write to a delta the HUD takes, and max life and magic to a
+// rise (WriteGuard.checkDerive). A Guard is immutable and safe for
+// concurrent use; a WriteGuard adds the gates and the policy.
 type Guard struct {
 	targets Target
 	spans   []guardSpan // ascending, non-overlapping
@@ -188,10 +301,10 @@ func NewGuardFor(t Target) *Guard {
 			g.spans = append(g.spans, guardSpan{start: start, mask: mask, rules: rules, name: name})
 		}
 	}
-	whole := func(n int, r rule, tg Target) []byteRule {
+	whole := func(n int, r rule, tg Target, p path) []byteRule {
 		rs := make([]byteRule, n)
 		for i := range rs {
-			rs[i] = byteRule{mask: 0xFF, rule: r, target: tg}
+			rs[i] = byteRule{mask: 0xFF, rule: r, target: tg, paths: p}
 		}
 		return rs
 	}
@@ -208,20 +321,20 @@ func NewGuardFor(t Target) *Guard {
 	}
 	add(addr.LiveMemBit, live, "live memBit")
 
-	add(addr.DanSwitch, whole(addr.DanSize-addr.DanOffSwitch, ruleOR, TargetScoped), "mDan.mSwitch")
+	add(addr.DanSwitch, whole(addr.DanSize-addr.DanOffSwitch, ruleOR, TargetScoped, pathMerge), "mDan.mSwitch")
 	for z := range addr.ZoneCount {
 		base, _ := addr.ZoneAddr(z)
-		add(base+addr.ZoneOffSwitch, whole(addr.ZoneOffItem-addr.ZoneOffSwitch, ruleOR, TargetScoped), fmt.Sprintf("mZone[%d] switches", z))
-		add(base+addr.ZoneOffActor, whole(addr.ZoneSize-addr.ZoneOffActor, ruleOR, TargetKills), fmt.Sprintf("mZone[%d] dead actors", z))
+		add(base+addr.ZoneOffSwitch, whole(addr.ZoneOffItem-addr.ZoneOffSwitch, ruleOR, TargetScoped, pathMerge), fmt.Sprintf("mZone[%d] switches", z))
+		add(base+addr.ZoneOffActor, whole(addr.ZoneSize-addr.ZoneOffActor, ruleOR, TargetKills, pathMerge), fmt.Sprintf("mZone[%d] dead actors", z))
 	}
 
-	add(addr.ItemKeyNumCount, whole(4, ruleSet, TargetCounters), "mItemKeyNumCount, mItemMaxLifeCount") // adjacent s16s (d_com_inf_game.h:799-800)
-	add(addr.ItemMaxMagicCount, whole(2, ruleSet, TargetCounters), "mItemMaxMagicCount")
-	add(addr.PlaySelectItem, whole(4, ruleSet, TargetSelectItem), "play.mSelectItem")
+	add(addr.ItemKeyNumCount, whole(4, ruleSet, TargetCounters, pathDerive), "mItemKeyNumCount, mItemMaxLifeCount") // adjacent s16s (d_com_inf_game.h:799-800)
+	add(addr.ItemMaxMagicCount, whole(2, ruleSet, TargetCounters, pathDerive), "mItemMaxMagicCount")
+	add(addr.PlaySelectItem, whole(inventory.Buttons, ruleButton, TargetSelectItem, pathDerive), "play.mSelectItem")
 
 	add(addr.NextStage, escapeRules(), "mNextStage")
-	add(addr.WarpSeq, whole(4, ruleSet, TargetEscape), "mailbox.warp_seq")
-	add(WarpPos, whole(12, ruleSet, TargetEscape), "mailbox.warp_x/y/z")
+	add(addr.WarpSeq, whole(4, ruleSet, TargetEscape, pathEscape), "mailbox.warp_seq")
+	add(WarpPos, whole(12, ruleSet, TargetEscape, pathEscape), "mailbox.warp_x/y/z")
 
 	slices.SortFunc(g.spans, func(a, b guardSpan) int { return cmp.Compare(a.start, b.start) })
 	return g
@@ -250,7 +363,7 @@ func NewGuardFor(t Target) *Guard {
 func escapeRules() []byteRule {
 	rs := make([]byteRule, addr.NextStageSize)
 	set := func(i int, r rule, lo, hi int8) {
-		rs[i] = byteRule{mask: 0xFF, rule: r, target: TargetEscape, lo: lo, hi: hi}
+		rs[i] = byteRule{mask: 0xFF, rule: r, target: TargetEscape, paths: pathEscape, lo: lo, hi: hi}
 	}
 	for i := range addr.StageNameLen - 1 {
 		set(addr.StageOffName+i, ruleName, 0, 0)
@@ -274,18 +387,26 @@ func imageRule(off int) byteRule {
 		// The tag is mReserve +0x00..+0x2F; the rest of mReserve stays
 		// zero (§5.2).
 		if a := addr.SaveImage + uint32(off); bind.TagRegion.Contains(a, 1) {
-			return byteRule{mask: 0xFF, rule: ruleSet, target: TargetTag}
+			return byteRule{mask: 0xFF, rule: ruleSet, target: TargetTag, paths: pathTag}
 		}
 		return byteRule{}
 	case r.Class == class.Derived:
-		if off >= addr.OffMaxLife && off < addr.OffMaxLife+2 || off == addr.OffMaxMagic {
-			return byteRule{} // through mItemMaxLifeCount and mItemMaxMagicCount only
+		derived := byteRule{mask: 0xFF, target: TargetDerived, paths: pathDerive}
+		switch i := derivedSlotAt(off); {
+		case i >= 0:
+			derived.rule, derived.slot = ruleSlot, int8(i)
+		case isKeyByte(off):
+			derived.rule, derived.lo, derived.hi = ruleRange, 0, derive.MaxKeys
+		default:
+			// mMaxLife and mMaxMagic change through mItemMaxLifeCount and
+			// mItemMaxMagicCount only; mSelectEquip[3] has no setter.
+			return byteRule{}
 		}
-		return byteRule{mask: 0xFF, rule: ruleSet, target: TargetDerived}
+		return derived
 	case !r.Class.Merges():
 		return byteRule{} // PER_PLAYER, NEVER
 	}
-	br := byteRule{mask: r.Mask, rule: ruleOR}
+	br := byteRule{mask: r.Mask, rule: ruleOR, paths: pathMerge}
 	if r.Class == class.Max {
 		br.rule = ruleMax
 	}
@@ -294,10 +415,19 @@ func imageRule(off int) byteRule {
 		br.target = TargetStage
 	case CatOcean:
 		br.target = TargetOcean
-	case CatStory, CatRegister:
+	case CatStory:
 		br.target = TargetStory
-	default: // CatInventory, CatCapacity
+		br.mask &= class.SyncMaskOf(off - addr.OffEvent)
+	case CatRegister:
+		br.target = TargetStory
+	case CatInventory:
 		br.target = TargetInventory
+		br.mask &= inventory.FlagMask(off)
+	default: // CatCapacity
+		br.target = TargetInventory
+	}
+	if br.mask == 0 {
+		return byteRule{}
 	}
 	return br
 }
@@ -404,6 +534,15 @@ func judgeByte(br byteRule, old, val byte) (Refusal, string) {
 		if old != 0 || val != 1 {
 			return RefuseValue, fmt.Sprintf("it may only go from 0 to 1, not from %d to %d", int8(old), int8(val))
 		}
+	case ruleSlot:
+		if s := derivedSlots[br.slot]; old != val && !betterVariant(s, old, val) {
+			return RefuseValue, fmt.Sprintf("the %s slot may only move from nothing or a lesser variant to a better one, not from 0x%02X to 0x%02X",
+				s.Name, old, val)
+		}
+	case ruleButton:
+		if old != val && !slices.ContainsFunc(buttonSlots, func(s inventory.Slot) bool { return betterVariant(s, old, val) }) {
+			return RefuseValue, fmt.Sprintf("a button may only move from nothing or a lesser variant to a better one of a derived slot, not from 0x%02X to 0x%02X", old, val)
+		}
 	}
 	return 0, ""
 }
@@ -425,7 +564,8 @@ const (
 	RefusePolicy                    // the policy opens none of the byte's bits (an unsynced switch)
 	RefuseMask                      // a changed bit outside the byte's mask (class mask and policy)
 	RefuseClear                     // a bit an OR byte would lose, or a MAX value that would fall
-	RefuseValue                     // a value the byte may not hold: an escape byte the game would reject
+	RefuseValue                     // a value the byte may not hold: an escape byte the game would reject, a lesser variant, a counter's bad delta
+	RefusePath                      // the byte came by a FrameWriter call that may not write it: a DERIVED byte, a counter or a button off the derive path
 	numRefusals
 )
 
@@ -445,6 +585,8 @@ func (r Refusal) String() string {
 		return "a clear"
 	case RefuseValue:
 		return "a bad value"
+	case RefusePath:
+		return "the wrong path"
 	}
 	return fmt.Sprintf("Refusal(%d)", uint8(r))
 }
@@ -496,10 +638,20 @@ type Tick struct {
 //     HEARTBEAT, the gates of any write. When within that a planner may
 //     write them (the current table's switches at a room change, §6.3)
 //     is the planner's rule, which the CI write audit checks;
-//   - story bits are written only on the tick a stage change starts,
-//     with HEARTBEAT (§6.5);
-//   - a pending counter needs IDLE and to read 0 (§3.2);
-//   - everything else needs IDLE as well.
+//   - story bits and the allowlisted registers (TargetStory) are written
+//     only on the TRANSITION tick (§6.5): gate.Status.OnTransition, with
+//     HEARTBEAT and ARMED. OnTransition is STABLE's other conditions
+//     (Link loaded, mpPlayerPtr[0] != 0; a stage that is neither the
+//     title nor file select; a valid save table in mDan.mStageNo; the
+//     stage, its start point, room and layer, the table and mStayNo
+//     unchanged for gate.StableTicks ticks before this one) on the first
+//     tick mNextStage.mEnable reads 1, the one STABLE condition it waives.
+//     IDLE is not needed: a door or a cutscene's end asks for the stage
+//     change from inside its event;
+//   - a pending counter needs IDLE and to read 0 on this tick's snapshot
+//     (§3.2); the derive path also reads it 0 again after the beat;
+//   - everything else, the inventory, the derived bytes and the buttons,
+//     needs IDLE as well.
 //
 // The live memBit's boss bits are shut apart (bossClosed).
 func (t *Tick) opens(tg Target, a uint32) string {
@@ -597,14 +749,21 @@ type GuardConfig struct {
 // Breaker. Check refuses, logs and counts, and reports to the Breaker:
 //
 //   - any write while co-op is off;
-//   - a byte outside the allowlist: PER_PLAYER, NEVER, DERIVED or TAG
-//     bytes in M3, padding, the mod's own RAM;
+//   - a byte outside the allowlist: PER_PLAYER, NEVER and TAG bytes,
+//     mMaxLife and mMaxMagic, padding, the mod's own RAM, and in M3 the
+//     DERIVED bytes;
+//   - a byte that came by a FrameWriter call its rule does not name
+//     (path): a DERIVED byte, a pending counter or a button's item off
+//     the derive path, an image byte through an escape, mNextStage
+//     through a plan; and a derive write whose address, size, expected
+//     bytes or delta are not those of its kind (checkDerive);
 //   - any write while a gate the byte's target needs is closed, before
 //     the first tick and after Close;
 //   - a bit the policy does not open (an unsynced memory switch), or any
 //     other bit outside the byte's mask;
 //   - a clear: the new byte must hold every bit of the old one (a MAX
-//     byte must not fall);
+//     byte, a capacity, must not fall), and a slot, an equipment byte or
+//     a button must not move to a lesser variant;
 //   - a change to the live memBit's boss bits while a boss stage is
 //     loaded (Tick.Boss).
 //
@@ -730,13 +889,20 @@ func (w *WriteGuard) name(a uint32, span string) string {
 }
 
 // Check reports whether the byte at a may go from old, what a fresh
-// 1-byte read returned, to val this tick. A refusal is a *RefusalError;
-// it is counted and logged, and reported to the Breaker unless co-op was
+// 1-byte read returned, to val this tick, written by the path the byte's
+// rule names: it is the verdict on one byte, whoever asks. The
+// FrameWriter's own calls each ask as themselves (check), so a byte is
+// written only by its path, and the derive path asks for a whole
+// DeriveWrite at once (checkDerive). A refusal is a *RefusalError; it is
+// counted and logged, and reported to the Breaker unless co-op was
 // already off.
-func (w *WriteGuard) Check(a uint32, old, val byte) error {
+func (w *WriteGuard) Check(a uint32, old, val byte) error { return w.check(a, old, val, pathAny) }
+
+// check is Check for a write that came by path p.
+func (w *WriteGuard) check(a uint32, old, val byte, p path) error {
 	w.mu.Lock()
 	w.checked++
-	what, reason, why := w.judge(a, old, val)
+	what, reason, why := w.judge(a, old, val, p)
 	if reason == 0 {
 		w.mu.Unlock()
 		return nil
@@ -744,8 +910,8 @@ func (w *WriteGuard) Check(a uint32, old, val byte) error {
 	return w.refuse(&RefusalError{Addr: a, Old: old, New: val, Reason: reason, What: what, Why: why})
 }
 
-// judge is Check's verdict. w.mu is held.
-func (w *WriteGuard) judge(a uint32, old, val byte) (string, Refusal, string) {
+// judge is check's verdict. w.mu is held.
+func (w *WriteGuard) judge(a uint32, old, val byte, p path) (string, Refusal, string) {
 	if w.brk.Off() {
 		return "", RefuseOff, w.brk.Why()
 	}
@@ -758,6 +924,9 @@ func (w *WriteGuard) judge(a uint32, old, val byte) (string, Refusal, string) {
 		return what, reason, "it is not a co-op write target"
 	case RefusePolicy:
 		return what, reason, "the policy opens none of its bits (a switch that does not sync)"
+	}
+	if br.paths&p == 0 {
+		return what, RefusePath, fmt.Sprintf("it is written only by %s, not by %s", br.paths, p)
 	}
 	switch {
 	case !w.have:
@@ -823,6 +992,181 @@ func (w *WriteGuard) CheckWrite(wr Write) error {
 	}
 	w.checked++
 	return w.refuse(&RefusalError{Addr: wr.Saved, Reason: RefuseTarget, What: w.label(off, -1), Why: why})
+}
+
+// checkDerive reports whether dw, a write of the derive path
+// (FrameWriter.ApplyDerived), may be made over old, what a fresh read of
+// its bytes returned, this tick: it must have its kind's shape
+// (deriveShape), its bytes must still read dw.Expect (the writer drops one
+// that does not before asking), and each byte must pass as the derive
+// path's (judge: the targets, ARMED and the gates, the policy, the
+// byte's value rule). It is the one way a DERIVED byte, a pending counter
+// or a button's item is let through. A refusal is counted, logged and
+// reported as Check's.
+func (w *WriteGuard) checkDerive(dw DeriveWrite, old []byte) error {
+	w.mu.Lock()
+	w.checked++
+	e := &RefusalError{Addr: dw.Addr, What: dw.Kind.String()}
+	if len(old) > 0 && len(dw.Data) > 0 {
+		e.Old, e.New = old[0], dw.Data[0]
+	}
+	if w.brk.Off() {
+		e.Reason, e.Why = RefuseOff, w.brk.Why()
+		return w.refuse(e)
+	}
+	if e.Reason, e.Why = w.deriveShape(dw, old); e.Reason != 0 {
+		return w.refuse(e)
+	}
+	for i := range dw.Data {
+		a := dw.Addr + uint32(i)
+		if what, reason, why := w.judge(a, old[i], dw.Data[i], pathDerive); reason != 0 {
+			return w.refuse(&RefusalError{Addr: a, Old: old[i], New: dw.Data[i], Reason: reason, What: what, Why: why})
+		}
+	}
+	w.mu.Unlock()
+	return nil
+}
+
+// checkDeriveShape is checkDerive before the beat, without a read: dw
+// must have its kind's shape over its own Expect (deriveShape), and every
+// byte must be the derive path's (the targets, the policy, the path),
+// whatever the gates say this tick. A write that fails it is a bug in its
+// plan, refused before the wait as a byte off the allowlist is; a closed
+// gate is ready's to report. A refusal is counted, logged and reported as
+// Check's.
+func (w *WriteGuard) checkDeriveShape(dw DeriveWrite) error {
+	w.mu.Lock()
+	e := &RefusalError{Addr: dw.Addr, What: dw.Kind.String()}
+	if len(dw.Expect) > 0 && len(dw.Data) > 0 {
+		e.Old, e.New = dw.Expect[0], dw.Data[0]
+	}
+	switch {
+	case w.brk.Off():
+		e.Reason, e.Why = RefuseOff, w.brk.Why()
+	default:
+		e.Reason, e.Why = w.deriveShape(dw, dw.Expect)
+	}
+	for i := 0; e.Reason == 0 && i < len(dw.Data); i++ {
+		a := dw.Addr + uint32(i)
+		what, br, reason := w.rule(a)
+		why := ""
+		switch {
+		case reason == RefuseTarget:
+			why = "it is not a co-op write target"
+		case reason == RefusePolicy:
+			why = "the policy opens none of its bits"
+		case br.paths&pathDerive == 0:
+			reason, why = RefusePath, fmt.Sprintf("it is written only by %s, not by %s", br.paths, pathDerive)
+		}
+		if reason != 0 {
+			e = &RefusalError{Addr: a, Old: dw.Expect[i], New: dw.Data[i], Reason: reason, What: what, Why: why}
+		}
+	}
+	if e.Reason == 0 {
+		w.mu.Unlock()
+		return nil
+	}
+	w.checked++
+	return w.refuse(e)
+}
+
+// deriveShape returns why dw is not a write of its kind over old, or 0:
+//
+//   - a counter (DeriveKeyCounter, DeriveLifeCounter, DeriveMagicCounter)
+//     is its s16, both bytes in one write, over a counter that reads 0,
+//     with a delta the HUD takes whole: a key count of -99..99, not 0,
+//     for the loaded table (dMeter_keyMove clamps mKeyNum to 0..99,
+//     d_meter.cpp:5248-5254); max life 1..0x50 quarter hearts and max
+//     magic 1..0x20, so neither is ever lowered (the HUD's caps,
+//     dMeter_LifeMove, d_meter.cpp:1432-1436; dMeter_magicGaugeMove,
+//     :4069-4076);
+//   - a key byte is the loaded table's live mKeyNum (DeriveKeyLive) or
+//     another table's saved one (DeriveKeySaved): the loaded table's
+//     saved byte is putSave's to write (d_save.cpp:1512-1515);
+//   - a slot or equipment byte is one derivedSlots names, of its kind;
+//   - a button is one of play.mSelectItem[0..2].
+//
+// w.mu is held.
+func (w *WriteGuard) deriveShape(dw DeriveWrite, old []byte) (Refusal, string) {
+	n := len(dw.Data)
+	switch {
+	case n == 0 || len(dw.Expect) != n || len(old) != n:
+		return RefuseTarget, fmt.Sprintf("%d bytes over %d expected and %d read", n, len(dw.Expect), len(old))
+	case !bytes.Equal(old, dw.Expect):
+		return RefuseValue, fmt.Sprintf("its bytes read % X, not the % X it expects", old, dw.Expect)
+	}
+	loaded := int(w.tick.Table)
+	if !w.have {
+		loaded = -1
+	}
+	at := func(a uint32, size int) string {
+		if dw.Addr != a || n != size {
+			return fmt.Sprintf("a %s write is %d byte(s) at 0x%08X, not %d at 0x%08X", dw.Kind, size, a, n, dw.Addr)
+		}
+		return ""
+	}
+	switch dw.Kind {
+	case DeriveKeyCounter, DeriveLifeCounter, DeriveMagicCounter:
+		a, lo, hi := addr.ItemKeyNumCount, -derive.MaxKeys, derive.MaxKeys
+		switch dw.Kind {
+		case DeriveLifeCounter:
+			a, lo, hi = addr.ItemMaxLifeCount, 1, derive.LifeCap
+		case DeriveMagicCounter:
+			a, lo, hi = addr.ItemMaxMagicCount, 1, derive.MagicCap
+		}
+		if why := at(a, 2); why != "" {
+			return RefuseTarget, why
+		}
+		if dw.Expect[0] != 0 || dw.Expect[1] != 0 {
+			return RefuseValue, "a pending counter is written only while it reads 0"
+		}
+		if d := int(int16(binary.BigEndian.Uint16(dw.Data))); d == 0 || d < lo || d > hi {
+			return RefuseValue, fmt.Sprintf("a %s delta of %d is outside %d..%d (never 0, and max life and magic only rise)", dw.Kind, d, lo, hi)
+		}
+		if dw.Kind == DeriveKeyCounter && dw.Table != loaded {
+			return RefuseTarget, fmt.Sprintf("the key counter lands on the loaded table %d, not table %d", loaded, dw.Table)
+		}
+	case DeriveKeyLive:
+		if why := at(addr.LiveKeyNum, 1); why != "" {
+			return RefuseTarget, why
+		}
+		if dw.Table != loaded {
+			return RefuseTarget, fmt.Sprintf("the live mKeyNum is table %d's, not table %d's", loaded, dw.Table)
+		}
+	case DeriveKeySaved:
+		saved, err := addr.SavedMemBitAddr(dw.Table)
+		if err != nil {
+			return RefuseTarget, err.Error()
+		}
+		if why := at(saved+addr.MemBitOffKeyNum, 1); why != "" {
+			return RefuseTarget, why
+		}
+		if dw.Table == loaded {
+			return RefuseTarget, fmt.Sprintf("table %d is loaded: its count is the live mKeyNum, which putSave copies to this one", loaded)
+		}
+	case DeriveSlot, DeriveEquip:
+		i := -1
+		if dw.Addr >= addr.SaveImage && dw.Addr < addr.SaveImage+addr.SaveImageSize {
+			i = derivedSlotAt(int(dw.Addr - addr.SaveImage))
+		}
+		if isEquip := i >= len(buttonSlots); i < 0 || n != 1 || isEquip != (dw.Kind == DeriveEquip) {
+			return RefuseTarget, fmt.Sprintf("0x%08X is no derived %s byte", dw.Addr, dw.Kind)
+		}
+	case DeriveButton:
+		if n != 1 || dw.Addr < addr.PlaySelectItem || dw.Addr >= addr.PlaySelectItem+inventory.Buttons {
+			return RefuseTarget, fmt.Sprintf("0x%08X is no button of play.mSelectItem[0..%d]", dw.Addr, inventory.Buttons-1)
+		}
+	default:
+		return RefuseTarget, fmt.Sprintf("%v is no derive write", dw.Kind)
+	}
+	return 0, ""
+}
+
+// on reports whether path p may write the byte at a: false outside the
+// allowlist.
+func (w *WriteGuard) on(a uint32, p path) bool {
+	_, br, ok := w.allow.at(a)
+	return ok && br.paths&p != 0
 }
 
 // ready returns nil if the byte at a, which the allowlist has, may be

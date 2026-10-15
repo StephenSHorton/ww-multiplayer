@@ -310,19 +310,24 @@ func TestM3Classes(t *testing.T) {
 	}
 }
 
-// TestPreflightIgnoresUnsyncedSwitches: an unbound file's switches count
-// toward "divergent" only when its player takes part in switch sync.
-func TestPreflightIgnoresUnsyncedSwitches(t *testing.T) {
-	sw := switchGain(t, 3, 0x05)
+// TestPreflightCountsSwitches: an unbound file's synced switches count
+// toward "divergent" whether or not its player takes part in switch sync
+// this session: once bound, a later session with the host's tables would
+// merge them unjudged (judge). A switch the host's M1 verdict keeps out
+// of the world never counts.
+func TestPreflightCountsSwitches(t *testing.T) {
 	for _, c := range []struct {
 		name      string
 		tables    uint64
+		no        int
 		divergent bool
 	}{
-		{"the host's tables", testTables, true},
-		{"other tables", testTables ^ 1, false},
-		{"no tables", 0, false},
+		{"the host's tables", testTables, 0x05, true},
+		{"other tables", testTables ^ 1, 0x05, true},
+		{"no tables", 0, 0x05, true},
+		{"a switch that doesn't sync", testTables, 0x06, false},
 	} {
+		sw := switchGain(t, 3, c.no)
 		t.Run(c.name, func(t *testing.T) {
 			r := newRig(t, Config{Features: DefaultFeatures, SyncedSwitch: testSynced})
 			u := newConn(1, "unbound")

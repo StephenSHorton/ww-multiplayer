@@ -12,6 +12,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
@@ -56,6 +57,10 @@ type WriterConfig struct {
 	// Label names an image bit (bit -1: the byte) for the log; nil is
 	// DefaultLabel.
 	Label func(off, bit int) string
+	// DrainFrames is how many frames the HUD has to take a pending
+	// counter ApplyDerived wrote before the Breaker trips; 0 is
+	// DrainFrames.
+	DrainFrames uint32
 }
 
 // FrameWriter makes the planned writes of a tick (§4.2, §4.2.1). Per
@@ -118,11 +123,14 @@ type FrameWriter struct {
 	logf        func(format string, args ...any)
 	label       func(off, bit int) string
 
+	drainFrames uint32
+
 	mu      sync.Mutex
 	tick    seen // the last Observe's snapshot
 	have    bool
 	pending []pendingByte
-	pendAt  seen // the tick the pending bytes were written in
+	pendAt  seen         // the tick the pending bytes were written in
+	drains  []drainWatch // the counters ApplyDerived wrote, until the HUD takes them
 	stats   WriterStats
 }
 
@@ -173,11 +181,15 @@ type pendingByte struct {
 	bits     byte // the planned bits (OR) or value (MAX)
 	max      bool
 	mask     byte // a MAX byte's class mask
+	set      bool // a derive write's: the byte must read val itself
 }
 
 // holds reports whether v, the byte read back, still has the write.
 func (p pendingByte) holds(v byte) bool {
-	if p.max {
+	switch {
+	case p.set:
+		return v == p.val
+	case p.max:
 		return v&p.mask >= p.bits
 	}
 	return v&p.bits == p.bits
@@ -188,7 +200,7 @@ func NewFrameWriter(cfg WriterConfig) (*FrameWriter, error) {
 	if cfg.Mem == nil {
 		return nil, errors.New("replica: no memory to write")
 	}
-	w := &FrameWriter{Mem: cfg.Mem, beatTimeout: cfg.BeatTimeout, logf: cfg.Logf, label: cfg.Label}
+	w := &FrameWriter{Mem: cfg.Mem, beatTimeout: cfg.BeatTimeout, logf: cfg.Logf, label: cfg.Label, drainFrames: cfg.DrainFrames}
 	if !cfg.DryRun {
 		if cfg.Guard == nil {
 			return nil, errors.New("replica: a FrameWriter that writes needs a WriteGuard")
@@ -197,6 +209,9 @@ func NewFrameWriter(cfg WriterConfig) (*FrameWriter, error) {
 	}
 	if w.beatTimeout <= 0 {
 		w.beatTimeout = BeatTimeout
+	}
+	if w.drainFrames == 0 {
+		w.drainFrames = DrainFrames
 	}
 	if w.logf == nil {
 		w.logf = func(string, ...any) {}
@@ -255,6 +270,7 @@ func (w *FrameWriter) observe(s *snap.Snapshot, st gate.Status, armed bool, f bi
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rep := w.verify(s, st, f)
+	w.watchDrains(s, st, f)
 	if st.Regressed {
 		w.wg.brk.Regressed()
 	}
@@ -347,6 +363,9 @@ type WriterStats struct {
 	Stalls     int // batches the heartbeat did not move for
 	Aborted    int // batches dropped because the game moved on
 	Escapes    int // escapes written (ApplyFields): refreshes and warps, §6.7
+	Derived    int // derive writes made (ApplyDerived)
+	Stale      int // derive writes dropped: their bytes moved since the plan
+	Drained    int // pending counters written that the HUD then took
 }
 
 // Stats returns the writer's counts.
@@ -376,7 +395,7 @@ func (w *FrameWriter) Stop(why string) {
 	}
 	w.wg.brk.TurnOff(why)
 	w.mu.Lock()
-	w.pending = nil
+	w.pending, w.drains = nil, nil
 	w.mu.Unlock()
 }
 
@@ -476,19 +495,19 @@ func (w *FrameWriter) ApplyContext(ctx context.Context, ws []Write) (res Result,
 		}
 	}
 
-	// A byte that is no write target this tick is refused now, before
-	// the wait: a plan holding one is a bug, whatever the gates say.
-	// Bytes whose gate is closed are not tried, and are no fault: the
-	// caller may hand over a plan every tick.
+	// A byte that is no write target this tick, or not the merge path's,
+	// is refused now, before the wait: a plan holding one is a bug,
+	// whatever the gates say. Bytes whose gate is closed are not tried,
+	// and are no fault: the caller may hand over a plan every tick.
 	open := bs[:0]
 	var closed error
 	for _, b := range bs {
-		if w.wg.Mask(b.a) == 0 {
+		if w.wg.Mask(b.a) == 0 || !w.wg.on(b.a, pathMerge) {
 			old, err := mem.ReadU8(w.Mem, b.a)
 			if err != nil {
 				return res, err
 			}
-			if err := w.wg.Check(b.a, old, b.apply(old)); err != nil {
+			if err := w.wg.check(b.a, old, b.apply(old), pathMerge); err != nil {
 				if errors.Is(err, ErrOff) {
 					return res, err
 				}
@@ -556,7 +575,7 @@ func (w *FrameWriter) ApplyContext(ctx context.Context, ws []Write) (res Result,
 			res.Already++
 			continue
 		}
-		if err := w.wg.Check(b.a, old, val); err != nil {
+		if err := w.wg.check(b.a, old, val, pathMerge); err != nil {
 			if errors.Is(err, ErrOff) {
 				note(err)
 				break
@@ -712,9 +731,15 @@ func (w *FrameWriter) recheckIdle() error {
 	return nil
 }
 
-// name is what the log calls the byte at a, image byte off.
+// name is what the log calls the byte at a, image byte off (noOff for a
+// byte outside the image and the live memBit).
 func (w *FrameWriter) name(a uint32, off uint16) string {
-	if a >= addr.LiveMemBit && a < addr.LiveMemBit+addr.MemBitSize {
+	switch {
+	case a >= addr.PlaySelectItem && a < addr.PlaySelectItem+inventory.Buttons:
+		return fmt.Sprintf("play.mSelectItem[%d]", a-addr.PlaySelectItem)
+	case off == noOff:
+		return fmt.Sprintf("0x%08X", a)
+	case a >= addr.LiveMemBit && a < addr.LiveMemBit+addr.MemBitSize:
 		return "the live copy of " + w.label(int(off), -1)
 	}
 	return w.label(int(off), -1)

@@ -296,7 +296,10 @@ func (m *coM3) play(p *coPlayer, rng *rand.Rand) {
 // only when IDLE and its memory switches only on a room-change tick (no
 // --coop-live-switches), the ocean, charts and sea map only on a
 // room-change tick, which it works out from where the game was as each
-// tick began (coRoomWindows), not from the reports. It counts what it saw.
+// tick began (coRoomWindows), not from the reports. From M4 a session's
+// replicas write M4's targets too, which coAuditM4Write checks by M4's
+// rules; the writes at the derive targets must be exactly those the
+// derive path reports. It counts what it saw.
 func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 	t.Helper()
 	places := p.beat.placesSeen()
@@ -305,13 +308,16 @@ func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 	}
 	win := coRoomWindows(p.reps, places)
 	n.cats = map[replica.Category]int{}
+	n.m4 = map[replica.Target]int{}
 	m3 := replica.NewGuardFor(replica.M3Targets)
+	m4 := replica.NewGuardFor(replica.M3Targets | replica.M4Targets)
 	esc := replica.NewGuardFor(replica.TargetEscape)
 	type place struct {
 		a     uint32
 		table int8
 	}
 	set := map[place]byte{}
+	m4set := map[place]byte{} // M4's OR bytes, by address
 	for _, w := range p.beat.written() {
 		bad := func(format string, args ...any) {
 			t.Helper()
@@ -339,6 +345,20 @@ func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 				bad("an escape while %s", rep.State)
 			case !rep.Gates.CanWriteIdle():
 				bad("an escape with a gate closed: %s", rep.Gates.Why())
+			}
+			continue
+		case m4.TargetOf(w.a)&replica.M4Targets != 0:
+			tg := m4.TargetOf(w.a)
+			n.m4[tg]++
+			if tg&coDeriveTargets != 0 {
+				n.derived++
+			}
+			if set := coAuditM4Write(w, tg, rep, places, bad); set != 0 {
+				at := place{a: w.a}
+				if again := m4set[at] & set; again != 0 {
+					bad("bits 0x%02X set again", again)
+				}
+				m4set[at] |= set
 			}
 			continue
 		}
@@ -397,14 +417,20 @@ func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 		}
 		set[at] |= val &^ old
 	}
+	if d := p.s.r.Status().Writes.Derived; n.derived != d {
+		t.Errorf("%s: %d writes at the derive targets, %d made by the derive path", p.name, n.derived, d)
+	}
 	return n
 }
 
 // coAuditCount is what coAuditM3 saw: progress bytes (by category),
-// escape writes and tag writes.
+// escape writes and tag writes, and M4's writes by target, those at the
+// derive targets counted apart.
 type coAuditCount struct {
 	progress, escapes, tags int
 	cats                    map[replica.Category]int
+	m4                      map[replica.Target]int
+	derived                 int
 }
 
 // coRoomLoaded gives room of cg's stage collision: mStatus[room].mpBgW

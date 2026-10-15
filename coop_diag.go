@@ -641,6 +641,12 @@ func playerLabel(off, bit int) (string, bool) {
 		return fmt.Sprintf("sea map %d bit %d", off-addr.OffFmapBits, bit), true
 	case off == addr.OffMapTriforce:
 		return fmt.Sprintf("Triforce chart %d", bit), true
+	case off >= addr.OffGetItem && off < addr.OffGetItem+addr.GetItemSize:
+		// One array (d_save.h:131), which the class table splits at
+		// [3]: a span-relative index would miscount.
+		return fmt.Sprintf("mGetItem[%d] bit %d", off-addr.OffGetItem, bit), true
+	case off >= addr.OffCollectFlags && off < addr.OffCollectFlags+5:
+		return fmt.Sprintf("mCollect[%d] bit %d", off-addr.OffCollectFlags, bit), true
 	}
 	i := coopSpanAt[off]
 	if i < 0 {

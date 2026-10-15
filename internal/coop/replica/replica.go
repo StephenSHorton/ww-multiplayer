@@ -70,10 +70,12 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 )
@@ -120,11 +122,11 @@ type Config struct {
 	// CO_HELLO (the hub refuses a replica whose tables differ).
 	StageTblHash uint64
 	// Want is the session features to ask for; 0 asks for what the
-	// replica uses: hub.FeatureImage, and with Apply hub.FeatureSwitches
-	// and hub.FeatureLiveSwitches too (the host decides whether to allow
-	// the live-switch opt-in, --coop-live-switches). A dry run asks for
-	// what M2 did, hub.FeatureImage. Bits outside hub.SessionFeatures are
-	// ignored.
+	// replica uses: hub.FeatureImage, and with Apply hub.FeatureSwitches,
+	// hub.FeatureLiveSwitches and hub.M4Features too (the host decides
+	// whether to allow the live-switch opt-in, --coop-live-switches). A
+	// dry run asks for what M2 did, hub.FeatureImage. Bits outside
+	// hub.SessionFeatures are ignored.
 	Want hub.Feature
 	// Policy limits what the replica proposes, plans and writes to the
 	// bits that sync; nil is world.DefaultPolicy (no memory switch or
@@ -133,10 +135,14 @@ type Config struct {
 	// host's policy.
 	Policy *world.Policy
 	// Apply makes the replica write the world's progress into the game
-	// (M3): the reconciler hands the plan's writes to a FrameWriter
-	// through a WriteGuard of M3Targets. False is M2's dry run
-	// (--coop-dry-run): the plan is logged, never written.
+	// (M3, M4): the reconciler hands the plan's writes to a FrameWriter
+	// through a WriteGuard of M3Targets | M4Targets. False is M2's dry
+	// run (--coop-dry-run): the plan is logged, never written.
 	Apply bool
+	// Tables are the M1 tables of the user's own disc, which the derived
+	// small keys and max life are counted from (derive.Config.Tables);
+	// nil leaves both underived. Max magic needs none.
+	Tables *tables.Tables
 	// Breaker is the writes' off switch (auto-disable, §4.2); nil makes
 	// one with the default thresholds. Unused without Apply.
 	Breaker *Breaker
@@ -262,6 +268,9 @@ type Status struct {
 	Preflight *PreflightReport
 	// Partner is the last PRESENCE the hub relayed.
 	Partner *wire.Presence
+	// Derive is how the derived small keys and max life stand (the
+	// Deriver's tables, and each key table's last tick).
+	Derive derive.Status
 }
 
 // helloKey is what a CO_HELLO describes: when it changes, the replica
@@ -316,6 +325,7 @@ type Replica struct {
 	sessionWorld bind.WorldID
 	fresh        map[bind.Nonce]bool // what welcomes said of nonces as pending fresh binds
 	everArmed    bind.WorldID        // the world the file was last armed in: offline queueing
+	toldMissing  hub.Feature         // the M4 classes a welcome was last said not to grant (sayUngranted)
 	batch        uint32
 	queued       world.Image // gains detected while armed offline, joined
 	queuedN      int
@@ -333,6 +343,9 @@ type Replica struct {
 	room    roomWatch
 	toWrite []Write // this tick's writes, made once the lock is released
 	window  bool    // they are the room-change window's (§6.3)
+
+	// The M4 receiver (reconcile_m4.go).
+	m4 m4
 
 	// The escape hatches (escape.go).
 	esc     *escapeReq // asked for, waiting for a tick
@@ -407,14 +420,20 @@ func New(cfg Config) (*Replica, error) {
 	}
 	w, err := NewFrameWriter(WriterConfig{Mem: r.m, DryRun: true})
 	if cfg.Apply {
-		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | TargetEscape, Policy: r.policy, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
+		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | TargetEscape, Policy: r.policy, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
 		w, err = NewFrameWriter(WriterConfig{Mem: r.m, Guard: wg, BeatTimeout: cfg.BeatTimeout, Logf: r.logf, Label: r.label})
 	}
 	if err != nil {
 		return nil, err
 	}
 	r.writer = w
+	r.m4 = newM4(cfg.Tables)
 	r.differ = NewDiffer(r.policy)
+	if cfg.Apply {
+		// M4's sender pace (differ_pace.go). A dry run is M2's replica,
+		// which sent every edge at once.
+		r.differ.Pace(nil)
+	}
 	r.planner = NewPlanner(r.policy)
 	r.planner.writes = !r.writer.DryRun()
 	r.sessionWorld = cfg.World
@@ -428,7 +447,7 @@ func (r *Replica) Guard() *Guard { return r.guard }
 func (r *Replica) want() hub.Feature {
 	if r.cfg.Want == 0 {
 		if r.cfg.Apply {
-			return hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches
+			return hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches | hub.M4Features
 		}
 		return hub.FeatureImage
 	}
@@ -566,6 +585,7 @@ func (r *Replica) Status() Status {
 		Writes:   r.writer.Stats(),
 		Offer:    r.offer,
 		Partner:  r.partner,
+		Derive:   r.m4.deriver.Status(),
 	}
 	_, st.WritesOff = r.writer.Disabled()
 	if r.preflight != nil {
@@ -628,14 +648,18 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 	var out outbox
 	rep := r.tick(s, err, &out)
 	ws, window, q := r.toWrite, r.window, r.escNow
+	ds := r.m4.take()
 	r.toWrite, r.window, r.escNow = nil, false, nil
 	r.unlockAndFlush(&out)
+	var werr error
 	if len(ws) > 0 {
 		res, err := r.writer.ApplyContext(ctx, ws)
+		werr = err
 		r.mu.Lock()
 		r.applied(res, err, window, &rep)
 		r.mu.Unlock()
 	}
+	r.applyDerived(ctx, ds, werr, &rep)
 	if q != nil {
 		// After the plan's writes: an escape changes stage or moves Link,
 		// and the plan's bytes were judged against this tick's snapshot.
@@ -656,6 +680,7 @@ func (r *Replica) tick(s *snap.Snapshot, err error, out *outbox) Report {
 		st := r.gates.Observe(nil)
 		r.writer.Observe(nil, st, false)
 		r.differ.Drop()
+		r.m4Reset()
 		r.last = nil
 		r.armedNow = false
 		r.failEscape(err)
@@ -685,7 +710,7 @@ func (r *Replica) tick(s *snap.Snapshot, err error, out *outbox) Report {
 		if r.writer.DryRun() {
 			r.logf("co-op: armed in world %s (dry run: planned writes are logged, not made)", r.sessionWorld)
 		} else {
-			r.logf("co-op: armed in world %s: the world's chests, pickups, rooms, dungeon items, switches, ocean and charts are written to this game", r.sessionWorld)
+			r.logf("co-op: armed in world %s: written to this game: %s", r.sessionWorld, writtenClasses(r.features))
 		}
 		r.everArmed = r.sessionWorld
 	}
@@ -693,7 +718,15 @@ func (r *Replica) tick(s *snap.Snapshot, err error, out *outbox) Report {
 	r.sendPresence(o, armed, out, &rep)
 
 	if armed && !r.worldUp && o.consistent() {
-		out.send(r.worldMsg(o))
+		m := r.worldMsg(o)
+		// What the pace holds back stays out of the WORLD too, to follow
+		// as gains in its time. An edge of this very tick is not yet the
+		// pace's (the differ observes below), so it goes in the WORLD: a
+		// story bit then reaches the world unbatched, which the receiver's
+		// own gates (story bits on its stage transitions, the inventory
+		// when IDLE) make harmless.
+		r.differ.Withhold((*world.Image)(&m.Image))
+		out.send(m)
 		r.worldUp, rep.World = true, true
 		if r.queuedN > 0 {
 			if gs := r.news(world.Diff(&world.Image{}, &r.queued)); len(gs) > 0 {
@@ -740,6 +773,7 @@ func (r *Replica) tick(s *snap.Snapshot, err error, out *outbox) Report {
 	r.plan(o, armed)
 	rep.Planned, rep.Held = len(r.planned), len(r.held)
 	r.reconcile(o, armed, &rep)
+	r.reconcileM4(o, armed, &rep)
 	r.escapeTick(o, armed)
 	r.runPreflight(o, v, out)
 	rep.State, rep.Why = r.state(o, v)
@@ -925,6 +959,7 @@ func (r *Replica) onWelcome(m *wire.CoWelcome) {
 	}
 	r.welcome = m
 	r.features = hub.Feature(m.Features)
+	r.sayUngranted(m)
 	if m.Status != wire.StatusRefused && !w.IsZero() {
 		if r.sessionWorld != w && !r.sessionWorld.IsZero() {
 			r.logf("co-op: the host now serves world %s (was %s)", w, r.sessionWorld)

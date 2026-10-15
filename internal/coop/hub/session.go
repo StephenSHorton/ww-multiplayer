@@ -10,6 +10,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/story"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 )
@@ -26,9 +27,21 @@ const worldClearCount = 0
 // d_com_inf_game.cpp:1304-1310; the loop, :1313-1320): RODE_KORL,
 // MET_KORL, 0x0801, 0x0808 and 0x2401 (d_save_event_flag.inc:322, 111,
 // 66, 63, 279). A file lacking one the world has is far behind it (§5.3):
-// a union would move its resume stage, so it binds only under
-// --coop-merge. (While the default policy keeps story bits out of the
-// world, M2's worlds never hold these, so the check bites from M4 on.)
+// copying the host's file serves it better than a union, which gives a
+// file still on Outset the story of a later one (its holds keep only
+// where it resumes, class.Holds), so it binds only under --coop-merge.
+// The check is the replica's preflight's (replica.Milestones), so the two
+// agree on which bind needs --coop-merge.
+//
+// The world holds story bits from M4 (DefaultPolicy). A file is far
+// behind whatever its player is granted this session: the bind outlasts
+// the session, and a later one with story sync gives the file the world's
+// milestones (judge). RODE_KORL (set as Link first boards the
+// boat, d_a_ship.cpp:1570) is LocalOnly (class.LocalOnly), so no world
+// ever holds it: the check rests on the other four, MET_KORL first, which
+// the MEETSHISHIOH event sets before Link can board (d_event_manager.cpp:
+// 599-600; the boat's own check, d_a_ship.cpp:4548; inferred for every
+// path).
 var resumeMilestones = []uint16{0x2A08, 0x0F80, 0x0801, 0x0808, 0x2401}
 
 // peer is one co-op connection's session. Only the hub goroutine touches
@@ -72,15 +85,56 @@ func (p *peer) welcomed() bool { return p.state == StateUnbound || p.state == St
 
 func (p *peer) bound() bool { return p.state == StateBound }
 
-// switches reports whether p takes part in memory switch sync.
-func (p *peer) switches() bool { return p.features&FeatureSwitches != 0 }
-
-// candidate is an unbound file's image as the bind check sees it.
+// candidate is an unbound file's last WORLD, which the bind check (judge)
+// compares with the world.
 type candidate struct {
-	file   fileKey
-	image  world.Image
+	file  fileKey
+	image world.Image
+}
+
+// verdict is how a candidate stands against the world (§5.3).
+type verdict struct {
 	gains  []world.Gain // what a merge would add to the world
 	behind []uint16     // the resume milestones the world has and the file lacks
+	// held are the world's story bits the receiver's holds would keep
+	// out of the file once bound (class.Holds), for the preflight.
+	held []story.Held
+}
+
+// judge compares candidate c with the world as it is now:
+//
+//   - gains: the file's shared progress the world lacks, within the policy
+//     (so a LocalOnly, game-cleared or refight story bit never counts, nor
+//     a memory switch the host's M1 verdict keeps out). A file with any is
+//     divergent, or ahead;
+//   - behind: the resume milestones the world has and the file lacks
+//     (resumeMilestones). A file with any is far behind;
+//   - held: the world's story bits the file's holds would keep back once
+//     bound.
+//
+// Divergent, ahead and far behind each need --coop-merge on the host.
+//
+// The judgement is the bind's, not the session's: it counts every byte the
+// world takes, the memory switches and story bits included, whatever
+// features the player is granted now. A bound file is never judged again
+// (onBoundHello), and any later session that grants it more merges its
+// WORLD whole (onWorld) and writes the world's story into it: a file bound
+// while story sync was off for it (a --coop-dry-run join, or stage tables
+// not the host's) must not bring in, or be given, what a bind with it
+// would have needed --coop-merge for (Appendix C item 111).
+func (h *Hub) judge(c *candidate) verdict {
+	w := h.store.World()
+	cur := w.Image()
+	v := verdict{gains: w.Merge(&c.image).Delta}
+	for _, id := range resumeMilestones {
+		b := addr.EventByte(id)
+		off := addr.OffEvent + b.Off
+		if cur[off]&b.Mask == b.Mask && c.image[off]&b.Mask != b.Mask {
+			v.behind = append(v.behind, id)
+		}
+	}
+	v.held = story.Pending(&cur, &c.image, nil, nil).Held
+	return v
 }
 
 // fileKey names the loaded file a hello describes, so a WORLD sent for one
@@ -173,7 +227,7 @@ func (h *Hub) noteTables(p *peer) {
 		return
 	}
 	// Each text fits a NOTICE (wire.MaxNoticeLen) unclipped.
-	const off = "so memory switches, room puzzles and kills don't sync this session; chests, items, maps and the rest do"
+	const off = "so memory switches, small keys, heart counts, puzzles and kills don't sync this session; chests, items, story and the rest do"
 	var text string
 	switch {
 	case h.cfg.StageTblHash == 0:
@@ -253,6 +307,12 @@ func (h *Hub) onBindHello(p *peer, m *wire.CoHello) {
 	}
 	nonce := world.ID(m.BindNonce)
 	c := p.candidate
+	// The world may have grown since the file's WORLD: the check is made
+	// again now.
+	var v verdict
+	if c != nil && c.file == keyOf(m) {
+		v = h.judge(c)
+	}
 	switch {
 	case world.ID(m.WorldID) != h.id:
 		deny(wire.NoticeRejected, "a bind must name the host's world %s, not %s", h.id, m.WorldID)
@@ -260,10 +320,10 @@ func (h *Hub) onBindHello(p *peer, m *wire.CoHello) {
 		deny(wire.NoticeRejected, "a bind needs a nonce")
 	case c == nil || c.file != keyOf(m):
 		deny(wire.NoticeRejected, "send this file's WORLD before asking to bind it")
-	case len(c.gains) > 0 && !h.cfg.Merge:
-		deny(wire.NoticeDivergent, "your file has progress the world lacks (%s); binding it needs --coop-merge on the host", summarize(c.gains))
-	case len(c.behind) > 0 && !h.cfg.Merge:
-		deny(wire.NoticeDivergent, "the world is far ahead of your file (story milestones %s); copy the host's file instead (coop-world export/import), or bind with --coop-merge on the host", events(c.behind))
+	case len(v.gains) > 0 && !h.cfg.Merge:
+		deny(wire.NoticeDivergent, "%s", withHeld(fmt.Sprintf("your file has progress the world lacks (%s); binding it needs --coop-merge on the host", summarize(v.gains)), v.held))
+	case len(v.behind) > 0 && !h.cfg.Merge:
+		deny(wire.NoticeDivergent, "%s", withHeld(fmt.Sprintf("the world is far ahead of your file (story milestones %s); copy the host's save in (it replaces all three of your files), or bind with --coop-merge on the host", events(v.behind)), v.held))
 	default:
 		fresh := Feature(m.Want)&AskUnsaved != 0
 		if fresh {
@@ -278,8 +338,14 @@ func (h *Hub) onBindHello(p *peer, m *wire.CoHello) {
 		}
 		h.welcome(p, wire.StatusUnbound, 0, p.features|FeatureBind, fresh)
 		how := "a subset of the world"
-		if len(c.gains) > 0 || len(c.behind) > 0 {
+		switch {
+		case len(v.gains) > 0:
 			how = "merged under --coop-merge"
+		case len(v.behind) > 0:
+			how = "far behind, merged under --coop-merge"
+		}
+		if len(v.held) > 0 {
+			how += fmt.Sprintf(", %d holds", len(v.held))
 		}
 		if fresh {
 			how += ", a fresh bind"
@@ -345,11 +411,10 @@ func (h *Hub) onWorld(p *peer, m *wire.World) {
 		h.complain(p, wire.NoticeWorldMismatch, "your WORLD names world %s; the host runs %s", m.WorldID, h.id)
 		return
 	}
-	if !p.switches() {
-		var n int
-		img, n = withoutSwitches(&img)
-		p.rejected += n
-	}
+	// The bytes of the features p lacks are neither merged nor counted
+	// against it as gains: its replica proposes them all the same.
+	img, n := strip(&img, p.features)
+	p.rejected += n
 	r, err := h.store.Merge(p.id, &img)
 	if err != nil {
 		h.logf("co-op: merging %s's WORLD: %v", p, err)
@@ -370,34 +435,51 @@ func (h *Hub) onWorld(p *peer, m *wire.World) {
 }
 
 // preflight records an unbound file's image and tells the replica when it
-// can't bind without --coop-merge.
+// can't bind without --coop-merge (judge). The NOTICE also names the
+// world's story bits the file's holds would keep back once it is bound.
 func (h *Hub) preflight(p *peer, img *world.Image) {
-	if !p.switches() {
-		// Its switches would never be merged, so they don't make it
-		// divergent.
-		stripped, _ := withoutSwitches(img)
-		img = &stripped
-	}
-	w := h.store.World()
-	cur := w.Image()
-	c := &candidate{file: keyOf(p.hello), image: *img, gains: w.Merge(img).Delta}
-	for _, id := range resumeMilestones {
-		b := addr.EventByte(id)
-		off := addr.OffEvent + b.Off
-		if cur[off]&b.Mask == b.Mask && img[off]&b.Mask != b.Mask {
-			c.behind = append(c.behind, id)
-		}
-	}
+	c := &candidate{file: keyOf(p.hello), image: *img}
 	p.candidate = c
+	v := h.judge(c)
 	switch {
-	case len(c.gains) > 0:
+	case len(v.gains) > 0:
 		how := "binding it needs --coop-merge on the host"
 		if h.cfg.Merge {
 			how = "binding it merges that into the world (--coop-merge)"
 		}
-		h.notify(p, wire.NoticeDivergent, fmt.Sprintf("your file has progress the world lacks (%s); %s", summarize(c.gains), how))
-	case len(c.behind) > 0:
-		h.notify(p, wire.NoticeDivergent, fmt.Sprintf("the world is far ahead of your file (story milestones %s); copying the host's file is better than a union", events(c.behind)))
+		h.notify(p, wire.NoticeDivergent, withHeld(fmt.Sprintf("your file has progress the world lacks (%s); %s", summarize(v.gains), how), v.held))
+	case len(v.behind) > 0:
+		how := "a union needs --coop-merge on the host"
+		if h.cfg.Merge {
+			how = "the host's --coop-merge allows a union"
+		}
+		h.notify(p, wire.NoticeDivergent, withHeld(fmt.Sprintf("the world is far ahead of your file (story milestones %s); copying the host's save in (all three files) is better than a union, and %s", events(v.behind), how), v.held))
+	}
+}
+
+// withHeld is text, a NOTICE's, followed by "; held until your file
+// catches up: " and the names of the holds held lists, as many as fit in
+// a NOTICE with the rest counted ("and 2 more"); text alone for none.
+func withHeld(text string, held []story.Held) string {
+	if len(held) == 0 {
+		return text
+	}
+	for n := len(held); ; n-- {
+		names := make([]string, n)
+		for i, x := range held[:n] {
+			names[i] = x.Hold.Name
+		}
+		list := strings.Join(names, ", ")
+		switch rest := len(held) - n; {
+		case n == 0:
+			list = fmt.Sprintf("%d story bits", rest)
+		case rest > 0:
+			list += fmt.Sprintf(" and %d more", rest)
+		}
+		s := text + "; held until your file catches up: " + list
+		if len(s) <= wire.MaxNoticeLen || n == 0 {
+			return s
+		}
 	}
 }
 
@@ -415,12 +497,8 @@ func (h *Hub) onGains(p *peer, m *wire.GainsUp) {
 		return
 	}
 	p.batch, p.haveBatch = m.Batch, true
-	in := m.Gains
-	if !p.switches() {
-		var n int
-		in, n = dropSwitches(in)
-		p.rejected += n
-	}
+	in, n := dropGated(m.Gains, p.features)
+	p.rejected += n
 	gs := make([]world.Gain, len(in))
 	for i, g := range in {
 		gs[i] = world.Gain(g)
@@ -448,19 +526,22 @@ func (h *Hub) relay(origin *peer, r world.Result, toOrigin bool) {
 	to := h.sorted(func(q *peer) bool {
 		return q.bound() && q.features&FeatureImage != 0 && (toOrigin || q != origin)
 	})
-	// A peer without switch sync gets the delta without its memory
-	// switch bytes, or nothing when that is all it was.
-	var with, without []*peer
+	// A peer without switch or story sync gets the delta without those
+	// bytes, or nothing when that is all it was. Peers granted the same
+	// share one encoding.
+	var groups []Feature
+	byGroup := map[Feature][]*peer{}
 	for _, q := range to {
-		if q.switches() {
-			with = append(with, q)
-		} else {
-			without = append(without, q)
+		g := q.features & gated
+		if byGroup[g] == nil {
+			groups = append(groups, g)
 		}
+		byGroup[g] = append(byGroup[g], q)
 	}
-	h.sendAll(with, &wire.GainsDown{Seq: r.Seq, Origin: byte(origin.id), Gains: gs})
-	if rest, _ := dropSwitches(gs); len(rest) > 0 {
-		h.sendAll(without, &wire.GainsDown{Seq: r.Seq, Origin: byte(origin.id), Gains: rest})
+	for _, g := range groups {
+		if rest, _ := dropGated(gs, g); len(rest) > 0 {
+			h.sendAll(byGroup[g], &wire.GainsDown{Seq: r.Seq, Origin: byte(origin.id), Gains: rest})
+		}
 	}
 }
 
@@ -483,13 +564,11 @@ func (h *Hub) rejects(p *peer, rej []world.Reject) {
 	}
 }
 
-// sendWorld sends p the world image, without the memory switches unless
-// p syncs them.
+// sendWorld sends p the world image, without the memory switches or story
+// bits unless p syncs them.
 func (h *Hub) sendWorld(p *peer) {
-	img := h.store.Image()
-	if !p.switches() {
-		img, _ = withoutSwitches(&img)
-	}
+	cur := h.store.Image()
+	img, _ := strip(&cur, p.features)
 	h.send(p, &wire.World{WorldID: wire.ID(h.id), Seq: h.store.Seq(), Image: wire.Image(img)})
 }
 
@@ -658,13 +737,14 @@ func (h *Hub) onCtrl(p *peer, m *wire.Ctrl) {
 }
 
 // regrant recomputes p's features and tells it (CTRL COOP_OFF with the
-// features it now has). A bound peer that gets the image back is asked for
-// a fresh WORLD, since it missed the relays.
+// features it now has). A bound peer that gets the image, its switches or
+// its story bits back is asked for a fresh WORLD, since it missed those
+// relays and the hub dropped those bytes of its proposals.
 func (h *Hub) regrant(p *peer) {
 	old := p.features
 	p.features = h.grant(p)
 	h.send(p, &wire.Ctrl{Op: wire.CtrlCoopOff, Arg: uint32(p.features)})
-	if p.bound() && p.features&FeatureImage != 0 && p.features&^old&(FeatureImage|FeatureSwitches) != 0 {
+	if p.bound() && p.features&FeatureImage != 0 && p.features&^old&(FeatureImage|gated) != 0 {
 		h.send(p, &wire.Ctrl{Op: wire.CtrlResync})
 	}
 }

@@ -33,9 +33,9 @@ const (
 	// --coop-merge.
 	PreflightDivergent
 	// PreflightFarBehind: the world has resume-stage milestones the file
-	// lacks. Copying the host's file over (coop-world export/import) is
-	// recommended over a union, which needs --coop-merge, and the holds
-	// apply.
+	// lacks. Copying the host's save in is recommended over a union,
+	// which needs --coop-merge, and the holds apply. Dolphin's Memory Card
+	// Manager moves the whole card file, all three of the game's files.
 	PreflightFarBehind
 	// PreflightRefused: the file can't join co-op at all (a second
 	// quest, §2).
@@ -157,7 +157,7 @@ func Preflight(file, worldImg *world.Image, opt PreflightOptions) PreflightRepor
 	switch {
 	case len(r.MissingMilestones) > 0:
 		r.Verdict, r.NeedsMerge = PreflightFarBehind, true
-		r.Why = fmt.Sprintf("the world is past %s, which this file is not: copying the host's file is better than a union (which needs --coop-merge)",
+		r.Why = fmt.Sprintf("the world is past %s, which this file is not: copying the host's save in (all three files) is better than a union (which needs --coop-merge)",
 			milestoneList(r.MissingMilestones))
 	case len(r.FileGains) == 0 && len(r.WorldGains) == 0:
 		r.Verdict = PreflightSame
