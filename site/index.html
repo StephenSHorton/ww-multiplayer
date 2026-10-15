@@ -12,7 +12,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Reggae+One&family=RocknRoll+One&family=Zen+Kaku+Gothic+New:wght@500;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&text=%E9%A2%A8%E3%81%AE%E5%8B%87%E8%80%85%E5%85%B1%E3%81%AB&display=swap" rel="stylesheet">
 <style>
 :root {
 	/* palette from the game's sky, sea, sail crest, logo gold and the GameCube item menu */
@@ -41,7 +40,6 @@
 	--reggae: "Reggae One", "Zen Kaku Gothic New", sans-serif;
 	--rock: "RocknRoll One", "Zen Kaku Gothic New", sans-serif;
 	--body: "Zen Kaku Gothic New", system-ui, sans-serif;
-	--brush: "Yuji Syuku", serif;
 	--mono: "JetBrains Mono", ui-monospace, monospace;
 	/* bevelled cut corners, like the logo's chiselled edges */
 	--brush-red: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 80' preserveAspectRatio='none'%3E%3Cdefs%3E%3Cmask id='m'%3E%3Crect width='600' height='80' fill='white'/%3E%3Cpath d='M380 30 L600 27 M420 41 L600 41 M330 52 L600 55 M470 35 L600 34' stroke='black' stroke-width='3'/%3E%3C/mask%3E%3C/defs%3E%3Cpath mask='url%28%23m%29' fill='%23d8262e' d='M10 46 C2 30 18 14 52 16 C140 12 300 10 470 12 C520 12 566 16 594 24 L556 31 L592 39 L546 45 L586 53 L522 57 L470 64 C320 68 150 70 56 68 C22 68 12 60 10 46 Z'/%3E%3C/svg%3E");
@@ -71,14 +69,6 @@ a { color: inherit; }
 		radial-gradient(ellipse 50% 40% at 85% 6%, rgba(255, 250, 215, 0.95), rgba(255, 250, 215, 0) 70%),
 		linear-gradient(180deg, var(--sky-hi) 0%, var(--sky) 42%, var(--sky-lo) 82%);
 	padding-bottom: 150px;
-}
-.kanji {
-	position: absolute; right: -2vw; top: 40px; z-index: 0;
-	font: 400 clamp(220px, 34vw, 460px)/1 var(--brush);
-	color: rgba(255, 255, 255, 0.34);
-	-webkit-text-stroke: 3px rgba(16, 26, 51, 0.12);
-	transform: rotate(-6deg);
-	pointer-events: none; user-select: none;
 }
 /* wind: white strokes that draw themselves and end in a hooked curl */
 .winds { position: absolute; top: 0; left: 0; width: 100%; height: 760px; z-index: 1; pointer-events: none; }
@@ -272,7 +262,6 @@ footer span { color: var(--text-dim); }
 	.btn { width: 100%; justify-content: center; }
 	.tabbody { padding: 22px 16px 20px; }
 	.tab { padding: 10px 22px 12px; }
-	.kanji { top: 150px; opacity: 0.8; }
 	h2 { font-size: clamp(18px, 5.2vw, 26px); padding-right: 2.2em; }
 }
 </style>
@@ -280,7 +269,6 @@ footer span { color: var(--text-dim); }
 <body>
 
 <header class="sky">
-	<div class="kanji" aria-hidden="true">風</div>
 
 	<svg class="winds" viewBox="0 0 1440 760" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
 		<path stroke-width="7" d="M-60 300 C 60 270, 180 300, 280 262 C 330 242, 336 196, 300 190 C 268 186, 262 222, 290 226 C 304 228, 310 214, 300 208"/>
