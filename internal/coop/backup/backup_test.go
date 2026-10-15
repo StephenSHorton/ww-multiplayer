@@ -101,7 +101,8 @@ func TestParseIni(t *testing.T) {
 }
 
 // TestLocate: the default raw and GCI cards, the ones Dolphin.ini
-// configures, and which the slots select.
+// configures, and which the slots select, Dolphin.ini's SlotA / SlotB or
+// Dolphin's defaults.
 func TestLocate(t *testing.T) {
 	u := newUserDir(t)
 	custom := filepath.Join(t.TempDir(), "cards")
@@ -139,11 +140,44 @@ func TestLocate(t *testing.T) {
 		t.Errorf("Locate:\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 
-	// No Dolphin.ini: the defaults, use unknown. A missing dir: nothing.
+	// A slot Dolphin.ini doesn't set, or sets to something that doesn't
+	// parse, takes Dolphin's default: a GCI folder in slot A, nothing in
+	// slot B. A number is read with the base its prefix gives, as Dolphin
+	// does. A missing dir: nothing.
+	u.write("GC/MemoryCardB.USA.raw", []byte("card B"))
+	u.write("GC/USA/Card B/01-GZLE-gczelda.gci", gci("GZLE", "tetra"))
+	uses := func() string {
+		t.Helper()
+		cards, err := Locate(u.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, c := range cards {
+			got = append(got, fmt.Sprintf("%s %s %s", c.Slot, c.Kind, c.InUse))
+		}
+		return strings.Join(got, ", ")
+	}
+	const byDefault = "A raw card no, A raw card no, A GCI folder yes, B raw card no, B GCI folder no"
 	os.Remove(u.path("Config/Dolphin.ini"))
-	cards, err = Locate(u.root)
-	if err != nil || len(cards) != 3 || cards[2].InUse != UseUnknown {
-		t.Errorf("without Dolphin.ini: %v, %v", cards, err)
+	for _, c := range []struct {
+		name string
+		core []string // nil: no Dolphin.ini
+		want string
+	}{
+		{"without Dolphin.ini", nil, byDefault},
+		{"without SlotA / SlotB", []string{}, byDefault},
+		{"SlotA / SlotB that don't parse", []string{"SlotA = junk", "SlotB = 8 cards"}, byDefault},
+		{"SlotA = 1", []string{"SlotA = 1"}, "A raw card yes, A raw card yes, A GCI folder no, B raw card no, B GCI folder no"},
+		{"SlotA = 0x1, SlotB = 0x8", []string{"SlotA = 0x1", "SlotB = 0x8"}, "A raw card yes, A raw card yes, A GCI folder no, B raw card no, B GCI folder yes"},
+		{"SlotA = 255", []string{"SlotA = 255", "SlotB = 1"}, "A raw card no, A raw card no, A GCI folder no, B raw card yes, B GCI folder no"},
+	} {
+		if c.core != nil {
+			u.ini(c.core...)
+		}
+		if got := uses(); got != c.want {
+			t.Errorf("%s: %s, want %s", c.name, got, c.want)
+		}
 	}
 	if cards, err := Locate(filepath.Join(t.TempDir(), "nope")); err != nil || len(cards) != 0 {
 		t.Errorf("a missing user dir: %v, %v", cards, err)

@@ -255,7 +255,7 @@ func coopWorldRestore(w io.Writer, root, id string, yes bool, pf backup.ProcessF
 	for _, f := range b.Files {
 		c := b.Cards[f.Card]
 		raw = raw || c.Kind == backup.Raw
-		use := map[backup.Use]string{backup.UseYes: ", in use", backup.UseNo: ", not in use"}[c.InUse] // as Dolphin.ini said then
+		use := map[backup.Use]string{backup.UseYes: ", in use", backup.UseNo: ", not in use"}[c.InUse] // as Dolphin's settings said then
 		fmt.Fprintf(w, "  %s  (%d bytes, slot %s %s%s)\n", f.Source, f.Size, c.Slot, c.Kind, use)
 	}
 	if raw {

@@ -434,7 +434,7 @@ When Go sees a LEAKED tag (fails V2-V5) it **scrubs** it: it zeroes the 0x30 byt
 
 ### 5.4 Backups
 - At every co-op session start, Go copies the Dolphin card (raw `.raw` image or GCI folder, read-only) to `<config>/ww-multiplayer/backups/<ts>/`. It keeps 10 rotations.
-- The card path comes from `Config/Dolphin.ini` (location inferred, confirmed in M2).
+- The card path comes from `Config/Dolphin.ini`, or Dolphin's defaults for what it doesn't set (location inferred, confirmed in M2; Appendix C item 135).
 - `coop-world restore <ts>` copies a backup back, but only while Dolphin is closed.
 
 ### 5.5 Lifecycle
@@ -768,7 +768,7 @@ Run `mp-local` in the background.
 
 **Running M2 (dry run).** M2 writes nothing to the game except the binding tag, and only after a yes. The planner only logs. Owner steps for the M2 acceptance:
 1. Load the file to share in Dolphin 1 and stand in game, out of menus and cutscenes. Run `mp-local --coop=new` (or `host --coop=new`) to found the world from that file.
-   - The first lines list the memory cards backed up, each with its files and whether Dolphin.ini selects it ("in use"), then the world ID. Check that they are your cards: the card location comes from Dolphin's source, not the decomp (§5.4). A warning that no card is in use means the backup may have missed yours: set `USER_DIR_1` to your Dolphin user folder.
+   - The first lines list the memory cards backed up, each with its files and whether Dolphin's settings select it ("in use": Dolphin.ini, or Dolphin's default for a slot it doesn't set), then the world ID. Check that they are your cards: the card location comes from Dolphin's source, not the decomp (§5.4). A warning that no card is in use means the backup may have missed yours: set `USER_DIR_1` to your Dolphin user folder.
    - Later sessions use `--coop` (serves the only world) or `--coop=<world-id>`.
    - A second machine joins with `join <host> --coop`.
 2. Answer each question with `y` and Enter, or pass `--yes` to answer them all. "Bind it?" asks to bind the file; a leaked tag gets "Scrub it?" as well.
@@ -1317,8 +1317,8 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 
 *Backups (§5.4)*
 
-51. **The card locations come from Dolphin's source, not the decomp**, and need the owner's confirmation in M2 (§8.2). That covers the EXIDeviceType values (1 raw, 8 GCI folder), the default file and folder names, and how configured paths get a region code.
-    - Because a wrong guess means no backup, every card that exists is backed up. The session start lists each card with the files copied from it and whether Dolphin.ini selects it ("in use"), and warns when it selects none; `coop-world restore <backup>` marks them the same way, and the backup's `manifest.json` records them. GCI folders contribute Wind Waker's files (GZLE) only.
+51. **The card locations come from Dolphin's source, not the decomp**, and need the owner's confirmation in M2 (§8.2). That covers the EXIDeviceType values (1 raw, 8 GCI folder), the default file and folder names, each slot's default device (item 135), and how configured paths get a region code.
+    - Because a wrong guess means no backup, every card that exists is backed up. The session start lists each card with the files copied from it and whether Dolphin's settings select it ("in use": Dolphin.ini, or Dolphin's default for a slot it doesn't set), and warns when they select none; `coop-world restore <backup>` marks them the same way, and the backup's `manifest.json` records them. GCI folders contribute Wind Waker's files (GZLE) only.
     - Restore refuses whenever the Dolphin process list is unavailable (Linux, macOS without cgo), and counts Dolphin's own tools as Dolphin.
 
 *World file and hub (§4.4, §5.5)*

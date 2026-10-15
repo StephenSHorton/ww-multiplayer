@@ -584,17 +584,42 @@ func TestStartCoopHost(t *testing.T) {
 }
 
 // TestCoopSessionBackupLog: the session start names every card it backed
-// up, with the files copied from it and whether Dolphin.ini selects it, and
-// warns when it selects none: the owner checks there that they are theirs.
+// up, with the files copied from it and whether Dolphin's settings select
+// it (Dolphin.ini, or Dolphin's default for a slot it doesn't set), and
+// warns when they select none: the owner checks there that they are
+// theirs.
 func TestCoopSessionBackupLog(t *testing.T) {
+	// A raw card, with no Dolphin.ini: slot A's default is a GCI folder.
 	ud := coUserDir(t)
 	log := &coLog{}
 	startCoopSession(log, coopFlags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{ud}})
 	card := filepath.Join(ud, "GC", "MemoryCardA.USA.raw")
-	for _, want := range []string{"backed up 1 memory-card file(s)", "Check that these are your cards", "slot A raw card " + card + " (default), 13 bytes", "marks none of these cards as in use"} {
+	for _, want := range []string{"backed up 1 memory-card file(s)", "Check that these are your cards", "slot A raw card " + card + " (default, not in use), 13 bytes", "select none of these cards"} {
 		if !log.has(want) {
 			t.Errorf("log lacks %q:\n%s", want, log)
 		}
+	}
+
+	// The owner's layout: Dolphin's default GCI folder for slot A, with no
+	// Dolphin.ini to select it. It is in use, and nothing is warned.
+	owner := filepath.Join(t.TempDir(), "Dolphin Emulator")
+	cardA := filepath.Join(owner, "GC", "USA", "Card A")
+	if err := os.MkdirAll(cardA, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	saveA := filepath.Join(cardA, "01-GZLE-gczelda.gci")
+	if err := os.WriteFile(saveA, append([]byte("GZLE01"), make([]byte, 58)...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	log = &coLog{}
+	startCoopSession(log, coopFlags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{owner}})
+	for _, want := range []string{"backed up 1 memory-card file(s)", "slot A GCI folder " + cardA + " (default, in use):", "    " + saveA + ", 64 bytes"} {
+		if !log.has(want) {
+			t.Errorf("log lacks %q:\n%s", want, log)
+		}
+	}
+	if log.has("select none of these cards") {
+		t.Errorf("warned with the default GCI folder in use:\n%s", log)
 	}
 
 	// Dolphin.ini selects a GCI folder for slot B, which holds a save.
@@ -619,7 +644,7 @@ func TestCoopSessionBackupLog(t *testing.T) {
 			t.Errorf("log lacks %q:\n%s", want, log)
 		}
 	}
-	if log.has("marks none of these cards") {
+	if log.has("select none of these cards") {
 		t.Errorf("warned with a card in use:\n%s", log)
 	}
 }

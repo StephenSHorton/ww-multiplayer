@@ -16,10 +16,12 @@
 // names; dolphin2 passes USER_DIR_1 and USER_DIR_2, see UserDirs), as a
 // raw image per slot (GC/MemoryCardA.USA.raw) or, in GCI-folder mode, one
 // .gci file per game save under GC/USA/Card A. Config/Dolphin.ini's
-// [Core] section can point either elsewhere. Since a wrong guess about
-// which one is in use would mean no backup at all, Locate returns every
-// card that exists, default and configured, and says which Dolphin.ini
-// selects; Create copies all of them. Of a GCI folder only Wind Waker's
+// [Core] section can point either elsewhere, and says which kind each
+// slot uses; a slot it doesn't set takes Dolphin's default, a GCI folder
+// in slot A and nothing in slot B. Since a wrong guess about which one is
+// in use would mean no backup at all, Locate returns every card that
+// exists, default and configured, and says which Dolphin's settings
+// select; Create copies all of them. Of a GCI folder only Wind Waker's
 // own files (game code GZLE) are copied: the co-op can't affect the rest,
 // and a restore then can't roll back another game's saves.
 //
@@ -122,11 +124,15 @@ func (k *Kind) UnmarshalText(b []byte) error {
 	return nil
 }
 
-// Use says whether Dolphin.ini selects a card for its slot.
+// Use says whether Dolphin's settings select a card for its slot: the
+// slot's SlotA / SlotB in Dolphin.ini, or Dolphin's default for a slot it
+// doesn't set (defaultDevice).
 type Use string
 
 const (
-	UseUnknown Use = ""    // Dolphin.ini has no SlotA / SlotB setting
+	// UseUnknown is in older builds' manifests only: those builds took a
+	// slot Dolphin.ini doesn't set for unknown. Locate no longer returns it.
+	UseUnknown Use = ""
 	UseYes     Use = "yes" // the slot's device is this kind of card
 	UseNo      Use = "no"  // the slot holds something else, or nothing
 )
@@ -154,9 +160,10 @@ const (
 	iniPath = "Config/Dolphin.ini"
 
 	// The EXI device numbers SlotA / SlotB hold (EXIDeviceType): a raw
-	// card, and a GCI folder.
+	// card, a GCI folder, and nothing.
 	exiMemoryCard       = 1
 	exiMemoryCardFolder = 8
+	exiNone             = 0xFF
 
 	// regionDir is the GC directory and card-name part for an NTSC-U
 	// game such as GZLE01 (Dolphin's GetDirectoryForRegion).
@@ -170,8 +177,21 @@ const (
 
 var slots = []string{"A", "B"}
 
+// defaultDevice is the device Dolphin gives a slot Dolphin.ini doesn't
+// set, or sets to something that doesn't parse (Config::GetUncached): a
+// GCI folder in slot A and nothing in slot B (MAIN_SLOT_A and MAIN_SLOT_B
+// in MainSettings.cpp, the same on master and in each release checked,
+// 2407 to 2609). Dolphin.ini holds only the settings that were set
+// (BaseConfigLayerLoader::Save), and Dolphin's GameCube settings set
+// SlotA and SlotB as the user changes a slot there
+// (GameCubePane::SaveSettings), so a user who never changed one usually
+// has neither key.
+var defaultDevice = map[string]int{"A": exiMemoryCardFolder, "B": exiNone}
+
 // dolphinIni is what Locate reads from Dolphin.ini's [Core] section. A
-// missing file or key leaves the default.
+// missing file or key leaves the default: Dolphin's default device for a
+// slot (defaultDevice), and the default card paths. So does a SlotA /
+// SlotB that doesn't parse, as in Dolphin.
 type dolphinIni struct {
 	device  map[string]int    // slot -> SlotA/SlotB
 	memcard map[string]string // slot -> MemcardAPath/MemcardBPath
@@ -197,8 +217,10 @@ func readDolphinIni(userDir string) (dolphinIni, error) {
 	}
 	for _, s := range slots {
 		if v, ok := core["slot"+strings.ToLower(s)]; ok {
-			if n, err := strconv.Atoi(v); err == nil {
-				ini.device[s] = n
+			// Dolphin reads the number with the base its prefix gives, as
+			// strtoll with base 0 does (TryParse, StringUtil.h): 0x8 is 8.
+			if n, err := strconv.ParseInt(v, 0, 32); err == nil {
+				ini.device[s] = int(n)
 			}
 		}
 		if v := core["memcard"+strings.ToLower(s)+"path"]; v != "" {
@@ -314,10 +336,10 @@ func candidates(userDir string) ([]candidate, error) {
 	for _, s := range slots {
 		use := func(k Kind) Use {
 			d, ok := ini.device[s]
-			switch {
-			case !ok:
-				return UseUnknown
-			case k == Raw && d == exiMemoryCard, k == GCIFolder && d == exiMemoryCardFolder:
+			if !ok {
+				d = defaultDevice[s]
+			}
+			if k == Raw && d == exiMemoryCard || k == GCIFolder && d == exiMemoryCardFolder {
 				return UseYes
 			}
 			return UseNo

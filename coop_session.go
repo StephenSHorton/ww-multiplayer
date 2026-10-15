@@ -355,8 +355,9 @@ func logCoopProgression(rep report.Reporter, t *tables.Tables) {
 }
 
 // logBackupCards lists a backup's cards, each with the files copied from
-// it, and warns when Dolphin.ini selects none of them: the card locations
-// are Dolphin's (backup.Locate), so the owner checks them (§8.2).
+// it, and warns when Dolphin's settings (Dolphin.ini, or Dolphin's default
+// for a slot it doesn't set) select none of them: the card locations are
+// Dolphin's (backup.Locate), so the owner checks them (§8.2).
 func logBackupCards(rep report.Reporter, b *backup.Backup) {
 	inUse := false
 	for i, c := range b.Cards {
@@ -380,7 +381,7 @@ func logBackupCards(rep report.Reporter, b *backup.Backup) {
 		}
 	}
 	if !inUse {
-		report.Logf(rep, report.Warn, "co-op: Dolphin.ini marks none of these cards as in use. If your Dolphin keeps its user folder elsewhere (a portable User folder, say), set USER_DIR_1 (and USER_DIR_2) to it, or this backup misses your card.")
+		report.Logf(rep, report.Warn, "co-op: Dolphin's settings (Dolphin.ini, or Dolphin's defaults where it sets none: a GCI folder in slot A) select none of these cards. If your Dolphin keeps its user folder elsewhere (a portable User folder, say), set USER_DIR_1 (and USER_DIR_2) to it, or this backup misses your card.")
 	}
 }
 
