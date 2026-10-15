@@ -980,7 +980,7 @@ func TestBindFlow(t *testing.T) {
 	if w.Status != wire.StatusOK || !w.FreshBind {
 		t.Fatalf("bound, still unsaved: %+v", w)
 	}
-	// A leaked-looking hello of that nonce (V5 failed before the replica
+	// A LEAKED hello of that nonce (V5 failed before the replica
 	// knew, as on the first hello of every new process) is told the bind
 	// is fresh, and not that its tag leaked.
 	leak := hello(wire.FileLeaked, testWorld, 0)
@@ -992,8 +992,8 @@ func TestBindFlow(t *testing.T) {
 	if ns := pick[*wire.Notice](ms); len(ns) != 0 {
 		t.Fatalf("leaked hello of a fresh nonce got %s: %q", subs(ms), ns[0].Text)
 	}
-	if !r.log.has("leaked-looking tag naming pending fresh bind " + nonce.String()) {
-		t.Error("the host did not log the fresh bind's leaked-looking hello")
+	if !r.log.has("joiner (co-op 1) joined with a tag naming pending fresh bind " + nonce.String() + ", as a file bound fresh does") {
+		t.Error("the host did not log the fresh bind's first hello as one")
 	}
 	// A leaked hello of this world whose nonce is no pending fresh bind is
 	// a leak.
@@ -1002,8 +1002,28 @@ func TestBindFlow(t *testing.T) {
 	if w = welcomeOf(t, ms); w.Status != wire.StatusUnbound || w.FreshBind {
 		t.Fatalf("leaked hello of a stale nonce: %+v", w)
 	}
-	if ns := pick[*wire.Notice](ms); len(ns) != 1 || ns[0].Code != wire.NoticeNotBound || !strings.Contains(ns[0].Text, "leaked from another file") {
+	if ns := pick[*wire.Notice](ms); len(ns) != 1 || ns[0].Code != wire.NoticeNotBound || !strings.Contains(ns[0].Text, "leaked from another file") || !strings.Contains(ns[0].Text, "should be scrubbed") {
 		t.Fatalf("leaked hello of a stale nonce: %s, want the leak NOTICE", subs(ms))
+	}
+	// A leaked hello of another world, even with a nonce this world has
+	// pending, may be a fresh bind of that world: only its host can tell,
+	// and the NOTICE says so, whole, without calling for a scrub.
+	other := hello(wire.FileLeaked, otherWorld, 0)
+	other.BindNonce = wire.ID(nonce)
+	ms = r.exchange(u, other)
+	if w = welcomeOf(t, ms); w.Status != wire.StatusUnbound || w.FreshBind {
+		t.Fatalf("leaked hello of another world: %+v", w)
+	}
+	ns := pick[*wire.Notice](ms)
+	if len(ns) != 1 || ns[0].Code != wire.NoticeNotBound {
+		t.Fatalf("leaked hello of another world: %s, want one NOT_BOUND NOTICE", subs(ms))
+	}
+	if txt := ns[0].Text; !containsAll(txt, "a co-op tag of world "+otherWorld.String(), "leaked from another file, or a fresh bind to that world not yet loaded from the card", "Only that world's host can tell") ||
+		strings.Contains(txt, "scrub") || !strings.HasSuffix(txt, "Nothing is synced until you bind the file") || len(txt) > wire.MaxNoticeLen {
+		t.Fatalf("leaked hello of another world: NOTICE %q (%d bytes, max %d)", txt, len(txt), wire.MaxNoticeLen)
+	}
+	if !r.store.IsFreshBind(nonce) {
+		t.Fatal("a leaked hello of another world cleared this world's fresh bind")
 	}
 	bound.Want &^= uint32(AskUnsaved)
 	if w = welcomeOf(t, r.exchange(u, bound)); w.Status != wire.StatusOK || w.FreshBind {

@@ -276,7 +276,8 @@ func (h *Hub) onUnboundHello(p *peer, m *wire.CoHello) {
 	p.features = h.grant(p)
 	// A tag of this world that fails only V5 may be a fresh bind whose
 	// nonce the replica has not learned yet: FreshBind tells it.
-	fresh := world.ID(m.WorldID) == h.id && !m.BindNonce.IsZero() && h.store.IsFreshBind(world.ID(m.BindNonce))
+	tagWorld := world.ID(m.WorldID)
+	fresh := tagWorld == h.id && !m.BindNonce.IsZero() && h.store.IsFreshBind(world.ID(m.BindNonce))
 	leakedFresh := m.FileState == wire.FileLeaked && fresh
 	switch {
 	case leakedFresh:
@@ -285,6 +286,13 @@ func (h *Hub) onUnboundHello(p *peer, m *wire.CoHello) {
 		// says hello as leaked, and FreshBind is the answer. If V5 was all
 		// that failed, it says hello again, bound; if V2-V4 failed too, it
 		// offers the scrub itself.
+	case m.FileState == wire.FileLeaked && !tagWorld.IsZero() && tagWorld != h.id:
+		// Only the tag's own world's host knows that world's pending
+		// fresh binds, so a V5-only failure may be one of them. The
+		// replica offers no scrub for that (Appendix C item 49), and
+		// the NOTICE does not say the file should be scrubbed; if V2-V4
+		// failed too, the replica offers the scrub itself.
+		h.notify(p, wire.NoticeNotBound, fmt.Sprintf("your file carries a co-op tag of world %s: a tag leaked from another file, or a fresh bind to that world not yet loaded from the card. Only that world's host can tell which. Nothing is synced until you bind the file", tagWorld))
 	case m.FileState == wire.FileLeaked:
 		h.notify(p, wire.NoticeNotBound, "your file carries a co-op tag leaked from another file; it binds nothing and should be scrubbed. Nothing is synced until you bind the file")
 	default:
@@ -296,7 +304,7 @@ func (h *Hub) onUnboundHello(p *peer, m *wire.CoHello) {
 		h.sendPresences(p)
 	}
 	if leakedFresh {
-		h.logf("co-op: %s: joined with a leaked-looking tag naming pending fresh bind %s of world %s (FreshBind sent)", p, m.BindNonce, h.id)
+		h.logf("co-op: %s joined with a tag naming pending fresh bind %s, as a file bound fresh does until it is loaded from the card; told its replica the bind is pending", p, m.BindNonce)
 	} else {
 		h.logf("co-op: %s joined with an unbound file (%s)", p, m.FileState)
 	}

@@ -1027,3 +1027,33 @@ func TestCoopSyncHostWithoutCoop(t *testing.T) {
 		t.Errorf("run = %v", err)
 	}
 }
+
+// TestCoopFarBehindAdvice: the preflight of a file far behind the world,
+// on a host without --coop-merge, advises copying the host's save in:
+// what the copy replaces, that the copy is already bound, and that the
+// host first saves in game and loads its file from the card, since a copy
+// of a file bound fresh and not loaded back since clears the host's
+// pending fresh bind (Appendix C items 107 and 133). Nothing is asked.
+func TestCoopFarBehindAdvice(t *testing.T) {
+	r, err := replica.New(replica.Config{Mem: mem.NewFakeMem()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := &coLog{}
+	s := &coopSync{cs: &coopSession{}, rep: log, r: r, asked: map[coopFileKey]bool{}}
+	s.preflight(replica.PreflightReport{Verdict: replica.PreflightFarBehind, NeedsMerge: true})
+	for _, want := range []string{
+		"co-op: the world is far ahead of this file: copy the host's save in, or the host can run with --coop-merge to union them; pose sync goes on.",
+		"the copy replaces all three of your files with the host's: export yours first",
+		"The copied file is the host's own, already bound to the world.",
+		"Before the copy, the host should save in game and load its file from the card",
+		"makes the host's own file look leaked when the host next starts",
+	} {
+		if n := log.count(want); n != 1 {
+			t.Errorf("the advice has %q %d times, want once:\n%s", want, n, log)
+		}
+	}
+	if len(log.lines) != 1 || len(s.asked) != 0 {
+		t.Errorf("%d lines and %d bind questions, want the advice alone:\n%s", len(log.lines), len(s.asked), log)
+	}
+}

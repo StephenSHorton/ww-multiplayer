@@ -922,9 +922,9 @@ func TestCoopFreshBindRestart(t *testing.T) {
 		}
 	}
 	if !p.rep.has("pending fresh bind: the file is bound") {
-		t.Errorf("the restart's first hello was not the leaked-looking one:\n%s", p.rep)
+		t.Errorf("the restart's first hello was not the provisional one:\n%s", p.rep)
 	}
-	if n := h.rep.count("joined with an unbound file"); n != unbound || !h.rep.has("leaked-looking tag naming pending fresh bind "+nonce.String()) {
+	if n := h.rep.count("joined with an unbound file"); n != unbound || !h.rep.has("joined with a tag naming pending fresh bind "+nonce.String()+", as a file bound fresh does") {
 		t.Errorf("the host took the fresh-bound file for an unbound one:\n%s", h.rep)
 	}
 	if n := len(ga.m.Writes()); n != 1 {
@@ -940,10 +940,10 @@ func TestCoopFreshBindRestart(t *testing.T) {
 	ga.g.EnterFileSelect()
 	must(ga.g.LoadFile(0))
 	must(ga.g.LoadStage(coSea))
-	leaked := h.rep.count("leaked-looking tag")
+	provisional := h.rep.count("joined with a tag naming pending fresh bind")
 	h.restart()
 	p = run("the restart after a reload")
-	if p.rep.has("the host serves world") || p.rep.has("pending fresh bind") || h.rep.count("leaked-looking tag") != leaked {
+	if p.rep.has("the host serves world") || p.rep.has("pending fresh bind") || h.rep.count("joined with a tag naming pending fresh bind") != provisional {
 		t.Errorf("after the reload the first hello was not bound:\nhost:\n%s\nplayer:\n%s", h.rep, p.rep)
 	}
 	if h.cs.store.IsFreshBind(nonce) {

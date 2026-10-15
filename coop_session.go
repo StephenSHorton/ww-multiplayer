@@ -1165,9 +1165,14 @@ func (s *coopSync) preflight(pf replica.PreflightReport) {
 		// §5.3 "far behind": a union would move this file's resume
 		// stage, so a copy of the host's file is the better start. The
 		// game keeps all three files in one card file (savefile.Slots),
-		// so a copy is of all three.
+		// so a copy is of all three. A copy loaded here says hello
+		// bound, which clears the host's pending fresh bind of that file.
+		// The host's own file, if it has not been loaded from the card
+		// since its bind, then looks leaked in the host's next process
+		// (Appendix C item 133).
 		s.rep.Log(report.Info, "co-op: the world is far ahead of this file: copy the host's save in, or the host can run with --coop-merge to union them; pose sync goes on. "+
-			"Dolphin's Memory Card Manager exports and imports the whole save, so the copy replaces all three of your files with the host's: export yours first (this session's card backup holds them too). The copied file is the host's own, already bound to the world")
+			"Dolphin's Memory Card Manager exports and imports the whole save, so the copy replaces all three of your files with the host's: export yours first (this session's card backup holds them too). The copied file is the host's own, already bound to the world. "+
+			"Before the copy, the host should save in game and load its file from the card: a copy of a file bound fresh and not loaded back since makes the host's own file look leaked when the host next starts")
 		return
 	case pf.NeedsMerge && s.r.Status().Features&hub.FeatureMerge == 0:
 		s.rep.Log(report.Info, "co-op: this file can't bind unless the host runs with --coop-merge; pose sync goes on")
