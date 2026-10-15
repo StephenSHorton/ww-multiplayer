@@ -450,6 +450,16 @@ This doc is the session-by-session log of how the multiplayer pipeline was built
 
 ## 🔬 Next Session Priority
 
+**v1.0 IS A CO-OP MOD (2026-10-14, #23).** The owner decided that v1.0
+is a real co-op mod, in three parts: save-file merging, combat sync
+(enemies die for both players), and puzzle and dungeon state (doors,
+switches and so on propagate between players). v0.3.0 (Go-only
+hardening) shipped first, as tag `v0.3.0` on `d6850b0`. The design,
+milestones M0-M9 and the address table are in
+[`docs/08-coop-design.md`](08-coop-design.md). The co-op addresses,
+re-checked against the decomp, are also in `docs/04-ww-addresses.md` →
+"Co-op addresses".
+
 **v0.1.0 RELEASED (2026-04-21).** First public release. `ww-multiplayer.exe patch
 <vanilla.iso>` produces a working multiplayer ISO from the user's own
 legitimately-acquired Wind Waker disc; `ww-multiplayer.exe` runs the multiplayer

@@ -3,6 +3,7 @@ package inject
 import (
 	"bytes"
 	"encoding/binary"
+	"io"
 	"strings"
 	"testing"
 )
@@ -90,5 +91,63 @@ func TestCISODecodedSizeCap(t *testing.T) {
 	}
 	if _, err := cisoDecodedSize(0x10000000, 7); err == nil {
 		t.Error("7 blocks of 256 MiB accepted")
+	}
+}
+
+func TestCISOReaderMatchesDecompress(t *testing.T) {
+	img := treeDisc().build(t).img
+	const bs = 0x8000
+	ciso := makeCISO(img, bs)
+	want, err := decompressCISO(ciso)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := newCISOReader(bytes.NewReader(ciso), int64(len(ciso)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.size() != int64(len(want)) {
+		t.Fatalf("size = 0x%x, want 0x%x", c.size(), len(want))
+	}
+	if c.slot[0x400000/bs] != -1 {
+		t.Fatal("test setup: the free gap at 0x400000 should be an absent block")
+	}
+	for _, r := range []struct{ off, n int }{
+		{0, 0x440},                  // boot.bin
+		{bs - 3, 7},                 // across a block boundary
+		{0x400000 - 5, bs + 10},     // into, through and out of an absent block
+		{0x540000, 0x20000},         // a whole file
+		{len(want) - 0x10, 0x10},    // the very end
+		{0, len(want)},              // everything
+		{0x123457, 3*bs + 0x10_001}, // unaligned, many blocks
+	} {
+		got := make([]byte, r.n)
+		if n, err := c.ReadAt(got, int64(r.off)); n != r.n || err != nil {
+			t.Fatalf("ReadAt(0x%x, 0x%x) = %d, %v", r.off, r.n, n, err)
+		}
+		if !bytes.Equal(got, want[r.off:r.off+r.n]) {
+			t.Fatalf("ReadAt(0x%x, 0x%x) differs from the decompressed image", r.off, r.n)
+		}
+	}
+
+	// Past the end: a short read with io.EOF, as io.ReaderAt specifies.
+	p := make([]byte, 0x20)
+	if n, err := c.ReadAt(p, int64(len(want)-0x10)); n != 0x10 || err != io.EOF {
+		t.Errorf("read across the end = %d, %v; want 16, EOF", n, err)
+	}
+	if n, err := c.ReadAt(p, int64(len(want))); n != 0 || err != io.EOF {
+		t.Errorf("read at the end = %d, %v; want 0, EOF", n, err)
+	}
+	if _, err := c.ReadAt(p, -1); err == nil {
+		t.Error("negative offset accepted")
+	}
+
+	// The reader checks the header exactly as decompressCISO does.
+	for _, bad := range [][]byte{ciso[:len(ciso)-1], ciso[:cisoHeaderSize-1], append([]byte("CISX"), ciso[4:]...)} {
+		_, errReader := newCISOReader(bytes.NewReader(bad), int64(len(bad)))
+		_, errDecomp := decompressCISO(bad)
+		if errReader == nil || errDecomp == nil || errReader.Error() != errDecomp.Error() {
+			t.Errorf("reader err %v, decompress err %v; want the same error", errReader, errDecomp)
+		}
 	}
 }
