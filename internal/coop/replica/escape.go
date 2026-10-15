@@ -29,15 +29,12 @@ import (
 //     point, room and layer again. dScnPly_Draw then changes the scene
 //     behind a wipe as for a loading zone (d_s_play.cpp:285-314);
 //   - warp to partner, on the same stage, moves Link to the partner's
-//     side through the mod's warp request: warp_x/y/z, then warp_seq + 1
-//     (mailbox.h:211-225), which multiplayer_update carries out on the
-//     next frame Link exists and acknowledges in warp_ack
-//     (multiplayer.c:365-421). The spot is one the partner walked over in
-//     its room, 100-500 units from it, in a walk that ends where it
-//     stands (escape_trail.go); with none, and on the sea, it is the
-//     partner's own position (pose sync's). On another stage it asks for
-//     the partner's stage by the point the partner's PRESENCE names, then
-//     warps to the partner's side once there.
+//     position (pose sync's) through the mod's warp request: warp_x/y/z,
+//     then warp_seq + 1 (mailbox.h:211-225), which multiplayer_update
+//     carries out on the next frame Link exists and acknowledges in
+//     warp_ack (multiplayer.c:365-421). On another stage it asks for the
+//     partner's stage by the point the partner's PRESENCE names, then
+//     warps to the partner once there.
 //
 // Both are best effort and inferred (§6.7). dComIfGp_setNextStage also
 // records the last scene's speed and mode, with the shield and soup bits,
@@ -307,11 +304,10 @@ func (r *Replica) Escape(k EscapeKind) <-chan EscapeResult {
 }
 
 // escapeTick is the escapes' part of a tick (under r.mu): it learns the
-// entrance Link came in by, samples the partner's trail, and plans an
-// escape asked for, or a warp's second step, into r.escNow for
-// tickContext to make once the reconciler's writes are done.
+// entrance Link came in by, and plans an escape asked for, or a warp's
+// second step, into r.escNow for tickContext to make once the
+// reconciler's writes are done.
 func (r *Replica) escapeTick(o *obs, armed bool) {
-	r.noteTrail()
 	r.learnOwn(o)
 	if q := r.esc; q != nil {
 		r.esc = nil
@@ -398,7 +394,7 @@ func (r *Replica) planEscape(o *obs, armed bool, k EscapeKind) ([]Field, string,
 	}
 	stage := p.Stage.String()
 	if stage == o.s.StageName {
-		fs, did, err := r.sameStageWarp(o, p)
+		fs, did, err := r.sameStageWarp(p)
 		if !errors.Is(err, errRoomNotLoaded) {
 			return fs, did, nil, err
 		}
@@ -440,18 +436,15 @@ func (r *Replica) finishWarp(o *obs, armed bool, f *followWarp) ([]Field, string
 	case o.screen != screenGame || !armed || !o.st.CanWriteIdle() || o.s.StageName != f.stage || p == nil:
 		return nil, "", ErrNotNow
 	}
-	return r.sameStageWarp(o, p)
+	return r.sameStageWarp(p)
 }
 
-// sameStageWarp plans a warp to partner p on Link's stage, o's: once the
-// partner has been at rest in its stage for PartnerSettle, into a room
-// whose collision this game has loaded (mpBgW), with no warp still under
-// way (warp_seq == warp_ack). It lands beside the partner, on the newest
-// spot of its last walk, which ends where it stands, in its room
-// LandMin..LandMax from its position (partnerTrail.landing). With no such
-// spot, and on the sea, where a spot beside it can be open water, it
-// lands on the partner's position from pose sync (Config.PartnerPos).
-func (r *Replica) sameStageWarp(o *obs, p *wire.Presence) ([]Field, string, error) {
+// sameStageWarp plans a warp to partner p on Link's stage: the partner's
+// position from pose sync (Config.PartnerPos), once the partner has been
+// at rest in its stage for PartnerSettle, into a room whose collision this
+// game has loaded (mpBgW), with no warp still under way (warp_seq ==
+// warp_ack).
+func (r *Replica) sameStageWarp(p *wire.Presence) ([]Field, string, error) {
 	if r.cfg.PartnerPos == nil {
 		return nil, "", errors.New("this session has no pose sync to take the partner's position from")
 	}
@@ -483,17 +476,7 @@ func (r *Replica) sameStageWarp(o *obs, p *wire.Presence) ([]Field, string, erro
 	if bgw == 0 {
 		return nil, "", fmt.Errorf("room %d, where the partner is, is %w", p.Room, errRoomNotLoaded)
 	}
-	onIt := fmt.Sprintf("warping to the partner at (%.0f, %.0f, %.0f) in room %d", pos.X, pos.Y, pos.Z, p.Room)
-	_, typ, stagOK := readStag(r.m, o.s.StagInfo)
-	switch land, beside := r.trail.landing(pos, p.Room); {
-	case !stagOK:
-		return WarpFields(pos, seq), onIt + " (this stage's type could not be read, and on the sea a spot beside it can be open water)", nil
-	case typ == stageTypeSea:
-		return WarpFields(pos, seq), onIt + " (on the sea a spot beside it can be open water)", nil
-	case beside:
-		return WarpFields(land, seq), fmt.Sprintf("warping to the partner's side at (%.0f, %.0f, %.0f), %.0f units from it, in room %d", land.X, land.Y, land.Z, distXZ(land, pos), p.Room), nil
-	}
-	return WarpFields(pos, seq), onIt + " (it has not walked far enough in this room for a spot beside it)", nil
+	return WarpFields(pos, seq), fmt.Sprintf("warping to the partner at (%.0f, %.0f, %.0f) in room %d", pos.X, pos.Y, pos.Z, p.Room), nil
 }
 
 // partnerEntrance is the stage request that takes Link to partner p's

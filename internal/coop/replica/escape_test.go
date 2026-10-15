@@ -662,8 +662,7 @@ func TestEscapeWarpOtherStage(t *testing.T) {
 	if seq, _ := er.warpSeq(); seq != 1 {
 		t.Fatalf("warp_seq %d after the stage change, want 1\n%s", seq, er.log)
 	}
-	// The partner stood still: no spot beside it, so onto it.
-	if !er.log.has("co-op: warp: warping to the partner at (7, 8, 9) in room 6 (it has not walked far enough in this room for a spot beside it)") {
+	if !er.log.has("co-op: warp: warping to the partner at (7, 8, 9) in room 6") {
 		t.Errorf("log:\n%s", er.log)
 	}
 }
