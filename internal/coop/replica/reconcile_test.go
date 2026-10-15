@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/bits"
 	"strings"
 	"sync"
 	"testing"
@@ -1108,6 +1109,115 @@ func TestReconcileOceanAtRoomChange(t *testing.T) {
 				if got[off]&img[off] != img[off] {
 					t.Errorf("%s: 0x%02X, want 0x%02X", DefaultLabel(off, -1), got[off], img[off])
 				}
+			}
+			rr.audit(false)
+		})
+	}
+}
+
+// TestReconcileLogsAnIdleWait: a room-change write whose room change is
+// in, and that waits only because the pause menu is open or an event
+// runs, logs that it waits for the game to be idle, with the IDLE gate's
+// reason, not that it waits for the next room change, and is written on
+// the first IDLE tick with no other room change. So does a memory switch
+// of the loaded table once the room hold has passed. A bit that arrives
+// as STABLE settles after the change, IDLE, gets no line until the menu
+// opens; one that arrived before the change keeps the one line it got
+// then (Appendix C item 129).
+func TestReconcileLogsAnIdleWait(t *testing.T) {
+	menu := func(rr *recRig, on bool) { rr.g.SetPauseMenu(on) }
+	event := func(rr *recRig, on bool) {
+		if on {
+			rr.g.SetEvent(1, 0)
+		} else {
+			rr.g.SetEvent(0, 0)
+		}
+	}
+	// When the partner's bit arrives.
+	const (
+		settled  = iota // once STABLE has opened after the room change, under busy
+		settling        // right after the room change, as STABLE settles
+		before          // before the room change
+	)
+	sw, swMask := switchImageByte(addr.TableDRC, 0x05) // latching in DRC's table (switch5Policy)
+	for _, c := range []struct {
+		name string
+		off  int
+		mask byte
+		// move is the room change, and busy the menu or event after it,
+		// from idleTicks ticks after it (fewer than STABLE takes).
+		move      func(rr *recRig)
+		busy      func(rr *recRig, on bool)
+		idleTicks int
+		arrives   int
+		// wait is the one wait line the bit gets.
+		wait string
+	}{
+		{name: "the ocean, after the room change, under the pause menu", off: addr.OffOcean + 5, mask: 0x04,
+			move: func(rr *recRig) { rr.enter(45) }, busy: menu, arrives: settled,
+			wait: "waits for this game to be idle (the pause menu is open): its room change is in"},
+		{name: "the ocean, as the room change settles, in an event", off: addr.OffOcean + 5, mask: 0x04,
+			move: func(rr *recRig) { rr.enter(45) }, busy: event, arrives: settling,
+			wait: "waits for this game to be idle (an event is running): its room change is in"},
+		{name: "the ocean, as the room change settles, then the pause menu", off: addr.OffOcean + 5, mask: 0x04,
+			move: func(rr *recRig) { rr.enter(45) }, busy: menu, idleTicks: 2, arrives: settling,
+			wait: "waits for this game to be idle (the pause menu is open): its room change is in"},
+		{name: "a memory switch, after walking into a settled room, under the pause menu", off: sw, mask: swMask,
+			move: func(rr *recRig) {
+				rr.load(drc)
+				rr.enter(2, 1)
+				rr.settleRooms()
+				rr.enter(1, 2) // the room hold has passed: only IDLE holds the write
+			}, busy: menu, arrives: settled,
+			wait: "waits for this game to be idle (the pause menu is open): its room change is in"},
+		{name: "the ocean, before the room change, then the pause menu", off: addr.OffOcean + 5, mask: 0x04,
+			move: func(rr *recRig) { rr.enter(45) }, busy: menu, idleTicks: 2, arrives: before,
+			wait: "waits for the next room or stage change"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage|hub.FeatureSwitches)
+			rr.ticks(10)
+			var img world.Image
+			img[c.off] = c.mask
+			label := DefaultLabel(c.off, bits.TrailingZeros8(c.mask))
+			if c.arrives == before {
+				rr.world(img)
+				if n := rr.ticks(3); n != 0 {
+					t.Fatalf("%d bytes written before the room change", n)
+				}
+			}
+			c.move(rr)
+			if c.arrives == settling {
+				rr.world(img)
+			}
+			if n := rr.ticks(c.idleTicks); n != 0 {
+				t.Fatalf("%d bytes written as STABLE settled", n)
+			}
+			c.busy(rr, true)
+			if n := rr.ticks(gate.StableTicks + 4); n != 0 {
+				t.Fatalf("%d bytes written while the game was not idle\n%s", n, rr.log)
+			}
+			if c.arrives == settled {
+				rr.world(img)
+				if n := rr.ticks(5); n != 0 {
+					t.Fatalf("%d bytes written while the game was not idle\n%s", n, rr.log)
+				}
+			}
+			if n := rr.log.count(label + " waits for"); n != 1 || !rr.log.has(label+" "+c.wait) {
+				t.Fatalf("%d wait lines for %s, want one, %q:\n%s", n, label, c.wait, rr.log)
+			}
+			c.busy(rr, false)
+			idle := len(rr.reps)
+			w := rr.untilWrite(gate.StableTicks + 4)
+			switch {
+			case w < 0:
+				t.Fatalf("never written:\n%s", rr.log)
+			case w != idle:
+				t.Fatalf("written on tick %d, want the first idle one, %d\n%s", w, idle, rr.log)
+			case c.off == sw && !rr.reps[w].SwitchWindow, c.off != sw && !rr.reps[w].RoomChange:
+				t.Fatalf("not written in the room change's window: %+v", rr.reps[w])
+			case !rr.log.has("set " + label):
+				t.Fatalf("the log lacks the write:\n%s", rr.log)
 			}
 			rr.audit(false)
 		})

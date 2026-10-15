@@ -6,6 +6,7 @@ import (
 	"math/bits"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 )
@@ -224,7 +225,7 @@ func (r *Replica) reconcile(o *obs, armed bool, rep *Report) {
 	due, waiting := r.pick(o, r.planned, win, calm)
 	r.toWrite = due
 	rep.Waiting, rep.RoomChange, rep.SwitchWindow = len(waiting), win.room, win.switches
-	r.logWaits(r.planned, waiting, r.held, calm)
+	r.logWaits(r.planned, waiting, r.held, o.st, calm)
 	if len(due) == 0 {
 		r.room.close(win)
 	} else {
@@ -293,11 +294,16 @@ func (r *Replica) wroteLive(res Result, off uint16) bool {
 }
 
 // logWaits logs, once while it stays so, each held bit and each M3 bit
-// that waits for the receiver's next room or stage change or for the
-// room hold (calm: the hold allows the loaded table's memory switches).
+// that waits for the receiver's next room or stage change, for the room
+// hold (calm: the hold allows the loaded table's memory switches), or,
+// once the room change it waits for is in, for the game to be IDLE (st:
+// the tick's gates). One logged as waiting for the room change is not
+// logged again when, after the change, it waits for STABLE or IDLE. One
+// whose room change is in, with the game IDLE, gets no line: it waits
+// only for STABLE, which opens within ticks, or for a stalled heartbeat.
 // The planned bits of M4's classes are the M4 receiver's to write and
 // log (reconcile_m4.go), from their own plans.
-func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit, calm bool) {
+func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit, st gate.Status, calm bool) {
 	var lines []string
 	var nowOR, nowHeld world.BitSet
 	var nowMax world.Image
@@ -321,8 +327,27 @@ func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit, calm bool) 
 			lines = append(lines, line(bits.TrailingZeros8(set)))
 		}
 	}
+	// keep carries the bits of w logged already into this tick's sets,
+	// with no line, so they are not logged again while they wait.
+	keep := func(w Write) {
+		off := int(w.Off)
+		if w.Max {
+			if r.loggedMax[off] == w.Bits {
+				nowMax[off] = w.Bits
+			}
+			return
+		}
+		nowOR[off] |= w.Bits & r.loggedOR[off]
+	}
 	live := r.features&hub.FeatureLiveSwitches != 0
 	for _, w := range waiting {
+		// in: the room change w waits for is in, so its window waits for
+		// the gates alone (roomWatch.open); for a memory switch of the
+		// loaded table, the room hold has passed as well.
+		in := r.room.due
+		if w.Category == CatSwitch {
+			in = r.room.switches && calm
+		}
 		why := "waits for the next room or stage change"
 		switch {
 		case w.When != OnRoomChange:
@@ -331,6 +356,11 @@ func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit, calm bool) 
 			why = "waits for the room hold: every shown room's actors get 2 s of idle frames first, as a new shutter ignores a switch set in its first 30 (§6.1)"
 		case w.Category == CatSwitch && live:
 			continue // IDLE, within ticks
+		case in && !st.Idle:
+			why = fmt.Sprintf("waits for this game to be idle (%s): its room change is in", st.IdleWhy)
+		case in:
+			keep(w) // STABLE, within ticks
+			continue
 		}
 		note(w, func(bit int) string {
 			return fmt.Sprintf("%s %s", r.label(int(w.Off), bit), why)
