@@ -15,6 +15,11 @@ var (
 	testCreated = time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 )
 
+// offItem is mGetItem[3], the grappling hook's flag byte: an OR byte with
+// mask 0xFF, the tests' shared flag byte of any bits. mGetItem[0..2] share
+// only bit 0 (the rest record the bottle contents held).
+const offItem = addr.OffGetItem + 3
+
 // randImage is a random image: every byte random, so the shared bits, the
 // bits outside the masks and the bytes that never merge are all exercised.
 // Sparse makes most bytes zero, as a real image's flags are.
@@ -179,7 +184,7 @@ func TestApplyGainsRefuses(t *testing.T) {
 	letter := addr.OffEvent + int(addr.EventByte(0x7A03).Off) // LETTER_ROCK_SPIRE_SHOP_AD, MAX within 0x03
 	dungeon := addr.OffMemBit(3) + addr.MemBitOffDungeonItem  // OR within 0x3F
 	sw := addr.OffMemBit(3) + addr.MemBitOffSwitch            // OR_MASKED
-	tombed := addr.OffGetItem
+	tombed := offItem
 	for _, c := range []struct {
 		name   string
 		policy *Policy
@@ -201,8 +206,8 @@ func TestApplyGainsRefuses(t *testing.T) {
 			[]Reject{{uint16(letter), 0x05, ReasonMask}}},
 		{"a MAX value inside merges", FullPolicy(), []Gain{{uint16(letter), 0x02}, {uint16(letter), 0x01}},
 			[]Gain{{uint16(letter), 0x02}}, nil},
-		{"switches fail closed by default", DefaultPolicy(), []Gain{{uint16(sw), 0x80}, {addr.OffGetItem, 0x01}},
-			[]Gain{{addr.OffGetItem, 0x01}}, []Reject{{uint16(sw), 0x80, ReasonPolicy}}},
+		{"switches fail closed by default", DefaultPolicy(), []Gain{{uint16(sw), 0x80}, {offItem, 0x01}},
+			[]Gain{{offItem, 0x01}}, []Reject{{uint16(sw), 0x80, ReasonPolicy}}},
 		{"tombstoned bits are refused", FullPolicy(), []Gain{{uint16(tombed), 0x03}},
 			[]Gain{{uint16(tombed), 0x01}}, []Reject{{uint16(tombed), 0x02, ReasonTombstone}}},
 	} {
@@ -276,19 +281,19 @@ func TestPolicyGrants(t *testing.T) {
 // from then on whatever is proposed, and fails for bytes that never merge.
 func TestTombstone(t *testing.T) {
 	w := newTestWorld()
-	w.ApplyGains([]Gain{{addr.OffGetItem, 0xFF}})
+	w.ApplyGains([]Gain{{offItem, 0xFF}})
 	letter := addr.OffEvent + int(addr.EventByte(0x7A03).Off)
 	w.ApplyGains([]Gain{{uint16(letter), 3}})
 	seq := w.Seq()
 
-	res, err := w.Tombstone(addr.OffGetItem, 0x81)
-	if err != nil || !slices.Equal(res.Cleared, []Gain{{addr.OffGetItem, 0x81}}) || res.Seq != seq+1 {
+	res, err := w.Tombstone(offItem, 0x81)
+	if err != nil || !slices.Equal(res.Cleared, []Gain{{offItem, 0x81}}) || res.Seq != seq+1 {
 		t.Fatalf("tombstone: %+v, %v", res, err)
 	}
-	if img := w.Image(); img[addr.OffGetItem] != 0x7E {
-		t.Errorf("image keeps 0x%02X", img[addr.OffGetItem])
+	if img := w.Image(); img[offItem] != 0x7E {
+		t.Errorf("image keeps 0x%02X", img[offItem])
 	}
-	if res, _ := w.Tombstone(addr.OffGetItem, 0x01); res.Seq != seq+1 {
+	if res, _ := w.Tombstone(offItem, 0x01); res.Seq != seq+1 {
 		t.Error("an existing tombstone bumped the seq")
 	}
 	// A MAX byte: tombstoning bit 1 drops the value 3 to 1, and refuses
@@ -302,7 +307,8 @@ func TestTombstone(t *testing.T) {
 	for _, c := range []struct {
 		off  int
 		mask byte
-	}{{addr.OffLife, 1}, {addr.OffReserve, 1}, {-1, 1}, {ImageSize, 1}, {addr.OffMemBit(0) + addr.MemBitOffDungeonItem, 0xC0}} {
+	}{{addr.OffLife, 1}, {addr.OffReserve, 1}, {-1, 1}, {ImageSize, 1}, {addr.OffMemBit(0) + addr.MemBitOffDungeonItem, 0xC0},
+		{addr.OffGetItem, 0x04}, {addr.OffCollectFlags + 4, 0x02}} {
 		if _, err := w.Tombstone(c.off, c.mask); err == nil {
 			t.Errorf("Tombstone(0x%X, 0x%02X) accepted", c.off, c.mask)
 		}
@@ -329,11 +335,11 @@ func TestTombstone(t *testing.T) {
 // TestDiffAndApply checks the two replica-side helpers on known bytes.
 func TestDiffAndApply(t *testing.T) {
 	var a, b Image
-	a[addr.OffGetItem], b[addr.OffGetItem] = 0x03, 0x06 // OR: b adds 0x04
+	a[offItem], b[offItem] = 0x03, 0x06                 // OR: b adds 0x04
 	a[addr.OffWalletSize], b[addr.OffWalletSize] = 2, 1 // MAX: b is lower
 	a[addr.OffArrowMax], b[addr.OffArrowMax] = 30, 60   // MAX: b is higher
 	a[addr.OffLife], b[addr.OffLife] = 0, 0x0C          // never merges
-	want := []Gain{{addr.OffGetItem, 0x04}, {addr.OffArrowMax, 60}}
+	want := []Gain{{offItem, 0x04}, {addr.OffArrowMax, 60}}
 	if got := Diff(&a, &b); !slices.Equal(got, want) {
 		t.Errorf("Diff = %v, want %v", got, want)
 	}
@@ -342,6 +348,45 @@ func TestDiffAndApply(t *testing.T) {
 	a[reg] = 0xF1
 	if n := a.Apply([]Gain{{uint16(reg), 2}, {uint16(reg), 0x04}, {addr.OffLife, 1}, {ImageSize, 1}}); n != 1 || a[reg] != 0xF2 {
 		t.Errorf("Apply: %d changed, register 0x%02X", n, a[reg])
+	}
+}
+
+// TestBottleHistoryAndCharmWorn: bits 1-7 of mGetItem[0..2] (the bottle
+// contents a player has held, onBottleItem, d_save.cpp:224-282) and bit 1
+// of mCollect[4] (the Hero's Charm worn, d_menu_collect.cpp:1283-1286) are
+// each player's. A file that differs from the world only there adds no
+// gain, so neither the hub's bind judgement (Merge) nor the join
+// preflight (Diff) finds it divergent; the world never takes those bits;
+// bit 0 of each byte still syncs.
+func TestBottleHistoryAndCharmWorn(t *testing.T) {
+	const charm = addr.OffCollectFlags + 4
+	w := newTestWorld()
+	w.ApplyGains([]Gain{{addr.OffGetItem, 0x01}, {charm, 0x01}, {offItem, 0x01}}) // telescope, charm owned, grappling hook
+	cur := w.Image()
+	file := cur
+	file[addr.OffGetItem] |= 0x04   // an empty bottle held
+	file[addr.OffGetItem+1] |= 0x04 // a fairy in a bottle held
+	file[charm] |= 0x02             // the charm worn
+
+	if gs := Diff(&cur, &file); len(gs) != 0 {
+		t.Errorf("Diff(world, file) = %v, want no gain", gs)
+	}
+	if s := Shared(&file); s != cur {
+		t.Error("Shared(file) kept a bottle-history or charm-worn bit")
+	}
+	if res := w.Merge(&file); res.Changed() || len(res.Delta) != 0 {
+		t.Errorf("merging the file changed the world: %v", res.Delta)
+	}
+	res := w.ApplyGains([]Gain{{addr.OffGetItem, 0x04}, {charm, 0x02}})
+	wantRej := []Reject{{addr.OffGetItem, 0x04, ReasonMask}, {charm, 0x02, ReasonMask}}
+	if res.Changed() || !slices.Equal(res.Rejected, wantRej) {
+		t.Errorf("gains of the local bits: delta %v rejected %v, want none and %v", res.Delta, res.Rejected, wantRej)
+	}
+
+	// Bit 0 of the same bytes still merges, from a file of a fresh world.
+	fresh := newTestWorld()
+	if res := fresh.Merge(&file); !slices.Equal(res.Delta, []Gain{{addr.OffGetItem, 0x01}, {offItem, 0x01}, {charm, 0x01}}) {
+		t.Errorf("a fresh world's merge of the file: delta %v, want bit 0 of each byte", res.Delta)
 	}
 }
 

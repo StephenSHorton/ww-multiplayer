@@ -41,7 +41,7 @@ func TestDifferRisingEdgesOnly(t *testing.T) {
 	seaChest, seaMask := chest(addr.TableSea, 0)
 	seaChest2, seaMask2 := chest(addr.TableSea, 9)
 	drcChest, drcMask := chest(addr.TableDRC, 31)
-	getItem := addr.OffGetItem + 2
+	getItem := addr.OffGetItem + 3 // mGetItem[3], OR 0xFF ([0..2] share bit 0 only)
 	wallet := addr.OffWalletSize
 
 	dr := newDifferRig(t, nil)

@@ -104,6 +104,9 @@ func TestValidateCatchesGapsAndOverlaps(t *testing.T) {
 }
 
 // TestSpotClasses checks representative bytes, located through addr.
+// mGetItem[0..2] and mCollect[4] share bit 0 only: their other bits are
+// the bottle contents held (onBottleItem, d_save.cpp:224-282) and the
+// Hero's Charm worn (d_menu_collect.cpp:1283-1286), each player's.
 func TestSpotClasses(t *testing.T) {
 	type want struct {
 		c    Class
@@ -130,6 +133,12 @@ func TestSpotClasses(t *testing.T) {
 		"bottle 3":            {addr.OffItems + addr.SlotBottle0 + 3, want{PerPlayer, 0}},
 		"delivery bag slot":   {addr.OffItems + addr.SlotDeliveryBag, want{Derived, 0}},
 		"mGetItem bow":        {addr.OffGetItem + addr.SlotBow, want{OR, 0xFF}},
+		"mGetItem[0]":         {addr.OffGetItem, want{OR, 0x01}},
+		"mGetItem[2]":         {addr.OffGetItem + 2, want{OR, 0x01}},
+		"mGetItem[3]":         {addr.OffGetItem + 3, want{OR, 0xFF}},
+		"mCollect[3]":         {addr.OffCollectFlags + 3, want{OR, 0xFF}},
+		"mCollect[4]":         {addr.OffCollectFlags + 4, want{OR, 0x01}},
+		"mCollect[5]":         {addr.OffCollectFlags + 5, want{PerPlayer, 0}},
 		"mBeastFlags":         {addr.OffBeastFlags, want{OR, 0xFF}},
 		"mReserveFlags":       {addr.OffReserveFlags, want{PerPlayer, 0}},
 		"mTact":               {addr.OffTact, want{OR, 0xFF}},

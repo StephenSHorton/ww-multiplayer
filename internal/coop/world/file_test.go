@@ -15,7 +15,7 @@ func sampleWorld(t testing.TB) *World {
 	t.Helper()
 	w := newTestWorld()
 	w.ApplyGains([]Gain{
-		{addr.OffGetItem, 0x05},
+		{offItem, 0x05},
 		{addr.OffWalletSize, 2},
 		{uint16(addr.OffMemBit(addr.TableDRC) + addr.MemBitOffTbox + 3), 0x81},
 		{uint16(addr.OffMemBit(addr.TableDRC) + addr.MemBitOffSwitch + 2), 0x10},
@@ -131,25 +131,26 @@ func TestFileDamage(t *testing.T) {
 // tombstones refuse) are dropped and counted, not taken as damage.
 func TestFileStripsAndSkips(t *testing.T) {
 	var img Image
-	img[addr.OffLife] = 0x0C                                        // per player: 2 bits
-	img[addr.OffMemBit(0)+addr.MemBitOffDungeonItem] = 0xC1         // 0xC0 outside the mask: 2 bits
-	img[addr.OffGetItem] = 0x03                                     // bit 1 tombstoned below: 1 bit
-	tomb := []byte{0, addr.OffLife, 0x01, 0, addr.OffGetItem, 0x02} // the first is outside every mask: 1 bit
+	img[addr.OffLife] = 0x0C                                // per player: 2 bits
+	img[addr.OffMemBit(0)+addr.MemBitOffDungeonItem] = 0xC1 // 0xC0 outside the mask: 2 bits
+	img[offItem] = 0x03                                     // bit 1 tombstoned below: 1 bit
+	img[addr.OffGetItem] = 0x05                             // 0x04 is bottle history, outside the mask: 1 bit
+	tomb := []byte{0, addr.OffLife, 0x01, 0, offItem, 0x02} // the first is outside every mask: 1 bit
 	hdr := slices.Clone(Encode(New(testID, time.Time{}))[:headerLen])
 	b := reseal(append(hdr, slices.Concat(section(secImage, img[:]), section(secTombstones, tomb), section(0x8123, []byte("future")))...))
 	w, stripped, err := decode(b)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stripped != 2+2+1+1 {
-		t.Errorf("stripped %d bits, want 6", stripped)
+	if stripped != 2+2+1+1+1 {
+		t.Errorf("stripped %d bits, want 7", stripped)
 	}
 	got := w.Image()
-	if got[addr.OffLife] != 0 || got[addr.OffMemBit(0)+addr.MemBitOffDungeonItem] != 0x01 || got[addr.OffGetItem] != 0x01 {
-		t.Errorf("image after stripping: life %02x dungeon %02x getItem %02x", got[addr.OffLife],
-			got[addr.OffMemBit(0)+addr.MemBitOffDungeonItem], got[addr.OffGetItem])
+	if got[addr.OffLife] != 0 || got[addr.OffMemBit(0)+addr.MemBitOffDungeonItem] != 0x01 || got[offItem] != 0x01 || got[addr.OffGetItem] != 0x01 {
+		t.Errorf("image after stripping: life %02x dungeon %02x getItem[3] %02x getItem[0] %02x", got[addr.OffLife],
+			got[addr.OffMemBit(0)+addr.MemBitOffDungeonItem], got[offItem], got[addr.OffGetItem])
 	}
-	if ts := w.Tombstones(); !slices.Equal(ts.Entries(), []Gain{{addr.OffGetItem, 0x02}}) {
+	if ts := w.Tombstones(); !slices.Equal(ts.Entries(), []Gain{{offItem, 0x02}}) {
 		t.Errorf("tombstones %v", ts.Entries())
 	}
 }

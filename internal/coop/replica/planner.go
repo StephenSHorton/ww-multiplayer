@@ -5,6 +5,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 )
@@ -28,7 +29,7 @@ const (
 	// saved slot only (getSave copies that slot over the live copy when
 	// the table loads, d_save.cpp:1506-1509; putSave copies the live copy
 	// back when it unloads, d_save.cpp:1512-1515, so the saved slot of a
-	// table not loaded is the only copy), and the event registers.
+	// table not loaded is the only copy).
 	OnLoad
 	// OnRoomChange: deferred to the receiver's next room or stage change
 	// and written on the first STABLE tick after it (§6.3), so a
@@ -45,9 +46,14 @@ const (
 	// them as the receiver changes room is the conservative choice. None
 	// of those readers starts an event (inferred).
 	OnRoomChange
-	// OnTransition: story event bits, written on the first tick of the
-	// receiver's next stage change (§6.5) so the next stage's layers and
-	// actors read them at creation.
+	// OnTransition: story event bits and the allowlisted event
+	// registers, written on the first tick of the receiver's next stage
+	// change (§6.5; story.Receiver) so the next stage's layers and actors
+	// read them at creation. A register lives beside the story bits in
+	// dSv_event_c and is read as they are (getEventReg and isEventBit,
+	// d_save.cpp:1196-1198, :1207-1209), so it takes their timing
+	// (inferred: its readers were not each traced), and the WriteGuard
+	// opens both on that tick alone (TargetStory).
 	OnTransition
 )
 
@@ -79,9 +85,7 @@ func timingOf(off, cur int) Timing {
 		return Live
 	case CatOcean:
 		return OnRoomChange
-	case CatRegister:
-		return OnLoad
-	case CatStory:
+	case CatStory, CatRegister:
 		return OnTransition
 	}
 	return Live
@@ -390,6 +394,23 @@ func (p *Planner) wrote(off int, b byte) {
 // EverHad returns a copy of the ever-had set of OR bits.
 func (p *Planner) EverHad() world.BitSet { return p.ever }
 
+// planMask is the bits of image byte off a plan may hold: its class mask
+// (world.SharedMask), narrowed for the story bits to class.SyncMask
+// (§6.5: the LocalOnly, game-cleared and refight bits stay each player's)
+// and for the inventory's flag bytes to inventory.FlagMask (§6.6: the
+// bottle contents ever held and the Hero's Charm worn stay each
+// player's), the bits the WriteGuard opens.
+func planMask(off int) byte {
+	m := world.SharedMask(off)
+	switch CategoryOf(off) {
+	case CatStory:
+		m &= class.SyncMaskOf(off - addr.OffEvent)
+	case CatInventory:
+		m &= inventory.FlagMask(off)
+	}
+	return m
+}
+
 // Plan returns the writes that would bring the receiver (raw, its
 // canonical image; local, its shared bits) up to view while table cur is
 // loaded, in ascending offset order, and the bits holds keep back: §6.5's
@@ -398,7 +419,7 @@ func (p *Planner) EverHad() world.BitSet { return p.ever }
 func (p *Planner) Plan(view, raw, local *world.Image, cur int) ([]Write, []HeldBit) {
 	var miss world.Image
 	for off := range view {
-		m := world.SharedMask(off) & p.policy[off]
+		m := planMask(off) & p.policy[off]
 		if m == 0 {
 			continue
 		}

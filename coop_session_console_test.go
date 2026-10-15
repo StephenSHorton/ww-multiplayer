@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 )
@@ -286,5 +289,48 @@ func TestCoopEscapesMatchMain(t *testing.T) {
 			fs[2].Addr != addr.NextStageEnable || fs[2].Data[0] != 1 {
 			t.Errorf("%+v: fields %+v, want stage-hop's order: the request, the wipe, then mEnable", r, fs)
 		}
+	}
+}
+
+// TestProgressionStatus: /status's M4 lines: the classes granted, the
+// story bits the holds keep back and why (a held boss bit is no story
+// bit), and with writes each key table and max life.
+func TestProgressionStatus(t *testing.T) {
+	metKorl := addr.EventByte(0x0F80)
+	held := []replica.HeldBit{
+		{Off: uint16(addr.OffEvent + metKorl.Off), Mask: metKorl.Mask, Hold: replica.Hold{ID: 0x0F80, Why: "MET_KORL moves the resume stage"}},
+		{Off: uint16(addr.OffMemBit(addr.TableDRC) + addr.MemBitOffDungeonItem), Mask: 0x08, Hold: replica.Hold{Why: "the boss stage"}},
+	}
+	drc := derive.KeyStatus{Table: addr.TableDRC, Dungeon: "DRC", On: true, Seen: true, Target: 1,
+		Facts: derive.KeyFacts{Table: addr.TableDRC, Sources: 4, Taken: 2, Doors: 4, Open: 1, Have: 1}}
+	fw := derive.KeyStatus{Table: addr.TableFW, Dungeon: "FW", Why: "its M1 key invariant fails (coop-tables)"}
+	none := derive.KeyStatus{Table: addr.TableSea, Why: "it is no dungeon with small keys"}
+	for _, c := range []struct {
+		name string
+		st   replica.Status
+		want []string
+	}{
+		{"writing", replica.Status{Features: hub.DefaultFeatures, Held: held, Derive: derive.Status{Keys: []derive.KeyStatus{none, drc, fw}, Life: true}}, []string{
+			"progression granted: story|inventory|keys|life|magic",
+			"story bits held back until this game catches up: " + replica.DefaultLabel(addr.OffEvent+metKorl.Off, 7) + " (MET_KORL moves the resume stage)",
+			"small keys of table 3 (DRC): 1 key(s), 2 of 4 source(s) taken, 1 of 4 door(s) open",
+			"small keys of table 4 (FW): not derived: its M1 key invariant fails (coop-tables)",
+			"max hearts: derived",
+		}},
+		{"no tables, keys and life not granted", replica.Status{Features: hub.DefaultFeatures &^ hub.TableFeatures, Derive: derive.Status{NoKeyTable: true, LifeWhy: "no heart table (coop-tables)"}}, []string{
+			"progression granted: story|inventory|magic",
+			"story bits held back: none",
+			"small keys: not derived (no co-op stage tables)",
+			"max hearts: not derived: no heart table (coop-tables)",
+		}},
+		{"dry run", replica.Status{DryRun: true, Features: hub.FeatureImage, Held: held}, []string{
+			"story bits held back until this game catches up: " + replica.DefaultLabel(addr.OffEvent+metKorl.Off, 7) + " (MET_KORL moves the resume stage)",
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := progressionStatus(c.st); !slices.Equal(got, c.want) {
+				t.Errorf("got\n\t%s\nwant\n\t%s", strings.Join(got, "\n\t"), strings.Join(c.want, "\n\t"))
+			}
+		})
 	}
 }

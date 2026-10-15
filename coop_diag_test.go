@@ -114,6 +114,12 @@ func TestSaveLabelsMatchTheGamesBitMath(t *testing.T) {
 	add(addr.OffEvent+0x00, addr.Bit{Mask: 0x40}, "event 0x0040 (unnamed)")
 	add(addr.OffEvent+0x60, addr.Bit{Mask: 0x01}, "event 0x6001 (unnamed)")
 	add(addr.InfoOffTmp+0x12, addr.Bit{Mask: 0x08}, "tmp 0x1208")
+	// mGetItem and mCollect[0..4] by their array index, though the class
+	// table splits both: an empty bottle held (onBottleItem,
+	// d_save.cpp:224-282), the boomerang, the Hero's Charm worn.
+	add(addr.OffGetItem, addr.Bit{Mask: 0x04}, "mGetItem[0] bit 2")
+	add(addr.OffGetItem+5, addr.Bit{Mask: 0x01}, "mGetItem[5] bit 0")
+	add(addr.OffCollectFlags+4, addr.Bit{Mask: 0x02}, "mCollect[4] bit 1")
 
 	for _, c := range cases {
 		got, flags := saveLabel(c.off, c.bit, addr.TableDRC)

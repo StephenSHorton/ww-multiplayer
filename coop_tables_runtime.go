@@ -24,9 +24,11 @@ package main
 //	st, err := loadCoopStageTables(iso)
 //	logCoopStageTables(rep, st, err)
 //	hub.Config{..., StageTblHash: st.hash(), SyncedSwitch: st.switchVerdict()}
-//	replica.Config{..., StageTblHash: st.hash(), Policy: st.policy()}
+//	replica.Config{..., StageTblHash: st.hash(), Policy: hub.SessionPolicy(st.switchVerdict())}
 //
-// st is nil after an error, and every method is nil-safe.
+// The replica's policy is the session's (coopSession.policy), which the
+// world is founded with too. st is nil after an error, and every method
+// is nil-safe.
 
 import (
 	"errors"
@@ -88,9 +90,12 @@ func (st *coopStageTables) switchVerdict() func(t, no int) bool {
 	return st.syncedSwitch
 }
 
-// policy is what a replica proposes and plans: world.DefaultPolicy with
-// the memory switches of the verdict open, the same policy the host's hub
-// keeps (hub.SwitchPolicy). Without tables no memory switch is open.
+// policy is M3's policy: world.DefaultPolicy with the memory switches of
+// the verdict open (hub.SwitchPolicy), and no story bit. Without tables
+// no memory switch is open. A --coop session no longer uses it: its world
+// and replicas take hub.SessionPolicy, which opens the SyncMask's story
+// bits too (coopSession.policy). save-merge --iso starts from it and adds
+// the story bits (story.Policy), and the M3 session test plans with it.
 func (st *coopStageTables) policy() *world.Policy {
 	return hub.SwitchPolicy(nil, st.switchVerdict())
 }

@@ -1,7 +1,7 @@
 package main
 
 // Co-op sessions (#23; docs/08-coop-design.md §4.1-4.2, §5, §6.7, §9
-// M2-M3): what --coop adds to host, join and mp-local.
+// M2-M4): what --coop adds to host, join and mp-local.
 //
 //   - host and mp-local run the CoopHub (internal/coop/hub) on their
 //     server. It serves one world: the only one on disk, the one
@@ -19,10 +19,13 @@ package main
 //     reads a snapshot ten times a second, runs the gates and the differ,
 //     sends GAINS and, from M3, writes the world's progress into its game
 //     through a FrameWriter and the WriteGuard (§4.2): the stage progress
-//     bits, the latching memory switches, the ocean, charts and sea map.
-//     Too many faults turn the writes off by themselves, said once, and
-//     pose sync goes on (auto-disable). --coop-dry-run keeps M2's dry
-//     run: the plan is only logged (§5.1 principle 5);
+//     bits, the latching memory switches, the ocean, charts and sea map,
+//     and from M4 the story bits and event registers at stage changes,
+//     the inventory when idle, and the small keys, max life and max magic
+//     its own flags give (derived from the M1 tables, §6.4-6.6). Too many
+//     faults turn the writes off by themselves, said once, and pose sync
+//     goes on (auto-disable). --coop-dry-run keeps M2's dry run: the plan
+//     is only logged (§5.1 principle 5);
 //   - the replica's two tag writes, a bind and a leaked tag's scrub, are
 //     asked on the command line (y/N on stdin; --yes answers yes) and made
 //     only after the yes, behind the gates (internal/coop/bind);
@@ -52,10 +55,12 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/backup"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
@@ -283,7 +288,69 @@ func startCoopSide(rep report.Reporter, f coopFlags, env coopEnv, host bool) *co
 		logCoopStageTables(rep, st, err)
 		cs.tables = st
 	}
+	if !f.dryRun {
+		logCoopProgression(rep, cs.m1())
+	}
 	return cs
+}
+
+// m1 is the session's M1 tables, nil without.
+func (cs *coopSession) m1() *tables.Tables {
+	if cs.tables == nil {
+		return nil
+	}
+	return cs.tables.t
+}
+
+// policy is what the session's world takes and its replicas propose,
+// plan and write: the hub's (hub.SessionPolicy), with the story bits of
+// the SyncMask and the memory switches of the M1 verdict open.
+func (cs *coopSession) policy() *world.Policy {
+	return hub.SessionPolicy(cs.tables.switchVerdict())
+}
+
+// logCoopProgression says what of M4's shared progression (§9 M4) this
+// side's replicas write, by its own M1 tables t: the story bits, the
+// inventory and max magic need none; the small keys of each dungeon and
+// max life are derived from t, and each one t does not allow is named
+// with why (no tables, or a table whose M1 invariant fails). What the
+// host does not grant the replica says on its welcome.
+func logCoopProgression(rep report.Reporter, t *tables.Tables) {
+	const synced = "story bits and event registers (written at stage changes), items, songs and capacities (when idle) and max magic"
+	if t == nil {
+		report.Logf(rep, report.OK, "co-op: shared progression this session: %s; without co-op stage tables no small keys or max hearts are derived.", synced)
+		return
+	}
+	st := derive.New(derive.Config{Tables: t}).Status()
+	var on, off []string
+	if st.NoKeyTable {
+		off = append(off, "small keys are not derived: the stage tables have no key table")
+	}
+	for _, k := range st.Keys {
+		switch {
+		case k.On:
+			on = append(on, k.Dungeon)
+		case k.Dungeon != "":
+			off = append(off, fmt.Sprintf("the small keys of %s are not derived: %s", k.Name(), k.Why))
+		}
+	}
+	var derived []string
+	if len(on) > 0 {
+		derived = append(derived, "the small keys of "+strings.Join(on, ", "))
+	}
+	if st.Life {
+		derived = append(derived, "max hearts")
+	} else {
+		off = append(off, "max hearts are not derived: "+st.LifeWhy)
+	}
+	line := synced
+	if len(derived) > 0 {
+		line += "; derived from the stage tables: " + strings.Join(derived, " and ")
+	}
+	report.Logf(rep, report.OK, "co-op: shared progression this session: %s.", line)
+	for _, o := range off {
+		report.Logf(rep, report.Warn, "co-op: %s.", o)
+	}
 }
 
 // logBackupCards lists a backup's cards, each with the files copied from
@@ -335,7 +402,7 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 		if err != nil {
 			return nil, fmt.Errorf("co-op: founding a world: %w", err)
 		}
-		w, err := foundCoopWorld(ctx, rep, m, env.tick)
+		w, err := foundCoopWorld(ctx, rep, m, env.tick, cs.policy())
 		closeMem()
 		if err != nil {
 			return nil, err
@@ -392,7 +459,7 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 	if f.liveSwitches {
 		live = "; --coop-live-switches: the current room's switches apply at once"
 	}
-	report.Logf(rep, report.OK, "Co-op world %s at seq %d: the world's chests, pickups, rooms, dungeon items, latching switches, ocean and charts are written into each bound game (--coop-dry-run only logs them%s%s).", cs.world, st.Seq(), merge, live)
+	report.Logf(rep, report.OK, "Co-op world %s at seq %d: the world's chests, pickups, rooms, dungeon items, latching switches, ocean, charts, story bits and items are written into each bound game, and its small keys, max hearts and max magic derived (--coop-dry-run only logs them%s%s).", cs.world, st.Seq(), merge, live)
 	cs.console.help()
 	return cs, nil
 }
@@ -524,7 +591,7 @@ func listCoopWorlds(root string) ([]coopWorldInfo, error) {
 // file's shared bits. The replica then binds the file to it through the
 // usual prompt: a file and the world founded from it are the same, so the
 // bind needs no --coop-merge.
-func foundCoopWorld(ctx context.Context, rep report.Reporter, m mem.Mem, tick func()) (*world.World, error) {
+func foundCoopWorld(ctx context.Context, rep report.Reporter, m mem.Mem, tick func(), pol *world.Policy) (*world.World, error) {
 	var told time.Time
 	for {
 		s, st, _, err := gateSnapshots(m, tick)
@@ -532,7 +599,7 @@ func foundCoopWorld(ctx context.Context, rep report.Reporter, m mem.Mem, tick fu
 			return nil, fmt.Errorf("co-op: founding a world: %w", err)
 		}
 		if st.CanWriteIdle() {
-			return foundFrom(rep, s)
+			return foundFrom(rep, s, pol)
 		}
 		if time.Since(told) >= 5*time.Second {
 			report.Logf(rep, report.Info, "co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (%s)", st.Why())
@@ -544,8 +611,12 @@ func foundCoopWorld(ctx context.Context, rep report.Reporter, m mem.Mem, tick fu
 	}
 }
 
-// foundFrom founds a world from snapshot s's file.
-func foundFrom(rep report.Reporter, s *snap.Snapshot) (*world.World, error) {
+// foundFrom founds a world from snapshot s's file, within pol, the
+// session's policy: the world the hub then serves keeps the same bits
+// (hub.Config.SyncedSwitch over DefaultPolicy), so the file it was
+// founded from binds to it as a subset, its story bits and memory
+// switches included.
+func foundFrom(rep report.Reporter, s *snap.Snapshot, pol *world.Policy) (*world.World, error) {
 	f := bind.FileOf(s)
 	v := bind.Classify(f, bind.Expect{})
 	switch {
@@ -563,6 +634,7 @@ func foundFrom(rep report.Reporter, s *snap.Snapshot) (*world.World, error) {
 		return nil, err
 	}
 	w := world.New(world.ID(id), time.Now())
+	w.SetPolicy(pol)
 	img := world.Image(s.Image())
 	r := w.Merge(&img)
 	report.Logf(rep, report.OK, "co-op: founded world %s from %s (%d shared bytes).", id, bind.Describe(f), len(r.Delta))
@@ -803,11 +875,14 @@ func runCoopSyncCtx(ctx context.Context, name, addr string, dolphinPID uint32, r
 // the session's.
 //
 // Unless --coop-dry-run, its replica writes (replica.Config.Apply) with
-// the session's stage tables: their identity in CO_HELLO and their
-// memory switch verdict as its policy, the host hub's own
-// (hub.SwitchPolicy). Its Breaker says once, as a warning, why the writes
-// turned off; the pipeline keeps running, and pose sync with it. A dry run
-// is M2's replica, configured as M2 configured it.
+// the session's stage tables: their identity in CO_HELLO, the session's
+// policy (the host hub's own: the story bits of the SyncMask and the
+// memory switches of the M1 verdict, hub.SessionPolicy), and the tables
+// themselves, which the small keys and max life are derived from. Its
+// Breaker says once, as a warning, why the writes turned off; the
+// pipeline keeps running, and pose sync with it. A dry run is M2's
+// replica, configured as M2 configured it: no tables, M2's policy, the
+// image alone asked for.
 func (cs *coopSession) newSync(ctx context.Context, name string, m mem.Mem, rep report.Reporter) (*coopSync, error) {
 	s := &coopSync{cs: cs, name: name, rep: rep, m: m, asked: map[coopFileKey]bool{}}
 	logf := func(format string, args ...any) {
@@ -823,7 +898,8 @@ func (cs *coopSession) newSync(ctx context.Context, name string, m mem.Mem, rep 
 	if !cs.flags.dryRun {
 		cfg.Apply = true
 		cfg.StageTblHash = cs.tables.hash()
-		cfg.Policy = cs.tables.policy()
+		cfg.Policy = cs.policy()
+		cfg.Tables = cs.m1()
 		cfg.Breaker = replica.NewBreaker(replica.BreakerConfig{Logf: func(format string, args ...any) {
 			if s.gaveUp() != "" {
 				return // run said why, and /coop on cannot help
@@ -960,6 +1036,14 @@ func (s *coopSync) offer(ctx context.Context, o replica.Offer) {
 func (s *coopSync) preflight(pf replica.PreflightReport) {
 	switch {
 	case pf.Verdict == replica.PreflightRefused:
+		return
+	case pf.NeedsMerge && s.r.Status().Features&hub.FeatureMerge == 0 && pf.Verdict == replica.PreflightFarBehind:
+		// §5.3 "far behind": a union would move this file's resume
+		// stage, so a copy of the host's file is the better start. The
+		// game keeps all three files in one card file (savefile.Slots),
+		// so a copy is of all three.
+		s.rep.Log(report.Info, "co-op: the world is far ahead of this file: copy the host's save in, or the host can run with --coop-merge to union them; pose sync goes on. "+
+			"Dolphin's Memory Card Manager exports and imports the whole save, so the copy replaces all three of your files with the host's: export yours first (this session's card backup holds them too). The copied file is the host's own, already bound to the world")
 		return
 	case pf.NeedsMerge && s.r.Status().Features&hub.FeatureMerge == 0:
 		s.rep.Log(report.Info, "co-op: this file can't bind unless the host runs with --coop-merge; pose sync goes on")

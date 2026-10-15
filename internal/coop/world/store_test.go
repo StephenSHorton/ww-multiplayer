@@ -183,10 +183,10 @@ func TestStoreFlushDebounce(t *testing.T) {
 	main := filepath.Join(s.Dir(), FileName)
 	writes := countMainWrites(t, main)
 
-	s.ApplyGains(1, gainAt(addr.OffGetItem, 1))
+	s.ApplyGains(1, gainAt(offItem, 1))
 	clk.Advance(DefaultFlushDelay / 2)
-	s.ApplyGains(2, gainAt(addr.OffGetItem, 2))
-	s.ApplyGains(2, gainAt(addr.OffGetItem, 2)) // no change: no journal line, no flush of its own
+	s.ApplyGains(2, gainAt(offItem, 2))
+	s.ApplyGains(2, gainAt(offItem, 2)) // no change: no journal line, no flush of its own
 	if fileSeq(t, main) != 0 || *writes != 0 {
 		t.Fatal("written before the delay")
 	}
@@ -203,7 +203,7 @@ func TestStoreFlushDebounce(t *testing.T) {
 		t.Errorf("%d writes with nothing changed", *writes)
 	}
 
-	s.ApplyGains(1, gainAt(addr.OffGetItem, 4))
+	s.ApplyGains(1, gainAt(offItem, 4))
 	if err := s.Stop(); err != nil {
 		t.Fatal(err)
 	}

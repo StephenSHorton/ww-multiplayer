@@ -57,8 +57,8 @@ func TestPlannerTargets(t *testing.T) {
 		{"an ocean grid", addr.OffOcean + 5, 0x04, CatOcean, OnRoomChange, false, 0},
 		{"a chart", addr.OffMapGet + 2, 0x10, CatOcean, OnRoomChange, false, 0},
 		{"a story bit", zelda, zeldaMask, CatStory, OnTransition, false, 0},
-		{"an OR event register", registerOR, class.Of(registerOR).Mask & -class.Of(registerOR).Mask, CatRegister, OnLoad, false, 0},
-		{"a MAX event register", register, class.Of(register).Mask & -class.Of(register).Mask, CatRegister, OnLoad, true, 0},
+		{"an OR event register", registerOR, class.Of(registerOR).Mask & -class.Of(registerOR).Mask, CatRegister, OnTransition, false, 0},
+		{"a MAX event register", register, class.Of(register).Mask & -class.Of(register).Mask, CatRegister, OnTransition, true, 0},
 		{"an item", addr.OffGetItem + 4, 0x02, CatInventory, Live, false, 0},
 		{"the wallet", addr.OffWalletSize, 2, CatCapacity, Live, true, 0},
 	}
@@ -363,7 +363,7 @@ func TestPlannedReachesTheWorld(t *testing.T) {
 		}
 		got := Planned(&local, ws)
 		for off := range got {
-			want := local[off] | view[off]&pol[off]
+			want := local[off] | view[off]&pol[off]&planMask(off)
 			if class.Of(off).Class == class.Max {
 				want = max(local[off], view[off]&pol[off])
 			}
@@ -414,6 +414,8 @@ func TestGuardRefuses(t *testing.T) {
 		{"mDan.mStageNo", addr.DanStageNo},
 		{"a zone's mRoomNo", func() uint32 { a, _ := addr.ZoneAddr(3); return a + addr.ZoneOffRoomNo }()},
 		{"a zone's item bits", func() uint32 { a, _ := addr.ZoneAddr(3); return a + addr.ZoneOffItem }()},
+		{"play.mSelectItem[3]: no button", addr.PlaySelectItem + 3},
+		{"mSelectEquip[3]: no setter", addr.SaveImage + addr.OffSelectEquip + 3},
 		{"below MEM1", 0x7FFFFFFF},
 		{"above MEM1", 0x81800000},
 	}
@@ -438,13 +440,19 @@ func TestGuardRefuses(t *testing.T) {
 		{"a zone's dead actors", func() uint32 { a, _ := addr.ZoneAddr(0); return a + addr.ZoneOffActor }(), addr.ZoneSize - addr.ZoneOffActor},
 		{"the pending counters", addr.ItemKeyNumCount, 4},
 		{"mItemMaxMagicCount", addr.ItemMaxMagicCount, 2},
-		{"play.mSelectItem", addr.PlaySelectItem, 4},
-		{"mSelectEquip", addr.SaveImage + addr.OffSelectEquip, 4},
+		{"play.mSelectItem[0..2]", addr.PlaySelectItem, 3},
+		{"mSelectEquip[0..2]", addr.SaveImage + addr.OffSelectEquip, 3},
 	}
 	for _, c := range allowed {
 		if !g.Allows(c.a, c.n) {
 			t.Errorf("%s (0x%08X, %d bytes) is refused", c.name, c.a, c.n)
 		}
+	}
+
+	// A bottle content ever held, above mGetItem[0]'s bit 0, is each
+	// player's own (inventory.FlagMask).
+	if err := g.Check(addr.SaveImage+addr.OffGetItem, []byte{0}, []byte{0x02}); !errors.Is(err, ErrGuard) {
+		t.Errorf("mGetItem[0] bit 1, a bottle content held: Check = %v, want ErrGuard", err)
 	}
 
 	// A changed bit outside its byte's mask is refused.

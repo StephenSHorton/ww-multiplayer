@@ -1,6 +1,7 @@
 package replica
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"strings"
@@ -102,11 +103,12 @@ func roomWindows(reps []Report, places []gamePlace) []bool {
 
 // auditWrite is one write the replica made.
 type auditWrite struct {
-	tick     int
-	a        uint32
-	n        int
-	old, val byte
-	table    int8 // mDan.mStageNo as the write was made
+	tick       int
+	a          uint32
+	n          int
+	old, val   byte   // the first byte's
+	prev, data []byte // every byte's
+	table      int8   // mDan.mStageNo as the write was made
 }
 
 func (b *beatMem) Read(a uint32, n int) ([]byte, error) {
@@ -155,7 +157,7 @@ func (b *beatMem) Write(a uint32, d []byte) error {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	w := auditWrite{tick: b.tick, a: a, n: len(d), table: int8(t[0])}
+	w := auditWrite{tick: b.tick, a: a, n: len(d), prev: old, data: bytes.Clone(d), table: int8(t[0])}
 	if len(d) > 0 {
 		w.old, w.val = old[0], d[0]
 	}
@@ -332,17 +334,17 @@ func (rr *recRig) world(img world.Image) {
 }
 
 // savedByte is image byte off's saved copy (addr.SaveImage + off).
-func (rr *recRig) savedByte(off int) byte { return rr.read(addr.SaveImage+uint32(off), 1)[0] }
+func (r *rig) savedByte(off int) byte { return r.read(addr.SaveImage+uint32(off), 1)[0] }
 
 // liveByte is the live memBit's copy of image byte off, which must be in
 // the loaded table's slot.
-func (rr *recRig) liveByte(off int) byte {
-	rr.t.Helper()
+func (r *rig) liveByte(off int) byte {
+	r.t.Helper()
 	t, rel, ok := memBitTable(off)
-	if !ok || t != rr.table() {
-		rr.t.Fatalf("%s is not in the loaded table", DefaultLabel(off, -1))
+	if !ok || t != r.table() {
+		r.t.Fatalf("%s is not in the loaded table", DefaultLabel(off, -1))
 	}
-	return rr.read(addr.LiveMemBit+uint32(rel), 1)[0]
+	return r.read(addr.LiveMemBit+uint32(rel), 1)[0]
 }
 
 // noGainsUp fails if the replica proposed anything: the reconciler's
@@ -450,7 +452,7 @@ func TestReconcileAsksForSwitches(t *testing.T) {
 		cfg  Config
 		want hub.Feature
 	}{
-		{"writing", Config{Apply: true}, hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches},
+		{"writing", Config{Apply: true}, hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches | hub.M4Features},
 		{"a dry run asks for what M2 did", Config{}, hub.FeatureImage},
 		{"Want wins", Config{Apply: true, Want: hub.FeatureImage | hub.FeaturePuzzle}, hub.FeatureImage | hub.FeaturePuzzle},
 	}
@@ -785,7 +787,9 @@ func TestReconcileOceanAtRoomChange(t *testing.T) {
 }
 
 // TestReconcileLaterClasses: the story bits, registers, inventory and
-// capacities the planner plans are M4's: logged, never written.
+// capacities the planner plans are M4's, written only while the hub
+// grants their features: with FeatureImage alone nothing of them is
+// written, and the log says why.
 func TestReconcileLaterClasses(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, Policy: world.FullPolicy()}, hub.FeatureImage)
 	zelda, zm := eventBit(evZeldaAwakened)
@@ -800,7 +804,7 @@ func TestReconcileLaterClasses(t *testing.T) {
 	if ws := rr.bm.written(); len(ws) != 0 {
 		t.Fatalf("wrote %+v", ws)
 	}
-	if !rr.log.has("not written before M4") {
+	if !rr.log.has("inventory is not written to this game: the session does not grant inventory") {
 		t.Fatalf("log lacks the M4 lines:\n%s", rr.log)
 	}
 }

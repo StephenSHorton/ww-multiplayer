@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
@@ -243,7 +244,51 @@ func (s *coopSync) command(ctx context.Context, cmd coopCommand) {
 		}
 		report.Logf(s.rep, report.Info, "co-op: %s: %s; world %s at seq %d; %s; %d bytes written, %d escapes, %d verify failures",
 			s.name, where, st.World, st.Seq, writesState(st), st.Writes.Written, st.Writes.Escapes, st.Writes.Failed)
+		for _, l := range progressionStatus(st) {
+			report.Logf(s.rep, report.Info, "co-op: %s:   %s", s.name, l)
+		}
 	}
+}
+
+// progressionStatus is /status's M4 lines for st (§9 M4): the classes the
+// host grants, the story bits the holds keep out of the game and why, and
+// with writes each key table's small keys and max life as the Deriver
+// last saw them. A dry run, M2's replica, derives nothing.
+func progressionStatus(st replica.Status) []string {
+	var held []string
+	for _, h := range st.Held {
+		if replica.CategoryOf(int(h.Off)) != replica.CatStory {
+			continue
+		}
+		for b := range 8 {
+			if h.Mask&(1<<b) != 0 {
+				held = append(held, fmt.Sprintf("%s (%s)", replica.DefaultLabel(int(h.Off), b), h.Hold.Why))
+			}
+		}
+	}
+	story := "story bits held back: none"
+	if len(held) > 0 {
+		story = "story bits held back until this game catches up: " + strings.Join(held, ", ")
+	}
+	if st.DryRun {
+		return []string{story}
+	}
+	out := []string{"progression granted: " + (st.Features & hub.M4Features).String(), story}
+	d := st.Derive
+	if d.NoKeyTable {
+		out = append(out, "small keys: not derived (no co-op stage tables)")
+	}
+	for _, k := range d.Keys {
+		if k.On || k.Dungeon != "" {
+			out = append(out, "small keys of "+k.String())
+		}
+	}
+	if d.Life {
+		out = append(out, "max hearts: derived")
+	} else {
+		out = append(out, "max hearts: not derived: "+d.LifeWhy)
+	}
+	return out
 }
 
 // writesState says whether st's replica writes.

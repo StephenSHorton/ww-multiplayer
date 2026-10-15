@@ -75,6 +75,8 @@ type BreakerConfig struct {
 //   - more than MaxFaults verify failures and WriteGuard refusals in the
 //     window;
 //   - a table-hash or layout mismatch (Mismatch), at once;
+//   - a pending counter the derive path wrote that the HUD never took
+//     (Undrained), at once: the write went where the meter does not read;
 //   - more than MaxRegressions heartbeat regressions in the window: a
 //     storm of save-state loads;
 //   - TurnOff: the user's or the session's "coop off".
@@ -183,6 +185,20 @@ func (b *Breaker) Mismatch(what string) {
 	defer b.mu.Unlock()
 	if b.why == "" {
 		b.trip("co-op turned itself off: " + what)
+	}
+}
+
+// Undrained turns co-op off at once for a pending counter the derive path
+// wrote that the HUD did not take (FrameWriter.ApplyDerived's drain
+// watch): detail says which. The meter takes a counter in the frame after
+// a write, so one left standing means the address, or the game's own
+// state, is not what co-op took it for, and every later write is
+// suspect.
+func (b *Breaker) Undrained(detail string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.why == "" {
+		b.trip("co-op turned itself off: " + detail)
 	}
 }
 

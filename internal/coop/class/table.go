@@ -44,7 +44,11 @@ func buildSpans() []Span {
 	derived(addr.OffItems, addr.SlotBottle0, "mItems")
 	mine(addr.OffItems+addr.SlotBottle0, addr.SlotBottleCount, "mItems bottles")
 	derived(addr.OffItems+addr.SlotDeliveryBag, addr.SlotCount-addr.SlotDeliveryBag, "mItems")
-	or(addr.OffGetItem, addr.GetItemSize, "mGetItem")
+	// mGetItem[0..2] sync only bit 0: bits 1-7 record which bottle contents
+	// this player has held (onBottleItem, d_save.cpp:224-282), and bottles
+	// stay each player's.
+	add(addr.OffGetItem, 3, OR, 0x01, "mGetItem[0..2]")
+	or(addr.OffGetItem+3, addr.GetItemSize-3, "mGetItem")
 
 	mine(addr.OffItemRecord, addr.ItemRecordSize, "mItemRecord") // ammo, picture and bottle counts
 	mine(addr.OffItemMax, 1, "mItemMax.mReserved1Num")
@@ -63,7 +67,11 @@ func buildSpans() []Span {
 	// dSv_player_collect_c: mCollect[0..4] (swords, shields, bracelet,
 	// charms), songs, Triforce shards and pearls merge. mCollect[5..7],
 	// field_0x8 and field_0xc are outside §3's list and stay local.
-	or(addr.OffCollectFlags, 5, "mCollect[0..4]")
+	or(addr.OffCollectFlags, 4, "mCollect[0..3]")
+	// mCollect[4] bit 0 is the Hero's Charm owned (item_func_heros_omamori,
+	// d_item.cpp:895-898); bit 1 is whether it is worn, which the collect
+	// menu turns on and off (d_menu_collect.cpp:1283-1286), so it stays local.
+	add(addr.OffCollectFlags+4, 1, OR, 0x01, "mCollect[4]")
 	mine(addr.OffCollectFlags+5, addr.OffTact-(addr.OffCollectFlags+5), "mCollect[5..7], field_0x8")
 	or(addr.OffTact, 1, "mTact")
 	or(addr.OffTriforce, 1, "mTriforce")

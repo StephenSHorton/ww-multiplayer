@@ -41,9 +41,11 @@ import (
 // latching ones, hub.SwitchPolicy). Every byte goes through the
 // WriteGuard, which refuses PER_PLAYER, NEVER, DERIVED and TAG bytes,
 // writes while a gate is closed, the live boss bits in a boss stage and
-// any clear. The other classes the
-// planner plans (story bits, registers, inventory, capacities) are M4's:
-// they are logged as a dry run, never written.
+// any clear. The other classes the planner plans (story bits, registers,
+// inventory, capacities) are M4's: the M4 receiver writes them from their
+// own plans (reconcile_m4.go), story.Pending's and inventory.Pending's,
+// which the planner's plan agrees with but for the holds' details and the
+// slots those flags derive.
 //
 // Why writing the loaded table both ways is safe across stage changes:
 // getSave copies a table's saved slot over the live copy at a stage load
@@ -236,9 +238,10 @@ func (r *Replica) wroteLive(res Result, off uint16) bool {
 	return false
 }
 
-// logWaits logs, once while it stays so, each held bit, each M3 bit that
-// waits for the receiver's next room or stage change, and each planned
-// bit of a class this version does not write (as M2's dry run did).
+// logWaits logs, once while it stays so, each held bit and each M3 bit
+// that waits for the receiver's next room or stage change. The planned
+// bits of M4's classes are the M4 receiver's to write and log
+// (reconcile_m4.go), from their own plans.
 func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit) {
 	var lines []string
 	var nowOR, nowHeld world.BitSet
@@ -269,17 +272,6 @@ func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit) {
 		}
 		note(w, func(bit int) string {
 			return fmt.Sprintf("%s waits for the next room or stage change", r.label(int(w.Off), bit))
-		})
-	}
-	for _, w := range planned {
-		if m3Category(w.Category) {
-			continue
-		}
-		note(w, func(bit int) string {
-			if bit < 0 {
-				return fmt.Sprintf("dry-run: would raise %s to %d (%s; not written before M4)", r.label(int(w.Off), -1), w.Bits, w.When)
-			}
-			return fmt.Sprintf("dry-run: would set %s (%s; not written before M4)", r.label(int(w.Off), bit), w.When)
 		})
 	}
 	r.loggedOR, r.loggedMax, r.loggedHeld = nowOR, nowMax, nowHeld

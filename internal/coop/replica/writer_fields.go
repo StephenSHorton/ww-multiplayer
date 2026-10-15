@@ -109,7 +109,7 @@ func (w *FrameWriter) ApplyFields(ctx context.Context, fs []Field) (res Result, 
 					return res, err
 				}
 			}
-			if err := w.wg.Check(a, old[i], v); err != nil {
+			if err := w.wg.check(a, old[i], v, pathEscape); err != nil {
 				res.Refused++
 				return res, err
 			}
@@ -150,7 +150,7 @@ func (w *FrameWriter) ApplyFields(ctx context.Context, fs []Field) (res Result, 
 		}
 		changed := false
 		for i, v := range f.Data {
-			if err := w.wg.Check(f.Addr+uint32(i), old[i], v); err != nil {
+			if err := w.wg.check(f.Addr+uint32(i), old[i], v, pathEscape); err != nil {
 				res.Refused++
 				return res, err
 			}

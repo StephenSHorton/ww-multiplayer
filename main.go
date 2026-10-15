@@ -666,6 +666,12 @@ func main() {
 			// Co-op M2 worlds and card backups (coop_world_cmds.go):
 			// list, restore, block. Out of printHelp like coop-tag.
 			runCoopWorld(os.Args[2:])
+		case "save-diff":
+			// Co-op M4 offline save tools (coop_save_cmds.go), out of
+			// printHelp like the co-op diagnostics.
+			runSaveDiff(os.Args[2:])
+		case "save-merge":
+			runSaveMerge(os.Args[2:])
 		case "help":
 			printHelp()
 		case "version", "--version":

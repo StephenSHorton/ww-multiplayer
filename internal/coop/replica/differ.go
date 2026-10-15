@@ -123,6 +123,9 @@ type Edges struct {
 	// so whatever rose since the last diffed tick is in it unreported.
 	// The replica follows it with a WORLD.
 	Rebased bool
+	// Waiting is what a paced Differ holds back after this tick, in
+	// ascending offset order (Differ.Waiting): not in Gains yet.
+	Waiting []world.Gain
 	// Note says why the tick was skipped or what was re-baselined, or ""
 	// for a plain diff.
 	Note string
@@ -168,6 +171,11 @@ type Edges struct {
 // d_save.h:969). Zone state is read only through snap.Snapshot.ZoneFor,
 // so a freed slot's stale bits are never read as a room's.
 //
+// From M4 a paced Differ (Pace) holds some of the image's edges back
+// before it reports them, by the sender's rules of §6.5 and §6.6
+// (differ_pace.go): the story bits and registers in batches, and the
+// inventory until the game is IDLE.
+//
 // A Differ is not safe for concurrent use.
 type Differ struct {
 	policy *world.Policy
@@ -176,7 +184,8 @@ type Differ struct {
 	file fileKey
 	base world.Image
 
-	sc scopeBase
+	sc   scopeBase
+	pace pace
 }
 
 // scopeBase is the scoped words' baselines.
@@ -211,10 +220,12 @@ func NewDiffer(policy *world.Policy) *Differ {
 	return &Differ{policy: policy}
 }
 
-// Drop forgets every baseline: the next good tick is a new baseline.
+// Drop forgets every baseline, and what the pace holds back: the next good
+// tick is a new baseline, after which the replica sends its whole WORLD.
 func (d *Differ) Drop() {
 	d.have = false
 	d.sc = scopeBase{}
+	d.pace.drop()
 }
 
 // Has reports whether the image has a baseline.
@@ -222,6 +233,7 @@ func (d *Differ) Has() bool { return d.have }
 
 // observe diffs one tick.
 func (d *Differ) observe(o *obs) Edges {
+	now := d.pace.now()
 	if o.st.Regressed {
 		d.Drop()
 		return Edges{Note: "the heartbeat went backwards (a save state was loaded): baselines dropped"}
@@ -231,13 +243,16 @@ func (d *Differ) observe(o *obs) Edges {
 		d.Drop()
 		return Edges{Note: "not in game: baselines dropped"}
 	case screenNoLink:
-		return Edges{Note: "between stages: skipped"}
+		d.pace.quiet(now)
+		return Edges{Note: "between stages: skipped", Waiting: d.Waiting()}
 	}
 	if !o.consistent() {
+		d.pace.quiet(now)
 		return Edges{Note: fmt.Sprintf("the loaded STAG names save table %d but mDan holds %d (a stage load in progress): skipped",
-			o.stagTable, o.s.Table)}
+			o.stagTable, o.s.Table), Waiting: d.Waiting()}
 	}
 	var e Edges
+	var gs []world.Gain
 	switch {
 	case d.have && d.file != o.key:
 		d.Drop()
@@ -246,9 +261,13 @@ func (d *Differ) observe(o *obs) Edges {
 		d.have, d.file, d.base = true, o.key, o.local
 		e.Rebased, e.Note = true, "new baseline"
 	default:
-		e.Gains = filterPolicy(world.Diff(&d.base, &o.local), d.policy)
+		gs = filterPolicy(world.Diff(&d.base, &o.local), d.policy)
 		d.base = o.local
 	}
+	// A new baseline has nothing waiting (Drop), so its tick only keeps
+	// the IDLE run going.
+	e.Gains = d.pace.release(now, o.st.Idle, gs)
+	e.Waiting = d.Waiting()
 	e.Scoped = d.scoped(o.s)
 	return e
 }
