@@ -1022,7 +1022,15 @@ func (r *Replica) onWelcome(m *wire.CoWelcome) {
 	case wire.StatusOK:
 		r.logf("co-op: welcome to world %s (seq %d; %s)", w, m.Seq, r.features)
 	case wire.StatusUnbound:
-		if r.bindAsk == nil {
+		switch {
+		case r.bindAsk != nil:
+		case m.FreshBind && r.hello.FileState == wire.FileLeaked && r.last != nil && r.classify(r.last).State == bind.Bound:
+			// The leak was V5 failing before the replica knew the nonce
+			// (r.fresh starts empty in each process). With r.fresh set
+			// above, the file is bound, and the next tick says hello
+			// again, bound.
+			r.logf("co-op: the host has nonce %s as a pending fresh bind: the file is bound", bind.Nonce(r.hello.BindNonce))
+		default:
 			r.logf("co-op: the host serves world %s; this file is not bound to it (%s)", w, m.Reason)
 		}
 	case wire.StatusRefused:

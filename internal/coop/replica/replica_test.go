@@ -313,6 +313,9 @@ func TestReplicaScrub(t *testing.T) {
 	t.Run("V5 only, and the nonce is a pending fresh bind", func(t *testing.T) {
 		tg := probe.tagFor(testWorld, testNonce)
 		rr := leakedRig(t, tg, false, welcome(wire.StatusUnbound, uint32(hub.FeatureImage), true))
+		if rr.log.has("not bound to it") || !rr.log.has("pending fresh bind: the file is bound") {
+			t.Errorf("a fresh bind's file is logged as not bound:\n%s", rr.log)
+		}
 		rr.tick()
 		h, ok := find[*wire.CoHello](rr.hub.take())
 		if !ok || h.FileState != wire.FileBound || hub.Feature(h.Want)&hub.AskUnsaved == 0 {
@@ -321,6 +324,18 @@ func TestReplicaScrub(t *testing.T) {
 		rr.settle()
 		if len(rr.offers) != 0 || len(rr.m.Writes()) != 0 {
 			t.Fatalf("offers %+v, writes %+v", rr.offers, rr.m.Writes())
+		}
+	})
+	t.Run("V2 and V5 fail, nonce pending fresh", func(t *testing.T) {
+		// A New Game in another slot inherits a pending fresh bind's tag:
+		// FreshBind passes V5, but the file is still not bound.
+		rr := leakedRig(t, tg, false, welcome(wire.StatusUnbound, uint32(hub.FeatureImage), true))
+		rr.settle()
+		if len(rr.offers) != 1 || rr.offers[0].Plan.Kind != bind.KindScrub {
+			t.Fatalf("offers %+v, want one scrub", rr.offers)
+		}
+		if !rr.log.has("not bound to it") || rr.log.has("the file is bound") {
+			t.Errorf("a file failing V2 is not logged as not bound:\n%s", rr.log)
 		}
 	})
 	t.Run("V5 only, nothing known yet", func(t *testing.T) {
