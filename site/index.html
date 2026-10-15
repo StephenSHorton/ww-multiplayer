@@ -247,12 +247,12 @@ details code.i { background: rgba(0, 0, 0, 0.35); color: #fff; }
 details a { color: var(--gold-hi); }
 
 .legal {
-	margin-top: 60px; padding: 20px 24px; color: var(--text-dim); font-size: 15px;
-	background: rgba(216, 38, 46, 0.14); box-shadow: inset 4px 0 0 var(--crest);
-	clip-path: polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
+	position: relative; z-index: 4; padding: 10px 0 11px;
+	background: var(--ink); color: var(--text-dim); font-size: 14px; line-height: 1.55;
+	box-shadow: inset 0 -4px 0 var(--crest);
 }
 .legal strong { color: #fff; }
-footer { padding: 36px 0 10px; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; font: 400 14px var(--rock); }
+footer { padding: 70px 0 10px; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; font: 400 14px var(--rock); }
 footer a, footer span { padding: 6px 14px 7px; text-decoration: none; color: #fff; background: rgba(255, 255, 255, 0.08); clip-path: polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%); }
 footer a:hover { background: var(--crest); }
 footer span { color: var(--text-dim); }
@@ -267,6 +267,10 @@ footer span { color: var(--text-dim); }
 </style>
 </head>
 <body>
+
+<div class="legal"><div class="wrap">
+	<strong>Unofficial fan project.</strong> Not affiliated with or endorsed by Nintendo or the Dolphin team. The Legend of Zelda: The Wind Waker is a trademark of Nintendo. This project contains no Nintendo code or assets and doesn't distribute the game: you need your own legitimately acquired copy, and you're responsible for its legality where you live.
+</div></div>
 
 <header class="sky">
 
@@ -302,7 +306,7 @@ footer span { color: var(--text-dim); }
 		</nav>
 
 		<div class="hero">
-			<span class="banner">Unofficial fan project &middot; <b>Dolphin</b> &middot; Windows + macOS</span>
+			<span class="banner"><b>Dolphin</b> &middot; Windows + macOS</span>
 			<h1><span class="l1 hud">Wind Waker</span><span class="l2">MULTIPLAYER</span></h1>
 			<p class="lede">See your friend's Link running around in <em>your</em> game. Their real moves, live.</p>
 
@@ -436,10 +440,6 @@ footer span { color: var(--text-dim); }
 			<details><summary>macOS says the app "could not be verified"</summary><div>That's the download quarantine. Run the <code class="i">xattr -cr</code> step from the macOS install tab, in the untarred folder.</div></details>
 			<details><summary>Something isn't working</summary><div>Open an issue on <a class="gh-issues" href="https://github.com/StephenSHorton/ww-multiplayer/issues">GitHub</a> with your OS, Dolphin version and what you saw.</div></details>
 		</section>
-
-		<div class="legal">
-			<strong>Unofficial fan project.</strong> Not affiliated with or endorsed by Nintendo or the Dolphin team. The Legend of Zelda: The Wind Waker is a trademark of Nintendo. This project contains no Nintendo code or assets and doesn't distribute the game: you need your own legitimately acquired copy, and you're responsible for its legality where you live.
-		</div>
 
 		<footer>
 			<a class="gh" href="https://github.com/StephenSHorton/ww-multiplayer">Source on GitHub</a>
