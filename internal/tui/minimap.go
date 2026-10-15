@@ -31,12 +31,13 @@ const (
 	// WW_MINIMAP_SCALE is unset or unparseable. WW world coords run into
 	// the thousands, but the minimap only needs to resolve the RELATIVE
 	// distance between nearby co-op players -- tens to low hundreds of
-	// units. The mp-local local-test harness separates its two Dolphins by
-	// 50 units in X/Z by default (MP_LOCAL_SHIFT_X/Z, see mp_local.go). At
-	// scale=10, that 50-unit offset lands 5 cells off center: clearly
-	// separated from "@" but nowhere near the border, and the full grid
-	// still spans +-200 world units horizontally / +-70 vertically before
-	// a remote clamps to the edge glyph.
+	// units. The mp-local local-test harness moves Dolphin B's Link 50
+	// units in X/Z by default when the two Links overlap at start, without
+	// --coop (MP_LOCAL_SHIFT_X/Z, see mp_local_shift.go). At scale=10,
+	// that 50-unit offset lands 5 cells off center: clearly separated from
+	// "@" but nowhere near the border, and the full grid still spans +-200
+	// world units horizontally / +-70 vertically before a remote clamps to
+	// the edge glyph.
 	defaultMinimapScale = 10.0
 )
 

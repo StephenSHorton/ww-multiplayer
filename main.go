@@ -5160,48 +5160,6 @@ func runWarp(xs, ys, zs string) {
 	}
 }
 
-// warpLink writes the target position into the warp mailbox slot, bumps
-// warp_seq, and polls warp_ack until the C side has consumed the request
-// (or the timeout expires). Used by mp-local to space the two Links
-// after both Dolphins boot from the same SAVE_STATE, and exposed as the
-// `warp` subcommand for ad-hoc teleporting.
-func warpLink(d *dolphin.Dolphin, x, y, z float32, timeout time.Duration) error {
-	// Bump from whatever seq is currently set (cold start = 0).
-	prevSeqBuf, err := d.ReadAbsolute(mailboxBase+mailboxWarpSeq, 4)
-	if err != nil {
-		return fmt.Errorf("read warp_seq: %w", err)
-	}
-	nextSeq := binary.BigEndian.Uint32(prevSeqBuf) + 1
-
-	// Write coords first, THEN the seq bump — C reads seq under a single
-	// frame's tick, and a torn write where seq updates before coords
-	// would warp Link to whatever stale (x,y,z) was in the slot.
-	posBuf := make([]byte, 12)
-	binary.BigEndian.PutUint32(posBuf[0:4], math.Float32bits(x))
-	binary.BigEndian.PutUint32(posBuf[4:8], math.Float32bits(y))
-	binary.BigEndian.PutUint32(posBuf[8:12], math.Float32bits(z))
-	if err := d.WriteAbsolute(mailboxBase+mailboxWarpX, posBuf); err != nil {
-		return fmt.Errorf("write warp coords: %w", err)
-	}
-	seqBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(seqBuf, nextSeq)
-	if err := d.WriteAbsolute(mailboxBase+mailboxWarpSeq, seqBuf); err != nil {
-		return fmt.Errorf("write warp_seq: %w", err)
-	}
-
-	// Poll for ack — game runs at 60 Hz so we'd expect this within ~17 ms,
-	// but be generous in case the multiplayer_update hook missed a tick.
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		ackBuf, err := d.ReadAbsolute(mailboxBase+mailboxWarpAck, 4)
-		if err == nil && binary.BigEndian.Uint32(ackBuf) == nextSeq {
-			return nil
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	return fmt.Errorf("timed out waiting for warp_ack to bump (timeout=%s)", timeout)
-}
-
 func runShadowMode(s string) {
 	v, err := strconv.Atoi(s)
 	if err != nil || v < 0 || v > 5 {

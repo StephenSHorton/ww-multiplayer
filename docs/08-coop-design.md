@@ -794,6 +794,7 @@ Before the steps:
 2. Start `mp-local --coop` (both Dolphins in one session), or `host --coop` and `join <host> --coop` on two machines. Bind both files (M2 steps 1-2).
    - Each pipeline logs `armed in world …: the world's chests, … are written to this game`.
    - The log explains the console once: type `/help` for the list. Under `mp-local`, `/refresh` and `/warp` take the player's name (`/warp PlayerB`).
+   - Under `--coop`, `mp-local` does not move Dolphin B's Link at start and says so (item 130). Two Dolphins booted from one save state start with the Links on top of each other: walk one a step before a screenshot that needs both.
 3. Take every screenshot as `WW_DOLPHIN_INDEX=<n> ./ww-multiplayer.exe screenshot shots/m3-<item>-<before|after>.png`. Read each pair by eye; a memory readback alone accepts nothing.
 
 Acceptance:
@@ -1452,7 +1453,7 @@ Also needed from the owner, and not a decision: capture the fixture save states 
     - `TestCoopSessionM3` is M3's session test. It covers convergence on the M3 bytes with the fixture's latching switches, `/refresh`, both `/warp`s and a refusal, `/coop off|on`, a save-state storm, and §8.1's write audit over every byte both pipelines wrote.
     - The fake game has no BG actors, so the tests mark a room loaded through `mpBgW`.
 80. **Left as they were.**
-    - `mp-local`'s startup warp of Dolphin B (`MP_LOCAL_SHIFT_X/Y/Z`, through `warpLink`) predates co-op. It writes `warp_x/y/z` and `warp_seq` outside the WriteGuard, with or without `--coop`.
+    - `mp-local`'s startup warp of Dolphin B (`MP_LOCAL_SHIFT_X/Y/Z`, through `warpLink`) predates co-op. It writes `warp_x/y/z` and `warp_seq` outside the WriteGuard, with or without `--coop`. *Corrected (item 130):* leaving it was wrong. It wrote A's position into B whatever stage either was in: with A in a dungeon and B at sea, that is the sea's centre square, where B voids out, as the owner's run is inferred to have done. It now never runs under `--coop`. Without it, it moves B from B's own position, and only when the two Links overlap in one stage and room with both games idle. A warp B's game does not take is withdrawn (item 131).
     - `patch` now prints one line about the stage tables after writing the ISO. The ISO is the same byte for byte.
 
 *M3 review fixes*

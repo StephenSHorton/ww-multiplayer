@@ -290,23 +290,21 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 
 	// When both Dolphins boot from the same SAVE_STATE, both Links
 	// spawn at literally the same world coords and visually overlap.
-	// Use the C-side warp handler (which sets l_debug_keep_pos +
-	// current.pos + old.pos so the next frame's execute() doesn't
-	// snap-revert) to nudge Dolphin B's Link diagonally a bit.
-	// Defaults of (+50, 0, +50) put the two Links visibly distinct
-	// but still side-by-side — a few Link-heights apart, both on the
-	// same patch of ground. Override via MP_LOCAL_SHIFT_X/Y/Z env, or
-	// set all three to 0 to disable.
-	dx := envFloat32("MP_LOCAL_SHIFT_X", 50)
-	dy := envFloat32("MP_LOCAL_SHIFT_Y", 0)
-	dz := envFloat32("MP_LOCAL_SHIFT_Z", 50)
-	if dx != 0 || dy != 0 || dz != 0 {
-		if err := warpDolphinB(pidA, pidB, dx, dy, dz); err != nil {
-			report.Logf(rep, report.Warn, "couldn't warp Dolphin B Link: %v", err)
-		} else {
-			report.Logf(rep, report.OK, "Warped Dolphin B Link by (%.0f, %.0f, %.0f) so the two players don't overlap.", dx, dy, dz)
-		}
+	// startupShift then uses the C-side warp handler (which sets
+	// l_debug_keep_pos + current.pos + old.pos so the next frame's
+	// execute() doesn't snap-revert) to nudge Dolphin B's Link diagonally
+	// a bit from where it stands. Defaults of (+50, 0, +50) put the two
+	// Links visibly distinct but still side-by-side — a few Link-heights
+	// apart, both on the same patch of ground. It moves B only when the
+	// two Links overlap in the same stage and room with both games idle,
+	// and never under --coop (mp_local_shift.go). Override via
+	// MP_LOCAL_SHIFT_X/Y/Z env, or set all three to 0 to disable.
+	shift := [3]float32{
+		envFloat32("MP_LOCAL_SHIFT_X", 50),
+		envFloat32("MP_LOCAL_SHIFT_Y", 0),
+		envFloat32("MP_LOCAL_SHIFT_Z", 50),
 	}
+	startupShift(rep, co.on, pidA, pidB, shift, defaultShiftEnv())
 
 	// Server
 	srv := network.NewServer(25565)
@@ -409,30 +407,6 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 		d.Close()
 	}
 	rep.Log(report.OK, "Done.")
-}
-
-// warpDolphinB reads Dolphin A's Link position, computes target =
-// pos_A + (dx, dy, dz), and asks the C-side warp handler in Dolphin B
-// to teleport Link there. We anchor on A's position rather than B's so
-// both Dolphins agree on world coords even if their cosmetic states
-// drifted slightly (animation phase, camera, etc.).
-func warpDolphinB(pidA, pidB uint32, dx, dy, dz float32) error {
-	dA, err := dolphin.FindByPID(pidA, "GZLE01")
-	if err != nil {
-		return fmt.Errorf("open A: %w", err)
-	}
-	defer dA.Close()
-	posA, err := dA.ReadPlayerPosition()
-	if err != nil {
-		return fmt.Errorf("read A pos: %w", err)
-	}
-
-	dB, err := dolphin.FindByPID(pidB, "GZLE01")
-	if err != nil {
-		return fmt.Errorf("open B: %w", err)
-	}
-	defer dB.Close()
-	return warpLink(dB, posA.PosX+dx, posA.PosY+dy, posA.PosZ+dz, 1*time.Second)
 }
 
 // waitForReady blocks until both Dolphins report IsInGame() = true,
