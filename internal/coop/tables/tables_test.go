@@ -81,8 +81,9 @@ func TestBuildVanilla(t *testing.T) {
 	}
 	sum := sha256.Sum256(dol)
 	if tb.Schema != SchemaVersion || tb.Builder != builderID() || tb.DOL != hex.EncodeToString(sum[:]) ||
-		!validHash(tb.StageFiles) || tb.Stages != 11 || tb.Rooms != 12 {
-		t.Fatalf("header = %d %q %+v, %d stages, %d rooms", tb.Schema, tb.Builder, tb.ID, tb.Stages, tb.Rooms)
+		!validHash(tb.StageFiles) || tb.Stages != 11 || tb.Rooms != 12 ||
+		!slices.Equal(tb.Skipped, []stagedata.Skipped{{Name: "Name", Why: stagedata.SkipNoDZS}}) {
+		t.Fatalf("header = %d %q %+v, %d stages, %d rooms, skipped %v", tb.Schema, tb.Builder, tb.ID, tb.Stages, tb.Rooms, tb.Skipped)
 	}
 	var got []string
 	for _, c := range tb.Acceptance() {
@@ -210,8 +211,8 @@ func TestReadsOnlyStages(t *testing.T) {
 	}
 	slices.Sort(src.paths)
 	slices.Sort(want)
-	if !slices.Equal(src.paths, want) || len(want) != tb.Stages+tb.Rooms {
-		t.Errorf("read %q, want the %d stage archives %q", src.paths, tb.Stages+tb.Rooms, want)
+	if n := tb.Stages + tb.Rooms + len(tb.Skipped); !slices.Equal(src.paths, want) || len(want) != n {
+		t.Errorf("read %q, want the %d stage archives %q", src.paths, n, want)
 	}
 	if st.Files != len(want) || st.Bytes != size || st.Cached || st.Path != "" || st.Why != "" || st.SaveErr != nil {
 		t.Errorf("stats %+v, want %d files of %d bytes, no cache", st, len(want), size)
@@ -726,7 +727,7 @@ func TestReportSections(t *testing.T) {
 		t.Errorf("sections at %v, want them in Sections order", at)
 	}
 	if !strings.HasPrefix(all, fmt.Sprintf("Co-op tables (docs/08-coop-design.md §9 M1), schema %d, built by ", SchemaVersion)+builderID()+"\n  main.dol SHA-256 "+tb.DOL+"\n") ||
-		!strings.Contains(all, "stage files SHA-256 "+tb.StageFiles+": 11 stages, 12 rooms\n") {
+		!strings.Contains(all, "stage files SHA-256 "+tb.StageFiles+": 11 stages, 12 rooms\n  left out 1 stage the play scene can't load: Name (no stage.dzs)\n") {
 		t.Errorf("report header:\n%s", all[:min(len(all), 400)])
 	}
 	if want := tb.Report(Sections...); all != want {
@@ -763,7 +764,7 @@ func TestReportSections(t *testing.T) {
 		fields = append(fields, k)
 	}
 	slices.Sort(fields)
-	if want := []string{"builder", "dol_sha256", "hearts", "rooms", "schema", "stage_files_sha256", "stages"}; !slices.Equal(fields, want) {
+	if want := []string{"builder", "dol_sha256", "hearts", "rooms", "schema", "skipped", "stage_files_sha256", "stages"}; !slices.Equal(fields, want) {
 		t.Errorf("Only(hearts) JSON fields %q, want %q", fields, want)
 	}
 }
@@ -790,6 +791,9 @@ var schemaShapes = map[int]string{
 	// 2: the same shape; grass no longer places items, and salvage and
 	// item bits the game halts on are flagged "halt" and "bad".
 	2: "956b4fe0f1e015e6d4b7ec823c3131f32cc331f0c9c7f26d88bc91e090b50735",
+	// 3: the stages the play scene can't load, left out ("skipped"),
+	// instead of failing the build.
+	3: "403e501ceaa983c9fbc7a923ccb4de319b985e7a1507af0e064b11f47315c86d",
 }
 
 func TestSchemaShape(t *testing.T) {

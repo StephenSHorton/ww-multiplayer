@@ -251,6 +251,21 @@ func (c *Client) MyID() byte {
 // future status panel (#19).
 func (c *Client) LastRTT() time.Duration { return time.Duration(c.lastRTT.Load()) }
 
+// measuredRTT is the round trip of a ping stamped sent and answered at
+// now (monotonicNanos), in nanoseconds; false for a stamp from the future,
+// which no ping of this process has. It is at least 1, since LastRTT's 0
+// means "none yet": on Windows the monotonic clock can read the same
+// before and after a loopback round trip. Go reads it from the interrupt
+// time (runtime.nanotime1, sys_windows_amd64.s), which advances only on
+// the clock tick, about 0.5 ms apart or more (time/time.go's resolution
+// note), so TestCoopHeartbeat read 0 there on every run.
+func measuredRTT(now, sent int64) (int64, bool) {
+	if rtt := now - sent; rtt >= 0 {
+		return max(rtt, 1), true
+	}
+	return 0, false
+}
+
 // ServerEpoch returns the server's boot epoch as reported in the welcome
 // (0 for a legacy server). A change across a reconnect means the server
 // restarted, so the caller should do a full resync.
@@ -465,7 +480,7 @@ func (c *Client) readLoop(conn net.Conn) {
 		case MsgPong:
 			// Response to one of OUR pings: compute round-trip time.
 			if ts, ok := ParsePingTimestamp(msg.Data); ok {
-				if rtt := monotonicNanos() - ts; rtt >= 0 {
+				if rtt, ok := measuredRTT(monotonicNanos(), ts); ok {
 					c.lastRTT.Store(rtt)
 				}
 			}

@@ -194,7 +194,7 @@ func logCoopStageTables(rep report.Reporter, st *coopStageTables, err error) {
 		if err == nil {
 			err = errNoCoopTables
 		}
-		report.Logf(rep, report.Warn, "co-op: %v. Memory switches, room puzzles and kills are not synced this session; chests, items, maps and the rest are.", err)
+		report.Logf(rep, report.Warn, "co-op: %s. Memory switches, room puzzles and kills are not synced this session; chests, items, maps and the rest are.", oneLine(err))
 		return
 	}
 	n, ts := st.syncedCount()
@@ -250,11 +250,15 @@ func cacheCoopTablesForPatch(w io.Writer, image string) {
 	}()
 	note, err := coopTablesForPatch(image)
 	if err != nil {
-		fmt.Fprintf(w, "  co-op : WARNING: no co-op stage tables for this disc (%v). The patched ISO is fine; --coop sessions will need %s to sync memory switches.\n", err, coopISOFlag)
+		fmt.Fprintf(w, "  co-op : WARNING: no co-op stage tables for this disc (%s). The patched ISO is fine; --coop sessions will need %s to sync memory switches.\n", oneLine(err), coopISOFlag)
 		return
 	}
 	fmt.Fprintf(w, "  co-op : stage tables %s in %.1f s, for --coop sessions\n", note, time.Since(start).Seconds())
 }
+
+// oneLine puts err's text on one line: a failed stage-table build names
+// each archive that failed on a line of its own (stagedata.Load).
+func oneLine(err error) string { return strings.ReplaceAll(err.Error(), "\n", "; ") }
 
 // coopTablesForPatch does cacheCoopTablesForPatch's work and says what it
 // did.

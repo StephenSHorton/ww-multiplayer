@@ -243,6 +243,11 @@ func TestCacheCoopTablesForPatch(t *testing.T) {
 	}{
 		{"no stages", writeImage(t, "empty.iso", tablestest.Disc(nil).ISO(tablestest.PatchableDOL())), t.TempDir(), "the disc has no stages"},
 		{"no image", filepath.Join(t.TempDir(), "gone.iso"), t.TempDir(), "gone.iso"},
+		// Two broken stages: the error names both, on the one line.
+		{"two broken archives", writeImage(t, "broken.iso", tablestest.Disc([]stagetest.Stage{{Name: "a", DZS: []byte{1}}, {Name: "b", DZS: []byte{1}}}).ISO(tablestest.PatchableDOL())),
+			t.TempDir(), "res/Stage/a/Stage.arc: dzs/stage.dzs: dzx: "},
+		{"two broken archives, the second", writeImage(t, "broken2.iso", tablestest.Disc([]stagetest.Stage{{Name: "a", DZS: []byte{1}}, {Name: "b", DZS: []byte{1}}}).ISO(tablestest.PatchableDOL())),
+			t.TempDir(), "; stagedata: res/Stage/b/Stage.arc: dzs/stage.dzs: dzx: "},
 		{"no config directory", out, "", "no config directory"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
