@@ -20,10 +20,11 @@
 // slot uses; a slot it doesn't set takes Dolphin's default, a GCI folder
 // in slot A and nothing in slot B. Since a wrong guess about which one is
 // in use would mean no backup at all, Locate returns every card that
-// exists, default and configured, and says which Dolphin's settings
-// select; Create copies all of them. Of a GCI folder only Wind Waker's
-// own files (game code GZLE) are copied: the co-op can't affect the rest,
-// and a restore then can't roll back another game's saves.
+// exists, default and configured (but not a GCI folder path that an
+// override shadows, which Dolphin never uses), and says which Dolphin's
+// settings select; Create copies all of them. Of a GCI folder only Wind
+// Waker's own files (game code GZLE) are copied: the co-op can't affect
+// the rest, and a restore then can't roll back another game's saves.
 //
 // Dolphin's names and settings are Dolphin's, not the game's: they are
 // from Dolphin's source (Source/Core/Core/Config/MainSettings.cpp and
@@ -125,8 +126,9 @@ func (k *Kind) UnmarshalText(b []byte) error {
 }
 
 // Use says whether Dolphin's settings select a card for its slot: the
-// slot's SlotA / SlotB in Dolphin.ini, or Dolphin's default for a slot it
-// doesn't set (defaultDevice).
+// slot's device, SlotA / SlotB in Dolphin.ini or Dolphin's default for a
+// slot it doesn't set (defaultDevice), is this kind of card, and the card
+// is not a default one that Dolphin.ini replaces with a path of its kind.
 type Use string
 
 const (
@@ -134,7 +136,9 @@ const (
 	// slot Dolphin.ini doesn't set for unknown. Locate no longer returns it.
 	UseUnknown Use = ""
 	UseYes     Use = "yes" // the slot's device is this kind of card
-	UseNo      Use = "no"  // the slot holds something else, or nothing
+	// UseNo: the slot holds something else, or nothing, or Dolphin.ini
+	// replaces this default card with a path of its kind.
+	UseNo Use = "no"
 )
 
 // Card is one memory card in a Dolphin user directory.
@@ -195,8 +199,14 @@ var defaultDevice = map[string]int{"A": exiMemoryCardFolder, "B": exiNone}
 type dolphinIni struct {
 	device  map[string]int    // slot -> SlotA/SlotB
 	memcard map[string]string // slot -> MemcardAPath/MemcardBPath
-	gci     map[string]string // slot -> GCIFolderAPath/GCIFolderBPath (or the older ...Override)
-	gciKey  map[string]string // slot -> which of those keys gave gci
+	// gci is the slot's GCIFolderAPathOverride / GCIFolderBPathOverride,
+	// or when that is unset its GCIFolderAPath / GCIFolderBPath. Dolphin
+	// takes the override over the path and uses it as given
+	// (CEXIMemoryCard::GetGCIFolderPath, EXI_DeviceMemoryCard.cpp:153-156):
+	// while the override is set, Dolphin never uses the path's folder, so
+	// the path is not read.
+	gci    map[string]string
+	gciKey map[string]string // slot -> which of those keys gave gci
 }
 
 func readDolphinIni(userDir string) (dolphinIni, error) {
@@ -217,16 +227,14 @@ func readDolphinIni(userDir string) (dolphinIni, error) {
 	}
 	for _, s := range slots {
 		if v, ok := core["slot"+strings.ToLower(s)]; ok {
-			// Dolphin reads the number with the base its prefix gives, as
-			// strtoll with base 0 does (TryParse, StringUtil.h): 0x8 is 8.
-			if n, err := strconv.ParseInt(v, 0, 32); err == nil {
-				ini.device[s] = int(n)
+			if n, ok := parseDevice(v); ok {
+				ini.device[s] = n
 			}
 		}
 		if v := core["memcard"+strings.ToLower(s)+"path"]; v != "" {
 			ini.memcard[s] = resolve(v)
 		}
-		for _, k := range []string{"GCIFolder" + s + "Path", "GCIFolder" + s + "PathOverride"} {
+		for _, k := range []string{"GCIFolder" + s + "PathOverride", "GCIFolder" + s + "Path"} {
 			if v := core[strings.ToLower(k)]; v != "" {
 				ini.gci[s], ini.gciKey[s] = resolve(v), k
 				break
@@ -234,6 +242,30 @@ func readDolphinIni(userDir string) (dolphinIni, error) {
 		}
 	}
 	return ini, nil
+}
+
+// parseDevice reads a SlotA / SlotB value as Dolphin's TryParse does
+// (StringUtil.h): with strtoll and base 0, and only if strtoll reads the
+// whole value and the number fits an int. strtoll skips leading white
+// space and reads a sign, then a 0x prefix as hex and a leading 0 as
+// octal: 0x8 and 010 are 8, and 08 doesn't parse. An empty value reads as
+// 0, the Dummy device, which is no card, but white space alone doesn't
+// parse. A C23 strtoll, which glibc 2.38 and later give C++ builds, also
+// reads a 0b prefix as binary, and so does parseDevice; a Dolphin built
+// with an older one gives 0b1000 the slot's default.
+func parseDevice(v string) (int, bool) {
+	if v == "" {
+		return 0, true
+	}
+	v = strings.TrimLeft(v, " \t\n\v\f\r")
+	// Go's base 0 also takes a 0o prefix and _ in a number; strtoll takes
+	// neither.
+	digits := strings.TrimLeft(v, "+-")
+	if strings.Contains(v, "_") || len(digits) > 1 && digits[0] == '0' && (digits[1] == 'o' || digits[1] == 'O') {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(v, 0, 32)
+	return int(n), err == nil
 }
 
 // parseIni reads an INI file the way Dolphin's IniFile does: [Section]
@@ -292,6 +324,12 @@ func (p rawPattern) match(path string) bool {
 	return len(base) > len(stem)+1+len(ext) && strings.HasPrefix(base, stem+".") && strings.HasSuffix(base, ext)
 }
 
+// sameFamily says whether p and q are the same family of files, whatever
+// their exact paths: the same directory, name and extension.
+func (p rawPattern) sameFamily(q rawPattern) bool {
+	return samePath(p.dir, q.dir) && pathKey(p.stem) == pathKey(q.stem) && pathKey(p.ext) == pathKey(q.ext)
+}
+
 // newRawPattern is the family of a configured or default raw card path,
 // with any region code already in its name taken out.
 func newRawPattern(path string, exact bool) rawPattern {
@@ -347,12 +385,29 @@ func candidates(userDir string) ([]candidate, error) {
 		card := func(k Kind, path, from string) Card {
 			return Card{UserDir: userDir, Slot: s, Kind: k, Path: filepath.Clean(path), From: from, InUse: use(k)}
 		}
+		// Dolphin uses a configured path in place of the default card of
+		// its kind (Config::GetMemcardPath in MainSettings.cpp and
+		// CEXIMemoryCard::GetGCIFolderPath), so that default card is not
+		// in use unless the configured path comes to it: a raw card path
+		// with the default's directory, name and extension, whatever its
+		// region code (Dolphin 5.0 wrote the default path into
+		// MemcardAPath), or an override that names the default folder. A
+		// GCIFolder<X>Path never does, as Dolphin ends it with the region
+		// directory.
 		def := filepath.Join(gc, "MemoryCard"+s+"."+regionDir+".raw")
-		out = append(out, candidate{Card: card(Raw, def, "default"), raw: newRawPattern(def, false)})
+		defRaw := candidate{Card: card(Raw, def, "default"), raw: newRawPattern(def, false)}
+		if p := ini.memcard[s]; p != "" && !newRawPattern(p, false).sameFamily(defRaw.raw) {
+			defRaw.InUse = UseNo
+		}
+		out = append(out, defRaw)
 		if p := ini.memcard[s]; p != "" {
 			out = append(out, candidate{Card: card(Raw, p, "Dolphin.ini [Core] Memcard"+s+"Path"), raw: newRawPattern(p, true)})
 		}
-		out = append(out, candidate{Card: card(GCIFolder, filepath.Join(gc, regionDir, "Card "+s), "default")})
+		defGCI := candidate{Card: card(GCIFolder, filepath.Join(gc, regionDir, "Card "+s), "default")}
+		if p := ini.gci[s]; p != "" && !(ini.gciKey[s] == "GCIFolder"+s+"PathOverride" && samePath(p, defGCI.Path)) {
+			defGCI.InUse = UseNo
+		}
+		out = append(out, defGCI)
 		if p := ini.gci[s]; p != "" {
 			from := "Dolphin.ini [Core] " + ini.gciKey[s]
 			for i, dir := range []string{p, filepath.Join(p, regionDir), filepath.Join(p, regionDir, "Card "+s)} {

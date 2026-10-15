@@ -100,9 +100,34 @@ func TestParseIni(t *testing.T) {
 	}
 }
 
+// TestParseDevice: SlotA / SlotB are read as Dolphin's TryParse reads
+// them, with strtoll and base 0 over the whole value. Each case gives
+// what TryParse's code gives when built with g++ against glibc 2.39.
+func TestParseDevice(t *testing.T) {
+	for _, c := range []struct {
+		v  string
+		n  int
+		ok bool
+	}{
+		{"8", 8, true}, {"0x8", 8, true}, {"0X8", 8, true}, {"010", 8, true},
+		{"0b1000", 8, true}, {"-0b1000", -8, true}, {"+8", 8, true}, {"-1", -1, true},
+		{"-0x8", -8, true}, {"  8", 8, true}, {"\t8", 8, true},
+		{"", 0, true}, {"0", 0, true}, {"-0", 0, true},
+		{"2147483647", 2147483647, true}, {"-2147483648", -2147483648, true},
+		{"08", 0, false}, {"0x", 0, false}, {"0x_8", 0, false}, {" ", 0, false},
+		{"8 ", 0, false}, {"+", 0, false}, {"+-8", 0, false}, {"0o10", 0, false},
+		{"-0o10", 0, false}, {"1_0", 0, false}, {"2147483648", 0, false},
+		{"99999999999999999999", 0, false}, {"junk", 0, false}, {"8 cards", 0, false},
+	} {
+		if n, ok := parseDevice(c.v); ok != c.ok || ok && n != c.n {
+			t.Errorf("parseDevice(%q) = %d, %v, want %d, %v", c.v, n, ok, c.n, c.ok)
+		}
+	}
+}
+
 // TestLocate: the default raw and GCI cards, the ones Dolphin.ini
 // configures, and which the slots select, Dolphin.ini's SlotA / SlotB or
-// Dolphin's defaults.
+// Dolphin's defaults, and Dolphin.ini's paths over the default ones.
 func TestLocate(t *testing.T) {
 	u := newUserDir(t)
 	custom := filepath.Join(t.TempDir(), "cards")
@@ -118,14 +143,19 @@ func TestLocate(t *testing.T) {
 		"MemcardBPath = "+filepath.Join(custom, "MyCard.EUR.raw"),
 		"GCIFolderBPathOverride = "+filepath.Join(custom, "gci"))
 
-	cards, err := Locate(u.root)
-	if err != nil {
-		t.Fatal(err)
+	located := func() []string {
+		t.Helper()
+		cards, err := Locate(u.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, c := range cards {
+			got = append(got, fmt.Sprintf("%s %s %s %s %q", c.Slot, c.Kind, c.Path, c.InUse, c.From))
+		}
+		return got
 	}
-	var got []string
-	for _, c := range cards {
-		got = append(got, fmt.Sprintf("%s %s %s %s %q", c.Slot, c.Kind, c.Path, c.InUse, c.From))
-	}
+	got := located()
 	want := []string{
 		fmt.Sprintf("A raw card %s no %q", rawA2, "default"),
 		fmt.Sprintf("A raw card %s no %q", rawA, "default"),
@@ -171,12 +201,62 @@ func TestLocate(t *testing.T) {
 		{"SlotA = 1", []string{"SlotA = 1"}, "A raw card yes, A raw card yes, A GCI folder no, B raw card no, B GCI folder no"},
 		{"SlotA = 0x1, SlotB = 0x8", []string{"SlotA = 0x1", "SlotB = 0x8"}, "A raw card yes, A raw card yes, A GCI folder no, B raw card no, B GCI folder yes"},
 		{"SlotA = 255", []string{"SlotA = 255", "SlotB = 1"}, "A raw card no, A raw card no, A GCI folder no, B raw card yes, B GCI folder no"},
+		// An empty value is 0, the Dummy device: no card.
+		{"SlotA =", []string{"SlotA ="}, "A raw card no, A raw card no, A GCI folder no, B raw card no, B GCI folder no"},
+		{`SlotA = ""`, []string{`SlotA = ""`}, "A raw card no, A raw card no, A GCI folder no, B raw card no, B GCI folder no"},
 	} {
 		if c.core != nil {
 			u.ini(c.core...)
 		}
 		if got := uses(); got != c.want {
 			t.Errorf("%s: %s, want %s", c.name, got, c.want)
+		}
+	}
+
+	// Dolphin uses a path Dolphin.ini configures in place of the default
+	// card of its kind, so that default is not in use unless the path
+	// comes to it. Of a GCI folder override and path, Dolphin takes the
+	// override, as given.
+	other := filepath.Join(t.TempDir(), "other", "USA")
+	writeFile(t, filepath.Join(other, "01-GZLE-gczelda.gci"), string(gci("GZLE", "not used")))
+	cardA := u.path("GC/USA/Card A")
+	defRawA := []string{
+		fmt.Sprintf("A raw card %s no %q", rawA2, "default"),
+		fmt.Sprintf("A raw card %s no %q", rawA, "default"),
+	}
+	defB := []string{
+		fmt.Sprintf("B raw card %s no %q", u.path("GC/MemoryCardB.USA.raw"), "default"),
+		fmt.Sprintf("B GCI folder %s no %q", u.path("GC/USA/Card B"), "default"),
+	}
+	for _, c := range []struct {
+		name string
+		core []string
+		want []string // slot A's cards; slot B's are its defaults, not in use
+	}{
+		{"MemcardAPath", []string{"SlotA = 1", "MemcardAPath = " + filepath.Join(custom, "MyCard.raw")}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A raw card %s yes %q", customRaw, "Dolphin.ini [Core] MemcardAPath"),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"))},
+		{"MemcardAPath naming the default card", []string{"SlotA = 1", "MemcardAPath = " + filepath.ToSlash(rawA)}, []string{
+			fmt.Sprintf("A raw card %s yes %q", rawA2, "default"),
+			fmt.Sprintf("A raw card %s yes %q", rawA, "default"),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default")}},
+		{"GCIFolderAPath", []string{"GCIFolderAPath = " + filepath.Join(custom, "gci")}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"),
+			fmt.Sprintf("A GCI folder %s yes %q", filepath.Join(custom, "gci"), "Dolphin.ini [Core] GCIFolderAPath"),
+			fmt.Sprintf("A GCI folder %s yes %q", customGCI, "Dolphin.ini [Core] GCIFolderAPath"))},
+		// Dolphin puts the region directory at the end of the path, so
+		// this one is Card A/USA, not Card A.
+		{"GCIFolderAPath naming the default folder", []string{"GCIFolderAPath = " + cardA}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"))},
+		{"GCIFolderAPathOverride naming the default folder", []string{"GCIFolderAPathOverride = " + cardA}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s yes %q", cardA, "default"))},
+		{"GCIFolderAPath and GCIFolderAPathOverride", []string{"GCIFolderAPath = " + other, "GCIFolderAPathOverride = " + customGCI}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"),
+			fmt.Sprintf("A GCI folder %s yes %q", customGCI, "Dolphin.ini [Core] GCIFolderAPathOverride"))},
+	} {
+		u.ini(c.core...)
+		if got, want := located(), append(c.want, defB...); !slices.Equal(got, want) {
+			t.Errorf("%s:\n%s\nwant\n%s", c.name, strings.Join(got, "\n"), strings.Join(want, "\n"))
 		}
 	}
 	if cards, err := Locate(filepath.Join(t.TempDir(), "nope")); err != nil || len(cards) != 0 {
