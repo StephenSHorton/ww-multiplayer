@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -154,19 +155,30 @@ func TestSelectCoopWorld(t *testing.T) {
 	if id, err := selectCoopWorld(root, old.String()); err != nil || id != old {
 		t.Errorf("named: %s, %v", id, err)
 	}
-	if _, err := writeCoopMarker(world.Path(root, old)); err != nil {
+	coSetProcState(t, coProcs(map[int]string{os.Getpid(): "self"}))
+	if _, _, err := writeCoopMarker(world.Path(root, old)); err != nil {
 		t.Fatal(err)
 	}
 	ws, err := listCoopWorlds(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ws) != 2 || ws[0].id != young || ws[1].id != old || ws[1].inUse == "" || ws[0].inUse != "" {
+	if len(ws) != 2 || ws[0].id != young || ws[1].id != old || ws[1].marker == nil || ws[1].use != markerSelf || ws[0].marker != nil {
 		t.Errorf("list: %+v, want the two worlds newest first, the old one in use", ws)
 	}
 	out.Reset()
 	if err := coopWorldList(&out, root); err != nil || !strings.Contains(out.String(), "in use: pid") || strings.Index(out.String(), young.String()) > strings.Index(out.String(), old.String()) {
 		t.Errorf("list: %v\n%s", err, out.String())
+	}
+
+	// A marker whose process has ended is stale, and says so.
+	if err := os.WriteFile(filepath.Join(world.Path(root, young), coopMarkerName), []byte("pid 4242 since 2026-10-15 17:16:19\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := coopWorldList(&out, root); err != nil || !strings.Contains(out.String(), young.String()+"  founded") ||
+		!strings.Contains(out.String(), "stale session marker (pid 4242 since 2026-10-15 17:16:19; that process has ended)") || strings.Count(out.String(), "in use") != 1 {
+		t.Errorf("list with a stale marker: %v\n%s", err, out.String())
 	}
 }
 
@@ -175,27 +187,104 @@ func TestCoopMarker(t *testing.T) {
 	if m, ok := readCoopMarker(dir); ok {
 		t.Fatalf("a marker before any: %q", m)
 	}
-	prev, err := writeCoopMarker(dir)
-	if err != nil || prev != "" {
-		t.Fatalf("first marker: %q, %v", prev, err)
+	coSetProcState(t, coProcs(map[int]string{os.Getpid(): "self", 4243: "t1", 4244: ""}))
+	prev, had, err := writeCoopMarker(dir)
+	if err != nil || had {
+		t.Fatalf("first marker: %q, %v, %v", prev, had, err)
 	}
 	first, ok := readCoopMarker(dir)
-	if !ok || !strings.HasPrefix(first, fmt.Sprintf("pid %d since ", os.Getpid())) {
-		t.Errorf("marker %q", first)
+	if !ok || !strings.HasPrefix(first.text, fmt.Sprintf("pid %d since ", os.Getpid())) || first.pid != os.Getpid() || first.host != coopHostname() || first.start != "self" {
+		t.Errorf("marker %q: pid %d, host %q, start %q", first.text, first.pid, first.host, first.start)
 	}
-	if prev, err := writeCoopMarker(dir); err != nil || prev != first {
-		t.Errorf("second marker replaced %q, %v; want %q", prev, err, first)
+	if use, why := first.state(); use != markerSelf {
+		t.Errorf("this process's marker: %v (%s), want markerSelf", use, why)
 	}
-	// Whatever the file holds, it reaches the terminal as one short line.
+	if prev, had, err := writeCoopMarker(dir); err != nil || !had || prev != first {
+		t.Errorf("second marker replaced %q (start %q), %v, %v; want %q (start %q)", prev, prev.start, had, err, first, first.start)
+	}
+
+	// What a marker says, by pid, machine and start token. Pid 4242 has
+	// ended, 4243 runs with start token t1, and 4244 runs with none.
+	self := os.Getpid()
+	here := coopHostname()
+	tests := []struct {
+		name, file string
+		want       coopMarkerState
+		why        string
+	}{
+		{"one line, its process ended", "pid 4242 since 2026-10-15 17:16:19\n", markerStale, ""},
+		{"one line, its process runs", "pid 4243 since 2026-10-15 17:16:19\n", markerLive, ""},
+		{"one line, this process", fmt.Sprintf("pid %d since 2026-10-15 17:16:19\n", self), markerSelf, ""},
+		{"this pid, started at another time", fmt.Sprintf("pid %d since 2026-10-15 17:16:19\nhost=%s start=other\n", self, here), markerStale, ""},
+		{"its process runs", "pid 4243 since 2026-10-15 17:16:19\nhost=" + here + " start=t1\n", markerLive, ""},
+		{"its pid reused", "pid 4243 since 2026-10-15 17:16:19\nhost=" + here + " start=t0\n", markerStale, ""},
+		{"its process ended", "pid 4242 since 2026-10-15 17:16:19\nhost=" + here + " start=t1\n", markerStale, ""},
+		{"no start token now", "pid 4244 since 2026-10-15 17:16:19\nhost=" + here + " start=t1\n", markerLive, ""},
+		{"no start token then", "pid 4243 since 2026-10-15 17:16:19\nhost=" + here + " start=\n", markerLive, ""},
+		{"no host", "pid 4242 since 2026-10-15 17:16:19\nhost= start=t1\n", markerStale, ""},
+		{"another machine", "pid 4242 since 2026-10-15 17:16:19\nhost=elsewhere-" + here + " start=t1\n", markerUnknown, "another machine, elsewhere-"},
+		{"no pid", "pid x since 2026-10-15 17:16:19\n", markerUnknown, "names no process"},
+		{"pid 0", "pid 0 since 2026-10-15 17:16:19\n", markerUnknown, "names no process"},
+		{"empty", "", markerUnknown, "names no process"},
+	}
+	for _, tt := range tests {
+		if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte(tt.file), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		m, ok := readCoopMarker(dir)
+		if !ok {
+			t.Errorf("%s: no marker", tt.name)
+			continue
+		}
+		if use, why := m.state(); use != tt.want || !strings.Contains(why, tt.why) || (tt.why == "") != (why == "") {
+			t.Errorf("%s: %v (%q), want %v (%q)", tt.name, use, why, tt.want, tt.why)
+		}
+		if line, _, _ := strings.Cut(tt.file, "\n"); m.text != line {
+			t.Errorf("%s: shown as %q, want the first line %q", tt.name, m.text, line)
+		}
+	}
+
+	// A process that can't be checked leaves the marker in use.
+	coSetProcState(t, func(int) (bool, string, error) { return false, "", errors.New("access denied") })
+	if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte("pid 4242 since 2026-10-15 17:16:19\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	denied, _ := readCoopMarker(dir)
+	if use, why := denied.state(); use != markerUnknown || why != "access denied" {
+		t.Errorf("procState fails: %v (%q)", use, why)
+	}
+
+	// Whatever the file holds, it reaches the terminal as one short line,
+	// and names no process.
 	if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte("evil\x1b[2J\r\n"+strings.Repeat("x", 200)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if m, ok := readCoopMarker(dir); !ok || len(m) > 80 || strings.ContainsAny(m, "\x1b\r\n") {
-		t.Errorf("sanitized marker %q", m)
+	if m, ok := readCoopMarker(dir); !ok || len(m.text) > 80 || strings.ContainsAny(m.text, "\x1b\r\n") || m.pid != 0 {
+		t.Errorf("sanitized marker %q, pid %d", m.text, m.pid)
+	}
+	if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte("pid 4242 "+strings.Repeat("é", 50)+"\nhost=\x1b[2J start=t1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if m, ok := readCoopMarker(dir); !ok || len(m.text) > 80 || strings.ToValidUTF8(m.text, "") != m.text || m.pid != 4242 {
+		t.Errorf("long marker %q, pid %d", m.text, m.pid)
+	} else if _, why := m.state(); !strings.Contains(why, "another machine") || strings.Contains(why, "\x1b") {
+		t.Errorf("a host with a control character: %q", why)
 	}
 	removeCoopMarker(dir)
 	if m, ok := readCoopMarker(dir); ok {
 		t.Errorf("a marker after remove: %q", m)
+	}
+
+	// With the real check, this process's own marker is its own.
+	if procStateSupported {
+		coSetProcState(t, procState)
+		if _, _, err := writeCoopMarker(dir); err != nil {
+			t.Fatal(err)
+		}
+		m, _ := readCoopMarker(dir)
+		if use, why := m.state(); use != markerSelf {
+			t.Errorf("this process's marker %q (start %q), checked: %v (%s)", m, m.start, use, why)
+		}
 	}
 }
 
@@ -412,12 +501,24 @@ func TestCoopWorldBlock(t *testing.T) {
 		t.Fatal("the world file changed without --yes")
 	}
 
-	// A session serves the world: no edit, unless --force.
-	if _, err := writeCoopMarker(world.Path(root, id)); err != nil {
+	// A session serves the world: no edit, unless --force. The marker is
+	// checked for real: this process wrote it.
+	marker := filepath.Join(world.Path(root, id), coopMarkerName)
+	if _, _, err := writeCoopMarker(world.Path(root, id)); err != nil {
 		t.Fatal(err)
 	}
 	if err := coopWorldBlock(&out, root, id, chest, true, false); err == nil || !strings.Contains(err.Error(), "in use") {
 		t.Errorf("in use: %v", err)
+	}
+	// One that can't be checked is taken as in use.
+	if err := os.WriteFile(marker, []byte(fmt.Sprintf("pid %d since 2026-10-15 17:16:19\nhost=elsewhere-%s start=1\n", os.Getpid(), coopHostname())), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := coopWorldBlock(&out, root, id, chest, true, false); err == nil || !strings.Contains(err.Error(), "may be in use") || !strings.Contains(err.Error(), "another machine") {
+		t.Errorf("can't tell: %v", err)
+	}
+	if now, _ := os.ReadFile(file); !bytes.Equal(now, orig) {
+		t.Fatal("the world file changed while in use")
 	}
 	out.Reset()
 	if err := coopWorldBlock(&out, root, id, chest, true, true); err != nil || !strings.Contains(out.String(), "Blocked save table 3 chest 0x1F") {
@@ -447,6 +548,30 @@ func TestCoopWorldBlock(t *testing.T) {
 	if err := coopWorldBlock(&out, root, world.ID{9}, chest, true, true); err == nil {
 		t.Error("blocked in a world that does not exist")
 	}
+
+	// A marker a killed host left names a process that has ended: block
+	// says so and goes on without --force, and leaves the marker.
+	t.Run("stale marker", func(t *testing.T) {
+		if !procStateSupported {
+			t.Skipf("procState can't check a process on %s", runtime.GOOS)
+		}
+		stale := fmt.Sprintf("pid %d since 2026-10-15 17:16:19\n", coDeadPid(t))
+		if err := os.WriteFile(marker, []byte(stale), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		other, err := parseBlockTarget([]string{"chest", "3", "0x1E"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out.Reset()
+		if err := coopWorldBlock(&out, root, id, other, true, false); err != nil || !strings.Contains(out.String(), "stale session marker") ||
+			!strings.Contains(out.String(), "did not end cleanly") || !strings.Contains(out.String(), "Blocked save table 3 chest 0x1E") {
+			t.Errorf("stale: %v\n%s", err, out.String())
+		}
+		if b, err := os.ReadFile(marker); err != nil || string(b) != stale {
+			t.Errorf("the marker after the block: %q, %v", b, err)
+		}
+	})
 }
 
 // coSecondQuest is a game playing a second-quest file.
@@ -554,17 +679,36 @@ func TestStartCoopHost(t *testing.T) {
 		if _, ok := readCoopMarker(dir); ok {
 			t.Error("the marker outlived the session")
 		}
-		// A crash leaves the marker: the next start says so.
-		if _, err := writeCoopMarker(dir); err != nil {
+		// A session that did not stop leaves the marker: the next start
+		// says so, after checking the marker's process.
+		if !procStateSupported {
+			t.Skipf("procState can't check a process on %s", runtime.GOOS)
+		}
+		// Here it is this process's own.
+		if _, _, err := writeCoopMarker(dir); err != nil {
 			t.Fatal(err)
 		}
+		log = &coLog{}
+		cs, err = startCoopHost(ctx, log, func(string) {}, on, e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cs.world != id || !log.has("was marked in use by this process") {
+			t.Errorf("restart: world %s, want %s\n%s", cs.world, id, log)
+		}
+		cs.stop()
+		// A killed host's marker names a process that has ended.
+		if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte(fmt.Sprintf("pid %d since 2026-10-15 17:16:19\n", coDeadPid(t))), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		log = &coLog{}
 		cs, err = startCoopHost(ctx, log, func(string) {}, on, e)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer cs.stop()
-		if cs.world != id || !log.has("was marked in use") {
-			t.Errorf("restart: world %s, want %s\n%s", cs.world, id, log)
+		if cs.world != id || !log.has("but that process has ended: its last session did not end cleanly") {
+			t.Errorf("restart after a kill: world %s, want %s\n%s", cs.world, id, log)
 		}
 	})
 	t.Run("no backup", func(t *testing.T) {

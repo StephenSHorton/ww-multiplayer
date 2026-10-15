@@ -12,8 +12,10 @@ package main
 //
 // block edits the world file, and only while no session serves the world:
 // a running hub keeps the world in memory, so its next write would undo
-// the edit. The host's session marker (writeCoopMarker) tells; --force
-// overrides a marker a crashed host left. Bound replicas learn the block
+// the edit. The host's session marker (writeCoopMarker) tells. A marker
+// whose process has ended on this machine is stale (coopMarker.state):
+// block says so and goes on. --force overrides a marker whose process
+// still runs, or one that can't be checked. Bound replicas learn the block
 // from the hub at their next welcome (CTRL TOMBSTONE). The hub can also
 // tombstone over the wire (hub.Hub.Tombstone, CTRL TOMBSTONE from the
 // host's own connection), which M8's TUI panel will drive.
@@ -194,7 +196,7 @@ func parseBlockTarget(args []string) (blockTarget, error) {
 
 // coopWorldBlock tombstones t in world id under root: it shows what the
 // block does, and with yes edits the world file. It refuses while the
-// world's session marker says a host serves it, unless force.
+// world's session marker says a host may serve it, unless force.
 func coopWorldBlock(w io.Writer, root string, id world.ID, t blockTarget, yes, force bool) error {
 	dir := world.Path(root, id)
 	cur, _, err := world.Load(root, id)
@@ -202,7 +204,16 @@ func coopWorldBlock(w io.Writer, root string, id world.ID, t blockTarget, yes, f
 		return fmt.Errorf("co-op world %s: %w", id, err)
 	}
 	if m, ok := readCoopMarker(dir); ok && !force {
-		return fmt.Errorf("co-op world %s is in use by a session (%s): stop that host first (Ctrl+C), or pass --force if it crashed", id, m)
+		switch use, why := m.state(); use {
+		case markerStale:
+			// The marker stays: the next host start says the session did
+			// not end cleanly.
+			fmt.Fprintf(w, "World %s has a stale session marker (%s; that process has ended): its last session did not end cleanly.\n", id, m)
+		case markerUnknown:
+			return fmt.Errorf("co-op world %s may be in use by a session (%s): can't tell whether that process still runs (%s); stop that host first (Ctrl+C), or pass --force if you know it ended", id, m, why)
+		default:
+			return fmt.Errorf("co-op world %s is in use by a running session (%s): stop that host first (Ctrl+C), or pass --force if that pid now belongs to another program", id, m)
+		}
 	}
 	// Try it on a copy first: it says what the block would clear, and
 	// refuses a byte that never merges before anything is touched.
