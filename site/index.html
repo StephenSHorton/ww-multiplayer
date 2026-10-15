@@ -8,212 +8,300 @@
 <meta property="og:title" content="Wind Waker Multiplayer">
 <meta property="og:description" content="See your friend's Link sail, run and roll around in your own game of The Wind Waker on Dolphin.">
 <meta property="og:image" content="img/two-links-ingame.png">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%230b5fa8'/%3E%3Cpath d='M5 19c4-4 7-4 11 0s7 4 11 0' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3Cpath d='M8 12c3-3 6-3 9 0' stroke='%23ffd447' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 1 31 16 16 31 1 16Z' fill='%23d8262e' stroke='%23101a33' stroke-width='2'/%3E%3Cpath d='M7 18c5 0 9-2 9-6 0-3-4-3-4 0 0 2 3 2 3 0' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Reggae+One&family=RocknRoll+One&family=Zen+Kaku+Gothic+New:wght@500;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&text=%E9%A2%A8%E3%81%AE%E5%8B%87%E8%80%85%E5%85%B1%E3%81%AB&display=swap" rel="stylesheet">
 <style>
 :root {
-	--sky-top: #2f8fe0;
-	--sky: #6cc3ff;
-	--sky-low: #bfe7ff;
-	--sea: #0b5fa8;
-	--sea-deep: #063f78;
-	--sea-night: #042a52;
+	/* palette from the game's sky, sea, sail crest, logo gold and the GameCube item menu */
+	--ink: #101a33;          /* cel-shading outline */
+	--sky-hi: #1f8de6;
+	--sky: #57c1ff;
+	--sky-lo: #c8efff;
+	--sea: #0a63c2;
+	--sea-deep: #06428a;
+	--sea-dark: #052c5e;
 	--foam: #ffffff;
-	--sand: #f6e7bf;
-	--grass: #4cb43a;
-	--grass-dark: #2e7d24;
-	--gold: #ffd447;
-	--gold-dark: #d9a514;
-	--ink: #0d2240;
-	--ink-soft: #3a5576;
-	--paper: #fffdf6;
-	--card-line: rgba(13, 34, 64, 0.1);
-	--display: "Fredoka", "Nunito", system-ui, sans-serif;
-	--body: "Nunito", system-ui, sans-serif;
+	--crest: #d8262e;
+	--crest-dk: #8f1219;
+	--crest-hi: #ff8a7a;
+	--gold: #f2b916;
+	--gold-dk: #a87700;
+	--gold-hi: #ffe27a;
+	--menu: #3d8f2f;
+	--menu-dk: #1f5a18;
+	--menu-hi: #8fd36c;
+	--tab-cyan: #2bb3e6;
+	--tab-orange: #f39a1e;
+	--panel: #f7f2e2;
+	--text: #e9f4ff;
+	--text-dim: #a9cdf0;
+	--reggae: "Reggae One", "Zen Kaku Gothic New", sans-serif;
+	--rock: "RocknRoll One", "Zen Kaku Gothic New", sans-serif;
+	--body: "Zen Kaku Gothic New", system-ui, sans-serif;
+	--brush: "Yuji Syuku", serif;
 	--mono: "JetBrains Mono", ui-monospace, monospace;
+	/* bevelled cut corners, like the logo's chiselled edges */
+	--brush-red: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 80' preserveAspectRatio='none'%3E%3Cdefs%3E%3Cmask id='m'%3E%3Crect width='600' height='80' fill='white'/%3E%3Cpath d='M380 30 L600 27 M420 41 L600 41 M330 52 L600 55 M470 35 L600 34' stroke='black' stroke-width='3'/%3E%3C/mask%3E%3C/defs%3E%3Cpath mask='url%28%23m%29' fill='%23d8262e' d='M10 46 C2 30 18 14 52 16 C140 12 300 10 470 12 C520 12 566 16 594 24 L556 31 L592 39 L546 45 L586 53 L522 57 L470 64 C320 68 150 70 56 68 C22 68 12 60 10 46 Z'/%3E%3C/svg%3E");
+	--brush-gold: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 80' preserveAspectRatio='none'%3E%3Cdefs%3E%3Cmask id='m'%3E%3Crect width='600' height='80' fill='white'/%3E%3Cpath d='M380 30 L600 27 M420 41 L600 41 M330 52 L600 55 M470 35 L600 34' stroke='black' stroke-width='3'/%3E%3C/mask%3E%3C/defs%3E%3Cpath mask='url%28%23m%29' fill='%23f2b916' d='M10 46 C2 30 18 14 52 16 C140 12 300 10 470 12 C520 12 566 16 594 24 L556 31 L592 39 L546 45 L586 53 L522 57 L470 64 C320 68 150 70 56 68 C22 68 12 60 10 46 Z'/%3E%3C/svg%3E");
+	--corners:
+		linear-gradient(135deg, transparent 50%, var(--ink) 50% calc(50% + 3px), transparent calc(50% + 3px)) top left / 14px 14px no-repeat,
+		linear-gradient(315deg, transparent 50%, var(--ink) 50% calc(50% + 3px), transparent calc(50% + 3px)) bottom right / 14px 14px no-repeat;
+	--cut: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { margin: 0; font: 17px/1.6 var(--body); color: var(--ink); background: var(--sea-night); overflow-x: hidden; }
+body { margin: 0; font: 500 17px/1.7 var(--body); color: var(--text); background: var(--sea-dark); overflow-x: hidden; }
 a { color: inherit; }
-.wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
 
-/* ---------- sky + hero ---------- */
+/* HUD-style outlined lettering ("Jump", "Normal", "Return" in the game) */
+.hud {
+	color: #fff; paint-order: stroke fill;
+	-webkit-text-stroke: 0.22em var(--ink);
+	text-shadow: 0 0.09em 0 var(--ink);
+}
+
+/* ---------------- sky ---------------- */
 .sky {
-	position: relative;
-	background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky) 45%, var(--sky-low) 100%);
-	overflow: hidden;
-	padding-bottom: 120px;
+	position: relative; overflow: hidden;
+	background:
+		radial-gradient(ellipse 50% 40% at 85% 6%, rgba(255, 250, 215, 0.95), rgba(255, 250, 215, 0) 70%),
+		linear-gradient(180deg, var(--sky-hi) 0%, var(--sky) 42%, var(--sky-lo) 82%);
+	padding-bottom: 150px;
 }
-.sun {
-	position: absolute; top: -120px; right: -80px; width: 380px; height: 380px; border-radius: 50%;
-	background: radial-gradient(circle, rgba(255, 244, 196, 0.95) 0 30%, rgba(255, 244, 196, 0.35) 45%, transparent 70%);
-	pointer-events: none;
+.kanji {
+	position: absolute; right: -2vw; top: 40px; z-index: 0;
+	font: 400 clamp(220px, 34vw, 460px)/1 var(--brush);
+	color: rgba(255, 255, 255, 0.34);
+	-webkit-text-stroke: 3px rgba(16, 26, 51, 0.12);
+	transform: rotate(-6deg);
+	pointer-events: none; user-select: none;
 }
-.cloud {
-	position: absolute; background: #fff; border-radius: 999px; opacity: 0.95;
-	box-shadow: inset 0 -10px 0 rgba(150, 200, 240, 0.35);
-	animation: float 60s linear infinite;
+/* wind: white strokes that draw themselves and end in a hooked curl */
+.winds { position: absolute; top: 0; left: 0; width: 100%; height: 760px; z-index: 1; pointer-events: none; }
+.winds path {
+	fill: none; stroke: #fff; stroke-linecap: round; stroke-linejoin: round;
+	stroke-dasharray: 1400; stroke-dashoffset: 1400;
+	animation: gust 7s ease-in-out infinite;
 }
-.cloud::before, .cloud::after { content: ""; position: absolute; background: #fff; border-radius: 50%; box-shadow: inset 0 -10px 0 rgba(150, 200, 240, 0.35); }
-.cloud.c1 { width: 190px; height: 54px; top: 110px; left: -220px; }
-.cloud.c1::before { width: 90px; height: 90px; top: -50px; left: 30px; }
-.cloud.c1::after { width: 64px; height: 64px; top: -30px; left: 100px; }
-.cloud.c2 { width: 140px; height: 40px; top: 230px; left: -160px; animation-duration: 85s; animation-delay: -40s; transform: scale(0.8); }
-.cloud.c2::before { width: 70px; height: 70px; top: -40px; left: 20px; }
-.cloud.c2::after { width: 50px; height: 50px; top: -24px; left: 72px; }
-.cloud.c3 { width: 230px; height: 60px; top: 40px; left: -260px; animation-duration: 110s; animation-delay: -75s; opacity: 0.8; }
-.cloud.c3::before { width: 110px; height: 110px; top: -64px; left: 40px; }
-.cloud.c3::after { width: 80px; height: 80px; top: -40px; left: 130px; }
-@keyframes float { to { transform: translateX(calc(100vw + 520px)); } }
+.winds path:nth-child(2) { animation-delay: 2.3s; animation-duration: 8s; }
+.winds path:nth-child(3) { animation-delay: 4.6s; animation-duration: 9s; }
+@keyframes gust {
+	0% { stroke-dashoffset: 1400; opacity: 0; }
+	10% { opacity: 0.95; }
+	55% { stroke-dashoffset: 0; opacity: 0.95; }
+	75%, 100% { stroke-dashoffset: -1400; opacity: 0; }
+}
+.cloud { position: absolute; z-index: 1; pointer-events: none; animation: drift 90s linear infinite; }
+.cloud.k1 { top: 600px; left: -260px; width: 260px; }
+.cloud.k2 { top: 820px; left: -200px; width: 190px; animation-duration: 120s; animation-delay: -60s; }
+@keyframes drift { to { transform: translateX(calc(100vw + 520px)); } }
+@media (prefers-reduced-motion: reduce) {
+	.winds path { animation: none; stroke-dashoffset: 0; opacity: 0.7; }
+	.cloud, .sea-edge .swell { animation: none; }
+}
 
-nav { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; padding: 18px 0; }
-.brand { display: flex; align-items: center; gap: 10px; font: 600 18px var(--display); color: #fff; text-decoration: none; text-shadow: 0 2px 0 rgba(6, 63, 120, 0.35); }
-.brand svg { width: 30px; height: 30px; }
-nav .links { display: flex; gap: 22px; font: 600 15px var(--display); }
-nav .links a { color: #fff; text-decoration: none; opacity: 0.95; text-shadow: 0 1px 3px rgba(6, 63, 120, 0.75), 0 0 10px rgba(6, 63, 120, 0.45); }
-nav .links a:hover { opacity: 1; text-decoration: underline; text-underline-offset: 4px; }
-
-.hero { position: relative; z-index: 2; text-align: center; padding: 30px 0 0; }
-.pill {
-	display: inline-flex; gap: 8px; align-items: center; padding: 6px 14px; border-radius: 999px;
-	background: rgba(255, 255, 255, 0.85); color: var(--sea-deep); font: 600 13px var(--display);
-	box-shadow: 0 3px 0 rgba(6, 63, 120, 0.15);
+nav { position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between; padding: 16px 0; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 400 19px var(--rock); }
+.brand svg { width: 34px; height: 34px; }
+nav .links { display: flex; gap: 6px; }
+nav .links a {
+	text-decoration: none; font: 400 14px var(--rock); padding: 7px 14px 8px;
+	background: rgba(16, 26, 51, 0.82); color: #fff;
+	clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
 }
-.pill b { color: var(--grass-dark); }
-h1 {
-	margin: 18px 0 6px; font: 700 clamp(40px, 8vw, 84px)/1.02 var(--display); color: #fff; letter-spacing: -0.5px;
-	text-shadow: 0 4px 0 var(--sea), 0 8px 0 rgba(6, 63, 120, 0.35);
-}
-h1 span { color: var(--gold); text-shadow: 0 4px 0 var(--gold-dark), 0 8px 0 rgba(6, 63, 120, 0.35); }
-.lede { max-width: 640px; margin: 18px auto 30px; font-size: 20px; color: var(--sea-night); font-weight: 600; }
+nav .links a:hover { background: var(--crest); }
 
-.dl { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; }
+.hero { position: relative; z-index: 2; text-align: center; padding: 26px 0 0; }
+.banner {
+	display: inline-block; padding: 6px 26px 7px; font: 400 14px var(--rock); color: #fff;
+	background: var(--ink); clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 12px 100%, 0 50%);
+	letter-spacing: 0.5px;
+}
+.banner b { color: var(--gold); font-weight: 400; }
+h1 { margin: 22px 0 0; font: 400 clamp(46px, 9vw, 104px)/0.98 var(--reggae); letter-spacing: -1px; }
+h1 .l1 { display: block; }
+h1 .l2 {
+	display: inline-block; margin-top: 10px; padding: 14px 2.3em 20px 0.9em;
+	font-size: 0.56em; letter-spacing: 3px; color: var(--gold-hi);
+	background: var(--brush-red) no-repeat center / 100% 100%;
+	-webkit-text-stroke: 0.14em var(--ink); paint-order: stroke fill;
+	text-shadow: 0 4px 0 var(--ink);
+}
+.lede { max-width: 640px; margin: 22px auto 30px; font: 700 20px/1.6 var(--body); color: var(--ink); }
+
+.dl { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; }
 .btn {
-	display: inline-flex; align-items: center; gap: 12px; text-decoration: none; cursor: pointer; border: 0;
-	padding: 14px 24px; border-radius: 16px; font: 600 18px var(--display);
-	background: #fff; color: var(--sea-deep);
-	box-shadow: 0 6px 0 #9cc9ea, 0 14px 24px rgba(6, 63, 120, 0.2);
-	transition: transform 0.08s ease, box-shadow 0.08s ease;
+	position: relative; display: inline-flex; align-items: center; gap: 12px; text-decoration: none; cursor: pointer;
+	padding: 13px 30px 14px 26px; font: 400 19px var(--rock); color: #fff;
+	background: linear-gradient(180deg, #5a6b8f 0 50%, #3c4a6b 50%);
+	clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+	filter: drop-shadow(0 5px 0 var(--ink));
+	transition: transform 0.08s ease;
 }
-.btn small { display: block; font: 600 12px var(--body); opacity: 0.75; text-align: left; }
-.btn:hover { transform: translateY(-2px); box-shadow: 0 8px 0 #9cc9ea, 0 18px 28px rgba(6, 63, 120, 0.25); }
-.btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #9cc9ea; }
-.btn.primary { background: var(--grass); color: #fff; box-shadow: 0 6px 0 var(--grass-dark), 0 14px 24px rgba(46, 125, 36, 0.35); }
-.btn.primary:hover { box-shadow: 0 8px 0 var(--grass-dark), 0 18px 28px rgba(46, 125, 36, 0.4); }
-.btn.primary:active { box-shadow: 0 2px 0 var(--grass-dark); }
+.btn::before { /* ink outline inside the slanted shape */
+	content: ""; position: absolute; inset: 0; pointer-events: none;
+	clip-path: inherit; box-shadow: inset 0 0 0 3px var(--ink), inset 0 4px 0 3px rgba(255, 255, 255, 0.25);
+}
+.btn small { display: block; font: 700 12px var(--body); opacity: 0.85; text-align: left; }
+.btn:hover { transform: translateY(-2px); }
+.btn:active { transform: translateY(3px); filter: drop-shadow(0 2px 0 var(--ink)); }
+.btn.primary { color: var(--ink); background: linear-gradient(180deg, var(--gold-hi) 0 50%, var(--gold) 50%); }
 .btn svg { width: 26px; height: 26px; flex: none; }
-.dl-note { margin-top: 16px; font: 600 14px var(--body); color: var(--sea-deep); min-height: 1.5em; }
+.dl-note { margin-top: 18px; font: 700 14px var(--body); color: var(--ink); min-height: 1.5em; }
 .dl-note a { color: var(--sea-deep); }
 
-.shot {
-	position: relative; z-index: 2; margin: 46px auto 0; max-width: 760px;
-	border-radius: 22px; padding: 10px; background: #fff;
-	box-shadow: 0 10px 0 rgba(6, 63, 120, 0.18), 0 30px 60px rgba(6, 63, 120, 0.35);
-	transform: rotate(-1deg);
+.shot { position: relative; z-index: 2; margin: 48px auto 0; max-width: 780px; }
+.shot .frame {
+	padding: 10px; background: var(--ink);
+	clip-path: var(--cut);
+	filter: drop-shadow(10px 10px 0 rgba(16, 26, 51, 0.35));
 }
-.shot img { display: block; width: 100%; height: auto; border-radius: 14px; }
-.shot figcaption { font: 600 13px var(--body); color: var(--ink-soft); padding: 10px 6px 2px; text-align: center; }
+.shot img { display: block; width: 100%; height: auto; clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
+.shot figcaption { display: inline-block; margin-top: 14px; padding: 5px 18px 6px; font: 700 13px var(--body); color: #fff; background: var(--ink); clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
 
-/* ---------- waves ---------- */
-.waves { position: absolute; left: 0; right: 0; bottom: -2px; height: 140px; z-index: 1; pointer-events: none; }
-.waves svg { position: absolute; bottom: 0; width: 200%; height: 100%; }
-.waves .w1 { animation: swell 14s linear infinite; }
-.waves .w2 { animation: swell 22s linear infinite reverse; opacity: 0.9; }
-@keyframes swell { to { transform: translateX(-50%); } }
-@media (prefers-reduced-motion: reduce) { .cloud, .waves .w1, .waves .w2 { animation: none; } }
+/* sea edge: sharp crests with claw-like foam */
+.sea-edge { position: absolute; left: 0; right: 0; bottom: -2px; height: 150px; z-index: 1; pointer-events: none; }
+.sea-edge svg { position: absolute; bottom: 0; width: 200%; height: 100%; }
+.sea-edge .swell { animation: roll 18s linear infinite; }
+.sea-edge .back { animation-duration: 30s; animation-direction: reverse; }
+@keyframes roll { to { transform: translateX(-50%); } }
 
-/* ---------- sea sections ---------- */
-.sea { background: linear-gradient(180deg, var(--sea) 0%, var(--sea-deep) 40%, var(--sea-night) 100%); color: #eaf5ff; padding: 40px 0 70px; }
-section { padding: 50px 0 10px; }
-h2 { font: 700 clamp(28px, 4vw, 40px)/1.15 var(--display); margin: 0 0 8px; color: #fff; }
-h2 + .sub { margin: 0 0 30px; color: #b9dcff; max-width: 680px; }
-
-.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; counter-reset: step; }
-.step {
-	position: relative; background: var(--paper); color: var(--ink); border-radius: 20px; padding: 26px 22px 22px;
-	box-shadow: 0 6px 0 rgba(0, 0, 0, 0.18);
+/* ---------------- sea ---------------- */
+.sea { position: relative; background: linear-gradient(180deg, var(--sea) 0%, var(--sea-deep) 35%, var(--sea-dark) 100%); padding: 30px 0 70px; }
+section { padding: 56px 0 6px; }
+.head { margin: 0 0 12px; }
+h2 {
+	display: inline-block; margin: 0 0 0 -14px; padding: 10px 2.6em 16px 26px;
+	font: 400 clamp(26px, 4vw, 40px)/1.15 var(--reggae);
+	background: var(--brush-red) no-repeat center / 100% 100%;
 }
+#install h2, #faq h2 { background-image: var(--brush-gold); }
+.sub { margin: 0 0 32px; color: var(--text-dim); max-width: 700px; }
+.sub a { color: #fff; }
+
+.panel {
+	position: relative; padding: 24px 24px 22px; color: var(--ink);
+	background: var(--corners), var(--panel); clip-path: var(--cut);
+	box-shadow: inset 0 0 0 3px var(--ink), inset 0 -6px 0 3px rgba(16, 26, 51, 0.12);
+}
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; counter-reset: step; }
+.step { padding-top: 30px; }
 .step::before {
 	counter-increment: step; content: counter(step);
-	position: absolute; top: -18px; left: 20px; width: 40px; height: 40px; border-radius: 50%;
-	display: grid; place-items: center; font: 700 20px var(--display); color: var(--ink);
-	background: var(--gold); box-shadow: 0 4px 0 var(--gold-dark);
+	position: absolute; top: 14px; right: 18px; width: 46px; height: 46px;
+	display: grid; place-items: center; font: 400 22px var(--reggae); color: var(--ink);
+	background: var(--gold); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
 }
-.step h3 { margin: 6px 0 6px; font: 600 21px var(--display); color: var(--sea-deep); }
-.step p { margin: 0; color: var(--ink-soft); font-size: 16px; }
+.step h3 { margin: 0 0 8px; font: 400 22px var(--reggae); color: var(--sea-deep); padding-right: 54px; }
+.step p { margin: 0; font-size: 16px; color: #33435f; }
 
-/* tabs */
-.tabs { background: var(--paper); color: var(--ink); border-radius: 22px; box-shadow: 0 6px 0 rgba(0, 0, 0, 0.18); overflow: hidden; }
-.tablist { display: flex; gap: 6px; padding: 10px 10px 0; background: #e8f3fc; }
+/* tabs shaped like the HD item menu's slanted tabs */
+.tabbox { margin-top: 6px; }
+.tablist { display: flex; gap: 4px; padding-left: 10px; }
 .tab {
-	border: 0; cursor: pointer; padding: 12px 20px; border-radius: 14px 14px 0 0;
-	font: 600 16px var(--display); color: var(--ink-soft); background: transparent;
+	border: 0; cursor: pointer; padding: 10px 30px 12px; font: 400 18px var(--rock); color: #fff;
+	background: var(--tab-cyan); clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
+	paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink);
 }
-.tab[aria-selected="true"] { background: var(--paper); color: var(--sea-deep); }
-.panel { padding: 24px 26px 26px; }
-.panel[hidden] { display: none; }
-.panel ol { margin: 0; padding-left: 22px; }
-.panel li { margin: 0 0 16px; padding-left: 4px; }
-.panel li::marker { font: 700 16px var(--display); color: var(--grass-dark); }
-.panel p { margin: 6px 0 0; color: var(--ink-soft); font-size: 15px; }
-.cmd {
-	display: flex; align-items: stretch; margin: 8px 0 2px; border-radius: 12px; overflow: hidden;
-	background: var(--sea-night); color: #d8ecff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+.tab + .tab { background: var(--tab-orange); }
+.tab[aria-selected="false"] { background: #1675a3; color: #cfe9f7; }
+.tab + .tab[aria-selected="false"] { background: #a65f0b; color: #fde3c0; }
+.tab[aria-selected="true"] { padding-bottom: 15px; margin-bottom: -3px; }
+.tabbody { padding: 26px 28px 24px; }
+.tabbody[hidden] { display: none; }
+.tabbody ol { margin: 0; padding-left: 0; list-style: none; counter-reset: li; }
+.tabbody li { position: relative; margin: 0 0 18px; padding-left: 46px; counter-increment: li; }
+.tabbody li::before {
+	content: counter(li); position: absolute; left: 0; top: 0; width: 32px; height: 32px;
+	display: grid; place-items: center; font: 400 15px var(--reggae); color: #fff;
+	background: var(--menu); box-shadow: inset 0 0 0 2px var(--ink);
+	clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
 }
-.cmd code { flex: 1; padding: 11px 14px; font: 14px/1.5 var(--mono); overflow-x: auto; white-space: pre; }
-.cmd button {
-	border: 0; cursor: pointer; padding: 0 14px; font: 600 13px var(--display);
-	background: var(--sea); color: #fff;
+.tabbody li > b:first-child { color: var(--sea-deep); }
+.tabbody p { margin: 6px 0 0; color: #45556f; font-size: 15px; }
+.cmd { display: flex; align-items: stretch; margin: 9px 0 2px; background: var(--ink); clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
+.cmd code { flex: 1; padding: 11px 14px; font: 14px/1.5 var(--mono); color: #d6ecff; overflow-x: auto; white-space: pre; }
+.cmd button { border: 0; cursor: pointer; padding: 0 16px; font: 400 13px var(--rock); background: var(--gold); color: var(--ink); }
+.cmd button:hover { background: var(--gold-hi); }
+code.i { font: 13.5px var(--mono); background: #dfeaf6; color: var(--sea-deep); padding: 1px 6px; }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+/* dark menu-green cards, like the GameCube item screen */
+.card {
+	position: relative; padding: 22px 24px 20px; clip-path: var(--cut);
+	background: var(--corners), linear-gradient(180deg, var(--menu) 0%, var(--menu-dk) 100%);
+	box-shadow: inset 0 0 0 3px var(--ink), inset 0 0 0 6px rgba(143, 211, 108, 0.35);
 }
-.cmd button:hover { background: var(--grass-dark); }
-code.i { font: 14px var(--mono); background: #e8f3fc; color: var(--sea-deep); padding: 1px 6px; border-radius: 6px; }
+.card.blue { background: var(--corners), linear-gradient(180deg, #1d6fc4 0%, #0b3f7d 100%); box-shadow: inset 0 0 0 3px var(--ink), inset 0 0 0 6px rgba(120, 190, 255, 0.35); }
+.card h3 { margin: 0 0 8px; font: 400 21px var(--rock); }
+.card p, .card li { color: #eef7e8; font-size: 16px; }
+.card.blue p, .card.blue li { color: #e3f0ff; }
+.card ul { margin: 0; padding-left: 0; list-style: none; }
+.card li { position: relative; padding-left: 22px; margin-bottom: 7px; }
+.card li::before { content: ""; position: absolute; left: 2px; top: 0.62em; width: 10px; height: 10px; background: var(--gold); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.card.limits li::before { background: var(--crest-hi); }
+.card code.i { background: rgba(16, 26, 51, 0.55); color: #fff; }
+.card a { color: var(--gold-hi); }
 
-.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
-.card { background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 20px; padding: 22px 22px 18px; }
-.card h3 { margin: 0 0 8px; font: 600 20px var(--display); color: var(--gold); }
-.card p, .card li { color: #d3e8fb; font-size: 16px; }
-.card ul { margin: 0; padding-left: 20px; }
-.card code.i { background: rgba(0, 0, 0, 0.3); color: #fff; }
-.card a { color: #fff; }
-
-.status li { margin-bottom: 6px; }
-.status .ok::marker { color: var(--grass); }
-
-details { background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 16px; margin-bottom: 10px; }
-summary { cursor: pointer; list-style: none; padding: 16px 20px; font: 600 18px var(--display); display: flex; justify-content: space-between; gap: 12px; color: #fff; }
+details { margin-bottom: 10px; background: rgba(16, 26, 51, 0.55); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); box-shadow: inset 3px 0 0 var(--gold); }
+summary { cursor: pointer; list-style: none; padding: 15px 20px; font: 400 17px var(--rock); display: flex; justify-content: space-between; gap: 12px; color: #fff; }
 summary::-webkit-details-marker { display: none; }
-summary::after { content: "+"; color: var(--gold); font-size: 22px; line-height: 1; }
-details[open] summary::after { content: "–"; }
-details > div { padding: 0 20px 18px; color: #d3e8fb; }
-details code.i { background: rgba(0, 0, 0, 0.3); color: #fff; }
+summary::after { content: ""; flex: none; width: 14px; height: 14px; margin-top: 5px; background: var(--gold); clip-path: polygon(0 0, 100% 50%, 0 100%); transition: transform 0.15s; }
+details[open] summary::after { transform: rotate(90deg); }
+details > div { padding: 0 20px 18px; color: var(--text-dim); }
+details code.i { background: rgba(0, 0, 0, 0.35); color: #fff; }
+details a { color: var(--gold-hi); }
 
-.legal { margin-top: 56px; padding: 20px 22px; border-radius: 16px; border: 1px dashed rgba(255, 212, 71, 0.5); color: #c6dcf2; font-size: 15px; }
+.legal {
+	margin-top: 60px; padding: 20px 24px; color: var(--text-dim); font-size: 15px;
+	background: rgba(216, 38, 46, 0.14); box-shadow: inset 4px 0 0 var(--crest);
+	clip-path: polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
+}
 .legal strong { color: #fff; }
-footer { padding: 34px 0 10px; text-align: center; color: #9cc0e4; font: 600 14px var(--display); }
-footer a { color: #d8ecff; text-decoration: none; margin: 0 8px; }
-footer a:hover { text-decoration: underline; }
+footer { padding: 36px 0 10px; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; font: 400 14px var(--rock); }
+footer a, footer span { padding: 6px 14px 7px; text-decoration: none; color: #fff; background: rgba(255, 255, 255, 0.08); clip-path: polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%); }
+footer a:hover { background: var(--crest); }
+footer span { color: var(--text-dim); }
 
-@media (max-width: 680px) {
+@media (max-width: 700px) {
 	nav .links { display: none; }
 	.btn { width: 100%; justify-content: center; }
-	.shot { transform: none; }
-	.panel { padding: 20px 16px; }
+	.tabbody { padding: 22px 16px 20px; }
+	.tab { padding: 10px 22px 12px; }
+	.kanji { top: 150px; opacity: 0.8; }
+	h2 { font-size: clamp(18px, 5.2vw, 26px); padding-right: 2.2em; }
 }
 </style>
 </head>
 <body>
 
 <header class="sky">
-	<div class="sun"></div>
-	<div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div>
+	<div class="kanji" aria-hidden="true">風</div>
+
+	<svg class="winds" viewBox="0 0 1440 760" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
+		<path stroke-width="7" d="M-60 300 C 60 270, 180 300, 280 262 C 330 242, 336 196, 300 190 C 268 186, 262 222, 290 226 C 304 228, 310 214, 300 208"/>
+		<path stroke-width="6" d="M1500 640 C 1400 610, 1300 650, 1210 600 C 1170 578, 1176 536, 1208 534 C 1236 532, 1238 566, 1214 566 C 1202 566, 1200 554, 1208 550"/>
+		<path stroke-width="4" d="M-80 660 C 40 640, 150 680, 250 650 C 290 638, 296 606, 272 600 C 252 596, 246 620, 264 624"/>
+	</svg>
+
+	<svg class="cloud k1" viewBox="0 0 260 110" aria-hidden="true">
+		<path d="M20 92 C 4 92, 2 66, 22 64 C 20 40, 52 32, 66 46 C 74 18, 120 12, 134 40 C 150 22, 192 28, 192 56 C 222 52, 246 76, 228 92 Z" fill="#fff" stroke="#9fd2f2" stroke-width="3"/>
+		<path d="M96 70 C 96 56, 116 54, 118 66 C 120 76, 106 78, 106 70" fill="none" stroke="#9fd2f2" stroke-width="4" stroke-linecap="round"/>
+		<path d="M158 76 C 158 64, 175 62, 177 72 C 178 80, 166 82, 166 75" fill="none" stroke="#9fd2f2" stroke-width="4" stroke-linecap="round"/>
+	</svg>
+	<svg class="cloud k2" viewBox="0 0 260 110" aria-hidden="true">
+		<path d="M20 92 C 4 92, 2 66, 22 64 C 20 40, 52 32, 66 46 C 74 18, 120 12, 134 40 C 150 22, 192 28, 192 56 C 222 52, 246 76, 228 92 Z" fill="#fff" stroke="#9fd2f2" stroke-width="3"/>
+		<path d="M110 72 C 110 58, 130 56, 132 68 C 134 78, 120 80, 120 72" fill="none" stroke="#9fd2f2" stroke-width="4" stroke-linecap="round"/>
+	</svg>
 
 	<div class="wrap">
 		<nav>
-			<a class="brand" href="#">
-				<svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#0b5fa8"/><path d="M5 19c4-4 7-4 11 0s7 4 11 0" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M8 12c3-3 6-3 9 0" stroke="#ffd447" stroke-width="3" fill="none" stroke-linecap="round"/></svg>
+			<a class="brand hud" href="#">
+				<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 1 31 16 16 31 1 16Z" fill="#d8262e" stroke="#101a33" stroke-width="2"/><path d="M7 18c5 0 9-2 9-6 0-3-4-3-4 0 0 2 3 2 3 0" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round"/></svg>
 				WW Multiplayer
 			</a>
 			<div class="links">
@@ -226,8 +314,8 @@ footer a:hover { text-decoration: underline; }
 		</nav>
 
 		<div class="hero">
-			<span class="pill">Unofficial fan project &middot; <b>Dolphin</b> &middot; Windows + macOS</span>
-			<h1>Wind Waker <span>Multiplayer</span></h1>
+			<span class="banner">Unofficial fan project &middot; <b>Dolphin</b> &middot; Windows + macOS</span>
+			<h1><span class="l1 hud">Wind Waker</span><span class="l2">MULTIPLAYER</span></h1>
 			<p class="lede">See your friend's Link running around in <em>your</em> game. Real positions, real animations, about 50&nbsp;ms behind on a home network.</p>
 
 			<div class="dl">
@@ -243,15 +331,18 @@ footer a:hover { text-decoration: underline; }
 			<div class="dl-note" id="dl-note">Free and open source &middot; you need your own copy of the game</div>
 
 			<figure class="shot">
-				<img src="img/two-links-ingame.png" width="1278" height="1388" alt="Two Dolphin windows on Outset Island, each showing the other player's Link standing on the beach next to their own">
+				<div class="frame"><img src="img/two-links-ingame.png" width="1278" height="1388" alt="Two Dolphin windows on Outset Island, each showing the other player's Link standing on the beach next to their own"></div>
 				<figcaption>Two players on Outset Island: each window shows the other player's Link in its own game.</figcaption>
 			</figure>
 		</div>
 	</div>
 
-	<div class="waves" aria-hidden="true">
-		<svg class="w2" viewBox="0 0 2400 140" preserveAspectRatio="none"><path fill="#2f86d6" d="M0 70 Q150 30 300 70 T600 70 T900 70 T1200 70 T1500 70 T1800 70 T2100 70 T2400 70 V140 H0Z"/></svg>
-		<svg class="w1" viewBox="0 0 2400 140" preserveAspectRatio="none"><path fill="#0b5fa8" d="M0 92 Q100 62 200 92 T400 92 T600 92 T800 92 T1000 92 T1200 92 T1400 92 T1600 92 T1800 92 T2000 92 T2200 92 T2400 92 V140 H0Z"/><path fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" d="M0 92 Q100 62 200 92 T400 92 T600 92 T800 92 T1000 92 T1200 92 T1400 92 T1600 92 T1800 92 T2000 92 T2200 92 T2400 92"/></svg>
+	<div class="sea-edge" aria-hidden="true">
+		<svg class="swell back" viewBox="0 0 2400 150" preserveAspectRatio="none"><path fill="#2a8fe0" d="M0 70 L120 40 Q150 34 170 52 L240 70 L360 40 Q390 34 410 52 L480 70 L600 40 Q630 34 650 52 L720 70 L840 40 Q870 34 890 52 L960 70 L1080 40 Q1110 34 1130 52 L1200 70 L1320 40 Q1350 34 1370 52 L1440 70 L1560 40 Q1590 34 1610 52 L1680 70 L1800 40 Q1830 34 1850 52 L1920 70 L2040 40 Q2070 34 2090 52 L2160 70 L2280 40 Q2310 34 2330 52 L2400 70 V150 H0Z"/></svg>
+		<svg class="swell" viewBox="0 0 2400 150" preserveAspectRatio="none">
+			<path fill="#0a63c2" d="M0 98 L150 66 Q195 54 214 78 L300 98 L450 66 Q495 54 514 78 L600 98 L750 66 Q795 54 814 78 L900 98 L1050 66 Q1095 54 1114 78 L1200 98 L1350 66 Q1395 54 1414 78 L1500 98 L1650 66 Q1695 54 1714 78 L1800 98 L1950 66 Q1995 54 2014 78 L2100 98 L2250 66 Q2295 54 2314 78 L2400 98 V150 H0Z"/>
+			<path fill="none" stroke="#fff" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" d="M0 98 L150 66 Q204 50 218 80 Q222 96 206 94 Q194 92 198 82 Q202 74 210 78 M300 98 L450 66 Q504 50 518 80 Q522 96 506 94 Q494 92 498 82 Q502 74 510 78 M600 98 L750 66 Q804 50 818 80 Q822 96 806 94 Q794 92 798 82 Q802 74 810 78 M900 98 L1050 66 Q1104 50 1118 80 Q1122 96 1106 94 Q1094 92 1098 82 Q1102 74 1110 78 M1200 98 L1350 66 Q1404 50 1418 80 Q1422 96 1406 94 Q1394 92 1398 82 Q1402 74 1410 78 M1500 98 L1650 66 Q1704 50 1718 80 Q1722 96 1706 94 Q1694 92 1698 82 Q1702 74 1710 78 M1800 98 L1950 66 Q2004 50 2018 80 Q2022 96 2006 94 Q1994 92 1998 82 Q2002 74 2010 78 M2100 98 L2250 66 Q2304 50 2318 80 Q2322 96 2306 94 Q2294 92 2298 82 Q2302 74 2310 78"/>
+		</svg>
 	</div>
 </header>
 
@@ -259,26 +350,26 @@ footer a:hover { text-decoration: underline; }
 	<div class="wrap">
 
 		<section id="how">
-			<h2>How it works</h2>
+			<div class="head"><h2 class="hud">How it works</h2></div>
 			<p class="sub">Everyone plays in their own Dolphin. The app reads your Link's position and pose, shares it with the other players over the network, and draws their Link in your world.</p>
 			<div class="steps">
-				<div class="step"><h3>Patch your game</h3><p>Point the app at your own Wind Waker disc image. It writes a patched copy next to it and never touches the original.</p></div>
-				<div class="step"><h3>Boot it in Dolphin</h3><p>Load the patched game and any save. Saves don't have to match between players.</p></div>
-				<div class="step"><h3>Host or join</h3><p>One player hosts, the others join with the host's IP. Within a second or two you'll see each other.</p></div>
+				<div class="panel step"><h3>Patch your game</h3><p>Point the app at your own Wind Waker disc image. It writes a patched copy next to it and never touches the original.</p></div>
+				<div class="panel step"><h3>Boot it in Dolphin</h3><p>Load the patched game and any save. Saves don't have to match between players.</p></div>
+				<div class="panel step"><h3>Host or join</h3><p>One player hosts, the others join with the host's IP. Within a second or two you'll see each other.</p></div>
 			</div>
 		</section>
 
 		<section id="install">
-			<h2>Install</h2>
-			<p class="sub">You'll need <a href="https://dolphin-emu.org/" style="color:#fff">Dolphin</a> (a recent stable build) and your own copy of The Wind Waker, NTSC-U (game ID <code class="i" style="background:rgba(0,0,0,.3);color:#fff">GZLE01</code>), as an <code class="i" style="background:rgba(0,0,0,.3);color:#fff">.iso</code> or <code class="i" style="background:rgba(0,0,0,.3);color:#fff">.ciso</code>.</p>
+			<div class="head"><h2 class="hud">Install</h2></div>
+			<p class="sub">You'll need <a href="https://dolphin-emu.org/">Dolphin</a> (a recent stable build) and your own copy of The Wind Waker, NTSC-U (game ID <b>GZLE01</b>), as an .iso or .ciso.</p>
 
-			<div class="tabs">
+			<div class="tabbox">
 				<div class="tablist" role="tablist">
 					<button class="tab" role="tab" id="tab-win" aria-controls="p-win" aria-selected="true">Windows</button>
 					<button class="tab" role="tab" id="tab-mac" aria-controls="p-mac" aria-selected="false">macOS</button>
 				</div>
 
-				<div class="panel" id="p-win" role="tabpanel" aria-labelledby="tab-win">
+				<div class="panel tabbody" id="p-win" role="tabpanel" aria-labelledby="tab-win">
 					<ol>
 						<li><b>Download <code class="i">ww-multiplayer.exe</code></b> with the Windows button above.</li>
 						<li><b>Patch your game.</b> Open a terminal in the download folder and run:
@@ -292,7 +383,7 @@ footer a:hover { text-decoration: underline; }
 					</ol>
 				</div>
 
-				<div class="panel" id="p-mac" role="tabpanel" aria-labelledby="tab-mac" hidden>
+				<div class="panel tabbody" id="p-mac" role="tabpanel" aria-labelledby="tab-mac" hidden>
 					<ol>
 						<li><b>Download and untar</b> <code class="i">ww-multiplayer-macos.tar.gz</code>. You get the app, a Finder-clickable <code class="i">WW Multiplayer.app</code> and a setup script.</li>
 						<li><b>Clear the download quarantine.</b> The app is ad-hoc signed, not notarized, so macOS blocks it until you run this in the untarred folder:
@@ -311,34 +402,34 @@ footer a:hover { text-decoration: underline; }
 		</section>
 
 		<section id="play">
-			<h2>Playing over the internet</h2>
+			<div class="head"><h2 class="hud">Playing over the internet</h2></div>
 			<p class="sub">On the same home network, just join the host's LAN IP. Across the internet, the joiner needs to reach the host on TCP port 25565.</p>
 			<div class="grid2">
 				<div class="card">
-					<h3>Easiest: Radmin VPN</h3>
+					<h3 class="hud">Easiest: Radmin VPN</h3>
 					<p>Free, no router setup. Everyone installs <a href="https://www.radmin-vpn.com/">Radmin VPN</a>. The host creates a network, friends join it with its name and password, and joiners use the host's Radmin IP (<code class="i">26.x.x.x</code>). If Windows asks, allow <code class="i">ww-multiplayer.exe</code> on all networks. Windows only.</p>
 				</div>
-				<div class="card">
-					<h3>Port forwarding</h3>
+				<div class="card blue">
+					<h3 class="hud">Port forwarding</h3>
 					<p>Works on Windows and macOS. On the host's router, forward TCP <code class="i">25565</code> to the host's PC. The joiner uses the host's public IP. Use <code class="i">--port</code> to pick a different port.</p>
 				</div>
 			</div>
 		</section>
 
 		<section id="status">
-			<h2>What works today</h2>
-			<p class="sub">This is an active project; follow along on <a class="gh-issues" href="https://github.com/StephenSHorton/ww-multiplayer/issues" style="color:#fff">GitHub</a>.</p>
+			<div class="head"><h2 class="hud">What works today</h2></div>
+			<p class="sub">This is an active project; follow along on <a class="gh-issues" href="https://github.com/StephenSHorton/ww-multiplayer/issues">GitHub</a>.</p>
 			<div class="grid2">
-				<div class="card status">
-					<h3>Works</h3>
+				<div class="card">
+					<h3 class="hud">Works</h3>
 					<ul>
-						<li class="ok">Your friend's Link in your game, at their real position with their real animations</li>
-						<li class="ok">Hosting and joining, with automatic reconnect if the connection drops</li>
-						<li class="ok">A terminal menu with status, a text minimap and chat</li>
+						<li>Your friend's Link in your game, at their real position with their real animations</li>
+						<li>Hosting and joining, with automatic reconnect if the connection drops</li>
+						<li>A terminal menu with status, a text minimap and chat</li>
 					</ul>
 				</div>
-				<div class="card status">
-					<h3>Known limits</h3>
+				<div class="card blue limits">
+					<h3 class="hud">Known limits</h3>
 					<ul>
 						<li>Outset Island is the most tested. Room and stage changes aren't smooth yet.</li>
 						<li>No built-in NAT traversal: use Radmin VPN or a port forward.</li>
@@ -349,7 +440,7 @@ footer a:hover { text-decoration: underline; }
 		</section>
 
 		<section id="faq">
-			<h2>FAQ</h2>
+			<div class="head"><h2 class="hud">FAQ</h2></div>
 			<details><summary>Do all players need the same version?</summary><div>Yes. Check with <code class="i">ww-multiplayer version</code>. A host turns away players on an incompatible version with a message telling them to update.</div></details>
 			<details><summary>Do I need a specific version of the game?</summary><div>Yes: the North American GameCube release, game ID <code class="i">GZLE01</code>, as <code class="i">.iso</code> or <code class="i">.ciso</code>. Already-patched images are detected and skipped.</div></details>
 			<details><summary>Why don't you just ship a patched ISO?</summary><div>That would mean distributing Nintendo's game. The patcher only contains this project's own code plus a list of edits; every original byte comes from your own copy.</div></details>
@@ -419,8 +510,7 @@ footer a:hover { text-decoration: underline; }
 			const asset = rel.assets.find(x => x.name === a.dataset.asset);
 			if (!asset) return;
 			a.href = asset.browser_download_url;
-			const sz = a.querySelector(".sz");
-			sz.textContent = (a.id === "dl-mac" ? "Universal" : "64-bit") + " · " + mb(asset.size);
+			a.querySelector(".sz").textContent = (a.id === "dl-mac" ? "Universal" : "64-bit") + " · " + mb(asset.size);
 		});
 		const date = new Date(rel.published_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 		const sums = rel.assets.find(x => x.name === "SHA256SUMS");
