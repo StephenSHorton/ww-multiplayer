@@ -1006,8 +1006,10 @@ func TestBindFlow(t *testing.T) {
 		t.Fatalf("leaked hello of a stale nonce: %s, want the leak NOTICE", subs(ms))
 	}
 	// A leaked hello of another world, even with a nonce this world has
-	// pending, may be a fresh bind of that world: only its host can tell,
-	// and the NOTICE says so, whole, without calling for a scrub.
+	// pending, may be a fresh bind of that world if only V5 fails: only
+	// its host can tell, and the NOTICE says so, whole, without calling
+	// for a scrub. The hub can't see which rules failed, so the NOTICE
+	// leaves that to the replica.
 	other := hello(wire.FileLeaked, otherWorld, 0)
 	other.BindNonce = wire.ID(nonce)
 	ms = r.exchange(u, other)
@@ -1018,7 +1020,7 @@ func TestBindFlow(t *testing.T) {
 	if len(ns) != 1 || ns[0].Code != wire.NoticeNotBound {
 		t.Fatalf("leaked hello of another world: %s, want one NOT_BOUND NOTICE", subs(ms))
 	}
-	if txt := ns[0].Text; !containsAll(txt, "a co-op tag of world "+otherWorld.String(), "leaked from another file, or a fresh bind to that world not yet loaded from the card", "Only that world's host can tell") ||
+	if txt := ns[0].Text; !containsAll(txt, "a co-op tag of world "+otherWorld.String(), "It leaked from another file or, if only V5 fails, may be a fresh bind to that world not yet loaded from the card", "only that world's host can tell") ||
 		strings.Contains(txt, "scrub") || !strings.HasSuffix(txt, "Nothing is synced until you bind the file") || len(txt) > wire.MaxNoticeLen {
 		t.Fatalf("leaked hello of another world: NOTICE %q (%d bytes, max %d)", txt, len(txt), wire.MaxNoticeLen)
 	}

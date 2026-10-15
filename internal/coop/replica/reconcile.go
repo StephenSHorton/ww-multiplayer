@@ -6,7 +6,6 @@ import (
 	"math/bits"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 )
@@ -225,7 +224,7 @@ func (r *Replica) reconcile(o *obs, armed bool, rep *Report) {
 	due, waiting := r.pick(o, r.planned, win, calm)
 	r.toWrite = due
 	rep.Waiting, rep.RoomChange, rep.SwitchWindow = len(waiting), win.room, win.switches
-	r.logWaits(r.planned, waiting, r.held, o.st, calm)
+	r.logWaits(r.planned, waiting, r.held, o, calm)
 	if len(due) == 0 {
 		r.room.close(win)
 	} else {
@@ -296,14 +295,18 @@ func (r *Replica) wroteLive(res Result, off uint16) bool {
 // logWaits logs, once while it stays so, each held bit and each M3 bit
 // that waits for the receiver's next room or stage change, for the room
 // hold (calm: the hold allows the loaded table's memory switches), or,
-// once the room change it waits for is in, for the game to be IDLE (st:
-// the tick's gates). One logged as waiting for the room change is not
-// logged again when, after the change, it waits for STABLE or IDLE. One
-// whose room change is in, with the game IDLE, gets no line: it waits
-// only for STABLE, which opens within ticks, or for a stalled heartbeat.
-// The planned bits of M4's classes are the M4 receiver's to write and
-// log (reconcile_m4.go), from their own plans.
-func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit, st gate.Status, calm bool) {
+// once the room change it waits for is in, for the game to be IDLE (o:
+// the tick, whose gates say why the game is not). A stage change is in
+// only once the new stage has loaded: while mNextStage is set, the write
+// also waits for the load and the new stage's STABLE, so it logs that it
+// waits for the stage change. One logged as waiting for the room change
+// is not logged again when, after the change, it waits for STABLE or
+// IDLE. One whose room change is in, with the game IDLE, gets no line: it
+// waits only for STABLE, which opens within ticks, or for a stalled
+// heartbeat. The planned bits of M4's classes are the M4 receiver's to
+// write and log (reconcile_m4.go), from their own plans.
+func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit, o *obs, calm bool) {
+	st := o.st
 	var lines []string
 	var nowOR, nowHeld world.BitSet
 	var nowMax world.Image
@@ -343,10 +346,12 @@ func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit, st gate.Sta
 	for _, w := range waiting {
 		// in: the room change w waits for is in, so its window waits for
 		// the gates alone (roomWatch.open); for a memory switch of the
-		// loaded table, the room hold has passed as well.
-		in := r.room.due
+		// loaded table, the room hold has passed as well. roomWatch makes
+		// the next room due as soon as mNextStage is set, but a stage
+		// change still pending is not in: the stage has yet to load.
+		in := r.room.due && o.s.NextEnable == 0
 		if w.Category == CatSwitch {
-			in = r.room.switches && calm
+			in = r.room.switches && calm && o.s.NextEnable == 0
 		}
 		why := "waits for the next room or stage change"
 		switch {

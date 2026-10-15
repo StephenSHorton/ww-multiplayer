@@ -38,13 +38,14 @@ func warpLink(d *dolphin.Dolphin, x, y, z float32, timeout time.Duration) error 
 // still differs from warp_ack and is carried out. In that race the error
 // says withdrawn although Link was moved.
 //
-// The withdraw is made only while warp_seq still reads the new value. A
-// save state loaded meanwhile restores the mailbox with the rest of MEM1,
-// so warp_seq = warp_ack again and warp_x/y/z are the state's: writing
-// warp_ack = the new warp_seq then would arm a warp to those coordinates.
-// The mailbox is then left as it is, and so it is when another writer has
-// bumped warp_seq since. A load between that read and the write is still
-// missed, but that window is microseconds wide.
+// The withdraw is skipped when warp_seq reads as anything but the new
+// value. A save state loaded meanwhile restores the mailbox with the rest
+// of MEM1, so warp_seq = warp_ack again and warp_x/y/z are the state's:
+// writing warp_ack = the new warp_seq then would arm a warp to those
+// coordinates. The mailbox is then left as it is, and so it is when
+// another writer has bumped warp_seq since. A read of warp_seq that fails
+// does not stop the withdraw, so a load in that case is missed, as is a
+// load between that read and the write, a window microseconds wide.
 //
 // warp_ack is no WriteGuard target (§6.7, docs/08 item 75). warpLink runs
 // only from mp-local's startup shift, which never runs under --coop, and

@@ -290,9 +290,11 @@ func (h *Hub) onUnboundHello(p *peer, m *wire.CoHello) {
 		// Only the tag's own world's host knows that world's pending
 		// fresh binds, so a V5-only failure may be one of them. The
 		// replica offers no scrub for that (Appendix C item 49), and
-		// the NOTICE does not say the file should be scrubbed; if V2-V4
-		// failed too, the replica offers the scrub itself.
-		h.notify(p, wire.NoticeNotBound, fmt.Sprintf("your file carries a co-op tag of world %s: a tag leaked from another file, or a fresh bind to that world not yet loaded from the card. Only that world's host can tell which. Nothing is synced until you bind the file", tagWorld))
+		// the NOTICE does not say the file should be scrubbed. The hub
+		// can't tell a V5-only failure from one where V2-V4 failed too,
+		// so the NOTICE says the tag may be a fresh bind only if V5
+		// alone fails; otherwise the replica offers the scrub itself.
+		h.notify(p, wire.NoticeNotBound, fmt.Sprintf("your file carries a co-op tag of world %s. It leaked from another file or, if only V5 fails, may be a fresh bind to that world not yet loaded from the card: only that world's host can tell. Nothing is synced until you bind the file", tagWorld))
 	case m.FileState == wire.FileLeaked:
 		h.notify(p, wire.NoticeNotBound, "your file carries a co-op tag leaked from another file; it binds nothing and should be scrubbed. Nothing is synced until you bind the file")
 	default:

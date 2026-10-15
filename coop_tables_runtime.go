@@ -275,11 +275,14 @@ func cacheCoopTablesForPatch(w io.Writer, image string) {
 	)
 	// A failed build reads the disc the same way each time, so the
 	// session's rebuild and --coop-iso on this disc fail as this one did.
+	// A record that can't be written leaves the one before it as it was,
+	// and a session without --coop-iso takes that disc's tables.
 	switch {
 	case errors.As(err, &be) && errors.As(err, &nr):
 		fmt.Fprintf(w, "  co-op : WARNING: this build can't make the co-op stage tables of this disc (%s), and the disc can't be recorded either (%s). "+
-			"The patched ISO is fine, but --coop sessions run without memory switch sync, and patching again or %s won't change that. "+
-			"If you patched your unmodified Wind Waker (GZLE01) image, please report this line.\n", oneLine(be), oneLine(nr.err), coopISOFlag)
+			"The patched ISO is fine, but --coop sessions can't take this disc's tables, and patching again or %s won't change that. "+
+			"A session without %s may still take the tables of a disc recorded before; its first lines name that disc. "+
+			"If you patched your unmodified Wind Waker (GZLE01) image, please report this line.\n", oneLine(be), oneLine(nr.err), coopISOFlag, coopISOFlag)
 	case errors.As(err, &be):
 		fmt.Fprintf(w, "  co-op : WARNING: this build can't make the co-op stage tables of this disc (%s). "+
 			"The patched ISO is fine, but --coop sessions run without memory switch sync, and patching again or %s won't change that. "+

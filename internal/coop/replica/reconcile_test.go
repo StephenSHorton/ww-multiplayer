@@ -1224,6 +1224,84 @@ func TestReconcileLogsAnIdleWait(t *testing.T) {
 	}
 }
 
+// TestReconcileLogsAPendingStageChange: a room-change write that arrives
+// during a door's exit event, once mNextStage is set and while Link is
+// still in the old stage, waits for the stage change and not only for
+// the event. It logs `waits for the next room or stage change`, not the
+// IDLE line, and is written only once the new stage has settled, in its
+// window. So does a memory switch of the loaded table whose room hold
+// has passed (Appendix C item 129).
+func TestReconcileLogsAPendingStageChange(t *testing.T) {
+	sw, swMask := switchImageByte(addr.TableDRC, 0x05) // latching in DRC's table (switch5Policy)
+	for _, c := range []struct {
+		name string
+		off  int
+		mask byte
+		// before is where Link stands as the door's event starts.
+		before func(rr *recRig)
+		// within is how many ticks after the new stage loads the write
+		// may wait.
+		within func(rr *recRig) int
+	}{
+		{name: "the ocean, from Outset to DRC", off: addr.OffOcean + 5, mask: 0x04,
+			before: func(rr *recRig) {},
+			within: func(rr *recRig) int { return gate.StableTicks + 4 }},
+		{name: "a memory switch, from a settled room of DRC to DRC", off: sw, mask: swMask,
+			before: func(rr *recRig) {
+				rr.load(drc)
+				rr.enter(2, 1)
+				rr.settleRooms()
+				rr.enter(1, 2)
+				rr.ticks(gate.StableTicks + 2) // the room change's window, with nothing due
+			},
+			within: func(rr *recRig) int { return rr.holdTicks() + gate.StableTicks + 4 }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage|hub.FeatureSwitches)
+			rr.ticks(10)
+			c.before(rr)
+			if err := rr.g.SetNextStage(drc); err != nil {
+				t.Fatal(err)
+			}
+			rr.g.SetEvent(1, 0) // the door's exit event
+			var img world.Image
+			img[c.off] = c.mask
+			label := DefaultLabel(c.off, bits.TrailingZeros8(c.mask))
+			rr.world(img)
+			if n := rr.ticks(3); n != 0 {
+				t.Fatalf("%d bytes written with a stage change pending", n)
+			}
+			const want = "waits for the next room or stage change"
+			if n := rr.log.count(label + " waits for"); n != 1 || !rr.log.has(label+" "+want) {
+				t.Fatalf("%d wait lines for %s, want one, %q:\n%s", n, label, want, rr.log)
+			}
+			rr.store(addr.PlayerPtr, []byte{0, 0, 0, 0})
+			if n := rr.ticks(3); n != 0 {
+				t.Fatalf("%d bytes written with no Link", n)
+			}
+			if err := rr.g.ChangeStage(); err != nil {
+				t.Fatal(err)
+			}
+			rr.g.SetEvent(0, 0)
+			loaded := len(rr.reps)
+			w := rr.untilWrite(c.within(rr))
+			switch {
+			case w < 0:
+				t.Fatalf("never written:\n%s", rr.log)
+			case w < loaded+gate.StableTicks-1:
+				t.Fatalf("written on tick %d, before the new stage loaded on tick %d was STABLE\n%s", w, loaded, rr.log)
+			case c.off == sw && !rr.reps[w].SwitchWindow, c.off != sw && !rr.reps[w].RoomChange:
+				t.Fatalf("not written in the stage change's window: %+v", rr.reps[w])
+			case !rr.log.has("set " + label):
+				t.Fatalf("the log lacks the write:\n%s", rr.log)
+			case rr.log.count(label+" waits for") != 1:
+				t.Fatalf("more wait lines for %s:\n%s", label, rr.log)
+			}
+			rr.audit(false)
+		})
+	}
+}
+
 // TestReconcileLaterClasses: the story bits, registers, inventory and
 // capacities the planner plans are M4's, written only while the hub
 // grants their features: with FeatureImage alone nothing of them is

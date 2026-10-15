@@ -329,8 +329,11 @@ func TestCacheCoopTablesForPatchUncached(t *testing.T) {
 // TestCacheCoopTablesForPatchNoRecord: when the disc can't be recorded
 // either, the patch step's warning names both errors. Tables built but not
 // cached send sessions to --coop-iso, the one way left to name the disc. A
-// disc whose tables can't be built says that patching again or --coop-iso,
-// which run the same build, won't change that.
+// disc whose tables can't be built says that sessions can't take its
+// tables and that patching again or --coop-iso, which run the same build,
+// won't change that, but not that sessions run without switch sync: the
+// record of a disc patched before, if any, stays, and a session takes its
+// tables.
 func TestCacheCoopTablesForPatchNoRecord(t *testing.T) {
 	for _, c := range []struct {
 		name, prefix string
@@ -340,8 +343,9 @@ func TestCacheCoopTablesForPatchNoRecord(t *testing.T) {
 	}{
 		{"a disc whose tables can't be built", "  co-op : WARNING: this build can't make the co-op stage tables of this disc (tables: stagedata: res/Stage/a/Stage.arc: ",
 			tablestest.Disc([]stagetest.Stage{{Name: "a", DZS: []byte{1}}}).ISO(tablestest.PatchableDOL()), false,
-			[]string{"), and the disc can't be recorded either (tables: ", "The patched ISO is fine", "patching again or --coop-iso won't change that", "please report this line"},
-			[]string{"will need --coop-iso", "The disc is recorded"}},
+			[]string{"), and the disc can't be recorded either (tables: ", "The patched ISO is fine", "--coop sessions can't take this disc's tables", "patching again or --coop-iso won't change that",
+				"A session without --coop-iso may still take the tables of a disc recorded before; its first lines name that disc", "please report this line"},
+			[]string{"will need --coop-iso", "The disc is recorded", "run without memory switch sync"}},
 		{"tables that can't be cached", "  co-op : WARNING: no co-op stage tables for this disc (", tablestest.PatchableISO(tablestest.Vanilla()), true,
 			[]string{"built, but not cached (", "The patched ISO is fine", "--coop sessions will need --coop-iso"}, []string{"The disc is recorded"}},
 	} {
