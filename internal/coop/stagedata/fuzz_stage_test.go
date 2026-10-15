@@ -161,12 +161,18 @@ func FuzzLoad(f *testing.F) {
 		d := new(stagetest.Disc)
 		d.Add("res/Stage/fz/Stage.arc", stageArc)
 		d.Add("res/Stage/fz/Room3.arc", roomArc)
-		stages, err := Load(d)
+		stages, skipped, err := Load(d)
 		if err != nil {
 			return
 		}
-		if len(stages) != 1 {
-			t.Fatalf("%d stages", len(stages))
+		if len(stages)+len(skipped) != 1 {
+			t.Fatalf("%d stages, %d skipped", len(stages), len(skipped))
+		}
+		if len(skipped) == 1 {
+			if s := skipped[0]; s.Name != "fz" || s.Why != SkipNoDZS && s.Why != SkipNoStag {
+				t.Fatalf("skipped %+v", s)
+			}
+			return
 		}
 		st := stages[0]
 		if st.DZS == nil || st.DZS.Stag == nil || st.Stag != *st.DZS.Stag || st.SaveTable != st.Stag.SaveTable() ||

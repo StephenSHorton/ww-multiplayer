@@ -113,7 +113,7 @@ func load(t testing.TB, stages []stagetest.Stage) []*stagedata.Stage {
 	for _, s := range stages {
 		d.AddStage(s)
 	}
-	out, err := stagedata.Load(d)
+	out, _, err := stagedata.Load(d)
 	if err != nil {
 		t.Fatal(err)
 	}

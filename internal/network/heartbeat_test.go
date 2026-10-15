@@ -263,6 +263,25 @@ func TestClientMeasuresRTT(t *testing.T) {
 	}
 }
 
+// TestMeasuredRTT: a round trip the clock can't resolve still counts as
+// measured, since LastRTT's 0 means none has completed.
+func TestMeasuredRTT(t *testing.T) {
+	for _, c := range []struct {
+		now, sent, want int64
+		ok              bool
+	}{
+		{5000, 5000, 1, true}, // the same reading before and after (Windows loopback)
+		{5000, 4999, 1, true},
+		{5000, 2000, 3000, true},
+		{0, 0, 1, true},
+		{5000, 5001, 0, false}, // a stamp from the future
+	} {
+		if got, ok := measuredRTT(c.now, c.sent); got != c.want || ok != c.ok {
+			t.Errorf("measuredRTT(%d, %d) = %d, %v; want %d, %v", c.now, c.sent, got, ok, c.want, c.ok)
+		}
+	}
+}
+
 // TestServerRestartChangesEpoch: two Server instances have distinct epochs, so
 // a client reconnecting to a fresh instance can detect the restart.
 func TestServerRestartChangesEpoch(t *testing.T) {

@@ -69,7 +69,7 @@ func sampleDisc() *stagetest.Disc {
 }
 
 func TestLoad(t *testing.T) {
-	stages, err := Load(sampleDisc())
+	stages, _, err := Load(sampleDisc())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestLoad(t *testing.T) {
 // inject.Disc, the way coop-tables will, and l_objectName out of its DOL.
 func TestLoadFromISO(t *testing.T) {
 	src := sampleDisc()
-	want, err := Load(src)
+	want, _, err := Load(src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestLoadFromISO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := Load(disc)
+	got, _, err := Load(disc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestLoadStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	all, err := Load(src)
+	all, _, err := Load(src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestLoadStage(t *testing.T) {
 }
 
 func TestStageViews(t *testing.T) {
-	stages, err := Load(sampleDisc())
+	stages, _, err := Load(sampleDisc())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,8 +258,6 @@ func TestLoadErrors(t *testing.T) {
 		name, want string
 		src        FileSource
 	}{
-		{"no stage.dzs", "res/Stage/a/Stage.arc: no stage.dzs", disc(stagetest.Stage{Name: "a"})},
-		{"no STAG", "stage.dzs has no STAG", disc(stagetest.Stage{Name: "a", DZS: stagetest.DZx()})},
 		{"bad stage.dzs", "res/Stage/a/Stage.arc: dzs/stage.dzs: dzx:", disc(stagetest.Stage{Name: "a", DZS: []byte{0, 0}})},
 		{"bad room.dzr", "res/Stage/a/Room3.arc: dzr/room.dzr: dzx:",
 			disc(stagetest.Stage{Name: "a", DZS: stagetest.DZx(stag), Rooms: []stagetest.Room{{No: 3, DZR: []byte{0xFF}}}})},
@@ -274,38 +272,127 @@ func TestLoadErrors(t *testing.T) {
 			return d
 		}()},
 		{"read error", "res/Stage/ok/Room0.arc: device on fire", failingSource{disc(ok), "res/Stage/ok/Room0.arc", ioErr}},
-		// The earliest failing job is the one reported, whatever the
-		// workers' timing: here the second stage's Stage.arc, before its
-		// rooms' and the third stage's errors.
-		{"earliest error", "res/Stage/b/Stage.arc: no stage.dzs", disc(ok,
-			stagetest.Stage{Name: "b", Rooms: []stagetest.Room{{No: 0, DZR: []byte{1}}, {No: 1, DZR: []byte{1}}}},
-			stagetest.Stage{Name: "c", DZS: []byte{1}})},
 	} {
 		for range 20 {
-			stages, err := Load(c.src)
+			stages, skipped, err := Load(c.src)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
-				t.Fatalf("%s: Load = %v, %v; want an error containing %q", c.name, stages, err, c.want)
+				t.Fatalf("%s: Load = %v, %v, %v; want an error containing %q", c.name, stages, skipped, err, c.want)
 			}
 			if c.name == "read error" && !errors.Is(err, ioErr) {
 				t.Errorf("read error: %v doesn't wrap the source's error", err)
 			}
 		}
 	}
-	// Many stages, so jobs are queued behind the failure: Load still
-	// reports the earliest one and stops starting new ones.
+
+	// Every failing archive is named, in listing order (the Stage.arc
+	// files, then the rooms of the stages whose Stage.arc loaded), the same
+	// whatever the workers' timing. A skipped stage's rooms are never read.
+	bad := []stagetest.Room{{No: 0, DZR: []byte{1}}, {No: 1, DZR: []byte{1}}}
+	src := disc(ok,
+		stagetest.Stage{Name: "b", DZS: stagetest.DZx(stag), Rooms: bad},
+		stagetest.Stage{Name: "c", DZS: []byte{1}, Rooms: bad},
+		stagetest.Stage{Name: "d", Rooms: bad},
+		stagetest.Stage{Name: "e", DZS: []byte{1}})
+	want := []string{
+		"stagedata: res/Stage/c/Stage.arc: dzs/stage.dzs: dzx:",
+		"stagedata: res/Stage/e/Stage.arc: dzs/stage.dzs: dzx:",
+		"stagedata: res/Stage/b/Room0.arc: dzr/room.dzr: dzx:",
+		"stagedata: res/Stage/b/Room1.arc: dzr/room.dzr: dzx:",
+	}
+	var first string
+	for i := range 20 {
+		_, _, err := Load(src)
+		if err == nil {
+			t.Fatal("every error: Load succeeded")
+		}
+		lines := strings.Split(err.Error(), "\n")
+		if len(lines) != len(want) {
+			t.Fatalf("every error: %d lines, want %d:\n%v", len(lines), len(want), err)
+		}
+		for k, l := range lines {
+			if !strings.HasPrefix(l, want[k]) {
+				t.Fatalf("every error: line %d is %q, want it to start %q", k, l, want[k])
+			}
+		}
+		if i == 0 {
+			first = err.Error()
+		} else if err.Error() != first {
+			t.Fatalf("every error: run %d gave\n%v\nnot\n%s", i, err, first)
+		}
+	}
+
+	// Many failures: the first maxLoadErrors are named, and the rest
+	// counted.
 	var many []stagetest.Stage
 	for i := range 40 {
 		s := ok
 		s.Name = fmt.Sprintf("s%02d", i)
 		if i >= 3 {
-			s.DZS = nil
+			s.DZS = []byte{1}
 		}
 		many = append(many, s)
 	}
 	for range 20 {
-		if _, err := Load(disc(many...)); err == nil || !strings.Contains(err.Error(), "res/Stage/s03/Stage.arc") {
-			t.Fatalf("many stages: %v", err)
+		_, _, err := Load(disc(many...))
+		if err == nil {
+			t.Fatal("many stages: Load succeeded")
 		}
+		msg := err.Error()
+		lines := strings.Split(msg, "\n")
+		if len(lines) != maxLoadErrors+1 || !strings.HasPrefix(lines[0], "stagedata: res/Stage/s03/Stage.arc:") ||
+			!strings.HasPrefix(lines[maxLoadErrors-1], "stagedata: res/Stage/s12/Stage.arc:") ||
+			lines[maxLoadErrors] != "stagedata: and 27 more archives failed" {
+			t.Fatalf("many stages:\n%s", msg)
+		}
+	}
+}
+
+// TestLoadSkips: a stage the play scene can't load (no stage.dzs, as the
+// name scene's "Name"; or no STAG) is left out with its rooms and
+// reported, in listing order, and LoadStage says why it can't have it.
+func TestLoadSkips(t *testing.T) {
+	stag := stagetest.StagChunk(stagetest.StagInfo(1, 0, false))
+	ok := stagetest.Stage{Name: "ok", DZS: stagetest.DZx(stag), Rooms: []stagetest.Room{{No: 0, DZR: stagetest.DZx()}}}
+	ok2 := ok
+	ok2.Name = "ok2"
+	d := new(stagetest.Disc)
+	d.AddStage(ok)
+	d.AddStage(stagetest.Stage{Name: "Name", Rooms: []stagetest.Room{{No: 0, DZR: []byte{0xFF}}}})
+	d.AddStage(stagetest.Stage{Name: "nostag", DZS: stagetest.DZx(), Rooms: []stagetest.Room{{No: 2, DZR: stagetest.DZx()}}})
+	d.AddStage(ok2)
+	// Reading a skipped stage's room fails the load.
+	src := failingSource{failingSource{d, "res/Stage/Name/Room0.arc", errors.New("read a skipped stage's room")},
+		"res/Stage/nostag/Room2.arc", errors.New("read a skipped stage's room")}
+	for range 20 {
+		stages, skipped, err := Load(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, s := range stages {
+			names = append(names, s.Name)
+			if len(s.Rooms) != 1 {
+				t.Errorf("%s has %d rooms, want 1", s.Name, len(s.Rooms))
+			}
+		}
+		if !slices.Equal(names, []string{"ok", "ok2"}) {
+			t.Errorf("stages %v, want [ok ok2]", names)
+		}
+		if want := []Skipped{{"Name", SkipNoDZS}, {"nostag", SkipNoStag}}; !slices.Equal(skipped, want) {
+			t.Errorf("skipped %v, want %v", skipped, want)
+		}
+	}
+	for name, why := range map[string]string{"name": SkipNoDZS, "NOSTAG": SkipNoStag} {
+		s, err := LoadStage(src, name)
+		if err == nil || errors.Is(err, fs.ErrNotExist) || !strings.Contains(err.Error(), why+", so the play scene can't load it") {
+			t.Errorf("LoadStage(%q) = %v, %v; want the reason it is skipped", name, s, err)
+		}
+	}
+	if s, err := LoadStage(src, "ok2"); err != nil || s.Name != "ok2" {
+		t.Errorf("LoadStage(ok2) = %v, %v", s, err)
+	}
+	if _, skipped, err := Load(sampleDisc()); err != nil || skipped != nil {
+		t.Errorf("sample disc: skipped %v, %v", skipped, err)
 	}
 }
 
@@ -342,12 +429,12 @@ func TestLoadRefusesHugeArchives(t *testing.T) {
 	d.AddStage(ok)
 	for _, path := range []string{"res/Stage/ok/Stage.arc", "res/Stage/ok/Room0.arc"} {
 		for _, size := range []uint32{MaxArchiveSize + 1, 0xFFFFFFFF} {
-			_, err := Load(listedAs{d, t, path, size})
+			_, _, err := Load(listedAs{d, t, path, size})
 			if want := fmt.Sprintf("%s: the disc lists %d bytes, more than the %d-byte cap", path, size, MaxArchiveSize); err == nil || !strings.Contains(err.Error(), want) {
 				t.Errorf("%s listed at %d bytes: err = %v, want %q", path, size, err, want)
 			}
 		}
-		if _, err := Load(listedAs{d, t, path, MaxArchiveSize}); err != nil {
+		if _, _, err := Load(listedAs{d, t, path, MaxArchiveSize}); err != nil {
 			t.Errorf("%s listed at the cap: %v", path, err)
 		}
 	}
@@ -410,7 +497,7 @@ func BenchmarkLoad(b *testing.B) {
 	}
 	b.SetBytes(total)
 	for b.Loop() {
-		if _, err := Load(d); err != nil {
+		if _, _, err := Load(d); err != nil {
 			b.Fatal(err)
 		}
 	}

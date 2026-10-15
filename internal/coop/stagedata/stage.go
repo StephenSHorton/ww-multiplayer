@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 )
@@ -50,6 +49,15 @@ const (
 	// most MaxArchiveSize as read and MaxYaz0Size expanded, and what
 	// ParseDZx makes of one file in it.
 	maxLoadWorkers = 8
+
+	// maxLoadErrors caps how many failed archives a Load error names.
+	maxLoadErrors = 10
+)
+
+// Why Load leaves a stage out (Skipped.Why).
+const (
+	SkipNoDZS  = "no stage.dzs"
+	SkipNoStag = "stage.dzs has no STAG chunk"
 )
 
 // FileSource is the disc Load reads, listed and read by path as
@@ -82,6 +90,14 @@ type Room struct {
 	No   int    // 0-63
 	Path string // the archive's path as the game opens it: "res/Stage/M_NewD2/Room3.arc"
 	DZR  *DZx   // room.dzr; nil when the archive has none
+}
+
+// Skipped is a stage directory Load leaves out, with its rooms: its
+// Stage.arc parses, but the play scene can't load the stage (Load), so
+// nothing in it is ever placed and it has no save table.
+type Skipped struct {
+	Name string `json:"name"` // the directory, as spelled on the disc: "Name"
+	Why  string `json:"why"`  // SkipNoDZS or SkipNoStag
 }
 
 // Placed is an entry with the room whose file places it.
@@ -169,34 +185,54 @@ func (s *Stage) placed(keep func(Actor) bool) []Placed {
 // "%d" writes it. Other files, directories without a Stage.arc, and
 // directories with names longer than the game can load are left out.
 //
-// A Stage.arc that doesn't parse or has no stage.dzs (the game asserts,
-// d_stage.cpp:2226) or no STAG in it (where the game reads the save
-// table, :1674), a room archive that doesn't parse, an archive the disc
+// Stages the play scene can't load are left out too, with their rooms,
+// and returned as skipped, in listing order:
+//   - A Stage.arc with no stage.dzs. Only the play scene's loader reads a
+//     stage.dzs (dStage_infoCreate and dStage_Create, d_stage.cpp:
+//     2214-2226; the opening scenes share it, d_s_play.cpp:1528-1566),
+//     and it halts on a missing one, since JUT_ASSERT panics in the
+//     retail build too (JUTAssert.h:9). Another scene loads such a
+//     stage: the file-select (name) scene loads "Name"'s Stage.arc and
+//     reads only a nested archive in it, resource 0x17, for its screens
+//     (d_s_name.cpp:71, 125-145).
+//   - A stage.dzs with no STAG. The stage info stays NULL (dStage_
+//     stageDt_c::init, d_stage.cpp:385); only the STAG sets it, and with
+//     it the save table (dStage_stagInfoInit, :1670-1677). The play scene
+//     reads it unchecked as the stage starts (d_s_play.cpp:1302) and ends
+//     (dStage_Delete, d_stage.cpp:2255).
+//
+// A Stage.arc or room archive that doesn't parse, an archive the disc
 // lists as larger than MaxArchiveSize (refused before it is read), and
 // any read error fail the whole load: the tables built from it would be
-// silently short.
+// silently short. The error names the failures (up to maxLoadErrors):
+// each stage's Stage.arc first, in listing order, then the rooms of the
+// stages whose Stage.arc loaded. A stage whose Stage.arc failed has its
+// rooms left unread.
 // A file the listing has but Stat can't find is one the game can't
 // see either (another spelling of its directory comes first), and is
 // left out; so are the rooms of such a stage. The archives are expanded
 // in parallel.
-func Load(src FileSource) ([]*Stage, error) {
+func Load(src FileSource) ([]*Stage, []Skipped, error) {
 	return loadStages(src, listStages(src.Files()))
 }
 
 // LoadStage reads one stage by name (matched case-insensitively, as the
 // game opens it). A name Load would not list is an error matching
-// fs.ErrNotExist.
+// fs.ErrNotExist; one Load would skip is an error saying why.
 func LoadStage(src FileSource, name string) (*Stage, error) {
 	for _, l := range listStages(src.Files()) {
 		if !asciiEqualFold(l.name, name) {
 			continue
 		}
-		st, err := loadStages(src, []stageListing{l})
+		st, skipped, err := loadStages(src, []stageListing{l})
 		if err != nil {
 			return nil, err
 		}
 		if len(st) == 1 {
 			return st[0], nil
+		}
+		if len(skipped) == 1 {
+			return nil, fmt.Errorf("stagedata: %s: %s, so the play scene can't load it", l.stagePath(), skipped[0].Why)
 		}
 		break
 	}
@@ -295,28 +331,36 @@ type loadJob struct {
 
 // loadResult is what a job found.
 type loadResult struct {
-	found bool // the archive exists (Stat and ReadFile didn't report fs.ErrNotExist)
-	dzx   *DZx // its stage.dzs or room.dzr; nil for a room without one
+	found bool   // the archive exists (Stat and ReadFile didn't report fs.ErrNotExist)
+	dzx   *DZx   // its stage.dzs or room.dzr; nil for a room without one, and for a skipped stage
+	skip  string // why the play scene can't load this Stage.arc's stage (Skipped.Why); "" if it can
 	err   error
 }
 
 // loadStages reads the listed stages: every Stage.arc first, then the
-// rooms of the stages the game can open (a room of a stage it can't see
-// is never loaded, however broken).
-func loadStages(src FileSource, list []stageListing) ([]*Stage, error) {
+// rooms of the stages the game can open and play (a room of a stage it
+// can't see or skips is never loaded, however broken). The rooms of the
+// stages whose Stage.arc loaded are read even when another's failed, so
+// the error names every failure.
+func loadStages(src FileSource, list []stageListing) ([]*Stage, []Skipped, error) {
 	jobs := make([]loadJob, len(list))
 	for i, l := range list {
 		jobs[i] = loadJob{stage: i, room: -1, path: l.stagePath()}
 	}
-	results, err := runJobs(src, jobs)
-	if err != nil {
-		return nil, err
-	}
+	var errs []error
+	var skipped []Skipped
 	stages := make([]*Stage, len(list))
-	jobs = jobs[:0]
-	for i, r := range results {
-		if !r.found {
+	var rooms []loadJob
+	for i, r := range runJobs(src, jobs) {
+		switch {
+		case r.err != nil:
+			errs = append(errs, r.err)
+			continue
+		case !r.found:
 			continue // a spelling another directory shadows: the game can't see it
+		case r.skip != "":
+			skipped = append(skipped, Skipped{Name: list[i].name, Why: r.skip})
+			continue
 		}
 		s := r.dzx.Stag
 		stages[i] = &Stage{
@@ -325,53 +369,47 @@ func loadStages(src FileSource, list []stageListing) ([]*Stage, error) {
 			Stag: *s, DZS: r.dzx,
 		}
 		for _, no := range list[i].rooms {
-			jobs = append(jobs, loadJob{stage: i, room: no, path: list[i].roomPath(no)})
+			rooms = append(rooms, loadJob{stage: i, room: no, path: list[i].roomPath(no)})
 		}
 	}
-	if results, err = runJobs(src, jobs); err != nil {
-		return nil, err
-	}
-	for k, j := range jobs { // in room order within each stage
-		if r := results[k]; r.found {
+	for k, r := range runJobs(src, rooms) { // in room order within each stage
+		j := rooms[k]
+		switch {
+		case r.err != nil:
+			errs = append(errs, r.err)
+		case r.found:
 			stages[j.stage].Rooms = append(stages[j.stage].Rooms, Room{No: j.room, Path: j.path, DZR: r.dzx})
 		}
 	}
-	return slices.DeleteFunc(stages, func(s *Stage) bool { return s == nil }), nil
+	if len(errs) > maxLoadErrors {
+		errs = append(errs[:maxLoadErrors:maxLoadErrors], fmt.Errorf("stagedata: and %d more archives failed", len(errs)-maxLoadErrors))
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, nil, err
+	}
+	return slices.DeleteFunc(stages, func(s *Stage) bool { return s == nil }), skipped, nil
 }
 
-// runJobs runs jobs on a few workers. Once one fails no new job starts,
-// and the error returned is the earliest job's, so it is the same from
-// run to run: every job before a failed one has started by then, and is
-// waited for.
-func runJobs(src FileSource, jobs []loadJob) ([]loadResult, error) {
+// runJobs runs every job on a few workers and returns their results in
+// job order, which is the same from run to run whatever the workers'
+// timing.
+func runJobs(src FileSource, jobs []loadJob) []loadResult {
 	results := make([]loadResult, len(jobs))
-	var failed atomic.Bool
 	next := make(chan int)
 	var wg sync.WaitGroup
 	for range min(runtime.GOMAXPROCS(0), maxLoadWorkers, max(len(jobs), 1)) {
 		wg.Go(func() {
 			for k := range next {
 				results[k] = loadArchive(src, jobs[k])
-				if results[k].err != nil {
-					failed.Store(true)
-				}
 			}
 		})
 	}
 	for k := range jobs {
-		if failed.Load() {
-			break
-		}
 		next <- k
 	}
 	close(next)
 	wg.Wait()
-	for _, r := range results {
-		if r.err != nil {
-			return nil, r.err
-		}
-	}
-	return results, nil
+	return results
 }
 
 // loadArchive reads one job's archive and its DZx file. The size the
@@ -409,7 +447,7 @@ func loadArchive(src FileSource, j loadJob) loadResult {
 	m, ok := a.FindName(member)
 	if !ok {
 		if j.room < 0 {
-			return loadResult{err: fmt.Errorf("stagedata: %s: no %s in it", j.path, member)}
+			return loadResult{found: true, skip: SkipNoDZS}
 		}
 		return loadResult{found: true}
 	}
@@ -422,7 +460,7 @@ func loadArchive(src FileSource, j loadJob) loadResult {
 		return loadResult{err: fmt.Errorf("stagedata: %s: %s: %w", j.path, m.Path, err)}
 	}
 	if j.room < 0 && d.Stag == nil {
-		return loadResult{err: fmt.Errorf("stagedata: %s: %s has no STAG chunk", j.path, m.Path)}
+		return loadResult{found: true, skip: SkipNoStag}
 	}
 	return loadResult{found: true, dzx: d}
 }

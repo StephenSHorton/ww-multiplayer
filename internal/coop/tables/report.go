@@ -152,6 +152,17 @@ func (t *Tables) Report(sections ...Section) string {
 	fmt.Fprintf(&b, "Co-op tables (docs/08-coop-design.md §9 M1), schema %d, built by %s\n", t.Schema, t.Builder)
 	fmt.Fprintf(&b, "  main.dol SHA-256 %s\n", t.DOL)
 	fmt.Fprintf(&b, "  stage files SHA-256 %s: %d stages, %d rooms\n", t.StageFiles, t.Stages, t.Rooms)
+	if len(t.Skipped) > 0 {
+		skipped := make([]string, len(t.Skipped))
+		for i, s := range t.Skipped {
+			skipped[i] = fmt.Sprintf("%s (%s)", s.Name, s.Why)
+		}
+		noun := "stages"
+		if len(t.Skipped) == 1 {
+			noun = "stage"
+		}
+		fmt.Fprintf(&b, "  left out %d %s the play scene can't load: %s\n", len(t.Skipped), noun, strings.Join(skipped, ", "))
+	}
 
 	var checks []Check
 	for _, c := range t.Acceptance() {

@@ -42,7 +42,7 @@ import (
 // binary wrote is rebuilt (the cache also records the binary's version,
 // builderID, which catches a release that forgets). TestSchemaShape fails
 // when the JSON shape changes and this has not been bumped.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 // Source is the disc Build reads: *inject.Disc satisfies it. Build calls
 // Stat and ReadFile from several goroutines at once (stagedata.FileSource).
@@ -97,18 +97,19 @@ type Tables struct {
 	Schema  int    `json:"schema"`
 	Builder string `json:"builder"` // the binary that built it (builderID)
 	ID
-	Stages   int             `json:"stages"` // stage directories read
-	Rooms    int             `json:"rooms"`  // room archives read
-	Keys     *keys.Result    `json:"keys,omitempty"`
-	Hearts   *hearts.Result  `json:"hearts,omitempty"`
-	Switches *switches.Table `json:"switches,omitempty"`
-	Enemies  *enemies.Table  `json:"enemies,omitempty"`
+	Stages   int                 `json:"stages"`            // stage directories read
+	Rooms    int                 `json:"rooms"`             // room archives read
+	Skipped  []stagedata.Skipped `json:"skipped,omitempty"` // stages the play scene can't load, left out (stagedata.Load)
+	Keys     *keys.Result        `json:"keys,omitempty"`
+	Hearts   *hearts.Result      `json:"hearts,omitempty"`
+	Switches *switches.Table     `json:"switches,omitempty"`
+	Enemies  *enemies.Table      `json:"enemies,omitempty"`
 }
 
 // Only returns a copy of t holding section s alone (the other pointers
 // nil), for printing one section's JSON. The section's table is shared.
 func (t *Tables) Only(s Section) *Tables {
-	o := &Tables{Schema: t.Schema, Builder: t.Builder, ID: t.ID, Stages: t.Stages, Rooms: t.Rooms}
+	o := &Tables{Schema: t.Schema, Builder: t.Builder, ID: t.ID, Stages: t.Stages, Rooms: t.Rooms, Skipped: t.Skipped}
 	switch s {
 	case SectionKeys:
 		o.Keys = t.Keys
@@ -207,18 +208,21 @@ func build(src Source, dol []byte, id ID, st *Stats) (*Tables, error) {
 	}
 	start := time.Now()
 	cs := &countingSource{Source: src}
-	stages, err := stagedata.Load(cs)
+	stages, skipped, err := stagedata.Load(cs)
 	st.Read, st.Files, st.Bytes = time.Since(start), int(cs.files.Load()), cs.bytes.Load()
 	if err != nil {
 		return nil, fmt.Errorf("tables: %w", err)
 	}
 	if len(stages) == 0 {
+		if len(skipped) > 0 {
+			return nil, fmt.Errorf("tables: the disc has no stages the play scene can load (%d left out, %s first: %s)", len(skipped), skipped[0].Name, skipped[0].Why)
+		}
 		return nil, errors.New("tables: the disc has no stages (no " + stagedata.StageRoot + "/<stage>/Stage.arc)")
 	}
 
 	// The builders only read the stages and names, so they run at once.
 	start = time.Now()
-	t := &Tables{Schema: SchemaVersion, Builder: builderID(), ID: id, Stages: len(stages)}
+	t := &Tables{Schema: SchemaVersion, Builder: builderID(), ID: id, Stages: len(stages), Skipped: skipped}
 	for _, s := range stages {
 		t.Rooms += len(s.Rooms)
 	}

@@ -129,7 +129,9 @@ func Dungeon(name string, table int, extra ...stagetest.Actor) stagetest.Stage {
 // Fortress's Bitem; each dungeon its keys and doors; each boss stage its
 // boss, Dragon Roost's with the Bitem too. Dragon Roost Cavern's room 1
 // also has a latching crystal, a push block and enemies, two of them on
-// one key.
+// one key. Last comes "Name", which the tables leave out: like the real
+// disc's, its Stage.arc has no stage.dzs, since only the name scene loads
+// it (stagedata.Load).
 func Vanilla() []stagetest.Stage {
 	var pieces []stagetest.Actor
 	for bit := uint32(0); len(pieces) < hearts.ExpectedPieces-len(hearts.Catalogue); bit++ {
@@ -149,6 +151,7 @@ func Vanilla() []stagetest.Stage {
 		Stage("M_DaiB", keys.TableET, stagedata.StageDungeon, []stagetest.Actor{Boss("big_pow")}, nil),
 		Dungeon("kaze", keys.TableWT),
 		Stage("kazeB", keys.TableWT, stagedata.StageDungeon, []stagetest.Actor{Boss("Bwd")}, nil),
+		{Name: "Name"},
 	}
 }
 
