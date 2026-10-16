@@ -20,10 +20,13 @@ func drcTable() *keys.Table {
 			Flag: itemsrc.Flag{Kind: itemsrc.TboxFlag, Table: addr.TableDRC, Bit: bit},
 			At:   []itemsrc.Where{{Stage: "M_NewD2", Room: 1}}}
 	}
+	door := func(sw int) keys.Door {
+		return keys.Door{Switch: sw, Saved: true, At: []keys.Entry{{Where: itemsrc.Where{Stage: "M_NewD2", Room: -1}, Switch: sw, FrontRoom: 0, BackRoom: 1}}}
+	}
 	return &keys.Table{
 		SaveTable: addr.TableDRC, Dungeon: "DRC", Expected: 2,
 		Sources: []itemsrc.Source{src(1), src(2)},
-		Doors:   []keys.Door{{Switch: 0x10, Saved: true}, {Switch: 0x11, Saved: true}},
+		Doors:   []keys.Door{door(0x10), door(0x11)},
 		Pass:    true,
 	}
 }

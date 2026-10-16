@@ -12,8 +12,10 @@
 // The flags are the receiver's own: the live memBit ORed with the saved
 // slot for the loaded table, the saved slot for the others (View), never
 // the world image. A remote door therefore takes its key only once its
-// switch is in the receiver's copy, whose lock the door then no longer
-// makes (§6.1), so no key is ever owed to a door that still locks.
+// switch is in the receiver's copy and, when co-op wrote it into the live
+// copy, once Link's room has changed since, when the door reads the
+// switch again and drops its lock (§6.1; WroteLive, keys.go). So no key is
+// ever owed to a door that still locks.
 //
 // Every planner (PlanKeys, PlanLife, PlanMagic) is a pure function of the
 // facts it is given and returns at most one Write, with its reason. The
@@ -270,6 +272,8 @@ type Deriver struct {
 	idleFrom time.Time // the first tick of the IDLE run
 
 	now time.Time // the last tick's
+
+	notes []string // WroteLive's, for the next Tick's plan
 }
 
 // fileKey is a loaded file's identity without its tag, which a bind
@@ -333,6 +337,7 @@ func (d *Deriver) Disabled() []Disabled { return append([]Disabled(nil), d.off..
 func (d *Deriver) Tick(in Input) Plan {
 	var p Plan
 	d.now = in.Now
+	p.Notes, d.notes = d.notes, nil
 	if !d.said {
 		d.said = true
 		for _, o := range d.off {
@@ -395,6 +400,21 @@ func (d *Deriver) Dropped(w Write) {
 		}
 	case MagicCounter:
 		d.magic.pend, d.magic.changed = nil, d.now
+	}
+}
+
+// WroteLive tells the Deriver that co-op set bits set of image byte off in
+// the live memBit, the loaded table's copy, after its last Tick (the
+// merge path's writes, replica.Result.Wrote). A key door whose switch is
+// among them is held: not counted open until Link's next room change, as
+// the door keeps its lock until then (keys.go). The next Tick's plan
+// notes each door held.
+func (d *Deriver) WroteLive(off int, set byte) {
+	if !d.have || set == 0 {
+		return
+	}
+	for _, k := range d.keys {
+		d.notes = append(d.notes, k.wroteLive(off, set)...)
 	}
 }
 

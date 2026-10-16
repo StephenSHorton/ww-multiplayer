@@ -47,6 +47,64 @@ var (
 	coKeyDoors  = []int{0x10, 0x11, 0x12, 0x13}
 )
 
+// coDRCDoors are DRC's key doors as a game's actors (fakegame.KeyDoor),
+// door i between rooms i and i+1 as tablestest.Dungeon places them.
+func coDRCDoors() []*fakegame.KeyDoor {
+	var ds []*fakegame.KeyDoor
+	for i, sw := range coKeyDoors {
+		ds = append(ds, &fakegame.KeyDoor{Stage: coDRCKeys.Name, Front: i, Back: i + 1, No: sw})
+	}
+	return ds
+}
+
+// door is p's key door on switch sw.
+func (p *coPlayer) door(sw int) *fakegame.KeyDoor {
+	p.t.Helper()
+	for _, d := range p.beat.doors {
+		if d.No == sw {
+			return d
+		}
+	}
+	p.t.Fatalf("%s has no key door 0x%02X", p.name, sw)
+	return nil
+}
+
+// heldDoors are the doors p's derive holds: open, counted only after its
+// next room change (derive.KeyStatus.Held).
+func (p *coPlayer) heldDoors() []int {
+	var sw []int
+	for _, k := range p.s.r.Status().Derive.Keys {
+		sw = append(sw, k.Held...)
+	}
+	return sw
+}
+
+// coStuck is how many ticks a key door may stay shut to its player before
+// TestCoopSessionM4 fails: a little over the derive's in-flight time, so
+// that a key on its way (a chest's, counted in once settled) is no
+// failure.
+const coStuck = 30
+
+// stuckAt says how a key door of p's is shut to it, or "": next to Link
+// it shows the lock it read before its switch was set, while the game
+// holds no key and none is pending, so no key opens it and only a room
+// change would (the owner's F13).
+func (p *coPlayer) stuckAt() string {
+	if p.keys() != 0 || !p.counters() {
+		return ""
+	}
+	for _, d := range p.beat.doors {
+		stale, err := d.StaleLock(p.g)
+		if err != nil {
+			p.t.Fatal(err)
+		}
+		if stale {
+			return fmt.Sprintf("door 0x%02X shows its lock over its set switch next to Link, with no key to open it", d.No)
+		}
+	}
+	return ""
+}
+
 // The holds' event bits the test plays (class.Holds): MET_KORL is never
 // written into a game without it, UNK_0801 only once the game has
 // MET_KORL of its own.
@@ -495,8 +553,10 @@ func TestCoopSessionM4(t *testing.T) {
 		}
 	}
 	audit := &coAudit{}
-	a := newCoPlayerOver(t, ctx, h, cs, ga, newCoBeat(ga), "Link", &coLog{}, audit, 3)
-	b := newCoPlayerOver(t, ctx, h, jcs, gb, newCoBeat(gb), "Tetra", &coLog{}, audit, 4)
+	ba, bb := newCoBeat(ga), newCoBeat(gb)
+	ba.doors, bb.doors = coDRCDoors(), coDRCDoors()
+	a := newCoPlayerOver(t, ctx, h, cs, ga, ba, "Link", &coLog{}, audit, 3)
+	b := newCoPlayerOver(t, ctx, h, jcs, gb, bb, "Tetra", &coLog{}, audit, 4)
 	players := []*coPlayer{a, b}
 	logs := func() string { return fmt.Sprintf("host:\n%s\nA:\n%s\nB:\n%s", h.rep, a.rep, b.rep) }
 	must := func(err error) {
@@ -507,8 +567,9 @@ func TestCoopSessionM4(t *testing.T) {
 	}
 
 	// Every step: no capacity, max life or max magic falls, nor the
-	// world.
+	// world; and no key door stays shut to its player (coStuck).
 	never := map[*coPlayer]coNever{}
+	stuck := map[*coPlayer]int{}
 	prevWorld := h.world()
 	stepAll := func() {
 		t.Helper()
@@ -519,6 +580,11 @@ func TestCoopSessionM4(t *testing.T) {
 				t.Fatalf("%s: %s\n%s", p.name, why, logs())
 			}
 			never[p] = n
+			if why := p.stuckAt(); why == "" {
+				stuck[p] = 0
+			} else if stuck[p]++; stuck[p] > coStuck {
+				t.Fatalf("%s: %s for %d ticks\n%s", p.name, why, stuck[p], logs())
+			}
 		}
 		cur := h.world()
 		if why := coMonotone(&prevWorld, &cur); why != "" {
@@ -662,25 +728,44 @@ func TestCoopSessionM4(t *testing.T) {
 	if a.keys() != 1 || b.keys() != 1 {
 		t.Fatalf("the same key twice: A %d, B %d keys", a.keys(), b.keys())
 	}
-	// A's chest reaches B, and B's derive counts its key in.
-	must(a.g.OpenKeyChest(2))
-	until("A's key never reached B", keysAre(2, 2))
-	// A opens a door: its switch waits in B for a room change, and so
-	// does B's key.
-	must(a.g.UnlockKeyDoor(0x10))
+	// A opens door 0x10 (rooms 0 and 1, next to B in room 1) with that
+	// key, from its front room 0, as keyInit spends a key only there
+	// (d_door.cpp:435), then goes through: its switch waits in B for a
+	// room change and the room hold. First B's stage entry's own window
+	// closes, once its rooms have run the room hold.
+	run(150)
+	must(a.g.EnterRoom(0, 1))
+	run(5)
+	must(a.door(0x10).Open(a.g))
+	must(a.g.EnterRoom(1, 0, 2))
 	d10, d10m := coSwitchOff(addr.TableDRC, 0x10)
-	until("A's door never reached the world", func() bool { return h.world()[d10]&d10m != 0 && a.keys() == 1 })
+	until("A's door never reached the world", func() bool { return h.world()[d10]&d10m != 0 && a.keys() == 0 && a.counters() })
 	run(40)
-	if b.bit(d10, d10m) || b.keys() != 2 {
-		t.Fatalf("before B's room change: door %v, %d keys; want the door shut and both keys", b.bit(d10, d10m), b.keys())
+	if b.bit(d10, d10m) || b.keys() != 1 {
+		t.Fatalf("before B's room change: door %v, %d keys; want the door shut and the key", b.bit(d10, d10m), b.keys())
 	}
 	must(b.g.EnterRoom(2, 1))
 	run(5)
 	must(b.g.EnterRoom(1, 2))
-	until("A's door never took B's key", func() bool { return b.bit(d10, d10m) && b.keys() == 1 && b.counters() })
+	// The switch lands about 2 s after B's room change. B's door read its
+	// lock as B came in and keeps it until B's next room change, and B
+	// keeps the key until then: the door would be shut to B with no key
+	// (the owner's F13).
+	until("A's door never reached B", func() bool { return b.bit(d10, d10m) })
+	run(2 * coStuck)
+	if !b.door(0x10).Locked() || b.keys() != 1 {
+		t.Fatalf("after B's room change: door 0x10 locked %v, %d keys; want the lock up and the key kept", b.door(0x10).Locked(), b.keys())
+	}
+	must(b.g.EnterRoom(2, 1))
+	run(5)
+	must(b.g.EnterRoom(1, 2))
+	until("A's door never took B's key", func() bool { return b.keys() == 0 && b.counters() && !b.door(0x10).Locked() })
+	// A's chest reaches B, and B's derive counts its key in.
+	must(a.g.OpenKeyChest(2))
+	until("A's key never reached B", keysAre(1, 1))
 	// Both spend a key on the same door: it counts once.
-	must(a.g.UnlockKeyDoor(0x11))
-	must(b.g.UnlockKeyDoor(0x11))
+	must(a.door(0x11).Open(a.g))
+	must(b.door(0x11).Open(b.g))
 	until("a key spent on an open door", keysAre(0, 0))
 	run(40)
 	for _, p := range players {
@@ -758,13 +843,24 @@ func TestCoopSessionM4(t *testing.T) {
 			}
 			sw := coKeyDoors[2+rng.IntN(2)]
 			off, m := coSwitchOff(addr.TableDRC, sw)
-			waiting := false
+			// A door of the world's still waits while its switch is not
+			// in the game, or the game's derive holds it (its lock may
+			// still show, and its key is kept until a room change).
+			waiting := len(p.heldDoors()) > 0
 			for _, d := range coKeyDoors {
 				do, dm := coSwitchOff(addr.TableDRC, d)
 				waiting = waiting || h.world()[do]&dm != 0 && !p.bit(do, dm)
 			}
 			if !waiting && p.keys() > 0 && p.counters() && free(off, m) && !p.bit(off, m) {
-				must(p.g.UnlockKeyDoor(sw))
+				// Through the door when it is next to Link (from its
+				// back room keyInit spends nothing, and the door stays
+				// shut); a door elsewhere reads its switch as Link
+				// comes to it.
+				if d := p.door(sw); d.AtLink() {
+					must(d.Open(p.g))
+				} else {
+					must(p.g.UnlockKeyDoor(sw))
+				}
 			}
 		case k < 18 && p.table() == addr.TableSea:
 			no := m4.pieces[2+rng.IntN(len(m4.pieces)-2)]

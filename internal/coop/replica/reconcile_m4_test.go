@@ -2,6 +2,7 @@ package replica
 
 import (
 	"bytes"
+	"slices"
 	"sync"
 	"testing"
 
@@ -589,20 +590,100 @@ func TestReconcileM4Keys(t *testing.T) {
 		rr.auditM4(false)
 	})
 	t.Run("a door opened remotely, coupled to its switch", func(t *testing.T) {
+		// Door 0x10, between rooms 0 and 1, reads its switch only after
+		// Link's room changes (fakegame.KeyDoor, as daDoor10_c). Every
+		// tick: it never shows its lock over a set switch next to Link
+		// while the game holds no key, which would leave no way through
+		// (the owner's F13).
 		rr := keyRig(t)
+		door := &fakegame.KeyDoor{Stage: drcKeys.Name, Front: 0, Back: 1, No: 0x10}
+		rr.bm.setActors(door)
+		step := func(n int) {
+			t.Helper()
+			for range n {
+				rr.tick()
+				stale, err := door.StaleLock(rr.g)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if stale && keys(rr) == 0 && rr.u16(addr.ItemKeyNumCount) == 0 {
+					t.Fatalf("door 0x10 shows its lock over its set switch next to Link, and the key is gone: no way through\n%s", rr.log)
+				}
+			}
+		}
 		open(rr, 1)
-		rr.ticks(m4Settle)
+		step(m4Settle)
 		// The partner used the same key on door 0x10. Its switch waits for
 		// the receiver's next room change (and the room hold), and so does
 		// the key: the door still locks here.
 		world(rr, []int{1}, []int{0x10})
-		rr.ticks(m4Settle)
+		step(m4Settle)
 		want(rr, 1)
-		rr.enter(2, 1)
-		rr.ticks(m4Settle + rr.holdTicks())
+		// Link goes into room 0, the door's other room: it reads its
+		// switch, still clear, and keeps its lock. The switch is written
+		// after the room hold, and the lock stays until Link's next room
+		// change, and so does the key.
+		rr.enter(0, 1)
+		step(m4Settle + rr.holdTicks())
+		off, m := switchImageByte(addr.TableDRC, 0x10)
+		if rr.liveByte(off)&m == 0 || !door.Locked() || !door.AtLink() || keys(rr) != 1 {
+			t.Fatalf("switch %v, door locked %v next to Link %v, %d keys: want the switch written, the door locked and the key kept\n%s",
+				rr.liveByte(off)&m != 0, door.Locked(), door.AtLink(), keys(rr), rr.log)
+		}
+		if !rr.log.has("small keys, table 3 (DRC): door 0x10 is counted after your next room change") {
+			t.Errorf("no held door logged:\n%s", rr.log)
+		}
+		if k := rr.r.Status().Derive.Keys; !slices.ContainsFunc(k, func(k derive.KeyStatus) bool { return slices.Equal(k.Held, []int{0x10}) }) {
+			t.Errorf("status %+v: want door 0x10 held", k)
+		}
+		rr.enter(1, 0)
+		step(m4Settle)
 		want(rr, 0)
+		if door.Locked() {
+			t.Fatal("the door kept its lock after the room change")
+		}
+		if !rr.log.has("door 0x10 counted: your room changed") {
+			t.Errorf("no counted door logged:\n%s", rr.log)
+		}
 		rr.auditM4(false)
 	})
+	// The receiver opens the held door with the key it kept: keyInit takes
+	// it, and nothing gives it back. In the game Link then goes through,
+	// and the door is counted at that room change ("through it"); with no
+	// room change after it (a door whose rooms are one), the key the count
+	// lost counts it.
+	for _, through := range []bool{false, true} {
+		name, why := "a key spent on a door held", "door 0x10 counted: this game spent a key on it"
+		if through {
+			name, why = name+", then through it", "door 0x10 counted: your room changed"
+		}
+		t.Run(name, func(t *testing.T) {
+			rr := keyRig(t)
+			door := &fakegame.KeyDoor{Stage: drcKeys.Name, Front: 0, Back: 1, No: 0x10}
+			rr.bm.setActors(door)
+			open(rr, 1)
+			rr.ticks(m4Settle)
+			world(rr, []int{1}, []int{0x10})
+			rr.enter(0, 1)
+			rr.ticks(m4Settle + rr.holdTicks())
+			// The door still shows its lock, and Link is in its front room.
+			if err := door.Open(rr.g); err != nil {
+				t.Fatal(err)
+			}
+			if through {
+				rr.enter(1, 0)
+			}
+			rr.ticks(m4Settle)
+			want(rr, 0)
+			if d := rr.r.Status().Writes.Derived; d != 0 {
+				t.Fatalf("%d derive writes, want none: the key went with the door", d)
+			}
+			if !rr.log.has(why) {
+				t.Errorf("no %q logged:\n%s", why, rr.log)
+			}
+			rr.auditM4(false)
+		})
+	}
 	t.Run("a key spent on a door the partner opened", func(t *testing.T) {
 		rr := keyRig(t)
 		open(rr, 1)

@@ -68,6 +68,20 @@ func TestStatus(t *testing.T) {
 	if k.Facts.Have != 2 || k.Pending || k.Target != 2 || strings.Contains(k.String(), "to become") {
 		t.Errorf("DRC settled: %+v, %q", k, k)
 	}
+	// The partner's door: its switch is written, and held until Link's
+	// next room change.
+	r.land(addr.TableDRC, sw(0x10))
+	r.settle()
+	k = find(r.d.Status(), addr.TableDRC)
+	if k.Facts.Open != 1 || k.Facts.Held != 1 || !slices.Equal(k.Held, []int{0x10}) || k.Target != 2 ||
+		!strings.Contains(k.String(), "table 3 (DRC): 2 key(s), 2 of 4 source(s) taken, 1 of 4 door(s) open (door 0x10 counted after your next room change: its lock stays until then)") {
+		t.Errorf("DRC with a door held: %+v, %q", k, k)
+	}
+	r.roomChange()
+	r.settle()
+	if k = find(r.d.Status(), addr.TableDRC); k.Facts.Held != 0 || len(k.Held) != 0 || k.Facts.Have != 1 || strings.Contains(k.String(), "room change") {
+		t.Errorf("DRC after the room change: %+v, %q", k, k)
+	}
 }
 
 // TestStatusNoHearts: a heart table that fails keeps max life off, said

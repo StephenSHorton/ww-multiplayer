@@ -113,6 +113,7 @@ type FakeGame struct {
 	playing bool             // a play scene is up: a stage is loaded and the HUD runs
 	stags   map[string]Stage // the STAG facts of each stage SetNextStage has named
 	frames  uint64
+	loads   uint64 // stage loads (ChangeStage): a stage's actors are new with each
 	card    [CardSlots][PackedSize]byte
 }
 
@@ -279,6 +280,7 @@ func (g *FakeGame) ChangeStage() error {
 	g.initDan(s.Table)
 
 	g.playing = true
+	g.loads++
 	if !s.NoPlayer {
 		g.st32(addr.PlayerPtr, PlayerActor)
 	}

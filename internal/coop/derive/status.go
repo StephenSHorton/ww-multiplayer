@@ -35,6 +35,9 @@ type KeyStatus struct {
 	Extra, Target int
 	// Pending: a key write is in flight, not yet seen to land.
 	Pending bool
+	// Held are the switches of the doors held: open, but counted only
+	// after Link's next room change (keys.go). Facts.Held is their number.
+	Held []int
 }
 
 // Name is what a status line calls the table: "table 3 (DRC)".
@@ -58,6 +61,13 @@ func (k KeyStatus) String() string {
 	f := k.Facts
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s: %d key(s), %d of %d source(s) taken, %d of %d door(s) open", k.Name(), f.Have, f.Taken, f.Sources, f.Open, f.Doors)
+	if len(k.Held) > 0 {
+		sw := make([]string, len(k.Held))
+		for i, s := range k.Held {
+			sw[i] = fmt.Sprintf("0x%02X", s)
+		}
+		fmt.Fprintf(&b, " (door %s counted after your next room change: its lock stays until then)", strings.Join(sw, ", "))
+	}
 	if k.Extra > 0 {
 		fmt.Fprintf(&b, ", %d kept from sources the table doesn't know", k.Extra)
 	}
@@ -87,8 +97,9 @@ func (d *Deriver) Status() Status {
 			continue
 		}
 		ks.On, ks.Seen = true, k.base && k.sigHave
+		ks.Held = k.heldSwitches()
 		ks.Facts = KeyFacts{Table: t.SaveTable, Sources: len(t.Sources), Taken: k.sig.taken,
-			Doors: len(t.Doors), Open: k.sig.open, Have: k.sig.have}
+			Doors: len(t.Doors), Open: k.sig.open, Held: len(ks.Held), Have: k.sig.have}
 		ks.Extra, ks.Target, ks.Pending = k.extra, KeyTarget(ks.Facts, k.extra), k.pend != nil
 		st.Keys = append(st.Keys, ks)
 	}

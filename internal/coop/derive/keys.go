@@ -51,6 +51,51 @@ import (
 // visit. With none, the rise is kept. Both players taking a key before
 // either flag reached the other is no duplicate at all: one flag, one key
 // each, and keys(t) agrees.
+//
+// A door's switch that co-op itself wrote into the loaded table's live
+// memBit is held: it is not among the doors open until Link's next room
+// change after the write (Appendix C item 139). A key door reads its
+// switch only in actionInit, through setKey, which takes its lock off once
+// the switch is set (daDoor10_c::setKey, d_a_door10.cpp:27-50;
+// daDoor12_c::setKey, d_a_door12.cpp:52-73; daKddoor_c::setKey,
+// d_a_kddoor.cpp:17-25). execute goes back to actionInit only after a
+// frame on which checkExecute returns 0 (d_a_door10.cpp:811-812;
+// d_a_door12.cpp:830-831; d_a_kddoor.cpp:947-948), and checkExecute
+// returns 0 while Link is in neither of the door's rooms or neither room
+// is shown, and on the frame mStayNo moves (mRoomNo2, set at the end of
+// each execute, d_a_door10.cpp:829; dDoor_info_c::checkExecute and
+// adjoinPlayer, d_door.cpp:63-75, :155-171). So a door of the room Link is
+// in keeps the lock it read as he came in, whatever its switch does, until
+// he changes room. The memory switches of the loaded table are written
+// after the room hold, about 2 s after the room change (§6.3), after every
+// door there ran actionInit: a door that took its key then would still
+// lock, with no key left to open it (the owner's F13). A door held is
+// counted again:
+//
+//   - at Link's first room change seen after the write (mStayNo differs
+//     from the first tick after it), when the door runs actionInit again;
+//   - when Link leaves its stage or table, or the file's tracking starts
+//     over, since the door is created again reading the switch;
+//   - when this game spends a key the count can't otherwise explain (the
+//     count falls with no door counted as open since the derive last
+//     settled the table): the player opened the locked door with a key,
+//     and keyInit took it (d_door.cpp:433-447). keyInit acts only from
+//     the door's front room (d_door.cpp:435), and Link goes on through
+//     in the door's own event, so the room change most often counts the
+//     door first; this covers an opening with no room change after it
+//     (a door whose two rooms are one).
+//
+// A key-counter write of the derive's own stays in flight while the
+// counter reads nonzero, past its DefaultInFlight: a game that runs no
+// frames takes it late, and the fall would read as a key spent on a held
+// door.
+//
+// Only co-op's live writes are held. A door the game opens sets its switch
+// itself, its key already spent. A switch written to a cold table's saved
+// slot is read as its door is created, when the table loads (getSave,
+// d_save.cpp:1506-1509), as is one in a stage of the table other than
+// Link's. A switch the receiver's copy already counted (its saved slot
+// had it) stays counted.
 
 // MaxKeys is the most keys a table holds: dMeter_keyMove clamps mKeyNum to
 // 0..99 (d_meter.cpp:5248-5254).
@@ -61,13 +106,18 @@ type KeyFacts struct {
 	Table          int
 	Sources, Taken int // the table's key sources, and those whose flag is set
 	Doors, Open    int // its key doors, and those whose switch is set
-	Have           int // the mKeyNum the table holds (View.KeyNum)
+	// Held is how many of the Open doors are held (the top of this file):
+	// co-op wrote their switch into the live copy since Link's last room
+	// change, so the door may still show its lock. They are not counted.
+	Held int
+	Have int // the mKeyNum the table holds (View.KeyNum)
 }
 
-// Derived is keys(t), sources taken less doors open. It is below 0 when
-// more doors are open than keys were taken: §6.4's known exploit (a key
-// spent on another door while a remote door's switch waits) or a cheat.
-func (f KeyFacts) Derived() int { return f.Taken - f.Open }
+// Derived is keys(t), sources taken less doors open, the held ones aside.
+// It is below 0 when more doors are open than keys were taken: §6.4's
+// known exploit (a key spent on another door while a remote door's switch
+// waits) or a cheat.
+func (f KeyFacts) Derived() int { return f.Taken - (f.Open - f.Held) }
 
 // CountKeys counts t's keys in v. A source counts once its flag is set, a
 // door once its memory switch is (dDoor_key2_c::keyInit sets it as the
@@ -161,6 +211,9 @@ func PlanKeys(f KeyFacts, c KeyContext) (w Write, ok bool) {
 	}
 	why := fmt.Sprintf("small keys, table %d: %d -> %d: %d of %d source(s) taken, %d of %d door(s) open",
 		t, f.Have, want, f.Taken, f.Sources, f.Open, f.Doors)
+	if f.Held > 0 {
+		why += fmt.Sprintf(" (%d counted after your next room change)", f.Held)
+	}
 	if c.Extra > 0 {
 		why += fmt.Sprintf(", %d kept from sources the table doesn't know", c.Extra)
 	}
@@ -193,9 +246,10 @@ type keyState struct {
 
 	base  bool // the file's baseline has been taken
 	extra int  // the keys from sources the table doesn't know (the top of this file)
-	// The count and sources taken the derive last settled, its own write
-	// included: what a rise is measured from.
-	settledHave, settledTaken int
+	// The count, sources taken and doors counted open the derive last
+	// settled, its own write included: what a rise, and a key spent on a
+	// held door, are measured from.
+	settledHave, settledTaken, settledOpen int
 
 	// The last tick's count, flags and pending counter, and when they
 	// last changed.
@@ -209,19 +263,138 @@ type keyState struct {
 	// sources a duplicate was taken against.
 	visitHave      bool
 	visitSet, used []bool
+
+	// The doors held (the top of this file), by index in t.Doors, and
+	// what the last tick saw: whether the table was loaded, in which
+	// stage, and each door's switch.
+	held       []heldDoor
+	lastLoaded bool
+	lastStage  string
+	lastOpen   []bool
+}
+
+// heldDoor is a door whose switch co-op wrote into the live copy. room is
+// mStayNo on the first tick after the write (roomSet); a later tick with
+// another counts the door.
+type heldDoor struct {
+	on, roomSet bool
+	room        int8
 }
 
 type keySig struct {
-	have, taken, open int
-	counter           int16
+	have, taken, open, held int
+	counter                 int16
 }
 
 func newKeyState(t *keys.Table) *keyState {
-	return &keyState{t: t, name: tableName(t), visitSet: make([]bool, len(t.Sources)), used: make([]bool, len(t.Sources))}
+	return &keyState{t: t, name: tableName(t), visitSet: make([]bool, len(t.Sources)), used: make([]bool, len(t.Sources)),
+		held: make([]heldDoor, len(t.Doors)), lastOpen: make([]bool, len(t.Doors))}
 }
 
 func (k *keyState) reset() {
 	k.base, k.extra, k.sigHave, k.pend, k.visitHave = false, 0, false, nil, false
+	clear(k.held)
+	k.lastLoaded, k.lastStage = false, ""
+}
+
+// heldSwitches lists the switches of the doors held as the last tick saw
+// them: a door WroteLive held since is not yet among them, nor among the
+// doors the last tick counted open.
+func (k *keyState) heldSwitches() []int {
+	var sw []int
+	for i, h := range k.held {
+		if h.on && h.roomSet {
+			sw = append(sw, k.t.Doors[i].Switch)
+		}
+	}
+	return sw
+}
+
+// doorPlacedIn reports whether door d has an entry in stage.
+func doorPlacedIn(d keys.Door, stage string) bool {
+	for _, e := range d.At {
+		if e.Stage == stage {
+			return true
+		}
+	}
+	return false
+}
+
+// wroteLive holds each door of the table whose switch is among set, bits
+// co-op set in image byte off's live copy, and returns a note for each:
+// only while the last tick had the table loaded, in a stage where the
+// door is placed, and its switch not yet set.
+func (k *keyState) wroteLive(off int, set byte) []string {
+	base := addr.OffMemBit(k.t.SaveTable)
+	if !k.lastLoaded || off < base || off >= base+addr.MemBitSize {
+		return nil
+	}
+	var notes []string
+	for i, d := range k.t.Doors {
+		_, b, err := addr.SwitchBit(d.Switch)
+		if err != nil || base+b.Off != off || set&b.Mask == 0 || k.lastOpen[i] || k.held[i].on || !doorPlacedIn(d, k.lastStage) {
+			continue
+		}
+		k.held[i] = heldDoor{on: true}
+		notes = append(notes, fmt.Sprintf("%s: door 0x%02X is counted after your next room change: its switch is written, but the door shows its lock until then, and its key stays",
+			k.name, d.Switch))
+	}
+	return notes
+}
+
+// release counts held door i again, and notes why.
+func (k *keyState) release(i int, p *Plan, why string) {
+	k.held[i] = heldDoor{}
+	p.note("%s: door 0x%02X counted: %s", k.name, k.t.Doors[i].Switch, why)
+}
+
+// holds keeps the held doors for one tick (the top of this file) and
+// returns how many stay held: each is counted again once Link's room
+// changes, he leaves its stage or table, or its switch reads clear.
+func (k *keyState) holds(c *tick, p *Plan, loaded, visit bool) (n int) {
+	s := c.in.Snap
+	for i, d := range k.t.Doors {
+		set, _ := c.v.SwitchSet(k.t.SaveTable, d.Switch)
+		k.lastOpen[i] = set
+		h := &k.held[i]
+		switch {
+		case !h.on:
+			continue
+		case !loaded || visit:
+			k.release(i, p, "you left its stage, whose doors are made again reading it")
+			continue
+		case !set:
+			k.held[i] = heldDoor{} // the game cleared it: nothing to count
+			continue
+		case !h.roomSet:
+			h.room, h.roomSet = s.StayNo, true
+		case s.StayNo != h.room:
+			k.release(i, p, "your room changed, so the door looked at its switch again and dropped its lock")
+			continue
+		}
+		n++
+	}
+	k.lastLoaded, k.lastStage = loaded, s.StageName
+	return n
+}
+
+// spent counts held doors again for keys the count lost that no door
+// counted open since the derive last settled the table explains: this
+// game spent them on held doors, whose locks keyInit took off with them
+// (d_door.cpp:433-447). It returns how many it counted.
+func (k *keyState) spent(f KeyFacts, p *Plan) int {
+	lost := k.settledHave - f.Have - max(0, f.Open-f.Held-k.settledOpen)
+	n := 0
+	for i := range k.held {
+		if n >= lost {
+			break
+		}
+		if k.held[i].on {
+			k.release(i, p, "this game spent a key on it")
+			n++
+		}
+	}
+	return n
 }
 
 // startVisit begins a stage visit: the flags set now are older than every
@@ -264,13 +437,21 @@ func (k *keyState) tick(d *Deriver, c *tick, p *Plan, visit bool) {
 	if visit || !k.visitHave {
 		k.startVisit(v)
 	}
-	if sig := (keySig{f.Have, f.Taken, f.Open, counter}); !k.sigHave || sig != k.sig {
+	f.Held = k.holds(c, p, loaded, visit)
+	if sig := (keySig{f.Have, f.Taken, f.Open, f.Held, counter}); !k.sigHave || sig != k.sig {
 		k.sig, k.sigHave, k.changed = sig, true, now
 	}
 	if k.pend != nil {
 		switch {
 		case f.Have == k.pend.want:
 			k.pend = nil
+		case loaded && counter != 0:
+			// Still in flight: the HUD takes the counter only on a frame
+			// dMeter_Execute runs (dMeter_keyMove, d_meter.cpp:5247-5258,
+			// :7395), and a paused or stalled game runs none. Expired
+			// here, a -1 landing late would read as a key this game spent
+			// on a held door (spent), and the door would be counted with
+			// its lock still up.
 		case !now.Before(k.pend.expires):
 			// Never seen to land: it is not what the count rose from.
 			k.settledHave, k.pend = k.pend.prev, nil
@@ -283,7 +464,7 @@ func (k *keyState) tick(d *Deriver, c *tick, p *Plan, visit bool) {
 		// extra starts at 0 (the top of this file): what the file holds
 		// beyond keys(t) now is no rise, and is corrected once settled.
 		k.base, k.extra = true, 0
-		k.settledHave, k.settledTaken = f.Have, f.Taken
+		k.settledHave, k.settledTaken, k.settledOpen = f.Have, f.Taken, f.Open-f.Held
 		if want := KeyTarget(f, 0); f.Have > want {
 			p.note("%s: %d key(s) beyond the %d its flags give, a door's key not yet taken or a duplicate: taken out once the table settles",
 				k.name, f.Have-want, want)
@@ -294,6 +475,7 @@ func (k *keyState) tick(d *Deriver, c *tick, p *Plan, visit bool) {
 	if k.pend != nil || loaded && counter != 0 || !d.settled(c, k.changed) {
 		return
 	}
+	f.Held -= k.spent(f, p)
 	rise := f.Have - k.settledHave - max(0, f.Taken-k.settledTaken)
 	if over := f.Have - KeyTarget(f, k.extra); rise > 0 && over > 0 {
 		rise = min(rise, over)
@@ -307,7 +489,7 @@ func (k *keyState) tick(d *Deriver, c *tick, p *Plan, visit bool) {
 			p.note("%s: %d key(s) no known source explains: kept (%d kept in all)", k.name, kept, k.extra)
 		}
 	}
-	k.settledHave, k.settledTaken = f.Have, f.Taken
+	k.settledHave, k.settledTaken, k.settledOpen = f.Have, f.Taken, f.Open-f.Held
 	if !c.canWrite() || loaded && c.in.Stag.KeyHUD && !c.in.Gates.CanWriteCounter(gate.KeyNum) {
 		return
 	}

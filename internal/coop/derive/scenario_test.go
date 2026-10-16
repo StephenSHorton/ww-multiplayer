@@ -79,9 +79,11 @@ type rig struct {
 	armed bool
 
 	// dry drops every write, as --coop-dry-run; race runs between the
-	// snapshot and the routing, as the game does.
-	dry  bool
-	race func()
+	// snapshot and the routing, as the game does; stall runs no frames, as
+	// a paused or stalled game, while the ticks go on.
+	dry   bool
+	race  func()
+	stall bool
 
 	made    []derive.Write
 	dropped []derive.Write
@@ -118,7 +120,9 @@ func (r *rig) load(s fakegame.Stage) {
 // step runs one tick: six frames, a snapshot, the Deriver, the routing.
 func (r *rig) step() derive.Plan {
 	r.t.Helper()
-	r.g.Frames(6)
+	if !r.stall {
+		r.g.Frames(6)
+	}
 	s, err := snap.Read(r.m)
 	if err != nil {
 		r.t.Fatal(err)
@@ -254,12 +258,29 @@ func (r *rig) loaded() int { return int(int8(r.u8(addr.DanStageNo))) }
 
 // land puts memBit bit b of table t where the M3 reconciler writes it: the
 // live copy and the saved slot of the loaded table, the saved slot of any
-// other.
+// other. As the replica does, it tells the Deriver of a bit it set in the
+// live copy (Deriver.WroteLive).
 func (r *rig) land(t int, b addr.Bit) {
 	saved, _ := addr.SavedMemBitAddr(t)
 	r.or(saved+uint32(b.Off), b.Mask)
 	if t == r.loaded() {
-		r.or(addr.LiveMemBit+uint32(b.Off), b.Mask)
+		live := addr.LiveMemBit + uint32(b.Off)
+		old := byte(r.u8(live))
+		r.or(live, b.Mask)
+		r.d.WroteLive(addr.OffMemBit(t)+b.Off, b.Mask&^old)
+	}
+}
+
+// roomChange is Link going into room, then back to the stage's room 1, a
+// tick each: the doors of room 1 run actionInit again, and the Deriver
+// counts the doors it held (keys.go).
+func (r *rig) roomChange() {
+	r.t.Helper()
+	for _, room := range []int{2, 1} {
+		if err := r.g.EnterRoom(room); err != nil {
+			r.t.Fatal(err)
+		}
+		r.step()
 	}
 }
 
@@ -401,8 +422,13 @@ func TestDoorOpenedRemotely(t *testing.T) {
 		r.settle()
 		r.wantKeys(1)
 		// The partner used their copy of that key on door 0x10; the
-		// reconciler writes its switch at the receiver's room change.
+		// reconciler writes its switch after the receiver's room change
+		// (and the room hold). The door keeps the lock it read as Link
+		// came in, so the key goes only at his next room change.
 		r.land(addr.TableDRC, sw(0x10))
+		r.settle()
+		r.wantKeys(1)
+		r.roomChange()
 		r.settle()
 		r.wantKeys(0)
 		if len(r.made) != 1 || r.made[0].Kind != derive.KeyCounter || r.made[0].Delta() != -1 {
@@ -447,9 +473,169 @@ func TestPhantomFreeCoupling(t *testing.T) {
 	if len(r.made) != 0 {
 		t.Fatalf("writes before the door's switch landed: %v", r.made)
 	}
+	// Once it is, the door still shows the lock it read as Link came into
+	// its room (daDoor10_c reads the switch in actionInit only, after a
+	// room change): the key stays until his next one.
 	r.land(addr.TableDRC, sw(0x10))
+	r.run(10 * time.Second)
+	r.wantKeys(1)
+	if !r.noted("door 0x10 is counted after your next room change") {
+		t.Errorf("no held door noted: %q", r.notes)
+	}
+	r.roomChange()
 	r.settle()
 	r.wantKeys(0)
+	if !r.noted("door 0x10 counted: your room changed") {
+		t.Errorf("notes %q", r.notes)
+	}
+}
+
+// TestHeldDoor: a door whose switch co-op wrote into the live copy is
+// counted at Link's next room change, or as he leaves its stage or the
+// Deriver starts over, or once this game spends a key on it. A switch the
+// game sets itself, one written to a cold table, one in another stage of
+// the loaded table, and one the saved slot already had, are counted at
+// once.
+func TestHeldDoor(t *testing.T) {
+	tb := vanillaTables(t)
+	held := func(r *rig) {
+		r.t.Helper()
+		r.run(time.Second)
+		r.takeKey(1)
+		r.settle()
+		r.land(addr.TableDRC, sw(0x10))
+		r.settle()
+		r.wantKeys(1)
+	}
+	t.Run("a key spent on it", func(t *testing.T) {
+		r := newRig(t, tb, drc)
+		held(r)
+		// The lock still shows, and the receiver opens it with its key:
+		// keyInit sets the switch again and counts the key out.
+		r.spendKey(0x10)
+		r.settle()
+		r.wantKeys(0)
+		if len(r.made) != 0 {
+			t.Errorf("writes %v, want none: the key went with the door", r.made)
+		}
+		if !r.noted("door 0x10 counted: this game spent a key on it") {
+			t.Errorf("notes %q", r.notes)
+		}
+		r.roomChange()
+		r.settle()
+		r.wantKeys(0)
+	})
+	t.Run("a late counter", func(t *testing.T) {
+		r := newRig(t, tb, drc)
+		held(r)
+		// Chest 2's flag lands, and its key; then the receiver's chest 2,
+		// made before the flag, gives it again: the derive takes the
+		// duplicate out with a -1, which the game, stalled, takes only
+		// after the write's DefaultInFlight. Landing then, it is the
+		// derive's own key, not one spent on the held door.
+		r.land(addr.TableDRC, tbox(2))
+		r.settle()
+		r.wantKeys(2)
+		r.race = func() { r.stall, r.race = true, nil }
+		r.takeKey(2)
+		for i := 0; !r.stall && i < 30; i++ {
+			r.step()
+		}
+		if !r.stall {
+			t.Fatalf("no write for the duplicate: %v", r.made)
+		}
+		r.run(2*derive.DefaultInFlight + time.Second)
+		r.stall = false
+		r.settle()
+		r.wantKeys(2)
+		if r.noted("this game spent a key on it") || len(r.made) != 2 {
+			t.Errorf("writes %v, notes %q: want the +1 and the -1 alone, door 0x10 held", r.made, r.notes)
+		}
+		if k := r.d.Status().Keys; !slices.ContainsFunc(k, func(k derive.KeyStatus) bool { return slices.Equal(k.Held, []int{0x10}) }) {
+			t.Errorf("status %+v, want door 0x10 held", k)
+		}
+		r.roomChange()
+		r.settle()
+		r.wantKeys(1)
+	})
+	t.Run("another door's key", func(t *testing.T) {
+		r := newRig(t, tb, drc)
+		r.run(time.Second)
+		r.takeKey(1)
+		r.takeKey(2)
+		r.settle()
+		r.land(addr.TableDRC, sw(0x10))
+		r.settle()
+		r.wantKeys(2)
+		// A door the receiver opens itself is counted at once, and leaves
+		// the held one held.
+		r.spendKey(0x11)
+		r.settle()
+		r.wantKeys(1)
+		if k := r.d.Status().Keys; !slices.ContainsFunc(k, func(k derive.KeyStatus) bool { return slices.Equal(k.Held, []int{0x10}) }) {
+			t.Errorf("status %+v, want door 0x10 held", k)
+		}
+		r.roomChange()
+		r.settle()
+		r.wantKeys(0)
+	})
+	t.Run("a stage change", func(t *testing.T) {
+		r := newRig(t, tb, drc)
+		held(r)
+		r.load(drcBoss)
+		r.settle()
+		r.wantKeys(0)
+	})
+	t.Run("a failed read", func(t *testing.T) {
+		r := newRig(t, tb, drc)
+		held(r)
+		r.failRead()
+		r.settle()
+		r.wantKeys(0)
+	})
+	t.Run("the game's own door", func(t *testing.T) {
+		r := newRig(t, tb, drc)
+		r.run(time.Second)
+		r.takeKey(1)
+		r.takeKey(2)
+		r.settle()
+		r.spendKey(0x10)
+		r.land(addr.TableDRC, sw(0x10)) // the partner's too: nothing new to write
+		r.settle()
+		r.wantKeys(1)
+		if len(r.made) != 0 || r.noted("is counted after your next room change") {
+			t.Errorf("writes %v, notes %q", r.made, r.notes)
+		}
+	})
+	t.Run("in the saved slot already", func(t *testing.T) {
+		r := newRig(t, tb, drc, func(r *rig) {
+			a, _ := addr.SavedMemBitAddr(addr.TableDRC)
+			r.or(a+uint32(sw(0x10).Off), sw(0x10).Mask)
+		})
+		r.run(time.Second)
+		r.takeKey(1)
+		r.takeKey(2)
+		r.settle()
+		r.wantKeys(1) // the saved switch's door took the second key
+		n := len(r.made)
+		r.land(addr.TableDRC, sw(0x10)) // the live copy only gains it
+		r.settle()
+		r.wantKeys(1)
+		if len(r.made) != n || r.noted("is counted after your next room change") {
+			t.Errorf("writes %v, want none: the door counted all along", r.made[n:])
+		}
+	})
+	t.Run("another stage of the table", func(t *testing.T) {
+		r := newRig(t, tb, drcBoss)
+		r.run(time.Second)
+		r.land(addr.TableDRC, tbox(1))
+		r.settle()
+		r.wantKeys(1)
+		r.land(addr.TableDRC, sw(0x10)) // its door is in M_NewD2, made as Link goes in
+		r.settle()
+		r.wantKeys(0)
+	})
+	// A cold table's door: TestDoorOpenedRemotely's "another table".
 }
 
 func TestKeySpentOnAnOpenDoor(t *testing.T) {
@@ -537,6 +723,7 @@ func TestUnknownKey(t *testing.T) {
 	r.settle()
 	r.wantKeys(2)
 	r.land(addr.TableDRC, sw(0x10)) // the partner's door takes the chest's key
+	r.roomChange()                  // once the door here has looked at it again
 	r.settle()
 	r.wantKeys(1)
 	// keys(t) is 0: the receiver's door spends the kept key, and keys(t)
@@ -545,6 +732,7 @@ func TestUnknownKey(t *testing.T) {
 	r.settle()
 	r.wantKeys(0)
 	r.land(addr.TableDRC, sw(0x12))
+	r.roomChange()
 	r.settle()
 	r.wantKeys(0)
 	// keys(t) is 3 - 3 = 0, and the kept key is spent: 1.

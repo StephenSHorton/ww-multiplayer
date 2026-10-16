@@ -242,6 +242,11 @@ func (r *Replica) applied(res Result, err error, win windows, rep *Report) {
 	rep.Wrote, rep.WriteErr = len(res.Wrote), err
 	for _, b := range res.Wrote {
 		r.planner.wrote(int(b.Off), b.New&^b.Old)
+		if b.Addr >= addr.LiveMemBit && b.Addr < addr.LiveMemBit+addr.MemBitSize {
+			// A key door there keeps the lock it read until Link's next
+			// room change: the Deriver counts it from then (derive/keys.go).
+			r.m4.deriver.WroteLive(int(b.Off), b.New&^b.Old)
+		}
 	}
 	if !errors.Is(err, ErrStall) && !errors.Is(err, ErrAborted) {
 		r.room.close(win)
