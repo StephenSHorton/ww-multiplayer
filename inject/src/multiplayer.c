@@ -164,84 +164,65 @@ static int face_emit_swap_active = 0;
 // natural value into the mailbox for race-free broadcast-pose capture.
 static void face_emit_publish_local(void* model_data);
 
-// Save-reload defensive reset. Called when we detect that Link's
-// mpCLModelData pointer has changed (or our cached one was nulled by an
-// earlier check this frame), meaning the game has torn down and rebuilt
-// Link's J3DModel — typically because the user reloaded a save while
-// mplay2 was running. Our cached J3DModel pointers now reference freed
-// ArchiveHeap memory and the next J3DModel_calc will crash.
+// Lifetimes (2026-10-16, F18 — docs/05 "Mini-Link J3DModels leaked
+// on every stage load"). Nothing here is torn down by a stage load:
+//   - mini_link_data is Link.arc's J3DModelData. Link.arc is mounted
+//     once at boot (d_s_logo.cpp:876) and stays resident; every Link
+//     actor gets the SAME pointer from getObjectRes (d_a_player_main.cpp
+//     :12059), so mpCLModelData never changes once Link is built.
+//   - mini_link_models live in ArchiveHeap and pose_publish / pose_bufs
+//     / echo_ring / shadow_link in GameHeap. The game never resets
+//     either heap wholesale (no freeAll on them in the decomp), so our
+//     blocks stay valid for the whole session — and stay ALLOCATED if
+//     we drop the pointer. Create / allocate once, keep forever.
+// What DOES change on a stage load is Link's actor: phase_1 publishes a
+// zeroed actor (f_pc_base.cpp:98, d_a_player_main.cpp:12361) and
+// playerInit only fills mpCLModelData in phase_2, after the camera
+// exists (:12374-12386). So mpCLModelData == 0 means "Link not ready
+// yet": multiplayer_update waits; it never resets.
 //
-// Strategy: NULL all per-instance state and let the existing
-// mini_link_state == 0 init path in multiplayer_update re-create
-// against the new mpCLModelData. We do NOT call JKRHeap_free — on
-// stage unload ArchiveHeap is reset wholesale, so the pointer is to
-// freed-and-possibly-reallocated memory and freeing it would scramble
-// the heap freelists. The "leak" framing is a misnomer; the heap was
-// reset out from under us.
+// Per-stage reset: drop only state that holds the OLD Link actor or
+// old-stage history. Called from multiplayer_update on every frame of
+// the not-ready window and whenever PLAYER_PTR_ARRAY[0] changes.
+//   - mode 2's shadow_link snapshot is a copy of the old daPy_lk_c,
+//     whose internal pointers are into the old actor's freed heap; the
+//     joint callbacks read it via mUserArea. Unlatch so the next draw
+//     re-copies from the new actor.
+//   - mode 4's echo ring holds old-stage poses; refill from scratch.
+// Allocations, pose_seqs / face_seqs (Go owns those) and the face_emit
+// tev_block cache (it points into the resident J3DModelData) are kept.
+static fopAc_ac_c* mini_link_owner = 0;
+static void mini_link_stage_reset(void) {
+    shadow_latched_local = 0;
+    mailbox->shadow_latched = 0;
+    echo_write_idx = 0;
+    echo_frames_filled = 0;
+}
+
+// Rebuild against a DIFFERENT J3DModelData. Only reached when Link's
+// mpCLModelData is non-NULL, differs from ours, and is what Link.arc
+// itself now returns — i.e. Link.arc was really re-mounted. With
+// Link.arc resident since boot that never happens; this is a guard,
+// not a code path we expect to run.
 //
-// Same logic for pose_bufs / echo_ring / shadow_link in GameHeap —
-// unsure whether GameHeap survives a save reload, so null and skip the
-// free either way (~few KB if it doesn't get reused).
+// The old models are NOT freed. J3DModel::~J3DModel is empty
+// (J3DModel.cpp:26) and entryModelData / createMatPacket /
+// newDifferedDisplayList make a dozen-plus sub-allocations per model
+// that the game only ever releases by destroying the owning heap, so
+// JKRHeap::free on the J3DModel would reclaim ~0xDC bytes and leave the
+// rest stranded anyway. Leaking one set per real re-mount is bounded;
+// leaking one set per frame of every stage load (the F18 bug) was not.
+// GameHeap buffers (pose_bufs, pose_publish, echo_ring, shadow_link)
+// don't depend on the model data and are kept.
 static void mini_link_reset_state(void) {
     mini_link_data = 0;
     mini_link_state = 0;
     int k;
     for (k = 0; k < MAX_REMOTE_LINKS; k++) {
         mini_link_models[k] = 0;
-        pose_bufs[k] = 0;
     }
-    pose_joint_num = 0;
-    pose_buf_u32s = 0;
-    echo_ring = 0;
-    echo_joint_num = 0;
-    echo_frame_u32s = 0;
-    echo_write_idx = 0;
-    echo_frames_filled = 0;
-    shadow_link = 0;
-    shadow_latched_local = 0;
-
-    // Mirror the reset into the mailbox so Go's view of the slots
-    // matches the real C state. Clearing pose_seqs also fixes the
-    // cosmetic "frozen decoy lingers" carryover noted in docs/06.
-    int s;
-    for (s = 0; s < MAILBOX_POSE_SLOT_CAP; s++) {
-        mailbox->pose_buf_ptrs[s] = 0;
-        mailbox->pose_joint_counts[s] = 0;
-        mailbox->pose_buf_states[s] = 0;
-        mailbox->pose_seqs[s] = 0;
-    }
-    mailbox->echo_ring_state = 0;
-    mailbox->shadow_latched = 0;
-    mailbox->dbg_model_data = 0;
-    mailbox->dbg_saved_basic = 0;
-    mailbox->dbg_joint_num = 0;
-    mailbox->dbg_node_mtx_ptr = 0;
-    mailbox->dbg_pose_first_word = 0;
-    mailbox->dbg_node_mtx_first = 0;
-    // Publish buffer: drop the pointer so next daPy_draw_hook re-allocs
-    // against the rebuilt heaps. Don't free — see comment at the top of
-    // this function re: ArchiveHeap/GameHeap reset behavior.
-    mailbox->pose_publish_ptr = 0;
-    mailbox->pose_publish_joint_count = 0;
-    mailbox->pose_publish_state = 0;
-    mailbox->pose_publish_seq = 0;
-    // Face-state channel: drop seqs so the C-side hook reverts to
-    // identity (no swap) until Go pushes fresh state for the rebuilt
-    // models. The matpacket vtable repointing happens lazily inside
-    // face_hook_install_for_model, called when the new mini_link_models
-    // are created in the init path above.
-    int f;
-    for (f = 0; f < MAILBOX_POSE_SLOT_CAP; f++) {
-        mailbox->face_state[f].mat1_tex0 = 0;
-        mailbox->face_state[f].mat1_tex1 = 0;
-        mailbox->face_state[f].mat4_tex0 = 0;
-        mailbox->face_state[f].mat4_tex1 = 0;
-        mailbox->face_seqs[f] = 0;
-    }
-    // Drop the cached tev_block pointers — the J3DMaterial array gets
-    // rebuilt on save reload alongside Link's J3DModel, so our cached
-    // tev_block addresses are stale freed-memory after the reload.
-    // face_emit_resolve_tevblocks lazy-recaches on the next swap call.
+    // The tev_blocks belong to the old J3DModelData's material table.
+    // face_emit_resolve_tevblocks lazy-recaches on the next call.
     face_emit_mat1_tev = 0;
     face_emit_mat4_tev = 0;
     face_emit_mat14_tev = 0;
@@ -509,17 +490,31 @@ void multiplayer_update(void) {
     }
 
     // --- Mini-Link render path ----------------------------------------
-    // Save-reload safety: if the game has rebuilt Link's J3DModelData
-    // (stage unload + reload swaps it out), our cached mini_link_data
-    // points to freed ArchiveHeap memory and the next calc would crash.
-    // Drop all per-instance state so the init block below re-creates
-    // against the fresh mpCLModelData. Also covers the brief window
-    // where mpCLModelData transiently goes NULL during reload.
-    if (mini_link_state != 0) {
-        J3DModelData* current_data = *(J3DModelData**)((u8*)link + DAPY_LK_C_MPCLMODELDATA_OFFSET);
-        if (current_data != mini_link_data || current_data == 0) {
-            mini_link_reset_state();
+    // Stage-load safety (see "Lifetimes" above mini_link_stage_reset).
+    // A new Link actor, or one whose playerInit hasn't run yet
+    // (mpCLModelData == 0), gets the per-stage reset; while not ready
+    // we skip mini-Link work entirely. The J3DModels are kept — they
+    // were created against Link.arc's resident J3DModelData, which the
+    // new Link uses too.
+    J3DModelData* current_data = *(J3DModelData**)((u8*)link + DAPY_LK_C_MPCLMODELDATA_OFFSET);
+    if (current_data == 0 || link != mini_link_owner) {
+        mini_link_owner = link;
+        mini_link_stage_reset();
+    }
+    if (current_data == 0) {
+        mailbox->progress = best_progress;
+        return;
+    }
+    // A non-NULL mismatch is a rebuild only if Link.arc itself now
+    // hands out that pointer. Anything else (e.g. a stale actor read
+    // mid-teardown) is treated like "not ready": wait, keep the models.
+    if (mini_link_state != 0 && current_data != mini_link_data) {
+        if (current_data != (J3DModelData*)dRes_getRes_byIdx(
+                PROBE_ARCNAME, PROBE_BDL_IDX, MOBJECT_INFO, OBJECT_INFO_COUNT)) {
+            mailbox->progress = best_progress;
+            return;
         }
+        mini_link_reset_state();
     }
 
     // Progress encoding (reserved 20-29, beats puppet states 1-10):
@@ -528,9 +523,10 @@ void multiplayer_update(void) {
     //   22 = J3DModel created; rendering each frame
     //   23 = modelEntryDL called this frame (rendering confirmed)
     if (mini_link_state == 0) {
-        // Link's archive is loaded by daPy_createHeap as part of Link #1's
-        // phase_2. We've already waited 300 frames + confirmed link != NULL
-        // above, so the archive should be resident.
+        // Link.arc is mounted once at boot (d_s_logo.cpp:876) and stays
+        // resident. We've already waited 300 frames + confirmed Link's
+        // mpCLModelData != NULL above. Runs once per session (state 0 is
+        // only re-entered by mini_link_reset_state on a real re-mount).
         mini_link_data = (J3DModelData*)dRes_getRes_byIdx(
             PROBE_ARCNAME, PROBE_BDL_IDX,
             MOBJECT_INFO, OBJECT_INFO_COUNT
@@ -1534,6 +1530,8 @@ int daPy_draw_hook(void* this_) {
     // frame, so the joint walker has finished writing mpNodeMtx and the
     // buffer is stable until the next frame's calc. Lazy-alloc the
     // 2016 B publish buffer on the first frame, then memcpy every frame.
+    // Allocated once per session: nothing resets pose_publish_state, so
+    // the GameHeap block is never dropped and re-allocated (F18).
     // Runs unconditionally (not gated on shadow_mode) so Go can always
     // read a stable pose whether or not multiplayer is engaged — the
     // copy is a ~5 µs linear memcpy, trivial vs the 16 ms frame budget.
@@ -1571,11 +1569,11 @@ int daPy_draw_hook(void* this_) {
         }
     }
 
-    // Save-reload safety (draw side). Same compare as multiplayer_update
-    // but enforced HERE because the crash site is J3DModel_calc below —
-    // if a stage teardown landed between execute and draw of this frame,
-    // mini_link_models[0] still references freed memory. Skip our
-    // submission this frame; multiplayer_update next frame rebuilds.
+    // Stage-load safety (draw side). If this Link isn't built yet or
+    // reads a model data other than the one our models were made from,
+    // skip our submission this frame. Never reset here: the models are
+    // still valid (see "Lifetimes" above mini_link_stage_reset), and
+    // multiplayer_update alone decides whether a real rebuild is due.
     if (mini_link_models[0] != 0) {
         J3DModelData* current_data = *(J3DModelData**)((u8*)this_ + DAPY_LK_C_MPCLMODELDATA_OFFSET);
         // SESSION 6: publish the live read for Go-side diagnosis.
@@ -1586,7 +1584,6 @@ int daPy_draw_hook(void* this_) {
             // whether this check is the freeze culprit in mode 1.
             mailbox->dbg_safety_fired_count =
                 mailbox->dbg_safety_fired_count + 1;
-            mini_link_reset_state();
             return result;
         }
     }
