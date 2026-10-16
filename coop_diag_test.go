@@ -697,7 +697,7 @@ func TestCompareBlob(t *testing.T) {
 // refuses anything touching the main stack, T2, the mailbox or the arena.
 func TestCanaryRegions(t *testing.T) {
 	if addr.CanaryTRK.Start != 0x8040CFB0 || addr.CanaryTRK.End != 0x80410000 ||
-		addr.CanaryArena.Start != 0x80413080 || addr.CanaryArena.End != 0x80414000 {
+		addr.CanaryArena.Start != 0x804130A0 || addr.CanaryArena.End != 0x80414000 {
 		t.Fatalf("canary ranges moved: %+v %+v", addr.CanaryTRK, addr.CanaryArena)
 	}
 	for _, r := range canaryRegions {
@@ -709,7 +709,7 @@ func TestCanaryRegions(t *testing.T) {
 		{Name: "into T2", Start: 0x8040FF00, End: 0x80410004},
 		{Name: "slack after T2", Start: 0x80412E00, End: 0x80412E10},
 		{Name: "mailbox", Start: addr.Mailbox, End: addr.Mailbox + 4},
-		{Name: "mailbox tail", Start: 0x8041307C, End: 0x80413100},
+		{Name: "mailbox tail", Start: 0x8041309C, End: 0x80413100},
 		{Name: "main stack", Start: 0x8040CFA4, End: 0x8040D000},
 		{Name: "stack header", Start: 0x8040CFA8, End: 0x8040D000},
 		{Name: "boot LR slot", Start: 0x8040CFAC, End: 0x8040CFB0},
@@ -767,7 +767,7 @@ func TestArmAndCheckCanaries(t *testing.T) {
 	if err := regionCheck(&out, m); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"4 changed (3 now zero, 1 other)", "0x8040D0B0-0x8040D0BC (3 words)", "below arena  0x80413080-0x80414000 (992 words): all intact"} {
+	for _, want := range []string{"4 changed (3 now zero, 1 other)", "0x8040D0B0-0x8040D0BC (3 words)", "below arena  0x804130A0-0x80414000 (984 words): all intact"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("region-probe check lacks %q:\n%s", want, out.String())
 		}

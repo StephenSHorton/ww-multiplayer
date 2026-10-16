@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
@@ -121,6 +122,25 @@ func TestDashboard_StatusFromSnapshot(t *testing.T) {
 	}
 	if !m.localOK || m.localX != 1 || m.localZ != 3 {
 		t.Errorf("local = (%v, %v, ok=%v), want (1, 3, true)", m.localX, m.localZ, m.localOK)
+	}
+}
+
+// TestDashboard_ColorFromSnapshot: a remote's tunic color
+// (docs/09-player-colors.md) travels from the engine's Live through the
+// controller snapshot to the status panel's swatch.
+func TestDashboard_ColorFromSnapshot(t *testing.T) {
+	red := playercolor.Palette()[1].Color
+	eng := &fakeEngine{live: session.Live{
+		Players:     []session.Player{{ID: 2, Name: "Zelda", Color: red, HasColor: true}},
+		PlayerCount: 2,
+	}}
+	m := runningDashboard(t, eng)
+	m, _ = m.update(statusTickMsg{})
+	if len(m.players) != 1 || !m.players[0].HasColor || m.players[0].Color != red {
+		t.Fatalf("players = %+v, want Zelda with red", m.players)
+	}
+	if out := plain(renderStatus(100, m.playerCount, m.latency, m.players)); !strings.Contains(out, "■ Zelda (red)") {
+		t.Errorf("status panel missing the swatch\n---\n%s", out)
 	}
 }
 

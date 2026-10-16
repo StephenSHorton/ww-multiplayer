@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 )
 
 // RemotePlayer represents another player received from the server.
@@ -33,6 +35,21 @@ type RemotePlayer struct {
 	// a local safety net faster than the server's read-timeout MsgLeave.
 	// Zero until the first pose arrives.
 	LastPose time.Time
+	// Color is the tunic color the server assigned this player
+	// (docs/09-player-colors.md). HasColor is false when the server sent
+	// none (a build from before colors); TunicColor then falls back to
+	// playercolor.ForID.
+	Color    playercolor.Color
+	HasColor bool
+}
+
+// TunicColor is the color to draw this remote's tunic in: the server's
+// assignment, or the by-ID fallback for a server without colors.
+func (rp *RemotePlayer) TunicColor() playercolor.Color {
+	if rp.HasColor {
+		return rp.Color
+	}
+	return playercolor.ForID(rp.ID)
 }
 
 // Client connects to a server and syncs position data.
@@ -84,6 +101,13 @@ type Client struct {
 	// for NewCoopClient (coop.go).
 	role byte
 	caps uint16
+
+	// colorPref is the tunic color this player asks for in its hello
+	// (SetColorPreference); nil lets the server pick. myColor is what the
+	// server assigned us, from the player list (guarded by mu).
+	colorPref   *playercolor.Color
+	myColor     playercolor.Color
+	haveMyColor bool
 
 	// OnCoop is invoked from the read loop with each MsgCoop payload a
 	// co-op client (NewCoopClient) receives; the payload is the
@@ -196,7 +220,7 @@ func (c *Client) handshake(conn net.Conn) (*Message, error) {
 	if c.writeTimeout > 0 {
 		conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
 	}
-	if err := writeJoinRole(conn, c.name, c.role, c.caps); err != nil {
+	if err := writeJoinRole(conn, c.name, c.role, c.caps, c.colorPref); err != nil {
 		return nil, fmt.Errorf("send join: %w", err)
 	}
 
@@ -234,6 +258,26 @@ func (c *Client) Disconnect() {
 	if conn != nil {
 		conn.Close()
 	}
+}
+
+// SetColorPreference sets the tunic color this player asks the server for
+// (docs/09-player-colors.md); nil lets the server pick. It takes effect at
+// the next connect, so call it before Connect.
+func (c *Client) SetColorPreference(pref *playercolor.Color) {
+	if pref != nil {
+		p := *pref
+		pref = &p
+	}
+	c.colorPref = pref
+}
+
+// MyColor returns the tunic color the server assigned this player. ok is
+// false until a player list with colors has arrived (or never, against a
+// server from before colors: use playercolor.ForID(MyID()) then).
+func (c *Client) MyColor() (color playercolor.Color, ok bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.myColor, c.haveMyColor
 }
 
 // IsConnected returns whether the client is connected.
@@ -512,13 +556,15 @@ func (c *Client) parsePlayerList(data []byte) {
 	listed := make(map[byte]bool, len(entries))
 	for _, e := range entries {
 		if e.ID == c.myID {
+			c.myColor, c.haveMyColor = e.Color, e.HasColor
 			continue
 		}
 		listed[e.ID] = true
 		if rp, ok := c.remotes[e.ID]; ok {
 			rp.Name = e.Name
+			rp.Color, rp.HasColor = e.Color, e.HasColor
 		} else {
-			c.remotes[e.ID] = &RemotePlayer{ID: e.ID, Name: e.Name}
+			c.remotes[e.ID] = &RemotePlayer{ID: e.ID, Name: e.Name, Color: e.Color, HasColor: e.HasColor}
 		}
 		logs = append(logs, fmt.Sprintf("Player %s (ID:%d) in game", e.Name, e.ID))
 	}

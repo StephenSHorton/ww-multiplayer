@@ -9,6 +9,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 )
 
 // ansiRE strips the SGR escape sequences lipgloss injects so substring
@@ -209,5 +211,23 @@ func TestFormatLatency(t *testing.T) {
 		if got := formatLatency(c.in); got != c.want {
 			t.Errorf("formatLatency(%v) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// TestRenderStatus_TunicColors asserts a remote with a tunic color
+// (docs/09-player-colors.md) shows its swatch and color name.
+func TestRenderStatus_TunicColors(t *testing.T) {
+	red := playercolor.Palette()[1].Color
+	out := plain(renderStatus(100, 2, 0, []session.Player{
+		{ID: 2, Name: "Zelda", Color: red, HasColor: true},
+		{ID: 3, Name: "Ganon"},
+	}))
+	for _, want := range []string{"■ Zelda (red)", "Ganon"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("renderStatus output missing %q\n---\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Ganon (") {
+		t.Errorf("an uncolored remote got a color label\n---\n%s", out)
 	}
 }

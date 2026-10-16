@@ -76,6 +76,7 @@ func openDolphin(pid uint32) (*dolphin.Dolphin, error) {
 }
 
 func main() {
+	applyColorPrefFromArgs() // --color / WW_COLOR, docs/09-player-colors.md
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "debug":
@@ -317,6 +318,20 @@ func main() {
 			runPuppetSync(name, addr)
 		case "inspect-materials":
 			runInspectMaterials()
+		case "tunic-probe":
+			runTunicProbe()
+		case "tunic-recolor":
+			if len(os.Args) < 3 {
+				fmt.Println("Usage: ww-multiplayer.exe tunic-recolor <color|#RRGGBB|reset>")
+				os.Exit(1)
+			}
+			runTunicRecolor(os.Args[2])
+		case "tunic-slot":
+			if len(os.Args) < 4 {
+				fmt.Println("Usage: ww-multiplayer.exe tunic-slot <0|1|local> <color|#RRGGBB|off>")
+				os.Exit(1)
+			}
+			runTunicSlot(os.Args[2], os.Args[3])
 		case "tint-material":
 			if len(os.Args) < 3 {
 				fmt.Println("Usage:")
@@ -1260,7 +1275,7 @@ func runBroadcastLink(name, addr string) {
 	}
 	defer d.Close()
 
-	client := network.NewClient(name)
+	client := newPlayerClient(name)
 	client.OnLog = func(msg string) { fmt.Printf("[net] %s\n", msg) }
 	if err := client.Connect(addr); err != nil {
 		fmt.Printf("connect: %v\n", err)
@@ -1388,7 +1403,7 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 		return err
 	}
 	defer d.Close()
-	client := network.NewClient(name)
+	client := newPlayerClient(name)
 	client.OnLog = func(msg string) { rep.Log(report.Net, msg) }
 
 	const poseBytes = linkJointCount * 48
@@ -1474,6 +1489,12 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 							var face []byte
 							if fb, err := d.ReadAbsolute(mailboxBase+mailboxFaceStateLocal, faceStateWireBytes); err == nil && len(fb) == faceStateWireBytes {
 								face = fb
+								// docs/09 §5.4: a 17th byte, the appearance
+								// flags (bit 0 = casual clothes). Receivers
+								// before it copy only the first 16 bytes.
+								if app, ok := localAppearance(d); ok {
+									face = append(face, app)
+								}
 							}
 							if err := client.SendPose(linkJointCount, data, face); err != nil {
 								poseErrs++
@@ -1529,7 +1550,7 @@ func runPoseFakeLoop(name, addr string) {
 		os.Exit(1)
 	}
 	defer d.Close()
-	client := network.NewClient(name)
+	client := newPlayerClient(name)
 	client.OnLog = func(msg string) { fmt.Printf("[net] %s\n", msg) }
 	if err := client.Connect(addr); err != nil {
 		fmt.Printf("connect: %v\n", err)
@@ -1733,12 +1754,21 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	defer d.Close()
 	rep.Log(report.OK, "Dolphin found.")
 
-	client := network.NewClient(name)
+	client := newPlayerClient(name)
 	client.OnLog = func(msg string) {
 		rep.Log(report.Net, msg)
 	}
 	if onClient != nil {
 		onClient(client)
+	}
+	// Tunic colors (docs/09 §5.4): per-slot recolored body textures.
+	// WW_TUNIC=off leaves the slots to the tunic-slot dev command.
+	var tunics *tunicSync
+	if os.Getenv("WW_TUNIC") != "off" {
+		tunics = newTunicSync(d, func(format string, args ...any) { report.Logf(rep, report.Info, format, args...) })
+		// Session over: stop the C swaps (the enables live in RAM and
+		// would keep the local Link recolored). Runs before d.Close.
+		defer tunics.DisableAll()
 	}
 
 	// Lerp-smoothed state per slot. lerpK = 0.2 closes ~80% of the gap in
@@ -2227,6 +2257,11 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 					delete(parked, id)
 					delete(badRig, id)
 				}
+			}
+
+			if tunics != nil {
+				mine, haveMine := client.MyColor()
+				syncTunics(tunics, mine, haveMine, remotes, remoteToLinkSlot, now)
 			}
 
 			// Reservation expiry (#10): a slot despawned longer than
@@ -5426,6 +5461,8 @@ func runDump() {
 			slot, pb, jcVal, ps[0], sq[0])
 	}
 
+	printTunicMailbox(d)
+
 	// Per-slot state
 	for i := 0; i < maxPuppets; i++ {
 		data, _ := d.ReadAbsolute(slotAddr(i, 0), puppetSlotSize)
@@ -6385,7 +6422,7 @@ func runServer(port int) {
 func runFakeClient(name, addr string, centerX, centerZ float32) {
 	fmt.Printf("=== Fake Client: %s -> %s  center=(%.1f, %.1f) ===\n\n", name, addr, centerX, centerZ)
 
-	client := network.NewClient(name)
+	client := newPlayerClient(name)
 	client.OnLog = func(msg string) {
 		fmt.Printf("[%s] %s\n", time.Now().Format("15:04:05"), msg)
 	}
@@ -6751,7 +6788,7 @@ func remoteViews(c *network.Client, selfName string) []session.Player {
 		if selfName != "" && rp.Name == selfName {
 			continue // our own broadcast/puppet twin — not another human
 		}
-		pv := session.Player{ID: rp.ID, Name: rp.Name}
+		pv := session.Player{ID: rp.ID, Name: rp.Name, Color: rp.Color, HasColor: rp.HasColor}
 		if rp.Position != nil {
 			pv.X, pv.Y, pv.Z = rp.Position.PosX, rp.Position.PosY, rp.Position.PosZ
 		}

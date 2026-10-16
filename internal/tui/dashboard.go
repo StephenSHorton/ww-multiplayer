@@ -648,9 +648,14 @@ func renderStatus(width, count int, latency time.Duration, players []session.Pla
 			if n == "" {
 				n = fmt.Sprintf("player %d", p.ID)
 			}
-			names = append(names, displayText(n))
+			n = valueStyle.Render(displayText(n))
+			if p.HasColor {
+				swatch := lipgloss.NewStyle().Foreground(lipgloss.Color(p.Color.Hex())).Render("■")
+				n = swatch + " " + n + labelStyle.Render(" ("+p.Color.String()+")")
+			}
+			names = append(names, n)
 		}
-		line2 = labelStyle.Render("In game ") + valueStyle.Render(strings.Join(names, ", "))
+		line2 = labelStyle.Render("In game ") + strings.Join(names, valueStyle.Render(", "))
 	} else {
 		line2 = labelStyle.Render("In game ") + labelStyle.Render("(waiting for players…)")
 	}

@@ -11,9 +11,10 @@ const (
 
 	// Mailbox is the Go <-> C mailbox (MAILBOX_ADDR, mailbox.h:33; the
 	// mailboxBase const in main.go's mailbox layout block). Its last field
-	// is the u32 at +0x17C (mailbox.h:462).
+	// is tunic_swaps, the u32 at +0x19C (mailbox.h, "TUNIC COLORS");
+	// TestMailboxLayout (package main) pins this size to the C struct.
 	Mailbox     uint32 = 0x80412F00
-	MailboxSize        = 0x180
+	MailboxSize        = 0x1A0
 
 	// SpawnTrigger is mailbox.spawn_trigger, which multiplayer_update
 	// bumps once per frame (mailbox.h:109): the co-op heartbeat (§3.2).
