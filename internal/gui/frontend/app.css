@@ -1,0 +1,248 @@
+/* The look of Wind Waker's pause menu (owner decision, 2026-10-16; the
+   ITEMS screen): lime-green panels with a ragged leafy border over a
+   textured mid-green field, dark bark plaques with chunky yellow titles,
+   inset green item slots whose selection gets white corner brackets, the
+   orange SAVE-style button, the long green name bar, and round
+   controller-badge labels. Everything is CSS and inline SVG drawn for this
+   app; no game assets. Fonts are vendored (fonts/OFL.txt) so the window
+   works offline. */
+@font-face { font-family: "Reggae One"; font-weight: 400; font-display: swap; src: url(fonts/reggae-one-latin.woff2) format("woff2"); }
+@font-face { font-family: "RocknRoll One"; font-weight: 400; font-display: swap; src: url(fonts/rocknroll-one-latin.woff2) format("woff2"); }
+@font-face { font-family: "Zen Kaku Gothic New"; font-weight: 500; font-display: swap; src: url(fonts/zen-kaku-gothic-new-500-latin.woff2) format("woff2"); }
+@font-face { font-family: "Zen Kaku Gothic New"; font-weight: 700; font-display: swap; src: url(fonts/zen-kaku-gothic-new-700-latin.woff2) format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 500; font-display: swap; src: url(fonts/jetbrains-mono-500-latin.woff2) format("woff2"); }
+
+:root {
+	--ink: #142408;          /* the menu's dark outline */
+	--field: #3f8a26;        /* the textured green behind the panels */
+	--field-dk: #2f6e1a;
+	--leaf: #4f8f22;         /* a panel's ragged border */
+	--leaf-hi: #7fbf3a;
+	--lime: #c8e070;         /* a panel's face */
+	--lime-hi: #dcef94;
+	--slot: #8fbd3c;         /* an item slot */
+	--slot-dk: #5f9426;
+	--slot-hi: #b4d860;
+	--bark: #5a3a1a;         /* the title plaque */
+	--bark-dk: #33200c;
+	--bark-hi: #8a5f2c;
+	--yellow: #ffe63a;       /* plaque lettering */
+	--orange: #f59a12;       /* the SAVE button */
+	--orange-hi: #ffd04a;
+	--bar: #4fae3a;          /* the long name bar */
+	--bar-hi: #8ee070;
+	--red: #e0302a;          /* the B badge */
+	--blue: #1d64c8;         /* the Info badge's text */
+	--text: #1f3510;
+	--text-dim: #46602c;
+	--display: "RocknRoll One", "Zen Kaku Gothic New", sans-serif;
+	--title: "Reggae One", "RocknRoll One", sans-serif;
+	--body: "Zen Kaku Gothic New", system-ui, sans-serif;
+	--mono: "JetBrains Mono", ui-monospace, monospace;
+	/* a 9-slice frame with a leafy outer edge, for border-image */
+	--leafy: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'%3E%3Cpath fill-rule='evenodd' fill='%232c6512' d='M0.0 1.3 L6.0 5.1 L12.0 1.7 L18.0 5.0 L24.0 1.5 L30.0 5.3 L36.0 1.0 L42.0 5.5 L48.0 0.9 L54.0 5.4 L59.0 0.0 L55.0 6.0 L58.6 12.0 L54.1 18.0 L59.0 24.0 L54.8 30.0 L58.3 36.0 L54.0 42.0 L58.4 48.0 L54.6 54.0 L60.0 57.9 L54.0 55.0 L48.0 58.1 L42.0 54.8 L36.0 58.9 L30.0 55.0 L24.0 58.7 L18.0 54.1 L12.0 58.9 L6.0 54.4 L1.7 60.0 L5.3 54.0 L1.6 48.0 L5.0 42.0 L1.0 36.0 L5.1 30.0 L1.7 24.0 L5.4 18.0 L1.3 12.0 L5.6 6.0 Z M18 18 H42 V42 H18 Z'/%3E%3Cpath fill='none' stroke='%2394cc4a' stroke-width='3' d='M15 15 H45 V45 H15 Z'/%3E%3C/svg%3E");
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+	margin: 0; font: 500 16px/1.5 var(--body); color: var(--text);
+	background-color: var(--field);
+	/* a soft mottled texture, like the menu's backdrop */
+	background-image:
+		radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.07) 0 2px, transparent 3px),
+		radial-gradient(circle at 70% 60%, rgba(0, 0, 0, 0.08) 0 2px, transparent 3px),
+		radial-gradient(ellipse at 50% 0%, rgba(160, 220, 90, 0.35), transparent 60%),
+		linear-gradient(180deg, var(--field) 0%, var(--field-dk) 100%);
+	background-size: 9px 9px, 13px 13px, 100% 100%, 100% 100%;
+	background-attachment: fixed;
+}
+[hidden] { display: none !important; }
+code { font: 500 0.92em var(--mono); }
+
+/* chunky outlined lettering */
+.hud {
+	color: #fff; paint-order: stroke fill;
+	-webkit-text-stroke: 0.2em var(--ink);
+	text-shadow: 0 0.08em 0 var(--ink);
+}
+
+.top { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px 4px; }
+.brand { display: flex; align-items: center; gap: 10px; font: 400 20px var(--display); }
+.brand svg { width: 32px; height: 32px; }
+/* the "Info" badge */
+.ver {
+	display: inline-flex; align-items: center; gap: 6px; padding: 3px 14px 3px 4px;
+	font: 400 14px var(--display); color: var(--blue); background: #fff; border: 3px solid var(--ink); border-radius: 999px;
+}
+.ver::before { content: "i"; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--bar); color: #fff; font: 700 13px var(--body); }
+
+main { max-width: 1080px; margin: 0 auto; padding: 0 20px 16px; }
+
+/* the long green name bar ("Wind Waker") */
+h1 {
+	display: block; margin: 4px auto 30px; max-width: 520px; padding: 6px 28px 8px; text-align: center;
+	font: 400 24px/1.2 var(--display); color: #fff; letter-spacing: 0.5px;
+	paint-order: stroke fill; -webkit-text-stroke: 5px var(--ink);
+	background: linear-gradient(180deg, var(--bar-hi) 0 14%, var(--bar) 15% 100%);
+	border: 3px solid var(--ink); border-radius: 12px;
+	box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.35), 0 4px 0 rgba(20, 36, 8, 0.45);
+}
+
+/* panels: lime face, ragged leafy border */
+.panel {
+	position: relative; padding: 30px 18px 16px; color: var(--text);
+	border: 16px solid transparent; border-image: var(--leafy) 18 round;
+	background: radial-gradient(ellipse at 50% 0, var(--lime-hi), var(--lime) 70%) padding-box;
+	filter: drop-shadow(0 5px 0 rgba(20, 36, 8, 0.35));
+}
+.panel + .panel, .pair { margin-top: 30px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.pair .panel { margin: 0; display: flex; flex-direction: column; }
+.pair .panel .btn { margin-top: auto; align-self: flex-start; }
+.dim { margin: 0 0 10px; color: var(--text-dim); font-size: 15px; }
+.hint { display: block; margin-top: 6px; color: var(--text-dim); font-size: 13px; }
+
+/* the bark title plaque ("ITEMS") sitting on the panel's top edge */
+h2 {
+	position: absolute; top: -30px; left: 50%; transform: translateX(-50%); margin: 0; white-space: nowrap;
+	padding: 3px 22px 5px; font: 400 21px/1.2 var(--title); letter-spacing: 1px; text-transform: uppercase;
+	color: var(--yellow); paint-order: stroke fill; -webkit-text-stroke: 5px var(--bark-dk);
+	background:
+		repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.12) 0 2px, transparent 2px 7px),
+		linear-gradient(180deg, var(--bark-hi), var(--bark) 45%, var(--bark-dk));
+	border: 3px solid var(--bark-dk); border-radius: 4px;
+	box-shadow: inset 0 0 0 2px rgba(255, 210, 120, 0.25), 0 3px 0 rgba(20, 36, 8, 0.5);
+}
+
+.field { display: block; margin: 0 0 12px; }
+.field > span { display: block; margin-bottom: 5px; font: 400 14px var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink); }
+input {
+	width: 100%; max-width: 360px; padding: 8px 14px; font: 700 16px var(--body); color: var(--ink);
+	background: linear-gradient(180deg, #eef7cf, #fbfff0); border: 3px solid var(--ink); border-radius: 10px; outline: none;
+	box-shadow: inset 0 3px 0 rgba(20, 36, 8, 0.15);
+}
+input::placeholder { color: #8aa36a; }
+input:focus { box-shadow: inset 0 3px 0 rgba(20, 36, 8, 0.15), 0 0 0 3px #fff; }
+input[type=number] { max-width: 140px; }
+
+/* item slots: inset green rounded squares; the chosen one gets white
+   corner brackets */
+.swatches { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px; }
+.swatch {
+	position: relative; width: 52px; height: 52px; padding: 0; cursor: pointer;
+	background: linear-gradient(180deg, var(--slot-dk), var(--slot) 30%, var(--slot-hi));
+	border: 3px solid var(--slot-dk); border-radius: 10px;
+	box-shadow: inset 0 4px 6px rgba(20, 36, 8, 0.35);
+}
+.swatch::before { /* the tunic color, a diamond in the slot */
+	content: ""; position: absolute; inset: 8px; background: var(--ink);
+	clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.swatch > i { position: absolute; inset: 11px; background: var(--c); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.swatch.auto > i { background: conic-gradient(#3c9a2e, #d02c2c, #2c5ce0, #8c3cd0, #f08c1e, #1ec0d0, #f06eb4, #3c9a2e); }
+.swatch[aria-checked=true]::after {
+	content: ""; position: absolute; inset: -9px; pointer-events: none;
+	--b: 4px; --l: 14px;
+	background:
+		linear-gradient(#fff, #fff) top left / var(--l) var(--b), linear-gradient(#fff, #fff) top left / var(--b) var(--l),
+		linear-gradient(#fff, #fff) top right / var(--l) var(--b), linear-gradient(#fff, #fff) top right / var(--b) var(--l),
+		linear-gradient(#fff, #fff) bottom left / var(--l) var(--b), linear-gradient(#fff, #fff) bottom left / var(--b) var(--l),
+		linear-gradient(#fff, #fff) bottom right / var(--l) var(--b), linear-gradient(#fff, #fff) bottom right / var(--b) var(--l);
+	background-repeat: no-repeat;
+	filter: drop-shadow(0 0 1px var(--ink)) drop-shadow(0 0 1px var(--ink));
+}
+.swatch:disabled { cursor: not-allowed; }
+.swatch:disabled > i, .swatch:disabled::before { opacity: 0.4; }
+.swatch .taken { position: absolute; inset: 0; display: grid; place-items: center; font: 400 15px var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 3px var(--ink); }
+
+/* buttons: green, and the orange SAVE one for the main action */
+.btn {
+	display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
+	padding: 6px 22px 8px; font: 400 18px var(--display); color: #fff; letter-spacing: 0.5px;
+	paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink);
+	background: linear-gradient(180deg, #7fb04a, #4f8a26);
+	border: 3px solid var(--ink); border-radius: 6px;
+	box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.3), 0 4px 0 var(--ink);
+	transition: transform 0.08s ease;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(3px); box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.3), 0 1px 0 var(--ink); }
+.btn:disabled { opacity: 0.6; cursor: progress; transform: none; }
+.btn.primary {
+	background: linear-gradient(180deg, var(--orange-hi) 0 12%, var(--orange) 13% 100%);
+	box-shadow: inset 0 0 0 3px #ffe27a, 0 4px 0 var(--ink);
+}
+.btn[aria-pressed=true] { background: linear-gradient(180deg, var(--bar-hi) 0 12%, var(--bar) 13%); }
+/* "Return (B)": the Leave badge */
+.btn.back {
+	border-radius: 999px; padding: 3px 16px 5px 5px; background: #fff; color: var(--red);
+	-webkit-text-stroke: 0; font-size: 17px; box-shadow: 0 3px 0 var(--ink);
+}
+.btn.back::before { content: "B"; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--red); color: #fff; font: 400 15px var(--display); }
+
+.error { margin: 12px 0 0; font: 700 15px var(--body); color: #fff; }
+.error:empty { display: none; }
+.error:not(:empty) { display: inline-block; padding: 5px 16px; background: var(--red); border: 3px solid var(--ink); border-radius: 8px; }
+
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 2px 0 30px; }
+.bar > div { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.phase {
+	display: inline-block; padding: 3px 18px 5px; font: 400 16px var(--display); color: #fff;
+	paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink);
+	background: linear-gradient(180deg, var(--bar-hi) 0 14%, var(--bar) 15%); border: 3px solid var(--ink); border-radius: 10px;
+}
+.phase.lobby { background: linear-gradient(180deg, var(--orange-hi) 0 14%, var(--orange) 15%); }
+.where { font: 400 15px var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ended { margin-bottom: 30px; }
+.ended p { margin: 0 0 12px; }
+
+.cols { display: grid; grid-template-columns: minmax(300px, 5fr) 7fr; gap: 14px; align-items: start; }
+.cols .panel { margin: 0; }
+
+/* member rows as long inset slots */
+.members { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
+.members li {
+	display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+	background: linear-gradient(180deg, var(--slot-dk), var(--slot) 25%, var(--slot-hi));
+	border: 3px solid var(--slot-dk); border-radius: 10px; box-shadow: inset 0 3px 5px rgba(20, 36, 8, 0.3);
+}
+.members .dot { flex: none; width: 24px; height: 24px; background: var(--c); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); box-shadow: inset 0 0 0 3px var(--ink); }
+.members .dot.unknown { background: repeating-linear-gradient(45deg, #ccc 0 4px, #eee 4px 8px); }
+.members .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 16px var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink); }
+.members .who small { font: 700 13px var(--body); -webkit-text-stroke: 3px var(--ink); color: var(--yellow); }
+.members .empty { justify-content: center; font: 700 14px var(--body); color: var(--text); }
+/* round controller-style badges */
+.chip { flex: none; padding: 0 10px 1px; font: 700 12px var(--body); color: var(--ink); background: #fff; border: 2px solid var(--ink); border-radius: 999px; }
+.chip.ready { background: var(--bar-hi); }
+.chip.host { background: var(--yellow); }
+.chip.away { background: var(--red); color: #fff; }
+.mine { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; padding-top: 10px; border-top: 3px dashed var(--leaf); }
+.mine .field { margin: 0; }
+.addrs { list-style: none; margin: 10px 0 0; padding: 0; font: 500 14px var(--mono); }
+
+.feed { display: flex; flex-direction: column; height: calc(100vh - 180px); min-height: 320px; }
+.log {
+	flex: 1; overflow-y: auto; margin: 0 0 10px; padding: 8px 10px; list-style: none; font: 500 12.5px/1.5 var(--mono);
+	color: #e8f7d0; background: #1d3a12; border: 3px solid var(--slot-dk); border-radius: 10px; box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.4);
+}
+.log li { white-space: pre-wrap; word-break: break-word; }
+.log .warn { color: var(--yellow); }
+.log .err { color: #ff9a8a; }
+.log .ok { color: var(--bar-hi); }
+.log .net { color: #9fd8ff; }
+.log .chat { color: #fff; }
+.log .chat b { color: var(--orange-hi); }
+.chat { display: flex; gap: 10px; }
+.chat input { max-width: none; flex: 1; }
+
+.toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 10px; max-width: 380px; z-index: 10; }
+.toast { padding: 12px 16px; color: var(--ink); background: var(--lime-hi); border: 3px solid var(--ink); border-radius: 10px; box-shadow: 0 4px 0 var(--ink); font-size: 15px; font-weight: 700; }
+.toast.bad { background: #ffd9cf; }
+.toast button { margin: 8px 8px 0 0; font-size: 15px; padding: 4px 14px 6px; }
+
+@media (max-width: 760px) {
+	.pair, .cols { grid-template-columns: 1fr; }
+	.pair { row-gap: 30px; }
+	.feed { height: 420px; }
+}
+@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }

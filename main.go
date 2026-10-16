@@ -30,12 +30,12 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
+	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
-	"github.com/StephenSHorton/ww-multiplayer/internal/tui"
 )
 
 // version is overridden at build time by `go build -ldflags "-X main.version=..."`.
@@ -76,7 +76,15 @@ func openDolphin(pid uint32) (*dolphin.Dolphin, error) {
 }
 
 func main() {
+	// Drop macOS Finder's -psn_ argument first (app_face.go).
+	os.Args = append(os.Args[:1:1], stripPSN(os.Args[1:], runtime.GOOS)...)
 	applyColorPrefFromArgs() // --color / WW_COLOR, docs/09-player-colors.md
+	// No arguments, `tui` and `ui` open the app window or the TUI
+	// (app_face.go); every other subcommand is the CLI below, unchanged.
+	if f := appFace(os.Args[1:], gui.Available()); f != faceCLI {
+		runFace(f, os.Args[1:])
+		return
+	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "debug":
@@ -699,23 +707,6 @@ func main() {
 		}
 		return
 	}
-
-	// No subcommand — launch the TUI. v0.0's Bubble Tea TUI was retired
-	// in v0.1.2 (a35d4ec) because it never wired the connect screen to
-	// the actual pose-feed pipeline, so multiplayer silently didn't
-	// engage. v0.1.5 brings it back with the dashboard driving the same
-	// runHostSession / runJoinSession funcs the CLI subcommands run, and
-	// every Reporter log line surfacing in the dashboard's log panel.
-	// The TUI drives them through a session.Controller; sessionEngine
-	// (session_engine.go) adapts runHostSession / runJoinSession and the
-	// liveState status bridge to it.
-	ctrl := session.New(newTUIEngine(), session.Options{SessionLog: tuiSessionLog})
-	if err := tui.Run(version, ctrl); err != nil {
-		fmt.Println(err)
-		fmt.Print("Press Enter to exit...")
-		bufio.NewReader(os.Stdin).ReadString('\n')
-		os.Exit(1)
-	}
 }
 
 func printHelp() {
@@ -726,6 +717,13 @@ func printHelp() {
 	fmt.Println("Play multiplayer:")
 	fmt.Printf(col, x+" host [name] [--port N]", "Host a session (port 25565 unless --port; one process per player)")
 	fmt.Printf(col, x+" join <host-ip[:port]> [name]", "Join a host's session (type the address `host` prints)")
+	if gui.Available() {
+		fmt.Printf(col, x+" tui", "Open the terminal menu (no arguments opens the app window)")
+		fmt.Printf(col, x+" "+uiUsage, "Open the app window (--browser: in your browser)")
+	} else {
+		fmt.Printf(col, x+" tui", "Open the terminal menu (also what no arguments opens)")
+		fmt.Printf(col, x+" "+uiUsage, "Open the app in your browser (--browser; this build has no app window)")
+	}
 	fmt.Println()
 	fmt.Println("Patch an ISO:")
 	fmt.Println("  " + x + " patch <vanilla.iso|.ciso> [out.iso]")

@@ -47,7 +47,7 @@ Active work is tracked in [GitHub issues](../../issues) — epics group related 
    saves don't have to match, and the other player's Link only appears once
    their session connects).
 4. Host runs `.\ww-multiplayer.exe host` and shares the printed LAN IP (or
-   double-clicks `ww-multiplayer.exe` and picks Host — see [Playing](#playing)).
+   runs `.\ww-multiplayer.exe tui` and picks Host — see [Playing](#playing)).
 5. Joiner runs `.\ww-multiplayer.exe join <host-ip>` (you can also pass a custom name:
    `.\ww-multiplayer.exe join 192.168.1.42 Alice`).
 6. You should see each other's Link walking around in-game within a second
@@ -56,8 +56,8 @@ Active work is tracked in [GitHub issues](../../issues) — epics group related 
 ### macOS
 
 1. Download `ww-multiplayer-macos.tar.gz` from the [latest release](../../releases),
-   untar it. You'll get a universal binary (`ww-multiplayer`), a
-   Finder-clickable wrapper (`WW Multiplayer.app`), the one-time setup
+   untar it. You'll get a universal binary (`ww-multiplayer`), the app
+   (`WW Multiplayer.app`, the same binary in a bundle), the one-time setup
    script (`scripts/setup-mac-dolphin.sh`) and `LICENSE`. Run the commands
    below in Terminal from that untarred folder.
 2. **Strip the Gatekeeper quarantine flag** — macOS adds it to anything
@@ -82,7 +82,7 @@ Active work is tracked in [GitHub issues](../../issues) — epics group related 
    ```
 5. Boot the patched ISO in your `~/Applications/Dolphin.app` copy and
    load a save.
-6. Host: `./ww-multiplayer host` (or double-click `WW Multiplayer.app`).
+6. Host: `./ww-multiplayer host` (or `./ww-multiplayer tui` and pick Host).
 7. Joiner: `./ww-multiplayer join <host-ip>`.
 
 No sudo. The shipped binary is ad-hoc signed with the
@@ -100,13 +100,25 @@ original game-code bytes.
 **Both players must run the same version.** `ww-multiplayer version`
 prints it. v0.3.0 and later can't play with v0.2.x, so upgrade together.
 
-**The menu.** Run `ww-multiplayer` with no arguments — double-click
-`ww-multiplayer.exe` on Windows or `WW Multiplayer.app` on macOS. Pick
-Host or Join, enter a player name (and the host's address, to join), and
-the dashboard shows who's connected, the host's IP to share, a minimap
-and chat. **Each player needs a different name**: two players with the
-same name can't see each other. The menu always hosts on port 25565; use
-the command line for another port.
+**The app.** Run `ww-multiplayer` with no arguments — double-click
+`ww-multiplayer.exe` on Windows or `WW Multiplayer.app` on macOS — and the
+app window opens. Pick a name and a tunic color, then Host (on port 25565
+or the one you type) or Join (the host's address). Everyone meets in the
+app's lobby, which lists each player's name, color and ready flag, with
+the session log and chat; colors never clash (a taken one is offered the
+nearest free color). **Starting the game from the lobby comes in a later
+update** (it will launch Dolphin and connect everyone): until then, play
+with the terminal menu or the command line below. On Windows the window
+needs Microsoft's WebView2 runtime (Windows 11 and current Windows 10
+have it); without it the app offers to install it, and opens the terminal
+menu if you decline. In-game tunic colors arrive in a later update too.
+
+**The terminal menu.** `ww-multiplayer tui` opens the menu that no
+arguments used to open. Pick Host or Join, enter a player name (and the
+host's address, to join), and the dashboard shows who's connected, the
+host's IP to share, a minimap and chat. **Each player needs a different
+name**: two players with the same name can't see each other. The menu
+always hosts on port 25565; use the command line for another port.
 
 **The command line** does the same thing:
 
@@ -145,14 +157,21 @@ firewall when Windows asks.
 ```bash
 git clone https://github.com/StephenSHorton/ww-multiplayer.git
 cd ww-multiplayer
-# Windows (run on Windows)
-go build -o ww-multiplayer.exe .
-# Windows, cross-compiled from Linux or macOS
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o ww-multiplayer.exe .
-# macOS — universal binary + .app bundle
+# Windows (run on Windows), with the app window
+go build -tags desktop,production -o ww-multiplayer.exe .
+# Windows, cross-compiled from Linux or macOS (no cgo needed, window included)
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags desktop,production -o ww-multiplayer.exe .
+# macOS — universal binary + .app bundle (the script passes the tags)
 ./scripts/build-mac.sh dev
 # outputs dist/ww-multiplayer (universal) and dist/WW Multiplayer.app
 ```
+
+`-tags desktop,production` compiles in the app window (Wails v2,
+`internal/gui`). A plain `go build` leaves it out and is the CLI and the
+terminal menu only: no arguments then opens the terminal menu, as before.
+`ww-multiplayer ui --browser` serves the app's UI to your browser on
+`127.0.0.1` instead of a window (development and testing; Ctrl+C stops
+it).
 
 Linux isn't a supported player platform yet. `go build .` and
 `go test ./...` work on Linux, and the resulting binary can `patch` an ISO

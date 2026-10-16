@@ -52,6 +52,7 @@ jobs:
             exit 1
           fi
           go vet ./...
+          go vet -tags desktop,production ./...
 
       # CLAUDE.md's "regenerate blob.go before tagging" rule, enforced:
       # if the newest commit touching the C source (inject/src,
@@ -78,13 +79,16 @@ jobs:
             exit 1
           fi
 
+      # -tags desktop,production compiles the app window (internal/gui,
+      # Wails v2; it needs no cgo on Windows). Without them the exe is the
+      # CLI + TUI only: Wails v2 refuses to start a window untagged.
       - name: Build ww-multiplayer.exe (Windows amd64)
         env:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: '0'
         run: |
-          go build -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o ww-multiplayer.exe .
+          go build -trimpath -tags desktop,production -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o ww-multiplayer.exe .
           ls -la ww-multiplayer.exe
 
       - name: Upload artifact
@@ -104,7 +108,9 @@ jobs:
           go-version-file: go.mod
 
       - name: go vet
-        run: go vet ./...
+        run: |
+          go vet ./...
+          go vet -tags desktop,production ./...
 
       # scripts/build-mac.sh handles per-arch compile (-trimpath, version
       # stamped via -X main.version), lipo into a universal binary, and
@@ -161,16 +167,16 @@ jobs:
             1. Download `ww-multiplayer.exe`.
             2. In a terminal opened in the download folder: `.\ww-multiplayer.exe patch path\to\your-wind-waker.iso`
             3. Boot the patched ISO in Dolphin.
-            4. Double-click `ww-multiplayer.exe` for the menu (host or join), or from a terminal: host with `.\ww-multiplayer.exe host [name]`, join with `.\ww-multiplayer.exe join <host-ip> [name]`.
+            4. From a terminal: host with `.\ww-multiplayer.exe host [name]`, join with `.\ww-multiplayer.exe join <host-ip> [name]`, or `.\ww-multiplayer.exe tui` for the menu. Double-clicking `ww-multiplayer.exe` opens the new app window (name, color and the lobby; starting the game from it comes in a later update). The window needs Microsoft's WebView2 runtime, which Windows 11 and current Windows 10 have.
 
             ### macOS (Apple Silicon + Intel)
 
-            1. Download and untar `ww-multiplayer-macos.tar.gz`. Inside you'll find `ww-multiplayer` (universal binary), `WW Multiplayer.app` (Finder-clickable wrapper), `scripts/setup-mac-dolphin.sh` and `LICENSE`.
+            1. Download and untar `ww-multiplayer-macos.tar.gz`. Inside you'll find `ww-multiplayer` (universal binary), `WW Multiplayer.app` (the app; double-click it), `scripts/setup-mac-dolphin.sh` and `LICENSE`.
             2. In Terminal, from the untarred folder, clear the download quarantine (the binary is ad-hoc signed, not notarized): `xattr -cr ww-multiplayer "WW Multiplayer.app" scripts`
             3. One-time Dolphin setup (re-run after every Dolphin update): `./scripts/setup-mac-dolphin.sh`. It copies `/Applications/Dolphin.app` to `~/Applications/Dolphin.app` and re-signs the copy without the hardened runtime so ww-multiplayer can read its memory.
             4. `./ww-multiplayer patch ~/Roms/your-wind-waker.iso`
             5. Boot the patched ISO in the `~/Applications/Dolphin.app` copy.
-            6. Host: `./ww-multiplayer host [name]` (or double-click `WW Multiplayer.app`). Join: `./ww-multiplayer join <host-ip> [name]`. No sudo needed.
+            6. Host: `./ww-multiplayer host [name]`. Join: `./ww-multiplayer join <host-ip> [name]`. `./ww-multiplayer tui` opens the menu; double-clicking `WW Multiplayer.app` opens the new app window (name, color and the lobby; starting the game from it comes in a later update). No sudo needed.
 
             ### Verify your download
 

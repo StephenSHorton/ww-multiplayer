@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wind Waker Multiplayer</title>
+<link rel="stylesheet" href="app.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<header class="top">
+	<div class="brand">
+		<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 1 31 16 16 31 1 16Z" fill="#d8262e" stroke="#101a33" stroke-width="2"/><path d="M7 18c5 0 9-2 9-6 0-3-4-3-4 0 0 2 3 2 3 0" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round"/></svg>
+		<span class="hud">Wind Waker Multiplayer</span>
+	</div>
+	<span class="ver" id="version"></span>
+</header>
+
+<main>
+	<!-- Home: who you are, then Host or Join -->
+	<section id="home" class="screen" hidden>
+		<h1 class="hud">Set sail together</h1>
+		<div class="panel you">
+			<h2>You</h2>
+			<label class="field">
+				<span>Name</span>
+				<input id="name" autocomplete="off" spellcheck="false" placeholder="Link">
+			</label>
+			<div class="field">
+				<span>Tunic color</span>
+				<div class="swatches" id="home-swatches" role="radiogroup" aria-label="Tunic color"></div>
+				<small class="hint">Your Link wears this tunic color in game. Starting the game from this window comes in a later update.</small>
+			</div>
+		</div>
+		<div class="pair">
+			<form class="panel" id="host-form">
+				<h2>Host</h2>
+				<p class="dim">Start a session on this computer and share its address with your friends.</p>
+				<label class="field">
+					<span>Port</span>
+					<input id="port" type="number" min="1" max="65535" inputmode="numeric">
+				</label>
+				<button class="btn primary" type="submit" id="host-btn">Host a session</button>
+			</form>
+			<form class="panel" id="join-form">
+				<h2>Join</h2>
+				<p class="dim">Type the address your host shared: an IP, <code>ip:port</code> or <code>[v6]:port</code>.</p>
+				<label class="field">
+					<span>Host address</span>
+					<input id="addr" list="recent-hosts" autocomplete="off" spellcheck="false" placeholder="192.168.1.42">
+					<datalist id="recent-hosts"></datalist>
+				</label>
+				<button class="btn primary" type="submit" id="join-btn">Join</button>
+			</form>
+		</div>
+		<p class="error" id="home-error" role="alert"></p>
+	</section>
+
+	<!-- Session: the lobby (or the direct session), its log and chat -->
+	<section id="session" class="screen" hidden>
+		<div class="bar">
+			<div>
+				<span class="phase" id="phase"></span>
+				<span class="where" id="where"></span>
+			</div>
+			<button class="btn back" id="leave-btn">Leave</button>
+		</div>
+		<div class="ended panel" id="ended" hidden>
+			<h2>Session ended</h2>
+			<p id="end-reason"></p>
+			<button class="btn primary" id="back-btn">Back</button>
+		</div>
+		<div class="cols">
+			<div class="panel lobby">
+				<h2 id="members-title">Lobby</h2>
+				<ul class="members" id="members"></ul>
+				<div class="mine" id="mine" hidden>
+					<div class="field">
+						<span>Your color</span>
+						<div class="swatches" id="lobby-swatches" role="radiogroup" aria-label="Your tunic color"></div>
+					</div>
+					<button class="btn" id="ready-btn" aria-pressed="false">Ready</button>
+				</div>
+				<ul class="addrs" id="addrs"></ul>
+			</div>
+			<div class="panel feed">
+				<h2>Log and chat</h2>
+				<ol class="log" id="log"></ol>
+				<form class="chat" id="chat-form">
+					<input id="chat" autocomplete="off" placeholder="Say something" maxlength="200">
+					<button class="btn" type="submit">Send</button>
+				</form>
+			</div>
+		</div>
+	</section>
+</main>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+</body>
+</html>

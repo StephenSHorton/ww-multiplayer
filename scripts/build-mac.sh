@@ -4,9 +4,11 @@
 #      Apple Silicon and Intel Macs — produced by lipo'ing per-arch builds,
 #      then ad-hoc signed with the `com.apple.security.cs.debugger`
 #      entitlement so AMFI permits task_for_pid against Dolphin.
-#   2. A `WW Multiplayer.app` bundle wrapping the same signed binary,
-#      Finder-clickable, no sudo prompt (works against a non-hardened
-#      Dolphin — see scripts/setup-mac-dolphin.sh).
+#   2. A `WW Multiplayer.app` bundle whose executable is the same binary:
+#      double-clicked, it opens the app window (no arguments = the GUI;
+#      internal/gui, Wails v2, compiled in by -tags desktop,production).
+#      No sudo prompt (works against a non-hardened Dolphin — see
+#      scripts/setup-mac-dolphin.sh).
 #   3. `ww-multiplayer-macos.tar.gz` (the release download): both of the
 #      above plus scripts/setup-mac-dolphin.sh and LICENSE.
 #
@@ -31,17 +33,26 @@ mkdir -p "$DIST"
 # at the macOS SDK with an x86_64 target triple — clang/lipo support both.
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
 LDFLAGS="-s -w -X main.version=${VERSION}"
+# desktop,production compile the app window in (Wails v2 won't start a
+# window without production; without the tags the binary is CLI + TUI).
+# Wails v2's darwin frontend uses UTType (any macOS 11+ SDK) but its cgo
+# LDFLAGS don't link UniformTypeIdentifiers; `wails build` adds this
+# itself, so a plain `go build` must too or the link fails on
+# _OBJC_CLASS_$_UTType. (Vet and test don't link.)
+WAILS_LDFLAGS="-framework UniformTypeIdentifiers -mmacosx-version-min=10.13"
 
 echo "==> Building arm64..."
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 \
     SDKROOT="$SDK" \
-    go build -trimpath -ldflags="$LDFLAGS" -o "$DIST/ww-multiplayer-arm64" .
+    CGO_LDFLAGS="$WAILS_LDFLAGS" \
+    go build -trimpath -tags desktop,production -ldflags="$LDFLAGS" -o "$DIST/ww-multiplayer-arm64" .
 
 echo "==> Building amd64..."
 GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 \
     SDKROOT="$SDK" \
     CC="clang -target x86_64-apple-macos11 -isysroot $SDK" \
-    go build -trimpath -ldflags="$LDFLAGS" -o "$DIST/ww-multiplayer-amd64" .
+    CGO_LDFLAGS="$WAILS_LDFLAGS" \
+    go build -trimpath -tags desktop,production -ldflags="$LDFLAGS" -o "$DIST/ww-multiplayer-amd64" .
 
 echo "==> Combining into universal binary..."
 lipo -create \
@@ -63,22 +74,11 @@ echo "==> Building WW Multiplayer.app bundle..."
 APP="$DIST/WW Multiplayer.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-cp "$DIST/ww-multiplayer" "$APP/Contents/Resources/ww-multiplayer"
-
-# launcher is the bundle's CFBundleExecutable. Finder runs it on
-# double-click; we hand off to Terminal.app so the TUI has a real tty.
-cat > "$APP/Contents/MacOS/launcher" <<'LAUNCHER'
-#!/bin/bash
-DIR="$(cd "$(dirname "$0")" && pwd)"
-BIN="$DIR/../Resources/ww-multiplayer"
-osascript <<APPLESCRIPT
-tell application "Terminal"
-    activate
-    do script "'$BIN'"
-end tell
-APPLESCRIPT
-LAUNCHER
-chmod +x "$APP/Contents/MacOS/launcher"
+# The binary is the bundle's executable: Finder runs it with no arguments,
+# which opens the app window. (It used to be an AppleScript launcher that
+# opened the TUI in Terminal; `ww-multiplayer tui` still does that from a
+# shell.)
+cp "$DIST/ww-multiplayer" "$APP/Contents/MacOS/ww-multiplayer"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -86,7 +86,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>launcher</string>
+    <string>ww-multiplayer</string>
     <key>CFBundleIdentifier</key>
     <string>com.stephenhorton.ww-multiplayer</string>
     <key>CFBundleName</key>
@@ -106,6 +106,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+
+# Sign the bundle (its executable gets the cs.debugger entitlement too, so
+# the window's sessions can read Dolphin's memory).
+codesign -s - --entitlements "$ENT" --force "$APP"
+codesign -d --entitlements - "$APP" 2>&1 | grep -A1 "cs.debugger" || true
 
 # The README's first-run steps run ./scripts/setup-mac-dolphin.sh from
 # the untarred folder, so ship it at that same relative path, plus the
@@ -127,7 +132,7 @@ done
 echo
 echo "==> Built:"
 echo "    $DIST/ww-multiplayer       (universal binary, signed with cs.debugger)"
-echo "    $DIST/WW Multiplayer.app   (Finder-clickable wrapper)"
+echo "    $DIST/WW Multiplayer.app   (the app window; Finder-clickable)"
 echo "    $TARBALL"
 echo "      (also carries scripts/setup-mac-dolphin.sh and LICENSE)"
 echo

@@ -4,6 +4,13 @@ name: Build
 # every supported target (Windows + macOS)? Catches breakage between
 # releases without needing the full devkitPPC toolchain — blob.go is
 # committed and treated as source for build purposes.
+#
+# The app window (internal/gui, Wails v2) is compiled only with
+# `-tags desktop,production` on Windows and macOS; every other build gets a
+# stub and stays the CLI + TUI. So the Windows and macOS builds below pass
+# the tags (and still build without them), while the native Linux job never
+# compiles Wails and needs no webkit/GTK. Windows needs no cgo for Wails
+# (go-webview2 is syscalls), so the cross-build keeps CGO_ENABLED=0.
 
 on:
   push:
@@ -26,21 +33,29 @@ jobs:
         env:
           GOOS: windows
           GOARCH: amd64
-        run: go vet ./...
+        run: |
+          go vet ./...
+          go vet -tags desktop,production ./...
 
+      # The release exe (with the app window) and a plain `go build`
+      # (CLI + TUI only) must both cross-build with cgo off.
       - name: Cross-build Windows amd64
         env:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: '0'
-        run: go build -o /tmp/ww-multiplayer.exe .
+        run: |
+          go build -tags desktop,production -o /tmp/ww-multiplayer.exe .
+          go build -o /tmp/ww-multiplayer-cli.exe .
 
       # Native Linux pass: internal/dolphin has a stub backend on
       # platforms without process-memory support (memory_other.go), so
       # the whole module vets and its unit tests run here.
+      # The tags are harmless here: on Linux internal/gui is the stub.
       - name: go vet + go test (native Linux)
         run: |
           go vet ./...
+          go vet -tags desktop,production ./...
           go test -race -count=1 ./...
 
       - name: Sanity-check embedded blob
@@ -66,7 +81,9 @@ jobs:
       # to actually run on a Mac. Build native arm64 (the runner) and
       # cross to amd64 to make sure both architectures still compile.
       - name: go vet
-        run: go vet ./...
+        run: |
+          go vet ./...
+          go vet -tags desktop,production ./...
 
       - name: go test
         run: go test -count=1 ./...
@@ -76,15 +93,19 @@ jobs:
           GOOS: darwin
           GOARCH: arm64
           CGO_ENABLED: '1'
-        run: go build -o /tmp/ww-multiplayer-arm64 .
+          # Wails v2 uses UTType but doesn't link its framework (`wails
+          # build` adds this itself); see scripts/build-mac.sh.
+          CGO_LDFLAGS: '-framework UniformTypeIdentifiers -mmacosx-version-min=10.13'
+        run: go build -tags desktop,production -o /tmp/ww-multiplayer-arm64 .
 
       - name: Build amd64 (cross from arm64 host)
         env:
           GOOS: darwin
           GOARCH: amd64
           CGO_ENABLED: '1'
+          CGO_LDFLAGS: '-framework UniformTypeIdentifiers -mmacosx-version-min=10.13'
         run: |
           SDK=$(xcrun --sdk macosx --show-sdk-path)
           CC="clang -target x86_64-apple-macos11 -isysroot $SDK" \
             SDKROOT=$SDK \
-            go build -o /tmp/ww-multiplayer-amd64 .
+            go build -tags desktop,production -o /tmp/ww-multiplayer-amd64 .
