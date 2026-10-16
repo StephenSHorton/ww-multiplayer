@@ -19,12 +19,13 @@
 - **Where the green comes from.** Link's tunic green is not a material or TEV color. It is painted into `linktexS3TC`, a CMPR (S3TC) texture in `cl.bdl`. The game's own casual-clothes swap replaces that texture's `ResTIMG` header (§2).
 - **Why one bracket can give each Link its own color.** Every Link on screen (Link #1 and the mini-Links) shares one `J3DModelData`, and so one texture table. Each Link's per-frame differed display list is baked when that Link is entered. At that moment `loadTexNo` reads `(u8*)resTIMG + resTIMG->imageOffset` (§3). Swapping the header's image pointer around one Link's entry therefore recolors only that Link. Face sync already ships this exact bracket for the eye texNos, and it is visually proven (§3).
 - **How the recolor is done.** Because the texture is CMPR, a recolor only moves the two RGB565 endpoint colors of each green 4x4 block. There is no decode or re-encode. Go does it at join time (`internal/tunic`, implemented here).
-- **Who picks the colors.** The server assigns colors per player *name* in join order from an 8-color palette: green, red, blue, purple, then orange, cyan, pink, black. A player can ask for one with `--color` or `WW_COLOR`. The colors travel in a backward-compatible trailer on `MsgPlayerList`, so there is **no protocol version bump** (§5.1). This part is implemented and tested here.
+- **Who picks the colors.** Each player picks their own, from an 8-color palette (green, red, blue, purple, then orange, cyan, pink, black) or any `#RRGGBB`, with `--color`, `WW_COLOR` or the app's lobby. Players may wear the same color; a player who picks none wears classic green. The server records each player *name*'s color and sends it to everyone. The colors travel in a backward-compatible trailer on `MsgPlayerList`, so there is **no protocol version bump** (§5.1). This part is implemented and tested here.
 - **What must be checked live first.** One Go-only check runs before any blob change: the `tunic-probe` and `tunic-recolor` diagnostics (implemented here). They prove the texture facts and the recolor quality on a live Dolphin (§7.1).
 - **The C part (built).** It is `tunic_swap` / `tunic_restore` plus a one-time allocation, measured at **0x120 bytes** of T2 with devkitPPC 16.2 (§6). T2 now ends at 0x80412E08, **0xF8 bytes** below the mailbox. The blob is regenerated; it still needs one Shift+F1 recapture and a user re-patch.
 - **Owner decisions (2026-10-16).**
-  - Green stays in the palette: the vanilla tunic is a valid color, and the first joiner gets it by default.
-  - Colors will later be chosen in a Wails desktop lobby, so selection stays in Go packages the app can call: `internal/playercolor` (palette, `Parse`, `Pick`), `network.Client.SetColorPreference`, and `session.Player.Color` for display.
+  - Green stays in the palette: the vanilla tunic is a valid color, and it is what a player with no preference wears.
+  - Colors will later be chosen in a Wails desktop lobby, so selection stays in Go packages the app can call: `internal/playercolor` (palette, `Parse`), `network.Client.SetColorPreference`, and `session.Player.Color` for display.
+  - **Shared colors are fine (Stephen, 2026-10-16):** "I don't care that people are the same color. Remove that code too if it auto assigns a new color." Nothing warns about, refuses or changes a color another player wears. This replaces the earlier rule that moved a clashing preference to the first clear palette color.
 
 ## 2. How Link's tunic is colored (Q1)
 
@@ -108,16 +109,18 @@
 ### 5.1 Color assignment and protocol (Q3) — implemented on this branch
 
 **Palette** (`internal/playercolor`):
-- The palette in assignment order is green (vanilla, no recolor), red, blue, purple, orange, cyan, pink, black. The first four are the Four Swords colors.
-- A test checks that every pair is at least `MinDistance` (120, redmean RGB) apart.
+- The palette, in display order, is green (vanilla, no recolor), red, blue, purple, orange, cyan, pink, black. The first four are the Four Swords colors.
+- A test checks that every pair is at least 120 apart (redmean RGB, `Distance`), so the choices are easy to tell apart. Players may still pick the same one.
 - `Parse` accepts a palette name or `#RRGGBB`.
 
 **Assignment** (`network/server.go`, `pickColorLocked`), under `s.mu` at join:
-0. (App PR 4, docs/10-lobby.md §4.) A connection whose name is a lobby member's gets the member's color, which the lobby picked. The colors of the lobby's members also count as taken in rules 2-4. Without lobby members, rules 1-4 are unchanged.
+0. (App PR 4, docs/10-lobby.md §4.) A connection whose name is a lobby member's gets the member's color, which the member chose.
 1. A connection whose name matches a live player gets that player's color. Each human runs two connections, broadcast-pose and puppet-sync, under one name (see `dedupePlayersByName` in `main.go`).
-2. Otherwise, the hello's preference, if it is not within `MinDistance` of another player's color.
-3. Otherwise, the color this name had earlier in the server's life, if still clear. A reconnect keeps its color.
-4. Otherwise, the first clear palette color, wrapping past 8 players.
+2. Otherwise, the hello's preference, whoever else wears it.
+3. Otherwise, the color this name had earlier in the server's life. A reconnect keeps its color.
+4. Otherwise, classic green.
+
+No rule looks at the other players' colors: two players may wear the same one (owner decision, 2026-10-16).
 
 The name memory is capped at 256 entries.
 
@@ -132,7 +135,7 @@ The name memory is capped at 256 entries.
 **Options:**
 - `--color <name|#RRGGBB>` anywhere before a bare `--`, or the `WW_COLOR` env. `--color` wins.
 - Both are stripped from `os.Args` before the subcommand switch (`playercolor_flag.go`). Every player client is created through `newPlayerClient`.
-- `mp-local` gives both of its players the same preference, so the second one is moved. A per-player `MP_LOCAL_COLOR_A/B` is a later nicety.
+- `mp-local` gives both of its players the same preference, and both wear it (shared colors are allowed, §1 owner decisions). Without `WW_COLOR` both wear green, so a two-color mp-local check needs a per-player `MP_LOCAL_COLOR_A/B`, which is not built yet.
 
 **TUI:** the status panel's "In game" row shows `■ name (color)` in the player's color (`renderStatus`). The color reaches the TUI as `session.Player.Color` (§5.4). Showing the local player's own color is left to the lobby work.
 
@@ -381,17 +384,17 @@ Setup: run `SAVE_STATE=… ./ww-multiplayer.exe dolphin2`, then `WW_TUNIC=off ./
    3. Run `tunic-slot 0 red`. The mini-Link draws in a red **hero** tunic and hat while Link #1 is casual, and `swaps` now grows by about 30 per second.
    4. `tunic-slot local off` and `tunic-slot 0 off` before §7.3.
 
-### 7.3 Wiring (mp-local with two colors)
+### 7.3 Wiring (two players, two colors, then one shared color)
 
-1. Stop mp-local and start it without `WW_TUNIC`: `./ww-multiplayer.exe mp-local`. A (Dolphin 0) joins first and gets green; B gets red. Put both Dolphins in the hero's clothes (§7.0).
+1. Two players need two colors, and mp-local gives both the same one (§5.1, Options), so until `MP_LOCAL_COLOR_A/B` exists run host and join in two shells instead, without `WW_TUNIC`: A (Dolphin 0) with no `--color` (green), B (Dolphin 1) with `--color red`. Put both Dolphins in the hero's clothes (§7.0).
 2. Take one screenshot per Dolphin:
    - Dolphin 0: Link #1 green, the mini-Link (B) **red**;
    - Dolphin 1: Link #1 **red**, the mini-Link (A) green.
 3. Run `dump` on each Dolphin:
    - Dolphin 1: `local enable=1` and slot 0 `enable=1`;
    - Dolphin 0: `local enable=0` (green needs no swap) and slot 0 `enable=1`.
-4. Stop mp-local and run `WW_COLOR=purple ./ww-multiplayer.exe mp-local`. Both players ask for purple, so A gets purple and B gets the first clear color (green). Take a screenshot pair: Dolphin 0's Link is purple, and Dolphin 1's mini-Link is purple.
-5. Kill and restart mp-local: each player keeps its color, because the server remembers names for as long as it runs. (mp-local restarts the server too, so here the colors are reassigned in join order; the name memory shows when only a client reconnects, as in host/join.)
+4. Restart only B's join without `--color`, leaving A's host running: B keeps red, because the server remembers each name's color for as long as it runs. (Restarting the host restarts the server too, and the memory goes with it.)
+5. Stop host and join, then run `WW_COLOR=purple ./ww-multiplayer.exe mp-local`. Both players ask for purple, and both get it. Take a screenshot pair: on each Dolphin, Link #1 and the mini-Link are both purple.
 6. Put Dolphin 1 back in the casual clothes (§7.0 reversal, then a door). On Dolphin 0, B's mini-Link stops being swapped (appearance byte) and shows Dolphin 0's own texture.
 7. The TUI (`./ww-multiplayer.exe` host and join, in two shells) shows `■ name (color)` for the other player.
 

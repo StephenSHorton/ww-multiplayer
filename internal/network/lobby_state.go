@@ -206,48 +206,6 @@ func (m *lobbyMachine) cliRows() []LobbyMember {
 	return rows
 }
 
-// usedColors are the colors of every member but except, and of the CLI
-// rows, with the names they belong to.
-func (m *lobbyMachine) usedColors(except *lobbyMember) ([]playercolor.Color, []string) {
-	var cs []playercolor.Color
-	var names []string
-	for _, mb := range m.members {
-		if mb != except {
-			cs = append(cs, mb.color)
-			names = append(names, mb.name)
-		}
-	}
-	for _, r := range m.cliRows() {
-		if c, err := playercolor.Parse(r.Color); err == nil {
-			cs = append(cs, c)
-			names = append(names, r.Name)
-		}
-	}
-	return cs, names
-}
-
-// paletteExhausted reports whether every palette color clashes with used:
-// more players than the palette separates, so colors are shared and no
-// request is refused.
-func paletteExhausted(used []playercolor.Color) bool {
-	for _, p := range playercolor.Palette() {
-		if !playercolor.Clashes(p.Color, used) {
-			return false
-		}
-	}
-	return true
-}
-
-// clashOwner names the first owner of a color in used that c clashes with.
-func clashOwner(c playercolor.Color, used []playercolor.Color, names []string) string {
-	for i, u := range used {
-		if playercolor.Distance(c, u) < playercolor.MinDistance {
-			return names[i]
-		}
-	}
-	return ""
-}
-
 // snapshot is STATE.
 func (m *lobbyMachine) snapshot() LobbyStateBody {
 	st := LobbyStateBody{Phase: m.phase, Rev: m.rev, Settings: m.settings, Members: []LobbyMember{}}
@@ -324,28 +282,13 @@ func (m *lobbyMachine) hello(conn int, name string, loopback bool, h LobbyHelloB
 		m.nextID++
 		mb = &lobbyMember{id: m.nextID, name: name, key: key, token: m.newToken(), conn: conn,
 			host: loopback && !m.hasHost(), loopback: loopback, dolphin: clampField(h.Dolphin, maxLobbyDolphin)}
-		used, names := m.usedColors(nil)
-		var wantSet bool
-		var want playercolor.Color
+		// The color asked for, whoever else wears it; classic green
+		// without one (docs/10 §4).
+		mb.color = playercolor.Vanilla()
 		if h.Color != "" {
 			if c, err := playercolor.Parse(h.Color); err == nil {
-				want, wantSet = c, true
+				mb.color = c
 			}
-		}
-		switch {
-		case wantSet && paletteExhausted(used):
-			// More players than the palette separates: granted and
-			// shared, as SET does (docs/10 §4).
-			mb.color = want
-		case wantSet:
-			mb.color = playercolor.Nearest(want, used)
-			if mb.color != want {
-				g := mb.color.Hex()
-				outs = append(outs, lobbyOut{to: conn, sub: LobbyColor, body: LobbyColorBody{
-					Granted: &g, Wanted: want.Hex(), ClashWith: clashOwner(want, used, names), Suggest: g}})
-			}
-		default:
-			mb.color = playercolor.Pick(nil, used)
 		}
 		m.members = append(m.members, mb)
 	}
@@ -479,15 +422,9 @@ func (m *lobbyMachine) set(mb *lobbyMember, b LobbySetBody) []lobbyOut {
 			if want != mb.color {
 				outs = append(outs, notice(mb.conn, NoticeColorsLocked, "colors are locked once the session has started"))
 			}
-		case want == mb.color:
-		default:
-			used, names := m.usedColors(mb)
-			if playercolor.Clashes(want, used) && !paletteExhausted(used) {
-				outs = append(outs, lobbyOut{to: mb.conn, sub: LobbyColor, body: LobbyColorBody{
-					Wanted: want.Hex(), ClashWith: clashOwner(want, used, names), Suggest: playercolor.Nearest(want, used).Hex()}})
-			} else {
-				mb.color, dirty = want, true
-			}
+		case want != mb.color:
+			// Granted as asked, even when another member wears it.
+			mb.color, dirty = want, true
 		}
 	}
 	if b.Ready != nil && *b.Ready != mb.ready {

@@ -241,20 +241,6 @@ func (h *LobbyHub) colorOf(name string) (playercolor.Color, bool) {
 	return c, ok
 }
 
-// otherColors are the members' colors but name's.
-func (h *LobbyHub) otherColors(name string) []playercolor.Color {
-	h.colorMu.RLock()
-	defer h.colorMu.RUnlock()
-	k := lobbyKey(name)
-	var out []playercolor.Color
-	for n, c := range h.colorTab {
-		if n != k {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
 // isKicked reports whether the host kicked name (any case) from this
 // session: its player and co-op connections are refused.
 func (h *LobbyHub) isKicked(name string) bool {
@@ -338,13 +324,12 @@ func (h *LobbyHub) run(input func(m *lobbyMachine) []lobbyOut) {
 	}
 }
 
-// runWithPlayers is run for an input that may pick or change a member's
+// runWithPlayers is run for an input that may add a member or change its
 // color (HELLO, SET). It holds Server.mu across the machine step and the
 // color table's update, after refreshing the machine's player list from
-// s.players under it. A player connection's color pick (pickColorLocked,
-// under Server.mu) then sees either the member's new color or a list
-// that already has the player, never neither, so the two can't take the
-// same color at once.
+// s.players under it, so a player connection's color pick
+// (pickColorLocked, under Server.mu) sees a member and its color together
+// (rule 0), and the STATE it sends lists the current CLI rows.
 func (h *LobbyHub) runWithPlayers(input func(m *lobbyMachine) []lobbyOut) {
 	h.mu.Lock()
 	h.srv.mu.RLock()

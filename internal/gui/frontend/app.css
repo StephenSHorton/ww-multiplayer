@@ -139,7 +139,6 @@ input[type=number] { max-width: 140px; }
 	clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
 }
 .swatch > i { position: absolute; inset: 11px; background: var(--c); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
-.swatch.auto > i { background: conic-gradient(#3c9a2e, #d02c2c, #2c5ce0, #8c3cd0, #f08c1e, #1ec0d0, #f06eb4, #3c9a2e); }
 .swatch[aria-checked=true]::after {
 	content: ""; position: absolute; inset: -9px; pointer-events: none;
 	--b: 4px; --l: 14px;
@@ -153,7 +152,6 @@ input[type=number] { max-width: 140px; }
 }
 .swatch:disabled { cursor: not-allowed; }
 .swatch:disabled > i, .swatch:disabled::before { opacity: 0.4; }
-.swatch .taken { position: absolute; inset: 0; display: grid; place-items: center; font: 400 15px var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 3px var(--ink); }
 
 /* buttons: green, and the orange SAVE one for the main action */
 .btn {

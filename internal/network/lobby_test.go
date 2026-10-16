@@ -18,7 +18,6 @@ import (
 // lobbyWatch records a lobby client's callbacks.
 type lobbyWatch struct {
 	mu       sync.Mutex
-	colors   []LobbyColorBody
 	notices  []LobbyNoticeBody
 	starts   []LobbyStartBody
 	gos      []LobbyGoBody
@@ -28,7 +27,6 @@ type lobbyWatch struct {
 
 func watchLobby(l *LobbyClient) *lobbyWatch {
 	w := &lobbyWatch{}
-	l.OnColor = func(b LobbyColorBody) { w.mu.Lock(); w.colors = append(w.colors, b); w.mu.Unlock() }
 	l.OnNotice = func(b LobbyNoticeBody) { w.mu.Lock(); w.notices = append(w.notices, b); w.mu.Unlock() }
 	l.OnStart = func(b LobbyStartBody) { w.mu.Lock(); w.starts = append(w.starts, b); w.mu.Unlock() }
 	l.OnGo = func(b LobbyGoBody) { w.mu.Lock(); w.gos = append(w.gos, b); w.mu.Unlock() }
@@ -37,16 +35,10 @@ func watchLobby(l *LobbyClient) *lobbyWatch {
 	return w
 }
 
-func (w *lobbyWatch) lens() (colors, notices, starts, gos, requests, chats int) {
+func (w *lobbyWatch) lens() (notices, starts, gos, requests, chats int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return len(w.colors), len(w.notices), len(w.starts), len(w.gos), len(w.requests), len(w.chats)
-}
-
-func (w *lobbyWatch) lastColor() LobbyColorBody {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.colors[len(w.colors)-1]
+	return len(w.notices), len(w.starts), len(w.gos), len(w.requests), len(w.chats)
 }
 
 func (w *lobbyWatch) lastNotice() LobbyNoticeBody {
@@ -166,7 +158,7 @@ var lobbyRed, lobbyBlue = playercolor.Palette()[1].Color, playercolor.Palette()[
 // --- loopback integration ----------------------------------------------------
 
 // TestLobbyLoopbackSession is the PR 4 integration test: two lobby clients
-// and a CLI player on one server. They join, pick colors (one clashes),
+// and a CLI player on one server. They join, pick colors (two share one),
 // get ready; the host starts, colors lock, the host sends GO; the app's
 // pose connection takes its lobby color; chat crosses between lobby and
 // player connections; lobby connections stay out of the roster and count.
@@ -181,8 +173,8 @@ func TestLobbyLoopbackSession(t *testing.T) {
 		t.Fatalf("host WELCOME %+v", w)
 	}
 
-	// The joiner asks for red too: granted the nearest clear color, and
-	// told why.
+	// The joiner asks for red too: granted, the same color as the host,
+	// with no COLOR frame or notice about it.
 	joiner := NewLobbyClient("Joiner", LobbyHelloBody{Color: "#D02C2C"})
 	jw := watchLobby(joiner)
 	runLobby(t, joiner, addr)
@@ -190,20 +182,13 @@ func TestLobbyLoopbackSession(t *testing.T) {
 	if w, _ := joiner.Welcome(); w.Host {
 		t.Fatal("the joiner is host")
 	}
-	jc := colorOfRow(t, st, "Joiner")
-	if colorOfRow(t, st, lobbyHostName) != lobbyRed || playercolor.Clashes(jc, []playercolor.Color{lobbyRed}) {
-		t.Fatalf("colors: host %v joiner %v", colorOfRow(t, st, lobbyHostName), jc)
-	}
-	if !waitFor(2*time.Second, func() bool { n, _, _, _, _, _ := jw.lens(); return n == 1 }) {
-		t.Fatal("joiner got no COLOR for its clash")
-	}
-	if c := jw.lastColor(); c.Granted == nil || *c.Granted != jc.Hex() || c.ClashWith != lobbyHostName {
-		t.Fatalf("joiner COLOR %+v", c)
+	if h, j := colorOfRow(t, st, lobbyHostName), colorOfRow(t, st, "Joiner"); h != lobbyRed || j != lobbyRed {
+		t.Fatalf("colors: host %v joiner %v, want both red", h, j)
 	}
 
 	// A CLI player (two connections under one name, as host/join runs
-	// them) shows as one "via cli" row, ready, with a color clear of the
-	// members'.
+	// them) shows as one "via cli" row, ready. With no preference it wears
+	// green.
 	cli := connectPlayer(t, addr, "Cli")
 	cli2 := connectPlayer(t, addr, "Cli")
 	var chats chatRecorder
@@ -214,8 +199,8 @@ func TestLobbyLoopbackSession(t *testing.T) {
 		t.Fatalf("CLI row %+v in %+v", row, st.Members)
 	}
 	cc := colorOfRow(t, st, "Cli")
-	if playercolor.Clashes(cc, []playercolor.Color{lobbyRed, jc}) {
-		t.Fatalf("CLI color %v clashes with a member's", cc)
+	if cc != playercolor.Vanilla() {
+		t.Fatalf("CLI color %v, want green (no preference)", cc)
 	}
 	if mc, ok := cli.MyColor(); !ok || mc != cc {
 		t.Fatalf("CLI player list color %v, lobby says %v", mc, cc)
@@ -226,25 +211,24 @@ func TestLobbyLoopbackSession(t *testing.T) {
 	}
 	waitState(t, host, "CLI in game", func(st LobbyStateBody) bool { r, _ := rowOf(st, "Cli"); return r.Dolphin == DolphinInGame })
 
-	// The joiner asks for the CLI player's color: refused, nearest
-	// suggested, color unchanged.
+	// The joiner asks for the CLI player's color: granted, shared.
 	if err := joiner.SetColor(cc); err != nil {
 		t.Fatal(err)
 	}
-	if !waitFor(2*time.Second, func() bool { n, _, _, _, _, _ := jw.lens(); return n == 2 }) {
-		t.Fatal("no COLOR for the clashing request")
+	waitState(t, host, "joiner shares the CLI color", func(st LobbyStateBody) bool {
+		r, _ := rowOf(st, "Joiner")
+		return r.Color == cc.Hex()
+	})
+	if n, _, _, _, _ := jw.lens(); n != 0 {
+		t.Fatalf("the joiner got %d notices for a shared color: %+v", n, jw.lastNotice())
 	}
-	if c := jw.lastColor(); c.Granted != nil || c.ClashWith != "Cli" || c.Suggest == "" {
-		t.Fatalf("clash COLOR %+v", c)
-	}
-	// A free color is granted.
-	free := playercolor.Pick(nil, []playercolor.Color{lobbyRed, jc, cc})
-	if err := joiner.SetColor(free); err != nil {
+	// And another color, as freely.
+	if err := joiner.SetColor(lobbyBlue); err != nil {
 		t.Fatal(err)
 	}
-	waitState(t, host, "joiner's free color", func(st LobbyStateBody) bool {
+	waitState(t, host, "joiner's blue", func(st LobbyStateBody) bool {
 		r, _ := rowOf(st, "Joiner")
-		return r.Color == free.Hex()
+		return r.Color == lobbyBlue.Hex()
 	})
 
 	// Ready, then a joiner can't start, the host can.
@@ -256,7 +240,7 @@ func TestLobbyLoopbackSession(t *testing.T) {
 		return a.Ready && b.Ready
 	})
 	joiner.Start()
-	if !waitFor(2*time.Second, func() bool { _, n, _, _, _, _ := jw.lens(); return n == 1 }) || jw.lastNotice().Code != NoticeNotHost {
+	if !waitFor(2*time.Second, func() bool { n, _, _, _, _ := jw.lens(); return n == 1 }) || jw.lastNotice().Code != NoticeNotHost {
 		t.Fatal("a joiner's START was not refused")
 	}
 	host.SetSettings(LobbySettingsBody{Coop: CoopOff, DryRun: true})
@@ -266,7 +250,7 @@ func TestLobbyLoopbackSession(t *testing.T) {
 	}
 	waitState(t, joiner, "starting", func(st LobbyStateBody) bool { return st.Phase == PhaseStarting })
 	for _, w := range []*lobbyWatch{hw, jw} {
-		if !waitFor(2*time.Second, func() bool { _, _, n, _, _, _ := w.lens(); return n == 1 }) {
+		if !waitFor(2*time.Second, func() bool { _, n, _, _, _ := w.lens(); return n == 1 }) {
 			t.Fatal("START not relayed to every member")
 		}
 		if w.starts[0].Settings.DryRun != true {
@@ -276,7 +260,7 @@ func TestLobbyLoopbackSession(t *testing.T) {
 
 	// Colors are locked now.
 	joiner.SetColor(playercolor.Palette()[6].Color)
-	if !waitFor(2*time.Second, func() bool { _, n, _, _, _, _ := jw.lens(); return n == 2 }) || jw.lastNotice().Code != NoticeColorsLocked {
+	if !waitFor(2*time.Second, func() bool { n, _, _, _, _ := jw.lens(); return n == 2 }) || jw.lastNotice().Code != NoticeColorsLocked {
 		t.Fatal("a color change after Start was not refused")
 	}
 
@@ -284,7 +268,7 @@ func TestLobbyLoopbackSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitState(t, joiner, "in game", func(st LobbyStateBody) bool { return st.Phase == PhaseInGame })
-	if !waitFor(2*time.Second, func() bool { _, _, _, n, _, _ := jw.lens(); return n == 1 }) {
+	if !waitFor(2*time.Second, func() bool { _, _, n, _, _ := jw.lens(); return n == 1 }) {
 		t.Fatal("GO not relayed")
 	}
 
@@ -292,9 +276,9 @@ func TestLobbyLoopbackSession(t *testing.T) {
 	// takes the lobby color (rule 0) with no preference in its hello, and
 	// the joiner is not listed twice.
 	pose := connectPlayer(t, addr, "Joiner")
-	if !waitFor(2*time.Second, func() bool { c, ok := pose.MyColor(); return ok && c == free }) {
+	if !waitFor(2*time.Second, func() bool { c, ok := pose.MyColor(); return ok && c == lobbyBlue }) {
 		c, _ := pose.MyColor()
-		t.Fatalf("the joiner's pose connection got %v, want its lobby color %v", c, free)
+		t.Fatalf("the joiner's pose connection got %v, want its lobby color %v", c, lobbyBlue)
 	}
 	time.Sleep(50 * time.Millisecond)
 	if st, _ := host.State(); len(st.Members) != 3 {
@@ -333,7 +317,7 @@ func TestLobbyLoopbackSession(t *testing.T) {
 
 	// A joiner asks the host to allow merging.
 	joiner.RequestMerge()
-	if !waitFor(2*time.Second, func() bool { _, _, _, _, n, _ := hw.lens(); return n == 1 }) || hw.requests[0].From != "Joiner" {
+	if !waitFor(2*time.Second, func() bool { _, _, _, n, _ := hw.lens(); return n == 1 }) || hw.requests[0].From != "Joiner" {
 		t.Fatal("REQUEST did not reach the host")
 	}
 }
@@ -446,7 +430,7 @@ func TestLobbyNameTaken(t *testing.T) {
 	}
 	// OnNotice ran before Run returned (the controller publishes the
 	// notice, with its suggestion, before the session ends).
-	if _, notices, _, _, _, _ := bw.lens(); notices != 1 || bw.lastNotice().Suggest != "LINK (2)" {
+	if notices, _, _, _, _ := bw.lens(); notices != 1 || bw.lastNotice().Suggest != "LINK (2)" {
 		t.Fatalf("OnNotice had not run when Run returned (%d notices)", notices)
 	}
 	// Player connections keep today's rule: two under one name are fine.
@@ -568,11 +552,11 @@ func TestLobbyReclaimReplaysStartAndGo(t *testing.T) {
 	host.SetSettings(LobbySettingsBody{Coop: CoopNew})
 	waitState(t, joiner, "co-op", func(st LobbyStateBody) bool { return st.Settings.Coop == CoopNew })
 	host.Start()
-	waitFor(5*time.Second, func() bool { _, _, s, _, _, _ := jw.lens(); return s == 1 })
+	waitFor(5*time.Second, func() bool { _, s, _, _, _ := jw.lens(); return s == 1 })
 
 	w0, _ := joiner.Welcome()
 	joiner.Client().Disconnect()
-	if !waitFor(5*time.Second, func() bool { _, _, s, _, _, _ := jw.lens(); return s == 2 }) {
+	if !waitFor(5*time.Second, func() bool { _, s, _, _, _ := jw.lens(); return s == 2 }) {
 		t.Fatal("no START after reclaiming the slot in starting")
 	}
 	if w, _ := joiner.Welcome(); w.Member != w0.Member {
@@ -586,10 +570,10 @@ func TestLobbyReclaimReplaysStartAndGo(t *testing.T) {
 	}
 
 	host.Go("0123456789abcdef")
-	waitFor(5*time.Second, func() bool { _, _, _, g, _, _ := jw.lens(); return g == 1 })
+	waitFor(5*time.Second, func() bool { _, _, g, _, _ := jw.lens(); return g == 1 })
 	joiner.Client().Disconnect()
-	if !waitFor(5*time.Second, func() bool { _, _, s, g, _, _ := jw.lens(); return s == 3 && g == 2 }) {
-		_, _, s, g, _, _ := jw.lens()
+	if !waitFor(5*time.Second, func() bool { _, s, g, _, _ := jw.lens(); return s == 3 && g == 2 }) {
+		_, s, g, _, _ := jw.lens()
 		t.Fatalf("after reclaiming in game: %d STARTs, %d GOs", s, g)
 	}
 	jw.mu.Lock()
@@ -602,7 +586,7 @@ func TestLobbyReclaimReplaysStartAndGo(t *testing.T) {
 	late := NewLobbyClient("Late", LobbyHelloBody{})
 	lw := watchLobby(late)
 	runLobby(t, late, addr)
-	if !waitFor(5*time.Second, func() bool { _, _, s, g, _, _ := lw.lens(); return s == 1 && g == 1 }) {
+	if !waitFor(5*time.Second, func() bool { _, s, g, _, _ := lw.lens(); return s == 1 && g == 1 }) {
 		t.Fatal("a late joiner in game did not get START and GO")
 	}
 	waitState(t, late, "in game", func(st LobbyStateBody) bool { return st.Phase == PhaseInGame })
@@ -691,11 +675,11 @@ func TestLobbyFloodKeepsSlowMemberConnected(t *testing.T) {
 	frames.Wait()
 }
 
-// TestLobbyColorPickRaceWithCLIJoin: a lobby member and a CLI player that
-// want the same color at the same moment never both get it (the lobby's
-// pick and the server's are serialized under Server.mu).
-func TestLobbyColorPickRaceWithCLIJoin(t *testing.T) {
-	for i := 0; i < 20; i++ {
+// TestLobbyMemberAndCLIShareAColor: a lobby member and a CLI player that
+// ask for the same color, at the same moment, both get it (owner decision
+// 2026-10-16, docs/10 §4).
+func TestLobbyMemberAndCLIShareAColor(t *testing.T) {
+	for i := 0; i < 5; i++ {
 		srv, addr := listenLobby(t, time.Minute)
 		app := NewLobbyClient("App", LobbyHelloBody{Color: "red"})
 		p := NewClient("Cli")
@@ -707,8 +691,11 @@ func TestLobbyColorPickRaceWithCLIJoin(t *testing.T) {
 		wg.Wait()
 		st := waitState(t, app, "both", func(st LobbyStateBody) bool { _, ok := rowOf(st, "Cli"); return ok && len(st.Members) == 2 })
 		a, c := colorOfRow(t, st, "App"), colorOfRow(t, st, "Cli")
-		if playercolor.Distance(a, c) < playercolor.MinDistance {
-			t.Fatalf("round %d: the member and the CLI player share a color: %v and %v", i, a, c)
+		if a != lobbyRed || c != lobbyRed {
+			t.Fatalf("round %d: member %v, CLI player %v; both asked for red", i, a, c)
+		}
+		if mc, ok := p.MyColor(); !ok || mc != lobbyRed {
+			t.Fatalf("round %d: the CLI player's own color %v (%v), want red", i, mc, ok)
 		}
 		app.Disconnect()
 		p.Disconnect()
@@ -803,8 +790,8 @@ func TestLobbyMixedVersions(t *testing.T) {
 	if msg.Type != MsgPlayerList || err != nil || len(entries) != 1 || entries[0].Name != "OldCli" || !entries[0].HasColor {
 		t.Fatalf("second frame %q %+v %v", msg.Type, entries, err)
 	}
-	if playercolor.Clashes(entries[0].Color, []playercolor.Color{lobbyRed}) {
-		t.Fatalf("the old client's color %v clashes with the lobby member's red", entries[0].Color)
+	if entries[0].Color != playercolor.Vanilla() {
+		t.Fatalf("the old client (no preference) got %v, want green", entries[0].Color)
 	}
 	// A lobby-only frame on a player connection: dropped, connection kept.
 	conn.Write(frame(MsgLobby, []byte("\x07{}")))

@@ -72,8 +72,8 @@ func TestSessionEngine_JoinLobby(t *testing.T) {
 		return st.Phase == session.InLobby && st.Lobby != nil && len(st.Lobby.Members) == 2
 	})
 	self, ok := st.Lobby.Self()
-	if !ok || self.Name != "Joiner" || self.Color == red || st.Lobby.Host {
-		t.Fatalf("self %+v (host %v); red was the host's, so the joiner gets another", self, st.Lobby.Host)
+	if !ok || self.Name != "Joiner" || self.Color != red || st.Lobby.Host {
+		t.Fatalf("self %+v (host %v); the joiner asked for the host's red and shares it", self, st.Lobby.Host)
 	}
 	if err := c.Start(); !errors.Is(err, session.ErrNotHost) {
 		t.Fatalf("joiner Start = %v", err)
@@ -183,7 +183,6 @@ func (o *recOutput) Chat(from, text string)                     {}
 func (o *recOutput) Ask(context.Context, session.Question) bool { return false }
 func (o *recOutput) Advise(session.Advice)                      {}
 func (o *recOutput) LobbyState(session.Lobby)                   {}
-func (o *recOutput) LobbyColor(session.ColorReply)              {}
 func (o *recOutput) LobbyNotice(session.Notice)                 {}
 func (o *recOutput) LobbyStart(session.LobbySettings)           {}
 func (o *recOutput) LobbyGo(string)                             {}

@@ -142,7 +142,6 @@ func TestLobbyHostFlow(t *testing.T) {
 		t.Fatalf("commands %q, want %q", got, want)
 	}
 
-	out.LobbyColor(ColorReply{Wanted: red, ClashWith: "Cli", Suggest: playercolor.Palette()[4].Color})
 	out.LobbyNotice(Notice{Code: "not_host", Text: "nope"})
 	out.LobbyRequest("merge", "Jo")
 	out.LobbyStart(LobbySettings{Coop: "new"})
@@ -169,8 +168,6 @@ func TestLobbyHostFlow(t *testing.T) {
 	var got []string
 	for _, ev := range evs {
 		switch ev.Kind {
-		case EventLobbyColor:
-			got = append(got, "color:"+ev.Color.ClashWith)
 		case EventLobbyNotice:
 			got = append(got, "notice:"+ev.Notice.Code)
 		case EventLobbyRequest:
@@ -184,7 +181,7 @@ func TestLobbyHostFlow(t *testing.T) {
 			t.Fatalf("event from session %d", ev.Session)
 		}
 	}
-	if s, want := strings.Join(got, " "), "color:Cli notice:not_host request:merge:Jo start:new go:0123456789abcdef"; s != want {
+	if s, want := strings.Join(got, " "), "notice:not_host request:merge:Jo start:new go:0123456789abcdef"; s != want {
 		t.Fatalf("lobby events %q, want %q", s, want)
 	}
 	c.Leave()

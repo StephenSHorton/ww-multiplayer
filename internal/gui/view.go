@@ -33,7 +33,7 @@ type InfoView struct {
 	OS          string           `json:"os"`
 	Palette     []SwatchView     `json:"palette"`
 	Name        string           `json:"name"`
-	Color       string           `json:"color"` // "#RRGGBB", or "" for automatic
+	Color       string           `json:"color"` // "#RRGGBB", or "" for none (green)
 	Port        int              `json:"port"`
 	RecentHosts []RecentHostView `json:"recentHosts"`
 	MaxName     int              `json:"maxName"`
@@ -98,10 +98,7 @@ type EventView struct {
 	Text    string `json:"text,omitempty"`
 	// Lobby replies.
 	Code    string `json:"code,omitempty"`    // lobby-notice
-	Suggest string `json:"suggest,omitempty"` // lobby-notice (a name), lobby-color (a "#RRGGBB")
-	Color   string `json:"color,omitempty"`   // lobby-color: the color we have now ("" if refused)
-	Wanted  string `json:"wanted,omitempty"`  // lobby-color
-	Clash   string `json:"clash,omitempty"`   // lobby-color: who has the wanted one
+	Suggest string `json:"suggest,omitempty"` // lobby-notice: a free name
 }
 
 // eventKinds names each controller event kind for the frontend.
@@ -113,7 +110,6 @@ var eventKinds = map[session.EventKind]string{
 	session.EventQuestion:       "question",
 	session.EventQuestionClosed: "question-closed",
 	session.EventAdvice:         "advice",
-	session.EventLobbyColor:     "lobby-color",
 	session.EventLobbyNotice:    "lobby-notice",
 	session.EventLobbyStart:     "lobby-start",
 	session.EventLobbyGo:        "lobby-go",
@@ -195,12 +191,6 @@ func eventView(ev session.Event) EventView {
 		v.From = ev.From
 	case session.EventLobbyNotice:
 		v.Code, v.Text, v.Suggest = ev.Notice.Code, ev.Notice.Text, ev.Notice.Suggest
-	case session.EventLobbyColor:
-		r := ev.Color
-		if r.Granted {
-			v.Color = r.Color.Hex()
-		}
-		v.Wanted, v.Clash, v.Suggest = r.Wanted.Hex(), r.ClashWith, r.Suggest.Hex()
 	case session.EventQuestion, session.EventQuestionClosed:
 		// Co-op questions are answered in a later PR (design PR 9); the
 		// title is enough for the log.

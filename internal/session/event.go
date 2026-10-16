@@ -30,8 +30,6 @@ const (
 	EventQuestionClosed
 	// EventAdvice is co-op advice: Advice.
 	EventAdvice
-	// EventLobbyColor: the host didn't grant a color as asked: Color.
-	EventLobbyColor
 	// EventLobbyNotice: a lobby notice or refusal: Notice (and Text).
 	EventLobbyNotice
 	// EventLobbyStart: the host pressed Start: Settings.
@@ -61,7 +59,6 @@ type Event struct {
 	Yes      bool   // EventQuestionClosed: the answer
 	Advice   Advice // EventAdvice
 	// Lobby events.
-	Color    ColorReply    // EventLobbyColor
 	Notice   Notice        // EventLobbyNotice
 	Settings LobbySettings // EventLobbyStart
 }

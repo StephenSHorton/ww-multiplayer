@@ -38,11 +38,13 @@ const MaxLobbyBody = 16 << 10
 
 // Lobby sub-messages, the first byte of a MsgLobby payload.
 const (
-	LobbyHello    byte = 0x01 // c->s: first frame after the welcome (LobbyHelloBody)
-	LobbyWelcome  byte = 0x02 // s->c: the member slot (LobbyWelcomeBody)
-	LobbyState    byte = 0x03 // s->c: full snapshot after every change (LobbyStateBody)
-	LobbySet      byte = 0x04 // c->s: member updates (LobbySetBody)
-	LobbyColor    byte = 0x05 // s->c: a color request not granted as asked (LobbyColorBody)
+	LobbyHello   byte = 0x01 // c->s: first frame after the welcome (LobbyHelloBody)
+	LobbyWelcome byte = 0x02 // s->c: the member slot (LobbyWelcomeBody)
+	LobbyState   byte = 0x03 // s->c: full snapshot after every change (LobbyStateBody)
+	LobbySet     byte = 0x04 // c->s: member updates (LobbySetBody)
+	// 0x05 was COLOR (a color request not granted as asked). Colors may be
+	// shared, so every request is granted and it is no longer sent; the
+	// value stays unused.
 	LobbySettings byte = 0x06 // c->s, host only: co-op settings (LobbySettingsBody)
 	LobbyStart    byte = 0x07 // c->s host, then s->c all: LOBBY -> STARTING (LobbyStartBody)
 	LobbyGo       byte = 0x08 // c->s host, then s->c all: STARTING -> IN_GAME (LobbyGoBody)
@@ -54,7 +56,7 @@ const (
 // lobbySubNames names the sub-messages for logs and errors.
 var lobbySubNames = map[byte]string{
 	LobbyHello: "HELLO", LobbyWelcome: "WELCOME", LobbyState: "STATE", LobbySet: "SET",
-	LobbyColor: "COLOR", LobbySettings: "SETTINGS", LobbyStart: "START", LobbyGo: "GO",
+	LobbySettings: "SETTINGS", LobbyStart: "START", LobbyGo: "GO",
 	LobbyRequest: "REQUEST", LobbyKick: "KICK", LobbyNotice: "NOTICE",
 }
 
@@ -180,18 +182,6 @@ type LobbySetBody struct {
 	Ready   *bool   `json:"ready,omitempty"`
 	Dolphin *string `json:"dolphin,omitempty"`
 	File    *string `json:"file,omitempty"`
-}
-
-// LobbyColorBody is COLOR: the answer to a color request that wasn't
-// granted as asked. Granted is the color the member now has when the
-// server chose one for it (at HELLO), or nil when the request was refused
-// and the member keeps its color (a SET). Suggest is the nearest clear
-// color.
-type LobbyColorBody struct {
-	Granted   *string `json:"granted"`
-	Wanted    string  `json:"wanted"`
-	ClashWith string  `json:"clashWith,omitempty"`
-	Suggest   string  `json:"suggest"`
 }
 
 // LobbyStartBody is START.

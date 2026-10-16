@@ -53,7 +53,7 @@ const DefaultPort = 25565
 type Config struct {
 	Version     int          `json:"version"`
 	Name        string       `json:"name"`
-	Color       string       `json:"color"` // a palette name or "#RRGGBB" (playercolor.Parse); "" for automatic
+	Color       string       `json:"color"` // a palette name or "#RRGGBB" (playercolor.Parse); "" for classic green
 	RecentHosts []RecentHost `json:"recentHosts"`
 	Port        int          `json:"port"`
 	Dolphin     Dolphin      `json:"dolphin"`
@@ -248,7 +248,7 @@ func (c *Config) validate() []string {
 	}
 	if c.Color != "" {
 		if _, err := playercolor.Parse(c.Color); err != nil {
-			warns = append(warns, fmt.Sprintf("color %q is not a tunic color (%v); using an automatic color", c.Color, err))
+			warns = append(warns, fmt.Sprintf("color %q is not a tunic color (%v); using classic green", c.Color, err))
 			c.Color = ""
 		}
 	}

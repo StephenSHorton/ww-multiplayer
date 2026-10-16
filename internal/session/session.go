@@ -129,8 +129,8 @@ type HostOptions struct {
 	Name string
 	// Color is the tunic color to ask for: the lobby's (HostLobby), or
 	// the server's for the player connections (Host), where it overrides
-	// the process-wide --color / WW_COLOR. Nil takes the first free one
-	// (or --color's).
+	// the process-wide --color / WW_COLOR. Nil is no preference:
+	// --color's, else classic green. Players may share a color.
 	Color *playercolor.Color
 	// Port is the port the server listens on; 0 is the default (25565).
 	Port int

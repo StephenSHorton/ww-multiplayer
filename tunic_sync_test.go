@@ -359,6 +359,36 @@ func TestSyncTunics_SlotsFollowRemotes(t *testing.T) {
 	}
 }
 
+// TestSyncTunics_SharedColorBothSlots: players may share a color, so
+// two remotes in the same color each get their own slot, both on, both
+// drawn in that color.
+func TestSyncTunics_SharedColorBothSlots(t *testing.T) {
+	f := newLinkRAM(false)
+	ts := newTunicSync(f, t.Logf)
+	red := playercolor.Palette()[1].Color
+	remotes := []network.RemotePlayer{
+		{ID: 2, Name: "a", Color: red, HasColor: true},
+		{ID: 3, Name: "b", Color: red, HasColor: true},
+	}
+	now := time.Unix(0, 0)
+	for i := 0; i < 8; i++ {
+		syncTunics(ts, playercolor.Vanilla(), true, remotes, map[byte]int{2: 0, 3: 1}, now)
+		f.cAllocate()
+		f.frame()
+	}
+	for s := 0; s < 2; s++ {
+		if ts.want[s] != (tunicWant{on: true, color: red}) {
+			t.Errorf("slot %d want = %+v, want red", s, ts.want[s])
+		}
+		if !bytes.Equal(slotImage(f, s), expectRecolor(red)) {
+			t.Errorf("slot %d image is not red", s)
+		}
+		if !ts.Settled(s) {
+			t.Errorf("slot %d not settled", s)
+		}
+	}
+}
+
 // TestSyncTunics_NoServerColorAllOff: against a server without colors
 // (or before the first player list) every slot is off, even ones a
 // previous run left enabled, and a remote without a server color is not
