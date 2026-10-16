@@ -34,6 +34,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/internal/tui"
 )
 
@@ -690,41 +691,11 @@ func main() {
 	// engage. v0.1.5 brings it back with the dashboard driving the same
 	// runHostSession / runJoinSession funcs the CLI subcommands run, and
 	// every Reporter log line surfacing in the dashboard's log panel.
-	// The TUI doesn't expose port configuration (#18 is CLI-only), so
-	// runHostSession is wrapped to pin it at defaultPort here rather than
-	// changing the tui.Hooks.HostSession signature.
-	// ls is the status bridge shared across every session the user starts in
-	// this TUI run. The session funcs register their server/client into it;
-	// the accessor closures below read it (nil-safe) for the #19 status panel.
-	// LocalPos is #22's minimap bridge: runBroadcastPoseCtx (via
-	// liveStateLocalPosSetter) feeds ls.setLocalPos every tick; the closure
-	// just reads it back out, same pattern as Players/PlayerCount. SendChat /
-	// ChatCh back the #20 chat panel: sendChat forwards through the registered
-	// puppet-sync client; chatChan hands the TUI the incoming-line channel.
-	// Co-op stays off here (coopFlags{}): its bind and scrub questions
-	// need a prompt the TUI doesn't have yet, which M8's co-op panel adds.
-	ls := &liveState{}
-	if err := tui.Run(version, tui.Hooks{
-		HostSession: func(ctx context.Context, cancel context.CancelFunc, name string, rep report.Reporter) error {
-			// The TUI logs a returned error itself; a fatal connect error
-			// was already logged by the session's ConnectLog.
-			if err := runHostSession(ctx, cancel, name, defaultPort, rep, ls, coopFlags{}); !errors.Is(err, network.ErrFatal) {
-				return err
-			}
-			return nil
-		},
-		JoinSession: func(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter) {
-			// Log the failure the way the TUI logs a HostSession error.
-			logSessionErr(rep, runJoinSession(ctx, cancel, addr, name, rep, ls, coopFlags{}))
-		},
-		Players:     func() []tui.PlayerView { return ls.players() },
-		LocalPos:    func() (x, y, z float32, ok bool) { return ls.localPos() },
-		PlayerCount: func() int { return ls.playerCount() },
-		HostIPs:     func() []string { return ls.hostIPList() },
-		Latency:     func() time.Duration { return ls.latency() },
-		SendChat:    func(text string) error { return ls.sendChat(text) },
-		ChatCh:      func() <-chan string { return ls.chatChan() },
-	}); err != nil {
+	// The TUI drives them through a session.Controller; sessionEngine
+	// (session_engine.go) adapts runHostSession / runJoinSession and the
+	// liveState status bridge to it.
+	ctrl := session.New(&sessionEngine{ls: &liveState{}}, session.Options{})
+	if err := tui.Run(version, ctrl); err != nil {
 		fmt.Println(err)
 		fmt.Print("Press Enter to exit...")
 		bufio.NewReader(os.Stdin).ReadString('\n')
@@ -6618,10 +6589,10 @@ func exitUsage(err error, usage string) {
 }
 
 // liveState is the mutable, mutex-guarded bridge between a running multiplayer
-// session (the *network.Server / *network.Client that main owns) and the TUI's
-// data-only tui.Hooks accessors. internal/tui never imports internal/network;
-// instead the hook closures below read this holder under the lock and hand the
-// TUI plain values / tui.PlayerView.
+// session (the *network.Server / *network.Client that main owns) and the
+// session controller the TUI drives. internal/tui and internal/session never
+// import internal/network; instead sessionEngine reads this holder under the
+// lock and hands the controller plain values / session.Player.
 //
 // One liveState is created in main() before tui.Run and shared across every
 // session the user starts (Host -> Esc -> Join, etc.). runHostSession /
@@ -6642,25 +6613,19 @@ type liveState struct {
 	srv      *network.Server // host-only; nil on join / idle
 	hostIPs  []string        // host-only shareable LAN IPs; nil otherwise
 
-	// localX/Y/Z + hasLocalPos back tui.Hooks.LocalPos (#22 minimap): the
+	// localX/Y/Z + hasLocalPos back session.Live's LocalX/Y/Z (#22 minimap): the
 	// broadcaster's own world position, refreshed every broadcast-pose tick
 	// via setLocalPos. hasLocalPos is false until the first tick lands (or
 	// forever, on CLI paths that never wire a liveState at all).
 	localX, localY, localZ float32
 	hasLocalPos            bool
 
-	// chatCh carries incoming chat lines ("name: text") from the puppet-sync
-	// client's OnChat callback to the TUI chat panel (#20). It is buffered and
-	// pushed to non-blocking (dropped when full) so a chat burst never stalls
-	// the client read loop. See chatChan for why it is a STABLE channel that
-	// begin() drains rather than replaces.
-	chatCh chan string
+	// chat receives incoming chat lines from the puppet-sync client's OnChat
+	// callback (#20): sessionEngine points it at the running session's
+	// session.Output, whose Chat never blocks the client read loop. nil
+	// drops the lines (no session, or CLI paths).
+	chat func(from, text string)
 }
-
-// chatBufferCap bounds the incoming-chat buffer between the client read loop
-// and the TUI. A chat backlog beyond this is dropped rather than blocking the
-// network path.
-const chatBufferCap = 64
 
 // begin marks the start of a session with the given role + local player name,
 // resetting any prior client/server registration. hostIPs is nil for the join
@@ -6676,52 +6641,23 @@ func (ls *liveState) begin(role, selfName string, hostIPs []string) {
 	ls.hostIPs = hostIPs
 	ls.localX, ls.localY, ls.localZ = 0, 0, 0
 	ls.hasLocalPos = false
-	// Start the chat panel clean: drain any lines left over from a prior
-	// session. The channel is NOT replaced here (see chatChan) — at begin()
-	// time no client is connected yet, so nothing is racing this drain.
-	ls.ensureChatChLocked()
-	for {
-		select {
-		case <-ls.chatCh:
-		default:
-			return
-		}
-	}
 }
 
-// ensureChatChLocked lazily creates the chat channel. Caller holds ls.mu.
-func (ls *liveState) ensureChatChLocked() {
-	if ls.chatCh == nil {
-		ls.chatCh = make(chan string, chatBufferCap)
-	}
-}
-
-// chatChan returns the current incoming-chat channel (receive-only), creating
-// it on first use. The channel is STABLE for the life of the liveState — it is
-// deliberately NOT replaced per session. begin() runs inside the session
-// goroutine, so replacing the channel there would race the TUI's drain Cmd,
-// which captures the channel out of band; a replace could leave the drain
-// blocked forever on an orphaned channel. Instead the channel is stable and
-// begin() drains it to start clean. Bubble Tea's single Update loop then
-// guarantees every drained line is appended to the CURRENT dashboard, no
-// matter which (possibly prior-session) drain goroutine delivers it.
-func (ls *liveState) chatChan() <-chan string {
+// setChat points incoming chat at sink (nil drops it). begin() leaves it
+// alone: sessionEngine sets it around the whole session call.
+func (ls *liveState) setChat(sink func(from, text string)) {
 	ls.mu.Lock()
-	defer ls.mu.Unlock()
-	ls.ensureChatChLocked()
-	return ls.chatCh
-}
-
-// pushChat delivers one formatted chat line to the TUI, non-blocking: if the
-// buffer is full it drops the line rather than block the client read loop.
-func (ls *liveState) pushChat(line string) {
-	ls.mu.Lock()
-	ls.ensureChatChLocked()
-	ch := ls.chatCh
+	ls.chat = sink
 	ls.mu.Unlock()
-	select {
-	case ch <- line:
-	default:
+}
+
+// pushChat delivers one incoming chat line to the current sink, if any.
+func (ls *liveState) pushChat(from, text string) {
+	ls.mu.Lock()
+	sink := ls.chat
+	ls.mu.Unlock()
+	if sink != nil {
+		sink(from, text)
 	}
 }
 
@@ -6767,10 +6703,10 @@ func (ls *liveState) setLocalPos(x, y, z float32) {
 }
 
 // players returns the OTHER humans in the session, one entry per person, as
-// network-free tui.PlayerView values. Returns nil when no client is registered
+// network-free session.Player values. Returns nil when no client is registered
 // yet. The raw client snapshot is de-duplicated (see remoteViews +
 // dedupePlayersByName) so the ~2x connection fan-out doesn't leak into the UI.
-func (ls *liveState) players() []tui.PlayerView {
+func (ls *liveState) players() []session.Player {
 	ls.mu.Lock()
 	c, self := ls.client, ls.selfName
 	ls.mu.Unlock()
@@ -6796,7 +6732,7 @@ func (ls *liveState) playerCount() int {
 }
 
 // remoteViews snapshots the puppet-sync client's remotes and converts them to
-// network-free tui.PlayerView values, dropping this player's OWN co-located
+// network-free session.Player values, dropping this player's OWN co-located
 // connections. Each human runs two connections (broadcast-pose + puppet-sync)
 // under the same name; the puppet-sync client that backs the TUI therefore also
 // sees its own broadcast twin as a same-named remote (GetRemotePlayers does NOT
@@ -6805,17 +6741,17 @@ func (ls *liveState) playerCount() int {
 // people. Returns nil when no client is registered. Position is nil for
 // connections that haven't broadcast yet (e.g. a remote's own puppet leg),
 // which dedupePlayersByName then collapses into the positioned twin.
-func remoteViews(c *network.Client, selfName string) []tui.PlayerView {
+func remoteViews(c *network.Client, selfName string) []session.Player {
 	if c == nil {
 		return nil
 	}
 	remotes := c.GetRemotePlayers() // deep copy under the client's RLock
-	out := make([]tui.PlayerView, 0, len(remotes))
+	out := make([]session.Player, 0, len(remotes))
 	for _, rp := range remotes {
 		if selfName != "" && rp.Name == selfName {
 			continue // our own broadcast/puppet twin — not another human
 		}
-		pv := tui.PlayerView{ID: rp.ID, Name: rp.Name}
+		pv := session.Player{ID: rp.ID, Name: rp.Name}
 		if rp.Position != nil {
 			pv.X, pv.Y, pv.Z = rp.Position.PosX, rp.Position.PosY, rp.Position.PosZ
 		}
@@ -6833,11 +6769,11 @@ func remoteViews(c *network.Client, selfName string) []tui.PlayerView {
 // broadcast connection carries the real pose, which PR-C's minimap needs — else
 // the first seen is kept. Input order is otherwise preserved. Pure: no shared
 // state, safe to unit-test with canned input.
-func dedupePlayersByName(in []tui.PlayerView) []tui.PlayerView {
+func dedupePlayersByName(in []session.Player) []session.Player {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make([]tui.PlayerView, 0, len(in))
+	out := make([]session.Player, 0, len(in))
 	pos := make(map[string]int, len(in)) // key -> index into out
 	for _, p := range in {
 		key := p.Name
@@ -6861,7 +6797,7 @@ func dedupePlayersByName(in []tui.PlayerView) []tui.PlayerView {
 // isZeroPos reports whether a view has no known position (all coords zero). WW
 // world coords are effectively never exactly the origin, so this cleanly
 // distinguishes an un-broadcast connection from a positioned one.
-func isZeroPos(p tui.PlayerView) bool {
+func isZeroPos(p session.Player) bool {
 	return p.X == 0 && p.Y == 0 && p.Z == 0
 }
 
@@ -6902,16 +6838,14 @@ func (ls *liveState) hostIPList() []string {
 // runMultiplayerGoroutines expects, returning nil (no registration) when ls is
 // nil so CLI callers stay unaffected. Besides registering the client for the
 // #19 status panel, it wires the client's OnChat (BEFORE Connect — onClient is
-// invoked pre-Connect in runPuppetSyncCtx) to push "name: text" lines onto the
-// TUI chat channel (#20).
+// invoked pre-Connect in runPuppetSyncCtx) to hand incoming lines to the
+// running session's chat sink (#20).
 func liveStateClientSetter(ls *liveState) func(*network.Client) {
 	if ls == nil {
 		return nil
 	}
 	return func(c *network.Client) {
-		c.OnChat = func(from, text string) {
-			ls.pushChat(from + ": " + text)
-		}
+		c.OnChat = ls.pushChat
 		ls.setClient(c)
 	}
 }

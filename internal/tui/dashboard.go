@@ -5,44 +5,46 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 // dashboardModel renders the running multiplayer session: a compact status
-// panel + a rolling log panel fed by the tuiReporter the session goroutines
-// write to. Esc tears the session down and emits a backMsg so the app
-// transitions back to connect.
+// panel + a rolling log panel fed by the session's events. Esc tears the
+// session down and emits a backMsg so the app transitions back to connect.
 type dashboardModel struct {
 	role string
 	name string
 	addr string
 
-	hooks Hooks // data-only accessors for the status panel (#19)
+	// ctrl runs the session; sessID is the run this dashboard shows, and
+	// events/unsubscribe its event subscription. ctrl is nil in render-only
+	// tests.
+	ctrl        *session.Controller
+	sessID      session.ID
+	events      <-chan session.Event
+	unsubscribe func()
 
-	sess *session
 	logs []logEntry // ring of last logCap entries
 
 	// Chat panel state (#20). chatInput is the bubbles textinput row; chatLines
-	// is a ring of the last chatCap rendered lines ("name: text"); chatCh is the
-	// incoming-line channel captured once from hooks.ChatCh() (nil when chat is
-	// not wired, e.g. in tests).
+	// is a ring of the last chatCap rendered lines ("name: text").
 	chatInput textinput.Model
 	chatLines []string
-	chatCh    <-chan string
 
-	// Status-panel state, refreshed by statusTick (~250ms) from hooks.
-	// Every source accessor is nil-checked; these hold the last read.
+	// Status-panel state, refreshed by statusTick (~250ms) from the
+	// controller's Snapshot; these hold the last read.
 	playerCount int
 	hostIPs     []string
 	latency     time.Duration
-	players     []PlayerView
+	players     []session.Player
 
 	// Minimap state (#22), refreshed alongside the above on the same
-	// statusTick. localOK mirrors hooks.LocalPos's ok return -- false until
-	// the broadcaster's first tick resolves a position (or when the hook
-	// itself is nil, e.g. CLI-only paths that never construct a dashboard).
+	// statusTick. localOK mirrors the snapshot's LocalOK -- false until
+	// the broadcaster's first tick resolves a position.
 	localX, localZ float32
 	localOK        bool
 
@@ -50,8 +52,8 @@ type dashboardModel struct {
 	// newDashboard) rather than per render.
 	minimapScale float32
 
-	// ended is set by the sessionEndedMsg for THIS dashboard's session:
-	// the header, status panel and footer then say so, with endReason.
+	// ended is set by the EventEnded for THIS dashboard's session: the
+	// header, status panel and footer then say so, with endReason.
 	ended     bool
 	endReason string
 }
@@ -65,9 +67,9 @@ const (
 	chatVisibleRows = 6
 )
 
-// statusInterval is how often the dashboard re-reads the Hooks accessors into
-// its status-panel state. 250ms is snappy enough for a presence/latency panel
-// without spinning the render loop.
+// statusInterval is how often the dashboard re-reads the controller's
+// Snapshot into its status-panel state. 250ms is snappy enough for a
+// presence/latency panel without spinning the render loop.
 const statusInterval = 250 * time.Millisecond
 
 // statusTickMsg fires every statusInterval to refresh the status panel.
@@ -80,61 +82,52 @@ func statusTick() tea.Cmd {
 	})
 }
 
-// logArrivedMsg wraps a single log entry pulled off the session's logCh.
-// We re-issue the drain cmd inside Update on each receive so the channel
-// is continuously consumed without blocking Bubble Tea's main loop.
-type logArrivedMsg struct{ entry logEntry }
-
-// drainLog returns a tea.Cmd that blocks on the session's logCh and emits
-// one logArrivedMsg per message. Bubble Tea schedules these on a worker
-// goroutine, so the blocking wait does not stall the UI.
-func drainLog(s *session) tea.Cmd {
-	return func() tea.Msg {
-		entry, ok := <-s.logCh
-		if !ok {
-			return nil
-		}
-		return logArrivedMsg{entry: entry}
-	}
+// eventMsg wraps one session event pulled off the dashboard's subscription.
+// ch names the subscription it came from: a message still queued from a
+// dashboard the user already left (Esc, then Host/Join again) must not
+// touch the new dashboard or start a second drain on its channel.
+type eventMsg struct {
+	ch <-chan session.Event
+	ev session.Event
 }
 
-// sessionEndedMsg reports that a session goroutine returned. It names the
-// session it belongs to, so a late one from a session the user already left
-// (Esc, then Host/Join again) can't mark the new dashboard as ended.
-type sessionEndedMsg struct {
-	sess   *session
-	reason string
-}
-
-// waitSessionEnd blocks until the session goroutine returns and reports why.
-// Like drainLog, Bubble Tea runs it on a worker goroutine.
-func waitSessionEnd(s *session) tea.Cmd {
-	if s == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		<-s.done
-		return sessionEndedMsg{sess: s, reason: s.endReason()}
-	}
-}
-
-// chatArrivedMsg wraps one incoming chat line pulled off hooks.ChatCh().
-type chatArrivedMsg struct{ line string }
-
-// drainChat mirrors drainLog for the chat channel: it blocks on ch and emits
-// one chatArrivedMsg per line, re-issued in Update so the channel is drained
-// continuously without stalling the UI. Returns nil (no Cmd) when chat isn't
-// wired, so the dashboard simply has no chat feed.
-func drainChat(ch <-chan string) tea.Cmd {
+// drainEvents returns a tea.Cmd that blocks on ch and emits one eventMsg.
+// Update re-issues it after each event, so the channel is drained
+// continuously; Bubble Tea runs it on a worker goroutine, so the blocking
+// wait does not stall the UI. It returns nil once the subscription is
+// closed, and is nil (no Cmd) for a nil channel.
+func drainEvents(ch <-chan session.Event) tea.Cmd {
 	if ch == nil {
 		return nil
 	}
 	return func() tea.Msg {
-		line, ok := <-ch
+		ev, ok := <-ch
 		if !ok {
 			return nil
 		}
-		return chatArrivedMsg{line: line}
+		return eventMsg{ch: ch, ev: ev}
+	}
+}
+
+// logEntry is one line in the log panel.
+type logEntry struct {
+	t     time.Time
+	level report.Level
+	msg   string
+}
+
+func (e logEntry) styled() lipgloss.Style {
+	switch e.level {
+	case report.OK:
+		return logGreen
+	case report.Warn:
+		return logWarn
+	case report.Err:
+		return logError
+	case report.Net:
+		return logCyan
+	default:
+		return logInfo
 	}
 }
 
@@ -168,11 +161,10 @@ func chatScrollback(lines []string, rows, width int) string {
 	return strings.Join(wrapTail(visible, rows, width), "\n")
 }
 
-// newDashboard starts the session and builds its dashboard. width is the
-// terminal width as last reported (0 before the first WindowSizeMsg).
-func newDashboard(hooks Hooks, role, name, addr string, width int) dashboardModel {
-	s := startSession(hooks, role, name, addr)
-
+// newDashboard builds the dashboard for the running session id, fed by the
+// events subscription (see startDashboard). width is the terminal width as
+// last reported (0 before the first WindowSizeMsg).
+func newDashboard(ctrl *session.Controller, id session.ID, events <-chan session.Event, unsubscribe func(), role, name, addr string, width int) dashboardModel {
 	ti := textinput.New()
 	ti.Placeholder = "Type a message, Enter to send…"
 	ti.Prompt = "> "
@@ -180,76 +172,87 @@ func newDashboard(hooks Hooks, role, name, addr string, width int) dashboardMode
 	ti.Width = chatInputWidth(width)
 	ti.Focus()
 
-	// Capture the incoming-chat channel once (nil when chat isn't wired). It is
-	// stable for the liveState's lifetime, so a single capture is safe.
-	var chatCh <-chan string
-	if hooks.ChatCh != nil {
-		chatCh = hooks.ChatCh()
-	}
-
 	return dashboardModel{
 		role:         role,
 		name:         name,
 		addr:         addr,
-		hooks:        hooks,
-		sess:         s,
+		ctrl:         ctrl,
+		sessID:       id,
+		events:       events,
+		unsubscribe:  unsubscribe,
 		minimapScale: minimapScaleFromEnv(),
 		chatInput:    ti,
-		chatCh:       chatCh,
 	}
 }
 
 func (m dashboardModel) initCmd() tea.Cmd {
-	// Drain the log + chat channels, start the status-panel ticker, start
-	// the textinput cursor blink, and watch for the session ending.
-	return tea.Batch(drainLog(m.sess), drainChat(m.chatCh), statusTick(), textinput.Blink, waitSessionEnd(m.sess))
+	// Drain the session's events (log, chat, its end), start the
+	// status-panel ticker and start the textinput cursor blink.
+	return tea.Batch(drainEvents(m.events), statusTick(), textinput.Blink)
 }
 
-// refreshStatus re-reads every non-nil status accessor into the model. Value
+// refreshStatus re-reads the controller's snapshot into the model. Value
 // receiver so it fits the (dashboardModel, tea.Cmd) update contract; returns
-// the updated copy.
+// the updated copy. A snapshot of another session than this dashboard's
+// (which only a stale tick could see) reads as no session.
 func (m dashboardModel) refreshStatus() dashboardModel {
-	if m.hooks.PlayerCount != nil {
-		m.playerCount = m.hooks.PlayerCount()
+	if m.ctrl == nil {
+		return m
 	}
-	if m.hooks.HostIPs != nil {
-		m.hostIPs = m.hooks.HostIPs()
+	st := m.ctrl.Snapshot()
+	if st.Session != m.sessID {
+		st.Live = session.Live{}
 	}
-	if m.hooks.Latency != nil {
-		m.latency = m.hooks.Latency()
-	}
-	if m.hooks.Players != nil {
-		m.players = m.hooks.Players()
-	}
-	if m.hooks.LocalPos != nil {
-		m.localX, _, m.localZ, m.localOK = m.hooks.LocalPos()
+	m.playerCount = st.PlayerCount
+	m.hostIPs = st.HostAddrs
+	m.latency = st.Latency
+	m.players = st.Players
+	m.localX, m.localZ, m.localOK = st.LocalX, st.LocalZ, st.LocalOK
+	return m
+}
+
+// applyEvent folds one event of this dashboard's session into the model.
+func (m dashboardModel) applyEvent(ev session.Event) dashboardModel {
+	switch ev.Kind {
+	case session.EventLog:
+		m.logs = append(m.logs, logEntry{t: ev.Time, level: ev.Level, msg: ev.Text})
+		if len(m.logs) > logCap {
+			m.logs = m.logs[len(m.logs)-logCap:]
+		}
+	case session.EventChat:
+		m.chatLines = appendChat(m.chatLines, ev.From+": "+ev.Text)
+	case session.EventEnded:
+		m.ended = true
+		m.endReason = ev.Text
 	}
 	return m
 }
 
+// leave stops this dashboard's session (synchronously, so the next host
+// attempt finds :25565 free) and ends its event subscription.
+func (m dashboardModel) leave() {
+	if m.ctrl != nil {
+		m.ctrl.Leave()
+	}
+	if m.unsubscribe != nil {
+		m.unsubscribe()
+	}
+}
+
 func (m dashboardModel) update(msg tea.Msg) (dashboardModel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case logArrivedMsg:
-		m.logs = append(m.logs, msg.entry)
-		if len(m.logs) > logCap {
-			m.logs = m.logs[len(m.logs)-logCap:]
+	case eventMsg:
+		if msg.ch != m.events {
+			return m, nil // from a dashboard the user already left
 		}
-		return m, drainLog(m.sess)
-
-	case chatArrivedMsg:
-		m.chatLines = appendChat(m.chatLines, msg.line)
-		return m, drainChat(m.chatCh)
+		if msg.ev.Session == m.sessID {
+			m = m.applyEvent(msg.ev)
+		}
+		return m, drainEvents(m.events)
 
 	case statusTickMsg:
 		m = m.refreshStatus()
 		return m, statusTick()
-
-	case sessionEndedMsg:
-		if msg.sess != nil && msg.sess == m.sess {
-			m.ended = true
-			m.endReason = msg.reason
-		}
-		return m, nil
 
 	case tea.WindowSizeMsg:
 		// The textinput scrolls its value sideways in Update, against the
@@ -265,11 +268,11 @@ func (m dashboardModel) update(msg tea.Msg) (dashboardModel, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":
-			// Stop the session and pop back to connect. stop() is
+			// Stop the session and pop back to connect. leave() is
 			// synchronous so the next host attempt finds :25565 free.
 			// (textinput never consumes Esc, so this always fires even while
 			// the chat input is focused.)
-			m.sess.stop()
+			m.leave()
 			return m, func() tea.Msg { return backMsg{} }
 
 		case "enter":
@@ -279,10 +282,10 @@ func (m dashboardModel) update(msg tea.Msg) (dashboardModel, tea.Cmd) {
 				// Nothing to send, or no session left to send it on.
 				return m, nil
 			}
-			if m.hooks.SendChat != nil {
+			if m.ctrl != nil {
 				// Fire-and-forget: a send error (e.g. not connected yet) just
 				// means the line doesn't go out; we still echo it locally.
-				_ = m.hooks.SendChat(text)
+				_ = m.ctrl.SendChat(text)
 				// Local echo: the server excludes the sender's own connection
 				// from the relay (and the client self-filters its own name),
 				// so a sent line never comes back — show it directly.
@@ -531,7 +534,7 @@ func renderHeader(width int, role, name, addr string, hostIPs []string, ended bo
 	case role != "Host":
 		rows[0] += " " + labelStyle.Render("→ "+addr)
 	case !ended:
-		// The TUI always hosts on the default port (see main's Hooks).
+		// The TUI always hosts on the default port (see main's sessionEngine).
 		port := "   " + labelStyle.Render("port 25565")
 		ips := labelStyle.Render(hostIPLabel) + valueStyle.Render(strings.Join(hostIPs, ", "))
 		if len(hostIPs) > 0 && lipgloss.Width(rows[0]+"   "+ips+port) <= inner {
@@ -631,7 +634,7 @@ func formatLatency(d time.Duration) string {
 //	count    connected player count (0 renders as "0").
 //	latency  client<->server RTT; 0/unknown renders "—" (never invented).
 //	players  remote players; their names (or "player N") form the presence row.
-func renderStatus(width, count int, latency time.Duration, players []PlayerView) string {
+func renderStatus(width, count int, latency time.Duration, players []session.Player) string {
 	inner := width - 4 // border + padding
 
 	line1 := labelStyle.Render("Players ") + valueStyle.Render(fmt.Sprintf("%d", count)) +

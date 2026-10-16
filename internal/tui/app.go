@@ -2,14 +2,18 @@
 // app (splash -> connect -> dashboard) that wires the connect screen's
 // Host/Join choice into the same multiplayer session funcs the CLI
 // `host` and `join` subcommands run, surfacing every Reporter log line
-// in the dashboard's log panel.
+// in the dashboard's log panel. It reaches those funcs only through a
+// session.Controller, never through internal/dolphin or internal/network.
 package tui
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	isatty "github.com/mattn/go-isatty"
@@ -24,7 +28,7 @@ const (
 )
 
 type model struct {
-	hooks   Hooks
+	ctrl    *session.Controller
 	version string
 
 	screen    screen
@@ -36,9 +40,9 @@ type model struct {
 	quitting  bool
 }
 
-func newModel(hooks Hooks, version string) model {
+func newModel(ctrl *session.Controller, version string) model {
 	return model{
-		hooks:   hooks,
+		ctrl:    ctrl,
 		version: version,
 		screen:  screenSplash,
 		splash:  newSplash(version),
@@ -62,8 +66,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// to clearMultiplayerState() (mailbox shadow_mode=0,
 			// pose_seqs[*]=0). Otherwise the receiving Dolphin
 			// keeps rendering Link #2 frozen at the last pose.
-			if m.screen == screenDashboard && m.dashboard.sess != nil {
-				m.dashboard.sess.stop()
+			if m.screen == screenDashboard {
+				m.dashboard.leave()
 			}
 			m.quitting = true
 			return m, tea.Quit
@@ -75,13 +79,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case connectedMsg:
-		// A nil session hook would panic in the session goroutine; stay
-		// on the connect screen and say so instead.
-		if errMsg := missingHookMsg(m.hooks, msg.role); errMsg != "" {
-			m.connect.err = errMsg
+		// A session that can't start (no controller in this build, or
+		// the controller refuses) leaves the user on the connect screen
+		// with the reason.
+		d, err := startDashboard(m.ctrl, msg.role, msg.name, msg.addr, m.width)
+		if err != nil {
+			m.connect.err = err.Error()
 			return m, nil
 		}
-		m.dashboard = newDashboard(m.hooks, msg.role, msg.name, msg.addr, m.width)
+		m.dashboard = d
 		m.screen = screenDashboard
 		return m, m.dashboard.initCmd()
 
@@ -126,8 +132,8 @@ func (m model) View() string {
 	)
 }
 
-// Run starts the TUI. The version string is shown on the splash; hooks
-// inject the multiplayer-session functions from main so this package
+// Run starts the TUI. The version string is shown on the splash; ctrl
+// runs the multiplayer sessions main injected into it, so this package
 // stays free of dolphin / network imports.
 //
 // stdin must be attached to a usable interactive terminal. When launched
@@ -140,7 +146,7 @@ func (m model) View() string {
 // interactive terminal at all (piped/redirected input, no console), we
 // bail out before ever touching Bubble Tea with a clear, actionable error
 // instead of letting the raw-mode call die cryptically.
-func Run(version string, hooks Hooks) error {
+func Run(version string, ctrl *session.Controller) error {
 	if !hasInteractiveStdin() {
 		return fmt.Errorf(
 			"no interactive terminal detected on stdin.\n"+
@@ -152,7 +158,7 @@ func Run(version string, hooks Hooks) error {
 		)
 	}
 
-	p := tea.NewProgram(newModel(hooks, version), tea.WithAltScreen(), tea.WithInputTTY())
+	p := tea.NewProgram(newModel(ctrl, version), tea.WithAltScreen(), tea.WithInputTTY())
 	_, err := p.Run()
 	if err != nil {
 		return fmt.Errorf("TUI error: %w", err)
@@ -173,6 +179,34 @@ func Run(version string, hooks Hooks) error {
 var hasInteractiveStdin = func() bool {
 	fd := os.Stdin.Fd()
 	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
+}
+
+// startDashboard subscribes to ctrl's events, starts the session for
+// role and builds its dashboard. It subscribes first so the session's
+// first log lines reach the dashboard. width is the terminal width as
+// last reported (0 before the first WindowSizeMsg).
+func startDashboard(ctrl *session.Controller, role, name, addr string, width int) (dashboardModel, error) {
+	if ctrl == nil {
+		if role == string(session.RoleHost) {
+			return dashboardModel{}, errors.New("Hosting isn't available in this build (no session controller)")
+		}
+		return dashboardModel{}, errors.New("Joining isn't available in this build (no session controller)")
+	}
+	events, unsubscribe := ctrl.Subscribe()
+	var (
+		id  session.ID
+		err error
+	)
+	if role == string(session.RoleHost) {
+		id, err = ctrl.Host(context.Background(), session.HostOptions{Name: name})
+	} else {
+		id, err = ctrl.Join(context.Background(), session.JoinOptions{Addr: addr, Name: name})
+	}
+	if err != nil {
+		unsubscribe()
+		return dashboardModel{}, err
+	}
+	return newDashboard(ctrl, id, events, unsubscribe, role, name, addr, width), nil
 }
 
 // exeName is the binary as the user types it on this platform, used in the

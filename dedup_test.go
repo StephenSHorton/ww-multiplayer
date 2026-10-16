@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/tui"
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 )
 
 // TestDedupePlayersByName_CollapsesSameName verifies the ~2x connection fan-out
@@ -14,7 +14,7 @@ func TestDedupePlayersByName_CollapsesSameName(t *testing.T) {
 	// Zelda appears twice: the puppet connection (no position) first, then the
 	// broadcast connection (real coords). Dedup must keep exactly one Zelda,
 	// carrying the non-zero position.
-	in := []tui.PlayerView{
+	in := []session.Player{
 		{ID: 4, Name: "Zelda"},                      // puppet twin, unpositioned
 		{ID: 3, Name: "Zelda", X: 10, Y: 20, Z: 30}, // broadcast twin, positioned
 		{ID: 5, Name: "Ganon", X: 1, Y: 2, Z: 3},    // distinct human
@@ -25,7 +25,7 @@ func TestDedupePlayersByName_CollapsesSameName(t *testing.T) {
 		t.Fatalf("dedupePlayersByName: got %d entries, want 2: %+v", len(out), out)
 	}
 
-	byName := map[string]tui.PlayerView{}
+	byName := map[string]session.Player{}
 	for _, p := range out {
 		if _, dup := byName[p.Name]; dup {
 			t.Errorf("dedupePlayersByName left a duplicate for %q", p.Name)
@@ -50,7 +50,7 @@ func TestDedupePlayersByName_CollapsesSameName(t *testing.T) {
 // preference is order-independent (positioned entry seen first is retained even
 // if an unpositioned same-name entry follows).
 func TestDedupePlayersByName_PreferredWhenBroadcastFirst(t *testing.T) {
-	in := []tui.PlayerView{
+	in := []session.Player{
 		{ID: 3, Name: "Zelda", X: 10, Y: 20, Z: 30}, // positioned first
 		{ID: 4, Name: "Zelda"},                      // unpositioned twin
 	}
@@ -66,7 +66,7 @@ func TestDedupePlayersByName_PreferredWhenBroadcastFirst(t *testing.T) {
 // TestDedupePlayersByName_DistinctNamesPreserved verifies distinct humans are
 // all kept and input order is preserved.
 func TestDedupePlayersByName_DistinctNamesPreserved(t *testing.T) {
-	in := []tui.PlayerView{
+	in := []session.Player{
 		{ID: 1, Name: "A"},
 		{ID: 2, Name: "B"},
 		{ID: 3, Name: "C"},
@@ -86,7 +86,7 @@ func TestDedupePlayersByName_DistinctNamesPreserved(t *testing.T) {
 // before the server player-list arrives) fall back to per-ID keying so distinct
 // IDs are not collapsed into one.
 func TestDedupePlayersByName_EmptyNameKeyedByID(t *testing.T) {
-	in := []tui.PlayerView{
+	in := []session.Player{
 		{ID: 7},
 		{ID: 8},
 		{ID: 7}, // same ID as the first -> collapses
@@ -102,7 +102,7 @@ func TestDedupePlayersByName_Empty(t *testing.T) {
 	if got := dedupePlayersByName(nil); got != nil {
 		t.Errorf("dedupePlayersByName(nil) = %+v, want nil", got)
 	}
-	if got := dedupePlayersByName([]tui.PlayerView{}); got != nil {
+	if got := dedupePlayersByName([]session.Player{}); got != nil {
 		t.Errorf("dedupePlayersByName(empty) = %+v, want nil", got)
 	}
 }
@@ -113,7 +113,7 @@ func TestDedupePlayersByName_Empty(t *testing.T) {
 func TestPlayerCountFromDeduped(t *testing.T) {
 	// What the puppet-sync client sees in a 2-human game AFTER self-echo is
 	// filtered out by remoteViews: the other human's two same-named twins.
-	otherHumanTwins := []tui.PlayerView{
+	otherHumanTwins := []session.Player{
 		{ID: 3, Name: "Zelda", X: 10, Y: 20, Z: 30},
 		{ID: 4, Name: "Zelda"},
 	}
