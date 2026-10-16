@@ -583,6 +583,42 @@ J3DModelData on stage unload is wrong too. `initModel` takes it from Link.arc
 T2 shrank from 0x2C88 to 0x2BE8 bytes (devkitPPC 16.2). It ends at `0x80412BE8`, which
 is 0x318 bytes below the mailbox.
 
+## Shared shape hide flags: mini-Link's head under casual clothes
+
+mini-Link is built from Link #1's own `J3DModelData`, so the two
+models share every `J3DShape` hide flag, and `J3DJoint::entryIn`
+drops a hidden shape at entry time (`J3DJoint.cpp:235`). Whatever
+Link #1 leaves hidden when `daPy_lk_c::draw` returns is missing from
+mini-Link too, since `daPy_draw_hook` enters mini-Link right after.
+
+The case that showed (issue #43): in casual clothes `drawShadow`, the
+last step of `draw` (`d_a_player_main.cpp:2024`), hides link_root
+material 4, the hat `"ear(3)"` (`:1566-1573`), after the body restore
+at `:1888-1892`. The hat stays hidden until the next frame's draw
+shows it (`:1749-1755`). The CL head has no back without the hat;
+Link covers it with the separate `mpKatsuraModel` hair (`:1897-1903`),
+which mini-Link does not draw. So mini-Link's head was open at the
+back whenever the *local* Link wore casual clothes, whatever the
+remote wore.
+
+Fix: `mini_link_entry_dl` (`multiplayer.c`) shows every hidden
+link_root material around mini-Link's `mDoExt_modelEntryDL` and hides
+them again right after, so Link's real shadow, drawn later in the
+frame, still sees its hat hidden. Only link_root: other joints carry
+state Link sets on purpose and mini-Link keeps mirroring it, for
+example the scabbard `CL_PODA`, hidden with no sword (`:1869-1879`),
+and the `CL_LHANDA`/`CL_RHANDA` hands, which stay hidden when
+`drawShadow` is skipped on the boat (`:1746-1747`, `:2023`).
+
+Known gaps: mini-Link shows the hat with the local Link's casual
+texture (`linktexS3TC` is swapped in the shared model data,
+`d_a_player_main.cpp:12340-12357`), not katsura hair, and it follows
+the local outfit, not the remote's. Matching the remote's clothes
+needs outfit sync (epic #24).
+
+T2 grew by 0x100 to 0x2CE8 bytes (devkitPPC 16.2). It ends at
+`0x80412CE8`, 0x218 bytes below the mailbox.
+
 ## Dolphin caches INI files at startup
 
 Edits to `GZLE01.ini` in `User/Config/GameSettings/` are only read once at Dolphin startup. Closing and reopening the GAME does not reload the INI — the USER has to fully quit and restart Dolphin. Wasted multiple sessions on this.

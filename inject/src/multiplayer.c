@@ -1349,6 +1349,69 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
     *(volatile u32*)(xlu_p1 + 0x1C) = saved_xlu_p1_mtx;
 }
 
+// --- Casual-clothes head fix (issue #43) ------------------------------
+// mini-Link shares Link #1's J3DModelData, so it also shares every
+// J3DShape hide flag, and J3DJoint::entryIn skips a hidden shape when
+// the model is entered (J3DJoint.cpp:235). daPy_lk_c::draw shows all
+// link_root materials again after its body entry (d_a_player_main.cpp
+// :1888-1892), but drawShadow runs after that, at the end of draw
+// (:2024), and in casual clothes it hides link_root material 4, the hat
+// "ear(3)" (:1566-1573), and leaves it hidden until the next frame's
+// draw shows it (:1749-1755). daPy_draw_hook enters mini-Link after
+// draw returns, so the hat is still hidden, and the CL head has no
+// back without it: Link fills that with the separate mpKatsuraModel
+// hair (:1897-1903), which mini-Link does not draw.
+//
+// So around mini-Link's entry, show every link_root material and put
+// back the ones that were hidden. The shadow draws later in the frame
+// and still sees Link's hat hidden. Only link_root: the other joints
+// carry state Link sets on purpose (the scabbard CL_PODA is hidden with
+// no sword, :1869-1879), and mini-Link keeps mirroring it.
+static u32 mini_link_shapes_force_show(J3DModelData* model_data) {
+    u32 shown = 0;
+    void* joint_arr_void = *(void**)((u8*)model_data + J3DMODELDATA_JOINT_NODE_PTR_OFFSET);
+    if (!joint_arr_void) return 0;
+    J3DJoint* link_root = ((J3DJoint**)joint_arr_void)[LINK_CL_ROOT_JOINT_INDEX];
+    if (!link_root) return 0;
+    u32 mtl = *(volatile u32*)((u8*)link_root + J3DJOINT_MESH_OFFSET);
+    int i;
+    for (i = 0; i < 32 && mtl >= 0x80000000u && mtl < 0x81800000u; i++) {
+        u32 shape = *(volatile u32*)(mtl + J3DMATERIAL_SHAPE_OFFSET);
+        if (shape >= 0x80000000u && shape < 0x81800000u) {
+            volatile u32* flags = (volatile u32*)(shape + J3DSHAPE_FLAGS_OFFSET);
+            if (*flags & J3DSHAPE_FLAG_HIDE) {
+                *flags &= ~J3DSHAPE_FLAG_HIDE;
+                shown |= 1u << i;
+            }
+        }
+        mtl = *(volatile u32*)(mtl + J3DMATERIAL_NEXT_OFFSET);
+    }
+    return shown;
+}
+
+// Hide again the link_root materials mini_link_shapes_force_show showed.
+static void mini_link_shapes_restore(J3DModelData* model_data, u32 shown) {
+    if (!shown) return;
+    J3DJoint* link_root = ((J3DJoint**)*(void**)((u8*)model_data + J3DMODELDATA_JOINT_NODE_PTR_OFFSET))[LINK_CL_ROOT_JOINT_INDEX];
+    u32 mtl = *(volatile u32*)((u8*)link_root + J3DJOINT_MESH_OFFSET);
+    int i;
+    for (i = 0; i < 32 && mtl >= 0x80000000u && mtl < 0x81800000u; i++) {
+        u32 shape = *(volatile u32*)(mtl + J3DMATERIAL_SHAPE_OFFSET);
+        if (shown & (1u << i)) {
+            *(volatile u32*)(shape + J3DSHAPE_FLAGS_OFFSET) |= J3DSHAPE_FLAG_HIDE;
+        }
+        mtl = *(volatile u32*)(mtl + J3DMATERIAL_NEXT_OFFSET);
+    }
+}
+
+// mDoExt_modelEntryDL for a mini-Link model, with the full link_root
+// head shown (see above).
+static void mini_link_entry_dl(J3DModel* model, J3DModelData* model_data) {
+    u32 shown = mini_link_shapes_force_show(model_data);
+    mDoExt_modelEntryDL(model);
+    mini_link_shapes_restore(model_data, shown);
+}
+
 // Lock-bit approach (J3DModel_lock + skip-unlock + mDoExt) was tried and
 // did NOT prevent the cycle: J3DJoint::entryIn at 0x802F5964 reads the
 // lock bit but only branches to a DIFFERENT rendering path (0x802F59CC),
@@ -1376,7 +1439,7 @@ static void mDoExt_skip_recipe_joints(J3DModel* model, J3DModelData* model_data,
                  // only cl_eye/cl_mayu need to be skipped in mDoExt.
     void* joint_arr_void = *(void**)((u8*)model_data + J3DMODELDATA_JOINT_NODE_PTR_OFFSET);
     if (!joint_arr_void) {
-        mDoExt_modelEntryDL(model);
+        mini_link_entry_dl(model, model_data);
         return;
     }
     J3DJoint** joint_arr = (J3DJoint**)joint_arr_void;
@@ -1387,7 +1450,7 @@ static void mDoExt_skip_recipe_joints(J3DModel* model, J3DModelData* model_data,
     if (cl_eye)  { saved_eye  = *(volatile u32*)((u8*)cl_eye  + J3DJOINT_MESH_OFFSET); *(volatile u32*)((u8*)cl_eye  + J3DJOINT_MESH_OFFSET) = 0; }
     if (cl_mayu) { saved_mayu = *(volatile u32*)((u8*)cl_mayu + J3DJOINT_MESH_OFFSET); *(volatile u32*)((u8*)cl_mayu + J3DJOINT_MESH_OFFSET) = 0; }
 
-    mDoExt_modelEntryDL(model);
+    mini_link_entry_dl(model, model_data);
 
     if (cl_eye)  *(volatile u32*)((u8*)cl_eye  + J3DJOINT_MESH_OFFSET) = saved_eye;
     if (cl_mayu) *(volatile u32*)((u8*)cl_mayu + J3DJOINT_MESH_OFFSET) = saved_mayu;
@@ -2005,7 +2068,7 @@ int daPy_draw_hook(void* this_) {
                 if (eye_step >= 4) {
                     mDoExt_skip_recipe_joints(mini_link_models[0], mini_link_data, eye_step);
                 } else {
-                    mDoExt_modelEntryDL(mini_link_models[0]);
+                    mini_link_entry_dl(mini_link_models[0], mini_link_data);
                 }
                 face_emit_restore();
             }
@@ -2022,7 +2085,7 @@ int daPy_draw_hook(void* this_) {
                         if (eye_step >= 4) {
                             mDoExt_skip_recipe_joints(mini_link_models[es], mini_link_data, eye_step);
                         } else {
-                            mDoExt_modelEntryDL(mini_link_models[es]);
+                            mini_link_entry_dl(mini_link_models[es], mini_link_data);
                         }
                         face_emit_restore();
                     }

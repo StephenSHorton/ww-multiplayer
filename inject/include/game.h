@@ -430,5 +430,9 @@ typedef void (*J3DJoint_entryIn_t)(J3DJoint* self);
 #define DAPY_MP_Z_ON_SHAPE_OFFSET        0x0394
 #define LINK_CL_EYE_JOINT_INDEX  0x13
 #define LINK_CL_MAYU_JOINT_INDEX 0x15
+// CL_JNT_LINK_ROOT_e: its material chain is face, hair, hat ("ear(3)"
+// at index 4) and the rest of the head and torso (hideHatAndBackle,
+// d_a_player_main.cpp:1510-1531).
+#define LINK_CL_ROOT_JOINT_INDEX 0x00
 
 #endif
