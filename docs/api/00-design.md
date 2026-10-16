@@ -472,7 +472,7 @@ This page is the in-repo summary; the A1, A2, A4, E2 and E4 PRs carry the item-l
 
 ## 10. Open question for Phase E: a boot-time C module loader
 
-The plan above assumes that **a C mod always needs a blob rebuild and an ISO re-patch.** Before Phase E commits to that, it must look at the alternative described in the owner's research note on BetterSunshineEngine (kept outside this repo; the owner has not decided on it).
+The plan above assumes that **a C mod always needs a blob rebuild and an ISO re-patch.** Before Phase E commits to that, it must look at the alternative described in the owner's research note on BetterSunshineEngine, [docs/07-bettersunshine-research.md](../07-bettersunshine-research.md).
 
 **What that note describes.** On Super Mario Sunshine, the Kuribo loader reads compiled C modules (`.kxe` files) from a folder in the extracted disc (`/files/Kuribo!/Mods/`) at boot. BetterSunshineEngine is one such module: it owns the hook sites and offers lifecycle callbacks (stage init, update, draw, exit; player init and update). Other modules only register functions with it, so several modules can share one hook without fighting over the same branch.
 

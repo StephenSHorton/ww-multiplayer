@@ -65,6 +65,7 @@ ww-multiplayer/
 └── docs/                        # IMPORTANT - read before debugging
     ├── 01-architecture.md, 02-dolphin-memory.md, 03-code-injection.md
     ├── 04-ww-addresses.md, 05-known-issues.md, 06-history.md
+    ├── 07-bettersunshine-research.md (Kuribo/BetterSunshineEngine notes, input to docs/api Phase E)
     ├── 08-coop-design.md, 09-player-colors.md, 10-lobby.md
 ```
 
