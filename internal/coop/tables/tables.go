@@ -130,6 +130,9 @@ func (t *Tables) complete() bool {
 
 // Stats says how Get came by its tables and where the time went.
 type Stats struct {
+	// ID is the disc's, set once main.dol is read: also when the build
+	// then fails (a *BuildError), so a caller can still name the disc.
+	ID ID
 	// Cached is true when the tables came from the cache file Path.
 	Cached bool
 	// Path is the cache file read or written; "" without a cache.

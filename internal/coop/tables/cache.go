@@ -54,11 +54,23 @@ func CacheDir() (string, error) {
 // SHA-256 is dol.
 func CacheFile(dir, dol string) string { return filepath.Join(dir, dol+".json") }
 
+// BuildError is Get's error when src's main.dol was read but its tables
+// could not be built (Build's failures): the DOL is not the GZLE01 one, a
+// stage archive can't be read or parsed, the disc has no stages, or a
+// builder failed. Short of a read error, the same binary fails the same
+// way on the same disc, however often it is asked.
+type BuildError struct{ Err error }
+
+func (e *BuildError) Error() string { return e.Err.Error() }
+
+func (e *BuildError) Unwrap() error { return e.Err }
+
 // Get returns src's tables: the ones cached in dir when they are for this
 // disc, schema and binary, else built from src (Build) and saved there.
 // An empty dir skips the cache. A cache that can't be used is rebuilt
 // over, and one that can't be saved leaves the tables returned all the
-// same; Stats says which happened.
+// same; Stats says which happened. A failed build is a *BuildError, with
+// Stats.ID set; an error reading main.dol is not.
 func Get(src Source, dir string) (*Tables, Stats, error) {
 	var st Stats
 	start := time.Now()
@@ -67,6 +79,7 @@ func Get(src Source, dir string) (*Tables, Stats, error) {
 	if err != nil {
 		return nil, st, err
 	}
+	st.ID = id
 	if dir != "" {
 		st.Path = CacheFile(dir, id.DOL)
 		start = time.Now()
@@ -82,7 +95,7 @@ func Get(src Source, dir string) (*Tables, Stats, error) {
 	}
 	t, err := build(src, dol, id, &st)
 	if err != nil {
-		return nil, st, err
+		return nil, st, &BuildError{err}
 	}
 	if dir != "" {
 		start = time.Now()

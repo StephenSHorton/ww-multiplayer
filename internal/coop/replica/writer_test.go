@@ -426,6 +426,34 @@ func TestFrameWriterGatesClosedMeansNoWrite(t *testing.T) {
 	}
 }
 
+// TestFrameWriterOceanNeedsIdle: the ocean, the charts and the sea map
+// need IDLE, unlike the stage bits: the sea chart writes them while the
+// pause menu is open (Appendix C item 129). A batch of them under the
+// menu is closed, writes nothing and is no fault; it goes once the menu
+// closes.
+func TestFrameWriterOceanNeedsIdle(t *testing.T) {
+	r := newWriterRig(t, GuardConfig{})
+	r.g.SetPauseMenu(true)
+	r.tick()
+	r.m.Record(true)
+	ocean := []Write{plannedOR(addr.OffOcean+4, 0x80, addr.TableSea), plannedOR(addr.OffMapOpen+1, 0x02, addr.TableSea)}
+	res, err := r.apply(ocean...)
+	if !errors.Is(err, ErrClosed) || res.Closed != len(ocean) {
+		t.Fatalf("Apply = %v, %+v; want ErrClosed", err, res)
+	}
+	if n := len(r.m.Writes()); n != 0 {
+		t.Fatalf("%d writes with the pause menu open", n)
+	}
+	if r.brk.Off() || r.wg.Stats().Refused != 0 {
+		t.Errorf("a closed gate counted as a fault: %+v", r.wg.Stats())
+	}
+	r.g.SetPauseMenu(false)
+	r.tick()
+	if res, err := r.apply(ocean...); err != nil || len(res.Wrote) != len(ocean) {
+		t.Fatalf("after the menu: Apply = %v, %+v", err, res)
+	}
+}
+
 // TestFrameWriterRefusesForbiddenBytes hands the writer a buggy plan: the
 // guard refuses every PER_PLAYER, NEVER, DERIVED and TAG byte, and the
 // good write in the batch still lands.

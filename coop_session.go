@@ -48,6 +48,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -355,8 +356,9 @@ func logCoopProgression(rep report.Reporter, t *tables.Tables) {
 }
 
 // logBackupCards lists a backup's cards, each with the files copied from
-// it, and warns when Dolphin.ini selects none of them: the card locations
-// are Dolphin's (backup.Locate), so the owner checks them (§8.2).
+// it, and warns when Dolphin's settings (Dolphin.ini, or Dolphin's default
+// for a slot it doesn't set) select none of them: the card locations are
+// Dolphin's (backup.Locate), so the owner checks them (§8.2).
 func logBackupCards(rep report.Reporter, b *backup.Backup) {
 	inUse := false
 	for i, c := range b.Cards {
@@ -380,7 +382,7 @@ func logBackupCards(rep report.Reporter, b *backup.Backup) {
 		}
 	}
 	if !inUse {
-		report.Logf(rep, report.Warn, "co-op: Dolphin.ini marks none of these cards as in use. If your Dolphin keeps its user folder elsewhere (a portable User folder, say), set USER_DIR_1 (and USER_DIR_2) to it, or this backup misses your card.")
+		report.Logf(rep, report.Warn, "co-op: Dolphin's settings (Dolphin.ini, or Dolphin's defaults where it sets none: a GCI folder in slot A) select none of these cards. If your Dolphin keeps its user folder elsewhere (a portable User folder, say), set USER_DIR_1 (and USER_DIR_2) to it, or this backup misses your card.")
 	}
 }
 
@@ -444,10 +446,23 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 	}
 	cs.hub, cs.store, cs.world, cs.dir = h, st, bind.WorldID(st.ID()), st.Dir()
 	cs.console.setHub(h.Status)
-	if prev, err := writeCoopMarker(cs.dir); err != nil {
+	if prev, had, err := writeCoopMarker(cs.dir); err != nil {
 		report.Logf(rep, report.Warn, "co-op: %v", err)
-	} else if prev != "" {
-		report.Logf(rep, report.Warn, "co-op: world %s was marked in use (%s): its last session did not end cleanly, or another host runs it, which would lose changes", cs.world, prev)
+	} else if had {
+		switch use, why := prev.state(); use {
+		case markerStale:
+			report.Logf(rep, report.Warn, "co-op: world %s was marked in use (%s), but that process has ended: its last session did not end cleanly", cs.world, prev)
+		case markerSelf:
+			report.Logf(rep, report.Warn, "co-op: world %s was marked in use by this process (%s): its earlier session here did not stop", cs.world, prev)
+		case markerLive:
+			if why == "" {
+				report.Logf(rep, report.Warn, "co-op: world %s is marked in use by a process that still runs (%s): if that is another host serving it, stop one of them, or one host's changes are lost", cs.world, prev)
+			} else {
+				report.Logf(rep, report.Warn, "co-op: world %s was marked in use (%s), and a process with pid %d runs, but %s, so it may not be that host: if another host serves it, stop one of them, or one host's changes are lost", cs.world, prev, prev.pid, why)
+			}
+		default:
+			report.Logf(rep, report.Warn, "co-op: world %s was marked in use (%s), and whether that session still runs can't be told (%s): if another host serves it, stop one of them, or one host's changes are lost", cs.world, prev, why)
+		}
 	}
 	merge := ""
 	if f.merge {
@@ -528,10 +543,12 @@ type coopWorldInfo struct {
 	id      world.ID
 	created time.Time
 	seq     uint64
-	tombs   int    // tombstoned bits
-	from    string // the file it loads from, when not world.wwco
-	err     error  // why it can't be loaded
-	inUse   string // its session marker, if any
+	tombs   int             // tombstoned bits
+	from    string          // the file it loads from, when not world.wwco
+	err     error           // why it can't be loaded
+	marker  *coopMarker     // its session marker, if any
+	use     coopMarkerState // what the marker says, judged as the list is made
+	useWhy  string          // why use is markerUnknown, or markerLive by pid alone (coopMarker.state)
 }
 
 func (w coopWorldInfo) String() string {
@@ -545,8 +562,17 @@ func (w coopWorldInfo) String() string {
 	if w.from != "" {
 		s += ", loads from " + w.from
 	}
-	if w.inUse != "" {
-		s += ", in use: " + w.inUse
+	if m := w.marker; m != nil {
+		switch {
+		case w.use == markerStale:
+			s += fmt.Sprintf(", stale session marker (%s; that process has ended)", m)
+		case w.use == markerUnknown:
+			s += fmt.Sprintf(", in use?: %s (can't tell: %s)", m, w.useWhy)
+		case w.use == markerLive && w.useWhy != "":
+			s += fmt.Sprintf(", in use: %s (by its pid alone: %s)", m, w.useWhy)
+		default:
+			s += fmt.Sprintf(", in use: %s", m)
+		}
 	}
 	return s
 }
@@ -573,7 +599,10 @@ func listCoopWorlds(root string) ([]coopWorldInfo, error) {
 			continue // a directory without a world file: nothing to serve
 		}
 		info := coopWorldInfo{id: id, err: err}
-		info.inUse, _ = readCoopMarker(world.Path(root, id))
+		if m, ok := readCoopMarker(world.Path(root, id)); ok {
+			info.marker = &m
+			info.use, info.useWhy = m.state()
+		}
 		if w != nil {
 			info.created, info.seq = w.Created(), w.Seq()
 			tomb := w.Tombstones()
@@ -646,36 +675,140 @@ func foundFrom(rep report.Reporter, s *snap.Snapshot, pol *world.Policy) (*world
 
 // The session marker: a host writes it into its world's directory while
 // its hub runs, so coop-world block, which edits the world file, can tell
-// the file is in use (the hub's next write would undo the edit).
+// the file is in use (the hub's next write would undo the edit). Its first
+// line, "pid <n> since <time>", is the one every version has written. The
+// second, "host=<name> start=<token>", names the machine and when the
+// process started (procState), so a marker a killed host left can be told
+// from a running host's.
 const coopMarkerName = "session.lock"
 
-// writeCoopMarker marks the world in dir as in use by this process, and
-// returns the marker it replaced ("" for none).
-func writeCoopMarker(dir string) (prev string, err error) {
-	prev, _ = readCoopMarker(dir)
-	line := fmt.Sprintf("pid %d since %s", os.Getpid(), time.Now().Format(time.DateTime))
-	if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte(line+"\n"), 0o644); err != nil {
-		return prev, fmt.Errorf("marking the world in use: %w", err)
-	}
-	return prev, nil
+// coopMarker is a session marker as read back.
+type coopMarker struct {
+	text  string // the first line, made one short line for the terminal
+	pid   int    // from the first line; 0 if it names none
+	host  string // the machine that wrote it; "" for unknown, taken as this one
+	start string // the start token of its process (procState); "" for unknown
 }
 
-// readCoopMarker returns the marker of the world in dir, if it has one.
-func readCoopMarker(dir string) (string, bool) {
+func (m coopMarker) String() string {
+	if m.text == "" {
+		return "an empty marker"
+	}
+	return m.text
+}
+
+// coopMarkerState is what a session marker says of its world.
+type coopMarkerState int
+
+const (
+	markerLive    coopMarkerState = iota // a process with its pid (and start token, if both have one) runs on this machine
+	markerSelf                           // this process wrote it
+	markerStale                          // its process has ended: its session did not end cleanly
+	markerUnknown                        // it can't be checked, so it is taken as in use
+)
+
+// coopProcState is procState; tests replace it.
+var coopProcState = procState
+
+// coopHostname is this machine's name as a marker records it, or "" if
+// the OS can't say.
+func coopHostname() string {
+	h, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return h
+}
+
+// state judges whether m's session may still run. For markerUnknown it
+// says why it can't tell, and for markerLive judged by pid alone why the
+// start tokens weren't compared ("" when they were). Only positive
+// evidence makes a marker stale: no process on this machine has its pid,
+// or the one that has it started at another time than the marker records
+// (the pid was reused). A marker without a start token (one an older
+// version wrote, or one written where procState gives none, as on macOS)
+// is judged by its pid alone, as is one whose process's token procState
+// can't read. The time on the first line is not used: it is local time
+// with no zone, so a clock or zone change could make a running host look
+// newer than its marker.
+func (m coopMarker) state() (coopMarkerState, string) {
+	if m.pid <= 0 {
+		return markerUnknown, "it names no process"
+	}
+	if here := coopHostname(); m.host != "" && !strings.EqualFold(m.host, here) {
+		if here == "" {
+			return markerUnknown, "this machine's name can't be read"
+		}
+		return markerUnknown, "it was written on another machine, " + coopMarkerLine(m.host)
+	}
+	alive, start, err := coopProcState(m.pid)
+	if err != nil {
+		return markerUnknown, err.Error()
+	}
+	reused := m.start != "" && start != "" && m.start != start
+	switch {
+	case m.pid == os.Getpid() && !reused:
+		return markerSelf, ""
+	case !alive || reused:
+		return markerStale, ""
+	case m.start == "":
+		return markerLive, "this marker has no start time"
+	case start == "":
+		return markerLive, "its start time can't be read"
+	}
+	return markerLive, ""
+}
+
+// writeCoopMarker marks the world in dir as in use by this process, and
+// returns the marker it replaced, if there was one.
+func writeCoopMarker(dir string) (prev coopMarker, had bool, err error) {
+	prev, had = readCoopMarker(dir)
+	_, start, _ := coopProcState(os.Getpid())
+	text := fmt.Sprintf("pid %d since %s\nhost=%s start=%s\n", os.Getpid(), time.Now().Format(time.DateTime), coopHostname(), start)
+	if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte(text), 0o644); err != nil {
+		return prev, had, fmt.Errorf("marking the world in use: %w", err)
+	}
+	return prev, had, nil
+}
+
+// readCoopMarker returns the marker of the world in dir, if it has one. A
+// marker with one line, as older versions wrote, has no host or start.
+func readCoopMarker(dir string) (coopMarker, bool) {
 	b, err := os.ReadFile(filepath.Join(dir, coopMarkerName))
 	if err != nil {
-		return "", false
+		return coopMarker{}, false
 	}
-	s := strings.TrimSpace(string(b))
-	if len(s) > 80 {
-		s = s[:80]
+	first, rest, _ := strings.Cut(string(b), "\n")
+	m := coopMarker{text: coopMarkerLine(first)}
+	if f := strings.Fields(first); len(f) >= 2 && f[0] == "pid" {
+		if pid, err := strconv.ParseInt(f[1], 10, 32); err == nil && pid > 0 {
+			m.pid = int(pid)
+		}
 	}
-	return strings.Map(func(r rune) rune {
+	second, _, _ := strings.Cut(rest, "\n")
+	for _, f := range strings.Fields(second) {
+		if v, ok := strings.CutPrefix(f, "host="); ok {
+			m.host = v
+		} else if v, ok := strings.CutPrefix(f, "start="); ok {
+			m.start = v
+		}
+	}
+	return m, true
+}
+
+// coopMarkerLine makes s, read from a marker, one line of at most 80 bytes
+// for the terminal, with its control characters made spaces.
+func coopMarkerLine(s string) string {
+	s = strings.Map(func(r rune) rune {
 		if r < ' ' || r == 0x7F {
 			return ' '
 		}
 		return r
-	}, s), true
+	}, strings.ToValidUTF8(strings.TrimSpace(s), "?"))
+	if len(s) > 80 {
+		s = strings.ToValidUTF8(s[:80], "") // drops a character cut in two
+	}
+	return s
 }
 
 func removeCoopMarker(dir string) { os.Remove(filepath.Join(dir, coopMarkerName)) }
@@ -1044,9 +1177,14 @@ func (s *coopSync) preflight(pf replica.PreflightReport) {
 		// §5.3 "far behind": a union would move this file's resume
 		// stage, so a copy of the host's file is the better start. The
 		// game keeps all three files in one card file (savefile.Slots),
-		// so a copy is of all three.
+		// so a copy is of all three. A copy loaded here says hello
+		// bound, which clears the host's pending fresh bind of that file.
+		// The host's own file, if it has not been loaded from the card
+		// since its bind, then looks leaked in the host's next process
+		// (Appendix C item 133).
 		s.rep.Log(report.Info, "co-op: the world is far ahead of this file: copy the host's save in, or the host can run with --coop-merge to union them; pose sync goes on. "+
-			"Dolphin's Memory Card Manager exports and imports the whole save, so the copy replaces all three of your files with the host's: export yours first (this session's card backup holds them too). The copied file is the host's own, already bound to the world")
+			"Dolphin's Memory Card Manager exports and imports the whole save, so the copy replaces all three of your files with the host's: export yours first (this session's card backup holds them too). The copied file is the host's own, already bound to the world. "+
+			"Before the copy, the host should save in game and load its file from the card: a copy of a file bound fresh and not loaded back since makes the host's own file look leaked when the host next starts")
 		return
 	case pf.NeedsMerge && s.r.Status().Features&hub.FeatureMerge == 0:
 		s.rep.Log(report.Info, "co-op: this file can't bind unless the host runs with --coop-merge; pose sync goes on")

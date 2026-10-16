@@ -27,9 +27,12 @@ import (
 //     frame (d_meter.cpp:1071, d_a_dr2.cpp:561, d_a_bdk.cpp:2741), so in
 //     one they are held (bossHold) and written once Link has left it;
 //   - stage progress bits and memory switches of any other table: when
-//     STABLE, to its saved slot only (Timing OnLoad);
-//   - memory switches of the loaded table: on the first STABLE tick after
-//     the receiver's room or stage changes (§6.3; at least
+//     STABLE, IDLE or not, to its saved slot only (Timing OnLoad): no
+//     game code that runs under the pause menu writes such a slot, and
+//     the game reads it whole only at that table's getSave (Appendix C
+//     item 128);
+//   - memory switches of the loaded table: on the first STABLE and IDLE
+//     tick after the receiver's room or stage changes (§6.3; at least
 //     gate.StableTicks ticks after it, as STABLE needs that many unchanged
 //     ones) on which every shown room's actors have settled (the room
 //     hold, reconcile_m5_rooms.go), live and saved; with
@@ -42,8 +45,14 @@ import (
 //     next room's actors before Link's room changes (d_door.cpp:282,
 //     d_s_room.cpp:72-76), and the next room change is the one that made
 //     the write due;
-//   - the ocean, the charts and the sea map: on that same first STABLE
-//     tick after a room or stage change (Timing OnRoomChange).
+//   - the ocean, the charts and the sea map: on the first STABLE and IDLE
+//     tick after a room or stage change (Timing OnRoomChange). The sea
+//     chart writes the charts and the sea map while the pause menu is
+//     open (onSaveArriveGrid in its fishman mode, d_menu_fmap.cpp:3271;
+//     onOpenCollectMap, d_menu_fmap2.cpp:1045 and 1691; calcGetCollectMap's
+//     clears, d_menu_fmap2.cpp:3174-3191), each a word or byte
+//     read-modify-write that a Go write into the same byte could race
+//     (§4.2.1), so these wait for IDLE too (Appendix C item 129).
 //
 // Memory switches are written only while the hub grants
 // hub.FeatureSwitches, and only those the policy opens (the M1 table's
@@ -125,16 +134,18 @@ func (w *roomWatch) observe(o *obs) {
 }
 
 // open reports which deferred writes o is the tick of. The room-change
-// window is the first STABLE tick after a room change. STABLE needs the
-// stage and room unchanged for gate.StableTicks ticks, so it is at least
-// that many ticks after the change, when the room is loaded
+// window is the first STABLE and IDLE tick after a room change. STABLE
+// needs the stage and room unchanged for gate.StableTicks ticks, so it is
+// at least that many ticks after the change, when the room is loaded
 // (dStage_RoomCheck loads it as Link's ground check lands in it,
-// d_stage.cpp:2264-2290). The memory switches' window is the first STABLE
+// d_stage.cpp:2264-2290). IDLE keeps the writes out of the pause menu,
+// under which the sea chart writes the charts and the sea map, and out
+// of events. The memory switches' window is the first STABLE and IDLE
 // tick after it that the room hold allows (calm): every shown room's
 // actors have had roomSettle IDLE frames since they were created. Until
-// then the switches wait, still due, so none is lost.
+// then the writes wait, still due, so none is lost.
 func (w *roomWatch) open(o *obs, calm bool) windows {
-	ok := o.consistent() && o.st.CanWrite()
+	ok := o.consistent() && o.st.CanWrite() && o.st.Idle
 	return windows{room: w.due && ok, switches: w.switches && ok && calm}
 }
 
@@ -188,9 +199,10 @@ func (r *Replica) pick(o *obs, ws []Write, win windows, calm bool) (due, waiting
 // (r.window: the deferred writes' windows they are made in), for Tick to
 // make once the lock is released, and logs what waits. A dry run's plan
 // was logged by plan. A window closes on a tick that has nothing to
-// write in it, and on one the session is not armed in: a room change
-// seen before the session armed, or before the world's view came, is not
-// one the deferred writes may use (they wait for the next).
+// write in it, and on a STABLE one the session is not armed in, IDLE or
+// not: a room change seen before the session armed, or before the
+// world's view came, is not one the deferred writes may use (they wait
+// for the next).
 func (r *Replica) reconcile(o *obs, armed bool, rep *Report) {
 	calm := r.m5.rooms.calm()
 	win := r.room.open(o, calm)
@@ -200,8 +212,11 @@ func (r *Replica) reconcile(o *obs, armed bool, rep *Report) {
 	case !armed || !r.haveView || r.viewWorld != r.sessionWorld:
 		r.loggedOR, r.loggedMax, r.loggedHeld = world.BitSet{}, world.Image{}, world.BitSet{}
 		// The memory switches' window, still waiting for the hold, goes
-		// with the room change's: the change is not theirs either.
-		r.room.close(windows{room: win.room, switches: win.room || win.switches})
+		// with the room change's: the change is not theirs either. Both
+		// close on the first STABLE tick, IDLE or not, so a change seen
+		// unarmed while the pause menu was open is dropped as well.
+		seen := o.consistent() && o.st.CanWrite()
+		r.room.close(windows{room: r.room.due && seen, switches: r.room.due && seen || r.room.switches && seen && calm})
 		return
 	case !o.consistent():
 		return // the last plan stays, and waits for a tick it can trust
@@ -209,7 +224,7 @@ func (r *Replica) reconcile(o *obs, armed bool, rep *Report) {
 	due, waiting := r.pick(o, r.planned, win, calm)
 	r.toWrite = due
 	rep.Waiting, rep.RoomChange, rep.SwitchWindow = len(waiting), win.room, win.switches
-	r.logWaits(r.planned, waiting, r.held, calm)
+	r.logWaits(r.planned, waiting, r.held, o, calm)
 	if len(due) == 0 {
 		r.room.close(win)
 	} else {
@@ -278,11 +293,20 @@ func (r *Replica) wroteLive(res Result, off uint16) bool {
 }
 
 // logWaits logs, once while it stays so, each held bit and each M3 bit
-// that waits for the receiver's next room or stage change or for the
-// room hold (calm: the hold allows the loaded table's memory switches).
-// The planned bits of M4's classes are the M4 receiver's to write and
-// log (reconcile_m4.go), from their own plans.
-func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit, calm bool) {
+// that waits for the receiver's next room or stage change, for the room
+// hold (calm: the hold allows the loaded table's memory switches), or,
+// once the room change it waits for is in, for the game to be IDLE (o:
+// the tick, whose gates say why the game is not). A stage change is in
+// only once the new stage has loaded: while mNextStage is set, the write
+// also waits for the load and the new stage's STABLE, so it logs that it
+// waits for the stage change. One logged as waiting for the room change
+// is not logged again when, after the change, it waits for STABLE or
+// IDLE. One whose room change is in, with the game IDLE, gets no line: it
+// waits only for STABLE, which opens within ticks, or for a stalled
+// heartbeat. The planned bits of M4's classes are the M4 receiver's to
+// write and log (reconcile_m4.go), from their own plans.
+func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit, o *obs, calm bool) {
+	st := o.st
 	var lines []string
 	var nowOR, nowHeld world.BitSet
 	var nowMax world.Image
@@ -306,8 +330,29 @@ func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit, calm bool) 
 			lines = append(lines, line(bits.TrailingZeros8(set)))
 		}
 	}
+	// keep carries the bits of w logged already into this tick's sets,
+	// with no line, so they are not logged again while they wait.
+	keep := func(w Write) {
+		off := int(w.Off)
+		if w.Max {
+			if r.loggedMax[off] == w.Bits {
+				nowMax[off] = w.Bits
+			}
+			return
+		}
+		nowOR[off] |= w.Bits & r.loggedOR[off]
+	}
 	live := r.features&hub.FeatureLiveSwitches != 0
 	for _, w := range waiting {
+		// in: the room change w waits for is in, so its window waits for
+		// the gates alone (roomWatch.open); for a memory switch of the
+		// loaded table, the room hold has passed as well. roomWatch makes
+		// the next room due as soon as mNextStage is set, but a stage
+		// change still pending is not in: the stage has yet to load.
+		in := r.room.due && o.s.NextEnable == 0
+		if w.Category == CatSwitch {
+			in = r.room.switches && calm && o.s.NextEnable == 0
+		}
 		why := "waits for the next room or stage change"
 		switch {
 		case w.When != OnRoomChange:
@@ -316,6 +361,11 @@ func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit, calm bool) 
 			why = "waits for the room hold: every shown room's actors get 2 s of idle frames first, as a new shutter ignores a switch set in its first 30 (§6.1)"
 		case w.Category == CatSwitch && live:
 			continue // IDLE, within ticks
+		case in && !st.Idle:
+			why = fmt.Sprintf("waits for this game to be idle (%s): its room change is in", st.IdleWhy)
+		case in:
+			keep(w) // STABLE, within ticks
+			continue
 		}
 		note(w, func(bit int) string {
 			return fmt.Sprintf("%s %s", r.label(int(w.Off), bit), why)

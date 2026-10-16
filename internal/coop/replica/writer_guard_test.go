@@ -190,6 +190,8 @@ func TestWriteGuardGates(t *testing.T) {
 		{"not armed", &Tick{Gates: gatesOpen}, "", chest, RefuseGate},
 		{"closed after the snapshot", &Tick{Gates: gatesOpen, Armed: true}, "a stage change started", chest, RefuseGate},
 		{"IDLE is not needed for stage bits", &Tick{Gates: busy, Armed: true}, "", chest, 0},
+		{"the ocean needs IDLE", &Tick{Gates: busy, Armed: true}, "", imageAddr(addr.OffOcean + 4), RefuseGate},
+		{"the ocean when IDLE", &Tick{Gates: gatesOpen, Armed: true}, "", imageAddr(addr.OffOcean + 4), 0},
 		{"the live memBit with no table loaded", &Tick{Gates: gatesOpen, Armed: true, Table: -1}, "", live, RefuseTarget},
 		{"the live memBit of table 3", &Tick{Gates: gatesOpen, Armed: true, Table: addr.TableDRC}, "", live, 0},
 		{"a non-target before any tick is a target refusal", nil, "", imageAddr(addr.OffLife), RefuseTarget},

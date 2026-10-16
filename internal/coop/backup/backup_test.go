@@ -100,8 +100,34 @@ func TestParseIni(t *testing.T) {
 	}
 }
 
+// TestParseDevice: SlotA / SlotB are read as Dolphin's TryParse reads
+// them, with strtoll and base 0 over the whole value. Each case gives
+// what TryParse's code gives when built with g++ against glibc 2.39.
+func TestParseDevice(t *testing.T) {
+	for _, c := range []struct {
+		v  string
+		n  int
+		ok bool
+	}{
+		{"8", 8, true}, {"0x8", 8, true}, {"0X8", 8, true}, {"010", 8, true},
+		{"0b1000", 8, true}, {"-0b1000", -8, true}, {"+8", 8, true}, {"-1", -1, true},
+		{"-0x8", -8, true}, {"  8", 8, true}, {"\t8", 8, true},
+		{"", 0, true}, {"0", 0, true}, {"-0", 0, true},
+		{"2147483647", 2147483647, true}, {"-2147483648", -2147483648, true},
+		{"08", 0, false}, {"0x", 0, false}, {"0x_8", 0, false}, {" ", 0, false},
+		{"8 ", 0, false}, {"+", 0, false}, {"+-8", 0, false}, {"0o10", 0, false},
+		{"-0o10", 0, false}, {"1_0", 0, false}, {"2147483648", 0, false},
+		{"99999999999999999999", 0, false}, {"junk", 0, false}, {"8 cards", 0, false},
+	} {
+		if n, ok := parseDevice(c.v); ok != c.ok || ok && n != c.n {
+			t.Errorf("parseDevice(%q) = %d, %v, want %d, %v", c.v, n, ok, c.n, c.ok)
+		}
+	}
+}
+
 // TestLocate: the default raw and GCI cards, the ones Dolphin.ini
-// configures, and which the slots select.
+// configures, and which the slots select, Dolphin.ini's SlotA / SlotB or
+// Dolphin's defaults, and Dolphin.ini's paths over the default ones.
 func TestLocate(t *testing.T) {
 	u := newUserDir(t)
 	custom := filepath.Join(t.TempDir(), "cards")
@@ -117,14 +143,19 @@ func TestLocate(t *testing.T) {
 		"MemcardBPath = "+filepath.Join(custom, "MyCard.EUR.raw"),
 		"GCIFolderBPathOverride = "+filepath.Join(custom, "gci"))
 
-	cards, err := Locate(u.root)
-	if err != nil {
-		t.Fatal(err)
+	located := func() []string {
+		t.Helper()
+		cards, err := Locate(u.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, c := range cards {
+			got = append(got, fmt.Sprintf("%s %s %s %s %q", c.Slot, c.Kind, c.Path, c.InUse, c.From))
+		}
+		return got
 	}
-	var got []string
-	for _, c := range cards {
-		got = append(got, fmt.Sprintf("%s %s %s %s %q", c.Slot, c.Kind, c.Path, c.InUse, c.From))
-	}
+	got := located()
 	want := []string{
 		fmt.Sprintf("A raw card %s no %q", rawA2, "default"),
 		fmt.Sprintf("A raw card %s no %q", rawA, "default"),
@@ -139,14 +170,174 @@ func TestLocate(t *testing.T) {
 		t.Errorf("Locate:\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 
-	// No Dolphin.ini: the defaults, use unknown. A missing dir: nothing.
+	// A slot Dolphin.ini doesn't set, or sets to something that doesn't
+	// parse, takes Dolphin's default: a GCI folder in slot A, nothing in
+	// slot B. A number is read with the base its prefix gives, as Dolphin
+	// does. A missing dir: nothing.
+	u.write("GC/MemoryCardB.USA.raw", []byte("card B"))
+	u.write("GC/USA/Card B/01-GZLE-gczelda.gci", gci("GZLE", "tetra"))
+	uses := func() string {
+		t.Helper()
+		cards, err := Locate(u.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, c := range cards {
+			got = append(got, fmt.Sprintf("%s %s %s", c.Slot, c.Kind, c.InUse))
+		}
+		return strings.Join(got, ", ")
+	}
+	const byDefault = "A raw card no, A raw card no, A GCI folder yes, B raw card no, B GCI folder no"
 	os.Remove(u.path("Config/Dolphin.ini"))
-	cards, err = Locate(u.root)
-	if err != nil || len(cards) != 3 || cards[2].InUse != UseUnknown {
-		t.Errorf("without Dolphin.ini: %v, %v", cards, err)
+	for _, c := range []struct {
+		name string
+		core []string // nil: no Dolphin.ini
+		want string
+	}{
+		{"without Dolphin.ini", nil, byDefault},
+		{"without SlotA / SlotB", []string{}, byDefault},
+		{"SlotA / SlotB that don't parse", []string{"SlotA = junk", "SlotB = 8 cards"}, byDefault},
+		{"SlotA = 1", []string{"SlotA = 1"}, "A raw card yes, A raw card yes, A GCI folder no, B raw card no, B GCI folder no"},
+		{"SlotA = 0x1, SlotB = 0x8", []string{"SlotA = 0x1", "SlotB = 0x8"}, "A raw card yes, A raw card yes, A GCI folder no, B raw card no, B GCI folder yes"},
+		{"SlotA = 255", []string{"SlotA = 255", "SlotB = 1"}, "A raw card no, A raw card no, A GCI folder no, B raw card yes, B GCI folder no"},
+		// An empty value is 0, the Dummy device: no card.
+		{"SlotA =", []string{"SlotA ="}, "A raw card no, A raw card no, A GCI folder no, B raw card no, B GCI folder no"},
+		{`SlotA = ""`, []string{`SlotA = ""`}, "A raw card no, A raw card no, A GCI folder no, B raw card no, B GCI folder no"},
+	} {
+		if c.core != nil {
+			u.ini(c.core...)
+		}
+		if got := uses(); got != c.want {
+			t.Errorf("%s: %s, want %s", c.name, got, c.want)
+		}
+	}
+
+	// Dolphin uses a path Dolphin.ini configures in place of the default
+	// card of its kind, so that default is not in use unless the path
+	// comes to it. Of a GCI folder override and path, Dolphin takes the
+	// override, as given. It makes a GCI folder path into the folder for
+	// the disc's region, USA: the setting as written is only a guess,
+	// listed if it holds a Wind Waker save, and never in use.
+	other := filepath.Join(t.TempDir(), "other", "USA")
+	writeFile(t, filepath.Join(other, "01-GZLE-gczelda.gci"), string(gci("GZLE", "not used")))
+	// As Dolphin's GameCube settings store them: a folder ending in a
+	// region directory, here not the one of the US disc.
+	saves := filepath.Join(t.TempDir(), "GC Saves")
+	usSaves := filepath.Join(saves, "USA")
+	writeFile(t, filepath.Join(usSaves, "01-GZLE-gczelda.gci"), string(gci("GZLE", "link")))
+	writeFile(t, filepath.Join(saves, "EUR", "01-GZLP-gczelda.gci"), string(gci("GZLP", "the PAL disc's")))
+	writeFile(t, filepath.Join(saves, "JPN", "01-GZLE-gczelda.gci"), string(gci("GZLE", "copied here by hand")))
+	writeFile(t, filepath.Join(saves, "DEV", "USA", "01-GZLE-gczelda.gci"), string(gci("GZLE", "Dolphin 2512's")))
+	lower := filepath.Join(t.TempDir(), "eur")
+	writeFile(t, filepath.Join(lower, "USA", "01-GZLE-gczelda.gci"), string(gci("GZLE", "under eur")))
+	// A folder already for the US disc, with a save copied one level
+	// down into the slot's own folder, which Locate also tries.
+	nested := filepath.Join(t.TempDir(), "nested", "USA")
+	writeFile(t, filepath.Join(nested, "01-GZLE-gczelda.gci"), string(gci("GZLE", "link")))
+	writeFile(t, filepath.Join(nested, "USA", "Card A", "01-GZLE-gczelda.gci"), string(gci("GZLE", "a level down")))
+	cardA := u.path("GC/USA/Card A")
+	defRawA := []string{
+		fmt.Sprintf("A raw card %s no %q", rawA2, "default"),
+		fmt.Sprintf("A raw card %s no %q", rawA, "default"),
+	}
+	defB := []string{
+		fmt.Sprintf("B raw card %s no %q", u.path("GC/MemoryCardB.USA.raw"), "default"),
+		fmt.Sprintf("B GCI folder %s no %q", u.path("GC/USA/Card B"), "default"),
+	}
+	for _, c := range []struct {
+		name string
+		core []string
+		want []string // slot A's cards; slot B's are its defaults, not in use
+	}{
+		{"MemcardAPath", []string{"SlotA = 1", "MemcardAPath = " + filepath.Join(custom, "MyCard.raw")}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A raw card %s yes %q", customRaw, "Dolphin.ini [Core] MemcardAPath"),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"))},
+		{"MemcardAPath naming the default card", []string{"SlotA = 1", "MemcardAPath = " + filepath.ToSlash(rawA)}, []string{
+			fmt.Sprintf("A raw card %s yes %q", rawA2, "default"),
+			fmt.Sprintf("A raw card %s yes %q", rawA, "default"),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default")}},
+		{"GCIFolderAPath", []string{"GCIFolderAPath = " + filepath.Join(custom, "gci")}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"),
+			fmt.Sprintf("A GCI folder %s yes %q", customGCI, "Dolphin.ini [Core] GCIFolderAPath"))},
+		// The PAL disc's folder holds no Wind Waker save of the US disc.
+		{"GCIFolderAPath ending in EUR", []string{"GCIFolderAPath = " + filepath.Join(saves, "EUR")}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"),
+			fmt.Sprintf("A GCI folder %s yes %q", usSaves, "Dolphin.ini [Core] GCIFolderAPath"))},
+		{"GCIFolderAPath ending in EUR and slashes", []string{"GCIFolderAPath = " + filepath.Join(saves, "EUR") + "//"}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"),
+			fmt.Sprintf("A GCI folder %s yes %q", usSaves, "Dolphin.ini [Core] GCIFolderAPath"))},
+		{"GCIFolderAPath ending in JPN, with a save", []string{"GCIFolderAPath = " + filepath.Join(saves, "JPN")}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"),
+			fmt.Sprintf("A GCI folder %s yes %q", usSaves, "Dolphin.ini [Core] GCIFolderAPath"),
+			fmt.Sprintf("A GCI folder %s no %q", filepath.Join(saves, "JPN"), "Dolphin.ini [Core] GCIFolderAPath"))},
+		// Dolphin 2603 and later take DEV off; 2512 and earlier use
+		// DEV/USA, which is kept as a guess.
+		{"GCIFolderAPath ending in DEV", []string{"GCIFolderAPath = " + filepath.Join(saves, "DEV")}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"),
+			fmt.Sprintf("A GCI folder %s yes %q", usSaves, "Dolphin.ini [Core] GCIFolderAPath"),
+			fmt.Sprintf("A GCI folder %s no %q", filepath.Join(saves, "DEV", "USA"), "Dolphin.ini [Core] GCIFolderAPath"))},
+		// Dolphin matches the region directory with its case.
+		{"GCIFolderAPath ending in USA, with a save in USA/Card A under it", []string{"GCIFolderAPath = " + nested}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"),
+			fmt.Sprintf("A GCI folder %s yes %q", nested, "Dolphin.ini [Core] GCIFolderAPath"),
+			fmt.Sprintf("A GCI folder %s no %q", filepath.Join(nested, "USA", "Card A"), "Dolphin.ini [Core] GCIFolderAPath"))},
+		{"GCIFolderAPath ending in eur", []string{"GCIFolderAPath = " + lower}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"),
+			fmt.Sprintf("A GCI folder %s yes %q", filepath.Join(lower, "USA"), "Dolphin.ini [Core] GCIFolderAPath"))},
+		// Dolphin puts the region directory at the end of the path, so
+		// this one is Card A/USA, not Card A.
+		{"GCIFolderAPath naming the default folder", []string{"GCIFolderAPath = " + cardA}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"))},
+		// The override is the folder Dolphin uses; the region folder
+		// under it is only a guess.
+		{"GCIFolderAPathOverride", []string{"GCIFolderAPathOverride = " + filepath.Join(custom, "gci")}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"),
+			fmt.Sprintf("A GCI folder %s yes %q", filepath.Join(custom, "gci"), "Dolphin.ini [Core] GCIFolderAPathOverride"),
+			fmt.Sprintf("A GCI folder %s no %q", customGCI, "Dolphin.ini [Core] GCIFolderAPathOverride"))},
+		{"GCIFolderAPathOverride naming the default folder", []string{"GCIFolderAPathOverride = " + cardA}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s yes %q", cardA, "default"))},
+		{"GCIFolderAPath and GCIFolderAPathOverride", []string{"GCIFolderAPath = " + other, "GCIFolderAPathOverride = " + customGCI}, append(slices.Clone(defRawA),
+			fmt.Sprintf("A GCI folder %s no %q", cardA, "default"),
+			fmt.Sprintf("A GCI folder %s yes %q", customGCI, "Dolphin.ini [Core] GCIFolderAPathOverride"))},
+	} {
+		u.ini(c.core...)
+		if got, want := located(), append(c.want, defB...); !slices.Equal(got, want) {
+			t.Errorf("%s:\n%s\nwant\n%s", c.name, strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
 	}
 	if cards, err := Locate(filepath.Join(t.TempDir(), "nope")); err != nil || len(cards) != 0 {
 		t.Errorf("a missing user dir: %v, %v", cards, err)
+	}
+}
+
+// TestGCIFolderPath: a GCIFolder<X>Path is made into the folder Dolphin
+// uses for Wind Waker as Config::GetGCIFolderPath makes it.
+func TestGCIFolderPath(t *testing.T) {
+	for _, c := range []struct{ v, want string }{
+		{"/s/EUR", "/s/USA"}, {"/s/JPN", "/s/USA"}, {"/s/DEV", "/s/USA"}, {"/s/USA", "/s/USA"},
+		{"/s/EUR/", "/s/USA"}, {"/s/EUR//", "/s/USA"}, {"/s", "/s/USA"}, {"s/EUR", "s/USA"},
+		// One region directory goes, matched with its case and as a whole
+		// name. JAP, the legacy name of the default Japanese folder and raw
+		// card, is not a configured path's region directory (JPN is).
+		{"/s/USA/EUR", "/s/USA/USA"}, {"/s/EUR/USA", "/s/EUR/USA"}, {"/s/EUR/JPN", "/s/EUR/USA"}, {"/s/eur", "/s/eur/USA"}, {"/s/XEUR", "/s/XEUR/USA"}, {"/s/JAP", "/s/JAP/USA"},
+		{"EUR", "EUR/USA"},
+		// Nothing is cleaned first.
+		{"/s/EUR/.", "/s/EUR/./USA"}, {"/", "/USA"},
+	} {
+		if got := gciFolderPath(c.v); got != filepath.FromSlash(c.want) {
+			t.Errorf("gciFolderPath(%q) = %q, want %q", c.v, got, filepath.FromSlash(c.want))
+		}
+	}
+	// \ is a separator on Windows only, as in Dolphin.
+	want := map[string]string{`C:\s\EUR`: `C:\s\EUR/USA`, `C:\s\EUR\`: `C:\s\EUR\/USA`}
+	if runtime.GOOS == "windows" {
+		want = map[string]string{`C:\s\EUR`: `C:\s\USA`, `C:\s\EUR\`: `C:\s\USA`}
+	}
+	for v, w := range want {
+		if got := gciFolderPath(v); got != w {
+			t.Errorf("gciFolderPath(%q) = %q, want %q", v, got, w)
+		}
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
@@ -828,4 +829,127 @@ func TestCoopSessionConverges(t *testing.T) {
 		t.Errorf("the host started %d times, not 3, or found its marker:\n%s", n, h.rep)
 	}
 	t.Logf("world seq %d; %d WORLD images and %d gains audited", saved.Seq(), audit.worlds, audit.gains)
+}
+
+// TestCoopFreshBindRestart: a file bound fresh (a New Game never saved and
+// loaded back, so mDateIPL is 0) is still in RAM when the session
+// restarts. The new process knows no pending fresh binds, so the file's
+// first hello is LEAKED, failing only V5. The host answers with FreshBind
+// and no leak NOTICE, and the replica says hello again, bound, and arms
+// with nothing written (Appendix C item 133). Once the file is saved and
+// loaded back, the next session arms on its first hello and clears the
+// pending fresh bind.
+func TestCoopFreshBindRestart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs a loopback server")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // before the cleanups, which wait for the clients
+	m := mem.NewFakeMem()
+	ga := &coGame{t: t, g: fakegame.New(m), m: m}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(ga.g.NewGame(0, "Link"))
+	must(ga.g.LoadStage(coSea))
+	ga.m.Record(true)
+	h := &coHost{t: t, ctx: ctx, rep: &coLog{}, env: coopEnv{
+		worlds:   t.TempDir(),
+		backups:  t.TempDir(),
+		userDirs: []string{coUserDir(t)},
+		openMem:  func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
+		tick:     func() { ga.g.Frames(3) },
+	}}
+	h.start(coopFlags{on: true, world: coopWorldNew, yes: true, dryRun: true})
+	defer h.stop()
+
+	// bound reports whether the hub has the player's file bound.
+	bound := func() bool {
+		hs, err := h.cs.hub.Status()
+		if err != nil {
+			return false
+		}
+		for _, ps := range hs.Peers {
+			if ps.Name == "Link" {
+				return ps.State == hub.StateBound && ps.File == wire.FileBound
+			}
+		}
+		return false
+	}
+	// run is one process's coop-sync pipeline for ga, on a context of its
+	// own: it runs until the file is armed and the hub has it bound, and
+	// then ends.
+	run := func(why string) *coPlayer {
+		t.Helper()
+		pctx, pcancel := context.WithCancel(ctx)
+		defer pcancel()
+		p := newCoPlayer(t, pctx, h, h.cs, ga, "Link", &coLog{}, &coAudit{}, 1)
+		deadline := time.Now().Add(10 * time.Second)
+		for p.s.r.Status().State != replica.StateArmed || !bound() {
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: not armed and bound: %+v\nhost:\n%s\nplayer:\n%s", why, p.s.r.Status(), h.rep, p.rep)
+			}
+			p.step()
+			time.Sleep(2 * time.Millisecond)
+		}
+		for range 20 {
+			p.step()
+			time.Sleep(time.Millisecond)
+		}
+		return p
+	}
+	run("the founding")
+	f, err := bind.ReadFile(ga.m)
+	must(err)
+	tag, err := bind.Decode(f.Tag[:])
+	must(err)
+	nonce := world.ID(tag.Nonce)
+	if f.DateIPL != 0 || !h.cs.store.IsFreshBind(nonce) || len(ga.m.Writes()) != 1 {
+		t.Fatalf("the founding did not bind fresh: mDateIPL %#x, nonce %s pending %v, %d writes\n%s",
+			f.DateIPL, nonce, h.cs.store.IsFreshBind(nonce), len(ga.m.Writes()), h.rep)
+	}
+
+	// A new process: the file, still unsaved, says hello as leaked first.
+	unbound := h.rep.count("joined with an unbound file")
+	h.restart()
+	p := run("the restart")
+	for _, bad := range []string{"leaked from another file", "not bound to it"} {
+		if p.rep.has(bad) {
+			t.Errorf("the restart logged %q for a fresh-bound file:\n%s", bad, p.rep)
+		}
+	}
+	if !p.rep.has("pending fresh bind: the file is bound") {
+		t.Errorf("the restart's first hello was not the provisional one:\n%s", p.rep)
+	}
+	if n := h.rep.count("joined with an unbound file"); n != unbound || !h.rep.has("joined with a tag naming pending fresh bind "+nonce.String()+", as a file bound fresh does") {
+		t.Errorf("the host took the fresh-bound file for an unbound one:\n%s", h.rep)
+	}
+	if n := len(ga.m.Writes()); n != 1 {
+		t.Errorf("%d tag writes after the restart, want the founding's one", n)
+	}
+	if !h.cs.store.IsFreshBind(nonce) {
+		t.Error("the fresh bind was cleared, though the file was never loaded from the card")
+	}
+
+	// Saved and loaded back with no session running: the next session's
+	// first hello is bound, and its welcome clears the record.
+	must(ga.g.Save())
+	ga.g.EnterFileSelect()
+	must(ga.g.LoadFile(0))
+	must(ga.g.LoadStage(coSea))
+	provisional := h.rep.count("joined with a tag naming pending fresh bind")
+	h.restart()
+	p = run("the restart after a reload")
+	if p.rep.has("the host serves world") || p.rep.has("pending fresh bind") || h.rep.count("joined with a tag naming pending fresh bind") != provisional {
+		t.Errorf("after the reload the first hello was not bound:\nhost:\n%s\nplayer:\n%s", h.rep, p.rep)
+	}
+	if h.cs.store.IsFreshBind(nonce) {
+		t.Error("the fresh bind is still pending after the file was loaded from the card")
+	}
+	if n := len(ga.m.Writes()); n != 1 {
+		t.Errorf("%d tag writes after the reload, want the founding's one", n)
+	}
 }

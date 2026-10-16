@@ -124,6 +124,7 @@ func TestCoopTagShowLeak(t *testing.T) {
 // pending fresh bind. coop-tag show must not call it a leak: with the
 // world file it is bound, and without it (a joiner's machine) it says the
 // tag may be a binding rather than advise a clear, as clear warns too.
+// Once loaded from the card, it passes V5 through mDateIPL on any machine.
 func TestCoopTagShowFreshBind(t *testing.T) {
 	m := mem.NewFakeMem()
 	g := fakegame.New(m)
@@ -185,6 +186,18 @@ func TestCoopTagShowFreshBind(t *testing.T) {
 	b.Reset()
 	if err := coopTagClear(&b, m, tick, false, host); !errors.Is(err, errNotDone) || strings.Contains(b.String(), "Careful") || !strings.Contains(b.String(), "bound)?") {
 		t.Errorf("clear with the world file: %v\n%s", err, b.String())
+	}
+
+	// Loaded from the card, the file passes V5 through mDateIPL, with the
+	// world file and without it: §8.2's M2 check reads this V5 line.
+	g.EnterFileSelect()
+	must(g.LoadFile(0))
+	must(g.LoadStage(diagSea))
+	for _, root := range []string{host, t.TempDir()} {
+		out := show(root)
+		if !strings.Contains(out, "state     BOUND:") || !strings.Contains(out, "the file has been saved and loaded (mDateIPL 0x") || strings.Contains(out, "V5 held only through a pending fresh bind") {
+			t.Errorf("worlds %q, after a load from the card: not bound through mDateIPL:\n%s", root, out)
+		}
 	}
 	if w := m.Writes(); len(w) != 0 {
 		t.Errorf("wrote %+v", w)

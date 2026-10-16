@@ -16,12 +16,23 @@
 // names; dolphin2 passes USER_DIR_1 and USER_DIR_2, see UserDirs), as a
 // raw image per slot (GC/MemoryCardA.USA.raw) or, in GCI-folder mode, one
 // .gci file per game save under GC/USA/Card A. Config/Dolphin.ini's
-// [Core] section can point either elsewhere. Since a wrong guess about
-// which one is in use would mean no backup at all, Locate returns every
-// card that exists, default and configured, and says which Dolphin.ini
-// selects; Create copies all of them. Of a GCI folder only Wind Waker's
-// own files (game code GZLE) are copied: the co-op can't affect the rest,
-// and a restore then can't roll back another game's saves.
+// [Core] section can point either elsewhere, and says which kind each
+// slot uses; a slot it doesn't set takes Dolphin's default, a GCI folder
+// in slot A and nothing in slot B. Dolphin uses a GCI folder override as
+// given, but makes a GCI folder path into a folder for the game's
+// region: it replaces the region directory the path ends in with USA for
+// Wind Waker, or adds USA (D:/Saves/EUR is used as D:/Saves/USA), and
+// that folder is the configured card. Since a wrong guess about which
+// one is in use would mean no backup at all, Locate returns every card
+// that exists, default and configured (but not a GCI folder path that an
+// override shadows, which Dolphin never uses), and says which Dolphin's
+// settings select; Create copies all of them. Near a configured GCI
+// folder it also returns the folders a hand-edited setting may have
+// meant (a path as written, and USA and the slot's USA/Card A or
+// USA/Card B under the setting) when they hold a Wind Waker save, never
+// as in use. Of a GCI folder only Wind Waker's own files (game code
+// GZLE) are copied: the co-op can't affect the rest, and a restore then
+// can't roll back another game's saves.
 //
 // Dolphin's names and settings are Dolphin's, not the game's: they are
 // from Dolphin's source (Source/Core/Core/Config/MainSettings.cpp and
@@ -122,13 +133,22 @@ func (k *Kind) UnmarshalText(b []byte) error {
 	return nil
 }
 
-// Use says whether Dolphin.ini selects a card for its slot.
+// Use says whether Dolphin's settings select a card for its slot: the
+// slot's device, SlotA / SlotB in Dolphin.ini or Dolphin's default for a
+// slot it doesn't set (defaultDevice), is this kind of card, the card is
+// not a default one that Dolphin.ini replaces with a path of its kind,
+// and it is not a folder Locate only tries near a configured GCI folder.
 type Use string
 
 const (
-	UseUnknown Use = ""    // Dolphin.ini has no SlotA / SlotB setting
+	// UseUnknown is in older builds' manifests only: those builds took a
+	// slot Dolphin.ini doesn't set for unknown. Locate no longer returns it.
+	UseUnknown Use = ""
 	UseYes     Use = "yes" // the slot's device is this kind of card
-	UseNo      Use = "no"  // the slot holds something else, or nothing
+	// UseNo: the slot holds something else, or nothing, or Dolphin.ini
+	// replaces this default card with a path of its kind, or the card is
+	// a folder tried near a configured GCI folder.
+	UseNo Use = "no"
 )
 
 // Card is one memory card in a Dolphin user directory.
@@ -154,9 +174,10 @@ const (
 	iniPath = "Config/Dolphin.ini"
 
 	// The EXI device numbers SlotA / SlotB hold (EXIDeviceType): a raw
-	// card, and a GCI folder.
+	// card, a GCI folder, and nothing.
 	exiMemoryCard       = 1
 	exiMemoryCardFolder = 8
+	exiNone             = 0xFF
 
 	// regionDir is the GC directory and card-name part for an NTSC-U
 	// game such as GZLE01 (Dolphin's GetDirectoryForRegion).
@@ -170,17 +191,39 @@ const (
 
 var slots = []string{"A", "B"}
 
+// defaultDevice is the device Dolphin gives a slot Dolphin.ini doesn't
+// set, or sets to something that doesn't parse (Config::GetUncached): a
+// GCI folder in slot A and nothing in slot B (MAIN_SLOT_A and MAIN_SLOT_B
+// in MainSettings.cpp, the same on master and in each release checked,
+// 2407 to 2609). Dolphin.ini holds only the settings that were set
+// (BaseConfigLayerLoader::Save), and Dolphin's GameCube settings set
+// SlotA and SlotB as the user changes a slot there
+// (GameCubePane::SaveSettings), so a user who never changed one usually
+// has neither key.
+var defaultDevice = map[string]int{"A": exiMemoryCardFolder, "B": exiNone}
+
 // dolphinIni is what Locate reads from Dolphin.ini's [Core] section. A
-// missing file or key leaves the default.
+// missing file or key leaves the default: Dolphin's default device for a
+// slot (defaultDevice), and the default card paths. So does a SlotA /
+// SlotB that doesn't parse, as in Dolphin.
 type dolphinIni struct {
 	device  map[string]int    // slot -> SlotA/SlotB
 	memcard map[string]string // slot -> MemcardAPath/MemcardBPath
-	gci     map[string]string // slot -> GCIFolderAPath/GCIFolderBPath (or the older ...Override)
-	gciKey  map[string]string // slot -> which of those keys gave gci
+	// gci is the slot's GCIFolderAPathOverride / GCIFolderBPathOverride,
+	// or when that is unset its GCIFolderAPath / GCIFolderBPath, as
+	// written. Dolphin takes the override over the path and uses it as
+	// given (CEXIMemoryCard::GetGCIFolderPath, EXI_DeviceMemoryCard.cpp:153-156):
+	// while the override is set, Dolphin never uses the path's folder, so
+	// the path is not read.
+	gci    map[string]string
+	gciKey map[string]string // slot -> which of those keys gave gci
+	// gciDir is the folder Dolphin uses for gci with a Wind Waker disc in:
+	// the override as given, or the path as gciFolderPath makes it.
+	gciDir map[string]string
 }
 
 func readDolphinIni(userDir string) (dolphinIni, error) {
-	ini := dolphinIni{device: map[string]int{}, memcard: map[string]string{}, gci: map[string]string{}, gciKey: map[string]string{}}
+	ini := dolphinIni{device: map[string]int{}, memcard: map[string]string{}, gci: map[string]string{}, gciKey: map[string]string{}, gciDir: map[string]string{}}
 	b, err := os.ReadFile(filepath.Join(userDir, filepath.FromSlash(iniPath)))
 	if errors.Is(err, fs.ErrNotExist) {
 		return ini, nil
@@ -197,21 +240,69 @@ func readDolphinIni(userDir string) (dolphinIni, error) {
 	}
 	for _, s := range slots {
 		if v, ok := core["slot"+strings.ToLower(s)]; ok {
-			if n, err := strconv.Atoi(v); err == nil {
+			if n, ok := parseDevice(v); ok {
 				ini.device[s] = n
 			}
 		}
 		if v := core["memcard"+strings.ToLower(s)+"path"]; v != "" {
 			ini.memcard[s] = resolve(v)
 		}
-		for _, k := range []string{"GCIFolder" + s + "Path", "GCIFolder" + s + "PathOverride"} {
-			if v := core[strings.ToLower(k)]; v != "" {
-				ini.gci[s], ini.gciKey[s] = resolve(v), k
-				break
-			}
+		override, folder := "GCIFolder"+s+"PathOverride", "GCIFolder"+s+"Path"
+		if v := core[strings.ToLower(override)]; v != "" {
+			ini.gci[s], ini.gciKey[s], ini.gciDir[s] = resolve(v), override, resolve(v)
+		} else if v := core[strings.ToLower(folder)]; v != "" {
+			ini.gci[s], ini.gciKey[s], ini.gciDir[s] = resolve(v), folder, resolve(gciFolderPath(v))
 		}
 	}
 	return ini, nil
+}
+
+// gciFolderPath is the folder Dolphin uses for Wind Waker's saves when a
+// slot's GCIFolder<X>Path is v, as Config::GetGCIFolderPath
+// (MainSettings.cpp) makes it: \ becomes / on Windows only
+// (UnifyPathSeparators, StringUtil.cpp), trailing slashes go, one
+// trailing /USA, /JPN, /EUR or /DEV goes, matched with its case, and /USA,
+// the region directory of a GZLE01 disc, is added. Dolphin's GameCube
+// settings store a folder chosen there only if it ends in one of them
+// (GameCubePane::SetGCIFolder), so a folder chosen as D:/Saves/EUR keeps
+// Wind Waker's saves in D:/Saves/USA. Dolphin takes /DEV off, and its
+// settings accept it, since 2603; 2407 to 2512 (each release checked)
+// keep it and so use <v>/USA, which candidates tries as a guess. Nothing
+// is cleaned first, as in Dolphin: X/EUR/. is X/EUR/./USA, not X/USA.
+func gciFolderPath(v string) string {
+	v = strings.TrimRight(filepath.ToSlash(v), "/")
+	for _, r := range []string{"USA", "JPN", "EUR", "DEV"} {
+		if strings.HasSuffix(v, "/"+r) {
+			v = strings.TrimSuffix(v, "/"+r)
+			break
+		}
+	}
+	return filepath.FromSlash(v + "/" + regionDir)
+}
+
+// parseDevice reads a SlotA / SlotB value as Dolphin's TryParse does
+// (StringUtil.h): with strtoll and base 0, and only if strtoll reads the
+// whole value and the number fits an int. strtoll skips leading white
+// space and reads a sign, then a 0x prefix as hex and a leading 0 as
+// octal: 0x8 and 010 are 8, and 08 doesn't parse. An empty value reads as
+// 0, the Dummy device, which is no card, but white space alone doesn't
+// parse. A C23 strtoll, which glibc 2.38 and later give C++ builds, also
+// reads a 0b prefix as binary, and so does parseDevice; a Dolphin whose C
+// library's strtoll has no 0b (an older glibc, and possibly MSVC's UCRT
+// or macOS's libc, neither checked) gives 0b1000 the slot's default.
+func parseDevice(v string) (int, bool) {
+	if v == "" {
+		return 0, true
+	}
+	v = strings.TrimLeft(v, " \t\n\v\f\r")
+	// Go's base 0 also takes a 0o prefix and _ in a number; strtoll takes
+	// neither.
+	digits := strings.TrimLeft(v, "+-")
+	if strings.Contains(v, "_") || len(digits) > 1 && digits[0] == '0' && (digits[1] == 'o' || digits[1] == 'O') {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(v, 0, 32)
+	return int(n), err == nil
 }
 
 // parseIni reads an INI file the way Dolphin's IniFile does: [Section]
@@ -270,6 +361,12 @@ func (p rawPattern) match(path string) bool {
 	return len(base) > len(stem)+1+len(ext) && strings.HasPrefix(base, stem+".") && strings.HasSuffix(base, ext)
 }
 
+// sameFamily says whether p and q are the same family of files, whatever
+// their exact paths: the same directory, name and extension.
+func (p rawPattern) sameFamily(q rawPattern) bool {
+	return samePath(p.dir, q.dir) && pathKey(p.stem) == pathKey(q.stem) && pathKey(p.ext) == pathKey(q.ext)
+}
+
 // newRawPattern is the family of a configured or default raw card path,
 // with any region code already in its name taken out.
 func newRawPattern(path string, exact bool) rawPattern {
@@ -293,16 +390,20 @@ func newRawPattern(path string, exact bool) rawPattern {
 type candidate struct {
 	Card
 	raw rawPattern // Kind Raw
-	// guess marks a GCI folder derived from a configured one rather than
-	// named: Locate reports it only if it holds a Wind Waker save.
+	// guess marks a GCI folder tried near a configured one, though not
+	// the folder Dolphin uses for it: Locate reports it only if it holds
+	// a Wind Waker save, and never as in use.
 	guess bool
 }
 
 // candidates returns every place Dolphin may keep userDir's cards: for
 // each slot, the default raw image and GCI folder, and the ones
-// Dolphin.ini configures. A configured GCI folder is tried as given, with
-// the region directory Dolphin appends, and with the "Card A" folder of
-// the default layout.
+// Dolphin.ini configures. A configured GCI folder is the folder Dolphin
+// uses for it (gciDir). The setting as written, where that is another
+// folder, and with the region directory and the "Card A" folder of the
+// default layout added, are tried too, as guesses: a hand-edited setting
+// may have meant one of them, and an older backup may hold files from
+// them.
 func candidates(userDir string) ([]candidate, error) {
 	userDir = filepath.Clean(userDir)
 	ini, err := readDolphinIni(userDir)
@@ -314,10 +415,10 @@ func candidates(userDir string) ([]candidate, error) {
 	for _, s := range slots {
 		use := func(k Kind) Use {
 			d, ok := ini.device[s]
-			switch {
-			case !ok:
-				return UseUnknown
-			case k == Raw && d == exiMemoryCard, k == GCIFolder && d == exiMemoryCardFolder:
+			if !ok {
+				d = defaultDevice[s]
+			}
+			if k == Raw && d == exiMemoryCard || k == GCIFolder && d == exiMemoryCardFolder {
 				return UseYes
 			}
 			return UseNo
@@ -325,16 +426,38 @@ func candidates(userDir string) ([]candidate, error) {
 		card := func(k Kind, path, from string) Card {
 			return Card{UserDir: userDir, Slot: s, Kind: k, Path: filepath.Clean(path), From: from, InUse: use(k)}
 		}
+		// Dolphin uses a configured path in place of the default card of
+		// its kind (Config::GetMemcardPath in MainSettings.cpp and
+		// CEXIMemoryCard::GetGCIFolderPath), so that default card is not
+		// in use unless the configured path comes to it: a raw card path
+		// with the default's directory, name and extension, whatever its
+		// region code (Dolphin 5.0 wrote the default path into
+		// MemcardAPath), or a GCI folder setting whose folder is the
+		// default one. Only an override can be: Dolphin ends a
+		// GCIFolder<X>Path's folder with the region directory.
 		def := filepath.Join(gc, "MemoryCard"+s+"."+regionDir+".raw")
-		out = append(out, candidate{Card: card(Raw, def, "default"), raw: newRawPattern(def, false)})
+		defRaw := candidate{Card: card(Raw, def, "default"), raw: newRawPattern(def, false)}
+		if p := ini.memcard[s]; p != "" && !newRawPattern(p, false).sameFamily(defRaw.raw) {
+			defRaw.InUse = UseNo
+		}
+		out = append(out, defRaw)
 		if p := ini.memcard[s]; p != "" {
 			out = append(out, candidate{Card: card(Raw, p, "Dolphin.ini [Core] Memcard"+s+"Path"), raw: newRawPattern(p, true)})
 		}
-		out = append(out, candidate{Card: card(GCIFolder, filepath.Join(gc, regionDir, "Card "+s), "default")})
+		defGCI := candidate{Card: card(GCIFolder, filepath.Join(gc, regionDir, "Card "+s), "default")}
+		if p := ini.gciDir[s]; p != "" && !samePath(p, defGCI.Path) {
+			defGCI.InUse = UseNo
+		}
+		out = append(out, defGCI)
 		if p := ini.gci[s]; p != "" {
 			from := "Dolphin.ini [Core] " + ini.gciKey[s]
-			for i, dir := range []string{p, filepath.Join(p, regionDir), filepath.Join(p, regionDir, "Card "+s)} {
-				out = append(out, candidate{Card: card(GCIFolder, dir, from), guess: i > 0})
+			// The folder Dolphin uses comes first: Locate keeps the first
+			// candidate of a path, and a guess may have the same one.
+			out = append(out, candidate{Card: card(GCIFolder, ini.gciDir[s], from)})
+			for _, dir := range []string{p, filepath.Join(p, regionDir), filepath.Join(p, regionDir, "Card "+s)} {
+				g := candidate{Card: card(GCIFolder, dir, from), guess: true}
+				g.InUse = UseNo
+				out = append(out, g)
 			}
 		}
 	}
@@ -342,9 +465,9 @@ func candidates(userDir string) ([]candidate, error) {
 }
 
 // Locate returns the cards in userDir that exist: raw images that are
-// files, and GCI folders that are directories (for a folder derived from
-// a configured one, only when it holds a Wind Waker save), each path
-// once, slot A first. A missing userDir has none.
+// files, and GCI folders that are directories (for a guess near a
+// configured one, only when it holds a Wind Waker save), each path once,
+// slot A first. A missing userDir has none.
 func Locate(userDir string) ([]Card, error) {
 	cs, err := candidates(userDir)
 	if err != nil {

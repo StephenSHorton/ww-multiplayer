@@ -6,8 +6,8 @@ package main
 // starts with '/':
 //
 //	/refresh [player]       reload the area, by the entrance Link came in by
-//	/warp [player]          go to the partner: same stage, to its side;
-//	                        another stage, to its entrance, then its side
+//	/warp [player]          go to the partner: same stage, onto it;
+//	                        another stage, to its entrance, then onto it
 //	/coop off|on [player]   stop, or resume, writing the world into the game
 //	/status [player]        where co-op is (on a host, its hub's peers
 //	                        and scoped stores too)
@@ -41,7 +41,7 @@ type coopCommand struct {
 // coopCommandHelp is /help's text, one command a line.
 var coopCommandHelp = []string{
 	"/refresh [player]      reload this area by the entrance Link came in by (a stale chest or door, or a softlock)",
-	"/warp [player]         go to your partner: to its side on the same stage, else to its entrance first",
+	"/warp [player]         go to your partner: onto it on the same stage, else by its entrance first",
 	"/coop off|on [player]  stop, or resume, writing the world into the game; pose sync goes on either way",
 	"/status [player]       where co-op is",
 	"/help                  this list",

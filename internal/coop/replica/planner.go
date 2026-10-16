@@ -25,16 +25,20 @@ const (
 	// them every frame, so they are held there (bossHold).
 	Live Timing = iota + 1
 	// OnLoad: saved data the game reads when it loads it, written as
-	// soon as the receiver is STABLE: another table's memBit, to its
-	// saved slot only (getSave copies that slot over the live copy when
-	// the table loads, d_save.cpp:1506-1509; putSave copies the live copy
-	// back when it unloads, d_save.cpp:1512-1515, so the saved slot of a
-	// table not loaded is the only copy).
+	// soon as the receiver is STABLE, IDLE or not: another table's memBit,
+	// to its saved slot only (getSave copies that slot over the live copy
+	// when the table loads, d_save.cpp:1506-1509; putSave copies the live
+	// copy back when it unloads, d_save.cpp:1512-1515, so the saved slot
+	// of a table not loaded is the only copy). No game code that runs
+	// under the pause menu writes such a slot (Appendix C item 128).
 	OnLoad
 	// OnRoomChange: deferred to the receiver's next room or stage change
-	// and written on the first STABLE tick after it (§6.3), so a
+	// and written on the first STABLE and IDLE tick after it (§6.3), so a
 	// partner's bit does not change what the actors of the receiver's
-	// room are doing. The current table's memory switches, which polling
+	// room are doing, and does not land while an event runs or the pause
+	// menu is open, under which the sea chart writes the charts and the
+	// sea map (d_menu_fmap.cpp:3271, d_menu_fmap2.cpp:1045; Appendix C
+	// item 129). The current table's memory switches, which polling
 	// actors answer with camera events (§6.1), wait as well for the room
 	// hold (every shown room's actors have had roomSettle IDLE frames,
 	// reconcile_m5_rooms.go), as a new shutter swallows a switch set in

@@ -276,9 +276,12 @@ scratch.
 - Memory tests require Dolphin running with Wind Waker (GZLE01) loaded.
 - For visual tests, see "Visual validation" above — capture via `screenshot` and look at the PNG yourself.
 - **Two-Dolphin loop** is the default test pattern (see "Standard session
-  bootstrap" above). Dolphin B's Link gets warped by (+50, 0, +50) so the
-  two players don't visually overlap. Override via
-  `MP_LOCAL_SHIFT_X/Y/Z` env, or set all three to 0 to disable.
+  bootstrap" above). When both Links overlap at start (both Dolphins
+  booted from one save state), Dolphin B's Link is moved by (+50, 0, +50)
+  from where it stands so the two players don't visually overlap. It moves
+  only when both are in the same stage, layer and room, idle, and within 5
+  units, and never under `--coop`. Override via `MP_LOCAL_SHIFT_X/Y/Z`
+  env, or set all three to 0 to disable.
 - **Diagnostic toolkit** (`find-pos`, `scan-pos`, `peek`, `poke-vec3`,
   `track-pos`, `warp`, `warp-force[-off]`, `eye-fix-step`,
   `eye-fix-gates`, `eye-fix-chain`, `eye-fix-find-shape`, `j3dsys-probe`,

@@ -233,9 +233,9 @@ func (h *Hub) noteTables(p *peer) {
 	var text string
 	switch {
 	case h.cfg.StageTblHash == 0:
-		text = "the host has no co-op stage tables for its disc (it can run patch on its vanilla ISO again, or pass --coop-iso), " + off
+		text = "the host has no co-op stage tables for its disc (the host's log says why), " + off
 	case p.hello.StageTblHash == 0:
-		text = "you have no co-op stage tables for your disc (run patch on your vanilla ISO again, or pass --coop-iso <the ISO Dolphin runs>), " + off
+		text = "you have no co-op stage tables for your disc (the co-op warning in your log says why and what to do), " + off
 	default:
 		text = fmt.Sprintf("your co-op stage tables (%016x) aren't the host's (%016x): another disc or ww-multiplayer version? %s", p.hello.StageTblHash, h.cfg.StageTblHash, off)
 	}
@@ -276,10 +276,28 @@ func (h *Hub) onUnboundHello(p *peer, m *wire.CoHello) {
 	p.features = h.grant(p)
 	// A tag of this world that fails only V5 may be a fresh bind whose
 	// nonce the replica has not learned yet: FreshBind tells it.
-	fresh := world.ID(m.WorldID) == h.id && !m.BindNonce.IsZero() && h.store.IsFreshBind(world.ID(m.BindNonce))
-	if m.FileState == wire.FileLeaked {
+	tagWorld := world.ID(m.WorldID)
+	fresh := tagWorld == h.id && !m.BindNonce.IsZero() && h.store.IsFreshBind(world.ID(m.BindNonce))
+	leakedFresh := m.FileState == wire.FileLeaked && fresh
+	switch {
+	case leakedFresh:
+		// No NOTICE: the replica starts each process knowing no pending
+		// fresh binds, so a fresh-bound file not yet loaded from the card
+		// says hello as leaked, and FreshBind is the answer. If V5 was all
+		// that failed, it says hello again, bound; if V2-V4 failed too, it
+		// offers the scrub itself.
+	case m.FileState == wire.FileLeaked && !tagWorld.IsZero() && tagWorld != h.id:
+		// Only the tag's own world's host knows that world's pending
+		// fresh binds, so a V5-only failure may be one of them. The
+		// replica offers no scrub for that (Appendix C item 49), and
+		// the NOTICE does not say the file should be scrubbed. The hub
+		// can't tell a V5-only failure from one where V2-V4 failed too,
+		// so the NOTICE says the tag may be a fresh bind only if V5
+		// alone fails; otherwise the replica offers the scrub itself.
+		h.notify(p, wire.NoticeNotBound, fmt.Sprintf("your file carries a co-op tag of world %s. It leaked from another file or, if only V5 fails, may be a fresh bind to that world not yet loaded from the card: only that world's host can tell. Nothing is synced until you bind the file", tagWorld))
+	case m.FileState == wire.FileLeaked:
 		h.notify(p, wire.NoticeNotBound, "your file carries a co-op tag leaked from another file; it binds nothing and should be scrubbed. Nothing is synced until you bind the file")
-	} else {
+	default:
 		h.notify(p, wire.NoticeNotBound, fmt.Sprintf("your file is not bound to co-op world %s; nothing is synced until you bind it", h.id))
 	}
 	h.welcome(p, wire.StatusUnbound, wire.NoticeNotBound, p.features, fresh)
@@ -287,7 +305,11 @@ func (h *Hub) onUnboundHello(p *peer, m *wire.CoHello) {
 	if first {
 		h.sendPresences(p)
 	}
-	h.logf("co-op: %s joined with an unbound file (%s)", p, m.FileState)
+	if leakedFresh {
+		h.logf("co-op: %s joined with a tag naming pending fresh bind %s, as a file bound fresh does until it is loaded from the card; told its replica the bind is pending", p, m.BindNonce)
+	} else {
+		h.logf("co-op: %s joined with an unbound file (%s)", p, m.FileState)
+	}
 }
 
 // onBindHello: an unbound file asks to bind to this world (AskBind, §5.3).

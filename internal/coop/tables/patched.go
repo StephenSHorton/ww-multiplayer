@@ -19,7 +19,10 @@ import (
 // (the patched one, whose main.dol hash names a cache file of its own) and
 // records in the cache directory which cache entry and which image that
 // was. A co-op session started without --coop-iso then knows the tables of
-// the disc Dolphin most likely runs: the one the user last patched.
+// the disc Dolphin most likely runs: the one the user last patched. The
+// disc is recorded even when its tables can't be built, so the session
+// tries the image again and says why it fails, and a later binary that
+// can build them needs no new patch.
 const (
 	lastPatchedName = "last-patched.json"
 	// LastPatchedSchema is the record's format.
@@ -32,7 +35,8 @@ const (
 // LastPatched is the record of the disc `patch` last wrote.
 type LastPatched struct {
 	Schema int `json:"schema"`
-	// ID names the tables' cache entry, CacheFile(dir, ID.DOL).
+	// ID is the disc's (Stats.ID), and names its tables' cache entry,
+	// CacheFile(dir, ID.DOL), once they are built and cached.
 	ID
 	// Image is the patched image's absolute path.
 	Image string `json:"image"`
@@ -40,10 +44,14 @@ type LastPatched struct {
 	At time.Time `json:"at"`
 }
 
+// ErrNoRecord is ReadLastPatched's error, and GetPatched's, when dir holds
+// no record: patch has recorded no disc there.
+var ErrNoRecord = errors.New("patch has recorded no disc")
+
 // LastPatchedFile is the record's path in dir.
 func LastPatchedFile(dir string) string { return filepath.Join(dir, lastPatchedName) }
 
-// RecordPatched records in dir that image, a disc whose tables are id, is
+// RecordPatched records in dir that image, the disc whose ID is id, is
 // the disc last patched. image is made absolute, so a session started from
 // another directory finds it.
 func RecordPatched(dir, image string, id ID, at time.Time) error {
@@ -71,10 +79,13 @@ func RecordPatched(dir, image string, id ID, at time.Time) error {
 }
 
 // ReadLastPatched reads dir's record. Without one the error matches
-// fs.ErrNotExist; a record of another format matches ErrStale, and one
-// that doesn't parse or check matches ErrCorrupt.
+// ErrNoRecord and fs.ErrNotExist; a record of another format matches
+// ErrStale, and one that doesn't parse or check matches ErrCorrupt.
 func ReadLastPatched(dir string) (LastPatched, error) {
 	f, err := os.Open(LastPatchedFile(dir))
+	if errors.Is(err, fs.ErrNotExist) {
+		return LastPatched{}, fmt.Errorf("tables: %w: %w", ErrNoRecord, err)
+	}
 	if err != nil {
 		return LastPatched{}, fmt.Errorf("tables: %w", err)
 	}
@@ -141,8 +152,8 @@ type PatchedStats struct {
 // GetPatched returns the tables of the disc dir's record names: the cached
 // ones while they are this build's, else the recorded image's, read with
 // Get (which caches them). It fails without a record (an error matching
-// fs.ErrNotExist), and when the tables are not cached for this build and
-// the image can't be read.
+// ErrNoRecord), and when the tables are not cached for this build and the
+// image can't be read, or can't give them (Get's *BuildError, wrapped).
 func GetPatched(dir string) (*Tables, PatchedStats, error) {
 	var ps PatchedStats
 	rec, err := ReadLastPatched(dir)

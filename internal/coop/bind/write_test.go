@@ -219,6 +219,56 @@ func TestBindOverStaleTags(t *testing.T) {
 	}
 }
 
+// TestBindPromptOtherWorldV5: a tag of another world that fails only V5
+// may be that world's fresh bind, not yet loaded from the card, which only
+// that world's host can tell, so the bind prompt does not call it stale:
+// it says so, and that binding replaces it. A V5-only tag of the world
+// bound to (whose host has said its nonce is no pending fresh bind) and
+// another world's tag that fails V2 as well are stale (Appendix C item
+// 133).
+func TestBindPromptOtherWorldV5(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		setup func(r *rig)
+		maybe bool // the prompt says the tag may be a fresh bind
+	}{
+		{"another world's tag, V5 only", func(r *rig) { r.bind(worldB, nil) }, true},
+		{"this world's tag, V5 only", func(r *rig) { r.bind(worldA, nil) }, false},
+		{"another world's tag, V2 and V5", func(r *rig) { r.bind(worldB, nil); r.newGame(1, "Link") }, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t)
+			r.newGame(0, "Link")
+			c.setup(r)
+			s, st := r.settle()
+			p, err := PlanBind(s, st, BindRequest{World: worldA})
+			if err != nil {
+				t.Fatal(err)
+			}
+			maybe := []string{
+				"Its current tag, of world " + worldB.String() + ", fails only V5: the file has not been loaded from the",
+				"card since it was tagged. It may be a fresh bind to that world, or a tag leaked from another",
+				"only that world's host can tell. Binding replaces it;",
+			}
+			stale := []string{"Its current tag is stale and will be replaced: the tag leaked from another file ("}
+			want, not := stale, maybe
+			if c.maybe {
+				want, not = maybe, []string{"stale"}
+			}
+			for _, sub := range want {
+				if !strings.Contains(p.Prompt, sub) {
+					t.Errorf("the prompt lacks %q:\n%s", sub, p.Prompt)
+				}
+			}
+			for _, sub := range not {
+				if strings.Contains(p.Prompt, sub) {
+					t.Errorf("the prompt has %q:\n%s", sub, p.Prompt)
+				}
+			}
+		})
+	}
+}
+
 // TestPlanScrubAndClear: a scrub is planned only for a leak; a clear for
 // any non-zero tag bytes, and it zeroes only the tag's 0x30.
 func TestPlanScrubAndClear(t *testing.T) {

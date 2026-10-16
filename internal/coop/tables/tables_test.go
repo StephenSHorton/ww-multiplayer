@@ -332,12 +332,30 @@ func TestBuildErrors(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("err = %v, want one containing %q", err, c.want)
 			}
-			if _, _, err := Get(openISO(t, c.img), t.TempDir()); err == nil {
-				t.Fatal("Get succeeded")
+			// Get says the build failed, and still names the disc.
+			_, st, err := Get(openISO(t, c.img), t.TempDir())
+			var be *BuildError
+			if !errors.As(err, &be) || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("Get = %v, want a *BuildError containing %q", err, c.want)
+			}
+			if id, err := Identify(openISO(t, c.img)); err != nil || st.ID != id || !validHash(st.ID.DOL) {
+				t.Errorf("Get's Stats.ID = %+v, want the disc's %+v (%v)", st.ID, id, err)
 			}
 		})
 	}
+
+	// A main.dol that can't be read: no ID, and no build failed.
+	_, st, err := Get(noDOL{vanillaDisc(t)}, t.TempDir())
+	var be *BuildError
+	if err == nil || errors.As(err, &be) || st.ID != (ID{}) {
+		t.Errorf("Get without main.dol = %v, Stats.ID %+v; want a plain error and no ID", err, st.ID)
+	}
 }
+
+// noDOL is a disc whose main.dol can't be read.
+type noDOL struct{ Source }
+
+func (noDOL) ReadDOL() ([]byte, error) { return nil, errors.New("main.dol: read error") }
 
 func TestSaveLoad(t *testing.T) {
 	dir := t.TempDir()

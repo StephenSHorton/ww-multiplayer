@@ -90,9 +90,10 @@ func coPlaceOf(m mem.Mem) (coPlace, error) {
 
 // coRoomWindows says which ticks may make room-change writes (§6.3), by
 // the game's places alone: the first tick since the place last changed
-// that is ARMED with the gates open, or a later such tick when every one
-// before it since the change found the heartbeat stalled or the game
-// moved on (replica.ErrStall, replica.ErrAborted). The loaded table's
+// that is ARMED with STABLE, IDLE and HEARTBEAT open (IDLE since Appendix
+// C item 129), or a later such tick when every one before it since the
+// change found the heartbeat stalled or the game moved on
+// (replica.ErrStall, replica.ErrAborted). The loaded table's
 // memory switches wait for the room hold as well, so their tick can come
 // later (coSwitchTicks).
 func coRoomWindows(reps []replica.Report, places []coPlace) []bool {
@@ -102,7 +103,7 @@ func coRoomWindows(reps []replica.Report, places []coPlace) []bool {
 		if i > 0 && i < len(places) && places[i] != places[i-1] {
 			due = true
 		}
-		if !due || rep.State != replica.StateArmed || !rep.Gates.CanWrite() {
+		if !due || rep.State != replica.StateArmed || !rep.Gates.CanWriteIdle() {
 			continue
 		}
 		win[i] = true
@@ -358,13 +359,14 @@ func (m *coM3) play(p *coPlayer, rng *rand.Rand) {
 // the one tick since a room change that writes them (coSwitchTicks) and
 // once every room's actors have run fakegame.ShutterFrames frames (the
 // room hold, by fakegame.RoomAges), the ocean, charts and sea map only on
-// a room-change tick, which it works out from where the game was as each
-// tick began (coRoomWindows, coSwitchTicks), not from the reports. From M4 a session's
-// replicas write M4's targets too, which coAuditM4Write checks by M4's
-// rules; the writes at the derive targets must be exactly those the
-// derive path reports. From M5 they write the dan and zone switch bytes
-// too (TargetScoped), which coAuditM5Write checks by M5's rules, and no
-// dan or zone switch is set twice in one scope. It counts what it saw.
+// a room-change tick, IDLE as well, which it works out from where the
+// game was as each tick began (coRoomWindows, coSwitchTicks), not from the
+// reports. From M4 a session's replicas write M4's targets too, which
+// coAuditM4Write checks by M4's rules; the writes at the derive targets
+// must be exactly those the derive path reports. From M5 they write the
+// dan and zone switch bytes too (TargetScoped), which coAuditM5Write
+// checks by M5's rules, and no dan or zone switch is set twice in one
+// scope. It counts what it saw.
 func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 	t.Helper()
 	places := p.beat.placesSeen()
@@ -492,6 +494,9 @@ func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 				if why := sw.check(w.tick); why != "" {
 					bad("a memory switch of the loaded table, %s", why)
 				}
+				if !rep.Gates.Idle {
+					bad("a memory switch of the loaded table, not IDLE")
+				}
 				if w.young >= 0 && w.execs < fakegame.ShutterFrames {
 					bad("a memory switch of the loaded table while room %d's actors had run %d frames: a new shutter there would not see it (the room hold)", w.young, w.execs)
 				}
@@ -584,7 +589,7 @@ func coPose(t *testing.T, cs *coopSession, name, at string) *network.Client {
 //     world got from the games;
 //   - the console's /refresh reloads A's area by its entrance, /warp
 //     takes A to B on the same stage and B to A on another (its
-//     entrance, then its side), and an escape with a gate closed is not
+//     entrance, then onto it), and an escape with a gate closed is not
 //     made;
 //   - /coop off stops A's writes within a tick, and /coop on resumes
 //     them; a storm of save-state loads turns B's writes off, said once,
@@ -831,7 +836,7 @@ func TestCoopSessionM3(t *testing.T) {
 	}
 	must(a.g.ChangeStage())
 
-	// /warp takes A to B's side on the same stage, the position pose sync
+	// /warp takes A onto B on the same stage, at the position pose sync
 	// has of B, in a room A's game has loaded.
 	posA := network.PlayerPosition{PosX: -800, PosY: 0, PosZ: 2500}
 	posB := network.PlayerPosition{PosX: 1200, PosY: 30, PosZ: -450}
@@ -856,23 +861,26 @@ func TestCoopSessionM3(t *testing.T) {
 	}
 
 	// /warp takes B to A on another stage: A's entrance, which B learned
-	// from A's arrival, then A's side.
+	// from A's arrival, then onto A.
 	woods := coWoods
 	woods.Point, woods.Room = 3, 5
 	must(a.g.LoadStage(woods))
 	steady("B never saw A in the woods", partnerAt(b, woods.Name, 3, 5))
 	escape(b, joinKeys, "/warp", func() bool {
-		return b.rep.has("co-op: warp: going to kindan by point 3 into room 5, layer -1, the partner's entrance (as the partner came in by it), then to the partner's side")
+		return b.rep.has("co-op: warp: going to kindan by point 3 into room 5, layer -1, the partner's entrance (as the partner came in by it), then onto the partner")
 	})
 	if name, point, room, layer, enable := coNextStage(b.coGame); name != woods.Name || point != 3 || room != 5 || layer != -1 || enable != 1 {
 		t.Fatalf("B's warp left mNextStage %q point %d room %d layer %d enable %d", name, point, room, layer, enable)
 	}
 	must(b.g.ChangeStage())
 	coRoomLoaded(t, b.coGame, 5)
-	steady("B never followed A to its side", func() bool { return len(b.beat.warps()) == 1 })
+	steady("B never followed A", func() bool { return len(b.beat.warps()) == 1 })
 	if w := b.beat.warps()[0]; w != (replica.Pos{X: posA.PosX, Y: posA.PosY, Z: posA.PosZ}) {
 		t.Errorf("B warped to %+v, want A's %+v", w, posA)
 	}
+	steady("the second step was not logged", func() bool {
+		return b.rep.has("co-op: warp: warping to the partner at (-800, 0, 2500) in room 5")
+	})
 
 	// /coop off: A writes nothing from the tick it turned off on, while
 	// B's progress still reaches the world; /coop on writes it.
