@@ -15,6 +15,7 @@ nothing copyrighted ships in our binary.
 
 import os
 import struct
+import subprocess
 import sys
 import datetime
 
@@ -145,6 +146,14 @@ def main():
 
     with open(OUT, "w", newline="\n") as f:
         f.write("\n".join(lines))
+
+    # Restamp internal/inject/blob.stamp: it binds this blob.go to the C
+    # inputs it was built from, and TestBlobFresh checks it on every PR.
+    r = subprocess.run(["go", "run", "./tools/blobstamp"], cwd=ROOT)
+    if r.returncode != 0:
+        print("ERROR: blob.go was written but `go run ./tools/blobstamp` failed; "
+              "run it from the repo root before committing", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

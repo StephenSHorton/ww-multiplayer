@@ -1,0 +1,28 @@
+name: go vet (plain and app-window tags)
+description: >
+  Runs go vet ./... twice: as is, and with -tags desktop,production, which
+  compiles internal/gui's app window (Wails v2) on Windows and macOS. Both
+  are needed on those targets because the tags swap gui_nogui.go for
+  app_wails.go. Used by build.yml and release.yml; check out the repo and
+  set up Go first.
+
+inputs:
+  goos:
+    description: GOOS to vet for (empty = the runner's own)
+    required: false
+    default: ''
+  goarch:
+    description: GOARCH to vet for (empty = the runner's own)
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GOOS: ${{ inputs.goos }}
+        GOARCH: ${{ inputs.goarch }}
+      run: |
+        go vet ./...
+        go vet -tags desktop,production ./...
