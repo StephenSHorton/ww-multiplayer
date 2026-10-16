@@ -91,6 +91,8 @@ var cliSeconds = regexp.MustCompile(`in [0-9]+\.[0-9] s,`)
 // normalizeCLI replaces root (a temp dir) by <TMP> in either slash form,
 // and the co-op line's build time by "in N s".
 func normalizeCLI(out, root string) string {
+	// The binary as the user types it differs by platform (exeCmd).
+	out = strings.ReplaceAll(out, exeCmd+" ", "<exe> ")
 	// %q-quoted error texts double each backslash.
 	for _, r := range []string{strings.ReplaceAll(root, `\`, `\\`), root, filepath.ToSlash(root)} {
 		out = strings.ReplaceAll(out, r, "<TMP>")
