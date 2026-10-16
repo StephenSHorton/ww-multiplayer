@@ -151,6 +151,7 @@ multiplayer.c has changed since the last release.
 - **docs/03-code-injection.md** — What works and what doesn't for runtime code injection
 - **docs/05-known-issues.md** — The JIT cache wall we hit, and approaches tried
 - **docs/04-ww-addresses.md** — Wind Waker GZLE01 addresses we've mapped
+- **docs/api/00-design.md** — Approved modding API plan (wwapi/, mods, phases A-E) and the T2/mailbox RAM map
 
 ## Non-Obvious Gotchas
 
