@@ -559,6 +559,13 @@ func (r *Replica) m5Due(k scopeKey, slot int8, w int, due uint32) {
 			r.m5Say(key, fmt.Sprintf("not written: %s%s does not latch (this side's M1 switch table)", label, where))
 			continue
 		}
+		if r.gbaHeld() && r.cfg.Tables.GBAScopedSwitch(int(k.table), k.stage.String(), int(k.room), no) {
+			// Shared with the Tingle Tuner (gba.go): a dan or zone bit
+			// waits in its store, a room edge is dropped with its edge.
+			r.m5Say(fmt.Sprintf("gba %v %s %d %d 0x%02X", k.kind, k.stage, k.table, k.room, no),
+				fmt.Sprintf("not written while a Game Boy Advance may be linked: %s%s is shared with a Tingle Tuner switch", label, where))
+			continue
+		}
 		if dry {
 			said |= bit
 			if logged == nil || logged[w]&bit == 0 {

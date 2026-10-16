@@ -1147,3 +1147,22 @@ func TestHubPuzzleStatus(t *testing.T) {
 		t.Errorf("a stopped hub's error is not said:\n%s", l)
 	}
 }
+
+// TestGBAStatus: /status's Tingle Tuner line says whether a Game Boy
+// Advance may be linked and what that holds back, and is left out when
+// the stage tables share no switch with the Tuner.
+func TestGBAStatus(t *testing.T) {
+	for _, c := range []struct {
+		g    replica.GBAStatus
+		want string
+	}{
+		{replica.GBAStatus{}, ""},
+		{replica.GBAStatus{MayLink: true}, ""},
+		{replica.GBAStatus{Switches: 61}, "Tingle Tuner: no Game Boy Advance linked; the 61 switch(es) shared with Tingle Tuner switches sync"},
+		{replica.GBAStatus{MayLink: true, Switches: 61}, "Tingle Tuner: a Game Boy Advance may be linked to this game, so the 61 switch(es) shared with Tingle Tuner switches are neither proposed nor written until the game drops the link (a reset, or calling Tingle again)"},
+	} {
+		if got := gbaStatus(replica.Status{GBA: c.g}); got != c.want {
+			t.Errorf("%+v: %q, want %q", c.g, got, c.want)
+		}
+	}
+}

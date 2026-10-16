@@ -62,6 +62,12 @@ type WriterConfig struct {
 	// counter ApplyDerived wrote before the Breaker trips; 0 is
 	// DrainFrames.
 	DrainFrames uint32
+	// GBA: the stage tables share a switch this replica syncs, in any
+	// store, with a Tingle Tuner switch (gba.go), so recheck reads the GBA
+	// link after the beat on a tick that took none to be linked. The
+	// WriteGuard's mask (GuardConfig.GBA) covers only the memory switches;
+	// a dan or zone switch is held back by m5Due on the snapshot alone.
+	GBA bool
 }
 
 // FrameWriter makes the planned writes of a tick (§4.2, §4.2.1). Per
@@ -125,6 +131,7 @@ type FrameWriter struct {
 	label       func(off, bit int) string
 
 	drainFrames uint32
+	gbaCheck    bool // WriterConfig.GBA
 
 	mu      sync.Mutex
 	tick    seen // the last Observe's snapshot
@@ -146,6 +153,7 @@ type seen struct {
 	heartbeat  uint32
 	file       bind.File // the loaded file, as ARMED was judged on it
 	zones      ZoneTable // the zone table the scoped path's bytes rest on
+	gba        bool      // a Game Boy Advance may be linked (snap.GBALink.MayLink)
 	// oldStay is mOldStayNo, read just after the snapshot (oldStayOf);
 	// oldOK is false if that read failed or mStayNo had moved by then.
 	oldStay int8
@@ -154,7 +162,7 @@ type seen struct {
 }
 
 func seenOf(s *snap.Snapshot, f bind.File, at time.Time) seen {
-	return seen{stage: s.StageName, nextEnable: s.NextEnable, table: s.Table, heartbeat: s.Heartbeat, file: f, zones: ZoneTableOf(s), at: at}
+	return seen{stage: s.StageName, nextEnable: s.NextEnable, table: s.Table, heartbeat: s.Heartbeat, file: f, zones: ZoneTableOf(s), gba: s.GBA.MayLink(), at: at}
 }
 
 // The heartbeat's pace (waitBeat). The game runs fapGm_Execute, and so
@@ -209,7 +217,7 @@ func NewFrameWriter(cfg WriterConfig) (*FrameWriter, error) {
 	if cfg.Mem == nil {
 		return nil, errors.New("replica: no memory to write")
 	}
-	w := &FrameWriter{Mem: cfg.Mem, beatTimeout: cfg.BeatTimeout, logf: cfg.Logf, label: cfg.Label, drainFrames: cfg.DrainFrames}
+	w := &FrameWriter{Mem: cfg.Mem, beatTimeout: cfg.BeatTimeout, logf: cfg.Logf, label: cfg.Label, drainFrames: cfg.DrainFrames, gbaCheck: cfg.GBA}
 	if !cfg.DryRun {
 		if cfg.Guard == nil {
 			return nil, errors.New("replica: a FrameWriter that writes needs a WriteGuard")
@@ -296,7 +304,7 @@ func (w *FrameWriter) observe(s *snap.Snapshot, st gate.Status, armed bool, f bi
 	}
 	w.tick, w.have = seenOf(s, f, time.Now()), true
 	w.tick.oldStay, w.tick.oldOK = old, oldOK
-	w.wg.SetTick(Tick{Gates: st, Armed: armed, Table: s.Table, Boss: boss, Zones: w.tick.zones})
+	w.wg.SetTick(Tick{Gates: st, Armed: armed, Table: s.Table, Boss: boss, Zones: w.tick.zones, GBA: w.tick.gba})
 	return rep
 }
 
@@ -679,7 +687,12 @@ func (w *FrameWriter) waitBeat(ctx context.Context) (uint32, time.Duration, erro
 //   - the loaded file, as bind.ReadFile reads it (the tag, mDataNum,
 //     mClearCount, mPlayerName, mDateIPL): ARMED was judged on it, and a
 //     save state of another file standing in the same stage and table
-//     changes nothing else here.
+//     changes nothing else here;
+//   - with switches shared with the Tingle Tuner (WriterConfig.GBA: a
+//     memory, dan, zone or room switch) on a tick that took no GBA to be
+//     linked, the GBA link (snap.GBALink): a GBA that may be linked now
+//     shuts them, and neither the guard's mask for this tick nor the M5
+//     batch planned on it knows it.
 //
 // mpPlayerPtr[0] adds nothing: it stays set through the fade-out while
 // mNextStage.mEnable is 1, and dScnPly_Delete clears it (dComIfGp_init,
@@ -718,6 +731,15 @@ func (w *FrameWriter) recheck() error {
 	case f != w.tick.file:
 		return fmt.Errorf("%w: another file is loaded (%q in slot %d, was %q in slot %d), or its tag changed: a save state was loaded",
 			ErrAborted, f.PlayerName(), f.Slot, w.tick.file.PlayerName(), w.tick.file.Slot)
+	}
+	if w.wg != nil && w.gbaCheck && !w.tick.gba {
+		g, err := w.Mem.Read(addr.GbaCom, addr.GbaComLinkReadLen)
+		if err != nil {
+			return err
+		}
+		if l := (snap.GBALink{Enable: g[addr.GbaComOffEnable], Context: g[addr.GbaComOffContext]}); l.MayLink() {
+			return fmt.Errorf("%w: a Game Boy Advance may be linked since the snapshot (the Tingle Tuner)", ErrAborted)
+		}
 	}
 	return nil
 }

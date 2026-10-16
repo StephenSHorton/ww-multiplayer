@@ -37,6 +37,11 @@ import (
 //     did not send on (not armed, no world yet), a host restart, a
 //     reconnect. The hub relays only what a store lacks, so a refresh
 //     costs one SCOPED of each kind and no relay;
+//   - never proposes a dan or zone bit HoldScopes held back as it rose,
+//     or that its scope had when entered while held: the switches shared
+//     with the Tingle Tuner while a GBA may be linked (gba.go). Such a
+//     bit is tainted, and masked out of the whole words too, until the
+//     game clears it or the Differ drops its baselines (Drop);
 //   - sends the room switches 0xE0-0xEF and the kill words as edges only,
 //     never whole: a room switch is applied on the edge and never
 //     replayed (§6.3, Appendix C item 2), and the kills are M6's (§7.2).
@@ -58,6 +63,49 @@ func (d *Differ) ShareScopes(keep func(k world.Key, w int) uint32) {
 	d.share = keep
 }
 
+// HoldScopes gives a sharing Differ the scoped bits it holds back this
+// tick, of world.Key k and word w (nil: none): the replica's switches
+// shared with the Tingle Tuner while a GBA may be linked (gba.go). keep
+// leaves them out already; HoldScopes makes a dan or zone bit that rises
+// while held (or that a scope entered while held has) stay out after,
+// out of the whole words too, where keep alone would let the next
+// refresh carry it.
+func (d *Differ) HoldScopes(hold func(k world.Key, w int) uint32) {
+	d.hold = hold
+}
+
+// taintRises taints the bits of a dan or zone scope's words that rose
+// from was to cur while hold holds them back, and untaints those cur
+// lacks (the game cleared them, or a new zone).
+func (d *Differ) taintRises(kind wire.ScopeKind, s *snap.Snapshot, room int8, was, cur [2]uint32) {
+	if d.share == nil || d.hold == nil {
+		return
+	}
+	k := worldKeyOf(kind, s, room)
+	t, had := d.taint[k]
+	for i := range t {
+		t[i] &= cur[i]
+		if r := cur[i] &^ was[i]; r != 0 {
+			t[i] |= r & d.hold(k, i)
+		}
+	}
+	switch {
+	case t != [2]uint32{}:
+		if d.taint == nil {
+			d.taint = map[world.Key][2]uint32{}
+		}
+		d.taint[k] = t
+	case had:
+		delete(d.taint, k)
+	}
+}
+
+// worldKeyOf is the world.Key of the words of kind in room of s's stage
+// (-1 for DAN).
+func worldKeyOf(kind wire.ScopeKind, s *snap.Snapshot, room int8) world.Key {
+	return world.Key{Kind: world.ScopeKind(kind), Stage: s.StageName, Table: int(s.Table), Room: int(room)}
+}
+
 // due reports whether a sharing Differ proposes the whole words this
 // tick: on entering the stage, and every scopeRefresh ticks after.
 func (sc *scopeBase) due(entered bool) bool {
@@ -70,16 +118,21 @@ func (sc *scopeBase) due(entered bool) bool {
 }
 
 // shared returns the bits of ws, words of kind in room of s's stage
-// (-1 for DAN), that a sharing Differ proposes: those the filter keeps.
+// (-1 for DAN), that a sharing Differ proposes: those the filter keeps,
+// and no tainted one (HoldScopes).
 // ws itself is reused.
 func (d *Differ) shared(kind wire.ScopeKind, s *snap.Snapshot, room int8, ws []wire.ScopedWord) []wire.ScopedWord {
 	if d.share == nil || len(ws) == 0 {
 		return ws
 	}
-	k := world.Key{Kind: world.ScopeKind(kind), Stage: s.StageName, Table: int(s.Table), Room: int(room)}
+	k := worldKeyOf(kind, s, room)
+	t := d.taint[k]
 	out := ws[:0]
 	for _, w := range ws {
-		if w.Bits &= d.share(k, int(w.Word)); w.Bits != 0 {
+		if w.Bits &= d.share(k, int(w.Word)); int(w.Word) < len(t) {
+			w.Bits &^= t[w.Word]
+		}
+		if w.Bits != 0 {
 			out = append(out, w)
 		}
 	}

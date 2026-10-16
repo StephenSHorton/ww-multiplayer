@@ -31,7 +31,16 @@ func FuzzDecode(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	for _, seed := range [][]byte{good, empty, only, good[:len(good)/3], nil, []byte("{}"), []byte(`{"schema":1}`), []byte("null")} {
+	// Tables with a Tingle Tuner switch: a gba writer, a switch synced
+	// only while no GBA is linked, and one only the Tuner writes.
+	tt := buildFixture(f, replace(tablestest.Vanilla(), tablestest.Dungeon("M_NewD2", 3,
+		tablestest.Crystal(0x3D), tablestest.TingleTuner(0, 0x3D, 0x3A), tablestest.TingleTuner(0x0F, 0x3C, 0xFF))))
+	tt.ID = tb.ID // another disc's tables, as if read for this one: decode checks only the ID
+	tuner, err := json.Marshal(tt)
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, seed := range [][]byte{good, empty, only, tuner, good[:len(good)/3], nil, []byte("{}"), []byte(`{"schema":1}`), []byte("null")} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {

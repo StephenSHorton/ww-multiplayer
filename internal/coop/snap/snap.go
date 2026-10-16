@@ -1,7 +1,8 @@
 // Package snap reads, once per tick, the game state the co-op gates and
 // differ work from (§4.2): the whole dSv_info_c save, the play struct's
 // stage block and player block, the current room, every room's zone
-// number, the pause-menu byte and the mod's heartbeat: about 5 KiB of
+// number, the pause-menu byte, the mod's heartbeat and the GBA link's
+// state (0x129 bytes of g_mDoGaC_gbaCom, read once): about 5 KiB of
 // state a tick at 10 Hz (10 KiB read, as the save is read twice), as one
 // Snapshot, so every decision in a tick sees the same state.
 //
@@ -108,7 +109,38 @@ type Snapshot struct {
 	MenuPause uint8
 	// Heartbeat is the mailbox spawn_trigger, bumped once per frame.
 	Heartbeat uint32
+
+	// GBA is the fields of g_mDoGaC_gbaCom that mDoGaC_GbaLink reads
+	// (addr.GbaCom): whether a Game Boy Advance (the Tingle Tuner) is,
+	// or may be, linked.
+	GBA GBALink
 }
+
+// GBALink is what mDoGaC_GbaLink reads of g_mDoGaC_gbaCom (m_Do_gba_com.
+// cpp:258-270; addr.GbaComOff*).
+type GBALink struct {
+	Enable  uint8 // mEnable
+	State   uint8 // field_0x2, the connect state
+	Closed  uint8 // field_0x4
+	Retries uint8 // field_0x10e
+	Context uint8 // field_0x128[0].field_0x0
+}
+
+// Linked is mDoGaC_GbaLink's own condition: the game takes a GBA as
+// linked this frame.
+func (g GBALink) Linked() bool {
+	return g.Enable == 1 && g.State == 3 && g.Closed == 0 || g.Context == 1 && g.Retries < 3
+}
+
+// MayLink is the conservative superset co-op guards on: true whenever
+// Linked is, and from the moment the Tuner turns the link on (mEnable,
+// set as its upload starts, d_a_agb.cpp:491) or a GBA's context first
+// checks out (field_0x128[0].field_0x0, m_Do_gba_com.cpp:518) until
+// mDoGaC_GbaReboot clears both (:162, :168). Without a GBA neither is
+// ever set; with one, MayLink stays true through a dropped link until the
+// game reboots the link (a reset, or calling Tingle again), so a link
+// that comes back between two ticks can't be missed.
+func (g GBALink) MayLink() bool { return g.Enable != 0 || g.Context != 0 }
 
 // Read takes one snapshot: the save first, then the play blocks, the room
 // bytes, the pause byte and the heartbeat, then the save again, folding
@@ -153,6 +185,14 @@ func Read(m mem.Mem) (*Snapshot, error) {
 	}
 	if s.Heartbeat, err = mem.ReadU32(m, addr.SpawnTrigger); err != nil {
 		return nil, fmt.Errorf("snap: heartbeat: %w", err)
+	}
+	gba, err := m.Read(addr.GbaCom, addr.GbaComLinkReadLen)
+	if err != nil {
+		return nil, fmt.Errorf("snap: g_mDoGaC_gbaCom: %w", err)
+	}
+	s.GBA = GBALink{
+		Enable: gba[addr.GbaComOffEnable], State: gba[addr.GbaComOffState], Closed: gba[addr.GbaComOffClosed],
+		Retries: gba[addr.GbaComOffRetries], Context: gba[addr.GbaComOffContext],
 	}
 	second, err := m.Read(SaveRegion.Start, saveSize)
 	if err != nil {

@@ -650,6 +650,26 @@ func (g *FakeGame) SetRefight(stageNo uint8) {
 	g.st8(addr.PlayerInfoBufStageNo, stageNo)
 }
 
+// SetGBALink sets the g_mDoGaC_gbaCom fields mDoGaC_GbaLink reads
+// (addr.GbaCom): linked as mDoGaC_Connect leaves a connected Tingle Tuner
+// (mEnable 1 from the Tuner's upload, d_a_agb.cpp:491; connect state 3
+// and the link open, m_Do_gba_com.cpp:221-224, :190; a context that
+// checked out, :518; no failed probe, :236), or, unlinked, as
+// mDoGaC_Initial and mDoGaC_GbaReboot leave it (:85-93, :124, :162-168).
+func (g *FakeGame) SetGBALink(linked bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	f := [5]byte{0, 0, 1, 0, 0} // enable, state, closed, retries, context
+	if linked {
+		f = [5]byte{1, 3, 0, 0, 1}
+	}
+	g.st8(addr.GbaCom+addr.GbaComOffEnable, f[0])
+	g.st8(addr.GbaCom+addr.GbaComOffState, f[1])
+	g.st8(addr.GbaCom+addr.GbaComOffClosed, f[2])
+	g.st8(addr.GbaCom+addr.GbaComOffRetries, f[3])
+	g.st8(addr.GbaCom+addr.GbaComOffContext, f[4])
+}
+
 // Memory helpers. They panic on error, which only a bad address in the
 // fake itself can cause.
 

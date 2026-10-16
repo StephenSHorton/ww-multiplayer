@@ -40,3 +40,16 @@ func (t *Tables) SyncedScopedSwitch(table int, stage string, room, no int) bool 
 	}
 	return false
 }
+
+// GBAScopedSwitch is GBASwitch for the switches SyncedScopedSwitch opens:
+// a dan, zone or room switch a Tingle Tuner writer shares, which a
+// replica neither proposes nor writes while a GBA may be linked.
+func (t *Tables) GBAScopedSwitch(table int, stage string, room, no int) bool {
+	if !t.SyncedScopedSwitch(table, stage, room, no) {
+		return false
+	}
+	if addr.ClassifySwitch(no) == addr.SwitchDan {
+		stage, room = "", -1
+	}
+	return t.GBASwitch(table, stage, room, no)
+}

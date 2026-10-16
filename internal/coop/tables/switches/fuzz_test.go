@@ -94,6 +94,12 @@ func FuzzBuild(f *testing.F) {
 			a("Kbota_A", 5<<24|0x10<<8), a("Evsw", 1<<24|0x30), a("AND_SW2", 0x00<<24|0x70<<16|0<<8|0xFE),
 		)),
 		stagetest.DZx(stagetest.Actors("ACTR", a("AND_SW0", 0xFE<<24|0xFE<<16|2<<8|MaxANDInputs))),
+		// Tingle Tuner switches sharing a crystal, an AND fed by one, and
+		// a type past ExeSubTable.
+		stagetest.DZx(stag, stagetest.Actors("ACTR",
+			a("SW_HIT0", 0xFF<<20|0x3D), a("agbA", 0xFF<<24|0x3D<<16|0xFFFF), a("agbMW", 0x3E<<24|0x3D<<16|0xFFFF, 0, 0, 7),
+			a("AND_SW2", 0xFF<<24|0x3C<<16|0<<8|1), a("agbCSW", 0xC5<<24|0x85<<16|0xFFFF, 0, 0, 0x0F),
+		)),
 		stagetest.DZx(),
 		nil,
 	} {
@@ -128,6 +134,8 @@ func FuzzDecode(f *testing.F) {
 		{0x12345678, 0x1234, 0, 0x5678, 0, -1},
 		{0x05C0FE21, 0x0102, 0, 0x0AFF, 15, 63},
 		{0x80FF0102, 0x3F, 0, 0x7F01, 16, 5},
+		{0x3E3DFFFF, 0, 0, 7, 3, 2},    // agbsw0 MW (a GBA writer)
+		{0x3E3DFFFF, 0, 0, 0x0F, 3, 2}, // agbsw0 past ExeSubTable (unknown)
 	} {
 		f.Add(s.params, s.ax, s.ay, s.az, s.table, s.room)
 	}

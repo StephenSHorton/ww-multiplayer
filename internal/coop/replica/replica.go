@@ -281,6 +281,9 @@ type Status struct {
 	// Puzzle is how the room puzzles stand (M5): where Link is, and the
 	// partner's dan, zone and room switches written and refused.
 	Puzzle PuzzleStatus
+	// GBA is the Tingle Tuner guard (gba.go): whether a Game Boy Advance
+	// may be linked, and how many switches that holds back.
+	GBA GBAStatus
 }
 
 // helloKey is what a CO_HELLO describes: when it changes, the replica
@@ -358,6 +361,8 @@ type Replica struct {
 	m4 m4
 	// The M5 receiver (reconcile_m5.go).
 	m5 m5
+	// The Tingle Tuner guard (gba.go).
+	gba gbaGuard
 
 	// The escape hatches (escape.go).
 	esc     *escapeReq // asked for, waiting for a tick
@@ -421,6 +426,7 @@ func New(cfg Config) (*Replica, error) {
 		p := *r.policy
 		r.policy = &p
 	}
+	r.gba = newGBAGuard(r.policy, cfg.Tables)
 	if r.label == nil {
 		r.label = DefaultLabel
 	}
@@ -432,8 +438,8 @@ func New(cfg Config) (*Replica, error) {
 	}
 	w, err := NewFrameWriter(WriterConfig{Mem: r.m, DryRun: true})
 	if cfg.Apply {
-		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | TargetEscape, Policy: r.policy, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
-		w, err = NewFrameWriter(WriterConfig{Mem: r.m, Guard: wg, BeatTimeout: cfg.BeatTimeout, Logf: r.logf, Label: r.label})
+		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | TargetEscape, Policy: r.policy, GBA: &r.gba.mask, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
+		w, err = NewFrameWriter(WriterConfig{Mem: r.m, Guard: wg, BeatTimeout: cfg.BeatTimeout, Logf: r.logf, Label: r.label, GBA: r.gba.switches > 0})
 	}
 	if err != nil {
 		return nil, err
@@ -448,8 +454,11 @@ func New(cfg Config) (*Replica, error) {
 		r.differ.Pace(nil)
 		// M5's scoped sender (differ_scoped.go): the latching switches of
 		// this side's M1 verdict, which is the host's when the hub grants
-		// FeaturePuzzle; nil tables propose none.
-		r.differ.ShareScopes(hub.ScopeFilter(cfg.Tables.SyncedScopedSwitch))
+		// FeaturePuzzle, without those shared with the Tingle Tuner while
+		// a GBA may be linked (gba.go), and never one that rose while
+		// held (HoldScopes); nil tables propose none.
+		r.differ.ShareScopes(hub.ScopeFilter(r.scopedSynced))
+		r.differ.HoldScopes(hub.ScopeFilter(r.scopedHeld))
 	}
 	r.planner = NewPlanner(r.policy)
 	r.planner.writes = !r.writer.DryRun()
@@ -608,6 +617,7 @@ func (r *Replica) Status() Status {
 		Partner:  r.partner,
 		Derive:   r.m4.deriver.Status(),
 		Puzzle:   r.puzzleStatus(),
+		GBA:      GBAStatus{MayLink: r.gba.held, Switches: r.gba.switches},
 	}
 	_, st.WritesOff = r.writer.Disabled()
 	if r.preflight != nil {
@@ -712,6 +722,7 @@ func (r *Replica) tick(s *snap.Snapshot, err error, out *outbox) Report {
 		return Report{Err: err, Gates: st, State: StateOff, Why: "the game state could not be read: " + err.Error()}
 	}
 	st := r.gates.Observe(s)
+	r.observeGBA(s)
 	o := observe(r.m, s, st)
 	r.last = o
 	if r.queuedN > 0 && r.differ.Has() && r.differ.file != o.key && o.screen == screenGame {

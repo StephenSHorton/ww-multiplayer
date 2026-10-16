@@ -198,6 +198,11 @@ type Differ struct {
 	sc    scopeBase
 	pace  pace
 	share func(world.Key, int) uint32 // ShareScopes' filter; nil: M2's edges
+	// hold is HoldScopes' filter, and taint the dan and zone bits it held
+	// back as they rose (or as their scope was entered), by scope: masked
+	// out of every SCOPED until the game clears them or Drop.
+	hold  func(world.Key, int) uint32
+	taint map[world.Key][2]uint32
 }
 
 // scopeBase is the scoped words' baselines.
@@ -241,6 +246,7 @@ func NewDiffer(policy *world.Policy) *Differ {
 func (d *Differ) Drop() {
 	d.have = false
 	d.sc = scopeBase{}
+	d.taint = nil
 	d.pace.drop()
 }
 
@@ -333,6 +339,11 @@ func (d *Differ) scoped(s *snap.Snapshot) []wire.Scoped {
 	}
 
 	dan := danWords(s)
+	if entered {
+		d.taintRises(wire.ScopeDan, s, -1, [2]uint32{}, dan)
+	} else {
+		d.taintRises(wire.ScopeDan, s, -1, sc.dan, dan)
+	}
 	if whole {
 		add(wire.ScopeDan, -1, rises32(make([]uint32, len(dan)), dan[:], 0))
 	} else {
@@ -345,6 +356,11 @@ func (d *Differ) scoped(s *snap.Snapshot) []wire.Scoped {
 	} else {
 		zw := zoneWords(s, z)
 		same := sc.zoneHave && sc.room == s.StayNo && sc.slot == z
+		var was [2]uint32
+		if same {
+			was = [2]uint32{uint32(sc.zone[0]), uint32(sc.zone[1])}
+		}
+		d.taintRises(wire.ScopeZone, s, s.StayNo, was, [2]uint32{uint32(zw[0]), uint32(zw[1])})
 		switch {
 		case d.share != nil && (whole || !same):
 			add(wire.ScopeZone, s.StayNo, rises16(make([]uint16, 2), zw[:2], 0))

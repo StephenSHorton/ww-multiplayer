@@ -69,3 +69,23 @@ func (t *Tables) SyncedSwitch(table int, stage string, room, no int) bool {
 func (t *Tables) SyncedMemorySwitch(table, no int) bool {
 	return no >= 0 && no < addr.MemBitSwitchCount && t.SyncedSwitch(table, "", -1, no)
 }
+
+// GBASwitch reports whether switch no, as an actor of save table table,
+// stage stage and room room writes it, syncs only while no Game Boy
+// Advance is linked (switches.Switch.GBA): SyncedSwitch, and a Tingle
+// Tuner writer (agbsw0) shares it, or an AND input of it is such. A
+// replica neither proposes nor writes it while a GBA may be linked to its
+// game (snap.GBALink.MayLink).
+func (t *Tables) GBASwitch(table int, stage string, room, no int) bool {
+	if t == nil || t.Switches == nil {
+		return false
+	}
+	k, err := switches.KeyFor(table, stage, room, no)
+	return err == nil && t.Switches.GBADependent(k)
+}
+
+// GBAMemorySwitch is GBASwitch for the memory switches SyncedMemorySwitch
+// opens.
+func (t *Tables) GBAMemorySwitch(table, no int) bool {
+	return t.SyncedMemorySwitch(table, no) && t.GBASwitch(table, "", -1, no)
+}

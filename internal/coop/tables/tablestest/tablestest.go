@@ -41,6 +41,7 @@ func Names() []stagetest.ObjectName {
 		n("Bitem", stagedata.ProcBossItem),  // :1189
 		n("Bwd", stagedata.ProcBWD),         // :1191
 		n("TagKb", itemsrc.ProcTagKbItem),   // :583
+		n("agbA", ProcAgbsw0),               // :503
 	}
 }
 
@@ -90,6 +91,17 @@ func Bitem(table uint32) stagetest.Actor {
 }
 func Crystal(sw uint32) stagetest.Actor {
 	return stagetest.Actor{Name: "SW_HIT0", Params: 0xFF<<20 | sw, SetID: noSetID}
+}
+
+// ProcAgbsw0 is fpcNm_AGBSW0_e, the Tingle Tuner switch (f_pc_name.h:450),
+// which stagedata doesn't name.
+const ProcAgbsw0 stagedata.Proc = 0x1B6
+
+// TingleTuner is a Tingle Tuner switch (agbsw0) of type typ naming sw0
+// and sw1 (0xFF for none): every type up to 0xE writes them only while a
+// GBA is linked, a higher one is unknown (switches' AGBSW0 decoder).
+func TingleTuner(typ int16, sw0, sw1 uint32) stagetest.Actor {
+	return stagetest.Actor{Name: "agbA", Params: sw1<<24 | sw0<<16 | 0xFFFF, Angle: [3]int16{0, 0, typ}, SetID: noSetID}
 }
 
 // Enemy is an enemy entry named name with setID setID.

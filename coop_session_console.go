@@ -263,10 +263,29 @@ func (s *coopSync) command(ctx context.Context, cmd coopCommand) {
 		}
 		report.Logf(s.rep, report.Info, "co-op: %s: %s; world %s at seq %d; %s; %d bytes written, %d escapes, %d verify failures",
 			s.name, where, st.World, st.Seq, writesState(st), st.Writes.Written, st.Writes.Escapes, st.Writes.Failed)
-		for _, l := range append(progressionStatus(st), puzzleStatus(st)) {
+		lines := append(progressionStatus(st), puzzleStatus(st))
+		if l := gbaStatus(st); l != "" {
+			lines = append(lines, l)
+		}
+		for _, l := range lines {
 			report.Logf(s.rep, report.Info, "co-op: %s:   %s", s.name, l)
 		}
 	}
+}
+
+// gbaStatus is /status's line on the Tingle Tuner guard (§6.2, §6.3):
+// whether a Game Boy Advance may be linked to this game, and the switches
+// shared with Tingle Tuner switches that it holds back. "" when the stage
+// tables give none.
+func gbaStatus(st replica.Status) string {
+	g := st.GBA
+	switch {
+	case g.Switches == 0:
+		return ""
+	case g.MayLink:
+		return fmt.Sprintf("Tingle Tuner: a Game Boy Advance may be linked to this game, so the %d switch(es) shared with Tingle Tuner switches are neither proposed nor written until the game drops the link (a reset, or calling Tingle again)", g.Switches)
+	}
+	return fmt.Sprintf("Tingle Tuner: no Game Boy Advance linked; the %d switch(es) shared with Tingle Tuner switches sync", g.Switches)
 }
 
 // progressionStatus is /status's M4 lines for st (§9 M4): the classes the

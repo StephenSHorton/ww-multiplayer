@@ -34,13 +34,13 @@ func (t *Table) Report() string {
 	}
 	b.WriteString("\n")
 
-	type count struct{ all, synced, unwritten int }
+	type count struct{ all, synced, unwritten, gba int }
 	stores := []Store{StoreMemory, StoreDan, StoreZone, StoreRoom}
 	byStore := make(map[Store]*count)
 	for _, st := range stores {
 		byStore[st] = &count{}
 	}
-	classes := []Class{Latching, Unsafe, Event, Unknown}
+	classes := []Class{Latching, Unsafe, Event, Unknown, GBA}
 	byClass := make(map[Class]int)
 	var total count
 	writers := 0
@@ -54,6 +54,9 @@ func (t *Table) Report() string {
 			cc.all++
 			if s.Synced {
 				cc.synced++
+			}
+			if s.Synced && s.GBA {
+				cc.gba++
 			}
 			if len(s.Writers) == 0 {
 				cc.unwritten++
@@ -69,6 +72,14 @@ func (t *Table) Report() string {
 		c := byStore[st]
 		fmt.Fprintf(&b, "  %-7s %5d  synced %5d  no setter %5d\n", st, c.all, c.synced, c.unwritten)
 	}
+	fmt.Fprintf(&b, "Synced only while no GBA is linked (shared with the Tingle Tuner): %d (", total.gba)
+	for i, st := range stores {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "%s %d", st, byStore[st].gba)
+	}
+	b.WriteString(")\n")
 	fmt.Fprintf(&b, "Writers: %d", writers)
 	for _, c := range classes {
 		fmt.Fprintf(&b, ", %s %d", c, byClass[c])
@@ -106,11 +117,14 @@ func (t *Table) Report() string {
 				n++
 			}
 		}
-		fmt.Fprintf(&b, "\n%s (table %d): %d switches, %d synced\n", d.name, d.table, len(in), n)
+		fmt.Fprintf(&b, "\n%s (table %d): %d switches, %d synced (ok*: while no GBA is linked)\n", d.name, d.table, len(in), n)
 		for _, s := range in {
 			mark := "  "
 			if s.Synced {
 				mark = "ok"
+			}
+			if s.Synced && s.GBA {
+				mark = "ok*"
 			}
 			fmt.Fprintf(&b, "  %s %v  %s\n", mark, s.Key, switchLine(s))
 		}
@@ -127,11 +141,22 @@ func switchLine(s *Switch) string {
 		}
 		return s.Reason
 	}
-	names := make([]string, len(s.Writers))
-	for i, w := range s.Writers {
-		names[i] = w.Name
+	var names, gba []string
+	for _, w := range s.Writers {
+		if w.Class == GBA {
+			gba = append(gba, w.Name)
+		} else {
+			names = append(names, w.Name)
+		}
 	}
-	return "set by " + strings.Join(compactStrings(names), ", ")
+	line := "set by " + strings.Join(compactStrings(names), ", ")
+	switch {
+	case len(gba) > 0:
+		line += "; held while a GBA is linked (Tingle Tuner: " + strings.Join(compactStrings(gba), ", ") + ")"
+	case s.GBA:
+		line += "; held while a GBA is linked (an AND input is)"
+	}
+	return line
 }
 
 func readerNames(rs []Reader) string {

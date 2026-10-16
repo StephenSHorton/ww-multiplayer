@@ -164,11 +164,11 @@ func TestCoopISOTables(t *testing.T) {
 	}
 	var l tablesLog
 	logCoopStageTables(&l, st, nil)
-	n, ts := st.syncedCount()
+	n, ts, gba := st.syncedCount()
 	if len(l.lines) != 1 || !strings.HasPrefix(l.lines[0], fmt.Sprint(report.OK)) ||
 		!strings.Contains(l.lines[0], fmt.Sprintf("stage tables %016x, %s", want, iso)) ||
-		!strings.Contains(l.lines[0], fmt.Sprintf("%d latching memory switch(es) in %d save table(s)", n, ts)) || n == 0 {
-		t.Errorf("log %q (%d switches in %d tables)", l.lines, n, ts)
+		!strings.Contains(l.lines[0], fmt.Sprintf("%d latching memory switch(es) in %d save table(s) sync (%d of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked)", n, ts, gba)) || n == 0 || gba != 0 {
+		t.Errorf("log %q (%d switches in %d tables, %d GBA-dependent)", l.lines, n, ts, gba)
 	}
 
 	again, err := loadCoopStageTables(iso)
