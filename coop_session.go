@@ -27,16 +27,18 @@ package main
 //     goes on (auto-disable). --coop-dry-run keeps M2's dry run: the plan
 //     is only logged (§5.1 principle 5);
 //   - the replica's two tag writes, a bind and a leaked tag's scrub, are
-//     asked on the command line (y/N on stdin; --yes answers yes) and made
-//     only after the yes, behind the gates (internal/coop/bind);
-//   - stdin also takes the session's commands (coop_session_console.go):
-//     /refresh and /warp, the escape hatches (§6.7), /coop off and on,
-//     /status and /help.
+//     asked through the session's coopAsker and made only after the yes,
+//     behind the gates (internal/coop/bind). The CLI's asker is the stdin
+//     prompter (y/N on stdin; --yes answers yes); the TUI's puts the
+//     question to the session controller (outputAsker), whose UI answers
+//     it (session.Question, Controller.Answer);
+//   - the session's commands (coop_session_console.go): /refresh and
+//     /warp, the escape hatches (§6.7), /coop off and on, /status and
+//     /help, typed on stdin in the CLI, or given to the controller
+//     (Controller.Command) by a UI.
 //
 // Without --coop none of this runs: host, join and mp-local open the same
 // connections, send the same frames and print the same lines as before.
-// The TUI does not expose co-op yet; M8 adds its panel and prompts, so its
-// sessions pass coopFlags{}.
 
 import (
 	"bufio"
@@ -65,6 +67,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 )
 
 // coopFlags are the co-op options of host, join and mp-local. The zero
@@ -198,6 +201,26 @@ type coopEnv struct {
 	// one patch last wrote (loadCoopStageTables). Nil runs the session
 	// without tables, saying nothing of them: no memory switch syncs.
 	tables func(iso string) (*coopStageTables, error)
+	// front is the session's front end; its zero value is the CLI's.
+	front coopFront
+}
+
+// coopFront is how a co-op session meets its front end: who answers its
+// questions, who hears its advice, and who drives its console. The zero
+// value is the CLI: questions and commands on stdin (input), advice in
+// the log alone.
+type coopFront struct {
+	// ask answers the questions; nil is the stdin prompter
+	// (coopPrompter), whose reader also takes the console's commands.
+	// Any other asker leaves stdin alone: the commands then come only
+	// through the session's console (sessionEngine.Command).
+	ask coopAsker
+	// advise hears each piece of advice, beside its log line; nil for
+	// none.
+	advise func(session.Advice)
+	// attach is handed the session once it exists, so its front end can
+	// reach the console and the pipelines' status; nil for none.
+	attach func(*coopSession)
 }
 
 // defaultCoopEnv is the production environment for a session whose host
@@ -242,7 +265,9 @@ type coopSession struct {
 	// noTags says why no tag may be written this session (the backup
 	// failed); nil when tag writes may be offered.
 	noTags error
-	prompt *coopPrompter
+	// ask answers the questions (coopFront.ask, or the stdin prompter).
+	ask    coopAsker
+	advise func(session.Advice) // nil for none
 	rep    report.Reporter
 	// tables are the session's M1 stage tables, nil without (every
 	// method is nil-safe).
@@ -274,8 +299,16 @@ func startCoopSession(rep report.Reporter, f coopFlags, env coopEnv) *coopSessio
 // startCoopSide is startCoopSession for a host (host: its hub needs the
 // tables even in a dry run) or a joiner.
 func startCoopSide(rep report.Reporter, f coopFlags, env coopEnv, host bool) *coopSession {
-	cs := &coopSession{flags: f, rep: rep, prompt: newCoopPrompter(f.yes, env.input), poses: map[string]*network.Client{}}
-	cs.console = newCoopConsole(rep, cs.prompt.cmds)
+	cs := &coopSession{flags: f, rep: rep, ask: env.front.ask, advise: env.front.advise, poses: map[string]*network.Client{}}
+	var cmds <-chan promptLine
+	if cs.ask == nil {
+		p := newCoopPrompter(f.yes, env.input)
+		cs.ask, cmds = p, p.cmds
+	}
+	cs.console = newCoopConsole(rep, cmds)
+	if env.front.attach != nil {
+		env.front.attach(cs)
+	}
 	b, err := backup.Create(env.userDirs, backup.Options{Root: env.backups, Label: "co-op session start"})
 	if err != nil {
 		cs.noTags = err
@@ -815,10 +848,29 @@ func coopMarkerLine(s string) string {
 
 func removeCoopMarker(dir string) { os.Remove(filepath.Join(dir, coopMarkerName)) }
 
-// coopPrompter asks the replicas' yes/no questions on the command line,
-// one at a time, so mp-local's two Dolphins never ask at once. Its reader
-// also hands the console the commands typed (a line starting with '/'),
-// which are never an answer.
+// coopAsker answers a co-op session's yes/no questions (App PR 2's Asker,
+// docs/01-architecture.md): question logs q to rep, the asking
+// pipeline's reporter, and returns the answer, true for yes; ctx ending
+// is a no. answersAtOnce says question never waits for a person (--yes),
+// so an offer is answered on the replica's tick rather than on a
+// goroutine of its own.
+type coopAsker interface {
+	question(ctx context.Context, rep report.Reporter, q session.Question) bool
+	answersAtOnce() bool
+}
+
+// logQuestion logs q's body, one line at a time, as the CLI prints it
+// (coopPrompter.ask).
+func logQuestion(rep report.Reporter, q session.Question) {
+	for _, l := range strings.Split(strings.TrimRight(q.Body, "\n"), "\n") {
+		rep.Log(report.Info, l)
+	}
+}
+
+// coopPrompter is the CLI's coopAsker: it asks the replicas' yes/no
+// questions on the command line, one at a time, so mp-local's two
+// Dolphins never ask at once. Its reader also hands the console the
+// commands typed (a line starting with '/'), which are never an answer.
 type coopPrompter struct {
 	yes   bool
 	mu    sync.Mutex        // held for a whole question
@@ -920,6 +972,15 @@ func readPromptLines(in *promptInput, now func() time.Time) (answers, cmds <-cha
 		}
 	}()
 	return ach, cch
+}
+
+func (p *coopPrompter) answersAtOnce() bool { return p.yes }
+
+// question is ask with q's body: the CLI prints the prompt as it always
+// has (a bind's preflight is in the log already: the replica logged it
+// just before its offer).
+func (p *coopPrompter) question(ctx context.Context, rep report.Reporter, q session.Question) bool {
+	return p.ask(ctx, rep, q.Body)
 }
 
 // ask logs question and waits for the answer: true only for "y" or "yes".
@@ -1149,18 +1210,21 @@ func (s *coopSync) run(ctx context.Context, addr string) error {
 // offer whose file changed before the answer.
 func (s *coopSync) offer(ctx context.Context, o replica.Offer) {
 	if err := s.cs.noTags; err != nil {
-		report.Logf(s.rep, report.Warn, "co-op: the %s is not offered: there is no memory-card backup this session (%v)", o.Plan.Kind, err)
+		msg := fmt.Sprintf("co-op: the %s is not offered: there is no memory-card backup this session (%v)", o.Plan.Kind, err)
+		s.rep.Log(report.Warn, msg)
+		s.advise(session.AdviceNoBackup, msg)
 		s.r.Decline(o.Plan)
 		return
 	}
+	q := offerQuestion(s.name, o)
 	answer := func() {
-		if s.cs.prompt.ask(ctx, s.rep, o.Plan.Prompt) {
+		if s.cs.ask.question(ctx, s.rep, q) {
 			s.r.Confirm(o.Plan)
 		} else {
 			s.r.Decline(o.Plan)
 		}
 	}
-	if s.cs.prompt.yes {
+	if s.cs.ask.answersAtOnce() {
 		answer()
 		return
 	}
@@ -1184,15 +1248,21 @@ func (s *coopSync) preflight(pf replica.PreflightReport) {
 		// The host's own file, if it has not been loaded from the card
 		// since its bind, then looks leaked in the host's next process
 		// (Appendix C item 133).
-		s.rep.Log(report.Info, "co-op: the world is far ahead of this file: copy the host's save in, or the host can run with --coop-merge to union them; pose sync goes on. "+
-			"Dolphin's Memory Card Manager exports and imports the whole save, so the copy replaces all three of your files with the host's: export yours first (this session's card backup holds them too). The copied file is the host's own, already bound to the world. "+
-			"Before the copy, the host should save in game and load its file from the card: a copy of a file bound fresh and not loaded back since makes the host's own file look leaked when the host next starts")
+		const msg = "co-op: the world is far ahead of this file: copy the host's save in, or the host can run with --coop-merge to union them; pose sync goes on. " +
+			"Dolphin's Memory Card Manager exports and imports the whole save, so the copy replaces all three of your files with the host's: export yours first (this session's card backup holds them too). The copied file is the host's own, already bound to the world. " +
+			"Before the copy, the host should save in game and load its file from the card: a copy of a file bound fresh and not loaded back since makes the host's own file look leaked when the host next starts"
+		s.rep.Log(report.Info, msg)
+		s.advise(session.AdviceFarBehind, msg)
 		return
 	case pf.NeedsMerge && s.r.Status().Features&hub.FeatureMerge == 0:
-		s.rep.Log(report.Info, "co-op: this file can't bind unless the host runs with --coop-merge; pose sync goes on")
+		const msg = "co-op: this file can't bind unless the host runs with --coop-merge; pose sync goes on"
+		s.rep.Log(report.Info, msg)
+		s.advise(session.AdviceNeedsMerge, msg)
 		return
 	case s.cs.noTags != nil:
-		report.Logf(s.rep, report.Info, "co-op: this file could bind, but there is no memory-card backup this session (%v)", s.cs.noTags)
+		msg := fmt.Sprintf("co-op: this file could bind, but there is no memory-card backup this session (%v)", s.cs.noTags)
+		s.rep.Log(report.Info, msg)
+		s.advise(session.AdviceNoBackup, msg)
 		return
 	}
 	f, err := bind.ReadFile(s.m)
@@ -1207,4 +1277,52 @@ func (s *coopSync) preflight(pf replica.PreflightReport) {
 	if !asked {
 		s.r.RequestBind()
 	}
+}
+
+// advise passes advice of kind, logged as text, to the session's front
+// end, if it hears advice.
+func (s *coopSync) advise(kind session.AdviceKind, text string) {
+	if s.cs.advise != nil {
+		s.cs.advise(session.Advice{Kind: kind, Player: s.name, Text: text})
+	}
+}
+
+// offerQuestion is the question for offer o of player's pipeline: the
+// plan's prompt, its first line as the title, and a bind's preflight.
+func offerQuestion(player string, o replica.Offer) session.Question {
+	q := session.Question{Kind: session.QuestionBind, Player: player, Body: o.Plan.Prompt}
+	if o.Plan.Kind == bind.KindScrub {
+		q.Kind = session.QuestionScrub
+	}
+	q.Title, _, _ = strings.Cut(o.Plan.Prompt, "\n")
+	if o.Preflight != nil {
+		for _, l := range strings.Split(strings.TrimRight(o.Preflight.Summary(), "\n"), "\n") {
+			q.Details = append(q.Details, strings.TrimSpace(l))
+		}
+	}
+	return q
+}
+
+// outputAsker is a UI's coopAsker: it logs the question as the CLI does,
+// then puts it to the session controller (session.Output.Ask), whose UI
+// answers it, and logs the answer. yes is --yes.
+type outputAsker struct {
+	out session.Output
+	yes bool
+}
+
+func (a outputAsker) answersAtOnce() bool { return a.yes }
+
+func (a outputAsker) question(ctx context.Context, rep report.Reporter, q session.Question) bool {
+	logQuestion(rep, q)
+	if a.yes {
+		rep.Log(report.Info, "  yes (--yes)")
+		return true
+	}
+	if a.out.Ask(ctx, q) {
+		rep.Log(report.Info, "  yes")
+		return true
+	}
+	rep.Log(report.Info, "  no")
+	return false
 }

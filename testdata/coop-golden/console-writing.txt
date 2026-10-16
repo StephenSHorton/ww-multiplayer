@@ -1,0 +1,22 @@
+INFO co-op: small keys: not derived: no key table (coop-tables)
+INFO co-op: max life: not derived: no heart table (coop-tables)
+INFO co-op: /refresh for Link: not now: co-op is not running for this file (not connected); try again in a moment
+INFO co-op: Link: nothing to turn on (writing)
+WARN co-op writes are off for Link: you typed /coop off. Pose sync goes on; type /coop on to write the world again.
+WARN co-op: /warp for Link: co-op writes are off: co-op writes are off for Link: you typed /coop off
+INFO co-op: Link writes nothing already (writes off: co-op writes are off for Link: you typed /coop off)
+INFO co-op: Link: off: not connected; world <id> at seq 0; writes off: co-op writes are off for Link: you typed /coop off; 0 bytes written, 0 escapes, 0 verify failures
+INFO co-op: Link:   progression granted: none
+INFO co-op: Link:   story bits held back: none
+INFO co-op: Link:   small keys: not derived (no co-op stage tables)
+INFO co-op: Link:   max hearts: not derived: no heart table (coop-tables)
+INFO co-op: Link:   room puzzles: not granted by the host (its co-op stage tables are not this side's, or it turned them off); Link is in sea (table 0, room 44), zone slot 0
+INFO co-op: Link:   combat: not granted by the host (its co-op stage tables are not this side's, or it turned it off)
+OK co-op: writes are on again for Link (they were off: co-op writes are off for Link: you typed /coop off)
+INFO co-op: Link: off: not connected; world <id> at seq 0; writing; 0 bytes written, 0 escapes, 0 verify failures
+INFO co-op: Link:   progression granted: none
+INFO co-op: Link:   story bits held back: none
+INFO co-op: Link:   small keys: not derived (no co-op stage tables)
+INFO co-op: Link:   max hearts: not derived: no heart table (coop-tables)
+INFO co-op: Link:   room puzzles: not granted by the host (its co-op stage tables are not this side's, or it turned them off); Link is in sea (table 0, room 44), zone slot 0
+INFO co-op: Link:   combat: not granted by the host (its co-op stage tables are not this side's, or it turned it off)

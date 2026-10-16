@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -35,10 +36,13 @@ type Controller struct {
 	engine Engine
 	opts   Options
 
-	mu    sync.Mutex // guards next, cur, state; taken before subMu
+	mu    sync.Mutex // guards next, cur, state, nextQ, pending; taken before subMu
 	next  ID
 	cur   *run  // the running session; nil when none
 	state State // the controller-owned fields of the latest session
+	// pending are the open questions' answer channels, by question ID.
+	nextQ   uint64
+	pending map[string]chan bool
 
 	subMu sync.Mutex
 	subs  map[*subscription]struct{}
@@ -59,21 +63,21 @@ func New(e Engine, o Options) *Controller {
 	} else if o.Buffer < MinBuffer {
 		o.Buffer = MinBuffer
 	}
-	return &Controller{engine: e, opts: o, subs: map[*subscription]struct{}{}}
+	return &Controller{engine: e, opts: o, subs: map[*subscription]struct{}{}, pending: map[string]chan bool{}}
 }
 
 // Host starts a host session under ctx and returns its ID at once; the
 // session runs until Leave, ctx's cancel, or a failure. It returns ErrBusy
 // while another session runs.
 func (c *Controller) Host(ctx context.Context, o HostOptions) (ID, error) {
-	return c.start(ctx, State{Role: RoleHost, Name: o.Name}, func(ctx context.Context, cancel context.CancelFunc, out Output) error {
+	return c.start(ctx, State{Role: RoleHost, Name: o.Name, Coop: o.Coop}, func(ctx context.Context, cancel context.CancelFunc, out Output) error {
 		return c.engine.Host(ctx, cancel, o, out)
 	})
 }
 
 // Join starts a join session under ctx; see Host.
 func (c *Controller) Join(ctx context.Context, o JoinOptions) (ID, error) {
-	return c.start(ctx, State{Role: RoleJoin, Name: o.Name, Addr: o.Addr}, func(ctx context.Context, cancel context.CancelFunc, out Output) error {
+	return c.start(ctx, State{Role: RoleJoin, Name: o.Name, Addr: o.Addr, Coop: o.Coop}, func(ctx context.Context, cancel context.CancelFunc, out Output) error {
 		return c.engine.Join(ctx, cancel, o, out)
 	})
 }
@@ -102,14 +106,14 @@ func (c *Controller) start(parent context.Context, st State, body func(context.C
 	out := newOutput(c, r.id)
 	go func() {
 		err := body(ctx, cancel, out)
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrReported) {
 			out.Log(report.Err, err.Error())
 		}
 		cancel()
 		reason := out.endReason()
 		c.mu.Lock()
 		c.cur = nil
-		c.state.Phase, c.state.EndReason = Ended, reason
+		c.state.Phase, c.state.EndReason, c.state.Failed = Ended, reason, err != nil
 		c.publish(Event{Kind: EventEnded, Session: r.id, Text: reason})
 		c.publish(Event{Kind: EventState, Session: r.id})
 		c.mu.Unlock()
@@ -132,6 +136,19 @@ func (c *Controller) Leave() {
 	<-r.done
 }
 
+// Wait waits until session id has ended and returns the state it ended
+// in. For a session that is not running (it ended already, or id is not
+// the current one) it returns at once.
+func (c *Controller) Wait(id ID) State {
+	c.mu.Lock()
+	r := c.cur
+	c.mu.Unlock()
+	if r != nil && r.id == id {
+		<-r.done
+	}
+	return c.Snapshot()
+}
+
 // SendChat sends one chat line on the running session.
 func (c *Controller) SendChat(text string) error {
 	c.mu.Lock()
@@ -148,6 +165,7 @@ func (c *Controller) SendChat(text string) error {
 func (c *Controller) Snapshot() State {
 	c.mu.Lock()
 	st := c.state
+	st.Questions = append([]Question(nil), st.Questions...)
 	running := c.cur != nil
 	c.mu.Unlock()
 	if running {
@@ -186,6 +204,12 @@ func (o *output) Log(level report.Level, msg string) {
 
 func (o *output) Chat(from, text string) {
 	o.c.publish(Event{Kind: EventChat, Session: o.id, From: from, Text: text})
+}
+
+func (o *output) Ask(ctx context.Context, q Question) bool { return o.c.ask(ctx, o.id, q) }
+
+func (o *output) Advise(a Advice) {
+	o.c.publish(Event{Kind: EventAdvice, Session: o.id, Advice: a})
 }
 
 // endReason explains why the session ended: the newest Err-level line it

@@ -22,6 +22,14 @@ const (
 	// EventEnded says the session returned: Text is its end reason. It is
 	// published before the EventState that shows Phase Ended.
 	EventEnded
+	// EventQuestion asks a co-op question: Question, with its ID for
+	// Controller.Answer. It is also in State.Questions until closed.
+	EventQuestion
+	// EventQuestionClosed says Question (by ID) is answered, Yes, or
+	// went unanswered (a no) because the session ended.
+	EventQuestionClosed
+	// EventAdvice is co-op advice: Advice.
+	EventAdvice
 )
 
 // Event is one thing that happened in a session. Session is the ID of the
@@ -33,6 +41,10 @@ type Event struct {
 	Level   report.Level // EventLog
 	From    string       // EventChat
 	Text    string       // EventLog, EventChat, EventEnded
+	// Question is EventQuestion's question, or the closed one's.
+	Question Question
+	Yes      bool   // EventQuestionClosed: the answer
+	Advice   Advice // EventAdvice
 }
 
 // Subscribe returns a channel that receives every event published from now
@@ -44,6 +56,14 @@ type Event struct {
 // rather than stalling broadcast-pose or puppet-sync. A run's last two
 // events (EventEnded, then EventState) always get in; New keeps the buffer
 // at MinBuffer or more for that.
+//
+// Any other event may be dropped, EventQuestion and EventQuestionClosed
+// too. A UI must not keep its open questions from those events alone:
+// State.Questions (Snapshot) is their source of truth, so a UI re-reads
+// it as it polls the live values (the TUI's status tick does), and shows
+// no question once the session has ended. The events only show a change
+// sooner. An Answer returning ErrNoQuestion likewise says the question
+// is no longer open.
 func (c *Controller) Subscribe() (<-chan Event, func()) {
 	s := &subscription{ch: make(chan Event, c.opts.Buffer)}
 	c.subMu.Lock()

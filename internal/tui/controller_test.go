@@ -61,7 +61,7 @@ func (e *fakeEngine) sentChat() []string {
 // left again when the test ends.
 func runningDashboard(t *testing.T, eng *fakeEngine) dashboardModel {
 	t.Helper()
-	m, err := startDashboard(session.New(eng, session.Options{}), "Join", "Me", "10.0.0.5", 80)
+	m, err := startDashboard(session.New(eng, session.Options{}), "Join", "Me", "10.0.0.5", session.CoopOptions{}, 80)
 	if err != nil {
 		t.Fatalf("startDashboard: %v", err)
 	}
@@ -148,12 +148,12 @@ func TestDashboard_ColorFromSnapshot(t *testing.T) {
 // so the connect screen can show it, and keeps no subscription.
 func TestStartDashboard_Busy(t *testing.T) {
 	ctrl := session.New(&fakeEngine{}, session.Options{})
-	first, err := startDashboard(ctrl, "Host", "Me", "", 80)
+	first, err := startDashboard(ctrl, "Host", "Me", "", session.CoopOptions{}, 80)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer first.leave()
-	if _, err := startDashboard(ctrl, "Join", "Me", "10.0.0.5", 80); err == nil || !strings.Contains(err.Error(), "already running") {
+	if _, err := startDashboard(ctrl, "Join", "Me", "10.0.0.5", session.CoopOptions{}, 80); err == nil || !strings.Contains(err.Error(), "already running") {
 		t.Errorf("second start err = %v, want the busy error", err)
 	}
 }

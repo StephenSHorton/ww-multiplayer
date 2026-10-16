@@ -1,0 +1,34 @@
+INFO ## --yes: a bind
+INFO Bind this save file to co-op world <id>?
+INFO   File 2 "Link" (first quest)
+INFO   ww-multiplayer writes a 0x2C-byte tag at 0x803C532C (dSv_reserve_c, which the game
+INFO   saves with the file and never reads). It lands on the memory card at your next
+INFO   in-game save. Nothing else in the file is written.
+INFO Bind it?
+INFO   yes (--yes)
+INFO ## a scrub answered y on stdin
+INFO This file carries a co-op tag for world <id> that it was never bound with:
+INFO   File 1 "Tetra" (first quest)
+INFO   V3 failed: the name hash differs
+INFO   Nothing else is written.
+INFO Scrub it?
+INFO   Type y and press Enter for yes; anything else is no.
+INFO   yes
+INFO ## a bind answered n on stdin
+INFO Bind this save file to co-op world <id>?
+INFO   File 2 "Link" (first quest)
+INFO   ww-multiplayer writes a 0x2C-byte tag at 0x803C532C (dSv_reserve_c, which the game
+INFO   saves with the file and never reads). It lands on the memory card at your next
+INFO   in-game save. Nothing else in the file is written.
+INFO Bind it?
+INFO   Type y and press Enter for yes; anything else is no.
+INFO   no
+INFO ## no memory-card backup
+WARN co-op: the bind is not offered: there is no memory-card backup this session (no Dolphin user folder)
+INFO ## preflight: far behind
+INFO co-op: the world is far ahead of this file: copy the host's save in, or the host can run with --coop-merge to union them; pose sync goes on. Dolphin's Memory Card Manager exports and imports the whole save, so the copy replaces all three of your files with the host's: export yours first (this session's card backup holds them too). The copied file is the host's own, already bound to the world. Before the copy, the host should save in game and load its file from the card: a copy of a file bound fresh and not loaded back since makes the host's own file look leaked when the host next starts
+INFO ## preflight: needs --coop-merge
+INFO co-op: this file can't bind unless the host runs with --coop-merge; pose sync goes on
+INFO ## preflight: refused
+INFO ## preflight: could bind, no backup
+INFO co-op: this file could bind, but there is no memory-card backup this session (no Dolphin user folder)

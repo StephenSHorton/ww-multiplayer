@@ -709,7 +709,7 @@ func main() {
 	// The TUI drives them through a session.Controller; sessionEngine
 	// (session_engine.go) adapts runHostSession / runJoinSession and the
 	// liveState status bridge to it.
-	ctrl := session.New(&sessionEngine{ls: &liveState{}}, session.Options{})
+	ctrl := session.New(newTUIEngine(), session.Options{})
 	if err := tui.Run(version, ctrl); err != nil {
 		fmt.Println(err)
 		fmt.Print("Press Enter to exit...")
@@ -6906,14 +6906,26 @@ func liveStateLocalPosSetter(ls *liveState) func(x, y, z float32) {
 // mailbox so the next Dolphin frame doesn't keep rendering a stale Link #2.
 // co.on (--coop) adds co-op: the hub on the server and a coop-sync
 // pipeline (coop_session.go).
+//
+// The session runs on a session.Controller (App PR 2) over the CLI's
+// engine, which prints every line to stdout as runHostSession always has
+// and asks the co-op questions on stdin; a failed session exits 1.
 func runHost(name string, port int, co coopFlags) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	if err := runHostSession(ctx, cancel, name, port, rep, nil, co); err != nil {
-		logSessionErr(rep, err)
-		os.Exit(1)
+	ctrl := newCLIController(rep)
+	if code := runCLISession(ctrl, rep, func() (session.ID, error) {
+		return ctrl.Host(ctx, session.HostOptions{Name: name, Port: port, Coop: co.options()})
+	}); code != 0 {
+		os.Exit(code)
 	}
+}
+
+// newCLIController is the controller of a CLI host or join: the CLI's
+// engine, with every session line going to rep (stdout).
+func newCLIController(rep report.Reporter) *session.Controller {
+	return session.New(newCLIEngine(), session.Options{Log: rep})
 }
 
 // runHostSession contains the actual host flow without any signal-handler
@@ -6922,12 +6934,13 @@ func runHost(name string, port int, co coopFlags) {
 // ls, when non-nil (the TUI path), is the shared status bridge: this session
 // registers its server, host IPs, and puppet-sync client into it for the #19
 // status panel, and clears it on return. CLI callers pass nil.
-// co, when on (--coop; the TUI passes coopFlags{}), backs up the cards,
-// opens or founds the co-op world, sets the CoopHub as the server's Coop
-// and adds a coop-sync pipeline; the hub stops after the server.
+// co, when on (--coop), backs up the cards, opens or founds the co-op
+// world, sets the CoopHub as the server's Coop and adds a coop-sync
+// pipeline; the hub stops after the server. front is its front end: the
+// zero coopFront for stdin, as the CLI's.
 // Returns a server start failure or the first pipeline failure (not yet
 // logged), or nil when the session ended by ctx cancel.
-func runHostSession(ctx context.Context, cancel context.CancelFunc, name string, port int, rep report.Reporter, ls *liveState, co coopFlags) error {
+func runHostSession(ctx context.Context, cancel context.CancelFunc, name string, port int, rep report.Reporter, ls *liveState, co coopFlags, front coopFront) error {
 	if name == "" {
 		name = "Host"
 	}
@@ -6938,7 +6951,9 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 	var coop *coopSession
 	if co.on {
 		var err error
-		if coop, err = startCoopHost(ctx, rep, srv.OnLog, co, defaultCoopEnv(0)); err != nil {
+		env := defaultCoopEnv(0)
+		env.front = front
+		if coop, err = startCoopHost(ctx, rep, srv.OnLog, co, env); err != nil {
 			if ctx.Err() != nil {
 				return nil // Ctrl+C while founding waited for the game
 			}
@@ -6999,25 +7014,28 @@ func shareAddrs(ips []string, port int) []string {
 // runJoin is the single-process joiner entry point: just broadcast-pose +
 // puppet-sync goroutines pointed at the host's address. Same signal
 // handling and mailbox cleanup as runHost. co.on (--coop) adds a
-// coop-sync pipeline.
+// coop-sync pipeline. Like runHost, it runs on a session.Controller.
 func runJoin(addr, name string, co coopFlags) {
 	rep := report.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
-	if err := runJoinSession(ctx, cancel, addr, name, rep, nil, co); err != nil {
-		logSessionErr(rep, err)
-		os.Exit(1)
+	ctrl := newCLIController(rep)
+	if code := runCLISession(ctrl, rep, func() (session.ID, error) {
+		return ctrl.Join(ctx, session.JoinOptions{Addr: addr, Name: name, Coop: co.options()})
+	}); code != 0 {
+		os.Exit(code)
 	}
 }
 
 // runJoinSession is the signal-free, exit-free version that the TUI calls.
 // ls, when non-nil (the TUI path), is the shared status bridge: the join role
 // registers only its puppet-sync client (no server, no host IPs) and clears the
-// bridge on return. CLI callers pass nil. co, when on (--coop; the TUI
-// passes coopFlags{}), backs up the cards and adds a coop-sync pipeline.
+// bridge on return. CLI callers pass nil. co, when on (--coop), backs up
+// the cards and adds a coop-sync pipeline; front is its front end, as
+// for runHostSession.
 // Returns the first pipeline failure (not yet logged), or nil when the
 // session ended by ctx cancel.
-func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter, ls *liveState, co coopFlags) error {
+func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter, ls *liveState, co coopFlags, front coopFront) error {
 	if name == "" {
 		name = "Player"
 	}
@@ -7035,7 +7053,9 @@ func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name s
 	report.Logf(rep, report.OK, "Joining %s as %q.", addr, name)
 	var coop *coopSession
 	if co.on {
-		coop = startCoopSession(rep, co, defaultCoopEnv(0))
+		env := defaultCoopEnv(0)
+		env.front = front
+		coop = startCoopSession(rep, co, env)
 	}
 	rep.Log(report.Info, "Ctrl+C to stop.")
 

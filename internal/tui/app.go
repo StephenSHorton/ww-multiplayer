@@ -75,6 +75,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case splashDoneMsg:
 		m.connect = newConnect()
+		m.connect.worlds = coopWorlds(m.ctrl)
 		m.screen = screenConnect
 		return m, nil
 
@@ -82,7 +83,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A session that can't start (no controller in this build, or
 		// the controller refuses) leaves the user on the connect screen
 		// with the reason.
-		d, err := startDashboard(m.ctrl, msg.role, msg.name, msg.addr, m.width)
+		d, err := startDashboard(m.ctrl, msg.role, msg.name, msg.addr, msg.coop, m.width)
 		if err != nil {
 			m.connect.err = err.Error()
 			return m, nil
@@ -92,9 +93,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.dashboard.initCmd()
 
 	case backMsg:
-		// Keep what the user typed (role, IP, name, focus) so a retry
-		// after a failed session is one Enter; only drop a stale error.
+		// Keep what the user typed (role, IP, name, co-op, focus) so a
+		// retry after a failed session is one Enter; only drop a stale
+		// error. The worlds are listed again: the session may have
+		// founded one.
 		m.connect.err = ""
+		m.connect.worlds = coopWorlds(m.ctrl)
 		m.screen = screenConnect
 		return m, nil
 	}
@@ -181,11 +185,25 @@ var hasInteractiveStdin = func() bool {
 	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
 }
 
+// coopWorlds lists the co-op worlds a host may continue, or none when
+// ctrl can't (no controller, or no co-op in this build).
+func coopWorlds(ctrl *session.Controller) []session.CoopWorld {
+	if ctrl == nil {
+		return nil
+	}
+	ws, err := ctrl.CoopWorlds()
+	if err != nil {
+		return nil
+	}
+	return ws
+}
+
 // startDashboard subscribes to ctrl's events, starts the session for
-// role and builds its dashboard. It subscribes first so the session's
-// first log lines reach the dashboard. width is the terminal width as
-// last reported (0 before the first WindowSizeMsg).
-func startDashboard(ctrl *session.Controller, role, name, addr string, width int) (dashboardModel, error) {
+// role with co-op as coop says, and builds its dashboard. It subscribes
+// first so the session's first log lines reach the dashboard. width is
+// the terminal width as last reported (0 before the first
+// WindowSizeMsg).
+func startDashboard(ctrl *session.Controller, role, name, addr string, coop session.CoopOptions, width int) (dashboardModel, error) {
 	if ctrl == nil {
 		if role == string(session.RoleHost) {
 			return dashboardModel{}, errors.New("Hosting isn't available in this build (no session controller)")
@@ -198,15 +216,17 @@ func startDashboard(ctrl *session.Controller, role, name, addr string, width int
 		err error
 	)
 	if role == string(session.RoleHost) {
-		id, err = ctrl.Host(context.Background(), session.HostOptions{Name: name})
+		id, err = ctrl.Host(context.Background(), session.HostOptions{Name: name, Coop: coop})
 	} else {
-		id, err = ctrl.Join(context.Background(), session.JoinOptions{Addr: addr, Name: name})
+		id, err = ctrl.Join(context.Background(), session.JoinOptions{Addr: addr, Name: name, Coop: coop})
 	}
 	if err != nil {
 		unsubscribe()
 		return dashboardModel{}, err
 	}
-	return newDashboard(ctrl, id, events, unsubscribe, role, name, addr, width), nil
+	d := newDashboard(ctrl, id, events, unsubscribe, role, name, addr, width)
+	d.coop = coop.On
+	return d, nil
 }
 
 // exeName is the binary as the user types it on this platform, used in the

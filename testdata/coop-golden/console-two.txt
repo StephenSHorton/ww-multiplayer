@@ -1,0 +1,17 @@
+WARN co-op: /warp: say which player: /warp Link or /warp Tetra
+WARN co-op: /refresh Aryll: no player Aryll here (Link, Tetra)
+WARN co-op: /warp for Tetra: --coop-dry-run writes no game data
+INFO co-op: Link writes nothing already (a dry run (--coop-dry-run))
+INFO co-op: Tetra writes nothing already (a dry run (--coop-dry-run))
+INFO co-op: Link: off: the game state could not be read; world <id> at seq 0; a dry run (--coop-dry-run); 0 bytes written, 0 escapes, 0 verify failures
+INFO co-op: Link:   story bits held back: none
+INFO co-op: Link:   room puzzles: none in a dry run, which asks the host for the shared image alone; Link is in nowhere
+INFO co-op: Link:   combat: none in a dry run, which asks the host for the shared image alone
+INFO co-op: Tetra: off: the game state could not be read; world <id> at seq 0; a dry run (--coop-dry-run); 0 bytes written, 0 escapes, 0 verify failures
+INFO co-op: Tetra:   story bits held back: none
+INFO co-op: Tetra:   room puzzles: none in a dry run, which asks the host for the shared image alone; Link is in nowhere
+INFO co-op: Tetra:   combat: none in a dry run, which asks the host for the shared image alone
+INFO co-op: Link: off: the game state could not be read; world <id> at seq 0; a dry run (--coop-dry-run); 0 bytes written, 0 escapes, 0 verify failures
+INFO co-op: Link:   story bits held back: none
+INFO co-op: Link:   room puzzles: none in a dry run, which asks the host for the shared image alone; Link is in nowhere
+INFO co-op: Link:   combat: none in a dry run, which asks the host for the shared image alone

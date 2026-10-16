@@ -1,0 +1,4 @@
+WARN co-op: /status: no Dolphin runs co-op yet
+INFO co-op: host: room puzzles allowed; scoped stores held: 0 dan, 0 zone, 0 kill
+INFO co-op: host: combat off (the host has no co-op enemy table); 0 kill store(s) held
+WARN co-op: /warp: no Dolphin runs co-op yet

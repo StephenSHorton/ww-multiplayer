@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -35,7 +36,7 @@ func TestRun_NoInteractiveStdin_ReturnsClearError(t *testing.T) {
 func TestBackMsg_KeepsConnectFields(t *testing.T) {
 	m := newModel(nil, "test")
 	m.screen = screenDashboard
-	m.connect = connectModel{role: 1, ipInput: "10.0.0.9", nameInput: "Bob", focused: 3, err: "old error"}
+	m.connect = connectModel{role: 1, ipInput: "10.0.0.9", nameInput: "Bob", focused: 3, err: "old error", joinCoop: 1}
 
 	next, _ := m.Update(backMsg{})
 	got := next.(model)
@@ -43,8 +44,8 @@ func TestBackMsg_KeepsConnectFields(t *testing.T) {
 	if got.screen != screenConnect {
 		t.Fatalf("screen = %v after backMsg, want the connect screen", got.screen)
 	}
-	want := connectModel{role: 1, ipInput: "10.0.0.9", nameInput: "Bob", focused: 3}
-	if got.connect != want {
+	want := connectModel{role: 1, ipInput: "10.0.0.9", nameInput: "Bob", focused: 3, joinCoop: 1}
+	if !reflect.DeepEqual(got.connect, want) {
 		t.Errorf("connect after backMsg = %+v, want %+v", got.connect, want)
 	}
 }
