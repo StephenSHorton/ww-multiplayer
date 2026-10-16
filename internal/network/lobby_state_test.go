@@ -246,8 +246,16 @@ func TestLobbyMachineHoldReclaimExpire(t *testing.T) {
 	if o, _ := findOut(outs, 3, LobbyWelcome); o.body.(LobbyWelcomeBody).Member != host.id {
 		t.Fatalf("reclaim WELCOME %+v", o)
 	}
+	if mb.dolphin != "" {
+		t.Fatalf("a HELLO without a Dolphin state changed it: %q", mb.dolphin)
+	}
 	// Reclaim while the old connection still looks live: it is closed.
-	_, outs = m.hello(4, "Host", true, LobbyHelloBody{Token: host.token}, t0)
+	// Its HELLO's Dolphin state replaces the old one (a LOBBY_SET lost
+	// while the link was down).
+	_, outs = m.hello(4, "Host", true, LobbyHelloBody{Token: host.token, Dolphin: DolphinInGame}, t0)
+	if host.dolphin != DolphinInGame {
+		t.Fatalf("reclaim kept the stale Dolphin state %q", host.dolphin)
+	}
 	if o, ok := findOut(outs, 3, LobbyNotice); !ok || !o.closeConn {
 		t.Fatalf("takeover outs %+v", outs)
 	}

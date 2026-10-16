@@ -505,3 +505,25 @@ summary { cursor: pointer; font: 400 14px var(--display); color: #fff; paint-ord
 .secretrow { display: flex; gap: 8px; align-items: center; }
 .secretrow input { flex: 1; min-width: 0; }
 input.secret { -webkit-text-security: disc; text-security: disc; }
+
+/* ---------- Start and in game (App PR 8) ---------- */
+.check { display: flex; align-items: center; gap: 8px; font: 700 14px var(--body); color: var(--text); cursor: pointer; }
+.check input { width: 20px; height: 20px; accent-color: var(--bar); cursor: pointer; }
+.linkbtn { display: inline-block; margin-top: 6px; padding: 0; border: 0; background: none; font: 700 14px var(--body); color: var(--ink); text-decoration: underline; cursor: pointer; }
+.linkbtn:hover { color: var(--bark); }
+.chip.dolphin { background: #e9eedd; color: var(--text-dim); }
+.chip.dolphin.launching, .chip.dolphin.title { background: #9fd8ff; color: var(--ink); }
+.chip.dolphin.in_game { background: var(--bar-hi); color: var(--ink); }
+.chip.dolphin.wrong_game, .chip.dolphin.unpatched { background: var(--red); color: #fff; }
+.chip.dolphin.no_game { background: var(--yellow); color: var(--ink); }
+.chip.area.near { background: var(--orange-hi); }
+.chip.area.far { background: #e9eedd; color: var(--text-dim); }
+.where .me { display: inline-block; width: 14px; height: 14px; margin: 0 4px -1px 0; background: var(--c); border: 2px solid var(--ink); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); -webkit-text-stroke: 0; }
+.phase.ingame { background: linear-gradient(180deg, var(--bar-hi) 0 14%, var(--bar) 15%); }
+.mappanel .map { display: block; width: 100%; max-height: max(220px, calc(100vh - 420px)); aspect-ratio: 1; margin: 0 auto; background: radial-gradient(circle, #8fd0e8 0, #4ea7cf 70%, #2f7fae 100%); border: 3px solid var(--ink); border-radius: 12px; }
+.map .ring { fill: none; stroke: rgba(255, 255, 255, 0.55); stroke-width: 1.2; stroke-dasharray: 4 4; }
+.map .axis { stroke: rgba(255, 255, 255, 0.25); stroke-width: 0.8; }
+.map .dot { stroke: var(--ink); stroke-width: 2.4; }
+.map text { font: 400 11px var(--display); fill: #fff; paint-order: stroke fill; stroke: var(--ink); stroke-width: 3px; stroke-linejoin: round; }
+.map .self { stroke: #fff; stroke-width: 2.4; }
+.banner .btn { flex: none; }

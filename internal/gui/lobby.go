@@ -84,13 +84,18 @@ type DialogView struct {
 	Actions []DialogAction `json:"actions"`
 }
 
-// BannerView is the strip over the Lobby screen while the lobby
-// connection is down after it was up.
+// BannerView is the strip over the Lobby or Session screen while the
+// lobby connection is down after it was up, or this player's Dolphin is
+// closed.
 type BannerView struct {
-	Kind     string `json:"kind"` // "reconnecting"
+	Kind     string `json:"kind"` // "reconnecting", or "dolphin" (game.go)
 	Title    string `json:"title"`
 	Text     string `json:"text"`
 	Attempts int    `json:"attempts"`
+	// Action is a button's action ID (DialogAction.ID) and ActionLabel
+	// its text; "" for none.
+	Action      string `json:"action,omitempty"`
+	ActionLabel string `json:"actionLabel,omitempty"`
 }
 
 // ShareAddrView is one address of the host's share card.

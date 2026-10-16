@@ -1,8 +1,10 @@
 // app.js: the window's screens: Home (name, color, Host / Join, recent
 // hosts) and Session, which is the Lobby (App PR 7: members with their
 // colors, ready and connection, your tunic and Ready, the host's panel
-// with the share card, co-op and Start, chat, Kick) or a direct session's
-// players. Everything reaches Go through transport.js. The state comes
+// with the share card, co-op and Start, chat, Kick), then, once the host
+// pressed Start, the game (App PR 8: every player's Dolphin and area, the
+// minimap, chat, the reconnect and "Dolphin closed" banners), or a direct
+// session's players. Everything reaches Go through transport.js. The state comes
 // whole from Bridge.State, re-read on every "state" event and once a
 // second while a session runs, so there is no diffing here: each render
 // rebuilds its lists. The dialogs a join error opens and the reconnect
@@ -36,8 +38,9 @@ let revealed = new Set();
 // its masked text and sender, so turning the switch off masks them again.
 const unmasked = new WeakMap();
 const closedDialogs = new Set(); // keys of state dialogs the user closed
+const liveDialogs = new Set(); // keys of live state dialogs: closed once the state drops them
 
-const PHASES = { connecting: "Connecting…", lobby: "Lobby", starting: "Starting", "in game": "In game", ended: "Ended", idle: "" };
+const PHASES = { connecting: "Connecting…", lobby: "Lobby", starting: "Starting…", "in game": "In game", ended: "Ended", idle: "" };
 // Notices that end the session: its dialog says it, not a toast.
 const FATAL_NOTICES = new Set(["name_taken", "full", "kicked", "replaced"]);
 
@@ -150,7 +153,11 @@ function chip(text, cls = "", title = "") {
 	return el("span", { class: "chip" + (cls ? " " + cls : ""), title: title || null }, text);
 }
 
+// The area chip's words (MemberView.area: from the pose positions).
+const AREAS = { near: "Same area", far: "Far away" };
+
 function memberRow(m, lobby) {
+	const playing = lobby.phase !== "lobby";
 	const swatch = el(m.self ? "button" : "span", {
 		class: "dot", style: "--c:" + m.color, title: m.self ? "Change your tunic color (" + m.colorName + ")" : m.colorName,
 		type: m.self ? "button" : null, "aria-label": m.self ? "Change your tunic color" : null,
@@ -163,7 +170,10 @@ function memberRow(m, lobby) {
 		m.away ? chip("Reconnecting…", "away", "Their connection dropped; the host keeps their place for a minute") : null,
 		chip(m.via === "cli" ? "CLI" : "App", m.via === "cli" ? "cli" : "app", m.via === "cli" ? "Playing from the command line" : "In the app"),
 		m.rttMs > 0 && !m.away ? chip(m.rttMs + " ms", "rtt", "Round trip to the host") : null,
-		chip(m.ready ? "Ready ✓" : "Not ready", m.ready ? "ready" : "notready"),
+		m.dolphinLabel ? chip(m.dolphinLabel, "dolphin " + m.dolphin, "Their Dolphin") : null,
+		playing && m.area ? chip(AREAS[m.area] || m.area, "area " + m.area, "About " + m.dist + " units from you") : null,
+		// The host's Start says they're ready: their row has no ready chip.
+		playing || m.host ? null : chip(m.ready ? "Ready ✓" : "Not ready", m.ready ? "ready" : "notready"),
 	);
 	const kick = m.canKick
 		? el("button", { type: "button", class: "kick", title: "Remove " + m.name, onclick: () => confirmKick(m) }, "Kick")
@@ -180,9 +190,8 @@ function render() {
 	const ph = $("phase");
 	ph.textContent = PHASES[st.phase] ?? st.phase;
 	ph.className = "phase" + (st.phase === "lobby" ? " lobby" : st.phase === "in game" ? " ingame" : "");
-	$("where").textContent = st.role === "Host"
-		? "Hosting as " + st.name
-		: "Joining " + ((info.showIPs ? st.addr : st.addrMasked) || "the host") + " as " + st.name;
+	const playing = !!(lobby && lobby.phase !== "lobby");
+	renderWhere(st, playing);
 	$("leave-btn").hidden = ended;
 
 	$("ended").hidden = !(ended && !left) || !!(st.dialog && st.dialog.home);
@@ -195,13 +204,18 @@ function render() {
 		$("banner-title").textContent = bn.title;
 		$("banner-text").textContent = bn.text;
 		$("banner-n").textContent = bn.attempts ? bn.attempts + (bn.attempts === 1 ? " try" : " tries") : "";
+		const act = $("banner-act");
+		act.hidden = !bn.action;
+		act.textContent = bn.actionLabel || "";
+		act.onclick = bn.action ? () => dialogAction(bn.action, null, st) : null;
+		$("banner").querySelector(".spin").hidden = bn.kind === "dolphin" && !!bn.action;
 	}
 
 	// Members: the lobby's, or a direct session's players.
 	const list = $("members");
 	list.replaceChildren();
 	if (lobby) {
-		$("members-title").textContent = "Lobby";
+		$("members-title").textContent = playing ? "Players" : "Lobby";
 		for (const m of lobby.members) list.append(memberRow(m, lobby));
 		if (!lobby.members.length) {
 			const n = lobby.link.attempts;
@@ -230,15 +244,22 @@ function render() {
 		if (document.activeElement !== hex) hex.value = custom ? self.color : "";
 		if (document.activeElement !== $("lobby-well")) $("lobby-well").value = self.color.toLowerCase();
 		const rb = $("ready-btn");
+		rb.hidden = !!lobby.host; // Start is the host's ready
 		rb.setAttribute("aria-pressed", String(self.ready));
 		rb.textContent = self.ready ? "Ready ✓" : "Ready";
 		rb.title = self.ready ? "Click when you're not ready after all" : "Tell the host you're ready";
+		$("self-dolphin").checked = !!st.startDolphinMyself;
 	}
 
-	// The host's panel.
-	const hosting = !!(lobby && lobby.host && !ended);
+	// The host's panel, until Start.
+	const hosting = !!(lobby && lobby.host && !ended && !playing);
 	$("host-panel").hidden = !hosting;
 	$("cols").classList.toggle("hosting", hosting);
+	// In game: the minimap beside the players.
+	const mapOn = playing && !ended && !!st.map;
+	$("map-panel").hidden = !mapOn;
+	$("cols").classList.toggle("ingame", mapOn);
+	if (mapOn) drawMap(st.map);
 	const home = hosting ? $("stack-left") : $("stack-right");
 	if ($("feed").parentElement !== home) {
 		home.append($("feed"));
@@ -246,10 +267,70 @@ function render() {
 	}
 	if (hosting) {
 		if (shared.session !== st.session) loadShare(st.session);
-		$("start-btn").disabled = !lobby.canStart;
+		const waiting = lobby.notReady || [];
+		$("start-btn").disabled = !lobby.canStart || waiting.length > 0;
+		$("start-anyway").hidden = !lobby.canStart || !waiting.length;
+		$("start-note").textContent = waiting.length
+			? "Waiting for " + waiting.join(", ") + " to be ready."
+			: "Everyone's ready. Start opens Dolphin for every player with their patched disc.";
 	}
 
 	syncDialog(st);
+}
+
+// renderWhere is the header's line: who you are and where. In game:
+// "You: ■ name · Hosting · 3 players · 24 ms" (design §2.7); IPs stay
+// masked unless the switch is on.
+function renderWhere(st, playing) {
+	const w = $("where");
+	if (!playing) {
+		w.textContent = st.role === "Host"
+			? "Hosting as " + st.name
+			: "Joining " + ((info.showIPs ? st.addr : st.addrMasked) || "the host") + " as " + st.name;
+		return;
+	}
+	const n = st.lobby ? st.lobby.members.length : 0;
+	const bits = [st.role === "Host" ? "Hosting" : "Joined " + ((info.showIPs ? st.addr : st.addrMasked) || "the host"),
+		n + (n === 1 ? " player" : " players")];
+	if (st.latencyMs > 0) bits.push(st.latencyMs + " ms");
+	w.replaceChildren("You: ", st.color ? el("i", { class: "me", style: "--c:" + st.color, title: "Your tunic" }) : "",
+		st.name + " · " + bits.join(" · "));
+}
+
+// drawMap draws the minimap (the TUI's, as a sea chart): you in the
+// middle, every other Link around you on the ground plane (+X right, +Z
+// down, as the TUI draws it). The scale fits the farthest player; one
+// off the chart sits on its edge. The dashed ring is "same area".
+const SVGNS = "http://www.w3.org/2000/svg";
+function svg(tag, attrs, text) {
+	const n = document.createElementNS(SVGNS, tag);
+	for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+	if (text !== undefined) n.textContent = text;
+	return n;
+}
+function drawMap(m) {
+	const kids = [svg("line", { class: "axis", x1: -100, y1: 0, x2: 100, y2: 0 }), svg("line", { class: "axis", x1: 0, y1: -100, x2: 0, y2: 100 })];
+	let far = 0;
+	for (const p of m.players) far = Math.max(far, Math.hypot(p.dx, p.dz));
+	const range = Math.min(40000, Math.max(400, far * 1.4)); // world units from the center to the edge
+	const k = 95 / range;
+	if (m.units < range) kids.push(svg("circle", { class: "ring", cx: 0, cy: 0, r: m.units * k }));
+	for (const p of m.players) {
+		let x = p.dx * k, y = p.dz * k;
+		const d = Math.hypot(x, y);
+		if (d > 95) { x *= 95 / d; y *= 95 / d; }
+		kids.push(svg("circle", { class: "dot", cx: x, cy: y, r: 7, fill: p.color || "#3c9e2e" }));
+		kids.push(svg("text", { x: x + 10, y: y + 4 }, p.name));
+	}
+	kids.push(svg("circle", { class: "dot self", cx: 0, cy: 0, r: 8, fill: m.color || "#3c9e2e" }));
+	kids.push(svg("text", { x: 0, y: 24, "text-anchor": "middle" }, "You"));
+	$("map").replaceChildren(...kids);
+	$("map-note").textContent = !m.selfOk
+		? "Your position shows once your Link is in the world."
+		: m.players.length
+			? "The chart spans about " + Math.round(range).toLocaleString() + " units from you." +
+				(m.units < range ? " Inside the dashed ring is the same area." : " Everyone on it is in your area.")
+			: "Nobody else is in the world yet.";
 }
 
 // ---------- the host's share card ----------
@@ -303,14 +384,15 @@ function syncDialog(st) {
 		if (open === d.key) {
 			setDialogText(d.text, d.detail || ""); // masked again, if the switch went off
 		} else {
+			if (d.live) liveDialogs.add(d.key);
 			openDialog({
 				key: d.key, title: d.title, text: d.text, detail: d.detail || "",
 				onClose: () => closedDialogs.add(d.key),
 				actions: d.actions.map((a) => ({ label: a.label, primary: a.primary, run: () => dialogAction(a.id, d, st) })),
 			});
 		}
-	} else if (open && open.endsWith(":unreachable") && (!d || d.key !== open)) {
-		closeDialog(); // reached the host after all
+	} else if (open && liveDialogs.has(open) && (!d || d.key !== open)) {
+		closeDialog(); // reached the host after all, or Dolphin runs the right disc now
 	}
 }
 
@@ -355,6 +437,16 @@ async function dialogAction(id, d, st) {
 			break;
 		case "leave":
 			leave();
+			break;
+		case "setup":
+			openSetup();
+			break;
+		case "launch":
+			try {
+				await call("LaunchDolphin");
+			} catch (e) {
+				toast(e.message, { bad: true });
+			}
 			break;
 	}
 }
@@ -538,6 +630,31 @@ function wire() {
 			toast(e.message, { bad: true });
 		}
 	});
+	const startGame = async (anyway) => {
+		$("start-btn").disabled = true;
+		try {
+			await call("Start", anyway);
+		} catch (e) {
+			toast(e.message, { bad: true });
+		}
+		refresh();
+	};
+	$("start-btn").addEventListener("click", () => startGame(false));
+	$("start-anyway").addEventListener("click", () => {
+		const waiting = (state && state.lobby && state.lobby.notReady) || [];
+		openDialog({
+			title: "Start anyway?",
+			text: waiting.join(", ") + (waiting.length === 1 ? " isn't" : " aren't") + " ready yet. Start opens everyone's Dolphin now.",
+			actions: [{ label: "Start", primary: true, run: () => startGame(true) }, { label: "Cancel" }],
+		});
+	});
+	$("self-dolphin").addEventListener("change", async () => {
+		try {
+			await call("SetStartDolphinMyself", $("self-dolphin").checked);
+		} catch (e) {
+			toast(e.message, { bad: true });
+		}
+	});
 	$("ready-btn").addEventListener("click", async () => {
 		const pressed = $("ready-btn").getAttribute("aria-pressed") === "true";
 		try {
@@ -587,7 +704,9 @@ async function main() {
 	wire();
 	onEvent(onEv);
 	const setup = initSetup({
-		info, show,
+		info,
+		// Setup opened from a running session goes back to it.
+		show: (v) => show(v === "home" && state && state.running ? "session" : v),
 		// The setup saved or finished: Home starts from what it saved.
 		onSaved: async () => {
 			info = await call("Info");

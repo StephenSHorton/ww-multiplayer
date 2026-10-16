@@ -25,6 +25,7 @@ type fakeLobby struct {
 	cmds      []LobbyCommand
 	joined    int                // direct Join calls
 	joinColor *playercolor.Color // the Color the last direct Join got
+	launches  int                // LaunchDolphin calls
 }
 
 func newFakeLobby() *fakeLobby {
@@ -58,6 +59,13 @@ func (e *fakeLobby) Lobby(cmd LobbyCommand) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.cmds = append(e.cmds, cmd)
+	return nil
+}
+
+func (e *fakeLobby) LaunchDolphin() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.launches++
 	return nil
 }
 

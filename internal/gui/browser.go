@@ -48,6 +48,8 @@ var browserMethods = map[string]bool{
 	"Kick": true, "Retry": true, "ShareAddrs": true,
 	// The header's "Show IP addresses" switch.
 	"SetShowIPs": true,
+	// Start → Dolphin → in game (App PR 8).
+	"Start": true, "SetStartDolphinMyself": true, "LaunchDolphin": true,
 }
 
 // windowOnly are the Bridge methods only the window has: PickFile opens a

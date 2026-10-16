@@ -71,6 +71,7 @@ type Bridge struct {
 	patchRun   func(ctx context.Context, in, out string, w io.Writer, o patch.Options) (patch.Result, error)
 	inspect    func(string) (patch.DiscState, error)
 	denv       func() dolphinenv.Env
+	procs      func() []dolphinenv.Process // the running Dolphins (Start's check)
 	home       func() string
 	macStatus  func() (dolphinenv.MacState, dolphinenv.MacFacts, error)
 	prepareMac func(report.Reporter) error
@@ -128,6 +129,7 @@ func NewBridge(o Options) *Bridge {
 	if b.denv == nil {
 		b.denv = dolphinenv.Host
 	}
+	b.procs = dolphinenv.Processes
 	b.ctx, b.cancel = context.WithCancel(context.Background())
 	if b.cfgPath == "" {
 		if p, err := config.Path(); err == nil {
@@ -171,7 +173,9 @@ func (b *Bridge) State() StateView {
 	st := b.ctrl.Snapshot()
 	running := st.Session != 0 && st.Phase != session.Ended && st.Phase != session.Idle
 	b.noteReached(st)
-	return stateView(st, running, b.version, b.now(), b.masker())
+	v := stateView(st, running, b.version, b.now(), b.masker())
+	v.StartDolphinMyself = b.launchOptions().Manual
+	return v
 }
 
 // masker is how the window shows IP addresses now: masked, unless the
@@ -239,7 +243,7 @@ func (b *Bridge) Host(r HostRequest) (err error) {
 		port = config.DefaultPort
 	}
 	listen := strings.TrimSpace(b.getenv(EnvListenHost))
-	if _, err := b.ctrl.HostLobby(b.ctx, session.HostOptions{Name: name, Color: col, Port: port, ListenHost: listen}); err != nil {
+	if _, err := b.ctrl.HostLobby(b.ctx, session.HostOptions{Name: name, Color: col, Port: port, ListenHost: listen, LaunchFn: b.launchOptions}); err != nil {
 		return err
 	}
 	b.sessMu.Lock()
@@ -275,7 +279,7 @@ func (b *Bridge) Join(r JoinRequest) (err error) {
 	if err != nil {
 		return err
 	}
-	id, err := b.ctrl.JoinLobby(b.ctx, session.JoinOptions{Addr: addr, Name: name, Color: col})
+	id, err := b.ctrl.JoinLobby(b.ctx, session.JoinOptions{Addr: addr, Name: name, Color: col, LaunchFn: b.launchOptions})
 	if err != nil {
 		return err
 	}

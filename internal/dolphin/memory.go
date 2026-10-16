@@ -258,3 +258,50 @@ type region struct {
 	base uintptr
 	size uintptr
 }
+
+// gcDiscMagic is the GameCube disc magic word at offset 0x1C of the disc
+// header, which the boot copies to 0x80000000 with the game ID.
+const gcDiscMagic = 0xC2339F3D
+
+// DiscID returns the game ID of the GameCube disc Dolphin process pid
+// runs ("GZLE01"), read from the start of its emulated RAM: "" when it
+// runs no game (Dolphin is open at its game list, or still booting). The
+// error is for a process that can't be opened (it has exited, say).
+func DiscID(pid uint32) (string, error) {
+	h, err := openProc(pid)
+	if err != nil {
+		return "", fmt.Errorf("failed to open dolphin process (pid %d): %w", pid, err)
+	}
+	defer closeProc(h)
+	regions, err := walkRegions(h)
+	if err != nil {
+		return "", fmt.Errorf("enumerate regions: %w", err)
+	}
+	hdr := make([]byte, 0x20)
+	for _, r := range regions {
+		if r.size < 0x1800000 {
+			continue
+		}
+		if err := readProc(h, r.base, hdr); err != nil {
+			continue
+		}
+		if id, ok := discID(hdr); ok {
+			return id, nil
+		}
+	}
+	return "", nil
+}
+
+// discID reads a disc header's first 0x20 bytes: the game ID when the GC
+// magic is there and the ID is six letters and digits.
+func discID(hdr []byte) (string, bool) {
+	if len(hdr) < 0x20 || binary.BigEndian.Uint32(hdr[0x1C:]) != gcDiscMagic {
+		return "", false
+	}
+	for _, c := range hdr[:6] {
+		if !(c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
+			return "", false
+		}
+	}
+	return string(hdr[:6]), true
+}

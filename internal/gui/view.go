@@ -60,7 +60,15 @@ type MemberView struct {
 	Via       string `json:"via"`
 	Away      bool   `json:"away"`
 	Dolphin   string `json:"dolphin"`
-	RTTMs     int64  `json:"rttMs"`
+	// DolphinLabel is the Dolphin chip's text ("" for none: a CLI
+	// player's row before its first pose).
+	DolphinLabel string `json:"dolphinLabel"`
+	// Area is "near" (same area), "far" or "" (unknown, or this player)
+	// once in game, from the pose positions; Dist is the distance in
+	// world units.
+	Area  string `json:"area"`
+	Dist  int    `json:"dist"`
+	RTTMs int64  `json:"rttMs"`
 	// CanKick: we host, and the row isn't ours.
 	CanKick bool `json:"canKick"`
 }
@@ -76,9 +84,11 @@ type LobbyView struct {
 	// design PR 9).
 	Coop string   `json:"coop"`
 	Link LinkView `json:"link"`
-	// CanStart says the host's Start button works. Starting the game
-	// from the app is design PR 8, so it is false for now.
-	CanStart bool `json:"canStart"`
+	// CanStart says the host's Start button works (we host, in the
+	// lobby phase); NotReady names who isn't ready yet: Start waits for
+	// them, "Start anyway" doesn't.
+	CanStart bool     `json:"canStart"`
+	NotReady []string `json:"notReady"`
 }
 
 // PlayerView is one other player of a running session (Live.Players).
@@ -111,6 +121,16 @@ type StateView struct {
 	Banner *BannerView `json:"banner"`
 	// ShowIPs is the switch this view was masked under (InfoView.ShowIPs).
 	ShowIPs bool `json:"showIPs"`
+	// Dolphin is this player's Dolphin once the host pressed Start.
+	Dolphin GameDolphinView `json:"dolphin"`
+	// Map is the Session screen's minimap; nil outside a lobby session.
+	Map *MapView `json:"map"`
+	// Color is this player's tunic color ("#RRGGBB", from its lobby row;
+	// "" while unknown).
+	Color string `json:"color"`
+	// StartDolphinMyself is the saved "I'll start Dolphin myself"
+	// (Bridge.SetStartDolphinMyself).
+	StartDolphinMyself bool `json:"startDolphinMyself"`
 }
 
 // EventView is one controller event. Kind is one of the eventKinds values.
@@ -212,23 +232,47 @@ func stateView(st session.State, running bool, version string, now time.Time, mk
 		if lv.Coop == "" {
 			lv.Coop = "off"
 		}
+		lv.CanStart = canStart(l, running)
+		lv.NotReady = []string{}
+		for _, m := range l.NotReady() {
+			lv.NotReady = append(lv.NotReady, mk.text(m.Name))
+		}
 		for _, m := range l.Members {
 			self := m.ID == l.Member && m.Via == session.ViaApp
 			name := m.Name
 			if !self {
 				name = mk.text(name)
 			}
-			lv.Members = append(lv.Members, MemberView{
+			mv := MemberView{
 				ID: m.ID, Name: name, Color: m.Color.Hex(), ColorName: colorName(m.Color),
 				Ready: m.Ready, Host: m.Host, Self: self,
-				Via: m.Via, Away: m.Away, Dolphin: m.Dolphin, RTTMs: ms(m.RTT),
+				Via: m.Via, Away: m.Away, Dolphin: m.Dolphin, DolphinLabel: dolphinLabel(m.Dolphin), RTTMs: ms(m.RTT),
 				CanKick: l.Host && !self && running,
-			})
+			}
+			if self {
+				v.Color = mv.Color
+				if st.Dolphin.State != "" { // ours is fresher than the lobby's echo of it
+					mv.Dolphin, mv.DolphinLabel = string(st.Dolphin.State), dolphinLabel(string(st.Dolphin.State))
+				}
+			} else {
+				mv.Area, mv.Dist = area(st, m.Name)
+			}
+			lv.Members = append(lv.Members, mv)
 		}
 		v.Lobby = lv
+		if !l.Legacy {
+			v.Map = mapView(st, v.Color, mk)
+		}
 	}
+	v.Dolphin = dolphinView(st.Dolphin, mk)
 	v.Dialog = dialogFor(st, running, version, mk)
+	if v.Dialog == nil {
+		v.Dialog = gameDialog(st, running, mk)
+	}
 	v.Banner = bannerFor(st, running, now)
+	if v.Banner == nil {
+		v.Banner = dolphinBanner(st, running)
+	}
 	return v
 }
 

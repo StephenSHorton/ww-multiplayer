@@ -201,7 +201,10 @@ func TestStateViewLobby(t *testing.T) {
 			}}}
 	v := stateView(st, true, "v1", time.Now(), hideIPs)
 	l := v.Lobby
-	if v.Phase != "lobby" || l == nil || !l.Host || l.Coop != "off" || l.CanStart || l.Link.State != "up" || len(l.Members) != 3 {
+	// We host the gathering lobby: Start works, and waits for Medli (away,
+	// not ready); Tetra (CLI) is ready, and our own flag isn't asked for.
+	if v.Phase != "lobby" || l == nil || !l.Host || l.Coop != "off" || !l.CanStart || l.Link.State != "up" || len(l.Members) != 3 ||
+		len(l.NotReady) != 1 || l.NotReady[0] != "Medli" {
 		t.Fatalf("view = %+v, lobby %+v", v, l)
 	}
 	me, medli, tetra := l.Members[0], l.Members[1], l.Members[2]

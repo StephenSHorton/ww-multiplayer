@@ -41,7 +41,7 @@
 			<div class="field">
 				<span>Tunic color</span>
 				<div class="swatches" id="home-swatches" role="radiogroup" aria-label="Tunic color"></div>
-				<small class="hint">Your Link wears this tunic color in game. Starting the game from this window comes in a later update.</small>
+				<small class="hint">Your Link wears this tunic color in game. When the host presses Start, this window starts Dolphin with your patched disc.</small>
 			</div>
 		</div>
 		<div class="pair">
@@ -223,6 +223,7 @@
 			<span class="spin" aria-hidden="true"></span>
 			<div><b id="banner-title"></b> <span id="banner-text"></span></div>
 			<small id="banner-n"></small>
+			<button class="btn small" type="button" id="banner-act" hidden></button>
 		</div>
 		<div class="ended panel" id="ended" hidden>
 			<h2>Session ended</h2>
@@ -249,7 +250,17 @@
 							</div>
 							<button class="btn ready" type="button" id="ready-btn" aria-pressed="false">Ready</button>
 						</div>
+						<label class="check" title="Start Dolphin with your patched disc yourself; the app then plays on it once it runs">
+							<input type="checkbox" id="self-dolphin">
+							<span>I'll start Dolphin myself</span>
+						</label>
 					</div>
+				</div>
+				<!-- in game: where everyone is, around you (the TUI's minimap) -->
+				<div class="panel mappanel" id="map-panel" hidden>
+					<h2>Map</h2>
+					<svg class="map" id="map" viewBox="-110 -110 220 220" role="img" aria-label="Where the other players are, around you"></svg>
+					<small class="hint" id="map-note"></small>
 				</div>
 			</div>
 			<div class="stack" id="stack-right">
@@ -267,7 +278,8 @@
 						</div>
 						<button class="btn primary" type="button" id="start-btn" disabled aria-describedby="start-note">Start</button>
 					</div>
-					<small class="hint" id="start-note">Start comes in the next update; co-op worlds after that.</small>
+					<small class="hint" id="start-note"></small>
+					<button class="linkbtn" type="button" id="start-anyway" hidden>Start anyway</button>
 				</div>
 				<!-- chat: beside the lobby, or under it while the host's panel takes the right -->
 				<div class="panel feed" id="feed">
