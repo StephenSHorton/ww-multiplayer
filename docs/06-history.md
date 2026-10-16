@@ -1802,3 +1802,42 @@ The full loop, current as of this session:
 6. Delete `%APPDATA%/Dolphin Emulator/Cache/gamelist.cache` (if present) and restart Dolphin
 7. Boot the patched ISO — **no Gecko codes / Dolphin patches enabled** (they fight the DOL)
 8. `./ww-multiplayer.exe dump` to verify: mailbox counter at `0x80410F00` increments, T2 code at `0x80410000` is intact, main01 hook at `0x80006338` shows `0x484XXXXX` (a `bl`)
+
+---
+
+## 2026-10-15: mini-Link's head under casual clothes
+
+**Symptom (issue #43):** with the local Link in casual clothes, the
+remote mini-Link has no back of the head. In the hero's clothes the
+hat covers it, so it went unseen during development.
+
+**Cause:** mini-Link shares Link #1's `J3DModelData` and so its shape
+hide flags. `daPy_lk_c::drawShadow` runs at the end of `draw`
+(`d_a_player_main.cpp:2024`) and in casual clothes hides link_root
+material 4, the hat (`:1566-1573`), after the body restore. It stays
+hidden until the next frame's draw (`:1749-1755`), so mini-Link,
+entered right after `draw` returns, drops the hat. Link fills the back
+of the head with `mpKatsuraModel` hair, which mini-Link never draws.
+See docs/05, "Shared shape hide flags".
+
+**Fix:** `mini_link_entry_dl` in `inject/src/multiplayer.c` wraps the
+three mini-Link `mDoExt_modelEntryDL` calls: it shows the hidden
+link_root materials, enters the model and hides them again. Stephen's
+first version showed every shape on every joint (except eye and
+eyebrow) and kept a 64-entry static save table. This version touches
+link_root only, so mini-Link still mirrors the scabbard and hands, and
+it keeps the shown set in a 32-bit mask on the stack instead of 0x204
+bytes of static data, since T2 had only 0x258 bytes free at the time
+(docs/08 §4.5). Rebased onto the F18 heap-leak fix (#64), where
+mini-Link's models are created once and the draw hook skips its
+submission while Link is not ready, the wrapper only runs past that
+gate, so `mini_link_data` is always Link's live `mpCLModelData`. T2
+grows from 0x2BE8 to 0x2CE8 bytes (devkitPPC 16.2) and ends at
+`0x80412CE8`, 0x218 bytes below the mailbox.
+
+**Still to check live:** `blob.go` is regenerated; re-patch the ISO,
+refresh `saves/start.sav` with `auto-recapture`, and check mini-Link
+from behind with the local Link in casual and in hero's clothes.
+
+**Follow-ups:** draw katsura hair on mini-Link instead of the hat, and
+sync each player's outfit (epic #24).

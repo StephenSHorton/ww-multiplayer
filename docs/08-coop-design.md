@@ -276,7 +276,7 @@ So a write made right after the heartbeat lands in the rest of the main loop or 
 
 Ring entries carry `seq` plus an XOR check byte.
 
-**Size.** A clang-18 `powerpc-unknown-eabi` sketch of items 1, 3 and 5 with GRANT and ADD_S16 measured **0x3F0 bytes of .text at -Os and 0x50C at -O2** (`scratchpad/coop/hostauth-sketch/coop_world.c`). With the isActor shim and the full op set the estimate is about 0x700 (inferred). devkitPPC gcc will differ. This does not fit today's 0x258-byte gap, so §4.5 applies.
+**Size.** A clang-18 `powerpc-unknown-eabi` sketch of items 1, 3 and 5 with GRANT and ADD_S16 measured **0x3F0 bytes of .text at -Os and 0x50C at -O2** (`scratchpad/coop/hostauth-sketch/coop_world.c`). With the isActor shim and the full op set the estimate is about 0x700 (inferred). devkitPPC gcc will differ. This does not fit today's 0x218-byte gap, so §4.5 applies.
 
 **Not in v1.0.** Entry hooks on the `dSv_*` setters, which need displaced-instruction trampolines. If they are ever needed, fill the displaced first instruction at patch time from the user's vanilla DOL, using marker words, PC-relative and r12/ctr checks, and a CRC. No game bytes would then ship in `blob.go`.
 
@@ -327,8 +327,8 @@ Current layout (`inject/build.py:109,142-145`; `mailbox.h:33`; `internal/inject/
 | 0x803FCFA8..0x8040CFA8 | main stack (grows down; `OSClearStack` zeroes stack_end+4..SP, `OSThread.c:924-933`) | 64 KB |
 | 0x8040CFA8..0x8040CFB0 | frame header above the stack top, **in use**: `__start` calls the nofralloc `__init_hardware` with r1 = `_stack_addr`, so `__OSPSInit` and `__OSCacheInit` save LR at 4(r1) = 0x8040CFAC, which keeps 0x8000336C on every booted game (`__start.c:21-23,125-126,173-183`; `OS.c:623-624`; `OSCache.c:446`; `__init_hardware` 0x80003354, sym:5) | 8 |
 | 0x8040CFB0..0x80410000 | MetroTRK debug stack plus padding; `InitMetroTRK` runs only if a 32-bit word is 2 or 3: the word at +0xC of the block pointed to by 0x800000F4, or, when that pointer is 0 and 0x80000034 is non-zero, the word at 0x800030E8 (`__start.c:32-62`); free by inference | 0x3050 |
-| 0x80410000..0x80412CA8 | T2 (code and data) | 0x2CA8 |
-| 0x80412CA8..0x80412F00 | free, unchecked | **0x258** |
+| 0x80410000..0x80412CE8 | T2 (code and data) | 0x2CE8 |
+| 0x80412CE8..0x80412F00 | free, unchecked | **0x218** |
 | 0x80412F00..0x80413080 | mailbox (`frame_shim` hard-codes `lwz 12,0x2F08(12)`, `multiplayer.c:297`; the Go `mailboxBase` const in `main.go`) | 0x180 |
 | 0x80413080..0x80414000 | unused, below arena | 0xF80 |
 | 0x80414000 | patched `__OSArenaLo` (`addi r3,r3,0x4000` at 0x80301820) | — |
@@ -1186,7 +1186,7 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 | heap ptrs zelda / game / archive | 0x803F6928 / 0x803F6920 / 0x803F6938 | 4 each | sym:18588-18594 |
 | heap error counters zelda / game / archive | 0x803F68FC / 0x803F68F8 / 0x803F6904 | 4 each | sym:18577-18580 |
 | actor fields | mBsPcId +0x04, mProcName +0x08, mParameters +0xB0, actor_type +0xC0, eventInfo.mCommand +0xF8, setID +0x1BC, group +0x1BE, actor_status +0x1C4, home.pos +0x1D0, home.roomNo +0x1E2, health +0x285 | fopAc_ac_c 0x290 | f_pc_base.h:13-32; f_op_actor.h:268-321 |
-| mod T2 / mailbox / patched arenaLo | 0x80410000..0x80412CA8 / 0x80412F00..0x80413080 / 0x80414000 | — | inject/build.py:109,142-145; mailbox.h:33 |
+| mod T2 / mailbox / patched arenaLo | 0x80410000..0x80412CE8 / 0x80412F00..0x80413080 / 0x80414000 | — | inject/build.py:109,142-145; mailbox.h:33 |
 | `spawn_trigger` (heartbeat) / `warp_seq` | 0x80412F00 / 0x80412FC8 | 4 / 4 | mailbox.h:109,221 |
 
 **Functions**
