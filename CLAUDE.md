@@ -18,7 +18,7 @@ Wind Waker disc image). Releases are cut on tag push via GitHub Actions.
 
 ```
 ww-multiplayer/
-├── main.go                      # Entry point: TUI + all CLI subcommands
+├── main.go                      # Entry point: all CLI subcommands (app_face.go: no args = app window, `tui`, `ui --browser`)
 ├── internal/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
@@ -27,6 +27,7 @@ ww-multiplayer/
 │   │   ├── inject.go            # LEGACY runtime injection (vestigial; superseded by inject/ patched-ISO approach)
 │   │   ├── inject_code.go       # LEGACY PPC blob (vestigial)
 │   │   └── helpers.go
+│   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; Bridge = the JS API; `ui --browser` server
 │   ├── dolphinenv/              # Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare step (dolphin2, auto-recapture)
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
 │   │   ├── blob.go              # AUTO-GENERATED via scripts/extract_blob.py
@@ -40,7 +41,7 @@ ww-multiplayer/
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors)
 │   ├── report/                  # Reporter interface (Stdout / Discard / Multi)
 │   │   └── report.go, multi.go
-│   ├── session/                 # UI-free session controller the CLI host/join and the TUI drive (docs/01-architecture.md)
+│   ├── session/                 # UI-free session controller the CLI host/join, the TUI and the GUI drive (docs/01-architecture.md)
 │   │   └── session.go, controller.go, event.go, coop.go
 │   └── tui/                     # Charm Bubble Tea UI (resurrected v0.1.5)
 │       ├── app.go, splash.go, connect.go, dashboard.go, styles.go
@@ -64,11 +65,15 @@ ww-multiplayer/
 ## Commands
 
 ```bash
-# Build
+# Build (CLI + TUI only; no-args opens the TUI)
 go build -o ww-multiplayer.exe .
+# Build with the app window, as releases do (Windows needs no cgo; cross-builds from Linux with CGO_ENABLED=0)
+go build -tags desktop,production -o ww-multiplayer.exe .
 
 # End-user entry points
-./ww-multiplayer.exe                                    # Launch TUI (host or join)
+./ww-multiplayer.exe                                    # Open the app window (the TUI in a build without -tags desktop,production)
+./ww-multiplayer.exe tui                                # Launch TUI (host or join)
+./ww-multiplayer.exe ui --browser [--port N] [--no-open] # Serve the app's UI on 127.0.0.1 to a browser (dev/tests; Ctrl+C stops)
 ./ww-multiplayer.exe patch <iso|ciso> [out.iso]         # Splice mod into user's own vanilla WW ISO
 
 # Multiplayer runtime CLIs (used by scripts/mplay2.sh)
