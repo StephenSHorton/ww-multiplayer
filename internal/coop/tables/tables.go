@@ -42,7 +42,7 @@ import (
 // binary wrote is rebuilt (the cache also records the binary's version,
 // builderID, which catches a release that forgets). TestSchemaShape fails
 // when the JSON shape changes and this has not been bumped.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 // Source is the disc Build reads: *inject.Disc satisfies it. Build calls
 // Stat and ReadFile from several goroutines at once (stagedata.FileSource).
@@ -97,9 +97,10 @@ type Tables struct {
 	Schema  int    `json:"schema"`
 	Builder string `json:"builder"` // the binary that built it (builderID)
 	ID
-	Stages   int                 `json:"stages"`            // stage directories read
-	Rooms    int                 `json:"rooms"`             // room archives read
-	Skipped  []stagedata.Skipped `json:"skipped,omitempty"` // stages the play scene can't load, left out (stagedata.Load)
+	Stages   int                 `json:"stages"`             // stage directories read and built from
+	Rooms    int                 `json:"rooms"`              // their room archives
+	Skipped  []stagedata.Skipped `json:"skipped,omitempty"`  // stages the play scene can't load, left out (stagedata.Load)
+	Excluded []stagedata.Skipped `json:"excluded,omitempty"` // stages on save table 15 (STAGE_TEST, d_save.h:904), left out (playable)
 	Keys     *keys.Result        `json:"keys,omitempty"`
 	Hearts   *hearts.Result      `json:"hearts,omitempty"`
 	Switches *switches.Table     `json:"switches,omitempty"`
@@ -109,7 +110,7 @@ type Tables struct {
 // Only returns a copy of t holding section s alone (the other pointers
 // nil), for printing one section's JSON. The section's table is shared.
 func (t *Tables) Only(s Section) *Tables {
-	o := &Tables{Schema: t.Schema, Builder: t.Builder, ID: t.ID, Stages: t.Stages, Rooms: t.Rooms, Skipped: t.Skipped}
+	o := &Tables{Schema: t.Schema, Builder: t.Builder, ID: t.ID, Stages: t.Stages, Rooms: t.Rooms, Skipped: t.Skipped, Excluded: t.Excluded}
 	switch s {
 	case SectionKeys:
 		o.Keys = t.Keys
@@ -156,8 +157,8 @@ type Stats struct {
 // Build reads src and builds every table. It fails when main.dol is not
 // the GZLE01 DOL (no l_objectName at 0x80372818), when a stage archive
 // can't be read or parsed (stagedata.Load), and when the disc has no
-// stages at all; what a builder can't account for is a problem in its
-// table instead.
+// stages at all outside save table 15 (playable); what a builder can't
+// account for is a problem in its table instead.
 func Build(src Source) (*Tables, error) {
 	id, dol, err := identify(src)
 	if err != nil {
@@ -222,10 +223,15 @@ func build(src Source, dol []byte, id ID, st *Stats) (*Tables, error) {
 		}
 		return nil, errors.New("tables: the disc has no stages (no " + stagedata.StageRoot + "/<stage>/Stage.arc)")
 	}
+	stages, excluded := playable(stages)
+	if len(stages) == 0 {
+		return nil, fmt.Errorf("tables: the disc has no stages the play scene can load outside save table %d (%d left out, %d on STAGE_TEST)",
+			tableTest, len(skipped), len(excluded))
+	}
 
 	// The builders only read the stages and names, so they run at once.
 	start = time.Now()
-	t := &Tables{Schema: SchemaVersion, Builder: builderID(), ID: id, Stages: len(stages), Skipped: skipped}
+	t := &Tables{Schema: SchemaVersion, Builder: builderID(), ID: id, Stages: len(stages), Skipped: skipped, Excluded: excluded}
 	for _, s := range stages {
 		t.Rooms += len(s.Rooms)
 	}
@@ -240,6 +246,39 @@ func build(src Source, dol []byte, id ID, st *Stats) (*Tables, error) {
 		return nil, err
 	}
 	return t, nil
+}
+
+// tableTest is save table 15, dSv_save_c::STAGE_TEST (d_save.h:904).
+const tableTest = 0xF
+
+// whyTest is why playable leaves a stage out (Tables.Excluded's Why).
+const whyTest = "save table 15 (STAGE_TEST): a developer test stage"
+
+// playable returns stages without those on save table 15, STAGE_TEST,
+// and those as excluded, in order. A stage's table is its STAG's
+// (dStage_stagInfo_GetSaveTbl, d_stage.h:1027; d_stage.cpp:1674, :2255).
+// The stages on it are the developer's test stages, which no retail exit
+// leads to; the debug map select lists most of them (res/Menu/Menu1.dat,
+// loaded at d_s_menu.cpp:314). On the owner's disc no stage on another
+// table has an SCLS exit into one except A_umikz's leftover entries 0 and
+// 1 to I_TestM (A_umikz holds no door or scene-change actor), and the
+// only test stage the decomp's code names, K_Testb, is only compared with
+// the next stage (d_a_npc_mn.cpp:209-220, :1619-1629). Their pieces,
+// containers, keys, switches and enemies would only add to the tables
+// what no player meets (docs/08-coop-design.md Appendix C item 137).
+//
+// This is not stagedata.Load's Skipped: the play scene can load these
+// stages (the map select does), so they are left out here, by rule. A
+// nil stage passes through, as the builders skip it.
+func playable(stages []*stagedata.Stage) (kept []*stagedata.Stage, excluded []stagedata.Skipped) {
+	for _, s := range stages {
+		if s != nil && s.SaveTable == tableTest {
+			excluded = append(excluded, stagedata.Skipped{Name: s.Name, Why: whyTest})
+			continue
+		}
+		kept = append(kept, s)
+	}
+	return kept, excluded
 }
 
 // builder is one section's builder.

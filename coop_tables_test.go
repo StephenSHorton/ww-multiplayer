@@ -99,10 +99,11 @@ func TestCoopTables(t *testing.T) {
 	if status != "" || rep != built.Report() {
 		t.Errorf("first run: status %q; report\n%s\nwant\n%s", status, rep, built.Report())
 	}
-	// 24 archives: the 11 stages' Stage.arc, their 12 rooms, and the
-	// skipped Name stage's Stage.arc.
+	// 27 archives: the 12 stages' Stage.arc, their 12 rooms, the skipped
+	// Name stage's Stage.arc, and the excluded K_Test2's Stage.arc and
+	// room.
 	for _, s := range []string{"coop-tables: " + iso + "\n", "built from the disc in ", "(M1 target: under 5.00 s)",
-		"24 stage archives", "cache: no cache file yet; saved to " + cacheFile} {
+		"27 stage archives", "cache: no cache file yet; saved to " + cacheFile} {
 		if !strings.Contains(head, s) {
 			t.Errorf("first run's status lacks %q:\n%s", s, head)
 		}

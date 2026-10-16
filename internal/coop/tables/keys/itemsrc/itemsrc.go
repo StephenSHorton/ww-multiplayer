@@ -44,6 +44,7 @@ const (
 	ProcSwItem       stagedata.Proc = 0x139 // fpcNm_SW_ITEM_e, f_pc_name.h:325; "ITat00" (d_stage.cpp:634)
 	ProcSalvage      stagedata.Proc = 0x194 // fpcNm_Salvage_e, f_pc_name.h:416; "Salvage", "SwSlvg" etc. (d_stage.cpp:535-540)
 	ProcSalvageChest stagedata.Proc = 0x195 // fpcNm_SALVAGE_TBOX_e, f_pc_name.h:417; "STBox" (d_stage.cpp:1234)
+	ProcTagKbItem    stagedata.Proc = 0x1A4 // fpcNm_TAG_KB_ITEM_e, f_pc_name.h:432; "TagKb" (d_stage.cpp:583)
 	ProcTsubo        stagedata.Proc = 0x1CB // fpcNm_TSUBO_e, f_pc_name.h:471; pots, jugs, skulls "kotubo" etc. (d_stage.cpp:519-530)
 	ProcStone        stagedata.Proc = 0x1CC // fpcNm_STONE_e, f_pc_name.h:472; "koisi1", "koisi2" (d_stage.cpp:532-533)
 	ProcStone2       stagedata.Proc = 0x1CD // fpcNm_Stone2_e, f_pc_name.h:473; "Ebrock", "Ekao", "Ebrock2" (d_stage.cpp:654-656)
@@ -82,6 +83,7 @@ const (
 	Ospbox       Kind = "ospbox"        // Obj_Ospbox
 	Beamos       Kind = "beamos"        // Bemos: the enemy drops it when destroyed
 	SwitchItem   Kind = "switch_item"   // SW_ITEM
+	Dig          Kind = "dig"           // TAG_KB_ITEM: a spot a pig digs up
 )
 
 // FlagKind is what records that a placement's item was taken.
@@ -121,8 +123,10 @@ const (
 	// asserts as the item is created (dSv_info_c::isItem, d_save.cpp:
 	// 1651-1652, through fopAcM_isItem, f_op_actor_mng.h:400-402) or
 	// dropped (fopAcM_createItemFromTable and
-	// fopAcM_createRaceItemFromTable, f_op_actor_mng.cpp:806, :903), and
-	// so halts (see Halts). Not kept.
+	// fopAcM_createRaceItemFromTable, f_op_actor_mng.cpp:806, :903), or a
+	// dig spot's bit byte 0x80-0xFE, a negative s8 that the same isItem
+	// asserts against as the spot is created (d_a_tag_kb_item.cpp:11,
+	// :42), and so halts (see Halts). Not kept.
 	BadFlag FlagKind = "bad"
 	// HaltFlag is a salvage point's ocean bit Bit of grid Room past what
 	// dSv_ocean_c holds, grids 0-0x31 of bits 0-15: isOceanSvBit and
@@ -423,6 +427,47 @@ var decoders = map[stagedata.Proc]decoder{
 	// same way (d_a_obj_barrel2.h:52-57, :99-104; d_a_obj_barrel2.cpp:
 	// 273-281; f_op_actor_mng.cpp:902-920).
 	ProcBarrel2: fromTable(Barrel, 0, 16),
+
+	// A pig's dig spot holds item prm & 0xFF and item bit (prm >> 8) &
+	// 0xFF; (prm >> 16) & 0xFF is an enemy kind and prm >> 24 a switch
+	// (daTagKbItem_prm, d_a_tag_kb_item.cpp:9-13). When a pig (fpcNm_KB_e)
+	// digs it (d_a_kb.cpp:1995-1997, kb_dig, d_com_static.cpp:381-386),
+	// dig_main creates that item, unless it is none, with
+	// fopAcM_fastCreateItem and the bit (d_com_static.cpp:389-449, :408,
+	// :413, :420-423), which packs it as a byte into the item's parameters
+	// (f_op_actor_mng.cpp:1072-1076): the field item then keeps bit & 0x7F
+	// and is never created again once that bit is set (_daItem_create,
+	// d_a_item.cpp:227-233), except Blue Chu Jelly, as for FieldItem. The
+	// spot is not created either once its bit is set, unless the bit is
+	// 0x1F (d_a_tag_kb_item.cpp:42-47); a spot with bit 0x1F can come back,
+	// but not its item. A spot of item none only sets an enemy kind for
+	// the pig (d_com_static.cpp:439-443).
+	//
+	// The bit is an s8, sign-extended into the int mItemBitNo
+	// (d_a_tag_kb_item.cpp:11; d_a_tag_kb_item.h:21), and _create checks
+	// it unmasked, whatever the item, Blue Chu Jelly included
+	// (d_a_tag_kb_item.cpp:42): isItem asserts unless it is 0-0x4F, -1 or
+	// 127 (d_save.cpp:1651-1652), so a byte of 0x80-0xFE or 0x50-0x7E
+	// halts as the spot's room loads. Byte 0xFF is s8 -1, which isItem
+	// reads as unset (d_save.cpp:1654-1656); its item gets 0x7F.
+	ProcTagKbItem: {Dig, func(a stagedata.Actor, table, room int) (uint8, Flag, bool) {
+		item := uint8(a.Params)
+		var f Flag
+		switch b := int(a.Params>>8) & 0xFF; {
+		case b == 0xFF:
+		case b >= 0x80:
+			f = Flag{Kind: BadFlag, Bit: b}
+		default:
+			f = itemBit(b, table, room)
+		}
+		if item == ItemBlueJelly {
+			if f.Halts() {
+				return item, f, true
+			}
+			return item, Flag{}, true
+		}
+		return item, f, item != ItemNone
+	}},
 
 	// ProcGrass is left out on purpose: grass and flowers drop only random
 	// table picks (see ProcGrass).

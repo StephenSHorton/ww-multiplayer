@@ -163,6 +163,17 @@ func (t *Tables) Report(sections ...Section) string {
 		}
 		fmt.Fprintf(&b, "  left out %d %s the play scene can't load: %s\n", len(t.Skipped), noun, strings.Join(skipped, ", "))
 	}
+	if len(t.Excluded) > 0 {
+		excluded := make([]string, len(t.Excluded))
+		for i, s := range t.Excluded {
+			excluded[i] = s.Name
+		}
+		noun := "stages"
+		if len(t.Excluded) == 1 {
+			noun = "stage"
+		}
+		fmt.Fprintf(&b, "  left out %d %s on save table 15 (STAGE_TEST, developer test stages): %s\n", len(t.Excluded), noun, strings.Join(excluded, ", "))
+	}
 
 	var checks []Check
 	for _, c := range t.Acceptance() {

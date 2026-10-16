@@ -81,9 +81,10 @@ func TestBuildVanilla(t *testing.T) {
 	}
 	sum := sha256.Sum256(dol)
 	if tb.Schema != SchemaVersion || tb.Builder != builderID() || tb.DOL != hex.EncodeToString(sum[:]) ||
-		!validHash(tb.StageFiles) || tb.Stages != 11 || tb.Rooms != 12 ||
-		!slices.Equal(tb.Skipped, []stagedata.Skipped{{Name: "Name", Why: stagedata.SkipNoDZS}}) {
-		t.Fatalf("header = %d %q %+v, %d stages, %d rooms, skipped %v", tb.Schema, tb.Builder, tb.ID, tb.Stages, tb.Rooms, tb.Skipped)
+		!validHash(tb.StageFiles) || tb.Stages != 12 || tb.Rooms != 12 ||
+		!slices.Equal(tb.Skipped, []stagedata.Skipped{{Name: "Name", Why: stagedata.SkipNoDZS}}) ||
+		!slices.Equal(tb.Excluded, []stagedata.Skipped{{Name: "K_Test2", Why: whyTest}}) {
+		t.Fatalf("header = %d %q %+v, %d stages, %d rooms, skipped %v, excluded %v", tb.Schema, tb.Builder, tb.ID, tb.Stages, tb.Rooms, tb.Skipped, tb.Excluded)
 	}
 	var got []string
 	for _, c := range tb.Acceptance() {
@@ -99,7 +100,7 @@ func TestBuildVanilla(t *testing.T) {
 		"hearts PASS heart pieces: 44, vanilla 44: 30 in stage files, 11 rewards, 3 unverified rewards",
 		"hearts PASS heart containers: 6, vanilla 6",
 		"switches PASS push-block exclusion list: 1 push block(s) storing a path in 2 switch use(s), never synced",
-		"enemies INFO enemy setID share: 9 enemy entries: 3 (33.3%) with a setID, 3 (33.3%) keyed (0 of them never dead-checked); K1 classes not BOSS: 3 (75.0%) keyed of 4",
+		"enemies INFO enemy setID share: 10 enemy entries: 3 (30.0%) with a setID, 3 (30.0%) keyed (0 of them never dead-checked); K1 classes not BOSS: 3 (75.0%) keyed of 4",
 		"enemies INFO duplicate (stage, room, setID) keys: 1: 1 with an enemy, 1 with two enemies on a common layer, 1 colliding in one game, 0 on different layers only",
 	}
 	if !slices.Equal(got, want) {
@@ -211,7 +212,9 @@ func TestReadsOnlyStages(t *testing.T) {
 	}
 	slices.Sort(src.paths)
 	slices.Sort(want)
-	if n := tb.Stages + tb.Rooms + len(tb.Skipped); !slices.Equal(src.paths, want) || len(want) != n {
+	// K_Test2, on save table 15, is read and then left out: its Stage.arc
+	// and one room.
+	if n := tb.Stages + tb.Rooms + len(tb.Skipped) + 2; !slices.Equal(src.paths, want) || len(want) != n {
 		t.Errorf("read %q, want the %d stage archives %q", src.paths, n, want)
 	}
 	if st.Files != len(want) || st.Bytes != size || st.Cached || st.Path != "" || st.Why != "" || st.SaveErr != nil {
@@ -326,6 +329,9 @@ func TestBuildErrors(t *testing.T) {
 		{"no stages", tablestest.Disc(nil).ISO(tablestest.DOL()), "the disc has no stages"},
 		{"not the GZLE01 DOL", tablestest.Disc(tablestest.Vanilla()).ISO(stagetest.DOL(0x80300000, make([]byte, 0x100))), "no l_objectName"},
 		{"a broken archive", bad.ISO(tablestest.DOL()), "res/Stage/bad/Stage.arc"},
+		{"only test stages", tablestest.Disc([]stagetest.Stage{
+			tablestest.Stage("K_Test2", tablestest.TableTest, stagedata.StageOutdoors, nil, nil, tablestest.Room(0)), {Name: "Name"},
+		}).ISO(tablestest.DOL()), "no stages the play scene can load outside save table 15 (1 left out, 1 on STAGE_TEST)"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := Build(openISO(t, c.img))
@@ -349,6 +355,31 @@ func TestBuildErrors(t *testing.T) {
 	var be *BuildError
 	if err == nil || errors.As(err, &be) || st.ID != (ID{}) {
 		t.Errorf("Get without main.dol = %v, Stats.ID %+v; want a plain error and no ID", err, st.ID)
+	}
+}
+
+// TestPlayable checks that only save table 15 (STAGE_TEST) is left out,
+// in order, and that a nil stage passes through to the builders.
+func TestPlayable(t *testing.T) {
+	var stages []*stagedata.Stage
+	for table := range 0x10 {
+		stages = append(stages, &stagedata.Stage{Name: fmt.Sprintf("T%X", table), SaveTable: table})
+	}
+	stages = append(stages, nil, &stagedata.Stage{Name: "I_TestM", SaveTable: tablestest.TableTest})
+	kept, excluded := playable(stages)
+	if len(kept) != 0x10 || kept[0xF] != nil {
+		t.Fatalf("kept %d stages, want tables 0-14 and the nil one", len(kept))
+	}
+	for i, s := range kept[:0xF] {
+		if s.SaveTable != i {
+			t.Errorf("kept[%d] is on table %d", i, s.SaveTable)
+		}
+	}
+	if want := []stagedata.Skipped{{Name: "TF", Why: whyTest}, {Name: "I_TestM", Why: whyTest}}; !slices.Equal(excluded, want) {
+		t.Errorf("excluded %v, want %v", excluded, want)
+	}
+	if kept, excluded := playable(nil); kept != nil || excluded != nil {
+		t.Errorf("playable(nil) = %v, %v", kept, excluded)
 	}
 }
 
@@ -745,7 +776,8 @@ func TestReportSections(t *testing.T) {
 		t.Errorf("sections at %v, want them in Sections order", at)
 	}
 	if !strings.HasPrefix(all, fmt.Sprintf("Co-op tables (docs/08-coop-design.md §9 M1), schema %d, built by ", SchemaVersion)+builderID()+"\n  main.dol SHA-256 "+tb.DOL+"\n") ||
-		!strings.Contains(all, "stage files SHA-256 "+tb.StageFiles+": 11 stages, 12 rooms\n  left out 1 stage the play scene can't load: Name (no stage.dzs)\n") {
+		!strings.Contains(all, "stage files SHA-256 "+tb.StageFiles+": 12 stages, 12 rooms\n  left out 1 stage the play scene can't load: Name (no stage.dzs)\n"+
+			"  left out 1 stage on save table 15 (STAGE_TEST, developer test stages): K_Test2\n") {
 		t.Errorf("report header:\n%s", all[:min(len(all), 400)])
 	}
 	if want := tb.Report(Sections...); all != want {
@@ -782,7 +814,7 @@ func TestReportSections(t *testing.T) {
 		fields = append(fields, k)
 	}
 	slices.Sort(fields)
-	if want := []string{"builder", "dol_sha256", "hearts", "rooms", "schema", "skipped", "stage_files_sha256", "stages"}; !slices.Equal(fields, want) {
+	if want := []string{"builder", "dol_sha256", "excluded", "hearts", "rooms", "schema", "skipped", "stage_files_sha256", "stages"}; !slices.Equal(fields, want) {
 		t.Errorf("Only(hearts) JSON fields %q, want %q", fields, want)
 	}
 }
@@ -812,6 +844,10 @@ var schemaShapes = map[int]string{
 	// 3: the stages the play scene can't load, left out ("skipped"),
 	// instead of failing the build.
 	3: "403e501ceaa983c9fbc7a923ccb4de319b985e7a1507af0e064b11f47315c86d",
+	// 4: the stages on save table 15 (STAGE_TEST), left out
+	// ("excluded"); a pig's dig spot is a source (kind "dig"), and Ganon's
+	// Tower's refight bosses drop no container.
+	4: "f9763048613b9d5968acbc5cf4bfe1b39dc411ac5950c040428d0cee9145aa5c",
 }
 
 func TestSchemaShape(t *testing.T) {

@@ -28,7 +28,8 @@ import (
 // Roost Cavern (table 3, stage M_NewD2) has four key chests, tbox bits
 // 1-4 in room 1, and four key doors, switches 0x10-0x13; Forbidden Woods
 // (table 4, kindan) one of each; the sea (table 0) the stage-file heart
-// pieces, tbox bits 0-29; tables 2-7 a container each.
+// pieces, tbox bits 0-28 and a pig's dig spot on item bit 2; tables 2-7
+// a container each.
 
 var fixture = sync.OnceValues(func() (*tables.Tables, error) {
 	img := tablestest.ISO(tablestest.Vanilla())

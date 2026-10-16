@@ -32,6 +32,7 @@ func testNames(t testing.TB) *stagedata.ObjectNames {
 		stagetest.ObjectName{Name: "Ospbox", Proc: int16(ProcOspbox), Subtype: -1},
 		stagetest.ObjectName{Name: "Ktarur", Proc: int16(ProcBarrel2), Subtype: -1},
 		stagetest.ObjectName{Name: "kusax1", Proc: int16(ProcGrass), Subtype: -1},
+		stagetest.ObjectName{Name: "TagKb", Proc: int16(ProcTagKbItem), Subtype: -1},
 		stagetest.ObjectName{Name: "Orphan", Proc: int16(stagedata.ProcSwc00), Subtype: -1},
 	))
 	if err != nil {
@@ -144,6 +145,22 @@ func TestDecode(t *testing.T) {
 		{name: "salvage, room 0 without a map room", room: 0, actor: a{Name: "Salvage", Params: 1<<28 | 0x07<<4}},
 		{name: "salvage, room 0 map room 65", room: 0, actor: a{Name: "Salvage", Params: 1<<28 | 65<<12 | 0x07<<4}},
 		{name: "salvage, stage file", room: -1, actor: a{Name: "Salvage", Params: 1<<28 | 0x07<<4}},
+		// Outset's dig piece on the owner's disc: item 7, item bit 2, no
+		// enemy kind or switch.
+		{name: "dig piece", actor: a{Name: "TagKb", Params: 0xFFFF0207}, ok: true, kind: Dig, item: 7, flag: item(2)},
+		{name: "dig, enemy kind only", actor: a{Name: "TagKb", Params: 0xE101FFFF}},
+		{name: "dig, red rupee on a switch", actor: a{Name: "TagKb", Params: 0x05FF0304}, ok: true, kind: Dig, item: 4, flag: item(3)},
+		{name: "dig, bit 0xFF is none", actor: a{Name: "TagKb", Params: 0xFFFFFF07}, ok: true, kind: Dig, item: 7, flag: none},
+		{name: "dig, bit 0x1F", actor: a{Name: "TagKb", Params: 0xFFFF1F07}, ok: true, kind: Dig, item: 7, flag: item(0x1F)},
+		{name: "dig, zone bit", actor: a{Name: "TagKb", Params: 0xFFFF4507}, ok: true, kind: Dig, item: 7, flag: Flag{Kind: ZoneItemFlag, Room: 2, Bit: 0x45}},
+		{name: "dig, blue jelly's bit is a switch", actor: a{Name: "TagKb", Params: 0xFFFF054B}, ok: true, kind: Dig, item: 0x4B, flag: none},
+		// The spot's bit is an s8 that _create checks unmasked
+		// (d_a_tag_kb_item.cpp:11, :42), so a negative one halts.
+		{name: "dig, bit 0x80 halts", actor: a{Name: "TagKb", Params: 0xFFFF8007}, ok: true, kind: Dig, item: 7, flag: Flag{Kind: BadFlag, Bit: 0x80}},
+		{name: "dig, bit 0xC5 halts", actor: a{Name: "TagKb", Params: 0xFFFFC507}, ok: true, kind: Dig, item: 7, flag: Flag{Kind: BadFlag, Bit: 0xC5}},
+		{name: "dig, bit 0x50 halts", actor: a{Name: "TagKb", Params: 0xFFFF5007}, ok: true, kind: Dig, item: 7, flag: Flag{Kind: BadFlag, Bit: 0x50}},
+		{name: "dig, blue jelly's bad bit still halts", actor: a{Name: "TagKb", Params: 0xFFFF904B}, ok: true, kind: Dig, item: 0x4B, flag: Flag{Kind: BadFlag, Bit: 0x90}},
+		{name: "dig, blue jelly's bit 0x60 halts", actor: a{Name: "TagKb", Params: 0xFFFF604B}, ok: true, kind: Dig, item: 0x4B, flag: Flag{Kind: BadFlag, Bit: 0x60}},
 		{name: "salvage chest", actor: a{Name: "STBox", Params: 0x0107}, ok: true, kind: SalvageChest, item: 7, flag: none},
 		{name: "scaled chunk", tag: "SCOB", actor: a{Name: "takara", Params: 1 << 7, Angle: z(0x1500)}, ok: true, kind: Chest, item: 0x15, flag: Flag{Kind: TboxFlag, Table: 3, Bit: 1}},
 		{name: "layer chunk", tag: "ACT4", actor: a{Name: "takara", Params: 1 << 7, Angle: z(0x1500)}, ok: true, kind: Chest, item: 0x15, flag: Flag{Kind: TboxFlag, Table: 3, Bit: 1}, layerN: 4},
@@ -207,7 +224,7 @@ func TestDecodeAllBits(t *testing.T) {
 						t.Fatalf("%v: %+v", proc, pl)
 					}
 					switch d.kind {
-					case Chest, FieldItem, RaceItem, Salvage, SalvageChest:
+					case Chest, FieldItem, RaceItem, Salvage, SalvageChest, Dig:
 						if pl.Item == ItemNone {
 							t.Errorf("%v prm %08x: item none placed", proc, prm)
 						}
