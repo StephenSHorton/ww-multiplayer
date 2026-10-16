@@ -398,6 +398,7 @@ func (h *coHost) start(f coopFlags) {
 		h.t.Fatalf("startCoopHost: %v\n%s", err, h.rep)
 	}
 	srv := network.NewServer(h.port)
+	srv.ListenHost = "127.0.0.1" // a restart reuses the port: stay on loopback
 	srv.Coop = cs.hub
 	if err := srv.Start(); err != nil {
 		cs.stop()

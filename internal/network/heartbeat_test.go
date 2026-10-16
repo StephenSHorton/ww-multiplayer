@@ -318,3 +318,27 @@ func TestServerRestartChangesEpoch(t *testing.T) {
 		t.Fatalf("server restart did not change epoch (%d == %d)", epoch1, epoch2)
 	}
 }
+
+// TestServerPortZeroListensOnLoopback: a server on an OS-assigned port
+// (port 0, tests only) with no ListenHost binds loopback alone, so a test
+// run never listens on the network; an explicit ListenHost wins.
+func TestServerPortZeroListensOnLoopback(t *testing.T) {
+	srv := NewServer(0)
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+	if ip := srv.Addr().(*net.TCPAddr).IP; !ip.IsLoopback() {
+		t.Errorf("port 0 listened on %v, want loopback", ip)
+	}
+
+	srv2 := NewServer(0)
+	srv2.ListenHost = "127.0.0.1"
+	if err := srv2.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer srv2.Stop()
+	if ip := srv2.Addr().(*net.TCPAddr).IP; !ip.Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Errorf("ListenHost 127.0.0.1 listened on %v", ip)
+	}
+}

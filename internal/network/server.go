@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -48,6 +49,14 @@ type Server struct {
 	helloTimeout   time.Duration
 	OnLog          func(string) // callback for log messages
 
+	// ListenHost is the address Start listens on; "" means every
+	// interface, which host needs so LAN peers can reach it. A server on
+	// port 0 (an OS-assigned port, which only tests use: the CLI takes
+	// 1-65535) with no ListenHost listens on loopback alone, so test runs
+	// never open a port on the network (and Windows never asks whether
+	// the test binary may). Set it before Start.
+	ListenHost string
+
 	// Coop receives the co-op connections (coop.go). Set it before Start.
 	// Nil means co-op is off: a co-op hello is then refused with
 	// RejectRole, and player connections behave exactly as without it.
@@ -78,7 +87,11 @@ func (s *Server) log(msg string) {
 
 // Start begins listening for connections.
 func (s *Server) Start() error {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
+	host := s.ListenHost
+	if host == "" && s.port == 0 {
+		host = "127.0.0.1"
+	}
+	ln, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(s.port)))
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
