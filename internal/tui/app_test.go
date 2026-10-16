@@ -16,7 +16,7 @@ func TestRun_NoInteractiveStdin_ReturnsClearError(t *testing.T) {
 	hasInteractiveStdin = func() bool { return false }
 	defer func() { hasInteractiveStdin = orig }()
 
-	err := Run("test", Hooks{})
+	err := Run("test", nil)
 	if err == nil {
 		t.Fatal("Run() with no interactive stdin: expected an error, got nil")
 	}
@@ -33,7 +33,7 @@ func TestRun_NoInteractiveStdin_ReturnsClearError(t *testing.T) {
 // connect screen with the role, IP, name and focus the user had, minus any
 // stale error, so a retry is one Enter.
 func TestBackMsg_KeepsConnectFields(t *testing.T) {
-	m := newModel(Hooks{}, "test")
+	m := newModel(nil, "test")
 	m.screen = screenDashboard
 	m.connect = connectModel{role: 1, ipInput: "10.0.0.9", nameInput: "Bob", focused: 3, err: "old error"}
 
@@ -49,12 +49,12 @@ func TestBackMsg_KeepsConnectFields(t *testing.T) {
 	}
 }
 
-// TestConnectedMsg_NilHookShowsInlineError: with no session func wired for
-// the chosen role, the app stays on the connect screen with an inline error
-// instead of starting a session that would panic.
-func TestConnectedMsg_NilHookShowsInlineError(t *testing.T) {
+// TestConnectedMsg_NilControllerShowsInlineError: with no session controller wired,
+// the app stays on the connect screen with an inline error instead of
+// starting a session that would panic.
+func TestConnectedMsg_NilControllerShowsInlineError(t *testing.T) {
 	for _, role := range []string{"Host", "Join"} {
-		m := newModel(Hooks{}, "test")
+		m := newModel(nil, "test")
 		m.screen = screenConnect
 		m.connect = newConnect()
 

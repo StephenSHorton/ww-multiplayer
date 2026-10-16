@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -25,7 +26,7 @@ func TestRenderStatus(t *testing.T) {
 		100,
 		3,
 		42*time.Millisecond,
-		[]PlayerView{{ID: 2, Name: "Zelda"}, {ID: 3, Name: "Ganon"}},
+		[]session.Player{{ID: 2, Name: "Zelda"}, {ID: 3, Name: "Ganon"}},
 	))
 
 	for _, want := range []string{
@@ -80,7 +81,7 @@ func TestRenderStatus_ZeroLatency(t *testing.T) {
 		100,
 		2,
 		0, // unknown latency
-		[]PlayerView{{ID: 1, Name: "Link"}},
+		[]session.Player{{ID: 1, Name: "Link"}},
 	))
 
 	if !strings.Contains(out, "—") {
@@ -102,7 +103,7 @@ func TestRenderStatus_NoPlayers(t *testing.T) {
 		t.Errorf("renderStatus with no players missing the waiting hint:\n%s", out)
 	}
 
-	named := plain(renderStatus(100, 2, 5*time.Millisecond, []PlayerView{{ID: 7}}))
+	named := plain(renderStatus(100, 2, 5*time.Millisecond, []session.Player{{ID: 7}}))
 	if !strings.Contains(named, "player 7") {
 		t.Errorf("renderStatus should label a nameless remote as %q\n---\n%s", "player 7", named)
 	}
@@ -138,21 +139,17 @@ func TestChatScrollback(t *testing.T) {
 }
 
 // TestChatSendPath_ForwardsAndEchoes: pressing Enter with text forwards it to
-// hooks.SendChat, echoes it locally as "name: text", and clears the input.
+// the session's SendChat, echoes it locally as "name: text", and clears the
+// input.
 func TestChatSendPath_ForwardsAndEchoes(t *testing.T) {
-	var got string
-	called := 0
-	m := dashboardModel{
-		name:      "Me",
-		hooks:     Hooks{SendChat: func(text string) error { called++; got = text; return nil }},
-		chatInput: textinput.New(),
-	}
+	eng := &fakeEngine{}
+	m := runningDashboard(t, eng)
 	m.chatInput.SetValue("hello world")
 
 	m2, _ := m.update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if called != 1 || got != "hello world" {
-		t.Fatalf("SendChat forwarded (%d, %q), want (1, %q)", called, got, "hello world")
+	if got := eng.sentChat(); len(got) != 1 || got[0] != "hello world" {
+		t.Fatalf("SendChat forwarded %q, want [%q]", got, "hello world")
 	}
 	if m2.chatInput.Value() != "" {
 		t.Errorf("input not cleared after send: %q", m2.chatInput.Value())
@@ -168,10 +165,11 @@ func TestChatSendPath_ForwardsAndEchoes(t *testing.T) {
 	}
 }
 
-// TestChatSendPath_NilSendChatSafe: a nil SendChat hook must be a safe no-op —
-// no panic, input cleared, and nothing echoed (there was no send).
+// TestChatSendPath_NilSendChatSafe: a dashboard without a controller must be
+// a safe no-op — no panic, input cleared, and nothing echoed (there was no
+// send).
 func TestChatSendPath_NilSendChatSafe(t *testing.T) {
-	m := dashboardModel{name: "Me", hooks: Hooks{}, chatInput: textinput.New()}
+	m := dashboardModel{name: "Me", chatInput: textinput.New()}
 	m.chatInput.SetValue("hi")
 
 	m2, _ := m.update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -184,12 +182,14 @@ func TestChatSendPath_NilSendChatSafe(t *testing.T) {
 	}
 }
 
-// TestChatArrivedAppends: an incoming chat line is appended to the scrollback.
+// TestChatArrivedAppends: an incoming chat event is appended to the
+// scrollback as "from: text".
 func TestChatArrivedAppends(t *testing.T) {
-	m := dashboardModel{chatInput: textinput.New()}
-	m2, _ := m.update(chatArrivedMsg{line: "Zelda: hi there"})
+	ch := make(chan session.Event)
+	m := dashboardModel{chatInput: textinput.New(), sessID: 1, events: ch}
+	m2, _ := m.update(eventMsg{ch: ch, ev: session.Event{Kind: session.EventChat, Session: 1, From: "Zelda", Text: "hi there"}})
 	if len(m2.chatLines) != 1 || m2.chatLines[0] != "Zelda: hi there" {
-		t.Fatalf("chatArrivedMsg not appended; chatLines=%v", m2.chatLines)
+		t.Fatalf("chat event not appended; chatLines=%v", m2.chatLines)
 	}
 }
 

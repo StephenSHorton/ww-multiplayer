@@ -1,8 +1,9 @@
 // Package report exposes a tiny Reporter interface so the multiplayer
 // session goroutines (runBroadcastPoseCtx, runPuppetSyncCtx, the
 // network.Server, etc.) can emit log lines without knowing whether
-// they are running under the CLI (write to stdout) or the TUI (push
-// onto a tea.Cmd channel for the dashboard log panel).
+// they are running under the CLI (write to stdout) or the TUI (the
+// session controller turns each line into an event for the dashboard
+// log panel).
 package report
 
 import "fmt"
@@ -11,7 +12,7 @@ type Level int
 
 const (
 	Info Level = iota
-	Net   // [net] tag — wire-level events from the network layer
+	Net        // [net] tag — wire-level events from the network layer
 	Warn
 	Err
 	OK // green-styled success messages

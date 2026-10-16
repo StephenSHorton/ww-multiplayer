@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 )
 
 // TestMinimapGridLines_SelfCenteredWhenAlone asserts that with no remote
@@ -42,7 +44,7 @@ func TestMinimapGridLines_SelfCenteredWhenAlone(t *testing.T) {
 func TestMinimapGridLines_RemotePlusX(t *testing.T) {
 	const selfX, selfZ float32 = 1000, 2000
 	scale := float32(10)
-	players := []PlayerView{{ID: 2, Name: "Zelda", X: selfX + 50, Y: 0, Z: selfZ}}
+	players := []session.Player{{ID: 2, Name: "Zelda", X: selfX + 50, Y: 0, Z: selfZ}}
 
 	lines := minimapGridLines(selfX, selfZ, players, scale, minimapCols, minimapRows)
 	wantCol := minimapHalfCols + 5 // 50 world units / scale(10) = 5 cells
@@ -66,7 +68,7 @@ func TestMinimapGridLines_RemotePlusX(t *testing.T) {
 func TestMinimapGridLines_RemotePlusZ(t *testing.T) {
 	const selfX, selfZ float32 = -500, 0
 	scale := float32(10)
-	players := []PlayerView{{ID: 3, Name: "ganon", X: selfX, Y: 0, Z: selfZ + 50}}
+	players := []session.Player{{ID: 3, Name: "ganon", X: selfX, Y: 0, Z: selfZ + 50}}
 
 	lines := minimapGridLines(selfX, selfZ, players, scale, minimapCols, minimapRows)
 	wantRow := minimapHalfRows + 5 // 50 / 10 = 5 cells down
@@ -85,7 +87,7 @@ func TestMinimapGridLines_RemotePlusZ(t *testing.T) {
 // visible grid is clamped to the border rather than silently dropped or
 // causing an out-of-range panic.
 func TestMinimapGridLines_ClampsFarRemoteToEdge(t *testing.T) {
-	players := []PlayerView{{ID: 4, Name: "Far", X: 100000, Y: 0, Z: -100000}}
+	players := []session.Player{{ID: 4, Name: "Far", X: 100000, Y: 0, Z: -100000}}
 	lines := minimapGridLines(0, 0, players, defaultMinimapScale, minimapCols, minimapRows)
 
 	topRow := []rune(lines[0])

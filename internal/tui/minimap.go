@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 )
 
 // Minimap panel (#22): a compact top-down text render of the local player
@@ -73,7 +75,7 @@ func minimapScaleFromEnv() float32 {
 //	players               remote players, plotted relative to self.
 //	scale                 world units per character cell (WW_MINIMAP_SCALE,
 //	                      or defaultMinimapScale when scale <= 0).
-func renderMinimap(width, rows int, selfX, selfZ float32, selfOK bool, players []PlayerView, scale float32) string {
+func renderMinimap(width, rows int, selfX, selfZ float32, selfOK bool, players []session.Player, scale float32) string {
 	inner := width - 4 // border + padding
 
 	var body []string
@@ -112,7 +114,7 @@ func renderMinimap(width, rows int, selfX, selfZ float32, selfOK bool, players [
 // so tests can assert exact cell contents without stripping ANSI/border
 // styling. cols and rows size the grid (minimapCols x minimapRows at full
 // size); both should be odd so the center cell is unambiguous.
-func minimapGridLines(selfX, selfZ float32, players []PlayerView, scale float32, cols, rows int) []string {
+func minimapGridLines(selfX, selfZ float32, players []session.Player, scale float32, cols, rows int) []string {
 	if scale <= 0 {
 		scale = defaultMinimapScale
 	}

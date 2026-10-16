@@ -1,13 +1,13 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -23,7 +23,7 @@ func busyDashboard(role string) dashboardModel {
 		addr:         "192.168.1.10",
 		playerCount:  2,
 		latency:      12 * time.Millisecond,
-		players:      []PlayerView{{ID: 2, Name: "Zelda", X: 50, Z: 30}},
+		players:      []session.Player{{ID: 2, Name: "Zelda", X: 50, Z: 30}},
 		localOK:      true,
 		chatInput:    textinput.New(),
 		minimapScale: defaultMinimapScale,
@@ -187,19 +187,27 @@ func TestDashboardView_TinyTerminal(t *testing.T) {
 	}
 }
 
-// TestDashboard_SessionEnded: the end-of-session message only applies to the
-// dashboard's own session, and then the header, status and footer say so.
+// TestDashboard_SessionEnded: the end-of-session event only applies to the
+// dashboard's own session and subscription, and then the header, status and
+// footer say so.
 func TestDashboard_SessionEnded(t *testing.T) {
-	current, stale := &session{}, &session{}
+	ch, staleCh := make(chan session.Event), make(chan session.Event)
 	m := busyDashboard("Host")
-	m.sess = current
+	m.sessID, m.events = 2, ch
+	ended := func(c chan session.Event, id session.ID, reason string) eventMsg {
+		return eventMsg{ch: c, ev: session.Event{Kind: session.EventEnded, Session: id, Text: reason}}
+	}
 
-	m, _ = m.update(sessionEndedMsg{sess: stale, reason: "old session"})
+	m, _ = m.update(ended(ch, 1, "old session"))
 	if m.ended {
 		t.Fatal("a stale session's end marked the current dashboard as ended")
 	}
+	m, cmd := m.update(ended(staleCh, 2, "old dashboard"))
+	if m.ended || cmd != nil {
+		t.Fatalf("an event from a left dashboard's subscription was applied (ended=%v) or re-drained (cmd=%v)", m.ended, cmd != nil)
+	}
 
-	m, _ = m.update(sessionEndedMsg{sess: current, reason: "dolphin not running"})
+	m, _ = m.update(ended(ch, 2, "dolphin not running"))
 	if !m.ended || m.endReason != "dolphin not running" {
 		t.Fatalf("own session end not recorded: ended=%v reason=%q", m.ended, m.endReason)
 	}
@@ -220,17 +228,13 @@ func TestDashboard_SessionEnded(t *testing.T) {
 // TestDashboard_EndedChatNotSent: once the session is gone, Enter must not
 // forward or echo a chat line as if it had been delivered.
 func TestDashboard_EndedChatNotSent(t *testing.T) {
-	called := 0
-	m := dashboardModel{
-		name:      "Me",
-		hooks:     Hooks{SendChat: func(string) error { called++; return nil }},
-		chatInput: textinput.New(),
-		ended:     true,
-	}
+	eng := &fakeEngine{}
+	m := runningDashboard(t, eng)
+	m.ended = true
 	m.chatInput.SetValue("anyone there?")
 	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
-	if called != 0 || len(m.chatLines) != 0 {
-		t.Errorf("ended dashboard sent chat: calls=%d lines=%v", called, m.chatLines)
+	if got := eng.sentChat(); len(got) != 0 || len(m.chatLines) != 0 {
+		t.Errorf("ended dashboard sent chat: sent=%q lines=%v", got, m.chatLines)
 	}
 }
 
@@ -422,12 +426,11 @@ func TestDashboard_LongChatInputScrolls(t *testing.T) {
 	t.Run("app", func(t *testing.T) {
 		// Through the app: the dashboard is built at the width the app
 		// already knows, with no further WindowSizeMsg.
-		hooks := Hooks{JoinSession: func(context.Context, context.CancelFunc, string, string, report.Reporter) {}}
-		var app tea.Model = newModel(hooks, "test")
+		var app tea.Model = newModel(session.New(&fakeEngine{}, session.Options{}), "test")
 		app, _ = app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 		app, _ = app.Update(connectedMsg{role: "Join", addr: "10.0.0.5", name: "Link"})
 		m := app.(model).dashboard
-		t.Cleanup(m.sess.stop)
+		t.Cleanup(m.leave)
 		if m.chatInput.Width != chatInputWidth(80) {
 			t.Fatalf("dashboard chat input Width = %d, want %d", m.chatInput.Width, chatInputWidth(80))
 		}

@@ -34,10 +34,12 @@ ww-multiplayer/
 │   │   ├── protocol.go
 │   │   ├── server.go
 │   │   └── client.go
-│   ├── report/                  # Reporter interface (Stdout / Discard / TUI impls)
-│   │   └── report.go
+│   ├── report/                  # Reporter interface (Stdout / Discard / Multi)
+│   │   └── report.go, multi.go
+│   ├── session/                 # UI-free session controller the TUI drives (docs/01-architecture.md)
+│   │   └── session.go, controller.go, event.go
 │   └── tui/                     # Charm Bubble Tea UI (resurrected v0.1.5)
-│       ├── app.go, splash.go, connect.go, dashboard.go, session.go, styles.go
+│       ├── app.go, splash.go, connect.go, dashboard.go, styles.go
 ├── inject/                      # C source for the injected PPC code
 │   ├── src/multiplayer.c        # The mod's C side
 │   ├── include/{game,mailbox}.h
