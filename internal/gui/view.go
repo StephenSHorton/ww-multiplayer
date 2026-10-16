@@ -99,6 +99,9 @@ type EventView struct {
 	// Lobby replies.
 	Code    string `json:"code,omitempty"`    // lobby-notice
 	Suggest string `json:"suggest,omitempty"` // lobby-notice: a free name
+	// Patch is a "patch" event's progress (the setup's, not the
+	// controller's: Bridge.emit).
+	Patch *PatchView `json:"patch,omitempty"`
 }
 
 // eventKinds names each controller event kind for the frontend.

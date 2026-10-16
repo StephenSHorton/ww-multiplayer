@@ -75,7 +75,8 @@ Active work is tracked in [GitHub issues](../../issues) — epics group related 
    This copies `/Applications/Dolphin.app` to `~/Applications/Dolphin.app`
    and strips the hardened runtime flag from its main executable. Your
    original `/Applications/Dolphin.app` is left alone. Re-run this script
-   any time you update Dolphin.
+   any time you update Dolphin. (The app's Setup has a **Prepare Dolphin**
+   button that runs the same steps.)
 4. Patch your own legitimate copy of Wind Waker:
    ```
    ./ww-multiplayer patch ~/Roms/your-wind-waker.iso
@@ -102,7 +103,25 @@ prints it. v0.3.0 and later can't play with v0.2.x, so upgrade together.
 
 **The app.** Run `ww-multiplayer` with no arguments — double-click
 `ww-multiplayer.exe` on Windows or `WW Multiplayer.app` on macOS — and the
-app window opens. Pick a name and a tunic color, then Host (on port 25565
+app window opens. The first time, it opens on **Setup**, three steps you
+can each skip and come back to with the **Setup** button:
+
+1. **Your name and tunic color** (a palette, or your own color), with a
+   preview of your Link.
+2. **Your game:** choose your own Wind Waker disc image (`.iso` or
+   `.ciso`, GZLE01). The app patches it as `ww-multiplayer patch` does,
+   with a progress bar, writing `…-multiplayer.iso` next to it (your
+   original is never changed) and building the co-op stage tables. A disc
+   that is already patched is used as it is, and "I already have a
+   patched ISO" picks one directly.
+3. **Dolphin:** the app finds it (a running Dolphin first, then
+   `DOLPHIN_EXE`, the usual install folders and `Desktop\Dolphin-x64`);
+   Browse… if it didn't. On macOS a **Prepare Dolphin** button does what
+   `scripts/setup-mac-dolphin.sh` does, and the app offers to refresh that
+   copy when Dolphin was updated.
+
+Setup opens again by itself while one of those is missing, or when the
+patched disc or Dolphin has moved. Then pick Host (on port 25565
 or the one you type) or Join (the host's address). Everyone meets in the
 app's lobby, which lists each player's name, color and ready flag, with
 the session log and chat. Any color can be picked, even one someone else

@@ -2,8 +2,9 @@
    ITEMS screen): lime-green panels with a ragged leafy border over a
    textured mid-green field, dark bark plaques with chunky yellow titles,
    inset green item slots whose selection gets white corner brackets, the
-   orange SAVE-style button, the long green name bar, and round
-   controller-badge labels. Everything is CSS and inline SVG drawn for this
+   orange SAVE-style button and the long green name bar. The app is
+   mouse-driven, so no controller-button badges or L/R hints (owner
+   decision, 2026-10-16). Everything is CSS and inline SVG drawn for this
    app; no game assets. Fonts are vendored (fonts/OFL.txt) so the window
    works offline. */
 @font-face { font-family: "Reggae One"; font-weight: 400; font-display: swap; src: url(fonts/reggae-one-latin.woff2) format("woff2"); }
@@ -31,8 +32,8 @@
 	--orange-hi: #ffd04a;
 	--bar: #4fae3a;          /* the long name bar */
 	--bar-hi: #8ee070;
-	--red: #e0302a;          /* the B badge */
-	--blue: #1d64c8;         /* the Info badge's text */
+	--red: #e0302a;          /* the "away" chip */
+	--blue: #1d64c8;         /* the version pill's text */
 	--text: #1f3510;
 	--text-dim: #46602c;
 	--display: "RocknRoll One", "Zen Kaku Gothic New", sans-serif;
@@ -69,12 +70,11 @@ code { font: 500 0.92em var(--mono); }
 .top { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px 4px; }
 .brand { display: flex; align-items: center; gap: 10px; font: 400 20px var(--display); }
 .brand svg { width: 32px; height: 32px; }
-/* the "Info" badge */
+/* the version: a plain pill */
 .ver {
-	display: inline-flex; align-items: center; gap: 6px; padding: 3px 14px 3px 4px;
+	display: inline-flex; align-items: center; padding: 3px 16px;
 	font: 400 14px var(--display); color: var(--blue); background: #fff; border: 3px solid var(--ink); border-radius: 999px;
 }
-.ver::before { content: "i"; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--bar); color: #fff; font: 700 13px var(--body); }
 
 main { max-width: 1080px; margin: 0 auto; padding: 0 20px 16px; }
 
@@ -121,7 +121,8 @@ input {
 	background: linear-gradient(180deg, #eef7cf, #fbfff0); border: 3px solid var(--ink); border-radius: 10px; outline: none;
 	box-shadow: inset 0 3px 0 rgba(20, 36, 8, 0.15);
 }
-input::placeholder { color: #8aa36a; }
+input { -webkit-text-stroke: 0; }
+input::placeholder { color: #8aa36a; font-weight: 500; }
 input:focus { box-shadow: inset 0 3px 0 rgba(20, 36, 8, 0.15), 0 0 0 3px #fff; }
 input[type=number] { max-width: 140px; }
 
@@ -171,12 +172,12 @@ input[type=number] { max-width: 140px; }
 	box-shadow: inset 0 0 0 3px #ffe27a, 0 4px 0 var(--ink);
 }
 .btn[aria-pressed=true] { background: linear-gradient(180deg, var(--bar-hi) 0 12%, var(--bar) 13%); }
-/* "Return (B)": the Leave badge */
+/* Leave: a plain white pill with a plain label (owner decision: no
+   controller-button badges) */
 .btn.back {
-	border-radius: 999px; padding: 3px 16px 5px 5px; background: #fff; color: var(--red);
+	border-radius: 999px; padding: 3px 18px 5px; background: #fff; color: var(--red);
 	-webkit-text-stroke: 0; font-size: 17px; box-shadow: 0 3px 0 var(--ink);
 }
-.btn.back::before { content: "B"; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--red); color: #fff; font: 400 15px var(--display); }
 
 .error { margin: 12px 0 0; font: 700 15px var(--body); color: #fff; }
 .error:empty { display: none; }
@@ -209,7 +210,7 @@ input[type=number] { max-width: 140px; }
 .members .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 16px var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink); }
 .members .who small { font: 700 13px var(--body); -webkit-text-stroke: 3px var(--ink); color: var(--yellow); }
 .members .empty { justify-content: center; font: 700 14px var(--body); color: var(--text); }
-/* round controller-style badges */
+/* status chips */
 .chip { flex: none; padding: 0 10px 1px; font: 700 12px var(--body); color: var(--ink); background: #fff; border: 2px solid var(--ink); border-radius: 999px; }
 .chip.ready { background: var(--bar-hi); }
 .chip.host { background: var(--yellow); }
@@ -238,9 +239,152 @@ input[type=number] { max-width: 140px; }
 .toast.bad { background: #ffd9cf; }
 .toast button { margin: 8px 8px 0 0; font-size: 15px; padding: 4px 14px 6px; }
 
+/* ---------- the header's pills: Setup and the version ---------- */
+.badges { display: flex; align-items: center; gap: 10px; }
+.badge {
+	display: inline-flex; align-items: center; padding: 3px 16px; cursor: pointer;
+	font: 400 14px var(--display); color: var(--ink); background: #fff; border: 3px solid var(--ink); border-radius: 999px;
+	box-shadow: 0 3px 0 var(--ink); transition: transform 0.08s ease;
+}
+.badge:hover { transform: translateY(-1px); }
+
+/* ---------- Setup ---------- */
+/* the steps, as a row of item slots; the current one gets the white
+   corner brackets, a finished one a gold check */
+.steps { display: flex; justify-content: center; gap: 22px; margin: 0 0 36px; }
+.steps button {
+	position: relative; display: grid; justify-items: center; gap: 0; width: 92px; padding: 6px 4px 5px; cursor: pointer;
+	background: linear-gradient(180deg, var(--slot-dk), var(--slot) 30%, var(--slot-hi));
+	border: 3px solid var(--slot-dk); border-radius: 12px; box-shadow: inset 0 4px 6px rgba(20, 36, 8, 0.35), 0 3px 0 rgba(20, 36, 8, 0.35);
+}
+.steps b { font: 400 26px/1.1 var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 5px var(--ink); }
+.steps span { font: 400 14px var(--display); color: var(--yellow); paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink); }
+.steps button.done::before {
+	content: "\2713"; position: absolute; top: -10px; right: -10px; display: grid; place-items: center; width: 24px; height: 24px;
+	font: 700 14px var(--body); color: var(--ink); background: var(--yellow); border: 2px solid var(--ink); border-radius: 50%;
+}
+.steps button[aria-current=true]::after, .stage::after, .cand[aria-checked=true]::after {
+	content: ""; position: absolute; inset: -10px; pointer-events: none;
+	--b: 4px; --l: 16px;
+	background:
+		linear-gradient(#fff, #fff) top left / var(--l) var(--b), linear-gradient(#fff, #fff) top left / var(--b) var(--l),
+		linear-gradient(#fff, #fff) top right / var(--l) var(--b), linear-gradient(#fff, #fff) top right / var(--b) var(--l),
+		linear-gradient(#fff, #fff) bottom left / var(--l) var(--b), linear-gradient(#fff, #fff) bottom left / var(--b) var(--l),
+		linear-gradient(#fff, #fff) bottom right / var(--l) var(--b), linear-gradient(#fff, #fff) bottom right / var(--b) var(--l);
+	background-repeat: no-repeat;
+	filter: drop-shadow(0 0 1px var(--ink)) drop-shadow(0 0 1px var(--ink));
+}
+
+.step { max-width: 900px; margin: 0 auto; }
+#setup h1 { margin-bottom: 18px; }
+.profile .swatches { gap: 8px; padding: 4px 0; }
+.profile .swatch { width: 50px; height: 50px; }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; margin-top: 16px; }
+.actions.left { justify-content: flex-start; margin: 4px 0 6px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.field > span.row { display: flex; font: inherit; color: inherit; -webkit-text-stroke: 0; margin: 0; }
+.row input { flex: 1 1 200px; width: auto; min-width: 0; max-width: none; }
+.row.browse { margin: 10px 0 16px; }
+
+/* step 1: the form beside the preview */
+.profile { display: grid; grid-template-columns: 1fr 250px; gap: 26px; align-items: start; }
+input[type=color] {
+	flex: none; width: 54px; min-width: 0; height: 44px; padding: 4px; cursor: pointer;
+	background: linear-gradient(180deg, var(--slot-dk), var(--slot) 30%, var(--slot-hi)); border: 3px solid var(--slot-dk); border-radius: 10px;
+}
+input.hex { flex: none; width: 150px; min-width: 0; font-family: var(--mono); text-transform: uppercase; }
+.swatch.custom > i { background: var(--c); }
+.hint.warn { display: inline-block; padding: 3px 10px; color: var(--ink); font-weight: 700; background: var(--yellow); border: 2px solid var(--ink); border-radius: 8px; }
+.hint:empty { display: none; }
+.preview { margin: 0; display: grid; justify-items: center; gap: 12px; }
+.stage {
+	position: relative; display: grid; place-items: end center; width: 220px; height: 232px; padding-bottom: 4px;
+	background:
+		radial-gradient(ellipse at 50% 35%, rgba(255, 255, 255, 0.45), transparent 60%),
+		linear-gradient(180deg, var(--slot-dk), var(--slot) 30%, var(--slot-hi));
+	border: 3px solid var(--slot-dk); border-radius: 16px; box-shadow: inset 0 5px 8px rgba(20, 36, 8, 0.35);
+}
+.stage svg { width: 188px; height: 222px; --tunic: #3c9a2e; --tunic-dk: #25601c; --tunic-hi: #6db55f; }
+.preview figcaption { display: grid; justify-items: center; gap: 4px; text-align: center; }
+/* the long green name bar ("Wind Waker"), with the player's name */
+.namebar {
+	display: block; min-width: 200px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+	padding: 3px 20px 5px; font: 400 19px/1.25 var(--display); color: #fff;
+	paint-order: stroke fill; -webkit-text-stroke: 5px var(--ink);
+	background: linear-gradient(180deg, var(--bar-hi) 0 14%, var(--bar) 15% 100%);
+	border: 3px solid var(--ink); border-radius: 10px; box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.35), 0 3px 0 rgba(20, 36, 8, 0.45);
+}
+.preview small { color: var(--text-dim); font-size: 13px; font-weight: 700; }
+
+/* check rows: long inset slots with a round mark */
+.checks { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
+.checks:empty { display: none; }
+.check {
+	display: flex; align-items: center; gap: 10px; padding: 6px 12px;
+	background: linear-gradient(180deg, var(--slot-dk), var(--slot) 25%, var(--slot-hi));
+	border: 3px solid var(--slot-dk); border-radius: 10px; box-shadow: inset 0 3px 5px rgba(20, 36, 8, 0.3);
+}
+.check .mark {
+	flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+	font: 700 16px var(--body); color: #fff; background: #8a9a7a; border: 3px solid var(--ink);
+}
+.check.ok .mark { background: var(--bar); }
+.check.warn .mark { background: var(--yellow); color: var(--ink); }
+.check.fail .mark { background: var(--red); }
+.check.pending .mark { background: #fff; color: var(--ink); animation: pulse 1s ease-in-out infinite alternate; }
+.check .what { min-width: 0; display: grid; }
+.check .what b { font: 400 16px var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink); }
+.check .what small { font: 500 12.5px/1.4 var(--mono); color: var(--ink); word-break: break-all; }
+@keyframes pulse { from { transform: scale(0.85); } to { transform: scale(1.05); } }
+
+/* the progress bar: the magic meter */
+.progress { margin: 16px 0 4px; }
+.meterrow { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.meter {
+	flex: 1; height: 24px; padding: 3px; background: #1d3a12; border: 3px solid var(--ink); border-radius: 999px;
+	box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.5);
+}
+.meter i {
+	display: block; height: 100%; width: 0; border-radius: 999px; transition: width 0.3s ease;
+	background: linear-gradient(180deg, #f2ff9a 0 20%, #b6ec3c 21% 70%, #6fbf1e 71%);
+}
+.meter i.busy {
+	background:
+		repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.28) 0 10px, transparent 10px 20px),
+		linear-gradient(180deg, #f2ff9a 0 20%, #b6ec3c 21% 70%, #6fbf1e 71%);
+	background-size: 40px 100%, 100% 100%;
+	animation: march 0.8s linear infinite;
+}
+@keyframes march { from { background-position: 0 0, 0 0; } to { background-position: 40px 0, 0 0; } }
+.pct { min-width: 64px; font: 400 18px var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink); }
+details { margin-top: 6px; }
+summary { cursor: pointer; font: 400 14px var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink); }
+.log.short { max-height: 170px; margin-top: 8px; }
+
+/* Dolphin candidates: one long slot per place it may be */
+.cands { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.cand {
+	position: relative; width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; text-align: left;
+	background: linear-gradient(180deg, var(--slot-dk), var(--slot) 25%, var(--slot-hi));
+	border: 3px solid var(--slot-dk); border-radius: 10px; box-shadow: inset 0 3px 5px rgba(20, 36, 8, 0.3);
+}
+.cand[aria-checked=true] { background: linear-gradient(180deg, var(--slot), var(--slot-hi) 30%, var(--lime-hi)); }
+.cand:disabled { opacity: 0.6; cursor: not-allowed; }
+.cand .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 14px var(--mono); color: var(--ink); direction: rtl; text-align: left; }
+.cands .empty { padding: 8px 12px; font-weight: 700; color: var(--text-dim); }
+/* a note on parchment (the macOS prepare step) */
+.note { margin: 14px 0 4px; padding: 12px 14px; background: #fff6c8; border: 3px solid var(--ink); border-radius: 10px; box-shadow: 0 3px 0 rgba(20, 36, 8, 0.4); }
+.note p { margin: 0 0 10px; }
+
+/* Back / Skip under the step */
+.stepnav { display: flex; justify-content: space-between; max-width: 900px; margin: 12px auto 0; }
+.stepnav .right { margin-left: auto; }
+
 @media (max-width: 760px) {
-	.pair, .cols { grid-template-columns: 1fr; }
+	.pair, .cols, .profile { grid-template-columns: 1fr; }
+	.steps { gap: 12px; }
+	.steps button { width: 72px; }
 	.pair { row-gap: 30px; }
 	.feed { height: 420px; }
 }
-@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .btn, .badge, .meter i { transition: none; } .meter i.busy, .check.pending .mark { animation: none; } }

@@ -33,6 +33,24 @@ import (
 // maxCallBody caps one /api/call request.
 const maxCallBody = 64 << 10
 
+// browserMethods are the Bridge methods ui --browser serves: every one but
+// windowOnly, named here rather than found by reflection so a new method is
+// reachable from the browser only once it is listed
+// (TestBrowserMethodsAllowlist keeps the two lists and Bridge together).
+var browserMethods = map[string]bool{
+	"Info": true, "State": true, "Host": true, "Join": true, "Leave": true,
+	"SetColor": true, "SetReady": true, "SendChat": true,
+	// The first-run setup (App PR 6).
+	"Setup": true, "SaveProfile": true, "CheckColor": true,
+	"StartPatch": true, "CancelPatch": true, "PatchStatus": true,
+	"DetectDolphin": true, "UserDirFor": true, "SetDolphin": true, "PrepareDolphin": true, "FinishSetup": true,
+}
+
+// windowOnly are the Bridge methods only the window has: PickFile opens a
+// native dialog, which a browser page can't (the frontend asks for a typed
+// path there).
+var windowOnly = map[string]bool{"PickFile": true}
+
 // BrowserServer is a running ServeBrowser.
 type BrowserServer struct {
 	// URL is the page to open, with the token.
@@ -147,6 +165,10 @@ func (s *BrowserServer) call(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimPrefix(r.URL.Path, "/api/call/")
+	if !browserMethods[name] {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("no method %q", name)})
+		return
+	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxCallBody+1))
 	if err != nil || len(body) > maxCallBody {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "request too large or unreadable"})

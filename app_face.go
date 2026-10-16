@@ -109,9 +109,10 @@ func runGUI() {
 
 // guiOptions are the window's and ui --browser's options. The app reads
 // its saved settings itself (internal/gui); package main never imports
-// internal/config, so the CLI can't read them (TestCLIReadsNoConfig).
+// internal/config, so the CLI can't read them (TestCLIReadsNoConfig). The
+// setup's patch runs the co-op tables step the `patch` command runs.
 func guiOptions(ctrl *session.Controller) gui.Options {
-	return gui.Options{Version: version, Controller: ctrl, Getenv: os.Getenv}
+	return gui.Options{Version: version, Controller: ctrl, Getenv: os.Getenv, CoopTables: cacheCoopTablesForPatch}
 }
 
 // runTUI runs the Bubble Tea TUI (what no arguments opened before the app

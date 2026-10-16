@@ -13,7 +13,10 @@
 		<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 1 31 16 16 31 1 16Z" fill="#d8262e" stroke="#101a33" stroke-width="2"/><path d="M7 18c5 0 9-2 9-6 0-3-4-3-4 0 0 2 3 2 3 0" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round"/></svg>
 		<span class="hud">Wind Waker Multiplayer</span>
 	</div>
-	<span class="ver" id="version"></span>
+	<div class="badges">
+		<button class="badge" type="button" id="setup-btn" hidden>Setup</button>
+		<span class="ver" id="version"></span>
+	</div>
 </header>
 
 <main>
@@ -54,6 +57,148 @@
 			</form>
 		</div>
 		<p class="error" id="home-error" role="alert"></p>
+	</section>
+
+	<!-- Setup: the first run, and Home's Setup button (setup.js) -->
+	<section id="setup" class="screen" hidden>
+		<h1 class="hud" id="setup-title">Welcome aboard</h1>
+		<nav class="steps" id="steps" aria-label="Setup steps">
+			<button type="button" data-step="profile"><b>1</b><span>You</span></button>
+			<button type="button" data-step="game"><b>2</b><span>Game</span></button>
+			<button type="button" data-step="dolphin"><b>3</b><span>Dolphin</span></button>
+			<button type="button" data-step="done"><b>&#9733;</b><span>Done</span></button>
+		</nav>
+
+		<form class="panel step" data-step="profile" id="s-profile-form">
+			<h2>Your name</h2>
+			<div class="profile">
+				<div>
+					<label class="field">
+						<span>Name</span>
+						<input id="s-name" autocomplete="off" spellcheck="false" placeholder="Link">
+					</label>
+					<div class="field">
+						<span>Tunic color</span>
+						<div class="swatches" id="s-swatches" role="radiogroup" aria-label="Tunic color"></div>
+					</div>
+					<label class="field">
+						<span>Or your own color</span>
+						<span class="row">
+							<input type="color" id="s-well" aria-label="Pick a color">
+							<input id="s-hex" class="hex" autocomplete="off" spellcheck="false" placeholder="#RRGGBB" maxlength="7">
+						</span>
+						<small class="hint" id="s-color-note" role="status"></small>
+					</label>
+				</div>
+				<figure class="preview">
+					<div class="stage">
+						<svg id="s-link" viewBox="0 0 160 200" role="img" aria-label="Your Link in this tunic color">
+							<g stroke="#142408" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+								<ellipse cx="80" cy="190" rx="42" ry="6" fill="rgba(20,36,8,.35)" stroke="none"/>
+								<path d="M98 46 Q124 40 142 84 Q131 78 118 74 Q110 60 96 54 Z" fill="var(--tunic-dk)"/>
+								<rect x="53" y="166" width="23" height="18" rx="6" fill="#6b3f1d"/>
+								<rect x="84" y="166" width="23" height="18" rx="6" fill="#6b3f1d"/>
+								<rect x="58" y="138" width="16" height="32" fill="#f4ecd8"/>
+								<rect x="86" y="138" width="16" height="32" fill="#f4ecd8"/>
+								<path d="M58 96 L38 124 L48 131 L64 108 Z" fill="var(--tunic)"/>
+								<path d="M102 96 L122 124 L112 131 L96 108 Z" fill="var(--tunic-dk)"/>
+								<circle cx="42" cy="130" r="7" fill="#f7c99b"/>
+								<circle cx="118" cy="130" r="7" fill="#f7c99b"/>
+								<path d="M56 90 L104 90 L115 146 Q80 155 45 146 Z" fill="var(--tunic)"/>
+								<path d="M80 90 L104 90 L115 146 Q98 151 80 152 Z" fill="var(--tunic-dk)" stroke="none"/>
+								<path d="M56 90 L104 90 L115 146 Q80 155 45 146 Z" fill="none"/>
+								<path d="M70 90 L80 102 L90 90" fill="#f4ecd8"/>
+								<rect x="50" y="118" width="60" height="9" fill="#7a4a22"/>
+								<rect x="73" y="115" width="14" height="15" rx="2" fill="#e8c040"/>
+								<path d="M58 62 L38 52 L60 74 Z" fill="#f7c99b"/>
+								<path d="M102 62 L122 52 L100 74 Z" fill="#f7c99b"/>
+								<ellipse cx="80" cy="68" rx="24" ry="22" fill="#f7c99b"/>
+								<path d="M56 64 Q58 48 80 46 Q102 48 104 64 Q96 54 88 58 Q84 52 80 56 Q74 51 70 58 Q62 54 56 64 Z" fill="#f2c443"/>
+								<path d="M54 56 Q60 28 82 26 Q104 30 106 54 Q94 42 80 42 Q64 43 54 56 Z" fill="var(--tunic)"/>
+								<path d="M82 26 Q104 30 106 54 Q99 46 90 43 Z" fill="var(--tunic-hi)" stroke="none"/>
+								<ellipse cx="71" cy="72" rx="4.5" ry="7" fill="#142408" stroke="none"/>
+								<ellipse cx="89" cy="72" rx="4.5" ry="7" fill="#142408" stroke="none"/>
+								<circle cx="72.5" cy="69" r="1.6" fill="#fff" stroke="none"/>
+								<circle cx="90.5" cy="69" r="1.6" fill="#fff" stroke="none"/>
+								<path d="M76 84 Q80 86 84 84" fill="none" stroke-width="2"/>
+							</g>
+						</svg>
+					</div>
+					<figcaption>
+						<span class="namebar" id="s-preview-name">Link</span>
+						<small id="s-preview-color"></small>
+					</figcaption>
+				</figure>
+			</div>
+			<p class="error" id="s-profile-error" role="alert"></p>
+			<div class="actions"><button class="btn primary" type="submit">Save</button></div>
+		</form>
+
+		<div class="panel step" data-step="game" hidden>
+			<h2>Your game</h2>
+			<p class="dim">Choose your own Wind Waker disc image: <code>.iso</code> or <code>.ciso</code>, the USA version (GZLE01). The app writes a patched copy next to it, named <code>&hellip;-multiplayer.iso</code>; your original is never changed.</p>
+			<ul class="checks" id="s-game-current"></ul>
+			<label class="field" id="s-iso-typed" hidden>
+				<span>Path to your disc image</span>
+				<input id="s-iso-path" autocomplete="off" spellcheck="false">
+			</label>
+			<div class="actions left">
+				<button class="btn primary" type="button" id="s-iso-pick">Choose your disc&hellip;</button>
+				<button class="btn" type="button" id="s-iso-have">I already have a patched ISO</button>
+			</div>
+			<div class="progress" id="s-progress" hidden>
+				<div class="meterrow">
+					<div class="meter" role="progressbar" aria-label="Patching"><i id="s-meter"></i></div>
+					<span class="pct" id="s-pct"></span>
+					<button class="btn" type="button" id="s-patch-cancel">Cancel</button>
+				</div>
+				<ul class="checks" id="s-checks"></ul>
+				<details>
+					<summary>What the patcher said</summary>
+					<ol class="log short" id="s-patch-log"></ol>
+				</details>
+			</div>
+			<p class="error" id="s-game-error" role="alert"></p>
+			<div class="actions"><button class="btn primary" type="button" id="s-game-next">Next</button></div>
+		</div>
+
+		<div class="panel step" data-step="dolphin" hidden>
+			<h2>Dolphin</h2>
+			<p class="dim">The app starts Dolphin for you with your patched disc. Pick the Dolphin to use:</p>
+			<ul class="cands" id="s-cands" role="radiogroup" aria-label="Dolphin"></ul>
+			<div class="row browse">
+				<input id="s-dolphin-path" autocomplete="off" spellcheck="false" placeholder="Path to Dolphin.exe" hidden>
+				<button class="btn" type="button" id="s-dolphin-browse">Browse&hellip;</button>
+				<button class="btn" type="button" id="s-dolphin-rescan">Look again</button>
+			</div>
+			<label class="field">
+				<span>Dolphin's user folder</span>
+				<span class="row">
+					<input id="s-userdir" autocomplete="off" spellcheck="false">
+					<button class="btn" type="button" id="s-userdir-browse">Browse&hellip;</button>
+				</span>
+				<small class="hint">Where this Dolphin keeps its settings and memory cards: its <code>User</code> folder when it's a portable copy, else Dolphin's usual folder. Leave it empty to use that.</small>
+			</label>
+			<div class="note" id="s-mac" hidden>
+				<p id="s-mac-text"></p>
+				<button class="btn primary" type="button" id="s-mac-prepare">Prepare Dolphin</button>
+				<ol class="log short" id="s-mac-log" hidden></ol>
+			</div>
+			<p class="error" id="s-dolphin-error" role="alert"></p>
+			<div class="actions"><button class="btn primary" type="button" id="s-dolphin-save">Use this Dolphin</button></div>
+		</div>
+
+		<div class="panel step" data-step="done" hidden>
+			<h2 id="s-done-plaque">You're set</h2>
+			<p id="s-done-text"></p>
+			<ul class="checks" id="s-summary"></ul>
+			<div class="actions"><button class="btn primary" type="button" id="s-finish">Let's go</button></div>
+		</div>
+
+		<div class="stepnav">
+			<button type="button" class="btn" id="step-back">Back</button>
+			<button type="button" class="btn right" id="step-skip">Skip this step</button>
+		</div>
 	</section>
 
 	<!-- Session: the lobby (or the direct session), its log and chat -->

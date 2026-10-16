@@ -6,13 +6,14 @@
 // diffing here: each render rebuilds its lists.
 
 import { call, onEvent } from "./transport.js";
+import { $, el, toast, swatches } from "./ui.js";
+import { initSetup, openSetup, onPatch } from "./setup.js";
 
-const $ = (id) => document.getElementById(id);
 const LOG_MAX = 500;
 
 let info = null; // Bridge.Info
 let state = null; // Bridge.State
-let view = "home"; // "home" or "session"
+let view = "home"; // "home", "session" or "setup" (setup.js)
 let session = 0; // the session the Session screen shows
 let homeColor = ""; // the Home form's color, a "#RRGGBB"
 let left = false; // the user pressed Leave (no "ended" panel then)
@@ -20,45 +21,10 @@ let busy = false;
 
 const PHASES = { connecting: "Connecting…", lobby: "Lobby", starting: "Starting", "in game": "In game", ended: "Ended", idle: "" };
 
-function el(tag, props = {}, ...kids) {
-	const n = document.createElement(tag);
-	for (const [k, v] of Object.entries(props)) {
-		if (k === "class") n.className = v;
-		else if (k === "style") n.style.cssText = v;
-		else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
-		else if (v !== undefined && v !== null && v !== false) n.setAttribute(k, v === true ? "" : v);
-	}
-	for (const c of kids.flat()) if (c !== null && c !== undefined) n.append(c);
-	return n;
-}
-
-function toast(text, { bad = false, actions = [] } = {}) {
-	const t = el("div", { class: "toast" + (bad ? " bad" : "") }, el("div", {}, text));
-	for (const [label, fn] of actions) {
-		t.append(el("button", { class: "btn", type: "button", onclick: () => { t.remove(); fn(); } }, label));
-	}
-	$("toasts").append(t);
-	setTimeout(() => t.remove(), actions.length ? 15000 : 7000);
-}
-
 // ---------- color swatches ----------
 
-// swatches renders the palette into box. selected is a "#RRGGBB". Any
-// color can be picked, whoever else wears it.
-function swatches(box, selected, onPick, { disabled = false } = {}) {
-	box.replaceChildren();
-	for (const s of info.palette) {
-		const label = s.name + (s.classic ? " (classic)" : "");
-		box.append(el("button", {
-			type: "button", class: "swatch", role: "radio", style: "--c:" + s.hex, title: label, "aria-label": label,
-			"aria-checked": String(selected.toUpperCase() === s.hex), disabled,
-			onclick: () => onPick(s.hex),
-		}, el("i")));
-	}
-}
-
 function renderHomeSwatches() {
-	swatches($("home-swatches"), homeColor, (hex) => { homeColor = hex; renderHomeSwatches(); });
+	swatches($("home-swatches"), info.palette, homeColor, (hex) => { homeColor = hex; renderHomeSwatches(); });
 }
 
 // ---------- screens ----------
@@ -67,8 +33,20 @@ function show(v) {
 	view = v;
 	$("home").hidden = v !== "home";
 	$("session").hidden = v !== "session";
+	$("setup").hidden = v !== "setup";
+	$("setup-btn").hidden = v === "session";
 	if (v === "home") $("home-error").textContent = "";
 	render();
+}
+
+// fillHome puts the saved name and color into the Home form (at start, and
+// after the setup saved them).
+function fillHome() {
+	$("name").value = info.name || "";
+	// Players may share a color, and one who never chose wears classic
+	// green (owner decision, 2026-10-16): no "automatic" choice.
+	homeColor = info.color || info.palette[0].hex;
+	renderHomeSwatches();
 }
 
 function render() {
@@ -119,7 +97,7 @@ function render() {
 	const mine = $("mine");
 	mine.hidden = !(self && !ended && lobby.phase === "lobby");
 	if (!mine.hidden) {
-		swatches($("lobby-swatches"), self.color, async (hex) => {
+		swatches($("lobby-swatches"), info.palette, self.color, async (hex) => {
 			try {
 				await call("SetColor", hex);
 			} catch (e) {
@@ -178,6 +156,9 @@ function onEv(ev) {
 			toast(ev.text || ev.code, { bad: true, actions });
 			break;
 		}
+		case "patch":
+			onPatch(ev.patch);
+			break;
 		case "legacy-host":
 			toast("This host runs an older ww-multiplayer without a lobby, so you joined directly.");
 			break;
@@ -232,6 +213,7 @@ function wire() {
 		}
 	});
 	$("back-btn").addEventListener("click", () => show("home"));
+	$("setup-btn").addEventListener("click", () => openSetup());
 	$("ready-btn").addEventListener("click", async () => {
 		const pressed = $("ready-btn").getAttribute("aria-pressed") === "true";
 		try {
@@ -258,18 +240,26 @@ async function main() {
 	info = await call("Info");
 	$("version").textContent = info.version;
 	$("name").maxLength = info.maxName;
-	$("name").value = info.name || "";
 	$("port").value = info.port || 25565;
 	$("recent-hosts").replaceChildren(...info.recentHosts.map((h) => el("option", { value: h.addr }, h.label || null)));
-	homeColor = info.color || info.palette[0].hex; // no preference: classic green
-	renderHomeSwatches();
+	fillHome();
 	for (const w of info.warnings || []) toast(w, { bad: true });
 	wire();
 	onEvent(onEv);
+	const setup = initSetup({
+		info, show,
+		// The setup saved or finished: Home starts from what it saved.
+		onSaved: async () => {
+			info = await call("Info");
+			fillHome();
+		},
+	});
 	state = await call("State");
 	if (state.running) {
 		session = state.session;
 		show("session");
+	} else if ((await setup).needed) {
+		openSetup();
 	} else {
 		show("home");
 	}

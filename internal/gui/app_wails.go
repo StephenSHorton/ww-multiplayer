@@ -5,6 +5,7 @@ package gui
 import (
 	"context"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 
 	"github.com/wailsapp/wails/v2"
@@ -21,8 +22,9 @@ const eventName = "ww:event"
 func Available() bool { return true }
 
 // Run opens the window and returns when it has closed. Closing it while a
-// session runs asks first, then leaves the session (the same teardown as
-// Ctrl+C in the CLI). An error before the window opened (no WebView2, for
+// session runs or a disc is being patched asks first (Bridge.beforeClose),
+// then leaves the session (the same teardown as Ctrl+C in the CLI) and
+// stops the patch. An error before the window opened (no WebView2, for
 // one) leaves the console as it was, so the caller can fall back to the
 // TUI in it.
 func Run(o Options) error {
@@ -49,24 +51,11 @@ func Run(o Options) error {
 			if hidden {
 				freeConsole()
 			}
+			b.setDialogs(wailsDialogs{ctx})
 			b.pump(ctx, func(ev EventView) { wruntime.EventsEmit(ctx, eventName, ev) })
 		},
 		OnBeforeClose: func(ctx context.Context) bool {
-			if !b.running() {
-				return false
-			}
-			ans, err := wruntime.MessageDialog(ctx, wruntime.MessageDialogOptions{
-				Type:          wruntime.QuestionDialog,
-				Title:         "Leave the session?",
-				Message:       "Closing the window leaves the session for everyone you are playing with.",
-				Buttons:       []string{"Leave", "Stay"},
-				DefaultButton: "Stay",
-				CancelButton:  "Stay",
-			})
-			if err != nil {
-				return false
-			}
-			return ans != "Leave" && ans != "Yes" // Windows shows Yes / No
+			return b.beforeClose(func(q string) bool { return askClose(ctx, q) }, func() { wruntime.Quit(ctx) })
 		},
 		OnShutdown: func(context.Context) { b.close() },
 		Windows: &windows.Options{
@@ -80,6 +69,33 @@ func Run(o Options) error {
 	return err
 }
 
+// askClose asks one of beforeClose's questions with a native dialog and
+// says whether the answer is to close anyway.
+func askClose(ctx context.Context, q string) bool {
+	o := wruntime.MessageDialogOptions{Type: wruntime.QuestionDialog}
+	closeWord := ""
+	switch q {
+	case askStopPatch:
+		o.Title = "Stop patching?"
+		o.Message = "Your disc is still being patched. Close anyway? The patch stops. If your disc is already being written, " +
+			"the window stays open until that is finished (a few seconds to a few minutes), then the new disc is removed and the app closes."
+		o.Buttons, o.DefaultButton, o.CancelButton = []string{"Close", "Keep patching"}, "Keep patching", "Keep patching"
+		closeWord = "Close"
+	case askLeaveSession:
+		o.Title = "Leave the session?"
+		o.Message = "Closing the window leaves the session for everyone you are playing with."
+		o.Buttons, o.DefaultButton, o.CancelButton = []string{"Leave", "Stay"}, "Stay", "Stay"
+		closeWord = "Leave"
+	}
+	ans, err := wruntime.MessageDialog(ctx, o)
+	if err != nil {
+		// As before: a failed "Stop patching?" keeps the patch; a failed
+		// "Leave the session?" closes.
+		return q == askLeaveSession
+	}
+	return ans == closeWord || ans == "Yes" // Windows shows Yes / No
+}
+
 // webviewDataDir keeps WebView2's profile next to the app's config rather
 // than in a folder named after the exe; "" is WebView2's default.
 func webviewDataDir(configPath string) string {
@@ -87,4 +103,28 @@ func webviewDataDir(configPath string) string {
 		return ""
 	}
 	return filepath.Join(filepath.Dir(configPath), "webview")
+}
+
+// wailsDialogs is the window's native file dialogs (Bridge.PickFile).
+type wailsDialogs struct{ ctx context.Context }
+
+func (d wailsDialogs) Open(kind, title, dir string) (string, error) {
+	o := wruntime.OpenDialogOptions{Title: title, DefaultDirectory: dir}
+	switch kind {
+	case "userdir":
+		o.CanCreateDirectories = true
+		return wruntime.OpenDirectoryDialog(d.ctx, o)
+	case "iso":
+		o.Filters = []wruntime.FileFilter{
+			{DisplayName: "Wind Waker disc image (*.iso, *.ciso)", Pattern: "*.iso;*.ciso;*.gcm"},
+			{DisplayName: "All files", Pattern: "*.*"},
+		}
+	case "dolphin":
+		if runtime.GOOS == "darwin" {
+			o.Filters = []wruntime.FileFilter{{DisplayName: "Dolphin (Dolphin.app)", Pattern: "*.app"}}
+		} else {
+			o.Filters = []wruntime.FileFilter{{DisplayName: "Dolphin (Dolphin.exe)", Pattern: "*.exe"}}
+		}
+	}
+	return wruntime.OpenFileDialog(d.ctx, o)
 }
