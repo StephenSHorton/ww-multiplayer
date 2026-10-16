@@ -1,0 +1,7 @@
+exit 1
+Bootstrapping <TMP>/ud2 from <TMP>/ud1 (skipping Cache/) ...
+Bootstrap complete.
+cheats: installed bundled GZLE01.ini at <TMP>/ud1/GameSettings/GZLE01.ini (enable individual codes via Dolphin → game properties → Gecko Codes)
+cheats: installed bundled GZLE01.ini at <TMP>/ud2/GameSettings/GZLE01.ini (enable individual codes via Dolphin → game properties → Gecko Codes)
+WARN: couldn't enumerate Dolphin PIDs: process "Dolphin" not found (will launch both)
+ERROR: launch Dolphin 1: exec: "<TMP>//Dolphin-x64": executable file not found in %PATH%

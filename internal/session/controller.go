@@ -27,6 +27,13 @@ type Options struct {
 	// Buffer is each subscription's event buffer; 0 means DefaultBuffer,
 	// and a smaller positive value is raised to MinBuffer.
 	Buffer int
+	// SessionLog, when non-nil, is called as each session starts, with its
+	// starting state, and returns a Reporter that gets that session's log
+	// lines only (its own log file, internal/applog) and a func the
+	// Controller calls once the session has ended and logged its end. A nil
+	// Reporter (the file couldn't be opened) is skipped. Like Log, the
+	// Reporter must not block.
+	SessionLog func(State) (report.Reporter, func())
 }
 
 // Controller owns at most one running session at a time and is the only
@@ -103,7 +110,17 @@ func (c *Controller) start(parent context.Context, st State, body func(context.C
 	c.publish(Event{Kind: EventState, Session: r.id})
 	c.mu.Unlock()
 
-	out := newOutput(c, r.id)
+	var sessLog report.Reporter
+	closeLog := func() {}
+	if c.opts.SessionLog != nil {
+		if rep, done := c.opts.SessionLog(st); rep != nil {
+			sessLog = rep
+			if done != nil {
+				closeLog = done
+			}
+		}
+	}
+	out := newOutput(c, r.id, sessLog)
 	go func() {
 		err := body(ctx, cancel, out)
 		if err != nil && !errors.Is(err, ErrReported) {
@@ -117,6 +134,7 @@ func (c *Controller) start(parent context.Context, st State, body func(context.C
 		c.publish(Event{Kind: EventEnded, Session: r.id, Text: reason})
 		c.publish(Event{Kind: EventState, Session: r.id})
 		c.mu.Unlock()
+		closeLog() // before done: a Wait that returned sees the log closed
 		close(r.done)
 	}()
 	return r.id, nil
@@ -175,7 +193,8 @@ func (c *Controller) Snapshot() State {
 }
 
 // output is the Output a run writes to: it publishes log and chat events
-// tagged with the run's ID, forwards log lines to Options.Log, and keeps the
+// tagged with the run's ID, forwards log lines to Options.Log and the
+// run's Options.SessionLog, and keeps the
 // newest Err-level line as the session's end reason.
 type output struct {
 	c   *Controller
@@ -187,9 +206,9 @@ type output struct {
 	lastErr string
 }
 
-func newOutput(c *Controller, id ID) *output {
+func newOutput(c *Controller, id ID, sessLog report.Reporter) *output {
 	o := &output{c: c, id: id}
-	o.rep = report.Multi(publisher{o}, c.opts.Log)
+	o.rep = report.Multi(publisher{o}, c.opts.Log, sessLog)
 	return o
 }
 

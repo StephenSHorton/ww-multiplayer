@@ -30,9 +30,9 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
-	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
+	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/internal/tui"
@@ -709,7 +709,7 @@ func main() {
 	// The TUI drives them through a session.Controller; sessionEngine
 	// (session_engine.go) adapts runHostSession / runJoinSession and the
 	// liveState status bridge to it.
-	ctrl := session.New(newTUIEngine(), session.Options{})
+	ctrl := session.New(newTUIEngine(), session.Options{SessionLog: tuiSessionLog})
 	if err := tui.Run(version, ctrl); err != nil {
 		fmt.Println(err)
 		fmt.Print("Press Enter to exit...")
@@ -752,53 +752,13 @@ func versionLine() string {
 	return "ww-multiplayer " + version
 }
 
-// runPatch is the user-facing wrapper for inject.PatchISO. Picks a sensible
-// default output filename (`<input>-multiplayer.iso`) when the user doesn't
-// supply one, and prints a tiny status line so successful runs aren't
-// silently mysterious.
+// runPatch is the `patch` command: patch.Run (internal/patch) writes the
+// patcher's lines on stdout, with the co-op stage tables step, and a
+// failure exits 1. An already-patched input exits 0, as it always has.
 func runPatch(in, out string) {
-	if out == "" {
-		base := in
-		// Strip extension before tagging "-multiplayer.iso" so we don't
-		// produce things like "wind-waker.ciso-multiplayer.iso".
-		for i := len(base) - 1; i >= 0; i-- {
-			if base[i] == '.' {
-				base = base[:i]
-				break
-			}
-			if base[i] == '/' || base[i] == '\\' {
-				break
-			}
-		}
-		out = base + "-multiplayer.iso"
-	}
-	fmt.Printf("Wind Waker Multiplayer patcher\n")
-	fmt.Printf("  input : %s\n", in)
-	fmt.Printf("  output: %s\n", out)
-	res, err := inject.PatchISO(in, out)
-	if err != nil {
-		switch {
-		case errors.Is(err, inject.ErrAlreadyPatched):
-			fmt.Printf("\nThis ISO already contains this version of the multiplayer mod — nothing to do.\n")
-			fmt.Printf("(Detected an existing T2 section at 0x%08X.)\n", inject.T2Address)
-			cacheCoopTablesForPatch(os.Stdout, in) // the disc Dolphin will run; never fails the patch
-			os.Exit(0)
-		case errors.Is(err, inject.ErrPatchedByOtherVersion):
-			fmt.Printf("\nThis ISO was patched by a different ww-multiplayer version.\n")
-			fmt.Printf("Patch your vanilla (unmodified) Wind Waker ISO with this version instead.\n")
-			os.Exit(1)
-		}
-		fmt.Printf("\nERROR: %v\n", err)
+	if _, err := patch.Run(context.Background(), in, out, os.Stdout, patch.Options{CoopTables: cacheCoopTablesForPatch}); err != nil {
 		os.Exit(1)
 	}
-	if res.FSTMoved() {
-		fmt.Printf("  FST   : moved 0x%X -> 0x%X (0x%X bytes) to make room for the mod\n",
-			res.OldFSTOffset, res.NewFSTOffset, res.FSTSize)
-	}
-	// The co-op stage tables of the disc just written, for --coop
-	// sessions: read-only on it, and a warning at worst.
-	cacheCoopTablesForPatch(os.Stdout, out)
-	fmt.Printf("\nDone. Boot %s in Dolphin to play multiplayer.\n", out)
 }
 
 func runWriteTest() {

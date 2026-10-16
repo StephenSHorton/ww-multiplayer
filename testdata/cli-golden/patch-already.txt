@@ -1,0 +1,8 @@
+exit 0
+Wind Waker Multiplayer patcher
+  input : <TMP>/out/patched.iso
+  output: <TMP>/out/patched-multiplayer.iso
+
+This ISO already contains this version of the multiplayer mod — nothing to do.
+(Detected an existing T2 section at 0x80410000.)
+  co-op : stage tables already cached in N s, for --coop sessions

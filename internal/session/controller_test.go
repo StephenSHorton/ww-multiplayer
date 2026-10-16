@@ -577,3 +577,64 @@ func TestConcurrentUse(t *testing.T) {
 	wg.Wait()
 	unsubSlow()
 }
+
+// TestSessionLog: each session gets its own SessionLog reporter, opened
+// with the session's starting state, with only that session's lines
+// (its end reason included), and closed before Wait returns. A nil
+// reporter is skipped.
+func TestSessionLog(t *testing.T) {
+	e := newFake()
+	e.lines = []string{"one"}
+	type opened struct {
+		st     State
+		rec    *recorder
+		closed bool
+	}
+	var mu sync.Mutex
+	var logs []*opened
+	c := New(e, Options{SessionLog: func(st State) (report.Reporter, func()) {
+		o := &opened{st: st, rec: &recorder{}}
+		mu.Lock()
+		logs = append(logs, o)
+		mu.Unlock()
+		return o.rec, func() { mu.Lock(); o.closed = true; mu.Unlock() }
+	}})
+	id1, _ := c.Host(context.Background(), HostOptions{Name: "Ann"})
+	waitStarted(t, e)
+	c.Leave()
+	c.Wait(id1)
+	e.fail = errors.New("no route")
+	id2, _ := c.Join(context.Background(), JoinOptions{Name: "Bea", Addr: "10.0.0.2"})
+	waitStarted(t, e)
+	c.Wait(id2)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(logs) != 2 {
+		t.Fatalf("%d logs opened", len(logs))
+	}
+	if st := logs[0].st; st.Session != id1 || st.Role != RoleHost || st.Name != "Ann" || st.Phase != InGame {
+		t.Errorf("first log opened with %+v", st)
+	}
+	if st := logs[1].st; st.Session != id2 || st.Role != RoleJoin || st.Addr != "10.0.0.2" {
+		t.Errorf("second log opened with %+v", st)
+	}
+	if got := logs[0].rec.String(); got != "0:one" || !logs[0].closed {
+		t.Errorf("first log %q, closed %v", got, logs[0].closed)
+	}
+	if got := logs[1].rec.String(); got != "0:one 3:no route" || !logs[1].closed {
+		t.Errorf("second log %q, closed %v", got, logs[1].closed)
+	}
+
+	// A log that can't be opened: the session runs without one.
+	c2 := New(e, Options{SessionLog: func(State) (report.Reporter, func()) { return nil, func() { t.Error("closed a nil log") } }})
+	e.fail = nil
+	id3, err := c2.Host(context.Background(), HostOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(t, e)
+	c2.Leave()
+	if st := c2.Wait(id3); st.Phase != Ended {
+		t.Errorf("phase %v", st.Phase)
+	}
+}

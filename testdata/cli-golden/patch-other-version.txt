@@ -1,0 +1,7 @@
+exit 1
+Wind Waker Multiplayer patcher
+  input : <TMP>/in/other.iso
+  output: <TMP>/out/o.iso
+
+This ISO was patched by a different ww-multiplayer version.
+Patch your vanilla (unmodified) Wind Waker ISO with this version instead.

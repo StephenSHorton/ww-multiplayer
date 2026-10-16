@@ -1,0 +1,7 @@
+exit 0
+Wind Waker Multiplayer patcher
+  input : <TMP>/in/Wind Waker.iso
+  output: <TMP>/in/Wind Waker-multiplayer.iso
+  co-op : stage tables already cached in N s, for --coop sessions
+
+Done. Boot <TMP>/in/Wind Waker-multiplayer.iso in Dolphin to play multiplayer.

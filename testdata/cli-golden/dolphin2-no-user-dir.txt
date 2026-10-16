@@ -1,0 +1,3 @@
+exit 1
+ERROR: Primary Dolphin user dir not found at <TMP>/ud1
+ERROR: Run Dolphin once normally to bootstrap it, then re-run dolphin2.

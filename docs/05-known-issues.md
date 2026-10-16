@@ -825,7 +825,7 @@ Two changes, both required:
    `CFBundleIdentifier=org.dolphin-emu.dolphin-unhardened` on the user
    copy and runs `lsregister -f` so LaunchServices treats it as a
    separate app from the canonical `/Applications/Dolphin.app`.
-2. `mp_local.go`'s `launchDolphinDetached` routes through
+2. `dolphinenv.Launch` (`internal/dolphinenv/launch_darwin.go`; `mp_local.go`'s `launchDolphinDetached` before App PR 3) routes through
    `/usr/bin/open -n -a <bundle> --args ...` on darwin instead of
    `exec.Command` on the inner binary. `open` drives LaunchServices
    directly using bundle ID, so the distinct ID actually takes effect.

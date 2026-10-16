@@ -1,0 +1,6 @@
+exit 1
+Wind Waker Multiplayer patcher
+  input : <TMP>/in/garbage.iso
+  output: <TMP>/out/g.iso
+
+ERROR: iso: input too small (4096 bytes)
