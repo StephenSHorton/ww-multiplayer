@@ -49,6 +49,12 @@ import (
 // a hello with no role byte is a player's. Bytes after caps are ignored, so
 // a later client can append fields.
 //
+// The desktop app's lobby (docs/10-lobby.md) is a third role, RoleLobby,
+// with LobbyCapJSON in caps: a member of the pre-game lobby, never a
+// player either. A server from before the lobby refuses role 2 with
+// RejectRole, which the app takes as "join directly", so ProtocolVersion
+// stays 2.
+//
 // Tunic colors (docs/09-player-colors.md). A player with a color preference
 // (--color / WW_COLOR) sends the role form with role RolePlayer and caps 0,
 // then [hasColor:1 = 1][r:1][g:1][b:1]. A server from before colors reads
@@ -67,6 +73,7 @@ const ProtocolVersion uint16 = 2
 const (
 	RolePlayer byte = 0 // a player: pose, position, chat and the roster (also a hello with no role byte)
 	RoleCoop   byte = 1 // the co-op pipeline: MsgCoop only, routed to the server's CoopHandler
+	RoleLobby  byte = 2 // the app's lobby connection: MsgLobby, chat and the heartbeat (lobby.go)
 )
 
 // helloTimeout is how long a server waits after a join for the client's

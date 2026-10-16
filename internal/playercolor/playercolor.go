@@ -147,6 +147,31 @@ func Pick(pref *Color, used []Color) Color {
 	return palette[len(used)%len(palette)].Color
 }
 
+// Nearest resolves a color request that may clash (the lobby's color
+// picker, docs/10-lobby.md): want itself when it is clear of used, else the
+// clear palette color closest to want (Distance; palette order breaks a
+// tie), else, when no palette color is clear (more players than the palette
+// separates), Pick's wrap-around, which shares a color rather than refuse
+// one.
+func Nearest(want Color, used []Color) Color {
+	if !Clashes(want, used) {
+		return want
+	}
+	best, bestD := Color{}, math.Inf(1)
+	for _, p := range palette {
+		if Clashes(p.Color, used) {
+			continue
+		}
+		if d := Distance(want, p.Color); d < bestD {
+			best, bestD = p.Color, d
+		}
+	}
+	if !math.IsInf(bestD, 1) {
+		return best
+	}
+	return Pick(nil, used)
+}
+
 // ForID is the fallback color for a player whose server sent no colors (a
 // build from before docs/09): palette order by player ID. Every client
 // computes the same answer, but IDs are not reused, so a reconnect can

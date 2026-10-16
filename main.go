@@ -1363,7 +1363,7 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 		return err
 	}
 	defer d.Close()
-	client := newPlayerClient(name)
+	client := newPlayerClientCtx(ctx, name)
 	client.OnLog = func(msg string) { rep.Log(report.Net, msg) }
 
 	const poseBytes = linkJointCount * 48
@@ -1714,7 +1714,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	defer d.Close()
 	rep.Log(report.OK, "Dolphin found.")
 
-	client := newPlayerClient(name)
+	client := newPlayerClientCtx(ctx, name)
 	client.OnLog = func(msg string) {
 		rep.Log(report.Net, msg)
 	}

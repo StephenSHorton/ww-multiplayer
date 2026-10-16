@@ -54,12 +54,18 @@ Windows process memory access via `kernel32.dll` P/Invoke (ReadProcessMemory / W
 
 ### `internal/network/`
 
-Simple TCP-based protocol with message framing. Message types:
+Simple TCP-based protocol with message framing (`[type:1][length:2][data]`). Message types:
 - `J` (Join) — client announces name
-- `W` (Welcome) — server assigns player ID
-- `P` (Position) — 18-byte position update (3 floats + 3 int16s)
-- `L` (PlayerList) — server announces who's connected
+- `H` (Hello) — protocol version, and from protocol 2 the connection role and caps (`handshake.go`)
+- `W` (Welcome) — server assigns an ID; `R` (Reject) — the server refuses the connection, with a code and a reason
+- `P` (Position) — 18-byte position update (3 floats + 3 int16s); `M` (Pose) — the skeletal pose
+- `L` (PlayerList) — server announces who's connected (with the tunic-color trailer, docs/09); `D` (Leave)
 - `C` (Chat) — text messages
+- `K` / `Q` (Ping / Pong) — heartbeat and RTT
+- `O` (Coop) — co-op sub-messages, on a co-op connection only (docs/08)
+- `B` (Lobby) — lobby sub-messages with JSON bodies, on a lobby connection only (docs/10-lobby.md)
+
+A connection has one of three roles, set in its hello: a **player** (pose, position, chat and the roster; every CLI connection), a **co-op** connection (`RoleCoop`, the co-op pipeline), or a **lobby** connection (`RoleLobby`, the desktop app's pre-game lobby: members, colors, ready flags, the host's co-op settings, Start). Co-op and lobby connections are never players: not in the roster, the player count or the relays. Every server has a lobby (`LobbyHub`), inert until a lobby connection arrives; a server from before the lobby refuses the role with `RejectRole`, and the app then joins directly, so the protocol version stayed 2. The server's `CoopHandler` can be set after `Start` (`Server.SetCoop`); while the lobby's host has chosen co-op and the session isn't in game yet, a co-op hello is held for it instead of refused, and `Stop` releases a held one (docs/10-lobby.md §7). A name the lobby's host kicked gets `MsgReject` (`RejectBadName`) on player and co-op connections until the lobby empties, so a reconnecting CLI join stops. Lobby connections are rate-limited and STATE is merged per connection, so a member can't make the server flood the others (docs/10-lobby.md §3).
 
 Server runs on port `25565`. UDP would be lower-latency for position data but TCP is fine for LAN play.
 
@@ -76,6 +82,7 @@ The front ends do not call the session code directly. They drive a **session con
 ```
 CLI host / join        TUI (internal/tui)        (later: GUI)
         │ commands: Host, Join, Leave, SendChat; co-op: Answer, Command, CommandLine
+        │ lobby: HostLobby, JoinLobby, SetColor, SetReady, SetCoopSettings, Start, Go, Kick, RequestMerge
         │ out: Snapshot() State, Subscribe() <-chan Event, Wait(id) State
 session.Controller (internal/session)
         │ Engine (+ CoopEngine) interface, injected by main
@@ -86,6 +93,7 @@ sessionEngine (session_engine.go) ── runHostSession / runJoinSession (+ live
 - **State out.** `Snapshot()` returns a copy of the current session's `State`: ID, phase (`Idle → InGame → Ended`), role, name, address, end reason, `Failed` (it ended on an error), its co-op options, its open co-op questions, and the live values (players, player count, host addresses, latency, own position, each co-op pipeline's `CoopStatus`) the engine reads from `liveState` and the co-op console. The dashboard polls it every 250 ms.
 - **Events out.** `Subscribe()` gives each UI its own buffered channel of `Event`s: `EventLog` (every `report.Reporter` line), `EventChat`, `EventEnded` (with the end reason: the newest Err-level line, or "no error was reported"), `EventState`, and for co-op `EventQuestion`, `EventQuestionClosed` and `EventAdvice`. Every event carries the session `ID`, so a UI ignores late events from a session it has left. A full buffer drops its *oldest* event, so a slow UI never stalls broadcast-pose or puppet-sync and a session's last two events (`EventEnded`, then `EventState`) always get in (`New` keeps every buffer at 2 slots or more for that).
 - **Engine.** `internal/session` imports neither `internal/dolphin` nor `internal/network`; package main injects the work as a `session.Engine`. `sessionEngine` runs `runHostSession` / `runJoinSession`, hands them a per-session `session.Output` (a `report.Reporter`, a chat sink, `Ask` and `Advise`) and reads `liveState` for `Live()`. An engine that also implements `session.CoopEngine` (`Command`, `CommandLine`, `CoopWorlds`) takes the co-op console verbs; the controller finds it by a type assertion, so an engine without co-op needn't. An engine error that the session already logged (a fatal connect error) wraps `ErrReported`: the controller doesn't log it again but still marks the session `Failed`. The controller is unit-tested on any OS with a fake engine.
+- **The lobby.** `HostLobby` and `JoinLobby` start a session that begins in the pre-game lobby (docs/10-lobby.md). Its phase follows the host's lobby, `Connecting → InLobby → Starting → InGame` (the new phases are numbered after `Ended`, so the old values keep theirs), and `State.Lobby` holds the lobby's view: this player's member ID and host flag, the phase, the co-op settings and every member (name, color, ready, Dolphin state, file hint, RTT, `app` or `cli`, away). The lobby commands (`SetColor`, `SetReady`, `SetDolphin`, `SetFile`, and for the host `SetCoopSettings`, `Start`, `Go`, `Kick`; `RequestMerge`) go to an engine that also implements `session.LobbyEngine`, found by a type assertion like `CoopEngine`; the controller refuses what the role or phase rules out (`ErrNotHost`, `ErrWrongPhase`, `ErrColorsLocked`, `ErrNoLobby`) before anything is sent. The host's replies arrive as `EventLobbyColor`, `EventLobbyNotice`, `EventLobbyStart`, `EventLobbyGo` and `EventLobbyRequest`. A host whose build has no lobby makes `JoinLobby` fall back to the direct `Join` in the same session (`EventLegacyHost`, `State.Lobby.Legacy`), which the GUI does automatically (owner decision), keeping the chosen color (`JoinOptions.Color` reaches the direct join's player connections). A member that joins or reconnects after Start still gets `EventLobbyStart` (and, in game, `EventLobbyGo` with the world); handlers treat a repeat as idempotent. `sessionEngine`'s lobby side is `lobby_engine.go`; what Start launches comes in a later PR, and no CLI subcommand opens a lobby.
 - **Logging.** `report.Multi` fans one session's lines out to several reporters: the controller's event publisher, optionally `Options.Log` (stdout for the CLI), and optionally the session's own `Options.SessionLog` reporter, opened as the session starts with its starting `State` and closed once it has ended (the TUI's log file, below).
 
 #### Co-op through the controller

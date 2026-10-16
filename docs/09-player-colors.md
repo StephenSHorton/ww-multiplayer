@@ -113,6 +113,7 @@
 - `Parse` accepts a palette name or `#RRGGBB`.
 
 **Assignment** (`network/server.go`, `pickColorLocked`), under `s.mu` at join:
+0. (App PR 4, docs/10-lobby.md §4.) A connection whose name is a lobby member's gets the member's color, which the lobby picked. The colors of the lobby's members also count as taken in rules 2-4. Without lobby members, rules 1-4 are unchanged.
 1. A connection whose name matches a live player gets that player's color. Each human runs two connections, broadcast-pose and puppet-sync, under one name (see `dedupePlayersByName` in `main.go`).
 2. Otherwise, the hello's preference, if it is not within `MinDistance` of another player's color.
 3. Otherwise, the color this name had earlier in the server's life, if still clear. A reconnect keeps its color.

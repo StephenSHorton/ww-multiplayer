@@ -102,7 +102,10 @@ func (c *Controller) start(parent context.Context, st State, body func(context.C
 	ctx, cancel := context.WithCancel(parent)
 	r := &run{id: c.next, cancel: cancel, done: make(chan struct{})}
 	c.cur = r
-	st.Session, st.Phase = r.id, InGame
+	st.Session = r.id
+	if st.Phase == Idle {
+		st.Phase = InGame // a direct Host or Join runs its pipelines at once
+	}
 	c.state = st
 	// State events are published under mu, so they are queued in the same
 	// order as the changes, and anyone who saw a change in Snapshot can
@@ -184,6 +187,9 @@ func (c *Controller) Snapshot() State {
 	c.mu.Lock()
 	st := c.state
 	st.Questions = append([]Question(nil), st.Questions...)
+	if st.Lobby != nil {
+		st.Lobby = st.Lobby.clone()
+	}
 	running := c.cur != nil
 	c.mu.Unlock()
 	if running {
