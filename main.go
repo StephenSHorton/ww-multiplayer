@@ -1495,7 +1495,14 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 			report.Logf(rep, report.Warn, "pose-feed slot %d disarmed: waiting for C-side re-alloc", slot)
 			poseBufPtrs[slot] = 0
 		}
-		if !shadowModeArmed {
+		// Check the live byte, not only our own flag: loading a save state
+		// mid-session restores the mailbox from the snapshot, which
+		// usually has shadow_mode=0, and the C side then never allocates a
+		// pose_buf for us to find. Re-assert mode 5 whenever it isn't.
+		if mode, err := d.ReadAbsolute(mailboxBase+mailboxShadowMode, 1); !shadowModeArmed || (err == nil && len(mode) == 1 && mode[0] != 5) {
+			if shadowModeArmed {
+				report.Logf(rep, report.Warn, "shadow_mode was reset (a save-state load?): setting pose-feed mode again")
+			}
 			d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{5})
 			shadowModeArmed = true
 		}
