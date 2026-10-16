@@ -18,6 +18,7 @@ func FuzzDecode(f *testing.F) {
 	f.Add(int16(ProcSalvage), uint32(2<<28|1<<20|0x07<<4), int16(0), int16(0), int16(0x10), 0, 0)
 	f.Add(int16(ProcSalvage), uint32(4<<28|31<<20|0x07<<4), int16(0), int16(0), int16(0), 50, 0)
 	f.Add(int16(ProcBemos), uint32(0), int16(0), int16(0), int16(-1), -1, 3)
+	f.Add(int16(ProcTagKbItem), uint32(0xFFFF0207), int16(0), int16(0), int16(0), 44, 0)
 	f.Add(int16(ProcGrass), uint32(0xFFFFFFFF), int16(-1), int16(-1), int16(-1), 63, 0xF)
 	f.Fuzz(func(t *testing.T, proc int16, prm uint32, ax, ay, az int16, room, table int) {
 		s := &stagedata.Stage{Name: "fz", SaveTable: table}

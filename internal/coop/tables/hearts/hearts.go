@@ -1,6 +1,7 @@
 // Package hearts builds the M1 heart table (docs/08-coop-design.md §3's
 // max life row, §11 items 8 and 11): every heart piece and heart
-// container the user's own stage files place, the hand-written Catalogue
+// container the user's own stage files place (a pig's dig spots among
+// them, through itemsrc), the hand-written Catalogue
 // of the pieces NPCs, minigames, letters, a shop and the auction hand
 // over, and the totals against the vanilla 44 pieces and 6 containers.
 // Max life derives from them as 12 + pieces + 4 * containers quarter
@@ -52,6 +53,16 @@ const (
 // d_a_disappear.cpp:27-28). Helmaroc King (stagedata.ProcBDK) sets
 // STAGE_BOSS_ENEMY (d_a_bdk.cpp:3232, :4235) but creates no container:
 // Forsaken Fortress's comes from a Bitem or a placed one.
+//
+// Gohma, Kalle Demos, Jalhalla and Molgera drop none in a stage whose
+// name starts with 'X', Ganon's Tower's refights (Xboss0-3): there each
+// tests dComIfGp_getStartStageName()[0] == 'X' (the current stage's name,
+// d_com_inf_game.h:283) when beaten, sets its trials-clear event bit and
+// warps out with dLib_setNextStageBySclsNum instead of reaching the death
+// that makes the container (d_a_btd.cpp:906-911, d_a_bmd.cpp:520-525,
+// d_a_bpw.cpp:2154-2158, d_a_bwd.cpp:1021-1026), so Build leaves the
+// bosses of such a stage out (refight). Gohdan has no such test, but no X
+// stage holds him, so he is left out there too on purpose.
 var bosses = map[stagedata.Proc]string{
 	stagedata.ProcBTD: "Gohma",       // d_a_btd.cpp:1082
 	stagedata.ProcBMD: "Kalle Demos", // d_a_bmd.cpp:747
@@ -65,6 +76,12 @@ const (
 	tableFF  = 0x2 // STAGE_FF, d_save.h:891
 	tableMax = 0x10
 )
+
+// refight reports whether s is a stage where a boss warps out instead of
+// dropping its container: its name starts with 'X', the bosses' own test
+// (see bosses). Gohdan (d_a_bst.cpp) has no such test, and no X stage
+// holds him. A Bitem or a placed container in such a stage still counts.
+func refight(s *stagedata.Stage) bool { return strings.HasPrefix(s.Name, "X") }
 
 // lifeTable is the save table whose STAGE_LIFE a container taken in a
 // stage on save table t sets (d_item.cpp:595-602).
@@ -142,7 +159,7 @@ func Build(stages []*stagedata.Stage, names *stagedata.ObjectNames) *Result {
 					r.Problems = append(r.Problems, fmt.Sprintf("%s: Bitem checks save table %d's STAGE_LIFE, but its container sets table %d's",
 						itemsrc.At(s, p), t, life.Table))
 				}
-			} else if _, ok := bosses[proc]; !ok {
+			} else if _, ok := bosses[proc]; !ok || refight(s) {
 				continue
 			}
 			containers = append(containers, itemsrc.Placement{

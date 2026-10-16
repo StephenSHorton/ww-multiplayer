@@ -3,6 +3,7 @@ package hearts
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -29,6 +30,7 @@ func testNames(t testing.TB) *stagedata.ObjectNames {
 		stagetest.ObjectName{Name: "Bwd", Proc: int16(stagedata.ProcBWD), Subtype: -1},
 		stagetest.ObjectName{Name: "Bdk", Proc: int16(stagedata.ProcBDK), Subtype: -1},
 		stagetest.ObjectName{Name: "Bitem", Proc: int16(stagedata.ProcBossItem), Subtype: -1},
+		stagetest.ObjectName{Name: "TagKb", Proc: int16(itemsrc.ProcTagKbItem), Subtype: -1},
 	))
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +65,8 @@ func room(no int, chunks ...stagetest.Chunk) stagetest.Room {
 // vanilla is a disc that, with the Catalogue, has the vanilla totals:
 // pieces of every stage kind and the six containers, from the five
 // bosses that drop one and Forsaken Fortress's Bitem on the sea, plus
-// entries that must not count.
+// entries that must not count: among them Ganon's Tower's four refights
+// (Xboss0-3, save table 8), whose bosses warp out instead.
 func vanilla() []stagetest.Stage {
 	hp := itemsrc.ItemHeartPiece
 	first := []a{
@@ -77,11 +80,13 @@ func vanilla() []stagetest.Stage {
 		{Name: "Salvage", Params: 0<<28 | 5<<20 | uint32(hp)<<4}, // and another
 		{Name: "Salvage", Params: 3<<28 | 2<<20 | uint32(hp)<<4}, // an ocean bit
 		{Name: "kotubo", Params: 0x14<<16 | 0x21},                // a random drop
-		chest(25, 0x01), // not a piece
-		bitem(tableFF),  // Forsaken Fortress's container
+		chest(25, 0x01),                     // not a piece
+		bitem(tableFF),                      // Forsaken Fortress's container
+		{Name: "TagKb", Params: 0xFFFF0207}, // a pig's dig spot, item bit 2
+		{Name: "TagKb", Params: 0xE101FFFF}, // an enemy kind, no item
 	}
 	var rest []a
-	for bit := uint32(3); len(rest) < ExpectedPieces-len(Catalogue)-8; bit++ {
+	for bit := uint32(3); len(rest) < ExpectedPieces-len(Catalogue)-9; bit++ {
 		rest = append(rest, chest(bit, hp))
 	}
 	return []stagetest.Stage{
@@ -92,8 +97,25 @@ func vanilla() []stagetest.Stage {
 		stage("SirenB", 5, []a{boss("Bst")}),
 		stage("M_DaiB", 6, nil, room(0, stagetest.Actors("ACT1", boss("big_pow")), stagetest.Actors("ACT2", boss("big_pow")))),
 		stage("kazeB", 7, []a{boss("Bwd")}),
+		stage("Xboss0", tableGT, []a{boss("Btd")}),
+		stage("Xboss1", tableGT, []a{boss("Bkm")}),
+		stage("Xboss2", tableGT, nil, room(0, stagetest.Actors("ACTR", boss("big_pow")))),
+		stage("Xboss3", tableGT, []a{boss("Bwd")}),
 	}
 }
+
+// xboss0 gives vanilla's Xboss0, Gohma's refight, the rooms rs.
+func xboss0(s []stagetest.Stage, rs ...stagetest.Room) []stagetest.Stage {
+	for i := range s {
+		if s[i].Name == "Xboss0" {
+			s[i] = stage("Xboss0", tableGT, []a{boss("Btd")}, rs...)
+		}
+	}
+	return s
+}
+
+// tableGT is Ganon's Tower's save table, STAGE_GT (d_save.h:897).
+const tableGT = 0x8
 
 func load(t testing.TB, stages []stagetest.Stage) []*stagedata.Stage {
 	t.Helper()
@@ -122,7 +144,7 @@ func TestBuildVanilla(t *testing.T) {
 	want := Totals{
 		Pieces: 44, StagePieces: 44 - len(Catalogue), RewardPieces: seen, UnverifiedPieces: len(Catalogue) - seen,
 		PiecesByKind: map[string]int{
-			"chest": 2 + 44 - len(Catalogue) - 8, "item": 1, "race_item": 1, "pot": 1, "barrel": 1, "salvage": 2,
+			"chest": 2 + 44 - len(Catalogue) - 9, "dig": 1, "item": 1, "race_item": 1, "pot": 1, "barrel": 1, "salvage": 2,
 			"npc": 6, "letter": 3, "shop": 1, "auction": 1, "minigame": 3,
 		},
 		Containers:         6,
@@ -139,7 +161,7 @@ func TestBuildVanilla(t *testing.T) {
 	}
 	if w := []string{
 		"chest tbox 0:1", "chest tbox 0:2", "item item 0:0x10", "race_item item 0:0x11", "pot item 0:0x12",
-		"barrel item 0:0x13", "salvage chart 5", "salvage ocean room 1:2", "chest tbox 0:3",
+		"barrel item 0:0x13", "salvage chart 5", "salvage ocean room 1:2", "dig item 0:0x02",
 	}; !reflect.DeepEqual(flags, w) {
 		t.Errorf("piece flags\n%q, want\n%q", flags, w)
 	}
@@ -175,7 +197,7 @@ func TestBuildVanilla(t *testing.T) {
 	rep := r.Report()
 	for _, s := range []string{
 		"hearts: PASS\n",
-		"  heart pieces: 44, vanilla 44: 30 in stage files (barrel 1, chest 24, item 1, pot 1, race_item 1, salvage 2), 11 rewards (auction 1, letter 3, npc 6, shop 1), 3 unverified (minigame 3)\n",
+		"  heart pieces: 44, vanilla 44: 30 in stage files (barrel 1, chest 23, dig 1, item 1, pot 1, race_item 1, salvage 2), 11 rewards (auction 1, letter 3, npc 6, shop 1), 3 unverified (minigame 3)\n",
 		"  heart containers: 6, vanilla 6 (boss 5, boss_item 1)\n",
 		"  7: salvage, item 0x07, chart 5\n    sea room 1, all layers, ACTR#6 \"Salvage\" setID 0x0000\n    sea room 1, all layers, ACTR#7",
 		"  2: boss, item 0x08, stage life 3\n    M_DragB stage file, all layers, ACTR#0 \"Btd\" setID 0x0000\n    M_DragB room 0",
@@ -222,8 +244,35 @@ func TestBuildFailures(t *testing.T) {
 			want: []string{"45 heart pieces (31 in stage files, 11 rewards, 3 unverified rewards); vanilla has 44"},
 		},
 		{
+			// The refight rule goes by the stage's name, as the bosses'
+			// test does, not by Ganon's Tower's table.
+			name: "a boss on Ganon's Tower's table, not in an X stage",
+			edit: func(s []stagetest.Stage) []stagetest.Stage {
+				return append(s, stage("GanonX", tableGT, []a{boss("Btd")}))
+			},
+			want: []string{"7 heart containers; vanilla has 6"},
+		},
+		{
+			// Only the bosses of an X stage are left out (refight): a
+			// Bitem there still counts.
+			name: "a Bitem in an X stage",
+			edit: func(s []stagetest.Stage) []stagetest.Stage {
+				return xboss0(s, room(0, stagetest.Actors("ACTR", bitem(tableGT))))
+			},
+			want: []string{"7 heart containers; vanilla has 6"},
+		},
+		{
+			name: "a piece in an X stage",
+			edit: func(s []stagetest.Stage) []stagetest.Stage {
+				return xboss0(s, room(0, stagetest.Actors("ACTR", fieldItem(1, itemsrc.ItemHeartPiece))))
+			},
+			want: []string{"45 heart pieces (31 in stage files, 11 rewards, 3 unverified rewards); vanilla has 44"},
+		},
+		{
 			name: "missing boss",
-			edit: func(s []stagetest.Stage) []stagetest.Stage { return s[:len(s)-1] },
+			edit: func(s []stagetest.Stage) []stagetest.Stage {
+				return slices.DeleteFunc(s, func(st stagetest.Stage) bool { return st.Name == "kazeB" })
+			},
 			want: []string{"5 heart containers; vanilla has 6"},
 		},
 		{

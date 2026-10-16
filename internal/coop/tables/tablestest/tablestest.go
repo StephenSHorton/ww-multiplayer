@@ -40,11 +40,20 @@ func Names() []stagetest.ObjectName {
 		n("Bst", stagedata.ProcBST),         // :1188
 		n("Bitem", stagedata.ProcBossItem),  // :1189
 		n("Bwd", stagedata.ProcBWD),         // :1191
+		n("TagKb", itemsrc.ProcTagKbItem),   // :583
 	}
 }
 
 // DOL is a main.dol carrying Names.
 func DOL() []byte { return stagetest.MainDOL(Names()...) }
+
+// Save tables the fixture uses beyond keys': Ganon's Tower's
+// (dSv_save_c::STAGE_GT, d_save.h:897) and the developer test stages'
+// (STAGE_TEST, d_save.h:904).
+const (
+	TableGT   = 0x8
+	TableTest = 0xF
+)
 
 // Entries, encoded as the builders' tests encode them. Only enemies get a
 // setID; everything else has 0xFFFF, which no zone records.
@@ -65,6 +74,12 @@ func Chest(bit uint32, item uint8) stagetest.Actor {
 // KeyChest is a small-key chest; PieceChest a heart-piece chest.
 func KeyChest(bit uint32) stagetest.Actor   { return Chest(bit, itemsrc.ItemSmallKey) }
 func PieceChest(bit uint32) stagetest.Actor { return Chest(bit, itemsrc.ItemHeartPiece) }
+
+// DigPiece is a pig's dig spot of a heart piece recorded in item bit
+// bit, with no enemy kind or switch (itemsrc's TagKb decoder).
+func DigPiece(bit uint32) stagetest.Actor {
+	return stagetest.Actor{Name: "TagKb", Params: 0xFFFF0000 | bit<<8 | uint32(itemsrc.ItemHeartPiece), SetID: noSetID}
+}
 
 // Boss is a boss entry; Bitem the heart container a beaten boss leaves,
 // checking save table table; Crystal an untimed crystal switch setting
@@ -124,16 +139,21 @@ func Dungeon(name string, table int, extra ...stagetest.Actor) stagetest.Stage {
 	return Stage(name, table, stagedata.StageDungeon, nil, doors, Room(0), Room(1, append(chests, extra...)...))
 }
 
-// Vanilla is the fixture whose acceptance checks all pass: 11 stages and
-// 12 rooms. The sea holds the stage-file heart pieces and Forsaken
+// Vanilla is the fixture whose acceptance checks all pass: 13 stages, of
+// which the tables build from 12, with 12 rooms. The sea holds the
+// stage-file heart pieces, one of them a pig's dig spot, and Forsaken
 // Fortress's Bitem; each dungeon its keys and doors; each boss stage its
 // boss, Dragon Roost's with the Bitem too. Dragon Roost Cavern's room 1
 // also has a latching crystal, a push block and enemies, two of them on
-// one key. Last comes "Name", which the tables leave out: like the real
-// disc's, its Stage.arc has no stage.dzs, since only the name scene loads
-// it (stagedata.Load).
+// one key. Xboss0 is a Ganon's Tower refight, whose Gohma drops no
+// container (hearts) but is still an enemy entry. K_Test2, on save table
+// 15, is a developer test stage holding a piece, a key, a container and
+// an enemy, all of which the tables leave out (Tables.Excluded). Last
+// comes "Name", which the tables leave out too: like the real disc's, its
+// Stage.arc has no stage.dzs, since only the name scene loads it
+// (stagedata.Load).
 func Vanilla() []stagetest.Stage {
-	var pieces []stagetest.Actor
+	pieces := []stagetest.Actor{DigPiece(0x02)}
 	for bit := uint32(0); len(pieces) < hearts.ExpectedPieces-len(hearts.Catalogue); bit++ {
 		pieces = append(pieces, PieceChest(bit))
 	}
@@ -151,6 +171,10 @@ func Vanilla() []stagetest.Stage {
 		Stage("M_DaiB", keys.TableET, stagedata.StageDungeon, []stagetest.Actor{Boss("big_pow")}, nil),
 		Dungeon("kaze", keys.TableWT),
 		Stage("kazeB", keys.TableWT, stagedata.StageDungeon, []stagetest.Actor{Boss("Bwd")}, nil),
+		Stage("Xboss0", TableGT, stagedata.StageBoss, []stagetest.Actor{Boss("Btd")}, nil),
+		Stage("K_Test2", TableTest, stagedata.StageOutdoors, nil, nil, Room(0,
+			PieceChest(0), KeyChest(1), stagetest.Actor{Name: "item", Params: 0x7F<<8 | uint32(itemsrc.ItemHeartContainer), SetID: noSetID},
+			Enemy("Bk", 7))),
 		{Name: "Name"},
 	}
 }
