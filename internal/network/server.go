@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 )
 
 // Player represents a connected player on the server.
@@ -15,6 +17,10 @@ type Player struct {
 	Name     string
 	Conn     net.Conn
 	Position *PlayerPosition
+	// Color is the tunic color the server assigned this player's name
+	// (docs/09-player-colors.md). Set at join, before the player is
+	// visible in s.players, and never changed after.
+	Color playercolor.Color
 	// SendMu serializes writes to Conn. Without it, concurrent
 	// broadcastExcept calls (one per sender goroutine) interleave bytes
 	// on the same TCP socket — receivers then see framed-message headers
@@ -30,6 +36,9 @@ type Server struct {
 	listener net.Listener
 	players  map[byte]*Player
 	nextID   byte // where allocIDLocked starts its search for a free ID
+	// colorByName remembers the color each player name last had, so a
+	// player who reconnects keeps it when it is still free (guarded by mu).
+	colorByName map[string]playercolor.Color
 	// coops are the co-op connections (RoleCoop), by co-op ID. They are
 	// never in players: no relay, roster or player count sees them.
 	coops      map[byte]*CoopConn
@@ -68,6 +77,7 @@ func NewServer(port int) *Server {
 	return &Server{
 		players:        make(map[byte]*Player),
 		nextID:         1,
+		colorByName:    make(map[string]playercolor.Color),
 		coops:          make(map[byte]*CoopConn),
 		nextCoopID:     1,
 		port:           port,
@@ -211,6 +221,7 @@ func (s *Server) handlePlayer(conn net.Conn) {
 	id, ok := s.allocIDLocked()
 	if ok {
 		player.ID = id
+		player.Color = s.pickColorLocked(name, ParseHelloColor(hello.Data))
 		s.players[id] = player
 	}
 	s.mu.Unlock()
@@ -378,6 +389,41 @@ func (s *Server) writePlayerLocked(p *Player, msgType byte, data []byte) error {
 	return WriteMessage(p.Conn, msgType, data)
 }
 
+// maxRememberedColors bounds colorByName on a long-lived server.
+const maxRememberedColors = 256
+
+// pickColorLocked chooses the tunic color for a player joining as name
+// (docs/09-player-colors.md). Every connection under one name gets the
+// same color: each human runs two (broadcast-pose and puppet-sync), and a
+// reconnect is a new connection. Otherwise it is the player's preference
+// if no other player's color is within playercolor.MinDistance of it, else
+// the color this name had before if still clear, else the first clear
+// palette color. The caller holds s.mu.
+func (s *Server) pickColorLocked(name string, pref *playercolor.Color) playercolor.Color {
+	used := make([]playercolor.Color, 0, len(s.players))
+	for _, p := range s.players {
+		if p.Name == name {
+			return p.Color
+		}
+		used = append(used, p.Color)
+	}
+	prev, hadPrev := s.colorByName[name]
+	var c playercolor.Color
+	switch {
+	case pref != nil && !playercolor.Clashes(*pref, used):
+		c = *pref
+	case hadPrev && !playercolor.Clashes(prev, used):
+		c = prev
+	default:
+		c = playercolor.Pick(nil, used)
+	}
+	if !hadPrev && len(s.colorByName) >= maxRememberedColors {
+		clear(s.colorByName)
+	}
+	s.colorByName[name] = c
+	return c
+}
+
 // allocIDLocked returns a free player ID, searching on from s.nextID so IDs
 // are reused as late as possible. IDs are 1..255: 0 is never assigned (it
 // marks the welcome of a refused pre-handshake client, see refuseLegacy). ok
@@ -432,7 +478,7 @@ func (s *Server) broadcastPlayerList() {
 	// Format: [count:1][id:1][nameLen:1][name:variable]...
 	entries := make([]PlayerEntry, 0, len(s.players))
 	for _, p := range s.players {
-		entries = append(entries, PlayerEntry{ID: p.ID, Name: p.Name})
+		entries = append(entries, PlayerEntry{ID: p.ID, Name: p.Name, Color: p.Color, HasColor: true})
 	}
 	data, err := PlayerListMessage(entries)
 	if err != nil {

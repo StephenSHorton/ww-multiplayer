@@ -13,6 +13,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 )
 
@@ -61,6 +62,10 @@ type Player struct {
 	ID      byte
 	Name    string
 	X, Y, Z float32
+	// Color is the player's tunic color (docs/09-player-colors.md), set
+	// when HasColor is. A UI shows it as a swatch by the name.
+	Color    playercolor.Color
+	HasColor bool
 }
 
 // Live is the engine's view of the running session: the values the status

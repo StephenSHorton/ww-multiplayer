@@ -154,7 +154,7 @@ func listenCoopLog(t *testing.T, h CoopHandler, onLog func(string)) (*Server, st
 func dialCoopRaw(t *testing.T, addr, name string, caps uint16) (net.Conn, byte) {
 	t.Helper()
 	conn := dialRaw(t, addr)
-	if err := writeJoinRole(conn, name, RoleCoop, caps); err != nil {
+	if err := writeJoinRole(conn, name, RoleCoop, caps, nil); err != nil {
 		t.Fatalf("co-op join: %v", err)
 	}
 	msg := mustRead(t, conn)
@@ -221,7 +221,7 @@ func TestHelloGoldenBytes(t *testing.T) {
 	}
 
 	var coop bytes.Buffer
-	if err := writeJoinRole(&coop, "Link", RoleCoop, 0x8001); err != nil {
+	if err := writeJoinRole(&coop, "Link", RoleCoop, 0x8001, nil); err != nil {
 		t.Fatalf("writeJoinRole: %v", err)
 	}
 	want = []byte{'J', 0, 4, 'L', 'i', 'n', 'k', 'H', 0, 5, 0x00, 0x02, 0x01, 0x80, 0x01}
@@ -229,7 +229,7 @@ func TestHelloGoldenBytes(t *testing.T) {
 		t.Errorf("co-op join = %x, want %x", coop.Bytes(), want)
 	}
 
-	if err := writeJoinRole(io.Discard, "bad\nname", RoleCoop, 0); !errors.Is(err, ErrFatal) {
+	if err := writeJoinRole(io.Discard, "bad\nname", RoleCoop, 0, nil); !errors.Is(err, ErrFatal) {
 		t.Errorf("co-op join with a bad name = %v, want a fatal error", err)
 	}
 }

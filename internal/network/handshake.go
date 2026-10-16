@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 )
 
 // Protocol version handshake.
@@ -46,6 +48,13 @@ import (
 // sends the same frames as under protocol 1 apart from the version number;
 // a hello with no role byte is a player's. Bytes after caps are ignored, so
 // a later client can append fields.
+//
+// Tunic colors (docs/09-player-colors.md). A player with a color preference
+// (--color / WW_COLOR) sends the role form with role RolePlayer and caps 0,
+// then [hasColor:1 = 1][r:1][g:1][b:1]. A server from before colors reads
+// it as a plain player hello (it ignores bytes after caps), so the protocol
+// version does not change. A player with no preference sends the 2-byte
+// hello as before.
 
 // ProtocolVersion is the wire protocol this build speaks. Bump it on any
 // change an older build can't handle: client and server must match.
@@ -147,6 +156,31 @@ func ParseHelloRole(data []byte) (version uint16, role byte, caps uint16, err er
 	return version, data[2], binary.BigEndian.Uint16(data[3:5]), nil
 }
 
+// helloColorLen is the length of a player hello that carries a color
+// preference: the role form plus [hasColor:1][r:1][g:1][b:1].
+const helloColorLen = helloRoleLen + 4
+
+// HelloPlayerMessage builds a player's MsgHello: the 2-byte form with no
+// color preference, else the role form (RolePlayer, caps 0) plus the
+// preference.
+func HelloPlayerMessage(version uint16, pref *playercolor.Color) []byte {
+	if pref == nil {
+		return HelloMessage(version)
+	}
+	b := HelloRoleMessage(version, RolePlayer, 0)
+	return append(b, 1, pref.R, pref.G, pref.B)
+}
+
+// ParseHelloColor returns the color preference a player's MsgHello carries,
+// or nil for a hello without one.
+func ParseHelloColor(data []byte) *playercolor.Color {
+	if len(data) < helloColorLen || data[helloRoleLen] != 1 {
+		return nil
+	}
+	c := playercolor.Color{R: data[helloRoleLen+1], G: data[helloRoleLen+2], B: data[helloRoleLen+3]}
+	return &c
+}
+
 // RejectMessage builds a MsgReject payload: [code:1][reason]. The reason is
 // cut to fit a frame.
 func RejectMessage(code byte, reason string) []byte {
@@ -191,16 +225,17 @@ func ValidatePlayerName(name string) error {
 // name the server would refuse fails here as a *RejectError instead, since
 // reconnecting can't fix it.
 func writeJoin(w io.Writer, name string) error {
-	return writeJoinRole(w, name, RolePlayer, 0)
+	return writeJoinRole(w, name, RolePlayer, 0, nil)
 }
 
 // writeJoinRole is writeJoin for a connection of any role. A player's hello
-// is the 2-byte form; any other role's carries role and caps.
-func writeJoinRole(w io.Writer, name string, role byte, caps uint16) error {
+// is the 2-byte form, or carries its color preference when pref is set; any
+// other role's carries role and caps.
+func writeJoinRole(w io.Writer, name string, role byte, caps uint16, pref *playercolor.Color) error {
 	if err := ValidatePlayerName(name); err != nil {
 		return &RejectError{Code: RejectBadName, Reason: err.Error()}
 	}
-	hello := HelloMessage(ProtocolVersion)
+	hello := HelloPlayerMessage(ProtocolVersion, pref)
 	if role != RolePlayer {
 		hello = HelloRoleMessage(ProtocolVersion, role, caps)
 	}

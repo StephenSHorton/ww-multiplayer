@@ -87,6 +87,22 @@ typedef BOOL (*fopAcM_SearchByID_t)(fpc_ProcID id, fopAc_ac_c** out);
 #define DAPY_LK_C_MPCLMODELDATA_OFFSET 0x0328
 #define DAPY_LK_C_MPCLMODEL_OFFSET     0x032C
 
+// Link's body texture, for tunic colors (docs/09-player-colors.md §2).
+// tww d_a_player_main.h:1996-1997, d_a_player.h:202,486.
+//   +0x02A0 u32      mNoResetFlg1 (bit 0x8 = wearing the casual clothes)
+//   +0x0338 ResTIMG* mpCurrLinktex: the "linktexS3TC" header the
+//                    materials sample, inside the shared J3DModelData's
+//                    texture table (so every mini-Link reads it too)
+//   +0x033C ResTIMG  mOtherLinktex: the header NOT worn right now, copied
+//                    raw, so its offsets are relative to mpCurrLinktex
+// ResTIMG +0x00 u8 format (0x0E = CMPR), +0x1C u32 imageOffset
+// (JUTTexture.h:14-37; loadTexNo reads (u8*)hdr + imageOffset).
+#define DAPY_LK_C_NORESETFLG1_OFFSET   0x02A0
+#define DAPY_FLG1_CASUAL_CLOTHES       0x00000008
+#define DAPY_LK_C_MPCURRLINKTEX_OFFSET 0x0338
+#define DAPY_LK_C_OTHERLINKTEX_OFFSET  0x033C
+#define RESTIMG_FORMAT_CMPR            0x0E
+
 // Actor position offset from actor base
 #define ACTOR_POS_OFFSET   0x1F8
 #define ACTOR_ANGLE_OFFSET 0x204

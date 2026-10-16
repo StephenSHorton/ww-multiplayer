@@ -460,7 +460,38 @@ typedef struct {
     // Diagnostic: bumped each time pad_read_shim performs an override.
     // Lets Go confirm the shim is wired and live; saturates at 0xFFFF_FFFF.
     u32 input_overrides;                          // +0x17C
-} Mailbox;
+    // +0x180..+0x187: reserved for the 'WWMB' magic + layout_version
+    // header of docs/08 §4.5 option A. Keep zero.
+    u32 _reserved_hdr[2];                         // +0x180
+    // --- TUNIC COLORS (docs/09-player-colors.md §5.3) -----------------
+    // Per-player recolored copies of Link's hero's-clothes body texture
+    // ("linktexS3TC", CMPR). Slots 0..1 are the mini-Link slots, slot 2
+    // (TUNIC_SLOT_LOCAL) is Link #1 on this Dolphin.
+    //
+    // Go writes tunic_buf_size (bytes per image) once; the next
+    // multiplayer_update allocates the three images from GameHeap ONCE
+    // and publishes them in tunic_bufs. Nothing ever frees or resets
+    // them (F18 lifetime rule: GameHeap blocks stay valid all session).
+    // Go then writes each image (internal/tunic Recolor) and sets
+    // tunic_enable[slot] = 1. To change a slot's color Go sets enable
+    // to 0, waits two frames, rewrites the image, sets enable to 1.
+    //
+    // Around each Link's draw, C repoints mpCurrLinktex's imageOffset at
+    // that slot's image (copying the hero header from mOtherLinktex when
+    // Link #1 wears the casual clothes) and restores the header after.
+    // Link #1 in the casual clothes is never swapped.
+    //   tunic_state — 0 not allocated, 1 all three allocated,
+    //                 0xFD an allocation failed (the ones that worked
+    //                 stay published).
+    //   tunic_swaps — diagnostic: header swaps done (local + remotes).
+    u32 tunic_bufs[3];                            // +0x188 (C)
+    u32 tunic_buf_size;                           // +0x194 (Go)
+    u8  tunic_enable[3];                          // +0x198 (Go)
+    u8  tunic_state;                              // +0x19B (C)
+    u32 tunic_swaps;                              // +0x19C (C)
+} Mailbox;   // 0x1A0 bytes
+
+#define TUNIC_SLOT_LOCAL 2
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)
 

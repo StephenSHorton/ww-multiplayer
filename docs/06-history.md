@@ -1841,3 +1841,70 @@ from behind with the local Link in casual and in hero's clothes.
 
 **Follow-ups:** draw katsura hair on mini-Link instead of the hat, and
 sync each player's outfit (epic #24).
+
+## 2026-10-16: per-player tunic colors (docs/09)
+
+**Request:** each player gets a different color, and the green of Link's
+clothes is swapped for it.
+
+**What was built** (details in docs/09-player-colors.md):
+- **Colors in the session.** The server assigns each player name a
+  color from an 8-color palette that starts with vanilla green (owner
+  decision: green stays). A player can ask for one with `--color` or
+  `WW_COLOR`. The colors travel in a backward-compatible player-list
+  trailer, so the protocol version is unchanged. The TUI shows a swatch
+  per player through `session.Player.Color`.
+- **The recolor.** Link's green is painted into the CMPR texture
+  `linktexS3TC`. `internal/tunic` moves the RGB565 endpoints of the
+  green blocks only, so it needs no decode or re-encode.
+- **The C bracket.** Every Link shares one `J3DModelData`, and each
+  Link's diff bakes `hdr + hdr->imageOffset` into its own differed DL.
+  So `tunic_swap` repoints the worn header (`mpCurrLinktex`) at a
+  per-slot image around each Link's draw, and `tunic_restore` puts it
+  back. This is the face-sync window applied to a sibling field. The
+  three images are allocated once from GameHeap after Go publishes
+  their size, and never freed (F18 rule).
+- **The Go wiring.** `tunic_sync.go` in puppet-sync fills the images and
+  flips the per-slot enables. The remote slots take the server's color;
+  the local slot takes our own. A 17th face-trailer byte tells
+  receivers when a remote wears the casual clothes, and such a remote
+  is not swapped.
+
+**`tunic-probe` name table.** Its first version printed garbage names
+for all 41 of Link's textures. `J3DMaterialTable::mTextureName` is a
+`JUTNameTab*`, a C++ object (`+0x04` points at the `ResNTAB`, `+0x0C`
+is the count). The probe had read the object itself as the `ResNTAB`.
+
+**Code space.** At `-O2` the first build of the C was 0x2A0 bytes and
+ran T2 0x88 bytes into the mailbox. gcc had unrolled the two 8-word
+copy loops and inlined the restore three times.
+`__attribute__((noinline, optimize("Os")))` on the two helpers brought
+the C down to 0x120 bytes. T2 is now 0x2E08 bytes, ends at
+`0x80412E08`, and has 0xF8 bytes free below the mailbox. The mailbox
+grows to 0x1A0 bytes; `internal/coop/addr.MailboxSize` follows it, so
+the region-probe canaries below the arena now start at 0x804130A0
+(they would otherwise have been armed over the tunic block), and
+`TestMailboxLayout` pins the two together.
+
+**Review fixes before the live test.**
+- The mid-swap guard was dead on the real path: `Tick` read the hero
+  texture before the mailbox block, so it had no buffers and a zero
+  size to check against. Enables outlive a Go process, so a fresh
+  `tunic-slot` run could calibrate on a recolored buffer. `Tick` now
+  reads the block first, and a header pointing at any live buffer is
+  refused.
+- puppet-sync teardown now writes 0 to all three enables.
+- Only server-assigned colors are drawn; the by-ID fallback is gone
+  from the render and the TUI (two connections per human means two
+  IDs, so clients disagreed).
+- The once-a-second verify compares the whole slot image, not the
+  first 64 bytes.
+
+**Testing the hero's clothes without a hero-clothes save.** The game
+picks the clothes in `playerInit` from event bit 0x2A80 (byte
+0x803C5256, mask 0x80) and a clear count of 0. docs/09 §7.0 has the
+poke, its reversal, and an in-place header-swap alternative.
+
+**Still to check live:** docs/09 §7 (probe, `tunic-slot` screenshot
+pairs, two-color `mp-local`). Re-patch the ISO and refresh
+`saves/start.sav` with `auto-recapture` first.

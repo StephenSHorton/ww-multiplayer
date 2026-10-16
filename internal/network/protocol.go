@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 )
 
 // Message types
@@ -278,16 +280,30 @@ func ParseChatRelay(data []byte) (name, text string, err error) {
 	return string(data[1 : 1+nameLen]), string(data[1+nameLen:]), nil
 }
 
-// PlayerEntry is one row of a MsgPlayerList.
+// PlayerEntry is one row of a MsgPlayerList. Color is the player's tunic
+// color (docs/09-player-colors.md); HasColor is false for a list from a
+// server that predates colors.
 type PlayerEntry struct {
-	ID   byte
-	Name string
+	ID       byte
+	Name     string
+	Color    playercolor.Color
+	HasColor bool
 }
 
 // Player-list wire format (server -> client, the full roster, sent after
 // every join and leave):
 //
 //	[count:1] then count x [id:1][nameLen:1][name]
+//	then, from docs/09, the color trailer:
+//	[colorTag:1 = 0xC0][count:1] then count x [id:1][r:1][g:1][b:1]
+//
+// Older clients ignore the trailer (bytes after the last entry). The trailer
+// is sent only when every entry has a color, with its IDs in entry order,
+// and a client takes it only in exactly that form; anything else is
+// ignored, and the roster still applies with no colors.
+
+// playerListColorTag opens the color trailer of a MsgPlayerList.
+const playerListColorTag = 0xC0
 
 // PlayerListMessage encodes a MsgPlayerList payload. It fails rather than
 // wrap a length byte: more than 255 entries, or a name over 255 bytes. The
@@ -305,12 +321,25 @@ func PlayerListMessage(players []PlayerEntry) ([]byte, error) {
 		data = append(data, p.ID, byte(len(p.Name)))
 		data = append(data, p.Name...)
 	}
+	if len(players) == 0 {
+		return data, nil
+	}
+	for _, p := range players {
+		if !p.HasColor {
+			return data, nil
+		}
+	}
+	data = append(data, playerListColorTag, byte(len(players)))
+	for _, p := range players {
+		data = append(data, p.ID, p.Color.R, p.Color.G, p.Color.B)
+	}
 	return data, nil
 }
 
 // ParsePlayerList decodes a MsgPlayerList payload. It returns an error (never
-// panics) for an empty payload or an entry that runs past the end. Bytes
-// after the last entry are ignored, so a later server can append fields.
+// panics) for an empty payload or an entry that runs past the end. After the
+// last entry it reads the color trailer if present; any other bytes there
+// are ignored, so a later server can append fields.
 func ParsePlayerList(data []byte) ([]PlayerEntry, error) {
 	if len(data) < 1 {
 		return nil, errors.New("player list: empty payload")
@@ -330,7 +359,30 @@ func ParsePlayerList(data []byte) ([]PlayerEntry, error) {
 		players = append(players, PlayerEntry{ID: id, Name: string(data[offset : offset+nameLen])})
 		offset += nameLen
 	}
+	parseColorTrailer(players, data[offset:])
 	return players, nil
+}
+
+// parseColorTrailer applies a MsgPlayerList color trailer to players when
+// the trailer is in its one valid form (see the wire format above). It
+// leaves players uncolored otherwise: colors are cosmetic, so a list with a
+// bad trailer still applies.
+func parseColorTrailer(players []PlayerEntry, tail []byte) {
+	n := len(players)
+	if n == 0 || len(tail) < 2+4*n || tail[0] != playerListColorTag || int(tail[1]) != n {
+		return
+	}
+	rows := tail[2:]
+	for i := range players {
+		if rows[4*i] != players[i].ID {
+			return
+		}
+	}
+	for i := range players {
+		r := rows[4*i:]
+		players[i].Color = playercolor.Color{R: r[1], G: r[2], B: r[3]}
+		players[i].HasColor = true
+	}
 }
 
 // Pose-message wire format (game wants raw GameCube big-endian Mtx layout

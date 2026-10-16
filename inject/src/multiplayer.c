@@ -408,6 +408,22 @@ void multiplayer_update(void) {
         return;
     }
 
+    // Tunic colors (docs/09 §5.3): allocate the three per-slot images
+    // ONCE, after Go has published their size. tunic_state never goes
+    // back to 0, so a stage load or save reload never re-allocates (F18).
+    if (mailbox->tunic_state == 0 && mailbox->tunic_buf_size != 0) {
+        u8 st = 1;
+        int t;
+        for (t = 0; t < 3; t++) {
+            if (!mailbox->tunic_bufs[t]) {
+                void* p = JKRHeap_alloc(mailbox->tunic_buf_size, 0x20, mDoExt_getGameHeap());
+                if (p) mailbox->tunic_bufs[t] = (u32)p;
+                else   st = 0xFD;
+            }
+        }
+        mailbox->tunic_state = st;
+    }
+
     cXyz* link_pos = ACTOR_POS(link);
     csXyz* link_angle = ACTOR_ANGLE(link);
     s8 link_room = ACTOR_ROOM(link);
@@ -939,6 +955,50 @@ static void face_emit_restore(void) {
     *(volatile u32*)(face_emit_mat14_tev + J3DTEVBLOCK_TEXNO0_OFFSET) = face_emit_saved_mat14;
     *(volatile u32*)(face_emit_mat15_tev + J3DTEVBLOCK_TEXNO0_OFFSET) = face_emit_saved_mat15;
     face_emit_swap_active = 0;
+}
+
+// --- Tunic colors (docs/09-player-colors.md §5.3) ---------------------
+// Same save / swap / restore window as the face bracket above: every
+// Link shares one J3DModelData and so one texture table, and each Link's
+// diff bakes (u8*)hdr + hdr->imageOffset into its own differed DL
+// (loadTexNo, J3DTevs.cpp:138-152). Repointing the worn linktexS3TC
+// header around one Link's entry therefore recolors only that Link.
+// `link` is Link #1 (the draw hook's this_), whose mpCurrLinktex is the
+// shared header. When Link #1 wears the casual clothes the worn header
+// holds the casual texture; the hero header is then mOtherLinktex
+// (raw copy, offsets relative to the worn header), copied in for the
+// remote slots. Link #1 himself is never swapped while casual.
+static u32* tunic_hdr = 0;       // header currently swapped, 0 = none
+static u32 tunic_saved[8];       // its original 0x20 bytes
+
+// noinline + Os: these sit in a ~0x200-byte code budget (docs/09 §6);
+// -O2 unrolls the 8-word copies and inlines the restore at three sites.
+#define TUNIC_SMALL __attribute__((noinline, optimize("Os")))
+static TUNIC_SMALL void tunic_swap(void* link, int slot) {
+    u32 buf = mailbox->tunic_bufs[slot];
+    u32* hdr = *(u32**)((u8*)link + DAPY_LK_C_MPCURRLINKTEX_OFFSET);
+    if (tunic_hdr || !buf || !hdr || !mailbox->tunic_enable[slot]) return;
+    u32* hero = hdr;
+    if (*(u32*)((u8*)link + DAPY_LK_C_NORESETFLG1_OFFSET) & DAPY_FLG1_CASUAL_CLOTHES) {
+        if (slot == TUNIC_SLOT_LOCAL) return;
+        hero = (u32*)((u8*)link + DAPY_LK_C_OTHERLINKTEX_OFFSET);
+    }
+    if ((hero[0] >> 24) != RESTIMG_FORMAT_CMPR) return;
+    int k;
+    for (k = 0; k < 8; k++) {
+        tunic_saved[k] = hdr[k];
+        hdr[k] = hero[k];
+    }
+    hdr[7] = buf - (u32)hdr;     // imageOffset: wraps like loadTexNo's add
+    tunic_hdr = hdr;
+    mailbox->tunic_swaps++;
+}
+
+static TUNIC_SMALL void tunic_restore(void) {
+    int k;
+    if (!tunic_hdr) return;
+    for (k = 0; k < 8; k++) tunic_hdr[k] = tunic_saved[k];
+    tunic_hdr = 0;
 }
 
 // Publish the LOCAL Link's natural btp face state into the mailbox
@@ -1545,7 +1605,9 @@ int daPy_draw_hook(void* this_) {
     // a separate-drawlist approach.
     int result = 0;
     if (ef_mode != 1) {
+        tunic_swap(this_, TUNIC_SLOT_LOCAL);
         result = daPy_lk_c_draw(this_);
+        tunic_restore();
     }
     mailbox->draw_progress = 31;
 
@@ -2064,12 +2126,14 @@ int daPy_draw_hook(void* this_) {
                 // face_state values instead of btp's. No-op unless
                 // face_hook_enable=1 AND face_seqs[0]!=0.
                 face_emit_swap_for_slot(0, mini_link_data);
+                tunic_swap(this_, 0);
                 run_eye_fix(mini_link_models[0], this_, mini_link_data, eye_step);
                 if (eye_step >= 4) {
                     mDoExt_skip_recipe_joints(mini_link_models[0], mini_link_data, eye_step);
                 } else {
                     mini_link_entry_dl(mini_link_models[0], mini_link_data);
                 }
+                tunic_restore();
                 face_emit_restore();
             }
             // In mode 5, also submit any other slots whose pose buffer
@@ -2081,12 +2145,14 @@ int daPy_draw_hook(void* this_) {
                     // once Go has written at least one pose to it.
                     if (mini_link_models[es] && pose_bufs[es] && mailbox->pose_seqs[es] != 0) {
                         face_emit_swap_for_slot(es, mini_link_data);
+                        tunic_swap(this_, es);
                         run_eye_fix(mini_link_models[es], this_, mini_link_data, eye_step);
                         if (eye_step >= 4) {
                             mDoExt_skip_recipe_joints(mini_link_models[es], mini_link_data, eye_step);
                         } else {
                             mini_link_entry_dl(mini_link_models[es], mini_link_data);
                         }
+                        tunic_restore();
                         face_emit_restore();
                     }
                 }

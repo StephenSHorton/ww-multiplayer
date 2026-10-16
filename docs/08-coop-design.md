@@ -327,10 +327,10 @@ Current layout (`inject/build.py:109,142-145`; `mailbox.h:33`; `internal/inject/
 | 0x803FCFA8..0x8040CFA8 | main stack (grows down; `OSClearStack` zeroes stack_end+4..SP, `OSThread.c:924-933`) | 64 KB |
 | 0x8040CFA8..0x8040CFB0 | frame header above the stack top, **in use**: `__start` calls the nofralloc `__init_hardware` with r1 = `_stack_addr`, so `__OSPSInit` and `__OSCacheInit` save LR at 4(r1) = 0x8040CFAC, which keeps 0x8000336C on every booted game (`__start.c:21-23,125-126,173-183`; `OS.c:623-624`; `OSCache.c:446`; `__init_hardware` 0x80003354, sym:5) | 8 |
 | 0x8040CFB0..0x80410000 | MetroTRK debug stack plus padding; `InitMetroTRK` runs only if a 32-bit word is 2 or 3: the word at +0xC of the block pointed to by 0x800000F4, or, when that pointer is 0 and 0x80000034 is non-zero, the word at 0x800030E8 (`__start.c:32-62`); free by inference | 0x3050 |
-| 0x80410000..0x80412CE8 | T2 (code and data) | 0x2CE8 |
-| 0x80412CE8..0x80412F00 | free, unchecked | **0x218** |
-| 0x80412F00..0x80413080 | mailbox (`frame_shim` hard-codes `lwz 12,0x2F08(12)`, `multiplayer.c:297`; the Go `mailboxBase` const in `main.go`) | 0x180 |
-| 0x80413080..0x80414000 | unused, below arena | 0xF80 |
+| 0x80410000..0x80412E08 | T2 (code and data; 0x2CE8 before the tunic colors, docs/09) | 0x2E08 |
+| 0x80412E08..0x80412F00 | free, unchecked | **0xF8** |
+| 0x80412F00..0x804130A0 | mailbox (`frame_shim` hard-codes `lwz 12,0x2F08(12)`, `multiplayer.c:297`; the Go `mailboxBase` const in `main.go`; +0x188..+0x1A0 is the docs/09 tunic block, +0x180..+0x187 stay reserved) | 0x1A0 |
+| 0x804130A0..0x80414000 | unused, below arena | 0xF60 |
 | 0x80414000 | patched `__OSArenaLo` (`addi r3,r3,0x4000` at 0x80301820) | — |
 
 **M0-M6** use no code space.
@@ -1099,7 +1099,7 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 2. **coop: dSv_save_c byte-class table with golden coverage.** Classify all 0x778 bytes as OR, OR_MASKED, MAX, DERIVED, PER_PLAYER, NEVER or TAG. CI fails on any gap; the table drives the differ, the server and the WriteGuard.
 3. **coop: read-only diagnostics.** Add `coop-probe` (stage, table, room, gates, pending counters), `coop-watch` (labelled bit edges) and `frame-phase-probe`. The owner runs them to confirm the inferred addresses.
 4. **coop: actors and zone-dump via g_fopAcTg_Queue.** A bounded walk of 0x80372028, validated by `g_fopAc_type`. Print proc, setID, rooms, health, the enemyice self-pointer and the 32 zones.
-5. **coop: heap-free probe and region canaries.** Walk the Zelda, Game and Archive heap free lists and read the error counters. Arm and check canaries over 0x8040CFB0-0x80410000 and 0x80413080-0x80414000 (not 0x8040CFA8-0x8040CFB0, the stack-top frame header boot writes, §4.5).
+5. **coop: heap-free probe and region canaries.** Walk the Zelda, Game and Archive heap free lists and read the error counters. Arm and check canaries over 0x8040CFB0-0x80410000 and 0x804130A0-0x80414000 (0x80413080 before the docs/09 tunic block grew the mailbox to 0x1A0; not 0x8040CFA8-0x8040CFB0, the stack-top frame header boot writes, §4.5).
 6. **docs: record #23, fix the docs/04 save table, add co-op addresses.** Max and current life are u16 at 0x803C4C08 and 0x803C4C0A; the "add 0x803C4C0C" sentence is wrong. Add the event, memBit, stage, gate and pending-counter addresses, and the docs/05 frame_shim and 0x803FD000 corrections.
 
 **Epic E2: Stage data from the user's ISO**
@@ -1186,7 +1186,7 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 | heap ptrs zelda / game / archive | 0x803F6928 / 0x803F6920 / 0x803F6938 | 4 each | sym:18588-18594 |
 | heap error counters zelda / game / archive | 0x803F68FC / 0x803F68F8 / 0x803F6904 | 4 each | sym:18577-18580 |
 | actor fields | mBsPcId +0x04, mProcName +0x08, mParameters +0xB0, actor_type +0xC0, eventInfo.mCommand +0xF8, setID +0x1BC, group +0x1BE, actor_status +0x1C4, home.pos +0x1D0, home.roomNo +0x1E2, health +0x285 | fopAc_ac_c 0x290 | f_pc_base.h:13-32; f_op_actor.h:268-321 |
-| mod T2 / mailbox / patched arenaLo | 0x80410000..0x80412CE8 / 0x80412F00..0x80413080 / 0x80414000 | — | inject/build.py:109,142-145; mailbox.h:33 |
+| mod T2 / mailbox / patched arenaLo | 0x80410000..0x80412E08 / 0x80412F00..0x804130A0 / 0x80414000 | — | inject/build.py:109,142-145; mailbox.h:33 |
 | `spawn_trigger` (heartbeat) / `warp_seq` | 0x80412F00 / 0x80412FC8 | 4 / 4 | mailbox.h:109,221 |
 
 **Functions**
