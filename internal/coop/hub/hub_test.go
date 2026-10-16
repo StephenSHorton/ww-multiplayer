@@ -147,7 +147,7 @@ type rig struct {
 // fullCfg allows every default feature, every class-mask bit and every
 // scoped switch the game takes.
 func fullCfg() Config {
-	return Config{Features: DefaultFeatures, Policy: world.FullPolicy(), SyncedScoped: syncAll}
+	return Config{Features: DefaultFeatures, Policy: world.FullPolicy(), SyncedScoped: syncAll, SyncedKill: syncAll}
 }
 
 // syncAll is an M1 verdict on the scoped switches that grants them all.

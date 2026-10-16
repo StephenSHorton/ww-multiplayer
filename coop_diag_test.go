@@ -2,20 +2,27 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
-	"math"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"maps"
 	"math/bits"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 )
 
@@ -260,200 +267,137 @@ func TestCoopWatchEdges(t *testing.T) {
 	}
 }
 
-// fakeActorType is what fpcBs_MakeOfType hands the first new type
-// (f_pc_base.cpp:28-34).
-const fakeActorType = 0x09130001
-
-type fakeActor struct {
-	at     uint32
-	proc   int16
-	setID  uint16
-	group  uint8
-	room   int8
-	health int8
-	pos    [3]float32
+// diagBeat is the fake game over its FakeMem, whose heartbeat moves a
+// frame, the enemies' included, whenever it is read twice in a row: what
+// a FrameWriter's waitBeat needs to see the game run.
+type diagBeat struct {
+	*mem.FakeMem
+	g    *fakegame.FakeGame
+	es   *fakegame.Enemies
+	last uint32
 }
 
-// layActors links actors into g_fopAcTg_Queue in order, the way
-// fopAc_Create and cLs_Addition leave them, and returns their nodes.
-func layActors(t *testing.T, m *mem.FakeMem, actors ...fakeActor) []uint32 {
+func (b *diagBeat) Read(a uint32, n int) ([]byte, error) {
+	if a == addr.SpawnTrigger && b.last == addr.SpawnTrigger {
+		if err := b.g.FrameWith(b.es); err != nil {
+			return nil, err
+		}
+	}
+	b.last = a
+	return b.FakeMem.Read(a, n)
+}
+
+// unverifyPW makes the Poe unverified for one test: every K1 class passed
+// the live check K1 (docs/08 §8.2), and the diagnostics' --unverified path
+// is kept covered with it.
+func unverifyPW(t *testing.T) {
+	old := actors.SetVerified(int16(stagedata.ProcPW), false)
+	t.Cleanup(func() { actors.SetVerified(int16(stagedata.ProcPW), old) })
+}
+
+// diagEnemies is a game in DRC's room 2 with a Bokoblin holding its
+// weapon, a keyed ChuChu, an unkeyed one and a Poe, all executing.
+func diagEnemies(t *testing.T) (*diagBeat, func()) {
 	t.Helper()
-	store(t, m, addr.FopAcType, u32b(fakeActorType))
-	nodes := make([]uint32, len(actors))
-	for i, a := range actors {
-		nodes[i] = a.at + addr.ActorOffActorTag
-	}
-	for i, a := range actors {
-		var prev, next uint32
-		if i > 0 {
-			prev = nodes[i-1]
-		}
-		if i+1 < len(nodes) {
-			next = nodes[i+1]
-		}
-		n := nodes[i]
-		store(t, m, n+addr.TagOffPrev, u32b(prev))
-		store(t, m, n+addr.TagOffData, u32b(addr.ActorQueue))
-		store(t, m, n+addr.TagOffNext, u32b(next))
-		store(t, m, n+addr.TagOffTagData, u32b(a.at))
-		store(t, m, a.at+addr.ActorOffActorType, u32b(fakeActorType))
-		store(t, m, a.at+addr.ActorOffBsPcID, u32b(uint32(100+i)))
-		store(t, m, a.at+addr.ActorOffProcName, u16b(uint16(a.proc)))
-		store(t, m, a.at+addr.ActorOffSetID, u16b(a.setID))
-		store(t, m, a.at+addr.ActorOffGroup, []byte{a.group})
-		store(t, m, a.at+addr.ActorOffHomeRoomNo, []byte{byte(a.room)})
-		store(t, m, a.at+addr.ActorOffHealth, []byte{byte(a.health)})
-		store(t, m, a.at+actorOffMaxHealth, []byte{byte(a.health)})
-		for j, f := range a.pos {
-			store(t, m, a.at+actorOffCurPos+uint32(4*j), u32b(math.Float32bits(f)))
-		}
-	}
-	var head, tail uint32
-	if len(nodes) > 0 {
-		head, tail = nodes[0], nodes[len(nodes)-1]
-	}
-	store(t, m, addr.ActorQueue+addr.ActorQueueOffHead, u32b(head))
-	store(t, m, addr.ActorQueue+addr.ActorQueueOffTail, u32b(tail))
-	store(t, m, addr.ActorQueue+addr.ActorQueueOffSize, u32b(uint32(len(nodes))))
-	return nodes
-}
-
-var (
-	diagLink = fakeActor{at: 0x80A00000, proc: 0xA9, setID: addr.ActorSetIDNone, group: 1, room: -1, pos: [3]float32{10, 20, 30}}
-	diagBoko = fakeActor{at: 0x80A10000, proc: 0xBE, setID: 5, group: 2, room: 3, health: 4}
-	diagPot  = fakeActor{at: 0x80A20000, proc: 0x1CB, setID: 9, group: 0, room: 3}
-)
-
-func TestWalkActors(t *testing.T) {
 	m := mem.NewFakeMem()
-	layActors(t, m, diagLink, diagBoko, diagPot)
-	// The Bokoblin's enemyice points back at it (d_a_bk.cpp:5270).
-	store(t, m, diagBoko.at+k1Classes[0xBE].iceOff, u32b(diagBoko.at))
-	store(t, m, diagBoko.at+k1Classes[0xBE].iceOff+6, []byte{0})
-
-	w, err := walkActors(m, maxActorWalk)
-	if err != nil {
+	g := fakegame.New(m)
+	es := fakegame.PlaceEnemies(
+		fakegame.Enemy{Stage: diagDRC.Name, Room: 2, SetID: 1, Proc: stagedata.ProcBK, Weapon: true},
+		fakegame.Enemy{Stage: diagDRC.Name, Room: 2, SetID: 2, Proc: stagedata.ProcCC},
+		fakegame.Enemy{Stage: diagDRC.Name, Room: 2, SetID: addr.ActorSetIDNone, Proc: stagedata.ProcCC},
+		fakegame.Enemy{Stage: diagDRC.Name, Room: 2, SetID: 4, Proc: stagedata.ProcPW},
+	)
+	if err := g.LoadStage(diagDRC); err != nil {
 		t.Fatal(err)
 	}
-	if w.Stop != "" || len(w.Notes) != 0 || len(w.Rows) != 3 || w.Size != 3 || w.Type != fakeActorType {
-		t.Fatalf("walk: stop %q notes %q rows %d size %d type 0x%X", w.Stop, w.Notes, len(w.Rows), w.Size, w.Type)
+	b := &diagBeat{FakeMem: m, g: g, es: es}
+	tick := func() {
+		for range 3 {
+			if err := g.FrameWith(es); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
-	link, boko := w.Rows[0], w.Rows[1]
-	if link.Actor != diagLink.at || link.ProcName != 0xA9 || link.SetID != addr.ActorSetIDNone ||
-		link.Group != 1 || link.HomeRoom != -1 || link.Pos != diagLink.pos || !link.DataOK || link.Ice != "" {
-		t.Errorf("Link row: %+v", link)
-	}
-	if boko.ProcID != 101 || boko.SetID != 5 || boko.Health != 4 || boko.Ice != "enemyice ok, shrink timer 0" {
-		t.Errorf("Bokoblin row: %+v", boko)
-	}
+	tick()
+	return b, tick
+}
 
+func TestPrintActors(t *testing.T) {
+	unverifyPW(t)
+	b, _ := diagEnemies(t)
+	w, err := actors.Read(b, 0)
+	if err != nil || !w.Complete() || len(w.Actors) != 5 {
+		t.Fatalf("walk %+v, %v", w, err)
+	}
 	var out bytes.Buffer
 	printActors(&out, w)
-	for _, s := range []string{"proc 0x00A9 player", "proc 0x00BE bk", "set 5", "enemy", "hp 4/4", "3 actors\n"} {
+	for _, s := range []string{
+		"proc 0x00BE bk", "set 1", "enemy", "hp 4/4", "enemyice ok, mode 1, shrink timer 0", "weapon pid", "; K1 ok\n",
+		"proc 0x01D5 boko", "CARRY", "proc 0x00D5 pw", "K1 ok with --unverified", "5 actors\n",
+	} {
 		if !strings.Contains(out.String(), s) {
 			t.Errorf("printActors lacks %q:\n%s", s, out.String())
 		}
 	}
+}
 
-	// The self-pointer catches a wrong enemyice offset.
-	store(t, m, diagBoko.at+k1Classes[0xBE].iceOff, u32b(0))
-	w, _ = walkActors(m, maxActorWalk)
-	if got := w.Rows[1].Ice; got != "enemyice.mpActor 0x00000000 is not the actor" {
-		t.Errorf("bad self-pointer: %q", got)
+// TestEnemyKill: the diagnostic light-shrinks the actor asked for through
+// the receiver's gates and guard, its weapon let go, and watches it go; it
+// refuses an unverified class without --unverified, an actor no walk has,
+// and a game that is not idle.
+func TestEnemyKill(t *testing.T) {
+	unverifyPW(t)
+	b, tick := diagEnemies(t)
+	ctx := context.Background()
+	bk, _ := b.es.Of(0)
+	wp, ok := b.es.WeaponOf(0)
+	if !ok {
+		t.Fatal("no weapon")
+	}
+	var out bytes.Buffer
+	if err := enemyKill(ctx, &out, b, bk.PID, false, 10*time.Second, tick); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	for _, s := range []string{"target: actor", "wrote 1 at", "its weapon's CARRY cleared", "the actor is gone", "records setID 1 dead: true"} {
+		if !strings.Contains(out.String(), s) {
+			t.Errorf("the output lacks %q:\n%s", s, out.String())
+		}
+	}
+	if st, err := mem.ReadU32(b, wp.Addr+addr.ActorOffStatus); err != nil || st&addr.ActorStatusCarry != 0 {
+		t.Errorf("the weapon's status 0x%08X, %v: still carried", st, err)
 	}
 
-	// An empty queue is a clean, empty walk.
-	empty := mem.NewFakeMem()
-	layActors(t, empty)
-	if w, err := walkActors(empty, maxActorWalk); err != nil || w.Stop != "" || len(w.Rows) != 0 || len(w.Notes) != 0 {
-		t.Errorf("empty queue: %+v, %v", w, err)
+	// The unkeyed ChuChu: no zone needed, nothing recorded.
+	cc, _ := b.es.Of(2)
+	out.Reset()
+	if err := enemyKill(ctx, &out, b, cc.PID, false, 10*time.Second, tick); err != nil || !strings.Contains(out.String(), "ran its course)\n") {
+		t.Fatalf("the unkeyed ChuChu: %v\n%s", err, out.String())
+	}
+
+	pw, _ := b.es.Of(3)
+	if err := enemyKill(ctx, &out, b, pw.PID, false, 0, tick); err == nil || !strings.Contains(err.Error(), "not verified") {
+		t.Errorf("an unverified Poe: %v", err)
+	}
+	out.Reset()
+	if err := enemyKill(ctx, &out, b, pw.PID, true, 0, tick); err != nil || !strings.Contains(out.String(), "wrote 1 at") {
+		t.Errorf("a Poe with --unverified: %v\n%s", err, out.String())
+	}
+	if err := enemyKill(ctx, &out, b, 9999, false, 0, tick); err == nil || !strings.Contains(err.Error(), "no actor has process ID 9999") {
+		t.Errorf("an unknown pid: %v", err)
+	}
+	b.g.SetPauseMenu(true)
+	kc, _ := b.es.Of(1)
+	if err := enemyKill(ctx, &out, b, kc.PID, false, 0, tick); err == nil || !strings.Contains(err.Error(), "not now") {
+		t.Errorf("with the pause menu up: %v", err)
 	}
 }
 
-// TestWalkActorsStops breaks the list in each way the walk guards against
-// and checks it stops there, having followed no pointer it did not check.
-func TestWalkActorsStops(t *testing.T) {
-	cases := []struct {
-		name  string
-		limit int
-		mut   func(m *mem.FakeMem, nodes []uint32)
-		rows  int
-		stop  string
-	}{
-		{"cycle", 0, func(m *mem.FakeMem, n []uint32) { m.Store(n[2]+addr.TagOffNext, u32b(n[0])) }, 3, "has a cycle"},
-		{"self loop", 0, func(m *mem.FakeMem, n []uint32) { m.Store(n[0]+addr.TagOffNext, u32b(n[0])) }, 1, "has a cycle"},
-		{"next outside MEM1", 0, func(m *mem.FakeMem, n []uint32) { m.Store(n[1]+addr.TagOffNext, u32b(0x90000000)) }, 2, "is outside MEM1"},
-		{"next at the end of MEM1", 0, func(m *mem.FakeMem, n []uint32) { m.Store(n[1]+addr.TagOffNext, u32b(addr.MEM1End-8)) }, 2, "is outside MEM1"},
-		{"head below its actor", 0, func(m *mem.FakeMem, n []uint32) { m.Store(addr.ActorQueue, u32b(addr.MEM1Base+0x10)) }, 0, "no room in MEM1"},
-		{"misaligned", 0, func(m *mem.FakeMem, n []uint32) { m.Store(n[0]+addr.TagOffNext, u32b(n[1]+2)) }, 1, "not word-aligned"},
-		{"prev changed", 0, func(m *mem.FakeMem, n []uint32) { m.Store(n[1]+addr.TagOffPrev, u32b(0x80123450)) }, 1, "changed during the walk"},
-		{"tag data", 0, func(m *mem.FakeMem, n []uint32) { m.Store(n[1]+addr.TagOffTagData, u32b(0x80123450)) }, 1, "not its actor"},
-		{"actor type", 0, func(m *mem.FakeMem, n []uint32) { m.Store(diagBoko.at+addr.ActorOffActorType, u32b(0)) }, 1, "not g_fopAc_type"},
-		{"limit", 2, func(*mem.FakeMem, []uint32) {}, 2, "limit of 2"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			m := mem.NewFakeMem()
-			c.mut(m, layActors(t, m, diagLink, diagBoko, diagPot))
-			limit := c.limit
-			if limit == 0 {
-				limit = maxActorWalk
-			}
-			w, err := walkActors(m, limit)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(w.Rows) != c.rows || !strings.Contains(w.Stop, c.stop) {
-				t.Errorf("rows %d stop %q; want %d rows, stop with %q", len(w.Rows), w.Stop, c.rows, c.stop)
-			}
-		})
-	}
-
-	// mSize and mpTail disagreeing with a clean walk are notes, not stops.
-	m := mem.NewFakeMem()
-	layActors(t, m, diagLink, diagBoko)
-	store(t, m, addr.ActorQueue+addr.ActorQueueOffSize, u32b(5))
-	store(t, m, addr.ActorQueue+addr.ActorQueueOffTail, u32b(0x80123450))
-	w, _ := walkActors(m, maxActorWalk)
-	if w.Stop != "" || len(w.Rows) != 2 || len(w.Notes) != 2 {
-		t.Errorf("notes: stop %q rows %d notes %q", w.Stop, len(w.Rows), w.Notes)
-	}
-
-	// mpData other than the queue (cLs_Addition sets it, c_list.cpp:40)
-	// is flagged per row.
-	store(t, m, diagBoko.at+addr.ActorOffActorTag+addr.TagOffData, u32b(0))
-	if w, _ := walkActors(m, maxActorWalk); w.Rows[0].DataOK != true || w.Rows[1].DataOK {
-		t.Errorf("DataOK: %v %v", w.Rows[0].DataOK, w.Rows[1].DataOK)
-	}
-
-	// An enemyice offset past the end of MEM1 is reported, not read.
-	edge := diagBoko
-	edge.at = addr.MEM1End - addr.ActorSize
-	m = mem.NewFakeMem()
-	layActors(t, m, edge)
-	if w, err := walkActors(m, maxActorWalk); err != nil || w.Rows[0].Ice != "enemyice unreadable" {
-		t.Errorf("ice past MEM1: %+v %v", w.Rows, err)
-	}
-}
-
-// TestK1Offsets pins the enemyice table to the design's §7.2 timer
-// offsets (mLightShrinkTimer is enemyice +6).
-func TestK1Offsets(t *testing.T) {
-	timers := map[string]uint32{
-		"bk": 0x126A, "mo2": 0x2A5A, "st": 0x1FAE, "rd": 0x6E6, "cc": 0x822, "ki": 0x92A,
-		"am": 0xAC2, "am2": 0xA92, "bb": 0xC86, "fm": 0xAEE, "ks": 0x6AE, "tn": 0x152A,
-		"ph": 0x99E, "pt": 0x7EA, "pw": 0x88A, "bo": 0xA02,
-	}
-	if len(k1Classes) != len(timers) {
-		t.Fatalf("%d classes, want %d", len(k1Classes), len(timers))
-	}
-	for p, k := range k1Classes {
-		if want, ok := timers[k.name]; !ok || k.iceOff+6 != want {
-			t.Errorf("proc 0x%X %s: timer at 0x%X, design says 0x%X", p, k.name, k.iceOff+6, want)
-		}
-		if k.iceOff < addr.ActorSize {
-			t.Errorf("%s: enemyice at 0x%X is inside fopAc_ac_c", k.name, k.iceOff)
-		}
+func TestPeekDemo(t *testing.T) {
+	b, tick := diagEnemies(t)
+	b.g.SetLinkDemo(13)
+	var out bytes.Buffer
+	if err := peekDemo(context.Background(), &out, b, 0, tick); err != nil || !strings.Contains(out.String(), "mDemo.mDemoType (+0x304) = 13") {
+		t.Errorf("%v: %s", err, out.String())
 	}
 }
 
@@ -1018,5 +962,59 @@ func TestSplitDiagFlags(t *testing.T) {
 		if !strings.HasPrefix(u, cmd) {
 			t.Errorf("usage %q does not start with %s", u, cmd)
 		}
+	}
+}
+
+// TestCoopDiagDispatched checks that main's switch sends every
+// coopDiagUsage name, and only those, to runCoopDiag. enemy-kill and
+// peek-demo were once left out of that case and printed "Unknown command".
+func TestCoopDiagDispatched(t *testing.T) {
+	f, err := parser.ParseFile(token.NewFileSet(), "main.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases [][]string // the string labels of each case that calls runCoopDiag
+	ast.Inspect(f, func(n ast.Node) bool {
+		cc, ok := n.(*ast.CaseClause)
+		if !ok {
+			return true
+		}
+		calls := false
+		for _, st := range cc.Body {
+			ast.Inspect(st, func(n ast.Node) bool {
+				if c, ok := n.(*ast.CallExpr); ok {
+					if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "runCoopDiag" {
+						calls = true
+					}
+				}
+				return true
+			})
+		}
+		if !calls {
+			return true
+		}
+		var labels []string
+		for _, e := range cc.List {
+			lit, ok := e.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				t.Errorf("case label %T is not a string literal", e)
+				continue
+			}
+			s, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			labels = append(labels, s)
+		}
+		cases = append(cases, labels)
+		return true
+	})
+	if len(cases) != 1 {
+		t.Fatalf("%d cases in main.go call runCoopDiag, want 1", len(cases))
+	}
+	got := slices.Sorted(slices.Values(cases[0]))
+	want := slices.Sorted(maps.Keys(coopDiagUsage))
+	if !slices.Equal(got, want) {
+		t.Errorf("main.go sends %q to runCoopDiag, coopDiagUsage has %q", got, want)
 	}
 }

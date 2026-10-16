@@ -123,7 +123,8 @@ type Config struct {
 	StageTblHash uint64
 	// Want is the session features to ask for; 0 asks for what the
 	// replica uses: hub.FeatureImage, and with Apply hub.FeatureSwitches,
-	// hub.FeatureLiveSwitches, hub.M4Features and hub.FeaturePuzzle too
+	// hub.FeatureLiveSwitches, hub.M4Features, hub.FeaturePuzzle and
+	// hub.FeatureCombat too
 	// (the host decides whether to allow the live-switch opt-in,
 	// --coop-live-switches). A dry run asks for what M2 did,
 	// hub.FeatureImage. Bits outside hub.SessionFeatures are ignored.
@@ -135,9 +136,10 @@ type Config struct {
 	// host's policy.
 	Policy *world.Policy
 	// Apply makes the replica write the world's progress into the game
-	// (M3, M4) and a co-present partner's room puzzles (M5): the
-	// reconcilers hand their writes to a FrameWriter through a WriteGuard
-	// of M3Targets | M4Targets | M5Targets. False is M2's dry run
+	// (M3, M4), a co-present partner's room puzzles (M5) and its kills
+	// (M6): the reconcilers hand their writes to a FrameWriter through a
+	// WriteGuard of M3Targets | M4Targets | M5Targets | M6Targets. False
+	// is M2's dry run
 	// (--coop-dry-run): the plan is logged, never written.
 	Apply bool
 	// Tables are the M1 tables of the user's own disc, which the derived
@@ -284,6 +286,9 @@ type Status struct {
 	// GBA is the Tingle Tuner guard (gba.go): whether a Game Boy Advance
 	// may be linked, and how many switches that holds back.
 	GBA GBAStatus
+	// Combat is how the kill union stands (M6): the partner's kill bits
+	// held, written into zones and light-shrunk.
+	Combat CombatStatus
 }
 
 // helloKey is what a CO_HELLO describes: when it changes, the replica
@@ -363,6 +368,8 @@ type Replica struct {
 	m5 m5
 	// The Tingle Tuner guard (gba.go).
 	gba gbaGuard
+	// The M6 receiver (reconcile_m6.go).
+	m6 m6
 
 	// The escape hatches (escape.go).
 	esc     *escapeReq // asked for, waiting for a tick
@@ -438,7 +445,7 @@ func New(cfg Config) (*Replica, error) {
 	}
 	w, err := NewFrameWriter(WriterConfig{Mem: r.m, DryRun: true})
 	if cfg.Apply {
-		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | TargetEscape, Policy: r.policy, GBA: &r.gba.mask, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
+		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | M6Targets | TargetEscape, Policy: r.policy, GBA: &r.gba.mask, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
 		w, err = NewFrameWriter(WriterConfig{Mem: r.m, Guard: wg, BeatTimeout: cfg.BeatTimeout, Logf: r.logf, Label: r.label, GBA: r.gba.switches > 0})
 	}
 	if err != nil {
@@ -447,6 +454,7 @@ func New(cfg Config) (*Replica, error) {
 	r.writer = w
 	r.m4 = newM4(cfg.Tables)
 	r.m5 = newM5()
+	r.m6 = newM6()
 	r.differ = NewDiffer(r.policy)
 	if cfg.Apply {
 		// M4's sender pace (differ_pace.go). A dry run is M2's replica,
@@ -456,8 +464,11 @@ func New(cfg Config) (*Replica, error) {
 		// this side's M1 verdict, which is the host's when the hub grants
 		// FeaturePuzzle, without those shared with the Tingle Tuner while
 		// a GBA may be linked (gba.go), and never one that rose while
-		// held (HoldScopes); nil tables propose none.
-		r.differ.ShareScopes(hub.ScopeFilter(r.scopedSynced))
+		// held (HoldScopes); and M6's kills of its keyed K1 enemies
+		// (tables.Tables.SyncedKill), the host's when it grants
+		// FeatureCombat; nil tables propose none. The hold taints dan and
+		// zone words only (taintRises), never kill words.
+		r.differ.ShareScopes(hub.Filter(r.scopedSynced, cfg.Tables.SyncedKill))
 		r.differ.HoldScopes(hub.ScopeFilter(r.scopedHeld))
 	}
 	r.planner = NewPlanner(r.policy)
@@ -473,7 +484,7 @@ func (r *Replica) Guard() *Guard { return r.guard }
 func (r *Replica) want() hub.Feature {
 	if r.cfg.Want == 0 {
 		if r.cfg.Apply {
-			return hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches | hub.M4Features | hub.FeaturePuzzle
+			return hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches | hub.M4Features | hub.FeaturePuzzle | hub.FeatureCombat
 		}
 		return hub.FeatureImage
 	}
@@ -618,6 +629,7 @@ func (r *Replica) Status() Status {
 		Derive:   r.m4.deriver.Status(),
 		Puzzle:   r.puzzleStatus(),
 		GBA:      GBAStatus{MayLink: r.gba.held, Switches: r.gba.switches},
+		Combat:   r.combatStatus(),
 	}
 	_, st.WritesOff = r.writer.Disabled()
 	if r.preflight != nil {
@@ -682,6 +694,7 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 	ws, window, q := r.toWrite, r.window, r.escNow
 	ds := r.m4.take()
 	sc := r.m5.take()
+	cm := r.m6.take()
 	r.toWrite, r.window, r.escNow = nil, windows{}, nil
 	r.unlockAndFlush(&out)
 	var werr error
@@ -694,6 +707,7 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 	}
 	r.applyDerived(ctx, ds, werr, &rep)
 	r.applyScoped(ctx, sc, &rep)
+	r.applyCombat(ctx, cm, &rep)
 	if q != nil {
 		// After the plan's writes: an escape changes stage or moves Link,
 		// and the plan's bytes were judged against this tick's snapshot.
@@ -812,6 +826,7 @@ func (r *Replica) tick(s *snap.Snapshot, err error, out *outbox) Report {
 	r.reconcile(o, armed, &rep)
 	r.reconcileM4(o, armed, &rep)
 	r.reconcileM5(o, armed)
+	r.reconcileM6(o, armed)
 	r.escapeTick(o, armed)
 	r.runPreflight(o, v, out)
 	rep.State, rep.Why = r.state(o, v)
@@ -1293,8 +1308,8 @@ func (r *Replica) plan(o *obs, armed bool) {
 	r.planned, r.held = ws, held
 	if r.writer.DryRun() {
 		r.logPlan(ws, held)
+		r.planScoped(o)
 	}
-	r.planScoped(o)
 }
 
 // desired is the view without what the host tombstoned (CTRL TOMBSTONE
@@ -1367,8 +1382,12 @@ func (r *Replica) logPlan(ws []Write, held []HeldBit) {
 // pruneScoped drops the stores of a scope o does not show Link in, and
 // what was logged of them, so the receiver keeps a store no longer than
 // the hub sends it one (world.Scopes): a stage or table other than Link's,
-// a ZONE store of another room than mStayNo, and off the game every DAN
-// and ZONE store. The PRESENCE this very tick sends says the same place
+// a ZONE store of another room than mStayNo, and off the game every DAN,
+// ZONE and KILL store. Off the game (a stage load's screenNoLink frames,
+// the title) the hub places the receiver Nowhere and drops the stage's
+// stores if the partner is not there; a KILL store kept then would be
+// ORed into the zones a reload of the same stage wiped
+// (d_stage.cpp:123-125), killing enemies nobody kept dead. The PRESENCE this very tick sends says the same place
 // (presenceOf), and the hub sends a scope's store again when a PRESENCE
 // enters it (hub.onPresence, sendEntries), if anyone is still there; a
 // relay that crosses the PRESENCE goes on the next tick. It runs on every
@@ -1383,6 +1402,10 @@ func (r *Replica) pruneScoped(o *obs) {
 				if !in || k.stage != stage || k.table != o.s.Table || k.kind == wire.ScopeZone && k.room != o.s.StayNo {
 					delete(m, k)
 				}
+			case k.kind == wire.ScopeKill:
+				if !in || k.stage != stage || k.table != o.s.Table {
+					delete(m, k)
+				}
 			case in && (k.stage != stage || k.table != o.s.Table):
 				delete(m, k)
 			}
@@ -1390,8 +1413,9 @@ func (r *Replica) pruneScoped(o *obs) {
 	}
 }
 
-// planScoped logs the kill bits the hub sent that the receiver's scopes
-// lack, with §7.2's apply rule (M6). The dan and zone stores are the M5
+// planScoped is a dry run's log of the kill bits the hub sent that the
+// receiver's zones lack, with §7.2's apply rule. A writing replica's are
+// the M6 receiver's (reconcileM6), and the dan and zone stores the M5
 // receiver's (reconcileM5). pruneScoped has dropped this tick the stores
 // of a stage or table the receiver left.
 func (r *Replica) planScoped(o *obs) {

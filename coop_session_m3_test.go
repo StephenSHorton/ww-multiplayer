@@ -53,6 +53,11 @@ type coBeat struct {
 	// after the rooms' ages (TestCoopSessionM4). Set before the first
 	// frame.
 	doors []*fakegame.KeyDoor
+	// enemies, if set, are the game's placed enemies (M6), run on every
+	// frame; actErr is the first error a frame's actors returned (an
+	// onActor that would halt the game).
+	enemies *fakegame.Enemies
+	actErr  error
 }
 
 // coPlace is where a fake game is, read from its memory as a tick begins:
@@ -168,6 +173,9 @@ type coWrite struct {
 	// young is the room whose actors had run the fewest frames as the
 	// write was made (fakegame.RoomAges; -1 for none), and execs how many.
 	young, execs int
+	// pid is, for a write on the fake's actor heap (M6), the process ID
+	// of the actor whose block holds it, as the write was made.
+	pid uint32
 }
 
 func newCoBeat(cg *coGame) *coBeat { return &coBeat{FakeMem: cg.m, g: cg.g} }
@@ -204,11 +212,22 @@ func (b *coBeat) Write(a uint32, d []byte) error {
 		return err
 	}
 	young, execs := b.ages.Youngest()
+	var pid uint32
+	if coHeap(a) {
+		block := fakegame.EnemyHeap + (a-fakegame.EnemyHeap)/coBlock*coBlock
+		pid, _ = mem.ReadU32(b.FakeMem, block+addr.ActorOffBsPcID)
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.writes = append(b.writes, coWrite{tick: b.tick, a: a, old: old, val: bytes.Clone(d), table: int8(t[0]), zone: zone, young: young, execs: execs})
+	b.writes = append(b.writes, coWrite{tick: b.tick, a: a, old: old, val: bytes.Clone(d), table: int8(t[0]), zone: zone, young: young, execs: execs, pid: pid})
 	return nil
 }
+
+// coBlock is the fake's actor block (fakegame.Enemies).
+const coBlock = 0x3000
+
+// coHeap reports whether a is on the fake's actor heap.
+func coHeap(a uint32) bool { return a >= fakegame.EnemyHeap && a < fakegame.EnemyHeap+0x1000000 }
 
 // frame runs a game frame, with the rooms' ages, then the warp handler as
 // multiplayer_update runs it, right after spawn_trigger++ whenever Link
@@ -219,8 +238,15 @@ func (b *coBeat) frame() {
 	for _, d := range b.doors {
 		actors = append(actors, d)
 	}
+	if b.enemies != nil {
+		actors = append(actors, b.enemies)
+	}
 	if err := b.g.FrameWith(actors...); err != nil {
-		panic(err) // RoomAges never fails, nor does a KeyDoor on a memory switch
+		b.mu.Lock()
+		if b.actErr == nil {
+			b.actErr = err
+		}
+		b.mu.Unlock()
 	}
 	link, err := mem.ReadU32(b.FakeMem, addr.PlayerPtr)
 	if err != nil || link == 0 {
@@ -389,6 +415,7 @@ func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 	m4 := replica.NewGuardFor(replica.M3Targets | replica.M4Targets)
 	m5 := replica.NewGuardFor(replica.M3Targets | replica.M4Targets | replica.M5Targets)
 	esc := replica.NewGuardFor(replica.TargetEscape)
+	m6 := replica.NewGuardFor(replica.M6Targets)
 	type place struct {
 		a     uint32
 		table int8
@@ -441,6 +468,13 @@ func coAuditM3(t *testing.T, p *coPlayer) (n coAuditCount) {
 				}
 				m5set[k] = true
 			}
+			continue
+		case m6.TargetOf(w.a) == replica.TargetKills:
+			n.kills = append(n.kills, coAuditM6Kill(w, rep, tb, bad)...)
+			continue
+		case coHeap(w.a):
+			coAuditM6Heap(w, rep, bad)
+			n.heap = append(n.heap, w)
 			continue
 		case m4.TargetOf(w.a)&replica.M4Targets != 0:
 			tg := m4.TargetOf(w.a)
@@ -538,6 +572,8 @@ type coAuditCount struct {
 	m4                                map[replica.Target]int
 	derived                           int
 	scoped                            []coSwitchAt
+	kills                             []coKillAt // M6's dead-actor bits written, in their scopes
+	heap                              []coWrite  // M6's writes on the actor heap
 }
 
 // coRoomLoaded gives room of cg's stage collision: mStatus[room].mpBgW

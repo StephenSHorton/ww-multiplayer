@@ -107,6 +107,7 @@ func newSyncHub(t *testing.T) *syncHub {
 	cfg := fullCfg()
 	cfg.Store, cfg.StageTblHash, cfg.Logf = st, testTables, s.log.logf
 	cfg.SyncedScoped = fuzzVerdict
+	cfg.SyncedKill = fuzzKillVerdict
 	cfg.Now = func() time.Time { return time.Unix(1_800_000_000, 0) }
 	if s.h, err = newHub(cfg, true); err != nil {
 		t.Fatal(err)
@@ -142,6 +143,12 @@ func (s *syncHub) frame(c *fakeConn, payload []byte) {
 // two in three, by scope and switch.
 func fuzzVerdict(table int, stage string, room, no int) bool {
 	return (table+len(stage)+room+no)%3 != 0
+}
+
+// fuzzKillVerdict is an M1 verdict on the kill bits that grants about
+// half of them.
+func fuzzKillVerdict(table int, stage string, room, setID int) bool {
+	return (table+len(stage)+room+setID)%2 != 0
 }
 
 // checkScoped fails t unless SCOPED m, which c got, is one the hub may
@@ -187,7 +194,7 @@ func FuzzHubFrames(f *testing.F) {
 			conns[i] = mk(i)
 			s.attach(conns[i])
 		}
-		keep := ScopeFilter(fuzzVerdict)
+		keep := Filter(fuzzVerdict, fuzzKillVerdict)
 		var seq uint64
 		for len(data) >= 3 {
 			who, n := data[0], int(binary.BigEndian.Uint16(data[1:3]))

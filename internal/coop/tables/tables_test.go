@@ -102,6 +102,7 @@ func TestBuildVanilla(t *testing.T) {
 		"switches PASS push-block exclusion list: 1 push block(s) storing a path in 2 switch use(s), never synced",
 		"enemies INFO enemy setID share: 10 enemy entries: 3 (30.0%) with a setID, 3 (30.0%) keyed (0 of them never dead-checked); K1 classes not BOSS: 3 (75.0%) keyed of 4",
 		"enemies INFO duplicate (stage, room, setID) keys: 1: 1 with an enemy, 1 with two enemies on a common layer, 1 colliding in one game, 0 on different layers only",
+		"enemies INFO M6 kill coverage: K1 classes not BOSS: 4 entries; 3 (75.0%) keyed: 1 sync, 0 Kargaroc only by ice or light arrow, 0 Morth never live, 2 sharing a key, never synced; 1 (25.0%) unkeyed stay per player until M6.1; rooms: 1 with K1 enemies, 0 all keyed (0 clear on B), 1 mixed, 0 none",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("acceptance\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

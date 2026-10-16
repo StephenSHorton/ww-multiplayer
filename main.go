@@ -651,7 +651,7 @@ func main() {
 			}
 			runMpLocal(nameA, nameB, co)
 		case "coop-probe", "coop-watch", "actors", "zone-dump", "frame-phase-probe",
-			"heap-free", "blob-verify-live", "region-probe", "stage-hop":
+			"heap-free", "blob-verify-live", "region-probe", "stage-hop", "enemy-kill", "peek-demo":
 			// Co-op M0 diagnostics (coop_diag.go), kept out of printHelp
 			// like the other diagnostics.
 			runCoopDiag(os.Args[1], os.Args[2:])

@@ -113,8 +113,10 @@ type FakeGame struct {
 	playing bool             // a play scene is up: a stage is loaded and the HUD runs
 	stags   map[string]Stage // the STAG facts of each stage SetNextStage has named
 	frames  uint64
-	loads   uint64 // stage loads (ChangeStage): a stage's actors are new with each
-	card    [CardSlots][PackedSize]byte
+	// loads counts the stages loaded (ChangeStage): every one creates its
+	// rooms' actors anew, which KeyDoor and Enemies follow.
+	loads uint64
+	card  [CardSlots][PackedSize]byte
 }
 
 // New returns the game at boot: __init_hardware's return left at
@@ -354,7 +356,21 @@ func (g *FakeGame) roomControlInit(point int16) {
 		} else if z := g.zoneNo(room); z >= 0 {
 			g.clearRoomSwitch(int(z))
 		}
+		// The old play scene's room scenes are gone, and a deleted room
+		// scene clears its status flags (dScnRoom_Delete, d_s_room.cpp:120).
+		g.setRoomFlags(room, 0)
 	}
+}
+
+// setRoomFlags sets mStatus[room].mFlags (d_stage.h:855-869).
+func (g *FakeGame) setRoomFlags(room int, f uint8) {
+	a, _ := addr.RoomStatusAddr(room)
+	g.st8(a+addr.RoomStatusOffFlags, f)
+}
+
+func (g *FakeGame) roomFlags(room int) uint8 {
+	a, _ := addr.RoomStatusAddr(room)
+	return g.ld8(a + addr.RoomStatusOffFlags)
 }
 
 // EnterRoom moves Link into room, with neighbours loaded alongside it, as
@@ -388,6 +404,10 @@ func (g *FakeGame) enterRoom(room int, neighbours []int) {
 		if g.zoneNo(r) < 0 {
 			g.setZoneNo(r, g.createZone(r))
 		}
+		// loadRoom creates the room's scene (status 0x02, d_stage.cpp:
+		// 233-239), whose phases end with the room loaded (0x01); the fake
+		// takes both at once. A hidden room stays hidden.
+		g.setRoomFlags(r, g.roomFlags(r)&addr.RoomFlagHidden|addr.RoomFlagLoaded)
 	}
 }
 
@@ -409,6 +429,7 @@ func (g *FakeGame) zoneCountCheck(room int) {
 			if c == 0 {
 				g.removeZone(int(z))
 				g.setZoneNo(r, -1)
+				g.setRoomFlags(r, 0) // its scene deleted (d_s_room.cpp:120)
 			}
 		}
 	}
@@ -570,6 +591,13 @@ func (g *FakeGame) roomZone(room int) (int, error) {
 // bit for setID id in room's zone, as an enemy's death sets it. id -1 or
 // 0xFFFF (a runtime spawn) or room -1 do nothing.
 func (g *FakeGame) OnActor(id, room int) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.onActor(id, room)
+}
+
+// onActor is OnActor with g.mu held.
+func (g *FakeGame) onActor(id, room int) error {
 	if id == -1 || id == addr.ActorSetIDNone || room == -1 {
 		return nil
 	}
@@ -577,8 +605,6 @@ func (g *FakeGame) OnActor(id, room int) error {
 	if err != nil {
 		return assertf("actor id %d", id)
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
 	z, err := g.roomZone(room)
 	if err != nil {
 		return fmt.Errorf("actor %d: %w", id, err)

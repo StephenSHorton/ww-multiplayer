@@ -180,10 +180,25 @@ const (
 	TagOffData    = 0x4 // &g_fopAcTg_Queue once queued
 	TagOffNext    = 0x8
 	TagOffTagData = 0xC
+	// TagOffUse is s8 mbIsUse, 1 while the tag is in a list
+	// (cTg_Addition, c_tag.cpp:74-80; cTg_Create clears it, :89-92).
+	TagOffUse = 0x10
+	TagSize   = 0x14 // create_tag_class (c_tag.h:10-14)
 
 	// FopAcType is g_fopAc_type; an actor's actor_type equals it
-	// (fopAc_IsActor, f_op_actor.cpp:116-119; sym:18627).
+	// (fopAc_IsActor, f_op_actor.cpp:116-119; sym:18627). It is 0 until
+	// the first actor's create gives it a value (fpcBs_MakeOfType,
+	// f_pc_base.cpp:28-33).
 	FopAcType uint32 = 0x803F69D0
+
+	// ProcessIDCounter is fpcBs_MakeOfId's static process_id, the next
+	// process ID: it starts at 1 and only counts up
+	// (f_pc_base.cpp:36-40; sym:18651).
+	ProcessIDCounter uint32 = 0x803F6A24
+
+	// MaxActorNodes is where an actor walk gives up (§7.2: "stop after
+	// 1024 nodes").
+	MaxActorNodes = 1024
 )
 
 // fopAc_ac_c fields (f_op_actor.h:270-319, STATIC_ASSERT 0x290 at :321;
@@ -203,6 +218,64 @@ const (
 	ActorOffHomeRoomNo   = 0x1E2 // s8 home.roomNo
 	ActorOffHealth       = 0x285 // s8 health (f_op_actor.h:307)
 	ActorSetIDNone       = 0xFFFF
+
+	// ActorOffInitState is s8 mInitState (f_pc_base.h:17): 2 once the
+	// process is in the execute queues, the only state fpcEx_Execute
+	// runs (f_pc_executor.cpp:31, set at :49); 3 as it leaves them.
+	ActorOffInitState  = 0x00C
+	ActorOffParentID   = 0x1CC              // fpc_ProcID parentActorID: 0xFFFFFFFF for a placed actor (f_op_actor.h:285; fopAcM_CreateAppend, f_op_actor_mng.cpp:78-91)
+	ActorOffHomeAngle  = 0x1DC              // csXyz home.angle (actor_place +0xC, f_op_actor.h:214)
+	ActorOffCurPos     = 0x1F8              // cXyz current.pos (f_op_actor.h:289)
+	ActorOffAttnFlags  = 0x280              // u32 attention_info.flags: attention_info +0x26C, flags +0x14 (f_op_actor.h:219-223, :305)
+	ActorOffMaxHealth  = 0x284              // s8 max_health (f_op_actor.h:306)
+	ActorStatusCarry   = 0x00002000         // fopAcStts_CARRY_e (f_op_actor.h:32)
+	ActorStatusBoss    = 0x04000000         // fopAcStts_BOSS_e (f_op_actor.h:43)
+	ActorOffCarryByte  = ActorOffStatus + 2 // the big-endian byte of actor_status that holds CARRY
+	ActorCarryByteMask = byte(ActorStatusCarry >> 8)
+)
+
+// enemyice (c_damagereaction.h:12-46), the member every enemy that polls
+// enemy_ice (c_damagereaction.cpp:108-410) embeds at a per-class offset.
+const (
+	EnemyIceOffSelf        = 0x00 // fopAc_ac_c* mpActor: the actor itself once its create ran
+	EnemyIceOffTimer       = 0x06 // s8 mLightShrinkTimer (c_damagereaction.h:16): nonzero runs the light-arrow death
+	EnemyIceOffMode        = 0x0D // s8 mMode: 0 before enemy_ice's first call, 1 idle, 2-3 frozen (c_damagereaction.h:20)
+	EnemyIceOffFreezeTimer = 0x0E // s16 mFreezeTimer (c_damagereaction.h:21)
+	EnemyIceSize           = 0x10 // the fields above, read in one go
+)
+
+// ProcBoko is fpcNm_BOKO_e (f_pc_name.h:482): the weapon a Bokoblin or a
+// Stalfos carries (d_a_bk.cpp:5086; d_a_st.cpp:2898).
+const ProcBoko = 0x1D5
+
+// BokoOffNowMode is a BOKO's u8 mNowMode (daBoko_c +0x2B8, d_a_boko.h:128,
+// after m2B4, which the demo build lacks, :125-127). Its procWait sets
+// Mode_ENEMY_CARRY_e when an enemy's fopAcM_setCarryNow takes it up, but
+// leaves Mode_PLAYER_CARRY_e, which Link's grab sets (d_a_boko.cpp:382-389;
+// d_a_player_grab.inc:330-339). CARRY alone is no sign that an enemy holds
+// it: Link's grab sets CARRY too, and the BOKO sets it on itself while it
+// flies (d_a_boko.cpp:406-410, :647-649).
+const (
+	BokoOffNowMode      = 0x2B8
+	BokoModeEnemyCarry  = 2 // Mode_ENEMY_CARRY_e (d_a_boko.h:41)
+	BokoModePlayerCarry = 3 // Mode_PLAYER_CARRY_e (d_a_boko.h:42)
+)
+
+// PlayerOffDemoType is Link's u16 mDemo.mDemoType (daPy_py_c +0x304,
+// d_a_player.h:499; daPy_demo_c +0, :153): 0 (TYPE_NONE) outside a player
+// demo. The offset is the decomp's struct layout, not yet read on a live
+// game (inferred; docs/08 §8.2 K1).
+const PlayerOffDemoType = 0x304
+
+// RoomStatusOffFlags is dStage_roomStatus_c's u8 mFlags (d_stage.h:855-869):
+// 0x01 loaded, 0x02 being created, 0x04 being deleted, 0x08 hidden
+// (loadRoom, d_stage.cpp:214-240; dScnRoom_Execute, d_s_room.cpp:89-101).
+const (
+	RoomStatusOffFlags = 0x104
+	RoomFlagLoaded     = 0x01
+	RoomFlagCreating   = 0x02
+	RoomFlagDeleting   = 0x04
+	RoomFlagHidden     = 0x08
 )
 
 // Heaps (§4.5 gate; the heap-free probe walks the free lists).

@@ -176,6 +176,13 @@ type auditWrite struct {
 	// young is the room whose actors had run the fewest frames as the
 	// write was made (fakegame.RoomAges; -1 for none), and execs how many.
 	young, execs int
+	// For a write into the fake's actor heap (fakegame.EnemyHeap), read
+	// just before it: the process ID and proc of the block's actor, a
+	// BOKO's mNowMode, and Link's mDemo.mDemoType.
+	pid      uint32
+	proc     int16
+	bokoMode byte
+	demo     uint16
 }
 
 func (b *beatMem) Read(a uint32, n int) ([]byte, error) {
@@ -252,9 +259,23 @@ func (b *beatMem) Write(a uint32, d []byte) error {
 		return err
 	}
 	young, execs := b.ages.Youngest()
+	w := auditWrite{a: a, n: len(d), prev: old, data: bytes.Clone(d), table: int8(t[0]), young: young, execs: execs}
+	if a >= fakegame.EnemyHeap && a < fakegame.EnemyHeap+0x1000000 {
+		blk := a - (a-fakegame.EnemyHeap)%0x3000
+		if h, err := b.FakeMem.Read(blk, 0x300); err == nil {
+			w.pid = binary.BigEndian.Uint32(h[addr.ActorOffBsPcID:])
+			w.proc = int16(binary.BigEndian.Uint16(h[addr.ActorOffProcName:]))
+			w.bokoMode = h[addr.BokoOffNowMode]
+		}
+		if p, err := mem.ReadU32(b.FakeMem, addr.PlayerPtr); err == nil && p != 0 {
+			if v, err := b.FakeMem.Read(p+addr.PlayerOffDemoType, 2); err == nil {
+				w.demo = binary.BigEndian.Uint16(v)
+			}
+		}
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	w := auditWrite{tick: b.tick, a: a, n: len(d), prev: old, data: bytes.Clone(d), table: int8(t[0]), young: young, execs: execs}
+	w.tick = b.tick
 	if len(d) > 0 {
 		w.old, w.val = old[0], d[0]
 	}
@@ -592,7 +613,7 @@ func TestReconcileAsksForSwitches(t *testing.T) {
 		cfg  Config
 		want hub.Feature
 	}{
-		{"writing", Config{Apply: true}, hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches | hub.M4Features | hub.FeaturePuzzle},
+		{"writing", Config{Apply: true}, hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches | hub.M4Features | hub.FeaturePuzzle | hub.FeatureCombat},
 		{"a dry run asks for what M2 did", Config{}, hub.FeatureImage},
 		{"Want wins", Config{Apply: true, Want: hub.FeatureImage | hub.FeaturePuzzle}, hub.FeatureImage | hub.FeaturePuzzle},
 	}

@@ -111,6 +111,8 @@ func checkTable(t *testing.T, tbl *Table, st *stagedata.Stage, names *stagedata.
 		t.Fatalf("summary %+v", s)
 	}
 
+	checkKills(t, tbl)
+
 	if r := tbl.Report(); !strings.HasPrefix(r, "Enemy table: ") {
 		t.Fatalf("report %q", r)
 	}
@@ -200,4 +202,54 @@ func FuzzEntry(f *testing.F) {
 		}
 		checkTable(t, tbl, st, names)
 	})
+}
+
+// checkKills checks M6's kill index against the entries: every bit of
+// every room's KillMask is a Keyed K1 entry's, not BOSS, Morth or Shared,
+// with no key a BOSS, Morth or Shared entry has; and the coverage adds up.
+func checkKills(t *testing.T, tbl *Table) {
+	t.Helper()
+	ok := map[killKey]bool{}
+	refused := map[killKey]bool{}
+	rooms := map[killRoom]bool{}
+	for _, e := range tbl.Enemies {
+		c, _ := ClassOf(e.Proc)
+		if c.Kind != K1 || e.Key != Keyed {
+			continue
+		}
+		k := killKey{killRoom{e.Stage, e.Room}, e.SetID}
+		rooms[k.killRoom] = true
+		if e.Boss || e.Proc == stagedata.ProcKS || e.Shared {
+			refused[k] = true
+		} else {
+			ok[k] = true
+		}
+	}
+	for r := range rooms {
+		m := tbl.KillMask(r.stage, r.room)
+		for id := range MaxSetID {
+			k := killKey{r, uint16(id)}
+			if want := ok[k] && !refused[k]; m.Has(id) != want || tbl.KeyedK1(r.stage, r.room, id) != want {
+				t.Fatalf("%s r%d setID 0x%X: in the kill mask %v, want %v", r.stage, r.room, id, m.Has(id), want)
+			}
+		}
+	}
+	if m := tbl.KillMask("F", -1); m != (KillSet{}) || tbl.KeyedK1("F", 64, 0) {
+		t.Fatal("a room outside 0..63 has kills")
+	}
+	c := tbl.Coverage()
+	byClass := 0
+	for _, s := range c.ByClass {
+		byClass += s.Entries
+		if s.Synced > s.Keyed || s.Keyed > s.Entries {
+			t.Fatalf("class coverage %+v", s)
+		}
+	}
+	if c.Entries != c.Keyed+c.Unkeyed || c.Keyed != c.Synced()+c.NeverLive+c.Shared || c.Entries != tbl.Summary.K1.Entries ||
+		c.Keyed != tbl.Summary.K1.Keyed || c.Rooms != c.AllKeyed+c.Mixed+c.NoneKeyed || byClass != c.Entries {
+		t.Fatalf("coverage %+v against the summary's K1 %+v", c, tbl.Summary.K1)
+	}
+	if l := c.Line(); !strings.HasPrefix(l, "K1 classes not BOSS: ") {
+		t.Fatalf("coverage line %q", l)
+	}
 }

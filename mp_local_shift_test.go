@@ -138,7 +138,7 @@ func newShiftRig(t *testing.T, sA, sB fakegame.Stage, posA, posB [3]float32) *sh
 		if err := x.g.LoadStage(x.s); err != nil {
 			t.Fatal(err)
 		}
-		store(t, x.m, fakegame.PlayerActor+actorOffCurPos, posBytes(x.pos))
+		store(t, x.m, fakegame.PlayerActor+addr.ActorOffCurPos, posBytes(x.pos))
 	}
 	return r
 }

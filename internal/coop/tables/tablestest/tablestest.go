@@ -35,6 +35,12 @@ func Names() []stagetest.ObjectName {
 		n("c_green", stagedata.ProcCC),      // :681
 		n("big_pow", stagedata.ProcBPW),     // :694
 		n("Bk", stagedata.ProcBK),           // :811
+		n("Bb", stagedata.ProcBB),           // :653
+		n("kuro_s", stagedata.ProcKS),       // :679
+		n("Rdead1", stagedata.ProcRD),       // :799
+		n("Fmaster", stagedata.ProcFM),      // :801
+		n("Stal", stagedata.ProcST),         // :948
+		n("Tn", stagedata.ProcTN),           // :985
 		n("Btd", stagedata.ProcBTD),         // :843
 		n("Bkm", stagedata.ProcBMD),         // :1187
 		n("Bst", stagedata.ProcBST),         // :1188

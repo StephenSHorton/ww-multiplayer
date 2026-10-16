@@ -29,10 +29,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 )
@@ -43,6 +45,8 @@ var coopDiagUsage = map[string]string{
 	"coop-probe":        "coop-probe",
 	"coop-watch":        "coop-watch [secs=60, 0 = until Ctrl+C] [--all]",
 	"actors":            "actors [max=1024]",
+	"enemy-kill":        "enemy-kill <pid> [watch-secs=5] [--unverified] --yes",
+	"peek-demo":         "peek-demo [watch-secs=0]",
 	"zone-dump":         "zone-dump",
 	"frame-phase-probe": "frame-phase-probe [secs=5]",
 	"heap-free":         "heap-free",
@@ -56,6 +60,7 @@ var coopDiagFlags = map[string][]string{
 	"coop-watch":   {"all"},
 	"region-probe": {"yes", "force"},
 	"stage-hop":    {"yes"},
+	"enemy-kill":   {"yes", "unverified"},
 }
 
 // coopTickInterval is the co-op snapshot rate, 10 Hz (§4.2).
@@ -88,18 +93,44 @@ func runCoopDiag(cmd string, args []string) {
 			return coopWatch(ctx, os.Stdout, m, time.Duration(secs)*time.Second, flags["all"])
 		})
 	case "actors":
-		n, perr := diagIntArg(pos, 0, maxActorWalk, 1, 1<<16, "max")
+		n, perr := diagIntArg(pos, 0, actors.MaxNodes, 1, 1<<16, "max")
 		if perr != nil {
 			exitUsage(perr, usage)
 		}
 		err = withCoopMem(func(m mem.Mem) error {
-			w, err := walkActors(m, n)
+			w, err := actors.Read(m, n)
 			if err != nil {
 				return err
 			}
 			printActors(os.Stdout, w)
 			return nil
 		})
+	case "enemy-kill":
+		if len(pos) == 0 {
+			exitUsage(errors.New("say the process ID (the actors diagnostic's pid)"), usage)
+		}
+		pid, perr := strconv.ParseUint(pos[0], 0, 32)
+		if perr != nil || pid == 0 {
+			exitUsage(fmt.Errorf("process ID %q", pos[0]), usage)
+		}
+		secs, perr := diagIntArg(pos, 1, 5, 0, 600, "watch-secs")
+		if perr != nil {
+			exitUsage(perr, usage)
+		}
+		fmt.Println("enemy-kill writes one byte, 1, into the enemy's light-shrink timer (and clears its weapon's CARRY): the game then runs its own light-arrow death on it, with its item drop and death switch (docs/08 §7.2).")
+		if !flags["yes"] {
+			fmt.Println("Not written: re-run with --yes.")
+			os.Exit(1)
+		}
+		err = withCoopMem(func(m mem.Mem) error {
+			return enemyKill(ctx, os.Stdout, m, uint32(pid), flags["unverified"], time.Duration(secs)*time.Second, coopTick)
+		})
+	case "peek-demo":
+		secs, perr := diagIntArg(pos, 0, 0, 0, 3600, "watch-secs")
+		if perr != nil {
+			exitUsage(perr, usage)
+		}
+		err = withCoopMem(func(m mem.Mem) error { return peekDemo(ctx, os.Stdout, m, time.Duration(secs)*time.Second, coopTick) })
 	case "zone-dump":
 		err = withCoopMem(func(m mem.Mem) error {
 			s, err := snap.Read(m)
@@ -669,244 +700,52 @@ func playerLabel(off, bit int) (string, bool) {
 // ---------------------------------------------------------------------
 // actors
 
-// fopAc_ac_c fields and actor-queue facts addr leaves out.
-const (
-	actorOffCurPos    = 0x1F8 // current.pos: actor_place.pos is +0 (f_op_actor.h:213,289)
-	actorOffMaxHealth = 0x284 // s8 max_health (f_op_actor.h:306)
-	tagSize           = 0x14  // create_tag_class (c_tag.h:10-14)
-
-	// maxActorWalk is where the walk gives up (§7.2: "stop after 1024
-	// nodes").
-	maxActorWalk = 1024
-)
-
 // actorGroups names fopAc_Group_e (f_op_actor.h:54-60).
 var actorGroups = [...]string{"actor", "player", "enemy", "env", "npc"}
 
-// k1Class is an enemy class the M6 light-shrink kill can drive (§7.2):
-// where its enemyice member is. enemyice.mpActor (+0) points back at the
-// actor once the class's create has run (for example d_a_bk.cpp:5270),
-// and mLightShrinkTimer is at +6 (c_damagereaction.h:12-16).
-type k1Class struct {
-	name   string
-	iceOff uint32
-}
-
-// k1Classes maps the §7.2 classes' proc names (fpcNm_*_e, f_pc_name.h,
-// whose comments give the GZLE01 values) to their enemyice member (each
-// class header in include/d/actor/). The design marks tn, ph, pt, pw and
-// bo for a live check first; the self-pointer below is that check.
-var k1Classes = map[int16]k1Class{
-	0x79: {"fm", 0xAE8},   // f_pc_name.h:130; d_a_fm.h:213
-	0xB6: {"bb", 0xC80},   // f_pc_name.h:191; d_a_bb.h:106
-	0xBD: {"mo2", 0x2A54}, // f_pc_name.h:198; d_a_mo2.h:175
-	0xBE: {"bk", 0x1264},  // f_pc_name.h:199; d_a_bk.h:140
-	0xBF: {"st", 0x1FA8},  // f_pc_name.h:200; d_a_st.h:145
-	0xC0: {"tn", 0x1524},  // f_pc_name.h:201; d_a_tn.h:162
-	0xCB: {"am", 0xABC},   // f_pc_name.h:215; d_a_am.h:55
-	0xCC: {"am2", 0xA8C},  // f_pc_name.h:216; d_a_am2.h:57
-	0xCE: {"ks", 0x6A8},   // f_pc_name.h:218; d_a_ks.h:51
-	0xCF: {"cc", 0x81C},   // f_pc_name.h:219; d_a_cc.h:92
-	0xD2: {"ph", 0x998},   // f_pc_name.h:222; d_a_ph.h:68
-	0xD5: {"pw", 0x884},   // f_pc_name.h:225; d_a_pw.h:84
-	0xD7: {"bo", 0x9FC},   // f_pc_name.h:227; d_a_bo.h:15
-	0xD8: {"ki", 0x924},   // f_pc_name.h:228; d_a_ki.h:85
-	0xE1: {"rd", 0x6E0},   // f_pc_name.h:237; d_a_rd.h:172
-	0xF9: {"pt", 0x7E4},   // f_pc_name.h:261; d_a_pt.h:73
-}
-
-// procName is a short name for proc p, where actors knows one.
-func procName(p int16) string {
-	switch p {
-	case 0xA7: // fpcNm_SHIP_e, f_pc_name.h:176
-		return "ship"
-	case 0xA9: // fpcNm_PLAYER_e, f_pc_name.h:178
-		return "player"
-	}
-	return k1Classes[p].name
-}
-
-// actorRow is one actor the walk found.
-type actorRow struct {
-	Node, Actor       uint32
-	ProcID            uint32 // mBsPcId
-	ProcName          int16
-	SetID             uint16
-	Group             uint8
-	HomeRoom          int8
-	Pos               [3]float32 // current.pos
-	Health, MaxHealth int8
-	// DataOK is whether the tag's mpData is &g_fopAcTg_Queue, as
-	// cLs_Addition leaves it (c_list.cpp:40; cNd_SetObject,
-	// c_node.cpp:98-103).
-	DataOK bool
-	// Ice is the enemyice check for a k1Classes actor, "" for others.
-	Ice string
-}
-
-// actorWalk is the result of walking g_fopAcTg_Queue.
-type actorWalk struct {
-	Head, Tail uint32
-	Size       int32  // the queue's mSize
-	Type       uint32 // g_fopAc_type
-	Rows       []actorRow
-	// Stop says why the walk ended before the list did; "" when it
-	// reached a null next.
-	Stop string
-	// Notes are inconsistencies that did not stop it.
-	Notes []string
-}
-
-// walkActors walks g_fopAcTg_Queue, a node_list_class of every actor's
-// actor_tag (fopAc_Create, f_op_actor.cpp:262-263), from head to tail and
-// at most limit nodes. Each node is a create_tag_class at actor +0xC4 whose
-// mpTagData is the actor (cTg_Create, c_tag.cpp:89-92). Every pointer is
-// checked before it is followed: the node must lie in MEM1 with room for
-// its actor before it, its prev must be the node before (the list did not
-// change under the walk), mpTagData must be node - 0xC4, and the actor's
-// actor_type must equal g_fopAc_type (fopAc_IsActor, f_op_actor.cpp:
-// 116-119). The walk stops at the first failure and on a repeated node.
-// The error is a read error; a bad list is reported in Stop.
-func walkActors(m mem.Mem, limit int) (actorWalk, error) {
-	var w actorWalk
-	q, err := m.Read(addr.ActorQueue, addr.ActorQueueSize)
-	if err != nil {
-		return w, err
-	}
-	w.Head = be32(q[addr.ActorQueueOffHead:])
-	w.Tail = be32(q[addr.ActorQueueOffTail:])
-	w.Size = int32(be32(q[addr.ActorQueueOffSize:]))
-	if w.Type, err = mem.ReadU32(m, addr.FopAcType); err != nil {
-		return w, err
-	}
-
-	seen := make(map[uint32]bool)
-	var prev uint32
-	for node := w.Head; node != 0; {
-		if len(w.Rows) >= limit {
-			w.Stop = fmt.Sprintf("stopped at the limit of %d nodes", limit)
-			break
-		}
-		if why := actorNodeBad(node); why != "" {
-			w.Stop = fmt.Sprintf("node 0x%08X %s", node, why)
-			break
-		}
-		if seen[node] {
-			w.Stop = fmt.Sprintf("node 0x%08X comes round again: the list has a cycle", node)
-			break
-		}
-		seen[node] = true
-		tag, err := m.Read(node, tagSize)
-		if err != nil {
-			return w, err
-		}
-		if p := be32(tag[addr.TagOffPrev:]); p != prev {
-			w.Stop = fmt.Sprintf("node 0x%08X has prev 0x%08X, not 0x%08X: the list changed during the walk", node, p, prev)
-			break
-		}
-		actor := node - addr.ActorOffActorTag
-		if d := be32(tag[addr.TagOffTagData:]); d != actor {
-			w.Stop = fmt.Sprintf("node 0x%08X has mpTagData 0x%08X, not its actor 0x%08X", node, d, actor)
-			break
-		}
-		a, err := m.Read(actor, addr.ActorSize)
-		if err != nil {
-			return w, err
-		}
-		if t := be32(a[addr.ActorOffActorType:]); t != w.Type {
-			w.Stop = fmt.Sprintf("actor 0x%08X has actor_type 0x%08X, not g_fopAc_type 0x%08X", actor, t, w.Type)
-			break
-		}
-		r := actorRow{
-			Node:      node,
-			Actor:     actor,
-			ProcID:    be32(a[addr.ActorOffBsPcID:]),
-			ProcName:  int16(binary.BigEndian.Uint16(a[addr.ActorOffProcName:])),
-			SetID:     binary.BigEndian.Uint16(a[addr.ActorOffSetID:]),
-			Group:     a[addr.ActorOffGroup],
-			HomeRoom:  int8(a[addr.ActorOffHomeRoomNo]),
-			Health:    int8(a[addr.ActorOffHealth]),
-			MaxHealth: int8(a[actorOffMaxHealth]),
-			DataOK:    be32(tag[addr.TagOffData:]) == addr.ActorQueue,
-		}
-		for i := range r.Pos {
-			r.Pos[i] = math.Float32frombits(be32(a[actorOffCurPos+4*i:]))
-		}
-		r.Ice = iceCheck(m, r)
-		w.Rows = append(w.Rows, r)
-		prev, node = node, be32(tag[addr.TagOffNext:])
-	}
-	if w.Stop == "" {
-		if prev != w.Tail {
-			w.Notes = append(w.Notes, fmt.Sprintf("the last node is 0x%08X but mpTail is 0x%08X", prev, w.Tail))
-		}
-		if int32(len(w.Rows)) != w.Size {
-			w.Notes = append(w.Notes, fmt.Sprintf("walked %d nodes but mSize is %d", len(w.Rows), w.Size))
-		}
-	}
-	return w, nil
-}
-
-// actorNodeBad says why node cannot be an actor_tag, or "".
-func actorNodeBad(node uint32) string {
-	switch {
-	case node&3 != 0:
-		return "is not word-aligned"
-	case mem.CheckRange(node, tagSize) != nil:
-		return "is outside MEM1"
-	case node < addr.MEM1Base+addr.ActorOffActorTag || mem.CheckRange(node-addr.ActorOffActorTag, addr.ActorSize) != nil:
-		return "leaves no room in MEM1 for its actor"
-	}
-	return ""
-}
-
-// iceCheck reads a k1Classes actor's enemyice: whether mpActor points back
-// at the actor, and the light-shrink timer.
-func iceCheck(m mem.Mem, r actorRow) string {
-	k, ok := k1Classes[r.ProcName]
-	if !ok {
-		return ""
-	}
-	b, err := m.Read(r.Actor+k.iceOff, 8)
-	if err != nil {
-		return "enemyice unreadable"
-	}
-	if self := be32(b); self != r.Actor {
-		return fmt.Sprintf("enemyice.mpActor 0x%08X is not the actor", self)
-	}
-	return fmt.Sprintf("enemyice ok, shrink timer %d", int8(b[6]))
-}
-
-func printActors(w io.Writer, aw actorWalk) {
-	fmt.Fprintf(w, "g_fopAcTg_Queue 0x%08X: head 0x%08X, tail 0x%08X, mSize %d; g_fopAc_type 0x%08X\n",
-		addr.ActorQueue, aw.Head, aw.Tail, aw.Size, aw.Type)
-	notQueued := 0
-	for i, r := range aw.Rows {
+// printActors prints a walk of g_fopAcTg_Queue (actors.Read): each actor's
+// process, proc, setID, group and rooms, and for an enemy its health,
+// params, mInitState and BOSS, CARRY and event command; for a K1 class
+// its enemyice (self-pointer, mode, timer) and whether M6 may light-shrink
+// it now (actors.Eligible), so the owner can check a class's offsets live
+// (docs/08 §8.2 K1).
+func printActors(w io.Writer, aw actors.Walk) {
+	fmt.Fprintf(w, "g_fopAcTg_Queue 0x%08X: head 0x%08X, tail 0x%08X, mSize %d; g_fopAc_type 0x%08X; next process ID %d\n",
+		addr.ActorQueue, aw.Head, aw.Tail, aw.Size, aw.Type, aw.ProcCounter)
+	for i := range aw.Actors {
+		a := &aw.Actors[i]
 		set := "-"
-		if r.SetID != addr.ActorSetIDNone {
-			set = fmt.Sprintf("%d", r.SetID)
+		if a.SetID != addr.ActorSetIDNone {
+			set = fmt.Sprintf("%d", a.SetID)
 		}
-		group := fmt.Sprintf("group%d", r.Group)
-		if int(r.Group) < len(actorGroups) {
-			group = actorGroups[r.Group]
-		}
-		hp := ""
-		if r.Group == 2 || r.MaxHealth != 0 { // fopAc_ENEMY_e, f_op_actor.h:57
-			hp = fmt.Sprintf("  hp %d/%d", r.Health, r.MaxHealth)
+		group := fmt.Sprintf("group%d", a.Group)
+		if int(a.Group) < len(actorGroups) {
+			group = actorGroups[a.Group]
 		}
 		extra := ""
-		if r.Ice != "" {
-			extra += "  " + r.Ice
+		if a.InitState != 2 {
+			extra += fmt.Sprintf("  init %d", a.InitState)
 		}
-		if !r.DataOK {
-			extra += "  mpData is not the queue"
-			notQueued++
+		if a.Group == 2 || a.MaxHealth != 0 { // fopAc_ENEMY_e, f_op_actor.h:57
+			extra += fmt.Sprintf("  hp %d/%d  params 0x%08X", a.Health, a.MaxHealth, a.Params)
 		}
-		fmt.Fprintf(w, "%4d  0x%08X  pid %-6d proc 0x%04X %-6s set %-5s %-6s room %3d  (%9.1f %9.1f %9.1f)%s%s\n",
-			i, r.Actor, r.ProcID, uint16(r.ProcName), procName(r.ProcName), set, group, r.HomeRoom,
-			r.Pos[0], r.Pos[1], r.Pos[2], hp, extra)
+		if a.Boss() {
+			extra += "  BOSS"
+		}
+		if a.Carried() {
+			extra += "  CARRY"
+		}
+		if a.EvtCmd != 0 {
+			extra += fmt.Sprintf("  mCmd %d", a.EvtCmd)
+		}
+		if _, ok := actors.K1(a.Proc); ok {
+			extra += "  " + iceLine(a)
+		}
+		fmt.Fprintf(w, "%4d  0x%08X  pid %-6d proc 0x%04X %-6s set %-5s %-6s room %3d  (%9.1f %9.1f %9.1f)%s\n",
+			i, a.Addr, a.PID, uint16(a.Proc), actors.ProcName(a.Proc), set, group, a.HomeRoom,
+			a.Pos[0], a.Pos[1], a.Pos[2], extra)
 	}
-	fmt.Fprintf(w, "%d actors", len(aw.Rows))
+	fmt.Fprintf(w, "%d actors", len(aw.Actors))
 	if aw.Stop != "" {
 		fmt.Fprintf(w, "; walk stopped: %s", aw.Stop)
 	}
@@ -914,9 +753,197 @@ func printActors(w io.Writer, aw actorWalk) {
 	for _, n := range aw.Notes {
 		fmt.Fprintf(w, "note: %s\n", n)
 	}
-	if notQueued > 0 {
-		fmt.Fprintf(w, "note: %d tags have mpData other than &g_fopAcTg_Queue, which cLs_Addition sets (c_list.cpp:40)\n", notQueued)
+}
+
+// iceLine is a K1 actor's enemyice and verdict.
+func iceLine(a *actors.Actor) string {
+	if !a.Ice.Read {
+		return "enemyice unreadable"
 	}
+	s := fmt.Sprintf("mode %d, shrink timer %d", a.Ice.Mode, a.Ice.Timer)
+	if a.Ice.SelfOK {
+		s = "enemyice ok, " + s
+	} else {
+		s = fmt.Sprintf("enemyice.mpActor 0x%08X is not the actor; enemyice %s", a.Ice.Self, s)
+	}
+	if a.ModeOK {
+		s += fmt.Sprintf(", class mode %d", a.Mode)
+	}
+	if a.Weapon != 0 {
+		s += fmt.Sprintf(", weapon pid %d", a.Weapon)
+	}
+	if a.HoldOK {
+		s += fmt.Sprintf(" (holding record %d)", a.Hold) // m0B30, m1DD0: 0 when the weapon field is stale
+	}
+	if why := actors.Eligible(a, true); why != "" {
+		return s + "; K1 held: " + why
+	}
+	if c, _ := actors.K1(a.Proc); !c.Verified {
+		return s + "; K1 ok with --unverified"
+	}
+	return s + "; K1 ok"
+}
+
+// ---------------------------------------------------------------------
+// enemy-kill and peek-demo (docs/08 §8.2 K1)
+
+// enemyKill light-shrinks the live enemy with process ID pid, through the
+// same gates, re-read and WriteGuard as the M6 receiver (actors.Eligible,
+// actors.Revalidate, FrameWriter.ApplyActors, WriteGuard.checkActor), for
+// the owner's live check of a class's enemyice offset: one byte, 1, at its
+// timer, then its weapon's CARRY cleared. Unlike the receiver it takes any
+// actor of a K1 class, keyed or not, ignores Link's demo gate, and with
+// unverified takes a class not yet verified. It watches the actor for
+// watch afterwards and says what became of it. tick runs between the gate
+// snapshots and the watch's reads.
+func enemyKill(ctx context.Context, w io.Writer, m mem.Mem, pid uint32, unverified bool, watch time.Duration, tick func()) error {
+	s, st, _, err := gateSnapshots(m, tick)
+	if err != nil {
+		return err
+	}
+	if !st.CanWriteIdle() {
+		return fmt.Errorf("not now: %s (stand in game, out of menus and cutscenes)", closedWhyDiag(st))
+	}
+	aw, err := actors.Read(m, 0)
+	if err != nil {
+		return err
+	}
+	if aw.Stop != "" {
+		return fmt.Errorf("the actor walk stopped: %s", aw.Stop)
+	}
+	a, ok := aw.ByPID(pid)
+	if !ok {
+		return fmt.Errorf("no actor has process ID %d (the actors diagnostic lists them)", pid)
+	}
+	fmt.Fprintf(w, "target: %s; %s\n", a, iceLine(a))
+	if why := actors.Eligible(a, unverified); why != "" {
+		return fmt.Errorf("not written: %s", why)
+	}
+	if a.Keyed() {
+		if ok, err := actors.ZoneHolds(m, int(a.HomeRoom)); err != nil || !ok {
+			return fmt.Errorf("not written: room %d has no zone, and the death would halt the game in onActor (%v)", a.HomeRoom, err)
+		}
+	}
+	wp, why := actors.WeaponOf(&aw, a, unverified)
+	if why != "" {
+		fmt.Fprintf(w, "its weapon is left: %s\n", why)
+	}
+	wg := replica.NewWriteGuard(replica.GuardConfig{Targets: replica.TargetK1})
+	fw, err := replica.NewFrameWriter(replica.WriterConfig{Mem: m, Guard: wg, Logf: func(f string, args ...any) { fmt.Fprintf(w, f+"\n", args...) }})
+	if err != nil {
+		return err
+	}
+	// ARMED is the receiver's world binding; a diagnostic writes on the
+	// owner's word (--yes) instead.
+	fw.Observe(s, st, true)
+	wg.SetCombat(replica.CombatTick{Walk: &aw, Allow: func(c *actors.Actor) bool { return c.PID == pid }, Unverified: unverified, Demo: true})
+	t := replica.ActorTarget{Carrier: *a}
+	if wp != nil {
+		c := *wp
+		t.Weapon = &c
+	}
+	res, err := fw.ApplyActors(ctx, []replica.ActorTarget{t}, false, unverified)
+	if err != nil {
+		return err
+	}
+	if len(res.Held) > 0 {
+		return fmt.Errorf("held after the beat: %s", res.Held[0].Why)
+	}
+	if len(res.Done) != 1 {
+		return errors.New("nothing was written")
+	}
+	d := res.Done[0]
+	fmt.Fprintf(w, "wrote 1 at 0x%08X after heartbeat %d", d.Carrier.TimerAddr(), res.Beat)
+	if d.Released {
+		fmt.Fprintf(w, "; its weapon's CARRY cleared")
+	}
+	fmt.Fprintln(w)
+	deadline := time.Now().Add(watch)
+	last := int8(1)
+	for time.Now().Before(deadline) && ctx.Err() == nil {
+		tick()
+		now, err := actors.Read(m, 0)
+		if err != nil {
+			return err
+		}
+		b, ok := now.ByPID(pid)
+		if !ok {
+			fmt.Fprintf(w, "the actor is gone (the shrink ran its course)")
+			if d.Carrier.Keyed() {
+				if s, err := snap.Read(m); err == nil {
+					if z, ok := s.ZoneFor(int(d.Carrier.HomeRoom)); ok {
+						fmt.Fprintf(w, "; room %d's zone slot %d records setID %d dead: %v", d.Carrier.HomeRoom, z, d.Carrier.SetID,
+							zoneActorSet(s, z, int(d.Carrier.SetID)))
+					}
+				}
+			}
+			fmt.Fprintln(w)
+			return nil
+		}
+		if b.Ice.Timer != last {
+			fmt.Fprintf(w, "  timer %d\n", b.Ice.Timer)
+			last = b.Ice.Timer
+		}
+	}
+	fmt.Fprintf(w, "the actor is still there after %v (timer %d): its class may not run enemy_ice there, or the game is paused\n", watch, last)
+	return nil
+}
+
+// zoneActorSet reports whether s's zone slot z records setID id dead.
+func zoneActorSet(s *snap.Snapshot, z, id int) bool {
+	bit, err := addr.ZoneActorBit(id)
+	if err != nil {
+		return false
+	}
+	return s.Save[addr.InfoOffZone+z*addr.ZoneSize+bit.Off]&bit.Mask != 0
+}
+
+// closedWhyDiag is why st's gates are closed.
+func closedWhyDiag(st gate.Status) string {
+	if why := st.Why(); why != "" {
+		return why
+	}
+	return "a gate is closed"
+}
+
+// peekDemo prints Link's mDemo.mDemoType (daPy_py_c +0x304,
+// d_a_player.h:499), the offset M6's demo gate reads, which the owner's
+// live check K1 confirms: 0 in normal play, nonzero during a
+// Floormaster's or ReDead's grab and the Forsaken Fortress Moblin's
+// holdup. With watch it reads it until then and prints each change.
+func peekDemo(ctx context.Context, w io.Writer, m mem.Mem, watch time.Duration, tick func()) error {
+	read := func() (uint32, uint16, error) {
+		p, err := mem.ReadU32(m, addr.PlayerPtr)
+		if err != nil || p == 0 {
+			return p, 0, err
+		}
+		b, err := m.Read(p+addr.PlayerOffDemoType, 2)
+		if err != nil {
+			return p, 0, err
+		}
+		return p, binary.BigEndian.Uint16(b), nil
+	}
+	p, t, err := read()
+	if err != nil {
+		return err
+	}
+	if p == 0 {
+		return errors.New("no Link (mpPlayerPtr[0] is 0)")
+	}
+	fmt.Fprintf(w, "Link 0x%08X: mDemo.mDemoType (+0x%X) = %d\n", p, addr.PlayerOffDemoType, t)
+	deadline := time.Now().Add(watch)
+	for time.Now().Before(deadline) && ctx.Err() == nil {
+		tick()
+		np, nt, err := read()
+		if err != nil {
+			return err
+		}
+		if np != p || nt != t {
+			fmt.Fprintf(w, "Link 0x%08X: mDemo.mDemoType = %d\n", np, nt)
+			p, t = np, nt
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------

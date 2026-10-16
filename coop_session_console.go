@@ -263,7 +263,7 @@ func (s *coopSync) command(ctx context.Context, cmd coopCommand) {
 		}
 		report.Logf(s.rep, report.Info, "co-op: %s: %s; world %s at seq %d; %s; %d bytes written, %d escapes, %d verify failures",
 			s.name, where, st.World, st.Seq, writesState(st), st.Writes.Written, st.Writes.Escapes, st.Writes.Failed)
-		lines := append(progressionStatus(st), puzzleStatus(st))
+		lines := append(progressionStatus(st), puzzleStatus(st), combatStatus(st))
 		if l := gbaStatus(st); l != "" {
 			lines = append(lines, l)
 		}
