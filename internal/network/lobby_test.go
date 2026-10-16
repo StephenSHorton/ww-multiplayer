@@ -694,7 +694,16 @@ func TestLobbyMemberAndCLIShareAColor(t *testing.T) {
 		if a != lobbyRed || c != lobbyRed {
 			t.Fatalf("round %d: member %v, CLI player %v; both asked for red", i, a, c)
 		}
-		if mc, ok := p.MyColor(); !ok || mc != lobbyRed {
+		// The CLI player learns its own color from the server's player
+		// list, which can arrive after the lobby already shows its row.
+		var mc playercolor.Color
+		var ok bool
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if mc, ok = p.MyColor(); ok {
+				break
+			}
+		}
+		if !ok || mc != lobbyRed {
 			t.Fatalf("round %d: the CLI player's own color %v (%v), want red", i, mc, ok)
 		}
 		app.Disconnect()
