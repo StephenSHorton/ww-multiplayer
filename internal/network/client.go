@@ -202,8 +202,10 @@ func (c *Client) ConnectContext(ctx context.Context, addr string) error {
 		// we hold is stale, and one may even carry the ID we now have.
 		c.remotes = make(map[byte]*RemotePlayer)
 	}
-	c.mu.Unlock()
+	// Set under mu together with c.conn, so a stale read loop that
+	// compares its conn under mu can't clear the flag for this session.
 	c.connected.Store(true)
+	c.mu.Unlock()
 	if c.role == RoleCoop {
 		c.log(fmt.Sprintf("Connected for co-op (co-op ID %d)", id))
 	} else if c.role == RoleLobby {
@@ -435,12 +437,16 @@ func (c *Client) readLoop(conn net.Conn) {
 			// Only while conn is still the live connection: after a
 			// Disconnect and a fast reconnect, this stale loop's read
 			// error must not mark the new session disconnected.
-			c.mu.RLock()
-			current := c.conn == conn
-			c.mu.RUnlock()
-			if current && c.connected.Load() {
-				c.log("Disconnected from server")
+			// The compare and the store happen under mu, like
+			// ConnectContext's swap of c.conn and the flag.
+			c.mu.Lock()
+			disconnected := c.conn == conn && c.connected.Load()
+			if disconnected {
 				c.connected.Store(false)
+			}
+			c.mu.Unlock()
+			if disconnected {
+				c.log("Disconnected from server")
 			}
 			return
 		}
@@ -606,11 +612,10 @@ func (c *Client) parsePlayerList(data []byte) {
 // a stale loop can't mark a newer session disconnected; conn is closed so
 // the server notices at once.
 func (c *Client) abandonSession(conn net.Conn) {
-	c.mu.RLock()
-	current := c.conn == conn
-	c.mu.RUnlock()
-	if current {
+	c.mu.Lock()
+	if c.conn == conn {
 		c.connected.Store(false)
 	}
+	c.mu.Unlock()
 	conn.Close()
 }
