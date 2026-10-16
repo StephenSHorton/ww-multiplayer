@@ -30,12 +30,10 @@ jobs:
       # internal/dolphin/memory_windows.go uses Win32 APIs (kernel32.dll)
       # so vet/build needs GOOS=windows for that file to parse.
       - name: go vet (Windows target)
-        env:
-          GOOS: windows
-          GOARCH: amd64
-        run: |
-          go vet ./...
-          go vet -tags desktop,production ./...
+        uses: ./.github/actions/go-vet
+        with:
+          goos: windows
+          goarch: amd64
 
       # The release exe (with the app window) and a plain `go build`
       # (CLI + TUI only) must both cross-build with cgo off.
@@ -48,26 +46,29 @@ jobs:
           go build -tags desktop,production -o /tmp/ww-multiplayer.exe .
           go build -o /tmp/ww-multiplayer-cli.exe .
 
+      # The C side can't be built here (devkitPPC + the owner's vanilla
+      # DOL), so these check the committed blob.go against the committed
+      # C sources instead: blob freshness (blob.stamp records the inputs
+      # blob.go was built from), the T2 code-space budget (T2 must end
+      # below the mailbox, the mailbox below the patched arena), build.py
+      # and frame_shim against the blob, and the mailbox layout (Go
+      # offsets vs mailbox.h). They also run in `go test ./...` below and
+      # on macOS; this step names them so a failure reads as what it is.
+      - name: Blob, code-space budget and mailbox layout checks
+        run: >-
+          go test -count=1
+          -run 'TestBlobFresh|TestStampRoundTrip|TestT2EndsBelowMailbox|TestCheckBudget|TestBuildPyMatchesBlob|TestFrameShimLoadsCallbackSlot|TestMailboxLayout|TestModRegions'
+          . ./internal/inject/... ./internal/coop/addr
+
       # Native Linux pass: internal/dolphin has a stub backend on
       # platforms without process-memory support (memory_other.go), so
-      # the whole module vets and its unit tests run here.
-      # The tags are harmless here: on Linux internal/gui is the stub.
+      # the whole module vets and its unit tests run here. No
+      # -tags desktop,production vet: on Linux internal/gui is the stub
+      # either way, so it would vet the same files twice.
       - name: go vet + go test (native Linux)
         run: |
           go vet ./...
-          go vet -tags desktop,production ./...
           go test -race -count=1 ./...
-
-      - name: Sanity-check embedded blob
-        run: |
-          if ! grep -q "var T2Bytes" internal/inject/blob.go; then
-            echo "::error::internal/inject/blob.go missing T2Bytes"
-            exit 1
-          fi
-          if ! grep -q "var DOLPatches" internal/inject/blob.go; then
-            echo "::error::internal/inject/blob.go missing DOLPatches"
-            exit 1
-          fi
 
   macos:
     runs-on: macos-latest
@@ -81,9 +82,7 @@ jobs:
       # to actually run on a Mac. Build native arm64 (the runner) and
       # cross to amd64 to make sure both architectures still compile.
       - name: go vet
-        run: |
-          go vet ./...
-          go vet -tags desktop,production ./...
+        uses: ./.github/actions/go-vet
 
       - name: go test
         run: go test -count=1 ./...

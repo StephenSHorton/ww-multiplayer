@@ -129,7 +129,8 @@ cd inject && rm -f build/temp/multiplayer.c.o && python build.py && python patch
 # When happy with C changes, regenerate the embedded blob the standalone
 # patcher uses:
 python scripts/extract_blob.py
-# (Reads inject/{original,patched}.dol, writes internal/inject/blob.go.)
+# (Reads inject/{original,patched}.dol, writes internal/inject/blob.go,
+# then runs `go run ./tools/blobstamp` to rewrite internal/inject/blob.stamp.)
 go build -o ww-multiplayer.exe .
 ```
 
@@ -137,6 +138,20 @@ go build -o ww-multiplayer.exe .
 purposes. CI on push/PR doesn't rebuild the C side; tag releases include
 the latest committed blob, so **regenerate blob.go before tagging** if
 multiplayer.c has changed since the last release.
+
+CI checks the committed blob against the committed C sources on every PR
+(`internal/inject/blobstamp`, `internal/inject/t2_budget_test.go`,
+`mailbox_layout_test.go`): `blob.stamp` records the hashes of
+`inject/src`, `inject/include` and `inject/build.py` that blob.go was built
+from, so any edit there, comments included, fails CI until the blob is
+rebuilt and restamped; T2 must end below `MAILBOX_ADDR`; build.py's
+inject address and OSInit patch must match blob.go; the Go mailbox
+offsets must match mailbox.h. Restamp only via extract_blob.py after a
+real rebuild, never to silence the check. A PR that touches those C
+inputs, even comment-only, must carry the restamp in the same PR: the
+owner rebuilds and runs extract_blob.py, and for a comment-only edit
+confirms the `blob` payload line in blob.stamp is unchanged (only the
+`input` lines move). A rebase alone cannot turn a stale stamp green.
 
 ## Critical Knowledge
 

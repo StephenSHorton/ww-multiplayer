@@ -38,10 +38,7 @@ jobs:
       # rebuild the C side here (needs devkitPPC + the user's vanilla
       # DOL); regenerate locally via `python scripts/extract_blob.py`
       # before tagging.
-      - name: Verify committed blob + go vet (Windows target)
-        env:
-          GOOS: windows
-          GOARCH: amd64
+      - name: Verify committed blob
         run: |
           if ! grep -q "var T2Bytes" internal/inject/blob.go; then
             echo "::error::internal/inject/blob.go is missing T2Bytes — regenerate via scripts/extract_blob.py"
@@ -51,8 +48,20 @@ jobs:
             echo "::error::internal/inject/blob.go is missing DOLPatches — regenerate via scripts/extract_blob.py"
             exit 1
           fi
-          go vet ./...
-          go vet -tags desktop,production ./...
+
+      # Same checks build.yml runs on every PR: blob.go against blob.stamp
+      # and the committed C sources, the T2 budget, the mailbox layout.
+      - name: Blob, code-space budget and mailbox layout checks
+        run: >-
+          go test -count=1
+          -run 'TestBlobFresh|TestStampRoundTrip|TestT2EndsBelowMailbox|TestCheckBudget|TestBuildPyMatchesBlob|TestFrameShimLoadsCallbackSlot|TestMailboxLayout|TestModRegions'
+          . ./internal/inject/... ./internal/coop/addr
+
+      - name: go vet (Windows target)
+        uses: ./.github/actions/go-vet
+        with:
+          goos: windows
+          goarch: amd64
 
       # CLAUDE.md's "regenerate blob.go before tagging" rule, enforced:
       # if the newest commit touching the C source (inject/src,
@@ -108,9 +117,7 @@ jobs:
           go-version-file: go.mod
 
       - name: go vet
-        run: |
-          go vet ./...
-          go vet -tags desktop,production ./...
+        uses: ./.github/actions/go-vet
 
       # scripts/build-mac.sh handles per-arch compile (-trimpath, version
       # stamped via -X main.version), lipo into a universal binary, and
