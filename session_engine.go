@@ -26,8 +26,9 @@ type sessionEngine struct {
 	ls    *liveState // nil for the CLI
 	stdin bool       // the CLI: questions and console commands on stdin
 
-	mu   sync.Mutex
-	coop *coopSession // the running session's co-op side; nil without
+	mu    sync.Mutex
+	coop  *coopSession         // the running session's co-op side; nil without
+	lobby *network.LobbyClient // the running lobby session's connection (lobby_engine.go); nil without
 }
 
 func newTUIEngine() *sessionEngine { return &sessionEngine{ls: &liveState{}} }
@@ -40,11 +41,15 @@ func (e *sessionEngine) Host(ctx context.Context, cancel context.CancelFunc, o s
 	if port == 0 {
 		port = defaultPort
 	}
+	ctx = withColorPref(ctx, o.Color)
 	return sessionErr(runHostSession(ctx, cancel, o.Name, port, out, e.ls, coopFlagsOf(o.Coop), e.front(out, o.Coop)))
 }
 
 func (e *sessionEngine) Join(ctx context.Context, cancel context.CancelFunc, o session.JoinOptions, out session.Output) error {
 	defer e.begin(out)()
+	// The app's color goes with its player connections (a lobby join that
+	// fell back to this keeps the color it chose).
+	ctx = withColorPref(ctx, o.Color)
 	return sessionErr(runJoinSession(ctx, cancel, o.Addr, o.Name, out, e.ls, coopFlagsOf(o.Coop), e.front(out, o.Coop)))
 }
 
@@ -125,6 +130,9 @@ func (e *sessionEngine) Live() session.Live {
 }
 
 func (e *sessionEngine) SendChat(text string) error {
+	if lc := e.lobbyClient(); lc != nil {
+		return lc.SendChat(text) // a lobby session chats on its lobby connection
+	}
 	if e.ls == nil {
 		return nil // the CLI has no chat input
 	}

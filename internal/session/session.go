@@ -36,14 +36,20 @@ const (
 // Phase is where a session is in its life.
 //
 // The direct host/join path has only Idle -> InGame -> Ended: its pipelines
-// start at once and wait for Dolphin themselves. The lobby (Connecting,
-// Lobby, Starting) adds phases between Idle and InGame when it lands.
+// start at once and wait for Dolphin themselves. A lobby session (HostLobby,
+// JoinLobby) goes Idle -> Connecting -> InLobby -> Starting -> InGame ->
+// Ended, following the host's lobby; a join that falls back to the direct
+// path (a pre-lobby host) goes from Connecting to InGame. The values of the
+// first three are those they always had.
 type Phase int
 
 const (
-	Idle   Phase = iota // no session has run yet
-	InGame              // the session's pipelines are running
-	Ended               // the session returned; State.EndReason says why
+	Idle       Phase = iota // no session has run yet
+	InGame                  // the session's pipelines are running (or the lobby is in game)
+	Ended                   // the session returned; State.EndReason says why
+	Connecting              // a lobby session is reaching the host's lobby
+	InLobby                 // in the lobby: colors, ready, co-op settings, Start
+	Starting                // the host pressed Start; waiting for its GO
 )
 
 func (p Phase) String() string {
@@ -54,6 +60,12 @@ func (p Phase) String() string {
 		return "in game"
 	case Ended:
 		return "ended"
+	case Connecting:
+		return "connecting"
+	case InLobby:
+		return "lobby"
+	case Starting:
+		return "starting"
 	}
 	return "unknown"
 }
@@ -106,12 +118,20 @@ type State struct {
 	Coop CoopOptions
 	// Questions are the session's open co-op questions, oldest first.
 	Questions []Question
-	Live      // zero unless Phase is InGame
+	// Lobby is the lobby of a HostLobby or JoinLobby session (its
+	// members, colors, phase); nil for a direct Host or Join.
+	Lobby *Lobby
+	Live  // zero unless Phase is InGame
 }
 
 // HostOptions configures Controller.Host.
 type HostOptions struct {
 	Name string
+	// Color is the tunic color to ask for: the lobby's (HostLobby), or
+	// the server's for the player connections (Host), where it overrides
+	// the process-wide --color / WW_COLOR. Nil takes the first free one
+	// (or --color's).
+	Color *playercolor.Color
 	// Port is the port the server listens on; 0 is the default (25565).
 	Port int
 	Coop CoopOptions
@@ -121,7 +141,10 @@ type HostOptions struct {
 type JoinOptions struct {
 	Addr string
 	Name string
-	Coop CoopOptions
+	// Color is the tunic color to ask for (JoinLobby, Join, and
+	// JoinLobby's direct join of a pre-lobby host); see HostOptions.Color.
+	Color *playercolor.Color
+	Coop  CoopOptions
 }
 
 // Output is what a session writes to while it runs: its log lines, and the

@@ -30,6 +30,21 @@ const (
 	EventQuestionClosed
 	// EventAdvice is co-op advice: Advice.
 	EventAdvice
+	// EventLobbyColor: the host didn't grant a color as asked: Color.
+	EventLobbyColor
+	// EventLobbyNotice: a lobby notice or refusal: Notice (and Text).
+	EventLobbyNotice
+	// EventLobbyStart: the host pressed Start: Settings.
+	EventLobbyStart
+	// EventLobbyGo: the host's side is ready: Text is the co-op world, if
+	// any.
+	EventLobbyGo
+	// EventLobbyRequest: a joiner asks the host (host side): From, and
+	// Text the kind ("merge").
+	EventLobbyRequest
+	// EventLegacyHost: the host has no lobby, so the session joined
+	// directly.
+	EventLegacyHost
 )
 
 // Event is one thing that happened in a session. Session is the ID of the
@@ -45,6 +60,10 @@ type Event struct {
 	Question Question
 	Yes      bool   // EventQuestionClosed: the answer
 	Advice   Advice // EventAdvice
+	// Lobby events.
+	Color    ColorReply    // EventLobbyColor
+	Notice   Notice        // EventLobbyNotice
+	Settings LobbySettings // EventLobbyStart
 }
 
 // Subscribe returns a channel that receives every event published from now

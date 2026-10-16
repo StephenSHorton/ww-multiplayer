@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
@@ -29,6 +30,9 @@ type Player struct {
 	// writes; two broadcasters + the player-list broadcaster guarantee
 	// the race.
 	SendMu sync.Mutex
+	// posed is set by the first valid pose on the connection: the lobby
+	// lists a CLI player's Dolphin as in game from then on.
+	posed atomic.Bool
 }
 
 // Server manages player connections and relays position data.
@@ -56,7 +60,8 @@ type Server struct {
 	readTimeout    time.Duration
 	writeTimeout   time.Duration
 	helloTimeout   time.Duration
-	OnLog          func(string) // callback for log messages
+	coopHold       time.Duration // coopHoldTimeout
+	OnLog          func(string)  // callback for log messages
 
 	// ListenHost is the address Start listens on; "" means every
 	// interface, which host needs so LAN peers can reach it. A server on
@@ -66,15 +71,28 @@ type Server struct {
 	// the test binary may). Set it before Start.
 	ListenHost string
 
-	// Coop receives the co-op connections (coop.go). Set it before Start.
-	// Nil means co-op is off: a co-op hello is then refused with
-	// RejectRole, and player connections behave exactly as without it.
+	// Coop receives the co-op connections (coop.go). Set it before Start,
+	// or later with SetCoop. Nil means co-op is off: a co-op hello is then
+	// refused with RejectRole (or, while the lobby expects co-op, held for
+	// up to coopHoldTimeout; see handleCoop), and player connections
+	// behave exactly as without it.
 	Coop CoopHandler
+	// coopSet is closed when a non-nil CoopHandler is set (guarded by mu).
+	coopSet chan struct{}
+
+	// lobby is the pre-game lobby (lobby.go), inert until a lobby
+	// connection arrives.
+	lobby *LobbyHub
+
+	// stopped is closed by Stop, for what waits outside the connection
+	// maps (a co-op hello held for SetCoop).
+	stopped  chan struct{}
+	stopOnce sync.Once
 }
 
 // NewServer creates a server on the given port.
 func NewServer(port int) *Server {
-	return &Server{
+	s := &Server{
 		players:        make(map[byte]*Player),
 		nextID:         1,
 		colorByName:    make(map[string]playercolor.Color),
@@ -86,7 +104,12 @@ func NewServer(port int) *Server {
 		readTimeout:    serverReadTimeout,
 		writeTimeout:   writeTimeout,
 		helloTimeout:   helloTimeout,
+		coopHold:       coopHoldTimeout,
+		coopSet:        make(chan struct{}),
+		stopped:        make(chan struct{}),
 	}
+	s.lobby = newLobbyHub(s, LobbyHoldTimeout)
+	return s
 }
 
 func (s *Server) log(msg string) {
@@ -125,6 +148,8 @@ func (s *Server) Stop() {
 		c.Close()
 	}
 	s.mu.Unlock()
+	s.lobby.closeAll()
+	s.stopOnce.Do(func() { close(s.stopped) })
 }
 
 // Addr returns the listener's bound address (nil before Start). Handy for
@@ -200,11 +225,23 @@ func (s *Server) handlePlayer(conn net.Conn) {
 		s.refuse(conn, name, RejectBadName, "invalid player name: "+err.Error())
 		return
 	}
+	if (role == RolePlayer || role == RoleCoop) && s.lobby.isKicked(name) {
+		// The lobby's host kicked this name: its player and co-op
+		// connections stay out for the session. A reject is fatal, so a
+		// reconnecting CLI join stops instead of coming back. (A lobby
+		// hello gets the kicked notice from the lobby itself.)
+		s.refuse(conn, name, RejectBadName, kickedText)
+		return
+	}
 	switch role {
 	case RolePlayer:
 	case RoleCoop:
 		// A co-op connection never becomes a player (coop.go).
 		s.handleCoop(conn, name, caps)
+		return
+	case RoleLobby:
+		// Nor does a lobby connection (lobby.go).
+		s.handleLobby(conn, name, caps)
 		return
 	default:
 		s.refuse(conn, name, RejectRole, fmt.Sprintf("unknown connection role %d; both players need the same ww-multiplayer version", role))
@@ -241,6 +278,7 @@ func (s *Server) handlePlayer(conn net.Conn) {
 
 	// Broadcast player list to everyone
 	s.broadcastPlayerList()
+	s.lobby.playersChanged()
 
 	// Per-player heartbeat: ping every heartbeatInterval so a quiet-but-
 	// live client's read deadline stays alive, and so we'd notice a dead
@@ -288,7 +326,9 @@ func (s *Server) handlePlayer(conn net.Conn) {
 				break
 			}
 			text := string(msg.Data)
-			s.broadcastExcept(id, MsgChat, ChatRelayMessage(name, text))
+			relay := ChatRelayMessage(name, text)
+			s.broadcastExcept(id, MsgChat, relay)
+			s.lobby.relayChat(0, relay) // the apps' lobby connections chat too
 			s.log(fmt.Sprintf("[Chat] %s: %s", name, text))
 
 		case MsgPose:
@@ -307,6 +347,9 @@ func (s *Server) handlePlayer(conn net.Conn) {
 			}
 			if relay := PoseRelayMessage(id, joints, matrices, face); relay != nil {
 				s.broadcastExcept(id, MsgPose, relay)
+			}
+			if !player.posed.Swap(true) {
+				s.lobby.playersChanged()
 			}
 
 		case MsgPing:
@@ -340,6 +383,7 @@ func (s *Server) handlePlayer(conn net.Conn) {
 	s.log(fmt.Sprintf("%s disconnected", name))
 	s.broadcastExcept(id, MsgLeave, []byte{id})
 	s.broadcastPlayerList()
+	s.lobby.playersChanged()
 }
 
 // heartbeatLoop pings one player every heartbeatInterval until done is
@@ -393,14 +437,20 @@ func (s *Server) writePlayerLocked(p *Player, msgType byte, data []byte) error {
 const maxRememberedColors = 256
 
 // pickColorLocked chooses the tunic color for a player joining as name
-// (docs/09-player-colors.md). Every connection under one name gets the
-// same color: each human runs two (broadcast-pose and puppet-sync), and a
-// reconnect is a new connection. Otherwise it is the player's preference
-// if no other player's color is within playercolor.MinDistance of it, else
-// the color this name had before if still clear, else the first clear
-// palette color. The caller holds s.mu.
+// (docs/09-player-colors.md). Rule 0 (docs/10-lobby.md): a name that is a
+// lobby member gets the member's color, which the lobby picked. Every
+// connection under one name gets the same color: each human runs two
+// (broadcast-pose and puppet-sync), and a reconnect is a new connection.
+// Otherwise it is the player's preference if no other player's or lobby
+// member's color is within playercolor.MinDistance of it, else the color
+// this name had before if still clear, else the first clear palette color.
+// Without lobby members this is the rule docs/09 shipped. The caller holds
+// s.mu.
 func (s *Server) pickColorLocked(name string, pref *playercolor.Color) playercolor.Color {
-	used := make([]playercolor.Color, 0, len(s.players))
+	if c, ok := s.lobby.colorOf(name); ok {
+		return c
+	}
+	used := s.lobby.otherColors(name)
 	for _, p := range s.players {
 		if p.Name == name {
 			return p.Color

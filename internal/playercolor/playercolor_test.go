@@ -101,3 +101,37 @@ func TestForID(t *testing.T) {
 		t.Error("ForID(0) should be the vanilla color")
 	}
 }
+
+func TestNearest(t *testing.T) {
+	red, blue, purple, pink := palette[1].Color, palette[2].Color, palette[3].Color, palette[6].Color
+	if got := Nearest(red, nil); got != red {
+		t.Errorf("clear want: got %v, want red", got)
+	}
+	// Red taken: the nearest clear palette color to red, not the first
+	// clear one (green).
+	got := Nearest(red, []Color{red})
+	if got == red || Clashes(got, []Color{red}) {
+		t.Fatalf("Nearest(red, [red]) = %v, which clashes", got)
+	}
+	for _, p := range palette {
+		if !Clashes(p.Color, []Color{red}) && Distance(red, p.Color) < Distance(red, got) {
+			t.Errorf("Nearest(red, [red]) = %v, but %s is closer", got, p.Name)
+		}
+	}
+	// A near-red custom color clashes with red too.
+	if got := Nearest(Color{0xD8, 0x30, 0x30}, []Color{red}); Clashes(got, []Color{red}) {
+		t.Errorf("near-red: got %v, clashes with red", got)
+	}
+	// Blue and purple taken: a purple request lands on a clear color.
+	if got := Nearest(purple, []Color{blue, purple}); Clashes(got, []Color{blue, purple}) {
+		t.Errorf("Nearest(purple) = %v, clashes", got)
+	}
+	// Whole palette taken: no refusal, a shared color (Pick's wrap).
+	all := make([]Color, len(palette))
+	for i, p := range palette {
+		all[i] = p.Color
+	}
+	if got, want := Nearest(pink, all), Pick(nil, all); got != want {
+		t.Errorf("full palette: got %v, want Pick's %v", got, want)
+	}
+}

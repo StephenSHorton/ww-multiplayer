@@ -114,6 +114,11 @@ type Client struct {
 	// callback's to keep. A player client drops MsgCoop. Like OnChat, it
 	// runs on the read loop, so it must hand slow work off.
 	OnCoop func(payload []byte)
+
+	// OnLobby is invoked from the read loop with each MsgLobby payload a
+	// lobby client (NewLobbyClient) receives. A player or co-op client
+	// drops MsgLobby.
+	OnLobby func(payload []byte)
 }
 
 // NewClient creates a client with the given player name.
@@ -201,6 +206,8 @@ func (c *Client) ConnectContext(ctx context.Context, addr string) error {
 	c.connected.Store(true)
 	if c.role == RoleCoop {
 		c.log(fmt.Sprintf("Connected for co-op (co-op ID %d)", id))
+	} else if c.role == RoleLobby {
+		c.log("Connected to the lobby")
 	} else {
 		c.log(fmt.Sprintf("Connected as player %d", id))
 	}
@@ -534,6 +541,12 @@ func (c *Client) readLoop(conn net.Conn) {
 			// never sends one to a player.
 			if c.role == RoleCoop && c.OnCoop != nil {
 				c.OnCoop(msg.Data)
+			}
+
+		case MsgLobby:
+			// Only a lobby connection takes them (lobby_client.go).
+			if c.role == RoleLobby && c.OnLobby != nil {
+				c.OnLobby(msg.Data)
 			}
 		}
 	}

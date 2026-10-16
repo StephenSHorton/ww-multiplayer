@@ -33,6 +33,17 @@ const coopSendQueue = 256
 // coopDropPoll is how often RunCoop checks whether its connection dropped.
 const coopDropPoll = 50 * time.Millisecond
 
+// coopHoldTimeout bounds how long a co-op hello waits for SetCoop while
+// the lobby expects co-op (handleCoop). It stays under the client's
+// default handshake read deadline (clientReadTimeout, 15 s), which the held
+// client is waiting out for its welcome, so the hold ends with our close, a
+// transient error the client retries, rather than with its own timeout
+// (TestCoopHoldUnderClientReadTimeout pins it). A user who sets
+// WW_READ_TIMEOUT_SECS under 10 s ends the hold on the client side instead;
+// that is a transient error too, so the client still retries. A package
+// var so tests can shorten it; NewServer captures it.
+var coopHoldTimeout = 10 * time.Second
+
 // coopOffReason is the MsgReject reason for a co-op hello to a server that
 // has no CoopHandler.
 const coopOffReason = "this host is not running co-op (the host starts it with --coop); pose sync still works"
@@ -158,6 +169,36 @@ func (c *CoopConn) writeLoop() {
 	}
 }
 
+// SetCoop sets (or, with nil, clears) the server's CoopHandler, before or
+// after Start. Co-op hellos already held for it (handleCoop) go on to the
+// new handler. Connections the old handler had are not moved.
+func (s *Server) SetCoop(h CoopHandler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Coop = h
+	if h != nil {
+		select {
+		case <-s.coopSet:
+		default:
+			close(s.coopSet)
+		}
+	} else {
+		select {
+		case <-s.coopSet:
+			s.coopSet = make(chan struct{})
+		default:
+		}
+	}
+}
+
+// coopHandler returns the CoopHandler, and a channel closed once one is
+// set.
+func (s *Server) coopHandler() (CoopHandler, <-chan struct{}) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Coop, s.coopSet
+}
+
 // CoopCount returns the number of live co-op connections. They are never
 // in PlayerCount.
 func (s *Server) CoopCount() int {
@@ -176,7 +217,33 @@ func (s *Server) allocCoopIDLocked() (id byte, ok bool) {
 // read and checked (version, name). It returns when the connection ends;
 // handlePlayer closes conn.
 func (s *Server) handleCoop(conn net.Conn, name string, caps uint16) {
-	h := s.Coop
+	h, set := s.coopHandler()
+	if h == nil && s.lobby.ExpectsCoop() {
+		// The lobby's host chose co-op but its world isn't open yet (the
+		// app sets the hub just before GO). Refusing now would be fatal
+		// for the client (RejectRole stops RunCoop), so a CLI join --coop
+		// that arrived early would never get co-op. Hold the hello for
+		// the hub instead; if it doesn't come in time, close without a
+		// reject so the client backs off and tries again.
+		t := time.NewTimer(s.coopHold)
+		select {
+		case <-set:
+			h, _ = s.coopHandler()
+		case <-t.C:
+		case <-s.stopped:
+			// The server is stopping: close without a reject, so the
+			// client retries (against a restarted server, say).
+			t.Stop()
+			return
+		}
+		t.Stop()
+		if h == nil {
+			if s.lobby.ExpectsCoop() {
+				s.log(fmt.Sprintf("%s (co-op): the host's co-op world isn't open yet; the client will retry", name))
+				return
+			}
+		}
+	}
 	if h == nil {
 		s.refuse(conn, name, RejectRole, coopOffReason)
 		return

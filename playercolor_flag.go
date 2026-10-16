@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -81,6 +82,37 @@ func extractColorFlag(args []string) (*playercolor.Color, []string, error) {
 func newPlayerClient(name string) *network.Client {
 	c := network.NewClient(name)
 	c.SetColorPreference(colorPref)
+	return c
+}
+
+// colorPrefKey is the context key of a session's own color preference.
+type colorPrefKey struct{}
+
+// withColorPref returns ctx carrying a session's color preference (the
+// app's JoinOptions.Color or HostOptions.Color), which overrides the
+// process-wide --color / WW_COLOR for the player connections the session
+// opens. A nil pref leaves ctx as it is.
+func withColorPref(ctx context.Context, pref *playercolor.Color) context.Context {
+	if pref == nil {
+		return ctx
+	}
+	p := *pref
+	return context.WithValue(ctx, colorPrefKey{}, &p)
+}
+
+// colorPrefFor is the color preference for a player connection under ctx.
+func colorPrefFor(ctx context.Context) *playercolor.Color {
+	if p, ok := ctx.Value(colorPrefKey{}).(*playercolor.Color); ok {
+		return p
+	}
+	return colorPref
+}
+
+// newPlayerClientCtx is newPlayerClient with the session's preference
+// from ctx, when it has one.
+func newPlayerClientCtx(ctx context.Context, name string) *network.Client {
+	c := network.NewClient(name)
+	c.SetColorPreference(colorPrefFor(ctx))
 	return c
 }
 
