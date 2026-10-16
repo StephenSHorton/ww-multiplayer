@@ -257,12 +257,23 @@ func (s *Server) handleCoop(conn net.Conn, name string, caps uint16) {
 		done: make(chan struct{}),
 	}
 	s.mu.Lock()
-	id, ok := s.allocCoopIDLocked()
+	stopping := s.stopping()
+	var id byte
+	var ok bool
+	if !stopping {
+		id, ok = s.allocCoopIDLocked()
+	}
 	if ok {
 		c.id = id
 		s.coops[id] = c
 	}
 	s.mu.Unlock()
+	if stopping {
+		// Stop has closed the co-op connections already, and its
+		// caller stops the handler next: close without a reject (which
+		// would be fatal), so the client retries (see Stop).
+		return
+	}
 	if !ok {
 		s.refuse(conn, name, RejectServerFull, "server full: all 255 co-op connection IDs are in use")
 		return
@@ -287,6 +298,12 @@ func (s *Server) handleCoop(conn net.Conn, name string, caps uint16) {
 		}
 	}()
 	if err := h.Attach(c); err != nil {
+		if s.stopping() {
+			// The handler refused because it is stopping with the
+			// server: not the client's fault, so no (fatal) reject.
+			c.Close()
+			return
+		}
 		s.refuse(conn, name, RejectRole, "co-op: "+err.Error())
 		c.Close() // Send fails from now on, should the handler have kept c
 		return
