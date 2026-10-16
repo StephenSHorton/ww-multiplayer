@@ -50,7 +50,7 @@
   - TEV stages, if `(flag>>20)&0xF` is nonzero (here 2);
   - TEV color and konst registers, if `flag & 0x01000000` (set here).
 - Material color is emitted only if `flag & 0x1` (`J3DColorBlockLightOn::diff`, `J3DMatBlock.cpp:455-460`). That bit is **clear** in 0x37221222. So `matColor` lives only in the shared DL built once by `makeDisplayList` (`J3DMaterial.cpp:189-210`).
-- This is why the old `tint-material` diagnostic, which writes matColor, showed nothing (`main.go` comment above `runTintCycle`: "unlike matColor which J3D bakes into a cached display list").
+- This is why the old `tint-material` diagnostic, which writes matColor, showed nothing (the comment on its since-removed `runTintCycle` said: "unlike matColor which J3D bakes into a cached display list").
 
 **Can it be recolored at runtime from RAM?**
 - **The texture can.** The header array is `J3DModelData+0x70` → `J3DTexture{u16 mNum @+0; ResTIMG* mpRes @+4}` (`J3DMaterialAttach.h:61`, `J3DTexture.h:35-36`).
