@@ -202,19 +202,20 @@ func TestDiagnosticsText(t *testing.T) {
 	}
 	d := Diagnostics{
 		App: "ww-multiplayer v0.4.0", OS: "windows/amd64", Dolphin: "/home/ann/Dolphin.exe",
-		Status: []string{"co-op: armed, world 3fa9 seq 4"}, Log: append(logs, "token=s3cret"),
+		Status: []string{"co-op: armed, world 3fa9 seq 4", "host 192.168.1.42:25565"}, Log: append(logs, "token=s3cret"),
 	}
 	got := d.Text(Redactor{Home: "/home/ann"})
 	for _, want := range []string{
 		"WW Multiplayer diagnostics\n", "app:             ww-multiplayer v0.4.0\n", "dolphin:         ~/Dolphin.exe\n",
 		"dolphin version: unknown\n", "co-op status:\nco-op: armed, world 3fa9 seq 4\n",
 		fmt.Sprintf("last %d log lines:\nl4\n", TailLines), "token=<redacted>\n",
+		"host •••.•••.•••.42:25565\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "s3cret") || strings.Contains(got, "\nl3\n") {
+	if strings.Contains(got, "s3cret") || strings.Contains(got, "192.168") || strings.Contains(got, "\nl3\n") {
 		t.Errorf("text:\n%s", got)
 	}
 	if got := (Diagnostics{}).Text(Redactor{}); strings.Contains(got, "co-op status") || !strings.Contains(got, "last 0 log lines") {

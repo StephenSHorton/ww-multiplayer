@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/redact"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -76,6 +77,12 @@ type dashboardModel struct {
 	lastKey       time.Time
 	// now is the clock; nil is time.Now. Tests set it.
 	now func() time.Time
+
+	// showIPs turns off the IP masking (the app model's showIPsKey):
+	// by default the header's addresses, the log, the chat and the end
+	// reason show every IP masked (internal/redact), so a stream never
+	// flashes one.
+	showIPs bool
 }
 
 // questionSettle is how long a co-op question must have been shown, and
@@ -552,10 +559,18 @@ func (m dashboardModel) view(width, height int) string {
 	// IPs to share, so it must never be what overflow pushes off. The status
 	// panel is left out, rather than half-cut, on a terminal too short for
 	// both (a multi-row header of IPs on a tiny one).
-	header := renderHeader(w, m.role, m.name, m.addr, m.hostIPs, m.ended)
+	addr, hostIPs := m.addr, m.hostIPs
+	if !m.showIPs {
+		addr = redact.Addr(addr)
+		hostIPs = make([]string, len(m.hostIPs))
+		for i, ip := range m.hostIPs {
+			hostIPs[i] = redact.Addr(ip)
+		}
+	}
+	header := renderHeader(w, m.role, m.name, addr, hostIPs, m.ended)
 	var status string
 	if m.ended {
-		status = renderEnded(w, m.endReason)
+		status = renderEnded(w, m.shownText(m.endReason))
 	} else {
 		status = renderStatusCoop(w, m.playerCount, m.latency, m.players, m.coopStatus)
 	}
@@ -565,14 +580,15 @@ func (m dashboardModel) view(width, height int) string {
 		parts = append(parts, status)
 		used += lipgloss.Height(status)
 	}
-	help := "type + enter: chat    esc: back to connect    ctrl+c: quit"
+	ips := ipsHelp(m.showIPs)
+	help := "type + enter: chat    esc: back to connect    " + ips + "    ctrl+c: quit"
 	switch {
 	case m.ended:
-		help = "esc: back to connect (your fields are kept)    ctrl+c: quit"
+		help = "esc: back to connect (your fields are kept)    " + ips + "    ctrl+c: quit"
 	case len(m.questions) > 0:
-		help = "y: yes    n: no    esc: back to connect    ctrl+c: quit"
+		help = "y: yes    n: no    esc: back to connect    " + ips + "    ctrl+c: quit"
 	case m.coop:
-		help = "enter: chat, or /help for co-op commands    esc: back    ctrl+c: quit"
+		help = "enter: chat, or /help for co-op commands    esc: back    " + ips + "    ctrl+c: quit"
 	}
 	footer := helpStyle.Width(w).Render(truncate(help, w))
 
@@ -595,7 +611,7 @@ func (m dashboardModel) view(width, height int) string {
 		if l.beside {
 			logW = w - minimapPanelWidth
 		}
-		logPanel := renderLogPanel(logW, l.logRows, m.logs)
+		logPanel := renderLogPanel(logW, l.logRows, m.shownLogs())
 		switch {
 		case l.mapRows > 0 && l.beside:
 			mapPanel := renderMinimap(minimapPanelWidth, l.mapRows, m.localX, m.localZ, m.localOK, m.players, m.minimapScale)
@@ -615,7 +631,7 @@ func (m dashboardModel) view(width, height int) string {
 	if l.chat {
 		chatBody := panelTitleStyle.Render("Chat") + "\n"
 		if l.chatRows > 0 {
-			chatBody += chatScrollback(m.chatLines, l.chatRows, w-4) + "\n"
+			chatBody += chatScrollback(m.shownChat(), l.chatRows, w-4) + "\n"
 		}
 		input := truncate(m.chatInput.View(), w-4)
 		parts = append(parts, panelStyle.Width(w-2).Render(chatBody+input))
@@ -623,6 +639,40 @@ func (m dashboardModel) view(width, height int) string {
 
 	parts = append(parts, footer)
 	return clipRows(strings.Join(parts, "\n"), height)
+}
+
+// shownText is a free line (log, chat, end reason) as the dashboard shows
+// it: its IPs masked unless showIPs.
+func (m dashboardModel) shownText(s string) string {
+	if m.showIPs {
+		return s
+	}
+	return redact.Text(s)
+}
+
+// shownLogs is the log as the dashboard shows it (shownText).
+func (m dashboardModel) shownLogs() []logEntry {
+	if m.showIPs {
+		return m.logs
+	}
+	out := make([]logEntry, len(m.logs))
+	for i, e := range m.logs {
+		e.msg = redact.Text(e.msg)
+		out[i] = e
+	}
+	return out
+}
+
+// shownChat is the chat scrollback as the dashboard shows it (shownText).
+func (m dashboardModel) shownChat() []string {
+	if m.showIPs {
+		return m.chatLines
+	}
+	out := make([]string, len(m.chatLines))
+	for i, l := range m.chatLines {
+		out[i] = redact.Text(l)
+	}
+	return out
 }
 
 // renderLogPanel draws the newest log entries into exactly rows rows, wrapping

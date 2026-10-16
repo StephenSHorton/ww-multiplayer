@@ -193,8 +193,13 @@ func TestConnect_ViewHintAndFit(t *testing.T) {
 	if w := lipgloss.Width(out); w > 80 {
 		t.Errorf("connect view is %d cells wide, want <= 80", w)
 	}
-	if !strings.Contains(plain(out), "…"+strings.Repeat("a", 10)) {
-		t.Errorf("a value longer than its box should scroll behind an ellipsis\n---\n%s", plain(out))
+	// The Host IP field is masked (a dot per character) by default.
+	if !strings.Contains(plain(out), "…"+strings.Repeat("•", 10)) || strings.Contains(plain(out), "aaaa") {
+		t.Errorf("a masked value longer than its box should scroll behind an ellipsis\n---\n%s", plain(out))
+	}
+	m.showIPs = true
+	if out := plain(m.view(80)); !strings.Contains(out, "…"+strings.Repeat("a", 10)) {
+		t.Errorf("a shown value longer than its box should scroll behind an ellipsis\n---\n%s", out)
 	}
 }
 

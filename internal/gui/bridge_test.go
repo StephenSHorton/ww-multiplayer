@@ -21,6 +21,10 @@ import (
 // records the commands; SendChat records the lines.
 type fakeEngine struct {
 	outs chan session.LobbyOutput
+	// unreachable: JoinLobby only fails to connect (no lobby state).
+	unreachable bool
+	// fail ends the running lobby session with its error.
+	fail chan error
 
 	mu    sync.Mutex
 	host  []session.HostOptions
@@ -29,7 +33,9 @@ type fakeEngine struct {
 	chats []string
 }
 
-func newFakeEngine() *fakeEngine { return &fakeEngine{outs: make(chan session.LobbyOutput, 8)} }
+func newFakeEngine() *fakeEngine {
+	return &fakeEngine{outs: make(chan session.LobbyOutput, 8), fail: make(chan error, 1)}
+}
 
 func (e *fakeEngine) Host(ctx context.Context, _ context.CancelFunc, _ session.HostOptions, _ session.Output) error {
 	<-ctx.Done()
@@ -51,6 +57,12 @@ func (e *fakeEngine) SendChat(text string) error {
 }
 
 func (e *fakeEngine) lobby(ctx context.Context, host bool, name string, col *playercolor.Color, out session.LobbyOutput) error {
+	if e.unreachable {
+		out.LobbyLink(session.LobbyLink{State: session.LinkConnecting, Attempts: 1, Err: "connection refused"})
+		e.outs <- out
+		<-ctx.Done()
+		return nil
+	}
 	c := playercolor.Vanilla()
 	if col != nil {
 		c = *col
@@ -60,8 +72,12 @@ func (e *fakeEngine) lobby(ctx context.Context, host bool, name string, col *pla
 		{ID: 2, Name: "Tetra", Color: playercolor.Palette()[1].Color, Ready: true, Via: session.ViaCLI},
 	}})
 	e.outs <- out
-	<-ctx.Done()
-	return nil
+	select {
+	case <-ctx.Done():
+		return nil
+	case err := <-e.fail:
+		return err
+	}
 }
 
 func (e *fakeEngine) HostLobby(ctx context.Context, _ context.CancelFunc, o session.HostOptions, out session.LobbyOutput) error {
@@ -137,7 +153,8 @@ func TestBridgeInfo(t *testing.T) {
 	defer b2.close()
 	v = b2.Info()
 	pink, _ := playercolor.Parse("pink")
-	if v.Name != "Aryll" || v.Color != pink.Hex() || len(v.RecentHosts) != 1 || v.RecentHosts[0].Addr != "26.1.2.3" {
+	if v.Name != "Aryll" || v.Color != pink.Hex() || len(v.RecentHosts) != 1 || v.RecentHosts[0].Addr != "26.1.2.3" ||
+		v.RecentHosts[0].Masked != "•••.•••.•••.3" || v.RecentHosts[0].Label != "Radmin" {
 		t.Fatalf("Info from config = %+v", v)
 	}
 }
@@ -211,6 +228,8 @@ func TestBridgeJoin(t *testing.T) {
 	if st := b.State(); st.Role != "Join" || st.Addr != "192.168.1.42:25570" || st.Lobby == nil || st.Lobby.Host {
 		t.Fatalf("State = %+v", st)
 	}
+	// The host was reached (its lobby state came), so it is a recent
+	// host now.
 	c, _ := config.Load(path)
 	if c.Name != "Medli" || len(c.RecentHosts) != 1 || c.RecentHosts[0].Addr != "192.168.1.42:25570" {
 		t.Fatalf("saved config = %+v", c)
@@ -222,7 +241,7 @@ func TestBridgeLobbyCommands(t *testing.T) {
 	if err := b.SetReady(true); !errors.Is(err, session.ErrNoLobby) {
 		t.Fatalf("SetReady with no session = %v, want ErrNoLobby", err)
 	}
-	if err := b.SendChat("hi"); !errors.Is(err, session.ErrNoSession) {
+	if _, err := b.SendChat("hi"); !errors.Is(err, session.ErrNoSession) {
 		t.Fatalf("SendChat with no session = %v, want ErrNoSession", err)
 	}
 	if err := b.Join(JoinRequest{Addr: "10.0.0.2", Name: "Medli"}); err != nil {
@@ -238,10 +257,10 @@ func TestBridgeLobbyCommands(t *testing.T) {
 	if err := b.SetReady(true); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.SendChat("  ahoy  "); err != nil {
+	if _, err := b.SendChat("  ahoy  "); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.SendChat("   "); err != nil {
+	if _, err := b.SendChat("   "); err != nil {
 		t.Fatal(err)
 	}
 	blue, _ := playercolor.Parse("blue")

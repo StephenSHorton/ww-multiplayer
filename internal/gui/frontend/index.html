@@ -13,8 +13,16 @@
 		<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 1 31 16 16 31 1 16Z" fill="#d8262e" stroke="#101a33" stroke-width="2"/><path d="M7 18c5 0 9-2 9-6 0-3-4-3-4 0 0 2 3 2 3 0" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round"/></svg>
 		<span class="hud">Wind Waker Multiplayer</span>
 	</div>
+	<!-- the session's phase and where, in the header to leave the screen to the lobby -->
+	<div class="bar" id="bar" hidden>
+		<span class="phase" id="phase"></span>
+		<span class="where" id="where"></span>
+	</div>
 	<div class="badges">
+		<!-- IP addresses are masked unless this is on (config ui.showIPs) -->
+		<button class="badge ipswitch" type="button" id="showips" role="switch" aria-checked="false"><i class="knob" aria-hidden="true"></i>Show IP addresses</button>
 		<button class="badge" type="button" id="setup-btn" hidden>Setup</button>
+		<button class="btn back" type="button" id="leave-btn" hidden>Leave</button>
 		<span class="ver" id="version"></span>
 	</div>
 </header>
@@ -27,7 +35,8 @@
 			<h2>You</h2>
 			<label class="field">
 				<span>Name</span>
-				<input id="name" autocomplete="off" spellcheck="false" placeholder="Link">
+				<input id="name" autocomplete="off" spellcheck="false" placeholder="Link" aria-describedby="name-error">
+				<small class="fielderr" id="name-error" role="alert"></small>
 			</label>
 			<div class="field">
 				<span>Tunic color</span>
@@ -50,9 +59,15 @@
 				<p class="dim">Type the address your host shared: an IP, <code>ip:port</code> or <code>[v6]:port</code>.</p>
 				<label class="field">
 					<span>Host address</span>
-					<input id="addr" list="recent-hosts" autocomplete="off" spellcheck="false" placeholder="192.168.1.42">
-					<datalist id="recent-hosts"></datalist>
+					<span class="row secretrow">
+						<input id="addr" class="secret" autocomplete="off" spellcheck="false" placeholder="192.168.1.42">
+						<button type="button" class="btn small" id="addr-eye" aria-pressed="false" aria-controls="addr" title="Show or hide the address (hidden so a stream never shows it)">Show</button>
+					</span>
 				</label>
+				<div class="recent" id="recent" hidden>
+					<span class="label">Recent hosts</span>
+					<ul class="recent-list" id="recent-list"></ul>
+				</div>
 				<button class="btn primary" type="submit" id="join-btn">Join</button>
 			</form>
 		</div>
@@ -201,45 +216,82 @@
 		</div>
 	</section>
 
-	<!-- Session: the lobby (or the direct session), its log and chat -->
+	<!-- Session: the lobby (or a direct session): members, your tunic and
+	     Ready, chat, and the host's panel (share card, co-op, Start) -->
 	<section id="session" class="screen" hidden>
-		<div class="bar">
-			<div>
-				<span class="phase" id="phase"></span>
-				<span class="where" id="where"></span>
-			</div>
-			<button class="btn back" id="leave-btn">Leave</button>
+		<div class="banner" id="banner" role="status" hidden>
+			<span class="spin" aria-hidden="true"></span>
+			<div><b id="banner-title"></b> <span id="banner-text"></span></div>
+			<small id="banner-n"></small>
 		</div>
 		<div class="ended panel" id="ended" hidden>
 			<h2>Session ended</h2>
 			<p id="end-reason"></p>
 			<button class="btn primary" id="back-btn">Back</button>
 		</div>
-		<div class="cols">
-			<div class="panel lobby">
-				<h2 id="members-title">Lobby</h2>
-				<ul class="members" id="members"></ul>
-				<div class="mine" id="mine" hidden>
-					<div class="field">
-						<span>Your color</span>
-						<div class="swatches" id="lobby-swatches" role="radiogroup" aria-label="Your tunic color"></div>
+		<div class="cols" id="cols">
+			<div class="stack" id="stack-left">
+				<div class="panel lobby">
+					<h2 id="members-title">Lobby</h2>
+					<ul class="members" id="members"></ul>
+					<div class="mine" id="mine" hidden>
+						<div class="field">
+							<span>Your tunic</span>
+							<div class="swatches small" id="lobby-swatches" role="radiogroup" aria-label="Your tunic color"></div>
+						</div>
+						<div class="minerow">
+							<div class="field">
+								<span>Or your own color</span>
+								<span class="row">
+									<input type="color" id="lobby-well" aria-label="Pick your own color">
+									<input id="lobby-hex" class="hex" autocomplete="off" spellcheck="false" placeholder="#RRGGBB" maxlength="7" aria-label="Your own color as #RRGGBB">
+								</span>
+							</div>
+							<button class="btn ready" type="button" id="ready-btn" aria-pressed="false">Ready</button>
+						</div>
 					</div>
-					<button class="btn" id="ready-btn" aria-pressed="false">Ready</button>
 				</div>
-				<ul class="addrs" id="addrs"></ul>
 			</div>
-			<div class="panel feed">
-				<h2>Log and chat</h2>
-				<ol class="log" id="log"></ol>
-				<form class="chat" id="chat-form">
-					<input id="chat" autocomplete="off" placeholder="Say something" maxlength="200">
-					<button class="btn" type="submit">Send</button>
-				</form>
+			<div class="stack" id="stack-right">
+				<div class="panel hostpanel" id="host-panel" hidden>
+					<h2>Host</h2>
+					<div class="share">
+						<span class="label">Share an address with your friends</span>
+						<ul class="addrs" id="addrs"></ul>
+						<small class="hint" id="share-hint"></small>
+					</div>
+					<div class="hostrow">
+						<span class="label">Co-op</span>
+						<div class="seg" role="radiogroup" aria-label="Co-op">
+							<button type="button" role="radio" aria-checked="true" title="Shared co-op worlds from the app come in a later update">Off</button>
+						</div>
+						<button class="btn primary" type="button" id="start-btn" disabled aria-describedby="start-note">Start</button>
+					</div>
+					<small class="hint" id="start-note">Start comes in the next update; co-op worlds after that.</small>
+				</div>
+				<!-- chat: beside the lobby, or under it while the host's panel takes the right -->
+				<div class="panel feed" id="feed">
+					<h2>Chat</h2>
+					<ol class="log chatonly" id="log"></ol>
+					<form class="chat" id="chat-form">
+						<input id="chat" autocomplete="off" placeholder="Say something" maxlength="200">
+						<button class="btn" type="submit">Send</button>
+						<button class="badge" type="button" id="log-toggle" aria-pressed="false" title="Show the session's log lines too">Log</button>
+					</form>
+				</div>
 			</div>
 		</div>
 	</section>
 </main>
 
+<dialog class="dialog" id="dlg" aria-labelledby="dlg-title">
+	<div class="panel">
+		<h2 id="dlg-title"></h2>
+		<p id="dlg-text"></p>
+		<p class="detail" id="dlg-detail"></p>
+		<div class="actions" id="dlg-actions"></div>
+	</div>
+</dialog>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 </body>
 </html>

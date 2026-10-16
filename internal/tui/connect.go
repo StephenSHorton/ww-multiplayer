@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
+	"github.com/StephenSHorton/ww-multiplayer/internal/redact"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -51,6 +52,11 @@ type connectModel struct {
 	// worlds are the co-op worlds on disk, newest first, for a host's
 	// "Continue" choices (session.Controller.CoopWorlds).
 	worlds []session.CoopWorld
+
+	// showIPs turns off the IP masking (the app model's showIPsKey): by
+	// default the Host IP field draws a dot per character, like a
+	// password, and an error's IPs are masked.
+	showIPs bool
 }
 
 // coopChoice is one co-op setting the connect form offers.
@@ -258,7 +264,7 @@ func (m connectModel) tryConnect() (connectModel, tea.Cmd) {
 			m.err = "Enter the host's IP address"
 			return m, nil
 		case strings.HasSuffix(addr, "."):
-			m.err = "Finish the host's IP address (e.g. 192.168.1.42)"
+			m.err = "Finish the host's IP address (four numbers with dots)"
 			return m, nil
 		case err != nil:
 			m.err = "Bad address: " + err.Error()
@@ -347,7 +353,7 @@ func (m connectModel) view(width int) string {
 			ipBox = ipBox.BorderForeground(zeldaGreen)
 		}
 		b.WriteString(lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(
-			ipBox.Render(fieldView(m.ipInput, boxW)),
+			ipBox.Render(fieldView(m.shownIP(), boxW)),
 		))
 		b.WriteString("\n\n")
 	}
@@ -368,7 +374,7 @@ func (m connectModel) view(width int) string {
 
 	if m.err != "" {
 		b.WriteString(lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(
-			statusErr.Render(m.err),
+			statusErr.Render(m.shownErr()),
 		))
 		b.WriteString("\n\n")
 	}
@@ -387,9 +393,32 @@ func (m connectModel) view(width int) string {
 	))
 
 	b.WriteString("\n\n")
-	b.WriteString(helpStyle.Width(width).Render(truncate("tab: next  ←/→: toggle  enter: select  ctrl+c: quit", width)))
+	b.WriteString(helpStyle.Width(width).Render(truncate("tab: next  ←/→: toggle  enter: select  "+ipsHelp(m.showIPs)+"  ctrl+c: quit", width)))
 
 	return b.String()
+}
+
+// shownIP is the Host IP field as drawn: a dot per character unless
+// showIPs, so a stream never shows the address being typed.
+func (m connectModel) shownIP() string {
+	if m.showIPs {
+		return m.ipInput
+	}
+	return strings.Repeat(redact.Dot, utf8.RuneCountInString(m.ipInput))
+}
+
+// shownErr is the error as drawn: a bad address names it, masked unless
+// showIPs. The typed address is masked whole, as the field draws it, even
+// when it is no IP ("10.0.0.300" is most of one).
+func (m connectModel) shownErr() string {
+	if m.showIPs {
+		return m.err
+	}
+	err := m.err
+	if typed := strings.TrimSpace(m.ipInput); typed != "" {
+		err = strings.ReplaceAll(err, typed, strings.Repeat(redact.Dot, utf8.RuneCountInString(typed)))
+	}
+	return redact.Text(err)
 }
 
 // coopRow renders the co-op choice: "> Co-op  < New world >", cut to

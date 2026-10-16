@@ -102,6 +102,10 @@ type Coop struct {
 type UI struct {
 	Window    Window `json:"window"`
 	SetupDone bool   `json:"setupDone"`
+	// ShowIPs turns off the window's IP masking (the header's "Show IP
+	// addresses" switch). Off by default: the window masks every IP it
+	// shows, so a stream never flashes one (owner decision 2026-10-16).
+	ShowIPs bool `json:"showIPs"`
 }
 
 // Window is the main window's size.

@@ -34,6 +34,12 @@ type LobbyClient struct {
 	OnStart   func(LobbyStartBody)
 	OnGo      func(LobbyGoBody)
 	OnRequest func(LobbyRequestBody)
+	// OnLink, when set, follows Run's connection: up after each connect
+	// that got a WELCOME; down with the error after each attempt that
+	// failed; down with a nil error when a live connection dropped. It
+	// is not called once Run's ctx has ended (a Leave, or a fatal
+	// notice), and must not block.
+	OnLink func(up bool, err error)
 }
 
 // LobbyNoticeError is a lobby refusal that reconnecting can't fix: the name
@@ -267,6 +273,11 @@ func (l *LobbyClient) Run(ctx context.Context, addr string, connLog *ConnectLog)
 	}()
 	connect := func(ctx context.Context) error {
 		err := l.Connect(ctx, addr)
+		// Only retryable outcomes count as link changes: a fatal answer
+		// (version mismatch, pre-lobby host, a notice) ends Run instead.
+		if l.OnLink != nil && ctx.Err() == nil && !errors.Is(err, ErrFatal) {
+			l.OnLink(err == nil, err)
+		}
 		if connLog != nil {
 			return connLog.Observe(ctx, err)
 		}
@@ -281,6 +292,9 @@ func (l *LobbyClient) Run(ctx context.Context, addr string, connLog *ConnectLog)
 				return nil
 			case <-t.C:
 				if !l.c.IsConnected() {
+					if l.OnLink != nil && ctx.Err() == nil {
+						l.OnLink(false, nil)
+					}
 					return nil
 				}
 			}

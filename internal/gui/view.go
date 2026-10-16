@@ -22,8 +22,9 @@ type SwatchView struct {
 
 // RecentHostView is one of the config's recent hosts.
 type RecentHostView struct {
-	Addr  string `json:"addr"`
-	Label string `json:"label"`
+	Addr   string `json:"addr"`   // for Join only: never drawn (mask.go)
+	Masked string `json:"masked"` // Addr as the window shows it
+	Label  string `json:"label"`  // the saved label, else LAN / Radmin VPN / ...
 }
 
 // InfoView is what the frontend loads once: the build, the palette and
@@ -37,6 +38,12 @@ type InfoView struct {
 	Port        int              `json:"port"`
 	RecentHosts []RecentHostView `json:"recentHosts"`
 	MaxName     int              `json:"maxName"`
+	// ShowIPs is the "Show IP addresses" switch (config ui.showIPs): on,
+	// nothing is masked, and the per-address Show buttons go away.
+	ShowIPs bool `json:"showIPs"`
+	// DownloadsURL is the releases page (the version dialog's Open
+	// downloads, in a browser).
+	DownloadsURL string `json:"downloadsUrl"`
 	// Warnings are the config's load warnings, for the UI to show once.
 	Warnings []string `json:"warnings,omitempty"`
 }
@@ -54,6 +61,8 @@ type MemberView struct {
 	Away      bool   `json:"away"`
 	Dolphin   string `json:"dolphin"`
 	RTTMs     int64  `json:"rttMs"`
+	// CanKick: we host, and the row isn't ours.
+	CanKick bool `json:"canKick"`
 }
 
 // LobbyView is State.Lobby.
@@ -63,6 +72,13 @@ type LobbyView struct {
 	Phase   string       `json:"phase"`
 	Legacy  bool         `json:"legacy"`
 	Members []MemberView `json:"members"`
+	// Coop is the host's co-op setting ("off" until the app's co-op,
+	// design PR 9).
+	Coop string   `json:"coop"`
+	Link LinkView `json:"link"`
+	// CanStart says the host's Start button works. Starting the game
+	// from the app is design PR 8, so it is false for now.
+	CanStart bool `json:"canStart"`
 }
 
 // PlayerView is one other player of a running session (Live.Players).
@@ -78,7 +94,8 @@ type StateView struct {
 	Running   bool         `json:"running"`
 	Role      string       `json:"role"`
 	Name      string       `json:"name"`
-	Addr      string       `json:"addr"`
+	Addr      string       `json:"addr"`       // for a retry only: never drawn (mask.go)
+	AddrShown string       `json:"addrMasked"` // Addr as the window shows it
 	EndReason string       `json:"endReason"`
 	Failed    bool         `json:"failed"`
 	Lobby     *LobbyView   `json:"lobby"`
@@ -86,6 +103,14 @@ type StateView struct {
 	Count     int          `json:"playerCount"`
 	HostAddrs []string     `json:"hostAddrs"`
 	LatencyMs int64        `json:"latencyMs"`
+	// Dialog is the dialog the state calls for (a join error, a kick, a
+	// host that can't be reached); nil for none.
+	Dialog *DialogView `json:"dialog"`
+	// Banner is the reconnect banner; nil while the lobby connection is
+	// fine.
+	Banner *BannerView `json:"banner"`
+	// ShowIPs is the switch this view was masked under (InfoView.ShowIPs).
+	ShowIPs bool `json:"showIPs"`
 }
 
 // EventView is one controller event. Kind is one of the eventKinds values.
@@ -96,6 +121,10 @@ type EventView struct {
 	Level   string `json:"level,omitempty"`
 	From    string `json:"from,omitempty"`
 	Text    string `json:"text,omitempty"`
+	// TextMasked is Text with its IPs masked, set only when the "Show IP
+	// addresses" switch let Text through unmasked and they differ: the
+	// log keeps it so turning the switch off masks the line again.
+	TextMasked string `json:"textMasked,omitempty"`
 	// Lobby replies.
 	Code    string `json:"code,omitempty"`    // lobby-notice
 	Suggest string `json:"suggest,omitempty"` // lobby-notice: a free name
@@ -145,7 +174,9 @@ func colorName(c playercolor.Color) string {
 
 func ms(d time.Duration) int64 { return d.Milliseconds() }
 
-func stateView(st session.State, running bool) StateView {
+// stateView is st for the frontend; version is this build's (the version
+// dialog names it) and now the time the reconnect banner measures from.
+func stateView(st session.State, running bool, version string, now time.Time, mk masker) StateView {
 	v := StateView{
 		Session:   uint64(st.Session),
 		Phase:     st.Phase.String(),
@@ -153,7 +184,9 @@ func stateView(st session.State, running bool) StateView {
 		Role:      string(st.Role),
 		Name:      st.Name,
 		Addr:      st.Addr,
-		EndReason: st.EndReason,
+		AddrShown: mk.addr(st.Addr),
+		EndReason: mk.text(st.EndReason),
+		ShowIPs:   mk.show,
 		Failed:    st.Failed,
 		Players:   []PlayerView{},
 		Count:     st.PlayerCount,
@@ -168,20 +201,28 @@ func stateView(st session.State, running bool) StateView {
 		v.Players = append(v.Players, pv)
 	}
 	if l := st.Lobby; l != nil {
-		lv := &LobbyView{Member: l.Member, Host: l.Host, Phase: string(l.Phase), Legacy: l.Legacy, Members: []MemberView{}}
+		lv := &LobbyView{Member: l.Member, Host: l.Host, Phase: string(l.Phase), Legacy: l.Legacy, Members: []MemberView{},
+			Coop: l.Settings.Coop, Link: LinkView{State: string(l.Link.State), Attempts: l.Link.Attempts, Err: mk.text(l.Link.Err)}}
+		if lv.Coop == "" {
+			lv.Coop = "off"
+		}
 		for _, m := range l.Members {
+			self := m.ID == l.Member && m.Via == session.ViaApp
 			lv.Members = append(lv.Members, MemberView{
 				ID: m.ID, Name: m.Name, Color: m.Color.Hex(), ColorName: colorName(m.Color),
-				Ready: m.Ready, Host: m.Host, Self: m.ID == l.Member && m.Via == session.ViaApp,
+				Ready: m.Ready, Host: m.Host, Self: self,
 				Via: m.Via, Away: m.Away, Dolphin: m.Dolphin, RTTMs: ms(m.RTT),
+				CanKick: l.Host && !self && running,
 			})
 		}
 		v.Lobby = lv
 	}
+	v.Dialog = dialogFor(st, running, version, mk)
+	v.Banner = bannerFor(st, running, now)
 	return v
 }
 
-func eventView(ev session.Event) EventView {
+func eventView(ev session.Event, mk masker) EventView {
 	kind, ok := eventKinds[ev.Kind]
 	if !ok {
 		kind = "unknown"
@@ -198,6 +239,14 @@ func eventView(ev session.Event) EventView {
 		// Co-op questions are answered in a later PR (design PR 9); the
 		// title is enough for the log.
 		v.Text = ev.Question.Title
+	}
+	// The log and chat panels show no IP address unless the switch is on
+	// (mask.go): the host's log lists its share addresses, a joiner's
+	// names the host.
+	if masked := hideIPs.text(v.Text); mk.show && masked != v.Text {
+		v.TextMasked = masked
+	} else {
+		v.Text = masked
 	}
 	return v
 }

@@ -38,6 +38,24 @@ type model struct {
 	connect   connectModel
 	dashboard dashboardModel
 	quitting  bool
+
+	// showIPs is showIPsKey's toggle: off (the default), every screen
+	// masks the IP addresses it draws (internal/redact; owner decision
+	// 2026-10-16, streamer-safe). The TUI doesn't save it. The CLI's host
+	// and join print the address to share on purpose, unmasked.
+	showIPs bool
+}
+
+// showIPsKey shows or masks the IP addresses on every screen. It is a
+// control key because the connect fields and the chat take letters.
+const showIPsKey = "ctrl+r"
+
+// ipsHelp is the help line's entry for showIPsKey.
+func ipsHelp(shown bool) string {
+	if shown {
+		return showIPsKey + ": hide IPs"
+	}
+	return showIPsKey + ": show IPs"
 }
 
 func newModel(ctrl *session.Controller, version string) model {
@@ -72,10 +90,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			return m, tea.Quit
 		}
+		if msg.String() == showIPsKey {
+			m.showIPs = !m.showIPs
+			m.connect.showIPs = m.showIPs
+			m.dashboard.showIPs = m.showIPs
+			return m, nil
+		}
 
 	case splashDoneMsg:
 		m.connect = newConnect()
 		m.connect.worlds = coopWorlds(m.ctrl)
+		m.connect.showIPs = m.showIPs
 		m.screen = screenConnect
 		return m, nil
 
@@ -88,6 +113,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.connect.err = err.Error()
 			return m, nil
 		}
+		d.showIPs = m.showIPs
 		m.dashboard = d
 		m.screen = screenDashboard
 		return m, m.dashboard.initCmd()

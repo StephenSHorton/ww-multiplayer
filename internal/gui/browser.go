@@ -44,12 +44,19 @@ var browserMethods = map[string]bool{
 	"Setup": true, "SaveProfile": true, "CheckColor": true,
 	"StartPatch": true, "CancelPatch": true, "PatchStatus": true,
 	"DetectDolphin": true, "UserDirFor": true, "SetDolphin": true, "PrepareDolphin": true, "FinishSetup": true,
+	// The Lobby screen (App PR 7).
+	"Kick": true, "Retry": true, "ShareAddrs": true,
+	// The header's "Show IP addresses" switch.
+	"SetShowIPs": true,
 }
 
 // windowOnly are the Bridge methods only the window has: PickFile opens a
 // native dialog, which a browser page can't (the frontend asks for a typed
-// path there).
-var windowOnly = map[string]bool{"PickFile": true}
+// path there); Copy and OpenDownloads use the window's clipboard and the
+// desktop's browser, which a browser page has itself (navigator.clipboard,
+// window.open), and which a page on 127.0.0.1 shouldn't drive on the
+// machine serving it.
+var windowOnly = map[string]bool{"PickFile": true, "Copy": true, "OpenDownloads": true}
 
 // BrowserServer is a running ServeBrowser.
 type BrowserServer struct {

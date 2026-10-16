@@ -81,6 +81,35 @@ type Lobby struct {
 	// joined directly (the CLI's join) and the lobby commands don't
 	// apply.
 	Legacy bool
+	// Link is the lobby connection's health (the engine's LobbyLink).
+	Link LobbyLink
+}
+
+// LinkState says how the lobby connection is doing.
+type LinkState string
+
+const (
+	// LinkConnecting: not welcomed by the host yet.
+	LinkConnecting LinkState = "connecting"
+	// LinkUp: connected.
+	LinkUp LinkState = "up"
+	// LinkReconnecting: the connection dropped after it was up; the
+	// engine reconnects with its backoff, and the host holds our slot
+	// (color, ready) for network.LobbyHoldTimeout meanwhile.
+	LinkReconnecting LinkState = "reconnecting"
+)
+
+// LobbyLink is the lobby connection's health, for the UI's connecting
+// dialog and reconnect banner.
+type LobbyLink struct {
+	State LinkState
+	// Attempts counts the failed connects since the connection was last
+	// up (or since the start).
+	Attempts int
+	// Err is the last failed attempt's error text.
+	Err string
+	// Since is when the current outage (or the first attempt) began.
+	Since time.Time
 }
 
 // Self returns this player's row.
@@ -145,6 +174,9 @@ type LobbyOutput interface {
 	LobbyStart(s LobbySettings)
 	LobbyGo(world string)
 	LobbyRequest(kind, from string)
+	// LobbyLink passes the lobby connection's health when it changes
+	// (an attempt failed, it connected, it dropped).
+	LobbyLink(k LobbyLink)
 }
 
 // LobbyEngine is what an Engine with the lobby adds. The Controller finds
@@ -189,7 +221,7 @@ func (c *Controller) HostLobby(ctx context.Context, o HostOptions) (ID, error) {
 	if !ok {
 		return 0, ErrNoLobby
 	}
-	st := State{Role: RoleHost, Name: o.Name, Coop: o.Coop, Phase: Connecting, Lobby: &Lobby{Phase: LobbyPhaseLobby}}
+	st := State{Role: RoleHost, Name: o.Name, Coop: o.Coop, Phase: Connecting, Lobby: newLobby(time.Now())}
 	return c.start(ctx, st, func(ctx context.Context, cancel context.CancelFunc, out Output) error {
 		return le.HostLobby(ctx, cancel, o, out.(*output))
 	})
@@ -203,7 +235,7 @@ func (c *Controller) JoinLobby(ctx context.Context, o JoinOptions) (ID, error) {
 	if !ok {
 		return 0, ErrNoLobby
 	}
-	st := State{Role: RoleJoin, Name: o.Name, Addr: o.Addr, Coop: o.Coop, Phase: Connecting, Lobby: &Lobby{Phase: LobbyPhaseLobby}}
+	st := State{Role: RoleJoin, Name: o.Name, Addr: o.Addr, Coop: o.Coop, Phase: Connecting, Lobby: newLobby(time.Now())}
 	return c.start(ctx, st, func(ctx context.Context, cancel context.CancelFunc, out Output) error {
 		o2 := out.(*output)
 		err := le.JoinLobby(ctx, cancel, o, o2)
@@ -214,6 +246,11 @@ func (c *Controller) JoinLobby(ctx context.Context, o JoinOptions) (ID, error) {
 		o2.Log(report.Info, legacyHostLine)
 		return c.engine.Join(ctx, cancel, o, out)
 	})
+}
+
+// newLobby is a lobby session's lobby before the host has answered.
+func newLobby(now time.Time) *Lobby {
+	return &Lobby{Phase: LobbyPhaseLobby, Link: LobbyLink{State: LinkConnecting, Since: now}}
 }
 
 // legacy records run id's fallback to a direct join.
@@ -237,7 +274,12 @@ func (c *Controller) lobbyState(id ID, l Lobby) {
 	if c.state.Session != id || c.cur == nil || c.cur.id != id {
 		return
 	}
+	var link LobbyLink // kept: the engine's STATE doesn't carry it
+	if c.state.Lobby != nil {
+		link = c.state.Lobby.Link
+	}
 	c.state.Lobby = l.clone()
+	c.state.Lobby.Link = link
 	switch l.Phase {
 	case LobbyPhaseStarting:
 		c.state.Phase = Starting
@@ -250,6 +292,21 @@ func (c *Controller) lobbyState(id ID, l Lobby) {
 }
 
 func (o *output) LobbyState(l Lobby) { o.c.lobbyState(o.id, l) }
+
+func (o *output) LobbyLink(k LobbyLink) { o.c.lobbyLink(o.id, k) }
+
+// lobbyLink records run id's lobby connection health.
+func (c *Controller) lobbyLink(id ID, k LobbyLink) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.state.Session != id || c.cur == nil || c.cur.id != id || c.state.Lobby == nil {
+		return
+	}
+	l := c.state.Lobby.clone()
+	l.Link = k
+	c.state.Lobby = l
+	c.publish(Event{Kind: EventState, Session: id})
+}
 
 func (o *output) LobbyNotice(n Notice) {
 	o.c.publish(Event{Kind: EventLobbyNotice, Session: o.id, Notice: n, Text: n.Text})

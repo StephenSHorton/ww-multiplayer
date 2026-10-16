@@ -52,6 +52,8 @@ func Run(o Options) error {
 				freeConsole()
 			}
 			b.setDialogs(wailsDialogs{ctx})
+			b.setDesktop(func(s string) error { return wruntime.ClipboardSetText(ctx, s) },
+				func(u string) error { wruntime.BrowserOpenURL(ctx, u); return nil })
 			b.pump(ctx, func(ev EventView) { wruntime.EventsEmit(ctx, eventName, ev) })
 		},
 		OnBeforeClose: func(ctx context.Context) bool {
