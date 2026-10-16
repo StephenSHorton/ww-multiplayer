@@ -277,7 +277,7 @@ func TestLobbyJoinFailure(t *testing.T) {
 	c := New(e, Options{})
 	id, _ := c.JoinLobby(context.Background(), JoinOptions{Name: "Me", Addr: "h"})
 	st := c.Wait(id)
-	if !st.Failed || !strings.Contains(st.EndReason, "taken") {
+	if !st.Failed || !strings.Contains(st.EndReason, "taken") || st.Err != e.joinErr {
 		t.Fatalf("ended %+v", st)
 	}
 	if e.joined != 0 {
@@ -309,4 +309,41 @@ func TestLobbyNeedsLobbyEngine(t *testing.T) {
 	}
 	c.Leave()
 	c.Wait(id)
+}
+
+// TestLobbyLink: a lobby session starts connecting; the engine's LobbyLink
+// shows in State.Lobby.Link, a STATE keeps it, and a new session starts
+// connecting again with no Err.
+func TestLobbyLink(t *testing.T) {
+	e := newFakeLobby()
+	c := New(e, Options{})
+	id, err := c.JoinLobby(context.Background(), JoinOptions{Name: "Me", Addr: "h"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := c.Snapshot().Lobby.Link; l.State != LinkConnecting || l.Since.IsZero() {
+		t.Fatalf("first link = %+v", l)
+	}
+	out := e.out(t)
+	out.LobbyLink(LobbyLink{State: LinkConnecting, Attempts: 2, Err: "refused"})
+	if l := c.Snapshot().Lobby.Link; l.Attempts != 2 || l.Err != "refused" {
+		t.Fatalf("link = %+v", l)
+	}
+	out.LobbyLink(LobbyLink{State: LinkUp})
+	out.LobbyState(lobbyView(LobbyPhaseLobby, false))
+	if st := c.Snapshot(); st.Lobby.Link.State != LinkUp || st.Phase != InLobby {
+		t.Fatalf("a STATE lost the link: %+v", st.Lobby)
+	}
+	out.LobbyLink(LobbyLink{State: LinkReconnecting, Attempts: 1})
+	if st := c.Snapshot(); st.Lobby.Link.State != LinkReconnecting || len(st.Lobby.Members) != 2 {
+		t.Fatalf("reconnecting: %+v", st.Lobby)
+	}
+	c.Leave()
+	if st := c.Wait(id); st.Failed || st.Err != nil {
+		t.Fatalf("Leave ended with an error: %+v", st)
+	}
+	out.LobbyLink(LobbyLink{State: LinkUp}) // a late call from the ended run
+	if st := c.Snapshot(); st.Lobby.Link.State != LinkReconnecting {
+		t.Fatalf("a late LobbyLink changed the ended state: %+v", st.Lobby.Link)
+	}
 }

@@ -57,4 +57,8 @@ type Options struct {
 	// DolphinEnv is what the setup's Dolphin detection looks at; nil is
 	// dolphinenv.Host (this machine).
 	DolphinEnv func() dolphinenv.Env
+	// HostIPs lists this machine's addresses for the host's share card
+	// (package main's listHostIPs, what the CLI's host prints); nil lists
+	// none.
+	HostIPs func() []string
 }

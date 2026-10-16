@@ -112,7 +112,7 @@ func runGUI() {
 // internal/config, so the CLI can't read them (TestCLIReadsNoConfig). The
 // setup's patch runs the co-op tables step the `patch` command runs.
 func guiOptions(ctrl *session.Controller) gui.Options {
-	return gui.Options{Version: version, Controller: ctrl, Getenv: os.Getenv, CoopTables: cacheCoopTablesForPatch}
+	return gui.Options{Version: version, Controller: ctrl, Getenv: os.Getenv, CoopTables: cacheCoopTablesForPatch, HostIPs: listHostIPs}
 }
 
 // runTUI runs the Bubble Tea TUI (what no arguments opened before the app

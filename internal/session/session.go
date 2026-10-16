@@ -113,6 +113,11 @@ type State struct {
 	// Failed is set once Phase is Ended when the session ended on an
 	// error (the CLI exits 1 for it), not by Leave or a cancel.
 	Failed bool
+	// Err is the error the session ended on, once Phase is Ended and
+	// Failed, for a UI that tells the causes apart (a version mismatch,
+	// a taken name, a kick: errors.As on the network package's
+	// RejectError and LobbyNoticeError); nil otherwise.
+	Err error
 	// Coop is the session's co-op choices; Coop.On says the co-op
 	// commands and questions apply.
 	Coop CoopOptions
@@ -134,7 +139,11 @@ type HostOptions struct {
 	Color *playercolor.Color
 	// Port is the port the server listens on; 0 is the default (25565).
 	Port int
-	Coop CoopOptions
+	// ListenHost is the address a lobby host's server listens on
+	// (HostLobby only); "" is every interface, which LAN and VPN
+	// friends need. Tests and local checks set "127.0.0.1".
+	ListenHost string
+	Coop       CoopOptions
 }
 
 // JoinOptions configures Controller.Join.

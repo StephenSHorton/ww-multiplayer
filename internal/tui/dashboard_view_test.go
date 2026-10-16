@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/redact"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -77,12 +78,13 @@ func TestDashboardView_FitsTerminal(t *testing.T) {
 				// for a host, every IP to share.
 				head := plain(lines[0])
 				if role == "Host" {
-					for _, want := range []string{"Hosting", "Link", "192.168.1.10", "10.0.0.5"} {
+					// Masked by default (internal/redact).
+					for _, want := range []string{"Hosting", "Link", "•••.•••.•••.10", "•••.•••.•••.5"} {
 						if !strings.Contains(head, want) {
 							t.Errorf("header row missing %q: %q", want, head)
 						}
 					}
-				} else if !strings.Contains(head, "Joining") || !strings.Contains(head, "192.168.1.10") {
+				} else if !strings.Contains(head, "Joining") || !strings.Contains(head, "•••.•••.•••.10") {
 					t.Errorf("header row should show Joining and the address: %q", head)
 				}
 				for _, want := range []string{"Status", "Players", "Log", "Chat", "NEWEST", "esc: back"} {
@@ -114,20 +116,31 @@ func TestDashboardView_FitsWithColor(t *testing.T) {
 			t.Fatal("expected styled output under the TrueColor profile")
 		}
 		lines := checkFits(t, out, sz[0], sz[1])
-		if head := plain(lines[0]); !strings.Contains(head, "Hosting") || !strings.Contains(head, "10.0.0.5") {
+		if head := plain(lines[0]); !strings.Contains(head, "Hosting") || !strings.Contains(head, "•••.•••.•••.5") {
 			t.Errorf("%dx%d: header row = %q, want the role and IPs", sz[0], sz[1], head)
 		}
 	}
 
 	// A header wrapped over several rows measures and fits the same way.
 	m.hostIPs = multiAdapterIPs
-	lines := checkFits(t, m.view(80, 24), 80, 24)
-	toks := headerTokens(lines)
-	for _, ip := range multiAdapterIPs {
-		if !toks[ip] {
-			t.Errorf("styled 80x24 header is missing host IP %s", ip)
+	for _, show := range []bool{false, true} {
+		m.showIPs = show
+		lines := checkFits(t, m.view(80, 24), 80, 24)
+		toks := headerTokens(lines)
+		for _, ip := range multiAdapterIPs {
+			if !toks[shownIP(ip, show)] {
+				t.Errorf("styled 80x24 header (showIPs %v) is missing host IP %s", show, shownIP(ip, show))
+			}
 		}
 	}
+}
+
+// shownIP is ip as the dashboard draws it: masked unless show.
+func shownIP(ip string, show bool) string {
+	if show {
+		return ip
+	}
+	return redact.Addr(ip)
 }
 
 // TestDashboardView_Minimap: hidden when it doesn't fit (80x24), stacked
@@ -308,22 +321,25 @@ func TestDashboardView_HeaderKeepsEveryHostIP(t *testing.T) {
 		sizes = append(sizes, [2]int{w, 40})
 	}
 	for _, sz := range sizes {
-		w, h := sz[0], sz[1]
-		m := busyDashboard("Host")
-		m.name = "LinkTheHeroOfTheWind" // nameMaxLen
-		m.hostIPs = multiAdapterIPs
-		lines := checkFits(t, m.view(w, h), w, h)
-		if head := plain(lines[0]); !strings.Contains(head, "Hosting") {
-			t.Errorf("%dx%d: top row should be the header, got %q", w, h, head)
-		}
-		toks := headerTokens(lines)
-		for _, ip := range multiAdapterIPs {
-			if !toks[ip] {
-				t.Errorf("%dx%d: header is missing host IP %s\n---\n%s", w, h, ip, plain(strings.Join(lines, "\n")))
+		for _, show := range []bool{false, true} {
+			w, h := sz[0], sz[1]
+			m := busyDashboard("Host")
+			m.name = "LinkTheHeroOfTheWind" // nameMaxLen
+			m.hostIPs = multiAdapterIPs
+			m.showIPs = show
+			lines := checkFits(t, m.view(w, h), w, h)
+			if head := plain(lines[0]); !strings.Contains(head, "Hosting") {
+				t.Errorf("%dx%d: top row should be the header, got %q", w, h, head)
 			}
-		}
-		if !toks["25565"] {
-			t.Errorf("%dx%d: header is missing the port", w, h)
+			toks := headerTokens(lines)
+			for _, ip := range multiAdapterIPs {
+				if !toks[shownIP(ip, show)] {
+					t.Errorf("%dx%d (showIPs %v): header is missing host IP %s\n---\n%s", w, h, show, shownIP(ip, show), plain(strings.Join(lines, "\n")))
+				}
+			}
+			if !toks["25565"] {
+				t.Errorf("%dx%d: header is missing the port", w, h)
+			}
 		}
 	}
 }
@@ -454,4 +470,40 @@ func TestDashboard_LongChatInputScrolls(t *testing.T) {
 			t.Errorf("last row should be the footer, got %q", plain(lines[len(lines)-1]))
 		}
 	})
+}
+
+// TestDashboardView_PeerNamesAndHostNamesMasked: with the switch off, a
+// peer named like an IP and a joined host name with an IP in it show no
+// address; with it on, both show as they are.
+func TestDashboardView_PeerNamesAndHostNamesMasked(t *testing.T) {
+	m := busyDashboard("Join")
+	m.addr = "x.26.12.34.56.nip.io:25570"
+	m.players = []session.Player{{ID: 2, Name: "192.168.0.5"}}
+	m.coopStatus = []session.CoopStatus{{Player: "10.1.2.3", State: "on", Writes: "writing"}}
+	out := plain(m.view(120, 30))
+	for _, raw := range []string{"26.12.34", "192.168.0.5", "10.1.2.3"} {
+		if strings.Contains(out, raw) {
+			t.Errorf("masked view shows %q:\n%s", raw, out)
+		}
+	}
+	for _, want := range []string{"x.•••.•••.•••.56.nip.io:25570", "•••.•••.•••.5", "•••.•••.•••.3"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("masked view lacks %q:\n%s", want, out)
+		}
+	}
+	m.questions = []session.Question{{Player: "10.9.8.7", Body: "Bind it for 10.9.8.7?"}}
+	if out := plain(m.view(120, 30)); strings.Contains(out, "10.9.8.7") || !strings.Contains(out, "for •••.•••.•••.7") {
+		t.Errorf("masked question:\n%s", out)
+	}
+	m.showIPs = true
+	out = plain(m.view(120, 30))
+	for _, raw := range []string{"x.26.12.34.56.nip.io:25570", "10.9.8.7"} {
+		if !strings.Contains(out, raw) {
+			t.Errorf("shown view lacks %q:\n%s", raw, out)
+		}
+	}
+	m.questions = nil
+	if out := plain(m.view(120, 30)); !strings.Contains(out, "192.168.0.5") {
+		t.Errorf("shown view lacks the peer's name:\n%s", out)
+	}
 }

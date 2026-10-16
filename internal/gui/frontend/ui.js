@@ -55,3 +55,62 @@ export function shade(hex, f) {
 	const r = ch((n >> 16) & 255), g = ch((n >> 8) & 255), b = ch(n & 255);
 	return "#" + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1).toUpperCase();
 }
+
+// ---------- the dialog ----------
+//
+// One modal dialog at a time (the page's <dialog id="dlg">), as a leafy
+// panel with a bark plaque. openDialog({title, text, detail, actions})
+// shows it; each action is {label, primary, danger, run}, and the dialog
+// closes before run unless keep is set. Escape closes it like the last
+// action labelled Cancel / OK would, without running anything.
+
+let dlgOnClose = null;
+
+export function openDialog({ title, text, detail = "", actions = [], key = null, onClose = null }) {
+	const d = $("dlg");
+	$("dlg-title").textContent = title;
+	$("dlg-text").textContent = text;
+	$("dlg-detail").textContent = detail;
+	const row = $("dlg-actions");
+	row.replaceChildren(...actions.map((a) => el("button", {
+		type: "button", class: "btn" + (a.primary ? " primary" : "") + (a.danger ? " danger" : ""),
+		onclick: () => {
+			if (!a.keep) closeDialog();
+			if (a.run) a.run();
+		},
+	}, a.label)));
+	d.dataset.key = key || "";
+	dlgOnClose = onClose;
+	if (!d.open) d.showModal();
+	const first = row.querySelector(".primary") || row.querySelector("button");
+	if (first) first.focus();
+}
+
+// closeDialog closes the dialog (and calls its onClose once).
+export function closeDialog() {
+	const d = $("dlg");
+	if (d.open) d.close();
+}
+
+// dialogKey is the key of the open dialog ("" for none or a local one).
+export function dialogKey() {
+	const d = $("dlg");
+	return d.open ? d.dataset.key : "";
+}
+
+// setDialogText redraws the open dialog's text and detail (a live one's
+// detail changes, and both are masked again when the switch goes off).
+export function setDialogText(text, detail) {
+	$("dlg-text").textContent = text;
+	$("dlg-detail").textContent = detail;
+}
+
+export function initDialog() {
+	$("dlg").addEventListener("close", () => {
+		if ($("dlg").open) return; // closed and opened again before this event
+		const f = dlgOnClose;
+		dlgOnClose = null;
+		$("dlg").dataset.key = "";
+		if (f) f();
+	});
+}

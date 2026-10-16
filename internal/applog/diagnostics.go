@@ -3,6 +3,8 @@ package applog
 import (
 	"fmt"
 	"strings"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/redact"
 )
 
 // Diagnostics is what "Help → Copy diagnostics" puts on the clipboard:
@@ -21,17 +23,20 @@ type Diagnostics struct {
 	Log []string
 }
 
-// Text renders d as plain text, every line redacted with r. Empty fields
-// read "unknown"; the log is cut to its newest TailLines lines.
+// Text renders d as plain text, every line redacted with r and its IP
+// addresses masked (redact.Text), since the report is made to be pasted into
+// a public issue. Empty fields read "unknown"; the log is cut to its newest
+// TailLines lines.
 func (d Diagnostics) Text(r Redactor) string {
 	var b strings.Builder
+	clean := func(s string) string { return redact.Text(r.Redact(s)) }
 	val := func(s string) string {
 		if strings.TrimSpace(s) == "" {
 			return "unknown"
 		}
 		return s
 	}
-	line := func(k, v string) { fmt.Fprintf(&b, "%-16s %s\n", k+":", r.Redact(val(v))) }
+	line := func(k, v string) { fmt.Fprintf(&b, "%-16s %s\n", k+":", clean(val(v))) }
 	b.WriteString("WW Multiplayer diagnostics\n")
 	line("app", d.App)
 	line("os", d.OS)
@@ -42,7 +47,7 @@ func (d Diagnostics) Text(r Redactor) string {
 	if len(d.Status) > 0 {
 		b.WriteString("\nco-op status:\n")
 		for _, s := range d.Status {
-			b.WriteString(r.Redact(s) + "\n")
+			b.WriteString(clean(s) + "\n")
 		}
 	}
 	logs := d.Log
@@ -51,7 +56,7 @@ func (d Diagnostics) Text(r Redactor) string {
 	}
 	fmt.Fprintf(&b, "\nlast %d log lines:\n", len(logs))
 	for _, s := range logs {
-		b.WriteString(r.Redact(s) + "\n")
+		b.WriteString(clean(s) + "\n")
 	}
 	return b.String()
 }

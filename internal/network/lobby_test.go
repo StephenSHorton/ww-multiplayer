@@ -397,6 +397,87 @@ func TestLobbyReconnectReclaimsSlot(t *testing.T) {
 	waitState(t, host, "other expired", func(st LobbyStateBody) bool { _, ok := rowOf(st, "Other"); return !ok })
 }
 
+// TestLobbyOnLink: Run reports a failed attempt (down, with the error),
+// the connect (up), a dropped connection (down, nil) and the reconnect
+// (up), and nothing once its ctx has ended.
+func TestLobbyOnLink(t *testing.T) {
+	type ev struct {
+		up  bool
+		err bool
+	}
+	var mu sync.Mutex
+	var evs []ev
+	record := func(up bool, err error) { mu.Lock(); evs = append(evs, ev{up, err != nil}); mu.Unlock() }
+	snapshot := func() []ev { mu.Lock(); defer mu.Unlock(); return append([]ev(nil), evs...) }
+
+	// Nobody listens yet: the first attempt fails.
+	fastNetTimers(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	l := NewLobbyClient("Joiner", LobbyHelloBody{})
+	l.OnLink = record
+	r := runLobby(t, l, addr)
+	if !waitFor(5*time.Second, func() bool { e := snapshot(); return len(e) > 0 }) {
+		t.Fatal("no OnLink for a failed attempt")
+	}
+	if e := snapshot()[0]; e.up || !e.err {
+		t.Fatalf("first OnLink = %+v, want down with an error", e)
+	}
+	r.cancel()
+	<-r.done
+	r.done <- nil
+
+	_, addr = listenLobby(t, 2*time.Second)
+	mu.Lock()
+	evs = nil
+	mu.Unlock()
+	l = NewLobbyClient("Joiner", LobbyHelloBody{})
+	l.OnLink = record
+	r = runLobby(t, l, addr)
+	if !waitFor(5*time.Second, func() bool { e := snapshot(); return len(e) == 1 && e[0].up }) {
+		t.Fatalf("OnLink after connecting = %+v, want one up", snapshot())
+	}
+	l.Client().Disconnect()
+	if !waitFor(5*time.Second, func() bool { e := snapshot(); return len(e) >= 3 && e[len(e)-1].up }) {
+		t.Fatalf("OnLink after a drop = %+v, want down then up", snapshot())
+	}
+	if e := snapshot()[1]; e.up || e.err {
+		t.Fatalf("OnLink for the drop = %+v, want down without an error", e)
+	}
+	n := len(snapshot())
+	r.cancel()
+	<-r.done
+	r.done <- nil
+	time.Sleep(50 * time.Millisecond)
+	if got := len(snapshot()); got != n {
+		t.Fatalf("OnLink called after Run's ctx ended: %+v", snapshot())
+	}
+
+	// A fatal answer (a pre-lobby host's RejectRole, a protocol-1 host's
+	// version mismatch) ends Run and is no link change: the UI must not
+	// show "Can't reach the host" for it.
+	for _, srv := range []func(net.Conn){preLobbyServer, v030Server} {
+		mu.Lock()
+		evs = nil
+		mu.Unlock()
+		l = NewLobbyClient("Joiner", LobbyHelloBody{})
+		l.OnLink = record
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := l.Run(ctx, serveOnce(t, srv), nil)
+		cancel()
+		if !errors.Is(err, ErrFatal) {
+			t.Fatalf("Run = %v, want a fatal error", err)
+		}
+		if e := snapshot(); len(e) != 0 {
+			t.Fatalf("OnLink for a fatal answer = %+v, want none", e)
+		}
+	}
+}
+
 // TestLobbyHostRestart: the host's server restarts. Both lobby clients
 // reconnect on their own to a fresh lobby (phase lobby, nobody ready), the
 // host is host again and each keeps the color it had.

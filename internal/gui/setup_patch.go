@@ -194,7 +194,8 @@ func (b *Bridge) PatchStatus() PatchView {
 // how far it got. A disc this build already patched is taken as it is. On
 // success the config's patched disc (and, for a disc patched now, the
 // vanilla one) is saved.
-func (b *Bridge) StartPatch(r PatchRequest) error {
+func (b *Bridge) StartPatch(r PatchRequest) (err error) {
+	defer b.maskErr(&err)
 	in := cleanPath(r.Path)
 	if in == "" {
 		return errors.New("choose your Wind Waker disc image first")

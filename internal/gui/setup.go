@@ -217,7 +217,8 @@ func (b *Bridge) Setup() SetupView {
 }
 
 // SaveProfile saves the first step: the player's name and tunic color.
-func (b *Bridge) SaveProfile(r ProfileRequest) error {
+func (b *Bridge) SaveProfile(r ProfileRequest) (err error) {
+	defer b.maskErr(&err)
 	name, err := checkName(r.Name)
 	if err != nil {
 		return err
@@ -239,7 +240,8 @@ func (b *Bridge) SaveProfile(r ProfileRequest) error {
 // CheckColor reads a custom color ("#RRGGBB" or a palette name) and says
 // which palette color it is, if any. Players may share a color (owner
 // decision, 2026-10-16), so nothing is said about colors close to others.
-func (b *Bridge) CheckColor(s string) (ColorCheckView, error) {
+func (b *Bridge) CheckColor(s string) (_ ColorCheckView, err error) {
+	defer b.maskErr(&err)
 	c, err := playercolor.Parse(strings.TrimSpace(s))
 	if err != nil {
 		return ColorCheckView{}, err
@@ -253,7 +255,8 @@ func (b *Bridge) CheckColor(s string) (ColorCheckView, error) {
 // "dolphin" (Dolphin's program) or "userdir" (a folder). It returns "" when
 // the user cancels. The window only: ui --browser doesn't serve it
 // (browserMethods), and the frontend asks for a typed path there.
-func (b *Bridge) PickFile(kind string) (string, error) {
+func (b *Bridge) PickFile(kind string) (_ string, err error) {
+	defer b.maskErr(&err)
 	d := b.dialogs()
 	if d == nil {
 		return "", errors.New("there is no file dialog here; type the path")
@@ -347,7 +350,8 @@ func (b *Bridge) UserDirFor(exe string) string {
 // SetDolphin saves the Dolphin to launch and its user folder ("" is the
 // one that Dolphin uses: <exe dir>\User when portable, else Dolphin's
 // default). A macOS Dolphin.app is taken as its program inside.
-func (b *Bridge) SetDolphin(r DolphinRequest) error {
+func (b *Bridge) SetDolphin(r DolphinRequest) (err error) {
+	defer b.maskErr(&err)
 	exe := dolphinProgram(r.Exe)
 	if exe == "" {
 		return errors.New("choose Dolphin's program first")
@@ -368,7 +372,8 @@ func (b *Bridge) SetDolphin(r DolphinRequest) error {
 }
 
 // FinishSetup records that the setup was finished ("You're set").
-func (b *Bridge) FinishSetup() error {
+func (b *Bridge) FinishSetup() (err error) {
+	defer b.maskErr(&err)
 	b.mu.Lock()
 	b.cfg.UI.SetupDone = true
 	b.mu.Unlock()

@@ -3,7 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"runtime"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
@@ -34,7 +38,11 @@ func (e *sessionEngine) HostLobby(ctx context.Context, cancel context.CancelFunc
 		port = defaultPort
 	}
 	srv := network.NewServer(port)
+	srv.ListenHost = o.ListenHost
 	srv.OnLog = func(msg string) {
+		if strings.HasPrefix(msg, "[Chat] ") {
+			return // the lobby connection delivers it as a chat line
+		}
 		out.Log(report.Info, fmt.Sprintf("[srv %s] %s", time.Now().Format("15:04:05"), msg))
 	}
 	if err := srv.Start(); err != nil {
@@ -45,7 +53,18 @@ func (e *sessionEngine) HostLobby(ctx context.Context, cancel context.CancelFunc
 	for _, ip := range shareAddrs(listHostIPs(), port) {
 		report.Logf(out, report.Info, "  %s", ip)
 	}
-	return e.runLobby(ctx, fmt.Sprintf("localhost:%d", port), name, o.Color, out)
+	return e.runLobby(ctx, hostDialAddr(o.ListenHost, port), name, o.Color, out)
+}
+
+// hostDialAddr is where the host's own lobby client reaches its server:
+// the address the server listens on alone (WW_LISTEN_HOST), else
+// localhost when it listens on every interface.
+func hostDialAddr(listenHost string, port int) string {
+	dial := "localhost"
+	if h := strings.Trim(listenHost, "[]"); h != "" && h != "0.0.0.0" && h != "::" {
+		dial = h
+	}
+	return net.JoinHostPort(dial, strconv.Itoa(port))
 }
 
 // JoinLobby joins the lobby at o.Addr. A host from before the lobby refuses
@@ -87,6 +106,7 @@ func (e *sessionEngine) runLobby(ctx context.Context, addr, name string, color *
 	lc.OnStart = func(b network.LobbyStartBody) { out.LobbyStart(lobbySettings(b.Settings)) }
 	lc.OnGo = func(b network.LobbyGoBody) { out.LobbyGo(b.World) }
 	lc.OnRequest = func(b network.LobbyRequestBody) { out.LobbyRequest(b.Kind, b.From) }
+	lc.OnLink = linkTracker(out.LobbyLink, time.Now)
 
 	e.mu.Lock()
 	e.lobby = lc
@@ -102,6 +122,33 @@ func (e *sessionEngine) runLobby(ctx context.Context, addr, name string, color *
 	connLog := network.NewConnectLog(addr, func(s string) { out.Log(report.Warn, s) }, func(s string) { out.Log(report.OK, s) })
 	connLog.Fatal = func(string) {}
 	return lc.Run(ctx, addr, connLog)
+}
+
+// linkTracker turns a LobbyClient's OnLink calls into the controller's
+// LobbyLink: connecting until the first WELCOME, then up, and
+// reconnecting from a drop until the next WELCOME, counting the failed
+// attempts on the way.
+func linkTracker(report func(session.LobbyLink), now func() time.Time) func(up bool, err error) {
+	var mu sync.Mutex
+	link := session.LobbyLink{State: session.LinkConnecting, Since: now()}
+	return func(up bool, err error) {
+		mu.Lock()
+		switch {
+		case up:
+			link = session.LobbyLink{State: session.LinkUp}
+		case link.State == session.LinkUp:
+			link = session.LobbyLink{State: session.LinkReconnecting, Since: now()}
+			if err != nil { // the reconnect's first attempt failed without a drop seen
+				link.Attempts, link.Err = 1, err.Error()
+			}
+		case err != nil:
+			link.Attempts++
+			link.Err = err.Error()
+		}
+		k := link
+		mu.Unlock()
+		report(k)
+	}
 }
 
 func (e *sessionEngine) lobbyClient() *network.LobbyClient {

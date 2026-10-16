@@ -45,7 +45,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	c.Dolphin = Dolphin{Exe: `C:\Dolphin\Dolphin.exe`, UserDir: `C:\u`, LaunchOnStart: false, InstallCheats: true}
 	c.ISO = ISO{Patched: "p.iso", Vanilla: "v.ciso"}
 	c.Coop = Coop{LastMode: "continue", LastWorld: "3fa9000000000000", DryRun: true}
-	c.UI = UI{Window: Window{W: 1280, H: 800}, SetupDone: true}
+	c.UI = UI{Window: Window{W: 1280, H: 800}, SetupDone: true, ShowIPs: true}
 	c.AddRecentHost("26.12.3.4", "Radmin", time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC))
 	if err := c.Save(path); err != nil {
 		t.Fatal(err)
@@ -360,4 +360,19 @@ func FuzzParse(f *testing.F) {
 			t.Fatalf("not stable: %v\n%s\n%s", err, out, out2)
 		}
 	})
+}
+
+// TestShowIPs: the app masks IP addresses unless the player turned the
+// "Show IP addresses" switch on (owner decision 2026-10-16), so a new or
+// older config has it off.
+func TestShowIPs(t *testing.T) {
+	if Defaults().UI.ShowIPs {
+		t.Fatal("Show IP addresses is on by default")
+	}
+	if c, warns := Parse([]byte(`{"ui": {"setupDone": true}}`)); c.UI.ShowIPs || len(warns) != 0 {
+		t.Fatalf("a config without showIPs: %v %v", c.UI.ShowIPs, warns)
+	}
+	if c, warns := Parse([]byte(`{"ui": {"showIPs": true}}`)); !c.UI.ShowIPs || len(warns) != 0 {
+		t.Fatalf("showIPs true: %v %v", c.UI.ShowIPs, warns)
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
+	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
@@ -89,6 +91,28 @@ type Bridge struct {
 	emu      sync.Mutex // guards emitters
 	emitters map[int]func(EventView)
 	emitSeq  int
+
+	// The Lobby screen's seams (lobby.go): this machine's addresses, and
+	// the window's clipboard and browser (nil in a browser, where the
+	// page uses its own).
+	hostIPs   func() []string
+	clipMu    sync.Mutex // guards clipboard, openURL
+	clipboard func(string) error
+	openURL   func(string) error
+
+	sessMu   sync.Mutex   // guards hostPort, lastJoin, joining
+	hostPort int          // the port the last Host listens on
+	lastJoin *JoinRequest // the last Join, for Retry
+	// joining is the running join's address until it reaches the host,
+	// when it becomes a recent host: a typo or an unreachable address
+	// never does.
+	joining *pendingHost
+}
+
+// pendingHost is a join's address, waiting to reach its host.
+type pendingHost struct {
+	session session.ID
+	addr    string
 }
 
 // NewBridge returns the Bridge for o. Call close when the app ends.
@@ -97,7 +121,7 @@ func NewBridge(o Options) *Bridge {
 		coopTables: o.CoopTables, patchRun: patch.Run, inspect: patch.Inspect, denv: o.DolphinEnv,
 		home:      func() string { h, _ := os.UserHomeDir(); return h },
 		macStatus: macStatusHere, prepareMac: dolphinenv.PrepareMacHere,
-		emitters: map[int]func(EventView){}}
+		emitters: map[int]func(EventView){}, hostIPs: o.HostIPs}
 	if b.getenv == nil {
 		b.getenv = func(string) string { return "" }
 	}
@@ -127,13 +151,17 @@ func (b *Bridge) Info() InfoView {
 	v := InfoView{
 		Version: b.version, OS: runtime.GOOS, Palette: paletteView(),
 		Name: eff.Name, Port: eff.Port, MaxName: MaxNameLen, Warnings: warns,
-		RecentHosts: []RecentHostView{},
+		RecentHosts: []RecentHostView{}, DownloadsURL: DownloadsURL, ShowIPs: cfg.UI.ShowIPs,
 	}
 	if c, err := playercolor.Parse(eff.Color); err == nil && eff.Color != "" {
 		v.Color = c.Hex()
 	}
 	for _, h := range eff.RecentHosts {
-		v.RecentHosts = append(v.RecentHosts, RecentHostView{Addr: h.Addr, Label: h.Label})
+		label := h.Label
+		if label == "" {
+			label = addrLabel(h.Addr)
+		}
+		v.RecentHosts = append(v.RecentHosts, RecentHostView{Addr: h.Addr, Masked: hideIPs.addr(h.Addr), Label: label})
 	}
 	return v
 }
@@ -142,11 +170,59 @@ func (b *Bridge) Info() InfoView {
 func (b *Bridge) State() StateView {
 	st := b.ctrl.Snapshot()
 	running := st.Session != 0 && st.Phase != session.Ended && st.Phase != session.Idle
-	return stateView(st, running)
+	b.noteReached(st)
+	return stateView(st, running, b.version, b.now(), b.masker())
+}
+
+// masker is how the window shows IP addresses now: masked, unless the
+// "Show IP addresses" switch is on.
+func (b *Bridge) masker() masker {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return masker{show: b.cfg.UI.ShowIPs}
+}
+
+// maskErr masks the IPs in *err as the window shows them (masker.text),
+// unless the switch is on. Every exported method that returns an error
+// defers it first (TestBridgeErrorsMasked checks they all do): an error
+// reaches the page as a toast or a form's message, and a network one
+// names both ends ("write tcp 192.168.1.5:51234->192.168.1.42:25565:
+// ..."). errors.Is and errors.As still see the error it masks.
+func (b *Bridge) maskErr(err *error) {
+	if *err == nil {
+		return
+	}
+	if msg := b.masker().text((*err).Error()); msg != (*err).Error() {
+		*err = maskedError{msg: msg, err: *err}
+	}
+}
+
+// quoted is a "%q" in an error message.
+var quoted = regexp.MustCompile(`"[^"]*"`)
+
+// maskedError is an error with its IPs masked (maskErr).
+type maskedError struct {
+	msg string
+	err error
+}
+
+func (e maskedError) Error() string { return e.msg }
+func (e maskedError) Unwrap() error { return e.err }
+
+// SetShowIPs sets the header's "Show IP addresses" switch and saves it.
+// On, the window masks nothing; off (the default), every IP it shows is
+// masked. Every page gets a "settings" event to draw itself again.
+func (b *Bridge) SetShowIPs(on bool) {
+	b.mu.Lock()
+	b.cfg.UI.ShowIPs = on
+	b.mu.Unlock()
+	b.save()
+	b.emit(EventView{Kind: "settings", Time: b.now().UTC().Format(time.RFC3339Nano)})
 }
 
 // Host starts a session that hosts a lobby on this machine.
-func (b *Bridge) Host(r HostRequest) error {
+func (b *Bridge) Host(r HostRequest) (err error) {
+	defer b.maskErr(&err)
 	name, err := checkName(r.Name)
 	if err != nil {
 		return err
@@ -158,19 +234,38 @@ func (b *Bridge) Host(r HostRequest) error {
 	if r.Port < 0 || r.Port > 65535 {
 		return fmt.Errorf("port %d is out of range (1-65535)", r.Port)
 	}
-	if _, err := b.ctrl.HostLobby(b.ctx, session.HostOptions{Name: name, Color: col, Port: r.Port}); err != nil {
+	port := r.Port
+	if port == 0 {
+		port = config.DefaultPort
+	}
+	listen := strings.TrimSpace(b.getenv(EnvListenHost))
+	if _, err := b.ctrl.HostLobby(b.ctx, session.HostOptions{Name: name, Color: col, Port: port, ListenHost: listen}); err != nil {
 		return err
 	}
+	b.sessMu.Lock()
+	b.hostPort = port
+	b.sessMu.Unlock()
 	b.remember(name, col, "", r.Port)
 	return nil
 }
 
 // Join starts a session in the lobby of the host at r.Addr (joined
 // directly when the host has no lobby).
-func (b *Bridge) Join(r JoinRequest) error {
+func (b *Bridge) Join(r JoinRequest) (err error) {
+	defer b.maskErr(&err)
 	addr := strings.TrimSpace(r.Addr)
 	if addr == "" {
 		return errors.New("type the host's address (the one its window shows)")
+	}
+	// As the TUI's Connect does: a typo never reaches the header, the log
+	// or a dialog. The error quotes what was typed, masked as an address
+	// (it may be most of an IP, or a host name with one in it).
+	if err := netutil.ValidateAddr(addr); err != nil {
+		msg := "Bad address: " + err.Error()
+		if mk := b.masker(); !mk.show {
+			msg = quoted.ReplaceAllStringFunc(msg, func(q string) string { return `"` + mk.addr(q[1:len(q)-1]) + `"` })
+		}
+		return errors.New(msg)
 	}
 	name, err := checkName(r.Name)
 	if err != nil {
@@ -180,18 +275,119 @@ func (b *Bridge) Join(r JoinRequest) error {
 	if err != nil {
 		return err
 	}
-	if _, err := b.ctrl.JoinLobby(b.ctx, session.JoinOptions{Addr: addr, Name: name, Color: col}); err != nil {
+	id, err := b.ctrl.JoinLobby(b.ctx, session.JoinOptions{Addr: addr, Name: name, Color: col})
+	if err != nil {
 		return err
 	}
-	b.remember(name, col, addr, 0)
+	b.sessMu.Lock()
+	b.lastJoin = &JoinRequest{Addr: addr, Name: name, Color: r.Color}
+	b.joining = &pendingHost{session: id, addr: addr}
+	b.sessMu.Unlock()
+	b.remember(name, col, "", 0)
+	b.noteReached(b.ctrl.Snapshot())
 	return nil
+}
+
+// noteReached saves the running join's address as a recent host once st
+// shows it reached the host (its lobby, or a pre-lobby host joined
+// directly).
+func (b *Bridge) noteReached(st session.State) {
+	b.sessMu.Lock()
+	p := b.joining
+	reached := p != nil && st.Session == p.session && st.Lobby != nil &&
+		(st.Lobby.Link.State == session.LinkUp || st.Lobby.Legacy || st.Phase == session.InLobby)
+	if reached {
+		b.joining = nil
+	}
+	b.sessMu.Unlock()
+	if !reached {
+		return
+	}
+	b.mu.Lock()
+	b.cfg.AddRecentHost(p.addr, "", b.now())
+	b.mu.Unlock()
+	b.save()
+}
+
+// Retry leaves the running session, if any, and joins the last Join's
+// host again (the "Can't reach the host" dialog's Retry: a fresh first
+// attempt instead of waiting out the backoff).
+func (b *Bridge) Retry() (err error) {
+	defer b.maskErr(&err)
+	b.sessMu.Lock()
+	last := b.lastJoin
+	b.sessMu.Unlock()
+	if last == nil {
+		return errors.New("there is no join to retry")
+	}
+	b.ctrl.Leave()
+	return b.Join(*last)
+}
+
+// Kick removes a member (or a CLI player's row) from the lobby; host
+// only. The frontend asks first.
+func (b *Bridge) Kick(member int) (err error) {
+	defer b.maskErr(&err)
+	return b.ctrl.Kick(member)
+}
+
+// ShareAddrs is the host's share card: the session's port and this
+// machine's addresses with it, labeled LAN, Radmin VPN, Tailscale or
+// Other. It is empty (port 0) unless this player hosts the running
+// session.
+func (b *Bridge) ShareAddrs() ShareView {
+	st := b.ctrl.Snapshot()
+	if st.Role != session.RoleHost || !b.running() || b.hostIPs == nil {
+		return ShareView{Addrs: []ShareAddrView{}}
+	}
+	b.sessMu.Lock()
+	port := b.hostPort
+	b.sessMu.Unlock()
+	if port == 0 {
+		port = config.DefaultPort
+	}
+	return ShareView{Port: port, Addrs: shareAddrs(b.hostIPs(), port)}
+}
+
+// Copy puts text on the clipboard (the window's; a browser page copies
+// itself, so ui --browser doesn't serve this).
+func (b *Bridge) Copy(text string) (err error) {
+	defer b.maskErr(&err)
+	b.clipMu.Lock()
+	f := b.clipboard
+	b.clipMu.Unlock()
+	if f == nil {
+		return errors.New("this window has no clipboard")
+	}
+	return f(text)
+}
+
+// OpenDownloads opens the releases page in the user's browser (the
+// window's; a browser page opens it itself).
+func (b *Bridge) OpenDownloads() (err error) {
+	defer b.maskErr(&err)
+	b.clipMu.Lock()
+	f := b.openURL
+	b.clipMu.Unlock()
+	if f == nil {
+		return errors.New("this window can't open a browser")
+	}
+	return f(DownloadsURL)
+}
+
+// setDesktop gives the Bridge the window's clipboard and browser.
+func (b *Bridge) setDesktop(clipboard, openURL func(string) error) {
+	b.clipMu.Lock()
+	b.clipboard, b.openURL = clipboard, openURL
+	b.clipMu.Unlock()
 }
 
 // Leave ends the running session and returns once it has torn down.
 func (b *Bridge) Leave() { b.ctrl.Leave() }
 
 // SetColor asks the lobby for a tunic color.
-func (b *Bridge) SetColor(color string) error {
+func (b *Bridge) SetColor(color string) (err error) {
+	defer b.maskErr(&err)
 	c, err := playercolor.Parse(color)
 	if err != nil {
 		return err
@@ -207,15 +403,28 @@ func (b *Bridge) SetColor(color string) error {
 }
 
 // SetReady sets this player's ready flag in the lobby.
-func (b *Bridge) SetReady(ready bool) error { return b.ctrl.SetReady(ready) }
+func (b *Bridge) SetReady(ready bool) (err error) {
+	defer b.maskErr(&err)
+	return b.ctrl.SetReady(ready)
+}
 
-// SendChat sends a chat line to the session.
-func (b *Bridge) SendChat(text string) error {
+// SendChat sends a chat line to the session and returns it as the chat
+// panel shows it (its IPs masked unless the switch is on): the host
+// relays a line to everyone but its sender, so the page echoes this.
+// An empty line sends nothing and returns an empty Text.
+func (b *Bridge) SendChat(text string) (_ EventView, err error) {
+	defer b.maskErr(&err)
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return nil
+		return EventView{Kind: "chat"}, nil
 	}
-	return b.ctrl.SendChat(text)
+	if err := b.ctrl.SendChat(text); err != nil {
+		return EventView{}, err
+	}
+	st := b.ctrl.Snapshot()
+	v := eventView(session.Event{Kind: session.EventChat, Session: st.Session, Time: b.now(), Text: text}, b.masker())
+	v.From = st.Name // this player's own name: not masked, as its lobby row
+	return v, nil
 }
 
 // checkName trims and validates a player name with the wire's rules and
@@ -303,7 +512,7 @@ func (b *Bridge) pump(ctx context.Context, emit func(EventView)) <-chan struct{}
 				if !ok {
 					return
 				}
-				emit(eventView(ev))
+				emit(eventView(ev, b.masker()))
 			}
 		}
 	}()

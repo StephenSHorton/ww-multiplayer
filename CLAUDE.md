@@ -40,6 +40,7 @@ ww-multiplayer/
 │   ├── network/                 # TCP server/client, protocol + handshake, lobby, co-op channel, timing knobs (netconfig.go)
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors)
 │   ├── playercolor/             # Tunic color palette + --color / WW_COLOR parsing (docs/09)
+│   ├── redact/                  # IP masking for what the GUI and TUI draw (fixed-width •••.•••.•••.42); the CLI prints addresses unmasked
 │   ├── report/                  # Reporter interface (Stdout / Discard / Multi)
 │   │   └── report.go, multi.go
 │   ├── session/                 # UI-free session controller the CLI host/join, the TUI and the GUI drive (docs/01-architecture.md)
@@ -119,6 +120,7 @@ WW_LINK2_OFFSET_{X,Y,Z}                     # Loopback render offset (default 0)
 WW_COLOR=<color>                            # Default tunic color when --color isn't given (docs/09)
 WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/join) leaves the tunic slots to the tunic-slot dev command
 WW_MINIMAP_SCALE=<f>                        # TUI minimap world units per cell (default 10)
+WW_LISTEN_HOST=<addr>                       # App only: a hosted lobby's server listens on <addr> alone (local checks: 127.0.0.1)
 WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT_SECS /
   WW_MIN_SESSION_SECS / WW_WRITE_TIMEOUT_SECS / WW_FREEZE_SECS / WW_DESPAWN_SECS
                                             # Network timing knobs; defaults 5/15/8/5/1/10/2/5 s (internal/network/netconfig.go)

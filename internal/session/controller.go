@@ -134,6 +134,7 @@ func (c *Controller) start(parent context.Context, st State, body func(context.C
 		c.mu.Lock()
 		c.cur = nil
 		c.state.Phase, c.state.EndReason, c.state.Failed = Ended, reason, err != nil
+		c.state.Err = err
 		c.publish(Event{Kind: EventEnded, Session: r.id, Text: reason})
 		c.publish(Event{Kind: EventState, Session: r.id})
 		c.mu.Unlock()

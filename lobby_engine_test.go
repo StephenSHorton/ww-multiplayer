@@ -187,6 +187,7 @@ func (o *recOutput) LobbyNotice(session.Notice)                 {}
 func (o *recOutput) LobbyStart(session.LobbySettings)           {}
 func (o *recOutput) LobbyGo(string)                             {}
 func (o *recOutput) LobbyRequest(string, string)                {}
+func (o *recOutput) LobbyLink(session.LobbyLink)                {}
 
 func waitForCond(cond func() bool) bool {
 	deadline := time.Now().Add(5 * time.Second)
@@ -232,5 +233,60 @@ func TestLobbyViewHostFromState(t *testing.T) {
 	st.Members[0].Host = false
 	if l := lobbyView(st, network.LobbyWelcomeBody{Member: 2, Host: true}); l.Host {
 		t.Fatalf("lobbyView %+v: still host", l)
+	}
+}
+
+// TestLinkTracker: the engine's lobby link goes connecting (counting
+// failed attempts) -> up -> reconnecting on a drop (counting again) -> up.
+func TestLinkTracker(t *testing.T) {
+	var got []session.LobbyLink
+	t0 := time.Unix(1000, 0)
+	now := t0
+	on := linkTracker(func(k session.LobbyLink) { got = append(got, k) }, func() time.Time { return now })
+	refused := errors.New("connection refused")
+
+	on(false, refused)
+	on(false, refused)
+	if k := got[len(got)-1]; k.State != session.LinkConnecting || k.Attempts != 2 || k.Err != "connection refused" || !k.Since.Equal(t0) {
+		t.Fatalf("after two failed attempts: %+v", k)
+	}
+	on(true, nil)
+	if k := got[len(got)-1]; k.State != session.LinkUp || k.Attempts != 0 || k.Err != "" {
+		t.Fatalf("after connecting: %+v", k)
+	}
+	now = t0.Add(time.Minute)
+	on(false, nil)
+	if k := got[len(got)-1]; k.State != session.LinkReconnecting || k.Attempts != 0 || !k.Since.Equal(now) {
+		t.Fatalf("after a drop: %+v", k)
+	}
+	on(false, refused)
+	if k := got[len(got)-1]; k.State != session.LinkReconnecting || k.Attempts != 1 || !k.Since.Equal(now) {
+		t.Fatalf("a failed reconnect: %+v", k)
+	}
+	on(true, nil)
+	if k := got[len(got)-1]; k.State != session.LinkUp {
+		t.Fatalf("reconnected: %+v", k)
+	}
+}
+
+// TestHostDialAddr: the host's own lobby client dials the one address its
+// server listens on, and localhost when it listens everywhere.
+func TestHostDialAddr(t *testing.T) {
+	for _, c := range []struct {
+		listen string
+		want   string
+	}{
+		{"", "localhost:25565"},
+		{"0.0.0.0", "localhost:25565"},
+		{"::", "localhost:25565"},
+		{"[::]", "localhost:25565"},
+		{"127.0.0.1", "127.0.0.1:25565"},
+		{"192.168.1.5", "192.168.1.5:25565"},
+		{"::1", "[::1]:25565"},
+		{"[::1]", "[::1]:25565"},
+	} {
+		if got := hostDialAddr(c.listen, 25565); got != c.want {
+			t.Errorf("hostDialAddr(%q) = %q, want %q", c.listen, got, c.want)
+		}
 	}
 }
