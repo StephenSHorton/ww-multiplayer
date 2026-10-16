@@ -99,19 +99,6 @@ func (l Lobby) clone() *Lobby {
 	return &l
 }
 
-// ColorReply is the host's answer to a color request it didn't grant as
-// asked (EventLobbyColor). Granted: the host chose Color for us (at
-// join). Not granted: the request was refused and our color is unchanged.
-// Suggest is the nearest free color; ClashWith names who has the wanted
-// one.
-type ColorReply struct {
-	Granted   bool
-	Color     playercolor.Color
-	Wanted    playercolor.Color
-	ClashWith string
-	Suggest   playercolor.Color
-}
-
 // Notice is a lobby notice or refusal from the host (EventLobbyNotice):
 // Code is the wire's ("name_taken", "colors_locked", "kicked", ...).
 type Notice struct {
@@ -152,9 +139,8 @@ type LobbyOutput interface {
 	Output
 	// LobbyState passes the lobby's latest state (after every change).
 	LobbyState(l Lobby)
-	// LobbyColor, LobbyNotice, LobbyStart, LobbyGo and LobbyRequest pass
-	// the host's messages of those names.
-	LobbyColor(r ColorReply)
+	// LobbyNotice, LobbyStart, LobbyGo and LobbyRequest pass the host's
+	// messages of those names.
 	LobbyNotice(n Notice)
 	LobbyStart(s LobbySettings)
 	LobbyGo(world string)
@@ -265,10 +251,6 @@ func (c *Controller) lobbyState(id ID, l Lobby) {
 
 func (o *output) LobbyState(l Lobby) { o.c.lobbyState(o.id, l) }
 
-func (o *output) LobbyColor(r ColorReply) {
-	o.c.publish(Event{Kind: EventLobbyColor, Session: o.id, Color: r})
-}
-
 func (o *output) LobbyNotice(n Notice) {
 	o.c.publish(Event{Kind: EventLobbyNotice, Session: o.id, Notice: n, Text: n.Text})
 }
@@ -314,8 +296,8 @@ func (c *Controller) lobbyCmd(cmd LobbyCommand, host bool, check func(Lobby) err
 	return le.Lobby(cmd)
 }
 
-// SetColor asks the host for a tunic color. A clash comes back as
-// EventLobbyColor with a suggestion.
+// SetColor asks the host for a tunic color. It is always granted, even
+// when another player wears it; the new color arrives in the lobby state.
 func (c *Controller) SetColor(col playercolor.Color) error {
 	return c.lobbyCmd(LobbyCommand{Kind: LobbySetColor, Color: col}, false, func(l Lobby) error {
 		if l.Phase != LobbyPhaseLobby {

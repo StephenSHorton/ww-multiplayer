@@ -14,7 +14,7 @@ let info = null; // Bridge.Info
 let state = null; // Bridge.State
 let view = "home"; // "home" or "session"
 let session = 0; // the session the Session screen shows
-let homeColor = ""; // the Home form's color, "" = automatic
+let homeColor = ""; // the Home form's color, a "#RRGGBB"
 let left = false; // the user pressed Leave (no "ended" panel then)
 let busy = false;
 
@@ -43,30 +43,22 @@ function toast(text, { bad = false, actions = [] } = {}) {
 
 // ---------- color swatches ----------
 
-// swatches renders the palette into box. selected is a "#RRGGBB" or "";
-// taken maps a hex to the name of who has it; auto adds the "automatic"
-// choice.
-function swatches(box, selected, onPick, { auto = false, taken = {}, disabled = false } = {}) {
+// swatches renders the palette into box. selected is a "#RRGGBB". Any
+// color can be picked, whoever else wears it.
+function swatches(box, selected, onPick, { disabled = false } = {}) {
 	box.replaceChildren();
-	if (auto) {
-		box.append(el("button", {
-			type: "button", class: "swatch auto", role: "radio", title: "Automatic: the first color nobody has",
-			"aria-label": "automatic", "aria-checked": String(selected === ""), disabled, onclick: () => onPick(""),
-		}, el("i")));
-	}
 	for (const s of info.palette) {
-		const owner = taken[s.hex];
-		const label = s.name + (s.classic ? " (classic)" : "") + (owner ? ", taken by " + owner : "");
+		const label = s.name + (s.classic ? " (classic)" : "");
 		box.append(el("button", {
 			type: "button", class: "swatch", role: "radio", style: "--c:" + s.hex, title: label, "aria-label": label,
-			"aria-checked": String(selected.toUpperCase() === s.hex), disabled: disabled || !!owner,
+			"aria-checked": String(selected.toUpperCase() === s.hex), disabled,
 			onclick: () => onPick(s.hex),
-		}, el("i"), owner ? el("span", { class: "taken" }, owner.slice(0, 1).toUpperCase()) : null));
+		}, el("i")));
 	}
 }
 
 function renderHomeSwatches() {
-	swatches($("home-swatches"), homeColor, (hex) => { homeColor = hex; renderHomeSwatches(); }, { auto: true });
+	swatches($("home-swatches"), homeColor, (hex) => { homeColor = hex; renderHomeSwatches(); });
 }
 
 // ---------- screens ----------
@@ -127,15 +119,13 @@ function render() {
 	const mine = $("mine");
 	mine.hidden = !(self && !ended && lobby.phase === "lobby");
 	if (!mine.hidden) {
-		const taken = {};
-		for (const m of lobby.members) if (!m.self) taken[m.color] = m.name;
 		swatches($("lobby-swatches"), self.color, async (hex) => {
 			try {
 				await call("SetColor", hex);
 			} catch (e) {
 				toast(e.message, { bad: true });
 			}
-		}, { taken });
+		});
 		const rb = $("ready-btn");
 		rb.setAttribute("aria-pressed", String(self.ready));
 		rb.textContent = self.ready ? "Ready ✓" : "Ready";
@@ -186,15 +176,6 @@ function onEv(ev) {
 				actions.push(["Use “" + ev.suggest + "”", () => { $("name").value = ev.suggest; show("home"); }]);
 			}
 			toast(ev.text || ev.code, { bad: true, actions });
-			break;
-		}
-		case "lobby-color": {
-			if (ev.color) {
-				toast("The host gave you " + ev.color + " (you asked for " + ev.wanted + ").");
-			} else {
-				const who = ev.clash ? ev.clash + " has that color." : "That color is taken.";
-				toast(who, { actions: ev.suggest ? [["Take the nearest free one", () => call("SetColor", ev.suggest).catch((e) => toast(e.message, { bad: true }))]] : [] });
-			}
 			break;
 		}
 		case "legacy-host":
@@ -280,7 +261,7 @@ async function main() {
 	$("name").value = info.name || "";
 	$("port").value = info.port || 25565;
 	$("recent-hosts").replaceChildren(...info.recentHosts.map((h) => el("option", { value: h.addr }, h.label || null)));
-	homeColor = info.color || "";
+	homeColor = info.color || info.palette[0].hex; // no preference: classic green
 	renderHomeSwatches();
 	for (const w of info.warnings || []) toast(w, { bad: true });
 	wire();

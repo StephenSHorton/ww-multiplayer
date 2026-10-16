@@ -141,7 +141,10 @@ func myColor(t *testing.T, c *Client) playercolor.Color {
 	return got
 }
 
-func TestServerAssignsDistinctColorsPerName(t *testing.T) {
+// TestServerLetsPlayersShareColors: the server's join path grants every
+// preference as asked, even one another player wears, and gives a player
+// with none classic green (owner decision 2026-10-16, docs/09 §5.1).
+func TestServerLetsPlayersShareColors(t *testing.T) {
 	defer restoreNetTimers(saveNetTimers())
 	srv, addr := mustListen(t)
 	defer srv.Stop()
@@ -149,7 +152,7 @@ func TestServerAssignsDistinctColorsPerName(t *testing.T) {
 	alice := colorClient(t, addr, "alice", nil)
 	defer alice.Disconnect()
 	if got := myColor(t, alice); got != green {
-		t.Errorf("first player got %v, want green", got)
+		t.Errorf("no preference got %v, want green", got)
 	}
 
 	// The same human's second connection shares the color.
@@ -159,17 +162,20 @@ func TestServerAssignsDistinctColorsPerName(t *testing.T) {
 		t.Errorf("alice's twin got %v, want alice's green", got)
 	}
 
+	// A second player with no preference: green too, not the next color.
 	bob := colorClient(t, addr, "bob", nil)
 	defer bob.Disconnect()
-	if got := myColor(t, bob); got != red {
-		t.Errorf("second player got %v, want red", got)
+	if got := myColor(t, bob); got != green {
+		t.Errorf("second player with no preference got %v, want green", got)
 	}
 
-	// carol asks for bob's red: moved to the next free palette color.
+	// carol and dave both ask for red: both get it.
 	carol := colorClient(t, addr, "carol", &red)
 	defer carol.Disconnect()
-	if got := myColor(t, carol); got != blue {
-		t.Errorf("clashing preference got %v, want blue", got)
+	dave := colorClient(t, addr, "dave", &red)
+	defer dave.Disconnect()
+	if c, d := myColor(t, carol), myColor(t, dave); c != red || d != red {
+		t.Errorf("two players asking for red got %v and %v, want red for both", c, d)
 	}
 
 	// Everyone sees everyone's color.
@@ -180,13 +186,13 @@ func TestServerAssignsDistinctColorsPerName(t *testing.T) {
 				seen[rp.Name] = rp.Color
 			}
 		}
-		return seen["bob"] == red && seen["carol"] == blue && seen["alice"] == green
+		return seen["alice"] == green && seen["bob"] == green && seen["carol"] == red && seen["dave"] == red
 	}) {
 		t.Errorf("alice's view of the roster colors: %+v", alice.GetRemotePlayers())
 	}
 }
 
-func TestServerHonorsFreePreferenceAndRemembersIt(t *testing.T) {
+func TestServerHonorsPreferenceAndRemembersIt(t *testing.T) {
 	defer restoreNetTimers(saveNetTimers())
 	srv, addr := mustListen(t)
 	defer srv.Stop()
@@ -194,7 +200,7 @@ func TestServerHonorsFreePreferenceAndRemembersIt(t *testing.T) {
 	purple := pal[3].Color
 	dave := colorClient(t, addr, "dave", &purple)
 	if got := myColor(t, dave); got != purple {
-		t.Fatalf("free preference got %v, want purple", got)
+		t.Fatalf("preference got %v, want purple", got)
 	}
 	dave.Disconnect()
 	if !waitFor(2*time.Second, func() bool { return srv.PlayerCount() == 0 }) {

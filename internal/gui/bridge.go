@@ -23,7 +23,7 @@ const MaxNameLen = 20
 // HostRequest is the Host form.
 type HostRequest struct {
 	Name  string `json:"name"`
-	Color string `json:"color"` // a palette name or "#RRGGBB"; "" takes the first free one
+	Color string `json:"color"` // a palette name or "#RRGGBB"; "" wears classic green
 	Port  int    `json:"port"`  // 0 is the default port
 }
 
@@ -194,7 +194,8 @@ func checkName(s string) (string, error) {
 	return s, nil
 }
 
-// parseColor reads a form's color: "" is automatic (nil).
+// parseColor reads a form's color: "" is no preference (nil), which
+// wears classic green.
 func parseColor(s string) (*playercolor.Color, error) {
 	if strings.TrimSpace(s) == "" {
 		return nil, nil

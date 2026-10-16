@@ -41,7 +41,7 @@ type Server struct {
 	players  map[byte]*Player
 	nextID   byte // where allocIDLocked starts its search for a free ID
 	// colorByName remembers the color each player name last had, so a
-	// player who reconnects keeps it when it is still free (guarded by mu).
+	// player who reconnects without a preference keeps it (guarded by mu).
 	colorByName map[string]playercolor.Color
 	// coops are the co-op connections (RoleCoop), by co-op ID. They are
 	// never in players: no relay, roster or player count sees them.
@@ -438,34 +438,30 @@ const maxRememberedColors = 256
 
 // pickColorLocked chooses the tunic color for a player joining as name
 // (docs/09-player-colors.md). Rule 0 (docs/10-lobby.md): a name that is a
-// lobby member gets the member's color, which the lobby picked. Every
+// lobby member gets the member's color, which the member chose. Every
 // connection under one name gets the same color: each human runs two
 // (broadcast-pose and puppet-sync), and a reconnect is a new connection.
-// Otherwise it is the player's preference if no other player's or lobby
-// member's color is within playercolor.MinDistance of it, else the color
-// this name had before if still clear, else the first clear palette color.
-// Without lobby members this is the rule docs/09 shipped. The caller holds
-// s.mu.
+// Otherwise it is the player's preference, else the color this name had
+// before, else classic green. Players may share a color: nothing is ever
+// moved off one because someone else wears it. The caller holds s.mu.
 func (s *Server) pickColorLocked(name string, pref *playercolor.Color) playercolor.Color {
 	if c, ok := s.lobby.colorOf(name); ok {
 		return c
 	}
-	used := s.lobby.otherColors(name)
 	for _, p := range s.players {
 		if p.Name == name {
 			return p.Color
 		}
-		used = append(used, p.Color)
 	}
 	prev, hadPrev := s.colorByName[name]
 	var c playercolor.Color
 	switch {
-	case pref != nil && !playercolor.Clashes(*pref, used):
+	case pref != nil:
 		c = *pref
-	case hadPrev && !playercolor.Clashes(prev, used):
+	case hadPrev:
 		c = prev
 	default:
-		c = playercolor.Pick(nil, used)
+		c = playercolor.Vanilla()
 	}
 	if !hadPrev && len(s.colorByName) >= maxRememberedColors {
 		clear(s.colorByName)

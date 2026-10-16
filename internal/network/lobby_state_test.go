@@ -81,77 +81,82 @@ func TestLobbyMachineHostAndNames(t *testing.T) {
 	}
 }
 
+// TestLobbyMachineColors: every color request is granted as asked, even
+// one another member or a CLI player wears (owner decision 2026-10-16,
+// docs/10 §4); no preference is classic green. Nothing sends COLOR.
 func TestLobbyMachineColors(t *testing.T) {
 	m := testMachine(time.Minute)
-	red := playercolor.Palette()[1].Color
+	pal := playercolor.Palette()
+	red, blue := pal[1].Color, pal[2].Color
 	a := mustJoin(t, m, 1, "Ann", true, LobbyHelloBody{Color: "red"})
 	if a.color != red {
 		t.Fatalf("Ann got %v, want red", a.color)
 	}
-	// A clash at HELLO: granted the nearest clear color, told so.
-	b, outs := m.hello(2, "Bo", false, LobbyHelloBody{Color: "#D83030"}, time.Unix(0, 0))
-	if b == nil || playercolor.Clashes(b.color, []playercolor.Color{red}) {
-		t.Fatalf("Bo got %v next to red", b)
+	// The same color at HELLO: granted, shared.
+	b, outs := m.hello(2, "Bo", false, LobbyHelloBody{Color: "#D02C2C"}, time.Unix(0, 0))
+	if b == nil || b.color != red {
+		t.Fatalf("Bo asking for Ann's red got %+v, want red", b)
 	}
-	o, ok := findOut(outs, 2, LobbyColor)
-	cb := o.body.(LobbyColorBody)
-	if !ok || cb.Granted == nil || *cb.Granted != b.color.Hex() || cb.ClashWith != "Ann" || cb.Suggest != b.color.Hex() {
-		t.Fatalf("Bo's COLOR = %+v, want granted %s clashing with Ann", cb, b.color.Hex())
+	noColorOrNotice(t, outs, 2)
+	// No preference: green, even though nobody else wears it to begin
+	// with, and again with green already worn.
+	c := mustJoin(t, m, 3, "Cy", false, LobbyHelloBody{})
+	d := mustJoin(t, m, 4, "Di", false, LobbyHelloBody{})
+	if c.color != playercolor.Vanilla() || d.color != playercolor.Vanilla() {
+		t.Fatalf("no preference: Cy %v Di %v, want green for both", c.color, d.color)
 	}
-	// A clashing SET is refused with a suggestion; the color stays.
-	before := b.color
-	outs = m.message(2, LobbySet, setBody(t, LobbySetBody{Color: strp("red")}))
-	o, ok = findOut(outs, 2, LobbyColor)
-	cb = o.body.(LobbyColorBody)
-	if !ok || cb.Granted != nil || cb.Wanted != red.Hex() || cb.ClashWith != "Ann" || b.color != before {
-		t.Fatalf("clashing SET: outs %+v, Bo %v", outs, b.color)
+	// A preference that doesn't parse is no preference.
+	if e := mustJoin(t, m, 5, "Ed", false, LobbyHelloBody{Color: "chartreuse"}); e.color != playercolor.Vanilla() {
+		t.Fatalf("bad preference: Ed %v, want green", e.color)
 	}
-	if _, ok := findOut(outs, lobbyAll, LobbyState); ok {
-		t.Error("a refused SET sent STATE")
-	}
-	// Green is a normal choice.
-	outs = m.message(2, LobbySet, setBody(t, LobbySetBody{Color: strp("green")}))
-	if b.color != playercolor.Vanilla() {
-		t.Fatalf("SET green: Bo %v, outs %+v", b.color, outs)
+	// SET to a color another member wears: granted, with STATE.
+	outs = m.message(3, LobbySet, setBody(t, LobbySetBody{Color: strp("red")}))
+	if c.color != red {
+		t.Fatalf("SET red next to Ann's and Bo's red: Cy %v, outs %+v", c.color, outs)
 	}
 	if _, ok := findOut(outs, lobbyAll, LobbyState); !ok {
 		t.Error("a granted SET sent no STATE")
 	}
-	// A CLI player's color counts as taken.
-	m.setPlayers([]lobbyPlayer{{id: 9, name: "Cli", color: playercolor.Palette()[2].Color}})
-	outs = m.message(2, LobbySet, setBody(t, LobbySetBody{Color: strp("blue")}))
-	if o, ok := findOut(outs, 2, LobbyColor); !ok || o.body.(LobbyColorBody).ClashWith != "Cli" {
-		t.Errorf("SET blue next to CLI blue: outs %+v", outs)
+	noColorOrNotice(t, outs, 3)
+	// A SET to the color one already has changes nothing.
+	if outs := m.message(3, LobbySet, setBody(t, LobbySetBody{Color: strp("red")})); len(outs) != 0 {
+		t.Errorf("SET to the same color: outs %+v, want none", outs)
 	}
-	if got := m.colors(); got["ann"] != red || got["bo"] != playercolor.Vanilla() {
+	// A CLI player's color is shareable too.
+	m.setPlayers([]lobbyPlayer{{id: 9, name: "Cli", color: blue}})
+	outs = m.message(2, LobbySet, setBody(t, LobbySetBody{Color: strp("blue")}))
+	if b.color != blue {
+		t.Fatalf("SET blue next to CLI blue: Bo %v, outs %+v", b.color, outs)
+	}
+	noColorOrNotice(t, outs, 2)
+	if got := m.colors(); got["ann"] != red || got["bo"] != blue || got["cy"] != red || got["di"] != playercolor.Vanilla() {
 		t.Errorf("colors() = %v", got)
 	}
 }
 
-func TestLobbyMachineFullPaletteShares(t *testing.T) {
+// TestLobbyMachineManyShareOneColor: more members than the palette has
+// colors, all asking for one, all get it.
+func TestLobbyMachineManyShareOneColor(t *testing.T) {
 	m := testMachine(time.Minute)
-	pal := playercolor.Palette()
-	for i, p := range pal {
-		mustJoin(t, m, i+1, p.Name, false, LobbyHelloBody{Color: p.Name})
-	}
-	extra, outs := m.hello(100, "extra", false, LobbyHelloBody{Color: "red"}, time.Unix(0, 0))
-	// With every palette color taken the request is granted and shared,
-	// at HELLO as on SET (docs/10 §4), and no COLOR says otherwise.
-	if extra == nil || extra.color != pal[1].Color {
-		t.Fatalf("ninth member asking for red: %+v", extra)
-	}
-	if o, ok := findOut(outs, 100, LobbyColor); ok {
-		t.Fatalf("ninth member got a COLOR %+v", o.body)
-	}
-	outs = m.message(100, LobbySet, setBody(t, LobbySetBody{Color: strp("pink")}))
-	if extra.color != pal[6].Color {
-		t.Fatalf("full palette: SET pink refused (%+v); nobody is refused for a shared color", outs)
+	pink := playercolor.Palette()[6].Color
+	for i := range len(playercolor.Palette()) + 3 {
+		mb, outs := m.hello(i+1, fmt.Sprintf("P%d", i), false, LobbyHelloBody{Color: "pink"}, time.Unix(0, 0))
+		if mb == nil || mb.color != pink {
+			t.Fatalf("member %d asking for pink: %+v", i, mb)
+		}
+		noColorOrNotice(t, outs, i+1)
 	}
 }
 
-func colorsOf(m *lobbyMachine, except *lobbyMember) []playercolor.Color {
-	c, _ := m.usedColors(except)
-	return c
+// noColorOrNotice fails when outs sends conn a NOTICE or anything on the
+// retired COLOR sub-message (0x05).
+func noColorOrNotice(t *testing.T, outs []lobbyOut, conn int) {
+	t.Helper()
+	for _, o := range outs {
+		if o.sub == 0x05 || (o.to == conn && o.sub == LobbyNotice) {
+			t.Fatalf("unexpected %s to %d: %+v", LobbySubName(o.sub), o.to, o.body)
+		}
+	}
 }
 
 func TestLobbyMachinePhases(t *testing.T) {
@@ -518,8 +523,9 @@ func TestLobbyMachineHostSlotPasses(t *testing.T) {
 //   - the phase only moves forward (lobby -> starting -> in_game), and back
 //     to lobby only when the lobby is empty
 //   - a member's color never changes once the session has started
-//   - a color the machine grants clashes with another member's only when
-//     the palette is exhausted
+//   - a new member wears the color it asked for, or green without a
+//     usable one, and a SET color in the lobby phase is granted as asked,
+//     whoever else wears it; COLOR (0x05) is never sent
 //   - every STATE has a higher rev than the one before, and every frame
 //     encodes within MaxLobbyBody
 //   - only the host's START and GO change the phase
@@ -551,6 +557,9 @@ func FuzzLobbyMachine(f *testing.F) {
 			for _, o := range outs {
 				if o.sub == 0 {
 					continue
+				}
+				if o.sub == 0x05 {
+					t.Fatalf("%s: sent the retired COLOR: %+v", op, o.body)
 				}
 				if o.sub == LobbyStart || o.sub == LobbyGo {
 					got := gotStart
@@ -616,14 +625,13 @@ func FuzzLobbyMachine(f *testing.F) {
 				}
 			}
 		}
-		grantedOK := func(op string, mb *lobbyMember) {
-			if mb == nil {
-				return
+		// asked is the color a request for s gives: s itself, or green
+		// when it is empty or doesn't parse.
+		asked := func(s string) playercolor.Color {
+			if c, err := playercolor.Parse(s); err == nil && s != "" {
+				return c
 			}
-			used := colorsOf(m, mb)
-			if playercolor.Clashes(mb.color, used) && !paletteExhausted(used) {
-				t.Fatalf("%s: %s holds %v, which clashes though a palette color is clear", op, mb.name, mb.color)
-			}
+			return playercolor.Vanilla()
 		}
 
 		for i := 0; i+2 < len(ops); i += 3 {
@@ -643,8 +651,8 @@ func FuzzLobbyMachine(f *testing.F) {
 				var mb *lobbyMember
 				mb, outs = m.hello(nextConn, name, b&0x40 != 0, h, now)
 				desc = fmt.Sprintf("hello %d %q %+v", nextConn, name, h)
-				if mb != nil && mb.token != h.Token {
-					grantedOK(desc, mb)
+				if mb != nil && mb.token != h.Token && mb.color != asked(h.Color) {
+					t.Fatalf("%s: new member wears %v, want %v", desc, mb.color, asked(h.Color))
 				}
 				if before != PhaseLobby && m.phase != before {
 					t.Fatalf("%s: HELLO changed the phase", desc)
@@ -663,8 +671,11 @@ func FuzzLobbyMachine(f *testing.F) {
 				}
 				outs = m.message(conn, sub, body)
 				desc = fmt.Sprintf("conn %d %s %s", conn, LobbySubName(sub), body)
-				if mb != nil && mb.color != c0 {
-					grantedOK(desc, mb)
+				var sb LobbySetBody
+				if mb != nil && sub == LobbySet && before == PhaseLobby && DecodeLobby(body, &sb) == nil && sb.Color != nil {
+					if want, err := playercolor.Parse(*sb.Color); err == nil && mb.color != want {
+						t.Fatalf("%s: SET color %v not granted (holds %v, had %v)", desc, want, mb.color, c0)
+					}
 				}
 				if m.phase != before && !(mb != nil && mb.host && (sub == LobbyStart || sub == LobbyGo)) &&
 					!(sub == LobbyKick && len(m.members) == 0) {

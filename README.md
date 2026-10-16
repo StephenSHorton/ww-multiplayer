@@ -105,8 +105,8 @@ prints it. v0.3.0 and later can't play with v0.2.x, so upgrade together.
 app window opens. Pick a name and a tunic color, then Host (on port 25565
 or the one you type) or Join (the host's address). Everyone meets in the
 app's lobby, which lists each player's name, color and ready flag, with
-the session log and chat; colors never clash (a taken one is offered the
-nearest free color). **Starting the game from the lobby comes in a later
+the session log and chat. Any color can be picked, even one someone else
+wears; without a pick you wear classic green. **Starting the game from the lobby comes in a later
 update** (it will launch Dolphin and connect everyone): until then, play
 with the terminal menu or the command line below. On Windows the window
 needs Microsoft's WebView2 runtime (Windows 11 and current Windows 10

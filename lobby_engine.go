@@ -80,7 +80,6 @@ func (e *sessionEngine) runLobby(ctx context.Context, addr, name string, color *
 		w, _ := lc.Welcome()
 		out.LobbyState(lobbyView(st, w))
 	}
-	lc.OnColor = func(b network.LobbyColorBody) { out.LobbyColor(colorReply(b)) }
 	lc.OnNotice = func(b network.LobbyNoticeBody) {
 		out.Log(report.Warn, "lobby: "+b.Text)
 		out.LobbyNotice(session.Notice{Code: b.Code, Text: b.Text, Suggest: b.Suggest})
@@ -170,15 +169,4 @@ func wireSettings(s session.LobbySettings) network.LobbySettingsBody {
 		out.Worlds = append(out.Worlds, network.LobbyWorld{ID: w.ID, Seq: w.Seq, InUse: w.InUse})
 	}
 	return out
-}
-
-func colorReply(b network.LobbyColorBody) session.ColorReply {
-	r := session.ColorReply{ClashWith: b.ClashWith}
-	r.Wanted, _ = playercolor.Parse(b.Wanted)
-	r.Suggest, _ = playercolor.Parse(b.Suggest)
-	if b.Granted != nil {
-		r.Granted = true
-		r.Color, _ = playercolor.Parse(*b.Granted)
-	}
-	return r
 }

@@ -20,8 +20,6 @@ func lobbyBodyFor(sub byte) any {
 		return &LobbyStateBody{}
 	case LobbySet:
 		return &LobbySetBody{}
-	case LobbyColor:
-		return &LobbyColorBody{}
 	case LobbySettings:
 		return &LobbySettingsBody{}
 	case LobbyStart:
@@ -40,14 +38,12 @@ func lobbyBodyFor(sub byte) any {
 
 func TestLobbyCodecRoundTrip(t *testing.T) {
 	ready, color := true, "#D02C2C"
-	g := "#2C5CE0"
 	bodies := map[byte]any{
 		LobbyHello:   &LobbyHelloBody{Token: "ab", App: "v0.4.0", OS: "windows", Color: "#D02C2C", Dolphin: DolphinNone},
 		LobbyWelcome: &LobbyWelcomeBody{Member: 3, Token: "ff", Host: true, Phase: PhaseLobby, Features: []string{"chat"}},
 		LobbyState: &LobbyStateBody{Phase: PhaseStarting, Rev: 9, Settings: LobbySettingsBody{Coop: CoopNew, Merge: true},
 			Members: []LobbyMember{{ID: 1, Name: "Ann", Color: "#3C9A2E", Ready: true, Host: true, Via: ViaApp}, {ID: cliMemberBase + 4, Name: "Cli", Color: "#D02C2C", Ready: true, Via: ViaCLI}}},
 		LobbySet:      &LobbySetBody{Color: &color, Ready: &ready},
-		LobbyColor:    &LobbyColorBody{Granted: &g, Wanted: "#D02C2C", ClashWith: "Ann", Suggest: g},
 		LobbySettings: &LobbySettingsBody{Coop: "0123456789abcdef", DryRun: true, Worlds: []LobbyWorld{{ID: "0123456789abcdef", Seq: 4}}},
 		LobbyStart:    &LobbyStartBody{Settings: LobbySettingsBody{Coop: CoopOff}},
 		LobbyGo:       &LobbyGoBody{World: "0123456789abcdef"},

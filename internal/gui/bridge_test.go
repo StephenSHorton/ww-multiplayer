@@ -274,15 +274,11 @@ func TestBridgePumpEvents(t *testing.T) {
 	out.Log(report.Warn, "careful")
 	out.Chat("Tetra", "hello")
 	out.LobbyNotice(session.Notice{Code: "name_taken", Text: "taken", Suggest: "Link (2)"})
-	out.LobbyColor(session.ColorReply{Wanted: playercolor.Vanilla(), ClashWith: "Tetra", Suggest: playercolor.Palette()[2].Color})
 
 	want := map[string]func(EventView) bool{
 		"log":          func(v EventView) bool { return v.Level == "warn" && v.Text == "careful" },
 		"chat":         func(v EventView) bool { return v.From == "Tetra" && v.Text == "hello" },
 		"lobby-notice": func(v EventView) bool { return v.Code == "name_taken" && v.Suggest == "Link (2)" },
-		"lobby-color": func(v EventView) bool {
-			return v.Color == "" && v.Clash == "Tetra" && v.Wanted == playercolor.Vanilla().Hex() && v.Suggest == playercolor.Palette()[2].Color.Hex()
-		},
 	}
 	deadline := time.After(5 * time.Second)
 	for len(want) > 0 {

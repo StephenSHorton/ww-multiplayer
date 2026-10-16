@@ -30,7 +30,6 @@ type LobbyClient struct {
 	// Callbacks, set before Connect or Run.
 	OnWelcome func(LobbyWelcomeBody)
 	OnState   func(LobbyStateBody)
-	OnColor   func(LobbyColorBody)
 	OnNotice  func(LobbyNoticeBody)
 	OnStart   func(LobbyStartBody)
 	OnGo      func(LobbyGoBody)
@@ -131,11 +130,6 @@ func (l *LobbyClient) onLobby(payload []byte) {
 		l.mu.Unlock()
 		if l.OnState != nil {
 			l.OnState(st)
-		}
-	case LobbyColor:
-		var b LobbyColorBody
-		if DecodeLobby(body, &b) == nil && l.OnColor != nil {
-			l.OnColor(b)
 		}
 	case LobbyNotice:
 		var b LobbyNoticeBody
@@ -309,8 +303,8 @@ func (l *LobbyClient) send(sub byte, body any) error {
 	return l.c.send(MsgLobby, data)
 }
 
-// SetColor asks for a tunic color. The answer is a STATE with it, or a
-// COLOR (OnColor) with a suggestion when it clashes.
+// SetColor asks for a tunic color. The answer is a STATE with it: every
+// request is granted, whoever else wears the color.
 func (l *LobbyClient) SetColor(c playercolor.Color) error {
 	h := c.Hex()
 	return l.send(LobbySet, LobbySetBody{Color: &h})
