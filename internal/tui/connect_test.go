@@ -12,14 +12,14 @@ import (
 // joinIP is the connect form in Join mode with the Host IP field focused.
 func joinIP() connectModel {
 	m := newConnect()
-	m.role, m.focused = 1, 1
+	m.role, m.focused = 1, 2
 	return m
 }
 
 // joinName is the connect form in Join mode with the name field focused.
 func joinName() connectModel {
 	m := newConnect()
-	m.role, m.focused = 1, 2
+	m.role, m.focused = 1, 3
 	return m
 }
 
@@ -96,7 +96,7 @@ func TestConnect_IPCap(t *testing.T) {
 // up-arrow; Alt+key is ignored rather than typed.
 func TestConnect_PastedWordIsText(t *testing.T) {
 	m := send(joinName(), paste("up"), tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("down")})
-	if m.nameInput != "updown" || m.focused != 2 {
+	if m.nameInput != "updown" || m.focused != 3 {
 		t.Errorf("name=%q focus=%d, want %q and focus unchanged", m.nameInput, m.focused, "updown")
 	}
 	m = send(joinName(), tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b"), Alt: true})
@@ -118,7 +118,7 @@ func TestConnect_BackspaceRuneSafe(t *testing.T) {
 	if m.ipInput != "192.168.1" {
 		t.Errorf("backspace on the IP prefill = %q, want %q", m.ipInput, "192.168.1")
 	}
-	m = send(connectModel{role: 1, focused: 1}, tea.KeyMsg{Type: tea.KeyBackspace})
+	m = send(connectModel{role: 1, focused: 2}, tea.KeyMsg{Type: tea.KeyBackspace})
 	if m.ipInput != "" {
 		t.Errorf("backspace on an empty field = %q, want empty", m.ipInput)
 	}
@@ -137,7 +137,7 @@ func TestConnect_TryConnectValidatesAddress(t *testing.T) {
 		{"abc!", "Bad address"},
 	}
 	for _, c := range bad {
-		m := connectModel{role: 1, ipInput: c.ip, nameInput: "Bob", focused: 3}
+		m := connectModel{role: 1, ipInput: c.ip, nameInput: "Bob", focused: 4}
 		m, cmd := m.update(tea.KeyMsg{Type: tea.KeyEnter})
 		if cmd != nil {
 			t.Errorf("ip %q: connected anyway", c.ip)
@@ -148,7 +148,7 @@ func TestConnect_TryConnectValidatesAddress(t *testing.T) {
 	}
 
 	for _, ip := range []string{"10.0.0.5", "[::1]:25566", "::1", "host.ts.net"} {
-		m := connectModel{role: 1, ipInput: ip, nameInput: "Bob", focused: 3, err: "stale"}
+		m := connectModel{role: 1, ipInput: ip, nameInput: "Bob", focused: 4, err: "stale"}
 		m, cmd := m.update(tea.KeyMsg{Type: tea.KeyEnter})
 		if cmd == nil {
 			t.Errorf("ip %q: rejected with %q", ip, m.err)
@@ -165,7 +165,7 @@ func TestConnect_TryConnectValidatesAddress(t *testing.T) {
 // field, so the untouched prefill doesn't block it.
 func TestConnect_HostIgnoresIPField(t *testing.T) {
 	m := newConnect()
-	m.nameInput, m.focused = "Link", 2
+	m.nameInput, m.focused = "Link", 3
 	_, cmd := m.update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("Host with the default IP prefill did not connect")

@@ -1,6 +1,8 @@
-// Package session is the UI-free owner of a multiplayer session. The TUI
-// (and later the GUI) drive it the same way: commands in (Host, Join, Leave,
-// SendChat), state snapshots and events out (Snapshot, Subscribe).
+// Package session is the UI-free owner of a multiplayer session. The CLI's
+// host and join, the TUI (and later the GUI) drive it the same way:
+// commands in (Host, Join, Leave, SendChat, and for co-op Answer, Command,
+// CommandLine), state snapshots and events out (Snapshot, Subscribe,
+// Wait).
 //
 // The session work itself (server, broadcast-pose, puppet-sync, co-op) stays
 // in package main and is injected as an Engine, the way tui.Hooks used to
@@ -81,6 +83,10 @@ type Live struct {
 	// until the first broadcast-pose tick has read it.
 	LocalX, LocalY, LocalZ float32
 	LocalOK                bool
+
+	// CoopStatus is each co-op pipeline's status, as /status reports it; nil
+	// without co-op.
+	CoopStatus []CoopStatus
 }
 
 // State is a snapshot of the current (or most recent) session. It is a
@@ -92,18 +98,30 @@ type State struct {
 	Name      string // the local player's name
 	Addr      string // join role: the address as typed; "" for host
 	EndReason string // set once Phase is Ended
-	Live             // zero unless Phase is InGame
+	// Failed is set once Phase is Ended when the session ended on an
+	// error (the CLI exits 1 for it), not by Leave or a cancel.
+	Failed bool
+	// Coop is the session's co-op choices; Coop.On says the co-op
+	// commands and questions apply.
+	Coop CoopOptions
+	// Questions are the session's open co-op questions, oldest first.
+	Questions []Question
+	Live      // zero unless Phase is InGame
 }
 
 // HostOptions configures Controller.Host.
 type HostOptions struct {
 	Name string
+	// Port is the port the server listens on; 0 is the default (25565).
+	Port int
+	Coop CoopOptions
 }
 
 // JoinOptions configures Controller.Join.
 type JoinOptions struct {
 	Addr string
 	Name string
+	Coop CoopOptions
 }
 
 // Output is what a session writes to while it runs: its log lines, and the
@@ -114,14 +132,21 @@ type Output interface {
 	// Chat delivers one incoming chat line. It must not block: it is
 	// called from the network client's read loop.
 	Chat(from, text string)
+	// Ask puts a co-op question to the UI (EventQuestion) and waits for
+	// Controller.Answer; ctx ending, the session's, is a no.
+	Ask(ctx context.Context, q Question) bool
+	// Advise passes co-op advice to the UI (EventAdvice). It never
+	// blocks.
+	Advise(a Advice)
 }
 
 // Engine runs the session work. package main implements it over
 // runHostSession / runJoinSession and its liveState status bridge.
 type Engine interface {
 	// Host runs the host flow until ctx is cancelled or a pipeline fails,
-	// and returns the error to report as the session's end (nil when it
-	// was already reported, or on a normal cancel). cancel cancels ctx;
+	// and returns the error to report as the session's end: nil on a
+	// normal cancel, and one wrapping ErrReported when the session
+	// already logged it. cancel cancels ctx;
 	// the engine calls it to stop its other goroutines when one fails.
 	Host(ctx context.Context, cancel context.CancelFunc, o HostOptions, out Output) error
 	// Join runs the join flow, with the same contract as Host.

@@ -1,9 +1,11 @@
 package main
 
 // The co-op console (#23; docs/08-coop-design.md §6.7, §9 M3): the
-// commands a --coop session takes on stdin, read by the same reader as the
-// bind and scrub answers (coopPrompter), which hands it every line that
-// starts with '/':
+// commands a --coop session takes. The CLI types them on stdin, read by
+// the same reader as the bind and scrub answers (coopPrompter), which
+// hands it every line that starts with '/'; a UI gives them to the session
+// controller (session.Controller.Command and CommandLine), which runs them
+// here through sessionEngine (App PR 2). Both reach exec:
 //
 //	/refresh [player]       reload the area, by the entrance Link came in by
 //	/warp [player]          go to the partner: same stage, onto it;
@@ -30,12 +32,30 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 )
 
 // coopCommand is one parsed console line.
 type coopCommand struct {
 	verb string // "help", "refresh", "warp", "coop off", "coop on", "status"
 	who  string // the player it is for, "" for the only one (or all)
+}
+
+// commandOf is the console command for a controller command, checked as
+// a typed line is: an unknown verb or a bad player name is refused.
+func commandOf(c session.Command) (coopCommand, error) {
+	line := "/" + string(c.Verb)
+	if c.Player != "" {
+		line += " " + c.Player
+	}
+	cmd, err := parseCoopCommand(line)
+	if err != nil {
+		return coopCommand{}, err
+	}
+	if cmd.verb != string(c.Verb) || cmd.who != c.Player {
+		return coopCommand{}, fmt.Errorf("no command %q for %q", c.Verb, c.Player)
+	}
+	return cmd, nil
 }
 
 // coopCommandHelp is /help's text, one command a line.
@@ -106,6 +126,9 @@ type coopConsole struct {
 	syncs []*coopSync
 	once  sync.Once
 	told  bool
+	// ctx is the session's, from the first add: an escape's answer is
+	// awaited under it. Nil before any pipeline runs.
+	ctx context.Context
 	// hubSt is the host's hub's Status, for /status's host lines; nil on
 	// a joiner.
 	hubSt func() (hub.Status, error)
@@ -139,6 +162,9 @@ func (c *coopConsole) help() {
 func (c *coopConsole) add(ctx context.Context, s *coopSync) {
 	c.mu.Lock()
 	c.syncs = append(c.syncs, s)
+	if c.ctx == nil {
+		c.ctx = ctx
+	}
 	c.mu.Unlock()
 	c.once.Do(func() { go c.run(ctx) })
 }
@@ -165,11 +191,31 @@ func (c *coopConsole) do(ctx context.Context, line string) {
 		report.Logf(c.rep, report.Warn, "co-op: %v", err)
 		return
 	}
+	_ = c.exec(ctx, cmd) // logged
+}
+
+// sessionCtx is the session's context, for a command given before (or
+// without) one that came with it.
+func (c *coopConsole) sessionCtx() context.Context {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ctx == nil {
+		return context.Background()
+	}
+	return c.ctx
+}
+
+// exec runs one parsed command: a typed line's (do) or the controller's.
+// It returns the error that kept the command from any pipeline (no
+// Dolphin runs co-op yet, no such player, say which player), which it
+// has also logged, as a typed line's always was. What a pipeline made
+// of the command is only logged (and shows in its status).
+func (c *coopConsole) exec(ctx context.Context, cmd coopCommand) error {
 	if cmd.verb == "help" {
 		for _, l := range coopCommandHelp {
 			c.rep.Log(report.Info, "co-op:   "+l)
 		}
-		return
+		return nil
 	}
 	ss, err := c.pick(cmd)
 	if err != nil {
@@ -185,8 +231,10 @@ func (c *coopConsole) do(ctx context.Context, line string) {
 		c.mu.Unlock()
 		if status != nil {
 			logHubStatus(c.rep, status)
+			return nil // a host's /status answers with its hub's
 		}
 	}
+	return err
 }
 
 // pick returns the pipelines cmd is for: the named one, the only one, or,
@@ -256,21 +304,61 @@ func (s *coopSync) command(ctx context.Context, cmd coopCommand) {
 		s.r.TurnOn()
 		report.Logf(s.rep, report.OK, "co-op: writes are on again for %s (they were off: %s)", s.name, st.WritesOff)
 	case "status":
-		st := s.r.Status()
-		where := st.State.String()
-		if st.Why != "" {
-			where += ": " + st.Why
-		}
-		report.Logf(s.rep, report.Info, "co-op: %s: %s; world %s at seq %d; %s; %d bytes written, %d escapes, %d verify failures",
-			s.name, where, st.World, st.Seq, writesState(st), st.Writes.Written, st.Writes.Escapes, st.Writes.Failed)
-		lines := append(progressionStatus(st), puzzleStatus(st), combatStatus(st))
-		if l := gbaStatus(st); l != "" {
-			lines = append(lines, l)
-		}
-		for _, l := range lines {
-			report.Logf(s.rep, report.Info, "co-op: %s:   %s", s.name, l)
+		for _, l := range formatStatus(s.name, s.r.Status()) {
+			s.rep.Log(report.Info, l)
 		}
 	}
+}
+
+// replicaWhere is st's state, with why when it says.
+func replicaWhere(st replica.Status) string {
+	where := st.State.String()
+	if st.Why != "" {
+		where += ": " + st.Why
+	}
+	return where
+}
+
+// formatStatus is /status's text for player's pipeline at st, one line a
+// log line: what the CLI prints, and what a UI copies for a bug report.
+func formatStatus(player string, st replica.Status) []string {
+	out := []string{fmt.Sprintf("co-op: %s: %s; world %s at seq %d; %s; %d bytes written, %d escapes, %d verify failures",
+		player, replicaWhere(st), st.World, st.Seq, writesState(st), st.Writes.Written, st.Writes.Escapes, st.Writes.Failed)}
+	lines := append(progressionStatus(st), puzzleStatus(st), combatStatus(st))
+	if l := gbaStatus(st); l != "" {
+		lines = append(lines, l)
+	}
+	for _, l := range lines {
+		out = append(out, fmt.Sprintf("co-op: %s:   %s", player, l))
+	}
+	return out
+}
+
+// coopStatusOf is player's pipeline at st as a UI shows it.
+func coopStatusOf(player string, st replica.Status) session.CoopStatus {
+	return session.CoopStatus{
+		Player:  player,
+		State:   replicaWhere(st),
+		World:   st.World.String(),
+		Seq:     st.Seq,
+		Writes:  writesState(st),
+		Written: st.Writes.Written,
+		Escapes: st.Writes.Escapes,
+		Failed:  st.Writes.Failed,
+		Lines:   formatStatus(player, st),
+	}
+}
+
+// statuses is every pipeline's status, in the order they started.
+func (c *coopConsole) statuses() []session.CoopStatus {
+	c.mu.Lock()
+	ss := append([]*coopSync(nil), c.syncs...)
+	c.mu.Unlock()
+	var out []session.CoopStatus
+	for _, s := range ss {
+		out = append(out, coopStatusOf(s.name, s.r.Status()))
+	}
+	return out
 }
 
 // gbaStatus is /status's line on the Tingle Tuner guard (§6.2, §6.3):

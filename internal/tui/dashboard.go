@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -56,7 +57,34 @@ type dashboardModel struct {
 	// header, status panel and footer then say so, with endReason.
 	ended     bool
 	endReason string
+
+	// Co-op (App PR 2). coop says the session runs with co-op, so a chat
+	// line starting with '/' is a console command (/help lists them);
+	// coopStatus is each pipeline's status from the snapshot; questions
+	// are the open co-op questions, oldest first: the first is shown in
+	// place of the log and answered with y or n. The snapshot's
+	// State.Questions is their source of truth: the events only show a
+	// change sooner, and a subscription may drop one (see Subscribe).
+	coop       bool
+	coopStatus []session.CoopStatus
+	questions  []session.Question
+	// questionShown is when the question shown (questions[0]) appeared,
+	// and lastKey when the last key came. A y or n answers only after
+	// questionSettle of both: a key typed for the chat as the question
+	// came up never answers it (docs/08 Appendix C items 64 and 164).
+	questionShown time.Time
+	lastKey       time.Time
+	// now is the clock; nil is time.Now. Tests set it.
+	now func() time.Time
 }
+
+// questionSettle is how long a co-op question must have been shown, and
+// the keyboard quiet, before a y or n answers it. A key within it is
+// swallowed (and restarts the quiet), so someone typing "yeah ok" in the
+// chat as a bind question comes up does not bind with the 'y'. It is
+// longer than the CLI's promptSettleMax wait for typed-ahead input:
+// keys come one at a time here, with no line to stamp.
+const questionSettle = 600 * time.Millisecond
 
 const logCap = 200
 
@@ -208,7 +236,43 @@ func (m dashboardModel) refreshStatus() dashboardModel {
 	m.latency = st.Latency
 	m.players = st.Players
 	m.localX, m.localZ, m.localOK = st.LocalX, st.LocalZ, st.LocalOK
+	m.coopStatus = st.CoopStatus
+	if st.Session != m.sessID {
+		st.Questions = nil
+	}
+	// The open questions as the controller has them: this repairs a
+	// question event the subscription dropped.
+	m = m.setQuestions(st.Questions)
 	return m
+}
+
+// clock is the dashboard's time now.
+func (m dashboardModel) clock() time.Time {
+	if m.now != nil {
+		return m.now()
+	}
+	return time.Now()
+}
+
+// setQuestions makes qs the open questions, restarting the settle when
+// the question shown changes.
+func (m dashboardModel) setQuestions(qs []session.Question) dashboardModel {
+	if len(qs) > 0 && (len(m.questions) == 0 || m.questions[0].ID != qs[0].ID) {
+		m.questionShown = m.clock()
+	}
+	m.questions = qs
+	return m
+}
+
+// dropQuestion removes the question id from the open ones.
+func (m dashboardModel) dropQuestion(id string) dashboardModel {
+	qs := m.questions[:0:0]
+	for _, q := range m.questions {
+		if q.ID != id {
+			qs = append(qs, q)
+		}
+	}
+	return m.setQuestions(qs)
 }
 
 // applyEvent folds one event of this dashboard's session into the model.
@@ -224,6 +288,29 @@ func (m dashboardModel) applyEvent(ev session.Event) dashboardModel {
 	case session.EventEnded:
 		m.ended = true
 		m.endReason = ev.Text
+		m.questions = nil // an ended session's questions are closed (a no)
+	case session.EventQuestion:
+		for _, q := range m.questions {
+			if q.ID == ev.Question.ID {
+				return m // the snapshot showed it first
+			}
+		}
+		m = m.setQuestions(append(m.questions[:len(m.questions):len(m.questions)], ev.Question))
+	case session.EventQuestionClosed:
+		m = m.dropQuestion(ev.Question.ID)
+	}
+	return m
+}
+
+// answer answers the open question shown, yes or no. The question stays
+// until its EventQuestionClosed (or a snapshot without it); one the
+// controller no longer has open (its close was missed) is dropped now.
+func (m dashboardModel) answer(yes bool) dashboardModel {
+	if len(m.questions) > 0 && m.ctrl != nil {
+		id := m.questions[0].ID
+		if err := m.ctrl.Answer(id, yes); errors.Is(err, session.ErrNoQuestion) {
+			m = m.dropQuestion(id)
+		}
 	}
 	return m
 }
@@ -274,12 +361,43 @@ func (m dashboardModel) update(msg tea.Msg) (dashboardModel, tea.Cmd) {
 			// the chat input is focused.)
 			m.leave()
 			return m, func() tea.Msg { return backMsg{} }
-
+		}
+		now := m.clock()
+		quiet := now.Sub(m.lastKey) >= questionSettle
+		m.lastKey = now
+		if len(m.questions) > 0 {
+			// A co-op question is shown: y or n answers it, and the chat
+			// input waits. A key that comes before the question has
+			// settled, or hard on another key, was typed for something
+			// else: it is swallowed, never taken as the answer.
+			if !quiet || now.Sub(m.questionShown) < questionSettle {
+				return m, nil
+			}
+			switch strings.ToLower(msg.String()) {
+			case "y":
+				m = m.answer(true)
+			case "n":
+				m = m.answer(false)
+			}
+			return m, nil
+		}
+		switch msg.String() {
 		case "enter":
 			text := strings.TrimSpace(m.chatInput.Value())
 			m.chatInput.SetValue("")
 			if text == "" || m.ended {
 				// Nothing to send, or no session left to send it on.
+				return m, nil
+			}
+			if m.coop && strings.HasPrefix(text, "/") {
+				// A co-op console command, as the CLI takes on stdin: the
+				// console logs what came of it.
+				m = m.applyEvent(session.Event{Kind: session.EventLog, Time: time.Now(), Level: report.Info, Text: "> " + text})
+				if m.ctrl != nil {
+					if err := m.ctrl.CommandLine(text); err != nil {
+						m = m.applyEvent(session.Event{Kind: session.EventLog, Time: time.Now(), Level: report.Warn, Text: "co-op: " + err.Error()})
+					}
+				}
 				return m, nil
 			}
 			if m.ctrl != nil {
@@ -439,7 +557,7 @@ func (m dashboardModel) view(width, height int) string {
 	if m.ended {
 		status = renderEnded(w, m.endReason)
 	} else {
-		status = renderStatus(w, m.playerCount, m.latency, m.players)
+		status = renderStatusCoop(w, m.playerCount, m.latency, m.players, m.coopStatus)
 	}
 	parts := []string{header}
 	used := lipgloss.Height(header)
@@ -448,16 +566,31 @@ func (m dashboardModel) view(width, height int) string {
 		used += lipgloss.Height(status)
 	}
 	help := "type + enter: chat    esc: back to connect    ctrl+c: quit"
-	if m.ended {
+	switch {
+	case m.ended:
 		help = "esc: back to connect (your fields are kept)    ctrl+c: quit"
+	case len(m.questions) > 0:
+		help = "y: yes    n: no    esc: back to connect    ctrl+c: quit"
+	case m.coop:
+		help = "enter: chat, or /help for co-op commands    esc: back    ctrl+c: quit"
 	}
 	footer := helpStyle.Width(w).Render(truncate(help, w))
 
 	avail := height - used - lipgloss.Height(footer)
 	l := planLayout(w, avail, m.localOK)
 
-	// Log panel, with the minimap (#22) above it or beside it.
-	if l.logRows > 0 {
+	// A co-op question takes the log's and the minimap's place until it
+	// is answered.
+	if len(m.questions) > 0 {
+		chatH := 0
+		if l.chat {
+			chatH = l.chatRows + chatChrome
+		}
+		if rows := avail - chatH - logChrome; rows >= 1 {
+			parts = append(parts, renderQuestion(w, rows, m.questions[0], len(m.questions)-1))
+		}
+	} else if l.logRows > 0 {
+		// Log panel, with the minimap (#22) above it or beside it.
 		logW := w
 		if l.beside {
 			logW = w - minimapPanelWidth
@@ -635,6 +768,12 @@ func formatLatency(d time.Duration) string {
 //	latency  client<->server RTT; 0/unknown renders "—" (never invented).
 //	players  remote players; their names (or "player N") form the presence row.
 func renderStatus(width, count int, latency time.Duration, players []session.Player) string {
+	return renderStatusCoop(width, count, latency, players, nil)
+}
+
+// renderStatusCoop is renderStatus with a third line for co-op when coop
+// has pipelines: each player's replica state and whether it writes. PURE.
+func renderStatusCoop(width, count int, latency time.Duration, players []session.Player, coop []session.CoopStatus) string {
 	inner := width - 4 // border + padding
 
 	line1 := labelStyle.Render("Players ") + valueStyle.Render(fmt.Sprintf("%d", count)) +
@@ -661,6 +800,13 @@ func renderStatus(width, count int, latency time.Duration, players []session.Pla
 	}
 
 	body := truncate(line1, inner) + "\n" + truncate(line2, inner)
+	if len(coop) > 0 {
+		var ps []string
+		for _, c := range coop {
+			ps = append(ps, valueStyle.Render(displayText(c.Player))+labelStyle.Render(": "+displayText(c.State)+"; "+displayText(c.Writes)))
+		}
+		body += "\n" + truncate(labelStyle.Render("Co-op   ")+strings.Join(ps, labelStyle.Render("  ")), inner)
+	}
 	return panelStyle.Width(width - 2).Render(
 		panelTitleStyle.Render("Status") + "\n" + body,
 	)
@@ -682,5 +828,38 @@ func renderEnded(width int, reason string) string {
 	}
 	return panelStyle.Width(width - 2).Render(
 		panelTitleStyle.Render("Status") + "\n" + strings.Join(rows, "\n"),
+	)
+}
+
+// renderQuestion draws co-op question q in rows rows: who asks, the
+// question as the CLI words it (its last lines kept when it is too long,
+// the question itself among them), a bind's preflight, and the keys.
+// more is how many questions wait behind it. PURE.
+func renderQuestion(width, rows int, q session.Question, more int) string {
+	title := "Co-op question"
+	if q.Player != "" {
+		title += " for " + q.Player
+	}
+	if more > 0 {
+		title += fmt.Sprintf(" (%d more waiting)", more)
+	}
+	lines := strings.Split(strings.TrimRight(q.Body, "\n"), "\n")
+	if len(q.Details) > 0 {
+		// The preflight goes before the question, which ends the body.
+		last := lines[len(lines)-1]
+		lines = append(lines[:len(lines)-1:len(lines)-1], q.Details...)
+		lines = append(lines, last)
+	}
+	var entries []string
+	for _, l := range lines {
+		entries = append(entries, displayText(l))
+	}
+	keys := statusOk.Render("y") + labelStyle.Render(": yes, write it    ") + statusErr.Render("n") + labelStyle.Render(": no")
+	body := keys
+	if rows > 1 {
+		body = strings.Join(wrapTail(entries, rows-1, width-4), "\n") + "\n" + truncate(keys, width-4)
+	}
+	return panelStyle.Width(width - 2).BorderForeground(zeldaGold).Render(
+		panelTitleStyle.Render(truncate(title, width-6)) + "\n" + body,
 	)
 }

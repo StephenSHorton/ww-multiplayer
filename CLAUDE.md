@@ -36,8 +36,8 @@ ww-multiplayer/
 │   │   └── client.go
 │   ├── report/                  # Reporter interface (Stdout / Discard / Multi)
 │   │   └── report.go, multi.go
-│   ├── session/                 # UI-free session controller the TUI drives (docs/01-architecture.md)
-│   │   └── session.go, controller.go, event.go
+│   ├── session/                 # UI-free session controller the CLI host/join and the TUI drive (docs/01-architecture.md)
+│   │   └── session.go, controller.go, event.go, coop.go
 │   └── tui/                     # Charm Bubble Tea UI (resurrected v0.1.5)
 │       ├── app.go, splash.go, connect.go, dashboard.go, styles.go
 ├── inject/                      # C source for the injected PPC code

@@ -1,0 +1,12 @@
+INFO co-op:   /refresh [player]      reload this area by the entrance Link came in by (a stale chest or door, or a softlock)
+INFO co-op:   /warp [player]         go to your partner: onto it on the same stage, else by its entrance first
+INFO co-op:   /coop off|on [player]  stop, or resume, writing the world into the game; pose sync goes on either way
+INFO co-op:   /status [player]       where co-op is
+INFO co-op:   /help                  this list
+INFO co-op: Link writes nothing already (a dry run (--coop-dry-run))
+WARN co-op: no command /jump: /help lists them
+INFO co-op: Link: off: the game state could not be read; world <id> at seq 0; a dry run (--coop-dry-run); 0 bytes written, 0 escapes, 0 verify failures
+INFO co-op: Link:   story bits held back: none
+INFO co-op: Link:   room puzzles: none in a dry run, which asks the host for the shared image alone; Link is in nowhere
+INFO co-op: Link:   combat: none in a dry run, which asks the host for the shared image alone
+WARN co-op: /warp for Link: --coop-dry-run writes no game data

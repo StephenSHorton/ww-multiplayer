@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -16,6 +18,7 @@ type connectedMsg struct {
 	role string // "Host" or "Join"
 	addr string // host's LAN IP for Join; ignored for Host
 	name string // player display name
+	coop session.CoopOptions
 }
 
 type backMsg struct{}
@@ -41,7 +44,65 @@ type connectModel struct {
 	nameInput string
 	focused   int // see focusOrder()
 	err       string
+
+	// The co-op choice (docs/08-coop-design.md; App PR 2), one per role:
+	// an index into coopChoices. 0 is off for both.
+	hostCoop, joinCoop int
+	// worlds are the co-op worlds on disk, newest first, for a host's
+	// "Continue" choices (session.Controller.CoopWorlds).
+	worlds []session.CoopWorld
 }
+
+// coopChoice is one co-op setting the connect form offers.
+type coopChoice struct {
+	label string
+	opts  session.CoopOptions
+}
+
+// coopChoices are the role's co-op settings: off; for a host a new world
+// founded from its loaded file, then each world on disk to continue; for
+// a joiner on, which plays the host's world.
+func (m connectModel) coopChoices() []coopChoice {
+	cs := []coopChoice{{label: "Off"}}
+	if m.role == 1 {
+		return append(cs, coopChoice{label: "On (the host's world)", opts: session.CoopOptions{On: true}})
+	}
+	cs = append(cs, coopChoice{label: "New world (from the file you load)", opts: session.CoopOptions{On: true, World: session.CoopWorldNew}})
+	for _, w := range m.worlds {
+		if w.Err != "" {
+			continue
+		}
+		label := fmt.Sprintf("Continue %s (seq %d)", w.ID, w.Seq)
+		if w.InUse {
+			label += ", in use?"
+		}
+		cs = append(cs, coopChoice{label: label, opts: session.CoopOptions{On: true, World: w.ID}})
+	}
+	return cs
+}
+
+// coopIndex is the role's choice, kept within its choices.
+func (m connectModel) coopIndex() int {
+	i := m.hostCoop
+	if m.role == 1 {
+		i = m.joinCoop
+	}
+	return clampInt(i, 0, len(m.coopChoices())-1)
+}
+
+// stepCoop moves the role's choice by d, wrapping.
+func (m connectModel) stepCoop(d int) connectModel {
+	n := len(m.coopChoices())
+	i := ((m.coopIndex()+d)%n + n) % n
+	if m.role == 1 {
+		m.joinCoop = i
+	} else {
+		m.hostCoop = i
+	}
+	return m
+}
+
+func (m connectModel) isCoopFocused() bool { return m.focused == 1 }
 
 func newConnect() connectModel {
 	return connectModel{
@@ -51,13 +112,13 @@ func newConnect() connectModel {
 
 // focusOrder returns the field index sequence for tab navigation.
 //
-//	Host: role(0) -> name(1) -> connect(2)
-//	Join: role(0) -> ip(1)   -> name(2) -> connect(3)
+//	Host: role(0) -> co-op(1) -> name(2) -> connect(3)
+//	Join: role(0) -> co-op(1) -> ip(2)   -> name(3) -> connect(4)
 func (m connectModel) maxFocus() int {
 	if m.role == 0 {
-		return 2
+		return 3
 	}
-	return 3
+	return 4
 }
 
 func (m connectModel) isConnectFocused() bool {
@@ -65,7 +126,7 @@ func (m connectModel) isConnectFocused() bool {
 }
 
 func (m connectModel) isIPFocused() bool {
-	return m.role == 1 && m.focused == 1
+	return m.role == 1 && m.focused == 2
 }
 
 // isNameFocused: the name field sits just before Connect in both roles.
@@ -99,17 +160,25 @@ func (m connectModel) update(msg tea.Msg) (connectModel, tea.Cmd) {
 			}
 
 		case "left", "right":
-			if m.focused == 0 {
+			switch {
+			case m.focused == 0:
 				m.role = 1 - m.role
 				if m.focused > m.maxFocus() {
 					m.focused = m.maxFocus()
 				}
+			case m.isCoopFocused() && msg.String() == "left":
+				m = m.stepCoop(-1)
+			case m.isCoopFocused():
+				m = m.stepCoop(1)
 			}
 
 		case "enter":
-			if m.focused == 0 {
+			switch {
+			case m.focused == 0:
 				m.role = 1 - m.role
-			} else if m.isConnectFocused() {
+			case m.isCoopFocused():
+				m = m.stepCoop(1)
+			case m.isConnectFocused():
 				return m.tryConnect()
 			}
 
@@ -202,8 +271,9 @@ func (m connectModel) tryConnect() (connectModel, tea.Cmd) {
 		role = "Join"
 	}
 	name := m.nameInput
+	coop := m.coopChoices()[m.coopIndex()].opts
 	return m, func() tea.Msg {
-		return connectedMsg{role: role, addr: addr, name: name}
+		return connectedMsg{role: role, addr: addr, name: name, coop: coop}
 	}
 }
 
@@ -238,7 +308,7 @@ func (m connectModel) view(width int) string {
 	b.WriteString(titleStyle.Width(width).Render("The Wind Waker"))
 	b.WriteString("\n")
 	b.WriteString(subtitleStyle.Width(width).Render("Multiplayer"))
-	b.WriteString("\n\n\n")
+	b.WriteString("\n\n")
 
 	// Role toggle
 	hostStyle := lipgloss.NewStyle().Padding(0, 3).Foreground(dim)
@@ -259,6 +329,12 @@ func (m connectModel) view(width int) string {
 	b.WriteString(lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(
 		labelStyle.Render(indicator) + " " + roleRow,
 	))
+	b.WriteString("\n")
+
+	// Co-op (#23), right under the role: one row, its choice cycled with
+	// left/right. It costs the blank row the title used to have, so the
+	// busiest form still fits 24 rows.
+	b.WriteString(m.coopRow(width))
 	b.WriteString("\n\n")
 
 	// IP field (Join only). The TUI has no port field, so the hint says
@@ -314,4 +390,16 @@ func (m connectModel) view(width int) string {
 	b.WriteString(helpStyle.Width(width).Render(truncate("tab: next  ←/→: toggle  enter: select  ctrl+c: quit", width)))
 
 	return b.String()
+}
+
+// coopRow renders the co-op choice: "> Co-op  < New world >", cut to
+// width.
+func (m connectModel) coopRow(width int) string {
+	indicator, choice := " ", labelStyle
+	if m.isCoopFocused() {
+		indicator, choice = ">", valueStyle.Foreground(zeldaGreen)
+	}
+	label := m.coopChoices()[m.coopIndex()].label
+	row := labelStyle.Render(indicator+" Co-op  ") + choice.Render("◀ "+label+" ▶")
+	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(truncate(row, width))
 }
