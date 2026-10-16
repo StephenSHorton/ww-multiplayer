@@ -330,11 +330,19 @@ func (h *LobbyHub) run(input func(m *lobbyMachine) []lobbyOut) {
 // s.players under it, so a player connection's color pick
 // (pickColorLocked, under Server.mu) sees a member and its color together
 // (rule 0), and the STATE it sends lists the current CLI rows.
+//
+// The player-list STATE goes after input's frames: input may be a HELLO,
+// whose WELCOME must reach the new member before any STATE (the client
+// drops the STATE it has when a WELCOME arrives). Dispatched first, that
+// STATE would be queued to the new member ahead of its WELCOME, and the
+// HELLO's own STATE merged into it (queueState), leaving the member with
+// no STATE until the next change. STATE is filled in when written, so the
+// later place carries both changes.
 func (h *LobbyHub) runWithPlayers(input func(m *lobbyMachine) []lobbyOut) {
 	h.mu.Lock()
 	h.srv.mu.RLock()
-	outs := h.m.setPlayers(h.srv.lobbyPlayersLocked())
-	outs = append(outs, input(h.m)...)
+	players := h.m.setPlayers(h.srv.lobbyPlayersLocked())
+	outs := append(input(h.m), players...)
 	h.publishTablesLocked()
 	h.srv.mu.RUnlock()
 	kicks := h.dispatchLocked(outs)
@@ -430,6 +438,12 @@ func (s *Server) handleLobby(conn net.Conn, name string, caps uint16) {
 	c := &lobbyConn{name: name, loopback: h.local(conn.RemoteAddr(), name), conn: conn, srv: s, hub: h,
 		out: make(chan lobbyFrame, lobbySendQueue), done: make(chan struct{})}
 	h.mu.Lock()
+	if s.stopping() {
+		// Stop has closed the lobby connections already (closeAll):
+		// close without a welcome, so the client retries (see Stop).
+		h.mu.Unlock()
+		return
+	}
 	id, ok := allocFrom(&h.nextID, func(id byte) bool {
 		for _, o := range h.conns {
 			if o.id == id {

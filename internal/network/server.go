@@ -84,8 +84,10 @@ type Server struct {
 	// connection arrives.
 	lobby *LobbyHub
 
-	// stopped is closed by Stop, for what waits outside the connection
-	// maps (a co-op hello held for SetCoop).
+	// stopped is closed by Stop, first and under mu, for what waits
+	// outside the connection maps (a co-op hello held for SetCoop) and for
+	// a connection that registers in them after Stop closed theirs
+	// (stopping).
 	stopped  chan struct{}
 	stopOnce sync.Once
 }
@@ -136,7 +138,18 @@ func (s *Server) Start() error {
 }
 
 // Stop shuts down the server.
+//
+// A connection the listener accepted just before it closed can still be in
+// its handshake: it checks stopping when it registers (under mu, or the
+// lobby's mu for a lobby connection) and closes without a welcome or a
+// reject, so its client retries, against a restarted server say. Without
+// that it would register after the loops below, and either live on with a
+// stopped server or, refused by the co-op hub Stop's caller stops next,
+// take a fatal RejectRole that ends the client's co-op for good.
 func (s *Server) Stop() {
+	s.mu.Lock()
+	s.stopOnce.Do(func() { close(s.stopped) })
+	s.mu.Unlock()
 	if s.listener != nil {
 		s.listener.Close()
 	}
@@ -149,7 +162,16 @@ func (s *Server) Stop() {
 	}
 	s.mu.Unlock()
 	s.lobby.closeAll()
-	s.stopOnce.Do(func() { close(s.stopped) })
+}
+
+// stopping reports whether Stop has begun.
+func (s *Server) stopping() bool {
+	select {
+	case <-s.stopped:
+		return true
+	default:
+		return false
+	}
 }
 
 // Addr returns the listener's bound address (nil before Start). Handy for
@@ -255,13 +277,24 @@ func (s *Server) handlePlayer(conn net.Conn) {
 	player := &Player{Name: name, Conn: conn}
 	player.SendMu.Lock()
 	s.mu.Lock()
-	id, ok := s.allocIDLocked()
+	stopping := s.stopping()
+	var id byte
+	var ok bool
+	if !stopping {
+		id, ok = s.allocIDLocked()
+	}
 	if ok {
 		player.ID = id
 		player.Color = s.pickColorLocked(name, ParseHelloColor(hello.Data))
 		s.players[id] = player
 	}
 	s.mu.Unlock()
+	if stopping {
+		// Stop has closed the players already: close without a
+		// welcome, so the client retries (see Stop).
+		player.SendMu.Unlock()
+		return
+	}
 	if !ok {
 		player.SendMu.Unlock()
 		s.refuse(conn, name, RejectServerFull, "server full: all 255 player IDs are in use")

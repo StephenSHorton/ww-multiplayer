@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -447,6 +448,9 @@ type coPlayer struct {
 	// replica's), and runs the game's frames.
 	beat *coBeat
 	reps []replica.Report // every tick's, by tick number
+	// ended is the error its network.RunCoop returned, if it gave up
+	// (a fatal refusal): it never reconnects after that.
+	ended atomic.Pointer[error]
 }
 
 // newCoPlayer starts cg's coop-sync pipeline in session cs, logging to
@@ -475,7 +479,9 @@ func newCoPlayerOver(t *testing.T, ctx context.Context, h *coHost, cs *coopSessi
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		network.RunCoop(ctx, s.client, h.addr, nil, p.u.session)
+		if err := network.RunCoop(ctx, s.client, h.addr, nil, p.u.session); err != nil {
+			p.ended.Store(&err)
+		}
 	}()
 	t.Cleanup(func() { <-done })
 	return p
@@ -631,6 +637,9 @@ func TestCoopSessionConverges(t *testing.T) {
 			stepAll()
 			armed := true
 			for _, p := range players {
+				if err := p.ended.Load(); err != nil {
+					t.Fatalf("%s: %s's co-op connection gave up: %v", why, p.name, *err)
+				}
 				armed = armed && p.s.r.Status().State == replica.StateArmed && welcomes(p) >= need[p]
 			}
 			if armed {

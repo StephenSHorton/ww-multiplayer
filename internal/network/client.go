@@ -432,7 +432,13 @@ func (c *Client) readLoop(conn net.Conn) {
 		}
 		msg, err := ReadMessage(conn)
 		if err != nil {
-			if c.connected.Load() {
+			// Only while conn is still the live connection: after a
+			// Disconnect and a fast reconnect, this stale loop's read
+			// error must not mark the new session disconnected.
+			c.mu.RLock()
+			current := c.conn == conn
+			c.mu.RUnlock()
+			if current && c.connected.Load() {
 				c.log("Disconnected from server")
 				c.connected.Store(false)
 			}

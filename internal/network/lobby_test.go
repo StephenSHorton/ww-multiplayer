@@ -202,7 +202,12 @@ func TestLobbyLoopbackSession(t *testing.T) {
 	if cc != playercolor.Vanilla() {
 		t.Fatalf("CLI color %v, want green (no preference)", cc)
 	}
-	if mc, ok := cli.MyColor(); !ok || mc != cc {
+	// The CLI player learns its own color from the player list the server
+	// sends after its welcome, which can arrive after the lobby lists it.
+	if !waitFor(5*time.Second, func() bool { _, ok := cli.MyColor(); return ok }) {
+		t.Fatal("the CLI player never got its color from the player list")
+	}
+	if mc, _ := cli.MyColor(); mc != cc {
 		t.Fatalf("CLI player list color %v, lobby says %v", mc, cc)
 	}
 	// Its first pose marks its Dolphin in game.
@@ -322,6 +327,37 @@ func TestLobbyLoopbackSession(t *testing.T) {
 	}
 }
 
+// TestLobbyWelcomeBeforePlayerListState: a member's HELLO that also picks
+// up a player-list change the lobby had not seen yet (a player connection
+// that joined a moment before, its playersChanged still to come) gets its
+// WELCOME before any STATE. The STATE for the player-list change used to be
+// queued to the new member ahead of its WELCOME, with the HELLO's STATE
+// merged into it; the client drops its STATE on WELCOME, so it had none
+// until the next change. That is how TestLobbyKickSticks and
+// TestLobbyKickClosesLobbyAndPlayerConns timed out waiting for three rows
+// that the host's lobby client had in fact received.
+func TestLobbyWelcomeBeforePlayerListState(t *testing.T) {
+	srv, addr := listenLobby(t, time.Minute)
+	first := NewLobbyClient("First", LobbyHelloBody{})
+	runLobby(t, first, addr)
+	waitState(t, first, "first", func(st LobbyStateBody) bool { return len(st.Members) == 1 })
+
+	// A player the lobby has not been told about: in s.players, no
+	// playersChanged yet.
+	pc, peer := net.Pipe()
+	t.Cleanup(func() { pc.Close(); peer.Close() })
+	srv.mu.Lock()
+	srv.players[200] = &Player{ID: 200, Name: "Unseen", Conn: pc, Color: playercolor.Vanilla()}
+	srv.mu.Unlock()
+
+	second := NewLobbyClient("Second", LobbyHelloBody{})
+	runLobby(t, second, addr)
+	waitState(t, second, "second sees everyone", func(st LobbyStateBody) bool {
+		_, ok := rowOf(st, "Unseen")
+		return ok && len(st.Members) == 3
+	})
+}
+
 // TestLobbyReconnectReclaimsSlot: a dropped lobby connection reconnects
 // with its token into the held slot (same member, color, ready); a slot not
 // reclaimed within the hold is dropped.
@@ -334,6 +370,11 @@ func TestLobbyReconnectReclaimsSlot(t *testing.T) {
 	waitState(t, host, "two members", func(st LobbyStateBody) bool { return len(st.Members) == 2 })
 	joiner.SetReady(true)
 	waitState(t, host, "ready", func(st LobbyStateBody) bool { r, _ := rowOf(st, "Joiner"); return r.Ready })
+	// The joiner's SET can go out before its own read loop has taken the
+	// WELCOME (Run's Connect is still waiting for it), so wait for that.
+	if !waitFor(5*time.Second, func() bool { _, ok := joiner.Welcome(); return ok }) {
+		t.Fatal("the joiner has no WELCOME")
+	}
 	w0, _ := joiner.Welcome()
 
 	joiner.Client().Disconnect() // Run reconnects with the token
@@ -384,6 +425,9 @@ func TestLobbyHostRestart(t *testing.T) {
 	joiner.SetReady(true)
 	host.Start()
 	waitState(t, joiner, "starting", func(st LobbyStateBody) bool { return st.Phase == PhaseStarting })
+	if !waitFor(5*time.Second, func() bool { _, ok := host.Welcome(); return ok }) {
+		t.Fatal("the host has no WELCOME")
+	}
 	w0, _ := host.Welcome()
 
 	srv.Stop()
@@ -448,7 +492,13 @@ func TestLobbyKickClosesLobbyAndPlayerConns(t *testing.T) {
 	run := runLobby(t, bad, addr)
 	p := connectPlayer(t, addr, "Griefer")
 	cli := connectPlayer(t, addr, "Lurker")
-	st := waitState(t, host, "three", func(st LobbyStateBody) bool { return len(st.Members) == 3 })
+	// Griefer's player connection can be listed before its lobby member
+	// joins, as a CLI row of that name with an ID of its own: wait for the
+	// member's row, whose ID the kick below is for.
+	st := waitState(t, host, "three", func(st LobbyStateBody) bool {
+		g, _ := rowOf(st, "Griefer")
+		return len(st.Members) == 3 && g.Via == ViaApp
+	})
 	gm, _ := rowOf(st, "Griefer")
 
 	host.Kick(gm.ID)
@@ -649,6 +699,17 @@ func TestLobbyFloodKeepsSlowMemberConnected(t *testing.T) {
 			t.Fatalf("toggle %d: %v", i, err)
 		}
 	}
+	// The flooder's slow_down is on its way while the flood drains.
+	sawSlowDown := waitFor(5*time.Second, func() bool {
+		sw.mu.Lock()
+		defer sw.mu.Unlock()
+		for _, n := range sw.notices {
+			if n.Code == NoticeSlowDown {
+				return true
+			}
+		}
+		return false
+	})
 	time.Sleep(time.Second)
 	select {
 	case err := <-readErr:
@@ -662,12 +723,6 @@ func TestLobbyFloodKeepsSlowMemberConnected(t *testing.T) {
 	if r, ok := rowOf(st, "Spam"); !ok || r.Away {
 		t.Fatalf("the flooder's own row %+v (present %v)", r, ok)
 	}
-	sawSlowDown := false
-	sw.mu.Lock()
-	for _, n := range sw.notices {
-		sawSlowDown = sawSlowDown || n.Code == NoticeSlowDown
-	}
-	sw.mu.Unlock()
 	if !sawSlowDown {
 		t.Error("the flooder never got slow_down")
 	}
@@ -694,16 +749,12 @@ func TestLobbyMemberAndCLIShareAColor(t *testing.T) {
 		if a != lobbyRed || c != lobbyRed {
 			t.Fatalf("round %d: member %v, CLI player %v; both asked for red", i, a, c)
 		}
-		// The CLI player learns its own color from the server's player
-		// list, which can arrive after the lobby already shows its row.
-		var mc playercolor.Color
-		var ok bool
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-			if mc, ok = p.MyColor(); ok {
-				break
-			}
-		}
-		if !ok || mc != lobbyRed {
+		// The CLI player learns its own color from the player list the
+		// server sends after its welcome: Connect returns on the welcome,
+		// and the lobby can list the player before that list is written
+		// or read.
+		waitFor(5*time.Second, func() bool { _, ok := p.MyColor(); return ok })
+		if mc, ok := p.MyColor(); !ok || mc != lobbyRed {
 			t.Fatalf("round %d: the CLI player's own color %v (%v), want red", i, mc, ok)
 		}
 		app.Disconnect()
@@ -902,7 +953,9 @@ func TestCoopHelloHeldUntilSetCoop(t *testing.T) {
 	runLobby(t, host, addr)
 	waitState(t, host, "joined", func(st LobbyStateBody) bool { return len(st.Members) == 1 })
 	host.SetSettings(LobbySettingsBody{Coop: CoopNew})
-	waitFor(2*time.Second, srv.Lobby().ExpectsCoop)
+	if !waitFor(5*time.Second, srv.Lobby().ExpectsCoop) {
+		t.Fatal("lobby does not expect co-op")
+	}
 
 	got := make(chan error, 1)
 	go func() { got <- NewCoopClient("Cli", 0).Connect(addr) }()
@@ -924,7 +977,9 @@ func TestCoopHelloHeldUntilSetCoop(t *testing.T) {
 	srv.SetCoop(nil)
 	host.Start()
 	host.Go("")
-	waitFor(2*time.Second, func() bool { return !srv.Lobby().ExpectsCoop() })
+	if !waitFor(5*time.Second, func() bool { return !srv.Lobby().ExpectsCoop() }) {
+		t.Fatal("the lobby still expects co-op after GO")
+	}
 	err := NewCoopClient("Late", 0).Connect(addr)
 	if !errors.Is(err, ErrFatal) || !strings.Contains(err.Error(), "not running co-op") {
 		t.Fatalf("after SetCoop(nil) and GO: %v", err)

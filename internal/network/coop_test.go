@@ -964,3 +964,74 @@ func TestRunCoop(t *testing.T) {
 		t.Errorf("connect log %q, want nothing (no failed attempt)", l)
 	}
 }
+
+// TestHandshakeDuringStopClosesWithoutReply: a connection the listener
+// accepted just before Stop, still in its handshake, is closed with no
+// welcome and no reject, so its client retries against the restarted host.
+// It used to register after Stop had closed the connections and live on
+// with the stopped server (a player or lobby connection, kept up by its
+// pings) or, for co-op, meet the hub Stop's caller stops next and take a
+// RejectRole, which is fatal: the client's co-op ended for good. That is
+// how TestCoopSessionConverges (package main) left a replica armed
+// offline after its host restart (issue #68).
+func TestHandshakeDuringStopClosesWithoutReply(t *testing.T) {
+	coopHello := HelloRoleMessage(ProtocolVersion, RoleCoop, 0)
+	// stoppedHub refuses as the co-op hub does once its caller has
+	// stopped it, right after the server.
+	stoppedHub := newCoopRecorder()
+	stoppedHub.attachErr = errors.New("co-op hub stopped")
+	cases := []struct {
+		name  string
+		hello []byte
+		coop  CoopHandler
+		lobby bool
+	}{
+		{"player", HelloMessage(ProtocolVersion), nil, false},
+		{"co-op", coopHello, newCoopRecorder(), false},
+		{"co-op, hub stopped", coopHello, stoppedHub, false},
+		{"lobby", HelloRoleMessage(ProtocolVersion, RoleLobby, LobbyCapJSON), nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := NewServer(0)
+			if tc.coop != nil {
+				srv.SetCoop(tc.coop)
+			}
+			srv.Stop()
+			cli, sconn := net.Pipe()
+			defer cli.Close()
+			served := make(chan struct{})
+			go func() { defer close(served); srv.handlePlayer(sconn) }()
+			cli.SetDeadline(time.Now().Add(5 * time.Second))
+			in := append(frame(MsgJoin, []byte("Late")), frame(MsgHello, tc.hello)...)
+			if tc.lobby {
+				hello, _ := EncodeLobby(LobbyHello, LobbyHelloBody{})
+				in = append(in, frame(MsgLobby, hello)...)
+			}
+			go cli.Write(in)
+			if msg, err := ReadMessage(cli); err == nil {
+				t.Fatalf("got a %q frame from a stopped server, want a bare close", msg.Type)
+			} else if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrClosedPipe) {
+				t.Fatalf("read = %v, want the server's close", err)
+			}
+			<-served
+			if srv.PlayerCount() != 0 || srv.CoopCount() != 0 || srv.LobbyCount() != 0 {
+				t.Fatalf("PlayerCount=%d CoopCount=%d LobbyCount=%d after Stop", srv.PlayerCount(), srv.CoopCount(), srv.LobbyCount())
+			}
+		})
+	}
+}
+
+// TestStaleReadLoopKeepsNewSession: the read loop of a connection that was
+// disconnected and already replaced (a fast reconnect) ends without
+// marking the new session disconnected.
+func TestStaleReadLoopKeepsNewSession(t *testing.T) {
+	c := NewClient("me")
+	old, cur := newScriptConn(nil), newScriptConn(nil)
+	c.conn = cur
+	c.connected.Store(true)
+	c.readLoop(old) // its read fails at once, as a closed conn's does
+	if !c.IsConnected() {
+		t.Fatal("a stale read loop marked the new session disconnected")
+	}
+}
