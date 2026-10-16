@@ -219,6 +219,7 @@ cd .. && python scripts/extract_blob.py  # regenerates blob.go
 
 - `docs/01-architecture.md` — how the pieces fit together
 - `docs/06-history.md` — session-by-session log of what was built and why
+- `docs/api/00-design.md` — the approved plan for the modding API, with multiplayer and co-op as mods
 - [GitHub issues](../../issues) — what's next, organized by epic
 - `SETUP.md` — what you need to install if you want to work on the C
   injection side (devkitPPC, Freighter, wit, etc.)
