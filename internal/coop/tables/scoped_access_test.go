@@ -76,3 +76,58 @@ func TestSyncedScopedSwitch(t *testing.T) {
 		t.Error("nil tables grant a zone switch")
 	}
 }
+
+// TestGBASwitch: a switch a Tingle Tuner switch (agbsw0) shares with a
+// latching setter syncs, and is GBA-dependent, in every store; one only
+// the Tuner writes doesn't sync; a Tuner type the decomp's table doesn't
+// reach keeps its switch unsynced.
+func TestGBASwitch(t *testing.T) {
+	stages := replace(tablestest.Vanilla(), tablestest.Dungeon("M_NewD2", keys.TableDRC,
+		tablestest.Crystal(0x3D), tablestest.TingleTuner(0, 0x3D, 0xFF),
+		tablestest.Crystal(0x87), tablestest.TingleTuner(7, 0x87, 0xC5), tablestest.Crystal(0xC5),
+		tablestest.Crystal(0xE3), tablestest.TingleTuner(8, 0xFF, 0xE3),
+		tablestest.TingleTuner(0, 0x3A, 0xFF),
+		tablestest.Crystal(0x3B), tablestest.TingleTuner(0x0F, 0x3B, 0xFF),
+		tablestest.Crystal(0x20)))
+	tb := buildFixture(t, stages)
+	const drc = "M_NewD2"
+	var none *Tables
+	for _, c := range []struct {
+		name        string
+		tb          *Tables
+		no          int
+		synced, gba bool
+		memory      bool
+	}{
+		{"a key door's switch the Tuner names", tb, 0x3D, true, true, true},
+		{"a dan crystal agbMW clears", tb, 0x87, true, true, false},
+		{"a zone crystal the Tuner names", tb, 0xC5, true, true, false},
+		{"a room crystal agbCSW sets", tb, 0xE3, true, true, false},
+		{"a switch only the Tuner writes", tb, 0x3A, false, false, true},
+		{"a type past ExeSubTable", tb, 0x3B, false, false, true},
+		{"a crystal the Tuner doesn't name", tb, 0x20, true, false, true},
+		{"no tables", none, 0x3D, false, false, true},
+	} {
+		var synced, gba bool
+		if c.memory {
+			synced, gba = c.tb.SyncedMemorySwitch(keys.TableDRC, c.no), c.tb.GBAMemorySwitch(keys.TableDRC, c.no)
+			if c.tb.GBAScopedSwitch(keys.TableDRC, drc, 1, c.no) {
+				t.Errorf("%s: GBAScopedSwitch takes a memory switch", c.name)
+			}
+		} else {
+			synced, gba = c.tb.SyncedScopedSwitch(keys.TableDRC, drc, 1, c.no), c.tb.GBAScopedSwitch(keys.TableDRC, drc, 1, c.no)
+			if c.tb.GBAMemorySwitch(keys.TableDRC, c.no) {
+				t.Errorf("%s: GBAMemorySwitch takes a scoped switch", c.name)
+			}
+		}
+		if synced != c.synced || gba != c.gba {
+			t.Errorf("%s: synced %v, GBA %v; want %v, %v", c.name, synced, gba, c.synced, c.gba)
+		}
+	}
+	if tb.GBAScopedSwitch(keys.TableDRC, drc, 0, 0xC5) || tb.GBAScopedSwitch(keys.TableDRC, "", -1, 0xC5) {
+		t.Error("the zone switch is GBA-dependent in another room")
+	}
+	if !tb.GBAScopedSwitch(keys.TableDRC, "", -1, 0x87) {
+		t.Error("a dan switch's GBA verdict depends on the stage")
+	}
+}

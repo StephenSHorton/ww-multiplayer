@@ -108,12 +108,16 @@ func TestReadDecodes(t *testing.T) {
 	if s.StageName != "" || s.PlayerPtr != 0 || s.Table != -1 || s.StayNo != -1 || s.Heartbeat != 0 {
 		t.Errorf("boot snapshot: %+v", *s)
 	}
-	// One read per region, per room status and per byte field, plus the
-	// second save read: about 5 KiB, and the save twice.
-	if want := 3 + 1 + addr.RoomCount + 2 + 1; cm.reads != want {
+	if s.GBA != (GBALink{}) || s.GBA.Linked() || s.GBA.MayLink() {
+		t.Errorf("boot snapshot's GBA link: %+v", s.GBA)
+	}
+	// One read per region, per room status and per byte field, one of
+	// g_mDoGaC_gbaCom, plus the second save read: about 5 KiB, and the
+	// save twice.
+	if want := 3 + 1 + addr.RoomCount + 2 + 1 + 1; cm.reads != want {
 		t.Errorf("%d reads per snapshot, want %d", cm.reads, want)
 	}
-	if want := 2*0x12A0 + 0x17C + 0x190 + 1 + 2*addr.RoomCount + 1 + 4; cm.bytes != want {
+	if want := 2*0x12A0 + 0x17C + 0x190 + 1 + 2*addr.RoomCount + 1 + 4 + 0x129; cm.bytes != want {
 		t.Errorf("%d bytes per snapshot, want %d", cm.bytes, want)
 	}
 
@@ -134,6 +138,7 @@ func TestReadDecodes(t *testing.T) {
 	g.SetPauseMenu(true)
 	g.SetMiniGame(3)
 	g.SetRefight(4)
+	g.SetGBALink(true)
 	_ = mem.WriteU16(m, addr.ItemKeyNumCount, 0xFFFF) // -1: no key HUD consumption is wanted here
 	_ = mem.WriteU16(m, addr.ItemMaxLifeCount, 4)
 	_ = mem.WriteU16(m, addr.ItemMaxMagicCount, 0x10)
@@ -165,6 +170,7 @@ func TestReadDecodes(t *testing.T) {
 		{"ZoneNo[3]", s.ZoneNo[3], int8(-1)},
 		{"MenuPause", s.MenuPause, uint8(1)},
 		{"Heartbeat", s.Heartbeat, uint32(7)},
+		{"GBA", s.GBA, GBALink{Enable: 1, State: 3, Closed: 0, Retries: 0, Context: 1}},
 		{"Torn", s.Torn, 0},
 	}
 	for _, c := range checks {
@@ -174,6 +180,57 @@ func TestReadDecodes(t *testing.T) {
 	}
 	if raw, _ := m.Read(SaveRegion.Start, saveSize); !bytes.Equal(raw, s.Save[:]) {
 		t.Error("an untorn snapshot's save differs from memory")
+	}
+}
+
+// TestGBALink checks Linked against mDoGaC_GbaLink's condition
+// (m_Do_gba_com.cpp:258-270) and that MayLink holds wherever it does, and
+// reads the fields from where the fake game puts them.
+func TestGBALink(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		g             GBALink
+		linked, maybe bool
+	}{
+		{"no GBA ever", GBALink{Closed: 1}, false, false},
+		{"boot (all zero)", GBALink{}, false, false},
+		{"connected", GBALink{Enable: 1, State: 3, Context: 1}, true, true},
+		{"connected, no context yet", GBALink{Enable: 1, State: 3}, true, true},
+		{"enabled, still probing", GBALink{Enable: 1, State: 1, Closed: 1}, false, true},
+		{"link closed after an error", GBALink{Enable: 1, State: 0, Closed: 1, Context: 1, Retries: 1}, true, true},
+		{"three failed probes", GBALink{Enable: 1, State: 1, Closed: 1, Context: 1, Retries: 3}, false, true},
+		{"context only", GBALink{Context: 1, Retries: 2}, true, true},
+		{"mEnable 2", GBALink{Enable: 2, State: 3}, false, true},
+		{"context 2", GBALink{Context: 2}, false, true},
+		{"state 3, link closed", GBALink{Enable: 1, State: 3, Closed: 1}, false, true},
+	} {
+		if c.g.Linked() != c.linked || c.g.MayLink() != c.maybe {
+			t.Errorf("%s: Linked %v MayLink %v, want %v %v", c.name, c.g.Linked(), c.g.MayLink(), c.linked, c.maybe)
+		}
+	}
+	// MayLink holds wherever Linked does, over every value that matters.
+	for _, e := range []uint8{0, 1, 2} {
+		for _, st := range []uint8{0, 2, 3, 4} {
+			for _, cl := range []uint8{0, 1} {
+				for _, r := range []uint8{0, 2, 3} {
+					for _, cx := range []uint8{0, 1, 2} {
+						if g := (GBALink{e, st, cl, r, cx}); g.Linked() && !g.MayLink() {
+							t.Errorf("%+v: linked but not MayLink", g)
+						}
+					}
+				}
+			}
+		}
+	}
+	m := mem.NewFakeMem()
+	g := fakegame.New(m)
+	g.SetGBALink(true)
+	if s := mustRead(t, m); !s.GBA.Linked() || !s.GBA.MayLink() {
+		t.Errorf("linked fake game reads %+v", s.GBA)
+	}
+	g.SetGBALink(false)
+	if s := mustRead(t, m); s.GBA.Linked() || s.GBA.MayLink() {
+		t.Errorf("rebooted fake game reads %+v", s.GBA)
 	}
 }
 
@@ -280,7 +337,8 @@ func TestReadErrors(t *testing.T) {
 	m := mem.NewFakeMem()
 	fakegame.New(m)
 	for _, a := range []uint32{SaveRegion.Start, StageRegion.Start, PlayerRegion.Start, addr.StayNo,
-		addr.RoomStatus + 5*addr.RoomStatusStride + addr.RoomStatusOffZoneNo, addr.MenuPause, addr.SpawnTrigger} {
+		addr.RoomStatus + 5*addr.RoomStatusStride + addr.RoomStatusOffZoneNo, addr.MenuPause, addr.SpawnTrigger,
+		addr.GbaCom + addr.GbaComOffContext} {
 		s, err := Read(&countingMem{Mem: m, failAt: a})
 		if !errors.Is(err, errInjected) || s != nil {
 			t.Errorf("failing read at 0x%08X: %v, %v", a, s, err)

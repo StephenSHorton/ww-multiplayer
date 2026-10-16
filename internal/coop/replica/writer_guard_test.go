@@ -465,13 +465,19 @@ func FuzzWriteGuardCheck(f *testing.F) {
 	f.Add(uint32(0x803C4C0A), byte(0), byte(0), int8(0), byte(7))
 	f.Add(uint32(0x803C5387), byte(0), byte(0x20), int8(0), byte(7))
 	f.Add(uint32(0x803C4CE0), byte(2), byte(0), int8(-1), byte(2))
-	f.Add(uint32(0x803C4CE0), byte(0), byte(0), int8(-1), byte(0x4C)) // closed gates without a reason
+	f.Add(uint32(0x803C4CE0), byte(0), byte(0), int8(-1), byte(0x4C))  // closed gates without a reason
+	f.Add(uint32(0x803C4F8F), byte(0), byte(0x40), int8(0), byte(0xF)) // sea switch 0x06 while a GBA may be linked
+	f.Add(uint32(0x803C5387), byte(0), byte(0x60), int8(0), byte(0xF)) // its live copy, with 0x05
 	f.Fuzz(func(t *testing.T, a uint32, old, val byte, table int8, flags byte) {
 		pol := world.DefaultPolicy()
 		pol.GrantSwitch(addr.TableSea, 0x05)
-		wg := NewWriteGuard(GuardConfig{Policy: pol, Breaker: NewBreaker(BreakerConfig{MaxFaults: 1 << 30})})
+		pol.GrantSwitch(addr.TableSea, 0x06)
+		var gba world.Policy // sea switch 0x06 is shared with the Tingle Tuner
+		gba.GrantSwitch(addr.TableSea, 0x06)
+		wg := NewWriteGuard(GuardConfig{Policy: pol, GBA: &gba, Breaker: NewBreaker(BreakerConfig{MaxFaults: 1 << 30})})
 		st := gate.Status{Stable: flags&1 != 0, Heartbeat: flags&2 != 0, Idle: true}
-		wg.SetTick(Tick{Gates: st, Armed: flags&4 != 0, Table: table})
+		linked := flags&8 != 0
+		wg.SetTick(Tick{Gates: st, Armed: flags&4 != 0, Table: table, GBA: linked})
 		err := wg.Check(a, old, val)
 		if err == nil {
 			if !st.CanWrite() || flags&4 == 0 {
@@ -498,6 +504,9 @@ func FuzzWriteGuardCheck(f *testing.F) {
 			}
 			if gain := val &^ old; gain&^(world.SharedMask(off)&pol[off]) != 0 {
 				t.Fatalf("allowed bits 0x%02X of %s outside the policy", gain, DefaultLabel(off, -1))
+			}
+			if gain := val &^ old; linked && gain&gba[off] != 0 {
+				t.Fatalf("allowed bits 0x%02X of %s, shared with the Tingle Tuner, while a GBA may be linked", gain, DefaultLabel(off, -1))
 			}
 			return
 		}

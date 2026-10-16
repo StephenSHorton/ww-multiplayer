@@ -29,6 +29,7 @@ var realNames = []struct {
 	{"TagEv", procTagEvent}, {"Hseki1", procTry}, {"Hfbot1A", procSwflat}, {"Htobi1", procShutter},
 	{"Bdk", stagedata.ProcBDK}, {"Kui", procKui}, {"koisi1", procStone}, {"Warpt", procWarpt},
 	{"MhmrSW0", procSwhammer}, {"Fganon", stagedata.ProcFganon}, {"Mn", procNpcMn},
+	{"agbA", procAgbsw0}, {"agbMW", procAgbsw0}, {"agbCSW", procAgbsw0},
 	{"Sitem", stagedata.ProcItem}, // a proc the table doesn't read
 }
 
@@ -298,8 +299,10 @@ func TestANDPropagation(t *testing.T) {
 	}
 }
 
-// checkFixedPoint checks the verdicts are consistent: Synced is "a setter,
-// all latching", and a latching AND's inputs are all synced.
+// checkFixedPoint checks the verdicts are consistent: Synced is "a
+// latching setter, the rest latching or GBA", a latching AND's inputs are
+// all synced, and GBA is set exactly on the synced switches with a GBA
+// writer or a latching AND writer with a GBA input.
 func checkFixedPoint(t testing.TB, tbl *Table) {
 	t.Helper()
 	for i := range tbl.Switches {
@@ -307,7 +310,11 @@ func checkFixedPoint(t testing.TB, tbl *Table) {
 		if s.Synced != synced(s) {
 			t.Errorf("%v: Synced %v disagrees with its writers", s.Key, s.Synced)
 		}
+		gba := false
 		for _, w := range s.Writers {
+			if w.Class == GBA {
+				gba = true
+			}
 			if w.Class != Latching {
 				continue
 			}
@@ -315,8 +322,91 @@ func checkFixedPoint(t testing.TB, tbl *Table) {
 				if !tbl.Synced(in) {
 					t.Errorf("%v: latching AND %v has unsynced input %v", s.Key, w.Ref, in)
 				}
+				if tbl.GBADependent(in) {
+					gba = true
+				}
 			}
 		}
+		if want := s.Synced && gba; s.GBA != want {
+			t.Errorf("%v: GBA %v, want %v (synced %v)", s.Key, s.GBA, want, s.Synced)
+		}
+		if tbl.GBADependent(s.Key) != (s.Synced && s.GBA) {
+			t.Errorf("%v: GBADependent disagrees with Synced and GBA", s.Key)
+		}
+	}
+}
+
+// agb is a Tingle Tuner switch (agbsw0) of type typ writing sw0 and sw1.
+func agb(name string, typ, sw0, sw1 int) stagedata.Actor {
+	return act(name, uint32(sw1)<<24|uint32(sw0)<<16|0xFFFF, 0, 0, typ)
+}
+
+// TestTingleTuner covers the agbsw0 writers (actors.go): every type the
+// game has writes only while a GBA is linked, so a switch it shares with
+// latching setters syncs, recorded as GBA-dependent, while one only it
+// writes does not, and a type past ExeSubTable stays Unknown.
+func TestTingleTuner(t *testing.T) {
+	const tb = addr.TableDRC
+	m := func(no int) Key { return mem(tb, no) }
+	for _, c := range []struct {
+		name   string
+		actors []stagedata.Actor
+		key    Key
+		synced bool
+		gba    bool
+		reason string
+	}{
+		// The owner's DRC key doors: a key door's switch the Tuner also
+		// names.
+		{"key door and agbA", []stagedata.Actor{act("door10", 0xFF<<20|4<<8|0x3D), agb("agbA", 0, 0x3D, 0xFF)},
+			m(0x3D), true, true, "gba writer D r0 ACTR#1 agbA writes it only while a GBA is linked"},
+		{"crystal and agbMW", []stagedata.Actor{crystal(0x10), agb("agbMW", 7, 0x10, 0xFF)},
+			m(0x10), true, true, "so it syncs only while none is"},
+		{"crystal and agbCSW's sw1", []stagedata.Actor{crystal(0x11), agb("agbCSW", 8, 0xFF, 0x11)},
+			m(0x11), true, true, "every setter latches"},
+		{"agbA alone", []stagedata.Actor{agb("agbA", 0, 0x12, 0xFF)},
+			m(0x12), false, false, "no latching setter: only gba writers (D r0 ACTR#0 agbA"},
+		{"agbA and a timed crystal", []stagedata.Actor{timedCrystal(0x13), agb("agbA", 0, 0x13, 0xFF)},
+			m(0x13), false, false, "unsafe writer D r0 ACTR#0 SW_HIT0"},
+		// A type past the table's 15 entries isn't known to need a link.
+		{"crystal and a type past ExeSubTable", []stagedata.Actor{crystal(0x14), agb("agbA", agbsw0Types, 0x14, 0xFF)},
+			m(0x14), false, false, "unknown writer D r0 ACTR#1 agbA: Tingle Tuner switch type 15 is past ExeSubTable's 15 entries"},
+		{"the last type in the table", []stagedata.Actor{crystal(0x15), agb("agbA", agbsw0Types-1, 0x15, 0xFF)},
+			m(0x15), true, true, "gba writer"},
+		// An AND fed by a GBA-dependent input is GBA-dependent too.
+		{"AND of a GBA input", []stagedata.Actor{crystal(0x21), agb("agbA", 0, 0x21, 0xFF), andsw2(0, 0x20, 1, 0xFF)},
+			m(0x20), true, true, "an AND input syncs only while no GBA is linked"},
+		{"AND of an AND of a GBA input", []stagedata.Actor{crystal(0x31), agb("agbA", 0, 0x31, 0xFF), andsw2(0, 0x30, 1, 0xFF), andsw0(0, 0x40, 1, 0x30)},
+			m(0x40), true, true, "an AND input"},
+		{"AND of plain inputs", []stagedata.Actor{crystal(0x51), andsw2(0, 0x50, 1, 0xFF)},
+			m(0x50), true, false, "every setter latches"},
+		// Dan, zone and room switches route as any other.
+		{"dan", []stagedata.Actor{crystal(0x85), agb("agbA", 0, 0x85, 0xFF)}, dan(tb, 0x85), true, true, "gba writer"},
+		{"zone", []stagedata.Actor{crystal(0xC5), agb("agbA", 0, 0xFF, 0xC5)}, zone(tb, "D", 0, 0xC5), true, true, "gba writer"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tbl := Build([]*stagedata.Stage{stage("D", tb, nil, c.actors)}, testNames(t))
+			checkFixedPoint(t, tbl)
+			s, ok := tbl.Lookup(c.key)
+			if !ok {
+				t.Fatalf("no %v: %v", c.key, keysOf(tbl))
+			}
+			if s.Synced != c.synced || s.GBA != c.gba || tbl.GBADependent(c.key) != (c.synced && c.gba) || !strings.Contains(s.Reason, c.reason) {
+				t.Errorf("synced %v, gba %v, reason %q; want %v, %v, %q", s.Synced, s.GBA, s.Reason, c.synced, c.gba, c.reason)
+			}
+			for _, w := range s.Writers {
+				if w.Name == "agbA" || w.Name == "agbMW" || w.Name == "agbCSW" {
+					if w.Op != OpToggle || (w.Class != GBA && w.Class != Unknown) {
+						t.Errorf("Tuner writer %s %s, want a toggle of class gba or unknown", w.Class, w.Op)
+					}
+				}
+			}
+		})
+	}
+	// 0xFF is no switch: an agbsw0 with one switch writes one.
+	tbl := Build([]*stagedata.Stage{stage("D", tb, nil, []stagedata.Actor{agb("agbA", 0, 0x60, 0xFF)})}, testNames(t))
+	if len(tbl.Switches) != 1 {
+		t.Errorf("switches %v, want only 0x60", keysOf(tbl))
 	}
 }
 
@@ -345,6 +435,10 @@ func TestMixedSetters(t *testing.T) {
 		{"latching and push block", []*stagedata.Stage{
 			stage("A", tb, nil, []stagedata.Actor{crystal(0x05), act("osiBLK0", 1<<24|0x05<<8, 0, 0, 0x02)}),
 		}, false, 2, "push block path 2"},
+		{"latching and Tingle Tuner in another stage", []*stagedata.Stage{
+			stage("A", tb, nil, []stagedata.Actor{crystal(0x05)}),
+			stage("B", tb, nil, []stagedata.Actor{agb("agbA", 0, 0x05, 0xFF)}),
+		}, true, 2, "gba writer B r0 ACTR#0 agbA"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			tbl := Build(c.stages, testNames(t))
@@ -546,7 +640,7 @@ func TestUndecodedAndUnnamed(t *testing.T) {
 func sample(t testing.TB) *Table {
 	return Build([]*stagedata.Stage{
 		stage("M_NewD2", addr.TableDRC, []stagedata.Actor{act("door10", 0xFF<<20|4<<8|0x12, 1|2<<6)},
-			[]stagedata.Actor{crystal(0x05), timedCrystal(0x06), andsw2(0, 0x07, 2, 0x05), act("Hfbot1A", 0)},
+			[]stagedata.Actor{crystal(0x05), timedCrystal(0x06), andsw2(0, 0x07, 2, 0x05), act("Hfbot1A", 0), agb("agbA", 0, 0x05, 0xFF)},
 			[]stagedata.Actor{act("osiBLK0", 1<<24|0x20<<8, 0, 0, 0x21<<8|0x01), act("ALLdie", 0xC3<<8), act("Bk", 0xA)}),
 		stage("M_DaiB", addr.TableDRC, []stagedata.Actor{crystal(0xC9)}, []stagedata.Actor{act("Bdk", 0), act("Htobi1", 0x30)}),
 		stage("sea", addr.TableSea, nil, []stagedata.Actor{act("Evsw", 1<<24|0x30), act("Nope", 0)}),
@@ -585,22 +679,23 @@ func TestJSONRoundTrip(t *testing.T) {
 func TestReport(t *testing.T) {
 	r := sample(t).Report()
 	for _, s := range []string{
-		"Switch table: 3 stages, 12 switch users (1 entries not in l_objectName)",
-		"Writers: 11, latching 5, unsafe 5, event 1, unknown 0",
+		"Switch table: 3 stages, 13 switch users (1 entries not in l_objectName)",
+		"Writers: 12, latching 5, unsafe 5, event 1, unknown 0, gba 1",
 		"  memory      8  synced     2  no setter     1",
+		"Synced only while no GBA is linked (shared with the Tingle Tuner): 1 (memory 1, dan 0, zone 0, room 0)",
 		"Push blocks storing a path in switches (never synced): 1",
 		"  M_NewD2 r1 ACTR#0 osiBLK0 path 1: memory t3 0x20, memory t3 0x21",
 		"Undecoded switch users: 1\n  Hfbot1A  1",
 		"Switch uses the game can't route: 1\n  M_DaiB stage ACTR#0 SW_HIT0: zone switch 0xC9 from room -1, which has no zone",
-		"Dragon Roost Cavern (table 3): 11 switches, 5 synced",
-		"  ok memory t3 0x05  set by SW_HIT0",
+		"Dragon Roost Cavern (table 3): 11 switches, 5 synced (ok*: while no GBA is linked)",
+		"  ok* memory t3 0x05  set by SW_HIT0; held while a GBA is linked (Tingle Tuner: agbA)",
 		"     memory t3 0x07  unsafe writer M_NewD2 r0 ACTR#2 AND_SW2: one-shot AND: set once its inputs are all on; fed by memory t3 0x06, which is not synced",
 		"  ok memory t3 0x12  set by door10",
 		"  ok zone M_NewD2 r1 0xC3  set by ALLdie",
 		"  ok room M_NewD2 r1 0xE0  set by Bk",
 		"     dan t3 0x80  unsafe writer M_DaiB r0 ACTR#0 Bdk",
 		"     memory t3 0x30  no known setter (read by Htobi1)",
-		"Forsaken Fortress (table 2): 0 switches, 0 synced",
+		"Forsaken Fortress (table 2): 0 switches, 0 synced (ok*: while no GBA is linked)",
 	} {
 		if !strings.Contains(r, s) {
 			t.Errorf("report lacks %q:\n%s", s, r)

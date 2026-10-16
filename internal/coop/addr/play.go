@@ -134,6 +134,31 @@ const (
 	MenuPause uint32 = 0x803F7097
 )
 
+// The Game Boy Advance link (the Tingle Tuner, §6.2). Every Tingle Tuner
+// switch write needs mDoGaC_GbaLink true on the frame it is made
+// (internal/coop/tables/switches, AGBSW0), and mDoGaC_GbaLink reads only
+// g_mDoGaC_gbaCom (m_Do_gba_com.cpp:258-270):
+//
+//	(mEnable == 1 && field_0x2 == 3 && field_0x4 == 0) ||
+//	(field_0x128[0].field_0x0 == 1 && field_0x10e < 3)
+//
+// the second clause only in versions after the demo (VERSION > VERSION_DEMO,
+// global.h:63), which GZLE01 is.
+const (
+	// GbaCom is g_mDoGaC_gbaCom, an mDoGaC_agbCom_c (sym:17367; its
+	// layout, m_Do_gba_com.h:67-110, with field_0x120 and field_0x124
+	// present after the demo).
+	GbaCom     uint32 = 0x803B904C
+	GbaComSize        = 0x130 // sym:17367; TestDataManager follows at 0x803B917C (sym:17368)
+
+	GbaComOffEnable   = 0x000 // u8 mEnable: 1 from the Tuner's upload (onEnable, d_a_agb.cpp:491) until mDoGaC_GbaReboot (m_Do_gba_com.cpp:162)
+	GbaComOffState    = 0x002 // u8 field_0x2: the connect state, 3 once connected (mDoGaC_Connect, m_Do_gba_com.cpp:221-224)
+	GbaComOffClosed   = 0x004 // u8 field_0x4: 1 while the link is closed (mDoGaC_ComClose :135), 0 from mDoGaC_ComRestart (:190)
+	GbaComOffRetries  = 0x10E // u8 field_0x10e: probes since the link was last up, capped at 3 (:216-218, :236)
+	GbaComOffContext  = 0x128 // u8 field_0x128[0].field_0x0: 1 once a GBA's context checked out (mDoGaC_ContextCheck, :518), 0 after mDoGaC_GbaReboot (:168)
+	GbaComLinkReadLen = GbaComOffContext + 1
+)
+
 // The actor queue. Every fopAc_ac_c is linked into g_fopAcTg_Queue through
 // its actor_tag; the walk goes node -> next and recovers the actor from
 // the tag's data pointer (cTg_Create, c_tag.cpp:89-92).

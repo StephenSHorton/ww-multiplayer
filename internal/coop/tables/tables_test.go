@@ -848,6 +848,9 @@ var schemaShapes = map[int]string{
 	// ("excluded"); a pig's dig spot is a source (kind "dig"), and Ganon's
 	// Tower's refight bosses drop no container.
 	4: "f9763048613b9d5968acbc5cf4bfe1b39dc411ac5950c040428d0cee9145aa5c",
+	// 5: the Tingle Tuner's writers are class "gba", and a switch they
+	// share with latching setters syncs while no GBA is linked ("gba").
+	5: "18e463dd4d344be73cbc4e9f0f99bf72f2021d56a876e6db3cd6bc86cddd5014",
 }
 
 func TestSchemaShape(t *testing.T) {

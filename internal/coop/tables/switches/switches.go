@@ -2,9 +2,13 @@
 // co-op (design §6.2). For every switch some placed actor writes or
 // reads, in the store and scope the game keeps it in, it lists the
 // writers with what they do, and decides whether co-op may sync it: only
-// when it has a setter and every setter latches, that is, sets it and
-// never clears or flips it. An AND switch's setter latches only while
-// all its inputs are synced, transitively.
+// when it has a latching setter and every other writer latches too, that
+// is, sets it and never clears or flips it, or writes only while a Game
+// Boy Advance is linked (the Tingle Tuner's, class GBA). A switch with a
+// GBA writer syncs only while no GBA is linked (Switch.GBA), which the
+// runtime checks every tick. An AND switch's setter latches only while
+// all its inputs are synced, transitively, and is GBA-dependent while an
+// input is.
 //
 // Build is a pure function of the stages and the l_objectName table;
 // its Table marshals to JSON for the cache §6.2 keys by DOL hash.
@@ -37,6 +41,12 @@ const (
 	// Unknown writers take a switch param the decomp doesn't tell the
 	// behaviour of.
 	Unknown Class = "unknown"
+	// GBA writers write it only on a frame where a Game Boy Advance is
+	// linked (mDoGaC_GbaLink, m_Do_gba_com.cpp:258-270): the Tingle
+	// Tuner's (agbsw0, and the GBA's own commands through the Tuner
+	// actor). They don't stop a switch from syncing, but such a switch
+	// syncs only while no GBA is linked (Switch.GBA, §6.2).
+	GBA Class = "gba"
 )
 
 // Op is what a writer does to its switch.
@@ -194,7 +204,12 @@ type Reader struct {
 // Switch is one switch with its writers and readers, in placement order.
 type Switch struct {
 	Key
-	Synced  bool     `json:"synced"`
+	Synced bool `json:"synced"`
+	// GBA: a synced switch that syncs only while no Game Boy Advance is
+	// linked to the game, since a GBA writer (the Tingle Tuner's) shares
+	// it, or a latching AND writer has an input that is GBA. While a GBA
+	// may be linked, a replica neither proposes nor writes it.
+	GBA     bool     `json:"gba,omitempty"`
 	Reason  string   `json:"reason"`
 	Writers []Writer `json:"writers,omitempty"`
 	Readers []Reader `json:"readers,omitempty"`
@@ -244,10 +259,18 @@ func (t *Table) Lookup(k Key) (*Switch, bool) {
 	return &t.Switches[i], true
 }
 
-// Synced reports whether co-op may sync switch k.
+// Synced reports whether co-op may sync switch k (while no GBA is
+// linked, for a GBA one: GBADependent).
 func (t *Table) Synced(k Key) bool {
 	s, ok := t.Lookup(k)
 	return ok && s.Synced
+}
+
+// GBADependent reports whether switch k is synced only while no Game Boy
+// Advance is linked (Switch.GBA).
+func (t *Table) GBADependent(k Key) bool {
+	s, ok := t.Lookup(k)
+	return ok && s.Synced && s.GBA
 }
 
 // Build classifies the switches of stages, naming procs through names.
@@ -350,18 +373,21 @@ func (b *builder) place(st *stagedata.Stage, p stagedata.Placed, names *stagedat
 	}
 }
 
-// synced is the verdict on s's writers as they stand: a setter, and every
-// writer latching.
+// synced is the verdict on s's writers as they stand: a latching setter,
+// and every other writer latching or GBA (one that writes only while a
+// GBA is linked).
 func synced(s *Switch) bool {
-	if len(s.Writers) == 0 {
-		return false
-	}
+	latch := false
 	for _, w := range s.Writers {
-		if w.Class != Latching {
+		switch w.Class {
+		case Latching:
+			latch = true
+		case GBA:
+		default:
 			return false
 		}
 	}
-	return true
+	return latch
 }
 
 // propagate demotes every latching AND writer with an input that is not
@@ -432,12 +458,43 @@ func (b *builder) sortedKeys() []Key {
 // finish writes out the switches in key order with their verdicts.
 func (b *builder) finish() {
 	keys := b.sortedKeys()
-	b.t.Switches = make([]Switch, 0, len(keys))
 	for _, k := range keys {
 		s := b.byKey[k]
 		s.Synced = synced(s)
+	}
+	b.markGBA(keys)
+	b.t.Switches = make([]Switch, 0, len(keys))
+	for _, k := range keys {
+		s := b.byKey[k]
 		s.Reason = reason(s)
 		b.t.Switches = append(b.t.Switches, *s)
+	}
+}
+
+// markGBA sets GBA on every synced switch that a GBA writer shares, and
+// then, until nothing changes, on every synced switch a latching AND
+// writer sets from an input that is GBA: while a GBA is linked that input
+// may be the Tuner's, so the AND's output is too. Each pass marks at least
+// one more switch or ends, so it ends.
+func (b *builder) markGBA(keys []Key) {
+	for _, k := range keys {
+		s := b.byKey[k]
+		s.GBA = s.Synced && slices.ContainsFunc(s.Writers, func(w Writer) bool { return w.Class == GBA })
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, k := range keys {
+			s := b.byKey[k]
+			if !s.Synced || s.GBA {
+				continue
+			}
+			for _, w := range s.Writers {
+				if w.Class == Latching && slices.ContainsFunc(w.Inputs, func(in Key) bool { return b.byKey[in] != nil && b.byKey[in].GBA }) {
+					s.GBA, changed = true, true
+					break
+				}
+			}
+		}
 	}
 }
 
@@ -445,10 +502,25 @@ func reason(s *Switch) string {
 	if len(s.Writers) == 0 {
 		return "no known setter"
 	}
-	for _, w := range s.Writers {
-		if w.Class != Latching {
+	var gba *Writer
+	for i, w := range s.Writers {
+		switch w.Class {
+		case Latching:
+		case GBA:
+			if gba == nil {
+				gba = &s.Writers[i]
+			}
+		default:
 			return fmt.Sprintf("%s writer %v: %s", w.Class, w.Ref, w.Why)
 		}
+	}
+	switch {
+	case !s.Synced:
+		return fmt.Sprintf("no latching setter: only gba writers (%v: %s), which write it only while a GBA is linked", gba.Ref, gba.Why)
+	case gba != nil:
+		return fmt.Sprintf("every setter latches; gba writer %v writes it only while a GBA is linked, so it syncs only while none is", gba.Ref)
+	case s.GBA:
+		return "every setter latches; an AND input syncs only while no GBA is linked, so it does too"
 	}
 	return "every setter latches"
 }

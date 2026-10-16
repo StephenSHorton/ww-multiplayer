@@ -116,6 +116,10 @@ const (
 // proportional to its input.
 const MaxANDInputs = 32
 
+// agbsw0Types is the length of daAgbsw0_c::execute's ExeSubTable
+// (d_a_agbsw0.cpp:279-295), types 0 (A) to 0xE (M3).
+const agbsw0Types = 15
+
 // entry is a placed actor as the decoders read it.
 type entry struct{ stagedata.Actor }
 
@@ -169,6 +173,12 @@ func read(no int, why string) use { return use{no: no, why: why, path: -1} }
 // from inputs.
 func and(no int, op Op, c Class, why string, inputs []int) use {
 	return use{no: no, write: true, op: op, class: c, why: why, inputs: inputs, path: -1}
+}
+
+// as gives the use class c.
+func (u use) as(c Class) use {
+	u.class = c
+	return u
 }
 
 // in routes the use with room instead of the actor's own.
@@ -609,13 +619,41 @@ var specs = []spec{
 		}
 	}},
 
-	// Tingle Tuner switches. d_a_agbsw0.h:74-88: sw0 (params >> 16) &
-	// 0xFF, sw1 params >> 24, type home.angle.z & 0xFF. The actor clears
-	// sw0 (d_a_agbsw0.cpp:1112-1118) and the Tuner's GBA input sets,
-	// clears or flips them (d_a_agb.cpp:834-853).
+	// Tingle Tuner switches. d_a_agbsw0.h:74-82: sw0 (params >> 16) &
+	// 0xFF, sw1 params >> 24, type home.angle.z & 0xFF ("agbA".."agbFA",
+	// d_stage.cpp:503-515, are all this proc; the type, not the name,
+	// picks the code). execute calls ExeSubTable[type], 15 entries with
+	// no bound check (d_a_agbsw0.cpp:277-297); create turns some M types
+	// into 0xD and 0xE and some R types into B (:154-171) and writes no
+	// switch. Every switch write needs mDoGaC_GbaLink true on the frame
+	// it is made (m_Do_gba_com.cpp:258-270):
+	//
+	//	MW (7): offSwitch sw0 (:1117), after returning at once while no
+	//	   GBA is linked (:1074)
+	//	T (6):  onSwitch sw0 when a bomb hits it (:1158), inside
+	//	   if (mDoGaC_GbaLink()) (:1153)
+	//	S (8):  onSwitch sw0 and sw1 (:1198-1200, :1216-1218), inside
+	//	   field_0x299 == 0 && mDoGaC_GbaLink() (:1193); its M_NewD2 room
+	//	   0xC case only deletes the actor (:1187-1190)
+	//	others: no switch write; they read their switches and mail the GBA
+	//	   (MailSend :2537-2547 only queues the mail, mDoGac_SendDataSet)
+	//
+	// The GBA's answer reaches the Tuner actor, whose SwitchOn flips
+	// mSwitch.field_0x0 and sets or flips field_0x4 (d_a_agb.cpp:
+	// 834-853); daAgb_Execute calls it only under mDoGaC_GbaLink
+	// (:1682-1684). Which switches the GBA program names there is not in
+	// the decomp, so the table takes both of the actor's, either way
+	// (inferred). So every writer is GBA: none writes while no GBA is
+	// linked. A type past the table's 15 entries runs whatever follows it
+	// (Unknown).
 	{proc: procAgbsw0, name: "AGBSW0", decode: func(e entry) []use {
-		why := "Tingle Tuner switch: the GBA player sets, clears or flips it"
-		return []use{toggle(e.byte(16), why), toggle(e.byte(24), why)}
+		sw0, sw1 := e.byte(16), e.byte(24)
+		if typ := e.angleByte(2); typ >= agbsw0Types {
+			why := fmt.Sprintf("Tingle Tuner switch type %d is past ExeSubTable's %d entries", typ, agbsw0Types)
+			return []use{toggle(sw0, why).as(Unknown), toggle(sw1, why).as(Unknown)}
+		}
+		why := "Tingle Tuner switch: written only while a GBA is linked (the actor, and the GBA player through the Tuner)"
+		return []use{toggle(sw0, why).as(GBA), toggle(sw1, why).as(GBA)}
 	}},
 
 	// Breakables and other one-shot setters.

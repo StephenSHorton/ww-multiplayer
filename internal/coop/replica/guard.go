@@ -645,6 +645,10 @@ type Tick struct {
 	// room's zone slot and each slot's room. A zone switch byte is let
 	// through only into the zone of the room Link is in (scopedClosed).
 	Zones ZoneTable
+	// GBA: a Game Boy Advance may be linked to the game
+	// (snap.GBALink.MayLink), so the memory switches the stage tables
+	// share with the Tingle Tuner (GuardConfig.GBA) are shut.
+	GBA bool
 }
 
 // ZoneTable is the zone allocation one snapshot read (§3.1): mStayNo,
@@ -835,6 +839,10 @@ type GuardConfig struct {
 	// (world.Policy.GrantSwitches). Nil is world.DefaultPolicy, which
 	// opens no switch.
 	Policy *world.Policy
+	// GBA is the memory switch bits that sync only while no Game Boy
+	// Advance is linked (tables.Tables.GBAMemorySwitch): shut on a tick
+	// whose Tick.GBA is set. Nil shuts none.
+	GBA *world.Policy
 	// Breaker gets every refusal (but those made while co-op is off) as
 	// a fault; nil makes one with the default thresholds.
 	Breaker *Breaker
@@ -861,7 +869,9 @@ type GuardConfig struct {
 //   - any write while a gate the byte's target needs is closed, before
 //     the first tick and after Close;
 //   - a bit the policy does not open (an unsynced memory switch), or any
-//     other bit outside the byte's mask;
+//     other bit outside the byte's mask, and, while a GBA may be linked
+//     (Tick.GBA), a memory switch shared with the Tingle Tuner
+//     (GuardConfig.GBA);
 //   - a clear: the new byte must hold every bit of the old one (a MAX
 //     byte, a capacity, must not fall), and a slot, an equipment byte or
 //     a button must not move to a lesser variant;
@@ -877,6 +887,7 @@ type GuardConfig struct {
 type WriteGuard struct {
 	allow  *Guard
 	policy world.Policy
+	gba    world.Policy // GuardConfig.GBA
 	brk    *Breaker
 	logf   func(format string, args ...any)
 	label  func(off, bit int) string
@@ -901,6 +912,9 @@ func NewWriteGuard(cfg GuardConfig) *WriteGuard {
 		w.policy = *cfg.Policy
 	} else {
 		w.policy = *world.DefaultPolicy()
+	}
+	if cfg.GBA != nil {
+		w.gba = *cfg.GBA
 	}
 	if w.brk == nil {
 		w.brk = NewBreaker(BreakerConfig{Logf: cfg.Logf})
@@ -942,8 +956,9 @@ func (w *WriteGuard) Close(why string) {
 
 // Mask returns the bits a write may change in the byte at a this tick:
 // the allowlist's mask narrowed by the policy (for a live memBit byte,
-// the loaded table's), 0 when the byte is no target or no table is
-// loaded. It does not look at the gates.
+// the loaded table's) and, while a GBA may be linked, without the
+// switches shared with the Tingle Tuner; 0 when the byte is no target or
+// no table is loaded. It does not look at the gates.
 func (w *WriteGuard) Mask(a uint32) byte {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -970,6 +985,9 @@ func (w *WriteGuard) rule(a uint32) (string, byteRule, Refusal) {
 	}
 	if off >= 0 && (br.rule == ruleOR || br.rule == ruleMax) {
 		br.mask &= w.policy[off]
+		if w.tick.GBA {
+			br.mask &^= w.gba[off]
+		}
 		if br.mask == 0 {
 			return w.name(a, span), byteRule{}, RefusePolicy
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
@@ -48,6 +49,19 @@ func timedCrystal(sw uint32) stagetest.Actor {
 // m5Stages is tablestest.Vanilla with Dragon Roost Cavern's room 1
 // holding the M5 switches besides its vanilla entries.
 func m5Stages() []stagetest.Stage {
+	extra := m5Extra()
+	stages := tablestest.Vanilla()
+	for i, s := range stages {
+		if s.Name == drc.Name {
+			stages[i] = tablestest.Dungeon(drc.Name, keys.TableDRC, extra...)
+		}
+	}
+	return stages
+}
+
+// m5Extra is DRC room 1's entries beyond the dungeon's key chests in the
+// M5 fixture.
+func m5Extra() []stagetest.Actor {
 	extra := []stagetest.Actor{
 		tablestest.Crystal(0x20), tablestest.PushBlock(1, 0x30, 0x31),
 		tablestest.Enemy("Bk", 1), tablestest.Enemy("Bk", 1), tablestest.Enemy("c_green", 2), tablestest.Enemy("Bk", 0xFFFF),
@@ -58,13 +72,7 @@ func m5Stages() []stagetest.Stage {
 			extra = append(extra, tablestest.Crystal(uint32(no)))
 		}
 	}
-	stages := tablestest.Vanilla()
-	for i, s := range stages {
-		if s.Name == drc.Name {
-			stages[i] = tablestest.Dungeon(drc.Name, keys.TableDRC, extra...)
-		}
-	}
-	return stages
+	return extra
 }
 
 var m5Fixture = sync.OnceValues(func() (*tables.Tables, error) {
@@ -104,12 +112,14 @@ func m5Tables(t testing.TB) *tables.Tables {
 const m5Features = hub.FeatureImage | hub.FeaturePuzzle
 
 // zoneAt is the zone table as a write was made: the stage, mStayNo, every
-// room's mZoneNo and every zone's mRoomNo.
+// room's mZoneNo and every zone's mRoomNo; and whether a Game Boy Advance
+// may have been linked (snap.GBALink.MayLink).
 type zoneAt struct {
 	stage  string
 	stay   int8
 	zoneNo [addr.RoomCount]int8
 	roomNo [addr.ZoneCount]int8
+	gba    bool
 }
 
 func zoneAtOf(m *mem.FakeMem) (zoneAt, error) {
@@ -135,6 +145,11 @@ func zoneAtOf(m *mem.FakeMem) (zoneAt, error) {
 		}
 		z.roomNo[slot] = int8(b)
 	}
+	g, err := m.Read(addr.GbaCom, addr.GbaComLinkReadLen)
+	if err != nil {
+		return z, err
+	}
+	z.gba = snap.GBALink{Enable: g[addr.GbaComOffEnable], Context: g[addr.GbaComOffContext]}.MayLink()
 	return z, nil
 }
 
@@ -373,9 +388,9 @@ type m5Place struct {
 // mSwitch[0..2] of the slot that, as it was written, was the zone of the
 // room Link was in (the slot's mRoomNo is mStayNo, and mStayNo's mZoneNo
 // names the slot); and no dan or zone switch is set twice in one scope
-// (m5Place: a bit the game cleared is never set again). Every other write
-// is audited
-// as M4's (auditM4Writes), so the earlier classes' rules all still hold.
+// (m5Place: a bit the game cleared is never set again); and none that
+// tb shares with the Tingle Tuner is written while a GBA may be linked
+// (zoneAt.gba). Every other write is audited as M4's (auditM4Writes), so the earlier classes' rules all still hold.
 func auditM5Writes(t *testing.T, ws []auditWrite, zs []zoneAt, reps []Report, places []gamePlace, tb *tables.Tables, derived int) {
 	t.Helper()
 	g := NewGuardFor(M3Targets | M4Targets | M5Targets)
@@ -426,6 +441,9 @@ func auditM5Writes(t *testing.T, ws []auditWrite, zs []zoneAt, reps []Report, pl
 		for _, no := range nos {
 			if !tb.SyncedScopedSwitch(int(w.table), z.stage, int(room), no) {
 				at("switch 0x%02X does not latch there", no)
+			}
+			if z.gba && tb.GBAScopedSwitch(int(w.table), z.stage, int(room), no) {
+				at("switch 0x%02X is shared with the Tingle Tuner, written while a GBA may be linked", no)
 			}
 			if addr.ClassifySwitch(no) == addr.SwitchRoom {
 				continue // a room switch is cleared by every room change
@@ -1114,6 +1132,11 @@ func TestReconcileM5ActorsSeeIt(t *testing.T) {
 // reconciler writes for the loaded table only at a room change and once
 // the room hold allows: the audit checks that every room's actors had run
 // a shutter's 30 frames as each was written.
+//
+// The tables are the Tingle Tuner guard's (gbaTables): danOK2, zoneOK2,
+// roomOK2 and the sea's 0x05 sync only while no GBA is linked, and an op
+// in 0x40-0x7F links or unlinks one. The audit holds that none is written
+// while a GBA may be linked, and none is proposed (GAINS, SCOPED) then.
 func FuzzReconcileM5(f *testing.F) {
 	f.Add([]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11})
 	f.Add([]byte{1, 0x13, 4, 1, 8, 2, 0x13, 3, 0x22, 8, 8})
@@ -1123,12 +1146,45 @@ func FuzzReconcileM5(f *testing.F) {
 	// A door onto room 2, Link through it, and the partner's memory
 	// switch right after; then the door back, and another.
 	f.Add([]byte{0x0B, 0x21, 3, 0x20, 0x80, 0x00, 8, 5, 0x0B, 0x11, 3, 0x10, 0x80, 0x01, 8, 5})
+	// A GBA linked while the partner's stores and the sea's switch come
+	// and Link sets one, a room change, then unlinked.
+	f.Add([]byte{0x40, 1, 0, 1, 1, 1, 2, 1, 0x80, 0x10, 6, 2, 8, 5, 3, 0x20, 8, 3, 0x41, 0, 8, 5, 3, 0x10, 8, 5})
+	// Linked across a split load and a zone move, unlinked mid-store.
+	f.Add([]byte{0, 1, 0x40, 1, 7, 1, 8, 2, 7, 0, 4, 0x10, 1, 0x11, 0x40, 0, 8, 6})
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > 48 {
 			data = data[:48]
 		}
 		mems := []int{0x05, 0x06, 0x07} // latching in DRC's and the sea's tables (switchPolicy)
-		rr := newM5Rig(t, Config{Apply: true, Tables: m5Tables(t), Policy: switchPolicy(t, mems...)}, m5Features|hub.FeatureSwitches)
+		tb := gbaTables(t)
+		rr := newM5Rig(t, Config{Apply: true, Tables: tb, Policy: switchPolicy(t, mems...)}, m5Features|hub.FeatureSwitches)
+		rr.tb = tb
+		gbaOff, gbaBit := switchImageByte(addr.TableSea, gbaSea)
+		linked := false
+		// proposed checks what the replica sent since the last call: with
+		// a GBA linked, nothing shared with the Tingle Tuner.
+		proposed := func() {
+			for _, m := range rr.hub.take() {
+				if !linked {
+					continue
+				}
+				switch m := m.(type) {
+				case *wire.GainsUp:
+					for _, g := range m.Gains {
+						if int(g.Off) == gbaOff && g.Val&gbaBit != 0 {
+							t.Fatalf("GAINS of sea 0x%02X with a GBA linked", gbaSea)
+						}
+					}
+				case *wire.Scoped:
+					k := world.Key{Kind: world.ScopeKind(m.Kind), Stage: m.Stage.String(), Table: int(m.Table), Room: int(m.Room)}
+					for _, w := range m.Words {
+						if held := hub.ScopeFilter(tb.GBAScopedSwitch)(k, int(w.Word)); m.Kind != wire.ScopeKill && w.Bits&held != 0 {
+							t.Fatalf("SCOPED %+v with a GBA linked carries 0x%08X, shared with the Tingle Tuner", m, w.Bits&held)
+						}
+					}
+				}
+			}
+		}
 		var img world.Image
 		dans := []int{danOK, danOK2, danTimed, 0xBF}
 		zones := []int{zoneOK, zoneOK2, zoneTimed, 0xDF}
@@ -1145,8 +1201,15 @@ func FuzzReconcileM5(f *testing.F) {
 		}
 		for i := 0; i < len(data); {
 			op, arg := next(&i), next(&i)
-			no := nos[int(arg)%len(nos)]
 			room := int(arg>>4) % 4
+			proposed()
+			if op&0xC0 == 0x40 {
+				// A Game Boy Advance linked (the Tingle Tuner) or unlinked.
+				linked = arg&1 == 1
+				rr.g.SetGBALink(linked)
+				rr.ticks(1)
+				continue
+			}
 			if op&0x80 != 0 {
 				// The partner's memory switch, of DRC's table or the sea's.
 				tb := []int{addr.TableDRC, addr.TableSea}[int(arg>>4)%2]
@@ -1184,7 +1247,8 @@ func FuzzReconcileM5(f *testing.F) {
 				// resets above, which verify allows for).
 				if s := rr.g.StayNo(); s >= 0 {
 					if arg&1 == 0 {
-						rr.g.OnSwitch(no, s)
+						// arg>>1: an even arg reaches every switch.
+						rr.g.OnSwitch(nos[int(arg>>1)%len(nos)], s)
 					} else {
 						rr.g.OffSwitch([]int{danTimed, zoneTimed, roomTimed}[int(arg>>1)%3], s)
 					}
@@ -1223,7 +1287,21 @@ func FuzzReconcileM5(f *testing.F) {
 		}
 		rr.g.SetEvent(0, 0)
 		rr.settleM5()
+		proposed()
 		rr.audit()
+		// No write set the sea's switch shared with the Tingle Tuner while
+		// a GBA may have been linked.
+		ws, zs := rr.bm.written(), rr.zm.zones()
+		for i, w := range ws {
+			if !zs[i].gba {
+				continue
+			}
+			for j := range w.n {
+				if a := w.a + uint32(j); a == addr.SaveImage+uint32(gbaOff) && w.data[j]&^w.prev[j]&gbaBit != 0 {
+					t.Fatalf("tick %d: sea 0x%02X written at 0x%08X while a GBA may be linked", w.tick, gbaSea, a)
+				}
+			}
+		}
 		if st := rr.r.Status(); st.Writes.Failed != 0 {
 			t.Fatalf("%d verify failures:\n%s", st.Writes.Failed, rr.log)
 		}

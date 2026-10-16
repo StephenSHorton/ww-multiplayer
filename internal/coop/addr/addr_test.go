@@ -328,7 +328,7 @@ func TestEverythingInMEM1(t *testing.T) {
 		"GameHeapErrors": GameHeapErrors, "ZeldaHeapErrors": ZeldaHeapErrors,
 		"ArchiveHeapErrors": ArchiveHeapErrors, "OSArenaLo": OSArenaLo,
 		"JKRHeapCodeEnd": JKRHeapCodeEnd, "DMC": DMC, "T2Base": T2Base, "Mailbox": Mailbox,
-		"PatchedArenaLo": PatchedArenaLo,
+		"PatchedArenaLo": PatchedArenaLo, "GbaCom": GbaCom,
 	}
 	for name, a := range all {
 		if a < MEM1Base || a >= MEM1End {
@@ -337,6 +337,33 @@ func TestEverythingInMEM1(t *testing.T) {
 	}
 	if GameInfo+GameInfoSize > MEM1End || RoomStatus+RoomStatusSize > GameInfo {
 		t.Error("gameInfo or mStatus overruns its neighbours")
+	}
+}
+
+// TestGbaComLayout checks g_mDoGaC_gbaCom's fields against its size and
+// neighbours: the struct ends where TestDataManager starts (sym:17367-
+// 17368), before DMC, and the fields mDoGaC_GbaLink reads sit at their
+// header offsets (m_Do_gba_com.h:67-110) within one read of
+// GbaComLinkReadLen bytes.
+func TestGbaComLayout(t *testing.T) {
+	const testDataManager = 0x803B917C // sym:17368
+	if GbaCom+GbaComSize != testDataManager || GbaCom%4 != 0 || GbaCom+GbaComSize > DMC {
+		t.Errorf("g_mDoGaC_gbaCom 0x%08X+0x%X does not end at TestDataManager 0x%08X", GbaCom, GbaComSize, testDataManager)
+	}
+	// The header's own arithmetic: 0x00C + 16 entries of 0x10, then the
+	// u8s at 0x10C-0x10E, a pointer at 0x110, three u32 to 0x11C, two more
+	// words after the demo, then field_0x128[1] of 8 bytes.
+	if 0xC+16*0x10 != 0x10C || 0x10C+2 != GbaComOffRetries || 0x11C+4+4+4 != GbaComOffContext || GbaComOffContext+8 != GbaComSize {
+		t.Error("the header's offsets don't add up")
+	}
+	for name, off := range map[string]int{"mEnable": GbaComOffEnable, "field_0x2": GbaComOffState, "field_0x4": GbaComOffClosed,
+		"field_0x10e": GbaComOffRetries, "field_0x128[0].field_0x0": GbaComOffContext} {
+		if off < 0 || off >= GbaComLinkReadLen || GbaComLinkReadLen > GbaComSize {
+			t.Errorf("%s at +0x%X is outside the link read (0x%X of 0x%X)", name, off, GbaComLinkReadLen, GbaComSize)
+		}
+	}
+	if GbaCom >= RoomStatus && GbaCom < RoomStatus+RoomStatusSize || GbaCom+GbaComSize > RoomStatus && GbaCom < RoomStatus {
+		t.Error("g_mDoGaC_gbaCom overlaps mStatus")
 	}
 }
 

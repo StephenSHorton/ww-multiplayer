@@ -104,13 +104,17 @@ func (st *coopStageTables) policy() *world.Policy {
 }
 
 // syncedCount is how many memory switches the verdict opens, and in how
-// many save tables.
-func (st *coopStageTables) syncedCount() (switches, saveTables int) {
+// many save tables, and how many of them sync only while no Game Boy
+// Advance is linked (tables.Tables.GBAMemorySwitch).
+func (st *coopStageTables) syncedCount() (switches, saveTables, gba int) {
 	for t := range addr.TableCount {
 		n := 0
 		for no := range addr.MemBitSwitchCount {
 			if st.syncedSwitch(t, no) {
 				n++
+				if st.t.GBAMemorySwitch(t, no) {
+					gba++
+				}
 			}
 		}
 		if n > 0 {
@@ -118,7 +122,7 @@ func (st *coopStageTables) syncedCount() (switches, saveTables int) {
 			saveTables++
 		}
 	}
-	return switches, saveTables
+	return switches, saveTables, gba
 }
 
 // loadCoopStageTables finds the tables of the disc the session's Dolphin
@@ -216,8 +220,8 @@ func logCoopStageTables(rep report.Reporter, st *coopStageTables, err error) {
 		report.Logf(rep, report.Warn, "co-op: %s. Memory switches, room puzzles and kills are not synced this session; chests, items, maps and the rest are.", oneLine(err))
 		return
 	}
-	n, ts := st.syncedCount()
-	report.Logf(rep, report.OK, "co-op: stage tables %016x, %s: %d latching memory switch(es) in %d save table(s) sync.", st.id, st.from, n, ts)
+	n, ts, gba := st.syncedCount()
+	report.Logf(rep, report.OK, "co-op: stage tables %016x, %s: %d latching memory switch(es) in %d save table(s) sync (%d of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).", st.id, st.from, n, ts, gba)
 }
 
 // takeCoopISO takes --coop-iso <path> or --coop-iso=<path> out of args
