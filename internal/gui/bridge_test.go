@@ -33,6 +33,8 @@ type fakeEngine struct {
 	join  []session.JoinOptions
 	cmds  []session.LobbyCommand
 	chats []string
+	// launches counts LaunchDolphin calls.
+	launches int
 }
 
 func newFakeEngine() *fakeEngine {
@@ -100,6 +102,13 @@ func (e *fakeEngine) Lobby(cmd session.LobbyCommand) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.cmds = append(e.cmds, cmd)
+	return e.err
+}
+
+func (e *fakeEngine) LaunchDolphin() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.launches++
 	return e.err
 }
 

@@ -129,9 +129,18 @@ wears; without a pick you wear classic green. IP addresses are hidden on
 screen (shown as `•••.•••.•••.42`), so streaming the app never shows one:
 the host's share card has Show and Copy per address, and the **Show IP
 addresses** switch at the top of the window shows them all (it is saved).
-**Starting the game from the lobby comes in a later
-update** (it will launch Dolphin and connect everyone): until then, play
-with the terminal menu or the command line below. On Windows the window
+**Starting the game:** everyone but the host presses Ready, then the
+host presses Start (or "Start anyway" to go without waiting). Each app
+then starts that player's Dolphin with the patched disc, or plays on the
+one already running on that player's Dolphin user folder; tick **I'll
+start Dolphin myself** in the lobby to start Dolphin yourself (the app
+plays on it once it runs). Every player's row shows their Dolphin (Not
+running, Launching…, Title screen, In game), and other players' Links
+appear from the title screen on. The Session screen then shows the
+players with their Dolphin and whether they are in your area, a minimap
+and chat. If Dolphin runs another game or an unpatched disc, the app
+says what to boot. Leave stops the multiplayer and keeps Dolphin open.
+Co-op worlds (shared progress) come in a later update. On Windows the window
 needs Microsoft's WebView2 runtime (Windows 11 and current Windows 10
 have it); without it the app offers to install it, and opens the terminal
 menu if you decline. In-game tunic colors arrive in a later update too.

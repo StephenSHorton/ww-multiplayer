@@ -21,9 +21,11 @@ import (
 // lobby session holds one lobby connection (network.LobbyClient) and, for
 // a host, runs the server it connects to. The lobby's state, colors,
 // notices, START and GO go to the controller; its commands come back
-// through Lobby. What START launches (Dolphin, the pose pipelines, co-op)
-// is a later PR: until then a lobby session only gathers the lobby. No CLI
-// subcommand runs one, so the CLI's output is unchanged.
+// through Lobby. START starts the game side (app_game.go: this player's
+// Dolphin and the pose pipelines on it; an engine without gameDeps, a
+// test's, starts nothing), and the host answers its own START with GO at
+// once while co-op is off (co-op worlds are App PR 9). No CLI subcommand
+// runs a lobby session, so the CLI's output is unchanged.
 
 // HostLobby starts the server and joins its lobby from this machine, which
 // makes this player the host.
@@ -50,10 +52,16 @@ func (e *sessionEngine) HostLobby(ctx context.Context, cancel context.CancelFunc
 	}
 	defer srv.Stop()
 	report.Logf(out, report.OK, "Hosting a lobby as %q on :%d.", name, port)
-	for _, ip := range shareAddrs(listHostIPs(), port) {
+	ips := shareAddrs(listHostIPs(), port)
+	for _, ip := range ips {
 		report.Logf(out, report.Info, "  %s", ip)
 	}
-	return e.runLobby(ctx, hostDialAddr(o.ListenHost, port), name, o.Color, out)
+	return e.runLobby(ctx, cancel, hostDialAddr(o.ListenHost, port), name, o.Color, o.LaunchOptions, out, func() {
+		if e.ls != nil {
+			e.ls.begin(string(session.RoleHost), name, ips)
+			e.ls.setServer(srv)
+		}
+	})
 }
 
 // hostDialAddr is where the host's own lobby client reaches its server:
@@ -78,7 +86,11 @@ func (e *sessionEngine) JoinLobby(ctx context.Context, cancel context.CancelFunc
 	}
 	addr := netutil.NormalizeAddr(o.Addr, defaultPort)
 	report.Logf(out, report.OK, "Joining the lobby at %s as %q.", addr, name)
-	err := e.runLobby(ctx, addr, name, o.Color, out)
+	err := e.runLobby(ctx, cancel, addr, name, o.Color, o.LaunchOptions, out, func() {
+		if e.ls != nil {
+			e.ls.begin(string(session.RoleJoin), name, nil)
+		}
+	})
 	if network.IsLegacyHost(err) {
 		return fmt.Errorf("%w: %w", session.ErrLegacyHost, err)
 	}
@@ -86,8 +98,12 @@ func (e *sessionEngine) JoinLobby(ctx context.Context, cancel context.CancelFunc
 }
 
 // runLobby keeps the lobby connection to addr until ctx ends or a fatal
-// error (returned).
-func (e *sessionEngine) runLobby(ctx context.Context, addr, name string, color *playercolor.Color, out session.LobbyOutput) error {
+// error (returned). START starts the game side (gameRunner, with
+// beginGame first: the status bridge's start), which plays on addr's
+// server too; it is stopped, its pipelines ended and the mailbox reset,
+// before runLobby returns, so a host's server stops after it. A fatal
+// pipelines error (a version mismatch) ends the session through cancel.
+func (e *sessionEngine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, name string, color *playercolor.Color, launch func() session.LaunchOptions, out session.LobbyOutput, beginGame func()) (err error) {
 	hello := network.LobbyHelloBody{App: version, OS: runtime.GOOS, Dolphin: network.DolphinNone}
 	if color != nil {
 		hello.Color = color.Hex()
@@ -103,7 +119,43 @@ func (e *sessionEngine) runLobby(ctx context.Context, addr, name string, color *
 		out.Log(report.Warn, "lobby: "+b.Text)
 		out.LobbyNotice(session.Notice{Code: b.Code, Text: b.Text, Suggest: b.Suggest})
 	}
-	lc.OnStart = func(b network.LobbyStartBody) { out.LobbyStart(lobbySettings(b.Settings)) }
+	var game *gameRunner
+	if e.game != nil {
+		gctx := withColorPref(ctx, color)
+		game = newGameRunner(e.game, launch, name, addr, out,
+			func(state string) { _ = lc.SetDolphin(state) },
+			func(error) { cancel() })
+		var once sync.Once
+		startGame := func() {
+			once.Do(func() {
+				if beginGame != nil {
+					beginGame()
+				}
+				game.start(gctx)
+			})
+		}
+		e.mu.Lock()
+		e.game1 = game
+		e.mu.Unlock()
+		defer func() {
+			if gerr := game.stop(); gerr != nil && err == nil {
+				err = sessionErr(gerr)
+			}
+			if e.ls != nil {
+				e.ls.reset()
+			}
+			e.mu.Lock()
+			e.game1 = nil
+			e.mu.Unlock()
+		}()
+		lc.OnStart = func(b network.LobbyStartBody) {
+			out.LobbyStart(lobbySettings(b.Settings))
+			startGame()
+			goIfHost(lc, b.Settings, out)
+		}
+	} else {
+		lc.OnStart = func(b network.LobbyStartBody) { out.LobbyStart(lobbySettings(b.Settings)) }
+	}
 	lc.OnGo = func(b network.LobbyGoBody) { out.LobbyGo(b.World) }
 	lc.OnRequest = func(b network.LobbyRequestBody) { out.LobbyRequest(b.Kind, b.From) }
 	lc.OnLink = linkTracker(out.LobbyLink, time.Now)
@@ -149,6 +201,34 @@ func linkTracker(report func(session.LobbyLink), now func() time.Time) func(up b
 		mu.Unlock()
 		report(k)
 	}
+}
+
+// goIfHost sends GO for the host once its START came back, while co-op
+// is off (no world to open first: design §2.6 step 4). A START replayed
+// after the lobby is in game sends nothing.
+func goIfHost(lc *network.LobbyClient, s network.LobbySettingsBody, out session.LobbyOutput) {
+	if s.Coop != "" && s.Coop != "off" {
+		return // co-op worlds are App PR 9: the host app opens one before GO
+	}
+	st, ok := lc.State()
+	w, _ := lc.Welcome()
+	if !ok || st.Phase != network.PhaseStarting || !lobbyView(st, w).Host {
+		return
+	}
+	if err := lc.Go(""); err != nil {
+		report.Logf(out, report.Warn, "Couldn't tell the players to go: %v", err)
+	}
+}
+
+// LaunchDolphin launches this player's Dolphin again after Start.
+func (e *sessionEngine) LaunchDolphin() error {
+	e.mu.Lock()
+	g := e.game1
+	e.mu.Unlock()
+	if g == nil {
+		return session.ErrWrongPhase
+	}
+	return g.launchAgain()
 }
 
 func (e *sessionEngine) lobbyClient() *network.LobbyClient {

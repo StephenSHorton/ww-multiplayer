@@ -7,8 +7,9 @@ package session
 // SetCoopSettings, Start, Go, Kick and RequestMerge. A pre-lobby host is
 // joined directly instead, automatically (EventLegacyHost).
 //
-// What Start launches (Dolphin, the pose pipelines, co-op) is a later PR;
-// this one carries the protocol, the state and the commands.
+// What Start launches is App PR 8's (launch.go): every app gets its
+// player's Dolphin going and runs the pose pipelines on it (co-op is PR
+// 9), reporting the Dolphin through LobbyOutput.Dolphin.
 
 import (
 	"context"
@@ -177,6 +178,9 @@ type LobbyOutput interface {
 	// LobbyLink passes the lobby connection's health when it changes
 	// (an attempt failed, it connected, it dropped).
 	LobbyLink(k LobbyLink)
+	// Dolphin passes this player's Dolphin after Start (State.Dolphin)
+	// whenever it changes.
+	Dolphin(d DolphinInfo)
 }
 
 // LobbyEngine is what an Engine with the lobby adds. The Controller finds
@@ -192,6 +196,10 @@ type LobbyEngine interface {
 	// Lobby sends one command to the lobby. It fails when the lobby
 	// connection is down.
 	Lobby(cmd LobbyCommand) error
+	// LaunchDolphin launches this player's Dolphin again after Start
+	// (it was closed, or the first launch failed); ErrWrongPhase before
+	// Start, and an error while a Dolphin runs.
+	LaunchDolphin() error
 }
 
 var (
@@ -210,6 +218,22 @@ var (
 	// started (colors are locked until the in-game recolor can change).
 	ErrColorsLocked = errors.New("colors are locked once the session has started")
 )
+
+// dolphin records run id's Dolphin.
+func (c *Controller) dolphin(id ID, d DolphinInfo) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.state.Session != id || c.cur == nil || c.cur.id != id {
+		return
+	}
+	if c.state.Dolphin == d {
+		return
+	}
+	c.state.Dolphin = d
+	c.publish(Event{Kind: EventState, Session: id})
+}
+
+func (o *output) Dolphin(d DolphinInfo) { o.c.dolphin(o.id, d) }
 
 // legacyHostLine is logged when a lobby join falls back to a direct one.
 const legacyHostLine = "This host runs an older ww-multiplayer without a lobby; joining directly."
@@ -385,14 +409,39 @@ func (c *Controller) SetCoopSettings(s LobbySettings) error {
 	return c.lobbyCmd(LobbyCommand{Kind: LobbySetSettings, Settings: s}, true, nil)
 }
 
-// Start starts the session (host): every member gets EventLobbyStart.
-func (c *Controller) Start() error {
+// Start starts the session (host): every member gets EventLobbyStart, and
+// every app gets its player's Dolphin going (launch.go). It returns
+// ErrNotReady while a member isn't ready (Lobby.NotReady): StartAnyway
+// starts without them.
+func (c *Controller) Start() error { return c.start1(false) }
+
+// StartAnyway is Start without waiting for everyone to be ready (the
+// host's "Start anyway").
+func (c *Controller) StartAnyway() error { return c.start1(true) }
+
+func (c *Controller) start1(anyway bool) error {
 	return c.lobbyCmd(LobbyCommand{Kind: LobbyStart}, true, func(l Lobby) error {
 		if l.Phase != LobbyPhaseLobby {
 			return ErrWrongPhase
 		}
+		if !anyway && len(l.NotReady()) > 0 {
+			return ErrNotReady
+		}
 		return nil
 	})
+}
+
+// LaunchDolphin launches this player's Dolphin again after Start: the
+// "Dolphin closed" banner's Launch. ErrWrongPhase before Start.
+func (c *Controller) LaunchDolphin() error {
+	le, l, err := c.lobbyEngine()
+	if err != nil {
+		return err
+	}
+	if l.Phase == LobbyPhaseLobby {
+		return ErrWrongPhase
+	}
+	return le.LaunchDolphin()
 }
 
 // Go tells every member the host's side is ready (host, after Start);

@@ -26,12 +26,21 @@ type sessionEngine struct {
 	ls    *liveState // nil for the CLI
 	stdin bool       // the CLI: questions and console commands on stdin
 
+	// game is what a lobby session's START plays on (app_game.go): this
+	// machine's Dolphins. nil starts no game (the tests' engines).
+	game *gameDeps
+
 	mu    sync.Mutex
 	coop  *coopSession         // the running session's co-op side; nil without
 	lobby *network.LobbyClient // the running lobby session's connection (lobby_engine.go); nil without
+	game1 *gameRunner          // the running lobby session's game side; nil without
 }
 
-func newTUIEngine() *sessionEngine { return &sessionEngine{ls: &liveState{}} }
+func newTUIEngine() *sessionEngine {
+	e := &sessionEngine{ls: &liveState{}}
+	e.game = realGameDeps(e.ls)
+	return e
+}
 
 func newCLIEngine() *sessionEngine { return &sessionEngine{stdin: true} }
 

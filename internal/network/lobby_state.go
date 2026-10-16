@@ -268,6 +268,11 @@ func (m *lobbyMachine) hello(conn int, name string, loopback bool, h LobbyHelloB
 		}
 		mb.conn, mb.awayUntil = conn, time.Time{}
 		mb.loopback = loopback
+		if h.Dolphin != "" {
+			// Its Dolphin may have changed while the link was down (the
+			// LOBBY_SET was lost): the HELLO carries the current state.
+			mb.dolphin = clampField(h.Dolphin, maxLobbyDolphin)
+		}
 		if loopback && !m.hasHost() {
 			mb.host = true // the host's slot expired while this one was away
 		}

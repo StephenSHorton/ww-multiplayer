@@ -188,6 +188,7 @@ func (o *recOutput) LobbyStart(session.LobbySettings)           {}
 func (o *recOutput) LobbyGo(string)                             {}
 func (o *recOutput) LobbyRequest(string, string)                {}
 func (o *recOutput) LobbyLink(session.LobbyLink)                {}
+func (o *recOutput) Dolphin(session.DolphinInfo)                {}
 
 func waitForCond(cond func() bool) bool {
 	deadline := time.Now().Add(5 * time.Second)

@@ -126,7 +126,10 @@ type State struct {
 	// Lobby is the lobby of a HostLobby or JoinLobby session (its
 	// members, colors, phase); nil for a direct Host or Join.
 	Lobby *Lobby
-	Live  // zero unless Phase is InGame
+	// Dolphin is this player's Dolphin once a lobby session's host
+	// pressed Start (launch.go); its State is "" before.
+	Dolphin DolphinInfo
+	Live    // zero unless Phase is InGame (a lobby session: Starting too)
 }
 
 // HostOptions configures Controller.Host.
@@ -144,6 +147,25 @@ type HostOptions struct {
 	// friends need. Tests and local checks set "127.0.0.1".
 	ListenHost string
 	Coop       CoopOptions
+	// Launch is how the lobby's Start gets this player's Dolphin going
+	// (HostLobby, JoinLobby). LaunchFn, when set, is asked instead when
+	// Start comes, so a setting changed in the lobby ("I'll start
+	// Dolphin myself") counts.
+	Launch   LaunchOptions
+	LaunchFn func() LaunchOptions
+}
+
+// LaunchOptions returns o's launch options as Start finds them.
+func (o HostOptions) LaunchOptions() LaunchOptions { return launchOf(o.Launch, o.LaunchFn) }
+
+// LaunchOptions returns o's launch options as Start finds them.
+func (o JoinOptions) LaunchOptions() LaunchOptions { return launchOf(o.Launch, o.LaunchFn) }
+
+func launchOf(o LaunchOptions, f func() LaunchOptions) LaunchOptions {
+	if f != nil {
+		return f()
+	}
+	return o
 }
 
 // JoinOptions configures Controller.Join.
@@ -154,6 +176,9 @@ type JoinOptions struct {
 	// JoinLobby's direct join of a pre-lobby host); see HostOptions.Color.
 	Color *playercolor.Color
 	Coop  CoopOptions
+	// Launch and LaunchFn: see HostOptions.Launch.
+	Launch   LaunchOptions
+	LaunchFn func() LaunchOptions
 }
 
 // Output is what a session writes to while it runs: its log lines, and the

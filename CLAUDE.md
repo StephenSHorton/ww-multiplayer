@@ -21,7 +21,7 @@ Wind Waker disc image). Releases are cut on tag push via GitHub Actions.
 ww-multiplayer/
 ├── main.go                      # Entry point: all CLI subcommands (app_face.go: no args = app window, `tui`, `ui --browser`)
 ├── *.go                         # Rest of package main: coop_*.go (co-op CLI + session), mp_local*.go (dolphin2, mp-local),
-│                                #   tunic_sync.go, warp_link.go, posefeed.go, session/lobby engines, auto_recapture.go
+│                                #   tunic_sync.go, warp_link.go, posefeed.go, session/lobby engines, app_game.go (the app's Start: Dolphin + pipelines), auto_recapture.go
 ├── internal/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
