@@ -190,9 +190,13 @@ Defined in `include/d/d_procname.h` in the decomp.
 0x803A2960      Start of BSS
 0x803C4C08      g_dComIfG_gameInfo
 0x803F7D00      Last data section
-0x803FCF20      DOL end / original mod end
+0x803FCF20      DOL end (the Freighter DOL-section attempt sat here and BSS zeroing wiped it; the legacy runtime injector in internal/dolphin/inject.go also targets it)
 0x803FCFA8      BSS end
-...             Stack/heap area
+0x8040CFA8      Main stack top (64 KB stack grows down to 0x803FCFA8); MetroTRK debug stack above
+0x80410000      Mod T2 code + data (0x2E08 B, ends 0x80412E08; internal/inject/blob.go)
+0x80412E08      Free code space (0xF8 B)
+0x80412F00      Mailbox (0x1A0 B; inject/include/mailbox.h MAILBOX_ADDR)
+0x80414000      Patched __OSArenaLo (inject/build.py OSInit patch); heap/arena above
 0x81800000  ─── RAM end (24MB)
 ```
 

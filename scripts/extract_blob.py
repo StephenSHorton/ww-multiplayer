@@ -4,10 +4,12 @@ source file (internal/inject/blob.go) that the standalone `ww-multiplayer.exe pa
 subcommand uses to splice the same delta into a user's vanilla Wind Waker
 ISO. Run after `inject/build.py` produces a fresh patched.dol.
 
-Outputs the T2 bytes ONLY (the new code section). The OSInit patches are
-fixed constants encoded in inject/dol.go; the Freighter clobber-reverts
-that build.py performs are skipped here because for the standalone
-patcher we never apply the clobbers in the first place.
+Outputs the T2 bytes plus DOLPatches: every in-DOL byte run that differs
+between original.dol and patched.dol (the four hook_branchlink sites and
+the OSInit __OSArenaLo immediates), found by a byte-wise diff, which
+internal/inject/dol.go applies. The Freighter clobbers that build.py
+reverts never show up in the diff, because build.py restores the original
+bytes before this script runs.
 
 The user's vanilla DOL is the source of all "original game code" bytes;
 nothing copyrighted ships in our binary.
@@ -51,7 +53,10 @@ def main():
     text_addr = struct.unpack(">7I", patched[0x48:0x64])
     text_size = struct.unpack(">7I", patched[0x90:0xAC])
 
-    # T2 is the slot Freighter chose. Verify and extract.
+    # T2 is the slot Freighter chose. The index is hard-coded to text slot
+    # 2; the check below fails loudly if Freighter ever picks another slot.
+    # The Go patcher does not depend on the index: internal/inject/dol.go
+    # takes the first unused text slot.
     t2_idx = 2
     if (text_off[t2_idx] != len(orig) or
             text_size[t2_idx] != len(blob)):
@@ -64,10 +69,11 @@ def main():
     t2_size = text_size[t2_idx]
 
     # Diff orig vs patched within the original DOL's footprint to find every
-    # in-DOL byte modification. These are the OSInit immediate patches that
-    # build.py applies post-Freighter, plus any future direct edits. Excludes
-    # the appended T2 section (handled separately) and the DOL header changes
-    # (the standalone patcher rebuilds those from scratch).
+    # in-DOL byte modification: the hook_branchlink sites Freighter writes,
+    # the OSInit immediate patches that build.py applies post-Freighter,
+    # plus any future direct edits. Excludes the appended T2 section
+    # (handled separately) and the DOL header changes (the standalone
+    # patcher rebuilds those from scratch).
     HEADER_END = 0x100
     patch_runs = []  # list of (file_off, bytes)
     i = HEADER_END

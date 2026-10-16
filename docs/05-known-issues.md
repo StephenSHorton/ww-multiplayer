@@ -32,7 +32,7 @@ Direct DOL binary patch of OSInit's immediate load of `__ArenaLo`:
 0x80301838: 40820030 bne +0x30            ->  48000030 b    +0x30   (skip debug OSSetArenaLo override)
 ```
 
-Now `ClearArena`'s memset starts at `0x80411000`, skipping our T2 code at `0x80410000-0x80410448`.
+Now `ClearArena`'s memset starts at `0x80411000`, skipping our T2 code at `0x80410000-0x80410448`. (Since bumped to `0x80414000` as the mod grew; `inject/build.py` has the current immediates.)
 
 **Attempted in this project's Path B step 1 (2026-04-18) then REVERTED**: bumping
 to `0x80511000` to carve a 1 MB Link-#2 heap region. The arena shrank by 1 MB,
@@ -96,13 +96,15 @@ the section survives boot.
 
 `0x803F6100` **looks** like it's in BSS but is actually inside the game's data section D6 (`0x803F60E0-0x803F6820`). Writing to it corrupts real game data and (depending on what the game does with that word) can cause subtle bugs including visible rendering glitches.
 
-The mailbox lives between our T2 code section end and `__OSArenaLo = 0x80411000`. Address bumped as the mod grew:
+The mailbox lives between our T2 code section end and `__OSArenaLo` (today `0x80414000`). Address bumped as the mod grew:
 
 | Location | When | Why bumped |
 |---|---|---|
 | `0x80410800` | original | Worked while mod ≤ 0x748 bytes. |
 | `0x80410900` | mini-Link draft | Mod grew to 0x868; old slot fell inside code. |
-| `0x80410F00` | **current** | Mod grew to 0x9A8. Now flush against arena start so there's max headroom before another collision. Callback pointer at `mailbox+0x08` = `0x80410F08`; the asm shim in `frame_shim` encodes this offset as `lwz 12, 0x0F08(12)`. |
+| `0x80410F00` | superseded | Mod grew to 0x9A8. Flush against the arena start (then `0x80411000`). Callback pointer at `mailbox+0x08` = `0x80410F08`; `frame_shim` encoded it as `lwz 12, 0x0F08(12)`. |
+| `0x80411F00` | echo ring | Mod grew to 0x11C8; `__OSArenaLo` bumped to `0x80412000`. |
+| `0x80412F00` | **current** (eye-fix recipe onward) | Mod grew to 0x1FC8; `__OSArenaLo` bumped to `0x80413000`, later `0x80414000` to leave headroom after the mailbox. Callback pointer at `mailbox+0x08` = `0x80412F08`; `frame_shim` encodes it as `lwz 12, 0x2F08(12)`. Source of truth: `MAILBOX_ADDR` in `inject/include/mailbox.h`. |
 
 **Lesson (learned twice):** any data slot we carve out of orphan memory has to sit ABOVE the eventual mod-end address. Each time mod size crosses the slot, the game's own instructions land at that address and `main01_init`'s write corrupts real code — the symptoms were a crash at `0x80410704` (`Invalid read 0x24`) on v1 and garbage reads from what looked like mailbox slots (slot fields showing `0x7C0803A6 = mtlr r0` instruction bytes) on v2.
 
@@ -616,8 +618,9 @@ texture (`linktexS3TC` is swapped in the shared model data,
 the local outfit, not the remote's. Matching the remote's clothes
 needs outfit sync (epic #24).
 
-T2 grew by 0x100 to 0x2CE8 bytes (devkitPPC 16.2). It ends at
-`0x80412CE8`, 0x218 bytes below the mailbox.
+T2 grew by 0x100 to 0x2CE8 bytes (devkitPPC 16.2). It ended at
+`0x80412CE8`, 0x218 bytes below the mailbox at the time. The tunic
+swap (docs/09 §6) later grew T2 to 0x2E08, leaving 0xF8.
 
 ## Dolphin caches INI files at startup
 
