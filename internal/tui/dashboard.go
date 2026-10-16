@@ -572,7 +572,7 @@ func (m dashboardModel) view(width, height int) string {
 	if m.ended {
 		status = renderEnded(w, m.shownText(m.endReason))
 	} else {
-		status = renderStatusCoop(w, m.playerCount, m.latency, m.players, m.coopStatus)
+		status = renderStatusCoop(w, m.playerCount, m.latency, m.shownPlayers(), m.shownCoop())
 	}
 	parts := []string{header}
 	used := lipgloss.Height(header)
@@ -603,7 +603,7 @@ func (m dashboardModel) view(width, height int) string {
 			chatH = l.chatRows + chatChrome
 		}
 		if rows := avail - chatH - logChrome; rows >= 1 {
-			parts = append(parts, renderQuestion(w, rows, m.questions[0], len(m.questions)-1))
+			parts = append(parts, renderQuestion(w, rows, m.shownQuestion(m.questions[0]), len(m.questions)-1))
 		}
 	} else if l.logRows > 0 {
 		// Log panel, with the minimap (#22) above it or beside it.
@@ -648,6 +648,50 @@ func (m dashboardModel) shownText(s string) string {
 		return s
 	}
 	return redact.Text(s)
+}
+
+// shownPlayers are the other players as the status panel shows them: a
+// peer chooses its name, and one may be an IP, so names are masked as
+// free text (shownText). The minimap draws no names.
+func (m dashboardModel) shownPlayers() []session.Player {
+	if m.showIPs {
+		return m.players
+	}
+	out := make([]session.Player, len(m.players))
+	for i, p := range m.players {
+		p.Name = redact.Text(p.Name)
+		out[i] = p
+	}
+	return out
+}
+
+// shownCoop is the co-op row as the status panel shows it (player names
+// masked, as shownPlayers).
+func (m dashboardModel) shownCoop() []session.CoopStatus {
+	if m.showIPs {
+		return m.coopStatus
+	}
+	out := make([]session.CoopStatus, len(m.coopStatus))
+	for i, c := range m.coopStatus {
+		c.Player = redact.Text(c.Player)
+		out[i] = c
+	}
+	return out
+}
+
+// shownQuestion is a co-op question as the dashboard shows it: the player
+// it is for and its text masked (shownText).
+func (m dashboardModel) shownQuestion(q session.Question) session.Question {
+	if m.showIPs {
+		return q
+	}
+	q.Player, q.Body = redact.Text(q.Player), redact.Text(q.Body)
+	details := make([]string, len(q.Details))
+	for i, d := range q.Details {
+		details[i] = redact.Text(d)
+	}
+	q.Details = details
+	return q
 }
 
 // shownLogs is the log as the dashboard shows it (shownText).

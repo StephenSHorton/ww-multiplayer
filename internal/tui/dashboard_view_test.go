@@ -471,3 +471,39 @@ func TestDashboard_LongChatInputScrolls(t *testing.T) {
 		}
 	})
 }
+
+// TestDashboardView_PeerNamesAndHostNamesMasked: with the switch off, a
+// peer named like an IP and a joined host name with an IP in it show no
+// address; with it on, both show as they are.
+func TestDashboardView_PeerNamesAndHostNamesMasked(t *testing.T) {
+	m := busyDashboard("Join")
+	m.addr = "x.26.12.34.56.nip.io:25570"
+	m.players = []session.Player{{ID: 2, Name: "192.168.0.5"}}
+	m.coopStatus = []session.CoopStatus{{Player: "10.1.2.3", State: "on", Writes: "writing"}}
+	out := plain(m.view(120, 30))
+	for _, raw := range []string{"26.12.34", "192.168.0.5", "10.1.2.3"} {
+		if strings.Contains(out, raw) {
+			t.Errorf("masked view shows %q:\n%s", raw, out)
+		}
+	}
+	for _, want := range []string{"x.•••.•••.•••.56.nip.io:25570", "•••.•••.•••.5", "•••.•••.•••.3"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("masked view lacks %q:\n%s", want, out)
+		}
+	}
+	m.questions = []session.Question{{Player: "10.9.8.7", Body: "Bind it for 10.9.8.7?"}}
+	if out := plain(m.view(120, 30)); strings.Contains(out, "10.9.8.7") || !strings.Contains(out, "for •••.•••.•••.7") {
+		t.Errorf("masked question:\n%s", out)
+	}
+	m.showIPs = true
+	out = plain(m.view(120, 30))
+	for _, raw := range []string{"x.26.12.34.56.nip.io:25570", "10.9.8.7"} {
+		if !strings.Contains(out, raw) {
+			t.Errorf("shown view lacks %q:\n%s", raw, out)
+		}
+	}
+	m.questions = nil
+	if out := plain(m.view(120, 30)); !strings.Contains(out, "192.168.0.5") {
+		t.Errorf("shown view lacks the peer's name:\n%s", out)
+	}
+}

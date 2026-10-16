@@ -123,8 +123,10 @@ func TestBridgeShowIPs(t *testing.T) {
 	if !loadCfg(t, path).UI.ShowIPs || !b.Info().ShowIPs || !b.State().ShowIPs {
 		t.Fatal("SetShowIPs(true) is not saved or not reported")
 	}
+	// Masked stays masked with the switch on: the page picks (a late
+	// reply must not carry a real address in a field it may draw).
 	share = b.ShareAddrs().Addrs
-	if share[0].Masked != share[0].Addr || share[1].Masked != "[fd7a:115c::53]:25570" {
+	if share[0].Masked != "•••.•••.•••.42:25570" || share[1].Masked != "[••••:…:53]:25570" || share[0].Addr != "192.168.1.42:25570" {
 		t.Fatalf("shown share card = %+v", share)
 	}
 	out.Chat("Tetra", "mine is 10.0.0.9")
@@ -143,12 +145,12 @@ func TestBridgeShowIPs(t *testing.T) {
 	}
 	e.out(t)
 	st := b.State()
-	if st.AddrShown != "10.0.0.2:25570" || st.Dialog == nil || !strings.Contains(st.Dialog.Text, "10.0.0.2:25570") {
+	if st.AddrMasked != "•••.•••.•••.2:25570" || st.Addr != "10.0.0.2:25570" || st.Dialog == nil || !strings.Contains(st.Dialog.Text, "10.0.0.2:25570") {
 		t.Fatalf("shown join state = %+v / %+v", st, st.Dialog)
 	}
 	b.SetShowIPs(false)
 	st = b.State()
-	if st.AddrShown != "•••.•••.•••.2:25570" || strings.Contains(fmt.Sprint(st.Dialog), "10.0.0.2") || loadCfg(t, path).UI.ShowIPs {
+	if st.AddrMasked != "•••.•••.•••.2:25570" || strings.Contains(fmt.Sprint(st.Dialog), "10.0.0.2") || loadCfg(t, path).UI.ShowIPs {
 		t.Fatalf("masked again: %+v / %+v", st, st.Dialog)
 	}
 	b.Leave()
@@ -161,7 +163,7 @@ func TestBridgeShowIPs(t *testing.T) {
 		t.Fatalf("masked recent host = %+v", h)
 	}
 	b.SetShowIPs(true)
-	if h := b.Info().RecentHosts[0]; h.Masked != "26.1.2.3" {
+	if h := b.Info().RecentHosts[0]; h.Masked != "•••.•••.•••.3" || h.Addr != "26.1.2.3" {
 		t.Fatalf("shown recent host = %+v", h)
 	}
 }

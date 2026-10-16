@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
+	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
@@ -151,7 +153,6 @@ func (b *Bridge) Info() InfoView {
 		Name: eff.Name, Port: eff.Port, MaxName: MaxNameLen, Warnings: warns,
 		RecentHosts: []RecentHostView{}, DownloadsURL: DownloadsURL, ShowIPs: cfg.UI.ShowIPs,
 	}
-	mk := masker{show: cfg.UI.ShowIPs}
 	if c, err := playercolor.Parse(eff.Color); err == nil && eff.Color != "" {
 		v.Color = c.Hex()
 	}
@@ -160,7 +161,7 @@ func (b *Bridge) Info() InfoView {
 		if label == "" {
 			label = addrLabel(h.Addr)
 		}
-		v.RecentHosts = append(v.RecentHosts, RecentHostView{Addr: h.Addr, Masked: mk.addr(h.Addr), Label: label})
+		v.RecentHosts = append(v.RecentHosts, RecentHostView{Addr: h.Addr, Masked: hideIPs.addr(h.Addr), Label: label})
 	}
 	return v
 }
@@ -181,6 +182,33 @@ func (b *Bridge) masker() masker {
 	return masker{show: b.cfg.UI.ShowIPs}
 }
 
+// maskErr masks the IPs in *err as the window shows them (masker.text),
+// unless the switch is on. Every exported method that returns an error
+// defers it first (TestBridgeErrorsMasked checks they all do): an error
+// reaches the page as a toast or a form's message, and a network one
+// names both ends ("write tcp 192.168.1.5:51234->192.168.1.42:25565:
+// ..."). errors.Is and errors.As still see the error it masks.
+func (b *Bridge) maskErr(err *error) {
+	if *err == nil {
+		return
+	}
+	if msg := b.masker().text((*err).Error()); msg != (*err).Error() {
+		*err = maskedError{msg: msg, err: *err}
+	}
+}
+
+// quoted is a "%q" in an error message.
+var quoted = regexp.MustCompile(`"[^"]*"`)
+
+// maskedError is an error with its IPs masked (maskErr).
+type maskedError struct {
+	msg string
+	err error
+}
+
+func (e maskedError) Error() string { return e.msg }
+func (e maskedError) Unwrap() error { return e.err }
+
 // SetShowIPs sets the header's "Show IP addresses" switch and saves it.
 // On, the window masks nothing; off (the default), every IP it shows is
 // masked. Every page gets a "settings" event to draw itself again.
@@ -193,7 +221,8 @@ func (b *Bridge) SetShowIPs(on bool) {
 }
 
 // Host starts a session that hosts a lobby on this machine.
-func (b *Bridge) Host(r HostRequest) error {
+func (b *Bridge) Host(r HostRequest) (err error) {
+	defer b.maskErr(&err)
 	name, err := checkName(r.Name)
 	if err != nil {
 		return err
@@ -222,10 +251,21 @@ func (b *Bridge) Host(r HostRequest) error {
 
 // Join starts a session in the lobby of the host at r.Addr (joined
 // directly when the host has no lobby).
-func (b *Bridge) Join(r JoinRequest) error {
+func (b *Bridge) Join(r JoinRequest) (err error) {
+	defer b.maskErr(&err)
 	addr := strings.TrimSpace(r.Addr)
 	if addr == "" {
 		return errors.New("type the host's address (the one its window shows)")
+	}
+	// As the TUI's Connect does: a typo never reaches the header, the log
+	// or a dialog. The error quotes what was typed, masked as an address
+	// (it may be most of an IP, or a host name with one in it).
+	if err := netutil.ValidateAddr(addr); err != nil {
+		msg := "Bad address: " + err.Error()
+		if mk := b.masker(); !mk.show {
+			msg = quoted.ReplaceAllStringFunc(msg, func(q string) string { return `"` + mk.addr(q[1:len(q)-1]) + `"` })
+		}
+		return errors.New(msg)
 	}
 	name, err := checkName(r.Name)
 	if err != nil {
@@ -272,7 +312,8 @@ func (b *Bridge) noteReached(st session.State) {
 // Retry leaves the running session, if any, and joins the last Join's
 // host again (the "Can't reach the host" dialog's Retry: a fresh first
 // attempt instead of waiting out the backoff).
-func (b *Bridge) Retry() error {
+func (b *Bridge) Retry() (err error) {
+	defer b.maskErr(&err)
 	b.sessMu.Lock()
 	last := b.lastJoin
 	b.sessMu.Unlock()
@@ -285,7 +326,10 @@ func (b *Bridge) Retry() error {
 
 // Kick removes a member (or a CLI player's row) from the lobby; host
 // only. The frontend asks first.
-func (b *Bridge) Kick(member int) error { return b.ctrl.Kick(member) }
+func (b *Bridge) Kick(member int) (err error) {
+	defer b.maskErr(&err)
+	return b.ctrl.Kick(member)
+}
 
 // ShareAddrs is the host's share card: the session's port and this
 // machine's addresses with it, labeled LAN, Radmin VPN, Tailscale or
@@ -302,12 +346,13 @@ func (b *Bridge) ShareAddrs() ShareView {
 	if port == 0 {
 		port = config.DefaultPort
 	}
-	return ShareView{Port: port, Addrs: shareAddrs(b.hostIPs(), port, b.masker())}
+	return ShareView{Port: port, Addrs: shareAddrs(b.hostIPs(), port)}
 }
 
 // Copy puts text on the clipboard (the window's; a browser page copies
 // itself, so ui --browser doesn't serve this).
-func (b *Bridge) Copy(text string) error {
+func (b *Bridge) Copy(text string) (err error) {
+	defer b.maskErr(&err)
 	b.clipMu.Lock()
 	f := b.clipboard
 	b.clipMu.Unlock()
@@ -319,7 +364,8 @@ func (b *Bridge) Copy(text string) error {
 
 // OpenDownloads opens the releases page in the user's browser (the
 // window's; a browser page opens it itself).
-func (b *Bridge) OpenDownloads() error {
+func (b *Bridge) OpenDownloads() (err error) {
+	defer b.maskErr(&err)
 	b.clipMu.Lock()
 	f := b.openURL
 	b.clipMu.Unlock()
@@ -340,7 +386,8 @@ func (b *Bridge) setDesktop(clipboard, openURL func(string) error) {
 func (b *Bridge) Leave() { b.ctrl.Leave() }
 
 // SetColor asks the lobby for a tunic color.
-func (b *Bridge) SetColor(color string) error {
+func (b *Bridge) SetColor(color string) (err error) {
+	defer b.maskErr(&err)
 	c, err := playercolor.Parse(color)
 	if err != nil {
 		return err
@@ -356,13 +403,17 @@ func (b *Bridge) SetColor(color string) error {
 }
 
 // SetReady sets this player's ready flag in the lobby.
-func (b *Bridge) SetReady(ready bool) error { return b.ctrl.SetReady(ready) }
+func (b *Bridge) SetReady(ready bool) (err error) {
+	defer b.maskErr(&err)
+	return b.ctrl.SetReady(ready)
+}
 
 // SendChat sends a chat line to the session and returns it as the chat
 // panel shows it (its IPs masked unless the switch is on): the host
 // relays a line to everyone but its sender, so the page echoes this.
 // An empty line sends nothing and returns an empty Text.
-func (b *Bridge) SendChat(text string) (EventView, error) {
+func (b *Bridge) SendChat(text string) (_ EventView, err error) {
+	defer b.maskErr(&err)
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return EventView{Kind: "chat"}, nil
@@ -371,7 +422,9 @@ func (b *Bridge) SendChat(text string) (EventView, error) {
 		return EventView{}, err
 	}
 	st := b.ctrl.Snapshot()
-	return eventView(session.Event{Kind: session.EventChat, Session: st.Session, Time: b.now(), From: st.Name, Text: text}, b.masker()), nil
+	v := eventView(session.Event{Kind: session.EventChat, Session: st.Session, Time: b.now(), Text: text}, b.masker())
+	v.From = st.Name // this player's own name: not masked, as its lobby row
+	return v, nil
 }
 
 // checkName trims and validates a player name with the wire's rules and

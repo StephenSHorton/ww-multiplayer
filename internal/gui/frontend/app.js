@@ -9,7 +9,7 @@
 // banner come in the state too (Go decides them: internal/gui/lobby.go).
 
 import { call, onEvent, mode } from "./transport.js";
-import { $, el, toast, swatches, openDialog, closeDialog, dialogKey, setDialogDetail, initDialog } from "./ui.js";
+import { $, el, toast, swatches, openDialog, closeDialog, dialogKey, setDialogText, initDialog } from "./ui.js";
 import { initSetup, openSetup, onPatch } from "./setup.js";
 
 const LOG_MAX = 500;
@@ -22,13 +22,18 @@ let homeColor = ""; // the Home form's color, a "#RRGGBB"
 let left = false; // the user pressed Leave (no "ended" panel then)
 let busy = false;
 let shared = { session: 0, port: 0, addrs: [] }; // the host's share card, read once per session
+let shareSeq = 0; // the newest ShareAddrs call: an older reply is dropped
 // IP addresses are masked on screen (owner decision 2026-10-16,
 // streamer-safe): Go masks them in every view unless the header's "Show
-// IP addresses" switch (info.showIPs) is on. A share-card row's Show
+// IP addresses" switch (info.showIPs) is on. An address field Go sends
+// with its masked form (masked, addrMasked) is drawn masked unless the
+// switch is on when it is drawn, and a state that came unmasked is
+// dropped once the switch is off (a reply from before it was turned off
+// can arrive after). A share-card row's Show
 // reveals it until the screen is left. Holds the revealed addresses.
 let revealed = new Set();
-// The log lines that came unmasked (the switch was on), each with its
-// masked text, so turning the switch off masks them again.
+// The log and chat lines drawn unmasked (the switch was on), each with
+// its masked text and sender, so turning the switch off masks them again.
 const unmasked = new WeakMap();
 const closedDialogs = new Set(); // keys of state dialogs the user closed
 
@@ -90,7 +95,7 @@ function renderRecent() {
 			type: "button", class: "slotbtn", title: "Put this host in the address box",
 			"aria-pressed": String($("addr").value.trim() === h.addr),
 			onclick: () => { $("addr").value = h.addr; renderRecent(); $("join-btn").focus(); },
-		}, h.label ? el("small", {}, h.label) : null, el("span", { class: "addr" }, h.masked || h.addr)))));
+		}, h.label ? el("small", {}, h.label) : null, el("span", { class: "addr" }, info.showIPs ? h.addr : h.masked)))));
 }
 
 // applyShowIPs draws the header's switch and the Join box as info.showIPs
@@ -111,7 +116,8 @@ function applyShowIPs() {
 		for (const li of $("log").children) {
 			const m = unmasked.get(li);
 			if (m) {
-				li.lastChild.textContent = m;
+				li.lastChild.textContent = m.text;
+				if (m.from !== undefined) li.firstChild.textContent = m.from + ": ";
 				unmasked.delete(li);
 			}
 		}
@@ -176,7 +182,7 @@ function render() {
 	ph.className = "phase" + (st.phase === "lobby" ? " lobby" : st.phase === "in game" ? " ingame" : "");
 	$("where").textContent = st.role === "Host"
 		? "Hosting as " + st.name
-		: "Joining " + (st.addrMasked || "the host") + " as " + st.name;
+		: "Joining " + ((info.showIPs ? st.addr : st.addrMasked) || "the host") + " as " + st.name;
 	$("leave-btn").hidden = ended;
 
 	$("ended").hidden = !(ended && !left) || !!(st.dialog && st.dialog.home);
@@ -249,13 +255,17 @@ function render() {
 // ---------- the host's share card ----------
 
 async function loadShare(id) {
+	const seq = ++shareSeq;
 	shared = { session: id, port: 0, addrs: [] };
+	let next = { session: id, port: 0, addrs: [] };
 	try {
 		const s = await call("ShareAddrs");
-		shared = { session: id, port: s.port, addrs: s.addrs || [] };
+		next = { session: id, port: s.port, addrs: s.addrs || [] };
 	} catch {
-		shared.addrs = [];
+		// an empty card
 	}
+	if (seq !== shareSeq) return; // a newer call is on its way
+	shared = next;
 	renderShare();
 }
 
@@ -265,7 +275,7 @@ function renderShare() {
 		const shown = revealed.has(a.addr);
 		return el("li", { class: "addr " + a.kind },
 			el("span", { class: "tag" }, a.label),
-			el("code", {}, shown ? a.addr : a.masked),
+			el("code", {}, info.showIPs || shown ? a.addr : a.masked),
 			info.showIPs ? null : el("button", {
 				type: "button", class: "btn small", "aria-pressed": String(shown),
 				title: shown ? "Mask this address again" : "Show this address until you leave the screen",
@@ -291,7 +301,7 @@ function syncDialog(st) {
 	}
 	if (d && !closedDialogs.has(d.key)) {
 		if (open === d.key) {
-			setDialogDetail(d.detail || "");
+			setDialogText(d.text, d.detail || ""); // masked again, if the switch went off
 		} else {
 			openDialog({
 				key: d.key, title: d.title, text: d.text, detail: d.detail || "",
@@ -336,6 +346,7 @@ async function dialogAction(id, d, st) {
 			try {
 				await call("Retry");
 				state = await call("State");
+				if (unmaskedLate(state)) state = await call("State");
 				session = state.session;
 				render();
 			} catch (e) {
@@ -392,16 +403,21 @@ async function setColor(color) {
 
 // ---------- log ----------
 
-// textLine is a log or chat line's text node; ev.textMasked is kept for
-// a line that came unmasked.
-function textLine(li, ev) {
-	li.append(ev.text);
-	if (ev.textMasked) unmasked.set(li, ev.textMasked);
+// textLine is a log or chat line's text. A line that came unmasked (the
+// switch was on when Go sent it) is drawn masked unless the switch is on
+// now, and kept with its masked text when it is drawn unmasked.
+function textLine(li, ev, from) {
+	const raw = !!info.showIPs;
+	li.append(raw || !ev.textMasked ? ev.text : ev.textMasked);
+	if (raw && (ev.textMasked || ev.fromMasked)) {
+		unmasked.set(li, { text: ev.textMasked || ev.text, from: from === undefined ? undefined : ev.fromMasked || ev.from });
+	}
 	return li;
 }
 
 function chatLine(ev, own = false) {
-	return textLine(el("li", { class: "chat" + (own ? " own" : "") }, el("b", {}, ev.from + ": ")), ev);
+	const from = info.showIPs || !ev.fromMasked ? ev.from : ev.fromMasked;
+	return textLine(el("li", { class: "chat" + (own ? " own" : "") }, el("b", {}, from + ": ")), ev, ev.from);
 }
 
 function addLine(node) {
@@ -414,12 +430,19 @@ function addLine(node) {
 
 // ---------- events ----------
 
+// unmaskedLate says a state came unmasked though the switch is off now:
+// its call left before the switch was turned off.
+const unmaskedLate = (st) => st.showIPs && !info.showIPs;
+
 async function refresh() {
+	let st;
 	try {
-		state = await call("State");
+		st = await call("State");
 	} catch {
 		return;
 	}
+	if (unmaskedLate(st)) return; // the next refresh brings it masked
+	state = st;
 	if (view === "session" && state.session !== session && state.running) session = state.session;
 	render();
 }
@@ -469,6 +492,7 @@ async function start(run) {
 		await run();
 		left = false;
 		state = await call("State");
+		if (unmaskedLate(state)) state = await call("State");
 		session = state.session;
 		show("session");
 	} catch (e) {

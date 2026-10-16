@@ -98,7 +98,10 @@ export function dialogKey() {
 	return d.open ? d.dataset.key : "";
 }
 
-export function setDialogDetail(detail) {
+// setDialogText redraws the open dialog's text and detail (a live one's
+// detail changes, and both are masked again when the switch goes off).
+export function setDialogText(text, detail) {
+	$("dlg-text").textContent = text;
 	$("dlg-detail").textContent = detail;
 }
 

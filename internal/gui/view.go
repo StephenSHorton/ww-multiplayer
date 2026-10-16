@@ -23,7 +23,7 @@ type SwatchView struct {
 // RecentHostView is one of the config's recent hosts.
 type RecentHostView struct {
 	Addr   string `json:"addr"`   // for Join only: never drawn (mask.go)
-	Masked string `json:"masked"` // Addr as the window shows it
+	Masked string `json:"masked"` // Addr masked, always (the page picks one; mask.go)
 	Label  string `json:"label"`  // the saved label, else LAN / Radmin VPN / ...
 }
 
@@ -89,20 +89,20 @@ type PlayerView struct {
 
 // StateView is the controller's Snapshot.
 type StateView struct {
-	Session   uint64       `json:"session"`
-	Phase     string       `json:"phase"` // session.Phase.String()
-	Running   bool         `json:"running"`
-	Role      string       `json:"role"`
-	Name      string       `json:"name"`
-	Addr      string       `json:"addr"`       // for a retry only: never drawn (mask.go)
-	AddrShown string       `json:"addrMasked"` // Addr as the window shows it
-	EndReason string       `json:"endReason"`
-	Failed    bool         `json:"failed"`
-	Lobby     *LobbyView   `json:"lobby"`
-	Players   []PlayerView `json:"players"`
-	Count     int          `json:"playerCount"`
-	HostAddrs []string     `json:"hostAddrs"`
-	LatencyMs int64        `json:"latencyMs"`
+	Session    uint64       `json:"session"`
+	Phase      string       `json:"phase"` // session.Phase.String()
+	Running    bool         `json:"running"`
+	Role       string       `json:"role"`
+	Name       string       `json:"name"`
+	Addr       string       `json:"addr"`       // for a retry only: never drawn (mask.go)
+	AddrMasked string       `json:"addrMasked"` // Addr masked, always (the page picks one; mask.go)
+	EndReason  string       `json:"endReason"`
+	Failed     bool         `json:"failed"`
+	Lobby      *LobbyView   `json:"lobby"`
+	Players    []PlayerView `json:"players"`
+	Count      int          `json:"playerCount"`
+	HostAddrs  []string     `json:"hostAddrs"`
+	LatencyMs  int64        `json:"latencyMs"`
 	// Dialog is the dialog the state calls for (a join error, a kick, a
 	// host that can't be reached); nil for none.
 	Dialog *DialogView `json:"dialog"`
@@ -125,6 +125,9 @@ type EventView struct {
 	// addresses" switch let Text through unmasked and they differ: the
 	// log keeps it so turning the switch off masks the line again.
 	TextMasked string `json:"textMasked,omitempty"`
+	// FromMasked is From with its IPs masked, set as TextMasked is: a
+	// peer's name may be an IP.
+	FromMasked string `json:"fromMasked,omitempty"`
 	// Lobby replies.
 	Code    string `json:"code,omitempty"`    // lobby-notice
 	Suggest string `json:"suggest,omitempty"` // lobby-notice: a free name
@@ -178,23 +181,26 @@ func ms(d time.Duration) int64 { return d.Milliseconds() }
 // dialog names it) and now the time the reconnect banner measures from.
 func stateView(st session.State, running bool, version string, now time.Time, mk masker) StateView {
 	v := StateView{
-		Session:   uint64(st.Session),
-		Phase:     st.Phase.String(),
-		Running:   running,
-		Role:      string(st.Role),
-		Name:      st.Name,
-		Addr:      st.Addr,
-		AddrShown: mk.addr(st.Addr),
-		EndReason: mk.text(st.EndReason),
-		ShowIPs:   mk.show,
-		Failed:    st.Failed,
-		Players:   []PlayerView{},
-		Count:     st.PlayerCount,
-		HostAddrs: append([]string{}, st.HostAddrs...),
-		LatencyMs: ms(st.Latency),
+		Session:    uint64(st.Session),
+		Phase:      st.Phase.String(),
+		Running:    running,
+		Role:       string(st.Role),
+		Name:       st.Name,
+		Addr:       st.Addr,
+		AddrMasked: hideIPs.addr(st.Addr),
+		EndReason:  mk.text(st.EndReason),
+		ShowIPs:    mk.show,
+		Failed:     st.Failed,
+		Players:    []PlayerView{},
+		Count:      st.PlayerCount,
+		HostAddrs:  append([]string{}, st.HostAddrs...),
+		LatencyMs:  ms(st.Latency),
 	}
+	// Peers choose their names, and one may be an IP ("26.12.34.56", the
+	// streamer's own, say): masked as free text. This player's own name
+	// (Name, its own lobby row) is not.
 	for _, p := range st.Players {
-		pv := PlayerView{Name: p.Name}
+		pv := PlayerView{Name: mk.text(p.Name)}
 		if p.HasColor {
 			pv.Color = p.Color.Hex()
 		}
@@ -208,8 +214,12 @@ func stateView(st session.State, running bool, version string, now time.Time, mk
 		}
 		for _, m := range l.Members {
 			self := m.ID == l.Member && m.Via == session.ViaApp
+			name := m.Name
+			if !self {
+				name = mk.text(name)
+			}
 			lv.Members = append(lv.Members, MemberView{
-				ID: m.ID, Name: m.Name, Color: m.Color.Hex(), ColorName: colorName(m.Color),
+				ID: m.ID, Name: name, Color: m.Color.Hex(), ColorName: colorName(m.Color),
 				Ready: m.Ready, Host: m.Host, Self: self,
 				Via: m.Via, Away: m.Away, Dolphin: m.Dolphin, RTTMs: ms(m.RTT),
 				CanKick: l.Host && !self && running,
@@ -243,10 +253,17 @@ func eventView(ev session.Event, mk masker) EventView {
 	// The log and chat panels show no IP address unless the switch is on
 	// (mask.go): the host's log lists its share addresses, a joiner's
 	// names the host.
-	if masked := hideIPs.text(v.Text); mk.show && masked != v.Text {
-		v.TextMasked = masked
-	} else {
-		v.Text = masked
-	}
+	v.Text, v.TextMasked = maskPair(v.Text, mk)
+	v.From, v.FromMasked = maskPair(v.From, mk)
 	return v
+}
+
+// maskPair is s as the window draws it under mk, and, when mk lets an IP
+// through, s masked beside it (EventView.TextMasked).
+func maskPair(s string, mk masker) (shown, masked string) {
+	m := hideIPs.text(s)
+	if mk.show && m != s {
+		return s, m
+	}
+	return m, ""
 }

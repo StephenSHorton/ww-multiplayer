@@ -23,6 +23,20 @@ func TestAddr(t *testing.T) {
 		{"localhost:25570", "localhost:25570"},
 		{"host.ts.net", "host.ts.net"},
 		{"", ""},
+		// What doesn't parse as an address still shows no more than a
+		// last group: a host name with an IP in it, a typo, a partial.
+		{"26.12.34.56.nip.io:25570", "•••.•••.•••.56.nip.io:25570"},
+		{"x.26.12.34.56.nip.io", "x.•••.•••.•••.56.nip.io"},
+		{"26.12.34.56x", "•••.•••.•••.56x"},
+		{"26-12-34-56.sslip.io:25570", "•••.•••.•••.56.sslip.io:25570"},
+		{"26.12.34.566", "•••.•••.•••.566"},
+		{"26.12.34.566:25565", "•••.•••.•••.566:25565"},
+		{"192.168.001.042", "•••.•••.•••.042"},
+		{"192.168.1.42;25565", "•••.•••.•••.42;25565"},
+		{"192.168.1.42/25565", "•••.•••.•••.42/25565"},
+		{"26.12.34", "•••.•••.•••.34"},
+		{"26.12.34:25565", "•••.•••.•••.34:25565"},
+		{"ww3.example.com:25570", "ww3.example.com:25570"},
 	} {
 		if got := Addr(c.in); got != c.want {
 			t.Errorf("Addr(%q) = %q, want %q", c.in, got, c.want)
@@ -53,6 +67,24 @@ func TestTextMasks(t *testing.T) {
 		{"prefix fe80:: on eth0", "prefix ••••:…:0 on eth0"},
 		{"both 1.2.3.4 and [2001:db8::9]:7", "both •••.•••.•••.4 and [••••:…:9]:7"},
 		{"chat: 192.168.0.5 is me", "chat: •••.•••.•••.5 is me"},
+		// An address glued to a word by a colon, with a port.
+		{"host:192.168.1.42:25565", "host:•••.•••.•••.42:25565"},
+		{"host:10.1.2.3:25565 is mine", "host:•••.•••.•••.3:25565 is mine"},
+		{"ip:1.2.3.4:25565", "ip:•••.•••.•••.4:25565"},
+		{"addr:fd00::1", "addr:••••:…:1"},
+		{"Medli:fd7a::53", "Medli:••••:…:53"},
+		{"ip=::1", "ip=••••:…:1"},
+		// Near addresses: a typo keeps three real octets, a host name
+		// carries a whole IP.
+		{"dial tcp: lookup 26.12.34.566: no such host", "dial tcp: lookup •••.•••.•••.566: no such host"},
+		{"Joining the lobby at 26.12.34.566:25565", "Joining the lobby at •••.•••.•••.566:25565"},
+		{"999.1.1.1 is no IP", "•••.•••.•••.1 is no IP"},
+		{"01.02.03.004", "•••.•••.•••.004"},
+		{"at 192.168.001.042.", "at •••.•••.•••.042."},
+		{"26.12.3456.7", "•••.•••.•••.7"},
+		{"lookup 26.12.34.56.nip.io: refused", "lookup •••.•••.•••.56.nip.io: refused"},
+		{"lookup x.26.12.34.56.nip.io", "lookup x.•••.•••.•••.56.nip.io"},
+		{"see 26-12-34-56.sslip.io", "see •••.•••.•••.56.sslip.io"},
 	} {
 		if got := Text(c.in); got != c.want {
 			t.Errorf("Text(%q)\n got %q\nwant %q", c.in, got, c.want)
@@ -73,8 +105,11 @@ func TestTextLeaves(t *testing.T) {
 		"ww-multiplayer v1.2.3.4",
 		"go1.26.2",
 		"build 1.2.3.4.5",
-		"999.1.1.1 is no IP",
-		"01.02.03.004",
+		"1.2.3.4.5.6.7.8",
+		"Windows 10.0.26200",
+		"2026-10-16 and 2026-10-16-12",
+		"room 12-34",
+		"ww3.example.com",
 		"std::map and a::b",
 		"add:: cafe::",
 		":: alone",

@@ -188,7 +188,9 @@ func (s *BrowserServer) call(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &ce) {
 			code = http.StatusBadRequest
 		}
-		writeJSON(w, code, map[string]string{"error": err.Error()})
+		// The Bridge masks its methods' errors (maskErr); this covers the
+		// rest, a malformed call's echo of its arguments among them.
+		writeJSON(w, code, map[string]string{"error": s.bridge.masker().text(err.Error())})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"result": res})

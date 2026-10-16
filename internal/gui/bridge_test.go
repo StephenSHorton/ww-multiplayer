@@ -26,7 +26,9 @@ type fakeEngine struct {
 	// fail ends the running lobby session with its error.
 	fail chan error
 
-	mu    sync.Mutex
+	mu sync.Mutex
+	// err fails SendChat and Lobby (a dead lobby connection).
+	err   error
 	host  []session.HostOptions
 	join  []session.JoinOptions
 	cmds  []session.LobbyCommand
@@ -53,7 +55,7 @@ func (e *fakeEngine) SendChat(text string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.chats = append(e.chats, text)
-	return nil
+	return e.err
 }
 
 func (e *fakeEngine) lobby(ctx context.Context, host bool, name string, col *playercolor.Color, out session.LobbyOutput) error {
@@ -98,7 +100,7 @@ func (e *fakeEngine) Lobby(cmd session.LobbyCommand) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.cmds = append(e.cmds, cmd)
-	return nil
+	return e.err
 }
 
 func (e *fakeEngine) out(t *testing.T) session.LobbyOutput {

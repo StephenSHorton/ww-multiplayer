@@ -164,8 +164,10 @@ func addrLabel(addr string) string {
 
 // shareAddrs is the share card for ips and port: each IP labeled, with
 // the port added off the default one (as the CLI's host prints them), LAN
-// first, then Radmin VPN, Tailscale and the rest.
-func shareAddrs(ips []string, port int, mk masker) []ShareAddrView {
+// first, then Radmin VPN, Tailscale and the rest. Masked is always the
+// masked form, whatever the switch says: the page picks one when it draws
+// (a reply from before the switch was turned off may come late).
+func shareAddrs(ips []string, port int) []ShareAddrView {
 	out := []ShareAddrView{}
 	for _, ip := range ips {
 		addr := ip
@@ -173,7 +175,7 @@ func shareAddrs(ips []string, port int, mk masker) []ShareAddrView {
 			addr = net.JoinHostPort(ip, strconv.Itoa(port))
 		}
 		kind, label := addrKind(ip)
-		out = append(out, ShareAddrView{Addr: addr, Masked: mk.addr(addr), Kind: kind, Label: label})
+		out = append(out, ShareAddrView{Addr: addr, Masked: hideIPs.addr(addr), Kind: kind, Label: label})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return shareOrder[out[i].Kind] < shareOrder[out[j].Kind] })
 	return out

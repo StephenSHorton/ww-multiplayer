@@ -15,7 +15,7 @@ import (
 
 func TestShareAddrs(t *testing.T) {
 	ips := []string{"203.0.113.9", "100.101.2.3", "26.12.34.56", "192.168.1.42", "10.0.0.7", "172.20.1.1", "172.32.0.1", "100.128.0.1"}
-	got := shareAddrs(ips, 0, hideIPs)
+	got := shareAddrs(ips, 0)
 	want := []ShareAddrView{
 		{"192.168.1.42", "•••.•••.•••.42", "lan", "LAN"}, {"10.0.0.7", "•••.•••.•••.7", "lan", "LAN"}, {"172.20.1.1", "•••.•••.•••.1", "lan", "LAN"},
 		{"26.12.34.56", "•••.•••.•••.56", "radmin", "Radmin VPN"},
@@ -27,13 +27,13 @@ func TestShareAddrs(t *testing.T) {
 	}
 	// The default port is left off, as the CLI's host prints them;
 	// another is added.
-	if got := shareAddrs([]string{"192.168.1.42"}, 25565, hideIPs); got[0].Addr != "192.168.1.42" {
+	if got := shareAddrs([]string{"192.168.1.42"}, 25565); got[0].Addr != "192.168.1.42" {
 		t.Fatalf("default port: %+v", got)
 	}
-	if got := shareAddrs([]string{"26.1.2.3"}, 25570, hideIPs); got[0].Addr != "26.1.2.3:25570" || got[0].Masked != "•••.•••.•••.3:25570" || got[0].Label != "Radmin VPN" {
+	if got := shareAddrs([]string{"26.1.2.3"}, 25570); got[0].Addr != "26.1.2.3:25570" || got[0].Masked != "•••.•••.•••.3:25570" || got[0].Label != "Radmin VPN" {
 		t.Fatalf("port 25570: %+v", got)
 	}
-	if got := shareAddrs(nil, 25565, hideIPs); got == nil || len(got) != 0 {
+	if got := shareAddrs(nil, 25565); got == nil || len(got) != 0 {
 		t.Fatalf("no IPs = %#v, want an empty list (JSON [])", got)
 	}
 }
@@ -134,9 +134,9 @@ func TestLiveDialogs(t *testing.T) {
 	if strings.Contains(d.Text+d.Detail, "10.0.0.2") {
 		t.Fatalf("unreachable dialog shows the IP: %+v", d)
 	}
-	if v := stateView(st, true, "", time.Now(), hideIPs); v.Addr != "10.0.0.2:25570" || v.AddrShown != "•••.•••.•••.2:25570" ||
+	if v := stateView(st, true, "", time.Now(), hideIPs); v.Addr != "10.0.0.2:25570" || v.AddrMasked != "•••.•••.•••.2:25570" ||
 		strings.Contains(v.Lobby.Link.Err, "10.0.0.2") {
-		t.Fatalf("stateView addresses: addr %q shown %q link err %q", v.Addr, v.AddrShown, v.Lobby.Link.Err)
+		t.Fatalf("stateView addresses: addr %q shown %q link err %q", v.Addr, v.AddrMasked, v.Lobby.Link.Err)
 	}
 	st.Addr = "10.0.0.2"
 	if d := dialogFor(st, true, "", hideIPs); !strings.Contains(d.Text, "port 25565") {
