@@ -23,10 +23,7 @@ ww-multiplayer/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
 │   ├── dolphin/                 # Dolphin process memory access (Win32)
-│   │   ├── memory.go            # Core read/write, RAM scanner
-│   │   ├── inject.go            # LEGACY runtime injection (vestigial; superseded by inject/ patched-ISO approach)
-│   │   ├── inject_code.go       # LEGACY PPC blob (vestigial)
-│   │   └── helpers.go
+│   │   └── memory.go            # Core read/write, RAM scanner
 │   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); Bridge = the JS API; `ui --browser` server
 │   ├── dolphinenv/              # Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare step (dolphin2, auto-recapture)
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
@@ -93,11 +90,9 @@ go build -tags desktop,production -o ww-multiplayer.exe .
 ./ww-multiplayer.exe send-shift-f1                      # Diagnostic: probe whether your Dolphin build accepts synthetic Shift+F1 hotkeys
 ./ww-multiplayer.exe debug                              # Print Link's position for 5 sec
 ./ww-multiplayer.exe dump                               # Dump mailbox state (shadow_mode, pose seqs, etc.)
-./ww-multiplayer.exe check                              # Mailbox + player pointers + BSS sanity check
 ./ww-multiplayer.exe shadow-mode <0..5>                 # 0=off, 1/2=mirror dev, 3=freeze, 4=echo-ring, 5=pose-feed
 ./ww-multiplayer.exe echo-delay <N>                     # Mode-4 delay frames (for echo-link experiment)
 ./ww-multiplayer.exe poke-u32 <addr-hex> <val-hex>      # Direct memory write
-./ww-multiplayer.exe scan-npcs                          # Find NPCs near Link
 ./ww-multiplayer.exe move-puppet <x> <y> <z> [slot]     # Manually drive a puppet actor slot
 ./ww-multiplayer.exe unhide-puppet                      # Apply per-proc unhide poke (mSwitchNo / m678)
 

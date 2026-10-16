@@ -203,7 +203,8 @@ This doc is the session-by-session log of how the multiplayer pipeline was built
   on Link's shared J3DModelData with their material colors and
   texNo[0..7] values), `ww-multiplayer.exe tint-material cycle/pick/stage` (walk
   materials by toggling `texNo[0]` or `texNo[stage]` to 0x0000 to
-  visually identify what each material draws on Link). Used to
+  visually identify what each material draws on Link; both commands were
+  removed in the dead-code cleanup once tunic sync replaced them). Used to
   identify eye materials (1, 4 stage 1), tunic set (0, 16, 19), hair,
   hat, boots, hands, nose, belt buckle etc. — the mapping needed for
   future tunic-tint and eye-fix work. Groundwork only, no eye fix

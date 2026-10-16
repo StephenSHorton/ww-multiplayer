@@ -5,7 +5,6 @@ auto-recapture-pair
 blob-verify-live
 broadcast-link
 broadcast-pose
-check
 coop-probe
 coop-tables
 coop-tag
@@ -45,13 +44,10 @@ find-pos
 frame-phase-probe
 heap-free
 help
-hijack-test
 host
-inject
 input
 input-probe
 input-release
-inspect-materials
 j3dsys-probe
 join
 move-puppet
@@ -68,16 +64,12 @@ puppet-sync
 region-probe
 save-diff
 save-merge
-scan-actors
-scan-npcs
 scan-pos
 screenshot
 send-shift-f1
 server
 shadow-mode
 stage-hop
-teleport-test
-tint-material
 track-pos
 tunic-probe
 tunic-recolor
@@ -87,5 +79,4 @@ version
 warp
 warp-force
 warp-force-off
-write-test
 zone-dump
