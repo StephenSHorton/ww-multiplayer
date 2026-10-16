@@ -27,7 +27,7 @@ ww-multiplayer/
 │   │   ├── inject.go            # LEGACY runtime injection (vestigial; superseded by inject/ patched-ISO approach)
 │   │   ├── inject_code.go       # LEGACY PPC blob (vestigial)
 │   │   └── helpers.go
-│   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; Bridge = the JS API; `ui --browser` server
+│   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); Bridge = the JS API; `ui --browser` server
 │   ├── dolphinenv/              # Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare step (dolphin2, auto-recapture)
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
 │   │   ├── blob.go              # AUTO-GENERATED via scripts/extract_blob.py

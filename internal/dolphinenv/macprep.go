@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
@@ -58,28 +57,63 @@ func (ExecRunner) Run(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).CombinedOutput()
 }
 
-// ErrNotMac is PrepareMacHere's error on any OS but macOS.
+// ErrNotMac is PrepareMacHere's (and MacStatusHere's) error on any OS but
+// macOS.
 var ErrNotMac = errors.New("preparing Dolphin is a macOS step")
 
-// PrepareMacHere prepares ~/Applications/Dolphin.app from
-// /Applications/Dolphin.app on this Mac.
-func PrepareMacHere(rep report.Reporter) error {
-	if runtime.GOOS != "darwin" {
-		return ErrNotMac
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	return PrepareMac(rep, ExecRunner{}, MacApp, MacPreparedApp(home))
+// MacStep is one step of MacPlan: a line to log, then one action. Exactly
+// one of RemoveIfExists, MkdirAll and Cmd is set.
+type MacStep struct {
+	// Say is logged as "==> <Say>" before the step runs (for
+	// RemoveIfExists, only when the path exists).
+	Say string
+	// RemoveIfExists removes this path (an older copy) when it exists.
+	RemoveIfExists string
+	// MkdirAll creates this directory and its parents. It logs nothing.
+	MkdirAll string
+	// Cmd is a program and its arguments, run through a Runner.
+	Cmd []string
+	// BestEffort says a failing Cmd doesn't stop the plan (`|| true` in
+	// the script).
+	BestEffort bool
 }
 
-// PrepareMac runs scripts/setup-mac-dolphin.sh's steps, logging each as
-// the script prints it: copy src (a Dolphin.app) to dst (replacing an
-// older copy), strip its xattrs, give it MacBundleID, re-sign its main
-// executable ad hoc without the hardened runtime, register it with
-// LaunchServices, and verify the signature and bundle ID. No step needs
-// sudo. dst must be another path ending in ".app": it is removed first.
+// MacPlan is what PrepareMac does to copy src (a Dolphin.app) to dst, in
+// order, as scripts/setup-mac-dolphin.sh does it: remove an older copy,
+// copy, strip xattrs, give the copy MacBundleID, re-sign its main
+// executable ad hoc without the hardened runtime, and register it with
+// LaunchServices. It is a pure function of its arguments, so a test checks
+// the commands without running any; PrepareMac runs it and then verifies
+// the result (MacVerify).
+func MacPlan(src, dst string) []MacStep {
+	plist := filepath.Join(dst, "Contents", "Info.plist")
+	bin := filepath.Join(dst, "Contents", "MacOS", "Dolphin")
+	return []MacStep{
+		{Say: fmt.Sprintf("Removing existing %s...", dst), RemoveIfExists: dst},
+		{Say: fmt.Sprintf("Copying %s -> %s...", src, dst)},
+		{MkdirAll: filepath.Dir(dst)},
+		{Cmd: []string{"cp", "-R", src, dst}},
+		{Say: "Stripping com.apple.provenance and other locking xattrs...", Cmd: []string{"xattr", "-cr", dst}, BestEffort: true},
+		{Say: fmt.Sprintf("Setting CFBundleIdentifier to %s (avoids LaunchServices tie with /Applications)...", MacBundleID),
+			Cmd: []string{"plutil", "-replace", "CFBundleIdentifier", "-string", MacBundleID, plist}},
+		{Say: "Re-signing main Dolphin executable without hardened runtime...", Cmd: []string{"codesign", "--force", "--sign", "-", bin}},
+		{Say: "Registering with LaunchServices...", Cmd: []string{lsregister, "-f", dst}, BestEffort: true},
+	}
+}
+
+// MacVerify is the commands PrepareMac reads the copy back with after
+// MacPlan: its signature (whose flags must not name the runtime) and its
+// bundle ID (which must be MacBundleID).
+func MacVerify(dst string) (codesign, bundleID []string) {
+	plist := filepath.Join(dst, "Contents", "Info.plist")
+	bin := filepath.Join(dst, "Contents", "MacOS", "Dolphin")
+	return []string{"codesign", "-d", "-vvv", bin}, []string{"plutil", "-extract", "CFBundleIdentifier", "raw", plist}
+}
+
+// PrepareMac runs scripts/setup-mac-dolphin.sh's steps (MacPlan), logging
+// each as the script prints it, then verifies the signature and bundle ID
+// (MacVerify). No step needs sudo. dst must be another path ending in
+// ".app": it is removed first.
 func PrepareMac(rep report.Reporter, r Runner, src, dst string) error {
 	if filepath.Ext(dst) != ".app" || filepath.Clean(dst) == filepath.Clean(src) {
 		return fmt.Errorf("prepare Dolphin: the copy %q must be another .app than %q", dst, src)
@@ -87,53 +121,52 @@ func PrepareMac(rep report.Reporter, r Runner, src, dst string) error {
 	if fi, err := os.Stat(src); err != nil || !fi.IsDir() {
 		return fmt.Errorf("%s not found. Install Dolphin first", src)
 	}
-	step := func(format string, a ...any) { report.Logf(rep, report.Info, "==> "+format, a...) }
-	run := func(name string, args ...string) error {
-		out, err := r.Run(name, args...)
+	step := func(s string) { report.Logf(rep, report.Info, "==> %s", s) }
+	run := func(cmd []string) error {
+		out, err := r.Run(cmd[0], cmd[1:]...)
 		if err != nil {
 			if s := strings.TrimSpace(string(out)); s != "" {
-				return fmt.Errorf("%s: %w: %s", name, err, s)
+				return fmt.Errorf("%s: %w: %s", cmd[0], err, s)
 			}
-			return fmt.Errorf("%s: %w", name, err)
+			return fmt.Errorf("%s: %w", cmd[0], err)
 		}
 		return nil
 	}
-	if _, err := os.Stat(dst); err == nil {
-		step("Removing existing %s...", dst)
-		if err := os.RemoveAll(dst); err != nil {
-			return err
+	for _, s := range MacPlan(src, dst) {
+		switch {
+		case s.RemoveIfExists != "":
+			if _, err := os.Stat(s.RemoveIfExists); err != nil {
+				continue
+			}
+			step(s.Say)
+			if err := os.RemoveAll(s.RemoveIfExists); err != nil {
+				return err
+			}
+			continue
+		case s.Say != "":
+			step(s.Say)
+		}
+		switch {
+		case s.MkdirAll != "":
+			if err := os.MkdirAll(s.MkdirAll, 0o755); err != nil {
+				return err
+			}
+		case len(s.Cmd) > 0:
+			if err := run(s.Cmd); err != nil && !s.BestEffort {
+				return err
+			}
 		}
 	}
-	step("Copying %s -> %s...", src, dst)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	if err := run("cp", "-R", src, dst); err != nil {
-		return err
-	}
-	step("Stripping com.apple.provenance and other locking xattrs...")
-	_ = run("xattr", "-cr", dst) // best effort, as in the script
-	plist := filepath.Join(dst, "Contents", "Info.plist")
-	bin := filepath.Join(dst, "Contents", "MacOS", "Dolphin")
-	step("Setting CFBundleIdentifier to %s (avoids LaunchServices tie with /Applications)...", MacBundleID)
-	if err := run("plutil", "-replace", "CFBundleIdentifier", "-string", MacBundleID, plist); err != nil {
-		return err
-	}
-	step("Re-signing main Dolphin executable without hardened runtime...")
-	if err := run("codesign", "--force", "--sign", "-", bin); err != nil {
-		return err
-	}
-	step("Registering with LaunchServices...")
-	_ = run(lsregister, "-f", dst) // best effort, as in the script
 
 	step("Verifying...")
-	sig, _ := r.Run("codesign", "-d", "-vvv", bin)
+	signCmd, idCmd := MacVerify(dst)
+	sig, _ := r.Run(signCmd[0], signCmd[1:]...)
 	flags := CodesignFlags(string(sig))
 	report.Logf(rep, report.Info, "    %s", flags)
 	if HasHardenedRuntime(string(sig)) {
 		return errors.New("hardened runtime still set — re-sign failed")
 	}
-	id, err := r.Run("plutil", "-extract", "CFBundleIdentifier", "raw", plist)
+	id, err := r.Run(idCmd[0], idCmd[1:]...)
 	if err != nil {
 		return fmt.Errorf("plutil: %w", err)
 	}
@@ -166,8 +199,9 @@ var plistString = regexp.MustCompile(`<key>\s*(CFBundleVersion|CFBundleShortVers
 
 // BundleVersion returns an XML Info.plist's CFBundleShortVersionString and
 // CFBundleVersion joined as "short (build)", whichever of them it has, or
-// "" when it has neither. (Dolphin ships an XML plist; a binary one gives
-// "".)
+// "" when it has neither. A binary plist gives "": GatherMacFacts reads
+// the versions with plutil first (MacVersionCmds), which reads both, and
+// keeps this as the fallback.
 func BundleVersion(plist []byte) string {
 	var short, build string
 	for _, m := range plistString.FindAllSubmatch(plist, -1) {
@@ -180,6 +214,11 @@ func BundleVersion(plist []byte) string {
 			short = v
 		}
 	}
+	return joinVersion(short, build)
+}
+
+// joinVersion is "short (build)", whichever of them is set, or "".
+func joinVersion(short, build string) string {
 	switch {
 	case short != "" && build != "" && short != build:
 		return short + " (" + build + ")"
@@ -217,11 +256,45 @@ func (s MacState) String() string {
 }
 
 // MacFacts is what MacCheck decides from: whether each bundle exists,
-// their Info.plist contents, and `codesign -d -vvv` of the copy's binary.
+// their versions as plutil reads them (any plist format), their Info.plist
+// contents (the fallback when plutil gave nothing), and `codesign -d -vvv`
+// of the copy's binary.
 type MacFacts struct {
-	Original, Copy           bool
-	OriginalPlist, CopyPlist []byte
-	CopyCodesign             string
+	Original, Copy               bool
+	OriginalVersion, CopyVersion string
+	OriginalPlist, CopyPlist     []byte
+	CopyCodesign                 string
+}
+
+// version is a bundle's version: plutil's, else the XML plist's.
+func version(v string, plist []byte) string {
+	if v != "" {
+		return v
+	}
+	return BundleVersion(plist)
+}
+
+// MacVersionCmds is the commands GatherMacFacts reads a bundle's
+// CFBundleShortVersionString and CFBundleVersion with: plutil reads XML and
+// binary plists alike.
+func MacVersionCmds(app string) (short, build []string) {
+	plist := filepath.Join(app, "Contents", "Info.plist")
+	return []string{"plutil", "-extract", "CFBundleShortVersionString", "raw", plist},
+		[]string{"plutil", "-extract", "CFBundleVersion", "raw", plist}
+}
+
+// plutilVersion reads app's version with MacVersionCmds through r, "" when
+// plutil can't.
+func plutilVersion(r Runner, app string) string {
+	get := func(cmd []string) string {
+		out, err := r.Run(cmd[0], cmd[1:]...)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	}
+	short, build := MacVersionCmds(app)
+	return joinVersion(get(short), get(build))
 }
 
 // MacCheck says whether the macOS prepare step is needed, and why: the
@@ -239,10 +312,31 @@ func MacCheck(f MacFacts) MacState {
 	case HasHardenedRuntime(f.CopyCodesign):
 		return MacHardened
 	case f.Original:
-		o, c := BundleVersion(f.OriginalPlist), BundleVersion(f.CopyPlist)
+		o, c := version(f.OriginalVersion, f.OriginalPlist), version(f.CopyVersion, f.CopyPlist)
 		if o != "" && c != "" && o != c {
 			return MacCopyOutdated
 		}
 	}
 	return MacReady
+}
+
+// GatherMacFacts reads the MacFacts of the original bundle (MacApp) and
+// home's prepared copy (MacPreparedApp) through exists, readFile and r
+// (each bundle's versions with plutil, the copy's `codesign -d -vvv`), so
+// MacCheck can run on fakes; MacStatusHere passes this Mac's.
+func GatherMacFacts(home string, exists func(string) bool, readFile func(string) ([]byte, error), r Runner) MacFacts {
+	cp := MacPreparedApp(home)
+	f := MacFacts{Original: exists(MacApp), Copy: exists(cp)}
+	if f.Original {
+		f.OriginalVersion = plutilVersion(r, MacApp)
+		f.OriginalPlist, _ = readFile(filepath.Join(MacApp, "Contents", "Info.plist"))
+	}
+	if f.Copy {
+		f.CopyVersion = plutilVersion(r, cp)
+		f.CopyPlist, _ = readFile(filepath.Join(cp, "Contents", "Info.plist"))
+		signCmd, _ := MacVerify(cp)
+		out, _ := r.Run(signCmd[0], signCmd[1:]...)
+		f.CopyCodesign = string(out)
+	}
+	return f
 }

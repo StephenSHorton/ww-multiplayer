@@ -23,7 +23,9 @@ package gui
 
 import (
 	"errors"
+	"io"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 )
 
@@ -48,4 +50,11 @@ type Options struct {
 	// Getenv reads the environment overrides config.WithEnv applies
 	// (WW_COLOR, ...); nil is no overrides.
 	Getenv func(string) string
+	// CoopTables is the setup's patch.Options.CoopTables: package main's
+	// cacheCoopTablesForPatch, the step the `patch` CLI runs, whose line
+	// becomes the "Co-op tables built" check row. nil skips it.
+	CoopTables func(w io.Writer, image string)
+	// DolphinEnv is what the setup's Dolphin detection looks at; nil is
+	// dolphinenv.Host (this machine).
+	DolphinEnv func() dolphinenv.Env
 }

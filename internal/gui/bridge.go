@@ -4,15 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
+	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
+	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 )
 
@@ -56,13 +62,47 @@ type Bridge struct {
 	mu       sync.Mutex // guards cfg, cfgWarns
 	cfg      config.Config
 	cfgWarns []string
+
+	// The setup's seams (setup.go): package main's co-op tables step, and
+	// what a test replaces.
+	coopTables func(io.Writer, string)
+	patchRun   func(ctx context.Context, in, out string, w io.Writer, o patch.Options) (patch.Result, error)
+	inspect    func(string) (patch.DiscState, error)
+	denv       func() dolphinenv.Env
+	home       func() string
+	macStatus  func() (dolphinenv.MacState, dolphinenv.MacFacts, error)
+	prepareMac func(report.Reporter) error
+
+	dlgMu sync.Mutex
+	dlg   fileDialogs // the window's file dialogs; nil in a browser
+
+	jobMu  sync.Mutex // guards job, jobSeq
+	job    *patchJob
+	jobSeq int
+
+	preparing sync.Mutex // held while Prepare Dolphin runs
+
+	// quitting is set once the window was closed during a patch: it stays
+	// open until the cancelled patch ends (beforeClose).
+	quitting atomic.Bool
+
+	emu      sync.Mutex // guards emitters
+	emitters map[int]func(EventView)
+	emitSeq  int
 }
 
 // NewBridge returns the Bridge for o. Call close when the app ends.
 func NewBridge(o Options) *Bridge {
-	b := &Bridge{ctrl: o.Controller, version: o.Version, cfgPath: o.ConfigPath, getenv: o.Getenv, now: time.Now}
+	b := &Bridge{ctrl: o.Controller, version: o.Version, cfgPath: o.ConfigPath, getenv: o.Getenv, now: time.Now,
+		coopTables: o.CoopTables, patchRun: patch.Run, inspect: patch.Inspect, denv: o.DolphinEnv,
+		home:      func() string { h, _ := os.UserHomeDir(); return h },
+		macStatus: macStatusHere, prepareMac: dolphinenv.PrepareMacHere,
+		emitters: map[int]func(EventView){}}
 	if b.getenv == nil {
 		b.getenv = func(string) string { return "" }
+	}
+	if b.denv == nil {
+		b.denv = dolphinenv.Host
 	}
 	b.ctx, b.cancel = context.WithCancel(context.Background())
 	if b.cfgPath == "" {
@@ -241,10 +281,20 @@ func (b *Bridge) save() {
 // after pump returns is missed.
 func (b *Bridge) pump(ctx context.Context, emit func(EventView)) <-chan struct{} {
 	ch, stop := b.ctrl.Subscribe()
+	b.emu.Lock()
+	b.emitSeq++
+	id := b.emitSeq
+	b.emitters[id] = emit
+	b.emu.Unlock()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		defer stop()
+		defer func() {
+			b.emu.Lock()
+			delete(b.emitters, id)
+			b.emu.Unlock()
+		}()
 		for {
 			select {
 			case <-ctx.Done():
@@ -260,12 +310,78 @@ func (b *Bridge) pump(ctx context.Context, emit func(EventView)) <-chan struct{}
 	return done
 }
 
+// emit hands an event of the Bridge's own (a patch's progress) to every
+// pump's emit, as the controller's events go.
+func (b *Bridge) emit(ev EventView) {
+	b.emu.Lock()
+	fns := make([]func(EventView), 0, len(b.emitters))
+	for _, f := range b.emitters {
+		fns = append(fns, f)
+	}
+	b.emu.Unlock()
+	for _, f := range fns {
+		f(ev)
+	}
+}
+
+// setDialogs gives the Bridge the window's file dialogs.
+func (b *Bridge) setDialogs(d fileDialogs) {
+	b.dlgMu.Lock()
+	b.dlg = d
+	b.dlgMu.Unlock()
+}
+
+func (b *Bridge) dialogs() fileDialogs {
+	b.dlgMu.Lock()
+	defer b.dlgMu.Unlock()
+	return b.dlg
+}
+
 // running says whether a session is running (window close asks first).
 func (b *Bridge) running() bool { return b.State().Running }
 
-// close ends the running session (the same teardown as Leave) and the
-// Bridge's context.
+// close ends the running session (the same teardown as Leave), cancels a
+// running patch and waits for it to stop, however long its disc takes to
+// finish writing (see setup_patch.go), and ends the Bridge's context.
 func (b *Bridge) close() {
 	b.ctrl.Leave()
+	b.CancelPatch()
+	b.waitPatch()
 	b.cancel()
+}
+
+// Close questions beforeClose asks.
+const (
+	askStopPatch    = "patch"   // "Stop patching?"
+	askLeaveSession = "session" // "Leave the session?"
+)
+
+// beforeClose decides whether the window may close (false) or stays open
+// (true). It asks every question first (ask returns true for "close
+// anyway") and changes nothing unless the answer is to close, so "Stay"
+// leaves a patch running. Closing during a patch cancels it and keeps the
+// window open, showing "Stopping…", until the patch has ended (a disc
+// being written is finished first); then quit closes the window, and
+// beforeClose, asked again, lets it.
+func (b *Bridge) beforeClose(ask func(question string) bool, quit func()) bool {
+	if b.quitting.Load() {
+		return b.patching() // waiting for the cancelled patch to end
+	}
+	patching := b.patching()
+	if patching && !ask(askStopPatch) {
+		return true
+	}
+	if b.running() && !ask(askLeaveSession) {
+		return true
+	}
+	if !patching {
+		return false
+	}
+	b.quitting.Store(true)
+	b.CancelPatch()
+	go func() {
+		b.waitPatch()
+		quit()
+	}()
+	return true
 }
