@@ -1,9 +1,8 @@
-// Package report exposes a tiny Reporter interface so the multiplayer
-// session goroutines (runBroadcastPoseCtx, runPuppetSyncCtx, the
-// network.Server, etc.) can emit log lines without knowing whether
-// they are running under the CLI (write to stdout) or the TUI (the
-// session controller turns each line into an event for the dashboard
-// log panel).
+// Package report exposes a tiny Reporter interface so long-running work
+// (the multiplayer pipelines, co-op, Dolphin setup and launch, etc.) can
+// emit log lines without knowing whether it is running under the CLI
+// (write to stdout) or a front end (the session controller turns each
+// line into an event for the TUI dashboard or the app window).
 package report
 
 import "fmt"

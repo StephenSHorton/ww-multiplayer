@@ -1,7 +1,9 @@
-// Package actors reads the game's live actors for co-op's combat sync
-// (docs/08-coop-design.md §7.2, M6): a bounded, validated walk of
-// g_fopAcTg_Queue, each actor's fields M6 judges, the K1 classes and their
-// gates, and the re-read every write rests on.
+// Package actors reads the game's live actors: a bounded, validated walk
+// of g_fopAcTg_Queue, each actor's fopAc_ac_c fields, and the re-read
+// every write rests on. The walk itself is generic; its user today is
+// co-op's combat sync (docs/08-coop-design.md §7.2, M6), whose K1 classes
+// and gates live in k1.go and add the class-specific reads (enemyice,
+// mode, weapon) to an Actor.
 //
 // Every actor lives on a heap, so nothing here is a static address but
 // the queue's: each pointer is checked before it is followed, an actor is

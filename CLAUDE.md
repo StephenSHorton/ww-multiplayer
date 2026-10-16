@@ -8,7 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 multiplayer in The Legend of Zelda: The Wind Waker on Dolphin emulator.
 Each player sees the other's actual Link in-game, walking around at the
 remote's real world coords with their real animations, ~50ms latency on
-LAN. Two-Dolphin local play is wired up via `scripts/mplay2.sh`.
+LAN. Two-Dolphin local play is wired up via `./ww-multiplayer.exe mp-local`
+(see "Standard session bootstrap" below).
 
 The mod is shipped as a standalone `ww-multiplayer.exe` patcher (`./ww-multiplayer.exe patch
 <vanilla.iso>` produces the patched ISO from the user's own legitimate
@@ -19,10 +20,14 @@ Wind Waker disc image). Releases are cut on tag push via GitHub Actions.
 ```
 ww-multiplayer/
 ├── main.go                      # Entry point: all CLI subcommands (app_face.go: no args = app window, `tui`, `ui --browser`)
+├── *.go                         # Rest of package main: coop_*.go (co-op CLI + session), mp_local*.go (dolphin2, mp-local),
+│                                #   tunic_sync.go, warp_link.go, posefeed.go, session/lobby engines, auto_recapture.go
 ├── internal/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
-│   ├── dolphin/                 # Dolphin process memory access (Win32)
+│   ├── coop/                    # Co-op engine (docs/08): replica, hub, world, wire, derive, ... plus the generic game layer
+│   │                            #   it is built on (addr, mem, snap, gate, actors, stagedata, savefile, backup, tables, fakegame)
+│   ├── dolphin/                 # Dolphin process memory access (Windows; macOS via task_for_pid, cgo), window + screenshot
 │   │   └── memory.go            # Core read/write, RAM scanner
 │   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); Bridge = the JS API; `ui --browser` server
 │   ├── dolphinenv/              # Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare step (dolphin2, auto-recapture)
@@ -31,17 +36,17 @@ ww-multiplayer/
 │   │   ├── dol.go               # DOL header editor + T2 splice + in-DOL patches
 │   │   ├── iso.go               # ISO patcher with FST relocation
 │   │   └── ciso.go              # CISO decompressor
-│   ├── network/                 # TCP server/client + protocol
-│   │   ├── protocol.go
-│   │   ├── server.go
-│   │   └── client.go
+│   ├── netutil/                 # Address parsing shared by host/join/server
+│   ├── network/                 # TCP server/client, protocol + handshake, lobby, co-op channel, timing knobs (netconfig.go)
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors)
+│   ├── playercolor/             # Tunic color palette + --color / WW_COLOR parsing (docs/09)
 │   ├── report/                  # Reporter interface (Stdout / Discard / Multi)
 │   │   └── report.go, multi.go
 │   ├── session/                 # UI-free session controller the CLI host/join, the TUI and the GUI drive (docs/01-architecture.md)
 │   │   └── session.go, controller.go, event.go, coop.go
-│   └── tui/                     # Charm Bubble Tea UI (resurrected v0.1.5)
-│       ├── app.go, splash.go, connect.go, dashboard.go, styles.go
+│   ├── tui/                     # Charm Bubble Tea UI (resurrected v0.1.5)
+│   │   ├── app.go, splash.go, connect.go, dashboard.go, styles.go
+│   └── tunic/                   # Tunic texture recolor (CMPR encode, docs/09)
 ├── inject/                      # C source for the injected PPC code
 │   ├── src/multiplayer.c        # The mod's C side
 │   ├── include/{game,mailbox}.h
@@ -50,13 +55,17 @@ ww-multiplayer/
 ├── cheats/
 │   └── GZLE01.ini               # Curated Gecko code pack, copied into <USER_DIR>/GameSettings by `dolphin2`
 ├── scripts/
-│   └── extract_blob.py          # Diffs original.dol vs patched.dol → internal/inject/blob.go
+│   ├── extract_blob.py          # Diffs original.dol vs patched.dol → internal/inject/blob.go
+│   ├── gen_event_masks.py       # Generates internal/coop/class/syncmask_gen.go from the decomp
+│   ├── build-mac.sh, setup-mac-dolphin.sh   # macOS release build; one-time Dolphin re-sign
+│   └── dolphin2.sh, mplay2.sh   # Legacy bash harness (Go ports: dolphin2, mp-local)
 ├── .github/workflows/
 │   ├── build.yml                # CI: go vet + cross-build on push/PR
 │   └── release.yml              # CI: build + release on tag push
 └── docs/                        # IMPORTANT - read before debugging
     ├── 01-architecture.md, 02-dolphin-memory.md, 03-code-injection.md
     ├── 04-ww-addresses.md, 05-known-issues.md, 06-history.md
+    ├── 08-coop-design.md, 09-player-colors.md, 10-lobby.md
 ```
 
 ## Commands
@@ -73,8 +82,12 @@ go build -tags desktop,production -o ww-multiplayer.exe .
 ./ww-multiplayer.exe ui --browser [--port N] [--no-open] # Serve the app's UI on 127.0.0.1 to a browser (dev/tests; Ctrl+C stops)
 ./ww-multiplayer.exe patch <iso|ciso> [out.iso]         # Splice mod into user's own vanilla WW ISO
 
-# Multiplayer runtime CLIs (used by scripts/mplay2.sh)
-./ww-multiplayer.exe server                             # Headless TCP server on :25565
+# Play: one process per player
+./ww-multiplayer.exe host [name] [--port N]             # Host a session (server + this player's pipelines)
+./ww-multiplayer.exe join <host-ip[:port]> [name]       # Join a host's session
+
+# Multiplayer runtime CLIs (the pipelines mp-local runs in one process; scripts/mplay2.sh runs them as subprocesses)
+./ww-multiplayer.exe server [--port N]                  # Headless TCP server on :25565
 ./ww-multiplayer.exe broadcast-pose <name> <addr>       # Stream this Dolphin's Link pose+pos to server
 ./ww-multiplayer.exe puppet-sync <name> <addr>          # Receive remotes; render them as Link #2 / actor puppets
 ./ww-multiplayer.exe broadcast-link <name> <addr>       # Position-only broadcast (cheaper; no pose)
@@ -101,16 +114,26 @@ WW_DOLPHIN_INDEX=<n>                        # Pick the Nth GZLE01 Dolphin proces
 WW_DOLPHIN_PID=<pid>                        # Pick a specific Dolphin PID
 WW_SELF_NAME=<name>                         # puppet-sync filter for co-located broadcaster twins
 WW_POSE_RAW=1                               # Skip pose localization (debug)
-WW_LINK2_OFFSET_{X,Y,Z}                     # Loopback render offset
+WW_LINK2_OFFSET_{X,Y,Z}                     # Loopback render offset (default 0)
+WW_COLOR=<color>                            # Default tunic color when --color isn't given (docs/09)
+WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/join) leaves the tunic slots to the tunic-slot dev command
+WW_MINIMAP_SCALE=<f>                        # TUI minimap world units per cell (default 10)
+WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT_SECS /
+  WW_MIN_SESSION_SECS / WW_WRITE_TIMEOUT_SECS / WW_FREEZE_SECS / WW_DESPAWN_SECS
+                                            # Network timing knobs; defaults 5/15/8/5/1/10/2/5 s (internal/network/netconfig.go)
 
 # Local two-Dolphin harness (v0.1.6+: Go-native, replaces the bash scripts)
 ./ww-multiplayer.exe dolphin2 [--reset]     # Bootstrap & launch a 2nd Dolphin instance
 ./ww-multiplayer.exe mp-local [A] [B]       # Server + 2x broadcast-pose + 2x puppet-sync (one process)
-# Env knobs honored by `dolphin2`:
-#   DOLPHIN_EXE   path to Dolphin.exe (default: %USERPROFILE%\Desktop\Dolphin-x64\Dolphin.exe)
-#   ISO_PATH      path to patched ISO  (default: %USERPROFILE%\Desktop\Dolphin-x64\Roms\WW_Multiplayer_Patched.iso)
-#   USER_DIR_1    primary Dolphin user dir (default: %APPDATA%\Dolphin Emulator)
-#   USER_DIR_2    second Dolphin user dir  (default: %APPDATA%\Dolphin Emulator 2)
+# Env knobs honored by `dolphin2` and `auto-recapture` (defaults: internal/dolphinenv Defaults;
+# DOLPHIN_EXE, ISO_PATH and USER_DIR_1 also override the app's saved settings, as WW_COLOR does):
+#   DOLPHIN_EXE   path to Dolphin (Windows default: %USERPROFILE%\Desktop\Dolphin-x64\Dolphin.exe;
+#                 macOS: ~/Applications/Dolphin.app/Contents/MacOS/Dolphin, else /Applications/...; Linux: dolphin-emu)
+#   ISO_PATH      path to patched ISO  (Windows default: %USERPROFILE%\Desktop\Dolphin-x64\Roms\WW_Multiplayer_Patched.iso;
+#                 elsewhere: ~/Roms/WW_Multiplayer_Patched.iso)
+#   USER_DIR_1    primary Dolphin user dir (Windows default: %APPDATA%\Dolphin Emulator; macOS: ~/Library/Application Support/Dolphin)
+#   USER_DIR_2    second Dolphin user dir  (Windows default: %APPDATA%\Dolphin Emulator 2; macOS: .../Dolphin 2)
+#                 (co-op's card backups read USER_DIR_1/2 too)
 #   SAVE_STATE    .sav loaded into both Dolphins (skips menus). If unset, both boot to title screen.
 #   SAVE_STATE_2  .sav loaded into Dolphin 2 only (requires SAVE_STATE). Produces distinct btp phases for face-sync visual proof (#5).
 

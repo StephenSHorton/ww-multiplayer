@@ -276,7 +276,7 @@ So a write made right after the heartbeat lands in the rest of the main loop or 
 
 Ring entries carry `seq` plus an XOR check byte.
 
-**Size.** A clang-18 `powerpc-unknown-eabi` sketch of items 1, 3 and 5 with GRANT and ADD_S16 measured **0x3F0 bytes of .text at -Os and 0x50C at -O2** (`scratchpad/coop/hostauth-sketch/coop_world.c`). With the isActor shim and the full op set the estimate is about 0x700 (inferred). devkitPPC gcc will differ. This does not fit today's 0x218-byte gap, so §4.5 applies.
+**Size.** A clang-18 `powerpc-unknown-eabi` sketch of items 1, 3 and 5 with GRANT and ADD_S16 measured **0x3F0 bytes of .text at -Os and 0x50C at -O2** (`scratchpad/coop/hostauth-sketch/coop_world.c`). With the isActor shim and the full op set the estimate is about 0x700 (inferred). devkitPPC gcc will differ. This does not fit today's 0xF8-byte gap, so §4.5 applies.
 
 **Not in v1.0.** Entry hooks on the `dSv_*` setters, which need displaced-instruction trampolines. If they are ever needed, fill the displaced first instruction at patch time from the user's vanilla DOL, using marker words, PC-relative and r12/ctr checks, and a CRC. No game bytes would then ship in `blob.go`.
 

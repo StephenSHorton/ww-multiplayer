@@ -77,10 +77,12 @@ tick the ones you want.
 > Caveat: the legacy code-injection workflow used Gecko C2 hooks *to
 > install the mod*. The codes in this pack are gameplay-only and don't
 > touch our in-DOL patch sites at `0x80006338`, `0x80023204`,
-> `0x80108210`, or `0x80410000+`, so they coexist with the patched ISO.
+> `0x80108210`, `0x802C39A0`, the OSInit immediates at
+> `0x80301818`-`0x80301838`, or `0x80410000+`, so they coexist with the
+> patched ISO.
 
 ## See also
 - `CLAUDE.md` — context for AI sessions
 - `docs/01-architecture.md` through `docs/06-history.md` — design + session-by-session history
 - [GitHub issues](https://github.com/StephenSHorton/ww-multiplayer/issues) — open work, grouped by epic
-- `docs/05-known-issues.md` — current blocker (ClearArena wipes injected code)
+- `docs/05-known-issues.md` — known pitfalls and workarounds (memory layout, Freighter clobbers, render pipeline)

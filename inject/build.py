@@ -35,27 +35,30 @@ def main():
     proj.add_c_file("src/multiplayer.c")
 
     # One-shot init hook on main01 (0x80006338 — proven working).
-    # main01_init publishes &multiplayer_update at 0x80410700 for frame_shim.
+    # main01_init publishes &multiplayer_update at CALLBACK_PTR_ADDR
+    # (mailbox+0x08 = 0x80412F08, multiplayer.c) for frame_shim.
     proj.hook_branchlink("main01_init", 0x80006338)
 
     # Per-frame hook. Targets the LAST bl in fapGm_Execute (0x80023204 ->
     # 0x802449AC). Chosen because: past the prologue (stack frame valid),
     # replaces a bl (caller already assumes volatile-reg clobber), return
     # value is discarded by the caller, and the PRIMARY per-frame work at
-    # 0x800231FC still runs ahead of us. Cost: we lose whatever 0x802449AC
-    # was doing — if that breaks rendering, move the hook earlier or find
-    # a caller of fapGm_Execute to hook instead.
+    # 0x800231FC still runs ahead of us. frame_shim runs multiplayer_update
+    # and then tail-calls 0x802449AC with the caller's LR restored, so the
+    # replaced call still runs exactly as before (see frame_shim in
+    # multiplayer.c).
     proj.hook_branchlink("frame_shim", 0x80023204)
 
     # Draw-phase hook. `daPy_Draw` at 0x80108204 is Link #1's draw thunk;
     # at 0x80108210 it bls the real draw impl `daPy_lk_c::draw` at
     # 0x80107308. Freighter replaces that bl with a bl to our
     # `daPy_draw_hook`, which calls the original implementation and then
-    # runs our per-frame mini-Link work. Intent: get our modelEntryDL
-    # submissions into the legitimate actor-draw iteration. In practice
-    # this still breaks sky textures (same as the execute-phase attempt),
-    # so the hook is parked for the next session to investigate. See
-    # docs/05-known-issues.md → "Mini-Link render pipeline".
+    # runs our per-frame mini-Link work, so our modelEntryDL submissions
+    # land in the legitimate actor-draw iteration. This is the live draw
+    # path for the mini-Link puppets (shadow_mode 5 pose feed) and the
+    # face/tunic swaps. The early sky-texture breakage came from sharing
+    # Link's J3DModelData, not from this hook; see docs/05-known-issues.md
+    # → "Mini-Link render pipeline".
     proj.hook_branchlink("daPy_draw_hook", 0x80108210)
 
     # Input-injection hook. JUTGamePad::read at 0x802C3980 calls
@@ -120,7 +123,7 @@ def main():
         sys.exit(1)
 
     # Post-build: patch OSInit so __OSArenaLo starts at 0x80414000 (past our
-    # T2 at 0x80410000 + the eye-fix mailbox at 0x80412F00) instead of the
+    # T2 at 0x80410000 + the mailbox at 0x80412F00) instead of the
     # linker's 0x8040EFC0. Arena loses ~24 KB from the original layout.
     #
     # History: was 0x80411000 while mod fit in 0xF00 bytes; echo-ring code
