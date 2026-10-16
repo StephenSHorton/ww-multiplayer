@@ -160,7 +160,22 @@ func FuzzDeriver(f *testing.F) {
 				i++
 				arg = ops[i]
 			}
-			switch op % 12 {
+			switch op % 14 {
+			case 12: // co-op's live write of a loaded memBit byte, a key door's switch among them
+				if t := int(g.s.Table); addr.ValidTable(t) {
+					rel := int(arg) % addr.MemBitSize
+					if arg&0x80 != 0 {
+						_, b, _ := addr.SwitchBit(0x10 + int(arg>>5&3))
+						rel = b.Off
+					}
+					live := g.save(addr.InfoOffMemory + rel)
+					set := (byte(1)<<(op>>5) | byte(arg)&0x0F) &^ *live
+					*live |= set
+					*g.save(addr.InfoOffSavedata + addr.OffMemBit(t) + rel) |= set
+					d.WroteLive(addr.OffMemBit(t)+rel, set)
+				}
+			case 13: // a room change, or a bounce back
+				g.s.StayNo = int8(arg % 4)
 			case 0, 1, 2: // a bit set somewhere the derive reads
 				*g.save(fuzzBytes[int(arg)*7%len(fuzzBytes)]) |= 1 << (op >> 5)
 			case 3: // a key count, life count or magic count from the game
@@ -211,6 +226,12 @@ func FuzzDeriver(f *testing.F) {
 			for _, w := range d.Tick(in).Writes {
 				check(t, in, w, enabled)
 				g.apply(w)
+			}
+			// A door held is an open door, and each is named.
+			for _, k := range d.Status().Keys {
+				if k.Facts.Held > k.Facts.Open || len(k.Held) != k.Facts.Held {
+					t.Fatalf("table %d: %d of %d open doors held, %v", k.Table, k.Facts.Held, k.Facts.Open, k.Held)
+				}
 			}
 		}
 	})

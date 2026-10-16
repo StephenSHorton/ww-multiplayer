@@ -49,6 +49,10 @@ type coBeat struct {
 	// ages follows how long each room's actors have run, on every frame,
 	// for the audit's room hold.
 	ages fakegame.RoomAges
+	// doors are the key doors of the game's stages, run on every frame
+	// after the rooms' ages (TestCoopSessionM4). Set before the first
+	// frame.
+	doors []*fakegame.KeyDoor
 }
 
 // coPlace is where a fake game is, read from its memory as a tick begins:
@@ -211,8 +215,12 @@ func (b *coBeat) Write(a uint32, d []byte) error {
 // exists (multiplayer.c:341-345, 365-421): a warp_seq that differs from
 // warp_ack puts Link at warp_x/y/z and acknowledges it.
 func (b *coBeat) frame() {
-	if err := b.g.FrameWith(&b.ages); err != nil {
-		panic(err) // RoomAges never fails
+	actors := []fakegame.Actor{&b.ages}
+	for _, d := range b.doors {
+		actors = append(actors, d)
+	}
+	if err := b.g.FrameWith(actors...); err != nil {
+		panic(err) // RoomAges never fails, nor does a KeyDoor on a memory switch
 	}
 	link, err := mem.ReadU32(b.FakeMem, addr.PlayerPtr)
 	if err != nil || link == 0 {
