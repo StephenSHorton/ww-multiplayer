@@ -1,0 +1,2 @@
+exit 1
+ERROR: SAVE_STATE_2=<TMP>/start.sav does not exist

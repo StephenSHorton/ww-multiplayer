@@ -1,0 +1,3 @@
+exit 1
+ERROR: Patched ISO not found at <TMP>/patched.iso
+ERROR: Run `./ww-multiplayer.exe patch <vanilla.iso>` or set ISO_PATH.

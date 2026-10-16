@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
+	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 )
 
@@ -43,10 +44,8 @@ func runAutoRecapture(outPath string) {
 		report.Logf(rep, report.Warn, "kill stragglers: %v", err)
 	}
 
-	defExe, defIso, defUd1, _ := dolphin2Defaults()
-	dolphinExe := envOrDefault("DOLPHIN_EXE", defExe)
-	isoPath := envOrDefault("ISO_PATH", defIso)
-	userDir := envOrDefault("USER_DIR_1", defUd1)
+	paths := dolphinenv.FromEnv()
+	dolphinExe, isoPath, userDir := paths.Exe, paths.ISO, paths.UserDir1
 
 	if _, err := os.Stat(dolphinExe); err != nil {
 		report.Logf(rep, report.Err, "Dolphin not found at %s (set DOLPHIN_EXE to override)", dolphinExe)
@@ -67,7 +66,7 @@ func runAutoRecapture(outPath string) {
 	report.Logf(rep, report.Info, "  ISO:     %s", isoPath)
 	report.Logf(rep, report.Info, "  UserDir: %s", userDir)
 
-	pid, err := launchDolphinDetached(dolphinExe, userDir, isoPath, "")
+	pid, err := dolphinenv.Launch(dolphinExe, userDir, isoPath, "")
 	if err != nil {
 		report.Logf(rep, report.Err, "launch Dolphin: %v", err)
 		os.Exit(1)
@@ -163,7 +162,7 @@ func runAutoRecapture(outPath string) {
 		report.Logf(rep, report.Err, "mkdir %s: %v", filepath.Dir(outPath), err)
 		os.Exit(1)
 	}
-	if err := copyFile(saveFile, outPath); err != nil {
+	if err := dolphinenv.CopyFile(saveFile, outPath); err != nil {
 		report.Logf(rep, report.Err, "copy save: %v", err)
 		os.Exit(1)
 	}
@@ -355,10 +354,8 @@ func runAutoRecapturePair(out1, out2 string, delay time.Duration) {
 		report.Logf(rep, report.Warn, "kill stragglers: %v", err)
 	}
 
-	defExe, defIso, defUd1, _ := dolphin2Defaults()
-	dolphinExe := envOrDefault("DOLPHIN_EXE", defExe)
-	isoPath := envOrDefault("ISO_PATH", defIso)
-	userDir := envOrDefault("USER_DIR_1", defUd1)
+	paths := dolphinenv.FromEnv()
+	dolphinExe, isoPath, userDir := paths.Exe, paths.ISO, paths.UserDir1
 
 	if _, err := os.Stat(dolphinExe); err != nil {
 		report.Logf(rep, report.Err, "Dolphin not found at %s (set DOLPHIN_EXE to override)", dolphinExe)
@@ -378,7 +375,7 @@ func runAutoRecapturePair(out1, out2 string, delay time.Duration) {
 	report.Logf(rep, report.Info, "  out1: %s", out1)
 	report.Logf(rep, report.Info, "  out2: %s", out2)
 
-	pid, err := launchDolphinDetached(dolphinExe, userDir, isoPath, "")
+	pid, err := dolphinenv.Launch(dolphinExe, userDir, isoPath, "")
 	if err != nil {
 		report.Logf(rep, report.Err, "launch Dolphin: %v", err)
 		os.Exit(1)
@@ -448,11 +445,10 @@ func captureOneShiftF1(rep report.Reporter, hwnd uintptr, pid int, saveFile, out
 		report.Logf(rep, report.Err, "mkdir %s: %v", filepath.Dir(outPath), err)
 		return err
 	}
-	if err := copyFile(saveFile, outPath); err != nil {
+	if err := dolphinenv.CopyFile(saveFile, outPath); err != nil {
 		report.Logf(rep, report.Err, "copy save: %v", err)
 		return err
 	}
 	report.Logf(rep, report.OK, "%s save copied to %s", label, outPath)
 	return nil
 }
-

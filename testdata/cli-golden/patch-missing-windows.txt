@@ -1,0 +1,6 @@
+exit 1
+Wind Waker Multiplayer patcher
+  input : <TMP>/in/nope.ciso
+  output: <TMP>/in/nope-multiplayer.iso
+
+ERROR: read <TMP>/in/nope.ciso: open <TMP>/in/nope.ciso: The system cannot find the file specified.

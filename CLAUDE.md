@@ -20,11 +20,14 @@ Wind Waker disc image). Releases are cut on tag push via GitHub Actions.
 ww-multiplayer/
 ├── main.go                      # Entry point: TUI + all CLI subcommands
 ├── internal/
+│   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
+│   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
 │   ├── dolphin/                 # Dolphin process memory access (Win32)
 │   │   ├── memory.go            # Core read/write, RAM scanner
 │   │   ├── inject.go            # LEGACY runtime injection (vestigial; superseded by inject/ patched-ISO approach)
 │   │   ├── inject_code.go       # LEGACY PPC blob (vestigial)
 │   │   └── helpers.go
+│   ├── dolphinenv/              # Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare step (dolphin2, auto-recapture)
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
 │   │   ├── blob.go              # AUTO-GENERATED via scripts/extract_blob.py
 │   │   ├── dol.go               # DOL header editor + T2 splice + in-DOL patches
@@ -34,6 +37,7 @@ ww-multiplayer/
 │   │   ├── protocol.go
 │   │   ├── server.go
 │   │   └── client.go
+│   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors)
 │   ├── report/                  # Reporter interface (Stdout / Discard / Multi)
 │   │   └── report.go, multi.go
 │   ├── session/                 # UI-free session controller the CLI host/join and the TUI drive (docs/01-architecture.md)

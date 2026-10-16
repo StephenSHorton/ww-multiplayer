@@ -1,0 +1,3 @@
+exit 1
+Usage: <exe> patch <input.iso|input.ciso> [output.iso]
+  Default output: <input>-multiplayer.iso (next to the input)

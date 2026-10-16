@@ -1,0 +1,3 @@
+exit 1
+Removing <TMP>/ud2 ...
+ERROR: Dolphin not found at <TMP>/missing.exe (set DOLPHIN_EXE to override)

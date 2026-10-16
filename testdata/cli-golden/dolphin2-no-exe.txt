@@ -1,0 +1,2 @@
+exit 1
+ERROR: Dolphin not found at <TMP>/Dolphin-x64 (set DOLPHIN_EXE to override)

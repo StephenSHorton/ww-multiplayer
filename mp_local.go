@@ -4,17 +4,12 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"io"
-	"io/fs"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
+	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 )
@@ -26,39 +21,12 @@ import (
 //go:embed cheats/GZLE01.ini
 var bundledCheatsIni []byte
 
-// dolphin2Defaults returns OS-appropriate fallback paths for the
+// dolphin2Defaults returns the OS-appropriate fallback paths for the
 // dolphin2 bootstrap when DOLPHIN_EXE / ISO_PATH / USER_DIR_{1,2} are
-// unset. Picked so that a fresh checkout on either platform "just works"
-// once the user installs Dolphin and patches an ISO into the standard
-// location for their OS.
+// unset (dolphinenv.DefaultPaths).
 func dolphin2Defaults() (exe, iso, userDir1, userDir2 string) {
-	cfg, _ := os.UserConfigDir()
-	home, _ := os.UserHomeDir()
-	switch runtime.GOOS {
-	case "darwin":
-		// ~/Applications/Dolphin.app is the user-writable copy created
-		// by scripts/setup-mac-dolphin.sh — re-signed without the
-		// hardened runtime so AMFI permits task_for_pid against it.
-		// Falls back to /Applications if the user copy isn't there.
-		exe = filepath.Join(home, "Applications", "Dolphin.app", "Contents", "MacOS", "Dolphin")
-		if _, err := os.Stat(exe); err != nil {
-			exe = "/Applications/Dolphin.app/Contents/MacOS/Dolphin"
-		}
-		iso = filepath.Join(home, "Roms", "WW_Multiplayer_Patched.iso")
-		userDir1 = filepath.Join(cfg, "Dolphin")
-		userDir2 = filepath.Join(cfg, "Dolphin 2")
-	case "windows":
-		exe = filepath.Join(home, "Desktop", "Dolphin-x64", "Dolphin.exe")
-		iso = filepath.Join(home, "Desktop", "Dolphin-x64", "Roms", "WW_Multiplayer_Patched.iso")
-		userDir1 = filepath.Join(cfg, "Dolphin Emulator")
-		userDir2 = filepath.Join(cfg, "Dolphin Emulator 2")
-	default:
-		exe = "dolphin-emu"
-		iso = filepath.Join(home, "Roms", "WW_Multiplayer_Patched.iso")
-		userDir1 = filepath.Join(cfg, "dolphin-emu")
-		userDir2 = filepath.Join(cfg, "dolphin-emu-2")
-	}
-	return
+	p := dolphinenv.DefaultPaths()
+	return p.Exe, p.ISO, p.UserDir1, p.UserDir2
 }
 
 // runDolphin2 is the Go port of scripts/dolphin2.sh — bootstraps the
@@ -72,11 +40,8 @@ func dolphin2Defaults() (exe, iso, userDir1, userDir2 string) {
 func runDolphin2(reset bool) {
 	rep := report.Stdout{}
 
-	defExe, defIso, defUd1, defUd2 := dolphin2Defaults()
-	dolphinExe := envOrDefault("DOLPHIN_EXE", defExe)
-	isoPath := envOrDefault("ISO_PATH", defIso)
-	userDir1 := envOrDefault("USER_DIR_1", defUd1)
-	userDir2 := envOrDefault("USER_DIR_2", defUd2)
+	paths := dolphinenv.FromEnv()
+	dolphinExe, isoPath, userDir1, userDir2 := paths.Exe, paths.ISO, paths.UserDir1, paths.UserDir2
 	// Optional save-state autoload: when set, both Dolphins boot directly
 	// into the given .sav file (Dolphin's --save_state CLI flag), skipping
 	// the title screen + save-select menus entirely. The user records a
@@ -133,12 +98,8 @@ func runDolphin2(reset bool) {
 
 	if _, err := os.Stat(userDir2); err != nil {
 		report.Logf(rep, report.Info, "Bootstrapping %s from %s (skipping Cache/) ...", userDir2, userDir1)
-		// Skip Cache/ — Dolphin 1 holds Windows file locks on
-		// Cache/Shaders/*.cache and GZLE01.uidcache while it's
-		// running, which would fail the copy. Cache regenerates on
-		// first boot of Dolphin 2 (~10–30s shader recompile) so we
-		// pay nothing after that.
-		if err := copyDirSkip(userDir1, userDir2, []string{"Cache"}); err != nil {
+		// Skips Cache/, which a running Dolphin 1 holds locked.
+		if err := dolphinenv.BootstrapUserDir(userDir1, userDir2); err != nil {
 			report.Logf(rep, report.Err, "bootstrap: %v", err)
 			os.Exit(1)
 		}
@@ -179,7 +140,7 @@ func runDolphin2(reset bool) {
 	}
 
 	for _, p := range plan {
-		pid, err := launchDolphinDetached(dolphinExe, p.userDir, isoPath, p.saveState)
+		pid, err := dolphinenv.Launch(dolphinExe, p.userDir, isoPath, p.saveState)
 		if err != nil {
 			report.Logf(rep, report.Err, "launch %s: %v", p.label, err)
 			os.Exit(1)
@@ -198,36 +159,10 @@ func runDolphin2(reset bool) {
 }
 
 // ensureCheatsIni drops the bundled cheats/GZLE01.ini into
-// <userDir>/GameSettings/GZLE01.ini if no GZLE01.ini exists there yet.
-// If one already exists, we leave it alone — the user (or a previously
-// installed cheat pack) owns it, and silently merging Gecko sections
-// would surprise them. The user can manually merge from the repo's
-// cheats/GZLE01.ini if they want.
-//
-// Best-effort: any failure is logged as a warning but does not abort
-// dolphin2 — cheats are a convenience, not a requirement.
+// <userDir>/GameSettings/GZLE01.ini unless one is there
+// (dolphinenv.EnsureCheatsIni). Best-effort: a failure is a warning.
 func ensureCheatsIni(rep report.Reporter, userDir string) {
-	if len(bundledCheatsIni) == 0 || userDir == "" {
-		return
-	}
-	dir := filepath.Join(userDir, "GameSettings")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		report.Logf(rep, report.Warn, "cheats: mkdir %s: %v", dir, err)
-		return
-	}
-	target := filepath.Join(dir, "GZLE01.ini")
-	if _, err := os.Stat(target); err == nil {
-		report.Logf(rep, report.Info, "cheats: %s already exists, leaving it untouched (merge from cheats/GZLE01.ini if you want the bundled codes)", target)
-		return
-	} else if !os.IsNotExist(err) {
-		report.Logf(rep, report.Warn, "cheats: stat %s: %v", target, err)
-		return
-	}
-	if err := os.WriteFile(target, bundledCheatsIni, 0o644); err != nil {
-		report.Logf(rep, report.Warn, "cheats: write %s: %v", target, err)
-		return
-	}
-	report.Logf(rep, report.OK, "cheats: installed bundled GZLE01.ini at %s (enable individual codes via Dolphin → game properties → Gecko Codes)", target)
+	dolphinenv.EnsureCheatsIni(rep, userDir, bundledCheatsIni)
 }
 
 // runMpLocal is the Go port of scripts/mplay2.sh — spins up the relay
@@ -486,144 +421,4 @@ type prefixReporter struct {
 
 func (p prefixReporter) Log(level report.Level, msg string) {
 	p.inner.Log(level, p.prefix+" "+msg)
-}
-
-func envOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-// copyDirSkip recursively copies src into dst, skipping any top-level
-// child whose name is in skipNames. Used by dolphin2 to bootstrap
-// USER_DIR_2 from USER_DIR_1 without copying the locked Cache/.
-func copyDirSkip(src, dst string, skipNames []string) error {
-	skip := map[string]bool{}
-	for _, n := range skipNames {
-		skip[n] = true
-	}
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return os.MkdirAll(dst, 0o755)
-		}
-		// First path component — used to gate the skip list.
-		first := rel
-		if i := strings.IndexAny(rel, `\/`); i >= 0 {
-			first = rel[:i]
-		}
-		if skip[first] {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		target := filepath.Join(dst, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		return copyFile(path, target)
-	})
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	if _, err := io.Copy(out, in); err != nil {
-		return fmt.Errorf("copy %s -> %s: %w", src, dst, err)
-	}
-	return nil
-}
-
-// launchDolphinDetached starts Dolphin.exe with the given user dir and
-// auto-boot ISO as a backgrounded process whose lifetime is independent
-// of ours. ww-multiplayer.exe returns immediately; Dolphin keeps running
-// after we exit. stdout/stderr go to the null device so Dolphin's spam
-// doesn't clutter our terminal.
-//
-// When saveState is non-empty, --save_state=<path> is appended so the
-// game boots directly into the given save state — bypassing the title
-// screen + save-select menus.
-func launchDolphinDetached(exe, userDir, iso, saveState string) (int, error) {
-	args := []string{"-u", userDir, "-e", iso}
-	if saveState != "" {
-		args = append(args, "--save_state="+saveState)
-	}
-	if runtime.GOOS == "darwin" {
-		return launchDolphinDetachedDarwin(exe, args)
-	}
-	cmd := exec.Command(exe, args...)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	cmd.Stdin = nil
-	if err := cmd.Start(); err != nil {
-		return 0, err
-	}
-	pid := cmd.Process.Pid
-	// Release disowns the child so we don't block on Wait() and the
-	// process survives our exit. Without this Go would keep an OS
-	// handle open until either Wait() or process termination.
-	if err := cmd.Process.Release(); err != nil {
-		return pid, fmt.Errorf("release: %w", err)
-	}
-	return pid, nil
-}
-
-// launchDolphinDetachedDarwin launches Dolphin via `open -n -a` instead
-// of a direct exec of Contents/MacOS/Dolphin. Direct exec from a Go
-// child silently ends up loading the canonical /Applications/Dolphin
-// binary (still hardened-runtime, AMFI denies task_for_pid against it)
-// even when we point at the user-copy path under ~/Applications. Going
-// through `open` drives LaunchServices, which honours the distinct
-// CFBundleIdentifier set by setup-mac-dolphin.sh and actually launches
-// the ad-hoc-resigned binary we want to attach to.
-//
-// `open` exits immediately after spawning Dolphin and gives us no PID,
-// so we snapshot Dolphin PIDs before the call and poll until a new one
-// shows up. mp_local launches the two Dolphins sequentially, so the
-// snapshot/poll pattern is race-free.
-func launchDolphinDetachedDarwin(exe string, args []string) (int, error) {
-	// exe = "<bundle>/Contents/MacOS/Dolphin"; trim back to the .app.
-	appPath := strings.TrimSuffix(exe, "/Contents/MacOS/Dolphin")
-	if appPath == exe {
-		return 0, fmt.Errorf("DOLPHIN_EXE %q is not an app-bundle binary; expected path ending in .app/Contents/MacOS/Dolphin", exe)
-	}
-
-	before, _ := dolphin.ListPIDs()
-	beforeSet := make(map[uint32]bool, len(before))
-	for _, p := range before {
-		beforeSet[p] = true
-	}
-
-	openArgs := append([]string{"-n", "-a", appPath, "--args"}, args...)
-	if err := exec.Command("/usr/bin/open", openArgs...).Run(); err != nil {
-		return 0, fmt.Errorf("open: %w", err)
-	}
-
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		cur, _ := dolphin.ListPIDs()
-		for _, p := range cur {
-			if !beforeSet[p] {
-				return int(p), nil
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return 0, fmt.Errorf("launched Dolphin via `open` but no new PID appeared within 10s")
 }
