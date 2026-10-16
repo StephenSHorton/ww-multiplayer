@@ -79,11 +79,11 @@ typedef BOOL (*fopAcM_SearchByID_t)(fpc_ProcID id, fopAc_ac_c** out);
 // daPy_lk_c offsets (zeldaret/tww include/d/actor/d_a_player_main.h):
 //   +0x0328 = J3DModelData* mpCLModelData
 //   +0x032C = J3DModel*     mpCLModel
-// Used by the save-reload defensive re-fetch in daPy_draw_hook /
-// multiplayer_update: the game tears down + rebuilds Link's J3DModel
-// (and its J3DModelData) when reloading a save, so our cached
-// mini_link_data must be compared against the live mpCLModelData each
-// frame. Mismatch ⇒ drop our state and re-init.
+// Read each frame by multiplayer_update / daPy_draw_hook. Every stage
+// load builds a new Link actor (and J3DModel), but mpCLModelData is
+// Link.arc's resident J3DModelData — the same pointer every time once
+// set. It reads 0 while the new actor waits for playerInit (phase_2),
+// which means "Link not ready": skip mini-Link work, don't re-create.
 #define DAPY_LK_C_MPCLMODELDATA_OFFSET 0x0328
 #define DAPY_LK_C_MPCLMODEL_OFFSET     0x032C
 

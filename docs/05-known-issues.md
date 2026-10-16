@@ -527,6 +527,62 @@ patch_iso.py splice).
 - Draw-phase hooking recipe: `hook_branchlink` at `0x80108210` (the `bl` inside `daPy_Draw`). Our C function must call `daPy_lk_c::draw @ 0x80107308` via function pointer to preserve Link's rendering, then do our own work, then return Link's original result (`BOOL`/`int`) so `daPy_Draw`'s caller sees the right value. This is the generic shape for "run code inside the actor-draw iterator" and should work for any actor's draw we want to piggyback on.
 - Mini-Link J3DModel lives in ArchiveHeap (switched via `mDoExt_getArchiveHeap @ 0x80011AB4` + `JKRHeap::becomeCurrentHeap @ 0x802B03F8`). Neither ZeldaHeap (`mDoExt_getZeldaHeap @ 0x800118C0`) nor GameHeap (`mDoExt_getGameHeap @ 0x800117E4`) are better — heap starvation isn't the failure mode.
 
+## Mini-Link J3DModels leaked on every stage load — FIXED (2026-10-16, F18)
+
+### The symptom
+
+After about 20 stage loads the game halted on `JUT_ASSERT(buffer)` in
+`JKRAramArchive.cpp:688` while loading a REL. On the owner's run the ArchiveHeap
+(`0x80AD2590-0x81523900`) went from 807 KiB free in 223 blocks to 57 KiB in 1637
+blocks. Counting J3DModels in the ArchiveHeap (vtable `0x8039EA50`) whose `+4`
+(`mModelData`) equals Link's `mpCLModelData` gave 12, then 14, then 16 across stage
+loads. It should stay 2 (`MAX_REMOTE_LINKS`).
+
+### The cause
+
+`multiplayer_update` creates the mini-Link models with `mDoExt_J3DModel__create` with
+the ArchiveHeap as the current heap. It treated `mpCLModelData == 0` (`daPy_lk_c +0x328`)
+as "Link was rebuilt" and called `mini_link_reset_state()`, which nulled the model
+pointers without freeing them. The `mini_link_state == 0` block then built two new
+models in the same frame.
+
+On every stage load the new Link actor is published in `phase_1`
+(tww `d_a_player_main.cpp:12361`). Its memory is zeroed (`f_pc_base.cpp:98`), and
+`playerInit` only sets `mpCLModelData` in `phase_2`, once the camera exists
+(`:12374-12386`). So `+0x328` reads 0 for several frames, and every one of those frames
+leaked two models. `getRes` still succeeded, because Link.arc stays resident
+(`d_s_logo.cpp:876`). The draw hook also re-allocated the 2016-byte `pose_publish`
+buffer from GameHeap after each reset.
+
+The comments said the ArchiveHeap is "reset wholesale" on stage unload, so dropping
+the pointers was safe. That is wrong: nothing in the decomp calls `freeAll` on the
+Archive or Game heap. The 2026-04-21 note that the game tears down Link's
+J3DModelData on stage unload is wrong too. `initModel` takes it from Link.arc
+(`d_a_player_main.cpp:12059`), so it is the same pointer for every Link actor.
+
+### The fix (`inject/src/multiplayer.c`)
+
+- `mpCLModelData == 0` means Link is not ready yet. `multiplayer_update` skips mini-Link
+  work that frame, and the draw hook skips its submission. Neither resets anything.
+- A new Link actor (`PLAYER_PTR_ARRAY[0]` changed) or a not-ready frame runs
+  `mini_link_stage_reset()`. It unlatches the mode-2 `shadow_link` snapshot (a copy of
+  the old actor, whose pointers point into its freed heap) and empties the mode-4 echo
+  ring history. Allocations, Go-owned `pose_seqs` / `face_seqs` and the tev_block cache
+  are kept.
+- The models are rebuilt only when `mpCLModelData` is non-NULL, differs from ours, and
+  equals what `getRes("Link", LINK_BDL_CL)` returns now, which means Link.arc really
+  was re-mounted. That never happens while Link.arc stays resident. Any other mismatch,
+  such as a stale actor read mid-teardown, is treated as "not ready". The old models are
+  not freed: `J3DModel::~J3DModel` is empty (`J3DModel.cpp:26`), and the dozen-plus
+  sub-allocations from `entryModelData` and the packet setup are only ever released
+  when the game destroys a whole heap. The leak is bounded to one set per real
+  re-mount.
+- `pose_publish`, `pose_bufs`, `echo_ring` and `shadow_link` are allocated once per
+  session and never dropped.
+
+T2 shrank from 0x2C88 to 0x2BE8 bytes (devkitPPC 16.2). It ends at `0x80412BE8`, which
+is 0x318 bytes below the mailbox.
+
 ## Dolphin caches INI files at startup
 
 Edits to `GZLE01.ini` in `User/Config/GameSettings/` are only read once at Dolphin startup. Closing and reopening the GAME does not reload the INI — the USER has to fully quit and restart Dolphin. Wasted multiple sessions on this.

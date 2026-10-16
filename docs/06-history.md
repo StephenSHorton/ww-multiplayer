@@ -315,6 +315,9 @@ This doc is the session-by-session log of how the multiplayer pipeline was built
   Mismatch ⇒ `mini_link_reset_state()` (NULLs all per-instance state +
   mailbox bookkeeping; never `JKRHeap_free`s — ArchiveHeap is reset
   wholesale on stage unload, so freeing would scramble the freelists).
+  *Corrected 2026-10-16 (F18): the J3DModelData is not torn down and
+  the ArchiveHeap is not reset, so this reset leaked two models per
+  not-ready frame of every stage load; see the F18 entry below.*
   Existing `mini_link_state == 0` init path picks up next frame and
   rebuilds against the new mpCLModelData. Belt-and-suspenders: both
   phases check, so stage teardowns landing between execute and draw
@@ -447,6 +450,20 @@ This doc is the session-by-session log of how the multiplayer pipeline was built
   default `.eh_frame` + `.eh_frame_hdr` stripped via `-fno-exceptions
   -fno-unwind-tables -fno-asynchronous-unwind-tables` to buy 0x18C
   bytes of mod budget.
+- **Mini-Link heap leak on stage loads fixed** (2026-10-16, F18). The
+  2026-04-21 save-reload guard read `mpCLModelData == 0` as "Link was
+  rebuilt". It nulled the mini-Link models without freeing them and made
+  two new ones in the ArchiveHeap on every frame of the not-ready window,
+  which comes with every stage load (the new Link's `playerInit` waits for
+  the camera). The owner counted 12, then 14, then 16 leaked models across
+  loads, and the fragmented ArchiveHeap halted the game in
+  `JKRAramArchive.cpp:688` after about 20 loads. Link's J3DModelData is
+  Link.arc's resident copy, the same pointer for every Link actor, and
+  neither heap is ever reset. So the models and GameHeap buffers are now
+  made once and kept. "Not ready" only waits and runs a small per-stage
+  reset: it unlatches the mode-2 snapshot and empties the mode-4 echo ring.
+  The models are rebuilt only if Link.arc itself hands out a new pointer.
+  See docs/05 "Mini-Link J3DModels leaked on every stage load".
 
 ## 🔬 Next Session Priority
 
