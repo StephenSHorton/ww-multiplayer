@@ -109,6 +109,15 @@ type Class struct {
 	// a live actor's home.pos needn't be its entry's Pos (§7.2's
 	// cross-check). A DeathUnknown stub's is unknown and false.
 	HomeMoves bool `json:"home_moves,omitempty"`
+	// K1Verified is true for a K1 class whose enemyice offset and
+	// enemy_ice call the decomp shows for GZLE01 (a matching file), or a
+	// live check confirmed. The NonMatching stubs (PH, PT, PW, BO) and
+	// Darknut, whose file matches D44J01 only (configure.py:1858), were
+	// verified by the live check K1 (docs/08 §8.2) on the owner's game on
+	// 2026-10-15: a one-byte 1 at the class's timer shrank and deleted
+	// each (Appendix C item 141). A class still false is held by M6's
+	// applier (§7.2).
+	K1Verified bool `json:"-"`
 
 	bossIf func(params uint32, angle [3]int16) bool // for BossParams
 }
@@ -161,29 +170,29 @@ var Classes = []Class{
 	{Proc: ProcSHAND, Name: "SHAND", What: "Forbidden Woods tentacle", Group: GroupEnemy, Kind: Other, Death: DeathNone, Boss: BossNever},
 	// Group d_a_fm.cpp:3492; onActor :2097; enemy_ice :2996; enemyice
 	// d_a_fm.h:213.
-	{Proc: stagedata.ProcFM, Name: "FM", What: "Floormaster", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0xAE8, Boss: BossNever},
+	{Proc: stagedata.ProcFM, Name: "FM", What: "Floormaster", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0xAE8, K1Verified: true, Boss: BossNever},
 	// Group d_a_oship.cpp:1106. Matching (configure.py:1836).
 	{Proc: ProcOSHIP, Name: "OSHIP", What: "Warship", Group: GroupEnemy, Kind: Other, Death: DeathNone, Boss: BossNever},
 	// Group d_a_bb.cpp:2851; no onActor of its own; enemy_ice :2213;
 	// enemyice d_a_bb.h:106. daBb_Create raises home.pos 70 above the
 	// entry (:2710-2711).
-	{Proc: stagedata.ProcBB, Name: "BB", What: "Kargaroc", Group: GroupEnemy, Kind: K1, Death: DeathIce, Ice: 0xC80, Boss: BossNever, HomeMoves: true},
+	{Proc: stagedata.ProcBB, Name: "BB", What: "Kargaroc", Group: GroupEnemy, Kind: K1, Death: DeathIce, Ice: 0xC80, K1Verified: true, Boss: BossNever, HomeMoves: true},
 	// Group d_a_mo2.cpp:4257; onActor :2411; enemy_ice :3380; enemyice
 	// d_a_mo2.h:175 (mDeathSwitch u8, :42). BOSS: daMo2_Create, :4093,
 	// :4099-4100.
-	{Proc: stagedata.ProcMO2, Name: "MO2", What: "Moblin", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x2A54, Boss: BossParams,
+	{Proc: stagedata.ProcMO2, Name: "MO2", What: "Moblin", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x2A54, K1Verified: true, Boss: BossParams,
 		bossIf: func(_ uint32, angle [3]int16) bool { return deathSwitchBoss(angle) }},
 	// Group d_a_bk.cpp:5337; onActor :2648; enemy_ice :4159; enemyice
 	// d_a_bk.h:140. BOSS: daBk_Create reads its type from params & 0xF
 	// (:4759; 0xB becomes 4, :4762-4766) and gives type 0xA the status
 	// (:5030-5034). On a searchlight, stand2 keeps home.pos on the light
 	// (:1455-1463).
-	{Proc: stagedata.ProcBK, Name: "BK", What: "Bokoblin", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x1264, Boss: BossParams, HomeMoves: true,
+	{Proc: stagedata.ProcBK, Name: "BK", What: "Bokoblin", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x1264, K1Verified: true, Boss: BossParams, HomeMoves: true,
 		bossIf: func(params uint32, _ [3]int16) bool { return params&0xF == 0xA }},
 	// Group d_a_st.cpp:2944; onActor :1239, :2220; enemy_ice :2524;
 	// enemyice d_a_st.h:145 (mDeathSwitch u8, :53). BOSS: daSt_Create,
 	// :2836, :2839-2841.
-	{Proc: stagedata.ProcST, Name: "ST", What: "Stalfos", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x1FA8, Boss: BossParams,
+	{Proc: stagedata.ProcST, Name: "ST", What: "Stalfos", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x1FA8, K1Verified: true, Boss: BossParams,
 		bossIf: func(_ uint32, angle [3]int16) bool { return deathSwitchBoss(angle) }},
 	// Group d_a_tn.cpp:4405; onActor :2073; enemy_ice :3433; enemyice
 	// d_a_tn.h:162 (mBehaviorType u8, :33; mDisableSpawnOnDeathSwitch u8,
@@ -192,8 +201,11 @@ var Classes = []Class{
 	// behaviour params & 0xF (:4207) BEHAVIOR_MINIBOSS 13 or
 	// BEHAVIOR_MSWORD_CHAMBER_AMBUSH 14 (:48-49, :4244-4245). The file
 	// matches D44J01 only (configure.py:1858), so this is GZLE01 by
-	// inference.
-	{Proc: stagedata.ProcTN, Name: "TN", What: "Darknut", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x1524, Boss: BossParams,
+	// inference. K1 live check on the owner's game, 2026-10-15: enemy-kill
+	// on a kaze r8 Darknut (set 0) ran the timer at +0x152A to 91, deleted
+	// it, recorded zone slot 0 setID 0 dead, and its sword fell once its
+	// CARRY was cleared.
+	{Proc: stagedata.ProcTN, Name: "TN", What: "Darknut", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x1524, K1Verified: true, Boss: BossParams,
 		bossIf: func(params uint32, angle [3]int16) bool {
 			b := params & 0xF
 			return deathSwitchBoss(angle) || b == 13 || b == 14
@@ -202,40 +214,48 @@ var Classes = []Class{
 	{Proc: stagedata.ProcNZ, Name: "NZ", What: "Rat", Group: GroupEnemy, Kind: Other, Death: DeathUnknown, Boss: BossUnknown},
 	// Group d_a_am.cpp:1397; onActor :954; enemy_ice :977; enemyice
 	// d_a_am.h:55.
-	{Proc: stagedata.ProcAM, Name: "AM", What: "Armos Knight", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0xABC, Boss: BossNever},
+	{Proc: stagedata.ProcAM, Name: "AM", What: "Armos Knight", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0xABC, K1Verified: true, Boss: BossNever},
 	// Group d_a_am2.cpp:1528; onActor :970; enemy_ice :1120; enemyice
 	// d_a_am2.h:57.
-	{Proc: stagedata.ProcAM2, Name: "AM2", What: "Armos", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0xA8C, Boss: BossNever},
+	{Proc: stagedata.ProcAM2, Name: "AM2", What: "Armos", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0xA8C, K1Verified: true, Boss: BossNever},
 	// Group d_a_gm.cpp:272; "Mini-Boss - Mothula / Enemy - Mothula Larva"
 	// (:3). NonMatching stub (configure.py:1672).
 	{Proc: stagedata.ProcGM, Name: "GM", What: "Mothula", Group: GroupEnemy, Kind: Other, Death: DeathUnknown, Boss: BossUnknown},
 	// Group fopAc_ENV_e, d_a_ks.cpp:1788; no onActor of its own; enemy_ice
 	// :1337; enemyice d_a_ks.h:51.
-	{Proc: stagedata.ProcKS, Name: "KS", What: "Morth", Group: GroupEnv, Kind: K1, Death: DeathIce, Ice: 0x6A8, Boss: BossNever},
+	{Proc: stagedata.ProcKS, Name: "KS", What: "Morth", Group: GroupEnv, Kind: K1, Death: DeathIce, Ice: 0x6A8, K1Verified: true, Boss: BossNever},
 	// Group d_a_cc.cpp:2792; onActor :308, :316, :347, :1402, :1453,
-	// :1972; enemy_ice :2124; enemyice d_a_cc.h:92.
-	{Proc: stagedata.ProcCC, Name: "CC", What: "ChuChu", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x81C, Boss: BossNever},
+	// :1972; enemy_ice :2124; enemyice d_a_cc.h:92. Its light-shrink
+	// write (one byte 0x01 at +0x822) was seen to shrink and delete it on
+	// the owner's game (docs/08 Appendix C item 141).
+	{Proc: stagedata.ProcCC, Name: "CC", What: "ChuChu", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x81C, K1Verified: true, Boss: BossNever},
 	// Group d_a_bl.cpp:209. NonMatching stub (configure.py:1649).
 	{Proc: stagedata.ProcBL, Name: "BL", What: "Bubble", Group: GroupEnemy, Kind: Other, Death: DeathUnknown, Boss: BossUnknown},
 	// Group d_a_wz.cpp:224; "Enemy - Wizzrobe / Mini-Boss - Wizzrobe"
 	// (:3). NonMatching stub (configure.py:1868).
 	{Proc: stagedata.ProcWZ, Name: "WZ", What: "Wizzrobe", Group: GroupEnemy, Kind: Other, Death: DeathUnknown, Boss: BossUnknown},
 	// Group d_a_ph.cpp:282; enemyice d_a_ph.h:68. NonMatching stub
-	// (configure.py:1837).
-	{Proc: stagedata.ProcPH, Name: "PH", What: "Peahat/Seahat", Group: GroupEnemy, Kind: K1, Death: DeathUnknown, Ice: 0x998, Boss: BossUnknown},
+	// (configure.py:1837). K1 live check on the owner's game, 2026-10-15:
+	// a one-byte 1 at +0x99E deleted a kaze r2 Peahat (set 2) and its zone
+	// recorded actor 2 dead (enemy_ice's onActor).
+	{Proc: stagedata.ProcPH, Name: "PH", What: "Peahat/Seahat", Group: GroupEnemy, Kind: K1, Death: DeathUnknown, Ice: 0x998, K1Verified: true, Boss: BossUnknown},
 	// Group d_a_bpw.cpp:4737; BOSS in body_create_init, :4391.
 	// NonMatching (configure.py:1655) but every function decompiled.
 	{Proc: stagedata.ProcBPW, Name: "BPW", What: "Jalhalla", Group: GroupEnemy, Kind: Boss, Death: DeathNone, Boss: BossAlways},
 	// Group d_a_pw.cpp:569; enemyice d_a_pw.h:84. NonMatching, 26 of its
-	// 31 functions stubs (configure.py:1839).
-	{Proc: stagedata.ProcPW, Name: "PW", What: "Poe", Group: GroupEnemy, Kind: K1, Death: DeathUnknown, Ice: 0x884, Boss: BossUnknown},
+	// 31 functions stubs (configure.py:1839). K1 live check on the
+	// owner's game, 2026-10-15: a one-byte 1 at +0x88A (SubD71 r1) ran the
+	// timer to 86, then the Poe burst and dropped a heart.
+	{Proc: stagedata.ProcPW, Name: "PW", What: "Poe", Group: GroupEnemy, Kind: K1, Death: DeathUnknown, Ice: 0x884, K1Verified: true, Boss: BossUnknown},
 	// Group d_a_bo.cpp:246; enemyice d_a_bo.h:15. NonMatching stub
-	// (configure.py:1653).
-	{Proc: stagedata.ProcBO, Name: "BO", What: "Boko Baba", Group: GroupEnemy, Kind: K1, Death: DeathUnknown, Ice: 0x9FC, Boss: BossUnknown},
+	// (configure.py:1653). K1 live check on the owner's game, 2026-10-15:
+	// a one-byte 1 at +0xA02 (kindan r1) ran the timer to 89 and deleted
+	// it.
+	{Proc: stagedata.ProcBO, Name: "BO", What: "Boko Baba", Group: GroupEnemy, Kind: K1, Death: DeathUnknown, Ice: 0x9FC, K1Verified: true, Boss: BossUnknown},
 	// Group d_a_ki.cpp:1525; onActor :871; enemy_ice :951; enemyice
 	// d_a_ki.h:85. ki_atack_move moves home.pos to the ceiling above it
 	// (:676-682).
-	{Proc: stagedata.ProcKI, Name: "KI", What: "Keese", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x924, Boss: BossNever, HomeMoves: true},
+	{Proc: stagedata.ProcKI, Name: "KI", What: "Keese", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x924, K1Verified: true, Boss: BossNever, HomeMoves: true},
 	// Group d_a_mt.cpp:215. NonMatching stub (configure.py:1693).
 	{Proc: stagedata.ProcMT, Name: "MT", What: "Magtail", Group: GroupEnemy, Kind: Other, Death: DeathUnknown, Boss: BossUnknown},
 	// Group d_a_bwd.cpp:2607; BOSS in the profile, :2606.
@@ -247,7 +267,7 @@ var Classes = []Class{
 	{Proc: ProcBWDG, Name: "BWDG", Group: GroupEnemy, Kind: Boss, Death: DeathNone, Boss: BossNever},
 	// Group d_a_rd.cpp:1981; onActor :845; enemy_ice :1662; enemyice
 	// d_a_rd.h:172.
-	{Proc: stagedata.ProcRD, Name: "RD", What: "ReDead", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x6E0, Boss: BossNever},
+	{Proc: stagedata.ProcRD, Name: "RD", What: "ReDead", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x6E0, K1Verified: true, Boss: BossNever},
 	// Group d_a_daiocta.cpp:1772; no BOSS status (profile :1771).
 	{Proc: stagedata.ProcDaiocta, Name: "DAIOCTA", What: "Big Octo", Group: GroupEnemy, Kind: Boss, Death: DeathNone, Boss: BossNever},
 	// Group d_a_oq.cpp:251. NonMatching stub (configure.py:1620).
@@ -285,8 +305,10 @@ var Classes = []Class{
 	// (configure.py:1673).
 	{Proc: stagedata.ProcGND, Name: "GND", What: "Ganondorf", Group: GroupEnemy, Kind: Boss, Death: DeathUnknown, Boss: BossAlways},
 	// Group d_a_pt.cpp:197; enemyice d_a_pt.h:73. NonMatching stub
-	// (configure.py:1838).
-	{Proc: stagedata.ProcPT, Name: "PT", What: "Miniblin", Group: GroupEnemy, Kind: K1, Death: DeathUnknown, Ice: 0x7E4, Boss: BossUnknown},
+	// (configure.py:1838). K1 live check on the owner's game, 2026-10-15:
+	// a one-byte 1 at +0x7EA (SubD71 r0) ran the timer to 49, deleted it
+	// and dropped a rupee.
+	{Proc: stagedata.ProcPT, Name: "PT", What: "Miniblin", Group: GroupEnemy, Kind: K1, Death: DeathUnknown, Ice: 0x7E4, K1Verified: true, Boss: BossUnknown},
 	// Group d_a_ss.cpp:135. No description; NonMatching stub
 	// (configure.py:1629).
 	{Proc: ProcSS, Name: "SS", Group: GroupEnemy, Kind: Other, Death: DeathUnknown, Boss: BossUnknown},

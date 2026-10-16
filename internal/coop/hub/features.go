@@ -35,7 +35,10 @@ const (
 	// ZONE, ROOMEDGE; §6.3, M5): the latching ones of the host's M1
 	// verdict (Config.SyncedScoped, ScopeFilter).
 	FeaturePuzzle Feature = 1 << 1
-	// FeatureCombat is the kill union (SCOPED KILL; §7.2, M6).
+	// FeatureCombat is the kill union (SCOPED KILL; §7.2, M6): the
+	// keyed K1 deaths of the host's M1 verdict (Config.SyncedKill,
+	// Filter), written into the partner's zone and light-shrinking its
+	// live enemy.
 	FeatureCombat Feature = 1 << 2
 	// FeatureLiveSwitches is --coop-live-switches (§6.3): the current
 	// table's memory switches apply when IDLE, once the room hold has

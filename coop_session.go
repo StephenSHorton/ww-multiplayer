@@ -292,6 +292,7 @@ func startCoopSide(rep report.Reporter, f coopFlags, env coopEnv, host bool) *co
 	if !f.dryRun {
 		logCoopProgression(rep, cs.m1())
 		logCoopPuzzles(rep, cs.m1())
+		logCoopCombat(rep, cs.m1())
 	}
 	return cs
 }
@@ -436,6 +437,7 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 		StageTblHash: cs.tables.hash(),
 		SyncedSwitch: cs.tables.switchVerdict(),
 		SyncedScoped: cs.tables.scopedVerdict(),
+		SyncedKill:   cs.tables.killVerdict(),
 		Features:     features,
 		Merge:        f.merge,
 		Logf:         func(format string, args ...any) { srvLog(fmt.Sprintf(format, args...)) },

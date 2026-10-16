@@ -146,8 +146,16 @@ type Config struct {
 	// counted (PeerStatus.ScopedRefused), without a NOTICE, as
 	// SwitchPolicy's refusals are. Nil, a host without tables, grants
 	// none (and such a host grants no FeaturePuzzle anyway). Kill bits
-	// are not switches: they pass.
+	// are SyncedKill's.
 	SyncedScoped func(table int, stage string, room, no int) bool
+	// SyncedKill is the host's M1 verdict on the kill bits SCOPED KILL
+	// carries (tables.Tables.SyncedKill): whether a death of setID in
+	// room of stage, as a game of save table table records it, syncs. The
+	// scoped stores keep and relay only the bits it grants (KillFilter);
+	// the rest are dropped and counted in PeerStatus.ScopedRefused, as
+	// SyncedScoped's. Nil, a host without tables, keeps none (and such a
+	// host grants no FeatureCombat anyway).
+	SyncedKill func(table int, stage string, room, setID int) bool
 	// IsHost reports whether a connection is the host's own, which alone
 	// may tombstone over the wire (CTRL TOMBSTONE). Nil means a
 	// connection from a loopback address.
@@ -240,7 +248,7 @@ func newHub(cfg Config, direct bool) (*Hub, error) {
 		pol = SwitchPolicy(pol, cfg.SyncedSwitch)
 	}
 	h.store.SetPolicy(pol)
-	h.scopes.Filter = ScopeFilter(cfg.SyncedScoped)
+	h.scopes.Filter = Filter(cfg.SyncedScoped, cfg.SyncedKill)
 	return h, nil
 }
 
@@ -664,6 +672,11 @@ type Status struct {
 	Features Feature // what the host allows
 	Peers    []PeerStatus
 	Scopes   []world.Key // the scoped stores held
+	// CombatAllowed: the host allows FeatureCombat and has a kill verdict
+	// (Config.SyncedKill), so the kill union runs (§7.2, M6).
+	CombatAllowed bool
+	// KillStores counts the KILL stores among Scopes.
+	KillStores int
 }
 
 // Status returns a snapshot of the hub.
@@ -671,6 +684,12 @@ func (h *Hub) Status() (Status, error) {
 	var st Status
 	err := h.do(func() {
 		st = Status{World: h.id, Seq: h.store.Seq(), Features: h.features, Scopes: h.scopes.Keys()}
+		st.CombatAllowed = h.features&FeatureCombat != 0 && h.cfg.SyncedKill != nil
+		for _, k := range st.Scopes {
+			if k.Kind == world.ScopeKill {
+				st.KillStores++
+			}
+		}
 		for _, p := range h.sorted(func(*peer) bool { return true }) {
 			ps := PeerStatus{
 				ID: byte(p.id), Name: p.name, Host: p.host, State: p.state, Reason: p.reason,

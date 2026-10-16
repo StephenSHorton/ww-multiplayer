@@ -205,12 +205,13 @@ func (g *FakeGame) ShowRoom(room int) error {
 
 // ReloadRoom is room's scene deleted and created again, as a room the
 // game unloaded and loads once more: the delete clears its status flags
-// (dScnRoom_Delete, d_s_room.cpp:120) and the new scene's phase_0 writes
-// its process ID into mProcID (d_s_room.cpp:150-152). Its actors are
-// created anew. The zone stays.
+// (dScnRoom_Delete, d_s_room.cpp:120), the new scene's phase_0 writes its
+// process ID into mProcID (d_s_room.cpp:150-152), and the room is loaded
+// again (0x01, which the fake sets at once, as EnterRoom does). Its
+// actors are created anew. The zone stays.
 func (g *FakeGame) ReloadRoom(room int) error {
 	return g.roomFlag(room, func(a uint32) {
-		g.st8(a+roomStatusOffFlags, 0)
+		g.st8(a+roomStatusOffFlags, addr.RoomFlagLoaded)
 		g.st32(a+roomStatusOffProcID, g.ld32(a+roomStatusOffProcID)+1)
 	})
 }

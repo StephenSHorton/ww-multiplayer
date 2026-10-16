@@ -100,6 +100,7 @@ func (t *Tables) Acceptance() []Check {
 				share(k1.Keyed, k1.Entries), k1.Entries)})
 		out = append(out, Check{Section: SectionEnemies, Name: "duplicate (stage, room, setID) keys", Status: Info,
 			Detail: duplicates(r)})
+		out = append(out, Check{Section: SectionEnemies, Name: "M6 kill coverage", Status: Info, Detail: r.Coverage().Line()})
 	}
 	return out
 }

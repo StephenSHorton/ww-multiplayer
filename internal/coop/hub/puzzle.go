@@ -28,8 +28,8 @@ import "github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 // one of 0xF0-0xFE or one of a room outside 0..63, on which the game's
 // setters halt (§3.1; the JUT_ASSERTs of dSv_info_c::onSwitch,
 // d_save.cpp:1541-1556, live in GZLE01, JUTAssert.h:9), and synced is not
-// asked about those. Every kill bit passes: KILL is M6's (§7.2), not a
-// switch.
+// asked about those. Every kill bit passes: KILL is not a switch, and a
+// session's filter judges it with KillFilter (Filter, combat.go).
 //
 // The hub builds its filter so, and a writing replica's sender filters its
 // proposals with ScopeFilter of its own tables' verdict, which is the

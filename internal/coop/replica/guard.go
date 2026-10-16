@@ -65,9 +65,10 @@ const (
 	// in, whose mRoomNo is that room, a dan byte only while mDan.mStageNo
 	// holds a save table (§3.1). M5.
 	TargetScoped
-	// TargetKills is every zone's dead-actor words (§7.2). M6. The K1
-	// timer bytes live in actors on the heap, so M6 validates them per
-	// write; they are in no static list.
+	// TargetKills is every zone's dead-actor words (§7.2), written only by
+	// the kill path, each bit only into the zone of a loaded room whose
+	// mRoomNo names it back, and only for a setID the tick's M6 plan takes
+	// (WriteGuard.SetCombat: the partner's store and the M1 verdict). M6.
 	TargetKills
 	// TargetTag is the binding tag, the first 0x30 bytes of mReserve
 	// (bind.TagRegion). Only a bind and a scrub write it (§5.2), and
@@ -82,10 +83,15 @@ const (
 	// the world: FrameWriter.ApplyFields writes them, on the user's word
 	// alone, when IDLE.
 	TargetEscape
+	// TargetK1 is a live enemy's light-shrink timer and the CARRY byte of
+	// the weapon it holds (§7.2): bytes on the heap, in no static list.
+	// WriteGuard.checkActor lets through exactly two writes, each of an
+	// actor the tick's walk has (FrameWriter.ApplyActors). M6.
+	TargetK1
 
 	// AllTargets is the most any milestone writes: NewGuard's allowlist.
 	AllTargets = TargetStage | TargetOcean | TargetStory | TargetInventory | TargetDerived |
-		TargetCounters | TargetSelectItem | TargetScoped | TargetKills | TargetTag | TargetEscape
+		TargetCounters | TargetSelectItem | TargetScoped | TargetKills | TargetTag | TargetEscape | TargetK1
 	// M3Targets is what M3's reconciler writes (§9 M3): the stage
 	// progress bits and memory switches, the ocean, the charts and the
 	// sea map. A replica's WriteGuard adds TargetEscape for the escape
@@ -100,11 +106,15 @@ const (
 	// replica that writes guards M3Targets | M4Targets | M5Targets |
 	// TargetEscape.
 	M5Targets = TargetScoped
+	// M6Targets is what M6's receiver adds (§9 M6): the zones' dead-actor
+	// words and the light-shrink. A replica that writes guards M3Targets |
+	// M4Targets | M5Targets | M6Targets | TargetEscape.
+	M6Targets = TargetKills | TargetK1
 )
 
 var targetNames = [...]string{
 	"stage", "ocean", "story", "inventory", "derived",
-	"counters", "select-item", "scoped", "kills", "tag", "escape",
+	"counters", "select-item", "scoped", "kills", "tag", "escape", "k1",
 }
 
 func (t Target) String() string {
@@ -165,7 +175,13 @@ type byteRule struct {
 //     (M5), each a fresh read with the planned bits ORed in, after the zone
 //     table they rest on was read again (§3.1);
 //   - pathTag: the binding tag, which package bind writes itself (§5.2);
-//     no FrameWriter call takes it.
+//     no FrameWriter call takes it;
+//   - pathKill, FrameWriter.ApplyKills: the zones' dead-actor bytes (M6),
+//     each a fresh read with the planned bits ORed in, after the zone table
+//     and the room's status they rest on were read again;
+//   - pathActor, FrameWriter.ApplyActors: a light-shrink timer and a
+//     weapon's CARRY byte (M6), each of an actor read again just before
+//     (actors.Revalidate), judged by WriteGuard.checkActor.
 type path uint8
 
 const (
@@ -174,10 +190,12 @@ const (
 	pathEscape
 	pathTag
 	pathScoped
+	pathKill
+	pathActor
 
 	// pathAny is WriteGuard.Check's: a byte judged as written by its own
 	// path, whichever that is.
-	pathAny = pathMerge | pathDerive | pathEscape | pathTag | pathScoped
+	pathAny = pathMerge | pathDerive | pathEscape | pathTag | pathScoped | pathKill | pathActor
 )
 
 func (p path) String() string {
@@ -191,6 +209,8 @@ func (p path) String() string {
 		{pathEscape, "an escape (FrameWriter.ApplyFields)"},
 		{pathTag, "a bind or scrub (package bind)"},
 		{pathScoped, "the scoped path (FrameWriter.ApplyScoped)"},
+		{pathKill, "the kill path (FrameWriter.ApplyKills)"},
+		{pathActor, "the light-shrink (FrameWriter.ApplyActors)"},
 	} {
 		if p&n.p != 0 {
 			parts = append(parts, n.name)
@@ -255,8 +275,10 @@ func betterVariant(s inventory.Slot, old, val byte) bool {
 //   - the dan switch words (mDan.mSwitch) and every zone's switch words
 //     (dSv_zone_c +0x02..+0x07), through the scoped path only, each held
 //     to the zone table of the tick (WriteGuard.Check), and every zone's
-//     dead-actor words (+0x0C..+0x4B), which M6's writer validates per
-//     write; the zone's own item bits and its mRoomNo are not in it;
+//     dead-actor words (+0x0C..+0x4B), through the kill path only, each
+//     held to a loaded room's zone and the tick's M6 plan
+//     (Tick.killClosed); the zone's own item bits and its mRoomNo are not
+//     in it;
 //   - the three pending counters, mItemKeyNumCount, mItemMaxLifeCount
 //     and mItemMaxMagicCount (§6.4), through the derive path only;
 //   - play.mSelectItem[0..2], the buttons X, Y and Z (u8 mSelectItem[4],
@@ -339,7 +361,7 @@ func NewGuardFor(t Target) *Guard {
 	for z := range addr.ZoneCount {
 		base, _ := addr.ZoneAddr(z)
 		add(base+addr.ZoneOffSwitch, whole(addr.ZoneOffItem-addr.ZoneOffSwitch, ruleOR, TargetScoped, pathScoped), fmt.Sprintf("mZone[%d] switches", z))
-		add(base+addr.ZoneOffActor, whole(addr.ZoneSize-addr.ZoneOffActor, ruleOR, TargetKills, pathMerge), fmt.Sprintf("mZone[%d] dead actors", z))
+		add(base+addr.ZoneOffActor, whole(addr.ZoneSize-addr.ZoneOffActor, ruleOR, TargetKills, pathKill), fmt.Sprintf("mZone[%d] dead actors", z))
 	}
 
 	add(addr.ItemKeyNumCount, whole(4, ruleSet, TargetCounters, pathDerive), "mItemKeyNumCount, mItemMaxLifeCount") // adjacent s16s (d_com_inf_game.h:799-800)
@@ -892,13 +914,19 @@ type WriteGuard struct {
 	logf   func(format string, args ...any)
 	label  func(off, bit int) string
 
-	mu      sync.Mutex
-	tick    Tick
-	have    bool   // SetTick was called
-	closed  string // why the guard is shut until the next SetTick
-	checked int
-	refused [numRefusals]int
-	logged  int
+	mu   sync.Mutex
+	tick Tick
+	have bool // SetTick was called
+	// combat is the tick's M6 plan (SetCombat), and shrunk the carriers
+	// whose timer this tick's light-shrink wrote and read back (noteShrunk):
+	// both start over at SetTick.
+	combat   CombatTick
+	combatOK bool
+	shrunk   map[uint32]uint32 // carrier address -> its pid
+	closed   string            // why the guard is shut until the next SetTick
+	checked  int
+	refused  [numRefusals]int
+	logged   int
 }
 
 // NewWriteGuard returns a WriteGuard, shut until the first SetTick.
@@ -940,6 +968,7 @@ func (w *WriteGuard) SetTick(t Tick) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.tick, w.have, w.closed = t, true, ""
+	w.combat, w.combatOK, w.shrunk = CombatTick{}, false, nil
 }
 
 // Close shuts the guard until the next SetTick: the game moved on since
@@ -1064,6 +1093,11 @@ func (w *WriteGuard) judge(a uint32, old, val byte, p path) (string, Refusal, st
 	}
 	if br.target == TargetScoped {
 		if why := w.tick.scopedClosed(a); why != "" {
+			return what, RefuseTarget, why
+		}
+	}
+	if br.target == TargetKills {
+		if why := w.killClosed(a, old, val); why != "" {
 			return what, RefuseTarget, why
 		}
 	}

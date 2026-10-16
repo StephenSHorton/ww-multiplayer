@@ -349,7 +349,7 @@ func TestShutter(t *testing.T) {
 		if err := g.HideRoom(1); err != nil { // the door closes behind Link
 			t.Fatal(err)
 		}
-		status(roomHidden, 0)
+		status(addr.RoomFlagLoaded|roomHidden, 0)
 		frames(10)
 		if g.here(drc.Name, 1) || sh.Executes() != 49 {
 			t.Fatalf("a hidden room's shutter still runs: %d executes", sh.Executes())
@@ -357,7 +357,7 @@ func TestShutter(t *testing.T) {
 		if err := g.ShowRoom(1); err != nil { // and opens again
 			t.Fatal(err)
 		}
-		status(0, 0)
+		status(addr.RoomFlagLoaded, 0)
 		frames(1)
 		if n := sh.Executes(); n != 0 {
 			t.Fatalf("shown again: %d executes, want a new shutter", n)
@@ -366,7 +366,7 @@ func TestShutter(t *testing.T) {
 		if err := g.ReloadRoom(1); err != nil {
 			t.Fatal(err)
 		}
-		status(0, 1)
+		status(addr.RoomFlagLoaded, 1)
 		frames(1)
 		if n := sh.Executes(); n != 0 {
 			t.Fatalf("a new room scene: %d executes, want a new shutter", n)

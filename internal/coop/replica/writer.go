@@ -141,6 +141,9 @@ type FrameWriter struct {
 	drains  []drainWatch // the counters ApplyDerived wrote, until the HUD takes them
 	scoped  []pendingScoped
 	scAt    seen // the tick the scoped bytes were written in
+	kills   []pendingKill
+	kiAt    seen // the tick the dead-actor bytes were written in
+	shrinks []pendingShrink
 	stats   WriterStats
 }
 
@@ -293,6 +296,8 @@ func (w *FrameWriter) observe(s *snap.Snapshot, st gate.Status, armed bool, f bi
 	}
 	rep := w.verify(s, st, f)
 	w.verifyScoped(s, st, f, old, oldOK, &rep)
+	w.verifyKills(s, st, f, &rep)
+	w.verifyShrinks(s, st, &rep)
 	w.watchDrains(s, st, f)
 	if st.Regressed {
 		w.wg.brk.Regressed()
@@ -391,6 +396,13 @@ type WriterStats struct {
 	Scoped     int // dan and zone switch bytes written (ApplyScoped)
 	Stale      int // derive writes dropped: their bytes moved since the plan
 	Drained    int // pending counters written that the HUD then took
+	Kills      int // zone dead-actor bytes written (ApplyKills)
+	Shrunk     int // light-shrink timers written (ApplyActors)
+	Released   int // weapons let go after their carrier's timer (ApplyActors)
+	Held       int // light-shrinks not written: the actor changed or a gate closed after the beat
+	// CombatFailed counts the verify failures of the kill path and the
+	// light-shrink (in Failed too).
+	CombatFailed int
 }
 
 // Stats returns the writer's counts.
@@ -420,7 +432,7 @@ func (w *FrameWriter) Stop(why string) {
 	}
 	w.wg.brk.TurnOff(why)
 	w.mu.Lock()
-	w.pending, w.drains, w.scoped = nil, nil, nil
+	w.pending, w.drains, w.scoped, w.kills, w.shrinks = nil, nil, nil, nil, nil
 	w.mu.Unlock()
 }
 

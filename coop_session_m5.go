@@ -140,7 +140,7 @@ func logHubStatus(rep report.Reporter, status func() (hub.Status, error)) {
 		report.Logf(rep, report.Warn, "co-op: host: %v", err)
 		return
 	}
-	for _, l := range hubPuzzleStatus(hs) {
+	for _, l := range append(hubPuzzleStatus(hs), hubCombatStatus(hs)...) {
 		report.Logf(rep, report.Info, "co-op: host: %s", strings.TrimRight(l, " "))
 	}
 }

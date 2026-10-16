@@ -29,7 +29,7 @@ func fakeWarpHandler(t *testing.T, m *mem.FakeMem) bool {
 	if err != nil || bytes.Equal(w[:4], w[4:8]) {
 		return false
 	}
-	if err := m.Store(link+actorOffCurPos, w[8:20]); err != nil {
+	if err := m.Store(link+addr.ActorOffCurPos, w[8:20]); err != nil {
 		t.Error(err)
 	}
 	if err := m.Store(mailboxBase+mailboxWarpAck, w[:4]); err != nil {
@@ -70,7 +70,7 @@ func readU32(t *testing.T, m mem.Mem, a uint32) uint32 {
 
 func readLinkPos(t *testing.T, m mem.Mem) [3]float32 {
 	t.Helper()
-	b, err := m.Read(fakegame.PlayerActor+actorOffCurPos, 12)
+	b, err := m.Read(fakegame.PlayerActor+addr.ActorOffCurPos, 12)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestWarpLinkSaveStateLoaded(t *testing.T) {
 	fm := mem.NewFakeMem()
 	start := [3]float32{-200000, 120, 300000}
 	store(t, fm, addr.PlayerPtr, u32b(fakegame.PlayerActor))
-	store(t, fm, fakegame.PlayerActor+actorOffCurPos, posBytes(start))
+	store(t, fm, fakegame.PlayerActor+addr.ActorOffCurPos, posBytes(start))
 	warps := runWarpHandler(t, fm)
 	fm.Record(true)
 	err := warpLinkMem(loadMem{FakeMem: fm, t: t}, [3]float32{10, 20, 30}, 50*time.Millisecond)

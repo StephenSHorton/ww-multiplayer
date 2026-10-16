@@ -117,6 +117,8 @@ func (t *Table) Report() string {
 	b.WriteString("  classes whose death never records the bit (death none) or records it only on a Light\n" +
 		"    Arrow or ice death (death ice: KS, BB) leave their setID unused; unknown: a NonMatching stub\n")
 
+	t.Coverage().report(&b)
+
 	b.WriteString("\nEnemy classes (profile group fopAc_ENEMY_e, plus Morth in fopAc_ENV_e):\n")
 	placed := make(map[string]int)
 	for _, cs := range t.Summary.ByClass {

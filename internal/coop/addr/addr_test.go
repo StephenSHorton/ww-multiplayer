@@ -411,3 +411,49 @@ func TestMatchesDolphinPackage(t *testing.T) {
 		t.Errorf("PlayerPtr 0x%08X != dolphin.PlayerPtrAddr 0x%08X", PlayerPtr, uint32(dolphin.PlayerPtrAddr))
 	}
 }
+
+// TestM6Offsets pins the actor, tag, enemyice and player offsets M6 reads
+// (§7.2) to their structs: each field sits where its neighbours put it.
+func TestM6Offsets(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		got, want int
+	}{
+		// create_tag_class: node_class {prev, data, next} then mpTagData,
+		// then s8 mbIsUse (c_tag.h:10-14).
+		{"TagOffUse", TagOffUse, TagOffTagData + 4},
+		{"TagSize", TagSize, TagOffUse + 4},
+		// base_process_class: mProcName s16, mUnk0, mPauseFlag, then
+		// mInitState (f_pc_base.h:16-17).
+		{"ActorOffInitState", ActorOffInitState, ActorOffProcName + 4},
+		// fopAc_ac_c: parentActorID before home, home.angle after
+		// home.pos, current two actor_places after home (f_op_actor.h:285-289).
+		{"ActorOffParentID", ActorOffParentID, ActorOffHomePos - 4},
+		{"ActorOffHomeAngle", ActorOffHomeAngle, ActorOffHomePos + 0xC},
+		{"ActorOffCurPos", ActorOffCurPos, ActorOffHomePos + 2*0x14},
+		{"ActorOffMaxHealth", ActorOffMaxHealth, ActorOffHealth - 1},
+		{"ActorOffAttnFlags", ActorOffAttnFlags, ActorOffMaxHealth - 4},
+		{"ActorOffCarryByte", ActorOffCarryByte, ActorOffStatus + 2},
+		// enemyice: mpActor, s16 mFreezeDuration, s8 mLightShrinkTimer,
+		// pad, f32 mYOffset, s8 m00C, s8 mMode, s16 mFreezeTimer
+		// (c_damagereaction.h:12-21).
+		{"EnemyIceOffTimer", EnemyIceOffTimer, EnemyIceOffSelf + 4 + 2},
+		{"EnemyIceOffMode", EnemyIceOffMode, 0x8 + 4 + 1},
+		{"EnemyIceOffFreezeTimer", EnemyIceOffFreezeTimer, EnemyIceOffMode + 1},
+		{"EnemyIceSize", EnemyIceSize, EnemyIceOffFreezeTimer + 2},
+		// daBoko_c: fopAc_ac_c (0x290), request_of_phase_process_class
+		// mPhase (8), J3DModel* (4), mDoExt_brkAnm mBrkAnm (0x18), u32
+		// m2B4, then u8 mNowMode (d_a_boko.h:122-128).
+		{"BokoOffNowMode", BokoOffNowMode, 0x290 + 8 + 4 + 0x18 + 4},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = 0x%X, want 0x%X", c.name, c.got, c.want)
+		}
+	}
+	if uint32(ActorCarryByteMask)<<8 != ActorStatusCarry || ActorStatusBoss != 1<<26 {
+		t.Errorf("CARRY byte mask 0x%02X, BOSS 0x%08X", ActorCarryByteMask, ActorStatusBoss)
+	}
+	if ProcessIDCounter < MEM1Base || ProcessIDCounter >= MEM1End || RoomStatusOffFlags >= RoomStatusOffZoneCount {
+		t.Error("ProcessIDCounter or mFlags out of place")
+	}
+}

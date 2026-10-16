@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
@@ -157,7 +158,7 @@ func shiftSides(mA, mB mem.Mem, tick func()) (a, b shiftSide, err error) {
 		if !x.side.st.CanWriteIdle() {
 			continue
 		}
-		p, err := x.m.Read(x.side.s.PlayerPtr+actorOffCurPos, 12)
+		p, err := x.m.Read(x.side.s.PlayerPtr+addr.ActorOffCurPos, 12)
 		if err != nil {
 			return a, b, fmt.Errorf("read Dolphin %s's Link: %w", x.name, err)
 		}

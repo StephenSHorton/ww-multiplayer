@@ -29,7 +29,7 @@ Each player keeps their own Wind Waker save file. A file joins co-op only when t
 
 When either player opens a chest, hits a permanent switch, picks up a dungeon map, key, item, song, pearl or heart piece, or moves the story forward, the partner gets the same progress. Usually it arrives the next time the partner changes room or stage, so the partner's camera is not taken over mid-fight.
 
-Small keys and heart containers are counted from what the party actually collected and opened. A key both players grab is never doubled, and a key one player spends is gone for both. If you are in the same dungeon as your partner, a latching crystal switch or a cleared room opens for both of you. An enemy your partner kills shrinks away on your screen and stays dead while either of you is in that stage.
+Small keys and heart containers are counted from what the party actually collected and opened. A key both players grab is never doubled, and a key one player spends is gone for both. If you are in the same dungeon as your partner, a latching crystal switch or a cleared room opens for both of you. An enemy your partner kills shrinks away on your screen and stays dead while either of you is in that stage, for the enemies the stage files key (M6.0); the others stay each player's own until M6.1.
 
 Some things stay your own: hearts and magic you are carrying, rupees, ammo, bottles, time of day, and where you are. You roam freely and see your partner as the mini-Link.
 
@@ -91,7 +91,7 @@ The early releases (v0.4 to v0.8) do all of this from the Go process, with no re
 | Dan switches 0x80-0xBF | dungeon-temporary puzzle state | `mDan.mSwitch[2]` 0x803C53A8 | live when IDLE, only while both players are in the same stage name and table (the receiver checks the partner's PRESENCE, item 122) and every shown room's actors have settled (item 121) | set-only, latching setters only, kept per (stage, table) while someone is there (item 114); never set again in a save table where the receiver's game had it (item 125) | No |
 | Zone switches 0xC0-0xDF | room puzzle state | `mZone[z].mZoneBit.mSwitch[0..1]` 0x803C53B0+0x4C·z+2; z from `mStatus[room].mZoneNo` 0x803BDC88+0x114·room+0x107 | live when IDLE, only while both players are in the same stage and room, the receiver's zone exists and the room's actors have settled (items 121, 122) | set-only, latching only, kept per (stage, table, room) while that room is occupied | No |
 | Room one-shot switches 0xE0-0xEF | drop-down ladders, room-visit state | `mZone[z].mSwitch[2]`, zeroed on every room change (`clearRoomSwitch`, `d_save.cpp:1273-1275`) | live edge only, both players in the same room at that moment | never stored; never re-applied after a room change | No |
-| Enemy kills | stage-placed enemies by `setID` | zone actor bits 0x803C53BC+0x4C·z (512 bits); actor `setID` +0x1BC, `home.roomNo` +0x1E2 | live, scoped to (stage, room) | union per (stage, room), dropped when no player is in the stage | No (K1 light-shrink). M7 adds the `isActor` shim and KILL. |
+| Enemy kills | stage-placed enemies by `setID` (keyed ones; unkeyed from M6.1) | zone actor bits 0x803C53BC+0x4C·z (512 bits); actor `setID` +0x1BC, `home.roomNo` +0x1E2 | live when IDLE, scoped to (stage, table, room), into any loaded room's zone | union per (stage, table, room) of the keys the M1 enemy table syncs, dropped when no player is in the stage | No (K1 light-shrink, §7.2). M7 adds the `isActor` shim and KILL. |
 | Per player | `mLife` 0x803C4C0A, `mMagic`, rupees 0x803C4C0C, ammo and picture counts, bottles, bag contents, delivery bag and trade flags, `mSelectItem`, status_b (time, day, wind), `mReturnPlace` 0x803C4C38, `mInfo` (name, deaths, `mClearCount` 0x803C4DA8), config, `mPriest`, `mStatusC` | `dSv_player_c` | never | — | — |
 | Temporary | `mTmp` 0x803C5D60, `mRestart` 0x803C5D30, `mTurnRestart` 0x803C5E60, `mDan.mStageNo` | `dSv_info_c` | never | — | — |
 | Co-op tag | binding tag | `dSv_reserve_c` 0x803C532C (0x50 bytes, saved to card, unused by vanilla code) | owned by Go, per file | — | No |
@@ -194,7 +194,7 @@ C side: unchanged until M7 (coop pump: getSave shim, isActor shim, coop_frame + 
     - the three pending counters,
     - `play.mSelectItem` (0x803CA7DB),
     - the tag,
-    - validated K1 timer bytes.
+    - validated K1 timer bytes and the CARRY byte of the weapon a light-shrunk enemy holds (M6, §7.2).
 
     Anything else is refused and logged. The CI write audit uses the same guard.
   - **Auto-disable.** Co-op turns itself off, and the TUI says why, on any of:
@@ -633,76 +633,77 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
   - item ball,
   - `onSwitch(mDeathSwitch)`.
 
-### 7.2 MVP (M6, Go-only): kill union plus K1 light-shrink
+### 7.2 M6.0 (Go-only): kill union of keyed enemies plus K1 light-shrink, as built
+
+M6 ships in two parts (item 143). **M6.0**, this section, syncs the deaths the game itself records: those of keyed placed enemies, a setID below 0x200 in a room's file. **M6.1**, a later PR, adds placement-matched kills of unkeyed enemies (setID 0xFFFF), which no game records (`d_save.cpp:1671-1674`). Until it lands, every unkeyed enemy stays each player's own: the sea, Savage Labyrinth, KATA_RM, the caves, Hyrule and the rest.
 
 **Identity**
-- Key: (stage name at 0x803C9D3C, `home.roomNo` +0x1E2, `setID` +0x1BC), with setID < 0x200. 0xFFFF is never recorded, and a setID of 0x200-0xFFFE halts the game in `isActor`/`onActor` (Appendix C item 33).
-- Cross-checked against the M1 enemy ACTR table: procName +0x08, `home.pos` +0x1D0, params +0xB0. Keese, Kargaroc, a searchlight Bokoblin (`stand2`), Kalle Demos and Helmaroc King move `home.pos` (Appendix C item 34), so for them it is captured at first sight by process ID.
-- The cross-checks catch layer mismatches: the two players can load different layers (`getLayerNo` 0x80052400).
+- Key: (stage name at 0x803C9D3C, `home.roomNo` +0x1E2, `setID` +0x1BC), with setID < 0x200. 0xFFFF and room -1 are never recorded, and a setID of 0x200-0xFFFE halts the game in `isActor`/`onActor` (Appendix C item 33).
+- A key syncs only if the M1 enemy table says so (`tables.Tables.SyncedKill`, `enemies.Table.KeyedK1`): one of its entries is a K1 class's, Keyed, not BOSS on creation (`Class.IsBoss`), not Morth, and no other enemy on a common layer shares the key (Shared). A key one of whose K1 entries is excluded does not sync: one bit stands for all of them.
+- The light-shrink finds a live enemy by its `home.roomNo` and setID, which `fopAc_Create` copies from the entry before the class's own create runs (`f_op_actor.cpp:270-283`). No `home.pos` cross-check is needed for a keyed actor; the cross-checks for unkeyed ones are M6.1's.
 
 **Detection**
-- Diff the zone actor bits of each live zone; the room is `mZone[z].mRoomNo`. Send SCOPED KILL.
-- For allowlisted classes that never call `onActor` (Kargaroc `bb`, Morth `ks`, and the NonMatching stubs once checked live), use observation instead: last health ≤ 0, or group leaves ENEMY, then the actor disappears while the stage is unchanged and its room is still loaded. The killer's Go then writes **its own** zone bit, so everything flows through one union.
+- The sender diffs every live zone's dead-actor words (`replica.Differ`, as built in M2), the room being the zone's `mRoomNo`, and proposes the rises as SCOPED KILL edges, only those the verdict syncs (`hub.Filter`, as for M5's switches). An echo of a death the receiver's own writer recorded is harmless: the union is idempotent.
+- *Changed:* no observation path. A Kargaroc's own death deletes it without `onActor` (`d_a_bb.cpp:1969-1972`, `:2293-2294`), so it syncs only when it dies on ice or by a Light Arrow, through `enemy_ice` (`c_damagereaction.cpp:159`, `:369`). Morth is no target at all: every placed one is a generator (item 144).
 
-**Store**
-- KILL is kept per (stage, room) while any player is in that stage, and sent to a player when they join or enter the stage.
+**Store** (`hub.Config.SyncedKill`, item 150)
+- KILL is kept per (stage, save table, room) while any player is in that stage, relayed to the partners there, and sent to a player entering it or granted `FeatureCombat` again (`world.Scopes`, `hub.regrant`).
+- The host's hub keeps only the bits its own tables sync; the rest are dropped and counted in `PeerStatus.ScopedRefused`. A nil verdict (a host without tables) keeps none: combat fails closed.
 
-**Apply** (per tick)
-1. OR the bits into the local zone if it exists.
-2. Walk `g_fopAcTg_Queue` (0x80372028):
-   - node = `&actor->actor_tag` (actor + 0xC4), a `create_tag_class` `{prev +0, mpData +4 (= &g_fopAcTg_Queue once queued, c_list.cpp:40), next +8, mpTagData +0xC}`; actor = `*(u32*)(node + 0xC)` (equivalently node − 0xC4);
-   - validate `actor_type` (+0xC0) == `*g_fopAc_type` (0x803F69D0);
-   - stop after 1024 nodes; keep every pointer inside MEM1;
-   - re-validate the actor before any write.
-3. For each live enemy (group +0x1BE == 2, or group 3 for the Morth `ks` class, `d_a_ks.cpp:1788`) whose bit is set, write **1** to `enemyice.mLightShrinkTimer` when all of these hold:
-   - its class is on the allowlist;
-   - `*(actor + eiOff) == actor` (the `enemyice.mpActor` self-pointer, e.g. `d_a_bk.cpp:5270`, `d_a_rd.cpp:1869`);
-   - health (+0x285) > 0;
-   - the timer is 0;
-   - BOSS status (`actor_status` +0x1C4 & 0x04000000) is clear;
-   - `eventInfo.mCommand` (+0xF8) == 0;
-   - the global IDLE gate is open.
-4. **Preludes**, written first:
-   - Bokoblin: if +0xB30 != 0, write +0xB34 = 2.
-   - Moblin: if +0xDD4 != 0, write +0xDD5 = 2.
-   - Stalfos: clear CARRY on the held weapon at +0x1DCC.
+**Apply** (`replica/reconcile_m6.go`), each tick after the scoped path's writes:
+1. **Zones** (`FrameWriter.ApplyKills`, the kill path). For each room with a partner's store in Link's stage and table, the bits the store has, the verdict syncs and the zone lacks are ORed into the zone of that room, one byte at a time. The room may be any loaded room, Link's or a neighbour's, hidden or shown: writing a hidden neighbour's zone is what keeps its dead enemies from being created when a door shows it (`dStage_actorInit`'s `isActor`, `d_stage.cpp:1693`). The room must be loaded and settled: `mStatus[room].mFlags` (0x803BDC88 + 0x114·room + 0x104) has 0x01 set and 0x02/0x04 clear (`d_stage.cpp:214-240`), and its zone slot and `mRoomNo` name each other (§3.1). All of this is read again after the heartbeat, before each byte (`killHolds`). The next tick verifies each byte, unless the slot moved.
+2. **Live enemies** (`FrameWriter.ApplyActors`, the light-shrink), only when some store bit is a synced key of a loaded room. The receiver walks `g_fopAcTg_Queue` (`internal/coop/actors`, item 152) and targets each actor whose (`home.roomNo`, setID) bit is in the **partner's store** and the verdict, and that passes every gate below. It never asks its own zone: a ReDead this game is killing records its death on every frame for about ten seconds before it goes (`d_a_rd.cpp:836-853`; item 147).
+   - Each target is read again just before its write (`actors.Revalidate`): the node still queued, the same process ID, proc, setID and room, every gate, and the home room's zone. An actor freed and its block reused is held, not written. So is a carrier whose weapon changed hands since the walk: one planned with a weapon must still hold it, and one planned with none must not have taken one up (item 156).
+   - The **timer first**: one byte, 1, at `enemyice.mLightShrinkTimer` (an s8 at enemyice +6, `c_damagereaction.h:16`), read back. Only a timer that reads back nonzero lets the carrier's weapon go: CARRY cleared on the BOKO the carrier holds (item 148). "Holds" is read from both sides, never from the weapon field alone, which keeps a stale process ID after the weapon is lost: the BOKO's `mNowMode` (+0x2B8, `d_a_boko.h:128`) is `Mode_ENEMY_CARRY_e`, not Link's `Mode_PLAYER_CARRY_e`, and the carrier's own record says it holds one (a Bokoblin's `m0B30` ≠ 0, a Stalfos's `m1DD0` ≥ 2). A carrier whose record says it holds a weapon the BOKO does not yet agree with waits (item 156).
+   - An actor written is never written again (by process ID, which the game never reuses, `f_pc_base.cpp:36-40`), except across a save-state load, which rewinds the heap and the process counter: the receiver then forgets what it shrank (item 158).
+3. **Verify** on the next tick: a light-shrunk actor still queued under its process ID must read a nonzero timer. One gone, or counting, is fine.
 
-**K1 offsets** (enemyice member + 6; from the `include/d/actor/d_a_*.h` headers):
+The receiver also keeps its copy of a store only while Link is in the game, in the store's stage and table (`pruneScoped`), as for M5's dan and zone stores: off the game (a stage load's frames with no Link, the title) the hub places it nowhere and may drop the store, and a copy kept then would be ORed into the zones a reload of the same stage wiped (item 157). The tick's plan works on its own copy of the store's words, so the WriteGuard judges by the plan, never by bits that arrived after it (item 159). An old host hub relays KILL unfiltered (Appendix C item 113); the receiver applies its own tables' verdict anyway.
 
-| Class | proc | Timer offset | Status |
-|---|---|---|---|
-| Bokoblin `bk` | 0xBE | +0x126A | matching |
-| Moblin `mo2` | 0xBD | +0x2A5A | matching |
-| Stalfos `st` | 0xBF | +0x1FAE | matching |
-| ReDead `rd` | 0xE1 | +0x6E6 | matching |
-| ChuChu `cc` | 0xCF | +0x822 | matching |
-| Keese `ki` | 0xD8 | +0x92A | matching |
-| Armos Knight `am` | 0xCB | +0xAC2 | matching |
-| Armos `am2` | 0xCC | +0xA92 | matching |
-| Kargaroc `bb` | 0xB6 | +0xC86 | matching |
-| Floormaster `fm` | 0x79 | +0xAEE | matching |
-| Morth `ks` | 0xCE | +0x6AE | matching; group ENV |
-| Darknut `tn` | 0xC0 | +0x152A | matches D44J01 only; live check first |
-| Peahat `ph` | 0xD2 | +0x99E | NonMatching; live check first |
-| Miniblin `pt` | 0xF9 | +0x7EA | NonMatching; live check first |
-| Poe `pw` | 0xD5 | +0x88A | NonMatching; live check first |
-| Boko Baba `bo` | 0xD7 | +0xA02 | NonMatching; live check first |
+**Gates** (all read again after the heartbeat)
+- Global: STABLE, IDLE, HEARTBEAT and ARMED (`gate.CanWriteIdle`); the stage, table and file unchanged since the tick (`recheck`, `recheckIdle`).
+- Link's `mDemo.mDemoType` (daPy_py_c +0x304, a u16, `d_a_player.h:499`, `:153`) is 0. The offset was read live in K1 (0 at idle, 2 during a stage-entry event), so `actors.DemoTypeVerified` is true (item 146). With it false the gate fails closed: every light-shrink is held, logged and counted as `link demo unverified`. Zone writes never wait for it.
+- Per actor (`actors.Eligible`): a K1 class, verified (`enemies.Class.K1Verified`); `mInitState` 2 (`f_pc_executor.cpp:31`, `:49`); group 2; a setID the game takes; the `enemyice.mpActor` self-pointer; its `mMode` 1 and freeze timer 0 (not frozen, `enemy_ice` has run); the timer 0; health above 0; neither BOSS nor CARRY status; `eventInfo.mCommand` 0; a ReDead not in `MODE_ATTACK` (7, its grab) or `MODE_SW_WAIT` (0xA, which runs no `enemy_ice`, `d_a_rd.cpp:1621-1630`); a Floormaster not in its grab or Link's start demo (modes 13-17, `mode_tbl`, `d_a_fm.cpp:2306-2420`); its home room's zone exists (`onActor` asserts it, `d_save.cpp:1678-1679`); not written before.
 
-The proc numbers are from the research briefs. M1 checked them against the GZLE01 `fpcNm` enum (`f_pc_name.h`); all 16 match, as do the timer offsets.
+**K1 offsets** (enemyice member + 6; from the `include/d/actor/d_a_*.h` headers)
+
+| Class | proc | Timer offset | Weapon (process ID field) | M6.0 |
+|---|---|---|---|---|
+| Bokoblin `bk` | 0xBE | +0x126A | +0x1200 `m1200` (`d_a_bk.h:112`), held while `m0B30` (+0xB30, `d_a_bk.h:74`) ≠ 0 | synced; seen live (item 141) |
+| Moblin `mo2` | 0xBD | +0x2A5A | none: the spear is in the model | synced; seen live (item 141) |
+| Stalfos `st` | 0xBF | +0x1FAE | +0x1DCC `mHeldWeaponEntityId` (`d_a_st.h:103`), held while `m1DD0` (+0x1DD0, `d_a_st.h:104`) ≥ 2 | synced |
+| ReDead `rd` | 0xE1 | +0x6E6 | — | synced |
+| ChuChu `cc` | 0xCF | +0x822 | — | synced; seen live (item 141) |
+| Keese `ki` | 0xD8 | +0x92A | — | synced |
+| Armos Knight `am` | 0xCB | +0xAC2 | — | synced |
+| Armos `am2` | 0xCC | +0xA92 | — | synced |
+| Kargaroc `bb` | 0xB6 | +0xC86 | — | synced; recorded only on ice or by a Light Arrow |
+| Floormaster `fm` | 0x79 | +0xAEE | — | synced |
+| Morth `ks` | 0xCE | +0x6AE | — | never: every placed one is a generator |
+| Darknut `tn` | 0xC0 | +0x152A | +0x1410 `mBokoPcId` (`d_a_tn.h:122`, D44J01 layout, seen live) | synced; verified live in K1 (item 141) |
+| Peahat `ph` | 0xD2 | +0x99E | — | synced; verified live in K1 (item 141) |
+| Miniblin `pt` | 0xF9 | +0x7EA | — | synced; verified live in K1 (item 141) |
+| Poe `pw` | 0xD5 | +0x88A | — | synced; verified live in K1 (item 141) |
+| Boko Baba `bo` | 0xD7 | +0xA02 | — | synced; verified live in K1 (item 141) |
+
+The proc numbers match the GZLE01 `fpcNm` enum (`f_pc_name.h`), as M1 checked. *Corrected (item 142):* the Bokoblin prelude +0xB34 and the Moblin prelude +0xDD5 this section named do nothing once the timer is set, since their `yari_off_check` runs after `enemy_ice`'s early return (`d_a_bk.cpp:4159-4169` against `:4420`; `d_a_mo2.cpp:3380-3388` against `:3570`). The Stalfos's +0x1DCC is its weapon's process ID, not a flag.
 
 **Exclusions**
-- Bosses and mini-bosses: BOSS status, plus the proc denylist bdk, bmd, bwd, bst, btd, bgn*, gnd, bpw, fganon, daiocta, and the gm (Mothula) and wz mini-boss variants. Ordinary Mothulas and Wizzrobes stay eligible for the M7 KILL op.
-- setID 0xFFFF and stage-level actors (room -1).
-- A ReDead while its grab event runs (`d_a_rd.cpp:1081-1160`).
-- Boss outcomes travel through `STAGE_BOSS_ENEMY` and the switches instead.
+- Bosses and mini-bosses: no boss proc is a K1 class (Phantom Ganon and Big Octo never get BOSS status, item 36), and BOSS status on creation keeps an entry out of the verdict and an actor out of the gates. A Bokoblin of type 0xA stops its mini-boss music only by its own death (`d_a_bk.cpp:2639`).
+- Morth; setID 0xFFFF and stage-level actors (room -1); Shared keys. A K1 class not verified would get its zone bits and no light-shrink; since K1 every class with an enemyice is verified.
+- A keyed Stalfos killed after it splits: vanilla does not record that death either (`d_a_st.cpp:1676-1684`, `:2551-2566`).
 
 **Consequences**
-- Room-clear logic (ALLdie, genocide chests, kill-all bars) polls for living enemies (`fopAcM_myRoomSearchEnemy`, `f_op_actor_mng.cpp:1271-1294`), so it fires on the receiver by itself.
-- The room-clear switch is also synced (§6.2), which covers unkeyed spawns.
-- Each player gets their own random item drop.
-- **Known MVP artefact:** entering a room the partner cleared shows keyed enemies spawn and then shrink. M7 removes this.
+- Room-clear logic asks for the first living enemy of the room (`fopAcM_myRoomSearchEnemy`, `f_op_actor_mng.cpp:1272-1294`, which returns an actor or NULL; item 151). In a room whose every enemy-group entry, of any class, is a synced key of a verified class that records its own death, B's room clears by itself once A's kills reach it, and a room-clear switch (ALLdie, `d_a_alldie.cpp:28-47`) still syncs through M5, as the owner saw (item 141). "All keyed" in the coverage counts K1 entries only, so it is not that: of the owner disc's 68 all-keyed rooms, 48 clear on B by themselves; the other 20 also hold enemies of non-K1 classes (Wizzrobes, Bubbles, OQ, Dexivines and others), a BOSS Moblin, or a Kargaroc, whose own death is never recorded (item 160). Morth, in the ENV group, never blocks a room-clear (`enemySearchJugge`, `f_op_actor_mng.cpp:1275`).
+- **Known blocker for B in the 14 mixed rooms, and in any room with enemies M6.0 does not remove** (non-K1 classes, Kargarocs killed normally; owner disc): room-clear code that waits for an empty room and sets no switch (`d_a_tbox.cpp:1036`, `d_a_mdoor.cpp:277`, `d_a_shutter2.cpp:51`, `d_a_lstair.cpp:102`, `d_a_kddoor.cpp:133`, `d_a_door10.cpp:140`, `d_a_door12.cpp:162`, `d_a_mbdoor.cpp:436`, `d_a_fire.cpp:368`) stays shut on B until B kills those enemies itself, or M6.1 (unkeyed enemies) lands.
+- The light-shrink runs the class's generic death: each player gets its own item drop, and the death switch is set on both (inferred). It skips each class's own bookkeeping: a Floormaster's grab (its ice code cancels it, `d_a_fm.cpp:716-722`), an Armos Knight's swallowed bomb, a Miniblin's respawn flags.
+- **Known artefact:** a room's actors created before the store's bits are written (B entering the stage after A's kill) spawn and then shrink. M7's `isActor` shim removes it.
+- Coverage on the owner's disc (`coop-tables`, tables schema 4, item 153): 1403 K1 entries not BOSS; 333 (23.7%) keyed: 324 sync, 9 Kargaroc only by ice or light arrow, 0 Morth never live; 1070 (76.3%) unkeyed stay per player until M6.1. Of the 237 rooms with K1 enemies, 68 are all keyed (48 of them clear on B), 14 mixed and 155 have none keyed. The developer test stages on save table 15 are left out (Appendix C item 137); the three keyed Morths were all in them.
 
 ### 7.3 Later
+
+**M6.1 (Go)**
+- Placement-matched kills of unkeyed enemies (setID 0xFFFF), while both players are in the same stage, table and room: a new SCOPED kind behind its own feature bit (so a mixed-version pair keeps everything else), a death detector over the actor walk with per-class signatures, each enabled once the owner's live check confirms it, and the same light-shrink applier (item 143).
 
 **M7 (C)**
 - The `isActor` call-site shim with stage-keyed dead tables, so partner-killed enemies never spawn. Entries of the 0x24-byte chunks are not dead-checked and still respawn (Appendix C item 32).
@@ -766,7 +767,7 @@ Run `mp-local` in the background.
 **Fixtures.** Go-only milestones never invalidate save states. The owner captures each of these once with Shift+F1:
 - F1 `saves/start.sav` (exists).
 - F2 the first room of Dragon Roost Cavern, with a small-key chest reachable, on both cards.
-- F3 an enemy room with Bokoblins and ChuChus.
+- F3 an enemy room with Bokoblins and ChuChus: TF_06 rooms 2-5 (ChuChu, Bokoblin, Keese, Mothula), unkeyed, which test the light-shrink through `enemy-kill` (§8.2 K1).
 - F4 a heart-piece location.
 - F5 a puzzle room with an un-timed crystal and a barred door.
 
@@ -957,6 +958,63 @@ Acceptance:
 
 Last: run Z1 again with `--coop --coop-dry-run`. B's `/status` says `room puzzles: none in a dry run, …`, B's log sets nothing, and `zone-dump` on B is unchanged. Run `host`, `join` and `mp-local` once without `--coop`: they behave exactly as before, except `mp-local`'s startup shift, which now moves Dolphin B's Link only when the two Links overlap and logs why when it does not (item 130).
 
+**Running M6.0 (kill union).** `--coop` now also writes a partner's recorded deaths of keyed K1 enemies into this game's zones while either player is in the stage, and light-shrinks the live enemy (§7.2). Unkeyed enemies stay each player's own until M6.1. `--coop-dry-run` is still M2's dry run, with no combat. K1-K10 are M6.0's acceptance items (item 154). K1's offsets and Link's demo offset passed on the owner's machine on 2026-10-15 (below, item 141), so this build light-shrinks every K1 class and K2-K10 can run.
+
+Before the steps:
+1. Have the stage tables loaded as for M3 (M3 step 1). Each side's first lines then include:
+   - `co-op: combat this session: a partner's kills of keyed enemies (<k> in <s> stage(s), K1 classes, no bosses) are recorded in this game and light-shrink the live enemy while both are in the same stage; <u> unkeyed enemies (the sea, Savage Labyrinth, KATA_RM, caves, Hyrule and the rest) are not shared yet: each player fights their own.`
+   - No `co-op: combat: … waits for the live check …` line: it shows only while Link's demo offset or a class is unverified, and since K1 none is.
+   - Without tables, the warning `co-op: combat is off this session: …` instead.
+   - `coop-tables <iso>` shows `INFO  M6 kill coverage  K1 classes not BOSS: 1403 entries; 333 (23.7%) keyed: 324 sync, …`, and `--section enemies` ends with the coverage by class and by stage.
+2. Pick the rooms. F3 is TF_06 rooms 2-5 (ChuChu, Bokoblin, Keese, Mothula). They are unkeyed, so they test only the light-shrink itself, through `enemy-kill` (K1), never the kill union. For the union, use keyed rooms of `M_Dai`, `kaze` and `kindan` (the stages with the most keyed entries, `coop-tables --section enemies`), and for the classes' live checks:
+
+| Class | Keyed rooms |
+|---|---|
+| Darknut (TN) | kaze r8, M_Dai r17 |
+| Peahat (PH) | Cave08 r2, kaze r2 |
+| Miniblin (PT) | GanonN r0 |
+| Poe (PW) | M_Dai r13 / r7 |
+| Boko Baba (BO) | kindan r3 / r14 |
+| Kargaroc (BB) | I_SubAN r9 |
+| keyed Bokoblin and ChuChu | I_SubAN r11 |
+
+3. Start `mp-local --coop` with both files bound (M2 steps 1-2; M4 step 2 for one file on both cards).
+   - Once the host grants combat, each pipeline logs `co-op: combat: written to this game when idle: the partner's kills of keyed enemies (into each loaded room's zone, so they stay dead), and a live one of them light-shrinks; unkeyed enemies stay each player's own`. Otherwise `co-op: a partner's kills are not written to this game: …` says why.
+4. `/status` adds a line per player: `combat: on; <n> partner kill bit(s) held for <stage> (table <t>); <n> written to zones, <n> light-shrunk, <n> held (<last reason>, link demo <n>), <n> refused, <n> verify failures`. On the host it also prints `co-op: host: combat allowed; <n> kill store(s) held` and each player's grant.
+5. Take each screenshot as `WW_DOLPHIN_INDEX=<n> ./ww-multiplayer.exe screenshot shots/m6-<item>-<before|after>.png` and read each pair by eye. A readback alone accepts nothing visual.
+
+Acceptance:
+- **K1 Offsets, class behaviour and Link's demo (single Dolphin). Done on the owner's machine, 2026-10-15 (item 141; screenshots in `shots/`).**
+  - One byte, 0x01, at each class's timer offset light-shrank and deleted it, and the game did not halt:
+    - ChuChu +0x822 (TF_06 r2); a u16 write of 0x0001 there did nothing, as the timer is an s8;
+    - Miniblin +0x7EA (SubD71 r0): the timer ran to 49, then it was deleted and dropped a rupee;
+    - Poe +0x88A (SubD71 r1): the timer ran to 86, then it burst and dropped a heart;
+    - Boko Baba +0xA02 (kindan r1): the timer ran to 89, then it was deleted;
+    - Peahat +0x99E (kaze r2, keyed set 2): deleted, and its zone recorded actor 2 dead (`enemy_ice`'s `onActor`);
+    - Bokoblin +0x126A (TF_06 r3, three of them);
+    - Moblin +0x2A5A (`M_Dai` r1, keyed 0-2): the zone recorded 0, 1 and 2 dead, then the room's ALLdie set memory switch 0x03.
+  - Darknut +0x152A: with raw writes its sword (proc 0x1D5, BOKO) stayed floating. With this build's `enemy-kill 2917 6 --unverified --yes` on a `kaze` r8 Darknut (keyed set 0), the timer climbed to 91, the actor was gone, `room 8's zone slot 0 records setID 0 dead: true`, and its sword's CARRY was cleared and the sword fell to the floor (`shots/m6-tn-after.png`). So its `mBokoPcId` (+0x1410) is verified too.
+  - `peek-demo`: Link's `mDemo.mDemoType` (+0x304) read 0 at idle, 2 during a stage-entry event (Cave02 to `M_NewD2`) and 0 again after it. The offset is verified.
+  - So `K1Verified` is set for TN, PH, PT, PW and BO (`internal/coop/tables/enemies/classes.go`), the Darknut's weapon field is verified (`actors`), and `actors.DemoTypeVerified` is true.
+  - `enemy-kill` and `peek-demo` first printed `Unknown command`: main's dispatch did not list them. It does now, and `TestCoopDiagDispatched` checks that main sends every co-op diagnostic to `runCoopDiag`.
+  - Still open for the owner, under K7: `peek-demo 60` reading nonzero during a Floormaster's grab, a ReDead's grab and the Forsaken Fortress Moblin's holdup (`d_a_mo2.cpp:2829-2830`). Also worth watching in K2-K10: a Peahat flying, a Miniblin that respawns (the respawn must be the game's own, `pt.rel` .text 0x3F08-0x3F40), a Poe invisible and possessing, and a Boko Baba of type 0 only (children never run the timer).
+  - While at it, `coop-watch` during each class's normal kills records its death signature, M6.1's input.
+- **K2 A keyed kill in the same room.** Both in a keyed room (I_SubAN r11). A kills a keyed Bokoblin.
+  - B's log says `co-op: combat: wrote … byte(s) after heartbeat …`, `set the partner's dead setID <n> in room <r> (zone slot <z>) …` and `light-shrunk the partner's kill: actor …, its weapon let go`. B's Bokoblin shrinks, and its spear lies on the ground.
+  - Pairs: B's Bokoblin before, mid-shrink and after; the spear.
+  - On B, knock another keyed Bokoblin's spear out of its hands and pick the spear up; then A kills that Bokoblin. B's Bokoblin shrinks, B's log says `light-shrunk the partner's kill: actor …` without `its weapon let go`, and the spear stays in B's Link's hands (item 156). Pair: B holding the spear before and after.
+- **K3 A hidden neighbour.** B stands in a room next to A's, the door between them closed. A kills a keyed enemy of its own room.
+  - `zone-dump` on B shows the bit in the slot of A's room. When B opens the door, the enemy is not there (or, if B's game created it before the bit came, it spawns and shrinks: record which).
+- **K4 Another stage, then entry.** B at sea while A kills in a dungeon: nothing on B. B enters the dungeon: the hub sends the store, the bit is written, and the enemy spawns and shrinks (§7.2's artefact).
+- **K5 Unkeyed enemies stay each player's own.** A kills an unkeyed enemy (TF_06): nothing on B, and the host's refusal count stays 0.
+- **K6 Bosses and BOSS status untouched.** A kills a mini-boss Bokoblin (type 0xA) or a boss: B's stays, and no KILL carries it.
+- **K7 Holds.** With B's pause menu open, during B's NPC talk, and while a Floormaster or ReDead holds B's Link, A's kill is held (`/status` names the reason), then applied once it ends. B's Link is never stuck. Run `peek-demo 60` on B through the grabs (and the Forsaken Fortress Moblin's holdup): it must read nonzero while they hold Link, the case K1 did not see.
+- **K8 Kargaroc.** A kills a keyed Kargaroc normally: nothing on B. A kills one with a Light Arrow or on ice: B's shrinks.
+- **K9 A room that clears on B.** A clears every enemy of `M_Dai` r1 (three Moblins), r7 (two Poes and two Moblins) or r8 (three ReDeads), the owner disc's only rooms with an ALLdie whose every enemy M6.0 removes on B (item 160): B's ALLDIE fires on its own (its room is empty), and the switch also arrives through M5 (Z2). K1 already saw r1's half of it on one Dolphin: the three Moblins light-shrunk, then the ALLdie set memory switch 0x03.
+- **K10 A storm.** B runs through doors and loading zones while A kills: `/status` keeps `0 verify failures`, `zone-dump` shows co-op's bits only in the slots of the rooms they belong to, and the game never halts.
+
+Last: run K2 again with `--coop --coop-dry-run`: B's `/status` says `combat: none in a dry run, …` and nothing is written. Run `host`, `join` and `mp-local` once without `--coop`: they behave exactly as before, except `mp-local`'s startup shift (item 130).
+
 ### 8.3 Day-0 read-only probes (runnable now with today's binary)
 ```
 WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803C9D3C 12   # stage name ("sea\0..."), point s16, room, layer
@@ -994,7 +1052,8 @@ WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803F773C 4    # JKRHeap::mCodeEnd
 | M3 Shared world flags | v0.5.0 | no | cloud; owner acceptance |
 | M4 Shared progression and save merge | v0.6.0 | no | cloud; owner acceptance |
 | M5 Live room puzzles | v0.7.0 | no | cloud; owner acceptance |
-| M6 Combat sync v1 | v0.8.0 | no | cloud; owner acceptance |
+| M6.0 Combat sync v1: keyed kills and the K1 light-shrink | v0.8.0 | no | cloud; owner acceptance |
+| M6.1 Placement-matched kills of unkeyed enemies | v0.8.x | no | cloud; owner acceptance |
 | M7 C co-op pump | v0.9.0 | **yes** | C build, recapture and acceptance on owner; Go and invariants in cloud |
 | M8 v1.0 release hardening | v1.0.0 | no | both |
 | M9 (post-1.0) Create-only refresh, chest-claim arbitration | v1.1 | yes | owner |
@@ -1014,7 +1073,8 @@ The structured milestone list gives scope and acceptance for each one. The summa
 - **M3.** The first release that writes game data. memBit OR classes, latching memory switches (deferred for the current table), ocean and charts. FrameWriter, WriteGuard, verify, auto-disable. Refresh area and warp.
 - **M4.** Inventory union with ordered grants; derived keys, hearts and magic; story bits applied on transition, with holds; the register allowlist; `--coop-merge`; offline `save-diff`/`save-merge`.
 - **M5.** Dan and zone sync for co-present players; room-edge relay. As built: §6.3 and items 113-120.
-- **M6.** Kill union and the K1 applier.
+- **M6.0.** Kill union of keyed enemies and the K1 applier. As built: §7.2, §8.2 and items 141-155.
+- **M6.1.** Placement-matched kills of unkeyed enemies, on M6.0's actor walk, re-read and fake actors, behind its own feature bit.
 - **M7.** Make room; the getSave shim; the isActor shim; `coop_frame` live OR and the op ring. Go switches to image and ops. A spot check for `/warp`, so it can land beside the partner (a roof and ground check of B's collision at the spot, item 132).
 - **M8.** TUI co-op panel, soak tests, docs, release.
 
@@ -1065,7 +1125,7 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 
 **Epic E5: Live puzzles and combat**
 22. **coop: dan and zone switch sync for co-present players.** Scoped by stage (dan) and by stage plus room (zone), using the latching table. 0xE0-0xEF are relayed live only and never stored.
-23. **coop: kill union and the K1 light-shrink applier.** Zone actor-bit diffs, a scoped KILL store, and the self-pointer, health, event and boss gates. Includes an `enemy-kill <procID>` debug command.
+23. **coop: kill union and the K1 light-shrink applier.** Zone actor-bit diffs, a scoped KILL store, and the self-pointer, health, event and boss gates. Includes an `enemy-kill <procID>` debug command and `peek-demo` (M6.0, items 141-155).
 24. **coop: fixture save states and the combat/puzzle checklist.** Document F2-F5 and script screenshot pairs for each acceptance item.
 
 **Epic E6: C co-op pump**
@@ -1945,3 +2005,65 @@ Also needed from the owner, and not a decision: capture the fixture save states 
       - `TestCoopSessionM4` gives both games DRC's four key doors. Its script now opens door 0x10 with the players' only key from the door's front room, as on the owner's run: B keeps its key, and the door its lock, after the room change that brings the switch, and both go at the next one. Every step it fails a player whose door stays shut to it with no key for more than 30 ticks (`coStuck`). On origin/main it fails there with `door 0x10 shows its lock over its set switch next to Link, with no key to open it`. Its random play opens a door next to Link through its actor, and treats a held door as a door that still waits.
       - In `derive`, `TestPhantomFreeCoupling`, `TestDoorOpenedRemotely` and `TestUnknownKey` now change room before the door's key goes. `TestHeldDoor` covers the releases and the doors never held, and "a late counter" a -1 a stalled game takes after `DefaultInFlight` while a door is held (the door stays held, and no second -1 follows), and `TestStatus` the `/status` line. `FuzzDeriver` adds co-op's live writes and room changes, and checks that every held door is an open one.
 140. **Item 6's account of key doors was wrong (corrects item 6).** A key door does not go back to `actionInit` "every frame the local Link is not adjacent": `adjoinPlayer` is room display, not distance (`d_door.cpp:63-75`). It goes back on the frame Link's room changes, and while Link is in neither of its rooms or neither room is shown (`checkExecute`, `d_door.cpp:155-171`). So a door of Link's room keeps its lock while he stays in that room. Item 6's conclusion stands: keys are derived from the receiver's own applied flags. Since item 139, a switch co-op wrote into the live copy counts only from the receiver's next room change.
+
+*M6.0: the kill union of keyed enemies and the K1 light-shrink (§7.2, §8.2)*
+
+141. **The light-shrink, seen live (found on the owner's machine, main 506d861).** One byte, 0x01, written at actor +0x822 of three ChuChus of TF_06 room 2 (enemyice +0x81C, plus 6: the s8 `mLightShrinkTimer`) shrank and deleted each. A 16-bit write of 0x0001 at +0x822 did nothing: it puts the 1 in the pad byte at +0x823 and 0 in the timer. The room's ALLDIE then set dan switch 0x95 65 frames later, and M5 wrote it to B (`set the partner's dan switch 0x95`). So the ChuChu is verified (`enemies.Class.K1Verified`), and every timer write is one byte (`FrameWriter.ApplyActors`, `WriteGuard.checkActor`).
+    - **K1 on the owner's machine, 2026-10-15.** The same one-byte write light-shrank and deleted a Miniblin at +0x7EA (SubD71 r0: the timer to 49, then a rupee drop), a Poe at +0x88A (SubD71 r1: the timer to 86, then it burst and dropped a heart), a Boko Baba at +0xA02 (kindan r1: the timer to 89), a Peahat at +0x99E (kaze r2, keyed set 2: its zone recorded actor 2 dead, through `enemy_ice`'s `onActor`), three Bokoblins at +0x126A (TF_06 r3) and three Moblins at +0x2A5A (`M_Dai` r1, keyed 0-2: the zone recorded 0, 1 and 2, then the room's ALLdie set memory switch 0x03).
+    - The Darknut at +0x152A: raw writes deleted it but left its sword (proc 0x1D5, BOKO) floating with CARRY set. This build's `enemy-kill 2917 6 --unverified --yes` on a `kaze` r8 Darknut (keyed set 0) went through the receiver's path: the timer climbed to 91, the actor went, `room 8's zone slot 0 records setID 0 dead: true`, and its sword's CARRY was cleared and the sword fell to the floor (`shots/m6-tn-after.png`). So its `mBokoPcId` (+0x1410) names the sword in GZLE01 too.
+    - `peek-demo` read Link's `mDemo.mDemoType` (+0x304) 0 at idle, 2 during a stage-entry event (Cave02 to `M_NewD2`), then 0 again (item 146).
+    - So `K1Verified` is set for TN, PH, PT, PW and BO, the Darknut's weapon field is verified (`actors.Class.WeaponVerified`), and `actors.DemoTypeVerified` is true, each with a comment citing this check. Every K1 class with an enemyice is now verified: the coverage has no "after live checks" part and the startup line no wait. Kargaroc and Morth keep their rules (ice-only death; never a target). The unverified path stays for a class added later, and tests keep it covered by making a class unverified (`actors.SetVerified`).
+    - The check found that main's dispatch did not list `enemy-kill` and `peek-demo`, so both printed `Unknown command`. They are listed now, and `TestCoopDiagDispatched` parses `main.go` and checks that the case calling `runCoopDiag` names exactly `coopDiagUsage`'s keys.
+142. **§7.2's K1 details, corrected against the decomp.**
+    - The timer is an s8 at enemyice +6: `c_damagereaction.h:16` (§7.2 cited :12-16; :15 is `mFreezeDuration`), with a pad byte at +7 (:17).
+    - The Bokoblin prelude (+0xB30, +0xB34 = 2) and the Moblin one (+0xDD4, +0xDD5 = 2) do nothing once the timer is set: both classes run `yari_off_check` after `enemy_ice`'s early return (`d_a_bk.cpp:4159-4169` against `:4420`; `d_a_mo2.cpp:3380-3388` against `:3570`). A Bokoblin holds its BOKO with CARRY set (`fopAcM_setCarryNow`, `d_a_bk.cpp:4220-4224`) and keeps its process ID in `m1200` (`d_a_bk.h:112`), so M6 clears CARRY on that weapon instead. The Moblin's spear is in its model: no prelude.
+    - The Stalfos's +0x1DCC is `mHeldWeaponEntityId` (`d_a_st.h:103`), not a flag; its own light-arrow hit cancels the weapon's carry (`d_a_st.cpp:1570-1577`), which M6 does the same way.
+    - The Darknut's weapon field (`mBokoPcId`, +0x1410, `d_a_tn.h:122`) is the D44J01 layout, so it was unverified with the class until K1 saw it name the sword (item 141).
+143. **Keyed now, placement later (a decision; corrects §7.2's scope).** M6.0 syncs only keyed deaths: what the game records, with no protocol change (`wire.Schema` 1, `network.ProtocolVersion` 2 and `tables.SchemaVersion` 4 unchanged; the kill index is built in memory and kept out of the cache's JSON). On the owner's disc (tables schema 4) that is 333 of the 1403 K1 entries not BOSS (23.7%). Of the 237 rooms with K1 enemies, 68 have every K1 entry keyed, but "all keyed" counts K1 entries only: 48 of them hold nothing but enemies M6.0 removes on B, so only those can be emptied for B (item 160). Unkeyed enemies, 76%, all of the sea, Savage Labyrinth and the caves among them, stay each player's own until M6.1, a second PR that matches them by placement behind its own feature bit. `FeatureCombat` was already a table feature (`hub/features.go:39`, `:134`), so a grant implies equal tables.
+144. **No observation path in M6.0 (corrects §7.2's "Detection").**
+    - A Kargaroc's own death deletes it without `onActor` (`d_a_bb.cpp:1969-1972`, `:2293-2294`), so it syncs only when it dies on ice or by a Light Arrow (`enemy_ice`, `c_damagereaction.cpp:159`, `:369`). That is a documented gap (K8).
+    - Morth is off the allowlist: every placed one is a generator, types 0/1 spawning children and returning `cPhs_ERROR` (`d_a_ks.cpp:1582-1610`), type 6 spawning them and deleting itself (`:1219-1283`). Its children have setID 0xFFFF.
+    - A keyed Stalfos killed after it splits is not recorded by vanilla either: the upper body it spawns has setID 0xFFFF, and the placed lower body deletes itself without `onActor` (`d_a_st.cpp:1676-1684`, `:2551-2566`).
+145. **The gates M6 adds (§7.2).**
+    - `mInitState` 2 (base_process_class +0xC): `fpcEx_Execute` runs a process only in that state and when it is not paused (`f_pc_executor.cpp:31`); the state is set once the process is in its layer's and line's execute queues (`fpcEx_ToLineQ`, `:49`), and 3 means it is leaving them (`:65`, `f_pc_deletor.cpp:89`). An actor is queued in `g_fopAcTg_Queue` before its class's create runs (`f_op_actor.cpp:259-263`), so the walk sees actors still creating.
+    - `enemyice.mMode` 1 and its freeze timer 0: mode 0 means `enemy_ice` has not run (it sets the shrink's scales, `c_damagereaction.cpp:178-198`), 2-3 frozen.
+    - Neither CARRY (Link holds it) nor BOSS status; `eventInfo.mCommand` 0.
+    - A ReDead neither holding Link (`MODE_ATTACK`) nor waiting on its switch (`MODE_SW_WAIT`, whose `_execute` returns before `enemy_ice`, `d_a_rd.cpp:1621-1630`); a Floormaster in none of modes 13-17, its grabs and Link's start demo (`mode_tbl`, `d_a_fm.cpp:2306-2420`).
+    - Health above 0. A ReDead's own death sets its group to ENV and calls `onActor` on every frame once its death animation has ended, then counts 300 frames before it deletes itself (`d_a_rd.cpp:836` sets the timer in `modeDeathInit`, `:840-854` is `modeDeath`); this game's zone bit says nothing of whether the partner killed it (item 147).
+    - The home room's zone exists and its slot names it back: `onActor` asserts the zone (`d_save.cpp:1678-1679`), so a shrink that ends after the zone went would halt the game. It is checked as the target is planned and again just before the write (`actors.Revalidate`), and the fake game fails any `onActor` with no zone.
+146. **Link's demo gate fails closed until verified.** `mDemo.mDemoType` is a u16 at daPy_py_c +0x304 (`d_a_player.h:499`; `daPy_demo_c` +0, `:153`), an offset of the decomp's struct layout, first read live in K1 (item 141: 0 at idle, 2 during a stage-entry event). It must read 0 in normal play and nonzero while a Floormaster or ReDead holds Link and during the Forsaken Fortress Moblin's holdup, which the Moblin sets on Link directly (`changeOriginalDemo` and `changeDemoMode(DEMO_HOLDUP_e)`, `d_a_mo2.cpp:2829-2830`; `d_a_player.h:517-523`) while also ordering an OTHER-type event until it is accepted (`d_a_mo2.cpp:1814`, `:2017`, `:2048`, `:3405-3411`). With `actors.DemoTypeVerified` false, every light-shrink is held as `link demo unverified`, counted in `/status`, and the zone writes go on; K1 set it true. A grab or the holdup reading nonzero is left to K7. `peek-demo` reads it.
+147. **Only the partner's store is asked.** The light-shrink targets an enemy whose key is in the store the hub relayed, never one whose bit this game's own zone has: that bit may be this game's own enemy dying (item 145). The hub relays a SCOPED to every player in the scope but its sender (`world.Scopes.Apply`), and sends a player entering a stage what is stored there; the store then holds what either player recorded, which is the union §7.2 wants.
+148. **The weapon goes after the timer.** The timer is written first and read back, and only a nonzero read lets the weapon's CARRY go (`WriteGuard.checkActor`'s (W) needs the carrier's (T) of the same tick, `noteShrunk`). Once the timer is set the carrier's execute returns before the code that keeps the weapon in hand (`d_a_bk.cpp:4159-4169`), so a late release is harmless; a timer refused leaves the weapon held, so no live Bokoblin stands with `m0B30` 1 and its weapon let go (`d_a_bk.cpp:4220-4224`). Only the CARRY bit is cleared: `fopAcM_cancelCarryNow` also sets the room layer and zeroes `shape_angle.z` (`f_op_actor_mng.cpp:1366-1376`), which a Go write leaves (inferred harmless: the weapon lies where it fell).
+149. **Hidden neighbours, and the rooms' status in the fake game.** A dead-actor byte is written into the zone of any room whose status is loaded and settled (0x01 set, 0x02 and 0x04 clear), a hidden one too (`Tick.killClosed`, `FrameWriter.killHolds`). The FakeGame now models the loaded flag: `EnterRoom` sets 0x01 on the rooms it loads (`loadRoom`'s scene, `d_stage.cpp:233-239`, taken at once), a stage load clears every room's flags (the old play scene's room scenes are deleted, `d_s_room.cpp:120`), as does a zone removed, and `ReloadRoom` leaves the room loaded. `TestShutter`'s expected flags changed accordingly; the M5 room clocks, which follow flags 0x01-0x08, start at the same tick as before. The fake also models the actor queue, placed enemies created and deleted with their rooms, `enemy_ice`'s light-arrow death, a ReDead's dying, a Kargaroc's unrecorded death, a create that fails, a block freed and reused, and Link's demo (`fakegame/actors_m6.go`).
+150. **The hub's kill verdict (`hub.Config.SyncedKill`, `hub.Filter`, `hub.KillFilter`).** As for M5's switches, the host's hub keeps and relays only the kill bits its tables sync, and each writing replica's sender proposes only those (`Differ.ShareScopes` with `hub.Filter`). `hub.ScopeFilter` still passes every kill bit; the session's filter is `Filter`. A nil verdict keeps none (a hub test whose config had none now sets one). `hub.Status` adds `CombatAllowed` and `KillStores`.
+151. **Room clear, read again (corrects §7.2's "Consequences").** `fopAcM_myRoomSearchEnemy` does not count enemies: it returns player 0's grabbed actor if that is an enemy, else the first `fopAc_ENEMY_e` actor in the room's layer, or NULL (`f_op_actor_mng.cpp:1272-1294`); every caller only tests it against NULL. So a room-clear chest, door, shutter, stair or fire on B (the callers §7.2 lists) waits for B's own unkeyed enemies there: the blocker in the 14 mixed rooms, until M6.1. The design's "covers unkeyed spawns" through the room-clear switch holds only where the room-clear sets a switch that M3 or M5 syncs (ALLDIE's, `d_a_tbox.cpp:1044`).
+152. **The actor walk is a package (`internal/coop/actors`).** `actors.Read` takes the M0 diagnostic's walk and checks more: a node's `mpData` must be `&g_fopAcTg_Queue` (`c_list.cpp:40`) and its `mbIsUse` 1 (`c_tag.cpp:74-80`), or the walk stops; it takes no more nodes than the queue's `mSize`; a `g_fopAc_type` of 0 is an empty walk (`f_pc_base.cpp:28-33`). It reads each actor's fields M6 judges (`mInitState`, params, home, status, parent, event command, attention flags) and, for a K1 class, its enemyice, gated mode and weapon field. The `actors` diagnostic prints them and each K1 actor's verdict. `enemy-kill <pid> [watch-secs] [--unverified] --yes` light-shrinks one actor through the receiver's own gates, re-read and guard (it takes unkeyed actors and ignores Link's demo gate, for the live checks), and `peek-demo [watch-secs]` reads Link's demo type; main's dispatch lists both (`TestCoopDiagDispatched`, item 141). `addr` gains the offsets with struct checks (`TestM6Offsets`), and the diagnostic's `k1Classes` table is gone: the classes come from `enemies.Classes` (`actors.Classes`).
+153. **Coverage in `coop-tables`.** The acceptance block gains `INFO  M6 kill coverage` (`enemies.KillCoverage.Line`), and the enemies section a coverage report by class and by stage (`TestCoverageGolden`; `FuzzBuild` checks that every kill-mask bit is a Keyed K1 entry's, not BOSS, Morth or Shared, and that the counts add up). On the owner's disc the line reads as §7.2 quotes it.
+154. **Acceptance and tests.**
+    - `TestCoopSessionM6` runs two FakeGames with the M6 enemies, a real `network.Server` with the hub, and two writing pipelines: the same-room kill with the weapon let go, the hidden neighbour, another stage and back, both leaving, unkeyed, BOSS and Kargaroc deaths that never travel, a Kargaroc's light-arrow death that does, the pause menu and a ReDead's switch wait holding the shrink, a Darknut made unverified for the test recorded and never shrunk; then 1000 random steps with drops, reconnects and a host restart; then both entering afresh and converging on the union. `coAuditM3` accepts M6's bytes only by `coAuditM6Kill` and `coAuditM6Heap`, and `coM6Judge` checks each against what the partner's game recorded; a tap checks every SCOPED KILL.
+    - Unit tests: `TestReconcileM6ZoneOR`, `…Shrink`, `…Gates`, `…Revalidate`, `…ZoneGoneAfterBeat`, `…Ever`, `…SaveState`, `…PlanCopiesStore`, `…StoreNotLocal`, `…WeaponOrder`, `…LinkHoldsStick`, `…WeaponTakenUp`, `…Unverified`, `…DemoUnverified`, `…StoreOffGame`, `…Status`; `TestWriteGuardKillSlot`, `…Actor`, `…Weapon`; `TestWeaponHeld`; `TestHubKillFilter`, `TestHubKillStoreLifetime`, `TestHubCombatNeedsEqualTables`; the actors package's walk, gate-matrix and re-read tests; `TestEnemiesLifecycle` and its neighbours in the fake game; `TestEnemyKill`, `TestPeekDemo`, `TestCoopDiagDispatched`, `TestLogCoopCombat`, `TestCombatStatus`, `TestHubCombatStatus`.
+    - Fuzz: `FuzzWalk`, `FuzzRevalidate`, `FuzzReconcileM6`, `FuzzWriteGuardActor` (each against an independent reading of the rules; for `FuzzReconcileM6` see item 161), and `FuzzHubFrames` with a kill verdict.
+    - K1-K10 are the owner's checks (§8.2).
+155. **Left for later, and residual risks.**
+    - M6.1: unkeyed enemies by placement (a feature bit, a PKILL scoped kind, a death detector with per-class signatures).
+    - The owner's K7: `peek-demo` nonzero during the grabs and the holdup the demo gate exists for.
+    - Between `Revalidate` and the timer write lie a few reads, not a frame: the game frees an actor at the next frame's start (`f_pc_manager.cpp:280`), after the write (inferred, as §4.2.1's window).
+    - The light-shrink duplicates the item drop and the death switch on B, and skips each class's own death bookkeeping (§7.2 "Consequences").
+    - `/status`'s refused count is a level: the store's bits this side's tables do not sync, as the last tick saw them.
+
+156. **A weapon is let go only from the carrier's hand (found in review).** The first build took any BOKO with CARRY set whose process ID was in the carrier's weapon field as the weapon it held. But a Bokoblin's `m1200` keeps the stick's process ID after the stick is knocked away: `yari_off_check` cancels the carry and zeroes `m0B34` and `m0B30` only (`d_a_bk.cpp:100-137`), and only `daBk_wepon_view_check` rewrites `m1200` (`:826-837`). That runs in the search actions alone (`:1182`, `:1422`, `:1614`, `:2067`) and is skipped while `m02CC` is set (`:2812`). So during the get-up after the very hit that knocked the stick away, Link could pick the stick up (CARRY set, `Mode_PLAYER_CARRY_e`, `d_a_player_grab.inc:330-339`), and a partner's kill of that Bokoblin then cleared CARRY on the stick in Link's hands: `daBoko_c::procCarry` drops it at Link's feet while Link's grab still points at it (`d_a_boko.cpp:636-705`). CARRY alone is no sign of a held weapon either: the BOKO sets it on itself while it flies (`:406-410`, `:647-649`).
+    - Now a weapon counts as held only when both sides say so (`actors.HeldBy`), in the plan (`WeaponOf`), in the re-read (`Revalidate`) and in the WriteGuard's (W). The BOKO's u8 `mNowMode` (+0x2B8, `d_a_boko.h:128`) must be `Mode_ENEMY_CARRY_e` (2, set by its `procWait` when an enemy takes it up, `d_a_boko.cpp:382-389`). The carrier's own record must say it holds one: a Bokoblin's int `m0B30` (+0xB30, `d_a_bk.h:74`) nonzero, as the game's own light-arrow hit asks before it lets the stick go (`d_a_bk.cpp:3601-3604`; set with CARRY at `:2821`, `:4223`, zeroed at `:137`, `:4414`); a Stalfos's s8 `m1DD0` (+0x1DD0, `d_a_st.h:104`) 2 or 10 (`d_a_st.cpp:2006`, `:2051`; it is 1 until its first draw sets CARRY, `:2271-2273`, and 0 once the mace falls, `:2022-2025`).
+    - A weapon field that names a BOKO the carrier does not hold is ignored: the carrier is shrunk and the BOKO left alone. A carrier whose record says it holds a weapon the BOKO does not yet agree with (a Stalfos's mace before its draw, a stick in its first frame of carry) waits a tick. The Darknut has no such record in M6.0: its weapon needs only the BOKO in `Mode_ENEMY_CARRY_e`, as K1 saw (item 141).
+    - The reverse gap: a carrier planned with no weapon can take one up before the write (a Bokoblin walks to the stick its `m1200` already names and calls `fopAcM_setCarryNow`, `d_a_bk.cpp:2821-2833`, or takes a spawned one, `:4219-4224`), and a timer written then left that weapon CARRY on a deleted carrier. `Revalidate` now holds such a carrier when its record says it holds a weapon or has one between hands (for a class without a record, when its weapon field changed), and the next tick plans it with the weapon.
+    - Tests: `TestWeaponHeld` (actors: knocked away, in Link's hands, a record that disagrees, taken up after the walk, a Stalfos before its draw), `TestReconcileM6LinkHoldsStick`, `TestReconcileM6WeaponTakenUp`, the new cases of `TestWriteGuardWeapon`, `FuzzWriteGuardActor` with the stick knocked away or in Link's hands, `FuzzRevalidate`'s oracle (`m0B30` still 0) and `FuzzReconcileM6`'s new op. The FakeGame keeps `m0B30`, `m1DD0` and the BOKO's `mNowMode`, and gains `DropWeapon`, `GrabWeapon` and `TakeWeapon`. K2 adds the live check.
+157. **A KILL store is dropped off the game (found in review).** `pruneScoped` kept KILL stores while Link was off the game. But the hub places such a receiver nowhere (no PRESENCE in game) and drops the stage's stores when the partner is not in it (`world.Scopes.vacate`), and it sends no drop. After a reload of the same stage (Continue after a game over, or any entry that wipes the zones, `d_stage.cpp:123-125`), the old store was ORed into the fresh zones and the respawned enemies light-shrunk, though nobody had kept the stage alive. KILL stores now go off the game as DAN and ZONE stores do. A partner still in the stage loses nothing: the hub sends every stored KILL of the stage again when the receiver's PRESENCE enters it (`Scopes.SetPresence`). `TestReconcileM6StoreOffGame` reloads the stage and finds nothing written.
+158. **A save-state load forgets what was shrunk (found in review).** A load restores the actor heap and `fpcBs_MakeOfId`'s counter (`f_pc_base.cpp:36-40`). So an enemy shrunk after the state was saved comes back alive with the same process ID and a timer of 0, and a new actor can take a process ID the receiver remembers; `ever` kept such an enemy alive for good. On a tick whose gates saw the heartbeat go back (`gate.Status.Regressed`), the receiver now clears `ever`, `held` and `demoHeld`. `Eligible`'s timer gate still keeps a shrink under way from a second write. `TestReconcileM6SaveState`.
+159. **The plan copies the store (found in review).** `reconcileM6` gathered the partner's stores by slice header, and the WriteGuard's `Kills` and `Allow` closures read them in the write phase, after `r.mu` is released, while `Handle` (`onScoped`) ORs new bits into the same words under `r.mu`. That was a data race, and a verdict that could count bits that came after the plan. The plan now clones each store's words (`slices.Clone`). `TestReconcileM6PlanCopiesStore` sends a bit of the same word after the plan and checks that the guard does not take it. The race detector needs cgo, which the owner's Windows toolchain lacks, so the check matrix runs no `-race` pass.
+160. **"All keyed" is not "clears on B" (found in review; corrects item 143 and §7.2).** `KillCoverage.AllKeyed` counts a room whose every K1 entry without BOSS status is keyed. It never looked at the room's other enemies, nor at whether its keyed entries are removed on B, and a room-clear on B (`fopAcM_myRoomSearchEnemy`: any `fopAc_ENEMY_e` actor, `f_op_actor_mng.cpp:1272-1294`) waits for those too.
+    - The coverage now also counts `Clearable`: the all-keyed rooms whose every enemy-group entry, of any class and on every layer, is a synced key of a verified class that records its own death (so not BOSS and not a Kargaroc). ENV-group entries (Morth) are not counted by room-clear and do not block.
+    - On the owner's disc (tables schema 4, every K1 class verified) that is 48 of the 68. The other 20 also hold non-K1 enemies (Wizzrobes in `kaze` r0, r3, r7 and r10; Bubbles in `M_Dai` r4, r9, r13 and r17, `Siren` r14 and `kaze` r16; OQ in `kindan` r12 and `ma2room` r3; Dexivines in `kaze` r3, r7, r11 and r16 and `kindan` r12; `SS` and `SITEM` entries in `kindan` r0 and r8), a BOSS Moblin (`I_SubAN` r11), or a Kargaroc (`I_SubAN` r9, `kindan` r13, `M_NewD2` r3, `Siren` r18). Before K1, 6 more rooms waited for their classes (`Cave08` r2, `GanonN` r0, `kaze` r2, r5 and r8, `M_Dai` r7).
+    - The line reads `68 all keyed (48 clear on B)`, and the report explains both. K9 now names its room: `M_Dai` r1, r7 and r8 are the owner disc's only ALLdie rooms whose every enemy is removed on B.
+161. **`FuzzReconcileM6`'s audit judges each light-shrink by its actor (found in review).** The first audit accepted any heap byte going 0 to 1 at an offset that some verified class's timer has. Dropping the PID check of `Revalidate`, the `ever` check or the demo re-read would still have passed it, against what its comment and item 154 said.
+    - The audit now records, for each write into the fake's actor heap, the block's process ID and proc, a BOKO's `mNowMode` and Link's `mDemo.mDemoType`, read just before the write (`beatMem.Write`).
+    - A timer write must be the timer of the placed enemy whose actor held the block then (`fakegame.Enemies.Born`), of a verified class, keyed, its key sent and synced, not BOSS, with Link in no demo, and no process ID twice. A CARRY write must be on a BOKO in `Mode_ENEMY_CARRY_e` whose carrier (`Enemies.CarrierOf`) had its timer written earlier in the same tick.
+    - With both demo gates removed, the fuzz reports `shrunk during Link demo` in under a second.

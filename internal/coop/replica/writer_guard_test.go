@@ -269,7 +269,7 @@ func TestWriteGuardLaterTargets(t *testing.T) {
 		{"a story bit as a stage change starts", transition, true, story, 0, metKorl.Mask, true},
 		{"dan switches when idle", idle, true, addr.DanSwitch + 7, 0, 1, true},
 		{"a dan switch clear", idle, true, addr.DanSwitch + 7, 1, 0, false},
-		{"dead actors when idle", idle, true, zoneByteAddr(31, addr.ZoneOffActor+0x3F), 0, 0x80, true},
+		{"dead actors without a zone table or a plan", idle, true, zoneByteAddr(31, addr.ZoneOffActor+0x3F), 0, 0x80, false}, // TestWriteGuardKillSlot
 		{"the tag, unarmed, when idle", idle, false, addr.Reserve, 0, 'W', true},
 		{"the tag during an event", settledGates(busy), false, addr.Reserve, 0, 'W', false},
 	}
