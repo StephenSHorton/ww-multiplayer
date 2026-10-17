@@ -12,6 +12,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // bundledCheatsIni is the curated cheats/GZLE01.ini shipped in the repo,
@@ -218,7 +219,7 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 			report.Logf(rep, report.Warn, "couldn't arm face-hook on Dolphin %c (pid %d): %v", 'A'+rune(i), pid, err)
 			continue
 		}
-		if err := d.WriteAbsolute(mailboxBase+mailboxFaceHookEnable, []byte{1}); err != nil {
+		if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{1}); err != nil {
 			report.Logf(rep, report.Warn, "couldn't arm face-hook on Dolphin %c: %v", 'A'+rune(i), err)
 		}
 		d.Close()
@@ -335,11 +336,11 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 			report.Logf(rep, report.Warn, "couldn't reset Dolphin %c (pid %d): %v", 'A'+rune(i), pid, err)
 			continue
 		}
-		d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{0})
-		d.WriteAbsolute(mailboxBase+mailboxFaceHookEnable, []byte{0})
+		d.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
+		d.WriteAbsolute(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{0})
 		for j := 0; j < maxRemoteLinks; j++ {
-			d.WriteAbsolute(mailboxBase+mailboxPoseSeq(j), []byte{0})
-			d.WriteAbsolute(mailboxBase+mailboxFaceSeq(j), []byte{0})
+			d.WriteAbsolute(mailbox.Mailbox+mailboxPoseSeq(j), []byte{0})
+			d.WriteAbsolute(mailbox.Mailbox+mailboxFaceSeq(j), []byte{0})
 		}
 		d.Close()
 	}

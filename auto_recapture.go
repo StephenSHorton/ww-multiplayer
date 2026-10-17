@@ -12,6 +12,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // runAutoRecapture cold-boots Dolphin from the patched ISO, drives
@@ -206,7 +207,7 @@ func waitForModBlob(pid uint32, timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		d, err := dolphin.FindByPID(pid, "GZLE01")
 		if err == nil {
-			counter, err := d.ReadU32(mailboxBase) // +0x00 = spawn_trigger
+			counter, err := d.ReadU32(mailbox.Mailbox) // +0x00 = spawn_trigger
 			d.Close()
 			if err == nil && counter != 0 {
 				return nil
@@ -260,28 +261,28 @@ func driveMenusToInGame(pid uint32, rep report.Reporter) error {
 // errors instead of os.Exit'ing, so it composes inside scripted flows.
 func injectInput(d *dolphin.Dolphin, buttons uint16, stickX, stickY int8, ms int) error {
 	buttonsBE := []byte{byte(buttons >> 8), byte(buttons & 0xFF)}
-	if err := d.WriteAbsolute(mailboxBase+mailboxInputButtons, buttonsBE); err != nil {
+	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputButtons, buttonsBE); err != nil {
 		return err
 	}
-	if err := d.WriteAbsolute(mailboxBase+mailboxInputStickX, []byte{byte(stickX)}); err != nil {
+	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputStickX, []byte{byte(stickX)}); err != nil {
 		return err
 	}
-	if err := d.WriteAbsolute(mailboxBase+mailboxInputStickY, []byte{byte(stickY)}); err != nil {
+	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputStickY, []byte{byte(stickY)}); err != nil {
 		return err
 	}
 	// Zero substick + triggers + analog A/B so previous state can't leak.
-	if err := d.WriteAbsolute(mailboxBase+mailboxInputSubstickX, []byte{0, 0, 0, 0, 0, 0}); err != nil {
+	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputSubstickX, []byte{0, 0, 0, 0, 0, 0}); err != nil {
 		return err
 	}
-	if err := d.WriteAbsolute(mailboxBase+mailboxInputEnable, []byte{1}); err != nil {
+	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputEnable, []byte{1}); err != nil {
 		return err
 	}
 	if ms > 0 {
 		time.Sleep(time.Duration(ms) * time.Millisecond)
-		if err := d.WriteAbsolute(mailboxBase+mailboxInputEnable, []byte{0}); err != nil {
+		if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputEnable, []byte{0}); err != nil {
 			return err
 		}
-		if err := d.WriteAbsolute(mailboxBase+mailboxInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}); err != nil {
+		if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}); err != nil {
 			return err
 		}
 	}

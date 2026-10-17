@@ -13,6 +13,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/tunic"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // Tunic colors, render side (docs/09-player-colors.md §5.3-§5.4).
@@ -24,23 +25,24 @@ import (
 // into the three GameHeap buffers the C side allocates once, and flips
 // the per-slot enables.
 
-// Mailbox offsets (inject/include/mailbox.h, "TUNIC COLORS").
+// The mailbox's tunic block (inject/include/mailbox.h, "TUNIC COLORS";
+// offsets generated into wwapi/mailbox) runs from mailbox.OffTunicBufs
+// to the end of the mailbox, mailbox.MailboxSize:
+//
+//	tunic_bufs     u32[3], C: image per slot
+//	tunic_buf_size u32, Go: bytes per image; nonzero asks C to allocate
+//	tunic_enable   u8[3], Go: 1 = slot image valid, swap on; 2 = casual clothes
+//	tunic_state    u8, C: 0 none, 1 allocated, 0xFD alloc failed
+//	tunic_swaps    u32, C: header swaps done
 const (
-	mailboxTunicBufs    = 0x188 // u32[3], C: image per slot
-	mailboxTunicBufSize = 0x194 // u32, Go: bytes per image; nonzero asks C to allocate
-	mailboxTunicEnable  = 0x198 // u8[3], Go: 1 = slot image valid, swap on; 2 = casual clothes
-	mailboxTunicState   = 0x19B // u8, C: 0 none, 1 allocated, 0xFD alloc failed
-	mailboxTunicSwaps   = 0x19C // u32, C: header swaps done
-	mailboxTunicEnd     = 0x1A0 // first byte past the tunic block (Mailbox size)
-
-	tunicSlots     = 3
-	tunicSlotLocal = 2 // TUNIC_SLOT_LOCAL: Link #1 on this Dolphin
+	tunicSlots     = mailbox.LenTunicBufs
+	tunicSlotLocal = mailbox.TunicSlotLocal // TUNIC_SLOT_LOCAL: Link #1 on this Dolphin
 
 	// Enable byte values. tunicEnableCasual (TUNIC_ENABLE_CASUAL) marks a
 	// remote slot in the casual clothes: C copies the casual header in
 	// around its draw and uses no image buffer (docs/09 §5.6).
 	tunicEnableOn     = 1
-	tunicEnableCasual = 2
+	tunicEnableCasual = mailbox.TunicEnableCasual
 
 	// tunicMaxImage caps the image size Go asks the C side to allocate
 	// three of from GameHeap (docs/09 §6: ~245 KB free on Outset). A
@@ -63,7 +65,7 @@ type tunicMem interface {
 	WriteAbsolute(addr uint32, data []byte) error
 }
 
-func mailboxTunicBuf(slot int) uint32 { return uint32(mailboxTunicBufs + 4*slot) }
+func mailboxTunicBuf(slot int) uint32 { return uint32(mailbox.OffTunicBufs + 4*slot) }
 
 // errTunicBusy means the worn header pointed at one of our buffers: the
 // C bracket was mid-swap during the read. Retry on a later tick.
@@ -224,13 +226,13 @@ func (t *tunicSync) Tick(now time.Time) {
 	// The mailbox block comes first: the hero read must know the live
 	// buffers, because enables survive a Go process (and a recalibration),
 	// so the worn header may already be swapped on the very first read.
-	blk, err := t.mem.ReadAbsolute(mailboxBase+mailboxTunicBufs, mailboxTunicEnd-mailboxTunicBufs)
-	if err != nil || len(blk) != mailboxTunicEnd-mailboxTunicBufs {
+	blk, err := t.mem.ReadAbsolute(mailbox.Mailbox+mailbox.OffTunicBufs, mailbox.MailboxSize-mailbox.OffTunicBufs)
+	if err != nil || len(blk) != mailbox.MailboxSize-mailbox.OffTunicBufs {
 		return
 	}
-	size := binary.BigEndian.Uint32(blk[mailboxTunicBufSize-mailboxTunicBufs:])
-	state := blk[mailboxTunicState-mailboxTunicBufs]
-	enable := blk[mailboxTunicEnable-mailboxTunicBufs:]
+	size := binary.BigEndian.Uint32(blk[mailbox.OffTunicBufSize-mailbox.OffTunicBufs:])
+	state := blk[mailbox.OffTunicState-mailbox.OffTunicBufs]
+	enable := blk[mailbox.OffTunicEnable-mailbox.OffTunicBufs:]
 
 	for s := 0; s < tunicSlots; s++ {
 		if buf := binary.BigEndian.Uint32(blk[4*s:]); buf != t.bufs[s] {
@@ -269,7 +271,7 @@ func (t *tunicSync) Tick(now time.Time) {
 		if size == 0 {
 			var b [4]byte
 			binary.BigEndian.PutUint32(b[:], uint32(len(t.hero.image)))
-			t.mem.WriteAbsolute(mailboxBase+mailboxTunicBufSize, b[:])
+			t.mem.WriteAbsolute(mailbox.Mailbox+mailbox.OffTunicBufSize, b[:])
 		}
 		return
 	}
@@ -285,7 +287,7 @@ func (t *tunicSync) Tick(now time.Time) {
 		t.noteErr(fmt.Errorf("buffers are %d B, the texture is %d B", size, len(t.hero.image)))
 		return
 	}
-	frame, _ := t.mem.ReadU32(mailboxBase + 0x00) // spawn_trigger, +1 per game frame
+	frame, _ := t.mem.ReadU32(mailbox.Mailbox + 0x00) // spawn_trigger, +1 per game frame
 
 	verify := now.Sub(t.lastVerify) >= tunicVerifyEvery
 	if verify {
@@ -343,7 +345,7 @@ func (t *tunicSync) image(c playercolor.Color) []byte {
 // teardown so the C side stops recoloring once the session ends; the
 // GameHeap buffers stay allocated (F18) and are reused next session.
 func (t *tunicSync) DisableAll() {
-	t.mem.WriteAbsolute(mailboxBase+mailboxTunicEnable, make([]byte, tunicSlots))
+	t.mem.WriteAbsolute(mailbox.Mailbox+mailbox.OffTunicEnable, make([]byte, tunicSlots))
 	for s := range t.cur {
 		t.cur[s] = tunicSlotState{}
 	}
@@ -354,7 +356,7 @@ func (t *tunicSync) setEnable(slot int, on bool) {
 	if on {
 		v = tunicEnableOn
 	}
-	t.mem.WriteAbsolute(mailboxBase+mailboxTunicEnable+uint32(slot), []byte{v})
+	t.mem.WriteAbsolute(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(slot), []byte{v})
 }
 
 // step is one slot's state machine: off → (drain) → write → on. The
@@ -379,7 +381,7 @@ func (t *tunicSync) step(s int, buf uint32, enInRAM byte, frame uint32, verify b
 	switch {
 	case w.casual:
 		if !c.known || !c.casual {
-			t.mem.WriteAbsolute(mailboxBase+mailboxTunicEnable+uint32(s), []byte{tunicEnableCasual})
+			t.mem.WriteAbsolute(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s), []byte{tunicEnableCasual})
 			*c = tunicSlotState{known: true, casual: true}
 		}
 	case !w.on:
@@ -431,19 +433,19 @@ func localAppearance(m tunicMem) (b byte, ok bool) {
 
 // printTunicMailbox is the dump command's tunic block.
 func printTunicMailbox(m tunicMem) {
-	blk, err := m.ReadAbsolute(mailboxBase+mailboxTunicBufs, mailboxTunicEnd-mailboxTunicBufs)
-	if err != nil || len(blk) != mailboxTunicEnd-mailboxTunicBufs {
+	blk, err := m.ReadAbsolute(mailbox.Mailbox+mailbox.OffTunicBufs, mailbox.MailboxSize-mailbox.OffTunicBufs)
+	if err != nil || len(blk) != mailbox.MailboxSize-mailbox.OffTunicBufs {
 		return
 	}
-	at := func(off int) []byte { return blk[off-mailboxTunicBufs:] }
+	at := func(off int) []byte { return blk[off-mailbox.OffTunicBufs:] }
 	fmt.Printf("tunic: state=0x%02X  buf_size=%d  swaps=%d\n",
-		at(mailboxTunicState)[0], binary.BigEndian.Uint32(at(mailboxTunicBufSize)), binary.BigEndian.Uint32(at(mailboxTunicSwaps)))
+		at(mailbox.OffTunicState)[0], binary.BigEndian.Uint32(at(mailbox.OffTunicBufSize)), binary.BigEndian.Uint32(at(mailbox.OffTunicSwaps)))
 	for s := 0; s < tunicSlots; s++ {
 		name := fmt.Sprintf("slot %d", s)
 		if s == tunicSlotLocal {
 			name = "local "
 		}
-		fmt.Printf("tunic[%s]: buf=0x%08X  enable=%d\n", name, binary.BigEndian.Uint32(at(mailboxTunicBufs+4*s)), at(mailboxTunicEnable)[s])
+		fmt.Printf("tunic[%s]: buf=0x%08X  enable=%d\n", name, binary.BigEndian.Uint32(at(mailbox.OffTunicBufs+4*s)), at(mailbox.OffTunicEnable)[s])
 	}
 }
 

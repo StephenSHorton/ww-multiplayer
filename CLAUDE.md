@@ -33,6 +33,7 @@ ww-multiplayer/
 │   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); Bridge = the JS API; `ui --browser` server
 │   ├── dolphinenv/              # Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare step (dolphin2, auto-recapture)
 │   ├── lan/                     # LAN discovery: the host's UDP beacon, broadcast addresses, the joiner's table (docs/10-lobby.md §10)
+│   ├── mailboxgen/              # mailbox.h parser + layout_gen.go emitter (used by tools/gen_mailbox and wwapi/mailbox TestMailboxLayout)
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
 │   │   ├── blob.go              # AUTO-GENERATED via scripts/extract_blob.py
 │   │   ├── dol.go               # DOL header editor + T2 splice + in-DOL patches
@@ -51,7 +52,7 @@ ww-multiplayer/
 │   │   ├── app.go, splash.go, connect.go, dashboard.go, styles.go
 │   └── tunic/                   # Tunic texture recolor (CMPR encode, docs/09)
 ├── wwapi/                       # Modding API, v0 UNSTABLE (docs/api): mem/ (Reader/Mem, FakeMem, Dolphin adapter), addr/ (cited addresses), state/ (per-tick snapshot), gate/ (write gates),
-│                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), savefile/ (GCI/card I/O), backup/ (card backups), tables/ (M1 disc table builders + cache), mailbox/ (T2 + mailbox layout, hand-written until C9), events/, schema/, semver/; the mod runtime (manifest, resolver, supervisor)
+│                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), savefile/ (GCI/card I/O), backup/ (card backups), tables/ (M1 disc table builders + cache), mailbox/ (T2 + mailbox layout; layout_gen.go is generated from mailbox.h by tools/gen_mailbox), events/, schema/, semver/; the mod runtime (manifest, resolver, supervisor)
 ├── inject/                      # C source for the injected PPC code
 │   ├── src/multiplayer.c        # The mod's C side
 │   ├── include/{game,mailbox}.h
@@ -68,6 +69,7 @@ ww-multiplayer/
 │   └── ww-multiplayer.exe.manifest  # Windows app manifest (DPI, Common Controls 6, asInvoker), in ww_windows.syso via go generate
 ├── tools/
 │   ├── blobstamp/               # Writes/checks internal/inject/blob.stamp
+│   ├── gen_mailbox/             # inject/include/mailbox.h -> wwapi/mailbox/layout_gen.go (go generate ./wwapi/mailbox)
 │   └── mkicns/                  # docs/img/icon.ico -> docs/img/icon.icns (macOS app icon; go generate)
 ├── .github/workflows/
 │   ├── build.yml                # CI: go vet + cross-build on push/PR; macOS job also builds + zips the .app (smoke, no publish)
@@ -191,13 +193,15 @@ multiplayer.c has changed since the last release.
 
 CI checks the committed blob against the committed C sources on every PR
 (`internal/inject/blobstamp`, `internal/inject/t2_budget_test.go`,
-`mailbox_layout_test.go`): `blob.stamp` records the hashes of
+`wwapi/mailbox/layout_test.go`): `blob.stamp` records the hashes of
 `inject/src`, `inject/include` and `inject/build.py` that blob.go was built
 from, so any edit there, comments included, fails CI until the blob is
 rebuilt and restamped; T2 must end below `MAILBOX_ADDR`; build.py's
 inject address and OSInit patch must match blob.go; the Go mailbox
-offsets must match mailbox.h. Restamp only via extract_blob.py after a
-real rebuild, never to silence the check. A PR that touches those C
+offsets (`wwapi/mailbox/layout_gen.go`, generated from mailbox.h) must be
+fresh: after a mailbox.h layout change run `go generate ./wwapi/mailbox`.
+Restamp only via extract_blob.py after a real rebuild, never to silence
+the check. A PR that touches those C
 inputs, even comment-only, must carry the restamp in the same PR: the
 owner rebuilds and runs extract_blob.py, and for a comment-only edit
 confirms the `blob` payload line in blob.stamp is unchanged (only the
