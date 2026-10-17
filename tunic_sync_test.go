@@ -224,6 +224,55 @@ func TestTunicSync_ColorChangeDrains(t *testing.T) {
 	}
 }
 
+// TestTunicSync_CasualSlot: casual is written at once (no image, no
+// drain), leaving it for a color goes through off and the drain, a
+// casual remote without a server color still gets the shirt, and the
+// local slot never takes it.
+func TestTunicSync_CasualSlot(t *testing.T) {
+	f := newLinkRAM(false)
+	ts := newTunicSync(f, t.Logf)
+	red := playercolor.Palette()[1].Color
+	ts.Set(0, true, red)
+	now := time.Unix(0, 0)
+	run(ts, f, &now, 8)
+	ts.SetCasual(0)
+	ts.SetCasual(tunicSlotLocal)
+	if ts.managed[tunicSlotLocal] {
+		t.Fatal("SetCasual took the local slot")
+	}
+	ts.Tick(now)
+	if f.u8(mailboxBase+mailboxTunicEnable) != tunicEnableCasual || !ts.Settled(0) {
+		t.Fatalf("enable = %d settled = %v, want casual at once", f.u8(mailboxBase+mailboxTunicEnable), ts.Settled(0))
+	}
+	ts.Set(0, true, red)
+	ts.Tick(now)
+	if f.u8(mailboxBase+mailboxTunicEnable) != 0 {
+		t.Fatal("casual -> red did not disable first")
+	}
+	run(ts, f, &now, tunicDrainFrames+2)
+	if f.u8(mailboxBase+mailboxTunicEnable) != tunicEnableOn || !ts.Settled(0) {
+		t.Fatal("slot not back to red after the drain")
+	}
+	// Someone else (a save-state load) writing casual is noticed.
+	f.mem[mailboxBase+mailboxTunicEnable] = tunicEnableCasual
+	run(ts, f, &now, tunicDrainFrames+3)
+	if f.u8(mailboxBase+mailboxTunicEnable) != tunicEnableOn {
+		t.Fatal("foreign casual enable not put back to red")
+	}
+
+	casualFace := append(make([]byte, faceStateWireBytes), appearanceCasual)
+	remotes := []network.RemotePlayer{{ID: 2, Name: "a", FaceState: casualFace}}
+	syncTunics(ts, playercolor.Vanilla(), true, remotes, map[byte]int{2: 0}, now)
+	if f.u8(mailboxBase+mailboxTunicEnable) != tunicEnableCasual {
+		t.Error("casual remote without a server color is not casual")
+	}
+	ts.Set(0, false, playercolor.Color{})
+	ts.Tick(now)
+	if f.u8(mailboxBase+mailboxTunicEnable) != 0 || !ts.Settled(0) {
+		t.Error("casual -> off not written")
+	}
+}
+
 // TestTunicSync_CasualReadsOtherLinktex: in the casual clothes the hero
 // header is mOtherLinktex, with offsets relative to the worn header.
 func TestTunicSync_CasualReadsOtherLinktex(t *testing.T) {
@@ -323,7 +372,8 @@ func TestRemoteCasual(t *testing.T) {
 }
 
 // TestSyncTunics_SlotsFollowRemotes: link slots take their remote's
-// server color, a casual remote is off, a free slot is off, and the
+// server color, a casual remote gets the casual shirt (enable 2), a free
+// slot is off, and the
 // local slot takes this client's own color.
 func TestSyncTunics_SlotsFollowRemotes(t *testing.T) {
 	f := newLinkRAM(false)
@@ -343,8 +393,11 @@ func TestSyncTunics_SlotsFollowRemotes(t *testing.T) {
 	if ts.want[1] != (tunicWant{on: true, color: red}) {
 		t.Errorf("slot 1 want = %+v, want red", ts.want[1])
 	}
-	if ts.want[0].on {
-		t.Error("casual remote's slot is on")
+	if ts.want[0] != (tunicWant{casual: true}) {
+		t.Errorf("casual remote's slot want = %+v, want casual", ts.want[0])
+	}
+	if f.u8(mailboxBase+mailboxTunicEnable) != tunicEnableCasual {
+		t.Errorf("casual remote's slot enable = %d, want %d", f.u8(mailboxBase+mailboxTunicEnable), tunicEnableCasual)
 	}
 	// This client is green, which needs no swap.
 	if ts.want[tunicSlotLocal].on {
@@ -354,8 +407,11 @@ func TestSyncTunics_SlotsFollowRemotes(t *testing.T) {
 		t.Error("slot 1 image is not red")
 	}
 	syncTunics(ts, playercolor.Vanilla(), true, remotes[:1], map[byte]int{2: 1}, now)
-	if ts.want[0].on {
+	if ts.want[0].on || ts.want[0].casual {
 		t.Error("free slot 0 is on")
+	}
+	if f.u8(mailboxBase+mailboxTunicEnable) != 0 {
+		t.Error("free slot 0 still casual in RAM")
 	}
 }
 
@@ -420,6 +476,59 @@ func TestSyncTunics_NoServerColorAllOff(t *testing.T) {
 	}
 	if ts.want[0].on || ts.want[1].on || !ts.want[tunicSlotLocal].on {
 		t.Errorf("wants = %+v, want only the local slot on", ts.want)
+	}
+}
+
+// TestSyncTunics_CasualSkipsColorGates: the casual shirt needs no image,
+// so a casual remote gets enable 2 whatever holds the color pipeline
+// back: no server color (haveMine false), Link not loaded (no hero
+// texture), nothing allocated yet (state 0), a buffer size for another
+// texture, or its slot's allocation failed (state 0xFD, buf 0).
+func TestSyncTunics_CasualSkipsColorGates(t *testing.T) {
+	casualFace := append(make([]byte, faceStateWireBytes), appearanceCasual)
+	remotes := []network.RemotePlayer{{ID: 2, Name: "a", FaceState: casualFace}, {ID: 3, Name: "b"}}
+	slots := map[byte]int{2: 0, 3: 1}
+	red := playercolor.Palette()[1].Color
+	for _, tc := range []struct {
+		name     string
+		haveMine bool
+		setup    func(f *fakeRAM)
+	}{
+		{"no server color", false, func(f *fakeRAM) {}},
+		{"Link not loaded", true, func(f *fakeRAM) { f.put32(playerPtrArray0, 0) }},
+		{"not allocated", true, func(f *fakeRAM) {
+			f.mem[mailboxBase+mailboxTunicState] = 0
+			f.put32(mailboxBase+mailboxTunicBufSize, 0)
+		}},
+		{"size mismatch", true, func(f *fakeRAM) {
+			f.put32(mailboxBase+mailboxTunicBufSize, 0x1234)
+			f.mem[mailboxBase+mailboxTunicState] = 1
+		}},
+		{"alloc failed", true, func(f *fakeRAM) {
+			f.put32(mailboxBase+mailboxTunicBufSize, uint32(len(testImage())))
+			f.put32(mailboxBase+mailboxTunicBuf(1), fakeHeapTop+0x1000)
+			f.mem[mailboxBase+mailboxTunicState] = 0xFD
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newLinkRAM(false)
+			tc.setup(f)
+			ts := newTunicSync(f, t.Logf)
+			now := time.Unix(0, 0)
+			for i := 0; i < 4; i++ {
+				syncTunics(ts, red, tc.haveMine, remotes, slots, now)
+				f.frame()
+			}
+			if got := f.u8(mailboxBase + mailboxTunicEnable); got != tunicEnableCasual || !ts.Settled(0) {
+				t.Errorf("slot 0 enable = %d settled = %v, want casual", got, ts.Settled(0))
+			}
+			if got := f.u8(mailboxBase + mailboxTunicEnable + 1); got == tunicEnableCasual {
+				t.Error("non-casual slot 1 is casual")
+			}
+			if !tc.haveMine && (ts.want[1].on || ts.want[tunicSlotLocal].on) {
+				t.Errorf("without a server color the colors are on: %+v", ts.want)
+			}
+		})
 	}
 }
 

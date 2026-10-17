@@ -4,8 +4,8 @@
 # (internal/inject/blobstamp). Do not edit by hand.
 # Any PR that edits inject/src, inject/include or inject/build.py,
 # comment-only edits included, must carry its own restamp.
-blob 638fa4964dfe9e97b875a3ad63df43934895c7ee3273b4f4c9a89a683af3ffc5
+blob 4d24e7ea64ae8fa479c854e0a47bb45cfe3424e866bf5f2dca21844e56c866d9
 input 23d95a6ae219b7f6ff9f6ab8ef7401beb591c7b9bc81a879567e1c90d78c2a0d inject/build.py
 input 4394b8c849c991b965e73606c919175ea1021155fd8734cf43d8190aaeb4b010 inject/include/game.h
-input b505e07d037e1c0b109c7fbc5412de8d1c2bc420fa55e8134ff8a72d084702ed inject/include/mailbox.h
-input 17f53042c735a116df540001343111492a9af08d55caf146bfde871a29df8928 inject/src/multiplayer.c
+input 4748a940fc65ff5101bf7ef85c9dd6bbf91f4e7568e26124f4eb6db385c5dbc3 inject/include/mailbox.h
+input 5a1b7fd7b160d0051ade2df370f6c0b55dca442e123ca2b4aeb039b06cf6aa12 inject/src/multiplayer.c

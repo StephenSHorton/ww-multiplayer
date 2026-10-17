@@ -974,22 +974,36 @@ static u32 tunic_saved[8];       // its original 0x20 bytes
 // noinline + Os: these sit in a ~0x200-byte code budget (docs/09 §6);
 // -O2 unrolls the 8-word copies and inlines the restore at three sites.
 #define TUNIC_SMALL __attribute__((noinline, optimize("Os")))
+// enable TUNIC_ENABLE_CASUAL (a remote in the casual clothes) copies the
+// casual header in unchanged instead: while Link #1 wears the hero's
+// clothes mOtherLinktex holds it (raw copy, image and palette offsets
+// relative to the worn header), and while he is casual the worn header
+// already is it, so nothing is swapped.
 static TUNIC_SMALL void tunic_swap(void* link, int slot) {
     u32 buf = mailbox->tunic_bufs[slot];
+    u8 en = mailbox->tunic_enable[slot];
     u32* hdr = *(u32**)((u8*)link + DAPY_LK_C_MPCURRLINKTEX_OFFSET);
-    if (tunic_hdr || !buf || !hdr || !mailbox->tunic_enable[slot]) return;
-    u32* hero = hdr;
-    if (*(u32*)((u8*)link + DAPY_LK_C_NORESETFLG1_OFFSET) & DAPY_FLG1_CASUAL_CLOTHES) {
-        if (slot == TUNIC_SLOT_LOCAL) return;
-        hero = (u32*)((u8*)link + DAPY_LK_C_OTHERLINKTEX_OFFSET);
+    if (tunic_hdr || !hdr || !en) return;
+    u32* src = hdr;              // the header copied in: hero or casual
+    u32* other = (u32*)((u8*)link + DAPY_LK_C_OTHERLINKTEX_OFFSET);
+    int casual = *(u32*)((u8*)link + DAPY_LK_C_NORESETFLG1_OFFSET) & DAPY_FLG1_CASUAL_CLOTHES;
+    if (en == TUNIC_ENABLE_CASUAL) {
+        if (casual) return;      // the worn header already is the casual one
+        src = other;
+        buf = 0;
+    } else {
+        if (casual) {
+            if (slot == TUNIC_SLOT_LOCAL) return;
+            src = other;
+        }
+        if (!buf || (src[0] >> 24) != RESTIMG_FORMAT_CMPR) return;
     }
-    if ((hero[0] >> 24) != RESTIMG_FORMAT_CMPR) return;
     int k;
     for (k = 0; k < 8; k++) {
         tunic_saved[k] = hdr[k];
-        hdr[k] = hero[k];
+        hdr[k] = src[k];
     }
-    hdr[7] = buf - (u32)hdr;     // imageOffset: wraps like loadTexNo's add
+    if (buf) hdr[7] = buf - (u32)hdr;  // imageOffset: wraps like loadTexNo's add
     tunic_hdr = hdr;
     mailbox->tunic_swaps++;
 }

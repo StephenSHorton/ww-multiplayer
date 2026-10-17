@@ -59,13 +59,13 @@ The plan:
 
  0x8040EFC0   original __ArenaLo (vanilla)
  0x80410000   T2 code start (injected .text/.data/.bss)
- 0x80412E08   T2 end                      -> 0xF8 bytes free
+ 0x80412E28   T2 end                      -> 0xD8 bytes free
  0x80412F00   Mailbox start (0x1A0 bytes)
  0x804130A0   Mailbox end                 -> 0xF60 bytes slack
  0x80414000   patched __ArenaLo (OSInit patched by build.py)
 ```
 
-(verified: `inject/build.py`, `inject/include/mailbox.h`, `internal/inject/blob.go` T2Bytes = 0x2E08, `t2_budget_test.go`)
+(verified: `inject/build.py`, `inject/include/mailbox.h`, `internal/inject/blob.go` T2Bytes = 0x2E28, `t2_budget_test.go`)
 
 **Mailbox layout** at 0x80412F00 (the source of truth is `inject/include/mailbox.h`; `mailbox_layout_test.go` keeps the Go copy in step):
 
@@ -99,7 +99,7 @@ The plan:
 **Later (co-op M7, Option A):** arenaLo moves to 0x80416000, API RAM sits at 0x80415000, and T2 gets a 20 KB budget. Go reads the mailbox address from `blob.go` and, if no magic is there, probes the old address and reports `BlobMismatch` instead of reading garbage.
 
 **Facts that shape the plan:**
-- Only **0xF8 bytes** of code space are free. D2 is the only way to free T2 bytes without an arena bump.
+- Only **0xD8 bytes** of code space are free. D2 is the only way to free T2 bytes without an arena bump.
 - The 8 reserved header bytes hold the magic, ABI and layout version and nothing else. Features go past +0x1A0, inside the 0xF60 slack.
 - The blob hash needs no C field. Go hashes T2's `.text` read back from RAM against `blob.go`. It must skip `.data`/`.bss`, which change at runtime (inferred: section layout not yet checked in the map).
 - The 1 MB Outset arena bump failed. Arena growth is taken from ZeldaHeap and must stay small.

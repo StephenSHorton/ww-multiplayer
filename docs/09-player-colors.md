@@ -21,7 +21,7 @@
 - **How the recolor is done.** Because the texture is CMPR, a recolor only moves the two RGB565 endpoint colors of each green 4x4 block. There is no decode or re-encode. Go does it at join time (`internal/tunic`, implemented here).
 - **Who picks the colors.** Each player picks their own, from an 8-color palette (green, red, blue, purple, then orange, cyan, pink, black) or any `#RRGGBB`, with `--color`, `WW_COLOR` or the app's lobby. Players may wear the same color; a player who picks none wears classic green. The server records each player *name*'s color and sends it to everyone. The colors travel in a backward-compatible trailer on `MsgPlayerList`, so there is **no protocol version bump** (§5.1). This part is implemented and tested here.
 - **What must be checked live first.** One Go-only check runs before any blob change: the `tunic-probe` and `tunic-recolor` diagnostics (implemented here). They prove the texture facts and the recolor quality on a live Dolphin (§7.1).
-- **The C part (built).** It is `tunic_swap` / `tunic_restore` plus a one-time allocation, measured at **0x120 bytes** of T2 with devkitPPC 16.2 (§6). T2 now ends at 0x80412E08, **0xF8 bytes** below the mailbox. The blob is regenerated; it still needs one Shift+F1 recapture and a user re-patch.
+- **The C part (built).** It is `tunic_swap` / `tunic_restore` plus a one-time allocation, measured at **0x120 bytes** of T2 with devkitPPC 16.2 (§6). The casual shirt for remotes (§5.6) added 0x20, so T2 now ends at 0x80412E28, **0xD8 bytes** below the mailbox. The blob is regenerated; it still needs one Shift+F1 recapture and a user re-patch.
 - **Owner decisions (2026-10-16).**
   - Green stays in the palette: the vanilla tunic is a valid color, and it is what a player with no preference wears.
   - Colors will later be chosen in a Wails desktop lobby, so selection stays in Go packages the app can call: `internal/playercolor` (palette, `Parse`), `network.Client.SetColorPreference`, and `session.Player.Color` for display.
@@ -197,6 +197,8 @@ hdr[7] = buf - (u32)hdr;                           // imageOffset; wraps like lo
 tunic_hdr = hdr; mailbox->tunic_swaps++;
 ```
 
+(This is the colors-only version. §5.6 adds enable value 2, the casual shirt, which copies `mOtherLinktex` in unchanged.)
+
 `tunic_restore` writes the 8 saved words back. It differs from the design sketch in two ways:
 - **The hero header comes from Link #1, not from the spare `linktexS3TC` entry.**
   - In the hero's clothes it is the worn header itself.
@@ -233,10 +235,10 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
 5. A buffer pointer that changes (a save state from another boot) resets that slot.
 
 **What each slot shows** (`syncTunics`, called every puppet-sync tick):
-- **Only server-assigned colors are drawn.** Until `client.MyColor()` is known (a server from before colors, or the moment before the first player list) all three slots are off, so there is no by-ID color and no color flash at join (`TestSyncTunics_NoServerColorAllOff`).
+- **Only server-assigned colors are drawn.** Until `client.MyColor()` is known (a server from before colors, or the moment before the first player list) no slot gets a color, so there is no by-ID color and no color flash at join (`TestSyncTunics_NoServerColorAllOff`). A casual remote still gets the casual shirt, which is not a color (§5.6).
 - **Mini-Link slot *s*:** the remote that `remoteToLinkSlot` maps to that slot, in `rp.Color`. A remote without a server color is off.
   - Green remotes are swapped too, to the original image, so they show hero green even while the local player wears the casual clothes.
-  - A remote whose appearance byte says casual is left unswapped (v1 recolors the hero's clothes only).
+  - A remote whose appearance byte says casual gets `enable = 2` (`tunicEnableCasual`, §5.6): C draws it in the casual shirt, whatever its color, whether or not it or this client has a server color, and whether or not its slot has a buffer. Colors apply to the hero's clothes only. Switching to casual needs no image, so it is written at once; leaving it for a color goes through off and the drain like a color change.
   - A free slot is off.
 - **Local slot:** `client.MyColor()`. Green needs no swap, so it is off.
 - **Teardown.** When puppet-sync ends (host, join, mp-local, puppet-sync), `DisableAll` writes 0 to all three enables, so the C side stops recoloring after the session. The GameHeap buffers stay allocated (F18) and are reused by the next session. `WW_TUNIC=off` sessions do not touch the enables (they belong to `tunic-slot` then).
@@ -247,7 +249,7 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
 
 **Dev and diagnostics:**
 - `WW_TUNIC=off` turns the wiring off in puppet-sync, mp-local, host and join.
-- `tunic-slot <0|1|local> <color|#RRGGBB|off>` sets one slot on the selected Dolphin and waits until it is in RAM. It touches no other slot. Run the pipeline with `WW_TUNIC=off` while using it, or puppet-sync puts the session colors back.
+- `tunic-slot <0|1|local> <color|#RRGGBB|off|casual>` sets one slot (`casual`: slots 0 and 1 only) on the selected Dolphin and waits until it is in RAM. It touches no other slot. Run the pipeline with `WW_TUNIC=off` while using it, or puppet-sync puts the session colors back.
 - `dump` prints the tunic block: state, size, swaps, and each slot's buffer and enable.
 
 **TUI and app.**
@@ -258,9 +260,41 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
 **Help text.** `--color` is still not in `printHelp`. Add it when colors are confirmed live (§7.3).
 
 ### 5.5 Known limitations (by design, v1)
-- **A casual remote.** A remote in the casual clothes is not swapped, so it draws with the local player's current body texture. That is the casual shirt if the local player wears it, and vanilla green if the local player wears the hero's clothes. Drawing the casual shirt per instance needs the casual header, which lives in daPy_lk_c+0x33C with an `imageOffset` relative to the used header, because the game copies it raw (`d_a_player_main.cpp:12340,12353-12355`). That is a v1.1 item: the casual shirt is `linktexbci4`, and a palette-indexed (C4/CI) texture could be recolored through its TLUT **(inferred from the name; `tunic-probe` prints its format while casual)**.
+- **A casual remote is never recolored.** It is drawn in the casual shirt (§5.6), which has no color. Its hair is the hero's-clothes head with the hat-cap from #66, drawn in the casual texture; the casual look's own hair model (katsura) is not drawn.
 - **The hero's second set of clothes.** On a second quest (clear count ≠ 0) the game forces the casual clothes (`:12345`), so there is no green to recolor.
 - **Hands are not recolored.** `hands.bdl` is a separate model (`d_a_player_main.cpp:11903`). It holds skin only (inferred).
+
+### 5.6 Casual shirt for remote players (built, 2026-10-16)
+
+**Owner request (2026-10-16):** a player who hasn't got the Hero's Clothes from Grandma yet must not appear in a uniform in other players' games. Before this, a casual remote's slot was off, so it drew with the viewer's worn body texture: hero green (or the viewer's own state) on a uniformed viewer.
+
+**Live probe** (`tunic-probe` and `peek`, both Dolphins in the casual clothes on Outset, 2026-10-16):
+- The worn header (`mpCurrLinktex`, texture 34 `linktexS3TC`, 0x80CC70E0) holds `linktexbci4`: format **0x08 (C4, 4-bit indexed)**, 160x96, one mip, `indexTexture` 1, TLUT format 1 (RGB565), 16 colors. Image 7680 bytes at worn + 0x0010F6C0; palette at worn + 0x001114C0. Raw words: `080000A0 00600000 01010010 001114C0 00000000 01010000 01000000 0010F6C0`.
+- `mOtherLinktex` (daPy_lk_c+0x33C) then holds the hero header: CMPR, 160x96, imageOffset 0x0001FA00 relative to the worn header, so its image is the spare `linktexS3TC` image (0x80CE6AE0).
+- In the hero's clothes the two swap (`d_a_player_main.cpp:12350-12355`): the worn header is the CMPR one and `mOtherLinktex` holds the casual header above, word for word, offsets still relative to the worn header (read live on a forced-hero Dolphin).
+- So a remote's casual header is always reachable from the viewer's own Link: the worn header while the viewer is casual, `mOtherLinktex` while the viewer wears the hero's clothes. Both offsets in it are relative to the worn header, so copying it into the worn header unchanged makes both resolve.
+- `loadTexNo` loads the TLUT from the header too when `indexTexture` is set (`J3DTevs.cpp:138-152`), and the differed buffer is sized for it (0x37 bytes per texNo, `J3DPacket.h:43-45`), so the per-instance bracket carries the format, image and palette.
+
+**C** (`tunic_swap`): enable byte value 2 (`TUNIC_ENABLE_CASUAL`, mailbox.h) on a remote slot means "this remote wears the casual clothes":
+- viewer casual: nothing to swap (the worn header already is the casual one);
+- viewer in hero clothes: copy the 8 words of `mOtherLinktex` into the worn header unchanged (no image buffer, no CMPR check) and restore after the slot's entry, exactly like the hero swap.
+- Enable 1 behaves as before, so a hero remote seen by a casual viewer still gets the hero header from `mOtherLinktex` with its colored image. The local slot never takes 2.
+- No mailbox field was added; T2 grew by 0x20 bytes (§6).
+
+**Go:** `syncTunics` calls `SetCasual(slot)` for a remote whose pose-trailer appearance byte has bit 0 set (`remoteCasual`), so the protocol is unchanged. `step` writes 2 directly; a later color goes through off and the drain (`TestTunicSync_CasualSlot`, `TestSyncTunics_SlotsFollowRemotes`).
+
+The casual shirt does not depend on the color pipeline, since C reads no image buffer for it. `Tick` writes a casual slot's 2 before every color gate: no hero texture read yet, nothing allocated (state 0), a buffer size for another texture, and a slot whose GameHeap allocation failed (state 0xFD, buf 0). `syncTunics` also sets casual remotes when this client has no server color yet (a server from before colors), while every color stays off. Both are covered by `TestSyncTunics_CasualSkipsColorGates`. `tunic-slot <0|1> casual` therefore settles on a slot without a buffer too.
+
+**Live check** (two Dolphins, host red / join blue on 127.0.0.1, Outset pier; hero clothes forced on one by event bit 0x2A80; screenshots in the PR's `casual-screenshots`):
+
+| Case | Viewer | Remote | Seen |
+|---|---|---|---|
+| A | hero (red) | casual | remote in the casual shirt (blue lobster shirt, orange trousers). Before the fix the same remote was drawn in hero green. |
+| B | casual | hero (red) | remote in the red hero tunic |
+| C | hero (red) / hero (blue) | hero | each sees the other in their color, as before |
+| D | casual | casual | both in the casual shirt, as before |
+
+`gameHeapErrors` (0x803F68F8) stayed 0 on both. A first build copied the worn header onto itself in case A (the source pointer was only switched for a casual viewer); the live check caught it.
 
 ## 6. Code space, memory, save-state coupling (Q4)
 
@@ -270,12 +304,13 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
 |---|---|---|---|
 | `origin/main` a301890 | 0x2CE8 | 0x80412CE8 | 0x218 |
 | first build of this C at `-O2` | 0x2F88 | 0x80412F88 | **−0x88 (overlaps the mailbox)** |
-| as built (`noinline, optimize("Os")` on the two helpers) | **0x2E08** | **0x80412E08** | **0xF8** |
+| as built (`noinline, optimize("Os")` on the two helpers) | 0x2E08 | 0x80412E08 | 0xF8 |
+| plus the casual shirt (§5.6) | **0x2E28** | **0x80412E28** | **0xD8** |
 
 - **Why the first build overflowed.** At `-O2`, gcc unrolled both 8-word copy loops and inlined `tunic_restore` at its three call sites. `tunic_swap` alone was 0xF0 bytes.
-- **As built:** `tunic_swap` is 0xC8 bytes, `tunic_restore` 0x60, and the statics (`tunic_hdr`, `tunic_saved[8]`) 0x24. The allocation block and the call sites are the rest.
-- **The check.** `TestT2EndsBelowMailbox` (`internal/inject/t2_budget_test.go`) checks the T2 end against `blob.go` at test time and logs the 0xF8.
-- **0xF8 is the last room in T2.** M7 needs about 0x700 (docs/08 §4.5). The next C feature therefore needs finish-plan D2 (drop the dead shadow modes 1-4 and the echo ring) or the option-A arena move first.
+- **As built:** `tunic_swap` is 0xC8 bytes (0xE4 with §5.6's casual case), `tunic_restore` 0x60, and the statics (`tunic_hdr`, `tunic_saved[8]`) 0x24. The allocation block and the call sites are the rest.
+- **The check.** `TestT2EndsBelowMailbox` (`internal/inject/t2_budget_test.go`) checks the T2 end against `blob.go` at test time and logs the free bytes (0xD8 now).
+- **0xD8 is the last room in T2.** M7 needs about 0x700 (docs/08 §4.5). The next C feature therefore needs finish-plan D2 (drop the dead shadow modes 1-4 and the echo ring) or the option-A arena move first.
 
 **Memory.**
 - 3 × the image size from GameHeap, allocated once. If `linktexS3TC` is 256x256 with no mips, that is 3 × 32 KiB = 96 KiB **(inferred; `tunic-probe` prints the size)**. Go refuses images over 64 KiB.
@@ -417,7 +452,7 @@ Setup: run `SAVE_STATE=… ./ww-multiplayer.exe dolphin2`, then `WW_TUNIC=off ./
 - **The mask catches other greens (medium).** For example, eye highlights, if any share the atlas. Tune `DefaultMask` from the §7.1 screenshots, or ship a hand-made block mask. A mask is our own data, not Nintendo's.
 - **Diff buffer and texmap stage (low).** The differed buffer is sized for TexNoNum = 2 (`J3DPacket.h:39-49`). Face sync proves texmap stages 0-1. A tunic texmap ≥ 2 needs a look at the matpacket's differed sizing (check `tunic-probe` (c) before §7.2).
 - **GameHeap headroom (medium).** See §6.
-- **Code space (known).** 0xF8 bytes are left in T2 (§6). The next C feature needs D2 or M7 first.
+- **Code space (known).** 0xD8 bytes are left in T2 (§6). The next C feature needs D2 or M7 first.
 - **Multiple Dolphins and IDs (low).** Colors key on names, so two humans with the same name share a color. That is the existing dedup's assumption too.
 
 **Decided (owner, 2026-10-16):** green stays in the palette; the vanilla tunic is a valid color.

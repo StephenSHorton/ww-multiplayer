@@ -276,7 +276,7 @@ So a write made right after the heartbeat lands in the rest of the main loop or 
 
 Ring entries carry `seq` plus an XOR check byte.
 
-**Size.** A clang-18 `powerpc-unknown-eabi` sketch of items 1, 3 and 5 with GRANT and ADD_S16 measured **0x3F0 bytes of .text at -Os and 0x50C at -O2** (`scratchpad/coop/hostauth-sketch/coop_world.c`). With the isActor shim and the full op set the estimate is about 0x700 (inferred). devkitPPC gcc will differ. This does not fit today's 0xF8-byte gap, so §4.5 applies.
+**Size.** A clang-18 `powerpc-unknown-eabi` sketch of items 1, 3 and 5 with GRANT and ADD_S16 measured **0x3F0 bytes of .text at -Os and 0x50C at -O2** (`scratchpad/coop/hostauth-sketch/coop_world.c`). With the isActor shim and the full op set the estimate is about 0x700 (inferred). devkitPPC gcc will differ. This does not fit today's 0xD8-byte gap, so §4.5 applies.
 
 **Not in v1.0.** Entry hooks on the `dSv_*` setters, which need displaced-instruction trampolines. If they are ever needed, fill the displaced first instruction at patch time from the user's vanilla DOL, using marker words, PC-relative and r12/ctr checks, and a CRC. No game bytes would then ship in `blob.go`.
 
@@ -327,8 +327,8 @@ Current layout (`inject/build.py:109,142-145`; `mailbox.h:33`; `internal/inject/
 | 0x803FCFA8..0x8040CFA8 | main stack (grows down; `OSClearStack` zeroes stack_end+4..SP, `OSThread.c:924-933`) | 64 KB |
 | 0x8040CFA8..0x8040CFB0 | frame header above the stack top, **in use**: `__start` calls the nofralloc `__init_hardware` with r1 = `_stack_addr`, so `__OSPSInit` and `__OSCacheInit` save LR at 4(r1) = 0x8040CFAC, which keeps 0x8000336C on every booted game (`__start.c:21-23,125-126,173-183`; `OS.c:623-624`; `OSCache.c:446`; `__init_hardware` 0x80003354, sym:5) | 8 |
 | 0x8040CFB0..0x80410000 | MetroTRK debug stack plus padding; `InitMetroTRK` runs only if a 32-bit word is 2 or 3: the word at +0xC of the block pointed to by 0x800000F4, or, when that pointer is 0 and 0x80000034 is non-zero, the word at 0x800030E8 (`__start.c:32-62`); free by inference | 0x3050 |
-| 0x80410000..0x80412E08 | T2 (code and data; 0x2CE8 before the tunic colors, docs/09) | 0x2E08 |
-| 0x80412E08..0x80412F00 | free, unchecked | **0xF8** |
+| 0x80410000..0x80412E28 | T2 (code and data; 0x2CE8 before the tunic colors, 0x2E08 before the casual shirt, docs/09) | 0x2E28 |
+| 0x80412E28..0x80412F00 | free, unchecked | **0xD8** |
 | 0x80412F00..0x804130A0 | mailbox (`frame_shim` hard-codes `lwz 12,0x2F08(12)`, `multiplayer.c:297`; the Go `mailboxBase` const in `main.go`; +0x188..+0x1A0 is the docs/09 tunic block, +0x180..+0x187 stay reserved) | 0x1A0 |
 | 0x804130A0..0x80414000 | unused, below arena | 0xF60 |
 | 0x80414000 | patched `__OSArenaLo` (`addi r3,r3,0x4000` at 0x80301820) | — |
@@ -1186,7 +1186,7 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 | heap ptrs zelda / game / archive | 0x803F6928 / 0x803F6920 / 0x803F6938 | 4 each | sym:18588-18594 |
 | heap error counters zelda / game / archive | 0x803F68FC / 0x803F68F8 / 0x803F6904 | 4 each | sym:18577-18580 |
 | actor fields | mBsPcId +0x04, mProcName +0x08, mParameters +0xB0, actor_type +0xC0, eventInfo.mCommand +0xF8, setID +0x1BC, group +0x1BE, actor_status +0x1C4, home.pos +0x1D0, home.roomNo +0x1E2, health +0x285 | fopAc_ac_c 0x290 | f_pc_base.h:13-32; f_op_actor.h:268-321 |
-| mod T2 / mailbox / patched arenaLo | 0x80410000..0x80412E08 / 0x80412F00..0x804130A0 / 0x80414000 | — | inject/build.py:109,142-145; mailbox.h:33 |
+| mod T2 / mailbox / patched arenaLo | 0x80410000..0x80412E28 / 0x80412F00..0x804130A0 / 0x80414000 | — | inject/build.py:109,142-145; mailbox.h:33 |
 | `spawn_trigger` (heartbeat) / `warp_seq` | 0x80412F00 / 0x80412FC8 | 4 / 4 | mailbox.h:109,221 |
 
 **Functions**
@@ -2086,3 +2086,4 @@ Also needed from the owner, and not a decision: capture the fixture save states 
     - **Merging after Start.** `Hub.SetMerge` turns `--coop-merge` on or off while the hub runs: it logs the change and re-grants every welcomed peer, whose replica then learns the new features (`TestSetMerge`). A joiner whose file needed merging asks to bind again (`retryBinds`: it waits up to 15 s for the hub's features to arrive, else says to load the file again; `TestRetryBindsAfterMerge`).
     - **Restarts.** The app's game side starts coop-sync again after an error, a Dolphin relaunch or a new boot; the CLI runs it once a process. Each app run leaves the console when it stops (`appSyncOn`), the console keeps the session's context rather than the first run's, and the files a bind was asked for are kept per player for the session (`coopSession.askedFor`), so a no is still not asked again (`TestGameRunnerCoopRestart`).
     - **The window as a third asker.** The app answers through `outputAsker` like the TUI: every question is a dialog (Bind / Not now, Remove the tag / Leave it). Escape is the no; a close made by the window itself (another dialog taking its place) is not. Item 64's rule holds as in item 164: a question or a "Remove the tag" dialog takes the focus itself, not a button, and ignores clicks, Enter, Space and Escape for its first 600 ms (`SETTLE_MS` in ui.js). The per-session auto-yes (`SetAutoYes`, never saved) answers open and later questions yes, as `--yes` does.
+166. **The casual shirt for remote players took 0x20 bytes of T2 (docs/09 §5.6).** `tunic_swap` gained a second enable value, `TUNIC_ENABLE_CASUAL` (2), which copies the casual header (mOtherLinktex while the viewer wears the hero's clothes) into the worn header around a remote's draw. No mailbox field was added: the enable byte carries it. T2 grew from 0x2E08 to 0x2E28 (devkitPPC 16.2, `-O2`, the helpers at `Os`), so it ends at 0x80412E28 and the free gap below the mailbox is 0xD8 bytes, down from 0xF8. M7 (about 0x700 bytes) still needs §4.5's arena move or finish-plan D2 first.

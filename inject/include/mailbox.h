@@ -480,6 +480,10 @@ typedef struct {
     // that slot's image (copying the hero header from mOtherLinktex when
     // Link #1 wears the casual clothes) and restores the header after.
     // Link #1 in the casual clothes is never swapped.
+    // tunic_enable[slot] = 2 (TUNIC_ENABLE_CASUAL, docs/09 §5.6) marks a
+    // remote in the casual clothes: C copies the casual header in
+    // (mOtherLinktex, when Link #1 wears the hero's clothes) and uses no
+    // image buffer.
     //   tunic_state — 0 not allocated, 1 all three allocated,
     //                 0xFD an allocation failed (the ones that worked
     //                 stay published).
@@ -492,6 +496,7 @@ typedef struct {
 } Mailbox;   // 0x1A0 bytes
 
 #define TUNIC_SLOT_LOCAL 2
+#define TUNIC_ENABLE_CASUAL 2
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)
 
