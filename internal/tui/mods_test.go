@@ -7,6 +7,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/events"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // quarantinedEv stands for wwapi.ModQuarantined on the runtime's bus.
@@ -49,6 +50,57 @@ func TestConnectModLines(t *testing.T) {
 	}
 	if modsNotLoaded(nil) != nil {
 		t.Error("no controller: lines")
+	}
+}
+
+// TestConnectCoopModOff: with the coop mod not LOADED (the toggle or
+// --no-mod=coop) or an engine without co-op, the co-op row offers only
+// off for both roles, as the GUI's SetCoop refuses co-op; with coop
+// LOADED and a co-op engine the choices are as they were.
+func TestConnectCoopModOff(t *testing.T) {
+	mods := func(state string) func() []session.ModStatus {
+		return func() []session.ModStatus {
+			return []session.ModStatus{
+				{ID: "multiplayer", Version: "1.0.0", State: session.Loaded},
+				{ID: "coop", Version: "1.0.0", State: state},
+			}
+		}
+	}
+	on := session.New(newCoopEngine(), session.Options{Mods: mods(session.Loaded)})
+	if coopOff(on) || coopOff(nil) {
+		t.Fatal("coop LOADED (or no controller): co-op off")
+	}
+	for name, ctrl := range map[string]*session.Controller{
+		"coop DISABLED":    session.New(newCoopEngine(), session.Options{Mods: mods("DISABLED")}),
+		"no co-op engine":  session.New(&fakeEngine{}, session.Options{}),
+		"coop QUARANTINED": session.New(newCoopEngine(), session.Options{Mods: mods("QUARANTINED")}),
+	} {
+		if !coopOff(ctrl) {
+			t.Errorf("%s: co-op still offered", name)
+		}
+	}
+
+	m := newConnect()
+	m.nameInput = "Link"
+	m.noCoop = true
+	m.worlds = []session.CoopWorld{{ID: "0123456789abcdef", Seq: 4}}
+	for _, role := range []int{0, 1} {
+		m.role = role
+		m.focused = 1
+		m.hostCoop, m.joinCoop = 1, 1
+		cs := m.coopChoices()
+		if len(cs) != 1 || cs[0].opts.On {
+			t.Fatalf("role %d: choices %+v, want off only", role, cs)
+		}
+		for _, k := range []tea.KeyType{tea.KeyRight, tea.KeyLeft, tea.KeyEnter} {
+			next := send(m, tea.KeyMsg{Type: k})
+			if c := next.coopChoices()[next.coopIndex()]; c.opts.On {
+				t.Errorf("role %d after %v: co-op %+v", role, k, c.opts)
+			}
+		}
+		if out := plain(m.view(80)); !strings.Contains(out, "Off (Co-op mod is off)") {
+			t.Errorf("role %d: row\n%s", role, out)
+		}
 	}
 }
 

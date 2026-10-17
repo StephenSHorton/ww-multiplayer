@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -62,6 +63,11 @@ type connectModel struct {
 	// mods are the app's mods that did not load (modsNotLoaded): one
 	// status line each, under the form.
 	mods []session.ModStatus
+
+	// noCoop: the session can't play co-op (the coop mod is not LOADED,
+	// or the engine has none; coopOff), so the co-op row offers only
+	// off, as the GUI's SetCoop refuses co-op without the mod.
+	noCoop bool
 }
 
 // coopChoice is one co-op setting the connect form offers.
@@ -72,8 +78,12 @@ type coopChoice struct {
 
 // coopChoices are the role's co-op settings: off; for a host a new world
 // founded from its loaded file, then each world on disk to continue; for
-// a joiner on, which plays the host's world.
+// a joiner on, which plays the host's world. Without co-op (noCoop) the
+// only choice is off.
 func (m connectModel) coopChoices() []coopChoice {
+	if m.noCoop {
+		return []coopChoice{{label: "Off (Co-op mod is off)"}}
+	}
 	cs := []coopChoice{{label: "Off"}}
 	if m.role == 1 {
 		return append(cs, coopChoice{label: "On (the host's world)", opts: session.CoopOptions{On: true}})
@@ -466,6 +476,22 @@ func modsNotLoaded(ctrl *session.Controller) []session.ModStatus {
 		}
 	}
 	return out
+}
+
+// coopOff says whether ctrl's sessions can't play co-op: its mods list
+// coop as anything but LOADED, or its engine has no co-op (CoopWorlds is
+// ErrNoCoop). No controller is not off: the form is as it was.
+func coopOff(ctrl *session.Controller) bool {
+	if ctrl == nil {
+		return false
+	}
+	for _, ms := range ctrl.Mods() {
+		if ms.ID == "coop" && ms.State != session.Loaded {
+			return true
+		}
+	}
+	_, err := ctrl.CoopWorlds()
+	return errors.Is(err, session.ErrNoCoop)
 }
 
 // modLine is a mod's status line: "Mod coop 1.0.0: DISABLED (turned off

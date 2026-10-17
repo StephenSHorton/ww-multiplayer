@@ -101,6 +101,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.connect = newConnect()
 		m.connect.worlds = coopWorlds(m.ctrl)
 		m.connect.mods = modsNotLoaded(m.ctrl)
+		m.connect.noCoop = coopOff(m.ctrl)
 		m.connect.showIPs = m.showIPs
 		m.screen = screenConnect
 		return m, nil
@@ -127,6 +128,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.connect.err = ""
 		m.connect.worlds = coopWorlds(m.ctrl)
 		m.connect.mods = modsNotLoaded(m.ctrl)
+		m.connect.noCoop = coopOff(m.ctrl)
 		m.screen = screenConnect
 		return m, nil
 	}
