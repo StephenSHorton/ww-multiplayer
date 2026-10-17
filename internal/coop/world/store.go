@@ -638,7 +638,7 @@ func syncDir(dir string) {
 // Windows refuses to rename over a file another process has open without
 // FILE_SHARE_DELETE: Defender or the search indexer looking at a world
 // file just written, or a `coop-world` command reading it. Like the M1
-// tables cache (internal/coop/tables/cache.go) and Go's own toolchain
+// tables cache (wwapi/tables/cache.go) and Go's own toolchain
 // (cmd/go/internal/robustio), renames are retried for about 2 s: from
 // renameRetryFirst, doubling up to renameRetryMaxStep, until the next wait
 // would pass renameRetryBudget. (Raw Errnos so this builds everywhere; 5

@@ -7,14 +7,15 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/keys"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
 // The Tingle Tuner guard's fixture (gba.go): the M5 fixture, plus the
@@ -76,13 +77,13 @@ func gbaTables(t testing.TB) *tables.Tables {
 		name        string
 		synced, gba bool
 	}{
-		{"sea 0x05", tb.SyncedMemorySwitch(addr.TableSea, gbaSea), tb.GBAMemorySwitch(addr.TableSea, gbaSea)},
-		{"sea 0x06", tb.SyncedMemorySwitch(addr.TableSea, plainSea), !tb.GBAMemorySwitch(addr.TableSea, plainSea)},
-		{"danOK", tb.SyncedScopedSwitch(keys.TableDRC, drc.Name, -1, danOK), !tb.GBAScopedSwitch(keys.TableDRC, drc.Name, -1, danOK)},
-		{"danOK2", tb.SyncedScopedSwitch(keys.TableDRC, drc.Name, -1, danOK2), tb.GBAScopedSwitch(keys.TableDRC, drc.Name, -1, danOK2)},
-		{"zoneOK", tb.SyncedScopedSwitch(keys.TableDRC, drc.Name, 1, zoneOK), !tb.GBAScopedSwitch(keys.TableDRC, drc.Name, 1, zoneOK)},
-		{"zoneOK2", tb.SyncedScopedSwitch(keys.TableDRC, drc.Name, 1, zoneOK2), tb.GBAScopedSwitch(keys.TableDRC, drc.Name, 1, zoneOK2)},
-		{"roomOK2", tb.SyncedScopedSwitch(keys.TableDRC, drc.Name, 1, roomOK2), tb.GBAScopedSwitch(keys.TableDRC, drc.Name, 1, roomOK2)},
+		{"sea 0x05", synctables.SyncedMemorySwitch(tb, addr.TableSea, gbaSea), synctables.GBAMemorySwitch(tb, addr.TableSea, gbaSea)},
+		{"sea 0x06", synctables.SyncedMemorySwitch(tb, addr.TableSea, plainSea), !synctables.GBAMemorySwitch(tb, addr.TableSea, plainSea)},
+		{"danOK", synctables.SyncedScopedSwitch(tb, keys.TableDRC, drc.Name, -1, danOK), !synctables.GBAScopedSwitch(tb, keys.TableDRC, drc.Name, -1, danOK)},
+		{"danOK2", synctables.SyncedScopedSwitch(tb, keys.TableDRC, drc.Name, -1, danOK2), synctables.GBAScopedSwitch(tb, keys.TableDRC, drc.Name, -1, danOK2)},
+		{"zoneOK", synctables.SyncedScopedSwitch(tb, keys.TableDRC, drc.Name, 1, zoneOK), !synctables.GBAScopedSwitch(tb, keys.TableDRC, drc.Name, 1, zoneOK)},
+		{"zoneOK2", synctables.SyncedScopedSwitch(tb, keys.TableDRC, drc.Name, 1, zoneOK2), synctables.GBAScopedSwitch(tb, keys.TableDRC, drc.Name, 1, zoneOK2)},
+		{"roomOK2", synctables.SyncedScopedSwitch(tb, keys.TableDRC, drc.Name, 1, roomOK2), synctables.GBAScopedSwitch(tb, keys.TableDRC, drc.Name, 1, roomOK2)},
 	} {
 		if !c.synced || !c.gba {
 			t.Fatalf("the guard fixture's %s: synced %v, GBA verdict as expected %v", c.name, c.synced, c.gba)
@@ -421,7 +422,7 @@ func TestGBARecheckScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !tb.GBAScopedSwitch(keys.TableDRC, drc.Name, -1, danOK2) || tb.GBAMemorySwitch(addr.TableSea, gbaSea) {
+	if !synctables.GBAScopedSwitch(tb, keys.TableDRC, drc.Name, -1, danOK2) || synctables.GBAMemorySwitch(tb, addr.TableSea, gbaSea) {
 		t.Fatal("the scoped-only fixture's verdicts")
 	}
 	rr := newM5Rig(t, Config{Apply: true, Tables: tb}, m5Features)

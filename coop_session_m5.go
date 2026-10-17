@@ -17,20 +17,24 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/switches"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/switches"
 )
 
 // scopedVerdict is the M1 verdict on the switches SCOPED carries
-// (tables.Tables.SyncedScopedSwitch), as hub.Config.SyncedScoped takes
+// (synctables.SyncedScopedSwitch), as hub.Config.SyncedScoped takes
 // it: nil without tables, so the hub keeps and relays none.
 func (st *coopStageTables) scopedVerdict() func(table int, stage string, room, no int) bool {
 	if st == nil || st.t == nil {
 		return nil
 	}
-	return st.t.SyncedScopedSwitch
+	t := st.t
+	return func(table int, stage string, room, no int) bool {
+		return synctables.SyncedScopedSwitch(t, table, stage, room, no)
+	}
 }
 
 // puzzleCount is how many dan, zone and room switches t's verdict lets
@@ -49,7 +53,7 @@ func countPuzzles(t *tables.Tables) puzzleCount {
 	danTables := map[int]bool{}
 	rooms := map[switches.Scope]bool{}
 	for _, s := range t.Switches.Switches {
-		if !t.SyncedScopedSwitch(s.Table, s.Stage, s.Room, s.No) {
+		if !synctables.SyncedScopedSwitch(t, s.Table, s.Stage, s.Room, s.No) {
 			continue
 		}
 		switch s.Store {

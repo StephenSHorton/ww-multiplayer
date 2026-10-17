@@ -1,17 +1,18 @@
 package replica
 
 import (
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
 
 // The Tingle Tuner guard (§6.2, §6.3). The stage tables sync a switch a
 // Tingle Tuner switch (agbsw0) shares with latching setters, since every
 // Tuner write needs a Game Boy Advance linked on the frame it is made
 // (tables/switches, AGBSW0). They mark it GBA-dependent
-// (tables.Tables.GBASwitch). While a GBA may be linked to this replica's
+// (synctables.GBASwitch). While a GBA may be linked to this replica's
 // game (state.GBALink.MayLink, read every tick), such a switch is neither
 // proposed nor written:
 //
@@ -69,7 +70,7 @@ func newGBAGuard(p *world.Policy, t *tables.Tables) gbaGuard {
 		return g
 	}
 	var m world.Policy
-	m.GrantSwitches(t.GBAMemorySwitch)
+	m.GrantSwitches(func(table, no int) bool { return synctables.GBAMemorySwitch(t, table, no) })
 	for off := range m {
 		m[off] &= p[off]
 	}
@@ -78,11 +79,11 @@ func newGBAGuard(p *world.Policy, t *tables.Tables) gbaGuard {
 		if !s.Synced || !s.GBA {
 			continue
 		}
-		if t.GBAMemorySwitch(s.Table, s.No) {
+		if synctables.GBAMemorySwitch(t, s.Table, s.No) {
 			if _, b, err := addr.SwitchBit(s.No); err == nil && addr.ValidTable(s.Table) && p[addr.OffMemBit(s.Table)+b.Off]&b.Mask != 0 {
 				g.switches++
 			}
-		} else if t.GBAScopedSwitch(s.Table, s.Stage, s.Room, s.No) {
+		} else if synctables.GBAScopedSwitch(t, s.Table, s.Stage, s.Room, s.No) {
 			g.switches++
 		}
 	}
@@ -120,12 +121,12 @@ func (r *Replica) observeGBA(s *state.Snapshot) {
 func (r *Replica) gbaHeld() bool { return r.gba.held }
 
 // scopedSynced is the verdict the scoped sender proposes by: the tables'
-// (tables.Tables.SyncedScopedSwitch), without the switches shared with
+// (synctables.SyncedScopedSwitch), without the switches shared with
 // the Tingle Tuner while a GBA may be linked. It runs under r.mu, in the
 // differ.
 func (r *Replica) scopedSynced(table int, stage string, room, no int) bool {
 	t := r.cfg.Tables
-	return t.SyncedScopedSwitch(table, stage, room, no) && !(r.gba.held && t.GBAScopedSwitch(table, stage, room, no))
+	return synctables.SyncedScopedSwitch(t, table, stage, room, no) && !(r.gba.held && synctables.GBAScopedSwitch(t, table, stage, room, no))
 }
 
 // scopedHeld reports whether a scoped switch is held back this tick: it
@@ -133,7 +134,7 @@ func (r *Replica) scopedSynced(table int, stage string, room, no int) bool {
 // Differ taints such a bit when it rises (HoldScopes). It runs under r.mu,
 // in the differ.
 func (r *Replica) scopedHeld(table int, stage string, room, no int) bool {
-	return r.gba.held && r.cfg.Tables.GBAScopedSwitch(table, stage, room, no)
+	return r.gba.held && synctables.GBAScopedSwitch(r.cfg.Tables, table, stage, room, no)
 }
 
 // GBAStatus is the Tingle Tuner guard's part of Status.
@@ -142,7 +143,7 @@ type GBAStatus struct {
 	// (state.GBALink.MayLink), so the switches below are held back.
 	MayLink bool
 	// Switches counts the switches the stage tables share with Tingle
-	// Tuner switches (tables.Tables.GBASwitch) that this replica would
+	// Tuner switches (synctables.GBASwitch) that this replica would
 	// sync: held back while MayLink.
 	Switches int
 }

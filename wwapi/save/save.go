@@ -7,9 +7,8 @@
 // It holds no co-op policy: how a byte merges between players is
 // internal/coop/class's, a table keyed by the offsets Layout names.
 //
-// View still reads the heart Catalogue's records and the item sources'
-// flags through internal/coop/tables until C8 moves those builders to
-// wwapi/tables.
+// View reads the heart Catalogue's records and the item sources' flags
+// through wwapi/tables.
 //
 // Decomp citations are zeldaret/tww at 4d78c994, as in wwapi/addr.
 //

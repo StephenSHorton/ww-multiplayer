@@ -14,9 +14,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
@@ -25,6 +23,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/keys"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
 // M6.0 through the session plumbing (§7.2, §9 M6.0): a partner's kills of
@@ -147,7 +148,7 @@ func coAuditM6Kill(w coWrite, rep replica.Report, tb *tables.Tables, bad func(fo
 			continue
 		}
 		id := 32*(rel/4) + 8*(3-rel%4) + b
-		if !tb.SyncedKill(int(w.table), z.stage, room, id) {
+		if !synctables.SyncedKill(tb, int(w.table), z.stage, room, id) {
 			bad("setID %d of %s room %d does not sync", id, z.stage, room)
 		}
 		out = append(out, coKillAt{stage: z.stage, table: w.table, room: int8(room), setID: id})
@@ -256,7 +257,7 @@ func (tp *coKillTap) check(who string, dir wire.Dir, p []byte) {
 	var bad []string
 	for _, w := range sc.Words {
 		for b := range 32 {
-			if id := 32*int(w.Word) + b; w.Bits&(1<<b) != 0 && !tp.tb.SyncedKill(int(sc.Table), sc.Stage.String(), int(sc.Room), id) {
+			if id := 32*int(w.Word) + b; w.Bits&(1<<b) != 0 && !synctables.SyncedKill(tp.tb, int(sc.Table), sc.Stage.String(), int(sc.Room), id) {
 				bad = append(bad, fmt.Sprintf("%s: a %s KILL carries setID %d of %s room %d, which does not sync", who, dir, id, sc.Stage, sc.Room))
 			}
 		}
@@ -371,7 +372,7 @@ func TestCoopSessionM6(t *testing.T) {
 	}
 	for i, e := range coM6Enemies {
 		want := e.setID != 0xFFFF && !e.boss
-		if got := tb.SyncedKill(addr.TableDRC, coDRC.Name, e.room, int(e.setID)); got != want {
+		if got := synctables.SyncedKill(tb, addr.TableDRC, coDRC.Name, e.room, int(e.setID)); got != want {
 			t.Fatalf("the fixture's verdict on enemy %d is %v, want %v", i, got, want)
 		}
 	}

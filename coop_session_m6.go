@@ -4,7 +4,7 @@ package main
 // M6.0): a partner's recorded deaths of keyed enemies reach each game
 // through the hub's KILL stores, judged by the M1 enemy table on both
 // sides: the host's hub keeps and relays only the deaths its tables sync
-// (hub.Config.SyncedKill, tables.Tables.SyncedKill), and each writing
+// (hub.Config.SyncedKill, synctables.SyncedKill), and each writing
 // replica writes only those its own sync (replica.Config.Tables), into
 // the zones of the stage's loaded rooms, and light-shrinks the live enemy.
 // hub.FeatureCombat is a TableFeature: a player whose stage tables are not
@@ -17,19 +17,23 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
 
 // killVerdict is the M1 verdict on the kill bits SCOPED KILL carries
-// (tables.Tables.SyncedKill), as hub.Config.SyncedKill takes it: nil
+// (synctables.SyncedKill), as hub.Config.SyncedKill takes it: nil
 // without tables, so the hub keeps and relays none.
 func (st *coopStageTables) killVerdict() func(table int, stage string, room, setID int) bool {
 	if st == nil || st.t == nil || st.t.Enemies == nil {
 		return nil
 	}
-	return st.t.SyncedKill
+	t := st.t
+	return func(table int, stage string, room, setID int) bool {
+		return synctables.SyncedKill(t, table, stage, room, setID)
+	}
 }
 
 // combatCount is what t's enemy table syncs: the keyed K1 entries synced,

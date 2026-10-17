@@ -51,7 +51,7 @@ const CardSlots = 3
 type CoHello struct {
 	Schema       uint16 // Schema
 	ClassHash    uint64 // ClassHash()
-	StageTblHash uint64 // the M1 tables' identity (internal/coop/tables)
+	StageTblHash uint64 // the M1 tables' identity (wwapi/tables)
 	WorldID      ID     // the tag's worldID; zero for FileUnbound
 	BindNonce    ID     // the tag's bindNonce; zero for FileUnbound
 	Slot         uint8  // mDataNum, 0..CardSlots-1

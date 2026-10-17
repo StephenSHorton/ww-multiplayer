@@ -12,12 +12,12 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
 
 // startM4Host is a host whose hub grants the default features over tb:
@@ -32,7 +32,7 @@ func startM4Host(t *testing.T, tb *tables.Tables) *host {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := hub.New(hub.Config{Store: st, Features: hub.DefaultFeatures, StageTblHash: id, SyncedSwitch: tb.SyncedMemorySwitch})
+	h, err := hub.New(hub.Config{Store: st, Features: hub.DefaultFeatures, StageTblHash: id, SyncedSwitch: memorySwitches(tb)})
 	if err != nil {
 		t.Fatal(err)
 	}

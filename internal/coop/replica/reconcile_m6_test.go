@@ -10,9 +10,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
@@ -22,6 +20,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/keys"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
 // The M6 fixture's enemies, in Dragon Roost Cavern's room 1 and one in
@@ -96,7 +97,7 @@ func m6Tables(t testing.TB) *tables.Tables {
 	}
 	for i, p := range m6Placed {
 		want := p.setID != 0xFFFF && !p.boss
-		if got := tb.SyncedKill(keys.TableDRC, drc.Name, p.room, int(p.setID)); got != want {
+		if got := synctables.SyncedKill(tb, keys.TableDRC, drc.Name, p.room, int(p.setID)); got != want {
 			t.Fatalf("the fixture's verdict on enemy %d (%s setID %d) is %v, want %v", i, p.name, p.setID, got, want)
 		}
 	}
@@ -858,9 +859,9 @@ func auditM6(t *testing.T, rr *m6Rig, sent map[[2]int]bool) {
 				t.Fatalf("a dead-actor byte in zone slot %d, which was no room's (mRoomNo %d)", z, room)
 			}
 			for _, id := range killSetIDs(w.a, z, w.val&^w.old) {
-				if at.stage != drc.Name || !sent[[2]int{room, id}] || !rr.tb.SyncedKill(addr.TableDRC, at.stage, room, id) {
+				if at.stage != drc.Name || !sent[[2]int{room, id}] || !synctables.SyncedKill(rr.tb, addr.TableDRC, at.stage, room, id) {
 					t.Fatalf("setID %d of room %d of %s written: sent %v, synced %v", id, room, at.stage,
-						sent[[2]int{room, id}], rr.tb.SyncedKill(addr.TableDRC, at.stage, room, id))
+						sent[[2]int{room, id}], synctables.SyncedKill(rr.tb, addr.TableDRC, at.stage, room, id))
 				}
 			}
 		case w.a >= fakegame.EnemyHeap && w.a < fakegame.EnemyHeap+0x1000000:
@@ -893,7 +894,7 @@ func auditM6(t *testing.T, rr *m6Rig, sent map[[2]int]bool) {
 				case !isK1 || !k.Verified || off != k.Ice+addr.EnemyIceOffTimer:
 					t.Fatalf("a timer write at +0x%X into %s, not a verified class's timer", off, p.Proc)
 				case p.Stage != drc.Name || p.SetID == addr.ActorSetIDNone || !sent[[2]int{p.Room, int(p.SetID)}] ||
-					!rr.tb.SyncedKill(addr.TableDRC, p.Stage, p.Room, int(p.SetID)):
+					!synctables.SyncedKill(rr.tb, addr.TableDRC, p.Stage, p.Room, int(p.SetID)):
 					t.Fatalf("pid %d (%s r%d setID %d) shrunk: sent %v", w.pid, p.Stage, p.Room, p.SetID, sent[[2]int{p.Room, int(p.SetID)}])
 				case p.Boss:
 					t.Fatalf("a BOSS enemy pid %d shrunk", w.pid)

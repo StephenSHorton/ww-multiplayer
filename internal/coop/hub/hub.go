@@ -117,7 +117,7 @@ type Config struct {
 	// this build's, wire.ClassHash, is refused outright.)
 	StageTblHash uint64
 	// SyncedSwitch is the host's M1 verdict on memory switch no of save
-	// table t (tables.Tables.SyncedMemorySwitch, from the tables
+	// table t (synctables.SyncedMemorySwitch, from the tables
 	// StageTblHash names): only these enter the world, everything else in
 	// the memory switch bytes is refused (SwitchPolicy). Nil, a host
 	// without tables, keeps every memory switch out, as M2 did.
@@ -137,7 +137,7 @@ type Config struct {
 	// (none in DefaultPolicy).
 	Policy *world.Policy
 	// SyncedScoped is the host's M1 verdict on the switches SCOPED
-	// carries (tables.Tables.SyncedScopedSwitch, from the tables
+	// carries (synctables.SyncedScopedSwitch, from the tables
 	// StageTblHash names): whether stage switch no, 0x80-0xEF, latches as
 	// an actor of save table table, stage stage and room room writes it
 	// (room -1 for a dan switch, which is the table's). The scoped stores
@@ -149,7 +149,7 @@ type Config struct {
 	// are SyncedKill's.
 	SyncedScoped func(table int, stage string, room, no int) bool
 	// SyncedKill is the host's M1 verdict on the kill bits SCOPED KILL
-	// carries (tables.Tables.SyncedKill): whether a death of setID in
+	// carries (synctables.SyncedKill): whether a death of setID in
 	// room of stage, as a game of save table table records it, syncs. The
 	// scoped stores keep and relay only the bits it grants (KillFilter);
 	// the rest are dropped and counted in PeerStatus.ScopedRefused, as

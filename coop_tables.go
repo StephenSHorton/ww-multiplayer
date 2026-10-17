@@ -5,7 +5,7 @@ package main
 // the later milestones sync by, small keys and key doors, heart sources,
 // switch classes and push blocks, and enemy entries with their setIDs,
 // with M1's owner acceptance on top. The tables are cached by DOL hash
-// under the user's config directory (internal/coop/tables), so only the
+// under the user's config directory (wwapi/tables), so only the
 // first run reads the stage archives. Read-only on the disc; like the
 // co-op diagnostics, it is not listed in printHelp.
 
@@ -18,8 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
 
 const coopTablesUsage = "coop-tables <iso|ciso> [--json] [--no-cache] [--section keys|hearts|switches|enemies]"
@@ -137,7 +138,7 @@ func coopTables(out, status io.Writer, a coopTablesArgs, cacheDir func() (string
 		sections = []tables.Section{a.section}
 	}
 	if !a.json {
-		fmt.Fprintf(out, "\n%s", t.Report(sections...))
+		fmt.Fprintf(out, "\n%s", synctables.Report(t, sections...))
 		return nil
 	}
 	v := t

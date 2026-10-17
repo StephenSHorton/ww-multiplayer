@@ -864,7 +864,7 @@ type GuardConfig struct {
 	// opens no switch.
 	Policy *world.Policy
 	// GBA is the memory switch bits that sync only while no Game Boy
-	// Advance is linked (tables.Tables.GBAMemorySwitch): shut on a tick
+	// Advance is linked (synctables.GBAMemorySwitch): shut on a tick
 	// whose Tick.GBA is set. Nil shuts none.
 	GBA *world.Policy
 	// Breaker gets every refusal (but those made while co-op is off) as

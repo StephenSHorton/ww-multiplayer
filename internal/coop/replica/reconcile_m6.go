@@ -8,10 +8,11 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/enemies"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/enemies"
 )
 
 // The M6 receiver (§7.2, M6.0): a partner's recorded deaths of keyed
@@ -164,7 +165,7 @@ func (r *Replica) killMask(table int8, stage string, room int) enemies.KillSet {
 	if r.cfg.Tables == nil {
 		return enemies.KillSet{}
 	}
-	return r.cfg.Tables.KillMask(int(table), stage, room)
+	return synctables.KillMask(r.cfg.Tables, int(table), stage, room)
 }
 
 // reconcileM6 runs the M6 receiver for one tick: o's snapshot, read and

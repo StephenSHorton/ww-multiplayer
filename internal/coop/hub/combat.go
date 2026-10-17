@@ -14,7 +14,7 @@ import (
 // other's zone and the enemy there, if it lives, is light-shrunk.
 //
 // Only the keys of the host's M1 verdict travel (Config.SyncedKill,
-// tables.Tables.SyncedKill): a keyed K1 enemy's, not BOSS, Morth or
+// synctables.SyncedKill): a keyed K1 enemy's, not BOSS, Morth or
 // Shared. A writing replica's sender proposes only those, with the same
 // filter (Filter), and its receiver writes only those its own tables
 // grant, so an old hub that relays KILL unfiltered (Appendix C item 113)

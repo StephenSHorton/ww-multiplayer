@@ -1,7 +1,7 @@
 package main
 
 // Co-op stage tables at runtime (#23; docs/08-coop-design.md §4.4, §6.2-6.3,
-// §9 M3): which M1 tables (internal/coop/tables) a --coop session runs
+// §9 M3): which M1 tables (wwapi/tables) a --coop session runs
 // with, and how they get there.
 //
 //   - `patch` builds the tables of the disc it writes, after writing it,
@@ -39,11 +39,12 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
 
 // coopTablesCacheDir is the directory of the tables' cache and of the
@@ -79,9 +80,9 @@ func (st *coopStageTables) hash() uint64 {
 }
 
 // syncedSwitch is the M1 verdict on memory switch no of save table t
-// (tables.Tables.SyncedMemorySwitch); false without tables.
+// (synctables.SyncedMemorySwitch); false without tables.
 func (st *coopStageTables) syncedSwitch(t, no int) bool {
-	return st != nil && st.t.SyncedMemorySwitch(t, no)
+	return st != nil && synctables.SyncedMemorySwitch(st.t, t, no)
 }
 
 // switchVerdict is syncedSwitch as hub.Config.SyncedSwitch takes it: nil
@@ -105,14 +106,14 @@ func (st *coopStageTables) policy() *world.Policy {
 
 // syncedCount is how many memory switches the verdict opens, and in how
 // many save tables, and how many of them sync only while no Game Boy
-// Advance is linked (tables.Tables.GBAMemorySwitch).
+// Advance is linked (synctables.GBAMemorySwitch).
 func (st *coopStageTables) syncedCount() (switches, saveTables, gba int) {
 	for t := range addr.TableCount {
 		n := 0
 		for no := range addr.MemBitSwitchCount {
 			if st.syncedSwitch(t, no) {
 				n++
-				if st.t.GBAMemorySwitch(t, no) {
+				if synctables.GBAMemorySwitch(st.t, t, no) {
 					gba++
 				}
 			}

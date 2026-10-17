@@ -11,13 +11,14 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/story"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
 // The M4 receiver's tests run the replica's reconciler over a FakeGame
@@ -50,7 +51,21 @@ func m4Tables(t *testing.T) *tables.Tables {
 }
 
 // m4Policy is a session's policy over tb's switch verdict.
-func m4Policy(tb *tables.Tables) *world.Policy { return hub.SessionPolicy(tb.SyncedMemorySwitch) }
+func m4Policy(tb *tables.Tables) *world.Policy { return hub.SessionPolicy(memorySwitches(tb)) }
+
+// memorySwitches is tb's verdict on the memory switches
+// (synctables.SyncedMemorySwitch), as hub.Config.SyncedSwitch takes it.
+func memorySwitches(tb *tables.Tables) func(table, no int) bool {
+	return func(table, no int) bool { return synctables.SyncedMemorySwitch(tb, table, no) }
+}
+
+// scopedSwitches is tb's verdict on the switches SCOPED carries
+// (synctables.SyncedScopedSwitch), as hub.Config.SyncedScoped takes it.
+func scopedSwitches(tb *tables.Tables) func(table int, stage string, room, no int) bool {
+	return func(table int, stage string, room, no int) bool {
+		return synctables.SyncedScopedSwitch(tb, table, stage, room, no)
+	}
+}
 
 // drcKeys is Dragon Roost Cavern in its key chests' room.
 var drcKeys = fakegame.Stage{Name: "M_NewD2", Room: 1, Table: addr.TableDRC, KeyHUD: true}

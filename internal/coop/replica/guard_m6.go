@@ -23,7 +23,7 @@ type CombatTick struct {
 	FlagsOK bool
 	// Kills reports whether setID's death in room may be written into this
 	// game's zone: the partner's store has it and the M1 verdict syncs it
-	// (tables.Tables.SyncedKill). Nil takes none.
+	// (synctables.SyncedKill). Nil takes none.
 	Kills func(room, setID int) bool
 	// Walk is the tick's actor walk; nil takes no light-shrink.
 	Walk *actors.Walk
