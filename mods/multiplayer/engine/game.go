@@ -12,7 +12,6 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
-	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
@@ -24,7 +23,7 @@ import (
 )
 
 // The app's game side (App PR 8, design §2.6): what a lobby session does
-// once the host pressed Start. gameRunner gets this player's Dolphin
+// once the host pressed Start. GameRunner gets this player's Dolphin
 // going (session.DecideLaunch: attach, launch or wait), watches it
 // (session.DolphinStateOf: launching, title screen, in game, closed, or a
 // wrong game / unpatched disc), reports it to the controller and the
@@ -34,80 +33,86 @@ import (
 // pipelines and resets that Dolphin's mailbox (shadow_mode 0, pose seqs,
 // tunic slots off); the Dolphin keeps running.
 //
-// Everything that touches a process or Dolphin's memory is in gameDeps,
-// so app_game_test.go drives the runner with fakes. The CLI never runs
-// it: no subcommand opens a lobby.
+// Everything that touches a process or Dolphin's memory is in GameDeps,
+// so game_test.go drives the runner with fakes. The CLI never runs it: no
+// subcommand opens a lobby.
 
-// gameDeps are the game side's seams.
-type gameDeps struct {
-	// running lists the running Dolphins, with their user folders and
+// GameDeps are the game side's seams.
+type GameDeps struct {
+	// Running lists the running Dolphins, with their user folders and
 	// states.
-	running func() []session.RunningDolphin
-	// probe looks at Dolphin pid.
-	probe func(pid uint32) session.Probe
-	// launch starts the configured Dolphin (and puts the cheats in its
+	Running func() []session.RunningDolphin
+	// Probe looks at Dolphin pid.
+	Probe func(pid uint32) session.Probe
+	// Launch starts the configured Dolphin (and puts the cheats in its
 	// user folder first, when asked) and returns its PID.
-	launch func(o session.LaunchOptions, rep log.Reporter) (uint32, error)
-	// pipelines runs the pose pipelines on Dolphin pid until ctx ends or
-	// one fails (runPipelines' contract).
-	pipelines func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter) error
-	// reset resets Dolphin pid's mailbox after the pipelines stopped.
-	reset func(pid uint32)
-	// coopSync runs coop-sync on Dolphin pid for co-op session cs until
-	// ctx ends (runCoopSyncCtx's contract: appCoopSync); nil runs none.
-	coopSync func(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs *coopSession) error
-	// envPID is WW_DOLPHIN_PID: the Dolphin to play on, whatever runs.
-	envPID uint32
+	Launch func(o session.LaunchOptions, rep log.Reporter) (uint32, error)
+	// Pipelines runs the pose pipelines on Dolphin pid until ctx ends or
+	// one fails (RunPipelines' contract).
+	Pipelines func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter) error
+	// Reset resets Dolphin pid's mailbox after the pipelines stopped.
+	Reset func(pid uint32)
+	// CoopSync runs coop-sync on Dolphin pid for co-op side cs until ctx
+	// ends (CoopApp.Sync); nil runs none.
+	CoopSync func(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs CoopSide) error
+	// EnvPID is WW_DOLPHIN_PID: the Dolphin to play on, whatever runs.
+	EnvPID uint32
 
-	tick      time.Duration // how often the Dolphin is looked at
-	bootGrace time.Duration // how long a launched Dolphin counts as launching
-	retry     time.Duration // the wait before failed pipelines start again
-	now       func() time.Time
+	Tick      time.Duration // how often the Dolphin is looked at
+	BootGrace time.Duration // how long a launched Dolphin counts as launching
+	Retry     time.Duration // the wait before failed pipelines start again
+	Now       func() time.Time
 }
 
 // realGameDeps are the game side's seams on this machine. ls is the
 // app's status bridge: the pipelines register their client and position
 // with it (not the client's chat: a lobby session hears chat on its lobby
-// connection, which the host relays to the player connections too).
-func realGameDeps(ls *engine.LiveState) *gameDeps {
+// connection, which the host relays to the player connections too). c
+// has the pipelines' feed.Env, the bundled cheats and co-op's coop-sync.
+func realGameDeps(ls *LiveState, c Config) *GameDeps {
 	var onClient func(*network.Client)
 	var onPos func(x, y, z float32)
 	if ls != nil {
 		onClient, onPos = ls.SetClient, ls.SetLocalPos
 	}
-	return &gameDeps{
-		running: runningDolphins,
-		probe:   probeDolphin,
-		launch:  launchDolphinFor,
-		pipelines: func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter) error {
-			return runPosePipelinesOn(ctx, cancel, name, addr, pid, rep, onClient, onPos)
+	d := &GameDeps{
+		Running: runningDolphins,
+		Probe:   probeDolphin,
+		Launch: func(o session.LaunchOptions, rep log.Reporter) (uint32, error) {
+			return launchDolphinFor(o, rep, c.CheatsIni)
 		},
-		reset:    resetMailboxOn,
-		coopSync: appCoopSync,
-		envPID:   envDolphinPID(),
+		Pipelines: func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter) error {
+			return runPosePipelinesOn(ctx, cancel, c.Env.Feed, name, addr, pid, rep, onClient, onPos)
+		},
+		Reset:  resetMailboxOn,
+		EnvPID: envDolphinPID(),
+	}
+	if c.Coop != nil {
+		d.CoopSync = c.Coop.Sync
+	}
+	return d
+}
+
+func (d *GameDeps) defaults() {
+	if d.Tick <= 0 {
+		d.Tick = time.Second
+	}
+	if d.BootGrace <= 0 {
+		d.BootGrace = 45 * time.Second
+	}
+	if d.Retry <= 0 {
+		d.Retry = 3 * time.Second
+	}
+	if d.Now == nil {
+		d.Now = time.Now
 	}
 }
 
-func (d *gameDeps) defaults() {
-	if d.tick <= 0 {
-		d.tick = time.Second
-	}
-	if d.bootGrace <= 0 {
-		d.bootGrace = 45 * time.Second
-	}
-	if d.retry <= 0 {
-		d.retry = 3 * time.Second
-	}
-	if d.now == nil {
-		d.now = time.Now
-	}
-}
-
-// gameRunner is one lobby session's game side. start begins it (once:
+// GameRunner is one lobby session's game side. Start begins it (once:
 // the host's START arrives again on a reconnect, and a late joiner gets
-// it at once); stop ends it and waits for the teardown.
-type gameRunner struct {
-	deps *gameDeps
+// it at once); Stop ends it and waits for the teardown.
+type GameRunner struct {
+	deps *GameDeps
 	opts func() session.LaunchOptions // read at start
 	o    session.LaunchOptions
 	name string
@@ -126,19 +131,23 @@ type gameRunner struct {
 	relaunch chan struct{}
 	info     session.DolphinInfo
 	err      error
-	// coop is the session's co-op side once it started (setCoop): its
+	// coop is the session's co-op side once it started (SetCoop): its
 	// coop-sync runs beside the pose pipelines.
-	coop *coopSession
+	coop CoopSide
 }
 
-func newGameRunner(deps *gameDeps, opts func() session.LaunchOptions, name, addr string, out session.LobbyOutput, lobby func(string), fail func(error)) *gameRunner {
+// NewGameRunner is a lobby session's game side on deps, playing as name
+// against the server at addr with the launch options opts gives at
+// Start. It reports to out, the Dolphin's state to lobby (nil-safe), and
+// a fatal pipelines error to fail.
+func NewGameRunner(deps *GameDeps, opts func() session.LaunchOptions, name, addr string, out session.LobbyOutput, lobby func(string), fail func(error)) *GameRunner {
 	deps.defaults()
-	return &gameRunner{deps: deps, opts: opts, name: name, addr: addr, out: out, lobby: lobby, fail: fail,
+	return &GameRunner{deps: deps, opts: opts, name: name, addr: addr, out: out, lobby: lobby, fail: fail,
 		done: make(chan struct{}), relaunch: make(chan struct{}, 1)}
 }
 
-// start begins the game side under ctx; later calls do nothing.
-func (g *gameRunner) start(ctx context.Context) {
+// Start begins the game side under ctx; later calls do nothing.
+func (g *GameRunner) Start(ctx context.Context) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.started {
@@ -152,10 +161,10 @@ func (g *gameRunner) start(ctx context.Context) {
 	go g.run(ctx)
 }
 
-// stop ends the game side and returns once its pipelines have stopped
+// Stop ends the game side and returns once its pipelines have stopped
 // and the mailbox is reset. It returns the fatal pipelines error the
 // session ended on, if any.
-func (g *gameRunner) stop() error {
+func (g *GameRunner) Stop() error {
 	g.mu.Lock()
 	started, cancel := g.started, g.cancel
 	g.started = true // a START after Leave starts nothing
@@ -170,24 +179,24 @@ func (g *gameRunner) stop() error {
 	return g.err
 }
 
-// setCoop starts coop-sync for co-op session cs on this player's
+// SetCoop starts coop-sync for co-op side cs on this player's
 // Dolphin, beside the pose pipelines, from the next look on (once the
 // host's hub serves the world: after GO).
-func (g *gameRunner) setCoop(cs *coopSession) {
+func (g *GameRunner) SetCoop(cs CoopSide) {
 	g.mu.Lock()
 	g.coop = cs
 	g.mu.Unlock()
 }
 
-func (g *gameRunner) coopSide() *coopSession {
+func (g *GameRunner) coopSide() CoopSide {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.coop
 }
 
-// playablePID is the Dolphin the game side plays on while it runs the
+// PlayablePID is the Dolphin the game side plays on while it runs the
 // patched game (title screen included), else 0.
-func (g *gameRunner) playablePID() uint32 {
+func (g *GameRunner) PlayablePID() uint32 {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if !g.info.State.Playable() {
@@ -198,7 +207,7 @@ func (g *gameRunner) playablePID() uint32 {
 
 // launchAgain asks for a launch of this player's Dolphin (the "Dolphin
 // closed" banner's Launch).
-func (g *gameRunner) launchAgain() error {
+func (g *GameRunner) launchAgain() error {
 	g.mu.Lock()
 	started, info, manual := g.started && g.cancel != nil, g.info, g.o.Manual
 	g.mu.Unlock()
@@ -219,7 +228,7 @@ func (g *gameRunner) launchAgain() error {
 }
 
 // set records and reports the Dolphin's info when it changed.
-func (g *gameRunner) set(info session.DolphinInfo) {
+func (g *GameRunner) set(info session.DolphinInfo) {
 	g.mu.Lock()
 	old := g.info
 	g.info = info
@@ -234,7 +243,7 @@ func (g *gameRunner) set(info session.DolphinInfo) {
 }
 
 // run is the game side's loop.
-func (g *gameRunner) run(ctx context.Context) {
+func (g *GameRunner) run(ctx context.Context) {
 	defer close(g.done)
 	d := g.deps
 	info := session.DolphinInfo{State: session.DolphinNone, Manual: g.o.Manual, ISO: g.o.ISO}
@@ -278,13 +287,13 @@ func (g *gameRunner) run(ctx context.Context) {
 			return
 		}
 		log.Logf(g.out, log.Info, "Starting Dolphin with your patched disc.")
-		pid, err := d.launch(g.o, g.out)
+		pid, err := d.Launch(g.o, g.out)
 		if err != nil {
 			info.Err = err.Error()
 			log.Logf(g.out, log.Err, "Couldn't start Dolphin: %v", err)
 			return
 		}
-		info.PID, info.Launched, launchedAt = pid, true, d.now()
+		info.PID, info.Launched, launchedAt = pid, true, d.Now()
 		info.State = session.DolphinLaunching
 		log.Logf(g.out, log.OK, "Dolphin started (pid %d).", pid)
 	}
@@ -295,10 +304,10 @@ func (g *gameRunner) run(ctx context.Context) {
 
 	// The first decision.
 	switch {
-	case d.envPID != 0:
-		attach(d.envPID, "WW_DOLPHIN_PID names it")
+	case d.EnvPID != 0:
+		attach(d.EnvPID, "WW_DOLPHIN_PID names it")
 	default:
-		plan := session.DecideLaunch(g.o, d.running())
+		plan := session.DecideLaunch(g.o, d.Running())
 		switch plan.Kind {
 		case session.PlanAttach:
 			attach(plan.PID, plan.Why)
@@ -309,19 +318,19 @@ func (g *gameRunner) run(ctx context.Context) {
 		}
 	}
 
-	t := time.NewTicker(d.tick)
+	t := time.NewTicker(d.Tick)
 	defer t.Stop()
 	for {
 		// Look for a Dolphin while there is none: the player's own (manual),
 		// or one restarted on this player's folder; never launch here.
-		if info.PID == 0 && d.envPID == 0 {
-			if plan := session.DecideLaunch(g.o, d.running()); plan.Kind == session.PlanAttach {
+		if info.PID == 0 && d.EnvPID == 0 {
+			if plan := session.DecideLaunch(g.o, d.Running()); plan.Kind == session.PlanAttach {
 				attach(plan.PID, plan.Why)
 			}
 		}
 		if info.PID != 0 {
-			launching := info.Launched && d.now().Sub(launchedAt) < d.bootGrace
-			st := session.DolphinStateOf(d.probe(info.PID), launching)
+			launching := info.Launched && d.Now().Sub(launchedAt) < d.BootGrace
+			st := session.DolphinStateOf(d.Probe(info.PID), launching)
 			if st.Bad() && st != info.State && st != badSeen {
 				badSeen = st // once may be the boot mid-way: wait for the next look
 				st = info.State
@@ -382,16 +391,16 @@ func (g *gameRunner) run(ctx context.Context) {
 					}
 					log.Logf(g.out, log.Warn, "The pose pipelines stopped (%v); starting them again.", err)
 				}
-				retryAt = d.now().Add(d.retry)
+				retryAt = d.Now().Add(d.Retry)
 			default:
 			}
 		}
-		if info.State.Playable() && pipeDone == nil && !d.now().Before(retryAt) && ctx.Err() == nil {
+		if info.State.Playable() && pipeDone == nil && !d.Now().Before(retryAt) && ctx.Err() == nil {
 			pctx, cancel := context.WithCancel(ctx)
 			done := make(chan error, 1)
 			pid := info.PID
 			played[pid], pipePID = true, pid
-			go func() { done <- d.pipelines(pctx, cancel, g.name, g.addr, pid, g.out) }()
+			go func() { done <- d.Pipelines(pctx, cancel, g.name, g.addr, pid, g.out) }()
 			pipeCancel, pipeDone = cancel, done
 			info.Pipelines = true
 			log.Logf(g.out, log.OK, "Playing on Dolphin (pid %d): remote Links appear in your game.", pid)
@@ -408,15 +417,15 @@ func (g *gameRunner) run(ctx context.Context) {
 				if err != nil && ctx.Err() == nil {
 					log.Logf(g.out, log.Warn, "co-op: coop-sync stopped (%v); starting it again.", err)
 				}
-				coopAt = d.now().Add(d.retry)
+				coopAt = d.Now().Add(d.Retry)
 			default:
 			}
 		}
-		if cs := g.coopSide(); cs != nil && d.coopSync != nil && pipeDone != nil && coopDone == nil && !d.now().Before(coopAt) && ctx.Err() == nil {
+		if cs := g.coopSide(); cs != nil && d.CoopSync != nil && pipeDone != nil && coopDone == nil && !d.Now().Before(coopAt) && ctx.Err() == nil {
 			cctx, cancel := context.WithCancel(ctx)
 			done := make(chan error, 1)
 			pid := pipePID
-			go func() { done <- d.coopSync(cctx, g.name, g.addr, pid, g.out, cs) }()
+			go func() { done <- d.CoopSync(cctx, g.name, g.addr, pid, g.out, cs) }()
 			coopCancel, coopDone = cancel, done
 		}
 		g.set(info)
@@ -438,7 +447,7 @@ func (g *gameRunner) run(ctx context.Context) {
 }
 
 // badLog says once what the Dolphin runs instead of the patched game.
-func (g *gameRunner) badLog(st session.DolphinState) {
+func (g *GameRunner) badLog(st session.DolphinState) {
 	switch st {
 	case session.DolphinWrongGame:
 		log.Logf(g.out, log.Err, "Dolphin is running a different game. Boot your patched Wind Waker (%s) in it.", g.o.ISO)
@@ -449,14 +458,14 @@ func (g *gameRunner) badLog(st session.DolphinState) {
 
 // finish resets the mailbox of every Dolphin the pipelines ran on: the
 // pipelines are stopped by now, so nothing writes pose-feed again.
-func (g *gameRunner) finish(played map[uint32]bool) {
+func (g *GameRunner) finish(played map[uint32]bool) {
 	pids := make([]uint32, 0, len(played))
 	for pid := range played {
 		pids = append(pids, pid)
 	}
 	slices.Sort(pids)
 	for _, pid := range pids {
-		g.deps.reset(pid)
+		g.deps.Reset(pid)
 	}
 	if len(pids) > 0 {
 		g.out.Log(log.Info, "Left the game: remote Links are gone from your Dolphin, which keeps running.")
@@ -464,15 +473,16 @@ func (g *gameRunner) finish(played map[uint32]bool) {
 }
 
 // runPosePipelinesOn runs broadcast-pose and puppet-sync on Dolphin pid,
-// as engine.runMultiplayerGoroutines does on the env's Dolphin (no co-op).
-func runPosePipelinesOn(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) error {
+// as runMultiplayerGoroutines does on the env's Dolphin (no co-op), with
+// fe the pipelines' feed.Env.
+func runPosePipelinesOn(ctx context.Context, cancel context.CancelFunc, fe feed.Env, name, addr string, pid uint32, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) error {
 	connLog := feed.NewConnectLog(addr, rep)
-	return engine.RunPipelines(ctx, cancel, rep,
-		engine.Pipeline{Name: "broadcast-pose", Run: func(ctx context.Context) error {
-			return feed.BroadcastPose(ctx, feedEnv, name, addr, pid, rep, connLog, onPos)
+	return RunPipelines(ctx, cancel, rep,
+		Pipeline{Name: "broadcast-pose", Run: func(ctx context.Context) error {
+			return feed.BroadcastPose(ctx, fe, name, addr, pid, rep, connLog, onPos)
 		}},
-		engine.Pipeline{Name: "puppet-sync", Run: func(ctx context.Context) error {
-			return feed.PuppetSync(ctx, feedEnv, name, addr, name, pid, rep, connLog, onClient)
+		Pipeline{Name: "puppet-sync", Run: func(ctx context.Context) error {
+			return feed.PuppetSync(ctx, fe, name, addr, name, pid, rep, connLog, onClient)
 		}},
 	)
 }
@@ -527,10 +537,11 @@ func mailboxClaimed(pid uint32) bool {
 }
 
 // launchDolphinFor launches o's Dolphin on o's user folder with o's disc,
-// after putting the bundled cheats there when asked (as dolphin2 does).
-func launchDolphinFor(o session.LaunchOptions, rep log.Reporter) (uint32, error) {
+// after putting the bundled cheats (cheatsIni) there when asked (as
+// dolphin2 does).
+func launchDolphinFor(o session.LaunchOptions, rep log.Reporter, cheatsIni []byte) (uint32, error) {
 	if o.InstallCheats {
-		launch.EnsureCheatsIni(rep, o.UserDir, bundledCheatsIni)
+		launch.EnsureCheatsIni(rep, o.UserDir, cheatsIni)
 	}
 	pid, err := launch.Launch(o.Exe, o.UserDir, o.ISO, "")
 	if err != nil {

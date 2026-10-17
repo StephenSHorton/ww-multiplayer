@@ -10,27 +10,10 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
-	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
-
-// waitSnap polls the controller until cond holds.
-func waitSnap(t *testing.T, c *session.Controller, what string, cond func(session.State) bool) session.State {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		st := c.Snapshot()
-		if cond(st) {
-			return st
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("%s: state %+v (lobby %+v)", what, st, st.Lobby)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-}
 
 // TestSessionEngine_JoinLobby drives the app's engine through the
 // controller against a real server: the controller joins the lobby
@@ -59,7 +42,7 @@ func TestSessionEngine_JoinLobby(t *testing.T) {
 		t.Fatal("host never joined its lobby")
 	}
 
-	e := &sessionEngine{ls: &engine.LiveState{}}
+	e := New(Config{Live: &LiveState{}})
 	c := session.New(e, session.Options{})
 	evs, unsub := c.Subscribe()
 	defer unsub()
@@ -161,7 +144,7 @@ func TestSessionEngine_JoinLobbyLegacyHost(t *testing.T) {
 			}
 		}
 	}()
-	e := &sessionEngine{}
+	e := New(Config{})
 	out := &recOutput{}
 	err = e.JoinLobby(context.Background(), func() {}, session.JoinOptions{Name: "App", Addr: ln.Addr().String()}, out)
 	if !errors.Is(err, session.ErrLegacyHost) || !errors.Is(err, network.ErrFatal) {
@@ -191,35 +174,24 @@ func (o *recOutput) LobbyRequest(string, string)                {}
 func (o *recOutput) LobbyLink(session.LobbyLink)                {}
 func (o *recOutput) Dolphin(session.DolphinInfo)                {}
 
-func waitForCond(cond func() bool) bool {
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return true
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	return cond()
-}
-
 // TestColorPrefFromSession: a session's own color (JoinOptions.Color, kept
 // when a lobby join falls back to a direct one) overrides --color for the
 // player connections it opens; without one, --color applies as before.
 func TestColorPrefFromSession(t *testing.T) {
-	saved := engine.ColorPref
-	t.Cleanup(func() { engine.ColorPref = saved })
+	saved := ColorPref
+	t.Cleanup(func() { ColorPref = saved })
 	flag := playercolor.Palette()[2].Color
-	engine.ColorPref = &flag
-	if got := engine.ColorPrefFor(context.Background()); got == nil || *got != flag {
+	ColorPref = &flag
+	if got := ColorPrefFor(context.Background()); got == nil || *got != flag {
 		t.Fatalf("no session color: %v, want --color %v", got, flag)
 	}
-	if got := engine.ColorPrefFor(engine.WithColorPref(context.Background(), nil)); got == nil || *got != flag {
+	if got := ColorPrefFor(WithColorPref(context.Background(), nil)); got == nil || *got != flag {
 		t.Fatalf("nil session color: %v, want --color %v", got, flag)
 	}
 	pink := playercolor.Palette()[6].Color
-	ctx := engine.WithColorPref(context.Background(), &pink)
+	ctx := WithColorPref(context.Background(), &pink)
 	pink = flag // withColorPref keeps its own copy
-	if got := engine.ColorPrefFor(ctx); got == nil || *got != playercolor.Palette()[6].Color {
+	if got := ColorPrefFor(ctx); got == nil || *got != playercolor.Palette()[6].Color {
 		t.Fatalf("session color: %v", got)
 	}
 }

@@ -21,11 +21,11 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
-// coopCtrlEngine is the TUI's sessionEngine whose sessions run no
+// coopCtrlEngine is the TUI's engine.Engine whose sessions run no
 // pipelines: Host attaches the co-op side the test made, then waits for
 // the session to end. The console and the questions are the real ones.
 type coopCtrlEngine struct {
-	*sessionEngine
+	*engine.Engine
 	out chan session.Output
 	// ctx is the running session's, set before its Output is sent.
 	ctx context.Context
@@ -35,7 +35,7 @@ func (e *coopCtrlEngine) Host(ctx context.Context, _ context.CancelFunc, _ sessi
 	e.ctx = ctx
 	e.out <- out
 	<-ctx.Done()
-	e.attach(nil)
+	e.Attach(nil)
 	return nil
 }
 
@@ -43,7 +43,7 @@ func (e *coopCtrlEngine) Host(ctx context.Context, _ context.CancelFunc, _ sessi
 // and returns its controller, engine and Output.
 func coopCtrl(t *testing.T) (*session.Controller, *coopCtrlEngine, session.Output) {
 	t.Helper()
-	eng := &coopCtrlEngine{sessionEngine: newTUIEngine(), out: make(chan session.Output, 1)}
+	eng := &coopCtrlEngine{Engine: newTUIEngine(), out: make(chan session.Output, 1)}
 	ctrl := session.New(eng, session.Options{})
 	if _, err := ctrl.Host(context.Background(), session.HostOptions{Coop: session.CoopOptions{On: true}}); err != nil {
 		t.Fatal(err)
@@ -64,7 +64,7 @@ func TestGoldenConsoleController(t *testing.T) {
 			ctrl, eng, _ := coopCtrl(t)
 			var refused []string
 			do := func(cs *coopSession, line string) {
-				eng.attach(cs)
+				eng.Attach(cs)
 				cmd, err := parseCoopCommand(line)
 				if mode == "line" || err != nil {
 					if err := ctrl.CommandLine(line); err != nil {
@@ -107,7 +107,7 @@ func TestGoldenConsoleController(t *testing.T) {
 // TestControllerCommandErrors: the commands need a running session with
 // co-op on, and a well-formed command.
 func TestControllerCommandErrors(t *testing.T) {
-	eng := &coopCtrlEngine{sessionEngine: newTUIEngine(), out: make(chan session.Output, 1)}
+	eng := &coopCtrlEngine{Engine: newTUIEngine(), out: make(chan session.Output, 1)}
 	ctrl := session.New(eng, session.Options{})
 	if err := ctrl.Command(session.Command{Verb: session.VerbWarp}); !errors.Is(err, session.ErrNoSession) {
 		t.Errorf("no session: %v", err)
@@ -125,8 +125,8 @@ func TestControllerCommandErrors(t *testing.T) {
 	if err := ctrl.Command(session.Command{Verb: session.VerbStatus}); !errors.Is(err, session.ErrNoCoop) {
 		t.Errorf("co-op side not started yet: %v", err)
 	}
-	eng2.attach(goldenSession(coopFlags{on: true}, strings.NewReader("")))
-	eng2.coopSide().console = newCoopConsole(log.Discard{}, nil)
+	eng2.Attach(goldenSession(coopFlags{on: true}, strings.NewReader("")))
+	eng2.CoopSide().(*coopSession).console = newCoopConsole(log.Discard{}, nil)
 	for _, c := range []session.Command{{Verb: "jump"}, {Verb: session.VerbHelp, Player: "Link"}, {Verb: session.VerbWarp, Player: "two words"}, {Verb: session.VerbWarp, Player: strings.Repeat("x", 40)}} {
 		if err := ctrl.Command(c); err == nil {
 			t.Errorf("%+v was taken", c)
@@ -237,7 +237,7 @@ func TestControllerLiveCoop(t *testing.T) {
 	defer cancel()
 	ctrl, eng, _ := coopCtrl(t)
 	cs, ss, _, _ := goldenConsoleSession(t, ctx, coopFlags{on: true, yes: true, dryRun: true}, strings.NewReader(""), "Link", "Tetra")
-	eng.attach(cs)
+	eng.Attach(cs)
 	got := ctrl.Snapshot().CoopStatus
 	if len(got) != 2 || got[0].Player != "Link" || got[1].Player != "Tetra" {
 		t.Fatalf("coop status %+v", got)
@@ -253,7 +253,7 @@ func TestControllerLiveCoop(t *testing.T) {
 type cliEngine struct{ err error }
 
 // lines logs what the session prints; the engine then returns e.err,
-// marked as the CLI's engine marks it (sessionErr).
+// marked as the CLI's engine marks it (engine.SessionErr).
 func (e cliEngine) lines(out log.Reporter) {
 	out.Log(log.OK, `Hosting as "Link" on :25565.`)
 	out.Log(log.Info, "Ctrl+C to stop.")
@@ -264,7 +264,7 @@ func (e cliEngine) lines(out log.Reporter) {
 
 func (e cliEngine) run(out session.Output) error {
 	e.lines(out)
-	return sessionErr(e.err)
+	return engine.SessionErr(e.err)
 }
 
 func (e cliEngine) Host(_ context.Context, _ context.CancelFunc, _ session.HostOptions, out session.Output) error {
@@ -304,7 +304,7 @@ func TestRunCLISession(t *testing.T) {
 			// After: the controller, logging to the same kind of reporter.
 			now := &goldenLog{}
 			ctrl := session.New(cliEngine{c.err}, session.Options{Log: now})
-			code := runCLISession(ctrl, now, func() (session.ID, error) {
+			code := engine.RunCLISession(ctrl, now, func() (session.ID, error) {
 				return ctrl.Host(context.Background(), session.HostOptions{Name: "Link"})
 			})
 			if code != oldCode || !slices.Equal(now.snapshot(), old.snapshot()) {
@@ -315,7 +315,7 @@ func TestRunCLISession(t *testing.T) {
 	t.Run("can't start", func(t *testing.T) {
 		log := &goldenLog{}
 		ctrl := session.New(nil, session.Options{Log: log})
-		if code := runCLISession(ctrl, log, func() (session.ID, error) { return ctrl.Host(context.Background(), session.HostOptions{}) }); code != 1 || !log.has("ERR sessions aren't available") {
+		if code := engine.RunCLISession(ctrl, log, func() (session.ID, error) { return ctrl.Host(context.Background(), session.HostOptions{}) }); code != 1 || !log.has("ERR sessions aren't available") {
 			t.Errorf("exit %d, log %q", code, log.snapshot())
 		}
 	})

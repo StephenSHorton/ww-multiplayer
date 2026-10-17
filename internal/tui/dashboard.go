@@ -762,7 +762,7 @@ func renderHeader(width int, role, name, addr string, hostIPs []string, ended bo
 	case role != "Host":
 		rows[0] += " " + labelStyle.Render("→ "+addr)
 	case !ended:
-		// The TUI always hosts on the default port (see main's sessionEngine).
+		// The TUI always hosts on the default port (see engine.Engine in mods/multiplayer/engine).
 		port := "   " + labelStyle.Render("port 25565")
 		ips := labelStyle.Render(hostIPLabel) + valueStyle.Render(strings.Join(hostIPs, ", "))
 		if len(hostIPs) > 0 && lipgloss.Width(rows[0]+"   "+ips+port) <= inner {

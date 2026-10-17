@@ -15,18 +15,58 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine/enginetest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
-// coopSyncFake is gameDeps.coopSync for f: it records coop-sync's runs
-// and waits for its context.
-func (f *fakeGame) coopSync(ctx context.Context, name, addr string, pid uint32, _ log.Reporter, cs *coopSession) error {
-	f.event("coop-sync %d start", pid)
-	defer f.event("coop-sync %d stop", pid)
-	<-ctx.Done()
-	return nil
+// The engine's fakes (enginetest), as the app's co-op tests use them.
+var (
+	waitSnap = enginetest.WaitSnap
+	waitFor  = enginetest.WaitFor
+	hasEvent = enginetest.HasEvent
+	freePort = enginetest.FreePort
+	optsA    = enginetest.OptsA
+	inGame   = enginetest.InGame
+)
+
+const (
+	userA = enginetest.UserA
+	userB = enginetest.UserB
+)
+
+// gameDeps is the engine's game side over f's scripted Dolphins, ticking
+// fast.
+func gameDeps(f *enginetest.Game) *engine.GameDeps {
+	return &engine.GameDeps{
+		Running:   f.List,
+		Probe:     f.Probe,
+		Launch:    f.Launch,
+		Pipelines: f.Pipelines,
+		Reset:     f.Reset,
+		Tick:      2 * time.Millisecond,
+		BootGrace: time.Hour,
+		Retry:     2 * time.Millisecond,
+	}
 }
+
+// coopSyncFake is engine.GameDeps.CoopSync for f: it records coop-sync's
+// runs and waits for its context.
+func coopSyncFake(f *enginetest.Game) func(context.Context, string, string, uint32, log.Reporter, engine.CoopSide) error {
+	return func(ctx context.Context, name, addr string, pid uint32, _ log.Reporter, _ engine.CoopSide) error {
+		f.Event("coop-sync %d start", pid)
+		defer f.Event("coop-sync %d stop", pid)
+		<-ctx.Done()
+		return nil
+	}
+}
+
+// playingOn is a lobby session's game side that plays on Dolphin pid,
+// in game, as far as its co-op side asks.
+type playingOn uint32
+
+func (p playingOn) PlayablePID() uint32   { return uint32(p) }
+func (playingOn) SetCoop(engine.CoopSide) {}
 
 // coopRig is an app co-op side over a FakeGame: the env's worlds,
 // backups and user folder are temporary, and every Dolphin's memory is
@@ -82,13 +122,13 @@ func TestLobbyCoopNewWorld(t *testing.T) {
 	worlds := t.TempDir()
 	host := newCoopRig(t, true, worlds) // the host's file: bound to m2World already
 	join := newCoopRig(t, false, worlds)
-	fa, fb := newFakeGame(), newFakeGame()
-	fb.nextPID = 200
-	da, db := fa.deps(), fb.deps()
-	da.coopSync, db.coopSync = fa.coopSync, fb.coopSync
-	ea := &sessionEngine{ls: &engine.LiveState{}, game: da, coopApp: host.deps(t, "host")}
-	eb := &sessionEngine{ls: &engine.LiveState{}, game: db, coopApp: join.deps(t, "joiner")}
-	join.hubSet = func() bool { cs := ea.coopSide(); return cs != nil && cs.hub != nil }
+	fa, fb := enginetest.NewGame(), enginetest.NewGame()
+	fb.NextPID = 200
+	da, db := gameDeps(fa), gameDeps(fb)
+	da.CoopSync, db.CoopSync = coopSyncFake(fa), coopSyncFake(fb)
+	ea := engine.New(engine.Config{Live: &engine.LiveState{}, Game: da, Coop: coopApp{lobby: host.deps(t, "host")}})
+	eb := engine.New(engine.Config{Live: &engine.LiveState{}, Game: db, Coop: coopApp{lobby: join.deps(t, "joiner")}})
+	join.hubSet = func() bool { cs, _ := ea.CoopSide().(*coopSession); return cs != nil && cs.hub != nil }
 	ca, cb := session.New(ea, session.Options{}), session.New(eb, session.Options{})
 
 	port := freePort(t)
@@ -165,10 +205,10 @@ func TestLobbyCoopNewWorld(t *testing.T) {
 	waitSnap(t, cb, "joiner merge", func(st session.State) bool { return st.Coop.Merge })
 
 	ca.Leave()
-	fa.event("left")
+	fa.Event("left")
 	// Both stop with the session's context, in either order, and only
 	// then is the mailbox reset.
-	ev := fa.eventList()
+	ev := fa.Events()
 	if len(ev) != 7 || strings.Join(ev[:3], ", ") != "launch 100, pipelines 100 start, coop-sync 100 start" ||
 		!slices.Contains(ev[3:5], "coop-sync 100 stop") || !slices.Contains(ev[3:5], "pipelines 100 stop") || strings.Join(ev[5:], ", ") != "reset 100, left" {
 		t.Fatalf("host teardown %q", ev)
@@ -193,12 +233,12 @@ func TestLobbyCoopContinue(t *testing.T) {
 				coWorld(t, worlds, id, time.Now(), nil)
 			}
 			host, join := newCoopRig(t, false, worlds), newCoopRig(t, false, worlds)
-			fa, fb := newFakeGame(), newFakeGame()
-			fb.nextPID = 200
-			da, db := fa.deps(), fb.deps()
-			da.coopSync, db.coopSync = fa.coopSync, fb.coopSync
-			ea := &sessionEngine{ls: &engine.LiveState{}, game: da, coopApp: host.deps(t, "host")}
-			eb := &sessionEngine{ls: &engine.LiveState{}, game: db, coopApp: join.deps(t, "joiner")}
+			fa, fb := enginetest.NewGame(), enginetest.NewGame()
+			fb.NextPID = 200
+			da, db := gameDeps(fa), gameDeps(fb)
+			da.CoopSync, db.CoopSync = coopSyncFake(fa), coopSyncFake(fb)
+			ea := engine.New(engine.Config{Live: &engine.LiveState{}, Game: da, Coop: coopApp{lobby: host.deps(t, "host")}})
+			eb := engine.New(engine.Config{Live: &engine.LiveState{}, Game: db, Coop: coopApp{lobby: join.deps(t, "joiner")}})
 			ca, cb := session.New(ea, session.Options{}), session.New(eb, session.Options{})
 			port := freePort(t)
 			if _, err := ca.HostLobby(context.Background(), session.HostOptions{Name: "Host", Port: port, ListenHost: "127.0.0.1", Launch: optsA}); err != nil {
@@ -331,23 +371,23 @@ func TestAppCoopHostLogsMatchCLI(t *testing.T) {
 	// The app.
 	_, m2, tick2 := m2Game(t, false)
 	worlds2, backups2 := t.TempDir(), t.TempDir()
-	out := &gameOut{}
-	e := &sessionEngine{ls: &engine.LiveState{}}
-	e.coopApp = &appCoopDeps{
+	out := &enginetest.Out{}
+	e := engine.New(engine.Config{Live: &engine.LiveState{}})
+	deps := &appCoopDeps{
 		env: func(string) coopEnv {
 			return coopEnv{worlds: worlds2, backups: backups2, userDirs: []string{ud}, tick: tick2}
 		},
 		openMem: func(uint32) (mem.Mem, func(), error) { return m2, func() {}, nil },
 		tick:    tick2, wait: time.Millisecond,
 	}
-	ac := newAppCoop(context.Background(), e, out, "Host", nil, nil)
-	ac.game = &gameRunner{info: session.DolphinInfo{State: session.DolphinInGame, PID: 7}}
+	ac := newAppCoop(context.Background(), deps, e.LobbyEnv(out, "Host", nil, nil))
+	ac.game = playingOn(7)
 	if _, err := ac.host(f); err != nil {
 		t.Fatal(err)
 	}
-	ac.stop()
+	ac.Stop()
 
-	got := norm(out.lines, worlds2, backups2)
+	got := norm(out.Lines(), worlds2, backups2)
 	want := norm(cli.lines, worlds1, backups1)
 	if !slices.Equal(got, want) {
 		t.Fatalf("the app's co-op lines differ from the CLI's:\napp:\n%s\ncli:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -372,16 +412,17 @@ func TestGameRunnerCoopRestart(t *testing.T) {
 	cs.console.setCtx(ctx)
 	k := coopFileKey{slot: 0, name: [bind.PlayerNameSize]byte{'L', 'i', 'n', 'k'}}
 
-	f := newFakeGame()
-	f.running = []session.RunningDolphin{{PID: 9, UserDir: userA, State: session.DolphinInGame}}
-	f.script(9, inGame)
+	f := enginetest.NewGame()
+	f.Running = []session.RunningDolphin{{PID: 9, UserDir: userA, State: session.DolphinInGame}}
+	f.Script(9, inGame)
 	var (
 		mu   sync.Mutex
 		runs []*coopSync
 		mems []mem.Mem
 	)
-	d := f.deps()
-	d.coopSync = func(cctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs *coopSession) error {
+	d := gameDeps(f)
+	d.CoopSync = func(cctx context.Context, name, addr string, pid uint32, rep log.Reporter, side engine.CoopSide) error {
+		cs := side.(*coopSession)
 		cg := newCoGame(t, name, coMine{life: 12})
 		return appSyncOn(cctx, cs, name, cg.m, rep, func(cctx context.Context, s *coopSync) error {
 			mu.Lock()
@@ -398,10 +439,10 @@ func TestGameRunnerCoopRestart(t *testing.T) {
 			return nil
 		})
 	}
-	g := newGameRunner(d, func() session.LaunchOptions { return optsA }, "Link", "127.0.0.1:1", &gameOut{}, nil, func(error) {})
-	g.setCoop(cs)
-	g.start(ctx)
-	defer g.stop()
+	g := engine.NewGameRunner(d, func() session.LaunchOptions { return optsA }, "Link", "127.0.0.1:1", &enginetest.Out{}, nil, func(error) {})
+	g.SetCoop(cs)
+	g.Start(ctx)
+	defer g.Stop()
 	waitFor(t, "coop-sync again", func() bool {
 		mu.Lock()
 		defer mu.Unlock()

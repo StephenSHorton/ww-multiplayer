@@ -213,7 +213,7 @@ type coopFront struct {
 	// ask answers the questions; nil is the stdin prompter
 	// (coopPrompter), whose reader also takes the console's commands.
 	// Any other asker leaves stdin alone: the commands then come only
-	// through the session's console (sessionEngine.Command).
+	// through the session's console (engine.Engine.Command).
 	ask coopAsker
 	// advise hears each piece of advice, beside its log line; nil for
 	// none.

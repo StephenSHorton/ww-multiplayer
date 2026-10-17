@@ -4020,7 +4020,7 @@ func runHost(name string, port int, co coopFlags) {
 	ctx, cancel := engine.CLIMultiplayerContext(rep)
 	defer cancel()
 	ctrl := newCLIController(rep)
-	if code := runCLISession(ctrl, rep, func() (session.ID, error) {
+	if code := engine.RunCLISession(ctrl, rep, func() (session.ID, error) {
 		return ctrl.Host(ctx, session.HostOptions{Name: name, Port: port, Coop: co.options()})
 	}); code != 0 {
 		os.Exit(code)
@@ -4042,7 +4042,7 @@ func runJoin(addr, name string, co coopFlags) {
 	ctx, cancel := engine.CLIMultiplayerContext(rep)
 	defer cancel()
 	ctrl := newCLIController(rep)
-	if code := runCLISession(ctrl, rep, func() (session.ID, error) {
+	if code := engine.RunCLISession(ctrl, rep, func() (session.ID, error) {
 		return ctrl.Join(ctx, session.JoinOptions{Addr: addr, Name: name, Coop: co.options()})
 	}); code != 0 {
 		os.Exit(code)
