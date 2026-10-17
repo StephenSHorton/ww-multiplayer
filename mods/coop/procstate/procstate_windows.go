@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package procstate
 
 import (
 	"errors"
@@ -9,21 +9,21 @@ import (
 	"syscall"
 )
 
-// procStateSupported says procState can check a process on this OS.
-const procStateSupported = true
+// Supported says State can check a process on this OS.
+const Supported = true
 
 const (
 	processQueryLimitedInfo = 0x1000            // PROCESS_QUERY_LIMITED_INFORMATION
 	errorInvalidParameter   = syscall.Errno(87) // ERROR_INVALID_PARAMETER
 )
 
-// procState reports whether process pid runs on this machine, and its
-// start token for a session marker (coopMarker): the time it was created
-// (GetProcessTimes), in 100 ns units since 1601. A process this user may
+// State reports whether process pid runs on this machine, and its
+// start token for the co-op session marker (mods/coop/session): the
+// time it was created (GetProcessTimes), in 100 ns units since 1601. A process this user may
 // not open can't be checked, which the error says: after a restart, the
 // pid most likely belongs to another program (a service, say), not the
 // host. A pid that is not positive names no process.
-func procState(pid int) (alive bool, start string, err error) {
+func State(pid int) (alive bool, start string, err error) {
 	if pid <= 0 {
 		return false, "", nil
 	}

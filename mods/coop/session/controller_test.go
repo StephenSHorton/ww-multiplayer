@@ -1,7 +1,7 @@
-package main
+package coopsession
 
 // The co-op questions and console through the session controller (App PR
-// 2): the same transcripts as the CLI's (coop_golden_test.go), and the
+// 2): the same transcripts as the CLI's (golden_test.go), and the
 // CLI's host and join driver against the direct calls it replaced.
 
 import (
@@ -63,7 +63,7 @@ func TestGoldenConsoleController(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			ctrl, eng, _ := coopCtrl(t)
 			var refused []string
-			do := func(cs *coopSession, line string) {
+			do := func(cs *Session, line string) {
 				eng.Attach(cs)
 				cmd, err := parseCoopCommand(line)
 				if mode == "line" || err != nil {
@@ -78,7 +78,7 @@ func TestGoldenConsoleController(t *testing.T) {
 			}
 			for _, g := range []struct {
 				name    string
-				run     func(*testing.T, func(*coopSession, string)) []string
+				run     func(*testing.T, func(*Session, string)) []string
 				refused []string
 			}{
 				{"console-dry-run", goldenConsoleDryRun, []string{"/warp Tetra: no player Tetra here (Link)"}},
@@ -125,8 +125,8 @@ func TestControllerCommandErrors(t *testing.T) {
 	if err := ctrl.Command(session.Command{Verb: session.VerbStatus}); !errors.Is(err, session.ErrNoCoop) {
 		t.Errorf("co-op side not started yet: %v", err)
 	}
-	eng2.Attach(goldenSession(coopFlags{on: true}, strings.NewReader("")))
-	eng2.CoopSide().(*coopSession).console = newCoopConsole(log.Discard{}, nil)
+	eng2.Attach(goldenSession(Flags{on: true}, strings.NewReader("")))
+	eng2.CoopSide().(*Session).console = newCoopConsole(log.Discard{}, nil)
 	for _, c := range []session.Command{{Verb: "jump"}, {Verb: session.VerbHelp, Player: "Link"}, {Verb: session.VerbWarp, Player: "two words"}, {Verb: session.VerbWarp, Player: strings.Repeat("x", 40)}} {
 		if err := ctrl.Command(c); err == nil {
 			t.Errorf("%+v was taken", c)
@@ -155,7 +155,7 @@ func TestControllerQuestions(t *testing.T) {
 	events, unsub := ctrl.Subscribe()
 	defer unsub()
 	log := &goldenLog{}
-	cs := goldenSession(coopFlags{on: true}, strings.NewReader(""))
+	cs := goldenSession(Flags{on: true}, strings.NewReader(""))
 	cs.ask, cs.advise = outputAsker{out: out}, out.Advise
 	s := goldenSync(t, cs, log)
 
@@ -236,7 +236,7 @@ func TestControllerLiveCoop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctrl, eng, _ := coopCtrl(t)
-	cs, ss, _, _ := goldenConsoleSession(t, ctx, coopFlags{on: true, yes: true, dryRun: true}, strings.NewReader(""), "Link", "Tetra")
+	cs, ss, _, _ := goldenConsoleSession(t, ctx, Flags{on: true, yes: true, dryRun: true}, strings.NewReader(""), "Link", "Tetra")
 	eng.Attach(cs)
 	got := ctrl.Snapshot().CoopStatus
 	if len(got) != 2 || got[0].Player != "Link" || got[1].Player != "Tetra" {

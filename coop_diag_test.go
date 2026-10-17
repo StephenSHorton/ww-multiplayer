@@ -15,6 +15,8 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
@@ -127,9 +129,9 @@ func TestSaveLabelsMatchTheGamesBitMath(t *testing.T) {
 	add(addr.OffCollectFlags+4, addr.Bit{Mask: 0x02}, "mCollect[4] bit 1")
 
 	for _, c := range cases {
-		got, flags := saveLabel(c.off, c.bit, addr.TableDRC)
+		got, flags := diag.SaveLabel(c.off, c.bit, addr.TableDRC)
 		if got != c.label || !flags {
-			t.Errorf("saveLabel(0x%X, %d) = %q, %v; want %q, flags", c.off, c.bit, got, flags, c.label)
+			t.Errorf("diag.SaveLabel(0x%X, %d) = %q, %v; want %q, flags", c.off, c.bit, got, flags, c.label)
 		}
 	}
 
@@ -150,15 +152,15 @@ func TestSaveLabelsMatchTheGamesBitMath(t *testing.T) {
 		{addr.InfoOffDataNum, "mDataNum"},
 		{addr.InfoOffRestart + 3, "mRestart+0x03"},
 	} {
-		got, flags := saveLabel(c.off, -1, addr.TableDRC)
+		got, flags := diag.SaveLabel(c.off, -1, addr.TableDRC)
 		if got != c.label || flags {
-			t.Errorf("saveLabel(0x%X, -1) = %q, %v; want %q, a value", c.off, got, flags, c.label)
+			t.Errorf("diag.SaveLabel(0x%X, -1) = %q, %v; want %q, a value", c.off, got, flags, c.label)
 		}
 	}
 
 	// An invalid live table still labels, without a table. Byte 0 bit 0
 	// of the big-endian first word is switch 0x18.
-	if got, _ := saveLabel(addr.InfoOffMemory+addr.MemBitOffSwitch, 0, -1); got != "live t?? switch 0x18" {
+	if got, _ := diag.SaveLabel(addr.InfoOffMemory+addr.MemBitOffSwitch, 0, -1); got != "live t?? switch 0x18" {
 		t.Errorf("live switch with no table: %q", got)
 	}
 }
@@ -890,7 +892,7 @@ func TestStageHop(t *testing.T) {
 		}
 	}
 	tick := func() { g.Frames(3) }
-	_, st, _, err := gateSnapshots(m, tick)
+	_, st, _, err := diag.GateSnapshots(m, tick)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -923,12 +925,12 @@ func TestStageHop(t *testing.T) {
 	// Closed gates and a pending change refuse, writing nothing.
 	m.ResetWrites()
 	g.SetEvent(1, 0)
-	_, st, _, _ = gateSnapshots(m, tick)
+	_, st, _, _ = diag.GateSnapshots(m, tick)
 	if err := applyStageHop(m, h, st); err == nil || !strings.Contains(err.Error(), "an event is running") {
 		t.Errorf("during an event: %v", err)
 	}
 	g.SetEvent(0, 0)
-	_, st, _, _ = gateSnapshots(m, tick)
+	_, st, _, _ = diag.GateSnapshots(m, tick)
 	if err := g.SetNextStage(diagSea); err != nil {
 		t.Fatal(err)
 	}
@@ -944,11 +946,11 @@ func TestStageHop(t *testing.T) {
 }
 
 func TestSplitDiagFlags(t *testing.T) {
-	pos, flags, err := splitDiagFlags([]string{"arm", "--yes"}, "yes", "force")
+	pos, flags, err := diag.SplitFlags([]string{"arm", "--yes"}, "yes", "force")
 	if err != nil || !slices.Equal(pos, []string{"arm"}) || !flags["yes"] || flags["force"] {
 		t.Errorf("%q %v %v", pos, flags, err)
 	}
-	if _, _, err := splitDiagFlags([]string{"--yes"}); err == nil {
+	if _, _, err := diag.SplitFlags([]string{"--yes"}); err == nil {
 		t.Error("--yes accepted where no flag is")
 	}
 	for cmd := range coopDiagFlags {
@@ -989,6 +991,36 @@ func TestCoopDiagDispatched(t *testing.T) {
 		}
 		if reflect.ValueOf(c.run).Pointer() != diag {
 			t.Errorf("%s dispatches to %s, not runCoopDiag", name, c.name)
+		}
+	}
+}
+
+// The escapes' bytes are the ones package main's own tools write: the
+// mailbox's warp fields (player.Warp) and stage-hop's mNextStage request.
+func TestCoopEscapesMatchMain(t *testing.T) {
+	if mailbox.WarpSeq != mailbox.Mailbox+mailbox.OffWarpSeq || replica.WarpAck != mailbox.Mailbox+mailbox.OffWarpAck ||
+		replica.WarpPos != mailbox.Mailbox+mailbox.OffWarpX || mailbox.OffWarpY != mailbox.OffWarpX+4 || mailbox.OffWarpZ != mailbox.OffWarpX+8 {
+		t.Errorf("the replica's warp fields (seq 0x%08X, ack 0x%08X, x/y/z 0x%08X) are not the mailbox's", mailbox.WarpSeq, replica.WarpAck, replica.WarpPos)
+	}
+	if replica.MaxStageLayer != stageHopLayerMax {
+		t.Errorf("layer bound %d, stage-hop's %d", replica.MaxStageLayer, stageHopLayerMax)
+	}
+	for _, h := range []stageHop{
+		{Name: "sea", Point: 0, Room: 44, Layer: -1},
+		{Name: "M_NewD2", Point: 3, Room: 5, Layer: 0},
+		{Name: "kindan", Point: 255, Room: 63, Layer: 11},
+	} {
+		r := replica.StageRequest{Name: h.Name, Point: h.Point, Room: h.Room, Layer: h.Layer}
+		if err := r.Check(); err != nil {
+			t.Errorf("%+v: %v", r, err)
+		}
+		if r.Bytes() != h.bytes() {
+			t.Errorf("%+v: % X, stage-hop's % X", r, r.Bytes(), h.bytes())
+		}
+		fs := r.Fields()
+		if len(fs) != 3 || fs[0].Addr != addr.NextStage || fs[1].Addr != addr.NextStage+addr.NextOffWipe || fs[1].Data[0] != stageHopWipe ||
+			fs[2].Addr != addr.NextStageEnable || fs[2].Data[0] != 1 {
+			t.Errorf("%+v: fields %+v, want stage-hop's order: the request, the wipe, then mEnable", r, fs)
 		}
 	}
 }

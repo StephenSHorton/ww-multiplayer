@@ -1,17 +1,17 @@
 //go:build !unix && !windows
 
-package main
+package procstate
 
 import (
 	"errors"
 	"runtime"
 )
 
-// procStateSupported says procState can check a process on this OS.
-const procStateSupported = false
+// Supported says State can check a process on this OS.
+const Supported = false
 
-// procState can't check a process on this OS, so a session marker's owner
-// is unknown (coopMarker.state), which is taken as in use.
-func procState(pid int) (alive bool, start string, err error) {
+// State can't check a process on this OS, so a session marker's owner
+// is unknown (mods/coop/session), which is taken as in use.
+func State(pid int) (alive bool, start string, err error) {
 	return false, "", errors.New("this build can't check a process on " + runtime.GOOS)
 }

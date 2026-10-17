@@ -154,7 +154,7 @@ type Config struct {
 	// is BeatTimeout.
 	BeatTimeout time.Duration
 	// Label names an image bit (bit -1: the byte) for the dry-run log;
-	// nil is DefaultLabel. coop-watch's saveLabel in package main fits
+	// nil is DefaultLabel. coop-watch's diag.SaveLabel (mods/coop/diag) fits
 	// behind a two-line adapter: image offsets are dSv_info_c offsets,
 	// as mSavedata is at +0 (addr.InfoOffSavedata).
 	Label func(off, bit int) string

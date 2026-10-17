@@ -1,6 +1,6 @@
 //go:build unix
 
-package main
+package procstate
 
 import (
 	"bytes"
@@ -12,15 +12,15 @@ import (
 	"syscall"
 )
 
-// procStateSupported says procState can check a process on this OS.
-const procStateSupported = true
+// Supported says State can check a process on this OS.
+const Supported = true
 
-// procState reports whether process pid runs on this machine, and its
-// start token for a session marker (coopMarker): on Linux the time it
-// started, in clock ticks after boot; elsewhere "" (macOS and the other
-// Unixes are checked by pid alone). A pid that is not positive names no
+// State reports whether process pid runs on this machine, and its
+// start token for the co-op session marker (mods/coop/session): on
+// Linux the time it started, in clock ticks after boot; elsewhere ""
+// (macOS and the other Unixes are checked by pid alone). A pid that is not positive names no
 // process.
-func procState(pid int) (alive bool, start string, err error) {
+func State(pid int) (alive bool, start string, err error) {
 	if pid <= 0 {
 		return false, "", nil
 	}

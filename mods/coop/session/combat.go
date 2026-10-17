@@ -1,4 +1,4 @@
-package main
+package coopsession
 
 // M6's kill union in a --coop session (docs/08-coop-design.md §7.2, §9
 // M6.0): a partner's recorded deaths of keyed enemies reach each game
@@ -17,24 +17,10 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
-
-// killVerdict is the M1 verdict on the kill bits SCOPED KILL carries
-// (synctables.SyncedKill), as hub.Config.SyncedKill takes it: nil
-// without tables, so the hub keeps and relays none.
-func (st *coopStageTables) killVerdict() func(table int, stage string, room, setID int) bool {
-	if st == nil || st.t == nil || st.t.Enemies == nil {
-		return nil
-	}
-	t := st.t
-	return func(table int, stage string, room, setID int) bool {
-		return synctables.SyncedKill(t, table, stage, room, setID)
-	}
-}
 
 // combatCount is what t's enemy table syncs: the keyed K1 entries synced,
 // in how many stages, how many of them wait for a live check of their

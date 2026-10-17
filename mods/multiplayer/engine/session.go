@@ -31,9 +31,9 @@ func (e Env) clear() {
 
 // Coop is a session's co-op side: the seam to co-op, which is its own
 // mod requiring multiplayer (docs/api/00-design.md §7). A host or join
-// session runs without it when nil. Package main's coopHook implements
-// it over its coopSession (startCoopHost, startCoopSession,
-// runCoopSyncCtx).
+// session runs without it when nil. mods/coop/session's coopHook
+// implements it over its Session (startCoopHost, startCoopSession,
+// RunSync).
 type Coop interface {
 	// StartHost opens co-op on the host before srv starts and sets
 	// srv.Coop. An error ends the session before the server starts.

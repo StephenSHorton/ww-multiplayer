@@ -11,10 +11,10 @@ import (
 )
 
 // Watcher turns successive snapshots into core events (design §5.3). It
-// is the diff of coop-watch (coop_diag.go: coopWatcher.step, diffSave,
-// edgeNote, saveLabel) with typed events in place of text lines: the same
-// "where" comparison, the same byte-by-byte save diff and the same
-// table-reload rule. coop-watch itself is unchanged.
+// is the diff of coop-watch (coop_diag.go: coopWatcher.step;
+// mods/coop/diag: DiffSave, edgeNote, SaveLabel) with typed events in
+// place of text lines: the same "where" comparison, the same
+// byte-by-byte save diff and the same table-reload rule. coop-watch itself is unchanged.
 //
 // A Game owns one and runs it once a tick; tests drive Step directly
 // with fakegame snapshots. The zero Watcher is ready to use. It is not
@@ -72,7 +72,7 @@ func menu(s *state.Snapshot) bool {
 	return s.StageName == "" || s.StageName == addr.StageTitle || s.StageName == addr.StageFileSelect
 }
 
-// saveEvents is diffSave and edgeNote reduced to the edges the core
+// saveEvents is diag.DiffSave and edgeNote reduced to the edges the core
 // events name: inventory slots taking an item, switch bits rising and
 // story event bits rising. On a table change getSave and initDan reload
 // the live memBit and mDan in bulk (d_stage.cpp:1675-1677), which is not
@@ -95,7 +95,7 @@ func saveEvents(prev, cur *state.Snapshot) []events.Event {
 }
 
 // byteEvents names the events one changed byte of dSv_info_c gives: the
-// offset classification of saveLabel, limited to the stores the core
+// offset classification of diag.SaveLabel, limited to the stores the core
 // events cover.
 func byteEvents(off int, old, cur byte, s *state.Snapshot) []events.Event {
 	switch {

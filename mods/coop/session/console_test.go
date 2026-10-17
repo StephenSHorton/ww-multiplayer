@@ -1,4 +1,4 @@
-package main
+package coopsession
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 func TestParseCoopCommand(t *testing.T) {
@@ -135,7 +134,7 @@ func TestCoopConsolePick(t *testing.T) {
 
 // coConsoleSync is a session with one coop-sync pipeline over a fake game
 // in the sea, not connected.
-func coConsoleSync(t *testing.T, ctx context.Context, f coopFlags) (*coopSession, *coopSync, *coGame, *coLog) {
+func coConsoleSync(t *testing.T, ctx context.Context, f Flags) (*Session, *coopSync, *coGame, *coLog) {
 	t.Helper()
 	log := &coLog{}
 	cs := startCoopSession(log, f, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: strings.NewReader("")})
@@ -163,7 +162,7 @@ func TestCoopConsole(t *testing.T) {
 	t.Run("dry run", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		cs, _, _, log := coConsoleSync(t, ctx, coopFlags{on: true, yes: true, dryRun: true})
+		cs, _, _, log := coConsoleSync(t, ctx, Flags{on: true, yes: true, dryRun: true})
 		cs.console.do(ctx, "/warp")
 		coWaitLog(t, log, "co-op: /warp for Link: --coop-dry-run writes no game data")
 		cs.console.do(ctx, "/coop off")
@@ -178,7 +177,7 @@ func TestCoopConsole(t *testing.T) {
 	t.Run("writing", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		cs, s, cg, log := coConsoleSync(t, ctx, coopFlags{on: true, yes: true})
+		cs, s, cg, log := coConsoleSync(t, ctx, Flags{on: true, yes: true})
 		// Not connected, so not armed: an escape waits for the next tick,
 		// which says not now.
 		cs.console.do(ctx, "/refresh")
@@ -219,15 +218,15 @@ func TestCoopPartnerPos(t *testing.T) {
 	}
 	defer srv.Stop()
 	at := fmt.Sprintf("127.0.0.1:%d", srv.Addr().(*net.TCPAddr).Port)
-	cs := &coopSession{poses: map[string]*network.Client{}}
+	cs := &Session{poses: map[string]*network.Client{}}
 	if _, ok := cs.partnerPos("Link")(); ok {
 		t.Fatal("a position without a pose client")
 	}
-	var nilSession *coopSession
-	if f := nilSession.withPoseClient("Link", nil); f != nil {
+	var nilSession *Session
+	if f := nilSession.WithPoseClient("Link", nil); f != nil {
 		t.Fatal("a session without co-op wraps onClient")
 	}
-	link, tetra := coPose(t, cs, "Link", at), coPose(t, &coopSession{poses: map[string]*network.Client{}}, "Tetra", at)
+	link, tetra := coPose(t, cs, "Link", at), coPose(t, &Session{poses: map[string]*network.Client{}}, "Tetra", at)
 	want := network.PlayerPosition{PosX: 1, PosY: 2, PosZ: 3}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -248,7 +247,7 @@ func TestCoopPartnerPos(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	aryll := coPose(t, &coopSession{poses: map[string]*network.Client{}}, "Aryll", at)
+	aryll := coPose(t, &Session{poses: map[string]*network.Client{}}, "Aryll", at)
 	for {
 		if err := aryll.SendPosition(&network.PlayerPosition{PosX: 4, PosY: 5, PosZ: 6}); err != nil {
 			t.Fatal(err)
@@ -260,36 +259,6 @@ func TestCoopPartnerPos(t *testing.T) {
 			t.Fatal("a partner position with two others")
 		}
 		time.Sleep(5 * time.Millisecond)
-	}
-}
-
-// The escapes' bytes are the ones package main's own tools write: the
-// mailbox's warp fields (player.Warp) and stage-hop's mNextStage request.
-func TestCoopEscapesMatchMain(t *testing.T) {
-	if mailbox.WarpSeq != mailbox.Mailbox+mailbox.OffWarpSeq || replica.WarpAck != mailbox.Mailbox+mailbox.OffWarpAck ||
-		replica.WarpPos != mailbox.Mailbox+mailbox.OffWarpX || mailbox.OffWarpY != mailbox.OffWarpX+4 || mailbox.OffWarpZ != mailbox.OffWarpX+8 {
-		t.Errorf("the replica's warp fields (seq 0x%08X, ack 0x%08X, x/y/z 0x%08X) are not the mailbox's", mailbox.WarpSeq, replica.WarpAck, replica.WarpPos)
-	}
-	if replica.MaxStageLayer != stageHopLayerMax {
-		t.Errorf("layer bound %d, stage-hop's %d", replica.MaxStageLayer, stageHopLayerMax)
-	}
-	for _, h := range []stageHop{
-		{Name: "sea", Point: 0, Room: 44, Layer: -1},
-		{Name: "M_NewD2", Point: 3, Room: 5, Layer: 0},
-		{Name: "kindan", Point: 255, Room: 63, Layer: 11},
-	} {
-		r := replica.StageRequest{Name: h.Name, Point: h.Point, Room: h.Room, Layer: h.Layer}
-		if err := r.Check(); err != nil {
-			t.Errorf("%+v: %v", r, err)
-		}
-		if r.Bytes() != h.bytes() {
-			t.Errorf("%+v: % X, stage-hop's % X", r, r.Bytes(), h.bytes())
-		}
-		fs := r.Fields()
-		if len(fs) != 3 || fs[0].Addr != addr.NextStage || fs[1].Addr != addr.NextStage+addr.NextOffWipe || fs[1].Data[0] != stageHopWipe ||
-			fs[2].Addr != addr.NextStageEnable || fs[2].Data[0] != 1 {
-			t.Errorf("%+v: fields %+v, want stage-hop's order: the request, the wipe, then mEnable", r, fs)
-		}
 	}
 }
 

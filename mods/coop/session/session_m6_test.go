@@ -1,4 +1,4 @@
-package main
+package coopsession
 
 import (
 	"context"
@@ -13,6 +13,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables/stagetablestest"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
@@ -270,7 +272,7 @@ func (tp *coKillTap) check(who string, dir wire.Dir, p []byte) {
 
 // newCoPlayerM6 is newCoPlayerM5 with the game's M6 enemies running on its
 // frames and every SCOPED KILL checked by kills.
-func newCoPlayerM6(t *testing.T, ctx context.Context, h *coHost, cs *coopSession, cg *coGame, es *fakegame.Enemies, name string, audit *coAudit, kills *coKillTap, seed uint64) *coPlayer {
+func newCoPlayerM6(t *testing.T, ctx context.Context, h *coHost, cs *Session, cg *coGame, es *fakegame.Enemies, name string, audit *coAudit, kills *coKillTap, seed uint64) *coPlayer {
 	t.Helper()
 	beat := newCoBeat(cg)
 	beat.enemies = es
@@ -347,8 +349,8 @@ func TestCoopSessionM6(t *testing.T) {
 	t.Cleanup(func() { combat.DemoTypeVerified = demo }) // after the players' cleanups
 	tnVerified := combat.SetVerified(int16(stage.ProcTN), false)
 	t.Cleanup(func() { combat.SetVerified(int16(stage.ProcTN), tnVerified) })
-	useTablesDir(t, t.TempDir())
-	iso := writeImage(t, "ww.iso", tablestest.ISO(coM6Stages()))
+	stagetablestest.UseDir(t, t.TempDir())
+	iso := stagetablestest.WriteImage(t, "ww.iso", tablestest.ISO(coM6Stages()))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -361,9 +363,9 @@ func TestCoopSessionM6(t *testing.T) {
 		openMem:  func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
 		tick:     func() { ga.g.Frames(3) },
 		input:    strings.NewReader(""),
-		tables:   loadCoopStageTables,
+		tables:   stagetables.Load,
 	}}
-	h.start(coopFlags{on: true, world: coopWorldNew, yes: true, iso: iso})
+	h.start(Flags{on: true, world: coopWorldNew, yes: true, iso: iso})
 	defer h.stop()
 	cs := h.cs
 	tb := cs.m1()
@@ -378,7 +380,7 @@ func TestCoopSessionM6(t *testing.T) {
 	}
 	joinIn, joinKeys := coInput(t)
 	jlog := &coLog{}
-	jcs := startCoopSession(jlog, coopFlags{on: true, yes: true, iso: iso}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: joinIn, tables: loadCoopStageTables})
+	jcs := startCoopSession(jlog, Flags{on: true, yes: true, iso: iso}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: joinIn, tables: stagetables.Load})
 	for _, l := range []*coLog{h.rep, jlog} {
 		if !l.has("co-op: combat this session: a partner's kills of keyed enemies (9 in 1 stage(s), K1 classes, no bosses) are recorded in this game and light-shrink the live enemy while both are in the same stage; 2 unkeyed enemies") ||
 			l.has("not yet checked live") {
@@ -850,8 +852,8 @@ func coM6Judge(t *testing.T, p, q *coPlayer, es *fakegame.Enemies, seenQ coM6See
 // TestLogCoopCombat: the startup lines say what this side's tables sync,
 // what stays each player's own, and what waits for the live checks.
 func TestLogCoopCombat(t *testing.T) {
-	useTablesDir(t, t.TempDir())
-	st, err := loadCoopStageTables(writeImage(t, "ww.iso", tablestest.ISO(coM6Stages())))
+	stagetablestest.UseDir(t, t.TempDir())
+	st, err := stagetables.Load(stagetablestest.WriteImage(t, "ww.iso", tablestest.ISO(coM6Stages())))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -861,11 +863,11 @@ func TestLogCoopCombat(t *testing.T) {
 		demo bool
 		want []string
 	}{
-		{"M6 fixture, demo unverified", st.t, false, []string{
+		{"M6 fixture, demo unverified", st.M1(), false, []string{
 			"co-op: combat this session: a partner's kills of keyed enemies (9 in 1 stage(s), K1 classes, no bosses) are recorded in this game and light-shrink the live enemy while both are in the same stage; 2 unkeyed enemies (the sea, Savage Labyrinth, KATA_RM, caves, Hyrule and the rest) are not shared yet: each player fights their own.",
 			"co-op: combat: every light-shrink waits for the live check of Link's demo offset, so for now a partner's kill is only recorded (docs/08 §8.2 K1).",
 		}},
-		{"M6 fixture, demo verified", st.t, true, nil},
+		{"M6 fixture, demo verified", st.M1(), true, nil},
 		{"no tables", nil, false, []string{"co-op: combat is off this session: without co-op stage tables no enemy is known to sync, so no partner's kill is written."}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -884,11 +886,11 @@ func TestLogCoopCombat(t *testing.T) {
 			}
 		})
 	}
-	var none *coopStageTables
-	if none.killVerdict() != nil || (&coopStageTables{}).killVerdict() != nil {
+	var none *stagetables.Tables
+	if none.KillVerdict() != nil || (&stagetables.Tables{}).KillVerdict() != nil {
 		t.Error("a verdict without tables: the hub would keep kills")
 	}
-	if v := st.killVerdict(); v == nil || !v(addr.TableDRC, coDRC.Name, 1, 3) || v(addr.TableDRC, coDRC.Name, 1, 6) {
+	if v := st.KillVerdict(); v == nil || !v(addr.TableDRC, coDRC.Name, 1, 3) || v(addr.TableDRC, coDRC.Name, 1, 6) {
 		t.Error("the session's kill verdict is not the tables'")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
@@ -175,14 +176,14 @@ func ensureCheatsIni(rep log.Reporter, userDir string) {
 // inside this process so a single Ctrl+C tears the whole demo down and
 // resets shadow_mode on both Dolphins.
 //
-// co.on (--coop) makes it a co-op session too (coop_session.go): the cards
+// co.On() (--coop) makes it a co-op session too (mods/coop/session): the cards
 // of both user dirs are backed up, the server runs the CoopHub over the
 // world co picks (--coop=new founds it from Dolphin A's file), and each
 // Dolphin gets a coop-sync goroutine with its own handle and co-op
 // connection. It also turns the startup shift of Dolphin B's Link off
 // (startupShift, mp_local_shift.go). Without it none of the co-op pieces
 // run, and the startup shift moves B only when the two Links overlap.
-func runMpLocal(nameA, nameB string, co coopFlags) {
+func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	rep := log.Stdout{}
 	ctx, cancel := engine.CLIMultiplayerContext(rep)
 	defer cancel()
@@ -246,27 +247,27 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 		feed.EnvFloat32("MP_LOCAL_SHIFT_Y", 0),
 		feed.EnvFloat32("MP_LOCAL_SHIFT_Z", 50),
 	}
-	startupShift(rep, co.on, pidA, pidB, shift, defaultShiftEnv())
+	startupShift(rep, co.On(), pidA, pidB, shift, defaultShiftEnv())
 
 	// Server
 	srv := network.NewServer(25565)
 	srvRep := log.Prefix(rep, "[server]")
 	srv.OnLog = func(msg string) { srvRep.Log(log.Info, msg) }
-	var coop *coopSession
-	if co.on {
+	var coop *coopsession.Session
+	if co.On() {
 		var err error
-		if coop, err = startCoopHost(ctx, rep, srv.OnLog, co, defaultCoopEnv(pidA)); err != nil {
+		if coop, err = coopsession.StartHost(ctx, rep, srv.OnLog, co, coopEnv, pidA); err != nil {
 			if ctx.Err() != nil {
 				return // Ctrl+C while founding waited for the game
 			}
 			rep.Log(log.Err, err.Error())
 			os.Exit(1)
 		}
-		srv.Coop = coop.hub
+		srv.Coop = coop.Hub()
 	}
 	if err := srv.Start(); err != nil {
 		log.Logf(rep, log.Err, "server start: %v", err)
-		coop.stop()
+		coop.Stop()
 		os.Exit(1)
 	}
 	rep.Log(log.OK, "Server listening on :25565")
@@ -280,7 +281,7 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 
 	// spawn launches one client goroutine running run with the label's
 	// prefixed reporter: feed.BroadcastPose, feed.PuppetSync or, with
-	// --coop, runCoopSyncCtx.
+	// --coop, coopsession.RunSync.
 	spawn := func(label string, run func(r log.Reporter) error) {
 		wg.Add(1)
 		go func() {
@@ -298,7 +299,7 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 	puppet := func(name string, pid uint32) func(log.Reporter) error {
 		// With --coop, each Dolphin's warp to the partner takes the other's
 		// position from this client; without, onClient stays nil.
-		onClient := coop.withPoseClient(name, nil)
+		onClient := coop.WithPoseClient(name, nil)
 		return func(r log.Reporter) error {
 			return feed.PuppetSync(ctx, feedEnv, name, addr, name, pid, r, nil, onClient)
 		}
@@ -321,7 +322,7 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 			pid         uint32
 		}{{"coop-A", nameA, pidA}, {"coop-B", nameB, pidB}} {
 			time.Sleep(300 * time.Millisecond)
-			spawn(d.label, func(r log.Reporter) error { return runCoopSyncCtx(ctx, d.name, addr, d.pid, r, coop) })
+			spawn(d.label, func(r log.Reporter) error { return coopsession.RunSync(ctx, coopEnv, d.name, addr, d.pid, r, coop) })
 		}
 	}
 
@@ -332,7 +333,7 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 	rep.Log(log.Info, "Tearing down...")
 	wg.Wait()
 	srv.Stop()
-	coop.stop()
+	coop.Stop()
 
 	// Reset both Dolphins to baseline mirror so Link #2 doesn't stay
 	// frozen at the last received pose forever.

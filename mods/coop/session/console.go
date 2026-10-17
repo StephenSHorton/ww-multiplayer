@@ -1,4 +1,4 @@
-package main
+package coopsession
 
 // The co-op console (#23; docs/08-coop-design.md §6.7, §9 M3): the
 // commands a --coop session takes. The CLI types them on stdin, read by

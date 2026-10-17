@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
+	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
@@ -310,9 +311,9 @@ func printHelp() {
 // The command bodies below moved verbatim from main's switch.
 
 func cmdHost(string, []string) {
-	co, rest, err := extractCoopFlags(os.Args[2:])
+	co, rest, err := coopsession.ExtractFlags(os.Args[2:])
 	if err != nil {
-		exitUsage(err, "host [name] [--port N] "+coopFlagsUsage)
+		exitUsage(err, "host [name] [--port N] "+coopsession.FlagsUsage)
 	}
 	name, port, err := parseHostArgs(rest)
 	if err != nil {
@@ -322,12 +323,12 @@ func cmdHost(string, []string) {
 }
 
 func cmdJoin(string, []string) {
-	co, rest, err := extractCoopFlags(os.Args[2:])
+	co, rest, err := coopsession.ExtractFlags(os.Args[2:])
 	if err == nil {
-		err = co.forJoin()
+		err = co.ForJoin()
 	}
 	if err != nil {
-		exitUsage(err, "join <host-ip[:port]> [name] [--port N] "+coopJoinFlagsUsage)
+		exitUsage(err, "join <host-ip[:port]> [name] [--port N] "+coopsession.JoinFlagsUsage)
 	}
 	addr, name, err := parseJoinArgs(rest)
 	if err != nil {
@@ -360,11 +361,11 @@ func cmdDolphin2(string, []string) {
 }
 
 func cmdMpLocal(string, []string) {
-	co, rest, err := extractCoopFlags(os.Args[2:])
+	co, rest, err := coopsession.ExtractFlags(os.Args[2:])
 	if err != nil {
-		exitUsage(err, "mp-local [nameA] [nameB] "+coopFlagsUsage)
+		exitUsage(err, "mp-local [nameA] [nameB] "+coopsession.FlagsUsage)
 	}
-	if i := slices.Index(rest, "--"); co.on && i >= 0 {
+	if i := slices.Index(rest, "--"); co.On() && i >= 0 {
 		rest = slices.Delete(rest, i, i+1) // with --coop, "--" only ends the options
 	}
 	nameA, nameB := "PlayerA", "PlayerB"

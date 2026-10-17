@@ -1,4 +1,4 @@
-package main
+package coopsession
 
 import (
 	"bytes"
@@ -14,6 +14,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables/stagetablestest"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/story"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -515,8 +517,8 @@ func TestCoopSessionM4(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs a loopback server for a few seconds")
 	}
-	useTablesDir(t, t.TempDir())
-	iso := writeImage(t, "ww.iso", tablestest.ISO(tablestest.Vanilla()))
+	stagetablestest.UseDir(t, t.TempDir())
+	iso := stagetablestest.WriteImage(t, "ww.iso", tablestest.ISO(tablestest.Vanilla()))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // before the cleanups, which wait for the clients
 
@@ -529,9 +531,9 @@ func TestCoopSessionM4(t *testing.T) {
 		openMem:  func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
 		tick:     func() { ga.g.Frames(3) },
 		input:    strings.NewReader(""),
-		tables:   loadCoopStageTables,
+		tables:   stagetables.Load,
 	}}
-	h.start(coopFlags{on: true, world: coopWorldNew, yes: true, iso: iso})
+	h.start(Flags{on: true, world: coopWorldNew, yes: true, iso: iso})
 	defer h.stop()
 	cs := h.cs
 	tb := cs.m1()
@@ -545,7 +547,7 @@ func TestCoopSessionM4(t *testing.T) {
 
 	joinIn, joinKeys := coInput(t)
 	jlog := &coLog{}
-	jcs := startCoopSession(jlog, coopFlags{on: true, yes: true, iso: iso}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: joinIn, tables: loadCoopStageTables})
+	jcs := startCoopSession(jlog, Flags{on: true, yes: true, iso: iso}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: joinIn, tables: stagetables.Load})
 	for _, l := range []*coLog{h.rep, jlog} {
 		if !l.has("co-op: shared progression this session: story bits and event registers (written at stage changes), items, songs and capacities (when idle) and max magic; derived from the stage tables: the small keys of DRC") ||
 			!l.has(" and max hearts.") || l.has("not derived") {
@@ -1041,12 +1043,12 @@ func TestFoundFromSessionPolicy(t *testing.T) {
 // write, by its own tables: every key table that passes, and each that
 // fails or the whole table set missing, with why.
 func TestLogCoopProgression(t *testing.T) {
-	useTablesDir(t, t.TempDir())
-	st, err := loadCoopStageTables(writeImage(t, "ww.iso", tablestest.ISO(tablestest.Vanilla())))
+	stagetablestest.UseDir(t, t.TempDir())
+	st, err := stagetables.Load(stagetablestest.WriteImage(t, "ww.iso", tablestest.ISO(tablestest.Vanilla())))
 	if err != nil {
 		t.Fatal(err)
 	}
-	vanilla := st.t
+	vanilla := st.M1()
 	fw := *vanilla
 	kr := *fw.Keys
 	kr.Tables = append([]keys.Table(nil), kr.Tables...)

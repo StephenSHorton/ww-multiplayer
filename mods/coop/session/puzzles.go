@@ -1,4 +1,4 @@
-package main
+package coopsession
 
 // M5's live room puzzles in a --coop session (docs/08-coop-design.md §6.3,
 // §9 M5): a co-present partner's latching dan switches (same stage and
@@ -23,19 +23,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/switches"
 )
-
-// scopedVerdict is the M1 verdict on the switches SCOPED carries
-// (synctables.SyncedScopedSwitch), as hub.Config.SyncedScoped takes
-// it: nil without tables, so the hub keeps and relays none.
-func (st *coopStageTables) scopedVerdict() func(table int, stage string, room, no int) bool {
-	if st == nil || st.t == nil {
-		return nil
-	}
-	t := st.t
-	return func(table int, stage string, room, no int) bool {
-		return synctables.SyncedScopedSwitch(t, table, stage, room, no)
-	}
-}
 
 // puzzleCount is how many dan, zone and room switches t's verdict lets
 // SCOPED carry, and in how many save tables (dan) and rooms (zone and
