@@ -11,6 +11,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
@@ -34,7 +35,7 @@ import (
 //   - A joiner starts its co-op side on GO, and only on a GO that names a
 //     world: its co-op connection never meets a server without a hub.
 //   - Each app runs coop-sync on its Dolphin beside the pose pipelines
-//     (gameRunner.setCoop), once that Dolphin runs the patched game.
+//     (engine.GameRunner.SetCoop), once that Dolphin runs the patched game.
 //   - The host allowing merging after Start (the lobby's settings merge)
 //     turns it on in the hub (hub.SetMerge); a joiner whose file needed it
 //     asks to bind again.
@@ -84,10 +85,14 @@ func appCoopEnv(userDir string) coopEnv {
 	return coopEnv{userDirs: dirs, tick: coopTick, tables: loadCoopStageTables}
 }
 
-// appCoop is one lobby session's co-op side.
+// appCoop is one lobby session's co-op side (engine.LobbyCoop).
 type appCoop struct {
-	e      *sessionEngine
-	deps   *appCoopDeps
+	deps *appCoopDeps
+	// frontFn is the engine's co-op front end for options o.
+	frontFn func(o session.CoopOptions) engine.Front
+	// pose is the puppet-sync client of this player's pose pipelines;
+	// nil for none.
+	pose   func() *network.Client
 	out    session.LobbyOutput
 	name   string
 	coopFn func() session.CoopOptions
@@ -105,7 +110,7 @@ type appCoop struct {
 	mu      sync.Mutex
 	started bool
 	cs      *coopSession
-	game    *gameRunner
+	game    engine.CoopGame
 	lc      *network.LobbyClient
 	merge   bool
 	// hub is the host's hub once it serves the world; nil before, and
@@ -128,8 +133,11 @@ type unbindReq struct {
 	reply chan error
 }
 
-func newAppCoop(ctx context.Context, e *sessionEngine, out session.LobbyOutput, name string, coopFn func() session.CoopOptions, launch func() session.LaunchOptions) *appCoop {
-	ac := &appCoop{e: e, deps: e.coopApp, out: out, name: name, coopFn: coopFn, launch: launch}
+// newAppCoop is the co-op side of a lobby session the engine runs in env,
+// on deps (nil: it never starts co-op).
+func newAppCoop(ctx context.Context, deps *appCoopDeps, env engine.LobbyEnv) *appCoop {
+	ac := &appCoop{deps: deps, frontFn: env.Front, pose: env.PoseClient, out: env.Out, name: env.Name, coopFn: env.CoopFn, launch: env.Launch,
+		srvLog: env.SrvLog, setHub: env.SetHub}
 	ac.ctx, ac.cancel = context.WithCancel(ctx)
 	return ac
 }
@@ -149,15 +157,12 @@ func (ac *appCoop) userDir() string {
 	return ac.launch().UserDir
 }
 
-// bind hands the co-op side the session's lobby client and game side.
-func (ac *appCoop) bind(lc *network.LobbyClient, game *gameRunner) {
+// Bind hands the co-op side the session's lobby client and game side.
+func (ac *appCoop) Bind(lc *network.LobbyClient, game engine.CoopGame) {
 	ac.mu.Lock()
 	ac.lc, ac.game = lc, game
 	ac.mu.Unlock()
 }
-
-// coopOn says the lobby settings s ask for co-op.
-func coopOn(s network.LobbySettingsBody) bool { return s.Coop != "" && s.Coop != network.CoopOff }
 
 // begin says whether co-op starts now (once per session).
 func (ac *appCoop) begin() bool {
@@ -173,11 +178,11 @@ func (ac *appCoop) begin() bool {
 // front is the co-op front end: the window's questions and advice, and
 // the engine's console.
 func (ac *appCoop) front(f coopFlags) coopFront {
-	return ac.e.front(ac.out, f.options())
+	return frontOf(ac.frontFn(f.options()))
 }
 
-// onStart is the host's START with co-op on: the world, the hub, then GO.
-func (ac *appCoop) onStart(s network.LobbySettingsBody) {
+// OnStart is the host's START with co-op on: the world, the hub, then GO.
+func (ac *appCoop) OnStart(s network.LobbySettingsBody) {
 	if !ac.begin() {
 		return
 	}
@@ -234,7 +239,7 @@ func (ac *appCoop) host(f coopFlags) (string, error) {
 	ac.mu.Unlock()
 	if lc != nil {
 		if st, ok := lc.State(); ok && st.Settings.Merge != f.merge {
-			ac.onSettings(st.Settings)
+			ac.OnSettings(st.Settings)
 		}
 	}
 	id := cs.world.String()
@@ -262,12 +267,12 @@ func (ac *appCoop) sendGo(world string) {
 	}
 }
 
-// onGo is a joiner's GO: with a world, its co-op side starts. The card
+// OnGo is a joiner's GO: with a world, its co-op side starts. The card
 // backup and the stage tables (a disc read, a build when none is cached)
 // take a while, so they run beside the lobby connection, whose reads
 // (STATE, chat) go on meanwhile; a Leave during them starts nothing.
-func (ac *appCoop) onGo(s network.LobbySettingsBody, worldID string) {
-	if worldID == "" || !coopOn(s) || !ac.begin() {
+func (ac *appCoop) OnGo(s network.LobbySettingsBody, worldID string) {
+	if worldID == "" || !engine.CoopOn(s) || !ac.begin() {
 		return
 	}
 	ac.wg.Add(1)
@@ -291,23 +296,23 @@ func (ac *appCoop) onGo(s network.LobbySettingsBody, worldID string) {
 		o.World = worldID
 		ac.reportCoop(o)
 		ac.setGame(cs)
-		// Merging allowed while the side started (onSettings found no
+		// Merging allowed while the side started (OnSettings found no
 		// co-op side then) counts too.
 		ac.mu.Lock()
 		lc := ac.lc
 		ac.mu.Unlock()
 		if lc != nil {
 			if st, ok := lc.State(); ok && st.Settings.Merge != s.Merge {
-				ac.onSettings(st.Settings)
+				ac.OnSettings(st.Settings)
 			}
 		}
 	}()
 }
 
-// onSettings follows the lobby's settings after Start: merging turned on
+// OnSettings follows the lobby's settings after Start: merging turned on
 // (the host allowed a joiner's request) reaches the host's hub, and a
 // joiner whose file needed it asks to bind again.
-func (ac *appCoop) onSettings(s network.LobbySettingsBody) {
+func (ac *appCoop) OnSettings(s network.LobbySettingsBody) {
 	ac.mu.Lock()
 	cs, h, was, wid := ac.cs, ac.hub, ac.merge, ac.world
 	if cs == nil || s.Merge == was || (cs.flags.world != "" && h == nil) {
@@ -347,7 +352,7 @@ func (ac *appCoop) setGame(cs *coopSession) {
 	g := ac.game
 	ac.mu.Unlock()
 	if g != nil {
-		g.setCoop(cs)
+		g.SetCoop(cs)
 	}
 }
 
@@ -356,10 +361,10 @@ func (ac *appCoop) coopOptions(f coopFlags) { ac.reportCoop(f.options()) }
 // poseClient is the puppet-sync client of this player's pose pipelines:
 // where a warp finds the partner.
 func (ac *appCoop) poseClient() *network.Client {
-	if ac.e.ls == nil {
+	if ac.pose == nil {
 		return nil
 	}
-	return ac.e.ls.PuppetClient()
+	return ac.pose()
 }
 
 // found1 reports the founding's progress to the window.
@@ -369,10 +374,10 @@ func (ac *appCoop) found1(f session.Founding) {
 	}
 }
 
-// stop ends the co-op side: after the game side (coop-sync) and the
+// Stop ends the co-op side: after the game side (coop-sync) and the
 // host's server have stopped, the hub stops, which writes the world and
 // removes the session marker.
-func (ac *appCoop) stop() {
+func (ac *appCoop) Stop() {
 	ac.cancel()
 	ac.wg.Wait()
 	ac.mu.Lock()
@@ -424,7 +429,7 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 		ac.mu.Unlock()
 		pid := uint32(0)
 		if g != nil {
-			pid = g.playablePID()
+			pid = g.PlayablePID()
 		}
 		if pid != memPID {
 			closeMem()
@@ -507,11 +512,11 @@ func worldOnDisk(root, id string) bool {
 	return false
 }
 
-// unbindFile zeroes the loaded file's co-op tag in this player's game,
+// UnbindFile zeroes the loaded file's co-op tag in this player's game,
 // when it still names world want (the dialog's): through the founding
 // loop while it runs, else on the Dolphin coop-sync plays on. A tag of
 // the session's own world is never removed.
-func (ac *appCoop) unbindFile(want string) error {
+func (ac *appCoop) UnbindFile(want string) error {
 	ac.mu.Lock()
 	ch, cs, own := ac.unbind, ac.cs, ac.world
 	ac.mu.Unlock()
@@ -609,10 +614,10 @@ func (cs *coopSession) retryBinds(ctx context.Context, wait time.Duration) {
 	}
 }
 
-// appCoopSync is gameDeps.coopSync: runCoopSyncCtx for the app. The
-// app's game side starts coop-sync again after an error, a Dolphin
-// relaunch or a new boot, so each run leaves the console when it stops
-// (appSyncOn); the CLI's runs once a process.
+// appCoopSync is coopApp.Sync (engine.GameDeps.CoopSync): runCoopSyncCtx
+// for the app. The app's game side starts coop-sync again after an
+// error, a Dolphin relaunch or a new boot, so each run leaves the console
+// when it stops (appSyncOn); the CLI's runs once a process.
 func appCoopSync(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs *coopSession) error {
 	d, err := openDolphin(pid)
 	if err != nil {
@@ -645,18 +650,6 @@ func (c *coopConsole) firstMem() mem.Mem {
 		return nil
 	}
 	return c.syncs[0].m
-}
-
-// UnbindFile zeroes the co-op tag of the file loaded in this player's
-// game (session.CoopFileEngine).
-func (e *sessionEngine) UnbindFile(world string) error {
-	e.mu.Lock()
-	ac := e.coop1
-	e.mu.Unlock()
-	if ac == nil {
-		return session.ErrNoCoop
-	}
-	return ac.unbindFile(world)
 }
 
 // reportCoop tells the window the co-op options the session runs with.

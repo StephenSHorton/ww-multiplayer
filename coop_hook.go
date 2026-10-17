@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
@@ -12,6 +14,114 @@ import (
 // engine.RunJoinSession) takes from package main: the pose pipelines'
 // feedEnv, and clearMultiplayerState when the session ends.
 var sessionEnv = engine.Env{Feed: feedEnv, Clear: clearMultiplayerState}
+
+// engineConfig is the multiplayer engine's config from package main: the
+// sessions' Env, this build's version and cheats, and co-op, whose lobby
+// sessions play on lobby (nil: lobby sessions run without co-op, as the
+// CLI never runs one).
+func engineConfig(lobby *appCoopDeps) engine.Config {
+	return engine.Config{Env: sessionEnv, Version: version, CheatsIni: bundledCheatsIni, Coop: coopApp{lobby: lobby}}
+}
+
+// newTUIEngine is the app's engine (the TUI's and the window's): the
+// status bridge, this machine's Dolphins, and co-op in its lobby
+// sessions.
+func newTUIEngine() *engine.Engine { return engine.NewTUIEngine(engineConfig(realAppCoopDeps())) }
+
+// newCLIEngine is the CLI's host and join engine.
+func newCLIEngine() *engine.Engine { return engine.NewCLIEngine(engineConfig(nil)) }
+
+// coopApp is co-op as the multiplayer engine meets it (engine.CoopApp):
+// coopHook for a host or join session, appCoop for a lobby session's on
+// lobby (nil: none), the worlds under world.Dir() and the app's
+// coop-sync.
+type coopApp struct{ lobby *appCoopDeps }
+
+func (coopApp) Session(o session.CoopOptions, f engine.Front) engine.Coop {
+	return newCoopHook(coopFlagsOf(o), frontOf(f))
+}
+
+func (a coopApp) Lobby(ctx context.Context, env engine.LobbyEnv) engine.LobbyCoop {
+	if a.lobby == nil {
+		return nil
+	}
+	return newAppCoop(ctx, a.lobby, env)
+}
+
+// Worlds lists the worlds under world.Dir(), as coop-world list does.
+func (coopApp) Worlds() ([]session.CoopWorld, error) {
+	root, err := world.Dir()
+	if err != nil {
+		return nil, err
+	}
+	ws, err := listCoopWorlds(root)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]session.CoopWorld, 0, len(ws))
+	for _, w := range ws {
+		cw := session.CoopWorld{ID: w.id.String(), Created: w.created, Seq: w.seq, Text: w.String(),
+			InUse: w.marker != nil && w.use != markerStale, Stale: w.marker != nil && w.use == markerStale}
+		if w.err != nil {
+			cw.Err = w.err.Error()
+		}
+		out = append(out, cw)
+	}
+	return out, nil
+}
+
+func (coopApp) Sync(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs engine.CoopSide) error {
+	return appCoopSync(ctx, name, addr, pid, rep, cs.(*coopSession))
+}
+
+// frontOf is the coopFront of the engine's front end f: the CLI's (no
+// Output) asks on stdin and has no advice sink; the app's puts the
+// questions to the controller (outputAsker, carrying --yes) and passes
+// the advice on. Both attach the session to the engine.
+func frontOf(f engine.Front) coopFront {
+	attach := func(cs *coopSession) {
+		if f.Attach == nil {
+			return
+		}
+		if cs == nil {
+			f.Attach(nil) // no typed nil in the engine's CoopSide
+			return
+		}
+		f.Attach(cs)
+	}
+	if f.Out == nil {
+		return coopFront{attach: attach}
+	}
+	return coopFront{ask: outputAsker{out: f.Out, yes: f.Yes}, advise: f.Out.Advise, attach: attach}
+}
+
+// coopFlagsOf is the CLI's coopFlags for a controller's options.
+func coopFlagsOf(o session.CoopOptions) coopFlags {
+	return coopFlags{on: o.On, world: o.World, merge: o.Merge, yes: o.Yes, dryRun: o.DryRun, liveSwitches: o.LiveSwitches, iso: o.ISO}
+}
+
+// options is f as the controller's options.
+func (f coopFlags) options() session.CoopOptions {
+	return session.CoopOptions{On: f.on, World: f.world, Merge: f.merge, Yes: f.yes, DryRun: f.dryRun, LiveSwitches: f.liveSwitches, ISO: f.iso}
+}
+
+// CoopLive is the pipelines' status and the host's hub (engine.CoopSide).
+func (cs *coopSession) CoopLive() ([]session.CoopStatus, *session.CoopHubStatus) {
+	return cs.console.statuses(), coopHubStatus(cs.console.hubStatus())
+}
+
+// CoopCommand runs one console command as a typed line runs
+// (engine.CoopSide).
+func (cs *coopSession) CoopCommand(c session.Command) error {
+	cmd, err := commandOf(c)
+	if err != nil {
+		return err
+	}
+	return cs.console.exec(cs.console.sessionCtx(), cmd)
+}
+
+// CoopLine runs one console line as typed (engine.CoopSide).
+func (cs *coopSession) CoopLine(line string) { cs.console.do(cs.console.sessionCtx(), line) }
 
 // coopHook is the engine.Coop of a host or join session run with co-op
 // (--coop): the coopSession that startCoopHost or startCoopSession opens

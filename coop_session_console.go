@@ -5,7 +5,7 @@ package main
 // the same reader as the bind and scrub answers (coopPrompter), which
 // hands it every line that starts with '/'; a UI gives them to the session
 // controller (session.Controller.Command and CommandLine), which runs them
-// here through sessionEngine (App PR 2). Both reach exec:
+// here through engine.Engine (App PR 2). Both reach exec:
 //
 //	/refresh [player]       reload the area, by the entrance Link came in by
 //	/warp [player]          go to the partner: same stage, onto it;

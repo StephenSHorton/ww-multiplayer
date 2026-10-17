@@ -2,7 +2,7 @@ package engine
 
 import "testing"
 
-// TestLiveState_ChatSink: incoming chat goes to the sink sessionEngine set,
+// TestLiveState_ChatSink: incoming chat goes to the sink Engine set,
 // is dropped without one, and survives Begin() (which runs after the engine
 // set it).
 func TestLiveState_ChatSink(t *testing.T) {

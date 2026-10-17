@@ -91,7 +91,7 @@ func runFace(f face, args []string) {
 }
 
 // newAppController is the controller the TUI and the GUI drive:
-// sessionEngine with liveState, and a log file per session.
+// the engine (engine.Engine) with its LiveState, and a log file per session.
 func newAppController() *session.Controller {
 	return session.New(newTUIEngine(), session.Options{SessionLog: tuiSessionLog})
 }
@@ -121,7 +121,7 @@ func guiOptions(ctrl *session.Controller) gui.Options {
 // wired the connect screen to the pose-feed pipeline; v0.1.5 brought it
 // back with the dashboard driving the same engine.RunHostSession / engine.RunJoinSession
 // funcs the CLI subcommands run, through a session.Controller over
-// sessionEngine (session_engine.go).
+// engine.Engine (mods/multiplayer/engine).
 func runTUI(ctrl *session.Controller) {
 	if err := tui.Run(version, ctrl); err != nil {
 		fmt.Println(err)

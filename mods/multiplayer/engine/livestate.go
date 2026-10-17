@@ -12,7 +12,7 @@ import (
 // LiveState is the mutable, mutex-guarded bridge between a running multiplayer
 // session (the *network.Server / *network.Client that main owns) and the
 // session controller the TUI drives. internal/tui and internal/session never
-// import mods/multiplayer/net; instead sessionEngine reads this holder under the
+// import mods/multiplayer/net; instead Engine reads this holder under the
 // lock and hands the controller plain values / session.Player.
 //
 // One LiveState is created in main() before tui.Run and shared across every
@@ -42,7 +42,7 @@ type LiveState struct {
 	hasLocalPos            bool
 
 	// chat receives incoming chat lines from the puppet-sync client's OnChat
-	// callback (#20): sessionEngine points it at the running session's
+	// callback (#20): Engine points it at the running session's
 	// session.Output, whose Chat never blocks the client read loop. nil
 	// drops the lines (no session, or CLI paths).
 	chat func(from, text string)
@@ -65,7 +65,7 @@ func (ls *LiveState) Begin(role, selfName string, hostIPs []string) {
 }
 
 // SetChat points incoming chat at sink (nil drops it). begin() leaves it
-// alone: sessionEngine sets it around the whole session call.
+// alone: Engine sets it around the whole session call.
 func (ls *LiveState) SetChat(sink func(from, text string)) {
 	ls.mu.Lock()
 	ls.chat = sink

@@ -44,8 +44,8 @@ func (m ContractMode) String() string {
 
 // BlobMatchMin is the share of this build's non-zero T2 bytes that must
 // read back the same from RAM for the blob to match. It is the rule the
-// app's own "is this build's mod in RAM" check uses (app_game.go
-// hasThisMod): T2 holds .data and .bss too, which change at run time, so
+// app's own "is this build's mod in RAM" check uses (mods/multiplayer/engine
+// game.go hasThisMod): T2 holds .data and .bss too, which change at run time, so
 // an exact match is not expected until E1 hashes .text alone.
 const BlobMatchMin = 0.9
 
@@ -145,7 +145,7 @@ func CheckContract(m mem.Reader, o ContractOptions) (Contract, error) {
 }
 
 // blobMatch is the share of want's non-zero bytes that got has at the
-// same place: app_game.go's modMatch.
+// same place: mods/multiplayer/engine/game.go's modMatch.
 func blobMatch(got, want []byte) float64 {
 	n, same := 0, 0
 	for i, b := range want {
