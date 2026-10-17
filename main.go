@@ -323,7 +323,7 @@ func main() {
 			runTunicRecolor(os.Args[2])
 		case "tunic-slot":
 			if len(os.Args) < 4 {
-				fmt.Println("Usage: ww-multiplayer.exe tunic-slot <0|1|local> <color|#RRGGBB|off>")
+				fmt.Println("Usage: ww-multiplayer.exe tunic-slot <0|1|local> <color|#RRGGBB|off|casual>")
 				os.Exit(1)
 			}
 			runTunicSlot(os.Args[2], os.Args[3])
