@@ -331,7 +331,7 @@ Current layout (`inject/build.py:109,142-145`; `mailbox.h:33`; `internal/inject/
 | 0x8040CFB0..0x80410000 | MetroTRK debug stack plus padding; `InitMetroTRK` runs only if a 32-bit word is 2 or 3: the word at +0xC of the block pointed to by 0x800000F4, or, when that pointer is 0 and 0x80000034 is non-zero, the word at 0x800030E8 (`__start.c:32-62`); free by inference | 0x3050 |
 | 0x80410000..0x80412E28 | T2 (code and data; 0x2CE8 before the tunic colors, 0x2E08 before the casual shirt, docs/09) | 0x2E28 |
 | 0x80412E28..0x80412F00 | free, unchecked | **0xD8** |
-| 0x80412F00..0x804130A0 | mailbox (`frame_shim` hard-codes `lwz 12,0x2F08(12)`, `multiplayer.c:297`; the Go `mailboxBase` const in `main.go`; +0x188..+0x1A0 is the docs/09 tunic block, +0x180..+0x187 stay reserved) | 0x1A0 |
+| 0x80412F00..0x804130A0 | mailbox (`frame_shim` hard-codes `lwz 12,0x2F08(12)`, `multiplayer.c:297`; the Go `mailbox.Mailbox` (wwapi/mailbox/layout_gen.go, generated from mailbox.h); +0x188..+0x1A0 is the docs/09 tunic block, +0x180..+0x187 stay reserved) | 0x1A0 |
 | 0x804130A0..0x80414000 | unused, below arena | 0xF60 |
 | 0x80414000 | patched `__OSArenaLo` (`addi r3,r3,0x4000` at 0x80301820) | — |
 

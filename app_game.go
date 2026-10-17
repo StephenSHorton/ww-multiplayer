@@ -16,6 +16,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // The app's game side (App PR 8, design §2.6): what a lobby session does
@@ -499,12 +500,12 @@ func resetMailbox(m mailboxMem, tunic bool) bool {
 	if !hasThisMod(m) {
 		return false
 	}
-	m.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{0})
+	m.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
 	for i := 0; i < maxRemoteLinks; i++ {
-		m.WriteAbsolute(mailboxBase+mailboxPoseSeq(i), []byte{0})
+		m.WriteAbsolute(mailbox.Mailbox+mailboxPoseSeq(i), []byte{0})
 	}
 	if tunic {
-		m.WriteAbsolute(mailboxBase+mailboxTunicEnable, make([]byte, tunicSlots))
+		m.WriteAbsolute(mailbox.Mailbox+mailbox.OffTunicEnable, make([]byte, tunicSlots))
 	}
 	return true
 }
@@ -520,7 +521,7 @@ func mailboxClaimed(pid uint32) bool {
 	if !hasThisMod(d) {
 		return false
 	}
-	b, err := d.ReadAbsolute(mailboxBase+mailboxShadowMode, 1)
+	b, err := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, 1)
 	return err == nil && len(b) == 1 && b[0] != 0
 }
 

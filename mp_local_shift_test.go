@@ -10,6 +10,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
@@ -189,7 +190,7 @@ func TestStartupShiftAcrossStagesWritesNothing(t *testing.T) {
 	pos := [3]float32{120, 800, -340}
 	r := newShiftRig(t, fakegame.Stage{Name: "M_Dai", Table: addr.TableET}, diagSea, pos, pos)
 	warp := func() []byte {
-		b, err := r.mB.Read(mailboxBase+mailboxWarpSeq, 20) // warp_seq, warp_ack, warp_x/y/z
+		b, err := r.mB.Read(mailbox.Mailbox+mailbox.OffWarpSeq, 20) // warp_seq, warp_ack, warp_x/y/z
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -232,8 +233,8 @@ func TestStartupShiftOverlap(t *testing.T) {
 		t.Errorf("wrote A: %+v", ws)
 	}
 	ws := r.mB.Writes()
-	if len(ws) != 2 || ws[0].Addr != mailboxBase+mailboxWarpX || !bytes.Equal(ws[0].Data, posBytes(want)) ||
-		ws[1].Addr != mailboxBase+mailboxWarpSeq || !bytes.Equal(ws[1].Data, u32b(1)) {
+	if len(ws) != 2 || ws[0].Addr != mailbox.Mailbox+mailbox.OffWarpX || !bytes.Equal(ws[0].Data, posBytes(want)) ||
+		ws[1].Addr != mailbox.Mailbox+mailbox.OffWarpSeq || !bytes.Equal(ws[1].Data, u32b(1)) {
 		t.Errorf("wrote B: %+v, want the target then warp_seq = 1", ws)
 	}
 	if got := rep.joined(); !strings.Contains(got, "Warped Dolphin B Link by (50, 0, 50)") {

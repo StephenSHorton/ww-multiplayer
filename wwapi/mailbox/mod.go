@@ -1,12 +1,16 @@
 // Package mailbox holds the mod's own RAM layout: T2, the Go <-> C
-// mailbox and the regions around them. It is hand-written for now; C9
-// generates the mailbox fields from inject/include/mailbox.h.
+// mailbox and the regions around them. The mailbox's address, size and
+// field offsets are generated from inject/include/mailbox.h into
+// layout_gen.go (tools/gen_mailbox); the rest of this file is
+// hand-written.
 //
 // # v0 UNSTABLE
 //
 // This package is part of wwapi v0. Its API may change in any 0.x minor
 // version.
 package mailbox
+
+//go:generate go run ../../tools/gen_mailbox
 
 import "github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 
@@ -19,20 +23,16 @@ const (
 	// read from len(inject.T2Bytes), never hard-coded.
 	T2Base uint32 = 0x80410000
 
-	// Mailbox is the Go <-> C mailbox (MAILBOX_ADDR, mailbox.h:33; the
-	// mailboxBase const in main.go's mailbox layout block). Its last field
-	// is tunic_swaps, the u32 at +0x19C (mailbox.h, "TUNIC COLORS");
-	// TestMailboxLayout (package main) pins this size to the C struct.
-	Mailbox     uint32 = 0x80412F00
-	MailboxSize        = 0x1A0
+	// The Go <-> C mailbox itself, Mailbox (MAILBOX_ADDR) and
+	// MailboxSize, is generated into layout_gen.go from mailbox.h.
 
 	// SpawnTrigger is mailbox.spawn_trigger, which multiplayer_update
-	// bumps once per frame (mailbox.h:109): the co-op heartbeat (§3.2).
-	// It stalls while emulation is paused and never moves on a vanilla ISO.
-	SpawnTrigger uint32 = 0x80412F00
+	// bumps once per frame: the co-op heartbeat (§3.2). It stalls while
+	// emulation is paused and never moves on a vanilla ISO.
+	SpawnTrigger = Mailbox + OffSpawnTrigger
 
-	// WarpSeq is mailbox.warp_seq (mailbox.h:221).
-	WarpSeq uint32 = 0x80412FC8
+	// WarpSeq is mailbox.warp_seq.
+	WarpSeq = Mailbox + OffWarpSeq
 
 	// PatchedArenaLo is the __OSArenaLo the patched OSInit computes
 	// (addi r3,r3,0x4000 at 0x80301820, inject/build.py:144).

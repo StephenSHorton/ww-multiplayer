@@ -512,7 +512,7 @@ Must keep in sync across:
 - `inject/include/mailbox.h` MAILBOX_ADDR
 - `inject/src/multiplayer.c` CALLBACK_PTR_ADDR + `frame_shim` asm offset
 - `inject/build.py` OSInit patch immediate
-- `main.go` `mailboxBase`
+- `wwapi/mailbox/layout_gen.go` `Mailbox` (generated: `go generate ./wwapi/mailbox`)
 
 ### C++ exception metadata strip
 

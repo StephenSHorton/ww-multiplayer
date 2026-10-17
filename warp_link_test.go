@@ -13,6 +13,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
@@ -25,14 +26,14 @@ func fakeWarpHandler(t *testing.T, m *mem.FakeMem) bool {
 	if err != nil || link == 0 {
 		return false
 	}
-	w, err := m.Read(mailboxBase+mailboxWarpSeq, 20)
+	w, err := m.Read(mailbox.Mailbox+mailbox.OffWarpSeq, 20)
 	if err != nil || bytes.Equal(w[:4], w[4:8]) {
 		return false
 	}
 	if err := m.Store(link+addr.ActorOffCurPos, w[8:20]); err != nil {
 		t.Error(err)
 	}
-	if err := m.Store(mailboxBase+mailboxWarpAck, w[:4]); err != nil {
+	if err := m.Store(mailbox.Mailbox+mailbox.OffWarpAck, w[:4]); err != nil {
 		t.Error(err)
 	}
 	return true
@@ -94,14 +95,14 @@ func posBytes(p [3]float32) []byte {
 // once Link is back.
 func TestWarpLinkWithdrawsOnTimeout(t *testing.T) {
 	m := mem.NewFakeMem()
-	store(t, m, mailboxBase+mailboxWarpSeq, u32b(6))
-	store(t, m, mailboxBase+mailboxWarpAck, u32b(6))
+	store(t, m, mailbox.Mailbox+mailbox.OffWarpSeq, u32b(6))
+	store(t, m, mailbox.Mailbox+mailbox.OffWarpAck, u32b(6))
 	err := warpLinkMem(m, [3]float32{1, 2, 3}, 20*time.Millisecond)
 	const want = "warp not acknowledged within 20ms (Link gone or emulation paused); withdrawn"
 	if err == nil || err.Error() != want {
 		t.Errorf("got %v, want %q", err, want)
 	}
-	if seq, ack := readU32(t, m, mailboxBase+mailboxWarpSeq), readU32(t, m, mailboxBase+mailboxWarpAck); seq != 7 || ack != 7 {
+	if seq, ack := readU32(t, m, mailbox.Mailbox+mailbox.OffWarpSeq), readU32(t, m, mailbox.Mailbox+mailbox.OffWarpAck); seq != 7 || ack != 7 {
 		t.Errorf("warp_seq %d, warp_ack %d after the withdraw, want both 7", seq, ack)
 	}
 	// Link comes back (the stage loaded, emulation resumed): the handler
@@ -129,8 +130,8 @@ func TestWarpLinkAcked(t *testing.T) {
 	}
 	ws := m.Writes()
 	if len(ws) != 2 ||
-		ws[0].Addr != mailboxBase+mailboxWarpX || !bytes.Equal(ws[0].Data, posBytes(p)) ||
-		ws[1].Addr != mailboxBase+mailboxWarpSeq || !bytes.Equal(ws[1].Data, []byte{0, 0, 0, 1}) {
+		ws[0].Addr != mailbox.Mailbox+mailbox.OffWarpX || !bytes.Equal(ws[0].Data, posBytes(p)) ||
+		ws[1].Addr != mailbox.Mailbox+mailbox.OffWarpSeq || !bytes.Equal(ws[1].Data, []byte{0, 0, 0, 1}) {
 		t.Errorf("writes %+v, want the 12 coordinate bytes then warp_seq = 1", ws)
 	}
 	if n := warps(); n != 1 {
@@ -147,7 +148,7 @@ type raceMem struct {
 }
 
 func (r raceMem) Write(a uint32, b []byte) error {
-	if a == mailboxBase+mailboxWarpAck {
+	if a == mailbox.Mailbox+mailbox.OffWarpAck {
 		r.before()
 	}
 	return r.FakeMem.Write(a, b)
@@ -181,7 +182,7 @@ func TestWarpLinkAckRace(t *testing.T) {
 	if got := readLinkPos(t, fm); got != p {
 		t.Errorf("Link at %v, want %v", got, p)
 	}
-	if seq, ack := readU32(t, fm, mailboxBase+mailboxWarpSeq), readU32(t, fm, mailboxBase+mailboxWarpAck); seq != 1 || ack != 1 {
+	if seq, ack := readU32(t, fm, mailbox.Mailbox+mailbox.OffWarpSeq), readU32(t, fm, mailbox.Mailbox+mailbox.OffWarpAck); seq != 1 || ack != 1 {
 		t.Errorf("warp_seq %d, warp_ack %d, want both 1", seq, ack)
 	}
 }
@@ -196,8 +197,8 @@ type loadMem struct {
 }
 
 func (l loadMem) Write(a uint32, b []byte) error {
-	if a == mailboxBase+mailboxWarpSeq {
-		store(l.t, l.FakeMem, mailboxBase+mailboxWarpSeq, make([]byte, 20)) // warp_seq, warp_ack, warp_x/y/z
+	if a == mailbox.Mailbox+mailbox.OffWarpSeq {
+		store(l.t, l.FakeMem, mailbox.Mailbox+mailbox.OffWarpSeq, make([]byte, 20)) // warp_seq, warp_ack, warp_x/y/z
 		return nil
 	}
 	return l.FakeMem.Write(a, b)
@@ -221,7 +222,7 @@ func TestWarpLinkSaveStateLoaded(t *testing.T) {
 		t.Errorf("got %v, want %q", err, want)
 	}
 	for _, w := range fm.Writes() {
-		if w.Addr != mailboxBase+mailboxWarpX {
+		if w.Addr != mailbox.Mailbox+mailbox.OffWarpX {
 			t.Errorf("wrote % X at %#x; want only the coordinates, which the load overwrote", w.Data, w.Addr)
 		}
 	}

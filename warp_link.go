@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
@@ -51,7 +52,7 @@ func warpLink(d *dolphin.Dolphin, x, y, z float32, timeout time.Duration) error 
 // only from mp-local's startup shift, which never runs under --coop, and
 // from the `warp` dev CLI (docs/08 item 131).
 func warpLinkMem(m mem.Mem, p [3]float32, timeout time.Duration) error {
-	const seqAddr, ackAddr = mailboxBase + mailboxWarpSeq, mailboxBase + mailboxWarpAck
+	const seqAddr, ackAddr = mailbox.Mailbox + mailbox.OffWarpSeq, mailbox.Mailbox + mailbox.OffWarpAck
 
 	// Bump from whatever seq is currently set (cold start = 0).
 	prevSeq, err := mem.ReadU32(m, seqAddr)
@@ -67,7 +68,7 @@ func warpLinkMem(m mem.Mem, p [3]float32, timeout time.Duration) error {
 	for i, v := range p {
 		binary.BigEndian.PutUint32(posBuf[4*i:], math.Float32bits(v))
 	}
-	if err := m.Write(mailboxBase+mailboxWarpX, posBuf); err != nil {
+	if err := m.Write(mailbox.Mailbox+mailbox.OffWarpX, posBuf); err != nil {
 		return fmt.Errorf("write warp coords: %w", err)
 	}
 	if err := mem.WriteU32(m, seqAddr, nextSeq); err != nil {

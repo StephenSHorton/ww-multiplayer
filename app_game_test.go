@@ -15,6 +15,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // fakeGame is gameDeps over scripted Dolphins: running lists them, probe
@@ -585,12 +586,12 @@ func (m *mailRAM) WriteAbsolute(addr uint32, data []byte) error {
 // heap there, and is not written.
 func TestResetMailbox(t *testing.T) {
 	patched := &mailRAM{mod: true}
-	if !resetMailbox(patched, true) || !slices.Contains(patched.writes, mailboxBase+mailboxShadowMode) ||
-		!slices.Contains(patched.writes, mailboxBase+mailboxTunicEnable) {
+	if !resetMailbox(patched, true) || !slices.Contains(patched.writes, mailbox.Mailbox+mailbox.OffShadowMode) ||
+		!slices.Contains(patched.writes, mailbox.Mailbox+mailbox.OffTunicEnable) {
 		t.Fatalf("patched: writes %x", patched.writes)
 	}
 	noTunic := &mailRAM{mod: true}
-	if !resetMailbox(noTunic, false) || slices.Contains(noTunic.writes, mailboxBase+mailboxTunicEnable) {
+	if !resetMailbox(noTunic, false) || slices.Contains(noTunic.writes, mailbox.Mailbox+mailbox.OffTunicEnable) {
 		t.Fatalf("WW_TUNIC=off: writes %x", noTunic.writes)
 	}
 	vanilla := &mailRAM{}

@@ -67,7 +67,7 @@ The plan:
 
 (verified: `inject/build.py`, `inject/include/mailbox.h`, `internal/inject/blob.go` T2Bytes = 0x2E28, `t2_budget_test.go`)
 
-**Mailbox layout** at 0x80412F00 (the source of truth is `inject/include/mailbox.h`; `mailbox_layout_test.go` keeps the Go copy in step):
+**Mailbox layout** at 0x80412F00 (the source of truth is `inject/include/mailbox.h`; `tools/gen_mailbox` generates the Go copy, `wwapi/mailbox/layout_gen.go`, and `TestMailboxLayout` fails when it is stale):
 
 | Offset | Field(s) | Owner | Future home |
 |---|---|---|---|
@@ -131,13 +131,13 @@ ww-multiplayer/
     example/          Go-only, local_only
     _fixtures/        bad manifest, api mismatch, missing dep, cycle, Init error, Run panic
   inject/             C, one blob (later split into src/core and src/mp with the same offsets)
-  tools/              extract_blob.py, gen_mailbox.go, gen_event_masks.py, validate_manifests,
+  tools/              extract_blob.py, gen_mailbox/, gen_event_masks.py, validate_manifests,
                       check_no_game_code.py
   tests/              cross-package golden and e2e tests
   docs/               api/ (this page, C ABI, RAM map), mp/, coop/, map/, TESTING.md, history.md
 ```
 
-`internal/{gui,tui,config,applog}` stay where they are until the app PRs finish.
+`internal/{gui,tui,config,applog}` stay where they are until the app PRs finish. `internal/mailboxgen` (C9) is the mailbox.h parser and `layout_gen.go` emitter shared by `tools/gen_mailbox` and the `wwapi/mailbox` freshness test, and it stays under `internal/`.
 
 ---
 
@@ -434,7 +434,7 @@ Order: C1 first; C4 before C8; C6 before C7; C8 before C14; C5 any time after C1
 - [x] **C6** `wwapi/save`: one `Image` (old names as aliases for one release), one item/slot table, `Layout`, `View`.
 - [x] **C7** Split savefile (merge/derive → `savemerge`; I/O → `wwapi/savefile`); backup → `wwapi/backup`.
 - [x] **C8** Split tables (builders → `wwapi/tables`; sync accessors → `synctables`).
-- [ ] **C9** Generated mailbox: `tools/gen_mailbox.go` → `wwapi/mailbox/layout_gen.go`. No C change.
+- [x] **C9** Generated mailbox: `tools/gen_mailbox` → `wwapi/mailbox/layout_gen.go`. No C change. The parser and emitter live in `internal/mailboxgen`, which `tools/gen_mailbox` and the `wwapi/mailbox` freshness test (`TestMailboxLayout`) both import.
 - [ ] **C10** `wwapi/emu` (`Attach(Options)`, env read only in `cmd`); dolphinenv → `emu/launch`; report → `wwapi/log`.
 - [ ] **C11** `wwapi/player`: Warp, Input, Pose/Face reads, Link accessors.
 - [ ] **C12** `wwapi/avatar` and `wwapi/gfx/texture`.

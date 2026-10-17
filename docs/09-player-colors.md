@@ -162,7 +162,7 @@ The name memory is capped at 256 entries.
 **Mailbox block** (`inject/include/mailbox.h`, "TUNIC COLORS").
 - +0x180..+0x187 stay reserved for the docs/08 §4.5 option A header.
 - The mailbox grows from 0x180 to 0x1A0 bytes. 0x80413080..0x80414000 was unused.
-- `TestMailboxLayout` (package main) computes the C struct's offsets from `mailbox.h`. It checks them against the Go constants and against the header's own `+0xNN` comments.
+- The Go offsets are generated from `mailbox.h` (`tools/gen_mailbox` → `wwapi/mailbox/layout_gen.go`, since Phase C step C9). `TestMailboxLayout` (wwapi/mailbox) fails when that file is stale, and the generator refuses a header whose own `+0xNN` comments disagree with the struct.
 
 | Off | Field | Writer |
 |---|---|---|
@@ -467,7 +467,7 @@ Setup: run `SAVE_STATE=… ./ww-multiplayer.exe dolphin2`, then `WW_TUNIC=off ./
 - `playercolor_flag{,_test}.go`
 - `tunic_diag.go` (`tunic-probe`, `tunic-recolor`)
 - `tunic_sync.go`, `tunic_sync_test.go` (wiring, `tunic-slot`, the `dump` block)
-- `mailbox_layout_test.go`
+- `mailbox_layout_test.go` (since C9: `wwapi/mailbox/layout_gen.go` and `layout_test.go`)
 - this document
 
 **Changed:**

@@ -11,6 +11,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/tunic"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // fakeRAM is a sparse big-endian GameCube RAM for the tunic tests. It
@@ -116,22 +117,22 @@ func newLinkRAM(casual bool) *fakeRAM {
 
 // cAllocate plays multiplayer_update's allocation block.
 func (f *fakeRAM) cAllocate() {
-	if f.u8(mailboxBase+mailboxTunicState) != 0 {
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicState) != 0 {
 		return
 	}
-	size, _ := f.ReadU32(mailboxBase + mailboxTunicBufSize)
+	size, _ := f.ReadU32(mailbox.Mailbox + mailbox.OffTunicBufSize)
 	if size == 0 {
 		return
 	}
 	for s := 0; s < tunicSlots; s++ {
-		f.put32(mailboxBase+mailboxTunicBuf(s), fakeHeapTop+uint32(s)*0x1000)
+		f.put32(mailbox.Mailbox+mailboxTunicBuf(s), fakeHeapTop+uint32(s)*0x1000)
 	}
-	f.mem[mailboxBase+mailboxTunicState] = 1
+	f.mem[mailbox.Mailbox+mailbox.OffTunicState] = 1
 }
 
 func (f *fakeRAM) frame() {
-	v, _ := f.ReadU32(mailboxBase)
-	f.put32(mailboxBase, v+1)
+	v, _ := f.ReadU32(mailbox.Mailbox)
+	f.put32(mailbox.Mailbox, v+1)
 }
 
 // run ticks the sync n game frames, the C side allocating as it would.
@@ -145,7 +146,7 @@ func run(t *tunicSync, f *fakeRAM, now *time.Time, n int) {
 }
 
 func slotImage(f *fakeRAM, s int) []byte {
-	buf, _ := f.ReadU32(mailboxBase + mailboxTunicBuf(s))
+	buf, _ := f.ReadU32(mailbox.Mailbox + mailboxTunicBuf(s))
 	b, _ := f.ReadAbsolute(buf, len(testImage()))
 	return b
 }
@@ -167,11 +168,11 @@ func TestTunicSync_AllocatesAndFillsSlots(t *testing.T) {
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
 
-	if got, _ := f.ReadU32(mailboxBase + mailboxTunicBufSize); got != uint32(len(testImage())) {
+	if got, _ := f.ReadU32(mailbox.Mailbox + mailbox.OffTunicBufSize); got != uint32(len(testImage())) {
 		t.Fatalf("buf_size = %d, want %d", got, len(testImage()))
 	}
 	for s, want := range [][]byte{expectRecolor(red), testImage(), expectRecolor(blue)} {
-		if f.u8(mailboxBase+mailboxTunicEnable+uint32(s)) != 1 {
+		if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s)) != 1 {
 			t.Errorf("slot %d not enabled", s)
 		}
 		if got := slotImage(f, s); !bytes.Equal(got, want) {
@@ -189,8 +190,8 @@ func TestTunicSync_VanillaLocalIsOff(t *testing.T) {
 	ts.SetLocal(playercolor.Vanilla())
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
-	if f.u8(mailboxBase+mailboxTunicEnable+tunicSlotLocal) != 0 || !ts.Settled(tunicSlotLocal) {
-		t.Errorf("vanilla local slot: enable=%d settled=%v, want off", f.u8(mailboxBase+mailboxTunicEnable+tunicSlotLocal), ts.Settled(tunicSlotLocal))
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable+tunicSlotLocal) != 0 || !ts.Settled(tunicSlotLocal) {
+		t.Errorf("vanilla local slot: enable=%d settled=%v, want off", f.u8(mailbox.Mailbox+mailbox.OffTunicEnable+tunicSlotLocal), ts.Settled(tunicSlotLocal))
 	}
 }
 
@@ -206,21 +207,21 @@ func TestTunicSync_ColorChangeDrains(t *testing.T) {
 	ts.Set(0, true, purple)
 
 	ts.Tick(now)
-	if f.u8(mailboxBase+mailboxTunicEnable) != 0 {
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != 0 {
 		t.Fatal("slot still enabled right after a color change")
 	}
 	if !bytes.Equal(slotImage(f, 0), expectRecolor(red)) {
 		t.Fatal("image rewritten before the drain")
 	}
 	ts.Tick(now) // same game frame: still draining
-	if f.u8(mailboxBase+mailboxTunicEnable) != 0 {
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != 0 {
 		t.Fatal("re-enabled within the same frame")
 	}
 	for i := 0; i < tunicDrainFrames; i++ {
 		f.frame()
 	}
 	ts.Tick(now)
-	if f.u8(mailboxBase+mailboxTunicEnable) != 1 || !bytes.Equal(slotImage(f, 0), expectRecolor(purple)) {
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != 1 || !bytes.Equal(slotImage(f, 0), expectRecolor(purple)) {
 		t.Fatal("slot not rewritten to purple after the drain")
 	}
 }
@@ -242,34 +243,34 @@ func TestTunicSync_CasualSlot(t *testing.T) {
 		t.Fatal("SetCasual took the local slot")
 	}
 	ts.Tick(now)
-	if f.u8(mailboxBase+mailboxTunicEnable) != tunicEnableCasual || !ts.Settled(0) {
-		t.Fatalf("enable = %d settled = %v, want casual at once", f.u8(mailboxBase+mailboxTunicEnable), ts.Settled(0))
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != tunicEnableCasual || !ts.Settled(0) {
+		t.Fatalf("enable = %d settled = %v, want casual at once", f.u8(mailbox.Mailbox+mailbox.OffTunicEnable), ts.Settled(0))
 	}
 	ts.Set(0, true, red)
 	ts.Tick(now)
-	if f.u8(mailboxBase+mailboxTunicEnable) != 0 {
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != 0 {
 		t.Fatal("casual -> red did not disable first")
 	}
 	run(ts, f, &now, tunicDrainFrames+2)
-	if f.u8(mailboxBase+mailboxTunicEnable) != tunicEnableOn || !ts.Settled(0) {
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != tunicEnableOn || !ts.Settled(0) {
 		t.Fatal("slot not back to red after the drain")
 	}
 	// Someone else (a save-state load) writing casual is noticed.
-	f.mem[mailboxBase+mailboxTunicEnable] = tunicEnableCasual
+	f.mem[mailbox.Mailbox+mailbox.OffTunicEnable] = tunicEnableCasual
 	run(ts, f, &now, tunicDrainFrames+3)
-	if f.u8(mailboxBase+mailboxTunicEnable) != tunicEnableOn {
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != tunicEnableOn {
 		t.Fatal("foreign casual enable not put back to red")
 	}
 
 	casualFace := append(make([]byte, faceStateWireBytes), appearanceCasual)
 	remotes := []network.RemotePlayer{{ID: 2, Name: "a", FaceState: casualFace}}
 	syncTunics(ts, playercolor.Vanilla(), true, remotes, map[byte]int{2: 0}, now)
-	if f.u8(mailboxBase+mailboxTunicEnable) != tunicEnableCasual {
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != tunicEnableCasual {
 		t.Error("casual remote without a server color is not casual")
 	}
 	ts.Set(0, false, playercolor.Color{})
 	ts.Tick(now)
-	if f.u8(mailboxBase+mailboxTunicEnable) != 0 || !ts.Settled(0) {
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != 0 || !ts.Settled(0) {
 		t.Error("casual -> off not written")
 	}
 }
@@ -325,11 +326,11 @@ func TestTunicSync_RewritesAfterOverwrite(t *testing.T) {
 	ts.Set(0, true, red)
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
-	buf, _ := f.ReadU32(mailboxBase + mailboxTunicBuf(0))
+	buf, _ := f.ReadU32(mailbox.Mailbox + mailboxTunicBuf(0))
 	f.WriteAbsolute(buf, make([]byte, len(testImage())))
 	now = now.Add(2 * tunicVerifyEvery)
 	run(ts, f, &now, 8)
-	if !bytes.Equal(slotImage(f, 0), expectRecolor(red)) || f.u8(mailboxBase+mailboxTunicEnable) != 1 {
+	if !bytes.Equal(slotImage(f, 0), expectRecolor(red)) || f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != 1 {
 		t.Error("overwritten slot image was not rewritten")
 	}
 }
@@ -338,12 +339,12 @@ func TestTunicSync_RewritesAfterOverwrite(t *testing.T) {
 // must leave the others as they are.
 func TestTunicSync_UnmanagedSlotsUntouched(t *testing.T) {
 	f := newLinkRAM(false)
-	f.mem[mailboxBase+mailboxTunicEnable+1] = 1
+	f.mem[mailbox.Mailbox+mailbox.OffTunicEnable+1] = 1
 	ts := newTunicSync(f, t.Logf)
 	ts.Set(0, true, playercolor.Palette()[2].Color)
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
-	if f.u8(mailboxBase+mailboxTunicEnable+1) != 1 || f.u8(mailboxBase+mailboxTunicEnable+tunicSlotLocal) != 0 {
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable+1) != 1 || f.u8(mailbox.Mailbox+mailbox.OffTunicEnable+tunicSlotLocal) != 0 {
 		t.Error("an unmanaged slot's enable changed")
 	}
 	if !ts.Settled(0) {
@@ -397,8 +398,8 @@ func TestSyncTunics_SlotsFollowRemotes(t *testing.T) {
 	if ts.want[0] != (tunicWant{casual: true}) {
 		t.Errorf("casual remote's slot want = %+v, want casual", ts.want[0])
 	}
-	if f.u8(mailboxBase+mailboxTunicEnable) != tunicEnableCasual {
-		t.Errorf("casual remote's slot enable = %d, want %d", f.u8(mailboxBase+mailboxTunicEnable), tunicEnableCasual)
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != tunicEnableCasual {
+		t.Errorf("casual remote's slot enable = %d, want %d", f.u8(mailbox.Mailbox+mailbox.OffTunicEnable), tunicEnableCasual)
 	}
 	// This client is green, which needs no swap.
 	if ts.want[tunicSlotLocal].on {
@@ -411,7 +412,7 @@ func TestSyncTunics_SlotsFollowRemotes(t *testing.T) {
 	if ts.want[0].on || ts.want[0].casual {
 		t.Error("free slot 0 is on")
 	}
-	if f.u8(mailboxBase+mailboxTunicEnable) != 0 {
+	if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != 0 {
 		t.Error("free slot 0 still casual in RAM")
 	}
 }
@@ -453,7 +454,7 @@ func TestSyncTunics_SharedColorBothSlots(t *testing.T) {
 func TestSyncTunics_NoServerColorAllOff(t *testing.T) {
 	f := newLinkRAM(false)
 	for s := 0; s < tunicSlots; s++ {
-		f.mem[mailboxBase+mailboxTunicEnable+uint32(s)] = 1
+		f.mem[mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s)] = 1
 	}
 	ts := newTunicSync(f, t.Logf)
 	remotes := []network.RemotePlayer{{ID: 2, Name: "a"}, {ID: 3, Name: "b"}}
@@ -464,8 +465,8 @@ func TestSyncTunics_NoServerColorAllOff(t *testing.T) {
 		f.frame()
 	}
 	for s := 0; s < tunicSlots; s++ {
-		if f.u8(mailboxBase+mailboxTunicEnable+uint32(s)) != 0 || !ts.Settled(s) {
-			t.Errorf("slot %d: enable=%d settled=%v, want off", s, f.u8(mailboxBase+mailboxTunicEnable+uint32(s)), ts.Settled(s))
+		if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s)) != 0 || !ts.Settled(s) {
+			t.Errorf("slot %d: enable=%d settled=%v, want off", s, f.u8(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s)), ts.Settled(s))
 		}
 	}
 	// Own color known, remotes still without one: remote slots stay off.
@@ -498,17 +499,17 @@ func TestSyncTunics_CasualSkipsColorGates(t *testing.T) {
 		{"no server color", false, func(f *fakeRAM) {}},
 		{"Link not loaded", true, func(f *fakeRAM) { f.put32(addr.PlayerPtr, 0) }},
 		{"not allocated", true, func(f *fakeRAM) {
-			f.mem[mailboxBase+mailboxTunicState] = 0
-			f.put32(mailboxBase+mailboxTunicBufSize, 0)
+			f.mem[mailbox.Mailbox+mailbox.OffTunicState] = 0
+			f.put32(mailbox.Mailbox+mailbox.OffTunicBufSize, 0)
 		}},
 		{"size mismatch", true, func(f *fakeRAM) {
-			f.put32(mailboxBase+mailboxTunicBufSize, 0x1234)
-			f.mem[mailboxBase+mailboxTunicState] = 1
+			f.put32(mailbox.Mailbox+mailbox.OffTunicBufSize, 0x1234)
+			f.mem[mailbox.Mailbox+mailbox.OffTunicState] = 1
 		}},
 		{"alloc failed", true, func(f *fakeRAM) {
-			f.put32(mailboxBase+mailboxTunicBufSize, uint32(len(testImage())))
-			f.put32(mailboxBase+mailboxTunicBuf(1), fakeHeapTop+0x1000)
-			f.mem[mailboxBase+mailboxTunicState] = 0xFD
+			f.put32(mailbox.Mailbox+mailbox.OffTunicBufSize, uint32(len(testImage())))
+			f.put32(mailbox.Mailbox+mailboxTunicBuf(1), fakeHeapTop+0x1000)
+			f.mem[mailbox.Mailbox+mailbox.OffTunicState] = 0xFD
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -520,10 +521,10 @@ func TestSyncTunics_CasualSkipsColorGates(t *testing.T) {
 				syncTunics(ts, red, tc.haveMine, remotes, slots, now)
 				f.frame()
 			}
-			if got := f.u8(mailboxBase + mailboxTunicEnable); got != tunicEnableCasual || !ts.Settled(0) {
+			if got := f.u8(mailbox.Mailbox + mailbox.OffTunicEnable); got != tunicEnableCasual || !ts.Settled(0) {
 				t.Errorf("slot 0 enable = %d settled = %v, want casual", got, ts.Settled(0))
 			}
-			if got := f.u8(mailboxBase + mailboxTunicEnable + 1); got == tunicEnableCasual {
+			if got := f.u8(mailbox.Mailbox + mailbox.OffTunicEnable + 1); got == tunicEnableCasual {
 				t.Error("non-casual slot 1 is casual")
 			}
 			if !tc.haveMine && (ts.want[1].on || ts.want[tunicSlotLocal].on) {
@@ -537,12 +538,12 @@ func TestSyncTunics_CasualSkipsColorGates(t *testing.T) {
 // buffers, slot s enabled, and the worn header repointed at bufs[s]
 // (hdr[7] = buf - hdr) with img in that buffer.
 func putSwapped(f *fakeRAM, s int, img []byte) uint32 {
-	f.put32(mailboxBase+mailboxTunicBufSize, uint32(len(img)))
+	f.put32(mailbox.Mailbox+mailbox.OffTunicBufSize, uint32(len(img)))
 	for i := 0; i < tunicSlots; i++ {
-		f.put32(mailboxBase+mailboxTunicBuf(i), fakeHeapTop+uint32(i)*0x1000)
+		f.put32(mailbox.Mailbox+mailboxTunicBuf(i), fakeHeapTop+uint32(i)*0x1000)
 	}
-	f.mem[mailboxBase+mailboxTunicState] = 1
-	f.mem[mailboxBase+mailboxTunicEnable+uint32(s)] = 1
+	f.mem[mailbox.Mailbox+mailbox.OffTunicState] = 1
+	f.mem[mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s)] = 1
 	buf := uint32(fakeHeapTop) + uint32(s)*0x1000
 	f.WriteAbsolute(buf, img)
 	f.WriteAbsolute(fakeWorn, resTIMG(tunic.FormatCMPR, 8, 8, buf-fakeWorn))
@@ -586,7 +587,7 @@ func TestTunicSync_RecalibrateRefusesSwapped(t *testing.T) {
 	// the local bracket.
 	const worn2 = fakeWorn + 0x100
 	f.put32(fakeLink+addr.PlayerOffCurrLinktex, worn2)
-	buf, _ := f.ReadU32(mailboxBase + mailboxTunicBuf(tunicSlotLocal))
+	buf, _ := f.ReadU32(mailbox.Mailbox + mailboxTunicBuf(tunicSlotLocal))
 	f.WriteAbsolute(worn2, resTIMG(tunic.FormatCMPR, 8, 8, buf-worn2))
 	now = now.Add(2 * tunicVerifyEvery)
 	ts.Tick(now) // verify notices the move, drops the hero
@@ -606,14 +607,14 @@ func TestTunicSync_RewritesOtherColor(t *testing.T) {
 	ts.Set(0, true, red)
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
-	buf, _ := f.ReadU32(mailboxBase + mailboxTunicBuf(0))
+	buf, _ := f.ReadU32(mailbox.Mailbox + mailboxTunicBuf(0))
 	other := expectRecolor(blue)
 	// Make the first block identical so only a full compare can tell.
 	copy(other[:8], expectRecolor(red)[:8])
 	f.WriteAbsolute(buf, other)
 	now = now.Add(2 * tunicVerifyEvery)
 	run(ts, f, &now, 8)
-	if !bytes.Equal(slotImage(f, 0), expectRecolor(red)) || f.u8(mailboxBase+mailboxTunicEnable) != 1 {
+	if !bytes.Equal(slotImage(f, 0), expectRecolor(red)) || f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != 1 {
 		t.Error("slot holding another color's image was not rewritten")
 	}
 }
@@ -628,7 +629,7 @@ func TestTunicSync_DisableAll(t *testing.T) {
 	run(ts, f, &now, 8)
 	ts.DisableAll()
 	for s := 0; s < tunicSlots; s++ {
-		if f.u8(mailboxBase+mailboxTunicEnable+uint32(s)) != 0 {
+		if f.u8(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s)) != 0 {
 			t.Errorf("slot %d still enabled after DisableAll", s)
 		}
 	}

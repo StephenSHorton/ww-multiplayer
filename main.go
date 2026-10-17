@@ -39,6 +39,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // version is overridden at build time by `go build -ldflags "-X main.version=..."`.
@@ -262,14 +263,14 @@ func runMovePuppet(xs, ys, zs string, slot int) {
 	binary.BigEndian.PutUint32(buf[0:4], math.Float32bits(x))
 	binary.BigEndian.PutUint32(buf[4:8], math.Float32bits(y))
 	binary.BigEndian.PutUint32(buf[8:12], math.Float32bits(z))
-	if err := d.WriteAbsolute(slotAddr(slot, slotOffPosX), buf); err != nil {
+	if err := d.WriteAbsolute(slotAddr(slot, mailbox.PuppetOffPosX), buf); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}
 	// Ensure the slot is marked active so the C hook syncs it.
 	one := make([]byte, 4)
 	binary.BigEndian.PutUint32(one, 1)
-	d.WriteAbsolute(slotAddr(slot, slotOffAct), one)
+	d.WriteAbsolute(slotAddr(slot, mailbox.PuppetOffActive), one)
 	fmt.Printf("slot %d target: X=%.1f Y=%.1f Z=%.1f\n", slot, x, y, z)
 }
 
@@ -480,9 +481,9 @@ func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPI
 			// unchanged). Receiver re-adds the remote's world position to
 			// land Link #2 at the right world coords.
 			if pos != nil {
-				stateBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPosePublishState, 1)
+				stateBytes, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffPosePublishState, 1)
 				if len(stateBytes) == 1 && stateBytes[0] == 1 {
-					pubPtr, _ := d.ReadU32(mailboxBase + mailboxPosePublishPtr)
+					pubPtr, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffPosePublishPtr)
 					if addr.InMEM1(pubPtr) {
 						data, err := d.ReadAbsolute(pubPtr, poseBytes)
 						if err == nil && data != nil {
@@ -498,7 +499,7 @@ func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPI
 							// (mat1_tex1:u16 BE)(mat4_tex0:u16 BE)
 							// (mat4_tex1:u16 BE).
 							var face []byte
-							if fb, err := d.ReadAbsolute(mailboxBase+mailboxFaceStateLocal, faceStateWireBytes); err == nil && len(fb) == faceStateWireBytes {
+							if fb, err := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceStateLocal, faceStateWireBytes); err == nil && len(fb) == faceStateWireBytes {
 								face = fb
 								// docs/09 §5.4: a 17th byte, the appearance
 								// flags (bit 0 = casual clothes). Receivers
@@ -635,26 +636,14 @@ func runPoseFakeLoop(name, addr string) {
 	fmt.Println("\nDisconnected.")
 }
 
-// Mailbox layout (keep in sync with inject/include/mailbox.h).
-const (
-	mailboxBase    = 0x80412F00
-	maxPuppets     = 4
-	puppetSlotBase = mailboxBase + 0x10
-	puppetSlotSize = 0x20
-)
+// The mailbox layout (base, field offsets, Puppet slot fields) is
+// generated from inject/include/mailbox.h into wwapi/mailbox.
+const maxPuppets = mailbox.MaxPuppets
 
-// Byte offsets inside a slot.
-const (
-	slotOffActor = 0x00
-	slotOffAct   = 0x04
-	slotOffPosX  = 0x08
-	slotOffPosY  = 0x0C
-	slotOffPosZ  = 0x10
-	slotOffRotX  = 0x14 // followed by rotY (+0x16), rotZ (+0x18)
-)
-
+// slotAddr is the address of field off (a mailbox.PuppetOff* offset)
+// in puppet slot i.
 func slotAddr(i int, off uint32) uint32 {
-	return puppetSlotBase + uint32(i)*puppetSlotSize + off
+	return mailbox.Mailbox + mailbox.OffPuppets + uint32(i)*mailbox.PuppetSize + off
 }
 
 // envFloat32 reads an environment variable as a float32, returning the
@@ -685,11 +674,11 @@ func runUnhidePuppet() {
 
 	any := false
 	for i := 0; i < maxPuppets; i++ {
-		active, _ := d.ReadU32(slotAddr(i, slotOffAct))
+		active, _ := d.ReadU32(slotAddr(i, mailbox.PuppetOffActive))
 		if active != 1 {
 			continue
 		}
-		ptr, err := d.ReadU32(slotAddr(i, slotOffActor))
+		ptr, err := d.ReadU32(slotAddr(i, mailbox.PuppetOffActorPtr))
 		if err != nil || ptr < 0x80000000 || ptr >= 0x81800000 {
 			continue // actor not yet resolved by C; skip this tick
 		}
@@ -879,9 +868,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		// path, which re-asserts shadow_mode=5 and re-validates the pointer.
 		forceRepoll := armedEpoch[slot] != sessionEpoch
 		if !forceRepoll {
-			state, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState(slot), 1)
+			state, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseBufState(slot), 1)
 			if len(state) == 1 && state[0] == 1 {
-				ptr, _ := d.ReadU32(mailboxBase + mailboxPoseBufPtr(slot))
+				ptr, _ := d.ReadU32(mailbox.Mailbox + mailboxPoseBufPtr(slot))
 				if ptr != 0 {
 					if poseBufPtrs[slot] != ptr {
 						if poseBufPtrs[slot] == 0 {
@@ -908,11 +897,11 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		// mid-session restores the mailbox from the snapshot, which
 		// usually has shadow_mode=0, and the C side then never allocates a
 		// pose_buf for us to find. Re-assert mode 5 whenever it isn't.
-		if mode, err := d.ReadAbsolute(mailboxBase+mailboxShadowMode, 1); !shadowModeArmed || (err == nil && len(mode) == 1 && mode[0] != 5) {
+		if mode, err := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, 1); !shadowModeArmed || (err == nil && len(mode) == 1 && mode[0] != 5) {
 			if shadowModeArmed {
 				report.Logf(rep, report.Warn, "shadow_mode was reset (a save-state load?): setting pose-feed mode again")
 			}
-			d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{5})
+			d.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{5})
 			shadowModeArmed = true
 		}
 		for i := 0; i < 60; i++ {
@@ -921,9 +910,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 				return false
 			case <-time.After(50 * time.Millisecond):
 			}
-			state, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState(slot), 1)
+			state, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseBufState(slot), 1)
 			if len(state) == 1 && state[0] == 1 {
-				ptr, _ := d.ReadU32(mailboxBase + mailboxPoseBufPtr(slot))
+				ptr, _ := d.ReadU32(mailbox.Mailbox + mailboxPoseBufPtr(slot))
 				if ptr != 0 {
 					poseBufPtrs[slot] = ptr
 					armedEpoch[slot] = sessionEpoch
@@ -984,8 +973,8 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	// render (zero pose_seq + face_seq), drop the EMA buffer + id mapping,
 	// and invalidate the arm cache so the next claimant re-arms from scratch.
 	freeLinkSlot := func(linkSlot int, id byte) {
-		d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{0})
-		d.WriteAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), []byte{0})
+		d.WriteAbsolute(mailbox.Mailbox+mailboxPoseSeq(linkSlot), []byte{0})
+		d.WriteAbsolute(mailbox.Mailbox+mailboxFaceSeq(linkSlot), []byte{0})
 		delete(remoteToLinkSlot, id)
 		linkSlots[linkSlot] = linkSlotState{}
 		armedEpoch[linkSlot] = -1
@@ -1024,7 +1013,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 			// Drop every actor-puppet + link-slot mapping so fresh remotes
 			// re-arm cleanly with no double-rendered orphan.
 			for id, idx := range remoteToSlot {
-				d.WriteAbsolute(slotAddr(idx, slotOffAct), zero)
+				d.WriteAbsolute(slotAddr(idx, mailbox.PuppetOffActive), zero)
 				delete(remoteToSlot, id)
 				slots[idx] = slotState{}
 			}
@@ -1107,7 +1096,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 					// stops syncing but leaves the actor stuck at its last
 					// position), so the duplicate sticks around forever.
 					if !hasPose {
-						d.WriteAbsolute(slotAddr(idx, slotOffAct), one)
+						d.WriteAbsolute(slotAddr(idx, mailbox.PuppetOffActive), one)
 						report.Logf(rep, report.OK, "slot %d := player %d (%s)", idx, rp.ID, rp.Name)
 					}
 				}
@@ -1127,13 +1116,13 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 				binary.BigEndian.PutUint32(posBuf[0:4], math.Float32bits(st.curX))
 				binary.BigEndian.PutUint32(posBuf[4:8], math.Float32bits(st.curY))
 				binary.BigEndian.PutUint32(posBuf[8:12], math.Float32bits(st.curZ))
-				d.WriteAbsolute(slotAddr(idx, slotOffPosX), posBuf)
+				d.WriteAbsolute(slotAddr(idx, mailbox.PuppetOffPosX), posBuf)
 
 				rotBuf := make([]byte, 6)
 				binary.BigEndian.PutUint16(rotBuf[0:2], uint16(rp.Position.RotX))
 				binary.BigEndian.PutUint16(rotBuf[2:4], uint16(rp.Position.RotY))
 				binary.BigEndian.PutUint16(rotBuf[4:6], uint16(rp.Position.RotZ))
-				d.WriteAbsolute(slotAddr(idx, slotOffRotX), rotBuf)
+				d.WriteAbsolute(slotAddr(idx, mailbox.PuppetOffRotX), rotBuf)
 
 				// Pose feed (shadow_mode=5). First remote to deliver any pose
 				// claims the Link-#2 driver slot; subsequent remotes still
@@ -1184,8 +1173,8 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 							// remote lands back here. A dual safety net alongside
 							// the server's MsgLeave-on-timeout.
 							if !ls.despawned {
-								d.WriteAbsolute(mailboxBase+mailboxPoseSeq(linkSlot), []byte{0})
-								d.WriteAbsolute(mailboxBase+mailboxFaceSeq(linkSlot), []byte{0})
+								d.WriteAbsolute(mailbox.Mailbox+mailboxPoseSeq(linkSlot), []byte{0})
+								d.WriteAbsolute(mailbox.Mailbox+mailboxFaceSeq(linkSlot), []byte{0})
 								ls.despawned = true
 								ls.frozen = true
 								ls.despawnAt = now
@@ -1206,7 +1195,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 								// First time this remote got a link slot — also
 								// release their actor-puppet so we don't see both
 								// a Link AND a KAMOME at the same position.
-								d.WriteAbsolute(slotAddr(idx, slotOffAct), zero)
+								d.WriteAbsolute(slotAddr(idx, mailbox.PuppetOffActive), zero)
 								if _, alreadyLogged := announced[rp.ID]; !alreadyLogged {
 									report.Logf(rep, report.OK, "link slot %d := player %d (%s)", linkSlot, rp.ID, rp.Name)
 									announced[rp.ID] = true
@@ -1230,7 +1219,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 								d.WriteAbsolute(poseBufPtrs[linkSlot], adjusted)
 								// nextSeq skips 0, which C reads as "no pose
 								// yet" and would skip this slot for a frame.
-								bumpSeqByte(d, mailboxBase+mailboxPoseSeq(linkSlot))
+								bumpSeqByte(d, mailbox.Mailbox+mailboxPoseSeq(linkSlot))
 
 								// Session 9: face-state suffix (eye texno values).
 								// Writer is the C-side J3DMatPacket vtable hook —
@@ -1243,11 +1232,11 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 								// not a stale cache; bumping the seq is just for
 								// the gating).
 								if len(rp.FaceState) >= faceStateWireBytes {
-									d.WriteAbsolute(mailboxBase+mailboxFaceState(linkSlot), rp.FaceState[:faceStateWireBytes])
+									d.WriteAbsolute(mailbox.Mailbox+mailboxFaceState(linkSlot), rp.FaceState[:faceStateWireBytes])
 									// 0 means "not yet armed" per the C-side
 									// gate; nextSeq skips it on rollover so the
 									// gate stays open.
-									bumpSeqByte(d, mailboxBase+mailboxFaceSeq(linkSlot))
+									bumpSeqByte(d, mailbox.Mailbox+mailboxFaceSeq(linkSlot))
 								}
 							}
 						}
@@ -1259,7 +1248,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 			// server's read-timeout teardown removed them from the player list).
 			for id, idx := range remoteToSlot {
 				if !seen[id] {
-					d.WriteAbsolute(slotAddr(idx, slotOffAct), zero)
+					d.WriteAbsolute(slotAddr(idx, mailbox.PuppetOffActive), zero)
 					delete(remoteToSlot, id)
 					slots[idx] = slotState{}
 					report.Logf(rep, report.Info, "slot %d freed (player %d left)", idx, id)
@@ -1342,118 +1331,73 @@ func runPokeU32(addrHex, valHex string) {
 	fmt.Printf("Wrote 0x%08X to 0x%08X\n", val, addr)
 }
 
-// mailbox.shadow_mode lives at +0x90; shadow_latched at +0x91.
-// See inject/include/mailbox.h and docs/06 "Next Session Priority" step 1.
-const mailboxShadowMode = 0x90
-const mailboxShadowLatched = 0x91
-const mailboxDbgJointNum = 0x9C
-const mailboxDbgNodeMtxPtr = 0xA0
-const mailboxEchoDelay = 0xA4
-const mailboxEchoRingState = 0xA5
-// Pose-feed slot fields are arrays sized maxRemoteLinks. Layout matches
-// the structs in inject/include/mailbox.h:
-//   pose_buf_ptrs    [N]u32  @ 0xA8 (4 B/slot)
-//   pose_joint_counts[N]u16  @ 0xB0 (2 B/slot)
-//   pose_buf_states  [N]u8   @ 0xB4 (1 B/slot)
-//   pose_seqs        [N]u8   @ 0xB6 (1 B/slot)
-//   dbg_pose_first_word u32  @ 0xB8 (slot 0 only — diagnostic)
-//   dbg_node_mtx_first  u32  @ 0xBC (slot 0 only — diagnostic)
-// Keep in sync with MAX_REMOTE_LINKS in inject/include/mailbox.h.
-// Bumped to 2 on 2026-04-20 after the shared-J3DModelData blocker was
-// unblocked (J3DModel create flag 0x80000 → 0, so each mini-Link gets a
-// private material DL instead of sharing one with every other instance).
-const maxRemoteLinks = 2
-
-func mailboxPoseBufPtr(slot int) uint32     { return uint32(0xA8 + slot*4) }
-func mailboxPoseJointCount(slot int) uint32 { return uint32(0xB0 + slot*2) }
-func mailboxPoseBufState(slot int) uint32   { return uint32(0xB4 + slot) }
-func mailboxPoseSeq(slot int) uint32        { return uint32(0xB6 + slot) }
-
-const mailboxDbgPoseFirstWord = 0xB8
-const mailboxDbgNodeMtxFirst = 0xBC
-
-// v0.1.3: sender-side pose publish buffer. The C-side draw hook copies
-// Link #1's mpNodeMtx into this GameHeap-resident buffer ONCE per frame
-// after daPy_lk_c_draw returns, giving broadcast-pose a stable read
-// target that doesn't race the game's calc pass. Keep in sync with the
-// Mailbox layout in inject/include/mailbox.h.
+// Mailbox field offsets (mailbox.Off*) are generated from
+// inject/include/mailbox.h into wwapi/mailbox/layout_gen.go. shadow_mode
+// and shadow_latched: docs/06 "Next Session Priority" step 1.
 //
-//   pose_publish_ptr    u32  @ 0xC0 — GameHeap address of the 2016 B buffer
-//   pose_publish_jc     u16  @ 0xC4 — joint count (42 for Link)
-//   pose_publish_state  u8   @ 0xC6 — 0 unalloc, 1 ready, 0xFD alloc failed
-//   pose_publish_seq    u8   @ 0xC7 — bumped every frame after copy
-const mailboxPosePublishPtr = 0xC0
-const mailboxPosePublishJointCount = 0xC4
-const mailboxPosePublishState = 0xC6
-const mailboxPosePublishSeq = 0xC7
+// The pose-feed slot fields (pose_buf_ptrs u32, pose_joint_counts u16,
+// pose_buf_states u8, pose_seqs u8) are arrays of MAILBOX_POSE_SLOT_CAP,
+// of which the runtime uses the first maxRemoteLinks (MAX_REMOTE_LINKS);
+// dbg_pose_first_word and dbg_node_mtx_first are slot-0-only
+// diagnostics. Bumped to 2 on 2026-04-20 after the shared-J3DModelData
+// blocker was unblocked (J3DModel create flag 0x80000 → 0, so each
+// mini-Link gets a private material DL instead of sharing one with
+// every other instance).
+const maxRemoteLinks = mailbox.MaxRemoteLinks
+
+func mailboxPoseBufPtr(slot int) uint32     { return uint32(mailbox.OffPoseBufPtrs + slot*4) }
+func mailboxPoseJointCount(slot int) uint32 { return uint32(mailbox.OffPoseJointCounts + slot*2) }
+func mailboxPoseBufState(slot int) uint32   { return uint32(mailbox.OffPoseBufStates + slot) }
+func mailboxPoseSeq(slot int) uint32        { return uint32(mailbox.OffPoseSeqs + slot) }
+
+// v0.1.3: sender-side pose publish buffer (pose_publish_*). The C-side
+// draw hook copies Link #1's mpNodeMtx into this GameHeap-resident
+// buffer ONCE per frame after daPy_lk_c_draw returns, giving
+// broadcast-pose a stable read target that doesn't race the game's calc
+// pass. pose_publish_ptr is the GameHeap address of the 2016 B buffer;
+// the joint count is 42 for Link; state is 0 unalloc, 1 ready, 0xFD
+// alloc failed; seq is bumped every frame after the copy.
 
 // v0.1.8: warp request — Go bumps warp_seq with a target position; the
 // C handler in multiplayer_update writes it into Link's home/old/current
 // pos (so velocity-from-(current-old) reads zero) and clears mOldSpeed
 // (so cached momentum doesn't snap Link back), then bumps warp_ack so
 // Go can poll for completion. See inject/include/mailbox.h.
-const (
-	mailboxWarpSeq         = 0xC8
-	mailboxWarpAck         = 0xCC
-	mailboxWarpX           = 0xD0
-	mailboxWarpY           = 0xD4
-	mailboxWarpZ           = 0xD8
-	mailboxWarpDbgLinkAddr = 0xDC
-	mailboxWarpDbgPostX    = 0xE0
-	mailboxWarpForce       = 0xE4
-	mailboxEyeFixStep      = 0xE8
-	mailboxEyeFixMode      = 0x118
-	// SESSION 6 mode-1 freeze diagnostics. See mailbox.h dbg_*_mclmodeldata
-	// field comments. Fields published unconditionally each frame from
-	// daPy_draw_hook (entry + post-swap + safety-check site).
-	mailboxDbgMiniLinkDataCached = 0x11C
-	mailboxDbgPreMcLModelData    = 0x120
-	mailboxDbgPostswapMcLModelData = 0x124
-	mailboxDbgSafetyCheckCurrent = 0x128
-	mailboxDbgSafetyFiredCount   = 0x12C
-	// Session 9 face-state network sync (see inject/include/mailbox.h
-	// "FACE-STATE NETWORK SYNC"). Per-slot 8-byte struct of u16 BE
-	// values mirroring J3DTevBlock+0x08..+0x0B for mat[1] (left pupil)
-	// and mat[4] (right pupil). Receiver writes these and bumps
-	// faceSeqs[slot]; the C-side J3DMatPacket vtable hook reads them
-	// when mini-link's eye matpackets draw.
-	// Session 15: FaceState grows from 8 B to 16 B (adds mouth fields
-	// for mat[14] and mat[15]). All offsets after face_state shift +8.
-	mailboxFaceStateBase = 0x130        // [MAILBOX_POSE_SLOT_CAP] of 16 B
-	mailboxFaceStateStride = 16
-	mailboxFaceSeqsBase  = 0x150        // [MAILBOX_POSE_SLOT_CAP] of 1 B
-	mailboxFaceHookState  = 0x154        // 0=disarmed 1=installed 0xFC=stride mismatch 0xFE=vtable mismatch 0xFD=null array
-	mailboxFaceHookEnable = 0x155        // arm/disarm flag (Go writes; C side acts next frame)
-	mailboxFaceHookSwaps  = 0x158        // u32 saturating count of shim swaps
-	mailboxFaceHookMpSize = 0x15C        // u8 observed matpacket stride; 0 until install runs (expect 0x3C)
-	mailboxFaceHookPatched = 0x15D       // u8 matpacket slots written by the most recent install pass
-	// Session 14: LOCAL Link's natural btp face state, published by
-	// the C side at the top of daPy_draw_hook BEFORE any swap. Layout
-	// matches FaceState (16 B as of session 15 — eyes mat[1]/mat[4]
-	// + mouth mat[14]/mat[15], all u16 BE). broadcast-pose reads from
-	// here instead of resolving the live tev_block (which races with
-	// the bracket).
-	mailboxFaceStateLocal = 0x160
-	// --- Input injection (synthetic PADStatus override) -----------------
-	// Layout mirrors PADStatus from libogc; see mailbox.h. C-side
-	// pad_read_shim (hooked over bl PADRead in JUTGamePad::read at
-	// 0x802C39A0) overrides mPadStatus[0] when input_enable is non-zero.
-	mailboxInputEnable     = 0x170 // u8: 0=passthrough, !=0=override port 0
-	mailboxInputButtons    = 0x172 // u16: PADStatus.button bitfield
-	mailboxInputStickX     = 0x174 // s8
-	mailboxInputStickY     = 0x175 // s8
-	mailboxInputSubstickX  = 0x176 // s8
-	mailboxInputSubstickY  = 0x177 // s8
-	mailboxInputTriggerL   = 0x178 // u8
-	mailboxInputTriggerR   = 0x179 // u8
-	mailboxInputAnalogA    = 0x17A // u8
-	mailboxInputAnalogB    = 0x17B // u8
-	mailboxInputOverrides  = 0x17C // u32 saturating override counter
-)
+//
+// SESSION 6 mode-1 freeze diagnostics: see mailbox.h dbg_*_mclmodeldata
+// field comments. Fields published unconditionally each frame from
+// daPy_draw_hook (entry + post-swap + safety-check site).
+//
+// Session 9 face-state network sync (see inject/include/mailbox.h
+// "FACE-STATE NETWORK SYNC"). Per-slot struct of u16 BE values
+// mirroring J3DTevBlock+0x08..+0x0B for mat[1] (left pupil) and mat[4]
+// (right pupil). Receiver writes these and bumps face_seqs[slot]; the
+// C-side J3DMatPacket vtable hook reads them when mini-link's eye
+// matpackets draw. Session 15: FaceState grows from 8 B to 16 B (adds
+// mouth fields for mat[14] and mat[15]). face_hook_state is
+// 0=disarmed 1=installed 0xFC=stride mismatch 0xFE=vtable mismatch
+// 0xFD=null array; face_hook_enable is the arm/disarm flag (Go writes;
+// C side acts next frame); face_hook_swaps is a u32 saturating count
+// of shim swaps; face_hook_mp_size is the observed matpacket stride (0
+// until install runs; expect 0x3C); face_hook_patched_count is the
+// matpacket slots written by the most recent install pass.
+//
+// Session 14: face_state_local is LOCAL Link's natural btp face state,
+// published by the C side at the top of daPy_draw_hook BEFORE any swap.
+// broadcast-pose reads from here instead of resolving the live
+// tev_block (which races with the bracket).
+//
+// Input injection (synthetic PADStatus override): the input_* fields
+// mirror PADStatus from libogc; see mailbox.h. C-side pad_read_shim
+// (hooked over bl PADRead in JUTGamePad::read at 0x802C39A0) overrides
+// mPadStatus[0] when input_enable is non-zero (0 = passthrough);
+// input_overrides is a u32 saturating override counter.
 
 // Per-slot mailbox offsets for the face-state channel.
-func mailboxFaceState(slot int) uint32 { return uint32(mailboxFaceStateBase + slot*mailboxFaceStateStride) }
-func mailboxFaceSeq(slot int) uint32   { return uint32(mailboxFaceSeqsBase + slot) }
+func mailboxFaceState(slot int) uint32 {
+	return uint32(mailbox.OffFaceState + slot*mailbox.FaceStateSize)
+}
+func mailboxFaceSeq(slot int) uint32 { return uint32(mailbox.OffFaceSeqs + slot) }
 
 // Size of the per-slot wire payload appended to a pose message.
 // Session 15: bumped 8 → 16 to add mouth state (mat[14] + mat[15]).
@@ -1565,11 +1509,11 @@ func runWarpForce(xs, ys, zs string, on bool) {
 		binary.BigEndian.PutUint32(posBuf[0:4], math.Float32bits(float32(x)))
 		binary.BigEndian.PutUint32(posBuf[4:8], math.Float32bits(float32(y)))
 		binary.BigEndian.PutUint32(posBuf[8:12], math.Float32bits(float32(z)))
-		d.WriteAbsolute(mailboxBase+mailboxWarpX, posBuf)
-		d.WriteAbsolute(mailboxBase+mailboxWarpForce, []byte{1})
+		d.WriteAbsolute(mailbox.Mailbox+mailbox.OffWarpX, posBuf)
+		d.WriteAbsolute(mailbox.Mailbox+mailbox.OffWarpForce, []byte{1})
 		fmt.Printf("Force-warp ON: target=(%.1f, %.1f, %.1f). Use `warp-force-off` to release.\n", x, y, z)
 	} else {
-		d.WriteAbsolute(mailboxBase+mailboxWarpForce, []byte{0})
+		d.WriteAbsolute(mailbox.Mailbox+mailbox.OffWarpForce, []byte{0})
 		fmt.Println("Force-warp OFF.")
 	}
 }
@@ -1583,7 +1527,7 @@ func runEyeFixStep(step byte) {
 		os.Exit(1)
 	}
 	defer d.Close()
-	if err := d.WriteAbsolute(mailboxBase+mailboxEyeFixStep, []byte{step}); err != nil {
+	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffEyeFixStep, []byte{step}); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -1599,7 +1543,7 @@ func runEyeFixMode(mode byte) {
 		os.Exit(1)
 	}
 	defer d.Close()
-	if err := d.WriteAbsolute(mailboxBase+mailboxEyeFixMode, []byte{mode}); err != nil {
+	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffEyeFixMode, []byte{mode}); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -1624,21 +1568,21 @@ func runEyeFixModeProbe() {
 	}
 	defer d.Close()
 	read := func() (efMode byte, cached, pre, post, safetyCur, safetyCnt uint32) {
-		efBuf, _ := d.ReadAbsolute(mailboxBase+mailboxEyeFixMode, 1)
+		efBuf, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEyeFixMode, 1)
 		if len(efBuf) > 0 {
 			efMode = efBuf[0]
 		}
-		cached, _ = d.ReadU32(mailboxBase + mailboxDbgMiniLinkDataCached)
-		pre, _ = d.ReadU32(mailboxBase + mailboxDbgPreMcLModelData)
-		post, _ = d.ReadU32(mailboxBase + mailboxDbgPostswapMcLModelData)
-		safetyCur, _ = d.ReadU32(mailboxBase + mailboxDbgSafetyCheckCurrent)
-		safetyCnt, _ = d.ReadU32(mailboxBase + mailboxDbgSafetyFiredCount)
+		cached, _ = d.ReadU32(mailbox.Mailbox + mailbox.OffDbgMiniLinkDataCached)
+		pre, _ = d.ReadU32(mailbox.Mailbox + mailbox.OffDbgPreMclmodeldata)
+		post, _ = d.ReadU32(mailbox.Mailbox + mailbox.OffDbgPostswapMclmodeldata)
+		safetyCur, _ = d.ReadU32(mailbox.Mailbox + mailbox.OffDbgSafetyCheckCurrent)
+		safetyCnt, _ = d.ReadU32(mailbox.Mailbox + mailbox.OffDbgSafetyFiredCount)
 		return
 	}
-	dprog0, _ := d.ReadU32(mailboxBase + 0x0C) // draw_progress
+	dprog0, _ := d.ReadU32(mailbox.Mailbox + 0x0C) // draw_progress
 	efMode0, cached0, pre0, post0, sc0, sn0 := read()
 	time.Sleep(500 * time.Millisecond)
-	dprog1, _ := d.ReadU32(mailboxBase + 0x0C)
+	dprog1, _ := d.ReadU32(mailbox.Mailbox + 0x0C)
 	_, _, _, _, _, sn1 := read()
 
 	fmt.Printf("eye_fix_mode = %d\n", efMode0)
@@ -1745,7 +1689,7 @@ func runEyeFixGates() {
 		fmt.Printf("read mNoResetFlg0: %v\n", err)
 		os.Exit(1)
 	}
-	stepBytes, _ := d.ReadAbsolute(mailboxBase+mailboxEyeFixStep, 1)
+	stepBytes, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEyeFixStep, 1)
 	var step byte
 	if len(stepBytes) == 1 {
 		step = stepBytes[0]
@@ -1814,12 +1758,12 @@ func runEyeAnimFind() {
 	}
 	defer d.Close()
 
-	modelData, err := d.ReadU32(mailboxBase + 0x94)
+	modelData, err := d.ReadU32(mailbox.Mailbox + 0x94)
 	if err != nil || modelData == 0 {
 		fmt.Printf("mini_link_data not published yet (got 0x%08X)\n", modelData)
 		os.Exit(1)
 	}
-	dbgNodeMtx, _ := d.ReadU32(mailboxBase + 0xA0)
+	dbgNodeMtx, _ := d.ReadU32(mailbox.Mailbox + 0xA0)
 	fmt.Printf("mini_link_data       = 0x%08X (mailbox+0x94)\n", modelData)
 	fmt.Printf("dbg_node_mtx_ptr     = 0x%08X (mailbox+0xA0; = *(mini_link_models[0]+0x8C))\n\n", dbgNodeMtx)
 
@@ -2330,12 +2274,12 @@ func runFaceDlLoop(secs int, forceLsb int) {
 	// Same logic as runEyeAnimFind condensed: scan MEM1 for J3DModel
 	// candidates whose +0x04 == mini_link_data, then pick the one with
 	// +0x8C == dbg_node_mtx_ptr.
-	miniData, err := d.ReadU32(mailboxBase + 0x94)
+	miniData, err := d.ReadU32(mailbox.Mailbox + 0x94)
 	if err != nil || miniData < 0x80000000 || miniData >= 0x81800000 {
 		fmt.Printf("mini_link_data not published (got 0x%08X)\n", miniData)
 		os.Exit(1)
 	}
-	dbgNodeMtx, _ := d.ReadU32(mailboxBase + 0xA0)
+	dbgNodeMtx, _ := d.ReadU32(mailbox.Mailbox + 0xA0)
 	if dbgNodeMtx == 0 {
 		fmt.Println("dbg_node_mtx_ptr is 0; mini-link not yet alive. Run mp-local first.")
 		os.Exit(1)
@@ -2495,11 +2439,11 @@ func runFaceDlLoop(secs int, forceLsb int) {
 				mat1Lsb = byte(forceLsb)
 				mat4Lsb = byte(forceLsb)
 			} else {
-				seq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(s.slot), 1)
+				seq, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxFaceSeq(s.slot), 1)
 				if len(seq) != 1 || seq[0] == 0 {
 					continue // gate: skip until first network sample
 				}
-				fs, _ := d.ReadAbsolute(mailboxBase+mailboxFaceState(s.slot), 8)
+				fs, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxFaceState(s.slot), 8)
 				if len(fs) != 8 {
 					continue
 				}
@@ -2630,8 +2574,8 @@ func runFaceSyncTevPoll(secs int, faceHex string) {
 
 	// Sanity: snapshot face_hook_state and face_hook_swaps before/after
 	// so we can verify the shim was firing during the poll window.
-	state0, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookState, 1)
-	swaps0, _ := d.ReadU32(mailboxBase + mailboxFaceHookSwaps)
+	state0, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookState, 1)
+	swaps0, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffFaceHookSwaps)
 	fmt.Printf("face_hook_state=0x%02X  swaps=%d (pre)\n", state0[0], swaps0)
 	if state0[0] != 1 {
 		fmt.Println("WARNING: face_hook_state != 1 (hook not installed). Run face-hook-arm first; results below are meaningless.")
@@ -2646,8 +2590,8 @@ func runFaceSyncTevPoll(secs int, faceHex string) {
 	for time.Now().Before(deadline) {
 		// Re-assert face_state and seq each iteration so puppet-sync's
 		// 60 Hz writes don't overwrite our value.
-		_ = d.WriteAbsolute(mailboxBase+mailboxFaceState(0), face)
-		_ = d.WriteAbsolute(mailboxBase+mailboxFaceSeq(0), []byte{1})
+		_ = d.WriteAbsolute(mailbox.Mailbox+mailboxFaceState(0), face)
+		_ = d.WriteAbsolute(mailbox.Mailbox+mailboxFaceSeq(0), []byte{1})
 
 		b1, _ := d.ReadAbsolute(mat1Tev+0x08, 4)
 		b4, _ := d.ReadAbsolute(mat4Tev+0x08, 4)
@@ -2668,8 +2612,8 @@ func runFaceSyncTevPoll(secs int, faceHex string) {
 		polls++
 	}
 
-	state1, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookState, 1)
-	swaps1, _ := d.ReadU32(mailboxBase + mailboxFaceHookSwaps)
+	state1, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookState, 1)
+	swaps1, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffFaceHookSwaps)
 
 	type entry struct {
 		s sample
@@ -2734,15 +2678,15 @@ func runFaceHookArm(arm bool) {
 	if arm {
 		v = 1
 	}
-	if err := d.WriteAbsolute(mailboxBase+mailboxFaceHookEnable, []byte{v}); err != nil {
+	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{v}); err != nil {
 		fmt.Printf("write face_hook_enable failed: %v\n", err)
 		os.Exit(1)
 	}
 	// Wait one frame so the C side has a chance to process the change.
 	time.Sleep(50 * time.Millisecond)
-	state, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookState, 1)
-	mpsize, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookMpSize, 1)
-	patched, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookPatched, 1)
+	state, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookState, 1)
+	mpsize, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookMpSize, 1)
+	patched, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookPatchedCount, 1)
 	fmt.Printf("face_hook_enable := %d\n", v)
 	fmt.Printf("face_hook_state  : 0x%02X (1=installed, 0=disarmed, 0xFC=stride mismatch, 0xFE=vtable mismatch, 0xFD=null array)\n", state[0])
 	fmt.Printf("face_hook_mp_size: 0x%02X (expect 0x3C)\n", mpsize[0])
@@ -2861,17 +2805,17 @@ func runFaceSyncStatus() {
 		os.Exit(1)
 	}
 	defer d.Close()
-	state, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookState, 1)
-	enable, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookEnable, 1)
-	mpsize, _ := d.ReadAbsolute(mailboxBase+mailboxFaceHookMpSize, 1)
-	swaps, _ := d.ReadU32(mailboxBase + mailboxFaceHookSwaps)
+	state, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookState, 1)
+	enable, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookEnable, 1)
+	mpsize, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookMpSize, 1)
+	swaps, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffFaceHookSwaps)
 	fmt.Printf("face_hook_enable: %d (Go arm/disarm flag)\n", enable[0])
 	fmt.Printf("face_hook_state : 0x%02X (1=installed, 0=disarmed, 0xFC=stride mismatch, 0xFE=vtable mismatch, 0xFD=null array)\n", state[0])
 	fmt.Printf("face_hook_mp_size: 0x%02X (expect 0x3C)\n", mpsize[0])
 	fmt.Printf("face_hook_swaps : %d (saturating)\n", swaps)
 	for slot := 0; slot < maxRemoteLinks; slot++ {
-		seq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(slot), 1)
-		fs, _ := d.ReadAbsolute(mailboxBase+mailboxFaceState(slot), faceStateWireBytes)
+		seq, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxFaceSeq(slot), 1)
+		fs, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxFaceState(slot), faceStateWireBytes)
 		var sb byte
 		if len(seq) == 1 {
 			sb = seq[0]
@@ -2914,7 +2858,7 @@ func runFaceSyncWatch(secs int) {
 	tick := 0
 	for time.Now().Before(deadline) {
 		tick++
-		swaps, _ := d.ReadU32(mailboxBase + mailboxFaceHookSwaps)
+		swaps, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffFaceHookSwaps)
 		if tick%10 == 0 || swaps != lastSwaps {
 			delta := swaps - lastSwaps
 			fmt.Printf("[t+%5dms] hook_swaps=%d (Δ=%d)\n",
@@ -2922,8 +2866,8 @@ func runFaceSyncWatch(secs int) {
 			lastSwaps = swaps
 		}
 		for slot := 0; slot < maxRemoteLinks; slot++ {
-			seq, _ := d.ReadAbsolute(mailboxBase+mailboxFaceSeq(slot), 1)
-			fs, _ := d.ReadAbsolute(mailboxBase+mailboxFaceState(slot), faceStateWireBytes)
+			seq, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxFaceSeq(slot), 1)
+			fs, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxFaceState(slot), faceStateWireBytes)
 			if len(seq) != 1 || len(fs) != faceStateWireBytes {
 				continue
 			}
@@ -2967,11 +2911,11 @@ func runFaceSyncFake(slot int, hexStr string) {
 		os.Exit(1)
 	}
 	defer d.Close()
-	if err := d.WriteAbsolute(mailboxBase+mailboxFaceState(slot), buf); err != nil {
+	if err := d.WriteAbsolute(mailbox.Mailbox+mailboxFaceState(slot), buf); err != nil {
 		fmt.Printf("write face_state failed: %v\n", err)
 		os.Exit(1)
 	}
-	next, err := bumpSeqByte(d, mailboxBase+mailboxFaceSeq(slot))
+	next, err := bumpSeqByte(d, mailbox.Mailbox+mailboxFaceSeq(slot))
 	if err != nil {
 		fmt.Printf("write face_seq failed: %v\n", err)
 		os.Exit(1)
@@ -3171,8 +3115,8 @@ func runFaceSyncFakeLoop(slot int, hexStr string, secs int) {
 	}
 	fmt.Printf("Hammering slot %d face_state := %s at ~250Hz (Ctrl+C to stop)...\n", slot, hexStr)
 
-	stateAddr := mailboxBase + mailboxFaceState(slot)
-	seqAddr := mailboxBase + mailboxFaceSeq(slot)
+	stateAddr := mailbox.Mailbox + mailboxFaceState(slot)
+	seqAddr := mailbox.Mailbox + mailboxFaceSeq(slot)
 	tick := time.NewTicker(4 * time.Millisecond)
 	defer tick.Stop()
 	writes := 0
@@ -3204,12 +3148,12 @@ func runEyeFixPostChain() {
 	defer d.Close()
 
 	const postChainOff = 0xEC
-	buf, err := d.ReadAbsolute(mailboxBase+postChainOff, 0x29)
+	buf, err := d.ReadAbsolute(mailbox.Mailbox+postChainOff, 0x29)
 	if err != nil {
 		fmt.Printf("read post-chain snapshot: %v\n", err)
 		os.Exit(1)
 	}
-	stepBytes, _ := d.ReadAbsolute(mailboxBase+mailboxEyeFixStep, 1)
+	stepBytes, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEyeFixStep, 1)
 	var step byte
 	if len(stepBytes) == 1 {
 		step = stepBytes[0]
@@ -3289,7 +3233,7 @@ func runEyeFixChain() {
 
 	// Read face + hair shape addresses via mailbox model_data → joint chain.
 	var faceShape, hairShape uint32
-	if md, err := d.ReadU32(mailboxBase + 0x94); err == nil && md != 0 {
+	if md, err := d.ReadU32(mailbox.Mailbox + 0x94); err == nil && md != 0 {
 		if jointArr, err := d.ReadU32(md + 0x2C); err == nil && jointArr != 0 {
 			if linkRoot, err := d.ReadU32(jointArr); err == nil && linkRoot != 0 {
 				if mtl, err := d.ReadU32(linkRoot + 0x60); err == nil && mtl != 0 {
@@ -3722,7 +3666,7 @@ func runEyeFixFindShape() {
 	defer d.Close()
 
 	// Resolve face + hair shape addrs via mailbox.dbg_model_data.
-	modelData, err := d.ReadU32(mailboxBase + 0x94)
+	modelData, err := d.ReadU32(mailbox.Mailbox + 0x94)
 	if err != nil || modelData == 0 {
 		fmt.Printf("dbg_model_data not published (got 0x%08X, err=%v)\n", modelData, err)
 		os.Exit(1)
@@ -3981,7 +3925,7 @@ func runEyeFixProbe() {
 	}
 	defer d.Close()
 
-	modelData, err := d.ReadU32(mailboxBase + 0x94) // dbg_model_data
+	modelData, err := d.ReadU32(mailbox.Mailbox + 0x94) // dbg_model_data
 	if err != nil || modelData == 0 {
 		fmt.Printf("dbg_model_data not published yet (got 0x%08X, err=%v)\n", modelData, err)
 		os.Exit(1)
@@ -4164,8 +4108,8 @@ func runWarp(xs, ys, zs string) {
 	}
 	// Diagnostic: read what the C handler stashed about its write so we
 	// can tell if the write reached memory and what actor it hit.
-	dbgAddrBuf, _ := d.ReadAbsolute(mailboxBase+mailboxWarpDbgLinkAddr, 4)
-	dbgPostBuf, _ := d.ReadAbsolute(mailboxBase+mailboxWarpDbgPostX, 4)
+	dbgAddrBuf, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffWarpDbgLinkAddr, 4)
+	dbgPostBuf, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffWarpDbgPostX, 4)
 	dbgAddr := binary.BigEndian.Uint32(dbgAddrBuf)
 	dbgPostX := math.Float32frombits(binary.BigEndian.Uint32(dbgPostBuf))
 	linkPtr, _ := d.GetLinkPtr()
@@ -4193,13 +4137,13 @@ func runShadowMode(s string) {
 	d, err := dolphin.Find("GZLE01")
 	if err != nil { fmt.Println(err); os.Exit(1) }
 	defer d.Close()
-	if err := d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{byte(v)}); err != nil {
+	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{byte(v)}); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}
 	// Give the draw hook one frame to react and (in mode 2) latch.
 	time.Sleep(50 * time.Millisecond)
-	latched, _ := d.ReadAbsolute(mailboxBase+mailboxShadowLatched, 1)
+	latched, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffShadowLatched, 1)
 	labels := []string{
 		"off (no Link #2 rendered — default at boot)",
 		"mirror-refresh (shadow daPy_lk_c, copy every frame)",
@@ -4214,8 +4158,8 @@ func runShadowMode(s string) {
 	}
 	fmt.Printf("shadow_mode = %d  [%s]   latched=%s\n", v, labels[v], latchedStr)
 	if v == 4 {
-		ringState, _ := d.ReadAbsolute(mailboxBase+mailboxEchoRingState, 1)
-		echoDelay, _ := d.ReadAbsolute(mailboxBase+mailboxEchoDelay, 1)
+		ringState, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEchoRingState, 1)
+		echoDelay, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEchoDelay, 1)
 		rsMsg := fmt.Sprintf("%d", ringState[0])
 		switch ringState[0] {
 		case 0:
@@ -4257,7 +4201,7 @@ func runPoseTest(mode string, durSec int) {
 	defer d.Close()
 
 	// Flip to mode 5; C will lazy-alloc pose_buf and publish the pointer.
-	if err := d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{5}); err != nil {
+	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{5}); err != nil {
 		fmt.Printf("set shadow_mode failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -4266,14 +4210,14 @@ func runPoseTest(mode string, durSec int) {
 	var jointCount uint16
 	for i := 0; i < 60; i++ {
 		time.Sleep(50 * time.Millisecond)
-		state, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState(0), 1)
+		state, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseBufState(0), 1)
 		if len(state) == 0 {
 			continue
 		}
 		switch state[0] {
 		case 1:
-			poseBufPtr, _ = d.ReadU32(mailboxBase + mailboxPoseBufPtr(0))
-			jcBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPoseJointCount(0), 2)
+			poseBufPtr, _ = d.ReadU32(mailbox.Mailbox + mailboxPoseBufPtr(0))
+			jcBytes, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseJointCount(0), 2)
 			if len(jcBytes) == 2 {
 				jointCount = binary.BigEndian.Uint16(jcBytes)
 			}
@@ -4300,7 +4244,7 @@ func runPoseTest(mode string, durSec int) {
 	fmt.Printf("pose_buf_ptr = 0x%08X  joint_count = %d  pose_size = %d B\n", poseBufPtr, jointCount, poseSize)
 
 	bumpSeq := func() {
-		bumpSeqByte(d, mailboxBase+mailboxPoseSeq(0))
+		bumpSeqByte(d, mailbox.Mailbox+mailboxPoseSeq(0))
 	}
 
 	// Read Link #1's mpNodeMtx, NOT mini-Link's. Mini-Link's mpNodeMtx is
@@ -4397,8 +4341,8 @@ func runPoseTest(mode string, durSec int) {
 			if data != nil {
 				wrote = binary.BigEndian.Uint32(data[:4])
 			}
-			cSawPose, _ := d.ReadU32(mailboxBase + mailboxDbgPoseFirstWord)
-			cSawNode, _ := d.ReadU32(mailboxBase + mailboxDbgNodeMtxFirst)
+			cSawPose, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffDbgPoseFirstWord)
+			cSawNode, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffDbgNodeMtxFirst)
 			fmt.Printf("[probe] go-wrote=%08X  c-saw-pose=%08X  c-saw-node-after-calc=%08X\n",
 				wrote, cSawPose, cSawNode)
 		}
@@ -4416,7 +4360,7 @@ func runEchoDelay(s string) {
 	d, err := dolphin.Find("GZLE01")
 	if err != nil { fmt.Println(err); os.Exit(1) }
 	defer d.Close()
-	if err := d.WriteAbsolute(mailboxBase+mailboxEchoDelay, []byte{byte(v)}); err != nil {
+	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffEchoDelay, []byte{byte(v)}); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -4429,48 +4373,48 @@ func runDump() {
 	defer d.Close()
 
 	// Mailbox header (spawn_trigger, progress, pads)
-	hdr, _ := d.ReadAbsolute(mailboxBase, 16)
-	fmt.Printf("mailbox hdr  @ 0x%08X: ", mailboxBase)
+	hdr, _ := d.ReadAbsolute(mailbox.Mailbox, 16)
+	fmt.Printf("mailbox hdr  @ 0x%08X: ", mailbox.Mailbox)
 	for j, b := range hdr {
 		fmt.Printf("%02X", b)
 		if j%4 == 3 { fmt.Print(" ") }
 	}
 	fmt.Println()
 
-	if progress, err := d.ReadU32(mailboxBase + 0x04); err == nil {
+	if progress, err := d.ReadU32(mailbox.Mailbox + 0x04); err == nil {
 		fmt.Printf("progress: %d (1=gate 3=link-ready 5=spawn-queued 8=spawned 9=syncing 10=actor-lost)\n", progress)
 	}
 
 	// Shadow-instance experiment state (mailbox +0x90 / +0x91)
-	if sh, err := d.ReadAbsolute(mailboxBase+mailboxShadowMode, 2); err == nil {
+	if sh, err := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, 2); err == nil {
 		fmt.Printf("shadow_mode: %d   shadow_latched: %d\n", sh[0], sh[1])
 	}
 	// Mini-link J3DModelData pointer + current basicMtxCalc value
-	if md, err := d.ReadU32(mailboxBase + 0x94); err == nil {
-		if bc, err := d.ReadU32(mailboxBase + 0x98); err == nil {
+	if md, err := d.ReadU32(mailbox.Mailbox + 0x94); err == nil {
+		if bc, err := d.ReadU32(mailbox.Mailbox + 0x98); err == nil {
 			fmt.Printf("mini_link_data: 0x%08X   basicMtxCalc (@+0x24): 0x%08X\n", md, bc)
 		}
 	}
 	// Echo-ring diagnostics (populated after mini-link exists; echo_ring_state
 	// only becomes non-zero after first shadow_mode=4 frame).
-	if jn, err := d.ReadAbsolute(mailboxBase+mailboxDbgJointNum, 2); err == nil {
+	if jn, err := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffDbgJointNum, 2); err == nil {
 		jointNum := binary.BigEndian.Uint16(jn)
-		nmp, _ := d.ReadU32(mailboxBase + mailboxDbgNodeMtxPtr)
-		rs, _ := d.ReadAbsolute(mailboxBase+mailboxEchoRingState, 1)
-		ed, _ := d.ReadAbsolute(mailboxBase+mailboxEchoDelay, 1)
+		nmp, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffDbgNodeMtxPtr)
+		rs, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEchoRingState, 1)
+		ed, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEchoDelay, 1)
 		fmt.Printf("echo: joint_num=%d  mpNodeMtx=0x%08X  ring_state=0x%02X  delay=%d\n",
 			jointNum, nmp, rs[0], ed[0])
 	}
 	// Pose-feed (mode 5) diagnostics. pose_buf_state stays 0 until the
 	// first mode-5 frame fires the lazy alloc.
 	for slot := 0; slot < maxRemoteLinks; slot++ {
-		pb, err := d.ReadU32(mailboxBase + mailboxPoseBufPtr(slot))
+		pb, err := d.ReadU32(mailbox.Mailbox + mailboxPoseBufPtr(slot))
 		if err != nil {
 			continue
 		}
-		jc, _ := d.ReadAbsolute(mailboxBase+mailboxPoseJointCount(slot), 2)
-		ps, _ := d.ReadAbsolute(mailboxBase+mailboxPoseBufState(slot), 1)
-		sq, _ := d.ReadAbsolute(mailboxBase+mailboxPoseSeq(slot), 1)
+		jc, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseJointCount(slot), 2)
+		ps, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseBufState(slot), 1)
+		sq, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseSeq(slot), 1)
 		jcVal := uint16(0)
 		if len(jc) == 2 {
 			jcVal = binary.BigEndian.Uint16(jc)
@@ -4483,7 +4427,7 @@ func runDump() {
 
 	// Per-slot state
 	for i := 0; i < maxPuppets; i++ {
-		data, _ := d.ReadAbsolute(slotAddr(i, 0), puppetSlotSize)
+		data, _ := d.ReadAbsolute(slotAddr(i, 0), mailbox.PuppetSize)
 		fmt.Printf("slot %d       @ 0x%08X: ", i, slotAddr(i, 0))
 		for j, b := range data {
 			fmt.Printf("%02X", b)
@@ -4674,18 +4618,18 @@ func runInput(buttonsHex, stickXStr, stickYStr string, ms int) {
 	if p, err := d.ReadPlayerPosition(); err == nil {
 		beforeX, beforeZ = p.PosX, p.PosZ
 	}
-	overridesBefore, _ := d.ReadU32(mailboxBase + mailboxInputOverrides)
+	overridesBefore, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffInputOverrides)
 
 	// Write payload first, then enable. Big-endian u16 for buttons,
 	// raw signed bytes for sticks.
 	buttonsBE := []byte{byte(buttons >> 8), byte(buttons & 0xFF)}
-	d.WriteAbsolute(mailboxBase+mailboxInputButtons, buttonsBE)
-	d.WriteAbsolute(mailboxBase+mailboxInputStickX, []byte{byte(stickX)})
-	d.WriteAbsolute(mailboxBase+mailboxInputStickY, []byte{byte(stickY)})
+	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputButtons, buttonsBE)
+	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputStickX, []byte{byte(stickX)})
+	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputStickY, []byte{byte(stickY)})
 	// substick / triggers / analogs default to 0 (neutral) — explicitly
 	// zero so leftover state from a previous call doesn't leak.
-	d.WriteAbsolute(mailboxBase+mailboxInputSubstickX, []byte{0, 0, 0, 0, 0, 0}) // 0x176..0x17B
-	d.WriteAbsolute(mailboxBase+mailboxInputEnable, []byte{1})
+	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputSubstickX, []byte{0, 0, 0, 0, 0, 0}) // 0x176..0x17B
+	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputEnable, []byte{1})
 
 	if ms == 0 {
 		fmt.Printf("Input held: buttons=0x%04X stickX=%d stickY=%d (manual release via `input-release`)\n",
@@ -4699,10 +4643,10 @@ func runInput(buttonsHex, stickXStr, stickYStr string, ms int) {
 
 	// Release: disable first so the shim becomes a pass-through, then
 	// zero the fields.
-	d.WriteAbsolute(mailboxBase+mailboxInputEnable, []byte{0})
-	d.WriteAbsolute(mailboxBase+mailboxInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}) // 0x172..0x17B
+	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputEnable, []byte{0})
+	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}) // 0x172..0x17B
 
-	overridesAfter, _ := d.ReadU32(mailboxBase + mailboxInputOverrides)
+	overridesAfter, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffInputOverrides)
 	frames := overridesAfter - overridesBefore
 	var afterX, afterZ float32
 	if p, err := d.ReadPlayerPosition(); err == nil {
@@ -4723,8 +4667,8 @@ func runInputRelease() {
 		os.Exit(1)
 	}
 	defer d.Close()
-	d.WriteAbsolute(mailboxBase+mailboxInputEnable, []byte{0})
-	d.WriteAbsolute(mailboxBase+mailboxInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputEnable, []byte{0})
+	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
 	fmt.Println("Input released (pad_read_shim is now pass-through).")
 }
 
@@ -5677,9 +5621,9 @@ func clearMultiplayerState() {
 		return
 	}
 	defer d.Close()
-	d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{0})
+	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
 	for i := 0; i < maxRemoteLinks; i++ {
-		d.WriteAbsolute(mailboxBase+mailboxPoseSeq(i), []byte{0})
+		d.WriteAbsolute(mailbox.Mailbox+mailboxPoseSeq(i), []byte{0})
 	}
 }
 
@@ -5691,7 +5635,7 @@ func clearMultiplayerState() {
 // cached pose_buf_ptr (and armed-epoch) for the slot so armPoseSlot re-polls
 // — this function only touches the mailbox, not the in-process cache.
 func resetPuppetSyncMailbox(d *dolphin.Dolphin, slot int) {
-	d.WriteAbsolute(mailboxBase+mailboxShadowMode, []byte{5})
-	d.WriteAbsolute(mailboxBase+mailboxPoseSeq(slot), []byte{0})
-	d.WriteAbsolute(mailboxBase+mailboxFaceSeq(slot), []byte{0})
+	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{5})
+	d.WriteAbsolute(mailbox.Mailbox+mailboxPoseSeq(slot), []byte{0})
+	d.WriteAbsolute(mailbox.Mailbox+mailboxFaceSeq(slot), []byte{0})
 }
