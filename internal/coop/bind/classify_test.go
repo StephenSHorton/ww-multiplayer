@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // outset is the stage the rig plays on. Any stage with Link opens the
@@ -69,15 +69,15 @@ func (r *rig) realFile(slot int, name string) {
 
 // settle runs gate.StableTicks+1 ticks, a frame and a snapshot each, and
 // returns the last snapshot and its gate status.
-func (r *rig) settle() (*snap.Snapshot, gate.Status) {
+func (r *rig) settle() (*state.Snapshot, gate.Status) {
 	r.t.Helper()
 	var tr gate.Tracker
-	var s *snap.Snapshot
+	var s *state.Snapshot
 	var st gate.Status
 	for range gate.StableTicks + 1 {
 		r.g.Frames(6)
 		var err error
-		s, err = snap.Read(r.m)
+		s, err = state.Read(r.m, state.Options{})
 		r.must(err)
 		st = tr.Observe(s)
 	}

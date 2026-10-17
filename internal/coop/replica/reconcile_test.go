@@ -13,18 +13,18 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // beatMem is the Mem a reconciling replica runs over in these tests. The
 // game runs a frame when the FrameWriter waits for the heartbeat: on a
-// heartbeat read right after another (snap.Read reads it once, between
+// heartbeat read right after another (state.Read reads it once, between
 // other reads; waitBeat reads it in a loop). Every write is kept for the
 // audit, with the byte it replaced and the save table loaded.
 type beatMem struct {
@@ -240,7 +240,7 @@ func (b *beatMem) actorErr() error {
 }
 
 // onHeartbeat runs hook before each heartbeat read from now, numbered from
-// 1 (snap.Read's is a tick's first); nil stops it.
+// 1 (state.Read's is a tick's first); nil stops it.
 func (b *beatMem) onHeartbeat(hook func(n int)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -1654,7 +1654,7 @@ func TestReconcileHoldsBossBitsInABossStage(t *testing.T) {
 // loaded file is not armed.
 func TestReconcileSaveStateOfAnotherFile(t *testing.T) {
 	const (
-		first = 2 // a tick's heartbeat reads: snap.Read's, then the writer's first,
+		first = 2 // a tick's heartbeat reads: state.Read's, then the writer's first,
 		poll  = 3 // then its polls
 	)
 	cases := []struct {

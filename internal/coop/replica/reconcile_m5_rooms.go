@@ -4,11 +4,11 @@ import (
 	"encoding/binary"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // The room hold (§6.3, M5): a partner's dan, zone or room switch, and a
@@ -126,7 +126,7 @@ type roomKey struct {
 
 // roomClock is a room's clock.
 type roomClock struct {
-	on     bool // the room has a zone (snap.Snapshot.ZoneFor)
+	on     bool // the room has a zone (state.Snapshot.ZoneFor)
 	key    roomKey
 	frames int // IDLE frames since key was first seen, up to roomSettle
 }
@@ -148,7 +148,7 @@ func (rs *m5Rooms) reset() { *rs = m5Rooms{} }
 
 // observe follows a consistent tick's rooms: s and st are its snapshot and
 // gates, stage its stage, p its probe.
-func (rs *m5Rooms) observe(s *snap.Snapshot, stage wire.Stage, st gate.Status, p *roomProbe) {
+func (rs *m5Rooms) observe(s *state.Snapshot, stage wire.Stage, st gate.Status, p *roomProbe) {
 	if !p.ok || st.Regressed || rs.have && (stage != rs.stage || s.Table != rs.table) {
 		rs.reset()
 	}

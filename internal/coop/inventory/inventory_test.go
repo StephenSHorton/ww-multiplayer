@@ -6,11 +6,11 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // fresh returns a new file's image as far as the inventory goes: every
@@ -182,11 +182,11 @@ func TestAddresses(t *testing.T) {
 		if c.a != addr.Play+c.off {
 			t.Errorf("%s: 0x%08X, want Play+0x%X = 0x%08X", c.name, c.a, c.off, addr.Play+c.off)
 		}
-		if !snap.PlayerRegion.Contains(c.a, 2) {
+		if !state.PlayerRegion.Contains(c.a, 2) {
 			t.Errorf("%s: outside the snapshot's player block", c.name)
 		}
 	}
-	if !snap.PlayerRegion.Contains(addr.PlaySelectItem, Buttons) {
+	if !state.PlayerRegion.Contains(addr.PlaySelectItem, Buttons) {
 		t.Error("play.mSelectItem outside the snapshot's player block")
 	}
 	if OffArrowNum != addr.OffItemRecord+3 || OffBombNum != addr.OffItemRecord+4 {
@@ -806,7 +806,7 @@ func TestEntry(t *testing.T) {
 	}
 	var e Entry
 	for i, k := range ticks {
-		s := &snap.Snapshot{StageName: k.stage, PlayerPtr: k.player, NextEnable: k.next, StayNo: k.room}
+		s := &state.Snapshot{StageName: k.stage, PlayerPtr: k.player, NextEnable: k.next, StayNo: k.room}
 		if got := e.Tick(s, k.st); got != k.want {
 			t.Errorf("tick %d (%+v): window %v, want %v", i, k, got, k.want)
 		}
@@ -816,8 +816,8 @@ func TestEntry(t *testing.T) {
 // TestContextOf decodes the button items and the ammo counters from a
 // snapshot, and the stage type from the STAG chunk.
 func TestContextOf(t *testing.T) {
-	s := &snap.Snapshot{StageName: "GTower", StagInfo: 0x80B00000}
-	pl := func(a uint32) []byte { return s.Player[a-snap.PlayerRegion.Start:] }
+	s := &state.Snapshot{StageName: "GTower", StagInfo: 0x80B00000}
+	pl := func(a uint32) []byte { return s.Player[a-state.PlayerRegion.Start:] }
 	copy(pl(addr.PlaySelectItem), []byte{ItemBow, ItemNone, ItemTelescope, 0x77})
 	copy(pl(ItemArrowNumCount), []byte{0xFF, 0xFF})
 	copy(pl(ItemBombNumCount), []byte{0x00, 0x1E})

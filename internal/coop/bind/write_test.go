@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // TestBindWritesTheTag: a confirmed bind writes exactly the planned tag in
@@ -70,7 +70,7 @@ func TestApplyRefuses(t *testing.T) {
 			return nil
 		}, true, ErrGate},
 		{"emulation paused", func(r *rig, p *Plan) error {
-			s, err := snap.Read(r.m)
+			s, err := state.Read(r.m, state.Options{})
 			if err != nil {
 				return err
 			}

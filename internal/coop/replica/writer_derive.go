@@ -10,10 +10,10 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // The derive path (§6.4, §6.6, M4): what a receiver derives from its own
@@ -212,7 +212,7 @@ type drainWatch struct {
 }
 
 // counterOf returns counter c as s read it.
-func counterOf(s *snap.Snapshot, c gate.Counter) int16 {
+func counterOf(s *state.Snapshot, c gate.Counter) int16 {
 	switch c {
 	case gate.MaxLife:
 		return s.MaxLifeCount
@@ -245,7 +245,7 @@ const miniGameOrca = 6
 //     daPy_getPlayerActorClass(), d_meter.cpp:815-816; dMeter_magicMove,
 //     :4015-4040). A partner merely along is counted the same: the watch
 //     only waits longer.
-func hudTakes(c gate.Counter, s *snap.Snapshot) bool {
+func hudTakes(c gate.Counter, s *state.Snapshot) bool {
 	if s.MenuPause != 0 {
 		return false
 	}
@@ -253,7 +253,7 @@ func hudTakes(c gate.Counter, s *snap.Snapshot) bool {
 	case gate.MaxLife:
 		return s.MiniGameType != miniGameOrca
 	case gate.MaxMagic:
-		partner := addr.PlayerPtr + 4 - snap.PlayerRegion.Start
+		partner := addr.PlayerPtr + 4 - state.PlayerRegion.Start
 		return binary.BigEndian.Uint32(s.Player[partner:]) == 0
 	}
 	return true
@@ -446,7 +446,7 @@ func imageOff(a uint32, table int8) uint16 {
 // before a save state, is no longer judged; one still pending after
 // w.drainFrames frames the HUD would have taken it in trips the Breaker.
 // w.mu is held.
-func (w *FrameWriter) watchDrains(s *snap.Snapshot, st gate.Status, f bind.File) {
+func (w *FrameWriter) watchDrains(s *state.Snapshot, st gate.Status, f bind.File) {
 	keep := w.drains[:0]
 	for _, d := range w.drains {
 		switch {

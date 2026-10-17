@@ -6,10 +6,10 @@ import (
 	"fmt"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // The light-shrink (§7.2, M6): FrameWriter.ApplyActors writes one byte, 1,
@@ -267,7 +267,7 @@ func (w *FrameWriter) demoHolds() (string, error) {
 // still queued with its process ID and a timer of 0 lost the write (a
 // verify failure); one gone or counting is fine; with the stage changed
 // or a save state loaded none is judged. w.mu is held.
-func (w *FrameWriter) verifyShrinks(s *snap.Snapshot, st gate.Status, rep *VerifyReport) {
+func (w *FrameWriter) verifyShrinks(s *state.Snapshot, st gate.Status, rep *VerifyReport) {
 	ps := w.shrinks
 	w.shrinks = nil
 	if len(ps) == 0 {

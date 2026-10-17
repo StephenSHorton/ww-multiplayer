@@ -16,13 +16,18 @@
 // ARMED (the file's binding tag, §5.2) is the replica's business, not
 // this package's. A closed gate always says why, in words the TUI can
 // show.
+//
+// # v0 UNSTABLE
+//
+// This package is part of wwapi v0. Its API may change in any 0.x minor
+// version.
 package gate
 
 import (
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // StableTicks is how many ticks the stage and room must stay unchanged
@@ -129,7 +134,7 @@ type key struct {
 	table, stayNo int8
 }
 
-func keyOf(s *snap.Snapshot) key {
+func keyOf(s *state.Snapshot) key {
 	return key{s.StageName, s.StagePoint, s.StageRoom, s.StageLayer, s.Table, s.StayNo}
 }
 
@@ -149,7 +154,7 @@ type Tracker struct {
 // Observe takes the tick's snapshot and returns the gates' status. A nil
 // snapshot is a tick whose read failed: every gate closes and the history
 // starts over.
-func (t *Tracker) Observe(s *snap.Snapshot) Status {
+func (t *Tracker) Observe(s *state.Snapshot) Status {
 	if s == nil {
 		*t = Tracker{}
 		const why = "the game state could not be read"
@@ -229,7 +234,7 @@ func (t *Tracker) Observe(s *snap.Snapshot) Status {
 
 // coreClosed checks STABLE's instantaneous conditions other than the
 // pending stage change (§3.2) and returns why one fails, or "".
-func coreClosed(s *snap.Snapshot) string {
+func coreClosed(s *state.Snapshot) string {
 	switch {
 	case s.PlayerPtr == 0:
 		return "Link is not loaded"
@@ -251,7 +256,7 @@ func coreClosed(s *snap.Snapshot) string {
 
 // idleClosed checks IDLE's conditions other than the per-counter one
 // (§3.2) and returns why one fails, or "".
-func idleClosed(s *snap.Snapshot) string {
+func idleClosed(s *state.Snapshot) string {
 	switch {
 	case s.EvtMode != 0:
 		return "an event is running"
@@ -269,7 +274,7 @@ func idleClosed(s *snap.Snapshot) string {
 
 // Evaluate runs a fresh Tracker over history, oldest first, and returns
 // the status of the last tick.
-func Evaluate(history []*snap.Snapshot) Status {
+func Evaluate(history []*state.Snapshot) Status {
 	var t Tracker
 	var st Status
 	for _, s := range history {

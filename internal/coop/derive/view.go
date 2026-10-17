@@ -3,10 +3,10 @@ package derive
 import (
 	"encoding/binary"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // View is the receiver's own applied flags and counts, read from one
@@ -21,11 +21,11 @@ import (
 // key stays spent, as in the game alone) or a write reached one copy.
 // Event bits, the ocean and the charts have one copy.
 type View struct {
-	s *snap.Snapshot
+	s *state.Snapshot
 }
 
 // ViewOf returns the view of s.
-func ViewOf(s *snap.Snapshot) View { return View{s} }
+func ViewOf(s *state.Snapshot) View { return View{s} }
 
 // Table is the save table loaded into the live memBit, or -1.
 func (v View) Table() int {

@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 var defaultShift = [3]float32{50, 0, 50}
@@ -19,10 +19,10 @@ var defaultShift = [3]float32{50, 0, 50}
 // shiftSideAt is a Dolphin in stage (layer, save table) and room with Link
 // at pos, its gates judged over gate.StableTicks+1 snapshots with the
 // heartbeat moving: all open, unless mod changes the snapshots.
-func shiftSideAt(stage string, layer, table, room int8, pos [3]float32, mod func(*snap.Snapshot)) shiftSide {
-	var hist []*snap.Snapshot
+func shiftSideAt(stage string, layer, table, room int8, pos [3]float32, mod func(*state.Snapshot)) shiftSide {
+	var hist []*state.Snapshot
 	for i := 0; i <= gate.StableTicks; i++ {
-		s := &snap.Snapshot{StageName: stage, StageLayer: layer, Table: table, StayNo: room,
+		s := &state.Snapshot{StageName: stage, StageLayer: layer, Table: table, StayNo: room,
 			PlayerPtr: fakegame.PlayerActor, Heartbeat: uint32(100 + 3*i)}
 		if mod != nil {
 			mod(s)
@@ -35,15 +35,15 @@ func shiftSideAt(stage string, layer, table, room int8, pos [3]float32, mod func
 func TestPlanShift(t *testing.T) {
 	here := [3]float32{-200000, 120, 300000}
 	near := [3]float32{-199997, 124, 300004} // 5 across the ground, 4 up
-	seaAt := func(room int8, pos [3]float32, mod func(*snap.Snapshot)) shiftSide {
+	seaAt := func(room int8, pos [3]float32, mod func(*state.Snapshot)) shiftSide {
 		return shiftSideAt("sea", -1, addr.TableSea, room, pos, mod)
 	}
-	sea := func(mod func(*snap.Snapshot)) shiftSide { return seaAt(44, here, mod) }
+	sea := func(mod func(*state.Snapshot)) shiftSide { return seaAt(44, here, mod) }
 	// menuSettling is a side that came into room 44 one tick before the
 	// last, with the pause menu open: STABLE is closed (settling) as well
 	// as IDLE.
 	n := 0
-	menuSettling := sea(func(s *snap.Snapshot) {
+	menuSettling := sea(func(s *state.Snapshot) {
 		if n++; n < gate.StableTicks {
 			s.StayNo = 43
 		}
@@ -79,21 +79,21 @@ func TestPlanShift(t *testing.T) {
 		{name: "6 apart in height", a: sea(nil), b: seaAt(44, [3]float32{-200000, 126, 300000}, nil), d: defaultShift, skip: "6 units apart"},
 		{name: "no position", a: sea(nil), b: seaAt(44, [3]float32{float32(math.NaN()), 120, 300000}, nil), d: defaultShift, skip: "units apart"},
 		{name: "a stage change pending on A", d: defaultShift, retry: true, skip: "Dolphin A (a stage change is pending)",
-			a: sea(func(s *snap.Snapshot) { s.NextEnable = 1 }), b: sea(nil)},
+			a: sea(func(s *state.Snapshot) { s.NextEnable = 1 }), b: sea(nil)},
 		{name: "a stage change pending on B", d: defaultShift, retry: true, skip: "Dolphin B (a stage change is pending)",
-			a: sea(nil), b: sea(func(s *snap.Snapshot) { s.NextEnable = 1 })},
-		{name: "an event on B", a: sea(nil), b: sea(func(s *snap.Snapshot) { s.EvtMode = 1 }), d: defaultShift, skip: "Dolphin B (an event is running)"},
-		{name: "an event queued on B", a: sea(nil), b: sea(func(s *snap.Snapshot) { s.EvtOrderCount = 1 }), d: defaultShift, skip: "Dolphin B (an event is queued)"},
-		{name: "the pause menu on B", a: sea(nil), b: sea(func(s *snap.Snapshot) { s.MenuPause = 1 }), d: defaultShift, skip: "Dolphin B (the pause menu is open)"},
+			a: sea(nil), b: sea(func(s *state.Snapshot) { s.NextEnable = 1 })},
+		{name: "an event on B", a: sea(nil), b: sea(func(s *state.Snapshot) { s.EvtMode = 1 }), d: defaultShift, skip: "Dolphin B (an event is running)"},
+		{name: "an event queued on B", a: sea(nil), b: sea(func(s *state.Snapshot) { s.EvtOrderCount = 1 }), d: defaultShift, skip: "Dolphin B (an event is queued)"},
+		{name: "the pause menu on B", a: sea(nil), b: sea(func(s *state.Snapshot) { s.MenuPause = 1 }), d: defaultShift, skip: "Dolphin B (the pause menu is open)"},
 		{name: "no Link on B", d: defaultShift, retry: true, skip: "Dolphin B (Link is not loaded)",
-			a: sea(nil), b: sea(func(s *snap.Snapshot) { s.PlayerPtr = 0 })},
+			a: sea(nil), b: sea(func(s *state.Snapshot) { s.PlayerPtr = 0 })},
 		{name: "a stalled heartbeat on B", d: defaultShift, retry: true, skip: "Dolphin B (heartbeat has not moved: is emulation paused, or the ISO not patched?)",
-			a: sea(nil), b: sea(func(s *snap.Snapshot) { s.Heartbeat = 7 })},
+			a: sea(nil), b: sea(func(s *state.Snapshot) { s.Heartbeat = 7 })},
 		// The pause menu, which is why the shift gives up, is named, not
 		// the stalled heartbeat or the settling, which alone would be
 		// looked at again.
 		{name: "a stalled heartbeat on A, the pause menu on B", d: defaultShift, skip: "Dolphin B (the pause menu is open)",
-			a: sea(func(s *snap.Snapshot) { s.Heartbeat = 7 }), b: sea(func(s *snap.Snapshot) { s.MenuPause = 1 })},
+			a: sea(func(s *state.Snapshot) { s.Heartbeat = 7 }), b: sea(func(s *state.Snapshot) { s.MenuPause = 1 })},
 		{name: "B settling with the pause menu open", a: sea(nil), b: menuSettling, d: defaultShift, skip: "Dolphin B (the pause menu is open)"},
 		{name: "shift 0", a: sea(nil), b: sea(nil), skip: "MP_LOCAL_SHIFT_X/Y/Z are all 0"},
 		{name: "shift NaN", a: sea(nil), b: sea(nil), d: [3]float32{50, float32(math.NaN()), 50}, skip: "must be numbers"},

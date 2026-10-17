@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // The stages the writer tests load (the names are only labels).
@@ -169,7 +169,7 @@ func (r *wrig) load(s fakegame.Stage) {
 // hands it to the gates and the writer.
 func (r *wrig) observe() VerifyReport {
 	r.t.Helper()
-	s, err := snap.Read(r.m)
+	s, err := state.Read(r.m, state.Options{})
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -702,7 +702,7 @@ func TestFrameWriterStopWithinOneTick(t *testing.T) {
 			// The game clears the byte (a save state, say), so there is
 			// always a write to make.
 			r.m.Store(imageAddr(ocean), []byte{0})
-			s, err := snap.Read(r.m)
+			s, err := state.Read(r.m, state.Options{})
 			if err != nil {
 				t.Error(err)
 				return
@@ -762,7 +762,7 @@ func TestFrameWriterDryRun(t *testing.T) {
 			if !w.DryRun() || w.WriteGuard() != nil {
 				t.Fatal("not a dry run")
 			}
-			s, err := snap.Read(m)
+			s, err := state.Read(m, state.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -822,7 +822,7 @@ func TestFrameWriterTransitionStorm(t *testing.T) {
 			}
 		}
 		r.tick()
-		s, err := snap.Read(r.m)
+		s, err := state.Read(r.m, state.Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -858,7 +858,7 @@ func TestFrameWriterTransitionStorm(t *testing.T) {
 	for range gate.StableTicks + 2 {
 		r.tick()
 	}
-	s, _ := snap.Read(r.m)
+	s, _ := state.Read(r.m, state.Options{})
 	img := s.Image()
 	for off, b := range view {
 		if t3, _, ok := memBitTable(off); ok && t3 != addr.TableSea && t3 != addr.TableSea2 && t3 != addr.TableDRC {

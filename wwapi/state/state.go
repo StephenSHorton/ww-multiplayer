@@ -1,4 +1,4 @@
-// Package snap reads, once per tick, the game state the co-op gates and
+// Package state reads, once per tick, the game state the co-op gates and
 // differ work from (§4.2): the whole dSv_info_c save, the play struct's
 // stage block and player block, the current room, every room's zone
 // number, the pause-menu byte, the mod's heartbeat and the GBA link's
@@ -12,13 +12,17 @@
 // and last, and for every sensitive byte (the flags and MAX fields that
 // merge between players, live and saved) keeps a bit only if both reads
 // had it. A torn read can then hide a gain for a tick, never invent one.
-package snap
+//
+// # v0 UNSTABLE
+//
+// This package is part of wwapi v0. Its API may change in any 0.x minor
+// version.
+package state
 
 import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
@@ -147,15 +151,25 @@ func (g GBALink) MayLink() bool { return g.Enable != 0 || g.Context != 0 }
 // bytes, the pause byte and the heartbeat, then the save again, folding
 // the two save reads together byte by byte:
 //
-//   - OR and OR_MASKED flags (the image's, the live memBit's, the dan
+//   - flags (the image's FoldBits spans, the live memBit's, the dan
 //     switches, every zone's switch, item and dead-actor bits): a bit
-//     within the class mask only if both reads have it;
-//   - MAX fields: the lower of the two values within the class mask;
+//     within the span's mask only if both reads have it;
+//   - MAX fields (FoldMax spans): the lower of the two values within the
+//     span's mask;
 //   - everything else (counts, pointers, names, per-player data): the
 //     first read.
 //
-// Any read error fails the whole snapshot.
-func Read(m mem.Mem) (*Snapshot, error) {
+// o.Sensitive says which image bytes are flags and MAX fields; nil means
+// DefaultSensitive. Any read error, or a span outside the image, fails
+// the whole snapshot.
+func Read(m mem.Reader, o Options) (*Snapshot, error) {
+	f := &defaultFolds
+	if o.Sensitive != nil {
+		var err error
+		if f, err = buildFolds(o.Sensitive); err != nil {
+			return nil, err
+		}
+	}
 	s := new(Snapshot)
 	first, err := m.Read(SaveRegion.Start, saveSize)
 	if err != nil {
@@ -199,12 +213,12 @@ func Read(m mem.Mem) (*Snapshot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("snap: %s (second read): %w", SaveRegion.Name, err)
 	}
-	s.Torn = agree(s.Save[:], first, second)
+	s.Torn = agree(f, s.Save[:], first, second)
 	s.decode()
 	return s, nil
 }
 
-func readInto(m mem.Mem, r addr.Region, dst []byte) error {
+func readInto(m mem.Reader, r addr.Region, dst []byte) error {
 	b, err := m.Read(r.Start, int(r.Size()))
 	if err != nil {
 		return fmt.Errorf("snap: %s: %w", r.Name, err)
@@ -293,29 +307,43 @@ type foldRule struct {
 	mask byte
 }
 
-// folds is the fold rule of every dSv_info_c byte, built from the class
-// table so the two never disagree about what is a flag.
-var folds = buildFolds()
+// folds is the fold rule of every dSv_info_c byte.
+type folds [saveSize]foldRule
 
-func buildFolds() [saveSize]foldRule {
-	var f [saveSize]foldRule
-	fromClass := func(r class.Rule) foldRule {
-		switch r.Class {
-		case class.OR, class.ORMasked:
-			return foldRule{foldBits, r.Mask}
-		case class.Max:
-			return foldRule{foldMax, r.Mask}
+// defaultFolds is buildFolds(DefaultSensitive()), built once.
+var defaultFolds = func() folds {
+	f, err := buildFolds(DefaultSensitive())
+	if err != nil {
+		panic(err)
+	}
+	return *f
+}()
+
+// buildFolds spreads the image spans over dSv_info_c: the saved image,
+// the live memBit (which has the layout, and so the folds, of every saved
+// slot), then the dan switches and every zone's flags, which are always
+// flags.
+func buildFolds(image []Span) (*folds, error) {
+	var img [addr.SaveImageSize]foldRule
+	for _, sp := range image {
+		if sp.Off < 0 || sp.Len < 0 || sp.Off+sp.Len > addr.SaveImageSize {
+			return nil, fmt.Errorf("state: sensitive span 0x%03X+%d is outside the 0x%X-byte image",
+				sp.Off, sp.Len, addr.SaveImageSize)
 		}
-		return foldRule{}
+		var r foldRule
+		switch sp.Fold {
+		case FoldBits:
+			r = foldRule{foldBits, sp.Mask}
+		case FoldMax:
+			r = foldRule{foldMax, sp.Mask}
+		}
+		for i := sp.Off; i < sp.Off+sp.Len; i++ {
+			img[i] = r
+		}
 	}
-	for off := range addr.SaveImageSize {
-		f[off] = fromClass(class.Of(off))
-	}
-	// The live memBit has the layout, and so the classes, of every saved
-	// slot.
-	for i := range addr.MemBitSize {
-		f[addr.InfoOffMemory+i] = fromClass(class.Of(addr.OffMemBit(0) + i))
-	}
+	f := new(folds)
+	copy(f[:], img[:])
+	copy(f[addr.InfoOffMemory:addr.InfoOffMemory+addr.MemBitSize], img[addr.OffMemBit(0):])
 	for i := range 8 {
 		f[addr.InfoOffDan+addr.DanOffSwitch+i] = foldRule{foldBits, 0xFF}
 	}
@@ -325,14 +353,14 @@ func buildFolds() [saveSize]foldRule {
 			f[base+i] = foldRule{foldBits, 0xFF}
 		}
 	}
-	return f
+	return f, nil
 }
 
 // agree writes the fold of reads a and b into dst and returns how many
 // sensitive bytes differed within their mask.
-func agree(dst, a, b []byte) int {
+func agree(f *folds, dst, a, b []byte) int {
 	torn := 0
-	for i, r := range folds {
+	for i, r := range f {
 		x, y := a[i], b[i]
 		switch r.fold {
 		case foldFirst:

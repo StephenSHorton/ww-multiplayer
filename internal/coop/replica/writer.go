@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // BeatTimeout is how long a FrameWriter waits for the heartbeat to move
@@ -157,7 +157,7 @@ type seen struct {
 	heartbeat  uint32
 	file       bind.File // the loaded file, as ARMED was judged on it
 	zones      ZoneTable // the zone table the scoped path's bytes rest on
-	gba        bool      // a Game Boy Advance may be linked (snap.GBALink.MayLink)
+	gba        bool      // a Game Boy Advance may be linked (state.GBALink.MayLink)
 	// oldStay is mOldStayNo, read just after the snapshot (oldStayOf);
 	// oldOK is false if that read failed or mStayNo had moved by then.
 	oldStay int8
@@ -165,7 +165,7 @@ type seen struct {
 	at      time.Time
 }
 
-func seenOf(s *snap.Snapshot, f bind.File, at time.Time) seen {
+func seenOf(s *state.Snapshot, f bind.File, at time.Time) seen {
 	return seen{stage: s.StageName, nextEnable: s.NextEnable, table: s.Table, heartbeat: s.Heartbeat, file: f, zones: ZoneTableOf(s), gba: s.GBA.MayLink(), at: at}
 }
 
@@ -273,7 +273,7 @@ type VerifyFailure struct {
 // returned, and before this tick's Apply. ARMED is taken to rest on the
 // file s shows loaded (bind.FileOf), which Apply reads again after the
 // beat. A dry run ignores it.
-func (w *FrameWriter) Observe(s *snap.Snapshot, st gate.Status, armed bool) VerifyReport {
+func (w *FrameWriter) Observe(s *state.Snapshot, st gate.Status, armed bool) VerifyReport {
 	if w.wg == nil || s == nil {
 		return w.observe(s, st, armed, bind.File{}, false)
 	}
@@ -284,7 +284,7 @@ func (w *FrameWriter) Observe(s *snap.Snapshot, st gate.Status, armed bool) Veri
 // observe is Observe with the file ARMED was judged on (the replica's, a
 // tag it just wrote included) and whether the loaded stage is a boss
 // stage (bossStage).
-func (w *FrameWriter) observe(s *snap.Snapshot, st gate.Status, armed bool, f bind.File, boss bool) VerifyReport {
+func (w *FrameWriter) observe(s *state.Snapshot, st gate.Status, armed bool, f bind.File, boss bool) VerifyReport {
 	if w.wg == nil {
 		return VerifyReport{}
 	}
@@ -316,7 +316,7 @@ func (w *FrameWriter) observe(s *snap.Snapshot, st gate.Status, armed bool, f bi
 
 // verify judges the pending bytes against s, a snapshot of file f. w.mu
 // is held.
-func (w *FrameWriter) verify(s *snap.Snapshot, st gate.Status, f bind.File) VerifyReport {
+func (w *FrameWriter) verify(s *state.Snapshot, st gate.Status, f bind.File) VerifyReport {
 	ps := w.pending
 	w.pending = nil
 	var rep VerifyReport
@@ -352,11 +352,11 @@ func (w *FrameWriter) verify(s *snap.Snapshot, st gate.Status, f bind.File) Veri
 }
 
 // snapByte returns the byte at a as s read it, if s read it.
-func snapByte(s *snap.Snapshot, a uint32) (byte, bool) {
+func snapByte(s *state.Snapshot, a uint32) (byte, bool) {
 	for _, r := range []struct {
 		reg addr.Region
 		b   []byte
-	}{{snap.SaveRegion, s.Save[:]}, {snap.StageRegion, s.Stage[:]}, {snap.PlayerRegion, s.Player[:]}} {
+	}{{state.SaveRegion, s.Save[:]}, {state.StageRegion, s.Stage[:]}, {state.PlayerRegion, s.Player[:]}} {
 		if r.reg.Contains(a, 1) {
 			return r.b[a-r.reg.Start], true
 		}
@@ -703,7 +703,7 @@ func (w *FrameWriter) waitBeat(ctx context.Context) (uint32, time.Duration, erro
 //     changes nothing else here;
 //   - with switches shared with the Tingle Tuner (WriterConfig.GBA: a
 //     memory, dan, zone or room switch) on a tick that took no GBA to be
-//     linked, the GBA link (snap.GBALink): a GBA that may be linked now
+//     linked, the GBA link (state.GBALink): a GBA that may be linked now
 //     shuts them, and neither the guard's mask for this tick nor the M5
 //     batch planned on it knows it.
 //
@@ -750,7 +750,7 @@ func (w *FrameWriter) recheck() error {
 		if err != nil {
 			return err
 		}
-		if l := (snap.GBALink{Enable: g[addr.GbaComOffEnable], Context: g[addr.GbaComOffContext]}); l.MayLink() {
+		if l := (state.GBALink{Enable: g[addr.GbaComOffEnable], Context: g[addr.GbaComOffContext]}); l.MayLink() {
 			return fmt.Errorf("%w: a Game Boy Advance may be linked since the snapshot (the Tingle Tuner)", ErrAborted)
 		}
 	}

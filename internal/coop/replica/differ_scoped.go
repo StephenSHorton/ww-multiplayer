@@ -1,9 +1,9 @@
 package replica
 
 import (
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // The scoped sender of M5's live room puzzles (§6.3, §9 M5).
@@ -30,7 +30,7 @@ import (
 //     d_save.cpp:1525-1537): what the game holds for the scope it just
 //     entered, which the partner's game lacks if it was not there to see
 //     it set. Those words only latch (the verdict), and only Link's own
-//     scope is read (snap.Snapshot.ZoneFor), so nothing stale or cleared
+//     scope is read (state.Snapshot.ZoneFor), so nothing stale or cleared
 //     goes;
 //   - proposes both again every scopeRefresh ticks (one PRESENCE period),
 //     for a store the hub dropped or never got: an entry tick the replica
@@ -77,7 +77,7 @@ func (d *Differ) HoldScopes(hold func(k world.Key, w int) uint32) {
 // taintRises taints the bits of a dan or zone scope's words that rose
 // from was to cur while hold holds them back, and untaints those cur
 // lacks (the game cleared them, or a new zone).
-func (d *Differ) taintRises(kind wire.ScopeKind, s *snap.Snapshot, room int8, was, cur [2]uint32) {
+func (d *Differ) taintRises(kind wire.ScopeKind, s *state.Snapshot, room int8, was, cur [2]uint32) {
 	if d.share == nil || d.hold == nil {
 		return
 	}
@@ -102,7 +102,7 @@ func (d *Differ) taintRises(kind wire.ScopeKind, s *snap.Snapshot, room int8, wa
 
 // worldKeyOf is the world.Key of the words of kind in room of s's stage
 // (-1 for DAN).
-func worldKeyOf(kind wire.ScopeKind, s *snap.Snapshot, room int8) world.Key {
+func worldKeyOf(kind wire.ScopeKind, s *state.Snapshot, room int8) world.Key {
 	return world.Key{Kind: world.ScopeKind(kind), Stage: s.StageName, Table: int(s.Table), Room: int(room)}
 }
 
@@ -121,7 +121,7 @@ func (sc *scopeBase) due(entered bool) bool {
 // (-1 for DAN), that a sharing Differ proposes: those the filter keeps,
 // and no tainted one (HoldScopes).
 // ws itself is reused.
-func (d *Differ) shared(kind wire.ScopeKind, s *snap.Snapshot, room int8, ws []wire.ScopedWord) []wire.ScopedWord {
+func (d *Differ) shared(kind wire.ScopeKind, s *state.Snapshot, room int8, ws []wire.ScopedWord) []wire.ScopedWord {
 	if d.share == nil || len(ws) == 0 {
 		return ws
 	}

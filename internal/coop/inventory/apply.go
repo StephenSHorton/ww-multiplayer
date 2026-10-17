@@ -1,10 +1,10 @@
 package inventory
 
 import (
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // Due returns the writes of ws that may be made this tick, in order: Live
@@ -119,7 +119,7 @@ type Entry struct {
 // Tick takes one tick's snapshot and gate verdict and reports whether this
 // tick is the window. A window whose writes could not be made is not
 // opened again until the next load.
-func (e *Entry) Tick(s *snap.Snapshot, st gate.Status) bool {
+func (e *Entry) Tick(s *state.Snapshot, st gate.Status) bool {
 	if s.NextEnable != 0 || s.PlayerPtr == 0 || e.seen && (s.StageName != e.stage || s.PlayerPtr != e.player) {
 		e.loaded = true
 	}

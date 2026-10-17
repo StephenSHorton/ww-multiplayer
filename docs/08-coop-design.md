@@ -172,7 +172,7 @@ C side: unchanged until M7 (coop pump: getSave shim, isActor shim, coop_frame + 
   - `card_to_memory` and `ExDataSave`.
 - `wwapi/addr` (was `internal/coop/addr`): every constant from Appendix A with its decomp citation, plus arithmetic tests (for example play = 0x803C4C08 + 0x12A0, and `mCurStage` = play + 0x3E94). The mod's own RAM layout (T2, the mailbox and the regions around them) is in `wwapi/mailbox`.
 - `internal/coop/class`: the byte-class table, SyncMask, LocalOnly and hold lists, the register allowlist, and `policyVer`.
-- `internal/coop/snap`: the snapshot reader. Per tick it reads:
+- `wwapi/state` (was `internal/coop/snap`): the snapshot reader. Per tick it reads:
   - 0x803C4C08 + 0x12A0;
   - 0x803C9D3C..0x803C9EB8;
   - 0x803CA754..0x803CA8E4;
@@ -182,7 +182,8 @@ C side: unchanged until M7 (coop pump: getSave shim, isActor shim, coop_frame + 
   - the heartbeat;
   - the GBA link: 0x129 bytes of `g_mDoGaC_gbaCom` (0x803B904C), in one read, for the Tingle Tuner guard (§6.2, item 138).
 
-  That is about 5 KB per tick. Sensitive fields are read twice and a bit is kept only if both reads agree, which rejects torn reads during `card_to_memory`.
+  That is about 5 KB per tick. Sensitive fields are read twice and a bit is kept only if both reads agree, which rejects torn reads during `card_to_memory`. Which image bytes are sensitive is `state.Options.Sensitive`; its default, `state.DefaultSensitive`, is the merging bytes of the `class` table, which a `class` test pins byte for byte (state does not import `class`).
+- `wwapi/gate` (was `internal/coop/gate`): the STABLE, IDLE and HEARTBEAT gates (§3.2), evaluated from one snapshot per tick.
 - `internal/coop/replica`, the client:
   - **Differ.** Builds the local image: saved `dSv_save_c` with the current table's live copy folded in. It sends rising edges only. It never sends clears, so the bulk resets on transitions (`getSave`, `initDan`, `clearRoomSwitch`, `removeZone`) cannot propagate. On a table, stage or room change it re-baselines without emitting anything.
   - **Planner and reconciler.** Level-triggered: `missing = desired &^ local &^ suppressed`, where suppressed = ever-had history plus holds. It runs every tick and after every stage change.

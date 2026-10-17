@@ -13,11 +13,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/story"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
@@ -25,7 +23,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // M4 through the session plumbing (§9 M4): shared progression between
@@ -380,7 +380,7 @@ func (cg *coGame) counters() bool {
 // view is the game's snapshot as the Deriver reads it.
 func (cg *coGame) view() derive.View {
 	cg.t.Helper()
-	s, err := snap.Read(cg.m)
+	s, err := state.Read(cg.m, state.Options{})
 	if err != nil {
 		cg.t.Fatal(err)
 	}
@@ -1016,7 +1016,7 @@ func TestFoundFromSessionPolicy(t *testing.T) {
 		}
 	}
 	must(cg.g.OnSwitch(0x10, -1))
-	s, err := snap.Read(cg.m)
+	s, err := state.Read(cg.m, state.Options{})
 	must(err)
 	sw, swm := coSwitchOff(addr.TableSea, 0x10)
 	e := addr.EventByte(id)

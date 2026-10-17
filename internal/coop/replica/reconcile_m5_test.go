@@ -8,9 +8,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
@@ -19,7 +17,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // The M5 fixture's switches, all set by actors in Dragon Roost Cavern's
@@ -113,7 +113,7 @@ const m5Features = hub.FeatureImage | hub.FeaturePuzzle
 
 // zoneAt is the zone table as a write was made: the stage, mStayNo, every
 // room's mZoneNo and every zone's mRoomNo; and whether a Game Boy Advance
-// may have been linked (snap.GBALink.MayLink).
+// may have been linked (state.GBALink.MayLink).
 type zoneAt struct {
 	stage  string
 	stay   int8
@@ -149,7 +149,7 @@ func zoneAtOf(m *mem.FakeMem) (zoneAt, error) {
 	if err != nil {
 		return z, err
 	}
-	z.gba = snap.GBALink{Enable: g[addr.GbaComOffEnable], Context: g[addr.GbaComOffContext]}.MayLink()
+	z.gba = state.GBALink{Enable: g[addr.GbaComOffEnable], Context: g[addr.GbaComOffContext]}.MayLink()
 	return z, nil
 }
 

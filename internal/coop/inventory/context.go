@@ -4,10 +4,10 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // Context is the live state, outside the save image, a plan depends on.
@@ -75,8 +75,8 @@ func (c Context) counter(a uint32) int16 {
 
 // ContextOf returns the context s shows, with the loaded STAG's stage
 // type typ (ok false when it could not be read), as the replica reads it.
-func ContextOf(s *snap.Snapshot, typ int, ok bool) Context {
-	pl := func(a uint32) []byte { return s.Player[a-snap.PlayerRegion.Start:] }
+func ContextOf(s *state.Snapshot, typ int, ok bool) Context {
+	pl := func(a uint32) []byte { return s.Player[a-state.PlayerRegion.Start:] }
 	c := Context{StageName: s.StageName, StageType: typ & 7, StageTypeOK: ok}
 	copy(c.SelectItem[:], pl(addr.PlaySelectItem))
 	c.ArrowCount = int16(binary.BigEndian.Uint16(pl(ItemArrowNumCount)))
@@ -86,7 +86,7 @@ func ContextOf(s *snap.Snapshot, typ int, ok bool) Context {
 
 // ReadContext returns the context s shows, reading the stage type from
 // the STAG chunk s.StagInfo points at.
-func ReadContext(m mem.Mem, s *snap.Snapshot) Context {
+func ReadContext(m mem.Mem, s *state.Snapshot) Context {
 	typ, ok := 0, false
 	if s.StagInfo != 0 {
 		if b, err := mem.ReadU8(m, s.StagInfo+stagOffType); err == nil {

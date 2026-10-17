@@ -12,11 +12,11 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/backup"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 var m2World = bind.WorldID{0xC0, 0x0B, 1, 2, 3, 4, 5, 6}
@@ -42,12 +42,12 @@ func m2Game(t *testing.T, bound bool) (*fakegame.FakeGame, *mem.FakeMem, func())
 	tick := func() { g.Frames(3) }
 	if bound {
 		var tr gate.Tracker
-		var s *snap.Snapshot
+		var s *state.Snapshot
 		var st gate.Status
 		for range gate.StableTicks + 1 {
 			tick()
 			var err error
-			s, err = snap.Read(m)
+			s, err = state.Read(m, state.Options{})
 			must(err)
 			st = tr.Observe(s)
 		}

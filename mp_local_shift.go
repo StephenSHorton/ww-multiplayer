@@ -6,11 +6,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 const (
@@ -133,7 +133,7 @@ func shiftVarsSet() bool {
 // its gate snapshots, the gates over them, and Link's current.pos (read
 // only while the gates allow an IDLE write).
 type shiftSide struct {
-	s   *snap.Snapshot
+	s   *state.Snapshot
 	st  gate.Status
 	pos [3]float32
 }

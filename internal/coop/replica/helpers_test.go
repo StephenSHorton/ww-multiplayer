@@ -9,12 +9,12 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // Stages the tests load. The names are only labels; the tables are the
@@ -125,7 +125,7 @@ func (r *rig) put(off int, v byte) { r.store(r.byteAddr(off), []byte{v}) }
 // image is the canonical image of the game now.
 func (r *rig) image() world.Image {
 	r.t.Helper()
-	s, err := snap.Read(r.m)
+	s, err := state.Read(r.m, state.Options{})
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func (dr *differRig) tick() Edges {
 
 func (dr *differRig) tickNoFrame() Edges {
 	dr.t.Helper()
-	s, err := snap.Read(dr.m)
+	s, err := state.Read(dr.m, state.Options{})
 	if err != nil {
 		dr.t.Fatal(err)
 	}

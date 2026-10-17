@@ -61,13 +61,13 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // coopFlags are the co-op options of host, join and mp-local. The zero
@@ -727,7 +727,7 @@ func foundCoopWorld(ctx context.Context, rep report.Reporter, m mem.Mem, tick fu
 // (hub.Config.SyncedSwitch over DefaultPolicy), so the file it was
 // founded from binds to it as a subset, its story bits and memory
 // switches included.
-func foundFrom(rep report.Reporter, s *snap.Snapshot, pol *world.Policy) (*world.World, error) {
+func foundFrom(rep report.Reporter, s *state.Snapshot, pol *world.Policy) (*world.World, error) {
 	f := bind.FileOf(s)
 	if _, err := foundCheck(f); err != nil {
 		return nil, err

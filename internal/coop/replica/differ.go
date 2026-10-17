@@ -6,12 +6,12 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // screen is what a snapshot shows, as far as the differ cares.
@@ -32,7 +32,7 @@ const (
 	screenGame
 )
 
-func screenOf(s *snap.Snapshot) screen {
+func screenOf(s *state.Snapshot) screen {
 	switch {
 	case s.StageName == "", s.StageName == addr.StageTitle, s.StageName == addr.StageFileSelect:
 		return screenOut
@@ -64,12 +64,12 @@ func keyOf(f bind.File) fileKey {
 // obs is one tick's snapshot, decoded once for the differ, the planner
 // and the session.
 type obs struct {
-	s      *snap.Snapshot
+	s      *state.Snapshot
 	st     gate.Status
 	file   bind.File
 	key    fileKey
 	screen screen
-	// raw is the canonical image (snap.Snapshot.Image), local bytes
+	// raw is the canonical image (state.Snapshot.Image), local bytes
 	// included; local is its shared bits (world.Shared).
 	raw, local world.Image
 	// stagTable is the save table the loaded STAG chunk names
@@ -87,7 +87,7 @@ type obs struct {
 // observe decodes s. It reads a few more bytes from m: the STAG chunk's
 // mProp and stage type, through mStageData.mpStagInfo, and in game the
 // rooms' probe for the M5 receiver (readRoomProbe).
-func observe(m mem.Mem, s *snap.Snapshot, st gate.Status) *obs {
+func observe(m mem.Mem, s *state.Snapshot, st gate.Status) *obs {
 	o := &obs{s: s, st: st, file: bind.FileOf(s), screen: screenOf(s), stagTable: -1}
 	o.key = keyOf(o.file)
 	o.raw = world.Image(s.Image())
@@ -110,7 +110,7 @@ func observe(m mem.Mem, s *snap.Snapshot, st gate.Status) *obs {
 // snapshot taken between getSave and initDan would fold the new table's
 // bits into the old table's slot, and every one of them would look like a
 // gain; between mpStagInfo and initDan the STAG table and mDan's differ,
-// so such a tick is skipped. snap.Read reads the save before the stage
+// so such a tick is skipped. state.Read reads the save before the stage
 // block that holds mpStagInfo, and observe reads mProp after both, so a
 // tick whose save read caught the new live copy also sees the new STAG.
 func (o *obs) consistent() bool {
@@ -175,7 +175,7 @@ type Edges struct {
 // (clearRoomSwitch, d_save.cpp:1273-1276; createZone, d_save.cpp:
 // 1525-1537), each room's kill words when its zone is created, removed or
 // reused (dSv_zone_c::init, d_save.cpp:1338-1342; removeZone,
-// d_save.h:969). Zone state is read only through snap.Snapshot.ZoneFor,
+// d_save.h:969). Zone state is read only through state.Snapshot.ZoneFor,
 // so a freed slot's stale bits are never read as a room's.
 //
 // From M4 a paced Differ (Pace) holds some of the image's edges back
@@ -316,7 +316,7 @@ func filterPolicy(gs []world.Gain, p *world.Policy) []world.Gain {
 }
 
 // scoped diffs the scoped words of a consistent tick.
-func (d *Differ) scoped(s *snap.Snapshot) []wire.Scoped {
+func (d *Differ) scoped(s *state.Snapshot) []wire.Scoped {
 	stage, err := wire.MakeStage(s.StageName)
 	if err != nil {
 		d.sc = scopeBase{}
@@ -390,7 +390,7 @@ func (d *Differ) scoped(s *snap.Snapshot) []wire.Scoped {
 	return out
 }
 
-func danWords(s *snap.Snapshot) (w [2]uint32) {
+func danWords(s *state.Snapshot) (w [2]uint32) {
 	b := s.Save[addr.InfoOffDan+addr.DanOffSwitch:]
 	for i := range w {
 		w[i] = binary.BigEndian.Uint32(b[4*i:])
@@ -398,7 +398,7 @@ func danWords(s *snap.Snapshot) (w [2]uint32) {
 	return w
 }
 
-func zoneWords(s *snap.Snapshot, z int) (w [3]uint16) {
+func zoneWords(s *state.Snapshot, z int) (w [3]uint16) {
 	b := s.Save[addr.InfoOffZone+z*addr.ZoneSize+addr.ZoneOffSwitch:]
 	for i := range w {
 		w[i] = binary.BigEndian.Uint16(b[2*i:])
@@ -406,7 +406,7 @@ func zoneWords(s *snap.Snapshot, z int) (w [3]uint16) {
 	return w
 }
 
-func killWordsOf(s *snap.Snapshot, z int) (w [killWords]uint32) {
+func killWordsOf(s *state.Snapshot, z int) (w [killWords]uint32) {
 	b := s.Save[addr.InfoOffZone+z*addr.ZoneSize+addr.ZoneOffActor:]
 	for i := range w {
 		w[i] = binary.BigEndian.Uint32(b[4*i:])

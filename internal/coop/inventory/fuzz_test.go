@@ -6,9 +6,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // fuzzOffsets are the image bytes a plan reads: the flags, capacities,
@@ -204,9 +204,9 @@ func checkPlan(t *testing.T, view, raw *world.Image, ctx Context, p Plan) {
 func FuzzContextOf(f *testing.F) {
 	f.Add([]byte{0x27, 0x35, 0xFF, 0x00, 0xFF, 0xFF, 0x00, 0x1E}, "GTower", 5, true)
 	f.Fuzz(func(t *testing.T, b []byte, stage string, typ int, ok bool) {
-		var s snap.Snapshot
+		var s state.Snapshot
 		s.StageName = stage
-		at := func(a uint32) int { return int(a - snap.PlayerRegion.Start) }
+		at := func(a uint32) int { return int(a - state.PlayerRegion.Start) }
 		for i, v := range b {
 			switch {
 			case i < Buttons:

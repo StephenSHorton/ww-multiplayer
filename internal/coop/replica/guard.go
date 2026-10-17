@@ -13,13 +13,13 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // Target is one part of the WriteGuard's allowlist (§4.2). A Guard is
@@ -669,7 +669,7 @@ type Tick struct {
 	// through only into the zone of the room Link is in (scopedClosed).
 	Zones ZoneTable
 	// GBA: a Game Boy Advance may be linked to the game
-	// (snap.GBALink.MayLink), so the memory switches the stage tables
+	// (state.GBALink.MayLink), so the memory switches the stage tables
 	// share with the Tingle Tuner (GuardConfig.GBA) are shut.
 	GBA bool
 }
@@ -689,8 +689,8 @@ type ZoneTable struct {
 }
 
 // ZoneTableOf is s's zone table. mStayNo, mZoneNo and the zones' mRoomNo
-// come from the snapshot's own reads (snap.Read).
-func ZoneTableOf(s *snap.Snapshot) ZoneTable {
+// come from the snapshot's own reads (state.Read).
+func ZoneTableOf(s *state.Snapshot) ZoneTable {
 	zt := ZoneTable{Valid: true, Stay: s.StayNo, ZoneNo: s.ZoneNo}
 	for z := range addr.ZoneCount {
 		zt.RoomNo[z] = int8(s.Save[addr.InfoOffZone+z*addr.ZoneSize+addr.ZoneOffRoomNo])
@@ -700,7 +700,7 @@ func ZoneTableOf(s *snap.Snapshot) ZoneTable {
 
 // SlotOf returns the zone slot of room: mStatus[room].mZoneNo, if it is
 // 0..31 and that slot's mRoomNo is room (the §3.1 rule, as
-// snap.Snapshot.ZoneFor has it).
+// state.Snapshot.ZoneFor has it).
 func (zt *ZoneTable) SlotOf(room int) (int, bool) {
 	if !zt.Valid || room < 0 || room >= addr.RoomCount {
 		return 0, false

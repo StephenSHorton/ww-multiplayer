@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // File is the loaded save file as the tag rules see it: the tag bytes and
@@ -43,7 +43,7 @@ const (
 )
 
 // FileOf reads the File out of a snapshot's save bytes.
-func FileOf(s *snap.Snapshot) File {
+func FileOf(s *state.Snapshot) File {
 	var f File
 	sv := s.Save[:]
 	copy(f.Tag[:], sv[infoOffTag:])

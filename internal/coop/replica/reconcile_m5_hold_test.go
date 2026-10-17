@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // TestReconcileM5RoomHold: a shutter created as Link comes through a door
@@ -110,7 +110,7 @@ func TestReconcileM5RoomHold(t *testing.T) {
 type clockRig struct {
 	t     *testing.T
 	rs    m5Rooms
-	s     snap.Snapshot
+	s     state.Snapshot
 	p     roomProbe
 	st    gate.Status
 	stage wire.Stage
@@ -121,7 +121,7 @@ func newClockRig(t *testing.T) *clockRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &clockRig{t: t, s: snap.Snapshot{Table: addr.TableDRC, StayNo: 1}, p: roomProbe{ok: true, stay: 1}, st: gate.Status{Idle: true}, stage: st}
+	c := &clockRig{t: t, s: state.Snapshot{Table: addr.TableDRC, StayNo: 1}, p: roomProbe{ok: true, stay: 1}, st: gate.Status{Idle: true}, stage: st}
 	for room := range c.s.ZoneNo {
 		c.s.ZoneNo[room] = -1
 	}
