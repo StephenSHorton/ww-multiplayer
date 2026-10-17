@@ -26,7 +26,7 @@ LOG_DIR="$ROOT/.omc/logs/mplay2"
 mkdir -p "$LOG_DIR"
 
 if [[ ! -x "$WW" ]]; then
-    echo "ERROR: $WW not found. Run 'go build -o ww-multiplayer.exe .' first."
+    echo "ERROR: $WW not found. Run 'go build -o ww-multiplayer.exe ./cmd/ww-multiplayer' first."
     exit 1
 fi
 # The teardown resets shadow_mode through wwdev (shadow-mode moved there in
