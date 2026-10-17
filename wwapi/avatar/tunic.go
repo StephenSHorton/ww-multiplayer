@@ -1,17 +1,15 @@
-package main
+package avatar
 
 import (
 	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
-	"github.com/StephenSHorton/ww-multiplayer/internal/tunic"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gfx/texture"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
@@ -20,7 +18,7 @@ import (
 // The C side (inject/src/multiplayer.c tunic_swap / tunic_restore)
 // repoints Link's worn "linktexS3TC" header at a per-slot image around
 // each Link's draw. This file is the Go half: it reads the hero's-clothes
-// image once, recolors it per slot with internal/tunic, writes the images
+// image once, recolors it per slot with wwapi/gfx/texture, writes the images
 // into the three GameHeap buffers the C side allocates once, and flips
 // the per-slot enables.
 
@@ -34,14 +32,14 @@ import (
 //	tunic_state    u8, C: 0 none, 1 allocated, 0xFD alloc failed
 //	tunic_swaps    u32, C: header swaps done
 const (
-	tunicSlots     = mailbox.LenTunicBufs
-	tunicSlotLocal = mailbox.TunicSlotLocal // TUNIC_SLOT_LOCAL: Link #1 on this Dolphin
+	TunicSlots     = mailbox.LenTunicBufs
+	TunicSlotLocal = mailbox.TunicSlotLocal // TUNIC_SLOT_LOCAL: Link #1 on this Dolphin
 
-	// Enable byte values. tunicEnableCasual (TUNIC_ENABLE_CASUAL) marks a
+	// Enable byte values. TunicEnableCasual (TUNIC_ENABLE_CASUAL) marks a
 	// remote slot in the casual clothes: C copies the casual header in
 	// around its draw and uses no image buffer (docs/09 §5.6).
-	tunicEnableOn     = 1
-	tunicEnableCasual = mailbox.TunicEnableCasual
+	TunicEnableOn     = 1
+	TunicEnableCasual = mailbox.TunicEnableCasual
 
 	// tunicMaxImage caps the image size Go asks the C side to allocate
 	// three of from GameHeap (docs/09 §6: ~245 KB free on Outset). A
@@ -56,15 +54,16 @@ const (
 	tunicVerifyEvery = time.Second
 )
 
-// tunicMem is the Dolphin memory access the tunic code needs;
+// TunicMem is the Dolphin memory access the tunic code needs;
 // *emu.Dolphin implements it.
-type tunicMem interface {
+type TunicMem interface {
 	Read(addr uint32, n int) ([]byte, error)
 	ReadU32(addr uint32) (uint32, error)
 	Write(addr uint32, data []byte) error
 }
 
-func mailboxTunicBuf(slot int) uint32 { return uint32(mailbox.OffTunicBufs + 4*slot) }
+// OffTunicBuf is the mailbox offset of tunic_bufs[slot].
+func OffTunicBuf(slot int) uint32 { return uint32(mailbox.OffTunicBufs + 4*slot) }
 
 // errTunicBusy means the worn header pointed at one of our buffers: the
 // C bracket was mid-swap during the read. Retry on a later tick.
@@ -72,9 +71,9 @@ var errTunicBusy = errors.New("linktexS3TC header is mid-swap")
 
 // heroTexture is Link's hero's-clothes body texture as read from RAM.
 type heroTexture struct {
-	hdrAddr uint32        // the worn header (mpCurrLinktex)
-	hdr     tunic.ResTIMG // the hero's-clothes header
-	image   []byte        // the original CMPR image
+	hdrAddr uint32          // the worn header (mpCurrLinktex)
+	hdr     texture.ResTIMG // the hero's-clothes header
+	image   []byte          // the original CMPR image
 }
 
 // readHeroTexture reads the hero's-clothes linktexS3TC image. The worn
@@ -87,7 +86,7 @@ type heroTexture struct {
 // twice to reject a torn read. skipSize is the mailbox buf_size; the
 // range checked is the larger of it and the header's own image size, so
 // a swapped header (image == buf) is refused even when skipSize is 0.
-func readHeroTexture(m tunicMem, skip [tunicSlots]uint32, skipSize int) (*heroTexture, error) {
+func readHeroTexture(m TunicMem, skip [TunicSlots]uint32, skipSize int) (*heroTexture, error) {
 	link, err := m.ReadU32(addr.PlayerPtr)
 	if err != nil || !addr.InMEM1(link) {
 		return nil, errors.New("Link not loaded")
@@ -104,12 +103,12 @@ func readHeroTexture(m tunicMem, skip [tunicSlots]uint32, skipSize int) (*heroTe
 	if flg&addr.PlayerFlg1CasualClothes != 0 {
 		src = link + addr.PlayerOffOtherLinktex
 	}
-	a, err1 := m.Read(src, tunic.ResTIMGSize)
-	b, err2 := m.Read(src, tunic.ResTIMGSize)
-	if err1 != nil || err2 != nil || len(a) != tunic.ResTIMGSize || !bytes.Equal(a, b) {
+	a, err1 := m.Read(src, texture.ResTIMGSize)
+	b, err2 := m.Read(src, texture.ResTIMGSize)
+	if err1 != nil || err2 != nil || len(a) != texture.ResTIMGSize || !bytes.Equal(a, b) {
 		return nil, errTunicBusy
 	}
-	h, _ := tunic.ParseResTIMG(a)
+	h, _ := texture.ParseResTIMG(a)
 	size, ok := h.ImageSize()
 	if !ok {
 		return nil, fmt.Errorf("hero texture format 0x%02X is not CMPR", h.Format)
@@ -134,78 +133,82 @@ func readHeroTexture(m tunicMem, skip [tunicSlots]uint32, skipSize int) (*heroTe
 	return &heroTexture{hdrAddr: worn, hdr: h, image: data}, nil
 }
 
-// tunicWant is what a slot should show: off, the hero's clothes in
+// TunicWant is what a slot should show: off, the hero's clothes in
 // color, or (remote slots only) the casual clothes.
-type tunicWant struct {
-	on     bool
-	color  playercolor.Color
-	casual bool
+type TunicWant struct {
+	On     bool
+	Color  playercolor.Color
+	Casual bool
 }
 
 // tunicSlotState is what Go last put in RAM for a slot.
 type tunicSlotState struct {
 	known   bool // enable byte state is known (written by us since the buffer appeared)
 	enabled bool
-	casual  bool              // enable byte is tunicEnableCasual
+	casual  bool              // enable byte is TunicEnableCasual
 	color   playercolor.Color // image content while enabled
 	drainAt uint32            // spawn_trigger when the slot was disabled
 	img     []byte            // the written image (a cache entry, never mutated), for verify
 }
 
-// tunicSync drives the three tunic slots of one Dolphin.
-type tunicSync struct {
-	mem tunicMem
+// Tunics drives the three tunic slots of one Dolphin. (It was tunicSync
+// in package main; the session side, which picks each slot's color,
+// stays with the caller.)
+type Tunics struct {
+	mem TunicMem
 	log func(format string, args ...any)
 
 	hero  *heroTexture
-	mask  tunic.Mask
-	ref   tunic.Reference
+	mask  texture.Mask
+	ref   texture.Reference
 	cache map[playercolor.Color][]byte
 
-	bufs       [tunicSlots]uint32
-	managed    [tunicSlots]bool // Tick leaves unmanaged slots alone
-	want       [tunicSlots]tunicWant
-	cur        [tunicSlots]tunicSlotState
+	bufs       [TunicSlots]uint32
+	managed    [TunicSlots]bool // Tick leaves unmanaged slots alone
+	want       [TunicSlots]TunicWant
+	cur        [TunicSlots]tunicSlotState
 	lastVerify time.Time
 	lastErr    string
 	stateNoted byte
 }
 
-func newTunicSync(m tunicMem, log func(format string, args ...any)) *tunicSync {
+// NewTunics returns a Tunics over m; log (nil: none) gets its status
+// lines.
+func NewTunics(m TunicMem, log func(format string, args ...any)) *Tunics {
 	if log == nil {
 		log = func(string, ...any) {}
 	}
-	return &tunicSync{mem: m, log: log, cache: map[playercolor.Color][]byte{}}
+	return &Tunics{mem: m, log: log, cache: map[playercolor.Color][]byte{}}
 }
 
 // Set records what slot should show: off, or the tunic in color c. A
 // vanilla c on a remote slot still swaps (to the unmodified image), so a
 // green remote is drawn in hero green even while the local player wears
 // the casual clothes.
-func (t *tunicSync) Set(slot int, on bool, c playercolor.Color) {
-	if slot < 0 || slot >= tunicSlots {
+func (t *Tunics) Set(slot int, on bool, c playercolor.Color) {
+	if slot < 0 || slot >= TunicSlots {
 		return
 	}
-	t.want[slot] = tunicWant{on: on, color: c}
+	t.want[slot] = TunicWant{On: on, Color: c}
 	t.managed[slot] = true
 }
 
 // SetCasual asks a remote slot to show the casual clothes. It needs no
 // image, so a slot switches to it without draining.
-func (t *tunicSync) SetCasual(slot int) {
-	if slot < 0 || slot >= tunicSlotLocal {
+func (t *Tunics) SetCasual(slot int) {
+	if slot < 0 || slot >= TunicSlotLocal {
 		return
 	}
-	t.want[slot] = tunicWant{casual: true}
+	t.want[slot] = TunicWant{Casual: true}
 	t.managed[slot] = true
 }
 
 // SetLocal sets the local Link's color. Vanilla green needs no swap.
-func (t *tunicSync) SetLocal(c playercolor.Color) {
-	t.Set(tunicSlotLocal, !playercolor.IsVanilla(c), c)
+func (t *Tunics) SetLocal(c playercolor.Color) {
+	t.Set(TunicSlotLocal, !playercolor.IsVanilla(c), c)
 }
 
-func (t *tunicSync) noteErr(err error) {
+func (t *Tunics) noteErr(err error) {
 	if err == nil {
 		t.lastErr = ""
 		return
@@ -221,7 +224,7 @@ func (t *tunicSync) noteErr(err error) {
 
 // Tick moves RAM one step toward the wanted state. It is cheap when
 // nothing changes, and safe to call every puppet-sync tick.
-func (t *tunicSync) Tick(now time.Time) {
+func (t *Tunics) Tick(now time.Time) {
 	// The mailbox block comes first: the hero read must know the live
 	// buffers, because enables survive a Go process (and a recalibration),
 	// so the worn header may already be swapped on the very first read.
@@ -233,7 +236,7 @@ func (t *tunicSync) Tick(now time.Time) {
 	state := blk[mailbox.OffTunicState-mailbox.OffTunicBufs]
 	enable := blk[mailbox.OffTunicEnable-mailbox.OffTunicBufs:]
 
-	for s := 0; s < tunicSlots; s++ {
+	for s := 0; s < TunicSlots; s++ {
 		if buf := binary.BigEndian.Uint32(blk[4*s:]); buf != t.bufs[s] {
 			t.bufs[s] = buf
 			t.cur[s] = tunicSlotState{}
@@ -244,14 +247,14 @@ func (t *tunicSync) Tick(now time.Time) {
 	// before every gate below (hero texture, allocation state, buffer size,
 	// a slot whose allocation failed), or a hero viewer would see a casual
 	// remote in the uniform whenever the color pipeline is not ready.
-	for s := 0; s < tunicSlotLocal; s++ {
-		if t.managed[s] && t.want[s].casual {
+	for s := 0; s < TunicSlotLocal; s++ {
+		if t.managed[s] && t.want[s].Casual {
 			t.step(s, 0, enable[s], 0, false)
 		}
 	}
 
 	if t.hero == nil {
-		var live [tunicSlots]uint32
+		var live [TunicSlots]uint32
 		for s := range live {
 			live[s] = binary.BigEndian.Uint32(blk[4*s:])
 		}
@@ -261,7 +264,7 @@ func (t *tunicSync) Tick(now time.Time) {
 			return
 		}
 		t.hero = h
-		t.mask, t.ref = tunic.Calibrate(h.image, tunic.DefaultMask)
+		t.mask, t.ref = texture.Calibrate(h.image, texture.DefaultMask)
 		t.cache = map[playercolor.Color][]byte{}
 		t.log("tunic colors: hero texture %dx%d (%d B) at 0x%08X, green measured at hue %.0f from %d endpoints",
 			h.hdr.Width, h.hdr.Height, len(h.image), h.hdr.ImageAddr(h.hdrAddr), t.ref.H, t.ref.Samples)
@@ -303,9 +306,9 @@ func (t *tunicSync) Tick(now time.Time) {
 		}
 	}
 
-	for s := 0; s < tunicSlots; s++ {
+	for s := 0; s < TunicSlots; s++ {
 		buf := t.bufs[s]
-		if !t.managed[s] || t.want[s].casual || buf == 0 || !addr.InMEM1(buf) || !addr.InMEM1(buf+size-1) {
+		if !t.managed[s] || t.want[s].Casual || buf == 0 || !addr.InMEM1(buf) || !addr.InMEM1(buf+size-1) {
 			continue
 		}
 		t.step(s, buf, enable[s], frame, verify)
@@ -313,28 +316,36 @@ func (t *tunicSync) Tick(now time.Time) {
 }
 
 // Settled reports whether slot's RAM state matches what Set asked for.
-func (t *tunicSync) Settled(slot int) bool {
+func (t *Tunics) Settled(slot int) bool {
 	w, c := t.want[slot], t.cur[slot]
 	if !c.known {
 		return false
 	}
-	if w.casual {
+	if w.Casual {
 		return c.casual
 	}
-	if !w.on {
+	if !w.On {
 		return !c.enabled && !c.casual
 	}
-	return c.enabled && c.color == w.color
+	return c.enabled && c.color == w.Color
 }
 
+// Want returns what slot was last asked to show (Set, SetCasual,
+// SetLocal).
+func (t *Tunics) Want(slot int) TunicWant { return t.want[slot] }
+
+// Buf returns slot's image buffer as last read from the mailbox (0
+// until the C side allocated it).
+func (t *Tunics) Buf(slot int) uint32 { return t.bufs[slot] }
+
 // image returns the slot image for c (cached per color).
-func (t *tunicSync) image(c playercolor.Color) []byte {
+func (t *Tunics) image(c playercolor.Color) []byte {
 	if img, ok := t.cache[c]; ok {
 		return img
 	}
 	img := t.hero.image
 	if !playercolor.IsVanilla(c) {
-		img, _ = tunic.Recolor(t.hero.image, c, t.mask, t.ref)
+		img, _ = texture.Recolor(t.hero.image, c, t.mask, t.ref)
 	}
 	t.cache[c] = img
 	return img
@@ -343,17 +354,17 @@ func (t *tunicSync) image(c playercolor.Color) []byte {
 // DisableAll turns every slot's swap off in RAM. puppet-sync calls it on
 // teardown so the C side stops recoloring once the session ends; the
 // GameHeap buffers stay allocated (F18) and are reused next session.
-func (t *tunicSync) DisableAll() {
-	t.mem.Write(mailbox.Mailbox+mailbox.OffTunicEnable, make([]byte, tunicSlots))
+func (t *Tunics) DisableAll() {
+	t.mem.Write(mailbox.Mailbox+mailbox.OffTunicEnable, make([]byte, TunicSlots))
 	for s := range t.cur {
 		t.cur[s] = tunicSlotState{}
 	}
 }
 
-func (t *tunicSync) setEnable(slot int, on bool) {
+func (t *Tunics) setEnable(slot int, on bool) {
 	v := byte(0)
 	if on {
-		v = tunicEnableOn
+		v = TunicEnableOn
 	}
 	t.mem.Write(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(slot), []byte{v})
 }
@@ -361,9 +372,9 @@ func (t *tunicSync) setEnable(slot int, on bool) {
 // step is one slot's state machine: off → (drain) → write → on. The
 // casual state is entered directly (C reads no image for it) and left
 // through off and the drain, like a color change.
-func (t *tunicSync) step(s int, buf uint32, enInRAM byte, frame uint32, verify bool) {
+func (t *Tunics) step(s int, buf uint32, enInRAM byte, frame uint32, verify bool) {
 	w, c := t.want[s], &t.cur[s]
-	if c.known && (c.enabled != (enInRAM == tunicEnableOn) || c.casual != (enInRAM == tunicEnableCasual)) {
+	if c.known && (c.enabled != (enInRAM == TunicEnableOn) || c.casual != (enInRAM == TunicEnableCasual)) {
 		// Someone else wrote the enable (a save-state load, tunic-slot):
 		// start over from "unknown".
 		*c = tunicSlotState{}
@@ -378,176 +389,27 @@ func (t *tunicSync) step(s int, buf uint32, enInRAM byte, frame uint32, verify b
 		}
 	}
 	switch {
-	case w.casual:
+	case w.Casual:
 		if !c.known || !c.casual {
-			t.mem.Write(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s), []byte{tunicEnableCasual})
+			t.mem.Write(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s), []byte{TunicEnableCasual})
 			*c = tunicSlotState{known: true, casual: true}
 		}
-	case !w.on:
+	case !w.On:
 		if !c.known || c.enabled || c.casual {
 			t.setEnable(s, false)
 			*c = tunicSlotState{known: true, drainAt: frame}
 		}
-	case c.known && c.enabled && c.color == w.color:
+	case c.known && c.enabled && c.color == w.Color:
 		// Up to date.
 	case !c.known || c.enabled || c.casual:
 		t.setEnable(s, false)
 		*c = tunicSlotState{known: true, drainAt: frame}
 	case frame-c.drainAt >= tunicDrainFrames:
-		img := t.image(w.color)
+		img := t.image(w.Color)
 		if err := t.mem.Write(buf, img); err != nil {
 			return
 		}
 		t.setEnable(s, true)
-		*c = tunicSlotState{known: true, enabled: true, color: w.color, img: img}
+		*c = tunicSlotState{known: true, enabled: true, color: w.Color, img: img}
 	}
-}
-
-// remoteCasual reports whether a remote's pose trailer says it wears the
-// casual clothes: byte faceStateWireBytes (the 17th) is the appearance
-// byte, bit 0 = casual (docs/09 §5.4). Senders before it send 16 bytes.
-func remoteCasual(face []byte) bool {
-	return len(face) > faceStateWireBytes && face[faceStateWireBytes]&appearanceCasual != 0
-}
-
-const appearanceCasual = 0x01
-
-// localAppearance is the appearance byte broadcast-pose appends to the
-// face trailer: bit 0 = Link #1 wears the casual clothes. ok is false
-// while Link isn't loaded.
-func localAppearance(m tunicMem) (b byte, ok bool) {
-	link, err := m.ReadU32(addr.PlayerPtr)
-	if err != nil || !addr.InMEM1(link) {
-		return 0, false
-	}
-	flg, err := m.ReadU32(link + addr.PlayerOffNoResetFlg1)
-	if err != nil {
-		return 0, false
-	}
-	if flg&addr.PlayerFlg1CasualClothes != 0 {
-		b |= appearanceCasual
-	}
-	return b, true
-}
-
-// printTunicMailbox is the dump command's tunic block.
-func printTunicMailbox(m tunicMem) {
-	blk, err := m.Read(mailbox.Mailbox+mailbox.OffTunicBufs, mailbox.MailboxSize-mailbox.OffTunicBufs)
-	if err != nil || len(blk) != mailbox.MailboxSize-mailbox.OffTunicBufs {
-		return
-	}
-	at := func(off int) []byte { return blk[off-mailbox.OffTunicBufs:] }
-	fmt.Printf("tunic: state=0x%02X  buf_size=%d  swaps=%d\n",
-		at(mailbox.OffTunicState)[0], binary.BigEndian.Uint32(at(mailbox.OffTunicBufSize)), binary.BigEndian.Uint32(at(mailbox.OffTunicSwaps)))
-	for s := 0; s < tunicSlots; s++ {
-		name := fmt.Sprintf("slot %d", s)
-		if s == tunicSlotLocal {
-			name = "local "
-		}
-		fmt.Printf("tunic[%s]: buf=0x%08X  enable=%d\n", name, binary.BigEndian.Uint32(at(mailbox.OffTunicBufs+4*s)), at(mailbox.OffTunicEnable)[s])
-	}
-}
-
-// syncTunics sets every slot's wanted color from the session and steps
-// RAM toward it. Link slots follow remoteToLinkSlot; a remote in the
-// casual clothes gets the casual shirt (tunicEnableCasual, whatever its
-// color: only the hero's clothes are recolored).
-// Only server-assigned colors are drawn: until this client's own color
-// arrives (a server from before colors, or the moment before the first
-// player list) every color stays off, so everyone keeps the vanilla look
-// instead of a by-ID guess that other clients would not agree on (each
-// human has two connections, so two IDs). The casual shirt is not a
-// color: a casual remote gets it with or without haveMine.
-//
-// mine/haveMine are network.Client.MyColor().
-func syncTunics(t *tunicSync, mine playercolor.Color, haveMine bool, remotes []network.RemotePlayer, linkSlot map[byte]int, now time.Time) {
-	if haveMine {
-		t.SetLocal(mine)
-	} else {
-		t.Set(tunicSlotLocal, false, playercolor.Color{})
-	}
-	var set [tunicSlotLocal]bool
-	for i := range remotes {
-		rp := &remotes[i]
-		s, ok := linkSlot[rp.ID]
-		if !ok || s < 0 || s >= tunicSlotLocal {
-			continue
-		}
-		switch {
-		case remoteCasual(rp.FaceState):
-			t.SetCasual(s)
-		case haveMine:
-			t.Set(s, rp.HasColor, rp.Color)
-		default:
-			t.Set(s, false, playercolor.Color{})
-		}
-		set[s] = true
-	}
-	for s, ok := range set {
-		if !ok {
-			t.Set(s, false, playercolor.Color{})
-		}
-	}
-	t.Tick(now)
-}
-
-// runTunicSlot is the tunic-slot dev command (docs/09 §7.2): put one
-// slot's tunic in a color, or turn it off, on the selected Dolphin. Run
-// puppet-sync / mp-local with WW_TUNIC=off alongside it, or puppet-sync
-// puts the session's colors back.
-func runTunicSlot(slotArg, colorArg string) {
-	slot := -1
-	switch slotArg {
-	case "0", "1":
-		slot = int(slotArg[0] - '0')
-	case "local", "2":
-		slot = tunicSlotLocal
-	}
-	if slot < 0 {
-		fmt.Println("slot must be 0, 1 or local")
-		os.Exit(1)
-	}
-	on, c := false, playercolor.Color{}
-	casual := colorArg == "casual"
-	if casual && slot == tunicSlotLocal {
-		fmt.Println("casual is for slots 0 and 1 only")
-		os.Exit(1)
-	}
-	if colorArg != "off" && !casual {
-		var err error
-		if c, err = playercolor.Parse(colorArg); err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-		on = true
-	}
-	d, err := findDolphin("GZLE01")
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	defer d.Close()
-	t := newTunicSync(d, func(format string, args ...any) { fmt.Printf(format+"\n", args...) })
-	if casual {
-		t.SetCasual(slot)
-	} else {
-		t.Set(slot, on, c)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		t.Tick(time.Now())
-		if t.Settled(slot) {
-			if casual {
-				fmt.Printf("tunic slot %s is casual\n", slotArg)
-			} else if on {
-				fmt.Printf("tunic slot %s is %s (buf 0x%08X)\n", slotArg, c, t.bufs[slot])
-			} else {
-				fmt.Printf("tunic slot %s is off\n", slotArg)
-			}
-			return
-		}
-		time.Sleep(16 * time.Millisecond)
-	}
-	fmt.Println("timed out; run dump: tunic state must be 1 (the C side allocates after ~5 s in game)")
-	os.Exit(1)
 }

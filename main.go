@@ -36,6 +36,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/host"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
@@ -316,70 +317,6 @@ func runBroadcastLink(name, addr string) {
 	fmt.Println("\nDisconnected.")
 }
 
-// Mtx layout in pose data is row-major f32[3][4] big-endian (PowerPC native):
-//   bytes  0..15 = row 0 (m00, m01, m02, m03)   m03 = X translation
-//   bytes 16..31 = row 1 (m10, m11, m12, m13)   m13 = Y translation
-//   bytes 32..47 = row 2 (m20, m21, m22, m23)   m23 = Z translation
-// Stride = 48 B per joint.
-const (
-	mtxStride        = 48
-	mtxOffTransX     = 12
-	mtxOffTransY     = 28
-	mtxOffTransZ     = 44
-)
-
-func readBEFloat(b []byte, off int) float32 {
-	return math.Float32frombits(binary.BigEndian.Uint32(b[off : off+4]))
-}
-func writeBEFloat(b []byte, off int, v float32) {
-	binary.BigEndian.PutUint32(b[off:off+4], math.Float32bits(v))
-}
-
-// localizePoseInPlace subtracts (dx, dy, dz) from every joint's translation
-// column, turning a world-space mpNodeMtx blob into a pose relative to the
-// sender's origin. Rotation parts are untouched.
-func localizePoseInPlace(buf []byte, joints int, dx, dy, dz float32) {
-	for j := 0; j < joints; j++ {
-		base := j * mtxStride
-		writeBEFloat(buf, base+mtxOffTransX, readBEFloat(buf, base+mtxOffTransX)-dx)
-		writeBEFloat(buf, base+mtxOffTransY, readBEFloat(buf, base+mtxOffTransY)-dy)
-		writeBEFloat(buf, base+mtxOffTransZ, readBEFloat(buf, base+mtxOffTransZ)-dz)
-	}
-}
-
-// applyPoseAt re-adds (tx, ty, tz) to every joint's translation column.
-// Inverse of localizePoseInPlace; used by the receiver to land the
-// localized pose at any chosen world position.
-func applyPoseAt(buf []byte, joints int, tx, ty, tz float32) {
-	for j := 0; j < joints; j++ {
-		base := j * mtxStride
-		writeBEFloat(buf, base+mtxOffTransX, readBEFloat(buf, base+mtxOffTransX)+tx)
-		writeBEFloat(buf, base+mtxOffTransY, readBEFloat(buf, base+mtxOffTransY)+ty)
-		writeBEFloat(buf, base+mtxOffTransZ, readBEFloat(buf, base+mtxOffTransZ)+tz)
-	}
-}
-
-// lerpPoseInPlace closes `dst` toward `target` by fraction k per call,
-// element-wise across every BE f32 in the joint matrix blob (12 floats
-// per joint × N joints). Acts as a per-frame EMA: a steady stream of
-// fresh `target` poses converges `dst` toward each one over a few
-// frames, smoothing out any jitter between sender and receiver clocks.
-// Rotation columns aren't strictly orthonormal during the transition
-// but per-frame angular delta is small enough that visible vertex
-// drift is bounded; full quaternion slerp can replace this if needed.
-func lerpPoseInPlace(dst, target []byte, k float32) {
-	if len(dst) != len(target) {
-		return
-	}
-	n := len(dst) / 4
-	for i := 0; i < n; i++ {
-		off := i * 4
-		dv := readBEFloat(dst, off)
-		tv := readBEFloat(target, off)
-		writeBEFloat(dst, off, dv+(tv-dv)*k)
-	}
-}
-
 // Same as broadcast-link but ALSO sends Link's full skeletal pose every
 // tick. The receiver's puppet-sync writes that pose into mailbox.pose_buf
 // and flips shadow_mode=5 so Link #2 animates from the wire instead of
@@ -484,7 +421,7 @@ func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPI
 				data, err := link.Pose()
 				if err == nil && data != nil {
 					if os.Getenv("WW_POSE_RAW") == "" {
-						localizePoseInPlace(data, linkJointCount, pos.PosX, pos.PosY, pos.PosZ)
+						avatar.Localize(data, avatar.JointCount, pos.PosX, pos.PosY, pos.PosZ)
 					}
 					// Capture the LOCAL Link's eye texno bytes from
 					// the mailbox slot the C side publishes at the
@@ -504,7 +441,7 @@ func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPI
 							face = append(face, app)
 						}
 					}
-					if err := client.SendPose(linkJointCount, data, face); err != nil {
+					if err := client.SendPose(avatar.JointCount, data, face); err != nil {
 						poseErrs++
 						if poseErrs > 5 {
 							return fmt.Errorf("send pose: %w", err)
@@ -566,7 +503,7 @@ func runPoseFakeLoop(name, addr string) {
 
 	const linkMpCLModelOff = 0x032C
 	const j3dModelMpNodeMtxOff = 0x8C
-	const poseBytes = linkJointCount * 48
+	const poseBytes = avatar.JointCount * 48
 
 	// One-shot capture: read Link's current world pose, then localize.
 	var captured []byte
@@ -596,7 +533,7 @@ func runPoseFakeLoop(name, addr string) {
 			time.Sleep(200 * time.Millisecond)
 			continue
 		}
-		localizePoseInPlace(data, linkJointCount, pos.PosX, pos.PosY, pos.PosZ)
+		avatar.Localize(data, avatar.JointCount, pos.PosX, pos.PosY, pos.PosZ)
 		captured = data
 		fmt.Printf("captured fake pose at (%.0f, %.0f, %.0f)\n", pos.PosX, pos.PosY, pos.PosZ)
 	}
@@ -620,7 +557,7 @@ func runPoseFakeLoop(name, addr string) {
 				fmt.Printf("send position: %v\n", err)
 				break
 			}
-			if err := client.SendPose(linkJointCount, captured, nil); err != nil {
+			if err := client.SendPose(avatar.JointCount, captured, nil); err != nil {
 				fmt.Printf("send pose: %v\n", err)
 				break
 			}
@@ -757,9 +694,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	}
 	// Tunic colors (docs/09 §5.4): per-slot recolored body textures.
 	// WW_TUNIC=off leaves the slots to the tunic-slot dev command.
-	var tunics *tunicSync
+	var tunics *avatar.Tunics
 	if os.Getenv("WW_TUNIC") != "off" {
-		tunics = newTunicSync(d, func(format string, args ...any) { log.Logf(rep, log.Info, format, args...) })
+		tunics = avatar.NewTunics(d, func(format string, args ...any) { log.Logf(rep, log.Info, format, args...) })
 		// Session over: stop the C swaps (the enables live in RAM and
 		// would keep the local Link recolored). Runs before d.Close.
 		defer tunics.DisableAll()
@@ -784,17 +721,17 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	one := make([]byte, 4)
 	binary.BigEndian.PutUint32(one, 1)
 
-	// Pose-feed state. We can drive up to maxRemoteLinks Link puppets
+	// Pose-feed state. We can drive up to avatar.Cap Link puppets
 	// from incoming remote poses. First remote with pose claims Link
 	// slot 0, second claims slot 1, etc. Beyond that, additional
 	// remotes still get their actor-puppet (KAMOME / NPC / TSUBO).
 	remoteToLinkSlot := map[byte]int{}
-	poseBufPtrs := [maxRemoteLinks]uint32{}
+	poseBufPtrs := [avatar.Cap]uint32{}
 	// armedEpoch[slot] = the sessionEpoch the slot's pose_buf was last
 	// validated in. A mismatch forces armPoseSlot to re-poll — defeating the
 	// stale-buffer trap where pose_buf_state still reads 1 (with a now-freed
 	// pointer) from the prior session after a reconnect.
-	armedEpoch := [maxRemoteLinks]int{}
+	armedEpoch := [avatar.Cap]int{}
 	for i := range armedEpoch {
 		armedEpoch[i] = -1
 	}
@@ -807,7 +744,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	// badRig[id] for a remote whose pose isn't a 42-joint Link skeleton,
 	// badPoseBuf[slot] for the last out-of-MEM1 pose_buf pointer reported.
 	badRig := map[byte]bool{}
-	badPoseBuf := [maxRemoteLinks]uint32{}
+	badPoseBuf := [avatar.Cap]uint32{}
 	// sessionEpoch increments on every successful (re)connect; lastServerEpoch
 	// tracks the server's boot epoch so a restart (epoch change) triggers a
 	// full reset.
@@ -833,7 +770,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		despawned bool
 		despawnAt time.Time
 	}
-	var linkSlots [maxRemoteLinks]linkSlotState
+	var linkSlots [avatar.Cap]linkSlotState
 	// Render offset added on top of the localized pose's re-application.
 	// Default 0 (real multiplayer renders Link #2 at remote's actual
 	// world coords). Set WW_LINK2_OFFSET_X / _Y / _Z for loopback demos
@@ -862,9 +799,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		// path, which re-asserts shadow_mode=5 and re-validates the pointer.
 		forceRepoll := armedEpoch[slot] != sessionEpoch
 		if !forceRepoll {
-			state, _ := d.Read(mailbox.Mailbox+mailboxPoseBufState(slot), 1)
+			state, _ := d.Read(mailbox.Mailbox+avatar.OffPoseBufState(slot), 1)
 			if len(state) == 1 && state[0] == 1 {
-				ptr, _ := d.ReadU32(mailbox.Mailbox + mailboxPoseBufPtr(slot))
+				ptr, _ := d.ReadU32(mailbox.Mailbox + avatar.OffPoseBufPtr(slot))
 				if ptr != 0 {
 					if poseBufPtrs[slot] != ptr {
 						if poseBufPtrs[slot] == 0 {
@@ -891,11 +828,11 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		// mid-session restores the mailbox from the snapshot, which
 		// usually has shadow_mode=0, and the C side then never allocates a
 		// pose_buf for us to find. Re-assert mode 5 whenever it isn't.
-		if mode, err := d.Read(mailbox.Mailbox+mailbox.OffShadowMode, 1); !shadowModeArmed || (err == nil && len(mode) == 1 && mode[0] != 5) {
+		if mode, err := d.Read(mailbox.Mailbox+mailbox.OffShadowMode, 1); !shadowModeArmed || (err == nil && len(mode) == 1 && mode[0] != avatar.ModePoseFeed) {
 			if shadowModeArmed {
 				log.Logf(rep, log.Warn, "shadow_mode was reset (a save-state load?): setting pose-feed mode again")
 			}
-			d.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{5})
+			avatar.SetPoseFeedMode(d)
 			shadowModeArmed = true
 		}
 		for i := 0; i < 60; i++ {
@@ -904,9 +841,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 				return false
 			case <-time.After(50 * time.Millisecond):
 			}
-			state, _ := d.Read(mailbox.Mailbox+mailboxPoseBufState(slot), 1)
+			state, _ := d.Read(mailbox.Mailbox+avatar.OffPoseBufState(slot), 1)
 			if len(state) == 1 && state[0] == 1 {
-				ptr, _ := d.ReadU32(mailbox.Mailbox + mailboxPoseBufPtr(slot))
+				ptr, _ := d.ReadU32(mailbox.Mailbox + avatar.OffPoseBufPtr(slot))
 				if ptr != 0 {
 					poseBufPtrs[slot] = ptr
 					armedEpoch[slot] = sessionEpoch
@@ -922,7 +859,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		return false
 	}
 	// Returns the link slot assigned to this remote, or -1 if no slot
-	// is available (all maxRemoteLinks already taken by other remotes).
+	// is available (all avatar.Cap already taken by other remotes).
 	pickLinkSlot := func(remoteID byte) int {
 		if s, ok := remoteToLinkSlot[remoteID]; ok {
 			return s
@@ -931,7 +868,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		for _, s := range remoteToLinkSlot {
 			used[s] = true
 		}
-		for s := 0; s < maxRemoteLinks; s++ {
+		for s := 0; s < avatar.Cap; s++ {
 			if !used[s] {
 				remoteToLinkSlot[remoteID] = s
 				return s
@@ -945,7 +882,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	// land inside MEM1. Reports each bad pointer value once.
 	poseBufOK := func(slot int) bool {
 		ptr := poseBufPtrs[slot]
-		if poseDstInMEM1(ptr, linkJointCount*mtxBytes) {
+		if avatar.PoseDstInMEM1(ptr, avatar.JointCount*avatar.MtxBytes) {
 			return true
 		}
 		if badPoseBuf[slot] != ptr {
@@ -967,8 +904,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	// render (zero pose_seq + face_seq), drop the EMA buffer + id mapping,
 	// and invalidate the arm cache so the next claimant re-arms from scratch.
 	freeLinkSlot := func(linkSlot int, id byte) {
-		d.Write(mailbox.Mailbox+mailboxPoseSeq(linkSlot), []byte{0})
-		d.Write(mailbox.Mailbox+mailboxFaceSeq(linkSlot), []byte{0})
+		avatar.ClearSlot(d, linkSlot)
 		delete(remoteToLinkSlot, id)
 		linkSlots[linkSlot] = linkSlotState{}
 		armedEpoch[linkSlot] = -1
@@ -995,8 +931,8 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		// invalidate cached pointers/epoch so armPoseSlot re-polls this
 		// session (handles the stale pose_buf_state==1 trap). Mirrors
 		// clearMultiplayerState + the re-arm half of armPoseSlot.
-		for s := 0; s < maxRemoteLinks; s++ {
-			resetPuppetSyncMailbox(d, s)
+		for s := 0; s < avatar.Cap; s++ {
+			avatar.Rearm(d, s)
 			poseBufPtrs[s] = 0
 			armedEpoch[s] = -1
 		}
@@ -1057,11 +993,11 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 				// Only a whole 42-joint Link pose can drive a Link slot: the
 				// C side's pose buffers are sized for exactly that. A remote
 				// sending any other rig is shown as an actor puppet instead.
-				hasPose := linkPoseUsable(rp.PoseJoints, len(rp.PoseMatrices))
+				hasPose := avatar.PoseUsable(rp.PoseJoints, len(rp.PoseMatrices))
 				if rp.PoseMatrices != nil && !hasPose && !badRig[rp.ID] {
 					badRig[rp.ID] = true
 					log.Logf(rep, log.Warn, "player %d (%s) sent a %d-joint pose (%d B); Link has %d joints, so it won't drive a Link slot",
-						rp.ID, rp.Name, rp.PoseJoints, len(rp.PoseMatrices), linkJointCount)
+						rp.ID, rp.Name, rp.PoseJoints, len(rp.PoseMatrices), avatar.JointCount)
 				}
 				idx, ok := remoteToSlot[rp.ID]
 				if !ok {
@@ -1151,7 +1087,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 						// Sender RESUMED after a freeze/despawn: re-arm the
 						// mailbox for this slot and snap back to live rendering.
 						if !frozenNow && !despawnedNow && (ls.frozen || ls.despawned) {
-							resetPuppetSyncMailbox(d, linkSlot)
+							avatar.Rearm(d, linkSlot)
 							poseBufPtrs[linkSlot] = 0
 							armedEpoch[linkSlot] = -1
 							ls.displayed = nil
@@ -1167,8 +1103,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 							// remote lands back here. A dual safety net alongside
 							// the server's MsgLeave-on-timeout.
 							if !ls.despawned {
-								d.Write(mailbox.Mailbox+mailboxPoseSeq(linkSlot), []byte{0})
-								d.Write(mailbox.Mailbox+mailboxFaceSeq(linkSlot), []byte{0})
+								avatar.ClearSlot(d, linkSlot)
 								ls.despawned = true
 								ls.frozen = true
 								ls.despawnAt = now
@@ -1202,18 +1137,18 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 									ls.displayed = make([]byte, len(rp.PoseMatrices))
 									copy(ls.displayed, rp.PoseMatrices)
 								} else {
-									lerpPoseInPlace(ls.displayed, rp.PoseMatrices, poseLerpK)
+									avatar.Lerp(ls.displayed, rp.PoseMatrices, poseLerpK)
 								}
 								adjusted := make([]byte, len(ls.displayed))
 								copy(adjusted, ls.displayed)
 								if os.Getenv("WW_POSE_RAW") == "" {
-									applyPoseAt(adjusted, rp.PoseJoints,
+									avatar.ApplyAt(adjusted, rp.PoseJoints,
 										st.curX+link2OffsetX, st.curY+link2OffsetY, st.curZ+link2OffsetZ)
 								}
-								d.Write(poseBufPtrs[linkSlot], adjusted)
-								// nextSeq skips 0, which C reads as "no pose
-								// yet" and would skip this slot for a frame.
-								bumpSeqByte(d, mailbox.Mailbox+mailboxPoseSeq(linkSlot))
+								// WritePose bumps pose_seq with NextSeq, which
+								// skips 0: C reads 0 as "no pose yet" and would
+								// skip this slot for a frame.
+								avatar.WritePose(d, linkSlot, poseBufPtrs[linkSlot], adjusted)
 
 								// Session 9: face-state suffix (eye texno values).
 								// Writer is the C-side J3DMatPacket vtable hook —
@@ -1226,11 +1161,10 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 								// not a stale cache; bumping the seq is just for
 								// the gating).
 								if len(rp.FaceState) >= faceStateWireBytes {
-									d.Write(mailbox.Mailbox+mailboxFaceState(linkSlot), rp.FaceState[:faceStateWireBytes])
 									// 0 means "not yet armed" per the C-side
-									// gate; nextSeq skips it on rollover so the
-									// gate stays open.
-									bumpSeqByte(d, mailbox.Mailbox+mailboxFaceSeq(linkSlot))
+									// gate; WriteFace's NextSeq skips it on
+									// rollover so the gate stays open.
+									avatar.WriteFace(d, linkSlot, rp.FaceState[:faceStateWireBytes])
 								}
 							}
 						}
@@ -1330,19 +1264,11 @@ func runPokeU32(addrHex, valHex string) {
 // and shadow_latched: docs/06 "Next Session Priority" step 1.
 //
 // The pose-feed slot fields (pose_buf_ptrs u32, pose_joint_counts u16,
-// pose_buf_states u8, pose_seqs u8) are arrays of MAILBOX_POSE_SLOT_CAP,
-// of which the runtime uses the first maxRemoteLinks (MAX_REMOTE_LINKS);
+// pose_buf_states u8, pose_seqs u8, face_state, face_seqs) are arrays of
+// MAILBOX_POSE_SLOT_CAP, of which the runtime uses the first avatar.Cap
+// (MAX_REMOTE_LINKS); their per-slot offsets are avatar.Off*.
 // dbg_pose_first_word and dbg_node_mtx_first are slot-0-only
-// diagnostics. Bumped to 2 on 2026-04-20 after the shared-J3DModelData
-// blocker was unblocked (J3DModel create flag 0x80000 → 0, so each
-// mini-Link gets a private material DL instead of sharing one with
-// every other instance).
-const maxRemoteLinks = mailbox.MaxRemoteLinks
-
-func mailboxPoseBufPtr(slot int) uint32     { return uint32(mailbox.OffPoseBufPtrs + slot*4) }
-func mailboxPoseJointCount(slot int) uint32 { return uint32(mailbox.OffPoseJointCounts + slot*2) }
-func mailboxPoseBufState(slot int) uint32   { return uint32(mailbox.OffPoseBufStates + slot) }
-func mailboxPoseSeq(slot int) uint32        { return uint32(mailbox.OffPoseSeqs + slot) }
+// diagnostics.
 
 // v0.1.3: sender-side pose publish buffer (pose_publish_*). The C-side
 // draw hook copies Link #1's mpNodeMtx into this GameHeap-resident
@@ -1386,12 +1312,6 @@ func mailboxPoseSeq(slot int) uint32        { return uint32(mailbox.OffPoseSeqs 
 // (hooked over bl PADRead in JUTGamePad::read at 0x802C39A0) overrides
 // mPadStatus[0] when input_enable is non-zero (0 = passthrough);
 // input_overrides is a u32 saturating override counter.
-
-// Per-slot mailbox offsets for the face-state channel.
-func mailboxFaceState(slot int) uint32 {
-	return uint32(mailbox.OffFaceState + slot*mailbox.FaceStateSize)
-}
-func mailboxFaceSeq(slot int) uint32 { return uint32(mailbox.OffFaceSeqs + slot) }
 
 // Size of the per-slot wire payload appended to a pose message.
 // Session 15: bumped 8 → 16 to add mouth state (mat[14] + mat[15]).
@@ -2428,11 +2348,11 @@ func runFaceDlLoop(secs int, forceLsb int) {
 				mat1Lsb = byte(forceLsb)
 				mat4Lsb = byte(forceLsb)
 			} else {
-				seq, _ := d.Read(mailbox.Mailbox+mailboxFaceSeq(s.slot), 1)
+				seq, _ := d.Read(mailbox.Mailbox+avatar.OffFaceSeq(s.slot), 1)
 				if len(seq) != 1 || seq[0] == 0 {
 					continue // gate: skip until first network sample
 				}
-				fs, _ := d.Read(mailbox.Mailbox+mailboxFaceState(s.slot), 8)
+				fs, _ := d.Read(mailbox.Mailbox+avatar.OffFaceState(s.slot), 8)
 				if len(fs) != 8 {
 					continue
 				}
@@ -2579,8 +2499,8 @@ func runFaceSyncTevPoll(secs int, faceHex string) {
 	for time.Now().Before(deadline) {
 		// Re-assert face_state and seq each iteration so puppet-sync's
 		// 60 Hz writes don't overwrite our value.
-		_ = d.Write(mailbox.Mailbox+mailboxFaceState(0), face)
-		_ = d.Write(mailbox.Mailbox+mailboxFaceSeq(0), []byte{1})
+		_ = d.Write(mailbox.Mailbox+avatar.OffFaceState(0), face)
+		_ = d.Write(mailbox.Mailbox+avatar.OffFaceSeq(0), []byte{1})
 
 		b1, _ := d.Read(mat1Tev+0x08, 4)
 		b4, _ := d.Read(mat4Tev+0x08, 4)
@@ -2802,9 +2722,9 @@ func runFaceSyncStatus() {
 	fmt.Printf("face_hook_state : 0x%02X (1=installed, 0=disarmed, 0xFC=stride mismatch, 0xFE=vtable mismatch, 0xFD=null array)\n", state[0])
 	fmt.Printf("face_hook_mp_size: 0x%02X (expect 0x3C)\n", mpsize[0])
 	fmt.Printf("face_hook_swaps : %d (saturating)\n", swaps)
-	for slot := 0; slot < maxRemoteLinks; slot++ {
-		seq, _ := d.Read(mailbox.Mailbox+mailboxFaceSeq(slot), 1)
-		fs, _ := d.Read(mailbox.Mailbox+mailboxFaceState(slot), faceStateWireBytes)
+	for slot := 0; slot < avatar.Cap; slot++ {
+		seq, _ := d.Read(mailbox.Mailbox+avatar.OffFaceSeq(slot), 1)
+		fs, _ := d.Read(mailbox.Mailbox+avatar.OffFaceState(slot), faceStateWireBytes)
 		var sb byte
 		if len(seq) == 1 {
 			sb = seq[0]
@@ -2841,7 +2761,7 @@ func runFaceSyncWatch(secs int) {
 		t1_0, t1_1, t4_0, t4_1           uint16
 		t14_0, t14_1, t15_0, t15_1       uint16
 	}
-	prev := make([]slotState, maxRemoteLinks)
+	prev := make([]slotState, avatar.Cap)
 	var lastSwaps uint32
 	deadline := time.Now().Add(time.Duration(secs) * time.Second)
 	tick := 0
@@ -2854,9 +2774,9 @@ func runFaceSyncWatch(secs int) {
 				tick*100, swaps, delta)
 			lastSwaps = swaps
 		}
-		for slot := 0; slot < maxRemoteLinks; slot++ {
-			seq, _ := d.Read(mailbox.Mailbox+mailboxFaceSeq(slot), 1)
-			fs, _ := d.Read(mailbox.Mailbox+mailboxFaceState(slot), faceStateWireBytes)
+		for slot := 0; slot < avatar.Cap; slot++ {
+			seq, _ := d.Read(mailbox.Mailbox+avatar.OffFaceSeq(slot), 1)
+			fs, _ := d.Read(mailbox.Mailbox+avatar.OffFaceState(slot), faceStateWireBytes)
 			if len(seq) != 1 || len(fs) != faceStateWireBytes {
 				continue
 			}
@@ -2889,8 +2809,8 @@ func runFaceSyncWatch(secs int) {
 // mouth state: "<8B eyes><8B mouth>" where mouth = mat14_t0 mat14_t1
 // mat15_t0 mat15_t1 (each u16 BE).
 func runFaceSyncFake(slot int, hexStr string) {
-	if slot < 0 || slot >= maxRemoteLinks {
-		fmt.Printf("slot must be 0..%d\n", maxRemoteLinks-1)
+	if slot < 0 || slot >= avatar.Cap {
+		fmt.Printf("slot must be 0..%d\n", avatar.Cap-1)
 		os.Exit(1)
 	}
 	buf := parseFaceStateHex(hexStr)
@@ -2900,11 +2820,11 @@ func runFaceSyncFake(slot int, hexStr string) {
 		os.Exit(1)
 	}
 	defer d.Close()
-	if err := d.Write(mailbox.Mailbox+mailboxFaceState(slot), buf); err != nil {
+	if err := d.Write(mailbox.Mailbox+avatar.OffFaceState(slot), buf); err != nil {
 		fmt.Printf("write face_state failed: %v\n", err)
 		os.Exit(1)
 	}
-	next, err := bumpSeqByte(d, mailbox.Mailbox+mailboxFaceSeq(slot))
+	next, err := avatar.BumpSeq(d, mailbox.Mailbox+avatar.OffFaceSeq(slot))
 	if err != nil {
 		fmt.Printf("write face_seq failed: %v\n", err)
 		os.Exit(1)
@@ -3082,8 +3002,8 @@ func runFaceMatHammer(idx int, texHex string, secs int) {
 // Dolphin handle once and write in a tight loop — vs the 49 ms-per-call
 // overhead of repeated face-sync-fake invocations.
 func runFaceSyncFakeLoop(slot int, hexStr string, secs int) {
-	if slot < 0 || slot >= maxRemoteLinks {
-		fmt.Printf("slot must be 0..%d\n", maxRemoteLinks-1)
+	if slot < 0 || slot >= avatar.Cap {
+		fmt.Printf("slot must be 0..%d\n", avatar.Cap-1)
 		os.Exit(1)
 	}
 	buf := parseFaceStateHex(hexStr)
@@ -3104,8 +3024,8 @@ func runFaceSyncFakeLoop(slot int, hexStr string, secs int) {
 	}
 	fmt.Printf("Hammering slot %d face_state := %s at ~250Hz (Ctrl+C to stop)...\n", slot, hexStr)
 
-	stateAddr := mailbox.Mailbox + mailboxFaceState(slot)
-	seqAddr := mailbox.Mailbox + mailboxFaceSeq(slot)
+	stateAddr := mailbox.Mailbox + avatar.OffFaceState(slot)
+	seqAddr := mailbox.Mailbox + avatar.OffFaceSeq(slot)
 	tick := time.NewTicker(4 * time.Millisecond)
 	defer tick.Stop()
 	writes := 0
@@ -3117,7 +3037,7 @@ func runFaceSyncFakeLoop(slot int, hexStr string, secs int) {
 			return
 		case <-tick.C:
 			d.Write(stateAddr, buf)
-			seq = nextSeq(seq)
+			seq = avatar.NextSeq(seq)
 			d.Write(seqAddr, []byte{seq})
 			writes++
 			if !deadline.IsZero() && time.Now().After(deadline) {
@@ -4199,14 +4119,14 @@ func runPoseTest(mode string, durSec int) {
 	var jointCount uint16
 	for i := 0; i < 60; i++ {
 		time.Sleep(50 * time.Millisecond)
-		state, _ := d.Read(mailbox.Mailbox+mailboxPoseBufState(0), 1)
+		state, _ := d.Read(mailbox.Mailbox+avatar.OffPoseBufState(0), 1)
 		if len(state) == 0 {
 			continue
 		}
 		switch state[0] {
 		case 1:
-			poseBufPtr, _ = d.ReadU32(mailbox.Mailbox + mailboxPoseBufPtr(0))
-			jcBytes, _ := d.Read(mailbox.Mailbox+mailboxPoseJointCount(0), 2)
+			poseBufPtr, _ = d.ReadU32(mailbox.Mailbox + avatar.OffPoseBufPtr(0))
+			jcBytes, _ := d.Read(mailbox.Mailbox+avatar.OffPoseJointCount(0), 2)
 			if len(jcBytes) == 2 {
 				jointCount = binary.BigEndian.Uint16(jcBytes)
 			}
@@ -4233,7 +4153,7 @@ func runPoseTest(mode string, durSec int) {
 	fmt.Printf("pose_buf_ptr = 0x%08X  joint_count = %d  pose_size = %d B\n", poseBufPtr, jointCount, poseSize)
 
 	bumpSeq := func() {
-		bumpSeqByte(d, mailbox.Mailbox+mailboxPoseSeq(0))
+		avatar.BumpSeq(d, mailbox.Mailbox+avatar.OffPoseSeq(0))
 	}
 
 	// Read Link #1's mpNodeMtx, NOT mini-Link's. Mini-Link's mpNodeMtx is
@@ -4396,14 +4316,14 @@ func runDump() {
 	}
 	// Pose-feed (mode 5) diagnostics. pose_buf_state stays 0 until the
 	// first mode-5 frame fires the lazy alloc.
-	for slot := 0; slot < maxRemoteLinks; slot++ {
-		pb, err := d.ReadU32(mailbox.Mailbox + mailboxPoseBufPtr(slot))
+	for slot := 0; slot < avatar.Cap; slot++ {
+		pb, err := d.ReadU32(mailbox.Mailbox + avatar.OffPoseBufPtr(slot))
 		if err != nil {
 			continue
 		}
-		jc, _ := d.Read(mailbox.Mailbox+mailboxPoseJointCount(slot), 2)
-		ps, _ := d.Read(mailbox.Mailbox+mailboxPoseBufState(slot), 1)
-		sq, _ := d.Read(mailbox.Mailbox+mailboxPoseSeq(slot), 1)
+		jc, _ := d.Read(mailbox.Mailbox+avatar.OffPoseJointCount(slot), 2)
+		ps, _ := d.Read(mailbox.Mailbox+avatar.OffPoseBufState(slot), 1)
+		sq, _ := d.Read(mailbox.Mailbox+avatar.OffPoseSeq(slot), 1)
 		jcVal := uint16(0)
 		if len(jc) == 2 {
 			jcVal = binary.BigEndian.Uint16(jc)
@@ -5584,33 +5504,15 @@ func listHostIPs() []string {
 	return out
 }
 
-// clearMultiplayerState resets the patched-ISO mailbox so the next Dolphin
-// frame stops rendering Link #2. Writes shadow_mode = 0 (the explicit kill
-// switch) and zeros every pose_seqs[slot] so even if shadow_mode is flipped
-// back to 5 later, nothing renders until a fresh pose arrives. All writes
-// are best-effort: if Dolphin closed first, Write fails silently
-// which is the correct behavior (the mailbox is gone with the process).
+// clearMultiplayerState resets the env-selected Dolphin's mailbox so the
+// next frame stops rendering Link #2 (avatar.Clear: shadow_mode = 0 and
+// every pose_seqs[slot] zeroed). Best-effort: if Dolphin closed first
+// there is nothing to reset (the mailbox is gone with the process).
 func clearMultiplayerState() {
 	d, err := findDolphin("GZLE01")
 	if err != nil {
 		return
 	}
 	defer d.Close()
-	d.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
-	for i := 0; i < maxRemoteLinks; i++ {
-		d.Write(mailbox.Mailbox+mailboxPoseSeq(i), []byte{0})
-	}
-}
-
-// resetPuppetSyncMailbox re-arms a single pose-feed slot after a reconnect
-// (D3) or a sender resume (D4): it re-asserts shadow_mode=5 and zeroes the
-// slot's pose_seq + face_seq so the C side stops rendering whatever stale
-// pose it was holding. Mirrors the seq-zeroing half of clearMultiplayerState
-// plus the re-arm intent of armPoseSlot. The CALLER must also invalidate its
-// cached pose_buf_ptr (and armed-epoch) for the slot so armPoseSlot re-polls
-// — this function only touches the mailbox, not the in-process cache.
-func resetPuppetSyncMailbox(d *emu.Dolphin, slot int) {
-	d.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{5})
-	d.Write(mailbox.Mailbox+mailboxPoseSeq(slot), []byte{0})
-	d.Write(mailbox.Mailbox+mailboxFaceSeq(slot), []byte{0})
+	avatar.Clear(d)
 }

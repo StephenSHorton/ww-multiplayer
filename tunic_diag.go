@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
-	"github.com/StephenSHorton/ww-multiplayer/internal/tunic"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gfx/texture"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,16 +49,16 @@ type linkTextures struct {
 	matArr      uint32
 	matCount    int
 	names       []string
-	headers     []tunic.ResTIMG
+	headers     []texture.ResTIMG
 	casual      bool
 	currLinktex uint32
 	spare, used int
 	haveLinktex bool
 }
 
-func (lt *linkTextures) hdrAddr(i int) uint32 { return lt.resArr + uint32(i)*tunic.ResTIMGSize }
+func (lt *linkTextures) hdrAddr(i int) uint32 { return lt.resArr + uint32(i)*texture.ResTIMGSize }
 
-func readLinkTextures(d tunicMem) (*linkTextures, error) {
+func readLinkTextures(d avatar.TunicMem) (*linkTextures, error) {
 	lt := &linkTextures{}
 	var err error
 	if lt.link, err = d.ReadU32(addr.PlayerPtr); err != nil || !addr.InMEM1(lt.link) {
@@ -90,16 +91,16 @@ func readLinkTextures(d tunicMem) (*linkTextures, error) {
 	if num == 0 || num > maxLinkTextures || !addr.InMEM1(lt.resArr) {
 		return nil, fmt.Errorf("J3DTexture looks wrong: %d textures at 0x%08X", num, lt.resArr)
 	}
-	raw, err := d.Read(lt.resArr, num*tunic.ResTIMGSize)
-	if err != nil || len(raw) != num*tunic.ResTIMGSize {
+	raw, err := d.Read(lt.resArr, num*texture.ResTIMGSize)
+	if err != nil || len(raw) != num*texture.ResTIMGSize {
 		return nil, errors.New("cannot read the ResTIMG array")
 	}
 	for i := 0; i < num; i++ {
-		h, _ := tunic.ParseResTIMG(raw[i*tunic.ResTIMGSize:])
+		h, _ := texture.ParseResTIMG(raw[i*texture.ResTIMGSize:])
 		lt.headers = append(lt.headers, h)
 	}
 	lt.names = readNameTab(d, nameTab, num)
-	lt.spare, lt.used, lt.haveLinktex = tunic.FindLinktex(lt.names)
+	lt.spare, lt.used, lt.haveLinktex = texture.FindLinktex(lt.names)
 	return lt, nil
 }
 
@@ -114,7 +115,7 @@ func readLinkTextures(d tunicMem) (*linkTextures, error) {
 // The first version read the JUTNameTab object as if it were the
 // ResNTAB, so its "count" was the vtable's high half and every name was
 // read from vtable-relative garbage (live 2026-10-16: 41 garbage names).
-func readNameTab(d tunicMem, tab uint32, n int) []string {
+func readNameTab(d avatar.TunicMem, tab uint32, n int) []string {
 	names := make([]string, n)
 	if !addr.InMEM1(tab) {
 		return names
@@ -203,8 +204,8 @@ func runTunicProbe() {
 	if sz, ok := spare.ImageSize(); ok {
 		img, err := d.Read(spare.ImageAddr(lt.hdrAddr(lt.spare)), sz)
 		if err == nil && len(img) == sz {
-			m, ref := tunic.Calibrate(img, tunic.DefaultMask)
-			_, st := tunic.Recolor(img, playercolor.Palette()[1].Color, m, ref)
+			m, ref := texture.Calibrate(img, texture.DefaultMask)
+			_, st := texture.Recolor(img, playercolor.Palette()[1].Color, m, ref)
 			fmt.Printf("tunic green: hue %.1f sat %.2f val %.2f from %d endpoints; a recolor changes %d of %d blocks\n",
 				ref.H, ref.S, ref.V, ref.Samples, st.Changed, st.Blocks)
 		}
@@ -309,8 +310,8 @@ func runTunicRecolor(arg string) {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	m, ref := tunic.Calibrate(orig, tunic.DefaultMask)
-	out, st := tunic.Recolor(orig, c, m, ref)
+	m, ref := texture.Calibrate(orig, texture.DefaultMask)
+	out, st := texture.Recolor(orig, c, m, ref)
 	if err := d.Write(img, out); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)

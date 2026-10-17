@@ -1,4 +1,4 @@
-package tunic
+package texture
 
 import (
 	"testing"

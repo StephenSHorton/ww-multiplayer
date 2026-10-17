@@ -246,7 +246,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args any) (Result, 
 |---|---|
 | `player.warp` (Warp, WarpForce) | exists: `wwapi/player` (was `warp_link.go`) |
 | `input.override` (Override, Release) | exists: `wwapi/player` Override/Release/Press (was `injectInput`, `runInput`) |
-| `avatar.*` (Claim, SetPose, SetFace, SetTunic, Hide, Release; Cap = 2 today) | exists across `posefeed.go`, `runPuppetSyncCtx`, `tunicSync` |
+| `avatar.*` (Claim, SetPose, SetFace, SetTunic, Hide, Release; Cap = 2 today) | the slot writes exist: `wwapi/avatar` (WritePose, WriteFace, ClearSlot, Rearm, Clear, SetPoseFeedMode, Tunics; was `posefeed.go`, `runPuppetSyncCtx`, `tunicSync`). Claim/Release (slot ownership) are still puppet-sync's `pickLinkSlot`/`freeLinkSlot` |
 | `save.*` (GiveItem, AddLife, AddRupees, SetMaxLife) | mechanism exists in co-op; helper is new |
 | `flags.*` (SetSwitch, SetEventBit, SetTbox) | generic part of `replica/writer_fields.go`; helper is new |
 | `stage.request` | exists: `replica/escape.go` |
@@ -261,7 +261,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args any) (Result, 
 | Logging: `log.Reporter`, `Multi`, `Prefix` | `internal/report` plus `prefixReporter` |
 | Emulator: `emu.Attach`, `launch.*`, `host.*` | `internal/dolphin`, `internal/dolphinenv` |
 | Patcher: `patch.Run(Options)` with `PostPatch []func(w io.Writer, image string)` in place of `CoopTables`. A post-patch step **never fails the patch**; `cli-golden/patch-*.txt` stays byte-identical | `internal/patch`, `internal/inject` |
-| Textures: CMPR recolor, ResTIMG | `internal/tunic` |
+| Textures: CMPR recolor, ResTIMG | `wwapi/gfx/texture` (was `internal/tunic`) |
 | Test double: `fakegame.New()` | `coop/fakegame` |
 | Mod supervisor | `runPipelines` semantics plus `recover` |
 
@@ -436,8 +436,8 @@ Order: C1 first; C4 before C8; C6 before C7; C8 before C14; C5 any time after C1
 - [x] **C8** Split tables (builders → `wwapi/tables`; sync accessors → `synctables`).
 - [x] **C9** Generated mailbox: `tools/gen_mailbox` → `wwapi/mailbox/layout_gen.go`. No C change. The parser and emitter live in `internal/mailboxgen`, which `tools/gen_mailbox` and the `wwapi/mailbox` freshness test (`TestMailboxLayout`) both import.
 - [x] **C10** `wwapi/emu` (`Attach(Options)`, env read only in `cmd`); dolphinenv → `emu/launch`; report → `wwapi/log`. `ReadAbsolute`/`WriteAbsolute` are unexported: a `*emu.Dolphin` is itself a MEM1-bounded `mem.Mem` (the old `mem.DolphinMem` folded in, since `mem` cannot import `emu`), and package main reads `WW_DOLPHIN_PID/INDEX` in `dolphin_env.go`. Window, screenshot and keys → `emu/host`; `prefixReporter` → `log.Prefix`. "Env read only in `cmd`" holds for `emu` (WW_DOLPHIN_PID/INDEX); `launch.FromEnv`/`Detect` keep their `os.Getenv` default and `backup` still reads USER_DIR_1/2, both left for the §9 cleanup ("Env: read env only in `cmd/`").
-- [x] **C11** `wwapi/player`: Warp, Input, Pose/Face reads, Link accessors. `player.Link` (over a `mem.Reader`) has Ptr, Ready, Position (pos and angle), DemoType, Pose and Face; `emu.Dolphin`'s GetLinkPtr/IsInGame/ReadPlayerPosition moved to it, so Link's position is read through the MEM1-bounded `Read`. Room and Textures are left for C12/C14 (`readLinkTextures` goes with `gfx/texture`). Input is `Override`/`Release`/`Press`/`Overrides`; `playertest` is the fake C warp handler.
-- [ ] **C12** `wwapi/avatar` and `wwapi/gfx/texture`.
+- [x] **C11** `wwapi/player`: Warp, Input, Pose/Face reads, Link accessors. `player.Link` (over a `mem.Reader`) has Ptr, Ready, Position (pos and angle), DemoType, Pose and Face; `emu.Dolphin`'s GetLinkPtr/IsInGame/ReadPlayerPosition moved to it, so Link's position is read through the MEM1-bounded `Read`. Room and Textures are left for C12/C14 (`readLinkTextures` did not move in C12; see the C12 entry). Input is `Override`/`Release`/`Press`/`Overrides`; `playertest` is the fake C warp handler.
+- [x] **C12** `wwapi/avatar` and `wwapi/gfx/texture`. `internal/tunic` → `wwapi/gfx/texture` (package `texture`). `wwapi/avatar` has the posefeed guards (`PoseUsable`, `PoseDstInMEM1`, `NextSeq`, `BumpSeq`), the pose math (`Localize`, `ApplyAt`, `Lerp`), the slot writes (`Off*` offsets, `WritePose`, `WriteFace`, `ClearSlot`, `SetPoseFeedMode`), `Rearm` (was `resetPuppetSyncMailbox`) and `Clear` (the body of `clearMultiplayerState`, which keeps only the env-selected Dolphin lookup), and `Tunics` (was `tunicSync`); `avatartest` is the fake RAM and C tunic allocation. `runPuppetSyncCtx`'s slot assignment, arming loop (the shadow_mode re-assert after a save-state load), lerp state and actor-puppet fallback stay in main (§10.11: split it in D1); `syncTunics`, the appearance byte, `tunic-slot` and the `dump` tunic block are `tunic_feed.go`. `wwapi/gfx/texture` and `Tunics` still import `internal/playercolor` until D1 decides where the color type lives. `readLinkTextures`/`readNameTab` (the `tunic-probe`/`tunic-recolor` diagnostics) stay in `tunic_diag.go` so `gfx/texture` stays pure bytes in, bytes out; they go with the probes (D6/E2) or C14.
 - [ ] **C13** `wwapi/write` out of replica (**high risk**: co-op golden and converge byte-identical, owner's M2-M6 rerun).
 - [ ] **C14** `wwapi.Game`, watcher, `commands`; `fakegame` → `wwapi/fakegame`; contract check in pre-E1 mode.
 
