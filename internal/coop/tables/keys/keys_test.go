@@ -6,23 +6,23 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // testNames is an l_objectName with the door and container names the
 // fixtures use (d_stage.cpp:451-480, :483, :519, :647).
-func testNames(t testing.TB) *stagedata.ObjectNames {
+func testNames(t testing.TB) *stage.ObjectNames {
 	t.Helper()
-	o, err := stagedata.ParseObjectNames(stagetest.ObjectNameTable(
-		stagetest.ObjectName{Name: "door10", Proc: int16(stagedata.ProcDoor10), Subtype: -1},
-		stagetest.ObjectName{Name: "keyshut", Proc: int16(stagedata.ProcDoor10), Subtype: -1},
-		stagetest.ObjectName{Name: "door12", Proc: int16(stagedata.ProcDoor12), Subtype: 0},
-		stagetest.ObjectName{Name: "keyS12", Proc: int16(stagedata.ProcDoor12), Subtype: 1},
+	o, err := stage.ParseObjectNames(stagetest.ObjectNameTable(
+		stagetest.ObjectName{Name: "door10", Proc: int16(stage.ProcDoor10), Subtype: -1},
+		stagetest.ObjectName{Name: "keyshut", Proc: int16(stage.ProcDoor10), Subtype: -1},
+		stagetest.ObjectName{Name: "door12", Proc: int16(stage.ProcDoor12), Subtype: 0},
+		stagetest.ObjectName{Name: "keyS12", Proc: int16(stage.ProcDoor12), Subtype: 1},
 		stagetest.ObjectName{Name: "doorKD", Proc: int16(ProcKddoor), Subtype: -1},
-		stagetest.ObjectName{Name: "takara", Proc: int16(stagedata.ProcTbox), Subtype: -1},
-		stagetest.ObjectName{Name: "item", Proc: int16(stagedata.ProcItem), Subtype: -1},
+		stagetest.ObjectName{Name: "takara", Proc: int16(stage.ProcTbox), Subtype: -1},
+		stagetest.ObjectName{Name: "item", Proc: int16(stage.ProcItem), Subtype: -1},
 		stagetest.ObjectName{Name: "kotubo", Proc: int16(itemsrc.ProcTsubo), Subtype: 0},
 	))
 	if err != nil {
@@ -51,7 +51,7 @@ func dungeon(name string, table int, doors []a, rooms ...stagetest.Room) stagete
 	return stagetest.Stage{
 		Name: name,
 		DZS: stagetest.DZx(
-			stagetest.StagChunk(stagetest.StagInfo(table, int(stagedata.StageDungeon), true)),
+			stagetest.StagChunk(stagetest.StagInfo(table, int(stage.StageDungeon), true)),
 			stagetest.Actors("TGDR", doors...),
 		),
 		Rooms: rooms,
@@ -68,7 +68,7 @@ func room(no int, chunks ...stagetest.Chunk) stagetest.Room {
 func vanilla() []stagetest.Stage {
 	return []stagetest.Stage{
 		{Name: "sea", DZS: stagetest.DZx(
-			stagetest.StagChunk(stagetest.StagInfo(0, int(stagedata.StageSea), false)),
+			stagetest.StagChunk(stagetest.StagInfo(0, int(stage.StageSea), false)),
 			stagetest.Actors("TGDR", door("door10", 0, 0x05, 1, 2), door("door12", 0, 0xFF, 1, 2)),
 		)},
 		dungeon("M_NewD2", TableDRC,
@@ -97,7 +97,7 @@ func vanilla() []stagetest.Stage {
 		{
 			Name: "kaze",
 			DZS: stagetest.DZx(
-				stagetest.StagChunk(stagetest.StagInfo(TableWT, int(stagedata.StageDungeon), true)),
+				stagetest.StagChunk(stagetest.StagInfo(TableWT, int(stage.StageDungeon), true)),
 				stagetest.Actors("SCO1", door("doorKD", 2, 0x07, 1, 2), door("doorKD", 2, 0x08, 2, 3)),
 				stagetest.Actors("SCO2", door("doorKD", 2, 0x07, 1, 2), door("doorKD", 2, 0x08, 2, 3)),
 				stagetest.Actors("ACTR", fieldKey(0x11)),
@@ -107,13 +107,13 @@ func vanilla() []stagetest.Stage {
 	}
 }
 
-func load(t testing.TB, stages []stagetest.Stage) []*stagedata.Stage {
+func load(t testing.TB, stages []stagetest.Stage) []*stage.Stage {
 	t.Helper()
 	d := new(stagetest.Disc)
 	for _, s := range stages {
 		d.AddStage(s)
 	}
-	out, _, err := stagedata.Load(d)
+	out, _, err := stage.Load(d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +402,7 @@ func TestBuildDegenerate(t *testing.T) {
 	stages := load(t, vanilla())
 	for name, r := range map[string]*Result{
 		"no stages": Build(nil, testNames(t)),
-		"nil stage": Build([]*stagedata.Stage{nil}, testNames(t)),
+		"nil stage": Build([]*stage.Stage{nil}, testNames(t)),
 		"no names":  Build(stages, nil),
 	} {
 		if r.Pass || len(r.Tables) != len(Dungeons) {

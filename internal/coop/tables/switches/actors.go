@@ -3,7 +3,7 @@ package switches
 import (
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // The decoders below read every actor the decomp shows writing a switch
@@ -13,7 +13,7 @@ import (
 // c_damagereaction.cpp), and a few common readers. Not covered: the
 // switch a stage EVNT entry sets as its event starts
 // (dEvent_exception_c::setStartDemo, d_event_manager.cpp:23-48), since
-// stagedata keeps no EVNT entries. A path such as
+// wwapi/stage keeps no EVNT entries. A path such as
 // "d_a_swhit0.cpp:72-75" is a decomp source line; params is
 // fopAcM_GetParam, the entry's Params, and home.angle is the entry's
 // Angle (dStage_actorCreate, d_stage.cpp:1300-1310). daObj::PrmAbstract
@@ -24,89 +24,89 @@ import (
 // otherwise: fopAcM_onSwitch passes the home room
 // (f_op_actor_mng.h:366-379) and the dComIfGs_ calls here pass
 // fopAcM_GetRoomNo, which is the same room for these actors. The game
-// creates stage.dzs entries with room -1 (stagedata.Placed), which
+// creates stage.dzs entries with room -1 (stage.Placed), which
 // routes memory and dan switches but not zone ones.
 
-// The procs the decoders key on that stagedata doesn't name, as GZLE01
+// The procs the decoders key on that wwapi/stage doesn't name, as GZLE01
 // numbers them (the fpcNm_*_e value at that line of f_pc_name.h, as
-// stagedata's Proc constants are given), with the l_objectName names that
+// wwapi/stage's Proc constants are given), with the l_objectName names that
 // create them (d_stage.cpp lines).
 const (
-	procSwflat      stagedata.Proc = 0x01F // fpcNm_Obj_Swflat_e, f_pc_name.h:40; "Hfbot1A".."Hfbot1C" (d_stage.cpp:960-962)
-	procSwlight     stagedata.Proc = 0x020 // fpcNm_Obj_Swlight_e, f_pc_name.h:41; "MsuSW", "MsuSWB" (d_stage.cpp:631-632)
-	procSwhammer    stagedata.Proc = 0x021 // fpcNm_Obj_Swhammer_e, f_pc_name.h:42; "MhmrSW0" (d_stage.cpp:569)
-	procTagVolcano  stagedata.Proc = 0x024 // fpcNm_Tag_Volcano_e, f_pc_name.h:45; "VolTag" (d_stage.cpp:973)
-	procHmlif       stagedata.Proc = 0x02A // fpcNm_Hmlif_e, f_pc_name.h:51; "Hmlif", "Hyuf1", "Hyuf2" (d_stage.cpp:905, 1021-1022)
-	procTribox      stagedata.Proc = 0x02E // fpcNm_Obj_Tribox_e, f_pc_name.h:55; "MtryB", "MtryBCr" (d_stage.cpp:1081-1082)
-	procHlift       stagedata.Proc = 0x030 // fpcNm_Obj_Hlift_e, f_pc_name.h:57; "Hlift", "Hliftb" (d_stage.cpp:869-870)
-	procHami2       stagedata.Proc = 0x031 // fpcNm_Obj_Hami2_e, f_pc_name.h:58; "Hami2" (d_stage.cpp:871)
-	procHami3       stagedata.Proc = 0x032 // fpcNm_Obj_Hami3_e, f_pc_name.h:59; "Hami3" (d_stage.cpp:872)
-	procVolcano     stagedata.Proc = 0x035 // fpcNm_Obj_Volcano_e, f_pc_name.h:62; "Ykzyg" (d_stage.cpp:963)
-	procVmc         stagedata.Proc = 0x036 // fpcNm_Obj_Vmc_e, f_pc_name.h:63; "VmcBS" (d_stage.cpp:1094)
-	procVfan        stagedata.Proc = 0x038 // fpcNm_Obj_Vfan_e, f_pc_name.h:65; "Vfan" (d_stage.cpp:1096)
-	procDragonhead  stagedata.Proc = 0x03A // fpcNm_Obj_Dragonhead_e, f_pc_name.h:67; "Qdghd" (d_stage.cpp:965)
-	procCanon       stagedata.Proc = 0x041 // fpcNm_OBJ_CANON_e, f_pc_name.h:74; "Ocanon" (d_stage.cpp:819)
-	procWarpt       stagedata.Proc = 0x043 // fpcNm_OBJ_WARPT_e, f_pc_name.h:76; "Warpt".."Warpts3" (d_stage.cpp:605-609)
-	procMjdoor      stagedata.Proc = 0x047 // fpcNm_OBJ_MJDOOR_e, f_pc_name.h:80; "MjDoor" (d_stage.cpp:829), d_a_obj_majyuu_door.cpp
-	procMkie        stagedata.Proc = 0x04D // fpcNm_Obj_Mkie_e, f_pc_name.h:86; "MkieBA", "MkieBAB" (d_stage.cpp:949-950)
-	procMkiek       stagedata.Proc = 0x04E // fpcNm_Obj_Mkiek_e, f_pc_name.h:87; "MkieK" (d_stage.cpp:951)
-	procMknjD       stagedata.Proc = 0x04F // fpcNm_Obj_MknjD_e, f_pc_name.h:88; "MknjD" (d_stage.cpp:952)
-	procMsdan       stagedata.Proc = 0x050 // fpcNm_Obj_Msdan_e, f_pc_name.h:89; "Msdan" (d_stage.cpp:953)
-	procLadder      stagedata.Proc = 0x057 // fpcNm_Obj_Ladder_e, f_pc_name.h:96; "Mhsg6".."Mhsg4h" (d_stage.cpp:910-914)
-	procAshut       stagedata.Proc = 0x05A // fpcNm_Obj_Ashut_e, f_pc_name.h:99; "Ashut" (d_stage.cpp:1092)
-	procMflft       stagedata.Proc = 0x05D // fpcNm_MFLFT_e, f_pc_name.h:102; "Mflft" (d_stage.cpp:875)
-	procFloor       stagedata.Proc = 0x062 // fpcNm_FLOOR_e, f_pc_name.h:107; "Hhyu1" (d_stage.cpp:637)
-	procKokiie      stagedata.Proc = 0x064 // fpcNm_KOKIIE_e, f_pc_name.h:109; "Kokiie" (d_stage.cpp:888)
-	procShutter     stagedata.Proc = 0x072 // fpcNm_SHUTTER_e, f_pc_name.h:123; "Htobi1", "Htobi2" (d_stage.cpp:957-958)
-	procMbdoor      stagedata.Proc = 0x075 // fpcNm_MBDOOR_e, f_pc_name.h:126; "SMBdor", "KGBdor" (d_stage.cpp:943-944)
-	procFerris      stagedata.Proc = 0x07D // fpcNm_Obj_Ferris_e, f_pc_name.h:134; "Skanran" (d_stage.cpp:1110)
-	procHomen       stagedata.Proc = 0x083 // fpcNm_Obj_Homen_e, f_pc_name.h:140; "Homen1", "Homen2" (d_stage.cpp:1120-1121)
-	procVds         stagedata.Proc = 0x086 // fpcNm_Obj_Vds_e, f_pc_name.h:143; "Vds" (d_stage.cpp:1148)
-	procAjav        stagedata.Proc = 0x088 // fpcNm_Obj_Ajav_e, f_pc_name.h:145; "Ajav" (d_stage.cpp:1111)
-	procHtetu1      stagedata.Proc = 0x08B // fpcNm_Obj_Htetu1_e, f_pc_name.h:148; "Htetu1" (d_stage.cpp:1114)
-	procLeaves      stagedata.Proc = 0x092 // fpcNm_Obj_Leaves_e, f_pc_name.h:155; "Vochi" (d_stage.cpp:1123)
-	procHcbh        stagedata.Proc = 0x098 // fpcNm_Obj_Hcbh_e, f_pc_name.h:161; "Hcbh" (d_stage.cpp:1166)
-	procShmrgrd     stagedata.Proc = 0x09B // fpcNm_Obj_Shmrgrd_e, f_pc_name.h:164; "Shmrgrd" (d_stage.cpp:1171)
-	procKanoke      stagedata.Proc = 0x0A1 // fpcNm_Obj_Kanoke_e, f_pc_name.h:170; "MKanoke", "MKanok2" (d_stage.cpp:999-1000)
-	procEskban      stagedata.Proc = 0x0A2 // fpcNm_Obj_Eskban_e, f_pc_name.h:171; "Eskban" (d_stage.cpp:994)
-	procEkskz       stagedata.Proc = 0x0A3 // fpcNm_Obj_Ekskz_e, f_pc_name.h:172; "Ekskz" (d_stage.cpp:995)
-	procEbomzo      stagedata.Proc = 0x0A4 // fpcNm_Obj_Ebomzo_e, f_pc_name.h:173; "Ebomzo" (d_stage.cpp:1118)
-	procOship       stagedata.Proc = 0x0B4 // fpcNm_OSHIP_e, f_pc_name.h:189; "Oship" (d_stage.cpp:816)
-	procKui         stagedata.Proc = 0x0FC // fpcNm_KUI_e, f_pc_name.h:264; "Kui" (d_stage.cpp:645)
-	procFlame       stagedata.Proc = 0x10D // fpcNm_Obj_Flame_e, f_pc_name.h:281; "Yfire00" (d_stage.cpp:788)
-	procTenmado     stagedata.Proc = 0x119 // fpcNm_Obj_Tenmado_e, f_pc_name.h:293; "Tenmado" (d_stage.cpp:992)
-	procFirewall    stagedata.Proc = 0x120 // fpcNm_Obj_Firewall_e, f_pc_name.h:300; "Yswdr00" (d_stage.cpp:1100)
-	procTnTrap      stagedata.Proc = 0x121 // fpcNm_Obj_TnTrap_e, f_pc_name.h:301; "TnTrap", "FgTrap", "CmTrap" (d_stage.cpp:1101-1103)
-	procTapestry    stagedata.Proc = 0x123 // fpcNm_Obj_Tapestry_e, f_pc_name.h:303; "Mcrtn" (d_stage.cpp:1093)
-	procHsh         stagedata.Proc = 0x124 // fpcNm_Obj_HSH_e, f_pc_name.h:304; "Hsh", "Hsh2" (d_stage.cpp:1138-1139), d_a_obj_hsehi1.cpp
-	procBombFlower  stagedata.Proc = 0x12A // fpcNm_BOMB_FLOWER_e, f_pc_name.h:310; "BFlower", "VbakH" (d_stage.cpp:945-946)
-	procKddoor      stagedata.Proc = 0x132 // fpcNm_KDDOOR_e, f_pc_name.h:318; "doorKD", "ZenshKD", "K_ZshKD", "doorSH", "doorSZ" (d_stage.cpp:460-464)
-	procSwAttack    stagedata.Proc = 0x138 // fpcNm_SW_ATTACK_e, f_pc_name.h:324; "SWat00" (d_stage.cpp:633)
-	procSwTact      stagedata.Proc = 0x13A // fpcNm_SW_TACT_e, f_pc_name.h:326; "SWtact", "SWtactB" (d_stage.cpp:635-636)
-	procNpcOs       stagedata.Proc = 0x13C // fpcNm_NPC_OS_e, f_pc_name.h:328; "Os", "Os1", "Os2" (d_stage.cpp:704-706)
-	procNpcP2       stagedata.Proc = 0x145 // fpcNm_NPC_P2_e, f_pc_name.h:337; "P2a".."P2c" (d_stage.cpp:852-854)
-	procNpcKk1      stagedata.Proc = 0x163 // fpcNm_NPC_KK1_e, f_pc_name.h:367; "Kk1" (d_stage.cpp:746)
-	procNpcHr       stagedata.Proc = 0x16F // fpcNm_NPC_HR_e, f_pc_name.h:379; "Hr", "Hr2" (d_stage.cpp:1004-1005)
-	procBigelf      stagedata.Proc = 0x173 // fpcNm_BIGELF_e, f_pc_name.h:383; "BigElf" (d_stage.cpp:1006)
-	procNpcMn       stagedata.Proc = 0x17E // fpcNm_NPC_MN_e, f_pc_name.h:394; "Mn" (d_stage.cpp:1019)
-	procItnak       stagedata.Proc = 0x18E // fpcNm_Obj_Itnak_e, f_pc_name.h:410; "Itnak" (d_stage.cpp:1144)
-	procSaku        stagedata.Proc = 0x191 // fpcNm_SAKU_e, f_pc_name.h:413; "Ksaku", "Dsaku" (d_stage.cpp:795, 861)
-	procTagEvent    stagedata.Proc = 0x19C // fpcNm_TAG_EVENT_e, f_pc_name.h:424; "TagEv" (d_stage.cpp:574)
-	procTagHint     stagedata.Proc = 0x19D // fpcNm_TAG_HINT_e, f_pc_name.h:425; "TagHt", "TagHt2" (d_stage.cpp:575-576)
-	procTagMsg      stagedata.Proc = 0x19E // fpcNm_TAG_MSG_e, f_pc_name.h:426; "TagMsg", "TagMsg2" (d_stage.cpp:577-578)
-	procTagIsland   stagedata.Proc = 0x1A0 // fpcNm_TAG_ISLAND_e, f_pc_name.h:428; "TagIsl" (d_stage.cpp:579)
-	procTagKbItem   stagedata.Proc = 0x1A4 // fpcNm_TAG_KB_ITEM_e, f_pc_name.h:432; "TagKb" (d_stage.cpp:583)
-	procLightBridge stagedata.Proc = 0x1AF // fpcNm_LIGHTBRIDGE_e, f_pc_name.h:443; "Gbrg00" (d_stage.cpp:909)
-	procWall        stagedata.Proc = 0x1B1 // fpcNm_WALL_e, f_pc_name.h:445; "Wall" (d_stage.cpp:916)
-	procSwPropeller stagedata.Proc = 0x1B2 // fpcNm_SW_PROPELLER_e, f_pc_name.h:446; "Hpbot1", "Vpbot" (d_stage.cpp:621-622)
-	procAgbsw0      stagedata.Proc = 0x1B6 // fpcNm_AGBSW0_e, f_pc_name.h:450; "agbA".."agbFA" (d_stage.cpp:503-515)
-	procHys         stagedata.Proc = 0x1C8 // fpcNm_Hys_e, f_pc_name.h:468; "Hys", "Hys2" (d_stage.cpp:612-613)
-	procStone       stagedata.Proc = 0x1CC // fpcNm_STONE_e, f_pc_name.h:472; "koisi1", "koisi2" (d_stage.cpp:532-533)
-	procStone2      stagedata.Proc = 0x1CD // fpcNm_Stone2_e, f_pc_name.h:473; "Ebrock", "Ekao", "Ebrock2" (d_stage.cpp:654-656)
-	procTry         stagedata.Proc = 0x1D0 // fpcNm_Obj_Try_e, f_pc_name.h:477; "Hseki1".."Hseki52" (d_stage.cpp:925-939)
-	procIce         stagedata.Proc = 0x1D2 // fpcNm_Obj_Ice_e, f_pc_name.h:479; "Ikori" (d_stage.cpp:630)
-	procCorrect     stagedata.Proc = 0x1D8 // fpcNm_Obj_Correct_e, f_pc_name.h:485; "BLK_CR".."CrTrBl" (d_stage.cpp:556-563)
-	procTagLight    stagedata.Proc = 0x1DB // fpcNm_Tag_Light_e, f_pc_name.h:488; "LTag0", "LTag1", "LTagR0" (d_stage.cpp:625-627)
+	procSwflat      stage.Proc = 0x01F // fpcNm_Obj_Swflat_e, f_pc_name.h:40; "Hfbot1A".."Hfbot1C" (d_stage.cpp:960-962)
+	procSwlight     stage.Proc = 0x020 // fpcNm_Obj_Swlight_e, f_pc_name.h:41; "MsuSW", "MsuSWB" (d_stage.cpp:631-632)
+	procSwhammer    stage.Proc = 0x021 // fpcNm_Obj_Swhammer_e, f_pc_name.h:42; "MhmrSW0" (d_stage.cpp:569)
+	procTagVolcano  stage.Proc = 0x024 // fpcNm_Tag_Volcano_e, f_pc_name.h:45; "VolTag" (d_stage.cpp:973)
+	procHmlif       stage.Proc = 0x02A // fpcNm_Hmlif_e, f_pc_name.h:51; "Hmlif", "Hyuf1", "Hyuf2" (d_stage.cpp:905, 1021-1022)
+	procTribox      stage.Proc = 0x02E // fpcNm_Obj_Tribox_e, f_pc_name.h:55; "MtryB", "MtryBCr" (d_stage.cpp:1081-1082)
+	procHlift       stage.Proc = 0x030 // fpcNm_Obj_Hlift_e, f_pc_name.h:57; "Hlift", "Hliftb" (d_stage.cpp:869-870)
+	procHami2       stage.Proc = 0x031 // fpcNm_Obj_Hami2_e, f_pc_name.h:58; "Hami2" (d_stage.cpp:871)
+	procHami3       stage.Proc = 0x032 // fpcNm_Obj_Hami3_e, f_pc_name.h:59; "Hami3" (d_stage.cpp:872)
+	procVolcano     stage.Proc = 0x035 // fpcNm_Obj_Volcano_e, f_pc_name.h:62; "Ykzyg" (d_stage.cpp:963)
+	procVmc         stage.Proc = 0x036 // fpcNm_Obj_Vmc_e, f_pc_name.h:63; "VmcBS" (d_stage.cpp:1094)
+	procVfan        stage.Proc = 0x038 // fpcNm_Obj_Vfan_e, f_pc_name.h:65; "Vfan" (d_stage.cpp:1096)
+	procDragonhead  stage.Proc = 0x03A // fpcNm_Obj_Dragonhead_e, f_pc_name.h:67; "Qdghd" (d_stage.cpp:965)
+	procCanon       stage.Proc = 0x041 // fpcNm_OBJ_CANON_e, f_pc_name.h:74; "Ocanon" (d_stage.cpp:819)
+	procWarpt       stage.Proc = 0x043 // fpcNm_OBJ_WARPT_e, f_pc_name.h:76; "Warpt".."Warpts3" (d_stage.cpp:605-609)
+	procMjdoor      stage.Proc = 0x047 // fpcNm_OBJ_MJDOOR_e, f_pc_name.h:80; "MjDoor" (d_stage.cpp:829), d_a_obj_majyuu_door.cpp
+	procMkie        stage.Proc = 0x04D // fpcNm_Obj_Mkie_e, f_pc_name.h:86; "MkieBA", "MkieBAB" (d_stage.cpp:949-950)
+	procMkiek       stage.Proc = 0x04E // fpcNm_Obj_Mkiek_e, f_pc_name.h:87; "MkieK" (d_stage.cpp:951)
+	procMknjD       stage.Proc = 0x04F // fpcNm_Obj_MknjD_e, f_pc_name.h:88; "MknjD" (d_stage.cpp:952)
+	procMsdan       stage.Proc = 0x050 // fpcNm_Obj_Msdan_e, f_pc_name.h:89; "Msdan" (d_stage.cpp:953)
+	procLadder      stage.Proc = 0x057 // fpcNm_Obj_Ladder_e, f_pc_name.h:96; "Mhsg6".."Mhsg4h" (d_stage.cpp:910-914)
+	procAshut       stage.Proc = 0x05A // fpcNm_Obj_Ashut_e, f_pc_name.h:99; "Ashut" (d_stage.cpp:1092)
+	procMflft       stage.Proc = 0x05D // fpcNm_MFLFT_e, f_pc_name.h:102; "Mflft" (d_stage.cpp:875)
+	procFloor       stage.Proc = 0x062 // fpcNm_FLOOR_e, f_pc_name.h:107; "Hhyu1" (d_stage.cpp:637)
+	procKokiie      stage.Proc = 0x064 // fpcNm_KOKIIE_e, f_pc_name.h:109; "Kokiie" (d_stage.cpp:888)
+	procShutter     stage.Proc = 0x072 // fpcNm_SHUTTER_e, f_pc_name.h:123; "Htobi1", "Htobi2" (d_stage.cpp:957-958)
+	procMbdoor      stage.Proc = 0x075 // fpcNm_MBDOOR_e, f_pc_name.h:126; "SMBdor", "KGBdor" (d_stage.cpp:943-944)
+	procFerris      stage.Proc = 0x07D // fpcNm_Obj_Ferris_e, f_pc_name.h:134; "Skanran" (d_stage.cpp:1110)
+	procHomen       stage.Proc = 0x083 // fpcNm_Obj_Homen_e, f_pc_name.h:140; "Homen1", "Homen2" (d_stage.cpp:1120-1121)
+	procVds         stage.Proc = 0x086 // fpcNm_Obj_Vds_e, f_pc_name.h:143; "Vds" (d_stage.cpp:1148)
+	procAjav        stage.Proc = 0x088 // fpcNm_Obj_Ajav_e, f_pc_name.h:145; "Ajav" (d_stage.cpp:1111)
+	procHtetu1      stage.Proc = 0x08B // fpcNm_Obj_Htetu1_e, f_pc_name.h:148; "Htetu1" (d_stage.cpp:1114)
+	procLeaves      stage.Proc = 0x092 // fpcNm_Obj_Leaves_e, f_pc_name.h:155; "Vochi" (d_stage.cpp:1123)
+	procHcbh        stage.Proc = 0x098 // fpcNm_Obj_Hcbh_e, f_pc_name.h:161; "Hcbh" (d_stage.cpp:1166)
+	procShmrgrd     stage.Proc = 0x09B // fpcNm_Obj_Shmrgrd_e, f_pc_name.h:164; "Shmrgrd" (d_stage.cpp:1171)
+	procKanoke      stage.Proc = 0x0A1 // fpcNm_Obj_Kanoke_e, f_pc_name.h:170; "MKanoke", "MKanok2" (d_stage.cpp:999-1000)
+	procEskban      stage.Proc = 0x0A2 // fpcNm_Obj_Eskban_e, f_pc_name.h:171; "Eskban" (d_stage.cpp:994)
+	procEkskz       stage.Proc = 0x0A3 // fpcNm_Obj_Ekskz_e, f_pc_name.h:172; "Ekskz" (d_stage.cpp:995)
+	procEbomzo      stage.Proc = 0x0A4 // fpcNm_Obj_Ebomzo_e, f_pc_name.h:173; "Ebomzo" (d_stage.cpp:1118)
+	procOship       stage.Proc = 0x0B4 // fpcNm_OSHIP_e, f_pc_name.h:189; "Oship" (d_stage.cpp:816)
+	procKui         stage.Proc = 0x0FC // fpcNm_KUI_e, f_pc_name.h:264; "Kui" (d_stage.cpp:645)
+	procFlame       stage.Proc = 0x10D // fpcNm_Obj_Flame_e, f_pc_name.h:281; "Yfire00" (d_stage.cpp:788)
+	procTenmado     stage.Proc = 0x119 // fpcNm_Obj_Tenmado_e, f_pc_name.h:293; "Tenmado" (d_stage.cpp:992)
+	procFirewall    stage.Proc = 0x120 // fpcNm_Obj_Firewall_e, f_pc_name.h:300; "Yswdr00" (d_stage.cpp:1100)
+	procTnTrap      stage.Proc = 0x121 // fpcNm_Obj_TnTrap_e, f_pc_name.h:301; "TnTrap", "FgTrap", "CmTrap" (d_stage.cpp:1101-1103)
+	procTapestry    stage.Proc = 0x123 // fpcNm_Obj_Tapestry_e, f_pc_name.h:303; "Mcrtn" (d_stage.cpp:1093)
+	procHsh         stage.Proc = 0x124 // fpcNm_Obj_HSH_e, f_pc_name.h:304; "Hsh", "Hsh2" (d_stage.cpp:1138-1139), d_a_obj_hsehi1.cpp
+	procBombFlower  stage.Proc = 0x12A // fpcNm_BOMB_FLOWER_e, f_pc_name.h:310; "BFlower", "VbakH" (d_stage.cpp:945-946)
+	procKddoor      stage.Proc = 0x132 // fpcNm_KDDOOR_e, f_pc_name.h:318; "doorKD", "ZenshKD", "K_ZshKD", "doorSH", "doorSZ" (d_stage.cpp:460-464)
+	procSwAttack    stage.Proc = 0x138 // fpcNm_SW_ATTACK_e, f_pc_name.h:324; "SWat00" (d_stage.cpp:633)
+	procSwTact      stage.Proc = 0x13A // fpcNm_SW_TACT_e, f_pc_name.h:326; "SWtact", "SWtactB" (d_stage.cpp:635-636)
+	procNpcOs       stage.Proc = 0x13C // fpcNm_NPC_OS_e, f_pc_name.h:328; "Os", "Os1", "Os2" (d_stage.cpp:704-706)
+	procNpcP2       stage.Proc = 0x145 // fpcNm_NPC_P2_e, f_pc_name.h:337; "P2a".."P2c" (d_stage.cpp:852-854)
+	procNpcKk1      stage.Proc = 0x163 // fpcNm_NPC_KK1_e, f_pc_name.h:367; "Kk1" (d_stage.cpp:746)
+	procNpcHr       stage.Proc = 0x16F // fpcNm_NPC_HR_e, f_pc_name.h:379; "Hr", "Hr2" (d_stage.cpp:1004-1005)
+	procBigelf      stage.Proc = 0x173 // fpcNm_BIGELF_e, f_pc_name.h:383; "BigElf" (d_stage.cpp:1006)
+	procNpcMn       stage.Proc = 0x17E // fpcNm_NPC_MN_e, f_pc_name.h:394; "Mn" (d_stage.cpp:1019)
+	procItnak       stage.Proc = 0x18E // fpcNm_Obj_Itnak_e, f_pc_name.h:410; "Itnak" (d_stage.cpp:1144)
+	procSaku        stage.Proc = 0x191 // fpcNm_SAKU_e, f_pc_name.h:413; "Ksaku", "Dsaku" (d_stage.cpp:795, 861)
+	procTagEvent    stage.Proc = 0x19C // fpcNm_TAG_EVENT_e, f_pc_name.h:424; "TagEv" (d_stage.cpp:574)
+	procTagHint     stage.Proc = 0x19D // fpcNm_TAG_HINT_e, f_pc_name.h:425; "TagHt", "TagHt2" (d_stage.cpp:575-576)
+	procTagMsg      stage.Proc = 0x19E // fpcNm_TAG_MSG_e, f_pc_name.h:426; "TagMsg", "TagMsg2" (d_stage.cpp:577-578)
+	procTagIsland   stage.Proc = 0x1A0 // fpcNm_TAG_ISLAND_e, f_pc_name.h:428; "TagIsl" (d_stage.cpp:579)
+	procTagKbItem   stage.Proc = 0x1A4 // fpcNm_TAG_KB_ITEM_e, f_pc_name.h:432; "TagKb" (d_stage.cpp:583)
+	procLightBridge stage.Proc = 0x1AF // fpcNm_LIGHTBRIDGE_e, f_pc_name.h:443; "Gbrg00" (d_stage.cpp:909)
+	procWall        stage.Proc = 0x1B1 // fpcNm_WALL_e, f_pc_name.h:445; "Wall" (d_stage.cpp:916)
+	procSwPropeller stage.Proc = 0x1B2 // fpcNm_SW_PROPELLER_e, f_pc_name.h:446; "Hpbot1", "Vpbot" (d_stage.cpp:621-622)
+	procAgbsw0      stage.Proc = 0x1B6 // fpcNm_AGBSW0_e, f_pc_name.h:450; "agbA".."agbFA" (d_stage.cpp:503-515)
+	procHys         stage.Proc = 0x1C8 // fpcNm_Hys_e, f_pc_name.h:468; "Hys", "Hys2" (d_stage.cpp:612-613)
+	procStone       stage.Proc = 0x1CC // fpcNm_STONE_e, f_pc_name.h:472; "koisi1", "koisi2" (d_stage.cpp:532-533)
+	procStone2      stage.Proc = 0x1CD // fpcNm_Stone2_e, f_pc_name.h:473; "Ebrock", "Ekao", "Ebrock2" (d_stage.cpp:654-656)
+	procTry         stage.Proc = 0x1D0 // fpcNm_Obj_Try_e, f_pc_name.h:477; "Hseki1".."Hseki52" (d_stage.cpp:925-939)
+	procIce         stage.Proc = 0x1D2 // fpcNm_Obj_Ice_e, f_pc_name.h:479; "Ikori" (d_stage.cpp:630)
+	procCorrect     stage.Proc = 0x1D8 // fpcNm_Obj_Correct_e, f_pc_name.h:485; "BLK_CR".."CrTrBl" (d_stage.cpp:556-563)
+	procTagLight    stage.Proc = 0x1DB // fpcNm_Tag_Light_e, f_pc_name.h:488; "LTag0", "LTag1", "LTagR0" (d_stage.cpp:625-627)
 )
 
 // MaxANDInputs caps the inputs of one AND actor this table expands. The
@@ -121,7 +121,7 @@ const MaxANDInputs = 32
 const agbsw0Types = 15
 
 // entry is a placed actor as the decoders read it.
-type entry struct{ stagedata.Actor }
+type entry struct{ stage.Actor }
 
 // bits is daObj::PrmAbstract(width, shift).
 func (e entry) bits(shift, width uint) int { return int(e.Params>>shift) & (1<<width - 1) }
@@ -189,7 +189,7 @@ func (u use) in(room int) use {
 
 // spec is how a proc's entries use switches.
 type spec struct {
-	proc stagedata.Proc
+	proc stage.Proc
 	name string // the fpcNm_*_e name without its affixes, for the report
 	// decode returns the entry's switch uses. Uses of switch 0xFF (and -1)
 	// are dropped by Build, as the game's setters return early for them
@@ -224,7 +224,7 @@ var specs = []spec{
 	// :228-232); type 2 rearms when the switch is cleared but still only
 	// sets (:328-334). A timer (getTimer() * 15 frames, :337-340) clears
 	// it again unless SwNo2 is on (actionOnTimer :342-365).
-	{proc: stagedata.ProcSwhit0, name: "SWHIT0", decode: func(e entry) []use {
+	{proc: stage.ProcSwhit0, name: "SWHIT0", decode: func(e entry) []use {
 		sw, timer := e.byte(0), e.byte(20)
 		if timer == 0xFF {
 			timer = 0
@@ -249,7 +249,7 @@ var specs = []spec{
 	// flame (dBgS_ObjGndChk_Spl, :476-484, then :311-319). The design
 	// lists un-timed torches as latching, so they are; the douse clear
 	// is noted in Why.
-	{proc: stagedata.ProcEP, name: "EP", decode: func(e entry) []use {
+	{proc: stage.ProcEP, name: "EP", decode: func(e entry) []use {
 		typ, timer, stop, sw := e.bits(0, 6), e.byte(8), e.byte(16), e.byte(24)
 		if typ == 0x3F {
 			typ = 0
@@ -279,7 +279,7 @@ var specs = []spec{
 	//	3 REQ_HEAVY|STAY_PRESSED|OBEY_SAVE: as 0, pressed by a heavy load
 	//
 	// Type 1 stays down while swSave2 is on (mode_lower :570-600).
-	{proc: stagedata.ProcSwpush, name: "Obj_Swpush", decode: func(e entry) []use {
+	{proc: stage.ProcSwpush, name: "Obj_Swpush", decode: func(e entry) []use {
 		typ, sw := e.bits(24, 3), e.byte(8)
 		swSave2 := 0xFF
 		if e.bits(30, 1) >= 1 {
@@ -304,7 +304,7 @@ var specs = []spec{
 	// and 1 have no flags and pop back up, clearing (mode_l_u :387-391);
 	// type 2 is IS_TOGGLE and revSwitches (mode_u_l :333-334); type 3 is
 	// OBEY_SAVE|STAY_PRESSED|REQ_HEAVY and only sets (:336).
-	{proc: stagedata.ProcSwheavy, name: "Obj_Swheavy", decode: func(e entry) []use {
+	{proc: stage.ProcSwheavy, name: "Obj_Swheavy", decode: func(e entry) []use {
 		typ, sw := e.bits(24, 3), e.byte(8)
 		switch typ {
 		case 0, 1:
@@ -320,7 +320,7 @@ var specs = []spec{
 	// Room-clear switch. d_a_alldie.cpp: getSwbit (u8)(params >> 8)
 	// (:17-19), set once no enemy is left (:45); the actor deletes itself
 	// at create when it is already on (:70).
-	{proc: stagedata.ProcAllDie, name: "ALLDIE", decode: fixed(Latching, "room clear: set when no enemy is left", prmByte(8))},
+	{proc: stage.ProcAllDie, name: "ALLDIE", decode: fixed(Latching, "room clear: set when no enemy is left", prmByte(8))},
 
 	// AND switch 0. d_a_andsw0.cpp create (:327-344): num params & 0xFF,
 	// behaviour (params >> 8) & 0xFF, first input (params >> 16) & 0xFF
@@ -340,7 +340,7 @@ var specs = []spec{
 	//
 	// The design lists every andsw0 as unsafe; the decomp makes types 0
 	// and 3 one-shot.
-	{proc: stagedata.ProcAndsw0, name: "ANDSW0", decode: func(e entry) []use {
+	{proc: stage.ProcAndsw0, name: "ANDSW0", decode: func(e entry) []use {
 		num, beh, first, out := e.byte(0), e.byte(8), e.byte(16), e.byte(24)
 		if num == 0xFF || num == 0 {
 			return nil
@@ -379,7 +379,7 @@ var specs = []spec{
 	// other than 0 (one-off) or 1 (continuous) (:176-209). A timer only
 	// delays the set (:89-93). The continuous type clears the output when
 	// an input turns off (actionOff :150-157).
-	{proc: stagedata.ProcAndsw2, name: "ANDSW2", decode: func(e entry) []use {
+	{proc: stage.ProcAndsw2, name: "ANDSW2", decode: func(e entry) []use {
 		num, typ, out, sw2 := e.byte(0), e.byte(8), e.byte(16), e.byte(24)
 		top := sw2
 		if top == 0xFF && out != 0xFF {
@@ -404,7 +404,7 @@ var specs = []spec{
 	// Switch timer. d_a_obj_timer.h:17-26: time PrmAbstract(8, 0), swSave
 	// PrmAbstract(8, 16). Once the switch is on it counts time * 15
 	// frames and clears it (mode_wait :36-41, mode_count :49-76).
-	{proc: stagedata.ProcObjTimer, name: "Obj_Timer", decode: func(e entry) []use {
+	{proc: stage.ProcObjTimer, name: "Obj_Timer", decode: func(e entry) []use {
 		return []use{clear(e.byte(16), fmt.Sprintf("switch timer: clears it %d frames after it turns on", e.byte(0)*15))}
 	}},
 
@@ -415,7 +415,7 @@ var specs = []spec{
 	// (:53-56). The other types set it once and delete themselves, and
 	// don't create when it is already on (:23-25, :57-58). The design
 	// lists every SW_C00 as unsafe; the decomp makes types 1-3 one-shot.
-	{proc: stagedata.ProcSwc00, name: "SWC00", decode: func(e entry) []use {
+	{proc: stage.ProcSwc00, name: "SWC00", decode: func(e entry) []use {
 		sw, enable := e.byte(0), e.byte(8)
 		r := read(enable, "enables the area switch")
 		if e.bits(16, 2) == 0 {
@@ -430,7 +430,7 @@ var specs = []spec{
 	// unless type 1, clears it while it is off (d_a_tag_evsw.cpp:10-48).
 	// Type 1 never clears: the switch follows the event bit, which §6.5's
 	// story batch carries, so it is classed Event.
-	{proc: stagedata.ProcTagEvsw, name: "TAG_EVSW", decode: func(e entry) []use {
+	{proc: stage.ProcTagEvsw, name: "TAG_EVSW", decode: func(e entry) []use {
 		sw, bit := e.byte(0), e.bits(8, 16)
 		if e.bits(24, 2) == 1 {
 			return []use{set(sw, Event, fmt.Sprintf("set while event bit 0x%04X is on", bit))}
@@ -446,7 +446,7 @@ var specs = []spec{
 	// (d_door.cpp:433-447). The kill-all bars set the switch of the side
 	// Link is on, in that side's room, once the room has no enemies
 	// (chkStopOpen); the other bars open when it is on.
-	{proc: stagedata.ProcDoor10, name: "DOOR10", decode: func(e entry) []use {
+	{proc: stage.ProcDoor10, name: "DOOR10", decode: func(e entry) []use {
 		// d_a_door10.cpp: chkMakeKey types 4 and 5 small key, 1 boss
 		// (:12-25), keyInit in demoProc (:568-570); chkStopOpen
 		// (:117-172): kill-all front type 2, back type 5.
@@ -460,7 +460,7 @@ var specs = []spec{
 		}
 		return doorUses(e, key, typ == 2, typ == 5)
 	}},
-	{proc: stagedata.ProcDoor12, name: "DOOR12", decode: func(e entry) []use {
+	{proc: stage.ProcDoor12, name: "DOOR12", decode: func(e entry) []use {
 		// d_a_door12.cpp: create makes it type 3 for getArg1 9 or 0xC
 		// (:576-578); chkMakeKey type 1 small key, 3 boss (:38-49),
 		// keyInit in demoProc (:620); chkStopOpen (:140-180): kill-all
@@ -509,7 +509,7 @@ var specs = []spec{
 	// type 2 (FUNC_TYPE_ENEMIES, :23-31) sets SwNo once mRoomNo has no
 	// enemies (actionGenocide :1026-1046); 1, 3, 4, 6 and 8 appear when
 	// SwNo is on (:484-512, actionSwOnWait).
-	{proc: stagedata.ProcTbox, name: "TBOX", decode: func(e entry) []use {
+	{proc: stage.ProcTbox, name: "TBOX", decode: func(e entry) []use {
 		fn, swNo, room, open := e.bits(0, 7), e.byte(12), e.angle(0)&0x3F, e.angleByte(2)
 		u := []use{set(open, Latching, "chest: set when opened").in(room)}
 		switch fn {
@@ -531,7 +531,7 @@ var specs = []spec{
 	// swSave1, the high bit in swSave2 (:1153-1198), and path_init reads
 	// them back (:1127-1151). Without a path, swSave1 decides whether the
 	// box appears (chk_appear :1469-1484).
-	{proc: stagedata.ProcMovebox, name: "Obj_Movebox", decode: func(e entry) []use {
+	{proc: stage.ProcMovebox, name: "Obj_Movebox", decode: func(e entry) []use {
 		typ, sw1, dmy := e.bits(24, 4), e.byte(8), e.bits(30, 1)
 		prmZ := e.angle(2)
 		if dmy != 0 {
@@ -567,7 +567,7 @@ var specs = []spec{
 	// set :2644-2646 and :2729-2732, enemy_ice :5273; type 0xA, the boss
 	// (:5027-5033), sets room switches 0xE0 (:3993) and 0xE1 (:4063) in
 	// its fight.
-	{proc: stagedata.ProcBK, name: "BK", decode: func(e entry) []use {
+	{proc: stage.ProcBK, name: "BK", decode: func(e entry) []use {
 		u := deathSwitch(e, "Bokoblin")
 		if e.bits(0, 4) == 0xA {
 			u = append(u, set(0xE0, Latching, "boss Bokoblin's fight"), set(0xE1, Latching, "boss Bokoblin's fight"))
@@ -576,27 +576,27 @@ var specs = []spec{
 	}},
 	// d_a_mo2.cpp: create :4093-4097, set :2408-2410, enemy_ice :4194;
 	// mEnableSpawnSwitch params >> 24.
-	{proc: stagedata.ProcMO2, name: "MO2", decode: func(e entry) []use {
+	{proc: stage.ProcMO2, name: "MO2", decode: func(e entry) []use {
 		return append(deathSwitch(e, "Moblin"), read(e.byte(24), "the Moblin spawns when it is on"))
 	}},
 	// d_a_st.cpp: create :2836-2844, set :1237, :2218, enemy_ice :2913;
 	// the ambush switch params >> 24.
-	{proc: stagedata.ProcST, name: "ST", decode: func(e entry) []use {
+	{proc: stage.ProcST, name: "ST", decode: func(e entry) []use {
 		return append(deathSwitch(e, "Stalfos"), read(e.byte(24), "the Stalfos ambushes when it is on"))
 	}},
 	// d_a_tn.cpp: create :4212, :4237-4238, set :2070-2072, enemy_ice
 	// :4335.
-	{proc: stagedata.ProcTN, name: "TN", decode: func(e entry) []use { return deathSwitch(e, "Darknut") }},
+	{proc: stage.ProcTN, name: "TN", decode: func(e entry) []use { return deathSwitch(e, "Darknut") }},
 
 	// Bosses. d_a_bdk.cpp sets dan switch 0x80 in the Helmaroc King's
 	// fight (:2064) and clears it again (:2308).
-	{proc: stagedata.ProcBDK, name: "BDK", decode: func(e entry) []use {
+	{proc: stage.ProcBDK, name: "BDK", decode: func(e entry) []use {
 		return []use{setClear(0x80, "Helmaroc King's fight: set, then cleared")}
 	}},
 	// d_a_bpw.cpp (NonMatching, but the code is there): the base switch
 	// (params >> 16) & 0xFF (:4581); light_on_off sets and clears base,
 	// base+1 and base+2 with the lights (:845-900).
-	{proc: stagedata.ProcBPW, name: "BPW", decode: func(e entry) []use {
+	{proc: stage.ProcBPW, name: "BPW", decode: func(e entry) []use {
 		base := e.byte(16)
 		if base == 0xFF {
 			return nil
@@ -608,11 +608,11 @@ var specs = []spec{
 		return u
 	}},
 	// d_a_daiocta.cpp: params >> 24 (:1562), set when beaten (:1261-1264).
-	{proc: stagedata.ProcDaiocta, name: "DAIOCTA", decode: fixed(Latching, "Big Octo: set when beaten", prmByte(24))},
+	{proc: stage.ProcDaiocta, name: "DAIOCTA", decode: fixed(Latching, "Big Octo: set when beaten", prmByte(24))},
 	// d_a_fganon.cpp create (:2735-2757): (params >> 16) & 0xFF set when
 	// beaten (:1911, :2002); params >> 24 set in the fight (:1756) and
 	// cleared (:1915).
-	{proc: stagedata.ProcFganon, name: "FGANON", decode: func(e entry) []use {
+	{proc: stage.ProcFganon, name: "FGANON", decode: func(e entry) []use {
 		return []use{
 			set(e.byte(16), Latching, "Phantom Ganon: set when beaten"),
 			setClear(e.byte(24), "Phantom Ganon's fight: set, then cleared"),
@@ -867,13 +867,13 @@ var specs = []spec{
 	{proc: procBigelf, name: "BIGELF", undecoded: stub("d_a_bigelf.cpp", "getSwbit, getSwbit2, d_a_bigelf.h:58-59")},
 	{proc: procNpcKk1, name: "NPC_KK1", undecoded: stub("d_a_npc_kk1.cpp", "getSWbit, d_a_npc_kk1.h:14")},
 	{proc: procNpcP2, name: "NPC_P2", undecoded: stub("d_a_npc_p2.cpp", "cutSwOnStart, d_a_npc_p2.h:96")},
-	{proc: stagedata.ProcPT, name: "PT", undecoded: "d_a_pt.cpp is NonMatching (configure.py:1838); its spawn switches (mEnableSpawnSwitch, mDisableRespawnSwitch, d_a_pt.h:14-15) have no decoded params"},
-	{proc: stagedata.ProcWZ, name: "WZ", undecoded: "d_a_wz.cpp is NonMatching (configure.py:1868); its spawn switches (mEnableSpawnSwitch, mDisableSpawnOnDeathSwitch, d_a_wz.h:18-19) have no decoded params"},
+	{proc: stage.ProcPT, name: "PT", undecoded: "d_a_pt.cpp is NonMatching (configure.py:1838); its spawn switches (mEnableSpawnSwitch, mDisableRespawnSwitch, d_a_pt.h:14-15) have no decoded params"},
+	{proc: stage.ProcWZ, name: "WZ", undecoded: "d_a_wz.cpp is NonMatching (configure.py:1868); its spawn switches (mEnableSpawnSwitch, mDisableSpawnOnDeathSwitch, d_a_wz.h:18-19) have no decoded params"},
 }
 
 // specByProc indexes specs.
-var specByProc = func() map[stagedata.Proc]*spec {
-	m := make(map[stagedata.Proc]*spec, len(specs))
+var specByProc = func() map[stage.Proc]*spec {
+	m := make(map[stage.Proc]*spec, len(specs))
 	for i := range specs {
 		m[specs[i].proc] = &specs[i]
 	}

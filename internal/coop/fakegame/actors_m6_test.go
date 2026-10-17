@@ -5,9 +5,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // enemyRoom is the room the M6 tests place their enemies in.
@@ -15,12 +15,12 @@ const enemyRoom = 1
 
 func placeM6() *Enemies {
 	return PlaceEnemies(
-		Enemy{Stage: drc.Name, Room: enemyRoom, SetID: 1, Proc: stagedata.ProcBK, Weapon: true},
-		Enemy{Stage: drc.Name, Room: enemyRoom, SetID: 2, Proc: stagedata.ProcCC},
-		Enemy{Stage: drc.Name, Room: enemyRoom, SetID: addr.ActorSetIDNone, Proc: stagedata.ProcCC},
-		Enemy{Stage: drc.Name, Room: enemyRoom, SetID: 4, Proc: stagedata.ProcRD},
-		Enemy{Stage: drc.Name, Room: enemyRoom, SetID: 5, Proc: stagedata.ProcBB, FailCreate: true},
-		Enemy{Stage: drc.Name, Room: 2, SetID: 6, Proc: stagedata.ProcBB},
+		Enemy{Stage: drc.Name, Room: enemyRoom, SetID: 1, Proc: stage.ProcBK, Weapon: true},
+		Enemy{Stage: drc.Name, Room: enemyRoom, SetID: 2, Proc: stage.ProcCC},
+		Enemy{Stage: drc.Name, Room: enemyRoom, SetID: addr.ActorSetIDNone, Proc: stage.ProcCC},
+		Enemy{Stage: drc.Name, Room: enemyRoom, SetID: 4, Proc: stage.ProcRD},
+		Enemy{Stage: drc.Name, Room: enemyRoom, SetID: 5, Proc: stage.ProcBB, FailCreate: true},
+		Enemy{Stage: drc.Name, Room: 2, SetID: 6, Proc: stage.ProcBB},
 	)
 }
 

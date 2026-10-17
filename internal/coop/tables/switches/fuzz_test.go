@@ -5,12 +5,12 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // Fuzz targets for Build, in the style of internal/network/fuzz_test.go:
-// one over whole stage files (the bytes stagedata.ParseDZx reads from an
+// one over whole stage files (the bytes stage.ParseDZx reads from an
 // ISO), one over a single entry's params as every proc the table reads
 // decodes them. The seed corpora are built in code (no game data) and run
 // as ordinary tests; to fuzz one, e.g.:
@@ -76,7 +76,7 @@ func FuzzBuild(f *testing.F) {
 		copy(e.Angle[:], angle)
 		return e
 	}
-	stag := stagetest.StagChunk(stagetest.StagInfo(3, int(stagedata.StageDungeon), true))
+	stag := stagetest.StagChunk(stagetest.StagInfo(3, int(stage.StageDungeon), true))
 	for _, seed := range [][]byte{
 		stagetest.DZx(stag, stagetest.Actors("ACTR",
 			a("SW_HIT0", 0xFF<<20|0x11), a("SW_HIT0", 0x10<<20|0x12, 0, 0, 0x13),
@@ -107,15 +107,15 @@ func FuzzBuild(f *testing.F) {
 	}
 	names := testNames(f)
 	f.Fuzz(func(t *testing.T, b []byte) {
-		d, err := stagedata.ParseDZx(b)
+		d, err := stage.ParseDZx(b)
 		if err != nil {
 			return
 		}
-		st := &stagedata.Stage{Name: "F", SaveTable: 3, DZS: d, Rooms: []stagedata.Room{{No: 0, DZR: d}, {No: 63, DZR: d}}}
+		st := &stage.Stage{Name: "F", SaveTable: 3, DZS: d, Rooms: []stage.Room{{No: 0, DZR: d}, {No: 63, DZR: d}}}
 		if d.Stag != nil {
 			st.SaveTable = d.Stag.SaveTable()
 		}
-		checkTable(t, Build([]*stagedata.Stage{st}, names), 3*len(d.Actors))
+		checkTable(t, Build([]*stage.Stage{st}, names), 3*len(d.Actors))
 	})
 }
 
@@ -141,20 +141,20 @@ func FuzzDecode(f *testing.F) {
 	}
 	names := testNames(f)
 	f.Fuzz(func(t *testing.T, params uint32, ax, ay, az int16, table uint8, room int8) {
-		var as []stagedata.Actor
+		var as []stage.Actor
 		for _, sp := range specs {
-			as = append(as, stagedata.Actor{
-				Tag: "ACTR", Layer: stagedata.AllLayers, Index: len(as), Name: synthName(sp.proc),
+			as = append(as, stage.Actor{
+				Tag: "ACTR", Layer: stage.AllLayers, Index: len(as), Name: synthName(sp.proc),
 				Params: params, Angle: [3]int16{ax, ay, az},
 			})
 		}
-		st := &stagedata.Stage{Name: "F", SaveTable: int(table)}
-		if room >= 0 && int(room) < stagedata.MaxRooms {
-			st.Rooms = []stagedata.Room{{No: int(room), DZR: &stagedata.DZx{Actors: as}}}
+		st := &stage.Stage{Name: "F", SaveTable: int(table)}
+		if room >= 0 && int(room) < stage.MaxRooms {
+			st.Rooms = []stage.Room{{No: int(room), DZR: &stage.DZx{Actors: as}}}
 		} else {
-			st.DZS = &stagedata.DZx{Actors: as}
+			st.DZS = &stage.DZx{Actors: as}
 		}
-		tbl := Build([]*stagedata.Stage{st}, names)
+		tbl := Build([]*stage.Stage{st}, names)
 		if tbl.Users != len(specs) {
 			t.Fatalf("%d users, want %d", tbl.Users, len(specs))
 		}

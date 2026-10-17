@@ -1,4 +1,4 @@
-package stagedata
+package stage
 
 import (
 	"bytes"
@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // Native fuzz targets for the stage readers, which parse bytes off the
 // user's disc. The seed corpora (built in code: no game data) run as
 // ordinary tests under `go test`; to fuzz one, e.g.:
 //
-//	go test -run='^$' -fuzz=FuzzParseArchive -fuzztime=30s ./internal/coop/stagedata/
+//	go test -run='^$' -fuzz=FuzzParseArchive -fuzztime=30s ./wwapi/stage/
 
 func FuzzDecodeYaz0(f *testing.F) {
 	for _, in := range yaz0Samples() {

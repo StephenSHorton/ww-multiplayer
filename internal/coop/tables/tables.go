@@ -8,7 +8,7 @@
 //
 // Only these are read from the disc: boot.bin and the FST (when the disc
 // is opened), main.dol, and the Stage.arc and Room<N>.arc files
-// stagedata.Load opens. Expanding those archives' Yaz0 is most of the
+// stage.Load opens. Expanding those archives' Yaz0 is most of the
 // time a build takes; the four builders are a small part (BenchmarkGet).
 //
 // Citations: file:line is the zeldaret/tww decomp at commit 4d78c994
@@ -29,12 +29,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/enemies"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/hearts"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/switches"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/disc"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // SchemaVersion is the cache format. Bump it whenever what a builder
@@ -45,9 +46,9 @@ import (
 const SchemaVersion = 5
 
 // Source is the disc Build reads: *inject.Disc satisfies it. Build calls
-// Stat and ReadFile from several goroutines at once (stagedata.FileSource).
+// Stat and ReadFile from several goroutines at once (disc.FileSource).
 type Source interface {
-	stagedata.FileSource
+	disc.FileSource
 	ReadDOL() ([]byte, error)
 }
 
@@ -97,14 +98,14 @@ type Tables struct {
 	Schema  int    `json:"schema"`
 	Builder string `json:"builder"` // the binary that built it (builderID)
 	ID
-	Stages   int                 `json:"stages"`             // stage directories read and built from
-	Rooms    int                 `json:"rooms"`              // their room archives
-	Skipped  []stagedata.Skipped `json:"skipped,omitempty"`  // stages the play scene can't load, left out (stagedata.Load)
-	Excluded []stagedata.Skipped `json:"excluded,omitempty"` // stages on save table 15 (STAGE_TEST, d_save.h:904), left out (playable)
-	Keys     *keys.Result        `json:"keys,omitempty"`
-	Hearts   *hearts.Result      `json:"hearts,omitempty"`
-	Switches *switches.Table     `json:"switches,omitempty"`
-	Enemies  *enemies.Table      `json:"enemies,omitempty"`
+	Stages   int             `json:"stages"`             // stage directories read and built from
+	Rooms    int             `json:"rooms"`              // their room archives
+	Skipped  []stage.Skipped `json:"skipped,omitempty"`  // stages the play scene can't load, left out (stage.Load)
+	Excluded []stage.Skipped `json:"excluded,omitempty"` // stages on save table 15 (STAGE_TEST, d_save.h:904), left out (playable)
+	Keys     *keys.Result    `json:"keys,omitempty"`
+	Hearts   *hearts.Result  `json:"hearts,omitempty"`
+	Switches *switches.Table `json:"switches,omitempty"`
+	Enemies  *enemies.Table  `json:"enemies,omitempty"`
 }
 
 // Only returns a copy of t holding section s alone (the other pointers
@@ -156,7 +157,7 @@ type Stats struct {
 
 // Build reads src and builds every table. It fails when main.dol is not
 // the GZLE01 DOL (no l_objectName at 0x80372818), when a stage archive
-// can't be read or parsed (stagedata.Load), and when the disc has no
+// can't be read or parsed (stage.Load), and when the disc has no
 // stages at all outside save table 15 (playable); what a builder can't
 // account for is a problem in its table instead.
 func Build(src Source) (*Tables, error) {
@@ -183,12 +184,12 @@ func identify(src Source) (ID, []byte, error) {
 }
 
 // stageFilesHash hashes the path and size of every file under
-// stagedata.StageRoot, in listing order: what stagedata.Load can read.
+// stage.StageRoot, in listing order: what stage.Load can read.
 // Moving a file on the disc doesn't change it (an ISO and a CISO of one
 // disc hash the same); editing an archive almost always changes its size.
-func stageFilesHash(files []inject.DiscFile) string {
+func stageFilesHash(files []disc.DiscFile) string {
 	h := sha256.New()
-	prefix := strings.ToLower(stagedata.StageRoot) + "/"
+	prefix := strings.ToLower(stage.StageRoot) + "/"
 	var size [4]byte
 	for _, f := range files {
 		p := strings.TrimPrefix(f.Path, "/")
@@ -206,13 +207,13 @@ func stageFilesHash(files []inject.DiscFile) string {
 // build builds the tables from src, whose main.dol is dol and ID id,
 // recording times and sizes in st.
 func build(src Source, dol []byte, id ID, st *Stats) (*Tables, error) {
-	names, err := stagedata.ReadObjectNames(dol)
+	names, err := stage.ReadObjectNames(dol)
 	if err != nil {
 		return nil, fmt.Errorf("tables: %w", err)
 	}
 	start := time.Now()
 	cs := &countingSource{Source: src}
-	stages, skipped, err := stagedata.Load(cs)
+	stages, skipped, err := stage.Load(cs)
 	st.Read, st.Files, st.Bytes = time.Since(start), int(cs.files.Load()), cs.bytes.Load()
 	if err != nil {
 		return nil, fmt.Errorf("tables: %w", err)
@@ -221,7 +222,7 @@ func build(src Source, dol []byte, id ID, st *Stats) (*Tables, error) {
 		if len(skipped) > 0 {
 			return nil, fmt.Errorf("tables: the disc has no stages the play scene can load (%d left out, %s first: %s)", len(skipped), skipped[0].Name, skipped[0].Why)
 		}
-		return nil, errors.New("tables: the disc has no stages (no " + stagedata.StageRoot + "/<stage>/Stage.arc)")
+		return nil, errors.New("tables: the disc has no stages (no " + stage.StageRoot + "/<stage>/Stage.arc)")
 	}
 	stages, excluded := playable(stages)
 	if len(stages) == 0 {
@@ -267,13 +268,13 @@ const whyTest = "save table 15 (STAGE_TEST): a developer test stage"
 // containers, keys, switches and enemies would only add to the tables
 // what no player meets (docs/08-coop-design.md Appendix C item 137).
 //
-// This is not stagedata.Load's Skipped: the play scene can load these
+// This is not stage.Load's Skipped: the play scene can load these
 // stages (the map select does), so they are left out here, by rule. A
 // nil stage passes through, as the builders skip it.
-func playable(stages []*stagedata.Stage) (kept []*stagedata.Stage, excluded []stagedata.Skipped) {
+func playable(stages []*stage.Stage) (kept []*stage.Stage, excluded []stage.Skipped) {
 	for _, s := range stages {
 		if s != nil && s.SaveTable == tableTest {
-			excluded = append(excluded, stagedata.Skipped{Name: s.Name, Why: whyTest})
+			excluded = append(excluded, stage.Skipped{Name: s.Name, Why: whyTest})
 			continue
 		}
 		kept = append(kept, s)
@@ -284,23 +285,23 @@ func playable(stages []*stagedata.Stage) (kept []*stagedata.Stage, excluded []st
 // builder is one section's builder.
 type builder struct {
 	section Section
-	build   func(t *Tables, stages []*stagedata.Stage, names *stagedata.ObjectNames)
+	build   func(t *Tables, stages []*stage.Stage, names *stage.ObjectNames)
 }
 
 // builders are the four, in Sections order. A variable so a test can make
 // one fail.
 var builders = []builder{
-	{SectionKeys, func(t *Tables, s []*stagedata.Stage, n *stagedata.ObjectNames) { t.Keys = keys.Build(s, n) }},
-	{SectionHearts, func(t *Tables, s []*stagedata.Stage, n *stagedata.ObjectNames) { t.Hearts = hearts.Build(s, n) }},
-	{SectionSwitches, func(t *Tables, s []*stagedata.Stage, n *stagedata.ObjectNames) { t.Switches = switches.Build(s, n) }},
-	{SectionEnemies, func(t *Tables, s []*stagedata.Stage, n *stagedata.ObjectNames) { t.Enemies = enemies.Build(s, n) }},
+	{SectionKeys, func(t *Tables, s []*stage.Stage, n *stage.ObjectNames) { t.Keys = keys.Build(s, n) }},
+	{SectionHearts, func(t *Tables, s []*stage.Stage, n *stage.ObjectNames) { t.Hearts = hearts.Build(s, n) }},
+	{SectionSwitches, func(t *Tables, s []*stage.Stage, n *stage.ObjectNames) { t.Switches = switches.Build(s, n) }},
+	{SectionEnemies, func(t *Tables, s []*stage.Stage, n *stage.ObjectNames) { t.Enemies = enemies.Build(s, n) }},
 }
 
 // run runs b, turning a panic into an error: the builders run on their own
 // goroutines, where a bug tripped by an unusual disc would otherwise end
 // the process (patch builds the tables after writing its image, and must
 // not fail for them).
-func (b builder) run(t *Tables, stages []*stagedata.Stage, names *stagedata.ObjectNames) (err error) {
+func (b builder) run(t *Tables, stages []*stage.Stage, names *stage.ObjectNames) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("tables: the %s builder failed on this disc (a bug; please report it): %v", b.section, r)
@@ -310,7 +311,7 @@ func (b builder) run(t *Tables, stages []*stagedata.Stage, names *stagedata.Obje
 	return nil
 }
 
-// countingSource counts the files and bytes stagedata.Load reads.
+// countingSource counts the files and bytes stage.Load reads.
 type countingSource struct {
 	Source
 	files atomic.Int64

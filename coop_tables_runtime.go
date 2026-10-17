@@ -300,7 +300,7 @@ func cacheCoopTablesForPatch(w io.Writer, image string) {
 }
 
 // oneLine puts err's text on one line: a failed stage-table build names
-// each archive that failed on a line of its own (stagedata.Load).
+// each archive that failed on a line of its own (stage.Load).
 func oneLine(err error) string { return strings.ReplaceAll(err.Error(), "\n", "; ") }
 
 // coopTablesForPatch does cacheCoopTablesForPatch's work and says what it

@@ -1,10 +1,10 @@
 // Package stagetest builds synthetic Yaz0 streams, RARC archives, DZS/DZR
 // chunk files, whole stages on an in-memory disc or a disc image, and a
 // main.dol carrying an l_objectName table, so the stage readers in
-// internal/coop/stagedata, and the packages built on them, are tested
-// without any Nintendo data. The builders write the layouts stagedata
-// documents and cites (yaz0.go, rarc.go, dzx.go, stage.go, objname.go);
-// stagedata's tests check that everything built here parses back.
+// wwapi/stage, and the packages built on them, are tested without any
+// Nintendo data. The builders write the layouts wwapi/stage documents and
+// cites (yaz0.go, rarc.go, dzx.go, stage.go, objname.go);
+// wwapi/stage's tests check that everything built here parses back.
 package stagetest
 
 import (

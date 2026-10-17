@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/disc"
 )
 
 // Disc is a read-only view of the user's own GZLE01 disc image: its
@@ -23,13 +25,6 @@ type Disc struct {
 	closer io.Closer   // the file OpenDisc opened; nil for NewDisc
 	dolOff uint32
 	ents   []discEntry // the FST; entry 0 is the root
-}
-
-// DiscFile is one file the FST lists.
-type DiscFile struct {
-	Path   string // from the disc root, slash-separated: "res/Stage/sea/Stage.arc"
-	Offset uint32 // disc offset of its first byte
-	Size   uint32
 }
 
 // discEntry is one FST entry, decoded and checked.
@@ -133,12 +128,12 @@ func (d *Disc) Close() error {
 
 // Files returns every file on the disc in FST order (each directory's
 // entries in the order the disc stores them).
-func (d *Disc) Files() []DiscFile {
+func (d *Disc) Files() []disc.DiscFile {
 	type open struct {
 		end    uint32
 		prefix string
 	}
-	var files []DiscFile
+	var files []disc.DiscFile
 	stack := []open{{end: d.ents[0].b}}
 	for i := 1; i < len(d.ents); i++ {
 		for uint32(i) >= stack[len(stack)-1].end {
@@ -150,7 +145,7 @@ func (d *Disc) Files() []DiscFile {
 			stack = append(stack, open{end: e.b, prefix: p + "/"})
 			continue
 		}
-		files = append(files, DiscFile{Path: p, Offset: e.a, Size: e.b})
+		files = append(files, disc.DiscFile{Path: p, Offset: e.a, Size: e.b})
 	}
 	return files
 }
@@ -162,13 +157,13 @@ func (d *Disc) Files() []DiscFile {
 // component followed by "/" matching only a directory. The returned Path
 // is spelled as on the disc. A missing file, or a path naming a
 // directory, is an error matching fs.ErrNotExist.
-func (d *Disc) Stat(path string) (DiscFile, error) {
+func (d *Disc) Stat(path string) (disc.DiscFile, error) {
 	i, canon, ok := d.lookup(path)
 	if !ok {
-		return DiscFile{}, fmt.Errorf("disc: %s: %w", path, fs.ErrNotExist)
+		return disc.DiscFile{}, fmt.Errorf("disc: %s: %w", path, fs.ErrNotExist)
 	}
 	e := d.ents[i]
-	return DiscFile{Path: canon, Offset: e.a, Size: e.b}, nil
+	return disc.DiscFile{Path: canon, Offset: e.a, Size: e.b}, nil
 }
 
 // Open returns a reader over the file at path (see Stat). A file whose

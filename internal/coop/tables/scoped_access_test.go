@@ -3,10 +3,10 @@ package tables
 import (
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // timedCrystal is a crystal switch with a timer, which clears sw again

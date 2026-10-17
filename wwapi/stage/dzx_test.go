@@ -1,4 +1,4 @@
-package stagedata
+package stage
 
 import (
 	"encoding/binary"
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // sampleDZx is a DZR/DZS-shaped file with a STAG, every every-layer actor

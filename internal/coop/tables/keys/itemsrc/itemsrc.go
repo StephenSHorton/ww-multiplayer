@@ -18,7 +18,7 @@ package itemsrc
 import (
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // Item numbers (enum ItemTable, d_item_data.h) the tables look for.
@@ -31,24 +31,24 @@ const (
 	ItemNone           uint8 = 0xFF // dItemNo_NONE_e, d_item_data.h:262: creates nothing (f_op_actor_mng.cpp:947-949)
 )
 
-// Procs this package decodes beyond the ones stagedata names, as GZLE01
+// Procs this package decodes beyond the ones wwapi/stage names, as GZLE01
 // numbers them: the value in the comment at that line of f_pc_name.h (see
-// stagedata's Proc constants for why the comments, not line counts).
+// wwapi/stage's Proc constants for why the comments, not line counts).
 const (
-	ProcOspbox       stagedata.Proc = 0x056 // fpcNm_Obj_Ospbox_e, f_pc_name.h:95; "Ospbox" (d_stage.cpp:904)
-	ProcHomen        stagedata.Proc = 0x083 // fpcNm_Obj_Homen_e, f_pc_name.h:140; Wind Temple face stones "Homen1", "Homen2" (d_stage.cpp:1120-1121)
-	ProcLeaves       stagedata.Proc = 0x092 // fpcNm_Obj_Leaves_e, f_pc_name.h:155; leaf piles "Vochi" (d_stage.cpp:1123)
-	ProcHcbh         stagedata.Proc = 0x098 // fpcNm_Obj_Hcbh_e, f_pc_name.h:161; Tower of the Gods face pillars "Hcbh" (d_stage.cpp:1166)
-	ProcBemos        stagedata.Proc = 0x0EA // fpcNm_Bemos_e, f_pc_name.h:246; Beamos "Hmos1"-"Hmos3" (d_stage.cpp:921-923)
-	ProcRaceItem     stagedata.Proc = 0x104 // fpcNm_RACEITEM_e, f_pc_name.h:272; "Ritem" (d_stage.cpp:1255)
-	ProcSwItem       stagedata.Proc = 0x139 // fpcNm_SW_ITEM_e, f_pc_name.h:325; "ITat00" (d_stage.cpp:634)
-	ProcSalvage      stagedata.Proc = 0x194 // fpcNm_Salvage_e, f_pc_name.h:416; "Salvage", "SwSlvg" etc. (d_stage.cpp:535-540)
-	ProcSalvageChest stagedata.Proc = 0x195 // fpcNm_SALVAGE_TBOX_e, f_pc_name.h:417; "STBox" (d_stage.cpp:1234)
-	ProcTagKbItem    stagedata.Proc = 0x1A4 // fpcNm_TAG_KB_ITEM_e, f_pc_name.h:432; "TagKb" (d_stage.cpp:583)
-	ProcTsubo        stagedata.Proc = 0x1CB // fpcNm_TSUBO_e, f_pc_name.h:471; pots, jugs, skulls "kotubo" etc. (d_stage.cpp:519-530)
-	ProcStone        stagedata.Proc = 0x1CC // fpcNm_STONE_e, f_pc_name.h:472; "koisi1", "koisi2" (d_stage.cpp:532-533)
-	ProcStone2       stagedata.Proc = 0x1CD // fpcNm_Stone2_e, f_pc_name.h:473; "Ebrock", "Ekao", "Ebrock2" (d_stage.cpp:654-656)
-	ProcBarrel2      stagedata.Proc = 0x1CF // fpcNm_Obj_Barrel2_e, f_pc_name.h:475; "Ktarur" (d_stage.cpp:784)
+	ProcOspbox       stage.Proc = 0x056 // fpcNm_Obj_Ospbox_e, f_pc_name.h:95; "Ospbox" (d_stage.cpp:904)
+	ProcHomen        stage.Proc = 0x083 // fpcNm_Obj_Homen_e, f_pc_name.h:140; Wind Temple face stones "Homen1", "Homen2" (d_stage.cpp:1120-1121)
+	ProcLeaves       stage.Proc = 0x092 // fpcNm_Obj_Leaves_e, f_pc_name.h:155; leaf piles "Vochi" (d_stage.cpp:1123)
+	ProcHcbh         stage.Proc = 0x098 // fpcNm_Obj_Hcbh_e, f_pc_name.h:161; Tower of the Gods face pillars "Hcbh" (d_stage.cpp:1166)
+	ProcBemos        stage.Proc = 0x0EA // fpcNm_Bemos_e, f_pc_name.h:246; Beamos "Hmos1"-"Hmos3" (d_stage.cpp:921-923)
+	ProcRaceItem     stage.Proc = 0x104 // fpcNm_RACEITEM_e, f_pc_name.h:272; "Ritem" (d_stage.cpp:1255)
+	ProcSwItem       stage.Proc = 0x139 // fpcNm_SW_ITEM_e, f_pc_name.h:325; "ITat00" (d_stage.cpp:634)
+	ProcSalvage      stage.Proc = 0x194 // fpcNm_Salvage_e, f_pc_name.h:416; "Salvage", "SwSlvg" etc. (d_stage.cpp:535-540)
+	ProcSalvageChest stage.Proc = 0x195 // fpcNm_SALVAGE_TBOX_e, f_pc_name.h:417; "STBox" (d_stage.cpp:1234)
+	ProcTagKbItem    stage.Proc = 0x1A4 // fpcNm_TAG_KB_ITEM_e, f_pc_name.h:432; "TagKb" (d_stage.cpp:583)
+	ProcTsubo        stage.Proc = 0x1CB // fpcNm_TSUBO_e, f_pc_name.h:471; pots, jugs, skulls "kotubo" etc. (d_stage.cpp:519-530)
+	ProcStone        stage.Proc = 0x1CC // fpcNm_STONE_e, f_pc_name.h:472; "koisi1", "koisi2" (d_stage.cpp:532-533)
+	ProcStone2       stage.Proc = 0x1CD // fpcNm_Stone2_e, f_pc_name.h:473; "Ebrock", "Ekao", "Ebrock2" (d_stage.cpp:654-656)
+	ProcBarrel2      stage.Proc = 0x1CF // fpcNm_Obj_Barrel2_e, f_pc_name.h:475; "Ktarur" (d_stage.cpp:784)
 )
 
 // ProcGrass is grass, trees and flowers: fpcNm_GRASS_e, f_pc_name.h:452;
@@ -61,7 +61,7 @@ const (
 // fopAcM_createItemFromTable (d_grass.cpp:157-158, d_flower.cpp:220-221),
 // so it only ever drops a random drop table pick (0x20-0x3E) or nothing
 // (0x3F): never one fixed item.
-const ProcGrass stagedata.Proc = 0x1B8
+const ProcGrass stage.Proc = 0x1B8
 
 // Kind is the class of entry a placement is.
 type Kind string
@@ -192,7 +192,7 @@ func (f Flag) String() string {
 type Where struct {
 	Stage string `json:"stage"`
 	Room  int    `json:"room"`  // -1: the stage's own stage.dzs
-	Layer int    `json:"layer"` // stagedata.AllLayers (-1) or 0-11
+	Layer int    `json:"layer"` // stage.AllLayers (-1) or 0-11
 	Tag   string `json:"tag"`
 	Index int    `json:"index"`
 	Name  string `json:"name"`
@@ -200,7 +200,7 @@ type Where struct {
 }
 
 // At is where p, an entry of s, is.
-func At(s *stagedata.Stage, p stagedata.Placed) Where {
+func At(s *stage.Stage, p stage.Placed) Where {
 	return Where{
 		Stage: s.Name, Room: p.Room, Layer: p.Layer, Tag: p.Tag, Index: p.Index,
 		Name: p.Name, SetID: p.SetID,
@@ -213,7 +213,7 @@ func (w Where) String() string {
 		room = "stage file"
 	}
 	layer := "all layers"
-	if w.Layer != stagedata.AllLayers {
+	if w.Layer != stage.AllLayers {
 		layer = fmt.Sprintf("layer %d", w.Layer)
 	}
 	return fmt.Sprintf("%s %s, %s, %s#%d %q setID 0x%04X", w.Stage, room, layer, w.Tag, w.Index, w.Name, w.SetID)
@@ -222,10 +222,10 @@ func (w Where) String() string {
 // Placement is one entry that gives a known item.
 type Placement struct {
 	Where
-	Kind Kind           `json:"kind"`
-	Proc stagedata.Proc `json:"proc"`
-	Item uint8          `json:"item"`
-	Flag Flag           `json:"flag"`
+	Kind Kind       `json:"kind"`
+	Proc stage.Proc `json:"proc"`
+	Item uint8      `json:"item"`
+	Flag Flag       `json:"flag"`
 }
 
 // Find returns the placements in stages whose item want accepts, stage by
@@ -234,7 +234,7 @@ type Placement struct {
 // never created (dStage_actorCreate, d_stage.cpp:1300-1304) and is left
 // out, as is one whose drop is random or empty. With no names table every
 // entry is unnamed, and Find returns nothing.
-func Find(stages []*stagedata.Stage, names *stagedata.ObjectNames, want func(item uint8) bool) []Placement {
+func Find(stages []*stage.Stage, names *stage.ObjectNames, want func(item uint8) bool) []Placement {
 	if names == nil {
 		return nil
 	}
@@ -260,7 +260,7 @@ func Find(stages []*stagedata.Stage, names *stagedata.ObjectNames, want func(ite
 // Decode reads p, an entry of s that creates proc, as a placement: ok is
 // false for a class this package doesn't know, or an entry that gives no
 // single known item.
-func Decode(s *stagedata.Stage, p stagedata.Placed, proc stagedata.Proc) (Placement, bool) {
+func Decode(s *stage.Stage, p stage.Placed, proc stage.Proc) (Placement, bool) {
 	d, ok := decoders[proc]
 	if !ok {
 		return Placement{}, false
@@ -278,10 +278,10 @@ func Decode(s *stagedata.Stage, p stagedata.Placed, proc stagedata.Proc) (Placem
 // dStage_actorInit's room_no, d_stage.cpp:1701).
 type decoder struct {
 	kind   Kind
-	decode func(a stagedata.Actor, table, room int) (item uint8, flag Flag, ok bool)
+	decode func(a stage.Actor, table, room int) (item uint8, flag Flag, ok bool)
 }
 
-var decoders = map[stagedata.Proc]decoder{
+var decoders = map[stage.Proc]decoder{
 	// A chest gives the item in angle z's high byte (getItemNo,
 	// d_a_tbox.h:37; given at d_a_tbox.cpp:958-959) and records it in tbox
 	// bit (prm >> 7) & 0x1F (getTboxNo, d_a_tbox.h:35): of the stage's
@@ -289,7 +289,7 @@ var decoders = map[stagedata.Proc]decoder{
 	// d_a_tbox.cpp:30-31, :396-398; checkOpen :314-321, OpenInit_com
 	// :854-859). The function type also says when the chest appears (on a
 	// switch, once a room is cleared of enemies); it gives the same item.
-	stagedata.ProcTbox: {Chest, func(a stagedata.Actor, table, _ int) (uint8, Flag, bool) {
+	stage.ProcTbox: {Chest, func(a stage.Actor, table, _ int) (uint8, Flag, bool) {
 		item := uint8(uint16(a.Angle[2]) >> 8)
 		if fn := a.Params & 0x7F; fn == 7 || fn == 8 {
 			table = 1
@@ -300,7 +300,7 @@ var decoders = map[stagedata.Proc]decoder{
 	// A field item is item prm & 0xFF with item bit (prm >> 8) & 0x7F
 	// (daItem_prm, d_a_item.h:141-142; _daItem_create, d_a_item.cpp:
 	// 217-237), except Blue Chu Jelly, whose bit is a switch (:229).
-	stagedata.ProcItem: {FieldItem, func(a stagedata.Actor, table, room int) (uint8, Flag, bool) {
+	stage.ProcItem: {FieldItem, func(a stage.Actor, table, room int) (uint8, Flag, bool) {
 		item := uint8(a.Params)
 		if item == ItemBlueJelly {
 			return item, Flag{}, true
@@ -310,7 +310,7 @@ var decoders = map[stagedata.Proc]decoder{
 
 	// A race item is item prm & 0xFF with item bit (prm >> 8) & 0x7F
 	// (d_a_race_item.cpp:61-64).
-	ProcRaceItem: {RaceItem, func(a stagedata.Actor, table, room int) (uint8, Flag, bool) {
+	ProcRaceItem: {RaceItem, func(a stage.Actor, table, room int) (uint8, Flag, bool) {
 		item := uint8(a.Params)
 		return item, itemBit(int(a.Params>>8)&0x7F, table, room), item != ItemNone
 	}},
@@ -340,7 +340,7 @@ var decoders = map[stagedata.Proc]decoder{
 	// the game: HaltFlag. Otherwise the bit is recorded for the actor's
 	// room, which for a point in room 0 is grid 0. Entry never reads that
 	// grid, so such a point can be salvaged again: unsaved.
-	ProcSalvage: {Salvage, func(a stagedata.Actor, _, room int) (uint8, Flag, bool) {
+	ProcSalvage: {Salvage, func(a stage.Actor, _, room int) (uint8, Flag, bool) {
 		item := uint8(a.Params >> 4)
 		kind := a.Params >> 28
 		save := int(a.Params>>20) & 0xFF
@@ -380,25 +380,25 @@ var decoders = map[stagedata.Proc]decoder{
 	// A salvage chest gives item prm & 0xFF (daSTBox_prm::getItemNo,
 	// d_a_salvage_tbox.h:104; d_a_salvage_tbox.cpp:217, :370) and records
 	// nothing itself; the salvage point that makes one does.
-	ProcSalvageChest: {SalvageChest, func(a stagedata.Actor, _, _ int) (uint8, Flag, bool) {
+	ProcSalvageChest: {SalvageChest, func(a stage.Actor, _, _ int) (uint8, Flag, bool) {
 		item := uint8(a.Params)
 		return item, Flag{}, item != ItemNone
 	}},
 
 	// These break or open into fopAcM_createItemFromTable(item, bit) with
 	// a 6-bit item and a 7-bit item bit.
-	ProcTsubo:             fromTable(Pot, 0, 16),       // d_a_tsubo.h:28-38, :190-191; damaged, d_a_tsubo.cpp:2208-2212
-	ProcStone:             fromTable(Rock, 0, 16),      // d_a_stone.h:93-97, :106-107; damaged, d_a_stone.cpp:484-489
-	ProcStone2:            fromTable(Rock2, 0, 16),     // d_a_stone2.h:47-54, :72-73; damaged, d_a_stone2.cpp:250-254
-	stagedata.ProcMovebox: fromTable(Box, 0, 16),       // d_a_obj_movebox.h:150-154, :190-191; make_item, d_a_obj_movebox.cpp:1697-1704
-	ProcLeaves:            fromTable(Leaves, 0, 6),     // d_a_obj_leaves.h:16-20, :27-28; d_a_obj_leaves.cpp:629-636
-	ProcHcbh:              fromTable(FacePillar, 0, 6), // d_a_obj_hcbh.h:15-18, :23-24; make_item, d_a_obj_hcbh.cpp:327-333
-	ProcHomen:             fromTable(FaceStone, 12, 0), // d_a_obj_homen.h:29-33, :45-46; make_item, d_a_obj_homen.cpp:453-462
+	ProcTsubo:         fromTable(Pot, 0, 16),       // d_a_tsubo.h:28-38, :190-191; damaged, d_a_tsubo.cpp:2208-2212
+	ProcStone:         fromTable(Rock, 0, 16),      // d_a_stone.h:93-97, :106-107; damaged, d_a_stone.cpp:484-489
+	ProcStone2:        fromTable(Rock2, 0, 16),     // d_a_stone2.h:47-54, :72-73; damaged, d_a_stone2.cpp:250-254
+	stage.ProcMovebox: fromTable(Box, 0, 16),       // d_a_obj_movebox.h:150-154, :190-191; make_item, d_a_obj_movebox.cpp:1697-1704
+	ProcLeaves:        fromTable(Leaves, 0, 6),     // d_a_obj_leaves.h:16-20, :27-28; d_a_obj_leaves.cpp:629-636
+	ProcHcbh:          fromTable(FacePillar, 0, 6), // d_a_obj_hcbh.h:15-18, :23-24; make_item, d_a_obj_hcbh.cpp:327-333
+	ProcHomen:         fromTable(FaceStone, 12, 0), // d_a_obj_homen.h:29-33, :45-46; make_item, d_a_obj_homen.cpp:453-462
 
 	// A Beamos keeps item and bit in angle z: z & 0x3F and (z >> 6) &
 	// 0x7F (d_a_obj_bemos.cpp:285-286, :336-337), and drops them when
 	// destroyed (:1169).
-	ProcBemos: {Beamos, func(a stagedata.Actor, table, room int) (uint8, Flag, bool) {
+	ProcBemos: {Beamos, func(a stage.Actor, table, room int) (uint8, Flag, bool) {
 		z := uint32(uint16(a.Angle[2]))
 		return tableItem(int(z&0x3F), int(z>>6)&0x7F, table, room)
 	}},
@@ -407,7 +407,7 @@ var decoders = map[stagedata.Proc]decoder{
 	// 14) & 0x7F when hit (daSwItem_prm, d_a_switem.h:28-29; d_a_switem.cpp:
 	// 128-140). Once that bit is set it still drops, with no bit (:130-
 	// 132), so its item comes back.
-	ProcSwItem: {SwitchItem, func(a stagedata.Actor, table, room int) (uint8, Flag, bool) {
+	ProcSwItem: {SwitchItem, func(a stage.Actor, table, room int) (uint8, Flag, bool) {
 		return tableItem(int(a.Params>>8)&0x3F, int(a.Params>>14)&0x7F, table, room)
 	}},
 
@@ -415,7 +415,7 @@ var decoders = map[stagedata.Proc]decoder{
 	// (prm >> 8) & 7, picks the box itself (d_a_obj_ospbox.h:11-21; the
 	// pf_name table and drop, d_a_obj_ospbox.cpp:123-151); specs 1-3 make
 	// a pig instead.
-	ProcOspbox: {Ospbox, func(a stagedata.Actor, table, room int) (uint8, Flag, bool) {
+	ProcOspbox: {Ospbox, func(a stage.Actor, table, room int) (uint8, Flag, bool) {
 		if spec := (a.Params >> 8) & 7; spec >= 1 && spec <= 3 {
 			return 0, Flag{}, false
 		}
@@ -450,7 +450,7 @@ var decoders = map[stagedata.Proc]decoder{
 	// 127 (d_save.cpp:1651-1652), so a byte of 0x80-0xFE or 0x50-0x7E
 	// halts as the spot's room loads. Byte 0xFF is s8 -1, which isItem
 	// reads as unset (d_save.cpp:1654-1656); its item gets 0x7F.
-	ProcTagKbItem: {Dig, func(a stagedata.Actor, table, room int) (uint8, Flag, bool) {
+	ProcTagKbItem: {Dig, func(a stage.Actor, table, room int) (uint8, Flag, bool) {
 		item := uint8(a.Params)
 		var f Flag
 		switch b := int(a.Params>>8) & 0xFF; {
@@ -477,7 +477,7 @@ var decoders = map[stagedata.Proc]decoder{
 // 7-bit item bit at bitShift of its parameters to
 // fopAcM_createItemFromTable.
 func fromTable(kind Kind, itemShift, bitShift uint) decoder {
-	return decoder{kind, func(a stagedata.Actor, table, room int) (uint8, Flag, bool) {
+	return decoder{kind, func(a stage.Actor, table, room int) (uint8, Flag, bool) {
 		return tableItem(int(a.Params>>itemShift)&0x3F, int(a.Params>>bitShift)&0x7F, table, room)
 	}}
 }

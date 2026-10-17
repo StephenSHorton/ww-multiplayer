@@ -153,7 +153,7 @@ host / join / mp-local --coop
 server (host process): network.Server + CoopHub (single goroutine)
       world image + per-class merge + validation + seq, world file (journal, backups, tombstones),
       presence, scoped stores (dan / zone / kill), relay only effective changes
-internal/coop/stagedata : user's ISO -> keys, hearts, switch classes, push blocks, enemy ACTR   [M1]
+wwapi/stage             : user's ISO -> keys, hearts, switch classes, push blocks, enemy ACTR   [M1]
 internal/coop/savefile  : GCI / card parse, checksums, packed<->RAM map, diff/merge             [M4]
 C side: unchanged until M7 (coop pump: getSave shim, isActor shim, coop_frame + op ring)
 ```
@@ -202,7 +202,7 @@ C side: unchanged until M7 (coop pump: getSave shim, isActor shim, coop_frame + 
     - more than 8 verify failures or WriteGuard refusals per minute;
     - a table-hash or layout mismatch;
     - a nonce storm from save-state loads.
-- `internal/coop/stagedata` (M1) and `internal/coop/savefile` (M4): see the milestones.
+- `wwapi/stage` (M1; was `internal/coop/stagedata`) and `internal/coop/savefile` (M4): see the milestones.
 - `internal/coop/hub`, server side: the CoopHub (§4.4).
 
 **Integration**
@@ -477,7 +477,7 @@ When Go sees a LEAKED tag (fails V2-V5) it **scrubs** it: it zeroes the 0x30 byt
   - Timers clear switches: `d_a_obj_timer.cpp:72-74`; `d_a_andsw0.cpp:98-107`; `swhit0` timer types 347-367.
 
 ### 6.2 Switch classification (M1, from the user's own ISO)
-- `internal/coop/stagedata` parses every stage's DZS/DZR (ACTR, TGOB, TRES, TGSC, SCOB, TGDR, DOOR and the ACTn/SCOn/TREn layer chunks; Appendix C item 16). It maps object names to procs through `l_objectName` (`d_stage.cpp:437-1262`, read from the user's own main.dol at .data 0x80372818, 0x26AC bytes, sym:14693; Appendix C item 15).
+- `wwapi/stage` (was `internal/coop/stagedata`) parses every stage's DZS/DZR (ACTR, TGOB, TRES, TGSC, SCOB, TGDR, DOOR and the ACTn/SCOn/TREn layer chunks; Appendix C item 16). It maps object names to procs through `l_objectName` (`d_stage.cpp:437-1262`, read from the user's own main.dol at .data 0x80372818, 0x26AC bytes, sym:14693; Appendix C item 15).
 - **Latching setters (sync):**
   - un-timed crystals and torches;
   - floor switches types 0/3;

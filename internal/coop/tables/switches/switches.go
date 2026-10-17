@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // Class is how a writer treats the switch it writes.
@@ -138,14 +138,14 @@ func compareKey(a, b Key) int {
 var ErrNoSwitch = errors.New("switches: no switch")
 
 // KeyFor routes switch no, written by an actor of save table table, stage
-// stage and room room, as dSv_info_c::onSwitch does. It fails with
+// stageName and room room, as dSv_info_c::onSwitch does. It fails with
 // ErrNoSwitch for -1 and 0xFF, and otherwise for what the game can't
 // route: a number past 0xEF (the JUT_ASSERT at d_save.cpp:1541-1542; a
 // release build writes past the zone's bits instead), a memory or dan
 // switch in a save table past 15 (getSave asserts, d_save.cpp:1507), and
 // a zone or room switch from a room outside 0-63, such as the -1 of a
 // stage.dzs actor (the assert at d_save.cpp:1553).
-func KeyFor(table int, stage string, room, no int) (Key, error) {
+func KeyFor(table int, stageName string, room, no int) (Key, error) {
 	st := addr.ClassifySwitch(no)
 	switch st {
 	case addr.SwitchNone:
@@ -156,25 +156,25 @@ func KeyFor(table int, stage string, room, no int) (Key, error) {
 		}
 		return Key{Scope{Store: Store(st), Table: table, Room: -1}, no}, nil
 	case addr.SwitchZone, addr.SwitchRoom:
-		if room < 0 || room >= stagedata.MaxRooms {
+		if room < 0 || room >= stage.MaxRooms {
 			return Key{}, fmt.Errorf("%s switch 0x%02X from room %d, which has no zone", addr.SwitchStore(st), no, room)
 		}
-		return Key{Scope{Store: Store(st), Table: table, Stage: stage, Room: room}, no}, nil
+		return Key{Scope{Store: Store(st), Table: table, Stage: stageName, Room: room}, no}, nil
 	}
 	return Key{}, fmt.Errorf("switch 0x%X is past the stores (0x00-0x%02X)", no, addr.SwitchEnd-1)
 }
 
 // Ref is the placed entry behind a writer or reader.
 type Ref struct {
-	Stage  string         `json:"stage"`
-	Room   int            `json:"room"`  // -1 for stage.dzs
-	Layer  int            `json:"layer"` // stagedata.AllLayers or 0-11
-	Tag    string         `json:"tag"`
-	Index  int            `json:"index"`
-	Name   string         `json:"name"`
-	Proc   stagedata.Proc `json:"proc"`
-	Params uint32         `json:"params"`
-	Angle  [3]int16       `json:"angle"`
+	Stage  string     `json:"stage"`
+	Room   int        `json:"room"`  // -1 for stage.dzs
+	Layer  int        `json:"layer"` // stage.AllLayers or 0-11
+	Tag    string     `json:"tag"`
+	Index  int        `json:"index"`
+	Name   string     `json:"name"`
+	Proc   stage.Proc `json:"proc"`
+	Params uint32     `json:"params"`
+	Angle  [3]int16   `json:"angle"`
 }
 
 func (r Ref) String() string {
@@ -276,7 +276,7 @@ func (t *Table) GBADependent(k Key) bool {
 // Build classifies the switches of stages, naming procs through names.
 // Entries whose name names has no proc for are counted in Unnamed; with a
 // nil names, every entry is. A nil stage is skipped.
-func Build(stages []*stagedata.Stage, names *stagedata.ObjectNames) *Table {
+func Build(stages []*stage.Stage, names *stage.ObjectNames) *Table {
 	b := &builder{t: &Table{}, byKey: make(map[Key]*Switch)}
 	for _, st := range stages {
 		if st == nil {
@@ -307,8 +307,8 @@ func (b *builder) sw(k Key) *Switch {
 	return s
 }
 
-func (b *builder) place(st *stagedata.Stage, p stagedata.Placed, names *stagedata.ObjectNames) {
-	var proc stagedata.Proc
+func (b *builder) place(st *stage.Stage, p stage.Placed, names *stage.ObjectNames) {
+	var proc stage.Proc
 	ok := false
 	if names != nil {
 		proc, ok = names.Proc(p.Name)

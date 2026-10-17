@@ -1,4 +1,4 @@
-package stagedata
+package stage
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // stageFiles is a Stage.arc-shaped file set: the dzs chunk file, a nested

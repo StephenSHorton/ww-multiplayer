@@ -20,7 +20,7 @@ const (
 )
 
 // MaxLayer is the highest stage layer: ACT0..ACTb (d_stage.cpp:2144-2148;
-// stagedata.NumLayers). mLayer is -1 when the game picks the layer itself
+// stage.NumLayers). mLayer is -1 when the game picks the layer itself
 // by time of day (dComIfG_play_c::getLayerNo, d_com_inf_game.cpp:185-190).
 const MaxLayer = 11
 

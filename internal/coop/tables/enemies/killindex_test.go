@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // killFixture is one dungeon whose room 1 holds every case of M6's kill
@@ -13,25 +13,25 @@ func killFixture(t *testing.T) *Table {
 	t.Helper()
 	boss := at("ACTR", "Bk", 9)
 	boss.Params = 0xA // type 0xA: BOSS on creation (d_a_bk.cpp:5030-5034)
-	room1 := []stagedata.Actor{
-		at("ACTR", "Bk", 1),                         // synced
-		at("ACTR", "Stal", 2),                       // synced
-		at("ACTR", "Bk", 3),                         // shared with the next: never synced
-		at("ACTR", "keeth", 3),                      //
-		boss,                                        // BOSS: not counted, never synced
-		at("ACTR", "kuro_s", 4),                     // Morth: a generator, never synced
-		at("ACTR", "Bb", 5),                         // Kargaroc: synced, its own death unrecorded
-		at("ACTR", "pow", 6),                        // Poe: synced (verified by the live check K1)
-		at("ACTR", "Bk", 0xFFFF),                    // unkeyed
-		at("ACTR", "takara", 7),                     // no enemy
-		at("ACTR", synthName(stagedata.ProcBDK), 8), // a boss class
+	room1 := []stage.Actor{
+		at("ACTR", "Bk", 1),                     // synced
+		at("ACTR", "Stal", 2),                   // synced
+		at("ACTR", "Bk", 3),                     // shared with the next: never synced
+		at("ACTR", "keeth", 3),                  //
+		boss,                                    // BOSS: not counted, never synced
+		at("ACTR", "kuro_s", 4),                 // Morth: a generator, never synced
+		at("ACTR", "Bb", 5),                     // Kargaroc: synced, its own death unrecorded
+		at("ACTR", "pow", 6),                    // Poe: synced (verified by the live check K1)
+		at("ACTR", "Bk", 0xFFFF),                // unkeyed
+		at("ACTR", "takara", 7),                 // no enemy
+		at("ACTR", synthName(stage.ProcBDK), 8), // a boss class
 	}
-	room2 := []stagedata.Actor{at("ACTR", "Bk", 0xFFFF), at("ACTR", "keeth", 0xFFFF)}
+	room2 := []stage.Actor{at("ACTR", "Bk", 0xFFFF), at("ACTR", "keeth", 0xFFFF)}
 	// Room 3 clears on B; room 4 is all keyed by its K1 entries, but its
 	// Mothula (no K1 class) stays.
-	room3 := []stagedata.Actor{at("ACTR", "Bk", 10), at("ACTR", "Bk", 11), at("ACTR", "kuro_s", 12)}
-	room4 := []stagedata.Actor{at("ACTR", "Bk", 13), at("ACTR", synthName(stagedata.ProcGM), 0xFFFF)}
-	return Build([]*stagedata.Stage{stage("M_NewD2", nil, nil, room1, room2, room3, room4)}, testNames(t))
+	room3 := []stage.Actor{at("ACTR", "Bk", 10), at("ACTR", "Bk", 11), at("ACTR", "kuro_s", 12)}
+	room4 := []stage.Actor{at("ACTR", "Bk", 13), at("ACTR", synthName(stage.ProcGM), 0xFFFF)}
+	return Build([]*stage.Stage{mkStage("M_NewD2", nil, nil, room1, room2, room3, room4)}, testNames(t))
 }
 
 func TestKillMaskExcludesBoss(t *testing.T) {
@@ -56,8 +56,8 @@ func TestKillMaskExcludesShared(t *testing.T) {
 		t.Error("a key two enemies share is synced")
 	}
 	// On different layers they never meet in one game: synced.
-	room := []stagedata.Actor{at("ACT0", "Bk", 3), at("ACT1", "keeth", 3)}
-	split := Build([]*stagedata.Stage{stage("M_NewD2", nil, nil, room)}, testNames(t))
+	room := []stage.Actor{at("ACT0", "Bk", 3), at("ACT1", "keeth", 3)}
+	split := Build([]*stage.Stage{mkStage("M_NewD2", nil, nil, room)}, testNames(t))
 	if !split.KeyedK1("M_NewD2", 1, 3) {
 		t.Error("a key two layers' enemies have, never together, is not synced")
 	}

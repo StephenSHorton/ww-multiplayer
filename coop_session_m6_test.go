@@ -14,8 +14,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
@@ -25,6 +23,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // M6.0 through the session plumbing (§7.2, §9 M6.0): a partner's kills of
@@ -43,24 +43,24 @@ import (
 // coM6Enemies are the fixture's enemies.
 var coM6Enemies = []struct {
 	name   string
-	proc   stagedata.Proc
+	proc   stage.Proc
 	room   int
 	setID  uint16
 	boss   bool
 	weapon bool
 }{
-	{"Bk", stagedata.ProcBK, 1, 1, false, true},
-	{"Bk", stagedata.ProcBK, 1, 2, false, false},
-	{"c_green", stagedata.ProcCC, 1, 3, false, false},
-	{"Rdead1", stagedata.ProcRD, 1, 4, false, false},
-	{"Fmaster", stagedata.ProcFM, 1, 5, false, false},
-	{"Bk", stagedata.ProcBK, 1, 6, true, false},
-	{"Bb", stagedata.ProcBB, 1, 7, false, false},
-	{"Bk", stagedata.ProcBK, 1, 0xFFFF, false, false},
-	{"Bk", stagedata.ProcBK, 1, 0xFFFF, false, false},
-	{"Tn", stagedata.ProcTN, 1, 9, false, false},
-	{"Bk", stagedata.ProcBK, 2, 1, false, false},
-	{"c_green", stagedata.ProcCC, 2, 8, false, false},
+	{"Bk", stage.ProcBK, 1, 1, false, true},
+	{"Bk", stage.ProcBK, 1, 2, false, false},
+	{"c_green", stage.ProcCC, 1, 3, false, false},
+	{"Rdead1", stage.ProcRD, 1, 4, false, false},
+	{"Fmaster", stage.ProcFM, 1, 5, false, false},
+	{"Bk", stage.ProcBK, 1, 6, true, false},
+	{"Bb", stage.ProcBB, 1, 7, false, false},
+	{"Bk", stage.ProcBK, 1, 0xFFFF, false, false},
+	{"Bk", stage.ProcBK, 1, 0xFFFF, false, false},
+	{"Tn", stage.ProcTN, 1, 9, false, false},
+	{"Bk", stage.ProcBK, 2, 1, false, false},
+	{"c_green", stage.ProcCC, 2, 8, false, false},
 }
 
 // The fixture's enemies by role, indexes into coM6Enemies.
@@ -344,8 +344,8 @@ func TestCoopSessionM6(t *testing.T) {
 	demo := actors.DemoTypeVerified
 	actors.DemoTypeVerified = true
 	t.Cleanup(func() { actors.DemoTypeVerified = demo }) // after the players' cleanups
-	tnVerified := actors.SetVerified(int16(stagedata.ProcTN), false)
-	t.Cleanup(func() { actors.SetVerified(int16(stagedata.ProcTN), tnVerified) })
+	tnVerified := actors.SetVerified(int16(stage.ProcTN), false)
+	t.Cleanup(func() { actors.SetVerified(int16(stage.ProcTN), tnVerified) })
 	useTablesDir(t, t.TempDir())
 	iso := writeImage(t, "ww.iso", tablestest.ISO(coM6Stages()))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -573,7 +573,7 @@ func TestCoopSessionM6(t *testing.T) {
 	together(1)
 	run(5)
 	bb, _ := live(a, coM6BB)
-	bbc, _ := actors.K1(int16(stagedata.ProcBB))
+	bbc, _ := actors.K1(int16(stage.ProcBB))
 	must(ga.m.Store(bb.Addr+bbc.Ice+addr.EnemyIceOffTimer, []byte{1})) // the game's own write: a Light Arrow hit
 	until("A's Kargaroc light-arrowed never reached B", func() bool { return coM6Dead(b.coGame, 1, 7) && gone(b, coM6BB) })
 

@@ -1,4 +1,4 @@
-package stagedata
+package stage
 
 import (
 	"encoding/binary"
@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // sampleNames is a small l_objectName for stagetest.MainDOL: two names of

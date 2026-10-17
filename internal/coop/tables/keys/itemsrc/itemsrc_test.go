@@ -4,26 +4,26 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // testNames is an l_objectName with one real name for each class Decode
 // reads (their d_stage.cpp lines are cited where the procs are defined),
 // plus "Orphan", a name whose proc decodes nothing.
-func testNames(t testing.TB) *stagedata.ObjectNames {
+func testNames(t testing.TB) *stage.ObjectNames {
 	t.Helper()
-	o, err := stagedata.ParseObjectNames(stagetest.ObjectNameTable(
-		stagetest.ObjectName{Name: "takara", Proc: int16(stagedata.ProcTbox), Subtype: -1},
-		stagetest.ObjectName{Name: "item", Proc: int16(stagedata.ProcItem), Subtype: -1},
-		stagetest.ObjectName{Name: "itemFLY", Proc: int16(stagedata.ProcItem), Subtype: -1},
+	o, err := stage.ParseObjectNames(stagetest.ObjectNameTable(
+		stagetest.ObjectName{Name: "takara", Proc: int16(stage.ProcTbox), Subtype: -1},
+		stagetest.ObjectName{Name: "item", Proc: int16(stage.ProcItem), Subtype: -1},
+		stagetest.ObjectName{Name: "itemFLY", Proc: int16(stage.ProcItem), Subtype: -1},
 		stagetest.ObjectName{Name: "Ritem", Proc: int16(ProcRaceItem), Subtype: -1},
 		stagetest.ObjectName{Name: "Salvage", Proc: int16(ProcSalvage), Subtype: -1},
 		stagetest.ObjectName{Name: "STBox", Proc: int16(ProcSalvageChest), Subtype: -1},
 		stagetest.ObjectName{Name: "Kmtub", Proc: int16(ProcTsubo), Subtype: 2},
 		stagetest.ObjectName{Name: "koisi1", Proc: int16(ProcStone), Subtype: 0},
 		stagetest.ObjectName{Name: "Ebrock", Proc: int16(ProcStone2), Subtype: 0},
-		stagetest.ObjectName{Name: "Kkiba", Proc: int16(stagedata.ProcMovebox), Subtype: 2},
+		stagetest.ObjectName{Name: "Kkiba", Proc: int16(stage.ProcMovebox), Subtype: 2},
 		stagetest.ObjectName{Name: "Vochi", Proc: int16(ProcLeaves), Subtype: 0},
 		stagetest.ObjectName{Name: "Hcbh", Proc: int16(ProcHcbh), Subtype: 0},
 		stagetest.ObjectName{Name: "Homen1", Proc: int16(ProcHomen), Subtype: 0},
@@ -33,7 +33,7 @@ func testNames(t testing.TB) *stagedata.ObjectNames {
 		stagetest.ObjectName{Name: "Ktarur", Proc: int16(ProcBarrel2), Subtype: -1},
 		stagetest.ObjectName{Name: "kusax1", Proc: int16(ProcGrass), Subtype: -1},
 		stagetest.ObjectName{Name: "TagKb", Proc: int16(ProcTagKbItem), Subtype: -1},
-		stagetest.ObjectName{Name: "Orphan", Proc: int16(stagedata.ProcSwc00), Subtype: -1},
+		stagetest.ObjectName{Name: "Orphan", Proc: int16(stage.ProcSwc00), Subtype: -1},
 	))
 	if err != nil {
 		t.Fatal(err)
@@ -42,13 +42,13 @@ func testNames(t testing.TB) *stagedata.ObjectNames {
 }
 
 // load reads stages through a synthetic disc, the way coop-tables does.
-func load(t testing.TB, stages ...stagetest.Stage) []*stagedata.Stage {
+func load(t testing.TB, stages ...stagetest.Stage) []*stage.Stage {
 	t.Helper()
 	d := new(stagetest.Disc)
 	for _, s := range stages {
 		d.AddStage(s)
 	}
-	out, _, err := stagedata.Load(d)
+	out, _, err := stage.Load(d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,8 +57,8 @@ func load(t testing.TB, stages ...stagetest.Stage) []*stagedata.Stage {
 
 // stage is a stage on save table table with chunks in its stage.dzs and
 // the given rooms.
-func stage(name string, table int, dzs []stagetest.Chunk, rooms ...stagetest.Room) stagetest.Stage {
-	chunks := append([]stagetest.Chunk{stagetest.StagChunk(stagetest.StagInfo(table, int(stagedata.StageDungeon), true))}, dzs...)
+func mkStage(name string, table int, dzs []stagetest.Chunk, rooms ...stagetest.Room) stagetest.Stage {
+	chunks := append([]stagetest.Chunk{stagetest.StagChunk(stagetest.StagInfo(table, int(stage.StageDungeon), true))}, dzs...)
 	return stagetest.Stage{Name: name, DZS: stagetest.DZx(chunks...), Rooms: rooms}
 }
 
@@ -180,9 +180,9 @@ func TestDecode(t *testing.T) {
 			chunk := stagetest.Actors(tag, c.actor)
 			var s stagetest.Stage
 			if rno < 0 {
-				s = stage("D_Test", 3, []stagetest.Chunk{chunk})
+				s = mkStage("D_Test", 3, []stagetest.Chunk{chunk})
 			} else {
-				s = stage("D_Test", 3, nil, room(rno, chunk))
+				s = mkStage("D_Test", 3, nil, room(rno, chunk))
 			}
 			got := Find(load(t, s), names, all)
 			if !c.ok {
@@ -195,7 +195,7 @@ func TestDecode(t *testing.T) {
 				t.Fatalf("Find = %+v, want one placement", got)
 			}
 			p := got[0]
-			layer := stagedata.AllLayers
+			layer := stage.AllLayers
 			if c.layerN != 0 {
 				layer = c.layerN
 			}
@@ -210,12 +210,12 @@ func TestDecode(t *testing.T) {
 // Every decoder survives every parameter word and angle: no panic, and an
 // item the table semantics allow.
 func TestDecodeAllBits(t *testing.T) {
-	s := &stagedata.Stage{Name: "x", SaveTable: 3}
+	s := &stage.Stage{Name: "x", SaveTable: 3}
 	for proc, d := range decoders {
 		for _, prm := range []uint32{0, 0xFFFFFFFF, 0x80000000, 0x7FFFFFFF, 0x12345678, 0xFEDCBA98} {
 			for _, z := range []int16{0, -1, -0x8000, 0x7FFF, 0x1234} {
 				for _, rno := range []int{-1, 0, 1, 63} {
-					p := stagedata.Placed{Room: rno, Actor: stagedata.Actor{Params: prm, Angle: [3]int16{z, z, z}}}
+					p := stage.Placed{Room: rno, Actor: stage.Actor{Params: prm, Angle: [3]int16{z, z, z}}}
 					pl, ok := Decode(s, p, proc)
 					if !ok {
 						continue
@@ -243,7 +243,7 @@ func TestGroup(t *testing.T) {
 	type a = stagetest.Actor
 	key := func(bit uint32) a { return a{Name: "takara", Params: bit << 7, Angle: [3]int16{0, 0, 0x1500}} }
 	stages := load(t,
-		stage("D_One", 3, []stagetest.Chunk{stagetest.Actors("ACTR", key(1))},
+		mkStage("D_One", 3, []stagetest.Chunk{stagetest.Actors("ACTR", key(1))},
 			room(0, stagetest.Actors("ACTR", key(2)), stagetest.Actors("ACT1", key(2)), stagetest.Actors("ACT2", key(2))),
 			room(1,
 				stagetest.Actors("ACTR",
@@ -252,8 +252,8 @@ func TestGroup(t *testing.T) {
 					a{Name: "takara", Params: 2 << 7, Angle: [3]int16{0, 0, 0x0700}}, // same bit, another item
 				)),
 		),
-		stage("D_Two", 3, nil, room(0, stagetest.Actors("ACTR", key(1)))), // the same table and bit as D_One's
-		stage("D_Six", 6, nil, room(0, stagetest.Actors("ACTR", key(1)))), // another table
+		mkStage("D_Two", 3, nil, room(0, stagetest.Actors("ACTR", key(1)))), // the same table and bit as D_One's
+		mkStage("D_Six", 6, nil, room(0, stagetest.Actors("ACTR", key(1)))), // another table
 	)
 	got := Group(Find(stages, testNames(t), all))
 	type want struct {
@@ -281,13 +281,13 @@ func TestGroup(t *testing.T) {
 	if at := got[0].At; at[0].Stage != "D_One" || at[0].Room != -1 || at[1].Stage != "D_Two" {
 		t.Errorf("first source's places: %+v", at)
 	}
-	if at := got[1].At; at[0].Layer != stagedata.AllLayers || at[1].Layer != 1 || at[2].Layer != 2 {
+	if at := got[1].At; at[0].Layer != stage.AllLayers || at[1].Layer != 1 || at[2].Layer != 2 {
 		t.Errorf("layered source's places: %+v", at)
 	}
 }
 
 func TestFindFilters(t *testing.T) {
-	stages := load(t, stage("D_One", 3, nil, room(0, stagetest.Actors("ACTR",
+	stages := load(t, mkStage("D_One", 3, nil, room(0, stagetest.Actors("ACTR",
 		stagetest.Actor{Name: "item", Params: 0x7F<<8 | 0x15},
 		stagetest.Actor{Name: "item", Params: 0x7F<<8 | 0x07},
 	))))
@@ -298,7 +298,7 @@ func TestFindFilters(t *testing.T) {
 }
 
 func TestStrings(t *testing.T) {
-	w := Where{Stage: "M_NewD2", Room: 3, Layer: stagedata.AllLayers, Tag: "ACTR", Index: 12, Name: "takara", SetID: 0x1C}
+	w := Where{Stage: "M_NewD2", Room: 3, Layer: stage.AllLayers, Tag: "ACTR", Index: 12, Name: "takara", SetID: 0x1C}
 	if got, want := w.String(), `M_NewD2 room 3, all layers, ACTR#12 "takara" setID 0x001C`; got != want {
 		t.Errorf("Where.String = %q, want %q", got, want)
 	}

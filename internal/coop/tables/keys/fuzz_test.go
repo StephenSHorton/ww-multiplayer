@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // Fuzz target for the key table over fuzzed stage and room files. The
@@ -17,15 +17,15 @@ import (
 //	go test -run='^$' -fuzz=FuzzBuild -fuzztime=20s ./internal/coop/tables/keys/
 
 // fuzzStage is a stage of one fuzzed stage file and one fuzzed room file,
-// as stagedata.Load would make it of them.
-func fuzzStage(dzs, dzr []byte) (*stagedata.Stage, bool) {
-	d, err := stagedata.ParseDZx(dzs)
+// as stage.Load would make it of them.
+func fuzzStage(dzs, dzr []byte) (*stage.Stage, bool) {
+	d, err := stage.ParseDZx(dzs)
 	if err != nil || d.Stag == nil {
 		return nil, false
 	}
-	s := &stagedata.Stage{Name: "fz", SaveTable: d.Stag.SaveTable(), Stag: *d.Stag, DZS: d}
-	if r, err := stagedata.ParseDZx(dzr); err == nil {
-		s.Rooms = []stagedata.Room{{No: 1, DZR: r}}
+	s := &stage.Stage{Name: "fz", SaveTable: d.Stag.SaveTable(), Stag: *d.Stag, DZS: d}
+	if r, err := stage.ParseDZx(dzr); err == nil {
+		s.Rooms = []stage.Room{{No: 1, DZR: r}}
 	}
 	return s, true
 }
@@ -47,7 +47,7 @@ func FuzzBuild(f *testing.F) {
 		if !ok {
 			return
 		}
-		r := Build([]*stagedata.Stage{s}, names)
+		r := Build([]*stage.Stage{s}, names)
 		n := len(s.All())
 		pass := true
 		for _, tb := range r.Tables {

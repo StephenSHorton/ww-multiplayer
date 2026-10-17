@@ -10,42 +10,42 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
-// Procs of the non-enemies the fixtures place (stagedata's constants
+// Procs of the non-enemies the fixtures place (wwapi/stage's constants
 // cite their lines).
 var (
-	procTbox = stagedata.ProcTbox
-	procItem = stagedata.ProcItem
+	procTbox = stage.ProcTbox
+	procItem = stage.ProcItem
 )
 
 // realNames are l_objectName names the tests place (d_stage.cpp lines).
 var realNames = []struct {
 	name string
-	proc stagedata.Proc
+	proc stage.Proc
 }{
-	{"Bk", stagedata.ProcBK},          // :811
-	{"Stal", stagedata.ProcST},        // :948
-	{"mo2", stagedata.ProcMO2},        // :642
-	{"Tn", stagedata.ProcTN},          // :985
-	{"keeth", stagedata.ProcKI},       // :779
-	{"Bb", stagedata.ProcBB},          // :653
-	{"kuro_s", stagedata.ProcKS},      // :679
-	{"pow", stagedata.ProcPW},         // :695
-	{"Bdk", stagedata.ProcBDK},        // :864
-	{"Ji1", ProcNPCJI1},               // :710
-	{"Sitem", ProcSITEM},              // :920
-	{"takara", procTbox},              // :483
-	{"item", procItem},                // :647
-	{"SW_HIT0", stagedata.ProcSwhit0}, // :531
+	{"Bk", stage.ProcBK},          // :811
+	{"Stal", stage.ProcST},        // :948
+	{"mo2", stage.ProcMO2},        // :642
+	{"Tn", stage.ProcTN},          // :985
+	{"keeth", stage.ProcKI},       // :779
+	{"Bb", stage.ProcBB},          // :653
+	{"kuro_s", stage.ProcKS},      // :679
+	{"pow", stage.ProcPW},         // :695
+	{"Bdk", stage.ProcBDK},        // :864
+	{"Ji1", ProcNPCJI1},           // :710
+	{"Sitem", ProcSITEM},          // :920
+	{"takara", procTbox},          // :483
+	{"item", procItem},            // :647
+	{"SW_HIT0", stage.ProcSwhit0}, // :531
 }
 
 // synthName is the name the tests give a class realNames doesn't.
-func synthName(p stagedata.Proc) string { return fmt.Sprintf("E%03X", uint16(p)) }
+func synthName(p stage.Proc) string { return fmt.Sprintf("E%03X", uint16(p)) }
 
-func testNames(t testing.TB) *stagedata.ObjectNames {
+func testNames(t testing.TB) *stage.ObjectNames {
 	t.Helper()
 	var list []stagetest.ObjectName
 	for _, n := range realNames {
@@ -54,7 +54,7 @@ func testNames(t testing.TB) *stagedata.ObjectNames {
 	for _, c := range Classes {
 		list = append(list, stagetest.ObjectName{Name: synthName(c.Proc), Proc: int16(c.Proc), Subtype: -1})
 	}
-	names, err := stagedata.ParseObjectNames(stagetest.ObjectNameTable(list...))
+	names, err := stage.ParseObjectNames(stagetest.ObjectNameTable(list...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,8 +63,8 @@ func testNames(t testing.TB) *stagedata.ObjectNames {
 
 // at is an entry of chunk tag (whose layer and entry size follow from the
 // tag) named name with setID.
-func at(tag, name string, setID uint16) stagedata.Actor {
-	a := stagedata.Actor{Tag: tag, Layer: stagedata.AllLayers, Name: name, SetID: setID, Scaled: stagetest.Scaled(tag)}
+func at(tag, name string, setID uint16) stage.Actor {
+	a := stage.Actor{Tag: tag, Layer: stage.AllLayers, Name: name, SetID: setID, Scaled: stagetest.Scaled(tag)}
 	if len(tag) == 4 && (tag[:3] == "ACT" || tag[:3] == "SCO" || tag[:3] == "TRE") && tag != "ACTR" && tag != "SCOB" {
 		a.Layer = strings.IndexByte("0123456789ab", tag[3])
 	}
@@ -73,18 +73,18 @@ func at(tag, name string, setID uint16) stagedata.Actor {
 
 // stage builds a stage: rooms[i] is room i's entries (nil for no room),
 // dzs the stage's own.
-func stage(name string, dzs []stagedata.Actor, rooms ...[]stagedata.Actor) *stagedata.Stage {
-	s := &stagedata.Stage{Name: name, DZS: &stagedata.DZx{Actors: index(dzs)}}
+func mkStage(name string, dzs []stage.Actor, rooms ...[]stage.Actor) *stage.Stage {
+	s := &stage.Stage{Name: name, DZS: &stage.DZx{Actors: index(dzs)}}
 	for no, as := range rooms {
 		if as != nil {
-			s.Rooms = append(s.Rooms, stagedata.Room{No: no, DZR: &stagedata.DZx{Actors: index(as)}})
+			s.Rooms = append(s.Rooms, stage.Room{No: no, DZR: &stage.DZx{Actors: index(as)}})
 		}
 	}
 	return s
 }
 
 // index numbers entries within each chunk, as ParseDZx does.
-func index(as []stagedata.Actor) []stagedata.Actor {
+func index(as []stage.Actor) []stage.Actor {
 	out := slices.Clone(as)
 	n := make(map[string]int)
 	for i := range out {
@@ -107,19 +107,19 @@ func TestClasses(t *testing.T) {
 			t.Errorf("class name %s twice", c.Name)
 		}
 		names[c.Name] = true
-		if c.Proc <= 0 || c.Proc >= stagedata.ProcMaxNum {
+		if c.Proc <= 0 || c.Proc >= stage.ProcMaxNum {
 			t.Errorf("%s: proc 0x%X out of range", c.Name, uint16(c.Proc))
 		}
-		if want := GroupEnemy; c.Proc == stagedata.ProcKS {
+		if want := GroupEnemy; c.Proc == stage.ProcKS {
 			if c.Group != GroupEnv {
 				t.Errorf("KS group %v, want ENV (d_a_ks.cpp:1788)", c.Group)
 			}
 		} else if c.Group != want {
 			t.Errorf("%s group %v", c.Name, c.Group)
 		}
-		// stagedata's own names for its constants agree.
+		// wwapi/stage's own names for its constants agree.
 		if s := c.Proc.String(); !strings.HasPrefix(s, "proc ") && s != c.Name {
-			t.Errorf("%s: stagedata calls proc 0x%X %s", c.Name, uint16(c.Proc), s)
+			t.Errorf("%s: wwapi/stage calls proc 0x%X %s", c.Name, uint16(c.Proc), s)
 		}
 		// Every class polling enemy_ice has one; a stub's may be unseen.
 		if (c.Death == DeathOwn || c.Death == DeathIce) && c.Ice == 0 {
@@ -132,14 +132,14 @@ func TestClasses(t *testing.T) {
 			t.Errorf("ClassOf(%s) = %v, %v", c.Name, got.Name, ok)
 		}
 	}
-	if IsEnemy(stagedata.ProcTbox) || IsEnemy(stagedata.ProcPlayScene) {
+	if IsEnemy(stage.ProcTbox) || IsEnemy(stage.ProcPlayScene) {
 		t.Error("a chest or the play scene is an enemy")
 	}
 
 	// §7.2's K1 table: proc and the enemyice mLightShrinkTimer offset
 	// (enemyice + 6, c_damagereaction.h:15), which the headers confirm.
 	k1 := map[string]struct {
-		proc  stagedata.Proc
+		proc  stage.Proc
 		timer uint32
 	}{
 		"BK": {0xBE, 0x126A}, "MO2": {0xBD, 0x2A5A}, "ST": {0xBF, 0x1FAE}, "RD": {0xE1, 0x6E6},
@@ -264,7 +264,7 @@ func fixture() []stagetest.Stage {
 		copy(e.Angle[:], angle)
 		return e
 	}
-	stag := stagetest.StagChunk(stagetest.StagInfo(6, int(stagedata.StageDungeon), true))
+	stag := stagetest.StagChunk(stagetest.StagInfo(6, int(stage.StageDungeon), true))
 	room := func(no int, chunks ...stagetest.Chunk) stagetest.Room {
 		return stagetest.Room{No: no, DZR: stagetest.DZx(chunks...)}
 	}
@@ -300,7 +300,7 @@ func fixture() []stagetest.Stage {
 		},
 		{
 			Name: "sea",
-			DZS:  stagetest.DZx(stagetest.StagChunk(stagetest.StagInfo(0, int(stagedata.StageSea), false))),
+			DZS:  stagetest.DZx(stagetest.StagChunk(stagetest.StagInfo(0, int(stage.StageSea), false))),
 			Rooms: []stagetest.Room{
 				room(1, stagetest.Actors("ACTR", a("Bk", 1, 0), a("Ji1", 0, 0), a("SW_HIT0", 0, 0))),
 			},
@@ -308,13 +308,13 @@ func fixture() []stagetest.Stage {
 	}
 }
 
-func load(t testing.TB, stages []stagetest.Stage) []*stagedata.Stage {
+func load(t testing.TB, stages []stagetest.Stage) []*stage.Stage {
 	t.Helper()
 	d := new(stagetest.Disc)
 	for _, s := range stages {
 		d.AddStage(s)
 	}
-	out, _, err := stagedata.Load(d)
+	out, _, err := stage.Load(d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +350,7 @@ func TestBuild(t *testing.T) {
 		t.Errorf("enemies:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 	if e := tbl.Enemies[1]; e.Pos != (Vec{1.5, -2, 300}) || e.Angle != [3]int16{0x10, 0x4000, 0x25} ||
-		e.Params != 0x00FF0003 || e.Proc != stagedata.ProcBK || e.Layer != stagedata.AllLayers {
+		e.Params != 0x00FF0003 || e.Proc != stage.ProcBK || e.Layer != stage.AllLayers {
 		t.Errorf("entry fields %+v", e)
 	}
 	if tbl.Stages != 2 || tbl.Unnamed != 1 || tbl.Placed != 26 || tbl.Halting != 1 {
@@ -437,29 +437,29 @@ func TestBuild(t *testing.T) {
 func TestDuplicate(t *testing.T) {
 	for _, c := range []struct {
 		name                 string
-		entries              []stagedata.Actor
+		entries              []stage.Actor
 		layerOnly, shared, x bool
 	}{
-		{"two chests", []stagedata.Actor{at("ACTR", "takara", 1), at("TRES", "takara", 1)}, false, false, false},
-		{"chests on two layers", []stagedata.Actor{at("ACT0", "takara", 1), at("TRE1", "takara", 1)}, true, false, false},
-		{"Bokoblin and chest", []stagedata.Actor{at("ACTR", "Bk", 1), at("ACTR", "takara", 1)}, false, false, true},
-		{"chest then Bokoblin", []stagedata.Actor{at("ACTR", "takara", 1), at("ACTR", "Bk", 1)}, false, false, true},
-		{"Bokoblin, unchecked chest", []stagedata.Actor{at("ACTR", "Bk", 1), at("SCOB", "takara", 1)}, false, false, false},
-		{"unchecked Bokoblin, chest", []stagedata.Actor{at("SCOB", "Bk", 1), at("ACTR", "takara", 1)}, false, false, true},
-		{"two unchecked Bokoblins", []stagedata.Actor{at("SCOB", "Bk", 1), at("DOOR", "Bk", 1)}, false, true, false},
-		{"two Bokoblins", []stagedata.Actor{at("ACTR", "Bk", 1), at("ACTR", "Bk", 1)}, false, true, true},
-		{"Bokoblins on layers 1, 2", []stagedata.Actor{at("ACT1", "Bk", 1), at("ACT2", "Bk", 1)}, true, false, false},
-		{"Bokoblin every layer, one on 2", []stagedata.Actor{at("ACTR", "Bk", 1), at("ACT2", "Bk", 1)}, false, true, true},
-		{"Orca and chest", []stagedata.Actor{at("ACTR", "Ji1", 1), at("ACTR", "takara", 1)}, false, false, false},
-		{"Kargaroc and Keese", []stagedata.Actor{at("ACTR", "Bb", 1), at("ACT5", "keeth", 1)}, false, true, true},
-		{"Poe and crystal", []stagedata.Actor{at("SCO3", "pow", 1), at("ACT3", "SW_HIT0", 1)}, false, false, true},
-		{"Poe and crystal apart", []stagedata.Actor{at("SCO3", "pow", 1), at("ACT4", "SW_HIT0", 1)}, true, false, false},
-		{"one recorder, checked, alone on its layer", []stagedata.Actor{at("ACT1", "Bk", 1), at("ACT2", "takara", 1), at("SCO1", "takara", 1)}, false, false, false},
-		{"three on layer 1", []stagedata.Actor{at("ACT1", "Bk", 1), at("ACT2", "takara", 1), at("SCO1", "Bk", 1)}, false, true, true},
-		{"Bdk and its fight", []stagedata.Actor{at("ACTR", "Bdk", 1), at("ACTR", "Bk", 1)}, false, true, true},
+		{"two chests", []stage.Actor{at("ACTR", "takara", 1), at("TRES", "takara", 1)}, false, false, false},
+		{"chests on two layers", []stage.Actor{at("ACT0", "takara", 1), at("TRE1", "takara", 1)}, true, false, false},
+		{"Bokoblin and chest", []stage.Actor{at("ACTR", "Bk", 1), at("ACTR", "takara", 1)}, false, false, true},
+		{"chest then Bokoblin", []stage.Actor{at("ACTR", "takara", 1), at("ACTR", "Bk", 1)}, false, false, true},
+		{"Bokoblin, unchecked chest", []stage.Actor{at("ACTR", "Bk", 1), at("SCOB", "takara", 1)}, false, false, false},
+		{"unchecked Bokoblin, chest", []stage.Actor{at("SCOB", "Bk", 1), at("ACTR", "takara", 1)}, false, false, true},
+		{"two unchecked Bokoblins", []stage.Actor{at("SCOB", "Bk", 1), at("DOOR", "Bk", 1)}, false, true, false},
+		{"two Bokoblins", []stage.Actor{at("ACTR", "Bk", 1), at("ACTR", "Bk", 1)}, false, true, true},
+		{"Bokoblins on layers 1, 2", []stage.Actor{at("ACT1", "Bk", 1), at("ACT2", "Bk", 1)}, true, false, false},
+		{"Bokoblin every layer, one on 2", []stage.Actor{at("ACTR", "Bk", 1), at("ACT2", "Bk", 1)}, false, true, true},
+		{"Orca and chest", []stage.Actor{at("ACTR", "Ji1", 1), at("ACTR", "takara", 1)}, false, false, false},
+		{"Kargaroc and Keese", []stage.Actor{at("ACTR", "Bb", 1), at("ACT5", "keeth", 1)}, false, true, true},
+		{"Poe and crystal", []stage.Actor{at("SCO3", "pow", 1), at("ACT3", "SW_HIT0", 1)}, false, false, true},
+		{"Poe and crystal apart", []stage.Actor{at("SCO3", "pow", 1), at("ACT4", "SW_HIT0", 1)}, true, false, false},
+		{"one recorder, checked, alone on its layer", []stage.Actor{at("ACT1", "Bk", 1), at("ACT2", "takara", 1), at("SCO1", "takara", 1)}, false, false, false},
+		{"three on layer 1", []stage.Actor{at("ACT1", "Bk", 1), at("ACT2", "takara", 1), at("SCO1", "Bk", 1)}, false, true, true},
+		{"Bdk and its fight", []stage.Actor{at("ACTR", "Bdk", 1), at("ACTR", "Bk", 1)}, false, true, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			tbl := Build([]*stagedata.Stage{stage("S", nil, c.entries)}, testNames(t))
+			tbl := Build([]*stage.Stage{mkStage("S", nil, c.entries)}, testNames(t))
 			if len(tbl.Duplicates) != 1 {
 				t.Fatalf("%d duplicates", len(tbl.Duplicates))
 			}
@@ -476,7 +476,7 @@ func TestDuplicate(t *testing.T) {
 // entries.
 func pairwise(refs []Ref) (layerOnly, shared, collides bool) {
 	meet := func(a, b Ref) bool {
-		return a.Layer == stagedata.AllLayers || b.Layer == stagedata.AllLayers || a.Layer == b.Layer
+		return a.Layer == stage.AllLayers || b.Layer == stage.AllLayers || a.Layer == b.Layer
 	}
 	layerOnly = true
 	for i, a := range refs {
@@ -519,7 +519,7 @@ func checkDuplicate(t *testing.T, tbl *Table, d Duplicate) {
 		meets := false
 		for _, r := range d.Entries {
 			if r.Class != "" && (r.Tag != e.Tag || r.Index != e.Index) &&
-				(r.Layer == stagedata.AllLayers || me.Layer == stagedata.AllLayers || r.Layer == me.Layer) {
+				(r.Layer == stage.AllLayers || me.Layer == stage.AllLayers || r.Layer == me.Layer) {
 				meets = true
 			}
 		}
@@ -532,9 +532,9 @@ func checkDuplicate(t *testing.T, tbl *Table, d Duplicate) {
 // TestHalting counts the entries isActor halts the game on: a setID
 // past the zone in a room's dead-checked chunk, named or not.
 func TestHalting(t *testing.T) {
-	st := stage("S",
-		[]stagedata.Actor{at("ACTR", "Bk", 0x200)}, // the stage's own: room -1, never checked
-		[]stagedata.Actor{
+	st := mkStage("S",
+		[]stage.Actor{at("ACTR", "Bk", 0x200)}, // the stage's own: room -1, never checked
+		[]stage.Actor{
 			at("ACTR", "Nope", 0x300), // not in l_objectName, but checked first
 			at("ACT2", "takara", 0x1FF),
 			at("TRE2", "takara", 0x200),
@@ -542,7 +542,7 @@ func TestHalting(t *testing.T) {
 			at("ACTR", "keeth", 0xFFFE),
 			at("ACTR", "keeth", 0xFFFF),
 		})
-	tbl := Build([]*stagedata.Stage{st}, testNames(t))
+	tbl := Build([]*stage.Stage{st}, testNames(t))
 	if tbl.Halting != 3 {
 		t.Errorf("halting %d, want 3", tbl.Halting)
 	}
@@ -559,8 +559,8 @@ func TestBuildNil(t *testing.T) {
 	if tbl.Stages != 0 || tbl.Enemies != nil || tbl.Duplicates != nil || !reflect.DeepEqual(tbl.Summary, Summary{}) {
 		t.Errorf("empty build %+v", tbl)
 	}
-	st := stage("S", []stagedata.Actor{at("ACTR", "Bk", 1)}, []stagedata.Actor{at("ACTR", "Bk", 1), at("ACTR", "Bk", 1)})
-	tbl = Build([]*stagedata.Stage{nil, st, {Name: "empty"}}, nil)
+	st := mkStage("S", []stage.Actor{at("ACTR", "Bk", 1)}, []stage.Actor{at("ACTR", "Bk", 1), at("ACTR", "Bk", 1)})
+	tbl = Build([]*stage.Stage{nil, st, {Name: "empty"}}, nil)
 	if tbl.Stages != 2 || tbl.Placed != 3 || tbl.Unnamed != 3 || len(tbl.Enemies) != 0 || len(tbl.Duplicates) != 0 {
 		t.Errorf("nil names: %+v", tbl)
 	}
@@ -568,8 +568,8 @@ func TestBuildNil(t *testing.T) {
 		t.Errorf("report:\n%s", tbl.Report())
 	}
 	// Two stages of one name stay apart in the duplicates.
-	a, b := stage("S", nil, []stagedata.Actor{at("ACTR", "Bk", 1)}), stage("S", nil, []stagedata.Actor{at("ACTR", "Bk", 1)})
-	if tbl := Build([]*stagedata.Stage{a, b}, testNames(t)); len(tbl.Duplicates) != 0 || len(tbl.Summary.ByStage) != 1 {
+	a, b := mkStage("S", nil, []stage.Actor{at("ACTR", "Bk", 1)}), mkStage("S", nil, []stage.Actor{at("ACTR", "Bk", 1)})
+	if tbl := Build([]*stage.Stage{a, b}, testNames(t)); len(tbl.Duplicates) != 0 || len(tbl.Summary.ByStage) != 1 {
 		t.Errorf("two stages named S: %v, %+v", tbl.Duplicates, tbl.Summary.ByStage)
 	}
 }
@@ -638,11 +638,11 @@ func TestReport(t *testing.T) {
 	}
 
 	// A duplicate with more members than a line lists.
-	var many []stagedata.Actor
+	var many []stage.Actor
 	for range maxRefsPerLine + 3 {
 		many = append(many, at("ACTR", "takara", 5))
 	}
-	r = Build([]*stagedata.Stage{stage("S", nil, many)}, testNames(t)).Report()
+	r = Build([]*stage.Stage{mkStage("S", nil, many)}, testNames(t)).Report()
 	if !strings.Contains(r, "ACTR#7 takara, +3 more\n") {
 		t.Errorf("long duplicate:\n%s", r)
 	}

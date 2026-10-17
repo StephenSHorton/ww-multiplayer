@@ -7,29 +7,29 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // testNames is an l_objectName with the names the fixtures use
 // (d_stage.cpp; the procs' own lines are cited where they are defined).
-func testNames(t testing.TB) *stagedata.ObjectNames {
+func testNames(t testing.TB) *stage.ObjectNames {
 	t.Helper()
-	o, err := stagedata.ParseObjectNames(stagetest.ObjectNameTable(
-		stagetest.ObjectName{Name: "takara", Proc: int16(stagedata.ProcTbox), Subtype: -1},
-		stagetest.ObjectName{Name: "item", Proc: int16(stagedata.ProcItem), Subtype: -1},
+	o, err := stage.ParseObjectNames(stagetest.ObjectNameTable(
+		stagetest.ObjectName{Name: "takara", Proc: int16(stage.ProcTbox), Subtype: -1},
+		stagetest.ObjectName{Name: "item", Proc: int16(stage.ProcItem), Subtype: -1},
 		stagetest.ObjectName{Name: "Ritem", Proc: int16(itemsrc.ProcRaceItem), Subtype: -1},
 		stagetest.ObjectName{Name: "kotubo", Proc: int16(itemsrc.ProcTsubo), Subtype: 0},
 		stagetest.ObjectName{Name: "Ktarur", Proc: int16(itemsrc.ProcBarrel2), Subtype: -1},
 		stagetest.ObjectName{Name: "Salvage", Proc: int16(itemsrc.ProcSalvage), Subtype: -1},
-		stagetest.ObjectName{Name: "Btd", Proc: int16(stagedata.ProcBTD), Subtype: -1},
-		stagetest.ObjectName{Name: "Bkm", Proc: int16(stagedata.ProcBMD), Subtype: -1},
-		stagetest.ObjectName{Name: "Bst", Proc: int16(stagedata.ProcBST), Subtype: -1},
-		stagetest.ObjectName{Name: "big_pow", Proc: int16(stagedata.ProcBPW), Subtype: -1},
-		stagetest.ObjectName{Name: "Bwd", Proc: int16(stagedata.ProcBWD), Subtype: -1},
-		stagetest.ObjectName{Name: "Bdk", Proc: int16(stagedata.ProcBDK), Subtype: -1},
-		stagetest.ObjectName{Name: "Bitem", Proc: int16(stagedata.ProcBossItem), Subtype: -1},
+		stagetest.ObjectName{Name: "Btd", Proc: int16(stage.ProcBTD), Subtype: -1},
+		stagetest.ObjectName{Name: "Bkm", Proc: int16(stage.ProcBMD), Subtype: -1},
+		stagetest.ObjectName{Name: "Bst", Proc: int16(stage.ProcBST), Subtype: -1},
+		stagetest.ObjectName{Name: "big_pow", Proc: int16(stage.ProcBPW), Subtype: -1},
+		stagetest.ObjectName{Name: "Bwd", Proc: int16(stage.ProcBWD), Subtype: -1},
+		stagetest.ObjectName{Name: "Bdk", Proc: int16(stage.ProcBDK), Subtype: -1},
+		stagetest.ObjectName{Name: "Bitem", Proc: int16(stage.ProcBossItem), Subtype: -1},
 		stagetest.ObjectName{Name: "TagKb", Proc: int16(itemsrc.ProcTagKbItem), Subtype: -1},
 	))
 	if err != nil {
@@ -50,8 +50,8 @@ func boss(name string) a { return a{Name: name} }
 
 func bitem(table uint32) a { return a{Name: "Bitem", Params: table} }
 
-func stage(name string, table int, dzs []a, rooms ...stagetest.Room) stagetest.Stage {
-	chunks := []stagetest.Chunk{stagetest.StagChunk(stagetest.StagInfo(table, int(stagedata.StageDungeon), false))}
+func mkStage(name string, table int, dzs []a, rooms ...stagetest.Room) stagetest.Stage {
+	chunks := []stagetest.Chunk{stagetest.StagChunk(stagetest.StagInfo(table, int(stage.StageDungeon), false))}
 	if len(dzs) > 0 {
 		chunks = append(chunks, stagetest.Actors("ACTR", dzs...))
 	}
@@ -90,17 +90,17 @@ func vanilla() []stagetest.Stage {
 		rest = append(rest, chest(bit, hp))
 	}
 	return []stagetest.Stage{
-		stage("sea", 0, nil, room(1, stagetest.Actors("ACTR", first...)), room(2, stagetest.Actors("ACTR", rest...))),
-		stage("M2tower", tableFF, []a{boss("Bdk")}),
-		stage("M_DragB", 3, []a{boss("Btd")}, room(0, stagetest.Actors("ACTR", bitem(3)))),
-		stage("kinBOSS", 4, []a{boss("Bkm")}),
-		stage("SirenB", 5, []a{boss("Bst")}),
-		stage("M_DaiB", 6, nil, room(0, stagetest.Actors("ACT1", boss("big_pow")), stagetest.Actors("ACT2", boss("big_pow")))),
-		stage("kazeB", 7, []a{boss("Bwd")}),
-		stage("Xboss0", tableGT, []a{boss("Btd")}),
-		stage("Xboss1", tableGT, []a{boss("Bkm")}),
-		stage("Xboss2", tableGT, nil, room(0, stagetest.Actors("ACTR", boss("big_pow")))),
-		stage("Xboss3", tableGT, []a{boss("Bwd")}),
+		mkStage("sea", 0, nil, room(1, stagetest.Actors("ACTR", first...)), room(2, stagetest.Actors("ACTR", rest...))),
+		mkStage("M2tower", tableFF, []a{boss("Bdk")}),
+		mkStage("M_DragB", 3, []a{boss("Btd")}, room(0, stagetest.Actors("ACTR", bitem(3)))),
+		mkStage("kinBOSS", 4, []a{boss("Bkm")}),
+		mkStage("SirenB", 5, []a{boss("Bst")}),
+		mkStage("M_DaiB", 6, nil, room(0, stagetest.Actors("ACT1", boss("big_pow")), stagetest.Actors("ACT2", boss("big_pow")))),
+		mkStage("kazeB", 7, []a{boss("Bwd")}),
+		mkStage("Xboss0", tableGT, []a{boss("Btd")}),
+		mkStage("Xboss1", tableGT, []a{boss("Bkm")}),
+		mkStage("Xboss2", tableGT, nil, room(0, stagetest.Actors("ACTR", boss("big_pow")))),
+		mkStage("Xboss3", tableGT, []a{boss("Bwd")}),
 	}
 }
 
@@ -108,7 +108,7 @@ func vanilla() []stagetest.Stage {
 func xboss0(s []stagetest.Stage, rs ...stagetest.Room) []stagetest.Stage {
 	for i := range s {
 		if s[i].Name == "Xboss0" {
-			s[i] = stage("Xboss0", tableGT, []a{boss("Btd")}, rs...)
+			s[i] = mkStage("Xboss0", tableGT, []a{boss("Btd")}, rs...)
 		}
 	}
 	return s
@@ -117,13 +117,13 @@ func xboss0(s []stagetest.Stage, rs ...stagetest.Room) []stagetest.Stage {
 // tableGT is Ganon's Tower's save table, STAGE_GT (d_save.h:897).
 const tableGT = 0x8
 
-func load(t testing.TB, stages []stagetest.Stage) []*stagedata.Stage {
+func load(t testing.TB, stages []stagetest.Stage) []*stage.Stage {
 	t.Helper()
 	d := new(stagetest.Disc)
 	for _, s := range stages {
 		d.AddStage(s)
 	}
-	out, _, err := stagedata.Load(d)
+	out, _, err := stage.Load(d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestBuildFailures(t *testing.T) {
 		{
 			name: "extra piece",
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
-				return append(s, stage("Omori", 0xB, nil, room(0, stagetest.Actors("ACTR", fieldItem(1, itemsrc.ItemHeartPiece)))))
+				return append(s, mkStage("Omori", 0xB, nil, room(0, stagetest.Actors("ACTR", fieldItem(1, itemsrc.ItemHeartPiece)))))
 			},
 			want: []string{"45 heart pieces (31 in stage files, 11 rewards, 3 unverified rewards); vanilla has 44"},
 		},
@@ -248,7 +248,7 @@ func TestBuildFailures(t *testing.T) {
 			// test does, not by Ganon's Tower's table.
 			name: "a boss on Ganon's Tower's table, not in an X stage",
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
-				return append(s, stage("GanonX", tableGT, []a{boss("Btd")}))
+				return append(s, mkStage("GanonX", tableGT, []a{boss("Btd")}))
 			},
 			want: []string{"7 heart containers; vanilla has 6"},
 		},
@@ -278,14 +278,14 @@ func TestBuildFailures(t *testing.T) {
 		{
 			name: "unsaved piece",
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
-				return append(s, stage("Omori", 0xB, nil, room(0, stagetest.Actors("ACTR", fieldItem(0x7F, itemsrc.ItemHeartPiece)))))
+				return append(s, mkStage("Omori", 0xB, nil, room(0, stagetest.Actors("ACTR", fieldItem(0x7F, itemsrc.ItemHeartPiece)))))
 			},
 			want: []string{"piece 31: unsaved: nothing saved records the pickup"},
 		},
 		{
 			name: "zone-bit piece",
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
-				return append(s, stage("Omori", 0xB, nil, room(4, stagetest.Actors("ACTR", fieldItem(0x41, itemsrc.ItemHeartPiece)))))
+				return append(s, mkStage("Omori", 0xB, nil, room(4, stagetest.Actors("ACTR", fieldItem(0x41, itemsrc.ItemHeartPiece)))))
 			},
 			want: []string{"piece 31: zone item room 4:0x41 (unsaved): nothing saved"},
 		},
@@ -293,7 +293,7 @@ func TestBuildFailures(t *testing.T) {
 			// d_save.cpp:1164-1173 asserts on grid 50.
 			name: "salvaged piece on an ocean bit the game halts on",
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
-				return append(s, stage("Omori", 0, nil, room(50, stagetest.Actors("ACTR",
+				return append(s, mkStage("Omori", 0, nil, room(50, stagetest.Actors("ACTR",
 					a{Name: "Salvage", Params: 3<<28 | 4<<20 | uint32(itemsrc.ItemHeartPiece)<<4}))))
 			},
 			want: []string{"piece 31: ocean grid 50:4 (halts): the game halts on that save bit"},
@@ -301,36 +301,36 @@ func TestBuildFailures(t *testing.T) {
 		{
 			name: "container on a bit the game halts on",
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
-				return append(s, stage("M_Dra09", 3, nil, room(1, stagetest.Actors("ACTR", fieldItem(0x55, itemsrc.ItemHeartContainer)))))
+				return append(s, mkStage("M_Dra09", 3, nil, room(1, stagetest.Actors("ACTR", fieldItem(0x55, itemsrc.ItemHeartContainer)))))
 			},
 			want: []string{`M_Dra09 room 1, all layers, ACTR#0 "item" setID 0x0000: container placement: the game halts on its save bit, bad item bit 0x55 (halts)`},
 		},
 		{
 			name: "a placed container and a boss share STAGE_LIFE",
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
-				return append(s, stage("M_Dra09", 3, nil, room(1, stagetest.Actors("ACTR", fieldItem(0x20, itemsrc.ItemHeartContainer)))))
+				return append(s, mkStage("M_Dra09", 3, nil, room(1, stagetest.Actors("ACTR", fieldItem(0x20, itemsrc.ItemHeartContainer)))))
 			},
 			want: []string{"container 2: 3 placements of 2 kinds (boss, item) all set stage life 3, which counts once"},
 		},
 		{
 			name: "a container chest on the sea is Forsaken Fortress's",
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
-				s = append(s, stage("Pfall", 0, nil, room(9, stagetest.Actors("ACTR", chest(4, itemsrc.ItemHeartContainer)))))
-				return append(s, stage("M2tow2", tableFF, nil, room(0, stagetest.Actors("ACTR", fieldItem(0x7F, itemsrc.ItemHeartContainer)))))
+				s = append(s, mkStage("Pfall", 0, nil, room(9, stagetest.Actors("ACTR", chest(4, itemsrc.ItemHeartContainer)))))
+				return append(s, mkStage("M2tow2", tableFF, nil, room(0, stagetest.Actors("ACTR", fieldItem(0x7F, itemsrc.ItemHeartContainer)))))
 			},
 			want: []string{"container 1: 3 placements of 2 kinds (chest, item) all set stage life 2"},
 		},
 		{
 			name: "Bitem for another table",
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
-				return append(s, stage("M_Dra09", 3, []a{bitem(5)}))
+				return append(s, mkStage("M_Dra09", 3, []a{bitem(5)}))
 			},
 			want: []string{`M_Dra09 stage file, all layers, ACTR#0 "Bitem" setID 0x0000: Bitem checks save table 5's STAGE_LIFE, but its container sets table 3's`},
 		},
 		{
 			name: "Bitem past the last table",
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
-				return append(s, stage("M_Dra09", 3, []a{bitem(0x20)}))
+				return append(s, mkStage("M_Dra09", 3, []a{bitem(0x20)}))
 			},
 			want: []string{"Bitem checks save table 32, past the last (0xF)"},
 		},
@@ -359,7 +359,7 @@ func TestBuildDegenerate(t *testing.T) {
 	stages := load(t, vanilla())
 	for name, r := range map[string]*Result{
 		"no stages": Build(nil, testNames(t)),
-		"nil stage": Build([]*stagedata.Stage{nil}, testNames(t)),
+		"nil stage": Build([]*stage.Stage{nil}, testNames(t)),
 		"no names":  Build(stages, nil),
 	} {
 		if r.Pass || len(r.Pieces) != 0 || len(r.Containers) != 0 || r.Totals.Pieces != len(Catalogue) {

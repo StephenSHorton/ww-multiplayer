@@ -7,9 +7,9 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -156,7 +156,7 @@ func TestWriteGuardKillSlot(t *testing.T) {
 // one byte, 0 to 1, of an actor of the walk that the plan allows, verified
 // and eligible, with Link's demo gate open and the gates open.
 func TestWriteGuardActor(t *testing.T) {
-	unverify(t, stagedata.ProcTN)
+	unverify(t, stage.ProcTN)
 	mg := newM6Guard(t)
 	mg.plan(map[int][]int{1: {3, 9}})
 	cc := mg.actor(t, m6CC)
@@ -268,7 +268,7 @@ func TestWriteGuardWeapon(t *testing.T) {
 	if err := mg.wg.checkActor(actorWeapon, bk, wp, ca, carry, 0); err == nil {
 		t.Error("a weapon let go on a later tick than its carrier's timer")
 	}
-	_ = stagedata.ProcBK
+	_ = stage.ProcBK
 }
 
 func withMode(a *actors.Actor, mode int32) *actors.Actor {
@@ -349,7 +349,7 @@ func FuzzWriteGuardActor(f *testing.F) {
 			ok = ok && wp != nil && a == wp.Addr+addr.ActorOffCarryByte && old&0x20 != 0 && val == old&^0x20 &&
 				c.Weapon == wp.PID && shrunk && wp.Proc == addr.ProcBoko && isK1 && cls.Weapon != 0 &&
 				wp.Status&addr.ActorStatusCarry != 0 && wp.ModeOK && wp.Mode == 2 && // Mode_ENEMY_CARRY_e
-				(c.Proc != int16(stagedata.ProcBK) || c.HoldOK && c.Hold != 0) // m0B30
+				(c.Proc != int16(stage.ProcBK) || c.HoldOK && c.Hold != 0) // m0B30
 		}
 		if ok != (err == nil) {
 			t.Fatalf("%s of %s at 0x%08X, 0x%02X -> 0x%02X: %v; the oracle says %v", k, c, a, old, val, err, ok)

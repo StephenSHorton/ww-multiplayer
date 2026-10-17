@@ -1,4 +1,4 @@
-package stagedata
+package stage
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // yaz0Stream assembles a Yaz0 stream declaring size bytes from ops, each

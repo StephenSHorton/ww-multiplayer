@@ -1,4 +1,4 @@
-package stagedata
+package stage
 
 import (
 	"bytes"

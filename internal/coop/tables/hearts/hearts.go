@@ -24,8 +24,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // The vanilla totals, as data: the design's §11 item 11, which checks
@@ -50,7 +50,7 @@ const (
 // bosses are the boss classes that create a container
 // (fopAcM_createItemForBoss, f_op_actor_mng.cpp:955-964, directly or
 // through a disappear actor of type daDisItem_HEART_CONTAINER_e,
-// d_a_disappear.cpp:27-28). Helmaroc King (stagedata.ProcBDK) sets
+// d_a_disappear.cpp:27-28). Helmaroc King (stage.ProcBDK) sets
 // STAGE_BOSS_ENEMY (d_a_bdk.cpp:3232, :4235) but creates no container:
 // Forsaken Fortress's comes from a Bitem or a placed one.
 //
@@ -63,12 +63,12 @@ const (
 // d_a_bpw.cpp:2154-2158, d_a_bwd.cpp:1021-1026), so Build leaves the
 // bosses of such a stage out (refight). Gohdan has no such test, but no X
 // stage holds him, so he is left out there too on purpose.
-var bosses = map[stagedata.Proc]string{
-	stagedata.ProcBTD: "Gohma",       // d_a_btd.cpp:1082
-	stagedata.ProcBMD: "Kalle Demos", // d_a_bmd.cpp:747
-	stagedata.ProcBST: "Gohdan",      // d_a_bst.cpp:2504
-	stagedata.ProcBPW: "Jalhalla",    // d_a_bpw.cpp:2856
-	stagedata.ProcBWD: "Molgera",     // d_a_bwd.cpp:1704
+var bosses = map[stage.Proc]string{
+	stage.ProcBTD: "Gohma",       // d_a_btd.cpp:1082
+	stage.ProcBMD: "Kalle Demos", // d_a_bmd.cpp:747
+	stage.ProcBST: "Gohdan",      // d_a_bst.cpp:2504
+	stage.ProcBPW: "Jalhalla",    // d_a_bpw.cpp:2856
+	stage.ProcBWD: "Molgera",     // d_a_bwd.cpp:1704
 }
 
 const (
@@ -81,7 +81,7 @@ const (
 // dropping its container: its name starts with 'X', the bosses' own test
 // (see bosses). Gohdan (d_a_bst.cpp) has no such test, and no X stage
 // holds him. A Bitem or a placed container in such a stage still counts.
-func refight(s *stagedata.Stage) bool { return strings.HasPrefix(s.Name, "X") }
+func refight(s *stage.Stage) bool { return strings.HasPrefix(s.Name, "X") }
 
 // lifeTable is the save table whose STAGE_LIFE a container taken in a
 // stage on save table t sets (d_item.cpp:595-602).
@@ -117,10 +117,10 @@ type Result struct {
 	Problems   []string         `json:"problems,omitempty"`
 }
 
-// Build reads stages, as stagedata.Load returns them, with names, the
+// Build reads stages, as stage.Load returns them, with names, the
 // user's l_objectName. It never fails: what it can't account for is a
 // problem.
-func Build(stages []*stagedata.Stage, names *stagedata.ObjectNames) *Result {
+func Build(stages []*stage.Stage, names *stage.ObjectNames) *Result {
 	r := &Result{Rewards: slices.Clone(Catalogue)}
 	var pieces, containers []itemsrc.Placement
 	isPiece := func(i uint8) bool { return i == itemsrc.ItemHeartPiece || i == itemsrc.ItemHeartPieceAlt }
@@ -129,7 +129,7 @@ func Build(stages []*stagedata.Stage, names *stagedata.ObjectNames) *Result {
 		if s == nil || names == nil {
 			continue
 		}
-		one := []*stagedata.Stage{s}
+		one := []*stage.Stage{s}
 		pieces = append(pieces, itemsrc.Find(one, names, isPiece)...)
 		life := itemsrc.Flag{Kind: itemsrc.StageLifeFlag, Table: lifeTable(s.SaveTable)}
 		for _, p := range itemsrc.Find(one, names, isContainer) {
@@ -148,7 +148,7 @@ func Build(stages []*stagedata.Stage, names *stagedata.ObjectNames) *Result {
 				continue
 			}
 			kind := Boss
-			if proc == stagedata.ProcBossItem {
+			if proc == stage.ProcBossItem {
 				kind = BossItem
 				// getStage, prm & 0xFF (d_a_boss_item.h:13), is the
 				// table whose boss and STAGE_LIFE it checks.
