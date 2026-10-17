@@ -5,14 +5,21 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 )
 
 // compiledMods is the static list of mods built into this app (design
-// §6.1: no init() registration, no drop-in loading). It is empty until the
-// multiplayer and co-op mods exist (Phase D); D7 moves it to
+// §6.1: no init() registration, no drop-in loading): the multiplayer mod,
+// whose engine is the app's (newTUIEngine; the faces still build their
+// own the same way until D4). Co-op joins it in D2; D7 moves the list to
 // cmd/ww-multiplayer/mods.go.
-func compiledMods() []wwapi.Mod { return nil }
+func compiledMods() []wwapi.Mod {
+	return []wwapi.Mod{
+		multiplayer.New(func() session.Engine { return newTUIEngine() }),
+	}
+}
 
 const modsUsage = "mods [--json]"
 

@@ -1,0 +1,19 @@
+{
+  "$schema": "../../wwapi/schema/mod.schema.json",
+  "id": "multiplayer",
+  "name": "Multiplayer",
+  "description": "Remote players' Links in your game: the session (host, join, lobby), the pose pipelines and the tunic colors (docs/api/00-design.md §7).",
+  "version": "1.0.0",
+  "api": "^0.1",
+  "dependencies": {},
+  "optional_dependencies": {},
+  "load_order": 0,
+  "enabled_by_default": true,
+  "dev": false,
+  "game_ids": ["GZLE01"],
+  "multiplayer": "client_required",
+  "provides": ["net"],
+  "needs": ["avatar", "face", "tunic", "input"],
+  "writes": [],
+  "c": null
+}

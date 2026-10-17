@@ -8,8 +8,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 )
 
-// TestCLIGoldenMods: `mods` and `mods --json` list no mods yet (the list
-// is empty until Phase D), and a stray argument prints the usage.
+// TestCLIGoldenMods: `mods` and `mods --json` list the compiled-in mods
+// (multiplayer, LOADED), and a stray argument prints the usage.
 func TestCLIGoldenMods(t *testing.T) {
 	root := t.TempDir()
 	env := configEnv(root)
