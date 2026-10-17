@@ -214,7 +214,7 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
 
 **Why the texture in RAM stays pristine.** Every swap is restored inside the same draw hook call, and C never writes the image. Go reads the original image outside the bracket (§5.4), so no backup file is needed.
 
-### 5.4 Go wiring (built: `wwapi/avatar/tunic.go`, was `tunic_sync.go`; the session side is `tunic_feed.go`)
+### 5.4 Go wiring (built: `wwapi/avatar/tunic.go`, was `tunic_sync.go`; the session side is `mods/multiplayer/tunicsync`)
 
 **Reading the hero image** (`readHeroTexture`). Go reads Link #1, then `mpCurrLinktex` (the worn header). The hero header is that worn header in the hero's clothes, and `mOtherLinktex` in the casual clothes. Either way the image is at `worn + imageOffset`. Race rules:
 - C rewrites the worn header only inside a bracket. A header whose image lies inside one of the three buffers was read mid-swap, so it is refused (`errTunicBusy`) and retried on the next tick.
@@ -234,7 +234,7 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
    - The worn-header address: a new model would need a new calibration.
 5. A buffer pointer that changes (a save state from another boot) resets that slot.
 
-**What each slot shows** (`syncTunics`, called every puppet-sync tick):
+**What each slot shows** (`tunicsync.SyncTunics`, called every puppet-sync tick):
 - **Only server-assigned colors are drawn.** Until `client.MyColor()` is known (a server from before colors, or the moment before the first player list) no slot gets a color, so there is no by-ID color and no color flash at join (`TestSyncTunics_NoServerColorAllOff`). A casual remote still gets the casual shirt, which is not a color (§5.6).
 - **Mini-Link slot *s*:** the remote that `remoteToLinkSlot` maps to that slot, in `rp.Color`. A remote without a server color is off.
   - Green remotes are swapped too, to the original image, so they show hero green even while the local player wears the casual clothes.
@@ -281,9 +281,9 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
 - Enable 1 behaves as before, so a hero remote seen by a casual viewer still gets the hero header from `mOtherLinktex` with its colored image. The local slot never takes 2.
 - No mailbox field was added; T2 grew by 0x20 bytes (§6).
 
-**Go:** `syncTunics` calls `SetCasual(slot)` for a remote whose pose-trailer appearance byte has bit 0 set (`remoteCasual`), so the protocol is unchanged. `step` writes 2 directly; a later color goes through off and the drain (`TestTunicSync_CasualSlot`, `TestSyncTunics_SlotsFollowRemotes`).
+**Go:** `tunicsync.SyncTunics` calls `SetCasual(slot)` for a remote whose pose-trailer appearance byte has bit 0 set (`RemoteCasual`), so the protocol is unchanged. `step` writes 2 directly; a later color goes through off and the drain (`TestTunicSync_CasualSlot`, `TestSyncTunics_SlotsFollowRemotes`).
 
-The casual shirt does not depend on the color pipeline, since C reads no image buffer for it. `Tick` writes a casual slot's 2 before every color gate: no hero texture read yet, nothing allocated (state 0), a buffer size for another texture, and a slot whose GameHeap allocation failed (state 0xFD, buf 0). `syncTunics` also sets casual remotes when this client has no server color yet (a server from before colors), while every color stays off. Both are covered by `TestSyncTunics_CasualSkipsColorGates`. `tunic-slot <0|1> casual` therefore settles on a slot without a buffer too.
+The casual shirt does not depend on the color pipeline, since C reads no image buffer for it. `Tick` writes a casual slot's 2 before every color gate: no hero texture read yet, nothing allocated (state 0), a buffer size for another texture, and a slot whose GameHeap allocation failed (state 0xFD, buf 0). `SyncTunics` also sets casual remotes when this client has no server color yet (a server from before colors), while every color stays off. Both are covered by `TestSyncTunics_CasualSkipsColorGates`. `tunic-slot <0|1> casual` therefore settles on a slot without a buffer too.
 
 **Live check** (two Dolphins, host red / join blue on 127.0.0.1, Outset pier; hero clothes forced on one by event bit 0x2A80; screenshots in the PR's `casual-screenshots`):
 
@@ -466,7 +466,7 @@ Setup: run `SAVE_STATE=… ./ww-multiplayer.exe dolphin2`, then `WW_TUNIC=off ./
 - `internal/inject/t2_budget_test.go`
 - `playercolor_flag{,_test}.go`
 - `tunic_diag.go` (`tunic-probe`, `tunic-recolor`)
-- `tunic_sync.go`, `tunic_sync_test.go` (wiring, `tunic-slot`, the `dump` block; since C12: the slots in `wwapi/avatar/tunic.go`, the session side, `tunic-slot` and the `dump` block in `tunic_feed.go`)
+- `tunic_sync.go`, `tunic_sync_test.go` (wiring, `tunic-slot`, the `dump` block; since C12: the slots in `wwapi/avatar/tunic.go`, the session side, `tunic-slot` and the `dump` block in `tunic_feed.go`; since D1b: the session side and the `dump` block in `mods/multiplayer/tunicsync`, `tunic-slot` in `tunic_diag.go`)
 - `mailbox_layout_test.go` (since C9: `wwapi/mailbox/layout_gen.go` and `layout_test.go`)
 - this document
 

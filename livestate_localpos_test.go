@@ -49,7 +49,7 @@ func TestLiveStateLocalPosSetter_NilSafe(t *testing.T) {
 
 // TestLiveStateLocalPosSetter_WiresIntoLiveState verifies the non-nil case
 // actually publishes into the given liveState -- the plumbing
-// runBroadcastPoseCtx's onPos callback depends on.
+// feed.BroadcastPose's onPos callback depends on.
 func TestLiveStateLocalPosSetter_WiresIntoLiveState(t *testing.T) {
 	ls := &liveState{}
 	setter := liveStateLocalPosSetter(ls)

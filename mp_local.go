@@ -278,7 +278,7 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 	var wg sync.WaitGroup
 
 	// spawn launches one client goroutine running run with the label's
-	// prefixed reporter: runBroadcastPoseCtx, runPuppetSyncCtx or, with
+	// prefixed reporter: feed.BroadcastPose, feed.PuppetSync or, with
 	// --coop, runCoopSyncCtx.
 	spawn := func(label string, run func(r log.Reporter) error) {
 		wg.Add(1)

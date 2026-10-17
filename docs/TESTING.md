@@ -76,7 +76,7 @@ Accept anything visual only on a screenshot pair (`WW_DOLPHIN_INDEX=0` and `=1`,
 
 ### The smoke checklist (design decision 11)
 
-After a change to the multiplayer pipeline (`runPuppetSyncCtx`, `wwapi/avatar`, `wwapi/player`, the tunic feed, the mailbox):
+After a change to the multiplayer pipeline (`mods/multiplayer/feed`, `wwapi/avatar`, `wwapi/player`, the tunic feed, the mailbox):
 
 1. **Pose**: each Dolphin shows the other's Link where he stands, animating (walk, roll, swing), with no T-pose or frozen frame.
 2. **Face**: the remote Link's eyes and mouth move (blinks, the look direction).
