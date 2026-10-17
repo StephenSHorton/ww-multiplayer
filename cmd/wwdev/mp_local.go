@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"fmt"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/cheats"
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
@@ -20,12 +20,10 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
 
-// bundledCheatsIni is the curated cheats/GZLE01.ini shipped in the repo,
-// baked into the binary so the released ww-multiplayer.exe can drop it
-// into Dolphin user dirs without needing the source tree alongside it.
-//
-//go:embed cheats/GZLE01.ini
-var bundledCheatsIni []byte
+// bundledCheatsIni is the curated cheats/GZLE01.ini shipped in the repo
+// (package cheats), baked into the binary so dolphin2 can drop it into
+// Dolphin user dirs without needing the source tree alongside it.
+var bundledCheatsIni = cheats.GZLE01
 
 // dolphin2Defaults returns the OS-appropriate fallback paths for the
 // dolphin2 bootstrap when DOLPHIN_EXE / ISO_PATH / USER_DIR_{1,2} are
@@ -59,7 +57,7 @@ func runDolphin2(reset bool) {
 	// two Dolphins boot with distinct save states — used to force a btp
 	// animation phase divergence so face-sync can be visually validated
 	// under natural (non-synthetic) conditions (issue #5). Capture a
-	// pair via `./ww-multiplayer.exe auto-recapture-pair`.
+	// pair via `./wwdev.exe auto-recapture-pair`.
 	saveState := os.Getenv("SAVE_STATE")
 	saveState2 := os.Getenv("SAVE_STATE_2")
 
@@ -160,7 +158,7 @@ func runDolphin2(reset bool) {
 			log.Logf(rep, log.Info, "Both Dolphins booting with save state %s. mp-local's wait-loop will detect when they're in-game.", saveState)
 		}
 	} else {
-		rep.Log(log.Info, "Wait for both games to load to a save state, then run `./ww-multiplayer.exe mp-local`. (Set SAVE_STATE=<path> to skip the menus next time.)")
+		rep.Log(log.Info, "Wait for both games to load to a save state, then run `./wwdev.exe mp-local`. (Set SAVE_STATE=<path> to skip the menus next time.)")
 	}
 }
 
@@ -198,7 +196,7 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	}
 	if count < 2 {
 		log.Logf(rep, log.Err,
-			"need 2 Dolphin instances running, found %d (run `./ww-multiplayer.exe dolphin2` first)",
+			"need 2 Dolphin instances running, found %d (run `./wwdev.exe dolphin2` first)",
 			count)
 		os.Exit(1)
 	}

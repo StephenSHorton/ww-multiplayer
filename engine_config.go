@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/StephenSHorton/ww-multiplayer/cheats"
+	"github.com/StephenSHorton/ww-multiplayer/internal/cliutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
@@ -14,15 +16,15 @@ import (
 var sessionEnv = engine.Env{Feed: feedEnv, Clear: clearMultiplayerState}
 
 // coopEnv is what co-op (mods/coop/session) takes from package main:
-// openDolphin.
-var coopEnv = coopsession.Env{Open: openDolphin}
+// cliutil.OpenDolphin.
+var coopEnv = coopsession.Env{Open: cliutil.OpenDolphin}
 
 // engineConfig is the multiplayer engine's config from package main: the
 // sessions' Env, this build's version and cheats, co-op (the app's runs
 // lobby sessions too; the CLI never runs one) and the mods its hellos
 // carry.
 func engineConfig(coop engine.CoopApp, mods network.Mods) engine.Config {
-	return engine.Config{Env: sessionEnv, Version: version, CheatsIni: bundledCheatsIni, Coop: coop, Mods: mods}
+	return engine.Config{Env: sessionEnv, Version: version, CheatsIni: cheats.GZLE01, Coop: coop, Mods: mods}
 }
 
 // netMods is a ModsID as the network sends it (docs/api/02-mods.md,

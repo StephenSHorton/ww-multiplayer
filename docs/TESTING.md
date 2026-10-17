@@ -32,18 +32,23 @@ A golden file is the expected output, byte for byte. When a golden test fails, t
 `cli_golden_test.go` and `mods_test.go` run `ww-multiplayer <args>` in a child process with its own config directory and Dolphin paths in temp dirs, and compare stdout and the exit code with `testdata/cli-golden/<name>.txt`:
 
 - `patch-*`: the patcher's lines for a good image, an already-patched one, another version, garbage, a missing file and the usage;
-- `dolphin2-*`: the two-Dolphin bootstrap's messages for each missing piece, `--reset`, and (Windows, no Dolphin running) the launch with `DOLPHIN_EXE` pointed at a directory, so nothing starts;
 - `help-gui`, `help-nogui`, `unknown-*`: `help` and an unknown command, one file per build (with and without `-tags desktop,production`). They are recorded on Windows, where they compare byte for byte; elsewhere the column padding is ignored but not the text;
 - `mods`, `mods-json`, `mods-usage`: the `mods` command, which lists `compiledMods()` (empty today; `mods/example` is not in it).
+
+wwdev, the developer tools (`cmd/wwdev`), has its own: `cmd/wwdev/cli_golden_test.go` runs `wwdev <args>` the same way (the harness is `internal/cliutil/clitest`) against `cmd/wwdev/testdata/cli-golden/<name>.txt`:
+
+- `dolphin2-*`: the two-Dolphin bootstrap's messages for each missing piece, `--reset`, and (Windows, no Dolphin running) the launch with `DOLPHIN_EXE` pointed at a directory, so nothing starts;
+- `wwdev-none`, `wwdev-help`, `wwdev-unknown`: wwdev's help, with no arguments, `help` and an unknown command (Windows only).
 
 Regenerate on purpose:
 
 ```
 go test -run 'TestCLIGolden' -update-cli-golden .
 go test -tags desktop,production -run 'TestCLIGoldenHelp' -update-cli-golden .   # help-gui
+go test -run 'TestCLIGolden' -update-cli-golden ./cmd/wwdev                       # dolphin2-*, wwdev-*
 ```
 
-Run both on Windows, so the help files keep Windows' columns. `testdata/cli-subcommands.txt` pins the registry's subcommand names (`TestCLISubcommandsUnchanged`); regenerate it with `go test -run TestCLISubcommandsUnchanged -update-subcommands .` only when a command is added or removed on purpose.
+Run both on Windows, so the help files keep Windows' columns. `testdata/cli-subcommands.txt` pins the registry's subcommand names (`TestCLISubcommandsUnchanged`); regenerate it with `go test -run TestCLISubcommandsUnchanged -update-subcommands .` only when a command is added or removed on purpose. wwdev's names are in `cmd/wwdev/testdata/cli-subcommands.txt` (`TestWWDevSubcommandsUnchanged`, `-update-subcommands ./cmd/wwdev`); the two lists share only `help`.
 
 ### Co-op golden and converge tests
 
@@ -68,11 +73,11 @@ Any other failure that passes on a rerun is a new flake: report it, do not just 
 Unit tests cannot see a rendered frame. Changes to the pose pipeline, the puppets, the mailbox or the C side also need the owner's machine with the two-Dolphin harness (CLAUDE.md, "Standard session bootstrap"):
 
 ```
-SAVE_STATE=$(pwd)/saves/start.sav ./ww-multiplayer.exe dolphin2
-./ww-multiplayer.exe mp-local
+SAVE_STATE=$(pwd)/saves/start.sav ./wwdev.exe dolphin2
+./wwdev.exe mp-local
 ```
 
-Accept anything visual only on a screenshot pair (`WW_DOLPHIN_INDEX=0` and `=1`, `./ww-multiplayer.exe screenshot`), never on a memory readback.
+Accept anything visual only on a screenshot pair (`WW_DOLPHIN_INDEX=0` and `=1`, `./wwdev.exe screenshot`), never on a memory readback.
 
 ### The smoke checklist (design decision 11)
 

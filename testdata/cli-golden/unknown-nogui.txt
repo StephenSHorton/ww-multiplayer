@@ -12,10 +12,6 @@ Patch an ISO:
   <exe> patch <vanilla.iso|.ciso> [out.iso]
     Splice the multiplayer mod into your own legitimate copy of Wind Waker (GZLE01)
 
-Local two-Dolphin testing (everything in-process):
-  <exe> dolphin2 [--reset]              Bootstrap & launch a 2nd Dolphin instance
-  <exe> mp-local [nameA] [nameB]        Run server + broadcast/puppet pairs for both Dolphins
-
 Lower-level CLIs:
   <exe> server [--port N]               Start headless server (port 25565 unless --port)
   <exe> broadcast-pose [name] [addr]    Stream local Link pose+pos to server

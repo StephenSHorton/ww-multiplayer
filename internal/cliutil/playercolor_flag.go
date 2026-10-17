@@ -1,4 +1,4 @@
-package main
+package cliutil
 
 import (
 	"errors"
@@ -71,9 +71,10 @@ func extractColorFlag(args []string) (*playercolor.Color, []string, error) {
 	return pref, rest, nil
 }
 
-// applyColorPrefFromArgs is main's first step: it sets engine.ColorPref and strips
-// --color from os.Args so the subcommand parsers never see it.
-func applyColorPrefFromArgs() {
+// ApplyColorPrefFromArgs is main's first step in both binaries: it sets
+// engine.ColorPref and strips --color from os.Args so the subcommand
+// parsers never see it.
+func ApplyColorPrefFromArgs() {
 	pref, rest, err := initColorPref(os.Args[1:], os.Getenv("WW_COLOR"))
 	if err != nil {
 		fmt.Println("ERROR:", err)

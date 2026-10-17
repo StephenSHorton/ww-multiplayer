@@ -235,7 +235,7 @@ So a write made right after the heartbeat lands in the rest of the main loop or 
 
 1. **`coop_getsave_shim(self, stageNo)`**
    - Installed with Freighter `hook_branchlink`, the technique all four existing hooks use (`inject/build.py:39,48,59,69`), over the single `bl getSave__10dSv_info_cFi` (0x8005D8C8) inside `dStage_stagInfoInit` (0x8004230C-0x8004238C).
-   - `d_stage.cpp:1675` is the only `getSave` call in the game. The exact `bl` address comes from `WW_DOL_PATH=inject/original.dol ./ww-multiplayer.exe ppc-disasm 0x8004230C 32`.
+   - `d_stage.cpp:1675` is the only `getSave` call in the game. The exact `bl` address comes from `WW_DOL_PATH=inject/original.dol ./wwdev.exe ppc-disasm 0x8004230C 32`.
    - If `image_ok()` holds, the shim ORs the Go-maintained world image into `mSavedata` and then calls the real `getSave`. The image covers:
      - 16 stage tables, with the key byte +0x20 forced to 0 and switches pre-filtered to latching ones;
      - ocean;
@@ -759,8 +759,8 @@ The proc numbers match the GZLE01 `fpcNm` enum (`f_pc_name.h`), as M1 checked. *
 
 **Bootstrap:**
 ```
-SAVE_STATE=$(pwd)/saves/start.sav ./ww-multiplayer.exe dolphin2
-./ww-multiplayer.exe mp-local --coop
+SAVE_STATE=$(pwd)/saves/start.sav ./wwdev.exe dolphin2
+./wwdev.exe mp-local --coop
 ```
 Run `mp-local` in the background.
 
@@ -807,7 +807,7 @@ Before the steps:
    - Each pipeline logs `armed in world …: the world's chests, … are written to this game`.
    - The log explains the console once: type `/help` for the list. Under `mp-local`, `/refresh` and `/warp` take the player's name (`/warp PlayerB`).
    - Under `--coop`, `mp-local` does not move Dolphin B's Link at start and says so (item 130). Two Dolphins booted from one save state start with the Links on top of each other: walk one a few steps away before a screenshot that needs both.
-3. Take every screenshot as `WW_DOLPHIN_INDEX=<n> ./ww-multiplayer.exe screenshot shots/m3-<item>-<before|after>.png`. Read each pair by eye; a memory readback alone accepts nothing.
+3. Take every screenshot as `WW_DOLPHIN_INDEX=<n> ./wwdev.exe screenshot shots/m3-<item>-<before|after>.png`. Read each pair by eye; a memory readback alone accepts nothing.
 
 Acceptance:
 - **A1 Chests.** On F2, A opens the small-key chest while B is in another room of the dungeon.
@@ -866,7 +866,7 @@ Before the steps:
    - Each pipeline logs `armed in world …: written to this game: the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (at room changes); its story bits and event registers (at stage changes); its items, songs and capacities (when idle); the small keys, max hearts and max magic this game's own flags give`.
    - A class the host does not grant is named once: `co-op: the world's small keys and max hearts are not written to this game this session: …`, with the reason (the stage tables differ, see the host's NOTICE, or the host turned it off).
 4. `/status` (with B's name) now adds `progression granted: story|inventory|keys|life|magic`, `story bits held back: none` (or the held bits and why), a `small keys of table <t> (<dungeon>): …` line per key table, and `max hearts: derived`.
-5. Take each screenshot as `WW_DOLPHIN_INDEX=<n> ./ww-multiplayer.exe screenshot shots/m4-<item>-<before|after>.png` and read each pair by eye. A readback alone accepts nothing visual.
+5. Take each screenshot as `WW_DOLPHIN_INDEX=<n> ./wwdev.exe screenshot shots/m4-<item>-<before|after>.png` and read each pair by eye. A readback alone accepts nothing visual.
 
 Acceptance:
 - **P1 A chest key shows on B's key HUD.** On F2, B stands in DRC, out of the chest's room. A opens the small-key chest.
@@ -931,7 +931,7 @@ Before the steps:
    - On the host it also prints `co-op: host: room puzzles allowed; scoped stores held: <n> dan, <n> zone, <n> kill`, then a line for each player: `<name> (<state>): in <place>; puzzles granted; <n> scoped bit(s) refused by the host's tables`.
    - With equal tables both refusal counts stay 0. A joiner on another machine sees only its own lines.
    - With tables that share switches with the Tingle Tuner (the owner's disc does), `/status` also says `Tingle Tuner: no Game Boy Advance linked; the <n> switch(es) shared with Tingle Tuner switches sync`. With a GBA linked in Dolphin it says they are neither proposed nor written, and the log said so once (item 138).
-5. Take each screenshot as `WW_DOLPHIN_INDEX=<n> ./ww-multiplayer.exe screenshot shots/m5-<item>-<before|after>.png` and read each pair by eye. A readback alone accepts nothing visual.
+5. Take each screenshot as `WW_DOLPHIN_INDEX=<n> ./wwdev.exe screenshot shots/m5-<item>-<before|after>.png` and read each pair by eye. A readback alone accepts nothing visual.
 
 Acceptance:
 - **Z1 A latching crystal opens the shutter for both.** On F5 both players stand in the room, its shutter closed, and B has been in the room for more than 2 s. A hits the crystal.
@@ -983,7 +983,7 @@ Before the steps:
 3. Start `mp-local --coop` with both files bound (M2 steps 1-2; M4 step 2 for one file on both cards).
    - Once the host grants combat, each pipeline logs `co-op: combat: written to this game when idle: the partner's kills of keyed enemies (into each loaded room's zone, so they stay dead), and a live one of them light-shrinks; unkeyed enemies stay each player's own`. Otherwise `co-op: a partner's kills are not written to this game: …` says why.
 4. `/status` adds a line per player: `combat: on; <n> partner kill bit(s) held for <stage> (table <t>); <n> written to zones, <n> light-shrunk, <n> held (<last reason>, link demo <n>), <n> refused, <n> verify failures`. On the host it also prints `co-op: host: combat allowed; <n> kill store(s) held` and each player's grant.
-5. Take each screenshot as `WW_DOLPHIN_INDEX=<n> ./ww-multiplayer.exe screenshot shots/m6-<item>-<before|after>.png` and read each pair by eye. A readback alone accepts nothing visual.
+5. Take each screenshot as `WW_DOLPHIN_INDEX=<n> ./wwdev.exe screenshot shots/m6-<item>-<before|after>.png` and read each pair by eye. A readback alone accepts nothing visual.
 
 Acceptance:
 - **K1 Offsets, class behaviour and Link's demo (single Dolphin). Done on the owner's machine, 2026-10-15 (item 141; screenshots in `shots/`).**
@@ -1019,17 +1019,17 @@ Last: run K2 again with `--coop --coop-dry-run`: B's `/status` says `combat: non
 
 ### 8.3 Day-0 read-only probes (runnable now with today's binary)
 ```
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803C9D3C 12   # stage name ("sea\0..."), point s16, room, layer
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803C53A4 4    # byte0 = save table (0 at sea; on the title it is sea_T's table; 0xFF only between dSv_info_c::init and the next stage load)
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803C9EA0 4    # [mOrderCount][..][mMode][..]; mMode != 0 while talking
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803C9D54 4    # byte0 = mNextStage.mEnable (1 briefly at a loading zone)
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803C4C08 4    # maxLife u16 | life u16 in quarter hearts (0x000C000C new file)
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803C5380 36   # live memBit of the current table
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803C532C 48   # dSv_reserve_c: expect all zero on a vanilla file
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803C5E98 4    # byte0 = mDataNum (file slot)
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x80372028 12   # actor queue head, tail, count
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x80412F00 4    # spawn_trigger; run twice, must advance
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803F773C 4    # JKRHeap::mCodeEnd: just above 0x80414000 on the patched ISO, about 0x80414040 (inferred). __OSArenaLo itself is moved to the arena top by JKRHeap::initArena
+WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803C9D3C 12            # stage name ("sea\0..."), point s16, room, layer
+WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803C53A4 4             # byte0 = save table (0 at sea; on the title it is sea_T's table; 0xFF only between dSv_info_c::init and the next stage load)
+WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803C9EA0 4             # [mOrderCount][..][mMode][..]; mMode != 0 while talking
+WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803C9D54 4             # byte0 = mNextStage.mEnable (1 briefly at a loading zone)
+WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803C4C08 4             # maxLife u16 | life u16 in quarter hearts (0x000C000C new file)
+WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803C5380 36            # live memBit of the current table
+WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803C532C 48            # dSv_reserve_c: expect all zero on a vanilla file
+WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803C5E98 4             # byte0 = mDataNum (file slot)
+WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x80372028 12            # actor queue head, tail, count
+WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x80412F00 4             # spawn_trigger; run twice, must advance
+WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803F773C 4             # JKRHeap::mCodeEnd: just above 0x80414000 on the patched ISO, about 0x80414040 (inferred). __OSArenaLo itself is moved to the arena top by JKRHeap::initArena
 ```
 
 **Optional reversible HUD test, at sea only:**

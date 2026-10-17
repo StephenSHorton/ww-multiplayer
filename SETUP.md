@@ -56,7 +56,8 @@ rm "%APPDATA%/Dolphin Emulator/Cache/gamelist.cache"
 
 # 6. Build the Go side
 cd ~/projects/ww-multiplayer && go build -o ww-multiplayer.exe .
-./ww-multiplayer.exe dump     # read the mailbox the patched DOL publishes
+go build -o wwdev.exe ./cmd/wwdev   # the developer tools (dump, dolphin2, mp-local, ...)
+./wwdev.exe dump              # read the mailbox the patched DOL publishes
 ./ww-multiplayer.exe debug    # read Link's position for 5 seconds
 ```
 
@@ -65,7 +66,8 @@ cd ~/projects/ww-multiplayer && go build -o ww-multiplayer.exe .
 `cheats/GZLE01.ini` ships a curated set of gameplay Gecko codes
 (invincible, max rupees, moon jump, walk through walls, super speed, no
 small/boss keys, etc.) sourced from gamemasterplc and the gc-forever
-WW thread. When you run `./ww-multiplayer.exe dolphin2`, the binary
+WW thread. When you run `./wwdev.exe dolphin2` (wwdev is the developer
+tools, built above; releases don't ship it), it
 drops this file into `<USER_DIR>/GameSettings/GZLE01.ini` for **both**
 Dolphin instances *only if* no GZLE01.ini exists there yet — your own
 edits to either user dir are never overwritten.

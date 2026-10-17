@@ -1,4 +1,9 @@
-package main
+// Package cliutil holds what both of the repository's binaries need from
+// a command line: ww-multiplayer (package main at the root) and wwdev
+// (cmd/wwdev, the developer tools). It attaches to the Dolphin the
+// environment picks and reports command-line mistakes. Like package main
+// before it, it reads the environment, which wwapi never does.
+package cliutil
 
 import (
 	"fmt"
@@ -8,12 +13,12 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 )
 
-// dolphinOptions reads WW_DOLPHIN_INDEX and WW_DOLPHIN_PID into
+// DolphinOptions reads WW_DOLPHIN_INDEX and WW_DOLPHIN_PID into
 // emu.Options. When several Dolphin instances run (two-Dolphin
 // multiplayer), WW_DOLPHIN_INDEX picks one (0 = lowest PID, 1 = next, ...;
 // default 0), and WW_DOLPHIN_PID names one outright. The environment is
-// read here, in package main, and never in wwapi.
-func dolphinOptions(getenv func(string) string, gameID string) (emu.Options, error) {
+// read here, on the binaries' side, and never in wwapi.
+func DolphinOptions(getenv func(string) string, gameID string) (emu.Options, error) {
 	o := emu.Options{GameID: gameID}
 	if v := getenv("WW_DOLPHIN_INDEX"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -32,12 +37,24 @@ func dolphinOptions(getenv func(string) string, gameID string) (emu.Options, err
 	return o, nil
 }
 
-// findDolphin attaches to the Dolphin the environment picks (see
-// dolphinOptions) and maps its emulated RAM.
-func findDolphin(gameID string) (*emu.Dolphin, error) {
-	o, err := dolphinOptions(os.Getenv, gameID)
+// FindDolphin attaches to the Dolphin the environment picks (see
+// DolphinOptions) and maps its emulated RAM.
+func FindDolphin(gameID string) (*emu.Dolphin, error) {
+	o, err := DolphinOptions(os.Getenv, gameID)
 	if err != nil {
 		return nil, err
 	}
 	return emu.Attach(o)
+}
+
+// OpenDolphin is the multiplexer between env-driven Find() (CLI flows
+// that respect WW_DOLPHIN_INDEX / WW_DOLPHIN_PID) and explicit-PID
+// FindByPID (mp-local, which enumerates both Dolphins upfront so two
+// in-process goroutines can address different instances without the
+// env-var collision).
+func OpenDolphin(pid uint32) (*emu.Dolphin, error) {
+	if pid == 0 {
+		return FindDolphin("GZLE01")
+	}
+	return emu.FindByPID(pid, "GZLE01")
 }

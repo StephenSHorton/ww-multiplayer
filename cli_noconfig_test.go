@@ -1,10 +1,22 @@
 package main
 
+import (
+	"errors"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
 // TestCLIReadsNoConfig: the CLI does not read the app's saved settings
 // (docs/01-architecture.md, owner decision 11). Package main must not
 // import internal/config; the app's face will get it from its own package.
 // Neither may wwapi or any mod (docs/api/00-design.md §6.5): a mod's
 // settings reach it through wwapi.ConfigSource, which the faces fill.
+// Nor may wwdev (cmd/wwdev), the developer tools moved out of the CLI.
 func TestCLIReadsNoConfig(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -17,7 +29,7 @@ func TestCLIReadsNoConfig(t *testing.T) {
 			t.Fatalf("%s is not in package main's directory (have %d .go files)", want, len(files))
 		}
 	}
-	for _, dir := range []string{"wwapi", "mods"} {
+	for _, dir := range []string{"wwapi", "mods", "cmd"} {
 		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".go") {
 				files = append(files, path)
@@ -30,6 +42,9 @@ func TestCLIReadsNoConfig(t *testing.T) {
 	}
 	if !slices.Contains(files, filepath.Join("wwapi", "context.go")) {
 		t.Fatal("the walk missed wwapi/context.go")
+	}
+	if !slices.Contains(files, filepath.Join("cmd", "wwdev", "main.go")) {
+		t.Fatal("the walk missed cmd/wwdev/main.go")
 	}
 	fset := token.NewFileSet()
 	for _, name := range files {

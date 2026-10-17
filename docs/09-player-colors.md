@@ -320,7 +320,7 @@ The casual shirt does not depend on the color pipeline, since C reads no image b
 
 **Save-state coupling.** This branch changes `multiplayer.c` and `mailbox.h`, so:
 1. Rebuild: `cd inject && rm -f build/temp/multiplayer.c.o && python build.py && python patch_iso.py && cd .. && python scripts/extract_blob.py && go build`. `blob.go` is already regenerated on the branch; `patch_iso.py` is the owner's step.
-2. Run `./ww-multiplayer.exe auto-recapture`, then the owner presses **Shift+F1** once.
+2. Run `./wwdev.exe auto-recapture`, then the owner presses **Shift+F1** once.
 3. Users re-patch their ISO.
 
 `saves/start.sav` is the Outset prologue in the casual clothes, so on its own nothing recolors on Link #1. §7.0 forces the hero's clothes in RAM for the test.
@@ -346,9 +346,9 @@ if (!dComIfGs_isEventBit(dSv_event_flag_c::UNK_2A80) || dComIfGs_getClearCount()
 - The clear count `mClearCount` at **0x803C4DA8** (u8) must read 0. A first-quest file does. `peek` prints whole words only, so read 4 bytes: the first (high) byte of the word is `mClearCount` and must be `00`.
 
 ```bash
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803C5254 4      # note the word, call it W
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe peek 0x803C4DA8 4      # first (high) byte = mClearCount, must be 00
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe poke-u32 0x803C5254 <W | 0x00008000>
+WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803C5254 4               # note the word, call it W
+WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803C4DA8 4               # first (high) byte = mClearCount, must be 00
+WW_DOLPHIN_INDEX=0 ./wwdev.exe poke-u32 0x803C5254 <W | 0x00008000>
 # then make playerInit run again: walk through any loading zone or door
 # (Outset: into Link's house and back out).
 ```
@@ -367,9 +367,9 @@ Some state is read only at `playerInit`; the hat's visibility, for one, follows 
 
 ### 7.1 Texture probe (Go only; also runs on the old blob)
 
-Setup: run `SAVE_STATE=… ./ww-multiplayer.exe dolphin2`, then `WW_TUNIC=off ./ww-multiplayer.exe mp-local`, and force the hero's clothes on Dolphin 0 (§7.0).
+Setup: run `SAVE_STATE=… ./wwdev.exe dolphin2`, then `WW_TUNIC=off ./wwdev.exe mp-local`, and force the hero's clothes on Dolphin 0 (§7.0).
 
-1. **Probe.** Run `WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe tunic-probe` and record:
+1. **Probe.** Run `WW_DOLPHIN_INDEX=0 ./wwdev.exe tunic-probe` and record:
    - (0) the name column now shows real names (`linktexS3TC`, the eye and mouth textures …), not garbage;
    - (a) the two `linktexS3TC` rows: format **0x0E**, size, mips, bytes;
    - (b) "spare image == used image: true";
@@ -390,13 +390,13 @@ Setup: run `SAVE_STATE=… ./ww-multiplayer.exe dolphin2`, then `WW_TUNIC=off ./
 
 **Setup.**
 1. Re-patch the ISO with this blob and run `auto-recapture`.
-2. Run `SAVE_STATE=$(pwd)/saves/start.sav ./ww-multiplayer.exe dolphin2`.
-3. Run `WW_TUNIC=off ./ww-multiplayer.exe mp-local` in the background.
+2. Run `SAVE_STATE=$(pwd)/saves/start.sav ./wwdev.exe dolphin2`.
+3. Run `WW_TUNIC=off ./wwdev.exe mp-local` in the background.
 4. Force the hero's clothes on both Dolphins (§7.0, Option A, then walk through a door on each).
 
 **Steps.**
-1. `WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe dump` shows `tunic: state=0x00 buf_size=0` (nothing asked yet). On a re-run (state already 0x01), check that every `enable=` is 0 first; if not, run `tunic-slot local off`, `tunic-slot 0 off` and `tunic-slot 1 off` on that Dolphin, because an earlier `tunic-slot` run leaves its slot enabled.
-2. Take `WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe screenshot ww-A0.png`, run `WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe tunic-slot local red`, then take `ww-A1.png`.
+1. `WW_DOLPHIN_INDEX=0 ./wwdev.exe dump` shows `tunic: state=0x00 buf_size=0` (nothing asked yet). On a re-run (state already 0x01), check that every `enable=` is 0 first; if not, run `tunic-slot local off`, `tunic-slot 0 off` and `tunic-slot 1 off` on that Dolphin, because an earlier `tunic-slot` run leaves its slot enabled.
+2. Take `WW_DOLPHIN_INDEX=0 ./wwdev.exe screenshot ww-A0.png`, run `WW_DOLPHIN_INDEX=0 ./wwdev.exe tunic-slot local red`, then take `ww-A1.png`.
    - The command prints the hero texture line (size, measured hue), then `tunic slot local is red (buf 0x…)`.
    - `dump` shows `state=0x01`, three nonzero buffers, `local enable=1`, and `swaps` climbing by about 30 per second per enabled slot (one swap per Link draw at 30 fps; face sync's ~60 Hz counter counts two sites per frame).
 3. Check the pair:
@@ -429,7 +429,7 @@ Setup: run `SAVE_STATE=… ./ww-multiplayer.exe dolphin2`, then `WW_TUNIC=off ./
    - Dolphin 1: `local enable=1` and slot 0 `enable=1`;
    - Dolphin 0: `local enable=0` (green needs no swap) and slot 0 `enable=1`.
 4. Restart only B's join without `--color`, leaving A's host running: B keeps red, because the server remembers each name's color for as long as it runs. (Restarting the host restarts the server too, and the memory goes with it.)
-5. Stop host and join, then run `WW_COLOR=purple ./ww-multiplayer.exe mp-local`. Both players ask for purple, and both get it. Take a screenshot pair: on each Dolphin, Link #1 and the mini-Link are both purple.
+5. Stop host and join, then run `WW_COLOR=purple ./wwdev.exe mp-local`. Both players ask for purple, and both get it. Take a screenshot pair: on each Dolphin, Link #1 and the mini-Link are both purple.
 6. Put Dolphin 1 back in the casual clothes (§7.0 reversal, then a door). On Dolphin 0, B's mini-Link stops being swapped (appearance byte) and shows Dolphin 0's own texture.
 7. The TUI (`./ww-multiplayer.exe` host and join, in two shells) shows `■ name (color)` for the other player.
 

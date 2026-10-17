@@ -17,18 +17,15 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"image/png"
 	"math"
 	"net"
 	"os"
-	"os/signal"
-	"path/filepath"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/cliutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
@@ -37,10 +34,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
-	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/tunicsync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/host"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
@@ -52,46 +46,26 @@ var version = "dev"
 
 // defaultPort is the server port used when the user doesn't pass --port
 // (host/server/join) or an explicit :port (join). Keep this in sync with the
-// mp-local / dolphin2 test harness in mp_local.go, which intentionally
+// mp-local / dolphin2 test harness in cmd/wwdev/mp_local.go, which intentionally
 // stays hardcoded to 25565 (internal test rig, not user-facing).
 const defaultPort = engine.DefaultPort
 
 // exeCmd is the binary as the user types it on this platform —
-// ".\ww-multiplayer.exe" on Windows (PowerShell, the default Windows
-// Terminal shell, won't run a program from the current folder by bare
-// name, and cmd.exe accepts the .\ form too), "./ww-multiplayer"
-// everywhere else (the convention for binaries that aren't on $PATH).
-// Help text and error messages embed this so a macOS user copying a
-// command from `help` doesn't end up with a `.exe` suffix that doesn't
-// exist.
-var exeCmd = func() string {
-	if runtime.GOOS == "windows" {
-		return `.\ww-multiplayer.exe`
-	}
-	return "./ww-multiplayer"
-}()
-
-// openDolphin is the multiplexer between env-driven Find() (CLI flows
-// that respect WW_DOLPHIN_INDEX / WW_DOLPHIN_PID) and explicit-PID
-// FindByPID (mp-local, which enumerates both Dolphins upfront so two
-// in-process goroutines can address different instances without the
-// env-var collision).
-func openDolphin(pid uint32) (*emu.Dolphin, error) {
-	if pid == 0 {
-		return findDolphin("GZLE01")
-	}
-	return emu.FindByPID(pid, "GZLE01")
-}
+// ".\ww-multiplayer.exe" on Windows, "./ww-multiplayer" everywhere else
+// (cliutil.ExeCmd). Help text and error messages embed this so a macOS
+// user copying a command from `help` doesn't end up with a `.exe` suffix
+// that doesn't exist.
+var exeCmd = cliutil.ExeCmd("ww-multiplayer")
 
 // feedEnv is what the pose pipelines (mods/multiplayer/feed) take from
-// package main: openDolphin, and player connections with the session's
-// color preference (newPlayerClientCtx).
-var feedEnv = feed.Env{Open: openDolphin, NewClient: engine.NewPlayerClientCtx}
+// package main: cliutil.OpenDolphin, and player connections with the
+// session's color preference (newPlayerClientCtx).
+var feedEnv = feed.Env{Open: cliutil.OpenDolphin, NewClient: engine.NewPlayerClientCtx}
 
 func main() {
 	// Drop macOS Finder's -psn_ argument first (app_face.go).
 	os.Args = append(os.Args[:1:1], stripPSN(os.Args[1:], runtime.GOOS)...)
-	applyColorPrefFromArgs() // --color / WW_COLOR, docs/09-player-colors.md
+	cliutil.ApplyColorPrefFromArgs() // --color / WW_COLOR, docs/09-player-colors.md
 	// No arguments, `tui` and `ui` open the app window or the TUI
 	// (app_face.go); every other subcommand is the CLI's command registry
 	// (commands.go).
@@ -145,7 +119,8 @@ func runBroadcastPose(name, addr string) {
 // the most recent remote player's position into the Dolphin mailbox every
 // frame. The C-side frame hook then mirrors mailbox.p2_pos into the puppet
 // actor's pos each frame. End-to-end loop:
-//   remote player -> server -> puppet-sync -> mailbox -> C hook -> actor pos
+//
+//	remote player -> server -> puppet-sync -> mailbox -> C hook -> actor pos
 //
 // Standalone-CLI wrapper. Honors WW_SELF_NAME (kept for mplay2.sh); host/
 // join call feed.PuppetSync directly with an explicit filter name. Installs
@@ -189,7 +164,7 @@ func runWarp(xs, ys, zs string) {
 		fmt.Printf("bad Z: %v\n", err)
 		os.Exit(1)
 	}
-	d, err := findDolphin("GZLE01")
+	d, err := cliutil.FindDolphin("GZLE01")
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
@@ -225,7 +200,7 @@ func runDebug() {
 	fmt.Println("=== WW Multiplayer Debug Mode ===")
 	fmt.Println()
 
-	d, err := findDolphin("GZLE01")
+	d, err := cliutil.FindDolphin("GZLE01")
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
@@ -404,9 +379,7 @@ func parseJoinArgs(args []string) (addr, name string, err error) {
 // exitUsage reports a command-line mistake with the command's usage line and
 // exits non-zero.
 func exitUsage(err error, usage string) {
-	fmt.Printf("ERROR: %v\n", err)
-	fmt.Printf("Usage: %s %s\n", exeCmd, usage)
-	os.Exit(1)
+	cliutil.ExitUsage(exeCmd, err, usage)
 }
 
 // runHost is the single-process host entry point: binds the TCP server on
@@ -460,7 +433,7 @@ func runJoin(addr, name string, co coopsession.Flags) {
 // every pose_seqs[slot] zeroed). Best-effort: if Dolphin closed first
 // there is nothing to reset (the mailbox is gone with the process).
 func clearMultiplayerState() {
-	d, err := findDolphin("GZLE01")
+	d, err := cliutil.FindDolphin("GZLE01")
 	if err != nil {
 		return
 	}

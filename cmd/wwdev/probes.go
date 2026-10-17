@@ -6,6 +6,29 @@ package main
 // experiments. Moved verbatim with Phase D6; none of them ship in
 // ww-multiplayer.
 
+import (
+	"encoding/binary"
+	"fmt"
+	"image/png"
+	"math"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/tunicsync"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/host"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
+)
+
 // classifyPPC returns a short label + operand hint for a PPC instruction.
 // Used by `disasm` to help pick safe hook sites — we care most about:
 //   - `bl` instructions (opcode 18 with LK=1): safest to replace, caller already
@@ -3110,7 +3133,7 @@ func runPoseTest(mode string, durSec int) {
 		}
 	}
 	if poseBufPtr == 0 {
-		fmt.Println("timed out waiting for pose_buf_ptr — did mode 5 ever fire? Check ./ww-multiplayer.exe dump")
+		fmt.Println("timed out waiting for pose_buf_ptr — did mode 5 ever fire? Check ./wwdev.exe dump")
 		os.Exit(1)
 	}
 	if jointCount == 0 || jointCount > 128 {
@@ -3600,4 +3623,12 @@ func runInputProbe(buttonsHex, stickXStr, stickYStr string, ms int) {
 	moved := dx*dx+dy*dy+dz*dz > 1
 	fmt.Printf("After:  pos=(%.1f, %.1f, %.1f)  delta=(%+.1f, %+.1f, %+.1f)  writes=%d  moved=%v\n",
 		posAfter.PosX, posAfter.PosY, posAfter.PosZ, dx, dy, dz, writes, moved)
+}
+
+// abs32 is |f|; ww-multiplayer's main.go keeps its own copy for warp.
+func abs32(f float32) float32 {
+	if f < 0 {
+		return -f
+	}
+	return f
 }

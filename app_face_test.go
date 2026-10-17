@@ -19,11 +19,20 @@ import (
 // These tests pin that the CLI did not move: every subcommand main had
 // before is still in the command registry (commands.go), which replaced
 // main's switch in Phase B1, and only no arguments, `tui` and `ui` open
-// something else.
+// something else. Phase D6 moved the developer tools to wwdev
+// (cmd/wwdev), whose registry has its own list
+// (cmd/wwdev/testdata/cli-subcommands.txt); the two lists share only help,
+// and together they are the list from before the move
+// (testdata/cli-subcommands-pre-d6.txt, origin/main 2242d0f), so a command
+// can move between the binaries but not drop out of both.
 
 var updateSubcommands = flag.Bool("update-subcommands", false, "rewrite testdata/cli-subcommands.txt from the command registry")
 
-const subcommandsFile = "testdata/cli-subcommands.txt"
+const (
+	subcommandsFile      = "testdata/cli-subcommands.txt"
+	wwdevSubcommandsFile = "cmd/wwdev/testdata/cli-subcommands.txt"
+	preD6SubcommandsFile = "testdata/cli-subcommands-pre-d6.txt"
+)
 
 // registrySubcommands returns every name and alias in the command
 // registry, sorted. A name used twice is an error.
@@ -46,9 +55,11 @@ func registrySubcommands(t *testing.T) []string {
 
 // TestCLISubcommandsUnchanged: the registry has exactly the subcommands
 // main's switch had before App PR 5 (testdata/cli-subcommands.txt,
-// extracted from main.go at origin/main 56ce208), each of them dispatches
-// to its own entry, and none of them opens the window or the TUI, with or
-// without the window in the build.
+// extracted from main.go at origin/main 56ce208) less the ones Phase D6
+// moved to wwdev, each of them dispatches to its own entry, and none of
+// them opens the window or the TUI, with or without the window in the
+// build. No name but help is in both binaries' lists, and the union of
+// the two lists is the pre-D6 list.
 func TestCLISubcommandsUnchanged(t *testing.T) {
 	got := registrySubcommands(t)
 	if *updateSubcommands {
@@ -64,8 +75,27 @@ func TestCLISubcommandsUnchanged(t *testing.T) {
 	if g, w := strings.Join(got, "\n")+"\n", strings.ReplaceAll(string(want), "\r\n", "\n"); g != w {
 		t.Fatalf("main's subcommands changed:\ngot:\n%s\nwant:\n%s", g, w)
 	}
-	if len(got) < 50 {
+	if len(got) < 15 {
 		t.Fatalf("only %d subcommands found; the registry lost commands", len(got))
+	}
+	dev, err := os.ReadFile(wwdevSubcommandsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range strings.Fields(string(dev)) {
+		if name != "help" && slices.Contains(got, name) {
+			t.Errorf("%q is a subcommand of both ww-multiplayer and wwdev", name)
+		}
+	}
+	pre, err := os.ReadFile(preD6SubcommandsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	union := append(slices.Clone(got), strings.Fields(string(dev))...)
+	slices.Sort(union)
+	union = slices.Compact(union)
+	if u, p := strings.Join(union, "\n"), strings.Join(strings.Fields(string(pre)), "\n"); u != p {
+		t.Errorf("ww-multiplayer's and wwdev's subcommands together are not the pre-D6 list:\ngot:\n%s\nwant:\n%s", u, p)
 	}
 	for _, name := range got {
 		if name == "tui" || name == "ui" {
@@ -110,8 +140,8 @@ func TestCommandRegistryHelp(t *testing.T) {
 			t.Errorf("%s: usage %q does not start with the name", c.name, c.usage)
 		}
 	}
-	if listed != 14 {
-		t.Errorf("printHelp lists %d commands, want 14", listed)
+	if listed != 12 {
+		t.Errorf("printHelp lists %d commands, want 12", listed)
 	}
 }
 

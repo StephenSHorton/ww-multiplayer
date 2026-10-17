@@ -1,105 +1,56 @@
 package main
 
 // Golden transcripts of the CLI commands App PR 3 moved code out of:
-// patch (now internal/patch) and dolphin2 (now on internal/dolphinenv, wwapi/emu/launch since C10).
+// patch (now internal/patch) and dolphin2 (now on internal/dolphinenv, wwapi/emu/launch since C10;
+// wwdev's since Phase D6, its goldens in cmd/wwdev).
 // Each case runs `ww-multiplayer <args>` in a child process with its own
 // environment (config dir, Dolphin paths in temp dirs) and compares its
 // stdout and exit code to a file under testdata/cli-golden. The files were
 // recorded on the code before the move, so a diff here is a change in what
 // a CLI user sees. Regenerate one only for an intended change:
 // go test -run TestCLIGolden -update-cli-golden.
-//
-// No case can start Dolphin: dolphin2's only launching case points
-// DOLPHIN_EXE at a directory (which no OS executes) and runs only when no
-// Dolphin process is running, since it would otherwise attach to it.
+// The harness is internal/cliutil/clitest, which wwdev's goldens share.
 
 import (
 	"bytes"
-	"errors"
 	"flag"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strings"
 	"testing"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/cliutil/clitest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
 var updateCLIGolden = flag.Bool("update-cli-golden", false, "rewrite testdata/cli-golden from this run")
 
-const cliHelperEnv = "WW_TEST_CLI_ARGS"
-
 // TestCLIHelper is the child process of runCLI: it runs main with the
-// arguments in WW_TEST_CLI_ARGS (unit-separator 0x1F between them).
+// arguments clitest.Run passed it.
 func TestCLIHelper(t *testing.T) {
-	args, ok := os.LookupEnv(cliHelperEnv)
+	args, ok := clitest.HelperArgs()
 	if !ok {
 		return
 	}
-	os.Args = append([]string{"ww-multiplayer"}, strings.Split(args, "\x1f")...)
+	os.Args = append([]string{"ww-multiplayer"}, args...)
 	main()
 	os.Exit(0)
-}
-
-// cliEnv is the environment of a child: the parent's without the variables
-// the commands read, then env.
-func cliEnv(env map[string]string) []string {
-	drop := map[string]bool{
-		"DOLPHIN_EXE": true, "ISO_PATH": true, "USER_DIR_1": true, "USER_DIR_2": true,
-		"SAVE_STATE": true, "SAVE_STATE_2": true, "APPDATA": true, "XDG_CONFIG_HOME": true,
-		"HOME": true, "WW_COLOR": true, "WW_COOP_TABLES": true,
-	}
-	var out []string
-	for _, kv := range os.Environ() {
-		k, _, _ := strings.Cut(kv, "=")
-		if !drop[strings.ToUpper(k)] {
-			out = append(out, kv)
-		}
-	}
-	for k, v := range env {
-		out = append(out, k+"="+v)
-	}
-	return append(out, "GORACE="+strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0"))
 }
 
 // runCLI runs `ww-multiplayer args...` with env and returns its stdout and
 // exit code.
 func runCLI(t *testing.T, env map[string]string, args ...string) (string, int) {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestCLIHelper$")
-	cmd.Env = append(cliEnv(env), cliHelperEnv+"="+strings.Join(args, "\x1f"))
-	out, err := cmd.Output()
-	var exitErr *exec.ExitError
-	switch {
-	case err == nil:
-		return string(out), 0
-	case errors.As(err, &exitErr):
-		return string(out), exitErr.ExitCode()
-	}
-	t.Fatalf("running %q: %v", args, err)
-	return "", 0
+	return clitest.Run(t, "TestCLIHelper", env, args...)
 }
 
-var cliSeconds = regexp.MustCompile(`in [0-9]+\.[0-9] s,`)
-
-// normalizeCLI replaces root (a temp dir) by <TMP> in either slash form,
-// and the co-op line's build time by "in N s".
+// normalizeCLI replaces exeCmd by <exe>, root (a temp dir) by <TMP> in
+// either slash form, and the co-op line's build time by "in N s".
 func normalizeCLI(out, root string) string {
-	// The binary as the user types it differs by platform (exeCmd).
-	out = strings.ReplaceAll(out, exeCmd+" ", "<exe> ")
-	// %q-quoted error texts double each backslash.
-	for _, r := range []string{strings.ReplaceAll(root, `\`, `\\`), root, filepath.ToSlash(root)} {
-		out = strings.ReplaceAll(out, r, "<TMP>")
-	}
-	out = strings.ReplaceAll(out, `\`, "/")
-	return cliSeconds.ReplaceAllString(out, "in N s,")
+	return clitest.Normalize(out, root, exeCmd)
 }
 
 // checkCLIGolden compares one run with testdata/cli-golden/<name>.txt.
@@ -112,44 +63,17 @@ func checkCLIGolden(t *testing.T, name, out string, code int) {
 // both the run and the file through norm before comparing them.
 func checkCLIGoldenNorm(t *testing.T, name, out string, code int, norm func(string) string) {
 	t.Helper()
-	got := fmt.Sprintf("exit %d\n%s", code, out)
-	path := filepath.Join("testdata", "cli-golden", name+".txt")
-	if *updateCLIGolden {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-	want, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("%v (record it with -update-cli-golden)", err)
-	}
-	w := strings.ReplaceAll(string(want), "\r\n", "\n")
-	if norm != nil {
-		got, w = norm(got), norm(w)
-	}
-	if got != w {
-		t.Errorf("%s: output changed\n--- got\n%s\n--- want\n%s", name, got, w)
-	}
+	clitest.CheckGolden(t, name, out, code, norm, *updateCLIGolden)
 }
 
 func writeCLIFile(t *testing.T, path string, b []byte) string {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, b, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	return clitest.WriteFile(t, path, b)
 }
 
 // configEnv points every OS's user config dir at dir.
 func configEnv(dir string) map[string]string {
-	return map[string]string{"APPDATA": dir, "XDG_CONFIG_HOME": dir, "HOME": dir}
+	return clitest.ConfigEnv(dir)
 }
 
 func TestCLIGoldenPatch(t *testing.T) {

@@ -1,4 +1,4 @@
-package main
+package cliutil
 
 import (
 	"slices"

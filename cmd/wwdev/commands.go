@@ -3,6 +3,19 @@ package main
 // The command bodies below moved verbatim from ww-multiplayer's
 // commands.go (Phase D6), where they had moved from main's switch.
 
+import (
+	"fmt"
+	"os"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+)
+
 func cmdDolphin2(string, []string) {
 	reset := false
 	for _, a := range os.Args[2:] {
@@ -90,7 +103,7 @@ func cmdInput(string, []string) {
 	// releases (input_enable=0). If ms == 0, sets-and-leaves —
 	// caller is responsible for releasing.
 	if len(os.Args) < 5 {
-		fmt.Println("Usage: ww-multiplayer.exe input <buttons-hex> <stickX> <stickY> [ms=1000]")
+		fmt.Println("Usage: wwdev.exe input <buttons-hex> <stickX> <stickY> [ms=1000]")
 		fmt.Println("  buttons mask: A=0x100 B=0x200 X=0x400 Y=0x800 Start=0x1000")
 		fmt.Println("                Z=0x10 R=0x20 L=0x40")
 		fmt.Println("                DPad L=1 R=2 D=4 U=8")
@@ -116,7 +129,7 @@ func cmdInputProbe(string, []string) {
 	// for memory-write reachability against the input region.
 	// For real input use the `input` subcommand instead.
 	if len(os.Args) < 5 {
-		fmt.Println("Usage: ww-multiplayer.exe input-probe <buttons-hex> <stickX> <stickY> [ms=2000]")
+		fmt.Println("Usage: wwdev.exe input-probe <buttons-hex> <stickX> <stickY> [ms=2000]")
 		os.Exit(1)
 	}
 	ms := 2000
@@ -192,7 +205,7 @@ func cmdPoseFakeLoop(string, []string) {
 
 func cmdTunicRecolor(string, []string) {
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: ww-multiplayer.exe tunic-recolor <color|#RRGGBB|reset>")
+		fmt.Println("Usage: wwdev.exe tunic-recolor <color|#RRGGBB|reset>")
 		os.Exit(1)
 	}
 	runTunicRecolor(os.Args[2])
@@ -200,7 +213,7 @@ func cmdTunicRecolor(string, []string) {
 
 func cmdTunicSlot(string, []string) {
 	if len(os.Args) < 4 {
-		fmt.Println("Usage: ww-multiplayer.exe tunic-slot <0|1|local> <color|#RRGGBB|off|casual>")
+		fmt.Println("Usage: wwdev.exe tunic-slot <0|1|local> <color|#RRGGBB|off|casual>")
 		os.Exit(1)
 	}
 	runTunicSlot(os.Args[2], os.Args[3])
@@ -229,7 +242,7 @@ func cmdDisasm(string, []string) {
 
 func cmdPokeVec3(string, []string) {
 	if len(os.Args) < 6 {
-		fmt.Println("Usage: ww-multiplayer.exe poke-vec3 <addr-hex> <x> <y> <z>")
+		fmt.Println("Usage: wwdev.exe poke-vec3 <addr-hex> <x> <y> <z>")
 		os.Exit(1)
 	}
 	runPokeVec3(os.Args[2], os.Args[3], os.Args[4], os.Args[5])
@@ -237,7 +250,7 @@ func cmdPokeVec3(string, []string) {
 
 func cmdPeek(string, []string) {
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: ww-multiplayer.exe peek <addr-hex> [n=4]")
+		fmt.Println("Usage: wwdev.exe peek <addr-hex> [n=4]")
 		os.Exit(1)
 	}
 	n := uint32(4)
@@ -251,7 +264,7 @@ func cmdPeek(string, []string) {
 
 func cmdWarpForce(string, []string) {
 	if len(os.Args) < 5 {
-		fmt.Println("Usage: ww-multiplayer.exe warp-force <x> <y> <z>")
+		fmt.Println("Usage: wwdev.exe warp-force <x> <y> <z>")
 		fmt.Println("  Sets warp target + warp_force flag so C re-applies the warp")
 		fmt.Println("  every frame. Use `warp-force-off` to release.")
 		os.Exit(1)
@@ -261,7 +274,7 @@ func cmdWarpForce(string, []string) {
 
 func cmdEyeAnimDlDump(string, []string) {
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: ww-multiplayer.exe eye-anim-dl-dump <model-addr-hex> [n=256]")
+		fmt.Println("Usage: wwdev.exe eye-anim-dl-dump <model-addr-hex> [n=256]")
 		os.Exit(1)
 	}
 	n := uint32(256)
@@ -275,7 +288,7 @@ func cmdEyeAnimDlDump(string, []string) {
 
 func cmdEyeAnimWatch(string, []string) {
 	if len(os.Args) < 4 {
-		fmt.Println("Usage: ww-multiplayer.exe eye-anim-watch <addr-hex> <size-hex> [secs=10]")
+		fmt.Println("Usage: wwdev.exe eye-anim-watch <addr-hex> <size-hex> [secs=10]")
 		fmt.Println("  Watches a memory range for byte-level changes over time.")
 		fmt.Println("  Reports byte offsets that ever differ from the initial sample.")
 		os.Exit(1)
@@ -291,7 +304,7 @@ func cmdEyeAnimWatch(string, []string) {
 
 func cmdEyeAnimPoke(string, []string) {
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: ww-multiplayer.exe eye-anim-poke <model-addr-hex> [secs=10]")
+		fmt.Println("Usage: wwdev.exe eye-anim-poke <model-addr-hex> [secs=10]")
 		os.Exit(1)
 	}
 	secs := 10
@@ -329,7 +342,7 @@ func cmdFaceTevHammer(string, []string) {
 
 func cmdFaceMatHammer(string, []string) {
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: ww-multiplayer.exe face-mat-hammer <idx> [hex=0099] [secs=0]")
+		fmt.Println("Usage: wwdev.exe face-mat-hammer <idx> [hex=0099] [secs=0]")
 		fmt.Println("  Tight-loop hammers mat[idx]'s tev_block.texno[0..1]. Run until Ctrl+C if secs=0.")
 		os.Exit(1)
 	}
@@ -380,7 +393,7 @@ func cmdFaceDlLoop(string, []string) {
 
 func cmdFaceSyncFake(string, []string) {
 	if len(os.Args) < 4 {
-		fmt.Println("Usage: ww-multiplayer.exe face-sync-fake <slot> <hex8>")
+		fmt.Println("Usage: wwdev.exe face-sync-fake <slot> <hex8>")
 		fmt.Println("  hex8 = 8 hex bytes for [mat1_t0:u16][mat1_t1:u16][mat4_t0:u16][mat4_t1:u16]")
 		fmt.Println("  e.g. 00000027000000270 to force open eyes; 0000FFFF0000FFFF for closed")
 		os.Exit(1)
@@ -391,7 +404,7 @@ func cmdFaceSyncFake(string, []string) {
 
 func cmdFaceSyncFakeLoop(string, []string) {
 	if len(os.Args) < 4 {
-		fmt.Println("Usage: ww-multiplayer.exe face-sync-fake-loop <slot> <hex8> [secs=0]")
+		fmt.Println("Usage: wwdev.exe face-sync-fake-loop <slot> <hex8> [secs=0]")
 		os.Exit(1)
 	}
 	slot, _ := strconv.Atoi(os.Args[2])
@@ -406,7 +419,7 @@ func cmdFaceSyncFakeLoop(string, []string) {
 
 func cmdEyeFixMode(string, []string) {
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: ww-multiplayer.exe eye-fix-mode <0|1|2>")
+		fmt.Println("Usage: wwdev.exe eye-fix-mode <0|1|2>")
 		fmt.Println("  0 = legacy (run_eye_fix + mDoExt mini-link)")
 		fmt.Println("  1 = mClModel-swap one-draw (Link invisible, mini-link only)")
 		fmt.Println("  2 = mClModel-swap two-draw (both visible, mini-link gets eye decals)")
@@ -422,7 +435,7 @@ func cmdEyeFixMode(string, []string) {
 
 func cmdPpcDisasm(string, []string) {
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: ww-multiplayer.exe ppc-disasm <addr-hex> [num-words=32]")
+		fmt.Println("Usage: wwdev.exe ppc-disasm <addr-hex> [num-words=32]")
 		os.Exit(1)
 	}
 	addr, err := strconv.ParseUint(strings.TrimPrefix(os.Args[2], "0x"), 16, 32)
@@ -441,7 +454,7 @@ func cmdPpcDisasm(string, []string) {
 
 func cmdEyeFixStep(string, []string) {
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: ww-multiplayer.exe eye-fix-step <0..8>")
+		fmt.Println("Usage: wwdev.exe eye-fix-step <0..8>")
 		fmt.Println("  Stepwise probe for the mini-Link eye-decal recipe.")
 		fmt.Println("  0 = off; 1 = list swap; 2..4 bisect Pass 1 (entryOpa,")
 		fmt.Println("  shape-vis, entryIn); 5..8 add Passes 2..5 cumulatively.")
