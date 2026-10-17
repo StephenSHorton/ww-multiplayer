@@ -156,7 +156,7 @@ func runTunicSlot(slotArg, colorArg string) {
 			if casual {
 				fmt.Printf("tunic slot %s is casual\n", slotArg)
 			} else if on {
-				fmt.Printf("tunic slot %s is %s (buf 0x%08X)\n", slotArg, c, t.Buf(slot))
+				fmt.Printf("tunic slot %s is %s (buf 0x%08X)\n", slotArg, playercolor.Label(c), t.Buf(slot))
 			} else {
 				fmt.Printf("tunic slot %s is off\n", slotArg)
 			}

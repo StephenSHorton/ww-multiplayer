@@ -5,8 +5,6 @@ import (
 	"encoding/binary"
 	"math"
 	"testing"
-
-	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
 // decodeBlock is a reference DXT1/CMPR block decoder: 16 pixels, each a
@@ -49,7 +47,7 @@ var (
 	darkGreen = c565(0x1E, 0x5A, 0x18)
 	skin      = c565(0xF0, 0xC8, 0x96)
 	white     = c565(0xF8, 0xF8, 0xF0)
-	red       = playercolor.Palette()[1].Color
+	red       = Color{0xD0, 0x2C, 0x2C}
 )
 
 func TestCMPRSize(t *testing.T) {
@@ -87,7 +85,7 @@ func TestHSVRoundTrip(t *testing.T) {
 func TestVanillaTargetIsIdentity(t *testing.T) {
 	img := append(block(green, darkGreen, [4]byte{0x1B, 0xE4, 0, 0xFF}), block(skin, white, [4]byte{1, 2, 3, 4})...)
 	_, ref := Calibrate(img, DefaultMask)
-	out, st := Recolor(img, playercolor.Vanilla(), DefaultMask, ref)
+	out, st := Recolor(img, Vanilla(), DefaultMask, ref)
 	if !bytes.Equal(out, img) || st.Changed != 0 {
 		t.Fatalf("vanilla target changed the image: %x -> %x", img, out)
 	}
@@ -125,11 +123,13 @@ func TestGreenBlockTurnsRedAndSkinStays(t *testing.T) {
 // a recolor never turns an opaque pixel transparent or vice versa, whatever
 // the endpoint order does.
 func TestModeAndOpacityPreserved(t *testing.T) {
-	targets := []playercolor.Color{}
-	for _, p := range playercolor.Palette() {
-		targets = append(targets, p.Color)
+	// The multiplayer palette (mods/multiplayer/playercolor), then white
+	// and black.
+	targets := []Color{
+		Vanilla(), red, {0x2C, 0x5C, 0xE0}, {0x8C, 0x3C, 0xD0},
+		{0xF0, 0x8C, 0x1E}, {0x1E, 0xC0, 0xD0}, {0xF0, 0x6E, 0xB4}, {0x2C, 0x2C, 0x34},
+		{R: 0xFF, G: 0xFF, B: 0xFF}, {},
 	}
-	targets = append(targets, playercolor.Color{R: 0xFF, G: 0xFF, B: 0xFF}, playercolor.Color{})
 	idx := [4]byte{0x1B, 0xE4, 0x4E, 0xB1} // all four index values in every row
 	blocks := [][]byte{
 		block(green, darkGreen, idx), // 4-color
@@ -179,7 +179,7 @@ func TestCalibrateMeasuresTheTextureGreen(t *testing.T) {
 	}
 	// The reference color itself maps onto the target.
 	got := mapColor(from565(teal), m, ref, toHSV(rgbOf(red)))
-	if d := playercolor.Distance(playercolor.Color{R: uint8(got.r), G: uint8(got.g), B: uint8(got.b)}, red); d > 40 {
+	if d := redmean(Color{R: uint8(got.r), G: uint8(got.g), B: uint8(got.b)}, red); d > 40 {
 		t.Errorf("reference green mapped to %v, %.0f from red", got, d)
 	}
 }
@@ -201,4 +201,13 @@ func TestRemap01(t *testing.T) {
 	if got := remap01(0b11100100); got != 0b11100001 {
 		t.Errorf("remap01 = %08b", got)
 	}
+}
+
+// redmean is playercolor.Distance: "redmean" weighted RGB distance.
+func redmean(a, b Color) float64 {
+	rm := (float64(a.R) + float64(b.R)) / 2
+	dr := float64(a.R) - float64(b.R)
+	dg := float64(a.G) - float64(b.G)
+	db := float64(a.B) - float64(b.B)
+	return math.Sqrt((2+rm/256)*dr*dr + 4*dg*dg + (2+(255-rm)/256)*db*db)
 }

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gfx/texture"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
@@ -137,7 +136,7 @@ func readHeroTexture(m TunicMem, skip [TunicSlots]uint32, skipSize int) (*heroTe
 // color, or (remote slots only) the casual clothes.
 type TunicWant struct {
 	On     bool
-	Color  playercolor.Color
+	Color  texture.Color
 	Casual bool
 }
 
@@ -145,10 +144,10 @@ type TunicWant struct {
 type tunicSlotState struct {
 	known   bool // enable byte state is known (written by us since the buffer appeared)
 	enabled bool
-	casual  bool              // enable byte is TunicEnableCasual
-	color   playercolor.Color // image content while enabled
-	drainAt uint32            // spawn_trigger when the slot was disabled
-	img     []byte            // the written image (a cache entry, never mutated), for verify
+	casual  bool          // enable byte is TunicEnableCasual
+	color   texture.Color // image content while enabled
+	drainAt uint32        // spawn_trigger when the slot was disabled
+	img     []byte        // the written image (a cache entry, never mutated), for verify
 }
 
 // Tunics drives the three tunic slots of one Dolphin. (It was tunicSync
@@ -161,7 +160,7 @@ type Tunics struct {
 	hero  *heroTexture
 	mask  texture.Mask
 	ref   texture.Reference
-	cache map[playercolor.Color][]byte
+	cache map[texture.Color][]byte
 
 	bufs       [TunicSlots]uint32
 	managed    [TunicSlots]bool // Tick leaves unmanaged slots alone
@@ -178,14 +177,14 @@ func NewTunics(m TunicMem, log func(format string, args ...any)) *Tunics {
 	if log == nil {
 		log = func(string, ...any) {}
 	}
-	return &Tunics{mem: m, log: log, cache: map[playercolor.Color][]byte{}}
+	return &Tunics{mem: m, log: log, cache: map[texture.Color][]byte{}}
 }
 
 // Set records what slot should show: off, or the tunic in color c. A
 // vanilla c on a remote slot still swaps (to the unmodified image), so a
 // green remote is drawn in hero green even while the local player wears
 // the casual clothes.
-func (t *Tunics) Set(slot int, on bool, c playercolor.Color) {
+func (t *Tunics) Set(slot int, on bool, c texture.Color) {
 	if slot < 0 || slot >= TunicSlots {
 		return
 	}
@@ -204,8 +203,8 @@ func (t *Tunics) SetCasual(slot int) {
 }
 
 // SetLocal sets the local Link's color. Vanilla green needs no swap.
-func (t *Tunics) SetLocal(c playercolor.Color) {
-	t.Set(TunicSlotLocal, !playercolor.IsVanilla(c), c)
+func (t *Tunics) SetLocal(c texture.Color) {
+	t.Set(TunicSlotLocal, !texture.IsVanilla(c), c)
 }
 
 func (t *Tunics) noteErr(err error) {
@@ -265,7 +264,7 @@ func (t *Tunics) Tick(now time.Time) {
 		}
 		t.hero = h
 		t.mask, t.ref = texture.Calibrate(h.image, texture.DefaultMask)
-		t.cache = map[playercolor.Color][]byte{}
+		t.cache = map[texture.Color][]byte{}
 		t.log("tunic colors: hero texture %dx%d (%d B) at 0x%08X, green measured at hue %.0f from %d endpoints",
 			h.hdr.Width, h.hdr.Height, len(h.image), h.hdr.ImageAddr(h.hdrAddr), t.ref.H, t.ref.Samples)
 	}
@@ -339,12 +338,12 @@ func (t *Tunics) Want(slot int) TunicWant { return t.want[slot] }
 func (t *Tunics) Buf(slot int) uint32 { return t.bufs[slot] }
 
 // image returns the slot image for c (cached per color).
-func (t *Tunics) image(c playercolor.Color) []byte {
+func (t *Tunics) image(c texture.Color) []byte {
 	if img, ok := t.cache[c]; ok {
 		return img
 	}
 	img := t.hero.image
-	if !playercolor.IsVanilla(c) {
+	if !texture.IsVanilla(c) {
 		img, _ = texture.Recolor(t.hero.image, c, t.mask, t.ref)
 	}
 	t.cache[c] = img

@@ -6,7 +6,8 @@
 // The package is pure: no network, no Dolphin. The server (mods/multiplayer/net)
 // assigns a color per player name and sends it in the player list; the
 // render side (wwapi/gfx/texture, the C bracket) turns it into a recolored
-// tunic texture.
+// tunic texture. The value type itself, Color, is texture.Color, so wwapi
+// takes it without importing the mod.
 package playercolor
 
 import (
@@ -14,20 +15,16 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gfx/texture"
 )
 
-// Color is an sRGB tunic color.
-type Color struct {
-	R, G, B uint8
-}
+// Color is an sRGB tunic color, texture.Color: R, G, B, Hex and String
+// (the hex form). Label gives a palette color's name.
+type Color = texture.Color
 
-// Hex renders c as "#RRGGBB".
-func (c Color) Hex() string {
-	return fmt.Sprintf("#%02X%02X%02X", c.R, c.G, c.B)
-}
-
-// String is the palette name for a palette color, else the hex form.
-func (c Color) String() string {
+// Label is the palette name for a palette color, else the hex form.
+func Label(c Color) string {
 	if n, ok := Name(c); ok {
 		return n
 	}
@@ -46,14 +43,14 @@ type Named struct {
 // colors, then colors that stay far from green, skin and each other. Display RGBs are approximate for green (the texture's real
 // shade is measured from the texture itself, see wwapi/gfx/texture).
 var palette = []Named{
-	{"green", Color{0x3C, 0x9A, 0x2E}},
-	{"red", Color{0xD0, 0x2C, 0x2C}},
-	{"blue", Color{0x2C, 0x5C, 0xE0}},
-	{"purple", Color{0x8C, 0x3C, 0xD0}},
-	{"orange", Color{0xF0, 0x8C, 0x1E}},
-	{"cyan", Color{0x1E, 0xC0, 0xD0}},
-	{"pink", Color{0xF0, 0x6E, 0xB4}},
-	{"black", Color{0x2C, 0x2C, 0x34}},
+	{"green", texture.Vanilla()},
+	{"red", Color{R: 0xD0, G: 0x2C, B: 0x2C}},
+	{"blue", Color{R: 0x2C, G: 0x5C, B: 0xE0}},
+	{"purple", Color{R: 0x8C, G: 0x3C, B: 0xD0}},
+	{"orange", Color{R: 0xF0, G: 0x8C, B: 0x1E}},
+	{"cyan", Color{R: 0x1E, G: 0xC0, B: 0xD0}},
+	{"pink", Color{R: 0xF0, G: 0x6E, B: 0xB4}},
+	{"black", Color{R: 0x2C, G: 0x2C, B: 0x34}},
 }
 
 // Palette returns a copy of the palette, in display order.
@@ -61,12 +58,12 @@ func Palette() []Named {
 	return append([]Named(nil), palette...)
 }
 
-// Vanilla is the original green tunic.
-func Vanilla() Color { return palette[0].Color }
+// Vanilla is the original green tunic (texture.Vanilla).
+func Vanilla() Color { return texture.Vanilla() }
 
 // IsVanilla reports whether c is the original green, which is drawn with the
-// unmodified texture.
-func IsVanilla(c Color) bool { return c == palette[0].Color }
+// unmodified texture (texture.IsVanilla).
+func IsVanilla(c Color) bool { return texture.IsVanilla(c) }
 
 // Name returns the palette name of c, if c is a palette color.
 func Name(c Color) (string, bool) {
@@ -93,7 +90,7 @@ func Parse(s string) (Color, error) {
 	h := strings.TrimPrefix(strings.TrimPrefix(t, "#"), "0x")
 	if len(h) == 6 {
 		if v, err := strconv.ParseUint(h, 16, 32); err == nil {
-			return Color{uint8(v >> 16), uint8(v >> 8), uint8(v)}, nil
+			return Color{R: uint8(v >> 16), G: uint8(v >> 8), B: uint8(v)}, nil
 		}
 	}
 	return Color{}, fmt.Errorf("unknown color %q; use a name (%s) or #RRGGBB", s, names())

@@ -15,7 +15,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gfx/texture"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
@@ -78,7 +78,7 @@ type Player struct {
 	X, Y, Z float32
 	// Color is the player's tunic color (docs/09-player-colors.md), set
 	// when HasColor is. A UI shows it as a swatch by the name.
-	Color    playercolor.Color
+	Color    texture.Color
 	HasColor bool
 }
 
@@ -156,7 +156,7 @@ type HostOptions struct {
 	// the server's for the player connections (Host), where it overrides
 	// the process-wide --color / WW_COLOR. Nil is no preference:
 	// --color's, else classic green. Players may share a color.
-	Color *playercolor.Color
+	Color *texture.Color
 	// Port is the port the server listens on; 0 is the default (25565).
 	Port int
 	// ListenHost is the address a lobby host's server listens on
@@ -195,7 +195,7 @@ type JoinOptions struct {
 	Name string
 	// Color is the tunic color to ask for (JoinLobby, Join, and
 	// JoinLobby's direct join of a pre-lobby host); see HostOptions.Color.
-	Color *playercolor.Color
+	Color *texture.Color
 	Coop  CoopOptions
 	// Launch and LaunchFn: see HostOptions.Launch.
 	Launch   LaunchOptions

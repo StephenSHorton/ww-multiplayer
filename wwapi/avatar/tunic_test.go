@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar/avatartest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gfx/texture"
@@ -13,6 +12,14 @@ import (
 )
 
 // The fake game RAM and C allocation step are wwapi/avatar/avatartest.
+
+// Tunic targets: the multiplayer palette's red, blue and purple
+// (mods/multiplayer/playercolor).
+var (
+	tRed    = texture.Color{R: 0xD0, G: 0x2C, B: 0x2C}
+	tBlue   = texture.Color{R: 0x2C, G: 0x5C, B: 0xE0}
+	tPurple = texture.Color{R: 0x8C, G: 0x3C, B: 0xD0}
+)
 
 // run ticks the sync n game frames, the C side allocating as it would.
 func run(t *Tunics, f *avatartest.RAM, now *time.Time, n int) {
@@ -27,9 +34,9 @@ func run(t *Tunics, f *avatartest.RAM, now *time.Time, n int) {
 func TestTunicSync_AllocatesAndFillsSlots(t *testing.T) {
 	f := avatartest.NewLinkRAM(false)
 	ts := NewTunics(f, t.Logf)
-	red, blue := playercolor.Palette()[1].Color, playercolor.Palette()[2].Color
+	red, blue := tRed, tBlue
 	ts.Set(0, true, red)
-	ts.Set(1, true, playercolor.Vanilla())
+	ts.Set(1, true, texture.Vanilla())
 	ts.SetLocal(blue)
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
@@ -53,7 +60,7 @@ func TestTunicSync_AllocatesAndFillsSlots(t *testing.T) {
 func TestTunicSync_VanillaLocalIsOff(t *testing.T) {
 	f := avatartest.NewLinkRAM(false)
 	ts := NewTunics(f, t.Logf)
-	ts.SetLocal(playercolor.Vanilla())
+	ts.SetLocal(texture.Vanilla())
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
 	if f.U8(mailbox.Mailbox+mailbox.OffTunicEnable+TunicSlotLocal) != 0 || !ts.Settled(TunicSlotLocal) {
@@ -66,7 +73,7 @@ func TestTunicSync_VanillaLocalIsOff(t *testing.T) {
 func TestTunicSync_ColorChangeDrains(t *testing.T) {
 	f := avatartest.NewLinkRAM(false)
 	ts := NewTunics(f, t.Logf)
-	red, purple := playercolor.Palette()[1].Color, playercolor.Palette()[3].Color
+	red, purple := tRed, tPurple
 	ts.Set(0, true, red)
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
@@ -98,7 +105,7 @@ func TestTunicSync_ColorChangeDrains(t *testing.T) {
 func TestTunicSync_CasualSlot(t *testing.T) {
 	f := avatartest.NewLinkRAM(false)
 	ts := NewTunics(f, t.Logf)
-	red := playercolor.Palette()[1].Color
+	red := tRed
 	ts.Set(0, true, red)
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
@@ -171,7 +178,7 @@ func TestTunicSync_RejectsNonCMPRAndHuge(t *testing.T) {
 func TestTunicSync_RewritesAfterOverwrite(t *testing.T) {
 	f := avatartest.NewLinkRAM(false)
 	ts := NewTunics(f, t.Logf)
-	red := playercolor.Palette()[1].Color
+	red := tRed
 	ts.Set(0, true, red)
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
@@ -190,7 +197,7 @@ func TestTunicSync_UnmanagedSlotsUntouched(t *testing.T) {
 	f := avatartest.NewLinkRAM(false)
 	f.Mem[mailbox.Mailbox+mailbox.OffTunicEnable+1] = 1
 	ts := NewTunics(f, t.Logf)
-	ts.Set(0, true, playercolor.Palette()[2].Color)
+	ts.Set(0, true, tBlue)
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
 	if f.U8(mailbox.Mailbox+mailbox.OffTunicEnable+1) != 1 || f.U8(mailbox.Mailbox+mailbox.OffTunicEnable+TunicSlotLocal) != 0 {
@@ -204,7 +211,7 @@ func TestTunicSync_UnmanagedSlotsUntouched(t *testing.T) {
 func TestTunicSync_WaitsForLink(t *testing.T) {
 	f := avatartest.NewRAM()
 	ts := NewTunics(f, nil)
-	ts.SetLocal(playercolor.Palette()[1].Color)
+	ts.SetLocal(tRed)
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 4)
 	if f.Writes != 4 { // only run's own frame counter writes
@@ -233,10 +240,10 @@ func putSwapped(f *avatartest.RAM, s int, img []byte) uint32 {
 // enabled by an earlier run must not calibrate on the recolored buffer.
 func TestTunicSync_StaleSwapFirstTick(t *testing.T) {
 	f := avatartest.NewLinkRAM(false)
-	red := playercolor.Palette()[1].Color
+	red := tRed
 	putSwapped(f, TunicSlotLocal, avatartest.ExpectRecolor(red))
 	ts := NewTunics(f, t.Logf)
-	ts.Set(0, true, playercolor.Vanilla())
+	ts.Set(0, true, texture.Vanilla())
 	now := time.Unix(0, 0)
 	ts.Tick(now)
 	if ts.hero != nil {
@@ -258,7 +265,7 @@ func TestTunicSync_StaleSwapFirstTick(t *testing.T) {
 func TestTunicSync_RecalibrateRefusesSwapped(t *testing.T) {
 	f := avatartest.NewLinkRAM(false)
 	ts := NewTunics(f, t.Logf)
-	ts.SetLocal(playercolor.Palette()[2].Color)
+	ts.SetLocal(tBlue)
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
 	// A new model: the worn header moves, and Go's next read lands inside
@@ -281,7 +288,7 @@ func TestTunicSync_RecalibrateRefusesSwapped(t *testing.T) {
 func TestTunicSync_RewritesOtherColor(t *testing.T) {
 	f := avatartest.NewLinkRAM(false)
 	ts := NewTunics(f, t.Logf)
-	red, blue := playercolor.Palette()[1].Color, playercolor.Palette()[2].Color
+	red, blue := tRed, tBlue
 	ts.Set(0, true, red)
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
@@ -301,8 +308,8 @@ func TestTunicSync_RewritesOtherColor(t *testing.T) {
 func TestTunicSync_DisableAll(t *testing.T) {
 	f := avatartest.NewLinkRAM(false)
 	ts := NewTunics(f, t.Logf)
-	ts.Set(0, true, playercolor.Palette()[1].Color)
-	ts.SetLocal(playercolor.Palette()[2].Color)
+	ts.Set(0, true, tRed)
+	ts.SetLocal(tBlue)
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
 	ts.DisableAll()

@@ -317,7 +317,7 @@ func runTunicRecolor(arg string) {
 		os.Exit(1)
 	}
 	fmt.Printf("hero texture 0x%08X (%dx%d, %d bytes): %d of %d blocks recolored to %s (green measured at hue %.1f from %d endpoints)\n",
-		img, hdr.Width, hdr.Height, size, st.Changed, st.Blocks, c, ref.H, ref.Samples)
+		img, hdr.Width, hdr.Height, size, st.Changed, st.Blocks, playercolor.Label(c), ref.H, ref.Samples)
 	if lt.casual {
 		fmt.Println("note: Link is wearing the casual clothes, so the change shows only in the hero's clothes")
 	}

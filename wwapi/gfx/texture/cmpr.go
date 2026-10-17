@@ -25,8 +25,6 @@ import (
 	"encoding/binary"
 	"math"
 	"sort"
-
-	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
 // GX texture format numbers (ResTIMG.format, tww JUTTexture.h:15).
@@ -206,7 +204,7 @@ func Calibrate(data []byte, m Mask) (Mask, Reference) {
 		}
 	}
 	if len(hs) == 0 {
-		ref := toHSV(rgbOf(playercolor.Vanilla()))
+		ref := toHSV(rgbOf(Vanilla()))
 		return m, Reference{H: ref.h, S: ref.s, V: ref.v}
 	}
 	ref := Reference{H: median(hs), S: median(ss), V: median(vs), Samples: len(hs)}
@@ -220,7 +218,7 @@ func median(x []float64) float64 {
 	return s[len(s)/2]
 }
 
-func rgbOf(c playercolor.Color) rgb {
+func rgbOf(c Color) rgb {
 	return rgb{float64(c.R), float64(c.G), float64(c.B)}
 }
 
@@ -274,10 +272,10 @@ type Stats struct {
 // target. A vanilla target returns an unmodified copy. ref comes from
 // Calibrate on the ORIGINAL texture (calibrating a recolored one would
 // measure the wrong color).
-func Recolor(data []byte, target playercolor.Color, m Mask, ref Reference) ([]byte, Stats) {
+func Recolor(data []byte, target Color, m Mask, ref Reference) ([]byte, Stats) {
 	out := append([]byte(nil), data...)
 	st := Stats{Blocks: len(data) / BlockSize}
-	if playercolor.IsVanilla(target) {
+	if IsVanilla(target) {
 		return out, st
 	}
 	t := toHSV(rgbOf(target))
