@@ -112,18 +112,31 @@ func TestLanHostSeenByJoiner(t *testing.T) {
 	if err := host.Host(HostRequest{Name: "Tetra", Port: 25601}); err != nil {
 		t.Fatal(err)
 	}
+	// Host returns with the session's placeholder lobby (no members yet)
+	// and sends the first beacon at once, while the engine publishes its
+	// lobby concurrently: the first beacon heard may say 0 players, and
+	// the next one (lan.BeaconInterval later) says 2. So wait, with a
+	// deadline, for a beacon that says 2 rather than taking the first.
 	var s LanSessionView
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		v := joiner.LanSessions()
-		if len(v.Sessions) > 0 {
+	heard := func(s LanSessionView) bool {
+		return s.Host == "Tetra" && s.Addr == "127.0.0.1:25601" && s.Players == 2 && s.Phase == "lobby" && s.Compatible && s.Version == "v9.9.9"
+	}
+	deadline := time.Now().Add(3*lan.BeaconInterval + 5*time.Second)
+	for {
+		v := joiner.LanSessions() // also keeps the listener's lease
+		if len(v.Sessions) > 1 {
+			t.Fatalf("heard more than the host: %+v", v.Sessions)
+		}
+		if len(v.Sessions) == 1 {
 			s = v.Sessions[0]
-			break
+			if heard(s) {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("heard %+v", s)
 		}
 		time.Sleep(50 * time.Millisecond)
-	}
-	if s.Host != "Tetra" || s.Addr != "127.0.0.1:25601" || s.Players != 2 || s.Phase != "lobby" || !s.Compatible || s.Version != "v9.9.9" {
-		t.Fatalf("heard %+v", s)
 	}
 	// The host doesn't list itself (it isn't on Home, and its own
 	// beacons are skipped).
