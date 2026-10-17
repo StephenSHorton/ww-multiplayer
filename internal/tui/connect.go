@@ -8,6 +8,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/redact"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -57,6 +58,10 @@ type connectModel struct {
 	// default the Host IP field draws a dot per character, like a
 	// password, and an error's IPs are masked.
 	showIPs bool
+
+	// mods are the app's mods that did not load (modsNotLoaded): one
+	// status line each, under the form.
+	mods []session.ModStatus
 }
 
 // coopChoice is one co-op setting the connect form offers.
@@ -393,6 +398,21 @@ func (m connectModel) view(width int) string {
 	))
 
 	b.WriteString("\n\n")
+	for _, ms := range m.mods {
+		line := modLine(ms)
+		if !m.showIPs {
+			line = redact.Text(line)
+		}
+		style := statusErr
+		if ms.State == "DISABLED" {
+			style = helpStyle
+		}
+		b.WriteString(style.Width(width).Render(truncate(line, width)))
+		b.WriteString("\n")
+	}
+	if len(m.mods) > 0 {
+		b.WriteString("\n")
+	}
 	b.WriteString(helpStyle.Width(width).Render(truncate("tab: next  ←/→: toggle  enter: select  "+ipsHelp(m.showIPs)+"  ctrl+c: quit", width)))
 
 	return b.String()
@@ -431,4 +451,45 @@ func (m connectModel) coopRow(width int) string {
 	label := m.coopChoices()[m.coopIndex()].label
 	row := labelStyle.Render(indicator+" Co-op  ") + choice.Render("◀ "+label+" ▶")
 	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(truncate(row, width))
+}
+
+// modsNotLoaded are ctrl's mods that are not LOADED, for the connect
+// screen's status lines; none when ctrl has no mods.
+func modsNotLoaded(ctrl *session.Controller) []session.ModStatus {
+	if ctrl == nil {
+		return nil
+	}
+	var out []session.ModStatus
+	for _, ms := range ctrl.Mods() {
+		if ms.State != session.Loaded {
+			out = append(out, ms)
+		}
+	}
+	return out
+}
+
+// modLine is a mod's status line: "Mod coop 1.0.0: DISABLED (turned off
+// in settings or by a flag)".
+func modLine(ms session.ModStatus) string {
+	name := ms.ID
+	if ms.Version != "" {
+		name += " " + ms.Version
+	}
+	line := "Mod " + name + ": " + ms.State
+	if ms.Reason != "" {
+		line += " (" + ms.Reason + ")"
+	}
+	return line
+}
+
+// modLevel is the log level of a mod's status line: OK once it loaded,
+// Warn when it was turned off, else Err.
+func modLevel(ms session.ModStatus) log.Level {
+	switch ms.State {
+	case session.Loaded:
+		return log.OK
+	case "DISABLED":
+		return log.Warn
+	}
+	return log.Err
 }
