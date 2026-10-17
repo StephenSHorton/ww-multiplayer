@@ -44,14 +44,15 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: '0'
         run: |
-          go build -tags desktop,production -o /tmp/ww-multiplayer.exe .
-          go build -o /tmp/ww-multiplayer-cli.exe .
+          go build -tags desktop,production -o /tmp/ww-multiplayer.exe ./cmd/ww-multiplayer
+          go build -o /tmp/ww-multiplayer-cli.exe ./cmd/ww-multiplayer
           go build -o /tmp/wwdev.exe ./cmd/wwdev
 
-      # ww_windows.syso (go generate; main.go) carries the icon and the
-      # application manifest (packaging/ww-multiplayer.exe.manifest:
-      # per-monitor DPI awareness, Common Controls 6, asInvoker). The
-      # linker picks it up by itself; check it really did.
+      # cmd/ww-multiplayer/ww_windows.syso (go generate; main.go) carries
+      # the icon and the application manifest
+      # (packaging/ww-multiplayer.exe.manifest: per-monitor DPI awareness,
+      # Common Controls 6, asInvoker). The linker picks it up by itself,
+      # but only from the main package's directory; check it really did.
       - name: Windows exe carries the application manifest
         run: |
           grep -q 'requestedExecutionLevel level="asInvoker"' /tmp/ww-multiplayer.exe
@@ -69,7 +70,7 @@ jobs:
         run: >-
           go test -count=1
           -run 'TestBlobFresh|TestStampRoundTrip|TestT2EndsBelowMailbox|TestCheckBudget|TestBuildPyMatchesBlob|TestFrameShimLoadsCallbackSlot|TestMailboxLayout|TestModRegions'
-          . ./internal/inject/... ./wwapi/mailbox
+          ./cmd/ww-multiplayer ./internal/inject/... ./wwapi/mailbox
 
       # Mod manifests (wwapi v0, docs/api/02-mods.md): every mods/**/mod.json
       # against wwapi/schema/mod.schema.json, ids equal to folder names,

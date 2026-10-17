@@ -236,9 +236,9 @@ firewall when Windows asks.
 git clone https://github.com/StephenSHorton/ww-multiplayer.git
 cd ww-multiplayer
 # Windows (run on Windows), with the app window
-go build -tags desktop,production -o ww-multiplayer.exe .
+go build -tags desktop,production -o ww-multiplayer.exe ./cmd/ww-multiplayer
 # Windows, cross-compiled from Linux or macOS (no cgo needed, window included)
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags desktop,production -o ww-multiplayer.exe .
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags desktop,production -o ww-multiplayer.exe ./cmd/ww-multiplayer
 # macOS — universal WW Multiplayer.app, zipped (the script passes the tags)
 ./scripts/build-mac.sh dev
 # outputs dist/WW Multiplayer/ (the .app, a ww-multiplayer symlink, the
@@ -252,7 +252,7 @@ terminal menu only: no arguments then opens the terminal menu, as before.
 `127.0.0.1` instead of a window (development and testing; Ctrl+C stops
 it).
 
-Linux isn't a supported player platform yet. `go build .` and
+Linux isn't a supported player platform yet. `go build ./cmd/ww-multiplayer` and
 `go test ./...` work on Linux, and the resulting binary can `patch` an ISO
 or run a headless `server`, but anything that reads Dolphin's memory fails
 with "dolphin process memory access is not implemented on linux".
@@ -280,11 +280,11 @@ keeps them as workflow artifacts, but publishes nothing. `build.yml` also
 builds and zips the macOS app on every push and PR, as a packaging smoke
 test.
 
-The Windows exe embeds `ww_windows.syso`: the icon (`docs/img/icon.ico`)
+The Windows exe embeds `cmd/ww-multiplayer/ww_windows.syso`: the icon (`docs/img/icon.ico`)
 and an application manifest (`packaging/ww-multiplayer.exe.manifest`:
 per-monitor DPI awareness, Common Controls 6, `asInvoker`). It stays a
 console-subsystem program, so one exe is the app, the terminal menu and
-the CLI. After changing the icon or the manifest, run `go generate .`
+the CLI. After changing the icon or the manifest, run `go generate ./cmd/ww-multiplayer`
 with [rsrc](https://github.com/akavel/rsrc) on `PATH`; that also rebuilds
 the macOS icon `docs/img/icon.icns` (`tools/mkicns`).
 

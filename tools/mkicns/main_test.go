@@ -50,7 +50,7 @@ func TestCommittedICNSMatchesICO(t *testing.T) {
 	}
 	elems := parseICNS(t, icns)
 	if !bytes.Equal(elems[icnsType[w]], src) {
-		t.Fatalf("icon.icns %s element is not icon.ico's %dx%d PNG; run go generate .", icnsType[w], w, w)
+		t.Fatalf("icon.icns %s element is not icon.ico's %dx%d PNG; run go generate ./cmd/ww-multiplayer", icnsType[w], w, w)
 	}
 	for _, s := range []int{128, 32, 16} {
 		data, ok := elems[icnsType[s]]

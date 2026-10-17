@@ -82,14 +82,14 @@ echo "==> Building arm64..."
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 \
     SDKROOT="$SDK" \
     CGO_LDFLAGS="$WAILS_LDFLAGS" \
-    go build -trimpath -tags desktop,production -ldflags="$LDFLAGS" -o "$DIST/ww-multiplayer-arm64" .
+    go build -trimpath -tags desktop,production -ldflags="$LDFLAGS" -o "$DIST/ww-multiplayer-arm64" ./cmd/ww-multiplayer
 
 echo "==> Building amd64..."
 GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 \
     SDKROOT="$SDK" \
     CC="clang -target x86_64-apple-macos${MACOS_MIN} -isysroot $SDK" \
     CGO_LDFLAGS="$WAILS_LDFLAGS" \
-    go build -trimpath -tags desktop,production -ldflags="$LDFLAGS" -o "$DIST/ww-multiplayer-amd64" .
+    go build -trimpath -tags desktop,production -ldflags="$LDFLAGS" -o "$DIST/ww-multiplayer-amd64" ./cmd/ww-multiplayer
 
 echo "==> Building $APP_NAME.app (version $VERSION, bundle $PLIST_VERSION)..."
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

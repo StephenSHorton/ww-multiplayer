@@ -88,7 +88,7 @@ jobs:
         run: >-
           go test -count=1
           -run 'TestBlobFresh|TestStampRoundTrip|TestT2EndsBelowMailbox|TestCheckBudget|TestBuildPyMatchesBlob|TestFrameShimLoadsCallbackSlot|TestMailboxLayout|TestModRegions'
-          . ./internal/inject/... ./wwapi/mailbox
+          ./cmd/ww-multiplayer ./internal/inject/... ./wwapi/mailbox
 
       - name: go vet (Windows target)
         uses: ./.github/actions/go-vet
@@ -124,17 +124,18 @@ jobs:
       # -tags desktop,production compiles the app window (internal/gui,
       # Wails v2; it needs no cgo on Windows). Without them the exe is the
       # CLI + TUI only: Wails v2 refuses to start a window untagged.
-      # ww_windows.syso (committed; go generate in main.go) adds the icon
-      # and the application manifest (packaging/ww-multiplayer.exe.manifest:
-      # per-monitor DPI awareness, Common Controls 6, asInvoker). The exe
-      # stays console-subsystem: one exe for the app, `tui` and the CLI.
+      # cmd/ww-multiplayer/ww_windows.syso (committed; go generate in
+      # main.go) adds the icon and the application manifest
+      # (packaging/ww-multiplayer.exe.manifest: per-monitor DPI awareness,
+      # Common Controls 6, asInvoker). The exe stays console-subsystem: one
+      # exe for the app, `tui` and the CLI.
       - name: Build ww-multiplayer.exe (Windows amd64)
         env:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: '0'
         run: |
-          go build -trimpath -tags desktop,production -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o ww-multiplayer.exe .
+          go build -trimpath -tags desktop,production -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o ww-multiplayer.exe ./cmd/ww-multiplayer
           grep -q 'requestedExecutionLevel level="asInvoker"' ww-multiplayer.exe
           ls -la ww-multiplayer.exe
 

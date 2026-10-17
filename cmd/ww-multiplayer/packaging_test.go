@@ -15,9 +15,20 @@ import (
 // (no YAML dependency); the step parser below knows their layout: jobs at
 // two spaces, steps as "      - " items.
 
+// repoRoot is the repository root seen from package main's directory
+// (cmd/ww-multiplayer, Phase D7), where go test runs these tests.
+const repoRoot = "../.."
+
+// repoPath turns a slash path relative to the repo root into one go test
+// can open from package main's directory.
+func repoPath(name string) string {
+	return filepath.Join(repoRoot, filepath.FromSlash(name))
+}
+
+// readRepoFile reads a file by its path from the repo root.
 func readRepoFile(t *testing.T, name string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.FromSlash(name))
+	b, err := os.ReadFile(repoPath(name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,21 +278,27 @@ func TestWindowsManifest(t *testing.T) {
 			t.Errorf("manifest lacks %s", w)
 		}
 	}
+	// The linker only picks up a .syso from the main package's directory,
+	// so it must sit next to main.go, here.
 	syso, err := os.ReadFile("ww_windows.syso")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Contains(syso, []byte(m)) {
-		t.Error("ww_windows.syso doesn't embed packaging/ww-multiplayer.exe.manifest as committed; run go generate .")
+		t.Error("ww_windows.syso doesn't embed packaging/ww-multiplayer.exe.manifest as committed; run go generate ./cmd/ww-multiplayer")
 	}
-	ico, err := os.ReadFile(filepath.FromSlash("docs/img/icon.ico"))
+	ico, err := os.ReadFile(repoPath("docs/img/icon.ico"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(ico) < 22 || !bytes.Contains(syso, ico[22:]) { // the image data after the 1-entry directory
-		t.Error("ww_windows.syso doesn't embed docs/img/icon.ico; run go generate .")
+		t.Error("ww_windows.syso doesn't embed docs/img/icon.ico; run go generate ./cmd/ww-multiplayer")
 	}
-	if !strings.Contains(readRepoFile(t, "main.go"), "//go:generate rsrc -manifest packaging/ww-multiplayer.exe.manifest -ico docs/img/icon.ico -o ww_windows.syso") {
+	mainGo, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mainGo), "//go:generate rsrc -manifest ../../packaging/ww-multiplayer.exe.manifest -ico ../../docs/img/icon.ico -o ww_windows.syso") {
 		t.Error("main.go's go:generate line must build ww_windows.syso from the manifest and the icon")
 	}
 	// One exe: never the GUI subsystem (it would break CLI stdout/stdin).
@@ -317,7 +334,7 @@ func TestMacBundle(t *testing.T) {
 	if regexp.MustCompile(`macos1[01]\b|version-min=10`).MatchString(sh) {
 		t.Error("build-mac.sh still targets an older macOS than MACOS_MIN")
 	}
-	if _, err := os.Stat(filepath.FromSlash("docs/img/icon.icns")); err != nil {
+	if _, err := os.Stat(repoPath("docs/img/icon.icns")); err != nil {
 		t.Error(err)
 	}
 }

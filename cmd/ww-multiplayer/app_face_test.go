@@ -6,7 +6,6 @@ import (
 	"flag"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -30,7 +29,7 @@ var updateSubcommands = flag.Bool("update-subcommands", false, "rewrite testdata
 
 const (
 	subcommandsFile      = "testdata/cli-subcommands.txt"
-	wwdevSubcommandsFile = "cmd/wwdev/testdata/cli-subcommands.txt"
+	wwdevSubcommandsFile = "../wwdev/testdata/cli-subcommands.txt"
 	preD6SubcommandsFile = "testdata/cli-subcommands-pre-d6.txt"
 )
 
@@ -249,6 +248,9 @@ func TestTUIFace(t *testing.T) {
 // and internal/gui compiles the window only with desktop and production
 // (gui_nogui.go), so every release and CI build of the Windows exe and the
 // macOS binary must pass both, or it silently ships without the window.
+// Each of those builds names ./cmd/ww-multiplayer, package main's
+// directory since Phase D7 (the .syso with the icon is only linked from
+// there).
 func TestGUIBuildTags(t *testing.T) {
 	for _, c := range []struct {
 		file string
@@ -258,7 +260,7 @@ func TestGUIBuildTags(t *testing.T) {
 		{".github/workflows/build.yml", 1}, // Windows; macOS runs build-mac.sh (below)
 		{"scripts/build-mac.sh", 2},
 	} {
-		b, err := os.ReadFile(filepath.FromSlash(c.file))
+		b, err := os.ReadFile(repoPath(c.file))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -266,6 +268,11 @@ func TestGUIBuildTags(t *testing.T) {
 		for _, line := range strings.Split(string(b), "\n") {
 			if strings.Contains(line, "go build") && strings.Contains(line, "-tags desktop,production") {
 				n++
+				// Package main lives in cmd/ww-multiplayer (Phase D7);
+				// a build of the repo root has nothing to build.
+				if !strings.HasSuffix(strings.TrimSpace(line), " ./cmd/ww-multiplayer") {
+					t.Errorf("%s: %q does not build ./cmd/ww-multiplayer", c.file, strings.TrimSpace(line))
+				}
 			}
 		}
 		if n < c.min {

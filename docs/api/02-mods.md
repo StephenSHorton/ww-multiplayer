@@ -39,7 +39,7 @@ Optional interfaces, found by type assertion:
 
 `UI` and `NetChannel` (design §6.1) are not defined yet. What they build on partly exists: a mod registers commands (`mod.<id>.*`) through `Context.Commands()` today, and anything that can reach the registry runs them ([03-writing-a-mod.md](03-writing-a-mod.md)). The app integration (D4) added the `--mods`, `--no-mod` and `--dev` flags (for `tui`, `ui` and `mods`) and the window's Mods page, which runs a mod's commands (`Bridge.CallMod`); mod console verbs in the TUI and mod panels are not built yet, and `NetChannel` waits on the multiplayer mod (D1).
 
-The app lists its mods statically in `compiledMods()` (`mods.go` at the repo root, moving to `cmd/ww-multiplayer/mods.go` in D7). There is no `init()` registration and no drop-in loading: Go's `plugin` package does not work on Windows.
+The app lists its mods statically in `compiledMods()` (`cmd/ww-multiplayer/mods.go`, at the repo root before D7). There is no `init()` registration and no drop-in loading: Go's `plugin` package does not work on Windows.
 
 ## mod.json
 

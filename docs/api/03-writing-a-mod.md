@@ -10,7 +10,7 @@
 
 Its tests run it against a fake game, with no Dolphin. This page goes through it file by file. The reference pages are [02-mods.md](02-mods.md) (manifests, the resolver, the supervisor, `Context`) and [01-events.md](01-events.md) (the bus and the core events).
 
-The example is a dev mod (`"dev": true`): it is not in the app's mod list (`compiledMods()` in `mods.go`) but in `devMods()`, so plain `ww-multiplayer mods` does not show it; `mods --dev` lists it, and `tui --dev` or `ui --dev` run it under the app's runtime (D4). The app attaches no `wwapi.Game` yet, so there it loads but has no game to read: `mark` and `goto` say "no game".
+The example is a dev mod (`"dev": true`): it is not in the app's mod list (`compiledMods()` in `cmd/ww-multiplayer/mods.go`) but in `devMods()`, so plain `ww-multiplayer mods` does not show it; `mods --dev` lists it, and `tui --dev` or `ui --dev` run it under the app's runtime (D4). The app attaches no `wwapi.Game` yet, so there it loads but has no game to read: `mark` and `goto` say "no game".
 
 ## 1. The folder
 
