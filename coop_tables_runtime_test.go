@@ -14,14 +14,14 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/keys"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
 // tablesLog records log lines with their levels.

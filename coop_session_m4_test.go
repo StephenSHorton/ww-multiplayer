@@ -16,16 +16,16 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/story"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/keys"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/keys/itemsrc"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
 // M4 through the session plumbing (§9 M4): shared progression between

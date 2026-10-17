@@ -13,12 +13,13 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
 
 // startM5Host is a host whose hub grants the default features over tb:
@@ -35,7 +36,7 @@ func startM5Host(t *testing.T, tb *tables.Tables) *host {
 		t.Fatal(err)
 	}
 	h, err := hub.New(hub.Config{Store: st, Features: hub.DefaultFeatures, StageTblHash: id,
-		SyncedSwitch: tb.SyncedMemorySwitch, SyncedScoped: tb.SyncedScopedSwitch})
+		SyncedSwitch: memorySwitches(tb), SyncedScoped: scopedSwitches(tb)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +163,7 @@ func unsafeBits(tb *tables.Tables, scs []wire.Scoped) []string {
 		for _, w := range sc.Words {
 			for b := range width {
 				no := first + int(w.Word)*width + b
-				if w.Bits&(1<<b) != 0 && !tb.SyncedScopedSwitch(int(sc.Table), sc.Stage.String(), int(sc.Room), no) {
+				if w.Bits&(1<<b) != 0 && !synctables.SyncedScopedSwitch(tb, int(sc.Table), sc.Stage.String(), int(sc.Room), no) {
 					out = append(out, fmt.Sprintf("%v %s room %d: 0x%02X", sc.Kind, sc.Stage, sc.Room, no))
 				}
 			}
@@ -202,7 +203,7 @@ func TestConvergeM5Loopback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{StageTblHash: id, Policy: hub.SessionPolicy(tb.SyncedMemorySwitch), Tables: tb}
+	cfg := Config{StageTblHash: id, Policy: hub.SessionPolicy(memorySwitches(tb)), Tables: tb}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // before the cleanups, which wait for the clients
 	a := newM5Player(t, ctx, h, cfg, "Link", bind.Nonce{1}, 5)

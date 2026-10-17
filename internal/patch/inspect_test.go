@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
 func TestInspect(t *testing.T) {

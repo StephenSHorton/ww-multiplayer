@@ -12,11 +12,11 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/story"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
 
 // The M4 receiver (§9 M4): what the world's progression gives the

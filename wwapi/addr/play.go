@@ -136,7 +136,7 @@ const (
 
 // The Game Boy Advance link (the Tingle Tuner, §6.2). Every Tingle Tuner
 // switch write needs mDoGaC_GbaLink true on the frame it is made
-// (internal/coop/tables/switches, AGBSW0), and mDoGaC_GbaLink reads only
+// (wwapi/tables/switches, AGBSW0), and mDoGaC_GbaLink reads only
 // g_mDoGaC_gbaCom (m_Do_gba_com.cpp:258-270):
 //
 //	(mEnable == 1 && field_0x2 == 3 && field_0x4 == 0) ||

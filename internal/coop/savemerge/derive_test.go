@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/hearts"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/hearts"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/keys"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/keys/itemsrc"
 )
 
 func TestDeriveSlots(t *testing.T) {

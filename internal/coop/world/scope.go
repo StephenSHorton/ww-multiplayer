@@ -525,7 +525,7 @@ func (s *Scopes) vacate(old, now Place) []Key {
 // of dan word w is 0x80 + 32w + b (dSv_danBit_c::onSwitch,
 // d_save.cpp:1238-1241), bit b of zone word w is 0xC0 + 16w + b
 // (dSv_zoneBit_c::onSwitch, d_save.cpp:1279-1282). With the M1 table that
-// is tables.Tables.SyncedScopedSwitch(k.Table, k.Stage, k.Room, no).
+// is synctables.SyncedScopedSwitch(t, k.Table, k.Stage, k.Room, no) over tables t.
 //
 // Whatever synced says, a bit is kept only if its switch number is one
 // the game's setter routes to the kind's own store (addr.ClassifySwitch,

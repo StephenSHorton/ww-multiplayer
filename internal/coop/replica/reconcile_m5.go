@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -49,7 +50,7 @@ import (
 //
 // Every class is OR only: a bit is set, never cleared. Only the switches
 // the receiver's own M1 table marks latching for that scope are written
-// (tables.Tables.SyncedScopedSwitch: every writer of the switch latches,
+// (synctables.SyncedScopedSwitch: every writer of the switch latches,
 // §6.2), whatever the hub sent; without the table, none. And each bit is
 // written only if the receiver's game never had it in that scope (its
 // ever-had set: every bit its game had on a consistent tick, and every bit
@@ -392,7 +393,7 @@ func (r *Replica) m5Latches(k scopeKey, no int) bool {
 	if r.cfg.Tables == nil {
 		return r.writer.DryRun()
 	}
-	return r.cfg.Tables.SyncedScopedSwitch(int(k.table), k.stage.String(), int(k.room), no)
+	return synctables.SyncedScopedSwitch(r.cfg.Tables, int(k.table), k.stage.String(), int(k.room), no)
 }
 
 // m5Granted reports whether the room puzzles are planned this session:
@@ -559,7 +560,7 @@ func (r *Replica) m5Due(k scopeKey, slot int8, w int, due uint32) {
 			r.m5Say(key, fmt.Sprintf("not written: %s%s does not latch (this side's M1 switch table)", label, where))
 			continue
 		}
-		if r.gbaHeld() && r.cfg.Tables.GBAScopedSwitch(int(k.table), k.stage.String(), int(k.room), no) {
+		if r.gbaHeld() && synctables.GBAScopedSwitch(r.cfg.Tables, int(k.table), k.stage.String(), int(k.room), no) {
 			// Shared with the Tingle Tuner (gba.go): a dan or zone bit
 			// waits in its store, a room edge is dropped with its edge.
 			r.m5Say(fmt.Sprintf("gba %v %s %d %d 0x%02X", k.kind, k.stage, k.table, k.room, no),

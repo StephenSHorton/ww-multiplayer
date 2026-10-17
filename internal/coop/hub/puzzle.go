@@ -20,7 +20,7 @@ import "github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 
 // ScopeFilter returns the scoped stores' filter (world.Scopes.Filter)
 // over the host's M1 verdict synced (Config.SyncedScoped,
-// tables.Tables.SyncedScopedSwitch): the bits of word w of store k whose
+// synctables.SyncedScopedSwitch): the bits of word w of store k whose
 // switch synced grants for k's save table, stage and room. A nil synced
 // grants none. It is world.SwitchFilter, so whatever synced says a bit is
 // kept only if its switch number is one the game routes to k's store

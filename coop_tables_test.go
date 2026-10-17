@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
 func TestParseCoopTablesArgs(t *testing.T) {
@@ -96,8 +97,8 @@ func TestCoopTables(t *testing.T) {
 
 	out, status := run(cache)
 	head, rep := report(out)
-	if status != "" || rep != built.Report() {
-		t.Errorf("first run: status %q; report\n%s\nwant\n%s", status, rep, built.Report())
+	if status != "" || rep != synctables.Report(built) {
+		t.Errorf("first run: status %q; report\n%s\nwant\n%s", status, rep, synctables.Report(built))
 	}
 	// 27 archives: the 12 stages' Stage.arc, their 12 rooms, the skipped
 	// Name stage's Stage.arc, and the excluded K_Test2's Stage.arc and
@@ -108,7 +109,7 @@ func TestCoopTables(t *testing.T) {
 			t.Errorf("first run's status lacks %q:\n%s", s, head)
 		}
 	}
-	if loaded, err := tables.Load(cache, built.ID); err != nil || loaded.Report() != rep {
+	if loaded, err := tables.Load(cache, built.ID); err != nil || synctables.Report(loaded) != rep {
 		t.Errorf("the saved cache: %v", err)
 	}
 
@@ -119,7 +120,7 @@ func TestCoopTables(t *testing.T) {
 	}
 
 	out, _ = run(cache, "--section", "keys")
-	if _, r := report(out); r != built.Report(tables.SectionKeys) {
+	if _, r := report(out); r != synctables.Report(built, tables.SectionKeys) {
 		t.Errorf("--section keys:\n%s", r)
 	}
 
@@ -129,7 +130,7 @@ func TestCoopTables(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("--json output doesn't parse: %v\n%.300s", err, out)
 	}
-	if got.Report() != built.Report() || !strings.Contains(status, "read from the cache") {
+	if synctables.Report(&got) != synctables.Report(built) || !strings.Contains(status, "read from the cache") {
 		t.Errorf("--json: status %q", status)
 	}
 	out, _ = run(cache, "--json", "--section=hearts")

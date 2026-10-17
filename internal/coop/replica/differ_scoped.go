@@ -56,7 +56,7 @@ const scopeRefresh = int(PresenceEvery / TickEvery)
 // keep leaves, of world.Key k and word w, and the latching dan and zone
 // words whole on scope entry and every scopeRefresh ticks
 // (differ_scoped.go). keep is the host's filter, hub.ScopeFilter over the
-// replica's own M1 verdict (tables.Tables.SyncedScopedSwitch), which is
+// replica's own M1 verdict (synctables.SyncedScopedSwitch), which is
 // the host's when the hub grants FeaturePuzzle. Nil turns sharing off:
 // M2's unfiltered edges.
 func (d *Differ) ShareScopes(keep func(k world.Key, w int) uint32) {

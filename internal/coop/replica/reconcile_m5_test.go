@@ -9,9 +9,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
@@ -20,6 +18,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/keys"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
 // The M5 fixture's switches, all set by actors in Dragon Roost Cavern's
@@ -100,7 +101,7 @@ func m5Tables(t testing.TB) *tables.Tables {
 		{1, zoneOK, true}, {1, zoneOK2, true}, {1, zoneTimed, false}, {0, zoneOK, false},
 		{1, roomOK, true}, {1, roomOK2, true}, {1, roomTimed, false}, {0, roomOK, false},
 	} {
-		if got := tb.SyncedScopedSwitch(keys.TableDRC, drc.Name, c.room, c.no); got != c.want {
+		if got := synctables.SyncedScopedSwitch(tb, keys.TableDRC, drc.Name, c.room, c.no); got != c.want {
 			t.Fatalf("the fixture's verdict on 0x%02X in room %d is %v, want %v", c.no, c.room, got, c.want)
 		}
 	}
@@ -439,10 +440,10 @@ func auditM5Writes(t *testing.T, ws []auditWrite, zs []zoneAt, reps []Report, pl
 			at("no switch of a store")
 		}
 		for _, no := range nos {
-			if !tb.SyncedScopedSwitch(int(w.table), z.stage, int(room), no) {
+			if !synctables.SyncedScopedSwitch(tb, int(w.table), z.stage, int(room), no) {
 				at("switch 0x%02X does not latch there", no)
 			}
-			if z.gba && tb.GBAScopedSwitch(int(w.table), z.stage, int(room), no) {
+			if z.gba && synctables.GBAScopedSwitch(tb, int(w.table), z.stage, int(room), no) {
 				at("switch 0x%02X is shared with the Tingle Tuner, written while a GBA may be linked", no)
 			}
 			if addr.ClassifySwitch(no) == addr.SwitchRoom {
@@ -1178,7 +1179,9 @@ func FuzzReconcileM5(f *testing.F) {
 				case *wire.Scoped:
 					k := world.Key{Kind: world.ScopeKind(m.Kind), Stage: m.Stage.String(), Table: int(m.Table), Room: int(m.Room)}
 					for _, w := range m.Words {
-						if held := hub.ScopeFilter(tb.GBAScopedSwitch)(k, int(w.Word)); m.Kind != wire.ScopeKill && w.Bits&held != 0 {
+						if held := hub.ScopeFilter(func(table int, stage string, room, no int) bool {
+							return synctables.GBAScopedSwitch(tb, table, stage, room, no)
+						})(k, int(w.Word)); m.Kind != wire.ScopeKill && w.Bits&held != 0 {
 							t.Fatalf("SCOPED %+v with a GBA linked carries 0x%08X, shared with the Tingle Tuner", m, w.Bits&held)
 						}
 					}

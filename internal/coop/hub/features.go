@@ -124,7 +124,7 @@ const SessionFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureLi
 const DefaultFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureSwitches | M4Features
 
 // TableFeatures are the session features that read the M1 stage tables
-// (internal/coop/tables): which switches latch (memory switches, the live
+// (wwapi/tables): which switches latch (memory switches, the live
 // opt-in, the dan and zone switches of FeaturePuzzle), which setIDs name
 // which enemies (FeatureCombat), and which chests, pickups and doors are
 // key sources and key doors (FeatureKeys) and heart sources

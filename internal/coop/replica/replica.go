@@ -71,13 +71,14 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
 
 const (
@@ -465,10 +466,13 @@ func New(cfg Config) (*Replica, error) {
 		// FeaturePuzzle, without those shared with the Tingle Tuner while
 		// a GBA may be linked (gba.go), and never one that rose while
 		// held (HoldScopes); and M6's kills of its keyed K1 enemies
-		// (tables.Tables.SyncedKill), the host's when it grants
+		// (synctables.SyncedKill), the host's when it grants
 		// FeatureCombat; nil tables propose none. The hold taints dan and
 		// zone words only (taintRises), never kill words.
-		r.differ.ShareScopes(hub.Filter(r.scopedSynced, cfg.Tables.SyncedKill))
+		t := cfg.Tables
+		r.differ.ShareScopes(hub.Filter(r.scopedSynced, func(table int, stage string, room, setID int) bool {
+			return synctables.SyncedKill(t, table, stage, room, setID)
+		}))
 		r.differ.HoldScopes(hub.ScopeFilter(r.scopedHeld))
 	}
 	r.planner = NewPlanner(r.policy)

@@ -538,7 +538,7 @@ func removeAll(p string) {
 
 // Windows refuses to rename over, or open, a file another process holds
 // without sharing (Dolphin flushing a card, Defender or the indexer
-// looking at a new file). Like internal/coop/tables and internal/inject,
+// looking at a new file). Like wwapi/tables and internal/inject,
 // those errors are retried for about 2 s. (Spelled as raw Errnos so this
 // builds everywhere; 5 and 32 are EIO and EPIPE on Unix, which aren't
 // retried.)

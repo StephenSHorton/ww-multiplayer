@@ -60,7 +60,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
@@ -68,6 +67,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
 
 // coopFlags are the co-op options of host, join and mp-local. The zero

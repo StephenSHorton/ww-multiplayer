@@ -14,9 +14,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
@@ -24,6 +22,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/keys"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
 // M5 through the session plumbing (§9 M5): live room puzzles between two
@@ -208,7 +209,7 @@ func coAuditM5Write(w coWrite, rep replica.Report, tb *tables.Tables, bad func(f
 	}
 	var out []coSwitchAt
 	for _, no := range nos {
-		if !tb.SyncedScopedSwitch(int(w.table), z.stage, int(sw.Room), no) {
+		if !synctables.SyncedScopedSwitch(tb, int(w.table), z.stage, int(sw.Room), no) {
 			bad("switch 0x%02X does not latch in %s (table %d, room %d)", no, z.stage, w.table, sw.Room)
 		}
 		out = append(out, coSwitchAt{stage: z.stage, table: w.table, room: sw.Room, no: no})
@@ -342,7 +343,7 @@ func (tp *coScopedTap) check(who string, dir wire.Dir, p []byte) {
 				}
 				no := first + int(w.Word)*width + b
 				if (sc.Kind == wire.ScopeRoomEdge) != (addr.ClassifySwitch(no) == addr.SwitchRoom) ||
-					!tp.tb.SyncedScopedSwitch(int(sc.Table), sc.Stage.String(), room, no) {
+					!synctables.SyncedScopedSwitch(tp.tb, int(sc.Table), sc.Stage.String(), room, no) {
 					bad = append(bad, fmt.Sprintf("%s: a %s %v carries switch 0x%02X of %s (table %d, room %d), which does not latch there", who, dir, sc.Kind, no, sc.Stage, sc.Table, sc.Room))
 				}
 			}
@@ -459,7 +460,7 @@ func TestCoopSessionM5(t *testing.T) {
 		{1, coZoneOK, true}, {1, coZoneTimed, false}, {0, coZoneOK, false}, {2, coZoneOK, true}, {2, coZoneOK2, false},
 		{1, coRoomOK, true}, {1, coRoomTimed, false}, {0, coRoomOK, false}, {2, coRoomOK, true},
 	} {
-		if got := tb.SyncedScopedSwitch(addr.TableDRC, coDRC.Name, c.room, c.no); got != c.want {
+		if got := synctables.SyncedScopedSwitch(tb, addr.TableDRC, coDRC.Name, c.room, c.no); got != c.want {
 			t.Fatalf("the fixture's verdict on 0x%02X in room %d is %v, want %v", c.no, c.room, got, c.want)
 		}
 	}
@@ -901,7 +902,7 @@ func TestCoopSessionM5(t *testing.T) {
 			// p takes q's dan switches and the zone of the room both are
 			// in; a room switch is an edge, checked with the fresh ones.
 			if at.room != -1 && at.room != 1 || addr.ClassifySwitch(at.no) == addr.SwitchRoom || has[at] || seen[p].had[at] ||
-				!tb.SyncedScopedSwitch(int(at.table), at.stage, int(at.room), at.no) {
+				!synctables.SyncedScopedSwitch(tb, int(at.table), at.stage, int(at.room), at.no) {
 				continue
 			}
 			out = append(out, at.String())

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
 func TestDefaultOut(t *testing.T) {
