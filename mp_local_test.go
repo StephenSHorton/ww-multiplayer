@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
@@ -76,5 +77,14 @@ func TestEnsureCheatsIni_PreservesExisting(t *testing.T) {
 	}
 	if !strings.Contains(rep.joined(), "already exists, leaving it untouched") {
 		t.Errorf("expected 'leaving untouched' log line, got: %s", rep.joined())
+	}
+}
+
+// TestBackupUserDirsMatchDolphin2: the backup package finds the cards in
+// the same user directories dolphin2 launches Dolphin with.
+func TestBackupUserDirsMatchDolphin2(t *testing.T) {
+	_, _, ud1, ud2 := dolphin2Defaults()
+	if a, b := backup.DefaultUserDirs(); a != ud1 || b != ud2 {
+		t.Errorf("backup.DefaultUserDirs() = %q, %q; dolphin2 uses %q, %q", a, b, ud1, ud2)
 	}
 }

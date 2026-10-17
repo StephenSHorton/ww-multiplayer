@@ -1,4 +1,4 @@
-package main
+package coopcli
 
 import (
 	"bytes"
@@ -25,6 +25,10 @@ var m2World = bindtest.World
 // m2Game is a FakeGame playing a saved and loaded file "Link" in slot 0,
 // bound to m2World when bound is set.
 var m2Game = bindtest.Game
+
+// diagSea is the Great Sea stage, as package main's coop-diag tests
+// load it.
+var diagSea = fakegame.Stage{Name: "sea", Room: 44, Table: addr.TableSea}
 
 func TestCoopTagShow(t *testing.T) {
 	_, m, tick := m2Game(t, true)
@@ -277,14 +281,5 @@ func TestCoopWorldRestore(t *testing.T) {
 	}
 	if err := coopWorldRestore(&b, root, "nope", true, m2Procs{}); err == nil {
 		t.Error("restoring an unknown backup succeeded")
-	}
-}
-
-// TestBackupUserDirsMatchDolphin2: the backup package finds the cards in
-// the same user directories dolphin2 launches Dolphin with.
-func TestBackupUserDirsMatchDolphin2(t *testing.T) {
-	_, _, ud1, ud2 := dolphin2Defaults()
-	if a, b := backup.DefaultUserDirs(); a != ud1 || b != ud2 {
-		t.Errorf("backup.DefaultUserDirs() = %q, %q; dolphin2 uses %q, %q", a, b, ud1, ud2)
 	}
 }

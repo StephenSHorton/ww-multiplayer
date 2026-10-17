@@ -30,9 +30,8 @@ type NoRun struct{}
 func (NoRun) Run(context.Context) error { return nil }
 
 // Optional interfaces a Mod may implement, found by type assertion.
-// More come with the packages they need (design §6.1): CLI with the
-// command registry, UI (verbs and panels) and NetChannel with the
-// multiplayer mod.
+// CLI and PostPatcher are in cli.go. More come with the packages they
+// need (design §6.1): UI (verbs and panels) and NetChannel.
 type (
 	// PublicAPI is what other mods get from Context.Mod(id).
 	PublicAPI interface{ API() any }

@@ -10,5 +10,16 @@ exit 0
       "net"
     ],
     "load_index": 0
+  },
+  {
+    "id": "coop",
+    "name": "Co-op",
+    "version": "1.0.0",
+    "status": "LOADED",
+    "multiplayer": "client_required",
+    "dependencies": {
+      "multiplayer": "^1.0"
+    },
+    "load_index": 1
   }
 ]

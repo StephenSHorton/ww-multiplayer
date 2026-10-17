@@ -50,10 +50,11 @@ type Options struct {
 	// Getenv reads the environment overrides config.WithEnv applies
 	// (WW_COLOR, ...); nil is no overrides.
 	Getenv func(string) string
-	// CoopTables is the setup's patch.Options.CoopTables:
-	// stagetables.CacheForPatch, the step the `patch` CLI runs, whose line
-	// becomes the "Co-op tables built" check row. nil skips it.
-	CoopTables func(w io.Writer, image string)
+	// PostPatch is the setup's patch.Options.PostPatch: the loaded mods'
+	// post-patch steps, the ones the `patch` CLI runs. Co-op's
+	// (stagetables.CacheForPatch) writes the line that becomes the
+	// "Co-op tables built" check row. None skips them.
+	PostPatch []func(w io.Writer, image string)
 	// DolphinEnv is what the setup's Dolphin detection looks at; nil is
 	// launch.Host (this machine).
 	DolphinEnv func() launch.Env

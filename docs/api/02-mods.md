@@ -34,8 +34,10 @@ Optional interfaces, found by type assertion:
 |---|---|
 | `PublicAPI` (`API() any`) | What other mods get from `Context.Mod(id)`. |
 | `NetProvider` (`Engine() session.Engine`) | The network session provider. The manifest must say `"provides": ["net"]`, and a mod that provides `net` must implement it. |
+| `CLI` (`Commands() []Command`) | CLI subcommands. A `wwapi.Command` has a name, aliases, `Hidden`, a help group label (`GroupPlay`, `GroupPatch`, `GroupLocal`, `GroupLower`, `GroupDev`), the help's usage and summary, and `Run(name, args)`. The app appends each loaded mod's commands to its own, in load order (co-op's `coop-tables`, `coop-tag`, `coop-world`, `save-diff`, `save-merge`). |
+| `PostPatcher` (`PostPatch(w io.Writer, image string)`) | A step after `patch` (and the app's setup patch) on the disc Dolphin will run: it writes its line on `w` and never fails the patch. Loaded mods' steps run in load order (co-op builds its stage tables). |
 
-`CLI`, `UI` and `NetChannel` (design §6.1) are not defined yet. What they build on partly exists: a mod registers commands (`mod.<id>.*`) through `Context.Commands()` today, and anything that can reach the registry runs them ([03-writing-a-mod.md](03-writing-a-mod.md)). Console verbs, CLI flags and panels come with the app integration (D4), and `NetChannel` with the multiplayer mod (D1).
+`UI` and `NetChannel` (design §6.1) are not defined yet. What they build on partly exists: a mod registers commands (`mod.<id>.*`) through `Context.Commands()` today, and anything that can reach the registry runs them ([03-writing-a-mod.md](03-writing-a-mod.md)). Console verbs, CLI flags and panels come with the app integration (D4), and `NetChannel` with the multiplayer mod (D1).
 
 The app lists its mods statically in `compiledMods()` (`mods.go` at the repo root, moving to `cmd/ww-multiplayer/mods.go` in D7). There is no `init()` registration and no drop-in loading: Go's `plugin` package does not work on Windows.
 

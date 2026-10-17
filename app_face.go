@@ -15,7 +15,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/internal/tui"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 )
 
@@ -112,9 +111,10 @@ func runGUI() {
 // guiOptions are the window's and ui --browser's options. The app reads
 // its saved settings itself (internal/gui); package main never imports
 // internal/config, so the CLI can't read them (TestCLIReadsNoConfig). The
-// setup's patch runs the co-op tables step the `patch` command runs.
+// setup's patch runs the post-patch steps the `patch` command runs (the
+// co-op tables).
 func guiOptions(ctrl *session.Controller) gui.Options {
-	return gui.Options{Version: version, Controller: ctrl, Getenv: os.Getenv, CoopTables: stagetables.CacheForPatch, HostIPs: engine.ListHostIPs}
+	return gui.Options{Version: version, Controller: ctrl, Getenv: os.Getenv, PostPatch: postPatchSteps(), HostIPs: engine.ListHostIPs}
 }
 
 // runTUI runs the Bubble Tea TUI (what no arguments opened before the app

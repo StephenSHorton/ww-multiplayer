@@ -1,0 +1,19 @@
+{
+  "$schema": "../../wwapi/schema/mod.schema.json",
+  "id": "coop",
+  "name": "Co-op",
+  "description": "Co-op (docs/08-coop-design.md): one shared world for the players of a multiplayer session, its CLI tools and the stage tables step after patch. It changes nothing until a player turns co-op on (off by default).",
+  "version": "1.0.0",
+  "api": "^0.1",
+  "dependencies": {"multiplayer": "^1.0"},
+  "optional_dependencies": {},
+  "load_order": 0,
+  "enabled_by_default": true,
+  "dev": false,
+  "game_ids": ["GZLE01"],
+  "multiplayer": "client_required",
+  "provides": [],
+  "needs": [],
+  "writes": [],
+  "c": null
+}

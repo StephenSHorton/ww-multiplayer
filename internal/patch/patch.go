@@ -17,11 +17,13 @@ import (
 
 // Options configures Run.
 type Options struct {
-	// CoopTables, when non-nil, builds, caches and records the co-op stage
-	// tables of image, the disc Dolphin will run, and writes one line about
-	// it on w. It never fails the patch. package main passes
-	// stagetables.CacheForPatch (mods/coop); nil skips the step.
-	CoopTables func(w io.Writer, image string)
+	// PostPatch are the steps that run, in order, once the patched disc
+	// is written or found already patched: image is the disc Dolphin
+	// will run. Each writes its line(s) on w and never fails the patch
+	// (it has no error to return). package main passes the loaded mods'
+	// steps (wwapi.PostPatcher): co-op's builds, caches and records the
+	// co-op stage tables (stagetables.CacheForPatch). None skips them.
+	PostPatch []func(w io.Writer, image string)
 }
 
 // Result is what Run did.
@@ -79,9 +81,9 @@ func Run(ctx context.Context, in, out string, w io.Writer, o Options) (Result, e
 	if err := ctx.Err(); err != nil {
 		return res, err
 	}
-	coop := func(image string) {
-		if o.CoopTables != nil {
-			o.CoopTables(w, image)
+	post := func(image string) {
+		for _, step := range o.PostPatch {
+			step(w, image)
 		}
 	}
 	fst, err := inject.PatchISO(in, out)
@@ -91,7 +93,7 @@ func Run(ctx context.Context, in, out string, w io.Writer, o Options) (Result, e
 			fmt.Fprintf(w, "\nThis ISO already contains this version of the multiplayer mod — nothing to do.\n")
 			fmt.Fprintf(w, "(Detected an existing T2 section at 0x%08X.)\n", inject.T2Address)
 			res.AlreadyPatched = true
-			coop(in) // the disc Dolphin will run; never fails the patch
+			post(in) // the disc Dolphin will run; never fails the patch
 			return res, nil
 		case errors.Is(err, inject.ErrPatchedByOtherVersion):
 			fmt.Fprintf(w, "\nThis ISO was patched by a different ww-multiplayer version.\n")
@@ -106,9 +108,9 @@ func Run(ctx context.Context, in, out string, w io.Writer, o Options) (Result, e
 		fmt.Fprintf(w, "  FST   : moved 0x%X -> 0x%X (0x%X bytes) to make room for the mod\n",
 			fst.OldFSTOffset, fst.NewFSTOffset, fst.FSTSize)
 	}
-	// The co-op stage tables of the disc just written, for --coop
-	// sessions: read-only on it, and a warning at worst.
-	coop(out)
+	// The post-patch steps on the disc just written (co-op's stage
+	// tables, for --coop sessions): read-only on it, a warning at worst.
+	post(out)
 	fmt.Fprintf(w, "\nDone. Boot %s in Dolphin to play multiplayer.\n", out)
 	return res, nil
 }

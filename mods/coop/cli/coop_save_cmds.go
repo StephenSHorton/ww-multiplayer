@@ -1,4 +1,4 @@
-package main
+package coopcli
 
 // Co-op M4 offline save tools (docs/08-coop-design.md §3, §9 M4), on
 // Dolphin's GCI files (or a raw card image, read only):
@@ -19,7 +19,7 @@ package main
 // that exists or names an input, writes it exclusively, and reads it back
 // to check its checksums before it reports success. Like the other co-op
 // diagnostics, neither is listed in printHelp; the command registry
-// (commands.go) dispatches them.
+// (the co-op mod's Commands, cli.go) dispatches them.
 
 import (
 	"encoding/binary"
