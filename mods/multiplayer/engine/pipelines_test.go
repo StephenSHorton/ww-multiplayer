@@ -1,4 +1,4 @@
-package main
+package engine
 
 import (
 	"context"
@@ -8,21 +8,33 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
-// runPipelinesWithin runs runPipelines on a fresh ctx and fails the test if
+// recordingReporter is a log.Reporter that keeps every line.
+type recordingReporter struct {
+	lines []string
+}
+
+func (r *recordingReporter) Log(_ log.Level, msg string) {
+	r.lines = append(r.lines, msg)
+}
+
+func (r *recordingReporter) joined() string { return strings.Join(r.lines, "\n") }
+
+// runPipelinesWithin runs RunPipelines on a fresh ctx and fails the test if
 // it doesn't return within a second.
-func runPipelinesWithin(t *testing.T, rep *recordingReporter, ps ...pipeline) error {
+func runPipelinesWithin(t *testing.T, rep *recordingReporter, ps ...Pipeline) error {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- runPipelines(ctx, cancel, rep, ps...) }()
+	go func() { done <- RunPipelines(ctx, cancel, rep, ps...) }()
 	select {
 	case err := <-done:
 		return err
 	case <-time.After(time.Second):
-		t.Fatal("runPipelines did not return within 1s")
+		t.Fatal("RunPipelines did not return within 1s")
 		return nil
 	}
 }
@@ -43,14 +55,14 @@ func TestRunPipelinesReturnsFirstFailure(t *testing.T) {
 	boom := errors.New("dolphin not running")
 	rep := &recordingReporter{}
 	err := runPipelinesWithin(t, rep,
-		pipeline{"broadcast-pose", func(context.Context) error { return boom }},
-		pipeline{"puppet-sync", untilCancel(nil)},
+		Pipeline{"broadcast-pose", func(context.Context) error { return boom }},
+		Pipeline{"puppet-sync", untilCancel(nil)},
 	)
 	if !errors.Is(err, boom) || err.Error() != "broadcast-pose: dolphin not running" {
-		t.Fatalf("runPipelines = %v, want the broadcast-pose failure", err)
+		t.Fatalf("RunPipelines = %v, want the broadcast-pose failure", err)
 	}
 	if len(rep.lines) != 0 {
-		t.Errorf("runPipelines logged %q; the returned error is the caller's to log", rep.lines)
+		t.Errorf("RunPipelines logged %q; the returned error is the caller's to log", rep.lines)
 	}
 }
 
@@ -70,9 +82,9 @@ func TestRunPipelinesCleanShutdownIsNil(t *testing.T) {
 	done := make(chan error, 1)
 	rep := &recordingReporter{}
 	go func() {
-		done <- runPipelines(ctx, cancel, rep,
-			pipeline{"broadcast-pose", wait(nil)},
-			pipeline{"puppet-sync", wait(context.Canceled)},
+		done <- RunPipelines(ctx, cancel, rep,
+			Pipeline{"broadcast-pose", wait(nil)},
+			Pipeline{"puppet-sync", wait(context.Canceled)},
 		)
 	}()
 	<-started
@@ -81,10 +93,10 @@ func TestRunPipelinesCleanShutdownIsNil(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("runPipelines after a clean shutdown = %v, want nil", err)
+			t.Fatalf("RunPipelines after a clean shutdown = %v, want nil", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("runPipelines did not return after cancel")
+		t.Fatal("RunPipelines did not return after cancel")
 	}
 	if len(rep.lines) != 0 {
 		t.Errorf("clean shutdown logged %q, want nothing", rep.lines)
@@ -96,11 +108,11 @@ func TestRunPipelinesCleanShutdownIsNil(t *testing.T) {
 func TestRunPipelinesLogsLaterFailures(t *testing.T) {
 	rep := &recordingReporter{}
 	err := runPipelinesWithin(t, rep,
-		pipeline{"broadcast-pose", func(context.Context) error { return errors.New("first") }},
-		pipeline{"puppet-sync", untilCancel(errors.New("second"))},
+		Pipeline{"broadcast-pose", func(context.Context) error { return errors.New("first") }},
+		Pipeline{"puppet-sync", untilCancel(errors.New("second"))},
 	)
 	if err == nil || err.Error() != "broadcast-pose: first" {
-		t.Fatalf("runPipelines = %v, want the first failure", err)
+		t.Fatalf("RunPipelines = %v, want the first failure", err)
 	}
 	if got := rep.joined(); got != "puppet-sync: second" {
 		t.Errorf("logged %q, want the later failure %q", got, "puppet-sync: second")
@@ -113,11 +125,11 @@ func TestRunPipelinesLogsLaterFailures(t *testing.T) {
 func TestRunPipelinesEndsWhenOneReturnsNil(t *testing.T) {
 	rep := &recordingReporter{}
 	err := runPipelinesWithin(t, rep,
-		pipeline{"broadcast-pose", func(context.Context) error { return nil }},
-		pipeline{"puppet-sync", untilCancel(nil)},
+		Pipeline{"broadcast-pose", func(context.Context) error { return nil }},
+		Pipeline{"puppet-sync", untilCancel(nil)},
 	)
 	if err != nil {
-		t.Fatalf("runPipelines = %v, want nil", err)
+		t.Fatalf("RunPipelines = %v, want nil", err)
 	}
 	if strings.TrimSpace(rep.joined()) != "" {
 		t.Errorf("logged %q, want nothing", rep.lines)
@@ -126,24 +138,24 @@ func TestRunPipelinesEndsWhenOneReturnsNil(t *testing.T) {
 
 // TestRunPipelinesFatalReportedOnce: a fatal connect error (the host refused
 // us) hits both pipelines, and the shared ConnectLog has already printed it.
-// runPipelines returns it unprefixed and logs neither copy, and the callers'
-// logSessionErr skips it, so the reason appears exactly once.
+// RunPipelines returns it unprefixed and logs neither copy, and the callers'
+// LogSessionErr skips it, so the reason appears exactly once.
 func TestRunPipelinesFatalReportedOnce(t *testing.T) {
 	reject := &network.RejectError{Code: network.RejectServerFull, Reason: "host refused the connection: server full"}
 	rep := &recordingReporter{}
 	err := runPipelinesWithin(t, rep,
-		pipeline{"broadcast-pose", func(context.Context) error { return reject }},
-		pipeline{"puppet-sync", func(context.Context) error { return reject }},
+		Pipeline{"broadcast-pose", func(context.Context) error { return reject }},
+		Pipeline{"puppet-sync", func(context.Context) error { return reject }},
 	)
 	if err != error(reject) {
-		t.Fatalf("runPipelines = %v, want the reject unchanged", err)
+		t.Fatalf("RunPipelines = %v, want the reject unchanged", err)
 	}
-	logSessionErr(rep, err)
+	LogSessionErr(rep, err)
 	if len(rep.lines) != 0 {
 		t.Errorf("logged %q; a fatal error is the ConnectLog's to report", rep.lines)
 	}
-	logSessionErr(rep, errors.New("dolphin not running"))
+	LogSessionErr(rep, errors.New("dolphin not running"))
 	if len(rep.lines) != 1 {
-		t.Errorf("logSessionErr logged %q for an ordinary failure, want one line", rep.lines)
+		t.Errorf("LogSessionErr logged %q for an ordinary failure, want one line", rep.lines)
 	}
 }

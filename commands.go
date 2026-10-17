@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 )
@@ -386,7 +387,7 @@ func cmdServer(string, []string) {
 	if err != nil {
 		exitUsage(err, "server [--port N]")
 	}
-	runServer(port)
+	engine.RunServer(port)
 }
 
 func cmdBroadcastPose(string, []string) {
@@ -432,7 +433,7 @@ func cmdFakeClient(string, []string) {
 			cz = float32(v)
 		}
 	}
-	runFakeClient(name, addr, cx, cz)
+	engine.RunFakeClient(name, addr, cx, cz)
 }
 
 func cmdWarp(string, []string) {

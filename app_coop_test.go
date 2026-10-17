@@ -14,6 +14,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
@@ -85,8 +86,8 @@ func TestLobbyCoopNewWorld(t *testing.T) {
 	fb.nextPID = 200
 	da, db := fa.deps(), fb.deps()
 	da.coopSync, db.coopSync = fa.coopSync, fb.coopSync
-	ea := &sessionEngine{ls: &liveState{}, game: da, coopApp: host.deps(t, "host")}
-	eb := &sessionEngine{ls: &liveState{}, game: db, coopApp: join.deps(t, "joiner")}
+	ea := &sessionEngine{ls: &engine.LiveState{}, game: da, coopApp: host.deps(t, "host")}
+	eb := &sessionEngine{ls: &engine.LiveState{}, game: db, coopApp: join.deps(t, "joiner")}
 	join.hubSet = func() bool { cs := ea.coopSide(); return cs != nil && cs.hub != nil }
 	ca, cb := session.New(ea, session.Options{}), session.New(eb, session.Options{})
 
@@ -196,8 +197,8 @@ func TestLobbyCoopContinue(t *testing.T) {
 			fb.nextPID = 200
 			da, db := fa.deps(), fb.deps()
 			da.coopSync, db.coopSync = fa.coopSync, fb.coopSync
-			ea := &sessionEngine{ls: &liveState{}, game: da, coopApp: host.deps(t, "host")}
-			eb := &sessionEngine{ls: &liveState{}, game: db, coopApp: join.deps(t, "joiner")}
+			ea := &sessionEngine{ls: &engine.LiveState{}, game: da, coopApp: host.deps(t, "host")}
+			eb := &sessionEngine{ls: &engine.LiveState{}, game: db, coopApp: join.deps(t, "joiner")}
 			ca, cb := session.New(ea, session.Options{}), session.New(eb, session.Options{})
 			port := freePort(t)
 			if _, err := ca.HostLobby(context.Background(), session.HostOptions{Name: "Host", Port: port, ListenHost: "127.0.0.1", Launch: optsA}); err != nil {
@@ -331,7 +332,7 @@ func TestAppCoopHostLogsMatchCLI(t *testing.T) {
 	_, m2, tick2 := m2Game(t, false)
 	worlds2, backups2 := t.TempDir(), t.TempDir()
 	out := &gameOut{}
-	e := &sessionEngine{ls: &liveState{}}
+	e := &sessionEngine{ls: &engine.LiveState{}}
 	e.coopApp = &appCoopDeps{
 		env: func(string) coopEnv {
 			return coopEnv{worlds: worlds2, backups: backups2, userDirs: []string{ud}, tick: tick2}

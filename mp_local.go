@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
@@ -183,7 +184,7 @@ func ensureCheatsIni(rep log.Reporter, userDir string) {
 // run, and the startup shift moves B only when the two Links overlap.
 func runMpLocal(nameA, nameB string, co coopFlags) {
 	rep := log.Stdout{}
-	ctx, cancel := cliMultiplayerContext(rep)
+	ctx, cancel := engine.CLIMultiplayerContext(rep)
 	defer cancel()
 
 	// ListPIDs returns an error (not an empty slice) when no Dolphin

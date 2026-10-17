@@ -31,25 +31,6 @@ func TestSessionErr(t *testing.T) {
 	}
 }
 
-// TestLiveState_ChatSink: incoming chat goes to the sink sessionEngine set,
-// is dropped without one, and survives begin() (which runs after the engine
-// set it).
-func TestLiveState_ChatSink(t *testing.T) {
-	ls := &liveState{}
-	ls.pushChat("Zelda", "dropped") // no sink: no panic
-
-	var got []string
-	ls.setChat(func(from, text string) { got = append(got, from+": "+text) })
-	ls.begin("Join", "Link", nil)
-	ls.pushChat("Zelda", "hi")
-	ls.setChat(nil)
-	ls.pushChat("Zelda", "after")
-
-	if len(got) != 1 || got[0] != "Zelda: hi" {
-		t.Errorf("sink got %q, want only the line sent while set", got)
-	}
-}
-
 // TestSessionEngine_LiveIdle: with no session registered the engine reports
 // zero live values, as the old hook accessors did.
 func TestSessionEngine_LiveIdle(t *testing.T) {

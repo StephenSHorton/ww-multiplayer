@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
@@ -94,7 +95,7 @@ func TestCliSignalHelper(t *testing.T) {
 	if os.Getenv("WW_TEST_SIGNAL_HELPER") != "1" {
 		t.Skip("helper process for TestSecondCtrlCForceQuits")
 	}
-	ctx, cancel := cliMultiplayerContext(log.Stdout{})
+	ctx, cancel := engine.CLIMultiplayerContext(log.Stdout{})
 	defer cancel()
 	fmt.Println("READY")
 	<-ctx.Done()

@@ -16,6 +16,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
@@ -297,7 +298,7 @@ func TestRunCLISession(t *testing.T) {
 			oldCode := 0
 			(cliEngine{c.err}).lines(old)
 			if c.err != nil {
-				logSessionErr(old, c.err)
+				engine.LogSessionErr(old, c.err)
 				oldCode = 1
 			}
 			// After: the controller, logging to the same kind of reporter.

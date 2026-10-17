@@ -13,6 +13,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
@@ -622,9 +623,9 @@ func freePort(t *testing.T) int {
 func TestLobbyStartGoInGame(t *testing.T) {
 	fa, fb, fc := newFakeGame(), newFakeGame(), newFakeGame()
 	fb.nextPID, fc.nextPID = 200, 300
-	ea := &sessionEngine{ls: &liveState{}, game: fa.deps()}
-	eb := &sessionEngine{ls: &liveState{}, game: fb.deps()}
-	ec := &sessionEngine{ls: &liveState{}, game: fc.deps()}
+	ea := &sessionEngine{ls: &engine.LiveState{}, game: fa.deps()}
+	eb := &sessionEngine{ls: &engine.LiveState{}, game: fb.deps()}
+	ec := &sessionEngine{ls: &engine.LiveState{}, game: fc.deps()}
 	ca, cb, cc := session.New(ea, session.Options{}), session.New(eb, session.Options{}), session.New(ec, session.Options{})
 
 	port := freePort(t)

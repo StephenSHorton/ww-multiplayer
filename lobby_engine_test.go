@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
@@ -58,7 +59,7 @@ func TestSessionEngine_JoinLobby(t *testing.T) {
 		t.Fatal("host never joined its lobby")
 	}
 
-	e := &sessionEngine{ls: &liveState{}}
+	e := &sessionEngine{ls: &engine.LiveState{}}
 	c := session.New(e, session.Options{})
 	evs, unsub := c.Subscribe()
 	defer unsub()
@@ -205,20 +206,20 @@ func waitForCond(cond func() bool) bool {
 // when a lobby join falls back to a direct one) overrides --color for the
 // player connections it opens; without one, --color applies as before.
 func TestColorPrefFromSession(t *testing.T) {
-	saved := colorPref
-	t.Cleanup(func() { colorPref = saved })
+	saved := engine.ColorPref
+	t.Cleanup(func() { engine.ColorPref = saved })
 	flag := playercolor.Palette()[2].Color
-	colorPref = &flag
-	if got := colorPrefFor(context.Background()); got == nil || *got != flag {
+	engine.ColorPref = &flag
+	if got := engine.ColorPrefFor(context.Background()); got == nil || *got != flag {
 		t.Fatalf("no session color: %v, want --color %v", got, flag)
 	}
-	if got := colorPrefFor(withColorPref(context.Background(), nil)); got == nil || *got != flag {
+	if got := engine.ColorPrefFor(engine.WithColorPref(context.Background(), nil)); got == nil || *got != flag {
 		t.Fatalf("nil session color: %v, want --color %v", got, flag)
 	}
 	pink := playercolor.Palette()[6].Color
-	ctx := withColorPref(context.Background(), &pink)
+	ctx := engine.WithColorPref(context.Background(), &pink)
 	pink = flag // withColorPref keeps its own copy
-	if got := colorPrefFor(ctx); got == nil || *got != playercolor.Palette()[6].Color {
+	if got := engine.ColorPrefFor(ctx); got == nil || *got != playercolor.Palette()[6].Color {
 		t.Fatalf("session color: %v", got)
 	}
 }

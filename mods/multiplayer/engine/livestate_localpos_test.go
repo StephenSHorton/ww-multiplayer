@@ -1,4 +1,4 @@
-package main
+package engine
 
 import "testing"
 
@@ -6,14 +6,14 @@ import "testing"
 // setLocalPos publishes coords, localPos reads them back with ok=true, and a
 // fresh liveState reports ok=false before any tick has landed.
 func TestLiveState_LocalPos_RoundTrip(t *testing.T) {
-	ls := &liveState{}
+	ls := &LiveState{}
 
-	if _, _, _, ok := ls.localPos(); ok {
+	if _, _, _, ok := ls.LocalPos(); ok {
 		t.Fatal("localPos() on a fresh liveState should report ok=false")
 	}
 
-	ls.setLocalPos(1.5, 2.5, 3.5)
-	x, y, z, ok := ls.localPos()
+	ls.SetLocalPos(1.5, 2.5, 3.5)
+	x, y, z, ok := ls.LocalPos()
 	if !ok {
 		t.Fatal("localPos() after setLocalPos should report ok=true")
 	}
@@ -27,12 +27,12 @@ func TestLiveState_LocalPos_RoundTrip(t *testing.T) {
 // prior session, so a fresh dashboard doesn't briefly show the old player's
 // last coords as "self".
 func TestLiveState_LocalPos_ResetOnBegin(t *testing.T) {
-	ls := &liveState{}
-	ls.setLocalPos(10, 20, 30)
+	ls := &LiveState{}
+	ls.SetLocalPos(10, 20, 30)
 
-	ls.begin("Host", "Link", nil)
+	ls.Begin("Host", "Link", nil)
 
-	if _, _, _, ok := ls.localPos(); ok {
+	if _, _, _, ok := ls.LocalPos(); ok {
 		t.Error("localPos() should report ok=false immediately after begin() resets the session")
 	}
 }
@@ -42,7 +42,7 @@ func TestLiveState_LocalPos_ResetOnBegin(t *testing.T) {
 // ls=nil into runMultiplayerGoroutines get a genuinely nil onPos, not a
 // callback that panics on a nil receiver).
 func TestLiveStateLocalPosSetter_NilSafe(t *testing.T) {
-	if f := liveStateLocalPosSetter(nil); f != nil {
+	if f := LiveStateLocalPosSetter(nil); f != nil {
 		t.Error("liveStateLocalPosSetter(nil) should return a nil func")
 	}
 }
@@ -51,15 +51,15 @@ func TestLiveStateLocalPosSetter_NilSafe(t *testing.T) {
 // actually publishes into the given liveState -- the plumbing
 // feed.BroadcastPose's onPos callback depends on.
 func TestLiveStateLocalPosSetter_WiresIntoLiveState(t *testing.T) {
-	ls := &liveState{}
-	setter := liveStateLocalPosSetter(ls)
+	ls := &LiveState{}
+	setter := LiveStateLocalPosSetter(ls)
 	if setter == nil {
 		t.Fatal("liveStateLocalPosSetter(non-nil) should return a non-nil func")
 	}
 
 	setter(7, 8, 9)
 
-	x, y, z, ok := ls.localPos()
+	x, y, z, ok := ls.LocalPos()
 	if !ok || x != 7 || y != 8 || z != 9 {
 		t.Errorf("localPos() after setter callback = (%v,%v,%v,ok=%v), want (7,8,9,true)", x, y, z, ok)
 	}
