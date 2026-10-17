@@ -189,7 +189,7 @@ func (g *Game) Disc() *disc.Catalog       // stage and tables from the user's IS
 | `save.Image` (one 0x778 type), `save.Layout`, `save.View`, one item/slot table | exists: `wwapi/save` (`world.Image`/`wire.Image` are aliases until E4; `class` keys its merge rules by `save.Layout` offset; `View` was `derive/view.go`) |
 | Bit math: SwitchBit, TboxBit, EventByte, ZoneAddr, ... | exists: `wwapi/addr/bits.go` |
 | `stage.Load`, `tables.Get/Build/Identify` | exists: `wwapi/stage` (was `coop/stagedata`; it reads a `disc.FileSource`, `wwapi/disc`), `coop/tables` builders |
-| `savefile.Parse/ParseCard`, `backup.Locate/Create/Restore` | exists |
+| `savefile.Parse/ParseCard`, `backup.Locate/Create/Restore` | exists: `wwapi/savefile` (the I/O half; its merge and derive are `internal/coop/savemerge`) and `wwapi/backup` (were `coop/savefile`, `coop/backup`) |
 | `mailbox.ReadHeader`, `mailbox.BlobHash`, `mailbox.FrameCounter` | header is new (E1); hash and counter need no C |
 
 ### 5.3 Events
@@ -432,7 +432,7 @@ Order: C1 first; C4 before C8; C6 before C7; C8 before C14; C5 any time after C1
 - [x] **C4** `wwapi/disc` out of `internal/inject`; stagedata → `wwapi/stage`.
 - [ ] **C5** k1.go → `internal/coop/combat`; the rest of actors → `wwapi/actors`.
 - [x] **C6** `wwapi/save`: one `Image` (old names as aliases for one release), one item/slot table, `Layout`, `View`.
-- [ ] **C7** Split savefile (merge/derive → `savemerge`; I/O → `wwapi/savefile`); backup → `wwapi/backup`.
+- [x] **C7** Split savefile (merge/derive → `savemerge`; I/O → `wwapi/savefile`); backup → `wwapi/backup`.
 - [ ] **C8** Split tables (builders → `wwapi/tables`; sync accessors → `synctables`).
 - [ ] **C9** Generated mailbox: `tools/gen_mailbox.go` → `wwapi/mailbox/layout_gen.go`. No C change.
 - [ ] **C10** `wwapi/emu` (`Attach(Options)`, env read only in `cmd`); dolphinenv → `emu/launch`; report → `wwapi/log`.

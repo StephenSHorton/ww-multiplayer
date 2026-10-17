@@ -38,6 +38,11 @@
 // from Dolphin's source (Source/Core/Core/Config/MainSettings.cpp and
 // HW/EXI/EXI_Device.h) and confirmed on the owner's machine in M2's
 // acceptance.
+//
+// # v0 UNSTABLE
+//
+// This package is part of wwapi v0. Its API may change in any 0.x minor
+// version.
 package backup
 
 import (

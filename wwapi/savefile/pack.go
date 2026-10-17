@@ -1,8 +1,8 @@
 package savefile
 
 import (
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // member is one struct memory_to_card and card_to_memory copy, in the
@@ -44,8 +44,8 @@ type Packed [PackedSize]byte
 
 // Unpack returns p as the 0x778-byte image, as card_to_memory lays it
 // out in dSv_save_c; the padding the card does not hold reads 0.
-func Unpack(p *Packed) world.Image {
-	var img world.Image
+func Unpack(p *Packed) save.Image {
+	var img save.Image
 	n := 0
 	for _, m := range members {
 		n += copy(img[m.off:m.off+m.size], p[n:])
@@ -58,7 +58,7 @@ func Unpack(p *Packed) world.Image {
 // the card copy of life is not raised to 12 (d_save.cpp:1710-1712) and
 // mDateIPL is not stamped (d_save.cpp:1716-1717). Those are per-player
 // bytes, and an image unpacked from a card already had both done.
-func Pack(img *world.Image) Packed {
+func Pack(img *save.Image) Packed {
 	var p Packed
 	n := 0
 	for _, m := range members {

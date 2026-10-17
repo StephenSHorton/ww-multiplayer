@@ -4,8 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // State is how the file select screen shows a slot.
@@ -46,7 +46,7 @@ type Slot struct {
 	Sum, Want uint64
 	State     State
 	Packed    Packed
-	Image     world.Image // Unpack(&Packed)
+	Image     save.Image // Unpack(&Packed)
 }
 
 // Valid reports whether the slot's checksum holds
@@ -175,7 +175,7 @@ func (f *File) Photos(n int) [3]bool {
 //
 // It fails when f's entry would make Store wipe the copies first
 // (CheckStat), since the game would not have loaded the file either.
-func (f *File) WithSlot(n int, img *world.Image) (*File, error) {
+func (f *File) WithSlot(n int, img *save.Image) (*File, error) {
 	if n < 0 || n >= Slots {
 		return nil, fmt.Errorf("savefile: slot %d out of range 0..%d", n, Slots-1)
 	}

@@ -3,7 +3,8 @@
 // either exported as a GCI file (the file's 0x40-byte card directory
 // entry, then its 0x2000-byte blocks) or inside a raw card image. It is
 // what the offline save-diff and save-merge tools work on (§10 question 1,
-// §11 item 20); no live co-op path writes a card file (§5.1).
+// §11 item 20; the merge itself is internal/coop/savemerge); no live
+// co-op path writes a card file (§5.1).
 //
 // The file is 12 blocks, the 0x18000 bytes CARDCreate makes
 // (m_Do_MemCard.cpp:134):
@@ -21,14 +22,19 @@
 // card_savedata holds the three file slots, each a card_gamedata: the
 // packed dSv_save_c (dSv_save_c_PACKED, 0x768 bytes, d_save.h:922-932)
 // and its u64 checksum (m_Do_MemCardRWmng.h:29-33). Unpack and Pack map a
-// packed slot to and from the 0x778-byte image the class table indexes
-// (internal/coop/class), the way card_to_memory and memory_to_card copy it
+// packed slot to and from the 0x778-byte image, save.Image (wwapi/save),
+// the way card_to_memory and memory_to_card copy it
 // (d_save.cpp:1703-1878). The checksums are the game's own
 // (m_Do_MemCardRWmng.cpp:300-358).
 //
 // Citations follow wwapi/addr: file:line is the zeldaret/tww
 // decomp at 4d78c994 (card.h and CARD*.c are its Dolphin SDK), §N a
 // section of docs/08-coop-design.md.
+//
+// # v0 UNSTABLE
+//
+// This package is part of wwapi v0. Its API may change in any 0.x minor
+// version.
 package savefile
 
 import (

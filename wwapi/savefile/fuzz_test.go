@@ -4,10 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
-
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // fuzzSeeds are well-formed saves: a fresh GCI, one with a played slot,
@@ -20,9 +16,9 @@ func fuzzSeeds(f *testing.F) [][]byte {
 
 // checkDecoded is what both fuzz targets ask of b: Decode never panics,
 // and what it accepts survives the round trips the save tools make:
-// Encode then Parse gives the same file, two of its slots merge, and
-// writing a slot back gives a file that verifies and holds the slot's
-// image.
+// Encode then Parse gives the same file, and writing a slot back gives a
+// file that verifies and holds the slot's image. The merge of two slots
+// is savemerge's FuzzMerge.
 func checkDecoded(t *testing.T, b []byte) {
 	file, kind, err := Decode(b)
 	if err != nil {
@@ -40,36 +36,6 @@ func checkDecoded(t *testing.T, b []byte) {
 		if p := Pack(&s.Image); p != s.Packed {
 			t.Fatalf("slot %d: Pack(Unpack) changed the packed image", n)
 		}
-	}
-	// The merge of two slots, with the table-free derives, never fails
-	// and is idempotent.
-	opt := MergeOptions{Policy: world.FullPolicy(), Derive: Derive(nil, nil)}
-	m, err := Merge(&slots[0].Image, &slots[1].Image, opt)
-	if err != nil {
-		t.Fatalf("Merge: %v", err)
-	}
-	if again, err := Merge(&m.Image, &slots[1].Image, opt); err != nil || again.Image != m.Image {
-		t.Fatalf("Merge again: %v", err)
-	}
-	// With key and heart tables too: idempotent, small keys at the live
-	// derive's target wherever the merge moved a source or door, and max
-	// life never below a's.
-	kr := keyTable(true)
-	opt.Derive = Derive(kr, heartTable(true))
-	if m, err = Merge(&slots[0].Image, &slots[1].Image, opt); err != nil {
-		t.Fatalf("Merge with tables: %v", err)
-	}
-	if again, err := Merge(&m.Image, &slots[1].Image, opt); err != nil || again.Image != m.Image {
-		t.Fatalf("Merge with tables again: %v", err)
-	}
-	src, doors := keyCount(&m.Image, &kr.Tables[0])
-	src0, doors0 := keyCount(&slots[0].Image, &kr.Tables[0])
-	keys := m.Image[addr.OffMemBit(3)+addr.MemBitOffKeyNum]
-	if want := derive.KeyTarget(derive.KeyFacts{Taken: src, Open: doors}, 0); (src != src0 || doors != doors0) && int(keys) != want {
-		t.Fatalf("keys %d, the live derive's target %d", keys, want)
-	}
-	if be16(m.Image[addr.OffMaxLife:]) < be16(slots[0].Image[addr.OffMaxLife:]) {
-		t.Fatal("the merge lowered max life")
 	}
 	if file.Header.CheckStat() != nil {
 		return
