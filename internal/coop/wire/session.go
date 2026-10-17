@@ -6,8 +6,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // FileState is how a replica classified the loaded file's binding tag

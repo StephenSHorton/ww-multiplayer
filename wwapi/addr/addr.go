@@ -5,6 +5,11 @@
 // offsets it is built from, so a typo fails CI instead of landing a write
 // in the wrong byte of somebody's save.
 //
+// # v0 UNSTABLE
+//
+// This package is part of wwapi v0. Its API may change in any 0.x minor
+// version.
+//
 // Citations: file:line is the zeldaret/tww decomp at commit 4d78c994
 // (include/ and src/; the file names are unique, so directories are left
 // out). sym:N is line N of its config/GZLE01/symbols.txt. §N is a section
@@ -19,7 +24,7 @@
 package addr
 
 // MEM1 is the GameCube's 24 MiB main RAM at its cached mirror. Every
-// address in this package lies inside it, and internal/coop/mem refuses
+// address in this package lies inside it, and wwapi/mem refuses
 // any access that doesn't.
 const (
 	MEM1Base uint32 = 0x80000000

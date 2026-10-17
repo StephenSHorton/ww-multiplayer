@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // The scoped stores (§4.4 CoopHub, §6.3): puzzle and kill state that only

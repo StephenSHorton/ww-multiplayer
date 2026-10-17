@@ -26,7 +26,7 @@
 // (d_save.cpp:1703-1878). The checksums are the game's own
 // (m_Do_MemCardRWmng.cpp:300-358).
 //
-// Citations follow internal/coop/addr: file:line is the zeldaret/tww
+// Citations follow wwapi/addr: file:line is the zeldaret/tww
 // decomp at 4d78c994 (card.h and CARD*.c are its Dolphin SDK), §N a
 // section of docs/08-coop-design.md.
 package savefile

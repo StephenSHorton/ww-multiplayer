@@ -1,6 +1,6 @@
 package class
 
-import "github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+import "github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 
 // namedEventBits[i] is the OR of every named event bit in byte i of
 // dSv_event_c: the dSv_event_flag_c bit enum (d_save_event_flag.inc:6-494),

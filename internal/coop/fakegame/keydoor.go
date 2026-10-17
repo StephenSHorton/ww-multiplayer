@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // ErrNoKey is KeyDoor.Open on a door that shows its lock while the loaded

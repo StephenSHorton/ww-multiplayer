@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // A tag write happens in two steps, so the user always answers a prompt

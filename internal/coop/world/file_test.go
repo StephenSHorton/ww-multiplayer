@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // sampleWorld is a world with something in every section.

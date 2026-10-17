@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // unhex decodes a hex string, ignoring spaces and '|' separators.

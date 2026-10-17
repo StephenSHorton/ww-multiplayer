@@ -88,7 +88,7 @@ jobs:
         run: >-
           go test -count=1
           -run 'TestBlobFresh|TestStampRoundTrip|TestT2EndsBelowMailbox|TestCheckBudget|TestBuildPyMatchesBlob|TestFrameShimLoadsCallbackSlot|TestMailboxLayout|TestModRegions'
-          . ./internal/inject/... ./internal/coop/addr
+          . ./internal/inject/... ./wwapi/mailbox
 
       - name: go vet (Windows target)
         uses: ./.github/actions/go-vet

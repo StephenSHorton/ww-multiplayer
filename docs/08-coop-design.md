@@ -161,7 +161,7 @@ C side: unchanged until M7 (coop pump: getSave shim, isActor shim, coop_frame + 
 ### 4.2 Go side
 
 **Packages**, all testable on Linux:
-- `internal/coop/mem`: a `Mem` interface over `dolphin.ReadAbsolute`/`WriteAbsolute` (`internal/dolphin/memory.go:117-128`), a 24 MB `FakeMem`, and a `FakeGame`. FakeGame models:
+- `wwapi/mem` (was `internal/coop/mem`): a `Mem` interface over `dolphin.ReadAbsolute`/`WriteAbsolute` (`internal/dolphin/memory.go:117-128`), a 24 MB `FakeMem`, and a `FakeGame`. FakeGame models:
   - frames and the heartbeat;
   - `getSave`/`putSave` on table change;
   - `initDan`, `clearRoomSwitch`, zone create and remove;
@@ -170,7 +170,7 @@ C side: unchanged until M7 (coop pump: getSave shim, isActor shim, coop_frame + 
   - small-key doors that read their switch only at a room change of Link's (`fakegame.KeyDoor`, item 139);
   - `dComIfGs_init` leaving `mReserve` untouched;
   - `card_to_memory` and `ExDataSave`.
-- `internal/coop/addr`: every constant from Appendix A with its decomp citation, plus arithmetic tests (for example play = 0x803C4C08 + 0x12A0, and `mCurStage` = play + 0x3E94).
+- `wwapi/addr` (was `internal/coop/addr`): every constant from Appendix A with its decomp citation, plus arithmetic tests (for example play = 0x803C4C08 + 0x12A0, and `mCurStage` = play + 0x3E94). The mod's own RAM layout (T2, the mailbox and the regions around them) is in `wwapi/mailbox`.
 - `internal/coop/class`: the byte-class table, SyncMask, LocalOnly and hold lists, the register allowlist, and `policyVer`.
 - `internal/coop/snap`: the snapshot reader. Per tick it reads:
   - 0x803C4C08 + 0x12A0;

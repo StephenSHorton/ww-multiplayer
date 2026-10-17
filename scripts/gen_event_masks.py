@@ -711,7 +711,7 @@ def generate(tww, warn):
     w("")
     w("package class")
     w("")
-    w('import "github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"')
+    w('import "github.com/StephenSHorton/ww-multiplayer/wwapi/addr"')
     w("")
     w("// syncMask[i] is the story bits of event byte i that sync (§6.5): the")
     w("// named bits (d_save_event_flag.inc) minus localOnlyBits and refightBits")

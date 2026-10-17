@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // The WriteGuard's part of M6 (§7.2): the zones' dead-actor bytes

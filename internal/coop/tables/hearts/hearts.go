@@ -15,7 +15,7 @@
 //
 // Citations: file:line is the zeldaret/tww decomp at commit 4d78c994
 // (include/ and src/; the file names are unique, so directories are left
-// out), as in internal/coop/addr.
+// out), as in wwapi/addr.
 package hearts
 
 import (

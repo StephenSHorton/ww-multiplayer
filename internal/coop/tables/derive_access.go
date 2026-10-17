@@ -49,7 +49,7 @@ type Record struct {
 
 // mEvent's named ranges (dSv_event_c, d_save.h:716): the bits are in
 // bytes 0x00-0x41, the registers in 0x79-0xFF (d_save_event_flag.inc:
-// 6-494, :497-629), as internal/coop/addr's EventBitBytes and
+// 6-494, :497-629), as wwapi/addr's EventBitBytes and
 // EventRegFirst say.
 const (
 	eventBitBytes = 0x42

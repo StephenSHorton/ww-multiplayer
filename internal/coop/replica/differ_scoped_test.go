@@ -4,12 +4,12 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // shareVerdict is an M1 verdict for the sharing tests: DRC's dan switches

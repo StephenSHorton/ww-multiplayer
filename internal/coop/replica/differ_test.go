@@ -6,11 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // chest is chest no of table t as an image byte and mask.
@@ -371,7 +372,7 @@ func TestDifferRebaseline(t *testing.T) {
 			dr.store(addr.SaveImage+uint32(off), []byte{b[0] | m})
 		}, "not in game"},
 		{"a save state (the heartbeat goes back)", func(dr *differRig) {
-			dr.store(addr.SpawnTrigger, []byte{0, 0, 0, 1})
+			dr.store(mailbox.SpawnTrigger, []byte{0, 0, 0, 1})
 			dr.set(off, m)
 		}, "heartbeat went backwards"},
 	}

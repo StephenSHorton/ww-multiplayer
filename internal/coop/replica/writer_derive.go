@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // The derive path (§6.4, §6.6, M4): what a receiver derives from its own

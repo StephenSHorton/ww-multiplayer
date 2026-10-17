@@ -3,7 +3,7 @@ package class
 import (
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // buildSpans writes out the class of every image byte, member by member

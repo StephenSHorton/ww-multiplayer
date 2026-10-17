@@ -9,11 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 func TestParseCoopCommand(t *testing.T) {
@@ -265,9 +266,9 @@ func TestCoopPartnerPos(t *testing.T) {
 // The escapes' bytes are the ones package main's own tools write: the
 // mailbox's warp fields (warpLink) and stage-hop's mNextStage request.
 func TestCoopEscapesMatchMain(t *testing.T) {
-	if addr.WarpSeq != mailboxBase+mailboxWarpSeq || replica.WarpAck != mailboxBase+mailboxWarpAck ||
+	if mailbox.WarpSeq != mailboxBase+mailboxWarpSeq || replica.WarpAck != mailboxBase+mailboxWarpAck ||
 		replica.WarpPos != mailboxBase+mailboxWarpX || mailboxWarpY != mailboxWarpX+4 || mailboxWarpZ != mailboxWarpX+8 {
-		t.Errorf("the replica's warp fields (seq 0x%08X, ack 0x%08X, x/y/z 0x%08X) are not the mailbox's", addr.WarpSeq, replica.WarpAck, replica.WarpPos)
+		t.Errorf("the replica's warp fields (seq 0x%08X, ack 0x%08X, x/y/z 0x%08X) are not the mailbox's", mailbox.WarpSeq, replica.WarpAck, replica.WarpPos)
 	}
 	if replica.MaxStageLayer != stageHopLayerMax {
 		t.Errorf("layer bound %d, stage-hop's %d", replica.MaxStageLayer, stageHopLayerMax)

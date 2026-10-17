@@ -6,10 +6,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 var (
@@ -337,7 +338,7 @@ func TestReadErrors(t *testing.T) {
 	m := mem.NewFakeMem()
 	fakegame.New(m)
 	for _, a := range []uint32{SaveRegion.Start, StageRegion.Start, PlayerRegion.Start, addr.StayNo,
-		addr.RoomStatus + 5*addr.RoomStatusStride + addr.RoomStatusOffZoneNo, addr.MenuPause, addr.SpawnTrigger,
+		addr.RoomStatus + 5*addr.RoomStatusStride + addr.RoomStatusOffZoneNo, addr.MenuPause, mailbox.SpawnTrigger,
 		addr.GbaCom + addr.GbaComOffContext} {
 		s, err := Read(&countingMem{Mem: m, failAt: a})
 		if !errors.Is(err, errInjected) || s != nil {

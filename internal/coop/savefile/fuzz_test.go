@@ -5,9 +5,9 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // fuzzSeeds are well-formed saves: a fresh GCI, one with a played slot,

@@ -1,11 +1,16 @@
-// Package mem is a bounds-checked door to emulated memory: a small Mem
-// interface over absolute GameCube addresses, an adapter for a live
+// Package mem is a bounds-checked door to emulated memory: small Reader
+// and Mem interfaces over absolute GameCube addresses, an adapter for a live
 // Dolphin, and FakeMem, an in-memory MEM1 for tests. Nothing in it is
 // co-op specific: the co-op packages use it, and so do package main's
 // warp (warp_link.go) and mp-local shift (mp_local_shift.go). Every implementation
 // confines access to MEM1, so a bad pointer read out of the game (or a bad
 // offset in Go) becomes an error instead of a read or write somewhere else
 // in Dolphin's process.
+//
+// # v0 UNSTABLE
+//
+// This package is part of wwapi v0. Its API may change in any 0.x minor
+// version.
 package mem
 
 import (
@@ -14,15 +19,21 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
-// Mem reads and writes emulated MEM1 at absolute addresses (0x80000000
-// based, as the game's own pointers are). Read returns exactly n bytes or
-// an error. Both refuse a range that isn't inside MEM1 with an error
-// matching ErrOutOfRange, and a non-positive length.
-type Mem interface {
+// Reader reads emulated MEM1 at absolute addresses (0x80000000 based, as
+// the game's own pointers are). Read returns exactly n bytes or an error.
+// It refuses a range that isn't inside MEM1 with an error matching
+// ErrOutOfRange, and a non-positive length.
+type Reader interface {
 	Read(addr uint32, n int) ([]byte, error)
+}
+
+// Mem is a Reader that also writes. Write refuses the same ranges Read
+// does.
+type Mem interface {
+	Reader
 	Write(addr uint32, b []byte) error
 }
 
@@ -52,7 +63,7 @@ func CheckRange(a uint32, n int) error {
 }
 
 // ReadU8 reads one byte.
-func ReadU8(m Mem, a uint32) (uint8, error) {
+func ReadU8(m Reader, a uint32) (uint8, error) {
 	b, err := m.Read(a, 1)
 	if err != nil {
 		return 0, err
@@ -61,7 +72,7 @@ func ReadU8(m Mem, a uint32) (uint8, error) {
 }
 
 // ReadU16 reads a big-endian u16.
-func ReadU16(m Mem, a uint32) (uint16, error) {
+func ReadU16(m Reader, a uint32) (uint16, error) {
 	b, err := m.Read(a, 2)
 	if err != nil {
 		return 0, err
@@ -70,7 +81,7 @@ func ReadU16(m Mem, a uint32) (uint16, error) {
 }
 
 // ReadU32 reads a big-endian u32.
-func ReadU32(m Mem, a uint32) (uint32, error) {
+func ReadU32(m Reader, a uint32) (uint32, error) {
 	b, err := m.Read(a, 4)
 	if err != nil {
 		return 0, err
@@ -80,7 +91,7 @@ func ReadU32(m Mem, a uint32) (uint32, error) {
 
 // ReadString reads the NUL-terminated string in the n bytes at a, such as
 // a stage name (char[8]). Without a NUL it returns all n bytes.
-func ReadString(m Mem, a uint32, n int) (string, error) {
+func ReadString(m Reader, a uint32, n int) (string, error) {
 	b, err := m.Read(a, n)
 	if err != nil {
 		return "", err

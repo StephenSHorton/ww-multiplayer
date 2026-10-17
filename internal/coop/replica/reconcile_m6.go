@@ -7,11 +7,11 @@ import (
 	"slices"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/enemies"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // The M6 receiver (§7.2, M6.0): a partner's recorded deaths of keyed

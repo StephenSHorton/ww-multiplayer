@@ -14,18 +14,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // The co-op integration tests run the session plumbing of host, join and

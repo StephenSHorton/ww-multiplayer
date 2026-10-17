@@ -5,9 +5,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // enemyRoom is the room the M6 tests place their enemies in.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // TestIsSwitch: isSwitch reads the store onSwitch writes, for each range,

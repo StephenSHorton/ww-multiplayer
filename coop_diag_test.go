@@ -14,13 +14,14 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 var (
@@ -275,7 +276,7 @@ type diagBeat struct {
 }
 
 func (b *diagBeat) Read(a uint32, n int) ([]byte, error) {
-	if a == addr.SpawnTrigger && b.last == addr.SpawnTrigger {
+	if a == mailbox.SpawnTrigger && b.last == mailbox.SpawnTrigger {
 		if err := b.g.FrameWith(b.es); err != nil {
 			return nil, err
 		}
@@ -643,7 +644,7 @@ func TestWalkHeap(t *testing.T) {
 
 	var out bytes.Buffer
 	m := setup()
-	store(t, m, addr.JKRHeapCodeEnd, u32b(addr.PatchedArenaLo+0x20))
+	store(t, m, addr.JKRHeapCodeEnd, u32b(mailbox.PatchedArenaLo+0x20))
 	store(t, m, addr.ZeldaHeapErrors, u32b(2))
 	if err := heapFree(&out, m); err != nil {
 		t.Fatal(err)
@@ -693,9 +694,9 @@ func TestCompareBlob(t *testing.T) {
 // TestCanaryRegions pins the canary ranges to §4.5 and checks the guard
 // refuses anything touching the main stack, T2, the mailbox or the arena.
 func TestCanaryRegions(t *testing.T) {
-	if addr.CanaryTRK.Start != 0x8040CFB0 || addr.CanaryTRK.End != 0x80410000 ||
-		addr.CanaryArena.Start != 0x804130A0 || addr.CanaryArena.End != 0x80414000 {
-		t.Fatalf("canary ranges moved: %+v %+v", addr.CanaryTRK, addr.CanaryArena)
+	if mailbox.CanaryTRK.Start != 0x8040CFB0 || mailbox.CanaryTRK.End != 0x80410000 ||
+		mailbox.CanaryArena.Start != 0x804130A0 || mailbox.CanaryArena.End != 0x80414000 {
+		t.Fatalf("canary ranges moved: %+v %+v", mailbox.CanaryTRK, mailbox.CanaryArena)
 	}
 	for _, r := range canaryRegions {
 		if err := canarySafe(r); err != nil {
@@ -705,7 +706,7 @@ func TestCanaryRegions(t *testing.T) {
 	for _, r := range []addr.Region{
 		{Name: "into T2", Start: 0x8040FF00, End: 0x80410004},
 		{Name: "slack after T2", Start: 0x80412E00, End: 0x80412E10},
-		{Name: "mailbox", Start: addr.Mailbox, End: addr.Mailbox + 4},
+		{Name: "mailbox", Start: mailbox.Mailbox, End: mailbox.Mailbox + 4},
 		{Name: "mailbox tail", Start: 0x8041309C, End: 0x80413100},
 		{Name: "main stack", Start: 0x8040CFA4, End: 0x8040D000},
 		{Name: "stack header", Start: 0x8040CFA8, End: 0x8040D000},
@@ -741,7 +742,7 @@ func TestArmAndCheckCanaries(t *testing.T) {
 		}
 		covered += len(w.Data)
 	}
-	if want := int(addr.CanaryTRK.Size() + addr.CanaryArena.Size()); covered != want {
+	if want := int(mailbox.CanaryTRK.Size() + mailbox.CanaryArena.Size()); covered != want {
 		t.Errorf("wrote 0x%X bytes, want 0x%X", covered, want)
 	}
 	for _, r := range canaryRegions {
@@ -752,7 +753,7 @@ func TestArmAndCheckCanaries(t *testing.T) {
 	}
 
 	// OSClearStack-style zeroing and one stray store.
-	r := addr.CanaryTRK
+	r := mailbox.CanaryTRK
 	store(t, m, r.Start+0x100, make([]byte, 12))
 	store(t, m, r.Start+0x400, u32b(0x80001234))
 	c, _ := checkCanary(m, r)
@@ -782,7 +783,7 @@ func TestArmAndCheckCanaries(t *testing.T) {
 	if err := armCanary(m, r, true); err != nil {
 		t.Errorf("--force: %v", err)
 	}
-	if err := armCanary(m, addr.CanaryArena, false); err != nil {
+	if err := armCanary(m, mailbox.CanaryArena, false); err != nil {
 		t.Errorf("re-arm over canaries: %v", err)
 	}
 
@@ -799,7 +800,7 @@ func TestArmAndCheckCanaries(t *testing.T) {
 // leave it alone.
 func TestCanaryBesideBootLR(t *testing.T) {
 	m := mem.NewFakeMem()
-	store(t, m, addr.BootLRSlot, u32b(addr.BootLR))
+	store(t, m, mailbox.BootLRSlot, u32b(mailbox.BootLR))
 	m.Record(true)
 	for _, r := range canaryRegions {
 		if err := armCanary(m, r, false); err != nil {
@@ -807,11 +808,11 @@ func TestCanaryBesideBootLR(t *testing.T) {
 		}
 	}
 	for _, w := range m.Writes() {
-		if w.Addr < addr.MainStackHeader.End && addr.MainStackHeader.Start < w.Addr+uint32(len(w.Data)) {
+		if w.Addr < mailbox.MainStackHeader.End && mailbox.MainStackHeader.Start < w.Addr+uint32(len(w.Data)) {
 			t.Errorf("write 0x%08X+0x%X touches the stack header", w.Addr, len(w.Data))
 		}
 	}
-	if v, err := mem.ReadU32(m, addr.BootLRSlot); err != nil || v != addr.BootLR {
+	if v, err := mem.ReadU32(m, mailbox.BootLRSlot); err != nil || v != mailbox.BootLR {
 		t.Errorf("boot LR now 0x%08X %v", v, err)
 	}
 	var out bytes.Buffer
@@ -832,7 +833,7 @@ func TestCanaryPreflight(t *testing.T) {
 	if err := canaryPreflight(m, tick); err == nil {
 		t.Error("armed with the vanilla arena")
 	}
-	store(t, m, addr.JKRHeapCodeEnd, u32b(addr.PatchedArenaLo+0x20))
+	store(t, m, addr.JKRHeapCodeEnd, u32b(mailbox.PatchedArenaLo+0x20))
 	if err := canaryPreflight(m, func() {}); err == nil || !strings.Contains(err.Error(), "heartbeat") {
 		t.Errorf("paused: %v", err)
 	}

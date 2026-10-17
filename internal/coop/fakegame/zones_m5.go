@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // The room puzzles M5's receiver writes into (§6.3, §9 M5): the switch

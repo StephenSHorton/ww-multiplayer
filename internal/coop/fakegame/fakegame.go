@@ -7,7 +7,7 @@
 //
 // It models exactly the behaviours §3.1, §4.2 and §5.2 depend on, each
 // citing the decomp function it copies (zeldaret/tww at 4d78c994, cited as
-// in internal/coop/addr):
+// in wwapi/addr):
 //
 //   - stage load: getSave copies mMemory[t] into the live memBit, then
 //     initDan resets the dan switches when the table changes;
@@ -19,7 +19,7 @@
 //   - New Game (dComIfGs_init), which leaves mReserve alone, the save
 //     menu, card_to_memory and the second-quest ExDataSave (save.go);
 //   - the mod's heartbeat, spawn_trigger++ once per frame;
-//   - the LR word boot leaves above the main stack top (addr.BootLRSlot),
+//   - the LR word boot leaves above the main stack top (mailbox.BootLRSlot),
 //     beside the region-probe canaries;
 //   - the game's own onSwitch, offSwitch, onEventBit and onActor writers,
 //     which refuse what the game would JUT_ASSERT on.
@@ -41,8 +41,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // Addresses the fake invents. On the console the game allocates these on
@@ -59,7 +60,7 @@ const (
 
 // oldStayNo is dStage_roomControl_c::mOldStayNo, the room before mStayNo
 // (sym:18668; setStayNo, d_stage.cpp:171-180). Only zoneCountCheck reads
-// it, so it lives here rather than in internal/coop/addr.
+// it, so it lives here rather than in wwapi/addr.
 const oldStayNo uint32 = 0x803F6A79
 
 // ErrAssert is matched (errors.Is) by every call the real game would halt
@@ -120,13 +121,13 @@ type FakeGame struct {
 }
 
 // New returns the game at boot: __init_hardware's return left at
-// 4(_stack_addr) (addr.MainStackHeader), the save as dSv_info_c::init
+// 4(_stack_addr) (mailbox.MainStackHeader), the save as dSv_info_c::init
 // leaves it (d_save.cpp:1389-1398), no stage loaded, and every room's zone
 // number -1 as dStage_roomControl_c::init sets it (d_stage.cpp:120-150).
 // The card is blank. m should be fresh, so the heartbeat starts at 0.
 func New(m *mem.FakeMem) *FakeGame {
 	g := &FakeGame{m: m, stags: make(map[string]Stage)}
-	g.st32(addr.BootLRSlot, addr.BootLR)
+	g.st32(mailbox.BootLRSlot, mailbox.BootLR)
 	g.infoInit()
 	g.roomControlInit(0)
 	return g
@@ -160,7 +161,7 @@ func (g *FakeGame) frame() {
 	if g.playing {
 		g.hud()
 	}
-	g.st32(addr.SpawnTrigger, g.ld32(addr.SpawnTrigger)+1)
+	g.st32(mailbox.SpawnTrigger, g.ld32(mailbox.SpawnTrigger)+1)
 	g.frames++
 }
 

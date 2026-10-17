@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // Actor is one actor as a walk read it: the fopAc_ac_c fields

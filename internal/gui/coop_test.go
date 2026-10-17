@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/savefile"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // coopEngine is a fakeEngine with the co-op side: the console records

@@ -22,13 +22,13 @@
 //
 // Image offsets are addr.Off* offsets into dSv_save_c; an event byte i is
 // image offset addr.OffEvent+i. Decomp citations are zeldaret/tww at
-// 4d78c994, as in internal/coop/addr.
+// 4d78c994, as in wwapi/addr.
 package story
 
 import (
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Policy returns base (nil: world.DefaultPolicy) with its event bit bytes

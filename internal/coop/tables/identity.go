@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"hash/fnv"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/switches"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // identityDomain starts what Identity hashes, so the hash can't be taken

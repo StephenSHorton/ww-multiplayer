@@ -6,7 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 func TestBeginOnSwitchLosesAToolByteInItsWord(t *testing.T) {
@@ -55,7 +56,7 @@ func TestRunBeatsUntilCancelled(t *testing.T) {
 		close(done)
 	}()
 	deadline := time.Now().Add(5 * time.Second)
-	for u32(t, m, addr.SpawnTrigger) < 5 {
+	for u32(t, m, mailbox.SpawnTrigger) < 5 {
 		if time.Now().After(deadline) {
 			t.Fatal("the heartbeat did not move")
 		}
@@ -65,7 +66,7 @@ func TestRunBeatsUntilCancelled(t *testing.T) {
 	<-done
 	n := g.FrameCount()
 	time.Sleep(5 * time.Millisecond)
-	if g.FrameCount() != n || uint64(u32(t, m, addr.SpawnTrigger)) != n {
+	if g.FrameCount() != n || uint64(u32(t, m, mailbox.SpawnTrigger)) != n {
 		t.Fatalf("frames ran after Run returned: %d, then %d", n, g.FrameCount())
 	}
 }

@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Class is how a writer treats the switch it writes.

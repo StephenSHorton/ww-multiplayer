@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Max magic (§3), from two sources:

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 var (

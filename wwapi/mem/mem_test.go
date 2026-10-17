@@ -6,7 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 func TestCheckRange(t *testing.T) {
@@ -189,16 +190,16 @@ func TestFakeMemRecording(t *testing.T) {
 
 func TestHelpersBigEndian(t *testing.T) {
 	f := NewFakeMem()
-	if err := WriteU32(f, addr.SpawnTrigger, 0x11223344); err != nil {
+	if err := WriteU32(f, mailbox.SpawnTrigger, 0x11223344); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := f.Read(addr.SpawnTrigger, 4); !bytes.Equal(b, []byte{0x11, 0x22, 0x33, 0x44}) {
+	if b, _ := f.Read(mailbox.SpawnTrigger, 4); !bytes.Equal(b, []byte{0x11, 0x22, 0x33, 0x44}) {
 		t.Fatalf("WriteU32 stored %x", b)
 	}
-	if v, err := ReadU32(f, addr.SpawnTrigger); err != nil || v != 0x11223344 {
+	if v, err := ReadU32(f, mailbox.SpawnTrigger); err != nil || v != 0x11223344 {
 		t.Fatalf("ReadU32 = %#x, %v", v, err)
 	}
-	if v, err := ReadU16(f, addr.SpawnTrigger+2); err != nil || v != 0x3344 {
+	if v, err := ReadU16(f, mailbox.SpawnTrigger+2); err != nil || v != 0x3344 {
 		t.Fatalf("ReadU16 = %#x, %v", v, err)
 	}
 	if err := WriteU16(f, addr.MaxLife, 0x000C); err != nil {
@@ -275,5 +276,63 @@ func TestFakeMemConcurrent(t *testing.T) {
 	wg.Wait()
 	if n := len(f.Writes()); n != 4*200 {
 		t.Errorf("recorded %d writes, want %d", n, 4*200)
+	}
+}
+
+// readOnly hides FakeMem's Write: the read helpers need only a Reader.
+type readOnly struct{ r Reader }
+
+func (o readOnly) Read(a uint32, n int) ([]byte, error) { return o.r.Read(a, n) }
+
+func TestSignedAndFloatHelpers(t *testing.T) {
+	f := NewFakeMem()
+	base := addr.MEM1Base + 0x100
+	if err := WriteS8(f, base, -2); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteS16(f, base+2, -0x1234); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteF32(f, base+4, -1.5); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := f.Read(base, 8); !bytes.Equal(b, []byte{0xFE, 0, 0xED, 0xCC, 0xBF, 0xC0, 0, 0}) {
+		t.Fatalf("bytes % X", b)
+	}
+	r := readOnly{f}
+	if v, err := ReadS8(r, base); err != nil || v != -2 {
+		t.Errorf("ReadS8 = %d, %v", v, err)
+	}
+	if v, err := ReadS16(r, base+2); err != nil || v != -0x1234 {
+		t.Errorf("ReadS16 = %d, %v", v, err)
+	}
+	if v, err := ReadF32(r, base+4); err != nil || v != -1.5 {
+		t.Errorf("ReadF32 = %v, %v", v, err)
+	}
+	if _, err := ReadF32(r, addr.MEM1End-2); !errors.Is(err, ErrOutOfRange) {
+		t.Errorf("ReadF32 past MEM1: %v", err)
+	}
+	if err := WriteF32(f, addr.MEM1End-2, 1); !errors.Is(err, ErrOutOfRange) {
+		t.Errorf("WriteF32 past MEM1: %v", err)
+	}
+}
+
+func TestSliceHelpers(t *testing.T) {
+	b := make([]byte, 4)
+	PutU16BE(b, 0xABCD)
+	if U16BE(b) != 0xABCD || b[0] != 0xAB {
+		t.Errorf("U16BE % X", b)
+	}
+	PutU32BE(b, 0x11223344)
+	if U32BE(b) != 0x11223344 || b[0] != 0x11 {
+		t.Errorf("U32BE % X", b)
+	}
+	PutS16BE(b, -1)
+	if S16BE(b) != -1 || b[0] != 0xFF || b[1] != 0xFF {
+		t.Errorf("S16BE % X", b)
+	}
+	PutF32BE(b, 1)
+	if F32BE(b) != 1 || !bytes.Equal(b, []byte{0x3F, 0x80, 0, 0}) {
+		t.Errorf("F32BE % X", b)
 	}
 }

@@ -7,13 +7,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // newDeriveRig is a writer rig with M4's targets, in Dragon Roost Cavern
@@ -233,7 +234,7 @@ func TestApplyDerivedRefusesBeforeTheWait(t *testing.T) {
 	// Nothing but refusals: no beat is waited for.
 	polls := 0
 	r.hm.hooks(func(a uint32, _ int) {
-		if a == addr.SpawnTrigger {
+		if a == mailbox.SpawnTrigger {
 			polls++
 		}
 	}, nil)
@@ -340,7 +341,7 @@ func TestDrainWatchCountsTheHUDsFrames(t *testing.T) {
 			}
 			beat := func(n int) {
 				for range n {
-					r.store32(addr.SpawnTrigger, binary.BigEndian.Uint32(r.bytesAt(addr.SpawnTrigger, 4))+1)
+					r.store32(mailbox.SpawnTrigger, binary.BigEndian.Uint32(r.bytesAt(mailbox.SpawnTrigger, 4))+1)
 				}
 				r.observe()
 			}

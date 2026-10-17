@@ -3,7 +3,7 @@ package class
 import (
 	"slices"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Story bits (§6.5). The story sync carries the named event bits of

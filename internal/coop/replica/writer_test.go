@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // The stages the writer tests load (the names are only labels).
@@ -62,7 +63,7 @@ type hookMem struct {
 func (h *hookMem) Read(a uint32, n int) ([]byte, error) {
 	h.mu.Lock()
 	var beat func()
-	if a == addr.SpawnTrigger && h.beat != nil {
+	if a == mailbox.SpawnTrigger && h.beat != nil {
 		if h.polls++; h.polls == h.beatAt {
 			beat = h.beat
 		}
@@ -542,7 +543,7 @@ func TestFrameWriterAborts(t *testing.T) {
 		}, nil},
 		{"a save state was loaded during the wait", nil, func(r *wrig) func() {
 			return func() {
-				if err := r.m.Store(addr.SpawnTrigger, []byte{0, 0, 0, 1}); err != nil {
+				if err := r.m.Store(mailbox.SpawnTrigger, []byte{0, 0, 0, 1}); err != nil {
 					t.Error(err)
 				}
 			}
@@ -651,7 +652,7 @@ func TestFrameWriterAutoDisablesOnVerifyFailures(t *testing.T) {
 func TestFrameWriterAutoDisablesOnSaveStateStorm(t *testing.T) {
 	r := newWriterRig(t, GuardConfig{})
 	for i := range MaxRegressionsPerMinute + 1 {
-		if err := r.m.Store(addr.SpawnTrigger, []byte{0, 0, 0, byte(i)}); err != nil {
+		if err := r.m.Store(mailbox.SpawnTrigger, []byte{0, 0, 0, byte(i)}); err != nil {
 			t.Fatal(err)
 		}
 		r.observe()
@@ -939,7 +940,7 @@ func TestFrameWriterCatchesASaveStateOfAnotherFile(t *testing.T) {
 			drc := addr.OffMemBit(addr.TableDRC) + addr.MemBitOffTbox
 			ws := []Write{plannedOR(chest, 0x08, addr.TableSea), plannedOR(drc, 0x01, addr.TableSea)}
 			r.tick()
-			hb, err := mem.ReadU32(r.m, addr.SpawnTrigger)
+			hb, err := mem.ReadU32(r.m, mailbox.SpawnTrigger)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -947,7 +948,7 @@ func TestFrameWriterCatchesASaveStateOfAnotherFile(t *testing.T) {
 			r.hm.beatOn(c.at, func() {
 				loadState(t, r.m, solo)
 				if c.near >= 0 {
-					r.store32(addr.SpawnTrigger, hb+uint32(c.near))
+					r.store32(mailbox.SpawnTrigger, hb+uint32(c.near))
 				}
 				if c.at == before {
 					r.hm.beatOn(1, r.g.Frame) // the loaded game beats on the poll
@@ -997,12 +998,12 @@ func TestFrameWriterVerifySkipsAStageChange(t *testing.T) {
 		}},
 		{"another file in the same stage", func(r *wrig) {
 			solo := soloState(t, 0)
-			hb, err := mem.ReadU32(r.m, addr.SpawnTrigger)
+			hb, err := mem.ReadU32(r.m, mailbox.SpawnTrigger)
 			if err != nil {
 				t.Fatal(err)
 			}
 			loadState(t, r.m, solo)
-			r.store32(addr.SpawnTrigger, hb) // no regression to excuse it
+			r.store32(mailbox.SpawnTrigger, hb) // no regression to excuse it
 		}},
 	}
 	for _, c := range cases {

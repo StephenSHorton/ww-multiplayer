@@ -11,14 +11,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // beatMem is the Mem a reconciling replica runs over in these tests. The
@@ -187,14 +188,14 @@ type auditWrite struct {
 
 func (b *beatMem) Read(a uint32, n int) ([]byte, error) {
 	b.mu.Lock()
-	again := a == addr.SpawnTrigger && b.last == addr.SpawnTrigger
+	again := a == mailbox.SpawnTrigger && b.last == mailbox.SpawnTrigger
 	beat := again && !b.stall
 	if again && b.stall {
 		b.polls++
 	}
 	b.last = a
 	var hook func(int)
-	if a == addr.SpawnTrigger && b.hook != nil {
+	if a == mailbox.SpawnTrigger && b.hook != nil {
 		b.hbn++
 		hook = b.hook
 	}
@@ -803,7 +804,7 @@ func TestReconcileSwitchWaitsForRoomChange(t *testing.T) {
 
 	// A save state: its game never had what came after it, so the world's
 	// switch is applied again, at the next room change.
-	rr.store(addr.SpawnTrigger, []byte{0, 0, 0, 1})
+	rr.store(mailbox.SpawnTrigger, []byte{0, 0, 0, 1})
 	rr.ticks(gate.StableTicks + 3)
 	if rr.liveByte(seaSw)&m != 0 {
 		t.Fatal("written after the save state, before a room change")
@@ -1684,11 +1685,11 @@ func TestReconcileSaveStateOfAnotherFile(t *testing.T) {
 			rr.bm.onHeartbeat(func(n int) {
 				switch n {
 				case 1:
-					hb, _ = mem.ReadU32(rr.m, addr.SpawnTrigger)
+					hb, _ = mem.ReadU32(rr.m, mailbox.SpawnTrigger)
 				case c.at:
 					loadState(t, rr.m, solo)
 					if c.near {
-						if err := rr.m.Store(addr.SpawnTrigger, binary.BigEndian.AppendUint32(nil, hb)); err != nil {
+						if err := rr.m.Store(mailbox.SpawnTrigger, binary.BigEndian.AppendUint32(nil, hb)); err != nil {
 							t.Error(err)
 						}
 					}

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // ErrChanged is matched (errors.Is) by every Revalidate refusal: the actor

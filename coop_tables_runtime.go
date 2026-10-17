@@ -38,12 +38,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // coopTablesCacheDir is the directory of the tables' cache and of the

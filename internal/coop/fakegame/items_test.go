@@ -3,8 +3,8 @@ package fakegame
 import (
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // TestItemGets: each item get sets its flag and hands its item over the

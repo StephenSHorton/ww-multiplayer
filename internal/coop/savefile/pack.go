@@ -1,8 +1,8 @@
 package savefile
 
 import (
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // member is one struct memory_to_card and card_to_memory copy, in the

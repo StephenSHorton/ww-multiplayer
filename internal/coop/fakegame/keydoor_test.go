@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // TestKeyDoor: a key door reads its switch only in actionInit, which runs

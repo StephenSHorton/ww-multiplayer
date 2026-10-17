@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // TestStatus: Status lists every key table, derived or not, with the

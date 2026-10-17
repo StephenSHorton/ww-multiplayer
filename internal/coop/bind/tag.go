@@ -23,7 +23,7 @@
 // gates are open, only after the user confirmed the prompt the plan
 // carries, and both verify by reading back.
 //
-// Citations follow internal/coop/addr: file:line is the zeldaret/tww
+// Citations follow wwapi/addr: file:line is the zeldaret/tww
 // decomp at 4d78c994, §N a section of docs/08-coop-design.md.
 package bind
 
@@ -37,7 +37,7 @@ import (
 	"hash/crc32"
 	"hash/fnv"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // The tag's layout (§5.2), as offsets into mReserve. The rest of the

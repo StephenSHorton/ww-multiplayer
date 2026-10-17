@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/enemies"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // The enemies M6's kill sync acts on (§7.2): the actor queue the tool

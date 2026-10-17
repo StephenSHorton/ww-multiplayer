@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/enemies"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // The K1 light-shrink (§7.2): one byte, 1, written to a live enemy's

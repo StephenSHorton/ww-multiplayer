@@ -21,8 +21,8 @@ package gate
 import (
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // StableTicks is how many ticks the stage and room must stay unchanged
