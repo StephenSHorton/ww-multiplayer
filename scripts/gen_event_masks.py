@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate internal/coop/class/syncmask_gen.go, the story-bit SyncMask of
+Generate mods/coop/class/syncmask_gen.go, the story-bit SyncMask of
 docs/08-coop-design.md §6.5, from the zeldaret/tww decomp:
 
     python3 scripts/gen_event_masks.py <tww-path>          # write the Go file
@@ -44,7 +44,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-OUT = os.path.join(ROOT, "internal", "coop", "class", "syncmask_gen.go")
+OUT = os.path.join(ROOT, "mods", "coop", "class", "syncmask_gen.go")
 
 # GZLE01 is VERSIONS index 2 in configure.py; VERSION_USA in
 # include/global.h:63-66.

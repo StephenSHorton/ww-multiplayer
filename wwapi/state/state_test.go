@@ -298,7 +298,7 @@ func TestTornSaveRead(t *testing.T) {
 // image, the live memBit folds like a saved slot, the dan switches and
 // zone flags are flags, and the zone room bytes and the mDan table are
 // numbers. (That DefaultSensitive is the co-op class table's mask is
-// pinned on the co-op side, internal/coop/class.)
+// pinned on the co-op side, mods/coop/class.)
 func TestDefaultFolds(t *testing.T) {
 	var want [addr.SaveImageSize]foldRule
 	for _, sp := range DefaultSensitive() {

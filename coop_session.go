@@ -3,7 +3,7 @@ package main
 // Co-op sessions (#23; docs/08-coop-design.md §4.1-4.2, §5, §6.7, §9
 // M2-M4): what --coop adds to host, join and mp-local.
 //
-//   - host and mp-local run the CoopHub (internal/coop/hub) on their
+//   - host and mp-local run the CoopHub (mods/coop/hub) on their
 //     server. It serves one world: the only one on disk, the one
 //     --coop=<id> names, or, with --coop=new, one founded from the host's
 //     loaded, idle file (§5.3). It grants memory switch sync by the M1
@@ -15,7 +15,7 @@ package main
 //     written this session;
 //   - each Dolphin gets a coop-sync pipeline beside broadcast-pose and
 //     puppet-sync, with its own Dolphin handle by PID and its own role-1
-//     connection (network.RunCoop). Its replica (internal/coop/replica)
+//     connection (network.RunCoop). Its replica (mods/coop/replica)
 //     reads a snapshot ten times a second, runs the gates and the differ,
 //     sends GAINS and, from M3, writes the world's progress into its game
 //     through a FrameWriter and the WriteGuard (§4.2): the stage progress
@@ -28,7 +28,7 @@ package main
 //     is only logged (§5.1 principle 5);
 //   - the replica's two tag writes, a bind and a leaked tag's scrub, are
 //     asked through the session's coopAsker and made only after the yes,
-//     behind the gates (internal/coop/bind). The CLI's asker is the stdin
+//     behind the gates (mods/coop/bind). The CLI's asker is the stdin
 //     prompter (y/N on stdin; --yes answers yes); the TUI's puts the
 //     question to the session controller (outputAsker), whose UI answers
 //     it (session.Question, Controller.Answer);
@@ -56,12 +56,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"

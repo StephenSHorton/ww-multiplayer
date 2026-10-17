@@ -7,7 +7,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/hearts"
 )
 
-// What M4's derived max life (internal/coop/derive) reads of the heart
+// What M4's derived max life (mods/coop/derive) reads of the heart
 // Catalogue beyond the stage files: the save bit that marks a reward
 // given. hearts.Reward.Record says it in words for the report; RecordOf
 // reads the two forms the Catalogue writes.

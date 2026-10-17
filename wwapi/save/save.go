@@ -5,7 +5,7 @@
 // (ItemSlots, EquipSlots).
 //
 // It holds no co-op policy: how a byte merges between players is
-// internal/coop/class's, a table keyed by the offsets Layout names.
+// mods/coop/class's, a table keyed by the offsets Layout names.
 //
 // View reads the heart Catalogue's records and the item sources' flags
 // through wwapi/tables.

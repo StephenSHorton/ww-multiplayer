@@ -26,8 +26,6 @@ ww-multiplayer/
 ├── internal/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
-│   ├── coop/                    # Co-op engine (docs/08): replica, hub, world, wire, derive, ...
-│   │                            #   combat/ (M6: K1 classes, layouts, gates, Revalidate over wwapi/actors), savemerge/ (offline save merge), synctables/ (sync verdicts and acceptance over wwapi/tables)
 │   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); Bridge = the JS API; `ui --browser` server
 │   ├── lan/                     # LAN discovery: the host's UDP beacon, broadcast addresses, the joiner's table (docs/10-lobby.md §10)
 │   ├── mailboxgen/              # mailbox.h parser + layout_gen.go emitter (used by tools/gen_mailbox and wwapi/mailbox TestMailboxLayout)
@@ -47,6 +45,8 @@ ww-multiplayer/
 │                                #   log/ (Reporter, Stdout / Discard / Multi / Prefix), mem/ (Reader/Mem, FakeMem), addr/ (cited addresses), state/ (per-tick snapshot), gate/ (write gates), actors/ (actor queue walk, Layout reads, structural Reread), write/ (guarded write engine: Allowlist, Breaker, FrameWriter beat wait + rechecks, Field, StageRequest; co-op's replica builds on it),
 │                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), savefile/ (GCI/card I/O), backup/ (card backups), tables/ (M1 disc table builders + cache), player/ (Link: Ptr/Ready/Position/DemoType/Pose/Face; Warp, WarpForce; input Override/Release/Press; playertest = fake warp handler), avatar/ (remote Links: pose-feed slot writes, Clear/Rearm, pose math, Tunics = tunic slots; avatartest = fake RAM + C tunic allocation), gfx/texture/ (CMPR tunic recolor, ResTIMG), mailbox/ (T2 + mailbox layout, WWMB header read; layout_gen.go is generated from mailbox.h by tools/gen_mailbox), events/ (bus + core game events), commands/ (command registry, write gate), fakegame/ (deterministic fake game for tests), schema/, semver/; the mod runtime (manifest, resolver, supervisor); Game (Attach/NewGame: watcher, pre-E1 contract check)
 ├── mods/                        # Compiled-in mods (docs/api §6): example/ (D3), _fixtures/ (runtime test mods)
+│   ├── coop/                    # Co-op engine (docs/08): replica, hub, world, wire, derive, class, story, inventory, bind, ...
+│   │                            #   combat/ (M6: K1 classes, layouts, gates, Revalidate over wwapi/actors), savemerge/ (offline save merge), synctables/ (sync verdicts and acceptance over wwapi/tables)
 │   └── multiplayer/             # The multiplayer mod (D1): mod.go + mod.json (provides net, PublicAPI ValidatePlayerName), listed in compiledMods()
 │       ├── engine/              # Session core: Engine (session.Engine: host/join/lobby, NewTUIEngine/NewCLIEngine), lobby.go, game.go (the app's Start: Dolphin + pipelines), LiveState, RunHostSession/RunJoinSession, co-op via the seam in coop.go (Coop, CoopApp, LobbyCoop, CoopSide), RunPipelines, server + fake client, color-pref clients; enginetest/ = fake Dolphins
 │       ├── feed/                # Pose pipelines: BroadcastPose, PuppetSync (Feeder: link/actor slot assignment, lerp, arming over wwapi/avatar), PoseFakeLoop
@@ -62,7 +62,7 @@ ww-multiplayer/
 │   └── GZLE01.ini               # Curated Gecko code pack, copied into <USER_DIR>/GameSettings by `dolphin2`
 ├── scripts/
 │   ├── extract_blob.py          # Diffs original.dol vs patched.dol → internal/inject/blob.go
-│   ├── gen_event_masks.py       # Generates internal/coop/class/syncmask_gen.go from the decomp
+│   ├── gen_event_masks.py       # Generates mods/coop/class/syncmask_gen.go from the decomp
 │   ├── build-mac.sh, setup-mac-dolphin.sh   # macOS release build (WW Multiplayer.app + ditto zip); one-time Dolphin re-sign
 │   └── dolphin2.sh, mplay2.sh   # Legacy bash harness (Go ports: dolphin2, mp-local)
 ├── packaging/

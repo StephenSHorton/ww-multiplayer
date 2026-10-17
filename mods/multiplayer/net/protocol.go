@@ -44,7 +44,7 @@ const (
 	// Co-op (protocol 2, docs/08-coop-design.md §4.4). Travels only on a
 	// co-op connection (RoleCoop in the hello), both ways, between the
 	// co-op pipeline and the server's CoopHandler; the payload is
-	// [sub:1][body], encoded by package internal/coop/wire. The server
+	// [sub:1][body], encoded by package mods/coop/wire. The server
 	// drops one that arrives on a player connection.
 	MsgCoop byte = 'O' // Both: co-op sub-message
 )

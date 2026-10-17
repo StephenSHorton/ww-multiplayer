@@ -13,7 +13,7 @@ package main
 //     or copy one back over the cards, only while Dolphin is closed (§5.4).
 //
 // The only game-RAM write here is coop-tag clear's, through
-// internal/coop/bind's Scrub: 0x30 bytes at 0x803C532C, behind the gates
+// mods/coop/bind's Scrub: 0x30 bytes at 0x803C532C, behind the gates
 // and the user's --yes. Like the other co-op diagnostics, none of these is
 // listed in printHelp; the command registry (commands.go) dispatches them.
 
@@ -26,8 +26,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"

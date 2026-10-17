@@ -4,7 +4,7 @@ package main
 // Dolphin's GCI files (or a raw card image, read only):
 //
 //   - save-diff <a> <b> [--slot n]: what differs between a slot of a and
-//     one of b, per byte class (internal/coop/class), labelled as
+//     one of b, per byte class (mods/coop/class), labelled as
 //     coop-watch labels its edges;
 //   - save-merge <a> <b> <out> [--slot n] [--iso <path>]: a's slot with
 //     b's shared progress merged in, by the class table and the live
@@ -33,12 +33,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/savemerge"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/story"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/savemerge"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/story"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/savefile"
 )
