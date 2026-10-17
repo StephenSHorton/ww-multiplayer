@@ -14,12 +14,14 @@ import { call, onEvent, mode } from "./transport.js";
 import { $, el, toast, swatches, openDialog, closeDialog, dialogKey, setDialogText, initDialog } from "./ui.js";
 import { initSetup, openSetup, onPatch } from "./setup.js";
 import { renderCoop, dialogExtra, coopAction, initCoop } from "./coop.js";
+import { initMods, refreshMods } from "./mods.js";
 
 const LOG_MAX = 500;
 
 let info = null; // Bridge.Info
 let state = null; // Bridge.State
-let view = "home"; // "home", "session" or "setup" (setup.js)
+let view = "home"; // "home", "session", "setup" (setup.js) or "mods" (mods.js)
+let beforeMods = "home"; // the screen the Mods page's Back returns to
 let session = 0; // the session the Session screen shows
 let homeColor = ""; // the Home form's color, a "#RRGGBB"
 let left = false; // the user pressed Leave (no "ended" panel then)
@@ -67,7 +69,10 @@ function show(v) {
 	$("home").hidden = v !== "home";
 	$("session").hidden = v !== "session";
 	$("setup").hidden = v !== "setup";
-	$("setup-btn").hidden = v === "session";
+	$("mods").hidden = v !== "mods";
+	$("setup-btn").hidden = v === "session" || v === "mods";
+	$("mods-btn").hidden = v === "setup" || v === "mods";
+	if (v === "mods") refreshMods();
 	$("bar").hidden = v !== "session";
 	if (v !== "session") $("leave-btn").hidden = true;
 	if (v === "home") {
@@ -641,6 +646,16 @@ function onEv(ev) {
 			break;
 		case "settings":
 			onSettings();
+			if (view === "mods") refreshMods();
+			break;
+		case "mods":
+			if (view === "mods") refreshMods();
+			break;
+		case "mod":
+			// A mod's status changed (ev.status; its own events have
+			// none): a stopped or failed mod says so wherever you are.
+			if (ev.status && ev.status !== "LOADED" && ev.status !== "DISABLED") toast("Mod " + ev.mod + ": " + ev.text, { bad: true });
+			if (view === "mods") refreshMods();
 			break;
 		case "state":
 		case "ended":
@@ -714,6 +729,12 @@ function wire() {
 	$("leave-btn").addEventListener("click", leave);
 	$("back-btn").addEventListener("click", () => show("home"));
 	$("setup-btn").addEventListener("click", () => openSetup());
+	$("mods-btn").addEventListener("click", () => {
+		if (view !== "mods") beforeMods = view;
+		show("mods");
+	});
+	$("mods-back").addEventListener("click", () => show(beforeMods === "session" && !(state && state.running) ? "home" : beforeMods));
+	initMods({ openSetup });
 	$("showips").addEventListener("click", async () => {
 		try {
 			await call("SetShowIPs", !info.showIPs);

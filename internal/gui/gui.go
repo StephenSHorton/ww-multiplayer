@@ -26,6 +26,7 @@ import (
 	"io"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 )
 
@@ -62,4 +63,13 @@ type Options struct {
 	// (package main's listHostIPs, what the CLI's host prints); nil lists
 	// none.
 	HostIPs func() []string
+	// Mods is the app's mod runtime (package main's startApp): the Mods
+	// page lists its mods and CallMod runs their commands. Nil: the page
+	// lists none.
+	Mods *wwapi.Runtime
+	// ModFlag is what this run's mod flags (--mods, --no-mod) say about
+	// a mod, for the page to say why it is on or off; nil says nothing.
+	ModFlag func(id string) (on, set bool)
+	// DevMods says this run lists the dev mods (--dev).
+	DevMods bool
 }

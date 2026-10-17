@@ -22,6 +22,7 @@
 		<!-- IP addresses are masked unless this is on (config ui.showIPs) -->
 		<button class="badge ipswitch" type="button" id="showips" role="switch" aria-checked="false"><i class="knob" aria-hidden="true"></i>Show IP addresses</button>
 		<button class="badge" type="button" id="setup-btn" hidden>Setup</button>
+		<button class="badge" type="button" id="mods-btn" hidden>Mods</button>
 		<button class="btn back" type="button" id="leave-btn" hidden>Leave</button>
 		<span class="ver" id="version"></span>
 	</div>
@@ -219,6 +220,18 @@
 		<div class="stepnav">
 			<button type="button" class="btn" id="step-back">Back</button>
 			<button type="button" class="btn right" id="step-skip">Skip this step</button>
+		</div>
+	</section>
+
+	<!-- Mods: the app's mods, their status, on or off from the next start (mods.js) -->
+	<section id="mods" class="screen" hidden>
+		<h1 class="hud">Mods</h1>
+		<div class="panel modspanel">
+			<h2>Mods in this app</h2>
+			<p class="dim">Turning a mod on or off takes effect the next time you open the app.</p>
+			<ul class="modlist" id="mod-list"></ul>
+			<small class="hint" id="mods-note"></small>
+			<div class="actions"><button class="btn primary" type="button" id="mods-back">Back</button></div>
 		</div>
 	</section>
 

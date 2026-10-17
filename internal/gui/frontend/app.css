@@ -493,6 +493,32 @@ summary { cursor: pointer; font: 400 14px var(--display); color: #fff; paint-ord
 .stepnav { display: flex; justify-content: space-between; max-width: 900px; margin: 12px auto 0; }
 .stepnav .right { margin-left: auto; }
 
+/* ---------- Mods ---------- */
+/* one item slot per mod: name and version, status chip, the on/off
+   switch (the header's, in a slot), then why, and its buttons */
+.modspanel { max-width: 900px; margin: 0 auto; }
+.modlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.modlist li.mod, .modlist li.empty {
+	padding: 6px 12px 8px;
+	background: linear-gradient(180deg, var(--slot-dk), var(--slot) 25%, var(--slot-hi));
+	border: 3px solid var(--slot-dk); border-radius: 10px; box-shadow: inset 0 3px 5px rgba(20, 36, 8, 0.3);
+}
+.modlist li.empty { font: 700 14px var(--body); color: var(--text); }
+.modhead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.modname { font: 400 17px var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink); }
+.modver { font: 500 13px var(--mono); color: var(--ink); }
+.modtoggle { margin-left: auto; padding-right: 12px; }
+.chip.modstate.loaded { background: var(--bar-hi); }
+.chip.modstate.disabled { background: #e9eedd; color: var(--text-dim); }
+.chip.modstate.failed, .chip.modstate.quarantined { background: var(--red); color: #fff; }
+.chip.modstate.needs_repatch { background: var(--orange-hi); }
+.chip.dev { background: #e6d2ff; }
+.moddesc, .modreason, .modmeta { margin: 4px 0 0; font: 500 14px var(--body); color: var(--text); }
+.modreason { font-weight: 700; }
+.modmeta { font-size: 13px; color: var(--text-dim); }
+.modmeta.pending { color: var(--ink); font-weight: 700; }
+.modacts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+
 @media (max-width: 760px) {
 	.pair, .cols, .profile { grid-template-columns: 1fr; }
 	.steps { gap: 12px; }
