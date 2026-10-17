@@ -52,6 +52,7 @@ const (
 	actCopyVersion   = "copy-version"   // copy this build's version
 	actJoinSuggested = "join-suggested" // join again as DialogView.Suggest
 	actChangeName    = "change-name"    // Home, with the name field in focus
+	actOpenMods      = "open-mods"      // the Mods page (Back returns Home)
 	actRetry         = "retry"          // Bridge.Retry
 	actLeave         = "leave"          // Bridge.Leave, then Home
 )
@@ -350,9 +351,10 @@ func plural(n int, one, many string) string {
 }
 
 // modsDialog is the dialog for a host that refused us over mods: the
-// reason as the network gives it (the host's list against ours), which
-// the Mods page can fix.
+// reason as the network gives it (the host's list against ours), with
+// the Mods page, where a compiled-in mod is turned on or off, as its
+// first action.
 func modsDialog(reason string) *DialogView {
 	return &DialogView{Kind: dlgMods, Title: "Different mods", Text: reason,
-		Actions: []DialogAction{{ID: actOK, Label: "OK", Primary: true}}}
+		Actions: []DialogAction{{ID: actOpenMods, Label: "Open Mods", Primary: true}, {ID: actOK, Label: "Close"}}}
 }

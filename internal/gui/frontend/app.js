@@ -520,6 +520,10 @@ async function dialogAction(id, d, st, arg = "") {
 			$("name").select();
 			break;
 		}
+		case "open-mods":
+			beforeMods = "home"; // the session is over: Back goes Home
+			show("mods");
+			break;
 		case "retry":
 			try {
 				await call("Retry");

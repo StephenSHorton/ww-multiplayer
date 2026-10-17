@@ -44,10 +44,11 @@ import (
 // role RoleCoop in its hello. That connection never becomes a player: it is
 // not in the roster, the player count or the 255-player limit, gets no
 // relay, and carries MsgCoop frames to and from the server's CoopHandler
-// (coop.go). A player's hello stays the 2-byte form, so a player connection
-// sends the same frames as under protocol 1 apart from the version number;
-// a hello with no role byte is a player's. Bytes after caps are ignored, so
-// a later client can append fields.
+// (coop.go). A player's hello without a color or a mods hash stays the
+// 2-byte form, so such a player connection sends the same frames as under
+// protocol 1 apart from the version number; a hello with no role byte is a
+// player's. Bytes after caps are ignored, so a later client can append
+// fields.
 //
 // The desktop app's lobby (docs/10-lobby.md) is a third role, RoleLobby,
 // with LobbyCapJSON in caps: a member of the pre-game lobby, never a
@@ -59,8 +60,8 @@ import (
 // (--color / WW_COLOR) sends the role form with role RolePlayer and caps 0,
 // then [hasColor:1 = 1][r:1][g:1][b:1]. A server from before colors reads
 // it as a plain player hello (it ignores bytes after caps), so the protocol
-// version does not change. A player with no preference sends the 2-byte
-// hello as before.
+// version does not change. A player with no preference and no mods hash
+// sends the 2-byte hello as before.
 //
 // Mods (docs/api/02-mods.md, "mods_hash"). A player whose build knows its
 // mods sets CapModsHash in a player hello's caps and appends the 32-byte
@@ -70,8 +71,11 @@ import (
 // mods ignores the caps and the bytes after the color block; a current
 // server whose own hash differs refuses with RejectMods and a reason that
 // lists the host's mods (the client adds its own). A hello without the
-// bit, from an older client, is accepted as before. ProtocolVersion stays
-// 2 (docs/api/00-design.md decision 13).
+// bit, from an older client, is accepted as before. Every CLI and app
+// build since D5 has a hash, so its player hello is always this form; the
+// 2-byte and caps-0 color forms are what older clients (and writeJoin
+// without a hash) send. ProtocolVersion stays 2 (docs/api/00-design.md
+// decision 13).
 
 // ProtocolVersion is the wire protocol this build speaks. Bump it on any
 // change an older build can't handle: client and server must match.
@@ -287,8 +291,9 @@ func writeJoin(w io.Writer, name string) error {
 }
 
 // writeJoinRole is writeJoin for a connection of any role. A player's hello
-// is the 2-byte form, or carries its color preference when pref is set and
-// its mods hash when hash is set; any other role's carries role and caps.
+// with a hash is the role form with CapModsHash, the color block (hasColor
+// 0 without pref) and the hash; without one it is the color form when pref
+// is set, else the 2-byte form. Any other role's carries role and caps.
 func writeJoinRole(w io.Writer, name string, role byte, caps uint16, pref *playercolor.Color, hash *[ModsHashLen]byte) error {
 	if err := ValidatePlayerName(name); err != nil {
 		return &RejectError{Code: RejectBadName, Reason: err.Error()}
