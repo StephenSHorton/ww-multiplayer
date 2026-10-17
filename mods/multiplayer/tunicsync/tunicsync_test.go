@@ -1,9 +1,7 @@
-package main
+package tunicsync
 
 import (
 	"bytes"
-	"encoding/binary"
-	"fmt"
 	"testing"
 	"time"
 
@@ -12,8 +10,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar/avatartest"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/gfx/texture"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
 
 // run ticks the tunic slots n game frames, the C side allocating as it
@@ -47,9 +45,9 @@ func TestSyncTunics_CasualRemoteWithoutColor(t *testing.T) {
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
 
-	casualFace := append(make([]byte, faceStateWireBytes), appearanceCasual)
+	casualFace := append(make([]byte, player.FaceBytes), appearanceCasual)
 	remotes := []network.RemotePlayer{{ID: 2, Name: "a", FaceState: casualFace}}
-	syncTunics(ts, playercolor.Vanilla(), true, remotes, map[byte]int{2: 0}, now)
+	SyncTunics(ts, playercolor.Vanilla(), true, remotes, map[byte]int{2: 0}, now)
 	if f.U8(mailbox.Mailbox+mailbox.OffTunicEnable) != avatar.TunicEnableCasual {
 		t.Error("casual remote without a server color is not casual")
 	}
@@ -64,18 +62,18 @@ func TestSyncTunics_CasualRemoteWithoutColor(t *testing.T) {
 // the casual bit.
 func TestLocalAppearance(t *testing.T) {
 	f := avatartest.NewLinkRAM(true)
-	b, ok := localAppearance(f)
+	b, ok := LocalAppearance(f)
 	if !ok || b != appearanceCasual {
-		t.Errorf("localAppearance = %#x %v, want casual", b, ok)
+		t.Errorf("LocalAppearance = %#x %v, want casual", b, ok)
 	}
 }
 
 func TestRemoteCasual(t *testing.T) {
-	face := make([]byte, faceStateWireBytes)
-	if remoteCasual(face) {
+	face := make([]byte, player.FaceBytes)
+	if RemoteCasual(face) {
 		t.Error("a 16-byte trailer (pre-appearance sender) read as casual")
 	}
-	if !remoteCasual(append(face, appearanceCasual)) || remoteCasual(append(face, 0)) {
+	if !RemoteCasual(append(face, appearanceCasual)) || RemoteCasual(append(face, 0)) {
 		t.Error("appearance byte not read")
 	}
 }
@@ -88,14 +86,14 @@ func TestSyncTunics_SlotsFollowRemotes(t *testing.T) {
 	f := avatartest.NewLinkRAM(false)
 	ts := avatar.NewTunics(f, t.Logf)
 	red, blue := playercolor.Palette()[1].Color, playercolor.Palette()[2].Color
-	casualFace := append(make([]byte, faceStateWireBytes), appearanceCasual)
+	casualFace := append(make([]byte, player.FaceBytes), appearanceCasual)
 	remotes := []network.RemotePlayer{
 		{ID: 2, Name: "a", Color: red, HasColor: true},
 		{ID: 3, Name: "b", Color: blue, HasColor: true, FaceState: casualFace},
 	}
 	now := time.Unix(0, 0)
 	for i := 0; i < 8; i++ {
-		syncTunics(ts, playercolor.Vanilla(), true, remotes, map[byte]int{2: 1, 3: 0}, now)
+		SyncTunics(ts, playercolor.Vanilla(), true, remotes, map[byte]int{2: 1, 3: 0}, now)
 		f.CAllocate()
 		f.Frame()
 	}
@@ -115,7 +113,7 @@ func TestSyncTunics_SlotsFollowRemotes(t *testing.T) {
 	if !bytes.Equal(f.SlotImage(1), avatartest.ExpectRecolor(red)) {
 		t.Error("slot 1 image is not red")
 	}
-	syncTunics(ts, playercolor.Vanilla(), true, remotes[:1], map[byte]int{2: 1}, now)
+	SyncTunics(ts, playercolor.Vanilla(), true, remotes[:1], map[byte]int{2: 1}, now)
 	if ts.Want(0).On || ts.Want(0).Casual {
 		t.Error("free slot 0 is on")
 	}
@@ -137,7 +135,7 @@ func TestSyncTunics_SharedColorBothSlots(t *testing.T) {
 	}
 	now := time.Unix(0, 0)
 	for i := 0; i < 8; i++ {
-		syncTunics(ts, playercolor.Vanilla(), true, remotes, map[byte]int{2: 0, 3: 1}, now)
+		SyncTunics(ts, playercolor.Vanilla(), true, remotes, map[byte]int{2: 0, 3: 1}, now)
 		f.CAllocate()
 		f.Frame()
 	}
@@ -167,7 +165,7 @@ func TestSyncTunics_NoServerColorAllOff(t *testing.T) {
 	remotes := []network.RemotePlayer{{ID: 2, Name: "a"}, {ID: 3, Name: "b"}}
 	now := time.Unix(0, 0)
 	for i := 0; i < 8; i++ {
-		syncTunics(ts, playercolor.Color{}, false, remotes, map[byte]int{2: 0, 3: 1}, now)
+		SyncTunics(ts, playercolor.Color{}, false, remotes, map[byte]int{2: 0, 3: 1}, now)
 		f.CAllocate()
 		f.Frame()
 	}
@@ -179,7 +177,7 @@ func TestSyncTunics_NoServerColorAllOff(t *testing.T) {
 	// Own color known, remotes still without one: remote slots stay off.
 	red := playercolor.Palette()[1].Color
 	for i := 0; i < 8; i++ {
-		syncTunics(ts, red, true, remotes, map[byte]int{2: 0, 3: 1}, now)
+		SyncTunics(ts, red, true, remotes, map[byte]int{2: 0, 3: 1}, now)
 		f.CAllocate()
 		f.Frame()
 	}
@@ -194,7 +192,7 @@ func TestSyncTunics_NoServerColorAllOff(t *testing.T) {
 // texture), nothing allocated yet (state 0), a buffer size for another
 // texture, or its slot's allocation failed (state 0xFD, buf 0).
 func TestSyncTunics_CasualSkipsColorGates(t *testing.T) {
-	casualFace := append(make([]byte, faceStateWireBytes), appearanceCasual)
+	casualFace := append(make([]byte, player.FaceBytes), appearanceCasual)
 	remotes := []network.RemotePlayer{{ID: 2, Name: "a", FaceState: casualFace}, {ID: 3, Name: "b"}}
 	slots := map[byte]int{2: 0, 3: 1}
 	red := playercolor.Palette()[1].Color
@@ -225,7 +223,7 @@ func TestSyncTunics_CasualSkipsColorGates(t *testing.T) {
 			ts := avatar.NewTunics(f, t.Logf)
 			now := time.Unix(0, 0)
 			for i := 0; i < 4; i++ {
-				syncTunics(ts, red, tc.haveMine, remotes, slots, now)
+				SyncTunics(ts, red, tc.haveMine, remotes, slots, now)
 				f.Frame()
 			}
 			if got := f.U8(mailbox.Mailbox + mailbox.OffTunicEnable); got != avatar.TunicEnableCasual || !ts.Settled(0) {
@@ -238,35 +236,5 @@ func TestSyncTunics_CasualSkipsColorGates(t *testing.T) {
 				t.Errorf("without a server color the colors are on: %+v", tunicWants(ts))
 			}
 		})
-	}
-}
-
-func TestReadNameTab_DerefsJUTNameTab(t *testing.T) {
-	f := avatartest.NewRAM()
-	const obj, res = 0x80D00000, 0x80D10000
-	names := []string{"linktexS3TC", "eye", "linktexS3TC"}
-	f.Put32(obj, 0x803A0000) // vtable
-	f.Put32(obj+4, res)
-	f.Put32(obj+8, res+4+4*uint32(len(names)))
-	f.Write(obj+0xC, []byte{0, byte(len(names))})
-	f.Write(res, []byte{0, byte(len(names)), 0xFF, 0xFF})
-	off := 4 + 4*len(names)
-	for i, n := range names {
-		var e [4]byte
-		binary.BigEndian.PutUint16(e[2:], uint16(off))
-		f.Write(res+4+4*uint32(i), e[:])
-		f.Write(res+uint32(off), append([]byte(n), 0))
-		off += len(n) + 1
-	}
-	got := readNameTab(f, obj, len(names))
-	if fmt.Sprint(got) != fmt.Sprint(names) {
-		t.Fatalf("names = %q, want %q", got, names)
-	}
-	if spare, used, ok := texture.FindLinktex(got); !ok || spare != 0 || used != 2 {
-		t.Errorf("FindLinktex = %d %d %v", spare, used, ok)
-	}
-	// The old bug: reading the object itself as the ResNTAB.
-	if bad := readNameTab(f, res, len(names)); bad[0] != "" {
-		t.Errorf("a ResNTAB passed as a JUTNameTab gave %q", bad)
 	}
 }

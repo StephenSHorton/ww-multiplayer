@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Tunic-color diagnostics (docs/09-player-colors.md §7, PR 2). Both act on
@@ -322,4 +323,65 @@ func runTunicRecolor(arg string) {
 		fmt.Println("note: Link is wearing the casual clothes, so the change shows only in the hero's clothes")
 	}
 	fmt.Printf("undo with: tunic-recolor reset\n")
+}
+
+// runTunicSlot is the tunic-slot dev command (docs/09 §7.2): put one
+// slot's tunic in a color, or turn it off, on the selected Dolphin. Run
+// puppet-sync / mp-local with WW_TUNIC=off alongside it, or puppet-sync
+// puts the session's colors back.
+func runTunicSlot(slotArg, colorArg string) {
+	slot := -1
+	switch slotArg {
+	case "0", "1":
+		slot = int(slotArg[0] - '0')
+	case "local", "2":
+		slot = avatar.TunicSlotLocal
+	}
+	if slot < 0 {
+		fmt.Println("slot must be 0, 1 or local")
+		os.Exit(1)
+	}
+	on, c := false, playercolor.Color{}
+	casual := colorArg == "casual"
+	if casual && slot == avatar.TunicSlotLocal {
+		fmt.Println("casual is for slots 0 and 1 only")
+		os.Exit(1)
+	}
+	if colorArg != "off" && !casual {
+		var err error
+		if c, err = playercolor.Parse(colorArg); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		on = true
+	}
+	d, err := findDolphin("GZLE01")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer d.Close()
+	t := avatar.NewTunics(d, func(format string, args ...any) { fmt.Printf(format+"\n", args...) })
+	if casual {
+		t.SetCasual(slot)
+	} else {
+		t.Set(slot, on, c)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		t.Tick(time.Now())
+		if t.Settled(slot) {
+			if casual {
+				fmt.Printf("tunic slot %s is casual\n", slotArg)
+			} else if on {
+				fmt.Printf("tunic slot %s is %s (buf 0x%08X)\n", slotArg, playercolor.Label(c), t.Buf(slot))
+			} else {
+				fmt.Printf("tunic slot %s is off\n", slotArg)
+			}
+			return
+		}
+		time.Sleep(16 * time.Millisecond)
+	}
+	fmt.Println("timed out; run dump: tunic state must be 1 (the C side allocates after ~5 s in game)")
+	os.Exit(1)
 }
