@@ -62,7 +62,12 @@
 
 // Per-slot state. Size is 0x20 bytes (nice round hex).
 //   active   — Go sets 1 when a remote player owns this slot, 0 to
-//              release it. C only spawns when active flips 0 -> 1.
+//              release it. While it is 1, C spawns the actor, and
+//              respawns it after the game deletes it or after a stage
+//              change. When it goes to 0, C deletes the actor
+//              (puppet_reap). A stage change, Link going away or a new
+//              Link actor deletes every slot's actor whatever active
+//              is; slots still at 1 respawn in the new stage.
 //   actor_ptr — C publishes the live actor pointer after SearchByID
 //              succeeds so Go can read/poke the actor if needed
 //              (e.g. unhide-puppet writes mSwitchNo for KAMOME).

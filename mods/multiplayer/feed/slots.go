@@ -1,18 +1,22 @@
 package feed
 
 import (
+	"bytes"
 	"encoding/binary"
 	"math"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
-// slotState is an actor-puppet slot's lerp-smoothed position.
+// slotState is an actor-puppet slot's lerp-smoothed position and whether
+// Go has its actor up (active=1 in the mailbox).
 type slotState struct {
+	active           bool
 	haveCur          bool
 	curX, curY, curZ float32
 }
@@ -30,39 +34,106 @@ type linkSlotState struct {
 }
 
 // actorSlot returns rp's actor-puppet slot, assigning a free one on first
-// sight (ok is false when all MaxPuppets are taken). A new slot's actor
-// (KAMOME / Rose / TSUBO) is activated only for a remote without pose
-// data. Pose-driven remotes render as Link #2 directly; activating the
-// actor too would overlap an NPC on top of Link #2 at the same coords,
-// and C-side actor cleanup is best-effort (it stops syncing but leaves
-// the actor stuck at its last position), so the duplicate sticks around
-// forever.
-func (f *Feeder) actorSlot(rp *network.RemotePlayer, hasPose bool) (int, bool) {
+// sight (ok is false when all MaxPuppets are taken). Every new assignment
+// starts the remote's actorGrace wait (at now); the slot's actor (KAMOME
+// / Rose) comes up only once that wait ends. The wait counts only time
+// this game spends in a play stage (inPlay), and an actor that is up
+// goes back down, and back to waiting, when this game leaves play. A
+// wait is called off as soon as the remote sends a usable pose and
+// holds, or can still get, a link slot: it is drawn as a Link, and an
+// actor too would put an NPC on top of that Link.
+// A remote with a pose but no link slot to get (one beyond avatar.Cap)
+// keeps waiting and gets its actor, as does one that never sends a
+// usable pose. A remote is usually first seen with its position alone
+// (the pose is a separate message), hence the wait.
+func (f *Feeder) actorSlot(rp *network.RemotePlayer, hasPose bool, now time.Time) (int, bool) {
 	idx, ok := f.remoteToSlot[rp.ID]
-	if ok {
+	if !ok {
+		// Find a free slot. Walk 0..N; first index not already
+		// mapped to a live remote wins.
+		used := map[int]bool{}
+		for _, v := range f.remoteToSlot {
+			used[v] = true
+		}
+		for i := 0; i < MaxPuppets; i++ {
+			if !used[i] {
+				idx = i
+				break
+			}
+		}
+		if used[idx] {
+			return 0, false
+		}
+		f.remoteToSlot[rp.ID] = idx
+		f.actorWait[rp.ID] = now
+	}
+	since, waiting := f.actorWait[rp.ID]
+	if !waiting {
+		if f.slots[idx].active && !f.inPlay() {
+			// This game left play (reset, quit to the title, file
+			// select, a stage change): release the actor, which the C
+			// side then deletes, and bring it back through the
+			// in-play grace.
+			f.setActorActive(idx, false)
+			f.actorWait[rp.ID] = now
+		}
 		return idx, true
 	}
-	// Find a free slot. Walk 0..N; first index not already
-	// mapped to a live remote wins.
-	used := map[int]bool{}
-	for _, v := range f.remoteToSlot {
-		used[v] = true
+	if since.IsZero() {
+		// Connected restarted the clock.
+		since = now
+		f.actorWait[rp.ID] = now
 	}
-	for i := 0; i < MaxPuppets; i++ {
-		if !used[i] {
-			idx = i
-			break
-		}
-	}
-	if used[idx] {
-		return 0, false
-	}
-	f.remoteToSlot[rp.ID] = idx
-	if !hasPose {
-		f.m.Write(SlotAddr(idx, mailbox.PuppetOffActive), f.one)
+	_, holdsLink := f.remoteToLinkSlot[rp.ID]
+	switch {
+	case hasPose && (holdsLink || len(f.remoteToLinkSlot) < avatar.Cap):
+		delete(f.actorWait, rp.ID) // drawn as a Link: no actor
+	case !f.inPlay():
+		// The grace counts in-play time only: a remote seen on the
+		// title or file select waits actorGrace from when this game
+		// enters a play stage, so its pose can still arrive first.
+		f.actorWait[rp.ID] = now
+	case now.Sub(since) >= actorGrace:
+		delete(f.actorWait, rp.ID)
+		f.setActorActive(idx, true)
 		log.Logf(f.rep, log.OK, "slot %d := player %d (%s)", idx, rp.ID, rp.Name)
 	}
 	return idx, true
+}
+
+// setActorActive writes actor slot idx's active flag (C spawns the
+// actor while it is 1 and deletes it when it goes to 0) and records it.
+func (f *Feeder) setActorActive(idx int, on bool) {
+	v := f.zero
+	if on {
+		v = f.one
+	}
+	f.m.Write(SlotAddr(idx, mailbox.PuppetOffActive), v)
+	f.slots[idx].active = on
+}
+
+// inPlay reports whether this game is in a play stage with Link loaded
+// and no stage change pending: not the title screen or file select,
+// where the C side has no Link to spawn an actor puppet next to (and
+// deletes every actor puppet). A read error counts as not in play.
+func (f *Feeder) inPlay() bool {
+	link, err := f.m.ReadU32(addr.PlayerPtr)
+	if err != nil || !addr.InMEM1(link) {
+		return false
+	}
+	n := int(addr.NextStageEnable-addr.CurStageName) + 1
+	b, err := f.m.Read(addr.CurStageName, n)
+	if err != nil || len(b) != n {
+		return false
+	}
+	if b[len(b)-1] != 0 {
+		return false // a stage change is under way
+	}
+	name := b[:addr.StageNameLen]
+	if n := bytes.IndexByte(name, 0); n >= 0 {
+		name = name[:n]
+	}
+	return len(name) != 0 && string(name) != addr.StageTitle && string(name) != addr.StageFileSelect
 }
 
 // moveActor lerps actor slot idx toward pos (lerpK per tick; the first

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar/avatartest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
@@ -76,6 +77,7 @@ func newTestFeeder(t *testing.T) (*Feeder, *cside, *recorder) {
 		t.Setenv(k, "")
 	}
 	c := &cside{ram: avatartest.NewRAM()}
+	c.stage("sea", avatartest.Link, false) // in play, as most tests assume
 	rep := &recorder{}
 	f := NewFeeder(c.ram, "Self", rep)
 	f.after = func(time.Duration) <-chan time.Time {
@@ -86,6 +88,20 @@ func newTestFeeder(t *testing.T) (*Feeder, *cside, *recorder) {
 	}
 	f.Connected(7)
 	return f, c, rep
+}
+
+// stage puts this game in stage name with Link's actor at link (0: none),
+// a stage change pending when changing.
+func (c *cside) stage(name string, link uint32, changing bool) {
+	var b [addr.StageNameLen]byte
+	copy(b[:], name)
+	c.ram.Write(addr.CurStageName, b[:])
+	c.ram.Put32(addr.PlayerPtr, link)
+	en := byte(0)
+	if changing {
+		en = 1
+	}
+	c.ram.Write(addr.NextStageEnable, []byte{en})
 }
 
 // remote is player id at (x, 0, 0); withPose adds a whole Link pose (every
@@ -199,7 +215,15 @@ func TestFeederActorPuppetFallback(t *testing.T) {
 	ctx := context.Background()
 	now := time.Unix(1000, 0)
 
-	// Player 3 is first seen before its first pose (position only).
+	// Player 3 is first seen before its first pose (position only), and
+	// stays poseless: its actor puppet comes up after actorGrace, not before.
+	f.Feed(ctx, []network.RemotePlayer{
+		remote(1, 100, true, now), remote(2, 200, true, now), remote(3, 300, false, now),
+	}, now)
+	if c.actorActive(2) {
+		t.Fatal("player 3's actor puppet came up before actorGrace")
+	}
+	now = now.Add(actorGrace)
 	f.Feed(ctx, []network.RemotePlayer{
 		remote(1, 100, true, now), remote(2, 200, true, now), remote(3, 300, false, now),
 	}, now)
@@ -248,6 +272,191 @@ func TestFeederActorPuppetFallback(t *testing.T) {
 	}
 }
 
+// TestFeederNoActorWhenPoseFollows: a remote first seen with its position
+// alone (the pose is a separate message, so this is the usual first tick
+// of a Link that just appeared) whose pose follows within actorGrace
+// never gets its actor puppet: no KAMOME spawned only to be deleted.
+func TestFeederNoActorWhenPoseFollows(t *testing.T) {
+	f, c, rep := newTestFeeder(t)
+	ctx := context.Background()
+	now := time.Unix(1000, 0)
+	everActive := false
+	f.Feed(ctx, []network.RemotePlayer{remote(1, 100, false, now)}, now)
+	everActive = everActive || c.actorActive(0)
+	for i := 0; i < 3; i++ {
+		now = now.Add(16 * time.Millisecond)
+		f.Feed(ctx, []network.RemotePlayer{remote(1, 100, i > 0, now)}, now)
+		everActive = everActive || c.actorActive(0)
+	}
+	now = now.Add(2 * actorGrace)
+	f.Feed(ctx, []network.RemotePlayer{remote(1, 100, true, now)}, now)
+	everActive = everActive || c.actorActive(0)
+	for _, l := range rep.lines {
+		if strings.HasPrefix(l, "slot 0 := player 1") {
+			everActive = true
+		}
+	}
+	if everActive {
+		t.Error("player 1's actor puppet came up though its pose followed its position")
+	}
+	if !c.wrotePoseOf(0, 1) {
+		t.Error("player 1's pose is not in link slot 0")
+	}
+}
+
+// TestFeederActorForThirdPoseRemote: a third remote that sends its pose
+// from the start has no link slot to get, so its actorGrace wait runs out
+// and it gets its actor puppet; until then it has none.
+func TestFeederActorForThirdPoseRemote(t *testing.T) {
+	f, c, rep := newTestFeeder(t)
+	ctx := context.Background()
+	now := time.Unix(1000, 0)
+	tick := func() {
+		f.Feed(ctx, []network.RemotePlayer{
+			remote(1, 100, true, now), remote(2, 200, true, now), remote(3, 300, true, now),
+		}, now)
+	}
+	tick()
+	now = now.Add(actorGrace - time.Millisecond)
+	tick()
+	if c.actorActive(2) {
+		t.Fatal("player 3's actor puppet came up before actorGrace")
+	}
+	now = now.Add(time.Millisecond)
+	tick()
+	if !c.actorActive(2) || !rep.has("slot 2 := player 3 (P3)") {
+		t.Fatal("player 3 (beyond avatar.Cap, pose from the start) has no actor puppet")
+	}
+	if c.actorActive(0) || c.actorActive(1) {
+		t.Error("an actor puppet is up under a Link-driven remote")
+	}
+}
+
+// TestFeederNoActorOutOfPlay: an actor puppet never comes up while this
+// game is on the title screen, on file select, without Link or with a
+// stage change pending; it comes up actorGrace after the game enters a
+// play stage (time out of play does not count toward the grace).
+func TestFeederNoActorOutOfPlay(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		stage    string
+		link     uint32
+		changing bool
+	}{
+		{"title", addr.StageTitle, avatartest.Link, false},
+		{"file select", addr.StageFileSelect, avatartest.Link, false},
+		{"no stage", "", avatartest.Link, false},
+		{"no Link", "sea", 0, false},
+		{"stage change", "sea", avatartest.Link, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, c, _ := newTestFeeder(t)
+			c.stage(tc.stage, tc.link, tc.changing)
+			ctx := context.Background()
+			now := time.Unix(1000, 0)
+			f.Feed(ctx, []network.RemotePlayer{remote(1, 100, false, now)}, now)
+			now = now.Add(2 * actorGrace)
+			f.Feed(ctx, []network.RemotePlayer{remote(1, 100, false, now)}, now)
+			if c.actorActive(0) {
+				t.Fatal("actor puppet came up out of play")
+			}
+			c.stage("M_Dai", avatartest.Link, false)
+			now = now.Add(16 * time.Millisecond)
+			f.Feed(ctx, []network.RemotePlayer{remote(1, 100, false, now)}, now)
+			if c.actorActive(0) {
+				t.Fatal("actor puppet came up on the first in-play tick (out-of-play time counted toward the grace)")
+			}
+			// The clock restarts on every out-of-play tick, so the grace
+			// runs from the last one (16 ms before the first in-play tick).
+			now = now.Add(actorGrace - 16*time.Millisecond - time.Millisecond)
+			f.Feed(ctx, []network.RemotePlayer{remote(1, 100, false, now)}, now)
+			if c.actorActive(0) {
+				t.Fatal("actor puppet came up less than actorGrace after entering play")
+			}
+			now = now.Add(time.Millisecond)
+			f.Feed(ctx, []network.RemotePlayer{remote(1, 100, false, now)}, now)
+			if !c.actorActive(0) {
+				t.Error("actor puppet did not come up actorGrace after entering play")
+			}
+		})
+	}
+}
+
+// TestFeederActorDownOutOfPlay: an actor puppet that is up goes down when
+// this game leaves play (reset or quit to the title, file select, a stage
+// change), and comes back actorGrace after the game is in play again.
+func TestFeederActorDownOutOfPlay(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		stage    string
+		link     uint32
+		changing bool
+	}{
+		{"title", addr.StageTitle, avatartest.Link, false},
+		{"file select", addr.StageFileSelect, avatartest.Link, false},
+		{"no Link", "sea", 0, false},
+		{"stage change", "sea", avatartest.Link, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, c, _ := newTestFeeder(t)
+			ctx := context.Background()
+			now := time.Unix(1000, 0)
+			feed := func() { f.Feed(ctx, []network.RemotePlayer{remote(1, 100, false, now)}, now) }
+			feed()
+			now = now.Add(actorGrace)
+			feed()
+			if !c.actorActive(0) {
+				t.Fatal("actor puppet did not come up in play")
+			}
+			c.stage(tc.stage, tc.link, tc.changing)
+			now = now.Add(16 * time.Millisecond)
+			feed()
+			if c.actorActive(0) {
+				t.Fatal("actor puppet stayed up out of play")
+			}
+			now = now.Add(2 * actorGrace)
+			feed()
+			if c.actorActive(0) {
+				t.Fatal("actor puppet came back up out of play")
+			}
+			c.stage("M_Dai", avatartest.Link, false)
+			now = now.Add(16 * time.Millisecond)
+			feed()
+			if c.actorActive(0) {
+				t.Fatal("actor puppet came back up without an in-play grace")
+			}
+			now = now.Add(actorGrace)
+			feed()
+			if !c.actorActive(0) {
+				t.Error("actor puppet did not come back actorGrace after re-entering play")
+			}
+		})
+	}
+}
+
+// TestFeederReconnectRestartsActorGrace: a reconnect restarts a pending
+// actorGrace wait, since the new connection delivers each remote's
+// position before its pose again.
+func TestFeederReconnectRestartsActorGrace(t *testing.T) {
+	f, c, _ := newTestFeeder(t)
+	ctx := context.Background()
+	now := time.Unix(1000, 0)
+	f.Feed(ctx, []network.RemotePlayer{remote(1, 100, false, now)}, now)
+	now = now.Add(actorGrace / 2)
+	f.Connected(7)
+	f.Feed(ctx, []network.RemotePlayer{remote(1, 100, false, now)}, now)
+	now = now.Add(actorGrace - time.Millisecond)
+	f.Feed(ctx, []network.RemotePlayer{remote(1, 100, false, now)}, now)
+	if c.actorActive(0) {
+		t.Fatal("actor puppet came up less than actorGrace after the reconnect")
+	}
+	now = now.Add(time.Millisecond)
+	f.Feed(ctx, []network.RemotePlayer{remote(1, 100, false, now)}, now)
+	if !c.actorActive(0) {
+		t.Error("actor puppet did not come up actorGrace after the reconnect")
+	}
+}
+
 // TestFeederRearmAfterShadowModeCleared: a save-state load mid-session
 // puts shadow_mode back to 0 and drops the pose_bufs; the next tick
 // re-asserts mode 5 and writes into the newly allocated buffer.
@@ -290,6 +499,8 @@ func TestFeederReconnectForcesRepoll(t *testing.T) {
 	f, c, rep := newTestFeeder(t)
 	ctx := context.Background()
 	now := time.Unix(1000, 0)
+	f.Feed(ctx, []network.RemotePlayer{remote(1, 100, true, now), remote(2, 200, false, now)}, now)
+	now = now.Add(actorGrace)
 	f.Feed(ctx, []network.RemotePlayer{remote(1, 100, true, now), remote(2, 200, false, now)}, now)
 	if !c.wrotePoseOf(0, 1) || !c.actorActive(1) {
 		t.Fatal("setup: player 1 not on link slot 0 or player 2 not on actor slot 1")

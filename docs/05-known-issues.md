@@ -585,6 +585,85 @@ J3DModelData on stage unload is wrong too. `initModel` takes it from Link.arc
 T2 shrank from 0x2C88 to 0x2BE8 bytes (devkitPPC 16.2). It ends at `0x80412BE8`, which
 is 0x318 bytes below the mailbox.
 
+## Actor puppets outlived their slot and froze the next stage — FIXED (2026-10-17)
+
+### The symptom
+
+With the app, both games froze while loading the save's stage (Earth Temple, `M_Dai`) after
+file select: a black screen, `spawn_trigger` stopped, and Dolphin reported "Invalid read from
+0x1a0d0013, PC = 0x80f24230" (inside `d_a_kamome`'s REL). Not every run froze.
+
+### The cause
+
+The app starts the pose pipelines as soon as Dolphin runs the patched game, title screen
+included, and the title stage (`sea_T`) has a Link (`mpPlayerPtr[0]` non-zero). A remote's
+position arrives before its first pose, so the Feeder activated an actor-puppet slot for it;
+300 frames later `multiplayer_update` spawned slot 0's KAMOME next to the title's Link
+(actor `0x80A8B478` every run). The pose then took a link slot, Go cleared the slot, and the
+C side only dropped its pid: nothing ever deleted the actor. That KAMOME took path 0 of its
+spawn room (parameter 0, `dPath_GetRoomPath`, `d_a_kamome.cpp:1496`) and still ran during the
+next stage load, reading the freed path through `mpPath` (+0x304, `kamome_path_move`,
+`:482`).
+
+Reproduced with the C side alone on origin/main's blob (`move-puppet 0 0 0 0` on the title,
+then `poke-u32 80412F14 0`, then the menus into the save): the KAMOME stayed in the actor
+list after the slot went inactive, and the load into `M_Dai` froze. A KAMOME left behind
+on Outset (`stage-hop sea 0 44`) was gone after a `stage-hop` to `M_Dai` and the game ran
+on, so an ordinary stage change can delete it; the title -> file select -> stage path
+did not.
+
+### The fix
+
+- **C (`inject/src/multiplayer.c`, `puppet_reap`).** A slot's actor is deleted
+  (`fopAcM_delete` by id, 0x800244B8) when Go clears the slot, and every actor puppet is
+  deleted when a stage change starts (`mNextStage.mEnable`, 0x803C9D54), when Link is gone
+  (`mpPlayerPtr[0]` 0) or when Link's actor changes. A delete that can't happen yet (the
+  actor is still being created, `fpcM_IsCreating`) is retried every frame; the slot is
+  forgotten only once it went through. No actor is spawned while a stage change is pending,
+  and phase 2 no longer forgets a pid that is still being created (that would have leaked the
+  actor too). An active slot respawns its actor in the new stage.
+- **Go (`mods/multiplayer/feed`, `actorSlot`).** Every new actor-puppet slot waits
+  `actorGrace` (2 s) before its actor comes up. A remote that sends a usable pose and holds,
+  or can still get, a link slot is drawn as a Link and never gets an actor; one beyond
+  `avatar.Cap` or without a usable pose gets it when the wait ends. The wait counts only
+  time this game spends in a play stage (`inPlay`: not the title screen or file select, Link
+  loaded, no stage change pending), so a remote first seen on the title still waits 2 s after
+  this game enters play. An actor that is up goes back down (active 0, so C deletes it) when
+  this game leaves play, and comes back through the same wait. A reconnect restarts a pending
+  wait. The mailbox contract for `Puppet.active` (`inject/include/mailbox.h`) says the same.
+
+Live (new blob, temp ISO, one Dolphin): the title KAMOME is deleted the moment its slot goes
+inactive; with the slot left active, the menus into `M_Dai` load and the game runs on; the
+same with the slot active across `stage-hop` Outset -> `M_Dai` -> Outset, and a deactivation
+on Outset deletes the actor. Two app instances (host + join, Start on the title, both into
+the save): no actor slot was activated, both games ran on in `M_Dai` with the other's Link.
+
+Live, second round (app built from this change, `ui --browser` twice, Start launching both
+Dolphins on the title, user folders 3 and 4):
+
+- The original repro: the pipelines ran from the title, then the menus took both games into
+  the save. No actor slot was activated on the title (the in-play check), no KAMOME or
+  NPC_OB1 was in `actors` after the load, and each game drew the other's Link.
+- The control on origin/main (`bc0226b`, same steps): slot 0's KAMOME (`0x80A8B478`) came up
+  on the title 300 frames in, the slot went back to 0 when the pose took a link slot, the
+  actor stayed, and both games froze loading `M_Dai` (frame counter stuck, black screen,
+  Warning popup, the KAMOME still the only actor in the list).
+- A position-only third remote (`broadcast-link`) added to the session: its NPC_OB1 puppet
+  came up in both games 2 s after it appeared. Both games then did `stage-hop` `M_Dai` ->
+  Outset -> `M_Dai` -> Outset. Right after every hop no puppet was in `actors`; the puppet came
+  back 2 s into the new stage, and nothing froze. Stopping that remote released the slot and
+  the actor was gone.
+- A KAMOME forced into the unused slot 2 (`move-puppet`, `poke-u32 80412F54 1`) on Outset:
+  it stayed put there, was gone right after a `stage-hop` to `M_Dai`, came back in the new
+  stage and again on Outset, and was deleted the moment the slot went to 0.
+- CLI `host` / `join` on the same two games: both Links drawn, red and blue.
+
+Not changed: in `M_Dai` a KAMOME puppet is gone again a few frames after it is created (the
+actor list shows it being deleted; why was not traced), so an active slot there respawns it
+every few frames, as before. NPC_OB1 does the same on Outset and in `M_Dai`: it stays in its
+create phase and is then deleted, about every half second, so it shows only now and then. T2 grew from 0x2E28 to 0x2EE8 bytes; 0x18 bytes are left below the mailbox
+(docs/09 §6).
+
 ## A third remote freezes both games — OPEN (2026-10-17, F1)
 
 ### The symptom
@@ -605,7 +684,12 @@ config (temp user dirs), not the owner's.
 ### Status
 
 Not diagnosed. The Go side writes what it always wrote, so the cause is probably on the C side,
-in the actor spawn or in the second mini-Link. Until it is fixed, nothing shows that the
+in the actor spawn or in the second mini-Link. The actor puppets now get deleted when their slot goes inactive
+or the stage changes (see "Actor puppets outlived their slot" above). With that change, a
+position-only third remote (`broadcast-link` into an app session of two) did not freeze
+either game, across four stage hops (same section, second round). That is one run, in a
+different setup from the D1b repro (`mp-local` and `fake-client`), so F1 stays open. The
+`pose-fake-loop` case (a second mini-Link, no actor) is not touched by the change. Until it is fixed, nothing shows that the
 KAMOME/NPC_OB1 fallback actually draws players 3 and 4 (design decision 5, E2).
 
 Evidence (owner machine): logs in `C:\Users\4step\.claude\jobs\10f6fa34\tmp\pd\d1b\logs`

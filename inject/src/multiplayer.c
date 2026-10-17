@@ -36,6 +36,9 @@
 // queued-spawn result from fopAcM_create; spawned[i] gates phase 2 sync.
 static fpc_ProcID puppet_pids[MAX_PUPPETS];
 static int puppet_spawned[MAX_PUPPETS];
+// The Link actor the actor puppets were last checked against (see
+// puppet_reap).
+static fopAc_ac_c* puppet_owner = 0;
 static int frame_count = 0;
 
 // --- Mini-Link state (Option B from roadmap 06) ------------------------
@@ -294,6 +297,29 @@ void frame_shim(void) {
     );
 }
 
+// Actor-puppet lifetime. Left alone, a puppet whose slot Go cleared
+// lives on. Live, one left behind on Outset was gone after a stage
+// change, but one spawned on the title screen outlived title -> file
+// select -> the save's stage, where KAMOME's path_move read its spawn
+// room's freed path (+0x304 mpPath, d_a_kamome.cpp:482) and the game
+// halted ("Invalid read from 0x1a0d0013", PC 0x80f24230; docs/05). So
+// we delete it ourselves: a slot's actor when Go clears the slot, and
+// every actor when a stage change starts (NEXT_STAGE_ENABLE), when Link
+// is gone (title, file select) or when Link's actor changes. A delete
+// that can't happen yet (still being created) is retried every frame
+// until it does; only then is the slot forgotten.
+static void puppet_reap(int all) {
+    int i;
+    for (i = 0; i < MAX_PUPPETS; i++) {
+        if (!puppet_spawned[i] || (!all && mailbox->puppets[i].active)) continue;
+        fpc_ProcID pid = puppet_pids[i];
+        if (fpcM_IsCreating(pid) || !fopAcM_deleteByID(pid)) continue;
+        puppet_spawned[i] = 0;
+        puppet_pids[i] = fpcM_ERROR_PROCESS_ID_e;
+        mailbox->puppets[i].actor_ptr = 0;
+    }
+}
+
 // Per-frame worker. Iterates the MAX_PUPPETS slots in the mailbox. For
 // each slot whose `active` flag is set by Go, we either queue a spawn
 // (phase 1) or sync pos/rot from the slot into the live actor (phase 2).
@@ -323,6 +349,10 @@ void multiplayer_update(void) {
     mailbox->spawn_trigger++;
 
     fopAc_ac_c* link = PLAYER_PTR_ARRAY[0];
+    // Actor puppets: see puppet_reap.
+    int stage_changing = NEXT_STAGE_ENABLE;
+    puppet_reap(!link || link != puppet_owner || stage_changing);
+    puppet_owner = link;
     if (!link) return;
 
     // Warp handler. Sits ABOVE the frame_count puppet-creation gate so
@@ -434,17 +464,10 @@ void multiplayer_update(void) {
     for (i = 0; i < MAX_PUPPETS; i++) {
         volatile Puppet* slot = &mailbox->puppets[i];
 
-        // Go cleared the slot — drop our book-keeping. Actor cleanup is
-        // best-effort; in practice the actor sticks around until the game
-        // unloads the stage. For now we just stop syncing it.
-        if (!slot->active) {
-            if (puppet_spawned[i]) {
-                puppet_spawned[i] = 0;
-                puppet_pids[i] = fpcM_ERROR_PROCESS_ID_e;
-                slot->actor_ptr = 0;
-            }
-            continue;
-        }
+        // Go cleared the slot: puppet_reap deleted its actor. No spawn
+        // or sync while a stage change is under way either (the reap
+        // deleted those actors; they respawn in the new stage).
+        if (!slot->active || stage_changing) continue;
 
         // Phase 1: spawn on the first frame this slot is active. Seed the
         // slot's target pos with Link's current pos + a small offset (for
@@ -478,8 +501,11 @@ void multiplayer_update(void) {
         // Phase 2: resolve pid to actor and write pos/rot.
         fopAc_ac_c* actor = 0;
         if (!fopAcM_SearchByID(puppet_pids[i], &actor) || !actor) {
-            // Actor was deleted externally. Drop our state; Go can re-
-            // activate the slot to request a fresh spawn.
+            // Still being created: SearchByID can't see it yet. Wait;
+            // forgetting its pid here would leak the actor.
+            if (fpcM_IsCreating(puppet_pids[i])) continue;
+            // Actor was deleted externally (or its create failed). Drop
+            // our state; the next frame requests a fresh spawn.
             puppet_spawned[i] = 0;
             puppet_pids[i] = fpcM_ERROR_PROCESS_ID_e;
             slot->actor_ptr = 0;
