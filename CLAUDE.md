@@ -20,9 +20,9 @@ Wind Waker disc image). Releases are cut on tag push via GitHub Actions.
 ```
 ww-multiplayer/
 ├── main.go, commands.go         # Entry point; commands.go: the CLI command registry + generated help (app_face.go: no args = app window, `tui`, `ui --browser`)
-├── *.go                         # Rest of package main: coop_*.go (co-op CLI + session), mp_local*.go (dolphin2, mp-local),
-│                                #   tunic_diag.go (tunic dev commands), coop_hook.go (co-op behind the engine's seam: coopHook, coopApp, newTUIEngine/newCLIEngine),
-│                                #   app_coop.go (the app's co-op: world, hub, GO, coop-sync; engine.LobbyCoop), mods.go (compiledMods), auto_recapture.go
+├── *.go                         # Rest of package main: coop_*.go (co-op CLI commands, coop_diag.go), mp_local*.go (dolphin2, mp-local),
+│                                #   tunic_diag.go (tunic dev commands), engine_config.go (newTUIEngine/newCLIEngine; sessionEnv, coopEnv = coopsession.Env),
+│                                #   mods.go (compiledMods), auto_recapture.go
 ├── internal/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
@@ -47,6 +47,9 @@ ww-multiplayer/
 ├── mods/                        # Compiled-in mods (docs/api §6): example/ (D3), _fixtures/ (runtime test mods)
 │   ├── coop/                    # Co-op engine (docs/08): replica, hub, world, wire, derive, class, story, inventory, bind, ...; proto/ (the Feature bits, policies and scoped filters hub and replica share)
 │   │                            #   combat/ (M6: K1 classes, layouts, gates, Revalidate over wwapi/actors), savemerge/ (offline save merge), synctables/ (sync verdicts and acceptance over wwapi/tables)
+│   │                            #   session/ (package coopsession, D2b: the --coop session, console, puzzles, combat status, the app's co-op (app.go) and the engine seam (hook.go: Env, App/CLIApp);
+│   │                            #   the co-op golden + converge tests, testdata/coop-golden), stagetables/ (+ stagetablestest/), procstate/ (session marker process check),
+│   │                            #   diag/ (what coop_diag.go shares: Tick, GateSnapshots, SplitFlags, Where, WithMem, DiffSave/SaveLabel), bind/bindtest/ (a FakeGame with a bound file)
 │   └── multiplayer/             # The multiplayer mod (D1): mod.go + mod.json (provides net, PublicAPI ValidatePlayerName), listed in compiledMods()
 │       ├── engine/              # Session core: Engine (session.Engine: host/join/lobby, NewTUIEngine/NewCLIEngine), lobby.go, game.go (the app's Start: Dolphin + pipelines), LiveState, RunHostSession/RunJoinSession, co-op via the seam in coop.go (Coop, CoopApp, LobbyCoop, CoopSide), RunPipelines, server + fake client, color-pref clients; enginetest/ = fake Dolphins
 │       ├── feed/                # Pose pipelines: BroadcastPose, PuppetSync (Feeder: link/actor slot assignment, lerp, arming over wwapi/avatar), PoseFakeLoop
