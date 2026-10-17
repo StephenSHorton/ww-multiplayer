@@ -1,4 +1,4 @@
-package stagedata
+package stage
 
 import (
 	"encoding/binary"
@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // Fuzz targets for the DZx reader, the l_objectName reader and the stage
@@ -14,7 +14,7 @@ import (
 // corpora are built in code (no game data) and run as ordinary tests; to
 // fuzz one, e.g.:
 //
-//	go test -run='^$' -fuzz=FuzzParseDZx -fuzztime=30s ./internal/coop/stagedata/
+//	go test -run='^$' -fuzz=FuzzParseDZx -fuzztime=30s ./wwapi/stage/
 
 func FuzzParseDZx(f *testing.F) {
 	sample := sampleDZx()

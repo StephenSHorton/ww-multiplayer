@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // The benchmarks run Get on a synthetic disc at about the scale of
@@ -73,7 +73,7 @@ func benchDisc(b *testing.B) (*stagetest.Disc, int64) {
 	b.Helper()
 	r := rand.New(rand.NewPCG(1, 2))
 	var rooms [][]byte
-	stage := tablestest.Stage("bench", 3, stagedata.StageDungeon, nil, []stagetest.Actor{tablestest.KeyDoor(0x10, 0, 1)})
+	stage := tablestest.Stage("bench", 3, stage.StageDungeon, nil, []stagetest.Actor{tablestest.KeyDoor(0x10, 0, 1)})
 	for v := range benchVariants {
 		room := benchRoom(v)
 		room.Extra = []stagetest.File{{Path: "bdl/model.bdl", Data: filler(r, benchRoomFiller)}}

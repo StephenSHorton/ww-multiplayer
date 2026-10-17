@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 func identityOf(t *testing.T, tb *Tables) uint64 {
@@ -130,7 +130,7 @@ func TestSyncedSwitch(t *testing.T) {
 	if !tb.SyncedSwitch(keys.TableDRC, "M_NewD2", 1, 0x20) || !tb.SyncedSwitch(keys.TableDRC, "", -1, 0x20) {
 		t.Error("SyncedSwitch of DRC's crystal from its room or from nowhere is false")
 	}
-	if tb.SyncedSwitch(keys.TableDRC, "M_NewD2", stagedata.MaxRooms, 0xC0) {
+	if tb.SyncedSwitch(keys.TableDRC, "M_NewD2", stage.MaxRooms, 0xC0) {
 		t.Error("a zone switch of room 64 is synced")
 	}
 }

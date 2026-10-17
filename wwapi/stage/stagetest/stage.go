@@ -7,12 +7,12 @@ import (
 	"io/fs"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/disc"
 )
 
 // Stage is a synthetic stage directory, for Disc.AddStage: a Stage.arc
 // holding dzs/stage.dzs and a Room<N>.arc holding dzr/room.dzr per room,
-// under res/Stage/<Name>/ (the paths stagedata's stage.go cites).
+// under res/Stage/<Name>/ (the paths wwapi/stage's stage.go cites).
 type Stage struct {
 	Name  string
 	DZS   []byte // stage.dzs; nil leaves it out of Stage.arc
@@ -54,19 +54,19 @@ func pack(arc []byte, yaz0 bool) []byte {
 }
 
 // Disc is an in-memory disc: it lists and reads files the way
-// *inject.Disc does, so it satisfies stagedata.FileSource. Lookups go one
+// *inject.Disc does, so it satisfies disc.FileSource. Lookups go one
 // path component at a time, ASCII case-insensitively, the first match in
 // the order files were added winning (as DVDConvertPathToEntrynum does
 // in disc order). The zero value is an empty disc.
 type Disc struct {
-	files []inject.DiscFile
+	files []disc.DiscFile
 	data  [][]byte
 	end   uint32
 }
 
 // Add adds a file at path ("res/Stage/sea/Stage.arc").
 func (d *Disc) Add(path string, data []byte) {
-	d.files = append(d.files, inject.DiscFile{Path: path, Offset: d.end, Size: uint32(len(data))})
+	d.files = append(d.files, disc.DiscFile{Path: path, Offset: d.end, Size: uint32(len(data))})
 	d.data = append(d.data, data)
 	d.end += uint32(len(data))
 }
@@ -82,14 +82,14 @@ func (d *Disc) AddStage(s Stage) {
 }
 
 // Files lists every file in the order added.
-func (d *Disc) Files() []inject.DiscFile { return append([]inject.DiscFile(nil), d.files...) }
+func (d *Disc) Files() []disc.DiscFile { return append([]disc.DiscFile(nil), d.files...) }
 
 // Stat returns the entry ReadFile reads for path, spelled as added, or an
 // error matching fs.ErrNotExist.
-func (d *Disc) Stat(path string) (inject.DiscFile, error) {
+func (d *Disc) Stat(path string) (disc.DiscFile, error) {
 	i, err := d.lookup(path)
 	if err != nil {
-		return inject.DiscFile{}, err
+		return disc.DiscFile{}, err
 	}
 	return d.files[i], nil
 }
@@ -257,7 +257,7 @@ func foldEqual(a, b string) bool {
 	return true
 }
 
-// l_objectName as GZLE01 has it (stagedata's objname.go cites these):
+// l_objectName as GZLE01 has it (wwapi/stage's objname.go cites these):
 // 825 entries of 0xC bytes at .data 0x80372818, the last "EndCode" with
 // proc 7, fpcNm_PLAY_SCENE_e.
 const (

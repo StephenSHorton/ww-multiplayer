@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/enemies"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // The enemies M6's kill sync acts on (§7.2): the actor queue the tool
@@ -70,13 +70,13 @@ const (
 // it while held (1 and 10), and the BOKO's u8 mNowMode
 // (addr.BokoOffNowMode) as ENEMY_CARRY, PLAYER_CARRY or MOVE.
 var (
-	weaponField = map[stagedata.Proc]uint32{stagedata.ProcBK: 0x1200, stagedata.ProcST: 0x1DCC, stagedata.ProcTN: 0x1410}
-	modeField   = map[stagedata.Proc]uint32{stagedata.ProcRD: 0x2AC, stagedata.ProcFM: 0x2AC}
-	holdField   = map[stagedata.Proc]struct {
+	weaponField = map[stage.Proc]uint32{stage.ProcBK: 0x1200, stage.ProcST: 0x1DCC, stage.ProcTN: 0x1410}
+	modeField   = map[stage.Proc]uint32{stage.ProcRD: 0x2AC, stage.ProcFM: 0x2AC}
+	holdField   = map[stage.Proc]struct {
 		off  uint32
 		s8   bool
 		held uint32
-	}{stagedata.ProcBK: {0xB30, false, 1}, stagedata.ProcST: {0x1DD0, true, 10}}
+	}{stage.ProcBK: {0xB30, false, 1}, stage.ProcST: {0x1DD0, true, 10}}
 )
 
 // procBoko is fpcNm_BOKO_e (f_pc_name.h:482), a carried weapon.
@@ -87,7 +87,7 @@ type Enemy struct {
 	Stage  string
 	Room   int
 	SetID  uint16 // 0xFFFF: unkeyed
-	Proc   stagedata.Proc
+	Proc   stage.Proc
 	Params uint32
 	Health int8 // at creation; 0 is 4
 	// Boss gives it fopAcStts_BOSS_e as its create does for some params
@@ -108,7 +108,7 @@ type liveActor struct {
 	at      uint32
 	pid     uint32
 	placed  int // index into Enemies.placed; -1 for a weapon or a stand-in
-	proc    stagedata.Proc
+	proc    stage.Proc
 	ice     uint32 // enemyice offset, 0 for none
 	room    int
 	initSt  int8
@@ -249,7 +249,7 @@ func (e *Enemies) Born(pid uint32) (Enemy, int, bool) {
 type LiveEnemy struct {
 	Addr, PID uint32
 	Placed    int // index of its Enemy in PlaceEnemies' list; -1 for a weapon
-	Proc      stagedata.Proc
+	Proc      stage.Proc
 	Room      int
 	InitState int8
 	Carrier   uint32 // a weapon's carrier's pid
@@ -326,11 +326,11 @@ func (e *Enemies) Kill(g *FakeGame, pid uint32) error {
 	a := e.live[i]
 	g.st8(a.at+addr.ActorOffHealth, 0)
 	switch a.proc {
-	case stagedata.ProcRD:
+	case stage.ProcRD:
 		g.st32(a.at+modeField[a.proc], 3) // MODE_DEATH (d_a_rd.h:27)
 		a.dying = 30
 		return nil
-	case stagedata.ProcBB:
+	case stage.ProcBB:
 	default:
 		if err := e.record(g, a); err != nil {
 			return err
@@ -346,7 +346,7 @@ func (e *Enemies) Kill(g *FakeGame, pid uint32) error {
 // place in the queue, an actor of proc with a new process ID and its own
 // fields: what the heap does when the game frees an actor and the next
 // create takes the same block. It returns the new pid.
-func (e *Enemies) FreeAndReuse(g *FakeGame, pid uint32, proc stagedata.Proc) (uint32, error) {
+func (e *Enemies) FreeAndReuse(g *FakeGame, pid uint32, proc stage.Proc) (uint32, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	e.mu.Lock()
@@ -377,23 +377,23 @@ func (e *Enemies) execute(g *FakeGame) error {
 	defer g.mu.Unlock()
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	stage := ""
+	cur := ""
 	if g.playing {
-		stage = g.curStage()
+		cur = g.curStage()
 	}
 	changed := false
-	if stage != e.stage || g.loads != e.loads {
+	if cur != e.stage || g.loads != e.loads {
 		// Another stage, or the same one loaded again: the play scene's
 		// rooms, and their actors, are all new.
 		for len(e.live) > 0 {
 			e.remove(g, 0)
 		}
-		e.stage, e.loads, e.scene, changed = stage, g.loads, [addr.RoomCount]roomScene{}, true
+		e.stage, e.loads, e.scene, changed = cur, g.loads, [addr.RoomCount]roomScene{}, true
 	}
 	for room := range addr.RoomCount {
 		proc, shown := g.sceneOf(room)
 		switch {
-		case stage == "" || !shown:
+		case cur == "" || !shown:
 			if e.scene[room].on {
 				changed = e.dropRoom(g, room) || changed
 				e.scene[room] = roomScene{}
@@ -402,7 +402,7 @@ func (e *Enemies) execute(g *FakeGame) error {
 			e.dropRoom(g, room)
 			e.scene[room] = roomScene{true, proc}
 			for i, p := range e.placed {
-				if p.Stage == stage && p.Room == room && !g.isActor(int(p.SetID), room) {
+				if p.Stage == cur && p.Room == room && !g.isActor(int(p.SetID), room) {
 					e.create(g, i)
 				}
 			}
@@ -443,7 +443,7 @@ func (e *Enemies) execute(g *FakeGame) error {
 			}
 			continue
 		}
-		if m, ok := modeField[a.proc]; ok && a.proc == stagedata.ProcRD && int32(g.ld32(a.at+m)) == 0xA {
+		if m, ok := modeField[a.proc]; ok && a.proc == stage.ProcRD && int32(g.ld32(a.at+m)) == 0xA {
 			continue // MODE_SW_WAIT returns before enemy_ice (d_a_rd.cpp:1621-1630)
 		}
 		ice := a.at + a.ice

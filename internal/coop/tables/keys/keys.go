@@ -21,8 +21,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // Save tables (dSv_save_c::SaveStageTbl, d_save.h:888-905) the dungeons
@@ -37,9 +37,9 @@ const (
 
 // ProcKddoor is the third door class with a key lock: fpcNm_KDDOOR_e,
 // f_pc_name.h:318; "doorKD", "ZenshKD", "K_ZshKD", "doorSH", "doorSZ"
-// (d_stage.cpp:460-464). door10 and door12 are stagedata.ProcDoor10 and
-// stagedata.ProcDoor12.
-const ProcKddoor stagedata.Proc = 0x132
+// (d_stage.cpp:460-464). door10 and door12 are stage.ProcDoor10 and
+// stage.ProcDoor12.
+const ProcKddoor stage.Proc = 0x132
 
 // Dungeon is a save table that should hold small keys, with its vanilla
 // key count.
@@ -80,13 +80,13 @@ const (
 // boss-key doors (keyCreate(1)), which leave mKeyNum alone (d_door.cpp:
 // 438-439); they are not in this table. No other class creates a key
 // lock (dDoor_key2_c is used only by these three).
-var classes = map[stagedata.Proc]struct {
+var classes = map[stage.Proc]struct {
 	class Class
 	types []int
 }{
-	stagedata.ProcDoor10: {Door10, []int{4, 5}},
-	stagedata.ProcDoor12: {Door12, []int{1}},
-	ProcKddoor:           {Kddoor, []int{2}},
+	stage.ProcDoor10: {Door10, []int{4, 5}},
+	stage.ProcDoor12: {Door12, []int{1}},
+	ProcKddoor:       {Kddoor, []int{2}},
 }
 
 // Switch ranges (dSv_info_c, d_save.h:982-984; isSwitch, d_save.cpp:
@@ -100,17 +100,17 @@ const (
 // Entry is one key-door entry of a stage file.
 type Entry struct {
 	itemsrc.Where
-	Class     Class          `json:"class"`
-	Proc      stagedata.Proc `json:"proc"`
-	Type      int            `json:"type"`
-	Switch    int            `json:"switch"`     // getSwbit, prm & 0xFF (d_door.cpp:16-18)
-	FrontRoom int            `json:"front_room"` // getFRoomNo, angle x & 0x3F (d_door.cpp:44-46)
-	BackRoom  int            `json:"back_room"`  // getBRoomNo, (angle x >> 6) & 0x3F (d_door.cpp:49-51)
+	Class     Class      `json:"class"`
+	Proc      stage.Proc `json:"proc"`
+	Type      int        `json:"type"`
+	Switch    int        `json:"switch"`     // getSwbit, prm & 0xFF (d_door.cpp:16-18)
+	FrontRoom int        `json:"front_room"` // getFRoomNo, angle x & 0x3F (d_door.cpp:44-46)
+	BackRoom  int        `json:"back_room"`  // getBRoomNo, (angle x >> 6) & 0x3F (d_door.cpp:49-51)
 }
 
 // DecodeDoor reads p, an entry that creates proc, as a small-key door: ok
 // is false for any other door type or class.
-func DecodeDoor(s *stagedata.Stage, p stagedata.Placed, proc stagedata.Proc) (Entry, bool) {
+func DecodeDoor(s *stage.Stage, p stage.Placed, proc stage.Proc) (Entry, bool) {
 	c, ok := classes[proc]
 	if !ok {
 		return Entry{}, false
@@ -166,10 +166,10 @@ func (r *Result) Table(no int) (*Table, bool) {
 	return nil, false
 }
 
-// Build reads stages, as stagedata.Load returns them, with names, the
+// Build reads stages, as stage.Load returns them, with names, the
 // user's l_objectName. It never fails: what it can't account for is a
 // problem of the table it is in.
-func Build(stages []*stagedata.Stage, names *stagedata.ObjectNames) *Result {
+func Build(stages []*stage.Stage, names *stage.ObjectNames) *Result {
 	type acc struct {
 		stages  []string
 		sources []itemsrc.Placement
@@ -192,7 +192,7 @@ func Build(stages []*stagedata.Stage, names *stagedata.ObjectNames) *Result {
 		if s == nil {
 			continue
 		}
-		srcs := itemsrc.Find([]*stagedata.Stage{s}, names, isKey)
+		srcs := itemsrc.Find([]*stage.Stage{s}, names, isKey)
 		var doors []Entry
 		if names != nil {
 			for _, p := range s.All() {

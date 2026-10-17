@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 var patchedAt = time.Date(2026, 10, 14, 12, 0, 0, 123_456_789, time.UTC)
@@ -221,7 +221,7 @@ func TestGetPatchedBuildFails(t *testing.T) {
 	saved := builders
 	t.Cleanup(func() { builders = saved })
 	builders = append([]builder(nil), saved...)
-	builders[2].build = func(*Tables, []*stagedata.Stage, *stagedata.ObjectNames) { panic("index out of range") }
+	builders[2].build = func(*Tables, []*stage.Stage, *stage.ObjectNames) { panic("index out of range") }
 	_, _, err = GetPatched(dir)
 	builders = saved
 	if !errors.As(err, &be) {
@@ -241,7 +241,7 @@ func TestBuilderPanics(t *testing.T) {
 	saved := builders
 	t.Cleanup(func() { builders = saved })
 	builders = append([]builder(nil), saved...)
-	builders[2].build = func(*Tables, []*stagedata.Stage, *stagedata.ObjectNames) { panic("index out of range") }
+	builders[2].build = func(*Tables, []*stage.Stage, *stage.ObjectNames) { panic("index out of range") }
 	dir := t.TempDir()
 	_, st, err := Get(vanillaDisc(t), dir)
 	if err == nil || !strings.Contains(err.Error(), "the switches builder failed on this disc") || !strings.Contains(err.Error(), "index out of range") {

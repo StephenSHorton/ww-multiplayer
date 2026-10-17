@@ -12,42 +12,42 @@ package tablestest
 import (
 	"encoding/binary"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/hearts"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // Names are the l_objectName entries the fixture places, with the
 // d_stage.cpp line of each.
 func Names() []stagetest.ObjectName {
-	n := func(name string, p stagedata.Proc) stagetest.ObjectName {
+	n := func(name string, p stage.Proc) stagetest.ObjectName {
 		return stagetest.ObjectName{Name: name, Proc: int16(p), Subtype: -1}
 	}
 	return []stagetest.ObjectName{
-		n("door10", stagedata.ProcDoor10),   // d_stage.cpp:451
-		n("takara", stagedata.ProcTbox),     // :483
-		n("SW_HIT0", stagedata.ProcSwhit0),  // :531
-		n("osiBLK0", stagedata.ProcMovebox), // :541
-		n("item", stagedata.ProcItem),       // :647
-		n("c_green", stagedata.ProcCC),      // :681
-		n("big_pow", stagedata.ProcBPW),     // :694
-		n("Bk", stagedata.ProcBK),           // :811
-		n("Bb", stagedata.ProcBB),           // :653
-		n("kuro_s", stagedata.ProcKS),       // :679
-		n("Rdead1", stagedata.ProcRD),       // :799
-		n("Fmaster", stagedata.ProcFM),      // :801
-		n("Stal", stagedata.ProcST),         // :948
-		n("Tn", stagedata.ProcTN),           // :985
-		n("Btd", stagedata.ProcBTD),         // :843
-		n("Bkm", stagedata.ProcBMD),         // :1187
-		n("Bst", stagedata.ProcBST),         // :1188
-		n("Bitem", stagedata.ProcBossItem),  // :1189
-		n("Bwd", stagedata.ProcBWD),         // :1191
-		n("TagKb", itemsrc.ProcTagKbItem),   // :583
-		n("agbA", ProcAgbsw0),               // :503
+		n("door10", stage.ProcDoor10),     // d_stage.cpp:451
+		n("takara", stage.ProcTbox),       // :483
+		n("SW_HIT0", stage.ProcSwhit0),    // :531
+		n("osiBLK0", stage.ProcMovebox),   // :541
+		n("item", stage.ProcItem),         // :647
+		n("c_green", stage.ProcCC),        // :681
+		n("big_pow", stage.ProcBPW),       // :694
+		n("Bk", stage.ProcBK),             // :811
+		n("Bb", stage.ProcBB),             // :653
+		n("kuro_s", stage.ProcKS),         // :679
+		n("Rdead1", stage.ProcRD),         // :799
+		n("Fmaster", stage.ProcFM),        // :801
+		n("Stal", stage.ProcST),           // :948
+		n("Tn", stage.ProcTN),             // :985
+		n("Btd", stage.ProcBTD),           // :843
+		n("Bkm", stage.ProcBMD),           // :1187
+		n("Bst", stage.ProcBST),           // :1188
+		n("Bitem", stage.ProcBossItem),    // :1189
+		n("Bwd", stage.ProcBWD),           // :1191
+		n("TagKb", itemsrc.ProcTagKbItem), // :583
+		n("agbA", ProcAgbsw0),             // :503
 	}
 }
 
@@ -100,8 +100,8 @@ func Crystal(sw uint32) stagetest.Actor {
 }
 
 // ProcAgbsw0 is fpcNm_AGBSW0_e, the Tingle Tuner switch (f_pc_name.h:450),
-// which stagedata doesn't name.
-const ProcAgbsw0 stagedata.Proc = 0x1B6
+// which wwapi/stage doesn't name.
+const ProcAgbsw0 stage.Proc = 0x1B6
 
 // TingleTuner is a Tingle Tuner switch (agbsw0) of type typ naming sw0
 // and sw1 (0xFF for none): every type up to 0xE writes them only while a
@@ -123,8 +123,8 @@ func PushBlock(path, lo, hi uint32) stagetest.Actor {
 
 // Stage is a stage of save table table and type typ, with its own
 // entries dzs in an ACTR chunk and doors in a TGDR chunk, and rooms.
-func Stage(name string, table int, typ stagedata.StageType, dzs, doors []stagetest.Actor, rooms ...stagetest.Room) stagetest.Stage {
-	chunks := []stagetest.Chunk{stagetest.StagChunk(stagetest.StagInfo(table, int(typ), typ == stagedata.StageDungeon))}
+func Stage(name string, table int, typ stage.StageType, dzs, doors []stagetest.Actor, rooms ...stagetest.Room) stagetest.Stage {
+	chunks := []stagetest.Chunk{stagetest.StagChunk(stagetest.StagInfo(table, int(typ), typ == stage.StageDungeon))}
 	if len(dzs) > 0 {
 		chunks = append(chunks, stagetest.Actors("ACTR", dzs...))
 	}
@@ -154,7 +154,7 @@ func Dungeon(name string, table int, extra ...stagetest.Actor) stagetest.Stage {
 		doors = append(doors, KeyDoor(0x10+uint32(i), i, i+1))
 		chests = append(chests, KeyChest(1+uint32(i)))
 	}
-	return Stage(name, table, stagedata.StageDungeon, nil, doors, Room(0), Room(1, append(chests, extra...)...))
+	return Stage(name, table, stage.StageDungeon, nil, doors, Room(0), Room(1, append(chests, extra...)...))
 }
 
 // Vanilla is the fixture whose acceptance checks all pass: 13 stages, of
@@ -169,28 +169,28 @@ func Dungeon(name string, table int, extra ...stagetest.Actor) stagetest.Stage {
 // an enemy, all of which the tables leave out (Tables.Excluded). Last
 // comes "Name", which the tables leave out too: like the real disc's, its
 // Stage.arc has no stage.dzs, since only the name scene loads it
-// (stagedata.Load).
+// (stage.Load).
 func Vanilla() []stagetest.Stage {
 	pieces := []stagetest.Actor{DigPiece(0x02)}
 	for bit := uint32(0); len(pieces) < hearts.ExpectedPieces-len(hearts.Catalogue); bit++ {
 		pieces = append(pieces, PieceChest(bit))
 	}
 	return []stagetest.Stage{
-		Stage("sea", 0, stagedata.StageSea, nil, nil, Room(1, append(pieces, Bitem(2))...)),
+		Stage("sea", 0, stage.StageSea, nil, nil, Room(1, append(pieces, Bitem(2))...)),
 		Dungeon("M_NewD2", keys.TableDRC,
 			Crystal(0x20), PushBlock(1, 0x30, 0x31),
 			Enemy("Bk", 1), Enemy("Bk", 1), Enemy("c_green", 2), Enemy("Bk", 0xFFFF)),
-		Stage("M_DragB", keys.TableDRC, stagedata.StageDungeon, []stagetest.Actor{Boss("Btd")}, nil, Room(0, Bitem(keys.TableDRC))),
+		Stage("M_DragB", keys.TableDRC, stage.StageDungeon, []stagetest.Actor{Boss("Btd")}, nil, Room(0, Bitem(keys.TableDRC))),
 		Dungeon("kindan", keys.TableFW),
-		Stage("kinBOSS", keys.TableFW, stagedata.StageDungeon, []stagetest.Actor{Boss("Bkm")}, nil),
+		Stage("kinBOSS", keys.TableFW, stage.StageDungeon, []stagetest.Actor{Boss("Bkm")}, nil),
 		Dungeon("Siren", keys.TableTotG),
-		Stage("SirenB", keys.TableTotG, stagedata.StageDungeon, []stagetest.Actor{Boss("Bst")}, nil),
+		Stage("SirenB", keys.TableTotG, stage.StageDungeon, []stagetest.Actor{Boss("Bst")}, nil),
 		Dungeon("M_Dai", keys.TableET),
-		Stage("M_DaiB", keys.TableET, stagedata.StageDungeon, []stagetest.Actor{Boss("big_pow")}, nil),
+		Stage("M_DaiB", keys.TableET, stage.StageDungeon, []stagetest.Actor{Boss("big_pow")}, nil),
 		Dungeon("kaze", keys.TableWT),
-		Stage("kazeB", keys.TableWT, stagedata.StageDungeon, []stagetest.Actor{Boss("Bwd")}, nil),
-		Stage("Xboss0", TableGT, stagedata.StageBoss, []stagetest.Actor{Boss("Btd")}, nil),
-		Stage("K_Test2", TableTest, stagedata.StageOutdoors, nil, nil, Room(0,
+		Stage("kazeB", keys.TableWT, stage.StageDungeon, []stagetest.Actor{Boss("Bwd")}, nil),
+		Stage("Xboss0", TableGT, stage.StageBoss, []stagetest.Actor{Boss("Btd")}, nil),
+		Stage("K_Test2", TableTest, stage.StageOutdoors, nil, nil, Room(0,
 			PieceChest(0), KeyChest(1), stagetest.Actor{Name: "item", Params: 0x7F<<8 | uint32(itemsrc.ItemHeartContainer), SetID: noSetID},
 			Enemy("Bk", 7))),
 		{Name: "Name"},

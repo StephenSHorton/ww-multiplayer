@@ -10,8 +10,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
@@ -22,6 +20,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // The M6 fixture's enemies, in Dragon Roost Cavern's room 1 and one in
@@ -37,21 +37,21 @@ const (
 
 var m6Placed = []struct {
 	name  string
-	proc  stagedata.Proc
+	proc  stage.Proc
 	room  int
 	setID uint16
 	boss  bool
 }{
-	{"Bk", stagedata.ProcBK, 1, 1, false},
-	{"Bk", stagedata.ProcBK, 1, 2, false},
-	{"c_green", stagedata.ProcCC, 1, 3, false},
-	{"Rdead1", stagedata.ProcRD, 1, 4, false},
-	{"Fmaster", stagedata.ProcFM, 1, 5, false},
-	{"Bk", stagedata.ProcBK, 1, 6, true},
-	{"Bb", stagedata.ProcBB, 1, 7, false},
-	{"Bk", stagedata.ProcBK, 1, 0xFFFF, false},
-	{"Tn", stagedata.ProcTN, 1, 9, false},
-	{"Bk", stagedata.ProcBK, 2, 1, false},
+	{"Bk", stage.ProcBK, 1, 1, false},
+	{"Bk", stage.ProcBK, 1, 2, false},
+	{"c_green", stage.ProcCC, 1, 3, false},
+	{"Rdead1", stage.ProcRD, 1, 4, false},
+	{"Fmaster", stage.ProcFM, 1, 5, false},
+	{"Bk", stage.ProcBK, 1, 6, true},
+	{"Bb", stage.ProcBB, 1, 7, false},
+	{"Bk", stage.ProcBK, 1, 0xFFFF, false},
+	{"Tn", stage.ProcTN, 1, 9, false},
+	{"Bk", stage.ProcBK, 2, 1, false},
 }
 
 func m6Stages() []stagetest.Stage {
@@ -114,7 +114,7 @@ func m6Enemies() *fakegame.Enemies {
 
 // unverify makes K1 class p unverified for one test: every K1 class is
 // verified since the live check K1 (docs/08 §8.2).
-func unverify(t testing.TB, p stagedata.Proc) {
+func unverify(t testing.TB, p stage.Proc) {
 	old := actors.SetVerified(int16(p), false)
 	t.Cleanup(func() { actors.SetVerified(int16(p), old) })
 }
@@ -419,7 +419,7 @@ func TestReconcileM6Revalidate(t *testing.T) {
 	rr.bm.onHeartbeat(func(n int) {
 		if n == 2 && !reused { // the writer's first beat read
 			reused = true
-			if _, err := rr.es.FreeAndReuse(rr.g, cc.PID, stagedata.ProcCC); err != nil {
+			if _, err := rr.es.FreeAndReuse(rr.g, cc.PID, stage.ProcCC); err != nil {
 				t.Error(err)
 			}
 		}
@@ -654,7 +654,7 @@ func TestReconcileM6WeaponTakenUp(t *testing.T) {
 // TestReconcileM6Unverified: a class not verified (the Darknut, made so
 // here) gets its zone bit, never a light-shrink.
 func TestReconcileM6Unverified(t *testing.T) {
-	unverify(t, stagedata.ProcTN)
+	unverify(t, stage.ProcTN)
 	rr := newM6Rig(t)
 	rr.kill(1, 9)
 	rr.ticks(5)
@@ -801,7 +801,7 @@ func FuzzReconcileM6(f *testing.F) {
 				}
 			case 6:
 				if l, ok := rr.es.Of(int(arg) % len(m6Placed)); ok {
-					rr.es.FreeAndReuse(rr.g, l.PID, stagedata.ProcCC)
+					rr.es.FreeAndReuse(rr.g, l.PID, stage.ProcCC)
 				}
 			case 7:
 				rr.splitLoad([]fakegame.Stage{drcKeys, drcBoss}[int(arg)%2])

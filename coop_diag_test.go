@@ -15,12 +15,12 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -289,8 +289,8 @@ func (b *diagBeat) Read(a uint32, n int) ([]byte, error) {
 // the live check K1 (docs/08 §8.2), and the diagnostics' --unverified path
 // is kept covered with it.
 func unverifyPW(t *testing.T) {
-	old := actors.SetVerified(int16(stagedata.ProcPW), false)
-	t.Cleanup(func() { actors.SetVerified(int16(stagedata.ProcPW), old) })
+	old := actors.SetVerified(int16(stage.ProcPW), false)
+	t.Cleanup(func() { actors.SetVerified(int16(stage.ProcPW), old) })
 }
 
 // diagEnemies is a game in DRC's room 2 with a Bokoblin holding its
@@ -300,10 +300,10 @@ func diagEnemies(t *testing.T) (*diagBeat, func()) {
 	m := mem.NewFakeMem()
 	g := fakegame.New(m)
 	es := fakegame.PlaceEnemies(
-		fakegame.Enemy{Stage: diagDRC.Name, Room: 2, SetID: 1, Proc: stagedata.ProcBK, Weapon: true},
-		fakegame.Enemy{Stage: diagDRC.Name, Room: 2, SetID: 2, Proc: stagedata.ProcCC},
-		fakegame.Enemy{Stage: diagDRC.Name, Room: 2, SetID: addr.ActorSetIDNone, Proc: stagedata.ProcCC},
-		fakegame.Enemy{Stage: diagDRC.Name, Room: 2, SetID: 4, Proc: stagedata.ProcPW},
+		fakegame.Enemy{Stage: diagDRC.Name, Room: 2, SetID: 1, Proc: stage.ProcBK, Weapon: true},
+		fakegame.Enemy{Stage: diagDRC.Name, Room: 2, SetID: 2, Proc: stage.ProcCC},
+		fakegame.Enemy{Stage: diagDRC.Name, Room: 2, SetID: addr.ActorSetIDNone, Proc: stage.ProcCC},
+		fakegame.Enemy{Stage: diagDRC.Name, Room: 2, SetID: 4, Proc: stage.ProcPW},
 	)
 	if err := g.LoadStage(diagDRC); err != nil {
 		t.Fatal(err)

@@ -1,4 +1,4 @@
-// Package stagedata reads the stage data on the user's own Wind Waker disc
+// Package stage reads the stage data on the user's own Wind Waker disc
 // (§6.2, §7.1 of the co-op design): the Yaz0 compression and RARC archives
 // the stage files come in, and the DZS/DZR chunks inside them. Every
 // reader takes untrusted bytes: offsets and counts are bounds-checked,
@@ -9,7 +9,12 @@
 // Citations: file:line is the zeldaret/tww decomp at commit 4d78c994
 // (include/ and src/; the file names are unique, so directories are left
 // out), as in wwapi/addr.
-package stagedata
+//
+// # v0 UNSTABLE
+//
+// This package is part of wwapi v0. Its API may change in any 0.x minor
+// version.
+package stage
 
 import (
 	"encoding/binary"

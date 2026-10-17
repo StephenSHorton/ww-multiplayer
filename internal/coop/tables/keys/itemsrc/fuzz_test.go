@@ -3,7 +3,7 @@ package itemsrc
 import (
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // Fuzz target for the placement decoders over any entry. The seed corpus
@@ -13,24 +13,24 @@ import (
 //	go test -run='^$' -fuzz=FuzzDecode -fuzztime=20s ./internal/coop/tables/keys/itemsrc/
 
 func FuzzDecode(f *testing.F) {
-	f.Add(int16(stagedata.ProcTbox), uint32(5<<7|7), int16(0), int16(0), int16(0x1500), 2, 3)
-	f.Add(int16(stagedata.ProcItem), uint32(0x45<<8|0x15), int16(0), int16(0), int16(0), 2, 3)
+	f.Add(int16(stage.ProcTbox), uint32(5<<7|7), int16(0), int16(0), int16(0x1500), 2, 3)
+	f.Add(int16(stage.ProcItem), uint32(0x45<<8|0x15), int16(0), int16(0), int16(0), 2, 3)
 	f.Add(int16(ProcSalvage), uint32(2<<28|1<<20|0x07<<4), int16(0), int16(0), int16(0x10), 0, 0)
 	f.Add(int16(ProcSalvage), uint32(4<<28|31<<20|0x07<<4), int16(0), int16(0), int16(0), 50, 0)
 	f.Add(int16(ProcBemos), uint32(0), int16(0), int16(0), int16(-1), -1, 3)
 	f.Add(int16(ProcTagKbItem), uint32(0xFFFF0207), int16(0), int16(0), int16(0), 44, 0)
 	f.Add(int16(ProcGrass), uint32(0xFFFFFFFF), int16(-1), int16(-1), int16(-1), 63, 0xF)
 	f.Fuzz(func(t *testing.T, proc int16, prm uint32, ax, ay, az int16, room, table int) {
-		s := &stagedata.Stage{Name: "fz", SaveTable: table}
-		p := stagedata.Placed{Room: room, Actor: stagedata.Actor{Tag: "ACTR", Layer: stagedata.AllLayers, Name: "x", Params: prm, Angle: [3]int16{ax, ay, az}}}
-		pl, ok := Decode(s, p, stagedata.Proc(proc))
-		if _, known := decoders[stagedata.Proc(proc)]; !known && ok {
+		s := &stage.Stage{Name: "fz", SaveTable: table}
+		p := stage.Placed{Room: room, Actor: stage.Actor{Tag: "ACTR", Layer: stage.AllLayers, Name: "x", Params: prm, Angle: [3]int16{ax, ay, az}}}
+		pl, ok := Decode(s, p, stage.Proc(proc))
+		if _, known := decoders[stage.Proc(proc)]; !known && ok {
 			t.Fatalf("proc %d decoded: %+v", proc, pl)
 		}
 		if !ok {
 			return
 		}
-		if pl.Proc != stagedata.Proc(proc) || pl.Room != room || pl.Stage != "fz" || pl.Kind == "" {
+		if pl.Proc != stage.Proc(proc) || pl.Room != room || pl.Stage != "fz" || pl.Kind == "" {
 			t.Fatalf("%+v", pl)
 		}
 		switch pl.Flag.Kind {

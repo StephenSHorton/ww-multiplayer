@@ -1,4 +1,4 @@
-package stagedata
+package stage
 
 import (
 	"bytes"
@@ -10,12 +10,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/disc"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // *inject.Disc is what Load reads in production.
-var _ FileSource = (*inject.Disc)(nil)
+var _ disc.FileSource = (*inject.Disc)(nil)
 
 // act is a one-actor chunk, its setID doubling as an identity.
 func act(tag, name string, setID uint16) stagetest.Chunk {
@@ -231,7 +232,7 @@ func TestStageViews(t *testing.T) {
 
 // failingSource fails ReadFile for one path.
 type failingSource struct {
-	FileSource
+	disc.FileSource
 	path string
 	err  error
 }
@@ -245,7 +246,7 @@ func (f failingSource) ReadFile(path string) ([]byte, error) {
 
 func TestLoadErrors(t *testing.T) {
 	stag := stagetest.StagChunk(stagetest.StagInfo(1, 0, false))
-	disc := func(stages ...stagetest.Stage) *stagetest.Disc {
+	newDisc := func(stages ...stagetest.Stage) *stagetest.Disc {
 		d := new(stagetest.Disc)
 		for _, s := range stages {
 			d.AddStage(s)
@@ -256,22 +257,22 @@ func TestLoadErrors(t *testing.T) {
 	ioErr := errors.New("device on fire")
 	for _, c := range []struct {
 		name, want string
-		src        FileSource
+		src        disc.FileSource
 	}{
-		{"bad stage.dzs", "res/Stage/a/Stage.arc: dzs/stage.dzs: dzx:", disc(stagetest.Stage{Name: "a", DZS: []byte{0, 0}})},
+		{"bad stage.dzs", "res/Stage/a/Stage.arc: dzs/stage.dzs: dzx:", newDisc(stagetest.Stage{Name: "a", DZS: []byte{0, 0}})},
 		{"bad room.dzr", "res/Stage/a/Room3.arc: dzr/room.dzr: dzx:",
-			disc(stagetest.Stage{Name: "a", DZS: stagetest.DZx(stag), Rooms: []stagetest.Room{{No: 3, DZR: []byte{0xFF}}}})},
-		{"bad Stage.arc", "res/Stage/a/Stage.arc: rarc:", func() FileSource {
+			newDisc(stagetest.Stage{Name: "a", DZS: stagetest.DZx(stag), Rooms: []stagetest.Room{{No: 3, DZR: []byte{0xFF}}}})},
+		{"bad Stage.arc", "res/Stage/a/Stage.arc: rarc:", func() disc.FileSource {
 			d := new(stagetest.Disc)
 			d.Add("res/Stage/a/Stage.arc", []byte("RARC"))
 			return d
 		}()},
-		{"bad room archive", "res/Stage/ok/Room9.arc: rarc:", func() FileSource {
-			d := disc(ok)
+		{"bad room archive", "res/Stage/ok/Room9.arc: rarc:", func() disc.FileSource {
+			d := newDisc(ok)
 			d.Add("res/Stage/ok/Room9.arc", stagetest.Yaz0([]byte("not RARC inside")))
 			return d
 		}()},
-		{"read error", "res/Stage/ok/Room0.arc: device on fire", failingSource{disc(ok), "res/Stage/ok/Room0.arc", ioErr}},
+		{"read error", "res/Stage/ok/Room0.arc: device on fire", failingSource{newDisc(ok), "res/Stage/ok/Room0.arc", ioErr}},
 	} {
 		for range 20 {
 			stages, skipped, err := Load(c.src)
@@ -288,7 +289,7 @@ func TestLoadErrors(t *testing.T) {
 	// files, then the rooms of the stages whose Stage.arc loaded), the same
 	// whatever the workers' timing. A skipped stage's rooms are never read.
 	bad := []stagetest.Room{{No: 0, DZR: []byte{1}}, {No: 1, DZR: []byte{1}}}
-	src := disc(ok,
+	src := newDisc(ok,
 		stagetest.Stage{Name: "b", DZS: stagetest.DZx(stag), Rooms: bad},
 		stagetest.Stage{Name: "c", DZS: []byte{1}, Rooms: bad},
 		stagetest.Stage{Name: "d", Rooms: bad},
@@ -333,7 +334,7 @@ func TestLoadErrors(t *testing.T) {
 		many = append(many, s)
 	}
 	for range 20 {
-		_, _, err := Load(disc(many...))
+		_, _, err := Load(newDisc(many...))
 		if err == nil {
 			t.Fatal("many stages: Load succeeded")
 		}
@@ -399,13 +400,13 @@ func TestLoadSkips(t *testing.T) {
 // listedAs makes the disc list the file at path as size bytes long, and
 // fails the test if Load reads it when that is over the cap.
 type listedAs struct {
-	FileSource
+	disc.FileSource
 	t    *testing.T
 	path string
 	size uint32
 }
 
-func (l listedAs) Stat(path string) (inject.DiscFile, error) {
+func (l listedAs) Stat(path string) (disc.DiscFile, error) {
 	f, err := l.FileSource.Stat(path)
 	if err == nil && path == l.path {
 		f.Size = l.size

@@ -9,34 +9,34 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // realNames are the l_objectName names the tests place, with their procs
-// (d_stage.cpp lines in actors.go and stagedata).
+// (d_stage.cpp lines in actors.go and wwapi/stage).
 var realNames = []struct {
 	name string
-	proc stagedata.Proc
+	proc stage.Proc
 }{
-	{"SW_HIT0", stagedata.ProcSwhit0}, {"bonbori", stagedata.ProcEP}, {"Kbota_A", stagedata.ProcSwpush},
-	{"Hhbot1", stagedata.ProcSwheavy}, {"ALLdie", stagedata.ProcAllDie}, {"AND_SW0", stagedata.ProcAndsw0},
-	{"AND_SW2", stagedata.ProcAndsw2}, {"ObjTime", stagedata.ProcObjTimer}, {"SW_C00", stagedata.ProcSwc00},
-	{"Evsw", stagedata.ProcTagEvsw}, {"door10", stagedata.ProcDoor10}, {"door12", stagedata.ProcDoor12},
-	{"doorKD", procKddoor}, {"SMBdor", procMbdoor}, {"takara", stagedata.ProcTbox},
-	{"osiBLK0", stagedata.ProcMovebox}, {"Bk", stagedata.ProcBK}, {"Tn", stagedata.ProcTN},
+	{"SW_HIT0", stage.ProcSwhit0}, {"bonbori", stage.ProcEP}, {"Kbota_A", stage.ProcSwpush},
+	{"Hhbot1", stage.ProcSwheavy}, {"ALLdie", stage.ProcAllDie}, {"AND_SW0", stage.ProcAndsw0},
+	{"AND_SW2", stage.ProcAndsw2}, {"ObjTime", stage.ProcObjTimer}, {"SW_C00", stage.ProcSwc00},
+	{"Evsw", stage.ProcTagEvsw}, {"door10", stage.ProcDoor10}, {"door12", stage.ProcDoor12},
+	{"doorKD", procKddoor}, {"SMBdor", procMbdoor}, {"takara", stage.ProcTbox},
+	{"osiBLK0", stage.ProcMovebox}, {"Bk", stage.ProcBK}, {"Tn", stage.ProcTN},
 	{"TagEv", procTagEvent}, {"Hseki1", procTry}, {"Hfbot1A", procSwflat}, {"Htobi1", procShutter},
-	{"Bdk", stagedata.ProcBDK}, {"Kui", procKui}, {"koisi1", procStone}, {"Warpt", procWarpt},
-	{"MhmrSW0", procSwhammer}, {"Fganon", stagedata.ProcFganon}, {"Mn", procNpcMn},
+	{"Bdk", stage.ProcBDK}, {"Kui", procKui}, {"koisi1", procStone}, {"Warpt", procWarpt},
+	{"MhmrSW0", procSwhammer}, {"Fganon", stage.ProcFganon}, {"Mn", procNpcMn},
 	{"agbA", procAgbsw0}, {"agbMW", procAgbsw0}, {"agbCSW", procAgbsw0},
-	{"Sitem", stagedata.ProcItem}, // a proc the table doesn't read
+	{"Sitem", stage.ProcItem}, // a proc the table doesn't read
 }
 
 // synthName is the name the tests give spec procs that realNames doesn't.
-func synthName(p stagedata.Proc) string { return fmt.Sprintf("P%03X", uint16(p)) }
+func synthName(p stage.Proc) string { return fmt.Sprintf("P%03X", uint16(p)) }
 
-func testNames(t testing.TB) *stagedata.ObjectNames {
+func testNames(t testing.TB) *stage.ObjectNames {
 	t.Helper()
 	var list []stagetest.ObjectName
 	for _, n := range realNames {
@@ -45,7 +45,7 @@ func testNames(t testing.TB) *stagedata.ObjectNames {
 	for _, sp := range specs {
 		list = append(list, stagetest.ObjectName{Name: synthName(sp.proc), Proc: int16(sp.proc), Subtype: -1})
 	}
-	names, err := stagedata.ParseObjectNames(stagetest.ObjectNameTable(list...))
+	names, err := stage.ParseObjectNames(stagetest.ObjectNameTable(list...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,8 +53,8 @@ func testNames(t testing.TB) *stagedata.ObjectNames {
 }
 
 // act is an ACTR entry; angle is x, y, z, each as its 16 bits.
-func act(name string, params uint32, angle ...int) stagedata.Actor {
-	a := stagedata.Actor{Tag: "ACTR", Layer: stagedata.AllLayers, Name: name, Params: params}
+func act(name string, params uint32, angle ...int) stage.Actor {
+	a := stage.Actor{Tag: "ACTR", Layer: stage.AllLayers, Name: name, Params: params}
 	for i, v := range angle[:min(len(angle), 3)] {
 		a.Angle[i] = int16(uint16(v))
 	}
@@ -63,17 +63,17 @@ func act(name string, params uint32, angle ...int) stagedata.Actor {
 
 // stage builds a stage of save table table: rooms[i] is room i's entries
 // (nil for no room), dzs the stage's own.
-func stage(name string, table int, dzs []stagedata.Actor, rooms ...[]stagedata.Actor) *stagedata.Stage {
-	s := &stagedata.Stage{Name: name, SaveTable: table, DZS: &stagedata.DZx{Actors: index(dzs)}}
+func mkStage(name string, table int, dzs []stage.Actor, rooms ...[]stage.Actor) *stage.Stage {
+	s := &stage.Stage{Name: name, SaveTable: table, DZS: &stage.DZx{Actors: index(dzs)}}
 	for no, as := range rooms {
 		if as != nil {
-			s.Rooms = append(s.Rooms, stagedata.Room{No: no, DZR: &stagedata.DZx{Actors: index(as)}})
+			s.Rooms = append(s.Rooms, stage.Room{No: no, DZR: &stage.DZx{Actors: index(as)}})
 		}
 	}
 	return s
 }
 
-func index(as []stagedata.Actor) []stagedata.Actor {
+func index(as []stage.Actor) []stage.Actor {
 	out := slices.Clone(as)
 	for i := range out {
 		out[i].Index = i
@@ -142,78 +142,78 @@ func TestClasses(t *testing.T) {
 	m := func(no int) Key { return mem(tb, no) }
 	for _, c := range []struct {
 		name   string
-		actors []stagedata.Actor
+		actors []stage.Actor
 		want   []want
 		count  int  // switches the case should produce; -1 not to check
 		noUser bool // the entry isn't one the table reads
 	}{
-		{"crystal", []stagedata.Actor{act("SW_HIT0", 0xFF<<20|0x05)}, []want{{m(0x05), Latching, OpSet, true}}, 1, false},
-		{"crystal timer 0", []stagedata.Actor{act("SW_HIT0", 0x05)}, []want{{m(0x05), Latching, OpSet, true}}, 1, false},
-		{"timed crystal", []stagedata.Actor{act("SW_HIT0", 0x0A<<20|0x05, 0, 0, 0x06)},
+		{"crystal", []stage.Actor{act("SW_HIT0", 0xFF<<20|0x05)}, []want{{m(0x05), Latching, OpSet, true}}, 1, false},
+		{"crystal timer 0", []stage.Actor{act("SW_HIT0", 0x05)}, []want{{m(0x05), Latching, OpSet, true}}, 1, false},
+		{"timed crystal", []stage.Actor{act("SW_HIT0", 0x0A<<20|0x05, 0, 0, 0x06)},
 			[]want{{m(0x05), Unsafe, OpSetClear, false}, {m(0x06), "", "", false}}, 2, false},
-		{"torch", []stagedata.Actor{act("bonbori", 0x07<<24|0xFF<<16|0xFF<<8)}, []want{{m(0x07), Latching, OpSet, true}}, 1, false},
-		{"timed torch", []stagedata.Actor{act("bonbori", 0x07<<24|0x08<<16|0x10<<8)},
+		{"torch", []stage.Actor{act("bonbori", 0x07<<24|0xFF<<16|0xFF<<8)}, []want{{m(0x07), Latching, OpSet, true}}, 1, false},
+		{"timed torch", []stage.Actor{act("bonbori", 0x07<<24|0x08<<16|0x10<<8)},
 			[]want{{m(0x07), Unsafe, OpSetClear, false}, {m(0x08), "", "", false}}, 2, false},
-		{"floor switch 0", []stagedata.Actor{act("Kbota_A", 0<<24|0x10<<8)}, []want{{m(0x10), Latching, OpSet, true}}, 1, false},
-		{"floor switch 1", []stagedata.Actor{act("Kbota_A", 1<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpSetClear, false}}, 1, false},
-		{"floor switch 1 v1", []stagedata.Actor{act("Kbota_A", 1<<30|1<<24|0x10<<8, 0, 0, 0x11)},
+		{"floor switch 0", []stage.Actor{act("Kbota_A", 0<<24|0x10<<8)}, []want{{m(0x10), Latching, OpSet, true}}, 1, false},
+		{"floor switch 1", []stage.Actor{act("Kbota_A", 1<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpSetClear, false}}, 1, false},
+		{"floor switch 1 v1", []stage.Actor{act("Kbota_A", 1<<30|1<<24|0x10<<8, 0, 0, 0x11)},
 			[]want{{m(0x10), Unsafe, OpSetClear, false}, {m(0x11), "", "", false}}, 2, false},
-		{"floor switch 2", []stagedata.Actor{act("Kbota_A", 2<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpSetClear, false}}, 1, false},
-		{"floor switch 3", []stagedata.Actor{act("Kbota_A", 3<<24|0x10<<8)}, []want{{m(0x10), Latching, OpSet, true}}, 1, false},
-		{"floor switch 5", []stagedata.Actor{act("Kbota_A", 5<<24|0x10<<8)}, []want{{m(0x10), Unknown, OpSet, false}}, 1, false},
-		{"iron boots 0", []stagedata.Actor{act("Hhbot1", 0<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpSetClear, false}}, 1, false},
-		{"iron boots 1", []stagedata.Actor{act("Hhbot1", 1<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpSetClear, false}}, 1, false},
-		{"iron boots 2", []stagedata.Actor{act("Hhbot1", 2<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpToggle, false}}, 1, false},
-		{"iron boots 3", []stagedata.Actor{act("Hhbot1", 3<<24|0x10<<8)}, []want{{m(0x10), Latching, OpSet, true}}, 1, false},
-		{"ALLdie", []stagedata.Actor{act("ALLdie", 0xC9<<8)}, []want{{z(1, 0xC9), Latching, OpSet, true}}, 1, false},
-		{"ObjTime", []stagedata.Actor{act("ObjTime", 0x0A<<16|30)}, []want{{m(0x0A), Unsafe, OpClear, false}}, 1, false},
-		{"SW_C00 0", []stagedata.Actor{act("SW_C00", 0<<16|0xFF<<8|0x20)}, []want{{m(0x20), Unsafe, OpSetClear, false}}, 1, false},
-		{"SW_C00 1", []stagedata.Actor{act("SW_C00", 1<<16|0x21<<8|0x20)},
+		{"floor switch 2", []stage.Actor{act("Kbota_A", 2<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpSetClear, false}}, 1, false},
+		{"floor switch 3", []stage.Actor{act("Kbota_A", 3<<24|0x10<<8)}, []want{{m(0x10), Latching, OpSet, true}}, 1, false},
+		{"floor switch 5", []stage.Actor{act("Kbota_A", 5<<24|0x10<<8)}, []want{{m(0x10), Unknown, OpSet, false}}, 1, false},
+		{"iron boots 0", []stage.Actor{act("Hhbot1", 0<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpSetClear, false}}, 1, false},
+		{"iron boots 1", []stage.Actor{act("Hhbot1", 1<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpSetClear, false}}, 1, false},
+		{"iron boots 2", []stage.Actor{act("Hhbot1", 2<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpToggle, false}}, 1, false},
+		{"iron boots 3", []stage.Actor{act("Hhbot1", 3<<24|0x10<<8)}, []want{{m(0x10), Latching, OpSet, true}}, 1, false},
+		{"ALLdie", []stage.Actor{act("ALLdie", 0xC9<<8)}, []want{{z(1, 0xC9), Latching, OpSet, true}}, 1, false},
+		{"ObjTime", []stage.Actor{act("ObjTime", 0x0A<<16|30)}, []want{{m(0x0A), Unsafe, OpClear, false}}, 1, false},
+		{"SW_C00 0", []stage.Actor{act("SW_C00", 0<<16|0xFF<<8|0x20)}, []want{{m(0x20), Unsafe, OpSetClear, false}}, 1, false},
+		{"SW_C00 1", []stage.Actor{act("SW_C00", 1<<16|0x21<<8|0x20)},
 			[]want{{m(0x20), Latching, OpSet, true}, {m(0x21), "", "", false}}, 2, false},
-		{"Evsw 0", []stagedata.Actor{act("Evsw", 0<<24|0x1234<<8|0x30)}, []want{{m(0x30), Unsafe, OpSetClear, false}}, 1, false},
-		{"Evsw 1", []stagedata.Actor{act("Evsw", 1<<24|0x1234<<8|0x30)}, []want{{m(0x30), Event, OpSet, false}}, 1, false},
-		{"TagEv", []stagedata.Actor{act("TagEv", 0xFF<<16|0x31<<8)}, []want{{m(0x31), Event, OpSet, false}}, 1, false},
-		{"chest", []stagedata.Actor{act("takara", 0xFF<<12, 5, 0, 0x40)}, []want{{m(0x40), Latching, OpSet, true}}, 1, false},
-		{"enemy chest", []stagedata.Actor{act("takara", 0xC2<<12|2, 5, 0, 0xFF)}, []want{{z(5, 0xC2), Latching, OpSet, true}}, 1, false},
-		{"switch chest", []stagedata.Actor{act("takara", 0x41<<12|1, 5, 0, 0xFF)}, []want{{m(0x41), "", "", false}}, 1, false},
-		{"key door10", []stagedata.Actor{act("door10", 0xFF<<20|4<<8|0x12, 2|3<<6)},
+		{"Evsw 0", []stage.Actor{act("Evsw", 0<<24|0x1234<<8|0x30)}, []want{{m(0x30), Unsafe, OpSetClear, false}}, 1, false},
+		{"Evsw 1", []stage.Actor{act("Evsw", 1<<24|0x1234<<8|0x30)}, []want{{m(0x30), Event, OpSet, false}}, 1, false},
+		{"TagEv", []stage.Actor{act("TagEv", 0xFF<<16|0x31<<8)}, []want{{m(0x31), Event, OpSet, false}}, 1, false},
+		{"chest", []stage.Actor{act("takara", 0xFF<<12, 5, 0, 0x40)}, []want{{m(0x40), Latching, OpSet, true}}, 1, false},
+		{"enemy chest", []stage.Actor{act("takara", 0xC2<<12|2, 5, 0, 0xFF)}, []want{{z(5, 0xC2), Latching, OpSet, true}}, 1, false},
+		{"switch chest", []stage.Actor{act("takara", 0x41<<12|1, 5, 0, 0xFF)}, []want{{m(0x41), "", "", false}}, 1, false},
+		{"key door10", []stage.Actor{act("door10", 0xFF<<20|4<<8|0x12, 2|3<<6)},
 			[]want{{m(0x12), Latching, OpSet, true}}, 1, false},
-		{"kill-all door10", []stagedata.Actor{act("door10", 0xFF<<20|2<<8|0xC5, 2|3<<6)},
+		{"kill-all door10", []stage.Actor{act("door10", 0xFF<<20|2<<8|0xC5, 2|3<<6)},
 			[]want{{z(2, 0xC5), Latching, OpSet, true}}, 1, false},
-		{"kill-all back door10", []stagedata.Actor{act("door10", 0xC6<<20|5<<8|0x13, 2|3<<6)},
+		{"kill-all back door10", []stage.Actor{act("door10", 0xC6<<20|5<<8|0x13, 2|3<<6)},
 			[]want{{z(3, 0xC6), Latching, OpSet, true}, {m(0x13), Latching, OpSet, true}}, 2, false},
-		{"high key door10", []stagedata.Actor{act("door10", 0xFF<<20|4<<8|0x85, 2|3<<6)},
+		{"high key door10", []stage.Actor{act("door10", 0xFF<<20|4<<8|0x85, 2|3<<6)},
 			[]want{{dan(tb, 0x85), "", "", false}}, 1, false},
-		{"key door12", []stagedata.Actor{act("door12", 1<<8|0x14, 0)}, []want{{m(0x14), Latching, OpSet, true}}, -1, false},
-		{"boss door12", []stagedata.Actor{act("door12", 0<<8|0x15, 0, 0, 9<<8)}, []want{{m(0x15), Latching, OpSet, true}}, -1, false},
-		{"key doorKD", []stagedata.Actor{act("doorKD", 0xC7<<20|2<<8|0x16, 1|4<<6)},
+		{"key door12", []stage.Actor{act("door12", 1<<8|0x14, 0)}, []want{{m(0x14), Latching, OpSet, true}}, -1, false},
+		{"boss door12", []stage.Actor{act("door12", 0<<8|0x15, 0, 0, 9<<8)}, []want{{m(0x15), Latching, OpSet, true}}, -1, false},
+		{"key doorKD", []stage.Actor{act("doorKD", 0xC7<<20|2<<8|0x16, 1|4<<6)},
 			[]want{{m(0x16), Latching, OpSet, true}, {z(4, 0xC7), Latching, OpSet, true}}, 2, false},
-		{"mini-boss door", []stagedata.Actor{act("SMBdor", 0x17, 0, 0, 1)}, []want{{m(0x17), Latching, OpSet, true}}, 1, false},
-		{"mini-boss door reader", []stagedata.Actor{act("SMBdor", 0x17, 0, 0, 0)}, []want{{m(0x17), "", "", false}}, 1, false},
-		{"Bokoblin", []stagedata.Actor{act("Bk", 0, 0, 0, 0x22)}, []want{{m(0x22), Latching, OpSet, true}}, 1, false},
-		{"Bokoblin none", []stagedata.Actor{act("Bk", 0, 0, 0, 0xFF)}, nil, 0, false},
-		{"boss Bokoblin", []stagedata.Actor{act("Bk", 0xA)},
+		{"mini-boss door", []stage.Actor{act("SMBdor", 0x17, 0, 0, 1)}, []want{{m(0x17), Latching, OpSet, true}}, 1, false},
+		{"mini-boss door reader", []stage.Actor{act("SMBdor", 0x17, 0, 0, 0)}, []want{{m(0x17), "", "", false}}, 1, false},
+		{"Bokoblin", []stage.Actor{act("Bk", 0, 0, 0, 0x22)}, []want{{m(0x22), Latching, OpSet, true}}, 1, false},
+		{"Bokoblin none", []stage.Actor{act("Bk", 0, 0, 0, 0xFF)}, nil, 0, false},
+		{"boss Bokoblin", []stage.Actor{act("Bk", 0xA)},
 			[]want{{roomSw(tb, "D", 1, 0xE0), Latching, OpSet, true}, {roomSw(tb, "D", 1, 0xE1), Latching, OpSet, true}}, 2, false},
-		{"Helmaroc", []stagedata.Actor{act("Bdk", 0)}, []want{{dan(tb, 0x80), Unsafe, OpSetClear, false}}, 1, false},
-		{"Phantom Ganon", []stagedata.Actor{act("Fganon", 0x24<<24|0x23<<16)},
+		{"Helmaroc", []stage.Actor{act("Bdk", 0)}, []want{{dan(tb, 0x80), Unsafe, OpSetClear, false}}, 1, false},
+		{"Phantom Ganon", []stage.Actor{act("Fganon", 0x24<<24|0x23<<16)},
 			[]want{{m(0x23), Latching, OpSet, true}, {m(0x24), Unsafe, OpSetClear, false}}, 2, false},
-		{"post 0xFF", []stagedata.Actor{act("Kui", 0xFF<<24)}, []want{{m(0x00), Latching, OpSet, true}}, 1, false},
-		{"no post", []stagedata.Actor{act("Kui", 0xFFFFFFFF)}, nil, 0, false},
-		{"rock 2", []stagedata.Actor{act("koisi1", 2<<24|0x25<<8)}, []want{{m(0x25), Latching, OpSet, true}}, 1, false},
-		{"rock 0", []stagedata.Actor{act("koisi1", 0<<24|0x25<<8)}, nil, 0, false},
-		{"rock 6", []stagedata.Actor{act("koisi1", 6<<24|0x25<<8)}, []want{{m(0x25), Unknown, OpSet, false}}, 1, false},
-		{"warp jar", []stagedata.Actor{act("Warpt", 3, 0x26)}, []want{{m(0x26), "", "", false}}, 1, false},
-		{"warp pot", []stagedata.Actor{act("Warpt", 0, 0xFF26)}, []want{{m(0x26), Latching, OpSet, true}}, 1, false},
-		{"hammer switch", []stagedata.Actor{act("MhmrSW0", 0x27<<8|0x28)},
+		{"post 0xFF", []stage.Actor{act("Kui", 0xFF<<24)}, []want{{m(0x00), Latching, OpSet, true}}, 1, false},
+		{"no post", []stage.Actor{act("Kui", 0xFFFFFFFF)}, nil, 0, false},
+		{"rock 2", []stage.Actor{act("koisi1", 2<<24|0x25<<8)}, []want{{m(0x25), Latching, OpSet, true}}, 1, false},
+		{"rock 0", []stage.Actor{act("koisi1", 0<<24|0x25<<8)}, nil, 0, false},
+		{"rock 6", []stage.Actor{act("koisi1", 6<<24|0x25<<8)}, []want{{m(0x25), Unknown, OpSet, false}}, 1, false},
+		{"warp jar", []stage.Actor{act("Warpt", 3, 0x26)}, []want{{m(0x26), "", "", false}}, 1, false},
+		{"warp pot", []stage.Actor{act("Warpt", 0, 0xFF26)}, []want{{m(0x26), Latching, OpSet, true}}, 1, false},
+		{"hammer switch", []stage.Actor{act("MhmrSW0", 0x27<<8|0x28)},
 			[]want{{m(0x27), Latching, OpSet, true}, {m(0x28), Unsafe, OpClear, false}}, 2, false},
-		{"Obj_Try", []stagedata.Actor{act("Hseki1", 0x29<<8)}, []want{{m(0x29), Unknown, OpSet, false}}, 1, false},
-		{"shutter", []stagedata.Actor{act("Htobi1", 0x2A)}, []want{{m(0x2A), "", "", false}}, 1, false},
-		{"Manny", []stagedata.Actor{act("Mn", 0x2C<<16|0x2B<<8)},
+		{"Obj_Try", []stage.Actor{act("Hseki1", 0x29<<8)}, []want{{m(0x29), Unknown, OpSet, false}}, 1, false},
+		{"shutter", []stage.Actor{act("Htobi1", 0x2A)}, []want{{m(0x2A), "", "", false}}, 1, false},
+		{"Manny", []stage.Actor{act("Mn", 0x2C<<16|0x2B<<8)},
 			[]want{{m(0x2C), Latching, OpSet, true}, {m(0x2B), "", "", false}}, 2, false},
-		{"not a switch user", []stagedata.Actor{act("Sitem", 0x05)}, nil, 0, true},
+		{"not a switch user", []stage.Actor{act("Sitem", 0x05)}, nil, 0, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			tbl := Build([]*stagedata.Stage{stage("D", tb, nil, nil, c.actors)}, testNames(t))
+			tbl := Build([]*stage.Stage{mkStage("D", tb, nil, nil, c.actors)}, testNames(t))
 			check(t, tbl, c.want...)
 			if c.count >= 0 && len(tbl.Switches) != c.count {
 				t.Errorf("%d switches %v, want %d", len(tbl.Switches), keysOf(tbl), c.count)
@@ -230,18 +230,18 @@ func TestClasses(t *testing.T) {
 
 // andsw2 is an AND_SW2 entry: type typ, output out, num inputs from first
 // (0xFF: out+1).
-func andsw2(typ, out, num, first int) stagedata.Actor {
+func andsw2(typ, out, num, first int) stage.Actor {
 	return act("AND_SW2", uint32(first)<<24|uint32(out)<<16|uint32(typ)<<8|uint32(num))
 }
 
 // andsw0 is an AND_SW0 entry: behaviour beh, output out, num inputs from
 // first (0: out+1).
-func andsw0(beh, out, num, first int) stagedata.Actor {
+func andsw0(beh, out, num, first int) stage.Actor {
 	return act("AND_SW0", uint32(out)<<24|uint32(first)<<16|uint32(beh)<<8|uint32(num))
 }
 
-func crystal(no int) stagedata.Actor { return act("SW_HIT0", 0xFF<<20|uint32(no)) }
-func timedCrystal(no int) stagedata.Actor {
+func crystal(no int) stage.Actor { return act("SW_HIT0", 0xFF<<20|uint32(no)) }
+func timedCrystal(no int) stage.Actor {
 	return act("SW_HIT0", 0x10<<20|uint32(no), 0, 0, 0xFF) // no stop switch
 }
 
@@ -250,40 +250,40 @@ func TestANDPropagation(t *testing.T) {
 	m := func(no int) Key { return mem(tb, no) }
 	for _, c := range []struct {
 		name   string
-		actors []stagedata.Actor
+		actors []stage.Actor
 		want   []want
 		fedBy  map[int]string // switch -> substring of its first writer's Why
 	}{
-		{"chain", []stagedata.Actor{crystal(0x11), crystal(0x12), andsw2(0, 0x10, 2, 0xFF), andsw0(0, 0x20, 1, 0x10)},
+		{"chain", []stage.Actor{crystal(0x11), crystal(0x12), andsw2(0, 0x10, 2, 0xFF), andsw0(0, 0x20, 1, 0x10)},
 			[]want{{m(0x10), Latching, OpSet, true}, {m(0x20), Latching, OpSet, true}}, nil},
-		{"unsafe input", []stagedata.Actor{crystal(0x11), timedCrystal(0x12), andsw2(0, 0x10, 2, 0xFF), andsw0(0, 0x20, 1, 0x10)},
+		{"unsafe input", []stage.Actor{crystal(0x11), timedCrystal(0x12), andsw2(0, 0x10, 2, 0xFF), andsw0(0, 0x20, 1, 0x10)},
 			[]want{{m(0x10), Unsafe, OpSet, false}, {m(0x20), Unsafe, OpSet, false}, {m(0x11), Latching, OpSet, true}},
 			map[int]string{0x10: "fed by memory t4 0x12", 0x20: "fed by memory t4 0x10"}},
-		{"input with no setter", []stagedata.Actor{andsw2(0, 0x50, 1, 0xFF)},
+		{"input with no setter", []stage.Actor{andsw2(0, 0x50, 1, 0xFF)},
 			[]want{{m(0x50), Unsafe, OpSet, false}, {m(0x51), "", "", false}}, map[int]string{0x50: "fed by memory t4 0x51"}},
-		{"cycle", []stagedata.Actor{andsw0(0, 0x30, 1, 0x31), andsw0(0, 0x31, 1, 0x30), crystal(0x31)},
+		{"cycle", []stage.Actor{andsw0(0, 0x30, 1, 0x31), andsw0(0, 0x31, 1, 0x30), crystal(0x31)},
 			[]want{{m(0x30), Latching, OpSet, true}, {m(0x31), Latching, OpSet, true}}, nil},
-		{"cycle with unsafe input", []stagedata.Actor{andsw2(0, 0x40, 2, 0x41), andsw2(0, 0x41, 1, 0x40), act("ObjTime", 0x42<<16|5)},
+		{"cycle with unsafe input", []stage.Actor{andsw2(0, 0x40, 2, 0x41), andsw2(0, 0x41, 1, 0x40), act("ObjTime", 0x42<<16|5)},
 			[]want{{m(0x40), Unsafe, OpSet, false}, {m(0x41), Unsafe, OpSet, false}, {m(0x42), Unsafe, OpClear, false}},
 			map[int]string{0x40: "fed by memory t4 0x42", 0x41: "fed by memory t4 0x40"}},
-		{"self-feeding", []stagedata.Actor{andsw0(0, 0x60, 1, 0x60)}, []want{{m(0x60), Latching, OpSet, true}}, nil},
-		{"continuous andsw2", []stagedata.Actor{crystal(0x71), andsw2(1, 0x70, 1, 0xFF)},
+		{"self-feeding", []stage.Actor{andsw0(0, 0x60, 1, 0x60)}, []want{{m(0x60), Latching, OpSet, true}}, nil},
+		{"continuous andsw2", []stage.Actor{crystal(0x71), andsw2(1, 0x70, 1, 0xFF)},
 			[]want{{m(0x70), Unsafe, OpSetClear, false}}, nil},
-		{"continuous andsw0", []stagedata.Actor{crystal(0x71), andsw0(1, 0x70, 1, 0)},
+		{"continuous andsw0", []stage.Actor{crystal(0x71), andsw0(1, 0x70, 1, 0)},
 			[]want{{m(0x70), Unsafe, OpSetClear, false}}, nil},
-		{"delayed andsw0", []stagedata.Actor{crystal(0x71), andsw0(3, 0x70, 1, 0)}, []want{{m(0x70), Latching, OpSet, true}}, nil},
-		{"timed andsw0", []stagedata.Actor{crystal(0x71), crystal(0x72), andsw0(2, 0x70, 2, 0)},
+		{"delayed andsw0", []stage.Actor{crystal(0x71), andsw0(3, 0x70, 1, 0)}, []want{{m(0x70), Latching, OpSet, true}}, nil},
+		{"timed andsw0", []stage.Actor{crystal(0x71), crystal(0x72), andsw0(2, 0x70, 2, 0)},
 			[]want{{m(0x70), Unsafe, OpSet, false}, {m(0x71), Latching, OpSet, false}, {m(0x72), Latching, OpSet, false}},
 			map[int]string{0x70: "fed by memory t4 0x71"}},
-		{"andsw0 Forest Haven", []stagedata.Actor{andsw0(0, 0x70, 0xFF, 0)}, nil, nil},
-		{"andsw2 no output", []stagedata.Actor{andsw2(0, 0xFF, 1, 0x10)}, nil, nil},
-		{"andsw2 other type", []stagedata.Actor{andsw2(2, 0x70, 1, 0x71)}, nil, nil},
-		{"too many inputs", []stagedata.Actor{andsw2(0, 0x70, MaxANDInputs+1, 0x00)}, []want{{m(0x70), Unknown, OpSet, false}}, nil},
-		{"latching mixed with AND", []stagedata.Actor{crystal(0x70), timedCrystal(0x71), andsw2(0, 0x70, 1, 0x71)},
+		{"andsw0 Forest Haven", []stage.Actor{andsw0(0, 0x70, 0xFF, 0)}, nil, nil},
+		{"andsw2 no output", []stage.Actor{andsw2(0, 0xFF, 1, 0x10)}, nil, nil},
+		{"andsw2 other type", []stage.Actor{andsw2(2, 0x70, 1, 0x71)}, nil, nil},
+		{"too many inputs", []stage.Actor{andsw2(0, 0x70, MaxANDInputs+1, 0x00)}, []want{{m(0x70), Unknown, OpSet, false}}, nil},
+		{"latching mixed with AND", []stage.Actor{crystal(0x70), timedCrystal(0x71), andsw2(0, 0x70, 1, 0x71)},
 			[]want{{m(0x70), Latching, OpSet, false}}, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			tbl := Build([]*stagedata.Stage{stage("W", tb, nil, c.actors)}, testNames(t))
+			tbl := Build([]*stage.Stage{mkStage("W", tb, nil, c.actors)}, testNames(t))
 			check(t, tbl, c.want...)
 			for no, sub := range c.fedBy {
 				s, _ := tbl.Lookup(m(no))
@@ -337,7 +337,7 @@ func checkFixedPoint(t testing.TB, tbl *Table) {
 }
 
 // agb is a Tingle Tuner switch (agbsw0) of type typ writing sw0 and sw1.
-func agb(name string, typ, sw0, sw1 int) stagedata.Actor {
+func agb(name string, typ, sw0, sw1 int) stage.Actor {
 	return act(name, uint32(sw1)<<24|uint32(sw0)<<16|0xFFFF, 0, 0, typ)
 }
 
@@ -350,7 +350,7 @@ func TestTingleTuner(t *testing.T) {
 	m := func(no int) Key { return mem(tb, no) }
 	for _, c := range []struct {
 		name   string
-		actors []stagedata.Actor
+		actors []stage.Actor
 		key    Key
 		synced bool
 		gba    bool
@@ -358,34 +358,34 @@ func TestTingleTuner(t *testing.T) {
 	}{
 		// The owner's DRC key doors: a key door's switch the Tuner also
 		// names.
-		{"key door and agbA", []stagedata.Actor{act("door10", 0xFF<<20|4<<8|0x3D), agb("agbA", 0, 0x3D, 0xFF)},
+		{"key door and agbA", []stage.Actor{act("door10", 0xFF<<20|4<<8|0x3D), agb("agbA", 0, 0x3D, 0xFF)},
 			m(0x3D), true, true, "gba writer D r0 ACTR#1 agbA writes it only while a GBA is linked"},
-		{"crystal and agbMW", []stagedata.Actor{crystal(0x10), agb("agbMW", 7, 0x10, 0xFF)},
+		{"crystal and agbMW", []stage.Actor{crystal(0x10), agb("agbMW", 7, 0x10, 0xFF)},
 			m(0x10), true, true, "so it syncs only while none is"},
-		{"crystal and agbCSW's sw1", []stagedata.Actor{crystal(0x11), agb("agbCSW", 8, 0xFF, 0x11)},
+		{"crystal and agbCSW's sw1", []stage.Actor{crystal(0x11), agb("agbCSW", 8, 0xFF, 0x11)},
 			m(0x11), true, true, "every setter latches"},
-		{"agbA alone", []stagedata.Actor{agb("agbA", 0, 0x12, 0xFF)},
+		{"agbA alone", []stage.Actor{agb("agbA", 0, 0x12, 0xFF)},
 			m(0x12), false, false, "no latching setter: only gba writers (D r0 ACTR#0 agbA"},
-		{"agbA and a timed crystal", []stagedata.Actor{timedCrystal(0x13), agb("agbA", 0, 0x13, 0xFF)},
+		{"agbA and a timed crystal", []stage.Actor{timedCrystal(0x13), agb("agbA", 0, 0x13, 0xFF)},
 			m(0x13), false, false, "unsafe writer D r0 ACTR#0 SW_HIT0"},
 		// A type past the table's 15 entries isn't known to need a link.
-		{"crystal and a type past ExeSubTable", []stagedata.Actor{crystal(0x14), agb("agbA", agbsw0Types, 0x14, 0xFF)},
+		{"crystal and a type past ExeSubTable", []stage.Actor{crystal(0x14), agb("agbA", agbsw0Types, 0x14, 0xFF)},
 			m(0x14), false, false, "unknown writer D r0 ACTR#1 agbA: Tingle Tuner switch type 15 is past ExeSubTable's 15 entries"},
-		{"the last type in the table", []stagedata.Actor{crystal(0x15), agb("agbA", agbsw0Types-1, 0x15, 0xFF)},
+		{"the last type in the table", []stage.Actor{crystal(0x15), agb("agbA", agbsw0Types-1, 0x15, 0xFF)},
 			m(0x15), true, true, "gba writer"},
 		// An AND fed by a GBA-dependent input is GBA-dependent too.
-		{"AND of a GBA input", []stagedata.Actor{crystal(0x21), agb("agbA", 0, 0x21, 0xFF), andsw2(0, 0x20, 1, 0xFF)},
+		{"AND of a GBA input", []stage.Actor{crystal(0x21), agb("agbA", 0, 0x21, 0xFF), andsw2(0, 0x20, 1, 0xFF)},
 			m(0x20), true, true, "an AND input syncs only while no GBA is linked"},
-		{"AND of an AND of a GBA input", []stagedata.Actor{crystal(0x31), agb("agbA", 0, 0x31, 0xFF), andsw2(0, 0x30, 1, 0xFF), andsw0(0, 0x40, 1, 0x30)},
+		{"AND of an AND of a GBA input", []stage.Actor{crystal(0x31), agb("agbA", 0, 0x31, 0xFF), andsw2(0, 0x30, 1, 0xFF), andsw0(0, 0x40, 1, 0x30)},
 			m(0x40), true, true, "an AND input"},
-		{"AND of plain inputs", []stagedata.Actor{crystal(0x51), andsw2(0, 0x50, 1, 0xFF)},
+		{"AND of plain inputs", []stage.Actor{crystal(0x51), andsw2(0, 0x50, 1, 0xFF)},
 			m(0x50), true, false, "every setter latches"},
 		// Dan, zone and room switches route as any other.
-		{"dan", []stagedata.Actor{crystal(0x85), agb("agbA", 0, 0x85, 0xFF)}, dan(tb, 0x85), true, true, "gba writer"},
-		{"zone", []stagedata.Actor{crystal(0xC5), agb("agbA", 0, 0xFF, 0xC5)}, zone(tb, "D", 0, 0xC5), true, true, "gba writer"},
+		{"dan", []stage.Actor{crystal(0x85), agb("agbA", 0, 0x85, 0xFF)}, dan(tb, 0x85), true, true, "gba writer"},
+		{"zone", []stage.Actor{crystal(0xC5), agb("agbA", 0, 0xFF, 0xC5)}, zone(tb, "D", 0, 0xC5), true, true, "gba writer"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			tbl := Build([]*stagedata.Stage{stage("D", tb, nil, c.actors)}, testNames(t))
+			tbl := Build([]*stage.Stage{mkStage("D", tb, nil, c.actors)}, testNames(t))
 			checkFixedPoint(t, tbl)
 			s, ok := tbl.Lookup(c.key)
 			if !ok {
@@ -404,7 +404,7 @@ func TestTingleTuner(t *testing.T) {
 		})
 	}
 	// 0xFF is no switch: an agbsw0 with one switch writes one.
-	tbl := Build([]*stagedata.Stage{stage("D", tb, nil, []stagedata.Actor{agb("agbA", 0, 0x60, 0xFF)})}, testNames(t))
+	tbl := Build([]*stage.Stage{mkStage("D", tb, nil, []stage.Actor{agb("agbA", 0, 0x60, 0xFF)})}, testNames(t))
 	if len(tbl.Switches) != 1 {
 		t.Errorf("switches %v, want only 0x60", keysOf(tbl))
 	}
@@ -414,30 +414,30 @@ func TestMixedSetters(t *testing.T) {
 	const tb = addr.TableET
 	for _, c := range []struct {
 		name   string
-		stages []*stagedata.Stage
+		stages []*stage.Stage
 		synced bool
 		n      int // writers
 		reason string
 	}{
-		{"two latching in two stages", []*stagedata.Stage{
-			stage("A", tb, nil, []stagedata.Actor{crystal(0x05)}),
-			stage("B", tb, nil, []stagedata.Actor{act("ALLdie", 0x05<<8)}),
+		{"two latching in two stages", []*stage.Stage{
+			mkStage("A", tb, nil, []stage.Actor{crystal(0x05)}),
+			mkStage("B", tb, nil, []stage.Actor{act("ALLdie", 0x05<<8)}),
 		}, true, 2, "every setter latches"},
-		{"latching and timed", []*stagedata.Stage{
-			stage("A", tb, nil, []stagedata.Actor{crystal(0x05), timedCrystal(0x05)}),
+		{"latching and timed", []*stage.Stage{
+			mkStage("A", tb, nil, []stage.Actor{crystal(0x05), timedCrystal(0x05)}),
 		}, false, 2, "unsafe writer A r0 ACTR#1 SW_HIT0: timed crystal"},
-		{"latching and event", []*stagedata.Stage{
-			stage("A", tb, nil, []stagedata.Actor{crystal(0x05)}, []stagedata.Actor{act("TagEv", 0x05<<8)}),
+		{"latching and event", []*stage.Stage{
+			mkStage("A", tb, nil, []stage.Actor{crystal(0x05)}, []stage.Actor{act("TagEv", 0x05<<8)}),
 		}, false, 2, "event writer A r1"},
-		{"latching and unknown", []*stagedata.Stage{
-			stage("A", tb, []stagedata.Actor{act("Hseki1", 0x05<<8)}, []stagedata.Actor{crystal(0x05)}),
+		{"latching and unknown", []*stage.Stage{
+			mkStage("A", tb, []stage.Actor{act("Hseki1", 0x05<<8)}, []stage.Actor{crystal(0x05)}),
 		}, false, 2, "unknown writer A stage ACTR#0 Hseki1"},
-		{"latching and push block", []*stagedata.Stage{
-			stage("A", tb, nil, []stagedata.Actor{crystal(0x05), act("osiBLK0", 1<<24|0x05<<8, 0, 0, 0x02)}),
+		{"latching and push block", []*stage.Stage{
+			mkStage("A", tb, nil, []stage.Actor{crystal(0x05), act("osiBLK0", 1<<24|0x05<<8, 0, 0, 0x02)}),
 		}, false, 2, "push block path 2"},
-		{"latching and Tingle Tuner in another stage", []*stagedata.Stage{
-			stage("A", tb, nil, []stagedata.Actor{crystal(0x05)}),
-			stage("B", tb, nil, []stagedata.Actor{agb("agbA", 0, 0x05, 0xFF)}),
+		{"latching and Tingle Tuner in another stage", []*stage.Stage{
+			mkStage("A", tb, nil, []stage.Actor{crystal(0x05)}),
+			mkStage("B", tb, nil, []stage.Actor{agb("agbA", 0, 0x05, 0xFF)}),
 		}, true, 2, "gba writer B r0 ACTR#0 agbA"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -499,13 +499,13 @@ func TestKeyFor(t *testing.T) {
 
 // TestScopeRouting checks which writers land on one switch.
 func TestScopeRouting(t *testing.T) {
-	stages := []*stagedata.Stage{
-		stage("A", 3, []stagedata.Actor{crystal(0x05), crystal(0x85), crystal(0xC5), crystal(0xF5)},
-			[]stagedata.Actor{crystal(0x05), crystal(0x85), crystal(0xC5), crystal(0xE5)},
-			[]stagedata.Actor{crystal(0xC5), crystal(0xE5)}),
-		stage("B", 3, nil, []stagedata.Actor{crystal(0x05), crystal(0x85), crystal(0xC5)}),
-		stage("C", 4, nil, []stagedata.Actor{crystal(0x05), crystal(0x85)}),
-		stage("X", 20, nil, []stagedata.Actor{crystal(0x05), crystal(0xC5)}),
+	stages := []*stage.Stage{
+		mkStage("A", 3, []stage.Actor{crystal(0x05), crystal(0x85), crystal(0xC5), crystal(0xF5)},
+			[]stage.Actor{crystal(0x05), crystal(0x85), crystal(0xC5), crystal(0xE5)},
+			[]stage.Actor{crystal(0xC5), crystal(0xE5)}),
+		mkStage("B", 3, nil, []stage.Actor{crystal(0x05), crystal(0x85), crystal(0xC5)}),
+		mkStage("C", 4, nil, []stage.Actor{crystal(0x05), crystal(0x85)}),
+		mkStage("X", 20, nil, []stage.Actor{crystal(0x05), crystal(0xC5)}),
 	}
 	tbl := Build(stages, testNames(t))
 	for _, c := range []struct {
@@ -559,7 +559,7 @@ func TestScopeRouting(t *testing.T) {
 // with home.angle.x, and an AND in stage.dzs whose zone input has no
 // room.
 func TestRoomOverrides(t *testing.T) {
-	tbl := Build([]*stagedata.Stage{stage("D", 5, []stagedata.Actor{
+	tbl := Build([]*stage.Stage{mkStage("D", 5, []stage.Actor{
 		act("door10", 0xC6<<20|5<<8|0xC5, 2|3<<6),
 		act("takara", 0xC7<<12|2, 4, 0, 0xC8),
 		andsw2(0, 0x10, 1, 0xC1),
@@ -578,7 +578,7 @@ func TestRoomOverrides(t *testing.T) {
 }
 
 func TestPushBlocks(t *testing.T) {
-	tbl := Build([]*stagedata.Stage{stage("D", 6, nil, []stagedata.Actor{
+	tbl := Build([]*stage.Stage{mkStage("D", 6, nil, []stage.Actor{
 		act("osiBLK0", 1<<24|0x10<<8, 0, 0, 0x11<<8|0x03),         // path 3, two bits
 		act("osiBLK0", 1<<24|0x12<<8, 0, 0, 0xFF<<8|0x04),         // path 4, one bit
 		act("osiBLK0", 1<<30|1<<24|0x13<<8, 0, 0, 0x14<<8|0x05),   // dmy: no path, an appear switch
@@ -616,8 +616,8 @@ func TestPushBlocks(t *testing.T) {
 }
 
 func TestUndecodedAndUnnamed(t *testing.T) {
-	st := stage("D", 7, nil, []stagedata.Actor{act("Hfbot1A", 0x1234), act("Nope", 0x05), crystal(0x05)})
-	tbl := Build([]*stagedata.Stage{st, nil}, testNames(t))
+	st := mkStage("D", 7, nil, []stage.Actor{act("Hfbot1A", 0x1234), act("Nope", 0x05), crystal(0x05)})
+	tbl := Build([]*stage.Stage{st, nil}, testNames(t))
 	if tbl.Stages != 1 || tbl.Users != 2 || tbl.Unnamed != 1 {
 		t.Errorf("stages %d, users %d, unnamed %d; want 1, 2, 1", tbl.Stages, tbl.Users, tbl.Unnamed)
 	}
@@ -627,7 +627,7 @@ func TestUndecodedAndUnnamed(t *testing.T) {
 	if len(tbl.Switches) != 1 {
 		t.Errorf("switches %v, want the crystal's", keysOf(tbl))
 	}
-	tbl = Build([]*stagedata.Stage{st}, nil)
+	tbl = Build([]*stage.Stage{st}, nil)
 	if tbl.Users != 0 || tbl.Unnamed != 3 || len(tbl.Switches) != 0 {
 		t.Errorf("nil names: users %d, unnamed %d, %d switches", tbl.Users, tbl.Unnamed, len(tbl.Switches))
 	}
@@ -638,12 +638,12 @@ func TestUndecodedAndUnnamed(t *testing.T) {
 
 // sample is a table with something of each kind in it.
 func sample(t testing.TB) *Table {
-	return Build([]*stagedata.Stage{
-		stage("M_NewD2", addr.TableDRC, []stagedata.Actor{act("door10", 0xFF<<20|4<<8|0x12, 1|2<<6)},
-			[]stagedata.Actor{crystal(0x05), timedCrystal(0x06), andsw2(0, 0x07, 2, 0x05), act("Hfbot1A", 0), agb("agbA", 0, 0x05, 0xFF)},
-			[]stagedata.Actor{act("osiBLK0", 1<<24|0x20<<8, 0, 0, 0x21<<8|0x01), act("ALLdie", 0xC3<<8), act("Bk", 0xA)}),
-		stage("M_DaiB", addr.TableDRC, []stagedata.Actor{crystal(0xC9)}, []stagedata.Actor{act("Bdk", 0), act("Htobi1", 0x30)}),
-		stage("sea", addr.TableSea, nil, []stagedata.Actor{act("Evsw", 1<<24|0x30), act("Nope", 0)}),
+	return Build([]*stage.Stage{
+		mkStage("M_NewD2", addr.TableDRC, []stage.Actor{act("door10", 0xFF<<20|4<<8|0x12, 1|2<<6)},
+			[]stage.Actor{crystal(0x05), timedCrystal(0x06), andsw2(0, 0x07, 2, 0x05), act("Hfbot1A", 0), agb("agbA", 0, 0x05, 0xFF)},
+			[]stage.Actor{act("osiBLK0", 1<<24|0x20<<8, 0, 0, 0x21<<8|0x01), act("ALLdie", 0xC3<<8), act("Bk", 0xA)}),
+		mkStage("M_DaiB", addr.TableDRC, []stage.Actor{crystal(0xC9)}, []stage.Actor{act("Bdk", 0), act("Htobi1", 0x30)}),
+		mkStage("sea", addr.TableSea, nil, []stage.Actor{act("Evsw", 1<<24|0x30), act("Nope", 0)}),
 	}, testNames(t))
 }
 
@@ -705,13 +705,13 @@ func TestReport(t *testing.T) {
 
 // TestSpecs checks the spec list itself.
 func TestSpecs(t *testing.T) {
-	seen := make(map[stagedata.Proc]bool)
+	seen := make(map[stage.Proc]bool)
 	for _, sp := range specs {
 		if seen[sp.proc] {
 			t.Errorf("proc 0x%03X listed twice", uint16(sp.proc))
 		}
 		seen[sp.proc] = true
-		if sp.proc <= 0 || sp.proc >= stagedata.ProcMaxNum || sp.name == "" {
+		if sp.proc <= 0 || sp.proc >= stage.ProcMaxNum || sp.name == "" {
 			t.Errorf("spec %+v", sp)
 		}
 		if (sp.decode == nil) == (sp.undecoded == "") {
@@ -722,7 +722,7 @@ func TestSpecs(t *testing.T) {
 		}
 		for _, p := range []uint32{0, 0xFFFFFFFF, 0x12345678, 0x80808080} {
 			for _, ang := range [][3]int16{{}, {-1, -1, -1}, {0x1234, 0, 0x5678}} {
-				for _, u := range sp.decode(entry{stagedata.Actor{Params: p, Angle: ang}}) {
+				for _, u := range sp.decode(entry{stage.Actor{Params: p, Angle: ang}}) {
 					if u.write && (u.class == "" || u.op == "") || u.why == "" || len(u.inputs) > MaxANDInputs {
 						t.Errorf("%s(0x%08X, %v): use %+v", sp.name, p, ang, u)
 					}
@@ -730,11 +730,11 @@ func TestSpecs(t *testing.T) {
 			}
 		}
 	}
-	// The stagedata procs the design names are all read.
-	for _, p := range []stagedata.Proc{
-		stagedata.ProcAllDie, stagedata.ProcTagEvsw, stagedata.ProcSwpush, stagedata.ProcSwheavy, stagedata.ProcMovebox,
-		stagedata.ProcEP, stagedata.ProcTbox, stagedata.ProcSwc00, stagedata.ProcDoor10, stagedata.ProcDoor12,
-		stagedata.ProcAndsw0, stagedata.ProcAndsw2, stagedata.ProcSwhit0, stagedata.ProcObjTimer,
+	// The wwapi/stage procs the design names are all read.
+	for _, p := range []stage.Proc{
+		stage.ProcAllDie, stage.ProcTagEvsw, stage.ProcSwpush, stage.ProcSwheavy, stage.ProcMovebox,
+		stage.ProcEP, stage.ProcTbox, stage.ProcSwc00, stage.ProcDoor10, stage.ProcDoor12,
+		stage.ProcAndsw0, stage.ProcAndsw2, stage.ProcSwhit0, stage.ProcObjTimer,
 	} {
 		if !seen[p] {
 			t.Errorf("%v has no spec", p)

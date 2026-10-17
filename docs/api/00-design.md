@@ -188,7 +188,7 @@ func (g *Game) Disc() *disc.Catalog       // stage and tables from the user's IS
 | `actors.Read(m, limit)` → Walk{Actors, ByPID, ByAddr}; Revalidate | exists: `coop/actors` minus k1.go |
 | `save.Image` (one 0x778 type), `save.Layout`, `save.View`, one item/slot table | exists in pieces: `world.Image`, `class` spans, `derive/view.go`, three item tables |
 | Bit math: SwitchBit, TboxBit, EventByte, ZoneAddr, ... | exists: `wwapi/addr/bits.go` |
-| `stage.Load`, `tables.Get/Build/Identify` | exists: `coop/stagedata`, `coop/tables` builders |
+| `stage.Load`, `tables.Get/Build/Identify` | exists: `wwapi/stage` (was `coop/stagedata`; it reads a `disc.FileSource`, `wwapi/disc`), `coop/tables` builders |
 | `savefile.Parse/ParseCard`, `backup.Locate/Create/Restore` | exists |
 | `mailbox.ReadHeader`, `mailbox.BlobHash`, `mailbox.FrameCounter` | header is new (E1); hash and counter need no C |
 
@@ -429,7 +429,7 @@ Order: C1 first; C4 before C8; C6 before C7; C8 before C14; C5 any time after C1
 - [x] **C1** `internal/coop/{mem,addr}` → `wwapi/{mem,addr}`; split `mem.Reader` / `mem.Mem`; big-endian helpers.
 - [x] **C2** Fold address literals into `addr` with decomp citations.
 - [x] **C3** Cut snap→class with `state.Options{Sensitive}` (equivalence test); move snap → `wwapi/state`, gate → `wwapi/gate`.
-- [ ] **C4** `wwapi/disc` out of `internal/inject`; stagedata → `wwapi/stage`.
+- [x] **C4** `wwapi/disc` out of `internal/inject`; stagedata → `wwapi/stage`.
 - [ ] **C5** k1.go → `internal/coop/combat`; the rest of actors → `wwapi/actors`.
 - [ ] **C6** `wwapi/save`: one `Image` (old names as aliases for one release), one item/slot table, `Layout`, `View`.
 - [ ] **C7** Split savefile (merge/derive → `savemerge`; I/O → `wwapi/savefile`); backup → `wwapi/backup`.

@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // fakeActorType is what the hand-laid queues' g_fopAc_type and actor_type
@@ -247,33 +247,33 @@ func TestK1MatchesDesign(t *testing.T) {
 			t.Errorf("%s: not verified", c.Name)
 		}
 	}
-	if _, ok := K1(int16(stagedata.ProcKS)); ok {
+	if _, ok := K1(int16(stage.ProcKS)); ok {
 		t.Error("Morth is a K1 target")
 	}
-	if bk, _ := K1(int16(stagedata.ProcBK)); bk.Weapon != 0x1200 || !bk.WeaponVerified {
+	if bk, _ := K1(int16(stage.ProcBK)); bk.Weapon != 0x1200 || !bk.WeaponVerified {
 		t.Errorf("the Bokoblin's weapon: %+v", bk)
 	}
-	if tn, _ := K1(int16(stagedata.ProcTN)); tn.Weapon != 0x1410 || !tn.WeaponVerified {
+	if tn, _ := K1(int16(stage.ProcTN)); tn.Weapon != 0x1410 || !tn.WeaponVerified {
 		t.Errorf("the Darknut's weapon: %+v", tn)
 	}
 }
 
 // eligibleActor is a Bokoblin every gate passes.
 func eligibleActor() Actor {
-	return Actor{Addr: 0x80A10000, Node: 0x80A100C4, PID: 7, Proc: int16(stagedata.ProcBK), InitState: 2, SetID: 5, Group: 2, HomeRoom: 3,
+	return Actor{Addr: 0x80A10000, Node: 0x80A100C4, PID: 7, Proc: int16(stage.ProcBK), InitState: 2, SetID: 5, Group: 2, HomeRoom: 3,
 		Health: 4, Ice: IceState{Off: 0x1264, Read: true, Self: 0x80A10000, SelfOK: true, Mode: 1}}
 }
 
 // TestK1GateMatrix: each per-actor gate of §7.2 refuses on its own.
 func TestK1GateMatrix(t *testing.T) {
-	unverify(t, stagedata.ProcPW)
+	unverify(t, stage.ProcPW)
 	if why := Eligible(&[]Actor{eligibleActor()}[0], false); why != "" {
 		t.Fatalf("the eligible Bokoblin: %s", why)
 	}
 	rd := eligibleActor()
-	rd.Proc, rd.Ice.Off, rd.ModeOK = int16(stagedata.ProcRD), 0x6E0, true
+	rd.Proc, rd.Ice.Off, rd.ModeOK = int16(stage.ProcRD), 0x6E0, true
 	fm := eligibleActor()
-	fm.Proc, fm.Ice.Off, fm.ModeOK = int16(stagedata.ProcFM), 0xAE8, true
+	fm.Proc, fm.Ice.Off, fm.ModeOK = int16(stage.ProcFM), 0xAE8, true
 	for _, c := range []struct {
 		name       string
 		base       Actor
@@ -282,9 +282,9 @@ func TestK1GateMatrix(t *testing.T) {
 		want       string
 	}{
 		{"not K1", eligibleActor(), func(a *Actor) { a.Proc = 0x1CB }, false, "not a K1 class"},
-		{"Morth", eligibleActor(), func(a *Actor) { a.Proc = int16(stagedata.ProcKS) }, false, "not a K1 class"},
-		{"a boss", eligibleActor(), func(a *Actor) { a.Proc = int16(stagedata.ProcBDK) }, false, "not a K1 class"},
-		{"unverified", eligibleActor(), func(a *Actor) { a.Proc = int16(stagedata.ProcPW) }, false, "not verified"},
+		{"Morth", eligibleActor(), func(a *Actor) { a.Proc = int16(stage.ProcKS) }, false, "not a K1 class"},
+		{"a boss", eligibleActor(), func(a *Actor) { a.Proc = int16(stage.ProcBDK) }, false, "not a K1 class"},
+		{"unverified", eligibleActor(), func(a *Actor) { a.Proc = int16(stage.ProcPW) }, false, "not verified"},
 		{"creating", eligibleActor(), func(a *Actor) { a.InitState = 1 }, false, "mInitState 1"},
 		{"leaving", eligibleActor(), func(a *Actor) { a.InitState = 3 }, false, "mInitState 3"},
 		{"group", eligibleActor(), func(a *Actor) { a.Group = 3 }, false, "group 3"},
@@ -306,7 +306,7 @@ func TestK1GateMatrix(t *testing.T) {
 		{"Floormaster Link's demo", fm, func(a *Actor) { a.Mode = 17 }, false, "grab"},
 		// Pass:
 		{"unkeyed", eligibleActor(), func(a *Actor) { a.SetID, a.HomeRoom = addr.ActorSetIDNone, -1 }, false, ""},
-		{"unverified with --unverified", eligibleActor(), func(a *Actor) { a.Proc = int16(stagedata.ProcPW) }, true, ""},
+		{"unverified with --unverified", eligibleActor(), func(a *Actor) { a.Proc = int16(stage.ProcPW) }, true, ""},
 		{"ReDead walking", rd, func(a *Actor) { a.Mode = 4 }, false, ""},
 		{"Floormaster waiting", fm, func(a *Actor) { a.Mode = 7 }, false, ""},
 	} {
@@ -331,8 +331,8 @@ func fakeEnemies(t *testing.T) (*fakegame.FakeGame, *mem.FakeMem, *fakegame.Enem
 	m := mem.NewFakeMem()
 	g := fakegame.New(m)
 	es := fakegame.PlaceEnemies(
-		fakegame.Enemy{Stage: fakeDRC.Name, Room: fakeRoom, SetID: 1, Proc: stagedata.ProcBK, Weapon: true},
-		fakegame.Enemy{Stage: fakeDRC.Name, Room: fakeRoom, SetID: 2, Proc: stagedata.ProcCC},
+		fakegame.Enemy{Stage: fakeDRC.Name, Room: fakeRoom, SetID: 1, Proc: stage.ProcBK, Weapon: true},
+		fakegame.Enemy{Stage: fakeDRC.Name, Room: fakeRoom, SetID: 2, Proc: stage.ProcCC},
 	)
 	if err := g.LoadStage(fakeDRC); err != nil {
 		t.Fatal(err)
@@ -382,7 +382,7 @@ func TestRevalidate(t *testing.T) {
 	// Freed and reused by another actor: refused.
 	cc, _ := es.Of(1)
 	ccA, _ := w.ByPID(cc.PID)
-	if _, err := es.FreeAndReuse(g, cc.PID, stagedata.ProcCC); err != nil {
+	if _, err := es.FreeAndReuse(g, cc.PID, stage.ProcCC); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := Revalidate(m, ccA, nil, false); !errors.Is(err, ErrChanged) || !strings.Contains(err.Error(), "reused") {
@@ -505,14 +505,14 @@ func TestWeaponHeld(t *testing.T) {
 	}
 
 	// A Stalfos whose mace is not yet drawn (m1DD0 1) waits.
-	st := Actor{Proc: int16(stagedata.ProcST), Weapon: 7, Hold: 1, HoldOK: true}
+	st := Actor{Proc: int16(stage.ProcST), Weapon: 7, Hold: 1, HoldOK: true}
 	if wp, why := WeaponOf(&w, &st, false); wp != nil || !strings.Contains(why, "between hands") {
 		t.Errorf("a Stalfos's mace before its draw: %v %q", wp, why)
 	}
 }
 
 // unverify makes K1 class p unverified for one test.
-func unverify(t testing.TB, p stagedata.Proc) {
+func unverify(t testing.TB, p stage.Proc) {
 	old := SetVerified(int16(p), false)
 	t.Cleanup(func() { SetVerified(int16(p), old) })
 }

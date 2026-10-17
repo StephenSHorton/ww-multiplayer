@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/enemies"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // The K1 light-shrink (§7.2): one byte, 1, written to a live enemy's
@@ -32,7 +32,7 @@ var DemoTypeVerified = true
 // Class is a K1 class: where its enemyice is, whether it is verified, and
 // what M6's gates read of it beyond fopAc_ac_c.
 type Class struct {
-	Proc stagedata.Proc
+	Proc stage.Proc
 	Name string // enemies.Class.Name: "BK"
 	// Ice is its enemyice member's offset (enemies.Class.Ice).
 	Ice uint32
@@ -93,22 +93,22 @@ const (
 var classes = func() map[int16]Class {
 	out := map[int16]Class{}
 	for _, c := range enemies.K1Classes() {
-		if c.Ice == 0 || c.Proc == stagedata.ProcKS {
+		if c.Ice == 0 || c.Proc == stage.ProcKS {
 			// Every placed Morth is a generator that never exists
 			// (d_a_ks.cpp:1582-1610): no Morth is ever a target.
 			continue
 		}
 		k := Class{Proc: c.Proc, Name: c.Name, Ice: c.Ice, Verified: c.K1Verified}
 		switch c.Proc {
-		case stagedata.ProcBK:
+		case stage.ProcBK:
 			k.Weapon, k.WeaponVerified = weaponBK, true
 			k.Hold, k.holding = holdBK, func(v int32) (bool, bool) { return v != 0, false }
-		case stagedata.ProcST:
+		case stage.ProcST:
 			k.Weapon, k.WeaponVerified = weaponST, true
 			k.Hold, k.holdS8, k.holding = holdST, true, func(v int32) (bool, bool) { return v >= 2, v == 1 }
-		case stagedata.ProcTN:
+		case stage.ProcTN:
 			k.Weapon, k.WeaponVerified = weaponTN, true
-		case stagedata.ProcRD:
+		case stage.ProcRD:
 			k.Mode, k.held = modeRD, func(m int32) string {
 				switch m {
 				case 7:
@@ -118,7 +118,7 @@ var classes = func() map[int16]Class {
 				}
 				return ""
 			}
-		case stagedata.ProcFM:
+		case stage.ProcFM:
 			k.Mode, k.held = modeFM, func(m int32) string {
 				if m >= 13 && m <= 17 {
 					return fmt.Sprintf("a Floormaster in its grab or Link's demo (mode %d)", m)
@@ -173,7 +173,7 @@ func ProcName(p int16) string {
 	case addr.ProcBoko:
 		return "boko"
 	}
-	if c, ok := enemies.ClassOf(stagedata.Proc(p)); ok {
+	if c, ok := enemies.ClassOf(stage.Proc(p)); ok {
 		return strings.ToLower(c.Name)
 	}
 	return ""

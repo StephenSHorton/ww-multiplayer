@@ -6,7 +6,7 @@ import (
 	"math"
 )
 
-// The DZS/DZR chunk files stagedata's dzx.go documents and cites: an s32
+// The DZS/DZR chunk files wwapi/stage's dzx.go documents and cites: an s32
 // chunk count, 0xC-byte chunk headers (tag, s32 entry count, u32 offset
 // from the file start), then the chunks' entries.
 

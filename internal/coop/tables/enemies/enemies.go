@@ -18,7 +18,7 @@
 //     d_save.cpp:1671-1682). Only the classes classes.go lists as
 //     recording a death call it.
 //   - Both ignore setID 0xFFFF and room -1 (d_save.cpp:1672-1674,
-//     :1686-1688), which a stage.dzs entry has (stagedata.Placed). A
+//     :1686-1688), which a stage.dzs entry has (stage.Placed). A
 //     runtime spawn gets 0xFFFF (fopAcM_CreateAppend,
 //     f_op_actor_mng.cpp:78-91).
 //   - A zone holds bits 0-511 (dSv_zoneActor_c::ACTOR_MAX, d_save.h:780).
@@ -33,7 +33,7 @@
 //     (dStage_roomControl_c::init clears the zones when a stage is
 //     entered at a start point, d_stage.cpp:124-126). Only one layer's
 //     chunks are read per room
-//     (stagedata's dzx.go), so entries on different layers never meet
+//     (wwapi/stage's dzx.go), so entries on different layers never meet
 //     in one game; two players can load different layers (§7.2).
 //   - NPC event cuts find their actor by setID ("SetId",
 //     d_npc_event_cut.inc:106-111, :353), so a nonzero setID on an NPC
@@ -55,8 +55,8 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // NoSetID is the setID of an entry the game never records (and of every
@@ -157,19 +157,19 @@ func (v *Vec) UnmarshalJSON(b []byte) error {
 
 // Entry is one placed enemy.
 type Entry struct {
-	Stage  string         `json:"stage"`
-	Room   int            `json:"room"`  // -1: the stage's own stage.dzs
-	Layer  int            `json:"layer"` // stagedata.AllLayers (-1) or 0-11
-	Tag    string         `json:"tag"`   // its chunk: "ACTR", "ACT3", "SCOB", ...
-	Index  int            `json:"index"` // in the chunk
-	Name   string         `json:"name"`  // its l_objectName name: "Bk"
-	Proc   stagedata.Proc `json:"proc"`
-	Class  string         `json:"class"` // Class.Name: "BK"
-	SetID  uint16         `json:"set_id"`
-	Pos    Vec            `json:"pos"`
-	Angle  [3]int16       `json:"angle"`
-	Params uint32         `json:"params"`
-	Key    KeyState       `json:"key"`
+	Stage  string     `json:"stage"`
+	Room   int        `json:"room"`  // -1: the stage's own stage.dzs
+	Layer  int        `json:"layer"` // stage.AllLayers (-1) or 0-11
+	Tag    string     `json:"tag"`   // its chunk: "ACTR", "ACT3", "SCOB", ...
+	Index  int        `json:"index"` // in the chunk
+	Name   string     `json:"name"`  // its l_objectName name: "Bk"
+	Proc   stage.Proc `json:"proc"`
+	Class  string     `json:"class"` // Class.Name: "BK"
+	SetID  uint16     `json:"set_id"`
+	Pos    Vec        `json:"pos"`
+	Angle  [3]int16   `json:"angle"`
+	Params uint32     `json:"params"`
+	Key    KeyState   `json:"key"`
 	// Checked is false for a 0x24-byte entry, which the game creates
 	// again however dead its setID is recorded.
 	Checked bool `json:"checked"`
@@ -187,14 +187,14 @@ func (e Entry) String() string {
 
 // Ref is one member of a Duplicate.
 type Ref struct {
-	Layer   int            `json:"layer"`
-	Tag     string         `json:"tag"`
-	Index   int            `json:"index"`
-	Name    string         `json:"name"`
-	Proc    stagedata.Proc `json:"proc"`
-	Class   string         `json:"class,omitempty"` // the enemy class; "" for a non-enemy
-	Checked bool           `json:"checked"`         // dead-checked: an 0x20-byte entry
-	Records bool           `json:"records"`         // its class may record its death (Death.MayRecord)
+	Layer   int        `json:"layer"`
+	Tag     string     `json:"tag"`
+	Index   int        `json:"index"`
+	Name    string     `json:"name"`
+	Proc    stage.Proc `json:"proc"`
+	Class   string     `json:"class,omitempty"` // the enemy class; "" for a non-enemy
+	Checked bool       `json:"checked"`         // dead-checked: an 0x20-byte entry
+	Records bool       `json:"records"`         // its class may record its death (Death.MayRecord)
 }
 
 func (r Ref) String() string {
@@ -322,12 +322,12 @@ type groupKey struct {
 	setID       uint16
 }
 
-// Build reads stages, as stagedata.Load returns them, with names, the
+// Build reads stages, as stage.Load returns them, with names, the
 // user's l_objectName. Entries whose name names has no proc for are
 // counted in Unnamed and otherwise left out, since the game never creates
 // them (dStage_actorCreate, d_stage.cpp:1303-1304); with a nil names,
 // every entry is. A nil stage is skipped.
-func Build(stages []*stagedata.Stage, names *stagedata.ObjectNames) *Table {
+func Build(stages []*stage.Stage, names *stage.ObjectNames) *Table {
 	t := &Table{}
 	groups := make(map[groupKey][]member)
 	var keys []groupKey
@@ -343,7 +343,7 @@ func Build(stages []*stagedata.Stage, names *stagedata.ObjectNames) *Table {
 			if p.Room >= 0 && p.DeadChecked() && keyState(p.Room, p.SetID) == OutOfRange {
 				t.Halting++
 			}
-			var proc stagedata.Proc
+			var proc stage.Proc
 			ok := false
 			if names != nil {
 				proc, ok = names.Proc(p.Name)
@@ -399,11 +399,11 @@ func Build(stages []*stagedata.Stage, names *stagedata.ObjectNames) *Table {
 // those on every layer, plus each layer's own.
 type layerCounts struct {
 	all   int
-	layer [stagedata.NumLayers]int
+	layer [stage.NumLayers]int
 }
 
 func (c *layerCounts) add(layer int) {
-	if layer >= 0 && layer < stagedata.NumLayers {
+	if layer >= 0 && layer < stage.NumLayers {
 		c.layer[layer]++
 	} else {
 		c.all++
@@ -416,14 +416,14 @@ func (c *layerCounts) on(l int) int { return c.all + c.layer[l] }
 // most is the most members any one layer creates.
 func (c *layerCounts) most() int {
 	n := c.all
-	for l := range stagedata.NumLayers {
+	for l := range stage.NumLayers {
 		n = max(n, c.on(l))
 	}
 	return n
 }
 
 // created reports whether layer l creates an entry on layer layer.
-func created(layer, l int) bool { return layer == stagedata.AllLayers || layer == l }
+func created(layer, l int) bool { return layer == stage.AllLayers || layer == l }
 
 // duplicate fills in what a group of two or more members shares, in time
 // linear in its size.
@@ -449,7 +449,7 @@ func duplicate(ms []member) Duplicate {
 	}
 	d.LayerOnly = every.most() < 2
 	d.SharedKey = enemies.most() >= 2
-	for l := range stagedata.NumLayers {
+	for l := range stage.NumLayers {
 		r, c := recorders.on(l), checked.on(l)
 		// A pair needs two entries: not just one that both records and
 		// is checked.
@@ -479,7 +479,7 @@ func collision(ms []member, l int) string {
 				may = "a death of" // perhaps recorded
 			}
 			on := fmt.Sprintf("on layer %d", l)
-			if r.ref.Layer == stagedata.AllLayers && c.ref.Layer == stagedata.AllLayers {
+			if r.ref.Layer == stage.AllLayers && c.ref.Layer == stage.AllLayers {
 				on = "on every layer"
 			}
 			return fmt.Sprintf("%s %v (death %s) keeps %v from being created, %s", may, r.ref, deathOf(r.ref.Proc), c.ref, on)
@@ -488,7 +488,7 @@ func collision(ms []member, l int) string {
 	return ""
 }
 
-func deathOf(p stagedata.Proc) Death {
+func deathOf(p stage.Proc) Death {
 	c, _ := ClassOf(p)
 	return c.Death
 }
@@ -507,7 +507,7 @@ func markShared(es []Entry, ms []member) {
 			continue
 		}
 		others := enemies.most() - 1 // an every-layer member meets the fullest layer
-		if l := m.ref.Layer; l >= 0 && l < stagedata.NumLayers {
+		if l := m.ref.Layer; l >= 0 && l < stage.NumLayers {
 			others = enemies.on(l) - 1
 		}
 		if others > 0 && es[m.enemy].Key == Keyed {

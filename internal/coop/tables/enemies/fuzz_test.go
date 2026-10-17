@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // Fuzz targets for Build, in the style of internal/network/fuzz_test.go:
-// one over whole stage files (the bytes stagedata.ParseDZx reads from an
+// one over whole stage files (the bytes stage.ParseDZx reads from an
 // ISO), one over one entry of every class with a shared setID, spread
 // over the chunks and layers. The seed corpora are built in code (no game
 // data) and run as ordinary tests; to fuzz one, e.g.:
@@ -23,7 +23,7 @@ import (
 // chunkTags are every actor chunk tag the game reads.
 var chunkTags = func() []string {
 	t := []string{"ACTR", "TGOB", "TRES", "TGSC", "SCOB", "DOOR", "TGDR"}
-	for n := range stagedata.NumLayers {
+	for n := range stage.NumLayers {
 		t = append(t, stagetest.LayerTag("ACT", n), stagetest.LayerTag("SCO", n), stagetest.LayerTag("TRE", n))
 	}
 	return t
@@ -33,7 +33,7 @@ var chunkTags = func() []string {
 // entries and their states follow from the placements, every duplicate's
 // flags match a pairwise check, the shares add up, the table's size is
 // proportional to the entries, and the Report and a JSON round trip work.
-func checkTable(t *testing.T, tbl *Table, st *stagedata.Stage, names *stagedata.ObjectNames) {
+func checkTable(t *testing.T, tbl *Table, st *stage.Stage, names *stage.ObjectNames) {
 	t.Helper()
 	all := st.All()
 	if tbl.Stages != 1 || tbl.Placed != len(all) || tbl.Unnamed > tbl.Placed || len(tbl.Enemies) > tbl.Placed-tbl.Unnamed {
@@ -147,12 +147,12 @@ func FuzzBuild(f *testing.F) {
 	f.Add([]byte(nil))
 	names := testNames(f)
 	f.Fuzz(func(t *testing.T, b []byte) {
-		d, err := stagedata.ParseDZx(b)
+		d, err := stage.ParseDZx(b)
 		if err != nil {
 			return
 		}
-		st := &stagedata.Stage{Name: "F", DZS: d, Rooms: []stagedata.Room{{No: 0, DZR: d}, {No: 63, DZR: d}}}
-		checkTable(t, Build([]*stagedata.Stage{st}, names), st, names)
+		st := &stage.Stage{Name: "F", DZS: d, Rooms: []stage.Room{{No: 0, DZR: d}, {No: 63, DZR: d}}}
+		checkTable(t, Build([]*stage.Stage{st}, names), st, names)
 	})
 }
 
@@ -177,7 +177,7 @@ func FuzzEntry(f *testing.F) {
 	}
 	names := testNames(f)
 	f.Fuzz(func(t *testing.T, params uint32, ax, ay, az int16, setID uint16, shift uint8, room int8) {
-		var as []stagedata.Actor
+		var as []stage.Actor
 		for i, c := range append(slices.Clone(Classes), Class{Name: "takara"}) {
 			name := c.Name
 			if c.Proc != 0 {
@@ -187,13 +187,13 @@ func FuzzEntry(f *testing.F) {
 			a.Params, a.Angle = params, [3]int16{ax, ay, az}
 			as = append(as, a)
 		}
-		st := &stagedata.Stage{Name: "F"}
-		if room >= 0 && int(room) < stagedata.MaxRooms {
-			st.Rooms = []stagedata.Room{{No: int(room), DZR: &stagedata.DZx{Actors: index(as)}}}
+		st := &stage.Stage{Name: "F"}
+		if room >= 0 && int(room) < stage.MaxRooms {
+			st.Rooms = []stage.Room{{No: int(room), DZR: &stage.DZx{Actors: index(as)}}}
 		} else {
-			st.DZS = &stagedata.DZx{Actors: index(as)}
+			st.DZS = &stage.DZx{Actors: index(as)}
 		}
-		tbl := Build([]*stagedata.Stage{st}, names)
+		tbl := Build([]*stage.Stage{st}, names)
 		if len(tbl.Enemies) != len(Classes) || tbl.Unnamed != 0 {
 			t.Fatalf("%d enemies of %d classes, %d unnamed", len(tbl.Enemies), len(Classes), tbl.Unnamed)
 		}
@@ -219,7 +219,7 @@ func checkKills(t *testing.T, tbl *Table) {
 		}
 		k := killKey{killRoom{e.Stage, e.Room}, e.SetID}
 		rooms[k.killRoom] = true
-		if e.Boss || e.Proc == stagedata.ProcKS || e.Shared {
+		if e.Boss || e.Proc == stage.ProcKS || e.Shared {
 			refused[k] = true
 		} else {
 			ok[k] = true

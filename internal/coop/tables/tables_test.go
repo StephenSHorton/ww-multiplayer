@@ -21,12 +21,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/switches"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/disc"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // openISO opens a disc image built in memory, as OpenDisc opens a file.
@@ -82,8 +83,8 @@ func TestBuildVanilla(t *testing.T) {
 	sum := sha256.Sum256(dol)
 	if tb.Schema != SchemaVersion || tb.Builder != builderID() || tb.DOL != hex.EncodeToString(sum[:]) ||
 		!validHash(tb.StageFiles) || tb.Stages != 12 || tb.Rooms != 12 ||
-		!slices.Equal(tb.Skipped, []stagedata.Skipped{{Name: "Name", Why: stagedata.SkipNoDZS}}) ||
-		!slices.Equal(tb.Excluded, []stagedata.Skipped{{Name: "K_Test2", Why: whyTest}}) {
+		!slices.Equal(tb.Skipped, []stage.Skipped{{Name: "Name", Why: stage.SkipNoDZS}}) ||
+		!slices.Equal(tb.Excluded, []stage.Skipped{{Name: "K_Test2", Why: whyTest}}) {
 		t.Fatalf("header = %d %q %+v, %d stages, %d rooms, skipped %v, excluded %v", tb.Schema, tb.Builder, tb.ID, tb.Stages, tb.Rooms, tb.Skipped, tb.Excluded)
 	}
 	var got []string
@@ -144,18 +145,18 @@ func TestAcceptanceFails(t *testing.T) {
 		detail string
 	}{
 		{"a DRC key short",
-			replace(v, tablestest.Stage("M_NewD2", keys.TableDRC, stagedata.StageDungeon, nil, doors(4), tablestest.Room(1,
+			replace(v, tablestest.Stage("M_NewD2", keys.TableDRC, stage.StageDungeon, nil, doors(4), tablestest.Room(1,
 				tablestest.KeyChest(1), tablestest.KeyChest(2), tablestest.KeyChest(3), tablestest.PushBlock(1, 0x30, 0x31)))),
 			"keys DRC", "3/4 (sources/doors), vanilla 4/4; 2 problem(s) in the keys section"},
 		{"a key door on the sea",
-			replace(v, tablestest.Stage("sea", 0, stagedata.StageSea, nil, []stagetest.Actor{tablestest.KeyDoor(0x05, 1, 2)},
+			replace(v, tablestest.Stage("sea", 0, stage.StageSea, nil, []stagetest.Actor{tablestest.KeyDoor(0x05, 1, 2)},
 				tablestest.Room(1, append(slices.Clone(pieces), tablestest.PieceChest(29), tablestest.Bitem(2))...))),
 			"key doors outside tables 3-7", "1 (table 0: 1)"},
 		{"a heart piece short",
-			replace(v, tablestest.Stage("sea", 0, stagedata.StageSea, nil, nil, tablestest.Room(1, append(slices.Clone(pieces), tablestest.Bitem(2))...))),
+			replace(v, tablestest.Stage("sea", 0, stage.StageSea, nil, nil, tablestest.Room(1, append(slices.Clone(pieces), tablestest.Bitem(2))...))),
 			"heart pieces", "43, vanilla 44: 29 in stage files, 11 rewards, 3 unverified rewards"},
 		{"Molgera missing",
-			replace(v, tablestest.Stage("kazeB", keys.TableWT, stagedata.StageDungeon, nil, nil)),
+			replace(v, tablestest.Stage("kazeB", keys.TableWT, stage.StageDungeon, nil, nil)),
 			"heart containers", "5, vanilla 6; 1 problem(s) in the hearts section"},
 		{"no push block",
 			replace(v, tablestest.Dungeon("M_NewD2", keys.TableDRC)),
@@ -331,7 +332,7 @@ func TestBuildErrors(t *testing.T) {
 		{"not the GZLE01 DOL", tablestest.Disc(tablestest.Vanilla()).ISO(stagetest.DOL(0x80300000, make([]byte, 0x100))), "no l_objectName"},
 		{"a broken archive", bad.ISO(tablestest.DOL()), "res/Stage/bad/Stage.arc"},
 		{"only test stages", tablestest.Disc([]stagetest.Stage{
-			tablestest.Stage("K_Test2", tablestest.TableTest, stagedata.StageOutdoors, nil, nil, tablestest.Room(0)), {Name: "Name"},
+			tablestest.Stage("K_Test2", tablestest.TableTest, stage.StageOutdoors, nil, nil, tablestest.Room(0)), {Name: "Name"},
 		}).ISO(tablestest.DOL()), "no stages the play scene can load outside save table 15 (1 left out, 1 on STAGE_TEST)"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -362,11 +363,11 @@ func TestBuildErrors(t *testing.T) {
 // TestPlayable checks that only save table 15 (STAGE_TEST) is left out,
 // in order, and that a nil stage passes through to the builders.
 func TestPlayable(t *testing.T) {
-	var stages []*stagedata.Stage
+	var stages []*stage.Stage
 	for table := range 0x10 {
-		stages = append(stages, &stagedata.Stage{Name: fmt.Sprintf("T%X", table), SaveTable: table})
+		stages = append(stages, &stage.Stage{Name: fmt.Sprintf("T%X", table), SaveTable: table})
 	}
-	stages = append(stages, nil, &stagedata.Stage{Name: "I_TestM", SaveTable: tablestest.TableTest})
+	stages = append(stages, nil, &stage.Stage{Name: "I_TestM", SaveTable: tablestest.TableTest})
 	kept, excluded := playable(stages)
 	if len(kept) != 0x10 || kept[0xF] != nil {
 		t.Fatalf("kept %d stages, want tables 0-14 and the nil one", len(kept))
@@ -376,7 +377,7 @@ func TestPlayable(t *testing.T) {
 			t.Errorf("kept[%d] is on table %d", i, s.SaveTable)
 		}
 	}
-	if want := []stagedata.Skipped{{Name: "TF", Why: whyTest}, {Name: "I_TestM", Why: whyTest}}; !slices.Equal(excluded, want) {
+	if want := []stage.Skipped{{Name: "TF", Why: whyTest}, {Name: "I_TestM", Why: whyTest}}; !slices.Equal(excluded, want) {
 		t.Errorf("excluded %v, want %v", excluded, want)
 	}
 	if kept, excluded := playable(nil); kept != nil || excluded != nil {
@@ -717,12 +718,12 @@ func TestSaveRenameFails(t *testing.T) {
 }
 
 func TestStageFilesHash(t *testing.T) {
-	base := []inject.DiscFile{
+	base := []disc.DiscFile{
 		{Path: "res/Object/Link.arc", Offset: 0x100000, Size: 0x4000},
 		{Path: "res/Stage/sea/Stage.arc", Offset: 0x200000, Size: 0x800},
 		{Path: "res/Stage/sea/Room1.arc", Offset: 0x300000, Size: 0x900},
 	}
-	with := func(f func(fs []inject.DiscFile)) []inject.DiscFile {
+	with := func(f func(fs []disc.DiscFile)) []disc.DiscFile {
 		c := slices.Clone(base)
 		f(c)
 		return c
@@ -730,17 +731,17 @@ func TestStageFilesHash(t *testing.T) {
 	h := stageFilesHash(base)
 	for _, c := range []struct {
 		name  string
-		files []inject.DiscFile
+		files []disc.DiscFile
 		same  bool
 	}{
-		{"moved", with(func(fs []inject.DiscFile) { fs[1].Offset, fs[2].Offset = 0x400000, 0x500000 }), true},
-		{"another object", with(func(fs []inject.DiscFile) { fs[0].Size = 1 }), true},
-		{"a leading slash", with(func(fs []inject.DiscFile) { fs[1].Path = "/" + fs[1].Path }), true},
-		{"a room resized", with(func(fs []inject.DiscFile) { fs[2].Size++ }), false},
-		{"a room renamed", with(func(fs []inject.DiscFile) { fs[2].Path = "res/Stage/sea/Room2.arc" }), false},
-		{"another spelling", with(func(fs []inject.DiscFile) { fs[2].Path = "RES/STAGE/sea/Room1.arc" }), false},
-		{"a room more", append(slices.Clone(base), inject.DiscFile{Path: "res/Stage/sea/Room2.arc", Size: 1}), false},
-		{"reordered", []inject.DiscFile{base[0], base[2], base[1]}, false},
+		{"moved", with(func(fs []disc.DiscFile) { fs[1].Offset, fs[2].Offset = 0x400000, 0x500000 }), true},
+		{"another object", with(func(fs []disc.DiscFile) { fs[0].Size = 1 }), true},
+		{"a leading slash", with(func(fs []disc.DiscFile) { fs[1].Path = "/" + fs[1].Path }), true},
+		{"a room resized", with(func(fs []disc.DiscFile) { fs[2].Size++ }), false},
+		{"a room renamed", with(func(fs []disc.DiscFile) { fs[2].Path = "res/Stage/sea/Room2.arc" }), false},
+		{"another spelling", with(func(fs []disc.DiscFile) { fs[2].Path = "RES/STAGE/sea/Room1.arc" }), false},
+		{"a room more", append(slices.Clone(base), disc.DiscFile{Path: "res/Stage/sea/Room2.arc", Size: 1}), false},
+		{"reordered", []disc.DiscFile{base[0], base[2], base[1]}, false},
 		{"no stages", base[:1], false},
 	} {
 		if got := stageFilesHash(c.files) == h; got != c.same {

@@ -1,4 +1,4 @@
-package stagedata
+package stage
 
 import (
 	"errors"
@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/disc"
 )
 
 // Stages on the disc. A stage is a directory under /res/Stage/ named for
@@ -59,19 +59,6 @@ const (
 	SkipNoDZS  = "no stage.dzs"
 	SkipNoStag = "stage.dzs has no STAG chunk"
 )
-
-// FileSource is the disc Load reads, listed and read by path as
-// *inject.Disc does: Files lists every file; Stat and ReadFile resolve a
-// path the way the game's DVD library does (case-insensitively, the first
-// match winning), Stat returning the entry ReadFile would read, and both
-// return an error matching fs.ErrNotExist for a missing file. Load Stats
-// each archive before reading it, and calls both from several goroutines
-// at once.
-type FileSource interface {
-	Files() []inject.DiscFile
-	Stat(path string) (inject.DiscFile, error)
-	ReadFile(path string) ([]byte, error)
-}
 
 // Stage is one stage directory: its stage.dzs and its rooms' room.dzr.
 type Stage struct {
@@ -212,14 +199,14 @@ func (s *Stage) placed(keep func(Actor) bool) []Placed {
 // see either (another spelling of its directory comes first), and is
 // left out; so are the rooms of such a stage. The archives are expanded
 // in parallel.
-func Load(src FileSource) ([]*Stage, []Skipped, error) {
+func Load(src disc.FileSource) ([]*Stage, []Skipped, error) {
 	return loadStages(src, listStages(src.Files()))
 }
 
 // LoadStage reads one stage by name (matched case-insensitively, as the
 // game opens it). A name Load would not list is an error matching
 // fs.ErrNotExist; one Load would skip is an error saying why.
-func LoadStage(src FileSource, name string) (*Stage, error) {
+func LoadStage(src disc.FileSource, name string) (*Stage, error) {
 	for _, l := range listStages(src.Files()) {
 		if !asciiEqualFold(l.name, name) {
 			continue
@@ -256,7 +243,7 @@ func (l stageListing) roomPath(no int) string {
 // ASCII case-insensitively, so two spellings of one directory are one
 // candidate, named as first spelled; ReadFile then resolves its paths as
 // the game would.
-func listStages(files []inject.DiscFile) []stageListing {
+func listStages(files []disc.DiscFile) []stageListing {
 	type cand struct {
 		stageListing
 		hasStage bool
@@ -342,7 +329,7 @@ type loadResult struct {
 // can't see or skips is never loaded, however broken). The rooms of the
 // stages whose Stage.arc loaded are read even when another's failed, so
 // the error names every failure.
-func loadStages(src FileSource, list []stageListing) ([]*Stage, []Skipped, error) {
+func loadStages(src disc.FileSource, list []stageListing) ([]*Stage, []Skipped, error) {
 	jobs := make([]loadJob, len(list))
 	for i, l := range list {
 		jobs[i] = loadJob{stage: i, room: -1, path: l.stagePath()}
@@ -393,7 +380,7 @@ func loadStages(src FileSource, list []stageListing) ([]*Stage, []Skipped, error
 // runJobs runs every job on a few workers and returns their results in
 // job order, which is the same from run to run whatever the workers'
 // timing.
-func runJobs(src FileSource, jobs []loadJob) []loadResult {
+func runJobs(src disc.FileSource, jobs []loadJob) []loadResult {
 	results := make([]loadResult, len(jobs))
 	next := make(chan int)
 	var wg sync.WaitGroup
@@ -415,7 +402,7 @@ func runJobs(src FileSource, jobs []loadJob) []loadResult {
 // loadArchive reads one job's archive and its DZx file. The size the
 // disc lists is checked first: ReadFile allocates whatever it says, which
 // a crafted image can make gigabytes on a sparse file.
-func loadArchive(src FileSource, j loadJob) loadResult {
+func loadArchive(src disc.FileSource, j loadJob) loadResult {
 	f, err := src.Stat(j.path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return loadResult{}

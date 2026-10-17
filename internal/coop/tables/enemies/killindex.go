@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // What M6's kill union reads of the enemy table (docs/08-coop-design.md
@@ -172,7 +172,7 @@ func buildKillIndex(es []Entry) *killIndex {
 		if e.Key != Keyed || !k1 || c.Kind != K1 {
 			continue
 		}
-		if e.Boss || e.Proc == stagedata.ProcKS || e.Shared {
+		if e.Boss || e.Proc == stage.ProcKS || e.Shared {
 			refused[killKey{killRoom{e.Stage, e.Room}, e.SetID}] = true
 		}
 	}
@@ -212,7 +212,7 @@ func buildKillIndex(es []Entry) *killIndex {
 		cs.Keyed++
 		ss.Keyed++
 		switch {
-		case e.Proc == stagedata.ProcKS:
+		case e.Proc == stage.ProcKS:
 			cov.NeverLive++
 			continue
 		case e.Shared:
@@ -222,7 +222,7 @@ func buildKillIndex(es []Entry) *killIndex {
 			// Another K1 entry of the key is BOSS: counted as shared.
 			cov.Shared++
 			continue
-		case e.Proc == stagedata.ProcBB:
+		case e.Proc == stage.ProcBB:
 			cov.IceOnly++
 		case !c.K1Verified:
 			unverified[c.Name]++
@@ -259,7 +259,7 @@ func buildKillIndex(es []Entry) *killIndex {
 		}
 		r := killRoom{e.Stage, e.Room}
 		m := idx.masks[r]
-		clears := c.Kind == K1 && !e.Boss && e.Key == Keyed && e.Proc != stagedata.ProcBB && c.K1Verified &&
+		clears := c.Kind == K1 && !e.Boss && e.Key == Keyed && e.Proc != stage.ProcBB && c.K1Verified &&
 			m != nil && m.Has(int(e.SetID))
 		if !clears {
 			blocked[r] = true

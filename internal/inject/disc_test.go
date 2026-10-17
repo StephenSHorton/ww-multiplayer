@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/disc"
 )
 
 // Synthetic GameCube images for the patcher and Disc tests. A real GZLE01
@@ -370,10 +372,10 @@ func treeDisc() testDisc {
 }
 
 // discFiles is what Disc.Files should list for b.
-func (b builtDisc) discFiles() []DiscFile {
-	var want []DiscFile
+func (b builtDisc) discFiles() []disc.DiscFile {
+	var want []disc.DiscFile
 	for _, f := range b.files {
-		want = append(want, DiscFile{Path: f.name, Offset: f.off, Size: f.size})
+		want = append(want, disc.DiscFile{Path: f.name, Offset: f.off, Size: f.size})
 	}
 	return want
 }
@@ -663,7 +665,7 @@ func TestParseFSTTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := (&Disc{ents: ents}).Files(); !slices.Equal(got, []DiscFile{{Path: "f", Offset: 0x40, Size: 1}}) {
+	if got := (&Disc{ents: ents}).Files(); !slices.Equal(got, []disc.DiscFile{{Path: "f", Offset: 0x40, Size: 1}}) {
 		t.Errorf("Files() = %v", got)
 	}
 }

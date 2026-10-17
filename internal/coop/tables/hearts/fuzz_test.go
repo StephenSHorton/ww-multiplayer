@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
 // Fuzz target for the heart table over fuzzed stage and room files. The
@@ -29,15 +29,15 @@ func FuzzBuild(f *testing.F) {
 	f.Add([]byte(nil), []byte(nil))
 	names := testNames(f)
 	f.Fuzz(func(t *testing.T, dzs, dzr []byte) {
-		d, err := stagedata.ParseDZx(dzs)
+		d, err := stage.ParseDZx(dzs)
 		if err != nil || d.Stag == nil {
 			return
 		}
-		s := &stagedata.Stage{Name: "fz", SaveTable: d.Stag.SaveTable(), Stag: *d.Stag, DZS: d}
-		if r, err := stagedata.ParseDZx(dzr); err == nil {
-			s.Rooms = []stagedata.Room{{No: 1, DZR: r}}
+		s := &stage.Stage{Name: "fz", SaveTable: d.Stag.SaveTable(), Stag: *d.Stag, DZS: d}
+		if r, err := stage.ParseDZx(dzr); err == nil {
+			s.Rooms = []stage.Room{{No: 1, DZR: r}}
 		}
-		r := Build([]*stagedata.Stage{s}, names)
+		r := Build([]*stage.Stage{s}, names)
 		n := len(s.All())
 		at := 0
 		for _, src := range r.Pieces {
