@@ -21,7 +21,7 @@ Wind Waker disc image). Releases are cut on tag push via GitHub Actions.
 ww-multiplayer/
 ├── main.go, commands.go         # Entry point; commands.go: the CLI command registry + generated help (app_face.go: no args = app window, `tui`, `ui --browser`)
 ├── *.go                         # Rest of package main: coop_*.go (co-op CLI + session), mp_local*.go (dolphin2, mp-local),
-│                                #   tunic_feed.go (session side of the tunic colors), session/lobby engines, app_game.go (the app's Start: Dolphin + pipelines),
+│                                #   tunic_diag.go (tunic dev commands), session/lobby engines, app_game.go (the app's Start: Dolphin + pipelines),
 │                                #   app_coop.go (the app's co-op: world, hub, GO, coop-sync), auto_recapture.go
 ├── internal/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
@@ -48,8 +48,10 @@ ww-multiplayer/
 │                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), savefile/ (GCI/card I/O), backup/ (card backups), tables/ (M1 disc table builders + cache), player/ (Link: Ptr/Ready/Position/DemoType/Pose/Face; Warp, WarpForce; input Override/Release/Press; playertest = fake warp handler), avatar/ (remote Links: pose-feed slot writes, Clear/Rearm, pose math, Tunics = tunic slots; avatartest = fake RAM + C tunic allocation), gfx/texture/ (CMPR tunic recolor, ResTIMG), mailbox/ (T2 + mailbox layout, WWMB header read; layout_gen.go is generated from mailbox.h by tools/gen_mailbox), events/ (bus + core game events), commands/ (command registry, write gate), fakegame/ (deterministic fake game for tests), schema/, semver/; the mod runtime (manifest, resolver, supervisor); Game (Attach/NewGame: watcher, pre-E1 contract check)
 ├── mods/                        # Compiled-in mods (docs/api §6): example/ (D3), _fixtures/ (runtime test mods)
 │   └── multiplayer/             # The multiplayer mod (D1)
+│       ├── feed/                # Pose pipelines: BroadcastPose, PuppetSync (Feeder: link/actor slot assignment, lerp, arming over wwapi/avatar), PoseFakeLoop
 │       ├── net/                 # package network: TCP server/client, protocol + handshake, lobby, co-op channel, timing knobs (netconfig.go)
-│       └── playercolor/         # Tunic color palette + --color / WW_COLOR parsing (docs/09)
+│       ├── playercolor/         # Tunic color palette + --color / WW_COLOR parsing (docs/09)
+│       └── tunicsync/           # Session side of the tunic colors: SyncTunics, the appearance byte, the dump block (docs/09 §5.4)
 ├── inject/                      # C source for the injected PPC code
 │   ├── src/multiplayer.c        # The mod's C side
 │   ├── include/{game,mailbox}.h

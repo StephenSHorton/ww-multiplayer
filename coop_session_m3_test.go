@@ -607,7 +607,7 @@ func coNextStage(cg *coGame) (name string, point int16, room, layer, enable int8
 }
 
 // coPose is a pose-sync client of the session for player name, connected
-// to the server at at, as runPuppetSyncCtx's onClient hands it over
+// to the server at at, as feed.PuppetSync's onClient hands it over
 // (withPoseClient).
 func coPose(t *testing.T, cs *coopSession, name, at string) *network.Client {
 	t.Helper()

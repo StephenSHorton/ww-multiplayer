@@ -1,3 +1,9 @@
+// Package tunicsync is the session side of the tunic colors
+// (docs/09-player-colors.md §5.4): which color each tunic slot shows,
+// from the session's player list, plus the appearance byte of the pose
+// trailer and the dump command's tunic block. The slots themselves (the
+// hero texture, the recolor, the mailbox writes) are wwapi/avatar's
+// Tunics; the tunic dev commands are in package main (tunic_diag.go).
 package tunicsync
 
 import (
@@ -12,12 +18,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
-
-// Tunic colors, session side (docs/09-player-colors.md §5.4): which color
-// each tunic slot shows, from the session's player list, plus the
-// appearance byte of the pose trailer and the tunic dev commands. The
-// slots themselves (the hero texture, the recolor, the mailbox writes)
-// are wwapi/avatar's Tunics.
 
 // RemoteCasual reports whether a remote's pose trailer says it wears the
 // casual clothes: byte player.FaceBytes (the 17th) is the appearance

@@ -399,7 +399,7 @@ func runUnhidePuppet() {
 //   remote player -> server -> puppet-sync -> mailbox -> C hook -> actor pos
 //
 // Standalone-CLI wrapper. Honors WW_SELF_NAME (kept for mplay2.sh); host/
-// join call runPuppetSyncCtx directly with an explicit filter name. Installs
+// join call feed.PuppetSync directly with an explicit filter name. Installs
 // the same SIGINT handler as host/join so mplay2.sh's Ctrl+C path resets
 // the mailbox (shadow_mode=0 + pose_seqs[*]=0) instead of leaving Link #2
 // frozen at the last received pose.
@@ -4179,7 +4179,7 @@ func (ls *liveState) setClient(c *network.Client) {
 }
 
 // setLocalPos records this player's own latest world position (#22
-// minimap). Called from runBroadcastPoseCtx's send loop every tick it
+// minimap). Called from feed.BroadcastPose's send loop every tick it
 // successfully reads Link's position — see the onPos callback threaded
 // through runMultiplayerGoroutines, mirroring how onClient wires the
 // puppet-sync *network.Client into liveState.
@@ -4326,7 +4326,7 @@ func (ls *liveState) hostIPList() []string {
 // runMultiplayerGoroutines expects, returning nil (no registration) when ls is
 // nil so CLI callers stay unaffected. Besides registering the client for the
 // #19 status panel, it wires the client's OnChat (BEFORE Connect — onClient is
-// invoked pre-Connect in runPuppetSyncCtx) to hand incoming lines to the
+// invoked pre-Connect in feed.PuppetSync) to hand incoming lines to the
 // running session's chat sink (#20).
 func liveStateClientSetter(ls *liveState) func(*network.Client) {
 	if ls == nil {
@@ -4339,7 +4339,7 @@ func liveStateClientSetter(ls *liveState) func(*network.Client) {
 }
 
 // liveStateLocalPosSetter adapts a *liveState into the onPos callback
-// runMultiplayerGoroutines / runBroadcastPoseCtx expect, returning nil (no
+// runMultiplayerGoroutines / feed.BroadcastPose expect, returning nil (no
 // registration) when ls is nil so CLI callers stay unaffected. Mirrors
 // liveStateClientSetter above.
 func liveStateLocalPosSetter(ls *liveState) func(x, y, z float32) {
