@@ -75,7 +75,7 @@ One exe has three faces (`app_face.go`). Every subcommand is the CLI, dispatched
 
 - `ww-multiplayer.exe host` / `ww-multiplayer.exe join <ip>` — the user-facing multiplayer entry points (one process per player; signal handler resets the mailbox on Ctrl+C).
 - `ww-multiplayer.exe server` / `broadcast-pose` / `puppet-sync` — lower-level building blocks. `mp-local` runs the same pipelines in one process for the two-Dolphin local harness; the legacy `scripts/mplay2.sh` runs them as separate processes.
-- `ww-multiplayer.exe debug`, `ww-multiplayer.exe dump`, `ww-multiplayer.exe shadow-mode` — diagnostic CLIs. Plain-text output — good for piping into agents.
+- `ww-multiplayer.exe debug`, `wwdev.exe dump`, `wwdev.exe shadow-mode` — diagnostic CLIs. Plain-text output — good for piping into agents.
 
 The front ends do not call the session code directly. They drive a **session controller** (`internal/session`), the UI-free owner of a session's state that the desktop app (`internal/gui`) drives too:
 

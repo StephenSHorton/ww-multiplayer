@@ -171,7 +171,7 @@ func runAutoRecapture(outPath string) {
 		os.Exit(1)
 	}
 	log.Logf(rep, log.OK, "saves/start.sav refreshed: %s", outPath)
-	rep.Log(log.Info, "next run: SAVE_STATE=$(pwd)/saves/start.sav ./ww-multiplayer.exe dolphin2")
+	rep.Log(log.Info, "next run: SAVE_STATE=$(pwd)/saves/start.sav ./wwdev.exe dolphin2")
 }
 
 // killAllDolphins ends every running Dolphin process so window
@@ -385,7 +385,7 @@ func runAutoRecapturePair(out1, out2 string, delay time.Duration) {
 	}
 
 	log.Logf(rep, log.OK, "pair captured: %s and %s", out1, out2)
-	log.Logf(rep, log.Info, "next run: SAVE_STATE=$(pwd)/%s SAVE_STATE_2=$(pwd)/%s ./ww-multiplayer.exe dolphin2", out1, out2)
+	log.Logf(rep, log.Info, "next run: SAVE_STATE=$(pwd)/%s SAVE_STATE_2=$(pwd)/%s ./wwdev.exe dolphin2", out1, out2)
 }
 
 // captureOneShiftF1 attempts the auto Shift+F1 path, falls back to a

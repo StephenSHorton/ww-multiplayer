@@ -8,16 +8,10 @@ package main
 // auto-recapture has no golden, since it first ends every running Dolphin.)
 
 import (
-	"errors"
-	"go/parser"
-	"go/token"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"slices"
-	"strings"
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"

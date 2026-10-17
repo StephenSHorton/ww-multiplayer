@@ -21,11 +21,18 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WW="$ROOT/ww-multiplayer.exe"
+WWDEV="$ROOT/wwdev.exe"  # shadow-mode is a developer tool (go build -o wwdev.exe ./cmd/wwdev)
 LOG_DIR="$ROOT/.omc/logs/mplay2"
 mkdir -p "$LOG_DIR"
 
 if [[ ! -x "$WW" ]]; then
     echo "ERROR: $WW not found. Run 'go build -o ww-multiplayer.exe .' first."
+    exit 1
+fi
+# The teardown resets shadow_mode through wwdev (shadow-mode moved there in
+# Phase D6); without it Link #2 can stay frozen after a hard kill.
+if [[ ! -x "$WWDEV" ]]; then
+    echo "ERROR: $WWDEV not found. Run 'go build -o wwdev.exe ./cmd/wwdev' first."
     exit 1
 fi
 
@@ -47,8 +54,8 @@ cleanup() {
     wait 2>/dev/null || true
     # Reset both Dolphins to baseline mirror so Link #2 doesn't stay frozen
     # from the last pose_buf write.
-    WW_DOLPHIN_INDEX=0 "$WW" shadow-mode 0 >/dev/null 2>&1 || true
-    WW_DOLPHIN_INDEX=1 "$WW" shadow-mode 0 >/dev/null 2>&1 || true
+    WW_DOLPHIN_INDEX=0 "$WWDEV" shadow-mode 0 >/dev/null 2>&1 || true
+    WW_DOLPHIN_INDEX=1 "$WWDEV" shadow-mode 0 >/dev/null 2>&1 || true
     echo "Done."
 }
 trap cleanup EXIT INT TERM

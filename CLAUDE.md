@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 multiplayer in The Legend of Zelda: The Wind Waker on Dolphin emulator.
 Each player sees the other's actual Link in-game, walking around at the
 remote's real world coords with their real animations, ~50ms latency on
-LAN. Two-Dolphin local play is wired up via `./ww-multiplayer.exe mp-local`
+LAN. Two-Dolphin local play is wired up via `./wwdev.exe mp-local`
 (see "Standard session bootstrap" below).
 
 The mod is shipped as a standalone `ww-multiplayer.exe` patcher (`./ww-multiplayer.exe patch
@@ -20,12 +20,16 @@ Wind Waker disc image). Releases are cut on tag push via GitHub Actions.
 ```
 ww-multiplayer/
 ├── main.go, commands.go         # Entry point; commands.go: the CLI command registry + generated help (app_face.go: no args = app window, `tui`, `ui --browser`)
-├── *.go                         # Rest of package main: coop_diag.go (co-op diagnostics), mp_local*.go (dolphin2, mp-local),
-│                                #   tunic_diag.go (tunic dev commands), engine_config.go (newTUIEngine/newCLIEngine; sessionEnv, coopEnv = coopsession.Env),
-│                                #   mods.go (compiledMods: multiplayer, coop; devMods: example; the loaded mods' commands and post-patch steps), auto_recapture.go
+├── *.go                         # Rest of package main: engine_config.go (newTUIEngine/newCLIEngine; sessionEnv, coopEnv = coopsession.Env),
+│                                #   mods.go (compiledMods: multiplayer, coop; devMods: example; the loaded mods' commands and post-patch steps)
 │                                #   app_face.go also runs the app's mods: --mods/--no-mod/--dev, appModConfig (flags over config.Mods via gui.ModConfig), startApp (wwapi.Runtime + session controller over its NetProvider's engine)
+├── cmd/
+│   └── wwdev/                   # wwdev, the developer tools (Phase D6; CI builds it, releases don't ship it): registry.go (its command registry + help),
+│                                #   commands.go (the command bodies), mp_local*.go (dolphin2, mp-local), coop_diag.go (co-op diagnostics), auto_recapture.go,
+│                                #   tunic_diag.go (tunic dev commands), probes.go (the research probes: peek/poke, disasm, eye/face, input, screenshot, dump, ...)
 ├── internal/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
+│   ├── cliutil/                 # What both binaries' command lines share: FindDolphin/OpenDolphin (WW_DOLPHIN_INDEX/PID), ExeCmd, ExitUsage, --color/WW_COLOR; clitest/ = the CLI golden harness
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
 │   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); the Mods page (mods.go); Bridge = the JS API; `ui --browser` server
 │   ├── lan/                     # LAN discovery: the host's UDP beacon, broadcast addresses, the joiner's table (docs/10-lobby.md §10)
@@ -64,7 +68,8 @@ ww-multiplayer/
 │   ├── build.py                 # Freighter wrapper — builds patched.dol from original.dol
 │   └── patch_iso.py             # Local-dev ISO splicer (relies on `wit copy`-prepped ISO)
 ├── cheats/
-│   └── GZLE01.ini               # Curated Gecko code pack, copied into <USER_DIR>/GameSettings by `dolphin2`
+│   ├── GZLE01.ini               # Curated Gecko code pack, copied into <USER_DIR>/GameSettings by `dolphin2` and the app's Dolphin launch
+│   └── cheats.go                # package cheats: GZLE01.ini embedded for both binaries
 ├── scripts/
 │   ├── extract_blob.py          # Diffs original.dol vs patched.dol → internal/inject/blob.go
 │   ├── gen_event_masks.py       # Generates mods/coop/class/syncmask_gen.go from the decomp
@@ -94,6 +99,8 @@ ww-multiplayer/
 go build -o ww-multiplayer.exe .
 # Build with the app window, as releases do (Windows needs no cgo; cross-builds from Linux with CGO_ENABLED=0)
 go build -tags desktop,production -o ww-multiplayer.exe .
+# Build wwdev, the developer tools (dolphin2, mp-local, diagnostics, research probes; never released)
+go build -o wwdev.exe ./cmd/wwdev
 
 # End-user entry points
 ./ww-multiplayer.exe                                    # Open the app window (the TUI in a build without -tags desktop,production)
@@ -106,28 +113,29 @@ go build -tags desktop,production -o ww-multiplayer.exe .
 ./ww-multiplayer.exe host [name] [--port N]             # Host a session (server + this player's pipelines)
 ./ww-multiplayer.exe join <host-ip[:port]> [name]       # Join a host's session
 
-# Multiplayer runtime CLIs (the pipelines mp-local runs in one process; scripts/mplay2.sh runs them as subprocesses)
+# Multiplayer runtime CLIs (the pipelines mp-local runs in one process; scripts/mplay2.sh runs them as subprocesses).
+# wwdev is the developer tools (cmd/wwdev); `./wwdev.exe help` lists its commands.
 ./ww-multiplayer.exe server [--port N]                  # Headless TCP server on :25565
 ./ww-multiplayer.exe broadcast-pose <name> <addr>       # Stream this Dolphin's Link pose+pos to server
 ./ww-multiplayer.exe puppet-sync <name> <addr>          # Receive remotes; render them as Link #2 / actor puppets
-./ww-multiplayer.exe broadcast-link <name> <addr>       # Position-only broadcast (cheaper; no pose)
-./ww-multiplayer.exe pose-fake-loop <name> <addr>       # Loopback dev: capture pose once, stream as a fake remote
-./ww-multiplayer.exe pose-test [mirror|freeze] [secs]   # Single-Dolphin sanity test for the pose pipeline
+./wwdev.exe broadcast-link <name> <addr>                # Position-only broadcast (cheaper; no pose)
+./wwdev.exe pose-fake-loop <name> <addr>                # Loopback dev: capture pose once, stream as a fake remote
+./wwdev.exe pose-test [mirror|freeze] [secs]            # Single-Dolphin sanity test for the pose pipeline
 
 # Diagnostics
-./ww-multiplayer.exe screenshot [path]                  # PNG of the selected Dolphin's window (Win32; default path = dolphin-<pid>-<ts>.png)
-./ww-multiplayer.exe input <btns-hex> <stickX> <stickY> [ms=1000]   # Drive synthetic controller input via pad_read_shim. ms=0 holds until input-release.
-./ww-multiplayer.exe input-release                      # Disable pad_read_shim override (zero input_enable). Pair with `input ... 0`.
-./ww-multiplayer.exe auto-recapture [out=saves/start.sav]   # Cold-boot Dolphin + drive menus + prompt for one Shift+F1 + cp the new state. Win-only.
-./ww-multiplayer.exe auto-recapture-pair [out1=saves/start.sav] [out2=saves/start2.sav] [delay-secs=5]   # Same as auto-recapture, but captures TWO states with a delay between (distinct btp phases). Pair with SAVE_STATE_2 in dolphin2 to validate face-sync (#5).
-./ww-multiplayer.exe send-shift-f1                      # Diagnostic: probe whether your Dolphin build accepts synthetic Shift+F1 hotkeys
+./wwdev.exe screenshot [path]                           # PNG of the selected Dolphin's window (Win32; default path = dolphin-<pid>-<ts>.png)
+./wwdev.exe input <btns-hex> <stickX> <stickY> [ms=1000]   # Drive synthetic controller input via pad_read_shim. ms=0 holds until input-release.
+./wwdev.exe input-release                               # Disable pad_read_shim override (zero input_enable). Pair with `input ... 0`.
+./wwdev.exe auto-recapture [out=saves/start.sav]   # Cold-boot Dolphin + drive menus + prompt for one Shift+F1 + cp the new state. Win-only.
+./wwdev.exe auto-recapture-pair [out1=saves/start.sav] [out2=saves/start2.sav] [delay-secs=5]   # Same as auto-recapture, but captures TWO states with a delay between (distinct btp phases). Pair with SAVE_STATE_2 in dolphin2 to validate face-sync (#5).
+./wwdev.exe send-shift-f1                               # Diagnostic: probe whether your Dolphin build accepts synthetic Shift+F1 hotkeys
 ./ww-multiplayer.exe debug                              # Print Link's position for 5 sec
-./ww-multiplayer.exe dump                               # Dump mailbox state (shadow_mode, pose seqs, etc.)
-./ww-multiplayer.exe shadow-mode <0..5>                 # 0=off, 1/2=mirror dev, 3=freeze, 4=echo-ring, 5=pose-feed
-./ww-multiplayer.exe echo-delay <N>                     # Mode-4 delay frames (for echo-link experiment)
-./ww-multiplayer.exe poke-u32 <addr-hex> <val-hex>      # Direct memory write
-./ww-multiplayer.exe move-puppet <x> <y> <z> [slot]     # Manually drive a puppet actor slot
-./ww-multiplayer.exe unhide-puppet                      # Apply per-proc unhide poke (mSwitchNo / m678)
+./wwdev.exe dump                                        # Dump mailbox state (shadow_mode, pose seqs, etc.)
+./wwdev.exe shadow-mode <0..5>                          # 0=off, 1/2=mirror dev, 3=freeze, 4=echo-ring, 5=pose-feed
+./wwdev.exe echo-delay <N>                              # Mode-4 delay frames (for echo-link experiment)
+./wwdev.exe poke-u32 <addr-hex> <val-hex>               # Direct memory write
+./wwdev.exe move-puppet <x> <y> <z> [slot]              # Manually drive a puppet actor slot
+./wwdev.exe unhide-puppet                               # Apply per-proc unhide poke (mSwitchNo / m678)
 
 # Multi-Dolphin selection
 WW_DOLPHIN_INDEX=<n>                        # Pick the Nth GZLE01 Dolphin process (0 = first)
@@ -147,8 +155,8 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
                                             # Network timing knobs; defaults 5/15/8/5/1/10/2/5 s (mods/multiplayer/net/netconfig.go)
 
 # Local two-Dolphin harness (v0.1.6+: Go-native, replaces the bash scripts)
-./ww-multiplayer.exe dolphin2 [--reset]     # Bootstrap & launch a 2nd Dolphin instance
-./ww-multiplayer.exe mp-local [A] [B]       # Server + 2x broadcast-pose + 2x puppet-sync (one process)
+./wwdev.exe dolphin2 [--reset]              # Bootstrap & launch a 2nd Dolphin instance
+./wwdev.exe mp-local [A] [B]                # Server + 2x broadcast-pose + 2x puppet-sync (one process)
 # Env knobs honored by `dolphin2` and `auto-recapture` (defaults: wwapi/emu/launch Defaults;
 # DOLPHIN_EXE, ISO_PATH and USER_DIR_1 also override the app's saved settings, as WW_COLOR does):
 #   DOLPHIN_EXE   path to Dolphin (Windows default: %USERPROFILE%\Desktop\Dolphin-x64\Dolphin.exe;
@@ -162,8 +170,8 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
 #   SAVE_STATE_2  .sav loaded into Dolphin 2 only (requires SAVE_STATE). Produces distinct btp phases for face-sync visual proof (#5).
 
 # Legacy bash scripts (kept for now; prefer the Go subcommands above)
-scripts/dolphin2.sh [--reset]               # Same as `ww-multiplayer.exe dolphin2`
-scripts/mplay2.sh                           # Same as `ww-multiplayer.exe mp-local`, but via 5 subprocesses
+scripts/dolphin2.sh [--reset]               # Same as `wwdev.exe dolphin2`
+scripts/mplay2.sh                           # Same as `wwdev.exe mp-local`, but via 5 subprocesses
 ```
 
 ## Build pipeline (C side → ww-multiplayer.exe)
@@ -240,25 +248,25 @@ The old C# Windwaker-coop (progress sync only) was upgraded to .NET 9 with WPF U
 **Claude can run the full stack end-to-end without asking the user.** The
 ONE remaining human-in-loop step is *one keystroke* (Shift+F1) when
 recapturing `saves/start.sav` after a C-blob change — kicked off by
-`./ww-multiplayer.exe auto-recapture`, which handles everything else
+`./wwdev.exe auto-recapture`, which handles everything else
 (kill, boot, menu navigation, screenshot, file watch, cp). Everything
 else — memory probing, chain dumping, building, patching, launching
 Dolphins, running the multiplayer pipeline, **visually validating
-renders via `./ww-multiplayer.exe screenshot`**, **driving Link with
-`./ww-multiplayer.exe input`**, and tearing it all down — is scripted.
+renders via `./wwdev.exe screenshot`**, **driving Link with
+`./wwdev.exe input`**, and tearing it all down — is scripted.
 
 ### Standard session bootstrap (no save-state cycle needed)
 
 ```bash
 # Launch both Dolphins with the existing save state. Returns immediately;
 # Dolphins boot in the background.
-SAVE_STATE=$(pwd)/saves/start.sav ./ww-multiplayer.exe dolphin2
+SAVE_STATE=$(pwd)/saves/start.sav ./wwdev.exe dolphin2
 
 # Start the multiplayer pipeline (server + 2x broadcast + 2x puppet-sync
 # in one process). Blocks; run with run_in_background. Its readiness gate
 # waits until both Dolphins are in-game, then prints
 # "Local multiplayer running." and the pipeline is live.
-./ww-multiplayer.exe mp-local
+./wwdev.exe mp-local
 ```
 
 After "Local multiplayer running." appears, every Go-side diagnostic
@@ -288,8 +296,8 @@ the OLD blob over the freshly-patched ISO's new code.
 
 After a C-side change, the recapture cycle reduces to:
 
-1. Claude: rebuild the blob (`cd inject && rm -f build/temp/multiplayer.c.o && python build.py && python patch_iso.py && cd .. && python scripts/extract_blob.py && go build -o ww-multiplayer.exe .`)
-2. Claude: `./ww-multiplayer.exe auto-recapture`. This kills running Dolphins,
+1. Claude: rebuild the blob (`cd inject && rm -f build/temp/multiplayer.c.o && python build.py && python patch_iso.py && cd .. && python scripts/extract_blob.py && go build -o ww-multiplayer.exe . && go build -o wwdev.exe ./cmd/wwdev`)
+2. Claude: `./wwdev.exe auto-recapture`. This kills running Dolphins,
    cold-boots the patched ISO, drives the title/intro/file-select menus to
    in-game via input injection, screenshots the spawn spot, then prompts the
    user with a clearly-fenced message and watches `<USER_DIR>/StateSaves/GZLE01.s01`
@@ -306,7 +314,7 @@ skip the whole cycle.
 filters synthetic input (`LLKHF_INJECTED`) for hotkeys, so PostMessage,
 SendInput-with-VK, SendInput-with-scancode, and foreground-locked variants
 all silently drop. Some Dolphin forks accept synthetic events — run
-`./ww-multiplayer.exe send-shift-f1` while Dolphin's in-game to probe your
+`./wwdev.exe send-shift-f1` while Dolphin's in-game to probe your
 build; if mtime advances, auto-recapture will run fully unattended.
 
 ### Visual validation (now self-serve)
@@ -316,8 +324,8 @@ rendering test succeeded based only on memory reads.** Instead, capture
 the actual frame and look at it yourself:
 
 ```bash
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe screenshot /tmp/ww-A.png
-WW_DOLPHIN_INDEX=1 ./ww-multiplayer.exe screenshot /tmp/ww-B.png
+WW_DOLPHIN_INDEX=0 ./wwdev.exe screenshot /tmp/ww-A.png
+WW_DOLPHIN_INDEX=1 ./wwdev.exe screenshot /tmp/ww-B.png
 # then Read the PNGs back into your context
 ```
 
@@ -345,8 +353,8 @@ signed bytes (-128..+127). Don't write to `0x803ED84A` directly — that's
 
 Typical scripted-walk pattern:
 ```bash
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe input 0x0000 0 100 2000   # stick forward 2s
-WW_DOLPHIN_INDEX=0 ./ww-multiplayer.exe input 0x0000 100 0 1000   # stick right 1s
+WW_DOLPHIN_INDEX=0 ./wwdev.exe input 0x0000 0 100 2000            # stick forward 2s
+WW_DOLPHIN_INDEX=0 ./wwdev.exe input 0x0000 100 0 1000            # stick right 1s
 ```
 
 Menu navigation from a cold ISO boot also works (intro skip with Start,
@@ -368,5 +376,6 @@ scratch.
   `track-pos`, `warp`, `warp-force[-off]`, `eye-fix-step`,
   `eye-fix-gates`, `eye-fix-chain`, `eye-fix-find-shape`, `j3dsys-probe`,
   `ppc-disasm`) is available for memory probing when something doesn't
-  behave as expected. See the command registry in commands.go; hidden from `printHelp` to
-  keep the user-facing help clean.
+  behave as expected. They are wwdev's (`./wwdev.exe <command>`; the
+  registry is cmd/wwdev/registry.go), kept out of the shipped
+  ww-multiplayer.exe. `warp` stays in ww-multiplayer.exe.

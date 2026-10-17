@@ -36,7 +36,8 @@ jobs:
           goarch: amd64
 
       # The release exe (with the app window) and a plain `go build`
-      # (CLI + TUI only) must both cross-build with cgo off.
+      # (CLI + TUI only) must both cross-build with cgo off, and so must
+      # wwdev (cmd/wwdev: the developer tools; built here, never released).
       - name: Cross-build Windows amd64
         env:
           GOOS: windows
@@ -45,6 +46,7 @@ jobs:
         run: |
           go build -tags desktop,production -o /tmp/ww-multiplayer.exe .
           go build -o /tmp/ww-multiplayer-cli.exe .
+          go build -o /tmp/wwdev.exe ./cmd/wwdev
 
       # ww_windows.syso (go generate; main.go) carries the icon and the
       # application manifest (packaging/ww-multiplayer.exe.manifest:
@@ -87,6 +89,7 @@ jobs:
       - name: go vet + go test (native Linux)
         run: |
           go vet ./...
+          go build -o /tmp/wwdev ./cmd/wwdev
           go test -race -count=1 ./...
 
   macos:
@@ -106,6 +109,11 @@ jobs:
 
       - name: go test
         run: go test -count=1 ./...
+
+      # wwdev (cmd/wwdev), the developer tools: vetted above with ./...,
+      # built natively here; releases do not ship it.
+      - name: Build wwdev
+        run: go build -o /tmp/wwdev ./cmd/wwdev
 
       # The release packaging, run on every push and PR as a smoke test
       # (nothing is published): scripts/build-mac.sh builds arm64 and

@@ -4,7 +4,9 @@ package main
 // commandTable, and printHelp is generated from it. It replaced main's
 // switch on os.Args[1] (docs/api/00-design.md, Phase B1) without changing
 // what any subcommand prints or exits with; testdata/cli-subcommands.txt
-// pins the names (TestCLISubcommandsUnchanged).
+// pins the names (TestCLISubcommandsUnchanged). The developer tools
+// (dolphin2, mp-local and the hidden diagnostics) are wwdev's since Phase
+// D6 (cmd/wwdev, its own registry); a mod's hidden commands stay here.
 //
 // No arguments, `tui` and `ui` are not commands: appFace (app_face.go)
 // takes them before main reaches the registry.
@@ -14,14 +16,10 @@ import (
 	"os"
 	"slices"
 	"strconv"
-	"strings"
-	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
-	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
-	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 )
 
 // cmdGroup is the printHelp section a command is listed under.
@@ -30,14 +28,16 @@ type cmdGroup int
 const (
 	groupPlay  cmdGroup = iota // Play multiplayer
 	groupPatch                 // Patch an ISO
-	groupLocal                 // Local two-Dolphin testing
+	groupLocal                 // Local two-Dolphin testing (a mod's; wwdev has dolphin2 and mp-local)
 	groupLower                 // Lower-level CLIs
 	groupDev                   // diagnostics and developer tools (hidden)
 )
 
 // helpSections are printHelp's sections, in order. A long section prints
 // each command's usage and summary on two lines; faces adds the `tui` and
-// `ui` lines after the section's commands.
+// `ui` lines after the section's commands. A section that lists nothing
+// is left out (the local section, since dolphin2 and mp-local moved to
+// wwdev, unless a mod adds a command to it).
 var helpSections = []struct {
 	group cmdGroup
 	title string
@@ -92,20 +92,6 @@ func commandTable() []command {
 			usage:   "patch <vanilla.iso|.ciso> [out.iso]",
 			summary: "Splice the multiplayer mod into your own legitimate copy of Wind Waker (GZLE01)",
 			run:     cmdPatch,
-		},
-		{
-			name:    "dolphin2",
-			group:   groupLocal,
-			usage:   "dolphin2 [--reset]",
-			summary: "Bootstrap & launch a 2nd Dolphin instance",
-			run:     cmdDolphin2,
-		},
-		{
-			name:    "mp-local",
-			group:   groupLocal,
-			usage:   "mp-local [nameA] [nameB]",
-			summary: "Run server + broadcast/puppet pairs for both Dolphins",
-			run:     cmdMpLocal,
 		},
 		{
 			name:    "server",
@@ -172,76 +158,6 @@ func commandTable() []command {
 			summary: "Show this help",
 			run:     func(string, []string) { printHelp() },
 		},
-		// Not in printHelp: diagnostics and developer tools, in the order of
-		// the switch this table replaced.
-		{name: "screenshot", group: groupDev, hidden: true, run: cmdScreenshot},
-		{name: "auto-recapture", group: groupDev, hidden: true, run: cmdAutoRecapture},
-		{name: "auto-recapture-pair", group: groupDev, hidden: true, run: cmdAutoRecapturePair},
-		// Diagnostic: sends Shift+F1 via Win32 PostMessage to the
-		// selected Dolphin window. Used to validate the hotkey
-		// path without re-running the full auto-recapture flow.
-		{name: "send-shift-f1", group: groupDev, hidden: true, run: func(string, []string) { runSendShiftF1() }},
-		{name: "dump", group: groupDev, hidden: true, run: func(string, []string) { runDump() }},
-		{name: "move-puppet", group: groupDev, hidden: true, run: cmdMovePuppet},
-		{name: "input", group: groupDev, hidden: true, run: cmdInput},
-		{name: "input-release", group: groupDev, hidden: true, run: func(string, []string) { runInputRelease() }},
-		{name: "input-probe", group: groupDev, hidden: true, run: cmdInputProbe},
-		{name: "poke-u32", group: groupDev, hidden: true, run: cmdPokeU32},
-		{name: "shadow-mode", group: groupDev, hidden: true, run: cmdShadowMode},
-		{name: "echo-delay", group: groupDev, hidden: true, run: cmdEchoDelay},
-		{name: "pose-test", group: groupDev, hidden: true, run: cmdPoseTest},
-		{name: "unhide-puppet", group: groupDev, hidden: true, run: func(string, []string) { runUnhidePuppet() }},
-		{name: "broadcast-link", group: groupDev, hidden: true, run: cmdBroadcastLink},
-		{name: "pose-fake-loop", group: groupDev, hidden: true, run: cmdPoseFakeLoop},
-		{name: "tunic-probe", group: groupDev, hidden: true, run: func(string, []string) { runTunicProbe() }},
-		{name: "tunic-recolor", group: groupDev, hidden: true, run: cmdTunicRecolor},
-		{name: "tunic-slot", group: groupDev, hidden: true, run: cmdTunicSlot},
-		{name: "disasm", group: groupDev, hidden: true, run: cmdDisasm},
-		{name: "scan-pos", group: groupDev, hidden: true, run: func(string, []string) { runScanPos() }},
-		{name: "poke-vec3", group: groupDev, hidden: true, run: cmdPokeVec3},
-		{name: "peek", group: groupDev, hidden: true, run: cmdPeek},
-		{name: "warp-force", group: groupDev, hidden: true, run: cmdWarpForce},
-		{name: "warp-force-off", group: groupDev, hidden: true, run: func(string, []string) { runWarpForce("", "", "", false) }},
-		{name: "eye-fix-probe", group: groupDev, hidden: true, run: func(string, []string) { runEyeFixProbe() }},
-		{name: "eye-fix-chain", group: groupDev, hidden: true, run: func(string, []string) { runEyeFixChain() }},
-		{name: "eye-fix-find-shape", group: groupDev, hidden: true, run: func(string, []string) { runEyeFixFindShape() }},
-		{name: "eye-fix-gates", group: groupDev, hidden: true, run: func(string, []string) { runEyeFixGates() }},
-		{name: "eye-fix-post-chain", group: groupDev, hidden: true, run: func(string, []string) { runEyeFixPostChain() }},
-		{name: "eye-anim-find", group: groupDev, hidden: true, run: func(string, []string) { runEyeAnimFind() }},
-		{name: "eye-anim-dl-dump", group: groupDev, hidden: true, run: cmdEyeAnimDlDump},
-		{name: "eye-anim-watch", group: groupDev, hidden: true, run: cmdEyeAnimWatch},
-		{name: "eye-anim-poke", group: groupDev, hidden: true, run: cmdEyeAnimPoke},
-		{name: "face-sync-status", group: groupDev, hidden: true, run: func(string, []string) { runFaceSyncStatus() }},
-		{name: "face-sync-watch", group: groupDev, hidden: true, run: cmdFaceSyncWatch},
-		{name: "face-hook-arm", group: groupDev, hidden: true, run: func(string, []string) { runFaceHookArm(true) }},
-		{name: "face-hook-disarm", group: groupDev, hidden: true, run: func(string, []string) { runFaceHookArm(false) }},
-		{name: "face-tev-hammer", group: groupDev, hidden: true, run: cmdFaceTevHammer},
-		{name: "face-mat-list", group: groupDev, hidden: true, run: func(string, []string) { runFaceMatList() }},
-		{name: "face-mat-hammer", group: groupDev, hidden: true, run: cmdFaceMatHammer},
-		{name: "face-sync-tev-poll", group: groupDev, hidden: true, run: cmdFaceSyncTevPoll},
-		{name: "face-dl-loop", group: groupDev, hidden: true, run: cmdFaceDlLoop},
-		{name: "face-sync-fake", group: groupDev, hidden: true, run: cmdFaceSyncFake},
-		{name: "face-sync-fake-loop", group: groupDev, hidden: true, run: cmdFaceSyncFakeLoop},
-		{name: "eye-fix-mode", group: groupDev, hidden: true, run: cmdEyeFixMode},
-		{name: "eye-fix-mode-probe", group: groupDev, hidden: true, run: func(string, []string) { runEyeFixModeProbe() }},
-		{name: "j3dsys-probe", group: groupDev, hidden: true, run: func(string, []string) { runJ3DSysProbe() }},
-		{name: "ppc-disasm", group: groupDev, hidden: true, run: cmdPpcDisasm},
-		{name: "eye-fix-step", group: groupDev, hidden: true, run: cmdEyeFixStep},
-		{name: "find-pos", group: groupDev, hidden: true, run: func(string, []string) { runFindPos() }},
-		{name: "track-pos", group: groupDev, hidden: true, run: cmdTrackPos},
-		// Co-op M0 diagnostics (coop_diag.go), kept out of printHelp
-		// like the other diagnostics.
-		{name: "coop-probe", group: groupDev, hidden: true, run: runCoopDiag},
-		{name: "coop-watch", group: groupDev, hidden: true, run: runCoopDiag},
-		{name: "actors", group: groupDev, hidden: true, run: runCoopDiag},
-		{name: "zone-dump", group: groupDev, hidden: true, run: runCoopDiag},
-		{name: "frame-phase-probe", group: groupDev, hidden: true, run: runCoopDiag},
-		{name: "heap-free", group: groupDev, hidden: true, run: runCoopDiag},
-		{name: "blob-verify-live", group: groupDev, hidden: true, run: runCoopDiag},
-		{name: "region-probe", group: groupDev, hidden: true, run: runCoopDiag},
-		{name: "stage-hop", group: groupDev, hidden: true, run: runCoopDiag},
-		{name: "enemy-kill", group: groupDev, hidden: true, run: runCoopDiag},
-		{name: "peek-demo", group: groupDev, hidden: true, run: runCoopDiag},
 	}, modCommands()...)
 }
 
@@ -273,6 +189,9 @@ func printHelp() {
 	fmt.Println("Wind Waker Multiplayer " + version)
 	table := commandTable()
 	for _, s := range helpSections {
+		if !s.faces && !slices.ContainsFunc(table, func(c command) bool { return !c.hidden && c.group == s.group }) {
+			continue
+		}
 		fmt.Println()
 		fmt.Println(s.title)
 		for _, c := range table {

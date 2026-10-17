@@ -1,7 +1,69 @@
 package main
 
-// dolphin2's golden transcripts, moved from ww-multiplayer's
-// cli_golden_test.go with the command (Phase D6).
+// Golden transcripts of wwdev: dolphin2's, moved from ww-multiplayer's
+// cli_golden_test.go with the command (Phase D6), and wwdev's help. Each
+// case runs `wwdev <args>` in a child process with its own environment
+// and compares its stdout and exit code to a file under
+// testdata/cli-golden (internal/cliutil/clitest). Regenerate one only for
+// an intended change: go test ./cmd/wwdev -run TestCLIGolden -update-cli-golden.
+//
+// No case can start Dolphin: dolphin2's only launching case points
+// DOLPHIN_EXE at a directory (which no OS executes) and runs only when no
+// Dolphin process is running, since it would otherwise attach to it.
+
+import (
+	"bytes"
+	"flag"
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/cliutil/clitest"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
+)
+
+var updateCLIGolden = flag.Bool("update-cli-golden", false, "rewrite testdata/cli-golden from this run")
+
+// TestWWDevHelper is the child process of runCLI: it runs main with the
+// arguments clitest.Run passed it.
+func TestWWDevHelper(t *testing.T) {
+	args, ok := clitest.HelperArgs()
+	if !ok {
+		return
+	}
+	os.Args = append([]string{"wwdev"}, args...)
+	main()
+	os.Exit(0)
+}
+
+// runCLI runs `wwdev args...` with env and returns its stdout and exit
+// code.
+func runCLI(t *testing.T, env map[string]string, args ...string) (string, int) {
+	t.Helper()
+	return clitest.Run(t, "TestWWDevHelper", env, args...)
+}
+
+// normalizeCLI replaces exeCmd by <exe> and root (a temp dir) by <TMP>.
+func normalizeCLI(out, root string) string {
+	return clitest.Normalize(out, root, exeCmd)
+}
+
+// checkCLIGolden compares one run with testdata/cli-golden/<name>.txt.
+func checkCLIGolden(t *testing.T, name, out string, code int) {
+	t.Helper()
+	clitest.CheckGolden(t, name, out, code, nil, *updateCLIGolden)
+}
+
+func writeCLIFile(t *testing.T, path string, b []byte) string {
+	t.Helper()
+	return clitest.WriteFile(t, path, b)
+}
+
+// configEnv points every OS's user config dir at dir.
+func configEnv(dir string) map[string]string {
+	return clitest.ConfigEnv(dir)
+}
 
 func TestCLIGoldenDolphin2(t *testing.T) {
 	root := t.TempDir()
@@ -67,5 +129,27 @@ func TestCLIGoldenDolphin2(t *testing.T) {
 		if b, err := os.ReadFile(filepath.Join(ud, "GameSettings", "GZLE01.ini")); err != nil || !bytes.Equal(b, bundledCheatsIni) {
 			t.Errorf("cheats in %s: %d bytes, %v", ud, len(b), err)
 		}
+	}
+}
+
+// TestCLIGoldenHelp: wwdev's help, with no arguments, `help` and an
+// unknown command. Its rows are padded to a column after exeCmd, so the
+// files are recorded on Windows and compared there.
+func TestCLIGoldenHelp(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("wwdev's help goldens are recorded on Windows (exeCmd sets their columns)")
+	}
+	root := t.TempDir()
+	env := configEnv(filepath.Join(root, "config"))
+	for _, c := range []struct {
+		name string
+		args []string
+	}{
+		{"wwdev-none", nil},
+		{"wwdev-help", []string{"help"}},
+		{"wwdev-unknown", []string{"host", "x"}},
+	} {
+		o, code := runCLI(t, env, c.args...)
+		checkCLIGolden(t, c.name, normalizeCLI(o, root), code)
 	}
 }

@@ -839,17 +839,16 @@ func TestSplitDiagFlags(t *testing.T) {
 	}
 }
 
-// TestCoopDiagDispatched checks that the command registry sends every
-// coopDiagUsage name, and only those, to runCoopDiag, and that main's
-// lookup finds each of them. enemy-kill and peek-demo were once left out
-// of main's switch and printed "Unknown command".
+// TestCoopDiagDispatched checks that wwdev's command registry sends every
+// coopDiagUsage name, and only those, to runCoopDiag, and that its lookup
+// finds each of them. enemy-kill and peek-demo were once left out of
+// ww-multiplayer's switch and printed "Unknown command".
 func TestCoopDiagDispatched(t *testing.T) {
 	diag := reflect.ValueOf(runCoopDiag).Pointer()
 	var got []string
 	for _, c := range commandTable() {
 		if c.run != nil && reflect.ValueOf(c.run).Pointer() == diag {
 			got = append(got, c.name)
-			got = append(got, c.aliases...)
 		}
 	}
 	slices.Sort(got)

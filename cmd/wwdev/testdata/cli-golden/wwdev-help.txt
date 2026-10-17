@@ -1,0 +1,21 @@
+exit 0
+wwdev: Wind Waker Multiplayer developer tools (not shipped)
+
+Local two-Dolphin testing (everything in-process):
+  <exe> dolphin2 [--reset]           Bootstrap & launch a 2nd Dolphin instance
+  <exe> mp-local [nameA] [nameB]     Run server + broadcast/puppet pairs for both Dolphins
+  <exe> help                         Show this help
+
+Diagnostics and research probes (Dolphin picked by WW_DOLPHIN_INDEX / WW_DOLPHIN_PID):
+  screenshot auto-recapture auto-recapture-pair send-shift-f1 dump move-puppet
+  input input-release input-probe poke-u32 shadow-mode echo-delay pose-test
+  unhide-puppet broadcast-link pose-fake-loop tunic-probe tunic-recolor
+  tunic-slot disasm scan-pos poke-vec3 peek warp-force warp-force-off
+  eye-fix-probe eye-fix-chain eye-fix-find-shape eye-fix-gates
+  eye-fix-post-chain eye-anim-find eye-anim-dl-dump eye-anim-watch
+  eye-anim-poke face-sync-status face-sync-watch face-hook-arm
+  face-hook-disarm face-tev-hammer face-mat-list face-mat-hammer
+  face-sync-tev-poll face-dl-loop face-sync-fake face-sync-fake-loop
+  eye-fix-mode eye-fix-mode-probe j3dsys-probe ppc-disasm eye-fix-step
+  find-pos track-pos coop-probe coop-watch actors zone-dump frame-phase-probe
+  heap-free blob-verify-live region-probe stage-hop enemy-kill peek-demo
