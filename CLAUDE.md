@@ -27,7 +27,7 @@ ww-multiplayer/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
 │   ├── coop/                    # Co-op engine (docs/08): replica, hub, world, wire, derive, ... plus the generic game layer
-│   │                            #   it is built on (actors, fakegame); savemerge/ (offline save merge), synctables/ (sync verdicts and acceptance over wwapi/tables)
+│   │                            #   it is built on (fakegame); combat/ (M6: K1 classes, layouts, gates, Revalidate over wwapi/actors), savemerge/ (offline save merge), synctables/ (sync verdicts and acceptance over wwapi/tables)
 │   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); Bridge = the JS API; `ui --browser` server
 │   ├── lan/                     # LAN discovery: the host's UDP beacon, broadcast addresses, the joiner's table (docs/10-lobby.md §10)
 │   ├── mailboxgen/              # mailbox.h parser + layout_gen.go emitter (used by tools/gen_mailbox and wwapi/mailbox TestMailboxLayout)
@@ -46,7 +46,7 @@ ww-multiplayer/
 │   └── tui/                     # Charm Bubble Tea UI (resurrected v0.1.5)
 │       ├── app.go, splash.go, connect.go, dashboard.go, styles.go
 ├── wwapi/                       # Modding API, v0 UNSTABLE (docs/api): emu/ (Attach(Options); *emu.Dolphin is a MEM1-bounded mem.Mem; memory.go = RAM scanner; launch/ = Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare (dolphin2, auto-recapture); host/ = window, screenshot, keys),
-│                                #   log/ (Reporter, Stdout / Discard / Multi / Prefix), mem/ (Reader/Mem, FakeMem), addr/ (cited addresses), state/ (per-tick snapshot), gate/ (write gates),
+│                                #   log/ (Reporter, Stdout / Discard / Multi / Prefix), mem/ (Reader/Mem, FakeMem), addr/ (cited addresses), state/ (per-tick snapshot), gate/ (write gates), actors/ (actor queue walk, Layout reads, structural Reread),
 │                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), savefile/ (GCI/card I/O), backup/ (card backups), tables/ (M1 disc table builders + cache), player/ (Link: Ptr/Ready/Position/DemoType/Pose/Face; Warp, WarpForce; input Override/Release/Press; playertest = fake warp handler), avatar/ (remote Links: pose-feed slot writes, Clear/Rearm, pose math, Tunics = tunic slots; avatartest = fake RAM + C tunic allocation), gfx/texture/ (CMPR tunic recolor, ResTIMG), mailbox/ (T2 + mailbox layout; layout_gen.go is generated from mailbox.h by tools/gen_mailbox), events/, schema/, semver/; the mod runtime (manifest, resolver, supervisor)
 ├── inject/                      # C source for the injected PPC code
 │   ├── src/multiplayer.c        # The mod's C side

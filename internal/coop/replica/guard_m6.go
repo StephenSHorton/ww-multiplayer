@@ -3,6 +3,7 @@ package replica
 import (
 	"fmt"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
@@ -35,7 +36,7 @@ type CombatTick struct {
 	// diagnostic's --unverified; never the receiver's).
 	Unverified bool
 	// Demo: Link's demo gate passed: its offset is verified
-	// (actors.DemoTypeVerified) and it read 0 (TYPE_NONE).
+	// (combat.DemoTypeVerified) and it read 0 (TYPE_NONE).
 	Demo bool
 }
 
@@ -134,16 +135,16 @@ func (k actorKind) String() string {
 
 // checkActor reports whether val may be written over old at a, a
 // light-shrink byte of kind k for carrier c (its weapon wp for (W)), as
-// actors.Revalidate read them just before. It lets through exactly:
+// combat.Revalidate read them just before. It lets through exactly:
 //
 //   - (T) the timer, c.TimerAddr(), from 0 to 1: c is in the tick's walk
 //     with the same process ID, its class is K1 and verified (or the tick
-//     allows unverified ones), every actors.Eligible gate holds, and the
+//     allows unverified ones), every combat.Eligible gate holds, and the
 //     plan allows it (CombatTick.Allow: the partner's store and the verdict
 //     have its key);
 //   - (W) the weapon's CARRY byte (actor_status, +0x1C6), CARRY set before
 //     and cleared after with every other bit kept: the weapon is in the
-//     walk, and one c holds (actors.HeldBy: a BOKO whose process ID is c's
+//     walk, and one c holds (combat.HeldBy: a BOKO whose process ID is c's
 //     weapon field, in Mode_ENEMY_CARRY_e, not Link's PLAYER_CARRY, and
 //     c's own record says it holds a weapon), and c's timer was
 //     written and read back nonzero this tick (noteShrunk), so a refused
@@ -203,7 +204,7 @@ func (w *WriteGuard) judgeActor(k actorKind, c *actors.Actor, wp *actors.Actor, 
 		if old != 0 || val != 1 {
 			return RefuseValue, fmt.Sprintf("the timer may only go from 0 to 1, not from %d to %d", int8(old), int8(val))
 		}
-		if why := actors.Eligible(c, cb.Unverified); why != "" {
+		if why := combat.Eligible(c, cb.Unverified); why != "" {
 			return RefuseTarget, fmt.Sprintf("%s: %s", c, why)
 		}
 	case actorWeapon:
@@ -219,8 +220,8 @@ func (w *WriteGuard) judgeActor(k actorKind, c *actors.Actor, wp *actors.Actor, 
 		switch {
 		case !ok || inW.PID != wp.PID || inW.Proc != addr.ProcBoko || wp.Proc != addr.ProcBoko:
 			return RefuseTarget, fmt.Sprintf("%s is no BOKO of this tick's walk", wp)
-		case actors.HeldBy(c, wp) != "":
-			return RefuseTarget, fmt.Sprintf("%s: %s", c, actors.HeldBy(c, wp))
+		case combat.HeldBy(c, wp) != "":
+			return RefuseTarget, fmt.Sprintf("%s: %s", c, combat.HeldBy(c, wp))
 		case w.shrunk[c.Addr] != c.PID || c.PID == 0:
 			return RefuseTarget, fmt.Sprintf("%s's timer was not written and read back this tick", c)
 		}

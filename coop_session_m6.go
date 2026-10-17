@@ -14,11 +14,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
@@ -71,7 +71,7 @@ func logCoopCombat(rep log.Reporter, t *tables.Tables) {
 	log.Logf(rep, log.OK, "co-op: combat this session: a partner's kills of keyed enemies (%d in %d stage(s), K1 classes, no bosses) are recorded in this game and light-shrink the live enemy while both are in the same stage; %d unkeyed enemies (the sea, Savage Labyrinth, KATA_RM, caves, Hyrule and the rest) are not shared yet: each player fights their own.",
 		c.synced, c.stages, c.unkeyed)
 	var wait []string
-	if !actors.DemoTypeVerified {
+	if !combat.DemoTypeVerified {
 		wait = append(wait, "every light-shrink waits for the live check of Link's demo offset, so for now a partner's kill is only recorded")
 	}
 	if c.unverified > 0 {

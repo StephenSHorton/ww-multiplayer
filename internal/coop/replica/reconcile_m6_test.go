@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
@@ -116,15 +116,15 @@ func m6Enemies() *fakegame.Enemies {
 // unverify makes K1 class p unverified for one test: every K1 class is
 // verified since the live check K1 (docs/08 §8.2).
 func unverify(t testing.TB, p stage.Proc) {
-	old := actors.SetVerified(int16(p), false)
-	t.Cleanup(func() { actors.SetVerified(int16(p), old) })
+	old := combat.SetVerified(int16(p), false)
+	t.Cleanup(func() { combat.SetVerified(int16(p), old) })
 }
 
-// demoVerified sets actors.DemoTypeVerified for one test.
+// demoVerified sets combat.DemoTypeVerified for one test.
 func demoVerified(t testing.TB, on bool) {
-	old := actors.DemoTypeVerified
-	actors.DemoTypeVerified = on
-	t.Cleanup(func() { actors.DemoTypeVerified = old })
+	old := combat.DemoTypeVerified
+	combat.DemoTypeVerified = on
+	t.Cleanup(func() { combat.DemoTypeVerified = old })
 }
 
 // m6Rig is a reconciling replica in DRC's room 1 with room 2 loaded beside
@@ -218,7 +218,7 @@ func (rr *m6Rig) timer(i int) int {
 	if !ok {
 		return -1
 	}
-	k, _ := actors.K1(int16(l.Proc))
+	k, _ := combat.K1(int16(l.Proc))
 	return int(int8(rr.read(l.Addr+k.Ice+addr.EnemyIceOffTimer, 1)[0]))
 }
 
@@ -406,7 +406,7 @@ func (rr *m6Rig) setStatus(i int, v uint32) {
 func (rr *m6Rig) setIceMode(i int, mode int8) {
 	rr.t.Helper()
 	l, _ := rr.live(i)
-	k, _ := actors.K1(int16(l.Proc))
+	k, _ := combat.K1(int16(l.Proc))
 	rr.store(l.Addr+k.Ice+addr.EnemyIceOffMode, []byte{byte(mode)})
 }
 
@@ -476,7 +476,7 @@ func TestReconcileM6Ever(t *testing.T) {
 	rr.kill(1, 3)
 	rr.ticks(3)
 	l, _ := rr.live(m6CC)
-	k, _ := actors.K1(int16(l.Proc))
+	k, _ := combat.K1(int16(l.Proc))
 	rr.store(l.Addr+k.Ice+addr.EnemyIceOffTimer, []byte{0}) // as if the write was lost
 	rr.ticks(5)
 	_, heap := rr.m6Writes()
@@ -497,7 +497,7 @@ func TestReconcileM6SaveState(t *testing.T) {
 	if rr.timer(m6CC) <= 0 {
 		t.Fatalf("timer %d after the kill", rr.timer(m6CC))
 	}
-	k, _ := actors.K1(int16(cc.Proc))
+	k, _ := combat.K1(int16(cc.Proc))
 	rr.store(cc.Addr+k.Ice+addr.EnemyIceOffTimer, []byte{0}) // as the state had it
 	rr.store(mailbox.SpawnTrigger, []byte{0, 0, 0, 1})       // the heartbeat goes back
 	rr.ticks(gate.StableTicks + 4)
@@ -887,7 +887,7 @@ func auditM6(t *testing.T, rr *m6Rig, sent map[[2]int]bool) {
 				// as it was written, verified, keyed, its key sent and
 				// synced, not BOSS, Link in no demo, and never before.
 				p, _, ok := rr.es.Born(w.pid)
-				k, isK1 := actors.K1(w.proc)
+				k, isK1 := combat.K1(w.proc)
 				switch {
 				case !ok || int16(p.Proc) != w.proc:
 					t.Fatalf("a timer write at +0x%X into pid %d (proc 0x%04X), no placed enemy's", off, w.pid, uint16(w.proc))

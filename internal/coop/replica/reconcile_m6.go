@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
@@ -34,10 +35,10 @@ import (
 //     ReDead this game is killing records its death on every frame for
 //     about ten seconds before it goes (d_a_rd.cpp:836-853).
 //
-// The light-shrink waits for every gate of actors.Eligible, Link's demo
-// gate (actors.DemoTypeVerified, and Link in no demo), and the class's
+// The light-shrink waits for every gate of combat.Eligible, Link's demo
+// gate (combat.DemoTypeVerified, and Link in no demo), and the class's
 // live verification; each target is read again just before its write
-// (actors.Revalidate). An actor written is never written again (ever, by
+// (combat.Revalidate). An actor written is never written again (ever, by
 // process ID, which the game never reuses, f_pc_base.cpp:36-40, except
 // across a save-state load, which rewinds the counter: ever is forgotten
 // then).
@@ -285,7 +286,7 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 	}
 
 	// The light-shrink of the store's live enemies.
-	w, err := actors.Read(r.m, 0)
+	w, err := combat.Read(r.m, 0)
 	switch {
 	case err != nil:
 		m.lastHeld = "the actor walk could not be read: " + err.Error()
@@ -310,7 +311,7 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 		if !allow(a) || m.ever[a.PID] {
 			continue
 		}
-		if why := actors.Eligible(a, false); why != "" {
+		if why := combat.Eligible(a, false); why != "" {
 			m.hold(a.PID, why)
 			continue
 		}
@@ -318,7 +319,7 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 			m.hold(a.PID, fmt.Sprintf("its home room %d has no zone (onActor asserts, d_save.cpp:1678-1679)", a.HomeRoom))
 			continue
 		}
-		wp, why := actors.WeaponOf(&w, a, false)
+		wp, why := combat.WeaponOf(&w, a, false)
 		if why != "" {
 			m.hold(a.PID, why)
 			continue
@@ -350,10 +351,10 @@ func (r *Replica) setCombat(c CombatTick) {
 }
 
 // linkDemo reports whether Link's demo gate passes: its offset is
-// verified (actors.DemoTypeVerified) and his mDemo.mDemoType reads 0.
+// verified (combat.DemoTypeVerified) and his mDemo.mDemoType reads 0.
 // Otherwise it says why.
 func (r *Replica) linkDemo(o *obs) (bool, string) {
-	if !actors.DemoTypeVerified {
+	if !combat.DemoTypeVerified {
 		return false, "link demo unverified (docs/08 §8.2 K1)"
 	}
 	p := o.s.PlayerPtr

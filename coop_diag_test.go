@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
@@ -289,8 +289,8 @@ func (b *diagBeat) Read(a uint32, n int) ([]byte, error) {
 // the live check K1 (docs/08 §8.2), and the diagnostics' --unverified path
 // is kept covered with it.
 func unverifyPW(t *testing.T) {
-	old := actors.SetVerified(int16(stage.ProcPW), false)
-	t.Cleanup(func() { actors.SetVerified(int16(stage.ProcPW), old) })
+	old := combat.SetVerified(int16(stage.ProcPW), false)
+	t.Cleanup(func() { combat.SetVerified(int16(stage.ProcPW), old) })
 }
 
 // diagEnemies is a game in DRC's room 2 with a Bokoblin holding its
@@ -323,7 +323,7 @@ func diagEnemies(t *testing.T) (*diagBeat, func()) {
 func TestPrintActors(t *testing.T) {
 	unverifyPW(t)
 	b, _ := diagEnemies(t)
-	w, err := actors.Read(b, 0)
+	w, err := combat.Read(b, 0)
 	if err != nil || !w.Complete() || len(w.Actors) != 5 {
 		t.Fatalf("walk %+v, %v", w, err)
 	}

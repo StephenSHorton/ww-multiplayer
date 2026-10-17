@@ -2,16 +2,14 @@ package actors
 
 import (
 	"encoding/binary"
-	"errors"
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
-// Fuzz targets for the walk and the re-read, in the style of
-// internal/network/fuzz_test.go. The seeds run as ordinary tests; to fuzz
-// one, e.g.:
+// The walk's fuzz target, in the style of internal/network/fuzz_test.go.
+// The seeds run as ordinary tests; to fuzz it:
 //
 //	go test -run='^$' -fuzz=FuzzWalk -fuzztime=30s ./wwapi/actors/
 
@@ -22,7 +20,8 @@ const fuzzBase uint32 = 0x80A00000
 // block's tag and fields as the bytes say, and checks what Read must hold
 // for any memory: it never fails on MEM1 reads, takes at most the limit
 // and the header's mSize, takes no node twice, and every actor it takes
-// passed every check.
+// passed every check. It walks with testLayouts, so a block whose proc is
+// one of theirs has that layout read too.
 func FuzzWalk(f *testing.F) {
 	ok := make([]byte, 0, 16+4*0x40)
 	ok = binary.BigEndian.AppendUint32(ok, fuzzBase+addr.ActorOffActorTag) // head
@@ -55,9 +54,9 @@ func FuzzWalk(f *testing.F) {
 			store(t, m, at+addr.ActorOffActorType, u32b(w(5)))
 			store(t, m, at+addr.ActorOffProcName, u16b(uint16(w(6))))
 		}
-		w, err := Read(m, int(limit))
+		w, err := ReadWith(m, int(limit), testLayouts)
 		if err != nil {
-			t.Fatalf("Read: %v", err)
+			t.Fatalf("ReadWith: %v", err)
 		}
 		max := int(limit)
 		if max == 0 {
@@ -88,70 +87,4 @@ func b2(ws ...uint32) []byte {
 		out = binary.BigEndian.AppendUint32(out, w)
 	}
 	return out
-}
-
-// FuzzRevalidate lays an eligible Bokoblin in a room with a zone, lets the
-// input overwrite up to four bytes of its block (tag, fields, enemyice) or
-// of the zone table, and checks Revalidate's verdict against an
-// independent reading of the same memory: it passes only if the node is
-// still queued, the actor the same process, every gate holds, the zone is
-// there, and, planned with no weapon, it has taken none up (m0B30 0).
-func FuzzRevalidate(f *testing.F) {
-	f.Add(uint16(0), uint8(0), uint16(0), uint8(0))
-	f.Add(uint16(addr.ActorOffBsPcID+3), uint8(9), uint16(0x1264+addr.EnemyIceOffTimer), uint8(1))
-	f.Add(uint16(addr.ActorOffActorTag+addr.TagOffUse), uint8(0), uint16(addr.ActorOffHealth), uint8(0))
-	f.Add(uint16(0xFFFF), uint8(0xFF), uint16(addr.ActorOffStatus), uint8(4))
-	f.Fuzz(func(t *testing.T, off1 uint16, v1 uint8, off2 uint16, v2 uint8) {
-		m := mem.NewFakeMem()
-		room := int(boko.room)
-		layActors(t, m, boko)
-		iceUp(t, m, boko)
-		zn, _ := addr.ZoneNoAddr(room)
-		za, _ := addr.ZoneAddr(4)
-		store(t, m, zn, []byte{4})
-		store(t, m, za+addr.ZoneOffRoomNo, []byte{byte(room)})
-		w, err := Read(m, 0)
-		if err != nil || len(w.Actors) != 1 || Eligible(&w.Actors[0], false) != "" {
-			t.Fatalf("the base Bokoblin: %+v %v", w, err)
-		}
-		a := w.Actors[0]
-		poke := func(off uint16, v uint8) {
-			switch {
-			case off == 0xFFFF:
-				store(t, m, zn, []byte{v}) // the room's mZoneNo
-			case off == 0xFFFE:
-				store(t, m, za+addr.ZoneOffRoomNo, []byte{v})
-			case uint32(off) < 0x1280:
-				store(t, m, boko.at+uint32(off), []byte{v})
-			}
-		}
-		poke(off1, v1)
-		poke(off2, v2)
-		now, _, err := Revalidate(m, &a, nil, false)
-		if err != nil && !errors.Is(err, ErrChanged) {
-			t.Fatalf("Revalidate: %v", err)
-		}
-		// The oracle: read the bytes as the game holds them.
-		blk, _ := m.Read(boko.at, 0x1280)
-		u8 := func(o uint32) uint8 { return blk[o] }
-		u32 := func(o uint32) uint32 { return binary.BigEndian.Uint32(blk[o:]) }
-		node := uint32(addr.ActorOffActorTag)
-		z, _ := mem.ReadU8(m, zn)
-		zr, _ := mem.ReadU8(m, za+addr.ZoneOffRoomNo)
-		ice := uint32(0x1264)
-		pass := u32(node+addr.TagOffData) == addr.ActorQueue && u8(node+addr.TagOffUse) == 1 &&
-			u32(node+addr.TagOffTagData) == boko.at && u32(addr.ActorOffActorType) == fakeActorType &&
-			u32(addr.ActorOffBsPcID) == a.PID && binary.BigEndian.Uint16(blk[addr.ActorOffProcName:]) == uint16(a.Proc) &&
-			binary.BigEndian.Uint16(blk[addr.ActorOffSetID:]) == a.SetID && int8(u8(addr.ActorOffHomeRoomNo)) == a.HomeRoom &&
-			u8(addr.ActorOffInitState) == 2 && u8(addr.ActorOffGroup) == 2 && int8(u8(addr.ActorOffHealth)) > 0 &&
-			u32(addr.ActorOffStatus)&(addr.ActorStatusBoss|addr.ActorStatusCarry) == 0 &&
-			binary.BigEndian.Uint16(blk[addr.ActorOffEventCommand:]) == 0 &&
-			u32(ice) == boko.at && u8(ice+addr.EnemyIceOffTimer) == 0 && u8(ice+addr.EnemyIceOffMode) == 1 &&
-			binary.BigEndian.Uint16(blk[ice+addr.EnemyIceOffFreezeTimer:]) == 0 &&
-			u32(holdBK) == 0 && // m0B30: it took no weapon up since the walk
-			z == 4 && zr == uint8(room)
-		if pass != (err == nil) {
-			t.Fatalf("Revalidate %v (%+v); the oracle says %v", err, now, pass)
-		}
-	})
 }
