@@ -1,8 +1,9 @@
 // Command mkicns builds the macOS app icon (docs/img/icon.icns, copied into
 // WW Multiplayer.app by scripts/build-mac.sh) from the Windows icon
 // (docs/img/icon.ico), so both platforms show the same picture and the
-// release build needs no iconutil/sips step. main.go's go:generate line
-// runs it:
+// release build needs no iconutil/sips step. cmd/ww-multiplayer/main.go's
+// go:generate line runs it (go generate ./cmd/ww-multiplayer); from the
+// repo root that is:
 //
 //	go run ./tools/mkicns -o docs/img/icon.icns docs/img/icon.ico
 //

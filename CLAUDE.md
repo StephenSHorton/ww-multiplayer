@@ -19,11 +19,14 @@ Wind Waker disc image). Releases are cut on tag push via GitHub Actions.
 
 ```
 ww-multiplayer/
-├── main.go, commands.go         # Entry point; commands.go: the CLI command registry + generated help (app_face.go: no args = app window, `tui`, `ui --browser`)
-├── *.go                         # Rest of package main: engine_config.go (newTUIEngine/newCLIEngine; sessionEnv, coopEnv = coopsession.Env),
-│                                #   mods.go (compiledMods: multiplayer, coop; devMods: example; the loaded mods' commands and post-patch steps)
-│                                #   app_face.go also runs the app's mods: --mods/--no-mod/--dev, appModConfig (flags over config.Mods via gui.ModConfig), startApp (wwapi.Runtime + session controller over its NetProvider's engine)
 ├── cmd/
+│   ├── ww-multiplayer/          # package main, the released exe (moved from the repo root in Phase D7; build ./cmd/ww-multiplayer)
+│   │   ├── main.go, commands.go #   Entry point; commands.go: the CLI command registry + generated help (app_face.go: no args = app window, `tui`, `ui --browser`)
+│   │   ├── *.go                 #   engine_config.go (newTUIEngine/newCLIEngine; sessionEnv, coopEnv = coopsession.Env),
+│   │   │                        #   mods.go (compiledMods: multiplayer, coop; devMods: example; the loaded mods' commands and post-patch steps)
+│   │   │                        #   app_face.go also runs the app's mods: --mods/--no-mod/--dev, appModConfig (flags over config.Mods via gui.ModConfig), startApp (wwapi.Runtime + session controller over its NetProvider's engine)
+│   │   ├── ww_windows.syso      #   Icon + application manifest (go generate ./cmd/ww-multiplayer); the linker only takes a .syso from the main package's directory
+│   │   └── testdata/            #   CLI and help goldens (cli-golden/), the subcommand lists
 │   └── wwdev/                   # wwdev, the developer tools (Phase D6; CI builds it, releases don't ship it): registry.go (its command registry + help),
 │                                #   commands.go (the command bodies), mp_local*.go (dolphin2, mp-local), coop_diag.go (co-op diagnostics), auto_recapture.go,
 │                                #   tunic_diag.go (tunic dev commands), probes.go (the research probes: peek/poke, disasm, eye/face, input, screenshot, dump, ...)
@@ -76,11 +79,11 @@ ww-multiplayer/
 │   ├── build-mac.sh, setup-mac-dolphin.sh   # macOS release build (WW Multiplayer.app + ditto zip); one-time Dolphin re-sign
 │   └── dolphin2.sh, mplay2.sh   # Legacy bash harness (Go ports: dolphin2, mp-local)
 ├── packaging/
-│   └── ww-multiplayer.exe.manifest  # Windows app manifest (DPI, Common Controls 6, asInvoker), in ww_windows.syso via go generate
+│   └── ww-multiplayer.exe.manifest  # Windows app manifest (DPI, Common Controls 6, asInvoker), in cmd/ww-multiplayer/ww_windows.syso via go generate
 ├── tools/
 │   ├── blobstamp/               # Writes/checks internal/inject/blob.stamp
 │   ├── gen_mailbox/             # inject/include/mailbox.h -> wwapi/mailbox/layout_gen.go (go generate ./wwapi/mailbox)
-│   └── mkicns/                  # docs/img/icon.ico -> docs/img/icon.icns (macOS app icon; go generate)
+│   └── mkicns/                  # docs/img/icon.ico -> docs/img/icon.icns (macOS app icon; go generate ./cmd/ww-multiplayer)
 ├── .github/workflows/
 │   ├── build.yml                # CI: go vet + cross-build on push/PR; macOS job also builds + zips the .app (smoke, no publish)
 │   ├── release.yml              # CI: build + release on tag push (exe, macOS zip, SHA256SUMS; secrets-gated signing); dispatch = dry run
@@ -96,9 +99,9 @@ ww-multiplayer/
 
 ```bash
 # Build (CLI + TUI only; no-args opens the TUI)
-go build -o ww-multiplayer.exe .
+go build -o ww-multiplayer.exe ./cmd/ww-multiplayer
 # Build with the app window, as releases do (Windows needs no cgo; cross-builds from Linux with CGO_ENABLED=0)
-go build -tags desktop,production -o ww-multiplayer.exe .
+go build -tags desktop,production -o ww-multiplayer.exe ./cmd/ww-multiplayer
 # Build wwdev, the developer tools (dolphin2, mp-local, diagnostics, research probes; never released)
 go build -o wwdev.exe ./cmd/wwdev
 
@@ -186,7 +189,7 @@ cd inject && rm -f build/temp/multiplayer.c.o && python build.py && python patch
 python scripts/extract_blob.py
 # (Reads inject/{original,patched}.dol, writes internal/inject/blob.go,
 # then runs `go run ./tools/blobstamp` to rewrite internal/inject/blob.stamp.)
-go build -o ww-multiplayer.exe .
+go build -o ww-multiplayer.exe ./cmd/ww-multiplayer
 ```
 
 **Releases and the website.** A `v*` tag publishes `ww-multiplayer.exe`,
@@ -197,7 +200,8 @@ the website"); without them the assets are unsigned and nothing fails.
 release is published (release.yml starts it) or by hand, never on a push
 to main: a `site/` edit on main is live only after the next release.
 After changing `docs/img/icon.ico` or `packaging/ww-multiplayer.exe.manifest`,
-run `go generate .` (needs `rsrc`) to rebuild `ww_windows.syso` and
+run `go generate ./cmd/ww-multiplayer` (needs `rsrc`) to rebuild
+`cmd/ww-multiplayer/ww_windows.syso` and
 `docs/img/icon.icns`.
 
 `internal/inject/blob.go` is committed and treated as source for build
@@ -296,7 +300,7 @@ the OLD blob over the freshly-patched ISO's new code.
 
 After a C-side change, the recapture cycle reduces to:
 
-1. Claude: rebuild the blob (`cd inject && rm -f build/temp/multiplayer.c.o && python build.py && python patch_iso.py && cd .. && python scripts/extract_blob.py && go build -o ww-multiplayer.exe . && go build -o wwdev.exe ./cmd/wwdev`)
+1. Claude: rebuild the blob (`cd inject && rm -f build/temp/multiplayer.c.o && python build.py && python patch_iso.py && cd .. && python scripts/extract_blob.py && go build -o ww-multiplayer.exe ./cmd/ww-multiplayer && go build -o wwdev.exe ./cmd/wwdev`)
 2. Claude: `./wwdev.exe auto-recapture`. This kills running Dolphins,
    cold-boots the patched ISO, drives the title/intro/file-select menus to
    in-game via input injection, screenshots the spawn spot, then prompts the

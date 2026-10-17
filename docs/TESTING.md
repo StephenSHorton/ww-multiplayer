@@ -13,7 +13,7 @@ Run all of it before pushing. CI (`.github/workflows/build.yml`) runs the same c
 | vet, Linux | `GOOS=linux GOARCH=amd64 go vet ./...` | |
 | vet, macOS | `GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go vet ./internal/...` | The macOS memory reader needs cgo, so a cross-vet with cgo off covers `internal/...`; the macOS CI job vets everything natively. |
 | vet, app window | `GOOS=windows GOARCH=amd64 go vet -tags desktop,production ./...` (and natively on macOS) | The release build compiles the Wails window (`internal/gui`); without the tags `internal/gui` is a stub. CI's `go-vet` action runs both vets on each target. |
-| build | `go build .` and `go build -tags desktop,production .` | The CLI-only and the release build must both compile. |
+| build | `go build ./cmd/ww-multiplayer` and `go build -tags desktop,production ./cmd/ww-multiplayer` | The CLI-only and the release build must both compile. |
 | tests | `go test -count=1 ./...` | Everything, including the goldens below. |
 | tests, race | `go test -race -count=1 ./...` | Needs cgo (a C compiler); the Linux CI job runs it on every push. |
 | fuzz smoke | `go test -run '^$' -fuzz '^FuzzX$' -fuzztime 30s ./pkg` | For each fuzz target in a package you touched, e.g. `./wwapi:FuzzWatcherStep`. List them with `grep -rn "func Fuzz" --include=*_test.go`. |
@@ -29,7 +29,7 @@ A golden file is the expected output, byte for byte. When a golden test fails, t
 
 ### CLI and help goldens
 
-`cli_golden_test.go` and `mods_test.go` run `ww-multiplayer <args>` in a child process with its own config directory and Dolphin paths in temp dirs, and compare stdout and the exit code with `testdata/cli-golden/<name>.txt`:
+`cmd/ww-multiplayer/cli_golden_test.go` and `mods_test.go` run `ww-multiplayer <args>` in a child process with its own config directory and Dolphin paths in temp dirs, and compare stdout and the exit code with `cmd/ww-multiplayer/testdata/cli-golden/<name>.txt`:
 
 - `patch-*`: the patcher's lines for a good image, an already-patched one, another version, garbage, a missing file and the usage;
 - `help-gui`, `help-nogui`, `unknown-*`: `help` and an unknown command, one file per build (with and without `-tags desktop,production`). They are recorded on Windows, where they compare byte for byte; elsewhere the column padding is ignored but not the text;
@@ -43,12 +43,12 @@ wwdev, the developer tools (`cmd/wwdev`), has its own: `cmd/wwdev/cli_golden_tes
 Regenerate on purpose:
 
 ```
-go test -run 'TestCLIGolden' -update-cli-golden .
-go test -tags desktop,production -run 'TestCLIGoldenHelp' -update-cli-golden .   # help-gui
+go test -run 'TestCLIGolden' -update-cli-golden ./cmd/ww-multiplayer
+go test -tags desktop,production -run 'TestCLIGoldenHelp' -update-cli-golden ./cmd/ww-multiplayer   # help-gui
 go test -run 'TestCLIGolden' -update-cli-golden ./cmd/wwdev                       # dolphin2-*, wwdev-*
 ```
 
-Run both on Windows, so the help files keep Windows' columns. `testdata/cli-subcommands.txt` pins the registry's subcommand names (`TestCLISubcommandsUnchanged`); regenerate it with `go test -run TestCLISubcommandsUnchanged -update-subcommands .` only when a command is added or removed on purpose. wwdev's names are in `cmd/wwdev/testdata/cli-subcommands.txt` (`TestWWDevSubcommandsUnchanged`, `-update-subcommands ./cmd/wwdev`); the two lists share only `help`.
+Run both on Windows, so the help files keep Windows' columns. `cmd/ww-multiplayer/testdata/cli-subcommands.txt` pins the registry's subcommand names (`TestCLISubcommandsUnchanged`); regenerate it with `go test -run TestCLISubcommandsUnchanged -update-subcommands ./cmd/ww-multiplayer` only when a command is added or removed on purpose. wwdev's names are in `cmd/wwdev/testdata/cli-subcommands.txt` (`TestWWDevSubcommandsUnchanged`, `-update-subcommands ./cmd/wwdev`); the two lists share only `help`.
 
 ### Co-op golden and converge tests
 

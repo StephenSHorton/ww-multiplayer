@@ -1,14 +1,15 @@
 // To regenerate the Windows resources (ww_windows.syso: the icon plus the
 // application manifest, packaging/ww-multiplayer.exe.manifest) after
-// changing docs/img/icon.ico or the manifest, run `go generate .` with
-// rsrc on PATH:
+// changing docs/img/icon.ico or the manifest, run
+// `go generate ./cmd/ww-multiplayer` from the repo root with rsrc on PATH
+// (go generate runs in this directory, so the paths below start at ../..):
 //   go install github.com/akavel/rsrc@v0.10.2
 // The second line rebuilds docs/img/icon.icns (the macOS app icon) from
 // the same icon.ico. Go's linker auto-includes any *.syso in the main
-// package; the _windows suffix is a build constraint so non-Windows
-// builds skip it.
-//go:generate rsrc -manifest packaging/ww-multiplayer.exe.manifest -ico docs/img/icon.ico -o ww_windows.syso
-//go:generate go run ./tools/mkicns -o docs/img/icon.icns docs/img/icon.ico
+// package's directory (so the .syso lives here, next to main.go); the
+// _windows suffix is a build constraint so non-Windows builds skip it.
+//go:generate rsrc -manifest ../../packaging/ww-multiplayer.exe.manifest -ico ../../docs/img/icon.ico -o ww_windows.syso
+//go:generate go run ../../tools/mkicns -o ../../docs/img/icon.icns ../../docs/img/icon.ico
 
 package main
 
