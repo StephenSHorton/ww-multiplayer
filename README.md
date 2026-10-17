@@ -24,72 +24,94 @@ Known limits:
   last known coords if they cross to a different room).
 - Internet play needs a port-forward or a VPN such as Tailscale (see
   [Playing](#playing)); there's no built-in NAT traversal.
-- macOS first-run requires a one-time setup step: `scripts/setup-mac-dolphin.sh`
-  copies `/Applications/Dolphin.app` to `~/Applications/Dolphin.app` and
-  re-signs it without the hardened runtime, which lets AMFI permit
-  `task_for_pid` against it. After that, no sudo is needed.
+- macOS first-run requires a one-time step, the app's **Prepare Dolphin**
+  button (or `scripts/setup-mac-dolphin.sh`): it copies
+  `/Applications/Dolphin.app` to `~/Applications/Dolphin.app` and re-signs
+  it without the hardened runtime, which lets AMFI permit `task_for_pid`
+  against it. After that, no sudo is needed.
+- The downloads aren't code-signed yet: Windows SmartScreen and macOS
+  Gatekeeper warn the first time (see [Quick start](#quick-start-end-users)).
 
 Active work is tracked in [GitHub issues](../../issues) — epics group related items, sub-issues are concrete tasks. `docs/06-history.md` is the session-by-session log of how the pipeline was built (precious for debugging).
 
 ## Quick start (end users)
 
+You need [Dolphin](https://dolphin-emu.org/) (a recent stable build) and
+your own legitimate copy of Wind Waker (NTSC-U, game ID `GZLE01`, `.iso`
+or `.ciso`). **Download the app, double-click it**, and it walks you
+through the rest.
+
 ### Windows
 
-1. Download `ww-multiplayer.exe` from the [latest release](../../releases).
-2. Patch your own legitimate copy of Wind Waker (NTSC-U, game ID `GZLE01`,
-   `.iso` or `.ciso` works):
-   ```
-   .\ww-multiplayer.exe patch path\to\your-wind-waker.iso
-   ```
-   This produces `your-wind-waker-multiplayer.iso` next to the input. Your
-   original is left untouched. Already-patched ISOs are detected and skipped.
-3. Both players: boot the patched ISO in Dolphin and load a save (any save —
-   saves don't have to match, and the other player's Link only appears once
-   their session connects).
-4. Host runs `.\ww-multiplayer.exe host` and shares the printed LAN IP (or
-   runs `.\ww-multiplayer.exe tui` and picks Host — see [Playing](#playing)).
-5. Joiner runs `.\ww-multiplayer.exe join <host-ip>` (you can also pass a custom name:
-   `.\ww-multiplayer.exe join 192.168.1.42 Alice`).
-6. You should see each other's Link walking around in-game within a second
-   or two. Ctrl+C in either terminal cleanly shuts down and hides Link #2.
+1. Download `ww-multiplayer.exe` from the [latest release](../../releases)
+   and double-click it. A console window may flash for a moment, then the
+   app window opens.
+2. If Windows shows **"Windows protected your PC"** (SmartScreen: the exe
+   isn't code-signed yet), click **More info**, then **Run anyway**.
+3. The first time, the app opens on **Setup** (see [Playing](#playing)):
+   your name and tunic color, your Wind Waker disc (the app writes a
+   patched copy next to it; your original is never changed) and Dolphin
+   (found for you, or Browse…).
+4. **Host**, or **Join** with the host's address. Everyone meets in the
+   lobby; when the others are Ready, the host presses **Start** and each
+   player's Dolphin starts with the patched game. Load any save (saves
+   don't have to match). If Windows asks, allow `ww-multiplayer.exe`
+   through the firewall.
 
-### macOS
+The window needs Microsoft's WebView2 runtime, which Windows 11 and
+current Windows 10 have; without it the app offers to install it.
 
-1. Download `ww-multiplayer-macos.tar.gz` from the [latest release](../../releases),
-   untar it. You'll get a universal binary (`ww-multiplayer`), the app
-   (`WW Multiplayer.app`, the same binary in a bundle), the one-time setup
-   script (`scripts/setup-mac-dolphin.sh`) and `LICENSE`. Run the commands
-   below in Terminal from that untarred folder.
-2. **Strip the Gatekeeper quarantine flag** — macOS adds it to anything
-   downloaded from the internet, and the binary isn't signed by an Apple
-   Developer cert. Without this step you'll get *"Apple could not verify
-   'WW Multiplayer' is free of malware…"*:
-   ```
-   xattr -cr ww-multiplayer "WW Multiplayer.app" scripts
-   ```
-3. **One-time Dolphin setup** — re-sign Dolphin without the hardened
-   runtime so the binary can read its memory:
-   ```
-   ./scripts/setup-mac-dolphin.sh
-   ```
-   This copies `/Applications/Dolphin.app` to `~/Applications/Dolphin.app`
-   and strips the hardened runtime flag from its main executable. Your
-   original `/Applications/Dolphin.app` is left alone. Re-run this script
-   any time you update Dolphin. (The app's Setup has a **Prepare Dolphin**
-   button that runs the same steps.)
-4. Patch your own legitimate copy of Wind Waker:
-   ```
-   ./ww-multiplayer patch ~/Roms/your-wind-waker.iso
-   ```
-5. Boot the patched ISO in your `~/Applications/Dolphin.app` copy and
-   load a save.
-6. Host: `./ww-multiplayer host` (or `./ww-multiplayer tui` and pick Host).
-7. Joiner: `./ww-multiplayer join <host-ip>`.
+### macOS (Apple Silicon or Intel, macOS 12 or later)
 
-No sudo. The shipped binary is ad-hoc signed with the
-`com.apple.security.cs.debugger` entitlement, and once Dolphin's
-hardened runtime is off (step 3 above), AMFI lets the entitled binary
-attach with `task_for_pid` from your normal user account.
+1. Download `ww-multiplayer-macos.zip` from the
+   [latest release](../../releases) and open it (Safari usually unzips it
+   for you). You get a `WW Multiplayer` folder with `WW Multiplayer.app`,
+   a `ww-multiplayer` command for the terminal, `scripts/setup-mac-dolphin.sh`
+   and `LICENSE`. Move the folder somewhere permanent, such as
+   Applications.
+2. Double-click **`WW Multiplayer.app`**. It isn't notarized by Apple yet,
+   so the first time macOS says it can't verify the app: **Control-click
+   (right-click) the app → Open → Open**. On macOS 15 and later, after
+   that first warning go to **System Settings → Privacy & Security** and
+   click **Open Anyway**.
+3. **Setup**, as on Windows, plus **Prepare Dolphin**: press it once, and
+   again after every Dolphin update (the app reminds you). It copies
+   `/Applications/Dolphin.app` to `~/Applications/Dolphin.app` and re-signs
+   the copy without the hardened runtime, so the app may read its memory;
+   your original Dolphin is left alone. No sudo.
+4. **Host** or **Join**, then **Start** from the lobby, as on Windows.
+
+The app is ad-hoc signed with the `com.apple.security.cs.debugger`
+entitlement: once Dolphin's hardened runtime is off (Prepare Dolphin),
+AMFI lets it attach with `task_for_pid` from your normal user account.
+
+### Co-op is optional
+
+Plain multiplayer (seeing each other's Link) needs nothing more. Co-op
+worlds, which share story progress between players' saves, are off unless
+the host turns them on in the lobby; see [Playing](#playing).
+
+### Advanced: the terminal menu and command line
+
+The same program is also a terminal menu and a command line (details
+under [Playing](#playing)):
+
+```
+.\ww-multiplayer.exe patch path\to\your-wind-waker.iso   # Windows
+.\ww-multiplayer.exe host [name]
+.\ww-multiplayer.exe join <host-ip> [name]
+.\ww-multiplayer.exe tui                                 # the terminal menu
+```
+
+On macOS, in Terminal, `cd` into the unzipped `WW Multiplayer` folder and
+clear the download quarantine once (`xattr -cr .`), then use
+`./ww-multiplayer` the same way (it is a link to the app's own binary).
+`./scripts/setup-mac-dolphin.sh` does what Prepare Dolphin does; boot the
+patched ISO in the `~/Applications/Dolphin.app` copy.
+
+`patch` writes `your-wind-waker-multiplayer.iso` next to the input and
+leaves the original untouched; already-patched ISOs are detected and
+skipped.
 
 We don't ship a pre-patched ISO for legal reasons (it would be a derivative
 of the entire Wind Waker DOL). The patcher contains only our injected code
@@ -207,9 +229,10 @@ cd ww-multiplayer
 go build -tags desktop,production -o ww-multiplayer.exe .
 # Windows, cross-compiled from Linux or macOS (no cgo needed, window included)
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags desktop,production -o ww-multiplayer.exe .
-# macOS — universal binary + .app bundle (the script passes the tags)
+# macOS — universal WW Multiplayer.app, zipped (the script passes the tags)
 ./scripts/build-mac.sh dev
-# outputs dist/ww-multiplayer (universal) and dist/WW Multiplayer.app
+# outputs dist/WW Multiplayer/ (the .app, a ww-multiplayer symlink, the
+# setup script, LICENSE) and dist/ww-multiplayer-macos.zip
 ```
 
 `-tags desktop,production` compiles in the app window (Wails v2,
@@ -232,6 +255,51 @@ Go builds work without the C toolchain. To rebuild the injected C code, see
 cd inject && python build.py        # rebuilds patched.dol
 cd .. && python scripts/extract_blob.py  # regenerates blob.go
 ```
+
+### Releases, code signing and the website
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`: it builds
+`ww-multiplayer.exe` (Windows, cross-built on Linux) and
+`ww-multiplayer-macos.zip` (`scripts/build-mac.sh` on macOS: a universal
+`WW Multiplayer.app` with an `Info.plist` carrying the tag's version,
+the icon, and `LSMinimumSystemVersion` 12.0, zipped with `ditto` so the
+bundle and its signature survive), writes `SHA256SUMS` over both, and
+publishes one GitHub Release (a tag with a `-` is a prerelease). Running
+the workflow by hand (workflow_dispatch) is a dry run: it builds both and
+keeps them as workflow artifacts, but publishes nothing. `build.yml` also
+builds and zips the macOS app on every push and PR, as a packaging smoke
+test.
+
+The Windows exe embeds `ww_windows.syso`: the icon (`docs/img/icon.ico`)
+and an application manifest (`packaging/ww-multiplayer.exe.manifest`:
+per-monitor DPI awareness, Common Controls 6, `asInvoker`). It stays a
+console-subsystem program, so one exe is the app, the terminal menu and
+the CLI. After changing the icon or the manifest, run `go generate .`
+with [rsrc](https://github.com/akavel/rsrc) on `PATH`; that also rebuilds
+the macOS icon `docs/img/icon.icns` (`tools/mkicns`).
+
+**Code signing is optional and off for now.** Each signing step in
+release.yml runs only when its repository secrets exist, so a fork (or
+this repo today) builds the unsigned assets with nothing failing:
+
+| Secrets | What they turn on |
+|---|---|
+| `WINDOWS_CERTIFICATE_PFX` (base64 .pfx), `WINDOWS_CERTIFICATE_PASSWORD` | Authenticode-signs the exe (osslsigncode, signtool's Linux equivalent, with an RFC 3161 timestamp) |
+| `MACOS_CERTIFICATE_P12` (base64 .p12), `MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGN_IDENTITY` | Signs the app with a Developer ID identity, hardened runtime and the cs.debugger entitlement, instead of ad-hoc |
+| the three above plus `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | Also notarizes the zip and staples the app |
+
+Without them, users see the SmartScreen and Gatekeeper prompts described
+in [Quick start](#quick-start-end-users). macOS players need Prepare
+Dolphin either way: Dolphin's own hardened runtime is what blocks
+`task_for_pid`.
+
+**The website** (`site/`, GitHub Pages) describes the latest release, so
+`.github/workflows/pages.yml` deploys it when a release is published
+(release.yml starts it after publishing a non-prerelease; a release
+published by hand triggers it too), always from the latest release's
+tag. A `site/` change merged to `main` goes live with the next release;
+run the Pages workflow by hand, optionally with a `ref`, to redeploy
+sooner.
 
 ### Headless / debug commands
 

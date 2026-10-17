@@ -245,6 +245,13 @@ details[open] summary::after { transform: rotate(90deg); }
 details > div { padding: 0 20px 18px; color: var(--text-dim); }
 details code.i { background: rgba(0, 0, 0, 0.35); color: #fff; }
 details a { color: var(--gold-hi); }
+/* the install tabs' "Advanced" fold, on the light panel */
+.tabbody details { margin: 6px 0 0; background: #e9f1fa; box-shadow: inset 3px 0 0 var(--menu); }
+.tabbody summary { color: var(--sea-deep); font-size: 15px; padding: 12px 16px; }
+.tabbody summary::after { background: var(--menu); }
+.tabbody details > div { padding: 0 16px 14px; color: #45556f; }
+.tabbody details > div p { margin: 0 0 6px; }
+.tabbody details code.i { background: #dfeaf6; color: var(--sea-deep); }
 
 .legal {
 	position: relative; z-index: 4; padding: 10px 0 11px;
@@ -315,7 +322,7 @@ footer span { color: var(--text-dim); }
 					<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5 10.5 4.4v7.1H3zM11.5 4.3 21 3v8.5h-9.5zM3 12.5h7.5v7.1L3 18.5zM11.5 12.5H21V21l-9.5-1.3z"/></svg>
 					<span>Windows<small class="sz">ww-multiplayer.exe</small></span>
 				</a>
-				<a class="btn" id="dl-mac" data-asset="ww-multiplayer-macos.tar.gz" href="https://github.com/StephenSHorton/ww-multiplayer/releases/latest">
+				<a class="btn" id="dl-mac" data-asset="ww-multiplayer-macos.zip" href="https://github.com/StephenSHorton/ww-multiplayer/releases/latest">
 					<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.2-1.7-3-1.9-3.6-2-1.5-.2-3 .9-3.8.9-.8 0-2-.9-3.3-.9-1.7 0-3.3 1-4.2 2.5-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8s2 .8 3.3.8c1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.8-1.1-2.8-4.2zM14 5.3c.7-.9 1.2-2 1-3.2-1 .1-2.3.7-3 1.6-.7.8-1.2 2-1.1 3.1 1.2.1 2.3-.6 3.1-1.5z"/></svg>
 					<span>macOS<small class="sz">Apple Silicon + Intel</small></span>
 				</a>
@@ -345,15 +352,15 @@ footer span { color: var(--text-dim); }
 			<div class="head"><h2 class="hud">How it works</h2></div>
 			<p class="sub">Everyone plays in their own Dolphin. The app reads your Link's position and pose, shares it with the other players over the network, and draws their Link in your world.</p>
 			<div class="steps">
-				<div class="panel step"><h3>Patch your game</h3><p>Point the app at your own Wind Waker disc image. It writes a patched copy next to it and never touches the original.</p></div>
-				<div class="panel step"><h3>Boot it in Dolphin</h3><p>Load the patched game and any save. Saves don't have to match between players.</p></div>
-				<div class="panel step"><h3>Host or join</h3><p>One player hosts, the others join with the host's IP. Within a second or two you'll see each other.</p></div>
+				<div class="panel step"><h3>Set up once</h3><p>Pick your name and tunic color, and point the app at your own Wind Waker disc image and at Dolphin. It writes a patched copy of the disc and never touches the original.</p></div>
+				<div class="panel step"><h3>Host or join</h3><p>One player hosts, the others join with the host's address. Everyone meets in the lobby. IP addresses stay hidden on screen unless you show them.</p></div>
+				<div class="panel step"><h3>Start together</h3><p>The host presses Start and everyone's Dolphin starts with the patched game. Load any save; within a second or two you'll see each other.</p></div>
 			</div>
 		</section>
 
 		<section id="install">
 			<div class="head"><h2 class="hud">Install</h2></div>
-			<p class="sub">You'll need <a href="https://dolphin-emu.org/">Dolphin</a> (a recent stable build) and your own copy of The Wind Waker, NTSC-U (game ID <b>GZLE01</b>), as an .iso or .ciso.</p>
+			<p class="sub">Download the app and double-click it; it walks you through the rest. You'll need <a href="https://dolphin-emu.org/">Dolphin</a> (a recent stable build) and your own copy of The Wind Waker, NTSC-U (game ID <b>GZLE01</b>), as an .iso or .ciso.</p>
 
 			<div class="tabbox">
 				<div class="tablist" role="tablist">
@@ -363,32 +370,44 @@ footer span { color: var(--text-dim); }
 
 				<div class="panel tabbody" id="p-win" role="tabpanel" aria-labelledby="tab-win">
 					<ol>
-						<li><b>Download <code class="i">ww-multiplayer.exe</code></b> with the Windows button above.</li>
-						<li><b>Patch your game.</b> Open a terminal in the download folder and run:
+						<li><b>Download <code class="i">ww-multiplayer.exe</code></b> with the Windows button above, and double-click it.
+							<p>If Windows says "Windows protected your PC", click <b>More info</b>, then <b>Run anyway</b>. The app isn't code-signed yet, so SmartScreen doesn't know it.</p></li>
+						<li><b>Setup.</b> The first time, the app asks for your name and tunic color, your Wind Waker disc and Dolphin.
+							<p>It writes a patched copy of the disc next to the original, which it never changes, and finds Dolphin for you (or Browse&hellip;).</p></li>
+						<li><b>Host or join.</b> One player hosts; the others join with the host's address. Everyone meets in the lobby.
+							<p>When everyone is Ready, the host presses <b>Start</b> and each player's Dolphin starts with the patched game. If Windows asks, allow the app through the firewall.</p></li>
+					</ol>
+					<details>
+						<summary>Advanced: the terminal menu and command line</summary>
+						<div>
+							<p>The same exe has a terminal menu and a command line. In a terminal opened in the download folder:</p>
+							<div class="cmd"><code>.\ww-multiplayer.exe tui</code><button type="button">Copy</button></div>
 							<div class="cmd"><code>.\ww-multiplayer.exe patch path\to\your-wind-waker.iso</code><button type="button">Copy</button></div>
-							<p>This creates <code class="i">your-wind-waker-multiplayer.iso</code> next to the original.</p></li>
-						<li><b>Boot the patched ISO in Dolphin</b> and load a save.</li>
-						<li><b>Host or join.</b> Double-click <code class="i">ww-multiplayer.exe</code> for the menu, or use the terminal:
 							<div class="cmd"><code>.\ww-multiplayer.exe host YourName</code><button type="button">Copy</button></div>
 							<div class="cmd"><code>.\ww-multiplayer.exe join &lt;host-ip&gt; YourName</code><button type="button">Copy</button></div>
-							<p>If Windows asks, allow it through the firewall. Ctrl+C stops the session cleanly.</p></li>
-					</ol>
+						</div>
+					</details>
 				</div>
 
 				<div class="panel tabbody" id="p-mac" role="tabpanel" aria-labelledby="tab-mac" hidden>
 					<ol>
-						<li><b>Download and untar</b> <code class="i">ww-multiplayer-macos.tar.gz</code>. You get the app, a Finder-clickable <code class="i">WW Multiplayer.app</code> and a setup script.</li>
-						<li><b>Clear the download quarantine.</b> The app is ad-hoc signed, not notarized, so macOS blocks it until you run this in the untarred folder:
-							<div class="cmd"><code>xattr -cr ww-multiplayer "WW Multiplayer.app" scripts</code><button type="button">Copy</button></div></li>
-						<li><b>One-time Dolphin setup</b> (re-run after every Dolphin update). It makes a copy at <code class="i">~/Applications/Dolphin.app</code> that the app is allowed to read; your original Dolphin is left alone. No sudo needed.
-							<div class="cmd"><code>./scripts/setup-mac-dolphin.sh</code><button type="button">Copy</button></div></li>
-						<li><b>Patch your game:</b>
-							<div class="cmd"><code>./ww-multiplayer patch ~/Roms/your-wind-waker.iso</code><button type="button">Copy</button></div></li>
-						<li><b>Boot the patched ISO</b> in the <code class="i">~/Applications/Dolphin.app</code> copy and load a save.</li>
-						<li><b>Host or join</b> (or double-click <code class="i">WW Multiplayer.app</code> to host):
-							<div class="cmd"><code>./ww-multiplayer host YourName</code><button type="button">Copy</button></div>
-							<div class="cmd"><code>./ww-multiplayer join &lt;host-ip&gt; YourName</code><button type="button">Copy</button></div></li>
+						<li><b>Download <code class="i">ww-multiplayer-macos.zip</code></b> with the macOS button above and open it. Move the <code class="i">WW Multiplayer</code> folder somewhere permanent, such as Applications.</li>
+						<li><b>Double-click <code class="i">WW Multiplayer.app</code>.</b>
+							<p>The app isn't notarized by Apple yet, so the first time macOS says it can't verify it. Control-click (right-click) the app, choose <b>Open</b>, then <b>Open</b> again. On macOS 15 or later: after the warning, go to System Settings &rarr; Privacy &amp; Security and click <b>Open Anyway</b>.</p></li>
+						<li><b>Setup.</b> Your name and tunic color, your Wind Waker disc and Dolphin. Press <b>Prepare Dolphin</b> once (and again after each Dolphin update).
+							<p>It makes a copy at <code class="i">~/Applications/Dolphin.app</code> that the app is allowed to read; your original Dolphin is left alone. No password needed.</p></li>
+						<li><b>Host or join.</b> When everyone is Ready, the host presses <b>Start</b> in the lobby and each player's Dolphin starts with the patched game.</li>
 					</ol>
+					<details>
+						<summary>Advanced: the terminal menu and command line</summary>
+						<div>
+							<p>In Terminal, from the unzipped <code class="i">WW Multiplayer</code> folder, clear the download quarantine once, then use the <code class="i">ww-multiplayer</code> command next to the app. <code class="i">./scripts/setup-mac-dolphin.sh</code> does what Prepare Dolphin does.</p>
+							<div class="cmd"><code>xattr -cr .</code><button type="button">Copy</button></div>
+							<div class="cmd"><code>./ww-multiplayer tui</code><button type="button">Copy</button></div>
+							<div class="cmd"><code>./ww-multiplayer host YourName</code><button type="button">Copy</button></div>
+							<div class="cmd"><code>./ww-multiplayer join &lt;host-ip&gt; YourName</code><button type="button">Copy</button></div>
+						</div>
+					</details>
 				</div>
 			</div>
 		</section>
@@ -417,7 +436,9 @@ footer span { color: var(--text-dim); }
 					<ul>
 						<li>Your friend's Link in your game, at their real position with their real animations</li>
 						<li>Hosting and joining, with automatic reconnect if the connection drops</li>
-						<li>A terminal menu with status, a text minimap and chat</li>
+						<li>A desktop app: first-run setup, a lobby with chat, and an in-game screen with a minimap</li>
+						<li>Optional co-op worlds that share story progress, when the host turns them on</li>
+						<li>A terminal menu and command line for advanced use</li>
 					</ul>
 				</div>
 				<div class="card blue limits">
@@ -437,7 +458,8 @@ footer span { color: var(--text-dim); }
 			<details><summary>Do I need a specific version of the game?</summary><div>Yes: the North American GameCube release, game ID <code class="i">GZLE01</code>, as <code class="i">.iso</code> or <code class="i">.ciso</code>. Already-patched images are detected and skipped.</div></details>
 			<details><summary>Why don't you just ship a patched ISO?</summary><div>That would mean distributing Nintendo's game. The patcher only contains this project's own code plus a list of edits; every original byte comes from your own copy.</div></details>
 			<details><summary>How do I check my download is genuine?</summary><div>Each release includes <code class="i">SHA256SUMS</code>. On Windows, run <code class="i">Get-FileHash ww-multiplayer.exe</code> in PowerShell and compare. On macOS: <code class="i">shasum -a 256 -c SHA256SUMS --ignore-missing</code>.</div></details>
-			<details><summary>macOS says the app "could not be verified"</summary><div>That's the download quarantine. Run the <code class="i">xattr -cr</code> step from the macOS install tab, in the untarred folder.</div></details>
+			<details><summary>Windows says "Windows protected your PC"</summary><div>That's SmartScreen: the app isn't code-signed yet. Click <b>More info</b>, then <b>Run anyway</b>. You can check the download against <code class="i">SHA256SUMS</code> first (see the entry above).</div></details>
+			<details><summary>macOS says the app "could not be verified"</summary><div>The app isn't notarized by Apple yet. Control-click (right-click) <code class="i">WW Multiplayer.app</code>, choose <b>Open</b>, then <b>Open</b> again. On macOS 15 or later, after the warning go to System Settings &rarr; Privacy &amp; Security and click <b>Open Anyway</b>.</div></details>
 			<details><summary>Something isn't working</summary><div>Open an issue on <a class="gh-issues" href="https://github.com/StephenSHorton/ww-multiplayer/issues">GitHub</a> with your OS, Dolphin version and what you saw.</div></details>
 		</section>
 

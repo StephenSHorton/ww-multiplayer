@@ -46,6 +46,15 @@ jobs:
           go build -tags desktop,production -o /tmp/ww-multiplayer.exe .
           go build -o /tmp/ww-multiplayer-cli.exe .
 
+      # ww_windows.syso (go generate; main.go) carries the icon and the
+      # application manifest (packaging/ww-multiplayer.exe.manifest:
+      # per-monitor DPI awareness, Common Controls 6, asInvoker). The
+      # linker picks it up by itself; check it really did.
+      - name: Windows exe carries the application manifest
+        run: |
+          grep -q 'requestedExecutionLevel level="asInvoker"' /tmp/ww-multiplayer.exe
+          grep -q 'permonitorv2' /tmp/ww-multiplayer.exe
+
       # The C side can't be built here (devkitPPC + the owner's vanilla
       # DOL), so these check the committed blob.go against the committed
       # C sources instead: blob freshness (blob.stamp records the inputs
@@ -79,32 +88,29 @@ jobs:
           go-version-file: go.mod
 
       # internal/dolphin/memory_darwin.go uses cgo + Mach VM, so we have
-      # to actually run on a Mac. Build native arm64 (the runner) and
-      # cross to amd64 to make sure both architectures still compile.
+      # to actually run on a Mac. The packaging step below builds native
+      # arm64 (the runner) and cross-builds amd64, so both architectures
+      # still compile.
       - name: go vet
         uses: ./.github/actions/go-vet
 
       - name: go test
         run: go test -count=1 ./...
 
-      - name: Build arm64
-        env:
-          GOOS: darwin
-          GOARCH: arm64
-          CGO_ENABLED: '1'
-          # Wails v2 uses UTType but doesn't link its framework (`wails
-          # build` adds this itself); see scripts/build-mac.sh.
-          CGO_LDFLAGS: '-framework UniformTypeIdentifiers -mmacosx-version-min=10.13'
-        run: go build -tags desktop,production -o /tmp/ww-multiplayer-arm64 .
+      # The release packaging, run on every push and PR as a smoke test
+      # (nothing is published): scripts/build-mac.sh builds arm64 and
+      # amd64 with -tags desktop,production, lipos them into
+      # WW Multiplayer.app (Info.plist, icon, ad-hoc signed with
+      # cs.debugger; no signing secrets are used here), zips it with ditto
+      # and unpacks the zip to check the bundle, symlink and signature
+      # survived. The zip is kept for a week so a PR's .app can be tried
+      # on a real Mac before a release.
+      - name: Build and zip WW Multiplayer.app
+        run: ./scripts/build-mac.sh "ci-${GITHUB_SHA:0:7}"
 
-      - name: Build amd64 (cross from arm64 host)
-        env:
-          GOOS: darwin
-          GOARCH: amd64
-          CGO_ENABLED: '1'
-          CGO_LDFLAGS: '-framework UniformTypeIdentifiers -mmacosx-version-min=10.13'
-        run: |
-          SDK=$(xcrun --sdk macosx --show-sdk-path)
-          CC="clang -target x86_64-apple-macos11 -isysroot $SDK" \
-            SDKROOT=$SDK \
-            go build -tags desktop,production -o /tmp/ww-multiplayer-amd64 .
+      - name: Keep the zip (workflow artifact, not a release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ww-macos-universal-ci
+          path: dist/ww-multiplayer-macos.zip
+          retention-days: 7

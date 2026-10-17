@@ -9,6 +9,7 @@
 # Explicit binaries — never touched by line-ending rules.
 *.png binary
 *.ico binary
+*.icns binary
 *.syso binary
 *.dol binary
 *.iso binary

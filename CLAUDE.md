@@ -59,11 +59,17 @@ ww-multiplayer/
 ├── scripts/
 │   ├── extract_blob.py          # Diffs original.dol vs patched.dol → internal/inject/blob.go
 │   ├── gen_event_masks.py       # Generates internal/coop/class/syncmask_gen.go from the decomp
-│   ├── build-mac.sh, setup-mac-dolphin.sh   # macOS release build; one-time Dolphin re-sign
+│   ├── build-mac.sh, setup-mac-dolphin.sh   # macOS release build (WW Multiplayer.app + ditto zip); one-time Dolphin re-sign
 │   └── dolphin2.sh, mplay2.sh   # Legacy bash harness (Go ports: dolphin2, mp-local)
+├── packaging/
+│   └── ww-multiplayer.exe.manifest  # Windows app manifest (DPI, Common Controls 6, asInvoker), in ww_windows.syso via go generate
+├── tools/
+│   ├── blobstamp/               # Writes/checks internal/inject/blob.stamp
+│   └── mkicns/                  # docs/img/icon.ico -> docs/img/icon.icns (macOS app icon; go generate)
 ├── .github/workflows/
-│   ├── build.yml                # CI: go vet + cross-build on push/PR
-│   └── release.yml              # CI: build + release on tag push
+│   ├── build.yml                # CI: go vet + cross-build on push/PR; macOS job also builds + zips the .app (smoke, no publish)
+│   ├── release.yml              # CI: build + release on tag push (exe, macOS zip, SHA256SUMS; secrets-gated signing); dispatch = dry run
+│   └── pages.yml                # Website (site/) deploy: on release published / dispatch, from the latest release's tag
 └── docs/                        # IMPORTANT - read before debugging
     ├── 01-architecture.md, 02-dolphin-memory.md, 03-code-injection.md
     ├── 04-ww-addresses.md, 05-known-issues.md, 06-history.md
@@ -160,6 +166,17 @@ python scripts/extract_blob.py
 # then runs `go run ./tools/blobstamp` to rewrite internal/inject/blob.stamp.)
 go build -o ww-multiplayer.exe .
 ```
+
+**Releases and the website.** A `v*` tag publishes `ww-multiplayer.exe`,
+`ww-multiplayer-macos.zip` and `SHA256SUMS` (release.yml). Signing steps
+run only when their secrets exist (README, "Releases, code signing and
+the website"); without them the assets are unsigned and nothing fails.
+`site/` describes the latest release, so pages.yml deploys it only when a
+release is published (release.yml starts it) or by hand, never on a push
+to main: a `site/` edit on main is live only after the next release.
+After changing `docs/img/icon.ico` or `packaging/ww-multiplayer.exe.manifest`,
+run `go generate .` (needs `rsrc`) to rebuild `ww_windows.syso` and
+`docs/img/icon.icns`.
 
 `internal/inject/blob.go` is committed and treated as source for build
 purposes. CI on push/PR doesn't rebuild the C side; tag releases include
