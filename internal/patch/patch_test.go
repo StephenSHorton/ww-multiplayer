@@ -53,7 +53,7 @@ func TestRun(t *testing.T) {
 	in := writeImage(t, dir, "ww.iso", tablestest.PatchableISO(tablestest.Vanilla()))
 	spy := &tablesSpy{}
 	var w bytes.Buffer
-	res, err := Run(context.Background(), in, "", &w, Options{CoopTables: spy.fn})
+	res, err := Run(context.Background(), in, "", &w, Options{PostPatch: []func(io.Writer, string){spy.fn}})
 	out := filepath.Join(dir, "ww-multiplayer.iso")
 	if err != nil || res.Out != out || res.AlreadyPatched || res.Image() != out {
 		t.Fatalf("Run: %+v, %v", res, err)
@@ -68,7 +68,7 @@ func TestRun(t *testing.T) {
 
 	// The output, patched again: nothing written, the tables of that disc.
 	w.Reset()
-	res, err = Run(context.Background(), out, filepath.Join(dir, "again.iso"), &w, Options{CoopTables: spy.fn})
+	res, err = Run(context.Background(), out, filepath.Join(dir, "again.iso"), &w, Options{PostPatch: []func(io.Writer, string){spy.fn}})
 	if err != nil || !res.AlreadyPatched || res.Image() != out {
 		t.Fatalf("already patched: %+v, %v", res, err)
 	}
@@ -105,10 +105,27 @@ func TestRun(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	w.Reset()
-	if _, err := Run(ctx, in, filepath.Join(dir, "c.iso"), &w, Options{CoopTables: spy.fn}); !errors.Is(err, context.Canceled) {
+	if _, err := Run(ctx, in, filepath.Join(dir, "c.iso"), &w, Options{PostPatch: []func(io.Writer, string){spy.fn}}); !errors.Is(err, context.Canceled) {
 		t.Errorf("cancelled: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "c.iso")); !os.IsNotExist(err) || len(spy.images) != 2 {
 		t.Errorf("cancelled run wrote: %v, tables %q", err, spy.images)
+	}
+}
+
+// TestRunPostPatchOrder: the post-patch steps run in order, each once,
+// on the disc just written, between its lines and "Done.".
+func TestRunPostPatchOrder(t *testing.T) {
+	dir := t.TempDir()
+	in := writeImage(t, dir, "ww.iso", tablestest.PatchableISO(tablestest.Vanilla()))
+	step := func(name string) func(io.Writer, string) {
+		return func(w io.Writer, image string) { fmt.Fprintf(w, "  %s : %s\n", name, filepath.Base(image)) }
+	}
+	var w bytes.Buffer
+	if _, err := Run(context.Background(), in, "", &w, Options{PostPatch: []func(io.Writer, string){step("one"), step("two")}}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(w.String(), "  one : ww-multiplayer.iso\n  two : ww-multiplayer.iso\n\nDone. Boot ") {
+		t.Errorf("output:\n%s", w.String())
 	}
 }

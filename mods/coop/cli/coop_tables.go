@@ -1,4 +1,4 @@
-package main
+package coopcli
 
 // coop-tables (#23; docs/08-coop-design.md §6.2, §6.4, §7.2, §9 M1, §11
 // item 8): reads the user's own disc image and prints the co-op tables

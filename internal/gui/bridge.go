@@ -65,9 +65,9 @@ type Bridge struct {
 	cfg      config.Config
 	cfgWarns []string
 
-	// The setup's seams (setup.go): package main's co-op tables step, and
-	// what a test replaces.
-	coopTables func(io.Writer, string)
+	// The setup's seams (setup.go): package main's post-patch steps (the
+	// co-op tables step), and what a test replaces.
+	postPatch  []func(io.Writer, string)
 	patchRun   func(ctx context.Context, in, out string, w io.Writer, o patch.Options) (patch.Result, error)
 	inspect    func(string) (patch.DiscState, error)
 	denv       func() launch.Env
@@ -130,7 +130,7 @@ type pendingHost struct {
 // NewBridge returns the Bridge for o. Call close when the app ends.
 func NewBridge(o Options) *Bridge {
 	b := &Bridge{ctrl: o.Controller, version: o.Version, cfgPath: o.ConfigPath, getenv: o.Getenv, now: time.Now,
-		coopTables: o.CoopTables, patchRun: patch.Run, inspect: patch.Inspect, denv: o.DolphinEnv,
+		postPatch: o.PostPatch, patchRun: patch.Run, inspect: patch.Inspect, denv: o.DolphinEnv,
 		home:      func() string { h, _ := os.UserHomeDir(); return h },
 		macStatus: macStatusHere, prepareMac: launch.PrepareMacHere,
 		emitters: map[int]func(EventView){}, hostIPs: o.HostIPs, findSave: findSave, openPath: openFolderHere}

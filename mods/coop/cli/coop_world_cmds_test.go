@@ -1,4 +1,4 @@
-package main
+package coopcli
 
 // coop-world block's tests: what it parses, and how it reads a world's
 // session marker (mods/coop/session).

@@ -1,4 +1,4 @@
-package main
+package coopcli
 
 // coop-world (#23; docs/08-coop-design.md §4.4, §5.4-5.5): the host's
 // commands for its co-op worlds and the memory-card backups.

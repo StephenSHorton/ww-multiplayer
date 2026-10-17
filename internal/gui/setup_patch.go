@@ -317,8 +317,8 @@ func (b *Bridge) runPatch(ctx context.Context, j *patchJob, in, out string, exis
 	}()
 
 	opts := patch.Options{}
-	if b.coopTables != nil {
-		opts.CoopTables = func(cw io.Writer, image string) {
+	for _, step := range b.postPatch {
+		opts.PostPatch = append(opts.PostPatch, func(cw io.Writer, image string) {
 			if ctx.Err() != nil {
 				// Cancelled: don't build (or record as the last patched
 				// disc) tables for a disc that is about to be removed.
@@ -333,8 +333,8 @@ func (b *Bridge) runPatch(ctx context.Context, j *patchJob, in, out string, exis
 					v.Percent = 88
 				}
 			})
-			b.coopTables(cw, image)
-		}
+			step(cw, image)
+		})
 	}
 	res, err := b.patchRun(ctx, in, out, w, opts)
 	w.flush()

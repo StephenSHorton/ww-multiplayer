@@ -1,4 +1,4 @@
-package main
+package coopcli
 
 import (
 	"bytes"

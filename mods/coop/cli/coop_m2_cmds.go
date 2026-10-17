@@ -1,4 +1,4 @@
-package main
+package coopcli
 
 // Co-op M2 save-safety commands (#23; docs/08-coop-design.md §5.2-5.5,
 // §11 items 9-10):
@@ -15,7 +15,7 @@ package main
 // The only game-RAM write here is coop-tag clear's, through
 // mods/coop/bind's Scrub: 0x30 bytes at 0x803C532C, behind the gates
 // and the user's --yes. Like the other co-op diagnostics, none of these is
-// listed in printHelp; the command registry (commands.go) dispatches them.
+// listed in printHelp; the app's command registry dispatches them (cli.go).
 
 import (
 	"errors"
@@ -28,6 +28,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
+	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
@@ -43,8 +44,9 @@ const (
 // stopped for want of --yes; the message has been printed already.
 var errNotDone = errors.New("nothing changed")
 
-// runCoopTag runs coop-tag with the arguments after it.
-func runCoopTag(args []string) {
+// runCoopTag runs coop-tag with the arguments after it, on the Dolphin
+// env.Open picks.
+func runCoopTag(env coopsession.Env, args []string) {
 	pos, flags, err := diag.SplitFlags(args, "yes")
 	if err != nil {
 		exitUsage(err, coopTagUsage)
@@ -67,12 +69,12 @@ func runCoopTag(args []string) {
 		if flags["yes"] {
 			exitUsage(errors.New("show writes nothing; --yes is for clear"), coopTagUsage)
 		}
-		err = diag.WithMem(openDolphin, func(m mem.Mem) error { return coopTagShow(os.Stdout, m, diag.Tick, session, worlds) })
+		err = diag.WithMem(env.Open, func(m mem.Mem) error { return coopTagShow(os.Stdout, m, diag.Tick, session, worlds) })
 	case "clear":
 		if len(pos) > 1 {
 			exitUsage(fmt.Errorf("clear takes no arguments, not %q", pos[1:]), coopTagUsage)
 		}
-		err = diag.WithMem(openDolphin, func(m mem.Mem) error { return coopTagClear(os.Stdout, m, diag.Tick, flags["yes"], worlds) })
+		err = diag.WithMem(env.Open, func(m mem.Mem) error { return coopTagClear(os.Stdout, m, diag.Tick, flags["yes"], worlds) })
 	default:
 		exitUsage(fmt.Errorf("unknown coop-tag command %q", pos[0]), coopTagUsage)
 	}

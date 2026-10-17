@@ -213,7 +213,7 @@ func patchLines(t *testing.T, coop string) []string {
 		t.Fatal(err)
 	}
 	var w bytes.Buffer
-	if _, err := patch.Run(context.Background(), in, "", &w, patch.Options{CoopTables: func(w io.Writer, _ string) { fmt.Fprintln(w, coop) }}); err != nil {
+	if _, err := patch.Run(context.Background(), in, "", &w, patch.Options{PostPatch: []func(io.Writer, string){func(w io.Writer, _ string) { fmt.Fprintln(w, coop) }}}); err != nil {
 		t.Fatal(err)
 	}
 	return strings.Split(strings.TrimSuffix(w.String(), "\n"), "\n")
@@ -311,8 +311,8 @@ func (f *fakePatcher) run(ctx context.Context, in, out string, w io.Writer, o pa
 	} else {
 		fmt.Fprintf(w, "\nThis ISO already contains this version of the multiplayer mod — nothing to do.\n")
 	}
-	if o.CoopTables != nil {
-		o.CoopTables(w, res.Image())
+	for _, step := range o.PostPatch {
+		step(w, res.Image())
 	}
 	fmt.Fprintf(w, "\nDone. Boot %s in Dolphin to play multiplayer.\n", res.Image())
 	return res, nil
@@ -362,9 +362,9 @@ func patchBridge(t *testing.T, f *fakePatcher) (*Bridge, string, *events) {
 	t.Helper()
 	b, _, path := newTestBridge(t)
 	b.patchRun = f.run
-	b.coopTables = func(w io.Writer, image string) {
+	b.postPatch = []func(io.Writer, string){func(w io.Writer, image string) {
 		fmt.Fprintf(w, "  co-op : stage tables of %s\n", filepath.Base(image))
-	}
+	}}
 	ev := &events{}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -459,7 +459,7 @@ func TestBridgeCancelPatch(t *testing.T) {
 	f := &fakePatcher{hold: make(chan struct{}), started: make(chan struct{})}
 	b, path, _ := patchBridge(t, f)
 	coopCalls := 0
-	b.coopTables = func(io.Writer, string) { coopCalls++ }
+	b.postPatch = []func(io.Writer, string){func(io.Writer, string) { coopCalls++ }}
 	dir := t.TempDir()
 	in := touch(t, filepath.Join(dir, "ww.iso"))
 	if err := b.StartPatch(PatchRequest{Path: in}); err != nil {
@@ -566,10 +566,10 @@ func TestBridgeCloseWaitsForPatch(t *testing.T) {
 func TestBridgeRealPatch(t *testing.T) {
 	b, _, path := newTestBridge(t)
 	coop := 0
-	b.coopTables = func(w io.Writer, image string) {
+	b.postPatch = []func(io.Writer, string){func(w io.Writer, image string) {
 		coop++
 		fmt.Fprintf(w, "  co-op : stage tables built and cached in 0.0 s, for --coop sessions\n")
-	}
+	}}
 	dir := t.TempDir()
 	in := filepath.Join(dir, "ww.iso")
 	if err := os.WriteFile(in, tablestest.PatchableISO(tablestest.Vanilla()), 0o644); err != nil {

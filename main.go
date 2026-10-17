@@ -34,7 +34,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
@@ -112,10 +111,11 @@ func versionLine() string {
 }
 
 // runPatch is the `patch` command: patch.Run (internal/patch) writes the
-// patcher's lines on stdout, with the co-op stage tables step, and a
+// patcher's lines on stdout, with the loaded mods' post-patch steps (the
+// co-op stage tables), and a
 // failure exits 1. An already-patched input exits 0, as it always has.
 func runPatch(in, out string) {
-	if _, err := patch.Run(context.Background(), in, out, os.Stdout, patch.Options{CoopTables: stagetables.CacheForPatch}); err != nil {
+	if _, err := patch.Run(context.Background(), in, out, os.Stdout, patch.Options{PostPatch: postPatchSteps()}); err != nil {
 		os.Exit(1)
 	}
 }

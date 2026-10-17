@@ -1,3 +1,4 @@
 exit 0
 Mods (wwapi 0.1.0):
   multiplayer              1.0.0        LOADED
+  coop                     1.0.0        LOADED

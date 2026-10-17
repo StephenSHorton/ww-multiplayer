@@ -64,11 +64,14 @@ type command struct {
 	run func(name string, args []string)
 }
 
-// commandTable returns the registry. The listed commands come first, in
-// printHelp's order. It is a function, not a var, because help's run calls
-// printHelp, which reads the table.
+// commandTable returns the registry: the app's own commands, then the
+// loaded mods' (modCommands; co-op's coop-tables, coop-tag, coop-world,
+// save-diff and save-merge, where they sat before they moved into
+// mods/coop). The listed commands come first, in printHelp's order. It is
+// a function, not a var, because help's run calls printHelp, which reads
+// the table.
 func commandTable() []command {
-	return []command{
+	return append([]command{
 		{
 			name:    "host",
 			group:   groupPlay,
@@ -239,19 +242,7 @@ func commandTable() []command {
 		{name: "stage-hop", group: groupDev, hidden: true, run: runCoopDiag},
 		{name: "enemy-kill", group: groupDev, hidden: true, run: runCoopDiag},
 		{name: "peek-demo", group: groupDev, hidden: true, run: runCoopDiag},
-		// Co-op M1 tables from the user's own disc (coop_tables.go),
-		// kept out of printHelp like the co-op diagnostics.
-		{name: "coop-tables", group: groupDev, hidden: true, run: func(string, []string) { runCoopTables(os.Args[2:]) }},
-		// Co-op M2 binding tag (coop_m2_cmds.go): show, clear.
-		{name: "coop-tag", group: groupDev, hidden: true, run: func(string, []string) { runCoopTag(os.Args[2:]) }},
-		// Co-op M2 worlds and card backups (coop_world_cmds.go):
-		// list, restore, block. Out of printHelp like coop-tag.
-		{name: "coop-world", group: groupDev, hidden: true, run: func(string, []string) { runCoopWorld(os.Args[2:]) }},
-		// Co-op M4 offline save tools (coop_save_cmds.go), out of
-		// printHelp like the co-op diagnostics.
-		{name: "save-diff", group: groupDev, hidden: true, run: func(string, []string) { runSaveDiff(os.Args[2:]) }},
-		{name: "save-merge", group: groupDev, hidden: true, run: func(string, []string) { runSaveMerge(os.Args[2:]) }},
-	}
+	}, modCommands()...)
 }
 
 // lookupCommand returns the command called name (or aliased to it).

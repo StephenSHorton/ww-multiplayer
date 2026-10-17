@@ -9,7 +9,7 @@ import (
 )
 
 // TestCLIGoldenMods: `mods` and `mods --json` list the compiled-in mods
-// (multiplayer, LOADED), and a stray argument prints the usage.
+// (multiplayer and co-op, LOADED), and a stray argument prints the usage.
 func TestCLIGoldenMods(t *testing.T) {
 	root := t.TempDir()
 	env := configEnv(root)
@@ -53,5 +53,58 @@ func TestModsText(t *testing.T) {
 	}
 	if b, _ := json.Marshal(infos[:1]); !strings.Contains(string(b), `"status":"LOADED"`) {
 		t.Errorf("json %s", b)
+	}
+}
+
+// TestCLIModCommands: co-op's commands come from the co-op mod (the CLI
+// capability), dispatch from the CLI as they did from package main, and
+// print the usage with this platform's binary name.
+func TestCLIModCommands(t *testing.T) {
+	root := t.TempDir()
+	env := configEnv(root)
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"coop-tag"}, "ERROR: say show or clear\nUsage: " + exeCmd + " coop-tag show [world-id] | coop-tag clear [--yes]\n"},
+		{[]string{"coop-tables"}, "ERROR: give the path of your Wind Waker disc image (.iso or .ciso)\nUsage: " + exeCmd + " coop-tables <iso|ciso> [--json] [--no-cache] [--section keys|hearts|switches|enemies]\n"},
+	} {
+		if o, code := runCLI(t, env, c.args...); code != 1 || o != c.want {
+			t.Errorf("%q: exit %d\n%s\nwant exit 1\n%s", c.args, code, o, c.want)
+		}
+	}
+	got := map[string]bool{}
+	for _, c := range modCommands() {
+		got[c.name] = true
+		if !c.hidden || c.group != groupDev {
+			t.Errorf("%s: hidden %v, group %d", c.name, c.hidden, c.group)
+		}
+	}
+	for _, name := range []string{"coop-tables", "coop-tag", "coop-world", "save-diff", "save-merge"} {
+		if !got[name] {
+			t.Errorf("%s is not a mod command", name)
+		}
+	}
+	if len(got) != 5 {
+		t.Errorf("mod commands %v", got)
+	}
+}
+
+// TestPostPatchSteps: the loaded mods' post-patch steps are co-op's
+// stage tables step, once.
+func TestPostPatchSteps(t *testing.T) {
+	if n := len(postPatchSteps()); n != 1 {
+		t.Fatalf("%d post-patch steps, want co-op's", n)
+	}
+}
+
+func TestModGroup(t *testing.T) {
+	for label, want := range map[string]cmdGroup{
+		wwapi.GroupPlay: groupPlay, wwapi.GroupPatch: groupPatch, wwapi.GroupLocal: groupLocal,
+		wwapi.GroupLower: groupLower, wwapi.GroupDev: groupDev, "": groupLower, "other": groupLower,
+	} {
+		if got := modGroup(label); got != want {
+			t.Errorf("modGroup(%q) = %d, want %d", label, got, want)
+		}
 	}
 }

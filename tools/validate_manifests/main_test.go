@@ -7,7 +7,7 @@ import (
 	"testing/fstest"
 )
 
-// TestRepoManifests: the repo's own mods/ tree passes (the example and
+// TestRepoManifests: the repo's own mods/ tree passes (the co-op, example and
 // multiplayer mods included), and every fixture with an invalid.txt is
 // refused for the expected reason.
 func TestRepoManifests(t *testing.T) {
@@ -19,6 +19,7 @@ func TestRepoManifests(t *testing.T) {
 		"ok   mods/_fixtures/_ok_base/mod.json\n",
 		"ok   mods/_fixtures/_bad_range/mod.json (refused, as invalid.txt expects)\n",
 		"ok   mods/_fixtures/_bad_manifest/mod.json (refused, as invalid.txt expects)\n",
+		"ok   mods/coop/mod.json\n",
 		"ok   mods/example/mod.json\n",
 		"ok   mods/multiplayer/mod.json\n",
 		" 2 refused on purpose, 0 problems\n",
