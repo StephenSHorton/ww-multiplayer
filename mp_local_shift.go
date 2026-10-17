@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
@@ -35,7 +36,7 @@ const (
 type shiftEnv struct {
 	// open opens the Dolphin of pid, and returns how to close it.
 	open func(pid uint32) (mem.Mem, func(), error)
-	// tick waits between the snapshots the gates judge (coopTick).
+	// tick waits between the snapshots the gates judge (diag.Tick).
 	tick func()
 	// settle is startupShiftSettle.
 	settle time.Duration
@@ -50,7 +51,7 @@ func defaultShiftEnv() shiftEnv {
 			}
 			return d, d.Close, nil
 		},
-		tick:   coopTick,
+		tick:   diag.Tick,
 		settle: startupShiftSettle,
 	}
 }
@@ -140,7 +141,7 @@ type shiftSide struct {
 }
 
 // shiftSides reads both Dolphins: each one's gates over gate.StableTicks
-// ticks (gateSnapshots), B's last since B is the one written, then both
+// ticks (diag.GateSnapshots), B's last since B is the one written, then both
 // Links' positions.
 func shiftSides(mA, mB mem.Mem, tick func()) (a, b shiftSide, err error) {
 	sides := []struct {
@@ -149,7 +150,7 @@ func shiftSides(mA, mB mem.Mem, tick func()) (a, b shiftSide, err error) {
 		side *shiftSide
 	}{{"A", mA, &a}, {"B", mB, &b}}
 	for _, x := range sides {
-		s, st, _, err := gateSnapshots(x.m, tick)
+		s, st, _, err := diag.GateSnapshots(x.m, tick)
 		if err != nil {
 			return a, b, fmt.Errorf("read Dolphin %s: %w", x.name, err)
 		}
@@ -223,7 +224,7 @@ func planShift(a, b shiftSide, d [3]float32) (target [3]float32, skip string, re
 	case sa.StageLayer != sb.StageLayer:
 		return target, fmt.Sprintf("A is in layer %d of %s, B in layer %d", sa.StageLayer, sa.StageName, sb.StageLayer), false
 	case sa.Table != sb.Table:
-		return target, fmt.Sprintf("A's save table is %d %s, B's %d %s", sa.Table, tableName(int(sa.Table)), sb.Table, tableName(int(sb.Table))), false
+		return target, fmt.Sprintf("A's save table is %d %s, B's %d %s", sa.Table, diag.TableName(int(sa.Table)), sb.Table, diag.TableName(int(sb.Table))), false
 	case sa.StayNo < 0 || sb.StayNo < 0:
 		// STABLE has seen mStayNo unchanged for StableTicks ticks, so another
 		// look would most likely find it the same: no retry, as for another

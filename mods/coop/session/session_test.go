@@ -1,4 +1,4 @@
-package main
+package coopsession
 
 import (
 	"bytes"
@@ -17,10 +17,11 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind/bindtest"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/procstate"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
@@ -30,7 +31,7 @@ func TestExtractCoopFlags(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    []string
-		want    coopFlags
+		want    Flags
 		rest    []string
 		wantErr string
 	}{
@@ -43,16 +44,16 @@ func TestExtractCoopFlags(t *testing.T) {
 		{name: "after --", args: []string{"Link", "--", "--coop"}, rest: []string{"Link", "--", "--coop"}},
 		{name: "M3's options alone", args: []string{"--coop-dry-run", "--coop-live-switches", "--coop-iso", "ww.iso"}, rest: []string{"--coop-dry-run", "--coop-live-switches", "--coop-iso", "ww.iso"}},
 
-		{name: "--coop", args: []string{"--coop"}, want: coopFlags{on: true}, rest: []string{}},
-		{name: "anywhere", args: []string{"Link", "--coop", "--port", "9000"}, want: coopFlags{on: true}, rest: []string{"Link", "--port", "9000"}},
-		{name: "all", args: []string{"--coop=new", "--coop-merge", "Link", "--yes"}, want: coopFlags{on: true, world: coopWorldNew, merge: true, yes: true}, rest: []string{"Link"}},
-		{name: "NEW", args: []string{"--coop=NEW"}, want: coopFlags{on: true, world: coopWorldNew}, rest: []string{}},
-		{name: "world ID", args: []string{"--coop=" + strings.ToUpper(id)}, want: coopFlags{on: true, world: id}, rest: []string{}},
-		{name: "twice the same", args: []string{"--coop", "--coop=new", "--coop=new"}, want: coopFlags{on: true, world: coopWorldNew}, rest: []string{}},
-		{name: "-- ends the options", args: []string{"--coop", "Link", "--", "--yes"}, want: coopFlags{on: true}, rest: []string{"Link", "--", "--yes"}},
-		{name: "M3", args: []string{"Link", "--coop", "--coop-dry-run", "--coop-live-switches", "--coop-iso", "ww.iso"}, want: coopFlags{on: true, dryRun: true, liveSwitches: true, iso: "ww.iso"}, rest: []string{"Link"}},
-		{name: "--coop-iso=", args: []string{"--coop-iso=C:/Roms/ww.iso", "--coop"}, want: coopFlags{on: true, iso: "C:/Roms/ww.iso"}, rest: []string{}},
-		{name: "--coop-iso after --", args: []string{"--coop", "--", "--coop-iso", "x"}, want: coopFlags{on: true}, rest: []string{"--", "--coop-iso", "x"}},
+		{name: "--coop", args: []string{"--coop"}, want: Flags{on: true}, rest: []string{}},
+		{name: "anywhere", args: []string{"Link", "--coop", "--port", "9000"}, want: Flags{on: true}, rest: []string{"Link", "--port", "9000"}},
+		{name: "all", args: []string{"--coop=new", "--coop-merge", "Link", "--yes"}, want: Flags{on: true, world: coopWorldNew, merge: true, yes: true}, rest: []string{"Link"}},
+		{name: "NEW", args: []string{"--coop=NEW"}, want: Flags{on: true, world: coopWorldNew}, rest: []string{}},
+		{name: "world ID", args: []string{"--coop=" + strings.ToUpper(id)}, want: Flags{on: true, world: id}, rest: []string{}},
+		{name: "twice the same", args: []string{"--coop", "--coop=new", "--coop=new"}, want: Flags{on: true, world: coopWorldNew}, rest: []string{}},
+		{name: "-- ends the options", args: []string{"--coop", "Link", "--", "--yes"}, want: Flags{on: true}, rest: []string{"Link", "--", "--yes"}},
+		{name: "M3", args: []string{"Link", "--coop", "--coop-dry-run", "--coop-live-switches", "--coop-iso", "ww.iso"}, want: Flags{on: true, dryRun: true, liveSwitches: true, iso: "ww.iso"}, rest: []string{"Link"}},
+		{name: "--coop-iso=", args: []string{"--coop-iso=C:/Roms/ww.iso", "--coop"}, want: Flags{on: true, iso: "C:/Roms/ww.iso"}, rest: []string{}},
+		{name: "--coop-iso after --", args: []string{"--coop", "--", "--coop-iso", "x"}, want: Flags{on: true}, rest: []string{"--", "--coop-iso", "x"}},
 
 		{name: "bad world", args: []string{"--coop=xyz"}, wantErr: "--coop=new, or a world ID"},
 		{name: "zero world", args: []string{"--coop=0000000000000000"}, wantErr: "--coop=new, or a world ID"},
@@ -63,7 +64,7 @@ func TestExtractCoopFlags(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, rest, err := extractCoopFlags(tt.args)
+			got, rest, err := ExtractFlags(tt.args)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("err = %v, want one saying %q", err, tt.wantErr)
@@ -74,7 +75,7 @@ func TestExtractCoopFlags(t *testing.T) {
 				t.Fatal(err)
 			}
 			if got != tt.want || !reflect.DeepEqual(rest, tt.rest) {
-				t.Errorf("extractCoopFlags(%q) = %+v, %q; want %+v, %q", tt.args, got, rest, tt.want, tt.rest)
+				t.Errorf("ExtractFlags(%q) = %+v, %q; want %+v, %q", tt.args, got, rest, tt.want, tt.rest)
 			}
 		})
 	}
@@ -82,22 +83,22 @@ func TestExtractCoopFlags(t *testing.T) {
 
 func TestCoopFlagsForJoin(t *testing.T) {
 	tests := []struct {
-		f       coopFlags
+		f       Flags
 		wantErr string
 	}{
-		{coopFlags{}, ""},
-		{coopFlags{on: true}, ""},
-		{coopFlags{on: true, yes: true}, ""},
-		{coopFlags{on: true, world: coopWorldNew}, "the host picks the world"},
-		{coopFlags{on: true, world: "0123456789abcdef"}, "the host picks the world"},
-		{coopFlags{on: true, merge: true}, "the host's choice"},
-		{coopFlags{on: true, liveSwitches: true}, "--coop-live-switches is the host's choice"},
-		{coopFlags{on: true, dryRun: true, iso: "ww.iso"}, ""},
+		{Flags{}, ""},
+		{Flags{on: true}, ""},
+		{Flags{on: true, yes: true}, ""},
+		{Flags{on: true, world: coopWorldNew}, "the host picks the world"},
+		{Flags{on: true, world: "0123456789abcdef"}, "the host picks the world"},
+		{Flags{on: true, merge: true}, "the host's choice"},
+		{Flags{on: true, liveSwitches: true}, "--coop-live-switches is the host's choice"},
+		{Flags{on: true, dryRun: true, iso: "ww.iso"}, ""},
 	}
 	for _, tt := range tests {
-		err := tt.f.forJoin()
+		err := tt.f.ForJoin()
 		if (err == nil) != (tt.wantErr == "") || err != nil && !strings.Contains(err.Error(), tt.wantErr) {
-			t.Errorf("%+v.forJoin() = %v, want %q", tt.f, err, tt.wantErr)
+			t.Errorf("%+v.ForJoin() = %v, want %q", tt.f, err, tt.wantErr)
 		}
 	}
 }
@@ -120,14 +121,14 @@ func coWorld(t *testing.T, root string, id world.ID, created time.Time, img *wor
 
 func TestSelectCoopWorld(t *testing.T) {
 	root := t.TempDir()
-	if ws, err := listCoopWorlds(filepath.Join(root, "missing")); err != nil || ws != nil {
+	if ws, err := ListWorlds(filepath.Join(root, "missing")); err != nil || ws != nil {
 		t.Errorf("a root that does not exist: %v, %v", ws, err)
 	}
 	if _, err := selectCoopWorld(root, ""); err == nil || !strings.Contains(err.Error(), "--coop=new") {
 		t.Errorf("no world: %v", err)
 	}
 	var out bytes.Buffer
-	if err := coopWorldList(&out, root); err != nil || !strings.Contains(out.String(), "No co-op worlds") {
+	if err := PrintWorlds(&out, root); err != nil || !strings.Contains(out.String(), "No co-op worlds") {
 		t.Errorf("list of none: %v\n%s", err, out.String())
 	}
 
@@ -156,27 +157,27 @@ func TestSelectCoopWorld(t *testing.T) {
 		t.Errorf("named: %s, %v", id, err)
 	}
 	coSetProcState(t, coProcs(map[int]string{os.Getpid(): "self"}))
-	if _, _, err := writeCoopMarker(world.Path(root, old)); err != nil {
+	if _, _, err := WriteMarker(world.Path(root, old)); err != nil {
 		t.Fatal(err)
 	}
-	ws, err := listCoopWorlds(root)
+	ws, err := ListWorlds(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ws) != 2 || ws[0].id != young || ws[1].id != old || ws[1].marker == nil || ws[1].use != markerSelf || ws[0].marker != nil {
+	if len(ws) != 2 || ws[0].id != young || ws[1].id != old || ws[1].marker == nil || ws[1].use != MarkerSelf || ws[0].marker != nil {
 		t.Errorf("list: %+v, want the two worlds newest first, the old one in use", ws)
 	}
 	out.Reset()
-	if err := coopWorldList(&out, root); err != nil || !strings.Contains(out.String(), "in use: pid") || strings.Index(out.String(), young.String()) > strings.Index(out.String(), old.String()) {
+	if err := PrintWorlds(&out, root); err != nil || !strings.Contains(out.String(), "in use: pid") || strings.Index(out.String(), young.String()) > strings.Index(out.String(), old.String()) {
 		t.Errorf("list: %v\n%s", err, out.String())
 	}
 
 	// A marker whose process has ended is stale, and says so.
-	if err := os.WriteFile(filepath.Join(world.Path(root, young), coopMarkerName), []byte("pid 4242 since 2026-10-15 17:16:19\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(world.Path(root, young), MarkerName), []byte("pid 4242 since 2026-10-15 17:16:19\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if err := coopWorldList(&out, root); err != nil || !strings.Contains(out.String(), young.String()+"  founded") ||
+	if err := PrintWorlds(&out, root); err != nil || !strings.Contains(out.String(), young.String()+"  founded") ||
 		!strings.Contains(out.String(), "stale session marker (pid 4242 since 2026-10-15 17:16:19; that process has ended)") || strings.Count(out.String(), "in use") != 1 {
 		t.Errorf("list with a stale marker: %v\n%s", err, out.String())
 	}
@@ -185,14 +186,14 @@ func TestSelectCoopWorld(t *testing.T) {
 	// by its pid alone, as block and the host start do.
 	coSetProcState(t, coProcs(map[int]string{os.Getpid(): "self", 4243: "t1"}))
 	for _, c := range []struct{ file, want string }{
-		{"pid 4243 since 2026-10-15 17:16:19\nhost=" + coopHostname() + " start=t1\n", "in use: pid 4243 since 2026-10-15 17:16:19\n"},
+		{"pid 4243 since 2026-10-15 17:16:19\nhost=" + Hostname() + " start=t1\n", "in use: pid 4243 since 2026-10-15 17:16:19\n"},
 		{"pid 4243 since 2026-10-15 17:16:19\n", "in use: pid 4243 since 2026-10-15 17:16:19 (by its pid alone: this marker has no start time)\n"},
 	} {
-		if err := os.WriteFile(filepath.Join(world.Path(root, young), coopMarkerName), []byte(c.file), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(world.Path(root, young), MarkerName), []byte(c.file), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		out.Reset()
-		if err := coopWorldList(&out, root); err != nil || !strings.Contains(out.String(), c.want) {
+		if err := PrintWorlds(&out, root); err != nil || !strings.Contains(out.String(), c.want) {
 			t.Errorf("list with marker %q: %v\n%s\nwant %q", c.file, err, out.String(), c.want)
 		}
 	}
@@ -200,59 +201,59 @@ func TestSelectCoopWorld(t *testing.T) {
 
 func TestCoopMarker(t *testing.T) {
 	dir := t.TempDir()
-	if m, ok := readCoopMarker(dir); ok {
+	if m, ok := ReadMarker(dir); ok {
 		t.Fatalf("a marker before any: %q", m)
 	}
 	coSetProcState(t, coProcs(map[int]string{os.Getpid(): "self", 4243: "t1", 4244: ""}))
-	prev, had, err := writeCoopMarker(dir)
+	prev, had, err := WriteMarker(dir)
 	if err != nil || had {
 		t.Fatalf("first marker: %q, %v, %v", prev, had, err)
 	}
-	first, ok := readCoopMarker(dir)
-	if !ok || !strings.HasPrefix(first.text, fmt.Sprintf("pid %d since ", os.Getpid())) || first.pid != os.Getpid() || first.host != coopHostname() || first.start != "self" {
+	first, ok := ReadMarker(dir)
+	if !ok || !strings.HasPrefix(first.text, fmt.Sprintf("pid %d since ", os.Getpid())) || first.pid != os.Getpid() || first.host != Hostname() || first.start != "self" {
 		t.Errorf("marker %q: pid %d, host %q, start %q", first.text, first.pid, first.host, first.start)
 	}
-	if use, why := first.state(); use != markerSelf {
-		t.Errorf("this process's marker: %v (%s), want markerSelf", use, why)
+	if use, why := first.State(); use != MarkerSelf {
+		t.Errorf("this process's marker: %v (%s), want MarkerSelf", use, why)
 	}
-	if prev, had, err := writeCoopMarker(dir); err != nil || !had || prev != first {
+	if prev, had, err := WriteMarker(dir); err != nil || !had || prev != first {
 		t.Errorf("second marker replaced %q (start %q), %v, %v; want %q (start %q)", prev, prev.start, had, err, first, first.start)
 	}
 
 	// What a marker says, by pid, machine and start token. Pid 4242 has
 	// ended, 4243 runs with start token t1, and 4244 runs with none.
 	self := os.Getpid()
-	here := coopHostname()
+	here := Hostname()
 	tests := []struct {
 		name, file string
-		want       coopMarkerState
+		want       MarkerState
 		why        string
 	}{
-		{"one line, its process ended", "pid 4242 since 2026-10-15 17:16:19\n", markerStale, ""},
-		{"one line, its process runs", "pid 4243 since 2026-10-15 17:16:19\n", markerLive, "this marker has no start time"},
-		{"one line, this process", fmt.Sprintf("pid %d since 2026-10-15 17:16:19\n", self), markerSelf, ""},
-		{"this pid, started at another time", fmt.Sprintf("pid %d since 2026-10-15 17:16:19\nhost=%s start=other\n", self, here), markerStale, ""},
-		{"its process runs", "pid 4243 since 2026-10-15 17:16:19\nhost=" + here + " start=t1\n", markerLive, ""},
-		{"its pid reused", "pid 4243 since 2026-10-15 17:16:19\nhost=" + here + " start=t0\n", markerStale, ""},
-		{"its process ended", "pid 4242 since 2026-10-15 17:16:19\nhost=" + here + " start=t1\n", markerStale, ""},
-		{"no start token now", "pid 4244 since 2026-10-15 17:16:19\nhost=" + here + " start=t1\n", markerLive, "its start time can't be read"},
-		{"no start token then", "pid 4243 since 2026-10-15 17:16:19\nhost=" + here + " start=\n", markerLive, "this marker has no start time"},
-		{"no host", "pid 4242 since 2026-10-15 17:16:19\nhost= start=t1\n", markerStale, ""},
-		{"another machine", "pid 4242 since 2026-10-15 17:16:19\nhost=elsewhere-" + here + " start=t1\n", markerUnknown, "another machine, elsewhere-"},
-		{"no pid", "pid x since 2026-10-15 17:16:19\n", markerUnknown, "names no process"},
-		{"pid 0", "pid 0 since 2026-10-15 17:16:19\n", markerUnknown, "names no process"},
-		{"empty", "", markerUnknown, "names no process"},
+		{"one line, its process ended", "pid 4242 since 2026-10-15 17:16:19\n", MarkerStale, ""},
+		{"one line, its process runs", "pid 4243 since 2026-10-15 17:16:19\n", MarkerLive, "this marker has no start time"},
+		{"one line, this process", fmt.Sprintf("pid %d since 2026-10-15 17:16:19\n", self), MarkerSelf, ""},
+		{"this pid, started at another time", fmt.Sprintf("pid %d since 2026-10-15 17:16:19\nhost=%s start=other\n", self, here), MarkerStale, ""},
+		{"its process runs", "pid 4243 since 2026-10-15 17:16:19\nhost=" + here + " start=t1\n", MarkerLive, ""},
+		{"its pid reused", "pid 4243 since 2026-10-15 17:16:19\nhost=" + here + " start=t0\n", MarkerStale, ""},
+		{"its process ended", "pid 4242 since 2026-10-15 17:16:19\nhost=" + here + " start=t1\n", MarkerStale, ""},
+		{"no start token now", "pid 4244 since 2026-10-15 17:16:19\nhost=" + here + " start=t1\n", MarkerLive, "its start time can't be read"},
+		{"no start token then", "pid 4243 since 2026-10-15 17:16:19\nhost=" + here + " start=\n", MarkerLive, "this marker has no start time"},
+		{"no host", "pid 4242 since 2026-10-15 17:16:19\nhost= start=t1\n", MarkerStale, ""},
+		{"another machine", "pid 4242 since 2026-10-15 17:16:19\nhost=elsewhere-" + here + " start=t1\n", MarkerUnknown, "another machine, elsewhere-"},
+		{"no pid", "pid x since 2026-10-15 17:16:19\n", MarkerUnknown, "names no process"},
+		{"pid 0", "pid 0 since 2026-10-15 17:16:19\n", MarkerUnknown, "names no process"},
+		{"empty", "", MarkerUnknown, "names no process"},
 	}
 	for _, tt := range tests {
-		if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte(tt.file), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, MarkerName), []byte(tt.file), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		m, ok := readCoopMarker(dir)
+		m, ok := ReadMarker(dir)
 		if !ok {
 			t.Errorf("%s: no marker", tt.name)
 			continue
 		}
-		if use, why := m.state(); use != tt.want || !strings.Contains(why, tt.why) || (tt.why == "") != (why == "") {
+		if use, why := m.State(); use != tt.want || !strings.Contains(why, tt.why) || (tt.why == "") != (why == "") {
 			t.Errorf("%s: %v (%q), want %v (%q)", tt.name, use, why, tt.want, tt.why)
 		}
 		if line, _, _ := strings.Cut(tt.file, "\n"); m.text != line {
@@ -262,43 +263,43 @@ func TestCoopMarker(t *testing.T) {
 
 	// A process that can't be checked leaves the marker in use.
 	coSetProcState(t, func(int) (bool, string, error) { return false, "", errors.New("access denied") })
-	if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte("pid 4242 since 2026-10-15 17:16:19\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, MarkerName), []byte("pid 4242 since 2026-10-15 17:16:19\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	denied, _ := readCoopMarker(dir)
-	if use, why := denied.state(); use != markerUnknown || why != "access denied" {
-		t.Errorf("procState fails: %v (%q)", use, why)
+	denied, _ := ReadMarker(dir)
+	if use, why := denied.State(); use != MarkerUnknown || why != "access denied" {
+		t.Errorf("procstate.State fails: %v (%q)", use, why)
 	}
 
 	// Whatever the file holds, it reaches the terminal as one short line,
 	// and names no process.
-	if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte("evil\x1b[2J\r\n"+strings.Repeat("x", 200)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, MarkerName), []byte("evil\x1b[2J\r\n"+strings.Repeat("x", 200)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if m, ok := readCoopMarker(dir); !ok || len(m.text) > 80 || strings.ContainsAny(m.text, "\x1b\r\n") || m.pid != 0 {
+	if m, ok := ReadMarker(dir); !ok || len(m.text) > 80 || strings.ContainsAny(m.text, "\x1b\r\n") || m.pid != 0 {
 		t.Errorf("sanitized marker %q, pid %d", m.text, m.pid)
 	}
-	if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte("pid 4242 "+strings.Repeat("é", 50)+"\nhost=\x1b[2J start=t1\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, MarkerName), []byte("pid 4242 "+strings.Repeat("é", 50)+"\nhost=\x1b[2J start=t1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if m, ok := readCoopMarker(dir); !ok || len(m.text) > 80 || strings.ToValidUTF8(m.text, "") != m.text || m.pid != 4242 {
+	if m, ok := ReadMarker(dir); !ok || len(m.text) > 80 || strings.ToValidUTF8(m.text, "") != m.text || m.pid != 4242 {
 		t.Errorf("long marker %q, pid %d", m.text, m.pid)
-	} else if _, why := m.state(); !strings.Contains(why, "another machine") || strings.Contains(why, "\x1b") {
+	} else if _, why := m.State(); !strings.Contains(why, "another machine") || strings.Contains(why, "\x1b") {
 		t.Errorf("a host with a control character: %q", why)
 	}
 	removeCoopMarker(dir)
-	if m, ok := readCoopMarker(dir); ok {
+	if m, ok := ReadMarker(dir); ok {
 		t.Errorf("a marker after remove: %q", m)
 	}
 
 	// With the real check, this process's own marker is its own.
-	if procStateSupported {
-		coSetProcState(t, procState)
-		if _, _, err := writeCoopMarker(dir); err != nil {
+	if procstate.Supported {
+		coSetProcState(t, procstate.State)
+		if _, _, err := WriteMarker(dir); err != nil {
 			t.Fatal(err)
 		}
-		m, _ := readCoopMarker(dir)
-		if use, why := m.state(); use != markerSelf {
+		m, _ := ReadMarker(dir)
+		if use, why := m.State(); use != MarkerSelf {
 			t.Errorf("this process's marker %q (start %q), checked: %v (%s)", m, m.start, use, why)
 		}
 	}
@@ -442,174 +443,6 @@ func TestCoopPrompter(t *testing.T) {
 	})
 }
 
-func TestParseBlockTarget(t *testing.T) {
-	// The bits, from the game's setters: onEventBit ORs the id's low byte
-	// into mEvent[id >> 8] (d_save.cpp:1187-1189); onTbox, onSwitch and
-	// onItem set bit no&0x1F of a big-endian u32 (d_save.cpp:1072-1075,
-	// 1084-1087, 1112-1115) at dSv_memBit_c +0x00, +0x04 and +0x14
-	// (d_save.h:684-686).
-	mb := addr.OffMemBit(3)
-	tests := []struct {
-		args    []string
-		off     int
-		mask    byte
-		wantErr string
-	}{
-		{args: []string{"byte", "0x10", "0x81"}, off: 0x10, mask: 0x81},
-		{args: []string{"event", "0x0A02"}, off: addr.OffEvent + 0x0A, mask: 0x02},
-		{args: []string{"event", "0x4180"}, off: addr.OffEvent + 0x41, mask: 0x80},
-		{args: []string{"chest", "3", "0x1F"}, off: mb + 0x00, mask: 0x80},
-		{args: []string{"chest", "3", "0"}, off: mb + 0x03, mask: 0x01},
-		{args: []string{"switch", "3", "0x05"}, off: mb + 0x04 + 3, mask: 0x20},
-		{args: []string{"switch", "3", "0x7F"}, off: mb + 0x04 + 12, mask: 0x80},
-		{args: []string{"item", "3", "9"}, off: mb + 0x14 + 2, mask: 0x02},
-
-		{args: []string{"byte", "0x10"}, wantErr: "takes 2 argument"},
-		{args: []string{"byte", fmt.Sprint(addr.SaveImageSize), "1"}, wantErr: "offset"},
-		{args: []string{"byte", "0", "0x100"}, wantErr: "mask"},
-		{args: []string{"byte", "-1", "1"}, wantErr: "offset"},
-		{args: []string{"event", "0x0A00"}, wantErr: "names no bit"},
-		{args: []string{"event", "0x4201"}, wantErr: "no named event bit"},
-		{args: []string{"event", "0x7901"}, wantErr: "register byte"},
-		{args: []string{"event", "0x10000"}, wantErr: "event"},
-		{args: []string{"switch", "3", "0x80"}, wantErr: "doesn't hold"},
-		{args: []string{"switch", "3", "0xC0"}, wantErr: "doesn't hold"},
-		{args: []string{"switch", fmt.Sprint(addr.TableCount), "0"}, wantErr: "save table"},
-		{args: []string{"chest", "3", "32"}, wantErr: "out of range"},
-		{args: []string{"item", "3", "64"}, wantErr: "out of range"},
-		{args: []string{"kill", "3", "1"}, wantErr: "unknown bit kind"},
-	}
-	for _, tt := range tests {
-		got, err := parseBlockTarget(tt.args)
-		if tt.wantErr != "" {
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("parseBlockTarget(%q) = %+v, %v; want an error saying %q", tt.args, got, err, tt.wantErr)
-			}
-			continue
-		}
-		if err != nil || got.off != tt.off || got.mask != tt.mask || got.what == "" {
-			t.Errorf("parseBlockTarget(%q) = %+v, %v; want byte 0x%03X mask 0x%02X", tt.args, got, err, tt.off, tt.mask)
-		}
-	}
-}
-
-func TestCoopWorldBlock(t *testing.T) {
-	root := t.TempDir()
-	id := world.ID{0xB1, 0x0C, 1, 2, 3, 4, 5, 6}
-	chest, err := parseBlockTarget([]string{"chest", "3", "0x1F"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var img world.Image
-	img[chest.off] = chest.mask
-	coWorld(t, root, id, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), &img)
-	file := filepath.Join(world.Path(root, id), "world.wwco")
-	orig, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var out bytes.Buffer
-	if err := coopWorldBlock(&out, root, id, chest, false, false); !errors.Is(err, errNotDone) || !strings.Contains(out.String(), "The world has it now") {
-		t.Errorf("without --yes: %v\n%s", err, out.String())
-	}
-	if now, _ := os.ReadFile(file); !bytes.Equal(now, orig) {
-		t.Fatal("the world file changed without --yes")
-	}
-
-	// A session serves the world: no edit, unless --force. The marker is
-	// checked for real: this process wrote it.
-	marker := filepath.Join(world.Path(root, id), coopMarkerName)
-	if _, _, err := writeCoopMarker(world.Path(root, id)); err != nil {
-		t.Fatal(err)
-	}
-	inUse := "in use by a running session"
-	if !procStateSupported {
-		inUse = "may be in use by a session"
-	}
-	if err := coopWorldBlock(&out, root, id, chest, true, false); err == nil || !strings.Contains(err.Error(), inUse) {
-		t.Errorf("in use: %v", err)
-	}
-	// Another process with the marker's pid runs. By its start token it
-	// is the marker's; by its pid alone it may not be.
-	t.Run("running", func(t *testing.T) {
-		coSetProcState(t, coProcs(map[int]string{4243: "t1"}))
-		for _, c := range []struct{ file, want string }{
-			{"pid 4243 since 2026-10-15 17:16:19\nhost=" + coopHostname() + " start=t1\n", "is in use by a running session (pid 4243 since 2026-10-15 17:16:19): stop that host first (Ctrl+C), or pass --force if you know no host serves the world"},
-			{"pid 4243 since 2026-10-15 17:16:19\n", "may be in use by a session (pid 4243 since 2026-10-15 17:16:19): a process with pid 4243 runs, but this marker has no start time, so it may not be that host; stop that host first (Ctrl+C), or pass --force if no host serves the world"},
-		} {
-			if err := os.WriteFile(marker, []byte(c.file), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			if err := coopWorldBlock(&out, root, id, chest, true, false); err == nil || !strings.Contains(err.Error(), c.want) {
-				t.Errorf("marker %q: %v, want %q", c.file, err, c.want)
-			}
-		}
-	})
-	// One that can't be checked is taken as in use.
-	if err := os.WriteFile(marker, []byte(fmt.Sprintf("pid %d since 2026-10-15 17:16:19\nhost=elsewhere-%s start=1\n", os.Getpid(), coopHostname())), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := coopWorldBlock(&out, root, id, chest, true, false); err == nil || !strings.Contains(err.Error(), "may be in use") || !strings.Contains(err.Error(), "another machine") {
-		t.Errorf("can't tell: %v", err)
-	}
-	if now, _ := os.ReadFile(file); !bytes.Equal(now, orig) {
-		t.Fatal("the world file changed while in use")
-	}
-	out.Reset()
-	if err := coopWorldBlock(&out, root, id, chest, true, true); err != nil || !strings.Contains(out.String(), "Blocked save table 3 chest 0x1F") {
-		t.Fatalf("--force: %v\n%s", err, out.String())
-	}
-	w, _, err := world.Load(root, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tomb := w.Tombstones()
-	if got := w.Image(); got[chest.off]&chest.mask != 0 || tomb.Count() != 1 {
-		t.Errorf("after the block: byte 0x%02X, %d tombstones", got[chest.off], tomb.Count())
-	}
-	// Every later proposal of it is refused.
-	if r := w.Merge(&img); len(r.Delta) != 0 {
-		t.Errorf("the blocked bit merged again: %+v", r)
-	}
-
-	out.Reset()
-	if err := coopWorldBlock(&out, root, id, chest, true, true); err != nil || !strings.Contains(out.String(), "already blocked") {
-		t.Errorf("again: %v\n%s", err, out.String())
-	}
-	life := blockTarget{off: addr.OffLife, mask: 0xFF, what: "life"}
-	if err := coopWorldBlock(&out, root, id, life, true, true); err == nil || !strings.Contains(err.Error(), "never merges") {
-		t.Errorf("a PER_PLAYER byte: %v", err)
-	}
-	if err := coopWorldBlock(&out, root, world.ID{9}, chest, true, true); err == nil {
-		t.Error("blocked in a world that does not exist")
-	}
-
-	// A marker a killed host left names a process that has ended: block
-	// says so and goes on without --force, and leaves the marker.
-	t.Run("stale marker", func(t *testing.T) {
-		if !procStateSupported {
-			t.Skipf("procState can't check a process on %s", runtime.GOOS)
-		}
-		stale := fmt.Sprintf("pid %d since 2026-10-15 17:16:19\n", coDeadPid(t))
-		if err := os.WriteFile(marker, []byte(stale), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		other, err := parseBlockTarget([]string{"chest", "3", "0x1E"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		out.Reset()
-		if err := coopWorldBlock(&out, root, id, other, true, false); err != nil || !strings.Contains(out.String(), "stale session marker") ||
-			!strings.Contains(out.String(), "did not end cleanly") || !strings.Contains(out.String(), "Blocked save table 3 chest 0x1E") {
-			t.Errorf("stale: %v\n%s", err, out.String())
-		}
-		if b, err := os.ReadFile(marker); err != nil || string(b) != stale {
-			t.Errorf("the marker after the block: %q, %v", b, err)
-		}
-	})
-}
-
 // coSecondQuest is a game playing a second-quest file.
 func coSecondQuest(t *testing.T) *coGame {
 	t.Helper()
@@ -639,8 +472,8 @@ func TestStartCoopHost(t *testing.T) {
 			input:    strings.NewReader(""), // asks nothing; leaves the test's stdin alone
 		}
 	}
-	on := coopFlags{on: true}
-	found := coopFlags{on: true, world: coopWorldNew}
+	on := Flags{on: true}
+	found := Flags{on: true, world: coopWorldNew}
 
 	t.Run("no world yet", func(t *testing.T) {
 		if _, err := startCoopHost(ctx, &coLog{}, func(string) {}, on, env(nil, nil)); err == nil || !strings.Contains(err.Error(), "--coop=new") {
@@ -648,15 +481,15 @@ func TestStartCoopHost(t *testing.T) {
 		}
 	})
 	t.Run("named world missing", func(t *testing.T) {
-		f := coopFlags{on: true, world: "0123456789abcdef"}
+		f := Flags{on: true, world: "0123456789abcdef"}
 		if _, err := startCoopHost(ctx, &coLog{}, func(string) {}, f, env(nil, nil)); err == nil || !strings.Contains(err.Error(), "coop-world list") {
 			t.Errorf("err = %v", err)
 		}
 	})
 	t.Run("bound file", func(t *testing.T) {
-		g, m, tick := m2Game(t, true)
+		g, m, tick := bindtest.Game(t, true)
 		_ = g
-		if _, err := startCoopHost(ctx, &coLog{}, func(string) {}, found, env(m, tick)); err == nil || !strings.Contains(err.Error(), "bound to world "+m2World.String()) {
+		if _, err := startCoopHost(ctx, &coLog{}, func(string) {}, found, env(m, tick)); err == nil || !strings.Contains(err.Error(), "bound to world "+bindtest.World.String()) {
 			t.Errorf("err = %v", err)
 		}
 	})
@@ -675,7 +508,7 @@ func TestStartCoopHost(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer cs.stop()
+		defer cs.Stop()
 		// The world is founded; the leaked tag is the replica's to scrub
 		// or overwrite, after a yes. Founding writes nothing.
 		if !log.has("founded world") || len(cg.m.Writes()) != 0 {
@@ -706,22 +539,22 @@ func TestStartCoopHost(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := readCoopMarker(cs.dir); !ok {
+		if _, ok := ReadMarker(cs.dir); !ok {
 			t.Error("no session marker while the hub runs")
 		}
 		dir, id := cs.dir, cs.world
-		cs.stop()
-		cs.stop() // a second stop is harmless
-		if _, ok := readCoopMarker(dir); ok {
+		cs.Stop()
+		cs.Stop() // a second stop is harmless
+		if _, ok := ReadMarker(dir); ok {
 			t.Error("the marker outlived the session")
 		}
 		// A session that did not stop leaves the marker: the next start
 		// says so, after checking the marker's process.
-		if !procStateSupported {
-			t.Skipf("procState can't check a process on %s", runtime.GOOS)
+		if !procstate.Supported {
+			t.Skipf("procstate.State can't check a process on %s", runtime.GOOS)
 		}
 		// Here it is this process's own.
-		if _, _, err := writeCoopMarker(dir); err != nil {
+		if _, _, err := WriteMarker(dir); err != nil {
 			t.Fatal(err)
 		}
 		log = &coLog{}
@@ -732,9 +565,9 @@ func TestStartCoopHost(t *testing.T) {
 		if cs.world != id || !log.has("was marked in use by this process") {
 			t.Errorf("restart: world %s, want %s\n%s", cs.world, id, log)
 		}
-		cs.stop()
+		cs.Stop()
 		// A killed host's marker names a process that has ended.
-		if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte(fmt.Sprintf("pid %d since 2026-10-15 17:16:19\n", coDeadPid(t))), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, MarkerName), []byte(fmt.Sprintf("pid %d since 2026-10-15 17:16:19\n", coDeadPid(t))), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		log = &coLog{}
@@ -745,15 +578,15 @@ func TestStartCoopHost(t *testing.T) {
 		if cs.world != id || !log.has("but that process has ended: its last session did not end cleanly") {
 			t.Errorf("restart after a kill: world %s, want %s\n%s", cs.world, id, log)
 		}
-		cs.stop()
+		cs.Stop()
 		// Another process with the marker's pid runs: by its start token,
 		// the marker's; by its pid alone, maybe not.
 		coSetProcState(t, coProcs(map[int]string{4243: "t1"}))
 		for _, c := range []struct{ file, want string }{
-			{"pid 4243 since 2026-10-15 17:16:19\nhost=" + coopHostname() + " start=t1\n", "is marked in use by a process that still runs (pid 4243 since 2026-10-15 17:16:19)"},
+			{"pid 4243 since 2026-10-15 17:16:19\nhost=" + Hostname() + " start=t1\n", "is marked in use by a process that still runs (pid 4243 since 2026-10-15 17:16:19)"},
 			{"pid 4243 since 2026-10-15 17:16:19\n", "was marked in use (pid 4243 since 2026-10-15 17:16:19), and a process with pid 4243 runs, but this marker has no start time, so it may not be that host: if another host serves it"},
 		} {
-			if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte(c.file), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, MarkerName), []byte(c.file), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			log = &coLog{}
@@ -761,7 +594,7 @@ func TestStartCoopHost(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			cs.stop()
+			cs.Stop()
 			if cs.world != id || !log.has(c.want) {
 				t.Errorf("restart with marker %q: world %s, want %s and %q\n%s", c.file, cs.world, id, c.want, log)
 			}
@@ -776,7 +609,7 @@ func TestStartCoopHost(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer cs.stop()
+		defer cs.Stop()
 		if cs.noTags == nil || !log.has("No co-op tag is written this session") {
 			t.Errorf("noTags %v\n%s", cs.noTags, log)
 		}
@@ -792,7 +625,7 @@ func TestCoopSessionBackupLog(t *testing.T) {
 	// A raw card, with no Dolphin.ini: slot A's default is a GCI folder.
 	ud := coUserDir(t)
 	log := &coLog{}
-	startCoopSession(log, coopFlags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{ud}})
+	startCoopSession(log, Flags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{ud}})
 	card := filepath.Join(ud, "GC", "MemoryCardA.USA.raw")
 	for _, want := range []string{"backed up 1 memory-card file(s)", "Check that these are your cards", "slot A raw card " + card + " (default, not in use), 13 bytes", "select none of these cards"} {
 		if !log.has(want) {
@@ -812,7 +645,7 @@ func TestCoopSessionBackupLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	log = &coLog{}
-	startCoopSession(log, coopFlags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{owner}})
+	startCoopSession(log, Flags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{owner}})
 	for _, want := range []string{"backed up 1 memory-card file(s)", "slot A GCI folder " + cardA + " (default, in use):", "    " + saveA + ", 64 bytes"} {
 		if !log.has(want) {
 			t.Errorf("log lacks %q:\n%s", want, log)
@@ -838,7 +671,7 @@ func TestCoopSessionBackupLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	log = &coLog{}
-	startCoopSession(log, coopFlags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{ud}})
+	startCoopSession(log, Flags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{ud}})
 	for _, want := range []string{"slot B GCI folder " + gci + " (default, in use):", "    " + save + ", 64 bytes", "not in use"} {
 		if !log.has(want) {
 			t.Errorf("log lacks %q:\n%s", want, log)
@@ -867,7 +700,7 @@ func TestCoopSessionNoBackup(t *testing.T) {
 		openMem:  func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
 		tick:     func() { ga.g.Frames(3) },
 	}}
-	h.start(coopFlags{on: true, world: coopWorldNew, yes: true})
+	h.start(Flags{on: true, world: coopWorldNew, yes: true})
 	defer h.stop()
 	audit := &coAudit{}
 	a := newCoPlayer(t, ctx, h, h.cs, ga, "Link", &coLog{}, audit, 1)
@@ -917,10 +750,10 @@ func TestCoopSessionPrompts(t *testing.T) {
 		tick:     func() { ga.g.Frames(3) },
 		input:    strings.NewReader(""), // the host is asked nothing
 	}}
-	h.start(coopFlags{on: true, world: coopWorldNew})
+	h.start(Flags{on: true, world: coopWorldNew})
 	defer h.stop()
 	in, answers := coInput(t)
-	jcs := startCoopSession(&coLog{}, coopFlags{on: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: in})
+	jcs := startCoopSession(&coLog{}, Flags{on: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: in})
 	log := coAnswering(answers, func(q string) string {
 		if q == "Scrub it?" {
 			return "y"
@@ -992,7 +825,7 @@ func TestCoopSyncRun(t *testing.T) {
 		openMem:  func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
 		tick:     func() { time.Sleep(10 * time.Millisecond) },
 	}}
-	h.start(coopFlags{on: true, world: coopWorldNew, yes: true})
+	h.start(Flags{on: true, world: coopWorldNew, yes: true})
 	defer h.stop()
 	log := &coLog{}
 	s, err := h.cs.newSync(ctx, "Link", ga.m, log)
@@ -1036,7 +869,7 @@ func TestCoopSyncHostWithoutCoop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	log := &coLog{}
-	cs := startCoopSession(log, coopFlags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}})
+	cs := startCoopSession(log, Flags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}})
 	cg := newCoGame(t, "Link", coMine{life: 12})
 	s, err := cs.newSync(ctx, "Link", cg.m, log)
 	if err != nil {
@@ -1096,7 +929,7 @@ func TestCoopFarBehindAdvice(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := &coLog{}
-	s := &coopSync{cs: &coopSession{}, rep: log, r: r, asked: map[coopFileKey]bool{}}
+	s := &coopSync{cs: &Session{}, rep: log, r: r, asked: map[coopFileKey]bool{}}
 	s.preflight(replica.PreflightReport{Verdict: replica.PreflightFarBehind, NeedsMerge: true})
 	for _, want := range []string{
 		"co-op: the world is far ahead of this file: copy the host's save in, or the host can run with --coop-merge to union them; pose sync goes on.",

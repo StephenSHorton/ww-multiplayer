@@ -10,55 +10,21 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind/bindtest"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
-var m2World = bind.WorldID{0xC0, 0x0B, 1, 2, 3, 4, 5, 6}
+// m2World is the world m2Game binds its file to.
+var m2World = bindtest.World
 
 // m2Game is a FakeGame playing a saved and loaded file "Link" in slot 0,
 // bound to m2World when bound is set.
-func m2Game(t *testing.T, bound bool) (*fakegame.FakeGame, *mem.FakeMem, func()) {
-	t.Helper()
-	m := mem.NewFakeMem()
-	g := fakegame.New(m)
-	must := func(err error) {
-		t.Helper()
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	must(g.NewGame(0, "Link"))
-	must(g.LoadStage(diagSea))
-	must(g.Save())
-	g.EnterFileSelect()
-	must(g.LoadFile(0))
-	must(g.LoadStage(diagSea))
-	tick := func() { g.Frames(3) }
-	if bound {
-		var tr gate.Tracker
-		var s *state.Snapshot
-		var st gate.Status
-		for range gate.StableTicks + 1 {
-			tick()
-			var err error
-			s, err = state.Read(m, state.Options{})
-			must(err)
-			st = tr.Observe(s)
-		}
-		p, err := bind.PlanBind(s, st, bind.BindRequest{World: m2World, WorldSeq: 3})
-		must(err)
-		p.Confirm()
-		_, err = bind.Bind(m, p, s, st)
-		must(err)
-	}
-	return g, m, tick
-}
+var m2Game = bindtest.Game
 
 func TestCoopTagShow(t *testing.T) {
 	_, m, tick := m2Game(t, true)
@@ -137,7 +103,7 @@ func TestCoopTagShowFreshBind(t *testing.T) {
 	must(g.NewGame(0, "Link"))
 	must(g.LoadStage(diagSea))
 	tick := func() { g.Frames(3) }
-	s, st, _, err := gateSnapshots(m, tick)
+	s, st, _, err := diag.GateSnapshots(m, tick)
 	must(err)
 	p, err := bind.PlanBind(s, st, bind.BindRequest{World: m2World, WorldSeq: 1})
 	must(err)

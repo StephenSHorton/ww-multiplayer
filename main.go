@@ -33,6 +33,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
@@ -113,7 +115,7 @@ func versionLine() string {
 // patcher's lines on stdout, with the co-op stage tables step, and a
 // failure exits 1. An already-patched input exits 0, as it always has.
 func runPatch(in, out string) {
-	if _, err := patch.Run(context.Background(), in, out, os.Stdout, patch.Options{CoopTables: cacheCoopTablesForPatch}); err != nil {
+	if _, err := patch.Run(context.Background(), in, out, os.Stdout, patch.Options{CoopTables: stagetables.CacheForPatch}); err != nil {
 		os.Exit(1)
 	}
 }
@@ -4010,18 +4012,18 @@ func exitUsage(err error, usage string) {
 // down both goroutines and the server, and resets the patched ISO's
 // mailbox so the next Dolphin frame doesn't keep rendering a stale Link #2.
 // co.on (--coop) adds co-op: the hub on the server and a coop-sync
-// pipeline (coop_session.go).
+// pipeline (mods/coop/session).
 //
 // The session runs on a session.Controller (App PR 2) over the CLI's
 // engine, which prints every line to stdout as engine.RunHostSession always has
 // and asks the co-op questions on stdin; a failed session exits 1.
-func runHost(name string, port int, co coopFlags) {
+func runHost(name string, port int, co coopsession.Flags) {
 	rep := log.Stdout{}
 	ctx, cancel := engine.CLIMultiplayerContext(rep)
 	defer cancel()
 	ctrl := newCLIController(rep)
 	if code := engine.RunCLISession(ctrl, rep, func() (session.ID, error) {
-		return ctrl.Host(ctx, session.HostOptions{Name: name, Port: port, Coop: co.options()})
+		return ctrl.Host(ctx, session.HostOptions{Name: name, Port: port, Coop: co.Options()})
 	}); code != 0 {
 		os.Exit(code)
 	}
@@ -4037,13 +4039,13 @@ func newCLIController(rep log.Reporter) *session.Controller {
 // puppet-sync goroutines pointed at the host's address. Same signal
 // handling and mailbox cleanup as runHost. co.on (--coop) adds a
 // coop-sync pipeline. Like runHost, it runs on a session.Controller.
-func runJoin(addr, name string, co coopFlags) {
+func runJoin(addr, name string, co coopsession.Flags) {
 	rep := log.Stdout{}
 	ctx, cancel := engine.CLIMultiplayerContext(rep)
 	defer cancel()
 	ctrl := newCLIController(rep)
 	if code := engine.RunCLISession(ctrl, rep, func() (session.ID, error) {
-		return ctrl.Join(ctx, session.JoinOptions{Addr: addr, Name: name, Coop: co.options()})
+		return ctrl.Join(ctx, session.JoinOptions{Addr: addr, Name: name, Coop: co.Options()})
 	}); code != 0 {
 		os.Exit(code)
 	}

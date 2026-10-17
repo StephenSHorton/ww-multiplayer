@@ -12,7 +12,7 @@ package main
 //
 // block edits the world file, and only while no session serves the world:
 // a running hub keeps the world in memory, so its next write would undo
-// the edit. The host's session marker (writeCoopMarker) tells. A marker
+// the edit. The host's session marker (coopsession.WriteMarker) tells. A marker
 // whose process has ended on this machine is stale (coopMarker.state):
 // block says so and goes on. --force overrides a marker whose process
 // still runs, or one that can't be checked. Bound replicas learn the block
@@ -30,6 +30,8 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
+	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
@@ -53,11 +55,11 @@ func runCoopWorld(args []string) {
 		}
 		root, err := world.Dir()
 		if err == nil {
-			err = coopWorldList(os.Stdout, root)
+			err = coopsession.PrintWorlds(os.Stdout, root)
 		}
 		exitOnCoopErr(err)
 	case "block":
-		pos, flags, err := splitDiagFlags(args[1:], "yes", "force")
+		pos, flags, err := diag.SplitFlags(args[1:], "yes", "force")
 		if err != nil {
 			exitUsage(err, coopWorldBlockUsage)
 		}
@@ -80,23 +82,6 @@ func runCoopWorld(args []string) {
 	default:
 		exitUsage(fmt.Errorf("unknown coop-world command %q", args[0]), coopWorldUsage)
 	}
-}
-
-// coopWorldList prints the worlds under root, newest first.
-func coopWorldList(w io.Writer, root string) error {
-	ws, err := listCoopWorlds(root)
-	if err != nil {
-		return err
-	}
-	if len(ws) == 0 {
-		fmt.Fprintf(w, "No co-op worlds in %s yet: `host --coop=new` founds one from your loaded save file.\n", root)
-		return nil
-	}
-	fmt.Fprintf(w, "Co-op worlds in %s, newest first:\n", root)
-	for _, x := range ws {
-		fmt.Fprintf(w, "  %s\n", x)
-	}
-	return nil
 }
 
 // blockTarget is the bit (or bits) of the image a block names.
@@ -203,16 +188,16 @@ func coopWorldBlock(w io.Writer, root string, id world.ID, t blockTarget, yes, f
 	if err != nil {
 		return fmt.Errorf("co-op world %s: %w", id, err)
 	}
-	if m, ok := readCoopMarker(dir); ok && !force {
-		switch use, why := m.state(); {
-		case use == markerStale:
+	if m, ok := coopsession.ReadMarker(dir); ok && !force {
+		switch use, why := m.State(); {
+		case use == coopsession.MarkerStale:
 			// The marker stays: the next host start says the session did
 			// not end cleanly.
 			fmt.Fprintf(w, "World %s has a stale session marker (%s; that process has ended): its last session did not end cleanly.\n", id, m)
-		case use == markerUnknown:
+		case use == coopsession.MarkerUnknown:
 			return fmt.Errorf("co-op world %s may be in use by a session (%s): can't tell whether that process still runs (%s); stop that host first (Ctrl+C), or pass --force if you know it ended", id, m, why)
-		case use == markerLive && why != "": // by its pid alone
-			return fmt.Errorf("co-op world %s may be in use by a session (%s): a process with pid %d runs, but %s, so it may not be that host; stop that host first (Ctrl+C), or pass --force if no host serves the world", id, m, m.pid, why)
+		case use == coopsession.MarkerLive && why != "": // by its pid alone
+			return fmt.Errorf("co-op world %s may be in use by a session (%s): a process with pid %d runs, but %s, so it may not be that host; stop that host first (Ctrl+C), or pass --force if no host serves the world", id, m, m.PID(), why)
 		default:
 			return fmt.Errorf("co-op world %s is in use by a running session (%s): stop that host first (Ctrl+C), or pass --force if you know no host serves the world", id, m)
 		}

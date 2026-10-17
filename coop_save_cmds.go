@@ -35,8 +35,10 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/savemerge"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/story"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -119,7 +121,7 @@ func runSaveMerge(args []string) {
 	if err != nil {
 		exitUsage(err, saveMergeUsage)
 	}
-	exitOnCoopErr(saveMerge(os.Stdout, a, loadCoopStageTables))
+	exitOnCoopErr(saveMerge(os.Stdout, a, stagetables.Load))
 }
 
 // saveInput is one input file's chosen slot.
@@ -195,16 +197,16 @@ var saveClasses = []struct {
 	{class.Tag, "the co-op binding tag"},
 }
 
-// edgesByClass groups the edges from a to b (coop-watch's diffSave over
+// edgesByClass groups the edges from a to b (coop-watch's diag.DiffSave over
 // the image, whose offsets are dSv_info_c's) by the class of their byte.
 // An inventory slot is named by its index: the class table splits mItems
 // around the bottles, so coop-watch's span-relative label would not be.
 // A flag bit outside a merging byte's class mask goes with PER_PLAYER, as
 // it is each player's own (class.Rule): the bottle contents above bit 0
 // of mGetItem[0..2], the Hero's Charm worn in mCollect[4].
-func edgesByClass(a, b *world.Image) map[class.Class][]saveEdge {
-	out := make(map[class.Class][]saveEdge)
-	for _, e := range diffSave(a[:], b[:], -1) {
+func edgesByClass(a, b *world.Image) map[class.Class][]diag.SaveEdge {
+	out := make(map[class.Class][]diag.SaveEdge)
+	for _, e := range diag.DiffSave(a[:], b[:], -1) {
 		if i := e.Off - addr.OffItems; i >= 0 && i < addr.SlotCount {
 			e.Label = fmt.Sprintf("mItems[%d]", i)
 		}
@@ -220,7 +222,7 @@ func edgesByClass(a, b *world.Image) map[class.Class][]saveEdge {
 
 // printEdges prints the edges of each class that has any, and returns
 // how many there were.
-func printEdges(w io.Writer, by map[class.Class][]saveEdge) int {
+func printEdges(w io.Writer, by map[class.Class][]diag.SaveEdge) int {
 	n := 0
 	for _, sc := range saveClasses {
 		es := by[sc.c]
@@ -267,7 +269,7 @@ func samePath(p, q string) bool {
 
 // saveMerge writes args.files[2], a's file with b's shared progress
 // merged into a's slot. tablesFor loads the M1 tables of --iso.
-func saveMerge(w io.Writer, args saveArgs, tablesFor func(iso string) (*coopStageTables, error)) error {
+func saveMerge(w io.Writer, args saveArgs, tablesFor func(iso string) (*stagetables.Tables, error)) error {
 	out := args.files[2]
 	for i, in := range args.files[:2] {
 		if samePath(out, in) {
@@ -300,9 +302,9 @@ func saveMerge(w io.Writer, args saveArgs, tablesFor func(iso string) (*coopStag
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(w, "M1 tables: %s\n", st.from)
-		opt.Policy = st.policy()
-		opt.Derive = savemerge.Derive(st.t.Keys, st.t.Hearts)
+		fmt.Fprintf(w, "M1 tables: %s\n", st.From())
+		opt.Policy = st.Policy()
+		opt.Derive = savemerge.Derive(st.M1().Keys, st.M1().Hearts)
 	} else {
 		warnings = append(warnings,
 			"no --iso: memory switches are a's (the M1 tables of your disc say which latch), and so are the DERIVED bytes: small keys, max life, max magic, inventory slots and equipment may lag the merged flags. Pass --iso <your Wind Waker image> to merge and derive them.")
@@ -337,7 +339,7 @@ func saveMerge(w io.Writer, args saveArgs, tablesFor func(iso string) (*coopStag
 		for _, h := range r.Held {
 			for bit := range 8 {
 				if h.Mask&(1<<bit) != 0 {
-					label, _ := saveLabel(int(h.Off), bit, -1)
+					label, _ := diag.SaveLabel(int(h.Off), bit, -1)
 					fmt.Fprintf(w, "  %s: %s\n", label, h.Hold.Why)
 				}
 			}

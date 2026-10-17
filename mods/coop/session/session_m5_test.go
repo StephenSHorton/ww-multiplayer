@@ -1,4 +1,4 @@
-package main
+package coopsession
 
 import (
 	"context"
@@ -13,6 +13,8 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables/stagetablestest"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
@@ -359,7 +361,7 @@ func (tp *coScopedTap) check(who string, dir wire.Dir, p []byte) {
 
 // newCoPlayerM5 is newCoPlayerOver with every SCOPED the pipeline sends
 // or gets checked by tap.
-func newCoPlayerM5(t *testing.T, ctx context.Context, h *coHost, cs *coopSession, cg *coGame, name string, audit *coAudit, tap *coScopedTap, seed uint64) *coPlayer {
+func newCoPlayerM5(t *testing.T, ctx context.Context, h *coHost, cs *Session, cg *coGame, name string, audit *coAudit, tap *coScopedTap, seed uint64) *coPlayer {
 	t.Helper()
 	beat := newCoBeat(cg)
 	p := &coPlayer{coGame: cg, name: name, rep: &coLog{}, beat: beat}
@@ -429,8 +431,8 @@ func TestCoopSessionM5(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs a loopback server for a few seconds")
 	}
-	useTablesDir(t, t.TempDir())
-	iso := writeImage(t, "ww.iso", tablestest.ISO(coM5Stages()))
+	stagetablestest.UseDir(t, t.TempDir())
+	iso := stagetablestest.WriteImage(t, "ww.iso", tablestest.ISO(coM5Stages()))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // before the cleanups, which wait for the clients
 
@@ -443,9 +445,9 @@ func TestCoopSessionM5(t *testing.T) {
 		openMem:  func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
 		tick:     func() { ga.g.Frames(3) },
 		input:    strings.NewReader(""),
-		tables:   loadCoopStageTables,
+		tables:   stagetables.Load,
 	}}
-	h.start(coopFlags{on: true, world: coopWorldNew, yes: true, iso: iso})
+	h.start(Flags{on: true, world: coopWorldNew, yes: true, iso: iso})
 	defer h.stop()
 	cs := h.cs
 	tb := cs.m1()
@@ -471,7 +473,7 @@ func TestCoopSessionM5(t *testing.T) {
 
 	joinIn, joinKeys := coInput(t)
 	jlog := &coLog{}
-	jcs := startCoopSession(jlog, coopFlags{on: true, yes: true, iso: iso}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: joinIn, tables: loadCoopStageTables})
+	jcs := startCoopSession(jlog, Flags{on: true, yes: true, iso: iso}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: joinIn, tables: stagetables.Load})
 	for _, l := range []*coLog{h.rep, jlog} {
 		if !l.has("co-op: room puzzles this session: a partner's latching dan switches (8 in 1 save table(s)) sync while both are in the same stage, its zone switches (10) while both are in the same room, and its room switches (9) as it sets them, in 2 room(s)") {
 			t.Errorf("the session did not say what of M5 it writes:\n%s", l)
@@ -1024,12 +1026,12 @@ func TestCoopSessionM5(t *testing.T) {
 // write the room puzzles, and how many switches its tables mark latching;
 // without tables, that none is written.
 func TestLogCoopPuzzles(t *testing.T) {
-	useTablesDir(t, t.TempDir())
-	st, err := loadCoopStageTables(writeImage(t, "ww.iso", tablestest.ISO(coM5Stages())))
+	stagetablestest.UseDir(t, t.TempDir())
+	st, err := stagetables.Load(stagetablestest.WriteImage(t, "ww.iso", tablestest.ISO(coM5Stages())))
 	if err != nil {
 		t.Fatal(err)
 	}
-	vanilla, err := loadCoopStageTables(writeImage(t, "vanilla.iso", tablestest.ISO(tablestest.Vanilla())))
+	vanilla, err := stagetables.Load(stagetablestest.WriteImage(t, "vanilla.iso", tablestest.ISO(tablestest.Vanilla())))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1038,8 +1040,8 @@ func TestLogCoopPuzzles(t *testing.T) {
 		t    *tables.Tables
 		want string
 	}{
-		{"M5 fixture", st.t, "co-op: room puzzles this session: a partner's latching dan switches (8 in 1 save table(s)) sync while both are in the same stage, its zone switches (10) while both are in the same room, and its room switches (9) as it sets them, in 2 room(s); timed and other switches that clear never travel."},
-		{"vanilla fixture", vanilla.t, "latching dan switches (0 in 0 save table(s)) sync while both are in the same stage, its zone switches (0) while both are in the same room, and its room switches (0) as it sets them, in 0 room(s)"},
+		{"M5 fixture", st.M1(), "co-op: room puzzles this session: a partner's latching dan switches (8 in 1 save table(s)) sync while both are in the same stage, its zone switches (10) while both are in the same room, and its room switches (9) as it sets them, in 2 room(s); timed and other switches that clear never travel."},
+		{"vanilla fixture", vanilla.M1(), "latching dan switches (0 in 0 save table(s)) sync while both are in the same stage, its zone switches (0) while both are in the same room, and its room switches (0) as it sets them, in 0 room(s)"},
 		{"no tables", nil, "co-op: room puzzles are off this session: without co-op stage tables no partner's dan, zone or room switch is known to latch, so none is written."},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -1050,11 +1052,11 @@ func TestLogCoopPuzzles(t *testing.T) {
 			}
 		})
 	}
-	var none *coopStageTables
-	if none.scopedVerdict() != nil || (&coopStageTables{}).scopedVerdict() != nil {
+	var none *stagetables.Tables
+	if none.ScopedVerdict() != nil || (&stagetables.Tables{}).ScopedVerdict() != nil {
 		t.Error("a verdict without tables: the hub would keep scoped switches")
 	}
-	if v := st.scopedVerdict(); v == nil || !v(addr.TableDRC, coDRC.Name, 1, coZoneOK) || v(addr.TableDRC, coDRC.Name, 1, coZoneTimed) {
+	if v := st.ScopedVerdict(); v == nil || !v(addr.TableDRC, coDRC.Name, 1, coZoneOK) || v(addr.TableDRC, coDRC.Name, 1, coZoneTimed) {
 		t.Error("the session's verdict is not the tables'")
 	}
 }

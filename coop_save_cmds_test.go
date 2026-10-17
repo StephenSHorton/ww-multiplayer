@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables/stagetablestest"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/savefile"
@@ -201,8 +203,8 @@ func TestSaveInputSlots(t *testing.T) {
 }
 
 // noTables fails the test if save-merge asks for tables.
-func noTables(t *testing.T) func(string) (*coopStageTables, error) {
-	return func(iso string) (*coopStageTables, error) {
+func noTables(t *testing.T) func(string) (*stagetables.Tables, error) {
+	return func(iso string) (*stagetables.Tables, error) {
 		t.Errorf("tables loaded for %q without --iso", iso)
 		return nil, os.ErrInvalid
 	}
@@ -422,7 +424,7 @@ func TestSaveMergeRefuses(t *testing.T) {
 			tables := noTables(t)
 			if c.name == "tables fail" {
 				args.iso = "ww.iso"
-				tables = func(string) (*coopStageTables, error) { return nil, errors.New("ww.iso: no such disc") }
+				tables = func(string) (*stagetables.Tables, error) { return nil, errors.New("ww.iso: no such disc") }
 			}
 			err := saveMerge(&log, args, tables)
 			if err == nil || !strings.Contains(err.Error()+log.String(), c.wantErr) {
@@ -447,8 +449,8 @@ func TestSaveMergeRefuses(t *testing.T) {
 // crystal switch merges, and the derive gives a's file b's key, heart
 // piece and hookshot.
 func TestSaveMergeISO(t *testing.T) {
-	useTablesDir(t, t.TempDir())
-	iso := writeImage(t, "ww.iso", tablestest.ISO(tablestest.Vanilla()))
+	stagetablestest.UseDir(t, t.TempDir())
+	iso := stagetablestest.WriteImage(t, "ww.iso", tablestest.ISO(tablestest.Vanilla()))
 	dir := t.TempDir()
 	a, b := saveImage("Link"), saveImage("Tetra")
 	setChest(t, &b, 3, 1)                                // a Dragon Roost Cavern key chest (tablestest.Dungeon)
@@ -463,7 +465,7 @@ func TestSaveMergeISO(t *testing.T) {
 	out := filepath.Join(dir, "merged.gci")
 
 	var log bytes.Buffer
-	if err := saveMerge(&log, saveArgs{files: []string{pa, pb, out}, slot: -1, iso: iso}, loadCoopStageTables); err != nil {
+	if err := saveMerge(&log, saveArgs{files: []string{pa, pb, out}, slot: -1, iso: iso}, stagetables.Load); err != nil {
 		t.Fatalf("%v\n%s", err, log.String())
 	}
 	f, _, err := savefile.Read(out)

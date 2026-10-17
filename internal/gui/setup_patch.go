@@ -78,7 +78,7 @@ const maxPatchLines = 200
 const patchCreep = 8 * time.Second
 
 // applyPatchLine moves v on by one line patch.Run wrote. The lines are
-// the CLI's own (internal/patch, cacheCoopTablesForPatch), unchanged, so
+// the CLI's own (internal/patch, stagetables.CacheForPatch), unchanged, so
 // this reads their stable prefixes.
 func applyPatchLine(v *PatchView, line string) {
 	line = strings.TrimRight(line, "\r")

@@ -1,4 +1,4 @@
-package main
+package coopsession
 
 import (
 	"context"
@@ -19,11 +19,11 @@ func goldenAsk(ctx context.Context, p *coopPrompter, rep log.Reporter, prompt st
 }
 
 // goldenDo runs one console line the way the stdin reader hands it over.
-func goldenDo(cs *coopSession, line string) {
+func goldenDo(cs *Session, line string) {
 	cs.console.do(context.Background(), line)
 }
 
 // newGoldenSession is a co-op side reading its answers from in.
-func newGoldenSession(f coopFlags, in io.Reader) *coopSession {
-	return &coopSession{flags: f, ask: newCoopPrompter(f.yes, in), poses: map[string]*network.Client{}}
+func newGoldenSession(f Flags, in io.Reader) *Session {
+	return &Session{flags: f, ask: newCoopPrompter(f.yes, in), poses: map[string]*network.Client{}}
 }

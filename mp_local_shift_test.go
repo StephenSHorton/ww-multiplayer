@@ -180,7 +180,7 @@ func (r *shiftRig) noWrites(t *testing.T) {
 	}
 }
 
-// shiftAttempt is the ticks one look at both Dolphins takes: gateSnapshots
+// shiftAttempt is the ticks one look at both Dolphins takes: diag.GateSnapshots
 // on each.
 const shiftAttempt = 2 * gate.StableTicks
 

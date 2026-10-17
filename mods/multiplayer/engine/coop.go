@@ -13,8 +13,8 @@ import (
 // meets co-op through CoopApp (what co-op offers the engine), Coop (a
 // host or join session's co-op side, session.go), LobbyCoop (a lobby
 // session's) and CoopSide (a running co-op session's console and
-// status). Package main implements them over its coopSession and appCoop
-// until D2 moves co-op into mods/coop.
+// status). mods/coop/session implements them over its Session and
+// appCoop.
 
 // CoopApp is co-op as the engine meets it.
 type CoopApp interface {

@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
@@ -44,7 +45,7 @@ var errNotDone = errors.New("nothing changed")
 
 // runCoopTag runs coop-tag with the arguments after it.
 func runCoopTag(args []string) {
-	pos, flags, err := splitDiagFlags(args, "yes")
+	pos, flags, err := diag.SplitFlags(args, "yes")
 	if err != nil {
 		exitUsage(err, coopTagUsage)
 	}
@@ -66,12 +67,12 @@ func runCoopTag(args []string) {
 		if flags["yes"] {
 			exitUsage(errors.New("show writes nothing; --yes is for clear"), coopTagUsage)
 		}
-		err = withCoopMem(func(m mem.Mem) error { return coopTagShow(os.Stdout, m, coopTick, session, worlds) })
+		err = diag.WithMem(openDolphin, func(m mem.Mem) error { return coopTagShow(os.Stdout, m, diag.Tick, session, worlds) })
 	case "clear":
 		if len(pos) > 1 {
 			exitUsage(fmt.Errorf("clear takes no arguments, not %q", pos[1:]), coopTagUsage)
 		}
-		err = withCoopMem(func(m mem.Mem) error { return coopTagClear(os.Stdout, m, coopTick, flags["yes"], worlds) })
+		err = diag.WithMem(openDolphin, func(m mem.Mem) error { return coopTagClear(os.Stdout, m, diag.Tick, flags["yes"], worlds) })
 	default:
 		exitUsage(fmt.Errorf("unknown coop-tag command %q", pos[0]), coopTagUsage)
 	}
@@ -81,7 +82,7 @@ func runCoopTag(args []string) {
 // runCoopWorldRestore runs `coop-world restore` with the arguments after
 // "restore".
 func runCoopWorldRestore(args []string) {
-	pos, flags, err := splitDiagFlags(args, "yes")
+	pos, flags, err := diag.SplitFlags(args, "yes")
 	if err != nil {
 		exitUsage(err, coopWorldRestoreUsage)
 	}
@@ -144,7 +145,7 @@ func maybeFresh(v bind.Verdict, fresh func(bind.Nonce) bool) bool {
 // session world V6 checks against; V5's pending fresh binds come from the
 // world files under worlds (coopFreshBinds). It writes nothing.
 func coopTagShow(w io.Writer, m mem.Mem, tick func(), session bind.WorldID, worlds string) error {
-	s, st, _, err := gateSnapshots(m, tick)
+	s, st, _, err := diag.GateSnapshots(m, tick)
 	if err != nil {
 		return err
 	}
@@ -155,7 +156,7 @@ func coopTagShow(w io.Writer, m mem.Mem, tick func(), session bind.WorldID, worl
 	line := func(label, format string, a ...any) {
 		fmt.Fprintf(w, "%-9s %s\n", label, fmt.Sprintf(format, a...))
 	}
-	line("where", "%s", where(s))
+	line("where", "%s", diag.Where(s))
 	if !st.Stable {
 		line("", "(%s: the file in RAM may not be the one you play)", st.StableWhy)
 	}
@@ -205,7 +206,7 @@ func coopTagShow(w io.Writer, m mem.Mem, tick func(), session bind.WorldID, worl
 // V5's pending fresh binds come from the world files under worlds, as in
 // coopTagShow.
 func coopTagClear(w io.Writer, m mem.Mem, tick func(), yes bool, worlds string) error {
-	s, st, _, err := gateSnapshots(m, tick)
+	s, st, _, err := diag.GateSnapshots(m, tick)
 	if err != nil {
 		return err
 	}

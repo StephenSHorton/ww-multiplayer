@@ -1,4 +1,4 @@
-package main
+package coopsession
 
 import (
 	"bytes"
@@ -18,6 +18,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables/stagetablestest"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -608,15 +610,15 @@ func coNextStage(cg *coGame) (name string, point int16, room, layer, enable int8
 
 // coPose is a pose-sync client of the session for player name, connected
 // to the server at at, as feed.PuppetSync's onClient hands it over
-// (withPoseClient).
-func coPose(t *testing.T, cs *coopSession, name, at string) *network.Client {
+// (WithPoseClient).
+func coPose(t *testing.T, cs *Session, name, at string) *network.Client {
 	t.Helper()
 	c := network.NewClient(name)
 	if err := c.Connect(at); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(c.Disconnect)
-	cs.withPoseClient(name, nil)(c)
+	cs.WithPoseClient(name, nil)(c)
 	return c
 }
 
@@ -645,8 +647,8 @@ func TestCoopSessionM3(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs a loopback server for a few seconds")
 	}
-	useTablesDir(t, t.TempDir())
-	iso := writeImage(t, "ww.iso", tablestest.ISO(tablestest.Vanilla()))
+	stagetablestest.UseDir(t, t.TempDir())
+	iso := stagetablestest.WriteImage(t, "ww.iso", tablestest.ISO(tablestest.Vanilla()))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // before the cleanups, which wait for the clients
 
@@ -660,18 +662,18 @@ func TestCoopSessionM3(t *testing.T) {
 		openMem:  func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
 		tick:     func() { ga.g.Frames(3) },
 		input:    hostIn,
-		tables:   loadCoopStageTables,
+		tables:   stagetables.Load,
 	}}
-	h.start(coopFlags{on: true, world: coopWorldNew, yes: true, iso: iso})
+	h.start(Flags{on: true, world: coopWorldNew, yes: true, iso: iso})
 	defer h.stop()
 	cs := h.cs
 	// A's pipeline, and the console that types into it, stay in the
 	// first session, as in host; a restarted hub's session reads nothing.
 	h.env.input = strings.NewReader("")
-	if cs.tables.hash() == 0 || !h.rep.has("stage tables") {
+	if cs.tables.Hash() == 0 || !h.rep.has("stage tables") {
 		t.Fatalf("the host has no stage tables:\n%s", h.rep)
 	}
-	pol := cs.tables.policy()
+	pol := cs.tables.Policy()
 	m3 := newCoM3(pol)
 	if len(m3.sw) == 0 {
 		t.Fatal("the fixture's tables latch no memory switch of the tables the stages use: the test would not cover switches")
@@ -679,9 +681,9 @@ func TestCoopSessionM3(t *testing.T) {
 
 	joinIn, joinKeys := coInput(t)
 	jlog := &coLog{}
-	jcs := startCoopSession(jlog, coopFlags{on: true, yes: true, iso: iso}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: joinIn, tables: loadCoopStageTables})
-	if jcs.tables.hash() != cs.tables.hash() {
-		t.Fatalf("the joiner's tables %016x are not the host's %016x", jcs.tables.hash(), cs.tables.hash())
+	jcs := startCoopSession(jlog, Flags{on: true, yes: true, iso: iso}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: joinIn, tables: stagetables.Load})
+	if jcs.tables.Hash() != cs.tables.Hash() {
+		t.Fatalf("the joiner's tables %016x are not the host's %016x", jcs.tables.Hash(), cs.tables.Hash())
 	}
 	for _, l := range []*coLog{h.rep, jlog} {
 		if n := l.count("co-op: commands (type one and press Enter)"); n != 1 {
@@ -1064,19 +1066,19 @@ func TestCoopSessionFeatures(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs a loopback server")
 	}
-	useTablesDir(t, t.TempDir())
-	iso := writeImage(t, "ww.iso", tablestest.ISO(tablestest.Vanilla()))
+	stagetablestest.UseDir(t, t.TempDir())
+	iso := stagetablestest.WriteImage(t, "ww.iso", tablestest.ISO(tablestest.Vanilla()))
 	cases := []struct {
 		name      string
-		f         coopFlags
+		f         Flags
 		noTables  bool
 		want, not hub.Feature
 		dryRun    bool
 	}{
-		{"default", coopFlags{iso: iso}, false, hub.FeatureImage | hub.FeatureSwitches, hub.FeatureLiveSwitches, false},
-		{"live switches", coopFlags{iso: iso, liveSwitches: true}, false, hub.FeatureSwitches | hub.FeatureLiveSwitches, 0, false},
-		{"no tables", coopFlags{}, true, hub.FeatureImage, hub.FeatureSwitches | hub.FeatureLiveSwitches, false},
-		{"dry run", coopFlags{iso: iso, dryRun: true, liveSwitches: true}, false, hub.FeatureImage, hub.FeatureSwitches | hub.FeatureLiveSwitches, true},
+		{"default", Flags{iso: iso}, false, hub.FeatureImage | hub.FeatureSwitches, hub.FeatureLiveSwitches, false},
+		{"live switches", Flags{iso: iso, liveSwitches: true}, false, hub.FeatureSwitches | hub.FeatureLiveSwitches, 0, false},
+		{"no tables", Flags{}, true, hub.FeatureImage, hub.FeatureSwitches | hub.FeatureLiveSwitches, false},
+		{"dry run", Flags{iso: iso, dryRun: true, liveSwitches: true}, false, hub.FeatureImage, hub.FeatureSwitches | hub.FeatureLiveSwitches, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -1092,7 +1094,7 @@ func TestCoopSessionFeatures(t *testing.T) {
 				input:    strings.NewReader(""),
 			}
 			if !c.noTables {
-				env.tables = loadCoopStageTables
+				env.tables = stagetables.Load
 			}
 			h := &coHost{t: t, ctx: ctx, rep: &coLog{}, env: env}
 			f := c.f

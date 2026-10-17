@@ -1,7 +1,8 @@
-package main
+package coopsession
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
@@ -9,8 +10,20 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
+
+// testEnv is the tests' Env: they fake the game, and no Dolphin opens.
+var testEnv = Env{Open: func(uint32) (*emu.Dolphin, error) { return nil, errors.New("no Dolphin in the tests") }}
+
+// newTUIEngine is package main's app engine (engine.NewTUIEngine with
+// App) as the tests build it: no version, cheats or pose pipelines.
+func newTUIEngine() *engine.Engine { return engine.NewTUIEngine(engine.Config{Coop: App(testEnv)}) }
+
+// newCLIEngine is package main's CLI engine (engine.NewCLIEngine with
+// CLIApp) as the tests build it.
+func newCLIEngine() *engine.Engine { return engine.NewCLIEngine(engine.Config{Coop: CLIApp(testEnv)}) }
 
 // frontOutput is a session.Output that records the questions put to it
 // (answering ans) and the advice passed to it.
@@ -43,7 +56,7 @@ func (o *frontOutput) Advise(a session.Advice) {
 // passes advice on; both attach the session so the console commands and
 // the status reach it, and detach it when the session returns.
 func TestSessionEngine_Front(t *testing.T) {
-	start := func(e *engine.Engine, out session.Output, o session.CoopOptions) *coopSession {
+	start := func(e *engine.Engine, out session.Output, o session.CoopOptions) *Session {
 		t.Helper()
 		return startCoopSession(log.Discard{}, coopFlagsOf(o), coopEnv{
 			backups:  t.TempDir(),

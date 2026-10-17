@@ -1,4 +1,4 @@
-package main
+package coopsession
 
 // Golden transcripts of the co-op questions and console (App PR 2,
 // docs/08-coop-design.md Appendix C item 162). Each test drives one flow
@@ -211,7 +211,7 @@ func TestGoldenPrompter(t *testing.T) {
 // goldenSync is a coop-sync pipeline over a fake replica, for the offer
 // and preflight paths: Confirm and Decline of a plan it did not offer do
 // nothing, so only the session's own lines are logged.
-func goldenSync(t *testing.T, cs *coopSession, log log.Reporter) *coopSync {
+func goldenSync(t *testing.T, cs *Session, log log.Reporter) *coopSync {
 	t.Helper()
 	r, err := replica.New(replica.Config{Mem: mem.NewFakeMem()})
 	if err != nil {
@@ -227,12 +227,12 @@ func TestGoldenOffers(t *testing.T) {
 	note := func(s string) { glog.Log(log.Info, "## "+s) }
 
 	note("--yes: a bind")
-	s := goldenSync(t, goldenSession(coopFlags{on: true, yes: true}, strings.NewReader("")), glog)
+	s := goldenSync(t, goldenSession(Flags{on: true, yes: true}, strings.NewReader("")), glog)
 	s.offer(ctx, replica.Offer{Plan: &bind.Plan{Kind: bind.KindBind, Prompt: goldenBindPrompt}})
 
 	note("a scrub answered y on stdin")
 	r, w := coInput(t)
-	s = goldenSync(t, goldenSession(coopFlags{on: true}, r), glog)
+	s = goldenSync(t, goldenSession(Flags{on: true}, r), glog)
 	glog.answering(w, func(string) string { return "y" })
 	mark := glog.len()
 	s.offer(ctx, replica.Offer{Plan: &bind.Plan{Kind: bind.KindScrub, Prompt: goldenScrubPrompt}})
@@ -241,7 +241,7 @@ func TestGoldenOffers(t *testing.T) {
 
 	note("a bind answered n on stdin")
 	r, w = coInput(t)
-	s = goldenSync(t, goldenSession(coopFlags{on: true}, r), glog)
+	s = goldenSync(t, goldenSession(Flags{on: true}, r), glog)
 	glog.answering(w, func(string) string { return "n" })
 	mark = glog.len()
 	s.offer(ctx, replica.Offer{Plan: &bind.Plan{Kind: bind.KindBind, Prompt: goldenBindPrompt}})
@@ -249,13 +249,13 @@ func TestGoldenOffers(t *testing.T) {
 	glog.on = nil
 
 	note("no memory-card backup")
-	cs := goldenSession(coopFlags{on: true, yes: true}, strings.NewReader(""))
+	cs := goldenSession(Flags{on: true, yes: true}, strings.NewReader(""))
 	cs.noTags = fmt.Errorf("no Dolphin user folder")
 	s = goldenSync(t, cs, glog)
 	s.offer(ctx, replica.Offer{Plan: &bind.Plan{Kind: bind.KindBind, Prompt: goldenBindPrompt}})
 
 	note("preflight: far behind")
-	s = goldenSync(t, goldenSession(coopFlags{on: true}, strings.NewReader("")), glog)
+	s = goldenSync(t, goldenSession(Flags{on: true}, strings.NewReader("")), glog)
 	s.preflight(replica.PreflightReport{Verdict: replica.PreflightFarBehind, NeedsMerge: true})
 	note("preflight: needs --coop-merge")
 	s.preflight(replica.PreflightReport{Verdict: replica.PreflightDivergent, NeedsMerge: true})
@@ -270,14 +270,14 @@ func TestGoldenOffers(t *testing.T) {
 
 // goldenSession is a joiner's co-op side without the session-start
 // backup and tables, reading in.
-func goldenSession(f coopFlags, in io.Reader) *coopSession {
+func goldenSession(f Flags, in io.Reader) *Session {
 	return newGoldenSession(f, in)
 }
 
 // goldenConsoleSession is a joiner's co-op session with one pipeline per
 // name, each over its own fake game in the sea, not connected; the lines
 // of its start are not recorded.
-func goldenConsoleSession(t *testing.T, ctx context.Context, f coopFlags, in io.Reader, names ...string) (*coopSession, []*coopSync, []*coGame, *goldenLog) {
+func goldenConsoleSession(t *testing.T, ctx context.Context, f Flags, in io.Reader, names ...string) (*Session, []*coopSync, []*coGame, *goldenLog) {
 	t.Helper()
 	log := &goldenLog{}
 	cs := startCoopSession(log, f, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: in})
@@ -297,10 +297,10 @@ func goldenConsoleSession(t *testing.T, ctx context.Context, f coopFlags, in io.
 
 // goldenConsoleDryRun is the console's dry-run transcript; do runs one
 // command line.
-func goldenConsoleDryRun(t *testing.T, do func(cs *coopSession, line string)) []string {
+func goldenConsoleDryRun(t *testing.T, do func(cs *Session, line string)) []string {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	cs, _, _, log := goldenConsoleSession(t, ctx, coopFlags{on: true, yes: true, dryRun: true}, strings.NewReader(""), "Link")
+	cs, _, _, log := goldenConsoleSession(t, ctx, Flags{on: true, yes: true, dryRun: true}, strings.NewReader(""), "Link")
 	do(cs, "/warp")
 	log.wait(t, "co-op: /warp for Link: --coop-dry-run writes no game data")
 	do(cs, "/refresh Link")
@@ -316,10 +316,10 @@ func goldenConsoleDryRun(t *testing.T, do func(cs *coopSession, line string)) []
 }
 
 // goldenConsoleWriting is the console's transcript with writes on.
-func goldenConsoleWriting(t *testing.T, do func(cs *coopSession, line string)) []string {
+func goldenConsoleWriting(t *testing.T, do func(cs *Session, line string)) []string {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	cs, ss, gs, log := goldenConsoleSession(t, ctx, coopFlags{on: true, yes: true}, strings.NewReader(""), "Link")
+	cs, ss, gs, log := goldenConsoleSession(t, ctx, Flags{on: true, yes: true}, strings.NewReader(""), "Link")
 	s, cg := ss[0], gs[0]
 	do(cs, "/refresh")
 	cg.g.Frame()
@@ -339,10 +339,10 @@ func goldenConsoleWriting(t *testing.T, do func(cs *coopSession, line string)) [
 
 // goldenConsoleTwo is the console's transcript with mp-local's two
 // pipelines.
-func goldenConsoleTwo(t *testing.T, do func(cs *coopSession, line string)) []string {
+func goldenConsoleTwo(t *testing.T, do func(cs *Session, line string)) []string {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	cs, _, _, log := goldenConsoleSession(t, ctx, coopFlags{on: true, yes: true, dryRun: true}, strings.NewReader(""), "Link", "Tetra")
+	cs, _, _, log := goldenConsoleSession(t, ctx, Flags{on: true, yes: true, dryRun: true}, strings.NewReader(""), "Link", "Tetra")
 	do(cs, "/warp")
 	do(cs, "/refresh Aryll")
 	do(cs, "/warp tetra")
@@ -365,7 +365,7 @@ func TestGoldenConsoleStdin(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	r, w := coInput(t)
-	_, _, _, log := goldenConsoleSession(t, ctx, coopFlags{on: true, yes: true, dryRun: true}, r, "Link")
+	_, _, _, log := goldenConsoleSession(t, ctx, Flags{on: true, yes: true, dryRun: true}, r, "Link")
 	for _, l := range []string{"/help", "/coop off", "/jump", "/status"} {
 		io.WriteString(w, l+"\n")
 	}
@@ -389,7 +389,7 @@ func TestGoldenConsoleHost(t *testing.T) {
 		tick:     func() { ga.g.Frames(3) },
 		input:    strings.NewReader(""),
 	}}
-	h.start(coopFlags{on: true, world: coopWorldNew})
+	h.start(Flags{on: true, world: coopWorldNew})
 	defer h.stop()
 	log := &goldenLog{}
 	h.cs.rep, h.cs.console.rep = log, log

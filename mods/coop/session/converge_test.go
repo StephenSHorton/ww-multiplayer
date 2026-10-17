@@ -1,8 +1,9 @@
-package main
+package coopsession
 
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math/rand/v2"
 	"net"
@@ -29,7 +30,7 @@ import (
 )
 
 // The co-op integration tests run the session plumbing of host, join and
-// mp-local --coop (coop_session.go) over FakeGames: startCoopHost's
+// mp-local --coop (session.go) over FakeGames: startCoopHost's
 // backup, founding and hub, a real network.Server on loopback, and each
 // Dolphin's coopSync with its prompts. Only the Dolphin handle is faked.
 
@@ -41,6 +42,10 @@ var (
 	coDRCBoss = fakegame.Stage{Name: "M_DragB", Table: addr.TableDRC, KeyHUD: true}
 	coWoods   = fakegame.Stage{Name: "kindan", Table: addr.TableFW, KeyHUD: true}
 )
+
+// u16b and u32b are v big-endian.
+func u16b(v uint16) []byte { return binary.BigEndian.AppendUint16(nil, v) }
+func u32b(v uint32) []byte { return binary.BigEndian.AppendUint32(nil, v) }
 
 // coLog is a Reporter for the tests: it keeps every line, from any
 // goroutine. on, if set, sees each line once it is kept.
@@ -383,15 +388,15 @@ type coHost struct {
 	ctx  context.Context
 	rep  *coLog
 	env  coopEnv
-	cs   *coopSession
+	cs   *Session
 	srv  *network.Server
 	port int
 	addr string
 	// flags are the last start's, for a restart.
-	flags coopFlags
+	flags Flags
 }
 
-func (h *coHost) start(f coopFlags) {
+func (h *coHost) start(f Flags) {
 	h.t.Helper()
 	h.flags = f
 	cs, err := startCoopHost(h.ctx, h.rep, func(s string) { h.rep.Log(log.Net, s) }, f, h.env)
@@ -402,7 +407,7 @@ func (h *coHost) start(f coopFlags) {
 	srv.ListenHost = "127.0.0.1" // a restart reuses the port: stay on loopback
 	srv.Coop = cs.hub
 	if err := srv.Start(); err != nil {
-		cs.stop()
+		cs.Stop()
 		h.t.Fatal(err)
 	}
 	h.cs, h.srv = cs, srv
@@ -418,7 +423,7 @@ func (h *coHost) stop() {
 		return
 	}
 	h.srv.Stop()
-	h.cs.stop()
+	h.cs.Stop()
 	h.srv = nil
 }
 
@@ -455,14 +460,14 @@ type coPlayer struct {
 
 // newCoPlayer starts cg's coop-sync pipeline in session cs, logging to
 // log, and connects it to h.
-func newCoPlayer(t *testing.T, ctx context.Context, h *coHost, cs *coopSession, cg *coGame, name string, log *coLog, audit *coAudit, seed uint64) *coPlayer {
+func newCoPlayer(t *testing.T, ctx context.Context, h *coHost, cs *Session, cg *coGame, name string, log *coLog, audit *coAudit, seed uint64) *coPlayer {
 	t.Helper()
 	return newCoPlayerOver(t, ctx, h, cs, cg, nil, name, log, audit, seed)
 }
 
 // newCoPlayerOver is newCoPlayer with the pipeline over beat, a Mem over
 // cg's (nil: over cg's FakeMem itself).
-func newCoPlayerOver(t *testing.T, ctx context.Context, h *coHost, cs *coopSession, cg *coGame, beat *coBeat, name string, log *coLog, audit *coAudit, seed uint64) *coPlayer {
+func newCoPlayerOver(t *testing.T, ctx context.Context, h *coHost, cs *Session, cg *coGame, beat *coBeat, name string, log *coLog, audit *coAudit, seed uint64) *coPlayer {
 	t.Helper()
 	p := &coPlayer{coGame: cg, name: name, rep: log, beat: beat}
 	var m mem.Mem = cg.m
@@ -596,7 +601,7 @@ func TestCoopSessionConverges(t *testing.T) {
 		openMem:  func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
 		tick:     func() { ga.g.Frames(3) },
 	}}
-	h.start(coopFlags{on: true, world: coopWorldNew, yes: true, dryRun: true})
+	h.start(Flags{on: true, world: coopWorldNew, yes: true, dryRun: true})
 	defer h.stop()
 	if !h.rep.has("founded world") || !h.rep.has("backed up 1 memory-card file") {
 		t.Fatalf("the host did not back up and found:\n%s", h.rep)
@@ -606,7 +611,7 @@ func TestCoopSessionConverges(t *testing.T) {
 		t.Fatalf("the founded world is not A's file: %s", coDiff(&founded, &a))
 	}
 	cs := h.cs
-	jcs := startCoopSession(&coLog{}, coopFlags{on: true, yes: true, dryRun: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}})
+	jcs := startCoopSession(&coLog{}, Flags{on: true, yes: true, dryRun: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}})
 	if jcs.noTags != nil {
 		t.Fatalf("the joiner's backup: %v", jcs.noTags)
 	}
@@ -804,7 +809,7 @@ func TestCoopSessionConverges(t *testing.T) {
 	if img := saved.Image(); img != before {
 		t.Errorf("the world file is not the world: %s", coDiff(&img, &before))
 	}
-	if m, ok := readCoopMarker(world.Path(h.env.worlds, world.ID(cs.world))); ok {
+	if m, ok := ReadMarker(world.Path(h.env.worlds, world.ID(cs.world))); ok {
 		t.Errorf("the session marker outlived the session: %q", m)
 	}
 
@@ -873,7 +878,7 @@ func TestCoopFreshBindRestart(t *testing.T) {
 		openMem:  func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
 		tick:     func() { ga.g.Frames(3) },
 	}}
-	h.start(coopFlags{on: true, world: coopWorldNew, yes: true, dryRun: true})
+	h.start(Flags{on: true, world: coopWorldNew, yes: true, dryRun: true})
 	defer h.stop()
 
 	// bound reports whether the hub has the player's file bound.

@@ -19,8 +19,8 @@ import (
 type Options struct {
 	// CoopTables, when non-nil, builds, caches and records the co-op stage
 	// tables of image, the disc Dolphin will run, and writes one line about
-	// it on w. It never fails the patch. package main passes its
-	// cacheCoopTablesForPatch; nil skips the step.
+	// it on w. It never fails the patch. package main passes
+	// stagetables.CacheForPatch (mods/coop); nil skips the step.
 	CoopTables func(w io.Writer, image string)
 }
 

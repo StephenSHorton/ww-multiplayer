@@ -1,13 +1,13 @@
-package main
-
-// Co-op sessions (#23; docs/08-coop-design.md §4.1-4.2, §5, §6.7, §9
-// M2-M4): what --coop adds to host, join and mp-local.
+// Package coopsession is co-op sessions (#23; docs/08-coop-design.md
+// §4.1-4.2, §5, §6.7, §9 M2-M4): what --coop adds to host, join and
+// mp-local, the app's lobby sessions with co-op (app.go), and the seam
+// the multiplayer engine meets co-op through (hook.go).
 //
 //   - host and mp-local run the CoopHub (mods/coop/hub) on their
 //     server. It serves one world: the only one on disk, the one
 //     --coop=<id> names, or, with --coop=new, one founded from the host's
 //     loaded, idle file (§5.3). It grants memory switch sync by the M1
-//     stage tables of the session's disc (coop_tables_runtime.go:
+//     stage tables of the session's disc (mods/coop/stagetables:
 //     --coop-iso, or the disc patch last wrote), and the live-switch
 //     opt-in with --coop-live-switches (§6.3);
 //   - every side backs up its memory cards, read-only, when the session
@@ -32,13 +32,14 @@ package main
 //     prompter (y/N on stdin; --yes answers yes); the TUI's puts the
 //     question to the session controller (outputAsker), whose UI answers
 //     it (session.Question, Controller.Answer);
-//   - the session's commands (coop_session_console.go): /refresh and
+//   - the session's commands (console.go): /refresh and
 //     /warp, the escape hatches (§6.7), /coop off and on, /status and
 //     /help, typed on stdin in the CLI, or given to the controller
 //     (Controller.Command) by a UI.
 //
 // Without --coop none of this runs: host, join and mp-local open the same
 // connections, send the same frames and print the same lines as before.
+package coopsession
 
 import (
 	"bufio"
@@ -59,8 +60,11 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/procstate"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
@@ -70,9 +74,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
 
-// coopFlags are the co-op options of host, join and mp-local. The zero
+// Flags are the co-op options of host, join and mp-local. The zero
 // value is co-op off.
-type coopFlags struct {
+type Flags struct {
 	on bool
 	// world is the world a host serves: "" for the only one on disk,
 	// coopWorldNew to found one from the host's file, or a world ID.
@@ -94,34 +98,37 @@ type coopFlags struct {
 	iso string
 }
 
+// On says whether f turns co-op on (--coop).
+func (f Flags) On() bool { return f.on }
+
 // coopWorldNew is --coop=new: found a world from the host's loaded file.
 const coopWorldNew = "new"
 
-// coopFlagsUsage is the co-op part of host's and mp-local's usage lines;
-// coopJoinFlagsUsage is join's, which leaves the world and the host's
+// FlagsUsage is the co-op part of host's and mp-local's usage lines;
+// JoinFlagsUsage is join's, which leaves the world and the host's
 // choices out.
 const (
-	coopFlagsUsage     = "[--coop[=new|<world-id>]] [--coop-merge] [--coop-live-switches] [--coop-dry-run] [--coop-iso <iso>] [--yes]"
-	coopJoinFlagsUsage = "[--coop] [--coop-dry-run] [--coop-iso <iso>] [--yes]"
+	FlagsUsage     = "[--coop[=new|<world-id>]] [--coop-merge] [--coop-live-switches] [--coop-dry-run] [--coop-iso <iso>] [--yes]"
+	JoinFlagsUsage = "[--coop] [--coop-dry-run] [--coop-iso <iso>] [--yes]"
 )
 
-// extractCoopFlags takes the co-op options out of args (in any position
+// ExtractFlags takes the co-op options out of args (in any position
 // before a bare "--", which ends the options) and returns the rest, in
 // order, for the command's own parser. When args hold no --coop at all,
 // they are returned untouched and co-op is off, so a command line without
 // co-op parses exactly as it did before: --coop-merge, --coop-dry-run,
 // --coop-live-switches, --coop-iso or --yes alone stay in rest, where the
 // command's parser treats them as it always has.
-func extractCoopFlags(args []string) (coopFlags, []string, error) {
-	var f coopFlags
+func ExtractFlags(args []string) (Flags, []string, error) {
+	var f Flags
 	if !slices.ContainsFunc(coopOptionArgs(args), func(a string) bool {
 		return a == "--coop" || strings.HasPrefix(a, "--coop=")
 	}) {
 		return f, args, nil
 	}
-	iso, args, err := takeCoopISO(args)
+	iso, args, err := stagetables.TakeISO(args)
 	if err != nil {
-		return coopFlags{}, nil, err
+		return Flags{}, nil, err
 	}
 	f.iso = iso
 	rest := make([]string, 0, len(args))
@@ -135,11 +142,11 @@ func extractCoopFlags(args []string) (coopFlags, []string, error) {
 			v := strings.ToLower(strings.TrimPrefix(a, "--coop="))
 			if v != coopWorldNew {
 				if _, err := bind.ParseWorldID(v); err != nil {
-					return coopFlags{}, nil, fmt.Errorf("%s: say --coop=new, or a world ID (16 hex digits, as coop-world list prints them)", a)
+					return Flags{}, nil, fmt.Errorf("%s: say --coop=new, or a world ID (16 hex digits, as coop-world list prints them)", a)
 				}
 			}
 			if f.world != "" && f.world != v {
-				return coopFlags{}, nil, fmt.Errorf("--coop=%s and --coop=%s: give one world", f.world, v)
+				return Flags{}, nil, fmt.Errorf("--coop=%s and --coop=%s: give one world", f.world, v)
 			}
 			f.on, f.world = true, v
 		case a == "--coop-merge":
@@ -165,10 +172,10 @@ func coopOptionArgs(args []string) []string {
 	return args
 }
 
-// forJoin checks f for join: a joiner serves no world, so the world,
+// ForJoin checks f for join: a joiner serves no world, so the world,
 // --coop-merge and --coop-live-switches are the host's to choose.
 // --coop-dry-run and --coop-iso are each side's own.
-func (f coopFlags) forJoin() error {
+func (f Flags) ForJoin() error {
 	switch {
 	case f.world != "":
 		return fmt.Errorf("--coop=%s: the host picks the world; join with --coop", f.world)
@@ -192,15 +199,15 @@ type coopEnv struct {
 	// openMem opens the Dolphin a host founds its world from, and returns
 	// how to close it.
 	openMem func() (mem.Mem, func(), error)
-	// tick waits between the snapshots of a founding (coopTick).
+	// tick waits between the snapshots of a founding (diag.Tick).
 	tick func()
 	// input, if set, replaces stdin as the source of y/N answers and
 	// commands.
 	input io.Reader
 	// tables loads the M1 stage tables of the disc iso names, "" for the
-	// one patch last wrote (loadCoopStageTables). Nil runs the session
+	// one patch last wrote (stagetables.Load). Nil runs the session
 	// without tables, saying nothing of them: no memory switch syncs.
-	tables func(iso string) (*coopStageTables, error)
+	tables func(iso string) (*stagetables.Tables, error)
 	// front is the session's front end; its zero value is the CLI's.
 	front coopFront
 }
@@ -220,26 +227,26 @@ type coopFront struct {
 	advise func(session.Advice)
 	// attach is handed the session once it exists, so its front end can
 	// reach the console and the pipelines' status; nil for none.
-	attach func(*coopSession)
+	attach func(*Session)
 }
 
 // defaultCoopEnv is the production environment for a session whose host
-// Dolphin is pid (0: the one WW_DOLPHIN_INDEX / WW_DOLPHIN_PID select).
-// Both of the tool's Dolphin user directories are backed up: a missing one
+// Dolphin is pid (0: the one WW_DOLPHIN_INDEX / WW_DOLPHIN_PID select),
+// which env opens. Both of the tool's Dolphin user directories are backed up: a missing one
 // has no cards, and a developer running two Dolphins has both in use.
-func defaultCoopEnv(pid uint32) coopEnv {
+func defaultCoopEnv(env Env, pid uint32) coopEnv {
 	ud1, ud2 := backup.UserDirs()
 	return coopEnv{
 		userDirs: []string{ud1, ud2},
 		openMem: func() (mem.Mem, func(), error) {
-			d, err := openDolphin(pid)
+			d, err := env.Open(pid)
 			if err != nil {
 				return nil, nil, err
 			}
 			return d, d.Close, nil
 		},
-		tick:   coopTick,
-		tables: loadCoopStageTables,
+		tick:   diag.Tick,
+		tables: stagetables.Load,
 	}
 }
 
@@ -250,11 +257,11 @@ func (e coopEnv) worldsRoot() (string, error) {
 	return world.Dir()
 }
 
-// coopSession is one host, join or mp-local session's co-op side: the
+// Session is one host, join or mp-local session's co-op side: the
 // hub (host and mp-local), the memory-card backup, the prompts, and what
 // the session's coop-sync pipelines share.
-type coopSession struct {
-	flags coopFlags
+type Session struct {
+	flags Flags
 	// world is the hub's world, so the host's own replicas check their
 	// files against it; zero on a joiner, whose replica learns it from
 	// the host's welcome.
@@ -273,7 +280,7 @@ type coopSession struct {
 	rep    log.Reporter
 	// tables are the session's M1 stage tables, nil without (every
 	// method is nil-safe).
-	tables *coopStageTables
+	tables *stagetables.Tables
 	// console runs the commands typed on stdin for the session's
 	// coop-sync pipelines.
 	console *coopConsole
@@ -293,7 +300,7 @@ type coopSession struct {
 }
 
 // askedFor is player name's set of files a bind was asked for.
-func (cs *coopSession) askedFor(name string) map[coopFileKey]bool {
+func (cs *Session) askedFor(name string) map[coopFileKey]bool {
 	cs.askedMu.Lock()
 	defer cs.askedMu.Unlock()
 	if cs.askedBy == nil {
@@ -315,7 +322,7 @@ func (cs *coopSession) askedFor(name string) map[coopFileKey]bool {
 // grants memory switches by them, and a writing replica sends their
 // identity in CO_HELLO. A dry-run joiner, which M2 ran without them,
 // does not.
-func startCoopSession(rep log.Reporter, f coopFlags, env coopEnv) *coopSession {
+func startCoopSession(rep log.Reporter, f Flags, env coopEnv) *Session {
 	cs := startCoopSide(rep, f, env, false)
 	cs.console.help()
 	return cs
@@ -323,8 +330,8 @@ func startCoopSession(rep log.Reporter, f coopFlags, env coopEnv) *coopSession {
 
 // startCoopSide is startCoopSession for a host (host: its hub needs the
 // tables even in a dry run) or a joiner.
-func startCoopSide(rep log.Reporter, f coopFlags, env coopEnv, host bool) *coopSession {
-	cs := &coopSession{flags: f, rep: rep, ask: env.front.ask, advise: env.front.advise, poses: map[string]*network.Client{}}
+func startCoopSide(rep log.Reporter, f Flags, env coopEnv, host bool) *Session {
+	cs := &Session{flags: f, rep: rep, ask: env.front.ask, advise: env.front.advise, poses: map[string]*network.Client{}}
 	var cmds <-chan promptLine
 	if cs.ask == nil {
 		p := newCoopPrompter(f.yes, env.input)
@@ -345,7 +352,7 @@ func startCoopSide(rep log.Reporter, f coopFlags, env coopEnv, host bool) *coopS
 	}
 	if env.tables != nil && (host || !f.dryRun) {
 		st, err := env.tables(f.iso)
-		logCoopStageTables(rep, st, err)
+		stagetables.Log(rep, st, err)
 		cs.tables = st
 	}
 	if !f.dryRun {
@@ -357,18 +364,18 @@ func startCoopSide(rep log.Reporter, f coopFlags, env coopEnv, host bool) *coopS
 }
 
 // m1 is the session's M1 tables, nil without.
-func (cs *coopSession) m1() *tables.Tables {
+func (cs *Session) m1() *tables.Tables {
 	if cs.tables == nil {
 		return nil
 	}
-	return cs.tables.t
+	return cs.tables.M1()
 }
 
 // policy is what the session's world takes and its replicas propose,
 // plan and write: the hub's (hub.SessionPolicy), with the story bits of
 // the SyncMask and the memory switches of the M1 verdict open.
-func (cs *coopSession) policy() *world.Policy {
-	return hub.SessionPolicy(cs.tables.switchVerdict())
+func (cs *Session) policy() *world.Policy {
+	return hub.SessionPolicy(cs.tables.SwitchVerdict())
 }
 
 // logCoopProgression says what of M4's shared progression (§9 M4) this
@@ -446,11 +453,17 @@ func logBackupCards(rep log.Reporter, b *backup.Backup) {
 	}
 }
 
+// StartHost is startCoopHost for package main's mp-local: its host
+// Dolphin is pid, opened with env (defaultCoopEnv).
+func StartHost(ctx context.Context, rep log.Reporter, srvLog func(string), f Flags, env Env, pid uint32) (*Session, error) {
+	return startCoopHost(ctx, rep, srvLog, f, defaultCoopEnv(env, pid))
+}
+
 // startCoopHost begins a host's co-op side (host and mp-local): the
 // backup, the world (selectCoopWorld, or a founding) and the hub, which
 // the caller sets as its server's Coop before Start. srvLog gets the
-// hub's lines, beside the server's own. Stop it with stop.
-func startCoopHost(ctx context.Context, rep log.Reporter, srvLog func(string), f coopFlags, env coopEnv) (*coopSession, error) {
+// hub's lines, beside the server's own. Stop it with Stop.
+func startCoopHost(ctx context.Context, rep log.Reporter, srvLog func(string), f Flags, env coopEnv) (*Session, error) {
 	cs := startCoopSide(rep, f, env, true)
 	st, err := cs.openWorld(ctx, rep, f, env, func(ctx context.Context, pol *world.Policy) (*world.World, error) {
 		m, closeMem, err := env.openMem()
@@ -472,7 +485,7 @@ func startCoopHost(ctx context.Context, rep log.Reporter, srvLog func(string), f
 // openWorld opens the world a host serves (selectCoopWorld), or, for
 // --coop=new, founds one with found and creates it under the worlds
 // root.
-func (cs *coopSession) openWorld(ctx context.Context, rep log.Reporter, f coopFlags, env coopEnv, found func(context.Context, *world.Policy) (*world.World, error)) (*world.Store, error) {
+func (cs *Session) openWorld(ctx context.Context, rep log.Reporter, f Flags, env coopEnv, found func(context.Context, *world.Policy) (*world.World, error)) (*world.Store, error) {
 	root, err := env.worldsRoot()
 	if err != nil {
 		return nil, err
@@ -504,17 +517,17 @@ func (cs *coopSession) openWorld(ctx context.Context, rep log.Reporter, f coopFl
 
 // startHub starts the hub over st, the session marker, and says what the
 // session writes.
-func (cs *coopSession) startHub(rep log.Reporter, srvLog func(string), f coopFlags, st *world.Store) error {
+func (cs *Session) startHub(rep log.Reporter, srvLog func(string), f Flags, st *world.Store) error {
 	features := hub.DefaultFeatures
 	if f.liveSwitches {
 		features |= hub.FeatureLiveSwitches
 	}
 	h, err := hub.New(hub.Config{
 		Store:        st,
-		StageTblHash: cs.tables.hash(),
-		SyncedSwitch: cs.tables.switchVerdict(),
-		SyncedScoped: cs.tables.scopedVerdict(),
-		SyncedKill:   cs.tables.killVerdict(),
+		StageTblHash: cs.tables.Hash(),
+		SyncedSwitch: cs.tables.SwitchVerdict(),
+		SyncedScoped: cs.tables.ScopedVerdict(),
+		SyncedKill:   cs.tables.KillVerdict(),
 		Features:     features,
 		Merge:        f.merge,
 		Logf:         func(format string, args ...any) { srvLog(fmt.Sprintf(format, args...)) },
@@ -525,15 +538,15 @@ func (cs *coopSession) startHub(rep log.Reporter, srvLog func(string), f coopFla
 	}
 	cs.hub, cs.store, cs.world, cs.dir = h, st, bind.WorldID(st.ID()), st.Dir()
 	cs.console.setHub(h.Status)
-	if prev, had, err := writeCoopMarker(cs.dir); err != nil {
+	if prev, had, err := WriteMarker(cs.dir); err != nil {
 		log.Logf(rep, log.Warn, "co-op: %v", err)
 	} else if had {
-		switch use, why := prev.state(); use {
-		case markerStale:
+		switch use, why := prev.State(); use {
+		case MarkerStale:
 			log.Logf(rep, log.Warn, "co-op: world %s was marked in use (%s), but that process has ended: its last session did not end cleanly", cs.world, prev)
-		case markerSelf:
+		case MarkerSelf:
 			log.Logf(rep, log.Warn, "co-op: world %s was marked in use by this process (%s): its earlier session here did not stop", cs.world, prev)
-		case markerLive:
+		case MarkerLive:
 			if why == "" {
 				log.Logf(rep, log.Warn, "co-op: world %s is marked in use by a process that still runs (%s): if that is another host serving it, stop one of them, or one host's changes are lost", cs.world, prev)
 			} else {
@@ -561,9 +574,9 @@ func (cs *coopSession) startHub(rep log.Reporter, srvLog func(string), f coopFla
 	return nil
 }
 
-// stop ends the hub, which writes the world, and removes the session
+// Stop ends the hub, which writes the world, and removes the session
 // marker. Nil-safe, for a session without co-op.
-func (cs *coopSession) stop() {
+func (cs *Session) Stop() {
 	if cs == nil || cs.hub == nil {
 		return
 	}
@@ -573,6 +586,10 @@ func (cs *coopSession) stop() {
 	removeCoopMarker(cs.dir)
 	cs.hub = nil
 }
+
+// Hub is the session's hub, which a host's server runs as its Coop; nil
+// on a joiner, and once stopped.
+func (cs *Session) Hub() *hub.Hub { return cs.hub }
 
 // logWorldLoad says how a world came off the disk when it took more than
 // reading world.wwco.
@@ -598,7 +615,7 @@ func selectCoopWorld(root, want string) (world.ID, error) {
 		id, err := bind.ParseWorldID(want)
 		return world.ID(id), err
 	}
-	ws, err := listCoopWorlds(root)
+	ws, err := ListWorlds(root)
 	if err != nil {
 		return world.ID{}, err
 	}
@@ -616,21 +633,21 @@ func selectCoopWorld(root, want string) (world.ID, error) {
 	return world.ID{}, errors.New(b.String())
 }
 
-// coopWorldInfo is one world on disk, as coop-world list and a host's
+// WorldInfo is one world on disk, as coop-world list and a host's
 // world choice show it.
-type coopWorldInfo struct {
+type WorldInfo struct {
 	id      world.ID
 	created time.Time
 	seq     uint64
-	tombs   int             // tombstoned bits
-	from    string          // the file it loads from, when not world.wwco
-	err     error           // why it can't be loaded
-	marker  *coopMarker     // its session marker, if any
-	use     coopMarkerState // what the marker says, judged as the list is made
-	useWhy  string          // why use is markerUnknown, or markerLive by pid alone (coopMarker.state)
+	tombs   int         // tombstoned bits
+	from    string      // the file it loads from, when not world.wwco
+	err     error       // why it can't be loaded
+	marker  *Marker     // its session marker, if any
+	use     MarkerState // what the marker says, judged as the list is made
+	useWhy  string      // why use is MarkerUnknown, or MarkerLive by pid alone (Marker.state)
 }
 
-func (w coopWorldInfo) String() string {
+func (w WorldInfo) String() string {
 	if w.err != nil {
 		return fmt.Sprintf("%s  unreadable: %v", w.id, w.err)
 	}
@@ -643,11 +660,11 @@ func (w coopWorldInfo) String() string {
 	}
 	if m := w.marker; m != nil {
 		switch {
-		case w.use == markerStale:
+		case w.use == MarkerStale:
 			s += fmt.Sprintf(", stale session marker (%s; that process has ended)", m)
-		case w.use == markerUnknown:
+		case w.use == MarkerUnknown:
 			s += fmt.Sprintf(", in use?: %s (can't tell: %s)", m, w.useWhy)
-		case w.use == markerLive && w.useWhy != "":
+		case w.use == MarkerLive && w.useWhy != "":
 			s += fmt.Sprintf(", in use: %s (by its pid alone: %s)", m, w.useWhy)
 		default:
 			s += fmt.Sprintf(", in use: %s", m)
@@ -656,10 +673,10 @@ func (w coopWorldInfo) String() string {
 	return s
 }
 
-// listCoopWorlds lists the worlds under root, newest first, reading each
+// ListWorlds lists the worlds under root, newest first, reading each
 // without changing anything (world.Load). A root that does not exist has
 // none.
-func listCoopWorlds(root string) ([]coopWorldInfo, error) {
+func ListWorlds(root string) ([]WorldInfo, error) {
 	ents, err := os.ReadDir(root)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -667,7 +684,7 @@ func listCoopWorlds(root string) ([]coopWorldInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("co-op: %w", err)
 	}
-	var out []coopWorldInfo
+	var out []WorldInfo
 	for _, e := range ents {
 		id, err := world.ParseID(e.Name())
 		if err != nil || !e.IsDir() || id.String() != e.Name() || id.IsZero() {
@@ -677,10 +694,10 @@ func listCoopWorlds(root string) ([]coopWorldInfo, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			continue // a directory without a world file: nothing to serve
 		}
-		info := coopWorldInfo{id: id, err: err}
-		if m, ok := readCoopMarker(world.Path(root, id)); ok {
+		info := WorldInfo{id: id, err: err}
+		if m, ok := ReadMarker(world.Path(root, id)); ok {
 			info.marker = &m
-			info.use, info.useWhy = m.state()
+			info.use, info.useWhy = m.State()
 		}
 		if w != nil {
 			info.created, info.seq = w.Created(), w.Seq()
@@ -692,8 +709,26 @@ func listCoopWorlds(root string) ([]coopWorldInfo, error) {
 		}
 		out = append(out, info)
 	}
-	slices.SortStableFunc(out, func(a, b coopWorldInfo) int { return b.created.Compare(a.created) })
+	slices.SortStableFunc(out, func(a, b WorldInfo) int { return b.created.Compare(a.created) })
 	return out, nil
+}
+
+// PrintWorlds prints the worlds under root, newest first: coop-world
+// list.
+func PrintWorlds(w io.Writer, root string) error {
+	ws, err := ListWorlds(root)
+	if err != nil {
+		return err
+	}
+	if len(ws) == 0 {
+		fmt.Fprintf(w, "No co-op worlds in %s yet: `host --coop=new` founds one from your loaded save file.\n", root)
+		return nil
+	}
+	fmt.Fprintf(w, "Co-op worlds in %s, newest first:\n", root)
+	for _, x := range ws {
+		fmt.Fprintf(w, "  %s\n", x)
+	}
+	return nil
 }
 
 // foundCoopWorld founds a world from the file loaded in m (§5.3): it
@@ -705,7 +740,7 @@ func listCoopWorlds(root string) ([]coopWorldInfo, error) {
 func foundCoopWorld(ctx context.Context, rep log.Reporter, m mem.Mem, tick func(), pol *world.Policy) (*world.World, error) {
 	var told time.Time
 	for {
-		s, st, _, err := gateSnapshots(m, tick)
+		s, st, _, err := diag.GateSnapshots(m, tick)
 		if err != nil {
 			return nil, fmt.Errorf("co-op: founding a world: %w", err)
 		}
@@ -766,41 +801,44 @@ func foundCheck(f bind.File) (string, error) {
 // the file is in use (the hub's next write would undo the edit). Its first
 // line, "pid <n> since <time>", is the one every version has written. The
 // second, "host=<name> start=<token>", names the machine and when the
-// process started (procState), so a marker a killed host left can be told
+// process started (procstate.State), so a marker a killed host left can be told
 // from a running host's.
-const coopMarkerName = "session.lock"
+const MarkerName = "session.lock"
 
-// coopMarker is a session marker as read back.
-type coopMarker struct {
+// Marker is a session marker as read back.
+type Marker struct {
 	text  string // the first line, made one short line for the terminal
 	pid   int    // from the first line; 0 if it names none
 	host  string // the machine that wrote it; "" for unknown, taken as this one
-	start string // the start token of its process (procState); "" for unknown
+	start string // the start token of its process (procstate.State); "" for unknown
 }
 
-func (m coopMarker) String() string {
+// PID is the pid the marker names; 0 or less names no process.
+func (m Marker) PID() int { return m.pid }
+
+func (m Marker) String() string {
 	if m.text == "" {
 		return "an empty marker"
 	}
 	return m.text
 }
 
-// coopMarkerState is what a session marker says of its world.
-type coopMarkerState int
+// MarkerState is what a session marker says of its world.
+type MarkerState int
 
 const (
-	markerLive    coopMarkerState = iota // a process with its pid (and start token, if both have one) runs on this machine
-	markerSelf                           // this process wrote it
-	markerStale                          // its process has ended: its session did not end cleanly
-	markerUnknown                        // it can't be checked, so it is taken as in use
+	MarkerLive    MarkerState = iota // a process with its pid (and start token, if both have one) runs on this machine
+	MarkerSelf                       // this process wrote it
+	MarkerStale                      // its process has ended: its session did not end cleanly
+	MarkerUnknown                    // it can't be checked, so it is taken as in use
 )
 
-// coopProcState is procState; tests replace it.
-var coopProcState = procState
+// ProcState is procstate.State; tests replace it.
+var ProcState = procstate.State
 
-// coopHostname is this machine's name as a marker records it, or "" if
+// Hostname is this machine's name as a marker records it, or "" if
 // the OS can't say.
-func coopHostname() string {
+func Hostname() string {
 	h, err := os.Hostname()
 	if err != nil {
 		return ""
@@ -808,66 +846,66 @@ func coopHostname() string {
 	return h
 }
 
-// state judges whether m's session may still run. For markerUnknown it
-// says why it can't tell, and for markerLive judged by pid alone why the
+// state judges whether m's session may still run. For MarkerUnknown it
+// says why it can't tell, and for MarkerLive judged by pid alone why the
 // start tokens weren't compared ("" when they were). Only positive
 // evidence makes a marker stale: no process on this machine has its pid,
 // or the one that has it started at another time than the marker records
 // (the pid was reused). A marker without a start token (one an older
-// version wrote, or one written where procState gives none, as on macOS)
-// is judged by its pid alone, as is one whose process's token procState
+// version wrote, or one written where procstate.State gives none, as on macOS)
+// is judged by its pid alone, as is one whose process's token procstate.State
 // can't read. The time on the first line is not used: it is local time
 // with no zone, so a clock or zone change could make a running host look
 // newer than its marker.
-func (m coopMarker) state() (coopMarkerState, string) {
+func (m Marker) State() (MarkerState, string) {
 	if m.pid <= 0 {
-		return markerUnknown, "it names no process"
+		return MarkerUnknown, "it names no process"
 	}
-	if here := coopHostname(); m.host != "" && !strings.EqualFold(m.host, here) {
+	if here := Hostname(); m.host != "" && !strings.EqualFold(m.host, here) {
 		if here == "" {
-			return markerUnknown, "this machine's name can't be read"
+			return MarkerUnknown, "this machine's name can't be read"
 		}
-		return markerUnknown, "it was written on another machine, " + coopMarkerLine(m.host)
+		return MarkerUnknown, "it was written on another machine, " + coopMarkerLine(m.host)
 	}
-	alive, start, err := coopProcState(m.pid)
+	alive, start, err := ProcState(m.pid)
 	if err != nil {
-		return markerUnknown, err.Error()
+		return MarkerUnknown, err.Error()
 	}
 	reused := m.start != "" && start != "" && m.start != start
 	switch {
 	case m.pid == os.Getpid() && !reused:
-		return markerSelf, ""
+		return MarkerSelf, ""
 	case !alive || reused:
-		return markerStale, ""
+		return MarkerStale, ""
 	case m.start == "":
-		return markerLive, "this marker has no start time"
+		return MarkerLive, "this marker has no start time"
 	case start == "":
-		return markerLive, "its start time can't be read"
+		return MarkerLive, "its start time can't be read"
 	}
-	return markerLive, ""
+	return MarkerLive, ""
 }
 
-// writeCoopMarker marks the world in dir as in use by this process, and
+// WriteMarker marks the world in dir as in use by this process, and
 // returns the marker it replaced, if there was one.
-func writeCoopMarker(dir string) (prev coopMarker, had bool, err error) {
-	prev, had = readCoopMarker(dir)
-	_, start, _ := coopProcState(os.Getpid())
-	text := fmt.Sprintf("pid %d since %s\nhost=%s start=%s\n", os.Getpid(), time.Now().Format(time.DateTime), coopHostname(), start)
-	if err := os.WriteFile(filepath.Join(dir, coopMarkerName), []byte(text), 0o644); err != nil {
+func WriteMarker(dir string) (prev Marker, had bool, err error) {
+	prev, had = ReadMarker(dir)
+	_, start, _ := ProcState(os.Getpid())
+	text := fmt.Sprintf("pid %d since %s\nhost=%s start=%s\n", os.Getpid(), time.Now().Format(time.DateTime), Hostname(), start)
+	if err := os.WriteFile(filepath.Join(dir, MarkerName), []byte(text), 0o644); err != nil {
 		return prev, had, fmt.Errorf("marking the world in use: %w", err)
 	}
 	return prev, had, nil
 }
 
-// readCoopMarker returns the marker of the world in dir, if it has one. A
+// ReadMarker returns the marker of the world in dir, if it has one. A
 // marker with one line, as older versions wrote, has no host or start.
-func readCoopMarker(dir string) (coopMarker, bool) {
-	b, err := os.ReadFile(filepath.Join(dir, coopMarkerName))
+func ReadMarker(dir string) (Marker, bool) {
+	b, err := os.ReadFile(filepath.Join(dir, MarkerName))
 	if err != nil {
-		return coopMarker{}, false
+		return Marker{}, false
 	}
 	first, rest, _ := strings.Cut(string(b), "\n")
-	m := coopMarker{text: coopMarkerLine(first)}
+	m := Marker{text: coopMarkerLine(first)}
 	if f := strings.Fields(first); len(f) >= 2 && f[0] == "pid" {
 		if pid, err := strconv.ParseInt(f[1], 10, 32); err == nil && pid > 0 {
 			m.pid = int(pid)
@@ -899,7 +937,7 @@ func coopMarkerLine(s string) string {
 	return s
 }
 
-func removeCoopMarker(dir string) { os.Remove(filepath.Join(dir, coopMarkerName)) }
+func removeCoopMarker(dir string) { os.Remove(filepath.Join(dir, MarkerName)) }
 
 // coopAsker answers a co-op session's yes/no questions (App PR 2's Asker,
 // docs/01-architecture.md): question logs q to rep, the asking
@@ -1079,7 +1117,7 @@ func (p *coopPrompter) ask(ctx context.Context, rep log.Reporter, question strin
 // coopSync is one Dolphin's coop-sync pipeline: a replica over its memory
 // and a co-op connection to the host's hub.
 type coopSync struct {
-	cs     *coopSession
+	cs     *Session
 	name   string // the player's name: the console's handle on it
 	rep    log.Reporter
 	m      mem.Mem
@@ -1105,12 +1143,12 @@ type coopFileKey struct {
 	name             [bind.PlayerNameSize]byte
 }
 
-// runCoopSyncCtx is the coop-sync pipeline of the Dolphin dolphinPID
+// RunSync is the coop-sync pipeline of the Dolphin dolphinPID
 // picks (0: the one WW_DOLPHIN_INDEX / WW_DOLPHIN_PID select), with its own
 // handle on it, connecting to the hub at addr as name. It returns the
 // error opening Dolphin, or nil when ctx ends.
-func runCoopSyncCtx(ctx context.Context, name, addr string, dolphinPID uint32, rep log.Reporter, cs *coopSession) error {
-	d, err := openDolphin(dolphinPID)
+func RunSync(ctx context.Context, env Env, name, addr string, dolphinPID uint32, rep log.Reporter, cs *Session) error {
+	d, err := env.Open(dolphinPID)
 	if err != nil {
 		return err
 	}
@@ -1135,7 +1173,7 @@ func runCoopSyncCtx(ctx context.Context, name, addr string, dolphinPID uint32, r
 // pipeline keeps running, and pose sync with it. A dry run is M2's
 // replica, configured as M2 configured it: no tables, M2's policy, the
 // image alone asked for.
-func (cs *coopSession) newSync(ctx context.Context, name string, m mem.Mem, rep log.Reporter) (*coopSync, error) {
+func (cs *Session) newSync(ctx context.Context, name string, m mem.Mem, rep log.Reporter) (*coopSync, error) {
 	s := &coopSync{cs: cs, name: name, rep: rep, m: m, asked: cs.askedFor(name)}
 	logf := func(format string, args ...any) {
 		rep.Log(log.Info, strings.TrimRight(fmt.Sprintf(format, args...), "\n")) // a preflight summary ends in one
@@ -1149,7 +1187,7 @@ func (cs *coopSession) newSync(ctx context.Context, name string, m mem.Mem, rep 
 	}
 	if !cs.flags.dryRun {
 		cfg.Apply = true
-		cfg.StageTblHash = cs.tables.hash()
+		cfg.StageTblHash = cs.tables.Hash()
 		cfg.Policy = cs.policy()
 		cfg.Tables = cs.m1()
 		cfg.Breaker = replica.NewBreaker(replica.BreakerConfig{Logf: func(format string, args ...any) {
@@ -1172,10 +1210,10 @@ func (cs *coopSession) newSync(ctx context.Context, name string, m mem.Mem, rep 
 	return s, nil
 }
 
-// withPoseClient returns an onClient for name's puppet-sync pipeline that
+// WithPoseClient returns an onClient for name's puppet-sync pipeline that
 // records its client for the warps (partnerPos), then calls next if set.
 // A nil session returns next.
-func (cs *coopSession) withPoseClient(name string, next func(*network.Client)) func(*network.Client) {
+func (cs *Session) WithPoseClient(name string, next func(*network.Client)) func(*network.Client) {
 	if cs == nil {
 		return next
 	}
@@ -1194,7 +1232,7 @@ func (cs *coopSession) withPoseClient(name string, next func(*network.Client)) f
 // itself (mp-local's twins each see the other) and not a remote that has
 // sent no position yet. With more than one other player it has none: the
 // warp is for the two players v1.0 supports.
-func (cs *coopSession) partnerPos(name string) func() (replica.Pos, bool) {
+func (cs *Session) partnerPos(name string) func() (replica.Pos, bool) {
 	return func() (replica.Pos, bool) {
 		cs.posesMu.Lock()
 		c := cs.poses[name]

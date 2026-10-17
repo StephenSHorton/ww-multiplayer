@@ -1,4 +1,4 @@
-package main
+package stagetables
 
 import (
 	"bytes"
@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -31,13 +30,13 @@ func (l *tablesLog) Log(level log.Level, msg string) {
 	l.lines = append(l.lines, fmt.Sprintf("%d %s", level, msg))
 }
 
-// useTablesDir points coopTablesCacheDir at dir for the test (an error
+// useTablesDir points CacheDir at dir for the test (an error
 // for dir "").
 func useTablesDir(t *testing.T, dir string) {
 	t.Helper()
-	saved := coopTablesCacheDir
-	t.Cleanup(func() { coopTablesCacheDir = saved })
-	coopTablesCacheDir = func() (string, error) {
+	saved := CacheDir
+	t.Cleanup(func() { CacheDir = saved })
+	CacheDir = func() (string, error) {
 		if dir == "" {
 			return "", errors.New("tables: no config directory for the cache: $HOME is not defined")
 		}
@@ -93,7 +92,7 @@ func TestTakeCoopISO(t *testing.T) {
 		{args: []string{"--coop-iso="}, err: "--coop-iso needs the path"},
 		{args: []string{"--coop-iso=a.iso", "--coop-iso=b.iso"}, err: "give one disc image"},
 	} {
-		iso, rest, err := takeCoopISO(c.args)
+		iso, rest, err := TakeISO(c.args)
 		if c.err != "" {
 			if err == nil || !strings.Contains(err.Error(), c.err) {
 				t.Errorf("%q: err %v, want %q", c.args, err, c.err)
@@ -110,20 +109,20 @@ func TestTakeCoopISO(t *testing.T) {
 // switch verdict and a policy that opens no memory switch, and the log
 // says what to do. (TestCoopStageTablesWhy has the other causes.)
 func TestNoCoopStageTables(t *testing.T) {
-	var none *coopStageTables
-	if none.hash() != 0 || none.syncedSwitch(keys.TableDRC, 0x20) || none.switchVerdict() != nil {
+	var none *Tables
+	if none.Hash() != 0 || none.SyncedSwitch(keys.TableDRC, 0x20) || none.SwitchVerdict() != nil {
 		t.Error("a session without tables has a hash or a switch")
 	}
-	if p := none.policy(); *p != *world.DefaultPolicy() {
+	if p := none.Policy(); *p != *world.DefaultPolicy() {
 		t.Error("the policy without tables is not world.DefaultPolicy")
 	}
 	useTablesDir(t, t.TempDir())
-	st, err := loadCoopStageTables("")
-	if st != nil || !errors.Is(err, errNoCoopTables) {
-		t.Fatalf("loadCoopStageTables with nothing recorded = %v, %v", st, err)
+	st, err := Load("")
+	if st != nil || !errors.Is(err, ErrNoTables) {
+		t.Fatalf("Load with nothing recorded = %v, %v", st, err)
 	}
 	var l tablesLog
-	logCoopStageTables(&l, st, err)
+	Log(&l, st, err)
 	if len(l.lines) != 1 || !strings.HasPrefix(l.lines[0], fmt.Sprint(log.Warn)) ||
 		!strings.Contains(l.lines[0], "patch has recorded no disc") || !strings.Contains(l.lines[0], "Run patch on your vanilla ISO with this build") || !strings.Contains(l.lines[0], "--coop-iso") ||
 		!strings.Contains(l.lines[0], "Memory switches, room puzzles and kills are not synced") {
@@ -131,7 +130,7 @@ func TestNoCoopStageTables(t *testing.T) {
 	}
 
 	useTablesDir(t, "")
-	if _, err := loadCoopStageTables(""); err == nil || !strings.Contains(err.Error(), "pass --coop-iso") {
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "pass --coop-iso") {
 		t.Errorf("without a config directory: %v", err)
 	}
 }
@@ -145,49 +144,49 @@ func TestCoopISOTables(t *testing.T) {
 	iso := writeImage(t, "ww.iso", tablestest.ISO(tablestest.Vanilla()))
 	want := fixtureIdentity(t)
 
-	st, err := loadCoopStageTables(iso)
+	st, err := Load(iso)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.hash() != want || !strings.Contains(st.from, "built from the disc") || strings.Contains(st.from, "not cached") {
-		t.Errorf("first load: %016x %q", st.hash(), st.from)
+	if st.Hash() != want || !strings.Contains(st.from, "built from the disc") || strings.Contains(st.from, "not cached") {
+		t.Errorf("first load: %016x %q", st.Hash(), st.from)
 	}
-	if !st.syncedSwitch(keys.TableDRC, 0x20) || st.syncedSwitch(keys.TableDRC, 0x30) {
+	if !st.SyncedSwitch(keys.TableDRC, 0x20) || st.SyncedSwitch(keys.TableDRC, 0x30) {
 		t.Error("the crystal is not synced, or the push block's path is")
 	}
 	sw := switchByte(t, keys.TableDRC, 0x20)
-	if p := st.policy(); p[sw.Off]&sw.Val == 0 || p[switchByte(t, keys.TableDRC, 0x30).Off]&switchByte(t, keys.TableDRC, 0x30).Val != 0 {
+	if p := st.Policy(); p[sw.Off]&sw.Val == 0 || p[switchByte(t, keys.TableDRC, 0x30).Off]&switchByte(t, keys.TableDRC, 0x30).Val != 0 {
 		t.Error("the policy doesn't follow the verdict")
 	}
-	if v := st.switchVerdict(); v == nil || !v(keys.TableDRC, 0x20) {
+	if v := st.SwitchVerdict(); v == nil || !v(keys.TableDRC, 0x20) {
 		t.Error("switchVerdict lost the crystal")
 	}
 	var l tablesLog
-	logCoopStageTables(&l, st, nil)
-	n, ts, gba := st.syncedCount()
+	Log(&l, st, nil)
+	n, ts, gba := st.SyncedCount()
 	if len(l.lines) != 1 || !strings.HasPrefix(l.lines[0], fmt.Sprint(log.OK)) ||
 		!strings.Contains(l.lines[0], fmt.Sprintf("stage tables %016x, %s", want, iso)) ||
 		!strings.Contains(l.lines[0], fmt.Sprintf("%d latching memory switch(es) in %d save table(s) sync (%d of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked)", n, ts, gba)) || n == 0 || gba != 0 {
 		t.Errorf("log %q (%d switches in %d tables, %d GBA-dependent)", l.lines, n, ts, gba)
 	}
 
-	again, err := loadCoopStageTables(iso)
-	if err != nil || again.hash() != want || !strings.HasSuffix(again.from, "from the cache") {
+	again, err := Load(iso)
+	if err != nil || again.Hash() != want || !strings.HasSuffix(again.from, "from the cache") {
 		t.Errorf("second load: %v %+v", err, again)
 	}
 
 	useTablesDir(t, "")
-	uncached, err := loadCoopStageTables(iso)
-	if err != nil || uncached.hash() != want || !strings.Contains(uncached.from, "not cached: no config directory") {
+	uncached, err := Load(iso)
+	if err != nil || uncached.Hash() != want || !strings.Contains(uncached.from, "not cached: no config directory") {
 		t.Errorf("load without a config directory: %v %+v", err, uncached)
 	}
 
 	useTablesDir(t, dir)
-	if _, err := loadCoopStageTables(filepath.Join(t.TempDir(), "missing.iso")); err == nil || !strings.Contains(err.Error(), "missing.iso") {
+	if _, err := Load(filepath.Join(t.TempDir(), "missing.iso")); err == nil || !strings.Contains(err.Error(), "missing.iso") {
 		t.Errorf("a missing image: %v", err)
 	}
 	empty := writeImage(t, "empty.iso", tablestest.Disc(nil).ISO(tablestest.DOL()))
-	if _, err := loadCoopStageTables(empty); err == nil || !strings.Contains(err.Error(), "no stages") {
+	if _, err := Load(empty); err == nil || !strings.Contains(err.Error(), "no stages") {
 		t.Errorf("an image without stages: %v", err)
 	}
 }
@@ -214,7 +213,7 @@ func TestCacheCoopTablesForPatch(t *testing.T) {
 	out := writeImage(t, "ww-multiplayer.iso", tablestest.PatchableISO(tablestest.Vanilla()))
 
 	var w bytes.Buffer
-	cacheCoopTablesForPatch(&w, out)
+	CacheForPatch(&w, out)
 	if got := w.String(); !strings.HasPrefix(got, "  co-op : stage tables built and cached in ") || !strings.HasSuffix(got, " s, for --coop sessions\n") {
 		t.Errorf("first patch says %q", got)
 	}
@@ -222,13 +221,13 @@ func TestCacheCoopTablesForPatch(t *testing.T) {
 	if err != nil || rec.Image != out {
 		t.Fatalf("record %+v, %v", rec, err)
 	}
-	st, err := loadCoopStageTables("")
-	if err != nil || st.hash() != fixtureIdentity(t) || !strings.Contains(st.from, out+" (the disc last patched, ") || !strings.HasSuffix(st.from, "from the cache") {
+	st, err := Load("")
+	if err != nil || st.Hash() != fixtureIdentity(t) || !strings.Contains(st.from, out+" (the disc last patched, ") || !strings.HasSuffix(st.from, "from the cache") {
 		t.Fatalf("session after patch: %v %+v", err, st)
 	}
 
 	w.Reset()
-	cacheCoopTablesForPatch(&w, out)
+	CacheForPatch(&w, out)
 	if got := w.String(); !strings.HasPrefix(got, "  co-op : stage tables already cached in ") {
 		t.Errorf("second patch says %q", got)
 	}
@@ -237,7 +236,7 @@ func TestCacheCoopTablesForPatch(t *testing.T) {
 	if err := os.Remove(tables.CacheFile(dir, rec.DOL)); err != nil {
 		t.Fatal(err)
 	}
-	st, err = loadCoopStageTables("")
+	st, err = Load("")
 	if err != nil || !strings.Contains(st.from, "built from the disc") {
 		t.Fatalf("session without the cache: %v %+v", err, st)
 	}
@@ -258,7 +257,7 @@ func TestCacheCoopTablesForPatch(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			useTablesDir(t, c.dir)
 			var w bytes.Buffer
-			cacheCoopTablesForPatch(&w, c.image)
+			CacheForPatch(&w, c.image)
 			got := w.String()
 			prefix, advice := "  co-op : WARNING: no co-op stage tables for this disc (", "--coop sessions will need --coop-iso"
 			if c.built {
@@ -283,7 +282,7 @@ func TestCacheCoopTablesForPatch(t *testing.T) {
 				t.Fatalf("the disc was not recorded: %+v, %v", rec, err)
 			case c.built:
 				// The session reads the recorded image and says the same.
-				if _, err := loadCoopStageTables(""); err == nil || errors.Is(err, errNoCoopTables) || !strings.Contains(oneLine(err), c.want) || !strings.Contains(err.Error(), "please report this line") {
+				if _, err := Load(""); err == nil || errors.Is(err, ErrNoTables) || !strings.Contains(oneLine(err), c.want) || !strings.Contains(err.Error(), "please report this line") {
 					t.Errorf("the session after this patch: %v", err)
 				}
 			}
@@ -312,7 +311,7 @@ func TestCacheCoopTablesForPatchUncached(t *testing.T) {
 		t.Fatal(err)
 	}
 	var w bytes.Buffer
-	cacheCoopTablesForPatch(&w, img)
+	CacheForPatch(&w, img)
 	if got := w.String(); !strings.HasPrefix(got, "  co-op : stage tables built (not cached: ") || !strings.Contains(got, "; each --coop session builds them again) in ") ||
 		!strings.HasSuffix(got, " s, for --coop sessions\n") || strings.Count(got, "\n") != 1 {
 		t.Errorf("patch says %q", got)
@@ -320,8 +319,8 @@ func TestCacheCoopTablesForPatchUncached(t *testing.T) {
 	if rec, err := tables.ReadLastPatched(dir); err != nil || rec.Image != img || rec.ID != id {
 		t.Fatalf("record %+v, %v; want %s", rec, err, img)
 	}
-	st, err := loadCoopStageTables("")
-	if err != nil || st.hash() != fixtureIdentity(t) || !strings.Contains(st.from, "built from the disc") || !strings.Contains(st.from, "not cached") {
+	st, err := Load("")
+	if err != nil || st.Hash() != fixtureIdentity(t) || !strings.Contains(st.from, "built from the disc") || !strings.Contains(st.from, "not cached") {
 		t.Errorf("the session after this patch: %v %+v", err, st)
 	}
 }
@@ -373,7 +372,7 @@ func TestCacheCoopTablesForPatchNoRecord(t *testing.T) {
 				}
 			}
 			var w bytes.Buffer
-			cacheCoopTablesForPatch(&w, img)
+			CacheForPatch(&w, img)
 			got := w.String()
 			if !strings.HasPrefix(got, c.prefix) || strings.Count(got, "\n") != 1 {
 				t.Errorf("patch says %q, want one line starting %q", got, c.prefix)
@@ -413,7 +412,7 @@ func TestCoopStageTablesWhy(t *testing.T) {
 		// setup prepares the tables directory and returns the session's
 		// --coop-iso, "" for none.
 		setup  func(t *testing.T, dir string) string
-		noDisc bool     // errNoCoopTables
+		noDisc bool     // ErrNoTables
 		want   []string // in the warning
 		not    []string // not in it
 	}{
@@ -421,7 +420,7 @@ func TestCoopStageTablesWhy(t *testing.T) {
 			[]string{"patch has recorded no disc on this machine", "Run patch on your vanilla ISO with this build", "pass --coop-iso"}, []string{"please report"}},
 		{"the image and its cache gone", func(t *testing.T, dir string) string {
 			img := writeImage(t, "ww-multiplayer.iso", tablestest.PatchableISO(tablestest.Vanilla()))
-			cacheCoopTablesForPatch(io.Discard, img)
+			CacheForPatch(io.Discard, img)
 			rec, err := tables.ReadLastPatched(dir)
 			if err != nil {
 				t.Fatal(err)
@@ -465,12 +464,12 @@ func TestCoopStageTablesWhy(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
 			useTablesDir(t, dir)
-			st, err := loadCoopStageTables(c.setup(t, dir))
-			if st != nil || err == nil || errors.Is(err, errNoCoopTables) != c.noDisc {
-				t.Fatalf("loadCoopStageTables = %+v, %v; want errNoCoopTables %v", st, err, c.noDisc)
+			st, err := Load(c.setup(t, dir))
+			if st != nil || err == nil || errors.Is(err, ErrNoTables) != c.noDisc {
+				t.Fatalf("Load = %+v, %v; want ErrNoTables %v", st, err, c.noDisc)
 			}
 			var l tablesLog
-			logCoopStageTables(&l, st, err)
+			Log(&l, st, err)
 			if len(l.lines) != 1 || !strings.HasPrefix(l.lines[0], fmt.Sprint(log.Warn)) || strings.Contains(l.lines[0], "\n") ||
 				!strings.Contains(l.lines[0], "Memory switches, room puzzles and kills are not synced") {
 				t.Fatalf("log %q", l.lines)
@@ -498,15 +497,15 @@ func TestCoopTablesAfterAFailedPatch(t *testing.T) {
 	useTablesDir(t, dir)
 	img := writeImage(t, "ww-multiplayer.iso", tablestest.Disc([]stagetest.Stage{{Name: "a", DZS: []byte{1}}}).ISO(tablestest.PatchableDOL()))
 	var w bytes.Buffer
-	cacheCoopTablesForPatch(&w, img)
+	CacheForPatch(&w, img)
 	if got := w.String(); !strings.HasPrefix(got, "  co-op : WARNING: this build can't make the co-op stage tables of this disc (") {
 		t.Fatalf("patch says %q", got)
 	}
 	if err := os.WriteFile(img, tablestest.PatchableISO(tablestest.Vanilla()), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	st, err := loadCoopStageTables("")
-	if err != nil || st.hash() != fixtureIdentity(t) || !strings.Contains(st.from, img+" (the disc last patched, ") ||
+	st, err := Load("")
+	if err != nil || st.Hash() != fixtureIdentity(t) || !strings.Contains(st.from, img+" (the disc last patched, ") ||
 		!strings.Contains(st.from, "built from the disc") || !strings.Contains(st.from, "the image has changed since then") {
 		t.Fatalf("the session after the image changed: %v %+v", err, st)
 	}
@@ -529,24 +528,24 @@ func TestCoopTablesAfterAnotherDiscFails(t *testing.T) {
 	dir := t.TempDir()
 	useTablesDir(t, dir)
 	good := writeImage(t, "ww-multiplayer.iso", tablestest.PatchableISO(tablestest.Vanilla()))
-	cacheCoopTablesForPatch(io.Discard, good)
+	CacheForPatch(io.Discard, good)
 	broken := writeImage(t, "broken.iso", tablestest.Disc([]stagetest.Stage{{Name: "a", DZS: []byte{1}}}).ISO(tablestest.PatchableDOL()))
 	var w bytes.Buffer
-	cacheCoopTablesForPatch(&w, broken)
+	CacheForPatch(&w, broken)
 	if got := w.String(); !strings.HasPrefix(got, "  co-op : WARNING: this build can't make the co-op stage tables of this disc (") {
 		t.Fatalf("patch says %q", got)
 	}
-	st, err := loadCoopStageTables("")
+	st, err := Load("")
 	if st != nil || err == nil || !strings.Contains(err.Error(), broken+" (the disc last patched, ") || strings.Contains(err.Error(), good) {
 		t.Fatalf("the session after patching %s, then %s: %+v, %v; want %s's build failure", good, broken, st, err, broken)
 	}
 
 	want := fixtureIdentity(t)
-	if st, err := loadCoopStageTables(good); err != nil || st.hash() != want || !strings.HasSuffix(st.from, "from the cache") {
+	if st, err := Load(good); err != nil || st.Hash() != want || !strings.HasSuffix(st.from, "from the cache") {
 		t.Errorf("--coop-iso %s: %v %+v", good, err, st)
 	}
-	cacheCoopTablesForPatch(io.Discard, good)
-	if st, err := loadCoopStageTables(""); err != nil || st.hash() != want || !strings.Contains(st.from, good+" (the disc last patched, ") {
+	CacheForPatch(io.Discard, good)
+	if st, err := Load(""); err != nil || st.Hash() != want || !strings.Contains(st.from, good+" (the disc last patched, ") {
 		t.Errorf("the session after patching %s again: %v %+v", good, err, st)
 	}
 }
@@ -554,144 +553,13 @@ func TestCoopTablesAfterAnotherDiscFails(t *testing.T) {
 // TestCacheCoopTablesForPatchPanics: a panic building the tables is a
 // warning, not the patch's failure.
 func TestCacheCoopTablesForPatchPanics(t *testing.T) {
-	saved := coopTablesCacheDir
-	t.Cleanup(func() { coopTablesCacheDir = saved })
-	coopTablesCacheDir = func() (string, error) { panic("boom") }
+	saved := CacheDir
+	t.Cleanup(func() { CacheDir = saved })
+	CacheDir = func() (string, error) { panic("boom") }
 	var w bytes.Buffer
-	cacheCoopTablesForPatch(&w, "x.iso")
+	CacheForPatch(&w, "x.iso")
 	if got := w.String(); !strings.HasPrefix(got, "  co-op : WARNING: building the co-op stage tables failed (a bug; please report it: boom)") || strings.Contains(got, "--coop-iso") {
 		t.Errorf("says %q", got)
-	}
-}
-
-// TestPatchHelper's input image, output image and tables directory.
-const (
-	patchHelperIn  = "WW_TEST_PATCH_IN"
-	patchHelperOut = "WW_TEST_PATCH_OUT"
-	patchHelperDir = "WW_TEST_PATCH_TABLES"
-)
-
-// TestPatchHelper is not a real test: runPatchCmd re-executes the test
-// binary with it selected and its variables set, and it runs `patch` as
-// main() does, so the tests see its output and exit code.
-func TestPatchHelper(t *testing.T) {
-	in, ok := os.LookupEnv(patchHelperIn)
-	if !ok {
-		return
-	}
-	dir := os.Getenv(patchHelperDir)
-	coopTablesCacheDir = func() (string, error) { return dir, nil }
-	os.Args = []string{"ww-multiplayer", "patch", in, os.Getenv(patchHelperOut)}
-	main()
-	os.Exit(0) // keep the testing package's "PASS" off stdout
-}
-
-// runPatchCmd runs `ww-multiplayer patch in out` with the co-op tables
-// kept in dir, and returns its stdout and exit code.
-func runPatchCmd(t *testing.T, in, out, dir string) (string, int) {
-	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestPatchHelper$")
-	cmd.Env = append(os.Environ(), patchHelperIn+"="+in, patchHelperOut+"="+out, patchHelperDir+"="+dir,
-		"GORACE="+strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0"))
-	stdout, err := cmd.Output()
-	var exitErr *exec.ExitError
-	switch {
-	case err == nil:
-		return string(stdout), 0
-	case errors.As(err, &exitErr):
-		return string(stdout), exitErr.ExitCode()
-	}
-	t.Fatalf("running patch: %v", err)
-	return "", 0
-}
-
-// TestPatchCoopTables runs `patch` end to end on synthetic discs: the
-// image it writes is byte for byte what the patcher makes of the input,
-// whether or not the co-op tables can be built from it, its output is the
-// old output plus one co-op line, and it exits 0 either way. The image is
-// recorded either way too. Patching the patched image again records that
-// image.
-func TestPatchCoopTables(t *testing.T) {
-	for _, c := range []struct {
-		name   string
-		img    []byte
-		tables bool
-	}{
-		{"a disc with stages", tablestest.PatchableISO(tablestest.Vanilla()), true},
-		{"a disc without stages", tablestest.PatchableISO(nil), false},
-		{"another disc", tablestest.PatchableISO([]stagetest.Stage{tablestest.Dungeon("M_NewD2", keys.TableDRC)}), true},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			dir := t.TempDir()
-			in := writeImage(t, "ww.iso", c.img)
-			out := filepath.Join(t.TempDir(), "ww-multiplayer.iso")
-			want, err := inject.PatchISOInMemory(c.img)
-			if err != nil {
-				t.Fatal(err)
-			}
-			stdout, code := runPatchCmd(t, in, out, dir)
-			if code != 0 {
-				t.Fatalf("exit %d:\n%s", code, stdout)
-			}
-			got, err := os.ReadFile(out)
-			if err != nil || !bytes.Equal(got, want) {
-				t.Fatalf("the patched image differs from PatchISOInMemory's (%d bytes, want %d; %v)", len(got), len(want), err)
-			}
-			lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
-			co := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "  co-op : ") })
-			if co < 0 || slices.ContainsFunc(lines[co+1:], func(l string) bool { return strings.HasPrefix(l, "  co-op : ") }) {
-				t.Fatalf("not one co-op line:\n%s", stdout)
-			}
-			old := slices.Delete(slices.Clone(lines), co, co+1)
-			wantOld := []string{"Wind Waker Multiplayer patcher", "  input : " + in, "  output: " + out}
-			if res := old[3]; strings.HasPrefix(res, "  FST   : moved ") {
-				wantOld = append(wantOld, res)
-			}
-			wantOld = append(wantOld, "", "Done. Boot "+out+" in Dolphin to play multiplayer.")
-			if !slices.Equal(old, wantOld) || co != len(wantOld)-2 {
-				t.Errorf("output without the co-op line:\n%s\nwant\n%s", strings.Join(old, "\n"), strings.Join(wantOld, "\n"))
-			}
-			rec, recErr := tables.ReadLastPatched(dir)
-			if c.tables {
-				if !strings.Contains(lines[co], "stage tables built and cached") || recErr != nil || rec.Image != out {
-					t.Errorf("co-op line %q, record %+v, %v", lines[co], rec, recErr)
-				}
-			} else if !strings.Contains(lines[co], "WARNING: this build can't make the co-op stage tables") || recErr != nil || rec.Image != out {
-				t.Errorf("co-op line %q, record %+v, %v", lines[co], rec, recErr)
-			}
-			if !c.tables {
-				return
-			}
-
-			// Patching the patched image: nothing to do, exit 0, and the
-			// record now names that image.
-			again := filepath.Join(t.TempDir(), "again.iso")
-			stdout, code = runPatchCmd(t, out, again, dir)
-			if code != 0 || !strings.Contains(stdout, "already contains this version") || !strings.Contains(stdout, "  co-op : stage tables already cached") {
-				t.Fatalf("patching the patched image: exit %d\n%s", code, stdout)
-			}
-			if _, err := os.Stat(again); err == nil {
-				t.Error("patching the patched image wrote an image")
-			}
-			if rec, err := tables.ReadLastPatched(dir); err != nil || rec.Image != out {
-				t.Errorf("record after patching the patched image: %+v, %v", rec, err)
-			}
-		})
-	}
-
-	// A disc patched by another version still fails, without a co-op line.
-	patched, err := inject.PatchISOInMemory(tablestest.PatchableISO(tablestest.Vanilla()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t2 := bytes.Index(patched, inject.T2Bytes)
-	if t2 < 0 {
-		t.Fatal("no T2 section in the patched image")
-	}
-	patched[t2+len(inject.T2Bytes)/2] ^= 0xFF
-	stdout, code := runPatchCmd(t, writeImage(t, "other.iso", patched), filepath.Join(t.TempDir(), "o.iso"), t.TempDir())
-	if code != 1 || !strings.Contains(stdout, "patched by a different ww-multiplayer version") || strings.Contains(stdout, "co-op") {
-		t.Errorf("another version's image: exit %d\n%s", code, stdout)
 	}
 }
 
@@ -699,16 +567,16 @@ func TestPatchCoopTables(t *testing.T) {
 // replica's policy too, so both sides agree on every memory switch.
 func TestCoopStageTablesPolicyIsHubs(t *testing.T) {
 	useTablesDir(t, t.TempDir())
-	st, err := loadCoopStageTables(writeImage(t, "ww.iso", tablestest.ISO(tablestest.Vanilla())))
+	st, err := Load(writeImage(t, "ww.iso", tablestest.ISO(tablestest.Vanilla())))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *st.policy() != *hub.SwitchPolicy(world.DefaultPolicy(), st.switchVerdict()) {
+	if *st.Policy() != *hub.SwitchPolicy(world.DefaultPolicy(), st.SwitchVerdict()) {
 		t.Error("the replica's policy is not the hub's")
 	}
 }
 
-// FuzzTakeCoopISO: on any command line takeCoopISO takes every --coop-iso
+// FuzzTakeCoopISO: on any command line TakeISO takes every --coop-iso
 // before "--" and nothing else, in order, or fails.
 func FuzzTakeCoopISO(f *testing.F) {
 	for _, s := range []string{"Alice\x00--coop-iso\x00ww.iso", "--coop-iso=a\x00--\x00--coop-iso=b", "--coop-iso", "--coop-iso=\x00x", "a\x00b"} {
@@ -716,7 +584,7 @@ func FuzzTakeCoopISO(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, s string) {
 		args := strings.Split(s, "\x00")
-		iso, rest, err := takeCoopISO(args)
+		iso, rest, err := TakeISO(args)
 		if err != nil {
 			if iso != "" || rest != nil {
 				t.Fatalf("%q: %q, %q with error %v", args, iso, rest, err)
@@ -733,14 +601,14 @@ func FuzzTakeCoopISO(f *testing.F) {
 				kept = append(kept, args[i:]...)
 				break
 			}
-			if a == coopISOFlag {
+			if a == ISOFlag {
 				if args[i+1] != iso {
 					t.Fatalf("%q: took %q, not %q", args, iso, args[i+1])
 				}
 				args[i+1] = "\x00" // its value, taken with it
 				continue
 			}
-			if v, ok := strings.CutPrefix(a, coopISOFlag+"="); ok {
+			if v, ok := strings.CutPrefix(a, ISOFlag+"="); ok {
 				if v != iso {
 					t.Fatalf("%q: took %q, not %q", args, iso, v)
 				}
@@ -750,7 +618,7 @@ func FuzzTakeCoopISO(f *testing.F) {
 				kept = append(kept, a)
 			}
 		}
-		if !slices.Equal(rest, kept) || slices.Contains(rest[:end], coopISOFlag) {
+		if !slices.Equal(rest, kept) || slices.Contains(rest[:end], ISOFlag) {
 			t.Fatalf("%q: rest %q, want %q", strings.Split(s, "\x00"), rest, kept)
 		}
 	})

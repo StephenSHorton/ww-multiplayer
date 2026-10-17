@@ -1,4 +1,4 @@
-package main
+package coopsession
 
 import (
 	"context"
@@ -12,6 +12,8 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind/bindtest"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
@@ -83,7 +85,7 @@ type coopRig struct {
 }
 
 func newCoopRig(t *testing.T, bound bool, worlds string) *coopRig {
-	_, m, tick := m2Game(t, bound)
+	_, m, tick := bindtest.Game(t, bound)
 	return &coopRig{worlds: worlds, m: m, tick: tick}
 }
 
@@ -120,15 +122,15 @@ func (r *coopRig) starts() []string {
 // reset, and the hub removes its session marker.
 func TestLobbyCoopNewWorld(t *testing.T) {
 	worlds := t.TempDir()
-	host := newCoopRig(t, true, worlds) // the host's file: bound to m2World already
+	host := newCoopRig(t, true, worlds) // the host's file: bound to bindtest.World already
 	join := newCoopRig(t, false, worlds)
 	fa, fb := enginetest.NewGame(), enginetest.NewGame()
 	fb.NextPID = 200
 	da, db := gameDeps(fa), gameDeps(fb)
 	da.CoopSync, db.CoopSync = coopSyncFake(fa), coopSyncFake(fb)
-	ea := engine.New(engine.Config{Live: &engine.LiveState{}, Game: da, Coop: coopApp{lobby: host.deps(t, "host")}})
-	eb := engine.New(engine.Config{Live: &engine.LiveState{}, Game: db, Coop: coopApp{lobby: join.deps(t, "joiner")}})
-	join.hubSet = func() bool { cs, _ := ea.CoopSide().(*coopSession); return cs != nil && cs.hub != nil }
+	ea := engine.New(engine.Config{Live: &engine.LiveState{}, Game: da, Coop: coopApp{env: testEnv, lobby: host.deps(t, "host")}})
+	eb := engine.New(engine.Config{Live: &engine.LiveState{}, Game: db, Coop: coopApp{env: testEnv, lobby: join.deps(t, "joiner")}})
+	join.hubSet = func() bool { cs, _ := ea.CoopSide().(*Session); return cs != nil && cs.hub != nil }
 	ca, cb := session.New(ea, session.Options{}), session.New(eb, session.Options{})
 
 	port := freePort(t)
@@ -156,7 +158,7 @@ func TestLobbyCoopNewWorld(t *testing.T) {
 	st := waitSnap(t, ca, "the founding blocked on the bound file", func(st session.State) bool {
 		return st.Founding != nil && st.Founding.Phase == session.FoundingBlocked
 	})
-	if st.Founding.Blocker != session.BlockBound || st.Founding.TagWorld != m2World.String() || !strings.Contains(st.Founding.File, `"Link"`) {
+	if st.Founding.Blocker != session.BlockBound || st.Founding.TagWorld != bindtest.World.String() || !strings.Contains(st.Founding.File, `"Link"`) {
 		t.Fatalf("founding %+v", st.Founding)
 	}
 	if st.Phase != session.Starting || !st.Coop.On || st.Coop.World != "new" {
@@ -174,7 +176,7 @@ func TestLobbyCoopNewWorld(t *testing.T) {
 	if err := ca.UnbindFile("ffffffffffffffff"); err == nil || !strings.Contains(err.Error(), "changed") {
 		t.Fatalf("UnbindFile for another world = %v", err)
 	}
-	if err := ca.UnbindFile(m2World.String()); err != nil {
+	if err := ca.UnbindFile(bindtest.World.String()); err != nil {
 		t.Fatal(err)
 	}
 	st = waitSnap(t, ca, "founded and in game", func(st session.State) bool {
@@ -193,7 +195,7 @@ func TestLobbyCoopNewWorld(t *testing.T) {
 	}
 	waitFor(t, "host coop-sync", hasEvent(fa, "coop-sync 100 start"))
 	waitFor(t, "joiner coop-sync", hasEvent(fb, "coop-sync 200 start"))
-	if ws, err := listCoopWorlds(worlds); err != nil || len(ws) != 1 || ws[0].id.String() != wid || ws[0].marker == nil {
+	if ws, err := ListWorlds(worlds); err != nil || len(ws) != 1 || ws[0].id.String() != wid || ws[0].marker == nil {
 		t.Fatalf("worlds %+v, %v", ws, err)
 	}
 
@@ -213,7 +215,7 @@ func TestLobbyCoopNewWorld(t *testing.T) {
 		!slices.Contains(ev[3:5], "coop-sync 100 stop") || !slices.Contains(ev[3:5], "pipelines 100 stop") || strings.Join(ev[5:], ", ") != "reset 100, left" {
 		t.Fatalf("host teardown %q", ev)
 	}
-	if ws, _ := listCoopWorlds(worlds); len(ws) != 1 || ws[0].marker != nil {
+	if ws, _ := ListWorlds(worlds); len(ws) != 1 || ws[0].marker != nil {
 		t.Fatalf("the hub left its marker: %+v", ws)
 	}
 }
@@ -237,8 +239,8 @@ func TestLobbyCoopContinue(t *testing.T) {
 			fb.NextPID = 200
 			da, db := gameDeps(fa), gameDeps(fb)
 			da.CoopSync, db.CoopSync = coopSyncFake(fa), coopSyncFake(fb)
-			ea := engine.New(engine.Config{Live: &engine.LiveState{}, Game: da, Coop: coopApp{lobby: host.deps(t, "host")}})
-			eb := engine.New(engine.Config{Live: &engine.LiveState{}, Game: db, Coop: coopApp{lobby: join.deps(t, "joiner")}})
+			ea := engine.New(engine.Config{Live: &engine.LiveState{}, Game: da, Coop: coopApp{env: testEnv, lobby: host.deps(t, "host")}})
+			eb := engine.New(engine.Config{Live: &engine.LiveState{}, Game: db, Coop: coopApp{env: testEnv, lobby: join.deps(t, "joiner")}})
 			ca, cb := session.New(ea, session.Options{}), session.New(eb, session.Options{})
 			port := freePort(t)
 			if _, err := ca.HostLobby(context.Background(), session.HostOptions{Name: "Host", Port: port, ListenHost: "127.0.0.1", Launch: optsA}); err != nil {
@@ -283,27 +285,27 @@ func TestLobbyCoopContinue(t *testing.T) {
 // not the one the dialog showed (another file loaded since), or that
 // names the session's own world, is kept.
 func TestClearLoadedTag(t *testing.T) {
-	_, m, tick := m2Game(t, true)
+	_, m, tick := bindtest.Game(t, true)
 	log := &coLog{}
 	for _, c := range []struct{ want, own string }{
-		{"ffffffffffffffff", ""},             // the dialog showed another file's tag
-		{"", ""},                             // ... or a file with no readable tag
-		{m2World.String(), m2World.String()}, // the session's own world
+		{"ffffffffffffffff", ""}, // the dialog showed another file's tag
+		{"", ""},                 // ... or a file with no readable tag
+		{bindtest.World.String(), bindtest.World.String()}, // the session's own world
 	} {
 		if err := clearLoadedTag(log, m, tick, c.want, c.own); err == nil {
 			t.Fatalf("clear %+v removed the tag", c)
 		}
 	}
-	if s, _, _, err := gateSnapshots(m, tick); err != nil || bind.Classify(bind.FileOf(s), bind.Expect{}).State != bind.Bound {
+	if s, _, _, err := diag.GateSnapshots(m, tick); err != nil || bind.Classify(bind.FileOf(s), bind.Expect{}).State != bind.Bound {
 		t.Fatalf("a refused clear changed the file (%v)", err)
 	}
-	if err := clearLoadedTag(log, m, tick, m2World.String(), "0000000000000001"); err != nil {
+	if err := clearLoadedTag(log, m, tick, bindtest.World.String(), "0000000000000001"); err != nil {
 		t.Fatal(err)
 	}
-	if !log.has("co-op: cleared the co-op tag (world "+m2World.String()+", bound)") || !log.has(`"Link"`) {
+	if !log.has("co-op: cleared the co-op tag (world "+bindtest.World.String()+", bound)") || !log.has(`"Link"`) {
 		t.Fatalf("log:\n%s", log)
 	}
-	s, st, _, err := gateSnapshots(m, tick)
+	s, st, _, err := diag.GateSnapshots(m, tick)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,17 +321,17 @@ func TestClearLoadedTag(t *testing.T) {
 // TestOfferQuestionFields: a bind offer's question names the file and
 // the world, for the window's dialog.
 func TestOfferQuestionFields(t *testing.T) {
-	_, m, tick := m2Game(t, false)
-	s, st, _, err := gateSnapshots(m, tick)
+	_, m, tick := bindtest.Game(t, false)
+	s, st, _, err := diag.GateSnapshots(m, tick)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := bind.PlanBind(s, st, bind.BindRequest{World: m2World, WorldSeq: 1})
+	p, err := bind.PlanBind(s, st, bind.BindRequest{World: bindtest.World, WorldSeq: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	q := offerQuestion("Link", replica.Offer{Plan: p})
-	if q.Kind != session.QuestionBind || q.FileName != "Link" || q.FileSlot != 1 || q.World != m2World.String() || q.TagWorld != "" || q.MaybeFresh || len(q.Failed) != 0 {
+	if q.Kind != session.QuestionBind || q.FileName != "Link" || q.FileSlot != 1 || q.World != bindtest.World.String() || q.TagWorld != "" || q.MaybeFresh || len(q.Failed) != 0 {
 		t.Fatalf("question %+v", q)
 	}
 }
@@ -355,10 +357,10 @@ func TestAppCoopHostLogsMatchCLI(t *testing.T) {
 		}
 		return out
 	}
-	f := coopFlags{on: true, world: coopWorldNew}
+	f := Flags{on: true, world: coopWorldNew}
 
 	// The CLI.
-	_, m1, tick1 := m2Game(t, false)
+	_, m1, tick1 := bindtest.Game(t, false)
 	worlds1, backups1 := t.TempDir(), t.TempDir()
 	cli := &coLog{}
 	cs, err := startCoopHost(context.Background(), cli, func(string) {}, f, coopEnv{worlds: worlds1, backups: backups1, userDirs: []string{ud},
@@ -366,10 +368,10 @@ func TestAppCoopHostLogsMatchCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cs.stop()
+	cs.Stop()
 
 	// The app.
-	_, m2, tick2 := m2Game(t, false)
+	_, m2, tick2 := bindtest.Game(t, false)
 	worlds2, backups2 := t.TempDir(), t.TempDir()
 	out := &enginetest.Out{}
 	e := engine.New(engine.Config{Live: &engine.LiveState{}})
@@ -408,7 +410,7 @@ func TestGameRunnerCoopRestart(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	clog := &coLog{}
-	cs := startCoopSession(clog, coopFlags{on: true, dryRun: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: strings.NewReader("")})
+	cs := startCoopSession(clog, Flags{on: true, dryRun: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: strings.NewReader("")})
 	cs.console.setCtx(ctx)
 	k := coopFileKey{slot: 0, name: [bind.PlayerNameSize]byte{'L', 'i', 'n', 'k'}}
 
@@ -422,7 +424,7 @@ func TestGameRunnerCoopRestart(t *testing.T) {
 	)
 	d := gameDeps(f)
 	d.CoopSync = func(cctx context.Context, name, addr string, pid uint32, rep log.Reporter, side engine.CoopSide) error {
-		cs := side.(*coopSession)
+		cs := side.(*Session)
 		cg := newCoGame(t, name, coMine{life: 12})
 		return appSyncOn(cctx, cs, name, cg.m, rep, func(cctx context.Context, s *coopSync) error {
 			mu.Lock()
@@ -500,7 +502,7 @@ func TestRetryBindsAfterMerge(t *testing.T) {
 		openMem: func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
 		tick:    func() { time.Sleep(10 * time.Millisecond) },
 	}}
-	h.start(coopFlags{on: true, world: coopWorldNew, yes: true})
+	h.start(Flags{on: true, world: coopWorldNew, yes: true})
 	defer h.stop()
 
 	// The joiner's file: the host's, plus a bit of progress the world lacks.
@@ -522,7 +524,7 @@ func TestRetryBindsAfterMerge(t *testing.T) {
 		}
 	}()
 	log := &coLog{}
-	cs := startCoopSession(log, coopFlags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: strings.NewReader("")})
+	cs := startCoopSession(log, Flags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: strings.NewReader("")})
 	s, err := cs.newSync(ctx, "Aryll", gb.m, log)
 	if err != nil {
 		t.Fatal(err)
