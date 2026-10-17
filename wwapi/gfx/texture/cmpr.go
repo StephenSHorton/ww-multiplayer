@@ -1,5 +1,6 @@
-// Package tunic recolors Link's green tunic in his body texture
-// (docs/09-player-colors.md).
+// Package texture recolors Link's green tunic in his body texture
+// (docs/09-player-colors.md), and parses the GameCube texture headers
+// (ResTIMG) it lives in.
 //
 // Link's tunic green is not a material color: it is painted into the
 // "linktexS3TC" texture of cl.bdl (tww d_a_player_main.cpp:12319-12357,
@@ -12,8 +13,13 @@
 // reordering the endpoints when the recolor flips their order.
 //
 // The package is pure: bytes in, bytes out. Reading and writing the texture
-// in Dolphin's RAM is the caller's job.
-package tunic
+// in Dolphin's RAM is the caller's job (wwapi/avatar for the tunic slots).
+//
+// # v0 UNSTABLE
+//
+// This package is part of wwapi v0. Its API may change in any 0.x minor
+// version.
+package texture
 
 import (
 	"encoding/binary"

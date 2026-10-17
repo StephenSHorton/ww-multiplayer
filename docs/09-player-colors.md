@@ -18,7 +18,7 @@
 
 - **Where the green comes from.** Link's tunic green is not a material or TEV color. It is painted into `linktexS3TC`, a CMPR (S3TC) texture in `cl.bdl`. The game's own casual-clothes swap replaces that texture's `ResTIMG` header (§2).
 - **Why one bracket can give each Link its own color.** Every Link on screen (Link #1 and the mini-Links) shares one `J3DModelData`, and so one texture table. Each Link's per-frame differed display list is baked when that Link is entered. At that moment `loadTexNo` reads `(u8*)resTIMG + resTIMG->imageOffset` (§3). Swapping the header's image pointer around one Link's entry therefore recolors only that Link. Face sync already ships this exact bracket for the eye texNos, and it is visually proven (§3).
-- **How the recolor is done.** Because the texture is CMPR, a recolor only moves the two RGB565 endpoint colors of each green 4x4 block. There is no decode or re-encode. Go does it at join time (`internal/tunic`, implemented here).
+- **How the recolor is done.** Because the texture is CMPR, a recolor only moves the two RGB565 endpoint colors of each green 4x4 block. There is no decode or re-encode. Go does it at join time (`wwapi/gfx/texture`, was `internal/tunic`; implemented here).
 - **Who picks the colors.** Each player picks their own, from an 8-color palette (green, red, blue, purple, then orange, cyan, pink, black) or any `#RRGGBB`, with `--color`, `WW_COLOR` or the app's lobby. Players may wear the same color; a player who picks none wears classic green. The server records each player *name*'s color and sends it to everyone. The colors travel in a backward-compatible trailer on `MsgPlayerList`, so there is **no protocol version bump** (§5.1). This part is implemented and tested here.
 - **What must be checked live first.** One Go-only check runs before any blob change: the `tunic-probe` and `tunic-recolor` diagnostics (implemented here). They prove the texture facts and the recolor quality on a live Dolphin (§7.1).
 - **The C part (built).** It is `tunic_swap` / `tunic_restore` plus a one-time allocation, measured at **0x120 bytes** of T2 with devkitPPC 16.2 (§6). The casual shirt for remotes (§5.6) added 0x20, so T2 now ends at 0x80412E28, **0xD8 bytes** below the mailbox. The blob is regenerated; it still needs one Shift+F1 recapture and a user re-patch.
@@ -139,7 +139,7 @@ The name memory is capped at 256 entries.
 
 **TUI:** the status panel's "In game" row shows `■ name (color)` in the player's color (`renderStatus`). The color reaches the TUI as `session.Player.Color` (§5.4). Showing the local player's own color is left to the lobby work.
 
-### 5.2 Recolor (`internal/tunic`) — implemented on this branch
+### 5.2 Recolor (`wwapi/gfx/texture`, was `internal/tunic`) — implemented on this branch
 
 **CMPR layout.** CMPR is 8x8 tiles of four DXT1 blocks: 8 bytes each, holding two big-endian RGB565 endpoints and sixteen 2-bit indices. The decoder picks 4-color mode when `c0 > c1`, else 3 colors plus transparent.
 
@@ -214,7 +214,7 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
 
 **Why the texture in RAM stays pristine.** Every swap is restored inside the same draw hook call, and C never writes the image. Go reads the original image outside the bracket (§5.4), so no backup file is needed.
 
-### 5.4 Go wiring (built, `tunic_sync.go`)
+### 5.4 Go wiring (built: `wwapi/avatar/tunic.go`, was `tunic_sync.go`; the session side is `tunic_feed.go`)
 
 **Reading the hero image** (`readHeroTexture`). Go reads Link #1, then `mpCurrLinktex` (the worn header). The hero header is that worn header in the hero's clothes, and `mOtherLinktex` in the casual clothes. Either way the image is at `worn + imageOffset`. Race rules:
 - C rewrites the worn header only inside a bracket. A header whose image lies inside one of the three buffers was read mid-swap, so it is refused (`errTunicBusy`) and retried on the next tick.
@@ -223,7 +223,7 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
 - C never writes `mOtherLinktex` or the image.
 - Only CMPR is accepted, at most 64 KiB per image (three are allocated).
 
-**`tunicSync`.** There is one per puppet-sync, so one per Dolphin, and it survives reconnects. It works in these steps:
+**`avatar.Tunics`** (was `tunicSync`). There is one per puppet-sync, so one per Dolphin, and it survives reconnects. It works in these steps:
 1. Read and `Calibrate` the hero image once.
 2. Write `tunic_buf_size` while `tunic_state` is 0. C then allocates.
 3. Run a small state machine per managed slot, timed by `spawn_trigger` (mailbox+0x00, +1 per game frame):
@@ -436,9 +436,9 @@ Setup: run `SAVE_STATE=… ./ww-multiplayer.exe dolphin2`, then `WW_TUNIC=off ./
 ## 8. Implementation plan (PRs)
 
 1. **Colors in the session (Go only): built.** `internal/playercolor`, the hello preference and player-list trailer, the server's per-name assignment, client accessors, `--color`/`WW_COLOR`, the TUI swatch (now on `session.Player`), `TestT2EndsBelowMailbox`.
-2. **Recolor library and diagnostics (Go only): built.** `internal/tunic`, `tunic-probe` (name table fixed), `tunic-recolor`.
+2. **Recolor library and diagnostics (Go only): built.** `internal/tunic` (now `wwapi/gfx/texture`), `tunic-probe` (name table fixed), `tunic-recolor`.
 3. **C bracket: built.** The mailbox block +0x188..+0x1A0, `tunic_swap`/`tunic_restore`/allocation, `tunic-slot`, the `dump` fields, `TestMailboxLayout`. Needs one blob regen (done), Shift+F1 and a re-patch.
-4. **Wiring: built.** `tunicSync` in puppet-sync for the remote slots and the local slot, the appearance byte, `WW_TUNIC=off`.
+4. **Wiring: built.** `tunicSync` (now `avatar.Tunics`) in puppet-sync for the remote slots and the local slot, the appearance byte, `WW_TUNIC=off`.
 5. **Left:**
    - `--color` in the help text and README, once §7.3 passes;
    - the lobby color picker (Wails);
@@ -448,7 +448,7 @@ Setup: run `SAVE_STATE=… ./ww-multiplayer.exe dolphin2`, then `WW_TUNIC=off ./
 ## 9. Risks and open questions
 
 **Risks:**
-- **CMPR or not (high impact, cheap check).** If `linktexS3TC` is not CMPR, `internal/tunic` needs another codec. RGB565 and RGB5A3 are straightforward, CI is easier (a palette edit). §7.1 step 1 answers this.
+- **CMPR or not (high impact, cheap check).** If `linktexS3TC` is not CMPR, `wwapi/gfx/texture` needs another codec. RGB565 and RGB5A3 are straightforward, CI is easier (a palette edit). §7.1 step 1 answers this.
 - **The mask catches other greens (medium).** For example, eye highlights, if any share the atlas. Tune `DefaultMask` from the §7.1 screenshots, or ship a hand-made block mask. A mask is our own data, not Nintendo's.
 - **Diff buffer and texmap stage (low).** The differed buffer is sized for TexNoNum = 2 (`J3DPacket.h:39-49`). Face sync proves texmap stages 0-1. A tunic texmap ≥ 2 needs a look at the matpacket's differed sizing (check `tunic-probe` (c) before §7.2).
 - **GameHeap headroom (medium).** See §6.
@@ -461,12 +461,12 @@ Setup: run `SAVE_STATE=… ./ww-multiplayer.exe dolphin2`, then `WW_TUNIC=off ./
 
 **New:**
 - `internal/playercolor/{playercolor,playercolor_test}.go`
-- `internal/tunic/{cmpr,cmpr_test,restimg,restimg_test}.go`
+- `internal/tunic/{cmpr,cmpr_test,restimg,restimg_test}.go` (since C12: `wwapi/gfx/texture`)
 - `internal/network/color_test.go`
 - `internal/inject/t2_budget_test.go`
 - `playercolor_flag{,_test}.go`
 - `tunic_diag.go` (`tunic-probe`, `tunic-recolor`)
-- `tunic_sync.go`, `tunic_sync_test.go` (wiring, `tunic-slot`, the `dump` block)
+- `tunic_sync.go`, `tunic_sync_test.go` (wiring, `tunic-slot`, the `dump` block; since C12: the slots in `wwapi/avatar/tunic.go`, the session side, `tunic-slot` and the `dump` block in `tunic_feed.go`)
 - `mailbox_layout_test.go` (since C9: `wwapi/mailbox/layout_gen.go` and `layout_test.go`)
 - this document
 

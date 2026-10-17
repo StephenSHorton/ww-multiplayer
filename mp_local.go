@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
@@ -339,9 +340,8 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 		}
 		d.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
 		d.Write(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{0})
-		for j := 0; j < maxRemoteLinks; j++ {
-			d.Write(mailbox.Mailbox+mailboxPoseSeq(j), []byte{0})
-			d.Write(mailbox.Mailbox+mailboxFaceSeq(j), []byte{0})
+		for j := 0; j < avatar.Cap; j++ {
+			avatar.ClearSlot(d, j)
 		}
 		d.Close()
 	}

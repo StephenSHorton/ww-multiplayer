@@ -48,7 +48,7 @@ func TestMailboxLayout(t *testing.T) {
 	if MailboxSize > 0x200 || Mailbox+MailboxSize > PatchedArenaLo {
 		t.Errorf("Mailbox is 0x%X bytes at 0x%08X: past +0x200 or the arena", MailboxSize, Mailbox)
 	}
-	// The tunic block's last field ends the mailbox (tunic_sync.go reads
+	// The tunic block's last field ends the mailbox (wwapi/avatar's Tunics reads
 	// OffTunicBufs..MailboxSize as one block).
 	if OffTunicSwaps+4 != MailboxSize {
 		t.Errorf("tunic_swaps ends at +0x%X, the mailbox at +0x%X", OffTunicSwaps+4, MailboxSize)

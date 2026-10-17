@@ -5,7 +5,7 @@
 //
 // The package is pure: no network, no Dolphin. The server (internal/network)
 // assigns a color per player name and sends it in the player list; the
-// render side (internal/tunic, the C bracket) turns it into a recolored
+// render side (wwapi/gfx/texture, the C bracket) turns it into a recolored
 // tunic texture.
 package playercolor
 
@@ -44,7 +44,7 @@ type Named struct {
 // the vanilla green tunic, what a player with no preference wears: it keeps
 // the unmodified texture (IsVanilla). The next three are the Four Swords
 // colors, then colors that stay far from green, skin and each other. Display RGBs are approximate for green (the texture's real
-// shade is measured from the texture itself, see internal/tunic).
+// shade is measured from the texture itself, see wwapi/gfx/texture).
 var palette = []Named{
 	{"green", Color{0x3C, 0x9A, 0x2E}},
 	{"red", Color{0xD0, 0x2C, 0x2C}},

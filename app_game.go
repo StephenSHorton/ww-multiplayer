@@ -13,6 +13,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
@@ -501,12 +502,9 @@ func resetMailbox(m mailboxMem, tunic bool) bool {
 	if !hasThisMod(m) {
 		return false
 	}
-	m.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
-	for i := 0; i < maxRemoteLinks; i++ {
-		m.Write(mailbox.Mailbox+mailboxPoseSeq(i), []byte{0})
-	}
+	avatar.Clear(m)
 	if tunic {
-		m.Write(mailbox.Mailbox+mailbox.OffTunicEnable, make([]byte, tunicSlots))
+		m.Write(mailbox.Mailbox+mailbox.OffTunicEnable, make([]byte, avatar.TunicSlots))
 	}
 	return true
 }
