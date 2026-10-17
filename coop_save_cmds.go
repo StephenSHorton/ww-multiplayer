@@ -36,10 +36,11 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/savefile"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/savemerge"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/story"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/savefile"
 )
 
 const (
@@ -293,7 +294,7 @@ func saveMerge(w io.Writer, args saveArgs, tablesFor func(iso string) (*coopStag
 	}
 
 	var warnings []string
-	opt := savefile.MergeOptions{}
+	opt := savemerge.MergeOptions{}
 	if args.iso != "" {
 		st, err := tablesFor(args.iso)
 		if err != nil {
@@ -301,7 +302,7 @@ func saveMerge(w io.Writer, args saveArgs, tablesFor func(iso string) (*coopStag
 		}
 		fmt.Fprintf(w, "M1 tables: %s\n", st.from)
 		opt.Policy = st.policy()
-		opt.Derive = savefile.Derive(st.t.Keys, st.t.Hearts)
+		opt.Derive = savemerge.Derive(st.t.Keys, st.t.Hearts)
 	} else {
 		warnings = append(warnings,
 			"no --iso: memory switches are a's (the M1 tables of your disc say which latch), and so are the DERIVED bytes: small keys, max life, max magic, inventory slots and equipment may lag the merged flags. Pass --iso <your Wind Waker image> to merge and derive them.")
@@ -318,7 +319,7 @@ func saveMerge(w io.Writer, args saveArgs, tablesFor func(iso string) (*coopStag
 			strings.Join(behind, ", ")))
 	}
 
-	r, err := savefile.Merge(&a.slot.Image, &b.slot.Image, opt)
+	r, err := savemerge.Merge(&a.slot.Image, &b.slot.Image, opt)
 	if err != nil {
 		return err
 	}
@@ -381,7 +382,7 @@ func slotFile(n int, img *world.Image) bind.File {
 }
 
 // mergedTag settles the merged slot's binding tag, img's, which
-// savefile.Merge leaves a's, and returns a warning saying what it means
+// savemerge.Merge leaves a's, and returns a warning saying what it means
 // ("" for none). adds reports whether img holds shared progress (OR,
 // OR_MASKED or MAX bytes) a lacks.
 //

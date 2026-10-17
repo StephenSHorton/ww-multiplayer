@@ -13,7 +13,7 @@ import (
 // Dolphin's Dolphin.ini (Locate). The seed corpora run as ordinary tests
 // under `go test`; to fuzz one, e.g.:
 //
-//	go test -run='^$' -fuzz=FuzzDecodeManifest -fuzztime=20s ./internal/coop/backup/
+//	go test -run='^$' -fuzz=FuzzDecodeManifest -fuzztime=20s ./wwapi/backup/
 
 func FuzzDecodeManifest(f *testing.F) {
 	src := filepath.Join(string(filepath.Separator)+"cards", "MemoryCardA.USA.raw")

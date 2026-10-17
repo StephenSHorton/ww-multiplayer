@@ -11,7 +11,7 @@ package main
 //     --coop-iso, or the disc patch last wrote), and the live-switch
 //     opt-in with --coop-live-switches (§6.3);
 //   - every side backs up its memory cards, read-only, when the session
-//     starts (internal/coop/backup, §5.4). Without that backup no tag is
+//     starts (wwapi/backup, §5.4). Without that backup no tag is
 //     written this session;
 //   - each Dolphin gets a coop-sync pipeline beside broadcast-pose and
 //     puppet-sync, with its own Dolphin handle by PID and its own role-1
@@ -56,7 +56,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/backup"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
@@ -66,6 +65,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )

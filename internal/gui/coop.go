@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/backup"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
 )
 
 // Co-op in the window (App PR 9, design §2.5, §2.7, §2.8): the host's

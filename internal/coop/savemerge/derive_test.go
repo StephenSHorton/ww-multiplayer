@@ -1,4 +1,4 @@
-package savefile
+package savemerge
 
 import (
 	"strings"

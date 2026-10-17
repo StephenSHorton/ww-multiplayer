@@ -11,16 +11,16 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // randImage is a random image with the padding the card does not hold
 // zeroed and a player name, so it is a slot in use.
-func randImage(seed uint64, name string) world.Image {
+func randImage(seed uint64, name string) save.Image {
 	r := rand.New(rand.NewPCG(seed, 1))
-	var img world.Image
+	var img save.Image
 	for i := range img {
 		img[i] = byte(r.Uint32())
 	}
@@ -289,7 +289,7 @@ func TestCheckStat(t *testing.T) {
 		if err := f.Header.CheckStat(); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want %q", c.name, err, c.want)
 		}
-		if _, err := f.WithSlot(0, &world.Image{}); err == nil {
+		if _, err := f.WithSlot(0, &save.Image{}); err == nil {
 			t.Errorf("%s: WithSlot wrote a file the game would not load", c.name)
 		}
 	}
@@ -368,7 +368,7 @@ func TestWithSlot(t *testing.T) {
 // 135-146), slot 1's quirk included, and WithSlot keeping the repair.
 func TestRestore(t *testing.T) {
 	base := New()
-	img := [Slots]world.Image{randImage(10, "A"), randImage(11, "B"), randImage(12, "C")}
+	img := [Slots]save.Image{randImage(10, "A"), randImage(11, "B"), randImage(12, "C")}
 	for n := range Slots {
 		var err error
 		if base, err = base.WithSlot(n, &img[n]); err != nil {
