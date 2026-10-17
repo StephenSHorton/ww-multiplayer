@@ -1,7 +1,7 @@
 package main
 
 // Equivalence of App PR 3's move of the Dolphin environment code into
-// internal/dolphinenv. The legacy* functions are the code as it was in
+// internal/dolphinenv (wwapi/emu/launch since C10). The legacy* functions are the code as it was in
 // mp_local.go at c16e9ad, verbatim but for their names; the paths and
 // arguments dolphin2, auto-recapture and auto-recapture-pair use must not
 // change. (Their user-visible output is in cli_golden_test.go;
@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 )
 
 func legacyDolphin2Defaults() (exe, iso, userDir1, userDir2 string) {
@@ -98,17 +98,17 @@ func TestDolphinEnvMatchesLegacy(t *testing.T) {
 			if ge, gi, gu1, gu2 := dolphin2Defaults(); [4]string{ge, gi, gu1, gu2} != [4]string{e, i, u1, u2} {
 				t.Errorf("dolphin2Defaults = %q, legacy %q", [4]string{ge, gi, gu1, gu2}, [4]string{e, i, u1, u2})
 			}
-			want := dolphinenv.Paths{
+			want := launch.Paths{
 				Exe: legacyEnvOrDefault("DOLPHIN_EXE", e), ISO: legacyEnvOrDefault("ISO_PATH", i),
 				UserDir1: legacyEnvOrDefault("USER_DIR_1", u1), UserDir2: legacyEnvOrDefault("USER_DIR_2", u2),
 			}
-			if got := dolphinenv.FromEnv(); got != want {
+			if got := launch.FromEnv(); got != want {
 				t.Errorf("env %v: FromEnv = %+v, legacy %+v", env, got, want)
 			}
 		}
 	}
 	for _, c := range [][3]string{{"u", "i.iso", ""}, {"u", "i.iso", "s.sav"}, {"", "", ""}} {
-		if got, want := dolphinenv.LaunchArgs(c[0], c[1], c[2]), legacyLaunchArgs(c[0], c[1], c[2]); !reflect.DeepEqual(got, want) {
+		if got, want := launch.LaunchArgs(c[0], c[1], c[2]), legacyLaunchArgs(c[0], c[1], c[2]); !reflect.DeepEqual(got, want) {
 			t.Errorf("LaunchArgs%q = %q, legacy %q", c, got, want)
 		}
 	}

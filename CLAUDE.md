@@ -28,10 +28,7 @@ ww-multiplayer/
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
 │   ├── coop/                    # Co-op engine (docs/08): replica, hub, world, wire, derive, ... plus the generic game layer
 │   │                            #   it is built on (actors, fakegame); savemerge/ (offline save merge), synctables/ (sync verdicts and acceptance over wwapi/tables)
-│   ├── dolphin/                 # Dolphin process memory access (Windows; macOS via task_for_pid, cgo), window + screenshot
-│   │   └── memory.go            # Core read/write, RAM scanner
 │   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); Bridge = the JS API; `ui --browser` server
-│   ├── dolphinenv/              # Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare step (dolphin2, auto-recapture)
 │   ├── lan/                     # LAN discovery: the host's UDP beacon, broadcast addresses, the joiner's table (docs/10-lobby.md §10)
 │   ├── mailboxgen/              # mailbox.h parser + layout_gen.go emitter (used by tools/gen_mailbox and wwapi/mailbox TestMailboxLayout)
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
@@ -44,14 +41,13 @@ ww-multiplayer/
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors)
 │   ├── playercolor/             # Tunic color palette + --color / WW_COLOR parsing (docs/09)
 │   ├── redact/                  # IP masking for what the GUI and TUI draw (fixed-width •••.•••.•••.42); the CLI prints addresses unmasked
-│   ├── report/                  # Reporter interface (Stdout / Discard / Multi)
-│   │   └── report.go, multi.go
 │   ├── session/                 # UI-free session controller the CLI host/join, the TUI and the GUI drive (docs/01-architecture.md)
 │   │   └── session.go, controller.go, event.go, coop.go, coopapp.go (the app's co-op state), lobby.go, launch.go
 │   ├── tui/                     # Charm Bubble Tea UI (resurrected v0.1.5)
 │   │   ├── app.go, splash.go, connect.go, dashboard.go, styles.go
 │   └── tunic/                   # Tunic texture recolor (CMPR encode, docs/09)
-├── wwapi/                       # Modding API, v0 UNSTABLE (docs/api): mem/ (Reader/Mem, FakeMem, Dolphin adapter), addr/ (cited addresses), state/ (per-tick snapshot), gate/ (write gates),
+├── wwapi/                       # Modding API, v0 UNSTABLE (docs/api): emu/ (Attach(Options); *emu.Dolphin is a MEM1-bounded mem.Mem; memory.go = RAM scanner; launch/ = Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare (dolphin2, auto-recapture); host/ = window, screenshot, keys),
+│                                #   log/ (Reporter, Stdout / Discard / Multi / Prefix), mem/ (Reader/Mem, FakeMem), addr/ (cited addresses), state/ (per-tick snapshot), gate/ (write gates),
 │                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), savefile/ (GCI/card I/O), backup/ (card backups), tables/ (M1 disc table builders + cache), mailbox/ (T2 + mailbox layout; layout_gen.go is generated from mailbox.h by tools/gen_mailbox), events/, schema/, semver/; the mod runtime (manifest, resolver, supervisor)
 ├── inject/                      # C source for the injected PPC code
 │   ├── src/multiplayer.c        # The mod's C side
@@ -143,7 +139,7 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
 # Local two-Dolphin harness (v0.1.6+: Go-native, replaces the bash scripts)
 ./ww-multiplayer.exe dolphin2 [--reset]     # Bootstrap & launch a 2nd Dolphin instance
 ./ww-multiplayer.exe mp-local [A] [B]       # Server + 2x broadcast-pose + 2x puppet-sync (one process)
-# Env knobs honored by `dolphin2` and `auto-recapture` (defaults: internal/dolphinenv Defaults;
+# Env knobs honored by `dolphin2` and `auto-recapture` (defaults: wwapi/emu/launch Defaults;
 # DOLPHIN_EXE, ISO_PATH and USER_DIR_1 also override the app's saved settings, as WW_COLOR does):
 #   DOLPHIN_EXE   path to Dolphin (Windows default: %USERPROFILE%\Desktop\Dolphin-x64\Dolphin.exe;
 #                 macOS: ~/Applications/Dolphin.app/Contents/MacOS/Dolphin, else /Applications/...; Linux: dolphin-emu)

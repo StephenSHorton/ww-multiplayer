@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // EventKind says which fields of an Event are set.
@@ -51,9 +51,9 @@ type Event struct {
 	Kind    EventKind
 	Session ID
 	Time    time.Time
-	Level   report.Level // EventLog
-	From    string       // EventChat
-	Text    string       // EventLog, EventChat, EventEnded
+	Level   log.Level // EventLog
+	From    string    // EventChat
+	Text    string    // EventLog, EventChat, EventEnded
 	// Question is EventQuestion's question, or the closed one's.
 	Question Question
 	Yes      bool   // EventQuestionClosed: the answer

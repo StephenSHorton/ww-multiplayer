@@ -6,9 +6,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
@@ -47,7 +47,7 @@ func defaultShiftEnv() shiftEnv {
 			if err != nil {
 				return nil, nil, err
 			}
-			return mem.NewDolphinMem(d), d.Close, nil
+			return d, d.Close, nil
 		},
 		tick:   coopTick,
 		settle: startupShiftSettle,
@@ -67,13 +67,13 @@ func defaultShiftEnv() shiftEnv {
 // either was in, under --coop too. With A in a dungeon and B at sea, that
 // is the sea's centre square, where B voids out (docs/08 Appendix C item
 // 130).
-func startupShift(rep report.Reporter, coopOn bool, pidA, pidB uint32, d [3]float32, env shiftEnv) {
+func startupShift(rep log.Reporter, coopOn bool, pidA, pidB uint32, d [3]float32, env shiftEnv) {
 	if coopOn {
 		ignored := ""
 		if shiftVarsSet() {
 			ignored = " (MP_LOCAL_SHIFT_X/Y/Z ignored)"
 		}
-		report.Logf(rep, report.Info, "Not moving Dolphin B's Link at start under --coop%s: the move writes Link's position outside co-op's gates and WriteGuard. If the two Links overlap, walk one a few steps away.", ignored)
+		log.Logf(rep, log.Info, "Not moving Dolphin B's Link at start under --coop%s: the move writes Link's position outside co-op's gates and WriteGuard. If the two Links overlap, walk one a few steps away.", ignored)
 		return
 	}
 	if d == ([3]float32{}) {
@@ -81,13 +81,13 @@ func startupShift(rep report.Reporter, coopOn bool, pidA, pidB uint32, d [3]floa
 	}
 	mA, closeA, err := env.open(pidA)
 	if err != nil {
-		report.Logf(rep, report.Warn, "couldn't warp Dolphin B Link: open A: %v", err)
+		log.Logf(rep, log.Warn, "couldn't warp Dolphin B Link: open A: %v", err)
 		return
 	}
 	defer closeA()
 	mB, closeB, err := env.open(pidB)
 	if err != nil {
-		report.Logf(rep, report.Warn, "couldn't warp Dolphin B Link: open B: %v", err)
+		log.Logf(rep, log.Warn, "couldn't warp Dolphin B Link: open B: %v", err)
 		return
 	}
 	defer closeB()
@@ -96,23 +96,23 @@ func startupShift(rep report.Reporter, coopOn bool, pidA, pidB uint32, d [3]floa
 	for {
 		a, b, err := shiftSides(mA, mB, env.tick)
 		if err != nil {
-			report.Logf(rep, report.Warn, "couldn't warp Dolphin B Link: %v", err)
+			log.Logf(rep, log.Warn, "couldn't warp Dolphin B Link: %v", err)
 			return
 		}
 		target, skip, retry := planShift(a, b, d)
 		switch {
 		case skip == "":
 			if err := warpLinkMem(mB, target, startupShiftWarpTimeout); err != nil {
-				report.Logf(rep, report.Warn, "couldn't warp Dolphin B Link: %v", err)
+				log.Logf(rep, log.Warn, "couldn't warp Dolphin B Link: %v", err)
 			} else {
-				report.Logf(rep, report.OK, "Warped Dolphin B Link by (%.0f, %.0f, %.0f) so the two players don't overlap.", d[0], d[1], d[2])
+				log.Logf(rep, log.OK, "Warped Dolphin B Link by (%.0f, %.0f, %.0f) so the two players don't overlap.", d[0], d[1], d[2])
 			}
 			return
 		case !retry:
-			report.Logf(rep, report.Info, "Not moving Dolphin B's Link at start: %s.", skip)
+			log.Logf(rep, log.Info, "Not moving Dolphin B's Link at start: %s.", skip)
 			return
 		case !time.Now().Before(deadline):
-			report.Logf(rep, report.Info, "Not moving Dolphin B's Link at start: %s (still so after %s).", skip, env.settle)
+			log.Logf(rep, log.Info, "Not moving Dolphin B's Link at start: %s (still so after %s).", skip, env.settle)
 			return
 		}
 	}

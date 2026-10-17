@@ -42,8 +42,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
 
@@ -213,16 +213,16 @@ func coopTablesHow(st tables.Stats) string {
 // logCoopStageTables says which tables a session runs with, or, after
 // loadCoopStageTables failed, that memory switches don't sync and how to
 // fix it. The rest of co-op runs either way.
-func logCoopStageTables(rep report.Reporter, st *coopStageTables, err error) {
+func logCoopStageTables(rep log.Reporter, st *coopStageTables, err error) {
 	if err != nil || st == nil {
 		if err == nil {
 			err = errNoCoopTables
 		}
-		report.Logf(rep, report.Warn, "co-op: %s. Memory switches, room puzzles and kills are not synced this session; chests, items, maps and the rest are.", oneLine(err))
+		log.Logf(rep, log.Warn, "co-op: %s. Memory switches, room puzzles and kills are not synced this session; chests, items, maps and the rest are.", oneLine(err))
 		return
 	}
 	n, ts, gba := st.syncedCount()
-	report.Logf(rep, report.OK, "co-op: stage tables %016x, %s: %d latching memory switch(es) in %d save table(s) sync (%d of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).", st.id, st.from, n, ts, gba)
+	log.Logf(rep, log.OK, "co-op: stage tables %016x, %s: %d latching memory switch(es) in %d save table(s) sync (%d of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).", st.id, st.from, n, ts, gba)
 }
 
 // takeCoopISO takes --coop-iso <path> or --coop-iso=<path> out of args

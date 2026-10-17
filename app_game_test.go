@@ -13,8 +13,8 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
@@ -83,7 +83,7 @@ func (f *fakeGame) script(pid uint32, ps ...session.Probe) {
 	f.mu.Unlock()
 }
 
-func (f *fakeGame) launch(o session.LaunchOptions, _ report.Reporter) (uint32, error) {
+func (f *fakeGame) launch(o session.LaunchOptions, _ log.Reporter) (uint32, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.launchErr != nil {
@@ -99,7 +99,7 @@ func (f *fakeGame) launch(o session.LaunchOptions, _ report.Reporter) (uint32, e
 	return pid, nil
 }
 
-func (f *fakeGame) pipelines(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, _ report.Reporter) error {
+func (f *fakeGame) pipelines(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, _ log.Reporter) error {
 	f.event("pipelines %d start", pid)
 	defer f.event("pipelines %d stop", pid)
 	select {
@@ -140,7 +140,7 @@ type gameOut struct {
 	dolphin []session.DolphinInfo
 }
 
-func (o *gameOut) Log(_ report.Level, msg string) {
+func (o *gameOut) Log(_ log.Level, msg string) {
 	o.mu.Lock()
 	o.lines = append(o.lines, msg)
 	o.mu.Unlock()
@@ -526,7 +526,7 @@ func TestGameRunnerEnvPID(t *testing.T) {
 // fakeMem is emulated RAM for hasThisMod.
 type fakeMem []byte
 
-func (m fakeMem) ReadAbsolute(addr uint32, n int) ([]byte, error) {
+func (m fakeMem) Read(addr uint32, n int) ([]byte, error) {
 	if addr != inject.T2Address || n > len(m) {
 		return nil, errors.New("unmapped")
 	}
@@ -569,14 +569,14 @@ type mailRAM struct {
 	writes []uint32
 }
 
-func (m *mailRAM) ReadAbsolute(addr uint32, n int) ([]byte, error) {
+func (m *mailRAM) Read(addr uint32, n int) ([]byte, error) {
 	if addr == inject.T2Address && m.mod {
 		return slices.Clone(inject.T2Bytes[:n]), nil
 	}
 	return make([]byte, n), nil
 }
 
-func (m *mailRAM) WriteAbsolute(addr uint32, data []byte) error {
+func (m *mailRAM) Write(addr uint32, data []byte) error {
 	m.writes = append(m.writes, addr)
 	return nil
 }

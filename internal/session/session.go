@@ -6,7 +6,7 @@
 //
 // The session work itself (server, broadcast-pose, puppet-sync, co-op) stays
 // in package main and is injected as an Engine, the way tui.Hooks used to
-// inject it. That keeps this package free of internal/dolphin and
+// inject it. That keeps this package free of wwapi/emu and
 // internal/network, so it builds and tests on any OS with a fake engine.
 package session
 
@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // ID names one Host or Join run. IDs start at 1 and are never reused by a
@@ -208,7 +208,7 @@ type JoinOptions struct {
 // chat lines it receives. The Controller gives every run its own Output, so
 // lines are tagged with the run they came from.
 type Output interface {
-	report.Reporter
+	log.Reporter
 	// Chat delivers one incoming chat line. It must not block: it is
 	// called from the network client's read loop.
 	Chat(from, text string)

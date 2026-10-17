@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -26,7 +26,7 @@ type fakeEngine struct {
 }
 
 func (e *fakeEngine) run(ctx context.Context, out session.Output) error {
-	out.Log(report.OK, "session up")
+	out.Log(log.OK, "session up")
 	if e.failErr != nil {
 		return e.failErr
 	}

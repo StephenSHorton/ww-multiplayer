@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // LobbyPhase is the lobby's phase, the server's.
@@ -267,7 +267,7 @@ func (c *Controller) JoinLobby(ctx context.Context, o JoinOptions) (ID, error) {
 			return err
 		}
 		c.legacy(o2.id)
-		o2.Log(report.Info, legacyHostLine)
+		o2.Log(log.Info, legacyHostLine)
 		return c.engine.Join(ctx, cancel, o, out)
 	})
 }

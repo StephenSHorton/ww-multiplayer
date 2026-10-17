@@ -22,8 +22,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
@@ -50,7 +50,7 @@ type coLog struct {
 	on    func(msg string)
 }
 
-func (l *coLog) Log(_ report.Level, msg string) {
+func (l *coLog) Log(_ log.Level, msg string) {
 	l.mu.Lock()
 	l.lines = append(l.lines, msg)
 	l.mu.Unlock()
@@ -394,7 +394,7 @@ type coHost struct {
 func (h *coHost) start(f coopFlags) {
 	h.t.Helper()
 	h.flags = f
-	cs, err := startCoopHost(h.ctx, h.rep, func(s string) { h.rep.Log(report.Net, s) }, f, h.env)
+	cs, err := startCoopHost(h.ctx, h.rep, func(s string) { h.rep.Log(log.Net, s) }, f, h.env)
 	if err != nil {
 		h.t.Fatalf("startCoopHost: %v\n%s", err, h.rep)
 	}

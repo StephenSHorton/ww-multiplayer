@@ -1,7 +1,7 @@
 package main
 
 // Golden transcripts of the CLI commands App PR 3 moved code out of:
-// patch (now internal/patch) and dolphin2 (now on internal/dolphinenv).
+// patch (now internal/patch) and dolphin2 (now on internal/dolphinenv, wwapi/emu/launch since C10).
 // Each case runs `ww-multiplayer <args>` in a child process with its own
 // environment (config dir, Dolphin paths in temp dirs) and compares its
 // stdout and exit code to a file under testdata/cli-golden. The files were
@@ -26,9 +26,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
@@ -239,7 +239,7 @@ func TestCLIGoldenDolphin2(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("the launching case is recorded on Windows only (exec errors differ by OS)")
 	}
-	if pids, err := dolphin.ListPIDs(); err == nil && len(pids) > 0 {
+	if pids, err := emu.ListPIDs(); err == nil && len(pids) > 0 {
 		t.Skipf("a Dolphin is running (pids %v): dolphin2 would plan around it", pids)
 	}
 	run("dolphin2-bootstrap-windows", base(nil))

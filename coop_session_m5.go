@@ -19,7 +19,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/switches"
 )
@@ -76,13 +76,13 @@ func countPuzzles(t *tables.Tables) puzzleCount {
 // (§9 M5), by its own M1 tables t, and how many switches t marks
 // latching. Whether the host grants them its replica says on the
 // welcome.
-func logCoopPuzzles(rep report.Reporter, t *tables.Tables) {
+func logCoopPuzzles(rep log.Reporter, t *tables.Tables) {
 	if t == nil || t.Switches == nil {
-		report.Logf(rep, report.Warn, "co-op: room puzzles are off this session: without co-op stage tables no partner's dan, zone or room switch is known to latch, so none is written.")
+		log.Logf(rep, log.Warn, "co-op: room puzzles are off this session: without co-op stage tables no partner's dan, zone or room switch is known to latch, so none is written.")
 		return
 	}
 	c := countPuzzles(t)
-	report.Logf(rep, report.OK, "co-op: room puzzles this session: a partner's latching dan switches (%d in %d save table(s)) sync while both are in the same stage, its zone switches (%d) while both are in the same room, and its room switches (%d) as it sets them, in %d room(s); timed and other switches that clear never travel.",
+	log.Logf(rep, log.OK, "co-op: room puzzles this session: a partner's latching dan switches (%d in %d save table(s)) sync while both are in the same stage, its zone switches (%d) while both are in the same room, and its room switches (%d) as it sets them, in %d room(s); timed and other switches that clear never travel.",
 		c.dan, c.tables, c.zone, c.room, c.rooms)
 }
 
@@ -138,13 +138,13 @@ func hubPuzzleStatus(hs hub.Status) []string {
 }
 
 // logHubStatus logs the host's hub lines of /status (hubPuzzleStatus).
-func logHubStatus(rep report.Reporter, status func() (hub.Status, error)) {
+func logHubStatus(rep log.Reporter, status func() (hub.Status, error)) {
 	hs, err := status()
 	if err != nil {
-		report.Logf(rep, report.Warn, "co-op: host: %v", err)
+		log.Logf(rep, log.Warn, "co-op: host: %v", err)
 		return
 	}
 	for _, l := range append(hubPuzzleStatus(hs), hubCombatStatus(hs)...) {
-		report.Logf(rep, report.Info, "co-op: host: %s", strings.TrimRight(l, " "))
+		log.Logf(rep, log.Info, "co-op: host: %s", strings.TrimRight(l, " "))
 	}
 }

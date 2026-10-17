@@ -8,8 +8,8 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // sessionEngine is the session.Engine (and session.CoopEngine) the
@@ -211,10 +211,10 @@ func (e *sessionEngine) CoopWorlds() ([]session.CoopWorld, error) {
 // subcommands do, and returns their exit code: 1 when the session ended
 // on an error, which the controller has logged (the old runHost's
 // logSessionErr), else 0. A session that can't start is logged to rep.
-func runCLISession(ctrl *session.Controller, rep report.Reporter, start func() (session.ID, error)) int {
+func runCLISession(ctrl *session.Controller, rep log.Reporter, start func() (session.ID, error)) int {
 	id, err := start()
 	if err != nil {
-		rep.Log(report.Err, err.Error())
+		rep.Log(log.Err, err.Error())
 		return 1
 	}
 	if ctrl.Wait(id).Failed {

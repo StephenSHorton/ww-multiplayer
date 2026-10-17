@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // DefaultBuffer is a subscription's event buffer when Options.Buffer is 0.
@@ -23,7 +23,7 @@ type Options struct {
 	// Log, when non-nil, also receives every session log line, besides
 	// the subscribers (a log file, for one). It is called on the session's
 	// goroutines and must not block.
-	Log report.Reporter
+	Log log.Reporter
 	// Buffer is each subscription's event buffer; 0 means DefaultBuffer,
 	// and a smaller positive value is raised to MinBuffer.
 	Buffer int
@@ -33,7 +33,7 @@ type Options struct {
 	// Controller calls once the session has ended and logged its end. A nil
 	// Reporter (the file couldn't be opened) is skipped. Like Log, the
 	// Reporter must not block.
-	SessionLog func(State) (report.Reporter, func())
+	SessionLog func(State) (log.Reporter, func())
 }
 
 // Controller owns at most one running session at a time and is the only
@@ -115,7 +115,7 @@ func (c *Controller) start(parent context.Context, st State, body func(context.C
 	c.publish(Event{Kind: EventState, Session: r.id})
 	c.mu.Unlock()
 
-	var sessLog report.Reporter
+	var sessLog log.Reporter
 	closeLog := func() {}
 	if c.opts.SessionLog != nil {
 		if rep, done := c.opts.SessionLog(st); rep != nil {
@@ -129,7 +129,7 @@ func (c *Controller) start(parent context.Context, st State, body func(context.C
 	go func() {
 		err := body(ctx, cancel, out)
 		if err != nil && !errors.Is(err, ErrReported) {
-			out.Log(report.Err, err.Error())
+			out.Log(log.Err, err.Error())
 		}
 		cancel()
 		reason := out.endReason()
@@ -214,21 +214,21 @@ func (c *Controller) Snapshot() State {
 type output struct {
 	c   *Controller
 	id  ID
-	rep report.Reporter
+	rep log.Reporter
 
 	// mu guards lastErr: the session's goroutines log concurrently.
 	mu      sync.Mutex
 	lastErr string
 }
 
-func newOutput(c *Controller, id ID, sessLog report.Reporter) *output {
+func newOutput(c *Controller, id ID, sessLog log.Reporter) *output {
 	o := &output{c: c, id: id}
-	o.rep = report.Multi(publisher{o}, c.opts.Log, sessLog)
+	o.rep = log.Multi(publisher{o}, c.opts.Log, sessLog)
 	return o
 }
 
-func (o *output) Log(level report.Level, msg string) {
-	if level == report.Err {
+func (o *output) Log(level log.Level, msg string) {
+	if level == log.Err {
 		o.mu.Lock()
 		o.lastErr = msg
 		o.mu.Unlock()
@@ -259,7 +259,7 @@ func (o *output) endReason() string {
 // publisher is the Reporter half of an output that turns lines into events.
 type publisher struct{ o *output }
 
-func (p publisher) Log(level report.Level, msg string) {
+func (p publisher) Log(level log.Level, msg string) {
 	p.o.c.publish(Event{Kind: EventLog, Session: p.o.id, Level: level, Text: msg})
 }
 

@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
@@ -17,8 +17,8 @@ import (
 // to space the two Links after both Dolphins boot from the same SAVE_STATE
 // (startupShift), and exposed as the `warp` subcommand for ad-hoc
 // teleporting.
-func warpLink(d *dolphin.Dolphin, x, y, z float32, timeout time.Duration) error {
-	return warpLinkMem(mem.NewDolphinMem(d), [3]float32{x, y, z}, timeout)
+func warpLink(d *emu.Dolphin, x, y, z float32, timeout time.Duration) error {
+	return warpLinkMem(d, [3]float32{x, y, z}, timeout)
 }
 
 // warpLinkMem is warpLink over m: it asks the C-side warp handler to put

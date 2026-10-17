@@ -15,13 +15,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // MaxNameLen is the longest player name the UI accepts (design §2.1),
@@ -70,11 +70,11 @@ type Bridge struct {
 	coopTables func(io.Writer, string)
 	patchRun   func(ctx context.Context, in, out string, w io.Writer, o patch.Options) (patch.Result, error)
 	inspect    func(string) (patch.DiscState, error)
-	denv       func() dolphinenv.Env
-	procs      func() []dolphinenv.Process // the running Dolphins (Start's check)
+	denv       func() launch.Env
+	procs      func() []launch.Process // the running Dolphins (Start's check)
 	home       func() string
-	macStatus  func() (dolphinenv.MacState, dolphinenv.MacFacts, error)
-	prepareMac func(report.Reporter) error
+	macStatus  func() (launch.MacState, launch.MacFacts, error)
+	prepareMac func(log.Reporter) error
 
 	dlgMu sync.Mutex
 	dlg   fileDialogs // the window's file dialogs; nil in a browser
@@ -132,15 +132,15 @@ func NewBridge(o Options) *Bridge {
 	b := &Bridge{ctrl: o.Controller, version: o.Version, cfgPath: o.ConfigPath, getenv: o.Getenv, now: time.Now,
 		coopTables: o.CoopTables, patchRun: patch.Run, inspect: patch.Inspect, denv: o.DolphinEnv,
 		home:      func() string { h, _ := os.UserHomeDir(); return h },
-		macStatus: macStatusHere, prepareMac: dolphinenv.PrepareMacHere,
+		macStatus: macStatusHere, prepareMac: launch.PrepareMacHere,
 		emitters: map[int]func(EventView){}, hostIPs: o.HostIPs, findSave: findSave, openPath: openFolderHere}
 	if b.getenv == nil {
 		b.getenv = func(string) string { return "" }
 	}
 	if b.denv == nil {
-		b.denv = dolphinenv.Host
+		b.denv = launch.Host
 	}
-	b.procs = dolphinenv.Processes
+	b.procs = launch.Processes
 	b.ctx, b.cancel = context.WithCancel(context.Background())
 	if b.cfgPath == "" {
 		if p, err := config.Path(); err == nil {

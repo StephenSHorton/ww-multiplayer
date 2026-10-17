@@ -11,8 +11,8 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // fakeEngine is a session engine with the lobby. HostLobby and JoinLobby
@@ -301,7 +301,7 @@ func TestBridgePumpEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := e.out(t)
-	out.Log(report.Warn, "careful")
+	out.Log(log.Warn, "careful")
 	out.Chat("Tetra", "hello")
 	out.LobbyNotice(session.Notice{Code: "name_taken", Text: "taken", Suggest: "Link (2)"})
 

@@ -5,15 +5,15 @@ import (
 	"io"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // The golden tests' calls into the prompter and console, in one place.
 
 // goldenAsk asks prompt the way a pipeline's offer does: through the
 // coopAsker interface, with the question offerQuestion builds.
-func goldenAsk(ctx context.Context, p *coopPrompter, rep report.Reporter, prompt string) bool {
+func goldenAsk(ctx context.Context, p *coopPrompter, rep log.Reporter, prompt string) bool {
 	var a coopAsker = p
 	return a.question(ctx, rep, session.Question{Kind: session.QuestionBind, Title: "t", Body: prompt, Details: []string{"d"}})
 }

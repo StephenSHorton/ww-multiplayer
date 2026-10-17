@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // fakeEngine is a scripted Engine. Each session logs lines at Info, signals
@@ -39,7 +39,7 @@ func (e *fakeEngine) run(ctx context.Context, cancel context.CancelFunc, out Out
 	e.ctxs = append(e.ctxs, ctx)
 	e.mu.Unlock()
 	for _, l := range e.lines {
-		out.Log(report.Info, l)
+		out.Log(log.Info, l)
 	}
 	e.started <- started{out, cancel}
 	if e.fail != nil {
@@ -231,9 +231,9 @@ func TestEndReason_NewestErrLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := waitStarted(t, e)
-	s.out.Log(report.Err, "broadcast-pose: first failure")
-	s.out.Log(report.Err, "puppet-sync: dolphin not running")
-	s.out.Log(report.Info, "cleanup done")
+	s.out.Log(log.Err, "broadcast-pose: first failure")
+	s.out.Log(log.Err, "puppet-sync: dolphin not running")
+	s.out.Log(log.Info, "cleanup done")
 	c.Leave()
 	if got := c.Snapshot().EndReason; got != "puppet-sync: dolphin not running" {
 		t.Errorf("EndReason = %q, want the newest Err line", got)
@@ -251,7 +251,7 @@ func TestEngineCancel_Ends(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := waitStarted(t, e)
-	s.out.Log(report.Err, "puppet-sync: dolphin not running")
+	s.out.Log(log.Err, "puppet-sync: dolphin not running")
 	s.cancel()
 	if st := waitPhase(t, c, Ended); st.EndReason != "puppet-sync: dolphin not running" {
 		t.Fatalf("first run's EndReason = %q", st.EndReason)
@@ -456,7 +456,7 @@ func TestSubscribe_FanOutAndUnsubscribe(t *testing.T) {
 	}
 }
 
-// TestOptionsLog: Options.Log gets every session line too (report.Multi),
+// TestOptionsLog: Options.Log gets every session line too (log.Multi),
 // and the subscribers still do.
 func TestOptionsLog(t *testing.T) {
 	e := newFake()
@@ -476,7 +476,7 @@ type recorder struct {
 	lines []string
 }
 
-func (r *recorder) Log(level report.Level, msg string) {
+func (r *recorder) Log(level log.Level, msg string) {
 	r.mu.Lock()
 	r.lines = append(r.lines, fmt.Sprintf("%d:%s", level, msg))
 	r.mu.Unlock()
@@ -538,7 +538,7 @@ func TestConcurrentUse(t *testing.T) {
 	loop(func() {
 		select {
 		case o := <-outs:
-			o.Log(report.Net, "late line")
+			o.Log(log.Net, "late line")
 			o.Chat("Zelda", "late chat")
 		default:
 		}
@@ -592,7 +592,7 @@ func TestSessionLog(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var logs []*opened
-	c := New(e, Options{SessionLog: func(st State) (report.Reporter, func()) {
+	c := New(e, Options{SessionLog: func(st State) (log.Reporter, func()) {
 		o := &opened{st: st, rec: &recorder{}}
 		mu.Lock()
 		logs = append(logs, o)
@@ -626,7 +626,7 @@ func TestSessionLog(t *testing.T) {
 	}
 
 	// A log that can't be opened: the session runs without one.
-	c2 := New(e, Options{SessionLog: func(State) (report.Reporter, func()) { return nil, func() { t.Error("closed a nil log") } }})
+	c2 := New(e, Options{SessionLog: func(State) (log.Reporter, func()) { return nil, func() { t.Error("closed a nil log") } }})
 	e.fail = nil
 	id3, err := c2.Host(context.Background(), HostOptions{})
 	if err != nil {

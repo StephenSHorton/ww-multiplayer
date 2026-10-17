@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 )
 
 // TestDolphinLabel: every Dolphin state the app reports has chip words,
@@ -162,11 +162,11 @@ func TestGameDialogs(t *testing.T) {
 // saved, and Start reads it.
 func TestBridgeStart(t *testing.T) {
 	b, e, path := newTestBridge(t)
-	b.denv = func() dolphinenv.Env {
-		return dolphinenv.Env{GOOS: "windows", ConfigDir: "cfg", Exists: func(string) bool { return false }}
+	b.denv = func() launch.Env {
+		return launch.Env{GOOS: "windows", ConfigDir: "cfg", Exists: func(string) bool { return false }}
 	}
-	var procs []dolphinenv.Process
-	b.procs = func() []dolphinenv.Process { return procs }
+	var procs []launch.Process
+	b.procs = func() []launch.Process { return procs }
 	if err := b.Host(HostRequest{Name: "Link"}); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestBridgeStart(t *testing.T) {
 	}
 	// One runs (no user folder saved: any counts as ours): Start plays on
 	// it, no setup needed; it still waits for Aryll.
-	procs = []dolphinenv.Process{{PID: 6, ArgsKnown: true, Args: []string{"-u", "cfg"}}}
+	procs = []launch.Process{{PID: 6, ArgsKnown: true, Args: []string{"-u", "cfg"}}}
 	if err := b.Start(false); err == nil || strings.Contains(err.Error(), "Setup") || !strings.Contains(err.Error(), "Aryll") {
 		t.Fatalf("Start with a Dolphin running = %v", err)
 	}

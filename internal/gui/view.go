@@ -4,8 +4,8 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // The JSON shapes the frontend reads. They are the controller's State and
@@ -181,12 +181,12 @@ var eventKinds = map[session.EventKind]string{
 	session.EventLegacyHost:     "legacy-host",
 }
 
-var levelNames = map[report.Level]string{
-	report.Info: "info",
-	report.Net:  "net",
-	report.Warn: "warn",
-	report.Err:  "err",
-	report.OK:   "ok",
+var levelNames = map[log.Level]string{
+	log.Info: "info",
+	log.Net:  "net",
+	log.Warn: "warn",
+	log.Err:  "err",
+	log.OK:   "ok",
 }
 
 func paletteView() []SwatchView {

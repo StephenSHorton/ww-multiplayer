@@ -13,8 +13,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // sessionEngine's lobby side (session.LobbyEngine, docs/10-lobby.md). A
@@ -45,7 +45,7 @@ func (e *sessionEngine) HostLobby(ctx context.Context, cancel context.CancelFunc
 		if strings.HasPrefix(msg, "[Chat] ") {
 			return // the lobby connection delivers it as a chat line
 		}
-		out.Log(report.Info, fmt.Sprintf("[srv %s] %s", time.Now().Format("15:04:05"), msg))
+		out.Log(log.Info, fmt.Sprintf("[srv %s] %s", time.Now().Format("15:04:05"), msg))
 	}
 	// The co-op side's hub stops after the server (deferred first, so it
 	// runs last), as the CLI's host stops it.
@@ -56,10 +56,10 @@ func (e *sessionEngine) HostLobby(ctx context.Context, cancel context.CancelFunc
 		return fmt.Errorf("server start: %w", err)
 	}
 	defer srv.Stop()
-	report.Logf(out, report.OK, "Hosting a lobby as %q on :%d.", name, port)
+	log.Logf(out, log.OK, "Hosting a lobby as %q on :%d.", name, port)
 	ips := shareAddrs(listHostIPs(), port)
 	for _, ip := range ips {
-		report.Logf(out, report.Info, "  %s", ip)
+		log.Logf(out, log.Info, "  %s", ip)
 	}
 	return e.runLobby(ctx, cancel, hostDialAddr(o.ListenHost, port), name, o.Color, o.LaunchOptions, out, ac, func() {
 		if e.ls != nil {
@@ -90,7 +90,7 @@ func (e *sessionEngine) JoinLobby(ctx context.Context, cancel context.CancelFunc
 		name = "Player"
 	}
 	addr := netutil.NormalizeAddr(o.Addr, defaultPort)
-	report.Logf(out, report.OK, "Joining the lobby at %s as %q.", addr, name)
+	log.Logf(out, log.OK, "Joining the lobby at %s as %q.", addr, name)
 	ac := newAppCoop(ctx, e, out, name, o.CoopFn, o.LaunchOptions)
 	defer ac.stop()
 	err := e.runLobby(ctx, cancel, addr, name, o.Color, o.LaunchOptions, out, ac, func() {
@@ -116,7 +116,7 @@ func (e *sessionEngine) runLobby(ctx context.Context, cancel context.CancelFunc,
 		hello.Color = color.Hex()
 	}
 	lc := network.NewLobbyClient(name, hello)
-	lc.Client().OnLog = func(s string) { out.Log(report.Net, s) }
+	lc.Client().OnLog = func(s string) { out.Log(log.Net, s) }
 	lc.Client().OnChat = out.Chat
 	lc.OnState = func(st network.LobbyStateBody) {
 		w, _ := lc.Welcome()
@@ -134,7 +134,7 @@ func (e *sessionEngine) runLobby(ctx context.Context, cancel context.CancelFunc,
 		e.mu.Unlock()
 	}()
 	lc.OnNotice = func(b network.LobbyNoticeBody) {
-		out.Log(report.Warn, "lobby: "+b.Text)
+		out.Log(log.Warn, "lobby: "+b.Text)
 		out.LobbyNotice(session.Notice{Code: b.Code, Text: b.Text, Suggest: b.Suggest})
 	}
 	var game *gameRunner
@@ -199,7 +199,7 @@ func (e *sessionEngine) runLobby(ctx context.Context, cancel context.CancelFunc,
 	// Failures to reach the host are logged as a join's are; a fatal one
 	// is returned instead (the controller logs it, or falls back to a
 	// direct join for a pre-lobby host), so the ConnectLog drops it.
-	connLog := network.NewConnectLog(addr, func(s string) { out.Log(report.Warn, s) }, func(s string) { out.Log(report.OK, s) })
+	connLog := network.NewConnectLog(addr, func(s string) { out.Log(log.Warn, s) }, func(s string) { out.Log(log.OK, s) })
 	connLog.Fatal = func(string) {}
 	return lc.Run(ctx, addr, connLog)
 }
@@ -240,10 +240,10 @@ func goIfHost(lc *network.LobbyClient, s network.LobbySettingsBody, out session.
 		return
 	}
 	if coopOn(s) {
-		report.Logf(out, report.Warn, "co-op: this build has no co-op side here; the session goes on without co-op.")
+		log.Logf(out, log.Warn, "co-op: this build has no co-op side here; the session goes on without co-op.")
 	}
 	if err := lc.Go(""); err != nil {
-		report.Logf(out, report.Warn, "Couldn't tell the players to go: %v", err)
+		log.Logf(out, log.Warn, "Couldn't tell the players to go: %v", err)
 	}
 }
 

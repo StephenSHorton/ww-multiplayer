@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 func clock(t0 time.Time) func() time.Time { return func() time.Time { return t0 } }
@@ -34,15 +34,15 @@ func TestOpenWritesStampedLines(t *testing.T) {
 	if want := filepath.Join(dir, "20261016T140405Z-host.log"); f.Path() != want {
 		t.Errorf("path %s, want %s", f.Path(), want)
 	}
-	f.Log(report.Info, "Server listening on :25565")
-	f.Log(report.Net, "connected")
-	f.Log(report.Err, "two\nlines\n")
-	f.Log(report.OK, "ok")
-	f.Log(report.Level(99), "odd level")
+	f.Log(log.Info, "Server listening on :25565")
+	f.Log(log.Net, "connected")
+	f.Log(log.Err, "two\nlines\n")
+	f.Log(log.OK, "ok")
+	f.Log(log.Level(99), "odd level")
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	f.Log(report.Info, "after close") // dropped, no panic
+	f.Log(log.Info, "after close") // dropped, no panic
 	want := strings.Join([]string{
 		"2026-10-16T14:04:05.006Z INFO Server listening on :25565",
 		"2026-10-16T14:04:05.006Z NET  connected",
@@ -104,7 +104,7 @@ func TestSizeCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 20; i++ {
-		f.Log(report.Info, fmt.Sprintf("line %02d", i))
+		f.Log(log.Info, fmt.Sprintf("line %02d", i))
 	}
 	f.Close()
 	got := read(t, f.Path())
@@ -124,7 +124,7 @@ func TestTailRing(t *testing.T) {
 	}
 	defer f.Close()
 	for i := 0; i < TailLines+50; i++ {
-		f.Log(report.Info, fmt.Sprintf("n%d", i))
+		f.Log(log.Info, fmt.Sprintf("n%d", i))
 	}
 	tail := f.Tail()
 	if len(tail) != TailLines || !strings.HasSuffix(tail[0], " n50") || !strings.HasSuffix(tail[TailLines-1], fmt.Sprintf(" n%d", TailLines+49)) {
@@ -143,7 +143,7 @@ func TestConcurrentLog(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 100; i++ {
-				f.Log(report.Info, "x")
+				f.Log(log.Info, "x")
 			}
 		}()
 	}
@@ -188,7 +188,7 @@ func TestLogRedacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.red = Redactor{Home: "/home/ann"}
-	f.Log(report.Info, "token=abcdef0123 at /home/ann/x")
+	f.Log(log.Info, "token=abcdef0123 at /home/ann/x")
 	f.Close()
 	if got := read(t, f.Path()); !strings.HasSuffix(got, "INFO token=<redacted> at ~/x\n") {
 		t.Errorf("file %q", got)

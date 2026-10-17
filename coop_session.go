@@ -62,9 +62,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
@@ -236,7 +236,7 @@ func defaultCoopEnv(pid uint32) coopEnv {
 			if err != nil {
 				return nil, nil, err
 			}
-			return mem.NewDolphinMem(d), d.Close, nil
+			return d, d.Close, nil
 		},
 		tick:   coopTick,
 		tables: loadCoopStageTables,
@@ -270,7 +270,7 @@ type coopSession struct {
 	// ask answers the questions (coopFront.ask, or the stdin prompter).
 	ask    coopAsker
 	advise func(session.Advice) // nil for none
-	rep    report.Reporter
+	rep    log.Reporter
 	// tables are the session's M1 stage tables, nil without (every
 	// method is nil-safe).
 	tables *coopStageTables
@@ -315,7 +315,7 @@ func (cs *coopSession) askedFor(name string) map[coopFileKey]bool {
 // grants memory switches by them, and a writing replica sends their
 // identity in CO_HELLO. A dry-run joiner, which M2 ran without them,
 // does not.
-func startCoopSession(rep report.Reporter, f coopFlags, env coopEnv) *coopSession {
+func startCoopSession(rep log.Reporter, f coopFlags, env coopEnv) *coopSession {
 	cs := startCoopSide(rep, f, env, false)
 	cs.console.help()
 	return cs
@@ -323,7 +323,7 @@ func startCoopSession(rep report.Reporter, f coopFlags, env coopEnv) *coopSessio
 
 // startCoopSide is startCoopSession for a host (host: its hub needs the
 // tables even in a dry run) or a joiner.
-func startCoopSide(rep report.Reporter, f coopFlags, env coopEnv, host bool) *coopSession {
+func startCoopSide(rep log.Reporter, f coopFlags, env coopEnv, host bool) *coopSession {
 	cs := &coopSession{flags: f, rep: rep, ask: env.front.ask, advise: env.front.advise, poses: map[string]*network.Client{}}
 	var cmds <-chan promptLine
 	if cs.ask == nil {
@@ -337,10 +337,10 @@ func startCoopSide(rep report.Reporter, f coopFlags, env coopEnv, host bool) *co
 	b, err := backup.Create(env.userDirs, backup.Options{Root: env.backups, Label: "co-op session start"})
 	if err != nil {
 		cs.noTags = err
-		report.Logf(rep, report.Warn, "co-op: could not back up the memory cards: %v. No co-op tag is written this session (set USER_DIR_1 if Dolphin keeps its user folder elsewhere).", err)
+		log.Logf(rep, log.Warn, "co-op: could not back up the memory cards: %v. No co-op tag is written this session (set USER_DIR_1 if Dolphin keeps its user folder elsewhere).", err)
 	} else {
 		cs.backupDir = b.Dir
-		report.Logf(rep, report.OK, "co-op: backed up %d memory-card file(s) to %s (`coop-world restore %s --yes`, with Dolphin closed, puts them back). Check that these are your cards:", len(b.Files), b.Dir, b.ID)
+		log.Logf(rep, log.OK, "co-op: backed up %d memory-card file(s) to %s (`coop-world restore %s --yes`, with Dolphin closed, puts them back). Check that these are your cards:", len(b.Files), b.Dir, b.ID)
 		logBackupCards(rep, b)
 	}
 	if env.tables != nil && (host || !f.dryRun) {
@@ -377,10 +377,10 @@ func (cs *coopSession) policy() *world.Policy {
 // max life are derived from t, and each one t does not allow is named
 // with why (no tables, or a table whose M1 invariant fails). What the
 // host does not grant the replica says on its welcome.
-func logCoopProgression(rep report.Reporter, t *tables.Tables) {
+func logCoopProgression(rep log.Reporter, t *tables.Tables) {
 	const synced = "story bits and event registers (written at stage changes), items, songs and capacities (when idle) and max magic"
 	if t == nil {
-		report.Logf(rep, report.OK, "co-op: shared progression this session: %s; without co-op stage tables no small keys or max hearts are derived.", synced)
+		log.Logf(rep, log.OK, "co-op: shared progression this session: %s; without co-op stage tables no small keys or max hearts are derived.", synced)
 		return
 	}
 	st := derive.New(derive.Config{Tables: t}).Status()
@@ -409,9 +409,9 @@ func logCoopProgression(rep report.Reporter, t *tables.Tables) {
 	if len(derived) > 0 {
 		line += "; derived from the stage tables: " + strings.Join(derived, " and ")
 	}
-	report.Logf(rep, report.OK, "co-op: shared progression this session: %s.", line)
+	log.Logf(rep, log.OK, "co-op: shared progression this session: %s.", line)
 	for _, o := range off {
-		report.Logf(rep, report.Warn, "co-op: %s.", o)
+		log.Logf(rep, log.Warn, "co-op: %s.", o)
 	}
 }
 
@@ -419,7 +419,7 @@ func logCoopProgression(rep report.Reporter, t *tables.Tables) {
 // it, and warns when Dolphin's settings (Dolphin.ini, or Dolphin's default
 // for a slot it doesn't set) select none of them: the card locations are
 // Dolphin's (backup.Locate), so the owner checks them (§8.2).
-func logBackupCards(rep report.Reporter, b *backup.Backup) {
+func logBackupCards(rep log.Reporter, b *backup.Backup) {
 	inUse := false
 	for i, c := range b.Cards {
 		inUse = inUse || c.InUse == backup.UseYes
@@ -431,18 +431,18 @@ func logBackupCards(rep report.Reporter, b *backup.Backup) {
 		}
 		switch {
 		case len(files) == 1 && files[0].Source == c.Path:
-			report.Logf(rep, report.Info, "co-op:   %s, %d bytes", c, files[0].Size)
+			log.Logf(rep, log.Info, "co-op:   %s, %d bytes", c, files[0].Size)
 		case len(files) == 0:
-			report.Logf(rep, report.Info, "co-op:   %s: no Wind Waker save in it", c)
+			log.Logf(rep, log.Info, "co-op:   %s: no Wind Waker save in it", c)
 		default:
-			report.Logf(rep, report.Info, "co-op:   %s:", c)
+			log.Logf(rep, log.Info, "co-op:   %s:", c)
 			for _, f := range files {
-				report.Logf(rep, report.Info, "co-op:     %s, %d bytes", f.Source, f.Size)
+				log.Logf(rep, log.Info, "co-op:     %s, %d bytes", f.Source, f.Size)
 			}
 		}
 	}
 	if !inUse {
-		report.Logf(rep, report.Warn, "co-op: Dolphin's settings (Dolphin.ini, or Dolphin's defaults where it sets none: a GCI folder in slot A) select none of these cards. If your Dolphin keeps its user folder elsewhere (a portable User folder, say), set USER_DIR_1 (and USER_DIR_2) to it, or this backup misses your card.")
+		log.Logf(rep, log.Warn, "co-op: Dolphin's settings (Dolphin.ini, or Dolphin's defaults where it sets none: a GCI folder in slot A) select none of these cards. If your Dolphin keeps its user folder elsewhere (a portable User folder, say), set USER_DIR_1 (and USER_DIR_2) to it, or this backup misses your card.")
 	}
 }
 
@@ -450,7 +450,7 @@ func logBackupCards(rep report.Reporter, b *backup.Backup) {
 // backup, the world (selectCoopWorld, or a founding) and the hub, which
 // the caller sets as its server's Coop before Start. srvLog gets the
 // hub's lines, beside the server's own. Stop it with stop.
-func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string), f coopFlags, env coopEnv) (*coopSession, error) {
+func startCoopHost(ctx context.Context, rep log.Reporter, srvLog func(string), f coopFlags, env coopEnv) (*coopSession, error) {
 	cs := startCoopSide(rep, f, env, true)
 	st, err := cs.openWorld(ctx, rep, f, env, func(ctx context.Context, pol *world.Policy) (*world.World, error) {
 		m, closeMem, err := env.openMem()
@@ -472,13 +472,13 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 // openWorld opens the world a host serves (selectCoopWorld), or, for
 // --coop=new, founds one with found and creates it under the worlds
 // root.
-func (cs *coopSession) openWorld(ctx context.Context, rep report.Reporter, f coopFlags, env coopEnv, found func(context.Context, *world.Policy) (*world.World, error)) (*world.Store, error) {
+func (cs *coopSession) openWorld(ctx context.Context, rep log.Reporter, f coopFlags, env coopEnv, found func(context.Context, *world.Policy) (*world.World, error)) (*world.Store, error) {
 	root, err := env.worldsRoot()
 	if err != nil {
 		return nil, err
 	}
 	opts := world.Options{Logf: func(format string, args ...any) {
-		rep.Log(report.Warn, "co-op: world file: "+fmt.Sprintf(format, args...))
+		rep.Log(log.Warn, "co-op: world file: "+fmt.Sprintf(format, args...))
 	}}
 	if f.world == coopWorldNew {
 		w, err := found(ctx, cs.policy())
@@ -504,7 +504,7 @@ func (cs *coopSession) openWorld(ctx context.Context, rep report.Reporter, f coo
 
 // startHub starts the hub over st, the session marker, and says what the
 // session writes.
-func (cs *coopSession) startHub(rep report.Reporter, srvLog func(string), f coopFlags, st *world.Store) error {
+func (cs *coopSession) startHub(rep log.Reporter, srvLog func(string), f coopFlags, st *world.Store) error {
 	features := hub.DefaultFeatures
 	if f.liveSwitches {
 		features |= hub.FeatureLiveSwitches
@@ -526,21 +526,21 @@ func (cs *coopSession) startHub(rep report.Reporter, srvLog func(string), f coop
 	cs.hub, cs.store, cs.world, cs.dir = h, st, bind.WorldID(st.ID()), st.Dir()
 	cs.console.setHub(h.Status)
 	if prev, had, err := writeCoopMarker(cs.dir); err != nil {
-		report.Logf(rep, report.Warn, "co-op: %v", err)
+		log.Logf(rep, log.Warn, "co-op: %v", err)
 	} else if had {
 		switch use, why := prev.state(); use {
 		case markerStale:
-			report.Logf(rep, report.Warn, "co-op: world %s was marked in use (%s), but that process has ended: its last session did not end cleanly", cs.world, prev)
+			log.Logf(rep, log.Warn, "co-op: world %s was marked in use (%s), but that process has ended: its last session did not end cleanly", cs.world, prev)
 		case markerSelf:
-			report.Logf(rep, report.Warn, "co-op: world %s was marked in use by this process (%s): its earlier session here did not stop", cs.world, prev)
+			log.Logf(rep, log.Warn, "co-op: world %s was marked in use by this process (%s): its earlier session here did not stop", cs.world, prev)
 		case markerLive:
 			if why == "" {
-				report.Logf(rep, report.Warn, "co-op: world %s is marked in use by a process that still runs (%s): if that is another host serving it, stop one of them, or one host's changes are lost", cs.world, prev)
+				log.Logf(rep, log.Warn, "co-op: world %s is marked in use by a process that still runs (%s): if that is another host serving it, stop one of them, or one host's changes are lost", cs.world, prev)
 			} else {
-				report.Logf(rep, report.Warn, "co-op: world %s was marked in use (%s), and a process with pid %d runs, but %s, so it may not be that host: if another host serves it, stop one of them, or one host's changes are lost", cs.world, prev, prev.pid, why)
+				log.Logf(rep, log.Warn, "co-op: world %s was marked in use (%s), and a process with pid %d runs, but %s, so it may not be that host: if another host serves it, stop one of them, or one host's changes are lost", cs.world, prev, prev.pid, why)
 			}
 		default:
-			report.Logf(rep, report.Warn, "co-op: world %s was marked in use (%s), and whether that session still runs can't be told (%s): if another host serves it, stop one of them, or one host's changes are lost", cs.world, prev, why)
+			log.Logf(rep, log.Warn, "co-op: world %s was marked in use (%s), and whether that session still runs can't be told (%s): if another host serves it, stop one of them, or one host's changes are lost", cs.world, prev, why)
 		}
 	}
 	merge := ""
@@ -548,7 +548,7 @@ func (cs *coopSession) startHub(rep report.Reporter, srvLog func(string), f coop
 		merge = "; --coop-merge: files with progress the world lacks may bind"
 	}
 	if f.dryRun {
-		report.Logf(rep, report.OK, "Co-op world %s at seq %d (dry run: planned writes are logged, not made; only a binding tag is ever written, after a yes%s).", cs.world, st.Seq(), merge)
+		log.Logf(rep, log.OK, "Co-op world %s at seq %d (dry run: planned writes are logged, not made; only a binding tag is ever written, after a yes%s).", cs.world, st.Seq(), merge)
 		cs.console.help()
 		return nil
 	}
@@ -556,7 +556,7 @@ func (cs *coopSession) startHub(rep report.Reporter, srvLog func(string), f coop
 	if f.liveSwitches {
 		live = "; --coop-live-switches: the current table's switches apply when idle, once every shown room's actors have run 2 s"
 	}
-	report.Logf(rep, report.OK, "Co-op world %s at seq %d: the world's chests, pickups, rooms, dungeon items, latching switches, ocean, charts, story bits and items are written into each bound game, and its small keys, max hearts and max magic derived (--coop-dry-run only logs them%s%s).", cs.world, st.Seq(), merge, live)
+	log.Logf(rep, log.OK, "Co-op world %s at seq %d: the world's chests, pickups, rooms, dungeon items, latching switches, ocean, charts, story bits and items are written into each bound game, and its small keys, max hearts and max magic derived (--coop-dry-run only logs them%s%s).", cs.world, st.Seq(), merge, live)
 	cs.console.help()
 	return nil
 }
@@ -568,7 +568,7 @@ func (cs *coopSession) stop() {
 		return
 	}
 	if err := cs.hub.Stop(); err != nil {
-		report.Logf(cs.rep, report.Err, "co-op: %v", err)
+		log.Logf(cs.rep, log.Err, "co-op: %v", err)
 	}
 	removeCoopMarker(cs.dir)
 	cs.hub = nil
@@ -576,18 +576,18 @@ func (cs *coopSession) stop() {
 
 // logWorldLoad says how a world came off the disk when it took more than
 // reading world.wwco.
-func logWorldLoad(rep report.Reporter, lr world.LoadReport) {
+func logWorldLoad(rep log.Reporter, lr world.LoadReport) {
 	if lr.FellBack() {
-		report.Logf(rep, report.Warn, "co-op: the world file was missing or damaged; loaded the backup %s instead (%s)", lr.From, errors.Join(lr.Skipped...))
+		log.Logf(rep, log.Warn, "co-op: the world file was missing or damaged; loaded the backup %s instead (%s)", lr.From, errors.Join(lr.Skipped...))
 	}
 	if lr.Replayed > 0 {
-		report.Logf(rep, report.Info, "co-op: replayed %d journal record(s) the world file had not caught up with", lr.Replayed)
+		log.Logf(rep, log.Info, "co-op: replayed %d journal record(s) the world file had not caught up with", lr.Replayed)
 	}
 	if lr.BadLines > 0 {
-		report.Logf(rep, report.Warn, "co-op: skipped %d damaged journal line(s)", lr.BadLines)
+		log.Logf(rep, log.Warn, "co-op: skipped %d damaged journal line(s)", lr.BadLines)
 	}
 	if lr.Stripped > 0 {
-		report.Logf(rep, report.Warn, "co-op: dropped %d bit(s) this build's class table does not share", lr.Stripped)
+		log.Logf(rep, log.Warn, "co-op: dropped %d bit(s) this build's class table does not share", lr.Stripped)
 	}
 }
 
@@ -702,7 +702,7 @@ func listCoopWorlds(root string) ([]coopWorldInfo, error) {
 // file's shared bits. The replica then binds the file to it through the
 // usual prompt: a file and the world founded from it are the same, so the
 // bind needs no --coop-merge.
-func foundCoopWorld(ctx context.Context, rep report.Reporter, m mem.Mem, tick func(), pol *world.Policy) (*world.World, error) {
+func foundCoopWorld(ctx context.Context, rep log.Reporter, m mem.Mem, tick func(), pol *world.Policy) (*world.World, error) {
 	var told time.Time
 	for {
 		s, st, _, err := gateSnapshots(m, tick)
@@ -713,7 +713,7 @@ func foundCoopWorld(ctx context.Context, rep report.Reporter, m mem.Mem, tick fu
 			return foundFrom(rep, s, pol)
 		}
 		if time.Since(told) >= 5*time.Second {
-			report.Logf(rep, report.Info, "co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (%s)", st.Why())
+			log.Logf(rep, log.Info, "co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (%s)", st.Why())
 			told = time.Now()
 		}
 		if err := ctx.Err(); err != nil {
@@ -727,7 +727,7 @@ func foundCoopWorld(ctx context.Context, rep report.Reporter, m mem.Mem, tick fu
 // (hub.Config.SyncedSwitch over DefaultPolicy), so the file it was
 // founded from binds to it as a subset, its story bits and memory
 // switches included.
-func foundFrom(rep report.Reporter, s *state.Snapshot, pol *world.Policy) (*world.World, error) {
+func foundFrom(rep log.Reporter, s *state.Snapshot, pol *world.Policy) (*world.World, error) {
 	f := bind.FileOf(s)
 	if _, err := foundCheck(f); err != nil {
 		return nil, err
@@ -740,7 +740,7 @@ func foundFrom(rep report.Reporter, s *state.Snapshot, pol *world.Policy) (*worl
 	w.SetPolicy(pol)
 	img := world.Image(s.Image())
 	r := w.Merge(&img)
-	report.Logf(rep, report.OK, "co-op: founded world %s from %s (%d shared bytes).", id, bind.Describe(f), len(r.Delta))
+	log.Logf(rep, log.OK, "co-op: founded world %s from %s (%d shared bytes).", id, bind.Describe(f), len(r.Delta))
 	return w, nil
 }
 
@@ -908,15 +908,15 @@ func removeCoopMarker(dir string) { os.Remove(filepath.Join(dir, coopMarkerName)
 // so an offer is answered on the replica's tick rather than on a
 // goroutine of its own.
 type coopAsker interface {
-	question(ctx context.Context, rep report.Reporter, q session.Question) bool
+	question(ctx context.Context, rep log.Reporter, q session.Question) bool
 	answersAtOnce() bool
 }
 
 // logQuestion logs q's body, one line at a time, as the CLI prints it
 // (coopPrompter.ask).
-func logQuestion(rep report.Reporter, q session.Question) {
+func logQuestion(rep log.Reporter, q session.Question) {
 	for _, l := range strings.Split(strings.TrimRight(q.Body, "\n"), "\n") {
-		rep.Log(report.Info, l)
+		rep.Log(log.Info, l)
 	}
 }
 
@@ -1032,7 +1032,7 @@ func (p *coopPrompter) answersAtOnce() bool { return p.yes }
 // question is ask with q's body: the CLI prints the prompt as it always
 // has (a bind's preflight is in the log already: the replica logged it
 // just before its offer).
-func (p *coopPrompter) question(ctx context.Context, rep report.Reporter, q session.Question) bool {
+func (p *coopPrompter) question(ctx context.Context, rep log.Reporter, q session.Question) bool {
 	return p.ask(ctx, rep, q.Body)
 }
 
@@ -1040,26 +1040,26 @@ func (p *coopPrompter) question(ctx context.Context, rep report.Reporter, q sess
 // With --yes it answers yes at once. A line typed before the question was
 // logged is dropped (settle, then the stamps), so an earlier keystroke
 // never answers it; stdin at EOF and a session ending are a no.
-func (p *coopPrompter) ask(ctx context.Context, rep report.Reporter, question string) bool {
+func (p *coopPrompter) ask(ctx context.Context, rep log.Reporter, question string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, l := range strings.Split(strings.TrimRight(question, "\n"), "\n") {
-		rep.Log(report.Info, l)
+		rep.Log(log.Info, l)
 	}
 	if p.yes {
-		rep.Log(report.Info, "  yes (--yes)")
+		rep.Log(log.Info, "  yes (--yes)")
 		return true
 	}
 	p.in.settle(ctx)
 	asked := p.now()
-	rep.Log(report.Info, "  Type y and press Enter for yes; anything else is no.")
+	rep.Log(log.Info, "  Type y and press Enter for yes; anything else is no.")
 	for {
 		select {
 		case <-ctx.Done():
 			return false
 		case l, ok := <-p.lines:
 			if !ok {
-				rep.Log(report.Warn, "no answer: stdin is closed, so that is a no (pass --yes to answer yes)")
+				rep.Log(log.Warn, "no answer: stdin is closed, so that is a no (pass --yes to answer yes)")
 				return false
 			}
 			if l.at.Before(asked) {
@@ -1067,10 +1067,10 @@ func (p *coopPrompter) ask(ctx context.Context, rep report.Reporter, question st
 			}
 			switch strings.ToLower(strings.TrimSpace(l.text)) {
 			case "y", "yes":
-				rep.Log(report.Info, "  yes")
+				rep.Log(log.Info, "  yes")
 				return true
 			}
-			rep.Log(report.Info, "  no")
+			rep.Log(log.Info, "  no")
 			return false
 		}
 	}
@@ -1081,7 +1081,7 @@ func (p *coopPrompter) ask(ctx context.Context, rep report.Reporter, question st
 type coopSync struct {
 	cs     *coopSession
 	name   string // the player's name: the console's handle on it
-	rep    report.Reporter
+	rep    log.Reporter
 	m      mem.Mem
 	r      *replica.Replica
 	client *network.Client
@@ -1109,13 +1109,13 @@ type coopFileKey struct {
 // picks (0: the one WW_DOLPHIN_INDEX / WW_DOLPHIN_PID select), with its own
 // handle on it, connecting to the hub at addr as name. It returns the
 // error opening Dolphin, or nil when ctx ends.
-func runCoopSyncCtx(ctx context.Context, name, addr string, dolphinPID uint32, rep report.Reporter, cs *coopSession) error {
+func runCoopSyncCtx(ctx context.Context, name, addr string, dolphinPID uint32, rep log.Reporter, cs *coopSession) error {
 	d, err := openDolphin(dolphinPID)
 	if err != nil {
 		return err
 	}
 	defer d.Close()
-	s, err := cs.newSync(ctx, name, mem.NewDolphinMem(d), rep)
+	s, err := cs.newSync(ctx, name, d, rep)
 	if err != nil {
 		return err
 	}
@@ -1135,10 +1135,10 @@ func runCoopSyncCtx(ctx context.Context, name, addr string, dolphinPID uint32, r
 // pipeline keeps running, and pose sync with it. A dry run is M2's
 // replica, configured as M2 configured it: no tables, M2's policy, the
 // image alone asked for.
-func (cs *coopSession) newSync(ctx context.Context, name string, m mem.Mem, rep report.Reporter) (*coopSync, error) {
+func (cs *coopSession) newSync(ctx context.Context, name string, m mem.Mem, rep log.Reporter) (*coopSync, error) {
 	s := &coopSync{cs: cs, name: name, rep: rep, m: m, asked: cs.askedFor(name)}
 	logf := func(format string, args ...any) {
-		rep.Log(report.Info, strings.TrimRight(fmt.Sprintf(format, args...), "\n")) // a preflight summary ends in one
+		rep.Log(log.Info, strings.TrimRight(fmt.Sprintf(format, args...), "\n")) // a preflight summary ends in one
 	}
 	cfg := replica.Config{
 		Mem:         m,
@@ -1156,7 +1156,7 @@ func (cs *coopSession) newSync(ctx context.Context, name string, m mem.Mem, rep 
 			if s.gaveUp() != "" {
 				return // run said why, and /coop on cannot help
 			}
-			report.Logf(rep, report.Warn, "%s. Pose sync goes on; type /coop on to write the world again.", fmt.Sprintf(format, args...))
+			log.Logf(rep, log.Warn, "%s. Pose sync goes on; type /coop on to write the world again.", fmt.Sprintf(format, args...))
 		}})
 		cfg.PartnerPos = cs.partnerPos(name)
 	}
@@ -1166,7 +1166,7 @@ func (cs *coopSession) newSync(ctx context.Context, name string, m mem.Mem, rep 
 	}
 	s.r = r
 	s.client = network.NewCoopClient(name, 0)
-	s.client.OnLog = func(msg string) { rep.Log(report.Net, msg) }
+	s.client.OnLog = func(msg string) { rep.Log(log.Net, msg) }
 	s.client.OnCoop = r.Handle
 	cs.console.add(ctx, s)
 	return s, nil
@@ -1252,7 +1252,7 @@ func (s *coopSync) run(ctx context.Context, addr string) error {
 	s.over = why
 	s.mu.Unlock()
 	s.r.TurnOff(why)
-	report.Logf(s.rep, report.Warn, "%s", why)
+	log.Logf(s.rep, log.Warn, "%s", why)
 	stopTicks()
 	<-ctx.Done()
 	return nil
@@ -1267,7 +1267,7 @@ func (s *coopSync) run(ctx context.Context, addr string) error {
 func (s *coopSync) offer(ctx context.Context, o replica.Offer) {
 	if err := s.cs.noTags; err != nil {
 		msg := fmt.Sprintf("co-op: the %s is not offered: there is no memory-card backup this session (%v)", o.Plan.Kind, err)
-		s.rep.Log(report.Warn, msg)
+		s.rep.Log(log.Warn, msg)
 		s.advise(session.AdviceNoBackup, msg)
 		s.r.Decline(o.Plan)
 		return
@@ -1307,17 +1307,17 @@ func (s *coopSync) preflight(pf replica.PreflightReport) {
 		const msg = "co-op: the world is far ahead of this file: copy the host's save in, or the host can run with --coop-merge to union them; pose sync goes on. " +
 			"Dolphin's Memory Card Manager exports and imports the whole save, so the copy replaces all three of your files with the host's: export yours first (this session's card backup holds them too). The copied file is the host's own, already bound to the world. " +
 			"Before the copy, the host should save in game and load its file from the card: a copy of a file bound fresh and not loaded back since makes the host's own file look leaked when the host next starts"
-		s.rep.Log(report.Info, msg)
+		s.rep.Log(log.Info, msg)
 		s.advise(session.AdviceFarBehind, msg)
 		return
 	case pf.NeedsMerge && s.r.Status().Features&hub.FeatureMerge == 0:
 		const msg = "co-op: this file can't bind unless the host runs with --coop-merge; pose sync goes on"
-		s.rep.Log(report.Info, msg)
+		s.rep.Log(log.Info, msg)
 		s.advise(session.AdviceNeedsMerge, msg)
 		return
 	case s.cs.noTags != nil:
 		msg := fmt.Sprintf("co-op: this file could bind, but there is no memory-card backup this session (%v)", s.cs.noTags)
-		s.rep.Log(report.Info, msg)
+		s.rep.Log(log.Info, msg)
 		s.advise(session.AdviceNoBackup, msg)
 		return
 	}
@@ -1384,16 +1384,16 @@ type outputAsker struct {
 
 func (a outputAsker) answersAtOnce() bool { return a.yes }
 
-func (a outputAsker) question(ctx context.Context, rep report.Reporter, q session.Question) bool {
+func (a outputAsker) question(ctx context.Context, rep log.Reporter, q session.Question) bool {
 	logQuestion(rep, q)
 	if a.yes {
-		rep.Log(report.Info, "  yes (--yes)")
+		rep.Log(log.Info, "  yes (--yes)")
 		return true
 	}
 	if a.out.Ask(ctx, q) {
-		rep.Log(report.Info, "  yes")
+		rep.Log(log.Info, "  yes")
 		return true
 	}
-	rep.Log(report.Info, "  no")
+	rep.Log(log.Info, "  no")
 	return false
 }

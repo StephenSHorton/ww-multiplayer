@@ -1,6 +1,6 @@
 package main
 
-import "github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
+import "github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 
 // Guards for puppet-sync's pose feed, which writes bytes from the network
 // into the receiving Dolphin's emulated RAM.
@@ -48,11 +48,11 @@ func nextSeq(cur byte) byte {
 // bumpSeqByte advances the mailbox sequence byte at addr with nextSeq and
 // returns the value written. A failed read counts as 0, so the first value
 // written is 1.
-func bumpSeqByte(d *dolphin.Dolphin, addr uint32) (byte, error) {
+func bumpSeqByte(d *emu.Dolphin, addr uint32) (byte, error) {
 	var cur byte
-	if b, err := d.ReadAbsolute(addr, 1); err == nil && len(b) == 1 {
+	if b, err := d.Read(addr, 1); err == nil && len(b) == 1 {
 		cur = b[0]
 	}
 	next := nextSeq(cur)
-	return next, d.WriteAbsolute(addr, []byte{next})
+	return next, d.Write(addr, []byte{next})
 }

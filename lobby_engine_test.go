@@ -11,8 +11,8 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // waitSnap polls the controller until cond holds.
@@ -178,7 +178,7 @@ type recOutput struct {
 	lines []string
 }
 
-func (o *recOutput) Log(_ report.Level, msg string)             { o.lines = append(o.lines, msg) }
+func (o *recOutput) Log(_ log.Level, msg string)                { o.lines = append(o.lines, msg) }
 func (o *recOutput) Chat(from, text string)                     {}
 func (o *recOutput) Ask(context.Context, session.Question) bool { return false }
 func (o *recOutput) Advise(session.Advice)                      {}

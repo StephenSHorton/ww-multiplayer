@@ -28,7 +28,7 @@ package addr
 // any access that doesn't.
 const (
 	MEM1Base uint32 = 0x80000000
-	MEM1Size        = 0x01800000 // 24 MiB: the region size dolphin.scanForRAM looks for (internal/dolphin/memory.go:214)
+	MEM1Size        = 0x01800000 // 24 MiB: the region size emu.scanForRAM looks for (wwapi/emu/memory.go:222)
 	MEM1End  uint32 = MEM1Base + MEM1Size
 )
 

@@ -4,14 +4,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/tunic"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 // Tunic-color diagnostics (docs/09-player-colors.md §7, PR 2). Both act on
@@ -74,7 +72,7 @@ func readLinkTextures(d tunicMem) (*linkTextures, error) {
 	lt.currLinktex, _ = d.ReadU32(lt.link + addr.PlayerOffCurrLinktex)
 
 	mt := lt.data + modelDataMatTable
-	if b, err := d.ReadAbsolute(mt+0x04, 2); err == nil && len(b) == 2 {
+	if b, err := d.Read(mt+0x04, 2); err == nil && len(b) == 2 {
 		lt.matCount = int(binary.BigEndian.Uint16(b))
 	}
 	lt.matArr, _ = d.ReadU32(mt + 0x08)
@@ -83,7 +81,7 @@ func readLinkTextures(d tunicMem) (*linkTextures, error) {
 		return nil, fmt.Errorf("J3DTexture* invalid (0x%08X)", texObj)
 	}
 	nameTab, _ := d.ReadU32(mt + 0x1C)
-	nb, err := d.ReadAbsolute(texObj, 8)
+	nb, err := d.Read(texObj, 8)
 	if err != nil || len(nb) != 8 {
 		return nil, errors.New("cannot read J3DTexture")
 	}
@@ -92,7 +90,7 @@ func readLinkTextures(d tunicMem) (*linkTextures, error) {
 	if num == 0 || num > maxLinkTextures || !addr.InMEM1(lt.resArr) {
 		return nil, fmt.Errorf("J3DTexture looks wrong: %d textures at 0x%08X", num, lt.resArr)
 	}
-	raw, err := d.ReadAbsolute(lt.resArr, num*tunic.ResTIMGSize)
+	raw, err := d.Read(lt.resArr, num*tunic.ResTIMGSize)
 	if err != nil || len(raw) != num*tunic.ResTIMGSize {
 		return nil, errors.New("cannot read the ResTIMG array")
 	}
@@ -121,7 +119,7 @@ func readNameTab(d tunicMem, tab uint32, n int) []string {
 	if !addr.InMEM1(tab) {
 		return names
 	}
-	obj, err := d.ReadAbsolute(tab, 0x10)
+	obj, err := d.Read(tab, 0x10)
 	if err != nil || len(obj) != 0x10 {
 		return names
 	}
@@ -129,7 +127,7 @@ func readNameTab(d tunicMem, tab uint32, n int) []string {
 	if !addr.InMEM1(res) || int(cnt) < n {
 		return names
 	}
-	hdr, err := d.ReadAbsolute(res, 4+4*n)
+	hdr, err := d.Read(res, 4+4*n)
 	if err != nil || len(hdr) != 4+4*n {
 		return names
 	}
@@ -138,7 +136,7 @@ func readNameTab(d tunicMem, tab uint32, n int) []string {
 	}
 	for i := 0; i < n; i++ {
 		off := binary.BigEndian.Uint16(hdr[4+4*i+2:])
-		s, _ := d.ReadAbsolute(res+uint32(off), 64)
+		s, _ := d.Read(res+uint32(off), 64)
 		names[i] = cString(s)
 	}
 	return names
@@ -161,7 +159,7 @@ func cString(b []byte) string {
 }
 
 func runTunicProbe() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -203,7 +201,7 @@ func runTunicProbe() {
 	fmt.Printf("mpCurrLinktex == used header: %v\n", lt.currLinktex == lt.hdrAddr(lt.used))
 
 	if sz, ok := spare.ImageSize(); ok {
-		img, err := d.ReadAbsolute(spare.ImageAddr(lt.hdrAddr(lt.spare)), sz)
+		img, err := d.Read(spare.ImageAddr(lt.hdrAddr(lt.spare)), sz)
 		if err == nil && len(img) == sz {
 			m, ref := tunic.Calibrate(img, tunic.DefaultMask)
 			_, st := tunic.Recolor(img, playercolor.Palette()[1].Color, m, ref)
@@ -224,7 +222,7 @@ func runTunicProbe() {
 		if err != nil || !addr.InMEM1(tev) {
 			continue
 		}
-		tn, err := d.ReadAbsolute(tev+0x08, 16)
+		tn, err := d.Read(tev+0x08, 16)
 		if err != nil || len(tn) != 16 {
 			continue
 		}
@@ -248,7 +246,7 @@ func tunicBackupPath(pid, img uint32) string {
 }
 
 func runTunicRecolor(arg string) {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -286,7 +284,7 @@ func runTunicRecolor(arg string) {
 	path := tunicBackupPath(d.PID(), img)
 	orig, err := os.ReadFile(path)
 	if err != nil || len(orig) != size {
-		orig, err = d.ReadAbsolute(img, size)
+		orig, err = d.Read(img, size)
 		if err != nil || len(orig) != size {
 			fmt.Println("cannot read the hero texture")
 			os.Exit(1)
@@ -299,7 +297,7 @@ func runTunicRecolor(arg string) {
 	}
 
 	if arg == "reset" {
-		if err := d.WriteAbsolute(img, orig); err != nil {
+		if err := d.Write(img, orig); err != nil {
 			fmt.Printf("write failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -313,7 +311,7 @@ func runTunicRecolor(arg string) {
 	}
 	m, ref := tunic.Calibrate(orig, tunic.DefaultMask)
 	out, st := tunic.Recolor(orig, c, m, ref)
-	if err := d.WriteAbsolute(img, out); err != nil {
+	if err := d.Write(img, out); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}

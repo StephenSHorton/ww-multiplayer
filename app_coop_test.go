@@ -13,14 +13,14 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // coopSyncFake is gameDeps.coopSync for f: it records coop-sync's runs
 // and waits for its context.
-func (f *fakeGame) coopSync(ctx context.Context, name, addr string, pid uint32, _ report.Reporter, cs *coopSession) error {
+func (f *fakeGame) coopSync(ctx context.Context, name, addr string, pid uint32, _ log.Reporter, cs *coopSession) error {
 	f.event("coop-sync %d start", pid)
 	defer f.event("coop-sync %d stop", pid)
 	<-ctx.Done()
@@ -366,8 +366,8 @@ func TestAppCoopHostLogsMatchCLI(t *testing.T) {
 func TestGameRunnerCoopRestart(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	log := &coLog{}
-	cs := startCoopSession(log, coopFlags{on: true, dryRun: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: strings.NewReader("")})
+	clog := &coLog{}
+	cs := startCoopSession(clog, coopFlags{on: true, dryRun: true}, coopEnv{backups: t.TempDir(), userDirs: []string{coUserDir(t)}, input: strings.NewReader("")})
 	cs.console.setCtx(ctx)
 	k := coopFileKey{slot: 0, name: [bind.PlayerNameSize]byte{'L', 'i', 'n', 'k'}}
 
@@ -380,7 +380,7 @@ func TestGameRunnerCoopRestart(t *testing.T) {
 		mems []mem.Mem
 	)
 	d := f.deps()
-	d.coopSync = func(cctx context.Context, name, addr string, pid uint32, rep report.Reporter, cs *coopSession) error {
+	d.coopSync = func(cctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs *coopSession) error {
 		cg := newCoGame(t, name, coMine{life: 12})
 		return appSyncOn(cctx, cs, name, cg.m, rep, func(cctx context.Context, s *coopSync) error {
 			mu.Lock()
@@ -422,7 +422,7 @@ func TestGameRunnerCoopRestart(t *testing.T) {
 		t.Fatalf("the session's context ended with a run: %v", err)
 	}
 	if err := cs.console.exec(cs.console.sessionCtx(), coopCommand{verb: "refresh"}); err != nil {
-		t.Fatalf("Refresh area after a restart: %v\n%s", err, log)
+		t.Fatalf("Refresh area after a restart: %v\n%s", err, clog)
 	}
 	cs.askedMu.Lock()
 	asked := second.asked[k]

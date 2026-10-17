@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
@@ -24,9 +24,9 @@ var bundledCheatsIni []byte
 
 // dolphin2Defaults returns the OS-appropriate fallback paths for the
 // dolphin2 bootstrap when DOLPHIN_EXE / ISO_PATH / USER_DIR_{1,2} are
-// unset (dolphinenv.DefaultPaths).
+// unset (launch.DefaultPaths).
 func dolphin2Defaults() (exe, iso, userDir1, userDir2 string) {
-	p := dolphinenv.DefaultPaths()
+	p := launch.DefaultPaths()
 	return p.Exe, p.ISO, p.UserDir1, p.UserDir2
 }
 
@@ -39,9 +39,9 @@ func dolphin2Defaults() (exe, iso, userDir1, userDir2 string) {
 // the same defaults the bash script used (DOLPHIN_EXE points into the
 // user's local Dolphin install; APPDATA-relative dir paths).
 func runDolphin2(reset bool) {
-	rep := report.Stdout{}
+	rep := log.Stdout{}
 
-	paths := dolphinenv.FromEnv()
+	paths := launch.FromEnv()
 	dolphinExe, isoPath, userDir1, userDir2 := paths.Exe, paths.ISO, paths.UserDir1, paths.UserDir2
 	// Optional save-state autoload: when set, both Dolphins boot directly
 	// into the given .sav file (Dolphin's --save_state CLI flag), skipping
@@ -59,60 +59,60 @@ func runDolphin2(reset bool) {
 	saveState2 := os.Getenv("SAVE_STATE_2")
 
 	if reset {
-		report.Logf(rep, report.Info, "Removing %s ...", userDir2)
+		log.Logf(rep, log.Info, "Removing %s ...", userDir2)
 		if err := os.RemoveAll(userDir2); err != nil {
-			rep.Log(report.Err, err.Error())
+			rep.Log(log.Err, err.Error())
 			os.Exit(1)
 		}
 	}
 
 	if _, err := os.Stat(dolphinExe); err != nil {
-		report.Logf(rep, report.Err, "Dolphin not found at %s (set DOLPHIN_EXE to override)", dolphinExe)
+		log.Logf(rep, log.Err, "Dolphin not found at %s (set DOLPHIN_EXE to override)", dolphinExe)
 		os.Exit(1)
 	}
 	if _, err := os.Stat(isoPath); err != nil {
-		report.Logf(rep, report.Err, "Patched ISO not found at %s", isoPath)
-		report.Logf(rep, report.Err, "Run `./ww-multiplayer.exe patch <vanilla.iso>` or set ISO_PATH.")
+		log.Logf(rep, log.Err, "Patched ISO not found at %s", isoPath)
+		log.Logf(rep, log.Err, "Run `./ww-multiplayer.exe patch <vanilla.iso>` or set ISO_PATH.")
 		os.Exit(1)
 	}
 	if saveState != "" {
 		if _, err := os.Stat(saveState); err != nil {
-			report.Logf(rep, report.Err, "SAVE_STATE=%s does not exist", saveState)
+			log.Logf(rep, log.Err, "SAVE_STATE=%s does not exist", saveState)
 			os.Exit(1)
 		}
 	}
 	if saveState2 != "" {
 		if _, err := os.Stat(saveState2); err != nil {
-			report.Logf(rep, report.Err, "SAVE_STATE_2=%s does not exist", saveState2)
+			log.Logf(rep, log.Err, "SAVE_STATE_2=%s does not exist", saveState2)
 			os.Exit(1)
 		}
 		if saveState == "" {
-			report.Logf(rep, report.Err, "SAVE_STATE_2 is set but SAVE_STATE is not; set both or neither")
+			log.Logf(rep, log.Err, "SAVE_STATE_2 is set but SAVE_STATE is not; set both or neither")
 			os.Exit(1)
 		}
 	}
 	if _, err := os.Stat(userDir1); err != nil {
-		report.Logf(rep, report.Err, "Primary Dolphin user dir not found at %s", userDir1)
-		report.Logf(rep, report.Err, "Run Dolphin once normally to bootstrap it, then re-run dolphin2.")
+		log.Logf(rep, log.Err, "Primary Dolphin user dir not found at %s", userDir1)
+		log.Logf(rep, log.Err, "Run Dolphin once normally to bootstrap it, then re-run dolphin2.")
 		os.Exit(1)
 	}
 
 	if _, err := os.Stat(userDir2); err != nil {
-		report.Logf(rep, report.Info, "Bootstrapping %s from %s (skipping Cache/) ...", userDir2, userDir1)
+		log.Logf(rep, log.Info, "Bootstrapping %s from %s (skipping Cache/) ...", userDir2, userDir1)
 		// Skips Cache/, which a running Dolphin 1 holds locked.
-		if err := dolphinenv.BootstrapUserDir(userDir1, userDir2); err != nil {
-			report.Logf(rep, report.Err, "bootstrap: %v", err)
+		if err := launch.BootstrapUserDir(userDir1, userDir2); err != nil {
+			log.Logf(rep, log.Err, "bootstrap: %v", err)
 			os.Exit(1)
 		}
-		rep.Log(report.OK, "Bootstrap complete.")
+		rep.Log(log.OK, "Bootstrap complete.")
 	}
 
 	ensureCheatsIni(rep, userDir1)
 	ensureCheatsIni(rep, userDir2)
 
-	pids, err := dolphin.ListPIDs()
+	pids, err := emu.ListPIDs()
 	if err != nil {
-		report.Logf(rep, report.Warn, "couldn't enumerate Dolphin PIDs: %v (will launch both)", err)
+		log.Logf(rep, log.Warn, "couldn't enumerate Dolphin PIDs: %v (will launch both)", err)
 	}
 
 	type launchPlan struct {
@@ -136,34 +136,34 @@ func runDolphin2(reset bool) {
 	case 1:
 		plan = []launchPlan{{"Dolphin 2", userDir2, saveState2Effective}}
 	default:
-		rep.Log(report.Info, "Two or more Dolphins already running — nothing to do.")
+		rep.Log(log.Info, "Two or more Dolphins already running — nothing to do.")
 		return
 	}
 
 	for _, p := range plan {
-		pid, err := dolphinenv.Launch(dolphinExe, p.userDir, isoPath, p.saveState)
+		pid, err := launch.Launch(dolphinExe, p.userDir, isoPath, p.saveState)
 		if err != nil {
-			report.Logf(rep, report.Err, "launch %s: %v", p.label, err)
+			log.Logf(rep, log.Err, "launch %s: %v", p.label, err)
 			os.Exit(1)
 		}
-		report.Logf(rep, report.OK, "Launched %s (pid %d, user dir %s)", p.label, pid, p.userDir)
+		log.Logf(rep, log.OK, "Launched %s (pid %d, user dir %s)", p.label, pid, p.userDir)
 	}
 	if saveState != "" {
 		if saveState2 != "" && saveState2 != saveState {
-			report.Logf(rep, report.Info, "Dolphin 1 booting from %s; Dolphin 2 from %s. Distinct btp phases — face-sync should bridge them once mp-local arms.", saveState, saveState2)
+			log.Logf(rep, log.Info, "Dolphin 1 booting from %s; Dolphin 2 from %s. Distinct btp phases — face-sync should bridge them once mp-local arms.", saveState, saveState2)
 		} else {
-			report.Logf(rep, report.Info, "Both Dolphins booting with save state %s. mp-local's wait-loop will detect when they're in-game.", saveState)
+			log.Logf(rep, log.Info, "Both Dolphins booting with save state %s. mp-local's wait-loop will detect when they're in-game.", saveState)
 		}
 	} else {
-		rep.Log(report.Info, "Wait for both games to load to a save state, then run `./ww-multiplayer.exe mp-local`. (Set SAVE_STATE=<path> to skip the menus next time.)")
+		rep.Log(log.Info, "Wait for both games to load to a save state, then run `./ww-multiplayer.exe mp-local`. (Set SAVE_STATE=<path> to skip the menus next time.)")
 	}
 }
 
 // ensureCheatsIni drops the bundled cheats/GZLE01.ini into
 // <userDir>/GameSettings/GZLE01.ini unless one is there
-// (dolphinenv.EnsureCheatsIni). Best-effort: a failure is a warning.
-func ensureCheatsIni(rep report.Reporter, userDir string) {
-	dolphinenv.EnsureCheatsIni(rep, userDir, bundledCheatsIni)
+// (launch.EnsureCheatsIni). Best-effort: a failure is a warning.
+func ensureCheatsIni(rep log.Reporter, userDir string) {
+	launch.EnsureCheatsIni(rep, userDir, bundledCheatsIni)
 }
 
 // runMpLocal is the Go port of scripts/mplay2.sh — spins up the relay
@@ -179,26 +179,26 @@ func ensureCheatsIni(rep report.Reporter, userDir string) {
 // (startupShift, mp_local_shift.go). Without it none of the co-op pieces
 // run, and the startup shift moves B only when the two Links overlap.
 func runMpLocal(nameA, nameB string, co coopFlags) {
-	rep := report.Stdout{}
+	rep := log.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
 
 	// ListPIDs returns an error (not an empty slice) when no Dolphin
 	// processes are running, so treat err as "0 found" for the
 	// user-facing count.
-	pids, err := dolphin.ListPIDs()
+	pids, err := emu.ListPIDs()
 	count := len(pids)
 	if err != nil {
 		count = 0
 	}
 	if count < 2 {
-		report.Logf(rep, report.Err,
+		log.Logf(rep, log.Err,
 			"need 2 Dolphin instances running, found %d (run `./ww-multiplayer.exe dolphin2` first)",
 			count)
 		os.Exit(1)
 	}
 	pidA, pidB := pids[0], pids[1]
-	report.Logf(rep, report.OK, "Found Dolphin A (pid %d) and B (pid %d).", pidA, pidB)
+	log.Logf(rep, log.OK, "Found Dolphin A (pid %d) and B (pid %d).", pidA, pidB)
 
 	// Wait until both Dolphins have a save loaded — IsInGame returns
 	// true when Link's actor pointer is in RAM range (not zero, not
@@ -206,7 +206,7 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 	// loading a save; 1 s poll interval is responsive without
 	// hammering the process snapshots.
 	if err := waitForReady(ctx, rep, pidA, pidB, 60*time.Second); err != nil {
-		rep.Log(report.Err, err.Error())
+		rep.Log(log.Err, err.Error())
 		os.Exit(1)
 	}
 
@@ -214,17 +214,17 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 	// (face_hook_process_arm) picks this up next frame and installs
 	// once mini_link_state == 1. Symmetrical disarm in teardown below.
 	for i, pid := range []uint32{pidA, pidB} {
-		d, err := dolphin.FindByPID(pid, "GZLE01")
+		d, err := emu.FindByPID(pid, "GZLE01")
 		if err != nil {
-			report.Logf(rep, report.Warn, "couldn't arm face-hook on Dolphin %c (pid %d): %v", 'A'+rune(i), pid, err)
+			log.Logf(rep, log.Warn, "couldn't arm face-hook on Dolphin %c (pid %d): %v", 'A'+rune(i), pid, err)
 			continue
 		}
-		if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{1}); err != nil {
-			report.Logf(rep, report.Warn, "couldn't arm face-hook on Dolphin %c: %v", 'A'+rune(i), err)
+		if err := d.Write(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{1}); err != nil {
+			log.Logf(rep, log.Warn, "couldn't arm face-hook on Dolphin %c: %v", 'A'+rune(i), err)
 		}
 		d.Close()
 	}
-	rep.Log(report.OK, "Face-state sync armed on both Dolphins.")
+	rep.Log(log.OK, "Face-state sync armed on both Dolphins.")
 
 	// When both Dolphins boot from the same SAVE_STATE, both Links
 	// spawn at literally the same world coords and visually overlap.
@@ -246,8 +246,8 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 
 	// Server
 	srv := network.NewServer(25565)
-	srvRep := prefixReporter{inner: rep, prefix: "[server]"}
-	srv.OnLog = func(msg string) { srvRep.Log(report.Info, msg) }
+	srvRep := log.Prefix(rep, "[server]")
+	srv.OnLog = func(msg string) { srvRep.Log(log.Info, msg) }
 	var coop *coopSession
 	if co.on {
 		var err error
@@ -255,17 +255,17 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 			if ctx.Err() != nil {
 				return // Ctrl+C while founding waited for the game
 			}
-			rep.Log(report.Err, err.Error())
+			rep.Log(log.Err, err.Error())
 			os.Exit(1)
 		}
 		srv.Coop = coop.hub
 	}
 	if err := srv.Start(); err != nil {
-		report.Logf(rep, report.Err, "server start: %v", err)
+		log.Logf(rep, log.Err, "server start: %v", err)
 		coop.stop()
 		os.Exit(1)
 	}
-	rep.Log(report.OK, "Server listening on :25565")
+	rep.Log(log.OK, "Server listening on :25565")
 
 	// Give the listener a tick before the first connect — mirrors the
 	// 2 s sleep in mplay2.sh that suppressed accept-races on Windows.
@@ -277,25 +277,25 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 	// spawn launches one client goroutine running run with the label's
 	// prefixed reporter: runBroadcastPoseCtx, runPuppetSyncCtx or, with
 	// --coop, runCoopSyncCtx.
-	spawn := func(label string, run func(r report.Reporter) error) {
+	spawn := func(label string, run func(r log.Reporter) error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer cancel()
-			r := prefixReporter{inner: rep, prefix: "[" + label + "]"}
+			r := log.Prefix(rep, "["+label+"]")
 			if err := run(r); err != nil {
-				report.Logf(r, report.Err, "%v", err)
+				log.Logf(r, log.Err, "%v", err)
 			}
 		}()
 	}
-	broadcast := func(name string, pid uint32) func(report.Reporter) error {
-		return func(r report.Reporter) error { return runBroadcastPoseCtx(ctx, name, addr, pid, r, nil, nil) }
+	broadcast := func(name string, pid uint32) func(log.Reporter) error {
+		return func(r log.Reporter) error { return runBroadcastPoseCtx(ctx, name, addr, pid, r, nil, nil) }
 	}
-	puppet := func(name string, pid uint32) func(report.Reporter) error {
+	puppet := func(name string, pid uint32) func(log.Reporter) error {
 		// With --coop, each Dolphin's warp to the partner takes the other's
 		// position from this client; without, onClient stays nil.
 		onClient := coop.withPoseClient(name, nil)
-		return func(r report.Reporter) error { return runPuppetSyncCtx(ctx, name, addr, name, pid, r, nil, onClient) }
+		return func(r log.Reporter) error { return runPuppetSyncCtx(ctx, name, addr, name, pid, r, nil, onClient) }
 	}
 
 	// 0.3 s stagger between connects: four simultaneous accepts against
@@ -315,15 +315,15 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 			pid         uint32
 		}{{"coop-A", nameA, pidA}, {"coop-B", nameB, pidB}} {
 			time.Sleep(300 * time.Millisecond)
-			spawn(d.label, func(r report.Reporter) error { return runCoopSyncCtx(ctx, d.name, addr, d.pid, r, coop) })
+			spawn(d.label, func(r log.Reporter) error { return runCoopSyncCtx(ctx, d.name, addr, d.pid, r, coop) })
 		}
 	}
 
-	rep.Log(report.OK, "Local multiplayer running. Walk in either Dolphin — the other should render Link #2 at your real coords.")
-	rep.Log(report.Info, "Ctrl+C to stop.")
+	rep.Log(log.OK, "Local multiplayer running. Walk in either Dolphin — the other should render Link #2 at your real coords.")
+	rep.Log(log.Info, "Ctrl+C to stop.")
 
 	<-ctx.Done()
-	rep.Log(report.Info, "Tearing down...")
+	rep.Log(log.Info, "Tearing down...")
 	wg.Wait()
 	srv.Stop()
 	coop.stop()
@@ -331,20 +331,20 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 	// Reset both Dolphins to baseline mirror so Link #2 doesn't stay
 	// frozen at the last received pose forever.
 	for i, pid := range []uint32{pidA, pidB} {
-		d, err := dolphin.FindByPID(pid, "GZLE01")
+		d, err := emu.FindByPID(pid, "GZLE01")
 		if err != nil {
-			report.Logf(rep, report.Warn, "couldn't reset Dolphin %c (pid %d): %v", 'A'+rune(i), pid, err)
+			log.Logf(rep, log.Warn, "couldn't reset Dolphin %c (pid %d): %v", 'A'+rune(i), pid, err)
 			continue
 		}
-		d.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
-		d.WriteAbsolute(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{0})
+		d.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
+		d.Write(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{0})
 		for j := 0; j < maxRemoteLinks; j++ {
-			d.WriteAbsolute(mailbox.Mailbox+mailboxPoseSeq(j), []byte{0})
-			d.WriteAbsolute(mailbox.Mailbox+mailboxFaceSeq(j), []byte{0})
+			d.Write(mailbox.Mailbox+mailboxPoseSeq(j), []byte{0})
+			d.Write(mailbox.Mailbox+mailboxFaceSeq(j), []byte{0})
 		}
 		d.Close()
 	}
-	rep.Log(report.OK, "Done.")
+	rep.Log(log.OK, "Done.")
 }
 
 // waitForReady blocks until both Dolphins report IsInGame() = true,
@@ -355,11 +355,11 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 // and IsInGame is false until Link's actor pointer is in RAM range.
 // Logs a "still waiting…" line every 5 s so it's clear mp-local is
 // alive rather than wedged.
-func waitForReady(ctx context.Context, rep report.Reporter, pidA, pidB uint32, timeout time.Duration) error {
+func waitForReady(ctx context.Context, rep log.Reporter, pidA, pidB uint32, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	rep.Log(report.Info, "Waiting for both Dolphins to load to an in-game save state...")
+	rep.Log(log.Info, "Waiting for both Dolphins to load to an in-game save state...")
 
-	var dA, dB *dolphin.Dolphin
+	var dA, dB *emu.Dolphin
 	defer func() {
 		if dA != nil {
 			dA.Close()
@@ -372,19 +372,19 @@ func waitForReady(ctx context.Context, rep report.Reporter, pidA, pidB uint32, t
 	lastLogged := time.Now()
 	for {
 		if dA == nil {
-			if d, err := dolphin.FindByPID(pidA, "GZLE01"); err == nil {
+			if d, err := emu.FindByPID(pidA, "GZLE01"); err == nil {
 				dA = d
 			}
 		}
 		if dB == nil {
-			if d, err := dolphin.FindByPID(pidB, "GZLE01"); err == nil {
+			if d, err := emu.FindByPID(pidB, "GZLE01"); err == nil {
 				dB = d
 			}
 		}
 		aReady := dA != nil && dA.IsInGame()
 		bReady := dB != nil && dB.IsInGame()
 		if aReady && bReady {
-			rep.Log(report.OK, "Both Dolphins in-game — proceeding.")
+			rep.Log(log.OK, "Both Dolphins in-game — proceeding.")
 			return nil
 		}
 		if time.Now().After(deadline) {
@@ -392,7 +392,7 @@ func waitForReady(ctx context.Context, rep report.Reporter, pidA, pidB uint32, t
 				timeout, aReady, bReady)
 		}
 		if time.Since(lastLogged) >= 5*time.Second {
-			report.Logf(rep, report.Info, "  still waiting (A: %s, B: %s)",
+			log.Logf(rep, log.Info, "  still waiting (A: %s, B: %s)",
 				readyLabel(aReady), readyLabel(bReady))
 			lastLogged = time.Now()
 		}
@@ -409,17 +409,4 @@ func readyLabel(ready bool) string {
 		return "ready"
 	}
 	return "still loading"
-}
-
-// prefixReporter wraps another Reporter and prepends a static label to
-// every Log call. Used by mp-local to tag each goroutine's output
-// (`[server]`, `[bcast-A]`, etc.) so the merged stdout stream is
-// readable.
-type prefixReporter struct {
-	inner  report.Reporter
-	prefix string
-}
-
-func (p prefixReporter) Log(level report.Level, msg string) {
-	p.inner.Log(level, p.prefix+" "+msg)
 }

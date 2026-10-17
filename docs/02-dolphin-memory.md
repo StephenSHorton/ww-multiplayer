@@ -10,7 +10,7 @@ The tricky part: Dolphin's emulated RAM base address changes every launch. On a 
 
 The old C# Windwaker-coop used a hardcoded address (`0x803B0000`) which only worked for 32-bit Dolphin 5.0 Legacy. We scan for it dynamically:
 
-### Scanner Algorithm (`internal/dolphin/memory.go`)
+### Scanner Algorithm (`wwapi/emu/memory.go`)
 
 1. Use `VirtualQueryEx` to enumerate memory regions in Dolphin's process.
 2. Look for committed, readable/writable regions >= 24MB (size of GC MEM1).
@@ -28,7 +28,7 @@ Once the RAM base is found:
 
 So reading rupees means:
 ```go
-rupees, _ := d.ReadAbsolute(0x803C4C0C, 2)
+rupees, _ := d.Read(0x803C4C0C, 2) // bounds-checked to MEM1
 // Internally: ReadProcessMemory at gcRamBase + 0x3C4C0C
 ```
 

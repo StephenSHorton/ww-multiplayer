@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // tmod is an inline test mod: a manifest built from a few fields plus
@@ -96,7 +96,7 @@ type logRec struct {
 	lines []string
 }
 
-func (l *logRec) Log(level report.Level, msg string) {
+func (l *logRec) Log(level log.Level, msg string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.lines = append(l.lines, fmt.Sprintf("%d %s", level, msg))

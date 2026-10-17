@@ -16,8 +16,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/keys"
@@ -27,7 +27,7 @@ import (
 // tablesLog records log lines with their levels.
 type tablesLog struct{ lines []string }
 
-func (l *tablesLog) Log(level report.Level, msg string) {
+func (l *tablesLog) Log(level log.Level, msg string) {
 	l.lines = append(l.lines, fmt.Sprintf("%d %s", level, msg))
 }
 
@@ -124,7 +124,7 @@ func TestNoCoopStageTables(t *testing.T) {
 	}
 	var l tablesLog
 	logCoopStageTables(&l, st, err)
-	if len(l.lines) != 1 || !strings.HasPrefix(l.lines[0], fmt.Sprint(report.Warn)) ||
+	if len(l.lines) != 1 || !strings.HasPrefix(l.lines[0], fmt.Sprint(log.Warn)) ||
 		!strings.Contains(l.lines[0], "patch has recorded no disc") || !strings.Contains(l.lines[0], "Run patch on your vanilla ISO with this build") || !strings.Contains(l.lines[0], "--coop-iso") ||
 		!strings.Contains(l.lines[0], "Memory switches, room puzzles and kills are not synced") {
 		t.Errorf("log %q", l.lines)
@@ -165,7 +165,7 @@ func TestCoopISOTables(t *testing.T) {
 	var l tablesLog
 	logCoopStageTables(&l, st, nil)
 	n, ts, gba := st.syncedCount()
-	if len(l.lines) != 1 || !strings.HasPrefix(l.lines[0], fmt.Sprint(report.OK)) ||
+	if len(l.lines) != 1 || !strings.HasPrefix(l.lines[0], fmt.Sprint(log.OK)) ||
 		!strings.Contains(l.lines[0], fmt.Sprintf("stage tables %016x, %s", want, iso)) ||
 		!strings.Contains(l.lines[0], fmt.Sprintf("%d latching memory switch(es) in %d save table(s) sync (%d of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked)", n, ts, gba)) || n == 0 || gba != 0 {
 		t.Errorf("log %q (%d switches in %d tables, %d GBA-dependent)", l.lines, n, ts, gba)
@@ -471,7 +471,7 @@ func TestCoopStageTablesWhy(t *testing.T) {
 			}
 			var l tablesLog
 			logCoopStageTables(&l, st, err)
-			if len(l.lines) != 1 || !strings.HasPrefix(l.lines[0], fmt.Sprint(report.Warn)) || strings.Contains(l.lines[0], "\n") ||
+			if len(l.lines) != 1 || !strings.HasPrefix(l.lines[0], fmt.Sprint(log.Warn)) || strings.Contains(l.lines[0], "\n") ||
 				!strings.Contains(l.lines[0], "Memory switches, room puzzles and kills are not synced") {
 				t.Fatalf("log %q", l.lines)
 			}

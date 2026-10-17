@@ -162,7 +162,7 @@ C side: unchanged until M7 (coop pump: getSave shim, isActor shim, coop_frame + 
 ### 4.2 Go side
 
 **Packages**, all testable on Linux:
-- `wwapi/mem` (was `internal/coop/mem`): a `Mem` interface over `dolphin.ReadAbsolute`/`WriteAbsolute` (`internal/dolphin/memory.go:110-121`), a 24 MB `FakeMem`, and a `FakeGame`. FakeGame models:
+- `wwapi/mem` (was `internal/coop/mem`): a `Mem` interface (a live `*emu.Dolphin` implements it, bounds-checked, over the unexported raw reads in `wwapi/emu/memory.go`), a 24 MB `FakeMem`, and a `FakeGame`. FakeGame models:
   - frames and the heartbeat;
   - `getSave`/`putSave` on table change;
   - `initDan`, `clearRoomSwitch`, zone create and remove;

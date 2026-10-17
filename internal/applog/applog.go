@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 const (
@@ -50,7 +50,7 @@ func DefaultDir() (string, error) {
 	return filepath.Join(cfg, "ww-multiplayer", "logs"), nil
 }
 
-// File is one session's log file. It is a report.Reporter and safe for
+// File is one session's log file. It is a log.Reporter and safe for
 // concurrent use; Log never blocks on anything but the file write.
 type File struct {
 	mu     sync.Mutex
@@ -102,11 +102,11 @@ func Open(dir, role string, now func() time.Time) (*File, error) {
 // Path is the file's path.
 func (l *File) Path() string { return l.path }
 
-var levelTag = map[report.Level]string{report.Info: "INFO", report.Net: "NET ", report.Warn: "WARN", report.Err: "ERR ", report.OK: "OK  "}
+var levelTag = map[log.Level]string{log.Info: "INFO", log.Net: "NET ", log.Warn: "WARN", log.Err: "ERR ", log.OK: "OK  "}
 
 // Log writes one line: "2006-01-02T15:04:05.000Z LEVEL msg", redacted. A
 // message of several lines is written as several, each stamped.
-func (l *File) Log(level report.Level, msg string) {
+func (l *File) Log(level log.Level, msg string) {
 	msg = l.red.Redact(msg)
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -128,7 +128,7 @@ func (l *File) Log(level report.Level, msg string) {
 // Panic writes a recovered panic and its stack, for a process whose user
 // has no console to see it.
 func (l *File) Panic(v any, stack []byte) {
-	l.Log(report.Err, fmt.Sprintf("panic: %v\n%s", v, stack))
+	l.Log(log.Err, fmt.Sprintf("panic: %v\n%s", v, stack))
 }
 
 func (l *File) write(s string) {
