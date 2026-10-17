@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 )
 
@@ -205,5 +206,39 @@ func TestAppModsOff(t *testing.T) {
 	}
 	if s, _ := a.rt.Status("example"); s.State != wwapi.Loaded {
 		t.Fatalf("example: %v", s)
+	}
+}
+
+// TestAppModsHash (D5): the engines carry the client_required mods that
+// load: the CLI's at the manifest defaults, the app's as its runtime
+// resolved them (a dev mod is local_only and never counts).
+func TestAppModsHash(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("APPDATA", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+
+	both := []string{"coop@1.0.0", "multiplayer@1.0.0"}
+	if m := newCLIEngine().Mods(); !m.Known || !slices.Equal(m.List, both) || m.Hash != wwapi.ModsIDOf(both).Hash {
+		t.Fatalf("CLI engine mods = %+v", m)
+	}
+	for _, c := range []struct {
+		flags modFlags
+		want  []string
+	}{
+		{modFlags{}, both},
+		{modFlags{dev: true}, both},
+		{modFlags{off: []string{"coop"}}, []string{"multiplayer@1.0.0"}},
+	} {
+		a := newApp(c.flags, nil)
+		e, ok := netEngine(a.rt).(*engine.Engine)
+		if !ok {
+			a.stop()
+			t.Fatalf("%+v: engine %T", c.flags, netEngine(a.rt))
+		}
+		if m := e.Mods(); !m.Known || !slices.Equal(m.List, c.want) || m.Hash != wwapi.ModsIDOf(c.want).Hash {
+			t.Errorf("%+v: app engine mods = %+v, want %v", c.flags, m, c.want)
+		}
+		a.stop()
 	}
 }

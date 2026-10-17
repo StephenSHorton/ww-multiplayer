@@ -61,6 +61,17 @@ import (
 // it as a plain player hello (it ignores bytes after caps), so the protocol
 // version does not change. A player with no preference sends the 2-byte
 // hello as before.
+//
+// Mods (docs/api/02-mods.md, "mods_hash"). A player whose build knows its
+// mods sets CapModsHash in a player hello's caps and appends the 32-byte
+// SHA-256 of its client_required mods after the color block:
+// [version:2][role 0][caps:2][hasColor:1][r][g][b][hash:32], with hasColor
+// 0 (and rgb 0) when it has no color preference. A server from before
+// mods ignores the caps and the bytes after the color block; a current
+// server whose own hash differs refuses with RejectMods and a reason that
+// lists the host's mods (the client adds its own). A hello without the
+// bit, from an older client, is accepted as before. ProtocolVersion stays
+// 2 (docs/api/00-design.md decision 13).
 
 // ProtocolVersion is the wire protocol this build speaks. Bump it on any
 // change an older build can't handle: client and server must match.
@@ -91,6 +102,7 @@ const (
 	RejectBadName    byte = 2 // empty, too long, not UTF-8, or has control characters
 	RejectServerFull byte = 3 // no free player ID (or, for a co-op connection, co-op ID)
 	RejectRole       byte = 4 // the server doesn't take the hello's role: co-op is off, or the role is unknown
+	RejectMods       byte = 5 // the player's client_required mods differ from the host's (CapModsHash)
 )
 
 // ErrFatal is matched (errors.Is) by connect errors that retrying can't fix:
@@ -148,8 +160,9 @@ func HelloRoleMessage(version uint16, role byte, caps uint16) []byte {
 // ParseHelloRole decodes a MsgHello payload with its optional role and
 // caps. A 2-byte hello (protocol 1, or a protocol-2 player) is RolePlayer
 // with caps 0. A hello cut off inside role and caps (3 or 4 bytes) is an
-// error. Bytes after caps are ignored, as ParseHello ignores bytes after the
-// version.
+// error, and so is a player hello with CapModsHash that cuts off its hash.
+// Other bytes after caps are ignored, as ParseHello ignores bytes after
+// the version.
 func ParseHelloRole(data []byte) (version uint16, role byte, caps uint16, err error) {
 	version, err = ParseHello(data)
 	switch {
@@ -160,7 +173,11 @@ func ParseHelloRole(data []byte) (version uint16, role byte, caps uint16, err er
 	case len(data) < helloRoleLen:
 		return 0, 0, 0, fmt.Errorf("hello: %d-byte payload cuts off its role and caps (want 2 or at least %d bytes)", len(data), helloRoleLen)
 	}
-	return version, data[2], binary.BigEndian.Uint16(data[3:5]), nil
+	role, caps = data[2], binary.BigEndian.Uint16(data[3:5])
+	if role == RolePlayer && caps&CapModsHash != 0 && len(data) < helloModsLen {
+		return 0, 0, 0, fmt.Errorf("hello: %d-byte player hello cuts off its mods hash (want at least %d bytes)", len(data), helloModsLen)
+	}
+	return version, role, caps, nil
 }
 
 // helloColorLen is the length of a player hello that carries a color
@@ -171,11 +188,45 @@ const helloColorLen = helloRoleLen + 4
 // color preference, else the role form (RolePlayer, caps 0) plus the
 // preference.
 func HelloPlayerMessage(version uint16, pref *playercolor.Color) []byte {
-	if pref == nil {
+	return HelloPlayerModsMessage(version, pref, nil)
+}
+
+// helloModsLen is the length of a player hello with CapModsHash: the
+// color block (hasColor 0 without a preference) plus the hash.
+const helloModsLen = helloColorLen + ModsHashLen
+
+// HelloPlayerModsMessage is HelloPlayerMessage with this build's mods
+// hash. With a hash it is always the role form: caps CapModsHash, the
+// color block (hasColor 0 and rgb 0 without a preference), then the hash.
+func HelloPlayerModsMessage(version uint16, pref *playercolor.Color, hash *[ModsHashLen]byte) []byte {
+	if pref == nil && hash == nil {
 		return HelloMessage(version)
 	}
-	b := HelloRoleMessage(version, RolePlayer, 0)
-	return append(b, 1, pref.R, pref.G, pref.B)
+	var caps uint16
+	if hash != nil {
+		caps = CapModsHash
+	}
+	b := HelloRoleMessage(version, RolePlayer, caps)
+	if pref != nil {
+		b = append(b, 1, pref.R, pref.G, pref.B)
+	} else {
+		b = append(b, 0, 0, 0, 0)
+	}
+	if hash != nil {
+		b = append(b, hash[:]...)
+	}
+	return b
+}
+
+// ParseHelloModsHash returns the mods hash a player's MsgHello carries;
+// ok is false for a hello without one (no CapModsHash, another role, or
+// too short).
+func ParseHelloModsHash(data []byte) (hash [ModsHashLen]byte, ok bool) {
+	if len(data) < helloModsLen || data[2] != RolePlayer || binary.BigEndian.Uint16(data[3:5])&CapModsHash == 0 {
+		return hash, false
+	}
+	copy(hash[:], data[helloColorLen:helloModsLen])
+	return hash, true
 }
 
 // ParseHelloColor returns the color preference a player's MsgHello carries,
@@ -232,17 +283,17 @@ func ValidatePlayerName(name string) error {
 // name the server would refuse fails here as a *RejectError instead, since
 // reconnecting can't fix it.
 func writeJoin(w io.Writer, name string) error {
-	return writeJoinRole(w, name, RolePlayer, 0, nil)
+	return writeJoinRole(w, name, RolePlayer, 0, nil, nil)
 }
 
 // writeJoinRole is writeJoin for a connection of any role. A player's hello
-// is the 2-byte form, or carries its color preference when pref is set; any
-// other role's carries role and caps.
-func writeJoinRole(w io.Writer, name string, role byte, caps uint16, pref *playercolor.Color) error {
+// is the 2-byte form, or carries its color preference when pref is set and
+// its mods hash when hash is set; any other role's carries role and caps.
+func writeJoinRole(w io.Writer, name string, role byte, caps uint16, pref *playercolor.Color, hash *[ModsHashLen]byte) error {
 	if err := ValidatePlayerName(name); err != nil {
 		return &RejectError{Code: RejectBadName, Reason: err.Error()}
 	}
-	hello := HelloPlayerMessage(ProtocolVersion, pref)
+	hello := HelloPlayerModsMessage(ProtocolVersion, pref, hash)
 	if role != RolePlayer {
 		hello = HelloRoleMessage(ProtocolVersion, role, caps)
 	}

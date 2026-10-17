@@ -43,8 +43,8 @@ type LobbyClient struct {
 }
 
 // LobbyNoticeError is a lobby refusal that reconnecting can't fix: the name
-// is taken, the lobby is full, the host kicked us, or a newer connection
-// took our slot. errors.Is(err, ErrFatal) holds for it.
+// is taken, the lobby is full, the host kicked us, the mods differ, or a
+// newer connection took our slot. errors.Is(err, ErrFatal) holds for it.
 type LobbyNoticeError struct {
 	Notice LobbyNoticeBody
 }
@@ -55,7 +55,7 @@ func (e *LobbyNoticeError) Error() string { return "lobby: " + e.Notice.Text }
 func (e *LobbyNoticeError) Is(target error) bool { return target == ErrFatal }
 
 // fatalNotices end a lobby client's Run.
-var fatalNotices = map[string]bool{NoticeNameTaken: true, NoticeFull: true, NoticeKicked: true, "replaced": true}
+var fatalNotices = map[string]bool{NoticeNameTaken: true, NoticeFull: true, NoticeKicked: true, NoticeModsDiffer: true, "replaced": true}
 
 // IsLegacyHost reports whether err is a pre-lobby host refusing the lobby
 // role (RejectRole): the app then joins directly, as before the lobby.
@@ -141,6 +141,9 @@ func (l *LobbyClient) onLobby(payload []byte) {
 		var b LobbyNoticeBody
 		if DecodeLobby(body, &b) != nil {
 			return
+		}
+		if b.Code == NoticeModsDiffer {
+			b.Text = withOwnMods(b.Text, l.c.mods) // the host's list against ours
 		}
 		// The callback first: a fatal notice ends Connect and Run, and
 		// what waits on those (the controller ending the session) must

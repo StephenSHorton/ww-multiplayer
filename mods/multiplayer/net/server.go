@@ -80,6 +80,10 @@ type Server struct {
 	// coopSet is closed when a non-nil CoopHandler is set (guarded by mu).
 	coopSet chan struct{}
 
+	// mods is the host's Mods (SetMods): a player hello or lobby HELLO
+	// with a different hash is refused (guarded by mu).
+	mods Mods
+
 	// lobby is the pre-game lobby (lobby.go), inert until a lobby
 	// connection arrives.
 	lobby *LobbyHub
@@ -257,6 +261,10 @@ func (s *Server) handlePlayer(conn net.Conn) {
 	}
 	switch role {
 	case RolePlayer:
+		if hash, ok := ParseHelloModsHash(hello.Data); !s.modsAdmit(hash, ok) {
+			s.refuse(conn, name, RejectMods, modsDifferReason(s.Mods().List))
+			return
+		}
 	case RoleCoop:
 		// A co-op connection never becomes a player (coop.go).
 		s.handleCoop(conn, name, caps)

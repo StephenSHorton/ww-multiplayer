@@ -39,7 +39,7 @@ func lobbyBodyFor(sub byte) any {
 func TestLobbyCodecRoundTrip(t *testing.T) {
 	ready, color := true, "#D02C2C"
 	bodies := map[byte]any{
-		LobbyHello:   &LobbyHelloBody{Token: "ab", App: "v0.4.0", OS: "windows", Color: "#D02C2C", Dolphin: DolphinNone},
+		LobbyHello:   &LobbyHelloBody{Token: "ab", App: "v0.4.0", OS: "windows", Color: "#D02C2C", Dolphin: DolphinNone, ModsHash: "c47ea77738fba9b096423d844491cffe8c8a2d96575b0355fa2f091d2c1296c1"},
 		LobbyWelcome: &LobbyWelcomeBody{Member: 3, Token: "ff", Host: true, Phase: PhaseLobby, Features: []string{"chat"}},
 		LobbyState: &LobbyStateBody{Phase: PhaseStarting, Rev: 9, Settings: LobbySettingsBody{Coop: CoopNew, Merge: true},
 			Members: []LobbyMember{{ID: 1, Name: "Ann", Color: "#3C9A2E", Ready: true, Host: true, Via: ViaApp}, {ID: cliMemberBase + 4, Name: "Cli", Color: "#D02C2C", Ready: true, Via: ViaCLI}}},
@@ -127,7 +127,8 @@ func TestLobbyCodecRefusals(t *testing.T) {
 // is stable).
 func FuzzLobby(f *testing.F) {
 	for _, s := range []string{
-		"\x01{\"token\":\"ab\",\"color\":\"red\"}", "\x03{\"phase\":\"lobby\",\"rev\":1,\"members\":[{\"id\":1,\"name\":\"a\"}]}",
+		"\x01{\"token\":\"ab\",\"color\":\"red\"}", "\x01{\"app\":\"v0.4.0\",\"modsHash\":\"c47ea77738fba9b096423d844491cffe8c8a2d96575b0355fa2f091d2c1296c1\"}", "\x01{\"modsHash\":7}",
+		"\x03{\"phase\":\"lobby\",\"rev\":1,\"members\":[{\"id\":1,\"name\":\"a\"}]}",
 		"\x04{\"color\":\"#FF0000\",\"ready\":true}", "\x05{\"granted\":null,\"wanted\":\"#000000\"}", "\x07{}", "\x0b{\"code\":\"x\"}",
 		"", "\x04", "\x04[1]", "\xff{}", "\x06{\"coop\":\"new\",\"worlds\":[{\"id\":\"x\",\"seq\":1e30}]}",
 	} {

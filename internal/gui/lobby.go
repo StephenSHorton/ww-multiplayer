@@ -33,6 +33,7 @@ const EnvListenHost = "WW_LISTEN_HOST"
 // Dialog kinds (DialogView.Kind).
 const (
 	dlgVersion     = "version"     // RejectVersion: the two builds differ
+	dlgMods        = "mods"        // RejectMods or NoticeModsDiffer: the client_required mods differ
 	dlgNameTaken   = "name_taken"  // the lobby has a member of that name
 	dlgBadName     = "bad_name"    // RejectBadName
 	dlgFull        = "full"        // the lobby or the server is full
@@ -280,6 +281,8 @@ func endDialog(err error, st session.State, version string) *DialogView {
 			return d
 		case network.NoticeFull:
 			return &DialogView{Kind: dlgFull, Title: "Session full", Text: "That session is full.", Detail: n.Text, Actions: ok}
+		case network.NoticeModsDiffer:
+			return modsDialog(n.Text)
 		case network.NoticeKicked:
 			return &DialogView{Kind: dlgKicked, Title: "Removed", Text: "The host removed you from the session.", Actions: ok}
 		case "replaced":
@@ -294,6 +297,8 @@ func endDialog(err error, st session.State, version string) *DialogView {
 			return &DialogView{Kind: dlgVersion, Title: "Different versions", Detail: re.Reason,
 				Text:    fmt.Sprintf("Your friend runs a different ww-multiplayer than you (you run %s). Both players need the same version.", version),
 				Actions: []DialogAction{{ID: actDownloads, Label: "Open downloads", Primary: true}, {ID: actCopyVersion, Label: "Copy my version"}, {ID: actOK, Label: "Close"}}}
+		case network.RejectMods:
+			return modsDialog(re.Reason)
 		case network.RejectBadName:
 			return &DialogView{Kind: dlgBadName, Title: "Name refused", Text: "The host refused your name.", Detail: re.Reason,
 				Actions: []DialogAction{{ID: actChangeName, Label: "Change my name", Primary: true}, {ID: actOK, Label: "Close"}}}
@@ -342,4 +347,12 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// modsDialog is the dialog for a host that refused us over mods: the
+// reason as the network gives it (the host's list against ours), which
+// the Mods page can fix.
+func modsDialog(reason string) *DialogView {
+	return &DialogView{Kind: dlgMods, Title: "Different mods", Text: reason,
+		Actions: []DialogAction{{ID: actOK, Label: "OK", Primary: true}}}
 }

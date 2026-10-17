@@ -45,9 +45,10 @@ func ColorPrefFor(ctx context.Context) *playercolor.Color {
 }
 
 // NewPlayerClientCtx is NewPlayerClient with the session's preference
-// from ctx, when it has one.
+// from ctx, when it has one, and the session's mods (WithMods).
 func NewPlayerClientCtx(ctx context.Context, name string) *network.Client {
 	c := network.NewClient(name)
 	c.SetColorPreference(ColorPrefFor(ctx))
+	c.SetMods(ModsFor(ctx))
 	return c
 }
