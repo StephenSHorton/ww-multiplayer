@@ -14,7 +14,7 @@ import (
 )
 
 // sessionEngine is the session.Engine (and session.CoopEngine) the
-// controllers run: the same runHostSession / runJoinSession for the CLI
+// controllers run: the same engine.RunHostSession / engine.RunJoinSession for the CLI
 // `host` and `join` subcommands and for the TUI.
 //
 // The TUI's engine (newTUIEngine) has ls, the status bridge shared across
@@ -58,7 +58,7 @@ func (e *sessionEngine) Host(ctx context.Context, cancel context.CancelFunc, o s
 		port = defaultPort
 	}
 	ctx = engine.WithColorPref(ctx, o.Color)
-	return sessionErr(runHostSession(ctx, cancel, o.Name, port, out, e.ls, coopFlagsOf(o.Coop), e.front(out, o.Coop)))
+	return sessionErr(engine.RunHostSession(ctx, cancel, sessionEnv, o.Name, port, out, e.ls, newCoopHook(coopFlagsOf(o.Coop), e.front(out, o.Coop))))
 }
 
 func (e *sessionEngine) Join(ctx context.Context, cancel context.CancelFunc, o session.JoinOptions, out session.Output) error {
@@ -66,7 +66,7 @@ func (e *sessionEngine) Join(ctx context.Context, cancel context.CancelFunc, o s
 	// The app's color goes with its player connections (a lobby join that
 	// fell back to this keeps the color it chose).
 	ctx = engine.WithColorPref(ctx, o.Color)
-	return sessionErr(runJoinSession(ctx, cancel, o.Addr, o.Name, out, e.ls, coopFlagsOf(o.Coop), e.front(out, o.Coop)))
+	return sessionErr(engine.RunJoinSession(ctx, cancel, sessionEnv, o.Addr, o.Name, out, e.ls, newCoopHook(coopFlagsOf(o.Coop), e.front(out, o.Coop))))
 }
 
 // begin hands the status bridge the session's chat sink, and returns how
@@ -115,7 +115,7 @@ func (f coopFlags) options() session.CoopOptions {
 
 // sessionErr is the error the controller should end the session on: err
 // itself, except a fatal connect error, which the session's ConnectLog
-// already logged (logSessionErr skips it the same way), so it is marked
+// already logged (engine.LogSessionErr skips it the same way), so it is marked
 // session.ErrReported: not logged again, but still a failure.
 func sessionErr(err error) error {
 	if errors.Is(err, network.ErrFatal) {
@@ -211,7 +211,7 @@ func (e *sessionEngine) CoopWorlds() ([]session.CoopWorld, error) {
 // runCLISession runs one host or join session through ctrl as the CLI
 // subcommands do, and returns their exit code: 1 when the session ended
 // on an error, which the controller has logged (the old runHost's
-// logSessionErr), else 0. A session that can't start is logged to rep.
+// engine.LogSessionErr), else 0. A session that can't start is logged to rep.
 func runCLISession(ctrl *session.Controller, rep log.Reporter, start func() (session.ID, error)) int {
 	id, err := start()
 	if err != nil {

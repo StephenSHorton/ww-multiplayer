@@ -412,7 +412,7 @@ func (h *coHost) start(f coopFlags) {
 	}
 }
 
-// stop ends the session as runHostSession does: the server, then the hub.
+// stop ends the session as engine.RunHostSession does: the server, then the hub.
 func (h *coHost) stop() {
 	if h.srv == nil {
 		return

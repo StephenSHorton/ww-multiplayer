@@ -464,7 +464,7 @@ func (g *gameRunner) finish(played map[uint32]bool) {
 }
 
 // runPosePipelinesOn runs broadcast-pose and puppet-sync on Dolphin pid,
-// as runMultiplayerGoroutines does on the env's Dolphin (no co-op).
+// as engine.runMultiplayerGoroutines does on the env's Dolphin (no co-op).
 func runPosePipelinesOn(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) error {
 	connLog := feed.NewConnectLog(addr, rep)
 	return engine.RunPipelines(ctx, cancel, rep,
