@@ -232,25 +232,6 @@ func TestHelpersBigEndian(t *testing.T) {
 	}
 }
 
-// TestDolphinMemChecksRangeFirst: the adapter refuses out-of-range access
-// before it touches the Dolphin, so a nil one never gets dereferenced. On
-// a live Dolphin those calls would read or write outside emulated RAM.
-func TestDolphinMemChecksRangeFirst(t *testing.T) {
-	m := NewDolphinMem(nil)
-	if _, err := m.Read(0x00000000, 4); !errors.Is(err, ErrOutOfRange) {
-		t.Errorf("Read(0) = %v, want ErrOutOfRange", err)
-	}
-	if _, err := m.Read(addr.MEM1End-1, 2); !errors.Is(err, ErrOutOfRange) {
-		t.Errorf("straddling Read = %v, want ErrOutOfRange", err)
-	}
-	if err := m.Write(addr.MEM1End, []byte{1}); !errors.Is(err, ErrOutOfRange) {
-		t.Errorf("Write past MEM1 = %v, want ErrOutOfRange", err)
-	}
-	if err := m.Write(addr.MEM1Base, nil); !errors.Is(err, ErrOutOfRange) {
-		t.Errorf("empty Write = %v, want ErrOutOfRange", err)
-	}
-}
-
 // TestFakeMemConcurrent runs readers, writers and the recorder at once;
 // with -race it checks FakeMem's locking.
 func TestFakeMemConcurrent(t *testing.T) {

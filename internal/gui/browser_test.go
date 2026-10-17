@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 func startBrowser(t *testing.T) (*BrowserServer, *fakeEngine) {
@@ -153,7 +153,7 @@ func TestBrowserEvents(t *testing.T) {
 	if code, body := api(t, s, "Join", `[{"addr": "10.0.0.9", "name": "Medli"}]`, nil); code != 200 || body["error"] != nil {
 		t.Fatalf("Join: %d %v", code, body)
 	}
-	e.out(t).Log(report.OK, "welcome aboard")
+	e.out(t).Log(log.OK, "welcome aboard")
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		l, err := r.ReadString('\n')

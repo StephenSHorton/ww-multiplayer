@@ -32,8 +32,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // coopCommand is one parsed console line.
@@ -120,7 +120,7 @@ func parseCoopCommand(line string) (coopCommand, error) {
 
 // coopConsole runs the session's commands for its coop-sync pipelines.
 type coopConsole struct {
-	rep  report.Reporter
+	rep  log.Reporter
 	cmds <-chan promptLine
 
 	mu    sync.Mutex
@@ -142,7 +142,7 @@ func (c *coopConsole) setHub(status func() (hub.Status, error)) {
 	c.mu.Unlock()
 }
 
-func newCoopConsole(rep report.Reporter, cmds <-chan promptLine) *coopConsole {
+func newCoopConsole(rep log.Reporter, cmds <-chan promptLine) *coopConsole {
 	return &coopConsole{rep: rep, cmds: cmds}
 }
 
@@ -155,7 +155,7 @@ func (c *coopConsole) help() {
 	if told {
 		return
 	}
-	c.rep.Log(report.Info, "co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>.")
+	c.rep.Log(log.Info, "co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>.")
 }
 
 // add hands the console a pipeline, and starts the console's loop with
@@ -208,7 +208,7 @@ func (c *coopConsole) run(ctx context.Context) {
 func (c *coopConsole) do(ctx context.Context, line string) {
 	cmd, err := parseCoopCommand(line)
 	if err != nil {
-		report.Logf(c.rep, report.Warn, "co-op: %v", err)
+		log.Logf(c.rep, log.Warn, "co-op: %v", err)
 		return
 	}
 	_ = c.exec(ctx, cmd) // logged
@@ -233,13 +233,13 @@ func (c *coopConsole) sessionCtx() context.Context {
 func (c *coopConsole) exec(ctx context.Context, cmd coopCommand) error {
 	if cmd.verb == "help" {
 		for _, l := range coopCommandHelp {
-			c.rep.Log(report.Info, "co-op:   "+l)
+			c.rep.Log(log.Info, "co-op:   "+l)
 		}
 		return nil
 	}
 	ss, err := c.pick(cmd)
 	if err != nil {
-		report.Logf(c.rep, report.Warn, "co-op: %v", err)
+		log.Logf(c.rep, log.Warn, "co-op: %v", err)
 	}
 	for _, s := range ss {
 		s.command(ctx, cmd)
@@ -299,33 +299,33 @@ func (s *coopSync) command(ctx context.Context, cmd coopCommand) {
 				switch {
 				case res.Err == nil:
 				case errors.Is(res.Err, replica.ErrNotNow):
-					report.Logf(s.rep, report.Info, "co-op: /%s for %s: %v; try again in a moment", cmd.verb, s.name, res.Err)
+					log.Logf(s.rep, log.Info, "co-op: /%s for %s: %v; try again in a moment", cmd.verb, s.name, res.Err)
 				default:
-					report.Logf(s.rep, report.Warn, "co-op: /%s for %s: %v", cmd.verb, s.name, res.Err)
+					log.Logf(s.rep, log.Warn, "co-op: /%s for %s: %v", cmd.verb, s.name, res.Err)
 				}
 			}
 		}()
 	case "coop off":
 		if st := s.r.Status(); st.DryRun || st.WritesOff != "" {
-			report.Logf(s.rep, report.Info, "co-op: %s writes nothing already (%s)", s.name, writesState(st))
+			log.Logf(s.rep, log.Info, "co-op: %s writes nothing already (%s)", s.name, writesState(st))
 			return
 		}
 		s.r.TurnOff("co-op writes are off for " + s.name + ": you typed /coop off")
 	case "coop on":
 		if why := s.gaveUp(); why != "" {
-			report.Logf(s.rep, report.Warn, "co-op: %s: /coop on cannot help: %s", s.name, why)
+			log.Logf(s.rep, log.Warn, "co-op: %s: /coop on cannot help: %s", s.name, why)
 			return
 		}
 		st := s.r.Status()
 		if st.DryRun || st.WritesOff == "" {
-			report.Logf(s.rep, report.Info, "co-op: %s: nothing to turn on (%s)", s.name, writesState(st))
+			log.Logf(s.rep, log.Info, "co-op: %s: nothing to turn on (%s)", s.name, writesState(st))
 			return
 		}
 		s.r.TurnOn()
-		report.Logf(s.rep, report.OK, "co-op: writes are on again for %s (they were off: %s)", s.name, st.WritesOff)
+		log.Logf(s.rep, log.OK, "co-op: writes are on again for %s (they were off: %s)", s.name, st.WritesOff)
 	case "status":
 		for _, l := range formatStatus(s.name, s.r.Status()) {
-			s.rep.Log(report.Info, l)
+			s.rep.Log(log.Info, l)
 		}
 	}
 }

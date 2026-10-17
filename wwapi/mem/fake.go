@@ -11,7 +11,7 @@ const fakePageSize = 0x1000
 
 // FakeMem is a Mem over all of MEM1 (0x80000000-0x81800000) held in Go
 // memory: zero until written, and refusing out-of-range access with the
-// same error DolphinMem gives. It is safe for concurrent use.
+// same error a live *emu.Dolphin gives. It is safe for concurrent use.
 //
 // FakeMem has two write paths. Write, the Mem method, is a tool write: the
 // kind the co-op audits care about, and recorded while Record(true) is in

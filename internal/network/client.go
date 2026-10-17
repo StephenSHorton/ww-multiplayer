@@ -18,7 +18,7 @@ type RemotePlayer struct {
 	Position *PlayerPosition
 	// PoseJoints + PoseMatrices is the latest received skeletal pose
 	// (raw mpNodeMtx bytes, big-endian, ready to memcpy into a Link
-	// J3DModel's mpNodeMtx via WriteAbsolute). Nil until the remote
+	// J3DModel's mpNodeMtx via emu.Dolphin.Write). Nil until the remote
 	// has sent a pose at least once.
 	PoseJoints   int
 	PoseMatrices []byte

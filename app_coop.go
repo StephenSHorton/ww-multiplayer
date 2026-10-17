@@ -11,10 +11,10 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
@@ -64,7 +64,7 @@ func realAppCoopDeps() *appCoopDeps {
 			if err != nil {
 				return nil, nil, err
 			}
-			return mem.NewDolphinMem(d), d.Close, nil
+			return d, d.Close, nil
 		},
 		tick: coopTick,
 		wait: time.Second,
@@ -191,8 +191,8 @@ func (ac *appCoop) onStart(s network.LobbySettingsBody) {
 			if ac.ctx.Err() != nil {
 				return // Leave while founding
 			}
-			ac.out.Log(report.Err, err.Error())
-			ac.out.Log(report.Warn, "co-op: the session goes on without co-op (pose sync works).")
+			ac.out.Log(log.Err, err.Error())
+			ac.out.Log(log.Warn, "co-op: the session goes on without co-op (pose sync works).")
 			ac.reportCoop(session.CoopOptions{}) // the window shows no co-op panel
 			if f.world == coopWorldNew {
 				ac.found1(session.Founding{Phase: session.FoundingFailed, Err: err.Error()})
@@ -258,7 +258,7 @@ func (ac *appCoop) sendGo(world string) {
 		return // in game already (a replayed START)
 	}
 	if err := lc.Go(world); err != nil {
-		report.Logf(ac.out, report.Warn, "Couldn't tell the players to go: %v", err)
+		log.Logf(ac.out, log.Warn, "Couldn't tell the players to go: %v", err)
 	}
 }
 
@@ -320,7 +320,7 @@ func (ac *appCoop) onSettings(s network.LobbySettingsBody) {
 	co.Merge, co.World = s.Merge, wid
 	if h != nil {
 		if err := h.SetMerge(s.Merge); err != nil {
-			report.Logf(ac.out, report.Warn, "co-op: %v", err)
+			log.Logf(ac.out, log.Warn, "co-op: %v", err)
 		}
 	}
 	ac.reportCoop(co)
@@ -461,7 +461,7 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 		}
 		if !st.CanWriteIdle() {
 			if time.Since(told) >= 5*time.Second {
-				report.Logf(ac.out, report.Info, "co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (%s)", st.Why())
+				log.Logf(ac.out, log.Info, "co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (%s)", st.Why())
 				told = time.Now()
 			}
 			f := session.Founding{Phase: session.FoundingWaiting, Why: st.Why()}
@@ -475,7 +475,7 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 		if kind, err := foundCheck(file); err != nil {
 			if err.Error() != blocked {
 				blocked = err.Error()
-				ac.out.Log(report.Warn, blocked)
+				ac.out.Log(log.Warn, blocked)
 			}
 			f := session.Founding{Phase: session.FoundingBlocked, File: bind.Describe(file), Blocker: kind, BlockText: err.Error()}
 			if v := bind.Classify(file, bind.Expect{}); v.HasTag {
@@ -545,7 +545,7 @@ var errFileChanged = errors.New("the loaded file changed: try again")
 // readable tag must still have none), and never own, the session's
 // world ("" for none yet): a dialog clicked after another file was
 // loaded unbinds nothing.
-func clearLoadedTag(rep report.Reporter, m mem.Mem, tick func(), want, own string) error {
+func clearLoadedTag(rep log.Reporter, m mem.Mem, tick func(), want, own string) error {
 	s, st, _, err := gateSnapshots(m, tick)
 	if err != nil {
 		return err
@@ -553,7 +553,7 @@ func clearLoadedTag(rep report.Reporter, m mem.Mem, tick func(), want, own strin
 	p, err := bind.PlanClear(s, st, bind.Expect{})
 	switch {
 	case errors.Is(err, bind.ErrNoTag):
-		rep.Log(report.Info, "co-op: this file has no co-op tag: nothing to clear.")
+		rep.Log(log.Info, "co-op: this file has no co-op tag: nothing to clear.")
 		return nil
 	case err != nil:
 		return fmt.Errorf("%w (try again in game, out of menus and cutscenes)", err)
@@ -576,7 +576,7 @@ func clearLoadedTag(rep report.Reporter, m mem.Mem, tick func(), want, own strin
 	if p.Verdict.HasTag {
 		what = fmt.Sprintf("world %s, %s", p.Verdict.Tag.World, p.Verdict.State)
 	}
-	report.Logf(rep, report.OK, "co-op: cleared the co-op tag (%s) of %s at 0x%08X. Save in game to write the unbound file to the memory card; loading it from the card again brings the tag back.",
+	log.Logf(rep, log.OK, "co-op: cleared the co-op tag (%s) of %s at 0x%08X. Save in game to write the unbound file to the memory card; loading it from the card again brings the tag back.",
 		what, bind.Describe(p.File), addr.Reserve)
 	return nil
 }
@@ -601,10 +601,10 @@ func (cs *coopSession) retryBinds(ctx context.Context, wait time.Duration) {
 			time.Sleep(50 * time.Millisecond)
 		}
 		if s.r.Status().Features&hub.FeatureMerge == 0 {
-			report.Logf(s.rep, report.Warn, "co-op: %s: the host allowed merging, but its hub has not said so yet; load the file again to retry", s.name)
+			log.Logf(s.rep, log.Warn, "co-op: %s: the host allowed merging, but its hub has not said so yet; load the file again to retry", s.name)
 			continue
 		}
-		report.Logf(s.rep, report.Info, "co-op: %s: the host merges files now: asking to bind this file again", s.name)
+		log.Logf(s.rep, log.Info, "co-op: %s: the host merges files now: asking to bind this file again", s.name)
 		s.r.RequestBind()
 	}
 }
@@ -613,13 +613,13 @@ func (cs *coopSession) retryBinds(ctx context.Context, wait time.Duration) {
 // app's game side starts coop-sync again after an error, a Dolphin
 // relaunch or a new boot, so each run leaves the console when it stops
 // (appSyncOn); the CLI's runs once a process.
-func appCoopSync(ctx context.Context, name, addr string, pid uint32, rep report.Reporter, cs *coopSession) error {
+func appCoopSync(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs *coopSession) error {
 	d, err := openDolphin(pid)
 	if err != nil {
 		return err
 	}
 	defer d.Close()
-	return appSyncOn(ctx, cs, name, mem.NewDolphinMem(d), rep, func(ctx context.Context, s *coopSync) error {
+	return appSyncOn(ctx, cs, name, d, rep, func(ctx context.Context, s *coopSync) error {
 		return s.run(ctx, addr)
 	})
 }
@@ -627,7 +627,7 @@ func appCoopSync(ctx context.Context, name, addr string, pid uint32, rep report.
 // appSyncOn builds name's coop-sync pipeline over m, runs it with run,
 // and takes it from the console once run returns: its Dolphin handle is
 // closed then, and its replica stopped.
-func appSyncOn(ctx context.Context, cs *coopSession, name string, m mem.Mem, rep report.Reporter, run func(context.Context, *coopSync) error) error {
+func appSyncOn(ctx context.Context, cs *coopSession, name string, m mem.Mem, rep log.Reporter, run func(context.Context, *coopSync) error) error {
 	s, err := cs.newSync(ctx, name, m, rep)
 	if err != nil {
 		return err

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/events"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // ConfigSource is where mod settings come from. The app's faces fill it
@@ -62,7 +62,7 @@ func (c ConfigSection) Get(key string, v any) (bool, error) {
 type Context struct {
 	rt   *Runtime
 	m    *modState
-	log  report.Reporter
+	log  log.Reporter
 	bus  *events.Bus
 	cfg  ConfigSection
 	data string
@@ -75,7 +75,7 @@ func (c *Context) ID() string { return c.m.e.Manifest.ID }
 func (c *Context) Manifest() Manifest { return c.m.e.Manifest }
 
 // Log reports through the runtime's Reporter with a "[id] " prefix.
-func (c *Context) Log() report.Reporter { return c.log }
+func (c *Context) Log() log.Reporter { return c.log }
 
 // Events is the mod's view of the event bus: it emits only mod.<id>.*
 // and owns the subscriptions made through it, which end when the mod is
@@ -115,11 +115,11 @@ func (c *Context) Mod(id string) (any, bool) {
 
 // prefixed prefixes every line with "[id] ".
 type prefixed struct {
-	r      report.Reporter
+	r      log.Reporter
 	prefix string
 }
 
-func (p prefixed) Log(level report.Level, msg string) { p.r.Log(level, p.prefix+msg) }
+func (p prefixed) Log(level log.Level, msg string) { p.r.Log(level, p.prefix+msg) }
 
 func newContext(rt *Runtime, m *modState, bus *events.Bus) *Context {
 	id := m.e.Manifest.ID

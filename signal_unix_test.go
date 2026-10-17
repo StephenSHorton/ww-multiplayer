@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // TestSecondCtrlCForceQuits runs a helper process that installs
@@ -94,7 +94,7 @@ func TestCliSignalHelper(t *testing.T) {
 	if os.Getenv("WW_TEST_SIGNAL_HELPER") != "1" {
 		t.Skip("helper process for TestSecondCtrlCForceQuits")
 	}
-	ctx, cancel := cliMultiplayerContext(report.Stdout{})
+	ctx, cancel := cliMultiplayerContext(log.Stdout{})
 	defer cancel()
 	fmt.Println("READY")
 	<-ctx.Done()

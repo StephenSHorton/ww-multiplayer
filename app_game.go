@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
@@ -43,15 +43,15 @@ type gameDeps struct {
 	probe func(pid uint32) session.Probe
 	// launch starts the configured Dolphin (and puts the cheats in its
 	// user folder first, when asked) and returns its PID.
-	launch func(o session.LaunchOptions, rep report.Reporter) (uint32, error)
+	launch func(o session.LaunchOptions, rep log.Reporter) (uint32, error)
 	// pipelines runs the pose pipelines on Dolphin pid until ctx ends or
 	// one fails (runPipelines' contract).
-	pipelines func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep report.Reporter) error
+	pipelines func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter) error
 	// reset resets Dolphin pid's mailbox after the pipelines stopped.
 	reset func(pid uint32)
 	// coopSync runs coop-sync on Dolphin pid for co-op session cs until
 	// ctx ends (runCoopSyncCtx's contract: appCoopSync); nil runs none.
-	coopSync func(ctx context.Context, name, addr string, pid uint32, rep report.Reporter, cs *coopSession) error
+	coopSync func(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs *coopSession) error
 	// envPID is WW_DOLPHIN_PID: the Dolphin to play on, whatever runs.
 	envPID uint32
 
@@ -75,7 +75,7 @@ func realGameDeps(ls *liveState) *gameDeps {
 		running: runningDolphins,
 		probe:   probeDolphin,
 		launch:  launchDolphinFor,
-		pipelines: func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep report.Reporter) error {
+		pipelines: func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter) error {
 			return runPosePipelinesOn(ctx, cancel, name, addr, pid, rep, onClient, onPos)
 		},
 		reset:    resetMailboxOn,
@@ -270,23 +270,23 @@ func (g *gameRunner) run(ctx context.Context) {
 		info.LaunchAttempt++
 		if g.o.Exe == "" || g.o.ISO == "" {
 			info.Err = "Choose your Dolphin and your patched disc in Setup first."
-			g.out.Log(report.Err, "Can't start Dolphin: "+info.Err)
+			g.out.Log(log.Err, "Can't start Dolphin: "+info.Err)
 			return
 		}
-		report.Logf(g.out, report.Info, "Starting Dolphin with your patched disc.")
+		log.Logf(g.out, log.Info, "Starting Dolphin with your patched disc.")
 		pid, err := d.launch(g.o, g.out)
 		if err != nil {
 			info.Err = err.Error()
-			report.Logf(g.out, report.Err, "Couldn't start Dolphin: %v", err)
+			log.Logf(g.out, log.Err, "Couldn't start Dolphin: %v", err)
 			return
 		}
 		info.PID, info.Launched, launchedAt = pid, true, d.now()
 		info.State = session.DolphinLaunching
-		report.Logf(g.out, report.OK, "Dolphin started (pid %d).", pid)
+		log.Logf(g.out, log.OK, "Dolphin started (pid %d).", pid)
 	}
 	attach := func(pid uint32, why string) {
 		info.PID, info.Launched, info.Err = pid, false, ""
-		report.Logf(g.out, report.OK, "Playing on the Dolphin that is running (pid %d): %s.", pid, why)
+		log.Logf(g.out, log.OK, "Playing on the Dolphin that is running (pid %d): %s.", pid, why)
 	}
 
 	// The first decision.
@@ -301,7 +301,7 @@ func (g *gameRunner) run(ctx context.Context) {
 		case session.PlanLaunch:
 			doLaunch()
 		case session.PlanWait:
-			g.out.Log(report.Info, "Start Dolphin with your patched disc: the session plays as soon as it runs ("+plan.Why+").")
+			g.out.Log(log.Info, "Start Dolphin with your patched disc: the session plays as soon as it runs ("+plan.Why+").")
 		}
 	}
 
@@ -335,7 +335,7 @@ func (g *gameRunner) run(ctx context.Context) {
 			switch {
 			case st == session.DolphinNone:
 				stopPipes()
-				report.Logf(g.out, report.Warn, "Dolphin (pid %d) closed. Start it again to keep playing, or Leave.", info.PID)
+				log.Logf(g.out, log.Warn, "Dolphin (pid %d) closed. Start it again to keep playing, or Leave.", info.PID)
 				info.PID, info.Launched = 0, false
 			case st.Bad() && st != info.State:
 				stopPipes()
@@ -376,7 +376,7 @@ func (g *gameRunner) run(ctx context.Context) {
 						g.finish(played)
 						return
 					}
-					report.Logf(g.out, report.Warn, "The pose pipelines stopped (%v); starting them again.", err)
+					log.Logf(g.out, log.Warn, "The pose pipelines stopped (%v); starting them again.", err)
 				}
 				retryAt = d.now().Add(d.retry)
 			default:
@@ -390,7 +390,7 @@ func (g *gameRunner) run(ctx context.Context) {
 			go func() { done <- d.pipelines(pctx, cancel, g.name, g.addr, pid, g.out) }()
 			pipeCancel, pipeDone = cancel, done
 			info.Pipelines = true
-			report.Logf(g.out, report.OK, "Playing on Dolphin (pid %d): remote Links appear in your game.", pid)
+			log.Logf(g.out, log.OK, "Playing on Dolphin (pid %d): remote Links appear in your game.", pid)
 		}
 		if pipeDone != nil && pipePID != info.PID {
 			stopPipes() // the Dolphin changed under them
@@ -402,7 +402,7 @@ func (g *gameRunner) run(ctx context.Context) {
 				coopCancel()
 				coopCancel, coopDone = nil, nil
 				if err != nil && ctx.Err() == nil {
-					report.Logf(g.out, report.Warn, "co-op: coop-sync stopped (%v); starting it again.", err)
+					log.Logf(g.out, log.Warn, "co-op: coop-sync stopped (%v); starting it again.", err)
 				}
 				coopAt = d.now().Add(d.retry)
 			default:
@@ -437,9 +437,9 @@ func (g *gameRunner) run(ctx context.Context) {
 func (g *gameRunner) badLog(st session.DolphinState) {
 	switch st {
 	case session.DolphinWrongGame:
-		report.Logf(g.out, report.Err, "Dolphin is running a different game. Boot your patched Wind Waker (%s) in it.", g.o.ISO)
+		log.Logf(g.out, log.Err, "Dolphin is running a different game. Boot your patched Wind Waker (%s) in it.", g.o.ISO)
 	case session.DolphinUnpatched:
-		report.Logf(g.out, report.Err, "Dolphin is running Wind Waker without this version's mod. Boot your patched disc (%s), or patch it again in Setup.", g.o.ISO)
+		log.Logf(g.out, log.Err, "Dolphin is running Wind Waker without this version's mod. Boot your patched disc (%s), or patch it again in Setup.", g.o.ISO)
 	}
 }
 
@@ -455,13 +455,13 @@ func (g *gameRunner) finish(played map[uint32]bool) {
 		g.deps.reset(pid)
 	}
 	if len(pids) > 0 {
-		g.out.Log(report.Info, "Left the game: remote Links are gone from your Dolphin, which keeps running.")
+		g.out.Log(log.Info, "Left the game: remote Links are gone from your Dolphin, which keeps running.")
 	}
 }
 
 // runPosePipelinesOn runs broadcast-pose and puppet-sync on Dolphin pid,
 // as runMultiplayerGoroutines does on the env's Dolphin (no co-op).
-func runPosePipelinesOn(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep report.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) error {
+func runPosePipelinesOn(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) error {
 	connLog := newConnectLog(addr, rep)
 	return runPipelines(ctx, cancel, rep,
 		pipeline{"broadcast-pose", func(ctx context.Context) error {
@@ -477,7 +477,7 @@ func runPosePipelinesOn(ctx context.Context, cancel context.CancelFunc, name, ad
 // slots off (puppet-sync turns them off as it stops; this makes sure),
 // unless WW_TUNIC=off leaves them to the tunic-slot command.
 func resetMailboxOn(pid uint32) {
-	d, err := dolphin.FindByPID(pid, session.GameID)
+	d, err := emu.FindByPID(pid, session.GameID)
 	if err != nil {
 		return // closed: the mailbox went with it
 	}
@@ -485,11 +485,11 @@ func resetMailboxOn(pid uint32) {
 	resetMailbox(d, os.Getenv("WW_TUNIC") != "off")
 }
 
-// mailboxMem reads and writes emulated RAM; *dolphin.Dolphin implements
+// mailboxMem reads and writes emulated RAM; *emu.Dolphin implements
 // it.
 type mailboxMem interface {
 	modMem
-	WriteAbsolute(addr uint32, data []byte) error
+	Write(addr uint32, data []byte) error
 }
 
 // resetMailbox resets the mailbox in m (tunic slots too when tunic), only
@@ -500,12 +500,12 @@ func resetMailbox(m mailboxMem, tunic bool) bool {
 	if !hasThisMod(m) {
 		return false
 	}
-	m.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
+	m.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
 	for i := 0; i < maxRemoteLinks; i++ {
-		m.WriteAbsolute(mailbox.Mailbox+mailboxPoseSeq(i), []byte{0})
+		m.Write(mailbox.Mailbox+mailboxPoseSeq(i), []byte{0})
 	}
 	if tunic {
-		m.WriteAbsolute(mailbox.Mailbox+mailbox.OffTunicEnable, make([]byte, tunicSlots))
+		m.Write(mailbox.Mailbox+mailbox.OffTunicEnable, make([]byte, tunicSlots))
 	}
 	return true
 }
@@ -513,7 +513,7 @@ func resetMailbox(m mailboxMem, tunic bool) bool {
 // mailboxClaimed says Dolphin pid's mailbox has shadow_mode set: a
 // puppet-sync (another session's, when it isn't ours) plays on it.
 func mailboxClaimed(pid uint32) bool {
-	d, err := dolphin.FindByPID(pid, session.GameID)
+	d, err := emu.FindByPID(pid, session.GameID)
 	if err != nil {
 		return false
 	}
@@ -521,17 +521,17 @@ func mailboxClaimed(pid uint32) bool {
 	if !hasThisMod(d) {
 		return false
 	}
-	b, err := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, 1)
+	b, err := d.Read(mailbox.Mailbox+mailbox.OffShadowMode, 1)
 	return err == nil && len(b) == 1 && b[0] != 0
 }
 
 // launchDolphinFor launches o's Dolphin on o's user folder with o's disc,
 // after putting the bundled cheats there when asked (as dolphin2 does).
-func launchDolphinFor(o session.LaunchOptions, rep report.Reporter) (uint32, error) {
+func launchDolphinFor(o session.LaunchOptions, rep log.Reporter) (uint32, error) {
 	if o.InstallCheats {
-		dolphinenv.EnsureCheatsIni(rep, o.UserDir, bundledCheatsIni)
+		launch.EnsureCheatsIni(rep, o.UserDir, bundledCheatsIni)
 	}
-	pid, err := dolphinenv.Launch(o.Exe, o.UserDir, o.ISO, "")
+	pid, err := launch.Launch(o.Exe, o.UserDir, o.ISO, "")
 	if err != nil {
 		return 0, err
 	}
@@ -541,11 +541,11 @@ func launchDolphinFor(o session.LaunchOptions, rep report.Reporter) (uint32, err
 // runningDolphins lists the running Dolphins with their user folders and
 // states.
 func runningDolphins() []session.RunningDolphin {
-	env := dolphinenv.Host()
+	env := launch.Host()
 	var out []session.RunningDolphin
-	for _, p := range dolphinenv.Processes() {
-		dir, _ := dolphinenv.ProcessUserDir(env, p)
-		arg, explicit := dolphinenv.UserDirArg(p.Args)
+	for _, p := range launch.Processes() {
+		dir, _ := launch.ProcessUserDir(env, p)
+		arg, explicit := launch.UserDirArg(p.Args)
 		r := session.RunningDolphin{PID: p.PID, UserDir: dir, Explicit: explicit && arg != "" && p.ArgsKnown,
 			State: session.DolphinStateOf(probeDolphin(p.PID), false)}
 		if r.State.Playable() {
@@ -559,12 +559,12 @@ func runningDolphins() []session.RunningDolphin {
 // probeDolphin looks at Dolphin pid: running, its game, this build's mod
 // in its memory, Link in the world.
 func probeDolphin(pid uint32) session.Probe {
-	pids, _ := dolphin.ListPIDs()
+	pids, _ := emu.ListPIDs()
 	if !slices.Contains(pids, pid) {
 		return session.Probe{}
 	}
 	p := session.Probe{Running: true}
-	id, err := dolphin.DiscID(pid)
+	id, err := emu.DiscID(pid)
 	if err != nil || id == "" {
 		return p
 	}
@@ -572,7 +572,7 @@ func probeDolphin(pid uint32) session.Probe {
 	if id != session.GameID {
 		return p
 	}
-	d, err := dolphin.FindByPID(pid, session.GameID)
+	d, err := emu.FindByPID(pid, session.GameID)
 	if err != nil {
 		p.GameID = "" // its RAM moved under us: look again
 		return p
@@ -583,9 +583,9 @@ func probeDolphin(pid uint32) session.Probe {
 	return p
 }
 
-// modMem reads emulated RAM; *dolphin.Dolphin implements it.
+// modMem reads emulated RAM; *emu.Dolphin implements it.
 type modMem interface {
-	ReadAbsolute(addr uint32, n int) ([]byte, error)
+	Read(addr uint32, n int) ([]byte, error)
 }
 
 // hasThisMod says this build's injected code (inject.T2Bytes) is in RAM
@@ -593,7 +593,7 @@ type modMem interface {
 // are variables the mod changes as it runs). An unpatched game has its
 // heap there; another build's mod is laid out differently.
 func hasThisMod(m modMem) bool {
-	got, err := m.ReadAbsolute(inject.T2Address, len(inject.T2Bytes))
+	got, err := m.Read(inject.T2Address, len(inject.T2Bytes))
 	if err != nil || len(got) != len(inject.T2Bytes) {
 		return false
 	}

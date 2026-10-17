@@ -16,8 +16,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // coopCtrlEngine is the TUI's sessionEngine whose sessions run no
@@ -125,7 +125,7 @@ func TestControllerCommandErrors(t *testing.T) {
 		t.Errorf("co-op side not started yet: %v", err)
 	}
 	eng2.attach(goldenSession(coopFlags{on: true}, strings.NewReader("")))
-	eng2.coopSide().console = newCoopConsole(report.Discard{}, nil)
+	eng2.coopSide().console = newCoopConsole(log.Discard{}, nil)
 	for _, c := range []session.Command{{Verb: "jump"}, {Verb: session.VerbHelp, Player: "Link"}, {Verb: session.VerbWarp, Player: "two words"}, {Verb: session.VerbWarp, Player: strings.Repeat("x", 40)}} {
 		if err := ctrl.Command(c); err == nil {
 			t.Errorf("%+v was taken", c)
@@ -253,11 +253,11 @@ type cliEngine struct{ err error }
 
 // lines logs what the session prints; the engine then returns e.err,
 // marked as the CLI's engine marks it (sessionErr).
-func (e cliEngine) lines(out report.Reporter) {
-	out.Log(report.OK, `Hosting as "Link" on :25565.`)
-	out.Log(report.Info, "Ctrl+C to stop.")
+func (e cliEngine) lines(out log.Reporter) {
+	out.Log(log.OK, `Hosting as "Link" on :25565.`)
+	out.Log(log.Info, "Ctrl+C to stop.")
 	if errors.Is(e.err, network.ErrFatal) {
-		out.Log(report.Err, "Can't join localhost:25565: the server is full")
+		out.Log(log.Err, "Can't join localhost:25565: the server is full")
 	}
 }
 

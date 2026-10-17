@@ -24,7 +24,7 @@ type fakeRAM struct {
 
 func newFakeRAM() *fakeRAM { return &fakeRAM{mem: map[uint32]byte{}} }
 
-func (f *fakeRAM) ReadAbsolute(addr uint32, n int) ([]byte, error) {
+func (f *fakeRAM) Read(addr uint32, n int) ([]byte, error) {
 	b := make([]byte, n)
 	for i := range b {
 		b[i] = f.mem[addr+uint32(i)]
@@ -33,11 +33,11 @@ func (f *fakeRAM) ReadAbsolute(addr uint32, n int) ([]byte, error) {
 }
 
 func (f *fakeRAM) ReadU32(addr uint32) (uint32, error) {
-	b, _ := f.ReadAbsolute(addr, 4)
+	b, _ := f.Read(addr, 4)
 	return binary.BigEndian.Uint32(b), nil
 }
 
-func (f *fakeRAM) WriteAbsolute(addr uint32, data []byte) error {
+func (f *fakeRAM) Write(addr uint32, data []byte) error {
 	f.writes++
 	for i, v := range data {
 		f.mem[addr+uint32(i)] = v
@@ -48,7 +48,7 @@ func (f *fakeRAM) WriteAbsolute(addr uint32, data []byte) error {
 func (f *fakeRAM) put32(addr, v uint32) {
 	var b [4]byte
 	binary.BigEndian.PutUint32(b[:], v)
-	f.WriteAbsolute(addr, b[:])
+	f.Write(addr, b[:])
 }
 
 func (f *fakeRAM) u8(addr uint32) byte { return f.mem[addr] }
@@ -99,18 +99,18 @@ func newLinkRAM(casual bool) *fakeRAM {
 	f := newFakeRAM()
 	f.put32(addr.PlayerPtr, fakeLink)
 	f.put32(fakeLink+addr.PlayerOffCurrLinktex, fakeWorn)
-	f.WriteAbsolute(fakeImage, testImage())
+	f.Write(fakeImage, testImage())
 	hero := resTIMG(tunic.FormatCMPR, 8, 8, fakeImage-fakeWorn)
 	if casual {
 		f.put32(fakeLink+addr.PlayerOffNoResetFlg1, addr.PlayerFlg1CasualClothes)
 		// The worn header holds the casual texture (another format);
 		// mOtherLinktex holds the hero header, offsets relative to the
 		// worn header.
-		f.WriteAbsolute(fakeWorn, resTIMG(0x09, 16, 16, fakeCasual-fakeWorn))
-		f.WriteAbsolute(fakeLink+addr.PlayerOffOtherLinktex, hero)
+		f.Write(fakeWorn, resTIMG(0x09, 16, 16, fakeCasual-fakeWorn))
+		f.Write(fakeLink+addr.PlayerOffOtherLinktex, hero)
 	} else {
-		f.WriteAbsolute(fakeWorn, hero)
-		f.WriteAbsolute(fakeLink+addr.PlayerOffOtherLinktex, resTIMG(0x09, 16, 16, fakeCasual-fakeWorn))
+		f.Write(fakeWorn, hero)
+		f.Write(fakeLink+addr.PlayerOffOtherLinktex, resTIMG(0x09, 16, 16, fakeCasual-fakeWorn))
 	}
 	return f
 }
@@ -147,7 +147,7 @@ func run(t *tunicSync, f *fakeRAM, now *time.Time, n int) {
 
 func slotImage(f *fakeRAM, s int) []byte {
 	buf, _ := f.ReadU32(mailbox.Mailbox + mailboxTunicBuf(s))
-	b, _ := f.ReadAbsolute(buf, len(testImage()))
+	b, _ := f.Read(buf, len(testImage()))
 	return b
 }
 
@@ -298,8 +298,8 @@ func TestTunicSync_CasualReadsOtherLinktex(t *testing.T) {
 func TestTunicSync_MidSwapReadRefused(t *testing.T) {
 	f := newLinkRAM(false)
 	buf := uint32(fakeHeapTop)
-	f.WriteAbsolute(buf, testImage())
-	f.WriteAbsolute(fakeWorn, resTIMG(tunic.FormatCMPR, 8, 8, buf-fakeWorn))
+	f.Write(buf, testImage())
+	f.Write(fakeWorn, resTIMG(tunic.FormatCMPR, 8, 8, buf-fakeWorn))
 	if _, err := readHeroTexture(f, [tunicSlots]uint32{buf}, len(testImage())); err != errTunicBusy {
 		t.Errorf("err = %v, want errTunicBusy", err)
 	}
@@ -307,11 +307,11 @@ func TestTunicSync_MidSwapReadRefused(t *testing.T) {
 
 func TestTunicSync_RejectsNonCMPRAndHuge(t *testing.T) {
 	f := newLinkRAM(false)
-	f.WriteAbsolute(fakeWorn, resTIMG(0x09, 8, 8, fakeImage-fakeWorn))
+	f.Write(fakeWorn, resTIMG(0x09, 8, 8, fakeImage-fakeWorn))
 	if _, err := readHeroTexture(f, [tunicSlots]uint32{}, 0); err == nil {
 		t.Error("a non-CMPR hero texture was accepted")
 	}
-	f.WriteAbsolute(fakeWorn, resTIMG(tunic.FormatCMPR, 1024, 1024, fakeImage-fakeWorn))
+	f.Write(fakeWorn, resTIMG(tunic.FormatCMPR, 1024, 1024, fakeImage-fakeWorn))
 	if _, err := readHeroTexture(f, [tunicSlots]uint32{}, 0); err == nil {
 		t.Error("a 512 KiB hero texture was accepted")
 	}
@@ -327,7 +327,7 @@ func TestTunicSync_RewritesAfterOverwrite(t *testing.T) {
 	now := time.Unix(0, 0)
 	run(ts, f, &now, 8)
 	buf, _ := f.ReadU32(mailbox.Mailbox + mailboxTunicBuf(0))
-	f.WriteAbsolute(buf, make([]byte, len(testImage())))
+	f.Write(buf, make([]byte, len(testImage())))
 	now = now.Add(2 * tunicVerifyEvery)
 	run(ts, f, &now, 8)
 	if !bytes.Equal(slotImage(f, 0), expectRecolor(red)) || f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != 1 {
@@ -545,8 +545,8 @@ func putSwapped(f *fakeRAM, s int, img []byte) uint32 {
 	f.mem[mailbox.Mailbox+mailbox.OffTunicState] = 1
 	f.mem[mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s)] = 1
 	buf := uint32(fakeHeapTop) + uint32(s)*0x1000
-	f.WriteAbsolute(buf, img)
-	f.WriteAbsolute(fakeWorn, resTIMG(tunic.FormatCMPR, 8, 8, buf-fakeWorn))
+	f.Write(buf, img)
+	f.Write(fakeWorn, resTIMG(tunic.FormatCMPR, 8, 8, buf-fakeWorn))
 	return buf
 }
 
@@ -565,7 +565,7 @@ func TestTunicSync_StaleSwapFirstTick(t *testing.T) {
 		t.Fatal("hero captured from a swapped header")
 	}
 	// The bracket ends: the worn header is the hero's again.
-	f.WriteAbsolute(fakeWorn, resTIMG(tunic.FormatCMPR, 8, 8, fakeImage-fakeWorn))
+	f.Write(fakeWorn, resTIMG(tunic.FormatCMPR, 8, 8, fakeImage-fakeWorn))
 	run(ts, f, &now, 8)
 	if ts.hero == nil || !bytes.Equal(ts.hero.image, testImage()) {
 		t.Fatal("hero not captured once the header was restored")
@@ -588,7 +588,7 @@ func TestTunicSync_RecalibrateRefusesSwapped(t *testing.T) {
 	const worn2 = fakeWorn + 0x100
 	f.put32(fakeLink+addr.PlayerOffCurrLinktex, worn2)
 	buf, _ := f.ReadU32(mailbox.Mailbox + mailboxTunicBuf(tunicSlotLocal))
-	f.WriteAbsolute(worn2, resTIMG(tunic.FormatCMPR, 8, 8, buf-worn2))
+	f.Write(worn2, resTIMG(tunic.FormatCMPR, 8, 8, buf-worn2))
 	now = now.Add(2 * tunicVerifyEvery)
 	ts.Tick(now) // verify notices the move, drops the hero
 	ts.Tick(now)
@@ -611,7 +611,7 @@ func TestTunicSync_RewritesOtherColor(t *testing.T) {
 	other := expectRecolor(blue)
 	// Make the first block identical so only a full compare can tell.
 	copy(other[:8], expectRecolor(red)[:8])
-	f.WriteAbsolute(buf, other)
+	f.Write(buf, other)
 	now = now.Add(2 * tunicVerifyEvery)
 	run(ts, f, &now, 8)
 	if !bytes.Equal(slotImage(f, 0), expectRecolor(red)) || f.u8(mailbox.Mailbox+mailbox.OffTunicEnable) != 1 {
@@ -642,14 +642,14 @@ func TestReadNameTab_DerefsJUTNameTab(t *testing.T) {
 	f.put32(obj, 0x803A0000) // vtable
 	f.put32(obj+4, res)
 	f.put32(obj+8, res+4+4*uint32(len(names)))
-	f.WriteAbsolute(obj+0xC, []byte{0, byte(len(names))})
-	f.WriteAbsolute(res, []byte{0, byte(len(names)), 0xFF, 0xFF})
+	f.Write(obj+0xC, []byte{0, byte(len(names))})
+	f.Write(res, []byte{0, byte(len(names)), 0xFF, 0xFF})
 	off := 4 + 4*len(names)
 	for i, n := range names {
 		var e [4]byte
 		binary.BigEndian.PutUint16(e[2:], uint16(off))
-		f.WriteAbsolute(res+4+4*uint32(i), e[:])
-		f.WriteAbsolute(res+uint32(off), append([]byte(n), 0))
+		f.Write(res+4+4*uint32(i), e[:])
+		f.Write(res+uint32(off), append([]byte(n), 0))
 		off += len(n) + 1
 	}
 	got := readNameTab(f, obj, len(names))

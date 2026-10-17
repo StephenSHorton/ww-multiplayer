@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // Co-op in the window (App PR 9, design §2.5, §2.7, §2.8): the host's
@@ -799,7 +799,7 @@ var syncNoise = []string{
 // replica's, or the host's hub's in its server log) users care about
 // ("set t03 DRC chest 4", "holding … back", the reasons writes turned
 // off), not the start listing.
-func syncLine(level report.Level, text string) bool {
+func syncLine(level log.Level, text string) bool {
 	t := text
 	if strings.HasPrefix(t, "[srv ") {
 		if i := strings.Index(t, "] "); i >= 0 {

@@ -1,6 +1,6 @@
 // Package mem is a bounds-checked door to emulated memory: small Reader
-// and Mem interfaces over absolute GameCube addresses, an adapter for a live
-// Dolphin, and FakeMem, an in-memory MEM1 for tests. Nothing in it is
+// and Mem interfaces over absolute GameCube addresses, and FakeMem, an
+// in-memory MEM1 for tests (a live *emu.Dolphin is a Mem too). Nothing in it is
 // co-op specific: the co-op packages use it, and so do package main's
 // warp (warp_link.go) and mp-local shift (mp_local_shift.go). Every implementation
 // confines access to MEM1, so a bad pointer read out of the game (or a bad

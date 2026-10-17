@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -33,7 +33,7 @@ func (e *coopEngine) Host(ctx context.Context, _ context.CancelFunc, o session.H
 	e.mu.Lock()
 	e.opts = o
 	e.mu.Unlock()
-	out.Log(report.OK, "session up")
+	out.Log(log.OK, "session up")
 	for {
 		select {
 		case <-ctx.Done():

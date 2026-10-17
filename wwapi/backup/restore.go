@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 )
 
 // ProcessFinder reports the running Dolphin processes. Restore asks it
@@ -19,15 +19,15 @@ type ProcessFinder interface {
 	DolphinPIDs() ([]uint32, error)
 }
 
-// Dolphin is the ProcessFinder over internal/dolphin's process list: the
-// processes whose executable name contains "Dolphin", as Find and mp-local
+// Dolphin is the ProcessFinder over wwapi/emu's process list: the
+// processes whose executable name contains "Dolphin", as emu.Attach and mp-local
 // count them (which takes in Dolphin's own tools too).
 var Dolphin ProcessFinder = dolphinProcs{}
 
 type dolphinProcs struct{}
 
 func (dolphinProcs) DolphinPIDs() ([]uint32, error) {
-	pids, err := dolphin.ListPIDs()
+	pids, err := emu.ListPIDs()
 	// ListPIDs reports "none running" only as an error saying the process
 	// was not found (listProcessesByName); any other error (no process
 	// list on this platform, a failed snapshot) means it can't tell.

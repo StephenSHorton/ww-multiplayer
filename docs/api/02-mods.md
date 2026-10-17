@@ -154,7 +154,7 @@ Each mod's `*wwapi.Context` is bound to that mod:
 | Method | |
 |---|---|
 | `ID()`, `Manifest()` | The mod's id and parsed manifest. |
-| `Log()` | The runtime's `report.Reporter`, with every line prefixed `[id] `. |
+| `Log()` | The runtime's `log.Reporter`, with every line prefixed `[id] `. |
 | `Events()` | The mod's view of the bus. It emits only `mod.<id>.*`, and its subscriptions end on quarantine. |
 | `Config()` | The mod's settings (`Decode`, `Get(key)`, `Raw`) from `Options.Config`, a `ConfigSource` the faces fill. wwapi and mods never import `internal/config`, and `TestCLIReadsNoConfig` checks this for `wwapi/` and `mods/`. The CLI passes nil and uses manifest defaults. |
 | `DataDir()` | `Options.DataRoot/<id>`, not created. |

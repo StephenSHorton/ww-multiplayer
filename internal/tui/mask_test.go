@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -35,8 +35,8 @@ func ipDashboard() dashboardModel {
 	m := busyDashboard("Host")
 	m.hostIPs = []string{"192.168.1.10", "26.4.5.6", v6Literals[0]}
 	m.logs = append(m.logs[:0],
-		logEntry{t: time.Unix(0, 0), level: report.Info, msg: "Host IPs: 192.168.1.10, 26.4.5.6"},
-		logEntry{t: time.Unix(0, 0), level: report.Warn, msg: "dial tcp [2001:db8::7]:25565: refused at 12:34:56"},
+		logEntry{t: time.Unix(0, 0), level: log.Info, msg: "Host IPs: 192.168.1.10, 26.4.5.6"},
+		logEntry{t: time.Unix(0, 0), level: log.Warn, msg: "dial tcp [2001:db8::7]:25565: refused at 12:34:56"},
 	)
 	m.chatLines = []string{"Zelda: mine is 10.0.0.5:25570", "Link: ok"}
 	return m

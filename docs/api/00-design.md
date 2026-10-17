@@ -435,7 +435,7 @@ Order: C1 first; C4 before C8; C6 before C7; C8 before C14; C5 any time after C1
 - [x] **C7** Split savefile (merge/derive → `savemerge`; I/O → `wwapi/savefile`); backup → `wwapi/backup`.
 - [x] **C8** Split tables (builders → `wwapi/tables`; sync accessors → `synctables`).
 - [x] **C9** Generated mailbox: `tools/gen_mailbox` → `wwapi/mailbox/layout_gen.go`. No C change. The parser and emitter live in `internal/mailboxgen`, which `tools/gen_mailbox` and the `wwapi/mailbox` freshness test (`TestMailboxLayout`) both import.
-- [ ] **C10** `wwapi/emu` (`Attach(Options)`, env read only in `cmd`); dolphinenv → `emu/launch`; report → `wwapi/log`.
+- [x] **C10** `wwapi/emu` (`Attach(Options)`, env read only in `cmd`); dolphinenv → `emu/launch`; report → `wwapi/log`. `ReadAbsolute`/`WriteAbsolute` are unexported: a `*emu.Dolphin` is itself a MEM1-bounded `mem.Mem` (the old `mem.DolphinMem` folded in, since `mem` cannot import `emu`), and package main reads `WW_DOLPHIN_PID/INDEX` in `dolphin_env.go`. Window, screenshot and keys → `emu/host`; `prefixReporter` → `log.Prefix`. "Env read only in `cmd`" holds for `emu` (WW_DOLPHIN_PID/INDEX); `launch.FromEnv`/`Detect` keep their `os.Getenv` default and `backup` still reads USER_DIR_1/2, both left for the §9 cleanup ("Env: read env only in `cmd/`").
 - [ ] **C11** `wwapi/player`: Warp, Input, Pose/Face reads, Link accessors.
 - [ ] **C12** `wwapi/avatar` and `wwapi/gfx/texture`.
 - [ ] **C13** `wwapi/write` out of replica (**high risk**: co-op golden and converge byte-identical, owner's M2-M6 rerun).

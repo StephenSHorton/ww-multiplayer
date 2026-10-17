@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // fakeLobby is a fakeEngine with the lobby: HostLobby and JoinLobby hand
@@ -258,7 +258,7 @@ func TestLobbyLegacyHostFallback(t *testing.T) {
 	sawLegacy, sawLine := false, false
 	for _, ev := range evs {
 		sawLegacy = sawLegacy || ev.Kind == EventLegacyHost
-		sawLine = sawLine || (ev.Kind == EventLog && ev.Level == report.Info && ev.Text == legacyHostLine)
+		sawLine = sawLine || (ev.Kind == EventLog && ev.Level == log.Info && ev.Text == legacyHostLine)
 	}
 	if !sawLegacy || !sawLine {
 		t.Fatalf("events %+v: legacy %v, line %v", evs, sawLegacy, sawLine)

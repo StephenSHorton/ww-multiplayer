@@ -9,9 +9,11 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
+
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/host"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
@@ -32,47 +34,47 @@ func runAutoRecapture(outPath string) {
 	if outPath == "" {
 		outPath = filepath.Join("saves", "start.sav")
 	}
-	rep := report.Stdout{}
+	rep := log.Stdout{}
 
 	if runtime.GOOS != "windows" {
-		report.Logf(rep, report.Err, "auto-recapture requires Windows (Shift+F1 send uses PostMessageW); got %s", runtime.GOOS)
+		log.Logf(rep, log.Err, "auto-recapture requires Windows (Shift+F1 send uses PostMessageW); got %s", runtime.GOOS)
 		os.Exit(1)
 	}
 
 	// Clean slate — any leftover Dolphins would confuse window
 	// enumeration and the file-mtime watch.
 	if err := killAllDolphins(); err != nil {
-		report.Logf(rep, report.Warn, "kill stragglers: %v", err)
+		log.Logf(rep, log.Warn, "kill stragglers: %v", err)
 	}
 
-	paths := dolphinenv.FromEnv()
+	paths := launch.FromEnv()
 	dolphinExe, isoPath, userDir := paths.Exe, paths.ISO, paths.UserDir1
 
 	if _, err := os.Stat(dolphinExe); err != nil {
-		report.Logf(rep, report.Err, "Dolphin not found at %s (set DOLPHIN_EXE to override)", dolphinExe)
+		log.Logf(rep, log.Err, "Dolphin not found at %s (set DOLPHIN_EXE to override)", dolphinExe)
 		os.Exit(1)
 	}
 	if _, err := os.Stat(isoPath); err != nil {
-		report.Logf(rep, report.Err, "Patched ISO not found at %s (set ISO_PATH to override)", isoPath)
+		log.Logf(rep, log.Err, "Patched ISO not found at %s (set ISO_PATH to override)", isoPath)
 		os.Exit(1)
 	}
 	if _, err := os.Stat(userDir); err != nil {
-		report.Logf(rep, report.Err, "Dolphin user dir not found at %s", userDir)
+		log.Logf(rep, log.Err, "Dolphin user dir not found at %s", userDir)
 		os.Exit(1)
 	}
 	saveFile := filepath.Join(userDir, "StateSaves", "GZLE01.s01")
 
-	report.Logf(rep, report.Info, "auto-recapture starting")
-	report.Logf(rep, report.Info, "  Dolphin: %s", dolphinExe)
-	report.Logf(rep, report.Info, "  ISO:     %s", isoPath)
-	report.Logf(rep, report.Info, "  UserDir: %s", userDir)
+	log.Logf(rep, log.Info, "auto-recapture starting")
+	log.Logf(rep, log.Info, "  Dolphin: %s", dolphinExe)
+	log.Logf(rep, log.Info, "  ISO:     %s", isoPath)
+	log.Logf(rep, log.Info, "  UserDir: %s", userDir)
 
-	pid, err := dolphinenv.Launch(dolphinExe, userDir, isoPath, "")
+	pid, err := launch.Launch(dolphinExe, userDir, isoPath, "")
 	if err != nil {
-		report.Logf(rep, report.Err, "launch Dolphin: %v", err)
+		log.Logf(rep, log.Err, "launch Dolphin: %v", err)
 		os.Exit(1)
 	}
-	report.Logf(rep, report.OK, "launched Dolphin (pid %d)", pid)
+	log.Logf(rep, log.OK, "launched Dolphin (pid %d)", pid)
 
 	// Always kill the Dolphin we spawned on the way out, even on
 	// failure — leaving an orphan running with a patched-but-unsaved
@@ -86,10 +88,10 @@ func runAutoRecapture(outPath string) {
 	// pointer (off+0x08); once that fires, multiplayer_update is
 	// ticking every frame and our hooks are wired.
 	if err := waitForModBlob(uint32(pid), 30*time.Second); err != nil {
-		report.Logf(rep, report.Err, "mod blob never came live: %v", err)
+		log.Logf(rep, log.Err, "mod blob never came live: %v", err)
 		os.Exit(1)
 	}
-	rep.Log(report.OK, "mod blob live (main01_init fired)")
+	rep.Log(log.OK, "mod blob live (main01_init fired)")
 
 	// Step 2: the title screen sits idle waiting for Press Start. Give
 	// the splash logo a couple seconds to settle so our first Start
@@ -99,24 +101,24 @@ func runAutoRecapture(outPath string) {
 
 	// Step 3: drive menus to in-game.
 	if err := driveMenusToInGame(uint32(pid), rep); err != nil {
-		report.Logf(rep, report.Err, "menu navigation: %v", err)
+		log.Logf(rep, log.Err, "menu navigation: %v", err)
 		os.Exit(1)
 	}
 
 	// Step 4: snapshot screenshot of the spot we're about to save.
 	// Helps the user audit where the recapture landed.
-	hwnd, err := dolphin.FindWindowByPID(uint32(pid))
+	hwnd, err := host.FindWindowByPID(uint32(pid))
 	if err != nil {
-		report.Logf(rep, report.Err, "find Dolphin window: %v", err)
+		log.Logf(rep, log.Err, "find Dolphin window: %v", err)
 		os.Exit(1)
 	}
-	if img, err := dolphin.CaptureWindow(hwnd); err == nil {
+	if img, err := host.CaptureWindow(hwnd); err == nil {
 		snap := filepath.Join("saves", "auto-recapture-spawn.png")
 		if f, err := os.Create(snap); err == nil {
 			if err := png.Encode(f, img); err != nil {
-				report.Logf(rep, report.Warn, "spawn screenshot encode: %v", err)
+				log.Logf(rep, log.Warn, "spawn screenshot encode: %v", err)
 			} else {
-				report.Logf(rep, report.Info, "spawn screenshot saved to %s", snap)
+				log.Logf(rep, log.Info, "spawn screenshot saved to %s", snap)
 			}
 			f.Close()
 		}
@@ -132,18 +134,18 @@ func runAutoRecapture(outPath string) {
 	// 2603a with foreground + scan-coded SendInput + PostMessage all
 	// silently dropped. We still attempt the auto path in case the
 	// user's Dolphin build is friendlier, then prompt if not.
-	dolphin.ForegroundWindow(hwnd)
+	host.ForegroundWindow(hwnd)
 	time.Sleep(200 * time.Millisecond)
-	rep.Log(report.Info, "attempting auto Shift+F1 via SendInput + PostMessage")
-	_ = dolphin.SendChordToFocusedWindow(dolphin.VKShift, dolphin.VKF1)
+	rep.Log(log.Info, "attempting auto Shift+F1 via SendInput + PostMessage")
+	_ = host.SendChordToFocusedWindow(host.VKShift, host.VKF1)
 	time.Sleep(500 * time.Millisecond)
-	_ = dolphin.SendKeyChord(hwnd, dolphin.VKShift, dolphin.VKF1)
+	_ = host.SendKeyChord(hwnd, host.VKShift, host.VKF1)
 
 	// Step 7: poll for the new save file. Dolphin writes ~36 MB
 	// synchronously; if the auto attempt worked we'll see the mtime
 	// advance within ~3 s. If not, prompt the user and watch longer.
 	if waitForSaveFileUpdate(saveFile, prevMtime, 5*time.Second) {
-		rep.Log(report.OK, "auto Shift+F1 worked — save state written")
+		rep.Log(log.OK, "auto Shift+F1 worked — save state written")
 	} else {
 		fmt.Println()
 		fmt.Println("─────────────────────────────────────────────────────────────")
@@ -155,20 +157,20 @@ func runAutoRecapture(outPath string) {
 		fmt.Println("copy it. No deadline — Ctrl+C to cancel.")
 		fmt.Println("─────────────────────────────────────────────────────────────")
 		waitForSaveFileUpdateBlocking(saveFile, prevMtime)
-		rep.Log(report.OK, "save state detected — proceeding with copy")
+		rep.Log(log.OK, "save state detected — proceeding with copy")
 	}
 
 	// Step 8: copy to the output path.
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-		report.Logf(rep, report.Err, "mkdir %s: %v", filepath.Dir(outPath), err)
+		log.Logf(rep, log.Err, "mkdir %s: %v", filepath.Dir(outPath), err)
 		os.Exit(1)
 	}
-	if err := dolphinenv.CopyFile(saveFile, outPath); err != nil {
-		report.Logf(rep, report.Err, "copy save: %v", err)
+	if err := launch.CopyFile(saveFile, outPath); err != nil {
+		log.Logf(rep, log.Err, "copy save: %v", err)
 		os.Exit(1)
 	}
-	report.Logf(rep, report.OK, "saves/start.sav refreshed: %s", outPath)
-	rep.Log(report.Info, "next run: SAVE_STATE=$(pwd)/saves/start.sav ./ww-multiplayer.exe dolphin2")
+	log.Logf(rep, log.OK, "saves/start.sav refreshed: %s", outPath)
+	rep.Log(log.Info, "next run: SAVE_STATE=$(pwd)/saves/start.sav ./ww-multiplayer.exe dolphin2")
 }
 
 // killAllDolphins ends every running Dolphin process so window
@@ -176,7 +178,7 @@ func runAutoRecapture(outPath string) {
 // Best-effort: returns whatever taskkill emitted, but if no Dolphin
 // was running the call still succeeds.
 func killAllDolphins() error {
-	pids, err := dolphin.ListPIDs()
+	pids, err := emu.ListPIDs()
 	if err != nil {
 		return nil // none running = nothing to do
 	}
@@ -205,7 +207,7 @@ func killProcess(pid uint32) error {
 func waitForModBlob(pid uint32, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		d, err := dolphin.FindByPID(pid, "GZLE01")
+		d, err := emu.FindByPID(pid, "GZLE01")
 		if err == nil {
 			counter, err := d.ReadU32(mailbox.Mailbox) // +0x00 = spawn_trigger
 			d.Close()
@@ -224,14 +226,14 @@ func waitForModBlob(pid uint32, timeout time.Duration) error {
 // confirmation steps (pick quest-log slot → Start-button-highlighted
 // detail view), so we don't hardcode an A count — we just keep
 // pressing A until we're in-game or hit the 30 s ceiling.
-func driveMenusToInGame(pid uint32, rep report.Reporter) error {
-	d, err := dolphin.FindByPID(pid, "GZLE01")
+func driveMenusToInGame(pid uint32, rep log.Reporter) error {
+	d, err := emu.FindByPID(pid, "GZLE01")
 	if err != nil {
 		return fmt.Errorf("find Dolphin: %w", err)
 	}
 	defer d.Close()
 
-	rep.Log(report.Info, "skipping title + intro with 9× Start")
+	rep.Log(log.Info, "skipping title + intro with 9× Start")
 	for i := 0; i < 9; i++ {
 		if err := injectInput(d, 0x1000, 0, 0, 300); err != nil {
 			return fmt.Errorf("Start press #%d: %w", i+1, err)
@@ -239,7 +241,7 @@ func driveMenusToInGame(pid uint32, rep report.Reporter) error {
 		time.Sleep(700 * time.Millisecond)
 	}
 
-	rep.Log(report.Info, "confirming menus with A until Link spawns")
+	rep.Log(log.Info, "confirming menus with A until Link spawns")
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if d.IsInGame() {
@@ -259,30 +261,30 @@ func driveMenusToInGame(pid uint32, rep report.Reporter) error {
 // injectInput writes a synthetic PADStatus to the mailbox, waits, then
 // releases. Same logic as runInput but takes a *Dolphin and returns
 // errors instead of os.Exit'ing, so it composes inside scripted flows.
-func injectInput(d *dolphin.Dolphin, buttons uint16, stickX, stickY int8, ms int) error {
+func injectInput(d *emu.Dolphin, buttons uint16, stickX, stickY int8, ms int) error {
 	buttonsBE := []byte{byte(buttons >> 8), byte(buttons & 0xFF)}
-	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputButtons, buttonsBE); err != nil {
+	if err := d.Write(mailbox.Mailbox+mailbox.OffInputButtons, buttonsBE); err != nil {
 		return err
 	}
-	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputStickX, []byte{byte(stickX)}); err != nil {
+	if err := d.Write(mailbox.Mailbox+mailbox.OffInputStickX, []byte{byte(stickX)}); err != nil {
 		return err
 	}
-	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputStickY, []byte{byte(stickY)}); err != nil {
+	if err := d.Write(mailbox.Mailbox+mailbox.OffInputStickY, []byte{byte(stickY)}); err != nil {
 		return err
 	}
 	// Zero substick + triggers + analog A/B so previous state can't leak.
-	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputSubstickX, []byte{0, 0, 0, 0, 0, 0}); err != nil {
+	if err := d.Write(mailbox.Mailbox+mailbox.OffInputSubstickX, []byte{0, 0, 0, 0, 0, 0}); err != nil {
 		return err
 	}
-	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputEnable, []byte{1}); err != nil {
+	if err := d.Write(mailbox.Mailbox+mailbox.OffInputEnable, []byte{1}); err != nil {
 		return err
 	}
 	if ms > 0 {
 		time.Sleep(time.Duration(ms) * time.Millisecond)
-		if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputEnable, []byte{0}); err != nil {
+		if err := d.Write(mailbox.Mailbox+mailbox.OffInputEnable, []byte{0}); err != nil {
 			return err
 		}
-		if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}); err != nil {
+		if err := d.Write(mailbox.Mailbox+mailbox.OffInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}); err != nil {
 			return err
 		}
 	}
@@ -344,62 +346,62 @@ func runAutoRecapturePair(out1, out2 string, delay time.Duration) {
 	if delay <= 0 {
 		delay = 5 * time.Second
 	}
-	rep := report.Stdout{}
+	rep := log.Stdout{}
 
 	if runtime.GOOS != "windows" {
-		report.Logf(rep, report.Err, "auto-recapture-pair requires Windows; got %s", runtime.GOOS)
+		log.Logf(rep, log.Err, "auto-recapture-pair requires Windows; got %s", runtime.GOOS)
 		os.Exit(1)
 	}
 
 	if err := killAllDolphins(); err != nil {
-		report.Logf(rep, report.Warn, "kill stragglers: %v", err)
+		log.Logf(rep, log.Warn, "kill stragglers: %v", err)
 	}
 
-	paths := dolphinenv.FromEnv()
+	paths := launch.FromEnv()
 	dolphinExe, isoPath, userDir := paths.Exe, paths.ISO, paths.UserDir1
 
 	if _, err := os.Stat(dolphinExe); err != nil {
-		report.Logf(rep, report.Err, "Dolphin not found at %s (set DOLPHIN_EXE to override)", dolphinExe)
+		log.Logf(rep, log.Err, "Dolphin not found at %s (set DOLPHIN_EXE to override)", dolphinExe)
 		os.Exit(1)
 	}
 	if _, err := os.Stat(isoPath); err != nil {
-		report.Logf(rep, report.Err, "Patched ISO not found at %s (set ISO_PATH to override)", isoPath)
+		log.Logf(rep, log.Err, "Patched ISO not found at %s (set ISO_PATH to override)", isoPath)
 		os.Exit(1)
 	}
 	if _, err := os.Stat(userDir); err != nil {
-		report.Logf(rep, report.Err, "Dolphin user dir not found at %s", userDir)
+		log.Logf(rep, log.Err, "Dolphin user dir not found at %s", userDir)
 		os.Exit(1)
 	}
 	saveFile := filepath.Join(userDir, "StateSaves", "GZLE01.s01")
 
-	report.Logf(rep, report.Info, "auto-recapture-pair starting (delay between captures: %s)", delay)
-	report.Logf(rep, report.Info, "  out1: %s", out1)
-	report.Logf(rep, report.Info, "  out2: %s", out2)
+	log.Logf(rep, log.Info, "auto-recapture-pair starting (delay between captures: %s)", delay)
+	log.Logf(rep, log.Info, "  out1: %s", out1)
+	log.Logf(rep, log.Info, "  out2: %s", out2)
 
-	pid, err := dolphinenv.Launch(dolphinExe, userDir, isoPath, "")
+	pid, err := launch.Launch(dolphinExe, userDir, isoPath, "")
 	if err != nil {
-		report.Logf(rep, report.Err, "launch Dolphin: %v", err)
+		log.Logf(rep, log.Err, "launch Dolphin: %v", err)
 		os.Exit(1)
 	}
-	report.Logf(rep, report.OK, "launched Dolphin (pid %d)", pid)
+	log.Logf(rep, log.OK, "launched Dolphin (pid %d)", pid)
 	defer func() { _ = killProcess(uint32(pid)) }()
 
 	if err := waitForModBlob(uint32(pid), 30*time.Second); err != nil {
-		report.Logf(rep, report.Err, "mod blob never came live: %v", err)
+		log.Logf(rep, log.Err, "mod blob never came live: %v", err)
 		os.Exit(1)
 	}
-	rep.Log(report.OK, "mod blob live (main01_init fired)")
+	rep.Log(log.OK, "mod blob live (main01_init fired)")
 
 	time.Sleep(3 * time.Second)
 
 	if err := driveMenusToInGame(uint32(pid), rep); err != nil {
-		report.Logf(rep, report.Err, "menu navigation: %v", err)
+		log.Logf(rep, log.Err, "menu navigation: %v", err)
 		os.Exit(1)
 	}
 
-	hwnd, err := dolphin.FindWindowByPID(uint32(pid))
+	hwnd, err := host.FindWindowByPID(uint32(pid))
 	if err != nil {
-		report.Logf(rep, report.Err, "find Dolphin window: %v", err)
+		log.Logf(rep, log.Err, "find Dolphin window: %v", err)
 		os.Exit(1)
 	}
 
@@ -407,30 +409,30 @@ func runAutoRecapturePair(out1, out2 string, delay time.Duration) {
 		os.Exit(1)
 	}
 
-	report.Logf(rep, report.Info, "first save captured; letting btp animation advance for %s before second capture", delay)
+	log.Logf(rep, log.Info, "first save captured; letting btp animation advance for %s before second capture", delay)
 	time.Sleep(delay)
 
 	if err := captureOneShiftF1(rep, hwnd, pid, saveFile, out2, "second"); err != nil {
 		os.Exit(1)
 	}
 
-	report.Logf(rep, report.OK, "pair captured: %s and %s", out1, out2)
-	report.Logf(rep, report.Info, "next run: SAVE_STATE=$(pwd)/%s SAVE_STATE_2=$(pwd)/%s ./ww-multiplayer.exe dolphin2", out1, out2)
+	log.Logf(rep, log.OK, "pair captured: %s and %s", out1, out2)
+	log.Logf(rep, log.Info, "next run: SAVE_STATE=$(pwd)/%s SAVE_STATE_2=$(pwd)/%s ./ww-multiplayer.exe dolphin2", out1, out2)
 }
 
 // captureOneShiftF1 attempts the auto Shift+F1 path, falls back to a
 // blocking prompt, then copies the new save state to outPath. Label is
 // included in user-facing messages so the prompt distinguishes between
 // captures in a multi-capture flow ("first save", "second save").
-func captureOneShiftF1(rep report.Reporter, hwnd uintptr, pid int, saveFile, outPath, label string) error {
+func captureOneShiftF1(rep log.Reporter, hwnd uintptr, pid int, saveFile, outPath, label string) error {
 	prevMtime := safeMtime(saveFile)
 
-	dolphin.ForegroundWindow(hwnd)
+	host.ForegroundWindow(hwnd)
 	time.Sleep(200 * time.Millisecond)
-	report.Logf(rep, report.Info, "attempting auto Shift+F1 for %s save", label)
-	_ = dolphin.SendChordToFocusedWindow(dolphin.VKShift, dolphin.VKF1)
+	log.Logf(rep, log.Info, "attempting auto Shift+F1 for %s save", label)
+	_ = host.SendChordToFocusedWindow(host.VKShift, host.VKF1)
 	time.Sleep(500 * time.Millisecond)
-	_ = dolphin.SendKeyChord(hwnd, dolphin.VKShift, dolphin.VKF1)
+	_ = host.SendKeyChord(hwnd, host.VKShift, host.VKF1)
 
 	if !waitForSaveFileUpdate(saveFile, prevMtime, 5*time.Second) {
 		fmt.Println()
@@ -440,16 +442,16 @@ func captureOneShiftF1(rep report.Reporter, hwnd uintptr, pid int, saveFile, out
 		fmt.Println("─────────────────────────────────────────────────────────────")
 		waitForSaveFileUpdateBlocking(saveFile, prevMtime)
 	}
-	report.Logf(rep, report.OK, "%s save state detected", label)
+	log.Logf(rep, log.OK, "%s save state detected", label)
 
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-		report.Logf(rep, report.Err, "mkdir %s: %v", filepath.Dir(outPath), err)
+		log.Logf(rep, log.Err, "mkdir %s: %v", filepath.Dir(outPath), err)
 		return err
 	}
-	if err := dolphinenv.CopyFile(saveFile, outPath); err != nil {
-		report.Logf(rep, report.Err, "copy save: %v", err)
+	if err := launch.CopyFile(saveFile, outPath); err != nil {
+		log.Logf(rep, log.Err, "copy save: %v", err)
 		return err
 	}
-	report.Logf(rep, report.OK, "%s save copied to %s", label, outPath)
+	log.Logf(rep, log.OK, "%s save copied to %s", label, outPath)
 	return nil
 }

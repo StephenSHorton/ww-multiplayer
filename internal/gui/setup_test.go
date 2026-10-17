@@ -15,11 +15,11 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
@@ -89,7 +89,7 @@ func TestBridgeSetupView(t *testing.T) {
 		t.Fatalf("a new player's Setup = %+v", v)
 	}
 	if v.Mac != nil && b.macStatus != nil {
-		if _, _, err := b.macStatus(); errors.Is(err, dolphinenv.ErrNotMac) {
+		if _, _, err := b.macStatus(); errors.Is(err, launch.ErrNotMac) {
 			t.Errorf("Mac view off macOS: %+v", v.Mac)
 		}
 	}
@@ -601,11 +601,11 @@ func TestBridgeRealPatch(t *testing.T) {
 	}
 }
 
-// fakeEnv is a dolphinenv.Env over the real file system plus a fake
+// fakeEnv is a launch.Env over the real file system plus a fake
 // running Dolphin.
-func fakeEnv(home, cfg string, running ...string) func() dolphinenv.Env {
-	return func() dolphinenv.Env {
-		return dolphinenv.Env{
+func fakeEnv(home, cfg string, running ...string) func() launch.Env {
+	return func() launch.Env {
+		return launch.Env{
 			GOOS: "windows", Home: home, ConfigDir: cfg,
 			Getenv:  func(string) string { return "" },
 			Exists:  func(p string) bool { _, err := os.Stat(p); return err == nil },
@@ -620,7 +620,7 @@ func TestBridgeDolphin(t *testing.T) {
 	desk := touch(t, filepath.Join(home, "Desktop", "Dolphin-x64", "Dolphin.exe"))
 	b.denv = fakeEnv(home, cfgDir)
 	v := b.DetectDolphin()
-	if !v.Found || v.Exe != desk || v.Source != string(dolphinenv.SourcePortable) || v.UserDir != filepath.Join(cfgDir, "Dolphin Emulator") || v.Portable || v.Saved != "" {
+	if !v.Found || v.Exe != desk || v.Source != string(launch.SourcePortable) || v.UserDir != filepath.Join(cfgDir, "Dolphin Emulator") || v.Portable || v.Saved != "" {
 		t.Fatalf("DetectDolphin = %+v", v)
 	}
 	// A running Dolphin comes first.
@@ -631,7 +631,7 @@ func TestBridgeDolphin(t *testing.T) {
 	}
 	// Nothing found: the default path, not found.
 	b.denv = fakeEnv(t.TempDir(), cfgDir)
-	if v := b.DetectDolphin(); v.Found || v.Source != string(dolphinenv.SourceDefault) {
+	if v := b.DetectDolphin(); v.Found || v.Source != string(launch.SourceDefault) {
 		t.Fatalf("none: %+v", v)
 	}
 
@@ -679,35 +679,35 @@ func TestBridgeMacPrepare(t *testing.T) {
 	b, _, path := newTestBridge(t)
 	home := t.TempDir()
 	b.home = func() string { return home }
-	for st, want := range map[dolphinenv.MacState]MacView{
-		dolphinenv.MacReady:        {State: "ready"},
-		dolphinenv.MacNoDolphin:    {State: "no-dolphin"},
-		dolphinenv.MacNeedsCopy:    {State: "needs-copy", Prepare: true},
-		dolphinenv.MacHardened:     {State: "hardened", Prepare: true},
-		dolphinenv.MacCopyOutdated: {State: "outdated", Prepare: true, Refresh: true},
+	for st, want := range map[launch.MacState]MacView{
+		launch.MacReady:        {State: "ready"},
+		launch.MacNoDolphin:    {State: "no-dolphin"},
+		launch.MacNeedsCopy:    {State: "needs-copy", Prepare: true},
+		launch.MacHardened:     {State: "hardened", Prepare: true},
+		launch.MacCopyOutdated: {State: "outdated", Prepare: true, Refresh: true},
 	} {
-		b.macStatus = func() (dolphinenv.MacState, dolphinenv.MacFacts, error) { return st, dolphinenv.MacFacts{}, nil }
+		b.macStatus = func() (launch.MacState, launch.MacFacts, error) { return st, launch.MacFacts{}, nil }
 		v := b.Setup().Mac
-		if v == nil || v.State != want.State || v.Prepare != want.Prepare || v.Refresh != want.Refresh || v.Copy != dolphinenv.MacPreparedApp(home) {
+		if v == nil || v.State != want.State || v.Prepare != want.Prepare || v.Refresh != want.Refresh || v.Copy != launch.MacPreparedApp(home) {
 			t.Errorf("%v: %+v", st, v)
 		}
-		if st != dolphinenv.MacReady && v.Text == "" {
+		if st != launch.MacReady && v.Text == "" {
 			t.Errorf("%v has no text", st)
 		}
 	}
-	b.macStatus = func() (dolphinenv.MacState, dolphinenv.MacFacts, error) {
-		return dolphinenv.MacNoDolphin, dolphinenv.MacFacts{}, dolphinenv.ErrNotMac
+	b.macStatus = func() (launch.MacState, launch.MacFacts, error) {
+		return launch.MacNoDolphin, launch.MacFacts{}, launch.ErrNotMac
 	}
 	if v := b.DetectDolphin().Mac; v != nil {
 		t.Errorf("Mac view off macOS: %+v", v)
 	}
 
-	b.prepareMac = func(report.Reporter) error { return dolphinenv.ErrNotMac }
+	b.prepareMac = func(log.Reporter) error { return launch.ErrNotMac }
 	if v := b.PrepareDolphin(); v.OK || !strings.Contains(v.Error, "Only macOS") {
 		t.Errorf("not a Mac: %+v", v)
 	}
-	b.prepareMac = func(r report.Reporter) error {
-		r.Log(report.Info, "==> Copying")
+	b.prepareMac = func(r log.Reporter) error {
+		r.Log(log.Info, "==> Copying")
 		return errors.New("cp: exit status 1")
 	}
 	if v := b.PrepareDolphin(); v.OK || v.Error != "cp: exit status 1" || len(v.Lines) != 1 {
@@ -716,12 +716,12 @@ func TestBridgeMacPrepare(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Error("a failed prepare saved settings")
 	}
-	b.prepareMac = func(r report.Reporter) error { r.Log(report.OK, "Done."); return nil }
+	b.prepareMac = func(r log.Reporter) error { r.Log(log.OK, "Done."); return nil }
 	b.denv = fakeEnv(home, t.TempDir())
 	if v := b.PrepareDolphin(); !v.OK || v.Error != "" || len(v.Lines) != 1 {
 		t.Fatalf("prepared: %+v", v)
 	}
-	want := filepath.Join(dolphinenv.MacPreparedApp(home), "Contents", "MacOS", "Dolphin")
+	want := filepath.Join(launch.MacPreparedApp(home), "Contents", "MacOS", "Dolphin")
 	if c := loadCfg(t, path); c.Dolphin.Exe != want || c.Dolphin.UserDir == "" {
 		t.Fatalf("saved %+v", c.Dolphin)
 	}
@@ -923,20 +923,20 @@ func TestBridgeUserDirFor(t *testing.T) {
 func TestMacGap(t *testing.T) {
 	copyExe := "/Users/l/Applications/Dolphin.app/Contents/MacOS/Dolphin"
 	for _, c := range []struct {
-		st   dolphinenv.MacState
+		st   launch.MacState
 		err  error
 		exe  string
 		want bool
 	}{
-		{dolphinenv.MacNeedsCopy, nil, "", true},
-		{dolphinenv.MacNeedsCopy, nil, macOriginalExe, true},
-		{dolphinenv.MacHardened, nil, copyExe, true},
-		{dolphinenv.MacReady, nil, copyExe, false},
-		{dolphinenv.MacReady, nil, macOriginalExe, true},
-		{dolphinenv.MacCopyOutdated, nil, copyExe, false}, // the launch toast covers it
-		{dolphinenv.MacCopyOutdated, nil, macOriginalExe, true},
-		{dolphinenv.MacNoDolphin, nil, "", false},
-		{dolphinenv.MacNeedsCopy, dolphinenv.ErrNotMac, "", false},
+		{launch.MacNeedsCopy, nil, "", true},
+		{launch.MacNeedsCopy, nil, macOriginalExe, true},
+		{launch.MacHardened, nil, copyExe, true},
+		{launch.MacReady, nil, copyExe, false},
+		{launch.MacReady, nil, macOriginalExe, true},
+		{launch.MacCopyOutdated, nil, copyExe, false}, // the launch toast covers it
+		{launch.MacCopyOutdated, nil, macOriginalExe, true},
+		{launch.MacNoDolphin, nil, "", false},
+		{launch.MacNeedsCopy, launch.ErrNotMac, "", false},
 	} {
 		g := macGap(c.st, c.err, c.exe)
 		if (g != nil) != c.want || (g != nil && g.Step != StepDolphin) {
@@ -951,14 +951,14 @@ func TestMacGap(t *testing.T) {
 	b.mu.Lock()
 	b.cfg.Name, b.cfg.ISO.Patched, b.cfg.Dolphin.Exe = "Tetra", iso, exe
 	b.mu.Unlock()
-	b.macStatus = func() (dolphinenv.MacState, dolphinenv.MacFacts, error) {
-		return dolphinenv.MacReady, dolphinenv.MacFacts{}, nil
+	b.macStatus = func() (launch.MacState, launch.MacFacts, error) {
+		return launch.MacReady, launch.MacFacts{}, nil
 	}
 	if s := b.Setup(); s.Needed {
 		t.Fatalf("ready: %+v", s.Gaps)
 	}
-	b.macStatus = func() (dolphinenv.MacState, dolphinenv.MacFacts, error) {
-		return dolphinenv.MacHardened, dolphinenv.MacFacts{}, nil
+	b.macStatus = func() (launch.MacState, launch.MacFacts, error) {
+		return launch.MacHardened, launch.MacFacts{}, nil
 	}
 	if s := b.Setup(); !s.Needed || len(s.Gaps) != 1 || s.Gaps[0].Step != StepDolphin || s.Mac == nil || s.Mac.State != "hardened" {
 		t.Fatalf("hardened: %+v", s)
@@ -972,19 +972,19 @@ func TestBridgePrepareRefusesRunningCopy(t *testing.T) {
 	home := t.TempDir()
 	b.home = func() string { return home }
 	ran := 0
-	b.prepareMac = func(report.Reporter) error { ran++; return nil }
-	running := filepath.Join(dolphinenv.MacPreparedApp(home), "Contents", "MacOS", "Dolphin")
+	b.prepareMac = func(log.Reporter) error { ran++; return nil }
+	running := filepath.Join(launch.MacPreparedApp(home), "Contents", "MacOS", "Dolphin")
 	b.denv = fakeEnv(home, t.TempDir(), running)
 	if v := b.PrepareDolphin(); v.OK || !strings.Contains(v.Error, "Close Dolphin first") || ran != 0 {
 		t.Fatalf("copy running: %+v, prepare ran %d", v, ran)
 	}
 	// The original running is fine: the copy is made from it.
-	b.denv = fakeEnv(home, t.TempDir(), filepath.Join(dolphinenv.MacApp, "Contents", "MacOS", "Dolphin"))
+	b.denv = fakeEnv(home, t.TempDir(), filepath.Join(launch.MacApp, "Contents", "MacOS", "Dolphin"))
 	if v := b.PrepareDolphin(); !v.OK || ran != 1 {
 		t.Fatalf("original running: %+v, prepare ran %d", v, ran)
 	}
 	// A path that only starts like the copy's is not inside it.
-	b.denv = fakeEnv(home, t.TempDir(), dolphinenv.MacPreparedApp(home)+"-old/Contents/MacOS/Dolphin")
+	b.denv = fakeEnv(home, t.TempDir(), launch.MacPreparedApp(home)+"-old/Contents/MacOS/Dolphin")
 	if v := b.PrepareDolphin(); !v.OK || ran != 2 {
 		t.Fatalf("lookalike running: %+v, prepare ran %d", v, ran)
 	}

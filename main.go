@@ -31,14 +31,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/host"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
@@ -72,11 +73,11 @@ var exeCmd = func() string {
 // FindByPID (mp-local, which enumerates both Dolphins upfront so two
 // in-process goroutines can address different instances without the
 // env-var collision).
-func openDolphin(pid uint32) (*dolphin.Dolphin, error) {
+func openDolphin(pid uint32) (*emu.Dolphin, error) {
 	if pid == 0 {
-		return dolphin.Find("GZLE01")
+		return findDolphin("GZLE01")
 	}
-	return dolphin.FindByPID(pid, "GZLE01")
+	return emu.FindByPID(pid, "GZLE01")
 }
 
 func main() {
@@ -215,14 +216,14 @@ func classifyPPC(inst uint32) string {
 }
 
 func runDisasm(addr uint32, count int) {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer d.Close()
 
-	data, err := d.ReadAbsolute(addr, count*4)
+	data, err := d.Read(addr, count*4)
 	if err != nil {
 		fmt.Printf("read failed: %v\n", err)
 		os.Exit(1)
@@ -252,7 +253,7 @@ func runMovePuppet(xs, ys, zs string, slot int) {
 	}
 	x, y, z := parseF32(xs), parseF32(ys), parseF32(zs)
 
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -263,14 +264,14 @@ func runMovePuppet(xs, ys, zs string, slot int) {
 	binary.BigEndian.PutUint32(buf[0:4], math.Float32bits(x))
 	binary.BigEndian.PutUint32(buf[4:8], math.Float32bits(y))
 	binary.BigEndian.PutUint32(buf[8:12], math.Float32bits(z))
-	if err := d.WriteAbsolute(slotAddr(slot, mailbox.PuppetOffPosX), buf); err != nil {
+	if err := d.Write(slotAddr(slot, mailbox.PuppetOffPosX), buf); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}
 	// Ensure the slot is marked active so the C hook syncs it.
 	one := make([]byte, 4)
 	binary.BigEndian.PutUint32(one, 1)
-	d.WriteAbsolute(slotAddr(slot, mailbox.PuppetOffActive), one)
+	d.Write(slotAddr(slot, mailbox.PuppetOffActive), one)
 	fmt.Printf("slot %d target: X=%.1f Y=%.1f Z=%.1f\n", slot, x, y, z)
 }
 
@@ -280,7 +281,7 @@ func runMovePuppet(xs, ys, zs string, slot int) {
 func runBroadcastLink(name, addr string) {
 	fmt.Printf("=== Broadcast Link: %s -> %s ===\n\n", name, addr)
 
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
@@ -391,7 +392,7 @@ func lerpPoseInPlace(dst, target []byte, k float32) {
 // shadow_mode so there's nothing to clean up — the signal handler just
 // gets us out of the send tick immediately instead of on the next tick).
 func runBroadcastPose(name, addr string) {
-	rep := report.Stdout{}
+	rep := log.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
 	if err := runBroadcastPoseCtx(ctx, name, addr, 0, rep, nil, nil); err != nil {
@@ -408,15 +409,15 @@ func runBroadcastPose(name, addr string) {
 // onPos, when non-nil (the TUI path via liveStateLocalPosSetter), is invoked
 // every tick this Dolphin's own position resolves — #22's minimap bridge.
 // CLI callers pass nil.
-func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPID uint32, rep report.Reporter, connLog *network.ConnectLog, onPos func(x, y, z float32)) error {
-	report.Logf(rep, report.Info, "=== Broadcast Link + Pose: %s -> %s ===", name, serverAddr)
+func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPID uint32, rep log.Reporter, connLog *network.ConnectLog, onPos func(x, y, z float32)) error {
+	log.Logf(rep, log.Info, "=== Broadcast Link + Pose: %s -> %s ===", name, serverAddr)
 	d, err := openDolphin(dolphinPID)
 	if err != nil {
 		return err
 	}
 	defer d.Close()
 	client := newPlayerClientCtx(ctx, name)
-	client.OnLog = func(msg string) { rep.Log(report.Net, msg) }
+	client.OnLog = func(msg string) { rep.Log(log.Net, msg) }
 
 	const poseBytes = linkJointCount * 48
 
@@ -481,11 +482,11 @@ func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPI
 			// unchanged). Receiver re-adds the remote's world position to
 			// land Link #2 at the right world coords.
 			if pos != nil {
-				stateBytes, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffPosePublishState, 1)
+				stateBytes, _ := d.Read(mailbox.Mailbox+mailbox.OffPosePublishState, 1)
 				if len(stateBytes) == 1 && stateBytes[0] == 1 {
 					pubPtr, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffPosePublishPtr)
 					if addr.InMEM1(pubPtr) {
-						data, err := d.ReadAbsolute(pubPtr, poseBytes)
+						data, err := d.Read(pubPtr, poseBytes)
 						if err == nil && data != nil {
 							if os.Getenv("WW_POSE_RAW") == "" {
 								localizePoseInPlace(data, linkJointCount, pos.PosX, pos.PosY, pos.PosZ)
@@ -499,7 +500,7 @@ func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPI
 							// (mat1_tex1:u16 BE)(mat4_tex0:u16 BE)
 							// (mat4_tex1:u16 BE).
 							var face []byte
-							if fb, err := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceStateLocal, faceStateWireBytes); err == nil && len(fb) == faceStateWireBytes {
+							if fb, err := d.Read(mailbox.Mailbox+mailbox.OffFaceStateLocal, faceStateWireBytes); err == nil && len(fb) == faceStateWireBytes {
 								face = fb
 								// docs/09 §5.4: a 17th byte, the appearance
 								// flags (bit 0 = casual clothes). Receivers
@@ -538,7 +539,7 @@ func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPI
 			case <-time.After(16 * time.Millisecond):
 			}
 		}
-		rep.Log(report.Info, "Disconnected.")
+		rep.Log(log.Info, "Disconnected.")
 		return nil
 	}
 	run := func(ctx context.Context) error {
@@ -556,7 +557,7 @@ func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPI
 // distinct from broadcast-pose's player and assigns it a new link slot.
 func runPoseFakeLoop(name, addr string) {
 	fmt.Printf("=== Fake Pose Broadcaster: %s -> %s ===\n\n", name, addr)
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
@@ -592,7 +593,7 @@ func runPoseFakeLoop(name, addr string) {
 			time.Sleep(200 * time.Millisecond)
 			continue
 		}
-		data, err := d.ReadAbsolute(nodePtr, poseBytes)
+		data, err := d.Read(nodePtr, poseBytes)
 		if err != nil || data == nil {
 			time.Sleep(200 * time.Millisecond)
 			continue
@@ -665,7 +666,7 @@ func envFloat32(key string, fallback float32) float32 {
 // Iterates every active puppet slot and applies the proc-specific unhide
 // poke. Idempotent and safe to call whenever a puppet appears to be hidden.
 func runUnhidePuppet() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -691,12 +692,12 @@ func runUnhidePuppet() {
 		switch proc {
 		case 0x01CB: // TSUBO: m678 = 2
 			binary.BigEndian.PutUint32(buf, 2)
-			d.WriteAbsolute(ptr+0x678, buf)
+			d.Write(ptr+0x678, buf)
 			fmt.Printf("slot %d: unhid TSUBO (actor 0x%08X) m678=2\n", i, ptr)
 			any = true
 		case 0x00C3: // KAMOME: clear mSwitchNo at +0x2AA (u32 write at +0x2A8 zeroes 4 safe bytes)
 			binary.BigEndian.PutUint32(buf, 0)
-			d.WriteAbsolute(ptr+0x2A8, buf)
+			d.Write(ptr+0x2A8, buf)
 			fmt.Printf("slot %d: unhid KAMOME (actor 0x%08X) mSwitchNo=0\n", i, ptr)
 			any = true
 		default:
@@ -721,7 +722,7 @@ func runUnhidePuppet() {
 // the mailbox (shadow_mode=0 + pose_seqs[*]=0) instead of leaving Link #2
 // frozen at the last received pose.
 func runPuppetSync(name, addr string) {
-	rep := report.Stdout{}
+	rep := log.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
 	err := runPuppetSyncCtx(ctx, name, addr, os.Getenv("WW_SELF_NAME"), 0, rep, nil, nil)
@@ -744,19 +745,19 @@ func runPuppetSync(name, addr string) {
 // panel. The client survives reconnects (#8) — it's the same object across
 // ReconnectLoop iterations — so a single registration is sufficient. CLI
 // callers pass nil.
-func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphinPID uint32, rep report.Reporter, connLog *network.ConnectLog, onClient func(*network.Client)) error {
-	report.Logf(rep, report.Info, "=== Puppet Sync: %s <- %s ===", name, addr)
+func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphinPID uint32, rep log.Reporter, connLog *network.ConnectLog, onClient func(*network.Client)) error {
+	log.Logf(rep, log.Info, "=== Puppet Sync: %s <- %s ===", name, addr)
 
 	d, err := openDolphin(dolphinPID)
 	if err != nil {
 		return err
 	}
 	defer d.Close()
-	rep.Log(report.OK, "Dolphin found.")
+	rep.Log(log.OK, "Dolphin found.")
 
 	client := newPlayerClientCtx(ctx, name)
 	client.OnLog = func(msg string) {
-		rep.Log(report.Net, msg)
+		rep.Log(log.Net, msg)
 	}
 	if onClient != nil {
 		onClient(client)
@@ -765,7 +766,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	// WW_TUNIC=off leaves the slots to the tunic-slot dev command.
 	var tunics *tunicSync
 	if os.Getenv("WW_TUNIC") != "off" {
-		tunics = newTunicSync(d, func(format string, args ...any) { report.Logf(rep, report.Info, format, args...) })
+		tunics = newTunicSync(d, func(format string, args ...any) { log.Logf(rep, log.Info, format, args...) })
 		// Session over: stop the C swaps (the enables live in RAM and
 		// would keep the local Link recolored). Runs before d.Close.
 		defer tunics.DisableAll()
@@ -848,7 +849,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	link2OffsetY := envFloat32("WW_LINK2_OFFSET_Y", 0)
 	link2OffsetZ := envFloat32("WW_LINK2_OFFSET_Z", 0)
 	if link2OffsetX != 0 || link2OffsetY != 0 || link2OffsetZ != 0 {
-		report.Logf(rep, report.Info, "Link #2/3 render offset: (%.0f, %.0f, %.0f)",
+		log.Logf(rep, log.Info, "Link #2/3 render offset: (%.0f, %.0f, %.0f)",
 			link2OffsetX, link2OffsetY, link2OffsetZ)
 	}
 	armPoseSlot := func(ctx context.Context, slot int) bool {
@@ -868,15 +869,15 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		// path, which re-asserts shadow_mode=5 and re-validates the pointer.
 		forceRepoll := armedEpoch[slot] != sessionEpoch
 		if !forceRepoll {
-			state, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseBufState(slot), 1)
+			state, _ := d.Read(mailbox.Mailbox+mailboxPoseBufState(slot), 1)
 			if len(state) == 1 && state[0] == 1 {
 				ptr, _ := d.ReadU32(mailbox.Mailbox + mailboxPoseBufPtr(slot))
 				if ptr != 0 {
 					if poseBufPtrs[slot] != ptr {
 						if poseBufPtrs[slot] == 0 {
-							report.Logf(rep, report.OK, "pose-feed slot %d armed: pose_buf=0x%08X", slot, ptr)
+							log.Logf(rep, log.OK, "pose-feed slot %d armed: pose_buf=0x%08X", slot, ptr)
 						} else {
-							report.Logf(rep, report.OK, "pose-feed slot %d re-armed: pose_buf=0x%08X (was 0x%08X)",
+							log.Logf(rep, log.OK, "pose-feed slot %d re-armed: pose_buf=0x%08X (was 0x%08X)",
 								slot, ptr, poseBufPtrs[slot])
 						}
 						poseBufPtrs[slot] = ptr
@@ -890,18 +891,18 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		// pointer so we don't write to a stale address while waiting, then
 		// drive shadow_mode=5 and poll for the (re-published) pose_buf.
 		if poseBufPtrs[slot] != 0 {
-			report.Logf(rep, report.Warn, "pose-feed slot %d disarmed: waiting for C-side re-alloc", slot)
+			log.Logf(rep, log.Warn, "pose-feed slot %d disarmed: waiting for C-side re-alloc", slot)
 			poseBufPtrs[slot] = 0
 		}
 		// Check the live byte, not only our own flag: loading a save state
 		// mid-session restores the mailbox from the snapshot, which
 		// usually has shadow_mode=0, and the C side then never allocates a
 		// pose_buf for us to find. Re-assert mode 5 whenever it isn't.
-		if mode, err := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, 1); !shadowModeArmed || (err == nil && len(mode) == 1 && mode[0] != 5) {
+		if mode, err := d.Read(mailbox.Mailbox+mailbox.OffShadowMode, 1); !shadowModeArmed || (err == nil && len(mode) == 1 && mode[0] != 5) {
 			if shadowModeArmed {
-				report.Logf(rep, report.Warn, "shadow_mode was reset (a save-state load?): setting pose-feed mode again")
+				log.Logf(rep, log.Warn, "shadow_mode was reset (a save-state load?): setting pose-feed mode again")
 			}
-			d.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{5})
+			d.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{5})
 			shadowModeArmed = true
 		}
 		for i := 0; i < 60; i++ {
@@ -910,18 +911,18 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 				return false
 			case <-time.After(50 * time.Millisecond):
 			}
-			state, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseBufState(slot), 1)
+			state, _ := d.Read(mailbox.Mailbox+mailboxPoseBufState(slot), 1)
 			if len(state) == 1 && state[0] == 1 {
 				ptr, _ := d.ReadU32(mailbox.Mailbox + mailboxPoseBufPtr(slot))
 				if ptr != 0 {
 					poseBufPtrs[slot] = ptr
 					armedEpoch[slot] = sessionEpoch
-					report.Logf(rep, report.OK, "pose-feed slot %d armed: pose_buf=0x%08X", slot, ptr)
+					log.Logf(rep, log.OK, "pose-feed slot %d armed: pose_buf=0x%08X", slot, ptr)
 					return true
 				}
 			}
 			if len(state) == 1 && (state[0] == 0xFD || state[0] == 0xFE) {
-				report.Logf(rep, report.Err, "pose-feed slot %d alloc failed (state=0x%02X)", slot, state[0])
+				log.Logf(rep, log.Err, "pose-feed slot %d alloc failed (state=0x%02X)", slot, state[0])
 				return false
 			}
 		}
@@ -946,9 +947,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		return -1
 	}
 	// poseBufOK guards the write of a remote's pose through a slot's
-	// pose_buf pointer. The pointer comes back out of the mailbox, which
-	// WriteAbsolute won't check, so the whole Link-sized write must land
-	// inside MEM1. Reports each bad pointer value once.
+	// pose_buf pointer. The pointer comes back out of the mailbox, and Write
+	// checks it only as a whole range, so the whole Link-sized write must
+	// land inside MEM1. Reports each bad pointer value once.
 	poseBufOK := func(slot int) bool {
 		ptr := poseBufPtrs[slot]
 		if poseDstInMEM1(ptr, linkJointCount*mtxBytes) {
@@ -956,7 +957,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 		}
 		if badPoseBuf[slot] != ptr {
 			badPoseBuf[slot] = ptr
-			report.Logf(rep, report.Err, "pose-feed slot %d: pose_buf 0x%08X is outside MEM1; not writing poses there", slot, ptr)
+			log.Logf(rep, log.Err, "pose-feed slot %d: pose_buf 0x%08X is outside MEM1; not writing poses there", slot, ptr)
 		}
 		return false
 	}
@@ -973,8 +974,8 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	// render (zero pose_seq + face_seq), drop the EMA buffer + id mapping,
 	// and invalidate the arm cache so the next claimant re-arms from scratch.
 	freeLinkSlot := func(linkSlot int, id byte) {
-		d.WriteAbsolute(mailbox.Mailbox+mailboxPoseSeq(linkSlot), []byte{0})
-		d.WriteAbsolute(mailbox.Mailbox+mailboxFaceSeq(linkSlot), []byte{0})
+		d.Write(mailbox.Mailbox+mailboxPoseSeq(linkSlot), []byte{0})
+		d.Write(mailbox.Mailbox+mailboxFaceSeq(linkSlot), []byte{0})
 		delete(remoteToLinkSlot, id)
 		linkSlots[linkSlot] = linkSlotState{}
 		armedEpoch[linkSlot] = -1
@@ -1013,7 +1014,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 			// Drop every actor-puppet + link-slot mapping so fresh remotes
 			// re-arm cleanly with no double-rendered orphan.
 			for id, idx := range remoteToSlot {
-				d.WriteAbsolute(slotAddr(idx, mailbox.PuppetOffActive), zero)
+				d.Write(slotAddr(idx, mailbox.PuppetOffActive), zero)
 				delete(remoteToSlot, id)
 				slots[idx] = slotState{}
 			}
@@ -1024,9 +1025,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 			announced = map[byte]bool{}
 			parked = map[byte]bool{}
 			badRig = map[byte]bool{}
-			rep.Log(report.Warn, "server restarted (epoch changed): full puppet reset")
+			rep.Log(log.Warn, "server restarted (epoch changed): full puppet reset")
 		}
-		report.Logf(rep, report.OK, "puppet-sync session %d armed (server epoch %d)", sessionEpoch, ep)
+		log.Logf(rep, log.OK, "puppet-sync session %d armed (server epoch %d)", sessionEpoch, ep)
 		return nil
 	}
 
@@ -1039,7 +1040,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 	// WW_SELF_NAME into this arg; `ww-multiplayer.exe host/join` pass the player name
 	// so users never have to know the env var exists.
 	if selfFilter != "" {
-		report.Logf(rep, report.Info, "Filtering self-echo: remotes named %q will be ignored.", selfFilter)
+		log.Logf(rep, log.Info, "Filtering self-echo: remotes named %q will be ignored.", selfFilter)
 	}
 
 	// sessionLoop owns one live session: the 60 Hz receive→mailbox loop.
@@ -1066,7 +1067,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 				hasPose := linkPoseUsable(rp.PoseJoints, len(rp.PoseMatrices))
 				if rp.PoseMatrices != nil && !hasPose && !badRig[rp.ID] {
 					badRig[rp.ID] = true
-					report.Logf(rep, report.Warn, "player %d (%s) sent a %d-joint pose (%d B); Link has %d joints, so it won't drive a Link slot",
+					log.Logf(rep, log.Warn, "player %d (%s) sent a %d-joint pose (%d B); Link has %d joints, so it won't drive a Link slot",
 						rp.ID, rp.Name, rp.PoseJoints, len(rp.PoseMatrices), linkJointCount)
 				}
 				idx, ok := remoteToSlot[rp.ID]
@@ -1096,8 +1097,8 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 					// stops syncing but leaves the actor stuck at its last
 					// position), so the duplicate sticks around forever.
 					if !hasPose {
-						d.WriteAbsolute(slotAddr(idx, mailbox.PuppetOffActive), one)
-						report.Logf(rep, report.OK, "slot %d := player %d (%s)", idx, rp.ID, rp.Name)
+						d.Write(slotAddr(idx, mailbox.PuppetOffActive), one)
+						log.Logf(rep, log.OK, "slot %d := player %d (%s)", idx, rp.ID, rp.Name)
 					}
 				}
 
@@ -1116,13 +1117,13 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 				binary.BigEndian.PutUint32(posBuf[0:4], math.Float32bits(st.curX))
 				binary.BigEndian.PutUint32(posBuf[4:8], math.Float32bits(st.curY))
 				binary.BigEndian.PutUint32(posBuf[8:12], math.Float32bits(st.curZ))
-				d.WriteAbsolute(slotAddr(idx, mailbox.PuppetOffPosX), posBuf)
+				d.Write(slotAddr(idx, mailbox.PuppetOffPosX), posBuf)
 
 				rotBuf := make([]byte, 6)
 				binary.BigEndian.PutUint16(rotBuf[0:2], uint16(rp.Position.RotX))
 				binary.BigEndian.PutUint16(rotBuf[2:4], uint16(rp.Position.RotY))
 				binary.BigEndian.PutUint16(rotBuf[4:6], uint16(rp.Position.RotZ))
-				d.WriteAbsolute(slotAddr(idx, mailbox.PuppetOffRotX), rotBuf)
+				d.Write(slotAddr(idx, mailbox.PuppetOffRotX), rotBuf)
 
 				// Pose feed (shadow_mode=5). First remote to deliver any pose
 				// claims the Link-#2 driver slot; subsequent remotes still
@@ -1163,7 +1164,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 							ls.displayed = nil
 							ls.frozen = false
 							ls.despawned = false
-							report.Logf(rep, report.OK, "link slot %d resumed: player %d pose fresh again", linkSlot, rp.ID)
+							log.Logf(rep, log.OK, "link slot %d resumed: player %d pose fresh again", linkSlot, rp.ID)
 						}
 
 						switch {
@@ -1173,12 +1174,12 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 							// remote lands back here. A dual safety net alongside
 							// the server's MsgLeave-on-timeout.
 							if !ls.despawned {
-								d.WriteAbsolute(mailbox.Mailbox+mailboxPoseSeq(linkSlot), []byte{0})
-								d.WriteAbsolute(mailbox.Mailbox+mailboxFaceSeq(linkSlot), []byte{0})
+								d.Write(mailbox.Mailbox+mailboxPoseSeq(linkSlot), []byte{0})
+								d.Write(mailbox.Mailbox+mailboxFaceSeq(linkSlot), []byte{0})
 								ls.despawned = true
 								ls.frozen = true
 								ls.despawnAt = now
-								report.Logf(rep, report.Warn, "link slot %d despawned: player %d silent (no MsgLeave yet)", linkSlot, rp.ID)
+								log.Logf(rep, log.Warn, "link slot %d despawned: player %d silent (no MsgLeave yet)", linkSlot, rp.ID)
 							}
 						case frozenNow:
 							// Brief silence → stop bumping pose_seq; the C side
@@ -1186,7 +1187,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 							// than snapping to a stale sample or vanishing.
 							if !ls.frozen {
 								ls.frozen = true
-								report.Logf(rep, report.Info, "link slot %d frozen: player %d pose stalled", linkSlot, rp.ID)
+								log.Logf(rep, log.Info, "link slot %d frozen: player %d pose stalled", linkSlot, rp.ID)
 							}
 						default:
 							// Normal path: arm + write the fresh pose (only through
@@ -1195,9 +1196,9 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 								// First time this remote got a link slot — also
 								// release their actor-puppet so we don't see both
 								// a Link AND a KAMOME at the same position.
-								d.WriteAbsolute(slotAddr(idx, mailbox.PuppetOffActive), zero)
+								d.Write(slotAddr(idx, mailbox.PuppetOffActive), zero)
 								if _, alreadyLogged := announced[rp.ID]; !alreadyLogged {
-									report.Logf(rep, report.OK, "link slot %d := player %d (%s)", linkSlot, rp.ID, rp.Name)
+									log.Logf(rep, log.OK, "link slot %d := player %d (%s)", linkSlot, rp.ID, rp.Name)
 									announced[rp.ID] = true
 								}
 								if ls.displayed == nil || len(ls.displayed) != len(rp.PoseMatrices) {
@@ -1216,7 +1217,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 									applyPoseAt(adjusted, rp.PoseJoints,
 										st.curX+link2OffsetX, st.curY+link2OffsetY, st.curZ+link2OffsetZ)
 								}
-								d.WriteAbsolute(poseBufPtrs[linkSlot], adjusted)
+								d.Write(poseBufPtrs[linkSlot], adjusted)
 								// nextSeq skips 0, which C reads as "no pose
 								// yet" and would skip this slot for a frame.
 								bumpSeqByte(d, mailbox.Mailbox+mailboxPoseSeq(linkSlot))
@@ -1232,7 +1233,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 								// not a stale cache; bumping the seq is just for
 								// the gating).
 								if len(rp.FaceState) >= faceStateWireBytes {
-									d.WriteAbsolute(mailbox.Mailbox+mailboxFaceState(linkSlot), rp.FaceState[:faceStateWireBytes])
+									d.Write(mailbox.Mailbox+mailboxFaceState(linkSlot), rp.FaceState[:faceStateWireBytes])
 									// 0 means "not yet armed" per the C-side
 									// gate; nextSeq skips it on rollover so the
 									// gate stays open.
@@ -1248,17 +1249,17 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 			// server's read-timeout teardown removed them from the player list).
 			for id, idx := range remoteToSlot {
 				if !seen[id] {
-					d.WriteAbsolute(slotAddr(idx, mailbox.PuppetOffActive), zero)
+					d.Write(slotAddr(idx, mailbox.PuppetOffActive), zero)
 					delete(remoteToSlot, id)
 					slots[idx] = slotState{}
-					report.Logf(rep, report.Info, "slot %d freed (player %d left)", idx, id)
+					log.Logf(rep, log.Info, "slot %d freed (player %d left)", idx, id)
 					if linkSlot, ok := remoteToLinkSlot[id]; ok {
 						// freeLinkSlot zeroes pose_seq + face_seq (C-side stops
 						// rendering Link #2; otherwise it'd stay frozen at the
 						// last pose forever), drops the EMA buffer, and clears
 						// the arm cache so the next claimant re-arms cleanly.
 						freeLinkSlot(linkSlot, id)
-						report.Logf(rep, report.Info, "link slot %d freed (will be reassigned on next pose)", linkSlot)
+						log.Logf(rep, log.Info, "link slot %d freed (will be reassigned on next pose)", linkSlot)
 					}
 					delete(announced, id)
 					delete(parked, id)
@@ -1284,7 +1285,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 					// Drop the "announced" mark so a resume-after-expiry
 					// re-logs the slot assignment.
 					delete(announced, id)
-					report.Logf(rep, report.Info, "link slot %d reservation expired: freed for reuse (player %d)", linkSlot, id)
+					log.Logf(rep, log.Info, "link slot %d reservation expired: freed for reuse (player %d)", linkSlot, id)
 				}
 			}
 
@@ -1295,7 +1296,7 @@ func runPuppetSyncCtx(ctx context.Context, name, addr, selfFilter string, dolphi
 			case <-time.After(16 * time.Millisecond): // ~60 Hz
 			}
 		}
-		rep.Log(report.Info, "Disconnected.")
+		rep.Log(log.Info, "Disconnected.")
 		return nil
 	}
 	run := func(ctx context.Context) error {
@@ -1316,7 +1317,7 @@ func runPokeU32(addrHex, valHex string) {
 	}
 	addr := parseHex(addrHex)
 	val := parseHex(valHex)
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -1324,7 +1325,7 @@ func runPokeU32(addrHex, valHex string) {
 	defer d.Close()
 	buf := make([]byte, 4)
 	binary.BigEndian.PutUint32(buf, val)
-	if err := d.WriteAbsolute(addr, buf); err != nil {
+	if err := d.Write(addr, buf); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -1408,7 +1409,7 @@ func runPokeVec3(addrHex, xs, ys, zs string) {
 	x, _ := strconv.ParseFloat(xs, 32)
 	y, _ := strconv.ParseFloat(ys, 32)
 	z, _ := strconv.ParseFloat(zs, 32)
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -1418,7 +1419,7 @@ func runPokeVec3(addrHex, xs, ys, zs string) {
 	binary.BigEndian.PutUint32(buf[0:4], math.Float32bits(float32(x)))
 	binary.BigEndian.PutUint32(buf[4:8], math.Float32bits(float32(y)))
 	binary.BigEndian.PutUint32(buf[8:12], math.Float32bits(float32(z)))
-	if err := d.WriteAbsolute(uint32(a), buf); err != nil {
+	if err := d.Write(uint32(a), buf); err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
 	}
@@ -1430,7 +1431,7 @@ func runPokeVec3(addrHex, xs, ys, zs string) {
 // outside Link's actor block. Defaults to 0x80300000..0x80800000
 // (the .data/.bss region above DOL code, below mailbox).
 func runScanPos() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -1445,7 +1446,7 @@ func runScanPos() {
 		pos.PosX, pos.PosY, pos.PosZ)
 	const chunkSize = 0x10000
 	for base := uint32(0x80300000); base < 0x80800000; base += chunkSize {
-		buf, err := d.ReadAbsolute(base, chunkSize+8)
+		buf, err := d.Read(base, chunkSize+8)
 		if err != nil {
 			continue
 		}
@@ -1472,13 +1473,13 @@ func runPeek(addrHex string, n uint32) {
 		os.Exit(1)
 	}
 	addr := uint32(addr64)
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer d.Close()
-	buf, err := d.ReadAbsolute(addr, int(n))
+	buf, err := d.Read(addr, int(n))
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -1495,7 +1496,7 @@ func runPeek(addrHex string, n uint32) {
 // seq/ack. Used to test whether continuous writes can outpace whatever
 // is reverting our one-shot warp.
 func runWarpForce(xs, ys, zs string, on bool) {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -1509,11 +1510,11 @@ func runWarpForce(xs, ys, zs string, on bool) {
 		binary.BigEndian.PutUint32(posBuf[0:4], math.Float32bits(float32(x)))
 		binary.BigEndian.PutUint32(posBuf[4:8], math.Float32bits(float32(y)))
 		binary.BigEndian.PutUint32(posBuf[8:12], math.Float32bits(float32(z)))
-		d.WriteAbsolute(mailbox.Mailbox+mailbox.OffWarpX, posBuf)
-		d.WriteAbsolute(mailbox.Mailbox+mailbox.OffWarpForce, []byte{1})
+		d.Write(mailbox.Mailbox+mailbox.OffWarpX, posBuf)
+		d.Write(mailbox.Mailbox+mailbox.OffWarpForce, []byte{1})
 		fmt.Printf("Force-warp ON: target=(%.1f, %.1f, %.1f). Use `warp-force-off` to release.\n", x, y, z)
 	} else {
-		d.WriteAbsolute(mailbox.Mailbox+mailbox.OffWarpForce, []byte{0})
+		d.Write(mailbox.Mailbox+mailbox.OffWarpForce, []byte{0})
 		fmt.Println("Force-warp OFF.")
 	}
 }
@@ -1521,13 +1522,13 @@ func runWarpForce(xs, ys, zs string, on bool) {
 // runEyeFixStep writes mailbox.eye_fix_step. See the field comment in
 // inject/include/mailbox.h for what each value enables.
 func runEyeFixStep(step byte) {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer d.Close()
-	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffEyeFixStep, []byte{step}); err != nil {
+	if err := d.Write(mailbox.Mailbox+mailbox.OffEyeFixStep, []byte{step}); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -1537,13 +1538,13 @@ func runEyeFixStep(step byte) {
 // runEyeFixMode writes mailbox.eye_fix_mode (V5 multi-mode experiment).
 // 0 = legacy run_eye_fix; 1 = mClModel-swap one-draw; 2 = two-draw.
 func runEyeFixMode(mode byte) {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer d.Close()
-	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffEyeFixMode, []byte{mode}); err != nil {
+	if err := d.Write(mailbox.Mailbox+mailbox.OffEyeFixMode, []byte{mode}); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -1561,14 +1562,14 @@ func runEyeFixMode(mode byte) {
 // Reads twice with a short delay so Go can confirm whether the safety
 // counter is incrementing live (rate ≈ 60/sec when actively bailing).
 func runEyeFixModeProbe() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer d.Close()
 	read := func() (efMode byte, cached, pre, post, safetyCur, safetyCnt uint32) {
-		efBuf, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEyeFixMode, 1)
+		efBuf, _ := d.Read(mailbox.Mailbox+mailbox.OffEyeFixMode, 1)
 		if len(efBuf) > 0 {
 			efMode = efBuf[0]
 		}
@@ -1648,7 +1649,7 @@ func eyeFixSafetyVerdict(delta uint32) string {
 // gate (if any) is being flipped — that's the state our run_eye_fix
 // is corrupting between frames.
 func runEyeFixGates() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -1689,7 +1690,7 @@ func runEyeFixGates() {
 		fmt.Printf("read mNoResetFlg0: %v\n", err)
 		os.Exit(1)
 	}
-	stepBytes, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEyeFixStep, 1)
+	stepBytes, _ := d.Read(mailbox.Mailbox+mailbox.OffEyeFixStep, 1)
 	var step byte
 	if len(stepBytes) == 1 {
 		step = stepBytes[0]
@@ -1751,7 +1752,7 @@ func runEyeFixGates() {
 // known *(mini_link_model+0x8C) value) to identify which candidate is
 // mini_link_models[0]. Prints all candidates with their headers.
 func runEyeAnimFind() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -1777,7 +1778,7 @@ func runEyeAnimFind() {
 		if base+size > memHi {
 			size = memHi - base
 		}
-		buf, err := d.ReadAbsolute(base, int(size))
+		buf, err := d.Read(base, int(size))
 		if err != nil {
 			continue
 		}
@@ -1798,7 +1799,7 @@ func runEyeAnimFind() {
 	isMEM1 := func(v uint32) bool { return v >= 0x80000000 && v < 0x81800000 }
 	matched := 0
 	for _, h := range hits {
-		hdr, err := d.ReadAbsolute(h, 0xC0)
+		hdr, err := d.Read(h, 0xC0)
 		if err != nil {
 			continue
 		}
@@ -1837,7 +1838,7 @@ func runEyeAnimFind() {
 		if base+size > memHi {
 			size = memHi - base
 		}
-		buf, err := d.ReadAbsolute(base, int(size))
+		buf, err := d.Read(base, int(size))
 		if err != nil {
 			continue
 		}
@@ -1905,14 +1906,14 @@ func runEyeAnimDLDump(modelAddrHex string, n uint32) {
 		os.Exit(1)
 	}
 	modelAddr := uint32(addr64)
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer d.Close()
 
-	hdr, err := d.ReadAbsolute(modelAddr, 0xC0)
+	hdr, err := d.Read(modelAddr, 0xC0)
 	if err != nil {
 		fmt.Printf("read model header: %v\n", err)
 		os.Exit(1)
@@ -1943,7 +1944,7 @@ func runEyeAnimDLDump(modelAddrHex string, n uint32) {
 		}
 		for _, i := range matIdx {
 			pktAddr := b.addr + uint32(i)*stride
-			pkt, err := d.ReadAbsolute(pktAddr, int(stride))
+			pkt, err := d.Read(pktAddr, int(stride))
 			if err != nil {
 				fmt.Printf("  matpacket[%d] @ 0x%08X — read failed: %v\n", i, pktAddr, err)
 				break
@@ -1971,7 +1972,7 @@ func runEyeAnimDLDump(modelAddrHex string, n uint32) {
 					if !isMEM1(v) {
 						continue
 					}
-					objHdr, err := d.ReadAbsolute(v, 0x10)
+					objHdr, err := d.Read(v, 0x10)
 					if err != nil {
 						continue
 					}
@@ -1981,13 +1982,13 @@ func runEyeAnimDLDump(modelAddrHex string, n uint32) {
 					fmt.Printf("    [+0x%02X→0x%08X] obj{+0x00:%08X +0x04:%08X +0x08:%08X}\n",
 						o, v, p0, p1, p2)
 					if isMEM1(p0) && p1 > 0 && p1 < 0x100000 {
-						raw, err := d.ReadAbsolute(p0, int(min32(n, p1)))
+						raw, err := d.Read(p0, int(min32(n, p1)))
 						if err == nil {
 							fmt.Printf("      DL bytes @ 0x%08X (size 0x%X), highlighting 0x27:\n", p0, p1)
 							dumpHexLine(raw, p0, "        ", 0x27, true)
 						}
 					} else if v >= 0x80000000 && v < 0x81800000 {
-						raw, err := d.ReadAbsolute(v, int(n))
+						raw, err := d.Read(v, int(n))
 						if err == nil {
 							hits := 0
 							for _, bb := range raw {
@@ -2032,14 +2033,14 @@ func runEyeAnimWatch(addrHex, sizeHex string, secs int) {
 		os.Exit(1)
 	}
 	size := uint32(size64)
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer d.Close()
 
-	initial, err := d.ReadAbsolute(addr, int(size))
+	initial, err := d.Read(addr, int(size))
 	if err != nil {
 		fmt.Printf("initial read: %v\n", err)
 		os.Exit(1)
@@ -2048,7 +2049,7 @@ func runEyeAnimWatch(addrHex, sizeHex string, secs int) {
 	deadline := time.Now().Add(time.Duration(secs) * time.Second)
 	samples := 0
 	for time.Now().Before(deadline) {
-		buf, err := d.ReadAbsolute(addr, int(size))
+		buf, err := d.Read(addr, int(size))
 		if err != nil {
 			continue
 		}
@@ -2109,14 +2110,14 @@ func runEyeAnimPoke(modelAddrHex string, secs int) {
 		os.Exit(1)
 	}
 	modelAddr := uint32(addr64)
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer d.Close()
 
-	hdr, err := d.ReadAbsolute(modelAddr, 0xC0)
+	hdr, err := d.Read(modelAddr, 0xC0)
 	if err != nil {
 		fmt.Printf("read model: %v\n", err)
 		os.Exit(1)
@@ -2161,7 +2162,7 @@ func runEyeAnimPoke(modelAddrHex string, secs int) {
 		}
 
 		pktAddr := matpktBase + uint32(idx)*stride
-		pkt, err := d.ReadAbsolute(pktAddr, int(stride))
+		pkt, err := d.Read(pktAddr, int(stride))
 		if err != nil {
 			fmt.Printf("mat[%d]: matpacket read fail: %v\n", idx, err)
 			continue
@@ -2175,7 +2176,7 @@ func runEyeAnimPoke(modelAddrHex string, secs int) {
 			if !isMEM1(v) {
 				continue
 			}
-			oh, err := d.ReadAbsolute(v, 8)
+			oh, err := d.Read(v, 8)
 			if err != nil {
 				continue
 			}
@@ -2184,7 +2185,7 @@ func runEyeAnimPoke(modelAddrHex string, secs int) {
 			if !isMEM1(p0) || p1 == 0 || p1 > 0x10000 {
 				continue
 			}
-			raw, err := d.ReadAbsolute(p0, int(p1))
+			raw, err := d.Read(p0, int(p1))
 			if err != nil {
 				continue
 			}
@@ -2223,7 +2224,7 @@ func runEyeAnimPoke(modelAddrHex string, secs int) {
 	frames := 0
 	for time.Now().Before(deadline) {
 		for _, m := range mats {
-			tx, err := d.ReadAbsolute(m.sharedTev+0x08, 4)
+			tx, err := d.Read(m.sharedTev+0x08, 4)
 			if err != nil {
 				continue
 			}
@@ -2234,7 +2235,7 @@ func runEyeAnimPoke(modelAddrHex string, secs int) {
 			lowByte := tx[3]
 			payload := []byte{lowByte}
 			for _, off := range m.texHits {
-				_ = d.WriteAbsolute(m.dlBytesPtr+off, payload)
+				_ = d.Write(m.dlBytesPtr+off, payload)
 			}
 		}
 		frames++
@@ -2263,7 +2264,7 @@ func runEyeAnimPoke(modelAddrHex string, secs int) {
 // visual tests — set forceLsb to a wildly wrong value (e.g. 0x99) and
 // observe whether mini-link's pupil glitches in only this Dolphin.
 func runFaceDlLoop(secs int, forceLsb int) {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -2302,7 +2303,7 @@ func runFaceDlLoop(secs int, forceLsb int) {
 		if base+size > memHi {
 			size = memHi - base
 		}
-		buf, err := d.ReadAbsolute(base, int(size))
+		buf, err := d.Read(base, int(size))
 		if err != nil {
 			continue
 		}
@@ -2315,7 +2316,7 @@ func runFaceDlLoop(secs int, forceLsb int) {
 				continue
 			}
 			cand := candAt - 4
-			hdr, err := d.ReadAbsolute(cand, 0xC0)
+			hdr, err := d.Read(cand, 0xC0)
 			if err != nil {
 				continue
 			}
@@ -2386,7 +2387,7 @@ func runFaceDlLoop(secs int, forceLsb int) {
 			if dlPtr < 0x80000000 || dlPtr >= 0x81800000 || dlLen == 0 || dlLen > 0x10000 {
 				continue
 			}
-			raw, err := d.ReadAbsolute(dlPtr, int(dlLen))
+			raw, err := d.Read(dlPtr, int(dlLen))
 			if err != nil {
 				continue
 			}
@@ -2439,11 +2440,11 @@ func runFaceDlLoop(secs int, forceLsb int) {
 				mat1Lsb = byte(forceLsb)
 				mat4Lsb = byte(forceLsb)
 			} else {
-				seq, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxFaceSeq(s.slot), 1)
+				seq, _ := d.Read(mailbox.Mailbox+mailboxFaceSeq(s.slot), 1)
 				if len(seq) != 1 || seq[0] == 0 {
 					continue // gate: skip until first network sample
 				}
-				fs, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxFaceState(s.slot), 8)
+				fs, _ := d.Read(mailbox.Mailbox+mailboxFaceState(s.slot), 8)
 				if len(fs) != 8 {
 					continue
 				}
@@ -2454,13 +2455,13 @@ func runFaceDlLoop(secs int, forceLsb int) {
 			if s.dlPtr[0] != 0 && len(s.dlOffs[0]) > 0 {
 				payload := []byte{mat1Lsb}
 				for _, off := range s.dlOffs[0] {
-					_ = d.WriteAbsolute(s.dlPtr[0]+off, payload)
+					_ = d.Write(s.dlPtr[0]+off, payload)
 				}
 			}
 			if s.dlPtr[1] != 0 && len(s.dlOffs[1]) > 0 {
 				payload := []byte{mat4Lsb}
 				for _, off := range s.dlOffs[1] {
-					_ = d.WriteAbsolute(s.dlPtr[1]+off, payload)
+					_ = d.Write(s.dlPtr[1]+off, payload)
 				}
 			}
 		}
@@ -2475,7 +2476,7 @@ func runFaceDlLoop(secs int, forceLsb int) {
 				if s.dlPtr[0] != 0 && len(s.dlOffs[0]) > 0 {
 					counts := map[byte]int{}
 					for _, off := range s.dlOffs[0] {
-						b, _ := d.ReadAbsolute(s.dlPtr[0]+off, 1)
+						b, _ := d.Read(s.dlPtr[0]+off, 1)
 						if len(b) == 1 {
 							counts[b[0]]++
 						}
@@ -2530,7 +2531,7 @@ func runFaceSyncTevPoll(secs int, faceHex string) {
 	swapMat1 := binary.BigEndian.Uint32(face[0:4]) // expected mat[1] swap value
 	swapMat4 := binary.BigEndian.Uint32(face[4:8]) // expected mat[4] swap value
 
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -2574,7 +2575,7 @@ func runFaceSyncTevPoll(secs int, faceHex string) {
 
 	// Sanity: snapshot face_hook_state and face_hook_swaps before/after
 	// so we can verify the shim was firing during the poll window.
-	state0, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookState, 1)
+	state0, _ := d.Read(mailbox.Mailbox+mailbox.OffFaceHookState, 1)
 	swaps0, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffFaceHookSwaps)
 	fmt.Printf("face_hook_state=0x%02X  swaps=%d (pre)\n", state0[0], swaps0)
 	if state0[0] != 1 {
@@ -2590,11 +2591,11 @@ func runFaceSyncTevPoll(secs int, faceHex string) {
 	for time.Now().Before(deadline) {
 		// Re-assert face_state and seq each iteration so puppet-sync's
 		// 60 Hz writes don't overwrite our value.
-		_ = d.WriteAbsolute(mailbox.Mailbox+mailboxFaceState(0), face)
-		_ = d.WriteAbsolute(mailbox.Mailbox+mailboxFaceSeq(0), []byte{1})
+		_ = d.Write(mailbox.Mailbox+mailboxFaceState(0), face)
+		_ = d.Write(mailbox.Mailbox+mailboxFaceSeq(0), []byte{1})
 
-		b1, _ := d.ReadAbsolute(mat1Tev+0x08, 4)
-		b4, _ := d.ReadAbsolute(mat4Tev+0x08, 4)
+		b1, _ := d.Read(mat1Tev+0x08, 4)
+		b4, _ := d.Read(mat4Tev+0x08, 4)
 		if len(b1) != 4 || len(b4) != 4 {
 			continue
 		}
@@ -2612,7 +2613,7 @@ func runFaceSyncTevPoll(secs int, faceHex string) {
 		polls++
 	}
 
-	state1, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookState, 1)
+	state1, _ := d.Read(mailbox.Mailbox+mailbox.OffFaceHookState, 1)
 	swaps1, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffFaceHookSwaps)
 
 	type entry struct {
@@ -2668,7 +2669,7 @@ func runFaceSyncTevPoll(secs int, faceHex string) {
 // the matpacket layout and refuses to write if the stride doesn't
 // match J3DMATPACKET_SIZE (0x3C). Idempotent across calls.
 func runFaceHookArm(arm bool) {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -2678,15 +2679,15 @@ func runFaceHookArm(arm bool) {
 	if arm {
 		v = 1
 	}
-	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{v}); err != nil {
+	if err := d.Write(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{v}); err != nil {
 		fmt.Printf("write face_hook_enable failed: %v\n", err)
 		os.Exit(1)
 	}
 	// Wait one frame so the C side has a chance to process the change.
 	time.Sleep(50 * time.Millisecond)
-	state, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookState, 1)
-	mpsize, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookMpSize, 1)
-	patched, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookPatchedCount, 1)
+	state, _ := d.Read(mailbox.Mailbox+mailbox.OffFaceHookState, 1)
+	mpsize, _ := d.Read(mailbox.Mailbox+mailbox.OffFaceHookMpSize, 1)
+	patched, _ := d.Read(mailbox.Mailbox+mailbox.OffFaceHookPatchedCount, 1)
 	fmt.Printf("face_hook_enable := %d\n", v)
 	fmt.Printf("face_hook_state  : 0x%02X (1=installed, 0=disarmed, 0xFC=stride mismatch, 0xFE=vtable mismatch, 0xFD=null array)\n", state[0])
 	fmt.Printf("face_hook_mp_size: 0x%02X (expect 0x3C)\n", mpsize[0])
@@ -2717,7 +2718,7 @@ func runFaceTevHammer(secs int, texHex string) {
 		fmt.Printf("bad texno %q: %v\n", texHex, err)
 		os.Exit(1)
 	}
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -2756,7 +2757,7 @@ func runFaceTevHammer(secs int, texHex string) {
 			fmt.Printf("mat[%d] tevBlock bad (0x%08X) — skip\n", idx, tev)
 			continue
 		}
-		orig, err := d.ReadAbsolute(tev+0x08, 4)
+		orig, err := d.Read(tev+0x08, 4)
 		if err != nil || len(orig) != 4 {
 			fmt.Printf("mat[%d] tev+0x08 read failed: %v\n", idx, err)
 			continue
@@ -2782,14 +2783,14 @@ func runFaceTevHammer(secs int, texHex string) {
 	frames := 0
 	for time.Now().Before(deadline) {
 		for _, s := range slots {
-			_ = d.WriteAbsolute(s.tev+0x08, payload)
+			_ = d.Write(s.tev+0x08, payload)
 		}
 		frames++
 		time.Sleep(16 * time.Millisecond)
 	}
 	// Restore.
 	for _, s := range slots {
-		_ = d.WriteAbsolute(s.tev+0x08, s.orig)
+		_ = d.Write(s.tev+0x08, s.orig)
 	}
 	fmt.Printf("Done. Wrote %d frames; restored original texno bytes.\n", frames)
 }
@@ -2799,23 +2800,23 @@ func runFaceTevHammer(secs int, texHex string) {
 // 1 (vtable patched + matpackets repointed) and face_hook_swaps should
 // be increasing if at least one slot has fresh face_seqs.
 func runFaceSyncStatus() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer d.Close()
-	state, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookState, 1)
-	enable, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookEnable, 1)
-	mpsize, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffFaceHookMpSize, 1)
+	state, _ := d.Read(mailbox.Mailbox+mailbox.OffFaceHookState, 1)
+	enable, _ := d.Read(mailbox.Mailbox+mailbox.OffFaceHookEnable, 1)
+	mpsize, _ := d.Read(mailbox.Mailbox+mailbox.OffFaceHookMpSize, 1)
 	swaps, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffFaceHookSwaps)
 	fmt.Printf("face_hook_enable: %d (Go arm/disarm flag)\n", enable[0])
 	fmt.Printf("face_hook_state : 0x%02X (1=installed, 0=disarmed, 0xFC=stride mismatch, 0xFE=vtable mismatch, 0xFD=null array)\n", state[0])
 	fmt.Printf("face_hook_mp_size: 0x%02X (expect 0x3C)\n", mpsize[0])
 	fmt.Printf("face_hook_swaps : %d (saturating)\n", swaps)
 	for slot := 0; slot < maxRemoteLinks; slot++ {
-		seq, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxFaceSeq(slot), 1)
-		fs, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxFaceState(slot), faceStateWireBytes)
+		seq, _ := d.Read(mailbox.Mailbox+mailboxFaceSeq(slot), 1)
+		fs, _ := d.Read(mailbox.Mailbox+mailboxFaceState(slot), faceStateWireBytes)
 		var sb byte
 		if len(seq) == 1 {
 			sb = seq[0]
@@ -2840,7 +2841,7 @@ func runFaceSyncStatus() {
 // for `secs` seconds, printing transitions. Confirms the receiver is
 // writing fresh values and the C hook is firing on those values.
 func runFaceSyncWatch(secs int) {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -2866,8 +2867,8 @@ func runFaceSyncWatch(secs int) {
 			lastSwaps = swaps
 		}
 		for slot := 0; slot < maxRemoteLinks; slot++ {
-			seq, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxFaceSeq(slot), 1)
-			fs, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxFaceState(slot), faceStateWireBytes)
+			seq, _ := d.Read(mailbox.Mailbox+mailboxFaceSeq(slot), 1)
+			fs, _ := d.Read(mailbox.Mailbox+mailboxFaceState(slot), faceStateWireBytes)
 			if len(seq) != 1 || len(fs) != faceStateWireBytes {
 				continue
 			}
@@ -2905,13 +2906,13 @@ func runFaceSyncFake(slot int, hexStr string) {
 		os.Exit(1)
 	}
 	buf := parseFaceStateHex(hexStr)
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer d.Close()
-	if err := d.WriteAbsolute(mailbox.Mailbox+mailboxFaceState(slot), buf); err != nil {
+	if err := d.Write(mailbox.Mailbox+mailboxFaceState(slot), buf); err != nil {
 		fmt.Printf("write face_state failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -2952,7 +2953,7 @@ func parseFaceStateHex(hexStr string) []byte {
 // bytes. Used to find candidate material indices before probing with
 // face-mat-hammer (e.g. mouth, eye-white, etc.).
 func runFaceMatList() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -2970,7 +2971,7 @@ func runFaceMatList() {
 	}
 	// J3DMaterialTable layout: +0x04 is u16 mMaterialNum,
 	// +0x08 is J3DMaterial** mpMaterials.
-	matCountBytes, err := d.ReadAbsolute(dataPtr+0x58+0x04, 2)
+	matCountBytes, err := d.Read(dataPtr+0x58+0x04, 2)
 	if err != nil || len(matCountBytes) != 2 {
 		fmt.Printf("read matCount: %v\n", err)
 		os.Exit(1)
@@ -2993,7 +2994,7 @@ func runFaceMatList() {
 			fmt.Printf("  mat[%2d] = 0x%08X  tev=0x%08X (bad)\n", i, matPtr, tev)
 			continue
 		}
-		texno, err := d.ReadAbsolute(tev+0x08, 4)
+		texno, err := d.Read(tev+0x08, 4)
 		if err != nil || len(texno) != 4 {
 			fmt.Printf("  mat[%2d] = 0x%08X  tev=0x%08X  texno=read-fail\n", i, matPtr, tev)
 			continue
@@ -3014,7 +3015,7 @@ func runFaceMatHammer(idx int, texHex string, secs int) {
 		fmt.Printf("bad texno %q: %v\n", texHex, err)
 		os.Exit(1)
 	}
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -3045,7 +3046,7 @@ func runFaceMatHammer(idx int, texHex string, secs int) {
 		fmt.Printf("mat[%d] tevBlock bad (0x%08X)\n", idx, tev)
 		os.Exit(1)
 	}
-	orig, err := d.ReadAbsolute(tev+0x08, 4)
+	orig, err := d.Read(tev+0x08, 4)
 	if err != nil || len(orig) != 4 {
 		fmt.Printf("mat[%d] tev+0x08 read failed: %v\n", idx, err)
 		os.Exit(1)
@@ -3068,7 +3069,7 @@ func runFaceMatHammer(idx int, texHex string, secs int) {
 	writes := 0
 	addr := tev + 0x08
 	defer func() {
-		d.WriteAbsolute(addr, orig)
+		d.Write(addr, orig)
 		fmt.Printf("\nRestored mat[%d] tev_block.texno to %02X%02X %02X%02X (%d writes).\n",
 			idx, orig[0], orig[1], orig[2], orig[3], writes)
 	}()
@@ -3077,7 +3078,7 @@ func runFaceMatHammer(idx int, texHex string, secs int) {
 		case <-stopCh:
 			return
 		case <-tick.C:
-			d.WriteAbsolute(addr, payload)
+			d.Write(addr, payload)
 			writes++
 			if !deadline.IsZero() && time.Now().After(deadline) {
 				return
@@ -3098,7 +3099,7 @@ func runFaceSyncFakeLoop(slot int, hexStr string, secs int) {
 		os.Exit(1)
 	}
 	buf := parseFaceStateHex(hexStr)
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -3127,9 +3128,9 @@ func runFaceSyncFakeLoop(slot int, hexStr string, secs int) {
 			fmt.Printf("\nStopped after %d writes.\n", writes)
 			return
 		case <-tick.C:
-			d.WriteAbsolute(stateAddr, buf)
+			d.Write(stateAddr, buf)
 			seq = nextSeq(seq)
-			d.WriteAbsolute(seqAddr, []byte{seq})
+			d.Write(seqAddr, []byte{seq})
 			writes++
 			if !deadline.IsZero() && time.Now().After(deadline) {
 				fmt.Printf("\nDone (%d writes).\n", writes)
@@ -3140,7 +3141,7 @@ func runFaceSyncFakeLoop(slot int, hexStr string, secs int) {
 }
 
 func runEyeFixPostChain() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -3148,12 +3149,12 @@ func runEyeFixPostChain() {
 	defer d.Close()
 
 	const postChainOff = 0xEC
-	buf, err := d.ReadAbsolute(mailbox.Mailbox+postChainOff, 0x29)
+	buf, err := d.Read(mailbox.Mailbox+postChainOff, 0x29)
 	if err != nil {
 		fmt.Printf("read post-chain snapshot: %v\n", err)
 		os.Exit(1)
 	}
-	stepBytes, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEyeFixStep, 1)
+	stepBytes, _ := d.Read(mailbox.Mailbox+mailbox.OffEyeFixStep, 1)
 	var step byte
 	if len(stepBytes) == 1 {
 		step = stepBytes[0]
@@ -3197,7 +3198,7 @@ func runEyeFixPostChain() {
 // then walks via mpNextPacket at packet offset 0x04. Stops at NULL or
 // after 200 entries.
 func runEyeFixChain() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -3305,13 +3306,13 @@ func runPPCDisasm(addr uint32, num int) {
 			os.Exit(1)
 		}
 	} else {
-		d, err := dolphin.Find("GZLE01")
+		d, err := findDolphin("GZLE01")
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
 		defer d.Close()
-		buf, err = d.ReadAbsolute(addr, num*4)
+		buf, err = d.Read(addr, num*4)
 		if err != nil {
 			fmt.Printf("read failed: %v\n", err)
 			os.Exit(1)
@@ -3572,7 +3573,7 @@ func readDOLBytes(path string, addr uint32, n int) ([]byte, error) {
 // eye-fix-find-shape (mini-link body landing in opa_p0 instead of opa_p1
 // after a "swap to P1" write) suggests those offsets are wrong.
 func runJ3DSysProbe() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -3607,7 +3608,7 @@ func runJ3DSysProbe() {
 	}
 	fmt.Println()
 
-	buf, err := d.ReadAbsolute(j3dSysAddr, j3dSysSize)
+	buf, err := d.Read(j3dSysAddr, j3dSysSize)
 	if err != nil {
 		fmt.Printf("read failed: %v\n", err)
 		os.Exit(1)
@@ -3658,7 +3659,7 @@ func runJ3DSysProbe() {
 // offsets are wrong or face/hair are in different buckets/lists. This
 // command bypasses both assumptions by scanning packet bytes directly.
 func runEyeFixFindShape() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -3722,7 +3723,7 @@ func runEyeFixFindShape() {
 		0x803CA934: "xlu_p1",
 	}
 	scanLo, scanHi := uint32(0x803CA820), uint32(0x803CAA20)
-	scanBuf, err := d.ReadAbsolute(scanLo, int(scanHi-scanLo))
+	scanBuf, err := d.Read(scanLo, int(scanHi-scanLo))
 	if err != nil {
 		fmt.Printf("drawlist scan failed: %v\n", err)
 		os.Exit(1)
@@ -3755,7 +3756,7 @@ func runEyeFixFindShape() {
 
 		fmt.Printf("=== %s (field @ 0x%08X → bufPtr 0x%08X) ===\n", dl.name, dl.fieldAt, dl.bufPtr)
 
-		hdr, err := d.ReadAbsolute(dl.bufPtr, 0x40)
+		hdr, err := d.Read(dl.bufPtr, 0x40)
 		if err != nil {
 			fmt.Printf("  header read failed: %v\n\n", err)
 			continue
@@ -3785,7 +3786,7 @@ func runEyeFixFindShape() {
 		}
 		fmt.Printf("  mpBuf=0x%08X mNumBuckets=%d — walking %d buckets\n", mpBuf, mNumBuckets, walkN)
 
-		bucketBytes, err := d.ReadAbsolute(mpBuf, walkN*4)
+		bucketBytes, err := d.Read(mpBuf, walkN*4)
 		if err != nil {
 			fmt.Printf("  bucket array read failed: %v\n\n", err)
 			continue
@@ -3813,7 +3814,7 @@ func runEyeFixFindShape() {
 				}
 				seen[cur] = true
 
-				pkt, err := d.ReadAbsolute(cur, pktBytes)
+				pkt, err := d.Read(cur, pktBytes)
 				if err != nil {
 					fmt.Printf("  bucket[%d] read failed @ 0x%08X: %v\n", b, cur, err)
 					break
@@ -3883,7 +3884,7 @@ func runEyeFixFindShape() {
 					if v == cur || (cur != 0 && v == binary.BigEndian.Uint32(pkt[4:8])) {
 						continue
 					}
-					sub, err := d.ReadAbsolute(v, 0x40)
+					sub, err := d.Read(v, 0x40)
 					if err != nil {
 						continue
 					}
@@ -3918,7 +3919,7 @@ func runEyeFixFindShape() {
 // the J3DShpFlag_Hide bit set, vs the visibility loss being caused by GX
 // state pollution that doesn't touch mFlags.
 func runEyeFixProbe() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -3972,7 +3973,7 @@ func runEyeFixProbe() {
 // whether a warp reverts as a slow drift (something setting velocity
 // each frame) or a clean snap (something hard-resetting current.pos).
 func runTrackPos(secs int) {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -3988,15 +3989,15 @@ func runTrackPos(secs int) {
 	deadline := time.Now().Add(time.Duration(secs) * time.Second)
 	start := time.Now()
 	for time.Now().Before(deadline) {
-		posBuf, err := d.ReadAbsolute(linkPtr+0x1F8, 12)
+		posBuf, err := d.Read(linkPtr+0x1F8, 12)
 		if err != nil {
 			break
 		}
-		spdBuf, err := d.ReadAbsolute(linkPtr+0x220, 12)
+		spdBuf, err := d.Read(linkPtr+0x220, 12)
 		if err != nil {
 			break
 		}
-		spdFBuf, err := d.ReadAbsolute(linkPtr+0x254, 4)
+		spdFBuf, err := d.Read(linkPtr+0x254, 4)
 		if err != nil {
 			break
 		}
@@ -4019,7 +4020,7 @@ func runTrackPos(secs int) {
 // useful for finding hidden source-of-truth fields when force-warp is
 // active and current.pos oscillates.
 func runFindPos() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -4048,7 +4049,7 @@ func runFindPos() {
 		}
 	}
 	const dumpSize = 0x4000
-	mem, err := d.ReadAbsolute(linkPtr, dumpSize)
+	mem, err := d.Read(linkPtr, dumpSize)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -4096,7 +4097,7 @@ func runWarp(xs, ys, zs string) {
 		fmt.Printf("bad Z: %v\n", err)
 		os.Exit(1)
 	}
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
@@ -4108,8 +4109,8 @@ func runWarp(xs, ys, zs string) {
 	}
 	// Diagnostic: read what the C handler stashed about its write so we
 	// can tell if the write reached memory and what actor it hit.
-	dbgAddrBuf, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffWarpDbgLinkAddr, 4)
-	dbgPostBuf, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffWarpDbgPostX, 4)
+	dbgAddrBuf, _ := d.Read(mailbox.Mailbox+mailbox.OffWarpDbgLinkAddr, 4)
+	dbgPostBuf, _ := d.Read(mailbox.Mailbox+mailbox.OffWarpDbgPostX, 4)
 	dbgAddr := binary.BigEndian.Uint32(dbgAddrBuf)
 	dbgPostX := math.Float32frombits(binary.BigEndian.Uint32(dbgPostBuf))
 	linkPtr, _ := d.GetLinkPtr()
@@ -4134,16 +4135,16 @@ func runShadowMode(s string) {
 		fmt.Println("mode must be 0 (baseline), 1 (refresh), 2 (freeze), 3 (no-op basicMtxCalc), 4 (echo-ring), or 5 (pose-feed)")
 		os.Exit(1)
 	}
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil { fmt.Println(err); os.Exit(1) }
 	defer d.Close()
-	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{byte(v)}); err != nil {
+	if err := d.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{byte(v)}); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}
 	// Give the draw hook one frame to react and (in mode 2) latch.
 	time.Sleep(50 * time.Millisecond)
-	latched, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffShadowLatched, 1)
+	latched, _ := d.Read(mailbox.Mailbox+mailbox.OffShadowLatched, 1)
 	labels := []string{
 		"off (no Link #2 rendered — default at boot)",
 		"mirror-refresh (shadow daPy_lk_c, copy every frame)",
@@ -4158,8 +4159,8 @@ func runShadowMode(s string) {
 	}
 	fmt.Printf("shadow_mode = %d  [%s]   latched=%s\n", v, labels[v], latchedStr)
 	if v == 4 {
-		ringState, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEchoRingState, 1)
-		echoDelay, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEchoDelay, 1)
+		ringState, _ := d.Read(mailbox.Mailbox+mailbox.OffEchoRingState, 1)
+		echoDelay, _ := d.Read(mailbox.Mailbox+mailbox.OffEchoDelay, 1)
 		rsMsg := fmt.Sprintf("%d", ringState[0])
 		switch ringState[0] {
 		case 0:
@@ -4193,7 +4194,7 @@ func runPoseTest(mode string, durSec int) {
 		fmt.Println("Usage: ww pose-test [mirror|freeze] [seconds]")
 		os.Exit(1)
 	}
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -4201,7 +4202,7 @@ func runPoseTest(mode string, durSec int) {
 	defer d.Close()
 
 	// Flip to mode 5; C will lazy-alloc pose_buf and publish the pointer.
-	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{5}); err != nil {
+	if err := d.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{5}); err != nil {
 		fmt.Printf("set shadow_mode failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -4210,14 +4211,14 @@ func runPoseTest(mode string, durSec int) {
 	var jointCount uint16
 	for i := 0; i < 60; i++ {
 		time.Sleep(50 * time.Millisecond)
-		state, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseBufState(0), 1)
+		state, _ := d.Read(mailbox.Mailbox+mailboxPoseBufState(0), 1)
 		if len(state) == 0 {
 			continue
 		}
 		switch state[0] {
 		case 1:
 			poseBufPtr, _ = d.ReadU32(mailbox.Mailbox + mailboxPoseBufPtr(0))
-			jcBytes, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseJointCount(0), 2)
+			jcBytes, _ := d.Read(mailbox.Mailbox+mailboxPoseJointCount(0), 2)
 			if len(jcBytes) == 2 {
 				jointCount = binary.BigEndian.Uint16(jcBytes)
 			}
@@ -4268,7 +4269,7 @@ func runPoseTest(mode string, durSec int) {
 		if err != nil || nodePtr < 0x80000000 || nodePtr >= 0x81800000 {
 			return nil
 		}
-		data, err := d.ReadAbsolute(nodePtr, poseSize)
+		data, err := d.Read(nodePtr, poseSize)
 		if err != nil {
 			return nil
 		}
@@ -4289,7 +4290,7 @@ func runPoseTest(mode string, durSec int) {
 			fmt.Println("could not capture mpNodeMtx — is mini-Link calc running?")
 			os.Exit(1)
 		}
-		if err := d.WriteAbsolute(poseBufPtr, captured); err != nil {
+		if err := d.Write(poseBufPtr, captured); err != nil {
 			fmt.Printf("write pose_buf failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -4310,7 +4311,7 @@ func runPoseTest(mode string, durSec int) {
 		nodePtr, _ := d.ReadU32(modelPtr + 0x8C)
 		fmt.Printf("[debug] link=0x%08X  link+0x032C=0x%08X  +0x8C=0x%08X\n", linkPtr, modelPtr, nodePtr)
 		if nodePtr != 0 {
-			row, _ := d.ReadAbsolute(nodePtr, 16)
+			row, _ := d.Read(nodePtr, 16)
 			fmt.Printf("[debug] mpNodeMtx[0] row0: % X\n", row)
 		}
 	}
@@ -4321,7 +4322,7 @@ func runPoseTest(mode string, durSec int) {
 	for time.Now().Before(deadline) {
 		data := captureFromLinkOne()
 		if data != nil {
-			if err := d.WriteAbsolute(poseBufPtr, data); err == nil {
+			if err := d.Write(poseBufPtr, data); err == nil {
 				bumpSeq()
 				ticks++
 				if lastFirstRow != nil {
@@ -4357,10 +4358,10 @@ func runEchoDelay(s string) {
 		fmt.Println("delay must be 0..59 (frames; ring holds 60)")
 		os.Exit(1)
 	}
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil { fmt.Println(err); os.Exit(1) }
 	defer d.Close()
-	if err := d.WriteAbsolute(mailbox.Mailbox+mailbox.OffEchoDelay, []byte{byte(v)}); err != nil {
+	if err := d.Write(mailbox.Mailbox+mailbox.OffEchoDelay, []byte{byte(v)}); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -4368,12 +4369,12 @@ func runEchoDelay(s string) {
 }
 
 func runDump() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil { fmt.Println(err); os.Exit(1) }
 	defer d.Close()
 
 	// Mailbox header (spawn_trigger, progress, pads)
-	hdr, _ := d.ReadAbsolute(mailbox.Mailbox, 16)
+	hdr, _ := d.Read(mailbox.Mailbox, 16)
 	fmt.Printf("mailbox hdr  @ 0x%08X: ", mailbox.Mailbox)
 	for j, b := range hdr {
 		fmt.Printf("%02X", b)
@@ -4386,7 +4387,7 @@ func runDump() {
 	}
 
 	// Shadow-instance experiment state (mailbox +0x90 / +0x91)
-	if sh, err := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, 2); err == nil {
+	if sh, err := d.Read(mailbox.Mailbox+mailbox.OffShadowMode, 2); err == nil {
 		fmt.Printf("shadow_mode: %d   shadow_latched: %d\n", sh[0], sh[1])
 	}
 	// Mini-link J3DModelData pointer + current basicMtxCalc value
@@ -4397,11 +4398,11 @@ func runDump() {
 	}
 	// Echo-ring diagnostics (populated after mini-link exists; echo_ring_state
 	// only becomes non-zero after first shadow_mode=4 frame).
-	if jn, err := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffDbgJointNum, 2); err == nil {
+	if jn, err := d.Read(mailbox.Mailbox+mailbox.OffDbgJointNum, 2); err == nil {
 		jointNum := binary.BigEndian.Uint16(jn)
 		nmp, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffDbgNodeMtxPtr)
-		rs, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEchoRingState, 1)
-		ed, _ := d.ReadAbsolute(mailbox.Mailbox+mailbox.OffEchoDelay, 1)
+		rs, _ := d.Read(mailbox.Mailbox+mailbox.OffEchoRingState, 1)
+		ed, _ := d.Read(mailbox.Mailbox+mailbox.OffEchoDelay, 1)
 		fmt.Printf("echo: joint_num=%d  mpNodeMtx=0x%08X  ring_state=0x%02X  delay=%d\n",
 			jointNum, nmp, rs[0], ed[0])
 	}
@@ -4412,9 +4413,9 @@ func runDump() {
 		if err != nil {
 			continue
 		}
-		jc, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseJointCount(slot), 2)
-		ps, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseBufState(slot), 1)
-		sq, _ := d.ReadAbsolute(mailbox.Mailbox+mailboxPoseSeq(slot), 1)
+		jc, _ := d.Read(mailbox.Mailbox+mailboxPoseJointCount(slot), 2)
+		ps, _ := d.Read(mailbox.Mailbox+mailboxPoseBufState(slot), 1)
+		sq, _ := d.Read(mailbox.Mailbox+mailboxPoseSeq(slot), 1)
 		jcVal := uint16(0)
 		if len(jc) == 2 {
 			jcVal = binary.BigEndian.Uint16(jc)
@@ -4427,7 +4428,7 @@ func runDump() {
 
 	// Per-slot state
 	for i := 0; i < maxPuppets; i++ {
-		data, _ := d.ReadAbsolute(slotAddr(i, 0), mailbox.PuppetSize)
+		data, _ := d.Read(slotAddr(i, 0), mailbox.PuppetSize)
 		fmt.Printf("slot %d       @ 0x%08X: ", i, slotAddr(i, 0))
 		for j, b := range data {
 			fmt.Printf("%02X", b)
@@ -4440,7 +4441,7 @@ func runDump() {
 	ptrs := []uint32{0x80006338, 0x803C4C0C, 0x803F66C0, 0x80410000}
 	sizes := []int{8, 4, 4, 16}
 	for i, addr := range ptrs {
-		data, _ := d.ReadAbsolute(addr, sizes[i])
+		data, _ := d.Read(addr, sizes[i])
 		fmt.Printf("             @ 0x%08X: ", addr)
 		for j, b := range data {
 			fmt.Printf("%02X", b)
@@ -4461,7 +4462,7 @@ func runDebug() {
 	fmt.Println("=== WW Multiplayer Debug Mode ===")
 	fmt.Println()
 
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
@@ -4495,7 +4496,7 @@ func runDebug() {
 // snapshot again 3 s later. mtime advanced → your Dolphin accepts
 // synthetic Shift+F1; auto-recapture will be fully hands-off.
 func runSendShiftF1() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
@@ -4503,19 +4504,19 @@ func runSendShiftF1() {
 	pid := d.PID()
 	d.Close()
 
-	hwnd, err := dolphin.FindWindowByPID(pid)
+	hwnd, err := host.FindWindowByPID(pid)
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
 	}
-	dolphin.ForegroundWindow(hwnd)
+	host.ForegroundWindow(hwnd)
 	time.Sleep(200 * time.Millisecond)
 
 	// Try both paths. SendInput → system input queue (may be filtered).
 	// PostMessage → window message queue (may not reach Qt's hotkey handler).
-	_ = dolphin.SendChordToFocusedWindow(dolphin.VKShift, dolphin.VKF1)
+	_ = host.SendChordToFocusedWindow(host.VKShift, host.VKF1)
 	time.Sleep(500 * time.Millisecond)
-	_ = dolphin.SendKeyChord(hwnd, dolphin.VKShift, dolphin.VKF1)
+	_ = host.SendKeyChord(hwnd, host.VKShift, host.VKF1)
 
 	fmt.Printf("Sent Shift+F1 to Dolphin pid %d via SendInput + PostMessage.\n", pid)
 	fmt.Println("Watch <USER_DIR>/StateSaves/GZLE01.s01 — if mtime advances, your Dolphin")
@@ -4532,7 +4533,7 @@ func runSendShiftF1() {
 // backends on Windows 8.1+. If Dolphin's renderer happens to refuse it,
 // the call returns a clear error rather than a silently-black PNG.
 func runScreenshot(out string) {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
@@ -4540,14 +4541,14 @@ func runScreenshot(out string) {
 	pid := d.PID()
 	d.Close()
 
-	hwnd, err := dolphin.FindWindowByPID(pid)
+	hwnd, err := host.FindWindowByPID(pid)
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
 	}
-	title := dolphin.WindowTitle(hwnd)
+	title := host.WindowTitle(hwnd)
 
-	img, err := dolphin.CaptureWindow(hwnd)
+	img, err := host.CaptureWindow(hwnd)
 	if err != nil {
 		fmt.Printf("ERROR: capture: %v\n", err)
 		os.Exit(1)
@@ -4606,7 +4607,7 @@ func runInput(buttonsHex, stickXStr, stickYStr string, ms int) {
 	stickX := int8(stickX64)
 	stickY := int8(stickY64)
 
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
@@ -4623,13 +4624,13 @@ func runInput(buttonsHex, stickXStr, stickYStr string, ms int) {
 	// Write payload first, then enable. Big-endian u16 for buttons,
 	// raw signed bytes for sticks.
 	buttonsBE := []byte{byte(buttons >> 8), byte(buttons & 0xFF)}
-	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputButtons, buttonsBE)
-	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputStickX, []byte{byte(stickX)})
-	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputStickY, []byte{byte(stickY)})
+	d.Write(mailbox.Mailbox+mailbox.OffInputButtons, buttonsBE)
+	d.Write(mailbox.Mailbox+mailbox.OffInputStickX, []byte{byte(stickX)})
+	d.Write(mailbox.Mailbox+mailbox.OffInputStickY, []byte{byte(stickY)})
 	// substick / triggers / analogs default to 0 (neutral) — explicitly
 	// zero so leftover state from a previous call doesn't leak.
-	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputSubstickX, []byte{0, 0, 0, 0, 0, 0}) // 0x176..0x17B
-	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputEnable, []byte{1})
+	d.Write(mailbox.Mailbox+mailbox.OffInputSubstickX, []byte{0, 0, 0, 0, 0, 0}) // 0x176..0x17B
+	d.Write(mailbox.Mailbox+mailbox.OffInputEnable, []byte{1})
 
 	if ms == 0 {
 		fmt.Printf("Input held: buttons=0x%04X stickX=%d stickY=%d (manual release via `input-release`)\n",
@@ -4643,8 +4644,8 @@ func runInput(buttonsHex, stickXStr, stickYStr string, ms int) {
 
 	// Release: disable first so the shim becomes a pass-through, then
 	// zero the fields.
-	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputEnable, []byte{0})
-	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}) // 0x172..0x17B
+	d.Write(mailbox.Mailbox+mailbox.OffInputEnable, []byte{0})
+	d.Write(mailbox.Mailbox+mailbox.OffInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}) // 0x172..0x17B
 
 	overridesAfter, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffInputOverrides)
 	frames := overridesAfter - overridesBefore
@@ -4661,14 +4662,14 @@ func runInput(buttonsHex, stickXStr, stickYStr string, ms int) {
 // runInputRelease zeros input_enable so the shim becomes a pass-through.
 // Useful for recovering when a long-hold `input ... 0` got abandoned.
 func runInputRelease() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
 	}
 	defer d.Close()
-	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputEnable, []byte{0})
-	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+	d.Write(mailbox.Mailbox+mailbox.OffInputEnable, []byte{0})
+	d.Write(mailbox.Mailbox+mailbox.OffInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
 	fmt.Println("Input released (pad_read_shim is now pass-through).")
 }
 
@@ -4704,7 +4705,7 @@ func runInputProbe(buttonsHex, stickXStr, stickYStr string, ms int) {
 	stickX := int8(stickX64)
 	stickY := int8(stickY64)
 
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
@@ -4737,7 +4738,7 @@ func runInputProbe(buttonsHex, stickXStr, stickYStr string, ms int) {
 	readbackHits := 0
 	readbackSamples := 0
 	for time.Now().Before(deadline) {
-		if err := d.WriteAbsolute(padStatusAddr, payload); err != nil {
+		if err := d.Write(padStatusAddr, payload); err != nil {
 			fmt.Printf("WARN: write failed: %v\n", err)
 		}
 		writes++
@@ -4756,7 +4757,7 @@ func runInputProbe(buttonsHex, stickXStr, stickYStr string, ms int) {
 	fmt.Printf("Readback: %d/%d samples saw our value (%.1f%%)\n",
 		readbackHits, readbackSamples, 100*float64(readbackHits)/float64(readbackSamples))
 	// Release: write all zeros so Link doesn't keep moving after the probe.
-	d.WriteAbsolute(padStatusAddr, []byte{0, 0, 0, 0})
+	d.Write(padStatusAddr, []byte{0, 0, 0, 0})
 
 	posAfter, _ := d.ReadPlayerPosition()
 	dx := posAfter.PosX - posBefore.PosX
@@ -5285,7 +5286,7 @@ func liveStateLocalPosSetter(ls *liveState) func(x, y, z float32) {
 // engine, which prints every line to stdout as runHostSession always has
 // and asks the co-op questions on stdin; a failed session exits 1.
 func runHost(name string, port int, co coopFlags) {
-	rep := report.Stdout{}
+	rep := log.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
 	ctrl := newCLIController(rep)
@@ -5298,7 +5299,7 @@ func runHost(name string, port int, co coopFlags) {
 
 // newCLIController is the controller of a CLI host or join: the CLI's
 // engine, with every session line going to rep (stdout).
-func newCLIController(rep report.Reporter) *session.Controller {
+func newCLIController(rep log.Reporter) *session.Controller {
 	return session.New(newCLIEngine(), session.Options{Log: rep})
 }
 
@@ -5314,13 +5315,13 @@ func newCLIController(rep report.Reporter) *session.Controller {
 // zero coopFront for stdin, as the CLI's.
 // Returns a server start failure or the first pipeline failure (not yet
 // logged), or nil when the session ended by ctx cancel.
-func runHostSession(ctx context.Context, cancel context.CancelFunc, name string, port int, rep report.Reporter, ls *liveState, co coopFlags, front coopFront) error {
+func runHostSession(ctx context.Context, cancel context.CancelFunc, name string, port int, rep log.Reporter, ls *liveState, co coopFlags, front coopFront) error {
 	if name == "" {
 		name = "Host"
 	}
 	srv := network.NewServer(port)
 	srv.OnLog = func(msg string) {
-		rep.Log(report.Info, fmt.Sprintf("[srv %s] %s", time.Now().Format("15:04:05"), msg))
+		rep.Log(log.Info, fmt.Sprintf("[srv %s] %s", time.Now().Format("15:04:05"), msg))
 	}
 	var coop *coopSession
 	if co.on {
@@ -5347,20 +5348,20 @@ func runHostSession(ctx context.Context, cancel context.CancelFunc, name string,
 		defer ls.reset()
 	}
 
-	report.Logf(rep, report.OK, "Hosting as %q on :%d.", name, port)
+	log.Logf(rep, log.OK, "Hosting as %q on :%d.", name, port)
 	if len(ips) > 0 {
 		if port == defaultPort {
-			rep.Log(report.Info, "Share one of these IPs with your friend:")
+			rep.Log(log.Info, "Share one of these IPs with your friend:")
 		} else {
-			rep.Log(report.Info, "Share one of these addresses with your friend (the :port is needed):")
+			rep.Log(log.Info, "Share one of these addresses with your friend (the :port is needed):")
 		}
 		for _, ip := range ips {
-			report.Logf(rep, report.Info, "  %s", ip)
+			log.Logf(rep, log.Info, "  %s", ip)
 		}
 	} else {
-		rep.Log(report.Warn, "(could not auto-detect a LAN IP — check your network settings)")
+		rep.Log(log.Warn, "(could not auto-detect a LAN IP — check your network settings)")
 	}
-	rep.Log(report.Info, "Ctrl+C to stop.")
+	rep.Log(log.Info, "Ctrl+C to stop.")
 
 	err := runMultiplayerGoroutines(ctx, cancel, name, fmt.Sprintf("localhost:%d", port), rep, liveStateClientSetter(ls), liveStateLocalPosSetter(ls), coop)
 
@@ -5390,7 +5391,7 @@ func shareAddrs(ips []string, port int) []string {
 // handling and mailbox cleanup as runHost. co.on (--coop) adds a
 // coop-sync pipeline. Like runHost, it runs on a session.Controller.
 func runJoin(addr, name string, co coopFlags) {
-	rep := report.Stdout{}
+	rep := log.Stdout{}
 	ctx, cancel := cliMultiplayerContext(rep)
 	defer cancel()
 	ctrl := newCLIController(rep)
@@ -5409,7 +5410,7 @@ func runJoin(addr, name string, co coopFlags) {
 // for runHostSession.
 // Returns the first pipeline failure (not yet logged), or nil when the
 // session ended by ctx cancel.
-func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name string, rep report.Reporter, ls *liveState, co coopFlags, front coopFront) error {
+func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name string, rep log.Reporter, ls *liveState, co coopFlags, front coopFront) error {
 	if name == "" {
 		name = "Player"
 	}
@@ -5424,14 +5425,14 @@ func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name s
 		defer ls.reset()
 	}
 
-	report.Logf(rep, report.OK, "Joining %s as %q.", addr, name)
+	log.Logf(rep, log.OK, "Joining %s as %q.", addr, name)
 	var coop *coopSession
 	if co.on {
 		env := defaultCoopEnv(0)
 		env.front = front
 		coop = startCoopSession(rep, co, env)
 	}
-	rep.Log(report.Info, "Ctrl+C to stop.")
+	rep.Log(log.Info, "Ctrl+C to stop.")
 
 	err := runMultiplayerGoroutines(ctx, cancel, name, addr, rep, liveStateClientSetter(ls), liveStateLocalPosSetter(ls), coop)
 
@@ -5447,7 +5448,7 @@ func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name s
 // Only the FIRST signal is caught. The handler is then removed, so a second
 // Ctrl+C gets the default behavior and kills the process at once — the way
 // out if teardown is ever stuck.
-func cliMultiplayerContext(rep report.Reporter) (context.Context, context.CancelFunc) {
+func cliMultiplayerContext(rep log.Reporter) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
@@ -5455,7 +5456,7 @@ func cliMultiplayerContext(rep report.Reporter) (context.Context, context.Cancel
 		select {
 		case <-sigCh:
 			signal.Stop(sigCh)
-			rep.Log(report.Info, "Shutting down... (press Ctrl+C again to force quit)")
+			rep.Log(log.Info, "Shutting down... (press Ctrl+C again to force quit)")
 			cancel()
 		case <-ctx.Done():
 			signal.Stop(sigCh)
@@ -5484,7 +5485,7 @@ func cliMultiplayerContext(rep report.Reporter) (context.Context, context.Cancel
 // the two pose pipelines alone, as before co-op.
 // Returns runPipelines' result: the first real failure, or nil on a normal
 // ctx-cancel shutdown.
-func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep report.Reporter, onClient func(*network.Client), onPos func(x, y, z float32), coop *coopSession) error {
+func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32), coop *coopSession) error {
 	connLog := newConnectLog(addr, rep)
 	// A warp to the partner takes its position from pose sync (nil-safe:
 	// without co-op, onClient is as given).
@@ -5521,7 +5522,7 @@ type pipeline struct {
 // that returns nil or context.Canceled ended because of a normal Ctrl+C or
 // Esc shutdown and doesn't count. Any further failures are logged here as
 // they happen, since only one error can be returned.
-func runPipelines(ctx context.Context, cancel context.CancelFunc, rep report.Reporter, ps ...pipeline) error {
+func runPipelines(ctx context.Context, cancel context.CancelFunc, rep log.Reporter, ps ...pipeline) error {
 	var (
 		wg    sync.WaitGroup
 		mu    sync.Mutex
@@ -5550,7 +5551,7 @@ func runPipelines(ctx context.Context, cancel context.CancelFunc, rep report.Rep
 			}
 			mu.Unlock()
 			if !isFirst && !fatal {
-				rep.Log(report.Err, err.Error())
+				rep.Log(log.Err, err.Error())
 			}
 		}()
 	}
@@ -5566,19 +5567,19 @@ func runPipelines(ctx context.Context, cancel context.CancelFunc, rep report.Rep
 // the session; callers then skip logging the returned ErrFatal error (see
 // logSessionErr), so the reason appears exactly once and becomes the TUI's
 // session-ended reason.
-func newConnectLog(addr string, rep report.Reporter) *network.ConnectLog {
+func newConnectLog(addr string, rep log.Reporter) *network.ConnectLog {
 	l := network.NewConnectLog(addr,
-		func(msg string) { rep.Log(report.Warn, msg) },
-		func(msg string) { rep.Log(report.OK, msg) })
-	l.Fatal = func(msg string) { rep.Log(report.Err, msg) }
+		func(msg string) { rep.Log(log.Warn, msg) },
+		func(msg string) { rep.Log(log.OK, msg) })
+	l.Fatal = func(msg string) { rep.Log(log.Err, msg) }
 	return l
 }
 
 // logSessionErr logs a host/join session's returned error unless it is a
 // fatal connect error, which the session's ConnectLog already reported.
-func logSessionErr(rep report.Reporter, err error) {
+func logSessionErr(rep log.Reporter, err error) {
 	if err != nil && !errors.Is(err, network.ErrFatal) {
-		rep.Log(report.Err, err.Error())
+		rep.Log(log.Err, err.Error())
 	}
 }
 
@@ -5613,17 +5614,17 @@ func listHostIPs() []string {
 // frame stops rendering Link #2. Writes shadow_mode = 0 (the explicit kill
 // switch) and zeros every pose_seqs[slot] so even if shadow_mode is flipped
 // back to 5 later, nothing renders until a fresh pose arrives. All writes
-// are best-effort: if Dolphin closed first, WriteAbsolute fails silently
+// are best-effort: if Dolphin closed first, Write fails silently
 // which is the correct behavior (the mailbox is gone with the process).
 func clearMultiplayerState() {
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		return
 	}
 	defer d.Close()
-	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
+	d.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
 	for i := 0; i < maxRemoteLinks; i++ {
-		d.WriteAbsolute(mailbox.Mailbox+mailboxPoseSeq(i), []byte{0})
+		d.Write(mailbox.Mailbox+mailboxPoseSeq(i), []byte{0})
 	}
 }
 
@@ -5634,8 +5635,8 @@ func clearMultiplayerState() {
 // plus the re-arm intent of armPoseSlot. The CALLER must also invalidate its
 // cached pose_buf_ptr (and armed-epoch) for the slot so armPoseSlot re-polls
 // — this function only touches the mailbox, not the in-process cache.
-func resetPuppetSyncMailbox(d *dolphin.Dolphin, slot int) {
-	d.WriteAbsolute(mailbox.Mailbox+mailbox.OffShadowMode, []byte{5})
-	d.WriteAbsolute(mailbox.Mailbox+mailboxPoseSeq(slot), []byte{0})
-	d.WriteAbsolute(mailbox.Mailbox+mailboxFaceSeq(slot), []byte{0})
+func resetPuppetSyncMailbox(d *emu.Dolphin, slot int) {
+	d.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{5})
+	d.Write(mailbox.Mailbox+mailboxPoseSeq(slot), []byte{0})
+	d.Write(mailbox.Mailbox+mailboxFaceSeq(slot), []byte{0})
 }

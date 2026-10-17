@@ -8,7 +8,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/tunic"
@@ -58,11 +57,11 @@ const (
 )
 
 // tunicMem is the Dolphin memory access the tunic code needs;
-// *dolphin.Dolphin implements it.
+// *emu.Dolphin implements it.
 type tunicMem interface {
-	ReadAbsolute(addr uint32, n int) ([]byte, error)
+	Read(addr uint32, n int) ([]byte, error)
 	ReadU32(addr uint32) (uint32, error)
-	WriteAbsolute(addr uint32, data []byte) error
+	Write(addr uint32, data []byte) error
 }
 
 func mailboxTunicBuf(slot int) uint32 { return uint32(mailbox.OffTunicBufs + 4*slot) }
@@ -105,8 +104,8 @@ func readHeroTexture(m tunicMem, skip [tunicSlots]uint32, skipSize int) (*heroTe
 	if flg&addr.PlayerFlg1CasualClothes != 0 {
 		src = link + addr.PlayerOffOtherLinktex
 	}
-	a, err1 := m.ReadAbsolute(src, tunic.ResTIMGSize)
-	b, err2 := m.ReadAbsolute(src, tunic.ResTIMGSize)
+	a, err1 := m.Read(src, tunic.ResTIMGSize)
+	b, err2 := m.Read(src, tunic.ResTIMGSize)
 	if err1 != nil || err2 != nil || len(a) != tunic.ResTIMGSize || !bytes.Equal(a, b) {
 		return nil, errTunicBusy
 	}
@@ -128,7 +127,7 @@ func readHeroTexture(m tunicMem, skip [tunicSlots]uint32, skipSize int) (*heroTe
 			return nil, errTunicBusy
 		}
 	}
-	data, err := m.ReadAbsolute(img, size)
+	data, err := m.Read(img, size)
 	if err != nil || len(data) != size {
 		return nil, errors.New("cannot read the hero texture")
 	}
@@ -226,7 +225,7 @@ func (t *tunicSync) Tick(now time.Time) {
 	// The mailbox block comes first: the hero read must know the live
 	// buffers, because enables survive a Go process (and a recalibration),
 	// so the worn header may already be swapped on the very first read.
-	blk, err := t.mem.ReadAbsolute(mailbox.Mailbox+mailbox.OffTunicBufs, mailbox.MailboxSize-mailbox.OffTunicBufs)
+	blk, err := t.mem.Read(mailbox.Mailbox+mailbox.OffTunicBufs, mailbox.MailboxSize-mailbox.OffTunicBufs)
 	if err != nil || len(blk) != mailbox.MailboxSize-mailbox.OffTunicBufs {
 		return
 	}
@@ -271,7 +270,7 @@ func (t *tunicSync) Tick(now time.Time) {
 		if size == 0 {
 			var b [4]byte
 			binary.BigEndian.PutUint32(b[:], uint32(len(t.hero.image)))
-			t.mem.WriteAbsolute(mailbox.Mailbox+mailbox.OffTunicBufSize, b[:])
+			t.mem.Write(mailbox.Mailbox+mailbox.OffTunicBufSize, b[:])
 		}
 		return
 	}
@@ -345,7 +344,7 @@ func (t *tunicSync) image(c playercolor.Color) []byte {
 // teardown so the C side stops recoloring once the session ends; the
 // GameHeap buffers stay allocated (F18) and are reused next session.
 func (t *tunicSync) DisableAll() {
-	t.mem.WriteAbsolute(mailbox.Mailbox+mailbox.OffTunicEnable, make([]byte, tunicSlots))
+	t.mem.Write(mailbox.Mailbox+mailbox.OffTunicEnable, make([]byte, tunicSlots))
 	for s := range t.cur {
 		t.cur[s] = tunicSlotState{}
 	}
@@ -356,7 +355,7 @@ func (t *tunicSync) setEnable(slot int, on bool) {
 	if on {
 		v = tunicEnableOn
 	}
-	t.mem.WriteAbsolute(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(slot), []byte{v})
+	t.mem.Write(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(slot), []byte{v})
 }
 
 // step is one slot's state machine: off → (drain) → write → on. The
@@ -374,14 +373,14 @@ func (t *tunicSync) step(s int, buf uint32, enInRAM byte, frame uint32, verify b
 		// a prefix can be identical for every color, so only a full
 		// compare catches a save-state load that left another color's
 		// image behind an enable of 1.
-		if got, err := t.mem.ReadAbsolute(buf, len(c.img)); err == nil && !bytes.Equal(got, c.img) {
+		if got, err := t.mem.Read(buf, len(c.img)); err == nil && !bytes.Equal(got, c.img) {
 			*c = tunicSlotState{} // image overwritten (a save-state load): rewrite it
 		}
 	}
 	switch {
 	case w.casual:
 		if !c.known || !c.casual {
-			t.mem.WriteAbsolute(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s), []byte{tunicEnableCasual})
+			t.mem.Write(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s), []byte{tunicEnableCasual})
 			*c = tunicSlotState{known: true, casual: true}
 		}
 	case !w.on:
@@ -396,7 +395,7 @@ func (t *tunicSync) step(s int, buf uint32, enInRAM byte, frame uint32, verify b
 		*c = tunicSlotState{known: true, drainAt: frame}
 	case frame-c.drainAt >= tunicDrainFrames:
 		img := t.image(w.color)
-		if err := t.mem.WriteAbsolute(buf, img); err != nil {
+		if err := t.mem.Write(buf, img); err != nil {
 			return
 		}
 		t.setEnable(s, true)
@@ -433,7 +432,7 @@ func localAppearance(m tunicMem) (b byte, ok bool) {
 
 // printTunicMailbox is the dump command's tunic block.
 func printTunicMailbox(m tunicMem) {
-	blk, err := m.ReadAbsolute(mailbox.Mailbox+mailbox.OffTunicBufs, mailbox.MailboxSize-mailbox.OffTunicBufs)
+	blk, err := m.Read(mailbox.Mailbox+mailbox.OffTunicBufs, mailbox.MailboxSize-mailbox.OffTunicBufs)
 	if err != nil || len(blk) != mailbox.MailboxSize-mailbox.OffTunicBufs {
 		return
 	}
@@ -522,7 +521,7 @@ func runTunicSlot(slotArg, colorArg string) {
 		}
 		on = true
 	}
-	d, err := dolphin.Find("GZLE01")
+	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

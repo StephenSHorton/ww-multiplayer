@@ -14,9 +14,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/savefile"
 )
 
@@ -545,11 +545,11 @@ func TestSyncLine(t *testing.T) {
 		"co-op: backed up 1 memory-card file(s) to C:\\b":                            false,
 		"Playing on Dolphin (pid 4): remote Links appear in your game.":              false,
 	} {
-		if got := syncLine(report.Info, line); got != want {
+		if got := syncLine(log.Info, line); got != want {
 			t.Errorf("syncLine(%q) = %v", line, got)
 		}
 	}
-	v := eventView(session.Event{Kind: session.EventLog, Level: report.OK, Text: "co-op: bound the file to world x"}, masker{})
+	v := eventView(session.Event{Kind: session.EventLog, Level: log.OK, Text: "co-op: bound the file to world x"}, masker{})
 	if !v.Sync {
 		t.Error("an event of a sync line isn't marked")
 	}

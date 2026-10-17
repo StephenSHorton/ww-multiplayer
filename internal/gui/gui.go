@@ -25,8 +25,8 @@ import (
 	"errors"
 	"io"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 )
 
 // ErrNoGUI is Run's error in a build without the window (see the package
@@ -55,8 +55,8 @@ type Options struct {
 	// becomes the "Co-op tables built" check row. nil skips it.
 	CoopTables func(w io.Writer, image string)
 	// DolphinEnv is what the setup's Dolphin detection looks at; nil is
-	// dolphinenv.Host (this machine).
-	DolphinEnv func() dolphinenv.Env
+	// launch.Host (this machine).
+	DolphinEnv func() launch.Env
 	// HostIPs lists this machine's addresses for the host's share card
 	// (package main's listHostIPs, what the CLI's host prints); nil lists
 	// none.

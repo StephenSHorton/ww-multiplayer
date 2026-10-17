@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/redact"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -33,11 +33,11 @@ func busyDashboard(role string) dashboardModel {
 		m.hostIPs = []string{"192.168.1.10", "10.0.0.5"}
 	}
 	for i := 0; i < logCap; i++ {
-		m.logs = append(m.logs, logEntry{t: time.Unix(0, 0), level: report.Info, msg: fmt.Sprintf("log line %d", i)})
+		m.logs = append(m.logs, logEntry{t: time.Unix(0, 0), level: log.Info, msg: fmt.Sprintf("log line %d", i)})
 	}
 	m.logs = append(m.logs, logEntry{
 		t:     time.Unix(0, 0),
-		level: report.Err,
+		level: log.Err,
 		msg: "server start: listen tcp :25565: bind: Only one usage of each socket address " +
 			"(protocol/network address/port) is normally permitted. NEWEST",
 	})

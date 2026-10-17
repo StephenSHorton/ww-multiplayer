@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // TestSessionErr: a fatal connect error was already logged by the
@@ -70,7 +70,7 @@ func TestSessionEngine_LiveIdle(t *testing.T) {
 // frontOutput is a session.Output that records the questions put to it
 // (answering ans) and the advice passed to it.
 type frontOutput struct {
-	report.Discard
+	log.Discard
 	ans    bool
 	mu     sync.Mutex
 	asked  []session.Question
@@ -100,7 +100,7 @@ func (o *frontOutput) Advise(a session.Advice) {
 func TestSessionEngine_Front(t *testing.T) {
 	start := func(e *sessionEngine, out session.Output, o session.CoopOptions) *coopSession {
 		t.Helper()
-		return startCoopSession(report.Discard{}, coopFlagsOf(o), coopEnv{
+		return startCoopSession(log.Discard{}, coopFlagsOf(o), coopEnv{
 			backups:  t.TempDir(),
 			userDirs: []string{coUserDir(t)},
 			input:    strings.NewReader(""), // the CLI's prompter reads this, not the test's stdin

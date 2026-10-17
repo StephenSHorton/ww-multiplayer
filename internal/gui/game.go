@@ -6,8 +6,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 )
 
 // Start → Dolphin → in game, the window's side (App PR 8, design §2.6 and
@@ -194,7 +194,7 @@ func (b *Bridge) launchOptions() session.LaunchOptions {
 	o := session.LaunchOptions{Exe: c.Dolphin.Exe, UserDir: c.Dolphin.UserDir, ISO: c.ISO.Patched,
 		Manual: !c.Dolphin.LaunchOnStart, InstallCheats: c.Dolphin.InstallCheats}
 	if o.UserDir == "" && o.Exe != "" {
-		o.UserDir, _ = dolphinenv.UserDir(b.denv(), o.Exe)
+		o.UserDir, _ = launch.UserDir(b.denv(), o.Exe)
 	}
 	return o
 }
@@ -235,7 +235,7 @@ func (b *Bridge) wouldLaunch(o session.LaunchOptions) bool {
 	env := b.denv()
 	var running []session.RunningDolphin
 	for _, p := range b.procs() {
-		dir, _ := dolphinenv.ProcessUserDir(env, p)
+		dir, _ := launch.ProcessUserDir(env, p)
 		running = append(running, session.RunningDolphin{PID: p.PID, UserDir: dir})
 	}
 	return session.DecideLaunch(o, running).Kind == session.PlanLaunch

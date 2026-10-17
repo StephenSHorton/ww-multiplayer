@@ -19,7 +19,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
 
@@ -62,13 +62,13 @@ func countCombat(t *tables.Tables) combatCount {
 // (§9 M6.0), by its own M1 tables t, how many enemies they cover, what
 // stays each player's own, and what still waits for the owner's live
 // checks. Whether the host grants combat its replica says on the welcome.
-func logCoopCombat(rep report.Reporter, t *tables.Tables) {
+func logCoopCombat(rep log.Reporter, t *tables.Tables) {
 	if t == nil || t.Enemies == nil {
-		report.Logf(rep, report.Warn, "co-op: combat is off this session: without co-op stage tables no enemy is known to sync, so no partner's kill is written.")
+		log.Logf(rep, log.Warn, "co-op: combat is off this session: without co-op stage tables no enemy is known to sync, so no partner's kill is written.")
 		return
 	}
 	c := countCombat(t)
-	report.Logf(rep, report.OK, "co-op: combat this session: a partner's kills of keyed enemies (%d in %d stage(s), K1 classes, no bosses) are recorded in this game and light-shrink the live enemy while both are in the same stage; %d unkeyed enemies (the sea, Savage Labyrinth, KATA_RM, caves, Hyrule and the rest) are not shared yet: each player fights their own.",
+	log.Logf(rep, log.OK, "co-op: combat this session: a partner's kills of keyed enemies (%d in %d stage(s), K1 classes, no bosses) are recorded in this game and light-shrink the live enemy while both are in the same stage; %d unkeyed enemies (the sea, Savage Labyrinth, KATA_RM, caves, Hyrule and the rest) are not shared yet: each player fights their own.",
 		c.synced, c.stages, c.unkeyed)
 	var wait []string
 	if !actors.DemoTypeVerified {
@@ -78,7 +78,7 @@ func logCoopCombat(rep report.Reporter, t *tables.Tables) {
 		wait = append(wait, fmt.Sprintf("%d of them, of classes not yet checked live, are recorded but not light-shrunk", c.unverified))
 	}
 	if len(wait) > 0 {
-		report.Logf(rep, report.Info, "co-op: combat: %s (docs/08 §8.2 K1).", strings.Join(wait, "; "))
+		log.Logf(rep, log.Info, "co-op: combat: %s (docs/08 §8.2 K1).", strings.Join(wait, "; "))
 	}
 }
 

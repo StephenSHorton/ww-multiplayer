@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 func TestOpenSessionLog(t *testing.T) {
@@ -19,7 +19,7 @@ func TestOpenSessionLog(t *testing.T) {
 	if rep == nil {
 		t.Fatal("no log")
 	}
-	rep.Log(report.Net, "connected")
+	rep.Log(log.Net, "connected")
 	done()
 	ents, _ := os.ReadDir(dir)
 	if len(ents) != 1 || ents[0].Name() != "20261016T093000Z-join.log" {

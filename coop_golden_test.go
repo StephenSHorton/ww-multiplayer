@@ -23,13 +23,13 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 var updateCoopGolden = flag.Bool("update-coop-golden", false, "rewrite testdata/coop-golden from this run")
 
-// goldenLog records each line with its level, the way report.Stdout
+// goldenLog records each line with its level, the way log.Stdout
 // would tell them apart, and calls on with it.
 type goldenLog struct {
 	mu    sync.Mutex
@@ -37,8 +37,8 @@ type goldenLog struct {
 	on    func(msg string)
 }
 
-func (l *goldenLog) Log(level report.Level, msg string) {
-	tag := map[report.Level]string{report.Info: "INFO", report.Net: "NET", report.Warn: "WARN", report.Err: "ERR", report.OK: "OK"}[level]
+func (l *goldenLog) Log(level log.Level, msg string) {
+	tag := map[log.Level]string{log.Info: "INFO", log.Net: "NET", log.Warn: "WARN", log.Err: "ERR", log.OK: "OK"}[level]
 	l.mu.Lock()
 	l.lines = append(l.lines, tag+" "+msg)
 	on := l.on
@@ -174,44 +174,44 @@ const (
 
 func TestGoldenPrompter(t *testing.T) {
 	ctx := context.Background()
-	log := &goldenLog{}
-	note := func(s string) { log.Log(report.Info, "## "+s) }
+	glog := &goldenLog{}
+	note := func(s string) { glog.Log(log.Info, "## "+s) }
 
 	note("--yes, with a no and a command waiting in stdin")
 	p := newCoopPrompter(true, strings.NewReader("n\n/help\n"))
-	note(fmt.Sprint("answer: ", goldenAsk(ctx, p, log, goldenBindPrompt)))
+	note(fmt.Sprint("answer: ", goldenAsk(ctx, p, glog, goldenBindPrompt)))
 
 	for _, typed := range []string{"y", "yes", " Yes ", "n", "", "yes please"} {
 		note(fmt.Sprintf("typed %q", typed))
 		r, w := coInput(t)
-		log.answering(w, func(string) string { return typed })
-		note(fmt.Sprint("answer: ", goldenAsk(ctx, newCoopPrompter(false, r), log, goldenScrubPrompt)))
-		log.on = nil
+		glog.answering(w, func(string) string { return typed })
+		note(fmt.Sprint("answer: ", goldenAsk(ctx, newCoopPrompter(false, r), glog, goldenScrubPrompt)))
+		glog.on = nil
 	}
 
 	note("a command, then n")
 	r, w := coInput(t)
 	p = newCoopPrompter(false, r)
-	log.answering(w, func(string) string { return "/warp\nn" })
-	note(fmt.Sprint("answer: ", goldenAsk(ctx, p, log, goldenBindPrompt)))
-	log.on = nil
+	glog.answering(w, func(string) string { return "/warp\nn" })
+	note(fmt.Sprint("answer: ", goldenAsk(ctx, p, glog, goldenBindPrompt)))
+	glog.on = nil
 
 	note("stdin closed")
-	note(fmt.Sprint("answer: ", goldenAsk(ctx, newCoopPrompter(false, strings.NewReader("")), log, goldenBindPrompt)))
+	note(fmt.Sprint("answer: ", goldenAsk(ctx, newCoopPrompter(false, strings.NewReader("")), glog, goldenBindPrompt)))
 
 	note("the session ends")
 	cctx, cancel := context.WithCancel(ctx)
 	cancel()
 	r, _ = coInput(t)
-	note(fmt.Sprint("answer: ", goldenAsk(cctx, newCoopPrompter(false, r), log, goldenScrubPrompt)))
+	note(fmt.Sprint("answer: ", goldenAsk(cctx, newCoopPrompter(false, r), glog, goldenScrubPrompt)))
 
-	checkGolden(t, "prompter", log.snapshot())
+	checkGolden(t, "prompter", glog.snapshot())
 }
 
 // goldenSync is a coop-sync pipeline over a fake replica, for the offer
 // and preflight paths: Confirm and Decline of a plan it did not offer do
 // nothing, so only the session's own lines are logged.
-func goldenSync(t *testing.T, cs *coopSession, log report.Reporter) *coopSync {
+func goldenSync(t *testing.T, cs *coopSession, log log.Reporter) *coopSync {
 	t.Helper()
 	r, err := replica.New(replica.Config{Mem: mem.NewFakeMem()})
 	if err != nil {
@@ -223,39 +223,39 @@ func goldenSync(t *testing.T, cs *coopSession, log report.Reporter) *coopSync {
 
 func TestGoldenOffers(t *testing.T) {
 	ctx := context.Background()
-	log := &goldenLog{}
-	note := func(s string) { log.Log(report.Info, "## "+s) }
+	glog := &goldenLog{}
+	note := func(s string) { glog.Log(log.Info, "## "+s) }
 
 	note("--yes: a bind")
-	s := goldenSync(t, goldenSession(coopFlags{on: true, yes: true}, strings.NewReader("")), log)
+	s := goldenSync(t, goldenSession(coopFlags{on: true, yes: true}, strings.NewReader("")), glog)
 	s.offer(ctx, replica.Offer{Plan: &bind.Plan{Kind: bind.KindBind, Prompt: goldenBindPrompt}})
 
 	note("a scrub answered y on stdin")
 	r, w := coInput(t)
-	s = goldenSync(t, goldenSession(coopFlags{on: true}, r), log)
-	log.answering(w, func(string) string { return "y" })
-	mark := log.len()
+	s = goldenSync(t, goldenSession(coopFlags{on: true}, r), glog)
+	glog.answering(w, func(string) string { return "y" })
+	mark := glog.len()
 	s.offer(ctx, replica.Offer{Plan: &bind.Plan{Kind: bind.KindScrub, Prompt: goldenScrubPrompt}})
-	log.waitFrom(t, mark, "INFO   yes")
-	log.on = nil
+	glog.waitFrom(t, mark, "INFO   yes")
+	glog.on = nil
 
 	note("a bind answered n on stdin")
 	r, w = coInput(t)
-	s = goldenSync(t, goldenSession(coopFlags{on: true}, r), log)
-	log.answering(w, func(string) string { return "n" })
-	mark = log.len()
+	s = goldenSync(t, goldenSession(coopFlags{on: true}, r), glog)
+	glog.answering(w, func(string) string { return "n" })
+	mark = glog.len()
 	s.offer(ctx, replica.Offer{Plan: &bind.Plan{Kind: bind.KindBind, Prompt: goldenBindPrompt}})
-	log.waitFrom(t, mark, "INFO   no")
-	log.on = nil
+	glog.waitFrom(t, mark, "INFO   no")
+	glog.on = nil
 
 	note("no memory-card backup")
 	cs := goldenSession(coopFlags{on: true, yes: true}, strings.NewReader(""))
 	cs.noTags = fmt.Errorf("no Dolphin user folder")
-	s = goldenSync(t, cs, log)
+	s = goldenSync(t, cs, glog)
 	s.offer(ctx, replica.Offer{Plan: &bind.Plan{Kind: bind.KindBind, Prompt: goldenBindPrompt}})
 
 	note("preflight: far behind")
-	s = goldenSync(t, goldenSession(coopFlags{on: true}, strings.NewReader("")), log)
+	s = goldenSync(t, goldenSession(coopFlags{on: true}, strings.NewReader("")), glog)
 	s.preflight(replica.PreflightReport{Verdict: replica.PreflightFarBehind, NeedsMerge: true})
 	note("preflight: needs --coop-merge")
 	s.preflight(replica.PreflightReport{Verdict: replica.PreflightDivergent, NeedsMerge: true})
@@ -265,7 +265,7 @@ func TestGoldenOffers(t *testing.T) {
 	s.cs.noTags = fmt.Errorf("no Dolphin user folder")
 	s.preflight(replica.PreflightReport{Verdict: replica.PreflightSubset})
 
-	checkGolden(t, "offers", log.snapshot())
+	checkGolden(t, "offers", glog.snapshot())
 }
 
 // goldenSession is a joiner's co-op side without the session-start

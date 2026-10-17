@@ -7,8 +7,8 @@ import (
 	"runtime/debug"
 	"sync"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/events"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // Options configure a Runtime. The zero value is ready to use.
@@ -18,7 +18,7 @@ type Options struct {
 	Resolve ResolveOptions
 	// Log gets the runtime's own lines (quarantines, failed Inits) and,
 	// prefixed "[id] ", every mod's. Discarded when nil.
-	Log report.Reporter
+	Log log.Reporter
 	// Config holds mod settings; nil runs every mod on its defaults.
 	Config ConfigSource
 	// DataRoot is the parent of each mod's DataDir; "" gives none.
@@ -37,7 +37,7 @@ var (
 // loading mods in load order and runs them.
 type Runtime struct {
 	opts Options
-	log  report.Reporter
+	log  log.Reporter
 	plan *Plan
 	bus  *events.Bus
 	mods []*modState          // one per plan entry
@@ -65,7 +65,7 @@ func New(mods []Mod, o Options) *Runtime {
 	}
 	rt := &Runtime{opts: o, log: o.Log, byID: map[string]*modState{}}
 	if rt.log == nil {
-		rt.log = report.Discard{}
+		rt.log = log.Discard{}
 	}
 	rt.plan = Resolve(mods, o.Resolve)
 	for i := range rt.plan.Entries {
@@ -82,7 +82,7 @@ func New(mods []Mod, o Options) *Runtime {
 	user := eo.OnPanic
 	eo.OnPanic = func(p events.Panic) {
 		if p.Owner == events.CoreNamespace {
-			rt.log.Log(report.Err, fmt.Sprintf("panic in a core handler for %s: %v\n%s", p.Event.EventName(), p.Value, p.Stack))
+			rt.log.Log(log.Err, fmt.Sprintf("panic in a core handler for %s: %v\n%s", p.Event.EventName(), p.Value, p.Stack))
 		} else {
 			rt.quarantine(p.Owner, fmt.Sprintf("panic in its handler for %s: %v", p.Event.EventName(), p.Value), p.Stack)
 		}
@@ -126,7 +126,7 @@ func (rt *Runtime) setFailed(m *modState, reason string) {
 	rt.mu.Lock()
 	m.status = Status{State: Failed, Reason: reason}
 	rt.mu.Unlock()
-	rt.log.Log(report.Err, fmt.Sprintf("mod %s failed: %s", m.e.Manifest.ID, reason))
+	rt.log.Log(log.Err, fmt.Sprintf("mod %s failed: %s", m.e.Manifest.ID, reason))
 }
 
 // Init calls each loading mod's Init, in load order, once. A mod whose
@@ -176,7 +176,7 @@ func callInit(mod Mod, c *Context) (err error) {
 	defer func() {
 		if v := recover(); v != nil {
 			err = fmt.Errorf("panic: %v", v)
-			c.rt.log.Log(report.Info, fmt.Sprintf("mod %s: Init panic stack:\n%s", c.ID(), debug.Stack()))
+			c.rt.log.Log(log.Info, fmt.Sprintf("mod %s: Init panic stack:\n%s", c.ID(), debug.Stack()))
 		}
 	}()
 	return mod.Init(c)
@@ -255,7 +255,7 @@ func (rt *Runtime) Run(ctx context.Context) error {
 			// mctx ends only on the stop below or on quarantine, which has
 			// already set the status: this is the mod shutting down.
 			if mctx.Err() != nil {
-				rt.log.Log(report.Info, fmt.Sprintf("mod %s stopped: %v", m.e.Manifest.ID, err))
+				rt.log.Log(log.Info, fmt.Sprintf("mod %s stopped: %v", m.e.Manifest.ID, err))
 				return
 			}
 			rt.quarantine(m.e.Manifest.ID, err.Error(), nil)
@@ -321,9 +321,9 @@ func (rt *Runtime) quarantine(id, reason string, stack []byte) {
 	if view != nil {
 		view.Close()
 	}
-	rt.log.Log(report.Err, fmt.Sprintf("mod %s quarantined: %s", id, reason))
+	rt.log.Log(log.Err, fmt.Sprintf("mod %s quarantined: %s", id, reason))
 	if len(stack) > 0 {
-		rt.log.Log(report.Info, fmt.Sprintf("mod %s: stack:\n%s", id, stack))
+		rt.log.Log(log.Info, fmt.Sprintf("mod %s: stack:\n%s", id, stack))
 	}
 	_ = rt.bus.Emit(ModQuarantined{ID: id, Reason: reason})
 }

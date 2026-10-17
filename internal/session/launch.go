@@ -88,7 +88,7 @@ type LaunchOptions struct {
 	// it waits for the player's.
 	Manual bool
 	// InstallCheats puts the bundled Gecko codes into a user folder that
-	// has none, before a launch (dolphinenv.EnsureCheatsIni).
+	// has none, before a launch (launch.EnsureCheatsIni).
 	InstallCheats bool
 }
 

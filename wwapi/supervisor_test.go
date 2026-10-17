@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	fixtures "github.com/StephenSHorton/ww-multiplayer/mods/_fixtures"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/events"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 const waitFor = 5 * time.Second
@@ -537,8 +537,8 @@ func TestSupervisorShutdownErrorStaysLoaded(t *testing.T) {
 	}
 
 	t.Run("ctx ends", func(t *testing.T) {
-		log := &logRec{}
-		rt := wwapi.New([]wwapi.Mod{closing(t, "aa")}, wwapi.Options{Log: log})
+		lr := &logRec{}
+		rt := wwapi.New([]wwapi.Mod{closing(t, "aa")}, wwapi.Options{Log: lr})
 		quarantined, stopQ := events.Chan[wwapi.ModQuarantined](rt.Bus(), 8)
 		defer stopQ()
 		ctx, cancel := context.WithCancel(context.Background())
@@ -553,11 +553,11 @@ func TestSupervisorShutdownErrorStaysLoaded(t *testing.T) {
 		for q := range quarantined { // closed with the bus
 			t.Errorf("ModQuarantined %+v on shutdown", q)
 		}
-		text := log.text()
+		text := lr.text()
 		if strings.Contains(text, "quarantined") {
 			t.Errorf("shutdown logged a quarantine:\n%s", text)
 		}
-		if want := fmt.Sprintf("%d mod aa stopped: use of closed network connection", report.Info); !strings.Contains(text, want) {
+		if want := fmt.Sprintf("%d mod aa stopped: use of closed network connection", log.Info); !strings.Contains(text, want) {
 			t.Errorf("log lacks %q:\n%s", want, text)
 		}
 	})

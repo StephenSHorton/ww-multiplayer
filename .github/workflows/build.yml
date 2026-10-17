@@ -27,7 +27,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # internal/dolphin/memory_windows.go uses Win32 APIs (kernel32.dll)
+      # wwapi/emu/memory_windows.go uses Win32 APIs (kernel32.dll)
       # so vet/build needs GOOS=windows for that file to parse.
       - name: go vet (Windows target)
         uses: ./.github/actions/go-vet
@@ -79,7 +79,7 @@ jobs:
           go run ./tools/validate_manifests
           go vet ./mods/_fixtures/
 
-      # Native Linux pass: internal/dolphin has a stub backend on
+      # Native Linux pass: wwapi/emu has a stub backend on
       # platforms without process-memory support (memory_other.go), so
       # the whole module vets and its unit tests run here. No
       # -tags desktop,production vet: on Linux internal/gui is the stub
@@ -97,7 +97,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # internal/dolphin/memory_darwin.go uses cgo + Mach VM, so we have
+      # wwapi/emu/memory_darwin.go uses cgo + Mach VM, so we have
       # to actually run on a Mac. The packaging step below builds native
       # arm64 (the runner) and cross-builds amd64, so both architectures
       # still compile.

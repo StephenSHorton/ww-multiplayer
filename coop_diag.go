@@ -195,7 +195,7 @@ func withCoopMem(f func(m mem.Mem) error) error {
 		return err
 	}
 	defer d.Close()
-	return f(mem.NewDolphinMem(d))
+	return f(d)
 }
 
 // splitDiagFlags separates "--name" flags from positional arguments and

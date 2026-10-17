@@ -10,9 +10,9 @@ import (
 	"sync"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphinenv"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // The first-run setup (App PR 6, design §2.1): three skippable steps, your
@@ -111,7 +111,7 @@ type DolphinView struct {
 // DolphinRequest saves the Dolphin to use.
 type DolphinRequest struct {
 	Exe     string `json:"exe"`
-	UserDir string `json:"userDir"` // "" is the one Dolphin uses (dolphinenv.UserDir)
+	UserDir string `json:"userDir"` // "" is the one Dolphin uses (launch.UserDir)
 }
 
 // PrepareView is Prepare Dolphin's outcome and its logged lines.
@@ -175,14 +175,14 @@ func (b *Bridge) effective() (config.Config, []string) {
 // or the saved Dolphin is the original bundle's while the copy is there.
 // An outdated copy only gets the launch toast. exe is the saved Dolphin;
 // err is macStatus's (ErrNotMac elsewhere: no gap).
-func macGap(st dolphinenv.MacState, err error, exe string) *SetupGapView {
+func macGap(st launch.MacState, err error, exe string) *SetupGapView {
 	if err != nil {
 		return nil
 	}
 	switch st {
-	case dolphinenv.MacNeedsCopy, dolphinenv.MacHardened:
+	case launch.MacNeedsCopy, launch.MacHardened:
 		return &SetupGapView{StepDolphin, "Prepare Dolphin for macOS, so this app can read the game."}
-	case dolphinenv.MacReady, dolphinenv.MacCopyOutdated:
+	case launch.MacReady, launch.MacCopyOutdated:
 		if exe == macOriginalExe {
 			return &SetupGapView{StepDolphin, "Play on the prepared copy of Dolphin: macOS won't let this app read the original."}
 		}
@@ -191,7 +191,7 @@ func macGap(st dolphinenv.MacState, err error, exe string) *SetupGapView {
 }
 
 // macOriginalExe is the program inside /Applications/Dolphin.app.
-var macOriginalExe = dolphinenv.MacApp + "/Contents/MacOS/Dolphin"
+var macOriginalExe = launch.MacApp + "/Contents/MacOS/Dolphin"
 
 // Setup returns the setup's state: whether it must open, and the saved
 // name, color, discs and Dolphin.
@@ -300,13 +300,13 @@ func cleanPath(p string) string {
 	return strings.Trim(strings.TrimSpace(p), `"'`)
 }
 
-// DetectDolphin looks for Dolphin in the order of dolphinenv.Detect and
+// DetectDolphin looks for Dolphin in the order of launch.Detect and
 // returns what it found next to what is saved.
 func (b *Bridge) DetectDolphin() DolphinView {
 	env := b.denv()
-	best, all := dolphinenv.Detect(env)
-	v := DolphinView{Exe: best.Exe, Source: string(best.Source), Found: best.Source != dolphinenv.SourceDefault, Candidates: []DolphinCandidateView{}}
-	v.UserDir, v.Portable = dolphinenv.UserDir(env, best.Exe)
+	best, all := launch.Detect(env)
+	v := DolphinView{Exe: best.Exe, Source: string(best.Source), Found: best.Source != launch.SourceDefault, Candidates: []DolphinCandidateView{}}
+	v.UserDir, v.Portable = launch.UserDir(env, best.Exe)
 	for _, c := range all {
 		v.Candidates = append(v.Candidates, DolphinCandidateView{Exe: c.Exe, Source: string(c.Source), Found: c.Found})
 	}
@@ -343,7 +343,7 @@ func (b *Bridge) UserDirFor(exe string) string {
 	if p == "" || !isFile(p) {
 		return ""
 	}
-	dir, _ := dolphinenv.UserDir(b.denv(), p)
+	dir, _ := launch.UserDir(b.denv(), p)
 	return dir
 }
 
@@ -361,7 +361,7 @@ func (b *Bridge) SetDolphin(r DolphinRequest) (err error) {
 	}
 	dir := cleanPath(r.UserDir)
 	if dir == "" {
-		dir, _ = dolphinenv.UserDir(b.denv(), exe)
+		dir, _ = launch.UserDir(b.denv(), exe)
 	} else if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
 		return fmt.Errorf("%s is a file, not a folder", dir)
 	}
@@ -386,7 +386,7 @@ func (b *Bridge) macView() *MacView {
 	return b.macViewOf(st, err)
 }
 
-func (b *Bridge) macViewOf(st dolphinenv.MacState, err error) *MacView {
+func (b *Bridge) macViewOf(st launch.MacState, err error) *MacView {
 	if err != nil {
 		return nil
 	}
@@ -394,21 +394,21 @@ func (b *Bridge) macViewOf(st dolphinenv.MacState, err error) *MacView {
 	if b.home != nil {
 		home = b.home()
 	}
-	v := &MacView{Original: dolphinenv.MacApp, Copy: dolphinenv.MacPreparedApp(home)}
+	v := &MacView{Original: launch.MacApp, Copy: launch.MacPreparedApp(home)}
 	switch st {
-	case dolphinenv.MacReady:
+	case launch.MacReady:
 		v.State = "ready"
-	case dolphinenv.MacNoDolphin:
+	case launch.MacNoDolphin:
 		v.State = "no-dolphin"
 		v.Text = "Install Dolphin into your Applications folder first (dolphin-emu.org), then come back here."
-	case dolphinenv.MacNeedsCopy:
+	case launch.MacNeedsCopy:
 		v.State, v.Prepare = "needs-copy", true
 		v.Text = "macOS only lets this app read Dolphin's memory from a copy without Apple's hardened runtime. " +
 			"Prepare Dolphin makes that copy in the Applications folder of your home; your original stays untouched and keeps updating."
-	case dolphinenv.MacHardened:
+	case launch.MacHardened:
 		v.State, v.Prepare = "hardened", true
 		v.Text = "Your prepared copy of Dolphin still has Apple's hardened runtime, so this app can't read its memory. Prepare it again."
-	case dolphinenv.MacCopyOutdated:
+	case launch.MacCopyOutdated:
 		v.State, v.Prepare, v.Refresh = "outdated", true, true
 		v.Text = "Dolphin was updated. Refresh the copy so you play on the new version (your settings and saves stay)."
 	}
@@ -421,14 +421,14 @@ type lineLog struct {
 	lines []string
 }
 
-func (l *lineLog) Log(_ report.Level, msg string) {
+func (l *lineLog) Log(_ log.Level, msg string) {
 	l.mu.Lock()
 	l.lines = append(l.lines, msg)
 	l.mu.Unlock()
 }
 
 // PrepareDolphin runs the macOS prepare step (scripts/setup-mac-dolphin.sh
-// as Go: dolphinenv.MacPlan) and, when the saved Dolphin is none or the
+// as Go: launch.MacPlan) and, when the saved Dolphin is none or the
 // original, saves the prepared copy. Elsewhere it says there is nothing
 // to prepare.
 func (b *Bridge) PrepareDolphin() PrepareView {
@@ -439,7 +439,7 @@ func (b *Bridge) PrepareDolphin() PrepareView {
 	if b.home != nil {
 		// Making the copy starts by removing the old one: never under a
 		// Dolphin that is running from it.
-		app := dolphinenv.MacPreparedApp(b.home())
+		app := launch.MacPreparedApp(b.home())
 		for _, exe := range runningExes(b.denv()) {
 			if under(exe, app) {
 				return PrepareView{Lines: []string{}, Error: "Close Dolphin first, then refresh the copy: it is running from " + app + "."}
@@ -453,7 +453,7 @@ func (b *Bridge) PrepareDolphin() PrepareView {
 		v.Lines = []string{}
 	}
 	if err != nil {
-		if errors.Is(err, dolphinenv.ErrNotMac) {
+		if errors.Is(err, launch.ErrNotMac) {
 			v.Error = "Only macOS needs a prepared copy of Dolphin."
 		} else {
 			v.Error = err.Error()
@@ -461,12 +461,12 @@ func (b *Bridge) PrepareDolphin() PrepareView {
 		return v
 	}
 	if b.home != nil {
-		copyExe := filepath.Join(dolphinenv.MacPreparedApp(b.home()), "Contents", "MacOS", "Dolphin")
+		copyExe := filepath.Join(launch.MacPreparedApp(b.home()), "Contents", "MacOS", "Dolphin")
 		b.mu.Lock()
 		if b.cfg.Dolphin.Exe == "" || b.cfg.Dolphin.Exe == macOriginalExe || b.cfg.Dolphin.Exe == filepath.FromSlash(macOriginalExe) {
 			b.cfg.Dolphin.Exe = copyExe
 			if b.cfg.Dolphin.UserDir == "" {
-				b.cfg.Dolphin.UserDir, _ = dolphinenv.UserDir(b.denv(), copyExe)
+				b.cfg.Dolphin.UserDir, _ = launch.UserDir(b.denv(), copyExe)
 			}
 		}
 		b.mu.Unlock()
@@ -478,7 +478,7 @@ func (b *Bridge) PrepareDolphin() PrepareView {
 }
 
 // runningExes is env's running Dolphin programs (none when it can't say).
-func runningExes(env dolphinenv.Env) []string {
+func runningExes(env launch.Env) []string {
 	if env.Running == nil {
 		return nil
 	}
@@ -511,9 +511,9 @@ func (b *Bridge) saveErr() error {
 }
 
 // macStatusHere is the default Bridge.macStatus.
-func macStatusHere() (dolphinenv.MacState, dolphinenv.MacFacts, error) {
+func macStatusHere() (launch.MacState, launch.MacFacts, error) {
 	if runtime.GOOS != "darwin" {
-		return dolphinenv.MacNoDolphin, dolphinenv.MacFacts{}, dolphinenv.ErrNotMac
+		return launch.MacNoDolphin, launch.MacFacts{}, launch.ErrNotMac
 	}
-	return dolphinenv.MacStatusHere()
+	return launch.MacStatusHere()
 }

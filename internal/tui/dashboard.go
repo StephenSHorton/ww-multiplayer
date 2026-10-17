@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/redact"
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -147,19 +147,19 @@ func drainEvents(ch <-chan session.Event) tea.Cmd {
 // logEntry is one line in the log panel.
 type logEntry struct {
 	t     time.Time
-	level report.Level
+	level log.Level
 	msg   string
 }
 
 func (e logEntry) styled() lipgloss.Style {
 	switch e.level {
-	case report.OK:
+	case log.OK:
 		return logGreen
-	case report.Warn:
+	case log.Warn:
 		return logWarn
-	case report.Err:
+	case log.Err:
 		return logError
-	case report.Net:
+	case log.Net:
 		return logCyan
 	default:
 		return logInfo
@@ -399,10 +399,10 @@ func (m dashboardModel) update(msg tea.Msg) (dashboardModel, tea.Cmd) {
 			if m.coop && strings.HasPrefix(text, "/") {
 				// A co-op console command, as the CLI takes on stdin: the
 				// console logs what came of it.
-				m = m.applyEvent(session.Event{Kind: session.EventLog, Time: time.Now(), Level: report.Info, Text: "> " + text})
+				m = m.applyEvent(session.Event{Kind: session.EventLog, Time: time.Now(), Level: log.Info, Text: "> " + text})
 				if m.ctrl != nil {
 					if err := m.ctrl.CommandLine(text); err != nil {
-						m = m.applyEvent(session.Event{Kind: session.EventLog, Time: time.Now(), Level: report.Warn, Text: "co-op: " + err.Error()})
+						m = m.applyEvent(session.Event{Kind: session.EventLog, Time: time.Now(), Level: log.Warn, Text: "co-op: " + err.Error()})
 					}
 				}
 				return m, nil

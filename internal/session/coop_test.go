@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // coopFake is a fakeEngine with a console: it records the commands and
@@ -147,7 +147,7 @@ func TestWaitAndFailed(t *testing.T) {
 
 type reporterFunc func(msg string)
 
-func (f reporterFunc) Log(_ report.Level, msg string) { f(msg) }
+func (f reporterFunc) Log(_ log.Level, msg string) { f(msg) }
 
 // TestCommands: the console commands reach a CoopEngine's running
 // session with co-op on, and nothing else.

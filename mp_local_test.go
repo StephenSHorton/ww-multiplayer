@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/report"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // recordingReporter collects log lines in-memory so tests can assert on
@@ -16,7 +16,7 @@ type recordingReporter struct {
 	lines []string
 }
 
-func (r *recordingReporter) Log(_ report.Level, msg string) {
+func (r *recordingReporter) Log(_ log.Level, msg string) {
 	r.lines = append(r.lines, msg)
 }
 
