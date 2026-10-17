@@ -7,6 +7,8 @@ import (
 	"math"
 	"os"
 	"strconv"
+
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Dolphin represents a connection to a running Dolphin emulator process.
@@ -26,15 +28,6 @@ type PlayerPosition struct {
 	RotY int16
 	RotZ int16
 }
-
-// Wind Waker GZLE01 addresses
-const (
-	PlayerPtrAddr = 0x803CA754 // mpPlayerPtr[0] — pointer to Link's actor
-	PosOffset     = 0x1F8      // current.pos (3x float32)
-	RotOffset     = 0x204      // current.angle (3x int16)
-	RoomOffset    = 0x20A      // current.roomNo (int8)
-	AnimOffset    = 0x31D8     // mCurProc (uint32)
-)
 
 // Find locates a Dolphin emulator process and maps its emulated RAM.
 // When multiple Dolphin instances are running (two-Dolphin multiplayer),
@@ -154,7 +147,7 @@ func (d *Dolphin) ReadF32(gcAddr uint32) (float32, error) {
 
 // GetLinkPtr reads mpPlayerPtr[0] to get Link's actor address.
 func (d *Dolphin) GetLinkPtr() (uint32, error) {
-	return d.ReadU32(PlayerPtrAddr)
+	return d.ReadU32(addr.PlayerPtr)
 }
 
 // IsInGame reports whether the Dolphin instance is in a playable scene
@@ -172,7 +165,7 @@ func (d *Dolphin) IsInGame() bool {
 	if err != nil {
 		return false
 	}
-	return ptr >= 0x80000000 && ptr < 0x81800000
+	return addr.InMEM1(ptr)
 }
 
 // ReadPlayerPosition reads Link's current position and rotation.
@@ -182,11 +175,11 @@ func (d *Dolphin) ReadPlayerPosition() (*PlayerPosition, error) {
 		return nil, fmt.Errorf("link not loaded")
 	}
 
-	posData, err := d.ReadAbsolute(linkPtr+PosOffset, 12)
+	posData, err := d.ReadAbsolute(linkPtr+addr.ActorOffCurPos, 12)
 	if err != nil {
 		return nil, err
 	}
-	rotData, err := d.ReadAbsolute(linkPtr+RotOffset, 6)
+	rotData, err := d.ReadAbsolute(linkPtr+addr.ActorOffCurAngle, 6)
 	if err != nil {
 		return nil, err
 	}

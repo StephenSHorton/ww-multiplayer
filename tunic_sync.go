@@ -12,6 +12,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/tunic"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Tunic colors, render side (docs/09-player-colors.md §5.3-§5.4).
@@ -86,21 +87,21 @@ type heroTexture struct {
 // range checked is the larger of it and the header's own image size, so
 // a swapped header (image == buf) is refused even when skipSize is 0.
 func readHeroTexture(m tunicMem, skip [tunicSlots]uint32, skipSize int) (*heroTexture, error) {
-	link, err := m.ReadU32(playerPtrArray0)
-	if err != nil || !inMEM1(link) {
+	link, err := m.ReadU32(addr.PlayerPtr)
+	if err != nil || !addr.InMEM1(link) {
 		return nil, errors.New("Link not loaded")
 	}
-	worn, err := m.ReadU32(link + daPyMpCurrLinktexOff)
-	if err != nil || !inMEM1(worn) {
+	worn, err := m.ReadU32(link + addr.PlayerOffCurrLinktex)
+	if err != nil || !addr.InMEM1(worn) {
 		return nil, fmt.Errorf("mpCurrLinktex not set (0x%08X)", worn)
 	}
-	flg, err := m.ReadU32(link + daPyNoResetFlg1Off)
+	flg, err := m.ReadU32(link + addr.PlayerOffNoResetFlg1)
 	if err != nil {
 		return nil, err
 	}
 	src := worn
-	if flg&daPyFlg1Casual != 0 {
-		src = link + daPyOtherLinktexOff
+	if flg&addr.PlayerFlg1CasualClothes != 0 {
+		src = link + addr.PlayerOffOtherLinktex
 	}
 	a, err1 := m.ReadAbsolute(src, tunic.ResTIMGSize)
 	b, err2 := m.ReadAbsolute(src, tunic.ResTIMGSize)
@@ -116,7 +117,7 @@ func readHeroTexture(m tunicMem, skip [tunicSlots]uint32, skipSize int) (*heroTe
 		return nil, fmt.Errorf("hero texture is %d bytes (%dx%d), over the %d-byte cap", size, h.Width, h.Height, tunicMaxImage)
 	}
 	img := h.ImageAddr(worn)
-	if !inMEM1(img) || !inMEM1(img+uint32(size)-1) {
+	if !addr.InMEM1(img) || !addr.InMEM1(img+uint32(size)-1) {
 		return nil, fmt.Errorf("hero image 0x%08X is outside MEM1", img)
 	}
 	span := uint32(max(skipSize, size))
@@ -290,8 +291,8 @@ func (t *tunicSync) Tick(now time.Time) {
 	if verify {
 		t.lastVerify = now
 		// A different worn header means a different model: recalibrate.
-		if link, err := t.mem.ReadU32(playerPtrArray0); err == nil && inMEM1(link) {
-			if worn, err := t.mem.ReadU32(link + daPyMpCurrLinktexOff); err == nil && inMEM1(worn) && worn != t.hero.hdrAddr {
+		if link, err := t.mem.ReadU32(addr.PlayerPtr); err == nil && addr.InMEM1(link) {
+			if worn, err := t.mem.ReadU32(link + addr.PlayerOffCurrLinktex); err == nil && addr.InMEM1(worn) && worn != t.hero.hdrAddr {
 				t.hero = nil
 				for s := range t.cur {
 					t.cur[s] = tunicSlotState{}
@@ -303,7 +304,7 @@ func (t *tunicSync) Tick(now time.Time) {
 
 	for s := 0; s < tunicSlots; s++ {
 		buf := t.bufs[s]
-		if !t.managed[s] || t.want[s].casual || buf == 0 || !inMEM1(buf) || !inMEM1(buf+size-1) {
+		if !t.managed[s] || t.want[s].casual || buf == 0 || !addr.InMEM1(buf) || !addr.InMEM1(buf+size-1) {
 			continue
 		}
 		t.step(s, buf, enable[s], frame, verify)
@@ -414,15 +415,15 @@ const appearanceCasual = 0x01
 // face trailer: bit 0 = Link #1 wears the casual clothes. ok is false
 // while Link isn't loaded.
 func localAppearance(m tunicMem) (b byte, ok bool) {
-	link, err := m.ReadU32(playerPtrArray0)
-	if err != nil || !inMEM1(link) {
+	link, err := m.ReadU32(addr.PlayerPtr)
+	if err != nil || !addr.InMEM1(link) {
 		return 0, false
 	}
-	flg, err := m.ReadU32(link + daPyNoResetFlg1Off)
+	flg, err := m.ReadU32(link + addr.PlayerOffNoResetFlg1)
 	if err != nil {
 		return 0, false
 	}
-	if flg&daPyFlg1Casual != 0 {
+	if flg&addr.PlayerFlg1CasualClothes != 0 {
 		b |= appearanceCasual
 	}
 	return b, true

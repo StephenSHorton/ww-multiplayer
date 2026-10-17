@@ -2,8 +2,6 @@ package addr
 
 import (
 	"testing"
-
-	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
 )
 
 // rel is one arithmetic relation: an absolute address written as a literal
@@ -363,11 +361,69 @@ func TestGbaComLayout(t *testing.T) {
 	}
 }
 
-// TestMatchesDolphinPackage keeps the one address internal/dolphin already
-// hard-codes in step with this table.
-func TestMatchesDolphinPackage(t *testing.T) {
-	if PlayerPtr != dolphin.PlayerPtrAddr {
-		t.Errorf("PlayerPtr 0x%08X != dolphin.PlayerPtrAddr 0x%08X", PlayerPtr, uint32(dolphin.PlayerPtrAddr))
+// TestFoldedLiterals pins every constant that replaced a literal outside
+// this package (Phase C2) to the value the old literal had, so the fold
+// changed names and nothing else.
+func TestFoldedLiterals(t *testing.T) {
+	for _, c := range []struct {
+		name, was string
+		got, want uint32
+	}{
+		{"PlayerPtr", "dolphin.PlayerPtrAddr; tunic_diag playerPtrArray0", PlayerPtr, 0x803CA754},
+		{"ActorOffCurPos", "dolphin.PosOffset", ActorOffCurPos, 0x1F8},
+		{"ActorOffCurAngle", "dolphin.RotOffset", ActorOffCurAngle, 0x204},
+		{"ActorOffCurRoomNo", "dolphin.RoomOffset", ActorOffCurRoomNo, 0x20A},
+		{"PlayerOffCurProc", "dolphin.AnimOffset", PlayerOffCurProc, 0x31D8},
+		{"PlayerOffCLModelData", "tunic_diag daPyMpCLModelDataOff", PlayerOffCLModelData, 0x0328},
+		{"PlayerOffCurrLinktex", "tunic_diag daPyMpCurrLinktexOff", PlayerOffCurrLinktex, 0x0338},
+		{"PlayerOffOtherLinktex", "tunic_diag daPyOtherLinktexOff", PlayerOffOtherLinktex, 0x033C},
+		{"PlayerOffNoResetFlg1", "tunic_diag daPyNoResetFlg1Off", PlayerOffNoResetFlg1, 0x02A0},
+		{"PlayerFlg1CasualClothes", "tunic_diag daPyFlg1Casual", PlayerFlg1CasualClothes, 0x00000008},
+		{"MEM1Base", "inMEM1 / IsInGame / pose-feed lower bound", MEM1Base, 0x80000000},
+		{"MEM1End", "inMEM1 / IsInGame / pose-feed upper bound", MEM1End, 0x81800000},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = 0x%X, want 0x%X (was %s)", c.name, c.got, c.want, c.was)
+		}
+	}
+}
+
+// TestInMEM1 checks InMEM1 against the literal range check it replaced,
+// a >= 0x80000000 && a < 0x81800000, at and around both edges.
+func TestInMEM1(t *testing.T) {
+	old := func(a uint32) bool { return a >= 0x80000000 && a < 0x81800000 }
+	for _, a := range []uint32{0, 0x7FFFFFFF, 0x80000000, 0x80000001, 0x803CA754,
+		0x817FFFFF, 0x81800000, 0x81800001, 0xC0000000, 0xFFFFFFFF} {
+		if got, want := InMEM1(a), old(a); got != want {
+			t.Errorf("InMEM1(0x%08X) = %v, want %v", a, got, want)
+		}
+	}
+}
+
+// TestLinkActorOffsets ties the Link fields to their structs:
+// current.angle and roomNo follow current.pos inside actor_place
+// (f_op_actor.h:212-216), and daPy_lk_c's mpCLModelData, mpCLModel,
+// mpKatsuraModel, mpYamuModel, mpCurrLinktex, then the inline 0x20-byte
+// ResTIMG mOtherLinktex run back to back (d_a_player_main.h:1992-1998).
+func TestLinkActorOffsets(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		got, want int
+	}{
+		{"ActorOffCurAngle", ActorOffCurAngle, ActorOffCurPos + 0xC},
+		{"ActorOffCurRoomNo", ActorOffCurRoomNo, ActorOffCurPos + 0x12},
+		{"PlayerOffCurrLinktex", PlayerOffCurrLinktex, PlayerOffCLModelData + 4*4},
+		{"PlayerOffOtherLinktex", PlayerOffOtherLinktex, PlayerOffCurrLinktex + 4},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = 0x%X, want 0x%X", c.name, c.got, c.want)
+		}
+	}
+	if PlayerOffNoResetFlg1 >= PlayerOffCLModelData || PlayerOffDemoType >= PlayerOffCLModelData {
+		t.Error("a daPy_py_c field sits past where daPy_lk_c's own members start")
+	}
+	if PlayerOffCurProc <= PlayerOffOtherLinktex+0x20 {
+		t.Error("mCurProc overlaps the clothes textures")
 	}
 }
 

@@ -7,7 +7,7 @@ import (
 )
 
 // DolphinMem is Mem over a live Dolphin. dolphin.ReadAbsolute and
-// WriteAbsolute (internal/dolphin/memory.go:117-135) turn any uint32 into
+// WriteAbsolute (internal/dolphin/memory.go:110-128) turn any uint32 into
 // an offset from Dolphin's RAM base without a bounds check: an address
 // below 0x80000000 wraps, and one past 24 MiB lands in whatever Dolphin
 // mapped next. DolphinMem checks the range first, exactly as FakeMem does,

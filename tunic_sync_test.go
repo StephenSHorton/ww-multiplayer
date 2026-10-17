@@ -10,6 +10,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/tunic"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // fakeRAM is a sparse big-endian GameCube RAM for the tunic tests. It
@@ -95,20 +96,20 @@ func resTIMG(format byte, w, h uint16, imageOffset uint32) []byte {
 // linktexS3TC header and the hero image, plus an empty mailbox.
 func newLinkRAM(casual bool) *fakeRAM {
 	f := newFakeRAM()
-	f.put32(playerPtrArray0, fakeLink)
-	f.put32(fakeLink+daPyMpCurrLinktexOff, fakeWorn)
+	f.put32(addr.PlayerPtr, fakeLink)
+	f.put32(fakeLink+addr.PlayerOffCurrLinktex, fakeWorn)
 	f.WriteAbsolute(fakeImage, testImage())
 	hero := resTIMG(tunic.FormatCMPR, 8, 8, fakeImage-fakeWorn)
 	if casual {
-		f.put32(fakeLink+daPyNoResetFlg1Off, daPyFlg1Casual)
+		f.put32(fakeLink+addr.PlayerOffNoResetFlg1, addr.PlayerFlg1CasualClothes)
 		// The worn header holds the casual texture (another format);
 		// mOtherLinktex holds the hero header, offsets relative to the
 		// worn header.
 		f.WriteAbsolute(fakeWorn, resTIMG(0x09, 16, 16, fakeCasual-fakeWorn))
-		f.WriteAbsolute(fakeLink+daPyOtherLinktexOff, hero)
+		f.WriteAbsolute(fakeLink+addr.PlayerOffOtherLinktex, hero)
 	} else {
 		f.WriteAbsolute(fakeWorn, hero)
-		f.WriteAbsolute(fakeLink+daPyOtherLinktexOff, resTIMG(0x09, 16, 16, fakeCasual-fakeWorn))
+		f.WriteAbsolute(fakeLink+addr.PlayerOffOtherLinktex, resTIMG(0x09, 16, 16, fakeCasual-fakeWorn))
 	}
 	return f
 }
@@ -495,7 +496,7 @@ func TestSyncTunics_CasualSkipsColorGates(t *testing.T) {
 		setup    func(f *fakeRAM)
 	}{
 		{"no server color", false, func(f *fakeRAM) {}},
-		{"Link not loaded", true, func(f *fakeRAM) { f.put32(playerPtrArray0, 0) }},
+		{"Link not loaded", true, func(f *fakeRAM) { f.put32(addr.PlayerPtr, 0) }},
 		{"not allocated", true, func(f *fakeRAM) {
 			f.mem[mailboxBase+mailboxTunicState] = 0
 			f.put32(mailboxBase+mailboxTunicBufSize, 0)
@@ -584,7 +585,7 @@ func TestTunicSync_RecalibrateRefusesSwapped(t *testing.T) {
 	// A new model: the worn header moves, and Go's next read lands inside
 	// the local bracket.
 	const worn2 = fakeWorn + 0x100
-	f.put32(fakeLink+daPyMpCurrLinktexOff, worn2)
+	f.put32(fakeLink+addr.PlayerOffCurrLinktex, worn2)
 	buf, _ := f.ReadU32(mailboxBase + mailboxTunicBuf(tunicSlotLocal))
 	f.WriteAbsolute(worn2, resTIMG(tunic.FormatCMPR, 8, 8, buf-worn2))
 	now = now.Add(2 * tunicVerifyEvery)
