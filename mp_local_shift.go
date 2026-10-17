@@ -10,6 +10,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -25,7 +26,7 @@ const (
 	startupShiftSettle = 3 * time.Second
 
 	// startupShiftWarpTimeout is how long the warp may wait for the C
-	// side before it is withdrawn (warpLinkMem).
+	// side before it is withdrawn (player.Warp).
 	startupShiftWarpTimeout = time.Second
 )
 
@@ -58,7 +59,7 @@ func defaultShiftEnv() shiftEnv {
 // the same SAVE_STATE, both Links stand at the same world coords and
 // visually overlap, so it moves Dolphin B's Link by d from where it
 // stands. planShift says when, and why not. The move goes through B's
-// warp request (warpLinkMem), which is outside co-op's gates and
+// warp request (player.Warp), which is outside co-op's gates and
 // WriteGuard, so under --coop (its dry run included) it never runs; the
 // two Links then overlap until one walks a few steps away. d all 0
 // (MP_LOCAL_SHIFT_X/Y/Z=0) turns it off.
@@ -102,7 +103,7 @@ func startupShift(rep log.Reporter, coopOn bool, pidA, pidB uint32, d [3]float32
 		target, skip, retry := planShift(a, b, d)
 		switch {
 		case skip == "":
-			if err := warpLinkMem(mB, target, startupShiftWarpTimeout); err != nil {
+			if err := player.Warp(mB, target, startupShiftWarpTimeout); err != nil {
 				log.Logf(rep, log.Warn, "couldn't warp Dolphin B Link: %v", err)
 			} else {
 				log.Logf(rep, log.OK, "Warped Dolphin B Link by (%.0f, %.0f, %.0f) so the two players don't overlap.", d[0], d[1], d[2])

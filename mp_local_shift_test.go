@@ -12,6 +12,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/player/playertest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -139,7 +140,7 @@ func newShiftRig(t *testing.T, sA, sB fakegame.Stage, posA, posB [3]float32) *sh
 		if err := x.g.LoadStage(x.s); err != nil {
 			t.Fatal(err)
 		}
-		store(t, x.m, fakegame.PlayerActor+addr.ActorOffCurPos, posBytes(x.pos))
+		store(t, x.m, fakegame.PlayerActor+addr.ActorOffCurPos, playertest.PosBytes(x.pos))
 	}
 	return r
 }
@@ -217,23 +218,23 @@ func TestStartupShiftAcrossStagesWritesNothing(t *testing.T) {
 func TestStartupShiftOverlap(t *testing.T) {
 	posA, posB := [3]float32{100, 200, 300}, [3]float32{102, 201, 299}
 	r := newShiftRig(t, diagDRC, diagDRC, posA, posB)
-	warps := runWarpHandler(t, r.mB)
+	warps := playertest.RunWarpHandler(t, r.mB)
 	rep := &recordingReporter{}
 	r.record(true)
 	startupShift(rep, false, 1, 2, defaultShift, r.env(t))
 	r.record(false)
 	want := [3]float32{152, 201, 349}
-	if got := readLinkPos(t, r.mB); got != want {
+	if got := playertest.LinkPos(t, r.mB, fakegame.PlayerActor); got != want {
 		t.Errorf("B's Link at %v, want %v (B's own position + the shift)", got, want)
 	}
-	if got := readLinkPos(t, r.mA); got != posA {
+	if got := playertest.LinkPos(t, r.mA, fakegame.PlayerActor); got != posA {
 		t.Errorf("A's Link moved to %v", got)
 	}
 	if ws := r.mA.Writes(); len(ws) != 0 {
 		t.Errorf("wrote A: %+v", ws)
 	}
 	ws := r.mB.Writes()
-	if len(ws) != 2 || ws[0].Addr != mailbox.Mailbox+mailbox.OffWarpX || !bytes.Equal(ws[0].Data, posBytes(want)) ||
+	if len(ws) != 2 || ws[0].Addr != mailbox.Mailbox+mailbox.OffWarpX || !bytes.Equal(ws[0].Data, playertest.PosBytes(want)) ||
 		ws[1].Addr != mailbox.Mailbox+mailbox.OffWarpSeq || !bytes.Equal(ws[1].Data, u32b(1)) {
 		t.Errorf("wrote B: %+v, want the target then warp_seq = 1", ws)
 	}
@@ -253,7 +254,7 @@ func TestStartupShiftOverlap(t *testing.T) {
 	if got := rep.joined(); !strings.Contains(got, "Not moving Dolphin B's Link at start: the two Links are 71 units apart.") {
 		t.Errorf("second start: log %q", got)
 	}
-	if got := readLinkPos(t, r.mB); got != want || warps() != 1 {
+	if got := playertest.LinkPos(t, r.mB, fakegame.PlayerActor); got != want || warps() != 1 {
 		t.Errorf("second start moved B's Link to %v (%d warps)", got, warps())
 	}
 }
@@ -265,7 +266,7 @@ func TestStartupShiftRetries(t *testing.T) {
 	t.Run("the heartbeat resumes", func(t *testing.T) {
 		r := newShiftRig(t, diagDRC, diagDRC, pos, pos)
 		r.bFrames = shiftAttempt // B is paused during the first look
-		warps := runWarpHandler(t, r.mB)
+		warps := playertest.RunWarpHandler(t, r.mB)
 		rep := &recordingReporter{}
 		startupShift(rep, false, 1, 2, defaultShift, r.env(t))
 		if r.ticks != 2*shiftAttempt || warps() != 1 || !strings.Contains(rep.joined(), "Warped Dolphin B Link") {

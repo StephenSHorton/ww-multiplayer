@@ -1,6 +1,9 @@
 package main
 
-import "github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
+import (
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
+)
 
 // Guards for puppet-sync's pose feed, which writes bytes from the network
 // into the receiving Dolphin's emulated RAM.
@@ -8,8 +11,9 @@ import "github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 // linkJointCount is the number of joints in Link's skeleton, one 48-byte Mtx
 // each in mpNodeMtx. The C side sizes every mini-Link pose buffer for this
 // rig (pose_buf_u32s = joint count * 12 in multiplayer.c), so a remote pose
-// is written only when it has exactly this many joints.
-const linkJointCount = 42
+// is written only when it has exactly this many joints. It is
+// player.JointCount, the joint count Link.Pose sizes its read by.
+const linkJointCount = player.JointCount
 
 // mtxBytes is sizeof(Mtx): a 3x4 matrix of big-endian float32.
 const mtxBytes = 48

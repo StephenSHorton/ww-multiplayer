@@ -17,6 +17,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
 
 // The app's game side (App PR 8, design §2.6): what a lobby session does
@@ -579,7 +580,7 @@ func probeDolphin(pid uint32) session.Probe {
 	}
 	defer d.Close()
 	p.Patched = hasThisMod(d)
-	p.InGame = d.IsInGame()
+	p.InGame = player.NewLink(d).Ready()
 	return p
 }
 

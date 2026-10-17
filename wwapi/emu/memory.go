@@ -14,8 +14,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Dolphin represents a connection to a running Dolphin emulator process.
@@ -24,16 +22,6 @@ type Dolphin struct {
 	pid       uint32
 	gcRamBase uintptr // Start of emulated GameCube RAM in Dolphin's process
 	gameID    string
-}
-
-// PlayerPosition holds a player's real-time state in big-endian GameCube format.
-type PlayerPosition struct {
-	PosX float32
-	PosY float32
-	PosZ float32
-	RotX int16
-	RotY int16
-	RotZ int16
 }
 
 // Options picks the Dolphin process Attach opens. The caller fills it:
@@ -151,55 +139,6 @@ func (d *Dolphin) ReadF32(gcAddr uint32) (float32, error) {
 		return 0, err
 	}
 	return math.Float32frombits(val), nil
-}
-
-// GetLinkPtr reads mpPlayerPtr[0] to get Link's actor address.
-func (d *Dolphin) GetLinkPtr() (uint32, error) {
-	return d.ReadU32(addr.PlayerPtr)
-}
-
-// IsInGame reports whether the Dolphin instance is in a playable scene
-// (Link's actor pointer is non-zero and in the GC RAM range). Returns
-// false during title screen, save-file menu, world-map cutscenes, or
-// the brief reload window between scenes — anything where mpPlayerPtr[0]
-// is null or unmapped.
-//
-// Used by mp-local's "wait until both Dolphins ready" gate so the
-// connect sequence doesn't kick off into a Dolphin that hasn't loaded
-// a save yet (which would have broadcast-pose hammering ReadU32 on a
-// zero pointer and puppet-sync writing actor poses into nothing).
-func (d *Dolphin) IsInGame() bool {
-	ptr, err := d.GetLinkPtr()
-	if err != nil {
-		return false
-	}
-	return addr.InMEM1(ptr)
-}
-
-// ReadPlayerPosition reads Link's current position and rotation.
-func (d *Dolphin) ReadPlayerPosition() (*PlayerPosition, error) {
-	linkPtr, err := d.GetLinkPtr()
-	if err != nil || linkPtr == 0 {
-		return nil, fmt.Errorf("link not loaded")
-	}
-
-	posData, err := d.readAbsolute(linkPtr+addr.ActorOffCurPos, 12)
-	if err != nil {
-		return nil, err
-	}
-	rotData, err := d.readAbsolute(linkPtr+addr.ActorOffCurAngle, 6)
-	if err != nil {
-		return nil, err
-	}
-
-	return &PlayerPosition{
-		PosX: math.Float32frombits(binary.BigEndian.Uint32(posData[0:4])),
-		PosY: math.Float32frombits(binary.BigEndian.Uint32(posData[4:8])),
-		PosZ: math.Float32frombits(binary.BigEndian.Uint32(posData[8:12])),
-		RotX: int16(binary.BigEndian.Uint16(rotData[0:2])),
-		RotY: int16(binary.BigEndian.Uint16(rotData[2:4])),
-		RotZ: int16(binary.BigEndian.Uint16(rotData[4:6])),
-	}, nil
 }
 
 // scanForRAM searches Dolphin's process memory for the emulated GameCube
