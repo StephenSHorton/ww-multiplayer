@@ -167,21 +167,22 @@ Each mod's `*wwapi.Context` is bound to that mod:
 | `Has(id)`, `Mod(id)` | Whether a mod is loaded, and its `PublicAPI`. |
 | `Features()` | The blob's Features: `Options.Resolve.Features`, unknown until the runtime passes `Game.Features()` in (D4). |
 
-The app does not make a runtime yet: D4 wires `Options.Game` (and `Resolve.Features` from `Game.Features()`) into the app's session. `Allow` (design §6.2) comes with `wwapi/write` enforcement.
+The app's faces (the window, `tui`, `ui --browser`) each make one runtime when they open (package main's `startApp`): the saved settings (`config.Mods`, through `gui.ModConfig`) under the mod flags are its `Config`, its bus feeds the session controller (`EventMod`), and the session engine is its loaded `NetProvider`'s. A toggle on the Mods page is saved and applies the next time the app starts. The app attaches no `Game` yet, so `Options.Game` is nil and `Resolve.Features` unknown there. `Allow` (design §6.2) comes with `wwapi/write` enforcement.
 
 ## `mods` command
 
 ```
 ww-multiplayer mods            # one line per mod: id, version, status
-ww-multiplayer mods --json     # the same as JSON (wwapi.ModInfo); [] today
+ww-multiplayer mods --json     # the same as JSON (wwapi.ModInfo)
+ww-multiplayer mods --dev --no-mod=coop   # what the app's mod flags would load
 ```
 
-`mods` resolves the compiled-in mods with manifest defaults, as the CLI would load them. It never reads the app's settings, never attaches to Dolphin, and never runs a mod.
+`mods` resolves the compiled-in mods with manifest defaults, as the CLI would load them. It never reads the app's settings, never attaches to Dolphin, and never runs a mod. It takes the app's mod flags to show their effect: `--mods=a,b` loads exactly those, `--no-mod=x` turns x off (both repeat and take comma lists), `--dev` adds the dev mods. The app takes the same flags after `tui` and `ui` (`ui --browser --dev`); they override the saved settings for that run.
 
 ## Fixtures and CI
 
 `mods/_fixtures` holds test mods, one folder each: `_ok_base` (public API, a `Run` that waits), `_ok_dependent` (requires `_ok_base ^1.0` and reads its API), `_bad_manifest`, `_bad_range`, `_api_mismatch`, `_missing_dep`, `_cycle_a`/`_cycle_b`, `_init_error`, `_run_panic` and `_handler_panic`. Go tools skip folders whose names start with `_`, so neither the app nor `./...` builds the fixtures. wwapi's tests import them by path.
 
-`mods/example` is an ordinary mod folder, so `./...` builds and tests it; it is not in `compiledMods()`, so `mods` does not list it (D4's `--dev` will).
+`mods/example` is an ordinary mod folder, so `./...` builds and tests it; it is not in `compiledMods()` but in `devMods()`, so `mods` lists it only with `--dev` (`mods --dev`; in the app, `ui --dev` or `tui --dev`).
 
 `go run ./tools/validate_manifests` checks every `mods/**/mod.json`: it must parse, its id must equal its folder name, and only fixtures (under `_fixtures`) have ids that start with `_`. A folder with an `invalid.txt` must hold a manifest that is refused with an error containing that text. CI runs it, and runs `go vet ./mods/_fixtures/`, in the Build workflow.

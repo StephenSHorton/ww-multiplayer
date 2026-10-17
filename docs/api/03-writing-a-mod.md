@@ -47,7 +47,7 @@ A mod is a Go package compiled into the app. There are no drop-in mods: Go's `pl
 
 - `id` is the folder name and the mod's namespace: its events and commands are `mod.example.*`.
 - `api` is the range of wwapi versions it works with. `wwapi.Version` is `0.1.0`, and 0.x minors may break, so `^0.1`.
-- `dev: true` keeps it off unless dev mods are shown (`ResolveOptions.Dev`; in the app, D4's `--dev`).
+- `dev: true` keeps it off unless dev mods are shown (`ResolveOptions.Dev`; in the app, `--dev`).
 - `multiplayer: local_only`: it never touches the network, and other players do not need it.
 - `needs: ["warp"]`: the patched blob must have the C warp handler. With the blob's features known and `warp` missing, the mod is `NEEDS_REPATCH(warp)` and does not load.
 - `writes: []`: the mod writes no game memory of its own. Its one write, the warp, is a core command's (section 5).
