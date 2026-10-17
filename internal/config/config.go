@@ -60,6 +60,11 @@ type Config struct {
 	ISO         ISO          `json:"iso"`
 	Coop        Coop         `json:"coop"`
 	UI          UI           `json:"ui"`
+	// Mods are the mods' settings by mod id (docs/api/00-design.md §6.5):
+	// on or off for the next start, and each mod's own settings. Written
+	// only when there is one, so a file from before mods had settings
+	// saves as it was.
+	Mods map[string]ModConfig `json:"mods,omitempty"`
 
 	// extra is the file's whole JSON object as read, so Save keeps the
 	// fields this build doesn't know. nil for a new Config.
@@ -112,6 +117,42 @@ type UI struct {
 	// addresses" switch). Off by default: the window masks every IP it
 	// shows, so a stream never flashes one (owner decision 2026-10-16).
 	ShowIPs bool `json:"showIPs"`
+}
+
+// ModConfig is one mod's settings: mods.<id> in the file.
+type ModConfig struct {
+	// Enabled turns the mod on or off from the next start; nil keeps its
+	// manifest default (enabled_by_default).
+	Enabled *bool `json:"enabled,omitempty"`
+	// Settings is the mod's own settings, a JSON object the mod reads
+	// through wwapi's Context.Config(); nil for none.
+	Settings json.RawMessage `json:"settings,omitempty"`
+}
+
+// ModEnabled is mods.<id>.enabled, and whether it is set. With
+// ModSettings, it makes a Config a wwapi.ConfigSource (this package
+// imports no wwapi).
+func (c Config) ModEnabled(id string) (on, set bool) {
+	m, ok := c.Mods[id]
+	if !ok || m.Enabled == nil {
+		return false, false
+	}
+	return *m.Enabled, true
+}
+
+// ModSettings is mods.<id>.settings, or nil.
+func (c Config) ModSettings(id string) json.RawMessage {
+	return bytes.Clone(c.Mods[id].Settings)
+}
+
+// SetModEnabled sets mods.<id>.enabled, keeping the mod's settings.
+func (c *Config) SetModEnabled(id string, on bool) {
+	if c.Mods == nil {
+		c.Mods = map[string]ModConfig{}
+	}
+	m := c.Mods[id]
+	m.Enabled = &on
+	c.Mods[id] = m
 }
 
 // Window is the main window's size.
@@ -242,6 +283,7 @@ func (c *Config) fields() map[string]field {
 		"iso":         fieldOf(&c.ISO),
 		"coop":        fieldOf(&c.Coop),
 		"ui":          fieldOf(&c.UI),
+		"mods":        fieldOf(&c.Mods),
 	}
 }
 
@@ -285,7 +327,37 @@ func (c *Config) validate() []string {
 		hosts = hosts[:MaxRecentHosts]
 	}
 	c.RecentHosts = hosts
+	for _, id := range sortedModIDs(c.Mods) {
+		m := c.Mods[id]
+		raw := bytes.TrimSpace(m.Settings)
+		switch {
+		case len(raw) == 0 || string(raw) == "null":
+			m.Settings = nil
+		case raw[0] != '{':
+			// {} rather than nothing, so a save writes it over the bad value
+			// instead of keeping that (Marshal keeps what the file had).
+			warns = append(warns, fmt.Sprintf("the settings of mod %q are not a JSON object; using none", id))
+			m.Settings = json.RawMessage("{}")
+		default:
+			// The form Marshal writes (keys sorted, compact), so a file
+			// reads the same after a save.
+			m.Settings = mergeObjects(raw, raw)
+		}
+		c.Mods[id] = m
+	}
+	if len(c.Mods) == 0 {
+		c.Mods = nil
+	}
 	return warns
+}
+
+func sortedModIDs(m map[string]ModConfig) []string {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // Marshal encodes c as Save writes it: the known fields, then the fields
@@ -321,6 +393,11 @@ func (c Config) Marshal() ([]byte, error) {
 		}
 		v = mergeObjects(old, v)
 		out[k] = v
+	}
+	if len(c.Mods) == 0 {
+		// No mod settings: no "mods" key, as before mods had settings (a
+		// "mods" the file had that did not decode is dropped with them).
+		delete(out, "mods")
 	}
 	b, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {

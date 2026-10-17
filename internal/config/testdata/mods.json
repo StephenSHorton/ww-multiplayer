@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "name": "Aryll",
+  "mods": {
+    "coop": {"enabled": false},
+    "example": {"enabled": true, "settings": {"zeta": [3, {"b": 1, "a": 2}], "alpha": "x"}, "pinned": true},
+    "multiplayer": {"settings": {"tickHz": 30}}
+  }
+}
