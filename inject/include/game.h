@@ -63,6 +63,22 @@ typedef int BOOL;
 typedef BOOL (*fopAcM_SearchByID_t)(fpc_ProcID id, fopAc_ac_c** out);
 #define fopAcM_SearchByID ((fopAcM_SearchByID_t)0x800241C0)
 
+// Delete an actor by id: fopAcM_delete__FUi at 0x800244B8
+// (f_op_actor_mng.cpp:141-151). Looks the id up and queues the actor for
+// deletion (fpcM_Delete -> fpcDt_Delete, f_pc_deletor.cpp); the delete
+// queue runs in the next fpcM_Management, the same path an actor that
+// deletes itself from execute takes. TRUE when queued or when no live
+// actor has that id; FALSE while the process is still being created
+// (fpcCt_IsDoing) or is already being deleted (mInitState 3).
+typedef BOOL (*fopAcM_deleteByID_t)(fpc_ProcID id);
+#define fopAcM_deleteByID ((fopAcM_deleteByID_t)0x800244B8)
+
+// TRUE while id is still in the create queue (fpcM_IsCreating__FUi at
+// 0x8003E3B0, f_pc_manager.cpp:61): fopAcM_SearchByID can't see it yet,
+// and it can't be deleted yet either.
+typedef BOOL (*fpcM_IsCreating_t)(fpc_ProcID id);
+#define fpcM_IsCreating ((fpcM_IsCreating_t)0x8003E3B0)
+
 #define PROC_PLAYER     0x00A9
 #define PROC_KAMOME     0x00C3
 #define PROC_NPC_KO1    0x0141
@@ -75,6 +91,12 @@ typedef BOOL (*fopAcM_SearchByID_t)(fpc_ProcID id, fopAc_ac_c** out);
 // Player pointer array: g_dComIfG_gameInfo + 0x12A0 + 0x48AC
 // mpPlayerPtr[0] = Link, [1] = companion, [2] = ship
 #define PLAYER_PTR_ARRAY ((fopAc_ac_c**)0x803CA754)
+
+// dComIfGp mNextStage.mEnable (g_dComIfG_gameInfo.play + 0x3EA0 + 0xC;
+// wwapi/addr NextStageEnable): nonzero from the moment a loading zone or
+// dComIfGp_setNextStage fires until the next play scene's create phase
+// clears it (d_s_play.cpp:1278), i.e. for the whole old-stage teardown.
+#define NEXT_STAGE_ENABLE (*(volatile s8*)0x803C9D54)
 
 // daPy_lk_c offsets (zeldaret/tww include/d/actor/d_a_player_main.h):
 //   +0x0328 = J3DModelData* mpCLModelData

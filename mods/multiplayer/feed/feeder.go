@@ -41,14 +41,29 @@ const poseLerpK float32 = 0.5
 // serverReadTimeout is the slower backstop). See freezeAfter/despawnAfter.
 const despawnReserve = 10 * time.Second
 
+// actorGrace is how long a remote must go without a usable pose and a
+// link slot before its actor puppet (KAMOME / NPC_OB1) comes up (see
+// actorSlot). Position and pose are separate messages, so a remote whose
+// Link has just appeared (its game left the title screen, or it just
+// connected) is usually first seen with a position only; its pose
+// follows a few ticks later and it is drawn as a Link, no actor needed.
+// The C side deletes an actor puppet when its slot goes inactive and on
+// every stage change (inject/src/multiplayer.c puppet_reap): before
+// that, a KAMOME left behind this way outlived its stage, read its old
+// room's path and froze the game ("Invalid read from 0x1a0d0013, PC =
+// 0x80f24230", d_a_kamome). The wait keeps that spawn-and-delete churn
+// off the usual join.
+const actorGrace = 2 * time.Second
+
 // Feeder is PuppetSync's receive side over wwapi/avatar: it draws the
 // remote players in one Dolphin. A remote with a whole Link pose claims
 // one of the avatar.Cap pose-feed (mini-Link) slots, first come first
 // served; every remote also gets an actor-puppet slot (KAMOME / NPC_OB1 /
 // TSUBO, MaxPuppets of them) that carries its smoothed position, and the
-// actor is drawn only for a remote without a pose, or until its pose
-// takes a link slot. So players beyond avatar.Cap fall back to the actor
-// puppet (decision 5 in docs/api/00-design.md).
+// actor is drawn only for a remote that, actorGrace after it was first
+// seen, still has no usable pose or no link slot to draw it in, and only
+// until its pose takes a link slot. So players beyond avatar.Cap fall
+// back to the actor puppet (decision 5 in docs/api/00-design.md).
 //
 // ALL of its state SURVIVES reconnects (#8): PuppetSync's connect/run
 // callbacks for ReconnectLoop share one Feeder, and a transient drop must
@@ -72,6 +87,10 @@ type Feeder struct {
 	// Actor puppets (slots.go).
 	slots        [MaxPuppets]slotState
 	remoteToSlot map[byte]int
+	// actorWait[id] is when remote id's actor-puppet slot was assigned,
+	// while its actorGrace wait runs (actorSlot); the zero time means
+	// "restart the clock on the next tick" (Connected).
+	actorWait map[byte]time.Time
 
 	// Pose-feed state. We can drive up to avatar.Cap Link puppets
 	// from incoming remote poses. First remote with pose claims Link
@@ -121,6 +140,7 @@ func NewFeeder(m Mem, selfFilter string, rep log.Reporter) *Feeder {
 		zero:             make([]byte, 4),
 		one:              make([]byte, 4),
 		remoteToSlot:     map[byte]int{},
+		actorWait:        map[byte]time.Time{},
 		remoteToLinkSlot: map[byte]int{},
 		announced:        map[byte]bool{},
 		parked:           map[byte]bool{},
@@ -167,6 +187,12 @@ func (f *Feeder) Connected(serverEpoch uint64) {
 	}
 	f.shadowModeArmed = true
 
+	// A pending actorGrace wait starts over: the new connection delivers
+	// each remote's position before its pose again.
+	for id := range f.actorWait {
+		f.actorWait[id] = time.Time{}
+	}
+
 	if serverRestarted {
 		// New server instance ⇒ new player ids; old slots are stale.
 		// Drop every actor-puppet + link-slot mapping so fresh remotes
@@ -176,6 +202,7 @@ func (f *Feeder) Connected(serverEpoch uint64) {
 			delete(f.remoteToSlot, id)
 			f.slots[idx] = slotState{}
 		}
+		f.actorWait = map[byte]time.Time{}
 		for s := range f.linkSlots {
 			f.linkSlots[s] = linkSlotState{}
 		}
@@ -212,7 +239,7 @@ func (f *Feeder) Feed(ctx context.Context, remotes []network.RemotePlayer, now t
 			log.Logf(f.rep, log.Warn, "player %d (%s) sent a %d-joint pose (%d B); Link has %d joints, so it won't drive a Link slot",
 				rp.ID, rp.Name, rp.PoseJoints, len(rp.PoseMatrices), avatar.JointCount)
 		}
-		idx, ok := f.actorSlot(rp, hasPose)
+		idx, ok := f.actorSlot(rp, hasPose, now)
 		if !ok {
 			// All slots full; drop this remote for now.
 			continue
@@ -300,7 +327,7 @@ func (f *Feeder) feedPose(ctx context.Context, rp *network.RemotePlayer, idx int
 			// First time this remote got a link slot — also
 			// release their actor-puppet so we don't see both
 			// a Link AND a KAMOME at the same position.
-			f.m.Write(SlotAddr(idx, mailbox.PuppetOffActive), f.zero)
+			f.setActorActive(idx, false)
 			if _, alreadyLogged := f.announced[rp.ID]; !alreadyLogged {
 				log.Logf(f.rep, log.OK, "link slot %d := player %d (%s)", linkSlot, rp.ID, rp.Name)
 				f.announced[rp.ID] = true
@@ -354,6 +381,7 @@ func (f *Feeder) releaseGone(seen map[byte]bool) {
 		if !seen[id] {
 			f.m.Write(SlotAddr(idx, mailbox.PuppetOffActive), f.zero)
 			delete(f.remoteToSlot, id)
+			delete(f.actorWait, id)
 			f.slots[idx] = slotState{}
 			log.Logf(f.rep, log.Info, "slot %d freed (player %d left)", idx, id)
 			if linkSlot, ok := f.remoteToLinkSlot[id]; ok {

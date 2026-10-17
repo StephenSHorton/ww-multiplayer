@@ -21,7 +21,7 @@
 - **How the recolor is done.** Because the texture is CMPR, a recolor only moves the two RGB565 endpoint colors of each green 4x4 block. There is no decode or re-encode. Go does it at join time (`wwapi/gfx/texture`, was `internal/tunic`; implemented here).
 - **Who picks the colors.** Each player picks their own, from an 8-color palette (green, red, blue, purple, then orange, cyan, pink, black) or any `#RRGGBB`, with `--color`, `WW_COLOR` or the app's lobby. Players may wear the same color; a player who picks none wears classic green. The server records each player *name*'s color and sends it to everyone. The colors travel in a backward-compatible trailer on `MsgPlayerList`, so there is **no protocol version bump** (§5.1). This part is implemented and tested here.
 - **What must be checked live first.** One Go-only check runs before any blob change: the `tunic-probe` and `tunic-recolor` diagnostics (implemented here). They prove the texture facts and the recolor quality on a live Dolphin (§7.1).
-- **The C part (built).** It is `tunic_swap` / `tunic_restore` plus a one-time allocation, measured at **0x120 bytes** of T2 with devkitPPC 16.2 (§6). The casual shirt for remotes (§5.6) added 0x20, so T2 now ends at 0x80412E28, **0xD8 bytes** below the mailbox. The blob is regenerated; it still needs one Shift+F1 recapture and a user re-patch.
+- **The C part (built).** It is `tunic_swap` / `tunic_restore` plus a one-time allocation, measured at **0x120 bytes** of T2 with devkitPPC 16.2 (§6). The casual shirt for remotes (§5.6) added 0x20; deleting the actor puppets (docs/05, "Actor puppets outlived their slot") added 0xC0, so T2 now ends at 0x80412EE8, **0x18 bytes** below the mailbox. The blob is regenerated; it still needs one Shift+F1 recapture and a user re-patch.
 - **Owner decisions (2026-10-16).**
   - Green stays in the palette: the vanilla tunic is a valid color, and it is what a player with no preference wears.
   - Colors will later be chosen in a Wails desktop lobby, so selection stays in Go packages the app can call: `mods/multiplayer/playercolor` (palette, `Parse`), `network.Client.SetColorPreference`, and `session.Player.Color` for display.
@@ -305,12 +305,13 @@ The casual shirt does not depend on the color pipeline, since C reads no image b
 | `origin/main` a301890 | 0x2CE8 | 0x80412CE8 | 0x218 |
 | first build of this C at `-O2` | 0x2F88 | 0x80412F88 | **−0x88 (overlaps the mailbox)** |
 | as built (`noinline, optimize("Os")` on the two helpers) | 0x2E08 | 0x80412E08 | 0xF8 |
-| plus the casual shirt (§5.6) | **0x2E28** | **0x80412E28** | **0xD8** |
+| plus the casual shirt (§5.6) | 0x2E28 | 0x80412E28 | 0xD8 |
+| plus the actor-puppet deletes (`puppet_reap`, docs/05) | **0x2EE8** | **0x80412EE8** | **0x18** |
 
 - **Why the first build overflowed.** At `-O2`, gcc unrolled both 8-word copy loops and inlined `tunic_restore` at its three call sites. `tunic_swap` alone was 0xF0 bytes.
 - **As built:** `tunic_swap` is 0xC8 bytes (0xE4 with §5.6's casual case), `tunic_restore` 0x60, and the statics (`tunic_hdr`, `tunic_saved[8]`) 0x24. The allocation block and the call sites are the rest.
-- **The check.** `TestT2EndsBelowMailbox` (`internal/inject/t2_budget_test.go`) checks the T2 end against `blob.go` at test time and logs the free bytes (0xD8 now).
-- **0xD8 is the last room in T2.** M7 needs about 0x700 (docs/08 §4.5). The next C feature therefore needs finish-plan D2 (drop the dead shadow modes 1-4 and the echo ring) or the option-A arena move first.
+- **The check.** `TestT2EndsBelowMailbox` (`internal/inject/t2_budget_test.go`) checks the T2 end against `blob.go` at test time and logs the free bytes (0x18 now).
+- **0x18 is the last room in T2.** M7 needs about 0x700 (docs/08 §4.5). The next C feature therefore needs finish-plan D2 (drop the dead shadow modes 1-4 and the echo ring) or the option-A arena move first.
 
 **Memory.**
 - 3 × the image size from GameHeap, allocated once. If `linktexS3TC` is 256x256 with no mips, that is 3 × 32 KiB = 96 KiB **(inferred; `tunic-probe` prints the size)**. Go refuses images over 64 KiB.
@@ -452,7 +453,7 @@ Setup: run `SAVE_STATE=… ./wwdev.exe dolphin2`, then `WW_TUNIC=off ./wwdev.exe
 - **The mask catches other greens (medium).** For example, eye highlights, if any share the atlas. Tune `DefaultMask` from the §7.1 screenshots, or ship a hand-made block mask. A mask is our own data, not Nintendo's.
 - **Diff buffer and texmap stage (low).** The differed buffer is sized for TexNoNum = 2 (`J3DPacket.h:39-49`). Face sync proves texmap stages 0-1. A tunic texmap ≥ 2 needs a look at the matpacket's differed sizing (check `tunic-probe` (c) before §7.2).
 - **GameHeap headroom (medium).** See §6.
-- **Code space (known).** 0xD8 bytes are left in T2 (§6). The next C feature needs D2 or M7 first.
+- **Code space (known).** 0x18 bytes are left in T2 (§6). The next C feature needs D2 or M7 first.
 - **Multiple Dolphins and IDs (low).** Colors key on names, so two humans with the same name share a color. That is the existing dedup's assumption too.
 
 **Decided (owner, 2026-10-16):** green stays in the palette; the vanilla tunic is a valid color.
