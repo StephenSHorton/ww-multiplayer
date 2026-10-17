@@ -136,67 +136,6 @@ func (p Pos) valid() bool {
 	return true
 }
 
-// StageRequest is a stage change as mNextStage holds it
-// (dStage_startStage_c, d_stage.h:949-952).
-type StageRequest struct {
-	Name  string
-	Point int16
-	Room  int8
-	Layer int8
-}
-
-func (h StageRequest) String() string {
-	return fmt.Sprintf("%s by point %d into room %d, layer %d", h.Name, h.Point, h.Room, h.Layer)
-}
-
-// Check reports whether the game takes h, as the WriteGuard's mNextStage
-// rules have it (escapeRules): a name of 1-7 letters, digits or '_', a
-// point 0..255, a room 0..63 and a layer -1..MaxStageLayer.
-func (h StageRequest) Check() error {
-	switch {
-	case h.Name == "" || len(h.Name) >= addr.StageNameLen:
-		return fmt.Errorf("stage name %q: want 1-%d characters", h.Name, addr.StageNameLen-1)
-	case h.Point < 0 || h.Point > 0xFF:
-		return fmt.Errorf("point %d: an entrance is 0..255 (a PLYR entry's angle.z, d_stage.cpp:1455-1463)", h.Point)
-	case h.Room < 0 || int(h.Room) >= addr.RoomCount:
-		return fmt.Errorf("room %d: want 0..%d", h.Room, addr.RoomCount-1)
-	case h.Layer < -1 || h.Layer > MaxStageLayer:
-		return fmt.Errorf("layer %d: want -1..%d", h.Layer, MaxStageLayer)
-	}
-	for i := range len(h.Name) {
-		if b := h.Name[i]; b == 0 || !stageNameByte(b) {
-			return fmt.Errorf("stage name %q: only letters, digits and '_'", h.Name)
-		}
-	}
-	return nil
-}
-
-// Bytes is h's dStage_startStage_c: name[8] (NUL-padded, as
-// dStage_startStage_c::set strcpys it, d_stage.cpp:112-117), point s16,
-// room s8, layer s8.
-func (h StageRequest) Bytes() [addr.StageSize]byte {
-	var b [addr.StageSize]byte
-	copy(b[addr.StageOffName:addr.StageOffName+addr.StageNameLen-1], h.Name)
-	binary.BigEndian.PutUint16(b[addr.StageOffPoint:], uint16(h.Point))
-	b[addr.StageOffRoomNo] = byte(h.Room)
-	b[addr.StageOffLayer] = byte(h.Layer)
-	return b
-}
-
-// Fields are the writes that ask the game for h, as ApplyFields makes
-// them: mNextStage's twelve bytes, mWipe 0 (l_wipeType[0], the plain fade,
-// d_s_play.cpp:291-303), then mEnable 1 last, the byte dScnPly_Draw acts
-// on (d_s_play.cpp:291-314). M0's stage-hop writes the same bytes in the
-// same order (coop_diag.go).
-func (h StageRequest) Fields() []Field {
-	b := h.Bytes()
-	return []Field{
-		{Addr: addr.NextStage, Data: b[:]},
-		{Addr: addr.NextStage + addr.NextOffWipe, Data: []byte{0}},
-		{Addr: addr.NextStage + addr.NextOffEnable, Data: []byte{1}},
-	}
-}
-
 // nextStageOf is the request mNextStage holds in s.
 func nextStageOf(s *state.Snapshot) StageRequest {
 	b := s.Stage[addr.NextStage-state.StageRegion.Start:]

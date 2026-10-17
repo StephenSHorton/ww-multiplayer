@@ -2,7 +2,6 @@ package replica
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -21,6 +20,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/write"
 )
 
 // Target is one part of the WriteGuard's allowlist (§4.2). A Guard is
@@ -304,17 +304,8 @@ func betterVariant(s save.Slot, old, val byte) bool {
 // concurrent use; a WriteGuard adds the gates and the policy.
 type Guard struct {
 	targets Target
-	spans   []guardSpan // ascending, non-overlapping
+	list    write.Allowlist[byteRule]
 }
-
-type guardSpan struct {
-	start uint32
-	mask  []byte // the bits each byte may change
-	rules []byteRule
-	name  string
-}
-
-func (s guardSpan) end() uint32 { return s.start + uint32(len(s.mask)) }
 
 // ErrGuard is matched (errors.Is) by every refusal Check returns.
 var ErrGuard = errors.New("replica: write refused by the WriteGuard")
@@ -336,7 +327,9 @@ func NewGuardFor(t Target) *Guard {
 			some = some || mask[i] != 0
 		}
 		if some {
-			g.spans = append(g.spans, guardSpan{start: start, mask: mask, rules: rules, name: name})
+			if err := g.list.Add(write.Span[byteRule]{Start: start, Mask: mask, Rules: rules, Name: name}); err != nil {
+				panic(err) // the spans are fixed: TestGuardSpans
+			}
 		}
 	}
 	whole := func(n int, r rule, tg Target, p path) []byteRule {
@@ -373,8 +366,6 @@ func NewGuardFor(t Target) *Guard {
 	add(addr.NextStage, escapeRules(), "mNextStage")
 	add(mailbox.WarpSeq, whole(4, ruleSet, TargetEscape, pathEscape), "mailbox.warp_seq")
 	add(WarpPos, whole(12, ruleSet, TargetEscape, pathEscape), "mailbox.warp_x/y/z")
-
-	slices.SortFunc(g.spans, func(a, b guardSpan) int { return cmp.Compare(a.start, b.start) })
 	return g
 }
 
@@ -476,22 +467,11 @@ func (g *Guard) Targets() Target { return g.targets }
 // at returns the allowlist's rule for the byte at a; ok is false outside
 // it.
 func (g *Guard) at(a uint32) (span string, br byteRule, ok bool) {
-	i, found := slices.BinarySearchFunc(g.spans, a, func(s guardSpan, a uint32) int {
-		switch {
-		case a < s.start:
-			return 1
-		case a >= s.end():
-			return -1
-		}
-		return 0
-	})
-	if !found {
-		return "", byteRule{}, false
-	}
-	s := g.spans[i]
-	br = s.rules[a-s.start]
-	return s.name, br, br.mask != 0
+	return g.list.At(a)
 }
+
+// Ranges returns the address set the allowlist spans (write.Range).
+func (g *Guard) Ranges() []write.Range { return g.list.Ranges() }
 
 // Mask returns the bits a write may change in the byte at a, 0 if a is
 // outside the allowlist.
@@ -585,12 +565,8 @@ func judgeByte(br byteRule, old, val byte) (Refusal, string) {
 	return 0, ""
 }
 
-// stageNameByte reports whether b may be a byte of a stage name in
-// mNextStage: NUL, or a letter, digit or '_', as every stage name is
-// (and stage-hop takes).
-func stageNameByte(b byte) bool {
-	return b == 0 || b == '_' || b >= '0' && b <= '9' || b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z'
-}
+// stageNameByte is write.StageNameByte.
+func stageNameByte(b byte) bool { return write.StageNameByte(b) }
 
 // Refusal is why the WriteGuard refused a write.
 type Refusal uint8
