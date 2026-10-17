@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
@@ -391,6 +393,12 @@ func TestWatcherFirstAtBoot(t *testing.T) {
 }
 
 // TestGameStartStops: the watcher goroutine polls until Close.
+//
+// The first tick runs as soon as Start's goroutine does, so the test
+// subscribes before Start: an events.Wait after Start could subscribe
+// after StageChanged{First} was emitted and wait forever (CI hung 10
+// minutes on that). The context has a deadline so a regression fails
+// instead of hanging.
 func TestGameStartStops(t *testing.T) {
 	m, fg := bootedRAM(t)
 	if err := fg.LoadStage(fakegame.Stage{Name: "sea", Room: 44, Table: addr.TableSea}); err != nil {
@@ -400,17 +408,52 @@ func TestGameStartStops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	ch, stop := events.Chan[events.StageChanged](g.Events(), events.DefaultBuffer)
+	defer stop()
 	g.Start(ctx)
-	e, err := events.Wait(ctx, g.Events(), func(e events.StageChanged) bool { return e.First })
-	if err != nil || e.To.Stage != "sea" {
-		t.Errorf("first StageChanged: %+v, %v", e, err)
+	g.Start(ctx) // a second Start does nothing
+	select {
+	case e, ok := <-ch:
+		if !ok || !e.First || e.To.Stage != "sea" {
+			t.Errorf("first StageChanged: %+v (open %v)", e, ok)
+		}
+	case <-ctx.Done():
+		t.Fatal("no StageChanged{First} from the watcher")
 	}
-	g.Close()
+	if last, ok := events.Last[events.StageChanged](g.Events()); !ok || !last.First {
+		t.Errorf("events.Last after the first tick: %+v, %v", last, ok)
+	}
+	// Close from several goroutines at once, as a session teardown racing
+	// a signal handler would: none may panic or return before the
+	// watcher has stopped.
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			g.Close()
+		}()
+	}
+	wg.Wait()
 	g.Close()
 	if err := g.Events().Emit(probe{}); !errors.Is(err, events.ErrClosed) {
 		t.Errorf("bus open after Close: %v", err)
+	}
+}
+
+// TestGameCloseBeforeStart: a Game closed before Start never starts.
+func TestGameCloseBeforeStart(t *testing.T) {
+	m, _ := bootedRAM(t)
+	g, err := wwapi.NewGame(m, wwapi.GameOptions{Interval: wwapi.FastInterval})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Close()
+	g.Start(context.Background())
+	if s := g.Snapshot(); s != nil {
+		t.Errorf("a closed Game ticked: %+v", s)
 	}
 }
 

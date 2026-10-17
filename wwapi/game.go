@@ -110,9 +110,10 @@ type Game struct {
 	snap     *state.Snapshot
 	status   gate.Status
 
-	stop chan struct{}
-	done chan struct{}
-	once sync.Once
+	stop      chan struct{}
+	done      chan struct{}
+	once      sync.Once // Start (and Close, so a closed Game never starts)
+	closeOnce sync.Once
 }
 
 // Attach opens the Dolphin process o picks, runs the contract check and
@@ -218,6 +219,11 @@ func (r readOnly) Read(a uint32, n int) ([]byte, error) { return r.m.Read(a, n) 
 
 // Start runs the watcher in a goroutine until ctx ends or Close. Calling
 // it again does nothing.
+//
+// The first tick runs at once and emits StageChanged{First: true}; a
+// subscription made after Start can miss it (events.Wait and Chan only
+// see events emitted after they subscribe). Subscribe before Start, or
+// read events.Last.
 func (g *Game) Start(ctx context.Context) {
 	g.once.Do(func() {
 		g.stop, g.done = make(chan struct{}), make(chan struct{})
@@ -279,15 +285,17 @@ func (g *Game) Tick() error {
 }
 
 // Close stops the watcher, closes the bus if NewGame made it, and releases
-// the Dolphin process Attach opened.
+// the Dolphin process Attach opened. It is safe to call more than once
+// and from several goroutines; every call returns once the first has
+// finished.
 func (g *Game) Close() {
+	g.closeOnce.Do(g.closeNow)
+}
+
+func (g *Game) closeNow() {
 	g.once.Do(func() {}) // a Game never started cannot start after Close
 	if g.stop != nil {
-		select {
-		case <-g.stop:
-		default:
-			close(g.stop)
-		}
+		close(g.stop)
 		<-g.done
 	}
 	if g.ownsB {

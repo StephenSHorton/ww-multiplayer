@@ -362,6 +362,12 @@ func callRun(mod Mod, ctx context.Context) (err error) {
 // quarantine moves a LOADED mod to QUARANTINED: it cancels its Run,
 // ends its subscriptions, removes its commands, logs why and emits
 // ModQuarantined. A mod in any other state is left as it is.
+//
+// The teardown happens under rt.mu, before the status changes, so a
+// reader that sees QUARANTINED (Status, Mods, Context.Has) also sees the
+// mod's commands gone and its subscriptions ended. The view's and the
+// registry's Close take only their own locks and call no mod code, so
+// holding rt.mu across them cannot deadlock.
 func (rt *Runtime) quarantine(id, reason string, stack []byte) {
 	m := rt.byID[id]
 	if m == nil {
@@ -372,18 +378,17 @@ func (rt *Runtime) quarantine(id, reason string, stack []byte) {
 		rt.mu.Unlock()
 		return
 	}
+	if m.cancel != nil {
+		m.cancel()
+	}
+	if m.view != nil {
+		m.view.Close()
+	}
+	if m.cmds != nil {
+		m.cmds.Close()
+	}
 	m.status = Status{State: Quarantined, Reason: reason}
-	cancel, view, cmds := m.cancel, m.view, m.cmds
 	rt.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-	if view != nil {
-		view.Close()
-	}
-	if cmds != nil {
-		cmds.Close()
-	}
 	rt.log.Log(log.Err, fmt.Sprintf("mod %s quarantined: %s", id, reason))
 	if len(stack) > 0 {
 		rt.log.Log(log.Info, fmt.Sprintf("mod %s: stack:\n%s", id, stack))
