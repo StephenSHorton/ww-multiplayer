@@ -221,7 +221,8 @@ type Output interface {
 }
 
 // Engine runs the session work. package main implements it over
-// runHostSession / runJoinSession and its liveState status bridge.
+// mods/multiplayer/engine (RunHostSession / RunJoinSession and its
+// LiveState status bridge).
 type Engine interface {
 	// Host runs the host flow until ctx is cancelled or a pipeline fails,
 	// and returns the error to report as the session's end: nil on a

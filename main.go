@@ -4013,7 +4013,7 @@ func exitUsage(err error, usage string) {
 // pipeline (coop_session.go).
 //
 // The session runs on a session.Controller (App PR 2) over the CLI's
-// engine, which prints every line to stdout as runHostSession always has
+// engine, which prints every line to stdout as engine.RunHostSession always has
 // and asks the co-op questions on stdin; a failed session exits 1.
 func runHost(name string, port int, co coopFlags) {
 	rep := log.Stdout{}
@@ -4033,74 +4033,6 @@ func newCLIController(rep log.Reporter) *session.Controller {
 	return session.New(newCLIEngine(), session.Options{Log: rep})
 }
 
-// runHostSession contains the actual host flow without any signal-handler
-// or os.Exit assumptions, so the TUI can drive it from inside its own
-// context without fighting Bubble Tea's Ctrl+C handling.
-// ls, when non-nil (the TUI path), is the shared status bridge: this session
-// registers its server, host IPs, and puppet-sync client into it for the #19
-// status panel, and clears it on return. CLI callers pass nil.
-// co, when on (--coop), backs up the cards, opens or founds the co-op
-// world, sets the CoopHub as the server's Coop and adds a coop-sync
-// pipeline; the hub stops after the server. front is its front end: the
-// zero coopFront for stdin, as the CLI's.
-// Returns a server start failure or the first pipeline failure (not yet
-// logged), or nil when the session ended by ctx cancel.
-func runHostSession(ctx context.Context, cancel context.CancelFunc, name string, port int, rep log.Reporter, ls *engine.LiveState, co coopFlags, front coopFront) error {
-	if name == "" {
-		name = "Host"
-	}
-	srv := network.NewServer(port)
-	srv.OnLog = func(msg string) {
-		rep.Log(log.Info, fmt.Sprintf("[srv %s] %s", time.Now().Format("15:04:05"), msg))
-	}
-	var coop *coopSession
-	if co.on {
-		var err error
-		env := defaultCoopEnv(0)
-		env.front = front
-		if coop, err = startCoopHost(ctx, rep, srv.OnLog, co, env); err != nil {
-			if ctx.Err() != nil {
-				return nil // Ctrl+C while founding waited for the game
-			}
-			return err
-		}
-		srv.Coop = coop.hub
-	}
-	if err := srv.Start(); err != nil {
-		coop.stop()
-		return fmt.Errorf("server start: %w", err)
-	}
-
-	ips := engine.ShareAddrs(engine.ListHostIPs(), port)
-	if ls != nil {
-		ls.Begin("Host", name, ips)
-		ls.SetServer(srv)
-		defer ls.Reset()
-	}
-
-	log.Logf(rep, log.OK, "Hosting as %q on :%d.", name, port)
-	if len(ips) > 0 {
-		if port == defaultPort {
-			rep.Log(log.Info, "Share one of these IPs with your friend:")
-		} else {
-			rep.Log(log.Info, "Share one of these addresses with your friend (the :port is needed):")
-		}
-		for _, ip := range ips {
-			log.Logf(rep, log.Info, "  %s", ip)
-		}
-	} else {
-		rep.Log(log.Warn, "(could not auto-detect a LAN IP — check your network settings)")
-	}
-	rep.Log(log.Info, "Ctrl+C to stop.")
-
-	err := runMultiplayerGoroutines(ctx, cancel, name, fmt.Sprintf("localhost:%d", port), rep, engine.LiveStateClientSetter(ls), engine.LiveStateLocalPosSetter(ls), coop)
-
-	srv.Stop()
-	coop.stop()
-	clearMultiplayerState()
-	return err
-}
-
 // runJoin is the single-process joiner entry point: just broadcast-pose +
 // puppet-sync goroutines pointed at the host's address. Same signal
 // handling and mailbox cleanup as runHost. co.on (--coop) adds a
@@ -4115,85 +4047,6 @@ func runJoin(addr, name string, co coopFlags) {
 	}); code != 0 {
 		os.Exit(code)
 	}
-}
-
-// runJoinSession is the signal-free, exit-free version that the TUI calls.
-// ls, when non-nil (the TUI path), is the shared status bridge: the join role
-// registers only its puppet-sync client (no server, no host IPs) and clears the
-// bridge on return. CLI callers pass nil. co, when on (--coop), backs up
-// the cards and adds a coop-sync pipeline; front is its front end, as
-// for runHostSession.
-// Returns the first pipeline failure (not yet logged), or nil when the
-// session ended by ctx cancel.
-func runJoinSession(ctx context.Context, cancel context.CancelFunc, addr, name string, rep log.Reporter, ls *engine.LiveState, co coopFlags, front coopFront) error {
-	if name == "" {
-		name = "Player"
-	}
-	// Default port to defaultPort if the user passed a bare host/IP.
-	// netutil.NormalizeAddr is IPv6-aware (bracketed and bare literals),
-	// unlike a naive strings.Contains(addr, ":") check, which would
-	// double-append a port onto bare IPv6 addresses like "::1".
-	addr = netutil.NormalizeAddr(addr, defaultPort)
-
-	if ls != nil {
-		ls.Begin("Join", name, nil)
-		defer ls.Reset()
-	}
-
-	log.Logf(rep, log.OK, "Joining %s as %q.", addr, name)
-	var coop *coopSession
-	if co.on {
-		env := defaultCoopEnv(0)
-		env.front = front
-		coop = startCoopSession(rep, co, env)
-	}
-	rep.Log(log.Info, "Ctrl+C to stop.")
-
-	err := runMultiplayerGoroutines(ctx, cancel, name, addr, rep, engine.LiveStateClientSetter(ls), engine.LiveStateLocalPosSetter(ls), coop)
-
-	clearMultiplayerState()
-	return err
-}
-
-// runMultiplayerGoroutines spawns broadcast-pose + puppet-sync against the
-// given server address. Player name is passed as selfFilter so the two
-// in-process clients don't self-echo on the co-located broadcast/puppet
-// twin (the WW_SELF_NAME workaround from mplay2.sh, but automatic). Blocks
-// until either goroutine exits or ctx is cancelled, then waits for both to
-// finish before returning.
-// onClient, when non-nil, is forwarded to the puppet-sync goroutine so its
-// *network.Client can be registered with the TUI status bridge. onPos, when
-// non-nil, is forwarded to the broadcast-pose goroutine so this Dolphin's own
-// position can be registered with the TUI's #22 minimap bridge. CLI callers
-// pass nil for both.
-//
-// Both goroutines dial the same addr, so they share one ConnectLog and an
-// unreachable host is reported once rather than once per connection.
-// coop, when non-nil (--coop), adds a third pipeline, coop-sync, with its
-// own Dolphin handle and co-op connection (runCoopSyncCtx), and hears the
-// puppet-sync client for its warps (coopSession.withPoseClient); nil runs
-// the two pose pipelines alone, as before co-op.
-// Returns runPipelines' result: the first real failure, or nil on a normal
-// ctx-cancel shutdown.
-func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, name, addr string, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32), coop *coopSession) error {
-	connLog := feed.NewConnectLog(addr, rep)
-	// A warp to the partner takes its position from pose sync (nil-safe:
-	// without co-op, onClient is as given).
-	onClient = coop.withPoseClient(name, onClient)
-	ps := []engine.Pipeline{
-		{Name: "broadcast-pose", Run: func(ctx context.Context) error {
-			return feed.BroadcastPose(ctx, feedEnv, name, addr, 0, rep, connLog, onPos)
-		}},
-		{Name: "puppet-sync", Run: func(ctx context.Context) error {
-			return feed.PuppetSync(ctx, feedEnv, name, addr, name, 0, rep, connLog, onClient)
-		}},
-	}
-	if coop != nil {
-		ps = append(ps, engine.Pipeline{Name: "coop-sync", Run: func(ctx context.Context) error {
-			return runCoopSyncCtx(ctx, name, addr, 0, rep, coop)
-		}})
-	}
-	return engine.RunPipelines(ctx, cancel, rep, ps...)
 }
 
 // clearMultiplayerState resets the env-selected Dolphin's mailbox so the

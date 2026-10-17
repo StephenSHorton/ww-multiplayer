@@ -119,7 +119,7 @@ func guiOptions(ctrl *session.Controller) gui.Options {
 // runTUI runs the Bubble Tea TUI (what no arguments opened before the app
 // window). v0.0's TUI was retired in v0.1.2 (a35d4ec) because it never
 // wired the connect screen to the pose-feed pipeline; v0.1.5 brought it
-// back with the dashboard driving the same runHostSession / runJoinSession
+// back with the dashboard driving the same engine.RunHostSession / engine.RunJoinSession
 // funcs the CLI subcommands run, through a session.Controller over
 // sessionEngine (session_engine.go).
 func runTUI(ctrl *session.Controller) {

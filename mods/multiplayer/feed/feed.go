@@ -6,8 +6,9 @@
 // is the loopback dev source (pose-fake-loop).
 //
 // They were runBroadcastPoseCtx, runPuppetSyncCtx and runPoseFakeLoop in
-// package main; the CLI wrappers (broadcast-pose, puppet-sync) and
-// runMultiplayerGoroutines stay there and call these.
+// package main; the CLI wrappers (broadcast-pose, puppet-sync)
+// stay there, and mods/multiplayer/engine's host and join sessions call
+// these.
 package feed
 
 import (

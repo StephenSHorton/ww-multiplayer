@@ -249,7 +249,7 @@ func TestControllerLiveCoop(t *testing.T) {
 }
 
 // cliEngine is a session.Engine whose session logs lines and returns err:
-// the outcomes runHostSession and runJoinSession have.
+// the outcomes engine.RunHostSession and engine.RunJoinSession have.
 type cliEngine struct{ err error }
 
 // lines logs what the session prints; the engine then returns e.err,
@@ -280,7 +280,7 @@ func (cliEngine) SendChat(text string) error { return nil }
 
 // TestRunCLISession: the CLI's host and join through the controller print
 // the lines, and exit with the code, of the direct call they replaced
-// (runHostSession, then logSessionErr and os.Exit(1) on an error), for
+// (engine.RunHostSession, then engine.LogSessionErr and os.Exit(1) on an error), for
 // each way a session ends.
 func TestRunCLISession(t *testing.T) {
 	for _, c := range []struct {
@@ -293,7 +293,7 @@ func TestRunCLISession(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Before: the session's lines to stdout, then, on an error,
-			// logSessionErr and exit 1 (runHost and runJoin).
+			// engine.LogSessionErr and exit 1 (runHost and runJoin).
 			old := &goldenLog{}
 			oldCode := 0
 			(cliEngine{c.err}).lines(old)

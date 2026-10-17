@@ -222,7 +222,7 @@ func TestJoin_FailureEnds(t *testing.T) {
 }
 
 // TestEndReason_NewestErrLine: the reason is the newest Err-level line, which
-// is how runMultiplayerGoroutines reports a pipeline failure, even when the
+// is how engine.runMultiplayerGoroutines reports a pipeline failure, even when the
 // engine returns nil.
 func TestEndReason_NewestErrLine(t *testing.T) {
 	e := newFake()
