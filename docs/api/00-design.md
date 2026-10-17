@@ -260,7 +260,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args any) (Result, 
 |---|---|
 | Logging: `log.Reporter`, `Multi`, `Prefix` | `internal/report` plus `prefixReporter` |
 | Emulator: `emu.Attach`, `launch.*`, `host.*` | `internal/dolphin`, `internal/dolphinenv` |
-| Patcher: `patch.Run(Options)` with `PostPatch []func(w io.Writer, image string)` in place of `CoopTables`. A post-patch step **never fails the patch**; `cli-golden/patch-*.txt` stays byte-identical | `internal/patch`, `internal/inject` |
+| Patcher: `patch.Run(Options)` with `PostPatch []func(w io.Writer, image string)` in place of `CoopTables` (filled from each mod's `PostPatcher`, §6.1). A post-patch step **never fails the patch**; `cli-golden/patch-*.txt` stays byte-identical | `internal/patch`, `internal/inject` |
 | Textures: CMPR recolor, ResTIMG | `wwapi/gfx/texture` (was `internal/tunic`) |
 | Test double: `fakegame.New()` | `coop/fakegame` |
 | Mod supervisor | `runPipelines` semantics plus `recover` |
@@ -287,7 +287,8 @@ type Mod interface {
 // Optional, found by type assertion:
 type PublicAPI   interface{ API() any }
 type NetProvider interface{ Engine() session.Engine }           // provides ["net"]; at most one
-type CLI         interface{ Commands() []cli.Command }
+type CLI         interface{ Commands() []Command } // wwapi.Command: Name, Aliases, Hidden, Group (Group*), Usage, Summary, Run(name, args)
+type PostPatcher interface{ PostPatch(w io.Writer, image string) } // runs after patch / setup patch; never fails it
 type UI          interface{ Verbs() []Verb; Panels() []Panel }
 type NetChannel  interface{ Channel() (id byte, h ChannelHandler) } // ride multiplayer's transport
 ```
