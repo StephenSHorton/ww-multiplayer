@@ -11,12 +11,12 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/story"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // The M4 receiver (§9 M4): what the world's progression gives the
@@ -296,7 +296,7 @@ func (r *Replica) m4View() world.Image {
 // read (dStage_stagInfo_GetSaveTbl, ChkKeyDisp and GetSTType,
 // d_stage.h:1023-1033): the key HUD for the Deriver, the stage type for
 // the inventory's context. ok is false for a null or unreadable chunk.
-func readStagM4(m mem.Mem, s *snap.Snapshot) (st derive.Stag, typ int, ok bool) {
+func readStagM4(m mem.Mem, s *state.Snapshot) (st derive.Stag, typ int, ok bool) {
 	if s.StagInfo == 0 {
 		return st, 0, false
 	}

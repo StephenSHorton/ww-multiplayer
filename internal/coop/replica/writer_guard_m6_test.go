@@ -7,10 +7,10 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // m6Guard is a game in DRC's room 1, room 2 beside it, with the M6
@@ -20,7 +20,7 @@ type m6Guard struct {
 	m  *mem.FakeMem
 	g  *fakegame.FakeGame
 	es *fakegame.Enemies
-	s  *snap.Snapshot
+	s  *state.Snapshot
 	w  actors.Walk
 	wg *WriteGuard
 }
@@ -41,7 +41,7 @@ func newM6Guard(t testing.TB) *m6Guard {
 			t.Fatal(err)
 		}
 	}
-	s, err := snap.Read(m)
+	s, err := state.Read(m, state.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

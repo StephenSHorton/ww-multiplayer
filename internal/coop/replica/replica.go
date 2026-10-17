@@ -3,12 +3,12 @@
 // Dolphin, with its own co-op connection to the host's hub. Every tick
 // (10 Hz) it:
 //
-//  1. reads one snap.Snapshot through mem.Mem and evaluates the gates
+//  1. reads one state.Snapshot through mem.Mem and evaluates the gates
 //     (gate.Tracker);
 //  2. classifies the loaded file's binding tag (bind.Classify, rules
 //     V1-V6 against the session's world);
 //  3. builds the local image, the saved dSv_save_c with the current
-//     table's live memBit folded in (snap.Snapshot.Image), and runs the
+//     table's live memBit folded in (state.Snapshot.Image), and runs the
 //     Differ over it: rising edges only, never a clear;
 //  4. sends what the hub needs: CO_HELLO when the file changes, PRESENCE
 //     on change and at 1 Hz, and while the file is bound and armed its
@@ -70,14 +70,14 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 const (
@@ -687,7 +687,7 @@ func (r *Replica) unlockAndFlush(o *outbox) {
 func (r *Replica) Tick() Report { return r.tickContext(context.Background()) }
 
 func (r *Replica) tickContext(ctx context.Context) Report {
-	s, err := snap.Read(r.m)
+	s, err := state.Read(r.m, state.Options{})
 	r.mu.Lock()
 	var out outbox
 	rep := r.tick(s, err, &out)
@@ -722,7 +722,7 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 	return rep
 }
 
-func (r *Replica) tick(s *snap.Snapshot, err error, out *outbox) Report {
+func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
 	r.toWrite, r.window, r.escNow = nil, windows{}, nil
 	if err != nil {
 		st := r.gates.Observe(nil)

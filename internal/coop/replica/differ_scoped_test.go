@@ -6,10 +6,10 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // shareVerdict is an M1 verdict for the sharing tests: DRC's dan switches
@@ -162,7 +162,7 @@ func newSharedCheck(keep func(world.Key, int) uint32) *sharedCheck {
 
 // set records that the game set switch no of room, or kill id of room
 // (no < 0), between ticks.
-func (c *sharedCheck) set(s *snap.Snapshot, no, room, id int) {
+func (c *sharedCheck) set(s *state.Snapshot, no, room, id int) {
 	k := world.Key{Kind: world.ScopeRoomEdge, Stage: s.StageName, Table: int(s.Table), Room: room}
 	w, b := 2, no-0xE0
 	if no < 0 {
@@ -176,7 +176,7 @@ func (c *sharedCheck) set(s *snap.Snapshot, no, room, id int) {
 func (c *sharedCheck) tick(t *testing.T, dr *differRig, e Edges) {
 	t.Helper()
 	defer clear(c.edges)
-	s, err := snap.Read(dr.m)
+	s, err := state.Read(dr.m, state.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func (c *sharedCheck) tick(t *testing.T, dr *differRig, e Edges) {
 func shareGame(t *testing.T, dr *differRig, c *sharedCheck, op, a, b int) {
 	t.Helper()
 	stages := []fakegame.Stage{outset, drc, drcBoss, woods}
-	s, err := snap.Read(dr.m)
+	s, err := state.Read(dr.m, state.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

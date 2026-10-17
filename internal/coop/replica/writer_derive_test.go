@@ -9,12 +9,12 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // newDeriveRig is a writer rig with M4's targets, in Dragon Roost Cavern
@@ -385,27 +385,27 @@ func TestDrainWatchDropsOnAStageChange(t *testing.T) {
 }
 
 func TestHUDTakes(t *testing.T) {
-	partner := func(s *snap.Snapshot) {
-		binary.BigEndian.PutUint32(s.Player[addr.PlayerPtr+4-snap.PlayerRegion.Start:], fakegame.PartnerActor)
+	partner := func(s *state.Snapshot) {
+		binary.BigEndian.PutUint32(s.Player[addr.PlayerPtr+4-state.PlayerRegion.Start:], fakegame.PartnerActor)
 	}
 	cases := []struct {
 		name string
-		set  func(s *snap.Snapshot)
+		set  func(s *state.Snapshot)
 		c    gate.Counter
 		want bool
 	}{
 		{"keys", nil, gate.KeyNum, true},
 		{"life", nil, gate.MaxLife, true},
 		{"magic", nil, gate.MaxMagic, true},
-		{"life in Orca's training", func(s *snap.Snapshot) { s.MiniGameType = miniGameOrca }, gate.MaxLife, false},
-		{"life in another minigame", func(s *snap.Snapshot) { s.MiniGameType = 2 }, gate.MaxLife, true},
-		{"magic in Orca's training", func(s *snap.Snapshot) { s.MiniGameType = miniGameOrca }, gate.MaxMagic, true},
+		{"life in Orca's training", func(s *state.Snapshot) { s.MiniGameType = miniGameOrca }, gate.MaxLife, false},
+		{"life in another minigame", func(s *state.Snapshot) { s.MiniGameType = 2 }, gate.MaxLife, true},
+		{"magic in Orca's training", func(s *state.Snapshot) { s.MiniGameType = miniGameOrca }, gate.MaxMagic, true},
 		{"magic with a partner", partner, gate.MaxMagic, false},
 		{"life with a partner", partner, gate.MaxLife, true},
-		{"keys under the pause menu", func(s *snap.Snapshot) { s.MenuPause = 1 }, gate.KeyNum, false},
+		{"keys under the pause menu", func(s *state.Snapshot) { s.MenuPause = 1 }, gate.KeyNum, false},
 	}
 	for _, c := range cases {
-		var s snap.Snapshot
+		var s state.Snapshot
 		if c.set != nil {
 			c.set(&s)
 		}

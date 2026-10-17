@@ -8,18 +8,18 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // transitionGates is the gates' verdict on the first tick of a stage
 // change from s, after a settled run: OnTransition.
-func transitionGates(s snap.Snapshot) gate.Status {
-	var hist []*snap.Snapshot
+func transitionGates(s state.Snapshot) gate.Status {
+	var hist []*state.Snapshot
 	for i := range gate.StableTicks + 2 {
 		c := s
 		c.Heartbeat = uint32(i + 1)
@@ -81,7 +81,7 @@ func m4Guard(gates gate.Status, armed bool) *WriteGuard {
 // TestWriteGuardM4Gates: each M4 class under its gate and not otherwise,
 // as the FrameWriter's own paths ask.
 func TestWriteGuardM4Gates(t *testing.T) {
-	inGame := snap.Snapshot{PlayerPtr: 0x80A00000, StageName: "sea", Table: addr.TableSea}
+	inGame := state.Snapshot{PlayerPtr: 0x80A00000, StageName: "sea", Table: addr.TableSea}
 	idle := settledGates(inGame)
 	busy := inGame
 	busy.EvtMode = 1
@@ -138,7 +138,7 @@ func TestWriteGuardM4Gates(t *testing.T) {
 // TestWriteGuardM4Refuses: every path a forbidden write can take is
 // refused, whatever the gates say, and for the reason that names it.
 func TestWriteGuardM4Refuses(t *testing.T) {
-	inGame := snap.Snapshot{PlayerPtr: 0x80A00000, StageName: "sea", Table: addr.TableSea}
+	inGame := state.Snapshot{PlayerPtr: 0x80A00000, StageName: "sea", Table: addr.TableSea}
 	idle := settledGates(inGame)
 	trans := transitionGates(inGame)
 	local, lm := localStory(t)
@@ -219,7 +219,7 @@ func TestWriteGuardM4Refuses(t *testing.T) {
 // written by its own path, so the derive package's routing (which asks
 // byte by byte) still passes the derived bytes and counters.
 func TestWriteGuardCheckIsEveryPath(t *testing.T) {
-	inGame := snap.Snapshot{PlayerPtr: 0x80A00000, StageName: "sea", Table: addr.TableSea}
+	inGame := state.Snapshot{PlayerPtr: 0x80A00000, StageName: "sea", Table: addr.TableSea}
 	wg := m4Guard(settledGates(inGame), true)
 	for _, c := range []struct {
 		a        uint32
@@ -246,7 +246,7 @@ func counterWrite(k DeriveKind, a uint32, table int, delta int16) DeriveWrite {
 // TestWriteGuardDeriveShape: a derive write is let through only with its
 // kind's address, size, expected bytes and delta.
 func TestWriteGuardDeriveShape(t *testing.T) {
-	inGame := snap.Snapshot{PlayerPtr: 0x80A00000, StageName: "M_NewD2", Table: addr.TableDRC}
+	inGame := state.Snapshot{PlayerPtr: 0x80A00000, StageName: "M_NewD2", Table: addr.TableDRC}
 	idle := settledGates(inGame)
 	savedFW, _ := addr.SavedMemBitAddr(addr.TableFW)
 	savedDRC, _ := addr.SavedMemBitAddr(addr.TableDRC)

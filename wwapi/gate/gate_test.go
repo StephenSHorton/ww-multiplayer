@@ -5,14 +5,14 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // good returns a snapshot that passes every gate, at heartbeat hb.
-func good(hb uint32) *snap.Snapshot {
-	return &snap.Snapshot{
+func good(hb uint32) *state.Snapshot {
+	return &state.Snapshot{
 		StageName: "sea",
 		StageRoom: 44,
 		PlayerPtr: fakegame.PlayerActor,
@@ -65,21 +65,21 @@ func TestStableAfterFourUnchangedTicks(t *testing.T) {
 func TestStableTruthTable(t *testing.T) {
 	cases := []struct {
 		name string
-		mut  func(*snap.Snapshot)
+		mut  func(*state.Snapshot)
 		why  string
 	}{
-		{"no Link", func(s *snap.Snapshot) { s.PlayerPtr = 0 }, "Link is not loaded"},
-		{"no stage", func(s *snap.Snapshot) { s.StageName = "" }, "no stage"},
-		{"title", func(s *snap.Snapshot) { s.StageName = "sea_T" }, "title"},
-		{"file select", func(s *snap.Snapshot) { s.StageName = "Name" }, "file select"},
-		{"no table", func(s *snap.Snapshot) { s.Table = -1 }, "no save table"},
-		{"bad table", func(s *snap.Snapshot) { s.Table = 16 }, "not valid"},
-		{"stage change pending", func(s *snap.Snapshot) { s.NextEnable = 1 }, "stage change is pending"},
-		{"new stage", func(s *snap.Snapshot) { s.StageName = "M_NewD2" }, "settling"},
-		{"new room", func(s *snap.Snapshot) { s.StayNo = 3 }, "settling"},
-		{"new table", func(s *snap.Snapshot) { s.Table = addr.TableMisc }, "settling"},
-		{"new start point", func(s *snap.Snapshot) { s.StagePoint = 1 }, "settling"},
-		{"new layer", func(s *snap.Snapshot) { s.StageLayer = 1 }, "settling"},
+		{"no Link", func(s *state.Snapshot) { s.PlayerPtr = 0 }, "Link is not loaded"},
+		{"no stage", func(s *state.Snapshot) { s.StageName = "" }, "no stage"},
+		{"title", func(s *state.Snapshot) { s.StageName = "sea_T" }, "title"},
+		{"file select", func(s *state.Snapshot) { s.StageName = "Name" }, "file select"},
+		{"no table", func(s *state.Snapshot) { s.Table = -1 }, "no save table"},
+		{"bad table", func(s *state.Snapshot) { s.Table = 16 }, "not valid"},
+		{"stage change pending", func(s *state.Snapshot) { s.NextEnable = 1 }, "stage change is pending"},
+		{"new stage", func(s *state.Snapshot) { s.StageName = "M_NewD2" }, "settling"},
+		{"new room", func(s *state.Snapshot) { s.StayNo = 3 }, "settling"},
+		{"new table", func(s *state.Snapshot) { s.Table = addr.TableMisc }, "settling"},
+		{"new start point", func(s *state.Snapshot) { s.StagePoint = 1 }, "settling"},
+		{"new layer", func(s *state.Snapshot) { s.StageLayer = 1 }, "settling"},
 	}
 	for _, c := range cases {
 		var tr Tracker
@@ -148,9 +148,9 @@ func TestOnTransition(t *testing.T) {
 	}
 
 	// Link gone, or the stage already changed, on the edge tick: no.
-	for _, mut := range []func(*snap.Snapshot){
-		func(s *snap.Snapshot) { s.PlayerPtr = 0 },
-		func(s *snap.Snapshot) { s.StageName = "M_NewD2" },
+	for _, mut := range []func(*state.Snapshot){
+		func(s *state.Snapshot) { s.PlayerPtr = 0 },
+		func(s *state.Snapshot) { s.StageName = "M_NewD2" },
 	} {
 		tr = Tracker{}
 		run(t, &tr, 6)
@@ -177,14 +177,14 @@ func TestOnTransition(t *testing.T) {
 func TestIdleTruthTable(t *testing.T) {
 	cases := []struct {
 		name string
-		mut  func(*snap.Snapshot)
+		mut  func(*state.Snapshot)
 		why  string
 	}{
-		{"event running", func(s *snap.Snapshot) { s.EvtMode = 1 }, "event is running"},
-		{"event queued", func(s *snap.Snapshot) { s.EvtOrderCount = 1 }, "event is queued"},
-		{"pause menu", func(s *snap.Snapshot) { s.MenuPause = 1 }, "pause menu"},
-		{"minigame", func(s *snap.Snapshot) { s.MiniGameType = 2 }, "minigame"},
-		{"refight", func(s *snap.Snapshot) { s.RefightStageNo = 1 }, "refight"},
+		{"event running", func(s *state.Snapshot) { s.EvtMode = 1 }, "event is running"},
+		{"event queued", func(s *state.Snapshot) { s.EvtOrderCount = 1 }, "event is queued"},
+		{"pause menu", func(s *state.Snapshot) { s.MenuPause = 1 }, "pause menu"},
+		{"minigame", func(s *state.Snapshot) { s.MiniGameType = 2 }, "minigame"},
+		{"refight", func(s *state.Snapshot) { s.RefightStageNo = 1 }, "refight"},
 	}
 	for _, c := range cases {
 		var tr Tracker
@@ -313,7 +313,7 @@ func TestWhyOrder(t *testing.T) {
 }
 
 func TestEvaluate(t *testing.T) {
-	var hist []*snap.Snapshot
+	var hist []*state.Snapshot
 	var tr Tracker
 	var want Status
 	for i := range 7 {
@@ -343,7 +343,7 @@ func TestGatesOverFakeGame(t *testing.T) {
 	tick := func(frames int) Status {
 		t.Helper()
 		g.Frames(frames)
-		s, err := snap.Read(m)
+		s, err := state.Read(m, state.Options{})
 		if err != nil {
 			t.Fatal(err)
 		}

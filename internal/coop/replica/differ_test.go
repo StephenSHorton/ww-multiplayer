@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // chest is chest no of table t as an image byte and mask.
@@ -344,7 +344,7 @@ func TestDifferFoldHazard(t *testing.T) {
 // observeNow decodes a snapshot without running the differ.
 func (dr *differRig) observeNow() *obs {
 	dr.t.Helper()
-	s, err := snap.Read(dr.m)
+	s, err := state.Read(dr.m, state.Options{})
 	if err != nil {
 		dr.t.Fatal(err)
 	}

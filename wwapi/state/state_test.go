@@ -1,4 +1,4 @@
-package snap
+package state
 
 import (
 	"bytes"
@@ -6,7 +6,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
@@ -20,7 +19,7 @@ var (
 
 func mustRead(t *testing.T, m mem.Mem) *Snapshot {
 	t.Helper()
-	s, err := Read(m)
+	s, err := Read(m, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +268,7 @@ func TestTornSaveRead(t *testing.T) {
 		{"life (per player)", addr.Life + 1, 12, 4, 12, false},
 		{"zone room (a number)", zoneRoom, 0x07, 0xFF, 0x07, false},
 	}
-	if class.Of(int(letter+1-addr.SaveImage)).Mask != 0x03 {
+	if r := defaultFolds[letter+1-SaveRegion.Start]; r != (foldRule{foldMax, 0x03}) {
 		t.Fatal("test assumes register 0x7B is MAX within 0x03")
 	}
 	for _, c := range cases {
@@ -295,26 +294,36 @@ func TestTornSaveRead(t *testing.T) {
 	}
 }
 
-// TestFoldsFollowClassTable: the fold of every image byte comes from its
-// class, the live memBit folds like a saved one, and the zone room bytes
-// and the mDan table are numbers.
-func TestFoldsFollowClassTable(t *testing.T) {
-	for off := range addr.SaveImageSize {
-		r, f := class.Of(off), folds[off]
-		want := foldFirst
-		switch r.Class {
-		case class.OR, class.ORMasked:
-			want = foldBits
-		case class.Max:
-			want = foldMax
+// TestDefaultFolds: the default folds spread DefaultSensitive over the
+// image, the live memBit folds like a saved slot, the dan switches and
+// zone flags are flags, and the zone room bytes and the mDan table are
+// numbers. (That DefaultSensitive is the co-op class table's mask is
+// pinned on the co-op side, internal/coop/class.)
+func TestDefaultFolds(t *testing.T) {
+	var want [addr.SaveImageSize]foldRule
+	for _, sp := range DefaultSensitive() {
+		for i := sp.Off; i < sp.Off+sp.Len; i++ {
+			switch sp.Fold {
+			case FoldBits:
+				want[i] = foldRule{foldBits, sp.Mask}
+			case FoldMax:
+				want[i] = foldRule{foldMax, sp.Mask}
+			}
 		}
-		if f.fold != want || (want != foldFirst && f.mask != r.Mask) {
-			t.Errorf("image 0x%03X (%s %s): fold %v mask %#x", off, r.Field, r.Class, f.fold, f.mask)
+	}
+	for off := range addr.SaveImageSize {
+		if defaultFolds[off] != want[off] {
+			t.Errorf("image 0x%03X folds %+v, want %+v", off, defaultFolds[off], want[off])
 		}
 	}
 	for i := range addr.MemBitSize {
-		if folds[addr.InfoOffMemory+i] != folds[addr.OffMemBit(addr.TableET)+i] {
+		if defaultFolds[addr.InfoOffMemory+i] != defaultFolds[addr.OffMemBit(addr.TableET)+i] {
 			t.Errorf("live memBit +0x%02X folds unlike a saved slot", i)
+		}
+	}
+	for i := range 8 {
+		if defaultFolds[addr.InfoOffDan+addr.DanOffSwitch+i] != (foldRule{foldBits, 0xFF}) {
+			t.Errorf("dan switch byte %d is not a flag", i)
 		}
 	}
 	for _, off := range []int{
@@ -325,12 +334,81 @@ func TestFoldsFollowClassTable(t *testing.T) {
 		addr.InfoOffDataNum,
 		addr.InfoOffTmp,
 	} {
-		if folds[off].fold != foldFirst {
-			t.Errorf("dSv_info_c +0x%04X folds as %v, want first read", off, folds[off].fold)
+		if defaultFolds[off].fold != foldFirst {
+			t.Errorf("dSv_info_c +0x%04X folds as %v, want first read", off, defaultFolds[off].fold)
 		}
 	}
-	if folds[addr.InfoOffZone+31*addr.ZoneSize+addr.ZoneSize-1].fold != foldBits {
+	if defaultFolds[addr.InfoOffZone+31*addr.ZoneSize+addr.ZoneSize-1].fold != foldBits {
 		t.Error("the last zone's last actor byte is not a flag")
+	}
+}
+
+// TestOptionsSensitive: a caller's spans replace the default for the
+// image (and so the live memBit), never for the dan and zone flags, and a
+// span outside the image fails the read.
+func TestOptionsSensitive(t *testing.T) {
+	m := mem.NewFakeMem()
+	g := fakegame.New(m)
+	if err := g.LoadStage(drc); err != nil {
+		t.Fatal(err)
+	}
+	wallet := addr.WalletSize                                     // MAX by default
+	life := addr.Life + 1                                         // first read by default
+	liveTbox := addr.LiveMemBit + addr.MemBitOffTbox              // a flag by default
+	zoneActor := addr.Zones + 5*addr.ZoneSize + addr.ZoneOffActor // always a flag
+	type tc struct {
+		a             uint32
+		first, second byte
+	}
+	cases := []tc{{wallet, 2, 1}, {life, 0x0C, 0x04}, {liveTbox, 0x0F, 0x3C}, {zoneActor, 0xFF, 0x0F}}
+	for _, c := range cases {
+		_ = m.Store(c.a, []byte{c.first})
+	}
+	read := func(o Options) (*Snapshot, error) {
+		return Read(&countingMem{Mem: m, tear: func(b []byte) {
+			for _, c := range cases {
+				b[c.a-SaveRegion.Start] = c.second
+			}
+		}}, o)
+	}
+	at := func(s *Snapshot, a uint32) byte { return s.Save[a-SaveRegion.Start] }
+
+	s, err := read(Options{Sensitive: []Span{
+		{Off: int(life - addr.SaveImage), Len: 1, Fold: FoldBits, Mask: 0xFF},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := at(s, wallet); got != 2 {
+		t.Errorf("wallet outside the spans folded to %d, want the first read", got)
+	}
+	if got := at(s, life); got != 0x04 {
+		t.Errorf("life as a flag folded to %#02x, want 0x04", got)
+	}
+	if got := at(s, liveTbox); got != 0x0F {
+		t.Errorf("live tbox outside the spans folded to %#02x, want the first read", got)
+	}
+	if got := at(s, zoneActor); got != 0x0F {
+		t.Errorf("zone actor bits folded to %#02x, want 0x0F", got)
+	}
+	if s.Torn != 2 {
+		t.Errorf("Torn = %d, want 2 (life and the zone)", s.Torn)
+	}
+
+	if s, err = read(Options{Sensitive: []Span{}}); err != nil {
+		t.Fatal(err)
+	} else if s.Torn != 1 {
+		t.Errorf("no image spans: Torn = %d, want 1 (the zone)", s.Torn)
+	}
+
+	for _, sp := range []Span{
+		{Off: -1, Len: 1, Fold: FoldBits, Mask: 1},
+		{Off: addr.SaveImageSize - 1, Len: 2, Fold: FoldBits, Mask: 1},
+		{Off: 0, Len: -1},
+	} {
+		if _, err := read(Options{Sensitive: []Span{sp}}); err == nil {
+			t.Errorf("span %+v read without an error", sp)
+		}
 	}
 }
 
@@ -340,14 +418,14 @@ func TestReadErrors(t *testing.T) {
 	for _, a := range []uint32{SaveRegion.Start, StageRegion.Start, PlayerRegion.Start, addr.StayNo,
 		addr.RoomStatus + 5*addr.RoomStatusStride + addr.RoomStatusOffZoneNo, addr.MenuPause, mailbox.SpawnTrigger,
 		addr.GbaCom + addr.GbaComOffContext} {
-		s, err := Read(&countingMem{Mem: m, failAt: a})
+		s, err := Read(&countingMem{Mem: m, failAt: a}, Options{})
 		if !errors.Is(err, errInjected) || s != nil {
 			t.Errorf("failing read at 0x%08X: %v, %v", a, s, err)
 		}
 	}
 	// The second save read failing fails the snapshot too.
 	fail := &secondSaveFails{countingMem: &countingMem{Mem: m}}
-	if _, err := Read(fail); !errors.Is(err, errInjected) {
+	if _, err := Read(fail, Options{}); !errors.Is(err, errInjected) {
 		t.Errorf("second save read failure: %v", err)
 	}
 }

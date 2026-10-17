@@ -64,13 +64,13 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/hearts"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // Kind is what a Write changes.
@@ -182,7 +182,7 @@ func StagOf(prop byte) Stag {
 // observe does: a stage load sets mpStagInfo before getSave and initDan
 // (d_stage.cpp:1670-1677), so a tick whose STAG names another table than
 // mDan's caught a stage load half done, and Tick skips it.
-func ReadStag(m mem.Mem, s *snap.Snapshot) Stag {
+func ReadStag(m mem.Mem, s *state.Snapshot) Stag {
 	if s == nil || s.StagInfo == 0 {
 		return Stag{}
 	}
@@ -197,7 +197,7 @@ func ReadStag(m mem.Mem, s *snap.Snapshot) Stag {
 // armed in the world, and the time.
 type Input struct {
 	Now   time.Time
-	Snap  *snap.Snapshot
+	Snap  *state.Snapshot
 	Gates gate.Status
 	Stag  Stag
 	// Armed: the loaded file is bound to the world and the session runs
@@ -432,7 +432,7 @@ func (d *Deriver) reset() {
 
 // outOfGame reports whether s is off any file's play: no stage, the title
 // or file select.
-func outOfGame(s *snap.Snapshot) bool {
+func outOfGame(s *state.Snapshot) bool {
 	return s.StageName == "" || s.StageName == addr.StageTitle || s.StageName == addr.StageFileSelect
 }
 

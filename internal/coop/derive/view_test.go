@@ -3,25 +3,25 @@ package derive
 import (
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // snapAt returns a snapshot with table loaded (-1: none).
-func snapAt(table int) *snap.Snapshot { return &snap.Snapshot{Table: int8(table)} }
+func snapAt(table int) *state.Snapshot { return &state.Snapshot{Table: int8(table)} }
 
 // setSaved sets bit b of table t's saved memBit in s.
-func setSaved(s *snap.Snapshot, t int, b addr.Bit) {
+func setSaved(s *state.Snapshot, t int, b addr.Bit) {
 	s.Save[addr.InfoOffSavedata+addr.OffMemBit(t)+b.Off] |= b.Mask
 }
 
 // setLive sets bit b of the live memBit in s.
-func setLive(s *snap.Snapshot, b addr.Bit) { s.Save[addr.InfoOffMemory+b.Off] |= b.Mask }
+func setLive(s *state.Snapshot, b addr.Bit) { s.Save[addr.InfoOffMemory+b.Off] |= b.Mask }
 
 // setImage sets bit b of image byte b.Off in s.
-func setImage(s *snap.Snapshot, b addr.Bit) { s.Save[addr.InfoOffSavedata+b.Off] |= b.Mask }
+func setImage(s *state.Snapshot, b addr.Bit) { s.Save[addr.InfoOffSavedata+b.Off] |= b.Mask }
 
 func must(b addr.Bit, err error) addr.Bit {
 	if err != nil {
@@ -47,27 +47,27 @@ func TestFlagSet(t *testing.T) {
 	tests := []struct {
 		name       string
 		table      int // loaded
-		set        func(*snap.Snapshot)
+		set        func(*state.Snapshot)
 		f          itemsrc.Flag
 		want, know bool
 	}{
-		{"tbox clear", -1, func(*snap.Snapshot) {}, tbox, false, true},
-		{"tbox saved, other table loaded", addr.TableFW, func(s *snap.Snapshot) { setSaved(s, addr.TableDRC, tboxBit) }, tbox, true, true},
-		{"tbox saved, its table loaded", addr.TableDRC, func(s *snap.Snapshot) { setSaved(s, addr.TableDRC, tboxBit) }, tbox, true, true},
-		{"tbox live, its table loaded", addr.TableDRC, func(s *snap.Snapshot) { setLive(s, tboxBit) }, tbox, true, true},
-		{"tbox live, another table loaded", addr.TableFW, func(s *snap.Snapshot) { setLive(s, tboxBit) }, tbox, false, true},
-		{"item in the visited word", addr.TableFW, func(s *snap.Snapshot) { setLive(s, itemBit) }, item, true, true},
-		{"stage life", -1, func(s *snap.Snapshot) { setSaved(s, addr.TableFF, lifeBit) }, life, true, true},
-		{"stage life of another table", -1, func(s *snap.Snapshot) { setSaved(s, addr.TableDRC, lifeBit) }, life, false, true},
-		{"ocean", addr.TableSea, func(s *snap.Snapshot) { setImage(s, oceanBit) }, ocean, true, true},
-		{"chart", -1, func(s *snap.Snapshot) { setImage(s, chartBit) }, chart, true, true},
-		{"chart 0", -1, func(*snap.Snapshot) {}, itemsrc.Flag{Kind: itemsrc.ChartFlag}, false, false},
-		{"chart 129", -1, func(*snap.Snapshot) {}, itemsrc.Flag{Kind: itemsrc.ChartFlag, Bit: 129}, false, false},
-		{"unsaved", -1, func(*snap.Snapshot) {}, itemsrc.Flag{}, false, false},
-		{"zone item", -1, func(*snap.Snapshot) {}, itemsrc.Flag{Kind: itemsrc.ZoneItemFlag, Room: 1, Bit: 0x40}, false, false},
-		{"table 16", -1, func(*snap.Snapshot) {}, itemsrc.Flag{Kind: itemsrc.TboxFlag, Table: 16}, false, false},
-		{"tbox 32", -1, func(*snap.Snapshot) {}, itemsrc.Flag{Kind: itemsrc.TboxFlag, Table: 3, Bit: 32}, false, false},
-		{"halting ocean grid", -1, func(*snap.Snapshot) {}, itemsrc.Flag{Kind: itemsrc.HaltFlag, Room: 0x40}, false, false},
+		{"tbox clear", -1, func(*state.Snapshot) {}, tbox, false, true},
+		{"tbox saved, other table loaded", addr.TableFW, func(s *state.Snapshot) { setSaved(s, addr.TableDRC, tboxBit) }, tbox, true, true},
+		{"tbox saved, its table loaded", addr.TableDRC, func(s *state.Snapshot) { setSaved(s, addr.TableDRC, tboxBit) }, tbox, true, true},
+		{"tbox live, its table loaded", addr.TableDRC, func(s *state.Snapshot) { setLive(s, tboxBit) }, tbox, true, true},
+		{"tbox live, another table loaded", addr.TableFW, func(s *state.Snapshot) { setLive(s, tboxBit) }, tbox, false, true},
+		{"item in the visited word", addr.TableFW, func(s *state.Snapshot) { setLive(s, itemBit) }, item, true, true},
+		{"stage life", -1, func(s *state.Snapshot) { setSaved(s, addr.TableFF, lifeBit) }, life, true, true},
+		{"stage life of another table", -1, func(s *state.Snapshot) { setSaved(s, addr.TableDRC, lifeBit) }, life, false, true},
+		{"ocean", addr.TableSea, func(s *state.Snapshot) { setImage(s, oceanBit) }, ocean, true, true},
+		{"chart", -1, func(s *state.Snapshot) { setImage(s, chartBit) }, chart, true, true},
+		{"chart 0", -1, func(*state.Snapshot) {}, itemsrc.Flag{Kind: itemsrc.ChartFlag}, false, false},
+		{"chart 129", -1, func(*state.Snapshot) {}, itemsrc.Flag{Kind: itemsrc.ChartFlag, Bit: 129}, false, false},
+		{"unsaved", -1, func(*state.Snapshot) {}, itemsrc.Flag{}, false, false},
+		{"zone item", -1, func(*state.Snapshot) {}, itemsrc.Flag{Kind: itemsrc.ZoneItemFlag, Room: 1, Bit: 0x40}, false, false},
+		{"table 16", -1, func(*state.Snapshot) {}, itemsrc.Flag{Kind: itemsrc.TboxFlag, Table: 16}, false, false},
+		{"tbox 32", -1, func(*state.Snapshot) {}, itemsrc.Flag{Kind: itemsrc.TboxFlag, Table: 3, Bit: 32}, false, false},
+		{"halting ocean grid", -1, func(*state.Snapshot) {}, itemsrc.Flag{Kind: itemsrc.HaltFlag, Room: 0x40}, false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

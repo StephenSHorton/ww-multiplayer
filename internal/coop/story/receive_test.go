@@ -6,10 +6,10 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // Sword slot items (d_item_data.h:63-65, :69).
@@ -262,8 +262,8 @@ func TestPlanWrites(t *testing.T) {
 
 // good returns a snapshot that passes every gate, at heartbeat hb, with
 // mNextStage.mEnable enable.
-func good(hb uint32, enable int8) *snap.Snapshot {
-	return &snap.Snapshot{
+func good(hb uint32, enable int8) *state.Snapshot {
+	return &state.Snapshot{
 		StageName:  "sea",
 		StageRoom:  44,
 		PlayerPtr:  fakegame.PlayerActor,

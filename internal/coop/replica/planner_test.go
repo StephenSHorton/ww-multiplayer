@@ -7,17 +7,17 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // consistentObs is a consistent tick of table t whose canonical image is
 // raw, for driving a Planner without a game.
 func consistentObs(t int, raw world.Image) *obs {
-	return &obs{s: &snap.Snapshot{Table: int8(t)}, screen: screenGame, stagTable: t, raw: raw, local: world.Shared(&raw)}
+	return &obs{s: &state.Snapshot{Table: int8(t)}, screen: screenGame, stagTable: t, raw: raw, local: world.Shared(&raw)}
 }
 
 // firstOf returns the first image byte keep accepts.

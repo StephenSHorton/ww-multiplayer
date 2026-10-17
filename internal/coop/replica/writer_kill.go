@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // The kill path (§7.2, M6): a partner's recorded deaths reach the
@@ -303,7 +303,7 @@ func (w *FrameWriter) killHolds(room, slot int8) error {
 // zone is no longer its slot (a zone wiped at a stage entry or reused is
 // the game's own reset, d_stage.cpp:124-126, :250-267). The game never
 // clears one bit of a live zone. w.mu is held.
-func (w *FrameWriter) verifyKills(s *snap.Snapshot, st gate.Status, f bind.File, rep *VerifyReport) {
+func (w *FrameWriter) verifyKills(s *state.Snapshot, st gate.Status, f bind.File, rep *VerifyReport) {
 	ps := w.kills
 	w.kills = nil
 	if len(ps) == 0 {

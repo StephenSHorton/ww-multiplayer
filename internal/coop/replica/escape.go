@@ -8,11 +8,11 @@ import (
 	"math"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // The escape hatches (§6.7). Until M9 a create-only actor in the current
@@ -198,8 +198,8 @@ func (h StageRequest) Fields() []Field {
 }
 
 // nextStageOf is the request mNextStage holds in s.
-func nextStageOf(s *snap.Snapshot) StageRequest {
-	b := s.Stage[addr.NextStage-snap.StageRegion.Start:]
+func nextStageOf(s *state.Snapshot) StageRequest {
+	b := s.Stage[addr.NextStage-state.StageRegion.Start:]
 	name := b[addr.StageOffName : addr.StageOffName+addr.StageNameLen]
 	if i := bytes.IndexByte(name, 0); i >= 0 {
 		name = name[:i]
@@ -557,7 +557,7 @@ func (r *Replica) notePartnerRest(p *wire.Presence) {
 // new one takes the new stage's name from mNextStage (d_s_play.cpp:
 // 1277-1278) and builds the stage and Link, so a PRESENCE in game with
 // the new name already carries the new table and mStayNo. As a guard
-// against a snapshot read across those frames (snap.Read reads the stage
+// against a snapshot read across those frames (state.Read reads the stage
 // name, the table and mStayNo apart), an arrival whose table and room are
 // the ones the partner left, with no PRESENCE without Link between, is
 // not learned from: an entrance whose room has the old one's number in

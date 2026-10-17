@@ -19,13 +19,13 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // The co-op integration tests run the session plumbing of host, join and
@@ -182,7 +182,7 @@ func (cg *coGame) get(off int) byte { return cg.read(cg.byteAddr(off), 1)[0] }
 // image is the game's canonical image now.
 func (cg *coGame) image() world.Image {
 	cg.t.Helper()
-	s, err := snap.Read(cg.m)
+	s, err := state.Read(cg.m, state.Options{})
 	if err != nil {
 		cg.t.Fatal(err)
 	}

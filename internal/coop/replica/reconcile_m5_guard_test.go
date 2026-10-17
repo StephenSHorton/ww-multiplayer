@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // m5Zones is a zone table with Link in room 1, whose zone is slot 2; room
@@ -36,7 +36,7 @@ func m5Zones() ZoneTable {
 // table, and a dan switch byte only with a save table loaded; never the
 // zone's other bytes, never a clear, never outside IDLE or unarmed.
 func TestWriteGuardScopedZones(t *testing.T) {
-	inGame := snap.Snapshot{PlayerPtr: 0x80A00000, StageName: drc.Name, Table: addr.TableDRC}
+	inGame := state.Snapshot{PlayerPtr: 0x80A00000, StageName: drc.Name, Table: addr.TableDRC}
 	idle := settledGates(inGame)
 	busy := inGame
 	busy.EvtMode = 1

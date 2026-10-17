@@ -8,11 +8,11 @@ import (
 	"strings"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // The scoped path (§6.3, M5): the dan and zone switches a co-present
@@ -384,7 +384,7 @@ func (w *FrameWriter) ApplyScoped(ctx context.Context, ws []ScopedWrite) (res Re
 // d_stage.cpp:171-173), for snapshot s: one read of mStayNo and
 // mOldStayNo, which sit side by side (sym:18667-18668). It is not ok if
 // the read fails or mStayNo no longer reads as s has it.
-func (w *FrameWriter) oldStayOf(s *snap.Snapshot) (int8, bool) {
+func (w *FrameWriter) oldStayOf(s *state.Snapshot) (int8, bool) {
 	b, err := w.Mem.Read(addr.StayNo, 2)
 	if err != nil || int8(b[0]) != s.StayNo {
 		return 0, false
@@ -447,7 +447,7 @@ func (w *FrameWriter) zoneHolds(room, slot int8) error {
 // every room change (d_save.cpp:1273-1276; zoneCountCheck,
 // d_stage.cpp:250-267), one out of the room and back between two ticks
 // too, which leaves mStayNo and the slot as they were. w.mu is held.
-func (w *FrameWriter) verifyScoped(s *snap.Snapshot, st gate.Status, f bind.File, old int8, oldOK bool, rep *VerifyReport) {
+func (w *FrameWriter) verifyScoped(s *state.Snapshot, st gate.Status, f bind.File, old int8, oldOK bool, rep *VerifyReport) {
 	ps := w.scoped
 	w.scoped = nil
 	if len(ps) == 0 {

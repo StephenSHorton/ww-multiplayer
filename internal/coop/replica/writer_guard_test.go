@@ -9,11 +9,11 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // gatesOpen is a tick with every gate open.
@@ -222,8 +222,8 @@ func TestWriteGuardGates(t *testing.T) {
 
 // settledGates runs the gates over a settled history of s, the heartbeat
 // moving each tick.
-func settledGates(s snap.Snapshot) gate.Status {
-	var hist []*snap.Snapshot
+func settledGates(s state.Snapshot) gate.Status {
+	var hist []*state.Snapshot
 	for i := range gate.StableTicks + 2 {
 		c := s
 		c.Heartbeat = uint32(i + 1)
@@ -235,7 +235,7 @@ func settledGates(s snap.Snapshot) gate.Status {
 // TestWriteGuardLaterTargets checks the gates of the targets later
 // milestones open, through a guard of every target.
 func TestWriteGuardLaterTargets(t *testing.T) {
-	inGame := snap.Snapshot{PlayerPtr: 0x80A00000, StageName: "sea", Table: addr.TableSea}
+	inGame := state.Snapshot{PlayerPtr: 0x80A00000, StageName: "sea", Table: addr.TableSea}
 	idle := settledGates(inGame)
 	busy := inGame
 	busy.EvtMode = 1

@@ -15,13 +15,13 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 var (
@@ -166,7 +166,7 @@ func TestSaveLabelsMatchTheGamesBitMath(t *testing.T) {
 // watchLines reads a snapshot and returns the watcher's lines for it.
 func watchLines(t *testing.T, m mem.Mem, cw *coopWatcher) []string {
 	t.Helper()
-	s, err := snap.Read(m)
+	s, err := state.Read(m, state.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,7 +416,7 @@ func TestZoneDump(t *testing.T) {
 		}
 	}
 	dump := func() string {
-		s, err := snap.Read(m)
+		s, err := state.Read(m, state.Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -912,7 +912,7 @@ func TestStageHop(t *testing.T) {
 	if err := g.ChangeStage(); err != nil {
 		t.Fatal(err)
 	}
-	s, err := snap.Read(m)
+	s, err := state.Read(m, state.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

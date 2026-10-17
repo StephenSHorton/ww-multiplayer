@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // A tag write happens in two steps, so the user always answers a prompt
@@ -113,7 +113,7 @@ type BindRequest struct {
 // bytes in dSv_reserve_c that are not a co-op tag, and for a second-quest
 // file (a non-goal, §2; V3 refuses them anyway). A leaked or damaged tag
 // is written over.
-func PlanBind(s *snap.Snapshot, st gate.Status, req BindRequest) (*Plan, error) {
+func PlanBind(s *state.Snapshot, st gate.Status, req BindRequest) (*Plan, error) {
 	if err := planGate(st); err != nil {
 		return nil, err
 	}
@@ -160,7 +160,7 @@ func PlanBind(s *snap.Snapshot, st gate.Status, req BindRequest) (*Plan, error) 
 
 // PlanScrub plans zeroing a leaked tag (§5.2): one that fails V2-V5
 // under e. Anything else is refused with ErrNotLeaked.
-func PlanScrub(s *snap.Snapshot, st gate.Status, e Expect) (*Plan, error) {
+func PlanScrub(s *state.Snapshot, st gate.Status, e Expect) (*Plan, error) {
 	if err := planGate(st); err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func PlanScrub(s *snap.Snapshot, st gate.Status, e Expect) (*Plan, error) {
 // coop-tag clear (§5.5): the file leaves co-op at its next in-game save.
 // With e it says in the prompt what the tag is; all-zero bytes are
 // refused with ErrNoTag.
-func PlanClear(s *snap.Snapshot, st gate.Status, e Expect) (*Plan, error) {
+func PlanClear(s *state.Snapshot, st gate.Status, e Expect) (*Plan, error) {
 	if err := planGate(st); err != nil {
 		return nil, err
 	}
@@ -201,7 +201,7 @@ func planGate(st gate.Status) error {
 
 // Bind carries out a confirmed bind plan on the tick of snapshot s, whose
 // gate status is st, and returns the tag written (see apply).
-func Bind(m mem.Mem, p *Plan, s *snap.Snapshot, st gate.Status) (Tag, error) {
+func Bind(m mem.Mem, p *Plan, s *state.Snapshot, st gate.Status) (Tag, error) {
 	if p == nil || p.Kind != KindBind {
 		return Tag{}, errors.New("bind: Bind needs a bind plan")
 	}
@@ -213,7 +213,7 @@ func Bind(m mem.Mem, p *Plan, s *snap.Snapshot, st gate.Status) (Tag, error) {
 
 // Scrub carries out a confirmed scrub or clear plan on the tick of
 // snapshot s, whose gate status is st (see apply).
-func Scrub(m mem.Mem, p *Plan, s *snap.Snapshot, st gate.Status) error {
+func Scrub(m mem.Mem, p *Plan, s *state.Snapshot, st gate.Status) error {
 	if p == nil || (p.Kind != KindScrub && p.Kind != KindClear) {
 		return errors.New("bind: Scrub needs a scrub or clear plan")
 	}
@@ -233,7 +233,7 @@ func Scrub(m mem.Mem, p *Plan, s *snap.Snapshot, st gate.Status) error {
 //
 // A failure before the write leaves memory untouched. ErrVerify means the
 // write was made but didn't stick; the plan is used either way.
-func apply(m mem.Mem, p *Plan, s *snap.Snapshot, st gate.Status) error {
+func apply(m mem.Mem, p *Plan, s *state.Snapshot, st gate.Status) error {
 	switch {
 	case p.used:
 		return ErrUsed

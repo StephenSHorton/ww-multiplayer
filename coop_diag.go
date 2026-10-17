@@ -31,13 +31,13 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // coopDiagUsage is each co-op diagnostic's usage line. The command registry
@@ -134,7 +134,7 @@ func runCoopDiag(cmd string, args []string) {
 		err = withCoopMem(func(m mem.Mem) error { return peekDemo(ctx, os.Stdout, m, time.Duration(secs)*time.Second, coopTick) })
 	case "zone-dump":
 		err = withCoopMem(func(m mem.Mem) error {
-			s, err := snap.Read(m)
+			s, err := state.Read(m, state.Options{})
 			if err != nil {
 				return err
 			}
@@ -254,9 +254,9 @@ func tableName(t int) string {
 // them, so the gates can judge STABLE's unchanged-ticks rule and whether
 // the heartbeat moves. It returns the last snapshot, its gate status and
 // the first snapshot's heartbeat.
-func gateSnapshots(m mem.Mem, tick func()) (*snap.Snapshot, gate.Status, uint32, error) {
+func gateSnapshots(m mem.Mem, tick func()) (*state.Snapshot, gate.Status, uint32, error) {
 	var tr gate.Tracker
-	var s *snap.Snapshot
+	var s *state.Snapshot
 	var st gate.Status
 	var hb0 uint32
 	for i := 0; i <= gate.StableTicks; i++ {
@@ -264,7 +264,7 @@ func gateSnapshots(m mem.Mem, tick func()) (*snap.Snapshot, gate.Status, uint32,
 			tick()
 		}
 		var err error
-		if s, err = snap.Read(m); err != nil {
+		if s, err = state.Read(m, state.Options{}); err != nil {
 			return nil, gate.Status{}, 0, err
 		}
 		if i == 0 {
@@ -312,7 +312,7 @@ func coopProbe(w io.Writer, m mem.Mem, tick func()) error {
 	life := binary.BigEndian.Uint16(sv[addr.OffLife:])
 	line("life", "%d of %d quarter hearts (%.2f of %.2f hearts)", life, maxLife, float64(life)/4, float64(maxLife)/4)
 
-	pl := func(a uint32) []byte { return s.Player[a-snap.PlayerRegion.Start:] }
+	pl := func(a uint32) []byte { return s.Player[a-state.PlayerRegion.Start:] }
 	lifeCount := math.Float32frombits(be32(pl(addr.ItemLifeCount)))
 	rupeeCount := int32(be32(pl(addr.ItemRupeeCount)))
 	line("pending", "key %d, max life %d, max magic %d (life %g, rupees %d)",
@@ -357,7 +357,7 @@ func coopWatch(ctx context.Context, w io.Writer, m mem.Mem, d time.Duration, all
 	t := time.NewTicker(coopTickInterval)
 	defer t.Stop()
 	for {
-		s, err := snap.Read(m)
+		s, err := state.Read(m, state.Options{})
 		if err != nil {
 			return err
 		}
@@ -379,11 +379,11 @@ func coopWatch(ctx context.Context, w io.Writer, m mem.Mem, d time.Duration, all
 // coopWatcher turns successive snapshots into coop-watch's lines.
 type coopWatcher struct {
 	all  bool // also show status_b, whose time of day changes every frame
-	prev *snap.Snapshot
+	prev *state.Snapshot
 }
 
 // where is the context a line of edges is read in.
-func where(s *snap.Snapshot) string {
+func where(s *state.Snapshot) string {
 	return fmt.Sprintf("stage %q room %d, table %d %s, file %d",
 		s.StageName, s.StayNo, s.Table, tableName(int(s.Table)), s.DataNum)
 }
@@ -393,7 +393,7 @@ func where(s *snap.Snapshot) string {
 // table change getSave and initDan reload the live memBit and mDan in
 // bulk (d_stage.cpp:1675-1677), which is not the game setting anything,
 // so those edges are counted instead of listed.
-func (cw *coopWatcher) step(s *snap.Snapshot) []string {
+func (cw *coopWatcher) step(s *state.Snapshot) []string {
 	prev := cw.prev
 	cw.prev = s
 	if prev == nil {
@@ -871,7 +871,7 @@ func enemyKill(ctx context.Context, w io.Writer, m mem.Mem, pid uint32, unverifi
 		if !ok {
 			fmt.Fprintf(w, "the actor is gone (the shrink ran its course)")
 			if d.Carrier.Keyed() {
-				if s, err := snap.Read(m); err == nil {
+				if s, err := state.Read(m, state.Options{}); err == nil {
 					if z, ok := s.ZoneFor(int(d.Carrier.HomeRoom)); ok {
 						fmt.Fprintf(w, "; room %d's zone slot %d records setID %d dead: %v", d.Carrier.HomeRoom, z, d.Carrier.SetID,
 							zoneActorSet(s, z, int(d.Carrier.SetID)))
@@ -891,7 +891,7 @@ func enemyKill(ctx context.Context, w io.Writer, m mem.Mem, pid uint32, unverifi
 }
 
 // zoneActorSet reports whether s's zone slot z records setID id dead.
-func zoneActorSet(s *snap.Snapshot, z, id int) bool {
+func zoneActorSet(s *state.Snapshot, z, id int) bool {
 	bit, err := addr.ZoneActorBit(id)
 	if err != nil {
 		return false
@@ -953,7 +953,7 @@ func peekDemo(ctx context.Context, w io.Writer, m mem.Mem, watch time.Duration, 
 // zoneDump prints the 32 mZone slots and the rooms' mZoneNo map from one
 // snapshot (§3.1 zone writes). A slot removeZone freed keeps its bits
 // (only mRoomNo is reset, d_save.h:793), so a free slot with bits is shown.
-func zoneDump(w io.Writer, s *snap.Snapshot) {
+func zoneDump(w io.Writer, s *state.Snapshot) {
 	fmt.Fprintf(w, "%s\n", where(s))
 	var empty []int
 	for z := range addr.ZoneCount {
@@ -1843,7 +1843,7 @@ func stageHopRun(w io.Writer, m mem.Mem, h stageHop, tick func()) error {
 	fmt.Fprintf(w, "mNextStage set: %q point %d room %d layer %d\n", h.Name, h.Point, h.Room, h.Layer)
 	for range 100 {
 		tick()
-		s, err := snap.Read(m)
+		s, err := state.Read(m, state.Options{})
 		if err != nil {
 			return err
 		}
