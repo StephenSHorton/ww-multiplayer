@@ -1,0 +1,19 @@
+{
+  "$schema": "../../wwapi/schema/mod.schema.json",
+  "id": "example",
+  "name": "Example",
+  "description": "The example mod of docs/api/03-writing-a-mod.md: logs stage changes and item gains, and marks a spot to warp back to.",
+  "version": "0.1.0",
+  "api": "^0.1",
+  "dependencies": {},
+  "optional_dependencies": {},
+  "load_order": 0,
+  "enabled_by_default": true,
+  "dev": true,
+  "game_ids": ["GZLE01"],
+  "multiplayer": "local_only",
+  "provides": [],
+  "needs": ["warp"],
+  "writes": [],
+  "c": null
+}

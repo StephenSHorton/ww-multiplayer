@@ -7,7 +7,8 @@
 // Today the registry holds the core commands a wwapi.Game registers;
 // most of them return ErrUnsupported until the C side that backs them
 // exists (actor.kill and actor.spawn wait for the C op ring). Mods
-// register mod.<id>.* commands from D-phase on, through their Context.
+// register mod.<id>.* commands through their Context (Context.Commands),
+// and lose them when they are quarantined.
 //
 // # v0 UNSTABLE
 //
@@ -73,6 +74,9 @@ var (
 	// ErrWritesRefused is returned by Execute for a command that writes
 	// while the write gate refuses.
 	ErrWritesRefused = errors.New("commands: writes refused")
+	// ErrClosed is returned by Register and Execute on a mod view after
+	// Close.
+	ErrClosed = errors.New("commands: view closed")
 )
 
 type entry struct {
@@ -92,6 +96,7 @@ type shared struct {
 type Registry struct {
 	s      *shared
 	prefix string
+	closed bool // guarded by s.mu; only a mod view closes
 }
 
 // New returns the core view of a new, empty registry.
@@ -134,11 +139,35 @@ func (r *Registry) Register(name string, s Spec, h Handler) error {
 	}
 	r.s.mu.Lock()
 	defer r.s.mu.Unlock()
+	if r.closed {
+		return fmt.Errorf("%w: %q", ErrClosed, name)
+	}
 	if _, ok := r.s.cmds[name]; ok {
 		return fmt.Errorf("%w: %q", ErrExists, name)
 	}
 	r.s.cmds[name] = entry{spec: s, h: h}
 	return nil
+}
+
+// Close on a mod view removes every command in the view's namespace
+// (mod.<id>.*) and makes later Register and Execute calls through it
+// fail with ErrClosed, so a quarantined mod that still holds its view
+// runs no command, core.* included. The mod supervisor calls it when the mod fails its Init, is
+// quarantined, or the runtime stops. A Mod view made afterwards for the
+// same id registers again. On the core view Close does nothing. It is
+// safe to call more than once.
+func (r *Registry) Close() {
+	if r.prefix == events.CoreNamespace+"." {
+		return
+	}
+	r.s.mu.Lock()
+	defer r.s.mu.Unlock()
+	r.closed = true
+	for name := range r.s.cmds {
+		if strings.HasPrefix(name, r.prefix) {
+			delete(r.s.cmds, name)
+		}
+	}
 }
 
 // Lookup returns a command's Spec.
@@ -167,7 +196,12 @@ func (r *Registry) Execute(ctx context.Context, name string, args any) (Result, 
 	r.s.mu.RLock()
 	e, ok := r.s.cmds[name]
 	gate := r.s.gate
+	closed := r.closed
 	r.s.mu.RUnlock()
+	if closed {
+		err := fmt.Errorf("%w: %q", ErrClosed, name)
+		return Result{Code: "closed", Err: ErrClosed}, err
+	}
 	if !ok {
 		return Result{}, fmt.Errorf("%w: %q", ErrUnknown, name)
 	}

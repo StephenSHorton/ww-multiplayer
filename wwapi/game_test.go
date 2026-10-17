@@ -165,7 +165,7 @@ func TestActorCommandsUnsupported(t *testing.T) {
 			t.Errorf("%s: %+v, %v", name, res, err)
 		}
 	}
-	if got := g.Commands().Names(); !slices.Equal(got, []string{wwapi.CmdActorKill, wwapi.CmdActorSpawn}) {
+	if got := g.Commands().Names(); !slices.Equal(got, []string{wwapi.CmdActorKill, wwapi.CmdActorSpawn, wwapi.CmdPlayerWarp}) {
 		t.Errorf("core commands %v", got)
 	}
 }

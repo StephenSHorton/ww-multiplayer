@@ -51,8 +51,14 @@ import (
 // load between that read and the write, a window microseconds wide.
 //
 // warp_ack is no WriteGuard target (§6.7, docs/08 item 75). Warp runs
-// only from mp-local's startup shift, which never runs under --coop, and
-// from the `warp` dev CLI (docs/08 item 131).
+// from mp-local's startup shift, which never runs under --coop, from the
+// `warp` dev CLI (docs/08 item 131), and from wwapi.Game's
+// core.player.warp command. Any mod, and anything holding
+// Game.Commands(), can run core.player.warp: nothing checks the mod's
+// manifest or whether co-op is on, only the contract's write gate. Today
+// only mods/example calls it and the app loads no mods yet. It shares
+// warp_seq with co-op's replica escape warps, so it must not run beside
+// co-op until D4 adds a guard (docs/api/00-design.md, D4).
 func Warp(m mem.Mem, p [3]float32, timeout time.Duration) error {
 	const seqAddr, ackAddr = mailbox.Mailbox + mailbox.OffWarpSeq, mailbox.Mailbox + mailbox.OffWarpAck
 

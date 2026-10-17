@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/commands"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/events"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
@@ -54,17 +55,18 @@ func (c ConfigSection) Get(key string, v any) (bool, error) {
 }
 
 // Context is a mod's handle on the runtime, bound to that mod. What a mod
-// registers through it (event subscriptions today; commands, verbs and
-// write ranges later) belongs to the mod, so quarantine can remove it.
+// registers through it (event subscriptions and commands today; verbs
+// and write ranges later) belongs to the mod, so quarantine can remove
+// it.
 //
-// More arrives with the packages behind it (design §6.2): Game (wwapi.Game
-// exists; the runtime hands it out from D4), Commands, and Allow for
+// More arrives with the packages behind it (design §6.2): Allow for
 // write ranges (wwapi/write).
 type Context struct {
 	rt   *Runtime
 	m    *modState
 	log  log.Reporter
 	bus  *events.Bus
+	cmds *commands.Registry
 	cfg  ConfigSection
 	data string
 }
@@ -82,6 +84,19 @@ func (c *Context) Log() log.Reporter { return c.log }
 // and owns the subscriptions made through it, which end when the mod is
 // quarantined or the runtime stops.
 func (c *Context) Events() *events.Bus { return c.bus }
+
+// Game is the game the runtime runs against (Options.Game), or nil when
+// there is none: a pure server still runs its mods. Its Mem is
+// read-only; writes go through Commands.
+func (c *Context) Game() *Game { return c.rt.opts.Game }
+
+// Commands is the mod's view of the command registry (Game.Commands(),
+// or the runtime's own registry without a Game): it registers only
+// mod.<id>.* names and runs any registered name, core.* included. The
+// commands registered through it are removed when the mod fails its
+// Init, is quarantined, or the runtime stops, and from then on the view
+// registers and runs nothing (commands.ErrClosed).
+func (c *Context) Commands() *commands.Registry { return c.cmds }
 
 // Config is the mod's settings.
 func (c *Context) Config() ConfigSection { return c.cfg }
@@ -122,9 +137,9 @@ type prefixed struct {
 
 func (p prefixed) Log(level log.Level, msg string) { p.r.Log(level, p.prefix+msg) }
 
-func newContext(rt *Runtime, m *modState, bus *events.Bus) *Context {
+func newContext(rt *Runtime, m *modState, bus *events.Bus, cmds *commands.Registry) *Context {
 	id := m.e.Manifest.ID
-	c := &Context{rt: rt, m: m, bus: bus, log: prefixed{rt.log, "[" + id + "] "}}
+	c := &Context{rt: rt, m: m, bus: bus, cmds: cmds, log: prefixed{rt.log, "[" + id + "] "}}
 	if rt.opts.Config != nil {
 		c.cfg = ConfigSection{raw: bytes.Clone(rt.opts.Config.ModSettings(id))}
 	}

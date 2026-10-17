@@ -1,6 +1,6 @@
 # wwapi/events: the event bus
 
-**Status: v0 UNSTABLE.** Phase B step B2 of [00-design.md](00-design.md). Its API can change in any 0.x minor version. The core watcher exists (C14): the `wwapi.Watcher` a `wwapi.Game` owns polls snapshot edges (10 Hz, `wwapi.FastInterval` for 30 Hz) and emits `StageChanged`, `ItemGained`, `SwitchSet`, `EventBitSet` and `HeartbeatLost`, defined in `wwapi/events/core.go`. Nothing outside wwapi uses the bus yet; the mod runtime wires a Game in at D4.
+**Status: v0 UNSTABLE.** Phase B step B2 of [00-design.md](00-design.md). Its API can change in any 0.x minor version. The core watcher exists (C14): the `wwapi.Watcher` a `wwapi.Game` owns polls snapshot edges (10 Hz, `wwapi.FastInterval` for 30 Hz) and emits `StageChanged`, `ItemGained`, `SwitchSet`, `EventBitSet` and `HeartbeatLost`, defined in `wwapi/events/core.go`. Outside wwapi only the example mod (`mods/example`, [03-writing-a-mod.md](03-writing-a-mod.md)) uses it: the mod runtime takes a Game as `Options.Game` and forwards its core events to the mods (D3), and the app wires that in at D4.
 
 Import path: `github.com/StephenSHorton/ww-multiplayer/wwapi/events`.
 

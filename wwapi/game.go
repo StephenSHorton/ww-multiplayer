@@ -2,6 +2,7 @@ package wwapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/write"
 )
 
 // The watcher's poll rates (design decision 9): 10 Hz by default, 30 Hz
@@ -31,10 +33,28 @@ const (
 
 // The core commands a Game registers. actor.kill and actor.spawn return
 // commands.ErrUnsupported until the C op ring exists (design §5.4).
+// player.warp is player.Warp over the Game's memory (WarpArgs).
 const (
 	CmdActorKill  = "core.actor.kill"
 	CmdActorSpawn = "core.actor.spawn"
+	CmdPlayerWarp = "core.player.warp"
 )
+
+// DefaultWarpTimeout is how long core.player.warp waits for the C warp
+// handler when WarpArgs.TimeoutMS is 0.
+const DefaultWarpTimeout = time.Second
+
+// WarpArgs are core.player.warp's arguments: where to put Link, and how
+// long to wait for the game to take the request (DefaultWarpTimeout
+// when 0).
+type WarpArgs struct {
+	Pos       [3]float32 `json:"pos"`
+	TimeoutMS int        `json:"timeout_ms,omitempty"`
+}
+
+// warpRange is what core.player.warp writes: warp_seq, warp_ack and
+// warp_x/y/z of the mailbox.
+var warpRange = write.Range{Addr: mailbox.Mailbox + mailbox.OffWarpSeq, Len: mailbox.OffWarpZ + 4 - mailbox.OffWarpSeq}
 
 // Info is what a Game knows about the game it attached to (design §5.1).
 type Info struct {
@@ -147,8 +167,34 @@ func NewGame(m mem.Mem, o GameOptions) (*Game, error) {
 			return nil, err
 		}
 	}
+	if err := g.cmds.Register(CmdPlayerWarp, commands.Spec{Scope: commands.Local, Writes: []write.Range{warpRange}}, g.warp); err != nil {
+		return nil, err
+	}
 	o.Log.Log(log.Info, contractLine(c))
 	return g, nil
+}
+
+// warp is core.player.warp: player.Warp over the Game's memory. The
+// write gate (the contract check) has already passed.
+func (g *Game) warp(_ context.Context, raw json.RawMessage) (commands.Result, error) {
+	var a WarpArgs
+	if err := json.Unmarshal(raw, &a); err != nil {
+		err = fmt.Errorf("%s: args: %w", CmdPlayerWarp, err)
+		return commands.Result{Code: "bad_args", Err: err}, err
+	}
+	if a.TimeoutMS < 0 {
+		err := fmt.Errorf("%s: negative timeout_ms %d", CmdPlayerWarp, a.TimeoutMS)
+		return commands.Result{Code: "bad_args", Err: err}, err
+	}
+	timeout := DefaultWarpTimeout
+	if a.TimeoutMS > 0 {
+		timeout = time.Duration(a.TimeoutMS) * time.Millisecond
+	}
+	if err := player.Warp(g.m, a.Pos, timeout); err != nil {
+		err = fmt.Errorf("%s: %w", CmdPlayerWarp, err)
+		return commands.Result{Code: "warp_failed", Err: err}, err
+	}
+	return commands.Result{OK: true}, nil
 }
 
 // contractLine is the one line the contract check logs.
