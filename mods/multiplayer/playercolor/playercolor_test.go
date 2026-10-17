@@ -24,9 +24,9 @@ func TestParse(t *testing.T) {
 	}{
 		{"red", palette[1].Color},
 		{" Blue ", palette[2].Color},
-		{"#FF8000", Color{0xFF, 0x80, 0x00}},
-		{"ff8000", Color{0xFF, 0x80, 0x00}},
-		{"0x102030", Color{0x10, 0x20, 0x30}},
+		{"#FF8000", Color{R: 0xFF, G: 0x80, B: 0x00}},
+		{"ff8000", Color{R: 0xFF, G: 0x80, B: 0x00}},
+		{"0x102030", Color{R: 0x10, G: 0x20, B: 0x30}},
 	}
 	for _, c := range cases {
 		got, err := Parse(c.in)
@@ -41,17 +41,20 @@ func TestParse(t *testing.T) {
 	}
 }
 
-func TestStringAndHex(t *testing.T) {
-	if s := palette[1].Color.String(); s != "red" {
-		t.Errorf("palette red String() = %q", s)
+func TestLabelAndHex(t *testing.T) {
+	if s := Label(palette[1].Color); s != "red" {
+		t.Errorf("palette red Label = %q", s)
 	}
-	if s := (Color{1, 2, 3}).String(); s != "#010203" {
-		t.Errorf("custom String() = %q", s)
+	if s := Label(Color{R: 1, G: 2, B: 3}); s != "#010203" {
+		t.Errorf("custom Label = %q", s)
+	}
+	if s := palette[1].Color.String(); s != "#D02C2C" {
+		t.Errorf("palette red String() = %q, want the hex form", s)
 	}
 }
 
 func TestVanilla(t *testing.T) {
-	if !IsVanilla(Vanilla()) || IsVanilla(palette[1].Color) {
+	if !IsVanilla(Vanilla()) || IsVanilla(palette[1].Color) || palette[0].Color != Vanilla() {
 		t.Error("IsVanilla is wrong")
 	}
 }

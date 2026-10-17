@@ -16,7 +16,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/gfx/texture"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
@@ -56,7 +56,7 @@ const (
 type LobbyMember struct {
 	ID      int
 	Name    string
-	Color   playercolor.Color
+	Color   texture.Color
 	Ready   bool
 	Host    bool
 	Dolphin string // "none", "launching", "title", "in_game" or ""
@@ -156,7 +156,7 @@ const (
 // applies.
 type LobbyCommand struct {
 	Kind     LobbyCommandKind
-	Color    playercolor.Color
+	Color    texture.Color
 	Ready    bool
 	Text     string // Dolphin state, file hint, or GO's world
 	Settings LobbySettings
@@ -380,7 +380,7 @@ func (c *Controller) lobbyCmd(cmd LobbyCommand, host bool, check func(Lobby) err
 
 // SetColor asks the host for a tunic color. It is always granted, even
 // when another player wears it; the new color arrives in the lobby state.
-func (c *Controller) SetColor(col playercolor.Color) error {
+func (c *Controller) SetColor(col texture.Color) error {
 	return c.lobbyCmd(LobbyCommand{Kind: LobbySetColor, Color: col}, false, func(l Lobby) error {
 		if l.Phase != LobbyPhaseLobby {
 			return ErrColorsLocked

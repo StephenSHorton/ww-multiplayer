@@ -8,6 +8,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/redact"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -884,7 +885,7 @@ func renderStatusCoop(width, count int, latency time.Duration, players []session
 			n = valueStyle.Render(displayText(n))
 			if p.HasColor {
 				swatch := lipgloss.NewStyle().Foreground(lipgloss.Color(p.Color.Hex())).Render("■")
-				n = swatch + " " + n + labelStyle.Render(" ("+p.Color.String()+")")
+				n = swatch + " " + n + labelStyle.Render(" ("+playercolor.Label(p.Color)+")")
 			}
 			names = append(names, n)
 		}

@@ -7,7 +7,6 @@ package avatartest
 import (
 	"encoding/binary"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gfx/texture"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
@@ -150,7 +149,7 @@ func (f *RAM) SlotImage(s int) []byte {
 }
 
 // ExpectRecolor is TestImage recolored to c, as the tunic slots do it.
-func ExpectRecolor(c playercolor.Color) []byte {
+func ExpectRecolor(c texture.Color) []byte {
 	img := TestImage()
 	m, ref := texture.Calibrate(img, texture.DefaultMask)
 	out, _ := texture.Recolor(img, c, m, ref)
