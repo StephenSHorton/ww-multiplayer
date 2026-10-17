@@ -21,7 +21,8 @@ Wind Waker disc image). Releases are cut on tag push via GitHub Actions.
 ww-multiplayer/
 ├── main.go                      # Entry point: all CLI subcommands (app_face.go: no args = app window, `tui`, `ui --browser`)
 ├── *.go                         # Rest of package main: coop_*.go (co-op CLI + session), mp_local*.go (dolphin2, mp-local),
-│                                #   tunic_sync.go, warp_link.go, posefeed.go, session/lobby engines, app_game.go (the app's Start: Dolphin + pipelines), auto_recapture.go
+│                                #   tunic_sync.go, warp_link.go, posefeed.go, session/lobby engines, app_game.go (the app's Start: Dolphin + pipelines),
+│                                #   app_coop.go (the app's co-op: world, hub, GO, coop-sync), auto_recapture.go
 ├── internal/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
@@ -44,7 +45,7 @@ ww-multiplayer/
 │   ├── report/                  # Reporter interface (Stdout / Discard / Multi)
 │   │   └── report.go, multi.go
 │   ├── session/                 # UI-free session controller the CLI host/join, the TUI and the GUI drive (docs/01-architecture.md)
-│   │   └── session.go, controller.go, event.go, coop.go
+│   │   └── session.go, controller.go, event.go, coop.go, coopapp.go (the app's co-op state), lobby.go, launch.go
 │   ├── tui/                     # Charm Bubble Tea UI (resurrected v0.1.5)
 │   │   ├── app.go, splash.go, connect.go, dashboard.go, styles.go
 │   └── tunic/                   # Tunic texture recolor (CMPR encode, docs/09)

@@ -1360,3 +1360,33 @@ func waitFor(d time.Duration, ok func() bool) bool {
 	}
 	return ok()
 }
+
+// TestSetMerge: the host turns merging on after its peers said hello
+// (the app's "Allow merging"): each is told its features again, now with
+// FeatureMerge, and Merge reports it; turning it on again tells no one.
+func TestSetMerge(t *testing.T) {
+	r := newRig(t, fullCfg())
+	a := newConn(1, "alice")
+	r.attach(a)
+	m := hello(wire.FileBound, testWorld, 1)
+	m.Want = uint32(FeatureImage)
+	if w := welcomeOf(t, r.exchange(a, m)); Feature(w.Features)&FeatureMerge != 0 || r.h.Merge() {
+		t.Fatalf("merge granted before SetMerge: %s", Feature(w.Features))
+	}
+	if err := r.h.SetMerge(true); err != nil {
+		t.Fatal(err)
+	}
+	cs := pick[*wire.Ctrl](a.take(t))
+	if len(cs) != 1 || cs[0].Op != wire.CtrlCoopOff || Feature(cs[0].Arg) != FeatureImage|FeatureMerge {
+		t.Fatalf("after SetMerge alice got %+v, want COOP_OFF image|merge", cs)
+	}
+	if !r.h.Merge() {
+		t.Error("Merge() is false after SetMerge(true)")
+	}
+	if err := r.h.SetMerge(true); err != nil {
+		t.Fatal(err)
+	}
+	if cs := pick[*wire.Ctrl](a.take(t)); len(cs) != 0 {
+		t.Errorf("SetMerge(true) again sent %+v", cs)
+	}
+}

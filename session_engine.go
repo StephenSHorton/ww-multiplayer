@@ -29,16 +29,22 @@ type sessionEngine struct {
 	// game is what a lobby session's START plays on (app_game.go): this
 	// machine's Dolphins. nil starts no game (the tests' engines).
 	game *gameDeps
+	// coopApp is what a lobby session's co-op plays on (app_coop.go);
+	// nil plays without co-op (an engine without it sends GO with no
+	// world).
+	coopApp *appCoopDeps
 
 	mu    sync.Mutex
 	coop  *coopSession         // the running session's co-op side; nil without
 	lobby *network.LobbyClient // the running lobby session's connection (lobby_engine.go); nil without
 	game1 *gameRunner          // the running lobby session's game side; nil without
+	coop1 *appCoop             // the running lobby session's co-op side; nil without
 }
 
 func newTUIEngine() *sessionEngine {
 	e := &sessionEngine{ls: &liveState{}}
 	e.game = realGameDeps(e.ls)
+	e.coopApp = realAppCoopDeps()
 	return e
 }
 
@@ -134,6 +140,7 @@ func (e *sessionEngine) Live() session.Live {
 	}
 	if cs := e.coopSide(); cs != nil {
 		l.CoopStatus = cs.console.statuses()
+		l.CoopHub = coopHubStatus(cs.console.hubStatus())
 	}
 	return l
 }
@@ -191,7 +198,7 @@ func (e *sessionEngine) CoopWorlds() ([]session.CoopWorld, error) {
 	out := make([]session.CoopWorld, 0, len(ws))
 	for _, w := range ws {
 		cw := session.CoopWorld{ID: w.id.String(), Created: w.created, Seq: w.seq, Text: w.String(),
-			InUse: w.marker != nil && w.use != markerStale}
+			InUse: w.marker != nil && w.use != markerStale, Stale: w.marker != nil && w.use == markerStale}
 		if w.err != nil {
 			cw.Err = w.err.Error()
 		}

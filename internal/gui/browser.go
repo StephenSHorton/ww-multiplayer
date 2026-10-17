@@ -50,6 +50,10 @@ var browserMethods = map[string]bool{
 	"SetShowIPs": true,
 	// Start → Dolphin → in game (App PR 8).
 	"Start": true, "SetStartDolphinMyself": true, "LaunchDolphin": true,
+	// Co-op (App PR 9).
+	"SetCoop": true, "CoopWorlds": true, "SetMyCoopDryRun": true, "Answer": true, "SetAutoYes": true,
+	"DismissAdvice": true, "RequestMerge": true, "AllowMerge": true, "DismissRequest": true, "SetMerge": true,
+	"UnbindFile": true, "CoopCommand": true, "CoopStatusText": true,
 }
 
 // windowOnly are the Bridge methods only the window has: PickFile opens a
@@ -57,8 +61,9 @@ var browserMethods = map[string]bool{
 // path there); Copy and OpenDownloads use the window's clipboard and the
 // desktop's browser, which a browser page has itself (navigator.clipboard,
 // window.open), and which a page on 127.0.0.1 shouldn't drive on the
-// machine serving it.
-var windowOnly = map[string]bool{"PickFile": true, "Copy": true, "OpenDownloads": true}
+// machine serving it. OpenFolder opens the desktop's file manager, the
+// same.
+var windowOnly = map[string]bool{"PickFile": true, "Copy": true, "OpenDownloads": true, "OpenFolder": true}
 
 // BrowserServer is a running ServeBrowser.
 type BrowserServer struct {

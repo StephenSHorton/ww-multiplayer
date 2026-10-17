@@ -304,6 +304,7 @@ input[type=number] { max-width: 140px; }
 /* the dialog: a leafy panel over a dimmed field */
 .dialog { padding: 30px 0 0; border: 0; background: transparent; max-width: min(520px, calc(100vw - 32px)); width: 100%; overflow: visible; }
 .dialog::backdrop { background: rgba(20, 36, 8, 0.55); }
+.dialog:focus { outline: none; } /* a settling dialog holds the focus itself (ui.js) */
 .dialog .panel { margin: 0; padding-top: 34px; }
 .dialog p { margin: 0 0 10px; font-size: 16px; }
 .dialog .detail { font: 500 13px/1.45 var(--mono); color: var(--text-dim); word-break: break-word; }
@@ -527,3 +528,86 @@ input.secret { -webkit-text-security: disc; text-security: disc; }
 .map text { font: 400 11px var(--display); fill: #fff; paint-order: stroke fill; stroke: var(--ink); stroke-width: 3px; stroke-linejoin: round; }
 .map .self { stroke: #fff; stroke-width: 2.4; }
 .banner .btn { flex: none; }
+
+/* ---------- co-op (App PR 9) ---------- */
+/* the host's world choice: a row of slots, the worlds as long slots */
+.coopbox { display: grid; gap: 6px; padding-top: 10px; border-top: 3px dashed var(--leaf); }
+.coopbox .label { margin: 0; }
+.coopbox .seg button { cursor: pointer; }
+.coopbox .seg button:hover { border-color: var(--ink); }
+.coopbox .hint { margin: 0; font-size: 12.5px; line-height: 1.35; }
+.worlds { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 170px; overflow-y: auto; }
+.worlds li.empty { font: 700 13px var(--body); color: var(--text-dim); }
+.slotbtn.world { width: 100%; align-items: center; flex-wrap: wrap; text-align: left; }
+.slotbtn.world code { font: 500 14px var(--mono); color: var(--ink); }
+.slotbtn.world[aria-checked=true] { background: linear-gradient(180deg, var(--slot), var(--slot-hi) 30%, var(--lime-hi)); border-color: var(--ink); }
+.slotbtn.world:disabled { opacity: 0.55; cursor: not-allowed; }
+.chip.warn { background: var(--yellow); }
+.chip.file { background: #fff6c8; }
+#coop-adv { margin: 0; }
+#coop-adv[open] { display: grid; gap: 6px; }
+#coop-adv .check { margin: 0; padding: 4px 10px; }
+#coop-adv .field { margin: 4px 0 0; }
+#coop-adv input:not([type]) { max-width: none; font-size: 14px; padding: 5px 10px; }
+.hostrow { justify-content: flex-end; }
+
+/* the save-file preview: the file select screen's three files */
+.files { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.files li {
+	display: flex; align-items: center; gap: 10px; padding: 4px 10px;
+	background: linear-gradient(180deg, var(--slot-dk), var(--slot) 25%, var(--slot-hi));
+	border: 3px solid var(--slot-dk); border-radius: 10px; box-shadow: inset 0 3px 5px rgba(20, 36, 8, 0.3);
+}
+.files .slotno { flex: none; display: grid; place-items: center; width: 26px; height: 26px; font: 400 15px var(--display); color: #fff; background: var(--bark); border: 2px solid var(--bark-dk); border-radius: 6px; }
+.files .fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 16px var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink); }
+.files li.empty .fname, .files li.corrupt .fname { color: var(--lime-hi); }
+.files .hearts { flex: none; font: 700 14px var(--body); color: #c8102e; text-shadow: 0 1px 0 #fff; }
+.cardhint { margin: 0 0 4px; font-weight: 700; }
+.cardhint:empty { display: none; }
+.cardpanel .check { margin-top: 8px; }
+
+/* the co-op panel: one card per game, a lamp for its state */
+.cooppanel .pipe, .cooppanel .hub { margin-bottom: 10px; padding: 8px 12px; background: #fffbe0; border: 3px solid var(--slot-dk); border-radius: 10px; }
+.headline { display: flex; align-items: center; gap: 8px; font: 400 16px var(--display); color: var(--ink); }
+.lamp { flex: none; width: 14px; height: 14px; border: 2px solid var(--ink); border-radius: 50%; background: #8a9a7a; }
+.ok > .lamp { background: var(--bar-hi); }
+.dry > .lamp { background: #9fd8ff; }
+.warn > .lamp { background: var(--yellow); }
+.wait > .lamp { background: #fff; animation: pulse 1s ease-in-out infinite alternate; }
+.stats { margin: 4px 0 0; padding-left: 18px; font: 500 12.5px/1.45 var(--mono); color: var(--text); }
+.stats:empty { display: none; }
+.hub b { font: 400 14px var(--display); }
+.coopbtns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.coopbtns .btn.small { padding: 2px 12px 4px; }
+.warpbox { display: inline-flex; gap: 4px; align-items: center; }
+.warpbox select { font: 700 13px var(--body); border: 2px solid var(--ink); border-radius: 6px; padding: 2px 4px; }
+.cooppanel .autoyes { margin-top: 8px; }
+
+/* the feed's tabs */
+.tabs { display: flex; gap: 6px; margin: 0 0 8px; }
+.tabs button {
+	padding: 1px 12px 2px; cursor: pointer; font: 400 13px var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 3px var(--ink);
+	background: linear-gradient(180deg, var(--slot-dk), var(--slot) 30%, var(--slot-hi)); border: 3px solid var(--slot-dk); border-radius: 8px;
+}
+.tabs button[aria-selected=true] { background: linear-gradient(180deg, var(--orange-hi) 0 14%, var(--orange) 15%); border-color: var(--ink); }
+.log.synconly li:not(.sync) { display: none; }
+
+/* the co-op dialogs' extras: lists, option cards, the live check */
+.dialog { max-width: min(600px, calc(100vw - 32px)); }
+.dlgextra { display: grid; gap: 10px; margin: 6px 0 4px; max-height: calc(100vh - 330px); overflow-y: auto; }
+.dlglist { margin: 0; padding: 6px 10px 6px 26px; max-height: 180px; overflow-y: auto; font: 500 12.5px/1.45 var(--mono); background: #fffbe0; border: 2px solid var(--slot-dk); border-radius: 8px; }
+.optcard { padding: 8px 12px; background: #fffbe0; border: 3px solid var(--slot-dk); border-radius: 10px; }
+.optcard b { font: 400 16px var(--display); }
+.optcard p { margin: 4px 0; font-size: 14px; }
+.optcard ol { margin: 4px 0 6px; padding-left: 20px; font-size: 14px; }
+.optcard .warnline { font-weight: 700; color: #8a3a00; }
+.livecheck { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font: 700 14px var(--body); background: #fff; border: 2px solid var(--ink); border-radius: 8px; }
+.dlgnote { margin: 0; font-size: 14px; }
+.check.autoyes { padding: 4px 10px; }
+.members .who { min-width: 5.5em; }
+.chip.file { max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+.fact { display: inline-flex; align-items: baseline; gap: 6px; padding: 1px 10px 2px; font: 700 13px var(--body); color: var(--ink); background: #fff; border: 2px solid var(--slot-dk); border-radius: 999px; }
+.fact small { font: 500 11px var(--body); color: var(--text-dim); }
+details.more { margin-top: 6px; }
+details.more summary { font-size: 13px; }

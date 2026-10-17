@@ -140,7 +140,20 @@ appear from the title screen on. The Session screen then shows the
 players with their Dolphin and whether they are in your area, a minimap
 and chat. If Dolphin runs another game or an unpatched disc, the app
 says what to boot. Leave stops the multiplayer and keeps Dolphin open.
-Co-op worlds (shared progress) come in a later update. On Windows the window
+**Co-op worlds (shared progress) are optional.** In the lobby the host picks
+Off, New world (founded from the file the host loads after Start) or
+Continue (a world on the host's computer), with dry run, merging, live
+switches and the co-op tables' disc under Advanced. Everyone's window then
+shows the three files on their memory card, whether each is bound to that
+world, and which one to load. After Start a guided dialog walks the host
+through founding a new world; every co-op question is a dialog (Bind / Not
+now to bind a file, Remove the tag / Leave it for a stale tag), and a file
+bound to another world can have its tag removed from the app (in game
+memory only: save in game to keep it off the card); a file far behind the world
+or needing a merge gets advice cards, including "Ask the host to allow
+merging". In game the co-op panel shows where co-op is, with Refresh area,
+Warp to partner, Pause co-op writes and Copy status, and the log has a
+Co-op sync tab. Save in game after a bind so your card keeps the tag. On Windows the window
 needs Microsoft's WebView2 runtime (Windows 11 and current Windows 10
 have it); without it the app offers to install it, and opens the terminal
 menu if you decline. In-game tunic colors arrive in a later update too.

@@ -1,6 +1,6 @@
 # The pre-game lobby (protocol)
 
-**Status:** built in App PR 4 (the lobby protocol, the server's lobby, the lobby client, and the controller's lobby commands); the app's Lobby screen is App PR 7, and what Start launches (each player's Dolphin and the pose pipelines, then GO) App PR 8 (docs/01-architecture.md, "Start → Dolphin → in game"). Co-op from the lobby is PR 9. No CLI subcommand opens a lobby, so `host`, `join`, `mp-local` and the TUI behave and print exactly as before.
+**Status:** built in App PR 4 (the lobby protocol, the server's lobby, the lobby client, and the controller's lobby commands); the app's Lobby screen is App PR 7, and what Start launches (each player's Dolphin and the pose pipelines, then GO) App PR 8 (docs/01-architecture.md, "Start → Dolphin → in game"). Co-op from the lobby is App PR 9 (docs/01-architecture.md, "Co-op in the app"): the host app opens or founds the world after START, sets its hub with `Server.SetCoop` and only then sends GO with the world's ID; an app joiner starts co-op only on a GO that names a world; "Allow merging" in game is the settings' `merge`. No CLI subcommand opens a lobby, so `host`, `join`, `mp-local` and the TUI behave and print exactly as before.
 
 Design of record: the app design's §3 (lobby protocol) and its owner decisions: JSON bodies, no protocol version bump, unique names, colors locked after Start (until v1.1), shared colors allowed (2026-10-16, §4), the GUI always uses the lobby and falls back automatically for older hosts, green stays in the palette.
 

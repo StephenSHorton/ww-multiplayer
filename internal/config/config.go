@@ -91,11 +91,17 @@ type ISO struct {
 	Vanilla string `json:"vanilla"`
 }
 
-// Coop is the host's last co-op choice.
+// Coop is the host's last co-op choice (the Lobby's co-op panel).
 type Coop struct {
 	LastMode  string `json:"lastMode"` // "off", "new" or "continue"
 	LastWorld string `json:"lastWorld"`
 	DryRun    bool   `json:"dryRun"`
+	// Merge, LiveSwitches and ISO are the panel's Advanced choices:
+	// --coop-merge, --coop-live-switches and --coop-iso ("" for the disc
+	// patch last wrote).
+	Merge        bool   `json:"merge,omitempty"`
+	LiveSwitches bool   `json:"liveSwitches,omitempty"`
+	ISO          string `json:"iso,omitempty"`
 }
 
 // UI is window and first-run state.

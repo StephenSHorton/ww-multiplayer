@@ -69,6 +69,9 @@ type MemberView struct {
 	Area  string `json:"area"`
 	Dist  int    `json:"dist"`
 	RTTMs int64  `json:"rttMs"`
+	// File is the member's save-file hint (co-op): "File 2 “Link”:
+	// bound".
+	File string `json:"file,omitempty"`
 	// CanKick: we host, and the row isn't ours.
 	CanKick bool `json:"canKick"`
 }
@@ -131,6 +134,9 @@ type StateView struct {
 	// StartDolphinMyself is the saved "I'll start Dolphin myself"
 	// (Bridge.SetStartDolphinMyself).
 	StartDolphinMyself bool `json:"startDolphinMyself"`
+	// Coop is the session's co-op side (coop.go); nil outside a lobby
+	// session.
+	Coop *CoopView `json:"coop"`
 }
 
 // EventView is one controller event. Kind is one of the eventKinds values.
@@ -148,6 +154,9 @@ type EventView struct {
 	// FromMasked is From with its IPs masked, set as TextMasked is: a
 	// peer's name may be an IP.
 	FromMasked string `json:"fromMasked,omitempty"`
+	// Sync marks a log line of the sync feed: a co-op line users care
+	// about (coop.go's syncLine); the All logs tab shows every line.
+	Sync bool `json:"sync,omitempty"`
 	// Lobby replies.
 	Code    string `json:"code,omitempty"`    // lobby-notice
 	Suggest string `json:"suggest,omitempty"` // lobby-notice: a free name
@@ -246,7 +255,7 @@ func stateView(st session.State, running bool, version string, now time.Time, mk
 			mv := MemberView{
 				ID: m.ID, Name: name, Color: m.Color.Hex(), ColorName: colorName(m.Color),
 				Ready: m.Ready, Host: m.Host, Self: self,
-				Via: m.Via, Away: m.Away, Dolphin: m.Dolphin, DolphinLabel: dolphinLabel(m.Dolphin), RTTMs: ms(m.RTT),
+				Via: m.Via, Away: m.Away, Dolphin: m.Dolphin, DolphinLabel: dolphinLabel(m.Dolphin), RTTMs: ms(m.RTT), File: m.File,
 				CanKick: l.Host && !self && running,
 			}
 			if self {
@@ -269,9 +278,15 @@ func stateView(st session.State, running bool, version string, now time.Time, mk
 	if v.Dialog == nil {
 		v.Dialog = gameDialog(st, running, mk)
 	}
+	if v.Dialog == nil {
+		v.Dialog = coopDialog(st, running, mk)
+	}
 	v.Banner = bannerFor(st, running, now)
 	if v.Banner == nil {
 		v.Banner = dolphinBanner(st, running)
+	}
+	if v.Banner == nil {
+		v.Banner = coopBanner(st, running)
 	}
 	return v
 }
@@ -285,14 +300,17 @@ func eventView(ev session.Event, mk masker) EventView {
 	switch ev.Kind {
 	case session.EventLog:
 		v.Level = levelNames[ev.Level]
+		v.Sync = syncLine(ev.Level, ev.Text)
 	case session.EventChat, session.EventLobbyRequest:
 		v.From = ev.From
 	case session.EventLobbyNotice:
 		v.Code, v.Text, v.Suggest = ev.Notice.Code, ev.Notice.Text, ev.Notice.Suggest
 	case session.EventQuestion, session.EventQuestionClosed:
-		// Co-op questions are answered in a later PR (design PR 9); the
-		// title is enough for the log.
+		// The dialog comes from the state (coop.go); the title is enough
+		// for the log.
 		v.Text = ev.Question.Title
+	case session.EventAdvice:
+		v.Text = ev.Advice.Text
 	}
 	// The log and chat panels show no IP address unless the switch is on
 	// (mask.go): the host's log lists its share addresses, a joiner's

@@ -101,6 +101,13 @@ type Bridge struct {
 	clipboard func(string) error
 	openURL   func(string) error
 
+	// Co-op (coop.go, cards.go): the card preview's cache and reader, a
+	// joiner's own dry run (guarded by mu), and the file manager.
+	cardc    cardCache
+	findSave func(userDir string) (cardSave, error)
+	myDryRun bool
+	openPath func(dir string) error
+
 	sessMu   sync.Mutex   // guards hostPort, lastJoin, joining
 	hostPort int          // the port the last Host listens on
 	lastJoin *JoinRequest // the last Join, for Retry
@@ -122,7 +129,7 @@ func NewBridge(o Options) *Bridge {
 		coopTables: o.CoopTables, patchRun: patch.Run, inspect: patch.Inspect, denv: o.DolphinEnv,
 		home:      func() string { h, _ := os.UserHomeDir(); return h },
 		macStatus: macStatusHere, prepareMac: dolphinenv.PrepareMacHere,
-		emitters: map[int]func(EventView){}, hostIPs: o.HostIPs}
+		emitters: map[int]func(EventView){}, hostIPs: o.HostIPs, findSave: findSave, openPath: openFolderHere}
 	if b.getenv == nil {
 		b.getenv = func(string) string { return "" }
 	}
@@ -173,8 +180,10 @@ func (b *Bridge) State() StateView {
 	st := b.ctrl.Snapshot()
 	running := st.Session != 0 && st.Phase != session.Ended && st.Phase != session.Idle
 	b.noteReached(st)
-	v := stateView(st, running, b.version, b.now(), b.masker())
+	mk := b.masker()
+	v := stateView(st, running, b.version, b.now(), mk)
 	v.StartDolphinMyself = b.launchOptions().Manual
+	v.Coop = b.coopView(st, running, mk)
 	return v
 }
 
@@ -243,7 +252,10 @@ func (b *Bridge) Host(r HostRequest) (err error) {
 		port = config.DefaultPort
 	}
 	listen := strings.TrimSpace(b.getenv(EnvListenHost))
-	if _, err := b.ctrl.HostLobby(b.ctx, session.HostOptions{Name: name, Color: col, Port: port, ListenHost: listen, LaunchFn: b.launchOptions}); err != nil {
+	b.mu.Lock()
+	b.myDryRun = false
+	b.mu.Unlock()
+	if _, err := b.ctrl.HostLobby(b.ctx, session.HostOptions{Name: name, Color: col, Port: port, ListenHost: listen, LaunchFn: b.launchOptions, CoopFn: b.coopOptions}); err != nil {
 		return err
 	}
 	b.sessMu.Lock()
@@ -279,7 +291,10 @@ func (b *Bridge) Join(r JoinRequest) (err error) {
 	if err != nil {
 		return err
 	}
-	id, err := b.ctrl.JoinLobby(b.ctx, session.JoinOptions{Addr: addr, Name: name, Color: col, LaunchFn: b.launchOptions})
+	b.mu.Lock()
+	b.myDryRun = false
+	b.mu.Unlock()
+	id, err := b.ctrl.JoinLobby(b.ctx, session.JoinOptions{Addr: addr, Name: name, Color: col, LaunchFn: b.launchOptions, CoopFn: b.coopOptions})
 	if err != nil {
 		return err
 	}
@@ -421,6 +436,11 @@ func (b *Bridge) SendChat(text string) (_ EventView, err error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return EventView{Kind: "chat"}, nil
+	}
+	if strings.HasPrefix(text, "/") && b.ctrl.Snapshot().Coop.On {
+		// A console line (/help, /status, /warp ...), as the CLI takes
+		// them: its outcome is in the log.
+		return EventView{Kind: "chat"}, b.ctrl.CommandLine(text)
 	}
 	if err := b.ctrl.SendChat(text); err != nil {
 		return EventView{}, err

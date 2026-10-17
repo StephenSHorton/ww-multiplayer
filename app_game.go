@@ -48,6 +48,9 @@ type gameDeps struct {
 	pipelines func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep report.Reporter) error
 	// reset resets Dolphin pid's mailbox after the pipelines stopped.
 	reset func(pid uint32)
+	// coopSync runs coop-sync on Dolphin pid for co-op session cs until
+	// ctx ends (runCoopSyncCtx's contract: appCoopSync); nil runs none.
+	coopSync func(ctx context.Context, name, addr string, pid uint32, rep report.Reporter, cs *coopSession) error
 	// envPID is WW_DOLPHIN_PID: the Dolphin to play on, whatever runs.
 	envPID uint32
 
@@ -74,8 +77,9 @@ func realGameDeps(ls *liveState) *gameDeps {
 		pipelines: func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep report.Reporter) error {
 			return runPosePipelinesOn(ctx, cancel, name, addr, pid, rep, onClient, onPos)
 		},
-		reset:  resetMailboxOn,
-		envPID: envDolphinPID(),
+		reset:    resetMailboxOn,
+		coopSync: appCoopSync,
+		envPID:   envDolphinPID(),
 	}
 }
 
@@ -117,6 +121,9 @@ type gameRunner struct {
 	relaunch chan struct{}
 	info     session.DolphinInfo
 	err      error
+	// coop is the session's co-op side once it started (setCoop): its
+	// coop-sync runs beside the pose pipelines.
+	coop *coopSession
 }
 
 func newGameRunner(deps *gameDeps, opts func() session.LaunchOptions, name, addr string, out session.LobbyOutput, lobby func(string), fail func(error)) *gameRunner {
@@ -156,6 +163,32 @@ func (g *gameRunner) stop() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.err
+}
+
+// setCoop starts coop-sync for co-op session cs on this player's
+// Dolphin, beside the pose pipelines, from the next look on (once the
+// host's hub serves the world: after GO).
+func (g *gameRunner) setCoop(cs *coopSession) {
+	g.mu.Lock()
+	g.coop = cs
+	g.mu.Unlock()
+}
+
+func (g *gameRunner) coopSide() *coopSession {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.coop
+}
+
+// playablePID is the Dolphin the game side plays on while it runs the
+// patched game (title screen included), else 0.
+func (g *gameRunner) playablePID() uint32 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.info.State.Playable() {
+		return 0
+	}
+	return g.info.PID
 }
 
 // launchAgain asks for a launch of this player's Dolphin (the "Dolphin
@@ -208,9 +241,21 @@ func (g *gameRunner) run(ctx context.Context) {
 		pipeDone   chan error
 		pipePID    uint32
 		retryAt    time.Time
+		coopCancel context.CancelFunc
+		coopDone   chan error
+		coopAt     time.Time           // when a failed coop-sync starts again
 		played     = map[uint32]bool{} // Dolphins the pipelines ran on: reset at the end
 	)
+	stopCoop := func() {
+		if coopCancel == nil {
+			return
+		}
+		coopCancel()
+		<-coopDone
+		coopCancel, coopDone = nil, nil
+	}
 	stopPipes := func() {
+		stopCoop()
 		if pipeCancel == nil {
 			return
 		}
@@ -348,6 +393,26 @@ func (g *gameRunner) run(ctx context.Context) {
 		}
 		if pipeDone != nil && pipePID != info.PID {
 			stopPipes() // the Dolphin changed under them
+		}
+		// coop-sync, beside the pose pipelines once co-op has started.
+		if coopDone != nil {
+			select {
+			case err := <-coopDone:
+				coopCancel()
+				coopCancel, coopDone = nil, nil
+				if err != nil && ctx.Err() == nil {
+					report.Logf(g.out, report.Warn, "co-op: coop-sync stopped (%v); starting it again.", err)
+				}
+				coopAt = d.now().Add(d.retry)
+			default:
+			}
+		}
+		if cs := g.coopSide(); cs != nil && d.coopSync != nil && pipeDone != nil && coopDone == nil && !d.now().Before(coopAt) && ctx.Err() == nil {
+			cctx, cancel := context.WithCancel(ctx)
+			done := make(chan error, 1)
+			pid := pipePID
+			go func() { done <- d.coopSync(cctx, g.name, g.addr, pid, g.out, cs) }()
+			coopCancel, coopDone = cancel, done
 		}
 		g.set(info)
 

@@ -345,6 +345,7 @@ func (o *output) LobbyGo(world string) {
 }
 
 func (o *output) LobbyRequest(kind, from string) {
+	o.c.request(o.id, kind, from)
 	o.c.publish(Event{Kind: EventLobbyRequest, Session: o.id, From: from, Text: kind})
 }
 

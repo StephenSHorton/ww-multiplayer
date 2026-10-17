@@ -620,6 +620,36 @@ func (h *Hub) SetFeatures(f Feature) error {
 	})
 }
 
+// SetMerge changes Config.Merge while the hub runs (the app's host
+// allowing a joiner's file to merge after Start, app design §2.8): a
+// file with progress the world lacks, or one far behind it, may bind
+// from now on (or no longer). Every peer is told its features again, so
+// a replica learns FeatureMerge and may plan the bind it was refused.
+func (h *Hub) SetMerge(on bool) error {
+	return h.do(func() {
+		if h.cfg.Merge == on {
+			return
+		}
+		h.cfg.Merge = on
+		if on {
+			h.logf("co-op: the host now merges files with progress the world lacks (as --coop-merge)")
+		} else {
+			h.logf("co-op: the host no longer merges files with progress the world lacks")
+		}
+		for _, p := range h.sorted((*peer).welcomed) {
+			h.regrant(p)
+		}
+	})
+}
+
+// Merge reports whether files with progress the world lacks may bind
+// (Config.Merge, or SetMerge's).
+func (h *Hub) Merge() bool {
+	var on bool
+	_ = h.do(func() { on = h.cfg.Merge })
+	return on
+}
+
 // PeerState is where a peer's session is.
 type PeerState uint8
 
@@ -670,8 +700,11 @@ type Status struct {
 	World    world.ID
 	Seq      uint64
 	Features Feature // what the host allows
-	Peers    []PeerStatus
-	Scopes   []world.Key // the scoped stores held
+	// Merge: files with progress the world lacks may bind (Config.Merge,
+	// or SetMerge's).
+	Merge  bool
+	Peers  []PeerStatus
+	Scopes []world.Key // the scoped stores held
 	// CombatAllowed: the host allows FeatureCombat and has a kill verdict
 	// (Config.SyncedKill), so the kill union runs (§7.2, M6).
 	CombatAllowed bool
@@ -683,7 +716,7 @@ type Status struct {
 func (h *Hub) Status() (Status, error) {
 	var st Status
 	err := h.do(func() {
-		st = Status{World: h.id, Seq: h.store.Seq(), Features: h.features, Scopes: h.scopes.Keys()}
+		st = Status{World: h.id, Seq: h.store.Seq(), Features: h.features, Merge: h.cfg.Merge, Scopes: h.scopes.Keys()}
 		st.CombatAllowed = h.features&FeatureCombat != 0 && h.cfg.SyncedKill != nil
 		for _, k := range st.Scopes {
 			if k.Kind == world.ScopeKill {

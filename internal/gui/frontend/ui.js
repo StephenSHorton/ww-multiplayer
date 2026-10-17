@@ -62,26 +62,59 @@ export function shade(hex, f) {
 // panel with a bark plaque. openDialog({title, text, detail, actions})
 // shows it; each action is {label, primary, danger, run}, and the dialog
 // closes before run unless keep is set. Escape closes it like the last
-// action labelled Cancel / OK would, without running anything.
+// action labelled Cancel / OK would, without running anything, except
+// that onCancel runs then (a co-op question's no); a close made by code
+// (closeDialog) never runs onCancel. extra is a node shown under the
+// text (a list, option cards, a live check: coop.js).
+//
+// settle is for a dialog that asks something the player could answer by
+// accident (a co-op question, "Remove the tag"): it pops up while they
+// type in the chat. Focus goes to the dialog itself, not to a button, so
+// a key already on its way presses nothing, and for SETTLE_MS after it
+// opens every click, Enter, Space and Escape in it is ignored: input given
+// before a question is shown never answers it (docs/08 Appendix C items
+// 64 and 164; the TUI's questionSettle).
+
+export const SETTLE_MS = 600;
 
 let dlgOnClose = null;
+let dlgOnCancel = null;
+let dlgActed = false;
+let dlgCancelled = false; // Escape closed it (the "cancel" event)
+let dlgSettleUntil = 0;
 
-export function openDialog({ title, text, detail = "", actions = [], key = null, onClose = null }) {
+function settling() {
+	return performance.now() < dlgSettleUntil;
+}
+
+export function openDialog({ title, text, detail = "", actions = [], key = null, onClose = null, extra = null, onCancel = null, settle = false }) {
 	const d = $("dlg");
 	$("dlg-title").textContent = title;
 	$("dlg-text").textContent = text;
 	$("dlg-detail").textContent = detail;
+	$("dlg-extra").replaceChildren(...(extra ? [extra] : []));
 	const row = $("dlg-actions");
 	row.replaceChildren(...actions.map((a) => el("button", {
 		type: "button", class: "btn" + (a.primary ? " primary" : "") + (a.danger ? " danger" : ""),
 		onclick: () => {
-			if (!a.keep) closeDialog();
+			if (!a.keep) {
+				dlgActed = true;
+				closeDialog();
+			}
 			if (a.run) a.run();
 		},
 	}, a.label)));
 	d.dataset.key = key || "";
 	dlgOnClose = onClose;
+	dlgOnCancel = onCancel;
+	dlgActed = false;
+	dlgCancelled = false;
+	dlgSettleUntil = settle ? performance.now() + SETTLE_MS : 0;
 	if (!d.open) d.showModal();
+	if (settle) {
+		d.focus(); // no button: a key on its way presses nothing
+		return;
+	}
 	const first = row.querySelector(".primary") || row.querySelector("button");
 	if (first) first.focus();
 }
@@ -100,17 +133,43 @@ export function dialogKey() {
 
 // setDialogText redraws the open dialog's text and detail (a live one's
 // detail changes, and both are masked again when the switch goes off).
-export function setDialogText(text, detail) {
+export function setDialogText(text, detail, extra) {
 	$("dlg-text").textContent = text;
 	$("dlg-detail").textContent = detail;
+	if (extra !== undefined) $("dlg-extra").replaceChildren(...(extra ? [extra] : []));
 }
 
 export function initDialog() {
-	$("dlg").addEventListener("close", () => {
+	const d = $("dlg");
+	// A settling dialog takes no input yet (openDialog's settle).
+	d.addEventListener("click", (e) => {
+		if (settling() && e.target.closest("button")) {
+			e.preventDefault();
+			e.stopImmediatePropagation();
+		}
+	}, true);
+	d.addEventListener("keydown", (e) => {
+		if (settling() && (e.key === "Enter" || e.key === " " || e.key === "Escape")) {
+			e.preventDefault();
+			e.stopImmediatePropagation();
+		}
+	}, true);
+	d.addEventListener("cancel", (e) => {
+		if (settling()) {
+			e.preventDefault();
+			return;
+		}
+		dlgCancelled = true; // Escape: the close that follows is the player's no
+	});
+	d.addEventListener("close", () => {
 		if ($("dlg").open) return; // closed and opened again before this event
 		const f = dlgOnClose;
-		dlgOnClose = null;
+		const cancel = dlgActed || !dlgCancelled ? null : dlgOnCancel;
+		dlgOnClose = dlgOnCancel = null;
+		dlgActed = false;
+		dlgCancelled = false;
 		$("dlg").dataset.key = "";
 		if (f) f();
+		if (cancel) cancel();
 	});
 }

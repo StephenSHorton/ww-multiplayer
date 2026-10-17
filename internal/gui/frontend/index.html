@@ -256,6 +256,15 @@
 						</label>
 					</div>
 				</div>
+				<!-- co-op: the host's choice and your memory card's files (coop.js) -->
+				<div class="panel cardpanel" id="card-panel" hidden>
+					<h2>Save files</h2>
+					<p class="dim" id="card-choice"></p>
+					<ul class="files" id="card-files"></ul>
+					<p class="cardhint" id="card-hint"></p>
+					<small class="hint" id="card-note"></small>
+					<label class="check" id="my-dry-row" hidden title="Your game gets no writes but the binding tag, whatever the host chose"><input type="checkbox" id="my-dry"><span>Dry run for me</span></label>
+				</div>
 				<!-- in game: where everyone is, around you (the TUI's minimap) -->
 				<div class="panel mappanel" id="map-panel" hidden>
 					<h2>Map</h2>
@@ -271,24 +280,60 @@
 						<ul class="addrs" id="addrs"></ul>
 						<small class="hint" id="share-hint"></small>
 					</div>
-					<div class="hostrow">
-						<span class="label">Co-op</span>
-						<div class="seg" role="radiogroup" aria-label="Co-op">
-							<button type="button" role="radio" aria-checked="true" title="Shared co-op worlds from the app come in a later update">Off</button>
+					<!-- co-op: the world everyone shares (coop.js); Off is a choice like the others -->
+					<div class="coopbox" id="coop-host">
+						<span class="label">Co-op world</span>
+						<div class="seg" role="radiogroup" aria-label="Co-op world" id="coop-seg">
+							<button type="button" role="radio" data-mode="off" aria-checked="true" title="Play together without a shared world">Off</button>
+							<button type="button" role="radio" data-mode="new" aria-checked="false" title="Found a new world from the file you load after Start">New world</button>
+							<button type="button" role="radio" data-mode="continue" aria-checked="false" title="Go on with a world on this computer">Continue</button>
 						</div>
+						<small class="hint" id="coop-mode-hint"></small>
+						<ul class="worlds" id="coop-worlds" role="radiogroup" aria-label="Worlds on this computer" hidden></ul>
+						<details id="coop-adv">
+							<summary>Advanced</summary>
+							<label class="check" title="Plan the writes and log them, but write nothing but the binding tag (everyone's games)"><input type="checkbox" id="coop-dry"><span>Dry run: write nothing but the binding tag</span></label>
+							<label class="check" title="A file with progress the world lacks, or far behind it, may bind, and its progress joins the world"><input type="checkbox" id="coop-merge"><span>Allow merging divergent files</span></label>
+							<label class="check" title="Switches of the room you stand in apply once you're idle, not at the next room change"><input type="checkbox" id="coop-live"><span>Live switches in your room</span></label>
+							<label class="field">
+								<span>Disc for co-op tables</span>
+								<input id="coop-iso" autocomplete="off" spellcheck="false" placeholder="Your patched disc (Setup)">
+							</label>
+						</details>
+					</div>
+					<div class="hostrow">
 						<button class="btn primary" type="button" id="start-btn" disabled aria-describedby="start-note">Start</button>
 					</div>
 					<small class="hint" id="start-note"></small>
 					<button class="linkbtn" type="button" id="start-anyway" hidden>Start anyway</button>
 				</div>
+				<!-- in game: the co-op panel, from the pipelines' status (coop.js) -->
+				<div class="panel cooppanel" id="coop-panel" hidden>
+					<h2>Co-op</h2>
+					<div id="coop-pipes"></div>
+					<div id="coop-hub"></div>
+					<div class="coopbtns">
+						<button class="btn small" type="button" id="coop-refresh" title="Reload this area by the entrance you came in by: a stale chest or door, or a softlock">Refresh area</button>
+						<span class="warpbox">
+							<button class="btn small" type="button" id="coop-warp" title="Go to your partner: onto it on the same stage, else by its entrance first">Warp to partner</button>
+						</span>
+						<button class="btn small" type="button" id="coop-pause">Pause co-op writes</button>
+						<button class="btn small" type="button" id="coop-copy" title="Copy co-op's status as text, for a bug report">Copy status</button>
+					</div>
+					<label class="check autoyes"><input type="checkbox" id="coop-autoyes"><span>Answer yes to co-op questions</span></label>
+				</div>
 				<!-- chat: beside the lobby, or under it while the host's panel takes the right -->
 				<div class="panel feed" id="feed">
-					<h2>Chat</h2>
+					<h2 id="feed-title">Chat</h2>
+					<div class="tabs" id="feed-tabs" role="tablist" aria-label="What the log shows">
+						<button type="button" role="tab" data-tab="chat" aria-selected="true">Chat</button>
+						<button type="button" role="tab" data-tab="sync" aria-selected="false" id="tab-sync" hidden>Co-op sync</button>
+						<button type="button" role="tab" data-tab="all" aria-selected="false">All logs</button>
+					</div>
 					<ol class="log chatonly" id="log"></ol>
 					<form class="chat" id="chat-form">
 						<input id="chat" autocomplete="off" placeholder="Say something" maxlength="200">
 						<button class="btn" type="submit">Send</button>
-						<button class="badge" type="button" id="log-toggle" aria-pressed="false" title="Show the session's log lines too">Log</button>
 					</form>
 				</div>
 			</div>
@@ -296,11 +341,12 @@
 	</section>
 </main>
 
-<dialog class="dialog" id="dlg" aria-labelledby="dlg-title">
+<dialog class="dialog" id="dlg" aria-labelledby="dlg-title" tabindex="-1">
 	<div class="panel">
 		<h2 id="dlg-title"></h2>
 		<p id="dlg-text"></p>
 		<p class="detail" id="dlg-detail"></p>
+		<div id="dlg-extra"></div>
 		<div class="actions" id="dlg-actions"></div>
 	</div>
 </dialog>

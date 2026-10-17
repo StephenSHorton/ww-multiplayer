@@ -47,6 +47,11 @@ func (e *sessionEngine) HostLobby(ctx context.Context, cancel context.CancelFunc
 		}
 		out.Log(report.Info, fmt.Sprintf("[srv %s] %s", time.Now().Format("15:04:05"), msg))
 	}
+	// The co-op side's hub stops after the server (deferred first, so it
+	// runs last), as the CLI's host stops it.
+	ac := newAppCoop(ctx, e, out, name, o.CoopFn, o.LaunchOptions)
+	ac.srvLog, ac.setHub = srv.OnLog, func(h network.CoopHandler) { srv.SetCoop(h) }
+	defer ac.stop()
 	if err := srv.Start(); err != nil {
 		return fmt.Errorf("server start: %w", err)
 	}
@@ -56,7 +61,7 @@ func (e *sessionEngine) HostLobby(ctx context.Context, cancel context.CancelFunc
 	for _, ip := range ips {
 		report.Logf(out, report.Info, "  %s", ip)
 	}
-	return e.runLobby(ctx, cancel, hostDialAddr(o.ListenHost, port), name, o.Color, o.LaunchOptions, out, func() {
+	return e.runLobby(ctx, cancel, hostDialAddr(o.ListenHost, port), name, o.Color, o.LaunchOptions, out, ac, func() {
 		if e.ls != nil {
 			e.ls.begin(string(session.RoleHost), name, ips)
 			e.ls.setServer(srv)
@@ -86,7 +91,9 @@ func (e *sessionEngine) JoinLobby(ctx context.Context, cancel context.CancelFunc
 	}
 	addr := netutil.NormalizeAddr(o.Addr, defaultPort)
 	report.Logf(out, report.OK, "Joining the lobby at %s as %q.", addr, name)
-	err := e.runLobby(ctx, cancel, addr, name, o.Color, o.LaunchOptions, out, func() {
+	ac := newAppCoop(ctx, e, out, name, o.CoopFn, o.LaunchOptions)
+	defer ac.stop()
+	err := e.runLobby(ctx, cancel, addr, name, o.Color, o.LaunchOptions, out, ac, func() {
 		if e.ls != nil {
 			e.ls.begin(string(session.RoleJoin), name, nil)
 		}
@@ -103,7 +110,7 @@ func (e *sessionEngine) JoinLobby(ctx context.Context, cancel context.CancelFunc
 // server too; it is stopped, its pipelines ended and the mailbox reset,
 // before runLobby returns, so a host's server stops after it. A fatal
 // pipelines error (a version mismatch) ends the session through cancel.
-func (e *sessionEngine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, name string, color *playercolor.Color, launch func() session.LaunchOptions, out session.LobbyOutput, beginGame func()) (err error) {
+func (e *sessionEngine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, name string, color *playercolor.Color, launch func() session.LaunchOptions, out session.LobbyOutput, ac *appCoop, beginGame func()) (err error) {
 	hello := network.LobbyHelloBody{App: version, OS: runtime.GOOS, Dolphin: network.DolphinNone}
 	if color != nil {
 		hello.Color = color.Hex()
@@ -114,7 +121,18 @@ func (e *sessionEngine) runLobby(ctx context.Context, cancel context.CancelFunc,
 	lc.OnState = func(st network.LobbyStateBody) {
 		w, _ := lc.Welcome()
 		out.LobbyState(lobbyView(st, w))
+		if st.Phase != network.PhaseLobby {
+			ac.onSettings(st.Settings)
+		}
 	}
+	e.mu.Lock()
+	e.coop1 = ac
+	e.mu.Unlock()
+	defer func() {
+		e.mu.Lock()
+		e.coop1 = nil
+		e.mu.Unlock()
+	}()
 	lc.OnNotice = func(b network.LobbyNoticeBody) {
 		out.Log(report.Warn, "lobby: "+b.Text)
 		out.LobbyNotice(session.Notice{Code: b.Code, Text: b.Text, Suggest: b.Suggest})
@@ -134,6 +152,7 @@ func (e *sessionEngine) runLobby(ctx context.Context, cancel context.CancelFunc,
 				game.start(gctx)
 			})
 		}
+		ac.bind(lc, game)
 		e.mu.Lock()
 		e.game1 = game
 		e.mu.Unlock()
@@ -151,12 +170,21 @@ func (e *sessionEngine) runLobby(ctx context.Context, cancel context.CancelFunc,
 		lc.OnStart = func(b network.LobbyStartBody) {
 			out.LobbyStart(lobbySettings(b.Settings))
 			startGame()
+			if coopOn(b.Settings) && e.coopApp != nil && isHost(lc) {
+				ac.onStart(b.Settings) // GO once the world is open
+				return
+			}
 			goIfHost(lc, b.Settings, out)
 		}
 	} else {
 		lc.OnStart = func(b network.LobbyStartBody) { out.LobbyStart(lobbySettings(b.Settings)) }
 	}
-	lc.OnGo = func(b network.LobbyGoBody) { out.LobbyGo(b.World) }
+	lc.OnGo = func(b network.LobbyGoBody) {
+		out.LobbyGo(b.World)
+		if st, ok := lc.State(); ok && !isHost(lc) {
+			ac.onGo(st.Settings, b.World) // a joiner's co-op starts on GO only
+		}
+	}
 	lc.OnRequest = func(b network.LobbyRequestBody) { out.LobbyRequest(b.Kind, b.From) }
 	lc.OnLink = linkTracker(out.LobbyLink, time.Now)
 
@@ -207,13 +235,12 @@ func linkTracker(report func(session.LobbyLink), now func() time.Time) func(up b
 // is off (no world to open first: design §2.6 step 4). A START replayed
 // after the lobby is in game sends nothing.
 func goIfHost(lc *network.LobbyClient, s network.LobbySettingsBody, out session.LobbyOutput) {
-	if s.Coop != "" && s.Coop != "off" {
-		return // co-op worlds are App PR 9: the host app opens one before GO
-	}
 	st, ok := lc.State()
-	w, _ := lc.Welcome()
-	if !ok || st.Phase != network.PhaseStarting || !lobbyView(st, w).Host {
+	if !ok || st.Phase != network.PhaseStarting || !isHost(lc) {
 		return
+	}
+	if coopOn(s) {
+		report.Logf(out, report.Warn, "co-op: this build has no co-op side here; the session goes on without co-op.")
 	}
 	if err := lc.Go(""); err != nil {
 		report.Logf(out, report.Warn, "Couldn't tell the players to go: %v", err)
@@ -296,4 +323,11 @@ func wireSettings(s session.LobbySettings) network.LobbySettingsBody {
 		out.Worlds = append(out.Worlds, network.LobbyWorld{ID: w.ID, Seq: w.Seq, InUse: w.InUse})
 	}
 	return out
+}
+
+// isHost says our STATE row is the lobby's host.
+func isHost(lc *network.LobbyClient) bool {
+	st, ok := lc.State()
+	w, _ := lc.Welcome()
+	return ok && lobbyView(st, w).Host
 }
