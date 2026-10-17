@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -45,7 +46,7 @@ func newM6Guard(t testing.TB) *m6Guard {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := actors.Read(m, 0)
+	w, err := combat.Read(m, 0)
 	if err != nil || !w.Complete() {
 		t.Fatalf("walk %+v %v", w, err)
 	}
@@ -307,7 +308,7 @@ func FuzzWriteGuardActor(f *testing.F) {
 					t.Fatal(err)
 				}
 			}
-			w, err := actors.Read(mg.m, 0)
+			w, err := combat.Read(mg.m, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -338,7 +339,7 @@ func FuzzWriteGuardActor(f *testing.F) {
 
 		// The oracle.
 		ok := demo && allowed(c)
-		cls, isK1 := actors.K1(c.Proc)
+		cls, isK1 := combat.K1(c.Proc)
 		switch k {
 		case actorTimer:
 			ok = ok && isK1 && cls.Verified && a == c.TimerAddr() && a != 0 && old == 0 && val == 1 &&

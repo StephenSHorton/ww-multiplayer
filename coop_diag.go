@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
@@ -99,7 +100,7 @@ func runCoopDiag(cmd string, args []string) {
 			exitUsage(perr, usage)
 		}
 		err = withCoopMem(func(m mem.Mem) error {
-			w, err := actors.Read(m, n)
+			w, err := combat.Read(m, n)
 			if err != nil {
 				return err
 			}
@@ -704,11 +705,11 @@ func playerLabel(off, bit int) (string, bool) {
 // actorGroups names fopAc_Group_e (f_op_actor.h:54-60).
 var actorGroups = [...]string{"actor", "player", "enemy", "env", "npc"}
 
-// printActors prints a walk of g_fopAcTg_Queue (actors.Read): each actor's
+// printActors prints a walk of g_fopAcTg_Queue (combat.Read): each actor's
 // process, proc, setID, group and rooms, and for an enemy its health,
 // params, mInitState and BOSS, CARRY and event command; for a K1 class
 // its enemyice (self-pointer, mode, timer) and whether M6 may light-shrink
-// it now (actors.Eligible), so the owner can check a class's offsets live
+// it now (combat.Eligible), so the owner can check a class's offsets live
 // (docs/08 §8.2 K1).
 func printActors(w io.Writer, aw actors.Walk) {
 	fmt.Fprintf(w, "g_fopAcTg_Queue 0x%08X: head 0x%08X, tail 0x%08X, mSize %d; g_fopAc_type 0x%08X; next process ID %d\n",
@@ -739,11 +740,11 @@ func printActors(w io.Writer, aw actors.Walk) {
 		if a.EvtCmd != 0 {
 			extra += fmt.Sprintf("  mCmd %d", a.EvtCmd)
 		}
-		if _, ok := actors.K1(a.Proc); ok {
+		if _, ok := combat.K1(a.Proc); ok {
 			extra += "  " + iceLine(a)
 		}
 		fmt.Fprintf(w, "%4d  0x%08X  pid %-6d proc 0x%04X %-6s set %-5s %-6s room %3d  (%9.1f %9.1f %9.1f)%s\n",
-			i, a.Addr, a.PID, uint16(a.Proc), actors.ProcName(a.Proc), set, group, a.HomeRoom,
+			i, a.Addr, a.PID, uint16(a.Proc), combat.ProcName(a.Proc), set, group, a.HomeRoom,
 			a.Pos[0], a.Pos[1], a.Pos[2], extra)
 	}
 	fmt.Fprintf(w, "%d actors", len(aw.Actors))
@@ -776,10 +777,10 @@ func iceLine(a *actors.Actor) string {
 	if a.HoldOK {
 		s += fmt.Sprintf(" (holding record %d)", a.Hold) // m0B30, m1DD0: 0 when the weapon field is stale
 	}
-	if why := actors.Eligible(a, true); why != "" {
+	if why := combat.Eligible(a, true); why != "" {
 		return s + "; K1 held: " + why
 	}
-	if c, _ := actors.K1(a.Proc); !c.Verified {
+	if c, _ := combat.K1(a.Proc); !c.Verified {
 		return s + "; K1 ok with --unverified"
 	}
 	return s + "; K1 ok"
@@ -789,8 +790,8 @@ func iceLine(a *actors.Actor) string {
 // enemy-kill and peek-demo (docs/08 §8.2 K1)
 
 // enemyKill light-shrinks the live enemy with process ID pid, through the
-// same gates, re-read and WriteGuard as the M6 receiver (actors.Eligible,
-// actors.Revalidate, FrameWriter.ApplyActors, WriteGuard.checkActor), for
+// same gates, re-read and WriteGuard as the M6 receiver (combat.Eligible,
+// combat.Revalidate, FrameWriter.ApplyActors, WriteGuard.checkActor), for
 // the owner's live check of a class's enemyice offset: one byte, 1, at its
 // timer, then its weapon's CARRY cleared. Unlike the receiver it takes any
 // actor of a K1 class, keyed or not, ignores Link's demo gate, and with
@@ -805,7 +806,7 @@ func enemyKill(ctx context.Context, w io.Writer, m mem.Mem, pid uint32, unverifi
 	if !st.CanWriteIdle() {
 		return fmt.Errorf("not now: %s (stand in game, out of menus and cutscenes)", closedWhyDiag(st))
 	}
-	aw, err := actors.Read(m, 0)
+	aw, err := combat.Read(m, 0)
 	if err != nil {
 		return err
 	}
@@ -817,7 +818,7 @@ func enemyKill(ctx context.Context, w io.Writer, m mem.Mem, pid uint32, unverifi
 		return fmt.Errorf("no actor has process ID %d (the actors diagnostic lists them)", pid)
 	}
 	fmt.Fprintf(w, "target: %s; %s\n", a, iceLine(a))
-	if why := actors.Eligible(a, unverified); why != "" {
+	if why := combat.Eligible(a, unverified); why != "" {
 		return fmt.Errorf("not written: %s", why)
 	}
 	if a.Keyed() {
@@ -825,7 +826,7 @@ func enemyKill(ctx context.Context, w io.Writer, m mem.Mem, pid uint32, unverifi
 			return fmt.Errorf("not written: room %d has no zone, and the death would halt the game in onActor (%v)", a.HomeRoom, err)
 		}
 	}
-	wp, why := actors.WeaponOf(&aw, a, unverified)
+	wp, why := combat.WeaponOf(&aw, a, unverified)
 	if why != "" {
 		fmt.Fprintf(w, "its weapon is left: %s\n", why)
 	}
@@ -863,7 +864,7 @@ func enemyKill(ctx context.Context, w io.Writer, m mem.Mem, pid uint32, unverifi
 	last := int8(1)
 	for time.Now().Before(deadline) && ctx.Err() == nil {
 		tick()
-		now, err := actors.Read(m, 0)
+		now, err := combat.Read(m, 0)
 		if err != nil {
 			return err
 		}

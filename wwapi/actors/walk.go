@@ -1,20 +1,26 @@
 // Package actors reads the game's live actors: a bounded, validated walk
 // of g_fopAcTg_Queue, each actor's fopAc_ac_c fields, and the re-read
-// every write rests on. The walk itself is generic; its user today is
-// co-op's combat sync (docs/08-coop-design.md §7.2, M6), whose K1 classes
-// and gates live in k1.go and add the class-specific reads (enemyice,
-// mode, weapon) to an Actor.
+// every write rests on. The walk is generic: a caller that needs more of a
+// class than fopAc_ac_c (its enemyice, mode or weapon) passes a Layout for
+// its proc to ReadWith. Its user today is co-op's combat sync
+// (docs/08-coop-design.md §7.2, M6), whose K1 classes, layouts and gates
+// live in internal/coop/combat.
 //
 // Every actor lives on a heap, so nothing here is a static address but
 // the queue's: each pointer is checked before it is followed, an actor is
 // taken only while its tag says the queue holds it, and an actor that a
-// later write rests on is read again just before the write (Revalidate),
+// later write rests on is read again just before the write (Reread),
 // since its memory can be freed and reused for another actor between two
 // reads (fopAcM_delete, then fpcDt_Handler at the next frame's start,
 // f_pc_manager.cpp:280).
 //
 // Citations follow wwapi/addr: file:line is the zeldaret/tww
 // decomp at 4d78c994, sym:N is line N of its config/GZLE01/symbols.txt.
+//
+// # v0 UNSTABLE
+//
+// This package is part of wwapi v0. Its API may change in any 0.x minor
+// version.
 package actors
 
 import (
@@ -71,7 +77,13 @@ func (w *Walk) ByAddr(a uint32) (*Actor, bool) {
 	return nil, false
 }
 
-// Read walks g_fopAcTg_Queue from head to tail, at most limit nodes (0 or
+// Read walks g_fopAcTg_Queue as ReadWith does, reading no class beyond
+// fopAc_ac_c.
+func Read(m mem.Reader, limit int) (Walk, error) {
+	return ReadWith(m, limit, nil)
+}
+
+// ReadWith walks g_fopAcTg_Queue from head to tail, at most limit nodes (0 or
 // less: MaxNodes), and never more than the queue's own mSize. Each node is
 // a create_tag_class at actor +0xC4 whose mpTagData is the actor (cTg_Create,
 // c_tag.cpp:89-92). Before a node is taken:
@@ -87,8 +99,9 @@ func (w *Walk) ByAddr(a uint32) (*Actor, bool) {
 // The walk stops at the first failure and on a repeated node. A
 // g_fopAc_type of 0 means no actor was ever created (f_pc_base.cpp:28-33):
 // the walk is empty. The error is a read error; a bad list is reported in
-// Stop.
-func Read(m mem.Mem, limit int) (Walk, error) {
+// Stop. Each actor whose proc has a Layout in layouts has that layout
+// read too.
+func ReadWith(m mem.Reader, limit int, layouts Layouts) (Walk, error) {
 	var w Walk
 	if limit <= 0 {
 		limit = MaxNodes
@@ -151,8 +164,10 @@ func Read(m mem.Mem, limit int) (Walk, error) {
 			break
 		}
 		act := decode(node, a)
-		if err := readClass(m, &act); err != nil {
-			return w, err
+		if l, ok := layouts[act.Proc]; ok {
+			if err := readLayout(m, &act, l); err != nil {
+				return w, err
+			}
 		}
 		w.Actors = append(w.Actors, act)
 		prev, node = node, be32(tag[addr.TagOffNext:])
@@ -197,7 +212,7 @@ func tagBad(node uint32, tag []byte) string {
 }
 
 // readNode reads the actor whose actor_tag is at node, and the tag.
-func readNode(m mem.Mem, node uint32) (actor, tag []byte, err error) {
+func readNode(m mem.Reader, node uint32) (actor, tag []byte, err error) {
 	a, err := m.Read(node-addr.ActorOffActorTag, addr.ActorSize)
 	if err != nil {
 		return nil, nil, err

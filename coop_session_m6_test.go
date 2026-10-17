@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
@@ -17,7 +18,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
@@ -180,7 +180,7 @@ func coAuditM6Heap(w coWrite, rep replica.Report, bad func(format string, args .
 		}
 		return
 	}
-	for _, c := range actors.Classes() {
+	for _, c := range combat.Classes() {
 		if off == c.Ice+addr.EnemyIceOffTimer {
 			if !c.Verified {
 				bad("the timer of an unverified %s", c.Name)
@@ -304,7 +304,7 @@ func newCoPlayerM6(t *testing.T, ctx context.Context, h *coHost, cs *coopSession
 // plumbing: the host founds a world from A's file and runs A's pipeline in
 // its own session; B joins from a session of its own; both take their
 // stage tables from --coop-iso (the M6 fixture) and write; Link's demo
-// offset is taken as verified (actors.DemoTypeVerified). Scripted play
+// offset is taken as verified (combat.DemoTypeVerified). Scripted play
 // first, in DRC:
 //
 //   - same room: A kills its first Bokoblin; B records it dead, its
@@ -342,11 +342,11 @@ func TestCoopSessionM6(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs a loopback server for a few seconds")
 	}
-	demo := actors.DemoTypeVerified
-	actors.DemoTypeVerified = true
-	t.Cleanup(func() { actors.DemoTypeVerified = demo }) // after the players' cleanups
-	tnVerified := actors.SetVerified(int16(stage.ProcTN), false)
-	t.Cleanup(func() { actors.SetVerified(int16(stage.ProcTN), tnVerified) })
+	demo := combat.DemoTypeVerified
+	combat.DemoTypeVerified = true
+	t.Cleanup(func() { combat.DemoTypeVerified = demo }) // after the players' cleanups
+	tnVerified := combat.SetVerified(int16(stage.ProcTN), false)
+	t.Cleanup(func() { combat.SetVerified(int16(stage.ProcTN), tnVerified) })
 	useTablesDir(t, t.TempDir())
 	iso := writeImage(t, "ww.iso", tablestest.ISO(coM6Stages()))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -574,7 +574,7 @@ func TestCoopSessionM6(t *testing.T) {
 	together(1)
 	run(5)
 	bb, _ := live(a, coM6BB)
-	bbc, _ := actors.K1(int16(stage.ProcBB))
+	bbc, _ := combat.K1(int16(stage.ProcBB))
 	must(ga.m.Store(bb.Addr+bbc.Ice+addr.EnemyIceOffTimer, []byte{1})) // the game's own write: a Light Arrow hit
 	until("A's Kargaroc light-arrowed never reached B", func() bool { return coM6Dead(b.coGame, 1, 7) && gone(b, coM6BB) })
 
@@ -869,9 +869,9 @@ func TestLogCoopCombat(t *testing.T) {
 		{"no tables", nil, false, []string{"co-op: combat is off this session: without co-op stage tables no enemy is known to sync, so no partner's kill is written."}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			old := actors.DemoTypeVerified
-			actors.DemoTypeVerified = c.demo
-			defer func() { actors.DemoTypeVerified = old }()
+			old := combat.DemoTypeVerified
+			combat.DemoTypeVerified = c.demo
+			defer func() { combat.DemoTypeVerified = old }()
 			l := &coLog{}
 			logCoopCombat(l, c.t)
 			for _, w := range c.want {

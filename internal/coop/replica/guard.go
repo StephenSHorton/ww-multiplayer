@@ -183,7 +183,7 @@ type byteRule struct {
 //     and the room's status they rest on were read again;
 //   - pathActor, FrameWriter.ApplyActors: a light-shrink timer and a
 //     weapon's CARRY byte (M6), each of an actor read again just before
-//     (actors.Revalidate), judged by WriteGuard.checkActor.
+//     (combat.Revalidate), judged by WriteGuard.checkActor.
 type path uint8
 
 const (

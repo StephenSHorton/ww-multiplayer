@@ -10,8 +10,9 @@ import (
 
 // Actor is one actor as a walk read it: the fopAc_ac_c fields
 // (f_op_actor.h:270-319; base_process_class, f_pc_base.h:13-32) M6 and
-// the actors diagnostic read, and, for a K1 class (K1), its enemyice, the
-// class's mode the gates read and the process ID of the weapon it holds.
+// the actors diagnostic read, and, for a proc the walk has a Layout for
+// (ReadWith), its enemyice, the class's mode and the process ID of the
+// weapon it holds.
 type Actor struct {
 	Node, Addr uint32 // its actor_tag, and the actor (Node - 0xC4)
 	PID        uint32 // mBsPcId
@@ -31,18 +32,18 @@ type Actor struct {
 	MaxHealth  int8
 	Attn       uint32 // attention_info.flags
 
-	// Ice is the enemyice of a K1 class; Ice.Off is 0 for any other.
+	// Ice is the enemyice at Layout.Ice; Ice.Off is 0 without one.
 	Ice IceState
-	// Mode is the class's mode a gate reads (Class.Mode), if ModeOK; for
-	// a BOKO, its u8 mNowMode (addr.BokoOffNowMode).
+	// Mode is the class's mode at Layout.Mode, if ModeOK; for a BOKO in
+	// co-op's layouts, its u8 mNowMode (addr.BokoOffNowMode).
 	Mode   int32
 	ModeOK bool
 	// Weapon is the process ID in the carrier's weapon field
-	// (Class.Weapon), 0 for a class without one. It may name a weapon the
-	// carrier no longer holds (HeldBy).
+	// (Layout.Weapon), 0 for a class without one. It may name a weapon the
+	// carrier no longer holds (co-op's combat.HeldBy).
 	Weapon uint32
 	// Hold is the carrier's own record that it holds its weapon
-	// (Class.Hold), sign-extended, if HoldOK.
+	// (Layout.Hold), sign-extended, if HoldOK.
 	Hold   int32
 	HoldOK bool
 }
@@ -64,6 +65,29 @@ type IceState struct {
 	Mode        int8
 	FreezeTimer int16
 }
+
+// Layout says what a walk reads of a proc beyond fopAc_ac_c, each an
+// offset from the actor, 0 for none: the enemyice (Ice), a mode (Mode, an
+// s32, or a u8 if ModeU8), the process ID of the weapon it carries
+// (Weapon) and its own record of holding that weapon (Hold, an s32, or an
+// s8 if HoldS8). A part that lies outside MEM1 is left unread.
+type Layout struct {
+	Ice    uint32
+	Mode   uint32
+	ModeU8 bool
+	Weapon uint32
+	Hold   uint32
+	HoldS8 bool
+}
+
+// Layouts maps a proc (mProcName) to its Layout.
+type Layouts map[int16]Layout
+
+// Names, if not nil, gives the short name String prints for a proc ("" for
+// none). It is optional: without it String prints no name. Co-op's combat
+// package sets it, when it is initialised, to its ProcName. Set it only
+// before any walk.
+var Names func(proc int16) string
 
 // TimerAddr is the address of a's light-shrink timer, 0 without an
 // enemyice.
@@ -89,7 +113,11 @@ func (a *Actor) Keyed() bool {
 }
 
 func (a *Actor) String() string {
-	return fmt.Sprintf("actor 0x%08X (pid %d, proc 0x%04X %s, setID %s, room %d)", a.Addr, a.PID, uint16(a.Proc), ProcName(a.Proc), setIDName(a.SetID), a.HomeRoom)
+	var name string
+	if Names != nil {
+		name = Names(a.Proc)
+	}
+	return fmt.Sprintf("actor 0x%08X (pid %d, proc 0x%04X %s, setID %s, room %d)", a.Addr, a.PID, uint16(a.Proc), name, setIDName(a.SetID), a.HomeRoom)
 }
 
 func setIDName(id uint16) string {
@@ -126,59 +154,55 @@ func decode(node uint32, b []byte) Actor {
 	return a
 }
 
-// readClass reads what a K1 class has beyond fopAc_ac_c: its enemyice,
-// its gated mode, its weapon field and its record of holding the weapon;
-// and a BOKO's mNowMode. A part that lies outside MEM1 is left unread
-// (Ice.Read false, ModeOK false, Weapon 0, HoldOK false); the error is a
-// read error.
-func readClass(m mem.Mem, a *Actor) error {
-	if a.Proc == addr.ProcBoko {
-		v, err := readU8In(m, a.Addr+addr.BokoOffNowMode)
-		a.Mode, a.ModeOK = int32(v.v), v.ok
-		return err
-	}
-	c, ok := classes[a.Proc]
-	if !ok {
-		return nil
-	}
-	a.Ice.Off = c.Ice
-	if at := a.Addr + c.Ice; mem.CheckRange(at, addr.EnemyIceSize) == nil {
-		b, err := m.Read(at, addr.EnemyIceSize)
-		if err != nil {
-			return err
+// readLayout reads what l says a has beyond fopAc_ac_c: its enemyice, its
+// mode, its weapon field and its record of holding the weapon. A part that
+// lies outside MEM1 is left unread (Ice.Read false, ModeOK false, Weapon 0,
+// HoldOK false); the error is a read error.
+func readLayout(m mem.Reader, a *Actor, l Layout) error {
+	if l.Ice != 0 {
+		a.Ice.Off = l.Ice
+		if at := a.Addr + l.Ice; mem.CheckRange(at, addr.EnemyIceSize) == nil {
+			b, err := m.Read(at, addr.EnemyIceSize)
+			if err != nil {
+				return err
+			}
+			a.Ice.Read = true
+			a.Ice.Self = be32(b[addr.EnemyIceOffSelf:])
+			a.Ice.SelfOK = a.Ice.Self == a.Addr
+			a.Ice.Timer = int8(b[addr.EnemyIceOffTimer])
+			a.Ice.Mode = int8(b[addr.EnemyIceOffMode])
+			a.Ice.FreezeTimer = int16(be16(b[addr.EnemyIceOffFreezeTimer:]))
 		}
-		a.Ice.Read = true
-		a.Ice.Self = be32(b[addr.EnemyIceOffSelf:])
-		a.Ice.SelfOK = a.Ice.Self == a.Addr
-		a.Ice.Timer = int8(b[addr.EnemyIceOffTimer])
-		a.Ice.Mode = int8(b[addr.EnemyIceOffMode])
-		a.Ice.FreezeTimer = int16(be16(b[addr.EnemyIceOffFreezeTimer:]))
 	}
-	if c.Mode != 0 {
-		if v, err := readU32In(m, a.Addr+c.Mode); err != nil {
+	if l.Mode != 0 {
+		read := readU32In
+		if l.ModeU8 {
+			read = readU8In
+		}
+		if v, err := read(m, a.Addr+l.Mode); err != nil {
 			return err
 		} else if v.ok {
 			a.Mode, a.ModeOK = int32(v.v), true
 		}
 	}
-	if c.Weapon != 0 {
-		v, err := readU32In(m, a.Addr+c.Weapon)
+	if l.Weapon != 0 {
+		v, err := readU32In(m, a.Addr+l.Weapon)
 		if err != nil {
 			return err
 		}
 		a.Weapon = v.v
 	}
-	if c.Hold != 0 {
+	if l.Hold != 0 {
 		read := readU32In
-		if c.holdS8 {
+		if l.HoldS8 {
 			read = readU8In
 		}
-		v, err := read(m, a.Addr+c.Hold)
+		v, err := read(m, a.Addr+l.Hold)
 		if err != nil {
 			return err
 		}
 		a.Hold, a.HoldOK = int32(v.v), v.ok
-		if c.holdS8 {
+		if l.HoldS8 {
 			a.Hold = int32(int8(v.v))
 		}
 	}
@@ -191,7 +215,7 @@ type u32In struct {
 }
 
 // readU32In reads the u32 at at if it lies in MEM1.
-func readU32In(m mem.Mem, at uint32) (u32In, error) {
+func readU32In(m mem.Reader, at uint32) (u32In, error) {
 	if mem.CheckRange(at, 4) != nil {
 		return u32In{}, nil
 	}
@@ -200,7 +224,7 @@ func readU32In(m mem.Mem, at uint32) (u32In, error) {
 }
 
 // readU8In reads the u8 at at if it lies in MEM1.
-func readU8In(m mem.Mem, at uint32) (u32In, error) {
+func readU8In(m mem.Reader, at uint32) (u32In, error) {
 	if mem.CheckRange(at, 1) != nil {
 		return u32In{}, nil
 	}

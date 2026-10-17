@@ -1,10 +1,21 @@
-package actors
+// Package combat is co-op's combat sync over wwapi/actors
+// (docs/08-coop-design.md §7.2, M6): the K1 classes M6 may light-shrink,
+// the layouts a walk reads of them (their enemyice, the mode a gate reads,
+// the weapon they carry and their record of holding it), the per-actor
+// gates (Eligible, HeldBy, WeaponOf) and Revalidate, the re-read every
+// light-shrink rests on: actors.Reread with the gates read again.
+//
+// Citations follow wwapi/addr: file:line is the zeldaret/tww
+// decomp at 4d78c994, sym:N is line N of its config/GZLE01/symbols.txt.
+package combat
 
 import (
 	"fmt"
 	"strings"
 
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/enemies"
 )
@@ -30,7 +41,7 @@ import (
 var DemoTypeVerified = true
 
 // Class is a K1 class: where its enemyice is, whether it is verified, and
-// what M6's gates read of it beyond fopAc_ac_c.
+// what M6's gates read of it beyond fopAc_ac_c (its Layout).
 type Class struct {
 	Proc stage.Proc
 	Name string // enemies.Class.Name: "BK"
@@ -131,6 +142,32 @@ var classes = func() map[int16]Class {
 	return out
 }()
 
+// layouts is what a walk reads beyond fopAc_ac_c: each K1 class's Layout,
+// and a BOKO's u8 mNowMode (addr.BokoOffNowMode), which HeldBy reads.
+var layouts = func() actors.Layouts {
+	out := actors.Layouts{addr.ProcBoko: {Mode: addr.BokoOffNowMode, ModeU8: true}}
+	for p, c := range classes {
+		out[p] = c.Layout()
+	}
+	return out
+}()
+
+func init() { actors.Names = ProcName }
+
+// Layout is what a walk reads of c beyond fopAc_ac_c.
+func (c Class) Layout() actors.Layout {
+	return actors.Layout{Ice: c.Ice, Mode: c.Mode, Weapon: c.Weapon, Hold: c.Hold, HoldS8: c.holdS8}
+}
+
+// Layouts returns what a walk reads for M6 beyond fopAc_ac_c: every K1
+// class's Layout and a BOKO's mNowMode. It is shared: do not change it.
+func Layouts() actors.Layouts { return layouts }
+
+// Read walks the actors with Layouts (actors.ReadWith).
+func Read(m mem.Reader, limit int) (actors.Walk, error) {
+	return actors.ReadWith(m, limit, layouts)
+}
+
 // K1 returns proc's K1 class, if it is one M6 may light-shrink.
 func K1(proc int16) (Class, bool) {
 	c, ok := classes[proc]
@@ -163,7 +200,8 @@ func Classes() []Class {
 	return out
 }
 
-// ProcName is a short name for proc p, where the walk knows one.
+// ProcName is a short name for proc p, where the walk knows one. It is
+// actors.Names, which Actor.String prints.
 func ProcName(p int16) string {
 	switch p {
 	case 0xA7: // fpcNm_SHIP_e, f_pc_name.h:176
@@ -202,7 +240,7 @@ func ProcName(p int16) string {
 //   - eventInfo.mCommand 0: no event has ordered it;
 //   - the class's mode is not one its gate holds (a ReDead's grab or
 //     switch wait, a Floormaster's grab).
-func Eligible(a *Actor, unverified bool) string {
+func Eligible(a *actors.Actor, unverified bool) string {
 	c, ok := K1(a.Proc)
 	switch {
 	case !ok:
@@ -249,7 +287,7 @@ func Eligible(a *Actor, unverified bool) string {
 // weapon: held, or settling (between hands: a Stalfos's mace before its
 // first draw sets CARRY). ok is false for a class without the record, or
 // when it was not read.
-func HoldState(a *Actor) (held, settling, ok bool) {
+func HoldState(a *actors.Actor) (held, settling, ok bool) {
 	c, k1 := K1(a.Proc)
 	if !k1 || c.Hold == 0 || !a.HoldOK {
 		return false, false, false
@@ -263,7 +301,7 @@ func HoldState(a *Actor) (held, settling, ok bool) {
 // with CARRY set and its mNowMode Mode_ENEMY_CARRY_e (Link's grab sets
 // CARRY too, with Mode_PLAYER_CARRY_e, d_a_player_grab.inc:330-339), and
 // c's own record, for a class that keeps one, says it holds a weapon.
-func HeldBy(c, wp *Actor) string {
+func HeldBy(c, wp *actors.Actor) string {
 	k, ok := K1(c.Proc)
 	switch {
 	case !ok || k.Weapon == 0:
@@ -300,7 +338,7 @@ func HeldBy(c, wp *Actor) string {
 // says it holds a weapon that is not (yet) one HeldBy takes, or that is
 // between hands. A weapon field naming a BOKO a does not hold (a stale
 // m1200: a stick on the ground, or in Link's hands) is never let go.
-func WeaponOf(w *Walk, a *Actor, unverified bool) (weapon *Actor, why string) {
+func WeaponOf(w *actors.Walk, a *actors.Actor, unverified bool) (weapon *actors.Actor, why string) {
 	c, ok := K1(a.Proc)
 	if !ok || c.Weapon == 0 {
 		return nil, ""
@@ -340,4 +378,77 @@ func WeaponOf(w *Walk, a *Actor, unverified bool) (weapon *Actor, why string) {
 		return nil, "" // on the ground, flying, or in Link's hands
 	}
 	return wp, ""
+}
+
+// Revalidate reads carrier a again, and its weapon w if not nil, just
+// before a light-shrink write, and returns them as they are now, or an
+// error matching actors.ErrChanged with why they may not be written.
+// Between the walk and the write the actor may have died and been freed,
+// and its memory reused by another actor (fpcDt_Handler runs at the next
+// frame's start, f_pc_manager.cpp:280), so nothing the walk read is
+// trusted:
+//
+//   - the tag at a.Node is still a queued actor_tag of the actor before it
+//     (mpData &g_fopAcTg_Queue, mbIsUse 1, mpTagData the actor), and the
+//     actor's actor_type is g_fopAc_type;
+//   - its process ID, proc, setID and home room are the walk's: a reused
+//     block gets a new process ID (fpcBs_MakeOfId only counts up,
+//     f_pc_base.cpp:36-40);
+//   - every gate of Eligible holds on the fresh read;
+//   - a keyed actor's home room still has its zone: mStatus[room].mZoneNo
+//     is 0..31 and that zone's mRoomNo is the room. onActor asserts the
+//     zone (d_save.cpp:1678-1679), so a light-shrink of an actor whose
+//     room's zone went would halt the game when the shrink ends;
+//   - the weapon, if any, is still queued, and HeldBy says the carrier
+//     holds it now: a BOKO, the PID the carrier's field holds, with CARRY
+//     set and in Mode_ENEMY_CARRY_e, and the carrier's own record (m0B30,
+//     m1DD0) says it holds a weapon;
+//   - with no weapon planned, the carrier has not taken one up since the
+//     walk: its own record still says it holds none (a Bokoblin picks up
+//     the stick its m1200 already names, d_a_bk.cpp:2821-2833,
+//     :4219-4224), or, for a class without that record, its weapon field
+//     is unchanged. A timer written then would leave the new weapon CARRY
+//     on a deleted carrier.
+//
+// The first two are actors.Reread's. unverified is Eligible's. The error
+// is a read error or one matching actors.ErrChanged.
+func Revalidate(m mem.Reader, a, w *actors.Actor, unverified bool) (actors.Actor, *actors.Actor, error) {
+	typ, err := mem.ReadU32(m, addr.FopAcType)
+	if err != nil {
+		return actors.Actor{}, nil, err
+	}
+	now, err := actors.Reread(m, a, typ, layouts)
+	if err != nil {
+		return actors.Actor{}, nil, err
+	}
+	if why := Eligible(&now, unverified); why != "" {
+		return now, nil, fmt.Errorf("%w: %s: %s", actors.ErrChanged, now.String(), why)
+	}
+	if now.SetID != addr.ActorSetIDNone {
+		if why, err := actors.ZoneGone(m, int(now.HomeRoom)); err != nil {
+			return now, nil, err
+		} else if why != "" {
+			return now, nil, fmt.Errorf("%w: %s: %s", actors.ErrChanged, now.String(), why)
+		}
+	}
+	if w == nil {
+		if c, _ := K1(now.Proc); c.Weapon != 0 {
+			if c.Hold != 0 {
+				if held, settling, ok := HoldState(&now); !ok || held || settling {
+					return now, nil, fmt.Errorf("%w: %s took up a weapon since the walk (its record at +0x%X is %d)", actors.ErrChanged, now.String(), c.Hold, now.Hold)
+				}
+			} else if now.Weapon != a.Weapon {
+				return now, nil, fmt.Errorf("%w: %s's weapon field is pid %d, not %d as the walk read", actors.ErrChanged, now.String(), now.Weapon, a.Weapon)
+			}
+		}
+		return now, nil, nil
+	}
+	wn, err := actors.Reread(m, w, typ, layouts)
+	if err != nil {
+		return now, nil, err
+	}
+	if why := HeldBy(&now, &wn); why != "" {
+		return now, nil, fmt.Errorf("%w: %s: %s", actors.ErrChanged, now.String(), why)
+	}
+	return now, &wn, nil
 }

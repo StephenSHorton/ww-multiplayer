@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
@@ -86,7 +87,7 @@ func (w *FrameWriter) readyK1() error {
 //     IDLE's inputs (recheckIdle) are read again: a change is ErrAborted;
 //     with demo set, Link's mDemo.mDemoType is read again, and a demo
 //     started holds every target;
-//  3. for each target: carrier and weapon read again (actors.Revalidate,
+//  3. for each target: carrier and weapon read again (combat.Revalidate,
 //     with the home room's zone; unverified is its own), a target that
 //     changed is held; else a fresh read of the timer, which must be 0,
 //     WriteGuard.checkActor (T), a 1-byte write of 1, and a read back. Only
@@ -177,7 +178,7 @@ func (w *FrameWriter) ApplyActors(ctx context.Context, ts []ActorTarget, demo, u
 			note(err)
 			break
 		}
-		c, wp, err := actors.Revalidate(w.Mem, &t.Carrier, t.Weapon, unverified)
+		c, wp, err := combat.Revalidate(w.Mem, &t.Carrier, t.Weapon, unverified)
 		if errors.Is(err, actors.ErrChanged) {
 			res.Held = append(res.Held, ActorHeld{Carrier: t.Carrier, Why: err.Error()})
 			continue
