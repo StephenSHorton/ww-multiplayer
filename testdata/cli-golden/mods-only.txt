@@ -1,0 +1,35 @@
+exit 0
+[
+  {
+    "id": "example",
+    "name": "Example",
+    "version": "0.1.0",
+    "status": "LOADED",
+    "multiplayer": "local_only",
+    "dev": true,
+    "load_index": 0
+  },
+  {
+    "id": "multiplayer",
+    "name": "Multiplayer",
+    "version": "1.0.0",
+    "status": "LOADED",
+    "multiplayer": "client_required",
+    "provides": [
+      "net"
+    ],
+    "load_index": 1
+  },
+  {
+    "id": "coop",
+    "name": "Co-op",
+    "version": "1.0.0",
+    "status": "DISABLED",
+    "reason": "turned off in settings or by a flag",
+    "multiplayer": "client_required",
+    "dependencies": {
+      "multiplayer": "^1.0"
+    },
+    "load_index": -1
+  }
+]

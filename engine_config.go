@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 )
@@ -26,6 +27,16 @@ func engineConfig(coop engine.CoopApp) engine.Config {
 // sessions.
 func newTUIEngine() *engine.Engine {
 	return engine.NewTUIEngine(engineConfig(coopsession.App(coopEnv)))
+}
+
+// newAppEngine is the engine of the multiplayer mod the app's faces load
+// (startApp): newTUIEngine when the co-op mod loaded, else the same
+// engine without co-op (a lobby offers none).
+func newAppEngine(coop bool) session.Engine {
+	if coop {
+		return newTUIEngine()
+	}
+	return engine.NewTUIEngine(engineConfig(nil))
 }
 
 // newCLIEngine is the CLI's host and join engine.

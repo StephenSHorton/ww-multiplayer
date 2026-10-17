@@ -1,0 +1,4 @@
+exit 0
+Mods (wwapi 0.1.0):
+  coop                     1.0.0        FAILED(requires multiplayer, which is disabled)
+  multiplayer              1.0.0        DISABLED

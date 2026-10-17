@@ -1,0 +1,3 @@
+exit 1
+ERROR: no mod "nope" in this version (it has multiplayer, coop)
+Usage: <exe> mods [--json] [--dev] [--mods=a,b] [--no-mod=x]

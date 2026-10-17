@@ -20,6 +20,15 @@ func TestCLIGoldenMods(t *testing.T) {
 		{"mods", []string{"mods"}},
 		{"mods-json", []string{"mods", "--json"}},
 		{"mods-usage", []string{"mods", "--all"}},
+		// The app's mod flags, shown (D4): the example joins with --dev;
+		// --no-mod=multiplayer takes co-op with it; --mods runs exactly
+		// those; an id this version lacks, or a dev mod without --dev, is
+		// refused.
+		{"mods-dev", []string{"mods", "--dev"}},
+		{"mods-no-multiplayer", []string{"mods", "--no-mod=multiplayer"}},
+		{"mods-only", []string{"mods", "--dev", "--mods", "multiplayer,example", "--json"}},
+		{"mods-unknown-mod", []string{"mods", "--no-mod=nope"}},
+		{"mods-dev-needed", []string{"mods", "--mods=example"}},
 	} {
 		o, code := runCLI(t, env, c.args...)
 		checkCLIGolden(t, c.name, normalizeCLI(o, root), code)
