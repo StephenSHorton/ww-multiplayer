@@ -1,2 +1,14 @@
 exit 0
-[]
+[
+  {
+    "id": "multiplayer",
+    "name": "Multiplayer",
+    "version": "1.0.0",
+    "status": "LOADED",
+    "multiplayer": "client_required",
+    "provides": [
+      "net"
+    ],
+    "load_index": 0
+  }
+]

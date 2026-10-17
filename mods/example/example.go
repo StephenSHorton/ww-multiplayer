@@ -10,8 +10,8 @@
 //     (player.Warp, carried out by the C warp handler).
 //
 // It is a dev mod ("dev": true in mod.json), local_only, and needs the
-// blob's "warp" feature. The app does not list it yet: compiledMods() in
-// mods.go stays empty until the dev mods can be shown (D4).
+// blob's "warp" feature. The app does not list it: compiledMods() in
+// mods.go holds the app's own mods, and the dev mods are shown in D4.
 //
 // # v0 UNSTABLE
 //
