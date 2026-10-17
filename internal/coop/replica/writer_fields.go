@@ -3,10 +3,9 @@ package replica
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/write"
 )
 
 // The escape hatches' addresses past addr's (§6.7). None comes from the
@@ -23,22 +22,6 @@ const (
 	// when warp_seq != warp_ack (multiplayer.c:365-371).
 	WarpPos = mailbox.WarpSeq + 8
 )
-
-// MaxStageLayer is the highest layer mNextStage may name: ACT0..ACTb
-// (l_layerFuncTable_p, d_stage.cpp:2144-2150). MaxWipe is the highest
-// mWipe: dScnPly_Draw JUT_ASSERTs it indexes its 12-entry l_wipeType
-// (d_s_play.cpp:291-307).
-const (
-	MaxStageLayer = 11
-	MaxWipe       = 11
-)
-
-// Field is one write of an escape (§6.7): Data at Addr, made in one memory
-// write.
-type Field struct {
-	Addr uint32
-	Data []byte
-}
 
 // ApplyFields makes an escape's writes, fs in order, right after the next
 // heartbeat, as ApplyContext makes a plan's: every byte is checked by the
@@ -82,94 +65,35 @@ func (w *FrameWriter) ApplyFields(ctx context.Context, fs []Field) (res Result, 
 		}
 		w.stats.Refused += res.Refused
 	}()
-	n := 0
-	for _, f := range fs {
-		if len(f.Data) == 0 {
-			return res, errors.New("replica: an escape field with no data")
-		}
-		if err := mem.CheckRange(f.Addr, len(f.Data)); err != nil {
-			return res, err
-		}
-		n += len(f.Data)
+	var from *write.Beat
+	if w.have {
+		from = &write.Beat{Heartbeat: w.tick.heartbeat, At: w.tick.at}
 	}
-	if n == 0 {
-		return res, nil
-	}
-
-	// Check every byte against what the game holds now, before the wait:
-	// an escape is made whole or not at all.
-	for _, f := range fs {
-		old, err := w.Mem.Read(f.Addr, len(f.Data))
-		if err != nil {
-			return res, err
-		}
-		for i, v := range f.Data {
-			a := f.Addr + uint32(i)
-			if w.wg.Mask(a) != 0 {
-				if err := w.wg.ready(a); err != nil {
-					res.Closed = n
-					return res, err
-				}
+	return w.eng.WriteFields(ctx, write.Batch{
+		Guard: escapeGuard{w.wg},
+		From:  from,
+		Recheck: func() error {
+			if err := w.recheck(); err != nil {
+				return err
 			}
-			if err := w.wg.check(a, old[i], v, pathEscape); err != nil {
-				res.Refused++
-				return res, err
+			return w.recheckIdle()
+		},
+		Waited: func(err error) {
+			switch {
+			case errors.Is(err, ErrStall):
+				w.stats.Stalls++
+			case errors.Is(err, ErrAborted):
+				w.stats.Aborted++
+				w.wg.Close(err.Error())
 			}
-		}
-	}
-
-	hb, waited, err := w.waitBeat(ctx)
-	res.Waited = waited
-	if err == nil {
-		err = w.recheck()
-	}
-	if err == nil {
-		err = w.recheckIdle()
-	}
-	switch {
-	case errors.Is(err, ErrStall):
-		w.stats.Stalls++
-		return res, err
-	case errors.Is(err, ErrAborted):
-		w.stats.Aborted++
-		w.wg.Close(err.Error())
-		return res, err
-	case err != nil:
-		return res, err
-	}
-	res.Beat = hb
-
-	for _, f := range fs {
-		if w.wg.brk.Off() {
-			return res, w.wg.brk.Err()
-		}
-		if err := ctx.Err(); err != nil {
-			return res, err
-		}
-		old, err := w.Mem.Read(f.Addr, len(f.Data))
-		if err != nil {
-			return res, err
-		}
-		changed := false
-		for i, v := range f.Data {
-			if err := w.wg.check(f.Addr+uint32(i), old[i], v, pathEscape); err != nil {
-				res.Refused++
-				return res, err
-			}
-			changed = changed || old[i] != v
-		}
-		if !changed {
-			res.Already += len(f.Data)
-			continue
-		}
-		if err := w.Mem.Write(f.Addr, f.Data); err != nil {
-			return res, fmt.Errorf("replica: writing 0x%08X: %w", f.Addr, err)
-		}
-		for i, v := range f.Data {
-			if old[i] != v {
-				res.Wrote = append(res.Wrote, ByteWrite{Addr: f.Addr + uint32(i), Old: old[i], New: v})
-			}
-		}
-	}
-	return res, nil
+		},
+	}, fs)
 }
+
+// escapeGuard is the WriteGuard as an escape's write.Guard: every byte
+// judged as written by an escape (pathEscape).
+type escapeGuard struct{ wg *WriteGuard }
+
+func (g escapeGuard) Mask(a uint32) byte                  { return g.wg.Mask(a) }
+func (g escapeGuard) Ready(a uint32) error                { return g.wg.ready(a) }
+func (g escapeGuard) Check(a uint32, old, val byte) error { return g.wg.check(a, old, val, pathEscape) }

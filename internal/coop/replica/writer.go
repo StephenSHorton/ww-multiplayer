@@ -1,11 +1,9 @@
 package replica
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
 	"sync"
 	"time"
 
@@ -14,31 +12,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
-)
-
-// BeatTimeout is how long a FrameWriter waits for the heartbeat to move
-// before it gives up on a tick's writes (§4.2).
-const BeatTimeout = 100 * time.Millisecond
-
-var (
-	// ErrDryRun is what a dry-run FrameWriter returns: game data is never
-	// written (§5.1 principle 5; --coop-dry-run).
-	ErrDryRun = errors.New("replica: dry run: co-op writes no game data")
-	// ErrClosed is matched by a batch skipped because a gate its bytes
-	// need is closed this tick. It is not a fault.
-	ErrClosed = errors.New("replica: the gates are closed")
-	// ErrStall is a batch skipped because the heartbeat did not move
-	// within the timeout: emulation is paused, or slow (§3.2 HEARTBEAT).
-	ErrStall = errors.New("replica: the heartbeat did not move: nothing was written")
-	// ErrAborted is a batch skipped because the game moved on between the
-	// tick's snapshot and the beat: the stage, the pending stage change,
-	// the loaded table or the loaded file changed, a save state was loaded,
-	// or, for an escape or a scoped write, the game stopped being IDLE, and
-	// for a zone write, the zone table moved (ApplyScoped).
-	ErrAborted = errors.New("replica: the game moved on since the snapshot: nothing was written")
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/write"
 )
 
 // WriterConfig sets up a FrameWriter.
@@ -78,7 +54,7 @@ type WriterConfig struct {
 //  1. Wait for the heartbeat, spawn_trigger, to move: spin-reading it,
 //     for at most BeatTimeout, from the value the tick's snapshot read.
 //     A first read below that value, or further ahead of it than the
-//     game can have run since (beatLead), and a heartbeat that goes
+//     game can have run since (write.BeatLead), and a heartbeat that goes
 //     backwards or jumps while it is polled, are a save state loaded
 //     since the snapshot: nothing is written. multiplayer_update's first
 //     act is spawn_trigger++ (inject/src/multiplayer.c:341-342), run by
@@ -126,7 +102,8 @@ type FrameWriter struct {
 	Mem   mem.Mem
 	Guard *Guard
 
-	wg          *WriteGuard // nil: a dry run
+	wg          *WriteGuard       // nil: a dry run
+	eng         write.FrameWriter // the beat wait and escape batches (wwapi/write)
 	beatTimeout time.Duration
 	logf        func(format string, args ...any)
 	label       func(off, bit int) string
@@ -169,31 +146,6 @@ func seenOf(s *state.Snapshot, f bind.File, at time.Time) seen {
 	return seen{stage: s.StageName, nextEnable: s.NextEnable, table: s.Table, heartbeat: s.Heartbeat, file: f, zones: ZoneTableOf(s), gba: s.GBA.MayLink(), at: at}
 }
 
-// The heartbeat's pace (waitBeat). The game runs fapGm_Execute, and so
-// bumps spawn_trigger, 30 times a second (mDoGph_gInf_c::setTickRate,
-// d_s_play.cpp:1352); Dolphin may run it faster.
-const (
-	// maxBeatRate is the most frames a second the heartbeat is taken to
-	// move at: 8 times the game's 30, for an emulator running unthrottled.
-	maxBeatRate = 240
-	// beatSlack is the frames allowed past maxBeatRate's count, between a
-	// snapshot and the first heartbeat read of its writes: the beats of
-	// the tick's earlier batches (the merge, derive and scoped paths')
-	// before an escape's, and a frame of rounding.
-	beatSlack = 4
-	// maxBeatJump is the most a heartbeat poll may move by at once. The
-	// poll is a tight loop, so a jump of more is a save state loaded, or
-	// the poller descheduled for frames; either way the tick's view is
-	// stale.
-	maxBeatJump = 2
-)
-
-// beatLead is how far the heartbeat may have moved since a snapshot taken
-// d ago.
-func beatLead(d time.Duration) uint32 {
-	return beatSlack + uint32(max(d, 0)*maxBeatRate/time.Second)
-}
-
 // pendingByte is a written byte waiting for its verify.
 type pendingByte struct {
 	a        uint32
@@ -233,6 +185,9 @@ func NewFrameWriter(cfg WriterConfig) (*FrameWriter, error) {
 	}
 	if w.drainFrames == 0 {
 		w.drainFrames = DrainFrames
+	}
+	if w.wg != nil {
+		w.eng = write.FrameWriter{Mem: w.Mem, Breaker: w.wg.brk, Timeout: w.beatTimeout}
 	}
 	if w.logf == nil {
 		w.logf = func(string, ...any) {}
@@ -362,23 +317,6 @@ func snapByte(s *state.Snapshot, a uint32) (byte, bool) {
 		}
 	}
 	return 0, false
-}
-
-// ByteWrite is one byte a batch wrote.
-type ByteWrite struct {
-	Addr     uint32
-	Off      uint16 // the image byte (Write.Off)
-	Old, New byte
-}
-
-// Result is what one Apply did.
-type Result struct {
-	Beat    uint32        // the heartbeat the writes followed
-	Waited  time.Duration // from the call to the beat
-	Wrote   []ByteWrite   // in write order
-	Already int           // planned bytes that already had their bits: not written
-	Closed  int           // planned bytes whose gate was closed this tick: not tried
-	Refused int           // planned bytes or writes the WriteGuard refused
 }
 
 // WriterStats are a FrameWriter's counts since it was made.
@@ -634,69 +572,23 @@ func (w *FrameWriter) ApplyContext(ctx context.Context, ws []Write) (res Result,
 	return res, first
 }
 
-// waitBeat spin-reads spawn_trigger until it moves, and returns its new
-// value and how long that took. It starts from the heartbeat the tick's
-// snapshot read: a save state loaded since then is ErrAborted, whether
-// the first read finds the heartbeat below the snapshot's or further ahead
-// of it than the game can have run since (beatLead), or a poll finds it
-// gone backwards or jumped by more than maxBeatJump. Short of that, the
-// beat is the first poll that finds it moved on from the first read. It
-// gives up after the timeout (ErrStall), when co-op turns off and when ctx
-// ends.
+// waitBeat is write.FrameWriter.WaitBeat from the heartbeat the tick's
+// snapshot read: it spin-reads spawn_trigger until it moves, catching a
+// save state loaded since the snapshot (ErrAborted), and gives up after
+// the timeout (ErrStall), when co-op turns off and when ctx ends.
 func (w *FrameWriter) waitBeat(ctx context.Context) (uint32, time.Duration, error) {
-	start := time.Now()
-	off := w.wg.brk.Done()
 	if !w.have {
 		return 0, 0, fmt.Errorf("%w: no snapshot", ErrAborted)
 	}
-	hb0, err := mem.ReadU32(w.Mem, mailbox.SpawnTrigger)
-	if err != nil {
-		return 0, 0, err
-	}
-	switch d, lead := int32(hb0-w.tick.heartbeat), beatLead(start.Sub(w.tick.at)); {
-	case d < 0:
-		return hb0, 0, fmt.Errorf("%w: the heartbeat went from %d at the snapshot back to %d (a save state was loaded)", ErrAborted, w.tick.heartbeat, hb0)
-	case uint32(d) > lead:
-		return hb0, 0, fmt.Errorf("%w: the heartbeat ran %d frames past the snapshot's in %v, more than the %d the game can run (a save state was loaded)",
-			ErrAborted, d, start.Sub(w.tick.at).Round(time.Millisecond), lead)
-	}
-	for last := hb0; ; {
-		hb, err := mem.ReadU32(w.Mem, mailbox.SpawnTrigger)
-		waited := time.Since(start)
-		switch d := int32(hb - last); {
-		case err != nil:
-			return 0, waited, err
-		case d < 0:
-			return hb, waited, fmt.Errorf("%w: the heartbeat went backwards (a save state was loaded)", ErrAborted)
-		case d > maxBeatJump:
-			return hb, waited, fmt.Errorf("%w: the heartbeat jumped %d frames at once (a save state was loaded)", ErrAborted, d)
-		case d > 0:
-			return hb, waited, nil
-		}
-		select {
-		case <-ctx.Done():
-			return 0, waited, ctx.Err()
-		case <-off:
-			return 0, waited, w.wg.brk.Err()
-		default:
-		}
-		if waited >= w.beatTimeout {
-			return 0, waited, ErrStall
-		}
-		runtime.Gosched()
-	}
+	return w.eng.WaitBeat(ctx, write.Beat{Heartbeat: w.tick.heartbeat, At: w.tick.at})
 }
 
 // recheck reads again, after the beat, what the tick's gates and the
 // planned addresses rest on, and returns ErrAborted if it changed since
 // the snapshot:
 //
-//   - mCurStage's name: a new play scene sets it from mNextStage
-//     (d_s_play.cpp:1277), a stage change under way;
-//   - mNextStage.mEnable: a loading zone, warp or cutscene asked for a
-//     stage change (d_stage.cpp:26-31), which STABLE refuses;
-//   - mDan.mStageNo: getSave loaded another table into the live memBit
-//     (d_stage.cpp:1674-1675), so a live-copy address now belongs to it;
+//   - mCurStage's name, mNextStage.mEnable and mDan.mStageNo
+//     (write.ReadStage, judged by write.Stage.Since);
 //   - the loaded file, as bind.ReadFile reads it (the tag, mDataNum,
 //     mClearCount, mPlayerName, mDateIPL): ARMED was judged on it, and a
 //     save state of another file standing in the same stage and table
@@ -716,13 +608,7 @@ func (w *FrameWriter) recheck() error {
 	if !w.have {
 		return fmt.Errorf("%w: no snapshot", ErrAborted)
 	}
-	// mCurStage and mNextStage are adjacent: name[8] at 0x803C9D3C up to
-	// mNextStage.mEnable at 0x803C9D54.
-	b, err := w.Mem.Read(addr.CurStageName, int(addr.NextStageEnable-addr.CurStageName)+1)
-	if err != nil {
-		return err
-	}
-	table, err := mem.ReadU8(w.Mem, addr.DanStageNo)
+	now, err := write.ReadStage(w.Mem)
 	if err != nil {
 		return err
 	}
@@ -730,18 +616,10 @@ func (w *FrameWriter) recheck() error {
 	if err != nil {
 		return err
 	}
-	name := b[:addr.StageNameLen]
-	if i := bytes.IndexByte(name, 0); i >= 0 {
-		name = name[:i]
+	if err := now.Since(write.Stage{Name: w.tick.stage, NextEnable: w.tick.nextEnable, Table: w.tick.table}); err != nil {
+		return err
 	}
-	switch enable := int8(b[len(b)-1]); {
-	case string(name) != w.tick.stage:
-		return fmt.Errorf("%w: the stage changed from %q to %q", ErrAborted, w.tick.stage, name)
-	case enable != w.tick.nextEnable:
-		return fmt.Errorf("%w: mNextStage.mEnable went from %d to %d (a stage change)", ErrAborted, w.tick.nextEnable, enable)
-	case int8(table) != w.tick.table:
-		return fmt.Errorf("%w: the loaded save table went from %d to %d", ErrAborted, w.tick.table, int8(table))
-	case f != w.tick.file:
+	if f != w.tick.file {
 		return fmt.Errorf("%w: another file is loaded (%q in slot %d, was %q in slot %d), or its tag changed: a save state was loaded",
 			ErrAborted, f.PlayerName(), f.Slot, w.tick.file.PlayerName(), w.tick.file.Slot)
 	}
@@ -758,30 +636,10 @@ func (w *FrameWriter) recheck() error {
 }
 
 // recheckIdle reads again, after the beat, the inputs of IDLE (§3.2;
-// gate.Tracker): an escape, made only when IDLE, returns ErrAborted if an
+// gate.Tracker; write.CheckIdle): an escape, made only when IDLE, returns ErrAborted if an
 // event, the pause menu, a minigame or a boss refight began since the
 // snapshot.
-func (w *FrameWriter) recheckIdle() error {
-	for _, in := range []struct {
-		a    uint32
-		what string
-	}{
-		{addr.EvtMode, "an event began"},
-		{addr.EvtOrderCount, "an event was queued"},
-		{addr.MenuPause, "the pause menu opened"},
-		{addr.MiniGameType, "a minigame began"},
-		{addr.PlayerInfoBufStageNo, "a boss refight began"},
-	} {
-		v, err := mem.ReadU8(w.Mem, in.a)
-		if err != nil {
-			return err
-		}
-		if v != 0 {
-			return fmt.Errorf("%w: %s since the snapshot (0x%08X reads 0x%02X)", ErrAborted, in.what, in.a, v)
-		}
-	}
-	return nil
-}
+func (w *FrameWriter) recheckIdle() error { return write.CheckIdle(w.Mem) }
 
 // name is what the log calls the byte at a, image byte off (noOff for a
 // byte outside the image and the live memBit).

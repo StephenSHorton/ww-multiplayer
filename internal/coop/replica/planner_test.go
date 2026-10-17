@@ -474,19 +474,20 @@ func TestGuardRefuses(t *testing.T) {
 
 func TestGuardSpans(t *testing.T) {
 	g := NewGuard()
-	for i := 1; i < len(g.spans); i++ {
-		if a, b := g.spans[i-1], g.spans[i]; a.end() > b.start {
-			t.Errorf("%s [0x%08X, 0x%08X) overlaps %s at 0x%08X", a.name, a.start, a.end(), b.name, b.start)
+	spans := g.list.Spans()
+	for i := 1; i < len(spans); i++ {
+		if a, b := spans[i-1], spans[i]; a.End() > b.Start {
+			t.Errorf("%s [0x%08X, 0x%08X) overlaps %s at 0x%08X", a.Name, a.Start, a.End(), b.Name, b.Start)
 		}
 	}
-	for _, s := range g.spans {
-		if err := mem.CheckRange(s.start, len(s.mask)); err != nil {
-			t.Errorf("%s: %v", s.name, err)
+	for _, s := range spans {
+		if err := mem.CheckRange(s.Start, len(s.Mask)); err != nil {
+			t.Errorf("%s: %v", s.Name, err)
 		}
 		// The image and live memBit spans take the class masks, padding
 		// and all; every other span is whole bytes.
-		if s.name != "dSv_save_c" && s.name != "live memBit" && slices.Contains(s.mask, 0) {
-			t.Errorf("%s has a byte with no writable bit", s.name)
+		if s.Name != "dSv_save_c" && s.Name != "live memBit" && slices.Contains(s.Mask, 0) {
+			t.Errorf("%s has a byte with no writable bit", s.Name)
 		}
 	}
 }

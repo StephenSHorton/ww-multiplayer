@@ -104,8 +104,8 @@ func TestWriteGuardEscapeRules(t *testing.T) {
 func TestEscapeAllowlist(t *testing.T) {
 	g := NewGuardFor(TargetEscape)
 	var n int
-	for _, s := range g.spans {
-		n += len(s.mask)
+	for _, s := range g.list.Spans() {
+		n += len(s.Mask)
 	}
 	if want := addr.NextStageSize + 4 + 12; n != want {
 		t.Errorf("%d escape bytes, want %d", n, want)
