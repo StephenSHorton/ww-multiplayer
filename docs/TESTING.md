@@ -84,6 +84,8 @@ After a change to the multiplayer pipeline (`mods/multiplayer/feed`, `wwapi/avat
 4. **Stage change**: one player goes through a loading zone. His Link leaves the other's screen, and both show again once they are back in the same stage.
 5. **Leave and reset**: one player stops (Ctrl+C, or leaves the lobby). His Link disappears from the other's game within the despawn time, and `mp-local` on Ctrl+C resets `shadow_mode` on both Dolphins. A new session afterwards works without restarting Dolphin.
 
+A third player (a `fake-client` or `pose-fake-loop` next to `mp-local`, drawn as an actor puppet or the second mini-Link) is not on the list: it currently freezes both Dolphins, on main too (F1 in [05-known-issues.md](05-known-issues.md)).
+
 ### Co-op M2-M6 rerun
 
 After a change to co-op behaviour, or a move of its code that the goldens cannot fully cover (C13's `wwapi/write` split is still waiting for it), the owner reruns the co-op acceptance steps on two Dolphins with `mp-local --coop`, in the order of [08-coop-design.md §8.2](08-coop-design.md#82-owner-machine-two-dolphin-harness):

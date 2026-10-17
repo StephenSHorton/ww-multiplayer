@@ -585,6 +585,33 @@ J3DModelData on stage unload is wrong too. `initModel` takes it from Link.arc
 T2 shrank from 0x2C88 to 0x2BE8 bytes (devkitPPC 16.2). It ends at `0x80412BE8`, which
 is 0x318 bytes below the mailbox.
 
+## A third remote freezes both games — OPEN (2026-10-17, F1)
+
+### The symptom
+
+With two players in a session (two Dolphins, `mp-local`), a third remote freezes both
+Dolphins: `spawn_trigger` stops changing and the screenshots of both games show the same
+frame from then on. It does not matter how the third remote arrives:
+
+- a position-only `fake-client` gets actor slot 1 (NPC_OB1); its actor resolves
+  (`actor_ptr 0x80AAA8DC`) and then both games stop;
+- a `pose-fake-loop` remote gets link slot 1 (the second mini-Link) and freezes them the same way.
+
+Reproduced four times during D1b: twice with the `phaseD/d1b` exe and twice with origin/main
+`6678cee` built in a temp dir, with blob `2f31005` and `start-2f31005.sav`. Both exes write the
+same mailbox bytes, so this is not a D1b regression. Caveat: the Dolphins ran a fresh default
+config (temp user dirs), not the owner's.
+
+### Status
+
+Not diagnosed. The Go side writes what it always wrote, so the cause is probably on the C side,
+in the actor spawn or in the second mini-Link. Until it is fixed, nothing shows that the
+KAMOME/NPC_OB1 fallback actually draws players 3 and 4 (design decision 5, E2).
+
+Evidence (owner machine): logs in `C:\Users\4step\.claude\jobs\10f6fa34\tmp\pd\d1b\logs`
+(`base-fake3.log`, `base-fake4.log`, `base-mplocal.log`, `fake3.log`, `fake4.log`), screenshots in
+`...\d1b\shots` (`base-A-fake3.png`, `base-A-fake4.png`).
+
 ## Shared shape hide flags: mini-Link's head under casual clothes
 
 mini-Link is built from Link #1's own `J3DModelData`, so the two
