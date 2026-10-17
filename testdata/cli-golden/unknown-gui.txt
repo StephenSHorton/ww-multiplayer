@@ -23,5 +23,6 @@ Lower-level CLIs:
   <exe> fake-client [name] [addr]       Connect a fake client that walks in circles
   <exe> debug                           Test Dolphin memory access
   <exe> warp <x> <y> <z>                Teleport Link to world coords (uses C warp handler)
+  <exe> mods [--json]                   List the mods built into this version
   <exe> version                         Print the version (both players should match)
   <exe> help                            Show this help

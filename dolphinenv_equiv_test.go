@@ -8,8 +8,10 @@ package main
 // auto-recapture has no golden, since it first ends every running Dolphin.)
 
 import (
+	"errors"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -115,6 +117,8 @@ func TestDolphinEnvMatchesLegacy(t *testing.T) {
 // TestCLIReadsNoConfig: the CLI does not read the app's saved settings
 // (docs/01-architecture.md, owner decision 11). Package main must not
 // import internal/config; the app's face will get it from its own package.
+// Neither may wwapi or any mod (docs/api/00-design.md §6.5): a mod's
+// settings reach it through wwapi.ConfigSource, which the faces fill.
 func TestCLIReadsNoConfig(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -127,9 +131,23 @@ func TestCLIReadsNoConfig(t *testing.T) {
 			t.Fatalf("%s is not in package main's directory (have %d .go files)", want, len(files))
 		}
 	}
+	for _, dir := range []string{"wwapi", "mods"} {
+		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".go") {
+				files = append(files, path)
+			}
+			return err
+		})
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal(err)
+		}
+	}
+	if !slices.Contains(files, filepath.Join("wwapi", "context.go")) {
+		t.Fatal("the walk missed wwapi/context.go")
+	}
 	fset := token.NewFileSet()
 	for _, name := range files {
-		if strings.HasSuffix(name, "_test.go") {
+		if strings.HasSuffix(name, "_test.go") && filepath.Dir(name) == "." {
 			continue
 		}
 		f, err := parser.ParseFile(fset, name, nil, parser.ImportsOnly)

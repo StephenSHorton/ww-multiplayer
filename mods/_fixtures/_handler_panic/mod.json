@@ -1,0 +1,6 @@
+{
+  "id": "_handler_panic",
+  "name": "Handler panic (fixture)",
+  "version": "1.0.0",
+  "api": "^0.1"
+}

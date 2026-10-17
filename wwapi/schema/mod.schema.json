@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/StephenSHorton/ww-multiplayer/wwapi/schema/mod.schema.json",
+  "title": "Wind Waker Multiplayer mod manifest (mod.json), wwapi v0 UNSTABLE",
+  "description": "Every mod embeds one mod.json with go:embed. tools/validate_manifests checks each against this schema in CI, and wwapi.ParseManifest checks it again at run time. See docs/api/02-mods.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "version", "api"],
+  "properties": {
+    "$schema": {
+      "description": "Lets an editor find this schema. Ignored.",
+      "type": "string",
+      "maxLength": 256
+    },
+    "id": {
+      "description": "The mod's id. It equals the mod's folder name under mods/, and a leading _ marks a test fixture. It is the mod's event namespace (mod.<id>.*), so it follows the event-name rules, and it cannot be core.",
+      "$ref": "#/$defs/modId"
+    },
+    "name": {
+      "description": "The name people see.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "version": {
+      "description": "The mod's own version (semver 2.0.0).",
+      "$ref": "#/$defs/version"
+    },
+    "api": {
+      "description": "The wwapi versions the mod works with, as a range, for example ^0.1.",
+      "$ref": "#/$defs/range"
+    },
+    "dependencies": {
+      "description": "Mods this mod needs: id -> version range. Each is initialised before this mod.",
+      "$ref": "#/$defs/deps"
+    },
+    "optional_dependencies": {
+      "description": "Mods this mod uses when they are present and enabled: id -> version range. When present, the version must match and they are initialised first.",
+      "$ref": "#/$defs/deps"
+    },
+    "load_order": {
+      "description": "Breaks ties in the load order between mods that do not depend on each other: lower first, then by id. Default 0.",
+      "type": "integer",
+      "minimum": -1000,
+      "maximum": 1000
+    },
+    "enabled_by_default": {
+      "description": "Default true.",
+      "type": "boolean"
+    },
+    "dev": {
+      "description": "A development mod: off unless dev mods are shown. Default false.",
+      "type": "boolean"
+    },
+    "game_ids": {
+      "description": "The discs the mod is for. Empty means any. Checked by the contract check (later).",
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Z0-9]{6}$" },
+      "uniqueItems": true,
+      "maxItems": 16
+    },
+    "multiplayer": {
+      "description": "client_required: every player needs it (it counts in mods_hash). host_only: only the host runs it. local_only: it never touches the network. Default local_only.",
+      "enum": ["client_required", "host_only", "local_only"]
+    },
+    "provides": {
+      "description": "Roles the mod fills. At most one enabled mod provides each role; net is the network session provider.",
+      "type": "array",
+      "items": { "enum": ["net"] },
+      "uniqueItems": true
+    },
+    "needs": {
+      "description": "Features of the patched blob the mod needs. A missing one gives the mod NEEDS_REPATCH.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/feature" },
+      "uniqueItems": true,
+      "maxItems": 64
+    },
+    "writes": {
+      "description": "Placeholder for the address set the mod may write (design decision 10). Ranges are [start, end) in MEM1; they may not overlap each other or another enabled mod's. Nothing enforces writes yet: wwapi/write comes later.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/addrRange" },
+      "maxItems": 256
+    },
+    "c": {
+      "description": "Reserved for C modules (Phase E). Must be null.",
+      "type": "null"
+    }
+  },
+  "$defs": {
+    "modId": {
+      "type": "string",
+      "pattern": "^_?[a-z][a-z0-9_]*$",
+      "maxLength": 64,
+      "not": { "const": "core" }
+    },
+    "version": {
+      "type": "string",
+      "maxLength": 256,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+    },
+    "range": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[0-9A-Za-z.^~<>=*|+ -]+$"
+    },
+    "deps": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/modId" },
+      "additionalProperties": { "$ref": "#/$defs/range" },
+      "maxProperties": 64
+    },
+    "feature": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "maxLength": 32
+    },
+    "addrRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "$ref": "#/$defs/addr" },
+        "end": { "$ref": "#/$defs/addr" },
+        "why": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "addr": {
+      "type": "string",
+      "pattern": "^0x[0-9A-Fa-f]{8}$"
+    }
+  }
+}

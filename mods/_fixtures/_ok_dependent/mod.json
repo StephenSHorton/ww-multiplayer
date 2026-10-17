@@ -1,0 +1,7 @@
+{
+  "id": "_ok_dependent",
+  "name": "OK dependent (fixture)",
+  "version": "1.0.0",
+  "api": "^0.1",
+  "dependencies": {"_ok_base": "^1.0"}
+}
