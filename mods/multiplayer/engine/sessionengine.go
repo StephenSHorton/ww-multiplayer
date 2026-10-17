@@ -31,6 +31,10 @@ type Engine struct {
 	cheatsIni []byte  // the bundled cheats a Dolphin launch puts in its user folder
 	coopApp   CoopApp // co-op; nil runs every session without it
 
+	// mods is this build's mods (Config.Mods): sent in the hellos,
+	// checked by a hosted server.
+	mods network.Mods
+
 	// game is what a lobby session's START plays on (game.go): this
 	// machine's Dolphins. nil starts no game (the tests' engines).
 	game *GameDeps
@@ -48,7 +52,7 @@ func (e *Engine) Host(ctx context.Context, cancel context.CancelFunc, o session.
 	if port == 0 {
 		port = DefaultPort
 	}
-	ctx = WithColorPref(ctx, o.Color)
+	ctx = WithMods(WithColorPref(ctx, o.Color), e.mods)
 	return SessionErr(RunHostSession(ctx, cancel, e.env, o.Name, port, out, e.ls, e.sessionCoop(out, o.Coop)))
 }
 
@@ -56,7 +60,7 @@ func (e *Engine) Join(ctx context.Context, cancel context.CancelFunc, o session.
 	defer e.begin(out)()
 	// The app's color goes with its player connections (a lobby join that
 	// fell back to this keeps the color it chose).
-	ctx = WithColorPref(ctx, o.Color)
+	ctx = WithMods(WithColorPref(ctx, o.Color), e.mods)
 	return SessionErr(RunJoinSession(ctx, cancel, e.env, o.Addr, o.Name, out, e.ls, e.sessionCoop(out, o.Coop)))
 }
 

@@ -32,6 +32,12 @@ const MsgLobby byte = 'B'
 // reserved and sent as 0.
 const LobbyCapJSON uint16 = 1 << 0
 
+// CapModsHash is caps bit 0 of a player hello (RolePlayer): the hello
+// carries the color block and then the 32-byte mods hash (handshake.go,
+// docs/api/02-mods.md). Caps mean something per role, so it shares its
+// bit with LobbyCapJSON; it means nothing in any other role's hello.
+const CapModsHash uint16 = 1 << 0
+
 // MaxLobbyBody caps a lobby sub-message's JSON body. The biggest is STATE,
 // a few hundred bytes per member.
 const MaxLobbyBody = 16 << 10
@@ -104,6 +110,7 @@ const (
 	NoticeKicked         = "kicked"          // the host removed you; the connection closes
 	NoticeHelloFirst     = "hello_first"     // anything before HELLO
 	NoticeSlowDown       = "slow_down"       // over the lobby's message rate; the excess was dropped
+	NoticeModsDiffer     = "mods_differ"     // the HELLO's ModsHash is not the host's; the connection closes
 )
 
 // Co-op modes, LobbySettingsBody.Coop: "off", "new", or a world ID.
@@ -139,6 +146,11 @@ type LobbyHelloBody struct {
 	OS      string `json:"os,omitempty"`
 	Color   string `json:"color,omitempty"` // "#RRGGBB" or a palette name
 	Dolphin string `json:"dolphin,omitempty"`
+	// ModsHash is the joiner's mods hash in lowercase hex (ModsHashHex):
+	// a host whose own differs refuses the HELLO with NoticeModsDiffer.
+	// Empty from a build before mods, which is admitted as before; a host
+	// from before mods ignores it.
+	ModsHash string `json:"modsHash,omitempty"`
 }
 
 // LobbyWelcomeBody is WELCOME.

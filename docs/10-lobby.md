@@ -20,7 +20,7 @@ Taken frame types: J W P L D C M K Q H R O B.
 
 | Sub | Name | Direction | Body (JSON) |
 |---|---|---|---|
-| 0x01 | HELLO | c→s, first after the welcome | `{token?, app, os, color?, dolphin}` — `token` reclaims a held slot; `color` is `#RRGGBB` or a palette name |
+| 0x01 | HELLO | c→s, first after the welcome | `{token?, app, os, color?, dolphin, modsHash?}` — `token` reclaims a held slot; `color` is `#RRGGBB` or a palette name; `modsHash` is the joiner's mods hash in lowercase hex (§5a) |
 | 0x02 | WELCOME | s→c | `{member, token, host, phase, features}` — `token` is 16 random bytes in hex, for reconnects only |
 | 0x03 | STATE | s→c, to every member after every change | `{phase, rev, settings, members:[{id, name, color, ready, host?, dolphin?, file?, rttMs?, via, away?}]}` |
 | 0x04 | SET | c→s | `{color?, ready?, dolphin?, file?}`; a missing field is left as it is |
@@ -32,7 +32,7 @@ Taken frame types: J W P L D C M K Q H R O B.
 | 0x0A | KICK | c→s host | `{member}` |
 | 0x0B | NOTICE | s→c | `{code, text, suggest?}` |
 
-Notice codes: `name_taken` (with a suggested free name; the connection closes), `full`, `kicked` (closes), `replaced` (a newer connection took the slot; closes), `not_host`, `wrong_phase`, `colors_locked`, `settings_locked`, `bad_message`, `no_member`, `no_host`, `hello_first`, `slow_down` (over the message rate; the excess was dropped, §3). `kicked` is also the answer to a HELLO from a kicked name.
+Notice codes: `name_taken` (with a suggested free name; the connection closes), `full`, `kicked` (closes), `mods_differ` (the HELLO's `modsHash` is not the host's, §5a; closes), `replaced` (a newer connection took the slot; closes), `not_host`, `wrong_phase`, `colors_locked`, `settings_locked`, `bad_message`, `no_member`, `no_host`, `hello_first`, `slow_down` (over the message rate; the excess was dropped, §3). `kicked` is also the answer to a HELLO from a kicked name.
 
 STATE is the whole lobby (the member count is small). A member that says HELLO after START (a late joiner, or a reclaim during `starting` or `in_game`) also gets START, and in game GO with the host's world, right after its STATE, so it launches like the others. After a reclaim that can repeat one it already had; receivers treat START and GO as idempotent. The server keeps the GO body until the lobby empties. `rev` grows with every change; a client drops a STATE whose `rev` is not newer than the one it has, and starts over at a new WELCOME (a restarted server counts from 0 again).
 
@@ -68,12 +68,23 @@ The lobby is the single source of a member's color, through `mods/multiplayer/pl
 
 `MsgChat` on a lobby connection (after its HELLO) is relayed with the member's name, as a player's is, to every player connection and to every other lobby connection. A player's chat also reaches the lobby connections. So the app chats before and during the game over one connection, and a CLI player sees lobby chat as an ordinary chat line.
 
+## 5a. Mods (`modsHash`)
+
+Every player needs the same `client_required` mods at the same versions (docs/api/02-mods.md, "mods_hash"). The app's lobby client sends its hash as HELLO's `modsHash` (64 hex digits; the SHA-256 of the sorted `id@version` of the `client_required` mods that load). A host whose own hash differs answers with the notice `mods_differ` and closes the connection. Its text lists the host's mods; the joiner's client adds its own list, so the player reads, as is in the TUI and the app's "Different mods" dialog:
+
+> the mods differ: the host runs coop@1.0.0, multiplayer@1.0.0; you run multiplayer@1.0.0. Both players need the same mods turned on.
+
+The dialog's first button, "Open Mods", opens the Mods page, where a compiled-in mod is turned on or off from the next start; "Close" closes it.
+
+`mods_differ` is fatal, like `name_taken`. A HELLO without `modsHash` (a build from before mods) joins as before, and a host from before mods ignores the field (its decoder takes unknown fields). The player connections the app opens at START carry the same hash in their hello (docs/api/02-mods.md), so a CLI `join` is checked too; a refused one gets `MsgReject` with `RejectMods` and the same text. ProtocolVersion stays 2.
+
 ## 6. Compatibility
 
 | Client \ Server | pre-lobby (protocol 2) | this build |
 |---|---|---|
 | CLI `join` / old app / TUI | as before | as before; the lobby lists it as `via: "cli"`. It never sees a `'B'` frame; a `'B'` it sends on a player connection is dropped |
 | Lobby client (the app) | lobby hello → `RejectRole` → `network.IsLegacyHost(err)` → the controller joins directly | full lobby |
+| Mods hash (this build) | ignored: HELLO's `modsHash`, and a player hello's `CapModsHash` and hash, are unknown to it | checked: another hash is refused (`mods_differ`, `RejectMods`); none is admitted |
 
 `TestLobbyMixedVersions` runs the previous release's exact player bytes against a server with a live lobby; `TestLobbyLegacyHostFallback` runs the lobby client against a stub of the pre-lobby server (and a protocol-1 one, which stays a version error).
 
@@ -98,6 +109,7 @@ With a lobby the server runs before the host's co-op world is open (the app open
 ## 9. Tests and fuzzing
 
 - `lobby_wire_test.go`: round trips of every body, golden bytes, refusals; **`FuzzLobby`** (the `'B'` codec: never panics, and whatever decodes re-encodes to a payload that decodes to the same value).
+- `mods_test.go` (§5a): the hello with a mods hash byte for byte, a new client against a stub of a host from before mods (it ignores the caps and the hash; the join succeeds), old clients against a host with mods (admitted), matching and differing hashes (`RejectMods`, the host's list against ours), the lobby's `mods_differ`, and `modsHash` on the wire (omitted when empty, ignored by an old decoder). `FuzzParseHelloRole`, `FuzzServerHello` and `FuzzLobby` have seeds with the hash. The engine's `mods_test.go` runs real engines with different `Config.Mods` against each other: a lobby join ends on `mods_differ`, a direct join on `RejectMods`, both with the two lists, and matching mods join (the hosts' servers and the game side's pipelines carry the engine's mods).
 - `lobby_state_test.go`: host and names, colors (two members asking for the same color both get it at HELLO and SET, no preference is green, a CLI player's color doesn't move a member), phases and locks, hold/reclaim/expiry, the host's slot passing on, the empty lobby, CLI rows and kicks, kicks that stick, START and GO replayed at HELLO, REQUEST, the member cap; **`FuzzLobbyMachine`** (random joins, sub-messages, drops, timer ticks and player lists; checks unique names, one host, forward-only phase, colors fixed after START, increasing `rev`, every frame encodable, every live member sent START in `starting` and GO in `in_game`).
 - `lobby_test.go`: the loopback integration test (two lobby clients and a CLI player: join, a shared color, ready, Start, colors locked, GO, rule 0 on the app's pose connection, chat both ways, REQUEST, lobby connections outside the roster and count), reconnect and expiry, a host restart, name taken (the notice arrives before `Run` returns), kicks, kicks that stick (a reconnecting CLI join stops), START and GO replayed on reclaim and to a late joiner, a ready flood against a slow reader, a member and a CLI player sharing a color, the legacy fallback, the JSON cap, mixed versions, the co-op start order (also Stop during a hold, and the hold under the client's read deadline), and **`FuzzServerHandleLobby`** (a lobby connection's whole server path over an arbitrary stream).
 - `internal/session/lobby_test.go`: the controller's phases, commands, refusals, events and the legacy fallback over a fake engine; `mods/multiplayer/engine/lobby_test.go`: the real engine through the controller against a real server, the session color over `--color`, and the host flag from STATE.

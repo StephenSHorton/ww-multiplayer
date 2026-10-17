@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
 // Fuzz targets for protocol 2: the hello's role and caps, and the server's
@@ -17,12 +19,18 @@ func FuzzParseHelloRole(f *testing.F) {
 	for _, seed := range [][]byte{
 		HelloMessage(ProtocolVersion), HelloMessage(1), HelloRoleMessage(ProtocolVersion, RoleCoop, 0xBEEF),
 		nil, {0}, {0, 2, 1}, {0, 2, 1, 0}, {0, 2, 9, 0, 0, 'x'},
+		// The player hello with a mods hash (CapModsHash), with and without
+		// a color, and cut off inside its hash.
+		seedModsHello(nil), seedModsHello(&seedColor), seedModsHello(nil)[:helloModsLen-1],
 	} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		v, role, caps, err := ParseHelloRole(data)
 		ok := len(data) == 2 || len(data) >= helloRoleLen
+		if len(data) >= helloRoleLen && data[2] == RolePlayer && data[4]&byte(CapModsHash) != 0 && len(data) < helloModsLen {
+			ok = false // a player hello cut off in its mods hash
+		}
 		if (err == nil) != ok {
 			t.Fatalf("len %d: err = %v", len(data), err)
 		}
@@ -41,7 +49,24 @@ func FuzzParseHelloRole(f *testing.F) {
 		if got := HelloRoleMessage(v, role, caps); !bytes.Equal(got, data[:helloRoleLen]) {
 			t.Fatalf("round trip = %x, want %x", got, data[:helloRoleLen])
 		}
+		hash, has := ParseHelloModsHash(data)
+		if has != (role == RolePlayer && caps&CapModsHash != 0) || (has && !bytes.Equal(hash[:], data[helloColorLen:helloModsLen])) {
+			t.Fatalf("ParseHelloModsHash(%x) = %x, %v", data, hash, has)
+		}
 	})
+}
+
+// seedHash and seedColor fill the fuzz seeds' player hellos with a mods
+// hash.
+var (
+	seedHash  = [ModsHashLen]byte{0xC4, 0x7E, 0xA7, 31: 0xC1}
+	seedColor = playercolor.Color{R: 0xD0, G: 0x2C, B: 0x2C}
+)
+
+// seedModsHello is a player hello with seedHash and pref.
+func seedModsHello(pref *playercolor.Color) []byte {
+	h := seedHash
+	return HelloPlayerModsMessage(ProtocolVersion, pref, &h)
 }
 
 // coopFrames returns the payloads of the MsgCoop frames ReadMessage takes
@@ -123,6 +148,7 @@ func FuzzServerHello(f *testing.F) {
 	for _, hello := range [][]byte{
 		HelloMessage(ProtocolVersion), HelloMessage(1), HelloRoleMessage(ProtocolVersion, RoleCoop, 0),
 		HelloRoleMessage(ProtocolVersion, 2, 0), {0, 2, 1}, nil,
+		seedModsHello(nil), seedModsHello(&seedColor), seedModsHello(nil)[:helloModsLen-1],
 	} {
 		f.Add(hello, stream)
 	}
@@ -135,6 +161,10 @@ func FuzzServerHello(f *testing.F) {
 		rec := newCoopRecorder()
 		srv := NewServer(0)
 		srv.Coop = rec
+		if len(stream)%2 == 1 {
+			// A host with mods: the seeds' hash joins, any other is refused.
+			srv.SetMods(Mods{Hash: seedHash, List: []string{"seed@1.0.0"}, Known: true})
+		}
 		srv.handlePlayer(newScriptConn(in))
 		if srv.PlayerCount() != 0 || srv.CoopCount() != 0 {
 			t.Fatalf("PlayerCount=%d CoopCount=%d after the stream ended", srv.PlayerCount(), srv.CoopCount())

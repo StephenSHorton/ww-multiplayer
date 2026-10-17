@@ -105,6 +105,9 @@ type lobbyMachine struct {
 	nextID   int
 	hold     time.Duration
 	newToken func() string
+	// mods is the host's Mods (Server.SetMods): a HELLO with another
+	// ModsHash is refused with NoticeModsDiffer.
+	mods Mods
 	// goBody is the host's GO, kept for members that (re)join in game.
 	goBody *LobbyGoBody
 	// kicked are the lobbyKeys the host kicked: refused (lobby, player
@@ -259,6 +262,9 @@ func (m *lobbyMachine) hello(conn int, name string, loopback bool, h LobbyHelloB
 	case m.kicked[key]:
 		return nil, []lobbyOut{{to: conn, sub: LobbyNotice, closeConn: true, body: LobbyNoticeBody{
 			Code: NoticeKicked, Text: kickedText}}}
+	case !modsMatchHex(m.mods, h.ModsHash):
+		return nil, []lobbyOut{{to: conn, sub: LobbyNotice, closeConn: true, body: LobbyNoticeBody{
+			Code: NoticeModsDiffer, Text: modsDifferReason(m.mods.List)}}}
 	case mb != nil && h.Token != "" && h.Token == mb.token && mb.name == name:
 		// Reclaim: the held slot, or a live one whose old connection the
 		// server hasn't noticed is gone yet (it is closed now).

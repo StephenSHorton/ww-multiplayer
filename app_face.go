@@ -270,7 +270,7 @@ func startApp(mf modFlags) *app { return newApp(mf, gui.ModConfig("")) }
 
 func newApp(mf modFlags, saved wwapi.ConfigSource) *app {
 	var rt *wwapi.Runtime
-	mods := modList(mf.dev, func() session.Engine { return newAppEngine(modLoaded(rt, "coop")) })
+	mods := modList(mf.dev, func() session.Engine { return newAppEngine(modLoaded(rt, "coop"), runtimeNetMods(rt)) })
 	lg := &lateLog{}
 	rt = wwapi.New(mods, wwapi.Options{
 		Resolve: wwapi.ResolveOptions{Dev: mf.dev},

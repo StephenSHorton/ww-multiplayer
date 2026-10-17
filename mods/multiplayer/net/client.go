@@ -109,6 +109,10 @@ type Client struct {
 	myColor     playercolor.Color
 	haveMyColor bool
 
+	// mods is this build's mods (SetMods): its hash goes in a player
+	// hello, and its list completes a RejectMods reason.
+	mods Mods
+
 	// OnCoop is invoked from the read loop with each MsgCoop payload a
 	// co-op client (NewCoopClient) receives; the payload is the
 	// callback's to keep. A player client drops MsgCoop. Like OnChat, it
@@ -229,7 +233,7 @@ func (c *Client) handshake(conn net.Conn) (*Message, error) {
 	if c.writeTimeout > 0 {
 		conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
 	}
-	if err := writeJoinRole(conn, c.name, c.role, c.caps, c.colorPref); err != nil {
+	if err := writeJoinRole(conn, c.name, c.role, c.caps, c.colorPref, c.mods.hashPtr()); err != nil {
 		return nil, fmt.Errorf("send join: %w", err)
 	}
 
@@ -245,6 +249,9 @@ func (c *Client) handshake(conn net.Conn) (*Message, error) {
 	// A reject or a version mismatch comes back as a *RejectError, which
 	// ends ReconnectLoop (errors.Is ErrFatal) instead of retrying.
 	if err := checkWelcome(msg); err != nil {
+		if rej, ok := err.(*RejectError); ok && rej.Code == RejectMods {
+			rej.Reason = withOwnMods(rej.Reason, c.mods)
+		}
 		return nil, err
 	}
 	return msg, nil

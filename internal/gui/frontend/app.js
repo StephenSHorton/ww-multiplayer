@@ -47,7 +47,7 @@ const liveDialogs = new Set(); // keys of live state dialogs: closed once the st
 
 const PHASES = { connecting: "Connecting…", lobby: "Lobby", starting: "Starting…", "in game": "In game", ended: "Ended", idle: "" };
 // Notices that end the session: its dialog says it, not a toast.
-const FATAL_NOTICES = new Set(["name_taken", "full", "kicked", "replaced"]);
+const FATAL_NOTICES = new Set(["name_taken", "full", "kicked", "mods_differ", "replaced"]);
 
 // A crown for the host's row (drawn here, no game assets).
 const CROWN = '<svg viewBox="0 0 24 18" aria-hidden="true"><path d="M2 16 1 4l6 5 5-8 5 8 6-5-1 12Z" fill="#ffe63a" stroke="#142408" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="11" r="1.8" fill="#e0302a"/></svg>';
@@ -520,6 +520,10 @@ async function dialogAction(id, d, st, arg = "") {
 			$("name").select();
 			break;
 		}
+		case "open-mods":
+			beforeMods = "home"; // the session is over: Back goes Home
+			show("mods");
+			break;
 		case "retry":
 			try {
 				await call("Retry");

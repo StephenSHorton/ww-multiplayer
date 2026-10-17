@@ -125,7 +125,7 @@ No rule looks at the other players' colors: two players may wear the same one (o
 The name memory is capped at 256 entries.
 
 **Wire format.** Neither change alters the protocol version, because protocol-2 peers ignore both.
-- *Hello:* a player with a preference sends the role form `[version:2][role=0][caps=0]` plus `[1][r][g][b]` (`HelloPlayerMessage`, `ParseHelloColor`). A pre-color server parses it as a plain player hello, because `ParseHelloRole` ignores bytes after caps (`handshake.go`). A player with no preference still sends the 2-byte hello.
+- *Hello:* a player with no mods hash and a preference sends the role form `[version:2][role=0][caps=0]` plus `[1][r][g][b]` (`HelloPlayerMessage`, `ParseHelloColor`). A pre-color server parses it as a plain player hello, because `ParseHelloRole` ignores bytes after caps (`handshake.go`). A player with neither sends the 2-byte hello. Since D5 every CLI and app build has a mods hash, so its player hello is always the role form with caps `CapModsHash`, the colour block (`[0][0][0][0]` when it has no preference) and the 32-byte hash (`HelloPlayerModsMessage`; docs/api/02-mods.md, "`mods_hash`"). The forms without the hash are what older clients send.
 - *Player list:* after the entries, `[0xC0][count][id r g b]*`. It is sent only when every entry has a color, with IDs in entry order, and it is accepted only in exactly that form. Old clients already ignore bytes after the last entry (`ParsePlayerList` doc comment). The existing `FuzzParsePlayerList` invariant (re-encoding a parse is a prefix of the input) still holds; fuzzed 15 s.
 
 **Client side:**

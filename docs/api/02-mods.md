@@ -77,7 +77,7 @@ The app lists its mods statically in `compiledMods()` (`mods.go` at the repo roo
 | `enabled_by_default` | | Default `true`. |
 | `dev` | | A development mod, off unless dev mods are shown. Default `false`. |
 | `game_ids` | | The discs it is for (`GZLE01`). Parsed now. The contract check exists (`wwapi.CheckContract`, pre-E1 mode, C14); the runtime checks `game_ids` against it once a step attaches a `wwapi.Game` (D4 left that open). |
-| `multiplayer` | | `client_required` (every player needs it; it will count in `mods_hash`), `host_only`, or `local_only` (the default). |
+| `multiplayer` | | `client_required` (every player needs it; it counts in `mods_hash`), `host_only`, or `local_only` (the default). |
 | `provides` | | Roles. Only `net` exists. At most one loading mod per role. |
 | `needs` | | Features of the patched blob it needs. A missing one gives `NEEDS_REPATCH`. |
 | `writes` | | **Placeholder** for the declared write set (decision 10): `[{"start":"0x80410000","end":"0x80410010","why":"..."}]`, `[start, end)` in MEM1. Ranges may not overlap within the manifest or with another loading mod's. Nothing enforces writes yet; `wwapi/write` comes later. |
@@ -178,6 +178,23 @@ ww-multiplayer mods --dev --no-mod=coop   # what the app's mod flags would load
 ```
 
 `mods` resolves the compiled-in mods with manifest defaults, as the CLI would load them. It never reads the app's settings, never attaches to Dolphin, and never runs a mod. It takes the app's mod flags to show their effect: `--mods=a,b` loads exactly those, `--no-mod=x` turns x off (both repeat and take comma lists), `--dev` adds the dev mods. The app takes the same flags after `tui` and `ui` (`ui --browser --dev`); they override the saved settings for that run.
+
+## `mods_hash`
+
+Players in one session must run the same `client_required` mods at the same versions. `wwapi.ModsHash(infos)` (or `Plan.ModsID()`) takes the mods that load (`LOADED`) with `"multiplayer": "client_required"`, sorts their `id@version` strings, and hashes them joined by newlines with SHA-256 (`wwapi.ModsID{List, Hash}`). `host_only` and `local_only` mods, and mods that do not load, never count. Today both compiled-in mods count: `coop@1.0.0` and `multiplayer@1.0.0`, so a player who turns co-op off (the mod, not the session option) cannot join a host who has it on.
+
+The CLI's `host` and `join` use the mods `mods` lists (manifest defaults); the app uses its runtime's, after settings and flags. The hash goes on the wire in two places, with no `ProtocolVersion` bump (decision 13):
+
+- **The lobby.** HELLO's `modsHash`, 64 lowercase hex digits (docs/10-lobby.md §5a). Another hash gets the notice `mods_differ`.
+- **The player hello** (direct `join`, and the app's player connections). Caps bit 0 of a player hello is `CapModsHash` (caps mean something per role; in a lobby hello the same bit is `LobbyCapJSON`). With it, the hello is `[version:2][role 0][caps:2][hasColor:1][r][g][b][hash:32]`; `hasColor` is 0 (and rgb 0) without a color preference. A client that has a hash always sends this form. Another hash gets `MsgReject` with `RejectMods` (5).
+
+The refusal names the mods in plain words: the host lists its own, and the refused client adds its own list, so the CLI, the TUI and the app's "Different mods" dialog all show, as is:
+
+```
+host refused the connection: the mods differ: the host runs coop@1.0.0, multiplayer@1.0.0; you run multiplayer@1.0.0. Both players need the same mods turned on.
+```
+
+Compatibility: a host from before mods ignores the field, the caps bit and the bytes after the color block, so a new client joins it as before. A client from before mods sends no hash and is admitted as before. A host with no mods set (the `server` command, `mp-local`) checks nothing.
 
 ## Fixtures and CI
 

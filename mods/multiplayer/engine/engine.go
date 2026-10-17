@@ -8,9 +8,11 @@
 // server argument parsers) and hands the parsed values in.
 package engine
 
+import "github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+
 // Config is what an Engine is built from. Package main fills Env,
-// Version, CheatsIni and Coop; NewTUIEngine adds the status bridge and
-// this machine's Dolphins.
+// Version, CheatsIni, Coop and Mods; NewTUIEngine adds the status bridge
+// and this machine's Dolphins.
 type Config struct {
 	// Live is the status bridge (the TUI's); nil for the CLI.
 	Live *LiveState
@@ -29,11 +31,16 @@ type Config struct {
 	// Coop is co-op (package main's until D2 makes it its own mod); nil
 	// runs every session without co-op.
 	Coop CoopApp
+	// Mods is this build's client_required mods (wwapi.ModsID): the
+	// sessions' player and lobby connections send their hash, and a
+	// host refuses a joiner with another. The zero Mods sends and checks
+	// none.
+	Mods network.Mods
 }
 
 // New is the engine c describes.
 func New(c Config) *Engine {
-	return &Engine{ls: c.Live, stdin: c.Stdin, game: c.Game, env: c.Env, version: c.Version, cheatsIni: c.CheatsIni, coopApp: c.Coop}
+	return &Engine{ls: c.Live, stdin: c.Stdin, game: c.Game, env: c.Env, version: c.Version, cheatsIni: c.CheatsIni, coopApp: c.Coop, mods: c.Mods}
 }
 
 // NewTUIEngine is the app's engine: c with a status bridge of its own and

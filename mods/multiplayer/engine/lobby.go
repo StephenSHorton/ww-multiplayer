@@ -41,6 +41,7 @@ func (e *Engine) HostLobby(ctx context.Context, cancel context.CancelFunc, o ses
 	}
 	srv := network.NewServer(port)
 	srv.ListenHost = o.ListenHost
+	srv.SetMods(e.mods)
 	srv.OnLog = func(msg string) {
 		if strings.HasPrefix(msg, "[Chat] ") {
 			return // the lobby connection delivers it as a chat line
@@ -119,6 +120,7 @@ func (e *Engine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, 
 		hello.Color = color.Hex()
 	}
 	lc := network.NewLobbyClient(name, hello)
+	lc.SetMods(e.mods)
 	lc.Client().OnLog = func(s string) { out.Log(log.Net, s) }
 	lc.Client().OnChat = out.Chat
 	lc.OnState = func(st network.LobbyStateBody) {
@@ -142,7 +144,7 @@ func (e *Engine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, 
 	}
 	var game *GameRunner
 	if e.game != nil {
-		gctx := WithColorPref(ctx, color)
+		gctx := WithMods(WithColorPref(ctx, color), e.mods)
 		game = NewGameRunner(e.game, launch, name, addr, out,
 			func(state string) { _ = lc.SetDolphin(state) },
 			func(error) { cancel() })

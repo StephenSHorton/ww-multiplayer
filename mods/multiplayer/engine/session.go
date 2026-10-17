@@ -67,6 +67,7 @@ func RunHostSession(ctx context.Context, cancel context.CancelFunc, env Env, nam
 		name = "Host"
 	}
 	srv := network.NewServer(port)
+	srv.SetMods(ModsFor(ctx))
 	srv.OnLog = func(msg string) {
 		rep.Log(log.Info, fmt.Sprintf("[srv %s] %s", time.Now().Format("15:04:05"), msg))
 	}
