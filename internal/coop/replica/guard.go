@@ -19,6 +19,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -224,20 +225,20 @@ func (p path) String() string {
 }
 
 // derivedSlots are the item slots and equipment bytes a receiver derives
-// from its flags (inventory.ItemSlots, inventory.EquipSlots): ruleSlot's
+// from its flags (save.ItemSlots, save.EquipSlots): ruleSlot's
 // variants. mItems' four bottles are each player's own and not among
 // them, nor is mSelectEquip[3], which has no setter
 // (dComIfGs_setSelectEquip, d_com_inf_game.cpp:1786-1822).
-var derivedSlots = append(inventory.ItemSlots(), inventory.EquipSlots()...)
+var derivedSlots = append(save.ItemSlots(), save.EquipSlots()...)
 
 // buttonSlots are the slots a button's item may come from: the derived
 // item slots (the equipment is on no button).
-var buttonSlots = inventory.ItemSlots()
+var buttonSlots = save.ItemSlots()
 
 // derivedSlotAt returns the index in derivedSlots of the slot whose byte is
 // image byte off, or -1.
 func derivedSlotAt(off int) int {
-	return slices.IndexFunc(derivedSlots, func(s inventory.Slot) bool { return s.Off == off })
+	return slices.IndexFunc(derivedSlots, func(s save.Slot) bool { return s.Off == off })
 }
 
 // isKeyByte reports whether image byte off is a save table's mKeyNum
@@ -248,11 +249,11 @@ func isKeyByte(off int) bool {
 }
 
 // betterVariant reports whether s may go from old to val: val is one of
-// its variants, and old is nothing or a lesser variant (inventory.Slot.
+// its variants, and old is nothing or a lesser variant (save.Slot.
 // Derive's rule: nothing is ever taken away, §6.6).
-func betterVariant(s inventory.Slot, old, val byte) bool {
+func betterVariant(s save.Slot, old, val byte) bool {
 	rv, ro := s.Rank(val), s.Rank(old)
-	return rv >= 0 && (old == inventory.ItemNone || ro >= 0 && ro < rv)
+	return rv >= 0 && (old == save.ItemNone || ro >= 0 && ro < rv)
 }
 
 // Guard is the static allowlist of the WriteGuard (§4.2): the bytes the
@@ -577,7 +578,7 @@ func judgeByte(br byteRule, old, val byte) (Refusal, string) {
 				s.Name, old, val)
 		}
 	case ruleButton:
-		if old != val && !slices.ContainsFunc(buttonSlots, func(s inventory.Slot) bool { return betterVariant(s, old, val) }) {
+		if old != val && !slices.ContainsFunc(buttonSlots, func(s save.Slot) bool { return betterVariant(s, old, val) }) {
 			return RefuseValue, fmt.Sprintf("a button may only move from nothing or a lesser variant to a better one of a derived slot, not from 0x%02X to 0x%02X", old, val)
 		}
 	}

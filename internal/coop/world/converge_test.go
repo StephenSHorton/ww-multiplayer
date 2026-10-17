@@ -81,7 +81,7 @@ func (l *loop) propose(f upFrame) {
 	if f.world != nil {
 		img = *f.world
 	} else {
-		img.Apply(f.gains)
+		Apply(&img, f.gains)
 	}
 	l.sent = Join(&l.sent, &img)
 	l.up = append(l.up, f)
@@ -140,7 +140,7 @@ func (l *loop) deliverDown(keep bool) {
 	if f.world != nil {
 		rp.view = Join(&rp.view, f.world) // a late WORLD reply never takes back a newer relay
 	} else {
-		rp.view.Apply(f.gains)
+		Apply(&rp.view, f.gains)
 	}
 }
 

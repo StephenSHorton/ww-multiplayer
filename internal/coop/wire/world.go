@@ -6,12 +6,13 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
-// Image is the canonical 0x778-byte dSv_save_c image (§3; d_save.h:908-916):
-// the saved image with the current table's live memBit folded into its
-// saved slot, as snap.Snapshot.Image returns it.
-type Image [addr.SaveImageSize]byte
+// Image is the canonical 0x778-byte dSv_save_c image (§3), save.Image.
+// The name is kept for one release (docs/api/00-design.md, C6; E4
+// removes it).
+type Image = save.Image
 
 // keep[off] is the bits of image byte off that travel in a WORLD: the class
 // mask of a byte that merges, every bit of a DERIVED byte (receivers

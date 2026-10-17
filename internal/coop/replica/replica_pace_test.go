@@ -15,7 +15,7 @@ func gainsOf(ms []wire.Msg) world.Image {
 	var img world.Image
 	for _, g := range all[*wire.GainsUp](ms) {
 		for _, x := range g.Gains {
-			img.Apply([]world.Gain{{Off: x.Off, Val: x.Val}})
+			world.Apply(&img, []world.Gain{{Off: x.Off, Val: x.Val}})
 		}
 	}
 	return img

@@ -8,6 +8,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // Small keys (§6.4). keys(t) = |key sources set| - |key doors set| over
@@ -122,7 +123,7 @@ func (f KeyFacts) Derived() int { return f.Taken - (f.Open - f.Held) }
 // CountKeys counts t's keys in v. A source counts once its flag is set, a
 // door once its memory switch is (dDoor_key2_c::keyInit sets it as the
 // key is spent, d_door.cpp:433-440).
-func CountKeys(v View, t *keys.Table) KeyFacts {
+func CountKeys(v save.View, t *keys.Table) KeyFacts {
 	f := KeyFacts{Table: t.SaveTable, Sources: len(t.Sources), Doors: len(t.Doors)}
 	if !addr.ValidTable(t.SaveTable) {
 		return f
@@ -157,7 +158,7 @@ func KeysEnabled(t *keys.Table) (bool, string) {
 		return false, "it is no dungeon with small keys"
 	}
 	for i, s := range t.Sources {
-		if !Known(s.Flag) {
+		if !save.Known(s.Flag) {
 			return false, fmt.Sprintf("source %d: %s is no save bit the derive reads", i+1, s.Flag)
 		}
 	}
@@ -399,7 +400,7 @@ func (k *keyState) spent(f KeyFacts, p *Plan) int {
 
 // startVisit begins a stage visit: the flags set now are older than every
 // actor the stage makes.
-func (k *keyState) startVisit(v View) {
+func (k *keyState) startVisit(v save.View) {
 	for i, s := range k.t.Sources {
 		k.visitSet[i], _ = v.FlagSet(s.Flag)
 		k.used[i] = false
@@ -409,7 +410,7 @@ func (k *keyState) startVisit(v View) {
 
 // duplicates takes up to n duplicates against the visit's sources that
 // may have given their key twice (the top of this file), and names them.
-func (k *keyState) duplicates(v View, stage string, n int) (got int, from []string) {
+func (k *keyState) duplicates(v save.View, stage string, n int) (got int, from []string) {
 	for i, s := range k.t.Sources {
 		if got == n {
 			break

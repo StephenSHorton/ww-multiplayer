@@ -11,6 +11,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 func TestDeriveSlots(t *testing.T) {
@@ -36,12 +37,12 @@ func TestDeriveSlots(t *testing.T) {
 		{"unknown item kept", func(a *world.Image) { a[addr.OffItems+5] = 0x99 },
 			func(b *world.Image) { b[addr.OffGetItem+5] = 1 }, addr.OffItems + 5, 0x99, "kept item 0x99", false},
 		{"deluxe picto box", nil, func(b *world.Image) { b[addr.OffGetItem+8] = 3 }, addr.OffItems + 8, 0x26, "picto box", false},
-		{"no flag, no item", nil, func(b *world.Image) { b[addr.OffItems+20] = 0x33 }, addr.OffItems + 20, itemNone, "", true},
+		{"no flag, no item", nil, func(b *world.Image) { b[addr.OffItems+20] = 0x33 }, addr.OffItems + 20, save.ItemNone, "", true},
 		{"sword equipped", nil, func(b *world.Image) { b[addr.OffCollectFlags] = 0x03 }, addr.OffSelectEquip, ms1, "sword", false},
 		{"sword raised", func(a *world.Image) { a[addr.OffCollectFlags] = 1; a[addr.OffSelectEquip] = sword },
 			func(b *world.Image) { b[addr.OffCollectFlags] = 0x0F }, addr.OffSelectEquip, ms3, "0x38 -> 0x3E", false},
 		{"mirror shield", nil, func(b *world.Image) { b[addr.OffCollectFlags+1] = 3 }, addr.OffSelectEquip + 1, 0x3C, "shield", false},
-		{"bracelets", nil, func(b *world.Image) { b[addr.OffCollectFlags+2] = 1 }, addr.OffSelectEquip + 2, 0x28, "bracelets", false},
+		{"bracelets", nil, func(b *world.Image) { b[addr.OffCollectFlags+2] = 1 }, addr.OffSelectEquip + 2, 0x28, "mSelectEquip (power bracelets)", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			a, b := freshImage("Link"), freshImage("Tetra")

@@ -125,7 +125,7 @@ func (m *model) onCoop(gen int, p []byte) {
 		for i, g := range x.Gains {
 			gs[i] = world.Gain(g)
 		}
-		m.view.Apply(gs)
+		world.Apply(&m.view, gs)
 	}
 }
 
@@ -245,7 +245,7 @@ func (m *model) diff(r *rand.Rand) {
 			up.Gains[i] = wire.Gain(g)
 		}
 		var im world.Image
-		im.Apply(gs)
+		world.Apply(&im, gs)
 		m.sent = world.Join(&m.sent, &im)
 	}
 	m.mu.Unlock()

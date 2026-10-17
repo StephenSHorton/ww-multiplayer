@@ -92,14 +92,16 @@ type Rule struct {
 	Field string
 }
 
-// Span is one run of image bytes sharing a Rule.
+// Span is one save.Layout span (its Off, Len and Field) with the Rule
+// keyed to it.
 type Span struct {
 	Off, Len int
 	Rule
 }
 
 var (
-	spans = buildSpans()
+	rules = buildRules()
+	spans = buildSpans(rules)
 	table = buildTable(spans)
 )
 
@@ -117,8 +119,9 @@ func Spans() []Span {
 	return append([]Span(nil), spans...)
 }
 
-// Validate reports every gap, overlap and inconsistent mask in the table.
-func Validate() error { return validate(spans) }
+// Validate reports every gap, overlap and inconsistent mask in the table,
+// and every rule not keyed to exactly one save.Layout span.
+func Validate() error { return errors.Join(validate(spans), validateRules(rules)) }
 
 func buildTable(spans []Span) [addr.SaveImageSize]Rule {
 	var t [addr.SaveImageSize]Rule

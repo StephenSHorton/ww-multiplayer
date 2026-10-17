@@ -8,6 +8,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // Timing is when the receiver applies a planned write: the "sync rule"
@@ -235,7 +236,7 @@ const (
 // masterSwords are the items daPy_lk_c::checkMasterSwordEquip accepts in
 // mSelectEquip[0] (d_a_player.h:599-603; dItemNo_MASTER_SWORD_1-3,
 // d_item_data.h:64-69).
-var masterSwords = [...]byte{0x39, 0x3A, 0x3E}
+var masterSwords = [...]byte{save.ItemMasterSword1, save.ItemMasterSword2, save.ItemMasterSword3}
 
 func masterSwordEquipped(raw *world.Image) bool {
 	for _, it := range masterSwords {

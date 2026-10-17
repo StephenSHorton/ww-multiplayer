@@ -106,15 +106,15 @@ func (p *pace) release(now time.Time, idle bool, gs []world.Gain) []world.Gain {
 	var rest []world.Gain
 	for _, g := range gs {
 		if inventoryByte(int(g.Off)) {
-			p.inv.Apply([]world.Gain{g})
+			world.Apply(&p.inv, []world.Gain{g})
 		} else {
 			rest = append(rest, g)
 		}
 	}
 	var out world.Image
-	out.Apply(p.batch.Tick(now, idle, rest))
+	world.Apply(&out, p.batch.Tick(now, idle, rest))
 	if idle {
-		out.Apply(nonZero(&p.inv))
+		world.Apply(&out, nonZero(&p.inv))
 		p.inv = world.Image{}
 	}
 	if gs := nonZero(&out); len(gs) > 0 {
@@ -127,8 +127,8 @@ func (p *pace) release(now time.Time, idle bool, gs []world.Gain) []world.Gain {
 // story batch with its switches, and the inventory waiting for IDLE.
 func (p *pace) waiting() []world.Gain {
 	var all world.Image
-	all.Apply(p.batch.Waiting())
-	all.Apply(nonZero(&p.inv))
+	world.Apply(&all, p.batch.Waiting())
+	world.Apply(&all, nonZero(&p.inv))
 	return nonZero(&all)
 }
 

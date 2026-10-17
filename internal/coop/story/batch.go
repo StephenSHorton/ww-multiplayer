@@ -66,11 +66,11 @@ func (b *Batcher) Tick(now time.Time, idle bool, gains []world.Gain) []world.Gai
 		off := int(g.Off)
 		switch {
 		case IsStoryByte(off):
-			if v := g.Val & class.SyncMaskOf(off-addr.OffEvent); v != 0 && b.batch.Apply([]world.Gain{{Off: g.Off, Val: v}}) > 0 {
+			if v := g.Val & class.SyncMaskOf(off-addr.OffEvent); v != 0 && world.Apply(&b.batch, []world.Gain{{Off: g.Off, Val: v}}) > 0 {
 				b.waiting, b.lastAt = true, now
 			}
 		case IsRegisterByte(off):
-			if b.batch.Apply([]world.Gain{g}) > 0 {
+			if world.Apply(&b.batch, []world.Gain{g}) > 0 {
 				b.waiting, b.lastAt = true, now
 			}
 		}
@@ -81,17 +81,17 @@ func (b *Batcher) Tick(now time.Time, idle bool, gains []world.Gain) []world.Gai
 		switch {
 		case IsStoryByte(off), IsRegisterByte(off):
 		case isSwitchByte(off) && (!idle || b.waiting):
-			if b.coupled.Apply([]world.Gain{g}) > 0 {
+			if world.Apply(&b.coupled, []world.Gain{g}) > 0 {
 				b.waiting = true
 			}
 		default:
-			out.Apply([]world.Gain{g})
+			world.Apply(&out, []world.Gain{g})
 		}
 	}
 
 	if b.due(now) {
-		out.Apply(gainsOf(&b.batch))
-		out.Apply(gainsOf(&b.coupled))
+		world.Apply(&out, gainsOf(&b.batch))
+		world.Apply(&out, gainsOf(&b.coupled))
 		b.drop()
 	}
 	return gainsOf(&out)
@@ -123,7 +123,7 @@ func (b *Batcher) Waiting() []world.Gain {
 		return nil
 	}
 	all := b.batch
-	all.Apply(gainsOf(&b.coupled))
+	world.Apply(&all, gainsOf(&b.coupled))
 	return gainsOf(&all)
 }
 

@@ -107,7 +107,7 @@ func FuzzApplyRegister(f *testing.F) {
 		off := addr.OffEvent + i
 		var img world.Image
 		img[off] = l
-		img.Apply([]world.Gain{{Off: uint16(off), Val: w & world.SharedMask(off)}})
+		world.Apply(&img, []world.Gain{{Off: uint16(off), Val: w & world.SharedMask(off)}})
 		if m := world.SharedMask(off); i >= addr.EventRegFirst && got&m != img[off]&m {
 			t.Fatalf("0x%02X: ApplyRegister field 0x%02X, world.Apply 0x%02X", i, got&m, img[off]&m)
 		}

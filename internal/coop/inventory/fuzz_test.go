@@ -8,6 +8,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -23,7 +24,7 @@ var fuzzOffsets = func() []int {
 	for _, c := range capacities {
 		offs = append(offs, c.off)
 	}
-	for _, s := range append(ItemSlots(), EquipSlots()...) {
+	for _, s := range append(save.ItemSlots(), save.EquipSlots()...) {
 		offs = append(offs, s.Off)
 	}
 	for i := range Buttons {
@@ -47,8 +48,8 @@ func fuzzImage(b []byte) world.Image {
 
 // interesting are the item values that matter for a slot-like byte.
 var interesting = func() []byte {
-	vs := []byte{ItemNone, 0x00, 0x50}
-	for _, s := range append(ItemSlots(), EquipSlots()...) {
+	vs := []byte{save.ItemNone, 0x00, 0x50}
+	for _, s := range append(save.ItemSlots(), save.EquipSlots()...) {
 		for _, v := range s.Variants {
 			vs = append(vs, v.Item)
 		}
@@ -80,7 +81,7 @@ func FuzzPending(f *testing.F) {
 		}
 		ctx := Context{StageName: stage, StageType: int(typ & 7), StageTypeOK: typOK, ArrowCount: arrows, BombCount: bombs}
 		for i := range Buttons {
-			ctx.SelectItem[i] = ItemNone
+			ctx.SelectItem[i] = save.ItemNone
 			if i < len(sel) {
 				ctx.SelectItem[i] = interesting[int(sel[i])%len(interesting)]
 			}
@@ -157,12 +158,12 @@ func checkPlan(t *testing.T, view, raw *world.Image, ctx Context, p Plan) {
 			if w.Kind == KindEquip {
 				slots = equipSlots
 			}
-			i := slices.IndexFunc(slots, func(s Slot) bool { return s.Off == w.Off })
+			i := slices.IndexFunc(slots, func(s save.Slot) bool { return s.Off == w.Off })
 			if i < 0 || w.Op != OpSet {
 				t.Fatalf("%s: not a derived byte", short(w))
 			}
 			s := slots[i]
-			if s.Rank(w.Val) < 0 || w.Old != ItemNone && s.Rank(w.Old) >= s.Rank(w.Val) {
+			if s.Rank(w.Val) < 0 || w.Old != save.ItemNone && s.Rank(w.Old) >= s.Rank(w.Val) {
 				t.Errorf("%s: %s 0x%02X -> 0x%02X is no upgrade", short(w), s.Name, w.Old, w.Val)
 			}
 			if w.Kind == KindEquip && w.When != AtStageEntry || w.Kind == KindSlot && w.When != Live {
@@ -170,7 +171,7 @@ func checkPlan(t *testing.T, view, raw *world.Image, ctx Context, p Plan) {
 			}
 		case KindSelectItem:
 			btn := int(w.Addr - addr.PlaySelectItem)
-			if btn < 0 || btn >= Buttons || w.Off != -1 || w.Op != OpSet || w.Old != ctx.SelectItem[btn] || w.Val == ItemNone {
+			if btn < 0 || btn >= Buttons || w.Off != -1 || w.Op != OpSet || w.Old != ctx.SelectItem[btn] || w.Val == save.ItemNone {
 				t.Errorf("%s: button write", short(w))
 			}
 		case KindAmmo:
@@ -186,7 +187,7 @@ func checkPlan(t *testing.T, view, raw *world.Image, ctx Context, p Plan) {
 		}
 		// Nothing a holding rule covers is made.
 		bowByte := w.Off == offBowFlags || w.Off == offBowSlot ||
-			w.Kind == KindSelectItem && raw[addr.OffSelectItem+int(w.Addr-addr.PlaySelectItem)] == SlotBow
+			w.Kind == KindSelectItem && raw[addr.OffSelectItem+int(w.Addr-addr.PlaySelectItem)] == save.SlotBow
 		if gt && bowByte {
 			t.Errorf("%s made in GTower", short(w))
 		}

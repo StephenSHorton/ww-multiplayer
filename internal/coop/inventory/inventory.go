@@ -50,6 +50,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // Kind is what a write changes.
@@ -268,9 +269,9 @@ func (pl *planner) emit(w Write, rule Rule) {
 // holdFlag returns the rule holding flag byte off, or 0.
 func (pl *planner) holdFlag(off int) Rule {
 	switch {
-	case pl.ff1 && off == equipSlots[EquipSword].FlagOff:
+	case pl.ff1 && off == equipSlots[save.EquipSword].FlagOff:
 		return RuleFF1Sword
-	case pl.gtower && off == addr.OffGetItem+SlotBow:
+	case pl.gtower && off == addr.OffGetItem+save.SlotBow:
 		return RuleGTowerBow
 	case pl.busy[off]:
 		return RuleAmmoBusy
@@ -339,12 +340,12 @@ func (pl *planner) slots() {
 			continue
 		}
 		var rule Rule
-		if pl.gtower && s.Index == SlotBow {
+		if pl.gtower && s.Index == save.SlotBow {
 			rule = RuleGTowerBow
 		}
 		pl.emit(imageWrite(KindSlot, s.Off, OpSet, old, v, Live,
 			fmt.Sprintf("%s slot: %s -> %s, from %s (d_s_play.cpp:1385-1392; %s)",
-				s.Name, s.itemName(old), s.itemName(v), flagName(s.FlagOff), s.Cite)), rule)
+				s.Name, s.ItemName(old), s.ItemName(v), flagName(s.FlagOff), s.Cite)), rule)
 	}
 }
 
@@ -358,12 +359,12 @@ func (pl *planner) equipment() {
 			continue
 		}
 		var rule Rule
-		if pl.ff1 && e.Index == EquipSword {
+		if pl.ff1 && e.Index == save.EquipSword {
 			rule = RuleFF1Sword
 		}
 		pl.emit(imageWrite(KindEquip, e.Off, OpSet, old, v, AtStageEntry,
 			fmt.Sprintf("%s: %s -> %s, from %s (dComIfGs_setSelectEquip, d_com_inf_game.cpp:1786-1822; %s)",
-				e.Name, e.itemName(old), e.itemName(v), flagName(e.FlagOff), e.Cite)), rule)
+				e.Name, e.ItemName(old), e.ItemName(v), flagName(e.FlagOff), e.Cite)), rule)
 	}
 }
 
@@ -386,17 +387,17 @@ func (pl *planner) buttons() {
 			continue
 		}
 		v, shown := pl.m[s.Off], pl.ctx.SelectItem[btn]
-		if rv, rs := s.Rank(v), s.Rank(shown); rv < 0 || shown != ItemNone && (rs < 0 || rs >= rv) {
+		if rv, rs := s.Rank(v), s.Rank(shown); rv < 0 || shown != save.ItemNone && (rs < 0 || rs >= rv) {
 			continue
 		}
 		var rule Rule
-		if pl.gtower && slot == SlotBow {
+		if pl.gtower && slot == save.SlotBow {
 			rule = RuleGTowerBow
 		}
 		pl.emit(Write{Kind: KindSelectItem, Addr: addr.PlaySelectItem + uint32(btn), Off: -1, Op: OpSet,
 			Old: shown, Val: v, When: Live,
 			Reason: fmt.Sprintf("button %s shows %s, bound to the %s slot (dComIfGp_setSelectItem, d_com_inf_game.h:2924-2938)",
-				buttonNames[btn], s.itemName(v), s.Name)}, rule)
+				buttonNames[btn], s.ItemName(v), s.Name)}, rule)
 	}
 }
 

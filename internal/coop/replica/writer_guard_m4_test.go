@@ -13,6 +13,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -94,8 +95,8 @@ func TestWriteGuardM4Gates(t *testing.T) {
 	story, sm := syncedStory(t)
 	reg := registerOff(t)
 	regMask := class.Of(reg).Mask
-	bow := imageAddr(addr.OffGetItem + inventory.SlotBow)
-	slot := imageAddr(addr.OffItems + inventory.SlotTelescope)
+	bow := imageAddr(addr.OffGetItem + save.SlotBow)
+	slot := imageAddr(addr.OffItems + save.SlotTelescope)
 	cases := []struct {
 		name     string
 		gates    gate.Status
@@ -114,12 +115,12 @@ func TestWriteGuardM4Gates(t *testing.T) {
 		{"an inventory flag during an event", settledGates(busy), true, pathMerge, bow, 0, 0x01, false},
 		{"an inventory flag as a stage change starts", trans, true, pathMerge, bow, 0, 0x01, false},
 		{"a capacity when idle", idle, true, pathMerge, imageAddr(addr.OffArrowMax), 0, 30, true},
-		{"a slot when idle", idle, true, pathDerive, slot, inventory.ItemNone, inventory.ItemTelescope, true},
-		{"a slot during an event", settledGates(busy), true, pathDerive, slot, inventory.ItemNone, inventory.ItemTelescope, false},
+		{"a slot when idle", idle, true, pathDerive, slot, save.ItemNone, save.ItemTelescope, true},
+		{"a slot during an event", settledGates(busy), true, pathDerive, slot, save.ItemNone, save.ItemTelescope, false},
 		{"the max-life counter at 0", idle, true, pathDerive, addr.ItemMaxLifeCount + 1, 0, 4, true},
 		{"the max-life counter still pending", settledGates(lifePending), true, pathDerive, addr.ItemMaxLifeCount + 1, 0, 4, false},
-		{"a button when idle", idle, true, pathDerive, addr.PlaySelectItem, inventory.ItemNone, inventory.ItemTelescope, true},
-		{"a button as a stage change starts", trans, true, pathDerive, addr.PlaySelectItem, inventory.ItemNone, inventory.ItemTelescope, false},
+		{"a button when idle", idle, true, pathDerive, addr.PlaySelectItem, save.ItemNone, save.ItemTelescope, true},
+		{"a button as a stage change starts", trans, true, pathDerive, addr.PlaySelectItem, save.ItemNone, save.ItemTelescope, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -143,8 +144,8 @@ func TestWriteGuardM4Refuses(t *testing.T) {
 	trans := transitionGates(inGame)
 	local, lm := localStory(t)
 	story, sm := syncedStory(t)
-	bowSlot := imageAddr(addr.OffItems + inventory.SlotBow)
-	sword := imageAddr(addr.OffSelectEquip + inventory.EquipSword)
+	bowSlot := imageAddr(addr.OffItems + save.SlotBow)
+	sword := imageAddr(addr.OffSelectEquip + save.EquipSword)
 	keyByte := imageAddr(addr.OffMemBit(addr.TableDRC) + addr.MemBitOffKeyNum)
 	cases := []struct {
 		name     string
@@ -155,15 +156,15 @@ func TestWriteGuardM4Refuses(t *testing.T) {
 		want     Refusal
 	}{
 		// DERIVED bytes, the counters and the buttons off the derive path.
-		{"a slot through the merge path", idle, pathMerge, bowSlot, inventory.ItemNone, inventory.ItemBow, RefusePath},
-		{"the equipment through the merge path", idle, pathMerge, sword, inventory.ItemNone, inventory.ItemSword, RefusePath},
+		{"a slot through the merge path", idle, pathMerge, bowSlot, save.ItemNone, save.ItemBow, RefusePath},
+		{"the equipment through the merge path", idle, pathMerge, sword, save.ItemNone, save.ItemSword, RefusePath},
 		{"a key count through the merge path", idle, pathMerge, keyByte, 0, 1, RefusePath},
 		{"a counter through the merge path", idle, pathMerge, addr.ItemMaxLifeCount + 1, 0, 4, RefusePath},
 		{"a counter through an escape", idle, pathEscape, addr.ItemKeyNumCount + 1, 0, 1, RefusePath},
-		{"a button through the merge path", idle, pathMerge, addr.PlaySelectItem, inventory.ItemNone, inventory.ItemTelescope, RefusePath},
+		{"a button through the merge path", idle, pathMerge, addr.PlaySelectItem, save.ItemNone, save.ItemTelescope, RefusePath},
 		// The merge path's bytes off it.
 		{"a story bit through the derive path", trans, pathDerive, imageAddr(story), 0, sm, RefusePath},
-		{"an inventory flag through an escape", idle, pathEscape, imageAddr(addr.OffGetItem + inventory.SlotBow), 0, 1, RefusePath},
+		{"an inventory flag through an escape", idle, pathEscape, imageAddr(addr.OffGetItem + save.SlotBow), 0, 1, RefusePath},
 		{"mNextStage through the derive path", idle, pathDerive, addr.NextStageEnable, 0, 1, RefusePath},
 		// Never targets.
 		{"mMaxLife", idle, pathDerive, imageAddr(addr.OffMaxLife + 1), 12, 16, RefuseTarget},
@@ -171,9 +172,9 @@ func TestWriteGuardM4Refuses(t *testing.T) {
 		{"mLife", idle, pathAny, imageAddr(addr.OffLife + 1), 12, 0, RefuseTarget},
 		{"rupees", idle, pathAny, imageAddr(addr.OffRupee + 1), 0, 99, RefuseTarget},
 		{"current arrows", idle, pathAny, imageAddr(inventory.OffArrowNum), 0, 30, RefuseTarget},
-		{"a bottle", idle, pathAny, imageAddr(addr.OffItems + 14), inventory.ItemNone, 0x50, RefuseTarget},
+		{"a bottle", idle, pathAny, imageAddr(addr.OffItems + 14), save.ItemNone, 0x50, RefuseTarget},
 		{"mSelectEquip[3]", idle, pathAny, imageAddr(addr.OffSelectEquip + 3), 0, 1, RefuseTarget},
-		{"play.mSelectItem[3]", idle, pathAny, addr.PlaySelectItem + 3, inventory.ItemNone, 0x20, RefuseTarget},
+		{"play.mSelectItem[3]", idle, pathAny, addr.PlaySelectItem + 3, save.ItemNone, 0x20, RefuseTarget},
 		{"the ammo counter", idle, pathAny, inventory.ItemArrowNumCount + 1, 0, 30, RefuseTarget},
 		{"the tag (no target of a replica's guard)", idle, pathDerive, addr.Reserve, 0, 'W', RefuseTarget},
 		// Bits outside the masks.
@@ -182,15 +183,15 @@ func TestWriteGuardM4Refuses(t *testing.T) {
 		{"the Hero's Charm worn", idle, pathMerge, imageAddr(addr.OffCollectFlags + 4), 0, 0x02, RefuseMask},
 		// Clears and falls.
 		{"a story bit cleared", trans, pathMerge, imageAddr(story), sm, 0, RefuseClear},
-		{"an inventory flag cleared", idle, pathMerge, imageAddr(addr.OffGetItem + inventory.SlotBow), 1, 0, RefuseClear},
+		{"an inventory flag cleared", idle, pathMerge, imageAddr(addr.OffGetItem + save.SlotBow), 1, 0, RefuseClear},
 		{"a capacity lowered", idle, pathMerge, imageAddr(addr.OffArrowMax), 60, 30, RefuseClear},
 		{"the wallet lowered", idle, pathMerge, imageAddr(addr.OffWalletSize), 2, 1, RefuseClear},
-		{"a slot to a lesser variant", idle, pathDerive, imageAddr(addr.OffItems + inventory.SlotCamera), inventory.ItemDeluxePictoBox, inventory.ItemPictoBox, RefuseValue},
-		{"a slot emptied", idle, pathDerive, bowSlot, inventory.ItemBow, inventory.ItemNone, RefuseValue},
-		{"a slot to another slot's item", idle, pathDerive, bowSlot, inventory.ItemNone, inventory.ItemTelescope, RefuseValue},
-		{"the sword to a lesser one", idle, pathDerive, sword, inventory.ItemMasterSword3, inventory.ItemSword, RefuseValue},
-		{"a button to a lesser variant", idle, pathDerive, addr.PlaySelectItem + 1, inventory.ItemLightArrow, inventory.ItemBow, RefuseValue},
-		{"a button to nothing", idle, pathDerive, addr.PlaySelectItem, inventory.ItemBow, inventory.ItemNone, RefuseValue},
+		{"a slot to a lesser variant", idle, pathDerive, imageAddr(addr.OffItems + save.SlotCamera), save.ItemDeluxePictoBox, save.ItemPictoBox, RefuseValue},
+		{"a slot emptied", idle, pathDerive, bowSlot, save.ItemBow, save.ItemNone, RefuseValue},
+		{"a slot to another slot's item", idle, pathDerive, bowSlot, save.ItemNone, save.ItemTelescope, RefuseValue},
+		{"the sword to a lesser one", idle, pathDerive, sword, save.ItemMasterSword3, save.ItemSword, RefuseValue},
+		{"a button to a lesser variant", idle, pathDerive, addr.PlaySelectItem + 1, save.ItemLightArrow, save.ItemBow, RefuseValue},
+		{"a button to nothing", idle, pathDerive, addr.PlaySelectItem, save.ItemBow, save.ItemNone, RefuseValue},
 		{"a key count above 99", idle, pathDerive, keyByte, 0, 100, RefuseValue},
 	}
 	for _, c := range cases {
@@ -227,8 +228,8 @@ func TestWriteGuardCheckIsEveryPath(t *testing.T) {
 	}{
 		{addr.ItemKeyNumCount + 1, 0, 1},
 		{imageAddr(addr.OffMemBit(addr.TableDRC) + addr.MemBitOffKeyNum), 0, 2},
-		{imageAddr(addr.OffItems + inventory.SlotBow), inventory.ItemNone, inventory.ItemBow},
-		{imageAddr(addr.OffGetItem + inventory.SlotBow), 0, 1},
+		{imageAddr(addr.OffItems + save.SlotBow), save.ItemNone, save.ItemBow},
+		{imageAddr(addr.OffGetItem + save.SlotBow), 0, 1},
 	} {
 		if err := wg.Check(c.a, c.old, c.val); err != nil {
 			t.Errorf("Check(0x%08X) = %v", c.a, err)
@@ -279,18 +280,18 @@ func TestWriteGuardDeriveShape(t *testing.T) {
 		{"another table's saved key byte", one(DeriveKeySaved, savedFW+addr.MemBitOffKeyNum, addr.TableFW, 0, 1), 0},
 		{"the loaded table's saved key byte", one(DeriveKeySaved, savedDRC+addr.MemBitOffKeyNum, addr.TableDRC, 0, 1), RefuseTarget},
 		{"a saved key byte at another table's place", one(DeriveKeySaved, savedDRC+addr.MemBitOffKeyNum, addr.TableFW, 0, 1), RefuseTarget},
-		{"a slot", one(DeriveSlot, imageAddr(addr.OffItems+inventory.SlotBow), -1, inventory.ItemNone, inventory.ItemBow), 0},
-		{"the equipment as a slot", one(DeriveSlot, imageAddr(addr.OffSelectEquip), -1, inventory.ItemNone, inventory.ItemSword), RefuseTarget},
-		{"a slot as the equipment", one(DeriveEquip, imageAddr(addr.OffItems+inventory.SlotBow), -1, inventory.ItemNone, inventory.ItemBow), RefuseTarget},
-		{"the sword", one(DeriveEquip, imageAddr(addr.OffSelectEquip), -1, inventory.ItemNone, inventory.ItemSword), 0},
-		{"a bottle as a slot", one(DeriveSlot, imageAddr(addr.OffItems+14), -1, inventory.ItemNone, 0x50), RefuseTarget},
-		{"a button", one(DeriveButton, addr.PlaySelectItem+2, -1, inventory.ItemNone, inventory.ItemTelescope), 0},
-		{"mSelectItem[3] as a button", one(DeriveButton, addr.PlaySelectItem+3, -1, inventory.ItemNone, inventory.ItemTelescope), RefuseTarget},
+		{"a slot", one(DeriveSlot, imageAddr(addr.OffItems+save.SlotBow), -1, save.ItemNone, save.ItemBow), 0},
+		{"the equipment as a slot", one(DeriveSlot, imageAddr(addr.OffSelectEquip), -1, save.ItemNone, save.ItemSword), RefuseTarget},
+		{"a slot as the equipment", one(DeriveEquip, imageAddr(addr.OffItems+save.SlotBow), -1, save.ItemNone, save.ItemBow), RefuseTarget},
+		{"the sword", one(DeriveEquip, imageAddr(addr.OffSelectEquip), -1, save.ItemNone, save.ItemSword), 0},
+		{"a bottle as a slot", one(DeriveSlot, imageAddr(addr.OffItems+14), -1, save.ItemNone, 0x50), RefuseTarget},
+		{"a button", one(DeriveButton, addr.PlaySelectItem+2, -1, save.ItemNone, save.ItemTelescope), 0},
+		{"mSelectItem[3] as a button", one(DeriveButton, addr.PlaySelectItem+3, -1, save.ItemNone, save.ItemTelescope), RefuseTarget},
 		{"mMaxLife as a slot", one(DeriveSlot, imageAddr(addr.OffMaxLife+1), -1, 12, 16), RefuseTarget},
 		{"the tag", one(DeriveSlot, addr.Reserve, -1, 0, 'W'), RefuseTarget},
-		{"no kind", one(0, imageAddr(addr.OffItems), -1, inventory.ItemNone, inventory.ItemTelescope), RefuseTarget},
-		{"expect and data of other sizes", DeriveWrite{Kind: DeriveSlot, Table: -1, Addr: imageAddr(addr.OffItems + inventory.SlotBow),
-			Expect: []byte{0xFF, 0xFF}, Data: []byte{inventory.ItemBow}}, RefuseTarget},
+		{"no kind", one(0, imageAddr(addr.OffItems), -1, save.ItemNone, save.ItemTelescope), RefuseTarget},
+		{"expect and data of other sizes", DeriveWrite{Kind: DeriveSlot, Table: -1, Addr: imageAddr(addr.OffItems + save.SlotBow),
+			Expect: []byte{0xFF, 0xFF}, Data: []byte{save.ItemBow}}, RefuseTarget},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

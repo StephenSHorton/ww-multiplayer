@@ -14,7 +14,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/story"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
@@ -25,6 +24,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -206,7 +206,7 @@ func coAuditM4Write(w coWrite, tg replica.Target, rep replica.Report, places []c
 		switch {
 		case isKey && w.val[0] > derive.MaxKeys:
 			bad("a key byte above %d", derive.MaxKeys)
-		case !isKey && (w.val[0] == inventory.ItemNone || w.val[0] == w.old[0]):
+		case !isKey && (w.val[0] == save.ItemNone || w.val[0] == w.old[0]):
 			bad("an item write that empties a slot, or changes nothing")
 		}
 	default:
@@ -378,13 +378,13 @@ func (cg *coGame) counters() bool {
 }
 
 // view is the game's snapshot as the Deriver reads it.
-func (cg *coGame) view() derive.View {
+func (cg *coGame) view() save.View {
 	cg.t.Helper()
 	s, err := state.Read(cg.m, state.Options{})
 	if err != nil {
 		cg.t.Fatal(err)
 	}
-	return derive.ViewOf(s)
+	return save.ViewOf(s)
 }
 
 // coM4Lacks lists what game cg lacks of world w by M4's classes, and what
@@ -430,10 +430,10 @@ func (m *coM4) lacks(cg *coGame, w *world.Image) []string {
 			out = append(out, fmt.Sprintf("%s: the world lacks 0x%02X", replica.DefaultLabel(off, -1), d))
 		}
 	}
-	if saved(addr.OffGetItem+inventory.SlotBow)&1 != 0 && saved(addr.OffItems+inventory.SlotBow) != inventory.ItemBow {
+	if saved(addr.OffGetItem+save.SlotBow)&1 != 0 && saved(addr.OffItems+save.SlotBow) != save.ItemBow {
 		out = append(out, "the bow's slot")
 	}
-	if saved(addr.OffGetItem+inventory.SlotDekuLeaf)&1 != 0 && saved(addr.OffItems+inventory.SlotDekuLeaf) != inventory.ItemDekuLeaf {
+	if saved(addr.OffGetItem+save.SlotDekuLeaf)&1 != 0 && saved(addr.OffItems+save.SlotDekuLeaf) != save.ItemDekuLeaf {
 		out = append(out, "the Deku Leaf's slot")
 	}
 	if !cg.counters() {
@@ -650,7 +650,7 @@ func TestCoopSessionM4(t *testing.T) {
 	must(b.g.OpenPieceChest(p0))
 	must(a.g.OpenPieceChest(p1))
 	must(a.g.GetDekuLeaf())
-	must(b.g.GetItem(inventory.SlotBow, 0, inventory.ItemBow))
+	must(b.g.GetItem(save.SlotBow, 0, save.ItemBow))
 	must(b.g.SetCapacity(addr.OffArrowMax, 30))
 	reg := m4.regs[0]
 	rm := class.Of(reg).Mask
@@ -659,8 +659,8 @@ func TestCoopSessionM4(t *testing.T) {
 		for _, p := range players {
 			saved := func(off int) byte { return p.read(addr.SaveImage+uint32(off), 1)[0] }
 			if p.u16(addr.MaxLife) != derive.StartLife+2 || int(p.read(addr.MaxMagic, 1)[0]) != derive.MagicLeaf || !p.counters() ||
-				saved(addr.OffItems+inventory.SlotBow) != inventory.ItemBow || saved(addr.OffArrowMax) != 30 ||
-				saved(addr.OffItems+inventory.SlotDekuLeaf) != inventory.ItemDekuLeaf {
+				saved(addr.OffItems+save.SlotBow) != save.ItemBow || saved(addr.OffArrowMax) != 30 ||
+				saved(addr.OffItems+save.SlotDekuLeaf) != save.ItemDekuLeaf {
 				return false
 			}
 		}
