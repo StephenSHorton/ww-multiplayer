@@ -1,0 +1,7 @@
+{
+  "id": "_missing_dep",
+  "name": "Missing dependency (fixture)",
+  "version": "1.0.0",
+  "api": "^0.1",
+  "dependencies": {"_not_installed": "^1.0"}
+}

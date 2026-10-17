@@ -1,0 +1,2 @@
+exit 0
+No mods are built into this version (wwapi 0.1.0).

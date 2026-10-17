@@ -1,0 +1,7 @@
+{
+  "id": "_bad_range",
+  "name": "Bad range (fixture)",
+  "version": "1.0.0",
+  "api": "^0.1",
+  "dependencies": {"_ok_base": "^1.x.y"}
+}

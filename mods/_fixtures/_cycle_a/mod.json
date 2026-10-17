@@ -1,0 +1,7 @@
+{
+  "id": "_cycle_a",
+  "name": "Cycle A (fixture)",
+  "version": "1.0.0",
+  "api": "^0.1",
+  "dependencies": {"_cycle_b": "^1.0"}
+}

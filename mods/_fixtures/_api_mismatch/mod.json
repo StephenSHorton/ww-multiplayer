@@ -1,0 +1,6 @@
+{
+  "id": "_api_mismatch",
+  "name": "API mismatch (fixture)",
+  "version": "1.0.0",
+  "api": "^9.0"
+}

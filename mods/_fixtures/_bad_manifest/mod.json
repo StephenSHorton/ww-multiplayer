@@ -1,0 +1,7 @@
+{
+  "id": "_bad_manifest",
+  "name": "Bad manifest (fixture)",
+  "version": "1.0",
+  "api": "^0.1",
+  "colour": "red"
+}

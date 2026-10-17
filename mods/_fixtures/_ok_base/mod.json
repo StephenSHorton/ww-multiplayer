@@ -1,0 +1,17 @@
+{
+  "$schema": "../../../wwapi/schema/mod.schema.json",
+  "id": "_ok_base",
+  "name": "OK base (fixture)",
+  "description": "A mod that loads: it has a public API and a Run that waits for its context.",
+  "version": "1.2.0",
+  "api": "^0.1",
+  "load_order": 0,
+  "enabled_by_default": true,
+  "dev": false,
+  "game_ids": ["GZLE01"],
+  "multiplayer": "local_only",
+  "provides": [],
+  "needs": [],
+  "writes": [{"start": "0x80410000", "end": "0x80410010", "why": "fixture"}],
+  "c": null
+}

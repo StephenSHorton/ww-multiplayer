@@ -50,6 +50,7 @@ input-probe
 input-release
 j3dsys-probe
 join
+mods
 move-puppet
 mp-local
 patch

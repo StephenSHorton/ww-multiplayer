@@ -69,6 +69,16 @@ jobs:
           -run 'TestBlobFresh|TestStampRoundTrip|TestT2EndsBelowMailbox|TestCheckBudget|TestBuildPyMatchesBlob|TestFrameShimLoadsCallbackSlot|TestMailboxLayout|TestModRegions'
           . ./internal/inject/... ./internal/coop/addr
 
+      # Mod manifests (wwapi v0, docs/api/02-mods.md): every mods/**/mod.json
+      # against wwapi/schema/mod.schema.json, ids equal to folder names,
+      # and each broken fixture refused for its invalid.txt reason. The
+      # fixtures folder starts with "_", so ./... skips it: vet it by name
+      # (wwapi's tests compile and run it).
+      - name: Mod manifests and fixtures
+        run: |
+          go run ./tools/validate_manifests
+          go vet ./mods/_fixtures/
+
       # Native Linux pass: internal/dolphin has a stub backend on
       # platforms without process-memory support (memory_other.go), so
       # the whole module vets and its unit tests run here. No

@@ -144,6 +144,14 @@ func commandTable() []command {
 			run:     cmdWarp,
 		},
 		{
+			// The compiled-in mods and their status (mods.go, wwapi).
+			name:    "mods",
+			group:   groupLower,
+			usage:   modsUsage,
+			summary: "List the mods built into this version",
+			run:     func(_ string, args []string) { runMods(args) },
+		},
+		{
 			name:    "version",
 			aliases: []string{"--version"},
 			group:   groupLower,
