@@ -1,10 +1,36 @@
 name: Pages
 
+# The site describes the LATEST RELEASE: its download buttons fetch that
+# release's assets by name and its install steps describe that release's
+# app. So it deploys when a release is published, not on every push to
+# main, and it always deploys site/ as of the latest release's tag. A
+# site/ change merged to main goes live with the next release.
+#
+# Triggers:
+#   - release.yml runs this (workflow_dispatch on the default branch)
+#     right after it publishes a non-prerelease. It has to: a release
+#     created with the workflow's GITHUB_TOKEN raises no `release` event
+#     for other workflows.
+#   - `release: published` covers a release published by hand on GitHub.
+#     That run's ref is the tag, so if the github-pages environment only
+#     allows main, add a `v*` tag rule there or use workflow_dispatch.
+#     It still deploys the LATEST release's tag, not the event's: a
+#     hand-published older patch (v0.3.2 after v0.4.0) or a release
+#     marked not-latest must not move the site off /releases/latest.
+#   - workflow_dispatch by hand redeploys the latest release's site, or
+#     the `ref` input's (a tag, branch or commit; e.g. `main` to publish
+#     a fix that holds for the current release too).
+# Prereleases are skipped: /releases/latest, which the download buttons
+# use, never points at a prerelease.
 on:
-  push:
-    branches: [main]
-    paths: ["site/**", "docs/img/**", ".github/workflows/pages.yml"]
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Deploy site/ from this tag, branch or commit (empty: the latest release's tag)"
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -17,12 +43,32 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name != 'release' || !github.event.release.prerelease
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
+      - name: Pick the release to deploy
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          # Never the release event's own tag: the site must match
+          # /releases/latest, which the download buttons fetch from.
+          REF="${INPUT_REF}"
+          if [ -z "$REF" ]; then
+            REF="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)" || {
+              echo "::error::no published release to deploy the site for (pass the ref input to deploy a branch)"
+              exit 1
+            }
+          fi
+          echo "Deploying site/ from ${REF}"
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pick.outputs.ref }}
       - name: Assemble site
         run: |
           mkdir -p _site/img

@@ -1,14 +1,42 @@
 name: Release
 
-# Triggered by pushing a tag like `v0.1.0`. Builds Windows + macOS
-# binaries and publishes a single GitHub Release with both attached,
-# plus a SHA256SUMS file covering every artifact. Tags containing a '-'
-# (e.g. `v0.3.0-rc1`) are published as prereleases.
+# Pushing a tag like `v0.1.0` builds the Windows exe and the macOS app and
+# publishes a single GitHub Release with both attached, plus a SHA256SUMS
+# file covering every asset. Tags containing a '-' (e.g. `v0.3.0-rc1`) are
+# published as prereleases. Publishing a (non-pre)release then deploys
+# the website (the last step starts pages.yml), so the site always
+# describes the newest release.
+#
+# workflow_dispatch is a dry run: it builds and uploads both assets as
+# workflow artifacts, but the `release` job runs only for tags, so nothing
+# is published (and the site is not deployed).
+#
+# Release assets:
+#   ww-multiplayer.exe         Windows: the app, the terminal menu and the CLI in one exe
+#   ww-multiplayer-macos.zip   macOS: "WW Multiplayer/" with WW Multiplayer.app (universal),
+#                              a ww-multiplayer CLI symlink, scripts/setup-mac-dolphin.sh, LICENSE
+#   SHA256SUMS                 sha256 of both
+#
+# Code signing is optional and off until its secrets exist (owner
+# decision: no signing for now). Each signing step is gated on its
+# secrets, so a fork or this repo without them builds exactly the
+# unsigned assets, with no failed or half-run step:
+#   Windows (Authenticode, osslsigncode: signtool's Linux equivalent,
+#   since the exe is cross-built on Linux):
+#     WINDOWS_CERTIFICATE_PFX       base64 of a .pfx code-signing certificate
+#     WINDOWS_CERTIFICATE_PASSWORD  its password
+#   macOS (Developer ID + hardened runtime; scripts/build-mac.sh):
+#     MACOS_CERTIFICATE_P12         base64 of a "Developer ID Application" .p12
+#     MACOS_CERTIFICATE_PASSWORD    its password
+#     MACOS_SIGN_IDENTITY           e.g. "Developer ID Application: Name (TEAMID)"
+#   macOS notarization (needs the three above too):
+#     APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD (an app-specific password)
 #
 # We don't ship patched.dol — that would be a derivative of the entire
 # Wind Waker DOL (copyrighted). The shipped binaries contain only our IP
 # (the new code section + a list of in-DOL patch records); end users
-# supply their own legitimate Wind Waker ISO and run `<binary> patch`.
+# supply their own legitimate Wind Waker ISO and the app (or `patch`)
+# patches it.
 
 on:
   push:
@@ -16,12 +44,17 @@ on:
       - 'v*'
   workflow_dispatch: {}
 
+# Read-only by default: the build jobs hold the signing secrets and need
+# no repo write. Only the release job asks for more (below).
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   windows:
     runs-on: ubuntu-latest
+    env:
+      # "true" only when both Windows signing secrets exist.
+      HAS_WIN_SIGNING: ${{ secrets.WINDOWS_CERTIFICATE_PFX != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != '' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -91,6 +124,10 @@ jobs:
       # -tags desktop,production compiles the app window (internal/gui,
       # Wails v2; it needs no cgo on Windows). Without them the exe is the
       # CLI + TUI only: Wails v2 refuses to start a window untagged.
+      # ww_windows.syso (committed; go generate in main.go) adds the icon
+      # and the application manifest (packaging/ww-multiplayer.exe.manifest:
+      # per-monitor DPI awareness, Common Controls 6, asInvoker). The exe
+      # stays console-subsystem: one exe for the app, `tui` and the CLI.
       - name: Build ww-multiplayer.exe (Windows amd64)
         env:
           GOOS: windows
@@ -98,6 +135,29 @@ jobs:
           CGO_ENABLED: '0'
         run: |
           go build -trimpath -tags desktop,production -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o ww-multiplayer.exe .
+          grep -q 'requestedExecutionLevel level="asInvoker"' ww-multiplayer.exe
+          ls -la ww-multiplayer.exe
+
+      # Optional: skipped (not failed) without the WINDOWS_CERTIFICATE_*
+      # secrets, leaving the unsigned exe.
+      - name: Sign ww-multiplayer.exe (optional; WINDOWS_CERTIFICATE_* secrets)
+        if: env.HAS_WIN_SIGNING == 'true'
+        env:
+          WINDOWS_CERTIFICATE_PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq osslsigncode
+          PFX="$RUNNER_TEMP/cert.pfx"
+          PASS="$RUNNER_TEMP/cert.pass"
+          trap 'rm -f "$PFX" "$PASS"' EXIT
+          printf '%s' "$WINDOWS_CERTIFICATE_PFX" | base64 --decode > "$PFX"
+          printf '%s' "$WINDOWS_CERTIFICATE_PASSWORD" > "$PASS"
+          osslsigncode sign -pkcs12 "$PFX" -readpass "$PASS" \
+            -n "WW Multiplayer" -i "https://github.com/${GITHUB_REPOSITORY}" \
+            -h sha256 -ts http://timestamp.digicert.com \
+            -in ww-multiplayer.exe -out ww-multiplayer-signed.exe
+          mv ww-multiplayer-signed.exe ww-multiplayer.exe
           ls -la ww-multiplayer.exe
 
       - name: Upload artifact
@@ -108,6 +168,10 @@ jobs:
 
   macos:
     runs-on: macos-latest
+    env:
+      # "true" only when every secret the step needs exists.
+      HAS_MAC_SIGNING: ${{ secrets.MACOS_CERTIFICATE_P12 != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && secrets.MACOS_SIGN_IDENTITY != '' }}
+      HAS_MAC_NOTARY: ${{ secrets.MACOS_CERTIFICATE_P12 != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && secrets.MACOS_SIGN_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_APP_PASSWORD != '' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -119,23 +183,73 @@ jobs:
       - name: go vet
         uses: ./.github/actions/go-vet
 
-      # scripts/build-mac.sh handles per-arch compile (-trimpath, version
-      # stamped via -X main.version), lipo into a universal binary, and
-      # packaging into a .app + tarball that also carries
-      # scripts/setup-mac-dolphin.sh and LICENSE.
-      - name: Build universal binary + .app bundle
+      # Optional: puts the Developer ID certificate in a temporary keychain
+      # for build-mac.sh's codesign. Skipped without the secrets; the
+      # build then ad-hoc signs, as it always has.
+      - name: Import Developer ID certificate (optional; MACOS_CERTIFICATE_* secrets)
+        if: env.HAS_MAC_SIGNING == 'true'
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KCPASS="$(openssl rand -hex 16)"
+          P12="$RUNNER_TEMP/cert.p12"
+          trap 'rm -f "$P12"' EXIT
+          printf '%s' "$MACOS_CERTIFICATE_P12" | base64 --decode > "$P12"
+          security create-keychain -p "$KCPASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KCPASS" "$KEYCHAIN"
+          security import "$P12" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KCPASS" "$KEYCHAIN"
+          # Keep the existing keychains in the search list (one word each).
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+
+      # scripts/build-mac.sh compiles arm64 + amd64 (-trimpath, version
+      # stamped via -X main.version, -tags desktop,production), lipos them
+      # into WW Multiplayer.app (Info.plist with the tag's version, icon),
+      # signs it (ad-hoc, or the Developer ID identity when the step above
+      # ran) and zips it with ditto into dist/ww-multiplayer-macos.zip.
+      - name: Build and zip WW Multiplayer.app
+        env:
+          MACOS_SIGN_IDENTITY: ${{ env.HAS_MAC_SIGNING == 'true' && secrets.MACOS_SIGN_IDENTITY || '' }}
         run: ./scripts/build-mac.sh "${GITHUB_REF_NAME}"
+
+      # Optional: notarizes the Developer ID-signed zip, staples the ticket
+      # to the app and zips it again. Skipped without the secrets.
+      - name: Notarize and staple (optional; APPLE_* secrets)
+        if: env.HAS_MAC_NOTARY == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          xcrun notarytool submit dist/ww-multiplayer-macos.zip \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "dist/WW Multiplayer/WW Multiplayer.app"
+          rm dist/ww-multiplayer-macos.zip
+          ditto -c -k --keepParent "dist/WW Multiplayer" dist/ww-multiplayer-macos.zip
+          spctl --assess --type execute --verbose "dist/WW Multiplayer/WW Multiplayer.app"
+
+      - name: Remove the signing keychain
+        if: always() && env.HAS_MAC_SIGNING == 'true'
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ww-macos-universal
-          path: dist/ww-multiplayer-macos.tar.gz
+          path: dist/ww-multiplayer-macos.zip
 
   release:
     needs: [windows, macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+      # To start pages.yml (the site) once the release exists.
+      actions: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -147,10 +261,11 @@ jobs:
           name: ww-macos-universal
           path: artifacts
 
+      # One line per release asset (every file below except SHA256SUMS).
       - name: Write SHA256SUMS
         working-directory: artifacts
         run: |
-          sha256sum ww-multiplayer.exe ww-multiplayer-macos.tar.gz > SHA256SUMS
+          sha256sum ww-multiplayer.exe ww-multiplayer-macos.zip > SHA256SUMS
           cat SHA256SUMS
 
       - name: Create GitHub Release
@@ -159,34 +274,57 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             artifacts/ww-multiplayer.exe
-            artifacts/ww-multiplayer-macos.tar.gz
+            artifacts/ww-multiplayer-macos.zip
             artifacts/SHA256SUMS
           generate_release_notes: true
           body: |
             ## Wind Waker Multiplayer ${{ github.ref_name }}
 
-            **Requires your own legitimate copy of The Legend of Zelda: The Wind Waker (NTSC-U, GZLE01)** as a `.iso` or `.ciso` file.
+            See your friend's Link in your game, live. Download the app, double-click it, and it walks you through the rest.
 
-            **Both players must run the same version.** v0.3.0 and later can't play with v0.2.x: a v0.3.0 host turns a v0.2.x player away with an upgrade message, and a v0.3.0 player joining a v0.2.x host stops with "host runs an older ww-multiplayer". Check with `.\ww-multiplayer.exe version` (Windows) or `./ww-multiplayer version` (macOS).
+            **You need** [Dolphin](https://dolphin-emu.org/) (a recent stable build) and **your own legitimate copy of The Legend of Zelda: The Wind Waker (NTSC-U, GZLE01)** as a `.iso` or `.ciso` file.
+
+            **Everyone must run the same version.** A host turns away a player on an incompatible version with a message saying to update. v0.3.0 and later can't play with v0.2.x.
 
             ### Windows
 
-            1. Download `ww-multiplayer.exe`.
-            2. In a terminal opened in the download folder: `.\ww-multiplayer.exe patch path\to\your-wind-waker.iso`
-            3. Boot the patched ISO in Dolphin.
-            4. From a terminal: host with `.\ww-multiplayer.exe host [name]`, join with `.\ww-multiplayer.exe join <host-ip> [name]`, or `.\ww-multiplayer.exe tui` for the menu. Double-clicking `ww-multiplayer.exe` opens the new app window (name, color and the lobby; starting the game from it comes in a later update). The window needs Microsoft's WebView2 runtime, which Windows 11 and current Windows 10 have.
+            1. Download `ww-multiplayer.exe` and double-click it. A console window may flash for a moment; the app window then opens.
+            2. If Windows shows "Windows protected your PC" (SmartScreen; the exe isn't code-signed), click **More info**, then **Run anyway**.
+            3. The first time, the app opens on **Setup**: your name and tunic color, your Wind Waker disc (the app writes a patched copy next to it and never changes your original) and Dolphin (found for you, or Browse…).
+            4. **Host**, or **Join** with the host's address. Everyone meets in the lobby; when the others are Ready, the host presses **Start** and each player's Dolphin starts with the patched game.
 
-            ### macOS (Apple Silicon + Intel)
+            The window needs Microsoft's WebView2 runtime, which Windows 11 and current Windows 10 have; without it the app offers to install it. If Windows asks, allow `ww-multiplayer.exe` through the firewall.
 
-            1. Download and untar `ww-multiplayer-macos.tar.gz`. Inside you'll find `ww-multiplayer` (universal binary), `WW Multiplayer.app` (the app; double-click it), `scripts/setup-mac-dolphin.sh` and `LICENSE`.
-            2. In Terminal, from the untarred folder, clear the download quarantine (the binary is ad-hoc signed, not notarized): `xattr -cr ww-multiplayer "WW Multiplayer.app" scripts`
-            3. One-time Dolphin setup (re-run after every Dolphin update): `./scripts/setup-mac-dolphin.sh`. It copies `/Applications/Dolphin.app` to `~/Applications/Dolphin.app` and re-signs the copy without the hardened runtime so ww-multiplayer can read its memory.
-            4. `./ww-multiplayer patch ~/Roms/your-wind-waker.iso`
-            5. Boot the patched ISO in the `~/Applications/Dolphin.app` copy.
-            6. Host: `./ww-multiplayer host [name]`. Join: `./ww-multiplayer join <host-ip> [name]`. `./ww-multiplayer tui` opens the menu; double-clicking `WW Multiplayer.app` opens the new app window (name, color and the lobby; starting the game from it comes in a later update). No sudo needed.
+            ### macOS (Apple Silicon + Intel, macOS 12 or later)
+
+            1. Download `ww-multiplayer-macos.zip` and open it (Safari usually unzips it for you). Move the `WW Multiplayer` folder somewhere permanent, such as Applications.
+            2. Double-click `WW Multiplayer.app`. If macOS says it can't verify the app (it isn't notarized by Apple): Control-click (right-click) the app, choose **Open**, then **Open** again. On macOS 15 or later, after the first warning go to System Settings → Privacy & Security and click **Open Anyway**.
+            3. The first time, the app opens on **Setup**: your name and tunic color, your Wind Waker disc, and Dolphin. Press **Prepare Dolphin** once (and again after each Dolphin update): it makes a copy at `~/Applications/Dolphin.app` that the app is allowed to read, and leaves your original Dolphin alone. No password needed.
+            4. **Host** or **Join**, then **Start** from the lobby, as on Windows.
+
+            ### Co-op (optional)
+
+            Shared progress is off unless the host turns it on: in the lobby the host picks **New world** or **Continue**, and the app guides everyone through binding a save file. Plain multiplayer needs none of it.
+
+            IP addresses are hidden on screen by default (`•••.•••.•••.42`), so you can stream the app; the host's share card has Show and Copy.
+
+            ### Advanced: terminal menu and command line
+
+            The same program has a terminal menu and a command line. Windows: `.\ww-multiplayer.exe tui`, `.\ww-multiplayer.exe patch <iso>`, `.\ww-multiplayer.exe host [name]`, `.\ww-multiplayer.exe join <host-ip> [name]`. macOS: in Terminal, `cd` into the unzipped `WW Multiplayer` folder, run `xattr -cr .` once to clear the download quarantine, then `./ww-multiplayer tui` (or `patch`, `host`, `join`); `./scripts/setup-mac-dolphin.sh` does what Prepare Dolphin does. `ww-multiplayer version` prints the version.
 
             ### Verify your download
 
             `SHA256SUMS` lists the SHA-256 of every file above. macOS / Linux: `shasum -a 256 -c SHA256SUMS --ignore-missing`. Windows (PowerShell): `Get-FileHash ww-multiplayer.exe` and compare with the matching line.
 
-            See the README for full setup, internet play, and known issues.
+            See the README for internet play, building from source and known issues.
+
+      # The site describes the latest release, so it deploys now (pages.yml
+      # picks the latest release's tag). A release created with
+      # GITHUB_TOKEN raises no `release` event for other workflows, hence
+      # the explicit dispatch. Prereleases leave the site alone.
+      - name: Deploy the website for this release
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref "$DEFAULT_BRANCH"

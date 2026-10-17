@@ -225,7 +225,7 @@ func TestGUIBuildTags(t *testing.T) {
 		min  int // go build lines that must carry the tags
 	}{
 		{".github/workflows/release.yml", 1},
-		{".github/workflows/build.yml", 3},
+		{".github/workflows/build.yml", 1}, // Windows; macOS runs build-mac.sh (below)
 		{"scripts/build-mac.sh", 2},
 	} {
 		b, err := os.ReadFile(filepath.FromSlash(c.file))
@@ -242,8 +242,13 @@ func TestGUIBuildTags(t *testing.T) {
 			t.Errorf("%s: %d go build lines with -tags desktop,production, want at least %d", c.file, n, c.min)
 		}
 		// The macOS builds link Wails' UTType use only with this (wails
-		// build adds it; plain go build doesn't).
-		if c.file != ".github/workflows/release.yml" {
+		// build adds it; plain go build doesn't). Both workflows build the
+		// macOS app through build-mac.sh, so that is where it must be.
+		if c.file != "scripts/build-mac.sh" {
+			if !strings.Contains(string(b), "./scripts/build-mac.sh") {
+				t.Errorf("%s: the macOS job must build the app with ./scripts/build-mac.sh", c.file)
+			}
+		} else {
 			const fw = "-framework UniformTypeIdentifiers"
 			want := 2 // one per macOS go build (arm64, amd64)
 			got := strings.Count(string(b), "CGO_LDFLAGS")
