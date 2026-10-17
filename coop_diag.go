@@ -39,8 +39,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 )
 
-// coopDiagUsage is each co-op diagnostic's usage line. main's switch sends
-// every name here to runCoopDiag.
+// coopDiagUsage is each co-op diagnostic's usage line. The command registry
+// (commands.go) sends every name here to runCoopDiag.
 var coopDiagUsage = map[string]string{
 	"coop-probe":        "coop-probe",
 	"coop-watch":        "coop-watch [secs=60, 0 = until Ctrl+C] [--all]",

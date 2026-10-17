@@ -18,8 +18,8 @@ package main
 // Neither touches Dolphin or an input file: save-merge refuses an out
 // that exists or names an input, writes it exclusively, and reads it back
 // to check its checksums before it reports success. Like the other co-op
-// diagnostics, neither is listed in printHelp; main's switch dispatches
-// them.
+// diagnostics, neither is listed in printHelp; the command registry
+// (commands.go) dispatches them.
 
 import (
 	"encoding/binary"

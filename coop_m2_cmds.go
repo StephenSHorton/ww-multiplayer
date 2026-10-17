@@ -15,7 +15,7 @@ package main
 // The only game-RAM write here is coop-tag clear's, through
 // internal/coop/bind's Scrub: 0x30 bytes at 0x803C532C, behind the gates
 // and the user's --yes. Like the other co-op diagnostics, none of these is
-// listed in printHelp; main's switch dispatches them.
+// listed in printHelp; the command registry (commands.go) dispatches them.
 
 import (
 	"errors"

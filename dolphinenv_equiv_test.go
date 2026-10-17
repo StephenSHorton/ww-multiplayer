@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -118,6 +119,13 @@ func TestCLIReadsNoConfig(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The CLI's entry point and its command registry must be among them,
+	// or a move out of this directory would leave the check empty.
+	for _, want := range []string{"main.go", "commands.go"} {
+		if !slices.Contains(files, want) {
+			t.Fatalf("%s is not in package main's directory (have %d .go files)", want, len(files))
+		}
 	}
 	fset := token.NewFileSet()
 	for _, name := range files {
