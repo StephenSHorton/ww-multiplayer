@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
@@ -144,7 +144,7 @@ func TestGBAGuardMask(t *testing.T) {
 // shows the hold.
 func TestGBAHoldsMemorySwitches(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, Policy: switchPolicy(t, gbaSea, plainSea), Tables: gbaTables(t)},
-		hub.FeatureImage|hub.FeatureSwitches|hub.FeatureLiveSwitches)
+		proto.FeatureImage|proto.FeatureSwitches|proto.FeatureLiveSwitches)
 	rr.settleRooms()
 	if st := rr.r.Status().GBA; st.MayLink || st.Switches != 4 {
 		t.Fatalf("status before the link: %+v", st)
@@ -190,7 +190,7 @@ const gate5 = 5
 // (it may be the Tuner's).
 func TestGBAHoldsProposals(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, Policy: switchPolicy(t, gbaSea, plainSea), Tables: gbaTables(t)},
-		hub.FeatureImage|hub.FeatureSwitches)
+		proto.FeatureImage|proto.FeatureSwitches)
 	rr.settleRooms()
 	rr.hub.take()
 	rr.g.SetGBALink(true)
@@ -390,7 +390,7 @@ func TestGBATaintsScopeEntry(t *testing.T) {
 // aborted when a GBA may be linked by the time it is written.
 func TestGBARecheck(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, Policy: switchPolicy(t, gbaSea, plainSea), Tables: gbaTables(t)},
-		hub.FeatureImage|hub.FeatureSwitches|hub.FeatureLiveSwitches)
+		proto.FeatureImage|proto.FeatureSwitches|proto.FeatureLiveSwitches)
 	rr.settleRooms()
 	off, m5 := switchImageByte(addr.TableSea, gbaSea)
 	var img world.Image

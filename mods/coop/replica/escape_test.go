@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
@@ -374,7 +374,7 @@ func newEscRig(t *testing.T) *escRig {
 	t.Helper()
 	pp := &partnerPos{}
 	clk := &breakerClock{t: time.Unix(1_800_000_000, 0)}
-	rr := newRecRig(t, Config{Apply: true, PartnerPos: pp.get, Now: clk.Now}, hub.FeatureImage)
+	rr := newRecRig(t, Config{Apply: true, PartnerPos: pp.get, Now: clk.Now}, proto.FeatureImage)
 	return &escRig{recRig: rr, pos: pp, clk: clk}
 }
 
@@ -543,7 +543,7 @@ func TestEscapeRefusals(t *testing.T) {
 }
 
 func TestEscapeDryRun(t *testing.T) {
-	rr := newRecRig(t, Config{}, hub.FeatureImage)
+	rr := newRecRig(t, Config{}, proto.FeatureImage)
 	select {
 	case res := <-rr.r.Escape(EscapeRefresh):
 		if res.Err == nil || !strings.Contains(res.Err.Error(), "--coop-dry-run") {

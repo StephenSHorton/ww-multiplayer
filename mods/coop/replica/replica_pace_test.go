@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
@@ -29,7 +29,7 @@ func TestReplicaPace(t *testing.T) {
 	if dry := newRecRigNoWelcome(t, Config{}); dry.r.differ.Paced() {
 		t.Fatal("a dry run's differ is paced")
 	}
-	rr := newRecRig(t, Config{Apply: true, Policy: hub.SessionPolicy(nil)}, hub.FeatureImage|hub.FeatureStory)
+	rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)}, proto.FeatureImage|proto.FeatureStory)
 	if !rr.r.differ.Paced() {
 		t.Fatal("a writing replica's differ is not paced")
 	}
@@ -53,7 +53,7 @@ func TestReplicaPace(t *testing.T) {
 	rr.hub.take()
 	rr.r.Connect(rr.hub)
 	rr.ticks(2)
-	say(t, rr.r, welcome(wire.StatusOK, uint32(hub.FeatureImage|hub.FeatureStory), false))
+	say(t, rr.r, welcome(wire.StatusOK, uint32(proto.FeatureImage|proto.FeatureStory), false))
 	rr.tick()
 	sent = rr.hub.take()
 	w, ok := find[*wire.World](sent)

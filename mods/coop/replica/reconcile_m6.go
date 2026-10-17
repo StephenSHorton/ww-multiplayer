@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
@@ -43,7 +43,7 @@ import (
 // across a save-state load, which rewinds the counter: ever is forgotten
 // then).
 //
-// Nothing is written unless the hub grants hub.FeatureCombat; a writing
+// Nothing is written unless the hub grants proto.FeatureCombat; a writing
 // replica not granted it says so once. A dry run never asks for it.
 
 const (
@@ -83,7 +83,7 @@ type m6 struct {
 
 // CombatStatus is how the M6 receiver stands (Status.Combat), for /status.
 type CombatStatus struct {
-	// Granted: the hub grants hub.FeatureCombat this session. Tables: the
+	// Granted: the hub grants proto.FeatureCombat this session. Tables: the
 	// replica judges which kills sync by its own M1 enemy table; without
 	// one it writes none.
 	Granted, Tables bool
@@ -110,7 +110,7 @@ func newM6() m6 {
 func (r *Replica) combatStatus() CombatStatus {
 	m := &r.m6
 	return CombatStatus{
-		Granted: r.features&hub.FeatureCombat != 0, Tables: r.cfg.Tables != nil && r.cfg.Tables.Enemies != nil,
+		Granted: r.features&proto.FeatureCombat != 0, Tables: r.cfg.Tables != nil && r.cfg.Tables.Enemies != nil,
 		Place: m.place, StoreBits: m.storeBits, ZoneSet: m.zoneSet, Shrunk: m.shrunk, Released: m.released,
 		Held: len(m.held), DemoHeld: len(m.demoHeld), Refused: m.refused, VerifyFail: r.writer.Stats().CombatFailed, LastHeld: m.lastHeld,
 	}
@@ -136,7 +136,7 @@ func (r *Replica) m6Granted() bool {
 	switch {
 	case r.writer.DryRun():
 		return false
-	case r.features&hub.FeatureCombat != 0:
+	case r.features&proto.FeatureCombat != 0:
 		m.toldOff = false
 		if !m.toldOn {
 			m.toldOn = true
@@ -151,10 +151,10 @@ func (r *Replica) m6Granted() bool {
 	m.toldOn = false
 	if !m.toldOff {
 		m.toldOff = true
-		if r.want()&hub.FeatureCombat == 0 {
-			r.logf("co-op: a partner's kills are not written to this game: this replica does not ask for %v", hub.FeatureCombat)
+		if r.want()&proto.FeatureCombat == 0 {
+			r.logf("co-op: a partner's kills are not written to this game: this replica does not ask for %v", proto.FeatureCombat)
 		} else {
-			r.logf("co-op: a partner's kills are not written to this game: the session does not grant %v (the host turned it off, or the two sides' co-op stage tables differ: the host's notice says which)", hub.FeatureCombat)
+			r.logf("co-op: a partner's kills are not written to this game: the session does not grant %v (the host turned it off, or the two sides' co-op stage tables differ: the host's notice says which)", proto.FeatureCombat)
 		}
 	}
 	return false

@@ -1,4 +1,4 @@
-package hub
+package proto
 
 import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
@@ -13,7 +13,7 @@ import (
 // the partners there, so a death one player's game records reaches the
 // other's zone and the enemy there, if it lives, is light-shrunk.
 //
-// Only the keys of the host's M1 verdict travel (Config.SyncedKill,
+// Only the keys of the host's M1 verdict travel (hub.Config.SyncedKill,
 // synctables.SyncedKill): a keyed K1 enemy's, not BOSS, Morth or
 // Shared. A writing replica's sender proposes only those, with the same
 // filter (Filter), and its receiver writes only those its own tables
@@ -46,7 +46,7 @@ func KillFilter(synced func(table int, stage string, room, setID int) bool) func
 // Filter is the scoped stores' filter of a session: the switches of
 // scoped's verdict for DAN, ZONE and ROOMEDGE (ScopeFilter), the kills of
 // kill's for KILL (KillFilter). The host's hub keeps exactly what it
-// passes (Config.SyncedScoped, Config.SyncedKill), and a writing replica's
+// passes (hub.Config.SyncedScoped, hub.Config.SyncedKill), and a writing replica's
 // sender proposes exactly that over its own tables, which are the host's
 // when it is granted the features (TableFeatures).
 func Filter(scoped func(table int, stage string, room, no int) bool, kill func(table int, stage string, room, setID int) bool) func(world.Key, int) uint32 {

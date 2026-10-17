@@ -5,7 +5,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -42,9 +42,9 @@ func encoded(m wire.Msg) []byte {
 // reconnect, 5 the user (confirm or decline the offer, ask to bind).
 func FuzzHandle(f *testing.F) {
 	c1, m1 := chest(addr.TableSea, 1)
-	ok := encoded(welcome(wire.StatusOK, uint32(hub.DefaultFeatures), false))
-	unbound := encoded(welcome(wire.StatusUnbound, uint32(hub.FeatureImage|hub.FeatureMerge), true))
-	granted := encoded(welcome(wire.StatusUnbound, uint32(hub.FeatureImage|hub.FeatureBind), true))
+	ok := encoded(welcome(wire.StatusOK, uint32(proto.DefaultFeatures), false))
+	unbound := encoded(welcome(wire.StatusUnbound, uint32(proto.FeatureImage|proto.FeatureMerge), true))
+	granted := encoded(welcome(wire.StatusUnbound, uint32(proto.FeatureImage|proto.FeatureBind), true))
 	w := encoded(worldOf(3, imageOf(c1, m1)))
 	g := encoded(&wire.GainsDown{Seq: 4, Origin: 2, Gains: []wire.Gain{{Off: uint16(c1), Val: m1}}})
 	stage, _ := wire.MakeStage(outset.Name)

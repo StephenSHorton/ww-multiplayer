@@ -3,7 +3,7 @@ package replica
 import (
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 )
 
@@ -49,7 +49,7 @@ func TestReconcileM5Status(t *testing.T) {
 		rr.audit()
 	})
 	t.Run("not granted", func(t *testing.T) {
-		rr := newM5Rig(t, Config{Apply: true, Tables: m5Tables(t)}, hub.FeatureImage)
+		rr := newM5Rig(t, Config{Apply: true, Tables: m5Tables(t)}, proto.FeatureImage)
 		rr.send(danMsg(t, drc, danOK))
 		rr.settleM5()
 		if st := rr.r.Status().Puzzle; st.Granted || !st.Tables || st.Applied != 0 || st.Place != here {

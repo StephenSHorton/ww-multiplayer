@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -34,7 +34,7 @@ func armedRig(t *testing.T, cfg Config) *replicaRig {
 	if _, ok := find[*wire.CoHello](sent); !ok {
 		t.Fatalf("no CO_HELLO: %s", subs(sent))
 	}
-	say(t, rr.r, welcome(wire.StatusOK, uint32(hub.FeatureImage|hub.FeaturePuzzle|hub.FeatureCombat), false))
+	say(t, rr.r, welcome(wire.StatusOK, uint32(proto.FeatureImage|proto.FeaturePuzzle|proto.FeatureCombat), false))
 	rep := rr.tick()
 	sent = rr.hub.take()
 	if !rep.World || rep.State != StateArmed {
@@ -63,7 +63,7 @@ func TestReplicaSession(t *testing.T) {
 	f, _ := bind.ReadFile(rr.m)
 	want := wire.CoHello{
 		Schema: wire.Schema, ClassHash: wire.ClassHash(), Slot: 0, NameHash: bind.NameHash(f.Name[:]),
-		FileState: wire.FileBound, WorldID: wire.ID(testWorld), BindNonce: wire.ID(testNonce), Want: uint32(hub.FeatureImage),
+		FileState: wire.FileBound, WorldID: wire.ID(testWorld), BindNonce: wire.ID(testNonce), Want: uint32(proto.FeatureImage),
 	}
 	if *h != want {
 		t.Fatalf("CO_HELLO %+v, want %+v", *h, want)
@@ -74,7 +74,7 @@ func TestReplicaSession(t *testing.T) {
 		t.Fatalf("before the welcome: sent %s", subs(sent))
 	}
 
-	say(t, rr.r, welcome(wire.StatusOK, uint32(hub.FeatureImage), false))
+	say(t, rr.r, welcome(wire.StatusOK, uint32(proto.FeatureImage), false))
 	rep := rr.tick()
 	sent = rr.hub.take()
 	if rep.State != StateArmed || !rep.World || !rep.Presence {
@@ -203,7 +203,7 @@ func TestReplicaDryRunNeverWrites(t *testing.T) {
 		&wire.Notice{Code: wire.NoticeTombstone, Text: "the host blocked something"},
 		&wire.Ctrl{Op: wire.CtrlTombstone, Arg: wire.TombstoneArg(uint16(addr.OffGetItem+3), 0x01)},
 		&wire.Ctrl{Op: wire.CtrlResync},
-		&wire.Ctrl{Op: wire.CtrlCoopOff, Arg: uint32(hub.FeatureImage)},
+		&wire.Ctrl{Op: wire.CtrlCoopOff, Arg: uint32(proto.FeatureImage)},
 	)
 	rr.settle()
 	for _, want := range []string{"dan switch 0x80", "zone switch 0xD0", "zone switch 0xE3", "actor setID 103", "the host blocked"} {
@@ -266,7 +266,7 @@ func TestReplicaScrub(t *testing.T) {
 	tg := carried(probe)
 
 	t.Run("confirmed", func(t *testing.T) {
-		rr := leakedRig(t, tg, true, welcome(wire.StatusUnbound, uint32(hub.FeatureImage), false))
+		rr := leakedRig(t, tg, true, welcome(wire.StatusUnbound, uint32(proto.FeatureImage), false))
 		rr.settle()
 		if len(rr.offers) != 1 || rr.offers[0].Plan.Kind != bind.KindScrub {
 			t.Fatalf("offers %+v, want one scrub", rr.offers)
@@ -290,7 +290,7 @@ func TestReplicaScrub(t *testing.T) {
 		}
 	})
 	t.Run("declined", func(t *testing.T) {
-		rr := leakedRig(t, tg, true, welcome(wire.StatusUnbound, uint32(hub.FeatureImage), false))
+		rr := leakedRig(t, tg, true, welcome(wire.StatusUnbound, uint32(proto.FeatureImage), false))
 		rr.settle()
 		if len(rr.offers) != 1 {
 			t.Fatalf("offers %+v", rr.offers)
@@ -305,7 +305,7 @@ func TestReplicaScrub(t *testing.T) {
 	})
 	t.Run("V5 only, and the hub says no fresh bind", func(t *testing.T) {
 		tg := probe.tagFor(testWorld, testNonce)
-		rr := leakedRig(t, tg, false, welcome(wire.StatusUnbound, uint32(hub.FeatureImage), false))
+		rr := leakedRig(t, tg, false, welcome(wire.StatusUnbound, uint32(proto.FeatureImage), false))
 		rr.settle()
 		if len(rr.offers) != 1 || rr.offers[0].Plan.Kind != bind.KindScrub {
 			t.Fatalf("offers %+v, want one scrub", rr.offers)
@@ -313,13 +313,13 @@ func TestReplicaScrub(t *testing.T) {
 	})
 	t.Run("V5 only, and the nonce is a pending fresh bind", func(t *testing.T) {
 		tg := probe.tagFor(testWorld, testNonce)
-		rr := leakedRig(t, tg, false, welcome(wire.StatusUnbound, uint32(hub.FeatureImage), true))
+		rr := leakedRig(t, tg, false, welcome(wire.StatusUnbound, uint32(proto.FeatureImage), true))
 		if rr.log.has("not bound to it") || !rr.log.has("pending fresh bind: the file is bound") {
 			t.Errorf("a fresh bind's file is logged as not bound:\n%s", rr.log)
 		}
 		rr.tick()
 		h, ok := find[*wire.CoHello](rr.hub.take())
-		if !ok || h.FileState != wire.FileBound || hub.Feature(h.Want)&hub.AskUnsaved == 0 {
+		if !ok || h.FileState != wire.FileBound || proto.Feature(h.Want)&proto.AskUnsaved == 0 {
 			t.Fatalf("a fresh bind's file: hello %+v, want bound with AskUnsaved", h)
 		}
 		rr.settle()
@@ -330,7 +330,7 @@ func TestReplicaScrub(t *testing.T) {
 	t.Run("V2 and V5 fail, nonce pending fresh", func(t *testing.T) {
 		// A New Game in another slot inherits a pending fresh bind's tag:
 		// FreshBind passes V5, but the file is still not bound.
-		rr := leakedRig(t, tg, false, welcome(wire.StatusUnbound, uint32(hub.FeatureImage), true))
+		rr := leakedRig(t, tg, false, welcome(wire.StatusUnbound, uint32(proto.FeatureImage), true))
 		rr.settle()
 		if len(rr.offers) != 1 || rr.offers[0].Plan.Kind != bind.KindScrub {
 			t.Fatalf("offers %+v, want one scrub", rr.offers)
@@ -341,7 +341,7 @@ func TestReplicaScrub(t *testing.T) {
 	})
 	t.Run("V5 only, nothing known yet", func(t *testing.T) {
 		tg := probe.tagFor(someWorld, testNonce)
-		rr := leakedRig(t, tg, false, welcome(wire.StatusUnbound, uint32(hub.FeatureImage), false))
+		rr := leakedRig(t, tg, false, welcome(wire.StatusUnbound, uint32(proto.FeatureImage), false))
 		rr.settle()
 		if len(rr.offers) != 0 {
 			t.Fatalf("offered a scrub of another world's possible fresh bind: %+v", rr.offers)
@@ -352,9 +352,9 @@ func TestReplicaScrub(t *testing.T) {
 		// table. A refusal's FreshBind is always false: it must not turn
 		// the pending fresh bind into a leak to scrub.
 		tg := probe.tagFor(testWorld, testNonce)
-		rr := leakedRig(t, tg, false, welcome(wire.StatusUnbound, uint32(hub.FeatureImage), true))
+		rr := leakedRig(t, tg, false, welcome(wire.StatusUnbound, uint32(proto.FeatureImage), true))
 		rr.tick()
-		say(t, rr.r, welcome(wire.StatusOK, uint32(hub.FeatureImage), true))
+		say(t, rr.r, welcome(wire.StatusOK, uint32(proto.FeatureImage), true))
 		rr.settle()
 		rr.r.Disconnect()
 		rr.r.Connect(rr.hub)
@@ -392,8 +392,8 @@ func TestReplicaScopedBounded(t *testing.T) {
 		defer r.mu.Unlock()
 		return len(r.scopedIn)
 	}
-	bound := func(t *testing.T, f hub.Feature) *replicaRig {
-		rr := newReplicaRig(t, Config{Want: hub.DefaultFeatures})
+	bound := func(t *testing.T, f proto.Feature) *replicaRig {
+		rr := newReplicaRig(t, Config{Want: proto.DefaultFeatures})
 		rr.tag(rr.tagFor(testWorld, testNonce))
 		rr.r.Connect(rr.hub)
 		rr.settle()
@@ -402,7 +402,7 @@ func TestReplicaScopedBounded(t *testing.T) {
 	}
 
 	t.Run("an unbound file", func(t *testing.T) {
-		rr := unboundRig(t, hub.DefaultFeatures, world.Image{})
+		rr := unboundRig(t, proto.DefaultFeatures, world.Image{})
 		for i := range 300 {
 			say(t, rr.r, kill(t, i))
 		}
@@ -413,14 +413,14 @@ func TestReplicaScopedBounded(t *testing.T) {
 		}
 	})
 	t.Run("a feature not granted", func(t *testing.T) {
-		rr := bound(t, hub.FeatureImage|hub.FeatureCombat)
+		rr := bound(t, proto.FeatureImage|proto.FeatureCombat)
 		say(t, rr.r, dan)
 		if n := held(rr.r); n != 0 {
 			t.Fatalf("kept a DAN store without the puzzle feature (%d)", n)
 		}
 	})
 	t.Run("sent with the welcome, before the replica arms", func(t *testing.T) {
-		rr := bound(t, hub.DefaultFeatures)
+		rr := bound(t, proto.DefaultFeatures)
 		say(t, rr.r, dan, worldOf(1, world.Image{}))
 		rr.meet(outset, int(outset.Room))
 		if !rr.log.has("would set dan switch 0x80") {
@@ -510,14 +510,14 @@ func TestReplicaRebaselineSendsWorld(t *testing.T) {
 
 // unboundRig is a replica with a never-saved New Game, connected, its
 // unbound welcome and the hub's WORLD (img) handled.
-func unboundRig(t *testing.T, f hub.Feature, img world.Image) *replicaRig {
+func unboundRig(t *testing.T, f proto.Feature, img world.Image) *replicaRig {
 	t.Helper()
 	rr := newReplicaRig(t, Config{})
 	rr.m.Record(true)
 	rr.r.Connect(rr.hub)
 	sent := rr.settle()
 	h, ok := find[*wire.CoHello](sent)
-	if !ok || h.FileState != wire.FileUnbound || hub.Feature(h.Want) != hub.FeatureImage|hub.AskUnsaved {
+	if !ok || h.FileState != wire.FileUnbound || proto.Feature(h.Want) != proto.FeatureImage|proto.AskUnsaved {
 		t.Fatalf("unbound hello %+v (sent %s)", h, subs(sent))
 	}
 	say(t, rr.r, welcome(wire.StatusUnbound, uint32(f), false), worldOf(1, img))
@@ -526,7 +526,7 @@ func unboundRig(t *testing.T, f hub.Feature, img world.Image) *replicaRig {
 
 func TestReplicaBind(t *testing.T) {
 	t.Run("a fresh file into an empty world", func(t *testing.T) {
-		rr := unboundRig(t, hub.FeatureImage, world.Image{})
+		rr := unboundRig(t, proto.FeatureImage, world.Image{})
 		rr.tick()
 		if len(rr.pfs) != 1 || rr.pfs[0].Verdict != PreflightSame {
 			t.Fatalf("preflights %+v", rr.pfs)
@@ -550,7 +550,7 @@ func TestReplicaBind(t *testing.T) {
 			t.Fatalf("the ask sent %s, want WORLD CO_HELLO", subs(sent))
 		}
 		h := sent[1].(*wire.CoHello)
-		if hub.Feature(h.Want) != hub.FeatureImage|hub.AskBind|hub.AskUnsaved || h.WorldID != wire.ID(testWorld) ||
+		if proto.Feature(h.Want) != proto.FeatureImage|proto.AskBind|proto.AskUnsaved || h.WorldID != wire.ID(testWorld) ||
 			h.BindNonce != wire.ID(p.Tag.Nonce) || h.FileState != wire.FileUnbound {
 			t.Fatalf("bind hello %+v", h)
 		}
@@ -562,7 +562,7 @@ func TestReplicaBind(t *testing.T) {
 			t.Fatalf("asked again: %+v", again)
 		}
 
-		say(t, rr.r, welcome(wire.StatusUnbound, uint32(hub.FeatureImage|hub.FeatureBind), true))
+		say(t, rr.r, welcome(wire.StatusUnbound, uint32(proto.FeatureImage|proto.FeatureBind), true))
 		rep := rr.tick()
 		w := rr.m.Writes()
 		want := p.Bytes()
@@ -570,10 +570,10 @@ func TestReplicaBind(t *testing.T) {
 			t.Fatalf("bind wrote %+v, want the plan's tag at 0x%08X", w, addr.Reserve)
 		}
 		h, ok := find[*wire.CoHello](rr.hub.take())
-		if !ok || h.FileState != wire.FileBound || h.BindNonce != wire.ID(p.Tag.Nonce) || hub.Feature(h.Want) != hub.FeatureImage|hub.AskUnsaved {
+		if !ok || h.FileState != wire.FileBound || h.BindNonce != wire.ID(p.Tag.Nonce) || proto.Feature(h.Want) != proto.FeatureImage|proto.AskUnsaved {
 			t.Fatalf("bound hello %+v", h)
 		}
-		say(t, rr.r, welcome(wire.StatusOK, uint32(hub.FeatureImage), true))
+		say(t, rr.r, welcome(wire.StatusOK, uint32(proto.FeatureImage), true))
 		if rep := rr.tick(); rep.State != StateArmed || !rep.World {
 			t.Fatalf("after the bind: %+v", rep)
 		}
@@ -583,17 +583,17 @@ func TestReplicaBind(t *testing.T) {
 		}
 	})
 	t.Run("the host says no", func(t *testing.T) {
-		rr := unboundRig(t, hub.FeatureImage, world.Image{})
+		rr := unboundRig(t, proto.FeatureImage, world.Image{})
 		rr.r.RequestBind()
 		rr.settle()
 		rr.r.Confirm(rr.offers[0].Plan)
 		rr.tick()
 		rr.hub.take()
-		say(t, rr.r, &wire.CoWelcome{Status: wire.StatusUnbound, Reason: wire.NoticeDivergent, Features: uint32(hub.FeatureImage), WorldID: wire.ID(testWorld)})
+		say(t, rr.r, &wire.CoWelcome{Status: wire.StatusUnbound, Reason: wire.NoticeDivergent, Features: uint32(proto.FeatureImage), WorldID: wire.ID(testWorld)})
 		rr.settle()
 		sent := rr.hub.take()
 		for _, h := range all[*wire.CoHello](sent) {
-			if hub.Feature(h.Want)&hub.AskBind != 0 {
+			if proto.Feature(h.Want)&proto.AskBind != 0 {
 				t.Fatalf("asked again after a no: %+v", h)
 			}
 		}
@@ -602,7 +602,7 @@ func TestReplicaBind(t *testing.T) {
 		}
 	})
 	t.Run("a file ahead of the world needs --coop-merge", func(t *testing.T) {
-		rr := unboundRig(t, hub.FeatureImage, world.Image{})
+		rr := unboundRig(t, proto.FeatureImage, world.Image{})
 		c, m := chest(addr.TableSea, 5)
 		rr.set(c, m)
 		rr.r.RequestBind()
@@ -612,7 +612,7 @@ func TestReplicaBind(t *testing.T) {
 		}
 	})
 	t.Run("a file ahead of the world, with --coop-merge", func(t *testing.T) {
-		rr := unboundRig(t, hub.FeatureImage|hub.FeatureMerge, world.Image{})
+		rr := unboundRig(t, proto.FeatureImage|proto.FeatureMerge, world.Image{})
 		c, m := chest(addr.TableSea, 5)
 		rr.set(c, m)
 		rr.r.RequestBind()
@@ -655,7 +655,7 @@ func TestReplicaOffline(t *testing.T) {
 	if subs(sent) != "CO_HELLO" {
 		t.Fatalf("on reconnect sent %s, want CO_HELLO", subs(sent))
 	}
-	say(t, rr.r, welcome(wire.StatusOK, uint32(hub.FeatureImage), false))
+	say(t, rr.r, welcome(wire.StatusOK, uint32(proto.FeatureImage), false))
 	rr.tick()
 	sent = h2.take()
 	if subs(sent) != "PRESENCE WORLD GAINS" {
@@ -688,7 +688,7 @@ func TestReplicaCtrl(t *testing.T) {
 	if rep := rr.tick(); rep.State != StateUnbound || rep.Gains != 0 || !strings.Contains(rep.Why, "turned image sync off") {
 		t.Fatalf("image off: %+v", rep)
 	}
-	say(t, rr.r, &wire.Ctrl{Op: wire.CtrlCoopOff, Arg: uint32(hub.FeatureImage)}, &wire.Ctrl{Op: wire.CtrlResync})
+	say(t, rr.r, &wire.Ctrl{Op: wire.CtrlCoopOff, Arg: uint32(proto.FeatureImage)}, &wire.Ctrl{Op: wire.CtrlResync})
 	rr.tick()
 	sent := rr.hub.take()
 	if _, ok := find[*wire.World](sent); !ok {
@@ -714,7 +714,7 @@ func TestReplicaRefusals(t *testing.T) {
 		rr.tag(rr.tagFor(someWorld, testNonce))
 		rr.r.Connect(rr.hub)
 		rr.settle()
-		say(t, rr.r, welcome(wire.StatusOK, uint32(hub.FeatureImage), false))
+		say(t, rr.r, welcome(wire.StatusOK, uint32(proto.FeatureImage), false))
 		rr.settle()
 		if st := rr.r.Status(); st.State != StateRefused {
 			t.Fatalf("status %s (%s)", st.State, st.Why)

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -346,7 +346,7 @@ type recRig struct {
 	frames int      // the game's frames before each tick; 0 is 1
 }
 
-func newRecRig(t *testing.T, cfg Config, f hub.Feature) *recRig {
+func newRecRig(t *testing.T, cfg Config, f proto.Feature) *recRig {
 	t.Helper()
 	rr := newRecRigNoWorld(t, cfg, f)
 	say(t, rr.r, worldOf(1, world.Image{}))
@@ -356,7 +356,7 @@ func newRecRig(t *testing.T, cfg Config, f hub.Feature) *recRig {
 }
 
 // newRecRigNoWorld is newRecRig before the hub's WORLD arrives.
-func newRecRigNoWorld(t *testing.T, cfg Config, f hub.Feature) *recRig {
+func newRecRigNoWorld(t *testing.T, cfg Config, f proto.Feature) *recRig {
 	t.Helper()
 	rec := newRecRigNoWelcome(t, cfg)
 	rec.welcome(f)
@@ -364,7 +364,7 @@ func newRecRigNoWorld(t *testing.T, cfg Config, f hub.Feature) *recRig {
 }
 
 // welcome is the hub's CO_WELCOME with features f, which arms the replica.
-func (rr *recRig) welcome(f hub.Feature) {
+func (rr *recRig) welcome(f proto.Feature) {
 	rr.t.Helper()
 	say(rr.t, rr.r, welcome(wire.StatusOK, uint32(f), false))
 	if rep := rr.tick(); rep.State != StateArmed || !rep.World {
@@ -612,16 +612,16 @@ func TestReconcileAsksForSwitches(t *testing.T) {
 	cases := []struct {
 		name string
 		cfg  Config
-		want hub.Feature
+		want proto.Feature
 	}{
-		{"writing", Config{Apply: true}, hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches | hub.M4Features | hub.FeaturePuzzle | hub.FeatureCombat},
-		{"a dry run asks for what M2 did", Config{}, hub.FeatureImage},
-		{"Want wins", Config{Apply: true, Want: hub.FeatureImage | hub.FeaturePuzzle}, hub.FeatureImage | hub.FeaturePuzzle},
+		{"writing", Config{Apply: true}, proto.FeatureImage | proto.FeatureSwitches | proto.FeatureLiveSwitches | proto.M4Features | proto.FeaturePuzzle | proto.FeatureCombat},
+		{"a dry run asks for what M2 did", Config{}, proto.FeatureImage},
+		{"Want wins", Config{Apply: true, Want: proto.FeatureImage | proto.FeaturePuzzle}, proto.FeatureImage | proto.FeaturePuzzle},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rr := newRecRig(t, c.cfg, hub.FeatureImage)
-			if got := hub.Feature(rr.hello.Want); got != c.want {
+			rr := newRecRig(t, c.cfg, proto.FeatureImage)
+			if got := proto.Feature(rr.hello.Want); got != c.want {
 				t.Fatalf("CO_HELLO wants %s, want %s", got, c.want)
 			}
 			if st := rr.r.Status(); st.DryRun == c.cfg.Apply {
@@ -636,7 +636,7 @@ func TestReconcileAsksForSwitches(t *testing.T) {
 // another table's to its saved slot alone, as soon as STABLE. Both survive
 // putSave and getSave, and none goes back up as a gain.
 func TestReconcileStageProgress(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage|hub.FeatureSwitches)
+	rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage|proto.FeatureSwitches)
 	seaChest, seaM := chest(addr.TableSea, 3)
 	drcChest, drcM := chest(addr.TableDRC, 7)
 	drcRoom, drcRoomM := visited(addr.TableDRC, 2)
@@ -726,7 +726,7 @@ func TestReconcileStageProgress(t *testing.T) {
 // receiver's game clears it, it is never written again; a save state
 // starts that over.
 func TestReconcileSwitchWaitsForRoomChange(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage|hub.FeatureSwitches)
+	rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage|proto.FeatureSwitches)
 	seaSw, m := switchImageByte(addr.TableSea, 0x05)
 	drcSw, _ := switchImageByte(addr.TableDRC, 0x05)
 	off10, m10 := switchImageByte(addr.TableSea, 0x10) // not latching: outside the policy
@@ -828,7 +828,7 @@ func TestReconcileDropsAWindowSeenUnarmed(t *testing.T) {
 		rig  func(t *testing.T) *recRig
 	}{
 		{"before the WORLD", func(t *testing.T) *recRig {
-			rr := newRecRigNoWorld(t, Config{Apply: true}, hub.FeatureImage|hub.FeatureSwitches)
+			rr := newRecRigNoWorld(t, Config{Apply: true}, proto.FeatureImage|proto.FeatureSwitches)
 			rr.enter(7, 6)
 			rr.ticks(gate.StableTicks + 4)
 			return rr
@@ -837,7 +837,7 @@ func TestReconcileDropsAWindowSeenUnarmed(t *testing.T) {
 			rr := newRecRigNoWelcome(t, Config{Apply: true})
 			rr.enter(7, 6)
 			rr.ticks(gate.StableTicks + 4)
-			rr.welcome(hub.FeatureImage | hub.FeatureSwitches)
+			rr.welcome(proto.FeatureImage | proto.FeatureSwitches)
 			return rr
 		}},
 		{"before the welcome, under the pause menu", func(t *testing.T) *recRig {
@@ -845,7 +845,7 @@ func TestReconcileDropsAWindowSeenUnarmed(t *testing.T) {
 			rr.enter(7, 6)
 			rr.g.SetPauseMenu(true)
 			rr.ticks(gate.StableTicks + 4)
-			rr.welcome(hub.FeatureImage | hub.FeatureSwitches)
+			rr.welcome(proto.FeatureImage | proto.FeatureSwitches)
 			rr.g.SetPauseMenu(false)
 			return rr
 		}},
@@ -875,7 +875,7 @@ func TestReconcileDropsAWindowSeenUnarmed(t *testing.T) {
 // two is written in the second; one it gains after that waits for the
 // next room change.
 func TestReconcileWindowIsOneTick(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true, Policy: switchPolicy(t, 0x05, 0x06, 0x07)}, hub.FeatureImage|hub.FeatureSwitches)
+	rr := newRecRig(t, Config{Apply: true, Policy: switchPolicy(t, 0x05, 0x06, 0x07)}, proto.FeatureImage|proto.FeatureSwitches)
 	var img world.Image
 	img[addr.OffOcean+5] = 0x04
 	sw, m5 := switchImageByte(addr.TableSea, 0x05)
@@ -926,7 +926,7 @@ func switchPolicy(t *testing.T, nos ...int) *world.Policy {
 // after a room change into rooms whose actors are new, they have their
 // roomSettle frames first.
 func TestReconcileLiveSwitches(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true, Policy: switchPolicy(t, 0x05, 0x06)}, hub.FeatureImage|hub.FeatureSwitches|hub.FeatureLiveSwitches)
+	rr := newRecRig(t, Config{Apply: true, Policy: switchPolicy(t, 0x05, 0x06)}, proto.FeatureImage|proto.FeatureSwitches|proto.FeatureLiveSwitches)
 	rr.settleRooms()
 	seaSw, m := switchImageByte(addr.TableSea, 0x05)
 	_, m6 := switchImageByte(addr.TableSea, 0x06)
@@ -996,20 +996,20 @@ func TestReconcileSwitchRoomHold(t *testing.T) {
 	}
 	for _, c := range []struct {
 		name  string
-		f     hub.Feature
+		f     proto.Feature
 		pause func(rr *recRig, on bool) // the game not IDLE right after the room change, for 25 ticks
 		// settled: Link walks into room 1 from room 2, both shown all
 		// along, so the shutter has settled before the room change.
 		settled bool
 	}{
-		{name: "deferred to the room change", f: hub.FeatureImage | hub.FeatureSwitches},
-		{name: "live switches", f: hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches},
-		{name: "deferred, with an event after the door", f: hub.FeatureImage | hub.FeatureSwitches, pause: event},
-		{name: "live, with the pause menu after the door", f: hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches,
+		{name: "deferred to the room change", f: proto.FeatureImage | proto.FeatureSwitches},
+		{name: "live switches", f: proto.FeatureImage | proto.FeatureSwitches | proto.FeatureLiveSwitches},
+		{name: "deferred, with an event after the door", f: proto.FeatureImage | proto.FeatureSwitches, pause: event},
+		{name: "live, with the pause menu after the door", f: proto.FeatureImage | proto.FeatureSwitches | proto.FeatureLiveSwitches,
 			pause: func(rr *recRig, on bool) { rr.g.SetPauseMenu(on) }},
-		{name: "deferred, with the pause menu after walking into a settled room", f: hub.FeatureImage | hub.FeatureSwitches,
+		{name: "deferred, with the pause menu after walking into a settled room", f: proto.FeatureImage | proto.FeatureSwitches,
 			pause: func(rr *recRig, on bool) { rr.g.SetPauseMenu(on) }, settled: true},
-		{name: "deferred, with an event after walking into a settled room", f: hub.FeatureImage | hub.FeatureSwitches,
+		{name: "deferred, with an event after walking into a settled room", f: proto.FeatureImage | proto.FeatureSwitches,
 			pause: event, settled: true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -1052,7 +1052,7 @@ func TestReconcileSwitchRoomHold(t *testing.T) {
 			if !sh.Open() {
 				t.Fatalf("the shutter stayed shut: written after its %d executes\n%s", sh.Executes(), rr.log)
 			}
-			rr.audit(c.f&hub.FeatureLiveSwitches != 0)
+			rr.audit(c.f&proto.FeatureLiveSwitches != 0)
 		})
 	}
 }
@@ -1060,7 +1060,7 @@ func TestReconcileSwitchRoomHold(t *testing.T) {
 // TestReconcileNoSwitchesUngranted: without FeatureSwitches no memory
 // switch is written, of any table.
 func TestReconcileNoSwitchesUngranted(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage)
+	rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage)
 	seaSw, m := switchImageByte(addr.TableSea, 0x05)
 	drcSw, _ := switchImageByte(addr.TableDRC, 0x05)
 	var img world.Image
@@ -1098,7 +1098,7 @@ func TestReconcileOceanAtRoomChange(t *testing.T) {
 			}},
 	} {
 		t.Run(move.name, func(t *testing.T) {
-			rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage|hub.FeatureSwitches)
+			rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage|proto.FeatureSwitches)
 			var img world.Image
 			img[addr.OffOcean+5] = 0x04
 			img[addr.OffMapGet+2] = 0x10
@@ -1197,7 +1197,7 @@ func TestReconcileLogsAnIdleWait(t *testing.T) {
 			wait: "waits for the next room or stage change"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage|hub.FeatureSwitches)
+			rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage|proto.FeatureSwitches)
 			rr.ticks(10)
 			var img world.Image
 			img[c.off] = c.mask
@@ -1279,7 +1279,7 @@ func TestReconcileLogsAPendingStageChange(t *testing.T) {
 			within: func(rr *recRig) int { return rr.holdTicks() + gate.StableTicks + 4 }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage|hub.FeatureSwitches)
+			rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage|proto.FeatureSwitches)
 			rr.ticks(10)
 			c.before(rr)
 			if err := rr.g.SetNextStage(drc); err != nil {
@@ -1329,7 +1329,7 @@ func TestReconcileLogsAPendingStageChange(t *testing.T) {
 // grants their features: with FeatureImage alone nothing of them is
 // written, and the log says why.
 func TestReconcileLaterClasses(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true, Policy: world.FullPolicy()}, hub.FeatureImage)
+	rr := newRecRig(t, Config{Apply: true, Policy: world.FullPolicy()}, proto.FeatureImage)
 	zelda, zm := eventBit(evZeldaAwakened)
 	var img world.Image
 	img[zelda] = zm
@@ -1355,7 +1355,7 @@ func TestReconcileLaterClasses(t *testing.T) {
 // closed or sets a bit twice, nothing goes back up, and afterwards the
 // game has all of it.
 func TestReconcileTransitionStorm(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage|hub.FeatureSwitches)
+	rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage|proto.FeatureSwitches)
 	var img world.Image
 	for _, tb := range []int{addr.TableSea, addr.TableDRC, addr.TableFW} {
 		for no := range 6 {
@@ -1423,7 +1423,7 @@ func TestReconcileTransitionStorm(t *testing.T) {
 // TestReconcileDryRunWritesNothing: under --coop-dry-run the same world
 // and storm write nothing, and the plan is logged as M2 did.
 func TestReconcileDryRunWritesNothing(t *testing.T) {
-	rr := newRecRig(t, Config{}, hub.FeatureImage|hub.FeatureSwitches)
+	rr := newRecRig(t, Config{}, proto.FeatureImage|proto.FeatureSwitches)
 	seaChest, m := chest(addr.TableSea, 3)
 	sw, sm := switchImageByte(addr.TableSea, 0x05)
 	var img world.Image
@@ -1457,7 +1457,7 @@ func TestReconcileDryRunWritesNothing(t *testing.T) {
 // TestReconcileTurnOff: "coop off" stops the writes from the next tick,
 // including a batch already waiting for the heartbeat, until TurnOn.
 func TestReconcileTurnOff(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true, BeatTimeout: 10 * time.Second}, hub.FeatureImage|hub.FeatureSwitches)
+	rr := newRecRig(t, Config{Apply: true, BeatTimeout: 10 * time.Second}, proto.FeatureImage|proto.FeatureSwitches)
 	c1, m1 := chest(addr.TableDRC, 1)
 	var img world.Image
 	img[c1] = m1
@@ -1520,7 +1520,7 @@ func TestReconcileTurnOff(t *testing.T) {
 // tick, which is still that window's: the room change's, with the ocean,
 // and then the memory switches', after the room hold.
 func TestReconcileStallKeepsTheWindow(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true, BeatTimeout: testBeat}, hub.FeatureImage|hub.FeatureSwitches)
+	rr := newRecRig(t, Config{Apply: true, BeatTimeout: testBeat}, proto.FeatureImage|proto.FeatureSwitches)
 	seaSw, m := switchImageByte(addr.TableSea, 0x05)
 	var img world.Image
 	img[seaSw] = m
@@ -1559,7 +1559,7 @@ func TestReconcileStallKeepsTheWindow(t *testing.T) {
 // kept when the older WORLD lands: the M3 loopback lost a partner's ocean
 // bit this way, so the receiver never wrote it.
 func TestReplicaWorldAfterGains(t *testing.T) {
-	rr := newRecRigNoWorld(t, Config{Apply: true}, hub.FeatureImage)
+	rr := newRecRigNoWorld(t, Config{Apply: true}, proto.FeatureImage)
 	off := addr.OffOcean + 0x51
 	say(t, rr.r, &wire.GainsDown{Seq: 5, Origin: 1, Gains: []wire.Gain{{Off: uint16(off), Val: 0x01}}})
 	say(t, rr.r, worldOf(4, world.Image{}))
@@ -1607,7 +1607,7 @@ func TestReconcileHoldsBossBitsInABossStage(t *testing.T) {
 		{"out to the sea", outset, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage)
+			rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage)
 			rr.load(drcBoss)
 			rr.stagType(stageTypeBoss)
 			rr.ticks(gate.StableTicks + 2)
@@ -1672,7 +1672,7 @@ func TestReconcileSaveStateOfAnotherFile(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rr := newRecRig(t, Config{Apply: true}, hub.FeatureImage)
+			rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage)
 			seaChest, seaM := chest(addr.TableSea, 3)
 			drcChest, drcM := chest(addr.TableDRC, 7)
 			var img world.Image

@@ -1,4 +1,4 @@
-package hub
+package proto
 
 import (
 	"fmt"
@@ -12,14 +12,14 @@ import (
 // feature mask), and replicas read them from here.
 //
 // The low byte and the third are the session features: a replica asks
-// for them in CO_HELLO's want, the host allows some (Config.Features,
-// SetFeatures), and CO_WELCOME grants the intersection. The second byte
+// for them in CO_HELLO's want, the host allows some (hub.Config.Features,
+// hub.SetFeatures), and CO_WELCOME grants the intersection. The second byte
 // is what the host tells a replica about binding. The top bits are hello
 // flags: they ask for something in one CO_HELLO and are never granted
 // back.
 //
 // Two session features carry image bytes of their own, which the hub
-// neither takes from a player without them nor sends it (gateOf):
+// neither takes from a player without them nor sends it (hub.gateOf):
 // FeatureSwitches the memory switches, FeatureStory the story bits. The
 // others either need no bytes beyond FeatureImage's or are what the
 // replica does with the image (the live-switch timing, the inventory, the
@@ -33,10 +33,10 @@ const (
 	FeatureImage Feature = 1 << 0
 	// FeaturePuzzle is the dan, zone and room-edge switches (SCOPED DAN,
 	// ZONE, ROOMEDGE; §6.3, M5): the latching ones of the host's M1
-	// verdict (Config.SyncedScoped, ScopeFilter).
+	// verdict (hub.Config.SyncedScoped, ScopeFilter).
 	FeaturePuzzle Feature = 1 << 1
 	// FeatureCombat is the kill union (SCOPED KILL; §7.2, M6): the
-	// keyed K1 deaths of the host's M1 verdict (Config.SyncedKill,
+	// keyed K1 deaths of the host's M1 verdict (hub.Config.SyncedKill,
 	// Filter), written into the partner's zone and light-shrinking its
 	// live enemy.
 	FeatureCombat Feature = 1 << 2
@@ -129,7 +129,7 @@ const DefaultFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureSw
 // which enemies (FeatureCombat), and which chests, pickups and doors are
 // key sources and key doors (FeatureKeys) and heart sources
 // (FeatureLife). A player gets them only when its tables' identity,
-// CO_HELLO's stageTblHash, is the host's and not 0 (Config.StageTblHash);
+// CO_HELLO's stageTblHash, is the host's and not 0 (hub.Config.StageTblHash);
 // otherwise the hub grants the rest and says why in a NOTICE. The image's
 // other classes (chests, pickups, visited rooms, dungeon items, ocean,
 // charts and the sea map, story bits, registers, inventory and

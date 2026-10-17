@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math/bits"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
@@ -36,7 +36,7 @@ import (
 //     gate.StableTicks ticks after it, as STABLE needs that many unchanged
 //     ones) on which every shown room's actors have settled (the room
 //     hold, reconcile_m5_rooms.go), live and saved; with
-//     hub.FeatureLiveSwitches (--coop-live-switches) when IDLE and the
+//     proto.FeatureLiveSwitches (--coop-live-switches) when IDLE and the
 //     room hold allows instead. The hold is the M5 receiver's, for the
 //     same reason: a shutter created less than 30 frames before ignores a
 //     switch that changes (d_a_shutter.cpp:71-87, 133-142, 233-243), and
@@ -55,8 +55,8 @@ import (
 //     (§4.2.1), so these wait for IDLE too (Appendix C item 129).
 //
 // Memory switches are written only while the hub grants
-// hub.FeatureSwitches, and only those the policy opens (the M1 table's
-// latching ones, hub.SwitchPolicy). Every byte goes through the
+// proto.FeatureSwitches, and only those the policy opens (the M1 table's
+// latching ones, proto.SwitchPolicy). Every byte goes through the
 // WriteGuard, which refuses PER_PLAYER, NEVER, DERIVED and TAG bytes,
 // writes while a gate is closed, the live boss bits in a boss stage and
 // any clear. The other classes the planner plans (story bits, registers,
@@ -166,7 +166,7 @@ func (r *Replica) pick(o *obs, ws []Write, win windows, calm bool) (due, waiting
 		switch {
 		case !m3Category(w.Category):
 			continue
-		case w.Category == CatSwitch && r.features&hub.FeatureSwitches == 0:
+		case w.Category == CatSwitch && r.features&proto.FeatureSwitches == 0:
 			continue
 		}
 		ok := false
@@ -179,7 +179,7 @@ func (r *Replica) pick(o *obs, ws []Write, win windows, calm bool) (due, waiting
 			switch {
 			case w.Category != CatSwitch:
 				ok = win.room
-			case r.features&hub.FeatureLiveSwitches != 0:
+			case r.features&proto.FeatureLiveSwitches != 0:
 				ok = st.CanWriteIdle() && calm
 			default:
 				ok = win.switches
@@ -347,7 +347,7 @@ func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit, o *obs, cal
 		}
 		nowOR[off] |= w.Bits & r.loggedOR[off]
 	}
-	live := r.features&hub.FeatureLiveSwitches != 0
+	live := r.features&proto.FeatureLiveSwitches != 0
 	for _, w := range waiting {
 		// in: the room change w waits for is in, so its window waits for
 		// the gates alone (roomWatch.open); for a memory switch of the
