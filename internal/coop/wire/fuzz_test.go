@@ -7,7 +7,7 @@ import (
 )
 
 // Native fuzz targets, one per decoder plus the dispatcher, in the style of
-// internal/network/fuzz_test.go. The seed corpora (the golden payloads and
+// mods/multiplayer/net/fuzz_test.go. The seed corpora (the golden payloads and
 // a few broken ones) run as ordinary tests under `go test`; to fuzz one,
 // e.g.:
 //

@@ -3,7 +3,7 @@
 // may share a color; a player without a preference wears classic green
 // (Vanilla).
 //
-// The package is pure: no network, no Dolphin. The server (internal/network)
+// The package is pure: no network, no Dolphin. The server (mods/multiplayer/net)
 // assigns a color per player name and sends it in the player list; the
 // render side (wwapi/gfx/texture, the C bracket) turns it into a recolored
 // tunic texture.

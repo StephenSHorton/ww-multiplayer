@@ -284,7 +284,7 @@ Ring entries carry `seq` plus an XOR check byte.
 
 ### 4.4 Network protocol v2
 
-**Version bump.** `ProtocolVersion` goes from 1 to 2 (`internal/network/handshake.go:40`). Peers with mismatched versions are already rejected with a clear message.
+**Version bump.** `ProtocolVersion` goes from 1 to 2 (`mods/multiplayer/net/handshake.go:40`). Peers with mismatched versions are already rejected with a clear message.
 
 **Free type letters.** J W P L D C M K Q H R are taken (`protocol.go:13-40`). Co-op uses one new type, **'O' (0x4F)**. The frame format `[type:1][len:2 BE][payload]` with `MaxPayload` 0xFFFF is unchanged.
 
@@ -746,7 +746,7 @@ The proc numbers match the GZLE01 `fpcNm` enum (`f_pc_name.h`), as M1 checked. *
 
 **World file.** Crash injection: truncated tmp file, kill between write and rename, CRC damage falling back to `.1`.
 
-**Parsers.** Fuzz targets for every 'O' sub-codec, the extended Hello, the world file, GCI/card images and Yaz0/RARC/DZR, in the style of `internal/network/fuzz_test.go`. Stage readers are tested on synthetic fixtures built in test code; no Nintendo data ships.
+**Parsers.** Fuzz targets for every 'O' sub-codec, the extended Hello, the world file, GCI/card images and Yaz0/RARC/DZR, in the style of `mods/multiplayer/net/fuzz_test.go`. Stage readers are tested on synthetic fixtures built in test code; no Nintendo data ships.
 
 **Combat logic.** Actor walk bounds and validation on FakeMem; the K1 gate matrix; kill-union scoping.
 
@@ -1369,7 +1369,7 @@ Also needed from the owner, and not a decision: capture the fixture save states 
     - NOTICE text is valid UTF-8 without control characters, at most 255 bytes, as player names are. `ClassHash` is FNV-1a 64 over the class spans.
 42. **Kept as specified, a limit:** a relayed PRESENCE or SCOPED carries no sender. That is fine for two players; more would need an origin byte and a Schema bump.
 43. **Player connections are protocol 1 apart from the version.** Players still send the 2-byte hello; only co-op connections send `[version][role][caps]`. Co-op connections get a normal MsgWelcome with an ID from their own 1..255 space. RejectRole (4) is fatal, so a co-op client stops at once against a host without `--coop`.
-44. **A known client race, not fixed (internal/network).** `readLoop`'s error path marks the client disconnected without checking that its conn is still the current one; `abandonSession` does check. A Disconnect followed at once by a Connect on the same Client can lose the new session. RunCoop never hits it, and not because of a backoff: after a session that lived `minHealthySession` it redials at once. Its `live` ends a session early only after the read loop itself has cleared `connected`, which is that loop's last write, and `Replica.Session` returns only when its context ends, so no stale read loop is left to clear the next session's flag. A session function that returns while its connection is still open would need the race fixed first. coop-sync keeps one Client per pipeline, as the player pipelines do.
+44. **A known client race, not fixed (mods/multiplayer/net).** `readLoop`'s error path marks the client disconnected without checking that its conn is still the current one; `abandonSession` does check. A Disconnect followed at once by a Connect on the same Client can lose the new session. RunCoop never hits it, and not because of a backoff: after a session that lived `minHealthySession` it redials at once. Its `live` ends a session early only after the read loop itself has cleared `connected`, which is that loop's last write, and `Replica.Session` returns only when its context ends, so no stale read loop is left to clear the next session's flag. A session function that returns while its connection is still open would need the race fixed first. coop-sync keeps one Client per pipeline, as the player pipelines do.
 
 *Binding tag (§5.2)*
 

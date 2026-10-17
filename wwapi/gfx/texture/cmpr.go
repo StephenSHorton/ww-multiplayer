@@ -26,7 +26,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
 // GX texture format numbers (ResTIMG.format, tww JUTTexture.h:15).

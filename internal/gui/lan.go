@@ -12,8 +12,8 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/lan"
-	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 )
 
 // "Sessions on your network" (App PR 11, design §2.2-§2.3, decision 12):

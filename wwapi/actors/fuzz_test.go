@@ -8,7 +8,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
-// The walk's fuzz target, in the style of internal/network/fuzz_test.go.
+// The walk's fuzz target, in the style of mods/multiplayer/net/fuzz_test.go.
 // The seeds run as ordinary tests; to fuzz it:
 //
 //	go test -run='^$' -fuzz=FuzzWalk -fuzztime=30s ./wwapi/actors/

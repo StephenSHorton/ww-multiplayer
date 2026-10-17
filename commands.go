@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
-	"github.com/StephenSHorton/ww-multiplayer/internal/network"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 )
 
 // cmdGroup is the printHelp section a command is listed under.

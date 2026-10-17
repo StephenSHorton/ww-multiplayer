@@ -7,7 +7,7 @@ import (
 	"io"
 	"math"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
 // Message types

@@ -13,7 +13,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
-	"github.com/StephenSHorton/ww-multiplayer/internal/network"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 

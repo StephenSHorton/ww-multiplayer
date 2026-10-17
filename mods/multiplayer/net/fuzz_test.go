@@ -11,7 +11,7 @@ import (
 // the client read loop and the server's per-player loop end to end. The seed
 // corpora run as ordinary tests under `go test`; to fuzz one, e.g.:
 //
-//	go test -run='^$' -fuzz=FuzzParsePlayerList -fuzztime=20s ./internal/network/
+//	go test -run='^$' -fuzz=FuzzParsePlayerList -fuzztime=20s ./mods/multiplayer/net/
 
 // frame returns one framed message as wire bytes.
 func frame(msgType byte, data []byte) []byte {

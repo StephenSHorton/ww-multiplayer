@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
 // Lobby connections (docs/10-lobby.md). The desktop app holds one lobby

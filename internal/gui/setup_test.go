@@ -17,7 +17,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"

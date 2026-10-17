@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
 // Tunic colors (docs/09-player-colors.md): the hello preference, the player

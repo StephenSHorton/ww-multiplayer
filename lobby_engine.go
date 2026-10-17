@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
-	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 

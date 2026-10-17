@@ -10,9 +10,9 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
-	"github.com/StephenSHorton/ww-multiplayer/internal/network"
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
 func TestShareAddrs(t *testing.T) {

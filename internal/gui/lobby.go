@@ -11,8 +11,8 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
-	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 )
 
 // The Lobby screen's Go side (App PR 7, design §2.2-§2.4, §2.9): the

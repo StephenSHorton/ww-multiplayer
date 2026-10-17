@@ -6,7 +6,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
 // decodeBlock is a reference DXT1/CMPR block decoder: 16 pixels, each a

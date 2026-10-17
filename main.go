@@ -33,9 +33,9 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
-	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/host"
@@ -4897,7 +4897,7 @@ func exitUsage(err error, usage string) {
 // liveState is the mutable, mutex-guarded bridge between a running multiplayer
 // session (the *network.Server / *network.Client that main owns) and the
 // session controller the TUI drives. internal/tui and internal/session never
-// import internal/network; instead sessionEngine reads this holder under the
+// import mods/multiplayer/net; instead sessionEngine reads this holder under the
 // lock and hands the controller plain values / session.Player.
 //
 // One liveState is created in main() before tui.Run and shared across every

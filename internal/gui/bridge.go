@@ -16,10 +16,10 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
-	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )

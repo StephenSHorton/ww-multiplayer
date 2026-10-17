@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
 func TestExtractColorFlag(t *testing.T) {

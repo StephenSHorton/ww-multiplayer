@@ -19,7 +19,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
-	"github.com/StephenSHorton/ww-multiplayer/internal/network"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
