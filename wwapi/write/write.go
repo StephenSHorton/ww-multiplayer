@@ -38,8 +38,12 @@ import (
 )
 
 // Writer makes an all-or-nothing batch of fields after the next
-// heartbeat, every byte through its owner's guard (FrameWriter.
-// ApplyFields). co-op's replica.FrameWriter is one.
+// heartbeat, every byte through its owner's guard. co-op's
+// replica.FrameWriter is one (replica.FrameWriter.ApplyFields).
+//
+// wwapi has no Writer of its own yet: this package's FrameWriter takes a
+// Batch (FrameWriter.WriteFields) and does not satisfy Writer. A Writer a
+// mod can get from wwapi comes in D-phase.
 type Writer interface {
 	ApplyFields(ctx context.Context, fs []Field) (Result, error)
 }
