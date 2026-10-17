@@ -38,6 +38,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/report"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // version is overridden at build time by `go build -ldflags "-X main.version=..."`.
@@ -406,8 +407,8 @@ func runBroadcastPose(name, addr string) {
 // onPos, when non-nil (the TUI path via liveStateLocalPosSetter), is invoked
 // every tick this Dolphin's own position resolves — #22's minimap bridge.
 // CLI callers pass nil.
-func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint32, rep report.Reporter, connLog *network.ConnectLog, onPos func(x, y, z float32)) error {
-	report.Logf(rep, report.Info, "=== Broadcast Link + Pose: %s -> %s ===", name, addr)
+func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPID uint32, rep report.Reporter, connLog *network.ConnectLog, onPos func(x, y, z float32)) error {
+	report.Logf(rep, report.Info, "=== Broadcast Link + Pose: %s -> %s ===", name, serverAddr)
 	d, err := openDolphin(dolphinPID)
 	if err != nil {
 		return err
@@ -429,10 +430,10 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 	// exponential backoff; only a real ctx-cancel ends this function.
 	// connLog turns the otherwise silent retries into log lines.
 	if connLog == nil {
-		connLog = newConnectLog(addr, rep)
+		connLog = newConnectLog(serverAddr, rep)
 	}
 	connect := func(ctx context.Context) error {
-		return connLog.Observe(ctx, client.ConnectContext(ctx, addr))
+		return connLog.Observe(ctx, client.ConnectContext(ctx, serverAddr))
 	}
 	// sessionLoop is one live session's 16 ms send loop. network.RunSession
 	// (in run, below) wraps it with a ctx-scoped teardown watcher and WAITS
@@ -482,7 +483,7 @@ func runBroadcastPoseCtx(ctx context.Context, name, addr string, dolphinPID uint
 				stateBytes, _ := d.ReadAbsolute(mailboxBase+mailboxPosePublishState, 1)
 				if len(stateBytes) == 1 && stateBytes[0] == 1 {
 					pubPtr, _ := d.ReadU32(mailboxBase + mailboxPosePublishPtr)
-					if pubPtr >= 0x80000000 && pubPtr < 0x81800000 {
+					if addr.InMEM1(pubPtr) {
 						data, err := d.ReadAbsolute(pubPtr, poseBytes)
 						if err == nil && data != nil {
 							if os.Getenv("WW_POSE_RAW") == "" {

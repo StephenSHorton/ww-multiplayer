@@ -28,9 +28,14 @@ package addr
 // any access that doesn't.
 const (
 	MEM1Base uint32 = 0x80000000
-	MEM1Size        = 0x01800000 // 24 MiB: the region size dolphin.scanForRAM looks for (internal/dolphin/memory.go:221)
+	MEM1Size        = 0x01800000 // 24 MiB: the region size dolphin.scanForRAM looks for (internal/dolphin/memory.go:214)
 	MEM1End  uint32 = MEM1Base + MEM1Size
 )
+
+// InMEM1 reports whether a lies in [MEM1Base, MEM1End): the check the co-op
+// and tunic code make on every pointer it reads out of the game before it
+// follows it.
+func InMEM1(a uint32) bool { return a >= MEM1Base && a < MEM1End }
 
 // g_dComIfG_gameInfo and its first member, dSv_info_c save.
 const (

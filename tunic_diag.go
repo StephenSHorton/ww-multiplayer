@@ -11,6 +11,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/tunic"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Tunic-color diagnostics (docs/09-player-colors.md §7, PR 2). Both act on
@@ -30,7 +31,7 @@ import (
 //	daPy_lk_c +0x0328 mpCLModelData, +0x0338 mpCurrLinktex,
 //	          +0x033C mOtherLinktex (ResTIMG, the clothes not worn),
 //	          +0x02A0 mNoResetFlg1 (bit 0x8 = casual clothes)
-//	          (d_a_player_main.h:1996-1997, d_a_player.h:202,486)
+//	          (addr.PlayerOff*, cited there)
 //	J3DModelData +0x58 J3DMaterialTable: +0x04 u16 count, +0x08 J3DMaterial**,
 //	          +0x18 J3DTexture*, +0x1C JUTNameTab* textures
 //	JUTNameTab +0x04 ResNTAB*, +0x0C u16 count (JUTNameTab.h:20-37)
@@ -38,17 +39,9 @@ import (
 //	J3DTexture +0x0 u16 mNum, +0x4 ResTIMG* mpRes (J3DTexture.h:35-36)
 //	J3DMaterial +0x2C J3DTevBlock*; J3DTevBlock +0x08 u16 mTexNo[]
 const (
-	playerPtrArray0      = 0x803CA754
-	daPyMpCLModelDataOff = 0x0328
-	daPyMpCurrLinktexOff = 0x0338
-	daPyOtherLinktexOff  = 0x033C
-	daPyNoResetFlg1Off   = 0x02A0
-	daPyFlg1Casual       = 0x00000008
-	modelDataMatTable    = 0x58
-	maxLinkTextures      = 256
+	modelDataMatTable = 0x58
+	maxLinkTextures   = 256
 )
-
-func inMEM1(a uint32) bool { return a >= 0x80000000 && a < 0x81800000 }
 
 // linkTextures is Link's live texture table.
 type linkTextures struct {
@@ -69,16 +62,16 @@ func (lt *linkTextures) hdrAddr(i int) uint32 { return lt.resArr + uint32(i)*tun
 func readLinkTextures(d tunicMem) (*linkTextures, error) {
 	lt := &linkTextures{}
 	var err error
-	if lt.link, err = d.ReadU32(playerPtrArray0); err != nil || !inMEM1(lt.link) {
+	if lt.link, err = d.ReadU32(addr.PlayerPtr); err != nil || !addr.InMEM1(lt.link) {
 		return nil, errors.New("Link not loaded (PLAYER_PTR_ARRAY[0] null); load a save first")
 	}
-	if lt.data, err = d.ReadU32(lt.link + daPyMpCLModelDataOff); err != nil || !inMEM1(lt.data) {
+	if lt.data, err = d.ReadU32(lt.link + addr.PlayerOffCLModelData); err != nil || !addr.InMEM1(lt.data) {
 		return nil, fmt.Errorf("mpCLModelData invalid (0x%08X)", lt.data)
 	}
-	if flg, err := d.ReadU32(lt.link + daPyNoResetFlg1Off); err == nil {
-		lt.casual = flg&daPyFlg1Casual != 0
+	if flg, err := d.ReadU32(lt.link + addr.PlayerOffNoResetFlg1); err == nil {
+		lt.casual = flg&addr.PlayerFlg1CasualClothes != 0
 	}
-	lt.currLinktex, _ = d.ReadU32(lt.link + daPyMpCurrLinktexOff)
+	lt.currLinktex, _ = d.ReadU32(lt.link + addr.PlayerOffCurrLinktex)
 
 	mt := lt.data + modelDataMatTable
 	if b, err := d.ReadAbsolute(mt+0x04, 2); err == nil && len(b) == 2 {
@@ -86,7 +79,7 @@ func readLinkTextures(d tunicMem) (*linkTextures, error) {
 	}
 	lt.matArr, _ = d.ReadU32(mt + 0x08)
 	texObj, err := d.ReadU32(mt + 0x18)
-	if err != nil || !inMEM1(texObj) {
+	if err != nil || !addr.InMEM1(texObj) {
 		return nil, fmt.Errorf("J3DTexture* invalid (0x%08X)", texObj)
 	}
 	nameTab, _ := d.ReadU32(mt + 0x1C)
@@ -96,7 +89,7 @@ func readLinkTextures(d tunicMem) (*linkTextures, error) {
 	}
 	num := int(binary.BigEndian.Uint16(nb[0:2]))
 	lt.resArr = binary.BigEndian.Uint32(nb[4:8])
-	if num == 0 || num > maxLinkTextures || !inMEM1(lt.resArr) {
+	if num == 0 || num > maxLinkTextures || !addr.InMEM1(lt.resArr) {
 		return nil, fmt.Errorf("J3DTexture looks wrong: %d textures at 0x%08X", num, lt.resArr)
 	}
 	raw, err := d.ReadAbsolute(lt.resArr, num*tunic.ResTIMGSize)
@@ -125,7 +118,7 @@ func readLinkTextures(d tunicMem) (*linkTextures, error) {
 // read from vtable-relative garbage (live 2026-10-16: 41 garbage names).
 func readNameTab(d tunicMem, tab uint32, n int) []string {
 	names := make([]string, n)
-	if !inMEM1(tab) {
+	if !addr.InMEM1(tab) {
 		return names
 	}
 	obj, err := d.ReadAbsolute(tab, 0x10)
@@ -133,7 +126,7 @@ func readNameTab(d tunicMem, tab uint32, n int) []string {
 		return names
 	}
 	res, cnt := parseJUTNameTab(obj)
-	if !inMEM1(res) || int(cnt) < n {
+	if !addr.InMEM1(res) || int(cnt) < n {
 		return names
 	}
 	hdr, err := d.ReadAbsolute(res, 4+4*n)
@@ -224,11 +217,11 @@ func runTunicProbe() {
 	fmt.Println("\nmaterials sampling linktexS3TC (texNo[0..7]):")
 	for i := 0; i < lt.matCount && i < 64; i++ {
 		mat, err := d.ReadU32(lt.matArr + uint32(i)*4)
-		if err != nil || !inMEM1(mat) {
+		if err != nil || !addr.InMEM1(mat) {
 			continue
 		}
 		tev, err := d.ReadU32(mat + 0x2C)
-		if err != nil || !inMEM1(tev) {
+		if err != nil || !addr.InMEM1(tev) {
 			continue
 		}
 		tn, err := d.ReadAbsolute(tev+0x08, 16)
@@ -285,7 +278,7 @@ func runTunicRecolor(arg string) {
 		os.Exit(1)
 	}
 	img := hdr.ImageAddr(lt.hdrAddr(idx))
-	if !inMEM1(img) || !inMEM1(img+uint32(size)-1) {
+	if !addr.InMEM1(img) || !addr.InMEM1(img+uint32(size)-1) {
 		fmt.Printf("hero image 0x%08X+0x%X is outside MEM1\n", img, size)
 		os.Exit(1)
 	}

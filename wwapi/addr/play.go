@@ -79,7 +79,7 @@ const (
 	EvtMode       uint32 = 0x803C9EA2
 
 	// PlayerPtr is mpPlayerPtr[0], Link's actor; 0 on the title and file
-	// select screens. Same address as dolphin.PlayerPtrAddr.
+	// select screens.
 	PlayerPtr uint32 = 0x803CA754
 
 	// The HUD's pending counters: d_meter applies and animates a nonzero
@@ -226,6 +226,8 @@ const (
 	ActorOffParentID   = 0x1CC              // fpc_ProcID parentActorID: 0xFFFFFFFF for a placed actor (f_op_actor.h:285; fopAcM_CreateAppend, f_op_actor_mng.cpp:78-91)
 	ActorOffHomeAngle  = 0x1DC              // csXyz home.angle (actor_place +0xC, f_op_actor.h:214)
 	ActorOffCurPos     = 0x1F8              // cXyz current.pos (f_op_actor.h:289)
+	ActorOffCurAngle   = 0x204              // csXyz current.angle (actor_place +0xC, f_op_actor.h:214)
+	ActorOffCurRoomNo  = 0x20A              // s8 current.roomNo (actor_place +0x12, f_op_actor.h:215)
 	ActorOffAttnFlags  = 0x280              // u32 attention_info.flags: attention_info +0x26C, flags +0x14 (f_op_actor.h:219-223, :305)
 	ActorOffMaxHealth  = 0x284              // s8 max_health (f_op_actor.h:306)
 	ActorStatusCarry   = 0x00002000         // fopAcStts_CARRY_e (f_op_actor.h:32)
@@ -266,6 +268,24 @@ const (
 // demo. The offset is the decomp's struct layout, not yet read on a live
 // game (inferred; docs/08 §8.2 K1).
 const PlayerOffDemoType = 0x304
+
+// Link's actor (daPy_lk_c, d_a_player_main.h:411, which extends daPy_py_c,
+// d_a_player.h:163): the fields the pose feed and the tunic sync read
+// through PlayerPtr.
+const (
+	// PlayerOffNoResetFlg1 is daPy_py_c's u32 mNoResetFlg1
+	// (d_a_player.h:486); PlayerFlg1CasualClothes is its
+	// daPyFlg1_CASUAL_CLOTHES bit (d_a_player.h:202), set while Link wears
+	// his casual clothes.
+	PlayerOffNoResetFlg1    = 0x2A0
+	PlayerFlg1CasualClothes = 0x00000008
+
+	// daPy_lk_c members (d_a_player_main.h:1992-1997, 2099).
+	PlayerOffCLModelData  = 0x0328 // J3DModelData* mpCLModelData: Link's model data
+	PlayerOffCurrLinktex  = 0x0338 // ResTIMG* mpCurrLinktex: the clothes texture being worn
+	PlayerOffOtherLinktex = 0x033C // ResTIMG mOtherLinktex (inline, 0x20 bytes): the clothes not worn
+	PlayerOffCurProc      = 0x31D8 // int mCurProc: the running daPyProc_*_e
+)
 
 // RoomStatusOffFlags is dStage_roomStatus_c's u8 mFlags (d_stage.h:855-869):
 // 0x01 loaded, 0x02 being created, 0x04 being deleted, 0x08 hidden

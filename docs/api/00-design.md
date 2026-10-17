@@ -427,7 +427,7 @@ Ground rules for every PR:
 ### Phase C: after app PR 9 and the owner's uncommitted work
 Order: C1 first; C4 before C8; C6 before C7; C8 before C14; C5 any time after C1.
 - [x] **C1** `internal/coop/{mem,addr}` → `wwapi/{mem,addr}`; split `mem.Reader` / `mem.Mem`; big-endian helpers.
-- [ ] **C2** Fold address literals into `addr` with decomp citations.
+- [x] **C2** Fold address literals into `addr` with decomp citations.
 - [ ] **C3** Cut snap→class with `state.Options{Sensitive}` (equivalence test); move snap → `wwapi/state`, gate → `wwapi/gate`.
 - [ ] **C4** `wwapi/disc` out of `internal/inject`; stagedata → `wwapi/stage`.
 - [ ] **C5** k1.go → `internal/coop/combat`; the rest of actors → `wwapi/actors`.
