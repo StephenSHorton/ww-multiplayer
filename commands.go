@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 )
 
@@ -596,7 +597,7 @@ func cmdPoseFakeLoop(string, []string) {
 	if len(os.Args) > 3 {
 		addr = os.Args[3]
 	}
-	runPoseFakeLoop(name, addr)
+	feed.PoseFakeLoop(feedEnv, name, addr)
 }
 
 func cmdTunicRecolor(string, []string) {

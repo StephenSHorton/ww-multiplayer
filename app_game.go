@@ -12,6 +12,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
@@ -464,13 +465,13 @@ func (g *gameRunner) finish(played map[uint32]bool) {
 // runPosePipelinesOn runs broadcast-pose and puppet-sync on Dolphin pid,
 // as runMultiplayerGoroutines does on the env's Dolphin (no co-op).
 func runPosePipelinesOn(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) error {
-	connLog := newConnectLog(addr, rep)
+	connLog := feed.NewConnectLog(addr, rep)
 	return runPipelines(ctx, cancel, rep,
 		pipeline{"broadcast-pose", func(ctx context.Context) error {
-			return runBroadcastPoseCtx(ctx, name, addr, pid, rep, connLog, onPos)
+			return feed.BroadcastPose(ctx, feedEnv, name, addr, pid, rep, connLog, onPos)
 		}},
 		pipeline{"puppet-sync", func(ctx context.Context) error {
-			return runPuppetSyncCtx(ctx, name, addr, name, pid, rep, connLog, onClient)
+			return feed.PuppetSync(ctx, feedEnv, name, addr, name, pid, rep, connLog, onClient)
 		}},
 	)
 }

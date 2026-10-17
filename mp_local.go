@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
@@ -240,9 +241,9 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 	// and never under --coop (mp_local_shift.go). Override via
 	// MP_LOCAL_SHIFT_X/Y/Z env, or set all three to 0 to disable.
 	shift := [3]float32{
-		envFloat32("MP_LOCAL_SHIFT_X", 50),
-		envFloat32("MP_LOCAL_SHIFT_Y", 0),
-		envFloat32("MP_LOCAL_SHIFT_Z", 50),
+		feed.EnvFloat32("MP_LOCAL_SHIFT_X", 50),
+		feed.EnvFloat32("MP_LOCAL_SHIFT_Y", 0),
+		feed.EnvFloat32("MP_LOCAL_SHIFT_Z", 50),
 	}
 	startupShift(rep, co.on, pidA, pidB, shift, defaultShiftEnv())
 
@@ -291,13 +292,15 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 		}()
 	}
 	broadcast := func(name string, pid uint32) func(log.Reporter) error {
-		return func(r log.Reporter) error { return runBroadcastPoseCtx(ctx, name, addr, pid, r, nil, nil) }
+		return func(r log.Reporter) error { return feed.BroadcastPose(ctx, feedEnv, name, addr, pid, r, nil, nil) }
 	}
 	puppet := func(name string, pid uint32) func(log.Reporter) error {
 		// With --coop, each Dolphin's warp to the partner takes the other's
 		// position from this client; without, onClient stays nil.
 		onClient := coop.withPoseClient(name, nil)
-		return func(r log.Reporter) error { return runPuppetSyncCtx(ctx, name, addr, name, pid, r, nil, onClient) }
+		return func(r log.Reporter) error {
+			return feed.PuppetSync(ctx, feedEnv, name, addr, name, pid, r, nil, onClient)
+		}
 	}
 
 	// 0.3 s stagger between connects: four simultaneous accepts against
