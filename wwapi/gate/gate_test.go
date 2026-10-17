@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )

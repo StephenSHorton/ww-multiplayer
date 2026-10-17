@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
