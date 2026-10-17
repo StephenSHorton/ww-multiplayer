@@ -342,6 +342,10 @@ func (m dashboardModel) update(msg tea.Msg) (dashboardModel, tea.Cmd) {
 		}
 		if msg.ev.Session == m.sessID {
 			m = m.applyEvent(msg.ev)
+		} else if ev := msg.ev; ev.Kind == session.EventMod && ev.Payload == nil {
+			// A mod's status changed (mods are the app's: Session 0): one
+			// log line, as the connect screen's status lines say it.
+			m = m.applyEvent(session.Event{Kind: session.EventLog, Time: ev.Time, Level: modLevel(ev.Mod), Text: modLine(ev.Mod)})
 		}
 		return m, drainEvents(m.events)
 

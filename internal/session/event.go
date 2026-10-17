@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/events"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
@@ -43,6 +44,13 @@ const (
 	// EventLegacyHost: the host has no lobby, so the session joined
 	// directly.
 	EventLegacyHost
+	// EventMod is a mod's, from the mod runtime's event bus
+	// (Options.Bus; mods.go): Mod.ID is the mod. Either its status
+	// changed (Payload nil; Mod has the new status and reason, and Text
+	// is Mod.String()), or it emitted one of its mod.<id>.* events
+	// (Payload; Text is the event's name). Its Session is 0: mods are
+	// the app's, not one session's.
+	EventMod
 )
 
 // Event is one thing that happened in a session. Session is the ID of the
@@ -61,6 +69,10 @@ type Event struct {
 	// Lobby events.
 	Notice   Notice        // EventLobbyNotice
 	Settings LobbySettings // EventLobbyStart
+	// EventMod: the mod (with its status on a status change) and the
+	// mod's own event, if that is what it was.
+	Mod     ModStatus
+	Payload events.Event
 }
 
 // Subscribe returns a channel that receives every event published from now

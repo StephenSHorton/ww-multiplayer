@@ -22,11 +22,12 @@ ww-multiplayer/
 ├── main.go, commands.go         # Entry point; commands.go: the CLI command registry + generated help (app_face.go: no args = app window, `tui`, `ui --browser`)
 ├── *.go                         # Rest of package main: coop_diag.go (co-op diagnostics), mp_local*.go (dolphin2, mp-local),
 │                                #   tunic_diag.go (tunic dev commands), engine_config.go (newTUIEngine/newCLIEngine; sessionEnv, coopEnv = coopsession.Env),
-│                                #   mods.go (compiledMods: multiplayer, coop; the loaded mods' commands and post-patch steps), auto_recapture.go
+│                                #   mods.go (compiledMods: multiplayer, coop; devMods: example; the loaded mods' commands and post-patch steps), auto_recapture.go
+│                                #   app_face.go also runs the app's mods: --mods/--no-mod/--dev, appModConfig (flags over config.Mods via gui.ModConfig), startApp (wwapi.Runtime + session controller over its NetProvider's engine)
 ├── internal/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
-│   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); Bridge = the JS API; `ui --browser` server
+│   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); the Mods page (mods.go); Bridge = the JS API; `ui --browser` server
 │   ├── lan/                     # LAN discovery: the host's UDP beacon, broadcast addresses, the joiner's table (docs/10-lobby.md §10)
 │   ├── mailboxgen/              # mailbox.h parser + layout_gen.go emitter (used by tools/gen_mailbox and wwapi/mailbox TestMailboxLayout)
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
@@ -38,7 +39,7 @@ ww-multiplayer/
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors)
 │   ├── redact/                  # IP masking for what the GUI and TUI draw (fixed-width •••.•••.•••.42); the CLI prints addresses unmasked
 │   ├── session/                 # UI-free session controller the CLI host/join, the TUI and the GUI drive (docs/01-architecture.md)
-│   │   └── session.go, controller.go, event.go, coop.go, coopapp.go (the app's co-op state), lobby.go, launch.go
+│   │   └── session.go, controller.go, event.go, coop.go, coopapp.go (the app's co-op state), lobby.go, launch.go, mods.go (EventMod: the adapter over the mod runtime's bus)
 │   └── tui/                     # Charm Bubble Tea UI (resurrected v0.1.5)
 │       ├── app.go, splash.go, connect.go, dashboard.go, styles.go
 ├── wwapi/                       # Modding API, v0 UNSTABLE (docs/api): emu/ (Attach(Options); *emu.Dolphin is a MEM1-bounded mem.Mem; memory.go = RAM scanner; launch/ = Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare (dolphin2, auto-recapture); host/ = window, screenshot, keys),
@@ -98,6 +99,7 @@ go build -tags desktop,production -o ww-multiplayer.exe .
 ./ww-multiplayer.exe                                    # Open the app window (the TUI in a build without -tags desktop,production)
 ./ww-multiplayer.exe tui                                # Launch TUI (host or join)
 ./ww-multiplayer.exe ui --browser [--port N] [--no-open] # Serve the app's UI on 127.0.0.1 to a browser (dev/tests; Ctrl+C stops)
+#   tui and ui also take --mods=a,b / --no-mod=x / --dev (the app's mods this run; `mods` takes them to show the effect)
 ./ww-multiplayer.exe patch <iso|ciso> [out.iso]         # Splice mod into user's own vanilla WW ISO
 
 # Play: one process per player

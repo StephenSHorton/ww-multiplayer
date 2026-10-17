@@ -10,7 +10,7 @@
 
 Its tests run it against a fake game, with no Dolphin. This page goes through it file by file. The reference pages are [02-mods.md](02-mods.md) (manifests, the resolver, the supervisor, `Context`) and [01-events.md](01-events.md) (the bus and the core events).
 
-The example is not in the app's mod list (`compiledMods()` in `mods.go`), so `ww-multiplayer mods` does not show it and nothing runs it outside its tests. The app gets a runtime and a way to show dev mods in D4.
+The example is a dev mod (`"dev": true`): it is not in the app's mod list (`compiledMods()` in `mods.go`) but in `devMods()`, so plain `ww-multiplayer mods` does not show it; `mods --dev` lists it, and `tui --dev` or `ui --dev` run it under the app's runtime (D4). The app attaches no `wwapi.Game` yet, so there it loads but has no game to read: `mark` and `goto` say "no game".
 
 ## 1. The folder
 
@@ -47,7 +47,7 @@ A mod is a Go package compiled into the app. There are no drop-in mods: Go's `pl
 
 - `id` is the folder name and the mod's namespace: its events and commands are `mod.example.*`.
 - `api` is the range of wwapi versions it works with. `wwapi.Version` is `0.1.0`, and 0.x minors may break, so `^0.1`.
-- `dev: true` keeps it off unless dev mods are shown (`ResolveOptions.Dev`; in the app, D4's `--dev`).
+- `dev: true` keeps it off unless dev mods are shown (`ResolveOptions.Dev`; in the app, `--dev`).
 - `multiplayer: local_only`: it never touches the network, and other players do not need it.
 - `needs: ["warp"]`: the patched blob must have the C warp handler. With the blob's features known and `warp` missing, the mod is `NEEDS_REPATCH(warp)` and does not load.
 - `writes: []`: the mod writes no game memory of its own. Its one write, the warp, is a core command's (section 5).
@@ -135,7 +135,7 @@ c.Commands().Register(CmdMark, commands.Spec{Scope: commands.Local}, func(contex
 })
 ```
 
-A command is a name, a `Spec` and a handler. The handler gets its arguments as JSON and returns a `Result` (`OK`, a short `Code`, `Err`). Anyone holding the registry runs it with `Execute(ctx, name, args)`; `args` is marshalled to JSON. Today that is tests and other mods. The app's console verbs come with D4.
+A command is a name, a `Spec` and a handler. The handler gets its arguments as JSON and returns a `Result` (`OK`, a short `Code`, `Err`). Anyone holding the registry runs it with `Execute(ctx, name, args)`; `args` is marshalled to JSON. Today that is tests, other mods and the app: the window's Mods page runs a loaded mod's commands through `Bridge.CallMod` (`mod.<id>.<verb>`, D4).
 
 **mark only reads.** `c.Game().Player().Position()` reads Link's position through the Game's memory, which is read-only to mods:
 

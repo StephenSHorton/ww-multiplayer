@@ -163,6 +163,11 @@ type EventView struct {
 	// Patch is a "patch" event's progress (the setup's, not the
 	// controller's: Bridge.emit).
 	Patch *PatchView `json:"patch,omitempty"`
+	// A "mod" event's mod, and its new status when that is what changed
+	// ("" for one of the mod's own events, whose name is Text). The Mods
+	// page reads them again with Bridge.Mods.
+	Mod    string `json:"mod,omitempty"`
+	Status string `json:"status,omitempty"`
 }
 
 // eventKinds names each controller event kind for the frontend.
@@ -179,6 +184,7 @@ var eventKinds = map[session.EventKind]string{
 	session.EventLobbyGo:        "lobby-go",
 	session.EventLobbyRequest:   "lobby-request",
 	session.EventLegacyHost:     "legacy-host",
+	session.EventMod:            "mod",
 }
 
 var levelNames = map[log.Level]string{
@@ -311,6 +317,11 @@ func eventView(ev session.Event, mk masker) EventView {
 		v.Text = ev.Question.Title
 	case session.EventAdvice:
 		v.Text = ev.Advice.Text
+	case session.EventMod:
+		v.Mod = ev.Mod.ID
+		if ev.Payload == nil { // a status change, not one of the mod's events
+			v.Status = ev.Mod.State
+		}
 	}
 	// The log and chat panels show no IP address unless the switch is on
 	// (mask.go): the host's log lists its share addresses, a joiner's

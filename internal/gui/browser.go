@@ -56,6 +56,8 @@ var browserMethods = map[string]bool{
 	"UnbindFile": true, "CoopCommand": true, "CoopStatusText": true,
 	// Sessions on your network (App PR 11).
 	"LanSessions": true,
+	// The Mods page (Phase D D4).
+	"Mods": true, "SetModEnabled": true, "CallMod": true,
 }
 
 // windowOnly are the Bridge methods only the window has: PickFile opens a

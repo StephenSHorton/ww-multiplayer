@@ -13,7 +13,9 @@
 // save-diff, save-merge; wwapi.CLI) and the stage tables step after
 // `patch` (stagetables.CacheForPatch; wwapi.PostPatcher). The sessions
 // meet the multiplayer engine through engine.CoopApp, built by package
-// main from coopsession.App/CLIApp until D4.
+// main from coopsession.App/CLIApp; in the app, only when this mod loaded
+// (package main's newAppEngine), so turning it off leaves a lobby without
+// co-op.
 //
 // # v0 UNSTABLE
 //
@@ -51,7 +53,7 @@ func New(env coopsession.Env) *Mod { return &Mod{env: env} }
 func (*Mod) Manifest() wwapi.Manifest { return wwapi.ManifestFrom(manifestJSON) }
 
 // Init registers nothing yet: the sessions run under the multiplayer
-// engine (D4 moves them onto the bus).
+// engine.
 func (*Mod) Init(*wwapi.Context) error { return nil }
 
 // Commands are co-op's CLI commands (coopcli.Commands), all hidden

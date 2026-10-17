@@ -1,3 +1,3 @@
 exit 1
 ERROR: unknown argument "--all"
-Usage: <exe> mods [--json]
+Usage: <exe> mods [--json] [--dev] [--mods=a,b] [--no-mod=x]

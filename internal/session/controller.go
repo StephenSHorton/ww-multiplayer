@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/events"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
@@ -34,6 +35,16 @@ type Options struct {
 	// Reporter (the file couldn't be opened) is skipped. Like Log, the
 	// Reporter must not block.
 	SessionLog func(State) (log.Reporter, func())
+	// Bus is the mod runtime's event bus (wwapi.Runtime.Bus), the source
+	// of truth for game and mod events (docs/api/00-design.md decision
+	// 15). The Controller adapts it: every mod.<id>.* event, and every
+	// change of a mod's status (read through Mods after a core.mod_*
+	// event), becomes an EventMod. The session events are the
+	// Controller's own, as before. Nil: no mods (the CLI's host and join).
+	Bus *events.Bus
+	// Mods lists the mods with their current status (the runtime's), for
+	// Controller.Mods and the status changes; nil lists none.
+	Mods func() []ModStatus
 }
 
 // Controller owns at most one running session at a time and is the only
@@ -55,6 +66,10 @@ type Controller struct {
 
 	subMu sync.Mutex
 	subs  map[*subscription]struct{}
+
+	// The mods (mods.go): their statuses as last published.
+	modMu   sync.Mutex
+	modSeen map[string]ModStatus
 }
 
 // run is one Host or Join call in flight.
@@ -72,7 +87,9 @@ func New(e Engine, o Options) *Controller {
 	} else if o.Buffer < MinBuffer {
 		o.Buffer = MinBuffer
 	}
-	return &Controller{engine: e, opts: o, subs: map[*subscription]struct{}{}, pending: map[string]chan bool{}}
+	c := &Controller{engine: e, opts: o, subs: map[*subscription]struct{}{}, pending: map[string]chan bool{}}
+	c.adaptBus()
+	return c
 }
 
 // Host starts a host session under ctx and returns its ID at once; the

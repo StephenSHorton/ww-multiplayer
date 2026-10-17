@@ -376,3 +376,122 @@ func TestShowIPs(t *testing.T) {
 		t.Fatalf("showIPs true: %v %v", c.UI.ShowIPs, warns)
 	}
 }
+
+// TestBeforeMods: a file from before mods had settings (testdata/
+// before-mods.json, as that build saved it) loads without warnings and
+// without mod settings, and saves byte for byte as it was: no "mods" key.
+func TestBeforeMods(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "before-mods.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b = bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n"))
+	c, warns := Parse(b)
+	if len(warns) != 0 || c.Mods != nil {
+		t.Fatalf("warnings %v, mods %v", warns, c.Mods)
+	}
+	if on, set := c.ModEnabled("coop"); on || set {
+		t.Errorf("ModEnabled(coop) = %v, %v; want unset", on, set)
+	}
+	if s := c.ModSettings("coop"); s != nil {
+		t.Errorf("ModSettings(coop) = %s", s)
+	}
+	out, err := c.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out, b) {
+		t.Errorf("saved differently:\n%s\nwant\n%s", out, b)
+	}
+	c.Mods = map[string]ModConfig{} // empty is none
+	if out, _ := c.Marshal(); !bytes.Equal(out, b) {
+		t.Errorf("an empty Mods saved differently:\n%s", out)
+	}
+}
+
+// TestMods: mods.<id>.enabled and .settings read as wwapi.ConfigSource
+// reads them, SetModEnabled keeps a mod's settings, and a save keeps the
+// fields this build doesn't know inside a mod's entry.
+func TestMods(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	b, err := os.ReadFile(filepath.Join("testdata", "mods.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, string(b))
+	c, warns := Load(path)
+	if len(warns) != 0 {
+		t.Fatalf("warnings: %v", warns)
+	}
+	for _, w := range []struct {
+		id       string
+		on, set  bool
+		settings string
+	}{
+		{"coop", false, true, ""},
+		{"example", true, true, `{"alpha":"x","zeta":[3,{"b":1,"a":2}]}`},
+		{"multiplayer", false, false, `{"tickHz":30}`},
+		{"nope", false, false, ""},
+	} {
+		if on, set := c.ModEnabled(w.id); on != w.on || set != w.set {
+			t.Errorf("ModEnabled(%s) = %v, %v; want %v, %v", w.id, on, set, w.on, w.set)
+		}
+		if s := string(c.ModSettings(w.id)); s != w.settings {
+			t.Errorf("ModSettings(%s) = %s; want %s", w.id, s, w.settings)
+		}
+	}
+	c.SetModEnabled("multiplayer", false)
+	c.SetModEnabled("coop", true)
+	if err := c.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	got, warns := Load(path)
+	if len(warns) != 0 {
+		t.Fatalf("warnings after save: %v", warns)
+	}
+	if on, set := got.ModEnabled("multiplayer"); on || !set {
+		t.Errorf("multiplayer after save: %v, %v", on, set)
+	}
+	if on, _ := got.ModEnabled("coop"); !on {
+		t.Error("coop after save: off")
+	}
+	if s := string(got.ModSettings("multiplayer")); s != `{"tickHz":30}` {
+		t.Errorf("multiplayer settings after SetModEnabled: %s", s)
+	}
+	var m map[string]map[string]any
+	raw, _ := os.ReadFile(path)
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(top["mods"], &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["example"]["pinned"] == nil {
+		t.Errorf("an unknown field of a mod's entry was lost: %s", top["mods"])
+	}
+	var nm Config
+	nm.SetModEnabled("x", true)
+	if on, set := nm.ModEnabled("x"); !on || !set {
+		t.Error("SetModEnabled on a Config without mods")
+	}
+}
+
+// TestModSettingsNotObject: settings that are not a JSON object are
+// replaced by none ({}), with a warning, and the save writes that.
+func TestModSettingsNotObject(t *testing.T) {
+	c, warns := Parse([]byte(`{"mods":{"coop":{"settings":[1,2]}}}`))
+	if len(warns) != 1 || !strings.Contains(warns[0], `"coop"`) {
+		t.Fatalf("warnings: %v", warns)
+	}
+	if s := string(c.ModSettings("coop")); s != "{}" {
+		t.Fatalf("settings = %s", s)
+	}
+	out, _ := c.Marshal()
+	if _, warns := Parse(out); len(warns) != 0 {
+		t.Fatalf("the save warns again: %v\n%s", warns, out)
+	}
+	if c, warns := Parse([]byte(`{"mods":"on"}`)); len(warns) != 1 || c.Mods != nil {
+		t.Fatalf("mods not an object: %v %v", warns, c.Mods)
+	}
+}

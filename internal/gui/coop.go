@@ -215,6 +215,9 @@ func (b *Bridge) SetCoop(r CoopRequest) (err error) {
 	if err != nil {
 		return err
 	}
+	if r.Mode != "" && r.Mode != "off" && !b.coopMod() {
+		return errNoCoopMod
+	}
 	b.mu.Lock()
 	b.cfg.Coop.LastMode = r.Mode
 	if r.Mode == "" {
@@ -429,7 +432,7 @@ func openFolderHere(dir string) error {
 // lobby session.
 func (b *Bridge) coopView(st session.State, running bool, mk masker) *CoopView {
 	l := st.Lobby
-	if l == nil || l.Legacy {
+	if l == nil || l.Legacy || !b.coopMod() {
 		return nil
 	}
 	b.mu.Lock()

@@ -1,0 +1,3 @@
+exit 1
+ERROR: example is a dev mod: add --dev
+Usage: <exe> mods [--json] [--dev] [--mods=a,b] [--no-mod=x]

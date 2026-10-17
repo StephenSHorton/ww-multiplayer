@@ -1,0 +1,36 @@
+{
+  "color": "#2A64D0",
+  "coop": {
+    "dryRun": false,
+    "lastMode": "off",
+    "lastWorld": ""
+  },
+  "dolphin": {
+    "exe": "C:\\Dolphin\\Dolphin.exe",
+    "installCheats": true,
+    "launchOnStart": true,
+    "userDir": ""
+  },
+  "iso": {
+    "patched": "C:\\Roms\\ww-multiplayer.iso",
+    "vanilla": "C:\\Roms\\ww.iso"
+  },
+  "name": "Aryll",
+  "port": 25565,
+  "recentHosts": [
+    {
+      "addr": "26.12.3.4:25565",
+      "label": "Radmin",
+      "lastUsed": "2026-10-16T12:00:00Z"
+    }
+  ],
+  "ui": {
+    "setupDone": true,
+    "showIPs": false,
+    "window": {
+      "h": 720,
+      "w": 1100
+    }
+  },
+  "version": 1
+}

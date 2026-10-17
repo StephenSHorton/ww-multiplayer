@@ -5,10 +5,11 @@
 // (tunicsync/, playercolor/) and the wire (net/).
 //
 // The mod is compiled in (mods.go's compiledMods). It hands the engine
-// out as wwapi.NetProvider; the app's faces still build theirs the same
-// way (package main's newTUIEngine and newCLIEngine) until D4 makes the
-// session controller the bus adapter. Co-op is its own mod requiring this
-// one, and meets the engine through engine.CoopApp.
+// out as wwapi.NetProvider: the app's faces run the mods under a
+// wwapi.Runtime and drive this engine through the session controller,
+// which adapts the runtime's event bus (EventMod); the CLI's host and
+// join still build theirs (package main's newCLIEngine). Co-op is its own
+// mod requiring this one, and meets the engine through engine.CoopApp.
 //
 // # v0 UNSTABLE
 //
@@ -48,7 +49,7 @@ func New(newEngine func() session.Engine) *Mod { return &Mod{newEngine: newEngin
 func (*Mod) Manifest() wwapi.Manifest { return wwapi.ManifestFrom(manifestJSON) }
 
 // Init registers nothing yet: the sessions run under the session
-// controller (D4 moves them onto the bus).
+// controller, which adapts the runtime's bus.
 func (*Mod) Init(*wwapi.Context) error { return nil }
 
 // Engine is the session engine (wwapi.NetProvider), built once; nil when

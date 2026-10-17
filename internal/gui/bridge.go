@@ -20,6 +20,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
@@ -119,6 +120,12 @@ type Bridge struct {
 	// LAN discovery (lan.go): the hosted lobby's beacon and Home's
 	// "Sessions on your network".
 	lan lanState
+
+	// The Mods page (mods.go): the app's mod runtime and this run's
+	// mod flags.
+	mods    *wwapi.Runtime
+	modFlag func(id string) (on, set bool)
+	devMods bool
 }
 
 // pendingHost is a join's address, waiting to reach its host.
@@ -133,7 +140,8 @@ func NewBridge(o Options) *Bridge {
 		postPatch: o.PostPatch, patchRun: patch.Run, inspect: patch.Inspect, denv: o.DolphinEnv,
 		home:      func() string { h, _ := os.UserHomeDir(); return h },
 		macStatus: macStatusHere, prepareMac: launch.PrepareMacHere,
-		emitters: map[int]func(EventView){}, hostIPs: o.HostIPs, findSave: findSave, openPath: openFolderHere}
+		emitters: map[int]func(EventView){}, hostIPs: o.HostIPs, findSave: findSave, openPath: openFolderHere,
+		mods: o.Mods, modFlag: o.ModFlag, devMods: o.DevMods}
 	if b.getenv == nil {
 		b.getenv = func(string) string { return "" }
 	}

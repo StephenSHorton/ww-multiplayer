@@ -10,8 +10,8 @@
 //     (player.Warp, carried out by the C warp handler).
 //
 // It is a dev mod ("dev": true in mod.json), local_only, and needs the
-// blob's "warp" feature. The app does not list it: compiledMods() in
-// mods.go holds the app's own mods, and the dev mods are shown in D4.
+// blob's "warp" feature. The app lists it only with --dev (package main's
+// devMods, beside compiledMods: `ww-multiplayer ui --dev`, `mods --dev`).
 //
 // # v0 UNSTABLE
 //
