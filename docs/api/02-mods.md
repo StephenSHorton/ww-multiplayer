@@ -17,7 +17,7 @@ type Mod struct{ wwapi.NoRun } // NoRun: no long-running work
 func (Mod) Manifest() wwapi.Manifest { return wwapi.ManifestFrom(manifest) }
 
 func (Mod) Init(c *wwapi.Context) error {
-    events.On(c.Events(), func(e StageChanged) { c.Log().Log(report.Info, "now in "+e.To) })
+    events.On(c.Events(), func(e events.StageChanged) { c.Log().Log(report.Info, "now in "+e.To.Stage) })
     return nil
 }
 ```
@@ -74,7 +74,7 @@ The app lists its mods statically in `compiledMods()` (`mods.go` at the repo roo
 | `load_order` | | Ties between mods that do not depend on each other: lower first, then by id. -1000 to 1000, default 0. |
 | `enabled_by_default` | | Default `true`. |
 | `dev` | | A development mod, off unless dev mods are shown. Default `false`. |
-| `game_ids` | | The discs it is for (`GZLE01`). Parsed now; the contract check (C14) will use it. |
+| `game_ids` | | The discs it is for (`GZLE01`). Parsed now. The contract check exists (`wwapi.CheckContract`, pre-E1 mode, C14); the runtime checks `game_ids` against it once it is wired in (D4). |
 | `multiplayer` | | `client_required` (every player needs it; it will count in `mods_hash`), `host_only`, or `local_only` (the default). |
 | `provides` | | Roles. Only `net` exists. At most one loading mod per role. |
 | `needs` | | Features of the patched blob it needs. A missing one gives `NEEDS_REPATCH`. |
@@ -111,7 +111,7 @@ Hyphen ranges are not supported. As in npm, a prerelease such as `1.3.0-rc.1` sa
 1. The manifest parses, and no two mods share an id (all of them fail).
 2. The enable filter: `opts.Enabled` (settings `mods.<id>.enabled`, CLI flags later), else `enabled_by_default`, and `dev` mods only with `opts.Dev`.
 3. The `api` range contains the wwapi version.
-4. `needs` against the blob's Features, when they are known (`NEEDS_REPATCH`). Nothing reads them from the blob yet, so this check is skipped until the contract check exists (C14, E1).
+4. `needs` against the blob's Features, when they are known (`NEEDS_REPATCH`). `wwapi.CheckContract` reads them (pre-E1 mode: the fixed `PreE1Features` until E1 puts a header in the blob), but the runtime does not pass them to `Resolve` until D4, so for now this check is skipped.
 5. `NetProvider` and `"provides": ["net"]` agree.
 6. Dependencies, then dependency cycles (`dependency cycle: a -> b -> a`; optional dependencies count).
 7. At most one loading mod per `provides` role. When two mods claim `net`, both fail and the user turns one off.
@@ -159,9 +159,9 @@ Each mod's `*wwapi.Context` is bound to that mod:
 | `Config()` | The mod's settings (`Decode`, `Get(key)`, `Raw`) from `Options.Config`, a `ConfigSource` the faces fill. wwapi and mods never import `internal/config`, and `TestCLIReadsNoConfig` checks this for `wwapi/` and `mods/`. The CLI passes nil and uses manifest defaults. |
 | `DataDir()` | `Options.DataRoot/<id>`, not created. |
 | `Has(id)`, `Mod(id)` | Whether a mod is loaded, and its `PublicAPI`. |
-| `Features()` | The blob's Features (unknown for now). |
+| `Features()` | The blob's Features: `Options.Resolve.Features`, unknown until the runtime passes `Game.Features()` in (D4). |
 
-`Game`, `Commands` and `Allow` (design §6.2) come with C14 and `wwapi/write`.
+`wwapi.Game` (the root handle, `Attach`/`NewGame`) and `wwapi/commands` exist since C14; the runtime hands them to mods as `Game` and `Commands` from D4. `Allow` (design §6.2) comes with `wwapi/write` enforcement.
 
 ## `mods` command
 

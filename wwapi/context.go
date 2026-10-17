@@ -57,8 +57,9 @@ func (c ConfigSection) Get(key string, v any) (bool, error) {
 // registers through it (event subscriptions today; commands, verbs and
 // write ranges later) belongs to the mod, so quarantine can remove it.
 //
-// More arrives with the packages behind it (design §6.2): Game (C14),
-// Commands, and Allow for write ranges (wwapi/write).
+// More arrives with the packages behind it (design §6.2): Game (wwapi.Game
+// exists; the runtime hands it out from D4), Commands, and Allow for
+// write ranges (wwapi/write).
 type Context struct {
 	rt   *Runtime
 	m    *modState

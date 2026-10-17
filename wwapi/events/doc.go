@@ -10,12 +10,15 @@
 // An event is a plain Go struct value that embeds [Base] and has an
 // EventName method with a value receiver:
 //
-//	type StageChanged struct {
+//	type DoorOpened struct {
 //		events.Base
-//		From, To string
+//		Room int
 //	}
 //
-//	func (StageChanged) EventName() string { return "core.stage_changed" }
+//	func (DoorOpened) EventName() string { return "mod.mydoors.door_opened" }
+//
+// The core game events (StageChanged, ItemGained, ...) are defined the
+// same way in this package and emitted by wwapi.Game's watcher.
 //
 // The bus stamps every emitted event with a [Meta] (sequence number, time,
 // source and origin), so a publisher never fills Base in itself.

@@ -32,6 +32,11 @@
 // and store like the real ones (d_save.cpp:1084-1087), so a tool byte
 // written into the same word between the load and the store is lost here
 // too (§4.2.1).
+//
+// # v0 UNSTABLE
+//
+// This package is part of wwapi v0. Its API may change in any 0.x minor
+// version.
 package fakegame
 
 import (

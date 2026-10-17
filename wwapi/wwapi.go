@@ -21,6 +21,17 @@
 // A [Runtime] then calls each mod's Init in that order and runs every
 // Run under a supervisor: a panic or error moves only that mod to
 // QUARANTINED and removes its event handlers.
+//
+// # Game
+//
+// [Attach] (or [NewGame] over any game memory, a fakegame in tests)
+// returns a [Game], the root handle on one running game: its memory,
+// read-only; the watcher's last snapshot and gate status; Link, the
+// avatar slots, the actor queue, the save and the disc; the core events
+// the watcher emits on wwapi/events; and the commands. The contract check
+// ([CheckContract]) runs in pre-E1 mode: a blob without a WWMB header is
+// ABI 0 with [PreE1Features], never a refusal. The mod runtime does not
+// hand a Game to mods yet (D4).
 package wwapi
 
 import "errors"
