@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // fuzzGame is a crude game the fuzzer drives: a save it pokes at, gates

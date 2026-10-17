@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Run runs frames every d until ctx ends, as the console's main loop

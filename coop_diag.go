@@ -11,7 +11,7 @@ package main
 // two gaps beside the mod) and `stage-hop` (a raw mNextStage request).
 // Like the other diagnostics, none of them is listed in printHelp.
 //
-// Citations follow internal/coop/addr: file:line is the zeldaret/tww
+// Citations follow wwapi/addr: file:line is the zeldaret/tww
 // decomp at 4d78c994, sym:N is line N of its config/GZLE01/symbols.txt.
 
 import (
@@ -30,13 +30,14 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // coopDiagUsage is each co-op diagnostic's usage line. The command registry
@@ -1201,7 +1202,7 @@ func framePhaseProbe(ctx context.Context, w io.Writer, m mem.Mem, d time.Duratio
 	start := time.Now()
 	for i := 0; ; i++ {
 		t0 := time.Now()
-		hb, err := mem.ReadU32(m, addr.SpawnTrigger)
+		hb, err := mem.ReadU32(m, mailbox.SpawnTrigger)
 		if err != nil {
 			return err
 		}
@@ -1222,7 +1223,7 @@ func printPhase(w io.Writer, r phaseReport, ran time.Duration) {
 	ms := func(d time.Duration) string { return fmt.Sprintf("%.2f ms", float64(d)/float64(time.Millisecond)) }
 	us := func(d time.Duration) string { return fmt.Sprintf("%d µs", d/time.Microsecond) }
 	fmt.Fprintf(w, "heartbeat  spawn_trigger 0x%08X over %.1f s: %d beats seen as %d changes\n",
-		addr.SpawnTrigger, ran.Seconds(), r.Beats, r.Changes)
+		mailbox.SpawnTrigger, ran.Seconds(), r.Beats, r.Changes)
 	if r.Changes == 0 {
 		fmt.Fprintln(w, "           the heartbeat never moved: is emulation paused, or the ISO not patched?")
 		return
@@ -1384,12 +1385,12 @@ func heapFree(w io.Writer, m mem.Mem) error {
 		return err
 	}
 	switch {
-	case codeEnd >= addr.PatchedArenaLo:
+	case codeEnd >= mailbox.PatchedArenaLo:
 		fmt.Fprintf(w, "arena: JKRHeap::mCodeEnd 0x%08X, 0x%X above the patched __OSArenaLo 0x%08X\n",
-			codeEnd, codeEnd-addr.PatchedArenaLo, addr.PatchedArenaLo)
+			codeEnd, codeEnd-mailbox.PatchedArenaLo, mailbox.PatchedArenaLo)
 	default:
 		fmt.Fprintf(w, "arena: JKRHeap::mCodeEnd 0x%08X is below the patched __OSArenaLo 0x%08X: a vanilla ISO, or not booted?\n",
-			codeEnd, addr.PatchedArenaLo)
+			codeEnd, mailbox.PatchedArenaLo)
 	}
 	fmt.Fprintf(w, "       __OSArenaLo now 0x%08X (initArena moves it to the arena top, JKRHeap.cpp:94)\n", arenaLo)
 
@@ -1508,17 +1509,17 @@ const canaryChunk = 0x400
 // canaryRegions are the two gaps beside the mod the design wants proven
 // free (§4.5, §11 item 5): the TRK stack up to T2, and the slack between
 // the mailbox and the patched arena.
-var canaryRegions = []addr.Region{addr.CanaryTRK, addr.CanaryArena}
+var canaryRegions = []addr.Region{mailbox.CanaryTRK, mailbox.CanaryArena}
 
 // canaryForbidden is what a canary must never cover: the main stack and
 // the header above it that boot writes, T2 with its slack and the
 // mailbox, and the patched arena (§4.5 layout).
 func canaryForbidden() []addr.Region {
 	return []addr.Region{
-		addr.MainStack,
-		addr.MainStackHeader,
-		{Name: "T2, its slack and the mailbox", Start: inject.T2Address, End: addr.Mailbox + addr.MailboxSize},
-		{Name: "the arena", Start: addr.PatchedArenaLo, End: addr.MEM1End},
+		mailbox.MainStack,
+		mailbox.MainStackHeader,
+		{Name: "T2, its slack and the mailbox", Start: inject.T2Address, End: mailbox.Mailbox + mailbox.MailboxSize},
+		{Name: "the arena", Start: mailbox.PatchedArenaLo, End: addr.MEM1End},
 	}
 }
 
@@ -1530,8 +1531,8 @@ func canarySafe(r addr.Region) error {
 	if err := mem.CheckRange(r.Start, int(r.Size())); err != nil {
 		return err
 	}
-	if t2End := inject.T2Address + uint32(len(inject.T2Bytes)); t2End > addr.Mailbox {
-		return fmt.Errorf("T2 ends at 0x%08X, past the mailbox at 0x%08X: the layout changed, so the canary ranges are unproven", t2End, addr.Mailbox)
+	if t2End := inject.T2Address + uint32(len(inject.T2Bytes)); t2End > mailbox.Mailbox {
+		return fmt.Errorf("T2 ends at 0x%08X, past the mailbox at 0x%08X: the layout changed, so the canary ranges are unproven", t2End, mailbox.Mailbox)
 	}
 	for _, f := range canaryForbidden() {
 		if r.Start < f.End && f.Start < r.End {
@@ -1551,16 +1552,16 @@ func canaryPreflight(m mem.Mem, tick func()) error {
 	if err != nil {
 		return err
 	}
-	if codeEnd < addr.PatchedArenaLo || codeEnd >= addr.MEM1End {
+	if codeEnd < mailbox.PatchedArenaLo || codeEnd >= addr.MEM1End {
 		return fmt.Errorf("JKRHeap::mCodeEnd is 0x%08X, not at or above the patched __OSArenaLo 0x%08X: is this the patched ISO, booted?",
-			codeEnd, addr.PatchedArenaLo)
+			codeEnd, mailbox.PatchedArenaLo)
 	}
-	hb, err := mem.ReadU32(m, addr.SpawnTrigger)
+	hb, err := mem.ReadU32(m, mailbox.SpawnTrigger)
 	if err != nil {
 		return err
 	}
 	tick()
-	hb2, err := mem.ReadU32(m, addr.SpawnTrigger)
+	hb2, err := mem.ReadU32(m, mailbox.SpawnTrigger)
 	if err != nil {
 		return err
 	}

@@ -1,8 +1,8 @@
 package tables
 
 import (
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/enemies"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // What M6's kill union (§7.2, M6.0) reads of the enemy table: the verdict

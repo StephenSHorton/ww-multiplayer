@@ -3,7 +3,7 @@ package fakegame
 import (
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // The game's own item gets, key doors and the few live facts M4's

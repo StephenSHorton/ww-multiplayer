@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // mailboxLayout computes the Mailbox struct's field offsets from
@@ -118,10 +118,10 @@ func TestMailboxLayout(t *testing.T) {
 	if size != mailboxTunicEnd {
 		t.Errorf("Mailbox is 0x%X bytes, Go's mailboxTunicEnd is 0x%X", size, mailboxTunicEnd)
 	}
-	// region-probe's canaries start at addr.Mailbox+MailboxSize: a stale
+	// region-probe's canaries start at mailbox.Mailbox+MailboxSize: a stale
 	// size would arm canary words over the mailbox's tail.
-	if size != addr.MailboxSize || addr.Mailbox != mailboxBase {
-		t.Errorf("Mailbox is 0x%X bytes at 0x%08X; internal/coop/addr says 0x%X at 0x%08X", size, uint32(mailboxBase), addr.MailboxSize, addr.Mailbox)
+	if size != mailbox.MailboxSize || mailbox.Mailbox != mailboxBase {
+		t.Errorf("Mailbox is 0x%X bytes at 0x%08X; wwapi/mailbox says 0x%X at 0x%08X", size, uint32(mailboxBase), mailbox.MailboxSize, mailbox.Mailbox)
 	}
 	if len(commented) < 40 {
 		t.Errorf("only %d fields carry a +0xNN comment; the parser is missing fields", len(commented))

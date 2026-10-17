@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
@@ -18,6 +17,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // batchTicks is how many ticks of the tick clock make story.BatchIdle.
@@ -205,7 +206,7 @@ func TestDifferPacedDrop(t *testing.T) {
 	}{
 		{"a save state", func(dr *differRig) {
 			dr.ticks(3)
-			dr.store(addr.SpawnTrigger, []byte{0, 0, 0, 1})
+			dr.store(mailbox.SpawnTrigger, []byte{0, 0, 0, 1})
 			if e := dr.tickNoFrame(); !strings.Contains(e.Note, "heartbeat went backwards") {
 				dr.t.Fatalf("after the save state: note %q", e.Note)
 			}

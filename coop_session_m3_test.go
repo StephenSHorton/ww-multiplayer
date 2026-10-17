@@ -14,16 +14,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // M3 through the session plumbing (§9 M3): host and join --coop with
@@ -182,7 +183,7 @@ func newCoBeat(cg *coGame) *coBeat { return &coBeat{FakeMem: cg.m, g: cg.g} }
 
 func (b *coBeat) Read(a uint32, n int) ([]byte, error) {
 	b.mu.Lock()
-	beat := a == addr.SpawnTrigger && b.last == addr.SpawnTrigger
+	beat := a == mailbox.SpawnTrigger && b.last == mailbox.SpawnTrigger
 	b.last = a
 	b.mu.Unlock()
 	if beat {
@@ -252,7 +253,7 @@ func (b *coBeat) frame() {
 	if err != nil || link == 0 {
 		return
 	}
-	w, err := b.FakeMem.Read(addr.WarpSeq, 20)
+	w, err := b.FakeMem.Read(mailbox.WarpSeq, 20)
 	if err != nil || bytes.Equal(w[:4], w[4:8]) {
 		return
 	}
@@ -971,8 +972,8 @@ func TestCoopSessionM3(t *testing.T) {
 	// A storm of save-state loads turns B's writes off, said once; its
 	// pipeline still follows the world, and pose sync goes on.
 	for range replica.MaxRegressionsPerMinute + 3 {
-		hb := binary.BigEndian.Uint32(gb.read(addr.SpawnTrigger, 4))
-		if err := gb.m.Store(addr.SpawnTrigger, u32b(hb-100)); err != nil {
+		hb := binary.BigEndian.Uint32(gb.read(mailbox.SpawnTrigger, 4))
+		if err := gb.m.Store(mailbox.SpawnTrigger, u32b(hb-100)); err != nil {
 			t.Fatal(err)
 		}
 		for range 3 {

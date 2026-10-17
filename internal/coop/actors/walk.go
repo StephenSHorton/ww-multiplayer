@@ -13,7 +13,7 @@
 // reads (fopAcM_delete, then fpcDt_Handler at the next frame's start,
 // f_pc_manager.cpp:280).
 //
-// Citations follow internal/coop/addr: file:line is the zeldaret/tww
+// Citations follow wwapi/addr: file:line is the zeldaret/tww
 // decomp at 4d78c994, sym:N is line N of its config/GZLE01/symbols.txt.
 package actors
 
@@ -21,8 +21,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // MaxNodes is where a walk gives up (§7.2).

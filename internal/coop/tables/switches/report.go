@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // dungeons are the save tables the report lists switch by switch, with

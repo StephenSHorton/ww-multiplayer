@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // TestReconcileM5RoomHold: a shutter created as Link comes through a door

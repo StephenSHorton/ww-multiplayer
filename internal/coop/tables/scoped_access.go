@@ -1,6 +1,6 @@
 package tables
 
-import "github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+import "github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 
 // What M5's live room puzzles (§6.3, §9 M5) read of the switch table: the
 // verdict on the switches SCOPED carries, the dan switches 0x80-0xBF, the

@@ -6,8 +6,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // warpLink writes the target position into the warp mailbox slot, bumps

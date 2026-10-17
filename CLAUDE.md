@@ -27,7 +27,7 @@ ww-multiplayer/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
 │   ├── coop/                    # Co-op engine (docs/08): replica, hub, world, wire, derive, ... plus the generic game layer
-│   │                            #   it is built on (addr, mem, snap, gate, actors, stagedata, savefile, backup, tables, fakegame)
+│   │                            #   it is built on (snap, gate, actors, stagedata, savefile, backup, tables, fakegame)
 │   ├── dolphin/                 # Dolphin process memory access (Windows; macOS via task_for_pid, cgo), window + screenshot
 │   │   └── memory.go            # Core read/write, RAM scanner
 │   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); Bridge = the JS API; `ui --browser` server
@@ -50,6 +50,8 @@ ww-multiplayer/
 │   ├── tui/                     # Charm Bubble Tea UI (resurrected v0.1.5)
 │   │   ├── app.go, splash.go, connect.go, dashboard.go, styles.go
 │   └── tunic/                   # Tunic texture recolor (CMPR encode, docs/09)
+├── wwapi/                       # Modding API, v0 UNSTABLE (docs/api): mem/ (Reader/Mem, FakeMem, Dolphin adapter), addr/ (cited addresses),
+│                                #   mailbox/ (T2 + mailbox layout, hand-written until C9), events/, schema/, semver/; the mod runtime (manifest, resolver, supervisor)
 ├── inject/                      # C source for the injected PPC code
 │   ├── src/multiplayer.c        # The mod's C side
 │   ├── include/{game,mailbox}.h

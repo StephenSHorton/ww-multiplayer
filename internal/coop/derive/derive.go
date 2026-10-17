@@ -55,7 +55,7 @@
 // counters, and changes mKeyNum, between the snapshot and the write.
 //
 // Citations: file:line is the zeldaret/tww decomp at commit 4d78c994, as
-// in internal/coop/addr.
+// in wwapi/addr.
 package derive
 
 import (
@@ -63,14 +63,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/hearts"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // Kind is what a Write changes.

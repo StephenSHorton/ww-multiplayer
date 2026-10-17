@@ -1,8 +1,8 @@
 package hub
 
 import (
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // The kill union (§7.2, M6.0). SCOPED KILL carries a zone's dead-actor

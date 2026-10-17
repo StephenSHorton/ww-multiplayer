@@ -2,7 +2,7 @@
 
 package class
 
-import "github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+import "github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 
 // syncMask[i] is the story bits of event byte i that sync (§6.5): the
 // named bits (d_save_event_flag.inc) minus localOnlyBits and refightBits

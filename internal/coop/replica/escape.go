@@ -8,10 +8,11 @@ import (
 	"math"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // The escape hatches (§6.7). Until M9 a create-only actor in the current
@@ -221,7 +222,7 @@ func WarpFields(p Pos, seq uint32) []Field {
 	binary.BigEndian.PutUint32(b[8:], math.Float32bits(p.Z))
 	return []Field{
 		{Addr: WarpPos, Data: b},
-		{Addr: addr.WarpSeq, Data: binary.BigEndian.AppendUint32(nil, seq+1)},
+		{Addr: mailbox.WarpSeq, Data: binary.BigEndian.AppendUint32(nil, seq+1)},
 	}
 }
 
@@ -461,7 +462,7 @@ func (r *Replica) sameStageWarp(p *wire.Presence) ([]Field, string, error) {
 	case p.Room < 0:
 		return nil, "", fmt.Errorf("%w: the partner's room is not known yet", ErrNotNow)
 	}
-	b, err := r.m.Read(addr.WarpSeq, 8)
+	b, err := r.m.Read(mailbox.WarpSeq, 8)
 	if err != nil {
 		return nil, "", err
 	}

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // The memory card as the fake keeps it: one packed save image per file

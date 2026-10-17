@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	mbox "github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // The C side's addresses, read from the committed sources rather than
@@ -133,7 +133,7 @@ func checkBudget(t2Addr uint32, t2Len int, mailbox, arenaLo uint32) error {
 // docs/09 §6): a C change that grows T2 into the mailbox fails here, at
 // blob regen time, instead of corrupting the mailbox on a live Dolphin.
 // The mailbox's own end against the arena is TestModRegions'
-// (internal/coop/addr), whose MailboxSize TestMailboxLayout pins to
+// (wwapi/mailbox), whose MailboxSize TestMailboxLayout pins to
 // mailbox.h.
 func TestT2EndsBelowMailbox(t *testing.T) {
 	mailbox := define(t, mailboxH, "MAILBOX_ADDR")
@@ -142,11 +142,11 @@ func TestT2EndsBelowMailbox(t *testing.T) {
 	if err := checkBudget(T2Address, len(T2Bytes), mailbox, arenaLo); err != nil {
 		t.Fatal(err)
 	}
-	// Go's copies (internal/coop/addr, the canaries and region-probe use
+	// Go's copies (wwapi/mailbox, the canaries and region-probe use
 	// them) must agree with the C side.
-	if addr.Mailbox != mailbox || addr.PatchedArenaLo != arenaLo || addr.T2Base != T2Address {
-		t.Errorf("internal/coop/addr says T2 0x%08X, mailbox 0x%08X, arena 0x%08X; the C side says 0x%08X, 0x%08X, 0x%08X",
-			addr.T2Base, addr.Mailbox, addr.PatchedArenaLo, T2Address, mailbox, arenaLo)
+	if mbox.Mailbox != mailbox || mbox.PatchedArenaLo != arenaLo || mbox.T2Base != T2Address {
+		t.Errorf("wwapi/mailbox says T2 0x%08X, mailbox 0x%08X, arena 0x%08X; the C side says 0x%08X, 0x%08X, 0x%08X",
+			mbox.T2Base, mbox.Mailbox, mbox.PatchedArenaLo, T2Address, mailbox, arenaLo)
 	}
 	end := T2Address + uint32(len(T2Bytes))
 	t.Logf("T2 0x%08X..0x%08X, 0x%X bytes free below the mailbox (0x%08X); arena at 0x%08X", T2Address, end, mailbox-end, mailbox, arenaLo)

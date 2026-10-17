@@ -12,7 +12,7 @@
 //	0x08 CTRL        both   resync, co-op off, tombstone
 //
 // No raw address travels: offsets index the canonical dSv_save_c image
-// (internal/coop/addr Off* offsets) and words index one game array, and
+// (wwapi/addr Off* offsets) and words index one game array, and
 // each receiver derives addresses itself. Decoding is strict, so a peer's
 // bug or a hostile frame is refused before any of it reaches a merge or a
 // write:
@@ -32,7 +32,7 @@
 // sender. Every error wraps ErrMalformed, except a CO_HELLO of another
 // schema, which wraps ErrSchema so the hub can answer with NOTICE SCHEMA.
 //
-// Decomp citations are zeldaret/tww at 4d78c994, as in internal/coop/addr.
+// Decomp citations are zeldaret/tww at 4d78c994, as in wwapi/addr.
 package wire
 
 import (
@@ -42,8 +42,8 @@ import (
 	"fmt"
 	"hash/fnv"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Schema is the layout version of the sub-messages below. CO_HELLO carries

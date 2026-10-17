@@ -9,13 +9,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // BeatTimeout is how long a FrameWriter waits for the heartbeat to move
@@ -648,7 +649,7 @@ func (w *FrameWriter) waitBeat(ctx context.Context) (uint32, time.Duration, erro
 	if !w.have {
 		return 0, 0, fmt.Errorf("%w: no snapshot", ErrAborted)
 	}
-	hb0, err := mem.ReadU32(w.Mem, addr.SpawnTrigger)
+	hb0, err := mem.ReadU32(w.Mem, mailbox.SpawnTrigger)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -660,7 +661,7 @@ func (w *FrameWriter) waitBeat(ctx context.Context) (uint32, time.Duration, erro
 			ErrAborted, d, start.Sub(w.tick.at).Round(time.Millisecond), lead)
 	}
 	for last := hb0; ; {
-		hb, err := mem.ReadU32(w.Mem, addr.SpawnTrigger)
+		hb, err := mem.ReadU32(w.Mem, mailbox.SpawnTrigger)
 		waited := time.Since(start)
 		switch d := int32(hb - last); {
 		case err != nil:

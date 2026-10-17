@@ -5,8 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // Stages the tests load. The names are only labels; the tables are the
@@ -142,7 +143,7 @@ func TestBootState(t *testing.T) {
 	if v := u32(t, m, addr.PlayerPtr); v != 0 {
 		t.Errorf("mpPlayerPtr[0] = %#x with no stage", v)
 	}
-	if v := u32(t, m, addr.SpawnTrigger); v != 0 || g.FrameCount() != 0 {
+	if v := u32(t, m, mailbox.SpawnTrigger); v != 0 || g.FrameCount() != 0 {
 		t.Errorf("heartbeat %d, frames %d at boot", v, g.FrameCount())
 	}
 }
@@ -151,19 +152,19 @@ func TestBootState(t *testing.T) {
 func TestHeartbeat(t *testing.T) {
 	g, m := newGame(t)
 	g.Frame()
-	if v := u32(t, m, addr.SpawnTrigger); v != 1 {
+	if v := u32(t, m, mailbox.SpawnTrigger); v != 1 {
 		t.Fatalf("after 1 frame heartbeat = %d", v)
 	}
 	g.Frames(9)
 	load(t, g, outset)
 	g.Frames(5)
-	if v := u32(t, m, addr.SpawnTrigger); v != 15 || g.FrameCount() != 15 {
+	if v := u32(t, m, mailbox.SpawnTrigger); v != 15 || g.FrameCount() != 15 {
 		t.Fatalf("after 15 frames heartbeat = %d, frames = %d", v, g.FrameCount())
 	}
 	// It is a plain u32 counter: it wraps.
-	_ = m.Store(addr.SpawnTrigger, []byte{0xFF, 0xFF, 0xFF, 0xFF})
+	_ = m.Store(mailbox.SpawnTrigger, []byte{0xFF, 0xFF, 0xFF, 0xFF})
 	g.Frame()
-	if v := u32(t, m, addr.SpawnTrigger); v != 0 {
+	if v := u32(t, m, mailbox.SpawnTrigger); v != 0 {
 		t.Fatalf("heartbeat after 0xFFFFFFFF = %#x", v)
 	}
 }

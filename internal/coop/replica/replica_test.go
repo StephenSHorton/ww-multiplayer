@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // fakeClock is a Config.Now that moves only when told.
@@ -475,7 +476,7 @@ func TestReplicaRebaselineSendsWorld(t *testing.T) {
 		gap  func(rr *replicaRig, fm *flakyMem)
 	}{
 		{"a save state holding a chest the world lacks", func(rr *replicaRig, _ *flakyMem) {
-			rr.store(addr.SpawnTrigger, []byte{0, 0, 0, 1})
+			rr.store(mailbox.SpawnTrigger, []byte{0, 0, 0, 1})
 			rr.set(c, m)
 			rr.r.Tick()
 		}},

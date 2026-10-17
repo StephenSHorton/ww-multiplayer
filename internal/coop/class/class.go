@@ -14,7 +14,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Class is how one byte of the image is shared.

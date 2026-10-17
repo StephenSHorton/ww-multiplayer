@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // nsAddr is the address of mNextStage's byte off.
@@ -63,17 +64,17 @@ func TestWriteGuardEscapeRules(t *testing.T) {
 		{"mWipe -1", 0, gatesOpen, false, nsAddr(addr.NextOffWipe), 0, 0xFF, RefuseValue},
 		{"past mNextStage", 0, gatesOpen, false, nsAddr(addr.NextStageSize), 0, 1, RefuseTarget},
 		{"mCurStage", 0, gatesOpen, false, addr.CurStageName, 0, 's', RefuseTarget},
-		{"warp_seq", 0, gatesOpen, false, addr.WarpSeq + 3, 6, 7, 0},
+		{"warp_seq", 0, gatesOpen, false, mailbox.WarpSeq + 3, 6, 7, 0},
 		{"warp_x", 0, gatesOpen, false, WarpPos, 0, 0x44, 0},
 		{"warp_z's last byte", 0, gatesOpen, false, WarpPos + 11, 0, 1, 0},
 		{"warp_ack", 0, gatesOpen, false, WarpAck, 6, 7, RefuseTarget},
-		{"warp_force", 0, gatesOpen, false, addr.Mailbox + 0xE4, 0, 1, RefuseTarget},
-		{"the heartbeat", 0, gatesOpen, false, addr.SpawnTrigger, 0, 1, RefuseTarget},
+		{"warp_force", 0, gatesOpen, false, mailbox.Mailbox + 0xE4, 0, 1, RefuseTarget},
+		{"the heartbeat", 0, gatesOpen, false, mailbox.SpawnTrigger, 0, 1, RefuseTarget},
 		{"during an event", 0, busy, false, addr.NextStageEnable, 0, 1, RefuseGate},
-		{"a warp during an event", 0, busy, false, addr.WarpSeq, 0, 1, RefuseGate},
+		{"a warp during an event", 0, busy, false, mailbox.WarpSeq, 0, 1, RefuseGate},
 		{"unarmed", 0, gatesOpen, true, addr.NextStageEnable, 0, 1, RefuseGate},
 		{"a reconciler's guard", M3Targets, gatesOpen, false, addr.NextStageEnable, 0, 1, RefuseTarget},
-		{"a warp on a reconciler's guard", M3Targets, gatesOpen, false, addr.WarpSeq, 0, 1, RefuseTarget},
+		{"a warp on a reconciler's guard", M3Targets, gatesOpen, false, mailbox.WarpSeq, 0, 1, RefuseTarget},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -109,7 +110,7 @@ func TestEscapeAllowlist(t *testing.T) {
 	if want := addr.NextStageSize + 4 + 12; n != want {
 		t.Errorf("%d escape bytes, want %d", n, want)
 	}
-	for _, a := range []uint32{addr.NextStage, addr.NextStageEnable, addr.WarpSeq, WarpPos} {
+	for _, a := range []uint32{addr.NextStage, addr.NextStageEnable, mailbox.WarpSeq, WarpPos} {
 		if g.Mask(a) != 0xFF || g.TargetOf(a) != TargetEscape {
 			t.Errorf("0x%08X: mask 0x%02X, target %s", a, g.Mask(a), g.TargetOf(a))
 		}
@@ -167,7 +168,7 @@ func TestStageRequest(t *testing.T) {
 
 func TestWarpFields(t *testing.T) {
 	fs := WarpFields(Pos{X: 1.5, Y: -2, Z: 300}, 41)
-	if len(fs) != 2 || fs[0].Addr != WarpPos || fs[1].Addr != addr.WarpSeq {
+	if len(fs) != 2 || fs[0].Addr != WarpPos || fs[1].Addr != mailbox.WarpSeq {
 		t.Fatalf("fields %+v: want the coordinates, then warp_seq last", fs)
 	}
 	for i, want := range []float32{1.5, -2, 300} {
@@ -422,7 +423,7 @@ func (er *escRig) escape(k EscapeKind) EscapeResult {
 }
 
 func (er *escRig) warpSeq() (seq, ack uint32) {
-	b := er.read(addr.WarpSeq, 8)
+	b := er.read(mailbox.WarpSeq, 8)
 	return binary.BigEndian.Uint32(b), binary.BigEndian.Uint32(b[4:])
 }
 
@@ -679,7 +680,7 @@ func TestEscapeWarpWaitsForThePartnersArrival(t *testing.T) {
 			er.t.Fatalf("%s: warp_seq %d\n%s", when, seq, er.log)
 		}
 		for _, w := range er.bm.written() {
-			if w.a >= WarpPos && w.a < WarpPos+12 || w.a >= addr.WarpSeq && w.a < addr.WarpSeq+4 {
+			if w.a >= WarpPos && w.a < WarpPos+12 || w.a >= mailbox.WarpSeq && w.a < mailbox.WarpSeq+4 {
 				er.t.Fatalf("%s: a warp byte written: %+v", when, w)
 			}
 		}

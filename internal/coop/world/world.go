@@ -21,7 +21,7 @@
 // Nothing here is safe for concurrent use but Store, which the hub's own
 // goroutine and the store's flush timer share.
 //
-// Decomp citations are zeldaret/tww at 4d78c994, as in internal/coop/addr.
+// Decomp citations are zeldaret/tww at 4d78c994, as in wwapi/addr.
 package world
 
 import (
@@ -32,8 +32,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // ImageSize is the size of the canonical image, dSv_save_c (d_save.h:916).

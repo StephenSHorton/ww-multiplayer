@@ -4,8 +4,8 @@ import (
 	"encoding/binary"
 	"slices"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Image is the canonical 0x778-byte dSv_save_c image (§3; d_save.h:908-916):

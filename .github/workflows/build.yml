@@ -67,7 +67,7 @@ jobs:
         run: >-
           go test -count=1
           -run 'TestBlobFresh|TestStampRoundTrip|TestT2EndsBelowMailbox|TestCheckBudget|TestBuildPyMatchesBlob|TestFrameShimLoadsCallbackSlot|TestMailboxLayout|TestModRegions'
-          . ./internal/inject/... ./internal/coop/addr
+          . ./internal/inject/... ./wwapi/mailbox
 
       # Mod manifests (wwapi v0, docs/api/02-mods.md): every mods/**/mod.json
       # against wwapi/schema/mod.schema.json, ids equal to folder names,

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Item numbers (dItemNo_e, d_item_data.h:6-262).

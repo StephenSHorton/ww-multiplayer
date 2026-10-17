@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // Small keys (§6.4). keys(t) = |key sources set| - |key doors set| over

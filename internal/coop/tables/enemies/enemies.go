@@ -44,7 +44,7 @@
 //
 // Citations: file:line is the zeldaret/tww decomp at commit 4d78c994
 // (include/ and src/; the file names are unique, so directories are left
-// out), as in internal/coop/addr.
+// out), as in wwapi/addr.
 package enemies
 
 import (
@@ -55,8 +55,8 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // NoSetID is the setID of an entry the game never records (and of every

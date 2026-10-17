@@ -48,7 +48,7 @@
 // peer can make are bounded by where the players are, and a PRESENCE
 // costs only the stores near it (world.Scopes).
 //
-// Citations follow internal/coop/addr: file:line is the zeldaret/tww
+// Citations follow wwapi/addr: file:line is the zeldaret/tww
 // decomp at 4d78c994, §N a section of docs/08-coop-design.md.
 package hub
 

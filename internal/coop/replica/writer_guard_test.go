@@ -7,12 +7,13 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // gatesOpen is a tick with every gate open.
@@ -141,7 +142,7 @@ func TestWriteGuardM3Check(t *testing.T) {
 		{"M5 zone switches", zoneByteAddr(2, addr.ZoneOffSwitch), 0, 1, RefuseTarget},
 		{"M6 dead actors", zoneByteAddr(2, addr.ZoneOffActor), 0, 1, RefuseTarget},
 		{"mDan.mStageNo", addr.DanStageNo, 0, 1, RefuseTarget},
-		{"the heartbeat", addr.SpawnTrigger, 0, 1, RefuseTarget},
+		{"the heartbeat", mailbox.SpawnTrigger, 0, 1, RefuseTarget},
 		{"below MEM1", 0x7FFFFFFF, 0, 1, RefuseTarget},
 	}
 	for _, c := range cases {

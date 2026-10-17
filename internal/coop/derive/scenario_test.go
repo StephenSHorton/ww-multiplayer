@@ -9,17 +9,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // The §8.1 scenarios run the real snapshot, gates and WriteGuard over a
@@ -773,8 +774,8 @@ func TestResetTakesTheDoorsKey(t *testing.T) {
 			r.load(drc)
 		}},
 		{"a save state", func(r *rig) {
-			hb, _ := mem.ReadU32(r.m, addr.SpawnTrigger)
-			r.m.Store(addr.SpawnTrigger, binary.BigEndian.AppendUint32(nil, hb/2))
+			hb, _ := mem.ReadU32(r.m, mailbox.SpawnTrigger)
+			r.m.Store(mailbox.SpawnTrigger, binary.BigEndian.AppendUint32(nil, hb/2))
 		}},
 		{"a restart of the tool", func(r *rig) { r.d = derive.New(derive.Config{Tables: tb}) }},
 	} {

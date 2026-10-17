@@ -1,4 +1,14 @@
-package addr
+// Package mailbox holds the mod's own RAM layout: T2, the Go <-> C
+// mailbox and the regions around them. It is hand-written for now; C9
+// generates the mailbox fields from inject/include/mailbox.h.
+//
+// # v0 UNSTABLE
+//
+// This package is part of wwapi v0. Its API may change in any 0.x minor
+// version.
+package mailbox
+
+import "github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 
 // The mod's own RAM, between the end of the vanilla DOL image and the
 // patched arena (§4.5). None of these come from the decomp: they are set
@@ -29,20 +39,6 @@ const (
 	PatchedArenaLo uint32 = 0x80414000
 )
 
-// Region is a half-open range [Start, End) of MEM1.
-type Region struct {
-	Name       string
-	Start, End uint32
-}
-
-// Size is End - Start.
-func (r Region) Size() uint32 { return r.End - r.Start }
-
-// Contains reports whether [a, a+n) lies inside r.
-func (r Region) Contains(a uint32, n int) bool {
-	return n >= 0 && a >= r.Start && uint64(a)+uint64(n) <= uint64(r.End)
-}
-
 // Memory the M0 region probe arms with canaries and checks after boot,
 // menus and stage transitions (§4.5 option B, §11 item 5). Both are free
 // only by inference, which is what the canaries test.
@@ -52,7 +48,7 @@ var (
 	// so nothing of ours may live here. The bounds are the end of .sbss2
 	// (splits.txt:3328) plus 64 KiB; the top is _stack_addr, loaded into
 	// r1 by __start (__start.c:125-126), and is inferred.
-	MainStack = Region{Name: "main stack", Start: 0x803FCFA8, End: 0x8040CFA8}
+	MainStack = addr.Region{Name: "main stack", Start: 0x803FCFA8, End: 0x8040CFA8}
 
 	// MainStackHeader is the 8-byte frame header just above the stack
 	// top, which boot writes. __start calls __init_hardware with r1 =
@@ -60,18 +56,18 @@ var (
 	// __init_hardware is nofralloc, so __OSPSInit and __OSCacheInit save
 	// LR at 4(r1) (__start.c:173-183; OS.c:623-624; OSCache.c:446).
 	// Nothing clears the word afterwards: OSClearStack stops below SP.
-	MainStackHeader = Region{Name: "main stack header", Start: 0x8040CFA8, End: 0x8040CFB0}
+	MainStackHeader = addr.Region{Name: "main stack header", Start: 0x8040CFA8, End: 0x8040CFB0}
 
 	// CanaryTRK is the MetroTRK debug stack plus the gap up to T2, above
 	// the stack header. The vanilla __ArenaLo was 0x8040EFC0
 	// (inject/build.py:104); the patched OSInit starts the arena past the
 	// mod instead, so this is outside the arena. InitMetroTRK only runs
 	// on debug boot info (§4.5).
-	CanaryTRK = Region{Name: "TRK stack", Start: MainStackHeader.End, End: T2Base}
+	CanaryTRK = addr.Region{Name: "TRK stack", Start: MainStackHeader.End, End: T2Base}
 
 	// CanaryArena is the slack between the mailbox and the patched
 	// arena.
-	CanaryArena = Region{Name: "below arena", Start: Mailbox + MailboxSize, End: PatchedArenaLo}
+	CanaryArena = addr.Region{Name: "below arena", Start: Mailbox + MailboxSize, End: PatchedArenaLo}
 )
 
 const (

@@ -4,7 +4,7 @@ import (
 	"math/bits"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
 // excludedMask is the OR of every LocalOnly, D8 and refight bit, per event

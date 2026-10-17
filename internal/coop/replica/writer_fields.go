@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // The escape hatches' addresses past addr's (§6.7). None comes from the
@@ -17,11 +17,11 @@ const (
 	// 365-421). The replica reads it and never writes it. Package main's
 	// warpLink, which co-op never calls, writes it to withdraw a warp the
 	// game did not take in time (docs/08 item 131).
-	WarpAck = addr.WarpSeq + 4
+	WarpAck = mailbox.WarpSeq + 4
 	// WarpPos is mailbox.warp_x, warp_y and warp_z, three big-endian f32s
 	// (mailbox.h:223-225), the target multiplayer_update moves Link to
 	// when warp_seq != warp_ack (multiplayer.c:365-371).
-	WarpPos = addr.WarpSeq + 8
+	WarpPos = mailbox.WarpSeq + 8
 )
 
 // MaxStageLayer is the highest layer mNextStage may name: ACT0..ACTb

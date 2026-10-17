@@ -10,15 +10,16 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/snap"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // Target is one part of the WriteGuard's allowlist (§4.2). A Guard is
@@ -369,7 +370,7 @@ func NewGuardFor(t Target) *Guard {
 	add(addr.PlaySelectItem, whole(inventory.Buttons, ruleButton, TargetSelectItem, pathDerive), "play.mSelectItem")
 
 	add(addr.NextStage, escapeRules(), "mNextStage")
-	add(addr.WarpSeq, whole(4, ruleSet, TargetEscape, pathEscape), "mailbox.warp_seq")
+	add(mailbox.WarpSeq, whole(4, ruleSet, TargetEscape, pathEscape), "mailbox.warp_seq")
 	add(WarpPos, whole(12, ruleSet, TargetEscape, pathEscape), "mailbox.warp_x/y/z")
 
 	slices.SortFunc(g.spans, func(a, b guardSpan) int { return cmp.Compare(a.start, b.start) })

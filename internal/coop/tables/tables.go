@@ -14,7 +14,7 @@
 // Citations: file:line is the zeldaret/tww decomp at commit 4d78c994
 // (include/ and src/; the file names are unique, so directories are left
 // out), sym:N line N of its config/GZLE01/symbols.txt, as in
-// internal/coop/addr.
+// wwapi/addr.
 package tables
 
 import (

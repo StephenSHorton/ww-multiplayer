@@ -18,9 +18,10 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // The three bulk regions a snapshot reads (§4.2).
@@ -183,7 +184,7 @@ func Read(m mem.Mem) (*Snapshot, error) {
 	if s.MenuPause, err = mem.ReadU8(m, addr.MenuPause); err != nil {
 		return nil, fmt.Errorf("snap: dMenu_pause: %w", err)
 	}
-	if s.Heartbeat, err = mem.ReadU32(m, addr.SpawnTrigger); err != nil {
+	if s.Heartbeat, err = mem.ReadU32(m, mailbox.SpawnTrigger); err != nil {
 		return nil, fmt.Errorf("snap: heartbeat: %w", err)
 	}
 	gba, err := m.Read(addr.GbaCom, addr.GbaComLinkReadLen)

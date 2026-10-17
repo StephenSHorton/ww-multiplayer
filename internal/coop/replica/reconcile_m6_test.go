@@ -8,11 +8,9 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/addr"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/gate"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/mem"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/stagedata/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
@@ -21,6 +19,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // The M6 fixture's enemies, in Dragon Roost Cavern's room 1 and one in
@@ -497,7 +498,7 @@ func TestReconcileM6SaveState(t *testing.T) {
 	}
 	k, _ := actors.K1(int16(cc.Proc))
 	rr.store(cc.Addr+k.Ice+addr.EnemyIceOffTimer, []byte{0}) // as the state had it
-	rr.store(addr.SpawnTrigger, []byte{0, 0, 0, 1})          // the heartbeat goes back
+	rr.store(mailbox.SpawnTrigger, []byte{0, 0, 0, 1})       // the heartbeat goes back
 	rr.ticks(gate.StableTicks + 4)
 	if now, ok := rr.live(m6CC); !ok || now.PID != cc.PID {
 		t.Fatal("the ChuChu is not the one the state brought back")
