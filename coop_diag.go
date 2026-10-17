@@ -29,10 +29,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/combat"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"

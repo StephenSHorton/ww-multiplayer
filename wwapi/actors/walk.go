@@ -4,7 +4,7 @@
 // class than fopAc_ac_c (its enemyice, mode or weapon) passes a Layout for
 // its proc to ReadWith. Its user today is co-op's combat sync
 // (docs/08-coop-design.md §7.2, M6), whose K1 classes, layouts and gates
-// live in internal/coop/combat.
+// live in mods/coop/combat.
 //
 // Every actor lives on a heap, so nothing here is a static address but
 // the queue's: each pointer is checked before it is followed, an actor is

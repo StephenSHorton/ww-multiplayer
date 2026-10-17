@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/savefile"

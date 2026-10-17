@@ -3,7 +3,7 @@
 // either exported as a GCI file (the file's 0x40-byte card directory
 // entry, then its 0x2000-byte blocks) or inside a raw card image. It is
 // what the offline save-diff and save-merge tools work on (§10 question 1,
-// §11 item 20; the merge itself is internal/coop/savemerge); no live
+// §11 item 20; the merge itself is mods/coop/savemerge); no live
 // co-op path writes a card file (§5.1).
 //
 // The file is 12 blocks, the 0x18000 bytes CARDCreate makes

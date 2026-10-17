@@ -86,7 +86,7 @@ func layActors(t testing.TB, m *mem.FakeMem, actors ...fakeActor) []uint32 {
 }
 
 // testLayouts are the layouts the hand-laid walks read: a Bokoblin's
-// (internal/coop/combat's, with its s32 weapon record) and a BOKO's u8
+// (mods/coop/combat's, with its s32 weapon record) and a BOKO's u8
 // mode; and testStalfos, a Stalfos's s8 weapon record.
 var testLayouts = Layouts{
 	int16(stage.ProcBK): {Ice: 0x1264, Weapon: 0x1200, Hold: 0xB30},

@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/replica"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )

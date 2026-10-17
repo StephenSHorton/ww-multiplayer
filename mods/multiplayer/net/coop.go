@@ -22,7 +22,7 @@ import (
 // CoopConn.Send. Any other frame on it is dropped.
 //
 // The network layer gives the 'O' payload no meaning: package
-// internal/coop/wire encodes and validates it.
+// mods/coop/wire encodes and validates it.
 
 // coopSendQueue is how many outbound 'O' payloads a co-op connection may
 // have waiting for its writer. Send never blocks the handler: a peer that
@@ -60,7 +60,7 @@ var (
 )
 
 // CoopHandler is the server side of co-op: the CoopHub, in package
-// internal/coop/hub. The server calls it from each co-op connection's own
+// mods/coop/hub. The server calls it from each co-op connection's own
 // goroutine, so calls for different connections can run concurrently; calls
 // for one connection never overlap and come in order:
 //

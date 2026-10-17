@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
 
