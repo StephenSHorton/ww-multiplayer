@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -158,15 +159,34 @@ func (c *coopConsole) help() {
 }
 
 // add hands the console a pipeline, and starts the console's loop with
-// the first one, under ctx, the session's.
+// the first one, under the session's ctx: the one setCtx gave, else ctx.
 func (c *coopConsole) add(ctx context.Context, s *coopSync) {
 	c.mu.Lock()
 	c.syncs = append(c.syncs, s)
 	if c.ctx == nil {
 		c.ctx = ctx
 	}
+	run := c.ctx
 	c.mu.Unlock()
-	c.once.Do(func() { go c.run(ctx) })
+	c.once.Do(func() { go c.run(run) })
+}
+
+// setCtx makes ctx the session's context, before any pipeline runs: the
+// app's coop-sync runs, and restarts, under contexts of their own, which
+// end before the session does.
+func (c *coopConsole) setCtx(ctx context.Context) {
+	c.mu.Lock()
+	c.ctx = ctx
+	c.mu.Unlock()
+}
+
+// remove takes a pipeline that stopped from the console: the app starts
+// coop-sync again (a Dolphin relaunched, an error), and the commands, the
+// status and "Remove the tag" are for the running one only.
+func (c *coopConsole) remove(s *coopSync) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.syncs = slices.DeleteFunc(c.syncs, func(x *coopSync) bool { return x == s })
 }
 
 // run takes the commands until ctx ends or stdin closes.
@@ -334,19 +354,81 @@ func formatStatus(player string, st replica.Status) []string {
 	return out
 }
 
-// coopStatusOf is player's pipeline at st as a UI shows it.
+// coopStatusOf is player's pipeline at st as a UI shows it: /status's
+// lines, and the same structured for the app's co-op panel.
 func coopStatusOf(player string, st replica.Status) session.CoopStatus {
-	return session.CoopStatus{
-		Player:  player,
-		State:   replicaWhere(st),
-		World:   st.World.String(),
-		Seq:     st.Seq,
-		Writes:  writesState(st),
-		Written: st.Writes.Written,
-		Escapes: st.Writes.Escapes,
-		Failed:  st.Writes.Failed,
-		Lines:   formatStatus(player, st),
+	cs := session.CoopStatus{
+		Player:      player,
+		State:       replicaWhere(st),
+		World:       st.World.String(),
+		Seq:         st.Seq,
+		Writes:      writesState(st),
+		Written:     st.Writes.Written,
+		Escapes:     st.Writes.Escapes,
+		Failed:      st.Writes.Failed,
+		Lines:       formatStatus(player, st),
+		StateCode:   stateCode(st.State),
+		Why:         st.Why,
+		DryRun:      st.DryRun,
+		WritesOff:   st.WritesOff,
+		Progression: progressionStatus(st),
+		Puzzle:      puzzleStatus(st),
+		Combat:      combatStatus(st),
+		Tuner:       gbaStatus(st),
+		PartnerRoom: -1,
 	}
+	if st.World.IsZero() {
+		cs.World = ""
+	}
+	if st.State != replica.StateOff {
+		cs.FileState = st.Verdict.State.String()
+		if st.Verdict.HasTag {
+			cs.TagWorld = st.Verdict.Tag.World.String()
+		}
+	}
+	if pf := st.Preflight; pf != nil {
+		cs.NeedsMerge, cs.FarBehind = pf.NeedsMerge, pf.Verdict == replica.PreflightFarBehind
+	}
+	if p := st.Partner; p != nil && !p.Stage.IsEmpty() {
+		cs.PartnerStage, cs.PartnerRoom = p.Stage.String(), int(p.Room)
+	}
+	return cs
+}
+
+// stateCode is a replica state as session.CoopStatus.StateCode names it.
+func stateCode(s replica.State) string {
+	if s == replica.StateOffline {
+		return "offline"
+	}
+	return s.String()
+}
+
+// coopHubStatus is the host's hub as a UI shows it; nil without one.
+func coopHubStatus(status func() (hub.Status, error)) *session.CoopHubStatus {
+	if status == nil {
+		return nil
+	}
+	hs, err := status()
+	if err != nil {
+		return nil
+	}
+	out := &session.CoopHubStatus{World: hs.World.String(), Seq: hs.Seq, Features: hs.Features.String(), Merge: hs.Merge}
+	out.Lines = append(hubPuzzleStatus(hs), hubCombatStatus(hs)...)
+	for _, p := range hs.Peers {
+		cp := session.CoopPeer{Name: p.Name, Host: p.Host, State: p.State.String(), File: p.File.String(), Stage: p.Place.Stage, Room: p.Place.Room}
+		if p.Reason != 0 {
+			cp.Reason = p.Reason.String()
+		}
+		out.Peers = append(out.Peers, cp)
+	}
+	return out
+}
+
+// hubStatus is the console's hub Status, nil on a joiner.
+func (c *coopConsole) hubStatus() func() (hub.Status, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.hubSt
 }
 
 // statuses is every pipeline's status, in the order they started.

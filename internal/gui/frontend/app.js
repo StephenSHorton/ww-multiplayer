@@ -13,6 +13,7 @@
 import { call, onEvent, mode } from "./transport.js";
 import { $, el, toast, swatches, openDialog, closeDialog, dialogKey, setDialogText, initDialog } from "./ui.js";
 import { initSetup, openSetup, onPatch } from "./setup.js";
+import { renderCoop, dialogExtra, coopAction, initCoop } from "./coop.js";
 
 const LOG_MAX = 500;
 
@@ -172,6 +173,8 @@ function memberRow(m, lobby) {
 		m.rttMs > 0 && !m.away ? chip(m.rttMs + " ms", "rtt", "Round trip to the host") : null,
 		m.dolphinLabel ? chip(m.dolphinLabel, "dolphin " + m.dolphin, "Their Dolphin") : null,
 		playing && m.area ? chip(AREAS[m.area] || m.area, "area " + m.area, "About " + m.dist + " units from you") : null,
+		// Co-op: the save file they'll play (their card's preview).
+		!playing && m.file ? chip(m.file, "file", "Their save file for the co-op world") : null,
 		// The host's Start says they're ready: their row has no ready chip.
 		playing || m.host ? null : chip(m.ready ? "Ready ✓" : "Not ready", m.ready ? "ready" : "notready"),
 	);
@@ -207,8 +210,8 @@ function render() {
 		const act = $("banner-act");
 		act.hidden = !bn.action;
 		act.textContent = bn.actionLabel || "";
-		act.onclick = bn.action ? () => dialogAction(bn.action, null, st) : null;
-		$("banner").querySelector(".spin").hidden = bn.kind === "dolphin" && !!bn.action;
+		act.onclick = bn.action ? () => dialogAction(bn.action, null, st, bn.actionArg || "") : null;
+		$("banner").querySelector(".spin").hidden = bn.kind === "coop" || (bn.kind === "dolphin" && !!bn.action);
 	}
 
 	// Members: the lobby's, or a direct session's players.
@@ -265,6 +268,7 @@ function render() {
 		home.append($("feed"));
 		$("log").scrollTop = $("log").scrollHeight;
 	}
+	renderCoop(st, { hosting, playing, ended });
 	if (hosting) {
 		if (shared.session !== st.session) loadShare(st.session);
 		const waiting = lobby.notReady || [];
@@ -381,14 +385,22 @@ function syncDialog(st) {
 		show("home"); // the session is over: its dialog opens over Home
 	}
 	if (d && !closedDialogs.has(d.key)) {
+		const run = (id, arg) => dialogAction(id, d, st, arg);
 		if (open === d.key) {
-			setDialogText(d.text, d.detail || ""); // masked again, if the switch went off
+			// masked again, if the switch went off; a live check moves on
+			setDialogText(d.text, d.detail || "", d.check ? dialogExtra(d, run) : undefined);
 		} else {
 			if (d.live) liveDialogs.add(d.key);
 			openDialog({
 				key: d.key, title: d.title, text: d.text, detail: d.detail || "",
+				extra: dialogExtra(d, run),
 				onClose: () => closedDialogs.add(d.key),
-				actions: d.actions.map((a) => ({ label: a.label, primary: a.primary, run: () => dialogAction(a.id, d, st) })),
+				// A question, or a "Remove the tag", takes no input for a
+				// moment: the player may be typing in the chat.
+				settle: !!d.cancel || d.actions.some((a) => a.id === "unbind"),
+				// Escape on a co-op question is its no, as on the command line.
+				onCancel: d.cancel ? () => { const [id, ...rest] = d.cancel.split(":"); run(id, rest.join(":")); } : null,
+				actions: d.actions.map((a) => ({ label: a.label, primary: a.primary, run: () => run(a.id, a.arg || "") })),
 			});
 		}
 	} else if (open && liveDialogs.has(open) && (!d || d.key !== open)) {
@@ -396,7 +408,11 @@ function syncDialog(st) {
 	}
 }
 
-async function dialogAction(id, d, st) {
+async function dialogAction(id, d, st, arg = "") {
+	if (await coopAction(id, arg, d)) {
+		refresh();
+		return;
+	}
 	switch (id) {
 		case "downloads":
 			if (mode() === "window") {
@@ -543,7 +559,7 @@ function onEv(ev) {
 	if (ev.session && session && ev.session < session) return; // a late event from a session we left
 	switch (ev.kind) {
 		case "log":
-			addLine(textLine(el("li", { class: ev.level || "" }), ev));
+			addLine(textLine(el("li", { class: (ev.level || "") + (ev.sync ? " sync" : "") }), ev));
 			break;
 		case "chat":
 			addLine(chatLine(ev));
@@ -671,11 +687,19 @@ function wire() {
 		const v = $("lobby-hex").value.trim();
 		if (v) setColor(v.startsWith("#") ? v : "#" + v);
 	});
-	$("log-toggle").addEventListener("click", () => {
-		const all = $("log").classList.toggle("chatonly") === false;
-		$("log-toggle").setAttribute("aria-pressed", String(all));
-		$("log").scrollTop = $("log").scrollHeight;
-	});
+	// The feed's tabs: Chat (chat and the lines that matter), Co-op sync
+	// (the co-op lines users care about: sync=true from Go) and All logs.
+	for (const tab of $("feed-tabs").children) {
+		tab.addEventListener("click", () => {
+			const which = tab.dataset.tab;
+			$("log").classList.toggle("chatonly", which === "chat");
+			$("log").classList.toggle("synconly", which === "sync");
+			for (const t of $("feed-tabs").children) t.setAttribute("aria-selected", String(t === tab));
+			$("feed-title").textContent = { chat: "Chat", sync: "Co-op sync", all: "All logs" }[which];
+			$("log").scrollTop = $("log").scrollHeight;
+		});
+	}
+	initCoop({ copyText });
 	$("chat-form").addEventListener("submit", async (e) => {
 		e.preventDefault();
 		const input = $("chat");

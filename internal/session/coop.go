@@ -62,6 +62,20 @@ type Question struct {
 	// and the world add to each other by class, and the holds. Empty for
 	// a scrub.
 	Details []string
+	// FileName and FileSlot (1-3, as the file select screen numbers it)
+	// name the loaded file the question is about; FileSlot is 0 when
+	// unknown.
+	FileName string
+	FileSlot int
+	// World is the world a bind binds the file to; TagWorld the world
+	// the file's current tag names ("" for none).
+	World, TagWorld string
+	// MaybeFresh says the current tag fails only V5: it may be a fresh
+	// bind of TagWorld that only that world's host can tell from a leak.
+	MaybeFresh bool
+	// Failed are a scrub's failed checks, one line each ("V2 failed:
+	// ...").
+	Failed []string
 }
 
 // AdviceKind names a piece of co-op advice.
@@ -82,6 +96,9 @@ const (
 // Advice is co-op advice that asks nothing: Text is the line the CLI
 // prints for it.
 type Advice struct {
+	// ID is set by the Controller when the advice is given: "a1", "a2",
+	// ... It names the advice in DismissAdvice.
+	ID     string
 	Kind   AdviceKind
 	Player string
 	Text   string
@@ -117,8 +134,9 @@ type CoopWorld struct {
 	// Err is why the world can't be loaded; "" when it can.
 	Err string
 	// InUse says its session marker names a process that may still
-	// serve it.
-	InUse bool
+	// serve it; Stale that its marker names a process that has ended
+	// (its last session did not end cleanly).
+	InUse, Stale bool
 }
 
 // CoopStatus is one co-op pipeline's status, as /status reports it.
@@ -136,6 +154,56 @@ type CoopStatus struct {
 	// Lines are /status's lines for the pipeline, as the CLI prints
 	// them.
 	Lines []string
+
+	// The same, structured for a panel (App PR 9).
+	//
+	// StateCode is the replica's state alone: "off", "hello", "unbound",
+	// "armed", "offline" or "refused"; Why its reason.
+	StateCode, Why string
+	DryRun         bool
+	// WritesOff is why the writes are off ("" while they run, and in a
+	// dry run).
+	WritesOff string
+	// FileState is the loaded file's tag as the replica last judged it:
+	// "bound", "unbound", "leaked" or "foreign" ("" before a look);
+	// TagWorld the world its tag names.
+	FileState, TagWorld string
+	// NeedsMerge and FarBehind are the last join preflight's (an unbound
+	// file): it binds only with the host's merge, and it is far behind
+	// the world.
+	NeedsMerge, FarBehind bool
+	// Progression, Puzzle, Combat and Tuner are /status's lines on the
+	// shared progression (one line each: granted, held story bits, small
+	// keys, max hearts), the room puzzles, combat and the Tingle Tuner
+	// guard ("" for none).
+	Progression           []string
+	Puzzle, Combat, Tuner string
+	// Partner is where the partner is (its last PRESENCE): Stage "" for
+	// unknown, Room -1 at a stage start.
+	PartnerStage string
+	PartnerRoom  int
+}
+
+// CoopHubStatus is a host's hub: the world it serves and its peers.
+type CoopHubStatus struct {
+	World    string
+	Seq      uint64
+	Features string // what the host allows
+	Merge    bool   // files with progress the world lacks may bind
+	Peers    []CoopPeer
+	// Lines are /status's hub lines (puzzles, combat).
+	Lines []string
+}
+
+// CoopPeer is one co-op connection of the hub.
+type CoopPeer struct {
+	Name   string
+	Host   bool
+	State  string // "hello", "refused", "unbound" or "bound"
+	File   string // the file state its hello reported
+	Reason string // why it is refused or unbound
+	Stage  string // where it is ("" for unknown)
+	Room   int
 }
 
 // CoopEngine is what an Engine with co-op adds: the console, and the
@@ -238,6 +306,9 @@ func (c *Controller) ask(ctx context.Context, id ID, q Question) bool {
 	c.pending[q.ID] = ch
 	if c.state.Session == id {
 		c.state.Questions = append(c.state.Questions, q)
+		if c.state.AutoYes {
+			ch <- true // "Answer yes to co-op questions" (SetAutoYes)
+		}
 	}
 	c.publish(Event{Kind: EventQuestion, Session: id, Question: q})
 	c.mu.Unlock()

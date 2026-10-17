@@ -265,6 +265,8 @@ type coopSession struct {
 	// noTags says why no tag may be written this session (the backup
 	// failed); nil when tag writes may be offered.
 	noTags error
+	// backupDir is where the session-start backup went ("" without).
+	backupDir string
 	// ask answers the questions (coopFront.ask, or the stdin prompter).
 	ask    coopAsker
 	advise func(session.Advice) // nil for none
@@ -279,6 +281,29 @@ type coopSession struct {
 	// player name: where a warp finds the partner's position.
 	posesMu sync.Mutex
 	poses   map[string]*network.Client
+	// poseClient, if set, is where a warp finds the partner when poses
+	// has no client of the player's: the app's pose pipelines run before
+	// co-op starts, so they register with its status bridge instead.
+	poseClient func() *network.Client
+	// askedMu guards askedBy: per player, the files a bind was asked for
+	// this session, kept across the coop-sync runs of one player (the app
+	// starts coop-sync again on a Dolphin relaunch), so a no stays a no.
+	askedMu sync.Mutex
+	askedBy map[string]map[coopFileKey]bool
+}
+
+// askedFor is player name's set of files a bind was asked for.
+func (cs *coopSession) askedFor(name string) map[coopFileKey]bool {
+	cs.askedMu.Lock()
+	defer cs.askedMu.Unlock()
+	if cs.askedBy == nil {
+		cs.askedBy = map[string]map[coopFileKey]bool{}
+	}
+	k := strings.ToLower(name)
+	if cs.askedBy[k] == nil {
+		cs.askedBy[k] = map[coopFileKey]bool{}
+	}
+	return cs.askedBy[k]
 }
 
 // startCoopSession begins a joiner's co-op side, and is the first step of
@@ -314,6 +339,7 @@ func startCoopSide(rep report.Reporter, f coopFlags, env coopEnv, host bool) *co
 		cs.noTags = err
 		report.Logf(rep, report.Warn, "co-op: could not back up the memory cards: %v. No co-op tag is written this session (set USER_DIR_1 if Dolphin keeps its user folder elsewhere).", err)
 	} else {
+		cs.backupDir = b.Dir
 		report.Logf(rep, report.OK, "co-op: backed up %d memory-card file(s) to %s (`coop-world restore %s --yes`, with Dolphin closed, puts them back). Check that these are your cards:", len(b.Files), b.Dir, b.ID)
 		logBackupCards(rep, b)
 	}
@@ -426,6 +452,27 @@ func logBackupCards(rep report.Reporter, b *backup.Backup) {
 // hub's lines, beside the server's own. Stop it with stop.
 func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string), f coopFlags, env coopEnv) (*coopSession, error) {
 	cs := startCoopSide(rep, f, env, true)
+	st, err := cs.openWorld(ctx, rep, f, env, func(ctx context.Context, pol *world.Policy) (*world.World, error) {
+		m, closeMem, err := env.openMem()
+		if err != nil {
+			return nil, fmt.Errorf("co-op: founding a world: %w", err)
+		}
+		defer closeMem()
+		return foundCoopWorld(ctx, rep, m, env.tick, pol)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := cs.startHub(rep, srvLog, f, st); err != nil {
+		return nil, err
+	}
+	return cs, nil
+}
+
+// openWorld opens the world a host serves (selectCoopWorld), or, for
+// --coop=new, founds one with found and creates it under the worlds
+// root.
+func (cs *coopSession) openWorld(ctx context.Context, rep report.Reporter, f coopFlags, env coopEnv, found func(context.Context, *world.Policy) (*world.World, error)) (*world.Store, error) {
 	root, err := env.worldsRoot()
 	if err != nil {
 		return nil, err
@@ -433,34 +480,31 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 	opts := world.Options{Logf: func(format string, args ...any) {
 		rep.Log(report.Warn, "co-op: world file: "+fmt.Sprintf(format, args...))
 	}}
-	var st *world.Store
 	if f.world == coopWorldNew {
-		m, closeMem, err := env.openMem()
-		if err != nil {
-			return nil, fmt.Errorf("co-op: founding a world: %w", err)
-		}
-		w, err := foundCoopWorld(ctx, rep, m, env.tick, cs.policy())
-		closeMem()
+		w, err := found(ctx, cs.policy())
 		if err != nil {
 			return nil, err
 		}
-		if st, err = world.Create(root, w, opts); err != nil {
-			return nil, err
-		}
-	} else {
-		id, err := selectCoopWorld(root, f.world)
-		if err != nil {
-			return nil, err
-		}
-		var lr world.LoadReport
-		if st, lr, err = world.Open(root, id, opts); err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return nil, fmt.Errorf("co-op: no world %s in %s (coop-world list shows the worlds)", id, root)
-			}
-			return nil, fmt.Errorf("co-op: opening world %s: %w", id, err)
-		}
-		logWorldLoad(rep, lr)
+		return world.Create(root, w, opts)
 	}
+	id, err := selectCoopWorld(root, f.world)
+	if err != nil {
+		return nil, err
+	}
+	st, lr, err := world.Open(root, id, opts)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("co-op: no world %s in %s (coop-world list shows the worlds)", id, root)
+		}
+		return nil, fmt.Errorf("co-op: opening world %s: %w", id, err)
+	}
+	logWorldLoad(rep, lr)
+	return st, nil
+}
+
+// startHub starts the hub over st, the session marker, and says what the
+// session writes.
+func (cs *coopSession) startHub(rep report.Reporter, srvLog func(string), f coopFlags, st *world.Store) error {
 	features := hub.DefaultFeatures
 	if f.liveSwitches {
 		features |= hub.FeatureLiveSwitches
@@ -477,7 +521,7 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 	})
 	if err != nil {
 		st.Stop()
-		return nil, err
+		return err
 	}
 	cs.hub, cs.store, cs.world, cs.dir = h, st, bind.WorldID(st.ID()), st.Dir()
 	cs.console.setHub(h.Status)
@@ -506,7 +550,7 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 	if f.dryRun {
 		report.Logf(rep, report.OK, "Co-op world %s at seq %d (dry run: planned writes are logged, not made; only a binding tag is ever written, after a yes%s).", cs.world, st.Seq(), merge)
 		cs.console.help()
-		return cs, nil
+		return nil
 	}
 	live := ""
 	if f.liveSwitches {
@@ -514,7 +558,7 @@ func startCoopHost(ctx context.Context, rep report.Reporter, srvLog func(string)
 	}
 	report.Logf(rep, report.OK, "Co-op world %s at seq %d: the world's chests, pickups, rooms, dungeon items, latching switches, ocean, charts, story bits and items are written into each bound game, and its small keys, max hearts and max magic derived (--coop-dry-run only logs them%s%s).", cs.world, st.Seq(), merge, live)
 	cs.console.help()
-	return cs, nil
+	return nil
 }
 
 // stop ends the hub, which writes the world, and removes the session
@@ -685,16 +729,8 @@ func foundCoopWorld(ctx context.Context, rep report.Reporter, m mem.Mem, tick fu
 // switches included.
 func foundFrom(rep report.Reporter, s *snap.Snapshot, pol *world.Policy) (*world.World, error) {
 	f := bind.FileOf(s)
-	v := bind.Classify(f, bind.Expect{})
-	switch {
-	case f.ClearCount != 0:
-		return nil, fmt.Errorf("co-op: %s is a second quest, which co-op doesn't take", bind.Describe(f))
-	case v.State == bind.Bound:
-		return nil, fmt.Errorf("co-op: this file is bound to world %s already: host it with --coop=%s (or unbind it with coop-tag clear first)", v.Tag.World, v.Tag.World)
-	case v.State == bind.Foreign:
-		return nil, fmt.Errorf("co-op: this file's tag can't be judged by this version (%s); coop-tag clear unbinds it", v.Why)
-	case v.Garbage:
-		return nil, fmt.Errorf("co-op: dSv_reserve_c holds data that is not a co-op tag (%s); coop-tag clear zeroes it", v.Why)
+	if _, err := foundCheck(f); err != nil {
+		return nil, err
 	}
 	id, err := bind.NewWorldID()
 	if err != nil {
@@ -706,6 +742,23 @@ func foundFrom(rep report.Reporter, s *snap.Snapshot, pol *world.Policy) (*world
 	r := w.Merge(&img)
 	report.Logf(rep, report.OK, "co-op: founded world %s from %s (%d shared bytes).", id, bind.Describe(f), len(r.Delta))
 	return w, nil
+}
+
+// foundCheck says whether file f may found a world: nil, or why not
+// with the kind of blocker (session.Block*).
+func foundCheck(f bind.File) (string, error) {
+	v := bind.Classify(f, bind.Expect{})
+	switch {
+	case f.ClearCount != 0:
+		return session.BlockSecondQuest, fmt.Errorf("co-op: %s is a second quest, which co-op doesn't take", bind.Describe(f))
+	case v.State == bind.Bound:
+		return session.BlockBound, fmt.Errorf("co-op: this file is bound to world %s already: host it with --coop=%s (or unbind it with coop-tag clear first)", v.Tag.World, v.Tag.World)
+	case v.State == bind.Foreign:
+		return session.BlockForeign, fmt.Errorf("co-op: this file's tag can't be judged by this version (%s); coop-tag clear unbinds it", v.Why)
+	case v.Garbage:
+		return session.BlockGarbage, fmt.Errorf("co-op: dSv_reserve_c holds data that is not a co-op tag (%s); coop-tag clear zeroes it", v.Why)
+	}
+	return "", nil
 }
 
 // The session marker: a host writes it into its world's directory while
@@ -1034,7 +1087,7 @@ type coopSync struct {
 	client *network.Client
 
 	mu    sync.Mutex
-	asked map[coopFileKey]bool // files a bind was asked for this session
+	asked map[coopFileKey]bool // files a bind was asked for this session (cs.askedFor; under cs.askedMu)
 	over  string               // why run gave up co-op for the session ("" while it has not)
 }
 
@@ -1083,7 +1136,7 @@ func runCoopSyncCtx(ctx context.Context, name, addr string, dolphinPID uint32, r
 // replica, configured as M2 configured it: no tables, M2's policy, the
 // image alone asked for.
 func (cs *coopSession) newSync(ctx context.Context, name string, m mem.Mem, rep report.Reporter) (*coopSync, error) {
-	s := &coopSync{cs: cs, name: name, rep: rep, m: m, asked: map[coopFileKey]bool{}}
+	s := &coopSync{cs: cs, name: name, rep: rep, m: m, asked: cs.askedFor(name)}
 	logf := func(format string, args ...any) {
 		rep.Log(report.Info, strings.TrimRight(fmt.Sprintf(format, args...), "\n")) // a preflight summary ends in one
 	}
@@ -1146,6 +1199,9 @@ func (cs *coopSession) partnerPos(name string) func() (replica.Pos, bool) {
 		cs.posesMu.Lock()
 		c := cs.poses[name]
 		cs.posesMu.Unlock()
+		if c == nil && cs.poseClient != nil {
+			c = cs.poseClient()
+		}
 		if c == nil {
 			return replica.Pos{}, false
 		}
@@ -1270,10 +1326,10 @@ func (s *coopSync) preflight(pf replica.PreflightReport) {
 		return
 	}
 	k := coopFileKey{slot: f.Slot, clearCount: f.ClearCount, name: f.Name}
-	s.mu.Lock()
+	s.cs.askedMu.Lock() // s.asked may be the set of an earlier run of this player's
 	asked := s.asked[k]
 	s.asked[k] = true
-	s.mu.Unlock()
+	s.cs.askedMu.Unlock()
 	if !asked {
 		s.r.RequestBind()
 	}
@@ -1295,6 +1351,21 @@ func offerQuestion(player string, o replica.Offer) session.Question {
 		q.Kind = session.QuestionScrub
 	}
 	q.Title, _, _ = strings.Cut(o.Plan.Prompt, "\n")
+	p := o.Plan
+	q.FileName, q.FileSlot = p.File.PlayerName(), int(p.File.Slot)+1
+	if p.Kind == bind.KindBind {
+		q.World = p.Tag.World.String()
+	}
+	if p.Verdict.HasTag {
+		q.TagWorld = p.Verdict.Tag.World.String()
+	}
+	failed := p.Verdict.Failed()
+	q.MaybeFresh = p.Verdict.State == bind.Leaked && len(failed) == 1 && failed[0] == bind.V5
+	for _, c := range p.Verdict.Checks {
+		if c.Ran && !c.Pass {
+			q.Failed = append(q.Failed, fmt.Sprintf("%s failed: %s", c.Rule, c.Details))
+		}
+	}
 	if o.Preflight != nil {
 		for _, l := range strings.Split(strings.TrimRight(o.Preflight.Summary(), "\n"), "\n") {
 			q.Details = append(q.Details, strings.TrimSpace(l))

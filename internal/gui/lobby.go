@@ -57,7 +57,9 @@ const (
 
 // DialogAction is one button of a dialog.
 type DialogAction struct {
-	ID      string `json:"id"`
+	ID string `json:"id"`
+	// Arg is the action's argument (a co-op question's ID, ...).
+	Arg     string `json:"arg,omitempty"`
 	Label   string `json:"label"`
 	Primary bool   `json:"primary,omitempty"`
 }
@@ -82,6 +84,20 @@ type DialogView struct {
 	// session is over.
 	Home    bool           `json:"home,omitempty"`
 	Actions []DialogAction `json:"actions"`
+
+	// Co-op dialogs (coop.go) add: List, a short list under Text (a
+	// bind's preflight, a scrub's failed checks, the founding's steps);
+	// Cards, option cards with steps and a button of their own; Check, a
+	// live check line; Note with its NoteAction button ("Open folder");
+	// Cancel, the action Escape runs (a question's no); AutoYes, the
+	// "Answer yes to co-op questions" box.
+	List       []string      `json:"list,omitempty"`
+	Cards      []DialogCard  `json:"cards,omitempty"`
+	Check      *CheckView    `json:"check,omitempty"`
+	Note       string        `json:"note,omitempty"`
+	NoteAction *DialogAction `json:"noteAction,omitempty"`
+	Cancel     string        `json:"cancel,omitempty"`
+	AutoYes    bool          `json:"autoYes,omitempty"`
 }
 
 // BannerView is the strip over the Lobby or Session screen while the
@@ -96,6 +112,8 @@ type BannerView struct {
 	// its text; "" for none.
 	Action      string `json:"action,omitempty"`
 	ActionLabel string `json:"actionLabel,omitempty"`
+	// ActionArg is the action's argument (DialogAction.Arg).
+	ActionArg string `json:"actionArg,omitempty"`
 }
 
 // ShareAddrView is one address of the host's share card.

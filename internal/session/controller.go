@@ -50,6 +50,8 @@ type Controller struct {
 	// pending are the open questions' answer channels, by question ID.
 	nextQ   uint64
 	pending map[string]chan bool
+	// nextA and nextR number the advice and the requests (coopapp.go).
+	nextA, nextR uint64
 
 	subMu sync.Mutex
 	subs  map[*subscription]struct{}
@@ -188,6 +190,12 @@ func (c *Controller) Snapshot() State {
 	c.mu.Lock()
 	st := c.state
 	st.Questions = append([]Question(nil), st.Questions...)
+	st.Advice = append([]Advice(nil), st.Advice...)
+	st.Requests = append([]Request(nil), st.Requests...)
+	if st.Founding != nil {
+		f := *st.Founding
+		st.Founding = &f
+	}
 	if st.Lobby != nil {
 		st.Lobby = st.Lobby.clone()
 	}
@@ -234,9 +242,7 @@ func (o *output) Chat(from, text string) {
 
 func (o *output) Ask(ctx context.Context, q Question) bool { return o.c.ask(ctx, o.id, q) }
 
-func (o *output) Advise(a Advice) {
-	o.c.publish(Event{Kind: EventAdvice, Session: o.id, Advice: a})
-}
+func (o *output) Advise(a Advice) { o.c.advise(o.id, a) }
 
 // endReason explains why the session ended: the newest Err-level line it
 // logged (the engine's returned error is logged at Err too), or a neutral

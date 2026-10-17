@@ -99,6 +99,8 @@ type Live struct {
 	// CoopStatus is each co-op pipeline's status, as /status reports it; nil
 	// without co-op.
 	CoopStatus []CoopStatus
+	// CoopHub is the host's hub; nil on a joiner and without co-op.
+	CoopHub *CoopHubStatus
 }
 
 // State is a snapshot of the current (or most recent) session. It is a
@@ -123,6 +125,21 @@ type State struct {
 	Coop CoopOptions
 	// Questions are the session's open co-op questions, oldest first.
 	Questions []Question
+	// AutoYes answers every co-op question yes at once (SetAutoYes): the
+	// app's per-session "Answer yes to co-op questions", never saved.
+	AutoYes bool
+	// Advice is the session's co-op advice not dismissed yet, oldest
+	// first, the newest of each kind per player.
+	Advice []Advice
+	// Requests are the joiners' requests to the host (merge) not
+	// answered yet, oldest first; host only.
+	Requests []Request
+	// CoopBackup is the folder this session's memory-card backup went
+	// to ("" before co-op started, or without a backup).
+	CoopBackup string
+	// Founding is the host's founding of a new world from its loaded
+	// file (a lobby session's New world); nil otherwise.
+	Founding *Founding
 	// Lobby is the lobby of a HostLobby or JoinLobby session (its
 	// members, colors, phase); nil for a direct Host or Join.
 	Lobby *Lobby
@@ -153,6 +170,10 @@ type HostOptions struct {
 	// Dolphin myself") counts.
 	Launch   LaunchOptions
 	LaunchFn func() LaunchOptions
+	// CoopFn, when set, is this player's own co-op choices in a lobby
+	// session (the disc for the co-op tables, a joiner's own dry run),
+	// read when co-op starts; the host's lobby settings say the rest.
+	CoopFn func() CoopOptions
 }
 
 // LaunchOptions returns o's launch options as Start finds them.
@@ -179,6 +200,8 @@ type JoinOptions struct {
 	// Launch and LaunchFn: see HostOptions.Launch.
 	Launch   LaunchOptions
 	LaunchFn func() LaunchOptions
+	// CoopFn: see HostOptions.CoopFn.
+	CoopFn func() CoopOptions
 }
 
 // Output is what a session writes to while it runs: its log lines, and the
