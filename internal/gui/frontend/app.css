@@ -611,3 +611,33 @@ input.secret { -webkit-text-security: disc; text-security: disc; }
 .fact small { font: 500 11px var(--body); color: var(--text-dim); }
 details.more { margin-top: 6px; }
 details.more summary { font-size: 13px; }
+
+/* ---------- LAN discovery and join codes (App PR 11) ---------- */
+/* the share card: an address row, its join code under it */
+.addrs li { flex-direction: column; align-items: stretch; gap: 2px; padding: 3px 4px 3px 6px; }
+.addrrow, .coderow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.coderow code { letter-spacing: 0.5px; }
+.codetag { flex: none; min-width: 80px; text-align: center; font: 700 12px var(--body); color: var(--text); }
+/* Join: the sessions heard on the network, as long slots */
+.lanbox { margin: 0 0 12px; }
+.lanbox[hidden] { display: none; }
+.lan-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 220px; overflow-y: auto; }
+.lan-list li.empty { font: 700 13px var(--body); color: var(--text-dim); padding: 2px 4px; }
+.lansess {
+	display: grid; gap: 4px; padding: 5px 8px;
+	background: linear-gradient(180deg, var(--slot-dk), var(--slot) 25%, var(--slot-hi));
+	border: 3px solid var(--slot-dk); border-radius: 10px; box-shadow: inset 0 3px 5px rgba(20, 36, 8, 0.3);
+}
+.lansess:hover { border-color: var(--ink); }
+.lanhead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.lanhead .who { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 15px var(--body); color: var(--ink); }
+.lanaddr { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lanaddr code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 500 14px var(--mono); color: var(--ink); }
+.lanaddr.lan .tag { background: var(--bar-hi); }
+.lanaddr.radmin .tag { background: #9fd8ff; }
+.lanaddr.tailscale .tag { background: #e6d2ff; }
+.chip.ver { background: #e9eedd; color: var(--text-dim); }
+.chip.ver.bad { background: var(--yellow); color: var(--ink); }
+.lansess.incompatible { filter: grayscale(0.7); opacity: 0.6; }
+.lansess.incompatible .chip.ver.bad { filter: none; }
+.lansess .btn:disabled { cursor: not-allowed; }

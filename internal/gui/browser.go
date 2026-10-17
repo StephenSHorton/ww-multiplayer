@@ -54,6 +54,8 @@ var browserMethods = map[string]bool{
 	"SetCoop": true, "CoopWorlds": true, "SetMyCoopDryRun": true, "Answer": true, "SetAutoYes": true,
 	"DismissAdvice": true, "RequestMerge": true, "AllowMerge": true, "DismissRequest": true, "SetMerge": true,
 	"UnbindFile": true, "CoopCommand": true, "CoopStatusText": true,
+	// Sessions on your network (App PR 11).
+	"LanSessions": true,
 }
 
 // windowOnly are the Bridge methods only the window has: PickFile opens a

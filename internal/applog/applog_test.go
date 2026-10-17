@@ -235,3 +235,13 @@ func TestDefaultDir(t *testing.T) {
 		t.Errorf("DefaultDir() = %s", d)
 	}
 }
+
+// TestDiagnosticsMaskJoinCodes: a join code holds an address, so Copy
+// diagnostics masks it like one.
+func TestDiagnosticsMaskJoinCodes(t *testing.T) {
+	d := Diagnostics{Log: []string{"chat: join me at WW-30AG-09AX or ww460n00jmrz2q"}}
+	got := d.Text(Redactor{})
+	if strings.Contains(got, "30AG") || strings.Contains(got, "460n") || !strings.Contains(got, "WW-••••-••••") || !strings.Contains(got, "WW-••••-••••-••••") {
+		t.Fatalf("diagnostics = %q", got)
+	}
+}

@@ -115,6 +115,10 @@ type Bridge struct {
 	// when it becomes a recent host: a typo or an unreachable address
 	// never does.
 	joining *pendingHost
+
+	// LAN discovery (lan.go): the hosted lobby's beacon and Home's
+	// "Sessions on your network".
+	lan lanState
 }
 
 // pendingHost is a join's address, waiting to reach its host.
@@ -255,18 +259,22 @@ func (b *Bridge) Host(r HostRequest) (err error) {
 	b.mu.Lock()
 	b.myDryRun = false
 	b.mu.Unlock()
-	if _, err := b.ctrl.HostLobby(b.ctx, session.HostOptions{Name: name, Color: col, Port: port, ListenHost: listen, LaunchFn: b.launchOptions, CoopFn: b.coopOptions}); err != nil {
+	b.stopLanListen()
+	id, err := b.ctrl.HostLobby(b.ctx, session.HostOptions{Name: name, Color: col, Port: port, ListenHost: listen, LaunchFn: b.launchOptions, CoopFn: b.coopOptions})
+	if err != nil {
 		return err
 	}
 	b.sessMu.Lock()
 	b.hostPort = port
 	b.sessMu.Unlock()
+	b.startBeacon(id, port)
 	b.remember(name, col, "", r.Port)
 	return nil
 }
 
 // Join starts a session in the lobby of the host at r.Addr (joined
-// directly when the host has no lobby).
+// directly when the host has no lobby). r.Addr may be a join code
+// (netutil.JoinCode): the session joins the address it holds.
 func (b *Bridge) Join(r JoinRequest) (err error) {
 	defer b.maskErr(&err)
 	addr := strings.TrimSpace(r.Addr)
@@ -283,6 +291,9 @@ func (b *Bridge) Join(r JoinRequest) (err error) {
 		}
 		return errors.New(msg)
 	}
+	if ap, err := netutil.ParseJoinCode(addr); err == nil {
+		addr = joinAddr(ap)
+	}
 	name, err := checkName(r.Name)
 	if err != nil {
 		return err
@@ -294,6 +305,7 @@ func (b *Bridge) Join(r JoinRequest) (err error) {
 	b.mu.Lock()
 	b.myDryRun = false
 	b.mu.Unlock()
+	b.stopLanListen()
 	id, err := b.ctrl.JoinLobby(b.ctx, session.JoinOptions{Addr: addr, Name: name, Color: col, LaunchFn: b.launchOptions, CoopFn: b.coopOptions})
 	if err != nil {
 		return err
@@ -402,7 +414,10 @@ func (b *Bridge) setDesktop(clipboard, openURL func(string) error) {
 }
 
 // Leave ends the running session and returns once it has torn down.
-func (b *Bridge) Leave() { b.ctrl.Leave() }
+func (b *Bridge) Leave() {
+	b.stopBeacon()
+	b.ctrl.Leave()
+}
 
 // SetColor asks the lobby for a tunic color.
 func (b *Bridge) SetColor(color string) (err error) {
@@ -577,6 +592,8 @@ func (b *Bridge) running() bool { return b.State().Running }
 // running patch and waits for it to stop, however long its disc takes to
 // finish writing (see setup_patch.go), and ends the Bridge's context.
 func (b *Bridge) close() {
+	b.stopBeacon()
+	b.stopLanListen()
 	b.ctrl.Leave()
 	b.CancelPatch()
 	b.waitPatch()

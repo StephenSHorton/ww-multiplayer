@@ -32,12 +32,13 @@ ww-multiplayer/
 │   │   └── memory.go            # Core read/write, RAM scanner
 │   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); Bridge = the JS API; `ui --browser` server
 │   ├── dolphinenv/              # Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare step (dolphin2, auto-recapture)
+│   ├── lan/                     # LAN discovery: the host's UDP beacon, broadcast addresses, the joiner's table (docs/10-lobby.md §10)
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
 │   │   ├── blob.go              # AUTO-GENERATED via scripts/extract_blob.py
 │   │   ├── dol.go               # DOL header editor + T2 splice + in-DOL patches
 │   │   ├── iso.go               # ISO patcher with FST relocation
 │   │   └── ciso.go              # CISO decompressor
-│   ├── netutil/                 # Address parsing shared by host/join/server
+│   ├── netutil/                 # Address parsing shared by host/join/server; join codes (WW-XXXX-XXXX, joincode.go)
 │   ├── network/                 # TCP server/client, protocol + handshake, lobby, co-op channel, timing knobs (netconfig.go)
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors)
 │   ├── playercolor/             # Tunic color palette + --color / WW_COLOR parsing (docs/09)
@@ -128,6 +129,9 @@ WW_COLOR=<color>                            # Default tunic color when --color i
 WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/join) leaves the tunic slots to the tunic-slot dev command
 WW_MINIMAP_SCALE=<f>                        # TUI minimap world units per cell (default 10)
 WW_LISTEN_HOST=<addr>                       # App only: a hosted lobby's server listens on <addr> alone (local checks: 127.0.0.1)
+                                            #   and LAN discovery stays on it (127.0.0.1: beacons sent to, and heard on, loopback only)
+WW_LAN_PORT=<n>                             # App only: LAN discovery's UDP beacon port (default 25565; docs/10-lobby.md §10)
+WW_LAN=off                                  # App only: no LAN discovery (no beacon, no listening)
 WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT_SECS /
   WW_MIN_SESSION_SECS / WW_WRITE_TIMEOUT_SECS / WW_FREEZE_SECS / WW_DESPAWN_SECS
                                             # Network timing knobs; defaults 5/15/8/5/1/10/2/5 s (internal/network/netconfig.go)

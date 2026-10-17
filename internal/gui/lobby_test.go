@@ -3,11 +3,13 @@ package gui
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
+	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
@@ -16,11 +18,18 @@ import (
 func TestShareAddrs(t *testing.T) {
 	ips := []string{"203.0.113.9", "100.101.2.3", "26.12.34.56", "192.168.1.42", "10.0.0.7", "172.20.1.1", "172.32.0.1", "100.128.0.1"}
 	got := shareAddrs(ips, 0)
+	sv := func(addr, masked, kind, label string) ShareAddrView {
+		code, err := netutil.JoinCode(netip.AddrPortFrom(netip.MustParseAddr(addr), 25565))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ShareAddrView{Addr: addr, Masked: masked, Kind: kind, Label: label, Code: code, CodeMasked: "WW-••••-••••"}
+	}
 	want := []ShareAddrView{
-		{"192.168.1.42", "•••.•••.•••.42", "lan", "LAN"}, {"10.0.0.7", "•••.•••.•••.7", "lan", "LAN"}, {"172.20.1.1", "•••.•••.•••.1", "lan", "LAN"},
-		{"26.12.34.56", "•••.•••.•••.56", "radmin", "Radmin VPN"},
-		{"100.101.2.3", "•••.•••.•••.3", "tailscale", "Tailscale"},
-		{"203.0.113.9", "•••.•••.•••.9", "other", "Other"}, {"172.32.0.1", "•••.•••.•••.1", "other", "Other"}, {"100.128.0.1", "•••.•••.•••.1", "other", "Other"},
+		sv("192.168.1.42", "•••.•••.•••.42", "lan", "LAN"), sv("10.0.0.7", "•••.•••.•••.7", "lan", "LAN"), sv("172.20.1.1", "•••.•••.•••.1", "lan", "LAN"),
+		sv("26.12.34.56", "•••.•••.•••.56", "radmin", "Radmin VPN"),
+		sv("100.101.2.3", "•••.•••.•••.3", "tailscale", "Tailscale"),
+		sv("203.0.113.9", "•••.•••.•••.9", "other", "Other"), sv("172.32.0.1", "•••.•••.•••.1", "other", "Other"), sv("100.128.0.1", "•••.•••.•••.1", "other", "Other"),
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("shareAddrs =\n%v\nwant\n%v", got, want)
@@ -32,6 +41,14 @@ func TestShareAddrs(t *testing.T) {
 	}
 	if got := shareAddrs([]string{"26.1.2.3"}, 25570); got[0].Addr != "26.1.2.3:25570" || got[0].Masked != "•••.•••.•••.3:25570" || got[0].Label != "Radmin VPN" {
 		t.Fatalf("port 25570: %+v", got)
+	}
+	// The code holds the port: a long code, masked whole.
+	got = shareAddrs([]string{"26.1.2.3", "fd00::1"}, 25570)
+	if ap, err := netutil.ParseJoinCode(got[0].Code); err != nil || ap.String() != "26.1.2.3:25570" || got[0].CodeMasked != "WW-••••-••••-••••" {
+		t.Fatalf("code for port 25570: %+v (%v, %v)", got[0], ap, err)
+	}
+	if got[1].Code != "" || got[1].CodeMasked != "" {
+		t.Fatalf("an IPv6 has no code: %+v", got[1])
 	}
 	if got := shareAddrs(nil, 25565); got == nil || len(got) != 0 {
 		t.Fatalf("no IPs = %#v, want an empty list (JSON [])", got)

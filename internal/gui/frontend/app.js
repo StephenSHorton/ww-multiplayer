@@ -1,5 +1,5 @@
-// app.js: the window's screens: Home (name, color, Host / Join, recent
-// hosts) and Session, which is the Lobby (App PR 7: members with their
+// app.js: the window's screens: Home (name, color, Host / Join, the
+// sessions on your network, recent hosts) and Session, which is the Lobby (App PR 7: members with their
 // colors, ready and connection, your tunic and Ready, the host's panel
 // with the share card, co-op and Start, chat, Kick), then, once the host
 // pressed Start, the game (App PR 8: every player's Dolphin and area, the
@@ -26,6 +26,8 @@ let left = false; // the user pressed Leave (no "ended" panel then)
 let busy = false;
 let shared = { session: 0, port: 0, addrs: [] }; // the host's share card, read once per session
 let shareSeq = 0; // the newest ShareAddrs call: an older reply is dropped
+let lan = { on: false, sessions: [] }; // Bridge.LanSessions, polled while Home shows
+let lanSeq = 0; // the newest LanSessions call
 // IP addresses are masked on screen (owner decision 2026-10-16,
 // streamer-safe): Go masks them in every view unless the header's "Show
 // IP addresses" switch (info.showIPs) is on. An address field Go sends
@@ -71,6 +73,7 @@ function show(v) {
 	if (v === "home") {
 		$("home-error").textContent = "";
 		renderRecent();
+		refreshLan();
 		// A join that reached its host saved it as a recent host meanwhile.
 		call("Info").then((i) => { info = i; renderRecent(); }).catch(() => {});
 	}
@@ -138,6 +141,8 @@ async function onSettings() {
 	}
 	applyShowIPs();
 	renderRecent();
+	renderLan();
+	refreshLan();
 	shared.session = 0; // the share card is read again by render
 	await refresh();
 }
@@ -357,21 +362,91 @@ async function loadShare(id) {
 function renderShare() {
 	const ul = $("addrs");
 	ul.replaceChildren(...shared.addrs.map((a) => {
+		// Show reveals the address and its join code: the code holds the
+		// address, so it is masked as one.
 		const shown = revealed.has(a.addr);
+		const raw = info.showIPs || shown;
 		return el("li", { class: "addr " + a.kind },
-			el("span", { class: "tag" }, a.label),
-			el("code", {}, info.showIPs || shown ? a.addr : a.masked),
-			info.showIPs ? null : el("button", {
-				type: "button", class: "btn small", "aria-pressed": String(shown),
-				title: shown ? "Mask this address again" : "Show this address until you leave the screen",
-				onclick: () => { if (shown) revealed.delete(a.addr); else revealed.add(a.addr); renderShare(); },
-			}, shown ? "Hide" : "Show"),
-			el("button", { type: "button", class: "btn small", onclick: () => copyText(a.addr, "the " + a.label + " address") }, "Copy"));
+			el("div", { class: "addrrow" },
+				el("span", { class: "tag" }, a.label),
+				el("code", {}, raw ? a.addr : a.masked),
+				info.showIPs ? null : el("button", {
+					type: "button", class: "btn small", "aria-pressed": String(shown),
+					title: shown ? "Mask this address and its code again" : "Show this address and its code until you leave the screen",
+					onclick: () => { if (shown) revealed.delete(a.addr); else revealed.add(a.addr); renderShare(); },
+				}, shown ? "Hide" : "Show"),
+				el("button", { type: "button", class: "btn small", onclick: () => copyText(a.addr, "the " + a.label + " address") }, "Copy")),
+			a.code ? el("div", { class: "coderow" },
+				el("span", { class: "codetag" }, "Join code"),
+				el("code", {}, raw ? a.code : a.codeMasked),
+				el("button", { type: "button", class: "btn small", onclick: () => copyText(a.code, "the " + a.label + " join code") }, "Copy code")) : null);
 	}));
 	if (!shared.addrs.length) ul.append(el("li", { class: "empty" }, "This computer has no network address a friend could reach."));
 	const port = shared.port || 25565;
-	$("share-hint").textContent = "If Windows asks whether ww-multiplayer may use the network, allow it. " +
+	$("share-hint").textContent = "A join code is the address, shortened: friends paste it in Join. " +
+		"Friends on your network see this session under Join without either. " +
+		"If Windows asks whether ww-multiplayer may use the network, allow it. " +
 		"Over the internet: share a Radmin VPN network, or forward port " + port + ".";
+}
+
+// ---------- sessions on your network ----------
+
+const LAN_PHASES = { starting: "Starting", "in game": "In game", unknown: "Unknown" };
+
+// refreshLan reads the sessions heard on the network (Go listens while
+// this is asked for: every second while Home shows).
+async function refreshLan() {
+	const seq = ++lanSeq;
+	let v;
+	try {
+		v = await call("LanSessions");
+	} catch {
+		return;
+	}
+	if (seq !== lanSeq || view !== "home") return;
+	if (v.showIPs && !info.showIPs) return; // from before the switch went off
+	lan = v;
+	renderLan();
+}
+
+// renderLan lists the sessions: the host's name, players, phase and
+// version, the network it was heard on with its address masked (Show
+// reveals it until Home is left), and Join. A session of another
+// version is greyed and can't be joined.
+function renderLan() {
+	const list = $("lan-list");
+	const rows = (lan.sessions || []).map((s) => {
+		const key = "lan:" + s.id;
+		const shown = revealed.has(key);
+		const raw = info.showIPs || shown;
+		const versionChip = s.compatible
+			? (s.version && s.version !== info.version ? chip(s.version, "ver", "Another version that can still play with yours") : null)
+			: chip(s.version || "other version", "ver bad", "Another version: both players need the same version");
+		return el("li", { class: "lansess" + (s.compatible ? "" : " incompatible") },
+			el("div", { class: "lanhead" },
+				el("b", { class: "who" }, s.host || "Someone"),
+				chip(s.players + (s.max ? "/" + s.max : "") + (s.players === 1 && !s.max ? " player" : " players"), "", "Players in the lobby"),
+				LAN_PHASES[s.phase] ? chip(LAN_PHASES[s.phase], "area far", "They already pressed Start; you can still join") : null,
+				s.coop ? chip("Co-op", "file", "The host chose a co-op world") : null,
+				versionChip),
+			el("div", { class: "lanaddr " + s.kind },
+				el("span", { class: "tag" }, s.label),
+				el("code", {}, raw ? s.addr : s.masked),
+				info.showIPs ? null : el("button", {
+					type: "button", class: "btn small", "aria-pressed": String(shown),
+					title: shown ? "Mask this address again" : "Show this address until you leave Home",
+					onclick: () => { if (shown) revealed.delete(key); else revealed.add(key); renderLan(); },
+				}, shown ? "Hide" : "Show"),
+				el("button", {
+					type: "button", class: "btn small primary", disabled: !s.compatible || busy,
+					title: s.compatible ? "Join " + (s.host || "this session") : "Both players need the same version",
+					onclick: () => start(() => call("Join", { addr: s.addr, name: $("name").value, color: homeColor })),
+				}, "Join")));
+	});
+	list.replaceChildren(...rows);
+	if (!rows.length && lan.on) list.append(el("li", { class: "empty" }, "Looking for sessions on your network…"));
+	$("lan-note").textContent = lan.note || (rows.length ? "" : "A friend's session shows here once they host on the same network (or Radmin VPN network).");
+	$("lan").hidden = !lan.on && !lan.note;
 }
 
 // ---------- dialogs ----------
@@ -586,6 +661,7 @@ function onEv(ev) {
 function setBusy(b) {
 	busy = b;
 	for (const id of ["host-btn", "join-btn"]) $(id).disabled = b;
+	renderLan();
 }
 
 // start runs one of the forms' calls (Host or Join) and opens the
@@ -746,7 +822,10 @@ async function main() {
 	} else {
 		show("home");
 	}
-	setInterval(() => { if (view === "session") refresh(); }, 1000);
+	setInterval(() => {
+		if (view === "session") refresh();
+		else if (view === "home") refreshLan();
+	}, 1000);
 }
 
 main().catch((e) => {
