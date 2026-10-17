@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // Story bits (§6.5). The story sync carries the named event bits of
@@ -186,7 +187,7 @@ func Holds() []Hold { return slices.Clone(holds) }
 // masterSwords are the items checkMasterSwordEquip accepts in the sword
 // slot mSelectEquip[0] (d_a_player.h:600-604; dItemNo_MASTER_SWORD_1-3,
 // d_item_data.h:64, :65, :69; the slot, d_save.h:46).
-var masterSwords = []byte{0x39, 0x3A, 0x3E}
+var masterSwords = []byte{save.ItemMasterSword1, save.ItemMasterSword2, save.ItemMasterSword3}
 
 // MasterSwords returns the item numbers of the three Master Swords.
 func MasterSwords() []byte { return slices.Clone(masterSwords) }

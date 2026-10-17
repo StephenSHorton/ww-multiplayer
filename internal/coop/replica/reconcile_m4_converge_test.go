@@ -12,12 +12,12 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // startM4Host is a host whose hub grants the default features over tb:
@@ -73,11 +73,11 @@ func (w m4Want) lacks(p *rig) []string {
 	rm := class.Of(w.reg).Mask
 	check(p.savedByte(w.story)&w.storyBit != 0, "the story bit")
 	check(p.savedByte(w.reg)&rm == rm, "the register (0x%02X)", p.savedByte(w.reg))
-	check(p.savedByte(addr.OffGetItem+inventory.SlotBow)&0x01 != 0, "the bow's flag")
-	check(p.savedByte(addr.OffItems+inventory.SlotBow) == inventory.ItemBow, "the bow's slot")
+	check(p.savedByte(addr.OffGetItem+save.SlotBow)&0x01 != 0, "the bow's flag")
+	check(p.savedByte(addr.OffItems+save.SlotBow) == save.ItemBow, "the bow's slot")
 	check(p.savedByte(addr.OffArrowMax) == 30, "the quiver (%d)", p.savedByte(addr.OffArrowMax))
-	check(p.savedByte(addr.OffGetItem+inventory.SlotDekuLeaf)&0x01 != 0, "the Deku Leaf's flag")
-	check(p.savedByte(addr.OffItems+inventory.SlotDekuLeaf) == inventory.ItemDekuLeaf, "the Deku Leaf's slot")
+	check(p.savedByte(addr.OffGetItem+save.SlotDekuLeaf)&0x01 != 0, "the Deku Leaf's flag")
+	check(p.savedByte(addr.OffItems+save.SlotDekuLeaf) == save.ItemDekuLeaf, "the Deku Leaf's slot")
 	if p.table() != addr.TableDRC {
 		return append(out, "DRC is not loaded")
 	}
@@ -169,7 +169,7 @@ func TestConvergeM4Loopback(t *testing.T) {
 	a.set(w.story, w.storyBit)
 	must(a.g.OpenPieceChest(0))
 	must(a.g.OpenPieceChest(1))
-	must(b.g.GetItem(inventory.SlotBow, 0, inventory.ItemBow))
+	must(b.g.GetItem(save.SlotBow, 0, save.ItemBow))
 	must(b.g.SetCapacity(addr.OffArrowMax, 30))
 	must(b.g.GetDekuLeaf())
 	b.put(w.reg, b.savedByte(w.reg)|rm)
@@ -222,8 +222,8 @@ func TestConvergeM4Loopback(t *testing.T) {
 	}{
 		{"A's story bit", w.story, w.storyBit},
 		{"B's register", w.reg, rm},
-		{"B's bow", addr.OffGetItem + inventory.SlotBow, 0x01},
-		{"B's Deku Leaf", addr.OffGetItem + inventory.SlotDekuLeaf, 0x01},
+		{"B's bow", addr.OffGetItem + save.SlotBow, 0x01},
+		{"B's Deku Leaf", addr.OffGetItem + save.SlotDekuLeaf, 0x01},
 	} {
 		if wimg[c.off]&c.m != c.m {
 			t.Errorf("the world lacks %s: 0x%02X", c.name, wimg[c.off])

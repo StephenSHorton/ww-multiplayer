@@ -339,7 +339,7 @@ func FuzzDifferPaced(f *testing.F) {
 			o := dr.observeNow()
 			ue := un.observe(o)
 			pe := dr.d.observe(o)
-			rose.Apply(ue.Gains)
+			world.Apply(&rose, ue.Gains)
 			for _, g := range pe.Gains {
 				off := int(g.Off)
 				if class.Of(off).Class == class.Max && g.Val > rose[off] || class.Of(off).Class != class.Max && g.Val&^rose[off] != 0 {
@@ -352,25 +352,25 @@ func FuzzDifferPaced(f *testing.F) {
 					t.Fatalf("story byte 0x%03X sent %d ticks into an IDLE run", off, o.st.IdleRun)
 				}
 			}
-			sent.Apply(pe.Gains)
+			world.Apply(&sent, pe.Gains)
 			// Stage progress (not story, register, inventory or switch)
 			// goes as it rises.
 			var now, pnow world.Image
 			for _, g := range ue.Gains {
 				if off := int(g.Off); !inventoryByte(off) && !story.IsStoryByte(off) && !story.IsRegisterByte(off) && !hub.IsSwitchByte(off) {
-					now.Apply([]world.Gain{g})
+					world.Apply(&now, []world.Gain{g})
 				}
 			}
 			for _, g := range pe.Gains {
 				if off := int(g.Off); !inventoryByte(off) && !story.IsStoryByte(off) && !story.IsRegisterByte(off) && !hub.IsSwitchByte(off) {
-					pnow.Apply([]world.Gain{g})
+					world.Apply(&pnow, []world.Gain{g})
 				}
 			}
 			if now != pnow {
 				t.Fatalf("stage progress: paced %s, unpaced %s", fmtGains(nonZero(&pnow)), fmtGains(nonZero(&now)))
 			}
 			var all world.Image = sent
-			all.Apply(dr.d.Waiting())
+			world.Apply(&all, dr.d.Waiting())
 			if all != rose {
 				t.Fatalf("sent and waiting %s, rose %s", fmtGains(nonZero(&all)), fmtGains(nonZero(&rose)))
 			}

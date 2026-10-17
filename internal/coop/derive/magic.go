@@ -6,6 +6,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // Max magic (§3), from two sources:
@@ -64,7 +65,7 @@ func (f MagicFacts) Derived() int {
 }
 
 // CountMagic reads the magic sources in v.
-func CountMagic(v View) MagicFacts {
+func CountMagic(v save.View) MagicFacts {
 	return MagicFacts{Leaf: v.GetItem(slotDekuLeaf, 0), Upgrade: v.EventSet(EventMagicUpgrade), Have: v.MaxMagic()}
 }
 

@@ -70,6 +70,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -368,7 +369,7 @@ func (d *Deriver) Tick(in Input) Plan {
 		d.reset()
 		d.have, d.file = true, k
 	}
-	v := ViewOf(s)
+	v := save.ViewOf(s)
 	visit := s.StageName != d.stage
 	d.stage = s.StageName
 	c := tick{in: in, v: v, settledSince: d.idleFrom}
@@ -439,7 +440,7 @@ func outOfGame(s *state.Snapshot) bool {
 // tick is what every derive reads of one Tick.
 type tick struct {
 	in Input
-	v  View
+	v  save.View
 	// settledSince is when IDLE last opened: a value settles only from
 	// then.
 	settledSince time.Time

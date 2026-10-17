@@ -9,6 +9,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // Max life (§3), in quarter hearts: 12 at the start, 1 a heart piece, 4 a
@@ -56,7 +57,7 @@ func (f LifeFacts) Derived() int {
 }
 
 // CountLife counts h's heart sources in v.
-func CountLife(v View, h *hearts.Result) LifeFacts {
+func CountLife(v save.View, h *hearts.Result) LifeFacts {
 	f := LifeFacts{Pieces: len(h.Pieces), Containers: len(h.Containers), Have: v.MaxLife()}
 	for _, s := range h.Pieces {
 		if set, _ := v.FlagSet(s.Flag); set {
@@ -95,12 +96,12 @@ func LifeEnabled(h *hearts.Result) (bool, string) {
 		return false, fmt.Sprintf("the M1 heart table fails its check (coop-tables): %d problem(s)", len(h.Problems))
 	}
 	for i, s := range h.Pieces {
-		if !Known(s.Flag) {
+		if !save.Known(s.Flag) {
 			return false, fmt.Sprintf("piece %d: %s is no save bit the derive reads", i+1, s.Flag)
 		}
 	}
 	for i, s := range h.Containers {
-		if !Known(s.Flag) {
+		if !save.Known(s.Flag) {
 			return false, fmt.Sprintf("container %d: %s is no save bit the derive reads", i+1, s.Flag)
 		}
 	}

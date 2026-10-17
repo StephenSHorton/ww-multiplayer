@@ -804,7 +804,7 @@ func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
 			out.send(r.gainsMsg(gs))
 			rep.Gains += len(gs)
 		case r.offlineBound(v):
-			r.queued.Apply(gs)
+			world.Apply(&r.queued, gs)
 			r.queuedN = len(world.Diff(&world.Image{}, &r.queued))
 			rep.Queued = len(gs)
 		}
@@ -984,7 +984,7 @@ func (r *Replica) handle(m wire.Msg, out *outbox) {
 			for i, g := range m.Gains {
 				gs[i] = world.Gain(g)
 			}
-			r.view.Apply(gs)
+			world.Apply(&r.view, gs)
 			r.viewSeq = max(r.viewSeq, m.Seq)
 		}
 	case *wire.Scoped:

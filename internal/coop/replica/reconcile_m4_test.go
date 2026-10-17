@@ -10,7 +10,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/story"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
@@ -18,6 +17,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // The M4 receiver's tests run the replica's reconciler over a FakeGame
@@ -190,7 +190,7 @@ func auditM4Writes(t *testing.T, ws []auditWrite, reps []Report, places []gamePl
 			switch {
 			case isKey && w.val > derive.MaxKeys:
 				at("a key byte above %d", derive.MaxKeys)
-			case !isKey && (w.val == inventory.ItemNone || w.val == w.old):
+			case !isKey && (w.val == save.ItemNone || w.val == w.old):
 				at("an item write that empties a slot, or changes nothing")
 			}
 		default:
@@ -331,7 +331,7 @@ func TestReconcileM4ClassesNotGranted(t *testing.T) {
 			func(img *world.Image) { img[off] |= m },
 			"the world's story is not written to this game: the session does not grant story"},
 		{"inventory", hub.FeatureImage | hub.FeatureStory | hub.FeatureMagic,
-			func(img *world.Image) { img[addr.OffGetItem+inventory.SlotTelescope] = 0x01 },
+			func(img *world.Image) { img[addr.OffGetItem+save.SlotTelescope] = 0x01 },
 			"the world's inventory is not written to this game: the session does not grant inventory"},
 	}
 	for _, c := range cases {
@@ -356,11 +356,11 @@ func TestReconcileM4ClassesNotGranted(t *testing.T) {
 	// (inventory), its magic is not.
 	rr := newRecRig(t, Config{Apply: true, Policy: hub.SessionPolicy(nil)}, hub.FeatureImage|hub.FeatureInventory)
 	var img world.Image
-	img[addr.OffGetItem+inventory.SlotDekuLeaf] = 0x01
+	img[addr.OffGetItem+save.SlotDekuLeaf] = 0x01
 	rr.world(img)
 	rr.ticks(m4Settle)
-	if rr.savedByte(addr.OffItems+inventory.SlotDekuLeaf) != inventory.ItemDekuLeaf || rr.read(addr.MaxMagic, 1)[0] != 0 {
-		t.Fatalf("slot 0x%02X, max magic %d", rr.savedByte(addr.OffItems+inventory.SlotDekuLeaf), rr.read(addr.MaxMagic, 1)[0])
+	if rr.savedByte(addr.OffItems+save.SlotDekuLeaf) != save.ItemDekuLeaf || rr.read(addr.MaxMagic, 1)[0] != 0 {
+		t.Fatalf("slot 0x%02X, max magic %d", rr.savedByte(addr.OffItems+save.SlotDekuLeaf), rr.read(addr.MaxMagic, 1)[0])
 	}
 	if !rr.log.has("the world's max magic is not written to this game: the session does not grant magic") {
 		t.Fatalf("log:\n%s", rr.log)
@@ -375,7 +375,7 @@ func TestReconcileM4ClassesNotGranted(t *testing.T) {
 // is never lowered.
 func TestReconcileM4Inventory(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, Policy: hub.SessionPolicy(nil)}, hub.FeatureImage|hub.FeatureInventory)
-	bow, tele := addr.OffGetItem+inventory.SlotBow, addr.OffGetItem+inventory.SlotTelescope
+	bow, tele := addr.OffGetItem+save.SlotBow, addr.OffGetItem+save.SlotTelescope
 	var img world.Image
 	img[bow], img[addr.OffArrowMax], img[tele] = 0x01, 30, 0x01
 	rr.g.SetEvent(1, 0)
@@ -396,8 +396,8 @@ func TestReconcileM4Inventory(t *testing.T) {
 	}{
 		{"the bow's flag", bow, rr.savedByte(bow), 0x01},
 		{"the arrow capacity", addr.OffArrowMax, rr.savedByte(addr.OffArrowMax), 30},
-		{"the bow's slot", addr.OffItems + inventory.SlotBow, rr.savedByte(addr.OffItems + inventory.SlotBow), inventory.ItemBow},
-		{"the telescope's slot", addr.OffItems + inventory.SlotTelescope, rr.savedByte(addr.OffItems + inventory.SlotTelescope), inventory.ItemTelescope},
+		{"the bow's slot", addr.OffItems + save.SlotBow, rr.savedByte(addr.OffItems + save.SlotBow), save.ItemBow},
+		{"the telescope's slot", addr.OffItems + save.SlotTelescope, rr.savedByte(addr.OffItems + save.SlotTelescope), save.ItemTelescope},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s: 0x%02X, want 0x%02X", c.name, c.got, c.want)
@@ -443,13 +443,13 @@ func TestReconcileM4Inventory(t *testing.T) {
 func TestReconcileM4GrantNeverLowersACapacity(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, Policy: hub.SessionPolicy(nil)}, hub.FeatureImage|hub.FeatureInventory)
 	rr.put(addr.OffArrowMax, 60)
-	bow := addr.OffGetItem + inventory.SlotBow
+	bow := addr.OffGetItem + save.SlotBow
 	var img world.Image
 	img[bow] = 0x01
 	rr.world(img)
 	rr.ticks(gate.StableTicks + 4)
-	if rr.savedByte(bow) != 0x01 || rr.savedByte(addr.OffItems+inventory.SlotBow) != inventory.ItemBow {
-		t.Fatalf("flag 0x%02X, slot 0x%02X", rr.savedByte(bow), rr.savedByte(addr.OffItems+inventory.SlotBow))
+	if rr.savedByte(bow) != 0x01 || rr.savedByte(addr.OffItems+save.SlotBow) != save.ItemBow {
+		t.Fatalf("flag 0x%02X, slot 0x%02X", rr.savedByte(bow), rr.savedByte(addr.OffItems+save.SlotBow))
 	}
 	if got := rr.savedByte(addr.OffArrowMax); got != 60 {
 		t.Fatalf("arrow capacity %d, want 60", got)
@@ -469,7 +469,7 @@ func TestReconcileM4MaxMagic(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, Policy: hub.SessionPolicy(nil)},
 		hub.FeatureImage|hub.FeatureInventory|hub.FeatureMagic)
 	var img world.Image
-	img[addr.OffGetItem+inventory.SlotDekuLeaf] = 0x01
+	img[addr.OffGetItem+save.SlotDekuLeaf] = 0x01
 	rr.world(img)
 	rr.ticks(m4Settle)
 	if got := rr.read(addr.MaxMagic, 1)[0]; got != derive.MagicLeaf {
@@ -710,12 +710,12 @@ func TestReconcileM4DryRun(t *testing.T) {
 	off, m := syncedStory(t)
 	tbox, tm := chest(addr.TableDRC, 1)
 	var img world.Image
-	img[off], img[addr.OffGetItem+inventory.SlotBow], img[addr.OffArrowMax], img[tbox] = m, 0x01, 30, tm
+	img[off], img[addr.OffGetItem+save.SlotBow], img[addr.OffArrowMax], img[tbox] = m, 0x01, 30, tm
 	rr.world(img)
 	rr.load(drcKeys)
 	rr.ticks(gate.StableTicks + 2)
 	// The receiver's own Deku Leaf, its magic not yet counted in.
-	rr.set(addr.OffGetItem+inventory.SlotDekuLeaf, 0x01)
+	rr.set(addr.OffGetItem+save.SlotDekuLeaf, 0x01)
 	rr.ticks(m4Settle)
 	rr.changeStage(outset)
 	rr.ticks(gate.StableTicks + 2)

@@ -110,7 +110,7 @@ func runTicks(t *testing.T, b *Batcher, ticks []tick) {
 // merged is gs merged into one image and listed again, ascending.
 func merged(gs ...world.Gain) []world.Gain {
 	var img world.Image
-	img.Apply(gs)
+	world.Apply(&img, gs)
 	return gainsOf(&img)
 }
 

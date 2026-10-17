@@ -34,16 +34,15 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // ImageSize is the size of the canonical image, dSv_save_c (d_save.h:916).
-const ImageSize = addr.SaveImageSize
+const ImageSize = save.ImageSize
 
-// Image is the canonical dSv_save_c image (§3): the saved image with the
-// current table's live memBit folded into its saved slot, indexed by
-// addr.Off* offsets. It has the layout of wire.Image and snap's image, so
-// either converts to it.
-type Image [ImageSize]byte
+// Image is the canonical dSv_save_c image (§3), save.Image. The name is
+// kept for one release (docs/api/00-design.md, C6; E4 removes it).
+type Image = save.Image
 
 // ID is a worldID or a bindNonce: 8 bytes minted by Go at a bind (§5.3).
 // It has the layout of bind.WorldID, bind.Nonce and wire.ID.
@@ -155,7 +154,7 @@ func Diff(from, to *Image) []Gain {
 // merge is skipped, and bits outside the class mask are ignored (a MAX
 // value with any is skipped whole). Replicas use it to fold a GAINS relay
 // into their view of the world.
-func (img *Image) Apply(gs []Gain) int {
+func Apply(img *Image, gs []Gain) int {
 	before := *img
 	for _, g := range gs {
 		off := int(g.Off)

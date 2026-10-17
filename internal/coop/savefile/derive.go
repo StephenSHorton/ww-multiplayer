@@ -10,6 +10,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // The DERIVED bytes are what the game computes from flags as it hands an
@@ -18,71 +19,9 @@ import (
 // max life and max magic (§3). The merge ORs the flags; Derive fills in
 // what they imply. Citations are zeldaret/tww at 4d78c994.
 
-const itemNone = 0xFF // dItemNo_NONE_e (d_item_data.h:262); dInvSlot_NONE_e is 0xFF too
-
-// variant is one item a slot can hold and the flag bit that gives it.
-type variant struct {
-	bit  uint
-	item byte
-}
-
-// slotRule is one derived slot: the image byte that holds the item, the
-// flag byte whose bits give it, and its items, lesser first.
-type slotRule struct {
-	name  string
-	off   int // the slot byte
-	flags int // the flag byte
-	items []variant
-}
-
-// getItemSlot is mItems[slot] from mItemFlags[slot]: dComIfGs_onGetItem
-// sets bit n of mItemFlags[slot] (dSv_player_get_item_c::onItem,
-// d_save.cpp:204-207) as the item_func sets the slot.
-func getItemSlot(name string, slot int, items ...variant) slotRule {
-	return slotRule{name: name, off: addr.OffItems + slot, flags: addr.OffGetItem + slot, items: items}
-}
-
-// itemSlots are the inventory slots the get-item flags give (dInvSlot_e,
-// d_com_inf_game.h:1072-1094; item numbers, d_item_data.h). Bottles
-// (14-17) are each player's own (§6.6).
-var itemSlots = []slotRule{
-	getItemSlot("telescope", 0, variant{0, 0x20}),      // item_func_telescope, d_item.cpp:691-694
-	getItemSlot("sail", 1, variant{0, 0x78}),           // item_func_normal_sail, d_item.cpp:1120-1122
-	getItemSlot("Wind Waker", 2, variant{0, 0x22}),     // item_func_wind_tact, d_item.cpp:703-706
-	getItemSlot("grappling hook", 3, variant{0, 0x25}), // item_func_rope, d_item.cpp:721-724
-	getItemSlot("spoils bag", 4, variant{0, 0x24}),     // item_func_emono_bag, d_item.cpp:715-718
-	getItemSlot("boomerang", 5, variant{0, 0x2D}),      // item_func_boomerang, d_item.cpp:769-772
-	getItemSlot("Deku Leaf", 6, variant{0, 0x34}),      // item_func_deku_leaf, d_item.cpp:810-815
-	getItemSlot("Tingle Tuner", 7, variant{0, 0x21}),   // item_func_tncl_whitsl, d_item.cpp:697-700
-	// item_func_camera, d_item.cpp:709-712; item_func_camera2, :727-730
-	getItemSlot("picto box", 8, variant{0, 0x23}, variant{1, 0x26}),
-	getItemSlot("iron boots", 9, variant{0, 0x29}),   // item_func_hvy_boots, d_item.cpp:747-750
-	getItemSlot("magic armor", 10, variant{0, 0x2A}), // item_func_drgn_shield, d_item.cpp:753-756
-	getItemSlot("bait bag", 11, variant{0, 0x2C}),    // item_func_esa_bag, d_item.cpp:763-766
-	// item_func_bow, magic_arrow, light_arrow (d_item.cpp:733-735,
-	// :818-820, :833-835): the game gives the best one back itself the
-	// same way at every stage load outside GTower (d_s_play.cpp:1385-1392).
-	getItemSlot("bow", 12, variant{0, 0x27}, variant{1, 0x35}, variant{2, 0x36}),
-	// item_func_bomb_bag and bomb_10..30 (d_item.cpp:792-794, :624-640)
-	getItemSlot("bombs", 13, variant{0, 0x31}),
-	getItemSlot("delivery bag", 18, variant{0, 0x30}), // item_func_warasibe_bag, d_item.cpp:786-789
-	getItemSlot("hookshot", 19, variant{0, 0x2F}),     // item_func_hookshot, d_item.cpp:780-783
-	getItemSlot("Skull Hammer", 20, variant{0, 0x33}), // item_func_hummer, d_item.cpp:804-807
-}
-
-// equipSlots are mSelectEquip[0..2] from mCollect[0..2]: each item_func
-// sets bit n of mCollect[i] (dSv_player_collect_c::onCollect,
-// d_save.cpp:745-748) and equips the item. mSelectEquip[3] has no setter
-// and stays a's.
-var equipSlots = []slotRule{
-	// item_func_sword, master_sword, lv3_sword, master_sword_ex
-	// (d_item.cpp:848-850, :854-856, :860-862, :884-886)
-	{"sword", addr.OffSelectEquip + 0, addr.OffCollectFlags + 0, []variant{{0, 0x38}, {1, 0x39}, {2, 0x3A}, {3, 0x3E}}},
-	// item_func_shield, mirror_shield (d_item.cpp:866-868, :872-874)
-	{"shield", addr.OffSelectEquip + 1, addr.OffCollectFlags + 1, []variant{{0, 0x3B}, {1, 0x3C}}},
-	// item_func_pwr_groove (d_item.cpp:741-743)
-	{"power bracelets", addr.OffSelectEquip + 2, addr.OffCollectFlags + 2, []variant{{0, 0x28}}},
-}
+// noteNames are the save-merge notes' names for the slots whose
+// save.Slot name they predate.
+var noteNames = map[string]string{"bracelets": "power bracelets"}
 
 // Magic: the Deku Leaf adds 16 to max magic and the magic upgrade 32
 // (item_func_deku_leaf, d_item.cpp:810-815; item_func_max_mp_up1,
@@ -98,7 +37,7 @@ var equipSlots = []slotRule{
 const (
 	magicLeaf = 16
 	magicCap  = 0x20
-	slotLeaf  = 6
+	slotLeaf  = save.SlotDekuLeaf
 )
 
 // lifeCap is the HUD's cap on max life, 20 hearts in quarters
@@ -128,11 +67,11 @@ const lifeCap = 0x50
 func Derive(k *keys.Result, h *hearts.Result) Deriver {
 	return func(img, a, b *world.Image) []string {
 		var notes []string
-		for _, r := range itemSlots {
-			notes = append(notes, r.derive(img, "mItems")...)
+		for _, r := range save.ItemSlots() {
+			notes = append(notes, deriveSlot(r, img, "mItems")...)
 		}
-		for _, r := range equipSlots {
-			notes = append(notes, r.derive(img, "mSelectEquip")...)
+		for _, r := range save.EquipSlots() {
+			notes = append(notes, deriveSlot(r, img, "mSelectEquip")...)
 		}
 		if k != nil {
 			for i := range k.Tables {
@@ -147,35 +86,34 @@ func Derive(k *keys.Result, h *hearts.Result) Deriver {
 	}
 }
 
-// derive fills r's slot with the best variant img's flags give, where the
-// slot is empty or holds a lesser one.
-func (r slotRule) derive(img *world.Image, field string) []string {
-	best := -1
-	for i, v := range r.items {
-		if img[r.flags]&(1<<v.bit) != 0 {
-			best = i
-		}
-	}
-	if best < 0 {
+// deriveSlot fills r's slot with the best variant img's flags give, where
+// the slot is empty or holds a lesser one. The slot's own Derive does the
+// same silently; this one notes what it did, and a kept item it can't
+// name.
+func deriveSlot(r save.Slot, img *world.Image, field string) []string {
+	v, ok := r.Best(img[r.FlagOff])
+	if !ok {
 		return nil
 	}
-	cur := img[r.off]
+	best := r.Rank(v.Item)
+	name := r.Name
+	if n, ok := noteNames[name]; ok {
+		name = n
+	}
+	cur := img[r.Off]
 	rank := -1
-	if cur != itemNone {
-		rank = len(r.items) // an item the rule doesn't name: keep it
-		for i, v := range r.items {
-			if v.item == cur {
-				rank = i
-			}
+	if cur != save.ItemNone {
+		if rank = r.Rank(cur); rank < 0 {
+			rank = len(r.Variants) // an item the rule doesn't name: keep it
 		}
 	}
 	switch {
-	case rank == len(r.items):
+	case rank == len(r.Variants):
 		return []string{fmt.Sprintf("%s (%s): kept item 0x%02X; the merged flags give 0x%02X, and nothing is taken away",
-			field, r.name, cur, r.items[best].item)}
+			field, name, cur, v.Item)}
 	case best > rank:
-		img[r.off] = r.items[best].item
-		return []string{fmt.Sprintf("%s (%s): 0x%02X -> 0x%02X, from the merged flags", field, r.name, cur, r.items[best].item)}
+		img[r.Off] = v.Item
+		return []string{fmt.Sprintf("%s (%s): 0x%02X -> 0x%02X, from the merged flags", field, name, cur, v.Item)}
 	}
 	return nil
 }
@@ -297,7 +235,7 @@ func lifeSources(img *world.Image, h *hearts.Result) (pieces, containers int) {
 }
 
 // rewardGiven reports whether a heart Catalogue reward's record is set in
-// img, as the live derive reads it (derive.View.RecordSet): its event bit,
+// img, as the live derive reads it (save.View.RecordSet): its event bit,
 // or its letter register reading READ. A reward no save bit records
 // (tables.RecordNone: the minigames) never counts.
 func rewardGiven(img *world.Image, rec tables.Record) bool {

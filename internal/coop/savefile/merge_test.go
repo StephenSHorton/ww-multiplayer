@@ -7,6 +7,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // freshImage is a new file's image as dSv_player_status_a_c::init leaves
@@ -15,10 +16,10 @@ func freshImage(name string) world.Image {
 	var img world.Image
 	img[addr.OffMaxLife+1], img[addr.OffLife+1] = 12, 12
 	for i := range 4 {
-		img[addr.OffSelectEquip+i] = itemNone
+		img[addr.OffSelectEquip+i] = save.ItemNone
 	}
 	for i := range addr.SlotCount {
-		img[addr.OffItems+i] = itemNone
+		img[addr.OffItems+i] = save.ItemNone
 	}
 	copy(img[addr.OffPlayerName:], name)
 	return img

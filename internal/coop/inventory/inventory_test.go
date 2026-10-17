@@ -10,6 +10,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -19,13 +20,13 @@ import (
 func fresh() world.Image {
 	var img world.Image
 	for i := range addr.SlotCount {
-		img[addr.OffItems+i] = ItemNone
+		img[addr.OffItems+i] = save.ItemNone
 	}
 	for i := range 5 {
-		img[addr.OffSelectItem+i] = ItemNone
+		img[addr.OffSelectItem+i] = save.ItemNone
 	}
 	for i := range 4 {
-		img[addr.OffSelectEquip+i] = ItemNone
+		img[addr.OffSelectEquip+i] = save.ItemNone
 	}
 	return img
 }
@@ -40,17 +41,17 @@ func with(img world.Image, kv ...int) world.Image {
 
 // noButtons is a context whose HUD shows nothing on any button.
 func noButtons() Context {
-	return Context{StageName: "sea", StageTypeOK: true, StageType: 7, SelectItem: [Buttons]byte{ItemNone, ItemNone, ItemNone}}
+	return Context{StageName: "sea", StageTypeOK: true, StageType: 7, SelectItem: [Buttons]byte{save.ItemNone, save.ItemNone, save.ItemNone}}
 }
 
 var (
-	offBowFlags  = addr.OffGetItem + SlotBow
-	offBombFlags = addr.OffGetItem + SlotBomb
-	offBowSlot   = addr.OffItems + SlotBow
-	offBombSlot  = addr.OffItems + SlotBomb
-	offSword     = addr.OffSelectEquip + EquipSword
-	offShield    = addr.OffSelectEquip + EquipShield
-	offSwordBits = addr.OffCollectFlags + EquipSword
+	offBowFlags  = addr.OffGetItem + save.SlotBow
+	offBombFlags = addr.OffGetItem + save.SlotBomb
+	offBowSlot   = addr.OffItems + save.SlotBow
+	offBombSlot  = addr.OffItems + save.SlotBomb
+	offSword     = addr.OffSelectEquip + save.EquipSword
+	offShield    = addr.OffSelectEquip + save.EquipShield
+	offSwordBits = addr.OffCollectFlags + save.EquipSword
 	offEv0801    = addr.OffEvent + addr.EventByte(0x0801).Off
 )
 
@@ -101,7 +102,7 @@ func heldShorts(hs []Held) []string {
 // its class mask, and every capacity is MAX.
 func TestTables(t *testing.T) {
 	seen := map[int]bool{}
-	for _, s := range ItemSlots() {
+	for _, s := range save.ItemSlots() {
 		if s.Off != addr.OffItems+s.Index || s.FlagOff != addr.OffGetItem+s.Index {
 			t.Errorf("%s: Off 0x%03X FlagOff 0x%03X for slot %d", s.Name, s.Off, s.FlagOff, s.Index)
 		}
@@ -125,7 +126,7 @@ func TestTables(t *testing.T) {
 	if want := addr.SlotCount - addr.SlotBottleCount; len(seen) != want {
 		t.Errorf("%d slots derived, want %d", len(seen), want)
 	}
-	for i, e := range EquipSlots() {
+	for i, e := range save.EquipSlots() {
 		if e.Index != i || e.Off != addr.OffSelectEquip+i || e.FlagOff != addr.OffCollectFlags+i {
 			t.Errorf("%s: index %d Off 0x%03X FlagOff 0x%03X", e.Name, e.Index, e.Off, e.FlagOff)
 		}
@@ -198,14 +199,14 @@ func TestAddresses(t *testing.T) {
 // flags give, fills only nothing or a lesser variant, never moves down,
 // and keeps an item none of its variants names.
 func TestDeriveVariants(t *testing.T) {
-	slot := func(name string) Slot {
-		for _, s := range append(ItemSlots(), EquipSlots()...) {
+	slot := func(name string) save.Slot {
+		for _, s := range append(save.ItemSlots(), save.EquipSlots()...) {
 			if s.Name == name {
 				return s
 			}
 		}
 		t.Fatalf("no slot %q", name)
-		return Slot{}
+		return save.Slot{}
 	}
 	cases := []struct {
 		slot  string
@@ -214,46 +215,46 @@ func TestDeriveVariants(t *testing.T) {
 		want  byte
 	}{
 		// The bow slot (d_s_play.cpp:1385-1392: light, then fire-ice, then bow).
-		{"bow", ItemNone, 0x00, ItemNone},
-		{"bow", ItemNone, 0x01, ItemBow},
-		{"bow", ItemNone, 0x03, ItemMagicArrow},
-		{"bow", ItemNone, 0x07, ItemLightArrow},
-		{"bow", ItemNone, 0x04, ItemLightArrow},
-		{"bow", ItemNone, 0x02, ItemMagicArrow},
-		{"bow", ItemBow, 0x03, ItemMagicArrow},
-		{"bow", ItemBow, 0x05, ItemLightArrow},
-		{"bow", ItemMagicArrow, 0x07, ItemLightArrow},
-		{"bow", ItemMagicArrow, 0x01, ItemMagicArrow}, // never down
-		{"bow", ItemLightArrow, 0x03, ItemLightArrow},
-		{"bow", ItemLightArrow, 0x00, ItemLightArrow}, // no flags: nothing taken
-		{"bow", ItemBow, 0xF8, ItemBow},               // unnamed bits ignored
-		{"bow", 0x50, 0x07, 0x50},                     // an item the slot can't name stays
+		{"bow", save.ItemNone, 0x00, save.ItemNone},
+		{"bow", save.ItemNone, 0x01, save.ItemBow},
+		{"bow", save.ItemNone, 0x03, save.ItemMagicArrow},
+		{"bow", save.ItemNone, 0x07, save.ItemLightArrow},
+		{"bow", save.ItemNone, 0x04, save.ItemLightArrow},
+		{"bow", save.ItemNone, 0x02, save.ItemMagicArrow},
+		{"bow", save.ItemBow, 0x03, save.ItemMagicArrow},
+		{"bow", save.ItemBow, 0x05, save.ItemLightArrow},
+		{"bow", save.ItemMagicArrow, 0x07, save.ItemLightArrow},
+		{"bow", save.ItemMagicArrow, 0x01, save.ItemMagicArrow}, // never down
+		{"bow", save.ItemLightArrow, 0x03, save.ItemLightArrow},
+		{"bow", save.ItemLightArrow, 0x00, save.ItemLightArrow}, // no flags: nothing taken
+		{"bow", save.ItemBow, 0xF8, save.ItemBow},               // unnamed bits ignored
+		{"bow", 0x50, 0x07, 0x50},                               // an item the slot can't name stays
 		// The picto box slot (item_func_camera, camera2).
-		{"picto box", ItemNone, 0x01, ItemPictoBox},
-		{"picto box", ItemNone, 0x02, ItemDeluxePictoBox},
-		{"picto box", ItemPictoBox, 0x03, ItemDeluxePictoBox},
-		{"picto box", ItemDeluxePictoBox, 0x01, ItemDeluxePictoBox},
+		{"picto box", save.ItemNone, 0x01, save.ItemPictoBox},
+		{"picto box", save.ItemNone, 0x02, save.ItemDeluxePictoBox},
+		{"picto box", save.ItemPictoBox, 0x03, save.ItemDeluxePictoBox},
+		{"picto box", save.ItemDeluxePictoBox, 0x01, save.ItemDeluxePictoBox},
 		// The sword: Hero's, Master (powerless, half, full).
-		{"sword", ItemNone, 0x01, ItemSword},
-		{"sword", ItemNone, 0x02, ItemMasterSword1},
-		{"sword", ItemSword, 0x03, ItemMasterSword1},
-		{"sword", ItemSword, 0x07, ItemMasterSword2},
-		{"sword", ItemMasterSword1, 0x0F, ItemMasterSword3},
-		{"sword", ItemMasterSword2, 0x08, ItemMasterSword3},
-		{"sword", ItemMasterSword3, 0x01, ItemMasterSword3},
-		{"sword", ItemMasterSword2, 0x03, ItemMasterSword2},
+		{"sword", save.ItemNone, 0x01, save.ItemSword},
+		{"sword", save.ItemNone, 0x02, save.ItemMasterSword1},
+		{"sword", save.ItemSword, 0x03, save.ItemMasterSword1},
+		{"sword", save.ItemSword, 0x07, save.ItemMasterSword2},
+		{"sword", save.ItemMasterSword1, 0x0F, save.ItemMasterSword3},
+		{"sword", save.ItemMasterSword2, 0x08, save.ItemMasterSword3},
+		{"sword", save.ItemMasterSword3, 0x01, save.ItemMasterSword3},
+		{"sword", save.ItemMasterSword2, 0x03, save.ItemMasterSword2},
 		// The shield: Hero's, Mirror.
-		{"shield", ItemNone, 0x01, ItemShield},
-		{"shield", ItemNone, 0x03, ItemMirrorShield},
-		{"shield", ItemShield, 0x02, ItemMirrorShield},
-		{"shield", ItemMirrorShield, 0x01, ItemMirrorShield},
+		{"shield", save.ItemNone, 0x01, save.ItemShield},
+		{"shield", save.ItemNone, 0x03, save.ItemMirrorShield},
+		{"shield", save.ItemShield, 0x02, save.ItemMirrorShield},
+		{"shield", save.ItemMirrorShield, 0x01, save.ItemMirrorShield},
 		// Single-variant slots, and the bottle-content bits of mGetItem[0..2].
-		{"telescope", ItemNone, 0x01, ItemTelescope},
-		{"telescope", ItemNone, 0xFE, ItemNone},
-		{"sail", ItemNone, 0xFE, ItemNone},
-		{"Wind Waker", ItemNone, 0x03, ItemWindWaker},
-		{"bombs", ItemNone, 0x01, ItemBombBag},
-		{"bracelets", ItemNone, 0x01, ItemPowerBracelets},
+		{"telescope", save.ItemNone, 0x01, save.ItemTelescope},
+		{"telescope", save.ItemNone, 0xFE, save.ItemNone},
+		{"sail", save.ItemNone, 0xFE, save.ItemNone},
+		{"Wind Waker", save.ItemNone, 0x03, save.ItemWindWaker},
+		{"bombs", save.ItemNone, 0x01, save.ItemBombBag},
+		{"bracelets", save.ItemNone, 0x01, save.ItemPowerBracelets},
 	}
 	for _, c := range cases {
 		if got := slot(c.slot).Derive(c.cur, c.flags); got != c.want {
@@ -261,9 +262,9 @@ func TestDeriveVariants(t *testing.T) {
 		}
 	}
 	// Every variant of every slot, from every start.
-	for _, s := range append(ItemSlots(), EquipSlots()...) {
+	for _, s := range append(save.ItemSlots(), save.EquipSlots()...) {
 		for i, v := range s.Variants {
-			if got := s.Derive(ItemNone, 1<<v.Bit); got != v.Item {
+			if got := s.Derive(save.ItemNone, 1<<v.Bit); got != v.Item {
 				t.Errorf("%s: bit %d alone gives 0x%02X, want 0x%02X", s.Name, v.Bit, got, v.Item)
 			}
 			for j, from := range s.Variants {
@@ -336,18 +337,18 @@ func TestGrants(t *testing.T) {
 		},
 		{
 			name: "fire and ice arrows over the bow: flag, slot, button refresh, no fill",
-			raw:  with(fresh(), offBowFlags, 0x01, offBowSlot, ItemBow, addr.OffArrowMax, 30, addr.OffSelectItem+1, SlotBow),
+			raw:  with(fresh(), offBowFlags, 0x01, offBowSlot, save.ItemBow, addr.OffArrowMax, 30, addr.OffSelectItem+1, save.SlotBow),
 			view: with(fresh(), offBowFlags, 0x03, addr.OffArrowMax, 30),
 			ctx: func() Context {
 				c := noButtons()
-				c.SelectItem[1] = ItemBow
+				c.SelectItem[1] = save.ItemBow
 				return c
 			}(),
 			writes: []string{"flag@05D=03", "slot@048=35", "select-item@803CA7DC=35"},
 		},
 		{
 			name:   "quiver upgrade only: capacity, no ammo",
-			raw:    with(fresh(), offBowFlags, 0x01, offBowSlot, ItemBow, addr.OffArrowMax, 30),
+			raw:    with(fresh(), offBowFlags, 0x01, offBowSlot, save.ItemBow, addr.OffArrowMax, 30),
 			view:   with(fresh(), offBowFlags, 0x01, addr.OffArrowMax, 60),
 			ctx:    noButtons(),
 			writes: []string{"capacity@06F=3C"},
@@ -376,7 +377,7 @@ func TestGrants(t *testing.T) {
 		},
 		{
 			name:   "Master Sword: collect bit now, equipment at the stage entry",
-			raw:    with(fresh(), offSwordBits, 0x01, offSword, ItemSword),
+			raw:    with(fresh(), offSwordBits, 0x01, offSword, save.ItemSword),
 			view:   with(fresh(), offSwordBits, 0x03),
 			ctx:    noButtons(),
 			writes: []string{"flag@0B4=03", "equip@00E=39"},
@@ -406,13 +407,13 @@ func TestGrants(t *testing.T) {
 		{
 			name:   "bottles, bags, ammo, max life and the world's slots are ignored",
 			raw:    fresh(),
-			view:   with(fresh(), addr.OffItems+addr.SlotBottle0, 0x50, offBowSlot, ItemLightArrow, OffArrowNum, 99, addr.OffSelectItem, 3, offSword, ItemMasterSword3),
+			view:   with(fresh(), addr.OffItems+addr.SlotBottle0, 0x50, offBowSlot, save.ItemLightArrow, OffArrowNum, 99, addr.OffSelectItem, 3, offSword, save.ItemMasterSword3),
 			ctx:    noButtons(),
 			writes: nil,
 		},
 		{
 			name:   "the game's own slot fill: raw flags without the slot",
-			raw:    with(fresh(), addr.OffGetItem+SlotHookshot, 0x01),
+			raw:    with(fresh(), addr.OffGetItem+save.SlotHookshot, 0x01),
 			view:   fresh(),
 			ctx:    noButtons(),
 			writes: []string{"slot@04F=2F"},
@@ -491,7 +492,7 @@ func TestContextRules(t *testing.T) {
 		c.StageName, c.StageType, c.StageTypeOK = name, typ, ok
 		return c
 	}
-	swordView := with(fresh(), offSwordBits, 0x03, offShield, ItemShield, addr.OffCollectFlags+1, 0x01)
+	swordView := with(fresh(), offSwordBits, 0x03, offShield, save.ItemShield, addr.OffCollectFlags+1, 0x01)
 	ff1Raw := with(fresh(), offEv0801, 0x01)
 	bowView := with(fresh(), offBowFlags, 0x07, addr.OffArrowMax, 60)
 	cases := []struct {
@@ -548,15 +549,15 @@ func TestContextRules(t *testing.T) {
 		},
 		{
 			name: "GTower: a bow button is not refreshed",
-			raw:  with(fresh(), offBowFlags, 0x07, offBowSlot, ItemLightArrow, addr.OffArrowMax, 60, addr.OffSelectItem, SlotBow), view: bowView,
+			raw:  with(fresh(), offBowFlags, 0x07, offBowSlot, save.ItemLightArrow, addr.OffArrowMax, 60, addr.OffSelectItem, save.SlotBow), view: bowView,
 			ctx: func() Context {
 				c := inStage("GTower", 1, true)
-				c.SelectItem[0] = ItemMagicArrow
+				c.SelectItem[0] = save.ItemMagicArrow
 				return c
 			}(),
 			after: func() Context {
 				c := inStage("sea", 7, true)
-				c.SelectItem[0] = ItemMagicArrow
+				c.SelectItem[0] = save.ItemMagicArrow
 				return c
 			}(),
 			held: []string{"select-item@803CA7DB=36"},
@@ -654,7 +655,7 @@ func TestButtons(t *testing.T) {
 		slot  byte // the save's mSelectItem binding
 		shown byte // play.mSelectItem
 	}
-	bow := with(fresh(), offBowFlags, 0x01, offBowSlot, ItemBow, addr.OffArrowMax, 30)
+	bow := with(fresh(), offBowFlags, 0x01, offBowSlot, save.ItemBow, addr.OffArrowMax, 30)
 	magicView := with(fresh(), offBowFlags, 0x03)
 	cases := []struct {
 		name      string
@@ -664,54 +665,54 @@ func TestButtons(t *testing.T) {
 	}{
 		{
 			name: "two buttons bound to the bow, one to the telescope",
-			raw:  with(bow, addr.OffGetItem+SlotTelescope, 0x01, addr.OffItems+SlotTelescope, ItemTelescope),
+			raw:  with(bow, addr.OffGetItem+save.SlotTelescope, 0x01, addr.OffItems+save.SlotTelescope, save.ItemTelescope),
 			view: magicView,
-			btns: [Buttons]btn{{SlotBow, ItemBow}, {SlotTelescope, ItemTelescope}, {SlotBow, ItemBow}},
+			btns: [Buttons]btn{{save.SlotBow, save.ItemBow}, {save.SlotTelescope, save.ItemTelescope}, {save.SlotBow, save.ItemBow}},
 			want: []string{"select-item@803CA7DB=35", "select-item@803CA7DD=35"},
 		},
 		{
 			name: "unbound, bottle-bound and bag-bound buttons are left alone",
 			raw:  with(bow, addr.OffItems+addr.SlotBottle0, 0x50),
 			view: magicView,
-			btns: [Buttons]btn{{ItemNone, ItemNone}, {addr.SlotBottle0, 0x50}, {0x24, 0x82}},
+			btns: [Buttons]btn{{save.ItemNone, save.ItemNone}, {addr.SlotBottle0, 0x50}, {0x24, 0x82}},
 		},
 		{
 			name: "a button showing an item the slot can't name is left alone",
-			raw:  with(bow, addr.OffSelectItem, SlotBow),
+			raw:  with(bow, addr.OffSelectItem, save.SlotBow),
 			view: magicView,
-			btns: [Buttons]btn{{SlotBow, 0x50}, {ItemNone, ItemNone}, {ItemNone, ItemNone}},
+			btns: [Buttons]btn{{save.SlotBow, 0x50}, {save.ItemNone, save.ItemNone}, {save.ItemNone, save.ItemNone}},
 		},
 		{
 			name: "a button showing a better variant is not moved down",
 			raw:  bow,
 			view: magicView,
-			btns: [Buttons]btn{{SlotBow, ItemLightArrow}, {ItemNone, ItemNone}, {ItemNone, ItemNone}},
+			btns: [Buttons]btn{{save.SlotBow, save.ItemLightArrow}, {save.ItemNone, save.ItemNone}, {save.ItemNone, save.ItemNone}},
 		},
 		{
 			name: "the game's own stale button (deluxe picto box) is refreshed",
-			raw:  with(fresh(), addr.OffGetItem+SlotCamera, 0x03, addr.OffItems+SlotCamera, ItemDeluxePictoBox),
+			raw:  with(fresh(), addr.OffGetItem+save.SlotCamera, 0x03, addr.OffItems+save.SlotCamera, save.ItemDeluxePictoBox),
 			view: fresh(),
-			btns: [Buttons]btn{{ItemNone, ItemNone}, {SlotCamera, ItemPictoBox}, {ItemNone, ItemNone}},
+			btns: [Buttons]btn{{save.ItemNone, save.ItemNone}, {save.SlotCamera, save.ItemPictoBox}, {save.ItemNone, save.ItemNone}},
 			want: []string{"select-item@803CA7DC=26"},
 		},
 		{
 			name: "a bound button showing nothing gets the slot's item",
 			raw:  fresh(),
-			view: with(fresh(), addr.OffGetItem+SlotHookshot, 0x01),
-			btns: [Buttons]btn{{ItemNone, ItemNone}, {ItemNone, ItemNone}, {SlotHookshot, ItemNone}},
+			view: with(fresh(), addr.OffGetItem+save.SlotHookshot, 0x01),
+			btns: [Buttons]btn{{save.ItemNone, save.ItemNone}, {save.ItemNone, save.ItemNone}, {save.SlotHookshot, save.ItemNone}},
 			want: []string{"select-item@803CA7DD=2F"},
 		},
 		{
 			name: "a button bound to an empty slot is left for the game to unbind",
 			raw:  fresh(),
 			view: fresh(),
-			btns: [Buttons]btn{{SlotHookshot, ItemNone}, {ItemNone, ItemNone}, {ItemNone, ItemNone}},
+			btns: [Buttons]btn{{save.SlotHookshot, save.ItemNone}, {save.ItemNone, save.ItemNone}, {save.ItemNone, save.ItemNone}},
 		},
 		{
 			name: "already shown",
-			raw:  with(bow, offBowFlags, 0x03, offBowSlot, ItemMagicArrow),
+			raw:  with(bow, offBowFlags, 0x03, offBowSlot, save.ItemMagicArrow),
 			view: magicView,
-			btns: [Buttons]btn{{SlotBow, ItemMagicArrow}, {ItemNone, ItemNone}, {ItemNone, ItemNone}},
+			btns: [Buttons]btn{{save.SlotBow, save.ItemMagicArrow}, {save.ItemNone, save.ItemNone}, {save.ItemNone, save.ItemNone}},
 		},
 	}
 	for _, c := range cases {
@@ -752,7 +753,7 @@ func TestButtons(t *testing.T) {
 // TestDue: live writes need IDLE; equipment needs the stage-entry window
 // too.
 func TestDue(t *testing.T) {
-	raw := with(fresh(), offSwordBits, 0x01, offSword, ItemSword)
+	raw := with(fresh(), offSwordBits, 0x01, offSword, save.ItemSword)
 	view := with(fresh(), offSwordBits, 0x03, addr.OffTact, 0x01)
 	p := Pending(&view, &raw, noButtons())
 	idle := gate.Status{Stable: true, Idle: true, Heartbeat: true}
@@ -818,7 +819,7 @@ func TestEntry(t *testing.T) {
 func TestContextOf(t *testing.T) {
 	s := &state.Snapshot{StageName: "GTower", StagInfo: 0x80B00000}
 	pl := func(a uint32) []byte { return s.Player[a-state.PlayerRegion.Start:] }
-	copy(pl(addr.PlaySelectItem), []byte{ItemBow, ItemNone, ItemTelescope, 0x77})
+	copy(pl(addr.PlaySelectItem), []byte{save.ItemBow, save.ItemNone, save.ItemTelescope, 0x77})
 	copy(pl(ItemArrowNumCount), []byte{0xFF, 0xFF})
 	copy(pl(ItemBombNumCount), []byte{0x00, 0x1E})
 	m := mem.NewFakeMem()
@@ -827,7 +828,7 @@ func TestContextOf(t *testing.T) {
 	}
 	c := ReadContext(m, s)
 	want := Context{StageName: "GTower", StageType: stageTypeFF1, StageTypeOK: true,
-		SelectItem: [Buttons]byte{ItemBow, ItemNone, ItemTelescope}, ArrowCount: -1, BombCount: 30}
+		SelectItem: [Buttons]byte{save.ItemBow, save.ItemNone, save.ItemTelescope}, ArrowCount: -1, BombCount: 30}
 	if c != want {
 		t.Errorf("ReadContext = %+v, want %+v", c, want)
 	}
@@ -844,23 +845,23 @@ func TestContextOf(t *testing.T) {
 // TestApply lands writes as the writer would: OR, MAX and compare-and-set
 // against what the byte reads.
 func TestApply(t *testing.T) {
-	raw := with(fresh(), addr.OffTact, 0x10, addr.OffArrowMax, 60, offBowSlot, ItemMagicArrow)
+	raw := with(fresh(), addr.OffTact, 0x10, addr.OffArrowMax, 60, offBowSlot, save.ItemMagicArrow)
 	ctx := noButtons()
-	ctx.SelectItem[2] = ItemTelescope
+	ctx.SelectItem[2] = save.ItemTelescope
 	ctx.BombCount = 0x0100
 	ws := []Write{
 		imageWrite(KindFlag, addr.OffTact, OpOR, 0x00, 0x03, Live, "or"),
 		imageWrite(KindCapacity, addr.OffArrowMax, OpMax, 0, 30, Live, "max below"),
-		imageWrite(KindSlot, offBowSlot, OpSet, ItemNone, ItemBow, Live, "stale set"),
-		{Kind: KindSelectItem, Addr: addr.PlaySelectItem + 2, Off: -1, Op: OpSet, Old: ItemTelescope, Val: ItemBow},
+		imageWrite(KindSlot, offBowSlot, OpSet, save.ItemNone, save.ItemBow, Live, "stale set"),
+		{Kind: KindSelectItem, Addr: addr.PlaySelectItem + 2, Off: -1, Op: OpSet, Old: save.ItemTelescope, Val: save.ItemBow},
 		{Kind: KindAmmo, Addr: ItemArrowNumCount + 1, Off: -1, Op: OpSet, Old: 0, Val: 30},
 		{Kind: KindAmmo, Addr: ItemBombNumCount + 1, Off: -1, Op: OpSet, Old: 0, Val: 30},
 	}
 	img, got := Apply(&raw, ctx, ws)
-	if img[addr.OffTact] != 0x13 || img[addr.OffArrowMax] != 60 || img[offBowSlot] != ItemMagicArrow {
+	if img[addr.OffTact] != 0x13 || img[addr.OffArrowMax] != 60 || img[offBowSlot] != save.ItemMagicArrow {
 		t.Errorf("image: tact 0x%02X arrow max %d bow slot 0x%02X", img[addr.OffTact], img[addr.OffArrowMax], img[offBowSlot])
 	}
-	if got.SelectItem[2] != ItemBow || got.ArrowCount != 30 || got.BombCount != 0x011E {
+	if got.SelectItem[2] != save.ItemBow || got.ArrowCount != 30 || got.BombCount != 0x011E {
 		t.Errorf("context %+v", got)
 	}
 }

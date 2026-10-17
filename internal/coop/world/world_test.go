@@ -101,7 +101,7 @@ func TestJoinLaws(t *testing.T) {
 		checkGrows(t, "Join over b", &sb, &ab)
 		// Diff takes a to the join, and nothing is left after.
 		got := sa
-		got.Apply(Diff(&sa, b))
+		Apply(&got, Diff(&sa, b))
 		if got != ab {
 			t.Fatalf("iteration %d: a + Diff(a, b) != Join(a, b)", i)
 		}
@@ -132,7 +132,7 @@ func TestMergeOrderFree(t *testing.T) {
 				gs := randGains(r)
 				ops = append(ops, op{gains: gs})
 				var img Image
-				img.Apply(gs)
+				Apply(&img, gs)
 				want = Join(&want, &img)
 			}
 		}
@@ -346,7 +346,7 @@ func TestDiffAndApply(t *testing.T) {
 	// Apply keeps a replica's local bits outside a MAX mask.
 	reg := addr.OffEvent + int(addr.EventByte(0x7A03).Off)
 	a[reg] = 0xF1
-	if n := a.Apply([]Gain{{uint16(reg), 2}, {uint16(reg), 0x04}, {addr.OffLife, 1}, {ImageSize, 1}}); n != 1 || a[reg] != 0xF2 {
+	if n := Apply(&a, []Gain{{uint16(reg), 2}, {uint16(reg), 0x04}, {addr.OffLife, 1}, {ImageSize, 1}}); n != 1 || a[reg] != 0xF2 {
 		t.Errorf("Apply: %d changed, register 0x%02X", n, a[reg])
 	}
 }

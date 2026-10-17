@@ -51,7 +51,7 @@ ww-multiplayer/
 │   │   ├── app.go, splash.go, connect.go, dashboard.go, styles.go
 │   └── tunic/                   # Tunic texture recolor (CMPR encode, docs/09)
 ├── wwapi/                       # Modding API, v0 UNSTABLE (docs/api): mem/ (Reader/Mem, FakeMem, Dolphin adapter), addr/ (cited addresses), state/ (per-tick snapshot), gate/ (write gates),
-│                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), mailbox/ (T2 + mailbox layout, hand-written until C9), events/, schema/, semver/; the mod runtime (manifest, resolver, supervisor)
+│                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), mailbox/ (T2 + mailbox layout, hand-written until C9), events/, schema/, semver/; the mod runtime (manifest, resolver, supervisor)
 ├── inject/                      # C source for the injected PPC code
 │   ├── src/multiplayer.c        # The mod's C side
 │   ├── include/{game,mailbox}.h

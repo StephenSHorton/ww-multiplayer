@@ -10,10 +10,10 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/hub"
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/inventory"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -171,31 +171,31 @@ func TestApplyDerivedCounterOnlyAtZero(t *testing.T) {
 func TestApplyDerivedCompareAndSet(t *testing.T) {
 	r := newDeriveRig(t, 0)
 	r.m.Record(true)
-	bow := imageAddr(addr.OffItems + inventory.SlotBow)
-	tele := imageAddr(addr.OffItems + inventory.SlotTelescope)
+	bow := imageAddr(addr.OffItems + save.SlotBow)
+	tele := imageAddr(addr.OffItems + save.SlotTelescope)
 	one := func(k DeriveKind, a uint32, old, val byte) DeriveWrite {
 		return DeriveWrite{Kind: k, Table: -1, Addr: a, Expect: []byte{old}, Data: []byte{val}, Reason: "test"}
 	}
 	// X shows the empty slot it is bound to, as dComIfGp_setSelectItem
 	// leaves it (d_com_inf_game.h:2924-2938).
-	r.store(addr.PlaySelectItem, inventory.ItemNone)
+	r.store(addr.PlaySelectItem, save.ItemNone)
 	r.tick()
 	// The game hands the bow over itself between the snapshot and the
 	// beat; the telescope it does not.
 	r.hm.beatOn(2, func() {
 		r.g.Frame()
-		r.stores(bow, []byte{inventory.ItemBow})
+		r.stores(bow, []byte{save.ItemBow})
 	})
 	res, err := r.fw.ApplyDerived(context.Background(), []DeriveWrite{
-		one(DeriveSlot, bow, inventory.ItemNone, inventory.ItemBow),
-		one(DeriveSlot, tele, inventory.ItemNone, inventory.ItemTelescope),
-		one(DeriveButton, addr.PlaySelectItem, inventory.ItemNone, inventory.ItemTelescope),
+		one(DeriveSlot, bow, save.ItemNone, save.ItemBow),
+		one(DeriveSlot, tele, save.ItemNone, save.ItemTelescope),
+		one(DeriveButton, addr.PlaySelectItem, save.ItemNone, save.ItemTelescope),
 	})
 	r.hm.beatOn(0, nil)
 	if err != nil || res.Outcomes[0] != DeriveStale || res.Outcomes[1] != DeriveMade || res.Outcomes[2] != DeriveMade {
 		t.Fatalf("ApplyDerived = %+v, %v", res, err)
 	}
-	if got := r.byteAt(tele); got != inventory.ItemTelescope {
+	if got := r.byteAt(tele); got != save.ItemTelescope {
 		t.Fatalf("telescope slot 0x%02X", got)
 	}
 	if rep := r.tick(); rep.Verified != 2 || rep.Failed != 0 {
@@ -204,11 +204,11 @@ func TestApplyDerivedCompareAndSet(t *testing.T) {
 
 	// A slot the game moves again before the next tick reads back wrong:
 	// a verify failure.
-	res, err = r.applyDerived(one(DeriveEquip, imageAddr(addr.OffSelectEquip), inventory.ItemNone, inventory.ItemSword))
+	res, err = r.applyDerived(one(DeriveEquip, imageAddr(addr.OffSelectEquip), save.ItemNone, save.ItemSword))
 	if err != nil || res.Made() != 1 {
 		t.Fatalf("the sword: %+v, %v", res, err)
 	}
-	r.stores(imageAddr(addr.OffSelectEquip), []byte{inventory.ItemNone})
+	r.stores(imageAddr(addr.OffSelectEquip), []byte{save.ItemNone})
 	if rep := r.tick(); rep.Failed != 1 {
 		t.Fatalf("verify %+v: want the sword's failure", rep)
 	}
@@ -421,7 +421,7 @@ func TestHUDTakes(t *testing.T) {
 func TestMergeAndEscapePathsRefuseDerivedBytes(t *testing.T) {
 	r := newDeriveRig(t, 0)
 	r.m.Record(true)
-	for _, off := range []int{addr.OffItems + inventory.SlotBow, addr.OffSelectEquip, addr.OffMemBit(addr.TableFW) + addr.MemBitOffKeyNum} {
+	for _, off := range []int{addr.OffItems + save.SlotBow, addr.OffSelectEquip, addr.OffMemBit(addr.TableFW) + addr.MemBitOffKeyNum} {
 		res, err := r.apply(plannedOR(off, 0x01, addr.TableDRC))
 		var re *RefusalError
 		if !errors.As(err, &re) || re.Reason != RefusePath || len(res.Wrote) != 0 {
@@ -430,8 +430,8 @@ func TestMergeAndEscapePathsRefuseDerivedBytes(t *testing.T) {
 	}
 	for _, f := range []Field{
 		{Addr: addr.ItemMaxLifeCount, Data: []byte{0, 4}},
-		{Addr: addr.PlaySelectItem, Data: []byte{inventory.ItemTelescope}},
-		{Addr: imageAddr(addr.OffItems + inventory.SlotBow), Data: []byte{inventory.ItemBow}},
+		{Addr: addr.PlaySelectItem, Data: []byte{save.ItemTelescope}},
+		{Addr: imageAddr(addr.OffItems + save.SlotBow), Data: []byte{save.ItemBow}},
 	} {
 		r.hm.beatOn(2, r.g.Frame)
 		res, err := r.fw.ApplyFields(context.Background(), []Field{f})

@@ -10,6 +10,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/keys/itemsrc"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // drcTable is a passing two-key table: chests 1 and 2, doors 0x10 and
@@ -38,7 +39,7 @@ func TestCountKeys(t *testing.T) {
 	_, b, _ := addr.SwitchBit(0x11)
 	setLive(s, b)
 	s.Save[addr.InfoOffMemory+addr.MemBitOffKeyNum] = 1
-	got := CountKeys(ViewOf(s), drcTable())
+	got := CountKeys(save.ViewOf(s), drcTable())
 	want := KeyFacts{Table: addr.TableDRC, Sources: 2, Taken: 2, Doors: 2, Open: 1, Have: 1}
 	if got != want {
 		t.Errorf("CountKeys = %+v, want %+v", got, want)
@@ -173,7 +174,7 @@ func TestCountLife(t *testing.T) {
 	s.Save[addr.InfoOffSavedata+addr.OffEvent+0xAE] |= 0x03                                              // Hoskit's girlfriend's letter, read
 	s.Save[addr.InfoOffSavedata+addr.OffEvent+0xB5] |= 0x01                                              // Komali's father's, not read
 	s.Save[addr.InfoOffSavedata+addr.OffMaxLife], s.Save[addr.InfoOffSavedata+addr.OffMaxLife+1] = 0, 19 // 12 + 7
-	f := CountLife(ViewOf(s), heartTable())
+	f := CountLife(save.ViewOf(s), heartTable())
 	want := LifeFacts{Pieces: 2, PiecesTaken: 1, Rewards: f.Rewards, Given: 2, Untracked: f.Untracked,
 		Containers: 2, ContainersTaken: 1, Have: 19}
 	if f != want {
@@ -265,7 +266,7 @@ func TestMagic(t *testing.T) {
 			s.Save[addr.InfoOffSavedata+addr.OffEvent+0x31] |= 0x80
 		}
 		s.Save[addr.InfoOffSavedata+addr.OffMaxMagic] = byte(tt.have)
-		f := CountMagic(ViewOf(s))
+		f := CountMagic(save.ViewOf(s))
 		if f.Leaf != tt.leaf || f.Upgrade != tt.upgrade || f.Have != tt.have || f.Derived() != tt.derived {
 			t.Errorf("%s: CountMagic = %+v (derived %d)", tt.name, f, f.Derived())
 		}
