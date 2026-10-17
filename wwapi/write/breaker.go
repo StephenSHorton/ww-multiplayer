@@ -1,4 +1,4 @@
-package replica
+package write
 
 import (
 	"errors"
@@ -233,6 +233,13 @@ func (b *Breaker) Reset() {
 	b.why, b.faults, b.regressions = "", nil, nil
 	b.done = make(chan struct{})
 	b.off.Store(false)
+}
+
+// Faults returns how many faults the window holds now.
+func (b *Breaker) Faults() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.faults)
 }
 
 // Off reports whether co-op is off. It takes no lock.

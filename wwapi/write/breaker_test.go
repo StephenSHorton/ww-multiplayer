@@ -1,7 +1,8 @@
-package replica
+package write
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +29,36 @@ func (c *breakerClock) advance(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.t = c.t.Add(d)
+}
+
+// logLines collects log lines; safe for concurrent use.
+type logLines struct {
+	mu sync.Mutex
+	l  []string
+}
+
+func (l *logLines) logf(format string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.l = append(l.l, fmt.Sprintf(format, args...))
+}
+
+func (l *logLines) count(sub string) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	n := 0
+	for _, s := range l.l {
+		if strings.Contains(s, sub) {
+			n++
+		}
+	}
+	return n
+}
+
+func (l *logLines) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Join(l.l, "\n")
 }
 
 func chanClosed(ch <-chan struct{}) bool {

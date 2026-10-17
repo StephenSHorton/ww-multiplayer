@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/fakegame"
@@ -378,4 +379,22 @@ func worldOf(seq uint64, img world.Image) *wire.World {
 	m := &wire.World{WorldID: wire.ID(testWorld), Seq: seq, Image: wire.Image(img)}
 	wire.StripLocal(&m.Image)
 	return m
+}
+
+// breakerClock is a clock tests move by hand.
+type breakerClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *breakerClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *breakerClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
 }

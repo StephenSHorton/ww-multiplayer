@@ -1030,8 +1030,4 @@ func TestFrameWriterVerifySkipsAStageChange(t *testing.T) {
 }
 
 // faultCount is the faults b holds in its window.
-func faultCount(b *Breaker) int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return len(b.faults)
-}
+func faultCount(b *Breaker) int { return b.Faults() }
