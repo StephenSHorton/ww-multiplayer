@@ -4,7 +4,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -40,7 +40,7 @@ func word(w uint8, bits uint32) wire.ScopedWord { return wire.ScopedWord{Word: w
 func TestDifferShareScopes(t *testing.T) {
 	dr := newDifferRig(t, nil)
 	dr.load(drc)
-	dr.d.ShareScopes(hub.ScopeFilter(shareVerdict))
+	dr.d.ShareScopes(proto.ScopeFilter(shareVerdict))
 	dr.onSwitch(0x80, 0)
 	dr.onSwitch(0x81, 0) // refused
 	dr.onSwitch(0xC2, 0)
@@ -103,7 +103,7 @@ func TestDifferShareRefresh(t *testing.T) {
 		dr := newDifferRig(t, nil)
 		dr.load(drc)
 		if share {
-			dr.d.ShareScopes(hub.ScopeFilter(shareVerdict))
+			dr.d.ShareScopes(proto.ScopeFilter(shareVerdict))
 		}
 		dr.tick()
 		dr.onSwitch(0x80, 0)
@@ -283,7 +283,7 @@ func shareStormVerdict(table int, stage string, room, no int) bool {
 func TestDifferShareStorm(t *testing.T) {
 	rng := rand.New(rand.NewPCG(5, 5))
 	dr := newDifferRig(t, world.FullPolicy())
-	keep := hub.ScopeFilter(shareStormVerdict)
+	keep := proto.ScopeFilter(shareStormVerdict)
 	dr.d.ShareScopes(keep)
 	c := newSharedCheck(keep)
 	dr.load(drc)
@@ -309,7 +309,7 @@ func FuzzDifferShare(f *testing.F) {
 	f.Add([]byte{4, 1, 7, 0xFF, 0, 0x05, 0, 0xFF, 4, 0, 4, 0xFF, 4, 1, 4, 0xFF, 0xFF, 0xFF})
 	f.Fuzz(func(t *testing.T, ops []byte) {
 		dr := newDifferRig(t, world.FullPolicy())
-		keep := hub.ScopeFilter(shareStormVerdict)
+		keep := proto.ScopeFilter(shareStormVerdict)
 		dr.d.ShareScopes(keep)
 		c := newSharedCheck(keep)
 		for i := 0; i < len(ops); i++ {

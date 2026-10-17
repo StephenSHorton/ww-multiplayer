@@ -34,7 +34,7 @@
 // the gates, and verified by reading back. A dry run makes only those, as
 // M2 did (§5.1 principle 5).
 //
-// The session follows mods/coop/hub (whose Feature bits it uses):
+// The session follows mods/coop/hub (whose Feature bits, from mods/coop/proto, it uses):
 //
 //	connect    -> CO_HELLO on the first tick with Link in a stage
 //	CO_WELCOME -> ok: send WORLD (the local image), then GAINS as they rise
@@ -47,10 +47,10 @@
 //
 // A bind (RequestBind, §5.3) is: the preflight, the user's yes to the
 // plan's prompt, the file's WORLD (which the hub never merges for an
-// unbound file) and a CO_HELLO asking to bind (hub.AskBind, with
-// hub.AskUnsaved for a file never saved and loaded back, whose nonce the
+// unbound file) and a CO_HELLO asking to bind (proto.AskBind, with
+// proto.AskUnsaved for a file never saved and loaded back, whose nonce the
 // hub records as a pending fresh bind), then, on a CO_WELCOME granting
-// hub.FeatureBind, the tag write and a bound CO_HELLO.
+// proto.FeatureBind, the tag write and a bound CO_HELLO.
 //
 // Citations follow wwapi/addr: file:line is the zeldaret/tww
 // decomp at 4d78c994, §N a section of docs/08-coop-design.md.
@@ -70,7 +70,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
@@ -123,17 +123,17 @@ type Config struct {
 	// CO_HELLO (the hub refuses a replica whose tables differ).
 	StageTblHash uint64
 	// Want is the session features to ask for; 0 asks for what the
-	// replica uses: hub.FeatureImage, and with Apply hub.FeatureSwitches,
-	// hub.FeatureLiveSwitches, hub.M4Features, hub.FeaturePuzzle and
-	// hub.FeatureCombat too
+	// replica uses: proto.FeatureImage, and with Apply proto.FeatureSwitches,
+	// proto.FeatureLiveSwitches, proto.M4Features, proto.FeaturePuzzle and
+	// proto.FeatureCombat too
 	// (the host decides whether to allow the live-switch opt-in,
 	// --coop-live-switches). A dry run asks for what M2 did,
-	// hub.FeatureImage. Bits outside hub.SessionFeatures are ignored.
-	Want hub.Feature
+	// proto.FeatureImage. Bits outside proto.SessionFeatures are ignored.
+	Want proto.Feature
 	// Policy limits what the replica proposes, plans and writes to the
 	// bits that sync; nil is world.DefaultPolicy (no memory switch or
 	// story bit), which is also the hub's default. A session with M1
-	// tables passes hub.SwitchPolicy over their switch verdict, the
+	// tables passes proto.SwitchPolicy over their switch verdict, the
 	// host's policy.
 	Policy *world.Policy
 	// Apply makes the replica write the world's progress into the game
@@ -259,9 +259,9 @@ type Report struct {
 type Status struct {
 	State    State
 	Why      string
-	World    bind.WorldID // the session's world, zero until known
-	Seq      uint64       // the world seq the replica's view is at
-	Features hub.Feature  // granted by the last CO_WELCOME or CTRL
+	World    bind.WorldID  // the session's world, zero until known
+	Seq      uint64        // the world seq the replica's view is at
+	Features proto.Feature // granted by the last CO_WELCOME or CTRL
 	Verdict  bind.Verdict
 	Planned  []Write
 	Held     []HeldBit
@@ -327,7 +327,7 @@ type Replica struct {
 	hello    *wire.CoHello
 	helloKey helloKey
 	welcome  *wire.CoWelcome // the answer to hello; nil while waiting
-	features hub.Feature
+	features proto.Feature
 	worldUp  bool // the file's WORLD went up since the session armed
 	armedNow bool // the last tick was armed
 	presence *wire.Presence
@@ -344,7 +344,7 @@ type Replica struct {
 	sessionWorld bind.WorldID
 	fresh        map[bind.Nonce]bool // what welcomes said of nonces as pending fresh binds
 	everArmed    bind.WorldID        // the world the file was last armed in: offline queueing
-	toldMissing  hub.Feature         // the M4 classes a welcome was last said not to grant (sayUngranted)
+	toldMissing  proto.Feature       // the M4 classes a welcome was last said not to grant (sayUngranted)
 	batch        uint32
 	queued       world.Image // gains detected while armed offline, joined
 	queuedN      int
@@ -470,10 +470,10 @@ func New(cfg Config) (*Replica, error) {
 		// FeatureCombat; nil tables propose none. The hold taints dan and
 		// zone words only (taintRises), never kill words.
 		t := cfg.Tables
-		r.differ.ShareScopes(hub.Filter(r.scopedSynced, func(table int, stage string, room, setID int) bool {
+		r.differ.ShareScopes(proto.Filter(r.scopedSynced, func(table int, stage string, room, setID int) bool {
 			return synctables.SyncedKill(t, table, stage, room, setID)
 		}))
-		r.differ.HoldScopes(hub.ScopeFilter(r.scopedHeld))
+		r.differ.HoldScopes(proto.ScopeFilter(r.scopedHeld))
 	}
 	r.planner = NewPlanner(r.policy)
 	r.planner.writes = !r.writer.DryRun()
@@ -485,14 +485,14 @@ func New(cfg Config) (*Replica, error) {
 func (r *Replica) Guard() *Guard { return r.guard }
 
 // want is the session features the replica asks for.
-func (r *Replica) want() hub.Feature {
+func (r *Replica) want() proto.Feature {
 	if r.cfg.Want == 0 {
 		if r.cfg.Apply {
-			return hub.FeatureImage | hub.FeatureSwitches | hub.FeatureLiveSwitches | hub.M4Features | hub.FeaturePuzzle | hub.FeatureCombat
+			return proto.FeatureImage | proto.FeatureSwitches | proto.FeatureLiveSwitches | proto.M4Features | proto.FeaturePuzzle | proto.FeatureCombat
 		}
-		return hub.FeatureImage
+		return proto.FeatureImage
 	}
-	return r.cfg.Want & hub.SessionFeatures
+	return r.cfg.Want & proto.SessionFeatures
 }
 
 // Run ticks every TickEvery until ctx ends. Once it returns, an escape
@@ -575,7 +575,7 @@ func (r *Replica) resetSession() {
 // is unbound, run the preflight, plan the bind and offer it
 // (Config.OnOffer); after Confirm the hub is asked, and on its yes the
 // tag is written. A file the preflight says needs --coop-merge binds
-// only if the hub's welcome grants hub.FeatureMerge (founding a world from
+// only if the hub's welcome grants proto.FeatureMerge (founding a world from
 // the host's file is such a bind: the empty world is behind it).
 func (r *Replica) RequestBind() {
 	r.mu.Lock()
@@ -838,11 +838,11 @@ func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
 }
 
 // scopeFeature is the feature a SCOPED kind needs (as the hub has it).
-func scopeFeature(k wire.ScopeKind) hub.Feature {
+func scopeFeature(k wire.ScopeKind) proto.Feature {
 	if k == wire.ScopeKill {
-		return hub.FeatureCombat
+		return proto.FeatureCombat
 	}
-	return hub.FeaturePuzzle
+	return proto.FeaturePuzzle
 }
 
 // classify applies V1-V6 to o's file against the session's world and
@@ -859,7 +859,7 @@ func (r *Replica) isFresh(n bind.Nonce) bool {
 // says so, the image granted, and the file bound to the welcome's world.
 func (r *Replica) armed(o *obs, v bind.Verdict) bool {
 	return r.tr != nil && r.welcome != nil && r.welcome.Status == wire.StatusOK &&
-		r.features&hub.FeatureImage != 0 && v.State == bind.Bound && v.WorldChecked &&
+		r.features&proto.FeatureImage != 0 && v.State == bind.Bound && v.WorldChecked &&
 		o.screen != screenOut
 }
 
@@ -898,7 +898,7 @@ func (r *Replica) state(o *obs, v bind.Verdict) (State, string) {
 		return StateArmed, ""
 	case r.welcome.Status == wire.StatusUnbound:
 		return StateUnbound, "the file is not bound to world " + r.sessionWorld.String() + ": " + v.Why
-	case r.features&hub.FeatureImage == 0:
+	case r.features&proto.FeatureImage == 0:
 		return StateUnbound, "the host turned image sync off"
 	}
 	return StateUnbound, v.Why
@@ -940,13 +940,13 @@ func (r *Replica) sayHello(o *obs, v bind.Verdict, out *outbox, rep *Report) {
 		h.WorldID, h.BindNonce = wire.ID(v.Tag.World), wire.ID(v.Tag.Nonce)
 	}
 	if o.file.DateIPL == 0 {
-		h.Want |= uint32(hub.AskUnsaved)
+		h.Want |= uint32(proto.AskUnsaved)
 	}
 	if ask {
 		// The file's WORLD first: the hub checks the bind against it.
 		out.send(r.candidateMsg(o))
 		h.WorldID, h.BindNonce = wire.ID(r.sessionWorld), wire.ID(r.bindAsk.Tag.Nonce)
-		h.Want |= uint32(hub.AskBind)
+		h.Want |= uint32(proto.AskBind)
 	}
 	out.send(h)
 	r.hello, r.helloKey, r.welcome = h, k, nil
@@ -1015,7 +1015,7 @@ func (r *Replica) onWelcome(m *wire.CoWelcome) {
 		m = &wire.CoWelcome{Status: wire.StatusRefused, Reason: wire.NoticeWorldMismatch, WorldID: m.WorldID}
 	}
 	r.welcome = m
-	r.features = hub.Feature(m.Features)
+	r.features = proto.Feature(m.Features)
 	r.sayUngranted(m)
 	if m.Status != wire.StatusRefused && !w.IsZero() {
 		if r.sessionWorld != w && !r.sessionWorld.IsZero() {
@@ -1035,8 +1035,8 @@ func (r *Replica) onWelcome(m *wire.CoWelcome) {
 		// pending fresh bind's V5-only failure look like a leak.
 		r.fresh[n] = m.FreshBind
 	}
-	if r.bindAsk != nil && hub.Feature(r.hello.Want)&hub.AskBind != 0 {
-		if r.features&hub.FeatureBind != 0 && m.Status == wire.StatusUnbound {
+	if r.bindAsk != nil && proto.Feature(r.hello.Want)&proto.AskBind != 0 {
+		if r.features&proto.FeatureBind != 0 && m.Status == wire.StatusUnbound {
 			r.bindGranted = true
 			if r.bindAsk.Fresh {
 				r.fresh[r.bindAsk.Tag.Nonce] = m.FreshBind
@@ -1157,7 +1157,7 @@ func (r *Replica) onCtrl(m *wire.Ctrl, out *outbox) {
 		// it.
 		r.worldUp = false
 	case wire.CtrlCoopOff:
-		f := hub.Feature(m.Arg)
+		f := proto.Feature(m.Arg)
 		if f != r.features {
 			r.logf("co-op: the host's features for this session are now %s", f)
 		}
@@ -1606,7 +1606,7 @@ func (r *Replica) offerBind(o *obs, v bind.Verdict, out *outbox) {
 	case pf.Verdict == PreflightRefused:
 		refuse("%s", pf.Why)
 		return
-	case pf.NeedsMerge && r.features&hub.FeatureMerge == 0:
+	case pf.NeedsMerge && r.features&proto.FeatureMerge == 0:
 		refuse("%s", pf.Why)
 		return
 	}

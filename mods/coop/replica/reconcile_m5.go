@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
@@ -71,7 +71,7 @@ import (
 // a store no longer than it is in its scope (pruneScoped): the hub sends
 // it again on the next entry, if the partner is still there.
 //
-// Nothing is written unless the hub grants hub.FeaturePuzzle; a writing
+// Nothing is written unless the hub grants proto.FeaturePuzzle; a writing
 // replica not granted it says so once. A dry run (--coop-dry-run) plans
 // the same and logs what it would write; without M1 tables it logs every
 // bit, as M2 did.
@@ -130,7 +130,7 @@ type m5 struct {
 // PuzzleStatus is how the M5 receiver stands (Status.Puzzle, §9 M5), for
 // /status.
 type PuzzleStatus struct {
-	// Granted: the hub grants hub.FeaturePuzzle this session.
+	// Granted: the hub grants proto.FeaturePuzzle this session.
 	Granted bool
 	// Tables: the replica judges which switches latch by its own M1
 	// switch table. Without one a writing replica writes no partner's
@@ -192,7 +192,7 @@ func newM5() m5 {
 func (r *Replica) puzzleStatus() PuzzleStatus {
 	m := &r.m5
 	st := PuzzleStatus{
-		Granted: r.features&hub.FeaturePuzzle != 0,
+		Granted: r.features&proto.FeaturePuzzle != 0,
 		Tables:  r.cfg.Tables != nil,
 		Place:   m.place,
 		Zone:    -1,
@@ -406,7 +406,7 @@ func (r *Replica) m5Granted() bool {
 	switch {
 	case r.writer.DryRun():
 		return true
-	case r.features&hub.FeaturePuzzle != 0:
+	case r.features&proto.FeaturePuzzle != 0:
 		m.toldOff = false
 		if !m.toldOn {
 			m.toldOn = true
@@ -421,10 +421,10 @@ func (r *Replica) m5Granted() bool {
 	m.toldOn = false
 	if !m.toldOff {
 		m.toldOff = true
-		if r.want()&hub.FeaturePuzzle == 0 {
-			r.logf("co-op: a partner's dan, zone and room switches are not written to this game: this replica does not ask for %v", hub.FeaturePuzzle)
+		if r.want()&proto.FeaturePuzzle == 0 {
+			r.logf("co-op: a partner's dan, zone and room switches are not written to this game: this replica does not ask for %v", proto.FeaturePuzzle)
 		} else {
-			r.logf("co-op: a partner's dan, zone and room switches are not written to this game: the session does not grant %v (the host turned it off, or the two sides' co-op stage tables differ: the host's notice says which)", hub.FeaturePuzzle)
+			r.logf("co-op: a partner's dan, zone and room switches are not written to this game: the session does not grant %v (the host turned it off, or the two sides' co-op stage tables differ: the host's notice says which)", proto.FeaturePuzzle)
 		}
 	}
 	return false

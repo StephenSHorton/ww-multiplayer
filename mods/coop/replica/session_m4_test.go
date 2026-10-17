@@ -3,7 +3,7 @@ package replica
 import (
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 )
 
@@ -11,13 +11,13 @@ import (
 // write.
 func TestWrittenClasses(t *testing.T) {
 	for _, c := range []struct {
-		f    hub.Feature
+		f    proto.Feature
 		want string
 	}{
-		{hub.FeatureImage, "the world's chests, pickups, rooms, dungeon items, ocean and charts"},
-		{hub.FeatureImage | hub.FeatureSwitches | hub.FeatureStory, "the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (at room changes); its story bits and event registers (at stage changes)"},
-		{hub.FeatureImage | hub.FeatureInventory | hub.FeatureMagic, "the world's chests, pickups, rooms, dungeon items, ocean and charts; its items, songs and capacities (when idle); the max magic this game's own flags give"},
-		{hub.DefaultFeatures, "the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (at room changes); its story bits and event registers (at stage changes); its items, songs and capacities (when idle); the small keys, max hearts and max magic this game's own flags give"},
+		{proto.FeatureImage, "the world's chests, pickups, rooms, dungeon items, ocean and charts"},
+		{proto.FeatureImage | proto.FeatureSwitches | proto.FeatureStory, "the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (at room changes); its story bits and event registers (at stage changes)"},
+		{proto.FeatureImage | proto.FeatureInventory | proto.FeatureMagic, "the world's chests, pickups, rooms, dungeon items, ocean and charts; its items, songs and capacities (when idle); the max magic this game's own flags give"},
+		{proto.DefaultFeatures, "the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (at room changes); its story bits and event registers (at stage changes); its items, songs and capacities (when idle); the small keys, max hearts and max magic this game's own flags give"},
 	} {
 		if got := writtenClasses(c.f); got != c.want {
 			t.Errorf("%s:\n got %q\nwant %q", c.f, got, c.want)
@@ -29,9 +29,9 @@ func TestWrittenClasses(t *testing.T) {
 // does not grant and why, once per set; a dry run, which asks for none,
 // says nothing.
 func TestSayUngranted(t *testing.T) {
-	all := hub.DefaultFeatures
-	noTables := all &^ hub.TableFeatures
-	rr := newRecRig(t, Config{Apply: true, Policy: hub.SessionPolicy(nil)}, noTables)
+	all := proto.DefaultFeatures
+	noTables := all &^ proto.TableFeatures
+	rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)}, noTables)
 	const tablesWhy = "the small keys and max hearts need both sides' co-op stage tables to match (the host's notice says what is wrong)"
 	if !rr.log.has("the world's small keys and max hearts are not written to this game this session: " + tablesWhy) {
 		t.Fatalf("log:\n%s", rr.log)
@@ -43,7 +43,7 @@ func TestSayUngranted(t *testing.T) {
 	if n := rr.log.count("not written to this game this session"); n != 1 {
 		t.Fatalf("said %d times", n)
 	}
-	say(t, rr.r, welcome(wire.StatusOK, uint32(noTables&^hub.FeatureStory), false))
+	say(t, rr.r, welcome(wire.StatusOK, uint32(noTables&^proto.FeatureStory), false))
 	if !rr.log.has("the world's story bits, small keys and max hearts are not written to this game this session: " + tablesWhy + "; the host turned the story bits off") {
 		t.Fatalf("log:\n%s", rr.log)
 	}
@@ -56,7 +56,7 @@ func TestSayUngranted(t *testing.T) {
 	}
 
 	dry := newRecRigNoWelcome(t, Config{})
-	say(t, dry.r, welcome(wire.StatusOK, uint32(hub.FeatureImage), false))
+	say(t, dry.r, welcome(wire.StatusOK, uint32(proto.FeatureImage), false))
 	if dry.log.has("not written to this game this session") {
 		t.Fatalf("a dry run said:\n%s", dry.log)
 	}

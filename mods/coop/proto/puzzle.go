@@ -1,4 +1,4 @@
-package hub
+package proto
 
 import "github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 
@@ -13,13 +13,13 @@ import "github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 // crystal clears its switch again when its timer runs out
 // (daSwhit0_c::actionOnTimer, d_a_swhit0.cpp:346-362), and a partner's
 // game would keep it set. The host's hub keeps exactly the bits of its M1
-// verdict (Config.SyncedScoped), and a writing replica's sender proposes
+// verdict (hub.Config.SyncedScoped), and a writing replica's sender proposes
 // exactly those, with the same filter (ScopeFilter), so the hub refuses
 // nothing of an honest replica's and nothing refused is proposed again
 // every tick.
 
 // ScopeFilter returns the scoped stores' filter (world.Scopes.Filter)
-// over the host's M1 verdict synced (Config.SyncedScoped,
+// over the host's M1 verdict synced (hub.Config.SyncedScoped,
 // synctables.SyncedScopedSwitch): the bits of word w of store k whose
 // switch synced grants for k's save table, stage and room. A nil synced
 // grants none. It is world.SwitchFilter, so whatever synced says a bit is

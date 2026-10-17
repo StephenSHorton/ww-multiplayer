@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
@@ -110,7 +110,7 @@ func m5Tables(t testing.TB) *tables.Tables {
 
 // m5Features are the features the M5 rigs are welcomed with: the image and
 // the room puzzles, nothing that writes M3's or M4's classes.
-const m5Features = hub.FeatureImage | hub.FeaturePuzzle
+const m5Features = proto.FeatureImage | proto.FeaturePuzzle
 
 // zoneAt is the zone table as a write was made: the stage, mStayNo, every
 // room's mZoneNo and every zone's mRoomNo; and whether a Game Boy Advance
@@ -195,7 +195,7 @@ type m5Rig struct {
 	tb *tables.Tables // the fixture's, the audit's verdict whatever the replica has
 }
 
-func newM5Rig(t *testing.T, cfg Config, f hub.Feature) *m5Rig {
+func newM5Rig(t *testing.T, cfg Config, f proto.Feature) *m5Rig {
 	t.Helper()
 	rr := &replicaRig{rig: newRig(t, "Link"), hub: &hubEnd{t: t}, log: &logBuf{}}
 	rr.load(drcKeys)
@@ -1008,7 +1008,7 @@ func TestReconcileM5VerifyAfterResets(t *testing.T) {
 // TestReconcileM5DryRun: a dry run with tables logs what it would write,
 // once, the latching switches only, and writes nothing.
 func TestReconcileM5DryRun(t *testing.T) {
-	rr := newM5Rig(t, Config{Want: hub.FeatureImage | hub.FeaturePuzzle, Tables: m5Tables(t)}, m5Features)
+	rr := newM5Rig(t, Config{Want: proto.FeatureImage | proto.FeaturePuzzle, Tables: m5Tables(t)}, m5Features)
 	for range 3 {
 		rr.send(danMsg(t, drc, danOK, danTimed), zoneMsg(t, drc, 1, zoneOK, zoneTimed), edgeMsg(t, drc, 1, roomOK, roomTimed))
 		rr.settleM5()
@@ -1044,7 +1044,7 @@ func TestReconcileM5DryRun(t *testing.T) {
 func TestReconcileM5NotGranted(t *testing.T) {
 	const line = "a partner's dan, zone and room switches are not written to this game"
 	t.Run("never granted", func(t *testing.T) {
-		rr := newM5Rig(t, Config{Apply: true, Tables: m5Tables(t)}, hub.FeatureImage)
+		rr := newM5Rig(t, Config{Apply: true, Tables: m5Tables(t)}, proto.FeatureImage)
 		for range 3 {
 			rr.send(danMsg(t, drc, danOK), zoneMsg(t, drc, 1, zoneOK), edgeMsg(t, drc, 1, roomOK))
 			rr.settleM5()
@@ -1054,7 +1054,7 @@ func TestReconcileM5NotGranted(t *testing.T) {
 		}
 	})
 	t.Run("not asked for", func(t *testing.T) {
-		rr := newM5Rig(t, Config{Apply: true, Tables: m5Tables(t), Want: hub.FeatureImage}, hub.FeatureImage)
+		rr := newM5Rig(t, Config{Apply: true, Tables: m5Tables(t), Want: proto.FeatureImage}, proto.FeatureImage)
 		rr.settleM5()
 		if rr.log.count(line) != 1 || !rr.log.has("this replica does not ask for puzzle") {
 			t.Fatalf("log:\n%s", rr.log)
@@ -1066,11 +1066,11 @@ func TestReconcileM5NotGranted(t *testing.T) {
 		rr.ticks(2)
 		rr.send(danMsg(t, drc, danOK), zoneMsg(t, drc, 1, zoneOK)) // kept while the event runs
 		rr.ticks(2)
-		say(t, rr.r, &wire.Ctrl{Op: wire.CtrlCoopOff, Arg: uint32(hub.FeatureImage)})
+		say(t, rr.r, &wire.Ctrl{Op: wire.CtrlCoopOff, Arg: uint32(proto.FeatureImage)})
 		rr.g.SetEvent(0, 0)
 		for range 3 {
 			rr.settleM5()
-			say(t, rr.r, &wire.Ctrl{Op: wire.CtrlCoopOff, Arg: uint32(hub.FeatureImage | hub.FeatureCombat)})
+			say(t, rr.r, &wire.Ctrl{Op: wire.CtrlCoopOff, Arg: uint32(proto.FeatureImage | proto.FeatureCombat)})
 		}
 		if len(rr.bm.written()) != 0 || rr.is(danOK, 1) || rr.is(zoneOK, 1) || rr.log.count(line) != 1 {
 			t.Fatalf("%d writes:\n%s", len(rr.bm.written()), rr.log)
@@ -1158,7 +1158,7 @@ func FuzzReconcileM5(f *testing.F) {
 		}
 		mems := []int{0x05, 0x06, 0x07} // latching in DRC's and the sea's tables (switchPolicy)
 		tb := gbaTables(t)
-		rr := newM5Rig(t, Config{Apply: true, Tables: tb, Policy: switchPolicy(t, mems...)}, m5Features|hub.FeatureSwitches)
+		rr := newM5Rig(t, Config{Apply: true, Tables: tb, Policy: switchPolicy(t, mems...)}, m5Features|proto.FeatureSwitches)
 		rr.tb = tb
 		gbaOff, gbaBit := switchImageByte(addr.TableSea, gbaSea)
 		linked := false
@@ -1179,7 +1179,7 @@ func FuzzReconcileM5(f *testing.F) {
 				case *wire.Scoped:
 					k := world.Key{Kind: world.ScopeKind(m.Kind), Stage: m.Stage.String(), Table: int(m.Table), Room: int(m.Room)}
 					for _, w := range m.Words {
-						if held := hub.ScopeFilter(func(table int, stage string, room, no int) bool {
+						if held := proto.ScopeFilter(func(table int, stage string, room, no int) bool {
 							return synctables.GBAScopedSwitch(tb, table, stage, room, no)
 						})(k, int(w.Word)); m.Kind != wire.ScopeKill && w.Bits&held != 0 {
 							t.Fatalf("SCOPED %+v with a GBA linked carries 0x%08X, shared with the Tingle Tuner", m, w.Bits&held)

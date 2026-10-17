@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 )
@@ -17,7 +17,7 @@ import (
 func TestReplicaWorldBeforeWelcome(t *testing.T) {
 	other := worldOf(1, world.Image{})
 	other.WorldID = wire.ID(bind.WorldID{0xEE, 1})
-	unbound := welcome(wire.StatusUnbound, uint32(hub.FeatureImage), false)
+	unbound := welcome(wire.StatusUnbound, uint32(proto.FeatureImage), false)
 	refused := &wire.CoWelcome{Status: wire.StatusRefused, Reason: wire.NoticeRejected, WorldID: wire.ID(testWorld)}
 	cases := []struct {
 		name      string

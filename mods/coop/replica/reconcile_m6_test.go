@@ -9,7 +9,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
@@ -155,7 +155,7 @@ func newM6Rig(t *testing.T) *m6Rig {
 	for range gate.StableTicks + 2 {
 		rec.tick()
 	}
-	rec.welcome(hub.FeatureImage | hub.FeatureCombat)
+	rec.welcome(proto.FeatureImage | proto.FeatureCombat)
 	say(t, r, worldOf(1, world.Image{}))
 	rec.tick()
 	r6.hub.take()
@@ -725,7 +725,7 @@ func TestReconcileM6Status(t *testing.T) {
 		t.Errorf("the grant line:\n%s", rr.log)
 	}
 	// Without combat granted: nothing written, and said once.
-	rec := newRecRig(t, Config{Apply: true, Tables: m6Tables(t)}, hub.FeatureImage)
+	rec := newRecRig(t, Config{Apply: true, Tables: m6Tables(t)}, proto.FeatureImage)
 	say(t, rec.r, killMsg(t, drc, 1, 3))
 	rec.ticks(4)
 	if rec.log.count("a partner's kills are not written to this game") != 1 {

@@ -9,7 +9,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/story"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
@@ -51,7 +51,7 @@ func m4Tables(t *testing.T) *tables.Tables {
 }
 
 // m4Policy is a session's policy over tb's switch verdict.
-func m4Policy(tb *tables.Tables) *world.Policy { return hub.SessionPolicy(memorySwitches(tb)) }
+func m4Policy(tb *tables.Tables) *world.Policy { return proto.SessionPolicy(memorySwitches(tb)) }
 
 // memorySwitches is tb's verdict on the memory switches
 // (synctables.SyncedMemorySwitch), as hub.Config.SyncedSwitch takes it.
@@ -223,7 +223,7 @@ func auditM4Writes(t *testing.T, ws []auditWrite, reps []Report, places []gamePl
 // change, only on the first tick of a stage change, into the saved
 // dSv_event_c, and once: a bit the game later clears is not set again.
 func TestReconcileM4StoryOnTransition(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true, Policy: hub.SessionPolicy(nil)}, hub.FeatureImage|hub.FeatureStory)
+	rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)}, proto.FeatureImage|proto.FeatureStory)
 	off, m := syncedStory(t)
 	reg := registerOff(t)
 	rm := class.Of(reg).Mask
@@ -276,7 +276,7 @@ func TestReconcileM4StoryOnTransition(t *testing.T) {
 // which may come in the same write, and 0x2D10 until a Master Sword is
 // equipped. Each then goes at the next stage change.
 func TestReconcileM4HeldStoryBits(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true, Policy: hub.SessionPolicy(nil)}, hub.FeatureImage|hub.FeatureStory)
+	rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)}, proto.FeatureImage|proto.FeatureStory)
 	o0801, m0801 := eventBit(ev0801)
 	oCourt, mCourt := eventBit(evHyruleCourtyard)
 	oZelda, mZelda := eventBit(evZeldaAwakened)
@@ -338,20 +338,20 @@ func TestReconcileM4ClassesNotGranted(t *testing.T) {
 	off, m := syncedStory(t)
 	cases := []struct {
 		name  string
-		f     hub.Feature
+		f     proto.Feature
 		world func(img *world.Image)
 		log   string
 	}{
-		{"story", hub.FeatureImage | hub.FeatureInventory | hub.FeatureMagic,
+		{"story", proto.FeatureImage | proto.FeatureInventory | proto.FeatureMagic,
 			func(img *world.Image) { img[off] |= m },
 			"the world's story is not written to this game: the session does not grant story"},
-		{"inventory", hub.FeatureImage | hub.FeatureStory | hub.FeatureMagic,
+		{"inventory", proto.FeatureImage | proto.FeatureStory | proto.FeatureMagic,
 			func(img *world.Image) { img[addr.OffGetItem+save.SlotTelescope] = 0x01 },
 			"the world's inventory is not written to this game: the session does not grant inventory"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rr := newRecRig(t, Config{Apply: true, Policy: hub.SessionPolicy(nil)}, c.f)
+			rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)}, c.f)
 			var img world.Image
 			c.world(&img)
 			rr.world(img)
@@ -369,7 +369,7 @@ func TestReconcileM4ClassesNotGranted(t *testing.T) {
 
 	// Max magic without FeatureMagic: the Deku Leaf is the receiver's
 	// (inventory), its magic is not.
-	rr := newRecRig(t, Config{Apply: true, Policy: hub.SessionPolicy(nil)}, hub.FeatureImage|hub.FeatureInventory)
+	rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)}, proto.FeatureImage|proto.FeatureInventory)
 	var img world.Image
 	img[addr.OffGetItem+save.SlotDekuLeaf] = 0x01
 	rr.world(img)
@@ -389,7 +389,7 @@ func TestReconcileM4ClassesNotGranted(t *testing.T) {
 // and each slot by the derive path; a larger capacity of the receiver's
 // is never lowered.
 func TestReconcileM4Inventory(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true, Policy: hub.SessionPolicy(nil)}, hub.FeatureImage|hub.FeatureInventory)
+	rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)}, proto.FeatureImage|proto.FeatureInventory)
 	bow, tele := addr.OffGetItem+save.SlotBow, addr.OffGetItem+save.SlotTelescope
 	var img world.Image
 	img[bow], img[addr.OffArrowMax], img[tele] = 0x01, 30, 0x01
@@ -456,7 +456,7 @@ func TestReconcileM4Inventory(t *testing.T) {
 // grant's floor is 30 arrows) reaches a game whose quiver already holds
 // 60: the flag and the slot are written, the capacity is not lowered.
 func TestReconcileM4GrantNeverLowersACapacity(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true, Policy: hub.SessionPolicy(nil)}, hub.FeatureImage|hub.FeatureInventory)
+	rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)}, proto.FeatureImage|proto.FeatureInventory)
 	rr.put(addr.OffArrowMax, 60)
 	bow := addr.OffGetItem + save.SlotBow
 	var img world.Image
@@ -481,8 +481,8 @@ func TestReconcileM4GrantNeverLowersACapacity(t *testing.T) {
 // (inventory), and from its flag the derive gives the 16 magic through
 // mItemMaxMagicCount, which the HUD takes; the watch sees it drained.
 func TestReconcileM4MaxMagic(t *testing.T) {
-	rr := newRecRig(t, Config{Apply: true, Policy: hub.SessionPolicy(nil)},
-		hub.FeatureImage|hub.FeatureInventory|hub.FeatureMagic)
+	rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)},
+		proto.FeatureImage|proto.FeatureInventory|proto.FeatureMagic)
 	var img world.Image
 	img[addr.OffGetItem+save.SlotDekuLeaf] = 0x01
 	rr.world(img)
@@ -506,7 +506,7 @@ func TestReconcileM4MaxMagic(t *testing.T) {
 // hearts.
 func TestReconcileM4MaxLife(t *testing.T) {
 	tb := m4Tables(t)
-	rr := newRecRig(t, Config{Apply: true, Tables: tb, Policy: m4Policy(tb)}, hub.FeatureImage|hub.FeatureLife)
+	rr := newRecRig(t, Config{Apply: true, Tables: tb, Policy: m4Policy(tb)}, proto.FeatureImage|proto.FeatureLife)
 	var img world.Image
 	for no := range 3 {
 		off, m := chest(addr.TableSea, no)
@@ -555,7 +555,7 @@ func (r *rig) keyFormula() int {
 func TestReconcileM4Keys(t *testing.T) {
 	tb := m4Tables(t)
 	keyRig := func(t *testing.T) *recRig {
-		rr := newRecRig(t, Config{Apply: true, Tables: tb, Policy: m4Policy(tb)}, hub.FeatureImage|hub.FeatureSwitches|hub.FeatureKeys)
+		rr := newRecRig(t, Config{Apply: true, Tables: tb, Policy: m4Policy(tb)}, proto.FeatureImage|proto.FeatureSwitches|proto.FeatureKeys)
 		rr.load(drcKeys)
 		rr.ticks(m4Settle)
 		return rr
@@ -721,7 +721,7 @@ func TestReconcileM4Keys(t *testing.T) {
 // and logged, whatever the hub grants, and nothing is written.
 func TestReconcileM4DryRun(t *testing.T) {
 	tb := m4Tables(t)
-	rr := newRecRig(t, Config{Tables: tb, Policy: m4Policy(tb)}, hub.FeatureImage)
+	rr := newRecRig(t, Config{Tables: tb, Policy: m4Policy(tb)}, proto.FeatureImage)
 	off, m := syncedStory(t)
 	tbox, tm := chest(addr.TableDRC, 1)
 	var img world.Image

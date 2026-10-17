@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 )
 
@@ -17,18 +17,18 @@ import (
 
 // writtenClasses lists what a writing replica granted f writes into its
 // game, for the armed line.
-func writtenClasses(f hub.Feature) string {
+func writtenClasses(f proto.Feature) string {
 	parts := []string{"the world's chests, pickups, rooms, dungeon items, ocean and charts"}
-	if f&hub.FeatureSwitches != 0 {
+	if f&proto.FeatureSwitches != 0 {
 		parts = append(parts, "its latching switches (at room changes)")
 	}
-	if f&hub.FeatureStory != 0 {
+	if f&proto.FeatureStory != 0 {
 		parts = append(parts, "its story bits and event registers (at stage changes)")
 	}
-	if f&hub.FeatureInventory != 0 {
+	if f&proto.FeatureInventory != 0 {
 		parts = append(parts, "its items, songs and capacities (when idle)")
 	}
-	if d := m4Words(f & (hub.FeatureKeys | hub.FeatureLife | hub.FeatureMagic)); d != "" {
+	if d := m4Words(f & (proto.FeatureKeys | proto.FeatureLife | proto.FeatureMagic)); d != "" {
 		parts = append(parts, "the "+d+" this game's own flags give")
 	}
 	return strings.Join(parts, "; ")
@@ -36,18 +36,18 @@ func writtenClasses(f hub.Feature) string {
 
 // m4Names name M4's classes, in the order the lines list them.
 var m4Names = []struct {
-	f    hub.Feature
+	f    proto.Feature
 	name string
 }{
-	{hub.FeatureStory, "story bits"},
-	{hub.FeatureInventory, "items"},
-	{hub.FeatureKeys, "small keys"},
-	{hub.FeatureLife, "max hearts"},
-	{hub.FeatureMagic, "max magic"},
+	{proto.FeatureStory, "story bits"},
+	{proto.FeatureInventory, "items"},
+	{proto.FeatureKeys, "small keys"},
+	{proto.FeatureLife, "max hearts"},
+	{proto.FeatureMagic, "max magic"},
 }
 
 // m4Words names f's M4 classes: "small keys and max hearts".
-func m4Words(f hub.Feature) string {
+func m4Words(f proto.Feature) string {
 	var s []string
 	for _, n := range m4Names {
 		if f&n.f != 0 {
@@ -74,20 +74,20 @@ func (r *Replica) sayUngranted(m *wire.CoWelcome) {
 	if r.writer.DryRun() || m.Status == wire.StatusRefused {
 		return
 	}
-	missing := r.want() & hub.M4Features &^ r.features
+	missing := r.want() & proto.M4Features &^ r.features
 	if missing == r.toldMissing {
 		return
 	}
 	r.toldMissing = missing
 	if missing == 0 {
-		r.logf("co-op: the host now grants the %s", m4Words(r.want()&hub.M4Features))
+		r.logf("co-op: the host now grants the %s", m4Words(r.want()&proto.M4Features))
 		return
 	}
 	var why []string
-	if t := missing & hub.TableFeatures; t != 0 {
+	if t := missing & proto.TableFeatures; t != 0 {
 		why = append(why, fmt.Sprintf("the %s need both sides' co-op stage tables to match (the host's notice says what is wrong)", m4Words(t)))
 	}
-	if o := missing &^ hub.TableFeatures; o != 0 {
+	if o := missing &^ proto.TableFeatures; o != 0 {
 		why = append(why, fmt.Sprintf("the host turned the %s off", m4Words(o)))
 	}
 	r.logf("co-op: the world's %s are not written to this game this session: %s", m4Words(missing), strings.Join(why, "; "))

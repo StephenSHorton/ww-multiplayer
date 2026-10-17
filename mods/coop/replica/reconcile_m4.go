@@ -9,8 +9,8 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/inventory"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/story"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -44,7 +44,7 @@ import (
 //     path. The FrameWriter then watches each counter drain (DrainFrames).
 //
 // Each class is written only while the hub grants its feature
-// (hub.FeatureStory, FeatureInventory, FeatureKeys, FeatureLife,
+// (proto.FeatureStory, FeatureInventory, FeatureKeys, FeatureLife,
 // FeatureMagic) and the replica is armed with the world's view. A dry run
 // (--coop-dry-run) runs the same plans, whatever is granted, and logs the
 // writes it would make: the merge-path bytes through logPlan, the derive
@@ -70,8 +70,8 @@ type m4 struct {
 	from    []*derive.Write
 
 	logged    map[string]bool // dry-run and hold lines said while the replica stays armed
-	granted   hub.Feature     // the features the "not granted" lines were said for
-	ungranted hub.Feature     // the features whose "not granted" line was said
+	granted   proto.Feature   // the features the "not granted" lines were said for
+	ungranted proto.Feature   // the features whose "not granted" line was said
 }
 
 func newM4(t *tables.Tables) m4 {
@@ -123,7 +123,7 @@ func (r *Replica) m4Reset() {
 // hub, or a dry run, which plans every class and writes none. The first
 // time a writing replica finds f not granted while it has something to
 // write, it says so.
-func (r *Replica) m4Granted(f hub.Feature, what string) bool {
+func (r *Replica) m4Granted(f proto.Feature, what string) bool {
 	m := &r.m4
 	if m.granted != r.features {
 		m.granted, m.ungranted = r.features, 0
@@ -172,7 +172,7 @@ func (r *Replica) reconcileM4(o *obs, armed bool, rep *Report) {
 	// Story bits and registers: only on the TRANSITION tick. A dry run
 	// asks the Receiver for them as a writing replica would, and logs
 	// them.
-	ok := ready && o.consistent() && r.m4Granted(hub.FeatureStory, "story")
+	ok := ready && o.consistent() && r.m4Granted(proto.FeatureStory, "story")
 	gains, _ := m.story.Tick(st, s.NextEnable, ok, &view, &o.raw, &r.planner.ever, &r.planner.everMax)
 	if len(gains) > 0 {
 		r.storyWrites(o, gains, dry)
@@ -181,7 +181,7 @@ func (r *Replica) reconcileM4(o *obs, armed bool, rep *Report) {
 	// The inventory, when IDLE.
 	entry := m.entry.Tick(s, st)
 	var inv []inventory.Write
-	if ready && o.consistent() && r.m4Granted(hub.FeatureInventory, "inventory") {
+	if ready && o.consistent() && r.m4Granted(proto.FeatureInventory, "inventory") {
 		p := inventory.Pending(&view, &o.raw, inventory.ContextOf(s, typ, typOK))
 		inv = p.Due(st, entry)
 		for _, h := range p.Held {
@@ -217,12 +217,12 @@ func (r *Replica) reconcileM4(o *obs, armed bool, rep *Report) {
 	// Keys, max life and max magic.
 	for i := range dp.Writes {
 		w := &dp.Writes[i]
-		f, what := hub.FeatureKeys, "small keys"
+		f, what := proto.FeatureKeys, "small keys"
 		switch w.Kind {
 		case derive.LifeCounter:
-			f, what = hub.FeatureLife, "max life"
+			f, what = proto.FeatureLife, "max life"
 		case derive.MagicCounter:
-			f, what = hub.FeatureMagic, "max magic"
+			f, what = proto.FeatureMagic, "max magic"
 		}
 		switch {
 		case dry:

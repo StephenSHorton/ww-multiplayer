@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
@@ -21,7 +21,7 @@ import (
 // (whose stage shows the key counter), its drain watch drainFrames long.
 func newDeriveRig(t *testing.T, drainFrames uint32) *wrig {
 	t.Helper()
-	r := newWriterRig(t, GuardConfig{Targets: M3Targets | M4Targets, Policy: hub.SessionPolicy(nil)})
+	r := newWriterRig(t, GuardConfig{Targets: M3Targets | M4Targets, Policy: proto.SessionPolicy(nil)})
 	fw, err := NewFrameWriter(WriterConfig{Mem: r.hm, Guard: r.wg, BeatTimeout: testBeat, Logf: r.log.logf, DrainFrames: drainFrames})
 	if err != nil {
 		t.Fatal(err)

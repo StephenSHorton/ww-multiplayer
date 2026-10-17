@@ -8,8 +8,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/inventory"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
@@ -74,7 +74,7 @@ func registerOff(t *testing.T) int {
 // m4Guard is a replica's writing guard: M3's targets, M4's and the
 // escapes, over the session policy.
 func m4Guard(gates gate.Status, armed bool) *WriteGuard {
-	wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | TargetEscape, Policy: hub.SessionPolicy(nil)})
+	wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | TargetEscape, Policy: proto.SessionPolicy(nil)})
 	wg.SetTick(Tick{Gates: gates, Armed: armed, Table: addr.TableSea})
 	return wg
 }
@@ -206,7 +206,7 @@ func TestWriteGuardM4Refuses(t *testing.T) {
 
 	// The tag is a bind's or a scrub's alone: no FrameWriter path writes
 	// it, even under a guard of every target.
-	all := NewWriteGuard(GuardConfig{Targets: AllTargets, Policy: hub.SessionPolicy(nil)})
+	all := NewWriteGuard(GuardConfig{Targets: AllTargets, Policy: proto.SessionPolicy(nil)})
 	all.SetTick(Tick{Gates: idle, Armed: true, Table: addr.TableSea})
 	for _, p := range []path{pathMerge, pathDerive, pathEscape} {
 		var re *RefusalError
@@ -295,7 +295,7 @@ func TestWriteGuardDeriveShape(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | TargetEscape, Policy: hub.SessionPolicy(nil)})
+			wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | TargetEscape, Policy: proto.SessionPolicy(nil)})
 			wg.SetTick(Tick{Gates: idle, Armed: true, Table: addr.TableDRC})
 			errShape := wg.checkDeriveShape(c.w)
 			err := wg.checkDerive(c.w, c.w.Expect)
@@ -313,7 +313,7 @@ func TestWriteGuardDeriveShape(t *testing.T) {
 
 	// A derive write over bytes that no longer read what it expects is
 	// refused, though the shape is good.
-	wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets, Policy: hub.SessionPolicy(nil)})
+	wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets, Policy: proto.SessionPolicy(nil)})
 	wg.SetTick(Tick{Gates: idle, Armed: true, Table: addr.TableDRC})
 	w := counterWrite(DeriveLifeCounter, addr.ItemMaxLifeCount, -1, 4)
 	var re *RefusalError

@@ -11,7 +11,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/story"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
@@ -357,12 +357,12 @@ func FuzzDifferPaced(f *testing.F) {
 			// goes as it rises.
 			var now, pnow world.Image
 			for _, g := range ue.Gains {
-				if off := int(g.Off); !inventoryByte(off) && !story.IsStoryByte(off) && !story.IsRegisterByte(off) && !hub.IsSwitchByte(off) {
+				if off := int(g.Off); !inventoryByte(off) && !story.IsStoryByte(off) && !story.IsRegisterByte(off) && !proto.IsSwitchByte(off) {
 					world.Apply(&now, []world.Gain{g})
 				}
 			}
 			for _, g := range pe.Gains {
-				if off := int(g.Off); !inventoryByte(off) && !story.IsStoryByte(off) && !story.IsRegisterByte(off) && !hub.IsSwitchByte(off) {
+				if off := int(g.Off); !inventoryByte(off) && !story.IsStoryByte(off) && !story.IsRegisterByte(off) && !proto.IsSwitchByte(off) {
 					world.Apply(&pnow, []world.Gain{g})
 				}
 			}
@@ -434,11 +434,11 @@ func newStoryPlayer(t *testing.T, ctx context.Context, h *host, name string, non
 	t.Helper()
 	p := &player{rig: newRig(t, name), log: &logBuf{}}
 	p.tag(p.tagFor(testWorld, nonce))
-	want := hub.FeatureImage
+	want := proto.FeatureImage
 	if storySync {
-		want |= hub.FeatureStory
+		want |= proto.FeatureStory
 	}
-	r, err := New(Config{Mem: p.m, Logf: p.log.logf, Policy: hub.SessionPolicy(nil), Want: want})
+	r, err := New(Config{Mem: p.m, Logf: p.log.logf, Policy: proto.SessionPolicy(nil), Want: want})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,7 +488,7 @@ func TestStoryBatchThroughHub(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if f := c.r.Status().Features; f&hub.FeatureStory != 0 {
+	if f := c.r.Status().Features; f&proto.FeatureStory != 0 {
 		t.Fatalf("c was granted %s", f)
 	}
 
