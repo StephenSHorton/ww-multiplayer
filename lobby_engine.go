@@ -12,6 +12,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
@@ -57,14 +58,14 @@ func (e *sessionEngine) HostLobby(ctx context.Context, cancel context.CancelFunc
 	}
 	defer srv.Stop()
 	log.Logf(out, log.OK, "Hosting a lobby as %q on :%d.", name, port)
-	ips := shareAddrs(listHostIPs(), port)
+	ips := engine.ShareAddrs(engine.ListHostIPs(), port)
 	for _, ip := range ips {
 		log.Logf(out, log.Info, "  %s", ip)
 	}
 	return e.runLobby(ctx, cancel, hostDialAddr(o.ListenHost, port), name, o.Color, o.LaunchOptions, out, ac, func() {
 		if e.ls != nil {
-			e.ls.begin(string(session.RoleHost), name, ips)
-			e.ls.setServer(srv)
+			e.ls.Begin(string(session.RoleHost), name, ips)
+			e.ls.SetServer(srv)
 		}
 	})
 }
@@ -95,7 +96,7 @@ func (e *sessionEngine) JoinLobby(ctx context.Context, cancel context.CancelFunc
 	defer ac.stop()
 	err := e.runLobby(ctx, cancel, addr, name, o.Color, o.LaunchOptions, out, ac, func() {
 		if e.ls != nil {
-			e.ls.begin(string(session.RoleJoin), name, nil)
+			e.ls.Begin(string(session.RoleJoin), name, nil)
 		}
 	})
 	if network.IsLegacyHost(err) {
@@ -139,7 +140,7 @@ func (e *sessionEngine) runLobby(ctx context.Context, cancel context.CancelFunc,
 	}
 	var game *gameRunner
 	if e.game != nil {
-		gctx := withColorPref(ctx, color)
+		gctx := engine.WithColorPref(ctx, color)
 		game = newGameRunner(e.game, launch, name, addr, out,
 			func(state string) { _ = lc.SetDolphin(state) },
 			func(error) { cancel() })
@@ -161,7 +162,7 @@ func (e *sessionEngine) runLobby(ctx context.Context, cancel context.CancelFunc,
 				err = sessionErr(gerr)
 			}
 			if e.ls != nil {
-				e.ls.reset()
+				e.ls.Reset()
 			}
 			e.mu.Lock()
 			e.game1 = nil

@@ -8,6 +8,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
@@ -23,8 +24,8 @@ import (
 // always have, and stdin answers the questions and takes the commands
 // (coopPrompter): its output is the CLI's, line for line.
 type sessionEngine struct {
-	ls    *liveState // nil for the CLI
-	stdin bool       // the CLI: questions and console commands on stdin
+	ls    *engine.LiveState // nil for the CLI
+	stdin bool              // the CLI: questions and console commands on stdin
 
 	// game is what a lobby session's START plays on (app_game.go): this
 	// machine's Dolphins. nil starts no game (the tests' engines).
@@ -42,7 +43,7 @@ type sessionEngine struct {
 }
 
 func newTUIEngine() *sessionEngine {
-	e := &sessionEngine{ls: &liveState{}}
+	e := &sessionEngine{ls: &engine.LiveState{}}
 	e.game = realGameDeps(e.ls)
 	e.coopApp = realAppCoopDeps()
 	return e
@@ -56,7 +57,7 @@ func (e *sessionEngine) Host(ctx context.Context, cancel context.CancelFunc, o s
 	if port == 0 {
 		port = defaultPort
 	}
-	ctx = withColorPref(ctx, o.Color)
+	ctx = engine.WithColorPref(ctx, o.Color)
 	return sessionErr(runHostSession(ctx, cancel, o.Name, port, out, e.ls, coopFlagsOf(o.Coop), e.front(out, o.Coop)))
 }
 
@@ -64,7 +65,7 @@ func (e *sessionEngine) Join(ctx context.Context, cancel context.CancelFunc, o s
 	defer e.begin(out)()
 	// The app's color goes with its player connections (a lobby join that
 	// fell back to this keeps the color it chose).
-	ctx = withColorPref(ctx, o.Color)
+	ctx = engine.WithColorPref(ctx, o.Color)
 	return sessionErr(runJoinSession(ctx, cancel, o.Addr, o.Name, out, e.ls, coopFlagsOf(o.Coop), e.front(out, o.Coop)))
 }
 
@@ -72,11 +73,11 @@ func (e *sessionEngine) Join(ctx context.Context, cancel context.CancelFunc, o s
 // to undo that and forget the session's co-op side.
 func (e *sessionEngine) begin(out session.Output) func() {
 	if e.ls != nil {
-		e.ls.setChat(out.Chat)
+		e.ls.SetChat(out.Chat)
 	}
 	return func() {
 		if e.ls != nil {
-			e.ls.setChat(nil)
+			e.ls.SetChat(nil)
 		}
 		e.attach(nil)
 	}
@@ -126,12 +127,12 @@ func sessionErr(err error) error {
 func (e *sessionEngine) Live() session.Live {
 	var l session.Live
 	if e.ls != nil {
-		x, y, z, ok := e.ls.localPos()
+		x, y, z, ok := e.ls.LocalPos()
 		l = session.Live{
-			Players:     e.ls.players(),
-			PlayerCount: e.ls.playerCount(),
-			HostAddrs:   e.ls.hostIPList(),
-			Latency:     e.ls.latency(),
+			Players:     e.ls.Players(),
+			PlayerCount: e.ls.PlayerCount(),
+			HostAddrs:   e.ls.HostIPList(),
+			Latency:     e.ls.Latency(),
 			LocalX:      x,
 			LocalY:      y,
 			LocalZ:      z,
@@ -152,7 +153,7 @@ func (e *sessionEngine) SendChat(text string) error {
 	if e.ls == nil {
 		return nil // the CLI has no chat input
 	}
-	return e.ls.sendChat(text)
+	return e.ls.SendChat(text)
 }
 
 // Command runs a console command on the running session's co-op side,

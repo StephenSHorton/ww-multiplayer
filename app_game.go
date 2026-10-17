@@ -12,6 +12,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
@@ -68,11 +69,11 @@ type gameDeps struct {
 // app's status bridge: the pipelines register their client and position
 // with it (not the client's chat: a lobby session hears chat on its lobby
 // connection, which the host relays to the player connections too).
-func realGameDeps(ls *liveState) *gameDeps {
+func realGameDeps(ls *engine.LiveState) *gameDeps {
 	var onClient func(*network.Client)
 	var onPos func(x, y, z float32)
 	if ls != nil {
-		onClient, onPos = ls.setClient, ls.setLocalPos
+		onClient, onPos = ls.SetClient, ls.SetLocalPos
 	}
 	return &gameDeps{
 		running: runningDolphins,
@@ -466,11 +467,11 @@ func (g *gameRunner) finish(played map[uint32]bool) {
 // as runMultiplayerGoroutines does on the env's Dolphin (no co-op).
 func runPosePipelinesOn(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) error {
 	connLog := feed.NewConnectLog(addr, rep)
-	return runPipelines(ctx, cancel, rep,
-		pipeline{"broadcast-pose", func(ctx context.Context) error {
+	return engine.RunPipelines(ctx, cancel, rep,
+		engine.Pipeline{Name: "broadcast-pose", Run: func(ctx context.Context) error {
 			return feed.BroadcastPose(ctx, feedEnv, name, addr, pid, rep, connLog, onPos)
 		}},
-		pipeline{"puppet-sync", func(ctx context.Context) error {
+		engine.Pipeline{Name: "puppet-sync", Run: func(ctx context.Context) error {
 			return feed.PuppetSync(ctx, feedEnv, name, addr, name, pid, rep, connLog, onClient)
 		}},
 	)

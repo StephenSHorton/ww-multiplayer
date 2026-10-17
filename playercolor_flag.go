@@ -1,20 +1,14 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
-
-// colorPref is the tunic color this player asks the server for
-// (docs/09-player-colors.md): WW_COLOR, overridden by a --color option
-// anywhere before a bare "--". nil lets the server pick.
-var colorPref *playercolor.Color
 
 // initColorPref reads WW_COLOR and strips any --color option from args,
 // returning the remaining args. A bad value is an error rather than a
@@ -77,46 +71,7 @@ func extractColorFlag(args []string) (*playercolor.Color, []string, error) {
 	return pref, rest, nil
 }
 
-// newPlayerClient is network.NewClient with this player's color
-// preference set.
-func newPlayerClient(name string) *network.Client {
-	c := network.NewClient(name)
-	c.SetColorPreference(colorPref)
-	return c
-}
-
-// colorPrefKey is the context key of a session's own color preference.
-type colorPrefKey struct{}
-
-// withColorPref returns ctx carrying a session's color preference (the
-// app's JoinOptions.Color or HostOptions.Color), which overrides the
-// process-wide --color / WW_COLOR for the player connections the session
-// opens. A nil pref leaves ctx as it is.
-func withColorPref(ctx context.Context, pref *playercolor.Color) context.Context {
-	if pref == nil {
-		return ctx
-	}
-	p := *pref
-	return context.WithValue(ctx, colorPrefKey{}, &p)
-}
-
-// colorPrefFor is the color preference for a player connection under ctx.
-func colorPrefFor(ctx context.Context) *playercolor.Color {
-	if p, ok := ctx.Value(colorPrefKey{}).(*playercolor.Color); ok {
-		return p
-	}
-	return colorPref
-}
-
-// newPlayerClientCtx is newPlayerClient with the session's preference
-// from ctx, when it has one.
-func newPlayerClientCtx(ctx context.Context, name string) *network.Client {
-	c := network.NewClient(name)
-	c.SetColorPreference(colorPrefFor(ctx))
-	return c
-}
-
-// applyColorPrefFromArgs is main's first step: it sets colorPref and strips
+// applyColorPrefFromArgs is main's first step: it sets engine.ColorPref and strips
 // --color from os.Args so the subcommand parsers never see it.
 func applyColorPrefFromArgs() {
 	pref, rest, err := initColorPref(os.Args[1:], os.Getenv("WW_COLOR"))
@@ -124,6 +79,6 @@ func applyColorPrefFromArgs() {
 		fmt.Println("ERROR:", err)
 		os.Exit(2)
 	}
-	colorPref = pref
+	engine.ColorPref = pref
 	os.Args = append(os.Args[:1:1], rest...)
 }

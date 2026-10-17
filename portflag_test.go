@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 )
 
 // TestExtractPortFlag covers every flag spelling in any position, and that
@@ -198,14 +200,14 @@ func TestParseServerArgs(t *testing.T) {
 // what they were given dials 25565 and retries forever.
 func TestShareAddrs(t *testing.T) {
 	ips := []string{"192.168.1.42", "10.0.0.5", "fd00::1"}
-	if got := shareAddrs(ips, defaultPort); !reflect.DeepEqual(got, ips) {
-		t.Errorf("shareAddrs(default port) = %q, want the bare IPs %q", got, ips)
+	if got := engine.ShareAddrs(ips, defaultPort); !reflect.DeepEqual(got, ips) {
+		t.Errorf("engine.ShareAddrs(default port) = %q, want the bare IPs %q", got, ips)
 	}
 	want := []string{"192.168.1.42:25566", "10.0.0.5:25566", "[fd00::1]:25566"}
-	if got := shareAddrs(ips, 25566); !reflect.DeepEqual(got, want) {
-		t.Errorf("shareAddrs(25566) = %q, want %q", got, want)
+	if got := engine.ShareAddrs(ips, 25566); !reflect.DeepEqual(got, want) {
+		t.Errorf("engine.ShareAddrs(25566) = %q, want %q", got, want)
 	}
-	if got := shareAddrs(nil, 25566); len(got) != 0 {
-		t.Errorf("shareAddrs(nil) = %q, want empty", got)
+	if got := engine.ShareAddrs(nil, 25566); len(got) != 0 {
+		t.Errorf("engine.ShareAddrs(nil) = %q, want empty", got)
 	}
 }

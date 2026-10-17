@@ -359,7 +359,7 @@ func (ac *appCoop) poseClient() *network.Client {
 	if ac.e.ls == nil {
 		return nil
 	}
-	return ac.e.ls.puppetClient()
+	return ac.e.ls.PuppetClient()
 }
 
 // found1 reports the founding's progress to the window.
@@ -645,13 +645,6 @@ func (c *coopConsole) firstMem() mem.Mem {
 		return nil
 	}
 	return c.syncs[0].m
-}
-
-// puppetClient is the puppet-sync client registered with the bridge.
-func (ls *liveState) puppetClient() *network.Client {
-	ls.mu.Lock()
-	defer ls.mu.Unlock()
-	return ls.client
 }
 
 // UnbindFile zeroes the co-op tag of the file loaded in this player's
