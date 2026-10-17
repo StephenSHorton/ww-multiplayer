@@ -19,7 +19,7 @@ Wind Waker disc image). Releases are cut on tag push via GitHub Actions.
 
 ```
 ww-multiplayer/
-├── main.go                      # Entry point: all CLI subcommands (app_face.go: no args = app window, `tui`, `ui --browser`)
+├── main.go, commands.go         # Entry point; commands.go: the CLI command registry + generated help (app_face.go: no args = app window, `tui`, `ui --browser`)
 ├── *.go                         # Rest of package main: coop_*.go (co-op CLI + session), mp_local*.go (dolphin2, mp-local),
 │                                #   tunic_sync.go, warp_link.go, posefeed.go, session/lobby engines, app_game.go (the app's Start: Dolphin + pipelines),
 │                                #   app_coop.go (the app's co-op: world, hub, GO, coop-sync), auto_recapture.go
@@ -356,5 +356,5 @@ scratch.
   `track-pos`, `warp`, `warp-force[-off]`, `eye-fix-step`,
   `eye-fix-gates`, `eye-fix-chain`, `eye-fix-find-shape`, `j3dsys-probe`,
   `ppc-disasm`) is available for memory probing when something doesn't
-  behave as expected. See main.go's switch table; not in `printHelp` to
+  behave as expected. See the command registry in commands.go; hidden from `printHelp` to
   keep the user-facing help clean.

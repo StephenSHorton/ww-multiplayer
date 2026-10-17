@@ -5,13 +5,10 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"maps"
 	"math/bits"
+	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -965,56 +962,32 @@ func TestSplitDiagFlags(t *testing.T) {
 	}
 }
 
-// TestCoopDiagDispatched checks that main's switch sends every
-// coopDiagUsage name, and only those, to runCoopDiag. enemy-kill and
-// peek-demo were once left out of that case and printed "Unknown command".
+// TestCoopDiagDispatched checks that the command registry sends every
+// coopDiagUsage name, and only those, to runCoopDiag, and that main's
+// lookup finds each of them. enemy-kill and peek-demo were once left out
+// of main's switch and printed "Unknown command".
 func TestCoopDiagDispatched(t *testing.T) {
-	f, err := parser.ParseFile(token.NewFileSet(), "main.go", nil, 0)
-	if err != nil {
-		t.Fatal(err)
+	diag := reflect.ValueOf(runCoopDiag).Pointer()
+	var got []string
+	for _, c := range commandTable() {
+		if c.run != nil && reflect.ValueOf(c.run).Pointer() == diag {
+			got = append(got, c.name)
+			got = append(got, c.aliases...)
+		}
 	}
-	var cases [][]string // the string labels of each case that calls runCoopDiag
-	ast.Inspect(f, func(n ast.Node) bool {
-		cc, ok := n.(*ast.CaseClause)
-		if !ok {
-			return true
-		}
-		calls := false
-		for _, st := range cc.Body {
-			ast.Inspect(st, func(n ast.Node) bool {
-				if c, ok := n.(*ast.CallExpr); ok {
-					if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "runCoopDiag" {
-						calls = true
-					}
-				}
-				return true
-			})
-		}
-		if !calls {
-			return true
-		}
-		var labels []string
-		for _, e := range cc.List {
-			lit, ok := e.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				t.Errorf("case label %T is not a string literal", e)
-				continue
-			}
-			s, err := strconv.Unquote(lit.Value)
-			if err != nil {
-				t.Fatal(err)
-			}
-			labels = append(labels, s)
-		}
-		cases = append(cases, labels)
-		return true
-	})
-	if len(cases) != 1 {
-		t.Fatalf("%d cases in main.go call runCoopDiag, want 1", len(cases))
-	}
-	got := slices.Sorted(slices.Values(cases[0]))
+	slices.Sort(got)
 	want := slices.Sorted(maps.Keys(coopDiagUsage))
 	if !slices.Equal(got, want) {
-		t.Errorf("main.go sends %q to runCoopDiag, coopDiagUsage has %q", got, want)
+		t.Errorf("the registry sends %q to runCoopDiag, coopDiagUsage has %q", got, want)
+	}
+	for _, name := range want {
+		c, ok := lookupCommand(name)
+		if !ok {
+			t.Errorf("%s: not a command", name)
+			continue
+		}
+		if reflect.ValueOf(c.run).Pointer() != diag {
+			t.Errorf("%s dispatches to %s, not runCoopDiag", name, c.name)
+		}
 	}
 }

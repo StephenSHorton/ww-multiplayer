@@ -26,7 +26,7 @@ import (
 type face int
 
 const (
-	faceCLI     face = iota // a subcommand: main's switch
+	faceCLI     face = iota // a subcommand: the command registry (commands.go)
 	faceGUI                 // the app window
 	faceTUI                 // the Bubble Tea TUI
 	faceBrowser             // ui --browser

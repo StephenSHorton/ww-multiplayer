@@ -4,86 +4,55 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
 )
 
-// App PR 5 put the app window in front of main's switch (app_face.go). These
-// tests pin that the CLI did not move: every subcommand the switch had
-// before is still there and still dispatched to it, and only no arguments,
-// `tui` and `ui` open something else.
+// App PR 5 put the app window in front of main's dispatch (app_face.go).
+// These tests pin that the CLI did not move: every subcommand main had
+// before is still in the command registry (commands.go), which replaced
+// main's switch in Phase B1, and only no arguments, `tui` and `ui` open
+// something else.
 
-var updateSubcommands = flag.String("update-subcommands", "", "rewrite testdata/cli-subcommands.txt from this main.go")
+var updateSubcommands = flag.Bool("update-subcommands", false, "rewrite testdata/cli-subcommands.txt from the command registry")
 
 const subcommandsFile = "testdata/cli-subcommands.txt"
 
-// mainSubcommands returns the string cases of the switch in func main of
-// the Go source src, sorted.
-func mainSubcommands(t *testing.T, src []byte) []string {
+// registrySubcommands returns every name and alias in the command
+// registry, sorted. A name used twice is an error.
+func registrySubcommands(t *testing.T) []string {
 	t.Helper()
-	f, err := parser.ParseFile(token.NewFileSet(), "main.go", src, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	seen := map[string]bool{}
 	var names []string
-	for _, d := range f.Decls {
-		fn, ok := d.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != "main" || fn.Recv != nil {
-			continue
+	for _, c := range commandTable() {
+		for _, n := range append([]string{c.name}, c.aliases...) {
+			if seen[n] {
+				t.Errorf("%q is in the registry twice", n)
+			}
+			seen[n] = true
+			names = append(names, n)
 		}
-		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			sw, ok := n.(*ast.SwitchStmt)
-			if !ok {
-				return true
-			}
-			if sel, ok := sw.Tag.(*ast.IndexExpr); !ok || !isOSArgs(sel.X) {
-				return true
-			}
-			for _, s := range sw.Body.List {
-				for _, e := range s.(*ast.CaseClause).List {
-					if lit, ok := e.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-						v, _ := strconv.Unquote(lit.Value)
-						names = append(names, v)
-					}
-				}
-			}
-			return false
-		})
 	}
 	sort.Strings(names)
 	return names
 }
 
-func isOSArgs(e ast.Expr) bool {
-	sel, ok := e.(*ast.SelectorExpr)
-	if !ok || sel.Sel.Name != "Args" {
-		return false
-	}
-	id, ok := sel.X.(*ast.Ident)
-	return ok && id.Name == "os"
-}
-
-// TestCLISubcommandsUnchanged: main's switch has exactly the subcommands it
-// had before App PR 5 (testdata/cli-subcommands.txt, extracted from main.go
-// at origin/main 56ce208 with -update-subcommands), and none of them opens
-// the window or the TUI, with or without the window in the build.
+// TestCLISubcommandsUnchanged: the registry has exactly the subcommands
+// main's switch had before App PR 5 (testdata/cli-subcommands.txt,
+// extracted from main.go at origin/main 56ce208), each of them dispatches
+// to its own entry, and none of them opens the window or the TUI, with or
+// without the window in the build.
 func TestCLISubcommandsUnchanged(t *testing.T) {
-	if *updateSubcommands != "" {
-		src, err := os.ReadFile(*updateSubcommands)
-		if err != nil {
-			t.Fatal(err)
-		}
-		out := strings.Join(mainSubcommands(t, src), "\n") + "\n"
+	got := registrySubcommands(t)
+	if *updateSubcommands {
+		out := strings.Join(got, "\n") + "\n"
 		if err := os.WriteFile(subcommandsFile, []byte(out), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -92,26 +61,57 @@ func TestCLISubcommandsUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	src, err := os.ReadFile("main.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := mainSubcommands(t, src)
 	if g, w := strings.Join(got, "\n")+"\n", strings.ReplaceAll(string(want), "\r\n", "\n"); g != w {
 		t.Fatalf("main's subcommands changed:\ngot:\n%s\nwant:\n%s", g, w)
 	}
 	if len(got) < 50 {
-		t.Fatalf("only %d subcommands found; the extractor lost the switch", len(got))
+		t.Fatalf("only %d subcommands found; the registry lost commands", len(got))
 	}
 	for _, name := range got {
 		if name == "tui" || name == "ui" {
 			t.Fatalf("%q was already a subcommand; the new face would shadow it", name)
+		}
+		if c, ok := lookupCommand(name); !ok || c.run == nil {
+			t.Errorf("%q: lookupCommand = %v, run set %v", name, ok, c.run != nil)
+		} else if c.name != name && !slices.Contains(c.aliases, name) {
+			t.Errorf("%q dispatches to %q", name, c.name)
 		}
 		for _, avail := range []bool{true, false} {
 			if f := appFace([]string{name, "x"}, avail); f != faceCLI {
 				t.Errorf("appFace(%q, gui=%v) = %d, want the CLI", name, avail, f)
 			}
 		}
+	}
+}
+
+// TestCommandRegistryHelp: every command printHelp lists has a section, a
+// usage and a summary; the hidden ones are the developer group.
+func TestCommandRegistryHelp(t *testing.T) {
+	sections := map[cmdGroup]bool{}
+	for _, s := range helpSections {
+		sections[s.group] = true
+	}
+	listed := 0
+	for _, c := range commandTable() {
+		if c.hidden != (c.group == groupDev) {
+			t.Errorf("%s: hidden %v in group %d", c.name, c.hidden, c.group)
+		}
+		if c.hidden {
+			if c.usage != "" || c.summary != "" {
+				t.Errorf("%s: hidden, but has help text", c.name)
+			}
+			continue
+		}
+		listed++
+		if !sections[c.group] || c.usage == "" || c.summary == "" {
+			t.Errorf("%s: group %d, usage %q, summary %q", c.name, c.group, c.usage, c.summary)
+		}
+		if !strings.HasPrefix(c.usage, c.name) {
+			t.Errorf("%s: usage %q does not start with the name", c.name, c.usage)
+		}
+	}
+	if listed != 13 {
+		t.Errorf("printHelp lists %d commands, want 13", listed)
 	}
 }
 

@@ -1,0 +1,27 @@
+exit 1
+Unknown command: no-such-command
+Wind Waker Multiplayer dev
+
+Play multiplayer:
+  <exe> host [name] [--port N]          Host a session (port 25565 unless --port; one process per player)
+  <exe> join <host-ip[:port]> [name]    Join a host's session (type the address `host` prints)
+  <exe> tui                             Open the terminal menu (no arguments opens the app window)
+  <exe> ui [--browser [--port N] [--no-open]] Open the app window (--browser: in your browser)
+
+Patch an ISO:
+  <exe> patch <vanilla.iso|.ciso> [out.iso]
+    Splice the multiplayer mod into your own legitimate copy of Wind Waker (GZLE01)
+
+Local two-Dolphin testing (everything in-process):
+  <exe> dolphin2 [--reset]              Bootstrap & launch a 2nd Dolphin instance
+  <exe> mp-local [nameA] [nameB]        Run server + broadcast/puppet pairs for both Dolphins
+
+Lower-level CLIs:
+  <exe> server [--port N]               Start headless server (port 25565 unless --port)
+  <exe> broadcast-pose [name] [addr]    Stream local Link pose+pos to server
+  <exe> puppet-sync [name] [addr]       Receive remotes; render as Link #2 / actor puppets
+  <exe> fake-client [name] [addr]       Connect a fake client that walks in circles
+  <exe> debug                           Test Dolphin memory access
+  <exe> warp <x> <y> <z>                Teleport Link to world coords (uses C warp handler)
+  <exe> version                         Print the version (both players should match)
+  <exe> help                            Show this help

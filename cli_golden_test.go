@@ -28,6 +28,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/coop/tables/tablestest"
 	"github.com/StephenSHorton/ww-multiplayer/internal/dolphin"
+	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 )
 
@@ -104,6 +105,13 @@ func normalizeCLI(out, root string) string {
 // checkCLIGolden compares one run with testdata/cli-golden/<name>.txt.
 func checkCLIGolden(t *testing.T, name, out string, code int) {
 	t.Helper()
+	checkCLIGoldenNorm(t, name, out, code, nil)
+}
+
+// checkCLIGoldenNorm is checkCLIGolden that, when norm is not nil, passes
+// both the run and the file through norm before comparing them.
+func checkCLIGoldenNorm(t *testing.T, name, out string, code int, norm func(string) string) {
+	t.Helper()
 	got := fmt.Sprintf("exit %d\n%s", code, out)
 	path := filepath.Join("testdata", "cli-golden", name+".txt")
 	if *updateCLIGolden {
@@ -119,7 +127,11 @@ func checkCLIGolden(t *testing.T, name, out string, code int) {
 	if err != nil {
 		t.Fatalf("%v (record it with -update-cli-golden)", err)
 	}
-	if w := strings.ReplaceAll(string(want), "\r\n", "\n"); got != w {
+	w := strings.ReplaceAll(string(want), "\r\n", "\n")
+	if norm != nil {
+		got, w = norm(got), norm(w)
+	}
+	if got != w {
 		t.Errorf("%s: output changed\n--- got\n%s\n--- want\n%s", name, got, w)
 	}
 }
@@ -242,4 +254,51 @@ func TestCLIGoldenDolphin2(t *testing.T) {
 			t.Errorf("cheats in %s: %d bytes, %v", ud, len(b), err)
 		}
 	}
+}
+
+// TestCLIGoldenHelp: `help` and an unknown command print the help that
+// printHelp generates from the command registry (commands.go). The files
+// match what the hand-written printHelp printed before the registry
+// replaced main's switch. The help differs with the app window in the
+// build, so each build has its own file (-tags desktop,production: gui).
+// The files are recorded on Windows and compared byte for byte there;
+// elsewhere exeCmd is shorter, so the comparison ignores how far each
+// row's description is padded (helpColumns) but not its text.
+func TestCLIGoldenHelp(t *testing.T) {
+	var norm func(string) string
+	if runtime.GOOS != "windows" {
+		if *updateCLIGolden {
+			t.Skip("the help goldens are recorded on Windows (exeCmd sets their columns)")
+		}
+		norm = helpColumns
+	}
+	root := t.TempDir()
+	env := configEnv(filepath.Join(root, "config"))
+	build := "nogui"
+	if gui.Available() {
+		build = "gui"
+	}
+	for _, c := range []struct {
+		name string
+		args []string
+	}{
+		{"help", []string{"help"}},
+		{"unknown", []string{"no-such-command", "x"}},
+	} {
+		o, code := runCLI(t, env, c.args...)
+		checkCLIGoldenNorm(t, c.name+"-"+build, normalizeCLI(o, root), code, norm)
+	}
+}
+
+// helpPadding is the run of spaces printHelp may put between a command
+// row's usage and its description.
+var helpPadding = regexp.MustCompile(`(?m)^(  <exe> .*?\S) {2,}`)
+
+// helpColumns collapses that run to one space. printHelp pads
+// `exeCmd usage` to a fixed width, so the description column moves with
+// the length of exeCmd (.\ww-multiplayer.exe on Windows, ./ww-multiplayer
+// elsewhere), which normalizeCLI's <exe> does not undo. A row too long to
+// pad has one space on every platform, so it compares equal too.
+func helpColumns(s string) string {
+	return helpPadding.ReplaceAllString(s, "$1 ")
 }
