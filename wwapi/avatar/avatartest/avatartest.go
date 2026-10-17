@@ -7,7 +7,7 @@ package avatartest
 import (
 	"encoding/binary"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gfx/texture"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"

@@ -3,7 +3,7 @@ package texture
 import (
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
 // FuzzRecolor: for any image bytes and target color, Recolor keeps the

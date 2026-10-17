@@ -3,7 +3,7 @@
 // Host/Join choice into the same multiplayer session funcs the CLI
 // `host` and `join` subcommands run, surfacing every Reporter log line
 // in the dashboard's log panel. It reaches those funcs only through a
-// session.Controller, never through wwapi/emu or internal/network.
+// session.Controller, never through wwapi/emu or mods/multiplayer/net.
 package tui
 
 import (

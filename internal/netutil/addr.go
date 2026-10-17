@@ -1,5 +1,5 @@
 // Package netutil holds small address-parsing helpers shared by the CLI
-// entry points (host/join/server) that don't belong in internal/network
+// entry points (host/join/server) that don't belong in mods/multiplayer/net
 // (which only deals with already-resolved host:port strings).
 package netutil
 

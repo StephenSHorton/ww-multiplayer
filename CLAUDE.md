@@ -37,9 +37,7 @@ ww-multiplayer/
 │   │   ├── iso.go               # ISO patcher with FST relocation
 │   │   └── ciso.go              # CISO decompressor
 │   ├── netutil/                 # Address parsing shared by host/join/server; join codes (WW-XXXX-XXXX, joincode.go)
-│   ├── network/                 # TCP server/client, protocol + handshake, lobby, co-op channel, timing knobs (netconfig.go)
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors)
-│   ├── playercolor/             # Tunic color palette + --color / WW_COLOR parsing (docs/09)
 │   ├── redact/                  # IP masking for what the GUI and TUI draw (fixed-width •••.•••.•••.42); the CLI prints addresses unmasked
 │   ├── session/                 # UI-free session controller the CLI host/join, the TUI and the GUI drive (docs/01-architecture.md)
 │   │   └── session.go, controller.go, event.go, coop.go, coopapp.go (the app's co-op state), lobby.go, launch.go
@@ -48,6 +46,10 @@ ww-multiplayer/
 ├── wwapi/                       # Modding API, v0 UNSTABLE (docs/api): emu/ (Attach(Options); *emu.Dolphin is a MEM1-bounded mem.Mem; memory.go = RAM scanner; launch/ = Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare (dolphin2, auto-recapture); host/ = window, screenshot, keys),
 │                                #   log/ (Reporter, Stdout / Discard / Multi / Prefix), mem/ (Reader/Mem, FakeMem), addr/ (cited addresses), state/ (per-tick snapshot), gate/ (write gates), actors/ (actor queue walk, Layout reads, structural Reread), write/ (guarded write engine: Allowlist, Breaker, FrameWriter beat wait + rechecks, Field, StageRequest; co-op's replica builds on it),
 │                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), savefile/ (GCI/card I/O), backup/ (card backups), tables/ (M1 disc table builders + cache), player/ (Link: Ptr/Ready/Position/DemoType/Pose/Face; Warp, WarpForce; input Override/Release/Press; playertest = fake warp handler), avatar/ (remote Links: pose-feed slot writes, Clear/Rearm, pose math, Tunics = tunic slots; avatartest = fake RAM + C tunic allocation), gfx/texture/ (CMPR tunic recolor, ResTIMG), mailbox/ (T2 + mailbox layout, WWMB header read; layout_gen.go is generated from mailbox.h by tools/gen_mailbox), events/ (bus + core game events), commands/ (command registry, write gate), fakegame/ (deterministic fake game for tests), schema/, semver/; the mod runtime (manifest, resolver, supervisor); Game (Attach/NewGame: watcher, pre-E1 contract check)
+├── mods/                        # Compiled-in mods (docs/api §6): example/ (D3), _fixtures/ (runtime test mods)
+│   └── multiplayer/             # The multiplayer mod (D1)
+│       ├── net/                 # package network: TCP server/client, protocol + handshake, lobby, co-op channel, timing knobs (netconfig.go)
+│       └── playercolor/         # Tunic color palette + --color / WW_COLOR parsing (docs/09)
 ├── inject/                      # C source for the injected PPC code
 │   ├── src/multiplayer.c        # The mod's C side
 │   ├── include/{game,mailbox}.h
@@ -133,7 +135,7 @@ WW_LAN_PORT=<n>                             # App only: LAN discovery's UDP beac
 WW_LAN=off                                  # App only: no LAN discovery (no beacon, no listening)
 WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT_SECS /
   WW_MIN_SESSION_SECS / WW_WRITE_TIMEOUT_SECS / WW_FREEZE_SECS / WW_DESPAWN_SECS
-                                            # Network timing knobs; defaults 5/15/8/5/1/10/2/5 s (internal/network/netconfig.go)
+                                            # Network timing knobs; defaults 5/15/8/5/1/10/2/5 s (mods/multiplayer/net/netconfig.go)
 
 # Local two-Dolphin harness (v0.1.6+: Go-native, replaces the bash scripts)
 ./ww-multiplayer.exe dolphin2 [--reset]     # Bootstrap & launch a 2nd Dolphin instance

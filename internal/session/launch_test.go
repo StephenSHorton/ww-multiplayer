@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
 // TestDolphinStateOf: what a probe of a Dolphin means.

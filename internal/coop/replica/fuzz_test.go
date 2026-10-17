@@ -12,7 +12,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 )
 
-// Native fuzz targets in the style of internal/network/fuzz_test.go. The
+// Native fuzz targets in the style of mods/multiplayer/net/fuzz_test.go. The
 // seed corpora run as ordinary tests under `go test`; to fuzz one, e.g.:
 //
 //	go test -run='^$' -fuzz=FuzzHandle -fuzztime=20s ./internal/coop/replica/

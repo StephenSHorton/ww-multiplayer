@@ -24,7 +24,7 @@
 - **The C part (built).** It is `tunic_swap` / `tunic_restore` plus a one-time allocation, measured at **0x120 bytes** of T2 with devkitPPC 16.2 (§6). The casual shirt for remotes (§5.6) added 0x20, so T2 now ends at 0x80412E28, **0xD8 bytes** below the mailbox. The blob is regenerated; it still needs one Shift+F1 recapture and a user re-patch.
 - **Owner decisions (2026-10-16).**
   - Green stays in the palette: the vanilla tunic is a valid color, and it is what a player with no preference wears.
-  - Colors will later be chosen in a Wails desktop lobby, so selection stays in Go packages the app can call: `internal/playercolor` (palette, `Parse`), `network.Client.SetColorPreference`, and `session.Player.Color` for display.
+  - Colors will later be chosen in a Wails desktop lobby, so selection stays in Go packages the app can call: `mods/multiplayer/playercolor` (palette, `Parse`), `network.Client.SetColorPreference`, and `session.Player.Color` for display.
   - **Shared colors are fine (Stephen, 2026-10-16):** "I don't care that people are the same color. Remove that code too if it auto assigns a new color." Nothing warns about, refuses or changes a color another player wears. This replaces the earlier rule that moved a clashing preference to the first clear palette color.
 
 ## 2. How Link's tunic is colored (Q1)
@@ -108,7 +108,7 @@
 
 ### 5.1 Color assignment and protocol (Q3) — implemented on this branch
 
-**Palette** (`internal/playercolor`):
+**Palette** (`mods/multiplayer/playercolor`):
 - The palette, in display order, is green (vanilla, no recolor), red, blue, purple, orange, cyan, pink, black. The first four are the Four Swords colors.
 - A test checks that every pair is at least 120 apart (redmean RGB, `Distance`), so the choices are easy to tell apart. Players may still pick the same one.
 - `Parse` accepts a palette name or `#RRGGBB`.
@@ -435,7 +435,7 @@ Setup: run `SAVE_STATE=… ./ww-multiplayer.exe dolphin2`, then `WW_TUNIC=off ./
 
 ## 8. Implementation plan (PRs)
 
-1. **Colors in the session (Go only): built.** `internal/playercolor`, the hello preference and player-list trailer, the server's per-name assignment, client accessors, `--color`/`WW_COLOR`, the TUI swatch (now on `session.Player`), `TestT2EndsBelowMailbox`.
+1. **Colors in the session (Go only): built.** `mods/multiplayer/playercolor`, the hello preference and player-list trailer, the server's per-name assignment, client accessors, `--color`/`WW_COLOR`, the TUI swatch (now on `session.Player`), `TestT2EndsBelowMailbox`.
 2. **Recolor library and diagnostics (Go only): built.** `internal/tunic` (now `wwapi/gfx/texture`), `tunic-probe` (name table fixed), `tunic-recolor`.
 3. **C bracket: built.** The mailbox block +0x188..+0x1A0, `tunic_swap`/`tunic_restore`/allocation, `tunic-slot`, the `dump` fields, `TestMailboxLayout`. Needs one blob regen (done), Shift+F1 and a re-patch.
 4. **Wiring: built.** `tunicSync` (now `avatar.Tunics`) in puppet-sync for the remote slots and the local slot, the appearance byte, `WW_TUNIC=off`.
@@ -460,9 +460,9 @@ Setup: run `SAVE_STATE=… ./ww-multiplayer.exe dolphin2`, then `WW_TUNIC=off ./
 ## Appendix: what this branch contains
 
 **New:**
-- `internal/playercolor/{playercolor,playercolor_test}.go`
+- `mods/multiplayer/playercolor/{playercolor,playercolor_test}.go`
 - `internal/tunic/{cmpr,cmpr_test,restimg,restimg_test}.go` (since C12: `wwapi/gfx/texture`)
-- `internal/network/color_test.go`
+- `mods/multiplayer/net/color_test.go`
 - `internal/inject/t2_budget_test.go`
 - `playercolor_flag{,_test}.go`
 - `tunic_diag.go` (`tunic-probe`, `tunic-recolor`)
@@ -472,8 +472,8 @@ Setup: run `SAVE_STATE=… ./ww-multiplayer.exe dolphin2`, then `WW_TUNIC=off ./
 
 **Changed:**
 - `inject/src/multiplayer.c`, `inject/include/{mailbox,game}.h`: the C bracket and allocation. `internal/inject/blob.go` is regenerated.
-- `internal/network/{protocol,handshake,server,client}.go`: trailer, hello, assignment, accessors
-- `internal/network/coop_test.go`: the new `writeJoinRole` argument
+- `mods/multiplayer/net/{protocol,handshake,server,client}.go`: trailer, hello, assignment, accessors
+- `mods/multiplayer/net/coop_test.go`: the new `writeJoinRole` argument
 - `internal/session/session.go`: `Player.Color` / `HasColor`
 - `internal/tui/{dashboard,dashboard_test,controller_test}.go`: the swatch
 - `main.go`: `applyColorPrefFromArgs`, `newPlayerClient`, the `tunic-*` cases, colors in `remoteViews`, the appearance byte in broadcast-pose, `syncTunics` in puppet-sync, the `dump` block

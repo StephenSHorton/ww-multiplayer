@@ -9,7 +9,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 )
 
-// Fuzz targets for Build, in the style of internal/network/fuzz_test.go:
+// Fuzz targets for Build, in the style of mods/multiplayer/net/fuzz_test.go:
 // one over whole stage files (the bytes stage.ParseDZx reads from an
 // ISO), one over a single entry's params as every proc the table reads
 // decodes them. The seed corpora are built in code (no game data) and run

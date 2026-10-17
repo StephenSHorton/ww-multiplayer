@@ -11,7 +11,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
-// The re-read's fuzz target, in the style of internal/network/fuzz_test.go.
+// The re-read's fuzz target, in the style of mods/multiplayer/net/fuzz_test.go.
 // The seeds run as ordinary tests; to fuzz it:
 //
 //	go test -run='^$' -fuzz=FuzzRevalidate -fuzztime=30s ./internal/coop/combat/

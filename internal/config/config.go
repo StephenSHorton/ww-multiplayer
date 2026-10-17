@@ -32,7 +32,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
 // Version is the schema version this build writes.

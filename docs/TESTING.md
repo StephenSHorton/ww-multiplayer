@@ -59,7 +59,7 @@ Two tests are known to fail now and then on timing, without a code change behind
 | Test | Where | Why |
 |---|---|---|
 | `TestControllerQuestions` (`coop_controller_test.go`) | macOS CI | The co-op controller's question flow under a slow runner. |
-| `TestLobbyKickClosesLobbyAndPlayerConns`, `TestLobbyKickSticks` (`internal/network`) | any | Loopback connections closing around the kick. |
+| `TestLobbyKickClosesLobbyAndPlayerConns`, `TestLobbyKickSticks` (`mods/multiplayer/net`) | any | Loopback connections closing around the kick. |
 
 Any other failure that passes on a rerun is a new flake: report it, do not just rerun it away.
 

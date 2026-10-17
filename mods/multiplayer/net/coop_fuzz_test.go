@@ -11,7 +11,7 @@ import (
 // and client's co-op paths end to end, in the style of fuzz_test.go. To fuzz
 // one, e.g.:
 //
-//	go test -run='^$' -fuzz=FuzzServerHandleCoop -fuzztime=20s ./internal/network/
+//	go test -run='^$' -fuzz=FuzzServerHandleCoop -fuzztime=20s ./mods/multiplayer/net/
 
 func FuzzParseHelloRole(f *testing.F) {
 	for _, seed := range [][]byte{

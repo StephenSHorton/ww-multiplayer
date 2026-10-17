@@ -10,7 +10,7 @@ The lobby is a third connection role on the existing server, next to the player 
 
 - **Hello.** `MsgJoin(name)` then `MsgHello [version:2 = 2][role:1 = 2][caps:2]`, the same protocol-2 role hello co-op uses. `RoleLobby = 2`. Caps bit 0, `LobbyCapJSON`, must be set (the bodies are JSON); the other bits are reserved and sent as 0. A lobby hello without it is refused with `RejectRole`.
 - **Welcome.** A plain `MsgWelcome [id][epoch][version]`, as for any connection. The ID comes from a lobby ID space of its own (1..255 among live lobby connections) and means nothing to the client.
-- **Frames.** `MsgLobby` = `'B'` (0x42), payload `[sub:1][body]`. The body is one JSON object (UTF-8, at most `MaxLobbyBody` = 16 KiB). Unknown fields and unknown sub-messages are ignored, so either side can add fields later. An empty body reads as `{}`. The codec is `internal/network/lobby_wire.go` (`EncodeLobby`, `ParseLobby`, `DecodeLobby`); `TestLobbyGoldenBytes` pins its wire form.
+- **Frames.** `MsgLobby` = `'B'` (0x42), payload `[sub:1][body]`. The body is one JSON object (UTF-8, at most `MaxLobbyBody` = 16 KiB). Unknown fields and unknown sub-messages are ignored, so either side can add fields later. An empty body reads as `{}`. The codec is `mods/multiplayer/net/lobby_wire.go` (`EncodeLobby`, `ParseLobby`, `DecodeLobby`); `TestLobbyGoldenBytes` pins its wire form.
 - **Not a player.** A lobby connection is never in `s.players`: not in the roster, `PlayerCount`, the 255-player limit, or the position and pose relays. It keeps the heartbeat both ways (the server measures its RTT from the pongs) and carries chat (§5).
 - **No version bump.** A server from before the lobby (331e772 and earlier protocol-2 builds) refuses role 2 with `RejectRole` ("unknown connection role 2"); the app takes that as "join directly" (§6). Old clients never send role 2.
 
@@ -36,7 +36,7 @@ Notice codes: `name_taken` (with a suggested free name; the connection closes), 
 
 STATE is the whole lobby (the member count is small). A member that says HELLO after START (a late joiner, or a reclaim during `starting` or `in_game`) also gets START, and in game GO with the host's world, right after its STATE, so it launches like the others. After a reclaim that can repeat one it already had; receivers treat START and GO as idempotent. The server keeps the GO body until the lobby empties. `rev` grows with every change; a client drops a STATE whose `rev` is not newer than the one it has, and starts over at a new WELCOME (a restarted server counts from 0 again).
 
-## 3. The lobby's state (`internal/network/lobby_state.go`, `lobby.go`)
+## 3. The lobby's state (`mods/multiplayer/net/lobby_state.go`, `lobby.go`)
 
 `lobbyMachine` is the state, a pure machine: each input (a HELLO, a sub-message, a dropped connection, the hold timer, a change in the player connections) returns the frames to send. `LobbyHub`, one per `Server`, serializes it and delivers the frames through a non-blocking send queue per connection. With no lobby connection the hub is inert.
 
@@ -55,7 +55,7 @@ STATE is the whole lobby (the member count is small). A member that says HELLO a
 
 ## 4. Colors
 
-The lobby is the single source of a member's color, through `internal/playercolor`. Owner decision (Stephen, 2026-10-16): "I don't care that people are the same color. Remove that code too if it auto assigns a new color." Players may wear the same color, and nothing warns about it, refuses it or changes it.
+The lobby is the single source of a member's color, through `mods/multiplayer/playercolor`. Owner decision (Stephen, 2026-10-16): "I don't care that people are the same color. Remove that code too if it auto assigns a new color." Players may wear the same color, and nothing warns about it, refuses it or changes it.
 
 - **At HELLO:** a member gets the color it asks for (a palette name or `#RRGGBB`), whoever else wears it. Without a preference (or with one that doesn't parse), classic green, the game's own tunic.
 - **SET color:** always granted (STATE), whoever else wears it. There is no refusal and no suggestion.
@@ -101,7 +101,7 @@ With a lobby the server runs before the host's co-op world is open (the app open
 - `lobby_state_test.go`: host and names, colors (two members asking for the same color both get it at HELLO and SET, no preference is green, a CLI player's color doesn't move a member), phases and locks, hold/reclaim/expiry, the host's slot passing on, the empty lobby, CLI rows and kicks, kicks that stick, START and GO replayed at HELLO, REQUEST, the member cap; **`FuzzLobbyMachine`** (random joins, sub-messages, drops, timer ticks and player lists; checks unique names, one host, forward-only phase, colors fixed after START, increasing `rev`, every frame encodable, every live member sent START in `starting` and GO in `in_game`).
 - `lobby_test.go`: the loopback integration test (two lobby clients and a CLI player: join, a shared color, ready, Start, colors locked, GO, rule 0 on the app's pose connection, chat both ways, REQUEST, lobby connections outside the roster and count), reconnect and expiry, a host restart, name taken (the notice arrives before `Run` returns), kicks, kicks that stick (a reconnecting CLI join stops), START and GO replayed on reclaim and to a late joiner, a ready flood against a slow reader, a member and a CLI player sharing a color, the legacy fallback, the JSON cap, mixed versions, the co-op start order (also Stop during a hold, and the hold under the client's read deadline), and **`FuzzServerHandleLobby`** (a lobby connection's whole server path over an arbitrary stream).
 - `internal/session/lobby_test.go`: the controller's phases, commands, refusals, events and the legacy fallback over a fake engine; `lobby_engine_test.go`: the real engine through the controller against a real server, the session color over `--color`, and the host flag from STATE.
-- `internal/network/color_test.go`: the server's join path (two players asking for one color both get it; no preference is green; a reconnect keeps its color); `internal/playercolor`: `TestParse`, **`FuzzParse`**.
+- `mods/multiplayer/net/color_test.go`: the server's join path (two players asking for one color both get it; no preference is green; a reconnect keeps its color); `mods/multiplayer/playercolor`: `TestParse`, **`FuzzParse`**.
 
 ## 10. Join codes and LAN discovery (App PR 11)
 

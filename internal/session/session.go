@@ -7,7 +7,7 @@
 // The session work itself (server, broadcast-pose, puppet-sync, co-op) stays
 // in package main and is injected as an Engine, the way tui.Hooks used to
 // inject it. That keeps this package free of wwapi/emu and
-// internal/network, so it builds and tests on any OS with a fake engine.
+// mods/multiplayer/net, so it builds and tests on any OS with a fake engine.
 package session
 
 import (
@@ -15,7 +15,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 

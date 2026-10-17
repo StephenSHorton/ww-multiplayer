@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/network"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 )
 
 // runPipelinesWithin runs runPipelines on a fresh ctx and fails the test if
