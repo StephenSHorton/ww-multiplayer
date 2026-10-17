@@ -3,7 +3,7 @@ package replica
 import (
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/coop/actors"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 

@@ -13,7 +13,7 @@ import (
 // internal/network/fuzz_test.go. The seeds run as ordinary tests; to fuzz
 // one, e.g.:
 //
-//	go test -run='^$' -fuzz=FuzzWalk -fuzztime=30s ./internal/coop/actors/
+//	go test -run='^$' -fuzz=FuzzWalk -fuzztime=30s ./wwapi/actors/
 
 // fuzzBase is where FuzzWalk lays its nodes: four actor blocks of 0x400.
 const fuzzBase uint32 = 0x80A00000
