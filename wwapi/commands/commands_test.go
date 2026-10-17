@@ -95,3 +95,45 @@ func TestWriteGate(t *testing.T) {
 		t.Errorf("Unsupported: %+v, %v", res, err)
 	}
 }
+
+// TestModViewClose: closing a mod view removes that mod's commands only,
+// refuses later registrations and executions through it, and leaves the
+// core view and a fresh view of the same id working.
+func TestModViewClose(t *testing.T) {
+	r := New()
+	a, _ := r.Mod("a")
+	b, _ := r.Mod("b")
+	for _, c := range []struct {
+		r    *Registry
+		name string
+	}{{r, "core.x"}, {a, "mod.a.one"}, {a, "mod.a.two"}, {b, "mod.b.one"}} {
+		if err := c.r.Register(c.name, Spec{}, echo); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.Close()
+	a.Close()
+	if got := r.Names(); !slices.Equal(got, []string{"core.x", "mod.b.one"}) {
+		t.Errorf("Names after Close: %v", got)
+	}
+	if err := a.Register("mod.a.three", Spec{}, echo); !errors.Is(err, ErrClosed) {
+		t.Errorf("Register on a closed view: %v", err)
+	}
+	if _, err := r.Execute(context.Background(), "mod.a.one", nil); !errors.Is(err, ErrUnknown) {
+		t.Errorf("a closed mod's command ran: %v", err)
+	}
+	if res, err := a.Execute(context.Background(), "core.x", nil); !errors.Is(err, ErrClosed) || res.Code != "closed" {
+		t.Errorf("Execute through a closed view: %+v, %v", res, err)
+	}
+	if _, err := b.Execute(context.Background(), "core.x", nil); err != nil {
+		t.Errorf("Execute through an open view: %v", err)
+	}
+	r.Close() // the core view: nothing happens
+	if err := r.Register("core.y", Spec{}, echo); err != nil {
+		t.Errorf("core Register after core Close: %v", err)
+	}
+	a2, _ := r.Mod("a")
+	if err := a2.Register("mod.a.one", Spec{}, echo); err != nil {
+		t.Errorf("a fresh view: %v", err)
+	}
+}

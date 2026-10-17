@@ -244,7 +244,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args any) (Result, 
 
 | Command | Status |
 |---|---|
-| `player.warp` (Warp, WarpForce) | exists: `wwapi/player` (was `warp_link.go`) |
+| `player.warp` (Warp, WarpForce) | exists: `wwapi/player` (was `warp_link.go`); `core.player.warp` (D3) runs `Warp` from a `Game`'s registry |
 | `input.override` (Override, Release) | exists: `wwapi/player` Override/Release/Press (was `injectInput`, `runInput`) |
 | `avatar.*` (Claim, SetPose, SetFace, SetTunic, Hide, Release; Cap = 2 today) | the slot writes exist: `wwapi/avatar` (WritePose, WriteFace, ClearSlot, Rearm, Clear, SetPoseFeedMode, Tunics; was `posefeed.go`, `runPuppetSyncCtx`, `tunicSync`). Claim/Release (slot ownership) are still puppet-sync's `pickLinkSlot`/`freeLinkSlot` |
 | `save.*` (GiveItem, AddLife, AddRupees, SetMaxLife) | mechanism exists in co-op; helper is new |
@@ -444,8 +444,8 @@ Order: C1 first; C4 before C8; C6 before C7; C8 before C14; C5 any time after C1
 ### Phase D: mods
 - [ ] **D1** `mods/multiplayer` (3-4 PRs, one area each).
 - [ ] **D2** `mods/coop` with `proto/` and `PostPatch` (2-3 PRs).
-- [ ] **D3** `mods/example` (Go-only, `local_only`) plus `docs/api` guides and `TESTING.md`. Land early if possible, right after B3/C14.
-- [ ] **D4** App integration: `config.Mods`, `--mods/--no-mod/--dev`, GUI Mods page, `EventMod`, session as a bus adapter.
+- [x] **D3** `mods/example` (Go-only, `local_only`, `dev`) plus `docs/api` guides and `TESTING.md`. The example logs `StageChanged`/`ItemGained` and registers `mod.example.mark`/`mod.example.goto`; its tests drive it with `fakegame` and `playertest`'s warp handler. The runtime gained the two §6.2 accessors it needs, additively: `Options.Game` with `Context.Game()` (the runtime forwards the Game's core events onto its own bus, so subscriptions stay the mod's), and `Context.Commands()`, the mod's `mod.<id>.*` view of `Game.Commands()` (or of the runtime's own registry without a Game), whose commands are removed on a failed Init, on quarantine and when the runtime stops (`commands.Registry.Close`). `Game` registers `core.player.warp` (`player.Warp`, behind the write gate), since a mod's `Mem` is read-only. The example is not in `compiledMods()` (the `mods` golden is unchanged); D4's `--dev` shows it. Guides: [03-writing-a-mod.md](03-writing-a-mod.md), [../TESTING.md](../TESTING.md).
+- [ ] **D4** App integration: `config.Mods`, `--mods/--no-mod/--dev`, GUI Mods page, `EventMod`, session as a bus adapter. Open item: `core.player.warp` (any mod can run it through `Game.Commands()`) shares `warp_seq` with co-op's replica escape warps (`internal/coop/replica/escape.go`), so refuse it while co-op is on, or put it behind co-op's breaker, before the app loads mods next to co-op.
 - [ ] **D5** `mods_hash` in the lobby join and the player-role caps bit.
 - [ ] **D6** `cmd/wwdev`: research probes, coop_diag, auto-recapture, mp-local, dolphin2; golden list split per binary.
 - [ ] **D7** Move package main to `cmd/ww-multiplayer` in one PR: CI and build scripts, `ww_windows.syso` and its `go:generate` line, README/SETUP/CLAUDE.md build lines, and the source-reading tests.

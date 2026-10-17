@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"strings"
 	"sync"
 
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/commands"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/events"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
@@ -26,6 +28,12 @@ type Options struct {
 	// Events configures the runtime's bus. Its OnPanic, if set, is
 	// called after the runtime has quarantined the handler's mod.
 	Events events.Options
+	// Game is the game the mods see through Context.Game, or nil when
+	// there is none (a pure server still runs its mods). With a Game,
+	// mods register their commands in Game.Commands(), and the Game's
+	// core events are forwarded onto the runtime's bus from Init until
+	// Run ends, so a mod's subscriptions stay its own.
+	Game *Game
 }
 
 var (
@@ -40,12 +48,14 @@ type Runtime struct {
 	log  log.Reporter
 	plan *Plan
 	bus  *events.Bus
+	cmds *commands.Registry   // core view: Game.Commands() or the runtime's own
 	mods []*modState          // one per plan entry
 	byID map[string]*modState // unique valid ids
 
 	initOnce sync.Once
 	mu       sync.Mutex
 	ran      bool
+	relayOff func() // ends the Game's event forwarding; set by Init
 }
 
 type modState struct {
@@ -53,6 +63,7 @@ type modState struct {
 	idx    int
 	status Status             // guarded by Runtime.mu
 	view   *events.Bus        // set by Init; guarded by Runtime.mu
+	cmds   *commands.Registry // set by Init; guarded by Runtime.mu
 	cancel context.CancelFunc // set by Run; guarded by Runtime.mu
 	done   chan struct{}
 }
@@ -66,6 +77,11 @@ func New(mods []Mod, o Options) *Runtime {
 	rt := &Runtime{opts: o, log: o.Log, byID: map[string]*modState{}}
 	if rt.log == nil {
 		rt.log = log.Discard{}
+	}
+	if o.Game != nil {
+		rt.cmds = o.Game.Commands()
+	} else {
+		rt.cmds = commands.New()
 	}
 	rt.plan = Resolve(mods, o.Resolve)
 	for i := range rt.plan.Entries {
@@ -98,8 +114,12 @@ func New(mods []Mod, o Options) *Runtime {
 func (rt *Runtime) Plan() *Plan { return rt.plan }
 
 // Bus is the core view of the runtime's event bus: the watcher emits
-// core.* events on it.
+// core.* events on it (with Options.Game, the runtime forwards them).
 func (rt *Runtime) Bus() *events.Bus { return rt.bus }
+
+// Commands is the core view of the command registry the mods register
+// in: Options.Game's, or the runtime's own when there is no Game.
+func (rt *Runtime) Commands() *commands.Registry { return rt.cmds }
 
 // Mods returns every mod with its current status, loading mods first in
 // load order.
@@ -138,6 +158,7 @@ func (rt *Runtime) setFailed(m *modState, reason string) {
 func (rt *Runtime) Init() { rt.initOnce.Do(rt.initMods) }
 
 func (rt *Runtime) initMods() {
+	rt.relayGame()
 	for _, i := range rt.plan.Order {
 		m := rt.mods[i]
 		id := m.e.Manifest.ID
@@ -150,15 +171,44 @@ func (rt *Runtime) initMods() {
 			rt.setFailed(m, "events: "+err.Error())
 			continue
 		}
+		cmds, err := rt.cmds.Mod(id)
+		if err != nil {
+			view.Close()
+			rt.setFailed(m, "commands: "+err.Error())
+			continue
+		}
 		rt.mu.Lock()
-		m.view = view
+		m.view, m.cmds = view, cmds
 		rt.mu.Unlock()
-		c := newContext(rt, m, view)
+		c := newContext(rt, m, view, cmds)
 		if err := callInit(m.e.Mod, c); err != nil {
 			view.Close()
+			cmds.Close()
 			rt.setFailed(m, "Init: "+err.Error())
 		}
 	}
+}
+
+// relayGame forwards Options.Game's core events onto the runtime's bus,
+// where the mods' views are: a Game is made before the runtime, so its
+// watcher cannot emit on the runtime's bus itself. The forwarded events
+// keep their type and payload; the runtime's bus stamps its own Seq, At,
+// Source (SourceGame) and Origin (core), so a core.* event emitted
+// through the Game bus's Net() view arrives as SourceGame.
+func (rt *Runtime) relayGame() {
+	g := rt.opts.Game
+	if g == nil || g.Events() == rt.bus {
+		return
+	}
+	prefix := events.CoreNamespace + "."
+	off := events.On(g.Events(), func(e events.Event) {
+		if strings.HasPrefix(e.EventName(), prefix) {
+			_ = rt.bus.Emit(e) // only ErrClosed, once Run has ended
+		}
+	})
+	rt.mu.Lock()
+	rt.relayOff = off
+	rt.mu.Unlock()
 }
 
 // unmetDep returns the first required dependency of m that is no longer
@@ -202,7 +252,8 @@ func callInit(mod Mod, c *Context) (err error) {
 //
 // Once ctx ends (or on ErrFatal) the mods are stopped in reverse load
 // order: each one's context is cancelled and its Run awaited before the
-// next. Then every mod's subscriptions end and the bus is closed. Run
+// next. Then the Game's events stop being forwarded, every mod's
+// subscriptions end and its commands are removed, and the bus is closed. Run
 // returns the fatal error or nil. A Runtime runs once.
 func (rt *Runtime) Run(ctx context.Context) error {
 	rt.mu.Lock()
@@ -269,12 +320,21 @@ func (rt *Runtime) Run(ctx context.Context) error {
 		m.cancel()
 		<-m.done
 	}
+	rt.mu.Lock()
+	if rt.relayOff != nil {
+		rt.relayOff()
+	}
+	rt.mu.Unlock()
 	for k := len(rt.plan.Order) - 1; k >= 0; k-- {
 		rt.mu.Lock()
-		v := rt.mods[rt.plan.Order[k]].view
+		m := rt.mods[rt.plan.Order[k]]
+		v, cmds := m.view, m.cmds
 		rt.mu.Unlock()
 		if v != nil {
 			v.Close()
+		}
+		if cmds != nil {
+			cmds.Close()
 		}
 	}
 	rt.bus.Close()
@@ -300,8 +360,8 @@ func callRun(mod Mod, ctx context.Context) (err error) {
 }
 
 // quarantine moves a LOADED mod to QUARANTINED: it cancels its Run,
-// ends its subscriptions, logs why and emits ModQuarantined. A mod in any
-// other state is left as it is.
+// ends its subscriptions, removes its commands, logs why and emits
+// ModQuarantined. A mod in any other state is left as it is.
 func (rt *Runtime) quarantine(id, reason string, stack []byte) {
 	m := rt.byID[id]
 	if m == nil {
@@ -313,13 +373,16 @@ func (rt *Runtime) quarantine(id, reason string, stack []byte) {
 		return
 	}
 	m.status = Status{State: Quarantined, Reason: reason}
-	cancel, view := m.cancel, m.view
+	cancel, view, cmds := m.cancel, m.view, m.cmds
 	rt.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
 	if view != nil {
 		view.Close()
+	}
+	if cmds != nil {
+		cmds.Close()
 	}
 	rt.log.Log(log.Err, fmt.Sprintf("mod %s quarantined: %s", id, reason))
 	if len(stack) > 0 {

@@ -7,8 +7,9 @@ import (
 	"testing/fstest"
 )
 
-// TestRepoManifests: the repo's own mods/ tree passes, and every fixture
-// with an invalid.txt is refused for the expected reason.
+// TestRepoManifests: the repo's own mods/ tree passes (the example mod
+// included), and every fixture with an invalid.txt is refused for the
+// expected reason.
 func TestRepoManifests(t *testing.T) {
 	var out strings.Builder
 	if err := run(os.DirFS("../../mods"), "mods", &out); err != nil {
@@ -18,6 +19,7 @@ func TestRepoManifests(t *testing.T) {
 		"ok   mods/_fixtures/_ok_base/mod.json\n",
 		"ok   mods/_fixtures/_bad_range/mod.json (refused, as invalid.txt expects)\n",
 		"ok   mods/_fixtures/_bad_manifest/mod.json (refused, as invalid.txt expects)\n",
+		"ok   mods/example/mod.json\n",
 		" 2 refused on purpose, 0 problems\n",
 	} {
 		if !strings.Contains(out.String(), want) {
