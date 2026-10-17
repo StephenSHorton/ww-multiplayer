@@ -21,7 +21,7 @@ Wind Waker disc image). Releases are cut on tag push via GitHub Actions.
 ww-multiplayer/
 ├── main.go, commands.go         # Entry point; commands.go: the CLI command registry + generated help (app_face.go: no args = app window, `tui`, `ui --browser`)
 ├── *.go                         # Rest of package main: coop_*.go (co-op CLI + session), mp_local*.go (dolphin2, mp-local),
-│                                #   tunic_sync.go, warp_link.go, posefeed.go, session/lobby engines, app_game.go (the app's Start: Dolphin + pipelines),
+│                                #   tunic_sync.go, posefeed.go, session/lobby engines, app_game.go (the app's Start: Dolphin + pipelines),
 │                                #   app_coop.go (the app's co-op: world, hub, GO, coop-sync), auto_recapture.go
 ├── internal/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
@@ -48,7 +48,7 @@ ww-multiplayer/
 │   └── tunic/                   # Tunic texture recolor (CMPR encode, docs/09)
 ├── wwapi/                       # Modding API, v0 UNSTABLE (docs/api): emu/ (Attach(Options); *emu.Dolphin is a MEM1-bounded mem.Mem; memory.go = RAM scanner; launch/ = Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare (dolphin2, auto-recapture); host/ = window, screenshot, keys),
 │                                #   log/ (Reporter, Stdout / Discard / Multi / Prefix), mem/ (Reader/Mem, FakeMem), addr/ (cited addresses), state/ (per-tick snapshot), gate/ (write gates),
-│                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), savefile/ (GCI/card I/O), backup/ (card backups), tables/ (M1 disc table builders + cache), mailbox/ (T2 + mailbox layout; layout_gen.go is generated from mailbox.h by tools/gen_mailbox), events/, schema/, semver/; the mod runtime (manifest, resolver, supervisor)
+│                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), savefile/ (GCI/card I/O), backup/ (card backups), tables/ (M1 disc table builders + cache), player/ (Link: Ptr/Ready/Position/DemoType/Pose/Face; Warp, WarpForce; input Override/Release/Press; playertest = fake warp handler), mailbox/ (T2 + mailbox layout; layout_gen.go is generated from mailbox.h by tools/gen_mailbox), events/, schema/, semver/; the mod runtime (manifest, resolver, supervisor)
 ├── inject/                      # C source for the injected PPC code
 │   ├── src/multiplayer.c        # The mod's C side
 │   ├── include/{game,mailbox}.h

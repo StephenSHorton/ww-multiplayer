@@ -36,11 +36,11 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/network"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/host"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
 
 // version is overridden at build time by `go build -ldflags "-X main.version=..."`.
@@ -297,7 +297,7 @@ func runBroadcastLink(name, addr string) {
 	defer client.Disconnect()
 
 	for client.IsConnected() {
-		pos, err := d.ReadPlayerPosition()
+		pos, err := player.NewLink(d).Position()
 		if err == nil && pos != nil {
 			netPos := &network.PlayerPosition{
 				PosX: pos.PosX,
@@ -418,8 +418,7 @@ func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPI
 	defer d.Close()
 	client := newPlayerClientCtx(ctx, name)
 	client.OnLog = func(msg string) { rep.Log(log.Net, msg) }
-
-	const poseBytes = linkJointCount * 48
+	link := player.NewLink(d)
 
 	// Session 14: face-state capture reads from mailbox.face_state_local,
 	// which the C side publishes once per frame at the top of
@@ -447,7 +446,7 @@ func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPI
 		posErrs, poseErrs := 0, 0
 		for client.IsConnected() {
 			// Position (cheap; same as broadcast-link).
-			pos, err := d.ReadPlayerPosition()
+			pos, err := link.Position()
 			if err == nil && pos != nil {
 				netPos := &network.PlayerPosition{
 					PosX: pos.PosX, PosY: pos.PosY, PosZ: pos.PosZ,
@@ -482,39 +481,33 @@ func runBroadcastPoseCtx(ctx context.Context, name, serverAddr string, dolphinPI
 			// unchanged). Receiver re-adds the remote's world position to
 			// land Link #2 at the right world coords.
 			if pos != nil {
-				stateBytes, _ := d.Read(mailbox.Mailbox+mailbox.OffPosePublishState, 1)
-				if len(stateBytes) == 1 && stateBytes[0] == 1 {
-					pubPtr, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffPosePublishPtr)
-					if addr.InMEM1(pubPtr) {
-						data, err := d.Read(pubPtr, poseBytes)
-						if err == nil && data != nil {
-							if os.Getenv("WW_POSE_RAW") == "" {
-								localizePoseInPlace(data, linkJointCount, pos.PosX, pos.PosY, pos.PosZ)
-							}
-							// Capture the LOCAL Link's eye texno bytes from
-							// the mailbox slot the C side publishes at the
-							// top of daPy_draw_hook (before any face_emit
-							// swap fires). Race-free vs reading tev_block
-							// directly from emu RAM. Wire layout matches
-							// FaceState: 8 B = (mat1_tex0:u16 BE)
-							// (mat1_tex1:u16 BE)(mat4_tex0:u16 BE)
-							// (mat4_tex1:u16 BE).
-							var face []byte
-							if fb, err := d.Read(mailbox.Mailbox+mailbox.OffFaceStateLocal, faceStateWireBytes); err == nil && len(fb) == faceStateWireBytes {
-								face = fb
-								// docs/09 §5.4: a 17th byte, the appearance
-								// flags (bit 0 = casual clothes). Receivers
-								// before it copy only the first 16 bytes.
-								if app, ok := localAppearance(d); ok {
-									face = append(face, app)
-								}
-							}
-							if err := client.SendPose(linkJointCount, data, face); err != nil {
-								poseErrs++
-								if poseErrs > 5 {
-									return fmt.Errorf("send pose: %w", err)
-								}
-							}
+				data, err := link.Pose()
+				if err == nil && data != nil {
+					if os.Getenv("WW_POSE_RAW") == "" {
+						localizePoseInPlace(data, linkJointCount, pos.PosX, pos.PosY, pos.PosZ)
+					}
+					// Capture the LOCAL Link's eye texno bytes from
+					// the mailbox slot the C side publishes at the
+					// top of daPy_draw_hook (before any face_emit
+					// swap fires). Race-free vs reading tev_block
+					// directly from emu RAM. Wire layout matches
+					// FaceState: 8 B = (mat1_tex0:u16 BE)
+					// (mat1_tex1:u16 BE)(mat4_tex0:u16 BE)
+					// (mat4_tex1:u16 BE).
+					var face []byte
+					if fb, err := link.Face(); err == nil && len(fb) == faceStateWireBytes {
+						face = fb
+						// docs/09 §5.4: a 17th byte, the appearance
+						// flags (bit 0 = casual clothes). Receivers
+						// before it copy only the first 16 bytes.
+						if app, ok := localAppearance(d); ok {
+							face = append(face, app)
+						}
+					}
+					if err := client.SendPose(linkJointCount, data, face); err != nil {
+						poseErrs++
+						if poseErrs > 5 {
+							return fmt.Errorf("send pose: %w", err)
 						}
 					}
 				}
@@ -578,7 +571,7 @@ func runPoseFakeLoop(name, addr string) {
 	// One-shot capture: read Link's current world pose, then localize.
 	var captured []byte
 	for try := 0; try < 30 && captured == nil; try++ {
-		linkPtr, err := d.GetLinkPtr()
+		linkPtr, err := player.NewLink(d).Ptr()
 		if err != nil || linkPtr == 0 {
 			time.Sleep(200 * time.Millisecond)
 			continue
@@ -598,7 +591,7 @@ func runPoseFakeLoop(name, addr string) {
 			time.Sleep(200 * time.Millisecond)
 			continue
 		}
-		pos, err := d.ReadPlayerPosition()
+		pos, err := player.NewLink(d).Position()
 		if err != nil || pos == nil {
 			time.Sleep(200 * time.Millisecond)
 			continue
@@ -615,7 +608,7 @@ func runPoseFakeLoop(name, addr string) {
 	// Stream loop: position tracks live Link with +1000 X so the fake
 	// walks beside the real player. Pose stays frozen at the capture.
 	for client.IsConnected() {
-		pos, err := d.ReadPlayerPosition()
+		pos, err := player.NewLink(d).Position()
 		if err == nil && pos != nil {
 			netPos := &network.PlayerPosition{
 				PosX: pos.PosX + 1000,
@@ -1402,7 +1395,7 @@ func mailboxFaceSeq(slot int) uint32 { return uint32(mailbox.OffFaceSeqs + slot)
 
 // Size of the per-slot wire payload appended to a pose message.
 // Session 15: bumped 8 → 16 to add mouth state (mat[14] + mat[15]).
-const faceStateWireBytes = 16
+const faceStateWireBytes = player.FaceBytes
 
 func runPokeVec3(addrHex, xs, ys, zs string) {
 	a, _ := strconv.ParseUint(strings.TrimPrefix(addrHex, "0x"), 16, 32)
@@ -1437,7 +1430,7 @@ func runScanPos() {
 		os.Exit(1)
 	}
 	defer d.Close()
-	pos, err := d.ReadPlayerPosition()
+	pos, err := player.NewLink(d).Position()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -1506,15 +1499,10 @@ func runWarpForce(xs, ys, zs string, on bool) {
 		x, _ := strconv.ParseFloat(xs, 32)
 		y, _ := strconv.ParseFloat(ys, 32)
 		z, _ := strconv.ParseFloat(zs, 32)
-		posBuf := make([]byte, 12)
-		binary.BigEndian.PutUint32(posBuf[0:4], math.Float32bits(float32(x)))
-		binary.BigEndian.PutUint32(posBuf[4:8], math.Float32bits(float32(y)))
-		binary.BigEndian.PutUint32(posBuf[8:12], math.Float32bits(float32(z)))
-		d.Write(mailbox.Mailbox+mailbox.OffWarpX, posBuf)
-		d.Write(mailbox.Mailbox+mailbox.OffWarpForce, []byte{1})
+		player.WarpForce(d, [3]float32{float32(x), float32(y), float32(z)})
 		fmt.Printf("Force-warp ON: target=(%.1f, %.1f, %.1f). Use `warp-force-off` to release.\n", x, y, z)
 	} else {
-		d.Write(mailbox.Mailbox+mailbox.OffWarpForce, []byte{0})
+		player.WarpForceOff(d)
 		fmt.Println("Force-warp OFF.")
 	}
 }
@@ -1656,7 +1644,7 @@ func runEyeFixGates() {
 	}
 	defer d.Close()
 
-	linkPtr, err := d.GetLinkPtr()
+	linkPtr, err := player.NewLink(d).Ptr()
 	if err != nil || linkPtr == 0 {
 		fmt.Printf("Link actor not loaded: %v\n", err)
 		os.Exit(1)
@@ -3979,7 +3967,7 @@ func runTrackPos(secs int) {
 		os.Exit(1)
 	}
 	defer d.Close()
-	linkPtr, err := d.GetLinkPtr()
+	linkPtr, err := player.NewLink(d).Ptr()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -4026,12 +4014,12 @@ func runFindPos() {
 		os.Exit(1)
 	}
 	defer d.Close()
-	pos, err := d.ReadPlayerPosition()
+	pos, err := player.NewLink(d).Position()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	linkPtr, err := d.GetLinkPtr()
+	linkPtr, err := player.NewLink(d).Ptr()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -4103,7 +4091,7 @@ func runWarp(xs, ys, zs string) {
 		os.Exit(1)
 	}
 	defer d.Close()
-	if err := warpLink(d, float32(x), float32(y), float32(z), 1*time.Second); err != nil {
+	if err := player.Warp(d, [3]float32{float32(x), float32(y), float32(z)}, 1*time.Second); err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
 	}
@@ -4113,7 +4101,7 @@ func runWarp(xs, ys, zs string) {
 	dbgPostBuf, _ := d.Read(mailbox.Mailbox+mailbox.OffWarpDbgPostX, 4)
 	dbgAddr := binary.BigEndian.Uint32(dbgAddrBuf)
 	dbgPostX := math.Float32frombits(binary.BigEndian.Uint32(dbgPostBuf))
-	linkPtr, _ := d.GetLinkPtr()
+	linkPtr, _ := player.NewLink(d).Ptr()
 	fmt.Printf("Warped Link to (%.1f, %.1f, %.1f).\n", x, y, z)
 	fmt.Printf("  C handler saw link=0x%08X (Go GetLinkPtr=0x%08X) — %s\n",
 		dbgAddr, linkPtr,
@@ -4121,7 +4109,7 @@ func runWarp(xs, ys, zs string) {
 	fmt.Printf("  Post-write current.pos.x = %.2f (target %.2f) — %s\n",
 		dbgPostX, x,
 		map[bool]string{true: "write landed", false: "write was reverted within frame"}[abs32(dbgPostX-float32(x)) < 1.0])
-	posAfter, _ := d.ReadPlayerPosition()
+	posAfter, _ := player.NewLink(d).Position()
 	if posAfter != nil {
 		fmt.Printf("  Read-after-warp current.pos = (%.2f, %.2f, %.2f) — %s\n",
 			posAfter.PosX, posAfter.PosY, posAfter.PosZ,
@@ -4257,7 +4245,7 @@ func runPoseTest(mode string, durSec int) {
 	const linkMpCLModelOff = 0x032C
 	const j3dModelMpNodeMtxOff = 0x8C
 	captureFromLinkOne := func() []byte {
-		linkPtr, err := d.GetLinkPtr()
+		linkPtr, err := player.NewLink(d).Ptr()
 		if err != nil || linkPtr == 0 {
 			return nil
 		}
@@ -4306,7 +4294,7 @@ func runPoseTest(mode string, durSec int) {
 	// mirror mode: continuously echo live mpNodeMtx -> pose_buf
 	fmt.Printf("mirror: copying live mpNodeMtx -> pose_buf for %ds. Link #2 should look identical to mode 0.\n", durSec)
 	// One-shot debug: prove the read chain works and the matrices change.
-	if linkPtr, _ := d.GetLinkPtr(); linkPtr != 0 {
+	if linkPtr, _ := player.NewLink(d).Ptr(); linkPtr != 0 {
 		modelPtr, _ := d.ReadU32(linkPtr + 0x032C)
 		nodePtr, _ := d.ReadU32(modelPtr + 0x8C)
 		fmt.Printf("[debug] link=0x%08X  link+0x032C=0x%08X  +0x8C=0x%08X\n", linkPtr, modelPtr, nodePtr)
@@ -4473,7 +4461,7 @@ func runDebug() {
 	fmt.Println("Reading position for 5 seconds...")
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		pos, err := d.ReadPlayerPosition()
+		pos, err := player.NewLink(d).Position()
 		if err != nil {
 			fmt.Printf("  waiting... (%v)\n", err)
 			time.Sleep(500 * time.Millisecond)
@@ -4577,16 +4565,10 @@ func runScreenshot(out string) {
 	fmt.Printf("Captured pid %d (%q) %dx%d → %s\n", pid, title, b.Dx(), b.Dy(), out)
 }
 
-// runInput drives synthetic controller input via the C-side mailbox.
-// The pad_read_shim (hooked over bl PADRead in JUTGamePad::read at
-// 0x802C39A0) consults mailbox.input_enable each frame; when set, it
-// overrides mPadStatus[0] with the values below before JUTGamePad's
-// downstream .update() derivations run. This is the bullet-proof path
-// — works regardless of frame phase, no race against Dolphin's SI poll.
-//
-// Setup: the input_* mailbox fields are written FIRST, then
-// input_enable is flipped to 1. On release we flip input_enable back to
-// 0 before zeroing the fields so the shim never sees half-updated state.
+// runInput drives synthetic controller input via the C-side mailbox
+// (player.Override, then player.Release after ms; see player.Override
+// for how the pad_read_shim takes it). It reports the shim's override
+// count and Link's position change.
 func runInput(buttonsHex, stickXStr, stickYStr string, ms int) {
 	buttons64, err := strconv.ParseUint(strings.TrimPrefix(buttonsHex, "0x"), 16, 16)
 	if err != nil {
@@ -4616,21 +4598,15 @@ func runInput(buttonsHex, stickXStr, stickYStr string, ms int) {
 
 	// Snapshot pos for delta reporting.
 	var beforeX, beforeZ float32
-	if p, err := d.ReadPlayerPosition(); err == nil {
+	if p, err := player.NewLink(d).Position(); err == nil {
 		beforeX, beforeZ = p.PosX, p.PosZ
 	}
-	overridesBefore, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffInputOverrides)
+	overridesBefore, _ := player.Overrides(d)
 
-	// Write payload first, then enable. Big-endian u16 for buttons,
-	// raw signed bytes for sticks.
-	buttonsBE := []byte{byte(buttons >> 8), byte(buttons & 0xFF)}
-	d.Write(mailbox.Mailbox+mailbox.OffInputButtons, buttonsBE)
-	d.Write(mailbox.Mailbox+mailbox.OffInputStickX, []byte{byte(stickX)})
-	d.Write(mailbox.Mailbox+mailbox.OffInputStickY, []byte{byte(stickY)})
-	// substick / triggers / analogs default to 0 (neutral) — explicitly
-	// zero so leftover state from a previous call doesn't leak.
-	d.Write(mailbox.Mailbox+mailbox.OffInputSubstickX, []byte{0, 0, 0, 0, 0, 0}) // 0x176..0x17B
-	d.Write(mailbox.Mailbox+mailbox.OffInputEnable, []byte{1})
+	// Write payload first, then enable (player.Override); substick,
+	// triggers and analogs are zeroed so leftover state from a previous
+	// call doesn't leak.
+	player.Override(d, player.Pad{Buttons: buttons, StickX: stickX, StickY: stickY})
 
 	if ms == 0 {
 		fmt.Printf("Input held: buttons=0x%04X stickX=%d stickY=%d (manual release via `input-release`)\n",
@@ -4644,13 +4620,12 @@ func runInput(buttonsHex, stickXStr, stickYStr string, ms int) {
 
 	// Release: disable first so the shim becomes a pass-through, then
 	// zero the fields.
-	d.Write(mailbox.Mailbox+mailbox.OffInputEnable, []byte{0})
-	d.Write(mailbox.Mailbox+mailbox.OffInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}) // 0x172..0x17B
+	player.Release(d)
 
-	overridesAfter, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffInputOverrides)
+	overridesAfter, _ := player.Overrides(d)
 	frames := overridesAfter - overridesBefore
 	var afterX, afterZ float32
-	if p, err := d.ReadPlayerPosition(); err == nil {
+	if p, err := player.NewLink(d).Position(); err == nil {
 		afterX, afterZ = p.PosX, p.PosZ
 	}
 	dx := afterX - beforeX
@@ -4668,8 +4643,7 @@ func runInputRelease() {
 		os.Exit(1)
 	}
 	defer d.Close()
-	d.Write(mailbox.Mailbox+mailbox.OffInputEnable, []byte{0})
-	d.Write(mailbox.Mailbox+mailbox.OffInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+	player.Release(d)
 	fmt.Println("Input released (pad_read_shim is now pass-through).")
 }
 
@@ -4712,7 +4686,7 @@ func runInputProbe(buttonsHex, stickXStr, stickYStr string, ms int) {
 	}
 	defer d.Close()
 
-	posBefore, _ := d.ReadPlayerPosition()
+	posBefore, _ := player.NewLink(d).Position()
 	fmt.Printf("Before: pos=(%.1f, %.1f, %.1f)  buttons=0x%04X  stickX=%d  stickY=%d  duration=%dms\n",
 		posBefore.PosX, posBefore.PosY, posBefore.PosZ, buttons, stickX, stickY, ms)
 
@@ -4759,7 +4733,7 @@ func runInputProbe(buttonsHex, stickXStr, stickYStr string, ms int) {
 	// Release: write all zeros so Link doesn't keep moving after the probe.
 	d.Write(padStatusAddr, []byte{0, 0, 0, 0})
 
-	posAfter, _ := d.ReadPlayerPosition()
+	posAfter, _ := player.NewLink(d).Position()
 	dx := posAfter.PosX - posBefore.PosX
 	dy := posAfter.PosY - posBefore.PosY
 	dz := posAfter.PosZ - posBefore.PosZ

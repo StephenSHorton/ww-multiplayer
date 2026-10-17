@@ -13,6 +13,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
 
 // bundledCheatsIni is the curated cheats/GZLE01.ini shipped in the repo,
@@ -200,7 +201,7 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 	pidA, pidB := pids[0], pids[1]
 	log.Logf(rep, log.OK, "Found Dolphin A (pid %d) and B (pid %d).", pidA, pidB)
 
-	// Wait until both Dolphins have a save loaded — IsInGame returns
+	// Wait until both Dolphins have a save loaded — player.Link.Ready returns
 	// true when Link's actor pointer is in RAM range (not zero, not
 	// during reload). 60 s timeout protects against the user never
 	// loading a save; 1 s poll interval is responsive without
@@ -347,12 +348,12 @@ func runMpLocal(nameA, nameB string, co coopFlags) {
 	rep.Log(log.OK, "Done.")
 }
 
-// waitForReady blocks until both Dolphins report IsInGame() = true,
+// waitForReady blocks until both Dolphins report player.Link.Ready() = true,
 // the context is cancelled, or the timeout elapses. Both the FindByPID
-// and the IsInGame call are retried each tick: FindByPID can fail if
+// and the Ready call are retried each tick: FindByPID can fail if
 // Dolphin's process is alive but its emulated RAM mapping hasn't
 // finished bootstrapping yet (especially right after a fresh launch),
-// and IsInGame is false until Link's actor pointer is in RAM range.
+// and Ready is false until Link's actor pointer is in RAM range.
 // Logs a "still waiting…" line every 5 s so it's clear mp-local is
 // alive rather than wedged.
 func waitForReady(ctx context.Context, rep log.Reporter, pidA, pidB uint32, timeout time.Duration) error {
@@ -381,8 +382,8 @@ func waitForReady(ctx context.Context, rep log.Reporter, pidA, pidB uint32, time
 				dB = d
 			}
 		}
-		aReady := dA != nil && dA.IsInGame()
-		bReady := dB != nil && dB.IsInGame()
+		aReady := dA != nil && player.NewLink(dA).Ready()
+		bReady := dB != nil && player.NewLink(dB).Ready()
 		if aReady && bReady {
 			rep.Log(log.OK, "Both Dolphins in-game — proceeding.")
 			return nil

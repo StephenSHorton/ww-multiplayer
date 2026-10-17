@@ -184,7 +184,7 @@ func (g *Game) Disc() *disc.Catalog       // stage and tables from the user's IS
 |---|---|
 | `state.Read(m, Options{Sensitive})`: stage, point, room, layer, event mode, player pointer, HUD pending counters, zones, menu pause, heartbeat | exists: `wwapi/state` (was `coop/snap`). `Options.Sensitive` replaces the `class` import; nil means `DefaultSensitive()` |
 | `gate.Tracker.Observe`, `Status.CanWrite / CanWriteIdle / CanWriteCounter / CanWriteOnTransition / Pending / Why` | exists: `wwapi/gate` (was `coop/gate`) |
-| `player.Link`: Ptr, Pos, Angle, Room, DemoType, Ready, Textures; `Pose()`, `Face()` | consolidates `dolphin` reads, `addr`, `peekDemo`, `readLinkTextures`, the read half of `runBroadcastPoseCtx` |
+| `player.Link`: Ptr, Ready, Position (pos and angle together), DemoType, `Pose()`, `Face()`; Room and Textures to come | exists: `wwapi/player` (was `emu.Dolphin` GetLinkPtr/IsInGame/ReadPlayerPosition and the read half of `runBroadcastPoseCtx`). Room and Textures come with C12/C14 (`readLinkTextures`); `peekDemo` still reads mDemoType itself |
 | `actors.Read(m, limit)` → Walk{Actors, ByPID, ByAddr}; Revalidate | exists: `coop/actors` minus k1.go |
 | `save.Image` (one 0x778 type), `save.Layout`, `save.View`, one item/slot table | exists: `wwapi/save` (`world.Image`/`wire.Image` are aliases until E4; `class` keys its merge rules by `save.Layout` offset; `View` was `derive/view.go`) |
 | Bit math: SwitchBit, TboxBit, EventByte, ZoneAddr, ... | exists: `wwapi/addr/bits.go` |
@@ -244,8 +244,8 @@ func (r *Registry) Execute(ctx context.Context, name string, args any) (Result, 
 
 | Command | Status |
 |---|---|
-| `player.warp` (Warp, WarpForce) | exists: `warp_link.go` |
-| `input.override` (Override, Release) | exists: `injectInput`, `runInput` |
+| `player.warp` (Warp, WarpForce) | exists: `wwapi/player` (was `warp_link.go`) |
+| `input.override` (Override, Release) | exists: `wwapi/player` Override/Release/Press (was `injectInput`, `runInput`) |
 | `avatar.*` (Claim, SetPose, SetFace, SetTunic, Hide, Release; Cap = 2 today) | exists across `posefeed.go`, `runPuppetSyncCtx`, `tunicSync` |
 | `save.*` (GiveItem, AddLife, AddRupees, SetMaxLife) | mechanism exists in co-op; helper is new |
 | `flags.*` (SetSwitch, SetEventBit, SetTbox) | generic part of `replica/writer_fields.go`; helper is new |
@@ -436,7 +436,7 @@ Order: C1 first; C4 before C8; C6 before C7; C8 before C14; C5 any time after C1
 - [x] **C8** Split tables (builders → `wwapi/tables`; sync accessors → `synctables`).
 - [x] **C9** Generated mailbox: `tools/gen_mailbox` → `wwapi/mailbox/layout_gen.go`. No C change. The parser and emitter live in `internal/mailboxgen`, which `tools/gen_mailbox` and the `wwapi/mailbox` freshness test (`TestMailboxLayout`) both import.
 - [x] **C10** `wwapi/emu` (`Attach(Options)`, env read only in `cmd`); dolphinenv → `emu/launch`; report → `wwapi/log`. `ReadAbsolute`/`WriteAbsolute` are unexported: a `*emu.Dolphin` is itself a MEM1-bounded `mem.Mem` (the old `mem.DolphinMem` folded in, since `mem` cannot import `emu`), and package main reads `WW_DOLPHIN_PID/INDEX` in `dolphin_env.go`. Window, screenshot and keys → `emu/host`; `prefixReporter` → `log.Prefix`. "Env read only in `cmd`" holds for `emu` (WW_DOLPHIN_PID/INDEX); `launch.FromEnv`/`Detect` keep their `os.Getenv` default and `backup` still reads USER_DIR_1/2, both left for the §9 cleanup ("Env: read env only in `cmd/`").
-- [ ] **C11** `wwapi/player`: Warp, Input, Pose/Face reads, Link accessors.
+- [x] **C11** `wwapi/player`: Warp, Input, Pose/Face reads, Link accessors. `player.Link` (over a `mem.Reader`) has Ptr, Ready, Position (pos and angle), DemoType, Pose and Face; `emu.Dolphin`'s GetLinkPtr/IsInGame/ReadPlayerPosition moved to it, so Link's position is read through the MEM1-bounded `Read`. Room and Textures are left for C12/C14 (`readLinkTextures` goes with `gfx/texture`). Input is `Override`/`Release`/`Press`/`Overrides`; `playertest` is the fake C warp handler.
 - [ ] **C12** `wwapi/avatar` and `wwapi/gfx/texture`.
 - [ ] **C13** `wwapi/write` out of replica (**high risk**: co-op golden and converge byte-identical, owner's M2-M6 rerun).
 - [ ] **C14** `wwapi.Game`, watcher, `commands`; `fakegame` → `wwapi/fakegame`; contract check in pre-E1 mode.

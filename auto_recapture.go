@@ -15,6 +15,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
 
 // runAutoRecapture cold-boots Dolphin from the patched ISO, drives
@@ -235,7 +236,7 @@ func driveMenusToInGame(pid uint32, rep log.Reporter) error {
 
 	rep.Log(log.Info, "skipping title + intro with 9× Start")
 	for i := 0; i < 9; i++ {
-		if err := injectInput(d, 0x1000, 0, 0, 300); err != nil {
+		if err := player.Press(d, player.Pad{Buttons: 0x1000}, 300*time.Millisecond); err != nil {
 			return fmt.Errorf("Start press #%d: %w", i+1, err)
 		}
 		time.Sleep(700 * time.Millisecond)
@@ -244,51 +245,18 @@ func driveMenusToInGame(pid uint32, rep log.Reporter) error {
 	rep.Log(log.Info, "confirming menus with A until Link spawns")
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		if d.IsInGame() {
+		if player.NewLink(d).Ready() {
 			// Give the spawn animation a beat to settle so the save
 			// state captures Link standing, not mid-fade-in.
 			time.Sleep(1500 * time.Millisecond)
 			return nil
 		}
-		if err := injectInput(d, 0x0100, 0, 0, 300); err != nil {
+		if err := player.Press(d, player.Pad{Buttons: 0x0100}, 300*time.Millisecond); err != nil {
 			return fmt.Errorf("A press: %w", err)
 		}
 		time.Sleep(1500 * time.Millisecond)
 	}
 	return fmt.Errorf("Link actor never appeared within 30s of menu-confirm A presses")
-}
-
-// injectInput writes a synthetic PADStatus to the mailbox, waits, then
-// releases. Same logic as runInput but takes a *Dolphin and returns
-// errors instead of os.Exit'ing, so it composes inside scripted flows.
-func injectInput(d *emu.Dolphin, buttons uint16, stickX, stickY int8, ms int) error {
-	buttonsBE := []byte{byte(buttons >> 8), byte(buttons & 0xFF)}
-	if err := d.Write(mailbox.Mailbox+mailbox.OffInputButtons, buttonsBE); err != nil {
-		return err
-	}
-	if err := d.Write(mailbox.Mailbox+mailbox.OffInputStickX, []byte{byte(stickX)}); err != nil {
-		return err
-	}
-	if err := d.Write(mailbox.Mailbox+mailbox.OffInputStickY, []byte{byte(stickY)}); err != nil {
-		return err
-	}
-	// Zero substick + triggers + analog A/B so previous state can't leak.
-	if err := d.Write(mailbox.Mailbox+mailbox.OffInputSubstickX, []byte{0, 0, 0, 0, 0, 0}); err != nil {
-		return err
-	}
-	if err := d.Write(mailbox.Mailbox+mailbox.OffInputEnable, []byte{1}); err != nil {
-		return err
-	}
-	if ms > 0 {
-		time.Sleep(time.Duration(ms) * time.Millisecond)
-		if err := d.Write(mailbox.Mailbox+mailbox.OffInputEnable, []byte{0}); err != nil {
-			return err
-		}
-		if err := d.Write(mailbox.Mailbox+mailbox.OffInputButtons, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // waitForSaveFileUpdate polls the given path until its mtime advances

@@ -52,7 +52,7 @@ type Probe struct {
 	GameID string
 	// Patched says the RAM holds this build's mod (its injected code).
 	Patched bool
-	// InGame says Link is in the world (Dolphin.IsInGame).
+	// InGame says Link is in the world (player.Link.Ready).
 	InGame bool
 }
 

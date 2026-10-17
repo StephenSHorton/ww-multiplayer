@@ -12,8 +12,9 @@ import (
 // one past 24 MiB lands in whatever Dolphin mapped next. Read and Write
 // check the range first, exactly as mem.FakeMem does, so a test against
 // FakeMem holds on the real thing. Read and Write are the bounds-checked
-// doors; ReadU32, ReadF32, GetLinkPtr and ReadPlayerPosition (memory.go)
-// still go through the unchecked readAbsolute.
+// doors; ReadU32 and ReadF32 (memory.go) still go through the unchecked
+// readAbsolute. Link's pointer, position and pose are read through Read,
+// by package player.
 var _ mem.Mem = (*Dolphin)(nil)
 
 // Read implements mem.Reader.

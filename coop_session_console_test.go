@@ -264,7 +264,7 @@ func TestCoopPartnerPos(t *testing.T) {
 }
 
 // The escapes' bytes are the ones package main's own tools write: the
-// mailbox's warp fields (warpLink) and stage-hop's mNextStage request.
+// mailbox's warp fields (player.Warp) and stage-hop's mNextStage request.
 func TestCoopEscapesMatchMain(t *testing.T) {
 	if mailbox.WarpSeq != mailbox.Mailbox+mailbox.OffWarpSeq || replica.WarpAck != mailbox.Mailbox+mailbox.OffWarpAck ||
 		replica.WarpPos != mailbox.Mailbox+mailbox.OffWarpX || mailbox.OffWarpY != mailbox.OffWarpX+4 || mailbox.OffWarpZ != mailbox.OffWarpX+8 {

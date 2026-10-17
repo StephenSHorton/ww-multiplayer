@@ -213,7 +213,7 @@ func nextStageOf(s *state.Snapshot) StageRequest {
 }
 
 // WarpFields are the writes of a same-stage warp to p: warp_x/y/z, then
-// warp_seq = seq + 1 last (warpLink's order in package main), so the C
+// warp_seq = seq + 1 last (player.Warp's order), so the C
 // side never sees a new seq with old coordinates.
 func WarpFields(p Pos, seq uint32) []Field {
 	b := make([]byte, 12)

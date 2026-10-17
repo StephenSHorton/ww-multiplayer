@@ -1,4 +1,15 @@
-package main
+// Package player reads and drives the local Link: his actor pointer,
+// position and angle, the pose and face the C draw hook publishes, the
+// mailbox warp, and the mailbox controller override.
+//
+// Every function takes a mem.Reader or mem.Mem, so it runs the same on a
+// live *emu.Dolphin and on a mem.FakeMem.
+//
+// # v0 UNSTABLE
+//
+// This package is part of wwapi v0. Its API may change in any 0.x minor
+// version.
+package player
 
 import (
 	"encoding/binary"
@@ -6,24 +17,15 @@ import (
 	"math"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
-// warpLink writes the target position into the warp mailbox slot, bumps
-// warp_seq, and polls warp_ack until the C side has consumed the request,
-// or withdraws it when the timeout expires (warpLinkMem). Used by mp-local
-// to space the two Links after both Dolphins boot from the same SAVE_STATE
-// (startupShift), and exposed as the `warp` subcommand for ad-hoc
-// teleporting.
-func warpLink(d *emu.Dolphin, x, y, z float32, timeout time.Duration) error {
-	return warpLinkMem(d, [3]float32{x, y, z}, timeout)
-}
-
-// warpLinkMem is warpLink over m: it asks the C-side warp handler to put
-// Link at p and waits up to timeout for warp_ack to reach the new
-// warp_seq.
+// Warp asks the C-side warp handler to put Link at p: it writes p into
+// the warp mailbox slot, bumps warp_seq, and waits up to timeout for
+// warp_ack to reach the new warp_seq. mp-local uses it to space the two
+// Links after both Dolphins boot from the same SAVE_STATE (startupShift),
+// and the `warp` subcommand for ad-hoc teleporting.
 //
 // A request the game has not taken by then is withdrawn. Link is gone (a
 // stage change or a reload) or emulation is paused, and the handler runs
@@ -48,10 +50,10 @@ func warpLink(d *emu.Dolphin, x, y, z float32, timeout time.Duration) error {
 // does not stop the withdraw, so a load in that case is missed, as is a
 // load between that read and the write, a window microseconds wide.
 //
-// warp_ack is no WriteGuard target (§6.7, docs/08 item 75). warpLink runs
+// warp_ack is no WriteGuard target (§6.7, docs/08 item 75). Warp runs
 // only from mp-local's startup shift, which never runs under --coop, and
 // from the `warp` dev CLI (docs/08 item 131).
-func warpLinkMem(m mem.Mem, p [3]float32, timeout time.Duration) error {
+func Warp(m mem.Mem, p [3]float32, timeout time.Duration) error {
 	const seqAddr, ackAddr = mailbox.Mailbox + mailbox.OffWarpSeq, mailbox.Mailbox + mailbox.OffWarpAck
 
 	// Bump from whatever seq is currently set (cold start = 0).
@@ -97,4 +99,26 @@ func warpLinkMem(m mem.Mem, p [3]float32, timeout time.Duration) error {
 		return fmt.Errorf("warp not acknowledged within %s, and withdrawing it failed: %w", timeout, err)
 	}
 	return fmt.Errorf("warp not acknowledged within %s (Link gone or emulation paused); withdrawn", timeout)
+}
+
+// WarpForce turns on the C-side force-warp mode with p as the target:
+// while warp_force is set, the warp handler re-applies p every frame
+// regardless of warp_seq/warp_ack. It writes the coordinates first and
+// warp_force last. It is a research aid (the `warp-force` subcommand),
+// used to test whether continuous writes outpace whatever reverts a
+// one-shot warp.
+func WarpForce(m mem.Mem, p [3]float32) error {
+	posBuf := make([]byte, 12)
+	for i, v := range p {
+		binary.BigEndian.PutUint32(posBuf[4*i:], math.Float32bits(v))
+	}
+	if err := m.Write(mailbox.Mailbox+mailbox.OffWarpX, posBuf); err != nil {
+		return err
+	}
+	return m.Write(mailbox.Mailbox+mailbox.OffWarpForce, []byte{1})
+}
+
+// WarpForceOff clears warp_force, ending WarpForce.
+func WarpForceOff(m mem.Mem) error {
+	return m.Write(mailbox.Mailbox+mailbox.OffWarpForce, []byte{0})
 }

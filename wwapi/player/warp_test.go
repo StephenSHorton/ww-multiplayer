@@ -1,13 +1,8 @@
-package main
+package player
 
 import (
 	"bytes"
-	"context"
-	"encoding/binary"
-	"math"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,50 +10,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/player/playertest"
 )
-
-// fakeWarpHandler is multiplayer_update's warp handler over m: while Link
-// exists and warp_seq differs from warp_ack, it puts Link's current.pos at
-// warp_x/y/z and copies warp_seq into warp_ack (multiplayer.c:344-345,
-// :365-421). It reports whether it moved Link.
-func fakeWarpHandler(t *testing.T, m *mem.FakeMem) bool {
-	link, err := mem.ReadU32(m, addr.PlayerPtr)
-	if err != nil || link == 0 {
-		return false
-	}
-	w, err := m.Read(mailbox.Mailbox+mailbox.OffWarpSeq, 20)
-	if err != nil || bytes.Equal(w[:4], w[4:8]) {
-		return false
-	}
-	if err := m.Store(link+addr.ActorOffCurPos, w[8:20]); err != nil {
-		t.Error(err)
-	}
-	if err := m.Store(mailbox.Mailbox+mailbox.OffWarpAck, w[:4]); err != nil {
-		t.Error(err)
-	}
-	return true
-}
-
-// runWarpHandler runs fakeWarpHandler about every millisecond, as the
-// game's frames would, until the test ends. It returns the number of
-// warps made so far.
-func runWarpHandler(t *testing.T, m *mem.FakeMem) func() int {
-	ctx, cancel := context.WithCancel(context.Background())
-	var n atomic.Int32
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for ctx.Err() == nil {
-			if fakeWarpHandler(t, m) {
-				n.Add(1)
-			}
-			time.Sleep(time.Millisecond)
-		}
-	}()
-	t.Cleanup(func() { cancel(); wg.Wait() })
-	return func() int { return int(n.Load()) }
-}
 
 func readU32(t *testing.T, m mem.Mem, a uint32) uint32 {
 	t.Helper()
@@ -69,35 +22,14 @@ func readU32(t *testing.T, m mem.Mem, a uint32) uint32 {
 	return v
 }
 
-func readLinkPos(t *testing.T, m mem.Mem) [3]float32 {
-	t.Helper()
-	b, err := m.Read(fakegame.PlayerActor+addr.ActorOffCurPos, 12)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var p [3]float32
-	for i := range p {
-		p[i] = math.Float32frombits(binary.BigEndian.Uint32(b[4*i:]))
-	}
-	return p
-}
-
-func posBytes(p [3]float32) []byte {
-	var b []byte
-	for _, v := range p {
-		b = binary.BigEndian.AppendUint32(b, math.Float32bits(v))
-	}
-	return b
-}
-
-// TestWarpLinkWithdrawsOnTimeout: with nothing taking the request (Link
-// gone, emulation paused), warpLinkMem withdraws it, so it does not land
+// TestWarpWithdrawsOnTimeout: with nothing taking the request (Link
+// gone, emulation paused), Warp withdraws it, so it does not land
 // once Link is back.
-func TestWarpLinkWithdrawsOnTimeout(t *testing.T) {
+func TestWarpWithdrawsOnTimeout(t *testing.T) {
 	m := mem.NewFakeMem()
 	store(t, m, mailbox.Mailbox+mailbox.OffWarpSeq, u32b(6))
 	store(t, m, mailbox.Mailbox+mailbox.OffWarpAck, u32b(6))
-	err := warpLinkMem(m, [3]float32{1, 2, 3}, 20*time.Millisecond)
+	err := Warp(m, [3]float32{1, 2, 3}, 20*time.Millisecond)
 	const want = "warp not acknowledged within 20ms (Link gone or emulation paused); withdrawn"
 	if err == nil || err.Error() != want {
 		t.Errorf("got %v, want %q", err, want)
@@ -108,29 +40,29 @@ func TestWarpLinkWithdrawsOnTimeout(t *testing.T) {
 	// Link comes back (the stage loaded, emulation resumed): the handler
 	// finds nothing to do.
 	store(t, m, addr.PlayerPtr, u32b(fakegame.PlayerActor))
-	if fakeWarpHandler(t, m) {
-		t.Errorf("the withdrawn warp landed later, at %v", readLinkPos(t, m))
+	if playertest.WarpHandler(t, m) {
+		t.Errorf("the withdrawn warp landed later, at %v", playertest.LinkPos(t, m, fakegame.PlayerActor))
 	}
 }
 
-// TestWarpLinkAcked: a warp the game takes returns nil, and the request
+// TestWarpAcked: a warp the game takes returns nil, and the request
 // is written coordinates first, warp_seq last.
-func TestWarpLinkAcked(t *testing.T) {
+func TestWarpAcked(t *testing.T) {
 	m := mem.NewFakeMem()
 	store(t, m, addr.PlayerPtr, u32b(fakegame.PlayerActor))
-	warps := runWarpHandler(t, m)
+	warps := playertest.RunWarpHandler(t, m)
 	m.Record(true)
 	p := [3]float32{-200050, 12.5, 300020}
-	if err := warpLinkMem(m, p, time.Second); err != nil {
+	if err := Warp(m, p, time.Second); err != nil {
 		t.Fatal(err)
 	}
 	m.Record(false)
-	if got := readLinkPos(t, m); got != p {
+	if got := playertest.LinkPos(t, m, fakegame.PlayerActor); got != p {
 		t.Errorf("Link at %v, want %v", got, p)
 	}
 	ws := m.Writes()
 	if len(ws) != 2 ||
-		ws[0].Addr != mailbox.Mailbox+mailbox.OffWarpX || !bytes.Equal(ws[0].Data, posBytes(p)) ||
+		ws[0].Addr != mailbox.Mailbox+mailbox.OffWarpX || !bytes.Equal(ws[0].Data, playertest.PosBytes(p)) ||
 		ws[1].Addr != mailbox.Mailbox+mailbox.OffWarpSeq || !bytes.Equal(ws[1].Data, []byte{0, 0, 0, 1}) {
 		t.Errorf("writes %+v, want the 12 coordinate bytes then warp_seq = 1", ws)
 	}
@@ -140,7 +72,7 @@ func TestWarpLinkAcked(t *testing.T) {
 }
 
 // raceMem runs before just ahead of a write to warp_ack: the game taking
-// the request between warpLinkMem's last read of warp_ack and its
+// the request between Warp's last read of warp_ack and its
 // withdraw.
 type raceMem struct {
 	*mem.FakeMem
@@ -154,32 +86,32 @@ func (r raceMem) Write(a uint32, b []byte) error {
 	return r.FakeMem.Write(a, b)
 }
 
-// TestWarpLinkAckRace: when the game takes the request just as it is
+// TestWarpAckRace: when the game takes the request just as it is
 // withdrawn, Link is moved exactly once, and warp_seq == warp_ack after.
-func TestWarpLinkAckRace(t *testing.T) {
+func TestWarpAckRace(t *testing.T) {
 	fm := mem.NewFakeMem()
 	p := [3]float32{10, 20, 30}
 	warps, withdraws := 0, 0
 	m := raceMem{FakeMem: fm, before: func() {
 		withdraws++
 		store(t, fm, addr.PlayerPtr, u32b(fakegame.PlayerActor)) // Link is back
-		if fakeWarpHandler(t, fm) {
+		if playertest.WarpHandler(t, fm) {
 			warps++
 		}
 	}}
-	err := warpLinkMem(m, p, 20*time.Millisecond)
+	err := Warp(m, p, 20*time.Millisecond)
 	if withdraws != 1 || err == nil || !strings.HasSuffix(err.Error(), "; withdrawn") {
 		t.Fatalf("%d writes to warp_ack, error %v; want one withdraw, which can't see that the game took the request just before it", withdraws, err)
 	}
 	for range 5 { // later frames
-		if fakeWarpHandler(t, fm) {
+		if playertest.WarpHandler(t, fm) {
 			warps++
 		}
 	}
 	if warps != 1 {
 		t.Errorf("%d warps, want exactly 1", warps)
 	}
-	if got := readLinkPos(t, fm); got != p {
+	if got := playertest.LinkPos(t, fm, fakegame.PlayerActor); got != p {
 		t.Errorf("Link at %v, want %v", got, p)
 	}
 	if seq, ack := readU32(t, fm, mailbox.Mailbox+mailbox.OffWarpSeq), readU32(t, fm, mailbox.Mailbox+mailbox.OffWarpAck); seq != 1 || ack != 1 {
@@ -187,7 +119,7 @@ func TestWarpLinkAckRace(t *testing.T) {
 	}
 }
 
-// loadMem stands in for a save state loaded just as warpLinkMem bumps
+// loadMem stands in for a save state loaded just as Warp bumps
 // warp_seq: in place of that write, the mailbox goes back to the state's,
 // with warp_seq = warp_ack = 0 and warp_x/y/z = 0, as in a state captured
 // from a cold boot.
@@ -204,18 +136,18 @@ func (l loadMem) Write(a uint32, b []byte) error {
 	return l.FakeMem.Write(a, b)
 }
 
-// TestWarpLinkSaveStateLoaded: a save state loaded under the request
-// takes it away, and warpLinkMem then leaves the mailbox as the state
+// TestWarpSaveStateLoaded: a save state loaded under the request
+// takes it away, and Warp then leaves the mailbox as the state
 // left it. A withdraw would write warp_ack = 1 over the state's warp_seq
 // of 0, and the next frame would warp Link to the state's (0, 0, 0).
-func TestWarpLinkSaveStateLoaded(t *testing.T) {
+func TestWarpSaveStateLoaded(t *testing.T) {
 	fm := mem.NewFakeMem()
 	start := [3]float32{-200000, 120, 300000}
 	store(t, fm, addr.PlayerPtr, u32b(fakegame.PlayerActor))
-	store(t, fm, fakegame.PlayerActor+addr.ActorOffCurPos, posBytes(start))
-	warps := runWarpHandler(t, fm)
+	store(t, fm, fakegame.PlayerActor+addr.ActorOffCurPos, playertest.PosBytes(start))
+	warps := playertest.RunWarpHandler(t, fm)
 	fm.Record(true)
-	err := warpLinkMem(loadMem{FakeMem: fm, t: t}, [3]float32{10, 20, 30}, 50*time.Millisecond)
+	err := Warp(loadMem{FakeMem: fm, t: t}, [3]float32{10, 20, 30}, 50*time.Millisecond)
 	fm.Record(false)
 	const want = "warp not acknowledged within 50ms, and warp_seq is now 0, not 1 (a save state loaded?); left as it is"
 	if err == nil || err.Error() != want {
@@ -227,14 +159,33 @@ func TestWarpLinkSaveStateLoaded(t *testing.T) {
 		}
 	}
 	for range 5 { // later frames
-		if fakeWarpHandler(t, fm) {
-			t.Errorf("a later frame warped Link to %v", readLinkPos(t, fm))
+		if playertest.WarpHandler(t, fm) {
+			t.Errorf("a later frame warped Link to %v", playertest.LinkPos(t, fm, fakegame.PlayerActor))
 		}
 	}
 	if n := warps(); n != 0 {
 		t.Errorf("%d warps, want 0", n)
 	}
-	if got := readLinkPos(t, fm); got != start {
+	if got := playertest.LinkPos(t, fm, fakegame.PlayerActor); got != start {
 		t.Errorf("Link at %v, want %v", got, start)
 	}
+}
+
+// TestWarpForce: coordinates first, warp_force last; WarpForceOff clears
+// only warp_force.
+func TestWarpForce(t *testing.T) {
+	m := mem.NewFakeMem()
+	m.Record(true)
+	p := [3]float32{1.5, -2, 300000}
+	if err := WarpForce(m, p); err != nil {
+		t.Fatal(err)
+	}
+	if err := WarpForceOff(m); err != nil {
+		t.Fatal(err)
+	}
+	checkWrites(t, m.Writes(), []mem.WriteRecord{
+		{Addr: mailbox.Mailbox + mailbox.OffWarpX, Data: playertest.PosBytes(p)},
+		{Addr: mailbox.Mailbox + mailbox.OffWarpForce, Data: []byte{1}},
+		{Addr: mailbox.Mailbox + mailbox.OffWarpForce, Data: []byte{0}},
+	})
 }

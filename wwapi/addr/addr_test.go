@@ -379,8 +379,8 @@ func TestFoldedLiterals(t *testing.T) {
 		{"PlayerOffOtherLinktex", "tunic_diag daPyOtherLinktexOff", PlayerOffOtherLinktex, 0x033C},
 		{"PlayerOffNoResetFlg1", "tunic_diag daPyNoResetFlg1Off", PlayerOffNoResetFlg1, 0x02A0},
 		{"PlayerFlg1CasualClothes", "tunic_diag daPyFlg1Casual", PlayerFlg1CasualClothes, 0x00000008},
-		{"MEM1Base", "inMEM1 / IsInGame / pose-feed lower bound", MEM1Base, 0x80000000},
-		{"MEM1End", "inMEM1 / IsInGame / pose-feed upper bound", MEM1End, 0x81800000},
+		{"MEM1Base", "inMEM1 / Link.Ready / pose-feed lower bound", MEM1Base, 0x80000000},
+		{"MEM1End", "inMEM1 / Link.Ready / pose-feed upper bound", MEM1End, 0x81800000},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s = 0x%X, want 0x%X (was %s)", c.name, c.got, c.want, c.was)
