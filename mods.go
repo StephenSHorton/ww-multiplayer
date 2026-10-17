@@ -18,8 +18,8 @@ import (
 // whose engine is the app's (newTUIEngine), and co-op, which requires it
 // and reaches Dolphin through coopEnv. The CLI resolves this list (its
 // commands, post-patch steps and `mods`); the app's faces run it under a
-// wwapi.Runtime with an engine that knows whether co-op loaded
-// (appModList, app_face.go). D7 moves the list to
+// wwapi.Runtime with an engine that knows whether co-op loaded (startApp
+// in app_face.go: modList with newAppEngine, engine_config.go). D7 moves the list to
 // cmd/ww-multiplayer/mods.go.
 func compiledMods() []wwapi.Mod {
 	return compiledModsWith(func() session.Engine { return newTUIEngine() })
@@ -101,7 +101,7 @@ func modGroup(label string) cmdGroup {
 // postPatchSteps are the loaded mods' post-patch steps
 // (wwapi.PostPatcher), in load order: patch.Options.PostPatch for `patch`.
 // Co-op's builds the stage tables. The app's setup takes its own
-// runtime's (appPostPatch).
+// runtime's (patchSteps(runtimeMods(rt)) in guiOptions, app_face.go).
 func postPatchSteps() []func(w io.Writer, image string) {
 	return patchSteps(loadedMods())
 }

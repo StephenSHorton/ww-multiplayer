@@ -37,7 +37,7 @@ Optional interfaces, found by type assertion:
 | `CLI` (`Commands() []Command`) | CLI subcommands. A `wwapi.Command` has a name, aliases, `Hidden`, a help group label (`GroupPlay`, `GroupPatch`, `GroupLocal`, `GroupLower`, `GroupDev`), the help's usage and summary, and `Run(name, args)`. The app appends each loaded mod's commands to its own, in load order (co-op's `coop-tables`, `coop-tag`, `coop-world`, `save-diff`, `save-merge`). |
 | `PostPatcher` (`PostPatch(w io.Writer, image string)`) | A step after `patch` (and the app's setup patch) on the disc Dolphin will run: it writes its line on `w` and never fails the patch. Loaded mods' steps run in load order (co-op builds its stage tables). |
 
-`UI` and `NetChannel` (design §6.1) are not defined yet. What they build on partly exists: a mod registers commands (`mod.<id>.*`) through `Context.Commands()` today, and anything that can reach the registry runs them ([03-writing-a-mod.md](03-writing-a-mod.md)). Console verbs, CLI flags and panels come with the app integration (D4), and `NetChannel` with the multiplayer mod (D1).
+`UI` and `NetChannel` (design §6.1) are not defined yet. What they build on partly exists: a mod registers commands (`mod.<id>.*`) through `Context.Commands()` today, and anything that can reach the registry runs them ([03-writing-a-mod.md](03-writing-a-mod.md)). The app integration (D4) added the `--mods`, `--no-mod` and `--dev` flags (for `tui`, `ui` and `mods`) and the window's Mods page, which runs a mod's commands (`Bridge.CallMod`); mod console verbs in the TUI and mod panels are not built yet, and `NetChannel` waits on the multiplayer mod (D1).
 
 The app lists its mods statically in `compiledMods()` (`mods.go` at the repo root, moving to `cmd/ww-multiplayer/mods.go` in D7). There is no `init()` registration and no drop-in loading: Go's `plugin` package does not work on Windows.
 
@@ -76,7 +76,7 @@ The app lists its mods statically in `compiledMods()` (`mods.go` at the repo roo
 | `load_order` | | Ties between mods that do not depend on each other: lower first, then by id. -1000 to 1000, default 0. |
 | `enabled_by_default` | | Default `true`. |
 | `dev` | | A development mod, off unless dev mods are shown. Default `false`. |
-| `game_ids` | | The discs it is for (`GZLE01`). Parsed now. The contract check exists (`wwapi.CheckContract`, pre-E1 mode, C14); the runtime checks `game_ids` against it once it is wired in (D4). |
+| `game_ids` | | The discs it is for (`GZLE01`). Parsed now. The contract check exists (`wwapi.CheckContract`, pre-E1 mode, C14); the runtime checks `game_ids` against it once a step attaches a `wwapi.Game` (D4 left that open). |
 | `multiplayer` | | `client_required` (every player needs it; it will count in `mods_hash`), `host_only`, or `local_only` (the default). |
 | `provides` | | Roles. Only `net` exists. At most one loading mod per role. |
 | `needs` | | Features of the patched blob it needs. A missing one gives `NEEDS_REPATCH`. |
@@ -113,7 +113,7 @@ Hyphen ranges are not supported. As in npm, a prerelease such as `1.3.0-rc.1` sa
 1. The manifest parses, and no two mods share an id (all of them fail).
 2. The enable filter: `opts.Enabled` (settings `mods.<id>.enabled`, CLI flags later), else `enabled_by_default`, and `dev` mods only with `opts.Dev`.
 3. The `api` range contains the wwapi version.
-4. `needs` against the blob's Features, when they are known (`NEEDS_REPATCH`). `wwapi.CheckContract` reads them (pre-E1 mode: the fixed `PreE1Features` until E1 puts a header in the blob), but the runtime does not pass them to `Resolve` until D4, so for now this check is skipped.
+4. `needs` against the blob's Features, when they are known (`NEEDS_REPATCH`). `wwapi.CheckContract` reads them (pre-E1 mode: the fixed `PreE1Features` until E1 puts a header in the blob), but the runtime does not pass them to `Resolve` until a step attaches a `wwapi.Game` (D4 left that open), so for now this check is skipped.
 5. `NetProvider` and `"provides": ["net"]` agree.
 6. Dependencies, then dependency cycles (`dependency cycle: a -> b -> a`; optional dependencies count).
 7. At most one loading mod per `provides` role. When two mods claim `net`, both fail and the user turns one off.
@@ -165,7 +165,7 @@ Each mod's `*wwapi.Context` is bound to that mod:
 | `Config()` | The mod's settings (`Decode`, `Get(key)`, `Raw`) from `Options.Config`, a `ConfigSource` the faces fill. wwapi and mods never import `internal/config`, and `TestCLIReadsNoConfig` checks this for `wwapi/` and `mods/`. The CLI passes nil and uses manifest defaults. |
 | `DataDir()` | `Options.DataRoot/<id>`, not created. |
 | `Has(id)`, `Mod(id)` | Whether a mod is loaded, and its `PublicAPI`. |
-| `Features()` | The blob's Features: `Options.Resolve.Features`, unknown until the runtime passes `Game.Features()` in (D4). |
+| `Features()` | The blob's Features: `Options.Resolve.Features`, unknown until a step attaches a `wwapi.Game` and the runtime passes `Game.Features()` in (D4 left that open). |
 
 The app's faces (the window, `tui`, `ui --browser`) each make one runtime when they open (package main's `startApp`): the saved settings (`config.Mods`, through `gui.ModConfig`) under the mod flags are its `Config`, its bus feeds the session controller (`EventMod`), and the session engine is its loaded `NetProvider`'s. A toggle on the Mods page is saved and applies the next time the app starts. The app attaches no `Game` yet, so `Options.Game` is nil and `Resolve.Features` unknown there. `Allow` (design §6.2) comes with `wwapi/write` enforcement.
 
