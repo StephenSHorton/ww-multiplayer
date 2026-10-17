@@ -21,8 +21,14 @@ import (
 // Addresses that already specify a port (in any of the accepted forms)
 // are returned unchanged (modulo normalization through
 // net.JoinHostPort, e.g. re-bracketing an IPv6 host).
+//
+// A valid join code ("WW-K7Q2-9XHM", see joincode.go) becomes the
+// "ip:port" it holds, whatever defaultPort is: the code carries its port.
 func NormalizeAddr(addr string, defaultPort int) string {
 	addr = strings.TrimSpace(addr)
+	if ap, err := ParseJoinCode(addr); err == nil {
+		return ap.String()
+	}
 	port := strconv.Itoa(defaultPort)
 
 	// Bracketed IPv6 literal: "[::1]" or "[::1]:1234".
@@ -59,7 +65,7 @@ func NormalizeAddr(addr string, defaultPort int) string {
 
 // ValidateAddr reports whether addr looks like something a joiner can dial:
 // an IPv4/IPv6 literal or a hostname, with an optional port, in any form
-// NormalizeAddr accepts. It catches the typos that would otherwise turn
+// NormalizeAddr accepts, or a join code (joincode.go). It catches the typos that would otherwise turn
 // into a silent reconnect loop: an empty field, embedded spaces, a
 // partial IP such as "192.168.1." or "192.168.1", and a port outside
 // 1-65535. It does no DNS lookup, so a well-formed but unknown hostname
@@ -75,6 +81,14 @@ func ValidateAddr(addr string) error {
 	}
 	if strings.Contains(addr, "://") {
 		return errors.New("leave out the scheme (e.g. http://)")
+	}
+	// A join code: valid, or a reason that doesn't echo it (it is as
+	// private as the address it holds).
+	if LooksLikeJoinCode(addr) {
+		if _, err := ParseJoinCode(addr); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	// Validate exactly what NormalizeAddr will hand to the dialer. The

@@ -7,7 +7,9 @@
 //
 // Every mask has a fixed shape, so it gives away nothing but the last
 // octet or group: an IPv4 is always "•••.•••.•••.42", an IPv6 always
-// "••••:…:1a2b".
+// "••••:…:1a2b". A join code (netutil.JoinCode) holds an IP and a port,
+// so it is masked as one, and gives away nothing: "WW-••••-••••", or
+// "WW-••••-••••-••••" for a code with its own port.
 package redact
 
 import (
@@ -16,6 +18,8 @@ import (
 	"net/netip"
 	"regexp"
 	"strings"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 )
 
 // Dot is the mask character.
@@ -24,6 +28,27 @@ const Dot = "•"
 const (
 	v4Mask = Dot + Dot + Dot + "." + Dot + Dot + Dot + "." + Dot + Dot + Dot + "."
 	v6Mask = Dot + Dot + Dot + Dot + ":…:"
+)
+
+// Code masks a join code: its shape, every symbol a dot. A long code
+// (one with its own port) keeps its third group's place. s is assumed to
+// be one (netutil.LooksLikeJoinCode); its symbols are not looked at.
+func Code(s string) string {
+	body := 0
+	for _, c := range strings.TrimSpace(s) {
+		if c != '-' {
+			body++
+		}
+	}
+	if body-2 > 8 { // the "WW" prefix, then 8 or 12 symbols
+		return longCodeMask
+	}
+	return codeMask
+}
+
+const (
+	codeMask     = "WW-" + Dot + Dot + Dot + Dot + "-" + Dot + Dot + Dot + Dot
+	longCodeMask = codeMask + "-" + Dot + Dot + Dot + Dot
 )
 
 // IP is ip masked: an IPv4 (or an IPv4-mapped IPv6) keeps its last octet,
@@ -47,7 +72,13 @@ func IP(ip netip.Addr) string {
 // short of an octet ("26.12.34") shows no more than an IP's last group; a
 // plain host name ("localhost:25570", "host.ts.net") and "" stay as they
 // are.
+//
+// A join code, valid or not (netutil.LooksLikeJoinCode), is masked whole
+// (Code).
 func Addr(addr string) string {
+	if netutil.LooksLikeJoinCode(addr) {
+		return Code(addr)
+	}
 	if ip, err := netip.ParseAddr(strings.Trim(addr, "[]")); err == nil {
 		return IP(ip)
 	}
@@ -86,6 +117,10 @@ var (
 	trailingPort = regexp.MustCompile(`^(.+):([0-9]{1,5})$`)
 	// nearQuad is a whole v4Candidate.
 	nearQuad = regexp.MustCompile(`^` + v4Candidate.String() + `$`)
+	// codeCandidate is a join code in text: "WW", then 8 or 12 letters and
+	// digits, in groups of four with or without dashes (Text checks the
+	// shape with netutil.LooksLikeJoinCode).
+	codeCandidate = regexp.MustCompile(`(?i)\bWW(?:-*[0-9a-z]{4}){2,3}\b`)
 )
 
 // nearMask is the mask of s, a dotted quad that doesn't parse: an IPv4's
@@ -99,8 +134,11 @@ func nearMask(s string) string { return v4Mask + s[strings.LastIndexByte(s, '.')
 // typo ("26.12.34.566", "999.1.1.1", "192.168.001.042"). Text that only
 // looks like one is left alone: a clock "12:34:56", a version "v0.3.0",
 // "0.2.9" or "1.2.3.4.5", a date, a MAC address, or a word like
-// "std::map".
+// "std::map". A join code ("WW-K7Q2-9XHM", any case, dashes or not) is
+// masked whole (Code), valid or not: a code with a typo is still most of
+// an address.
 func Text(text string) string {
+	text = maskCodes(text)
 	if !strings.ContainsAny(text, ":.") {
 		return text
 	}
@@ -124,6 +162,19 @@ func Text(text string) string {
 			return "", false
 		}
 		return IP(ip), true
+	})
+}
+
+// maskCodes masks every join code in text (Text).
+func maskCodes(text string) string {
+	if !strings.Contains(text, "W") && !strings.Contains(text, "w") {
+		return text
+	}
+	return codeCandidate.ReplaceAllStringFunc(text, func(s string) string {
+		if !netutil.LooksLikeJoinCode(s) {
+			return s
+		}
+		return Code(s)
 	})
 }
 

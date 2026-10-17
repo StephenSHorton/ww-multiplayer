@@ -102,3 +102,60 @@ With a lobby the server runs before the host's co-op world is open (the app open
 - `lobby_test.go`: the loopback integration test (two lobby clients and a CLI player: join, a shared color, ready, Start, colors locked, GO, rule 0 on the app's pose connection, chat both ways, REQUEST, lobby connections outside the roster and count), reconnect and expiry, a host restart, name taken (the notice arrives before `Run` returns), kicks, kicks that stick (a reconnecting CLI join stops), START and GO replayed on reclaim and to a late joiner, a ready flood against a slow reader, a member and a CLI player sharing a color, the legacy fallback, the JSON cap, mixed versions, the co-op start order (also Stop during a hold, and the hold under the client's read deadline), and **`FuzzServerHandleLobby`** (a lobby connection's whole server path over an arbitrary stream).
 - `internal/session/lobby_test.go`: the controller's phases, commands, refusals, events and the legacy fallback over a fake engine; `lobby_engine_test.go`: the real engine through the controller against a real server, the session color over `--color`, and the host flag from STATE.
 - `internal/network/color_test.go`: the server's join path (two players asking for one color both get it; no preference is green; a reconnect keeps its color); `internal/playercolor`: `TestParse`, **`FuzzParse`**.
+
+## 10. Join codes and LAN discovery (App PR 11)
+
+Design of record: the app design's §2.2-§2.3, decision 12 (encoded codes and LAN discovery, no service; a relay only if #15 testing calls for one) and the owner decision "hide IP addresses by default". Neither touches the lobby protocol: a code is an address, and a beacon only says where a lobby is.
+
+### 10.1 Join codes (`internal/netutil/joincode.go`)
+
+A join code is the host's IPv4 address and lobby port, in Crockford base32 (`0-9 A-Z` without `I L O U`), with a check symbol:
+
+| Code | Symbols | Data bits |
+|---|---|---|
+| `WW-XXXX-XXXX` (port 25565) | 7 data, then 1 check | kind `0` (3 bits), IPv4 (32 bits) |
+| `WW-XXXX-XXXX-XXXX` (any other port) | 11 data, then 1 check | kind `1` (3 bits), 4 zero bits, IPv4 (32 bits), port (16 bits) |
+
+The data bits are written most significant first, 5 bits a symbol. The check symbol `c` makes `c ⊕ Σ α^(i+1)·v_i = 0` over GF(32) (modulus x⁵+x²+1, α = x), where `v_i` is data symbol `i` counted from 0. Any single mistyped symbol and any swap of two neighbouring symbols (the check symbol included) is caught. Examples: `192.168.1.42:25565` is `WW-30AG-09AX`; `192.168.1.42:25570` is `WW-460N-00JM-RZ2Q`.
+
+Parsing (`ParseJoinCode`) ignores case and surrounding space, takes the dashes anywhere or not at all, and reads `I`/`L` as 1 and `O` as 0; `U`, any other character, a wrong length, a wrong check symbol, an unknown kind or nonzero reserved bits are refused, with a message that doesn't repeat the code. `NormalizeAddr` turns a valid code into its `ip:port` (the code's port wins over a default port or `--port`), and `ValidateAddr` refuses a code-shaped string (`WW` and 8 or 12 letters and digits: `LooksLikeJoinCode`) that doesn't parse, so a host name of exactly that shape can't be joined by name. The CLI's `join` refuses such a string with the same reason before it dials (it is never looked up as a host name), and the app joins a default-port code as the bare IP, as the share card shows it and one would type it, so a host joined both ways is one recent host. IPv6 addresses have no code. `FuzzParseJoinCode` checks that whatever parses re-encodes to a code that parses to the same address.
+
+A code is as private as the address it holds. `redact.Addr` masks a code-shaped string whole (`WW-••••-••••`, or `WW-••••-••••-••••` for a long one), and `redact.Text` masks every code-shaped token in a log or chat line, valid or not, so the window, Copy diagnostics and the TUI show none unless the "Show IP addresses" switch is on. The CLI prints no codes; its output is unchanged.
+
+### 10.2 The beacon (`internal/lan`)
+
+While the app hosts a lobby it sends one UDP datagram every 2 s (`BeaconInterval`) to port 25565 (`DefaultPort`; `WW_LAN_PORT` changes it for both sides) of the directed broadcast address of each IPv4 network on every interface that is up, can broadcast and isn't loopback (`BroadcastAddrs`: a `/24` LAN's `x.y.z.255`, Radmin VPN's `26.255.255.255`; a `/31`, a `/32` or a point-to-point interface such as Tailscale's has none). Big-endian, at most 512 bytes (`MaxBeacon`):
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 4 | magic `WWLB` |
+| 4 | 1 | format version (1) |
+| 5 | 1 | flags: bit 0 = the host chose a co-op world; the rest 0 |
+| 6 | 2 | the host's network `ProtocolVersion` |
+| 8 | 2 | the lobby's TCP port (not 0) |
+| 10 | 1 | players: lobby members not away |
+| 11 | 1 | the member limit (`MaxLobbyMembers`, 24) |
+| 12 | 1 | phase: 0 lobby, 1 starting, 2 in game |
+| 13 | 8 | instance: random, made once per app run |
+| 21 | 1+n | app version, n ≤ 32 bytes |
+| … | 1+n | the host's player name, n ≤ 64 bytes |
+
+Strings are UTF-8 with printable characters only. There is no address in it (the joiner takes the datagram's source address and the port field), no lobby token and nothing else secret. `TestBeaconGolden` pins the bytes.
+
+`Decode` refuses a wrong magic (`ErrNotBeacon`), a datagram over 512 bytes or too short, format 0, port 0, a string over its limit, invalid UTF-8 or an unprintable character, and, in format 1, a phase above 2 or trailing bytes (`ErrMalformed`). A newer format is read as far as format 1 goes: what it appends is ignored and an unknown phase reads as "unknown". `FuzzDecodeBeacon` checks it never panics and that whatever decodes re-encodes to the same beacon.
+
+### 10.3 Listening (`lan.Listen`, `lan.Table`, `Bridge.LanSessions`)
+
+While Home is shown the page asks `Bridge.LanSessions` every second. The first ask opens a listener on the beacon port, bound with `SO_REUSEADDR` (and `SO_REUSEPORT` on macOS, Linux and the BSDs) so two apps on one machine can both listen; it closes 5 s after the last ask, and at once when a session starts. Each datagram that decodes goes into the table under its instance:
+
+- the app's own instance is skipped (`NewTable(self)`);
+- a host heard from several addresses (a LAN and Radmin VPN) is one entry; its addresses are ranked LAN, Radmin VPN, Tailscale, other, then by which was heard first, and Join uses the best one heard in the last 6 s;
+- beacons merge only when they agree on the instance, the host's name, the lobby port, the app version and the protocol: a beacon that copies a host's instance but says anything else of those is its own row, so it can't change where the real row's Join goes (an exact copy from a later address merges, but the address heard first stays ahead within its rank);
+- an entry is listed until 6 s (`EntryTTL`, three beacons) after its last beacon;
+- the table keeps at most 64 hosts and 8 addresses per host, and one source address can have at most 4 hosts listed (`maxPerSource`; a real host sends one), so a flood of forged beacons from one machine can neither grow the table nor fill it and hide the real hosts. Beacons are not authenticated: a machine on the network can still announce a fake session under its own address, which is why a join always takes a click.
+
+Home lists each entry under Join, "Sessions on your network": the host's name (masked as text unless the switch is on, as a peer's name always is), player count, the phase when past the lobby, a Co-op chip, the network's label with the address masked (Show reveals it until Home is left) and a Join button. A host whose `ProtocolVersion` differs from ours is greyed with its app version and can't be joined (its server would refuse us with `RejectVersion`); another app version with the same protocol shows its version but stays joinable.
+
+**Local checks.** `WW_LISTEN_HOST=127.0.0.1` (the lobby server's own switch) also keeps discovery on the machine: the listener binds 127.0.0.1 and the beacon goes to 127.255.255.255 and 127.0.0.1 on the beacon port, so nothing is sent to or opened on the network. The loopback broadcast reaches every app listening on the machine (on Windows a unicast datagram reaches only one of the sockets sharing the port); the unicast covers systems where a socket bound to 127.0.0.1 doesn't hear the broadcast, and a listener that hears both just refreshes its entry. `localhost` and `::1` count as 127.0.0.1; any other host name or IPv6 address turns discovery off (it is IPv4 only, and never falls back to every network when a host was named); another IPv4 address binds the listener to it and broadcasts only on its network. `WW_LAN=off` turns discovery off (no beacon, no listening). The gui package's tests run with discovery on 127.0.0.1 (`lanTestHost`, set by `TestMain`).
+
+**Not verified yet:** whether Radmin VPN's virtual network delivers a directed broadcast to `26.255.255.255` between two machines. The beacon is sent there; if it doesn't arrive, the host's Radmin join code or address still works.

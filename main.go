@@ -5619,6 +5619,13 @@ func parseJoinArgs(args []string) (addr, name string, err error) {
 	if port == 0 {
 		port = defaultPort
 	}
+	// A join code with a typo would otherwise be dialed as a host name:
+	// refuse it with the reason (which doesn't repeat the code).
+	if netutil.LooksLikeJoinCode(rest[0]) {
+		if _, err := netutil.ParseJoinCode(rest[0]); err != nil {
+			return "", "", err
+		}
+	}
 	// netutil.NormalizeAddr is IPv6-aware and always returns host:port.
 	addr = netutil.NormalizeAddr(rest[0], port)
 	host, p, _ := net.SplitHostPort(addr)

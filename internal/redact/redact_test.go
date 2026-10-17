@@ -1,6 +1,12 @@
 package redact
 
-import "testing"
+import (
+	"net/netip"
+	"strings"
+	"testing"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
+)
 
 // TestAddr: every IPv4 has one shape and every IPv6 another, whatever
 // the octets' or groups' lengths; only the last octet or group and the
@@ -138,5 +144,44 @@ func TestTextFixedShape(t *testing.T) {
 	a, b = Text("[1::9]:1"), Text("[ffff:ffff:ffff:ffff:ffff:ffff:ffff:9]:1")
 	if a != b {
 		t.Errorf("Text masks differ by group length: %q vs %q", a, b)
+	}
+}
+
+// TestCodes: a join code holds an IP and a port, so Addr and Text mask it
+// whole, in any case and with or without dashes, valid or with a typo;
+// words that only start with "ww" stay.
+func TestCodes(t *testing.T) {
+	short, err := netutil.JoinCode(netip.MustParseAddrPort("192.168.1.42:25565"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	long, _ := netutil.JoinCode(netip.MustParseAddrPort("26.12.34.56:25570"))
+	const sm, lm = "WW-••••-••••", "WW-••••-••••-••••"
+	for in, want := range map[string]string{
+		short:                             sm,
+		long:                              lm,
+		strings.ToLower(short):            sm,
+		strings.ReplaceAll(long, "-", ""): lm,
+		short[:len(short)-1] + "Z":        sm, // a typo is masked too
+		"WW-AAAA-BBBB":                    sm,
+	} {
+		if got := Addr(in); got != want {
+			t.Errorf("Addr(%q) = %q, want %q", in, got, want)
+		}
+		line := "join code " + in + ", copied."
+		if got := Text(line); got != "join code "+want+", copied." {
+			t.Errorf("Text(%q) = %q", line, got)
+		}
+	}
+	if got := Text("codes " + short + " and " + long); got != "codes "+sm+" and "+lm {
+		t.Errorf("two codes: %q", got)
+	}
+	for _, in := range []string{"ww-multiplayer", "WW-multiplayer v0.3.0", "wwwwwwwwwwwwwwwwwwwwwwwwwwww", "WWII", "aWW-AAAA-BBBB", "WW-AAAA-BBBBx", "ww3.example.com"} {
+		if got := Text(in); got != in {
+			t.Errorf("Text(%q) = %q, want it unchanged", in, got)
+		}
+	}
+	if Code(short) != sm || Code(long) != lm {
+		t.Error("Code shapes")
 	}
 }

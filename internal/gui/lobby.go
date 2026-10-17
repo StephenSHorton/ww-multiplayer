@@ -122,6 +122,10 @@ type ShareAddrView struct {
 	Masked string `json:"masked"` // Addr as the card shows it until Show (mask.go)
 	Kind   string `json:"kind"`   // "lan", "radmin", "tailscale" or "other"
 	Label  string `json:"label"`  // "LAN", "Radmin VPN", "Tailscale", "Other"
+	// Code is Addr's join code (netutil.JoinCode; "" for an IPv6 one). It
+	// holds the address, so it is masked like one: CodeMasked until Show.
+	Code       string `json:"code"`
+	CodeMasked string `json:"codeMasked"`
 }
 
 // ShareView is the host's share card: the port the session listens on
@@ -146,7 +150,7 @@ var (
 		netip.MustParsePrefix("172.16.0.0/12"),
 		netip.MustParsePrefix("192.168.0.0/16"),
 	}
-	shareOrder = map[string]int{"lan": 0, "radmin": 1, "tailscale": 2, "other": 3}
+	shareOrder = map[string]int{"lan": 0, "radmin": 1, "tailscale": 2, "other": 3, "local": 4}
 )
 
 // addrKind labels an IP for the share card (design §2.2).
@@ -157,6 +161,10 @@ func addrKind(ip string) (kind, label string) {
 	}
 	a = a.Unmap()
 	switch {
+	case a.IsLoopback():
+		// Only a session heard on this machine (two apps, or a local
+		// check with WW_LISTEN_HOST=127.0.0.1); the share card lists none.
+		return "local", "This computer"
 	case radminNet.Contains(a):
 		return "radmin", "Radmin VPN"
 	case tailscaleNet.Contains(a):
@@ -186,8 +194,8 @@ func addrLabel(addr string) string {
 }
 
 // shareAddrs is the share card for ips and port: each IP labeled, with
-// the port added off the default one (as the CLI's host prints them), LAN
-// first, then Radmin VPN, Tailscale and the rest. Masked is always the
+// the port added off the default one (as the CLI's host prints them) and
+// its join code, LAN first, then Radmin VPN, Tailscale and the rest. Masked is always the
 // masked form, whatever the switch says: the page picks one when it draws
 // (a reply from before the switch was turned off may come late).
 func shareAddrs(ips []string, port int) []ShareAddrView {
@@ -198,7 +206,17 @@ func shareAddrs(ips []string, port int) []ShareAddrView {
 			addr = net.JoinHostPort(ip, strconv.Itoa(port))
 		}
 		kind, label := addrKind(ip)
-		out = append(out, ShareAddrView{Addr: addr, Masked: hideIPs.addr(addr), Kind: kind, Label: label})
+		v := ShareAddrView{Addr: addr, Masked: hideIPs.addr(addr), Kind: kind, Label: label}
+		codePort := port
+		if codePort == 0 {
+			codePort = config.DefaultPort
+		}
+		if a, err := netip.ParseAddr(ip); err == nil && codePort > 0 && codePort <= 65535 {
+			if code, err := netutil.JoinCode(netip.AddrPortFrom(a, uint16(codePort))); err == nil {
+				v.Code, v.CodeMasked = code, hideIPs.addr(code)
+			}
+		}
+		out = append(out, v)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return shareOrder[out[i].Kind] < shareOrder[out[j].Kind] })
 	return out

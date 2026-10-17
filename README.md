@@ -52,7 +52,9 @@ through the rest.
    your name and tunic color, your Wind Waker disc (the app writes a
    patched copy next to it; your original is never changed) and Dolphin
    (found for you, or Browse…).
-4. **Host**, or **Join** with the host's address. Everyone meets in the
+4. **Host**, or **Join**: a session on your network shows under Join with
+   a Join button; otherwise paste the host's join code (`WW-30AG-09AX`)
+   or address. Everyone meets in the
    lobby; when the others are Ready, the host presses **Start** and each
    player's Dolphin starts with the patched game. Load any save (saves
    don't have to match). If Windows asks, allow `ww-multiplayer.exe`
@@ -144,13 +146,20 @@ can each skip and come back to with the **Setup** button:
 
 Setup opens again by itself while one of those is missing, or when the
 patched disc or Dolphin has moved. Then pick Host (on port 25565
-or the one you type) or Join (the host's address). Everyone meets in the
+or the one you type) or Join: sessions hosted on your network (the same
+LAN, maybe a Radmin VPN network: not verified yet) are listed there with
+a Join button, or paste the host's join code (like `WW-30AG-09AX`: the
+host's address and port, shortened, with a check letter that catches a
+typo) or type its address. Everyone meets in the
 app's lobby, which lists each player's name, color and ready flag, with
 the session log and chat. Any color can be picked, even one someone else
 wears; without a pick you wear classic green. IP addresses are hidden on
 screen (shown as `•••.•••.•••.42`), so streaming the app never shows one:
 the host's share card has Show and Copy per address, and the **Show IP
 addresses** switch at the top of the window shows them all (it is saved).
+A join code holds the address, so it is hidden the same way
+(`WW-••••-••••`; Copy code copies the real one), and so are the addresses
+of the sessions listed on your network.
 **Starting the game:** everyone but the host presses Ready, then the
 host presses Start (or "Start anyway" to go without waiting). Each app
 then starts that player's Dolphin with the patched disc, or plays on the
@@ -192,9 +201,10 @@ always hosts on port 25565; use the command line for another port.
 
 ```
 ww-multiplayer host [name] [--port N]       # default port 25565
-ww-multiplayer join <host> [name]           # <host> is an IP or hostname
+ww-multiplayer join <host> [name]           # <host> is an IP, hostname or join code
 ww-multiplayer join 192.168.1.42:26000      # host used --port 26000
 ww-multiplayer join "[2001:db8::42]:26000"  # IPv6: brackets when giving a port
+ww-multiplayer join WW-30AG-09AX            # a join code from the app (it holds the address and port; a typo is refused)
 ```
 
 (`.\ww-multiplayer.exe` on Windows, `./ww-multiplayer` on macOS.) Keep the

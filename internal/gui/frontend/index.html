@@ -56,12 +56,18 @@
 			</form>
 			<form class="panel" id="join-form">
 				<h2>Join</h2>
-				<p class="dim">Type the address your host shared: an IP, <code>ip:port</code> or <code>[v6]:port</code>.</p>
+				<!-- hosts on this network, heard by their beacons (App PR 11) -->
+				<div class="lanbox" id="lan" hidden>
+					<span class="label">Sessions on your network</span>
+					<ul class="lan-list" id="lan-list"></ul>
+					<small class="hint" id="lan-note"></small>
+				</div>
+				<p class="dim">Or type what your host shared: a join code like <code>WW-30AG-09AX</code>, an IP, <code>ip:port</code> or <code>[v6]:port</code>.</p>
 				<label class="field">
-					<span>Host address</span>
+					<span>Join code or host address</span>
 					<span class="row secretrow">
-						<input id="addr" class="secret" autocomplete="off" spellcheck="false" placeholder="192.168.1.42">
-						<button type="button" class="btn small" id="addr-eye" aria-pressed="false" aria-controls="addr" title="Show or hide the address (hidden so a stream never shows it)">Show</button>
+						<input id="addr" class="secret" autocomplete="off" spellcheck="false" placeholder="WW-30AG-09AX or 192.168.1.42">
+						<button type="button" class="btn small" id="addr-eye" aria-pressed="false" aria-controls="addr" title="Show or hide the code or address (hidden so a stream never shows it)">Show</button>
 					</span>
 				</label>
 				<div class="recent" id="recent" hidden>
@@ -276,7 +282,7 @@
 				<div class="panel hostpanel" id="host-panel" hidden>
 					<h2>Host</h2>
 					<div class="share">
-						<span class="label">Share an address with your friends</span>
+						<span class="label">Share a join code or an address with your friends</span>
 						<ul class="addrs" id="addrs"></ul>
 						<small class="hint" id="share-hint"></small>
 					</div>
