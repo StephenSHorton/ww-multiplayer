@@ -7,8 +7,9 @@ import (
 
 // Features is what the patched blob provides, matched against each
 // mod's "needs". The zero value means "not known": no mod gets
-// NEEDS_REPATCH. The contract check that reads the blob (C14, then E1)
-// will fill it in; until then nothing does.
+// NEEDS_REPATCH. The contract check (CheckContract) fills it in for a
+// Game: before E1 with the fixed PreE1Features. The mod runtime is not
+// handed it yet (D4 wires Game into Options.Resolve).
 type Features struct {
 	names []string
 	known bool

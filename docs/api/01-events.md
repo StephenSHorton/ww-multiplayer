@@ -1,6 +1,6 @@
 # wwapi/events: the event bus
 
-**Status: v0 UNSTABLE.** Phase B step B2 of [00-design.md](00-design.md). The package is new and nothing uses it yet. Its API can change in any 0.x minor version. The core watcher that will feed it (polled snapshot edges at 10 Hz, 30 Hz as an option) comes later, in C14.
+**Status: v0 UNSTABLE.** Phase B step B2 of [00-design.md](00-design.md). Its API can change in any 0.x minor version. The core watcher exists (C14): the `wwapi.Watcher` a `wwapi.Game` owns polls snapshot edges (10 Hz, `wwapi.FastInterval` for 30 Hz) and emits `StageChanged`, `ItemGained`, `SwitchSet`, `EventBitSet` and `HeartbeatLost`, defined in `wwapi/events/core.go`. Nothing outside wwapi uses the bus yet; the mod runtime wires a Game in at D4.
 
 Import path: `github.com/StephenSHorton/ww-multiplayer/wwapi/events`.
 
@@ -11,11 +11,14 @@ An event is a struct value that embeds `events.Base` and has an `EventName` meth
 ```go
 type StageChanged struct {
     events.Base
-    From, To string
+    From, To events.Place // Place: Stage, Room, Table, File
+    First    bool         // the watcher's first snapshot
 }
 
 func (StageChanged) EventName() string { return "core.stage_changed" }
 ```
+
+That is the real `events.StageChanged` from `wwapi/events/core.go`. A mod's own events look the same, under its `mod.<id>.` names.
 
 The bus stamps every event it emits with a `Meta`:
 
@@ -46,7 +49,7 @@ Mod ids are lowercase. They start with a letter, optionally after one leading `_
 off := events.On(bus, func(e StageChanged) { ... })            // a callback
 ch, off := events.Chan[StageChanged](bus, 32)                   // a buffered channel
 e, ok := events.Last[StageChanged](bus)                         // the latest value of a type
-e, err := events.Wait(ctx, bus, func(e StageChanged) bool { return e.To == "M_NewD2" })
+e, err := events.Wait(ctx, bus, func(e StageChanged) bool { return e.To.Stage == "M_NewD2" })
 all, off := events.Chan[events.Event](bus, 64)                  // every event
 ```
 
@@ -63,4 +66,4 @@ all, off := events.Chan[events.Event](bus, 64)                  // every event
 
 ## Reminder
 
-**Game events will be polled snapshot edges, not in-game callbacks.** A short toggle that happens between two polls is never seen, and the order of events inside one poll tick is not defined.
+**Game events are polled snapshot edges, not in-game callbacks.** A short toggle that happens between two polls is never seen, and the order of events inside one poll tick is not defined.
