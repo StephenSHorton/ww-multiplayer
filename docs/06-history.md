@@ -1953,3 +1953,16 @@ swap between `calcMaterial` and `diff`; `avatar.SetFaceSync` arms with
 the pose feed and `avatar.Clear` disarms. Details and the live checks in
 docs/05 "Remote faces were the local player's". Blob changed:
 `saves/start.sav` recaptured, players must re-patch.
+
+## 2026-10-18: the REL module (code space)
+
+T2 had 0x478 bytes free. ww-online ships ~87 KB of mod code as a REL in
+RELS.arc through the game's own dynamic linker, so the project does the
+same (handoff design/rel-module-plan.md): Go gained the Yaz0 encoder,
+RARC editor and REL reader/writer (#140), the ELF-to-REL converter and
+the RELS.arc/FST patcher (#141), a minimal module built with plain
+devkitPPC that writes 'WWRL' into the mailbox slack when linked (#142),
+and this step wires the patcher to ship it and adds `src/mp/relload.c`,
+which keeps one actor of the hijacked proc 0xB5 alive per stage so the
+module stays linked. T2 0x2A88 -> 0x2CA8 (0x258 free). Save states
+recaptured with the new blob and the new RELS.arc.

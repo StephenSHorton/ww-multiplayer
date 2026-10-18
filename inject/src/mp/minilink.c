@@ -123,6 +123,7 @@ static void mini_link_reset_state(void) {
 // publishes the frame's best progress value.
 void mp_frame(fopAc_ac_c* link) {
     u32 best_progress = puppets_frame(link);
+    rel_frame(link);
 
     // --- Mini-Link render path ----------------------------------------
     // Stage-load safety (see "Lifetimes" above mini_link_reset_state).

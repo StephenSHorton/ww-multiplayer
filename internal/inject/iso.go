@@ -79,6 +79,18 @@ type Patch struct {
 	// disc-size cap and the FST's entry for "RELS.arc" is pointed at it;
 	// the vanilla bytes stay where they were, unreferenced.
 	RELSArc []byte
+
+	// RELSArcFrom builds the replacement from the disc's own RELS.arc
+	// (internal/inject/rels: the mod's REL in an actor module's place),
+	// for a caller that has only the disc: it is called once, with the
+	// archive the FST's "RELS.arc" entry points at, and its result is
+	// spliced in as RELSArc is. It runs after the DOL check, so a disc
+	// patched by another build is refused before it is called, and on a
+	// disc this build patched it is given the archive this build wrote:
+	// a deterministic builder returns it unchanged, and the disc is
+	// ErrAlreadyPatched. Its error is returned, wrapped. Setting both
+	// RELSArc and RELSArcFrom is an error.
+	RELSArcFrom func(disc []byte) ([]byte, error)
 }
 
 // relsArcName is the archive's name in the FST's root directory, as the
@@ -126,8 +138,11 @@ func PatchISOInMemoryWith(iso []byte, p Patch) ([]byte, Result, error) {
 }
 
 func patchImage(iso []byte, p Patch) ([]byte, Result, error) {
-	if p.RELSArc != nil && !bytes.HasPrefix(p.RELSArc, []byte("RARC")) {
-		return nil, Result{}, fmt.Errorf("iso: the replacement RELS.arc isn't a RARC archive (%d bytes)", len(p.RELSArc))
+	if p.RELSArc != nil && p.RELSArcFrom != nil {
+		return nil, Result{}, errors.New("iso: Patch has both a RELS.arc and a builder for one")
+	}
+	if err := checkRELSArc(p.RELSArc); err != nil {
+		return nil, Result{}, err
 	}
 	if err := detectUnsupportedFormat(iso); err != nil {
 		return nil, Result{}, err
@@ -165,20 +180,38 @@ func patchImage(iso []byte, p Patch) ([]byte, Result, error) {
 		return nil, Result{}, err
 	}
 	fst := iso[fstOff : uint64(fstOff)+uint64(fstSize)]
-	patchedDOL, err := PatchDOL(vanillaDOL)
-	if err != nil {
-		if errors.Is(err, ErrAlreadyPatched) && p.RELSArc != nil {
-			// The DOL is this build's; the disc is only when its
-			// RELS.arc is this build's too.
-			current, cerr := hasCurrentRELSArc(iso, fst, p.RELSArc)
-			switch {
-			case cerr != nil:
-				return nil, Result{}, fmt.Errorf("iso: %w", cerr)
-			case !current:
-				return nil, Result{}, fmt.Errorf("%w (its RELS.arc isn't this build's)", ErrPatchedByOtherVersion)
-			}
+	patchedDOL, dolErr := PatchDOL(vanillaDOL)
+	withArc := p.RELSArc != nil || p.RELSArcFrom != nil
+	if dolErr != nil && !(errors.Is(dolErr, ErrAlreadyPatched) && withArc) {
+		return nil, Result{}, dolErr
+	}
+	if p.RELSArcFrom != nil {
+		// The replacement built from the disc's archive: the vanilla
+		// one, or the one this build (or another) wrote.
+		disc, err := relsArcIn(iso, fst)
+		if err != nil {
+			return nil, Result{}, fmt.Errorf("iso: %w", err)
 		}
-		return nil, Result{}, err
+		arc, err := p.RELSArcFrom(disc)
+		if err != nil {
+			return nil, Result{}, fmt.Errorf("iso: RELS.arc: %w", err)
+		}
+		if err := checkRELSArc(arc); err != nil {
+			return nil, Result{}, err
+		}
+		p.RELSArc = arc
+	}
+	if dolErr != nil {
+		// The DOL is this build's; the disc is only when its RELS.arc
+		// is this build's too.
+		current, cerr := hasCurrentRELSArc(iso, fst, p.RELSArc)
+		switch {
+		case cerr != nil:
+			return nil, Result{}, fmt.Errorf("iso: %w", cerr)
+		case !current:
+			return nil, Result{}, fmt.Errorf("%w (its RELS.arc isn't this build's)", ErrPatchedByOtherVersion)
+		}
+		return nil, Result{}, dolErr
 	}
 
 	// Everything on the disc that isn't free space: the system area, every
@@ -315,6 +348,57 @@ func hasCurrentRELSArc(iso, fst, arc []byte) (bool, error) {
 	return bytes.Equal(iso[off:off+size], arc), nil
 }
 
+// checkRELSArc refuses a replacement archive that isn't a RARC one. nil
+// (no replacement) passes.
+func checkRELSArc(arc []byte) error {
+	if arc != nil && !bytes.HasPrefix(arc, []byte("RARC")) {
+		return fmt.Errorf("iso: the replacement RELS.arc isn't a RARC archive (%d bytes)", len(arc))
+	}
+	return nil
+}
+
+// relsArcIn returns the RELS.arc the FST fst of the image iso points at:
+// a copy of the bytes at the root entry's offset.
+func relsArcIn(iso, fst []byte) ([]byte, error) {
+	_, e, err := fstRootFile(fst, relsArcName)
+	if err != nil {
+		return nil, err
+	}
+	off, size := uint64(e.w1), uint64(e.w2)
+	if off+size > uint64(len(iso)) {
+		return nil, fmt.Errorf("fst: %s [0x%x..0x%x] runs past the end of the image (0x%x bytes)", relsArcName, off, off+size, len(iso))
+	}
+	return bytes.Clone(iso[off : off+size]), nil
+}
+
+// RELSArcFromImage returns the RELS.arc of the flat (not CISO) GZLE01
+// disc image iso: the file its FST's root entry "RELS.arc" points at,
+// as the game opens it. On an image this build patched that is the
+// archive the patch wrote. The header checks are PatchISOInMemory's.
+func RELSArcFromImage(iso []byte) ([]byte, error) {
+	if err := detectUnsupportedFormat(iso); err != nil {
+		return nil, err
+	}
+	if len(iso) < isoHeaderEnd {
+		return nil, fmt.Errorf("iso: input too small (%d bytes)", len(iso))
+	}
+	if got := string(iso[isoHeaderGameID : isoHeaderGameID+6]); got != isoExpectedGameID {
+		return nil, fmt.Errorf("iso: unexpected game id %q (expected %q — this patcher is GZLE01-only)",
+			got, isoExpectedGameID)
+	}
+	fstOff := binary.BigEndian.Uint32(iso[isoHeaderFSTOff:])
+	fstSize := binary.BigEndian.Uint32(iso[isoHeaderFSTSize:])
+	if uint64(fstOff)+uint64(fstSize) > uint64(len(iso)) {
+		return nil, fmt.Errorf("iso: FST [0x%x..0x%x] past end of file (%d bytes)",
+			fstOff, uint64(fstOff)+uint64(fstSize), len(iso))
+	}
+	arc, err := relsArcIn(iso, iso[fstOff:uint64(fstOff)+uint64(fstSize)])
+	if err != nil {
+		return nil, fmt.Errorf("iso: %w", err)
+	}
+	return arc, nil
+}
+
 // chooseFSTRelocation picks where the relocated FST should land: a 64 KB
 // aligned range past the end of the patched DOL (dolEnd), below the standard
 // disc size, that overlaps nothing in used.
@@ -420,15 +504,9 @@ func PatchISOWith(inPath, outPath string, p Patch) (Result, error) {
 		return Result{}, fmt.Errorf("%w: %s; choose a different output path (the patcher never overwrites your original)",
 			ErrOutputIsInput, outPath)
 	}
-	data, err := os.ReadFile(inPath)
+	data, err := LoadImage(inPath)
 	if err != nil {
-		return Result{}, fmt.Errorf("read %s: %w", inPath, err)
-	}
-	if isCISO(data) {
-		data, err = decompressCISO(data)
-		if err != nil {
-			return Result{}, fmt.Errorf("decompress CISO: %w", err)
-		}
+		return Result{}, err
 	}
 	patched, res, err := patchImage(data, p)
 	if err != nil {
@@ -438,6 +516,24 @@ func PatchISOWith(inPath, outPath string, p Patch) (Result, error) {
 		return Result{}, fmt.Errorf("write %s: %w", outPath, err)
 	}
 	return res, nil
+}
+
+// LoadImage reads the whole disc image at path into memory as the
+// patcher does: a CISO (detected by magic) is decompressed, so the
+// result is always a flat image. The errors are worded as PatchISO
+// reports them ("read <path>: ...").
+func LoadImage(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	if isCISO(data) {
+		data, err = decompressCISO(data)
+		if err != nil {
+			return nil, fmt.Errorf("decompress CISO: %w", err)
+		}
+	}
+	return data, nil
 }
 
 // sameFile reports whether paths a and b name the same file: the same

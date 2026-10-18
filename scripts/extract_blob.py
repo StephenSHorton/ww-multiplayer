@@ -49,7 +49,7 @@ MAILBOX_H = os.path.join(ROOT, "inject", "include", "mailbox_core.h")
 # The REL module: build.py's relocatable ELF and the source its mailbox
 # slack #defines are read from.
 REL_ELF = os.path.join(ROOT, "inject", "build", "wwrel.elf")
-REL_MAIN_C = os.path.join(ROOT, "inject", "rel", "rel_main.c")
+REL_MAIN_C = os.path.join(ROOT, "inject", "include", "wwrel.h")  # the WWREL_* #defines
 # What the patcher ships the module as (design/rel-module-plan.md): the
 # RELS.arc module whose profile-list slot it takes over.
 REL_MODULE_ID = 0x58     # d_a_rectangle.rel
@@ -473,7 +473,7 @@ def main():
     lines.append("\t// 0 when RELELF is empty.")
     lines.append(f"\tRELBuildID uint32 = 0x{rel['build_id']:08X}")
     lines.append("\t// The mailbox slack words (offsets from MailboxAddr, past the Mailbox")
-    lines.append("\t// struct, rel_main.c WWREL_*): _prolog writes RELMagic at RELMagicOff")
+    lines.append("\t// struct, include/wwrel.h WWREL_*): _prolog writes RELMagic at RELMagicOff")
     lines.append("\t// and RELBuildID at RELBuildIDOff, the actor's execute bumps the u32 at")
     lines.append("\t// RELFrameOff every frame, and _epilog clears the magic.")
     lines.append(f"\tRELMagic      uint32 = 0x{rel['magic']:08X}")

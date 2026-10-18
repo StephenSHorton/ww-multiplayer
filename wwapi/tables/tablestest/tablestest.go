@@ -13,6 +13,7 @@ import (
 	"encoding/binary"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject/rels/relstest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/hearts"
@@ -258,11 +259,14 @@ func PatchableDOL() []byte {
 }
 
 // PatchableISO is a disc image of Disc(stages) with PatchableDOL as its
-// main.dol: one `patch` accepts (inject.PatchISOInMemory). Zeros follow
-// the DOL, room for the T2 section the patch appends to it (as `wit copy`
-// leaves before the FST), since the files would otherwise start right
-// where the patched DOL grows.
+// main.dol and a RELS.arc in its root (relstest.Arc, with a module the
+// mod's REL can take over): one `patch` accepts (inject.PatchISOInMemory,
+// rels.PatchISOWithREL). Zeros follow the DOL, room for the T2 section
+// the patch appends to it (as `wit copy` leaves before the FST), since
+// the files would otherwise start right where the patched DOL grows.
 func PatchableISO(stages []stagetest.Stage) []byte {
 	dol := PatchableDOL()
-	return Disc(stages).ISO(append(dol, make([]byte, len(inject.T2Bytes)+0x100)...))
+	d := Disc(stages)
+	d.Add("RELS.arc", relstest.Arc())
+	return d.ISO(append(dol, make([]byte, len(inject.T2Bytes)+0x100)...))
 }

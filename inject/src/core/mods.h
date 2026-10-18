@@ -16,8 +16,9 @@
 //                   reap, which must also run on the title screen and
 //                   during a stage change).
 //   mp_frame      — every frame once Link exists and the 300-frame boot
-//                   gate has passed (minilink.c: actor puppets, mini-Link
-//                   models, the face hook's arm / disarm).
+//                   gate has passed (minilink.c: actor puppets, the REL
+//                   module's actor (relload.c), mini-Link models, the
+//                   face hook's arm / disarm).
 //   mp_draw_post  — after Link #1's draw and the core's post-draw steps
 //                   (minilink.c: each mini-Link slot with its face and
 //                   tunic bracket and the eye fix).

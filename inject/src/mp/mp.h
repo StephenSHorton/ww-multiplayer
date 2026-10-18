@@ -11,6 +11,7 @@
 
 // Actor procs the actor puppets spawn (puppets.c) or tried to.
 #define PROC_PLAYER     0x00A9
+#define PROC_RECTANGLE  0x00B5  // the unused dummy actor whose module the REL replaces (relload.c)
 #define PROC_KAMOME     0x00C3
 #define PROC_NPC_KO1    0x0141
 #define PROC_NPC_OB1    0x014D  // Rose (Outset villager)
@@ -44,5 +45,9 @@ void face_hook_process_arm(void);
 void face_swap_for_slot(int slot);
 void face_restore(void);
 void face_swap_reset(void);
+
+// relload.c: keep the REL module linked by owning one actor of its proc
+// per stage (called by mp_frame every frame once Link exists).
+void rel_frame(fopAc_ac_c* link);
 
 #endif

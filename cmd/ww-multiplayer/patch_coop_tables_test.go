@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject/rels"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables/stagetablestest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
@@ -83,7 +84,7 @@ func TestPatchCoopTables(t *testing.T) {
 			dir := t.TempDir()
 			in := stagetablestest.WriteImage(t, "ww.iso", c.img)
 			out := filepath.Join(t.TempDir(), "ww-multiplayer.iso")
-			want, err := inject.PatchISOInMemory(c.img)
+			want, _, err := rels.Blob().PatchISOInMemory(c.img) // what `patch` writes: the DOL and the REL module
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -103,6 +104,10 @@ func TestPatchCoopTables(t *testing.T) {
 			old := slices.Delete(slices.Clone(lines), co, co+1)
 			wantOld := []string{"Wind Waker Multiplayer patcher", "  input : " + in, "  output: " + out}
 			if res := old[3]; strings.HasPrefix(res, "  FST   : moved ") {
+				wantOld = append(wantOld, res)
+			}
+			// The REL line (patch_test.go pins its words).
+			if res := old[len(wantOld)]; strings.HasPrefix(res, "  REL   : ") {
 				wantOld = append(wantOld, res)
 			}
 			wantOld = append(wantOld, "", "Done. Boot "+out+" in Dolphin to play multiplayer.")
