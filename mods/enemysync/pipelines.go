@@ -107,7 +107,7 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 			for drained := false; !drained; {
 				select {
 				case h := <-hits:
-					if ack := applier.Offer(h, last, now); ack != nil {
+					if ack := applier.Offer(h, last, host.Moblins(), now); ack != nil {
 						send(EncodeAck(ack))
 					}
 				default:

@@ -17,18 +17,20 @@ import (
 // mDai stands in for M_Dai room 1 (any save table serves the fake).
 var mDai = fakegame.Stage{Name: "M_Dai", Table: addr.TableDRC, Room: 1}
 
-// The placed Moblins, setIDs out of order: three keyed mode-0 ones in
-// room 1, a jailed one (mode 1), a runtime one (setID 0xFFFF) and one in
-// room 2. Placed indices: 0 setID 2, 1 setID 0, 2 setID 1, 3 jailed, 4
-// runtime, 5 room 2.
+// The placed Moblins, setIDs out of order, as the live read found M_Dai
+// room 1: three keyed ones (setIDs 0 and 1 mode 1, setID 2 mode 0), a
+// carried one (mode 5, refused), a statue (0xF, refused), a runtime one
+// (setID 0xFFFF) and one in room 2. Placed indices: 0 setID 2, 1 setID
+// 0, 2 setID 1, 3 carried, 4 runtime, 5 room 2, 6 statue.
 func placeMoblins() *fakegame.Enemies {
 	return fakegame.PlaceEnemies(
 		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 2, Proc: stage.ProcMO2},
-		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 0, Proc: stage.ProcMO2},
-		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 1, Proc: stage.ProcMO2},
-		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 3, Proc: stage.ProcMO2, Mode: 1},
+		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 0, Proc: stage.ProcMO2, Mode: 1},
+		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 1, Proc: stage.ProcMO2, Mode: 1},
+		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 3, Proc: stage.ProcMO2, Mode: addr.Mo2ModeCarried},
 		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: addr.ActorSetIDNone, Proc: stage.ProcMO2},
 		fakegame.Enemy{Stage: mDai.Name, Room: 2, SetID: 4, Proc: stage.ProcMO2},
+		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 5, Proc: stage.ProcMO2, Mode: addr.Mo2ModeStatue},
 	)
 }
 
@@ -121,6 +123,9 @@ func TestHostSampler(t *testing.T) {
 	}
 	if st == nil || !eq16(setIDs(st), []uint16{0, 1, 2}) || st.Flags&StateFlagInScope == 0 || st.Epoch != 7 || st.Seq != 1 || st.Stage != "M_Dai" || st.Room != 1 || st.DeadMask != 0 {
 		t.Fatalf("first tick: %+v", st)
+	}
+	if mos := h.Moblins(); len(mos) != 3 || mos[0].Mode != 1 || mos[1].Mode != 1 || mos[2].Mode != 0 || mos[0].PID != a0.PID {
+		t.Fatalf("cache: %+v", mos)
 	}
 	s0 := st.Slots[0]
 	want := Slot{SetID: 0, Proc: ProcMO2, Pos: [3]float32{-1500.5, 250, 3000}, AngleY: 0x4000, Tilt: -2, Action: 10, Mode: 2, AttackType: 2, AttackPhase: 1,
@@ -228,11 +233,12 @@ func TestHitApplier(t *testing.T) {
 	a := NewHitApplier(m, log.Discard{}, 7)
 	a.SetREL(true)
 	now := time.Unix(1000, 0)
+	mos := []Moblin{{Addr: 0x80AA54B8, PID: 420, SetID: 0, HomeRoom: 1, Mode: 1}, {Addr: 0x80AA1CF0, PID: 421, SetID: 1, HomeRoom: 1, Mode: 1}}
 	st := &State{Flags: StateFlagInScope, Epoch: 7, Stage: "M_Dai", Room: 1, Slots: []Slot{
 		{SetID: 0, Health: 4}, {SetID: 1, Health: 2, Flags: SlotInvuln},
 	}}
 	hit := &Hit{Client: 3, Collider: ColliderHead, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: 0, HitSeq: 1, AtType: 0x80000, Atp: 2, Pos: [3]float32{1, 2, 3}}
-	if ack := a.Offer(hit, st, now); ack != nil {
+	if ack := a.Offer(hit, st, mos, now); ack != nil {
 		t.Fatalf("a valid hit was acked at once: %+v", ack)
 	}
 	w := m.Writes()
@@ -241,11 +247,11 @@ func TestHitApplier(t *testing.T) {
 	}
 	blk, tail, _ := mailbox.DecodeEnemyBlock(w[0].Data)
 	if blk.Magic != mailbox.EnemyMagic || blk.Role != mailbox.EnemyRoleHost || blk.Epoch != 7 || len(blk.Slots) != 0 || tail != blk.Seq ||
-		blk.HitApply != (mailbox.EnemyHitApply{Seq: 1, SetID: 0, Collider: ColliderHead, AtType: 0x80000, Atp: 2, Pos: [3]float32{1, 2, 3}}) {
+		blk.HitApply != (mailbox.EnemyHitApply{Seq: 1, SetID: 0, Collider: ColliderHead, AtType: 0x80000, Atp: 2, Pos: [3]float32{1, 2, 3}, PID: 420}) {
 		t.Errorf("host block: %+v tail %d", blk, tail)
 	}
 	// Drops while one is pending, and for the invulnerable one.
-	if ack := a.Offer(&Hit{Client: 3, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: 1, HitSeq: 2}, st, now); ack == nil || ack.Result != AckDropped {
+	if ack := a.Offer(&Hit{Client: 3, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: 1, HitSeq: 2}, st, mos, now); ack == nil || ack.Result != AckDropped {
 		t.Errorf("invulnerable: %+v", ack)
 	}
 	// No ack yet.
@@ -270,16 +276,16 @@ func TestHitApplier(t *testing.T) {
 		{"other room", Hit{Client: 3, Epoch: 7, Stage: "M_Dai", Room: 2, SetID: 0, HitSeq: 6}, AckDropped},
 		{"unknown setID", Hit{Client: 3, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: 9, HitSeq: 7}, AckNoActor},
 	} {
-		if ack := a.Offer(&c.hit, st, now.Add(time.Second)); ack == nil || ack.Result != c.want {
+		if ack := a.Offer(&c.hit, st, mos, now.Add(time.Second)); ack == nil || ack.Result != c.want {
 			t.Errorf("%s: %+v", c.name, ack)
 		}
 	}
 	// Rate: a second hit on setID 0 within HitRate is dropped; after it,
 	// taken; the REL never acks: no-actor after hitAckTicks.
-	if ack := a.Offer(&Hit{Client: 4, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: 0, HitSeq: 1}, st, now.Add(HitRate/2)); ack == nil || ack.Result != AckDropped {
+	if ack := a.Offer(&Hit{Client: 4, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: 0, HitSeq: 1}, st, mos, now.Add(HitRate/2)); ack == nil || ack.Result != AckDropped {
 		t.Errorf("within HitRate: %+v", ack)
 	}
-	if ack := a.Offer(&Hit{Client: 4, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: 0, HitSeq: 2}, st, now.Add(2*HitRate)); ack != nil {
+	if ack := a.Offer(&Hit{Client: 4, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: 0, HitSeq: 2}, st, mos, now.Add(2*HitRate)); ack != nil {
 		t.Errorf("after HitRate: %+v", ack)
 	}
 	var got *Ack
@@ -294,8 +300,13 @@ func TestHitApplier(t *testing.T) {
 	}
 	// Without the REL, every hit is dropped.
 	a.SetREL(false)
-	if ack := a.Offer(&Hit{Client: 5, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: 0, HitSeq: 1}, st, now.Add(time.Minute)); ack == nil || ack.Result != AckDropped {
+	if ack := a.Offer(&Hit{Client: 5, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: 0, HitSeq: 1}, st, mos, now.Add(time.Minute)); ack == nil || ack.Result != AckDropped {
 		t.Errorf("no REL: %+v", ack)
+	}
+	// A setID the sampler has no pid for is no-actor.
+	a.SetREL(true)
+	if ack := a.Offer(&Hit{Client: 6, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: 0, HitSeq: 1}, st, nil, now.Add(2*time.Minute)); ack == nil || ack.Result != AckNoActor {
+		t.Errorf("no pid: %+v", ack)
 	}
 	m.ResetWrites()
 	if err := a.Shutdown(); err != nil {

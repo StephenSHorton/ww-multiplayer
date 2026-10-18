@@ -91,17 +91,28 @@ func DeadMask(m mem.Reader, room int8) (uint8, error) {
 	return uint8(word & 0xFF), nil
 }
 
-// Moblin is a keyed, executing, mode-0 Moblin a walk found.
+// Moblin is a keyed, executing Moblin a walk found, with an mMode the
+// mirror takes (MirrorsMode).
 type Moblin struct {
 	Addr, PID uint32
 	SetID     uint16
 	HomeRoom  int8
+	Mode      uint8 // mo2 mMode (addr.Mo2OffMode)
 }
 
+// MirrorsMode reports whether a Moblin with mo2 mMode mode is one the
+// mirror takes: 0 (patrol) and 1 (the lantern variant: M_Dai room 1's
+// setIDs 0 and 1 carry params FF00FF01 and FF01FF01, so create's low
+// byte makes them mode 1, d_a_mo2.cpp:4080, and they behave as normal
+// Moblins once the player has a pearl, d_a_mo2.cpp:4134-4146). A carried
+// one (addr.Mo2ModeCarried) and a statue (addr.Mo2ModeStatue) are
+// refused, as the REL refuses them (WWENEMY_ERR_MODE).
+func MirrorsMode(mode int32) bool { return mode == 0 || mode == 1 }
+
 // KeyedMoblins walks the actors with Layouts and returns the keyed
-// (setID < 0x200, home room 0..63), executing (initState 2), mode-0
-// Moblins whose home room is room, sorted by setID, at most MaxSlots of
-// them (the lowest setIDs).
+// (setID < 0x200, home room 0..63), executing (initState 2) Moblins of
+// a mode the mirror takes (MirrorsMode) whose home room is room, sorted
+// by setID, at most MaxSlots of them (the lowest setIDs).
 func KeyedMoblins(m mem.Reader, room int8) ([]Moblin, error) {
 	w, err := actors.ReadWith(m, 0, Layouts)
 	if err != nil {
@@ -110,8 +121,8 @@ func KeyedMoblins(m mem.Reader, room int8) ([]Moblin, error) {
 	var out []Moblin
 	for i := range w.Actors {
 		a := &w.Actors[i]
-		if a.Proc == int16(stage.ProcMO2) && a.Keyed() && a.InitState == 2 && a.ModeOK && a.Mode == 0 && a.HomeRoom == room {
-			out = append(out, Moblin{Addr: a.Addr, PID: a.PID, SetID: a.SetID, HomeRoom: a.HomeRoom})
+		if a.Proc == int16(stage.ProcMO2) && a.Keyed() && a.InitState == 2 && a.ModeOK && MirrorsMode(a.Mode) && a.HomeRoom == room {
+			out = append(out, Moblin{Addr: a.Addr, PID: a.PID, SetID: a.SetID, HomeRoom: a.HomeRoom, Mode: uint8(a.Mode)})
 		}
 	}
 	slices.SortFunc(out, func(a, b Moblin) int { return int(a.SetID) - int(b.SetID) })

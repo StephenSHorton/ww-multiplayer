@@ -153,9 +153,11 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 
 // HitApplier is the host's v1 hit path: a HIT from a client is validated
 // against the host's scope and its sample, rate-limited, and written into
-// the host's block as a hit_apply request (role host) for the host REL
-// to apply as the light-shrink kill; the REL's ack comes back as the ACK.
-// A request the validation drops is acknowledged at once.
+// the host's block as a hit_apply request (role host, with the host's
+// pid of that setID's Moblin from the sampler's cache: the REL checks
+// setID and room against it) for the host REL to apply as the
+// light-shrink kill; the REL's ack comes back as the ACK. A request the
+// validation drops is acknowledged at once.
 type HitApplier struct {
 	m        mem.Mem
 	rep      log.Reporter
@@ -171,6 +173,7 @@ type HitApplier struct {
 
 type pendingHit struct {
 	hit   Hit
+	pid   uint32
 	seq   uint32
 	at    time.Time
 	ticks int
@@ -193,10 +196,11 @@ func NewHitApplier(m mem.Mem, rep log.Reporter, epoch uint32) *HitApplier {
 // dropped (logged once).
 func (a *HitApplier) SetREL(ok bool) { a.relOK = ok }
 
-// Offer validates h against st (the host's latest STATE) at now. It
-// returns the ACK to send now (a drop), or nil when the request was
-// written and the ACK follows from Poll.
-func (a *HitApplier) Offer(h *Hit, st *State, now time.Time) *Ack {
+// Offer validates h against st (the host's latest STATE) and the
+// sampler's Moblins (the pid of the hit setID) at now. It returns the
+// ACK to send now (a drop), or nil when the request was written and the
+// ACK follows from Poll.
+func (a *HitApplier) Offer(h *Hit, st *State, moblins []Moblin, now time.Time) *Ack {
 	ack := &Ack{Client: h.Client, Result: AckDropped, Epoch: h.Epoch, SetID: h.SetID, HitSeq: h.HitSeq}
 	if st == nil || h.Epoch != a.epoch || h.Stage != st.Stage || h.Room != st.Room || st.Flags&StateFlagInScope == 0 {
 		return ack
@@ -211,7 +215,13 @@ func (a *HitApplier) Offer(h *Hit, st *State, now time.Time) *Ack {
 			sl = &st.Slots[i]
 		}
 	}
-	if sl == nil {
+	var pid uint32
+	for i := range moblins {
+		if moblins[i].SetID == h.SetID {
+			pid = moblins[i].PID
+		}
+	}
+	if sl == nil || pid == 0 {
 		ack.Result = AckNoActor
 		return ack
 	}
@@ -234,7 +244,7 @@ func (a *HitApplier) Offer(h *Hit, st *State, now time.Time) *Ack {
 	}
 	a.seq++
 	a.lastHit[h.SetID] = now
-	a.pending = &pendingHit{hit: *h, seq: a.seq, at: now}
+	a.pending = &pendingHit{hit: *h, pid: pid, seq: a.seq, at: now}
 	if err := a.writeBlock(now); err != nil {
 		log.Logf(a.rep, log.Warn, "enemy host: hit_apply write: %v", err)
 		a.pending = nil
@@ -250,7 +260,7 @@ func (a *HitApplier) writeBlock(now time.Time) error {
 	b := &mailbox.EnemyBlock{Magic: mailbox.EnemyMagic, Seq: a.blockSeq, GoWriteMS: uint32(now.UnixMilli()),
 		Flags: mailbox.EnemyFlagMirror, Layout: mailbox.EnemyLayout, Epoch: a.epoch, Role: mailbox.EnemyRoleHost}
 	if p := a.pending; p != nil {
-		b.HitApply = mailbox.EnemyHitApply{Seq: p.seq, SetID: p.hit.SetID, Collider: p.hit.Collider, AtType: p.hit.AtType, Atp: p.hit.Atp, Pos: p.hit.Pos}
+		b.HitApply = mailbox.EnemyHitApply{Seq: p.seq, SetID: p.hit.SetID, Collider: p.hit.Collider, AtType: p.hit.AtType, Atp: p.hit.Atp, Pos: p.hit.Pos, PID: p.pid}
 	}
 	return mailbox.WriteEnemyBlock(a.m, b)
 }
@@ -298,5 +308,5 @@ func (a *HitApplier) Shutdown() error {
 }
 
 func (p *pendingHit) String() string {
-	return fmt.Sprintf("hit_apply %d (setID %d, client %d, hit_seq %d)", p.seq, p.hit.SetID, p.hit.Client, p.hit.HitSeq)
+	return fmt.Sprintf("hit_apply %d (setID %d pid %d, client %d, hit_seq %d)", p.seq, p.hit.SetID, p.pid, p.hit.Client, p.hit.HitSeq)
 }
