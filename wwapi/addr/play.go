@@ -234,6 +234,17 @@ const (
 	ActorStatusBoss    = 0x04000000         // fopAcStts_BOSS_e (f_op_actor.h:43)
 	ActorOffCarryByte  = ActorOffStatus + 2 // the big-endian byte of actor_status that holds CARRY
 	ActorCarryByteMask = byte(ActorStatusCarry >> 8)
+
+	// The fields the enemy mirror reads on the host and the REL writes on
+	// a client (moblin-mirror-design.json "host_side"); each at its
+	// f_op_actor.h / f_pc_base.h line.
+	ActorOffPauseFlag  = 0x00B // u8 mPauseFlag (f_pc_base.h:18): bit 1 set skips the actor's execute (fpcPause_IsEnable, f_pc_executor.cpp:30-34)
+	ActorOffOldPos     = 0x1E4 // cXyz old.pos (actor_place old, f_op_actor.h:288)
+	ActorOffShapeAngle = 0x20C // csXyz shape_angle (f_op_actor.h:291)
+	ActorOffSpeed      = 0x220 // cXyz speed (f_op_actor.h:293)
+	ActorOffModel      = 0x24C // J3DModel* model (f_op_actor.h:300)
+	ActorOffSpeedF     = 0x254 // f32 speedF (f_op_actor.h:302)
+	ActorOffEyePos     = 0x260 // cXyz eyePos (f_op_actor.h:305)
 )
 
 // enemyice (c_damagereaction.h:12-46), the member every enemy that polls

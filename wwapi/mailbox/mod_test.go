@@ -56,14 +56,16 @@ func TestModRegions(t *testing.T) {
 	if BootLRSlot != MainStack.End+4 || !MainStackHeader.Contains(BootLRSlot, 4) || CanaryTRK.Contains(BootLRSlot, 4) {
 		t.Errorf("boot LR slot 0x%08X is not 4(_stack_addr) inside the stack header", BootLRSlot)
 	}
-	if CanaryTRK.End != T2Base || CanaryArena.Start != Mailbox+MailboxSize || CanaryArena.End != PatchedArenaLo {
-		t.Error("canary regions do not border T2, the mailbox and the arena")
+	if CanaryTRK.End != T2Base || CanaryArena.Start != Mailbox+MailboxSize || CanaryArena.End != EnemyBlockRegion.Start ||
+		CanaryArenaHigh.Start != EnemyBlockRegion.End || CanaryArenaHigh.End != PatchedArenaLo {
+		t.Error("canary regions do not border T2, the mailbox, the enemy block and the arena")
 	}
-	if CanaryTRK.Size() != 0x3050 || CanaryArena.Size() != 0xF50 {
-		t.Errorf("canary sizes 0x%X / 0x%X, want 0x3050 / 0xF50 (§4.5; 0xF60 before E1 grew the mailbox to 0x1B0)", CanaryTRK.Size(), CanaryArena.Size())
+	if CanaryTRK.Size() != 0x3050 || CanaryArena.Size() != 0x50 || CanaryArenaHigh.Size() != 0xDA0 || EnemyBlockRegion.Size() != 0x160 {
+		t.Errorf("canary sizes 0x%X / 0x%X / 0x%X around a 0x%X enemy block, want 0x3050 / 0x50 / 0xDA0 / 0x160 (§4.5; the slack was 0xF50 before the enemy block, 0xF60 before E1 grew the mailbox to 0x1B0)",
+			CanaryTRK.Size(), CanaryArena.Size(), CanaryArenaHigh.Size(), EnemyBlockRegion.Size())
 	}
-	for _, r := range []addr.Region{CanaryTRK, CanaryArena} {
-		if r.Contains(SpawnTrigger, 4) || r.Contains(T2Base, 4) {
+	for _, r := range []addr.Region{CanaryTRK, CanaryArena, CanaryArenaHigh} {
+		if r.Contains(SpawnTrigger, 4) || r.Contains(T2Base, 4) || r.Contains(EnemyBlockAddr, 4) || r.Contains(EnemyBlockAddr+EnemySize-4, 4) {
 			t.Errorf("%s overlaps the mod", r.Name)
 		}
 	}

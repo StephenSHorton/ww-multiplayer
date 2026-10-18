@@ -123,6 +123,12 @@ type Client struct {
 	// lobby client (NewLobbyClient) receives. A player or co-op client
 	// drops MsgLobby.
 	OnLobby func(payload []byte)
+
+	// OnEnemy is invoked from the read loop with each MsgEnemy payload an
+	// enemy-sync client (NewEnemyClient) receives; the payload is the
+	// callback's to keep. Any other client drops MsgEnemy. Like OnCoop,
+	// it runs on the read loop, so it must hand slow work off.
+	OnEnemy func(payload []byte)
 }
 
 // NewClient creates a client with the given player name.
@@ -212,6 +218,8 @@ func (c *Client) ConnectContext(ctx context.Context, addr string) error {
 	c.mu.Unlock()
 	if c.role == RoleCoop {
 		c.log(fmt.Sprintf("Connected for co-op (co-op ID %d)", id))
+	} else if isEnemyRole(c.role) {
+		c.log(fmt.Sprintf("Connected for enemy sync (enemy ID %d)", id))
 	} else if c.role == RoleLobby {
 		c.log("Connected to the lobby")
 	} else {
@@ -566,6 +574,12 @@ func (c *Client) readLoop(conn net.Conn) {
 			// Only a lobby connection takes them (lobby_client.go).
 			if c.role == RoleLobby && c.OnLobby != nil {
 				c.OnLobby(msg.Data)
+			}
+
+		case MsgEnemy:
+			// Only an enemy-sync connection takes them (enemy.go).
+			if isEnemyRole(c.role) && c.OnEnemy != nil {
+				c.OnEnemy(msg.Data)
 			}
 		}
 	}

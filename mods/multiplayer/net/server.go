@@ -47,8 +47,13 @@ type Server struct {
 	// never in players: no relay, roster or player count sees them.
 	coops      map[byte]*CoopConn
 	nextCoopID byte
-	mu         sync.RWMutex
-	port       int
+	// enemyHost and enemyClients are the enemy-sync connections
+	// (enemy.go), by enemy ID (one space for both). Never in players.
+	enemyHost    *enemyConn
+	enemyClients map[byte]*enemyConn
+	nextEnemyID  byte
+	mu           sync.RWMutex
+	port         int
 	// epoch is constant for the life of this Server instance (its boot-time
 	// nanos). It rides along in every welcome so a reconnecting client can
 	// tell that the server process restarted and trigger a full resync.
@@ -104,6 +109,8 @@ func NewServer(port int) *Server {
 		colorByName:    make(map[string]playercolor.Color),
 		coops:          make(map[byte]*CoopConn),
 		nextCoopID:     1,
+		enemyClients:   make(map[byte]*enemyConn),
+		nextEnemyID:    1,
 		port:           port,
 		epoch:          uint64(time.Now().UnixNano()),
 		heartbeatEvery: heartbeatInterval,
@@ -164,6 +171,7 @@ func (s *Server) Stop() {
 	for _, c := range s.coops {
 		c.Close()
 	}
+	s.closeEnemyLocked()
 	s.mu.Unlock()
 	s.lobby.closeAll()
 }
@@ -273,6 +281,10 @@ func (s *Server) handlePlayer(conn net.Conn) {
 		// Nor does a lobby connection (lobby.go).
 		s.handleLobby(conn, name, caps)
 		return
+	case RoleEnemyHost, RoleEnemyClient:
+		// Nor an enemy-sync connection (enemy.go).
+		s.handleEnemy(conn, name, role)
+		return
 	default:
 		s.refuse(conn, name, RejectRole, fmt.Sprintf("unknown connection role %d; both players need the same ww-multiplayer version", role))
 		return
@@ -329,8 +341,9 @@ func (s *Server) handlePlayer(conn net.Conn) {
 	go s.heartbeatLoop(player, done)
 
 	// Read loop
-	poseWarned := false // log a stream of bad pose frames once, not per frame
-	coopWarned := false // and co-op frames on this player connection
+	poseWarned := false  // log a stream of bad pose frames once, not per frame
+	coopWarned := false  // and co-op frames on this player connection
+	enemyWarned := false // and enemy-sync frames on this player connection
 	for {
 		// Reset the read deadline each iteration. A net.Error Timeout from
 		// an ungracefully-gone peer surfaces as an ordinary read error →
@@ -409,6 +422,14 @@ func (s *Server) handlePlayer(conn net.Conn) {
 			if !coopWarned {
 				coopWarned = true
 				s.log(fmt.Sprintf("dropping co-op frames from %s: not a co-op connection", name))
+			}
+
+		case MsgEnemy:
+			// Enemy-sync frames belong on an enemy connection
+			// (handleEnemy), never on a player's: drop them.
+			if !enemyWarned {
+				enemyWarned = true
+				s.log(fmt.Sprintf("dropping enemy-sync frames from %s: not an enemy-sync connection", name))
 			}
 		}
 	}

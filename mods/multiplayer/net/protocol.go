@@ -47,6 +47,15 @@ const (
 	// [sub:1][body], encoded by package mods/coop/wire. The server
 	// drops one that arrives on a player connection.
 	MsgCoop byte = 'O' // Both: co-op sub-message
+
+	// Enemy sync (the host-authoritative Moblin mirror, enemy.go). Travels
+	// only on an enemy connection (RoleEnemyHost or RoleEnemyClient in the
+	// hello); the payload is [sub:1][ver:1][body], encoded by package
+	// mods/enemysync. The server relays a STATE from the host to every
+	// enemy client, a HIT from an enemy client to the host and an ACK from
+	// the host to the client it names, and drops one that arrives on a
+	// player connection.
+	MsgEnemy byte = 'E' // Both: enemy-sync sub-message
 )
 
 // Payload caps. The server enforces them at ingress so that every frame it

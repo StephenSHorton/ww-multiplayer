@@ -89,6 +89,11 @@ const (
 	RolePlayer byte = 0 // a player: pose, position, chat and the roster (also a hello with no role byte)
 	RoleCoop   byte = 1 // the co-op pipeline: MsgCoop only, routed to the server's CoopHandler
 	RoleLobby  byte = 2 // the app's lobby connection: MsgLobby, chat and the heartbeat (lobby.go)
+	// Enemy sync (enemy.go): the host's sampler dials with RoleEnemyHost
+	// (one per server) and every joiner's mirror with RoleEnemyClient.
+	// Neither is a player; both carry MsgEnemy and the heartbeat alone.
+	RoleEnemyHost   byte = 3
+	RoleEnemyClient byte = 4
 )
 
 // helloTimeout is how long a server waits after a join for the client's
