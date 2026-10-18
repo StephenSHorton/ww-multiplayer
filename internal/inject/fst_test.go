@@ -2,6 +2,8 @@ package inject
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -115,4 +117,69 @@ func TestDetectUnsupportedFormat(t *testing.T) {
 			t.Errorf("%q...: %v", ok[:min(len(ok), 6)], err)
 		}
 	}
+}
+
+// vanillaDiscPath is internal/vanillatest.Path for this package's own
+// tests (vanillatest imports inject, so they can't import it): the
+// WW_VANILLA_DISC image, else the conventional places.
+func vanillaDiscPath() string {
+	if p := os.Getenv("WW_VANILLA_DISC"); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	const name = "Legend of Zelda, The - The Wind Waker (USA, Canada)"
+	for _, dir := range []string{filepath.Join(home, "Desktop", "Dolphin-x64", "Roms"), filepath.Join(home, "Roms")} {
+		for _, ext := range []string{".ciso", ".iso"} {
+			if p := filepath.Join(dir, name+ext); fileExists(p) {
+				return p
+			}
+		}
+	}
+	return ""
+}
+
+// On the real disc's FST (2000-odd entries, nested directories),
+// fstRootFile finds RELS.arc where Disc.Stat does, by any spelling, and
+// nothing that lives in a subdirectory.
+func TestFSTRootFileVanilla(t *testing.T) {
+	p := vanillaDiscPath()
+	if p == "" {
+		t.Skip("no vanilla disc: set WW_VANILLA_DISC to the ISO or CISO")
+	}
+	d, err := OpenDisc(p)
+	if err != nil {
+		t.Skipf("vanilla disc %s: %v", p, err)
+	}
+	defer d.Close()
+	boot, err := d.readAt(0, isoHeaderEnd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fst, err := d.readAt(uint64(be32(boot, isoHeaderFSTOff)), uint64(be32(boot, isoHeaderFSTSize)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := d.Stat("RELS.arc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"RELS.arc", "rels.arc", "RELS.ARC"} {
+		idx, e, err := fstRootFile(fst, name)
+		if err != nil || e.dir || e.w1 != want.Offset || e.w2 != want.Size {
+			t.Errorf("fstRootFile(%q) = %d, %+v, %v; want offset 0x%x size 0x%x", name, idx, e, err, want.Offset, want.Size)
+		}
+	}
+	for _, name := range []string{"Stage.arc", "d_a_acorn_leaf.map", "Link.arc", "res", "maps"} {
+		if _, _, err := fstRootFile(fst, name); err == nil {
+			t.Errorf("fstRootFile(%q) found a root file", name)
+		}
+	}
+	files, err := fstFileExtents(fst)
+	if err != nil || len(files) < 2000 {
+		t.Errorf("%d file extents, %v", len(files), err)
+	}
+	t.Logf("RELS.arc at 0x%x, 0x%x bytes, among %d files", want.Offset, want.Size, len(files))
 }

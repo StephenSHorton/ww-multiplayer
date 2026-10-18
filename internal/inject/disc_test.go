@@ -47,7 +47,9 @@ type testDisc struct {
 
 // vanillaLike mimics vanilla WW's shape at small scale: the FST right
 // after the DOL and bigger than the mod's DOL growth, a wide free gap with
-// 0x500000 in it, then files packed toward the end of the image.
+// 0x500000 in it, then files packed toward the end of the image, with
+// RELS.arc in the root directory as on the disc (buildFST puts the first
+// two files under res/).
 func vanillaLike() testDisc {
 	return testDisc{
 		size:   testImageSize,
@@ -55,8 +57,8 @@ func vanillaLike() testDisc {
 		fstPad: 0x4000,
 		files: []testFile{
 			{name: "Stage.arc", off: 0x540000, size: 0x20000},
-			{name: "RELS.arc", off: 0x560000, size: 0x31000},
 			{name: "empty.txt", off: 0, size: 0},
+			{name: "RELS.arc", off: 0x560000, size: 0x31000},
 			{name: "opening.bnr", off: 0x5A0000, size: 0x1960},
 			{name: "Audio.aw", off: 0x5B0000, size: 0x4F000},
 		},
