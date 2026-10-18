@@ -277,6 +277,7 @@ func (b builtDisc) want(t testing.TB, newFST uint32) []byte {
 		put32(exp, isoHeaderFSTOff, newFST)
 	}
 	copy(exp[b.dolOff:], patchedDOL)
+	put32(exp, isoBI2SimMemOff, simulatedMEM1Size) // bi2.bin: 48 MB (docs/05 "48 MB MEM1")
 	return exp
 }
 
@@ -290,6 +291,9 @@ func (b builtDisc) checkPatched(t *testing.T, out []byte, newFST uint32) {
 	}
 	if got := be32(out, isoHeaderFSTOff); got != newFST {
 		t.Fatalf("header FST offset = 0x%x, want 0x%x", got, newFST)
+	}
+	if got := be32(out, isoBI2SimMemOff); got != simulatedMEM1Size {
+		t.Fatalf("bi2.bin simulated memory size = 0x%x, want 0x%x (48 MB)", got, simulatedMEM1Size)
 	}
 	if got := be32(out, isoHeaderFSTSize); got != uint32(len(b.fst)) {
 		t.Fatalf("header FST size = 0x%x, want 0x%x", got, len(b.fst))

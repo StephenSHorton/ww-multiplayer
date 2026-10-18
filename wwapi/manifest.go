@@ -29,10 +29,11 @@ const (
 // ProvideNet is the "provides" role of the network session provider.
 const ProvideNet = "net"
 
-// MEM1 bounds a declared write range.
+// MEM1 bounds a declared write range (48 MB since docs/05 "48 MB MEM1";
+// addr.MEM1End is the same number).
 const (
 	MEM1Start = 0x80000000
-	MEM1End   = 0x81800000
+	MEM1End   = 0x83000000
 )
 
 // AddrRange is one declared write range: [Start, End) in MEM1.

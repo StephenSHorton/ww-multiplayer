@@ -9,7 +9,7 @@ import (
 // write, so a FakeMem costs a few KiB however much of MEM1 it covers.
 const fakePageSize = 0x1000
 
-// FakeMem is a Mem over all of MEM1 (0x80000000-0x81800000) held in Go
+// FakeMem is a Mem over all of MEM1 (0x80000000-0x83000000) held in Go
 // memory: zero until written, and refusing out-of-range access with the
 // same error a live *emu.Dolphin gives. It is safe for concurrent use.
 //

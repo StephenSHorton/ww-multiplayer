@@ -50,9 +50,11 @@ func legacyEnvOrDefault(key, fallback string) string {
 	return fallback
 }
 
-// legacyLaunchArgs is launchDolphinDetached's argument list.
+// legacyLaunchArgs is launchDolphinDetached's argument list, plus the 48 MB
+// MEM1 override every launch carries since docs/05 "48 MB MEM1".
 func legacyLaunchArgs(userDir, iso, saveState string) []string {
 	args := []string{"-u", userDir, "-e", iso}
+	args = append(args, launch.MEM1Override...)
 	if saveState != "" {
 		args = append(args, "--save_state="+saveState)
 	}

@@ -6,15 +6,29 @@ import (
 )
 
 // LaunchArgs are the Dolphin arguments Launch passes: the user directory
-// (-u), the disc to boot (-e), and, when saveState is non-empty,
-// --save_state=<path> so the game boots straight into that state,
-// bypassing the title screen and save-select menus.
+// (-u), the disc to boot (-e), the 48 MB MEM1 override as session-only
+// config (-C; the patched disc's heap plan needs it, docs/05 "48 MB
+// MEM1"; Dolphin 2609+ would size MEM1 from the disc's bi2.bin anyway,
+// older builds need the override, and a vanilla disc in the same session
+// trims its arena back to 24 MB on its own), and, when saveState is
+// non-empty, --save_state=<path> so the game boots straight into that
+// state, bypassing the title screen and save-select menus.
 func LaunchArgs(userDir, iso, saveState string) []string {
 	args := []string{"-u", userDir, "-e", iso}
+	args = append(args, MEM1Override...)
 	if saveState != "" {
 		args = append(args, "--save_state="+saveState)
 	}
 	return args
+}
+
+// MEM1Override is the Dolphin command line that enables the emulated
+// memory size override at 48 MB for this session only (nothing is
+// written to the user's Dolphin.ini). Both keys live in Dolphin's
+// [Core] section; -C has been accepted since 2017.
+var MEM1Override = []string{
+	"-C", "Dolphin.Core.RAMOverrideEnable=True",
+	"-C", "Dolphin.Core.MEM1Size=0x03000000",
 }
 
 // Launch starts Dolphin with the given user dir and auto-boot ISO as a

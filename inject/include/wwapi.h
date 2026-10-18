@@ -449,6 +449,9 @@ typedef void (*J3DJoint_entryIn_t)(J3DJoint* self);
 
 // J3D struct field offsets.
 #define J3DJOINT_MESH_OFFSET            0x60   // J3DMaterial* mMesh
+// End of MEM1 for pointer sanity checks: 48 MB since docs/05 "48 MB
+// MEM1" (the archive and game heaps now reach past 0x81800000).
+#define MEM1_END 0x83000000u
 #define J3DMATERIAL_NEXT_OFFSET         0x04   // J3DMaterial* mNext
 #define J3DMATERIAL_SHAPE_OFFSET        0x08   // J3DShape* mShape
 #define J3DSHAPE_FLAGS_OFFSET           0x0C   // u32 mFlags

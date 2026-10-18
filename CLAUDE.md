@@ -269,6 +269,7 @@ confirms the `blob` payload line in blob.stamp is unchanged (only the
 3. **OnFrame patches don't write to code sections.** AR codes can write there but don't invalidate the JIT cache. Only Gecko C2 hooks properly invalidate JIT for code changes.
 4. **BSS zeroing overlaps with injected sections past the DOL end.** Putting code at `0x803FCF20+` fails because game initialization zeros that region.
 5. **CISO files have block boundaries.** The Wind Waker DOL spans 2 blocks in the CISO — a naive patcher will corrupt block 2.
+6. **The patched disc runs with 48 MB of MEM1** (docs/05 "48 MB MEM1"): the patcher sets bi2.bin's simulated size and the DOL's heap plan, and every Dolphin launch passes the RAM override. A save state captured at the other size refuses to load, and pointer bounds are `addr.MEM1End` = 0x83000000, not 0x81800000.
 
 ## Related Project
 

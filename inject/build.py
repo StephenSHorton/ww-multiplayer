@@ -420,6 +420,19 @@ def main():
         (0x8030181C, b"\x3c\x60\x80\x41"),  # lis r3, 0x8041
         (0x80301820, b"\x38\x63\x40\x00"),  # addi r3, r3, 0x4000  -> r3 = 0x80414000
         (0x80301838, b"\x48\x00\x00\x30"),  # b +0x30 (skip debug path)
+        # 48 MB MEM1 (2026-10-18, docs/05 "48 MB MEM1"): mDoMch_Create's heap
+        # plan (m_Do_machine.cpp:500-612), the ww-online split: archive heap
+        # +4 MiB, game heap +4 MiB. The system heap keeps its vanilla size:
+        # the game itself drops 16 MiB when OSGetConsoleSimulatedMemSize()
+        # reports 48 MB (0x8000C7DC-0x8000C7E8), and the arena-size subtract
+        # below grows by the 8 MiB the two heaps take. bi2.bin's simulated
+        # size (0x03000000 at bi2+4) is the patcher's job (internal/inject/
+        # iso.go). Emulator only: Dolphin 2609+ sizes MEM1 from bi2, older
+        # builds need the RAM override, which launch.LaunchArgs passes.
+        (0x8000C7A4, b"\x3c\x00\x83\x00"),                   # lis r0, 0x8300: arena-hi trim threshold (was lis r0, 0x8180)
+        (0x8000C844, b"\x3c\x7f\xfe\xae\x38\x03\xf4\x00"),  # addis r3,r31,-0x152 / addi r0,r3,-0xC00: arena -= 0x1520C00 (was 0xD20C00)
+        (0x8000C9DC, b"\x3c\x60\x00\xe5\x38\x63\x14\x00"),  # archive heap 0xE51400 (was 0xA51400)
+        (0x8000C9EC, b"\x3c\x60\x00\x6d\x38\x63\xe8\x00"),  # game heap 0x6CE800 (was 0x2CE800)
     ]
     with open(output_dol, "r+b") as f:
         for addr, bytes_ in patches:

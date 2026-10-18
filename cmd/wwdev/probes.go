@@ -254,7 +254,7 @@ func runUnhidePuppet() {
 			continue
 		}
 		ptr, err := d.ReadU32(feed.SlotAddr(i, mailbox.PuppetOffActorPtr))
-		if err != nil || ptr < 0x80000000 || ptr >= 0x81800000 {
+		if err != nil || ptr < 0x80000000 || ptr >= 0x83000000 {
 			continue // actor not yet resolved by C; skip this tick
 		}
 		procWord, err := d.ReadU32(ptr + 0x08)
@@ -517,7 +517,7 @@ func matchMiniLinkSlot(d mem.Reader, nodeMtx uint32) int {
 				continue
 			}
 			ptr, err := mem.ReadU32(d, mailbox.Mailbox+avatar.OffPoseBufPtr(i))
-			if err != nil || ptr < 0x80000000 || ptr >= 0x81800000 {
+			if err != nil || ptr < 0x80000000 || ptr >= 0x83000000 {
 				continue
 			}
 			buf, err := d.Read(ptr, n)
@@ -658,7 +658,7 @@ func runEyeAnimFind() {
 	fmt.Printf("mini_link_data       = 0x%08X (Link+0x328)\n", modelData)
 	fmt.Printf("Link #1's J3DModel   = 0x%08X (Link+0x32C)\n\n", ownModel)
 
-	const memLo, memHi = uint32(0x80000000), uint32(0x81800000)
+	const memLo, memHi = uint32(0x80000000), uint32(0x83000000)
 	const chunk = uint32(2 * 1024 * 1024)
 	// J3DModel layout — mModelData is at +0x04 (not +0x10 as initially assumed).
 	const modelDataOff = uint32(0x04)
@@ -686,7 +686,7 @@ func runEyeAnimFind() {
 	}
 	fmt.Printf("MEM1 scan: %d u32-aligned addresses had +0x04 == mini_link_data\n\n", len(hits))
 
-	isMEM1 := func(v uint32) bool { return v >= 0x80000000 && v < 0x81800000 }
+	isMEM1 := func(v uint32) bool { return v >= 0x80000000 && v < 0x83000000 }
 	for _, h := range hits {
 		hdr, err := d.Read(h, 0xC0)
 		if err != nil {
@@ -771,7 +771,7 @@ func runEyeAnimDLDump(modelAddrHex string, n uint32) {
 		{"matpkt-field-as-pointer", matPktField},
 		{"in-place-at-model+0xB4", modelAddr + 0xB4},
 	}
-	isMEM1 := func(v uint32) bool { return v >= 0x80000000 && v < 0x81800000 }
+	isMEM1 := func(v uint32) bool { return v >= 0x80000000 && v < 0x83000000 }
 	matIdx := []int{0, 1, 2, 3, 4, 5}
 
 	for _, b := range bases {
@@ -826,7 +826,7 @@ func runEyeAnimDLDump(modelAddrHex string, n uint32) {
 							fmt.Printf("      DL bytes @ 0x%08X (size 0x%X), highlighting 0x27:\n", p0, p1)
 							dumpHexLine(raw, p0, "        ", 0x27, true)
 						}
-					} else if v >= 0x80000000 && v < 0x81800000 {
+					} else if v >= 0x80000000 && v < 0x83000000 {
 						raw, err := d.Read(v, int(n))
 						if err == nil {
 							hits := 0
@@ -969,7 +969,7 @@ func runEyeAnimPoke(modelAddrHex string, secs int) {
 		os.Exit(1)
 	}
 
-	isMEM1 := func(v uint32) bool { return v >= 0x80000000 && v < 0x81800000 }
+	isMEM1 := func(v uint32) bool { return v >= 0x80000000 && v < 0x83000000 }
 	resolveMatpacketBase := func() uint32 {
 		if isMEM1(matPktField) {
 			return matPktField
@@ -1114,7 +1114,7 @@ func runFaceDlLoop(secs int, forceLsb int) {
 	// condensed: scan MEM1 for J3DModel candidates whose +0x04 ==
 	// mini_link_data (Link's mpCLModelData), minus Link's own model.
 	miniData, err := linkModelData(d)
-	if err != nil || miniData < 0x80000000 || miniData >= 0x81800000 {
+	if err != nil || miniData < 0x80000000 || miniData >= 0x83000000 {
 		fmt.Printf("Link's mpCLModelData not available (got 0x%08X)\n", miniData)
 		os.Exit(1)
 	}
@@ -1123,7 +1123,7 @@ func runFaceDlLoop(secs int, forceLsb int) {
 	// expect 2-3 candidates: mini_link_models[0], mini_link_models[1],
 	// and Link's own model. The two whose +0x8C is in heap (not in
 	// the local-Link's range) are the mini-links.
-	const memLo, memHi = uint32(0x80000000), uint32(0x81800000)
+	const memLo, memHi = uint32(0x80000000), uint32(0x83000000)
 	const chunk = uint32(2 * 1024 * 1024)
 	type candidate struct {
 		addr    uint32
@@ -1159,7 +1159,7 @@ func runFaceDlLoop(secs int, forceLsb int) {
 			}
 			nm := binary.BigEndian.Uint32(hdr[0x8C:0x90])
 			mp := binary.BigEndian.Uint32(hdr[0xB4:0xB8])
-			if nm == 0 || mp < 0x80000000 || mp >= 0x81800000 {
+			if nm == 0 || mp < 0x80000000 || mp >= 0x83000000 {
 				continue
 			}
 			cands = append(cands, candidate{addr: cand, matpkts: mp, nodeMtx: nm})
@@ -1209,12 +1209,12 @@ func runFaceDlLoop(secs int, forceLsb int) {
 		for mi, idx := range mats {
 			mpAddr := c.matpkts + uint32(idx)*matpacketSize
 			dlObj, err := d.ReadU32(mpAddr + 0x20)
-			if err != nil || dlObj < 0x80000000 || dlObj >= 0x81800000 {
+			if err != nil || dlObj < 0x80000000 || dlObj >= 0x83000000 {
 				continue
 			}
 			dlPtr, _ := d.ReadU32(dlObj + 0x00)
 			dlLen, _ := d.ReadU32(dlObj + 0x08) // CORRECTED: length at +0x08 (not +0x04)
-			if dlPtr < 0x80000000 || dlPtr >= 0x81800000 || dlLen == 0 || dlLen > 0x10000 {
+			if dlPtr < 0x80000000 || dlPtr >= 0x83000000 || dlLen == 0 || dlLen > 0x10000 {
 				continue
 			}
 			raw, err := d.Read(dlPtr, int(dlLen))
@@ -1369,27 +1369,27 @@ func runFaceSyncTevPoll(secs int, faceHex string) {
 	defer d.Close()
 
 	linkPtr, err := d.ReadU32(0x803CA754)
-	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x81800000 {
+	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x83000000 {
 		fmt.Printf("link actor not resolved (linkPtr=0x%08X)\n", linkPtr)
 		os.Exit(1)
 	}
 	dataPtr, err := d.ReadU32(linkPtr + 0x0328)
-	if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x81800000 {
+	if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x83000000 {
 		fmt.Printf("mpCLModel not resolved (dataPtr=0x%08X)\n", dataPtr)
 		os.Exit(1)
 	}
 	matArr, err := d.ReadU32(dataPtr + 0x58 + 0x08)
-	if err != nil || matArr < 0x80000000 || matArr >= 0x81800000 {
+	if err != nil || matArr < 0x80000000 || matArr >= 0x83000000 {
 		fmt.Printf("matArr not resolved (0x%08X)\n", matArr)
 		os.Exit(1)
 	}
 	resolveTev := func(idx int) uint32 {
 		matPtr, err := d.ReadU32(matArr + uint32(idx)*4)
-		if err != nil || matPtr < 0x80000000 || matPtr >= 0x81800000 {
+		if err != nil || matPtr < 0x80000000 || matPtr >= 0x83000000 {
 			return 0
 		}
 		tev, err := d.ReadU32(matPtr + 0x2C)
-		if err != nil || tev < 0x80000000 || tev >= 0x81800000 {
+		if err != nil || tev < 0x80000000 || tev >= 0x83000000 {
 			return 0
 		}
 		return tev
@@ -1553,17 +1553,17 @@ func runFaceTevHammer(secs int, texHex string) {
 	defer d.Close()
 
 	linkPtr, err := d.ReadU32(0x803CA754)
-	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x81800000 {
+	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x83000000 {
 		fmt.Printf("link actor not resolved (linkPtr=0x%08X)\n", linkPtr)
 		os.Exit(1)
 	}
 	dataPtr, err := d.ReadU32(linkPtr + 0x0328)
-	if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x81800000 {
+	if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x83000000 {
 		fmt.Printf("mpCLModel not resolved (dataPtr=0x%08X)\n", dataPtr)
 		os.Exit(1)
 	}
 	matArr, err := d.ReadU32(dataPtr + 0x58 + 0x08)
-	if err != nil || matArr < 0x80000000 || matArr >= 0x81800000 {
+	if err != nil || matArr < 0x80000000 || matArr >= 0x83000000 {
 		fmt.Printf("matArr not resolved (0x%08X)\n", matArr)
 		os.Exit(1)
 	}
@@ -1575,12 +1575,12 @@ func runFaceTevHammer(secs int, texHex string) {
 	slots := []matSlot{}
 	for _, idx := range []int{1, 4} {
 		matPtr, err := d.ReadU32(matArr + uint32(idx)*4)
-		if err != nil || matPtr < 0x80000000 || matPtr >= 0x81800000 {
+		if err != nil || matPtr < 0x80000000 || matPtr >= 0x83000000 {
 			fmt.Printf("mat[%d] ptr bad (0x%08X) — skip\n", idx, matPtr)
 			continue
 		}
 		tev, err := d.ReadU32(matPtr + 0x2C)
-		if err != nil || tev < 0x80000000 || tev >= 0x81800000 {
+		if err != nil || tev < 0x80000000 || tev >= 0x83000000 {
 			fmt.Printf("mat[%d] tevBlock bad (0x%08X) — skip\n", idx, tev)
 			continue
 		}
@@ -1787,12 +1787,12 @@ func runFaceMatList() {
 	}
 	defer d.Close()
 	linkPtr, err := d.ReadU32(0x803CA754)
-	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x81800000 {
+	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x83000000 {
 		fmt.Printf("link actor not resolved (linkPtr=0x%08X)\n", linkPtr)
 		os.Exit(1)
 	}
 	dataPtr, err := d.ReadU32(linkPtr + 0x0328)
-	if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x81800000 {
+	if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x83000000 {
 		fmt.Printf("mpCLModelData not resolved (dataPtr=0x%08X)\n", dataPtr)
 		os.Exit(1)
 	}
@@ -1805,19 +1805,19 @@ func runFaceMatList() {
 	}
 	matCount := int(matCountBytes[0])<<8 | int(matCountBytes[1])
 	matArr, err := d.ReadU32(dataPtr + 0x58 + 0x08)
-	if err != nil || matArr < 0x80000000 || matArr >= 0x81800000 {
+	if err != nil || matArr < 0x80000000 || matArr >= 0x83000000 {
 		fmt.Printf("matArr not resolved (0x%08X)\n", matArr)
 		os.Exit(1)
 	}
 	fmt.Printf("Link J3DModelData = 0x%08X  matCount=%d  matArr=0x%08X\n", dataPtr, matCount, matArr)
 	for i := 0; i < matCount; i++ {
 		matPtr, err := d.ReadU32(matArr + uint32(i)*4)
-		if err != nil || matPtr < 0x80000000 || matPtr >= 0x81800000 {
+		if err != nil || matPtr < 0x80000000 || matPtr >= 0x83000000 {
 			fmt.Printf("  mat[%2d] = 0x%08X (bad)\n", i, matPtr)
 			continue
 		}
 		tev, err := d.ReadU32(matPtr + 0x2C)
-		if err != nil || tev < 0x80000000 || tev >= 0x81800000 {
+		if err != nil || tev < 0x80000000 || tev >= 0x83000000 {
 			fmt.Printf("  mat[%2d] = 0x%08X  tev=0x%08X (bad)\n", i, matPtr, tev)
 			continue
 		}
@@ -1849,27 +1849,27 @@ func runFaceMatHammer(idx int, texHex string, secs int) {
 	}
 	defer d.Close()
 	linkPtr, err := d.ReadU32(0x803CA754)
-	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x81800000 {
+	if err != nil || linkPtr < 0x80000000 || linkPtr >= 0x83000000 {
 		fmt.Printf("link actor not resolved (linkPtr=0x%08X)\n", linkPtr)
 		os.Exit(1)
 	}
 	dataPtr, err := d.ReadU32(linkPtr + 0x0328)
-	if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x81800000 {
+	if err != nil || dataPtr < 0x80000000 || dataPtr >= 0x83000000 {
 		fmt.Printf("mpCLModelData not resolved (dataPtr=0x%08X)\n", dataPtr)
 		os.Exit(1)
 	}
 	matArr, err := d.ReadU32(dataPtr + 0x58 + 0x08)
-	if err != nil || matArr < 0x80000000 || matArr >= 0x81800000 {
+	if err != nil || matArr < 0x80000000 || matArr >= 0x83000000 {
 		fmt.Printf("matArr not resolved (0x%08X)\n", matArr)
 		os.Exit(1)
 	}
 	matPtr, err := d.ReadU32(matArr + uint32(idx)*4)
-	if err != nil || matPtr < 0x80000000 || matPtr >= 0x81800000 {
+	if err != nil || matPtr < 0x80000000 || matPtr >= 0x83000000 {
 		fmt.Printf("mat[%d] ptr bad (0x%08X)\n", idx, matPtr)
 		os.Exit(1)
 	}
 	tev, err := d.ReadU32(matPtr + 0x2C)
-	if err != nil || tev < 0x80000000 || tev >= 0x81800000 {
+	if err != nil || tev < 0x80000000 || tev >= 0x83000000 {
 		fmt.Printf("mat[%d] tevBlock bad (0x%08X)\n", idx, tev)
 		os.Exit(1)
 	}
@@ -2509,7 +2509,7 @@ func runEyeFixFindShape() {
 	var lists []drawlist
 	for o := 0; o+4 <= len(scanBuf); o += 4 {
 		v := binary.BigEndian.Uint32(scanBuf[o : o+4])
-		if v < 0x80000000 || v >= 0x81800000 {
+		if v < 0x80000000 || v >= 0x83000000 {
 			continue
 		}
 		fieldAt := scanLo + uint32(o)
@@ -2552,7 +2552,7 @@ func runEyeFixFindShape() {
 		mpBuf := binary.BigEndian.Uint32(hdr[0:4])
 		mNumBuckets := binary.BigEndian.Uint32(hdr[4:8])
 		// Reject anything that doesn't look like a real J3DDrawBuffer.
-		if mpBuf < 0x80000000 || mpBuf >= 0x81800000 || mNumBuckets == 0 || mNumBuckets > 4096 {
+		if mpBuf < 0x80000000 || mpBuf >= 0x83000000 || mNumBuckets == 0 || mNumBuckets > 4096 {
 			fmt.Printf("  not a J3DDrawBuffer (mpBuf=0x%08X, mNumBuckets=%d) — skip\n\n",
 				mpBuf, mNumBuckets)
 			continue
@@ -2656,7 +2656,7 @@ func runEyeFixFindShape() {
 				// store the shape pointer.
 				for o := 0; o+4 <= 0x40; o += 4 {
 					v := binary.BigEndian.Uint32(pkt[o : o+4])
-					if v < 0x80000000 || v >= 0x81800000 {
+					if v < 0x80000000 || v >= 0x83000000 {
 						continue
 					}
 					if v == cur || (cur != 0 && v == binary.BigEndian.Uint32(pkt[4:8])) {
@@ -2958,11 +2958,11 @@ func runPoseTest(mode string, durSec int) {
 			return nil
 		}
 		modelPtr, err := d.ReadU32(linkPtr + linkMpCLModelOff)
-		if err != nil || modelPtr < 0x80000000 || modelPtr >= 0x81800000 {
+		if err != nil || modelPtr < 0x80000000 || modelPtr >= 0x83000000 {
 			return nil
 		}
 		nodePtr, err := d.ReadU32(modelPtr + j3dModelMpNodeMtxOff)
-		if err != nil || nodePtr < 0x80000000 || nodePtr >= 0x81800000 {
+		if err != nil || nodePtr < 0x80000000 || nodePtr >= 0x83000000 {
 			return nil
 		}
 		data, err := d.Read(nodePtr, poseSize)

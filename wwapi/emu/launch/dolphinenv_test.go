@@ -161,10 +161,11 @@ func TestInstallLocationsOf(t *testing.T) {
 }
 
 func TestLaunchArgs(t *testing.T) {
-	if got := LaunchArgs("U", "I.iso", ""); !reflect.DeepEqual(got, []string{"-u", "U", "-e", "I.iso"}) {
+	mem := []string{"-C", "Dolphin.Core.RAMOverrideEnable=True", "-C", "Dolphin.Core.MEM1Size=0x03000000"}
+	if got := LaunchArgs("U", "I.iso", ""); !reflect.DeepEqual(got, append([]string{"-u", "U", "-e", "I.iso"}, mem...)) {
 		t.Errorf("%q", got)
 	}
-	if got := LaunchArgs("U", "I.iso", "s.sav"); !reflect.DeepEqual(got, []string{"-u", "U", "-e", "I.iso", "--save_state=s.sav"}) {
+	if got := LaunchArgs("U", "I.iso", "s.sav"); !reflect.DeepEqual(got, append(append([]string{"-u", "U", "-e", "I.iso"}, mem...), "--save_state=s.sav")) {
 		t.Errorf("%q", got)
 	}
 }
