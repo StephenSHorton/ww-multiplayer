@@ -59,35 +59,35 @@ The plan:
 
  0x8040EFC0   original __ArenaLo (vanilla)
  0x80410000   T2 code start (injected .text/.data/.bss)
- 0x80412E28   T2 end                      -> 0xD8 bytes free
+ 0x80412588   T2 end (after E0)           -> 0x978 bytes free (0x18 before E0, T2 end 0x80412EE8)
  0x80412F00   Mailbox start (0x1A0 bytes)
  0x804130A0   Mailbox end                 -> 0xF60 bytes slack
  0x80414000   patched __ArenaLo (OSInit patched by build.py)
 ```
 
-(verified: `inject/build.py`, `inject/include/mailbox.h`, `internal/inject/blob.go` T2Bytes = 0x2E28, `t2_budget_test.go`)
+(verified: `inject/build.py`, `inject/include/mailbox.h`, `internal/inject/blob.go` T2Bytes = 0x2588 (0x2EE8 before E0), `t2_budget_test.go`)
 
 **Mailbox layout** at 0x80412F00 (the source of truth is `inject/include/mailbox.h`; `tools/gen_mailbox` generates the Go copy, `wwapi/mailbox/layout_gen.go`, and `TestMailboxLayout` fails when it is stale):
 
 | Offset | Field(s) | Owner | Future home |
 |---|---|---|---|
 | +0x00 | `spawn_trigger` (per-frame heartbeat) | C | core |
-| +0x04 | `progress` (debug) | C | D2 delete |
+| +0x04 | `progress` (debug) | C | kept (E0 kept it; `dump` reads it) |
 | +0x08 | `_pad0`, reused as the frame callback pointer slot | C | core |
-| +0x0C | `draw_progress` (debug) | C | D2 delete |
+| +0x0C | `draw_progress` (debug) | — | unused since E0 |
 | +0x10..+0x8F | `puppets[4]` (legacy actor puppets, 0x20 each) | Go | **keep** (players 3+) |
-| +0x90..+0x93 | `shadow_mode`, `shadow_latched` | Go/C | keep mode 5 only |
-| +0x94..+0xA7 | `dbg_*`, `echo_delay`, `echo_ring_state` | C | D2 delete |
+| +0x90..+0x93 | `shadow_mode`, `shadow_latched` | Go/C | mode 5 only since E0 (1-4 draw nothing); `shadow_latched` unused |
+| +0x94..+0xA7 | `dbg_*`, `echo_delay`, `echo_ring_state` | — | unused since E0 |
 | +0xA8..+0xB7 | mini-Link pose feed: `pose_buf_ptrs[2]`, `pose_joint_counts[2]`, `pose_buf_states[2]`, `pose_seqs[2]` | Go/C | multiplayer |
-| +0xB8..+0xBF | `dbg_pose_first_word`, `dbg_node_mtx_first` | C | D2 delete |
+| +0xB8..+0xBF | `dbg_pose_first_word`, `dbg_node_mtx_first` | — | unused since E0 |
 | +0xC0..+0xC7 | `pose_publish_*` (local pose out) | C | core |
 | +0xC8..+0xDB | `warp_seq`, `warp_ack`, `warp_x/y/z` | Go/C | core |
-| +0xDC..+0xE3 | `warp_dbg_*` | C | D2 delete |
+| +0xDC..+0xE3 | `warp_dbg_*` | — | unused since E0 |
 | +0xE4 | `warp_force` | Go | core |
-| +0xE8 | `eye_fix_step` | Go/C | multiplayer (live default step 8; D2 deletes steps 1-7 only) |
-| +0xEC..+0x117 | `eye_fix_post_chain[10]`, `eye_fix_post_chain_count` | C | D2 delete |
-| +0x118 | `eye_fix_mode` | Go/C | multiplayer (live default mode 0; D2 deletes modes 1/2 only) |
-| +0x11C..+0x12F | `dbg_*` | C | D2 delete |
+| +0xE8 | `eye_fix_step` | — | unused since E0 (C always runs the step-8 recipe) |
+| +0xEC..+0x117 | `eye_fix_post_chain[10]`, `eye_fix_post_chain_count` | — | unused since E0 |
+| +0x118 | `eye_fix_mode` | — | unused since E0 (C always draws the mode-0 way) |
+| +0x11C..+0x12F | `dbg_*` | — | unused since E0 |
 | +0x130..+0x14F | `face_state[2]` (remote faces) | Go | multiplayer |
 | +0x150..+0x15F | `face_seqs[2]`, `face_hook_*` | Go/C | multiplayer |
 | +0x160..+0x16F | `face_state_local` | C | core |
@@ -99,7 +99,7 @@ The plan:
 **Later (co-op M7, Option A):** arenaLo moves to 0x80416000, API RAM sits at 0x80415000, and T2 gets a 20 KB budget. Go reads the mailbox address from `blob.go` and, if no magic is there, probes the old address and reports `BlobMismatch` instead of reading garbage.
 
 **Facts that shape the plan:**
-- Only **0xD8 bytes** of code space are free. D2 is the only way to free T2 bytes without an arena bump.
+- Before E0 only **0x18 bytes** of code space were free. E0 (the D2 code deletion, layout unchanged) freed 0x960, leaving **0x978**; D2 was the only way to free T2 bytes without an arena bump.
 - The 8 reserved header bytes hold the magic, ABI and layout version and nothing else. Features go past +0x1A0, inside the 0xF60 slack.
 - The blob hash needs no C field. Go hashes T2's `.text` read back from RAM against `blob.go`. It must skip `.data`/`.bss`, which change at runtime (inferred: section layout not yet checked in the map).
 - The 1 MB Outset arena bump failed. Arena growth is taken from ZeldaHeap and must stay small.
@@ -460,8 +460,9 @@ Order: C1 first; C4 before C8; C6 before C7; C8 before C14; C5 any time after C1
 - [x] **D7** Move package main to `cmd/ww-multiplayer` in one PR: CI and build scripts, `ww_windows.syso` and its `go:generate` line, README/SETUP/CLAUDE.md build lines, and the source-reading tests. Commit 1 is the move alone (to be merged with `--rebase`): every root `*.go` file, `ww_windows.syso` and `testdata/` by `git mv` to `cmd/ww-multiplayer`. Commit 2 rewires it: build.yml, release.yml and `scripts/build-mac.sh` build `./cmd/ww-multiplayer` (`-X main.version` unchanged), and so do the blob-check `go test` lines; the `go:generate` lines in `main.go` run from the package directory (`../../packaging/...`, `../../docs/img/...`, `../../tools/mkicns`), so `go generate ./cmd/ww-multiplayer` rebuilds an identical `ww_windows.syso` next to `main.go`, the only place the linker takes it from. The source-reading tests read repo files through `repoPath` (`../..`): `TestGUIBuildTags` also requires each tagged `go build` to name `./cmd/ww-multiplayer`, `TestWindowsManifest` checks the moved `.syso` and `go:generate` line, and `TestCLIReadsNoConfig` globs package main's directory and walks `wwapi/`, `mods/` and `cmd/` from the root. The CLI and help goldens are unchanged.
 
 ### Phase E: C, last
+- [x] **E0** D2 code deletion with the mailbox layout unchanged (prerequisite for E1, which needs T2 room). C: shadow modes 1-4 (shadow_link, the mode-3 basicMtxCalc swap), the echo ring, the eye-fix probe steps 1-7 (`run_eye_fix` is the full step-8 recipe) and modes 1-2 (the mClModel swap), the post-draw chain snapshot and the `dbg_*`, `warp_dbg_*` and `draw_progress` writes; the pose feed's no-op `J3DMtxCalc` stays (mode 5's second calc needs it), and so do `progress`, the actor puppets, tunic and casual swaps, `pad_read_shim` and warp. Every mailbox field keeps its name and offset (marked UNUSED since E0 in mailbox.h), so `layout_gen.go` and `MailboxSize` are unchanged and no layout version is needed. T2 ends at 0x80412588 (0x2588 bytes, was 0x2EE8): 0x978 bytes free below the mailbox. wwdev lost `echo-delay`, `eye-fix-step`, `eye-fix-mode`, `eye-fix-mode-probe` and `eye-fix-post-chain`; `shadow-mode` takes 0 or 5; `dump`, `pose-test` and the eye probes no longer read the retired fields (the eye probes take the model data from Link's `mpCLModelData`); `warp` no longer prints the C handler's diagnostics. The blob changed: `saves/start.sav` must be recaptured and players must re-patch.
 - [ ] **E1** WWMB header written by `main01_init` (magic, ABI, layout in the 8 reserved bytes; Features at +0x1A0, mailbox padded to 0x1B0). Contract check switches to strict. **Lands before any other C layout change.**
-- [ ] **E2** C D2 deletion (offsets kept as `_reserved`, layout version bumped). Actor puppets stay (but see F1 in [05-known-issues.md](../05-known-issues.md): a third remote currently freezes both games).
+- [ ] **E2** The D2 layout step: the fields E0 left UNUSED become `_reserved`, layout version bumped (E0 already deleted the code). Actor puppets stay (but see F1 in [05-known-issues.md](../05-known-issues.md): a third remote currently freezes both games).
 - [ ] **E3** Zero-cost C split into `src/core` and `src/mp`, `game.h` → `wwapi.h`, `mailbox.h` → `mailbox_core.h` + `mailbox_mp.h` with the same offsets.
 - [ ] **E4** Retire `patch_iso.py`, `dolphin2.sh`, `mplay2.sh`; remove the Image aliases; build.py reads devkitPPC paths from env.
 - [ ] *Later* (co-op M7): Option A arena move, `WwModuleDesc` dispatcher, event ring, command queue.

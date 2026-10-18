@@ -151,18 +151,10 @@ func cmdPokeU32(string, []string) {
 
 func cmdShadowMode(string, []string) {
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: ww shadow-mode <0|1|2|3|4|5>  (0=off 1=mirror-refresh 2=mirror-freeze 3=no-op basicMtxCalc 4=echo-ring 5=pose-feed)")
+		fmt.Println("Usage: ww shadow-mode <0|5>  (0=off 5=pose-feed)")
 		os.Exit(1)
 	}
 	runShadowMode(os.Args[2])
-}
-
-func cmdEchoDelay(string, []string) {
-	if len(os.Args) < 3 {
-		fmt.Println("Usage: ww echo-delay <N>  (0=identity 1..59=delayed replay; requires shadow-mode 4)")
-		os.Exit(1)
-	}
-	runEchoDelay(os.Args[2])
 }
 
 func cmdPoseTest(string, []string) {
@@ -417,22 +409,6 @@ func cmdFaceSyncFakeLoop(string, []string) {
 	runFaceSyncFakeLoop(slot, os.Args[3], secs)
 }
 
-func cmdEyeFixMode(string, []string) {
-	if len(os.Args) < 3 {
-		fmt.Println("Usage: wwdev.exe eye-fix-mode <0|1|2>")
-		fmt.Println("  0 = legacy (run_eye_fix + mDoExt mini-link)")
-		fmt.Println("  1 = mClModel-swap one-draw (Link invisible, mini-link only)")
-		fmt.Println("  2 = mClModel-swap two-draw (both visible, mini-link gets eye decals)")
-		os.Exit(1)
-	}
-	n, err := strconv.Atoi(os.Args[2])
-	if err != nil || n < 0 || n > 2 {
-		fmt.Printf("mode must be 0..2, got %q\n", os.Args[2])
-		os.Exit(1)
-	}
-	runEyeFixMode(byte(n))
-}
-
 func cmdPpcDisasm(string, []string) {
 	if len(os.Args) < 3 {
 		fmt.Println("Usage: wwdev.exe ppc-disasm <addr-hex> [num-words=32]")
@@ -450,23 +426,6 @@ func cmdPpcDisasm(string, []string) {
 		}
 	}
 	runPPCDisasm(uint32(addr), n)
-}
-
-func cmdEyeFixStep(string, []string) {
-	if len(os.Args) < 3 {
-		fmt.Println("Usage: wwdev.exe eye-fix-step <0..8>")
-		fmt.Println("  Stepwise probe for the mini-Link eye-decal recipe.")
-		fmt.Println("  0 = off; 1 = list swap; 2..4 bisect Pass 1 (entryOpa,")
-		fmt.Println("  shape-vis, entryIn); 5..8 add Passes 2..5 cumulatively.")
-		fmt.Println("  See inject/include/mailbox.h eye_fix_step comment.")
-		os.Exit(1)
-	}
-	n, err := strconv.Atoi(os.Args[2])
-	if err != nil || n < 0 || n > 8 {
-		fmt.Printf("step must be an integer 0..8, got %q\n", os.Args[2])
-		os.Exit(1)
-	}
-	runEyeFixStep(byte(n))
 }
 
 func cmdTrackPos(string, []string) {

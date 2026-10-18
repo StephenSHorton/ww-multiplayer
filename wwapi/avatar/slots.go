@@ -15,7 +15,8 @@ const Cap = mailbox.MaxRemoteLinks
 
 // shadow_mode values (mailbox.h). ModeOff is the kill switch: nothing
 // mirrors or feeds Link #2. ModePoseFeed (5) draws each armed slot's
-// mini-Link from its pose_buf. Modes 1-4 are dev modes (docs/06).
+// mini-Link from its pose_buf. The dev modes 1-4 were deleted in Phase
+// E0; the C side draws nothing for them, as for ModeOff.
 const (
 	ModeOff      byte = 0
 	ModePoseFeed byte = 5

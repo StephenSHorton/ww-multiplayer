@@ -286,6 +286,10 @@ that buffer untouched, so GX re-uses the previous matrices.
 
 ### Control surface unlocked
 
+(Shadow modes 1-4 and `echo-delay` were deleted in Phase E0; mode 5 is the only
+driven mode, and every other `shadow_mode` value draws nothing. The mailbox fields
+stay as unused bytes.)
+
 We now own Link #2's pose via ONE pointer: `J3DModelData + 0x24`.
 Three useful modes fall out of this:
 - **Mirror** (current baseline): leave `mBasicMtxCalc` alone. Cheap,
@@ -321,6 +325,10 @@ Either way, we're no longer blocked on the "decouple" problem. That's
 solved.
 
 ### Echo-Link DONE — Link #2 drives its own pose (2026-04-19 late-late-late)
+
+(Shadow modes 1-4 and `echo-delay` were deleted in Phase E0; mode 5 is the only
+driven mode. The `echo_delay` / `echo_ring_state` mailbox fields stay as unused bytes,
+but their C code and the CLI command are gone.)
 
 Track 1 from docs/06 "Next Session Priority" complete: `shadow_mode = 4`
 + `echo-delay <N frames>` makes Link #2 animate cleanly `N/60` seconds
@@ -581,6 +589,9 @@ J3DModelData on stage unload is wrong too. `initModel` takes it from Link.arc
   re-mount.
 - `pose_publish`, `pose_bufs`, `echo_ring` and `shadow_link` are allocated once per
   session and never dropped.
+- Phase E0 note: shadow modes 2 and 4 and their per-stage reset were deleted, so
+  `mini_link_stage_reset()`, `shadow_link` and the echo ring no longer exist. Only
+  `pose_publish` and `pose_bufs` remain as once-per-session allocations.
 
 T2 shrank from 0x2C88 to 0x2BE8 bytes (devkitPPC 16.2). It ends at `0x80412BE8`, which
 is 0x318 bytes below the mailbox.
