@@ -39,7 +39,7 @@
 // check refuses a game whose header differs.
 #define WWMB_MAGIC 0x57574D42
 #define WWMB_ABI 1
-#define WWMB_LAYOUT 1
+#define WWMB_LAYOUT 2
 
 // Features: one bit per service the blob provides (wwapi Features).
 #define WW_FEAT_AVATAR 0x01
@@ -132,14 +132,16 @@ typedef struct {
 // Phase E0 deleted the C experiments behind several fields (shadow modes
 // 1-4, the echo ring, the eye-fix probe steps 1-7 and modes 1-2, and the
 // dbg_* / warp_dbg_* / eye_fix_post_chain / draw_progress diagnostics)
-// WITHOUT changing this layout: those fields keep their names and
-// offsets but nothing reads or writes them any more ("UNUSED since E0").
-// The E2 layout bump turns them into _reserved.
+// without changing this layout. Phase E2 (WWMB_LAYOUT 2) retired those
+// fields: their bytes are the _reserved0.._reserved4 runs below, at the
+// same offsets, so every live field keeps its offset. Nothing reads or
+// writes a _reserved byte; a new field may take one only with another
+// WWMB_LAYOUT bump.
 typedef struct {
     u32 spawn_trigger;   // +0x00: per-frame heartbeat counter
     u32 progress;        // +0x04: debug marker — see multiplayer.c
     u32 _pad0;           // +0x08: also reused by main01_init as CALLBACK_PTR slot (mailbox+0x08 = 0x80410F08)
-    u32 draw_progress;   // +0x0C: UNUSED since E0 (was a draw-hook diagnostic)
+    u32 _reserved0;      // +0x0C: retired in E2 (was draw_progress)
     Puppet puppets[MAX_PUPPETS];  // +0x10 .. +0x10 + 0x20*N
     // Go writes shadow_mode to switch Link #2 rendering:
     //   0 = off (the boot value): no mini-Link is drawn
@@ -147,18 +149,9 @@ typedef struct {
     // Values 1-4 were the mirror / freeze / no-op-calc / echo-ring dev
     // modes, deleted in E0; they now draw nothing, like 0.
     u8  shadow_mode;     // +0x90
-    u8  shadow_latched;  // +0x91: UNUSED since E0 (mode-2 latch)
-    u8  _pad1[2];        // +0x92
-    // +0x94..+0xA7: UNUSED since E0 (mode-3/4 diagnostics and the
-    // mode-4 echo ring's delay and state).
-    u32 dbg_model_data;      // +0x94
-    u32 dbg_saved_basic;     // +0x98
-    u16 dbg_joint_num;       // +0x9C
-    u16 _pad2;               // +0x9E
-    u32 dbg_node_mtx_ptr;    // +0xA0
-    u8  echo_delay;          // +0xA4
-    u8  echo_ring_state;     // +0xA5
-    u16 _pad3;               // +0xA6
+    // +0x91..+0xA7: retired in E2 (was shadow_latched, the mode-3/4
+    // dbg_* diagnostics and the mode-4 echo ring's delay and state).
+    u8  _reserved1[23];  // +0x91
     // Pose feed (shadow_mode 5). For each slot C runs the mini-Link calc
     // twice: once with Link's real walker, then, after copying the slot's
     // pose buffer (which Go fills from the network or pose-test) over
@@ -180,9 +173,8 @@ typedef struct {
     u16 pose_joint_counts[MAILBOX_POSE_SLOT_CAP];  // +0xB0
     u8  pose_buf_states[MAILBOX_POSE_SLOT_CAP];    // +0xB4
     u8  pose_seqs[MAILBOX_POSE_SLOT_CAP];          // +0xB6
-    // UNUSED since E0 (slot-0 pose round-trip diagnostics).
-    u32 dbg_pose_first_word;                  // +0xB8
-    u32 dbg_node_mtx_first;                   // +0xBC
+    // Retired in E2 (was dbg_pose_first_word, dbg_node_mtx_first).
+    u32 _reserved2[2];                        // +0xB8
     // --- SENDER SIDE publish buffer (v0.1.3) ---------------------------
     // Go's broadcast-pose reads Link #1's live mpNodeMtx (2016 B) via
     // ReadProcessMemory at 20 Hz while the game runs basicMtxCalc each
@@ -229,34 +221,17 @@ typedef struct {
     f32 warp_x;                               // +0xD0
     f32 warp_y;                               // +0xD4
     f32 warp_z;                               // +0xD8
-    // UNUSED since E0 (warp diagnostics).
-    u32 warp_dbg_link_addr;                   // +0xDC — value of (u32)link
-    f32 warp_dbg_post_x;                      // +0xE0 — current.pos.x AFTER our write (proves write landed)
+    // Retired in E2 (was warp_dbg_link_addr, warp_dbg_post_x).
+    u32 _reserved3[2];                        // +0xDC
     // Force-warp mode: when nonzero, C writes (warp_x, warp_y, warp_z)
     // to all known position fields EVERY frame, ignoring warp_seq/ack.
     // Diagnostic tool — lets us tell whether one-shot warps are being
     // reverted by Link's per-frame execute() vs hitting a deeper reset.
     u8  warp_force;                           // +0xE4
-    u8  _pad5[3];                             // +0xE5
-    // UNUSED since E0. Was the eye-fix stepwise probe (0 = default 8,
-    // 1-7 = partial recipes); C now always runs the full recipe (the old
-    // step 8, multiplayer.c run_eye_fix).
-    u8  eye_fix_step;                         // +0xE8
-    u8  _pad6[3];                             // +0xE9
-    // UNUSED since E0 (post-draw chain snapshot for the eye-fix probe).
-    u32 eye_fix_post_chain[10];               // +0xEC..+0x113
-    u8  eye_fix_post_chain_count;             // +0x114
-    u8  _pad7[3];                             // +0x115
-    // UNUSED since E0. Was the eye-fix mClModel-swap experiment (modes
-    // 1-2); C always draws mini-Link the mode-0 way.
-    u8  eye_fix_mode;                         // +0x118
-    u8  _pad8[3];                             // +0x119
-    // +0x11C..+0x12F: UNUSED since E0 (mode-1 freeze diagnostics).
-    u32 dbg_mini_link_data_cached;            // +0x11C
-    u32 dbg_pre_mclmodeldata;                 // +0x120
-    u32 dbg_postswap_mclmodeldata;            // +0x124
-    u32 dbg_safety_check_current;             // +0x128
-    u32 dbg_safety_fired_count;               // +0x12C
+    // +0xE5..+0x12F: retired in E2 (was warp_force's padding, the
+    // eye-fix probe's eye_fix_step, eye_fix_post_chain[10] and its
+    // count, eye_fix_mode, and the mode-1 freeze dbg_* fields).
+    u8  _reserved4[75];                       // +0xE5
     // --- FACE-STATE NETWORK SYNC (session 9) ---------------------------
     // Per-slot face animation state that mini-link should render with,
     // independent of the LOCAL Link's animation state.

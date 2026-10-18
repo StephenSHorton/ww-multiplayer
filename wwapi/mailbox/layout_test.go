@@ -40,8 +40,30 @@ func TestMailboxLayout(t *testing.T) {
 	if commented < 40 {
 		t.Errorf("only %d fields carry a +0xNN comment; the parser is missing fields", commented)
 	}
-	if len(mb.Fields) < 70 {
+	if len(mb.Fields) < 50 {
 		t.Errorf("Mailbox has %d fields; the parser is missing fields", len(mb.Fields))
+	}
+	// Phase E2 (WWMB layout 2) retired the fields E0 left unused into
+	// these _reserved runs at their old offsets, so every live field
+	// kept its offset.
+	for _, r := range []struct {
+		name      string
+		off, size uint64
+		wantOff   uint64
+		wantSize  uint64
+	}{
+		{"_reserved0", OffReserved0, 4, 0x0C, 4},
+		{"_reserved1", OffReserved1, LenReserved1, 0x91, 0xA8 - 0x91},
+		{"_reserved2", OffReserved2, 4 * LenReserved2, 0xB8, 8},
+		{"_reserved3", OffReserved3, 4 * LenReserved3, 0xDC, 8},
+		{"_reserved4", OffReserved4, LenReserved4, 0xE5, 0x130 - 0xE5},
+	} {
+		if r.off != r.wantOff || r.size != r.wantSize {
+			t.Errorf("%s at +0x%X, 0x%X bytes; want +0x%X, 0x%X bytes", r.name, r.off, r.size, r.wantOff, r.wantSize)
+		}
+	}
+	if WwmbLayout < 2 {
+		t.Errorf("WWMB_LAYOUT %d; E2's retired fields made it at least 2", WwmbLayout)
 	}
 	// The mailbox (0x80412F00) must end below the docs/08 co-op region
 	// at +0x200 and below __OSArenaLo (0x80414000).
@@ -74,7 +96,9 @@ func TestMailboxLayout(t *testing.T) {
 // before/after diff of the switch to generated offsets, and must stay
 // empty until a deliberate mailbox.h layout change updates both. Phase
 // E1 grew the mailbox from 0x1A0 to 0x1B0 bytes (the WWMB features word
-// and its padding after the tunic block).
+// and its padding after the tunic block); Phase E2 dropped the retired
+// diagnostic fields (shadow_latched, dbg_*, echo_*, warp_dbg_*,
+// eye_fix_*), whose bytes are now _reserved (TestMailboxLayout).
 func TestLayoutMatchesHandWritten(t *testing.T) {
 	for _, c := range []struct {
 		old       string
@@ -95,18 +119,11 @@ func TestLayoutMatchesHandWritten(t *testing.T) {
 		{"slotOffPosZ", 0x10, PuppetOffPosZ},
 		{"slotOffRotX", 0x14, PuppetOffRotX},
 		{"mailboxShadowMode", 0x90, OffShadowMode},
-		{"mailboxShadowLatched", 0x91, OffShadowLatched},
-		{"mailboxDbgJointNum", 0x9C, OffDbgJointNum},
-		{"mailboxDbgNodeMtxPtr", 0xA0, OffDbgNodeMtxPtr},
-		{"mailboxEchoDelay", 0xA4, OffEchoDelay},
-		{"mailboxEchoRingState", 0xA5, OffEchoRingState},
 		{"maxRemoteLinks", 2, MaxRemoteLinks},
 		{"mailboxPoseBufPtr(0)", 0xA8, OffPoseBufPtrs},
 		{"mailboxPoseJointCount(0)", 0xB0, OffPoseJointCounts},
 		{"mailboxPoseBufState(0)", 0xB4, OffPoseBufStates},
 		{"mailboxPoseSeq(0)", 0xB6, OffPoseSeqs},
-		{"mailboxDbgPoseFirstWord", 0xB8, OffDbgPoseFirstWord},
-		{"mailboxDbgNodeMtxFirst", 0xBC, OffDbgNodeMtxFirst},
 		{"mailboxPosePublishPtr", 0xC0, OffPosePublishPtr},
 		{"mailboxPosePublishJointCount", 0xC4, OffPosePublishJointCount},
 		{"mailboxPosePublishState", 0xC6, OffPosePublishState},
@@ -116,16 +133,7 @@ func TestLayoutMatchesHandWritten(t *testing.T) {
 		{"mailboxWarpX", 0xD0, OffWarpX},
 		{"mailboxWarpY", 0xD4, OffWarpY},
 		{"mailboxWarpZ", 0xD8, OffWarpZ},
-		{"mailboxWarpDbgLinkAddr", 0xDC, OffWarpDbgLinkAddr},
-		{"mailboxWarpDbgPostX", 0xE0, OffWarpDbgPostX},
 		{"mailboxWarpForce", 0xE4, OffWarpForce},
-		{"mailboxEyeFixStep", 0xE8, OffEyeFixStep},
-		{"mailboxEyeFixMode", 0x118, OffEyeFixMode},
-		{"mailboxDbgMiniLinkDataCached", 0x11C, OffDbgMiniLinkDataCached},
-		{"mailboxDbgPreMcLModelData", 0x120, OffDbgPreMclmodeldata},
-		{"mailboxDbgPostswapMcLModelData", 0x124, OffDbgPostswapMclmodeldata},
-		{"mailboxDbgSafetyCheckCurrent", 0x128, OffDbgSafetyCheckCurrent},
-		{"mailboxDbgSafetyFiredCount", 0x12C, OffDbgSafetyFiredCount},
 		{"mailboxFaceStateBase", 0x130, OffFaceState},
 		{"mailboxFaceStateStride", 16, FaceStateSize},
 		{"mailboxFaceSeqsBase", 0x150, OffFaceSeqs},

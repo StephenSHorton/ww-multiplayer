@@ -59,7 +59,7 @@ The plan:
 
  0x8040EFC0   original __ArenaLo (vanilla)
  0x80410000   T2 code start (injected .text/.data/.bss)
- 0x804125A8   T2 end (after E1)           -> 0x958 bytes free (0x978 after E0; 0x18 before E0, T2 end 0x80412EE8)
+ 0x804125A8   T2 end (after E1; E2 too)   -> 0x958 bytes free (0x978 after E0; 0x18 before E0, T2 end 0x80412EE8)
  0x80412F00   Mailbox start (0x1B0 bytes since E1; 0x1A0 before)
  0x804130B0   Mailbox end                 -> 0xF50 bytes slack
  0x80414000   patched __ArenaLo (OSInit patched by build.py)
@@ -74,25 +74,22 @@ The plan:
 | +0x00 | `spawn_trigger` (per-frame heartbeat) | C | core |
 | +0x04 | `progress` (debug) | C | kept (E0 kept it; `dump` reads it) |
 | +0x08 | `_pad0`, reused as the frame callback pointer slot | C | core |
-| +0x0C | `draw_progress` (debug) | — | unused since E0 |
+| +0x0C | `_reserved0` | — | retired in E2 (was `draw_progress`) |
 | +0x10..+0x8F | `puppets[4]` (legacy actor puppets, 0x20 each) | Go | **keep** (players 3+) |
-| +0x90..+0x93 | `shadow_mode`, `shadow_latched` | Go/C | mode 5 only since E0 (1-4 draw nothing); `shadow_latched` unused |
-| +0x94..+0xA7 | `dbg_*`, `echo_delay`, `echo_ring_state` | — | unused since E0 |
+| +0x90 | `shadow_mode` | Go/C | mode 5 only since E0 (1-4 draw nothing) |
+| +0x91..+0xA7 | `_reserved1[23]` | — | retired in E2 (was `shadow_latched`, `dbg_*`, `echo_delay`, `echo_ring_state`) |
 | +0xA8..+0xB7 | mini-Link pose feed: `pose_buf_ptrs[2]`, `pose_joint_counts[2]`, `pose_buf_states[2]`, `pose_seqs[2]` | Go/C | multiplayer |
-| +0xB8..+0xBF | `dbg_pose_first_word`, `dbg_node_mtx_first` | — | unused since E0 |
+| +0xB8..+0xBF | `_reserved2[2]` | — | retired in E2 (was `dbg_pose_first_word`, `dbg_node_mtx_first`) |
 | +0xC0..+0xC7 | `pose_publish_*` (local pose out) | C | core |
 | +0xC8..+0xDB | `warp_seq`, `warp_ack`, `warp_x/y/z` | Go/C | core |
-| +0xDC..+0xE3 | `warp_dbg_*` | — | unused since E0 |
+| +0xDC..+0xE3 | `_reserved3[2]` | — | retired in E2 (was `warp_dbg_*`) |
 | +0xE4 | `warp_force` | Go | core |
-| +0xE8 | `eye_fix_step` | — | unused since E0 (C always runs the step-8 recipe) |
-| +0xEC..+0x117 | `eye_fix_post_chain[10]`, `eye_fix_post_chain_count` | — | unused since E0 |
-| +0x118 | `eye_fix_mode` | — | unused since E0 (C always draws the mode-0 way) |
-| +0x11C..+0x12F | `dbg_*` | — | unused since E0 |
+| +0xE5..+0x12F | `_reserved4[75]` | — | retired in E2 (was `warp_force`'s padding, `eye_fix_step`, `eye_fix_post_chain[10]` and its count, `eye_fix_mode`, the mode-1 `dbg_*`) |
 | +0x130..+0x14F | `face_state[2]` (remote faces) | Go | multiplayer |
 | +0x150..+0x15F | `face_seqs[2]`, `face_hook_*` | Go/C | multiplayer |
 | +0x160..+0x16F | `face_state_local` | C | core |
 | +0x170..+0x17F | `input_*` override, `input_overrides` | Go/C | core |
-| +0x180..+0x187 | `hdr_magic` `'WWMB'`, `hdr_abi` u16, `hdr_layout` u16 (E1; zero in every blob before) | C (main01_init) | core |
+| +0x180..+0x187 | `hdr_magic` `'WWMB'`, `hdr_abi` u16, `hdr_layout` u16 (E1; zero in every blob before; layout 1 in E1, 2 since E2) | C (main01_init) | core |
 | +0x188..+0x19F | `tunic_bufs[3]`, `tunic_buf_size`, `tunic_enable[3]`, `tunic_state`, `tunic_swaps` | Go/C | slots 0-1 multiplayer, slot 2 core |
 | +0x1A0..+0x1AF | `features` u32 (the `WW_FEAT_*` bits), `_pad13[12]` (E1; the mailbox ends at +0x1B0) | C (main01_init) | core |
 
@@ -462,7 +459,7 @@ Order: C1 first; C4 before C8; C6 before C7; C8 before C14; C5 any time after C1
 ### Phase E: C, last
 - [x] **E0** D2 code deletion with the mailbox layout unchanged (prerequisite for E1, which needs T2 room). C: shadow modes 1-4 (shadow_link, the mode-3 basicMtxCalc swap), the echo ring, the eye-fix probe steps 1-7 (`run_eye_fix` is the full step-8 recipe) and modes 1-2 (the mClModel swap), the post-draw chain snapshot and the `dbg_*`, `warp_dbg_*` and `draw_progress` writes; the pose feed's no-op `J3DMtxCalc` stays (mode 5's second calc needs it), and so do `progress`, the actor puppets, tunic and casual swaps, `pad_read_shim` and warp. Every mailbox field keeps its name and offset (marked UNUSED since E0 in mailbox.h), so `layout_gen.go` and `MailboxSize` are unchanged and no layout version is needed. T2 ends at 0x80412588 (0x2588 bytes, was 0x2EE8): 0x978 bytes free below the mailbox. wwdev lost `echo-delay`, `eye-fix-step`, `eye-fix-mode`, `eye-fix-mode-probe` and `eye-fix-post-chain`; `shadow-mode` takes 0 or 5; `dump`, `pose-test` and the eye probes no longer read the retired fields (the eye probes take the model data from Link's `mpCLModelData`); `warp` no longer prints the C handler's diagnostics. The blob changed: `saves/start.sav` must be recaptured and players must re-patch.
 - [x] **E1** WWMB header written by `main01_init` (magic, ABI, layout in the 8 reserved bytes; Features at +0x1A0, mailbox padded to 0x1B0). Contract check switches to strict. **Lands before any other C layout change.** mailbox.h: `hdr_magic`/`hdr_abi`/`hdr_layout` replace `_reserved_hdr`, `features` + `_pad13[12]` end the mailbox at 0x1B0 (`MailboxSize`, the below-arena canary is now 0x804130B0-0x80414000, 0xF50 bytes); `WWMB_MAGIC`, `WWMB_ABI` 1, `WWMB_LAYOUT` 1 and the `WW_FEAT_*` bits (avatar 0x01, eyefix 0x02, face 0x04, input 0x08, tunic 0x10, warp 0x20; `WW_FEATURES` 0x3F) are #defines, so layout_gen.go carries them. `main01_init` writes the four fields (T2 0x2588 → 0x25A8; ends 0x804125A8, 0x958 free). extract_blob.py emits `T2End`, `TextStart`/`TextEnd` (T2's `.text`, from Freighter's ELF), `HashRanges` (every allocated section without SHF_WRITE: `.rodata`, `.text`, `.init`, `.fini`; each section's ELF bytes must equal patched.dol's T2, so a stale ELF fails the build), `BlobHash` (CRC-32 over those ranges in order), `MailboxAddr`, `ArenaLo` (decoded from the patched OSInit), `ABI`, `LayoutVersion` and `Features` into blob.go; `TestBlobContract` ties them to T2Bytes, mailbox.h, build.py and wwapi/mailbox. `CheckContract` runs in `Strict` mode (the pre-E1 mode, `PreE1Features` and the 90% byte rule are gone): the game ID, this build's header ABI and layout, and the CRC-32 of `HashRanges` read back from RAM (`mailbox.BlobHash`) equal to `BlobHash`; anything else refuses writes with a reason and `RepatchAdvice`. `Info.Features` comes from the header's word (`FeaturesOf`) only when writes are allowed; a refused game (no header, another ABI or layout, another blob's code) has a known empty set, so every mod with needs is `NEEDS_REPATCH` once a Game's features reach `ResolveOptions.Features`; the app still attaches no Game, D4). The app's Dolphin probe (`hasThisMod`), puppet-sync (CLI host/join, the TUI, mp-local: it writes nothing while refused, re-checks every 2 s, re-arms when allowed again), mp-local's own writes (face-sync arm, start shift, teardown reset), co-op (`mp-local --coop` refuses to start, the host's world is not founded or served from a refused game, and coop-sync writes nothing into one: checked at start and every 2 s, a refusal turns the replica's writes off until `/coop on` on an allowed game) and `wwdev dump` use the strict check; the app's wrong-disc dialog and log name the save-state case. The blob changed: `saves/start.sav` must be recaptured and players must re-patch.
-- [ ] **E2** The D2 layout step: the fields E0 left UNUSED become `_reserved`, layout version bumped (E0 already deleted the code). Actor puppets stay (but see F1 in [05-known-issues.md](../05-known-issues.md): a third remote currently freezes both games).
+- [x] **E2** The D2 layout step: the fields E0 left UNUSED become `_reserved`, layout version bumped (E0 already deleted the code). Actor puppets stay (but see F1 in [05-known-issues.md](../05-known-issues.md): a third remote currently freezes both games). mailbox.h: `draw_progress` → `_reserved0` (+0x0C), `shadow_latched` through `_pad3` → `_reserved1[23]` (+0x91..+0xA7), `dbg_pose_first_word`/`dbg_node_mtx_first` → `_reserved2[2]` (+0xB8), `warp_dbg_*` → `_reserved3[2]` (+0xDC), `_pad5` through the mode-1 `dbg_*` → `_reserved4[75]` (+0xE5..+0x12F); every live field keeps its offset and `MailboxSize` stays 0x1B0. `WWMB_LAYOUT` 1 → 2, so blob.go's `LayoutVersion` is 2 and the strict contract check refuses an E1 game (or an E1 save state) as another layout. layout_gen.go lost the retired `Off*`/`Len*` constants (only `TestLayoutMatchesHandWritten` still named them; it now pins the `_reserved` runs instead); no wwdev probe read them since E0. T2 is unchanged at 0x25A8 bytes (ends 0x804125A8, 0x958 free): `main01_init` loads the layout constant separately from the ABI now (`.text` +4, absorbed by alignment). The blob changed: `saves/start.sav` must be recaptured and players must re-patch.
 - [ ] **E3** Zero-cost C split into `src/core` and `src/mp`, `game.h` → `wwapi.h`, `mailbox.h` → `mailbox_core.h` + `mailbox_mp.h` with the same offsets.
 - [ ] **E4** Retire `patch_iso.py`, `dolphin2.sh`, `mplay2.sh`; remove the Image aliases; build.py reads devkitPPC paths from env.
 - [ ] *Later* (co-op M7): Option A arena move, `WwModuleDesc` dispatcher, event ring, command queue.

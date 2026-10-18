@@ -332,10 +332,6 @@ func runPokeU32(addrHex, valHex string) {
 // (so cached momentum doesn't snap Link back), then bumps warp_ack so
 // Go can poll for completion. See inject/include/mailbox.h.
 //
-// SESSION 6 mode-1 freeze diagnostics: see mailbox.h dbg_*_mclmodeldata
-// field comments. Fields published unconditionally each frame from
-// daPy_draw_hook (entry + post-swap + safety-check site).
-//
 // Session 9 face-state network sync (see inject/include/mailbox.h
 // "FACE-STATE NETWORK SYNC"). Per-slot struct of u16 BE values
 // mirroring J3DTevBlock+0x08..+0x0B for mat[1] (left pupil) and mat[4]
