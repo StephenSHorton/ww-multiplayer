@@ -47,7 +47,9 @@ import (
 //	  0x0C  data size
 //
 // Attribute bits: 0x01 file, 0x02 directory, 0x04 compressed, with 0x80
-// meaning Yaz0 and its absence Yay0 (JKRArchive.h:73-78,193-206). A node's
+// meaning Yaz0 and its absence Yay0 (JKRArchive.h:73-78,193-206); 0x10,
+// 0x20 and 0x40 say where the file is preloaded (main RAM, ARAM, or not
+// at all: read from the disc), which only ArchiveEditor uses. A node's
 // entries are its files and subdirectories followed by "." and ".."
 // (directory entries for the node itself and its parent); the game would
 // follow them by name, so the listing here skips them. Inferred from the
@@ -60,6 +62,10 @@ const (
 
 	rarcAttrDir        = 0x02
 	rarcAttrCompressed = 0x04
+	rarcAttrMRAM       = 0x10 // preload into main RAM
+	rarcAttrARAM       = 0x20 // preload into ARAM (every REL in RELS.arc)
+	rarcAttrDVD        = 0x40 // load from the disc on demand
+	rarcAttrYaz0       = 0x80
 
 	// maxArchivePath caps the length of a path in an archive. The game
 	// can't even match a name past 256 bytes (CArcName holds 256,
@@ -78,19 +84,25 @@ const (
 	MaxArchiveSize = yaz0HeaderSize + MaxYaz0Size + MaxYaz0Size/8
 )
 
-// Archive is a parsed RARC archive. Its methods never modify it.
+// Archive is a parsed RARC archive. Its methods never modify it; Edit
+// returns a copy that can be.
 type Archive struct {
 	data    []byte // the (expanded) archive
 	dataOff uint64 // where file data starts
 	nodes   []rarcNode
 	entries []rarcEntry
 	files   []ArchiveFile // every file entry, in entry order
+	strs    []byte        // the string table, as stored
+	nextID  uint16        // info 0x18: the next free file ID
+	idsSync uint8         // info 0x1A: file IDs are entry indices
 }
 
 // rarcNode is one node (directory), decoded.
 type rarcNode struct {
 	typ          string
 	first, count uint64 // its range of file entries
+	nameOff      uint32
+	hash         uint16
 }
 
 // ArchiveFile is one file in an archive.
@@ -109,8 +121,10 @@ func (f ArchiveFile) Compressed() bool { return f.Attr&rarcAttrCompressed != 0 }
 // rarcEntry is one file entry, decoded.
 type rarcEntry struct {
 	id         uint16
+	hash       uint16
 	attr       uint8
 	name       string
+	nameOff    uint32
 	off, size  uint32
 	owner      int32 // the node listing the entry, -1 for none
 	dir, isDot bool  // a directory; named "." or ".."
@@ -173,6 +187,8 @@ func ParseArchive(b []byte) (*Archive, error) {
 	if nNodes == 0 {
 		return nil, fmt.Errorf("rarc: no root node")
 	}
+	a.strs = strs
+	a.nextID, a.idsSync = be.Uint16(ib[0x18:]), ib[0x1A]
 	strTable := string(strs) // one copy; every name is a slice of it
 	// name returns the name at off, or what is wrong with it. It looks
 	// for the NUL no further than a path can be long (no path holds a
@@ -207,7 +223,7 @@ func ParseArchive(b []byte) (*Archive, error) {
 		}
 		attr := uint8(w >> 24)
 		a.entries[i] = rarcEntry{
-			id: be.Uint16(e[0:]), attr: attr, name: n,
+			id: be.Uint16(e[0:]), hash: be.Uint16(e[2:]), attr: attr, name: n, nameOff: w & 0x00FFFFFF,
 			off: be.Uint32(e[8:]), size: be.Uint32(e[12:]),
 			owner: -1, dir: attr&rarcAttrDir != 0, isDot: n == "." || n == "..",
 		}
@@ -219,11 +235,13 @@ func ParseArchive(b []byte) (*Archive, error) {
 	for k := range ns {
 		nd := nodes[k*rarcNodeSize:]
 		ns[k] = rarcNode{
-			typ:   string(nd[0:4]),
-			first: uint64(be.Uint32(nd[0x0C:])),
-			count: uint64(be.Uint16(nd[0x0A:])),
+			typ:     string(nd[0:4]),
+			first:   uint64(be.Uint32(nd[0x0C:])),
+			count:   uint64(be.Uint16(nd[0x0A:])),
+			nameOff: be.Uint32(nd[4:]),
+			hash:    be.Uint16(nd[8:]),
 		}
-		if _, bad := name(be.Uint32(nd[4:])); bad != "" {
+		if _, bad := name(ns[k].nameOff); bad != "" {
 			return nil, fmt.Errorf("rarc: node %d: %s", k, bad)
 		}
 		if ns[k].first+ns[k].count > nEntries {
@@ -366,21 +384,30 @@ func (a *Archive) Read(f ArchiveFile) ([]byte, error) {
 		return nil, fmt.Errorf("rarc: %q: data [0x%x..0x%x] runs past the end of the archive (%d bytes)",
 			f.Path, start, start+uint64(e.size), len(a.data))
 	}
-	data := a.data[start : start+uint64(e.size)]
-	if e.attr&rarcAttrCompressed == 0 {
+	return expandStored(f.Path, e.attr, a.data[start:start+uint64(e.size)], -1)
+}
+
+// expandStored returns the contents of a file stored as data with
+// attribute attr: a copy when it is not compressed, else data expanded
+// (its first limit bytes when limit is not negative). Errors name path.
+func expandStored(path string, attr uint8, data []byte, limit int) ([]byte, error) {
+	if attr&rarcAttrCompressed == 0 {
+		if limit >= 0 && limit < len(data) {
+			data = data[:limit]
+		}
 		return bytes.Clone(data), nil
 	}
 	switch {
 	case IsYaz0(data):
-		out, err := DecodeYaz0(data)
+		out, err := decodeYaz0(data, limit)
 		if err != nil {
-			return nil, fmt.Errorf("rarc: %q: %w", f.Path, err)
+			return nil, fmt.Errorf("rarc: %q: %w", path, err)
 		}
 		return out, nil
 	case len(data) >= 4 && string(data[:4]) == "Yay0":
-		return nil, fmt.Errorf("rarc: %q: Yay0 compression is not supported", f.Path)
+		return nil, fmt.Errorf("rarc: %q: Yay0 compression is not supported", path)
 	default:
-		return nil, fmt.Errorf("rarc: %q: marked compressed but has no Yaz0 header", f.Path)
+		return nil, fmt.Errorf("rarc: %q: marked compressed but has no Yaz0 header", path)
 	}
 }
 
