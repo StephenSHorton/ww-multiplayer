@@ -980,7 +980,11 @@ func TestInstallWindows(t *testing.T) {
 
 func TestInstallWindowsSmokeFailureRollsBack(t *testing.T) {
 	f := newFakeRelease(t, "v0.5.0", map[string][]byte{AssetWindows: []byte("the v0.5.0 exe")})
-	dir := t.TempDir()
+	// Resolve symlinks: Install does, and macOS's temp dir is under /var -> /private/var.
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	exe := filepath.Join(dir, "ww-multiplayer.exe")
 	os.WriteFile(exe, []byte("the v0.4.0 exe"), 0o755)
 	c := f.client()
@@ -992,7 +996,7 @@ func TestInstallWindowsSmokeFailureRollsBack(t *testing.T) {
 		}
 		return errors.New("quarantined")
 	}
-	err := c.Install(context.Background(), f.rel, "windows", exe, nil)
+	err = c.Install(context.Background(), f.rel, "windows", exe, nil)
 	if !errors.Is(err, ErrBadBuild) || !strings.Contains(err.Error(), "quarantined") {
 		t.Fatalf("err = %v", err)
 	}
