@@ -571,8 +571,9 @@ func TestCompareBlob(t *testing.T) {
 // refuses anything touching the main stack, T2, the mailbox or the arena.
 func TestCanaryRegions(t *testing.T) {
 	if mailbox.CanaryTRK.Start != 0x8040CFB0 || mailbox.CanaryTRK.End != 0x80410000 ||
-		mailbox.CanaryArena.Start != 0x804130B0 || mailbox.CanaryArena.End != 0x80414000 {
-		t.Fatalf("canary ranges moved: %+v %+v", mailbox.CanaryTRK, mailbox.CanaryArena)
+		mailbox.CanaryArena.Start != 0x804130B0 || mailbox.CanaryArena.End != 0x80413100 ||
+		mailbox.CanaryArenaHigh.Start != 0x80413260 || mailbox.CanaryArenaHigh.End != 0x80414000 {
+		t.Fatalf("canary ranges moved: %+v %+v %+v", mailbox.CanaryTRK, mailbox.CanaryArena, mailbox.CanaryArenaHigh)
 	}
 	for _, r := range canaryRegions {
 		if err := canarySafe(r); err != nil {
@@ -588,6 +589,9 @@ func TestCanaryRegions(t *testing.T) {
 		{Name: "stack header", Start: 0x8040CFA8, End: 0x8040D000},
 		{Name: "boot LR slot", Start: 0x8040CFAC, End: 0x8040CFB0},
 		{Name: "arena", Start: 0x80413F00, End: 0x80414004},
+		{Name: "enemy block", Start: 0x80413100, End: 0x80413104},
+		{Name: "enemy block tail", Start: 0x8041325C, End: 0x80413260},
+		{Name: "across the enemy block", Start: 0x804130B0, End: 0x80414000},
 		{Name: "misaligned", Start: 0x8040CFAA, End: 0x8040D000},
 		{Name: "empty", Start: 0x8040D000, End: 0x8040D000},
 		{Name: "outside MEM1", Start: 0x7FFFFF00, End: 0x80000000},
@@ -618,7 +622,7 @@ func TestArmAndCheckCanaries(t *testing.T) {
 		}
 		covered += len(w.Data)
 	}
-	if want := int(mailbox.CanaryTRK.Size() + mailbox.CanaryArena.Size()); covered != want {
+	if want := int(mailbox.CanaryTRK.Size() + mailbox.CanaryArena.Size() + mailbox.CanaryArenaHigh.Size()); covered != want {
 		t.Errorf("wrote 0x%X bytes, want 0x%X", covered, want)
 	}
 	for _, r := range canaryRegions {
@@ -641,7 +645,9 @@ func TestArmAndCheckCanaries(t *testing.T) {
 	if err := regionCheck(&out, m); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"4 changed (3 now zero, 1 other)", "0x8040D0B0-0x8040D0BC (3 words)", "below arena  0x804130B0-0x80414000 (980 words): all intact"} {
+	for _, want := range []string{"4 changed (3 now zero, 1 other)", "0x8040D0B0-0x8040D0BC (3 words)",
+		"below arena  0x804130B0-0x80413100 (20 words): all intact",
+		"below arena (past the enemy block) 0x80413260-0x80414000 (872 words): all intact"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("region-probe check lacks %q:\n%s", want, out.String())
 		}
@@ -692,7 +698,7 @@ func TestCanaryBesideBootLR(t *testing.T) {
 		t.Errorf("boot LR now 0x%08X %v", v, err)
 	}
 	var out bytes.Buffer
-	if err := regionCheck(&out, m); err != nil || strings.Count(out.String(), "all intact") != 2 {
+	if err := regionCheck(&out, m); err != nil || strings.Count(out.String(), "all intact") != len(canaryRegions) {
 		t.Errorf("region-probe check: %v\n%s", err, out.String())
 	}
 }
@@ -717,7 +723,7 @@ func TestCanaryPreflight(t *testing.T) {
 		t.Errorf("patched and running: %v", err)
 	}
 	var out bytes.Buffer
-	if err := regionArm(&out, m, tick, false); err != nil || strings.Count(out.String(), "armed: ") != 2 {
+	if err := regionArm(&out, m, tick, false); err != nil || strings.Count(out.String(), "armed: ") != len(canaryRegions) {
 		t.Errorf("regionArm: %v\n%s", err, out.String())
 	}
 }

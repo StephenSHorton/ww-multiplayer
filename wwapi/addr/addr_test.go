@@ -323,6 +323,7 @@ func TestEverythingInMEM1(t *testing.T) {
 		"GameHeapErrors": GameHeapErrors, "ZeldaHeapErrors": ZeldaHeapErrors,
 		"ArchiveHeapErrors": ArchiveHeapErrors, "OSArenaLo": OSArenaLo,
 		"JKRHeapCodeEnd": JKRHeapCodeEnd, "DMC": DMC, "GbaCom": GbaCom,
+		"RoomStayNo": RoomStayNo, "CcS": CcS, "CalcMtxPtr": CalcMtxPtr,
 	}
 	for name, a := range all {
 		if a < MEM1Base || a >= MEM1End {
@@ -471,5 +472,98 @@ func TestM6Offsets(t *testing.T) {
 	}
 	if ProcessIDCounter < MEM1Base || ProcessIDCounter >= MEM1End || RoomStatusOffFlags >= RoomStatusOffZoneCount {
 		t.Error("ProcessIDCounter or mFlags out of place")
+	}
+}
+
+// TestMirrorActorOffsets pins the fopAc_ac_c and base_process_class
+// fields the enemy mirror added (f_op_actor.h:270-321, f_pc_base.h:13-32)
+// to their neighbours: mPauseFlag sits between mUnk0 and mInitState, the
+// three actor_places are 0x14 apart, shape_angle follows current, speed
+// follows scale, and model, speedF, eyePos sit where cullSizeFar, jntHit
+// and maxFallSpeed put them.
+func TestMirrorActorOffsets(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		got, want int
+	}{
+		{"ActorOffPauseFlag", ActorOffPauseFlag, ActorOffInitState - 1},
+		{"ActorOffPauseFlag (mProcName s16, mUnk0 s8)", ActorOffPauseFlag, ActorOffProcName + 2 + 1},
+		{"ActorOffOldPos", ActorOffOldPos, ActorOffHomePos + 0x14},
+		{"ActorOffCurPos", ActorOffCurPos, ActorOffOldPos + 0x14},
+		{"ActorOffShapeAngle", ActorOffShapeAngle, ActorOffCurPos + 0x14},
+		{"ActorOffSpeed (scale cXyz after shape_angle csXyz + pad)", ActorOffSpeed, ActorOffShapeAngle + 8 + 0xC},
+		{"ActorOffModel (cullMtx 4, cull 0x18, cullSizeFar 4)", ActorOffModel, ActorOffSpeed + 0xC + 4 + 0x18 + 4},
+		{"ActorOffSpeedF (jntHit)", ActorOffSpeedF, ActorOffModel + 4 + 4},
+		{"ActorOffEyePos (gravity, maxFallSpeed)", ActorOffEyePos, ActorOffSpeedF + 4 + 4 + 4},
+		{"ActorOffAttnFlags (eyePos cXyz, attention_info +0x14)", ActorOffAttnFlags, ActorOffEyePos + 0xC + 0x14},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = 0x%X, want 0x%X", c.name, c.got, c.want)
+		}
+	}
+	if ActorOffEyePos+0xC > ActorSize || ActorOffShapeAngle+8 > ActorOffSpeed {
+		t.Error("a mirror field runs past the struct or its neighbour")
+	}
+}
+
+// TestMo2Offsets pins daMo2_c's fields (d_a_mo2.h) and mDoExt_McaMorf's
+// (m_Do_ext.h, J3DAnimation.h) to the design's numbers and to each
+// other: the damagereaction fields hang off mDamageReaction, the
+// colliders are a dCcD_Cyl (0x130) and dCcD_Sph (0x12C) apart, the frame
+// control's fields follow its vtable, and the statics add up.
+func TestMo2Offsets(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		got, want int
+	}{
+		{"Mo2OffMode", Mo2OffMode, 0x2BC},
+		{"Mo2OffMorf", Mo2OffMorf, 0x2C4},
+		{"Mo2OffInvuln", Mo2OffInvuln, 0x5B4},
+		{"Mo2OffDR", Mo2OffDR, 0x614},
+		{"Mo2OffDRMode", Mo2OffDRMode, 0x618},
+		{"Mo2OffDRAction", Mo2OffDRAction, 0x61A},
+		{"Mo2OffTilt", Mo2OffTilt, 0xAA0},
+		{"Mo2OffAttackType", Mo2OffAttackType, 0x2060},
+		{"Mo2OffAttackPhase", Mo2OffAttackPhase, 0x2064},
+		{"Mo2OffCoCyl", Mo2OffCoCyl, 0x208C},
+		{"Mo2OffTgCyl (mCoCyl + dCcD_Cyl 0x130)", Mo2OffTgCyl, Mo2OffCoCyl + 0x130},
+		{"Mo2OffHeadSph (mTgCyl + dCcD_Cyl 0x130)", Mo2OffHeadSph, Mo2OffTgCyl + 0x130},
+		{"Mo2OffDefenseSph (mHeadSph + dCcD_Sph 0x12C)", Mo2OffDefenseSph, Mo2OffHeadSph + 0x12C},
+		{"Mo2OffDefenseSph", Mo2OffDefenseSph, 0x2418},
+		{"Mo2CcCenterOff (dCcD_GObjInf 0xF8 + cCcD_ShapeAttr 0x20)", Mo2CcCenterOff, 0xF8 + 0x20},
+		{"Mo2CcTgHitOff (Tg +0x18, mRPrm +4)", Mo2CcTgHitOff, 0x18 + 4},
+		{"Mo2CcTgHitObjOff (Tg +0x18, mHitObj +8)", Mo2CcTgHitObjOff, 0x18 + 8},
+		{"Mo2OffHeadCenter", Mo2OffHeadCenter, 0x28C8},
+		{"Mo2OffShieldCenter", Mo2OffShieldCenter, 0x2928},
+		{"Mo2OffBareHanded", Mo2OffBareHanded, 0x2943},
+		{"Mo2OffHide", Mo2OffHide, 0x2A1C},
+		{"Mo2OffIce", Mo2OffIce, 0x2A54},
+		{"Mo2OffIceShrink", Mo2OffIceShrink, 0x2A5A},
+		{"McaMorfOffModel", McaMorfOffModel, 0x50},
+		{"McaMorfOffAnm", McaMorfOffAnm, 0x54},
+		{"McaMorfOffFrameCtrl", McaMorfOffFrameCtrl, 0x58},
+		{"McaMorfOffAttr", McaMorfOffAttr, 0x5C},
+		{"McaMorfOffEnd", McaMorfOffEnd, 0x60},
+		{"McaMorfOffRate", McaMorfOffRate, 0x64},
+		{"McaMorfOffFrame", McaMorfOffFrame, 0x68},
+		{"McaMorfOffCurMorf (frame ctrl 0x14, mpTransformInfo, mpQuat)", McaMorfOffCurMorf, McaMorfOffFrameCtrl + McaMorfFrameCtrlLen + 4 + 4},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = 0x%X, want 0x%X", c.name, c.got, c.want)
+		}
+	}
+	// The fakegame's enemy block must hold every Moblin field read.
+	if Mo2OffIce+EnemyIceSize > 0x3000 || Mo2OffShieldCenter+0xC > Mo2OffBareHanded {
+		t.Error("a Moblin field is past the fake's actor block or overlaps a neighbour")
+	}
+	checkRels(t, []rel{
+		{"CcS (gameInfo + play + mCcS)", CcS, GameInfo + 0x12A0 + 0x1404},
+		{"CcS (Play + mCcS)", CcS, Play + 0x1404},
+		{"RoomStayNo", RoomStayNo, StayNo},
+		{"RoomStayNo (sym:18667)", RoomStayNo, 0x803F6A78},
+		{"CalcMtxPtr (sym:18270)", CalcMtxPtr, 0x803F63A0},
+	})
+	if CcS+0x1404 > Play+PlaySize || CcS%4 != 0 || CalcMtxPtr%4 != 0 {
+		t.Error("mCcS runs past play, or a pointer is misaligned")
 	}
 }

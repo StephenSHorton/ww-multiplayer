@@ -122,6 +122,8 @@ func commandTable() []command {
 		{name: "stage-hop", group: groupDev, run: runCoopDiag},
 		{name: "enemy-kill", group: groupDev, run: runCoopDiag},
 		{name: "peek-demo", group: groupDev, run: runCoopDiag},
+		// Enemy sync, the host-authoritative Moblin prototype (enemy_probe.go).
+		{name: "enemy-watch", group: groupDev, run: runEnemyWatch},
 	}
 }
 

@@ -383,36 +383,5 @@ func RunCoop(ctx context.Context, c *Client, addr string, connLog *ConnectLog, s
 	if c.role != RoleCoop {
 		return errors.New("RunCoop needs a co-op client (NewCoopClient)")
 	}
-	connect := func(ctx context.Context) error {
-		err := c.ConnectContext(ctx, addr)
-		if connLog != nil {
-			return connLog.Observe(ctx, err)
-		}
-		return err
-	}
-	live := func(ctx context.Context) error {
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		done := make(chan error, 1)
-		go func() { done <- session(ctx, c.SendCoop) }()
-		t := time.NewTicker(coopDropPoll)
-		defer t.Stop()
-		for {
-			select {
-			case err := <-done:
-				return err
-			case <-ctx.Done():
-				return <-done
-			case <-t.C:
-				if !c.IsConnected() {
-					cancel()
-					return <-done
-				}
-			}
-		}
-	}
-	run := func(ctx context.Context) error {
-		return RunSession(ctx, c.Disconnect, live)
-	}
-	return ReconnectLoop(ctx, connect, run, NewBackoff(), SleepCtx)
+	return runRoleSession(ctx, c, addr, connLog, c.SendCoop, session)
 }

@@ -15,6 +15,7 @@ disasm
 dolphin2
 dump
 enemy-kill
+enemy-watch
 eye-anim-dl-dump
 eye-anim-find
 eye-anim-poke

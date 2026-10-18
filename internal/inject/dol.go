@@ -80,8 +80,8 @@ func PatchDOL(vanilla []byte) ([]byte, error) {
 	t2FileOff := uint32(len(out))
 	out = append(out, T2Bytes...)
 
-	writeU32BE(out, 0x00+4*freeSlot, t2FileOff)        // file_offset[i]
-	writeU32BE(out, 0x48+4*freeSlot, T2Address)        // mem_addr[i]
+	writeU32BE(out, 0x00+4*freeSlot, t2FileOff)            // file_offset[i]
+	writeU32BE(out, 0x48+4*freeSlot, T2Address)            // mem_addr[i]
 	writeU32BE(out, 0x90+4*freeSlot, uint32(len(T2Bytes))) // size[i]
 
 	return out, nil

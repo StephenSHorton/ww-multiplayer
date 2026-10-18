@@ -65,9 +65,17 @@ var (
 	// on debug boot info (§4.5).
 	CanaryTRK = addr.Region{Name: "TRK stack", Start: MainStackHeader.End, End: T2Base}
 
-	// CanaryArena is the slack between the mailbox and the patched
-	// arena.
-	CanaryArena = addr.Region{Name: "below arena", Start: Mailbox + MailboxSize, End: PatchedArenaLo}
+	// CanaryArena and CanaryArenaHigh are the slack between the mailbox
+	// and the patched arena, less the enemy-mirror block (enemy.go,
+	// EnemyBlockRegion) between them: the block is written by Go every
+	// tick and by the REL every frame while enemy sync runs, so a canary
+	// armed over it would be reported changed by the mod's own traffic,
+	// and arming over it would tear a block the REL is reading. The
+	// region probe arms and checks the two parts and skips the block.
+	// CanaryArena still holds the REL module's words (OffRELMagic..),
+	// which only a linked module writes.
+	CanaryArena     = addr.Region{Name: "below arena", Start: Mailbox + MailboxSize, End: Mailbox + EnemyOff}
+	CanaryArenaHigh = addr.Region{Name: "below arena (past the enemy block)", Start: Mailbox + EnemyOff + EnemySize, End: PatchedArenaLo}
 )
 
 const (

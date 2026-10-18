@@ -17,4 +17,4 @@ Diagnostics and research probes (Dolphin picked by WW_DOLPHIN_INDEX / WW_DOLPHIN
   face-mat-hammer face-sync-tev-poll face-dl-loop face-sync-fake
   face-sync-fake-loop j3dsys-probe ppc-disasm find-pos track-pos coop-probe
   coop-watch actors zone-dump frame-phase-probe heap-free blob-verify-live
-  region-probe stage-hop enemy-kill peek-demo
+  region-probe stage-hop enemy-kill peek-demo enemy-watch

@@ -82,7 +82,7 @@ func TestRunSessionNoOverlapAcrossReconnects(t *testing.T) {
 	defer cancel()
 
 	var mu sync.Mutex
-	openSession := 0    // id of the session currently "open" (0 = none)
+	openSession := 0 // id of the session currently "open" (0 = none)
 	nextID := 0
 	sessions := 0
 	killedLive := false // set if teardown ever closed the live session
