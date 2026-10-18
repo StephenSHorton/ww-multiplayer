@@ -8,7 +8,8 @@ This repo holds the Go app and tools and the injected C source (`inject/`). To r
 - Go 1.26.2 or newer (the `go` line in `go.mod`; CI uses the same file). macOS builds also need the Xcode command-line tools (cgo).
 
 ### 1. Dolphin emulator
-- Install or extract a Dolphin build (this project was developed against Dolphin 2603, x64).
+- Install or extract a Dolphin build (this project was developed against Dolphin 2603 and 2609, x64).
+- **Memory:** the patched disc gives the game 48 MB of MEM1 (docs/05 "48 MB MEM1"). Dolphin 2609 and newer size the memory from the disc automatically. On older builds enable Config > Advanced > "Enable Emulated Memory Size Override" with MEM1 = 48 MB, or let the app and `wwdev dolphin2` launch Dolphin for you: they pass the override on the command line for that session only. Save states made with a different memory size do not load. Real hardware is not supported.
 - The dev defaults expect Dolphin at `%USERPROFILE%\Desktop\Dolphin-x64` with the patched ISO in its `Roms/` folder. Dolphin's user dir is `<exe dir>/User` only in portable mode (`portable.txt` next to `Dolphin.exe`), otherwise `%APPDATA%\Dolphin Emulator`. Override with `DOLPHIN_EXE` / `ISO_PATH` / `USER_DIR_1` / `USER_DIR_2`, or let the app's Setup find them.
 
 ### 2. Wind Waker GZLE01 disc image

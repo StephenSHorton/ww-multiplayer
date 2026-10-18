@@ -174,10 +174,12 @@ func TestCheckBudget(t *testing.T) {
 }
 
 // TestBuildPyMatchesBlob: blob.go was produced by the build.py on disk.
-// T2Address is build.py's inject_address, and every OSInit patch byte
-// build.py writes is either in DOLPatches with the same value or left out
-// of the diff because the vanilla byte already had it; no other DOLPatches
-// byte falls inside the OSInit patch window.
+// T2Address is build.py's inject_address, and every byte of every patch
+// build.py lists (the OSInit arena patch and the 48 MB heap plan) is
+// either in DOLPatches with the same value or left out of the diff because
+// the vanilla byte already had it; no other DOLPatches byte falls inside
+// any build.py patch's window (the hook sites Freighter writes lie
+// between those windows, not inside them).
 func TestBuildPyMatchesBlob(t *testing.T) {
 	injectAddr, patches := buildPyFacts(t)
 	if injectAddr != T2Address {
@@ -189,11 +191,12 @@ func TestBuildPyMatchesBlob(t *testing.T) {
 			inBlob[p.FileOff+uint32(i)] = b
 		}
 	}
-	lo, hi := ^uint32(0), uint32(0)
+	type window struct{ lo, hi uint32 }
+	var windows []window
 	want := map[uint32]byte{}
 	for _, p := range patches {
 		off := osInitT1File + (p.addr - osInitT1Load)
-		lo, hi = min(lo, off), max(hi, off+uint32(len(p.bytes)))
+		windows = append(windows, window{off, off + uint32(len(p.bytes))})
 		for i, b := range p.bytes {
 			want[off+uint32(i)] = b
 			if got, ok := inBlob[off+uint32(i)]; ok && got != b {
@@ -201,14 +204,22 @@ func TestBuildPyMatchesBlob(t *testing.T) {
 			}
 		}
 	}
+	inWindow := func(off uint32) bool {
+		for _, w := range windows {
+			if off >= w.lo && off < w.hi {
+				return true
+			}
+		}
+		return false
+	}
 	n := 0
 	for off, b := range inBlob {
-		if off < lo || off >= hi {
+		if !inWindow(off) {
 			continue
 		}
 		n++
 		if w, ok := want[off]; !ok || w != b {
-			t.Errorf("blob.go DOLPatches writes 0x%02X at file 0x%X inside the OSInit window, build.py does not", b, off)
+			t.Errorf("blob.go DOLPatches writes 0x%02X at file 0x%X inside a build.py patch window, build.py does not", b, off)
 		}
 	}
 	if n == 0 {

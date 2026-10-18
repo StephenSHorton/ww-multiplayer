@@ -579,9 +579,9 @@ static u32 mini_link_shapes_force_show(J3DModelData* model_data) {
     if (!link_root) return 0;
     u32 mtl = *(volatile u32*)((u8*)link_root + J3DJOINT_MESH_OFFSET);
     int i;
-    for (i = 0; i < 32 && mtl >= 0x80000000u && mtl < 0x81800000u; i++) {
+    for (i = 0; i < 32 && mtl >= 0x80000000u && mtl < MEM1_END; i++) {
         u32 shape = *(volatile u32*)(mtl + J3DMATERIAL_SHAPE_OFFSET);
-        if (shape >= 0x80000000u && shape < 0x81800000u) {
+        if (shape >= 0x80000000u && shape < MEM1_END) {
             volatile u32* flags = (volatile u32*)(shape + J3DSHAPE_FLAGS_OFFSET);
             if (*flags & J3DSHAPE_FLAG_HIDE) {
                 *flags &= ~J3DSHAPE_FLAG_HIDE;
@@ -599,7 +599,7 @@ static void mini_link_shapes_restore(J3DModelData* model_data, u32 shown) {
     J3DJoint* link_root = ((J3DJoint**)*(void**)((u8*)model_data + J3DMODELDATA_JOINT_NODE_PTR_OFFSET))[LINK_CL_ROOT_JOINT_INDEX];
     u32 mtl = *(volatile u32*)((u8*)link_root + J3DJOINT_MESH_OFFSET);
     int i;
-    for (i = 0; i < 32 && mtl >= 0x80000000u && mtl < 0x81800000u; i++) {
+    for (i = 0; i < 32 && mtl >= 0x80000000u && mtl < MEM1_END; i++) {
         u32 shape = *(volatile u32*)(mtl + J3DMATERIAL_SHAPE_OFFSET);
         if (shown & (1u << i)) {
             *(volatile u32*)(shape + J3DSHAPE_FLAGS_OFFSET) |= J3DSHAPE_FLAG_HIDE;

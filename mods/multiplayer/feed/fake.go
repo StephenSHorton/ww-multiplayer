@@ -46,12 +46,12 @@ func PoseFakeLoop(env Env, name, addr string) {
 			continue
 		}
 		modelPtr, _ := d.ReadU32(linkPtr + linkMpCLModelOff)
-		if modelPtr < 0x80000000 || modelPtr >= 0x81800000 {
+		if modelPtr < 0x80000000 || modelPtr >= 0x83000000 {
 			time.Sleep(200 * time.Millisecond)
 			continue
 		}
 		nodePtr, _ := d.ReadU32(modelPtr + j3dModelMpNodeMtxOff)
-		if nodePtr < 0x80000000 || nodePtr >= 0x81800000 {
+		if nodePtr < 0x80000000 || nodePtr >= 0x83000000 {
 			time.Sleep(200 * time.Millisecond)
 			continue
 		}

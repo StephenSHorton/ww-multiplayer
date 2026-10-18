@@ -23,6 +23,14 @@ const (
 	isoHeaderFSTMax   = 0x42C
 	isoHeaderEnd      = 0x440
 	isoExpectedGameID = "GZLE01"
+
+	// bi2.bin follows boot.bin at 0x440; its u32 at +0x04 is the simulated
+	// memory size the apploader copies to 0x800000F0 and Dolphin 2609+
+	// sizes MEM1 from (VolumeDisc::GetSimulatedMemorySize). The patched
+	// DOL's heap plan (inject/build.py, the 0x8000C7A4..0x8000C9EC writes)
+	// assumes 48 MB. docs/05 "48 MB MEM1".
+	isoBI2SimMemOff   = isoHeaderEnd + 0x04
+	simulatedMEM1Size = 0x03000000
 	isoFSTAlignment   = 0x10000 // align relocated FST to 64 KB
 
 	// boot.bin (0x440) + bi2.bin (0x2000) are followed by the apploader:
@@ -286,6 +294,7 @@ func patchImage(iso []byte, p Patch) ([]byte, Result, error) {
 
 	out := make([]byte, len(iso))
 	copy(out, iso)
+	binary.BigEndian.PutUint32(out[isoBI2SimMemOff:], simulatedMEM1Size) // bi2.bin: 48 MB (docs/05 "48 MB MEM1")
 	end := max(uint64(newFSTOff)+uint64(fstSize), uint64(res.RELSArcOffset)+uint64(res.RELSArcSize))
 	if end > uint64(len(out)) {
 		out = append(out, make([]byte, end-uint64(len(out)))...) // the EOF append

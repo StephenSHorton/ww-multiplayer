@@ -13,7 +13,7 @@ The old C# Windwaker-coop used a hardcoded address (`0x803B0000`) which only wor
 ### Scanner Algorithm (`wwapi/emu/memory.go`)
 
 1. Use `VirtualQueryEx` to enumerate memory regions in Dolphin's process.
-2. Look for committed, readable/writable regions >= 24MB (size of GC MEM1).
+2. Look for committed, readable/writable regions >= 24MB (the stock GC MEM1; the patched disc runs with 48 MB since docs/05 "48 MB MEM1", and `addr.MEM1End` is 0x83000000, so a vanilla 24 MB game simply refuses reads past 0x81800000).
 3. Read the first bytes of each candidate region.
 4. If the bytes match the game ID (`"GZLE01"`), we've found the RAM base.
 5. Fall back to scanning smaller regions at 4KB intervals if the first pass misses.

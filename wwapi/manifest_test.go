@@ -68,7 +68,7 @@ func TestParseManifestRefuses(t *testing.T) {
 		{manifestJSON("x", "1.0.0", `"dependencies":{"y":"^1"},"optional_dependencies":{"y":"^1"}`), `y is in both`},
 		{manifestJSON("x", "1.0.0", `"writes":[{"start":"0x80000010","end":"0x80000010"}]`), `want start < end`},
 		{manifestJSON("x", "1.0.0", `"writes":[{"start":"0x7FFFFFF0","end":"0x80000010"}]`), `inside MEM1`},
-		{manifestJSON("x", "1.0.0", `"writes":[{"start":"0x817FFFF0","end":"0x81800010"}]`), `inside MEM1`},
+		{manifestJSON("x", "1.0.0", `"writes":[{"start":"0x82FFFFF0","end":"0x83000010"}]`), `inside MEM1`},
 		{manifestJSON("x", "1.0.0", `"writes":[{"start":"0x80000000","end":"0x80000010"},{"start":"0x8000000F","end":"0x80000020"}]`), `overlap`},
 		{`{"id":"x","name":"X","version":"1.0.0","api":"^0.1","id":"y"}`, `duplicate key`},
 		{`{"id":"x"` + strings.Repeat(" ", wwapi.MaxManifestSize) + `}`, `the limit is`},
@@ -79,7 +79,7 @@ func TestParseManifestRefuses(t *testing.T) {
 		}
 	}
 	// A write range may end exactly at the end of MEM1, and ranges may touch.
-	manifest(t, "x", "1.0.0", `"writes":[{"start":"0x817FFFF0","end":"0x81800000"},{"start":"0x80000000","end":"0x80000010"},{"start":"0x80000010","end":"0x80000020"}]`)
+	manifest(t, "x", "1.0.0", `"writes":[{"start":"0x82FFFFF0","end":"0x83000000"},{"start":"0x80000000","end":"0x80000010"},{"start":"0x80000010","end":"0x80000020"}]`)
 }
 
 func TestManifestFrom(t *testing.T) {

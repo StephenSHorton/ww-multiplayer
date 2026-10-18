@@ -1966,3 +1966,13 @@ and this step wires the patcher to ship it and adds `src/mp/relload.c`,
 which keeps one actor of the hijacked proc 0xB5 alive per stage so the
 module stays linked. T2 0x2A88 -> 0x2CA8 (0x258 free). Save states
 recaptured with the new blob and the new RELS.arc.
+## 2026-10-18: 48 MB MEM1
+
+Stephen chose the host-authoritative path (docs/design notes in the handoff)
+and accepted an emulator-only 48 MB MEM1, which every GameCube shared-world
+precedent needed. The patcher now writes bi2.bin's simulated size and the
+four `mDoMch_Create` heap-plan words from ww-online's split (archive +4 MiB,
+game +4 MiB), every Dolphin launch passes the RAM override, and the mod's
+pointer bounds end at 0x83000000. Details in docs/05 "48 MB MEM1". Save
+states captured at 24 MB refuse to load: `saves/start.sav` recaptured,
+players must re-patch.

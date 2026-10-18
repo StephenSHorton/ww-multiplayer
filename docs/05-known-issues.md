@@ -1012,6 +1012,56 @@ the hard-coded `lwz` offset has to move with it.
 Mailbox counter (`spawn_trigger`, then at `0x80410800`, now at `0x80412F00`) increments
 ~30/sec (matching 29.97 FPS) while the game runs normally.
 
+## 48 MB MEM1 (2026-10-18)
+
+Stephen accepted an emulator-only requirement: the patched disc runs with 48 MB of
+MEM1 instead of the GameCube's 24 MB, the way ww-online does (its
+`use_extra_memory.asm`, MIT, "based on LagoLunatic's use_extra_dolphin_memory.asm").
+This buys the heap room a real remote Link actor needs (a second `daPy_lk_c` is
+about 704 KB against ~245 KB free in the stock GameHeap, "PROC_PLAYER Won't Fit"
+below) and the room the host-authoritative work will take.
+
+### What the patcher writes
+
+- `bi2.bin` + 0x04 (ISO offset 0x444): `0x03000000`. The apploader copies it to
+  `0x800000F0`, `OSGetConsoleSimulatedMemSize` reads it there
+  (`__OSInitMemoryProtection` picks the 48 MB BAT setup), and Dolphin 2609+ sizes
+  MEM1 from it (`VolumeDisc::GetSimulatedMemorySize`).
+- Four instruction sites in `mDoMch_Create` (`m_Do_machine.cpp:500-612`), from
+  `inject/build.py`'s patch list so `extract_blob.py` carries them into `blob.go`:
+
+| DOL addr | vanilla | patched | meaning |
+|---|---|---|---|
+| 0x8000C7A4 | `lis r0,0x8180` | `lis r0,0x8300` | arena-hi trim threshold |
+| 0x8000C844 | `addis r3,r31,-0xD2; addi r0,r3,-0xC00` | `addis r3,r31,-0x152; addi r0,r3,-0xC00` | arena -= 0x1520C00 (was 0xD20C00) |
+| 0x8000C9DC | `lis r3,0xA5; addi r3,r3,0x1400` | `lis r3,0xE5; addi r3,r3,0x1400` | archive heap 0xE51400 (+4 MiB) |
+| 0x8000C9EC | `lis r3,0x2D; addi r3,r3,-0x1800` | `lis r3,0x6D; addi r3,r3,-0x1800` | game heap 0x6CE800 (+4 MiB) |
+
+The command heap (0x8000C9D0, `li r3,0x1000`) is unchanged. The system heap keeps
+its vanilla size: the game itself subtracts 16 MiB when the simulated size is 48 MB
+(`0x8000C7DC-0x8000C7E8`, `m_Do_machine.cpp:526-528`), and the 8 MiB the two heaps
+grew is taken out of the arena subtract. Nopping that 16 MiB subtract (file 0x09728
+`3FFFFF00` -> `60000000`) would hand it to the system heap; untested by anyone, left
+for a measured experiment with `wwdev heap-free`.
+
+### Dolphin
+
+`launch.LaunchArgs` adds `-C Dolphin.Core.RAMOverrideEnable=True -C
+Dolphin.Core.MEM1Size=0x03000000` to every launch (session-only, nothing written to
+the user's INI). Dolphin 2609 and newer would size MEM1 from bi2.bin on their own;
+the override covers older builds (it exists since 5.0-11969) and wins when both are
+present. A vanilla disc launched the same way trims its arena back to 24 MB itself.
+Save states refuse to load across memory sizes ("State is incompatible with current
+memory settings"), so `saves/start.sav` was recaptured. Netplay propagates the
+host's override to clients. Real hardware: no.
+
+### Bounds in the mod
+
+`addr.MEM1End` and `wwapi.MEM1End` are 0x83000000; `wwapi.h` `MEM1_END` for the C
+pointer checks (the archive heap, where Link.arc and the mini-Link models live,
+now reaches past 0x81800000). `emu.scanForRAM` still accepts any region of 24 MiB
+or more, so a 24 MB game is found and simply refuses reads past its end.
+
 ## PROC_PLAYER Won't Fit — GameHeap OOM
 
 ### The problem
