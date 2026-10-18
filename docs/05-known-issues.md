@@ -125,7 +125,11 @@ its state. With our mini-Link's `mUserArea = 0`, the callback
 dereferenced NULL at PC `0x8010C53C` (`lhz r0, 0x301C(r3)` inside
 `checkEquipAnime`). Setting `*(u32*)(model+0x14) = (u32)link_this`
 each frame routes the callback to the live Link #1 instance — calc
-runs cleanly. Pattern verified against the public TWW decomp: every
+runs cleanly. (F19, 2026-10-18: those callbacks also *write* into
+Link #1, which is why the pose feed no longer runs Link's real walker
+on a mini-Link at all; see "Local Link's feet squished on slopes"
+below. `mUserArea` is still set for the draw-time entry.) Pattern
+verified against the public TWW decomp: every
 actor with bound callbacks does `model->setUserArea((u32)this)`
 right after creation. Without this, calc on shared skinned ModelData
 is unreachable from outside the actor system.
@@ -605,6 +609,76 @@ J3DModelData on stage unload is wrong too. `initModel` takes it from Link.arc
 
 T2 shrank from 0x2C88 to 0x2BE8 bytes (devkitPPC 16.2). It ends at `0x80412BE8`, which
 is 0x318 bytes below the mailbox.
+
+## Local Link's feet squished on slopes — FIXED (2026-10-18, F19)
+
+### The symptom
+
+On slopes the local player's *own* Link deformed: feet and lower legs squished or
+bent, worse the steeper the ground, and nothing on flat ground. It needed no remote
+player; a session with nobody else in it did it. The 2026-04-22 slope fix
+(docs/06 "Slope-IK leg flap") removed torn reads on the *remote* puppet; this one was
+in the player's own game.
+
+### The cause
+
+`mp_draw_post` (`inject/src/mp/minilink.c`) ran a first `J3DModel_calc` on every
+mini-Link with Link's **real** walker before copying Go's pose over `mpNodeMtx` for
+the no-op-walker calc. Every mini-Link shares Link's `J3DModelData`, whose joints
+carry Link's callbacks, and the first calc set `mUserArea = Link #1` so they could run
+(the 2026-04-19 crash fix above). Those callbacks do not write to the model being
+calc'd. They write into Link #1 (zeldaret/tww `d_a_player_main.cpp`):
+
+- `daPy_lk_c::jointCB1` (the `CL_JNT_RTOE` callback, `:488-545`) builds the leg IK
+  rotation from `mFootData[].field_0x008` and `revConcat`s it onto Link #1's own
+  `mpCLModel` leg matrices (`LLEGA..LTOE`, `RLEGA..RTOE`). In our calc that applies
+  the IK rotation a second time, onto legs Link's own calc had already solved.
+- `daPy_lk_c::jointAfterCB` (`:390-413`, the blend-calc after-callback, whose
+  `mUserArea` is Link #1 directly via `m_pbCalc`) copies Link #1's leg matrices into
+  `mFootData[].field_0x088`, the "animation-only, pre-IK" matrices that
+  `footBgCheck` / `setLegAngle` solve from. After our calc they hold post-IK matrices.
+- `mDoExt_MtxCalcAnmBlendTblOld::calc` decrements the old-frame morph counter once
+  more per extra walk (`m_Do_ext.cpp:1227-1229`), so blend transitions ran faster.
+
+Next frame `daPy_lk_c::execute` consumes that state before Link's own calc rewrites
+it: `posMove` → `posMoveFromFootPos` (`:2352-2483`) reads the foot matrices for toe
+and heel positions, and `footBgCheck` (`:8689-8830`) probes the ground under them,
+lowers the body and runs `setLegAngle` on `field_0x088`, chasing the new angles into
+`field_0x008`. The loop compounds every frame. `setLegAngle` returns early when the
+ground delta is under 0.1 (`:8597`), which is why flat ground hid it. The walk ran for
+every created model *before* the `pose_seqs` gate, so `shadow_mode = 5` alone, which
+the feeder sets the moment a session connects, was enough. The remote's view of this
+Link stayed clean because `pose_publish` copies `mpNodeMtx` before `mp_draw_post`
+runs (`src/core/hooks.c`).
+
+The handoff's first guess, `basicMtxCalc` left swapped to the no-op, was wrong: the
+swap and restore around the second calc are straight-line with no exit between them.
+
+### How it was verified (Outset pier ramp, patched ISO, no network)
+
+With `wwdev peek`, Link #1's live `LFOOT` matrix (`mpCLModel + 0x8C`, joint `0x22`,
+48 bytes) was compared with `pose_publish`'s copy of the same joint
+(`mailbox.pose_publish_ptr + 0x22 * 48`), i.e. before and after `mp_draw_post`:
+
+- `shadow_mode 0`: the two agree (idle-animation noise only).
+- `wwdev shadow-mode 5`, no server, no pose written: the live matrix differs from the
+  published one by a large rotation and sits about 7 units higher; the screenshot shows
+  the left leg bent and the foot raised on the ramp.
+- `wwdev shadow-mode 0`: they agree again and Link stands straight.
+
+### The fix (`inject/src/mp/minilink.c`)
+
+The first calc is gone. Go's pose fills every joint of `mpNodeMtx`, so the walk was
+wasted work as well as harmful. The pose buffer is seeded, on its one-time
+allocation, by copying Link #1's own `mpNodeMtx` (same rig, computed by Link's draw
+this frame), a copy with no calc; nothing renders from the seed anyway, since both the
+copy and the submit loop wait for `pose_seqs[slot] != 0`. The no-op-walker calc still
+runs as before, and `mUserArea` is still set to Link #1 for the draw-time entry.
+
+T2 shrank from 0x2A88 to 0x29C8 bytes (devkitPPC 16.2). It ends at `0x804129C8`,
+0x538 bytes below the mailbox. The mailbox layout is unchanged (comment-only edit to
+`mailbox_core.h`, `layout_gen.go` identical), so `WWMB_LAYOUT` stays 2; the blob hash
+changed, so `saves/start.sav` was recaptured and players must re-patch.
 
 ## Actor puppets outlived their slot and froze the next stage — FIXED (2026-10-17)
 

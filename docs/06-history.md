@@ -1909,3 +1909,27 @@ poke, its reversal, and an in-place header-swap alternative.
 **Still to check live:** docs/09 §7 (probe, `tunic-slot` screenshot
 pairs, two-color `mp-local`). Re-patch the ISO and refresh
 `saves/start.sav` with `auto-recapture` first.
+
+## 2026-10-18: local Link's feet squished on slopes (F19)
+
+**Report:** on slopes the player's own Link's feet and legs squished, even
+with nobody else in the session. The 2026-04-22 fix had only covered the
+remote puppet's torn reads.
+
+**Cause.** `mp_draw_post` ran a first calc on every mini-Link with Link's
+real walker, with `mUserArea = Link #1` so Link's joint callbacks would
+not crash. Those callbacks write into Link #1: `jointCB1` re-applies the
+leg IK rotation onto Link #1's leg matrices and `jointAfterCB` overwrites
+the pre-IK foot matrices that next frame's `footBgCheck` / `setLegAngle`
+solve from, so the IK compounded every frame on any ground delta over
+0.1. The walk ran for every created model before the `pose_seqs` gate, so
+`shadow_mode 5` alone did it. Proven live on the Outset pier ramp: Link
+#1's `LFOOT` matrix after the hook differed from `pose_publish`'s copy
+taken before it under mode 5 and matched under mode 0, with the bent leg
+visible in the screenshot. The basicMtxCalc-left-swapped guess was wrong.
+
+**Fix.** The first calc is removed; the pose buffer is seeded by copying
+Link #1's own `mpNodeMtx`, and the no-op-walker calc rebuilds the skin
+matrices from Go's pose as before. Details and the probe recipe in
+docs/05 "Local Link's feet squished on slopes". The blob changed:
+`saves/start.sav` recaptured and players must re-patch.

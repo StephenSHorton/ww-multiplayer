@@ -121,11 +121,12 @@ typedef struct {
     // +0x91..+0xA7: retired in E2 (was shadow_latched, the mode-3/4
     // dbg_* diagnostics and the mode-4 echo ring's delay and state).
     u8  _reserved1[23];  // +0x91
-    // Pose feed (shadow_mode 5). For each slot C runs the mini-Link calc
-    // twice: once with Link's real walker, then, after copying the slot's
-    // pose buffer (which Go fills from the network or pose-test) over
-    // mpNodeMtx, with a no-op walker so the envelope pass rebuilds
-    // mpDrawMtxBuf from that pose.
+    // Pose feed (shadow_mode 5). For each slot C copies the slot's pose
+    // buffer (which Go fills from the network or pose-test) over the
+    // mini-Link's mpNodeMtx, then runs its calc with a no-op walker so
+    // the envelope pass rebuilds mpDrawMtxBuf from that pose. Link's
+    // real walker never runs on a mini-Link: its joint callbacks write
+    // into Link #1 (F19, docs/05).
     //
     // Pose-feed slots, parallel arrays sized MAX_REMOTE_LINKS:
     //   pose_buf_ptrs[i]      — C publishes after JKRHeap_alloc per slot.

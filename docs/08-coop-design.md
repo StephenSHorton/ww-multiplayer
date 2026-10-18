@@ -332,8 +332,8 @@ Current layout (`inject/build.py`: `inject_address` and the `__OSArenaLo` patch 
 | 0x803FCFA8..0x8040CFA8 | main stack (grows down; `OSClearStack` zeroes stack_end+4..SP, `OSThread.c:924-933`) | 64 KB |
 | 0x8040CFA8..0x8040CFB0 | frame header above the stack top, **in use**: `__start` calls the nofralloc `__init_hardware` with r1 = `_stack_addr`, so `__OSPSInit` and `__OSCacheInit` save LR at 4(r1) = 0x8040CFAC, which keeps 0x8000336C on every booted game (`__start.c:21-23,125-126,173-183`; `OS.c:623-624`; `OSCache.c:446`; `__init_hardware` 0x80003354, sym:5) | 8 |
 | 0x8040CFB0..0x80410000 | MetroTRK debug stack plus padding; `InitMetroTRK` runs only if a 32-bit word is 2 or 3: the word at +0xC of the block pointed to by 0x800000F4, or, when that pointer is 0 and 0x80000034 is non-zero, the word at 0x800030E8 (`__start.c:32-62`); free by inference | 0x3050 |
-| 0x80410000..0x80412A88 | T2 (code and data; 0x2E28 before Phase E0 removed the dead C experiments, 0x2588 after E0, 0x25A8 with E1's header writes, 0x2A88 after the E3 split (docs/api §6.6); `inject.T2End`) | 0x2A88 |
-| 0x80412A88..0x80412F00 | free (`TestT2EndsBelowMailbox`) | **0x478** |
+| 0x80410000..0x804129C8 | T2 (code and data; 0x2E28 before Phase E0 removed the dead C experiments, 0x2588 after E0, 0x25A8 with E1's header writes, 0x2A88 after the E3 split (docs/api §6.6), 0x29C8 after F19 dropped the mini-Link's first calc (docs/05); `inject.T2End`) | 0x29C8 |
+| 0x804129C8..0x80412F00 | free (`TestT2EndsBelowMailbox`) | **0x538** |
 | 0x80412F00..0x804130B0 | mailbox (`frame_shim` hard-codes `lwz 12,0x2F08(12)`, `frame_shim` in `src/core/hooks.c`; the Go `mailbox.Mailbox` (wwapi/mailbox/layout_gen.go, generated from mailbox_core.h + mailbox_mp.h); +0x180..+0x187 is the WWMB header (magic, ABI, layout; E1), +0x188..+0x1A0 the docs/09 tunic block, +0x1A0 the features word and `_pad13` (E1)) | 0x1B0 |
 | 0x804130B0..0x80414000 | unused, below arena (0x804130A0 before Phase E1 grew the mailbox to 0x1B0) | 0xF50 |
 | 0x80414000 | patched `__OSArenaLo` (`addi r3,r3,0x4000` at 0x80301820) | — |

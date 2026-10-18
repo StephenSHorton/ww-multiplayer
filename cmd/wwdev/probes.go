@@ -501,7 +501,7 @@ func linkModel(d mem.Reader) uint32 {
 // (pose_buf_ptrs[i], driven: pose_seqs[i] != 0) has the same first 48
 // bytes (joint 0's 3x4 matrix) as the mpNodeMtx at nodeMtx, or -1. C
 // copies pose_bufs[i] over mini_link_models[i]'s mpNodeMtx before the
-// second calc each frame, so the two agree except while Go is mid-write;
+// no-op-walker calc each frame, so the two agree except while Go is mid-write;
 // a few retries ride over that.
 func matchMiniLinkSlot(d mem.Reader, nodeMtx uint32) int {
 	const n = 48
