@@ -1508,10 +1508,7 @@ func runFaceHookArm(arm bool) {
 	if arm {
 		v = 1
 	}
-	if err := d.Write(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{v}); err != nil {
-		fmt.Printf("write face_hook_enable failed: %v\n", err)
-		os.Exit(1)
-	}
+	avatar.SetFaceSync(d, arm)
 	// Wait one frame so the C side has a chance to process the change.
 	time.Sleep(50 * time.Millisecond)
 	state, _ := d.Read(mailbox.Mailbox+mailbox.OffFaceHookState, 1)

@@ -65,6 +65,7 @@ func (f *Feeder) armPoseSlot(ctx context.Context, slot int) bool {
 			log.Logf(f.rep, log.Warn, "shadow_mode was reset (a save-state load?): setting pose-feed mode again")
 		}
 		avatar.SetPoseFeedMode(d)
+		avatar.SetFaceSync(d, true) // the same snapshot cleared this flag (F20)
 		f.shadowModeArmed = true
 	}
 	for i := 0; i < 60; i++ {

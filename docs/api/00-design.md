@@ -59,13 +59,13 @@ The plan:
 
  0x8040EFC0   original __ArenaLo (vanilla)
  0x80410000   T2 code start (injected .text/.data/.bss)
- 0x804129C8   T2 end (since F19)          -> 0x538 bytes free (0x478 after E3, T2 end 0x80412A88; 0x958 after E1/E2, T2 end 0x804125A8; 0x978 after E0; 0x18 before E0, T2 end 0x80412EE8)
+ 0x80412A88   T2 end (since F20)          -> 0x478 bytes free (0x538 after F19, T2 end 0x804129C8; 0x478 after E3, T2 end 0x80412A88; 0x958 after E1/E2, T2 end 0x804125A8; 0x978 after E0; 0x18 before E0, T2 end 0x80412EE8)
  0x80412F00   Mailbox start (0x1B0 bytes since E1; 0x1A0 before)
  0x804130B0   Mailbox end                 -> 0xF50 bytes slack
  0x80414000   patched __ArenaLo (OSInit patched by build.py)
 ```
 
-(verified: `inject/build.py`, `inject/include/mailbox_core.h`, `internal/inject/blob.go` T2Bytes = 0x29C8 since F19 (2026-10-18, docs/05; 0x2A88 after E3, 0x25A8 after E1/E2, 0x2588 after E0, 0x2EE8 before it), `t2_budget_test.go`; blob.go's `T2End`, `MailboxAddr` and `ArenaLo` carry these since E1)
+(verified: `inject/build.py`, `inject/include/mailbox_core.h`, `internal/inject/blob.go` T2Bytes = 0x2A88 since F20 (2026-10-18, docs/05; 0x29C8 after F19, 0x2A88 after E3, 0x25A8 after E1/E2, 0x2588 after E0, 0x2EE8 before it), `t2_budget_test.go`; blob.go's `T2End`, `MailboxAddr` and `ArenaLo` carry these since E1)
 
 **Mailbox layout** at 0x80412F00 (the source of truth is `inject/include/mailbox_core.h` and the `mailbox_mp.h` it includes, split from `mailbox.h` in E3 with the same offsets; `tools/gen_mailbox` generates the Go copy, `wwapi/mailbox/layout_gen.go`, and `TestMailboxLayout` fails when it is stale):
 

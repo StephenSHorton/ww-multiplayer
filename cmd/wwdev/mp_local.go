@@ -17,7 +17,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
 
@@ -245,9 +244,7 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 			log.Logf(rep, log.Warn, "couldn't arm face-hook on Dolphin %c (pid %d): %v", 'A'+rune(i), pid, err)
 			continue
 		}
-		if err := d.Write(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{1}); err != nil {
-			log.Logf(rep, log.Warn, "couldn't arm face-hook on Dolphin %c: %v", 'A'+rune(i), err)
-		}
+		avatar.SetFaceSync(d, true)
 		d.Close()
 	}
 	rep.Log(log.OK, "Face-state sync armed on the Dolphins that run this version's patch.")
@@ -371,11 +368,7 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 			log.Logf(rep, log.Warn, "couldn't reset Dolphin %c (pid %d): %v", 'A'+rune(i), pid, err)
 			continue
 		}
-		d.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
-		d.Write(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{0})
-		for j := 0; j < avatar.Cap; j++ {
-			avatar.ClearSlot(d, j)
-		}
+		avatar.Clear(d)
 		d.Close()
 	}
 	rep.Log(log.OK, "Done.")

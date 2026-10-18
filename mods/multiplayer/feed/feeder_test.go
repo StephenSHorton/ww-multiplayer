@@ -62,6 +62,7 @@ func (c *cside) frame() {
 // snapshot has shadow_mode = 0 and no pose_bufs.
 func (c *cside) saveStateLoad() {
 	c.ram.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{avatar.ModeOff})
+	c.ram.Write(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{0})
 	for s := 0; s < avatar.Cap; s++ {
 		c.ram.Put32(mailbox.Mailbox+avatar.OffPoseBufPtr(s), 0)
 		c.ram.Write(mailbox.Mailbox+avatar.OffPoseBufState(s), []byte{0})
@@ -478,6 +479,9 @@ func TestFeederRearmAfterShadowModeCleared(t *testing.T) {
 	if m := c.ram.U8(mailbox.Mailbox + mailbox.OffShadowMode); m != avatar.ModePoseFeed {
 		t.Errorf("shadow_mode = %d after the re-arm, want %d", m, avatar.ModePoseFeed)
 	}
+	if v := c.ram.U8(mailbox.Mailbox + mailbox.OffFaceHookEnable); v != 1 {
+		t.Errorf("face_hook_enable = %d after the re-arm, want 1 (F20)", v)
+	}
 	if !rep.has("shadow_mode was reset") {
 		t.Errorf("no shadow_mode reset warning in %q", rep.lines)
 	}
@@ -489,6 +493,16 @@ func TestFeederRearmAfterShadowModeCleared(t *testing.T) {
 	}
 	if b, _ := c.ram.Read(first, 4); !bytes.Equal(b, make([]byte, 4)) {
 		t.Error("a pose went to the old, freed pose_buf")
+	}
+}
+
+// TestFeederConnectedArmsFaceSync: a (re)connect arms face sync with the
+// pose feed (F20): the shipped host/join never wrote face_hook_enable
+// before, so every remote wore the local player's face.
+func TestFeederConnectedArmsFaceSync(t *testing.T) {
+	_, c, _ := newTestFeeder(t)
+	if v := c.ram.U8(mailbox.Mailbox + mailbox.OffFaceHookEnable); v != 1 {
+		t.Fatalf("face_hook_enable = %d after Connected, want 1", v)
 	}
 }
 

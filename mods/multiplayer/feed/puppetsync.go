@@ -99,6 +99,14 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 	// connect/run callbacks for ReconnectLoop share it, and a transient
 	// drop must not lose slot assignments.
 	feeder := NewFeeder(d, selfFilter, rep)
+	// Session over: disarm face sync (F20). The flag lives in RAM and
+	// would keep the C bracket swapping stale face_state into the next
+	// session's mini-Links. Only into a game the contract check allows.
+	defer func() {
+		if gate.ok {
+			avatar.SetFaceSync(d, false)
+		}
+	}()
 
 	// connect (re)establishes the session and RE-ARMS the mailbox (#8 + D3).
 	// Runs at startup and after every reconnect. A change in the welcome's

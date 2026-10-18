@@ -680,6 +680,78 @@ T2 shrank from 0x2A88 to 0x29C8 bytes (devkitPPC 16.2). It ends at `0x804129C8`,
 `mailbox_core.h`, `layout_gen.go` identical), so `WWMB_LAYOUT` stays 2; the blob hash
 changed, so `saves/start.sav` was recaptured and players must re-patch.
 
+## Remote faces were the local player's — FIXED (2026-10-18, F20)
+
+### The symptom
+
+Every remote Link blinked, frowned and moved its mouth exactly with the local Link, in
+the app and in the CLI `host`/`join`. Issue #5's 2026-05-24 probe had already found the
+mouth mirrored even under `wwdev mp-local` with diverged save states, and reframed the
+issue as "face sync needs to actually transfer state".
+
+### Two causes
+
+**1. The arm never shipped.** The C bracket does nothing unless `face_hook_enable`
+(mailbox +0x155) is set, and the only writers were `wwdev mp-local` (the session-13
+auto-arm) and the `face-hook-arm` probe. The feeder that the app's Start and the CLI run
+wrote `face_state` and `face_seqs` every tick and never the flag. The D1b live check's
+"Face PASS: the remote's eyes move" was the mirroring, which looks the same from one
+save state.
+
+**2. The swap sat in the wrong window.** Where the texno is read (zeldaret/tww): on
+Link's model data (type 1, never locked) `mDoExt_modelEntryDL` is `mDoExt_modelDiff`
+plus `viewCalc`, i.e. `J3DModel::calcMaterial`, `diff`, `entry`, `viewCalc`
+(`m_Do_ext.cpp:509-513, 563-576`). `calcMaterial` runs every material's
+`J3DMaterialAnm`, which writes the **local** btp texno into the **shared** `J3DTevBlock`
+(`J3DMaterialAnm.cpp:51-62`, `setTexNo`). `diff` then bakes each tev block into **this
+model's** double-buffered differed display list (`J3DMaterial::diff` →
+`J3DTevBlockPatched::diffTexNo` → `loadTexNo`, `J3DMatBlock.cpp:1126`), and nothing
+reads the tev block at draw time: `J3DMatPacket::draw` only replays display lists
+(`J3DPacket.cpp:220-240`). The bracket swapped the tev blocks *before*
+`mDoExt_modelEntryDL`, so `calcMaterial` put the local face back a few instructions
+before the bake. The pupils seemed to work under the 250 Hz hammer only because the
+hammer also wrote the texture stage btp does not drive (`mat1_tex1`); the blink and
+expression stage (`mat1_tex0`) was the local one all along, like the mouth.
+
+Checked live before the fix, two Dolphins on the Outset pier ramp with both Links
+facing the camera and the pipeline running: in frames where A's `face_state_local`
+mouth was `0x17` and the slot's (B's) was `0x1D`, A's puppet showed A's closed mouth.
+Feeding the slot `mat14 = 0xFFFF` left the puppet's mouth as A's; feeding
+`mat1_tex1 = 0xFFFF` whited the puppet's pupils and did so at a constant value too, so
+the "rate" theory in issue #5 was wrong: the window was.
+
+### The fix
+
+- `inject/src/mp/minilink.c`: `mini_link_entry_dl` runs the four steps itself
+  (`J3DModel_calcMaterial`, `face_swap_for_slot`, `J3DModel_diff`, `face_restore`,
+  `J3DModel_entry`, `J3DModel_viewCalc`; addresses in `wwapi.h` from
+  `config/GZLE01/symbols.txt`), so the slot's face is what the bake reads. The eye-fix
+  recipe's own `entryIn` calls bake nothing (the mini-Link's packets are locked), so
+  they stay ahead of the swap.
+- Go: `avatar.SetFaceSync`; the feeder arms it in `Connected` and in the shadow_mode
+  re-assert after a save-state load; `avatar.Clear` disarms it and zeroes the face seqs;
+  puppet-sync disarms on exit; `mp-local` and `face-hook-arm` use the helper.
+
+### Verified after the fix (2026-10-18)
+
+Same setup on the fixed blob, two Dolphins from a fresh recapture, pipeline running,
+both Links facing the camera on the Outset pier ramp, a burst of screenshots each paired
+with a read of A's `face_state_local` and `face_state[0]` taken before and after it:
+
+- local mouth `0x17` (closed), slot `0x1D` (open): the puppet shows the open mouth;
+- local eyes `0x00` (open), slot `0x09` (half-closed): the puppet shows the half-closed
+  eyes while A's own Link keeps the open ones;
+- local eyes `0x00` and mouth `0x19` (talking), slot eyes `0x07` (shut) and mouth
+  `0x1F` (frown): the puppet shows shut eyes and the frown.
+
+Screenshot pairs (before: `d4-*`, after: `f2-*`) are in
+`ww-multiplayer-handoff\archive\f20-face\`. Both games ran on for the rest of the
+session with no freeze, and the pupils, eye outline and brows still draw as before.
+
+T2 grew from 0x29C8 to 0x2A88 bytes (devkitPPC 16.2). It ends at `0x80412A88`, 0x478
+bytes below the mailbox. The mailbox layout is unchanged; the blob hash changed, so
+`saves/start.sav` was recaptured and players must re-patch.
+
 ## Actor puppets outlived their slot and froze the next stage — FIXED (2026-10-17)
 
 ### The symptom
