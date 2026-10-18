@@ -29,17 +29,10 @@
 #include "mailbox_core.h"
 
 // --- Mailbox slack words -------------------------------------------------
-// The Mailbox struct (mailbox_core.h) ends at MAILBOX_ADDR + 0x1B0 and
-// __OSArenaLo is 0x80414000 (inject/build.py), so 0xF50 bytes past the
-// struct belong to nobody. The REL uses the first three words of that
-// slack; nothing in T2 reads or writes them. scripts/extract_blob.py
-// reads the three #defines below into internal/inject/blob.go
-// (RELMagic, RELMagicOff, RELBuildIDOff, RELFrameOff), so keep each on
-// one line in this exact form.
-#define WWREL_MAGIC        0x5757524C   // 'WWRL'
-#define WWREL_MAGIC_OFF    0x1B0        // u32: WWREL_MAGIC while the module is linked
-#define WWREL_BUILD_ID_OFF 0x1B4        // u32: WWREL_BUILD_ID of the linked module
-#define WWREL_FRAME_OFF    0x1B8        // u32: +1 per execute of the module's actor
+// WWREL_MAGIC and the three offsets are in include/wwrel.h, shared with
+// T2's src/mp/relload.c (which creates this module's actor and reads the
+// magic); scripts/extract_blob.py reads them from there.
+#include "wwrel.h"
 
 // The build id: build.py passes -DWWREL_BUILD_ID=<CRC-32 of inject/rel's
 // sources>, so it changes with the source and never with the clock

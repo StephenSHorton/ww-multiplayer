@@ -27,6 +27,7 @@ C_SOURCES = [
     "src/mp/puppets.c",
     "src/mp/minilink.c",
     "src/mp/face.c",
+    "src/mp/relload.c",
 ]
 
 DEFAULT_DEVKITPRO = r"C:\devkitpro"

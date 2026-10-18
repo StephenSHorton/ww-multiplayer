@@ -59,13 +59,13 @@ The plan:
 
  0x8040EFC0   original __ArenaLo (vanilla)
  0x80410000   T2 code start (injected .text/.data/.bss)
- 0x80412A88   T2 end (since F20)          -> 0x478 bytes free (0x538 after F19, T2 end 0x804129C8; 0x478 after E3, T2 end 0x80412A88; 0x958 after E1/E2, T2 end 0x804125A8; 0x978 after E0; 0x18 before E0, T2 end 0x80412EE8)
+ 0x80412CA8   T2 end (since the REL loader) -> 0x258 bytes free (0x478 after F20, T2 end 0x80412A88; 0x538 after F19; 0x478 after E3; 0x958 after E1/E2; 0x978 after E0; 0x18 before E0, T2 end 0x80412EE8)
  0x80412F00   Mailbox start (0x1B0 bytes since E1; 0x1A0 before)
  0x804130B0   Mailbox end                 -> 0xF50 bytes slack
  0x80414000   patched __ArenaLo (OSInit patched by build.py)
 ```
 
-(verified: `inject/build.py`, `inject/include/mailbox_core.h`, `internal/inject/blob.go` T2Bytes = 0x2A88 since F20 (2026-10-18, docs/05; 0x29C8 after F19, 0x2A88 after E3, 0x25A8 after E1/E2, 0x2588 after E0, 0x2EE8 before it), `t2_budget_test.go`; blob.go's `T2End`, `MailboxAddr` and `ArenaLo` carry these since E1)
+(verified: `inject/build.py`, `inject/include/mailbox_core.h`, `internal/inject/blob.go` T2Bytes = 0x2CA8 since the REL loader (2026-10-18, src/mp/relload.c; 0x2A88 after F20, 0x29C8 after F19, 0x2A88 after E3, 0x25A8 after E1/E2, 0x2588 after E0, 0x2EE8 before it), `t2_budget_test.go`; blob.go's `T2End`, `MailboxAddr` and `ArenaLo` carry these since E1)
 
 **Mailbox layout** at 0x80412F00 (the source of truth is `inject/include/mailbox_core.h` and the `mailbox_mp.h` it includes, split from `mailbox.h` in E3 with the same offsets; `tools/gen_mailbox` generates the Go copy, `wwapi/mailbox/layout_gen.go`, and `TestMailboxLayout` fails when it is stale):
 
@@ -378,6 +378,8 @@ daPy_draw_hook(link):
 Running post-draw callbacks in reverse keeps today's brackets nested. Drawing models stays a core service, because the face and tunic swaps mutate a `J3DModelData` that all Links share.
 
 **Later, when co-op M7 needs it:** a generated `WwModuleDesc[]` dispatcher, API RAM with a directory of per-module regions, a C→Go event ring for one-frame edges, a Go→C command queue that generalises the warp handshake, and the Option A arena move.
+
+**The REL module (2026-10-18).** Code that does not fit T2 ships as a REL in RELS.arc, the way ww-online does: `inject/rel` is built with plain devkitPPC into a relocatable ELF, the patcher converts it (`wwapi/rel.FromELF`), puts it in `d_a_rectangle.rel`'s place (module 0x58, proc 0xB5, an unused dummy actor) and points `f_pc_profile_lst.rel` at its profile (`internal/inject/rels`), and T2's `src/mp/relload.c` keeps one actor of that proc alive per stage so the game's own linker loads, relocates and cache-flushes the module; its `_prolog` writes `'WWRL'` and a build id into the mailbox slack at +0x1B0 (`inject/include/wwrel.h`), which `wwapi.Info` reports. The handoff's `design/rel-module-plan.md` has the study behind it.
 
 ---
 

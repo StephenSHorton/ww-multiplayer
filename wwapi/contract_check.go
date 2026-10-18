@@ -92,6 +92,10 @@ type Contract struct {
 	// provides when writes are allowed; a known, empty set otherwise
 	// (no header, another ABI or layout, or another blob's code).
 	Features Features
+	// REL is what the mailbox slack says about the REL module
+	// (mailbox.ReadREL): linked or not, and which build. Reported, not
+	// enforced: a game without the module is still allowed.
+	REL mailbox.REL
 	// WritesAllowed is the verdict; Why says why not ("" when allowed).
 	WritesAllowed bool
 	Why           string
@@ -126,6 +130,9 @@ func CheckContract(m mem.Reader, o ContractOptions) (Contract, error) {
 		return c, fmt.Errorf("wwapi: contract: %w", err)
 	}
 	c.BlobMatches = c.BlobHash == o.BlobHash
+	if c.REL, err = mailbox.ReadREL(m); err != nil {
+		return c, fmt.Errorf("wwapi: contract: %w", err)
+	}
 	if c.Header.Present {
 		c.ABI, c.Layout = c.Header.ABI, c.Header.Layout
 	}

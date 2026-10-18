@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject/rels/relstest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
@@ -58,9 +59,23 @@ func TestRun(t *testing.T) {
 	if err != nil || res.Out != out || res.AlreadyPatched || res.Image() != out {
 		t.Fatalf("Run: %+v, %v", res, err)
 	}
-	want := "Wind Waker Multiplayer patcher\n  input : " + in + "\n  output: " + out + "\n  co-op : (tables of ww-multiplayer.iso)\n\nDone. Boot " + out + " in Dolphin to play multiplayer.\n"
+	// The REL line: this build's module in the disc's RELS.arc (an empty
+	// RELELF, a blob generated without devkitPPC, says so instead).
+	relLine := "  REL   : none (this build has no REL module)\n"
+	if r := res.REL; r.HasREL {
+		if r.ModuleID != inject.RELModuleID || r.BuildID != inject.RELBuildID || r.File != relstest.PuppetFile || r.RELSize == 0 || r.Growth <= 0 || !r.RELSArcReplaced() {
+			t.Errorf("REL result %+v", r)
+		}
+		relLine = fmt.Sprintf("  REL   : module 0x%X (d_a_rectangle.rel) -> wwrel build 0x%08X, RELS.arc at 0x%X (+%d bytes)\n", r.ModuleID, r.BuildID, r.RELSArcOffset, r.Growth)
+	} else if len(inject.RELELF) != 0 {
+		t.Errorf("no REL in the result, but this build has one: %+v", res.REL)
+	}
+	want := "Wind Waker Multiplayer patcher\n  input : " + in + "\n  output: " + out + "\n" + relLine + "  co-op : (tables of ww-multiplayer.iso)\n\nDone. Boot " + out + " in Dolphin to play multiplayer.\n"
 	if w.String() != want {
 		t.Errorf("output:\n%s\nwant:\n%s", w.String(), want)
+	}
+	if res.FST != res.REL.Result {
+		t.Errorf("FST %+v and REL.Result %+v differ", res.FST, res.REL.Result)
 	}
 	if _, err := os.Stat(out); err != nil {
 		t.Fatal(err)

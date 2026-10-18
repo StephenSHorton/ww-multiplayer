@@ -104,6 +104,8 @@ func applyPatchLine(v *PatchView, line string) {
 		bump(5)
 	case strings.HasPrefix(line, "  FST   : "):
 		bump(85)
+	case strings.HasPrefix(line, "  REL   : "):
+		bump(86)
 	case strings.HasPrefix(line, "  co-op : "):
 		text := strings.TrimPrefix(line, "  co-op : ")
 		if w, ok := strings.CutPrefix(text, "WARNING: "); ok {

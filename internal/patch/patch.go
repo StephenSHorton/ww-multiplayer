@@ -12,7 +12,10 @@ import (
 	"fmt"
 	"io"
 
+	"path"
+
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject/rels"
 )
 
 // Options configures Run.
@@ -32,8 +35,11 @@ type Result struct {
 	// AlreadyPatched says the input already holds this build's mod: nothing
 	// was written, and Out was not created. The input is the disc to boot.
 	AlreadyPatched bool
-	// FST is inject.PatchISO's result, zero when AlreadyPatched.
+	// FST is the image patcher's result, zero when AlreadyPatched.
 	FST inject.Result
+	// REL is the REL module's (rels.PatchISOWithREL: FST and what went
+	// into RELS.arc), zero when AlreadyPatched.
+	REL rels.Result
 }
 
 // Image is the disc to boot after a successful Run: Out, or In when it was
@@ -86,7 +92,8 @@ func Run(ctx context.Context, in, out string, w io.Writer, o Options) (Result, e
 			step(w, image)
 		}
 	}
-	fst, err := inject.PatchISO(in, out)
+	r, err := rels.PatchISOWithREL(in, out)
+	fst := r.Result
 	if err != nil {
 		switch {
 		case errors.Is(err, inject.ErrAlreadyPatched):
@@ -103,10 +110,16 @@ func Run(ctx context.Context, in, out string, w io.Writer, o Options) (Result, e
 		fmt.Fprintf(w, "\nERROR: %v\n", err)
 		return res, err
 	}
-	res.FST = fst
+	res.FST, res.REL = fst, r
 	if fst.FSTMoved() {
 		fmt.Fprintf(w, "  FST   : moved 0x%X -> 0x%X (0x%X bytes) to make room for the mod\n",
 			fst.OldFSTOffset, fst.NewFSTOffset, fst.FSTSize)
+	}
+	if r.HasREL {
+		fmt.Fprintf(w, "  REL   : module 0x%X (%s) -> wwrel build 0x%08X, RELS.arc at 0x%X (%+d bytes)\n",
+			r.ModuleID, path.Base(r.File), r.BuildID, fst.RELSArcOffset, r.Growth)
+	} else {
+		fmt.Fprintf(w, "  REL   : none (this build has no REL module)\n")
 	}
 	// The post-patch steps on the disc just written (co-op's stage
 	// tables, for --coop sessions): read-only on it, a warning at worst.

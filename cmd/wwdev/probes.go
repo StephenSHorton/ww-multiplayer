@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
@@ -3062,6 +3063,17 @@ func runDump() {
 		fmt.Printf("WWMB header @ 0x%08X: magic 0x%08X ABI %d layout %d features 0x%02X\n",
 			mailbox.Mailbox+mailbox.OffHdrMagic, c.Header.Magic, c.Header.ABI, c.Header.Layout, c.Header.Features)
 		fmt.Println("contract: " + wwapi.ContractLine(c))
+		// The REL module's slack words (inject/rel/README.md): linked
+		// means its _prolog ran and its _epilog hasn't; the frame
+		// counter moving means its actor runs.
+		switch {
+		case !c.REL.Linked:
+			fmt.Printf("REL: not linked (magic 0x%08X)\n", c.REL.Magic)
+		case c.REL.BuildID == inject.RELBuildID:
+			fmt.Printf("REL: magic 'WWRL' build 0x%08X frames %d (this build's)\n", c.REL.BuildID, c.REL.Frames)
+		default:
+			fmt.Printf("REL: magic 'WWRL' build 0x%08X frames %d (this build's is 0x%08X)\n", c.REL.BuildID, c.REL.Frames, inject.RELBuildID)
+		}
 	}
 
 	if progress, err := d.ReadU32(mailbox.Mailbox + 0x04); err == nil {

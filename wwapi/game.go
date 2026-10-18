@@ -65,6 +65,11 @@ type Info struct {
 	BlobHash      uint32   // CRC-32 of the blob's read-only sections as read from RAM (see Contract.BlobHash)
 	BlobMatches   bool     // the code in RAM is this build's blob
 	Features      Features // from the header's features word; known and empty without a header
+	// The REL module (inject/rel), read from the mailbox slack
+	// (Contract.REL): whether one is linked right now, and its build id
+	// (0 when none). Reported, not enforced: a game without it is allowed.
+	RELLinked  bool
+	RELBuildID uint32
 }
 
 // GameOptions configure NewGame. The zero value is ready to use.
@@ -319,6 +324,7 @@ func (g *Game) Info() Info {
 	return Info{
 		PID: g.pid, GameID: c.GameID, ABI: c.ABI, LayoutVersion: c.Layout,
 		BlobHash: c.BlobHash, BlobMatches: c.BlobMatches, Features: c.Features,
+		RELLinked: c.REL.Linked, RELBuildID: c.REL.BuildID,
 	}
 }
 

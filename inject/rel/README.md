@@ -111,3 +111,18 @@ Expected relocations for this module: `R_PPC_ADDR32` for the profile's
 five method pointers, its method-table pointer and the two `ww_rel.ld`
 symbols, and `R_PPC_ADDR16_HA`/`_LO` pairs for `&_ctors`/`&_dtors` in the
 prolog and epilog.
+
+## Who creates the actor
+
+Nothing in the vanilla game creates proc 0xB5, so T2's `src/mp/relload.c` does:
+every frame once Link exists it checks the magic word, and when the module is
+not linked it creates one actor of proc 0xB5 at Link's position (invisible,
+allocates nothing), at most three times per stage with a 60-frame cooldown. The
+game's loader then loads and links the module and `_prolog` writes the magic;
+a stage transition would delete the actor, unlink the module and clear the
+magic, and the next stage would start over, but live (2026-10-18, a stage-hop
+from Outset to A_mori) the actor survived: created from the frame hook, outside
+any stage actor, it lives in a layer the stage load keeps (inferred: the root
+layer) and the module stayed linked through the load. On a disc whose RELS.arc was
+not patched the vanilla dummy is created instead and never writes the magic;
+`wwapi.Info` reports the module as not linked.
