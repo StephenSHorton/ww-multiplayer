@@ -4,11 +4,12 @@
 // CI cannot rebuild the blob: that needs devkitPPC, Freighter and the
 // owner's vanilla DOL. What it can check is that nothing changed on either
 // side since the last regen. internal/inject/blob.stamp records a SHA-256
-// of every C input (inject/src, inject/include, inject/build.py) and of
-// the blob payload in blob.go (T2Address, T2Bytes, DOLPatches) as they
-// stood when scripts/extract_blob.py last ran; it runs
-// `go run ./tools/blobstamp` after writing blob.go. TestBlobFresh fails
-// when an input changed without a regen, or blob.go changed without one.
+// of every C input (inject/src, inject/include, inject/rel, inject/build.py),
+// of the blob payload in blob.go (T2Address, T2Bytes, DOLPatches) and of
+// the REL module it embeds (RELELF, the `rel` line) as they stood when
+// scripts/extract_blob.py last ran; it runs `go run ./tools/blobstamp`
+// after writing blob.go. TestBlobFresh fails when an input changed
+// without a regen, or blob.go changed without one.
 //
 // What it does not prove: that the recorded bytes are what devkitPPC
 // would produce from the recorded inputs (only a rebuild proves that), or
@@ -38,18 +39,19 @@ import (
 // StampPath is the stamp file, relative to the repo root.
 const StampPath = "internal/inject/blob.stamp"
 
-// inputDirs are walked for C sources; inputFiles are taken as is. Only
-// these extensions count, so build products and editor files in a local
-// checkout do not.
+// inputDirs are walked for C sources (and the REL module's linker
+// script); inputFiles are taken as is. Only these extensions count, so
+// build products, docs and editor files in a local checkout do not.
 var (
-	inputDirs  = []string{"inject/src", "inject/include"}
+	inputDirs  = []string{"inject/src", "inject/include", "inject/rel"}
 	inputFiles = []string{"inject/build.py"}
-	sourceExt  = map[string]bool{".c": true, ".h": true, ".s": true, ".S": true, ".inc": true}
+	sourceExt  = map[string]bool{".c": true, ".h": true, ".s": true, ".S": true, ".inc": true, ".ld": true}
 )
 
 // Stamp is the parsed content of blob.stamp.
 type Stamp struct {
 	Blob   string            // hex SHA-256 of the blob payload
+	Rel    string            // hex SHA-256 of RELELF (the REL module); "" in a stamp from before it
 	Inputs map[string]string // slash path -> hex SHA-256 of its LF-normalised bytes
 }
 
@@ -74,10 +76,14 @@ func Root(dir string) (string, error) {
 // Current computes the stamp for the tree at root and the blob compiled
 // into this binary.
 func Current(root string) (Stamp, error) {
-	s := Stamp{Blob: BlobHash(), Inputs: map[string]string{}}
+	s := Stamp{Blob: BlobHash(), Rel: RelHash(), Inputs: map[string]string{}}
 	var files []string
 	for _, d := range inputDirs {
-		err := filepath.WalkDir(filepath.Join(root, filepath.FromSlash(d)), func(p string, e fs.DirEntry, err error) error {
+		dir := filepath.Join(root, filepath.FromSlash(d))
+		if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+			continue // a tree without this unit (Diff reports its inputs as removed)
+		}
+		err := filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
@@ -126,6 +132,15 @@ func BlobHash() string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// RelHash hashes the REL module blob.go embeds (RELELF, the relocatable
+// ELF the patcher converts), apart from BlobHash so the T2 payload's
+// line stays comparable across REL-only rebuilds. An empty RELELF (a
+// blob generated without devkitPPC) hashes to the SHA-256 of nothing.
+func RelHash() string {
+	sum := sha256.Sum256(inject.RELELF)
+	return hex.EncodeToString(sum[:])
+}
+
 const header = "# Binds internal/inject/blob.go to the C inputs it was built from.\n" +
 	"# Written by `go run ./tools/blobstamp`, which scripts/extract_blob.py runs\n" +
 	"# after writing blob.go. Checked on every PR by TestBlobFresh\n" +
@@ -138,6 +153,9 @@ func (s Stamp) Format() []byte {
 	var b bytes.Buffer
 	b.WriteString(header)
 	fmt.Fprintf(&b, "blob %s\n", s.Blob)
+	if s.Rel != "" {
+		fmt.Fprintf(&b, "rel %s\n", s.Rel)
+	}
 	names := make([]string, 0, len(s.Inputs))
 	for n := range s.Inputs {
 		names = append(names, n)
@@ -162,6 +180,8 @@ func Parse(b []byte) (Stamp, error) {
 		switch {
 		case len(f) == 2 && f[0] == "blob" && s.Blob == "":
 			s.Blob = f[1]
+		case len(f) == 2 && f[0] == "rel" && s.Rel == "":
+			s.Rel = f[1]
 		case len(f) == 3 && f[0] == "input" && path.Clean(f[2]) == f[2]:
 			if _, dup := s.Inputs[f[2]]; dup {
 				return Stamp{}, fmt.Errorf("blob.stamp:%d: %s listed twice", n, f[2])
@@ -210,6 +230,9 @@ func Diff(want, have Stamp) []string {
 	}
 	if want.Blob != have.Blob {
 		out = append(out, "blob.go's payload (T2Address, T2Bytes, DOLPatches) differs from the one stamped at the last regen")
+	}
+	if want.Rel != have.Rel {
+		out = append(out, "blob.go's REL module (RELELF) differs from the one stamped at the last regen")
 	}
 	return out
 }

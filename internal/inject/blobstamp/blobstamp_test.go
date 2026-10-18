@@ -40,7 +40,7 @@ func TestBlobFresh(t *testing.T) {
 // TestStampRoundTrip: Format and Parse agree, and Diff names each kind of
 // staleness.
 func TestStampRoundTrip(t *testing.T) {
-	s := Stamp{Blob: "aa", Inputs: map[string]string{"inject/build.py": "01", "inject/src/x.c": "02"}}
+	s := Stamp{Blob: "aa", Rel: "cc", Inputs: map[string]string{"inject/build.py": "01", "inject/src/x.c": "02"}}
 	got, err := Parse(s.Format())
 	if err != nil {
 		t.Fatal(err)
@@ -48,9 +48,9 @@ func TestStampRoundTrip(t *testing.T) {
 	if d := Diff(s, got); len(d) != 0 {
 		t.Fatalf("round trip differs: %v", d)
 	}
-	have := Stamp{Blob: "bb", Inputs: map[string]string{"inject/build.py": "01", "inject/src/x.c": "03", "inject/src/y.c": "04"}}
+	have := Stamp{Blob: "bb", Rel: "dd", Inputs: map[string]string{"inject/build.py": "01", "inject/src/x.c": "03", "inject/src/y.c": "04"}}
 	d := strings.Join(Diff(s, have), "\n")
-	for _, w := range []string{"changed since the last regen: inject/src/x.c", "new C input since the last regen: inject/src/y.c", "payload"} {
+	for _, w := range []string{"changed since the last regen: inject/src/x.c", "new C input since the last regen: inject/src/y.c", "payload", "REL module"} {
 		if !strings.Contains(d, w) {
 			t.Errorf("Diff misses %q:\n%s", w, d)
 		}
@@ -71,7 +71,8 @@ func TestStampRoundTrip(t *testing.T) {
 func TestCRLFIsNotAChange(t *testing.T) {
 	dir := t.TempDir()
 	write := func(eol string) Stamp {
-		for _, f := range []string{"go.mod", "inject/build.py", "inject/src/a.c", "inject/include/a.h", "inject/src/notes.txt"} {
+		for _, f := range []string{"go.mod", "inject/build.py", "inject/src/a.c", "inject/include/a.h", "inject/src/notes.txt",
+			"inject/rel/r.ld", "inject/rel/README.md"} {
 			p := filepath.Join(dir, filepath.FromSlash(f))
 			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 				t.Fatal(err)
@@ -90,7 +91,22 @@ func TestCRLFIsNotAChange(t *testing.T) {
 	if d := Diff(lf, crlf); len(d) != 0 {
 		t.Errorf("CRLF reads as a change: %v", d)
 	}
-	if len(lf.Inputs) != 3 {
-		t.Errorf("inputs %v: want build.py, a.c and a.h only", lf.Inputs)
+	if len(lf.Inputs) != 4 {
+		t.Errorf("inputs %v: want build.py, a.c, a.h and r.ld only", lf.Inputs)
+	}
+	// A tree from before the REL module has no inject/rel: that is not an
+	// error, just no inputs from it.
+	if err := os.RemoveAll(filepath.Join(dir, "inject", "rel")); err != nil {
+		t.Fatal(err)
+	}
+	old, err := Current(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(old.Inputs) != 3 {
+		t.Errorf("inputs without inject/rel %v: want build.py, a.c and a.h", old.Inputs)
+	}
+	if d := strings.Join(Diff(lf, old), "\n"); !strings.Contains(d, "removed since the last regen: inject/rel/r.ld") {
+		t.Errorf("Diff misses the removed REL input:\n%s", d)
 	}
 }
