@@ -8,7 +8,9 @@ coop-watch
 disasm
 dolphin2
 dump
+enemy-block-dump
 enemy-kill
+enemy-mirror-local
 enemy-watch
 eye-anim-dl-dump
 eye-anim-find

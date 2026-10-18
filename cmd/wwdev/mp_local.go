@@ -9,6 +9,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/cheats"
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/enemysync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
@@ -338,6 +339,14 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	spawn("bcast-B", broadcast(nameB, pidB))
 	time.Sleep(300 * time.Millisecond)
 	spawn("puppet-B", puppet(nameB, pidB))
+	if enemysync.Enabled() {
+		// WW_ENEMY_SYNC=1: Dolphin A's Moblins are the authority (the
+		// sampler), Dolphin B mirrors them.
+		time.Sleep(300 * time.Millisecond)
+		spawn("enemy-A", func(r log.Reporter) error { return enemysync.HostPipeline(ctx, enemyEnv, nameA, addr, pidA, r, nil) })
+		time.Sleep(300 * time.Millisecond)
+		spawn("enemy-B", func(r log.Reporter) error { return enemysync.ClientPipeline(ctx, enemyEnv, nameB, addr, pidB, r, nil) })
+	}
 	if coop != nil {
 		for _, d := range []struct {
 			label, name string

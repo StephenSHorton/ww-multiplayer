@@ -12,6 +12,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/cliutil"
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/enemysync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 )
@@ -27,6 +28,10 @@ var feedEnv = feed.Env{Open: cliutil.OpenDolphin, NewClient: engine.NewPlayerCli
 // coopEnv is what co-op (mods/coop/session) takes from wwdev (mp-local
 // --coop): cliutil.OpenDolphin.
 var coopEnv = coopsession.Env{Open: cliutil.OpenDolphin}
+
+// enemyEnv is what enemy sync (mods/enemysync) takes from wwdev (mp-local
+// with WW_ENEMY_SYNC=1, enemy-mirror-local): cliutil.OpenDolphin.
+var enemyEnv = enemysync.Env{Open: cliutil.OpenDolphin}
 
 // findDolphin and openDolphin are cliutil's, under the names the moved
 // commands call them by.
