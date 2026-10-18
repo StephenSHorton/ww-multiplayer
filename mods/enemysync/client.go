@@ -275,12 +275,21 @@ func (c *Mirror) writeBlock(now time.Time, st *State, slots []mailbox.EnemySlot)
 	if c.seq == 0 {
 		c.seq = 1
 	}
+	// The block's flags follow the STATE's: the animation stream only
+	// while the host resolved its Mo2 table, the colliders while the host
+	// asks for them (design "wire_and_block", CLIENT).
 	b := &mailbox.EnemyBlock{Magic: mailbox.EnemyMagic, Seq: c.seq, GoWriteMS: uint32(now.Sub(c.start).Milliseconds()),
-		Flags: mailbox.EnemyFlagMirror | mailbox.EnemyFlagAnim, Layout: mailbox.EnemyLayout, Epoch: c.epoch, Role: mailbox.EnemyRoleClient, Slots: slots}
+		Flags: mailbox.EnemyFlagMirror, Layout: mailbox.EnemyLayout, Epoch: c.epoch, Role: mailbox.EnemyRoleClient, Slots: slots}
 	if c.raw {
 		b.Flags |= mailbox.EnemyFlagRaw
 	}
 	if st != nil {
+		if st.Flags&StateFlagAnim != 0 {
+			b.Flags |= mailbox.EnemyFlagAnim
+		}
+		if st.Flags&StateFlagColliders != 0 {
+			b.Flags |= mailbox.EnemyFlagColliders
+		}
 		b.HostBeat, b.Stage, b.Room = st.HostBeat, st.Stage, st.Room
 	} else {
 		b.Stage, b.Room = c.localStage, c.localRoom
@@ -324,7 +333,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 	c.acks = nil
 	c.mu.Unlock()
 	for _, a := range acks {
-		log.Logf(c.rep, log.Info, "enemy client: ACK setID %d hit %d result %d health %d", a.SetID, a.HitSeq, a.Result, a.Health)
+		log.Logf(c.rep, log.Info, "enemy client: ACK setID %d hit %d %s/%s frames %d sets %d health %d", a.SetID, a.HitSeq, ResultName(a.Result), DetailName(a.Detail), a.Frames, a.Sets, a.Health)
 	}
 	if !c.checkContract(now) {
 		return nil, GateSleep, nil
@@ -393,9 +402,13 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		if !ok {
 			out = *sl
 		}
+		// The discrete animation fields come from the smoother's output as
+		// the other discrete fields do: the bracket sample's, so they switch
+		// at its render time (smooth.go copies the whole slot).
 		es := mailbox.EnemySlot{Pos: out.Pos, AngleY: out.AngleY, Tilt: out.Tilt, Action: out.Action, Mode: out.Mode,
 			AttackType: out.AttackType, AttackPhase: out.AttackPhase, Health: out.Health, Flags: out.Flags,
-			MorfFrame: out.MorfFrame, MorfRate: out.MorfRate, SampleSeq: st.Seq}
+			MorfFrame: out.MorfFrame, MorfRate: out.MorfRate, SampleSeq: st.Seq,
+			Bck: out.Bck, AnmAttr: out.AnmAttr, AnmSeq: out.AnmSeq, Morf: out.Morf, Flags2: out.Flags2, BlurShape: out.BlurShape, BlurScale: out.BlurScale}
 		if mo, ok := c.local[sl.SetID]; ok {
 			es.PID = mo.PID
 		}
@@ -410,7 +423,8 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		if seen[id] || id >= 8 || st.DeadMask&(1<<id) == 0 || len(slots) >= MaxSlots {
 			continue
 		}
-		slots = append(slots, mailbox.EnemySlot{PID: mo.PID, Flags: mailbox.EnemySFDying | mailbox.EnemySFRelease, SampleSeq: st.Seq})
+		slots = append(slots, mailbox.EnemySlot{PID: mo.PID, Flags: mailbox.EnemySFDying | mailbox.EnemySFRelease, SampleSeq: st.Seq,
+			Bck: mailbox.EnemyBckNone, AnmAttr: AnmAttrUnknown})
 	}
 	for id, s := range c.sm {
 		if !seen[id] {
@@ -434,8 +448,8 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 	}
 	if now.After(c.logNext) {
 		c.logNext = now.Add(LogEvery)
-		log.Logf(c.rep, log.Info, "enemy client: seq %d write_ms %d ack %d frame %d beat %d adopted %04b status %s canaries %+v",
-			c.seq, c.Stats.LastWriteMS, status.AckSeq, status.AckFrame, st.HostBeat, status.AdoptedMask, statusLine(&status), status.Canaries)
+		log.Logf(c.rep, log.Info, "enemy client: seq %d write_ms %d ack %d frame %d beat %d adopted %04b status %s canaries %+v canaries2 %+v",
+			c.seq, c.Stats.LastWriteMS, status.AckSeq, status.AckFrame, st.HostBeat, status.AdoptedMask, statusLine(&status), status.Canaries, status.Canaries2)
 	}
 
 	// Hits the REL flagged: read the hit object, send, clear pending.
@@ -461,8 +475,9 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 }
 
 // readHit builds the HIT for slot i: the hit object's At type and atp
-// (cCcD_ObjAt mType at obj+0x10, mAtp at +0x14, c_cc_d.h:438-439) and the
-// collider's centre.
+// (cCcD_ObjAt mType at obj+0x10, mAtp at +0x14, c_cc_d.h:438-439), its
+// dCcD_GObjAt's SPrm low byte, Se, HitMark and Spl (addr.CcAtOff*; one
+// hitObjReadLen read from obj+0x10) and the collider's centre.
 func (c *Mirror) readHit(st *State, pid uint32, i int, h mailbox.EnemyHitEntry) (*Hit, error) {
 	var col uint32
 	switch h.Collider {
@@ -483,13 +498,18 @@ func (c *Mirror) readHit(st *State, pid uint32, i int, h mailbox.EnemyHitEntry) 
 	}
 	hit := &Hit{Collider: h.Collider, Epoch: c.epoch, Stage: st.Stage, Room: st.Room, SetID: st.Slots[i].SetID, HitSeq: h.HitSeq, ClientFrame: c.hb}
 	if addr.InMEM1(obj) {
-		b, err := c.m.Read(obj+0x10, 8)
+		b, err := c.m.Read(obj+hitObjReadOff, hitObjReadLen)
 		if err != nil {
 			return nil, err
 		}
-		if len(b) == 8 {
-			hit.AtType = mem.U32BE(b)
-			hit.Atp = b[4]
+		if len(b) == hitObjReadLen {
+			at := func(off uint32) []byte { return b[off-hitObjReadOff:] }
+			hit.AtType = mem.U32BE(at(hitObjOffAtType))
+			hit.Atp = at(hitObjOffAtp)[0]
+			hit.AtSPrm = at(addr.CcAtOffSPrm)[3] // the u32's low byte
+			hit.Se = at(addr.CcAtOffSe)[0]
+			hit.HitMark = at(addr.CcAtOffHitMark)[0]
+			hit.Spl = at(addr.CcAtOffSpl)[0]
 		}
 	}
 	p, err := c.m.Read(stat.Actor+col+addr.Mo2CcCenterOff, 12)
@@ -505,11 +525,22 @@ func (c *Mirror) readHit(st *State, pid uint32, i int, h mailbox.EnemyHitEntry) 
 	return hit, nil
 }
 
+// The hit object read: from cCcD_ObjAt mType (obj+0x10) through
+// dCcD_GObjAt mSpl (obj+0x6F), 0x60 bytes in one read.
+const (
+	hitObjOffAtType = 0x10
+	hitObjOffAtp    = 0x14
+	hitObjReadOff   = hitObjOffAtType
+	hitObjReadLen   = 0x70 - hitObjReadOff
+)
+
+// statusLine prints each slot's state, last_err, animation state, the
+// bck setAnm'd on the copy and its setAnm count.
 func statusLine(st *mailbox.EnemyStatus) string {
 	s := ""
 	for i := range st.Status {
 		e := &st.Status[i]
-		s += fmt.Sprintf("[%d:s%d e%d]", i, e.State, e.LastErr)
+		s += fmt.Sprintf("[%d:s%d e%d a%d bck%02X n%d]", i, e.State, e.LastErr, e.AnmState, e.Bck, e.AnmChanges)
 	}
 	return s
 }

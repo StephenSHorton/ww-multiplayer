@@ -155,10 +155,10 @@ type Sample struct {
 // mpMorf, R5 the morf's animation span (addr.McaMorfAnimSpanOff..Len) and
 // R6 the tail from m2943 through the ice timer.
 const (
-	readMidOff  = addr.Mo2OffBlurScale                               // f32 m0590 .. s8 mbHasInnateWeapon (+0xDD4)
-	readMidLen  = addr.Mo2OffHasWeapon + 1 - addr.Mo2OffBlurScale    // 0x845
-	readTailOff = addr.Mo2OffBareHanded                              // u8 m2943 .. s8 m2A1C .. ice timer
-	readTailLen = addr.Mo2OffIceShrink + 1 - addr.Mo2OffBareHanded   // 0x118
+	readMidOff  = addr.Mo2OffBlurScale                             // f32 m0590 .. s8 mbHasInnateWeapon (+0xDD4)
+	readMidLen  = addr.Mo2OffHasWeapon + 1 - addr.Mo2OffBlurScale  // 0x845
+	readTailOff = addr.Mo2OffBareHanded                            // u8 m2943 .. s8 m2A1C .. ice timer
+	readTailLen = addr.Mo2OffIceShrink + 1 - addr.Mo2OffBareHanded // 0x118
 	// ReadsPerSample is how many Reads ReadSample makes.
 	ReadsPerSample = 6
 )
