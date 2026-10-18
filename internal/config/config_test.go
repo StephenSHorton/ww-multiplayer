@@ -495,3 +495,42 @@ func TestModSettingsNotObject(t *testing.T) {
 		t.Fatalf("mods not an object: %v %v", warns, c.Mods)
 	}
 }
+
+// TestUpdateSection: "Check for updates" is on by default and for a file
+// from before the check; the check's cache round-trips; what a release
+// named is dropped when it is not a short tag and an https page.
+func TestUpdateSection(t *testing.T) {
+	if !Defaults().Update.Check {
+		t.Fatal("Check for updates is off by default")
+	}
+	if c, warns := Parse([]byte(`{"name":"Link"}`)); !c.Update.Check || len(warns) != 0 {
+		t.Fatalf("a file without update: %+v %v", c.Update, warns)
+	}
+	if c, _ := Parse([]byte(`{"update":{"lastCheck":"2026-10-17T10:00:00Z"}}`)); !c.Update.Check {
+		t.Fatal("an update section without check turned it off")
+	}
+	c, warns := Parse([]byte(`{"update":{"check":false,"lastCheck":"2026-10-17T10:00:00Z","latest":"v0.5.0","notesURL":"https://github.com/x/releases/tag/v0.5.0","installed":"v0.5.0"}}`))
+	if len(warns) != 0 || c.Update.Check || c.Update.Latest != "v0.5.0" || c.Update.Installed != "v0.5.0" || c.Update.LastCheck.IsZero() {
+		t.Fatalf("%+v %v", c.Update, warns)
+	}
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := c.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if back, _ := Load(path); back.Update != c.Update {
+		t.Fatalf("round trip: %+v, want %+v", back.Update, c.Update)
+	}
+	c, _ = Parse([]byte(`{"update":{"latest":"v1\nlong","notesURL":"javascript:alert(1)"}}`))
+	if c.Update.Latest != "" || c.Update.NotesURL != "" {
+		t.Fatalf("kept %+v", c.Update)
+	}
+	c, _ = Parse([]byte(`{"update":{"latest":"v1.0.0","notesURL":"http://evil.example/x"}}`))
+	if c.Update.Latest != "v1.0.0" || c.Update.NotesURL != "" {
+		t.Fatalf("kept %+v", c.Update)
+	}
+	// A new config saves no update section until the check wrote one.
+	d := Defaults()
+	if b, _ := d.Marshal(); bytes.Contains(b, []byte(`"update"`)) {
+		t.Fatalf("a new config has an update section:\n%s", b)
+	}
+}

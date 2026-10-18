@@ -206,6 +206,9 @@ func (b *Bridge) launchOptions() session.LaunchOptions {
 // player's folder (or WW_DOLPHIN_PID names one), which Start plays on.
 func (b *Bridge) Start(anyway bool) (err error) {
 	defer b.maskErr(&err)
+	if b.updating() {
+		return errUpdating
+	}
 	if o := b.launchOptions(); !o.Manual && (o.Exe == "" || o.ISO == "") && b.wouldLaunch(o) {
 		return errors.New("choose your Dolphin and your patched disc in Setup first, or tick \"I'll start Dolphin myself\"")
 	}

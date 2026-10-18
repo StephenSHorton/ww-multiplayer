@@ -85,6 +85,20 @@ tick the ones you want.
 > `0x80301818`-`0x80301838`, or `0x80410000+`, so they coexist with the
 > patched ISO.
 
+## Testing one-click updates
+
+The app's update check and installer (`internal/update`) never need
+GitHub: point `WW_UPDATE_URL` at a fake release server on 127.0.0.1 that
+serves a "latest" JSON (`tag_name`, `html_url`, `assets` with
+`browser_download_url`), a test exe built with
+`-ldflags "-X main.version=v9.9.9"` and a matching `SHA256SUMS`. Run the
+app only from a copy of an exe built with an older `-X main.version` in a
+temp folder, with `APPDATA` and `LOCALAPPDATA` set to temp folders too:
+Update replaces the exe it runs from. A local build (`dev`) never checks.
+The test exe must print `ww-multiplayer v9.9.9` for `version` (the
+installer runs it once before the old app closes, and puts the old exe
+back if it doesn't).
+
 ## See also
 - `CLAUDE.md` — context for AI sessions
 - `docs/01` through `docs/10` — architecture, memory, injection, addresses, known issues, history, research, co-op, player colors, lobby

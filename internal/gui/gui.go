@@ -72,4 +72,7 @@ type Options struct {
 	ModFlag func(id string) (on, set bool)
 	// DevMods says this run lists the dev mods (--dev).
 	DevMods bool
+	// Args are this run's arguments (os.Args[1:]): an update starts the
+	// new version with them. Nil is os.Args[1:].
+	Args []string
 }

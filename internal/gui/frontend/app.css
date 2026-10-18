@@ -70,11 +70,22 @@ code { font: 500 0.92em var(--mono); }
 .top { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px 4px; }
 .brand { display: flex; align-items: center; gap: 10px; font: 400 20px var(--display); }
 .brand svg { width: 32px; height: 32px; }
-/* the version: a plain pill */
+/* the version: a plain pill (a button: the update settings) */
 .ver {
-	display: inline-flex; align-items: center; padding: 3px 16px;
+	display: inline-flex; align-items: center; padding: 3px 16px; cursor: pointer;
 	font: 400 14px var(--display); color: var(--blue); background: #fff; border: 3px solid var(--ink); border-radius: 999px;
 }
+.ver:hover { transform: translateY(-1px); }
+
+/* the update banner: a leafy panel with its plaque, over the screen */
+.updbar { margin: 18px 0 30px; }
+.updrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.updtext { flex: 1; min-width: 240px; margin: 0; font-size: 15px; }
+.updtext b { display: block; margin-bottom: 2px; font: 400 19px var(--display); color: #fff; paint-order: stroke fill; -webkit-text-stroke: 4px var(--ink); }
+.updbtns { display: flex; gap: 10px; flex-wrap: wrap; }
+.updbar .meterrow { margin: 12px 0 0; }
+.updbar .error { margin: 10px 0 0; }
+.updbar .error:empty { display: none; }
 
 main { max-width: 1080px; margin: 0 auto; padding: 0 20px 16px; }
 

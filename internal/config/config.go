@@ -60,6 +60,10 @@ type Config struct {
 	ISO         ISO          `json:"iso"`
 	Coop        Coop         `json:"coop"`
 	UI          UI           `json:"ui"`
+	// Update is the update check (internal/update): the "Check for
+	// updates" switch and the last answer, so the app asks GitHub at most
+	// every update.CheckEvery.
+	Update Update `json:"update"`
 	// Mods are the mods' settings by mod id (docs/api/00-design.md §6.5):
 	// on or off for the next start, and each mod's own settings. Written
 	// only when there is one, so a file from before mods had settings
@@ -119,6 +123,22 @@ type UI struct {
 	ShowIPs bool `json:"showIPs"`
 }
 
+// Update is the app's update check (owner decision 2026-10-17, one-click
+// updates).
+type Update struct {
+	// Check is the "Check for updates" switch: on by default.
+	Check bool `json:"check"`
+	// LastCheck is when GitHub was last asked; Latest the newest release
+	// it named, NotesURL that release's page.
+	LastCheck time.Time `json:"lastCheck"`
+	Latest    string    `json:"latest"`
+	NotesURL  string    `json:"notesURL"`
+	// Installed is set by an update just before it relaunches the app:
+	// the version it put in place. The new build clears it at its first
+	// start and re-patches the disc if its game code differs.
+	Installed string `json:"installed"`
+}
+
 // ModConfig is one mod's settings: mods.<id> in the file.
 type ModConfig struct {
 	// Enabled turns the mod on or off from the next start; nil keeps its
@@ -169,6 +189,7 @@ func Defaults() Config {
 		Dolphin: Dolphin{LaunchOnStart: true, InstallCheats: true},
 		Coop:    Coop{LastMode: "off"},
 		UI:      UI{Window: Window{W: 1100, H: 720}},
+		Update:  Update{Check: true},
 	}
 }
 
@@ -283,6 +304,7 @@ func (c *Config) fields() map[string]field {
 		"iso":         fieldOf(&c.ISO),
 		"coop":        fieldOf(&c.Coop),
 		"ui":          fieldOf(&c.UI),
+		"update":      fieldOf(&c.Update),
 		"mods":        fieldOf(&c.Mods),
 	}
 }
@@ -316,6 +338,16 @@ func (c *Config) validate() []string {
 	}
 	if w := c.UI.Window; w.W < 320 || w.H < 240 || w.W > 16384 || w.H > 16384 {
 		c.UI.Window = d.UI.Window // a lost window size is not worth a warning
+	}
+	// What a release named: a tag and a page, never anything long.
+	if u := &c.Update; len(u.Latest) > 64 || strings.ContainsAny(u.Latest, "\x00\r\n") {
+		u.Latest, u.NotesURL = "", ""
+	}
+	if u := &c.Update; len(u.NotesURL) > 512 || !strings.HasPrefix(u.NotesURL, "https://") && !strings.HasPrefix(u.NotesURL, "http://127.0.0.1") {
+		u.NotesURL = ""
+	}
+	if len(c.Update.Installed) > 64 {
+		c.Update.Installed = ""
 	}
 	hosts := c.RecentHosts[:0:0]
 	for _, h := range c.RecentHosts {
@@ -398,6 +430,11 @@ func (c Config) Marshal() ([]byte, error) {
 		// No mod settings: no "mods" key, as before mods had settings (a
 		// "mods" the file had that did not decode is dropped with them).
 		delete(out, "mods")
+	}
+	if _, had := lookupFold(c.extra, "update"); !had && c.Update == Defaults().Update {
+		// No update check yet: no "update" key, so a file from before the
+		// check saves as it was.
+		delete(out, "update")
 	}
 	b, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {

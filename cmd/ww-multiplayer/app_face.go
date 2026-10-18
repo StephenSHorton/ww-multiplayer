@@ -383,7 +383,7 @@ func runGUI(mf modFlags) {
 // the CLI's (the co-op tables). The Mods page reads the runtime.
 func guiOptions(a *app) gui.Options {
 	return gui.Options{Version: version, Controller: a.ctrl, Getenv: os.Getenv, PostPatch: patchSteps(runtimeMods(a.rt)),
-		HostIPs: engine.ListHostIPs, Mods: a.rt, ModFlag: a.flags.enabled, DevMods: a.flags.dev}
+		HostIPs: engine.ListHostIPs, Mods: a.rt, ModFlag: a.flags.enabled, DevMods: a.flags.dev, Args: os.Args[1:]}
 }
 
 // runTUI runs the Bubble Tea TUI (what no arguments opened before the app
@@ -393,7 +393,11 @@ func guiOptions(a *app) gui.Options {
 // funcs the CLI subcommands run, through a session.Controller over
 // engine.Engine (mods/multiplayer/engine), the multiplayer mod's.
 func runTUI(ctrl *session.Controller) {
-	if err := tui.Run(version, ctrl); err != nil {
+	notice := ""
+	if gui.UpdateCheckEnabled() { // the app's "Check for updates" switch
+		notice = updateNotice()
+	}
+	if err := tui.RunNotice(version, notice, ctrl); err != nil {
 		fmt.Println(err)
 		fmt.Print("Press Enter to exit...")
 		bufio.NewReader(os.Stdin).ReadString('\n')

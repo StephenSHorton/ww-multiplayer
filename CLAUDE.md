@@ -39,7 +39,7 @@ ww-multiplayer/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
 │   ├── cliutil/                 # What both binaries' command lines share: FindDolphin/OpenDolphin (WW_DOLPHIN_INDEX/PID), ExeCmd, ExitUsage, --color/WW_COLOR; clitest/ = the CLI golden harness
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
-│   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); the Mods page (mods.go); Bridge = the JS API; `ui --browser` server
+│   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); the Mods page (mods.go); the update banner + re-patch after an update (update.go); Bridge = the JS API; `ui --browser` server
 │   ├── lan/                     # LAN discovery: the host's UDP beacon, broadcast addresses, the joiner's table (docs/10-lobby.md §10)
 │   ├── mailboxgen/              # mailbox header parser (mailbox_core.h + the mailbox_mp.h it includes) + layout_gen.go emitter (used by tools/gen_mailbox and wwapi/mailbox TestMailboxLayout)
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
@@ -52,6 +52,7 @@ ww-multiplayer/
 │   ├── redact/                  # IP masking for what the GUI and TUI draw (fixed-width •••.•••.•••.42); the CLI prints addresses unmasked
 │   ├── session/                 # UI-free session controller the CLI host/join, the TUI and the GUI drive (docs/01-architecture.md)
 │   │   └── session.go, controller.go, event.go, coop.go, coopapp.go (the app's co-op state), lobby.go, launch.go, mods.go (EventMod: the adapter over the mod runtime's bus)
+│   ├── update/                  # One-click updates: latest-release check (semver, cache, dev/prerelease skip), verified download (SHA256SUMS, HTTPS, size caps), Windows exe / macOS bundle swap, relaunch, the CLI/TUI notice
 │   └── tui/                     # Charm Bubble Tea UI (resurrected v0.1.5)
 │       ├── app.go, splash.go, connect.go, dashboard.go, styles.go
 ├── wwapi/                       # Modding API, v0 UNSTABLE (docs/api): emu/ (Attach(Options); *emu.Dolphin is a MEM1-bounded mem.Mem; memory.go = RAM scanner; launch/ = Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare (dolphin2, auto-recapture); host/ = window, screenshot, keys),
@@ -168,6 +169,8 @@ WW_LISTEN_HOST=<addr>                       # App only: a hosted lobby's server 
                                             #   and LAN discovery stays on it (127.0.0.1: beacons sent to, and heard on, loopback only)
 WW_LAN_PORT=<n>                             # App only: LAN discovery's UDP beacon port (default 25565; docs/10-lobby.md §10)
 WW_LAN=off                                  # App only: no LAN discovery (no beacon, no listening)
+WW_UPDATE_URL=<url>                         # Release API every update check asks (default: GitHub's latest release); tests use a fake server on 127.0.0.1
+WW_NO_UPDATE_CHECK=1                        # CLI (host/join/version) and TUI: no update check (the app has its "Check for updates" switch, which the TUI follows too)
 WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT_SECS /
   WW_MIN_SESSION_SECS / WW_WRITE_TIMEOUT_SECS / WW_FREEZE_SECS / WW_DESPAWN_SECS
                                             # Network timing knobs; defaults 5/15/8/5/1/10/2/5 s (mods/multiplayer/net/netconfig.go)

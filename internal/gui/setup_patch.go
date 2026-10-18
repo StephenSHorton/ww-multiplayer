@@ -196,6 +196,9 @@ func (b *Bridge) PatchStatus() PatchView {
 // vanilla one) is saved.
 func (b *Bridge) StartPatch(r PatchRequest) (err error) {
 	defer b.maskErr(&err)
+	if b.updating() {
+		return errUpdating
+	}
 	in := cleanPath(r.Path)
 	if in == "" {
 		return errors.New("choose your Wind Waker disc image first")
@@ -283,6 +286,7 @@ func (b *Bridge) emitPatch(j *patchJob) {
 }
 
 func (b *Bridge) runPatch(ctx context.Context, j *patchJob, in, out string, existed bool) {
+	defer b.restartIfReady() // last: an installed update waited for this patch
 	defer close(j.done)
 	defer j.cancel()
 	update := func(f func(*PatchView)) {
@@ -367,6 +371,9 @@ func (b *Bridge) runPatch(ctx context.Context, j *patchJob, in, out string, exis
 		}
 		b.mu.Unlock()
 		err = b.saveErr()
+		b.upd.mu.Lock()
+		b.upd.plan = "" // the disc is this build's now
+		b.upd.mu.Unlock()
 	}
 	update(func(v *PatchView) {
 		v.Running = false

@@ -126,6 +126,10 @@ type Bridge struct {
 	mods    *wwapi.Runtime
 	modFlag func(id string) (on, set bool)
 	devMods bool
+
+	// One-click updates (update.go): the banner's state and its seams.
+	upd     updState
+	updSeam updSeams
 }
 
 // pendingHost is a join's address, waiting to reach its host.
@@ -160,6 +164,8 @@ func NewBridge(o Options) *Bridge {
 	} else {
 		b.cfg = config.Defaults()
 	}
+	b.updSeam.init(o, b.getenv)
+	b.afterUpdate()
 	return b
 }
 
@@ -248,6 +254,9 @@ func (b *Bridge) SetShowIPs(on bool) {
 // Host starts a session that hosts a lobby on this machine.
 func (b *Bridge) Host(r HostRequest) (err error) {
 	defer b.maskErr(&err)
+	if b.updating() {
+		return errUpdating
+	}
 	name, err := checkName(r.Name)
 	if err != nil {
 		return err
@@ -285,6 +294,9 @@ func (b *Bridge) Host(r HostRequest) (err error) {
 // (netutil.JoinCode): the session joins the address it holds.
 func (b *Bridge) Join(r JoinRequest) (err error) {
 	defer b.maskErr(&err)
+	if b.updating() {
+		return errUpdating
+	}
 	addr := strings.TrimSpace(r.Addr)
 	if addr == "" {
 		return errors.New("type the host's address (the one its window shows)")
@@ -421,10 +433,12 @@ func (b *Bridge) setDesktop(clipboard, openURL func(string) error) {
 	b.clipMu.Unlock()
 }
 
-// Leave ends the running session and returns once it has torn down.
+// Leave ends the running session and returns once it has torn down; an
+// update that waited for it ("ready") then restarts the app.
 func (b *Bridge) Leave() {
 	b.stopBeacon()
 	b.ctrl.Leave()
+	b.restartIfReady()
 }
 
 // SetColor asks the lobby for a tunic color.
@@ -600,11 +614,14 @@ func (b *Bridge) running() bool { return b.State().Running }
 // running patch and waits for it to stop, however long its disc takes to
 // finish writing (see setup_patch.go), and ends the Bridge's context.
 func (b *Bridge) close() {
+	b.upd.closing.Store(true)
 	b.stopBeacon()
 	b.stopLanListen()
 	b.ctrl.Leave()
 	b.CancelPatch()
 	b.waitPatch()
+	b.CancelUpdate()
+	b.waitUpdate()
 	b.cancel()
 }
 
@@ -627,9 +644,11 @@ func (b *Bridge) beforeClose(ask func(question string) bool, quit func()) bool {
 	}
 	patching := b.patching()
 	if patching && !ask(askStopPatch) {
+		b.closeVetoed()
 		return true
 	}
 	if b.running() && !ask(askLeaveSession) {
+		b.closeVetoed()
 		return true
 	}
 	if !patching {
