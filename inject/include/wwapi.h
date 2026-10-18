@@ -332,6 +332,18 @@ typedef void* (*JKRHeap_alloc_t)(u32 size, int align, JKRHeap* heap);
 typedef void (*J3DModel_calc_t)(J3DModel* self);
 #define J3DModel_calc ((J3DModel_calc_t)0x802EE8C0)
 
+// The four steps mDoExt_modelEntryDL takes on Link's model data (type 1,
+// never locked): mDoExt_modelDiff = calcMaterial + diff + entry, then
+// viewCalc (m_Do_ext.cpp:509-513, 563-576). The mini-Link runs them
+// itself so the face swap can sit between calcMaterial (which writes
+// the local btp texno into the shared tev blocks) and diff (which bakes
+// them into this model's differed display lists). F20, docs/05.
+// zeldaret/tww config/GZLE01/symbols.txt:12380, 12381, 12387, 12390.
+#define J3DModel_calcMaterial ((J3DModel_calc_t)0x802EE2C4)
+#define J3DModel_diff         ((J3DModel_calc_t)0x802EE42C)
+#define J3DModel_entry        ((J3DModel_calc_t)0x802EEA2C)
+#define J3DModel_viewCalc     ((J3DModel_calc_t)0x802EEE30)
+
 // J3DModel::lock / unlock. Both iterate matpackets (model+0xB4 array,
 // stride 0x3C bytes) and flip bit 0 of mp[i]+0x10. lock sets, unlock
 // clears. J3DJoint::entryIn at 0x802F595C reads that bit and takes a

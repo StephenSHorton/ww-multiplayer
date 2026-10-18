@@ -77,13 +77,21 @@ func TestClearAndRearm(t *testing.T) {
 		t.Error("Rearm(1) touched slot 0")
 	}
 
+	SetFaceSync(m, true)
+	if got := u8(t, m, mb+mailbox.OffFaceHookEnable); got != 1 {
+		t.Errorf("face_hook_enable after SetFaceSync(true) = %d, want 1", got)
+	}
+
 	Clear(m)
 	if got := u8(t, m, mb+mailbox.OffShadowMode); got != ModeOff {
 		t.Errorf("shadow_mode after Clear = %d, want 0", got)
 	}
+	if got := u8(t, m, mb+mailbox.OffFaceHookEnable); got != 0 {
+		t.Errorf("face_hook_enable after Clear = %d, want 0", got)
+	}
 	for s := 0; s < Cap; s++ {
-		if u8(t, m, mb+OffPoseSeq(s)) != 0 {
-			t.Errorf("Clear left pose_seq[%d] set", s)
+		if u8(t, m, mb+OffPoseSeq(s)) != 0 || u8(t, m, mb+OffFaceSeq(s)) != 0 {
+			t.Errorf("Clear left slot %d's seqs set", s)
 		}
 	}
 }

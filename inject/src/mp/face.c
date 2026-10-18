@@ -126,19 +126,26 @@ static void face_hook_draw_shim(void* matpacket_v) {
     if (cur != 0xFFFFFFFFU) mailbox->face_hook_swaps = cur + 1;
 }
 
-// --- FACE-STATE per-slot swap (session 12) ----------------------------
-// The per-frame BP emit (TX_SETIMAGE3 etc.) reads the SHARED tev_block at
-// some point we haven't pinpointed but is BEFORE matpacket.draw. By
-// bracketing the entire mini-link submission window (run_eye_fix + mDoExt)
-// with a tev_block swap, mini-link's render captures face_state values
-// while Link's earlier render (already submitted via daPy_lk_c_draw)
-// keeps btp's values.
+// --- FACE-STATE per-slot swap (session 12; placed right in F20) --------
+// Where the texno is read (zeldaret/tww): the mini-Link's entry is
+// J3DModel::calcMaterial + diff + entry + viewCalc (minilink.c
+// mini_link_entry_dl). calcMaterial runs every material's
+// J3DMaterialAnm, which writes the LOCAL btp texno into the SHARED
+// J3DTevBlock (J3DMaterialAnm.cpp:51-62); diff then bakes each tev block
+// into THIS model's differed display list (J3DMaterial::diff ->
+// J3DTevBlockPatched::diffTexNo -> loadTexNo, J3DMatBlock.cpp:1126),
+// and nothing reads the tev block at draw time (J3DMatPacket::draw only
+// replays display lists). So face_swap_for_slot runs after calcMaterial
+// and face_restore after diff: the slot's face is what gets baked, and
+// Link's own bake, earlier in his draw, keeps his. Until 2026-10-18 the
+// swap bracketed the whole entry, so calcMaterial put the local face
+// back a few instructions before the bake and every remote wore the
+// local player's eyes and mouth (issue #5).
 //
-// Empirical proof of mechanism: face-tev-hammer 0x0006 at 60Hz from Go
+// Empirical proof of the channel: face-tev-hammer 0x0006 at 60Hz from Go
 // blacked out BOTH Link AND mini-link's eyes on the hammered Dolphin
-// only. So tev_block IS the channel. The trick is timing — narrow swaps
-// (session 9 around matpacket.draw) miss the read window.
-//
+// only. So tev_block IS the channel; swaps around matpacket.draw
+// (session 9) were simply the wrong window.
 //
 // The four tev_blocks are the core's (wwapi.h face_tev[], resolved by
 // face_tevs_ready from the model data minilink.c binds with face_bind).

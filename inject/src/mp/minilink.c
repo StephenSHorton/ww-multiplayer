@@ -608,10 +608,30 @@ static void mini_link_shapes_restore(J3DModelData* model_data, u32 shown) {
 }
 
 // mDoExt_modelEntryDL for a mini-Link model, with the full link_root
-// head shown (see above).
-static void mini_link_entry_dl(J3DModel* model, J3DModelData* model_data) {
+// head shown (see above), opened up into the game's own four steps so
+// the slot's face can go in where it takes (F20, docs/05 "Remote faces
+// were the local player's"). On Link's model data (type 1, never
+// locked: J3DModelLoader locks only a BDL without a MAT3 section, and
+// daPy_lk_c::draw takes this branch every frame) mDoExt_modelEntryDL is
+// mDoExt_modelDiff + viewCalc = calcMaterial, diff, entry, viewCalc
+// (m_Do_ext.cpp:509-513, 563-576). calcMaterial runs every material's
+// J3DMaterialAnm, which writes the LOCAL btp texno into the SHARED tev
+// blocks (J3DMaterialAnm.cpp:51-62); diff then bakes the tev blocks
+// into THIS model's double-buffered differed display lists
+// (J3DMaterial::diff -> J3DTevBlockPatched::diffTexNo -> loadTexNo).
+// Nothing reads the tev blocks after that for this model, and Link's
+// own bake already happened in his draw. So: swap after calcMaterial,
+// restore after diff. The old bracket swapped before mDoExt, and
+// calcMaterial put the local face back a few instructions before the
+// bake, which is why every remote wore the local player's face.
+static void mini_link_entry_dl(J3DModel* model, J3DModelData* model_data, int slot) {
     u32 shown = mini_link_shapes_force_show(model_data);
-    mDoExt_modelEntryDL(model);
+    J3DModel_calcMaterial(model);
+    face_swap_for_slot(slot);
+    J3DModel_diff(model);
+    face_restore();
+    J3DModel_entry(model);
+    J3DModel_viewCalc(model);
     mini_link_shapes_restore(model_data, shown);
 }
 
@@ -638,10 +658,10 @@ static void mini_link_entry_dl(J3DModel* model, J3DModelData* model_data) {
 // code can read these joints.
 // Pass 3 (link_root entryIn) is skipped in run_eye_fix, so link_root
 // never enters via the recipe and only cl_eye/cl_mayu need skipping here.
-static void mDoExt_skip_recipe_joints(J3DModel* model, J3DModelData* model_data) {
+static void mDoExt_skip_recipe_joints(J3DModel* model, J3DModelData* model_data, int slot) {
     void* joint_arr_void = *(void**)((u8*)model_data + J3DMODELDATA_JOINT_NODE_PTR_OFFSET);
     if (!joint_arr_void) {
-        mini_link_entry_dl(model, model_data);
+        mini_link_entry_dl(model, model_data, slot);
         return;
     }
     J3DJoint** joint_arr = (J3DJoint**)joint_arr_void;
@@ -652,7 +672,7 @@ static void mDoExt_skip_recipe_joints(J3DModel* model, J3DModelData* model_data)
     if (cl_eye)  { saved_eye  = *(volatile u32*)((u8*)cl_eye  + J3DJOINT_MESH_OFFSET); *(volatile u32*)((u8*)cl_eye  + J3DJOINT_MESH_OFFSET) = 0; }
     if (cl_mayu) { saved_mayu = *(volatile u32*)((u8*)cl_mayu + J3DJOINT_MESH_OFFSET); *(volatile u32*)((u8*)cl_mayu + J3DJOINT_MESH_OFFSET) = 0; }
 
-    mini_link_entry_dl(model, model_data);
+    mini_link_entry_dl(model, model_data, slot);
 
     if (cl_eye)  *(volatile u32*)((u8*)cl_eye  + J3DJOINT_MESH_OFFSET) = saved_eye;
     if (cl_mayu) *(volatile u32*)((u8*)cl_mayu + J3DJOINT_MESH_OFFSET) = saved_mayu;
@@ -834,18 +854,18 @@ void mp_draw_post(void* this_) {
     // post-draw state (the recipe assumes that's the baseline, since
     // that's what daPy_lk_c::draw runs from), then mDoExt submits the
     // body with cl_eye+cl_mayu skipped (the recipe already entered them;
-    // see docs/06-history.md "Eye-fix attempt 4 session 7"). The face
-    // swap brackets the slot's render so its bake captures face_state
-    // instead of btp's values (no-op unless face_hook_enable=1 AND
-    // face_seqs[slot]!=0); the tunic swap recolors only this slot.
+    // see docs/06-history.md "Eye-fix attempt 4 session 7"). The tunic
+    // swap recolors only this slot; the face swap sits inside
+    // mini_link_entry_dl, between calcMaterial and diff (F20), and is a
+    // no-op unless face_hook_enable=1 AND face_seqs[slot]!=0. The
+    // recipe's own entryIn calls bake nothing (the mini-Link's packets
+    // are locked, so entryIn only chains them), so they may run first.
     for (slot = 0; slot < MAX_REMOTE_LINKS; slot++) {
         if (!mini_link_models[slot] || !pose_bufs[slot] || mailbox->pose_seqs[slot] == 0) continue;
-        face_swap_for_slot(slot);
         tunic_swap(this_, slot);
         run_eye_fix(mini_link_models[slot], this_, mini_link_data);
-        mDoExt_skip_recipe_joints(mini_link_models[slot], mini_link_data);
+        mDoExt_skip_recipe_joints(mini_link_models[slot], mini_link_data, slot);
         tunic_restore();
-        face_restore();
     }
 
 }

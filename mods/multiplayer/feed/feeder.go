@@ -186,6 +186,9 @@ func (f *Feeder) Connected(serverEpoch uint64) {
 		f.armedEpoch[s] = -1
 	}
 	f.shadowModeArmed = true
+	// Face sync arms with the pose feed (F20): the C bracket draws each
+	// mini-Link with its slot's face only while face_hook_enable is set.
+	avatar.SetFaceSync(f.m, true)
 
 	// A pending actorGrace wait starts over: the new connection delivers
 	// each remote's position before its pose again.

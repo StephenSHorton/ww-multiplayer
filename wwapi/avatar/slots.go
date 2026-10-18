@@ -48,6 +48,21 @@ func SetPoseFeedMode(m Writer) {
 	m.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{ModePoseFeed})
 }
 
+// SetFaceSync arms (on) or disarms the C side's face sync: with
+// face_hook_enable set, each mini-Link is drawn with the face in its
+// slot's face_state instead of the local Link's (inject/src/mp/face.c).
+// The flag lives in RAM, so a session arms it with shadow_mode and
+// disarms it on the way out (Clear). Through v0.4.1 only wwdev's
+// mp-local wrote it, so the shipped host/join and the app never armed
+// it and every remote wore the local player's face (F20, docs/05).
+func SetFaceSync(m Writer, on bool) {
+	v := byte(0)
+	if on {
+		v = 1
+	}
+	m.Write(mailbox.Mailbox+mailbox.OffFaceHookEnable, []byte{v})
+}
+
 // ClearSlot stops the C side drawing slot: it zeroes the slot's pose_seq
 // and face_seq, which C reads as "nothing written yet".
 func ClearSlot(m Writer, slot int) {
@@ -69,16 +84,18 @@ func Rearm(m Writer, slot int) {
 }
 
 // Clear resets the mailbox so the next Dolphin frame stops rendering
-// the remote Links. Writes shadow_mode = 0 (the explicit kill switch)
-// and zeros every pose_seqs[slot] so even if shadow_mode is flipped
-// back to 5 later, nothing renders until a fresh pose arrives. All
-// writes are best-effort: if Dolphin closed first, Write fails silently,
-// which is the correct behavior (the mailbox is gone with the process).
-// (It was the body of clearMultiplayerState in package main.)
+// the remote Links. Writes shadow_mode = 0 (the explicit kill switch),
+// disarms face sync, and zeros every pose_seqs[slot] and face_seqs[slot]
+// so even if shadow_mode is flipped back to 5 later, nothing renders
+// until a fresh pose arrives. All writes are best-effort: if Dolphin
+// closed first, Write fails silently, which is the correct behavior
+// (the mailbox is gone with the process). (It was the body of
+// clearMultiplayerState in package main.)
 func Clear(m Writer) {
 	m.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{ModeOff})
+	SetFaceSync(m, false)
 	for i := 0; i < Cap; i++ {
-		m.Write(mailbox.Mailbox+OffPoseSeq(i), []byte{0})
+		ClearSlot(m, i)
 	}
 }
 

@@ -1933,3 +1933,23 @@ Link #1's own `mpNodeMtx`, and the no-op-walker calc rebuilds the skin
 matrices from Go's pose as before. Details and the probe recipe in
 docs/05 "Local Link's feet squished on slopes". The blob changed:
 `saves/start.sav` recaptured and players must re-patch.
+
+## 2026-10-18: remote faces were the local player's (F20, issue #5)
+
+**Report:** the other player's face animated 1:1 with yours.
+
+**Two causes.** The face-sync arm (`face_hook_enable`) was only ever written
+by `wwdev mp-local` and the probes; the shipped feeder never set it. And
+the bracket swapped the shared tev blocks before `mDoExt_modelEntryDL`,
+whose first step, `J3DModel::calcMaterial`, runs the materials'
+`J3DMaterialAnm` and writes the local btp texno back into the shared
+blocks before `J3DModel::diff` bakes them into the mini-Link's own
+display lists. The mouth and the blink/expression stage of the eyes were
+therefore always local; only the undriven pupil stage honored the swap,
+which is what the 250 Hz hammer "proof" had shown.
+
+**Fix.** The mini-Link's entry runs the game's four steps itself with the
+swap between `calcMaterial` and `diff`; `avatar.SetFaceSync` arms with
+the pose feed and `avatar.Clear` disarms. Details and the live checks in
+docs/05 "Remote faces were the local player's". Blob changed:
+`saves/start.sav` recaptured, players must re-patch.
