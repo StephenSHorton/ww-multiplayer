@@ -10,12 +10,15 @@
 // actor of proc 0xB5 is created, calls _prolog, and calls _epilog before
 // unlinking it when the last such actor is deleted.
 //
-// What it does, and nothing more:
+// What it does:
 //   _prolog   writes WWREL_MAGIC and the build id into the mailbox slack
 //             (the words just past the Mailbox struct) and zeroes the
 //             frame counter there;
-//   execute   bumps that frame counter once per actor frame;
-//   _epilog   clears the magic.
+//   execute   bumps that frame counter once per actor frame, then runs
+//             the Moblin mirror (enemy_mirror.c) over the block Go writes
+//             at MAILBOX_ADDR + WWENEMY_OFF (include/wwenemy.h);
+//   delete    hands every mirrored Moblin back;
+//   _epilog   does the same if delete never ran, then clears the magic.
 // create allocates nothing and registers no model or collision, so the
 // actor is invisible; draw, delete and is_delete just return TRUE.
 //
@@ -34,9 +37,14 @@
 // magic); scripts/extract_blob.py reads them from there.
 #include "wwrel.h"
 
+// The Moblin mirror (enemy_mirror.c): its state lives in the actor below
+// and it runs from execute; delete and _epilog release what it adopted.
+#include "enemy_mirror.h"
+
 // The build id: build.py passes -DWWREL_BUILD_ID=<CRC-32 of inject/rel's
-// sources>, so it changes with the source and never with the clock
-// (the ELF stays byte-identical across rebuilds of the same source).
+// sources and the slack headers>, so it changes with the source and never
+// with the clock (the ELF stays byte-identical across rebuilds of the
+// same source).
 #ifndef WWREL_BUILD_ID
 #define WWREL_BUILD_ID 0
 #endif
@@ -129,12 +137,17 @@ extern const u8 g_fopAc_Method[];        // actor_method_class, f_op_actor.cpp
 // The actor. f_op/f_op_actor.h fopAc_ac_c is 0x290 bytes in GZLE01
 // (the decomp's "Size: 0x290"); the game's fopAc create fills that part
 // before our create runs. The module's own fields follow it, as
-// d_a_*.h classes do, and mSize covers both.
+// d_a_*.h classes do, and mSize covers both: the frame count and the
+// Moblin mirror's state (enemy_mirror.h), so nothing lives in .bss.
 #define FOPAC_AC_C_SIZE 0x290
 typedef struct {
     u8  base[FOPAC_AC_C_SIZE];           // fopAc_ac_c
     u32 frames;                          // +0x290 this actor's execute count
+    enemy_mirror_state mirror;           // +0x294 enemy_mirror.c's slots and counters
 } wwrel_actor;
+typedef char wwrel_check_actor_layout[(__builtin_offsetof(wwrel_actor, frames) == 0x290 &&
+                                       __builtin_offsetof(wwrel_actor, mirror) == 0x294 &&
+                                       sizeof(wwrel_actor) == 0x294 + sizeof(enemy_mirror_state)) ? 1 : -1];
 
 // --- Profile constants (zeldaret/tww) ------------------------------------
 #define fpcLy_CURRENT_e        0xFFFFFFFDu // f_pc/f_pc_layer_tag.h
@@ -157,19 +170,25 @@ typedef struct {
 static int wwrel_create(void* actor) {
     wwrel_actor* a = (wwrel_actor*)actor;
     a->frames = 0;
+    enemy_mirror_init(&a->mirror);
     return cPhs_COMPLEATE_e;
 }
 
+// Hands every mirrored Moblin back before the actor goes.
 static int wwrel_delete(void* actor) {
-    (void)actor;
+    wwrel_actor* a = (wwrel_actor*)actor;
+    enemy_mirror_delete(&a->mirror);
     return TRUE;
 }
 
-// Once per frame while the actor lives: the proof the module runs.
+// Once per frame while the actor lives: the frame counter Go watches,
+// then the Moblin mirror's whole per-frame loop.
 static int wwrel_execute(void* actor) {
     wwrel_actor* a = (wwrel_actor*)actor;
+    u32 frame = WWREL_WORD(WWREL_FRAME_OFF) + 1;
     a->frames++;
-    WWREL_WORD(WWREL_FRAME_OFF) = WWREL_WORD(WWREL_FRAME_OFF) + 1;
+    WWREL_WORD(WWREL_FRAME_OFF) = frame;
+    enemy_mirror_frame(&a->mirror, frame);
     return TRUE;
 }
 
@@ -231,6 +250,7 @@ void _prolog(void) {
 }
 
 void _epilog(void) {
+    enemy_mirror_unlink();               // release_all if delete never ran
     WWREL_WORD(WWREL_MAGIC_OFF) = 0;
     DynamicLink_ModuleEpilog();
     DynamicLink_ModuleDestructorsX(&_dtors);

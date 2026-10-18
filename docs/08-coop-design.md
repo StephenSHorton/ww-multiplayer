@@ -337,7 +337,8 @@ Current layout (`inject/build.py`: `inject_address` and the `__OSArenaLo` patch 
 | 0x80412F00..0x804130B0 | mailbox (as below) | 0x1B0 |
 | 0x804130B0..0x804130BC | the REL module's words: magic `'WWRL'`, build id, frame counter (`inject/include/wwrel.h`) | 0xC |
 | 0x80412F00..0x804130B0 | mailbox (`frame_shim` hard-codes `lwz 12,0x2F08(12)`, `frame_shim` in `src/core/hooks.c`; the Go `mailbox.Mailbox` (wwapi/mailbox/layout_gen.go, generated from mailbox_core.h + mailbox_mp.h); +0x180..+0x187 is the WWMB header (magic, ABI, layout; E1), +0x188..+0x1A0 the docs/09 tunic block, +0x1A0 the features word and `_pad13` (E1)) | 0x1B0 |
-| 0x804130B0..0x80414000 | unused, below arena (0x804130A0 before Phase E1 grew the mailbox to 0x1B0) | 0xF50 |
+| 0x80413100..0x80413260 | the enemy-mirror block (mailbox +0x200..+0x360, `inject/include/wwenemy.h`): Go writes +0x00..+0xF4 per tick, the REL module's `enemy_mirror.c` writes +0xF4..+0x160 (the host-authoritative Moblin prototype, handoff `design/host-authoritative-prototype.md`) | 0x160 |
+| 0x804130BC..0x80413100, 0x80413260..0x80414000 | unused, below arena (0x804130A0 before Phase E1 grew the mailbox to 0x1B0). Any co-op region placed in this slack starts at mailbox +0x360 = 0x80413260; the option A region below sits past a moved mailbox and is unaffected | 0x44 + 0xDA0 |
 | 0x80414000 | patched `__OSArenaLo` (`addi r3,r3,0x4000` at 0x80301820) | — |
 
 **M0-M6** use no code space.
