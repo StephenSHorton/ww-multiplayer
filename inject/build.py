@@ -42,7 +42,10 @@ SYMBOL_MAP = os.path.join("build", "WWMultiplayer.map")
 # game data it references by address, and its outputs. Built apart from
 # T2 (plain gcc + `ld --relocatable`, no Freighter); extract_blob.py
 # embeds REL_ELF as is and the Go converter (wwapi/rel) makes the REL.
-REL_SOURCES = ["rel/rel_main.c"]
+REL_SOURCES = ["rel/rel_main.c", "rel/enemy_mirror.c"]
+# The headers the module's build id also covers (rel_build_id): its own
+# and the two slack layouts it reads and writes.
+REL_HEADERS = ["rel/enemy_mirror.h", "include/wwrel.h", "include/wwenemy.h"]
 REL_LD = os.path.join("rel", "ww_rel.ld")
 REL_OBJ_DIR = os.path.join("build", "temp", "rel")
 REL_ELF = os.path.join("build", "wwrel.elf")
@@ -179,14 +182,14 @@ def run_tool(name, *args):
 
 
 def rel_build_id():
-    """The module's build id: a CRC-32 of its sources and symbol script.
+    """The module's build id: a CRC-32 of its sources, headers and symbol script.
 
     Passed as -DWWREL_BUILD_ID, written into the mailbox slack by _prolog
     and read back by Go. A source hash, not a timestamp, so the same
     sources give the same ELF (blob.stamp records its hash).
     """
     crc = 0
-    for path in sorted(REL_SOURCES + [REL_LD]):
+    for path in sorted(REL_SOURCES + REL_HEADERS + [REL_LD]):
         with open(path, "rb") as f:
             crc = zlib.crc32(f.read().replace(b"\r\n", b"\n"), crc)
     return crc & 0xFFFFFFFF
