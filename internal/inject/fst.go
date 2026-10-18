@@ -98,6 +98,34 @@ func fstFileExtents(fst []byte) ([]extent, error) {
 	return files, nil
 }
 
+// fstRootFile finds the file called name in the FST's root directory,
+// the way DVDConvertPathToEntrynum finds "/name" (dvdfs.c:139-156): the
+// root's entries in order, each subdirectory stepped over, names
+// compared ASCII case-insensitively, the first match winning. It
+// returns the entry's index and the entry. A missing file is an error.
+func fstRootFile(fst []byte, name string) (uint64, fstEntry, error) {
+	n, names, err := fstRoot(fst)
+	if err != nil {
+		return 0, fstEntry{}, err
+	}
+	for i := uint64(1); i < n; {
+		e := fstEntryAt(fst, i)
+		if e.dir {
+			if next := uint64(e.w2); next > i {
+				i = next
+			} else {
+				i++
+			}
+			continue
+		}
+		if s, _, ok := fstString(names, e.nameOff); ok && asciiEqualFold(string(s), name) {
+			return i, e, nil
+		}
+		i++
+	}
+	return 0, fstEntry{}, fmt.Errorf("fst: no file %q in the root directory", name)
+}
+
 // fstName returns the quoted name at nameOff in the string table, or the
 // entry index when the offset doesn't point anywhere sensible.
 func fstName(names []byte, nameOff uint32, idx uint64) string {

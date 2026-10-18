@@ -45,8 +45,9 @@ ww-multiplayer/
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
 │   │   ├── blob.go              # AUTO-GENERATED via scripts/extract_blob.py
 │   │   ├── dol.go               # DOL header editor + T2 splice + in-DOL patches
-│   │   ├── iso.go               # ISO patcher with FST relocation
-│   │   └── ciso.go              # CISO decompressor
+│   │   ├── iso.go               # ISO patcher with FST relocation (+ a replacement RELS.arc placed in free space, PatchISOWith)
+│   │   ├── ciso.go              # CISO decompressor
+│   │   └── rels/                # RELS.arc patcher: the mod's REL in an actor module's place, the profile list repointed, the 64 KB ARAM growth guard
 │   ├── netutil/                 # Address parsing shared by host/join/server; join codes (WW-XXXX-XXXX, joincode.go)
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors)
 │   ├── redact/                  # IP masking for what the GUI and TUI draw (fixed-width •••.•••.•••.42); the CLI prints addresses unmasked

@@ -9,6 +9,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 )
 
@@ -48,15 +49,51 @@ const (
 	wwSafeFSTOff = 0x500000
 )
 
-// Result reports where PatchISO put the FST, for the CLI's status output.
+// Result reports where PatchISO put the FST (and RELS.arc, when one was
+// given), for the CLI's status output.
 type Result struct {
 	OldFSTOffset uint32 // FST disc offset in the input
 	NewFSTOffset uint32 // FST disc offset in the output; == OldFSTOffset if it didn't move
 	FSTSize      uint32
+
+	// RELSArcOffset and RELSArcSize are where Patch.RELSArc lies on the
+	// output disc, where the FST's entry for RELS.arc now points; zero
+	// when no replacement archive was given.
+	RELSArcOffset uint32
+	RELSArcSize   uint32
 }
 
 // FSTMoved reports whether the FST had to be relocated to fit the bigger DOL.
 func (r Result) FSTMoved() bool { return r.NewFSTOffset != r.OldFSTOffset }
+
+// RELSArcReplaced reports whether a replacement RELS.arc went on the disc.
+func (r Result) RELSArcReplaced() bool { return r.RELSArcSize != 0 }
+
+// Patch is what the patcher splices into the disc besides the DOL patch
+// blob.go carries. The zero value is PatchISO's: the DOL only.
+type Patch struct {
+	// RELSArc is a replacement for the disc's RELS.arc (the archive of
+	// the game's relocatable modules, with the mod's REL in it:
+	// internal/inject/rels builds one), or nil to leave the disc's. It
+	// is bigger than the vanilla one, so it goes in free space below the
+	// disc-size cap and the FST's entry for "RELS.arc" is pointed at it;
+	// the vanilla bytes stay where they were, unreferenced.
+	RELSArc []byte
+}
+
+// relsArcName is the archive's name in the FST's root directory, as the
+// game opens it (DynamicLink.cpp mounts "/RELS.arc"; the DVD library
+// compares names ASCII case-insensitively).
+const relsArcName = "RELS.arc"
+
+// relsArcAlignments are the alignments tried for the replacement
+// RELS.arc's disc offset, in order. The DVD library needs 4-byte file
+// offsets at most (and the vanilla disc's files are placed at 4), so
+// 0x20 (one DVD DMA unit, the finer one tried) is already generous;
+// 0x8000, a DVD sector, is preferred as the tidier layout and what
+// authoring tools use, and the vanilla disc has hundreds of MB free
+// past the DOL to give it.
+var relsArcAlignments = []uint64{0x8000, 0x20}
 
 // ErrOutputIsInput is returned by PatchISO when the output path names the
 // input file. Patching in place would destroy the user's vanilla ISO.
@@ -75,11 +112,23 @@ var ErrOutputIsInput = errors.New("output is the input file")
 // the output (always staying under the disc size cap). Caller is expected to
 // write it to a fresh path; we never mutate `iso` in place.
 func PatchISOInMemory(iso []byte) ([]byte, error) {
-	out, _, err := patchImage(iso)
+	out, _, err := patchImage(iso, Patch{})
 	return out, err
 }
 
-func patchImage(iso []byte) ([]byte, Result, error) {
+// PatchISOInMemoryWith is PatchISOInMemory with p's extras spliced in
+// too (see Patch), and the result's placements. With a Patch.RELSArc,
+// an image that already holds this build's DOL patch is ErrAlreadyPatched
+// only when it holds that archive as well (hasCurrentRELSArc); with
+// another RELS.arc it is ErrPatchedByOtherVersion.
+func PatchISOInMemoryWith(iso []byte, p Patch) ([]byte, Result, error) {
+	return patchImage(iso, p)
+}
+
+func patchImage(iso []byte, p Patch) ([]byte, Result, error) {
+	if p.RELSArc != nil && !bytes.HasPrefix(p.RELSArc, []byte("RARC")) {
+		return nil, Result{}, fmt.Errorf("iso: the replacement RELS.arc isn't a RARC archive (%d bytes)", len(p.RELSArc))
+	}
 	if err := detectUnsupportedFormat(iso); err != nil {
 		return nil, Result{}, err
 	}
@@ -115,15 +164,26 @@ func patchImage(iso []byte) ([]byte, Result, error) {
 	if err != nil {
 		return nil, Result{}, err
 	}
+	fst := iso[fstOff : uint64(fstOff)+uint64(fstSize)]
 	patchedDOL, err := PatchDOL(vanillaDOL)
 	if err != nil {
+		if errors.Is(err, ErrAlreadyPatched) && p.RELSArc != nil {
+			// The DOL is this build's; the disc is only when its
+			// RELS.arc is this build's too.
+			current, cerr := hasCurrentRELSArc(iso, fst, p.RELSArc)
+			switch {
+			case cerr != nil:
+				return nil, Result{}, fmt.Errorf("iso: %w", cerr)
+			case !current:
+				return nil, Result{}, fmt.Errorf("%w (its RELS.arc isn't this build's)", ErrPatchedByOtherVersion)
+			}
+		}
 		return nil, Result{}, err
 	}
 
 	// Everything on the disc that isn't free space: the system area, every
 	// file the FST lists, and (below) the enlarged DOL. The old FST isn't
 	// included — it's either left alone or vacated by the relocation.
-	fst := iso[fstOff : uint64(fstOff)+uint64(fstSize)]
 	files, err := fstFileExtents(fst)
 	if err != nil {
 		return nil, Result{}, fmt.Errorf("iso: %w", err)
@@ -146,38 +206,113 @@ func patchImage(iso []byte) ([]byte, Result, error) {
 	}
 
 	res := Result{OldFSTOffset: fstOff, NewFSTOffset: fstOff, FSTSize: fstSize}
+	dolExtent := extent{start: uint64(dolOff), end: dolEnd, what: "the patched DOL"}
+
+	// Fast path: the patched DOL fits in the existing reserved region and
+	// the FST stays put. Otherwise the FST would be clobbered: relocate
+	// it, preferring wwSafeFSTOff (0x500000), the known spot in vanilla
+	// WW that keeps the FST inside the standard 1.46 GB Gamecube disc
+	// size cap.
+	moveFST := dolEnd > uint64(fstOff)
+	newFSTOff := fstOff
+	if moveFST {
+		used = append(used, dolExtent)
+		if newFSTOff, err = chooseFSTRelocation(used, fstSize, dolEnd, uint64(len(iso))); err != nil {
+			return nil, Result{}, err
+		}
+		res.NewFSTOffset = newFSTOff
+	}
+
+	// The replacement RELS.arc: in the vanilla archive's own extent when
+	// it fits there, else in free space (below the FST wherever it ends
+	// up, the patched DOL and every file), with the FST's entry pointed
+	// at it. fstOut is the FST as written: the input's, or a copy with
+	// that entry rewritten.
+	fstOut := fst
+	if p.RELSArc != nil {
+		idx, e, err := fstRootFile(fst, relsArcName)
+		if err != nil {
+			return nil, Result{}, fmt.Errorf("iso: %w", err)
+		}
+		size := uint64(len(p.RELSArc))
+		relsOff := uint64(e.w1)
+		if size > uint64(e.w2) {
+			reserved := append(slices.Clone(used), extent{start: uint64(newFSTOff), end: uint64(newFSTOff) + uint64(fstSize), what: "the FST"})
+			if !moveFST {
+				reserved = append(reserved, dolExtent)
+			}
+			if relsOff, err = chooseRELSArcSlot(reserved, size, dolEnd, uint64(len(iso))); err != nil {
+				return nil, Result{}, err
+			}
+		}
+		fstOut = bytes.Clone(fst)
+		binary.BigEndian.PutUint32(fstOut[idx*fstEntrySize+4:], uint32(relsOff))
+		binary.BigEndian.PutUint32(fstOut[idx*fstEntrySize+8:], uint32(size))
+		res.RELSArcOffset, res.RELSArcSize = uint32(relsOff), uint32(size)
+	}
+
 	out := make([]byte, len(iso))
 	copy(out, iso)
-
-	if dolEnd <= uint64(fstOff) {
-		// Fast path: patched DOL fits in existing reserved region, FST
-		// stays put. Just splice the new DOL.
-		copy(out[dolOff:], patchedDOL)
-		return out, res, nil
+	end := max(uint64(newFSTOff)+uint64(fstSize), uint64(res.RELSArcOffset)+uint64(res.RELSArcSize))
+	if end > uint64(len(out)) {
+		out = append(out, make([]byte, end-uint64(len(out)))...) // the EOF append
 	}
-
-	// Slow path: patched DOL is larger than the reserved region — FST
-	// would be clobbered. Relocate FST, preferring wwSafeFSTOff (0x500000),
-	// the known spot in vanilla WW that keeps the FST inside the standard
-	// 1.46 GB Gamecube disc size cap.
-	used = append(used, extent{start: uint64(dolOff), end: dolEnd, what: "the patched DOL"})
-	newFSTOff, err := chooseFSTRelocation(used, fstSize, dolEnd, uint64(len(iso)))
-	if err != nil {
-		return nil, Result{}, err
-	}
-	if end := int(newFSTOff) + len(fst); end > len(out) {
-		out = append(out, make([]byte, end-len(out))...) // the EOF append
-	}
-	copy(out[newFSTOff:], fst)
 	copy(out[dolOff:], patchedDOL)
-
-	// Update header pointers for the relocated FST.
-	binary.BigEndian.PutUint32(out[isoHeaderFSTOff:], newFSTOff)
-	if binary.BigEndian.Uint32(out[isoHeaderFSTMax:]) < fstSize {
-		binary.BigEndian.PutUint32(out[isoHeaderFSTMax:], fstSize)
+	if moveFST || p.RELSArc != nil {
+		copy(out[newFSTOff:], fstOut)
 	}
-	res.NewFSTOffset = newFSTOff
+	if moveFST {
+		// Update header pointers for the relocated FST.
+		binary.BigEndian.PutUint32(out[isoHeaderFSTOff:], newFSTOff)
+		if binary.BigEndian.Uint32(out[isoHeaderFSTMax:]) < fstSize {
+			binary.BigEndian.PutUint32(out[isoHeaderFSTMax:], fstSize)
+		}
+	}
+	if p.RELSArc != nil {
+		copy(out[res.RELSArcOffset:], p.RELSArc)
+	}
 	return out, res, nil
+}
+
+// chooseRELSArcSlot picks where the replacement RELS.arc goes: the
+// lowest free slot past the patched DOL (dolEnd) that overlaps nothing
+// in used and ends below the disc size cap, at the first of
+// relsArcAlignments that has one; failing that, past the end of a
+// trimmed image, still under the cap (the game's DVD reads past the cap
+// fail, see wwSafeFSTOff); failing that, an error.
+func chooseRELSArcSlot(used []extent, size, dolEnd, imageSize uint64) (uint64, error) {
+	limit := min(imageSize, gcDiscSize)
+	for _, align := range relsArcAlignments {
+		if off, ok := findFreeSlot(used, size, align, dolEnd, limit, 0); ok {
+			return off, nil
+		}
+	}
+	if imageSize < gcDiscSize {
+		for _, align := range relsArcAlignments {
+			if off, ok := findFreeSlot(used, size, align, max(dolEnd, imageSize), gcDiscSize, 0); ok {
+				return off, nil
+			}
+		}
+	}
+	return 0, fmt.Errorf("iso: no free space found for the %d-byte RELS.arc (between 0x%x and the disc size cap 0x%x); please report this",
+		size, dolEnd, uint64(gcDiscSize))
+}
+
+// hasCurrentRELSArc reports whether the FST's RELS.arc on iso is arc,
+// byte for byte: the size the entry gives and the bytes at its offset.
+// What a build writes there is deterministic (the archive is rebuilt
+// from the vanilla one and the same REL), so an image patched by this
+// build matches and one by any other build doesn't.
+func hasCurrentRELSArc(iso, fst, arc []byte) (bool, error) {
+	_, e, err := fstRootFile(fst, relsArcName)
+	if err != nil {
+		return false, err
+	}
+	off, size := uint64(e.w1), uint64(e.w2)
+	if size != uint64(len(arc)) || off+size > uint64(len(iso)) {
+		return false, nil
+	}
+	return bytes.Equal(iso[off:off+size], arc), nil
 }
 
 // chooseFSTRelocation picks where the relocated FST should land: a 64 KB
@@ -275,6 +410,12 @@ func dolFileSize(hdr []byte) (uint64, error) {
 // and renamed into place, so a failed or interrupted run never leaves a
 // truncated ISO behind.
 func PatchISO(inPath, outPath string) (Result, error) {
+	return PatchISOWith(inPath, outPath, Patch{})
+}
+
+// PatchISOWith is PatchISO with p's extras spliced in too (see Patch
+// and PatchISOInMemoryWith).
+func PatchISOWith(inPath, outPath string, p Patch) (Result, error) {
 	if sameFile(inPath, outPath) {
 		return Result{}, fmt.Errorf("%w: %s; choose a different output path (the patcher never overwrites your original)",
 			ErrOutputIsInput, outPath)
@@ -289,7 +430,7 @@ func PatchISO(inPath, outPath string) (Result, error) {
 			return Result{}, fmt.Errorf("decompress CISO: %w", err)
 		}
 	}
-	patched, res, err := patchImage(data)
+	patched, res, err := patchImage(data, p)
 	if err != nil {
 		return Result{}, err
 	}

@@ -17,7 +17,7 @@ import (
 // what the patcher has always produced.
 func TestPatchISOZeroPaddingUses0x500000(t *testing.T) {
 	b := vanillaLike().build(t)
-	out, res, err := patchImage(b.img)
+	out, res, err := patchImage(b.img, Patch{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestPatchISOFastPathKeepsFST(t *testing.T) {
 	d := vanillaLike()
 	d.fstOff = wwSafeFSTOff
 	b := d.build(t)
-	out, res, err := patchImage(b.img)
+	out, res, err := patchImage(b.img, Patch{})
 	if err != nil {
 		t.Fatal(err)
 	}
