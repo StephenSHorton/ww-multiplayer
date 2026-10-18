@@ -7,12 +7,18 @@ The devkitPPC folder comes from the DEVKITPPC environment variable
 in MSYS form (/opt/devkitpro/devkitPPC); that prefix is read as
 C:\\devkitpro. Besides patched.dol, the build writes build/WWMultiplayer.map,
 a Dolphin symbol map of T2 (Symbols > Load Other Map File).
+
+After T2 it builds the REL module (rel/, see rel/README.md) into
+build/wwrel.elf, a relocatable ELF that scripts/extract_blob.py embeds
+and the patcher converts to a REL; `python build.py --no-rel` skips it.
 """
 
 import importlib.util
 import os
+import re
 import subprocess
 import sys
+import zlib
 
 # The C units, in link order: the core first, then the multiplayer mod.
 C_SOURCES = [
@@ -30,6 +36,40 @@ MSYS_DEVKITPRO = "/opt/devkitpro"
 # Freighter's linked ELF and the symbol map written from it.
 ELF = os.path.join("build", "temp", "WWMultiplayer.o")
 SYMBOL_MAP = os.path.join("build", "WWMultiplayer.map")
+
+# The REL module (rel/README.md): its C units, the symbol script of the
+# game data it references by address, and its outputs. Built apart from
+# T2 (plain gcc + `ld --relocatable`, no Freighter); extract_blob.py
+# embeds REL_ELF as is and the Go converter (wwapi/rel) makes the REL.
+REL_SOURCES = ["rel/rel_main.c"]
+REL_LD = os.path.join("rel", "ww_rel.ld")
+REL_OBJ_DIR = os.path.join("build", "temp", "rel")
+REL_ELF = os.path.join("build", "wwrel.elf")
+REL_MAP = os.path.join("build", "wwrel.map")
+# The symbols the converter and the patcher look up by name.
+REL_SYMBOLS = ["_prolog", "_epilog", "_unresolved", "g_profile_WWREL"]
+# Compile flags, ww-online's (WWOnline.Patcher/Tools/DevKitPpcToolchain.cs)
+# plus this project's freestanding ones:
+#   -fno-jump-tables   a switch's jump table would need R_PPC_REL32,
+#                      which the converter does not emit;
+#   -Og, -fno-inline   -Os needs libgcc's _restgpr_*_x (not in the DOL);
+#   -G0                no small data: .sdata/.sbss/.sdata2 are addressed
+#                      off r13/r2 (the DOL's small-data bases) through
+#                      R_PPC_EMB_SDA21 relocations the game's linker
+#                      cannot apply, so every object stays in
+#                      .data/.bss/.rodata (checked after the link);
+#   -fno-*unwind-tables, -fno-ident   no .eh_frame (its R_PPC_REL32
+#                      relocations would fail the check) and no .comment.
+REL_CFLAGS = [
+    "-mcpu=750", "-std=c99", "-fno-inline", "-Og", "-fshort-enums",
+    "-fno-jump-tables", "-ffreestanding", "-fno-builtin", "-G0",
+    "-fno-asynchronous-unwind-tables", "-fno-unwind-tables", "-fno-ident",
+    "-Wall", "-Wextra", "-Iinclude",
+]
+# Sections a REL cannot carry: small data (see -G0) and anything a
+# converter would have to understand. A new section name here means a
+# code change the converter must learn first.
+REL_BAD_SECTIONS = {".sdata", ".sbss", ".sdata2", ".sbss2", ".eh_frame", ".eh_frame_hdr"}
 
 
 def devkitppc_dir():
@@ -123,6 +163,104 @@ def write_symbol_map(elf, out):
                 f.write("  Starting        Virtual\n  address  Size   address\n  -----------------------\n")
                 f.write("\n".join(syms) + "\n\n")
     print(f"Symbol map ({sum(len(s) for s in lines.values())} symbols) saved to {out}")
+
+
+def run_tool(name, *args):
+    """Run a devkitPPC tool, returning its stdout; exit on failure."""
+    cmd = [tool(BIN_DIR, name), *args]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.stderr.strip():
+        print(r.stderr.rstrip(), file=sys.stderr)
+    if r.returncode != 0:
+        print(f"ERROR: {' '.join(cmd)} failed ({r.returncode})", file=sys.stderr)
+        sys.exit(1)
+    return r.stdout
+
+
+def rel_build_id():
+    """The module's build id: a CRC-32 of its sources and symbol script.
+
+    Passed as -DWWREL_BUILD_ID, written into the mailbox slack by _prolog
+    and read back by Go. A source hash, not a timestamp, so the same
+    sources give the same ELF (blob.stamp records its hash).
+    """
+    crc = 0
+    for path in sorted(REL_SOURCES + [REL_LD]):
+        with open(path, "rb") as f:
+            crc = zlib.crc32(f.read().replace(b"\r\n", b"\n"), crc)
+    return crc & 0xFFFFFFFF
+
+
+def build_rel():
+    """Compile rel/ and link it into REL_ELF, a relocatable ELF.
+
+    Prints the section table, the relocation counts per type, the
+    symbols the converter needs and the .text size, and fails on what a
+    REL cannot carry: an undefined symbol (the game would route the
+    call to _unresolved), an R_PPC_REL32 relocation, a small-data
+    section, or a missing REL_SYMBOLS entry.
+    """
+    print()
+    print("Building the REL module (rel/)...")
+    os.makedirs(REL_OBJ_DIR, exist_ok=True)
+    build_id = rel_build_id()
+    objs = []
+    for src in REL_SOURCES:
+        obj = os.path.join(REL_OBJ_DIR, os.path.basename(src) + ".o")
+        if os.path.exists(obj):
+            os.remove(obj)
+        run_tool("powerpc-eabi-gcc", *REL_CFLAGS, f"-DWWREL_BUILD_ID=0x{build_id:08X}",
+                 "-c", src, "-o", obj)
+        objs.append(obj)
+    for out in (REL_ELF, REL_MAP):
+        if os.path.exists(out):
+            os.remove(out)
+    run_tool("powerpc-eabi-ld", "--relocatable", "-T", REL_LD, "-Map", REL_MAP,
+             "-o", REL_ELF, *objs)
+
+    sections = run_tool("powerpc-eabi-readelf", "-S", "-W", REL_ELF)
+    print(sections.rstrip())
+    bad = sorted(s for s in REL_BAD_SECTIONS if f" {s} " in sections or f" {s}\t" in sections)
+    if bad:
+        print(f"ERROR: {REL_ELF} has {', '.join(bad)}: a REL cannot carry them", file=sys.stderr)
+        sys.exit(1)
+
+    undefined = run_tool("powerpc-eabi-nm", "-u", REL_ELF).split()
+    if undefined:
+        print(f"ERROR: {REL_ELF} has undefined symbols (missing from {REL_LD}?): "
+              f"{' '.join(undefined)}", file=sys.stderr)
+        sys.exit(1)
+
+    counts = {}
+    for line in run_tool("powerpc-eabi-readelf", "-r", "-W", REL_ELF).splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[2].startswith("R_PPC_"):
+            counts[parts[2]] = counts.get(parts[2], 0) + 1
+    print("Relocations: " + (", ".join(f"{k} x{v}" for k, v in sorted(counts.items())) or "none"))
+    if "R_PPC_REL32" in counts:
+        print("ERROR: R_PPC_REL32 relocations: the converter does not emit them "
+              "(a switch jump table? .eh_frame?)", file=sys.stderr)
+        sys.exit(1)
+
+    # objdump -t: `<value> <flags> <section>\t<size> <name>`.
+    syms = {}
+    for line in run_tool("powerpc-eabi-objdump", "-t", REL_ELF).splitlines():
+        m = re.match(r"^([0-9a-f]{8}) .* (\S+)\t([0-9a-f]{8}) (\S+)$", line)
+        if m:
+            syms[m.group(4)] = (m.group(2), int(m.group(1), 16), int(m.group(3), 16))
+    missing = [s for s in REL_SYMBOLS if s not in syms]
+    if missing:
+        print(f"ERROR: {REL_ELF} lacks {', '.join(missing)}", file=sys.stderr)
+        sys.exit(1)
+    print("Symbols:")
+    for name in REL_SYMBOLS + ["g_wwrel_build_id"]:
+        sec, off, size = syms[name]
+        print(f"  {name:<18} {sec}+0x{off:04X}  size 0x{size:X}")
+    # readelf -S -W: `  [ 1] .text  PROGBITS  <addr> <off> <size> ...`.
+    m = re.search(r"\]\s+\.text\s+PROGBITS\s+[0-9a-f]+\s+[0-9a-f]+\s+([0-9a-f]+)", sections)
+    text = int(m.group(1), 16) if m else 0
+    print(f"  .text size 0x{text:X} ({text} bytes); build id 0x{build_id:08X}")
+    print(f"REL module saved to {REL_ELF} (map: {REL_MAP})")
 
 
 def main():
@@ -311,6 +449,9 @@ def main():
             print(f"Reverted Freighter clobber @ file 0x{off:08x} ({n}B)")
 
     write_symbol_map(ELF, SYMBOL_MAP)
+
+    if "--no-rel" not in sys.argv[1:]:
+        build_rel()
 
 if __name__ == '__main__':
     main()

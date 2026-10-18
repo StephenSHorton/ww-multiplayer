@@ -19,6 +19,14 @@ bytes before this script runs.
 
 The user's vanilla DOL is the source of all "original game code" bytes;
 nothing copyrighted ships in our binary.
+
+The REL module (inject/rel, inject/rel/README.md): when inject/build.py
+has left inject/build/wwrel.elf, its bytes go into blob.go as RELELF (the
+relocatable ELF as is; the patcher's converter, wwapi/rel, makes the REL
+at patch time) with the module's constants: the module ID and proc it
+hijacks, the profile symbol, the build id read from the ELF, and the
+mailbox slack words its _prolog writes. Without the ELF (a checkout
+without devkitPPC) RELELF is emitted empty and the file says so.
 """
 
 import os
@@ -38,23 +46,44 @@ OUT = os.path.join(ROOT, "internal", "inject", "blob.go")
 # table says where T2's read-only sections (and .text) start and end.
 ELF = os.path.join(ROOT, "inject", "build", "temp", "WWMultiplayer.o")
 MAILBOX_H = os.path.join(ROOT, "inject", "include", "mailbox_core.h")
+# The REL module: build.py's relocatable ELF and the source its mailbox
+# slack #defines are read from.
+REL_ELF = os.path.join(ROOT, "inject", "build", "wwrel.elf")
+REL_MAIN_C = os.path.join(ROOT, "inject", "rel", "rel_main.c")
+# What the patcher ships the module as (design/rel-module-plan.md): the
+# RELS.arc module whose profile-list slot it takes over.
+REL_MODULE_ID = 0x58     # d_a_rectangle.rel
+REL_PROC_ID = 0xB5       # PROC_RECTANGLE, the profile's mProcName
+REL_PROFILE_SYMBOL = "g_profile_WWREL"
+REL_BUILD_ID_SYMBOL = "g_wwrel_build_id"
+REL_ENTRY_SYMBOLS = ["_prolog", "_epilog", "_unresolved"]
 
 # The patched OSInit's `lis r3, hi` / `addi r3, r3, lo` (inject/build.py).
 T1_LOAD, T1_FILE = 0x800056E0, 0x2620
 ARENA_LIS, ARENA_ADDI = 0x8030181C, 0x80301820
 
 # ELF section header bits.
-SHT_NOBITS = 8
+SHT_NOBITS, SHT_RELA, SHT_SYMTAB = 8, 4, 2
 SHF_WRITE, SHF_ALLOC = 0x1, 0x2
+SHN_UNDEF, SHN_ABS = 0, 0xFFF1
+# PowerPC relocation types the converter (wwapi/rel) turns into REL ones.
+R_PPC_NAMES = {1: "R_PPC_ADDR32", 2: "R_PPC_ADDR24", 3: "R_PPC_ADDR16", 4: "R_PPC_ADDR16_LO",
+               5: "R_PPC_ADDR16_HI", 6: "R_PPC_ADDR16_HA", 10: "R_PPC_REL24", 11: "R_PPC_REL14",
+               26: "R_PPC_REL32"}
+R_PPC_REL32 = 26
 
 
-def elf_sections(path):
-    """Every section of a big-endian ELF32: (name, type, flags, addr, size, file bytes)."""
+def elf_bytes(path):
     with open(path, "rb") as f:
         e = f.read()
     if e[:4] != b"\x7fELF" or e[4] != 1 or e[5] != 2:
         print(f"ERROR: {path} is not a big-endian ELF32", file=sys.stderr)
         sys.exit(1)
+    return e
+
+
+def elf_section_headers(e):
+    """The section headers of a big-endian ELF32 image: (name, 10 header words)."""
     shoff, = struct.unpack(">I", e[0x20:0x24])
     shentsize, shnum, shstrndx = struct.unpack(">HHH", e[0x2E:0x34])
 
@@ -65,18 +94,136 @@ def elf_sections(path):
     for i in range(shnum):
         h = sh(i)
         start = stroff + h[0]
-        name = e[start:e.index(b"\x00", start)].decode()
-        data = e[h[4]:h[4] + h[5]] if h[1] != SHT_NOBITS else b""
-        out.append((name, h[1], h[2], h[3], h[5], data))
+        out.append((e[start:e.index(b"\x00", start)].decode(), h))
     return out
+
+
+def elf_sections(path):
+    """Every section of a big-endian ELF32: (name, type, flags, addr, size, file bytes)."""
+    e = elf_bytes(path)
+    return [(name, h[1], h[2], h[3], h[5], e[h[4]:h[4] + h[5]] if h[1] != SHT_NOBITS else b"")
+            for name, h in elf_section_headers(e)]
+
+
+def elf_symbols(e):
+    """The symbol table of a relocatable ELF32: name -> (section name or
+    None for undefined, "*ABS*" for absolute; value; size; section bytes)."""
+    headers = elf_section_headers(e)
+    syms = {}
+    for name, h in headers:
+        if h[1] != SHT_SYMTAB:
+            continue
+        strtab = headers[h[6]][1]
+        for off in range(h[4], h[4] + h[5], 16):
+            st_name, st_value, st_size, _info, _other, st_shndx = struct.unpack(">IIIBBH", e[off:off + 16])
+            start = strtab[4] + st_name
+            sym = e[start:e.index(b"\x00", start)].decode()
+            if not sym:
+                continue
+            if st_shndx == SHN_UNDEF:
+                sec, data = None, b""
+            elif st_shndx == SHN_ABS:
+                sec, data = "*ABS*", b""
+            elif st_shndx < len(headers):
+                sname, sh = headers[st_shndx]
+                sec = sname
+                data = e[sh[4]:sh[4] + sh[5]] if sh[1] != SHT_NOBITS else b""
+            else:
+                sec, data = f"section {st_shndx}", b""
+            syms[sym] = (sec, st_value, st_size, data)
+    return syms
+
+
+def elf_reloc_counts(e):
+    """How many relocations of each PowerPC type the ELF's .rela.* sections hold."""
+    counts = {}
+    for name, h in elf_section_headers(e):
+        if h[1] != SHT_RELA:
+            continue
+        for off in range(h[4], h[4] + h[5], 12):
+            _r_offset, r_info, _r_addend = struct.unpack(">III", e[off:off + 12])
+            typ = r_info & 0xFF
+            counts[typ] = counts.get(typ, 0) + 1
+    return counts
+
+
+def source_define(path, name):
+    """A numeric #define from a C source (one `#define NAME 0x... // ...` line)."""
+    with open(path, encoding="utf-8") as f:
+        m = re.search(r"(?m)^#define\s+" + name + r"\s+(0x[0-9A-Fa-f]+|\d+)\s*(?://.*)?$", f.read())
+    if not m:
+        print(f"ERROR: {path}: no #define {name}", file=sys.stderr)
+        sys.exit(1)
+    return int(m.group(1), 0)
 
 
 def header_define(name):
     """A numeric #define from mailbox_core.h."""
+    return source_define(MAILBOX_H, name)
+
+
+def rel_module(mailbox_addr, arena):
+    """The REL module to embed: inject/build/wwrel.elf checked, or None
+    when build.py has not produced it (no devkitPPC here)."""
+    magic = source_define(REL_MAIN_C, "WWREL_MAGIC")
+    offs = {k: source_define(REL_MAIN_C, "WWREL_" + k + "_OFF") for k in ("MAGIC", "BUILD_ID", "FRAME")}
+    mailbox_size = header_size()
+    for k, off in offs.items():
+        if off < mailbox_size or mailbox_addr + off + 4 > arena:
+            print(f"ERROR: {REL_MAIN_C}: WWREL_{k}_OFF 0x{off:X} is not in the mailbox slack "
+                  f"(0x{mailbox_size:X}..0x{arena - mailbox_addr:X})", file=sys.stderr)
+            sys.exit(1)
+    info = {"magic": magic, "offs": offs, "elf": b"", "build_id": 0, "text": 0, "relocs": {}}
+    if not os.path.exists(REL_ELF):
+        return info
+    e = elf_bytes(REL_ELF)
+    syms = elf_symbols(e)
+    undefined = sorted(n for n, (sec, _v, _s, _d) in syms.items() if sec is None)
+    if undefined:
+        print(f"ERROR: {REL_ELF} has undefined symbols: {', '.join(undefined)}", file=sys.stderr)
+        sys.exit(1)
+    for name in REL_ENTRY_SYMBOLS + [REL_PROFILE_SYMBOL, REL_BUILD_ID_SYMBOL]:
+        if name not in syms:
+            print(f"ERROR: {REL_ELF} lacks the symbol {name}", file=sys.stderr)
+            sys.exit(1)
+    for name in REL_ENTRY_SYMBOLS:
+        if syms[name][0] != ".text":
+            print(f"ERROR: {REL_ELF}: {name} is in {syms[name][0]}, not .text", file=sys.stderr)
+            sys.exit(1)
+    sec, off, size, data = syms[REL_PROFILE_SYMBOL]
+    if sec != ".rodata" or size != 0x30:
+        print(f"ERROR: {REL_ELF}: {REL_PROFILE_SYMBOL} is {size:#x} bytes in {sec}, "
+              f"want 0x30 in .rodata", file=sys.stderr)
+        sys.exit(1)
+    proc, = struct.unpack(">H", data[off + 8:off + 10])
+    if proc != REL_PROC_ID:
+        print(f"ERROR: {REL_ELF}: {REL_PROFILE_SYMBOL}.mProcName is 0x{proc:X}, "
+              f"not the hijacked proc 0x{REL_PROC_ID:X}", file=sys.stderr)
+        sys.exit(1)
+    sec, off, size, data = syms[REL_BUILD_ID_SYMBOL]
+    if size != 4:
+        print(f"ERROR: {REL_ELF}: {REL_BUILD_ID_SYMBOL} is {size} bytes, not 4", file=sys.stderr)
+        sys.exit(1)
+    info["build_id"], = struct.unpack(">I", data[off:off + 4])
+    info["relocs"] = elf_reloc_counts(e)
+    if R_PPC_REL32 in info["relocs"]:
+        print(f"ERROR: {REL_ELF} has R_PPC_REL32 relocations, which the converter does not emit",
+              file=sys.stderr)
+        sys.exit(1)
+    for name, typ, flags, addr, size, data in elf_sections(REL_ELF):
+        if name == ".text":
+            info["text"] = size
+    info["elf"] = e
+    info["symbols"] = {n: syms[n][:3] for n in REL_ENTRY_SYMBOLS + [REL_PROFILE_SYMBOL, REL_BUILD_ID_SYMBOL]}
+    return info
+
+
+def header_size():
+    """sizeof(Mailbox): the `} Mailbox;   // 0x1B0 bytes` line of mailbox_core.h."""
     with open(MAILBOX_H, encoding="utf-8") as f:
-        m = re.search(r"(?m)^#define\s+" + name + r"\s+(0x[0-9A-Fa-f]+|\d+)\s*(?://.*)?$", f.read())
+        m = re.search(r"(?m)^\}\s*Mailbox;\s*//\s*(0x[0-9A-Fa-f]+)\s+bytes", f.read())
     if not m:
-        print(f"ERROR: {MAILBOX_H}: no #define {name}", file=sys.stderr)
+        print(f"ERROR: {MAILBOX_H}: no `}} Mailbox; // 0x... bytes` line", file=sys.stderr)
         sys.exit(1)
     return int(m.group(1), 0)
 
@@ -178,6 +325,7 @@ def main():
     layout = header_define("WWMB_LAYOUT")
     features = header_define("WW_FEATURES")
     arena = arena_lo(patched)
+    rel = rel_module(mailbox_addr, arena)
 
     # Diff orig vs patched within the original DOL's footprint to find every
     # in-DOL byte modification: the hook_branchlink sites Freighter writes,
@@ -209,6 +357,18 @@ def main():
     print(f"In-DOL patches: {len(patch_runs)} run(s)")
     for off, b in patch_runs:
         print(f"  @ 0x{off:08x}  {len(b)}B  {b.hex()}")
+    if rel["elf"]:
+        print(f"REL module: {REL_ELF}")
+        print(f"  ELF:     {len(rel['elf'])} bytes, .text 0x{rel['text']:x} ({rel['text']} bytes), "
+              f"build id 0x{rel['build_id']:08x}")
+        print("  relocs:  " + ", ".join(f"{R_PPC_NAMES.get(t, f'type {t}')} x{n}"
+                                        for t, n in sorted(rel["relocs"].items())))
+        for name, (sec, off, size) in rel["symbols"].items():
+            print(f"  {name:<18} {sec}+0x{off:04x} size 0x{size:x}")
+        print(f"  mailbox: magic 0x{rel['magic']:08x} @ +0x{rel['offs']['MAGIC']:x}, build id @ "
+              f"+0x{rel['offs']['BUILD_ID']:x}, frames @ +0x{rel['offs']['FRAME']:x}")
+    else:
+        print(f"REL module: {REL_ELF} absent (run inject/build.py with devkitPPC); RELELF emitted empty")
     print(f"  output:  {OUT}")
 
     # Emit blob.go.
@@ -295,6 +455,46 @@ def main():
         bs = ", ".join(f"0x{x:02X}" for x in b)
         lines.append(f"\t{{FileOff: 0x{off:08X}, Bytes: []byte{{{bs}}}}},")
     lines.append("}")
+    lines.append("")
+
+    # The REL module (inject/rel/README.md).
+    lines.append("// The REL module (inject/rel, built by inject/build.py into")
+    lines.append("// inject/build/wwrel.elf). The patcher converts RELELF, a relocatable")
+    lines.append("// ELF, into a REL (wwapi/rel FromELF), ships it in RELS.arc as module")
+    lines.append("// RELModuleID's file (d_a_rectangle.rel) and points the profile list's")
+    lines.append("// slot RELProcID (PROC_RECTANGLE) at the ELF's RELProfileSymbol. The")
+    lines.append("// game's dynamic linker loads it with the first actor of that proc.")
+    lines.append("const (")
+    lines.append(f"\tRELModuleID      uint32 = 0x{REL_MODULE_ID:02X}")
+    lines.append(f"\tRELProcID        uint16 = 0x{REL_PROC_ID:02X}")
+    lines.append(f'\tRELProfileSymbol        = "{REL_PROFILE_SYMBOL}"')
+    lines.append("\t// RELBuildID is the id the module's _prolog writes at")
+    lines.append("\t// MailboxAddr+RELBuildIDOff (build.py: a CRC-32 of inject/rel's sources);")
+    lines.append("\t// 0 when RELELF is empty.")
+    lines.append(f"\tRELBuildID uint32 = 0x{rel['build_id']:08X}")
+    lines.append("\t// The mailbox slack words (offsets from MailboxAddr, past the Mailbox")
+    lines.append("\t// struct, rel_main.c WWREL_*): _prolog writes RELMagic at RELMagicOff")
+    lines.append("\t// and RELBuildID at RELBuildIDOff, the actor's execute bumps the u32 at")
+    lines.append("\t// RELFrameOff every frame, and _epilog clears the magic.")
+    lines.append(f"\tRELMagic      uint32 = 0x{rel['magic']:08X}")
+    lines.append(f"\tRELMagicOff   uint32 = 0x{rel['offs']['MAGIC']:X}")
+    lines.append(f"\tRELBuildIDOff uint32 = 0x{rel['offs']['BUILD_ID']:X}")
+    lines.append(f"\tRELFrameOff   uint32 = 0x{rel['offs']['FRAME']:X}")
+    lines.append(")")
+    lines.append("")
+    if rel["elf"]:
+        lines.append("// RELELF is inject/build/wwrel.elf: the module as a relocatable ELF")
+        lines.append(f"// (.text 0x{rel['text']:X} bytes), converted to a REL at patch time.")
+        lines.append("var RELELF = []byte{")
+        for i in range(0, len(rel["elf"]), 16):
+            chunk = rel["elf"][i:i + 16]
+            lines.append("\t" + ", ".join(f"0x{b:02X}" for b in chunk) + ",")
+        lines.append("}")
+    else:
+        lines.append("// RELELF is empty: inject/build/wwrel.elf was absent when this file was")
+        lines.append("// generated (inject/build.py needs devkitPPC), so this blob ships no REL")
+        lines.append("// module. Rebuild with build.py and rerun extract_blob.py to embed it.")
+        lines.append("var RELELF []byte")
     lines.append("")
 
     with open(OUT, "w", newline="\n") as f:
