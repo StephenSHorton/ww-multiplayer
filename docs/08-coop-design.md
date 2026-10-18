@@ -7,7 +7,7 @@
 2. combat sync (enemies die for both players),
 3. puzzle and dungeon state (doors, switches and so on propagate).
 
-v0.3.0 (Go-only hardening) has already shipped, as tag v0.3.0 on d6850b0. This document supersedes the "Post-1.0: co-op" line in the finish plan.
+v0.3.0 (Go-only hardening) has already shipped, as tag v0.3.0 on d6850b0. **Current status (2026-10-17):** v0.4.0 ships M0-M6.0, in the CLI and in the desktop app's co-op worlds; M6.1, M7 and M8 remain. This document supersedes the "Post-1.0: co-op" line in the finish plan.
 
 **Conventions**
 - `tww/` means the zeldaret/tww decomp at commit 4d78c994. References use `file:line`.
@@ -33,7 +33,7 @@ Small keys and heart containers are counted from what the party actually collect
 
 Some things stay your own: hearts and magic you are carrying, rupees, ammo, bottles, time of day, and where you are. You roam freely and see your partner as the mini-Link.
 
-The early releases (v0.4 to v0.8) do all of this from the Go process, with no re-patch. The last step before v1.0 adds a small injected routine that applies the shared world at the moment a stage loads, on the game's own thread. That removes the remaining write races and surprise cutscenes.
+v0.4.0 ships co-op M0-M6.0 from the Go process (the re-patch v0.4.0 needs is for the Phase E blob, not co-op C code). The last step before v1.0 adds a small injected routine that applies the shared world at the moment a stage loads, on the game's own thread. That removes the remaining write races and surprise cutscenes.
 
 ## 2. Goals and non-goals
 
@@ -153,16 +153,19 @@ host / join / mp-local --coop
 server (host process): network.Server + CoopHub (single goroutine)
       world image + per-class merge + validation + seq, world file (journal, backups, tombstones),
       presence, scoped stores (dan / zone / kill), relay only effective changes
-wwapi/stage             : user's ISO -> keys, hearts, switch classes, push blocks, enemy ACTR   [M1]
+wwapi/stage             : disc readers (Yaz0, RARC, DZS/DZR)                                    [M1]
+wwapi/tables            : user's ISO -> keys, hearts, switch classes, push blocks, enemy ACTR;
+                          cached by DOL hash, also built by `patch` (post-patch step)         [M1]
+mods/coop/stagetables + synctables : which tables a session runs with, and the sync verdicts  [M1]
 wwapi/savefile          : GCI / card parse, checksums, packed<->RAM map                         [M4]
 mods/coop/savemerge : offline diff/merge + derive over two save images                      [M4]
-C side: unchanged until M7 (coop pump: getSave shim, isActor shim, coop_frame + op ring)
+C side: no co-op C until M7 (coop pump: getSave shim, isActor shim, coop_frame + op ring)
 ```
 
 ### 4.2 Go side
 
 **Packages**, all testable on Linux:
-- `wwapi/mem` (was `internal/coop/mem`): a `Mem` interface (a live `*emu.Dolphin` implements it, bounds-checked, over the unexported raw reads in `wwapi/emu/memory.go`), a 24 MB `FakeMem`, and a `FakeGame`. FakeGame models:
+- `wwapi/mem` (was `internal/coop/mem`): a `Mem` interface (a live `*emu.Dolphin` implements it, bounds-checked, over the unexported raw reads in `wwapi/emu/memory.go`), a 24 MB `FakeMem`; and `wwapi/fakegame`'s `FakeGame`, which models:
   - frames and the heartbeat;
   - `getSave`/`putSave` on table change;
   - `initDan`, `clearRoomSwitch`, zone create and remove;
@@ -203,11 +206,11 @@ C side: unchanged until M7 (coop pump: getSave shim, isActor shim, coop_frame + 
     - more than 8 verify failures or WriteGuard refusals per minute;
     - a table-hash or layout mismatch;
     - a nonce storm from save-state loads.
-- `wwapi/stage` (M1; was `internal/coop/stagedata`) and `wwapi/savefile` plus `mods/coop/savemerge` (M4; were `internal/coop/savefile`): see the milestones.
+- `wwapi/stage` (M1 disc readers; was `internal/coop/stagedata`), `wwapi/tables` (the M1 tables, cached by DOL hash and built by `patch`), `mods/coop/stagetables` and `mods/coop/synctables` (the session's tables and sync verdicts), and `wwapi/savefile` plus `mods/coop/savemerge` (M4; were `internal/coop/savefile`): see the milestones.
 - `mods/coop/hub`, server side: the CoopHub (§4.4).
 
 **Integration**
-- Started from `runMultiplayerGoroutines` (`main.go:7088`) for `host` and `join`, and from `runMpLocal`'s `spawn` helper (`mp_local.go:322-339`, one coop-sync per Dolphin PID) for `mp-local`, when `--coop` is passed.
+- Started from `runMultiplayerGoroutines` (`mods/multiplayer/engine/session.go`) for `host` and `join`; from wwdev `mp-local`'s `spawn` helper (`cmd/wwdev/mp_local.go`, `coopsession.RunSync`, one coop-sync per Dolphin PID); and from the app's engine when the lobby's Co-op is New world or Continue (restarted after errors, Appendix C item 165). All three go through `mods/coop/session`.
 - Co-op is off by default until v1.0.
 - `coop off` stops all writes within one tick.
 
@@ -229,12 +232,12 @@ So a write made right after the heartbeat lands in the rest of the main loop or 
 
 ### 4.3 C side
 
-**M0-M6: no C changes.** The blob, the mailbox at 0x80412F00 and `saves/start.sav` all stay valid, and users do not need to re-patch.
+**M0-M6: no co-op C code.** The v0.4.0 blob (Phase E0-E3) still needs a re-patch and a fresh save state: the strict contract check refuses older blobs and save states taken on them (`wwapi.RepatchAdvice`).
 
 **M7: the co-op pump.** It is the only C milestone: one blob regen, one Shift+F1 recapture and one user re-patch. It contains:
 
 1. **`coop_getsave_shim(self, stageNo)`**
-   - Installed with Freighter `hook_branchlink`, the technique all four existing hooks use (`inject/build.py:39,48,59,69`), over the single `bl getSave__10dSv_info_cFi` (0x8005D8C8) inside `dStage_stagInfoInit` (0x8004230C-0x8004238C).
+   - Installed with Freighter `hook_branchlink`, the technique all four existing hooks use (`inject/build.py`: `main01_init`, `frame_shim`, `daPy_draw_hook`, `pad_read_shim`), over the single `bl getSave__10dSv_info_cFi` (0x8005D8C8) inside `dStage_stagInfoInit` (0x8004230C-0x8004238C).
    - `d_stage.cpp:1675` is the only `getSave` call in the game. The exact `bl` address comes from `WW_DOL_PATH=inject/original.dol ./wwdev.exe ppc-disasm 0x8004230C 32`.
    - If `image_ok()` holds, the shim ORs the Go-maintained world image into `mSavedata` and then calls the real `getSave`. The image covers:
      - 16 stage tables, with the key byte +0x20 forced to 0 and switches pre-filtered to latching ones;
@@ -284,15 +287,15 @@ Ring entries carry `seq` plus an XOR check byte.
 
 ### 4.4 Network protocol v2
 
-**Version bump.** `ProtocolVersion` goes from 1 to 2 (`mods/multiplayer/net/handshake.go:40`). Peers with mismatched versions are already rejected with a clear message.
+**Version bump.** `ProtocolVersion` is 2 (`mods/multiplayer/net/handshake.go`; 1 was v0.3.x's handshake). Peers with mismatched versions are already rejected with a clear message.
 
-**Free type letters.** J W P L D C M K Q H R are taken (`protocol.go:13-40`). Co-op uses one new type, **'O' (0x4F)**. The frame format `[type:1][len:2 BE][payload]` with `MaxPayload` 0xFFFF is unchanged.
+**Free type letters.** J W P L D C M K Q H R are taken (`protocol.go`, the `Msg*` constants). Co-op uses one new type, **'O' (0x4F)**. The frame format `[type:1][len:2 BE][payload]` with `MaxPayload` 0xFFFF is unchanged.
 
 **Connection role.** The co-op pipeline opens its own connection: `MsgJoin(name)`, then `MsgHello` with payload `[version:u16 BE][role:u8][caps:u16 BE]`.
-- `ParseHello` ignores trailing bytes (`handshake.go:90-95`), so the extension is compatible.
+- `ParseHello` ignores trailing bytes (`ParseHello` in `handshake.go`), so the extension is compatible.
 - Roles: 0 = player (the default when absent), 1 = coop.
 - Role-1 connections live in the CoopHub, not in `s.players`. They get no pose, chat or player-list relay, do not appear in the roster, and keep the heartbeat.
-- The server routes 'O' to the CoopHub (new case in `server.go:214-264`). An 'O' frame on a role-0 connection is dropped.
+- The server routes 'O' to the CoopHub (`case MsgCoop` in `server.go`). An 'O' frame on a role-0 connection is dropped.
 
 **'O' payload: `[sub:u8][body]`.** All integers are big-endian. **No raw addresses travel.** Offsets index the 0x778-byte image and are checked against the class table; receivers derive every address locally.
 
@@ -318,11 +321,11 @@ Ring entries carry `seq` plus an XOR check byte.
   - `journal.log` records (seq, time, origin, offsets).
   - Five rotated backups, taken at session start and hourly.
 - **Self-healing.** Commits not yet flushed when the host crashes are re-proposed by replicas that still hold the bits, so the world self-heals.
-- **Tombstones.** `coop-world block <class> <index>` rejects future proposals of a bit. Replicas that already applied it keep it; this is documented.
+- **Tombstones.** `coop-world block <world-id> (byte <off> <mask> | event <0xHHLL> | switch|chest|item <table> <no>) [--yes] [--force]` (a hidden command of ww-multiplayer.exe) rejects future proposals of a bit. Replicas that already applied it keep it; this is documented.
 
 ### 4.5 Code-space plan
 
-Current layout (`inject/build.py:109,142-145`; `MAILBOX_ADDR` in `mailbox_core.h`; `internal/inject/blob.go`):
+Current layout (`inject/build.py`: `inject_address` and the `__OSArenaLo` patch at 0x80301820; `MAILBOX_ADDR` in `mailbox_core.h`; `internal/inject/blob.go`):
 
 | Range | Contents | Size |
 |---|---|---|
@@ -341,13 +344,13 @@ Current layout (`inject/build.py:109,142-145`; `MAILBOX_ADDR` in `mailbox_core.h
 1. Finish-plan **D2**: drop the dead shadow modes 1-4 and the echo ring. (Done in Phase E0, layout unchanged: T2 ends at 0x80412588, 0x978 bytes free; docs/api/00-design.md.)
 2. **Option A, recommended.** It reuses a proven mechanism: the arena has been bumped in 4 KB steps before, and the mailbox has moved four times (the History comment in `mailbox_core.h`; the callback slot five times, per the `CALLBACK_PTR_ADDR` comment in `src/core/hooks.c`).
    - Change `addi r3,r3,0x4000` to `0x6000` at 0x80301820, so `__OSArenaLo` = **0x80416000**. That is +8 KB taken from ZeldaHeap.
-   - Move the mailbox to **0x80415000**, layout unchanged. `frame_shim` becomes `lis 12,0x8041; lwz 12,0x5008(12)`. `extract_blob.py` emits `MailboxAddr`, `MailboxLayoutVersion` and `ArenaLo` into `blob.go`, so `main.go` stops hard-coding them.
-   - Add a mailbox header `'WWMB'` plus `layout_version` at +0x180. Go checks it before any mailbox write, which also catches stale save states.
+   - Move the mailbox to **0x80415000**, layout unchanged. `frame_shim` becomes `lis 12,0x8041; lwz 12,0x5008(12)`. (Done already: `extract_blob.py` emits `MailboxAddr`, `LayoutVersion` and `ArenaLo` into `blob.go`.)
+   - (Done in Phase E1.) A mailbox header `'WWMB'` plus `layout_version` at +0x180. Go checks it before any mailbox write, which also catches stale save states.
    - Co-op region at **0x80415200..0x80416000** (0xE00), layout below.
    - The T2 budget becomes 0x80410000..0x80415000 = **20 KB**, against about 0x33A8 needed after the pump (inferred).
    - Gate: the heap error counters `zeldaHeapErrors` 0x803F68FC, `gameHeapErrors` 0x803F68F8 and `archiveHeapErrors` 0x803F6904 stay 0 through boot, Outset (where the 1 MB bump failed, docs/05) and a 50-transition soak. The M0 `heap-free` probe measures the margin first.
-3. **Option B (zero arena cost).** Set `inject_address` to 0x8040D000 (T2 budget 0x5F00) and leave the mailbox in place. Allowed only after M0's region canary survives boot, menus and 50 transitions on both Dolphins, and a live read-back of T2 at 0x8040D000 matches `T2Bytes` (a new `blob-verify --live` diagnostic, added to M0's list).
-   - docs/05:63-73 reports that Dolphin "silently drops" a section at 0x803FD000. That address is inside the main stack, so `OSClearStack` is the likely cause (inferred). 0x8040D000 is above the stack top, but loader acceptance is only proven by `blob-verify --live`.
+3. **Option B (zero arena cost).** Set `inject_address` to 0x8040D000 (T2 budget 0x5F00) and leave the mailbox in place. Allowed only after M0's region canary survives boot, menus and 50 transitions on both Dolphins, and a live read-back of T2 at 0x8040D000 matches `T2Bytes` (the `wwdev.exe blob-verify-live` diagnostic, added to M0's list).
+   - docs/05:63-73 reports that Dolphin "silently drops" a section at 0x803FD000. That address is inside the main stack, so `OSClearStack` is the likely cause (inferred). 0x8040D000 is above the stack top, but loader acceptance is only proven by `wwdev.exe blob-verify-live`.
 4. **Patcher.** `dol.go` refuses an input DOL with any section overlapping the new T2 and co-op range. That refuses a re-patch of an already-patched ISO. Invariant tests check:
    - T2 end ≤ mailbox base;
    - the mailbox and co-op region lie within [T2 end, arenaLo);
@@ -380,7 +383,7 @@ A REL module is not needed for this scope. It is reserved in case C co-op code e
 2. **Unbound files get no game-data writes.** Outside the mod's own RAM, a file that is not BOUND is written in only one place: the 0x30-byte tag in `dSv_reserve_c`. Go writes the tag at an explicit bind (§5.3) and zeroes it on a LEAKED scrub (§5.2) or `coop-tag clear` (§5.5). CI audits that nothing else is written.
 3. **Per-player fields are never written.** `mLife` in particular: writing 0 kills the player. No writes happen on the title or file-select screens, where `card_to_memory` overwrites everything and `init` overwrites everything except `mReserve` (§5.2).
 4. **Validated semantics only.** Every write is semantic, validated twice (server class table, then the client WriteGuard), and from M7 a third time by the C whitelist.
-5. **The first co-op release (M2) is dry-run for game data.** Its only writes are the binding tag and leak scrubs in `dSv_reserve_c` (§5.2-5.3). Every other planned write is logged and not made. Any implausible read, layout mismatch or stalled heartbeat puts the replica into read-only mode, with the reason shown.
+5. **Dry run writes no game data.** Dry run (`--coop-dry-run`, or dry run under Advanced in the app's lobby) writes only the binding tag and leak scrubs in `dSv_reserve_c` (§5.2-5.3). Every other planned write is logged and not made. Any implausible read, layout mismatch or stalled heartbeat puts the replica into read-only mode, with the reason shown.
 
 ### 5.2 Binding tag (`dSv_reserve_c`, 0x803C532C; 0x30 of 0x50 bytes used, with +0x2C..+0x2F reserved and kept zero)
 
@@ -422,7 +425,7 @@ When Go sees a LEAKED tag (fails V2-V5) it **scrubs** it: it zeroes the 0x30 byt
 **Residual edge, documented:** a same-name New Game written over the co-op slot itself while Go was not running.
 
 ### 5.3 Binding flow and merge at bind
-- `host --coop new [--name]` founds a world from the host's loaded, idle file. It mints `worldID` and `bindNonce`, writes the tag, writes `world.wwco`, and tells the host to save in-game.
+- `host --coop=new` (or New world in the app's lobby) founds a world from the host's loaded, idle file. It mints `worldID` and `bindNonce`, writes the tag, writes `world.wwco`, and tells the host to save in-game.
 - A joiner connects, then its file is classified:
 
 | Classification | Condition | Action |
@@ -453,7 +456,7 @@ When Go sees a LEAKED tag (fails V2-V5) it **scrubs** it: it zeroes the 0x30 byt
 | Playing solo afterwards, unbound | `coop-tag clear` zeroes the tag; it persists at the next in-game save. That file is never written again. |
 | A different file is loaded mid-session | It is re-classified. Writes stop unless it is bound to this world. The TUI shows "file not bound". |
 | Second quest | Refused (V3). The ExDataSave leak is scrubbed. |
-| World file lost or corrupt | Restore from `world.wwco.1..5`, or `coop-world refound --from-loaded-file` (the bound replica's tag carries the worldID; joiners re-propose). |
+| World file lost or corrupt | Restore from `world.wwco.1..5` (`coop-world restore`). (A `coop-world refound` was planned and is not built.) |
 
 ---
 
@@ -1044,19 +1047,19 @@ WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803F773C 4             # JKRHeap::mCodeEnd
 - **cloud** = this Linux container: Go code and CI.
 - **owner** = the Windows machine with Dolphin: live acceptance, devkitPPC builds, Shift+F1 recaptures, the user's ISO.
 
-**Release map**
+**Release map** (updated 2026-10-17: v0.4.0 shipped M0-M6.0 together, with live writes; the original plan spread them over v0.4.0-v0.8.0)
 
 | M | Ships as | Needs C | Built where |
 |---|---|---|---|
-| M0 Foundations and live probes | v0.4.0-dev | no | cloud; probes on owner |
-| M1 Stage-data tables from the user's ISO | v0.4.0-dev | no | cloud; ISO run on owner |
-| M2 Binding, backups, protocol v2 (dry run) | v0.4.0 (co-op preview) | no | cloud; owner acceptance |
-| M3 Shared world flags | v0.5.0 | no | cloud; owner acceptance |
-| M4 Shared progression and save merge | v0.6.0 | no | cloud; owner acceptance |
-| M5 Live room puzzles | v0.7.0 | no | cloud; owner acceptance |
-| M6.0 Combat sync v1: keyed kills and the K1 light-shrink | v0.8.0 | no | cloud; owner acceptance |
-| M6.1 Placement-matched kills of unkeyed enemies | v0.8.x | no | cloud; owner acceptance |
-| M7 C co-op pump | v0.9.0 | **yes** | C build, recapture and acceptance on owner; Go and invariants in cloud |
+| M0 Foundations and live probes | v0.4.0 (shipped) | no | cloud; probes on owner |
+| M1 Stage-data tables from the user's ISO | v0.4.0 (shipped) | no | cloud; ISO run on owner |
+| M2 Binding, backups, protocol v2 (dry run) | v0.4.0 (shipped) | no | cloud; owner acceptance |
+| M3 Shared world flags | v0.4.0 (shipped) | no | cloud; owner acceptance |
+| M4 Shared progression and save merge | v0.4.0 (shipped) | no | cloud; owner acceptance |
+| M5 Live room puzzles | v0.4.0 (shipped) | no | cloud; owner acceptance |
+| M6.0 Combat sync v1: keyed kills and the K1 light-shrink | v0.4.0 (shipped) | no | cloud; owner acceptance |
+| M6.1 Placement-matched kills of unkeyed enemies | after v0.4.0 (planned) | no | cloud; owner acceptance |
+| M7 C co-op pump | before v1.0 (planned) | **yes** | C build, recapture and acceptance on owner; Go and invariants in cloud |
 | M8 v1.0 release hardening | v1.0.0 | no | both |
 | M9 (post-1.0) Create-only refresh, chest-claim arbitration | v1.1 | yes | owner |
 
@@ -1069,7 +1072,7 @@ WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803F773C 4             # JKRHeap::mCodeEnd
 
 The structured milestone list gives scope and acceptance for each one. The summaries follow.
 
-- **M0.** Mem, FakeMem and FakeGame; the cited address table; the class-table golden test. Diagnostics `coop-probe`, `coop-watch`, `actors`, `zone-dump`, `frame-phase-probe`, `heap-free`, `region-probe arm|check`, `blob-verify --live` (live T2 read-back against `T2Bytes`), and debug `stage-hop`. Fix docs/04 and record #23.
+- **M0.** Mem, FakeMem and FakeGame; the cited address table; the class-table golden test. Diagnostics `coop-probe`, `coop-watch`, `actors`, `zone-dump`, `frame-phase-probe`, `heap-free`, `region-probe arm|check`, `wwdev.exe blob-verify-live` (live T2 read-back against `T2Bytes`), and debug `stage-hop`. Fix docs/04 and record #23.
 - **M1.** Pure-Go Yaz0, RARC and DZS/DZR readers. `coop-tables <iso>`: keys and doors, heart sources, switch classes, push blocks, enemy ACTR with a setID report. That report is the go/no-go for M6.
 - **M2.** Binding tag (V1-V6, scrub), backups, Hello role byte, 'O' codecs, CoopHub, world file, and the coop-sync pipeline in **dry run** with the join preflight.
 - **M3.** The first release that writes game data. memBit OR classes, latching memory switches (deferred for the current table), ocean and charts. FrameWriter, WriteGuard, verify, auto-disable. Refresh area and warp.
@@ -1078,7 +1081,7 @@ The structured milestone list gives scope and acceptance for each one. The summa
 - **M6.0.** Kill union of keyed enemies and the K1 applier. As built: §7.2, §8.2 and items 141-155.
 - **M6.1.** Placement-matched kills of unkeyed enemies, on M6.0's actor walk, re-read and fake actors, behind its own feature bit.
 - **M7.** Make room; the getSave shim; the isActor shim; `coop_frame` live OR and the op ring. Go switches to image and ops. A spot check for `/warp`, so it can land beside the partner (a roof and ground check of B's collision at the spot, item 132).
-- **M8.** TUI co-op panel, soak tests, docs, release.
+- **M8.** TUI co-op panel (the app's panel shipped in v0.4.0), behind-by-N, feature toggles, soak tests, docs, release.
 
 ---
 
@@ -1131,12 +1134,12 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 24. **coop: fixture save states and the combat/puzzle checklist.** Document F2-F5 and script screenshot pairs for each acceptance item.
 
 **Epic E6: C co-op pump**
-25. **inject: make room.** D2 cleanup; arena 0x80414000 to 0x80416000; mailbox to 0x80415000 with a 'WWMB' header; constants emitted into `blob.go`. Layout invariants in CI, heap counters checked by the owner.
+25. **inject: make room.** Arena 0x80414000 to 0x80416000; mailbox to 0x80415000. (Done already: the D2 cleanup in Phase E0, the 'WWMB' header in E1, the constants emitted into `blob.go`.) Layout invariants in CI, heap counters checked by the owner.
 26. **inject: getSave shim in dStage_stagInfoInit, plus coop_frame live OR.** Locate the `bl` with `ppc-disasm`. ORs the world image into `mSavedata` under `image_ok` (armed, dead-man, slot, tag fingerprint, `mDateIPL`, refight).
 27. **inject: isActor call-site shim and the op ring.** Dead tables per stage. Ops OR8, GRANT, ADD_S16, SET_U8, KILL, SET_NEXT_STAGE and ON_SWITCH, behind a whitelist and the IDLE gate. A spot query for `/warp` (RoofChk and GroundCross at a spot beside the partner, item 132).
 
 **Epic E7: v1.0 release**
-28. **tui: co-op panel, feature toggles, coop off.** Bound/armed state, holds, last syncs, behind-by-N, at 80x24. Host-authoritative feature mask.
+28. **tui: co-op panel, feature toggles, coop off.** (The app's co-op panel and Co-op sync log tab shipped in v0.4.0; what is left is TUI parity.) Bound/armed state, holds, last syncs, behind-by-N, at 80x24. Host-authoritative feature mask.
 29. **release: soak tests, docs/08-coop-design.md, checklist.** A 50-transition soak and a 2 h soak with `save-diff` clean at the end. Blob-regen and generator freshness gates before tagging v1.0.0.
 
 ---
@@ -1188,7 +1191,7 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 | heap ptrs zelda / game / archive | 0x803F6928 / 0x803F6920 / 0x803F6938 | 4 each | sym:18588-18594 |
 | heap error counters zelda / game / archive | 0x803F68FC / 0x803F68F8 / 0x803F6904 | 4 each | sym:18577-18580 |
 | actor fields | mBsPcId +0x04, mProcName +0x08, mParameters +0xB0, actor_type +0xC0, eventInfo.mCommand +0xF8, setID +0x1BC, group +0x1BE, actor_status +0x1C4, home.pos +0x1D0, home.roomNo +0x1E2, health +0x285 | fopAc_ac_c 0x290 | f_pc_base.h:13-32; f_op_actor.h:268-321 |
-| mod T2 / mailbox / patched arenaLo | 0x80410000..0x80412A88 / 0x80412F00..0x804130B0 / 0x80414000 | — | inject/build.py:109,142-145; `MAILBOX_ADDR` in mailbox_core.h |
+| mod T2 / mailbox / patched arenaLo | 0x80410000..0x80412A88 / 0x80412F00..0x804130B0 / 0x80414000 | — | inject/build.py (`inject_address`, the 0x80301820 arena patch); `MAILBOX_ADDR` in mailbox_core.h |
 | `spawn_trigger` (heartbeat) / `warp_seq` | 0x80412F00 / 0x80412FC8 | 4 / 4 | `spawn_trigger`, `warp_seq` in mailbox_core.h |
 
 **Functions**

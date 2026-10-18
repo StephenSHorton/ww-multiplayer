@@ -10,7 +10,7 @@ Dolphin translates PowerPC to x86 at runtime and caches compiled blocks. Writing
 
 ### The fix
 
-Build a proper ISO (`wit copy` from CISO) with a Freighter-patched DOL. At boot, Dolphin's apploader emulation loads the patched DOL including our new T2 section, and there is no JIT cache to invalidate (the code is there from the first execution).
+Build a proper ISO (then: `wit copy` from CISO; today `ww-multiplayer patch` reads the CISO itself) with a Freighter-patched DOL. At boot, Dolphin's apploader emulation loads the patched DOL including our new T2 section, and there is no JIT cache to invalidate (the code is there from the first execution).
 
 ## The ClearArena Wall — SOLVED
 
@@ -235,6 +235,8 @@ mDoExt_modelEntryDL(mini_link_model);               // 0x8000F974
 
 ### Draw-phase diagnostic: `mailbox.draw_progress`
 
+(Historical: `draw_progress` and the `dbg_*` diagnostics were deleted in Phase E0; their bytes are reserved since E2.)
+
 Mailbox +0x0C is now `draw_progress`, written only from `daPy_draw_hook`
 so execute phase can't overwrite it. Stages 30-36: hook entered / Link
 draw returned / model non-NULL / state == 1 / matrix written / calc+
@@ -292,7 +294,8 @@ stay as unused bytes.)
 
 We now own Link #2's pose via ONE pointer: `J3DModelData + 0x24`.
 Three useful modes fall out of this:
-- **Mirror** (current baseline): leave `mBasicMtxCalc` alone. Cheap,
+(Historical: today `shadow_mode = 0` means off and draws nothing, and mode 3 was deleted in Phase E0.)
+- **Mirror** (the baseline then): leave `mBasicMtxCalc` alone. Cheap,
   visible, useful for debugging. `shadow_mode = 0` keeps this.
 - **Freeze**: swap to no-op calc. `shadow_mode = 3` gives us this.
   Useful as a kill-switch and as a way to test whether downstream
@@ -463,6 +466,8 @@ at Player A's actual location on the map.
 
 ### Diagnostic probes added this session
 
+(Deleted in Phase E0; reserved bytes since E2.)
+
 Mailbox bytes for verifying the C side actually sees Go's writes:
 - `dbg_pose_first_word` (+0xB0): `*(u32*)pose_buf` published every
   mode-5 frame BEFORE the copy. Should track Go's writes.
@@ -492,6 +497,10 @@ Mod grew to 0x12A8 — over the previous 0x3A6400 reserved DOL region by
 ISO's FST from `0x3C5000` to `0x500000` in place. Now reserved DOL
 space is `0x4E1400` (~5 MB), comfortable for several more sessions of
 mod growth before another shift is needed.
+
+(Historical: patch_iso.py was retired in Phase E4, and `ww-multiplayer patch`
+now moves the FST past the new DOL end on every patch, `internal/inject/iso.go`.
+The recipe below is kept as history.)
 
 The shift is one-time and not in any source file — if regenerating the
 ISO from scratch, the new patch_iso.py target is the same; the FST just
@@ -529,7 +538,8 @@ even for plain C. Added `-fno-exceptions -fno-unwind-tables
 -fno-asynchronous-unwind-tables` to `proj.common_args`. Saves ~0x18C B
 per build — enough to keep mod under the ISO's reserved DOL space
 (which otherwise requires a fresh `wit copy` instead of the fast
-patch_iso.py splice).
+patch_iso.py splice; patch_iso.py was retired in Phase E4, and the Go
+patcher now relocates the FST itself).
 
 ### Infrastructure landmarks established this session
 
@@ -750,7 +760,7 @@ Edits to `GZLE01.ini` in `User/Config/GameSettings/` are only read once at Dolph
 
 ## CISO Block Boundaries
 
-Wind Waker's DOL spans 2 blocks in the CISO. A naive "just write the DOL into the file" patcher corrupts the second block. Use `wit` to convert to plain ISO first and patch that instead.
+Wind Waker's DOL spans 2 blocks in the CISO. A naive "just write the DOL into the file" patcher corrupts the second block. `ww-multiplayer patch` handles this: it decodes the CISO block table itself (`internal/inject/ciso.go`) and writes a plain ISO, so `wit` is no longer needed. The warning stands only for hand-rolled patchers.
 
 ## BSS Zeroing Overlaps with T2 — BENIGN, see above
 
@@ -815,8 +825,7 @@ the assertion, which comes from `mDoExt_restoreCurrentHeap` (tww
 `src/m_Do/m_Do_ext.cpp:1108-1116`; 2755 is the USA line number). Neither failure was
 root-caused. The tail call is still the right shape, because it does exactly what the
 original `bl` did: `cCt_Counter` runs every frame, right after our `multiplayer_update`,
-and returns straight to `0x80023208`. `inject/build.py`'s hook comment ("we lose whatever
-0x802449AC was doing") is stale for the same reason.
+and returns straight to `0x80023208`.
 
 Final shim shape (see `frame_shim` in `inject/src/core/hooks.c`):
 
@@ -954,7 +963,7 @@ Two changes, both required:
    `/usr/bin/open -n -a <bundle> --args ...` on darwin instead of
    `exec.Command` on the inner binary. `open` drives LaunchServices
    directly using bundle ID, so the distinct ID actually takes effect.
-   PID is recovered by snapshotting `dolphin.ListPIDs()` before the
+   PID is recovered by snapshotting `emu.ListPIDs()` before the
    call and polling for the new entry.
 
 ### Diagnostic recipe
@@ -974,4 +983,4 @@ process is just the wrong binary.
 
 - Picking up a rupee triggers a display refresh. Before the pickup, the displayed rupee count may lag behind the stored value.
 - The wallet cap (200/1000/5000) applies when the game reads the rupee value, not when we write it. So writing 777 and picking up a rupee shows 200 if your wallet is size 200.
-- `PlayerPtr[0]` at `0x803CA754` is null when the game is at the title/file screen. Non-null only when a save is loaded.
+- `PlayerPtr[0]` at `0x803CA754` is null during file select and stage loads, but non-null on the title stage (`sea_T` has a Link). So "player loaded" does not mean "in play" (see the feed's inPlay gate).

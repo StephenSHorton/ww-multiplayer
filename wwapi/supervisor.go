@@ -234,11 +234,11 @@ func callInit(mod Mod, c *Context) (err error) {
 
 // Run initialises the mods if Init has not run, then runs every LOADED
 // mod's Run on its own goroutine until ctx ends or the net provider
-// returns ErrFatal. It is a copy of runPipelines' semantics (main.go)
-// with four changes for mods:
+// returns ErrFatal. It is a copy of engine.RunPipelines' semantics
+// (mods/multiplayer/engine/pipelines.go) with four changes for mods:
 //
 //   - a mod whose Run returns nil (or context.Canceled) has finished; the
-//     others go on (a pipeline's return ends the session in runPipelines);
+//     others go on (a pipeline's return ends the session in RunPipelines);
 //   - an error returned after the runtime stopped the mod (ctx ended, or
 //     another mod's ErrFatal) is the mod shutting down, as a closed
 //     socket's error is: it is logged at Info and the mod stays LOADED;
@@ -248,7 +248,7 @@ func callInit(mod Mod, c *Context) (err error) {
 //     logged;
 //   - an error wrapping ErrFatal from the net provider ends everything
 //     and is returned as is, not logged (the provider reported it), like
-//     network.ErrFatal in runPipelines.
+//     network.ErrFatal in RunPipelines.
 //
 // Once ctx ends (or on ErrFatal) the mods are stopped in reverse load
 // order: each one's context is cancelled and its Run awaited before the

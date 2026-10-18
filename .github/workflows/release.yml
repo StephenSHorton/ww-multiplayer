@@ -285,14 +285,16 @@ jobs:
 
             **You need** [Dolphin](https://dolphin-emu.org/) (a recent stable build) and **your own legitimate copy of The Legend of Zelda: The Wind Waker (NTSC-U, GZLE01)** as a `.iso` or `.ciso` file.
 
-            **Everyone must run the same version.** A host turns away a player on an incompatible version with a message saying to update. v0.3.0 and later can't play with v0.2.x.
+            **Everyone must run the same version.** A host turns away a player on an incompatible version with a message saying to update (v0.4.0 can't play with v0.3.x or older), and a player whose built-in mods differ from the host's.
+
+            **Upgrading?** Patch your vanilla (unmodified) disc again with this version (Setup in the app does it) and boot it from Dolphin's game list. Dolphin save states taken on an older version are refused: load your in-game save and take a new state.
 
             ### Windows
 
             1. Download `ww-multiplayer.exe` and double-click it. A console window may flash for a moment; the app window then opens.
             2. If Windows shows "Windows protected your PC" (SmartScreen; the exe isn't code-signed), click **More info**, then **Run anyway**.
             3. The first time, the app opens on **Setup**: your name and tunic color, your Wind Waker disc (the app writes a patched copy next to it and never changes your original) and Dolphin (found for you, or Browse…).
-            4. **Host**, or **Join** with the host's address. Everyone meets in the lobby; when the others are Ready, the host presses **Start** and each player's Dolphin starts with the patched game.
+            4. **Host**, or **Join**: pick the host's session from the list when you're on the same network, or paste the join code (`WW-XXXX-XXXX`) or address the host shares. Everyone meets in the lobby; when the others are Ready, the host presses **Start** and each player's Dolphin starts with the patched game.
 
             The window needs Microsoft's WebView2 runtime, which Windows 11 and current Windows 10 have; without it the app offers to install it. If Windows asks, allow `ww-multiplayer.exe` through the firewall.
 
@@ -311,7 +313,7 @@ jobs:
 
             ### Advanced: terminal menu and command line
 
-            The same program has a terminal menu and a command line. Windows: `.\ww-multiplayer.exe tui`, `.\ww-multiplayer.exe patch <iso>`, `.\ww-multiplayer.exe host [name]`, `.\ww-multiplayer.exe join <host-ip> [name]`. macOS: in Terminal, `cd` into the unzipped `WW Multiplayer` folder, run `xattr -cr .` once to clear the download quarantine, then `./ww-multiplayer tui` (or `patch`, `host`, `join`); `./scripts/setup-mac-dolphin.sh` does what Prepare Dolphin does. `ww-multiplayer version` prints the version.
+            The same program has a terminal menu and a command line. Windows: `.\ww-multiplayer.exe tui`, `.\ww-multiplayer.exe patch <iso>`, `.\ww-multiplayer.exe host [name]`, `.\ww-multiplayer.exe join <host-ip|join-code> [name]`. macOS: in Terminal, `cd` into the unzipped `WW Multiplayer` folder, run `xattr -cr .` once to clear the download quarantine, then `./ww-multiplayer tui` (or `patch`, `host`, `join`); `./scripts/setup-mac-dolphin.sh` does what Prepare Dolphin does. `ww-multiplayer version` prints the version.
 
             ### Verify your download
 

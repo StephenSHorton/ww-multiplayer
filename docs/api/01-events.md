@@ -56,13 +56,13 @@ all, off := events.Chan[events.Event](bus, 64)                  // every event
 - **The publisher never blocks.** Each subscription has its own buffer. When the buffer is full, the oldest queued event is dropped to make room. `Chan` takes the buffer size as an argument (at least 1); `On` and `Wait` use `DefaultBuffer` (256). `bus.Dropped()` counts the drops for the whole bus.
 - **Order.** A subscriber gets the events it keeps in emit order, and `Seq` always goes up.
 - **Interfaces.** If you subscribe with an interface type, you get every event whose type implements it. `Last` with an interface type also finds events emitted before anyone subscribed with that interface.
-- **`On`** runs `fn` on its own goroutine, one call at a time. `off()` can be called more than once, including from inside `fn`. A call that has already started can still finish after `off` returns. `off` discards events still queued. A panic in `fn` is recovered, counted in `Bus.Panics()` and passed to `Options.OnPanic` with its stack, and the subscription stays. When `OnPanic` is nil the panic and stack are logged instead, so a handler panic is never silent. The B3 supervisor is expected to set `OnPanic` and close the owning mod's view.
+- **`On`** runs `fn` on its own goroutine, one call at a time. `off()` can be called more than once, including from inside `fn`. A call that has already started can still finish after `off` returns. `off` discards events still queued. A panic in `fn` is recovered, counted in `Bus.Panics()` and passed to `Options.OnPanic` with its stack, and the subscription stays. When `OnPanic` is nil the panic and stack are logged instead, so a handler panic is never silent. The mod runtime (`wwapi.Runtime`) sets `OnPanic` and quarantines the owning mod.
 - **`Wait`** only sees events emitted after it is called. It returns `ctx.Err()` when the context ends and `ErrClosed` when the bus or its view closes. Because it uses a drop-oldest buffer, it can miss an event during a flood.
 - **Unsubscribe.** `off()` closes the channel. `Last` keeps working after `Close`.
 
 ## Close and quarantine
 
-`Close` on the core view closes the whole bus. Every channel closes, and `Emit` and `Mod` return `ErrClosed`. `Close` on a mod view ends only the subscriptions made through that view, `Net()` views included, and the view can no longer emit. For `On` handlers, `Close` works like `off`: events still queued are discarded, and only a call already running can finish after `Close` returns. This is how the B3 supervisor will remove a quarantined mod's handlers. A later `core.Mod(id)` call gives a fresh view.
+`Close` on the core view closes the whole bus. Every channel closes, and `Emit` and `Mod` return `ErrClosed`. `Close` on a mod view ends only the subscriptions made through that view, `Net()` views included, and the view can no longer emit. For `On` handlers, `Close` works like `off`: events still queued are discarded, and only a call already running can finish after `Close` returns. This is how the runtime removes a quarantined mod's handlers. A later `core.Mod(id)` call gives a fresh view.
 
 ## Reminder
 

@@ -3,7 +3,7 @@
 // # v0 UNSTABLE
 //
 // This package is part of wwapi v0. Its API may change in any 0.x minor
-// version, without a deprecation period. Nothing outside wwapi uses it yet.
+// version, without a deprecation period.
 //
 // # Model
 //

@@ -8,10 +8,10 @@ Run all of it before pushing. CI (`.github/workflows/build.yml`) runs the same c
 
 | Check | Command | Why |
 |---|---|---|
-| gofmt | `gofmt -l <changed .go files>` | Format the files you changed only. `main.go` is not gofmt-clean on main today: never run `gofmt -w main.go` wholesale, as it would bury your change in a reformat. |
+| gofmt | `gofmt -l <changed .go files>` | Format the files you changed only. `internal/inject/dol.go` and `mods/multiplayer/net/backoff_test.go` are not gofmt-clean on main today: never run `gofmt -w` over them (or the module) wholesale, as it would bury your change in a reformat. |
 | vet, Windows | `GOOS=windows GOARCH=amd64 go vet ./...` | `wwapi/emu` has a Win32 memory reader. |
 | vet, Linux | `GOOS=linux GOARCH=amd64 go vet ./...` | |
-| vet, macOS | `GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go vet ./internal/...` | The macOS memory reader needs cgo, so a cross-vet with cgo off covers `internal/...`; the macOS CI job vets everything natively. |
+| vet, macOS | `GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go vet ./...` | The cgo memory reader (`wwapi/emu/memory_darwin.go`) is left out of a cgo-off cross-vet; the macOS CI job vets it natively. |
 | vet, app window | `GOOS=windows GOARCH=amd64 go vet -tags desktop,production ./...` (and natively on macOS) | The release build compiles the Wails window (`internal/gui`); without the tags `internal/gui` is a stub. CI's `go-vet` action runs both vets on each target. |
 | build | `go build ./cmd/ww-multiplayer` and `go build -tags desktop,production ./cmd/ww-multiplayer` | The CLI-only and the release build must both compile. |
 | tests | `go test -count=1 ./...` | Everything, including the goldens below. |
@@ -33,7 +33,7 @@ A golden file is the expected output, byte for byte. When a golden test fails, t
 
 - `patch-*`: the patcher's lines for a good image, an already-patched one, another version, garbage, a missing file and the usage;
 - `help-gui`, `help-nogui`, `unknown-*`: `help` and an unknown command, one file per build (with and without `-tags desktop,production`). They are recorded on Windows, where they compare byte for byte; elsewhere the column padding is ignored but not the text;
-- `mods`, `mods-json`, `mods-usage`: the `mods` command, which lists `compiledMods()` (empty today; `mods/example` is not in it).
+- `mods*`: the `mods` command and its flags (`mods`, `mods-json`, `mods-usage`, `mods-dev`, `mods-dev-needed`, `mods-no-multiplayer`, `mods-only`, `mods-unknown-mod`; `TestCLIGoldenMods` in `mods_test.go` drives them). `compiledMods()` lists multiplayer and coop; `mods/example` is in `devMods()` and shows only with `--dev`.
 
 wwdev, the developer tools (`cmd/wwdev`), has its own: `cmd/wwdev/cli_golden_test.go` runs `wwdev <args>` the same way (the harness is `internal/cliutil/clitest`) against `cmd/wwdev/testdata/cli-golden/<name>.txt`:
 

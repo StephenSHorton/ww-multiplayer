@@ -11,9 +11,14 @@ remote's real world coords with their real animations, ~50ms latency on
 LAN. Two-Dolphin local play is wired up via `./wwdev.exe mp-local`
 (see "Standard session bootstrap" below).
 
-The mod is shipped as a standalone `ww-multiplayer.exe` patcher (`./ww-multiplayer.exe patch
-<vanilla.iso>` produces the patched ISO from the user's own legitimate
-Wind Waker disc image). Releases are cut on tag push via GitHub Actions.
+It ships as `ww-multiplayer.exe` (Windows) and `WW Multiplayer.app` (the
+macOS zip). With no arguments it opens the app window: first-run Setup
+patches the user's own legitimate Wind Waker disc image, then the lobby,
+Start (launches each player's Dolphin), optional co-op worlds, LAN
+discovery and join codes, and tunic colors. The same exe has the TUI
+(`tui`), the CLI (`host`/`join`/`patch`, ...) and the mods (multiplayer,
+coop) that run on the wwapi modding API (docs/api). Developer tools are a
+separate `wwdev.exe`. Releases are cut on tag push via GitHub Actions.
 
 ## Repository Structure
 
@@ -87,7 +92,9 @@ ww-multiplayer/
 ├── tools/
 │   ├── blobstamp/               # Writes/checks internal/inject/blob.stamp
 │   ├── gen_mailbox/             # inject/include/mailbox_core.h (+ mailbox_mp.h) -> wwapi/mailbox/layout_gen.go (go generate ./wwapi/mailbox)
-│   └── mkicns/                  # docs/img/icon.ico -> docs/img/icon.icns (macOS app icon; go generate ./cmd/ww-multiplayer)
+│   ├── mkicns/                  # docs/img/icon.ico -> docs/img/icon.icns (macOS app icon; go generate ./cmd/ww-multiplayer)
+│   └── validate_manifests/      # Checks the mods' mod.json manifests (CI runs it)
+├── site/                        # The website (index.html), deployed by pages.yml
 ├── .github/workflows/
 │   ├── build.yml                # CI: go vet + cross-build on push/PR; macOS job also builds + zips the .app (smoke, no publish)
 │   ├── release.yml              # CI: build + release on tag push (exe, macOS zip, SHA256SUMS; secrets-gated signing); dispatch = dry run
@@ -97,6 +104,8 @@ ww-multiplayer/
     ├── 04-ww-addresses.md, 05-known-issues.md, 06-history.md
     ├── 07-bettersunshine-research.md (Kuribo/BetterSunshineEngine notes, input to docs/api Phase E)
     ├── 08-coop-design.md, 09-player-colors.md, 10-lobby.md
+    ├── api/                     # the modding API: 00-design, 01-events, 02-mods, 03-writing-a-mod
+    └── TESTING.md               # the pre-push check matrix, goldens, flakes, live checks
 ```
 
 ## Commands
@@ -117,8 +126,11 @@ go build -o wwdev.exe ./cmd/wwdev
 ./ww-multiplayer.exe patch <iso|ciso> [out.iso]         # Splice mod into user's own vanilla WW ISO
 
 # Play: one process per player
-./ww-multiplayer.exe host [name] [--port N]             # Host a session (server + this player's pipelines)
-./ww-multiplayer.exe join <host-ip[:port]> [name]       # Join a host's session
+./ww-multiplayer.exe host [name] [--port N] [--color C] [--coop[=new|<world-id>]] ...  # Host a session (server + this player's pipelines)
+./ww-multiplayer.exe join <host-ip[:port]|join-code> [name] [--color C] [--coop] ...   # Join a host's session (join code: WW-XXXX-XXXX[-XXXX])
+./ww-multiplayer.exe mods [--json] [--dev] [--mods=a,b] [--no-mod=x]   # List the mods built into this version
+./ww-multiplayer.exe version                            # Print the version (players must match)
+# Co-op's hidden CLI (mods/coop/cli): coop-world, coop-tables, coop-tag, save-diff, save-merge
 
 # Multiplayer runtime CLIs (the pipelines mp-local runs in one process; they also run as separate processes).
 # wwdev is the developer tools (cmd/wwdev); `./wwdev.exe help` lists its commands.
@@ -238,7 +250,11 @@ confirms the `blob` payload line in blob.stamp is unchanged (only the
 
 - **docs/02-dolphin-memory.md** — Modern Dolphin (64-bit) memory scanner, address translation
 - **docs/03-code-injection.md** — What works and what doesn't for runtime code injection
-- **docs/05-known-issues.md** — The JIT cache wall we hit, and approaches tried
+- **docs/05-known-issues.md** — Solved walls (the JIT cache wall, ...) plus open bugs (F-numbers, e.g. F1 third-remote freeze)
+- **docs/08-coop-design.md** — Co-op worlds: design, milestones, as-built notes
+- **docs/09-player-colors.md** — Per-player tunic colors and the casual shirt
+- **docs/10-lobby.md** — The app lobby, LAN discovery, join codes
+- **docs/TESTING.md** — The pre-push check matrix, goldens, flakes and live checks
 - **docs/04-ww-addresses.md** — Wind Waker GZLE01 addresses we've mapped
 - **docs/api/00-design.md** — Approved modding API plan (wwapi/, mods, phases A-E) and the T2/mailbox RAM map
 
@@ -373,6 +389,8 @@ file select with A); see how `auto-recapture` builds save states from
 scratch.
 
 ## Testing reference
+
+See docs/TESTING.md for the full pre-push matrix.
 
 - Memory tests require Dolphin running with Wind Waker (GZLE01) loaded.
 - For visual tests, see "Visual validation" above — capture via `screenshot` and look at the PNG yourself.
