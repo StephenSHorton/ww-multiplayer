@@ -20,8 +20,8 @@ import (
 
 // WarpHandler is multiplayer_update's warp handler over m: while Link
 // exists and warp_seq differs from warp_ack, it puts Link's current.pos at
-// warp_x/y/z and copies warp_seq into warp_ack (multiplayer.c:344-345,
-// :365-421). It reports whether it moved Link.
+// warp_x/y/z and copies warp_seq into warp_ack (inject/src/core/hooks.c
+// multiplayer_update, services.c warp_frame). It reports whether it moved Link.
 func WarpHandler(t testing.TB, m *mem.FakeMem) bool {
 	link, err := mem.ReadU32(m, addr.PlayerPtr)
 	if err != nil || link == 0 {

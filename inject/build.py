@@ -6,6 +6,16 @@ Uses Freighter to compile C code and inject it into the DOL.
 import os
 import sys
 
+# The C units, in link order: the core first, then the multiplayer mod.
+C_SOURCES = [
+    "src/core/hooks.c",
+    "src/core/services.c",
+    "src/mp/puppets.c",
+    "src/mp/minilink.c",
+    "src/mp/face.c",
+]
+
+
 def main():
     # Fix encoding for Freighter's emoji output
     os.environ["PYTHONIOENCODING"] = "utf-8"
@@ -30,13 +40,23 @@ def main():
     # Project setup
     proj = Project("WWMultiplayer", "GZLE01", auto_import=False)
 
-    # Add source and include
+    # Add source and include. The C side is several units (Phase E3,
+    # docs/api/00-design.md §6.6): the core (its hooks and services) and
+    # the multiplayer mod. Freighter names each object after its file's
+    # basename (build/temp/<name>.c.o), so basenames must be unique.
+    # Objects are removed first: Freighter compiles in child processes
+    # and links whatever objects are on disk, so a unit that failed to
+    # compile would otherwise link its previous object.
     proj.add_include_folder("include")
-    proj.add_c_file("src/multiplayer.c")
+    for src in C_SOURCES:
+        obj = os.path.join("build", "temp", os.path.basename(src) + ".o")
+        if os.path.exists(obj):
+            os.remove(obj)
+        proj.add_c_file(src)
 
     # One-shot init hook on main01 (0x80006338 — proven working).
     # main01_init publishes &multiplayer_update at CALLBACK_PTR_ADDR
-    # (mailbox+0x08 = 0x80412F08, multiplayer.c) for frame_shim.
+    # (mailbox+0x08 = 0x80412F08, src/core/hooks.c) for frame_shim.
     proj.hook_branchlink("main01_init", 0x80006338)
 
     # Per-frame hook. Targets the LAST bl in fapGm_Execute (0x80023204 ->
@@ -46,14 +66,15 @@ def main():
     # 0x800231FC still runs ahead of us. frame_shim runs multiplayer_update
     # and then tail-calls 0x802449AC with the caller's LR restored, so the
     # replaced call still runs exactly as before (see frame_shim in
-    # multiplayer.c).
+    # src/core/hooks.c).
     proj.hook_branchlink("frame_shim", 0x80023204)
 
     # Draw-phase hook. `daPy_Draw` at 0x80108204 is Link #1's draw thunk;
     # at 0x80108210 it bls the real draw impl `daPy_lk_c::draw` at
     # 0x80107308. Freighter replaces that bl with a bl to our
     # `daPy_draw_hook`, which calls the original implementation and then
-    # runs our per-frame mini-Link work, so our modelEntryDL submissions
+    # runs the mods' post-draw steps (the multiplayer mod's mini-Links),
+    # so our modelEntryDL submissions
     # land in the legitimate actor-draw iteration. This is the live draw
     # path for the mini-Link puppets (shadow_mode 5 pose feed) and the
     # face/tunic swaps. The early sky-texture breakage came from sharing
@@ -89,6 +110,13 @@ def main():
     proj.common_args.append("-fno-exceptions")
     proj.common_args.append("-fno-unwind-tables")
     proj.common_args.append("-fno-asynchronous-unwind-tables")
+    # No small-data sections. Split into several units (Phase E3), the
+    # globals one unit shares with another (mini_link_state, ...) would
+    # land in .sbss, which Freighter's linker script places at T2's start
+    # ahead of .rodata (Go's contract check hashes T2's read-only
+    # sections from there, internal/inject TestBlobContract). Addressing
+    # is unchanged: nothing here uses r13/r2-relative small data.
+    proj.common_args.append("-G0")
 
     # Build
     input_dol = "original.dol"
@@ -134,7 +162,7 @@ def main():
     # 0x80414000 so mailbox has 0x1000 = 4 KB of headroom for further
     # diagnostics without another arena bump. Mailbox lives at
     # 0x80412F00..0x80413nnn; MUST stay in sync with MAILBOX_ADDR in
-    # inject/include/mailbox.h.
+    # inject/include/mailbox_core.h.
     #
     # Do NOT bump further without measuring ZeldaHeap headroom: the 1 MB
     # carve-out experiment (0x80511000) broke Outset archive loading. A few

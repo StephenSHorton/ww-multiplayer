@@ -1135,7 +1135,7 @@ func blobVerifyLive(w io.Writer, m mem.Mem) error {
 	if d.More > 0 {
 		fmt.Fprintf(w, "  ... and %d more runs\n", d.More)
 	}
-	fmt.Fprintln(w, "The mod's static variables (multiplayer.c) live in T2 and change as it runs, so differences")
+	fmt.Fprintln(w, "The mod's static variables (inject/src) live in T2 and change as it runs, so differences")
 	fmt.Fprintln(w, "inside its data are expected; differences in code mean a different build, a stale save state")
 	fmt.Fprintln(w, "or a section that did not load.")
 	return nil

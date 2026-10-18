@@ -8,7 +8,7 @@ import (
 
 // TestSlotAddr checks the per-slot actor-puppet mailbox helper against the
 // generated layout (wwapi/mailbox/layout_gen.go, from
-// inject/include/mailbox.h; its freshness test is wwapi/mailbox's
+// inject/include/mailbox_core.h; its freshness test is wwapi/mailbox's
 // TestMailboxLayout). The pose-feed and tunic slot offsets are
 // wwapi/avatar's, checked by its TestSlotOffsets.
 func TestSlotAddr(t *testing.T) {

@@ -144,7 +144,7 @@ func (g *FakeGame) Mem() *mem.FakeMem { return g.m }
 // Frame runs one game frame: the actors' execute, of which the fake has
 // only the HUD's pending counters (hud), then frame_shim's
 // multiplayer_update, whose first act is spawn_trigger++
-// (multiplayer.c:341-342). fapGm_Execute runs the shim after
+// (inject/src/core/hooks.c). fapGm_Execute runs the shim after
 // fpcM_Management (f_ap_game.cpp:77-81), so the heartbeat is the frame's
 // last write.
 func (g *FakeGame) Frame() {

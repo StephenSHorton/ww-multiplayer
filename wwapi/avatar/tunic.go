@@ -14,14 +14,14 @@ import (
 
 // Tunic colors, render side (docs/09-player-colors.md §5.3-§5.4).
 //
-// The C side (inject/src/multiplayer.c tunic_swap / tunic_restore)
+// The C side (inject/src/core/services.c tunic_swap / tunic_restore)
 // repoints Link's worn "linktexS3TC" header at a per-slot image around
 // each Link's draw. This file is the Go half: it reads the hero's-clothes
 // image once, recolors it per slot with wwapi/gfx/texture, writes the images
 // into the three GameHeap buffers the C side allocates once, and flips
 // the per-slot enables.
 
-// The mailbox's tunic block (inject/include/mailbox.h, "TUNIC COLORS";
+// The mailbox's tunic block (inject/include/mailbox_core.h, "TUNIC COLORS";
 // offsets generated into wwapi/mailbox) runs from mailbox.OffTunicBufs
 // to the end of tunic_swaps (the features word of the WWMB header
 // follows it since Phase E1):

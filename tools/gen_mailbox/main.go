@@ -1,5 +1,6 @@
 // Command gen_mailbox writes wwapi/mailbox/layout_gen.go from
-// inject/include/mailbox.h (package internal/mailboxgen), so the Go side
+// inject/include/mailbox_core.h and the mailbox_mp.h it includes
+// (package internal/mailboxgen), so the Go side
 // never hand-mirrors a mailbox offset:
 //
 //	go generate ./wwapi/mailbox              # same as the next line
@@ -7,8 +8,8 @@
 //	go run ./tools/gen_mailbox -check        # exit 1 if it is stale
 //
 // wwapi/mailbox's TestMailboxLayout runs the same generator in memory,
-// so a mailbox.h edit without a regen fails CI. Regenerating changes no
-// C and no blob; a layout change in mailbox.h still needs the blob
+// so a mailbox header edit without a regen fails CI. Regenerating changes
+// no C and no blob; a layout change in the headers still needs the blob
 // rebuild and restamp CLAUDE.md describes.
 package main
 
@@ -37,11 +38,7 @@ func run(check bool) error {
 	if err != nil {
 		return err
 	}
-	src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(mailboxgen.HeaderPath)))
-	if err != nil {
-		return err
-	}
-	out, err := mailboxgen.Generate(src)
+	out, err := mailboxgen.GenerateDir(filepath.Join(root, filepath.FromSlash(mailboxgen.HeaderPath)))
 	if err != nil {
 		return err
 	}

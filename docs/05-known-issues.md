@@ -104,7 +104,7 @@ The mailbox lives between our T2 code section end and `__OSArenaLo` (today `0x80
 | `0x80410900` | mini-Link draft | Mod grew to 0x868; old slot fell inside code. |
 | `0x80410F00` | superseded | Mod grew to 0x9A8. Flush against the arena start (then `0x80411000`). Callback pointer at `mailbox+0x08` = `0x80410F08`; `frame_shim` encoded it as `lwz 12, 0x0F08(12)`. |
 | `0x80411F00` | echo ring | Mod grew to 0x11C8; `__OSArenaLo` bumped to `0x80412000`. |
-| `0x80412F00` | **current** (eye-fix recipe onward) | Mod grew to 0x1FC8; `__OSArenaLo` bumped to `0x80413000`, later `0x80414000` to leave headroom after the mailbox. Callback pointer at `mailbox+0x08` = `0x80412F08`; `frame_shim` encodes it as `lwz 12, 0x2F08(12)`. Source of truth: `MAILBOX_ADDR` in `inject/include/mailbox.h`. |
+| `0x80412F00` | **current** (eye-fix recipe onward) | Mod grew to 0x1FC8; `__OSArenaLo` bumped to `0x80413000`, later `0x80414000` to leave headroom after the mailbox. Callback pointer at `mailbox+0x08` = `0x80412F08`; `frame_shim` encodes it as `lwz 12, 0x2F08(12)`. Source of truth: `MAILBOX_ADDR` in `inject/include/mailbox_core.h`. |
 
 **Lesson (learned twice):** any data slot we carve out of orphan memory has to sit ABOVE the eventual mod-end address. Each time mod size crosses the slot, the game's own instructions land at that address and `main01_init`'s write corrupts real code — the symptoms were a crash at `0x80410704` (`Invalid read 0x24`) on v1 and garbage reads from what looked like mailbox slots (slot fields showing `0x7C0803A6 = mtlr r0` instruction bytes) on v2.
 
@@ -517,8 +517,8 @@ Echo-ring code pushed `.text` end to `0x80410FC0` and mod end to
   bump that broke Outset archive loads.
 
 Must keep in sync across:
-- `inject/include/mailbox.h` MAILBOX_ADDR
-- `inject/src/multiplayer.c` CALLBACK_PTR_ADDR + `frame_shim` asm offset
+- `inject/include/mailbox_core.h` MAILBOX_ADDR
+- `inject/src/core/hooks.c` CALLBACK_PTR_ADDR + `frame_shim` asm offset
 - `inject/build.py` OSInit patch immediate
 - `wwapi/mailbox/layout_gen.go` `Mailbox` (generated: `go generate ./wwapi/mailbox`)
 
@@ -570,7 +570,7 @@ Archive or Game heap. The 2026-04-21 note that the game tears down Link's
 J3DModelData on stage unload is wrong too. `initModel` takes it from Link.arc
 (`d_a_player_main.cpp:12059`), so it is the same pointer for every Link actor.
 
-### The fix (`inject/src/multiplayer.c`)
+### The fix (`inject/src/mp/minilink.c`)
 
 - `mpCLModelData == 0` means Link is not ready yet. `multiplayer_update` skips mini-Link
   work that frame, and the draw hook skips its submission. Neither resets anything.
@@ -625,7 +625,7 @@ did not.
 
 ### The fix
 
-- **C (`inject/src/multiplayer.c`, `puppet_reap`).** A slot's actor is deleted
+- **C (`inject/src/mp/puppets.c`, `puppet_reap`).** A slot's actor is deleted
   (`fopAcM_delete` by id, 0x800244B8) when Go clears the slot, and every actor puppet is
   deleted when a stage change starts (`mNextStage.mEnable`, 0x803C9D54), when Link is gone
   (`mpPlayerPtr[0]` 0) or when Link's actor changes. A delete that can't happen yet (the
@@ -641,7 +641,7 @@ did not.
   loaded, no stage change pending), so a remote first seen on the title still waits 2 s after
   this game enters play. An actor that is up goes back down (active 0, so C deletes it) when
   this game leaves play, and comes back through the same wait. A reconnect restarts a pending
-  wait. The mailbox contract for `Puppet.active` (`inject/include/mailbox.h`) says the same.
+  wait. The mailbox contract for `Puppet.active` (`inject/include/mailbox_mp.h`) says the same.
 
 Live (new blob, temp ISO, one Dolphin): the title KAMOME is deleted the moment its slot goes
 inactive; with the slot left active, the menus into `M_Dai` load and the game runs on; the
@@ -725,7 +725,7 @@ which mini-Link does not draw. So mini-Link's head was open at the
 back whenever the *local* Link wore casual clothes, whatever the
 remote wore.
 
-Fix: `mini_link_entry_dl` (`multiplayer.c`) shows every hidden
+Fix: `mini_link_entry_dl` (`inject/src/mp/minilink.c`) shows every hidden
 link_root material around mini-Link's `mDoExt_modelEntryDL` and hides
 them again right after, so Link's real shadow, drawn later in the
 frame, still sees its hat hidden. Only link_root: other joints carry
@@ -818,7 +818,7 @@ original `bl` did: `cCt_Counter` runs every frame, right after our `multiplayer_
 and returns straight to `0x80023208`. `inject/build.py`'s hook comment ("we lose whatever
 0x802449AC was doing") is stale for the same reason.
 
-Final shim shape (see `inject/src/multiplayer.c`):
+Final shim shape (see `frame_shim` in `inject/src/core/hooks.c`):
 
 ```asm
 frame_shim:
@@ -847,7 +847,7 @@ frame_shim:
 
 `main01_init` (hooked at `0x80006338`) publishes `&multiplayer_update` at
 `0x80412F08` (`CALLBACK_PTR_ADDR`, mailbox+0x08) once at thread start; `frame_shim` reads
-it each frame. The listing above matches `frame_shim` in `inject/src/multiplayer.c`
+it each frame. The listing above matches `frame_shim` in `inject/src/core/hooks.c`
 today. When this section was first written the slot was at `0x80410700`
 (`lwz 12, 0x0700(12)`); it has moved several times since and now lives in the mailbox, and
 the hard-coded `lwz` offset has to move with it.

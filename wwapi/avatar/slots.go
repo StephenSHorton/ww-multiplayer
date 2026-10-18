@@ -13,7 +13,7 @@ import (
 // sharing one with every other instance).
 const Cap = mailbox.MaxRemoteLinks
 
-// shadow_mode values (mailbox.h). ModeOff is the kill switch: nothing
+// shadow_mode values (mailbox_core.h). ModeOff is the kill switch: nothing
 // mirrors or feeds Link #2. ModePoseFeed (5) draws each armed slot's
 // mini-Link from its pose_buf. The dev modes 1-4 were deleted in Phase
 // E0; the C side draws nothing for them, as for ModeOff.
@@ -25,7 +25,7 @@ const (
 // Per-slot mailbox offsets (relative to mailbox.Mailbox) of the
 // pose-feed fields: pose_buf_ptrs u32, pose_joint_counts u16,
 // pose_buf_states u8, pose_seqs u8, face_state FaceState, face_seqs u8.
-// The offsets are generated from inject/include/mailbox.h into
+// The offsets are generated from inject/include/mailbox_core.h into
 // wwapi/mailbox/layout_gen.go.
 func OffPoseBufPtr(slot int) uint32     { return uint32(mailbox.OffPoseBufPtrs + slot*4) }
 func OffPoseJointCount(slot int) uint32 { return uint32(mailbox.OffPoseJointCounts + slot*2) }

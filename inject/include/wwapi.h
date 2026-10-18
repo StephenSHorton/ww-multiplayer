@@ -1,6 +1,11 @@
-// Wind Waker GZLE01 function addresses and types
-#ifndef GAME_H
-#define GAME_H
+// wwapi.h: the C side's API (Phase E3, docs/api/00-design.md §6.6).
+// Wind Waker GZLE01 types, function addresses and struct offsets every
+// C file may use, and at the end the core services (src/core/services.c)
+// a C mod calls. A mod's own constants live with the mod (the
+// multiplayer mod's in src/mp/mp.h); the shared mailbox is
+// mailbox_core.h.
+#ifndef WWAPI_H
+#define WWAPI_H
 
 typedef unsigned int u32;
 typedef unsigned short u16;
@@ -78,15 +83,6 @@ typedef BOOL (*fopAcM_deleteByID_t)(fpc_ProcID id);
 // and it can't be deleted yet either.
 typedef BOOL (*fpcM_IsCreating_t)(fpc_ProcID id);
 #define fpcM_IsCreating ((fpcM_IsCreating_t)0x8003E3B0)
-
-#define PROC_PLAYER     0x00A9
-#define PROC_KAMOME     0x00C3
-#define PROC_NPC_KO1    0x0141
-#define PROC_NPC_OB1    0x014D  // Rose (Outset villager)
-#define PROC_NPC_FA1    0x016A
-#define PROC_GRASS      0x01B8
-#define PROC_TSUBO      0x01CB
-#define PROC_Obj_Barrel 0x01CE
 
 // Player pointer array: g_dComIfG_gameInfo + 0x12A0 + 0x48AC
 // mpPlayerPtr[0] = Link, [1] = companion, [2] = ship
@@ -271,11 +267,6 @@ typedef void* (*dRes_getRes_byIdx_t)(
 #define OBJECT_INFO_COUNT 64
 #define LINK_BDL_CL       0x18
 
-// "Always" archive constants (used as a non-shared model probe for the
-// mini-Link modelEntryDL sky-breakage investigation). mpm_tubo is the
-// small-pot BDL. Rigid, non-skinned — doesn't need J3DModel::calc().
-#define ALWAYS_BDL_MPM_TUBO  0x31
-
 typedef J3DModel* (*mDoExt_J3DModel_create_t)(
     J3DModelData* modelData,
     u32 modelFlag,
@@ -380,7 +371,7 @@ typedef void (*J3DModel_lock_t)(J3DModel* self);
 
 // Alternate submission. mDoExt_modelEntryDL calls entry() every frame
 // (re-registers packets into j3dSys buckets). For a freshly created
-// model, that's correct. Kept here as a backup — see multiplayer.c for
+// model, that's correct. Kept here as a backup — see src/mp/minilink.c for
 // which we're using currently. Tsubo's own _draw uses modelUpdateDL
 // which calls update() (no re-entry). Trying entryDL first because
 // our model goes through fewer lifecycle hooks than a real actor.
@@ -466,11 +457,33 @@ typedef void (*J3DJoint_entryIn_t)(J3DJoint* self);
 #define DAPY_MP_Z_OFF_BLEND_SHAPE_OFFSET 0x0374
 #define DAPY_MP_Z_OFF_NONE_SHAPE_OFFSET  0x0384
 #define DAPY_MP_Z_ON_SHAPE_OFFSET        0x0394
-#define LINK_CL_EYE_JOINT_INDEX  0x13
-#define LINK_CL_MAYU_JOINT_INDEX 0x15
 // CL_JNT_LINK_ROOT_e: its material chain is face, hair, hat ("ear(3)"
 // at index 4) and the rest of the head and torso (hideHatAndBackle,
 // d_a_player_main.cpp:1510-1531).
 #define LINK_CL_ROOT_JOINT_INDEX 0x00
+
+// --- Core services (src/core/services.c) -------------------------------
+// What the core does for every mod. The draw hook (src/core/hooks.c)
+// brackets Link #1's own draw with them; a mod's post-draw step uses the
+// same calls around each model it draws.
+
+// Tunic colors (docs/09-player-colors.md §5.3). tunic_swap points the
+// worn linktexS3TC header of `link` (Link #1, whose J3DModelData every
+// Link shares) at tunic slot `slot`'s image; tunic_restore puts the
+// header back. One swap at a time: a second swap before the restore is
+// a no-op.
+void tunic_swap(void* link, int slot);
+void tunic_restore(void);
+
+// Face tev blocks. Link's eyes and mouth are four materials of the
+// shared J3DModelData (mat[1], mat[4], mat[14], mat[15], in FaceState's
+// order); btp animates the texno pair at J3DTevBlock+0x08 of each.
+// face_bind names the model data to read them from (0 = none) and drops
+// the cached pointers; face_tevs_ready resolves them on first use and
+// returns nonzero once all four are known, in face_tev[].
+#define FACE_TEV_COUNT 4
+extern u8* face_tev[FACE_TEV_COUNT];
+void face_bind(J3DModelData* model_data);
+int face_tevs_ready(void);
 
 #endif

@@ -12,14 +12,14 @@ import (
 )
 
 // The C side's addresses, read from the committed sources rather than
-// mirrored here: inject/include/mailbox.h (MAILBOX_ADDR), inject/build.py
-// (inject_address, the OSInit arena-lo patch) and inject/src/multiplayer.c
+// mirrored here: inject/include/mailbox_core.h (MAILBOX_ADDR), inject/build.py
+// (inject_address, the OSInit arena-lo patch) and inject/src/core/hooks.c
 // (CALLBACK_PTR_ADDR). CI cannot build the C side; these tests tie the
 // committed blob.go to what those sources say it should look like.
 const (
-	mailboxH      = "../../inject/include/mailbox.h"
+	mailboxH      = "../../inject/include/mailbox_core.h"
 	buildPy       = "../../inject/build.py"
-	multiplayerC  = "../../inject/src/multiplayer.c"
+	hooksC        = "../../inject/src/core/hooks.c"
 	osInitT1Load  = 0x800056E0 // build.py T1_LOAD
 	osInitT1File  = 0x2620     // build.py T1_FILE
 	lisR3Mask     = 0xFFFF0000
@@ -134,7 +134,7 @@ func checkBudget(t2Addr uint32, t2Len int, mailbox, arenaLo uint32) error {
 // blob regen time, instead of corrupting the mailbox on a live Dolphin.
 // The mailbox's own end against the arena is TestModRegions'
 // (wwapi/mailbox), whose MailboxSize TestMailboxLayout pins to
-// mailbox.h.
+// mailbox_core.h.
 func TestT2EndsBelowMailbox(t *testing.T) {
 	mailbox := define(t, mailboxH, "MAILBOX_ADDR")
 	_, patches := buildPyFacts(t)
@@ -222,20 +222,20 @@ func TestBuildPyMatchesBlob(t *testing.T) {
 // must be MAILBOX_ADDR+8, and the committed blob must contain that pair.
 func TestFrameShimLoadsCallbackSlot(t *testing.T) {
 	mailbox := define(t, mailboxH, "MAILBOX_ADDR")
-	cb := define(t, multiplayerC, "CALLBACK_PTR_ADDR")
+	cb := define(t, hooksC, "CALLBACK_PTR_ADDR")
 	if cb != mailbox+8 {
 		t.Fatalf("CALLBACK_PTR_ADDR 0x%08X, want MAILBOX_ADDR+8 = 0x%08X", cb, mailbox+8)
 	}
 	if cb&0x8000 != 0 || cb>>16 != lisR12_8041&0xFFFF {
 		t.Fatalf("CALLBACK_PTR_ADDR 0x%08X is not reachable as lis 12,0x8041 + a positive lwz offset; frame_shim needs rewriting", cb)
 	}
-	src, err := os.ReadFile(multiplayerC)
+	src, err := os.ReadFile(hooksC)
 	if err != nil {
 		t.Fatal(err)
 	}
 	asm := fmt.Sprintf(`"lis\s+12,\s*0x8041\s*\\n"\s*"lwz\s+12,\s*0x%X\(12\)`, cb&0xFFFF)
 	if !regexp.MustCompile(asm).Match(src) {
-		t.Errorf("multiplayer.c frame_shim does not load 0x%X(12) after lis 12,0x8041", cb&0xFFFF)
+		t.Errorf("hooks.c frame_shim does not load 0x%X(12) after lis 12,0x8041", cb&0xFFFF)
 	}
 	lwz := uint32(lwzR12R12Base | cb&0xFFFF)
 	found := false
@@ -246,6 +246,6 @@ func TestFrameShimLoadsCallbackSlot(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("blob.go T2Bytes has no lis r12,0x8041; lwz r12,0x%X(r12) pair: the blob is stale against multiplayer.c", cb&0xFFFF)
+		t.Errorf("blob.go T2Bytes has no lis r12,0x8041; lwz r12,0x%X(r12) pair: the blob is stale against hooks.c", cb&0xFFFF)
 	}
 }

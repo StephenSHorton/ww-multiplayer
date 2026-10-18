@@ -6,7 +6,7 @@ ISO. Run after `inject/build.py` produces a fresh patched.dol.
 
 Outputs the T2 bytes, the blob's contract constants (Phase E1: the
 mailbox address, the WWMB ABI, layout version and features word from
-inject/include/mailbox.h, the patched __OSArenaLo, where T2 and its .text
+inject/include/mailbox_core.h, the patched __OSArenaLo, where T2 and its .text
 end, and BlobHash, the CRC-32 of T2's read-only sections (HashRanges:
 .rodata, .text, .init, .fini) that wwapi's contract check compares
 against the same ranges read back from RAM) and DOLPatches: every
@@ -37,7 +37,7 @@ OUT = os.path.join(ROOT, "internal", "inject", "blob.go")
 # Freighter's linked ELF (build.py builds with clean_up=False): its section
 # table says where T2's read-only sections (and .text) start and end.
 ELF = os.path.join(ROOT, "inject", "build", "temp", "WWMultiplayer.o")
-MAILBOX_H = os.path.join(ROOT, "inject", "include", "mailbox.h")
+MAILBOX_H = os.path.join(ROOT, "inject", "include", "mailbox_core.h")
 
 # The patched OSInit's `lis r3, hi` / `addi r3, r3, lo` (inject/build.py).
 T1_LOAD, T1_FILE = 0x800056E0, 0x2620
@@ -72,7 +72,7 @@ def elf_sections(path):
 
 
 def header_define(name):
-    """A numeric #define from mailbox.h."""
+    """A numeric #define from mailbox_core.h."""
     with open(MAILBOX_H, encoding="utf-8") as f:
         m = re.search(r"(?m)^#define\s+" + name + r"\s+(0x[0-9A-Fa-f]+|\d+)\s*(?://.*)?$", f.read())
     if not m:
@@ -237,12 +237,12 @@ def main():
     lines.append(f"\tTextEnd   uint32 = 0x{text_end:08X}")
     lines.append("\t// BlobHash is the CRC-32 (IEEE) of T2Bytes over HashRanges, in order.")
     lines.append(f"\tBlobHash uint32 = 0x{blob_hash:08X}")
-    lines.append("\t// MailboxAddr is mailbox.h's MAILBOX_ADDR.")
+    lines.append("\t// MailboxAddr is mailbox_core.h's MAILBOX_ADDR.")
     lines.append(f"\tMailboxAddr uint32 = 0x{mailbox_addr:08X}")
     lines.append("\t// ArenaLo is the __OSArenaLo the patched OSInit sets.")
     lines.append(f"\tArenaLo uint32 = 0x{arena:08X}")
     lines.append("\t// ABI, LayoutVersion and Features are what main01_init writes into")
-    lines.append("\t// the WWMB header (mailbox.h WWMB_ABI, WWMB_LAYOUT, WW_FEATURES).")
+    lines.append("\t// the WWMB header (mailbox_core.h WWMB_ABI, WWMB_LAYOUT, WW_FEATURES).")
     lines.append(f"\tABI           uint16 = {abi}")
     lines.append(f"\tLayoutVersion uint16 = {layout}")
     lines.append(f"\tFeatures      uint32 = 0x{features:02X}")

@@ -25,8 +25,8 @@ import (
 // outPath (default saves/start.sav).
 //
 // This replaces the last human-in-loop step from CLAUDE.md — pressing
-// Shift+F1 after a C-blob change. Run this whenever a multiplayer.c
-// change invalidates saves/start.sav and the auto-loaded state would
+// Shift+F1 after a C-blob change. Run this whenever a C change
+// (inject/src, inject/include) invalidates saves/start.sav and the auto-loaded state would
 // otherwise restore the old blob over the new patched ISO.
 //
 // Windows-only today: the Shift+F1 send uses PostMessageW (the

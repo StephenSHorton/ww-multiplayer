@@ -25,7 +25,7 @@ type RemotePlayer struct {
 	// FaceState is the optional trailing payload appended by v0.2+
 	// senders to a pose message (session 9). Empty if the remote is
 	// running an older build that didn't ship face data. Layout
-	// matches inject/include/mailbox.h FaceState (8 B = mat1_tex0,
+	// matches inject/include/mailbox_core.h FaceState (8 B = mat1_tex0,
 	// mat1_tex1, mat4_tex0, mat4_tex1, all u16 BE) with room for
 	// future face mats appended at the tail.
 	FaceState []byte

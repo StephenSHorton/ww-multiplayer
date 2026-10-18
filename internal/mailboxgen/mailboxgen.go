@@ -1,6 +1,9 @@
-// Package mailboxgen turns inject/include/mailbox.h into Go: the
-// mailbox's #define values and every field offset of its structs. The
-// header is the source of truth; tools/gen_mailbox writes the result to
+// Package mailboxgen turns the mailbox headers into Go: the mailbox's
+// #define values and every field offset of its structs. The headers are
+// the source of truth: inject/include/mailbox_core.h and the
+// mailbox_*.h headers it includes (Phase E3 split mailbox.h into
+// mailbox_core.h and mailbox_mp.h), read in include order as one
+// header. tools/gen_mailbox writes the result to
 // wwapi/mailbox/layout_gen.go, and wwapi/mailbox's TestMailboxLayout
 // regenerates it in memory and fails when the committed file is stale.
 //
@@ -14,16 +17,37 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
+	"os"
+	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 )
 
 // The generator's input and output, relative to the module root.
+// HeaderPath is the root header; the headers it includes sit next to it.
 const (
-	HeaderPath = "inject/include/mailbox.h"
+	HeaderPath = "inject/include/mailbox_core.h"
 	OutputPath = "wwapi/mailbox/layout_gen.go"
 )
+
+// Reader returns an included header's bytes by the name its #include
+// gives ("mailbox_mp.h").
+type Reader func(name string) ([]byte, error)
+
+// DirReader reads included headers from dir.
+func DirReader(dir string) Reader {
+	return func(name string) ([]byte, error) {
+		return os.ReadFile(filepath.Join(dir, name))
+	}
+}
+
+// Source is one header the layout was parsed from.
+type Source struct {
+	Name string // "mailbox_core.h"
+	Src  []byte
+}
 
 // Field is one member of a C struct in the header.
 type Field struct {
@@ -50,10 +74,11 @@ type Define struct {
 	Text  string // the value as written, e.g. "0x80412F00"
 }
 
-// Layout is everything the header declares that Go mirrors.
+// Layout is everything the headers declare that Go mirrors.
 type Layout struct {
 	Defines []Define
 	Structs []Struct
+	Sources []Source // the root header first, then each include as it was reached
 }
 
 // Mailbox returns the Mailbox struct, or nil.
@@ -82,117 +107,175 @@ var (
 	endRE    = regexp.MustCompile(`^}\s*(\w+)\s*;`)
 	scalars  = map[string]int{"u8": 1, "s8": 1, "u16": 2, "s16": 2, "u32": 4, "s32": 4, "f32": 4}
 	cComment = regexp.MustCompile(`^\s*(//.*)?$`)
+	// Only the mailbox's own headers are followed; any other include
+	// (wwapi.h, for the C types) is skipped.
+	incRE = regexp.MustCompile(`^#include\s+"(mailbox_\w+\.h)"\s*(?://.*)?$`)
 )
 
-// Parse reads mailbox.h. It refuses anything it does not understand
-// inside a struct (an unknown type, an unknown array size, a block
-// comment) rather than guess a layout, and it checks the header's own
-// "// +0xNN" comments against the offsets it computes.
-func Parse(src []byte) (*Layout, error) {
-	l := &Layout{}
-	defs := map[string]int64{}
-	types := map[string]struct{ size, align int }{}
-	for k, v := range scalars {
-		types[k] = struct{ size, align int }{v, v}
+// Parse reads the root header name (src) and, through read, every
+// "mailbox_*.h" it includes, in place and once each, as if they were one
+// header. It refuses anything it does not understand inside a struct
+// (an unknown type, an unknown array size, a block comment, an include)
+// rather than guess a layout, and it checks the headers' own
+// "// +0xNN" comments against the offsets it computes. read may be nil
+// for a header that includes none.
+func Parse(name string, src []byte, read Reader) (*Layout, error) {
+	p := &parser{
+		l:     &Layout{},
+		defs:  map[string]int64{},
+		types: map[string]struct{ size, align int }{},
+		read:  read,
+		seen:  map[string]bool{name: true},
 	}
-	var cur *Struct
-	off := 0
+	for k, v := range scalars {
+		p.types[k] = struct{ size, align int }{v, v}
+	}
+	if err := p.file(name, src); err != nil {
+		return nil, err
+	}
+	if p.cur != nil {
+		return nil, fmt.Errorf("%s: unterminated struct", name)
+	}
+	if p.l.Mailbox() == nil {
+		return nil, fmt.Errorf("%s: no Mailbox struct", name)
+	}
+	if _, ok := p.defs["MAILBOX_ADDR"]; !ok {
+		return nil, fmt.Errorf("%s: no MAILBOX_ADDR", name)
+	}
+	return p.l, nil
+}
+
+// ParseDir parses the root header at headerPath and the headers it
+// includes from the same directory.
+func ParseDir(headerPath string) (*Layout, error) {
+	src, err := os.ReadFile(headerPath)
+	if err != nil {
+		return nil, err
+	}
+	return Parse(filepath.Base(headerPath), src, DirReader(filepath.Dir(headerPath)))
+}
+
+type parser struct {
+	l     *Layout
+	defs  map[string]int64
+	types map[string]struct{ size, align int }
+	read  Reader
+	seen  map[string]bool
+	cur   *Struct
+	off   int
+}
+
+func (p *parser) file(name string, src []byte) error {
+	p.l.Sources = append(p.l.Sources, Source{Name: name, Src: src})
 	sc := bufio.NewScanner(bytes.NewReader(src))
 	n := 0
 	for sc.Scan() {
 		n++
-		line := strings.TrimRight(sc.Text(), "\r")
-		if strings.Contains(line, "/*") {
-			return nil, fmt.Errorf("mailbox.h:%d: block comments are not supported", n)
+		if err := p.line(name, n, strings.TrimRight(sc.Text(), "\r")); err != nil {
+			return err
 		}
-		if m := defRE.FindStringSubmatch(line); m != nil {
-			if cur != nil {
-				return nil, fmt.Errorf("mailbox.h:%d: #define inside a struct", n)
-			}
-			v, err := strconv.ParseInt(m[2], 0, 64)
-			if err != nil {
-				return nil, fmt.Errorf("mailbox.h:%d: %v", n, err)
-			}
-			if _, dup := defs[m[1]]; dup {
-				return nil, fmt.Errorf("mailbox.h:%d: %s defined twice", n, m[1])
-			}
-			defs[m[1]] = v
-			l.Defines = append(l.Defines, Define{Name: m[1], Value: v, Text: m[2]})
-			continue
-		}
-		if strings.HasPrefix(line, "typedef struct {") {
-			if cur != nil {
-				return nil, fmt.Errorf("mailbox.h:%d: nested struct", n)
-			}
-			cur, off = &Struct{Align: 1}, 0
-			continue
-		}
-		if cur == nil {
-			continue
-		}
-		if m := endRE.FindStringSubmatch(line); m != nil {
-			if _, dup := types[m[1]]; dup {
-				return nil, fmt.Errorf("mailbox.h:%d: type %s declared twice", n, m[1])
-			}
-			cur.Name = m[1]
-			cur.Size = (off + cur.Align - 1) &^ (cur.Align - 1)
-			types[cur.Name] = struct{ size, align int }{cur.Size, cur.Align}
-			l.Structs = append(l.Structs, *cur)
-			cur = nil
-			continue
-		}
-		m := fieldRE.FindStringSubmatch(line)
-		if m == nil {
-			if !cComment.MatchString(line) {
-				return nil, fmt.Errorf("mailbox.h:%d: cannot parse struct line %q", n, line)
-			}
-			continue
-		}
-		ty, ok := types[m[1]]
-		if !ok {
-			return nil, fmt.Errorf("mailbox.h:%d: unknown type %q", n, m[1])
-		}
-		count := 1
-		if m[3] != "" {
-			if v, err := strconv.Atoi(m[3]); err == nil {
-				count = v
-			} else if v, ok := defs[m[3]]; ok {
-				count = int(v)
-			} else {
-				return nil, fmt.Errorf("mailbox.h:%d: unknown array size %q", n, m[3])
-			}
-		}
-		off = (off + ty.align - 1) &^ (ty.align - 1)
-		if m[4] != "" {
-			want, _ := strconv.ParseInt(m[4], 0, 64)
-			if int(want) != off {
-				return nil, fmt.Errorf("mailbox.h:%d: comment says %s is at +0x%X, the struct puts it at +0x%X", n, m[2], want, off)
-			}
-		}
-		for _, f := range cur.Fields {
-			if f.CName == m[2] {
-				return nil, fmt.Errorf("mailbox.h:%d: field %s declared twice", n, m[2])
-			}
-		}
-		cur.Fields = append(cur.Fields, Field{CName: m[2], CType: m[1], Dim: m[3], Len: count, Offset: off, Size: ty.size})
-		if ty.align > cur.Align {
-			cur.Align = ty.align
-		}
-		off += ty.size * count
 	}
-	if err := sc.Err(); err != nil {
-		return nil, err
+	return sc.Err()
+}
+
+func (p *parser) line(name string, n int, line string) error {
+	if strings.Contains(line, "/*") {
+		return fmt.Errorf("%s:%d: block comments are not supported", name, n)
 	}
-	if cur != nil {
-		return nil, fmt.Errorf("mailbox.h: unterminated struct")
+	if m := incRE.FindStringSubmatch(line); m != nil {
+		if p.cur != nil {
+			return fmt.Errorf("%s:%d: #include inside a struct", name, n)
+		}
+		inc := m[1]
+		if p.seen[inc] {
+			return nil // included already: its include guard skips it
+		}
+		p.seen[inc] = true
+		if p.read == nil {
+			return fmt.Errorf("%s:%d: cannot read included %s", name, n, inc)
+		}
+		src, err := p.read(inc)
+		if err != nil {
+			return fmt.Errorf("%s:%d: %v", name, n, err)
+		}
+		return p.file(inc, src)
 	}
-	if l.Mailbox() == nil {
-		return nil, fmt.Errorf("mailbox.h: no Mailbox struct")
+	if m := defRE.FindStringSubmatch(line); m != nil {
+		if p.cur != nil {
+			return fmt.Errorf("%s:%d: #define inside a struct", name, n)
+		}
+		v, err := strconv.ParseInt(m[2], 0, 64)
+		if err != nil {
+			return fmt.Errorf("%s:%d: %v", name, n, err)
+		}
+		if _, dup := p.defs[m[1]]; dup {
+			return fmt.Errorf("%s:%d: %s defined twice", name, n, m[1])
+		}
+		p.defs[m[1]] = v
+		p.l.Defines = append(p.l.Defines, Define{Name: m[1], Value: v, Text: m[2]})
+		return nil
 	}
-	if _, ok := defs["MAILBOX_ADDR"]; !ok {
-		return nil, fmt.Errorf("mailbox.h: no MAILBOX_ADDR")
+	if strings.HasPrefix(line, "typedef struct {") {
+		if p.cur != nil {
+			return fmt.Errorf("%s:%d: nested struct", name, n)
+		}
+		p.cur, p.off = &Struct{Align: 1}, 0
+		return nil
 	}
-	return l, nil
+	cur := p.cur
+	if cur == nil {
+		return nil
+	}
+	if m := endRE.FindStringSubmatch(line); m != nil {
+		if _, dup := p.types[m[1]]; dup {
+			return fmt.Errorf("%s:%d: type %s declared twice", name, n, m[1])
+		}
+		cur.Name = m[1]
+		cur.Size = (p.off + cur.Align - 1) &^ (cur.Align - 1)
+		p.types[cur.Name] = struct{ size, align int }{cur.Size, cur.Align}
+		p.l.Structs = append(p.l.Structs, *cur)
+		p.cur = nil
+		return nil
+	}
+	m := fieldRE.FindStringSubmatch(line)
+	if m == nil {
+		if !cComment.MatchString(line) {
+			return fmt.Errorf("%s:%d: cannot parse struct line %q", name, n, line)
+		}
+		return nil
+	}
+	ty, ok := p.types[m[1]]
+	if !ok {
+		return fmt.Errorf("%s:%d: unknown type %q", name, n, m[1])
+	}
+	count := 1
+	if m[3] != "" {
+		if v, err := strconv.Atoi(m[3]); err == nil {
+			count = v
+		} else if v, ok := p.defs[m[3]]; ok {
+			count = int(v)
+		} else {
+			return fmt.Errorf("%s:%d: unknown array size %q", name, n, m[3])
+		}
+	}
+	p.off = (p.off + ty.align - 1) &^ (ty.align - 1)
+	if m[4] != "" {
+		want, _ := strconv.ParseInt(m[4], 0, 64)
+		if int(want) != p.off {
+			return fmt.Errorf("%s:%d: comment says %s is at +0x%X, the struct puts it at +0x%X", name, n, m[2], want, p.off)
+		}
+	}
+	for _, f := range cur.Fields {
+		if f.CName == m[2] {
+			return fmt.Errorf("%s:%d: field %s declared twice", name, n, m[2])
+		}
+	}
+	cur.Fields = append(cur.Fields, Field{CName: m[2], CType: m[1], Dim: m[3], Len: count, Offset: p.off, Size: ty.size})
+	if ty.align > cur.Align {
+		cur.Align = ty.align
+	}
+	p.off += ty.size * count
+	return nil
 }
 
 // GoName turns a C identifier into an exported Go one: spawn_trigger →
@@ -219,13 +302,28 @@ func prefix(s *Struct) string {
 	return s.Name
 }
 
-// Generate parses mailbox.h and returns the gofmt'd source of
-// wwapi/mailbox/layout_gen.go.
-func Generate(src []byte) ([]byte, error) {
-	l, err := Parse(src)
+// Generate parses the headers as Parse does and returns the gofmt'd
+// source of wwapi/mailbox/layout_gen.go.
+func Generate(name string, src []byte, read Reader) ([]byte, error) {
+	l, err := Parse(name, src, read)
 	if err != nil {
 		return nil, err
 	}
+	return l.Go()
+}
+
+// GenerateDir is Generate for the root header at headerPath and the
+// headers it includes from the same directory.
+func GenerateDir(headerPath string) ([]byte, error) {
+	l, err := ParseDir(headerPath)
+	if err != nil {
+		return nil, err
+	}
+	return l.Go()
+}
+
+// Go returns the gofmt'd source of wwapi/mailbox/layout_gen.go.
+func (l *Layout) Go() ([]byte, error) {
 	var b bytes.Buffer
 	seen := map[string]string{}
 	name := func(goName, from string) (string, error) {
@@ -235,7 +333,15 @@ func Generate(src []byte) ([]byte, error) {
 		seen[goName] = from
 		return goName, nil
 	}
-	b.WriteString("// Code generated by tools/gen_mailbox from inject/include/mailbox.h. DO NOT EDIT.\n\n")
+	from := path.Join(path.Dir(HeaderPath), l.Sources[0].Name)
+	if len(l.Sources) > 1 {
+		var inc []string
+		for _, f := range l.Sources[1:] {
+			inc = append(inc, f.Name)
+		}
+		from += " (with " + strings.Join(inc, ", ") + ")"
+	}
+	b.WriteString("// Code generated by tools/gen_mailbox from " + from + ". DO NOT EDIT.\n\n")
 	b.WriteString("package mailbox\n\n")
 
 	b.WriteString("// The header's #defines.\nconst (\n")

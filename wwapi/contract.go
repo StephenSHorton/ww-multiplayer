@@ -64,7 +64,7 @@ func (f Features) String() string {
 }
 
 // featureBits names the WW_FEAT_* bits of the WWMB features word
-// (inject/include/mailbox.h).
+// (inject/include/mailbox_core.h).
 var featureBits = []struct {
 	bit  uint32
 	name string

@@ -8,7 +8,7 @@ import (
 )
 
 // TestMailboxFields checks the mailbox fields against the mailbox base
-// (mailbox.h).
+// (mailbox_core.h).
 func TestMailboxFields(t *testing.T) {
 	for _, c := range []struct {
 		name      string

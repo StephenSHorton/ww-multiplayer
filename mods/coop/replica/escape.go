@@ -31,9 +31,9 @@ import (
 //     behind a wipe as for a loading zone (d_s_play.cpp:285-314);
 //   - warp to partner, on the same stage, moves Link to the partner's
 //     position (pose sync's) through the mod's warp request: warp_x/y/z,
-//     then warp_seq + 1 (mailbox.h:211-225), which multiplayer_update
+//     then warp_seq + 1 (mailbox_core.h, WARP REQUEST), which multiplayer_update
 //     carries out on the next frame Link exists and acknowledges in
-//     warp_ack (multiplayer.c:365-421). On another stage it asks for the
+//     warp_ack (inject/src/core/services.c warp_frame). On another stage it asks for the
 //     partner's stage by the point the partner's PRESENCE names, then
 //     warps to the partner once there.
 //

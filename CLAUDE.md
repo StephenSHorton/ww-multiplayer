@@ -36,7 +36,7 @@ ww-multiplayer/
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
 │   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); the Mods page (mods.go); Bridge = the JS API; `ui --browser` server
 │   ├── lan/                     # LAN discovery: the host's UDP beacon, broadcast addresses, the joiner's table (docs/10-lobby.md §10)
-│   ├── mailboxgen/              # mailbox.h parser + layout_gen.go emitter (used by tools/gen_mailbox and wwapi/mailbox TestMailboxLayout)
+│   ├── mailboxgen/              # mailbox header parser (mailbox_core.h + the mailbox_mp.h it includes) + layout_gen.go emitter (used by tools/gen_mailbox and wwapi/mailbox TestMailboxLayout)
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
 │   │   ├── blob.go              # AUTO-GENERATED via scripts/extract_blob.py
 │   │   ├── dol.go               # DOL header editor + T2 splice + in-DOL patches
@@ -51,7 +51,7 @@ ww-multiplayer/
 │       ├── app.go, splash.go, connect.go, dashboard.go, styles.go
 ├── wwapi/                       # Modding API, v0 UNSTABLE (docs/api): emu/ (Attach(Options); *emu.Dolphin is a MEM1-bounded mem.Mem; memory.go = RAM scanner; launch/ = Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare (dolphin2, auto-recapture); host/ = window, screenshot, keys),
 │                                #   log/ (Reporter, Stdout / Discard / Multi / Prefix), mem/ (Reader/Mem, FakeMem), addr/ (cited addresses), state/ (per-tick snapshot), gate/ (write gates), actors/ (actor queue walk, Layout reads, structural Reread), write/ (guarded write engine: Allowlist, Breaker, FrameWriter beat wait + rechecks, Field, StageRequest; co-op's replica builds on it),
-│                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), savefile/ (GCI/card I/O), backup/ (card backups), tables/ (M1 disc table builders + cache), player/ (Link: Ptr/Ready/Position/DemoType/Pose/Face; Warp, WarpForce; input Override/Release/Press; playertest = fake warp handler), avatar/ (remote Links: pose-feed slot writes, Clear/Rearm, pose math, Tunics = tunic slots; avatartest = fake RAM + C tunic allocation), gfx/texture/ (CMPR tunic recolor, ResTIMG), mailbox/ (T2 + mailbox layout, WWMB header read, BlobHash; layout_gen.go is generated from mailbox.h by tools/gen_mailbox), events/ (bus + core game events), commands/ (command registry, write gate), fakegame/ (deterministic fake game for tests), schema/, semver/; the mod runtime (manifest, resolver, supervisor); Game (Attach/NewGame: watcher, strict contract check: WWMB header + hash of the blob's read-only sections, Phase E1)
+│                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), savefile/ (GCI/card I/O), backup/ (card backups), tables/ (M1 disc table builders + cache), player/ (Link: Ptr/Ready/Position/DemoType/Pose/Face; Warp, WarpForce; input Override/Release/Press; playertest = fake warp handler), avatar/ (remote Links: pose-feed slot writes, Clear/Rearm, pose math, Tunics = tunic slots; avatartest = fake RAM + C tunic allocation), gfx/texture/ (CMPR tunic recolor, ResTIMG), mailbox/ (T2 + mailbox layout, WWMB header read, BlobHash; layout_gen.go is generated from mailbox_core.h (+ mailbox_mp.h) by tools/gen_mailbox), events/ (bus + core game events), commands/ (command registry, write gate), fakegame/ (deterministic fake game for tests), schema/, semver/; the mod runtime (manifest, resolver, supervisor); Game (Attach/NewGame: watcher, strict contract check: WWMB header + hash of the blob's read-only sections, Phase E1)
 ├── mods/                        # Compiled-in mods (docs/api §6): example/ (D3), _fixtures/ (runtime test mods)
 │   ├── coop/                    # The co-op mod (D2c: mod.go + mod.json, requires multiplayer; CLI commands + the stage tables post-patch step). Co-op engine (docs/08): replica, hub, world, wire, derive, class, story, inventory, bind, ...; proto/ (the Feature bits, policies and scoped filters hub and replica share)
 │   │                            #   combat/ (M6: K1 classes, layouts, gates, Revalidate over wwapi/actors), savemerge/ (offline save merge), synctables/ (sync verdicts and acceptance over wwapi/tables)
@@ -65,10 +65,15 @@ ww-multiplayer/
 │       ├── net/                 # package network: TCP server/client, protocol + handshake, lobby, co-op channel, timing knobs (netconfig.go)
 │       ├── playercolor/         # Tunic color palette + --color / WW_COLOR parsing (docs/09)
 │       └── tunicsync/           # Session side of the tunic colors: SyncTunics, the appearance byte, the dump block (docs/09 §5.4)
-├── inject/                      # C source for the injected PPC code
-│   ├── src/multiplayer.c        # The mod's C side
-│   ├── include/{game,mailbox}.h
-│   ├── build.py                 # Freighter wrapper — builds patched.dol from original.dol
+├── inject/                      # C source for the injected PPC code (split into core + the multiplayer mod in Phase E3, docs/api §6.6)
+│   ├── src/core/                # The core: hooks.c (main01_init, frame_shim + multiplayer_update, daPy_draw_hook, pad_read_shim; the fixed call
+│   │                            #   order written as a dispatcher), services.c (warp, tunic images + swap, face tev blocks + snapshot, pose publish),
+│   │                            #   core.h (core-only decls), mods.h (the mod entry points the hooks call)
+│   ├── src/mp/                  # The multiplayer mod: mp.h (PROC_* list, eye joints), puppets.c (actor puppets), minilink.c (mini-Links, pose feed,
+│   │                            #   eye fix; mp_frame, mp_draw_post), face.c (face hook arm/disarm, per-slot face bracket)
+│   ├── include/                 # wwapi.h (game types/addresses + the core services a C mod calls), mailbox_core.h (MAILBOX_ADDR, WWMB header,
+│   │                            #   the Mailbox struct), mailbox_mp.h (MAX_PUPPETS, MAX_REMOTE_LINKS, MAILBOX_POSE_SLOT_CAP, Puppet)
+│   ├── build.py                 # Freighter wrapper — builds patched.dol from original.dol (C_SOURCES: one add_c_file per unit)
 │   └── patch_iso.py             # Local-dev ISO splicer (relies on `wit copy`-prepped ISO)
 ├── cheats/
 │   ├── GZLE01.ini               # Curated Gecko code pack, copied into <USER_DIR>/GameSettings by `dolphin2` and the app's Dolphin launch
@@ -82,7 +87,7 @@ ww-multiplayer/
 │   └── ww-multiplayer.exe.manifest  # Windows app manifest (DPI, Common Controls 6, asInvoker), in cmd/ww-multiplayer/ww_windows.syso via go generate
 ├── tools/
 │   ├── blobstamp/               # Writes/checks internal/inject/blob.stamp
-│   ├── gen_mailbox/             # inject/include/mailbox.h -> wwapi/mailbox/layout_gen.go (go generate ./wwapi/mailbox)
+│   ├── gen_mailbox/             # inject/include/mailbox_core.h (+ mailbox_mp.h) -> wwapi/mailbox/layout_gen.go (go generate ./wwapi/mailbox)
 │   └── mkicns/                  # docs/img/icon.ico -> docs/img/icon.icns (macOS app icon; go generate ./cmd/ww-multiplayer)
 ├── .github/workflows/
 │   ├── build.yml                # CI: go vet + cross-build on push/PR; macOS job also builds + zips the .app (smoke, no publish)
@@ -179,8 +184,9 @@ scripts/mplay2.sh                           # Same as `wwdev.exe mp-local`, but 
 ## Build pipeline (C side → ww-multiplayer.exe)
 
 ```bash
-# Iterate on multiplayer.c locally:
-cd inject && rm -f build/temp/multiplayer.c.o && python build.py && python patch_iso.py
+# Iterate on the C side (inject/src, inject/include) locally (build.py removes
+# each unit's old object itself):
+cd inject && python build.py && python patch_iso.py
 # Then quit + relaunch Dolphin to pick up the new patched ISO.
 
 # When happy with C changes, regenerate the embedded blob the standalone
@@ -206,7 +212,7 @@ run `go generate ./cmd/ww-multiplayer` (needs `rsrc`) to rebuild
 `internal/inject/blob.go` is committed and treated as source for build
 purposes. CI on push/PR doesn't rebuild the C side; tag releases include
 the latest committed blob, so **regenerate blob.go before tagging** if
-multiplayer.c has changed since the last release.
+the C side (inject/src, inject/include) has changed since the last release.
 
 CI checks the committed blob against the committed C sources on every PR
 (`internal/inject/blobstamp`, `internal/inject/t2_budget_test.go`,
@@ -215,8 +221,9 @@ CI checks the committed blob against the committed C sources on every PR
 from, so any edit there, comments included, fails CI until the blob is
 rebuilt and restamped; T2 must end below `MAILBOX_ADDR`; build.py's
 inject address and OSInit patch must match blob.go; the Go mailbox
-offsets (`wwapi/mailbox/layout_gen.go`, generated from mailbox.h) must be
-fresh: after a mailbox.h layout change run `go generate ./wwapi/mailbox`.
+offsets (`wwapi/mailbox/layout_gen.go`, generated from mailbox_core.h and
+the mailbox_mp.h it includes) must be fresh: after a layout change in either
+run `go generate ./wwapi/mailbox`.
 Restamp only via extract_blob.py after a real rebuild, never to silence
 the check. A PR that touches those C
 inputs, even comment-only, must carry the restamp in the same PR: the
@@ -292,14 +299,14 @@ them — that's intentional, so you can re-run `mp-local` without rebooting.
 ### Save-state ↔ C-blob coupling (the one manual step)
 
 Dolphin save states snapshot the entire PPC RAM, including our injected
-mod blob at `0x80410000+`. Any change to `inject/src/multiplayer.c` or
-`inject/include/mailbox.h` (which triggers a blob regen via `python
+mod blob at `0x80410000+`. Any change to `inject/src` or
+`inject/include` (which triggers a blob regen via `python
 build.py`) invalidates `saves/start.sav` — loading the old state restores
 the OLD blob over the freshly-patched ISO's new code.
 
 After a C-side change, the recapture cycle reduces to:
 
-1. Claude: rebuild the blob (`cd inject && rm -f build/temp/multiplayer.c.o && python build.py && python patch_iso.py && cd .. && python scripts/extract_blob.py && go build -o ww-multiplayer.exe ./cmd/ww-multiplayer && go build -o wwdev.exe ./cmd/wwdev`)
+1. Claude: rebuild the blob (`cd inject && python build.py && python patch_iso.py && cd .. && python scripts/extract_blob.py && go build -o ww-multiplayer.exe ./cmd/ww-multiplayer && go build -o wwdev.exe ./cmd/wwdev`)
 2. Claude: `./wwdev.exe auto-recapture`. This kills running Dolphins,
    cold-boots the patched ISO, drives the title/intro/file-select menus to
    in-game via input injection, screenshots the spawn spot, then prompts the

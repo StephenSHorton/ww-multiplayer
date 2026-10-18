@@ -12,7 +12,7 @@ import (
 
 // TestSlotOffsets checks the per-slot mailbox offsets against the
 // generated layout (wwapi/mailbox/layout_gen.go, from
-// inject/include/mailbox.h; its freshness test is wwapi/mailbox's
+// inject/include/mailbox_core.h; its freshness test is wwapi/mailbox's
 // TestMailboxLayout).
 func TestSlotOffsets(t *testing.T) {
 	for slot := 0; slot < mailbox.MailboxPoseSlotCap; slot++ {

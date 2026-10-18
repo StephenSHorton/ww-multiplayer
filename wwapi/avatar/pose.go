@@ -11,7 +11,7 @@ import (
 
 // JointCount is the number of joints in Link's skeleton, one 48-byte Mtx
 // each in mpNodeMtx. The C side sizes every mini-Link pose buffer for this
-// rig (pose_buf_u32s = joint count * 12 in multiplayer.c), so a remote pose
+// rig (pose_buf_u32s = joint count * 12 in inject/src/mp/minilink.c), so a remote pose
 // is written only when it has exactly this many joints. It is
 // player.JointCount, the joint count Link.Pose sizes its read by.
 const JointCount = player.JointCount
@@ -34,7 +34,7 @@ func PoseDstInMEM1(dst uint32, n int) bool {
 
 // NextSeq returns the sequence byte that follows cur, skipping 0 on wrap.
 // The C side reads a pose_seqs or face_seqs value of 0 as "nothing written
-// yet" and skips the slot that frame (multiplayer.c, the pose_seqs checks in
+// yet" and skips the slot that frame (inject/src/mp/minilink.c, the pose_seqs checks in
 // the mode-5 draw path), so a plain cur+1 would blank the remote Link once
 // every 256 writes, about every 4 s at puppet-sync's 60 Hz.
 func NextSeq(cur byte) byte {
