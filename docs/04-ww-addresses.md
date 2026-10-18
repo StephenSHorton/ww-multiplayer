@@ -151,7 +151,7 @@ The co-op writer only writes while these say the game is settled (docs/08 §3.2)
 | `dMenu_pause` | `0x803F7097` | 1 | sym:19130 |
 | `mMiniGameType` | `0x803CA8E2` | 1 | `d_com_inf_game.h:886` (play +0x4A3A) |
 | `mPlayerInfoBufferStageNo` (1-4 while a Ganon's Tower boss-refight snapshot is active, else 0) | `0x803CA8C8` | 1 | `d_com_inf_game.h:882` (play +0x4A20); `d_com_inf_game.cpp:1446-1457,1580-1581` |
-| mailbox `spawn_trigger` (mod heartbeat, bumped once per frame by `multiplayer_update`) | `0x80412F00` | 4 | `inject/include/mailbox.h:33,109`; `inject/src/multiplayer.c:342` |
+| mailbox `spawn_trigger` (mod heartbeat, bumped once per frame by `multiplayer_update`) | `0x80412F00` | 4 | `inject/include/mailbox_core.h` (MAILBOX_ADDR, spawn_trigger); `inject/src/core/hooks.c` multiplayer_update |
 
 ### Pending counters
 
@@ -193,9 +193,9 @@ Defined in `include/d/d_procname.h` in the decomp.
 0x803FCF20      DOL end (the Freighter DOL-section attempt sat here and BSS zeroing wiped it; the legacy runtime injector in internal/dolphin/inject.go also targets it)
 0x803FCFA8      BSS end
 0x8040CFA8      Main stack top (64 KB stack grows down to 0x803FCFA8); MetroTRK debug stack above
-0x80410000      Mod T2 code + data (0x2E08 B, ends 0x80412E08; internal/inject/blob.go)
-0x80412E08      Free code space (0xF8 B)
-0x80412F00      Mailbox (0x1B0 B since Phase E1; inject/include/mailbox.h MAILBOX_ADDR)
+0x80410000      Mod T2 code + data (0x2A88 B since Phase E3, ends 0x80412A88; internal/inject/blob.go)
+0x80412A88      Free code space (0x478 B)
+0x80412F00      Mailbox (0x1B0 B since Phase E1; inject/include/mailbox_core.h MAILBOX_ADDR)
 0x80414000      Patched __OSArenaLo (inject/build.py OSInit patch); heap/arena above
 0x81800000  ─── RAM end (24MB)
 ```
@@ -250,5 +250,5 @@ propagate to the game's read path (race against per-frame PADRead and/or
 Dolphin's dual memory mapping, see `docs/02`). Use the C-side
 `pad_read_shim` hook instead: write the mailbox `input_*` fields and set
 `input_enable=1`, then `JUTGamePad::read()`'s downstream derivations
-pick up the synthetic values cleanly. See `inject/src/multiplayer.c`
+pick up the synthetic values cleanly. See `inject/src/core/hooks.c`
 and the `input` subcommand in `main.go`.

@@ -1,6 +1,7 @@
 package mailboxgen
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -23,7 +24,7 @@ typedef struct {
 `
 
 func TestParseLayout(t *testing.T) {
-	l, err := Parse([]byte(sample))
+	l, err := Parse("mailbox_core.h", []byte(sample), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +38,7 @@ func TestParseLayout(t *testing.T) {
 	if f := mb.Fields[2]; f.CName != "inner" || f.Offset != 8 || f.Len != 2 || f.Size != 8 {
 		t.Errorf("inner = %+v", f)
 	}
-	out, err := Generate([]byte(sample))
+	out, err := Generate("mailbox_core.h", []byte(sample), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +67,7 @@ func TestParseRefuses(t *testing.T) {
 		if src == sample {
 			t.Fatalf("%s: replacement did not apply", name)
 		}
-		if _, err := Generate([]byte(src)); err == nil || !strings.Contains(err.Error(), c.err) {
+		if _, err := Generate("mailbox_core.h", []byte(src), nil); err == nil || !strings.Contains(err.Error(), c.err) {
 			t.Errorf("%s: err = %v, want %q", name, err, c.err)
 		}
 	}
@@ -81,4 +82,113 @@ func TestGoName(t *testing.T) {
 			t.Errorf("GoName(%q) = %q, want %q", c, got, want)
 		}
 	}
+}
+
+// The Phase E3 split: the root header includes a mailbox_*.h in place.
+// Moving Inner and CAP into the included header changes no offset and,
+// apart from the generated file's first line, nothing in the output.
+const splitCore = `#define MAILBOX_ADDR 0x80412F00
+#include "wwapi.h"
+#include "mailbox_mp.h"
+
+typedef struct {
+    u32 spawn_trigger;   // +0x00: heartbeat
+    // a comment line inside the struct
+    u8  flag;            // +0x04
+    Inner inner[CAP];    // +0x08
+    u16 tail;            // +0x18
+} Mailbox;
+`
+
+const splitMp = `#ifndef MAILBOX_MP_H
+#define MAILBOX_MP_H
+#include "wwapi.h"
+#define CAP 2
+
+typedef struct {
+    u8  a;    // +0x00
+    u32 b;    // +0x04
+} Inner;  // 8 bytes, aligned to 4
+#endif
+`
+
+func reader(files map[string]string) Reader {
+	return func(name string) ([]byte, error) {
+		s, ok := files[name]
+		if !ok {
+			return nil, fmt.Errorf("no %s", name)
+		}
+		return []byte(s), nil
+	}
+}
+
+func TestParseIncludes(t *testing.T) {
+	one, err := Generate("mailbox_core.h", []byte(sample), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An include seen twice is read once, as its guard would have it.
+	core := strings.Replace(splitCore, `#include "mailbox_mp.h"`, "#include \"mailbox_mp.h\"\n#include \"mailbox_mp.h\"", 1)
+	l, err := Parse("mailbox_core.h", []byte(core), reader(map[string]string{"mailbox_mp.h": splitMp}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Sources) != 2 || l.Sources[0].Name != "mailbox_core.h" || l.Sources[1].Name != "mailbox_mp.h" {
+		t.Errorf("Sources = %v", l.Sources)
+	}
+	two, err := l.Go()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := func(b []byte) (string, string) {
+		s := string(b)
+		i := strings.IndexByte(s, '\n')
+		return s[:i], s[i:]
+	}
+	h1, rest1 := first(one)
+	h2, rest2 := first(two)
+	if rest1 != rest2 {
+		t.Errorf("split headers generate other code:\n%s\nwant\n%s", two, one)
+	}
+	if !strings.Contains(h1, "from inject/include/mailbox_core.h.") || !strings.Contains(h2, "from inject/include/mailbox_core.h (with mailbox_mp.h).") {
+		t.Errorf("generated headers %q, %q", h1, h2)
+	}
+}
+
+func TestParseIncludeRefuses(t *testing.T) {
+	files := map[string]string{"mailbox_mp.h": splitMp}
+	for name, c := range map[string]struct {
+		src  string
+		read Reader
+		err  string
+	}{
+		"no reader":      {splitCore, nil, "mailbox_core.h:3: cannot read included mailbox_mp.h"},
+		"missing file":   {splitCore, reader(nil), "mailbox_core.h:3: no mailbox_mp.h"},
+		"inside struct":  {strings.Replace(splitCore, "    u8  flag;", "#include \"mailbox_x.h\"\n    u8  flag;", 1), reader(files), "#include inside a struct"},
+		"error in mp.h":  {splitCore, reader(map[string]string{"mailbox_mp.h": strings.Replace(splitMp, "u32 b;    // +0x04", "u32 b;    // +0x08", 1)}), "mailbox_mp.h:8: comment says b"},
+		"type from core": {strings.Replace(splitCore, `#include "mailbox_mp.h"`, "", 1), reader(files), `unknown type "Inner"`},
+	} {
+		if _, err := Generate("mailbox_core.h", []byte(c.src), c.read); err == nil || !strings.Contains(err.Error(), c.err) {
+			t.Errorf("%s: err = %v, want %q", name, err, c.err)
+		}
+	}
+}
+
+// FuzzParse: the parser refuses or accepts any header text without
+// panicking, includes and all, and whatever it accepts generates Go or
+// reports why not.
+func FuzzParse(f *testing.F) {
+	f.Add(sample, splitMp)
+	f.Add(splitCore, splitMp)
+	f.Add(splitCore, `#include "mailbox_core.h"`+"\n"+splitMp)
+	f.Fuzz(func(t *testing.T, core, mp string) {
+		l, err := Parse("mailbox_core.h", []byte(core), reader(map[string]string{"mailbox_mp.h": mp, "mailbox_core.h": core}))
+		if err != nil {
+			return
+		}
+		if l.Mailbox() == nil || len(l.Sources) == 0 || l.Sources[0].Name != "mailbox_core.h" {
+			t.Fatalf("accepted a layout without a Mailbox or its root: %+v", l)
+		}
+		_, _ = l.Go()
+	})
 }

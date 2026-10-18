@@ -1,11 +1,18 @@
 // Shared memory mailbox for communication between the Go host and the
 // injected PPC code. Lives in the orphan region between our T2 code
-// (ends ~0x80410448) and __OSArenaLo (0x80411000): outside any DOL
-// section, outside the game's arena, nothing else touches it.
-#ifndef MAILBOX_H
-#define MAILBOX_H
+// and __OSArenaLo (0x80414000): outside any DOL section, outside the
+// game's arena, nothing else touches it.
+//
+// Phase E3 split the old mailbox.h in two with every offset unchanged:
+// this file (the core: the address, the WWMB header, FaceState and the
+// one Mailbox struct both sides share) and mailbox_mp.h (the
+// multiplayer mod's slot counts and Puppet). tools/gen_mailbox reads
+// this file and follows its #include "mailbox_mp.h" in place, so
+// wwapi/mailbox/layout_gen.go is generated from both.
+#ifndef MAILBOX_CORE_H
+#define MAILBOX_CORE_H
 
-#include "game.h"
+#include "wwapi.h"
 
 // History: 0x80410800 → 0x80410900 → 0x80410F00 → 0x80411F00 → 0x80412F00.
 // Every time we add injected code the mod end crept up and crossed the
@@ -50,62 +57,9 @@
 #define WW_FEAT_WARP 0x20
 #define WW_FEATURES 0x3F
 
-// Up to this many remote players can be mirrored as puppet actors.
-// Pick a humble number; each slot adds one actor allocation.
-#define MAX_PUPPETS 4
-
-// Up to this many remote players can be rendered as full Link puppets
-// via the pose-feed pipeline (shadow_mode 5). Each slot allocates its
-// own J3DModel + 42-joint pose buffer (~2 KB each) from ArchiveHeap +
-// GameHeap.
-//
-// Unblocked 2026-04-20: J3DModel create flag 0x80000 was sharing the
-// material display list across instances — every J3DModel::entry()'s
-// makeDisplayList() patched the same shared buffer, so N>1 all
-// rendered the last-submitted pose. Flipping the flag to 0 in
-// multiplayer.c's mDoExt_J3DModel__create call makes createMatPacket
-// allocate private per-instance DLs (J3DModel.cpp:296-309). N>1 now
-// works. Bump in lockstep with MAILBOX_POSE_SLOT_CAP if needed.
-#define MAX_REMOTE_LINKS 2
-
-// Layout-reserved slot capacity for the per-slot pose arrays in the
-// Mailbox struct below. Keep this FIXED so Go's hardcoded mailbox
-// offsets (main.go: mailboxPoseBufPtr etc.) stay correct regardless of
-// MAX_REMOTE_LINKS. Runtime only iterates the first MAX_REMOTE_LINKS
-// slots; the rest stays zero. Bumping MAX_REMOTE_LINKS to 2 (once the
-// shared-J3DModelData blocker is unlocked) is free; bumping past
-// MAILBOX_POSE_SLOT_CAP needs a coordinated Mailbox-layout + Go-offset
-// revision.
-#define MAILBOX_POSE_SLOT_CAP 2
-
-// Per-slot state. Size is 0x20 bytes (nice round hex).
-//   active   — Go sets 1 when a remote player owns this slot, 0 to
-//              release it. While it is 1, C spawns the actor, and
-//              respawns it after the game deletes it or after a stage
-//              change. When it goes to 0, C deletes the actor
-//              (puppet_reap). A stage change, Link going away or a new
-//              Link actor deletes every slot's actor whatever active
-//              is; slots still at 1 respawn in the new stage.
-//   actor_ptr — C publishes the live actor pointer after SearchByID
-//              succeeds so Go can read/poke the actor if needed
-//              (e.g. unhide-puppet writes mSwitchNo for KAMOME).
-//   pos_*     — big-endian f32s Go writes each tick (already lerp-
-//              smoothed if puppet-sync applies). C copies into the
-//              actor's current.pos (+0x1F8) every frame.
-//   rot_*     — big-endian s16s. C copies into both current.angle
-//              (+0x204) and shape_angle (+0x20C) every frame.
-typedef struct {
-    u32 actor_ptr;       // +0x00
-    u32 active;          // +0x04
-    f32 pos_x;           // +0x08
-    f32 pos_y;           // +0x0C
-    f32 pos_z;           // +0x10
-    s16 rot_x;           // +0x14
-    s16 rot_y;           // +0x16
-    s16 rot_z;           // +0x18
-    u16 _pad0;           // +0x1A
-    u32 _reserved;       // +0x1C — keep zero; room for anim state later
-} Puppet;
+// The multiplayer mod's counts and its Puppet slot type. The Mailbox
+// struct below uses them, so they come first.
+#include "mailbox_mp.h"
 
 // See "FACE-STATE NETWORK SYNC" block in Mailbox below for context.
 //
@@ -137,9 +91,24 @@ typedef struct {
 // same offsets, so every live field keeps its offset. Nothing reads or
 // writes a _reserved byte; a new field may take one only with another
 // WWMB_LAYOUT bump.
+//
+// Owners (Phase E3; the C files that write each region):
+//   +0x000..+0x00F  core  heartbeat, progress (core writes 1 during the
+//                         boot gate, mp_frame the rest), callback slot
+//   +0x010..+0x08F  mp    puppets[] (actor puppets, src/mp/puppets.c)
+//   +0x090..+0x0BF  mp    shadow_mode, the pose-feed slots (minilink.c)
+//   +0x0C0..+0x0C7  core  pose publish (services.c)
+//   +0x0C8..+0x0E4  core  warp (services.c)
+//   +0x130..+0x15F  mp    per-slot face state and the face hook (face.c)
+//   +0x160..+0x16F  core  face_state_local (services.c)
+//   +0x170..+0x17F  core  input (hooks.c pad_read_shim)
+//   +0x180..+0x187  core  WWMB header (hooks.c main01_init)
+//   +0x188..+0x19F  core  tunic images (services.c)
+//   +0x1A0..+0x1AF  core  features (main01_init), padding
+// The _reserved runs inside them belong to nobody.
 typedef struct {
     u32 spawn_trigger;   // +0x00: per-frame heartbeat counter
-    u32 progress;        // +0x04: debug marker — see multiplayer.c
+    u32 progress;        // +0x04: debug marker — see src/mp/minilink.c (mp_frame)
     u32 _pad0;           // +0x08: also reused by main01_init as CALLBACK_PTR slot (mailbox+0x08 = 0x80410F08)
     u32 _reserved0;      // +0x0C: retired in E2 (was draw_progress)
     Puppet puppets[MAX_PUPPETS];  // +0x10 .. +0x10 + 0x20*N
@@ -367,7 +336,7 @@ typedef struct {
     // (TUNIC_SLOT_LOCAL) is Link #1 on this Dolphin.
     //
     // Go writes tunic_buf_size (bytes per image) once; the next
-    // multiplayer_update allocates the three images from GameHeap ONCE
+    // multiplayer_update (tunic_alloc) allocates the three images from GameHeap ONCE
     // and publishes them in tunic_bufs. Nothing ever frees or resets
     // them (F18 lifetime rule: GameHeap blocks stay valid all session).
     // Go then writes each image (internal/tunic Recolor) and sets

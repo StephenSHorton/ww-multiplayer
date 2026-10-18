@@ -16,7 +16,7 @@ import (
 func (f *Feeder) armPoseSlot(ctx context.Context, slot int) bool {
 	// Re-poll each call: the receiving Dolphin's mini-Link state can
 	// reset when the player reloads a save (mini_link_reset_state in
-	// inject/src/multiplayer.c clears mailbox.pose_buf_ptrs and
+	// inject/src/mp/minilink.c clears mailbox.pose_buf_ptrs and
 	// pose_buf_states, then the next mode-5 draw lazy-allocs a NEW
 	// pose_buf at a possibly-different address). If we cached the
 	// old pointer, we'd write fresh poses into freed memory while

@@ -66,7 +66,7 @@ const (
 	MaxChatLen = 1024
 
 	// MaxPoseJoints caps a pose frame's joint count. Link has 42, and the
-	// C side refuses rigs over 128 (pose_joint_num in multiplayer.c).
+	// C side refuses rigs over 128 (pose_joint_num in inject/src/mp/minilink.c).
 	MaxPoseJoints = 128
 
 	// MaxFaceBytes caps a pose frame's optional face-state trailer

@@ -48,7 +48,7 @@ const despawnReserve = 10 * time.Second
 // connected) is usually first seen with a position only; its pose
 // follows a few ticks later and it is drawn as a Link, no actor needed.
 // The C side deletes an actor puppet when its slot goes inactive and on
-// every stage change (inject/src/multiplayer.c puppet_reap): before
+// every stage change (inject/src/mp/puppets.c puppet_reap): before
 // that, a KAMOME left behind this way outlived its stage, read its old
 // room's path and froze the game ("Invalid read from 0x1a0d0013, PC =
 // 0x80f24230", d_a_kamome). The wait keeps that spawn-and-delete churn

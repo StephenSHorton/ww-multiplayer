@@ -12,7 +12,7 @@ import (
 // writes into blob.go (Phase E1) agree with T2Bytes, with the C sources
 // and with wwapi/mailbox: T2End is where T2 ends, .text lies inside T2,
 // BlobHash is the CRC-32 of HashRanges (the read-only sections), and the mailbox address, arena,
-// ABI, layout version and features are mailbox.h's and build.py's.
+// ABI, layout version and features are mailbox_core.h's and build.py's.
 func TestBlobContract(t *testing.T) {
 	if T2End != T2Address+uint32(len(T2Bytes)) {
 		t.Errorf("T2End 0x%08X, T2 is 0x%08X + 0x%X", T2End, T2Address, len(T2Bytes))
@@ -40,20 +40,20 @@ func TestBlobContract(t *testing.T) {
 		t.Errorf("BlobHash 0x%08X, the CRC-32 of T2Bytes over HashRanges is 0x%08X", BlobHash, h)
 	}
 	if mailbox := define(t, mailboxH, "MAILBOX_ADDR"); MailboxAddr != mailbox || MailboxAddr != mbox.Mailbox {
-		t.Errorf("MailboxAddr 0x%08X, mailbox.h 0x%08X, wwapi/mailbox 0x%08X", MailboxAddr, mailbox, mbox.Mailbox)
+		t.Errorf("MailboxAddr 0x%08X, mailbox_core.h 0x%08X, wwapi/mailbox 0x%08X", MailboxAddr, mailbox, mbox.Mailbox)
 	}
 	_, patches := buildPyFacts(t)
 	if arena := patchedArenaLo(t, patches); ArenaLo != arena || ArenaLo != mbox.PatchedArenaLo {
 		t.Errorf("ArenaLo 0x%08X, build.py 0x%08X, wwapi/mailbox 0x%08X", ArenaLo, arena, mbox.PatchedArenaLo)
 	}
 	if uint32(ABI) != define(t, mailboxH, "WWMB_ABI") || ABI != mbox.WwmbAbi || ABI == 0 {
-		t.Errorf("ABI %d, mailbox.h WWMB_ABI %d", ABI, mbox.WwmbAbi)
+		t.Errorf("ABI %d, mailbox_core.h WWMB_ABI %d", ABI, mbox.WwmbAbi)
 	}
 	if uint32(LayoutVersion) != define(t, mailboxH, "WWMB_LAYOUT") || LayoutVersion != mbox.WwmbLayout || LayoutVersion == 0 {
-		t.Errorf("LayoutVersion %d, mailbox.h WWMB_LAYOUT %d", LayoutVersion, mbox.WwmbLayout)
+		t.Errorf("LayoutVersion %d, mailbox_core.h WWMB_LAYOUT %d", LayoutVersion, mbox.WwmbLayout)
 	}
 	if Features != define(t, mailboxH, "WW_FEATURES") || Features != mbox.WwFeatures {
-		t.Errorf("Features 0x%X, mailbox.h WW_FEATURES 0x%X", Features, mbox.WwFeatures)
+		t.Errorf("Features 0x%X, mailbox_core.h WW_FEATURES 0x%X", Features, mbox.WwFeatures)
 	}
 	// main01_init builds the 'WWMB' magic with lis rN,0x5757 and
 	// ori rN,rN,0x4D42: the committed .text must contain both halves.

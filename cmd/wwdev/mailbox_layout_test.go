@@ -8,7 +8,7 @@ import (
 
 // TestMailboxHelpers checks package main's mailbox-derived sizes against
 // the generated layout (wwapi/mailbox/layout_gen.go, from
-// inject/include/mailbox.h; its freshness test is wwapi/mailbox's
+// inject/include/mailbox_core.h; its freshness test is wwapi/mailbox's
 // TestMailboxLayout). The actor-puppet slot helper is feed's, checked by
 // its TestSlotAddr; the pose-feed and tunic slot offsets are wwapi/avatar's,
 // checked by its TestSlotOffsets.

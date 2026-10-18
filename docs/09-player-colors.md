@@ -6,7 +6,7 @@
 
 **Conventions**
 - `tww/` means the zeldaret/tww decomp at commit 4d78c994. References use `file:line`.
-- `multiplayer.c` means `inject/src/multiplayer.c` on this branch. Line numbers shift, so search for the named function.
+- `multiplayer.c` means `inject/src/multiplayer.c` on this branch. Line numbers shift, so search for the named function. Phase E3 (docs/api §6.6) split that file: the tunic code (`tunic_alloc`, `tunic_swap`, `tunic_restore`) is now in `inject/src/core/services.c`, the Link draw hook in `inject/src/core/hooks.c`, and the mini-Link and face code in `inject/src/mp/minilink.c` and `inject/src/mp/face.c`; `mailbox.h` became `mailbox_core.h` + `mailbox_mp.h` and `game.h` became `wwapi.h`.
 - All addresses are absolute GZLE01 (NTSC-U) addresses.
 - **(inferred)** marks a claim read from code but never observed on a live Dolphin.
 
@@ -159,10 +159,10 @@ The name memory is capped at 256 entries.
 
 ### 5.3 C bracket (built)
 
-**Mailbox block** (`inject/include/mailbox.h`, "TUNIC COLORS").
+**Mailbox block** (`inject/include/mailbox_core.h`, "TUNIC COLORS").
 - +0x180..+0x187 stay reserved for the docs/08 §4.5 option A header.
 - The mailbox grows from 0x180 to 0x1A0 bytes. 0x80413080..0x80414000 was unused.
-- The Go offsets are generated from `mailbox.h` (`tools/gen_mailbox` → `wwapi/mailbox/layout_gen.go`, since Phase C step C9). `TestMailboxLayout` (wwapi/mailbox) fails when that file is stale, and the generator refuses a header whose own `+0xNN` comments disagree with the struct.
+- The Go offsets are generated from `mailbox_core.h` + `mailbox_mp.h` (`tools/gen_mailbox` → `wwapi/mailbox/layout_gen.go`, since Phase C step C9). `TestMailboxLayout` (wwapi/mailbox) fails when that file is stale, and the generator refuses a header whose own `+0xNN` comments disagree with the struct.
 
 | Off | Field | Writer |
 |---|---|---|
@@ -178,7 +178,7 @@ The design's `tunic_used_idx` / `tunic_spare_idx` fields were dropped. C finds t
 - When `tunic_state == 0` and `tunic_buf_size != 0`, C allocates each null slot with `JKRHeap_alloc(size, 0x20, mDoExt_getGameHeap())`. This is the allocator and alignment `pose_bufs` uses.
 - It then sets the state to 1, or to 0xFD if any allocation failed. The ones that worked stay published.
 - Nothing sets the state back to 0, and `mini_link_reset_state` does not touch the block. The buffers are allocated **once per boot** and never dropped.
-- That is the F18 lifetime rule in `multiplayer.c`'s "Lifetimes" comment: GameHeap blocks stay valid for the session, and a dropped pointer is a leak.
+- That is the F18 lifetime rule in the "Lifetimes" comment in `inject/src/mp/minilink.c`: GameHeap blocks stay valid for the session, and a dropped pointer is a leak.
 
 **Swap.** `tunic_swap(link, slot)` and `tunic_restore()` are marked `noinline, optimize("Os")` to stay small:
 
@@ -275,7 +275,7 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
 - So a remote's casual header is always reachable from the viewer's own Link: the worn header while the viewer is casual, `mOtherLinktex` while the viewer wears the hero's clothes. Both offsets in it are relative to the worn header, so copying it into the worn header unchanged makes both resolve.
 - `loadTexNo` loads the TLUT from the header too when `indexTexture` is set (`J3DTevs.cpp:138-152`), and the differed buffer is sized for it (0x37 bytes per texNo, `J3DPacket.h:43-45`), so the per-instance bracket carries the format, image and palette.
 
-**C** (`tunic_swap`): enable byte value 2 (`TUNIC_ENABLE_CASUAL`, mailbox.h) on a remote slot means "this remote wears the casual clothes":
+**C** (`tunic_swap`): enable byte value 2 (`TUNIC_ENABLE_CASUAL`, mailbox_core.h) on a remote slot means "this remote wears the casual clothes":
 - viewer casual: nothing to swap (the worn header already is the casual one);
 - viewer in hero clothes: copy the 8 words of `mOtherLinktex` into the worn header unchanged (no image buffer, no CMPR check) and restore after the slot's entry, exactly like the hero swap.
 - Enable 1 behaves as before, so a hero remote seen by a casual viewer still gets the hero header from `mOtherLinktex` with its colored image. The local slot never takes 2.
@@ -320,7 +320,7 @@ The casual shirt does not depend on the color pipeline, since C reads no image b
 - Gate: the heap error counters (`gameHeapErrors` 0x803F68F8, docs/08 §4.5) stay 0.
 
 **Save-state coupling.** This branch changes `multiplayer.c` and `mailbox.h`, so:
-1. Rebuild: `cd inject && rm -f build/temp/multiplayer.c.o && python build.py && python patch_iso.py && cd .. && python scripts/extract_blob.py && go build`. `blob.go` is already regenerated on the branch; `patch_iso.py` is the owner's step.
+1. Rebuild: `cd inject && python build.py && python patch_iso.py && cd .. && python scripts/extract_blob.py && go build`. `blob.go` is already regenerated on the branch; `patch_iso.py` is the owner's step.
 2. Run `./wwdev.exe auto-recapture`, then the owner presses **Shift+F1** once.
 3. Users re-patch their ISO.
 
@@ -472,7 +472,7 @@ Setup: run `SAVE_STATE=… ./wwdev.exe dolphin2`, then `WW_TUNIC=off ./wwdev.exe
 - this document
 
 **Changed:**
-- `inject/src/multiplayer.c`, `inject/include/{mailbox,game}.h`: the C bracket and allocation. `internal/inject/blob.go` is regenerated.
+- `inject/src/multiplayer.c`, `inject/include/{mailbox,game}.h`: the C bracket and allocation (split in E3, docs/api §6.6: now `inject/src/core/services.c`, `inject/include/{mailbox_core,wwapi}.h`). `internal/inject/blob.go` is regenerated.
 - `mods/multiplayer/net/{protocol,handshake,server,client}.go`: trailer, hello, assignment, accessors
 - `mods/multiplayer/net/coop_test.go`: the new `writeJoinRole` argument
 - `internal/session/session.go`: `Player.Color` / `HasColor`

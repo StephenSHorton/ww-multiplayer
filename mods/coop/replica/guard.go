@@ -79,7 +79,7 @@ const (
 	// TargetEscape is what the escape hatches write (§6.7, from M3):
 	// mNextStage, for "refresh area" and a warp to a partner on another
 	// stage, and the mailbox's warp request (warp_seq and warp_x/y/z,
-	// mailbox.h:221-225), for a warp on the same stage. Each byte takes
+	// mailbox_core.h), for a warp on the same stage. Each byte takes
 	// only the values the game accepts there (escapeRules); warp_ack and
 	// warp_force are not in it. They are no save data, and nothing of
 	// the world: FrameWriter.ApplyFields writes them, on the user's word

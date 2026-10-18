@@ -17,7 +17,7 @@ const JointCount = 42
 const PoseBytes = JointCount * 48
 
 // FaceBytes is the size of the local face state the C side publishes:
-// one mailbox FaceState (mailbox.h).
+// one mailbox FaceState (mailbox_core.h).
 const FaceBytes = mailbox.FaceStateSize
 
 // Position is Link's current.pos and shape_angle as the game holds them.

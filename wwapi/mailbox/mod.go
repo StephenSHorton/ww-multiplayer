@@ -1,6 +1,6 @@
 // Package mailbox holds the mod's own RAM layout: T2, the Go <-> C
 // mailbox and the regions around them. The mailbox's address, size and
-// field offsets are generated from inject/include/mailbox.h into
+// field offsets are generated from inject/include/mailbox_core.h into
 // layout_gen.go (tools/gen_mailbox); the rest of this file is
 // hand-written.
 //
@@ -16,7 +16,7 @@ import "github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 
 // The mod's own RAM, between the end of the vanilla DOL image and the
 // patched arena (§4.5). None of these come from the decomp: they are set
-// by inject/build.py and inject/include/mailbox.h.
+// by inject/build.py and inject/include/mailbox_core.h.
 const (
 	// T2Base is where the patcher's appended text section loads
 	// (inject/build.py:109). Its end moves with every blob regen, so it is
@@ -24,7 +24,7 @@ const (
 	T2Base uint32 = 0x80410000
 
 	// The Go <-> C mailbox itself, Mailbox (MAILBOX_ADDR) and
-	// MailboxSize, is generated into layout_gen.go from mailbox.h.
+	// MailboxSize, is generated into layout_gen.go from mailbox_core.h.
 
 	// SpawnTrigger is mailbox.spawn_trigger, which multiplayer_update
 	// bumps once per frame: the co-op heartbeat (§3.2). It stalls while

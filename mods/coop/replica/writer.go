@@ -57,7 +57,7 @@ type WriterConfig struct {
 //     game can have run since (write.BeatLead), and a heartbeat that goes
 //     backwards or jumps while it is polled, are a save state loaded
 //     since the snapshot: nothing is written. multiplayer_update's first
-//     act is spawn_trigger++ (inject/src/multiplayer.c:341-342), run by
+//     act is spawn_trigger++ (inject/src/core/hooks.c), run by
 //     frame_shim in place of the cCt_Counter call that follows
 //     fpcM_Management in fapGm_Execute (f_ap_game.cpp:79-80), so a beat
 //     marks the end of a frame: its actors have run. What runs next is

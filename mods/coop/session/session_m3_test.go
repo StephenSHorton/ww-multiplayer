@@ -234,7 +234,7 @@ func coHeap(a uint32) bool { return a >= fakegame.EnemyHeap && a < fakegame.Enem
 
 // frame runs a game frame, with the rooms' ages, then the warp handler as
 // multiplayer_update runs it, right after spawn_trigger++ whenever Link
-// exists (multiplayer.c:341-345, 365-421): a warp_seq that differs from
+// exists (inject/src/core/hooks.c, services.c warp_frame): a warp_seq that differs from
 // warp_ack puts Link at warp_x/y/z and acknowledges it.
 func (b *coBeat) frame() {
 	actors := []fakegame.Actor{&b.ages}

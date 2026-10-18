@@ -30,11 +30,11 @@ import (
 // A request the game has not taken by then is withdrawn. Link is gone (a
 // stage change or a reload) or emulation is paused, and the handler runs
 // on the first frame Link exists whenever warp_seq != warp_ack
-// (multiplayer.c:344-345, :365). Left armed, the request would land later
+// (inject/src/core/hooks.c multiplayer_update). Left armed, the request would land later
 // in whatever stage the game is in by then, where p means another place,
 // and the co-op /warp would refuse while it waits. The withdraw writes
 // warp_ack = the new warp_seq, which is what the handler itself writes
-// (multiplayer.c:421). The handler only ever copies warp_seq into
+// (inject/src/core/services.c warp_frame). The handler only ever copies warp_seq into
 // warp_ack, so if it takes the request between the last read below and
 // the write, both store the same value: Link is moved at most once,
 // warp_seq never goes backwards, and a later warp_seq from another writer

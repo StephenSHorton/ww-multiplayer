@@ -310,7 +310,7 @@ func runPokeU32(addrHex, valHex string) {
 }
 
 // Mailbox field offsets (mailbox.Off*) are generated from
-// inject/include/mailbox.h into wwapi/mailbox/layout_gen.go. shadow_mode
+// inject/include/mailbox_core.h into wwapi/mailbox/layout_gen.go. shadow_mode
 // is 0 (off) or 5 (pose feed); the dev modes 1-4 were deleted in Phase E0.
 //
 // The pose-feed slot fields (pose_buf_ptrs u32, pose_joint_counts u16,
@@ -330,9 +330,9 @@ func runPokeU32(addrHex, valHex string) {
 // C handler in multiplayer_update writes it into Link's home/old/current
 // pos (so velocity-from-(current-old) reads zero) and clears mOldSpeed
 // (so cached momentum doesn't snap Link back), then bumps warp_ack so
-// Go can poll for completion. See inject/include/mailbox.h.
+// Go can poll for completion. See inject/include/mailbox_core.h.
 //
-// Session 9 face-state network sync (see inject/include/mailbox.h
+// Session 9 face-state network sync (see inject/include/mailbox_core.h
 // "FACE-STATE NETWORK SYNC"). Per-slot struct of u16 BE values
 // mirroring J3DTevBlock+0x08..+0x0B for mat[1] (left pupil) and mat[4]
 // (right pupil). Receiver writes these and bumps face_seqs[slot]; the
@@ -352,7 +352,7 @@ func runPokeU32(addrHex, valHex string) {
 // tev_block (which races with the bracket).
 //
 // Input injection (synthetic PADStatus override): the input_* fields
-// mirror PADStatus from libogc; see mailbox.h. C-side pad_read_shim
+// mirror PADStatus from libogc; see mailbox_core.h. C-side pad_read_shim
 // (hooked over bl PADRead in JUTGamePad::read at 0x802C39A0) overrides
 // mPadStatus[0] when input_enable is non-zero (0 = passthrough);
 // input_overrides is a u32 saturating override counter.
@@ -473,7 +473,7 @@ func runWarpForce(xs, ys, zs string, on bool) {
 
 // linkModelData returns Link #1's J3DModelData (daPy_lk_c+0x328,
 // mpCLModelData). The mini-Links are built from this same model data
-// (mini_link_data in multiplayer.c); until Phase E0 the C side also
+// (mini_link_data in inject/src/mp/minilink.c); until Phase E0 the C side also
 // published it as mailbox.dbg_model_data.
 func linkModelData(d mem.Reader) (uint32, error) {
 	linkPtr, err := player.NewLink(d).Ptr()
@@ -2348,7 +2348,7 @@ func readDOLBytes(path string, addr uint32, n int) ([]byte, error) {
 // 0x803EDA58 and, for every u32 in there, reports whether it matches one
 // of the three known drawbuffer pointers (opa_p0/opa_p1/xlu_p1, looked up
 // via the dDlst_list_c fields at 0x803CA92C/0x930/0x934). The matching
-// offset is the real `mDrawBuffer` slot. game.h currently assumes
+// offset is the real `mDrawBuffer` slot. wwapi.h currently assumes
 // J3D_SYS_DRAWBUFFER_OPA_OFFSET=0x48 / XLU_OFFSET=0x4C, but evidence from
 // eye-fix-find-shape (mini-link body landing in opa_p0 instead of opa_p1
 // after a "swap to P1" write) suggests those offsets are wrong.

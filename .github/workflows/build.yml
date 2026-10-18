@@ -64,7 +64,7 @@ jobs:
       # blob.go was built from), the T2 code-space budget (T2 must end
       # below the mailbox, the mailbox below the patched arena), build.py
       # and frame_shim against the blob, and the mailbox layout (Go
-      # offsets vs mailbox.h). They also run in `go test ./...` below and
+      # offsets vs mailbox_core.h). They also run in `go test ./...` below and
       # on macOS; this step names them so a failure reads as what it is.
       - name: Blob, code-space budget and mailbox layout checks
         run: >-

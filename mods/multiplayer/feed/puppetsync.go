@@ -16,7 +16,7 @@ import (
 
 // MaxPuppets is the number of actor-puppet slots in the mailbox. The
 // mailbox layout (base, field offsets, Puppet slot fields) is generated
-// from inject/include/mailbox.h into wwapi/mailbox.
+// from inject/include/mailbox_core.h into wwapi/mailbox.
 const MaxPuppets = mailbox.MaxPuppets
 
 // SlotAddr is the address of field off (a mailbox.PuppetOff* offset)

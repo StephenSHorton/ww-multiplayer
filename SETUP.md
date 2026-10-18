@@ -19,8 +19,8 @@ This repo is just the Go side. To actually build a patched ISO and test code inj
 
 ### 4. The Freighter project (now in this repo at `inject/`)
 - Layout:
-  - `inject/src/multiplayer.c` — the injected C code (spawns Player 2 puppet, per-frame pos sync)
-  - `inject/include/` — game type/symbol headers (`game.h`, `mailbox.h`)
+  - `inject/src/core/`, `inject/src/mp/` — the injected C code: the core (hooks, services) and the multiplayer mod (puppets, mini-Links, face sync)
+  - `inject/include/` — game type/symbol headers (`wwapi.h`, `mailbox_core.h`, `mailbox_mp.h`)
   - `inject/build.py` — Freighter build script (sets hook address + inject address)
   - `inject/patch_iso.py` — splices `patched.dol` into the ISO in place
   - `inject/original.dol` — clean WW main.dol from a known-good disc (**local only — not committed**)

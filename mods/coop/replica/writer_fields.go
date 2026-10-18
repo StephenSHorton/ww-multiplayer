@@ -11,15 +11,15 @@ import (
 // The escape hatches' addresses past addr's (§6.7). None comes from the
 // decomp.
 const (
-	// WarpAck is mailbox.warp_ack (mailbox.h:222): multiplayer_update
-	// copies warp_seq into it once it has moved Link (multiplayer.c:
-	// 365-421). The replica reads it and never writes it. wwapi/player's
+	// WarpAck is mailbox.warp_ack (mailbox_core.h): multiplayer_update
+	// copies warp_seq into it once it has moved Link (inject/src/core/
+	// services.c warp_frame). The replica reads it and never writes it. wwapi/player's
 	// Warp, which co-op never calls, writes it to withdraw a warp the
 	// game did not take in time (docs/08 item 131).
 	WarpAck = mailbox.WarpSeq + 4
 	// WarpPos is mailbox.warp_x, warp_y and warp_z, three big-endian f32s
-	// (mailbox.h:223-225), the target multiplayer_update moves Link to
-	// when warp_seq != warp_ack (multiplayer.c:365-371).
+	// (mailbox_core.h), the target multiplayer_update moves Link to
+	// when warp_seq != warp_ack (inject/src/core/services.c warp_frame).
 	WarpPos = mailbox.WarpSeq + 8
 )
 

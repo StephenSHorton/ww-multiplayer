@@ -10,15 +10,16 @@ import (
 )
 
 // TestMailboxLayout is the freshness check: layout_gen.go must be what
-// tools/gen_mailbox makes from today's inject/include/mailbox.h. The
+// tools/gen_mailbox makes from today's inject/include/mailbox_core.h and
+// the mailbox_mp.h it includes. The
 // generator also refuses a header whose "// +0xNN" comments disagree
 // with the struct, so a stale comment fails here too.
 func TestMailboxLayout(t *testing.T) {
-	src, err := os.ReadFile("../../" + mailboxgen.HeaderPath)
+	l, err := mailboxgen.ParseDir("../../" + mailboxgen.HeaderPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := mailboxgen.Generate(src)
+	want, err := l.Go()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,12 +32,11 @@ func TestMailboxLayout(t *testing.T) {
 		t.Errorf("wwapi/mailbox/layout_gen.go is stale against %s: run go generate ./wwapi/mailbox", mailboxgen.HeaderPath)
 	}
 
-	l, err := mailboxgen.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
 	mb := l.Mailbox()
-	commented := strings.Count(string(src), "// +0x")
+	commented := 0
+	for _, f := range l.Sources {
+		commented += strings.Count(string(f.Src), "// +0x")
+	}
 	if commented < 40 {
 		t.Errorf("only %d fields carry a +0xNN comment; the parser is missing fields", commented)
 	}
@@ -94,7 +94,7 @@ func TestMailboxLayout(t *testing.T) {
 // tunic_sync.go's mailboxTunic*, this package's Mailbox, MailboxSize,
 // SpawnTrigger and WarpSeq, as of Phase C step C9). It is the
 // before/after diff of the switch to generated offsets, and must stay
-// empty until a deliberate mailbox.h layout change updates both. Phase
+// empty until a deliberate mailbox header layout change updates both. Phase
 // E1 grew the mailbox from 0x1A0 to 0x1B0 bytes (the WWMB features word
 // and its padding after the tunic block); Phase E2 dropped the retired
 // diagnostic fields (shadow_latched, dbg_*, echo_*, warp_dbg_*,
