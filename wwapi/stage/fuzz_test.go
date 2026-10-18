@@ -3,6 +3,7 @@ package stage
 import (
 	"bytes"
 	"encoding/binary"
+	"slices"
 	"strings"
 	"testing"
 
@@ -60,6 +61,65 @@ func FuzzYaz0Encoder(f *testing.F) {
 		got, err := DecodeYaz0(stagetest.Yaz0(in))
 		if err != nil || !bytes.Equal(got, in) {
 			t.Fatalf("round trip of %d bytes = %d bytes, %v", len(in), len(got), err)
+		}
+	})
+}
+
+// FuzzEncodeYaz0 checks EncodeYaz0, the encoder the archive editor
+// stores replaced files with, against the decoder.
+func FuzzEncodeYaz0(f *testing.F) {
+	for _, in := range yaz0Samples() {
+		f.Add(in)
+	}
+	f.Fuzz(func(t *testing.T, in []byte) {
+		got, err := DecodeYaz0(EncodeYaz0(in))
+		if err != nil || !bytes.Equal(got, in) {
+			t.Fatalf("round trip of %d bytes = %d bytes, %v", len(in), len(got), err)
+		}
+	})
+}
+
+// FuzzArchiveEditor checks that whatever ParseArchive accepts, the
+// editor saves to an archive that parses to the same files, and that
+// saving it again gives the same bytes.
+func FuzzArchiveEditor(f *testing.F) {
+	stage := stagetest.RARC("Stage", stageFiles()...)
+	f.Add(stage)
+	f.Add(stagetest.RARC("a", stagetest.File{Path: "x", Data: []byte("packed packed packed"), Yaz0: true}))
+	f.Fuzz(func(t *testing.T, b []byte) {
+		a, err := ParseArchive(b)
+		if err != nil {
+			return
+		}
+		e, err := a.Edit()
+		if err != nil {
+			return
+		}
+		out, err := e.Bytes()
+		if err != nil {
+			return
+		}
+		a2, err := ParseArchive(out)
+		if err != nil {
+			t.Fatalf("the saved archive doesn't parse: %v", err)
+		}
+		files := e.Files()
+		if got := a2.Files(); !slices.Equal(got, files) {
+			t.Fatalf("Files() of the saved archive =\n%+v\nwant\n%+v", got, files)
+		}
+		for _, f := range files {
+			got, err1 := a2.Read(f)
+			want, err2 := e.Read(f)
+			if (err1 == nil) != (err2 == nil) || !bytes.Equal(got, want) {
+				t.Fatalf("%s: saved reads %d bytes, %v; editor %d bytes, %v", f.Path, len(got), err1, len(want), err2)
+			}
+		}
+		e2, err := a2.Edit()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again, err := e2.Bytes(); err != nil || !bytes.Equal(again, out) {
+			t.Fatalf("saving again differs: %v", err)
 		}
 	})
 }

@@ -23,6 +23,16 @@ C changes (`inject/src`, `inject/include`, `inject/build.py`) also need a rebuil
 
 Never run the app or the CLI from a test or a check with your real settings: commands like `dolphin2` and the app write config. Point `APPDATA` and `LOCALAPPDATA` (or `XDG_CONFIG_HOME` / `HOME` elsewhere) at a temp directory first. The golden tests below do this for you (`configEnv`).
 
+### Live-disc tests
+
+No Nintendo data is in the repo, so a few tests read the user's own vanilla disc through `internal/vanillatest` and skip cleanly when there is none; `go test ./...` passes either way, and the disc is only ever read. Point `WW_VANILLA_DISC` at the vanilla ISO or CISO; unset, the conventional places are tried (`%USERPROFILE%\Desktop\Dolphin-x64\Roms\` and `~/Roms/`, the file named `Legend of Zelda, The - The Wind Waker (USA, Canada).ciso` or `.iso`). Run them on purpose with `-v` to see they ran rather than skipped:
+
+```
+WW_VANILLA_DISC=<path> go test -count=1 -v -run 'Vanilla' ./wwapi/stage ./wwapi/rel
+```
+
+What they pin: every REL in `RELS.arc` re-encodes with `stage.EncodeYaz0` to the exact bytes on the disc (`TestEncodeYaz0VanillaRELs`); `RELS.arc` parsed and saved unchanged by `stage.ArchiveEditor` is byte-identical, and with one REL replaced it parses and reads back (`TestArchiveEditorVanillaRELS`); every REL parsed and saved in place by `wwapi/rel` is byte-identical, repacks to the same module, and `f_pc_profile_lst.rel`'s relocation against the puppet module can be repointed in place (`TestVanillaRELs`).
+
 ## What the goldens pin
 
 A golden file is the expected output, byte for byte. When a golden test fails, the diff is a change a user would see. Fix the code, unless the change is intended; then regenerate the file with the flag below, and say in the pull request which goldens changed and why. A refactor (a file move, a package split) must leave every golden unchanged.
