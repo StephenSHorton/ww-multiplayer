@@ -12,6 +12,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
@@ -213,10 +214,32 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 		os.Exit(1)
 	}
 
+	// --coop writes the world into both games (bind, replica, warps), so
+	// it starts only when both run this version's patch (strict contract
+	// check, Phase E1); coopsession.RunSync re-checks while it plays.
+	if co.On() {
+		refused := false
+		for i, pid := range []uint32{pidA, pidB} {
+			if why := contractRefused(pid); why != "" {
+				log.Logf(rep, log.Err, "Not starting co-op: Dolphin %c (pid %d)'s game is not this version's patch: %s. %s", 'A'+rune(i), pid, why, wwapi.RepatchAdvice)
+				refused = true
+			}
+		}
+		if refused {
+			os.Exit(1)
+		}
+	}
+
 	// Auto-arm the face-state sync hook on both Dolphins. C side
 	// (face_hook_process_arm) picks this up next frame and installs
 	// once mini_link_state == 1. Symmetrical disarm in teardown below.
+	// Only into a game the strict contract check (Phase E1) allows:
+	// another version's blob may not have the field there.
 	for i, pid := range []uint32{pidA, pidB} {
+		if why := contractRefused(pid); why != "" {
+			log.Logf(rep, log.Err, "Not arming face sync on Dolphin %c (pid %d): its game is not this version's patch: %s. %s", 'A'+rune(i), pid, why, wwapi.RepatchAdvice)
+			continue
+		}
 		d, err := emu.FindByPID(pid, "GZLE01")
 		if err != nil {
 			log.Logf(rep, log.Warn, "couldn't arm face-hook on Dolphin %c (pid %d): %v", 'A'+rune(i), pid, err)
@@ -227,7 +250,7 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 		}
 		d.Close()
 	}
-	rep.Log(log.OK, "Face-state sync armed on both Dolphins.")
+	rep.Log(log.OK, "Face-state sync armed on the Dolphins that run this version's patch.")
 
 	// When both Dolphins boot from the same SAVE_STATE, both Links
 	// spawn at literally the same world coords and visually overlap.
@@ -245,7 +268,11 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 		feed.EnvFloat32("MP_LOCAL_SHIFT_Y", 0),
 		feed.EnvFloat32("MP_LOCAL_SHIFT_Z", 50),
 	}
-	startupShift(rep, co.On(), pidA, pidB, shift, defaultShiftEnv())
+	if contractRefused(pidA) == "" && contractRefused(pidB) == "" {
+		startupShift(rep, co.On(), pidA, pidB, shift, defaultShiftEnv())
+	} else {
+		rep.Log(log.Info, "Not moving Dolphin B's Link at start: a Dolphin's game is not this version's patch.")
+	}
 
 	// Server
 	srv := network.NewServer(25565)
@@ -336,6 +363,9 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	// Reset both Dolphins to baseline mirror so Link #2 doesn't stay
 	// frozen at the last received pose forever.
 	for i, pid := range []uint32{pidA, pidB} {
+		if contractRefused(pid) != "" {
+			continue // not this version's mod: nothing was written there
+		}
 		d, err := emu.FindByPID(pid, "GZLE01")
 		if err != nil {
 			log.Logf(rep, log.Warn, "couldn't reset Dolphin %c (pid %d): %v", 'A'+rune(i), pid, err)
@@ -413,4 +443,23 @@ func readyLabel(ready bool) string {
 		return "ready"
 	}
 	return "still loading"
+}
+
+// contractRefused runs the strict contract check (Phase E1,
+// wwapi.CheckContract) on Dolphin pid: "" when this build may write into
+// its game, else why not.
+func contractRefused(pid uint32) string {
+	d, err := emu.FindByPID(pid, "GZLE01")
+	if err != nil {
+		return err.Error()
+	}
+	defer d.Close()
+	c, err := wwapi.CheckContract(d, wwapi.ContractOptions{})
+	if err != nil {
+		return err.Error()
+	}
+	if c.WritesAllowed {
+		return ""
+	}
+	return c.Why
 }

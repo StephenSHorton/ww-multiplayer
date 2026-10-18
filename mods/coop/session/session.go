@@ -454,8 +454,13 @@ func logBackupCards(rep log.Reporter, b *backup.Backup) {
 }
 
 // StartHost is startCoopHost for package main's mp-local: its host
-// Dolphin is pid, opened with env (defaultCoopEnv).
+// Dolphin is pid, opened with env (defaultCoopEnv). A host Dolphin the
+// strict contract check refuses (another version's patch or save state)
+// starts no co-op: the error says why and what to do.
 func StartHost(ctx context.Context, rep log.Reporter, srvLog func(string), f Flags, env Env, pid uint32) (*Session, error) {
+	if err := contractErrPID(env, pid); err != nil {
+		return nil, err
+	}
 	return startCoopHost(ctx, rep, srvLog, f, defaultCoopEnv(env, pid))
 }
 
@@ -1153,10 +1158,21 @@ func RunSync(ctx context.Context, env Env, name, addr string, dolphinPID uint32,
 		return err
 	}
 	defer d.Close()
+	// The strict contract check (Phase E1): a game from another patch, or
+	// a save state taken on one, gets no co-op writes. Pose sync goes on
+	// (its own gate draws nobody there either).
+	if err := contractErr(d); err != nil {
+		rep.Log(log.Err, err.Error()+" Co-op is off for this Dolphin this session.")
+		<-ctx.Done()
+		return nil
+	}
 	s, err := cs.newSync(ctx, name, d, rep)
 	if err != nil {
 		return err
 	}
+	gctx, stopGuard := context.WithCancel(ctx)
+	defer stopGuard()
+	go guardContract(gctx, d, s.r, rep, ContractEvery)
 	return s.run(ctx, addr)
 }
 

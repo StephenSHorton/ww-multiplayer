@@ -29,9 +29,11 @@
 // read-only; the watcher's last snapshot and gate status; Link, the
 // avatar slots, the actor queue, the save and the disc; the core events
 // the watcher emits on wwapi/events; and the commands. The contract check
-// ([CheckContract]) runs in pre-E1 mode: a blob without a WWMB header is
-// ABI 0 with [PreE1Features], never a refusal. The mod runtime does not
-// hand a Game to mods yet (D4).
+// ([CheckContract]) runs in strict mode (Phase E1): the game must carry
+// this build's WWMB header and its blob's .text must hash to blob.go's
+// BlobHash, or every write is refused with [ErrContract] and
+// [RepatchAdvice]; [Info].Features comes from the header's features word.
+// The mod runtime does not hand a Game to mods yet (D4).
 package wwapi
 
 import "errors"

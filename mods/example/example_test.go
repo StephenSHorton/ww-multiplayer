@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/mods/example"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -62,16 +61,14 @@ func (r *lines) waitLines(t *testing.T, want ...string) {
 	t.Fatalf("example logged\n %q\nwant\n %q", r.mod(), want)
 }
 
-// booted is a fake game's RAM as the patched ISO leaves it (the disc ID
-// and this build's T2), so the contract check allows writes.
+// booted is a fake game's RAM as the patched ISO leaves it (the disc ID,
+// this build's T2 and its WWMB header), so the contract check allows
+// writes.
 func booted(t *testing.T) (*mem.FakeMem, *fakegame.FakeGame, *wwapi.Game) {
 	t.Helper()
 	m := mem.NewFakeMem()
 	fg := fakegame.New(m)
-	if err := m.Store(addr.MEM1Base, []byte(wwapi.GameID)); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.Store(inject.T2Address, inject.T2Bytes); err != nil {
+	if err := fakegame.Boot(m); err != nil {
 		t.Fatal(err)
 	}
 	g, err := wwapi.NewGame(m, wwapi.GameOptions{})

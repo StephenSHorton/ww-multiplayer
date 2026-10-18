@@ -2,14 +2,20 @@ package wwapi
 
 import (
 	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // Features is what the patched blob provides, matched against each
 // mod's "needs". The zero value means "not known": no mod gets
 // NEEDS_REPATCH. The contract check (CheckContract) fills it in for a
-// Game: before E1 with the fixed PreE1Features. The mod runtime is not
-// handed it yet (D4 wires Game into Options.Resolve).
+// Game from the features word of the blob's WWMB header (FeaturesOf),
+// and a game without a header provides nothing (a known, empty set), so
+// every mod with needs gets NEEDS_REPATCH. ResolveOptions.Features takes
+// it (a Game's Info().Features).
 type Features struct {
 	names []string
 	known bool
@@ -56,3 +62,41 @@ func (f Features) String() string {
 	}
 	return strings.Join(f.names, ",")
 }
+
+// featureBits names the WW_FEAT_* bits of the WWMB features word
+// (inject/include/mailbox.h).
+var featureBits = []struct {
+	bit  uint32
+	name string
+}{
+	{mailbox.WwFeatAvatar, "avatar"},
+	{mailbox.WwFeatEyefix, "eyefix"},
+	{mailbox.WwFeatFace, "face"},
+	{mailbox.WwFeatInput, "input"},
+	{mailbox.WwFeatTunic, "tunic"},
+	{mailbox.WwFeatWarp, "warp"},
+}
+
+// FeaturesOf decodes a WWMB features word into a known set. A bit this
+// build has no name for is named "bit<n>" (a newer blob's feature), so it
+// still shows, and no mod of this build needs it.
+func FeaturesOf(word uint32) Features {
+	var names []string
+	for _, f := range featureBits {
+		if word&f.bit != 0 {
+			names = append(names, f.name)
+			word &^= f.bit
+		}
+	}
+	for n := 0; word != 0; n++ {
+		if word&1 != 0 {
+			names = append(names, "bit"+strconv.Itoa(n))
+		}
+		word >>= 1
+	}
+	return KnownFeatures(names...)
+}
+
+// BlobFeatures returns the features this build's blob provides (blob.go's
+// Features, what its main01_init writes into the header).
+func BlobFeatures() Features { return FeaturesOf(inject.Features) }

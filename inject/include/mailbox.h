@@ -32,6 +32,24 @@
 // 0x80412F00 (no struct-offset breakage on the Go side).
 #define MAILBOX_ADDR 0x80412F00
 
+// The WWMB header (Phase E1) main01_init writes at mailbox +0x180, and
+// the features word at +0x1A0. Bump WWMB_LAYOUT on any change to the
+// Mailbox layout below and WWMB_ABI on any change to what a field means;
+// Go's blob.go carries both (scripts/extract_blob.py) and its contract
+// check refuses a game whose header differs.
+#define WWMB_MAGIC 0x57574D42
+#define WWMB_ABI 1
+#define WWMB_LAYOUT 1
+
+// Features: one bit per service the blob provides (wwapi Features).
+#define WW_FEAT_AVATAR 0x01
+#define WW_FEAT_EYEFIX 0x02
+#define WW_FEAT_FACE 0x04
+#define WW_FEAT_INPUT 0x08
+#define WW_FEAT_TUNIC 0x10
+#define WW_FEAT_WARP 0x20
+#define WW_FEATURES 0x3F
+
 // Up to this many remote players can be mirrored as puppet actors.
 // Pick a humble number; each slot adds one actor allocation.
 #define MAX_PUPPETS 4
@@ -109,7 +127,7 @@ typedef struct {
     u16 mat15_tex1;
 } FaceState;
 
-// Total mailbox size: 0x1A0 B (see the end of the struct).
+// Total mailbox size: 0x1B0 B (see the end of the struct).
 //
 // Phase E0 deleted the C experiments behind several fields (shadow modes
 // 1-4, the echo ring, the eye-fix probe steps 1-7 and modes 1-2, and the
@@ -359,9 +377,15 @@ typedef struct {
     // Diagnostic: bumped each time pad_read_shim performs an override.
     // Lets Go confirm the shim is wired and live; saturates at 0xFFFF_FFFF.
     u32 input_overrides;                          // +0x17C
-    // +0x180..+0x187: reserved for the 'WWMB' magic + layout_version
-    // header of docs/08 §4.5 option A. Keep zero.
-    u32 _reserved_hdr[2];                         // +0x180
+    // --- WWMB HEADER (Phase E1, docs/api/00-design.md §5.1, §6.4) ----
+    // main01_init writes these once at boot: the magic, the C ABI and
+    // this layout's version. Go's contract check (wwapi.CheckContract)
+    // refuses to write into a game whose header is missing or differs
+    // from its blob.go: an ISO patched by another version, or a save
+    // state taken on one. Every blob before E1 left these 8 bytes zero.
+    u32 hdr_magic;                                // +0x180 (C) WWMB_MAGIC
+    u16 hdr_abi;                                  // +0x184 (C) WWMB_ABI
+    u16 hdr_layout;                               // +0x186 (C) WWMB_LAYOUT
     // --- TUNIC COLORS (docs/09-player-colors.md §5.3) -----------------
     // Per-player recolored copies of Link's hero's-clothes body texture
     // ("linktexS3TC", CMPR). Slots 0..1 are the mini-Link slots, slot 2
@@ -392,7 +416,12 @@ typedef struct {
     u8  tunic_enable[3];                          // +0x198 (Go)
     u8  tunic_state;                              // +0x19B (C)
     u32 tunic_swaps;                              // +0x19C (C)
-} Mailbox;   // 0x1A0 bytes
+    // WWMB header extension (E1): the WW_FEAT_* bits this blob provides,
+    // written by main01_init with the header. Go matches each mod's
+    // "needs" against it (NEEDS_REPATCH).
+    u32 features;                                 // +0x1A0 (C) WW_FEATURES
+    u8  _pad13[12];                               // +0x1A4 (pad to 0x1B0)
+} Mailbox;   // 0x1B0 bytes
 
 #define TUNIC_SLOT_LOCAL 2
 #define TUNIC_ENABLE_CASUAL 2

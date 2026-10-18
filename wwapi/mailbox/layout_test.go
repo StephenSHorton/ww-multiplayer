@@ -48,10 +48,16 @@ func TestMailboxLayout(t *testing.T) {
 	if MailboxSize > 0x200 || Mailbox+MailboxSize > PatchedArenaLo {
 		t.Errorf("Mailbox is 0x%X bytes at 0x%08X: past +0x200 or the arena", MailboxSize, Mailbox)
 	}
-	// The tunic block's last field ends the mailbox (wwapi/avatar's Tunics reads
-	// OffTunicBufs..MailboxSize as one block).
-	if OffTunicSwaps+4 != MailboxSize {
-		t.Errorf("tunic_swaps ends at +0x%X, the mailbox at +0x%X", OffTunicSwaps+4, MailboxSize)
+	// The tunic block (wwapi/avatar's Tunics reads OffTunicBufs..the end
+	// of tunic_swaps as one block) is followed by the WWMB features word
+	// and the padding that ends the mailbox at 0x1B0 (Phase E1).
+	if OffTunicSwaps+4 != OffFeatures || OffFeatures+4+LenPad13 != MailboxSize || MailboxSize != 0x1B0 {
+		t.Errorf("tunic_swaps ends at +0x%X, features at +0x%X, the mailbox at +0x%X; want +0x1A0, +0x1A0, +0x1B0",
+			OffTunicSwaps+4, OffFeatures, MailboxSize)
+	}
+	// The WWMB header sits in the 8 bytes design §3 reserved for it.
+	if OffHdrMagic != 0x180 || OffHdrAbi != 0x184 || OffHdrLayout != 0x186 || OffTunicBufs != 0x188 {
+		t.Errorf("WWMB header at +0x%X/+0x%X/+0x%X, tunic_bufs at +0x%X", OffHdrMagic, OffHdrAbi, OffHdrLayout, OffTunicBufs)
 	}
 	if TunicSlotLocal >= LenTunicBufs || LenTunicEnable != LenTunicBufs {
 		t.Errorf("TUNIC_SLOT_LOCAL %d outside tunic_bufs[%d] / tunic_enable[%d]", TunicSlotLocal, LenTunicBufs, LenTunicEnable)
@@ -66,7 +72,9 @@ func TestMailboxLayout(t *testing.T) {
 // tunic_sync.go's mailboxTunic*, this package's Mailbox, MailboxSize,
 // SpawnTrigger and WarpSeq, as of Phase C step C9). It is the
 // before/after diff of the switch to generated offsets, and must stay
-// empty until a deliberate mailbox.h layout change updates both.
+// empty until a deliberate mailbox.h layout change updates both. Phase
+// E1 grew the mailbox from 0x1A0 to 0x1B0 bytes (the WWMB features word
+// and its padding after the tunic block).
 func TestLayoutMatchesHandWritten(t *testing.T) {
 	for _, c := range []struct {
 		old       string
@@ -74,7 +82,7 @@ func TestLayoutMatchesHandWritten(t *testing.T) {
 	}{
 		{"mailboxBase", 0x80412F00, uint64(Mailbox)},
 		{"mailbox.Mailbox", 0x80412F00, uint64(Mailbox)},
-		{"mailbox.MailboxSize", 0x1A0, MailboxSize},
+		{"mailbox.MailboxSize", 0x1B0, MailboxSize},
 		{"mailbox.SpawnTrigger", 0x80412F00, uint64(SpawnTrigger)},
 		{"mailbox.WarpSeq", 0x80412FC8, uint64(WarpSeq)},
 		{"maxPuppets", 4, MaxPuppets},
@@ -143,7 +151,7 @@ func TestLayoutMatchesHandWritten(t *testing.T) {
 		{"mailboxTunicEnable", 0x198, OffTunicEnable},
 		{"mailboxTunicState", 0x19B, OffTunicState},
 		{"mailboxTunicSwaps", 0x19C, OffTunicSwaps},
-		{"mailboxTunicEnd", 0x1A0, MailboxSize},
+		{"mailboxTunicEnd", 0x1A0, OffTunicSwaps + 4},
 		{"tunicSlots", 3, LenTunicBufs},
 		{"tunicSlotLocal", 2, TunicSlotLocal},
 		{"tunicEnableCasual", 2, TunicEnableCasual},

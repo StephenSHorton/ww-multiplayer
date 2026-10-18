@@ -23,7 +23,8 @@ import (
 
 // The mailbox's tunic block (inject/include/mailbox.h, "TUNIC COLORS";
 // offsets generated into wwapi/mailbox) runs from mailbox.OffTunicBufs
-// to the end of the mailbox, mailbox.MailboxSize:
+// to the end of tunic_swaps (the features word of the WWMB header
+// follows it since Phase E1):
 //
 //	tunic_bufs     u32[3], C: image per slot
 //	tunic_buf_size u32, Go: bytes per image; nonzero asks C to allocate
@@ -227,8 +228,8 @@ func (t *Tunics) Tick(now time.Time) {
 	// The mailbox block comes first: the hero read must know the live
 	// buffers, because enables survive a Go process (and a recalibration),
 	// so the worn header may already be swapped on the very first read.
-	blk, err := t.mem.Read(mailbox.Mailbox+mailbox.OffTunicBufs, mailbox.MailboxSize-mailbox.OffTunicBufs)
-	if err != nil || len(blk) != mailbox.MailboxSize-mailbox.OffTunicBufs {
+	blk, err := t.mem.Read(mailbox.Mailbox+mailbox.OffTunicBufs, mailbox.OffTunicSwaps+4-mailbox.OffTunicBufs)
+	if err != nil || len(blk) != mailbox.OffTunicSwaps+4-mailbox.OffTunicBufs {
 		return
 	}
 	size := binary.BigEndian.Uint32(blk[mailbox.OffTunicBufSize-mailbox.OffTunicBufs:])

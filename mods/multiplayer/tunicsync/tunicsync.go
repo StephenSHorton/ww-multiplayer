@@ -48,8 +48,8 @@ func LocalAppearance(m avatar.TunicMem) (b byte, ok bool) {
 
 // PrintTunicMailbox is the dump command's tunic block.
 func PrintTunicMailbox(m avatar.TunicMem) {
-	blk, err := m.Read(mailbox.Mailbox+mailbox.OffTunicBufs, mailbox.MailboxSize-mailbox.OffTunicBufs)
-	if err != nil || len(blk) != mailbox.MailboxSize-mailbox.OffTunicBufs {
+	blk, err := m.Read(mailbox.Mailbox+mailbox.OffTunicBufs, mailbox.OffTunicSwaps+4-mailbox.OffTunicBufs)
+	if err != nil || len(blk) != mailbox.OffTunicSwaps+4-mailbox.OffTunicBufs {
 		return
 	}
 	at := func(off int) []byte { return blk[off-mailbox.OffTunicBufs:] }

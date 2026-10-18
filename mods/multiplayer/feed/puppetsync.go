@@ -65,6 +65,13 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 	defer d.Close()
 	rep.Log(log.OK, "Dolphin found.")
 
+	// The strict contract check (Phase E1): nothing is written into a
+	// game that does not run this version's mod (an unpatched disc, one
+	// patched by another version, or a save state taken on one). It runs
+	// now, and again every ContractEvery while the session plays.
+	gate := newContractGate(d, rep)
+	gate.check(time.Now())
+
 	client := env.NewClient(ctx, name)
 	client.OnLog = func(msg string) {
 		rep.Log(log.Net, msg)
@@ -78,8 +85,13 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 	if os.Getenv("WW_TUNIC") != "off" {
 		tunics = avatar.NewTunics(d, func(format string, args ...any) { log.Logf(rep, log.Info, format, args...) })
 		// Session over: stop the C swaps (the enables live in RAM and
-		// would keep the local Link recolored). Runs before d.Close.
-		defer tunics.DisableAll()
+		// would keep the local Link recolored). Runs before d.Close, and
+		// only into a game the contract check allows.
+		defer func() {
+			if gate.ok {
+				tunics.DisableAll()
+			}
+		}()
 	}
 
 	// Slot assignment, lerp state and arming live in the Feeder; it is
@@ -98,7 +110,9 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 		if err := connLog.Observe(ctx, client.ConnectContext(ctx, addr)); err != nil {
 			return err
 		}
-		feeder.Connected(client.ServerEpoch())
+		if gate.ok {
+			feeder.Connected(client.ServerEpoch())
+		}
 		return nil
 	}
 
@@ -123,6 +137,17 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 		for client.IsConnected() {
 			remotes := client.GetRemotePlayers()
 			now := time.Now()
+			if ok, regained := gate.check(now); !ok {
+				// Refused: write nothing until the game runs this
+				// version's mod again.
+				select {
+				case <-ctx.Done():
+				case <-time.After(250 * time.Millisecond):
+				}
+				continue
+			} else if regained {
+				feeder.Connected(client.ServerEpoch())
+			}
 			feeder.Feed(ctx, remotes, now)
 
 			if tunics != nil {

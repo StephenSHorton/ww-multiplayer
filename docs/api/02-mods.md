@@ -76,7 +76,7 @@ The app lists its mods statically in `compiledMods()` (`cmd/ww-multiplayer/mods.
 | `load_order` | | Ties between mods that do not depend on each other: lower first, then by id. -1000 to 1000, default 0. |
 | `enabled_by_default` | | Default `true`. |
 | `dev` | | A development mod, off unless dev mods are shown. Default `false`. |
-| `game_ids` | | The discs it is for (`GZLE01`). Parsed now. The contract check exists (`wwapi.CheckContract`, pre-E1 mode, C14); the runtime checks `game_ids` against it once a step attaches a `wwapi.Game` (D4 left that open). |
+| `game_ids` | | The discs it is for (`GZLE01`). Parsed now. The contract check exists (`wwapi.CheckContract`, strict mode since E1); the runtime checks `game_ids` against it once a step attaches a `wwapi.Game` (D4 left that open). |
 | `multiplayer` | | `client_required` (every player needs it; it counts in `mods_hash`), `host_only`, or `local_only` (the default). |
 | `provides` | | Roles. Only `net` exists. At most one loading mod per role. |
 | `needs` | | Features of the patched blob it needs. A missing one gives `NEEDS_REPATCH`. |
@@ -113,7 +113,7 @@ Hyphen ranges are not supported. As in npm, a prerelease such as `1.3.0-rc.1` sa
 1. The manifest parses, and no two mods share an id (all of them fail).
 2. The enable filter: `opts.Enabled` (settings `mods.<id>.enabled`, CLI flags later), else `enabled_by_default`, and `dev` mods only with `opts.Dev`.
 3. The `api` range contains the wwapi version.
-4. `needs` against the blob's Features, when they are known (`NEEDS_REPATCH`). `wwapi.CheckContract` reads them (pre-E1 mode: the fixed `PreE1Features` until E1 puts a header in the blob), but the runtime does not pass them to `Resolve` until a step attaches a `wwapi.Game` (D4 left that open), so for now this check is skipped.
+4. `needs` against the blob's Features, when they are known (`NEEDS_REPATCH`). `wwapi.CheckContract` reads them from the WWMB header's features word (strict mode, E1). A game the check refuses provides none: no header (so every mod with needs would be `NEEDS_REPATCH`), another ABI or layout, or another blob's code. The runtime does not pass them to `Resolve` until a step attaches a `wwapi.Game` (D4 left that open), so for now this check is skipped.
 5. `NetProvider` and `"provides": ["net"]` agree.
 6. Dependencies, then dependency cycles (`dependency cycle: a -> b -> a`; optional dependencies count).
 7. At most one loading mod per `provides` role. When two mods claim `net`, both fail and the user turns one off.

@@ -185,6 +185,12 @@ static void mini_link_reset_state(void) {
 // Publishes multiplayer_update's address for frame_shim to find.
 void main01_init(void) {
     *(volatile u32*)CALLBACK_PTR_ADDR = (u32)&multiplayer_update;
+    // WWMB header (Phase E1): magic, ABI, layout version and the
+    // features word, for Go's contract check (wwapi.CheckContract).
+    mailbox->hdr_magic = WWMB_MAGIC;
+    mailbox->hdr_abi = WWMB_ABI;
+    mailbox->hdr_layout = WWMB_LAYOUT;
+    mailbox->features = WW_FEATURES;
     // Heartbeat: proves main01_init fired. frame_shim will start bumping
     // spawn_trigger once per-frame hook is wired.
     mailbox->spawn_trigger = 1;

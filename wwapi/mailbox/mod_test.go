@@ -59,8 +59,8 @@ func TestModRegions(t *testing.T) {
 	if CanaryTRK.End != T2Base || CanaryArena.Start != Mailbox+MailboxSize || CanaryArena.End != PatchedArenaLo {
 		t.Error("canary regions do not border T2, the mailbox and the arena")
 	}
-	if CanaryTRK.Size() != 0x3050 || CanaryArena.Size() != 0xF60 {
-		t.Errorf("canary sizes 0x%X / 0x%X, want 0x3050 / 0xF60 (§4.5)", CanaryTRK.Size(), CanaryArena.Size())
+	if CanaryTRK.Size() != 0x3050 || CanaryArena.Size() != 0xF50 {
+		t.Errorf("canary sizes 0x%X / 0x%X, want 0x3050 / 0xF50 (§4.5; 0xF60 before E1 grew the mailbox to 0x1B0)", CanaryTRK.Size(), CanaryArena.Size())
 	}
 	for _, r := range []addr.Region{CanaryTRK, CanaryArena} {
 		if r.Contains(SpawnTrigger, 4) || r.Contains(T2Base, 4) {

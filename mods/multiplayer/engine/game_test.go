@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,7 +15,10 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine/enginetest"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // fakeGame is GameDeps over scripted Dolphins (enginetest.Game): running
@@ -377,57 +381,100 @@ func TestGameRunnerEnvPID(t *testing.T) {
 	g.Stop()
 }
 
-// fakeMem is emulated RAM for hasThisMod.
-type fakeMem []byte
-
-func (m fakeMem) Read(addr uint32, n int) ([]byte, error) {
-	if addr != inject.T2Address || n > len(m) {
-		return nil, errors.New("unmapped")
+// bootedMem is emulated RAM as this build's patched ISO leaves it
+// (fakegame.Boot: the disc ID, T2 and the WWMB header).
+func bootedMem(t *testing.T) *mem.FakeMem {
+	t.Helper()
+	m := mem.NewFakeMem()
+	if err := fakegame.Boot(m); err != nil {
+		t.Fatal(err)
 	}
-	return m[:n], nil
+	return m
 }
 
-// TestHasThisMod: this build's injected code in RAM says the game is
-// patched; a few changed variables don't undo that; the heap of an
-// unpatched game, or nothing readable, isn't.
+// TestHasThisMod: this build's mod in RAM (its WWMB header and its
+// code) says the game is patched; the mod's variables changing don't
+// undo that; a save state taken on a blob before E1 (no header), an
+// unpatched game's heap, another version's code, or nothing readable
+// isn't (the strict contract check, Phase E1).
 func TestHasThisMod(t *testing.T) {
-	ram := fakeMem(slices.Clone(inject.T2Bytes))
+	ram := bootedMem(t)
 	if !hasThisMod(ram) {
 		t.Fatal("the mod itself")
 	}
-	for i := 0; i < 64; i++ { // the mod's variables change as it runs
-		ram[i] ^= 0x5A
+	// Every byte of T2 outside the hashed read-only sections (.data,
+	// .bss, .ctors, .dtors) is the mod's variables.
+	for i, r := range inject.HashRanges {
+		end := inject.T2End
+		if i+1 < len(inject.HashRanges) {
+			end = inject.HashRanges[i+1][0]
+		}
+		if err := ram.Store(r[1], bytes.Repeat([]byte{0x5A}, int(end-r[1]))); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if !hasThisMod(ram) {
-		t.Fatal("a few changed bytes")
+		t.Fatal("the mod's .data and .bss changed")
 	}
-	heap := make(fakeMem, len(inject.T2Bytes))
-	for i := range heap {
-		heap[i] = byte(i*7 + 3)
+
+	old := bootedMem(t)
+	if err := old.Store(mailbox.Mailbox+mailbox.OffHdrMagic, make([]byte, mailbox.HeaderLen)); err != nil {
+		t.Fatal(err)
+	}
+	if hasThisMod(old) {
+		t.Fatal("a save state from before E1: no header")
+	}
+
+	heap := mem.NewFakeMem()
+	junk := make([]byte, len(inject.T2Bytes))
+	for i := range junk {
+		junk[i] = byte(i*7 + 3)
+	}
+	if err := heap.Store(addr.MEM1Base, []byte(session.GameID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := heap.Store(inject.T2Address, junk); err != nil {
+		t.Fatal(err)
 	}
 	if hasThisMod(heap) {
 		t.Fatal("an unpatched game's heap")
 	}
-	if hasThisMod(fakeMem(nil)) {
-		t.Fatal("nothing readable")
+
+	other := bootedMem(t)
+	if err := other.Store(inject.TextStart+0x40, []byte{0xFF, 0xFF, 0xFF, 0xFF}); err != nil {
+		t.Fatal(err)
 	}
-	if modMatch(nil, []byte{0, 0}) != 0 {
-		t.Fatal("an all-zero mod")
+	if hasThisMod(other) {
+		t.Fatal("another version's code under this version's header")
+	}
+	if hasThisMod(unreadable{}) {
+		t.Fatal("nothing readable")
 	}
 }
 
-// mailRAM is emulated RAM for resetMailbox: the mod's code (or not) at
-// inject.T2Address, and the writes made.
+// unreadable is RAM that cannot be read.
+type unreadable struct{}
+
+func (unreadable) Read(uint32, int) ([]byte, error) { return nil, errors.New("unmapped") }
+
+// mailRAM is emulated RAM for resetMailbox: this build's patched game
+// (or a vanilla one), and the writes made.
 type mailRAM struct {
 	mod    bool
+	ram    *mem.FakeMem
 	writes []uint32
 }
 
-func (m *mailRAM) Read(addr uint32, n int) ([]byte, error) {
-	if addr == inject.T2Address && m.mod {
-		return slices.Clone(inject.T2Bytes[:n]), nil
+func (m *mailRAM) Read(a uint32, n int) ([]byte, error) {
+	if m.ram == nil {
+		m.ram = mem.NewFakeMem()
+		if m.mod {
+			if err := fakegame.Boot(m.ram); err != nil {
+				return nil, err
+			}
+		}
 	}
-	return make([]byte, n), nil
+	return m.ram.Read(a, n)
 }
 
 func (m *mailRAM) Write(addr uint32, data []byte) error {

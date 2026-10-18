@@ -20,8 +20,8 @@ func TestManifest(t *testing.T) {
 	if !m.Provide(wwapi.ProvideNet) || m.Multiplayer != wwapi.ClientRequired {
 		t.Errorf("provides %v, multiplayer %q", m.Provides, m.Multiplayer)
 	}
-	if miss := wwapi.PreE1Features().Missing(m.Needs); len(m.Needs) != 4 || miss != nil {
-		t.Errorf("needs %v (missing from a pre-E1 blob: %v)", m.Needs, miss)
+	if miss := wwapi.BlobFeatures().Missing(m.Needs); len(m.Needs) != 4 || miss != nil {
+		t.Errorf("needs %v (missing from this build's blob: %v)", m.Needs, miss)
 	}
 }
 
