@@ -46,12 +46,14 @@ const (
 
 	// EnemyStateHeaderLen is a STATE's fixed header (sub, ver, flags,
 	// count, epoch, seq, hostBeat, host_ms, stage[8], room, dead_mask,
-	// pad u16); EnemySlotLen follows it EnemyMaxSlots times at most.
+	// pad u16); EnemySlotLen follows it EnemyMaxSlots times at most (48
+	// since wire version 2 added the animation identity).
 	EnemyStateHeaderLen = 32
-	EnemySlotLen        = 36
+	EnemySlotLen        = 48
 	EnemyMaxSlots       = 4
-	// EnemyHitLen and EnemyAckLen are the fixed HIT and ACK sizes.
-	EnemyHitLen = 44
+	// EnemyHitLen and EnemyAckLen are the fixed HIT and ACK sizes (the HIT
+	// 48 since version 2 added the sword object's Se/HitMark/Spl/SPrm).
+	EnemyHitLen = 48
 	EnemyAckLen = 16
 	// EnemyClientIDOff is the payload byte of a HIT and an ACK that
 	// carries the enemy client's connection ID: the server stamps it into

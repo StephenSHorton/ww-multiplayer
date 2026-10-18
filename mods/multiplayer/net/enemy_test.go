@@ -102,7 +102,7 @@ func TestEnemyFrameShape(t *testing.T) {
 			t.Errorf("%s: enemyFrameShape = %q, want ok=%v", c.name, why, c.ok)
 		}
 	}
-	if EnemyStateLen(4) != 32+4*36 || EnemyHitLen != 44 || EnemyAckLen != 16 {
+	if EnemyStateLen(4) != 32+4*48 || EnemyHitLen != 48 || EnemyAckLen != 16 {
 		t.Errorf("sizes: state(4)=%d hit=%d ack=%d", EnemyStateLen(4), EnemyHitLen, EnemyAckLen)
 	}
 }

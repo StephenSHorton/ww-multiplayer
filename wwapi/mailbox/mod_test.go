@@ -60,12 +60,13 @@ func TestModRegions(t *testing.T) {
 		CanaryArenaHigh.Start != EnemyBlockRegion.End || CanaryArenaHigh.End != PatchedArenaLo {
 		t.Error("canary regions do not border T2, the mailbox, the enemy block and the arena")
 	}
-	if CanaryTRK.Size() != 0x3050 || CanaryArena.Size() != 0x50 || CanaryArenaHigh.Size() != 0xDA0 || EnemyBlockRegion.Size() != 0x160 {
-		t.Errorf("canary sizes 0x%X / 0x%X / 0x%X around a 0x%X enemy block, want 0x3050 / 0x50 / 0xDA0 / 0x160 (§4.5; the slack was 0xF50 before the enemy block, 0xF60 before E1 grew the mailbox to 0x1B0)",
+	if CanaryTRK.Size() != 0x3050 || CanaryArena.Size() != 0x50 || CanaryArenaHigh.Size() != 0xBF0 || EnemyBlockRegion.Size() != 0x310 {
+		t.Errorf("canary sizes 0x%X / 0x%X / 0x%X around a 0x%X enemy region, want 0x3050 / 0x50 / 0xBF0 / 0x310 (§4.5; 0xDA0 / 0x160 before layout 2 added the collision objects, the slack was 0xF50 before the enemy block, 0xF60 before E1 grew the mailbox to 0x1B0)",
 			CanaryTRK.Size(), CanaryArena.Size(), CanaryArenaHigh.Size(), EnemyBlockRegion.Size())
 	}
 	for _, r := range []addr.Region{CanaryTRK, CanaryArena, CanaryArenaHigh} {
-		if r.Contains(SpawnTrigger, 4) || r.Contains(T2Base, 4) || r.Contains(EnemyBlockAddr, 4) || r.Contains(EnemyBlockAddr+EnemySize-4, 4) {
+		if r.Contains(SpawnTrigger, 4) || r.Contains(T2Base, 4) || r.Contains(EnemyBlockAddr, 4) || r.Contains(EnemyBlockAddr+EnemySize-4, 4) ||
+			r.Contains(Mailbox+EnemySphOff, 4) || r.Contains(Mailbox+EnemySttsOff+EnemySttsSize-4, 4) {
 			t.Errorf("%s overlaps the mod", r.Name)
 		}
 	}

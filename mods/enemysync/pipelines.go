@@ -41,8 +41,9 @@ const Tick = 16 * time.Millisecond
 
 // HostPipeline runs the host sampler on Dolphin dolphinPID against the
 // server at addr as name until ctx ends, reconnecting after a drop. The
-// host's Go never writes an actor; it writes the block only to apply a
-// client's hit (v1) when this game's REL module is linked with this build.
+// host's Go never writes an actor; it writes the block only when this
+// game's REL module is linked with this build: a client's hit to apply,
+// and a keepalive every KeepaliveEvery between hits.
 func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID uint32, rep log.Reporter, connLog *network.ConnectLog) error {
 	log.Logf(rep, log.Info, "=== Enemy host: %s -> %s ===", name, addr)
 	d, err := env.Open(dolphinPID)
@@ -114,11 +115,14 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 					drained = true
 				}
 			}
-			ack, err := applier.Poll(last)
+			ack, err := applier.Poll(last, now)
 			if err != nil {
 				log.Logf(rep, log.Warn, "enemy host: %v", err)
 			} else if ack != nil {
 				send(EncodeAck(ack))
+			}
+			if err := applier.Keepalive(host.Scope(), now); err != nil {
+				log.Logf(rep, log.Warn, "enemy host: keepalive: %v", err)
 			}
 		}
 	}
