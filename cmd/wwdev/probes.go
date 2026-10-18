@@ -23,6 +23,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/tunicsync"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/host"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
@@ -3059,6 +3060,16 @@ func runDump() {
 		}
 	}
 	fmt.Println()
+
+	// The WWMB header and the strict contract check (Phase E1): whether
+	// this build may write into the game, and why not.
+	if c, err := wwapi.CheckContract(d, wwapi.ContractOptions{}); err != nil {
+		fmt.Printf("contract: %v\n", err)
+	} else {
+		fmt.Printf("WWMB header @ 0x%08X: magic 0x%08X ABI %d layout %d features 0x%02X\n",
+			mailbox.Mailbox+mailbox.OffHdrMagic, c.Header.Magic, c.Header.ABI, c.Header.Layout, c.Header.Features)
+		fmt.Println("contract: " + wwapi.ContractLine(c))
+	}
 
 	if progress, err := d.ReadU32(mailbox.Mailbox + 0x04); err == nil {
 		fmt.Printf("progress: %d (1=gate 3=link-ready 5=spawn-queued 8=spawned 9=syncing 10=actor-lost)\n", progress)

@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
@@ -452,7 +452,7 @@ func (g *GameRunner) badLog(st session.DolphinState) {
 	case session.DolphinWrongGame:
 		log.Logf(g.out, log.Err, "Dolphin is running a different game. Boot your patched Wind Waker (%s) in it.", g.o.ISO)
 	case session.DolphinUnpatched:
-		log.Logf(g.out, log.Err, "Dolphin is running Wind Waker without this version's mod. Boot your patched disc (%s), or patch it again in Setup.", g.o.ISO)
+		log.Logf(g.out, log.Err, "Dolphin is running Wind Waker without this version's mod: an unpatched disc, a disc patched by another version, or a save state taken on one. Boot your patched disc (%s) from Dolphin's game list, or patch it again in Setup; don't load a save state from another version.", g.o.ISO)
 	}
 }
 
@@ -600,34 +600,14 @@ type modMem interface {
 	Read(addr uint32, n int) ([]byte, error)
 }
 
-// hasThisMod says this build's injected code (inject.T2Bytes) is in RAM
-// at inject.T2Address: at least 90% of its non-zero bytes match (a few
-// are variables the mod changes as it runs). An unpatched game has its
-// heap there; another build's mod is laid out differently.
+// hasThisMod says the game in RAM runs this build's mod: the strict
+// contract check (wwapi.CheckContract, Phase E1) allows writes. That
+// takes this build's WWMB header (ABI, layout version) and the .text of
+// its injected code hashing to blob.go's BlobHash. An unpatched game, an
+// ISO patched by another version, or a save state taken on one fails it.
 func hasThisMod(m modMem) bool {
-	got, err := m.Read(inject.T2Address, len(inject.T2Bytes))
-	if err != nil || len(got) != len(inject.T2Bytes) {
-		return false
-	}
-	return modMatch(got, inject.T2Bytes) >= 0.9
-}
-
-// modMatch is the share of want's non-zero bytes that got has too.
-func modMatch(got, want []byte) float64 {
-	n, same := 0, 0
-	for i, b := range want {
-		if b == 0 {
-			continue
-		}
-		n++
-		if i < len(got) && got[i] == b {
-			same++
-		}
-	}
-	if n == 0 {
-		return 0
-	}
-	return float64(same) / float64(n)
+	c, err := wwapi.CheckContract(m, wwapi.ContractOptions{})
+	return err == nil && c.WritesAllowed
 }
 
 // envDolphinPID is WW_DOLPHIN_PID, 0 when unset or bad.

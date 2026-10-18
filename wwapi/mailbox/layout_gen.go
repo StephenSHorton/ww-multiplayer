@@ -6,11 +6,21 @@ package mailbox
 const (
 	// Mailbox is the mailbox's address (MAILBOX_ADDR).
 	Mailbox            uint32 = 0x80412F00
-	MaxPuppets                = 4 // MAX_PUPPETS
-	MaxRemoteLinks            = 2 // MAX_REMOTE_LINKS
-	MailboxPoseSlotCap        = 2 // MAILBOX_POSE_SLOT_CAP
-	TunicSlotLocal            = 2 // TUNIC_SLOT_LOCAL
-	TunicEnableCasual         = 2 // TUNIC_ENABLE_CASUAL
+	WwmbMagic                 = 0x57574D42 // WWMB_MAGIC
+	WwmbAbi                   = 1          // WWMB_ABI
+	WwmbLayout                = 1          // WWMB_LAYOUT
+	WwFeatAvatar              = 0x01       // WW_FEAT_AVATAR
+	WwFeatEyefix              = 0x02       // WW_FEAT_EYEFIX
+	WwFeatFace                = 0x04       // WW_FEAT_FACE
+	WwFeatInput               = 0x08       // WW_FEAT_INPUT
+	WwFeatTunic               = 0x10       // WW_FEAT_TUNIC
+	WwFeatWarp                = 0x20       // WW_FEAT_WARP
+	WwFeatures                = 0x3F       // WW_FEATURES
+	MaxPuppets                = 4          // MAX_PUPPETS
+	MaxRemoteLinks            = 2          // MAX_REMOTE_LINKS
+	MailboxPoseSlotCap        = 2          // MAILBOX_POSE_SLOT_CAP
+	TunicSlotLocal            = 2          // TUNIC_SLOT_LOCAL
+	TunicEnableCasual         = 2          // TUNIC_ENABLE_CASUAL
 )
 
 // Puppet field offsets, from the start of a Puppet. PuppetLen* is an array field's length.
@@ -43,7 +53,7 @@ const (
 
 // Mailbox field offsets, from Mailbox. Len* is an array field's length.
 const (
-	MailboxSize                = 0x1A0
+	MailboxSize                = 0x1B0
 	OffSpawnTrigger            = 0x00 // u32 spawn_trigger
 	OffProgress                = 0x04 // u32 progress
 	OffPad0                    = 0x08 // u32 _pad0
@@ -131,8 +141,9 @@ const (
 	OffInputAnalogA            = 0x17A // u8 input_analog_a
 	OffInputAnalogB            = 0x17B // u8 input_analog_b
 	OffInputOverrides          = 0x17C // u32 input_overrides
-	OffReservedHdr             = 0x180 // u32 _reserved_hdr[2]
-	LenReservedHdr             = 2
+	OffHdrMagic                = 0x180 // u32 hdr_magic
+	OffHdrAbi                  = 0x184 // u16 hdr_abi
+	OffHdrLayout               = 0x186 // u16 hdr_layout
 	OffTunicBufs               = 0x188 // u32 tunic_bufs[3]
 	LenTunicBufs               = 3
 	OffTunicBufSize            = 0x194 // u32 tunic_buf_size
@@ -140,4 +151,7 @@ const (
 	LenTunicEnable             = 3
 	OffTunicState              = 0x19B // u8 tunic_state
 	OffTunicSwaps              = 0x19C // u32 tunic_swaps
+	OffFeatures                = 0x1A0 // u32 features
+	OffPad13                   = 0x1A4 // u8 _pad13[12]
+	LenPad13                   = 12
 )

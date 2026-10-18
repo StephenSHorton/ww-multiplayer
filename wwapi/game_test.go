@@ -25,17 +25,14 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/write"
 )
 
-// bootedRAM is a fake game's RAM as the patched ISO leaves it: the disc
-// ID at the start of MEM1 and this build's T2 at T2Address. The WWMB
-// header bytes are left zero, as every blob before E1 leaves them.
+// bootedRAM is a fake game's RAM as this build's patched ISO leaves it:
+// the disc ID at the start of MEM1, this build's T2 at T2Address and the
+// WWMB header main01_init writes (fakegame.Boot).
 func bootedRAM(t *testing.T) (*mem.FakeMem, *fakegame.FakeGame) {
 	t.Helper()
 	m := mem.NewFakeMem()
 	g := fakegame.New(m)
-	if err := m.Store(addr.MEM1Base, []byte(wwapi.GameID)); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.Store(inject.T2Address, inject.T2Bytes); err != nil {
+	if err := fakegame.Boot(m); err != nil {
 		t.Fatal(err)
 	}
 	return m, g
@@ -51,108 +48,239 @@ func newGame(t *testing.T, m mem.Mem) *wwapi.Game {
 	return g
 }
 
-// TestZeroedHeaderAttachesWithWritesAllowed: today's blob has
-// _reserved_hdr zeroed. In pre-E1 mode that is ABI 0 with the fixed
-// features, and writes are allowed (design §6.4 step 5, decision 18).
-func TestZeroedHeaderAttachesWithWritesAllowed(t *testing.T) {
-	m, _ := bootedRAM(t)
-	hdr, err := m.Read(mailbox.Mailbox+mailbox.OffReservedHdr, mailbox.HeaderLen)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if slices.ContainsFunc(hdr, func(b byte) bool { return b != 0 }) {
-		t.Fatalf("header not zero: % X", hdr)
-	}
-	g := newGame(t, m)
-	c := g.Contract()
-	if c.Mode != wwapi.PreE1 || c.Header.Present || c.ABI != 0 || c.Layout != 0 {
-		t.Errorf("contract %+v: want pre-E1, no header, ABI 0, layout 0", c)
-	}
-	if !c.WritesAllowed || c.Why != "" || c.Err() != nil {
-		t.Errorf("writes refused: %q", c.Why)
-	}
-	if !c.BlobMatches || c.BlobMatch != 1 {
-		t.Errorf("blob match %v (%v)", c.BlobMatches, c.BlobMatch)
-	}
-	info := g.Info()
-	if info.GameID != "GZLE01" || info.ABI != 0 || info.LayoutVersion != 0 || !info.BlobMatches {
-		t.Errorf("info %+v", info)
-	}
-	if got, want := info.Features.String(), wwapi.PreE1Features().String(); got != want || !info.Features.Known() {
-		t.Errorf("features %q, want %q", got, want)
-	}
-	if miss := info.Features.Missing([]string{"avatar", "face", "tunic", "input"}); miss != nil {
-		t.Errorf("multiplayer's needs missing: %v", miss)
-	}
-
-	// A command that writes runs: the write gate is the contract.
-	ran := false
+// registerWrite registers core.test.write, a command that writes, and
+// returns how many times it ran.
+func registerWrite(t *testing.T, g *wwapi.Game) *int {
+	t.Helper()
+	ran := new(int)
 	spec := commands.Spec{Writes: []write.Range{{Addr: addr.SaveInfo, Len: 1}}}
 	if err := g.Commands().Register("core.test.write", spec, func(context.Context, json.RawMessage) (commands.Result, error) {
-		ran = true
+		*ran++
 		return commands.Result{OK: true}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if res, err := g.Commands().Execute(context.Background(), "core.test.write", nil); err != nil || !res.OK || !ran {
-		t.Errorf("write command: %+v, %v, ran %v", res, err, ran)
+	return ran
+}
+
+// TestStrictAttach: this build's blob with its WWMB header attaches in
+// strict mode with writes allowed, its ABI, layout and features read
+// from the header and the code hash equal to blob.go's (design §6.4
+// step 5, §9 E1).
+func TestStrictAttach(t *testing.T) {
+	m, _ := bootedRAM(t)
+	g := newGame(t, m)
+	c := g.Contract()
+	if c.Mode != wwapi.Strict || !c.Header.Present || c.ABI != inject.ABI || c.Layout != inject.LayoutVersion {
+		t.Errorf("contract %+v: want strict, header ABI %d layout %d", c, inject.ABI, inject.LayoutVersion)
+	}
+	if !c.WritesAllowed || c.Why != "" || c.Err() != nil {
+		t.Errorf("writes refused: %q", c.Why)
+	}
+	if !c.BlobMatches || c.BlobHash != inject.BlobHash || c.WantHash != inject.BlobHash {
+		t.Errorf("blob hash 0x%08X (match %v), want 0x%08X", c.BlobHash, c.BlobMatches, inject.BlobHash)
+	}
+	info := g.Info()
+	if info.GameID != "GZLE01" || info.ABI != inject.ABI || info.LayoutVersion != inject.LayoutVersion || !info.BlobMatches || info.BlobHash != inject.BlobHash {
+		t.Errorf("info %+v", info)
+	}
+	if got, want := info.Features.String(), wwapi.BlobFeatures().String(); got != want || !info.Features.Known() {
+		t.Errorf("features %q, want %q", got, want)
+	}
+	if got := wwapi.BlobFeatures().String(); got != "avatar,eyefix,face,input,tunic,warp" {
+		t.Errorf("this blob's features %q", got)
+	}
+	if miss := info.Features.Missing([]string{"avatar", "face", "tunic", "input"}); miss != nil {
+		t.Errorf("multiplayer's needs missing: %v", miss)
+	}
+	if line := wwapi.ContractLine(c); !strings.Contains(line, "strict mode") || !strings.Contains(line, "writes allowed") {
+		t.Errorf("contract line %q", line)
+	}
+
+	// A command that writes runs: the write gate is the contract.
+	ran := registerWrite(t, g)
+	if res, err := g.Commands().Execute(context.Background(), "core.test.write", nil); err != nil || !res.OK || *ran != 1 {
+		t.Errorf("write command: %+v, %v, ran %d", res, err, *ran)
 	}
 }
 
-// TestContractRefusals: the pre-E1 check refuses writes only for another
-// game or another blob, never for a missing header; a header that is
-// there is read.
+// TestContractRefusals: strict mode refuses writes, with a reason a
+// player can read and the re-patch advice, for another game, a game
+// without a WWMB header (every blob before E1, a vanilla game, a save
+// state taken on either), another ABI or layout version, and another
+// blob's code.
 func TestContractRefusals(t *testing.T) {
+	zeroHeader := func(m *mem.FakeMem) error {
+		if err := m.Store(mailbox.Mailbox+mailbox.OffHdrMagic, make([]byte, mailbox.HeaderLen)); err != nil {
+			return err
+		}
+		return m.Store(mailbox.Mailbox+mailbox.OffFeatures, make([]byte, 4))
+	}
+	for _, tc := range []struct {
+		name string
+		edit func(m *mem.FakeMem) error // changes a booted game's RAM
+		why  string
+	}{
+		{"another game", func(m *mem.FakeMem) error { return m.Store(addr.MEM1Base, []byte("GZLJ01")) }, `game ID "GZLJ01" is not GZLE01`},
+		{"zero header", zeroHeader, "no WWMB header"},
+		{"vanilla game", func(m *mem.FakeMem) error {
+			if err := m.Store(inject.T2Address, make([]byte, len(inject.T2Bytes))); err != nil {
+				return err
+			}
+			return zeroHeader(m)
+		}, "no WWMB header"},
+		{"another ABI", func(m *mem.FakeMem) error {
+			h := fakegame.ThisHeader()
+			h.ABI++
+			return mailbox.WriteHeader(m, h)
+		}, fmt.Sprintf("ABI %d layout %d, this version's is ABI %d", inject.ABI+1, inject.LayoutVersion, inject.ABI)},
+		{"another layout", func(m *mem.FakeMem) error {
+			h := fakegame.ThisHeader()
+			h.Layout++
+			return mailbox.WriteHeader(m, h)
+		}, fmt.Sprintf("layout %d, this version's", inject.LayoutVersion+1)},
+		{"another blob's code", func(m *mem.FakeMem) error {
+			b, err := m.Read(inject.TextEnd-4, 1)
+			if err != nil {
+				return err
+			}
+			return m.Store(inject.TextEnd-4, []byte{b[0] ^ 0x01})
+		}, "injected code in RAM is not this version's"},
+		{"another blob's constants", func(m *mem.FakeMem) error {
+			// A literal in .rodata (a string or a float the code loads): a
+			// rebuild that changes only a constant changes the hash too.
+			b, err := m.Read(inject.HashRanges[0][0], 1)
+			if err != nil {
+				return err
+			}
+			return m.Store(inject.HashRanges[0][0], []byte{b[0] ^ 0x01})
+		}, "injected code in RAM is not this version's"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _ := bootedRAM(t)
+			if err := tc.edit(m); err != nil {
+				t.Fatal(err)
+			}
+			g := newGame(t, m)
+			c := g.Contract()
+			if c.WritesAllowed || c.Mode != wwapi.Strict || !errors.Is(c.Err(), wwapi.ErrContract) {
+				t.Fatalf("not refused: %+v", c)
+			}
+			if !strings.Contains(c.Why, tc.why) || !strings.Contains(c.Err().Error(), tc.why) {
+				t.Errorf("why %q, want it to say %q", c.Why, tc.why)
+			}
+			if line := wwapi.ContractLine(c); !strings.Contains(line, "writes refused: "+c.Why) || !strings.Contains(line, wwapi.RepatchAdvice) {
+				t.Errorf("contract line %q: want the reason and the re-patch advice", line)
+			}
+			if !c.Header.Present && (c.ABI != 0 || !c.Features.Known() || len(c.Features.Names()) != 0) {
+				t.Errorf("no header: ABI %d, features %s (known %v); want 0 and a known empty set", c.ABI, c.Features, c.Features.Known())
+			}
+			ran := registerWrite(t, g)
+			if _, err := g.Commands().Execute(context.Background(), "core.test.write", nil); !errors.Is(err, commands.ErrWritesRefused) || !errors.Is(err, wwapi.ErrContract) || *ran != 0 {
+				t.Errorf("refused write command: %v (ran %d)", err, *ran)
+			}
+		})
+	}
+}
+
+// TestContractNeedsRepatch: the header's features word is what the mods'
+// needs are checked against: a blob without "tunic" leaves a mod that
+// needs it NEEDS_REPATCH, and a game without a header provides nothing.
+func TestContractNeedsRepatch(t *testing.T) {
 	m, _ := bootedRAM(t)
-	if err := m.Store(mailbox.Mailbox+mailbox.OffReservedHdr, []byte{'W', 'W', 'M', 'B', 0, 1, 0, 7}); err != nil {
+	h := fakegame.ThisHeader()
+	h.Features &^= mailbox.WwFeatTunic
+	if err := mailbox.WriteHeader(m, h); err != nil {
 		t.Fatal(err)
 	}
 	c, err := wwapi.CheckContract(m, wwapi.ContractOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.Header.Present || c.ABI != 1 || c.Layout != 7 || !c.WritesAllowed {
-		t.Errorf("with a header: %+v", c)
+	if miss := c.Features.Missing([]string{"avatar", "face", "tunic", "input"}); !slices.Equal(miss, []string{"tunic"}) {
+		t.Errorf("missing %v, want [tunic]", miss)
 	}
+	if err := m.Store(mailbox.Mailbox+mailbox.OffHdrMagic, make([]byte, mailbox.HeaderLen)); err != nil {
+		t.Fatal(err)
+	}
+	if c, err = wwapi.CheckContract(m, wwapi.ContractOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if miss := c.Features.Missing([]string{"avatar", "face"}); !slices.Equal(miss, []string{"avatar", "face"}) {
+		t.Errorf("no header: missing %v", miss)
+	}
+	// A refused game provides nothing even when its header sets every
+	// bit: another ABI's or layout's word does not use this build's
+	// names, and another blob's code is not this build's features.
+	all := []string{"avatar", "eyefix", "face", "input", "tunic", "warp"}
+	for _, tc := range []struct {
+		name string
+		edit func(m *mem.FakeMem) error
+	}{
+		{"another ABI", func(m *mem.FakeMem) error {
+			h := fakegame.ThisHeader()
+			h.ABI++
+			return mailbox.WriteHeader(m, h)
+		}},
+		{"another layout", func(m *mem.FakeMem) error {
+			h := fakegame.ThisHeader()
+			h.Layout++
+			return mailbox.WriteHeader(m, h)
+		}},
+		{"another blob's code", func(m *mem.FakeMem) error {
+			b, err := m.Read(inject.TextEnd-4, 1)
+			if err != nil {
+				return err
+			}
+			return m.Store(inject.TextEnd-4, []byte{b[0] ^ 0x01})
+		}},
+	} {
+		m, _ := bootedRAM(t)
+		if err := tc.edit(m); err != nil {
+			t.Fatal(err)
+		}
+		c, err := wwapi.CheckContract(m, wwapi.ContractOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.WritesAllowed || !c.Header.Present || c.Header.Features != uint32(mailbox.WwFeatures) {
+			t.Fatalf("%s: setup: %+v", tc.name, c)
+		}
+		if miss := c.Features.Missing(all); !slices.Equal(miss, all) {
+			t.Errorf("%s: missing %v, want every need", tc.name, miss)
+		}
+	}
+	if got := wwapi.FeaturesOf(mailbox.WwFeatFace | 1<<9).String(); got != "bit9,face" {
+		t.Errorf("FeaturesOf: %q", got)
+	}
+}
 
-	other := mem.NewFakeMem()
-	if err := other.Store(addr.MEM1Base, []byte("GZLJ01")); err != nil {
+// TestContractRecheckedOnSaveState: loading a save state (the heartbeat
+// goes backwards) re-runs the check, so a state taken on an old blob,
+// which has no header, refuses writes from that tick on.
+func TestContractRecheckedOnSaveState(t *testing.T) {
+	m, fg := bootedRAM(t)
+	if err := fg.LoadStage(fakegame.Stage{Name: "sea", Room: 44, Table: addr.TableSea}); err != nil {
 		t.Fatal(err)
 	}
-	if err := other.Store(inject.T2Address, inject.T2Bytes); err != nil {
+	g := newGame(t, m)
+	for range 5 {
+		fg.Frame()
+		g.Tick()
+	}
+	if !g.Contract().WritesAllowed {
+		t.Fatalf("booted game refused: %s", g.Contract().Why)
+	}
+	// The old state: no header, an earlier heartbeat.
+	if err := m.Store(mailbox.Mailbox+mailbox.OffHdrMagic, make([]byte, mailbox.HeaderLen)); err != nil {
 		t.Fatal(err)
 	}
-	c, err = wwapi.CheckContract(other, wwapi.ContractOptions{})
-	if err != nil {
+	if err := m.Store(mailbox.SpawnTrigger, []byte{0, 0, 0, 1}); err != nil {
 		t.Fatal(err)
 	}
-	if c.WritesAllowed || !errors.Is(c.Err(), wwapi.ErrContract) || !strings.Contains(c.Why, "GZLJ01") {
-		t.Errorf("another game: %+v", c)
-	}
-
-	vanilla := mem.NewFakeMem()
-	fakegame.New(vanilla)
-	if err := vanilla.Store(addr.MEM1Base, []byte(wwapi.GameID)); err != nil {
-		t.Fatal(err)
-	}
-	g := newGame(t, vanilla)
-	c = g.Contract()
-	if c.WritesAllowed || c.BlobMatches || !strings.Contains(c.Why, "not this build's") {
-		t.Errorf("no blob: %+v", c)
-	}
-	// Still ABI 0 with the fixed features: the header is not what refused.
-	if c.ABI != 0 || c.Features.String() != wwapi.PreE1Features().String() {
-		t.Errorf("no blob: ABI %d features %s", c.ABI, c.Features)
-	}
-	spec := commands.Spec{Writes: []write.Range{{Addr: addr.SaveInfo, Len: 1}}}
-	if err := g.Commands().Register("core.test.write", spec, func(context.Context, json.RawMessage) (commands.Result, error) {
-		t.Error("a refused write command ran")
-		return commands.Result{}, nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := g.Commands().Execute(context.Background(), "core.test.write", nil); !errors.Is(err, commands.ErrWritesRefused) || !errors.Is(err, wwapi.ErrContract) {
-		t.Errorf("refused write command: %v", err)
+	g.Tick()
+	if c := g.Contract(); c.WritesAllowed || !strings.Contains(c.Why, "no WWMB header") {
+		t.Errorf("after the old save state: %+v", c)
 	}
 }
 

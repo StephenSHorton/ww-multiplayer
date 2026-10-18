@@ -152,6 +152,9 @@ func (h *coopHook) sessionEnv() coopEnv {
 // StartHost backs up the cards, opens or founds the co-op world and sets
 // the CoopHub as srv's Coop.
 func (h *coopHook) StartHost(ctx context.Context, rep log.Reporter, srv *network.Server) error {
+	if err := contractErrPID(h.env, 0); err != nil {
+		return err // another version's patch or save state: no world is founded or served from it
+	}
 	cs, err := startCoopHost(ctx, rep, srv.OnLog, h.co, h.sessionEnv())
 	if err != nil {
 		return err

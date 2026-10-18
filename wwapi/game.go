@@ -58,13 +58,13 @@ var warpRange = write.Range{Addr: mailbox.Mailbox + mailbox.OffWarpSeq, Len: mai
 
 // Info is what a Game knows about the game it attached to (design §5.1).
 type Info struct {
-	PID           int    // the Dolphin process; 0 for a Game made by NewGame
-	GameID        string // "GZLE01"
-	ABI           uint16 // from the WWMB header (0 = no header: every blob before E1)
-	LayoutVersion uint16 // from the same header
-	BlobHash      uint32 // CRC-32 of T2 as read from RAM (see Contract.BlobHash)
-	BlobMatches   bool   // T2 in RAM is this build's blob
-	Features      Features
+	PID           int      // the Dolphin process; 0 for a Game made by NewGame
+	GameID        string   // "GZLE01"
+	ABI           uint16   // from the WWMB header (0 = no header: every blob before E1)
+	LayoutVersion uint16   // from the same header
+	BlobHash      uint32   // CRC-32 of the blob's read-only sections as read from RAM (see Contract.BlobHash)
+	BlobMatches   bool     // the code in RAM is this build's blob
+	Features      Features // from the header's features word; known and empty without a header
 }
 
 // GameOptions configure NewGame. The zero value is ready to use.
@@ -171,7 +171,7 @@ func NewGame(m mem.Mem, o GameOptions) (*Game, error) {
 	if err := g.cmds.Register(CmdPlayerWarp, commands.Spec{Scope: commands.Local, Writes: []write.Range{warpRange}}, g.warp); err != nil {
 		return nil, err
 	}
-	o.Log.Log(log.Info, contractLine(c))
+	o.Log.Log(log.Info, ContractLine(c))
 	return g, nil
 }
 
@@ -198,17 +198,23 @@ func (g *Game) warp(_ context.Context, raw json.RawMessage) (commands.Result, er
 	return commands.Result{OK: true}, nil
 }
 
-// contractLine is the one line the contract check logs.
-func contractLine(c Contract) string {
-	hdr := "no WWMB header (pre-E1 blob)"
+// ContractLine is the one line the contract check logs: the game, the
+// header, the code hash and the verdict (with RepatchAdvice when it
+// refuses).
+func ContractLine(c Contract) string {
+	hdr := "no WWMB header"
 	if c.Header.Present {
 		hdr = fmt.Sprintf("WWMB header ABI %d layout %d", c.ABI, c.Layout)
 	}
+	match := "matches this version"
+	if !c.BlobMatches {
+		match = fmt.Sprintf("this version's is %08X", c.WantHash)
+	}
 	verdict := "writes allowed"
 	if !c.WritesAllowed {
-		verdict = "writes refused: " + c.Why
+		verdict = "writes refused: " + c.Why + ". " + RepatchAdvice
 	}
-	return fmt.Sprintf("game %s, %s, %s mode, features %s; %s", c.GameID, hdr, c.Mode, c.Features, verdict)
+	return fmt.Sprintf("game %s, %s, code hash %08X (%s), %s mode, features %s; %s", c.GameID, hdr, c.BlobHash, match, c.Mode, c.Features, verdict)
 }
 
 // readOnly hides Write, so the Reader Mem returns cannot be asserted
@@ -274,7 +280,7 @@ func (g *Game) Tick() error {
 			g.contract = c
 			g.mu.Unlock()
 			if changed {
-				g.opts.Log.Log(log.Info, contractLine(c))
+				g.opts.Log.Log(log.Info, ContractLine(c))
 			}
 		}
 	}

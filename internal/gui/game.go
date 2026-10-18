@@ -115,7 +115,7 @@ func gameDialog(st session.State, running bool, mk masker) *DialogView {
 		}
 		return &DialogView{Key: key(dlgDolphin), Kind: dlgDolphin, Live: true, Title: "Wrong disc in Dolphin",
 			Text:    fmt.Sprintf("Dolphin is running %s. Close that game and boot %s: the session starts playing as soon as Dolphin runs it.", what, iso),
-			Detail:  "If the patched disc was made by an older version of this app, patch your disc again in Setup.",
+			Detail:  "If the patched disc was made by another version of this app, patch your disc again in Setup. If you loaded a save state, it may have been taken on another version: boot the disc from Dolphin's game list instead, and capture a new save state once you are in the game.",
 			Actions: []DialogAction{{ID: actOK, Label: "OK", Primary: true}, {ID: actSetup, Label: "Open Setup"}}}
 	}
 	if d.Err != "" && d.PID == 0 {
