@@ -44,29 +44,18 @@ static int frame_count = 0;
 // --- Mini-Link state (Option B from roadmap 06) ------------------------
 // Render N independent Link models from OUR code, all sharing Link #1's
 // already-loaded J3DModelData. No actors, no PROC_PLAYER spawn, no
-// 704 KB heap carve-out per model. Slot 0 is used by mirror / freeze /
-// echo / single-pose modes (0..4); modes that source pose-per-slot
-// (mode 5) iterate all MAX_REMOTE_LINKS slots.
+// 704 KB heap carve-out per model. shadow_mode 5 (pose feed) drives all
+// MAX_REMOTE_LINKS slots; every other shadow_mode value draws nothing
+// (the mirror / freeze / echo dev modes 1-4 were deleted in Phase E0).
 static J3DModelData* mini_link_data = 0;
 static J3DModel* mini_link_models[MAX_REMOTE_LINKS] = {0};
 // 0 = not tried yet, 1 = all models created + rendering, 0xFF = give up
 static u8 mini_link_state = 0;
 
-// Shadow daPy_lk_c buffer for the "own the state" experiment (docs/06).
-// sizeof(daPy_lk_c) per zeldaret/tww decomp (d_a_player_main.h) = 0x4C28.
-// 19 KB is too big for static BSS — Freighter's linker placed shadow_link
-// at 0x804101F8, which collides with the mailbox at 0x80410F00. Fixed by
-// runtime-allocating from GameHeap on first use instead.
-#define SHADOW_LINK_SIZE 0x4C28
-static u32* shadow_link = 0;   // populated on first mode-1/2 frame
-static u8 prev_shadow_mode = 0;
-static int shadow_latched_local = 0;
-
-// No-op J3DMtxCalc for mode 3 (and future custom-pose work).
-// Mode 3 with NULL confirmed `calcAnmMtx` derefs basicMtxCalc (PC 0x802ee63c),
-// but the crash stalls the draw phase. Replacing NULL with a valid pointer
-// whose virtuals all return immediately lets calc() complete while skipping
-// the joint walk — Link #2's mpNodeMtx stays from last real calc → freeze.
+// No-op J3DMtxCalc for the pose feed's second calc. Swapped into
+// J3DModelData->basicMtxCalc around that calc so it skips the joint walk
+// (mpNodeMtx keeps the pose we copied in) while its envelope pass
+// rebuilds mpDrawMtxBuf from that pose.
 //
 // Vtable layout: 16 slots (over-provisioned — base J3DMtxCalc has 4; derived
 // subclasses may have more if any downstream code pretends our object is a
@@ -80,40 +69,11 @@ static void noop_stub(void) {
     asm volatile("blr\n");
 }
 
-// --- Echo-Link state (shadow_mode 4) ----------------------------------
-// Ring buffer of per-frame mpNodeMtx snapshots for the delayed-replay
-// experiment (docs/06 "Next Session Priority" track 1).
-//
-// Flow each mode-4 frame inside daPy_draw_hook, AFTER our calc (which
-// ran with the real basicMtxCalc and so populated mini-Link's mpNodeMtx
-// with Link #1's current-frame pose as a byproduct), and BEFORE
-// modelEntryDL (so viewCalc inside it projects our overwrite into
-// mpDrawMtxBuf):
-//   1. memcpy mpNodeMtx -> ring[write_idx]      (capture)
-//   2. if frames_filled >= delay:
-//        memcpy ring[(write_idx - delay + BUF) % BUF] -> mpNodeMtx  (replay)
-//   3. write_idx = (write_idx + 1) % BUF; frames_filled = min(+1, BUF)
-//
-// delay == 0 is the sanity case: replay copies our just-captured frame
-// back over itself. Link #2 should look identical to mirror. If he
-// doesn't, the copy itself is damaging mpNodeMtx.
-// delay > 0 replays a historical frame — the actual desync demo.
-//
-// Heap: GameHeap (same runtime allocator as shadow_link; ~245 KB free per
-// docs/05). 60 frames * ~42 joints * 48 B = ~120 KB, so ECHO_BUF_FRAMES=60
-// leaves enough headroom for normal Outset actor loads.
-#define ECHO_BUF_FRAMES 60
-static u8* echo_ring = 0;
-static int echo_joint_num = 0;   // captured at first alloc; ring frame size = joint_num * 48
-static int echo_frame_u32s = 0;  // joint_num * 12 (Mtx = 3*4 f32s = 12 u32s)
-static int echo_write_idx = 0;
-static int echo_frames_filled = 0;
-
 // --- Pose feed state (shadow_mode 5) ----------------------------------
 // Single GameHeap-resident buffer of joint matrices. Go writes directly to
 // pose_buf via the published mailbox.pose_buf_ptr; C copies into mpNodeMtx
-// each draw, then runs the same no-op-walker second calc as mode 4 to
-// rebuild mpDrawMtxBuf from our pose. Hold-last semantics: C always reads
+// each draw, then runs a second calc with the no-op walker to rebuild
+// mpDrawMtxBuf from our pose. Hold-last semantics: C always reads
 // whatever bytes are in pose_buf, no freshness gate yet.
 static u8* pose_bufs[MAX_REMOTE_LINKS] = {0};
 static int pose_joint_num = 0;     // captured at first slot 0 alloc; same for all slots (Link rig)
@@ -174,7 +134,7 @@ static void face_emit_publish_local(void* model_data);
 //     actor gets the SAME pointer from getObjectRes (d_a_player_main.cpp
 //     :12059), so mpCLModelData never changes once Link is built.
 //   - mini_link_models live in ArchiveHeap and pose_publish / pose_bufs
-//     / echo_ring / shadow_link in GameHeap. The game never resets
+//     in GameHeap. The game never resets
 //     either heap wholesale (no freeAll on them in the decomp), so our
 //     blocks stay valid for the whole session — and stay ALLOCATED if
 //     we drop the pointer. Create / allocate once, keep forever.
@@ -184,23 +144,11 @@ static void face_emit_publish_local(void* model_data);
 // exists (:12374-12386). So mpCLModelData == 0 means "Link not ready
 // yet": multiplayer_update waits; it never resets.
 //
-// Per-stage reset: drop only state that holds the OLD Link actor or
-// old-stage history. Called from multiplayer_update on every frame of
-// the not-ready window and whenever PLAYER_PTR_ARRAY[0] changes.
-//   - mode 2's shadow_link snapshot is a copy of the old daPy_lk_c,
-//     whose internal pointers are into the old actor's freed heap; the
-//     joint callbacks read it via mUserArea. Unlatch so the next draw
-//     re-copies from the new actor.
-//   - mode 4's echo ring holds old-stage poses; refill from scratch.
-// Allocations, pose_seqs / face_seqs (Go owns those) and the face_emit
-// tev_block cache (it points into the resident J3DModelData) are kept.
-static fopAc_ac_c* mini_link_owner = 0;
-static void mini_link_stage_reset(void) {
-    shadow_latched_local = 0;
-    mailbox->shadow_latched = 0;
-    echo_write_idx = 0;
-    echo_frames_filled = 0;
-}
+// Since Phase E0 (the mirror / freeze / echo modes are gone) no
+// mini-Link state holds the old Link actor or old-stage history, so a
+// stage load needs no per-stage reset: allocations, pose_seqs /
+// face_seqs (Go owns those) and the face_emit tev_block cache (it points
+// into the resident J3DModelData) are all kept.
 
 // Rebuild against a DIFFERENT J3DModelData. Only reached when Link's
 // mpCLModelData is non-NULL, differs from ours, and is what Link.arc
@@ -215,8 +163,8 @@ static void mini_link_stage_reset(void) {
 // JKRHeap::free on the J3DModel would reclaim ~0xDC bytes and leave the
 // rest stranded anyway. Leaking one set per real re-mount is bounded;
 // leaking one set per frame of every stage load (the F18 bug) was not.
-// GameHeap buffers (pose_bufs, pose_publish, echo_ring, shadow_link)
-// don't depend on the model data and are kept.
+// GameHeap buffers (pose_bufs, pose_publish) don't depend on the model
+// data and are kept.
 static void mini_link_reset_state(void) {
     mini_link_data = 0;
     mini_link_state = 0;
@@ -423,12 +371,6 @@ void multiplayer_update(void) {
         // immediately reverted next frame as Link's execute begins.
         // Address verified empirically via scan-pos + poke-vec3.
         *(volatile cXyz*)0x803E440C = target;
-        // Diagnostic: publish (u32)link so Go can compare against
-        // GetLinkPtr(), and read-back of current.pos.x so we can verify
-        // our write actually landed in memory before something resets
-        // it next frame.
-        mailbox->warp_dbg_link_addr = (u32)link;
-        mailbox->warp_dbg_post_x = ((cXyz*)(link_bytes + 0x1F8))->x;
         mailbox->warp_ack = mailbox->warp_seq;
     }
 
@@ -532,17 +474,12 @@ void multiplayer_update(void) {
     }
 
     // --- Mini-Link render path ----------------------------------------
-    // Stage-load safety (see "Lifetimes" above mini_link_stage_reset).
-    // A new Link actor, or one whose playerInit hasn't run yet
-    // (mpCLModelData == 0), gets the per-stage reset; while not ready
-    // we skip mini-Link work entirely. The J3DModels are kept — they
-    // were created against Link.arc's resident J3DModelData, which the
-    // new Link uses too.
+    // Stage-load safety (see "Lifetimes" above mini_link_reset_state).
+    // While Link's playerInit hasn't run yet (mpCLModelData == 0) we
+    // skip mini-Link work entirely. The J3DModels are kept — they were
+    // created against Link.arc's resident J3DModelData, which a new Link
+    // uses too.
     J3DModelData* current_data = *(J3DModelData**)((u8*)link + DAPY_LK_C_MPCLMODELDATA_OFFSET);
-    if (current_data == 0 || link != mini_link_owner) {
-        mini_link_owner = link;
-        mini_link_stage_reset();
-    }
     if (current_data == 0) {
         mailbox->progress = best_progress;
         return;
@@ -563,7 +500,6 @@ void multiplayer_update(void) {
     //   20 = getRes returned NULL (archive not resident yet — retry next frame)
     //   21 = mDoExt_J3DModel__create returned NULL (gave up)
     //   22 = J3DModel created; rendering each frame
-    //   23 = modelEntryDL called this frame (rendering confirmed)
     if (mini_link_state == 0) {
         // Link.arc is mounted once at boot (d_s_logo.cpp:876) and stays
         // resident. We've already waited 300 frames + confirmed Link's
@@ -695,7 +631,7 @@ void multiplayer_update(void) {
             }
 
             if (!mini_link_models[0]) {
-                // Slot 0 is required for modes 0..4; without it nothing works.
+                // Slot 0 is required: the draw hook bails without it.
                 // (Higher slots failing just means fewer remote Links — non-fatal.)
                 mini_link_state = 0xFF;
                 if (best_progress < 21) best_progress = 21;
@@ -1249,17 +1185,9 @@ static void face_hook_process_arm(void) {
 //   restore link_root mtl vis
 //   setListP1
 //
-// `step` argument is the cumulative gate from mailbox.eye_fix_step:
-//   1 = j3dSys.setModel + setListP0/P1 swap only
-//   2 = + Pass 1's entryOpa(packet2_onCupOff) only (no shape vis, no entryIn)
-//   3 = + Pass 1's shape-vis toggle (still no entryIn)
-//   4 = + Pass 1's entryIn(cl_eye, cl_mayu)
-//   5 = + Pass 2 (entryOpa + shape vis + entryIn)
-//   6 = + Pass 3 (link_root vis + entryIn + setModel restore)
-//   7 = + Pass 4
-//   8 = + Pass 5 (full recipe)
-// Stepwise so we can iterate via Go without re-patching the C blob;
-// each save-state cycle covers all 8 levels.
+// This is the full recipe, the old eye_fix_step 8. The stepwise probe
+// levels 1-7 (and mailbox.eye_fix_step, which picked one) were deleted
+// in Phase E0; docs/06-history.md has how they were used.
 //
 // Caller-provided invariants (must hold for safety):
 //   - Link #1's daPy_lk_c::draw has already returned this frame
@@ -1271,8 +1199,8 @@ static void face_hook_process_arm(void) {
 //   - mini-Link's calc has already run (mpDrawMtx is current for
 //     entryIn's GX submission).
 static void run_eye_fix(J3DModel* model, void* link1_actor,
-                        J3DModelData* model_data, u8 step) {
-    if (step == 0 || !model || !link1_actor || !model_data) return;
+                        J3DModelData* model_data) {
+    if (!model || !link1_actor || !model_data) return;
     init_my_eye_packets();
 
     // j3dSys field slots.
@@ -1347,37 +1275,25 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
 
     int i;
 
-    // Step 2 isolates the entryOpa packet submission alone — no shape-vis
-    // toggles, no entryIn — so we can tell whether the missing-face/hair
-    // regression at higher steps comes from the packet's GX state or from
-    // entryIn's bucket-chain mutation.
-    if (step >= 2) {
-        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_onCupOff2, 0);
+    // Pass 1: packet 2 with cup-on/aup-off; hide zOffBlend and zOn, show
+    // zOffNone; enter the eye and brow joints.
+    J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_onCupOff2, 0);
+    for (i = 0; i < 4; i++) {
+        if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
+        if (zon[i])        *(volatile u32*)((u8*)zon[i]        + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
+        if (zoff_none[i])  *(volatile u32*)((u8*)zoff_none[i]  + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
     }
-    // Step 3 adds Pass 1's shape-vis toggle (still no entryIn).
-    if (step >= 3) {
-        for (i = 0; i < 4; i++) {
-            if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
-            if (zon[i])        *(volatile u32*)((u8*)zon[i]        + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
-            if (zoff_none[i])  *(volatile u32*)((u8*)zoff_none[i]  + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
-        }
-    }
-    // Step 4 adds Pass 1's eye+brow entryIn (= old step 2 final state).
-    if (step >= 4) {
-        J3DJoint_entryIn(cl_eye);
-        J3DJoint_entryIn(cl_mayu);
-    }
+    J3DJoint_entryIn(cl_eye);
+    J3DJoint_entryIn(cl_mayu);
 
-    if (step >= 5) {
-        // Pass 2: packet 2 with cup-off/aup-on, swap to zOffBlendShape.
-        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_offCupOn2, 0);
-        for (i = 0; i < 4; i++) {
-            if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
-            if (zoff_none[i])  *(volatile u32*)((u8*)zoff_none[i]  + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
-        }
-        J3DJoint_entryIn(cl_eye);
-        J3DJoint_entryIn(cl_mayu);
+    // Pass 2: packet 2 with cup-off/aup-on, swap to zOffBlendShape.
+    J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_offCupOn2, 0);
+    for (i = 0; i < 4; i++) {
+        if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
+        if (zoff_none[i])  *(volatile u32*)((u8*)zoff_none[i]  + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
     }
+    J3DJoint_entryIn(cl_eye);
+    J3DJoint_entryIn(cl_mayu);
 
     // Pass 3 (link_root entryIn) is SKIPPED in our setup. The decomp uses
     // it to enter face+hair into the chain at the recipe-middle position
@@ -1385,43 +1301,24 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
     // link_root via mDoExt later (which we need for body parts: tunic,
     // sleeves, boots, hat, ears, etc.) creates a cycle on the 6 mtls
     // Pass 3 entered. Trade-off: face+hair render via mDoExt with normal
-    // chain position instead of recipe-middle. Visual outcome verified
-    // against mode-1 (mClModel-swap) baseline. mtl_count kept = 0 so the
-    // restore loop below is a no-op.
-    J3DShape* mtl_shapes[16];
-    int mtl_count = 0;
+    // chain position instead of recipe-middle.
 
-    if (step >= 7) {
-        // Pass 4: packet 1 with cup-on/aup-off, swap to zOnShape.
-        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_onCupOff1, 0);
-        for (i = 0; i < 4; i++) {
-            if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
-            if (zon[i])        *(volatile u32*)((u8*)zon[i]        + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
-            if (zoff_none[i])  *(volatile u32*)((u8*)zoff_none[i]  + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
-        }
-        J3DJoint_entryIn(cl_eye);
-        J3DJoint_entryIn(cl_mayu);
+    // Pass 4: packet 1 with cup-on/aup-off, swap to zOnShape.
+    J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_onCupOff1, 0);
+    for (i = 0; i < 4; i++) {
+        if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
+        if (zon[i])        *(volatile u32*)((u8*)zon[i]        + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
+        if (zoff_none[i])  *(volatile u32*)((u8*)zoff_none[i]  + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
     }
+    J3DJoint_entryIn(cl_eye);
+    J3DJoint_entryIn(cl_mayu);
 
-    if (step >= 8) {
-        // Pass 5: packet 1 with cup-off/aup-on, then hide zOn so the
-        // shape-vis state at exit matches Link #1's post-recipe state
-        // (everything hidden, ready for next frame's first toggle).
-        J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_offCupOn1, 0);
-        for (i = 0; i < 4; i++) {
-            if (zon[i]) *(volatile u32*)((u8*)zon[i] + J3DSHAPE_FLAGS_OFFSET) |= J3DSHAPE_FLAG_HIDE;
-        }
-    }
-
-    // Restore link_root material visibility so our subsequent
-    // mDoExt_modelEntryDL submits the full body, and so next frame's
-    // Link #1 draw starts from the same baseline.
-    if (step >= 6) {
-        for (i = 0; i < mtl_count; i++) {
-            if (mtl_shapes[i]) {
-                *(volatile u32*)((u8*)mtl_shapes[i] + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
-            }
-        }
+    // Pass 5: packet 1 with cup-off/aup-on, then hide zOn so the
+    // shape-vis state at exit matches Link #1's post-recipe state
+    // (everything hidden, ready for next frame's first toggle).
+    J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_offCupOn1, 0);
+    for (i = 0; i < 4; i++) {
+        if (zon[i]) *(volatile u32*)((u8*)zon[i] + J3DSHAPE_FLAGS_OFFSET) |= J3DSHAPE_FLAG_HIDE;
     }
 
     // Restore j3dSys to its pre-our-work state. mDoExt_modelEntryDL
@@ -1533,10 +1430,9 @@ static void mini_link_entry_dl(J3DModel* model, J3DModelData* model_data) {
 // Link's joints too. Safe because daPy_draw_hook runs AFTER Link's draw
 // has completed for this frame; the restore happens before any other
 // code can read these joints.
-static void mDoExt_skip_recipe_joints(J3DModel* model, J3DModelData* model_data, u8 step) {
-    (void)step;  // currently unused — Pass 3 (link_root entryIn) is skipped
-                 // in run_eye_fix, so link_root never enters via recipe and
-                 // only cl_eye/cl_mayu need to be skipped in mDoExt.
+// Pass 3 (link_root entryIn) is skipped in run_eye_fix, so link_root
+// never enters via the recipe and only cl_eye/cl_mayu need skipping here.
+static void mDoExt_skip_recipe_joints(J3DModel* model, J3DModelData* model_data) {
     void* joint_arr_void = *(void**)((u8*)model_data + J3DMODELDATA_JOINT_NODE_PTR_OFFSET);
     if (!joint_arr_void) {
         mini_link_entry_dl(model, model_data);
@@ -1565,32 +1461,12 @@ static void mDoExt_skip_recipe_joints(J3DModel* model, J3DModelData* model_data,
 // Flow:
 //   1. Call Link's real draw implementation at 0x80107308 with the
 //      original `this` arg (r3). Preserves ALL existing Link rendering.
-//   2. After Link finishes drawing, submit our mini-Link to j3dSys.
+//   2. Publish Link #1's pose for broadcast-pose.
+//   3. In shadow_mode 5 (pose feed), calc and submit each mini-Link slot
+//      Go has written a pose to.
 // Return value propagates Link's original draw result — daPy_Draw just
 // tail-returns it to its caller.
-//
-// Status: hook is wired and firing each frame (progress=23 visible if
-// multiplayer_update didn't overwrite it next tick), but submitting
-// mini-Link from here STILL breaks sky textures — same symptom as the
-// original execute-phase attempt. modelEntryDL is the issue, not the
-// phase. See docs/05 "Mini-Link render pipeline" for open avenues.
 int daPy_draw_hook(void* this_) {
-    // draw_progress stages (diagnostic — only this hook writes this field,
-    // so execute phase can't overwrite it):
-    //   30 = hook entered
-    //   31 = Link's real draw returned
-    //   32 = mini_link_models[0] non-NULL
-    //   33 = mini_link_state == 1 (full gate open)
-    //   34 = matrix written (about to snapshot j3dSys)
-    //   35 = j3dSys snapshot done (about to call calc)
-    //   36 = calc returned (about to restore j3dSys)
-    //   37 = j3dSys restored (about to modelEntryDL)
-    //   38 = modelEntryDL returned — full path completed
-    // Diagnostic table: stuck at 36 ⇒ calc itself crashed inside on
-    // Link's data → step 3 (separate ModelData). Reached 38 then crash
-    // later ⇒ pollution lives outside j3dSys (statics or shared MtxCalc).
-    mailbox->draw_progress = 30;
-
     // SESSION 14: snapshot LOCAL Link's natural btp eye state into
     // mailbox.face_state_local for race-free broadcast-pose capture.
     // Must run BEFORE any face_emit_swap_for_slot call below — at this
@@ -1598,97 +1474,9 @@ int daPy_draw_hook(void* this_) {
     // yet this draw). No-op if mini_link_data isn't resolved yet.
     face_emit_publish_local(mini_link_data);
 
-    // SESSION 6 mode-1 freeze diagnostics. Capture the safety-check
-    // inputs every frame so Go can decide if the safety check is the
-    // freeze culprit. See mailbox.h dbg_*_mclmodeldata field comments.
-    mailbox->dbg_mini_link_data_cached = (u32)mini_link_data;
-    mailbox->dbg_pre_mclmodeldata =
-        *(volatile u32*)((u8*)this_ + DAPY_LK_C_MPCLMODELDATA_OFFSET);
-
-    // EYE-FIX V5 modes 1 & 2 (approach-(2) prototype). Pre-draw, swap
-    // Link's mClModel pointer to mini_link_models[0] so daPy_lk_c::draw's
-    // four-pass + body submission consume mini-link's matpackets, which
-    // have mpDrawMtx pointing at mini-link's mpDrawMtxBuf (filled by our
-    // double-calc with the network-fed pose). That gives us mini-link's
-    // body + eye decals at mini-link's pose without touching the chain
-    // post-Link's-draw — sidesteps the run_eye_fix/entryIn corruption.
-    //
-    // Mode 1: single draw with the swap → Link is invisible, mini-link
-    //   gets everything. Diagnostic: confirms the swap reaches the four-
-    //   pass before we commit to the cost of double-drawing.
-    // Mode 2: double draw — first swapped (mini-link), restore, second
-    //   draw renders Link normally. Both visible.
-    u8 ef_mode = mailbox->eye_fix_mode;
-    if ((ef_mode == 1 || ef_mode == 2) && mini_link_models[0]) {
-        J3DModel** mClModel_slot =
-            (J3DModel**)((u8*)this_ + DAPY_LK_C_MPCLMODEL_OFFSET);
-        J3DModel* saved_mClModel = *mClModel_slot;
-        *mClModel_slot = mini_link_models[0];
-        daPy_lk_c_draw(this_);
-        *mClModel_slot = saved_mClModel;
-        // Capture *(this+0x328) immediately after the swap+restore.
-        // If this differs from dbg_pre_mclmodeldata, the swapped draw
-        // mutated mClModelData (probably reading model->getModelData()
-        // and syncing it back), so the safety check just below will
-        // see a different pointer than mini_link_data.
-        mailbox->dbg_postswap_mclmodeldata =
-            *(volatile u32*)((u8*)this_ + DAPY_LK_C_MPCLMODELDATA_OFFSET);
-    }
-
-    // Mode 1: skip Link's own draw entirely (local Link invisible). The
-    // post-draw pipeline (pose publish, network pose calc, etc.) still
-    // runs so mini-link's mpNodeMtxBuf gets the remote pose and renders
-    // animated. Mode 2 also runs Link's normal draw — but its four-pass
-    // re-enters the SAME shared statics that mode-2's first draw already
-    // entered, creating a chain cycle that hangs the GPU. Keep mode 2
-    // wired for future use once we've sorted out own-copy statics or
-    // a separate-drawlist approach.
-    int result = 0;
-    if (ef_mode != 1) {
-        tunic_swap(this_, TUNIC_SLOT_LOCAL);
-        result = daPy_lk_c_draw(this_);
-        tunic_restore();
-    }
-    mailbox->draw_progress = 31;
-
-    // Post-draw chain snapshot. Walks opa_p0 bucket[0] via mpNextPacket@+4
-    // up to 8 hops. Captured BEFORE run_eye_fix mutates anything so it
-    // reflects the pure result of Link's daPy_lk_c::draw. Compare across
-    // step=0 vs step=4 to settle whether the four-pass eye-decal recipe
-    // actually executed. Manually unrolled — a `for (hop=0; hop<N; hop++)
-    // { break-if-bad; }` loop generated bad PPC at this Freighter / WW
-    // codegen combo and crashed boot. Unroll dodges that.
-    #define EYE_FIX_CHAIN_OK(p) \
-        ((p) >= 0x80000000 && (p) < 0x817FFFF8 && ((p) & 3) == 0)
-    {
-        int ec;
-        for (ec = 0; ec < 10; ec++) mailbox->eye_fix_post_chain[ec] = 0;
-        u8 cnt = 0;
-        u32 opa_p0 = *(volatile u32*)DRAWLIST_OPA_LIST_P0_PTR;
-        if (EYE_FIX_CHAIN_OK(opa_p0)) {
-            u32 mpBuf = *(volatile u32*)opa_p0;
-            if (EYE_FIX_CHAIN_OK(mpBuf)) {
-                u32 h0 = *(volatile u32*)mpBuf;
-                if (EYE_FIX_CHAIN_OK(h0)) {
-                    mailbox->eye_fix_post_chain[0] = h0; cnt = 1;
-                    u32 h1 = *(volatile u32*)(h0 + 4);
-                    if (EYE_FIX_CHAIN_OK(h1)) {
-                        mailbox->eye_fix_post_chain[1] = h1; cnt = 2;
-                        u32 h2 = *(volatile u32*)(h1 + 4);
-                        if (EYE_FIX_CHAIN_OK(h2)) {
-                            mailbox->eye_fix_post_chain[2] = h2; cnt = 3;
-                            u32 h3 = *(volatile u32*)(h2 + 4);
-                            if (EYE_FIX_CHAIN_OK(h3)) {
-                                mailbox->eye_fix_post_chain[3] = h3; cnt = 4;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        mailbox->eye_fix_post_chain_count = cnt;
-    }
-    #undef EYE_FIX_CHAIN_OK
+    tunic_swap(this_, TUNIC_SLOT_LOCAL);
+    int result = daPy_lk_c_draw(this_);
+    tunic_restore();
 
     // Publish Link #1's mpNodeMtx so Go-side broadcast-pose can read it
     // without racing calc. daPy_lk_c_draw has just completed for this
@@ -1737,471 +1525,157 @@ int daPy_draw_hook(void* this_) {
     // Stage-load safety (draw side). If this Link isn't built yet or
     // reads a model data other than the one our models were made from,
     // skip our submission this frame. Never reset here: the models are
-    // still valid (see "Lifetimes" above mini_link_stage_reset), and
+    // still valid (see "Lifetimes" above mini_link_reset_state), and
     // multiplayer_update alone decides whether a real rebuild is due.
-    if (mini_link_models[0] != 0) {
-        J3DModelData* current_data = *(J3DModelData**)((u8*)this_ + DAPY_LK_C_MPCLMODELDATA_OFFSET);
-        // SESSION 6: publish the live read for Go-side diagnosis.
-        mailbox->dbg_safety_check_current = (u32)current_data;
-        if (current_data != mini_link_data || current_data == 0) {
-            // SESSION 6: bump bail counter (saturating, but u32 won't
-            // wrap in any reasonable session). Lets Go tell at-a-glance
-            // whether this check is the freeze culprit in mode 1.
-            mailbox->dbg_safety_fired_count =
-                mailbox->dbg_safety_fired_count + 1;
-            return result;
+    if (mini_link_models[0] == 0 || mini_link_state != 1) {
+        return result;
+    }
+    J3DModelData* current_data = *(J3DModelData**)((u8*)this_ + DAPY_LK_C_MPCLMODELDATA_OFFSET);
+    if (current_data != mini_link_data || current_data == 0) {
+        return result;
+    }
+
+    // shadow_mode 5 is the pose feed; 0 (the boot value) is off. The
+    // mailbox is zero-initialized at boot, so a fresh patched-ISO game
+    // looks vanilla until puppet-sync writes 5. The dev modes 1-4
+    // (mirror, freeze, no-op calc, echo ring) were deleted in Phase E0
+    // and now draw nothing, like 0.
+    if (mailbox->shadow_mode != 5) {
+        return result;
+    }
+
+    // Lazy-init the no-op J3DMtxCalc for the second calc below.
+    // Vtable of 16 blr stubs; object = {vtable_ptr, padding}.
+    if (!noop_mtxcalc_initialized) {
+        int vi;
+        for (vi = 0; vi < 16; vi++) {
+            noop_mtxcalc_vtable[vi] = (u32)&noop_stub;
+        }
+        noop_mtxcalc_obj[0] = (u32)&noop_mtxcalc_vtable[0];
+        noop_mtxcalc_initialized = 1;
+    }
+    // Capture the joint count once; same Link rig for every slot.
+    if (pose_joint_num == 0) {
+        u16 jn = *(volatile u16*)((u8*)mini_link_data + J3DMODELDATA_JOINT_NUM_OFFSET);
+        if (jn > 0 && jn <= 128) {
+            pose_joint_num = (int)jn;
+            pose_buf_u32s = pose_joint_num * 12;
         }
     }
 
-    if (mini_link_models[0] != 0) {
-        mailbox->draw_progress = 32;
-        if (mini_link_state == 1) {
-            mailbox->draw_progress = 33;
-            cXyz* link_pos = ACTOR_POS(this_);
+    // Full 0x128-byte j3dSys snapshot around every calc below: calc()
+    // leaves mini-Link pointers in j3dSys that Link's post-draw code
+    // would otherwise deref.
+    static u32 j3dsys_snapshot[J3D_SYS_SIZE / 4];
+    volatile u32* j3dsys = (volatile u32*)J3D_SYS_ADDR;
+    int n;
+    for (n = 0; n < (int)(J3D_SYS_SIZE / 4); n++) {
+        j3dsys_snapshot[n] = j3dsys[n];
+    }
 
-            Mtx* mtx = (Mtx*)((u8*)mini_link_models[0] + J3DMODEL_BASE_TR_MTX_OFFSET);
-            (*mtx)[0][0] = 1.0f; (*mtx)[0][1] = 0.0f; (*mtx)[0][2] = 0.0f;
-            (*mtx)[0][3] = link_pos->x + 100.0f;
-            (*mtx)[1][0] = 0.0f; (*mtx)[1][1] = 1.0f; (*mtx)[1][2] = 0.0f;
-            (*mtx)[1][3] = link_pos->y;
-            (*mtx)[2][0] = 0.0f; (*mtx)[2][1] = 0.0f; (*mtx)[2][2] = 1.0f;
-            (*mtx)[2][3] = link_pos->z;
+    // Pose feed for ALL N remote-Link slots. Each slot owns its own
+    // J3DModel (mini_link_models[i]) and its own GameHeap-resident pose
+    // buffer (pose_bufs[i]); the mailbox arrays let Go write per-slot
+    // poses independently, so N remote players each drive their own Link.
+    //
+    // Per slot: first calc with Link's real walker (populates mpNodeMtx),
+    // then copy Go's pose over mpNodeMtx and run a second calc with the
+    // no-op walker, whose envelope pass rebuilds mpDrawMtxBuf from our
+    // pose. Overwriting mpDrawMtxBuf directly isn't possible: its layout
+    // is one entry per envelope combination, not per joint.
+    volatile u32* bc_slot = (volatile u32*)((u8*)mini_link_data + J3DMODELDATA_BASIC_MTXCALC_OFFSET);
+    u32 bc_saved = *bc_slot;
+    cXyz* link_pos = ACTOR_POS(this_);
+    int slot;
+    for (slot = 0; slot < MAX_REMOTE_LINKS; slot++) {
+        J3DModel* model = mini_link_models[slot];
+        if (!model) continue;
 
-            // Link's joint callbacks (bound to the shared J3DModelData
-            // via J3DJoint subclasses) recover the owning daPy_lk_c via
-            // mUserArea (offset 0x14 in J3DModel). Without it, calc
-            // derefs NULL inside checkEquipAnime at PC 0x8010C53C.
-            //
-            // Shadow-instance experiment (docs/06 "Next Session Priority"
-            // step 1). mailbox->shadow_mode chooses the source:
-            //   0 = userArea = this_ (Link #1, proven mirror recipe)
-            //   1 = refresh: copy this_ → shadow_link each frame, userArea = shadow
-            //   2 = freeze:  copy once on mode entry, userArea = shadow
-            //                Observation (2026-04-19): Link #2 still mirrored
-            //                Link #1 → pose does NOT flow through mUserArea.
-            //                Per J3DModel::calcAnmMtx, the walker uses
-            //                getModelData()->getBasicMtxCalc(), which is
-            //                shared across both models via J3DModelData.
-            //   3 = baseline userArea AND swap basicMtxCalc→NULL around calc
-            //                to probe whether the shared controller is the
-            //                actual pose source. Crash at recursiveCalc ⇒
-            //                controller is the culprit (design replacement).
-            //                Link #2 freezes at last pose ⇒ decoupling proven.
-            u8 mode = mailbox->shadow_mode;
-            if (mode != prev_shadow_mode) {
-                shadow_latched_local = 0;
-                mailbox->shadow_latched = 0;
+        // Base matrix: a per-slot X offset from Link just so the seed
+        // pose sits somewhere distinct — Go's pose overwrites it.
+        Mtx* mtx = (Mtx*)((u8*)model + J3DMODEL_BASE_TR_MTX_OFFSET);
+        (*mtx)[0][0] = 1.0f; (*mtx)[0][1] = 0.0f; (*mtx)[0][2] = 0.0f;
+        (*mtx)[0][3] = link_pos->x + (f32)(100 + slot * 100);
+        (*mtx)[1][0] = 0.0f; (*mtx)[1][1] = 1.0f; (*mtx)[1][2] = 0.0f;
+        (*mtx)[1][3] = link_pos->y;
+        (*mtx)[2][0] = 0.0f; (*mtx)[2][1] = 0.0f; (*mtx)[2][2] = 1.0f;
+        (*mtx)[2][3] = link_pos->z;
+        // Link's joint callbacks (bound to the shared J3DModelData via
+        // J3DJoint subclasses) recover the owning daPy_lk_c via mUserArea
+        // (offset 0x14 in J3DModel). Without it, calc derefs NULL inside
+        // checkEquipAnime at PC 0x8010C53C.
+        *(volatile u32*)((u8*)model + J3DMODEL_USER_AREA_OFFSET) = (u32)this_;
+        J3DModel_calc(model);
+
+        volatile u32* node_mtx = (volatile u32*)(*(u32*)((u8*)model + J3DMODEL_MP_NODE_MTX_OFFSET));
+
+        // Lazy-alloc this slot's pose buffer. Critical: seed it from the
+        // live mpNodeMtx the first calc just populated, so a first-frame
+        // overwrite is a real pose instead of uninitialized JKRHeap
+        // bytes. Garbage = degenerate matrices = invisible Link + TEV
+        // bucket pollution (sky goes gray).
+        if (!pose_bufs[slot]) {
+            if (pose_buf_u32s == 0) {
+                mailbox->pose_buf_states[slot] = 0xFE;
+                continue;
             }
-            prev_shadow_mode = mode;
-
-            // Mode 0 = OFF: skip the entire Link #2 pipeline (no calc,
-            // no entryDL). The mailbox is zero-initialized at boot, so
-            // a fresh patched-ISO game looks vanilla until something
-            // explicitly opts in (mplay2's puppet-sync writes mode 5;
-            // dev/debug modes 1-4 are picked manually via
-            // `./ww-multiplayer.exe shadow-mode <N>`). Saves a per-frame J3DModel
-            // calc + modelEntryDL submission too.
-            if (mode == 0) {
-                return result;
+            pose_bufs[slot] = (u8*)JKRHeap_alloc((u32)(pose_buf_u32s * 4), 0x20, mDoExt_getGameHeap());
+            if (!pose_bufs[slot]) {
+                mailbox->pose_buf_states[slot] = 0xFD;
+                continue;
             }
-
-            u32 user_area = (u32)this_;
-            if (mode == 1 || mode == 2) {
-                // Lazy-allocate the shadow buffer from GameHeap. Runs once
-                // the first time Go writes a non-zero shadow_mode. 0x4C28
-                // out of ~245 KB GameHeap free (per docs/06) is safe.
-                // shadow_latched in mailbox becomes 0xFF to signal alloc
-                // failure so Go can distinguish from "latched snapshot".
-                if (!shadow_link) {
-                    shadow_link = (u32*)JKRHeap_alloc(
-                        SHADOW_LINK_SIZE, 0x20, mDoExt_getGameHeap()
-                    );
-                }
-                if (!shadow_link) {
-                    mailbox->shadow_latched = 0xFF;
-                    // fall back to baseline (user_area = this_)
-                } else {
-                    if (mode == 1 || !shadow_latched_local) {
-                        volatile u32* src = (volatile u32*)this_;
-                        int k;
-                        for (k = 0; k < (int)(SHADOW_LINK_SIZE / 4); k++) {
-                            shadow_link[k] = src[k];
-                        }
-                        if (mode == 2) {
-                            shadow_latched_local = 1;
-                            mailbox->shadow_latched = 1;
-                        }
-                    }
-                    user_area = (u32)shadow_link;
+            if (node_mtx) {
+                volatile u32* seed_dst = (volatile u32*)pose_bufs[slot];
+                int si;
+                for (si = 0; si < pose_buf_u32s; si++) {
+                    seed_dst[si] = node_mtx[si];
                 }
             }
-            *(volatile u32*)((u8*)mini_link_models[0] + J3DMODEL_USER_AREA_OFFSET) = user_area;
-
-            // Diagnostic: publish what we *think* J3DModelData and its
-            // basicMtxCalc pointer are, every frame, regardless of mode.
-            // If mode-3's NULL write had no effect, these tell us whether
-            // our pointer/offset arithmetic is even landing on the right
-            // field.
-            volatile u32* basic_calc_slot = 0;
-            u32 saved_basic_calc = 0;
-            if (mini_link_data) {
-                basic_calc_slot = (volatile u32*)((u8*)mini_link_data + J3DMODELDATA_BASIC_MTXCALC_OFFSET);
-                saved_basic_calc = *basic_calc_slot;
-                mailbox->dbg_model_data = (u32)mini_link_data;
-                mailbox->dbg_saved_basic = saved_basic_calc;
-                // Joint count for echo-ring sizing. Expected ~42 per decomp.
-                mailbox->dbg_joint_num = *(volatile u16*)((u8*)mini_link_data + J3DMODELDATA_JOINT_NUM_OFFSET);
-            }
-            // mpNodeMtx pointer — calc() allocates + writes this. Published
-            // every frame (read AFTER calc below) so Go can confirm non-NULL.
-            mailbox->dbg_node_mtx_ptr = *(volatile u32*)((u8*)mini_link_models[0] + J3DMODEL_MP_NODE_MTX_OFFSET);
-
-            // Lazy-init the no-op J3DMtxCalc used by mode 3 and mode 4.
-            // Vtable of 16 blr stubs; object = {vtable_ptr, padding}.
-            // Cheap to init once; modes that need it swap it into
-            // J3DModelData->basicMtxCalc around J3DModel_calc.
-            if (!noop_mtxcalc_initialized) {
-                int vi;
-                for (vi = 0; vi < 16; vi++) {
-                    noop_mtxcalc_vtable[vi] = (u32)&noop_stub;
-                }
-                noop_mtxcalc_obj[0] = (u32)&noop_mtxcalc_vtable[0];
-                noop_mtxcalc_initialized = 1;
-            }
-
-            // Mode 3 (verified 2026-04-19): PC 0x802ee63c inside calcAnmMtx
-            // hits a NULL deref when basicMtxCalc is 0 — decoupling proven.
-            // Swap basicMtxCalc to a no-op J3DMtxCalc so calc() completes
-            // without walking the joint tree. Link #2's mpNodeMtx is left
-            // untouched → he FREEZES at his last-calc'd pose while Link #1
-            // keeps animating.
-            if (mode == 3 && basic_calc_slot) {
-                *basic_calc_slot = (u32)&noop_mtxcalc_obj[0];
-            } else {
-                basic_calc_slot = 0;   // don't restore if we didn't swap
-            }
-
-            // Full 0x128-byte j3dSys snapshot around calc(). Wraps BOTH
-            // calls in mode 4's double-calc path.
-            static u32 j3dsys_snapshot[J3D_SYS_SIZE / 4];
-            volatile u32* j3dsys = (volatile u32*)J3D_SYS_ADDR;
-            int n;
-            mailbox->draw_progress = 34;
-            for (n = 0; n < (int)(J3D_SYS_SIZE / 4); n++) {
-                j3dsys_snapshot[n] = j3dsys[n];
-            }
-            mailbox->draw_progress = 35;
-            J3DModel_calc(mini_link_models[0]);
-            // Restore basicMtxCalc immediately — Link #1's next-frame code
-            // reads this pointer through the shared J3DModelData.
-            if (basic_calc_slot) {
-                *basic_calc_slot = saved_basic_calc;
-            }
-            mailbox->draw_progress = 36;
-
-            // Echo-Link capture + delayed replay (shadow_mode 4). Sits
-            // INSIDE the j3dSys bracket because the second calc below
-            // re-pollutes j3dSys and must be rolled back too.
-            //
-            // First calc (above) ran with Link's real basicMtxCalc →
-            // mpNodeMtx and mpDrawMtxBuf both reflect Link #1's current
-            // pose. We snapshot mpNodeMtx into the ring, then overwrite
-            // it from a delayed slot.
-            //
-            // Problem: the first-calc's mpDrawMtxBuf is still current-
-            // pose (that's where skin envelopes read from). Running the
-            // second calc with a no-op basicMtxCalc leaves mpNodeMtx
-            // alone (the walker is stubbed) but calc's envelope/draw-
-            // matrix pass rebuilds mpDrawMtxBuf from our delayed
-            // mpNodeMtx → both buffers now carry the delayed pose.
-            //
-            // Why not just overwrite mpDrawMtxBuf directly? Its layout
-            // is not 1:1 with joints — it has one entry per unique
-            // envelope combination (count lives in J3DModelData, offset
-            // not yet mapped). The double-calc sidesteps needing to
-            // reverse-engineer that.
-            if (mode == 4 && mini_link_data) {
-                u16 jn = mailbox->dbg_joint_num;
-                // Lazy-allocate ring on first mode-4 frame. Joint count
-                // is captured here so resizes via joint-tree swap don't
-                // blow up the ring mid-flight.
-                if (!echo_ring) {
-                    if (jn == 0 || jn > 128) {
-                        mailbox->echo_ring_state = 0xFE;  // bad jointNum
-                    } else {
-                        echo_joint_num = (int)jn;
-                        echo_frame_u32s = echo_joint_num * 12; // 12 u32 per Mtx
-                        u32 total_bytes = (u32)(ECHO_BUF_FRAMES * echo_frame_u32s * 4);
-                        echo_ring = (u8*)JKRHeap_alloc(total_bytes, 0x20, mDoExt_getGameHeap());
-                        if (!echo_ring) {
-                            mailbox->echo_ring_state = 0xFD;  // alloc failed
-                        } else {
-                            mailbox->echo_ring_state = 1;
-                            echo_write_idx = 0;
-                            echo_frames_filled = 0;
-                        }
-                    }
-                }
-
-                volatile u32* node_mtx = (volatile u32*)(*(u32*)((u8*)mini_link_models[0] + J3DMODEL_MP_NODE_MTX_OFFSET));
-                if (echo_ring && node_mtx && echo_frame_u32s > 0 && basic_calc_slot == 0) {
-                    // basic_calc_slot==0 here means we were not in mode 3;
-                    // mode 4 uses it below to swap basicMtxCalc for the
-                    // second calc. Re-derive a local slot pointer.
-                    volatile u32* bc_slot = (volatile u32*)((u8*)mini_link_data + J3DMODELDATA_BASIC_MTXCALC_OFFSET);
-                    u32 bc_saved = *bc_slot;
-
-                    u8 delay = mailbox->echo_delay;
-                    if (delay >= ECHO_BUF_FRAMES) delay = ECHO_BUF_FRAMES - 1;
-
-                    // Capture: mpNodeMtx -> ring[write_idx] (current pose
-                    // from the first calc that just ran with real walker).
-                    volatile u32* cap_dst = (volatile u32*)(echo_ring + echo_write_idx * echo_frame_u32s * 4);
-                    int ei;
-                    for (ei = 0; ei < echo_frame_u32s; ei++) {
-                        cap_dst[ei] = node_mtx[ei];
-                    }
-                    mailbox->draw_progress = 39;
-
-                    // Replay: ring[(write_idx - delay + BUF) % BUF] -> mpNodeMtx.
-                    // Gate on having at least `delay` historical frames so the
-                    // first few frames after a mode change don't pull random
-                    // pre-alloc bytes (delay == 0 always satisfies since the
-                    // just-captured frame IS that slot — identity overwrite).
-                    if (echo_frames_filled >= (int)delay) {
-                        int replay_idx = echo_write_idx - (int)delay;
-                        if (replay_idx < 0) replay_idx += ECHO_BUF_FRAMES;
-                        volatile u32* rep_src = (volatile u32*)(echo_ring + replay_idx * echo_frame_u32s * 4);
-                        for (ei = 0; ei < echo_frame_u32s; ei++) {
-                            node_mtx[ei] = rep_src[ei];
-                        }
-                    }
-                    mailbox->draw_progress = 40;
-
-                    echo_write_idx++;
-                    if (echo_write_idx >= ECHO_BUF_FRAMES) echo_write_idx = 0;
-                    if (echo_frames_filled < ECHO_BUF_FRAMES) echo_frames_filled++;
-
-                    // Second calc: no-op basicMtxCalc skips the skeleton
-                    // walk (mpNodeMtx keeps our delayed overwrite), but
-                    // calc's envelope/draw-matrix pass rebuilds
-                    // mpDrawMtxBuf from the delayed mpNodeMtx. Without
-                    // this, rigid joints follow the delayed pose but
-                    // skin envelopes stay on current → rubber-banding.
-                    *bc_slot = (u32)&noop_mtxcalc_obj[0];
-                    J3DModel_calc(mini_link_models[0]);
-                    *bc_slot = bc_saved;
-                    mailbox->draw_progress = 41;
-                }
-            }
-
-            // Mode 5: pose feed. Same double-calc shape as mode 4 but the
-            // source for mpNodeMtx is mailbox.pose_buf_ptr (Go-populated
-            // from local capture or network). Lazy-alloc the buffer the
-            // first time mode 5 fires so Go doesn't have to set it up.
-            //
-            // Critical: seed pose_buf from the live mpNodeMtx (just
-            // populated by the first calc with Link's real walker)
-            // BEFORE we declare it "ready". Otherwise the very first
-            // mode-5 frame copies uninitialized JKRHeap bytes into
-            // mpNodeMtx and the second calc rebuilds mpDrawMtxBuf from
-            // garbage → degenerate vertices → invisible Link #2 + TEV
-            // bucket pollution → sky goes gray. Go's pose writes don't
-            // arrive until ~50 ms after the alloc, by which point the
-            // first-frame damage has already propagated.
-            // Mode 5: pose feed for ALL N remote-Link slots. Each slot
-            // owns its own J3DModel (mini_link_models[i]) and its own
-            // GameHeap-resident pose buffer (pose_bufs[i]). The mailbox
-            // arrays let Go write per-slot poses independently, so N
-            // remote players each drive their own Link #2/#3/...
-            //
-            // Slot 0 is special only because it inherits the base matrix
-            // and mUserArea writes done above (in the unconditional draw
-            // path). Slots 1..N-1 get THEIR base matrix + userArea wired
-            // here per-slot before their first/second calcs.
-            if (mode == 5 && mini_link_data) {
-                u16 jn = mailbox->dbg_joint_num;
-                if (jn > 0 && jn <= 128 && pose_joint_num == 0) {
-                    // Capture joint count once; same Link rig for every slot.
-                    pose_joint_num = (int)jn;
-                    pose_buf_u32s = pose_joint_num * 12;
-                }
-
-                volatile u32* bc_slot = (volatile u32*)((u8*)mini_link_data + J3DMODELDATA_BASIC_MTXCALC_OFFSET);
-                u32 bc_saved = *bc_slot;
-                int slot;
-                cXyz* link_pos_for_slot = ACTOR_POS(this_);
-
-                for (slot = 0; slot < MAX_REMOTE_LINKS; slot++) {
-                    J3DModel* model = mini_link_models[slot];
-                    if (!model) continue;
-
-                    // Lazy-alloc this slot's pose buffer the first time
-                    // we hit mode 5 for it. Critical: seed from a live
-                    // mpNodeMtx (slot 0's, which the unconditional first
-                    // calc just populated above) so first-frame overwrite
-                    // is identity instead of garbage. Garbage = degenerate
-                    // matrices = invisible Link + TEV bucket pollution.
-                    if (!pose_bufs[slot]) {
-                        if (pose_buf_u32s == 0) {
-                            mailbox->pose_buf_states[slot] = 0xFE;
-                            continue;
-                        }
-                        u32 nbytes = (u32)(pose_buf_u32s * 4);
-                        pose_bufs[slot] = (u8*)JKRHeap_alloc(nbytes, 0x20, mDoExt_getGameHeap());
-                        if (!pose_bufs[slot]) {
-                            mailbox->pose_buf_states[slot] = 0xFD;
-                            continue;
-                        }
-                        volatile u32* seed_src = (volatile u32*)(*(u32*)((u8*)mini_link_models[0] + J3DMODEL_MP_NODE_MTX_OFFSET));
-                        if (seed_src) {
-                            volatile u32* seed_dst = (volatile u32*)pose_bufs[slot];
-                            int si;
-                            for (si = 0; si < pose_buf_u32s; si++) {
-                                seed_dst[si] = seed_src[si];
-                            }
-                        }
-                        mailbox->pose_buf_ptrs[slot] = (u32)pose_bufs[slot];
-                        mailbox->pose_joint_counts[slot] = (u16)pose_joint_num;
-                        mailbox->pose_buf_states[slot] = 1;
-                    }
-
-                    // Slots 1..N-1 also need base matrix + userArea
-                    // before their first calc, since the unconditional
-                    // path above only handled slot 0. Use a per-slot
-                    // X offset just so the lazy-alloc seed sits at a
-                    // different starting point — Go's pose write will
-                    // overwrite this on the next tick anyway.
-                    if (slot > 0) {
-                        Mtx* mtx2 = (Mtx*)((u8*)model + J3DMODEL_BASE_TR_MTX_OFFSET);
-                        (*mtx2)[0][0] = 1.0f; (*mtx2)[0][1] = 0.0f; (*mtx2)[0][2] = 0.0f;
-                        (*mtx2)[0][3] = link_pos_for_slot->x + (f32)(100 + slot * 100);
-                        (*mtx2)[1][0] = 0.0f; (*mtx2)[1][1] = 1.0f; (*mtx2)[1][2] = 0.0f;
-                        (*mtx2)[1][3] = link_pos_for_slot->y;
-                        (*mtx2)[2][0] = 0.0f; (*mtx2)[2][1] = 0.0f; (*mtx2)[2][2] = 1.0f;
-                        (*mtx2)[2][3] = link_pos_for_slot->z;
-                        *(volatile u32*)((u8*)model + J3DMODEL_USER_AREA_OFFSET) = (u32)this_;
-                        // First calc: populates mpNodeMtx with current
-                        // pose at the slot's offset position. Will be
-                        // overwritten by the pose copy below.
-                        J3DModel_calc(model);
-                    }
-
-                    // Skip render if Go has never written a pose to
-                    // this slot. Otherwise we'd display the seed pose
-                    // (a stale snapshot of slot 0's mpNodeMtx) as a
-                    // frozen ghost. Go bumps pose_seqs[slot] each write.
-                    if (mailbox->pose_seqs[slot] == 0) {
-                        continue;
-                    }
-
-                    // Copy Go's pose → this slot's mpNodeMtx, then run
-                    // the second calc with the no-op walker so calc's
-                    // envelope pass rebuilds mpDrawMtxBuf from our pose.
-                    volatile u32* node_mtx = (volatile u32*)(*(u32*)((u8*)model + J3DMODEL_MP_NODE_MTX_OFFSET));
-                    if (pose_bufs[slot] && node_mtx && pose_buf_u32s > 0 && basic_calc_slot == 0) {
-                        volatile u32* src = (volatile u32*)pose_bufs[slot];
-                        int pi;
-                        for (pi = 0; pi < pose_buf_u32s; pi++) {
-                            node_mtx[pi] = src[pi];
-                        }
-                        if (slot == 0) {
-                            mailbox->dbg_pose_first_word = src[0];
-                        }
-                        *bc_slot = (u32)&noop_mtxcalc_obj[0];
-                        J3DModel_calc(model);
-                        *bc_slot = bc_saved;
-                        if (slot == 0) {
-                            mailbox->dbg_node_mtx_first = node_mtx[0];
-                        }
-                    }
-                }
-                mailbox->draw_progress = 41;
-            }
-
-            // Restore j3dSys after ALL calcs (both first and optional
-            // second for mode 4). Must come AFTER the mode-4 second
-            // calc or that calc's pollution leaks to Link's post-draw
-            // code.
-            for (n = 0; n < (int)(J3D_SYS_SIZE / 4); n++) {
-                j3dsys[n] = j3dsys_snapshot[n];
-            }
-            mailbox->draw_progress = 37;
-
-            // Mode 5 (multiplayer): slot 0 only submits once Go has
-            // written at least one network pose, matching how slots 1+
-            // are gated below. Without this, Link #2 would mirror
-            // Link #1 (from the first calc with the real walker)
-            // during the brief window between mplay2 startup and the
-            // first remote pose arrival — annoying flash visible to
-            // the user. Other modes (1-4 dev/debug) want unconditional
-            // render; they bypass the gate.
-            //
-            // Eye-fix runs after the j3dSys restore so it operates on
-            // Link #1's post-draw state (the recipe assumes that's the
-            // baseline, since that's what daPy_lk_c::draw runs from).
-            // run_eye_fix swaps to P0, runs the 5 passes, swaps back to
-            // P1, leaves j3dSys.mModel pointing at our mini-Link so the
-            // following modelEntryDL submits the body via that state.
-            // Step is read once per frame so every slot probes at the
-            // same level.
-            // Default to step=8 (full recipe: eye decals + body + face/hair via
-            // mDoExt with cl_eye+cl_mayu joints temporarily NULL'd to prevent
-            // the chain cycle). Mailbox value 0 = "use default 8"; non-zero =
-            // explicit override (1-8 = intermediate recipe stages for diagnosis).
-            // See docs/06-history.md "Eye-fix attempt 4 session 7" for the
-            // full recipe-vs-mDoExt conflict resolution that made this work.
-            u8 eye_step = mailbox->eye_fix_step;
-            if (eye_step == 0) eye_step = 8;
-            // EYE-FIX V5 mode 2: mini-link's body + eye decals were
-            // already submitted by the pre-draw mClModel-swap call
-            // (slot 0 only). Skip the legacy run_eye_fix + mDoExt path
-            // for slot 0 to avoid double-submitting. Other slots still
-            // use the legacy path until we wire mClModel-swap for them.
-            int skip_legacy_slot0 = (ef_mode == 1 || ef_mode == 2);
-
-            if ((mode != 5 || mailbox->pose_seqs[0] != 0) && !skip_legacy_slot0) {
-                // FACE-STATE swap: bracket slot 0's render so its bake
-                // (somewhere between here and matpacket.draw) captures
-                // face_state values instead of btp's. No-op unless
-                // face_hook_enable=1 AND face_seqs[0]!=0.
-                face_emit_swap_for_slot(0, mini_link_data);
-                tunic_swap(this_, 0);
-                run_eye_fix(mini_link_models[0], this_, mini_link_data, eye_step);
-                if (eye_step >= 4) {
-                    mDoExt_skip_recipe_joints(mini_link_models[0], mini_link_data, eye_step);
-                } else {
-                    mini_link_entry_dl(mini_link_models[0], mini_link_data);
-                }
-                tunic_restore();
-                face_emit_restore();
-            }
-            // In mode 5, also submit any other slots whose pose buffer
-            // has been allocated (i.e. a remote is driving them).
-            if (mode == 5) {
-                int es;
-                for (es = 1; es < MAX_REMOTE_LINKS; es++) {
-                    // Same gate as the calc loop: a slot only renders
-                    // once Go has written at least one pose to it.
-                    if (mini_link_models[es] && pose_bufs[es] && mailbox->pose_seqs[es] != 0) {
-                        face_emit_swap_for_slot(es, mini_link_data);
-                        tunic_swap(this_, es);
-                        run_eye_fix(mini_link_models[es], this_, mini_link_data, eye_step);
-                        if (eye_step >= 4) {
-                            mDoExt_skip_recipe_joints(mini_link_models[es], mini_link_data, eye_step);
-                        } else {
-                            mini_link_entry_dl(mini_link_models[es], mini_link_data);
-                        }
-                        tunic_restore();
-                        face_emit_restore();
-                    }
-                }
-            }
-
-            mailbox->draw_progress = 38;
-
-            mailbox->progress = 23;
+            mailbox->pose_buf_ptrs[slot] = (u32)pose_bufs[slot];
+            mailbox->pose_joint_counts[slot] = (u16)pose_joint_num;
+            mailbox->pose_buf_states[slot] = 1;
         }
+
+        // Skip if Go has never written a pose to this slot (it bumps
+        // pose_seqs[slot] each write); the render loop below skips it too.
+        if (mailbox->pose_seqs[slot] == 0 || !node_mtx) continue;
+
+        volatile u32* src = (volatile u32*)pose_bufs[slot];
+        int pi;
+        for (pi = 0; pi < pose_buf_u32s; pi++) {
+            node_mtx[pi] = src[pi];
+        }
+        *bc_slot = (u32)&noop_mtxcalc_obj[0];
+        J3DModel_calc(model);
+        *bc_slot = bc_saved;
+    }
+
+    // Restore j3dSys after ALL calcs, so no calc's pollution leaks to
+    // Link's post-draw code.
+    for (n = 0; n < (int)(J3D_SYS_SIZE / 4); n++) {
+        j3dsys[n] = j3dsys_snapshot[n];
+    }
+
+    // Submit every slot Go is driving. A slot renders only once Go has
+    // written at least one pose to it; before that it would show the
+    // seed pose (Link #1 mirrored) as a ghost.
+    //
+    // Eye-fix runs after the j3dSys restore so it operates on Link #1's
+    // post-draw state (the recipe assumes that's the baseline, since
+    // that's what daPy_lk_c::draw runs from), then mDoExt submits the
+    // body with cl_eye+cl_mayu skipped (the recipe already entered them;
+    // see docs/06-history.md "Eye-fix attempt 4 session 7"). The face
+    // swap brackets the slot's render so its bake captures face_state
+    // instead of btp's values (no-op unless face_hook_enable=1 AND
+    // face_seqs[slot]!=0); the tunic swap recolors only this slot.
+    for (slot = 0; slot < MAX_REMOTE_LINKS; slot++) {
+        if (!mini_link_models[slot] || !pose_bufs[slot] || mailbox->pose_seqs[slot] == 0) continue;
+        face_emit_swap_for_slot(slot, mini_link_data);
+        tunic_swap(this_, slot);
+        run_eye_fix(mini_link_models[slot], this_, mini_link_data);
+        mDoExt_skip_recipe_joints(mini_link_models[slot], mini_link_data);
+        tunic_restore();
+        face_emit_restore();
     }
 
     return result;

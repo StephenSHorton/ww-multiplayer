@@ -26,6 +26,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/host"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
 
@@ -309,14 +310,12 @@ func runPokeU32(addrHex, valHex string) {
 
 // Mailbox field offsets (mailbox.Off*) are generated from
 // inject/include/mailbox.h into wwapi/mailbox/layout_gen.go. shadow_mode
-// and shadow_latched: docs/06 "Next Session Priority" step 1.
+// is 0 (off) or 5 (pose feed); the dev modes 1-4 were deleted in Phase E0.
 //
 // The pose-feed slot fields (pose_buf_ptrs u32, pose_joint_counts u16,
 // pose_buf_states u8, pose_seqs u8, face_state, face_seqs) are arrays of
 // MAILBOX_POSE_SLOT_CAP, of which the runtime uses the first avatar.Cap
 // (MAX_REMOTE_LINKS); their per-slot offsets are avatar.Off*.
-// dbg_pose_first_word and dbg_node_mtx_first are slot-0-only
-// diagnostics.
 
 // v0.1.3: sender-side pose publish buffer (pose_publish_*). The C-side
 // draw hook copies Link #1's mpNodeMtx into this GameHeap-resident
@@ -475,107 +474,62 @@ func runWarpForce(xs, ys, zs string, on bool) {
 	}
 }
 
-// runEyeFixStep writes mailbox.eye_fix_step. See the field comment in
-// inject/include/mailbox.h for what each value enables.
-func runEyeFixStep(step byte) {
-	d, err := findDolphin("GZLE01")
+// linkModelData returns Link #1's J3DModelData (daPy_lk_c+0x328,
+// mpCLModelData). The mini-Links are built from this same model data
+// (mini_link_data in multiplayer.c); until Phase E0 the C side also
+// published it as mailbox.dbg_model_data.
+func linkModelData(d mem.Reader) (uint32, error) {
+	linkPtr, err := player.NewLink(d).Ptr()
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return 0, err
 	}
-	defer d.Close()
-	if err := d.Write(mailbox.Mailbox+mailbox.OffEyeFixStep, []byte{step}); err != nil {
-		fmt.Printf("write failed: %v\n", err)
-		os.Exit(1)
+	if linkPtr == 0 {
+		return 0, fmt.Errorf("no Link actor")
 	}
-	fmt.Printf("eye_fix_step = %d\n", step)
+	return mem.ReadU32(d, linkPtr+0x328)
 }
 
-// runEyeFixMode writes mailbox.eye_fix_mode (V5 multi-mode experiment).
-// 0 = legacy run_eye_fix; 1 = mClModel-swap one-draw; 2 = two-draw.
-func runEyeFixMode(mode byte) {
-	d, err := findDolphin("GZLE01")
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+// linkModel returns Link #1's own J3DModel (daPy_lk_c+0x32C, mpCLModel):
+// the one J3DModel on mpCLModelData that is not a mini-Link.
+func linkModel(d mem.Reader) uint32 {
+	linkPtr, err := player.NewLink(d).Ptr()
+	if err != nil || linkPtr == 0 {
+		return 0
 	}
-	defer d.Close()
-	if err := d.Write(mailbox.Mailbox+mailbox.OffEyeFixMode, []byte{mode}); err != nil {
-		fmt.Printf("write failed: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("eye_fix_mode = %d\n", mode)
+	v, _ := mem.ReadU32(d, linkPtr+0x32C)
+	return v
 }
 
-// runEyeFixModeProbe reads the SESSION 6 diagnostic fields populated
-// every frame by daPy_draw_hook. Use to diagnose the mode-1 freeze:
-// at mode 0 baseline, dbg_pre/postswap/safety_check_current should all
-// equal dbg_mini_link_data_cached, and dbg_safety_fired_count should
-// stay stable. At mode 1, if safety_fired_count is incrementing, the
-// safety check is the freeze culprit; compare pre vs postswap vs
-// safety_check_current to localize WHERE *(this+0x328) drifted.
-//
-// Reads twice with a short delay so Go can confirm whether the safety
-// counter is incrementing live (rate ≈ 60/sec when actively bailing).
-func runEyeFixModeProbe() {
-	d, err := findDolphin("GZLE01")
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	defer d.Close()
-	read := func() (efMode byte, cached, pre, post, safetyCur, safetyCnt uint32) {
-		efBuf, _ := d.Read(mailbox.Mailbox+mailbox.OffEyeFixMode, 1)
-		if len(efBuf) > 0 {
-			efMode = efBuf[0]
+// matchMiniLinkSlot returns the pose slot whose published pose buffer
+// (pose_buf_ptrs[i], driven: pose_seqs[i] != 0) has the same first 48
+// bytes (joint 0's 3x4 matrix) as the mpNodeMtx at nodeMtx, or -1. C
+// copies pose_bufs[i] over mini_link_models[i]'s mpNodeMtx before the
+// second calc each frame, so the two agree except while Go is mid-write;
+// a few retries ride over that.
+func matchMiniLinkSlot(d mem.Reader, nodeMtx uint32) int {
+	const n = 48
+	for try := 0; try < 5; try++ {
+		got, err := d.Read(nodeMtx, n)
+		if err != nil || len(got) != n {
+			return -1
 		}
-		cached, _ = d.ReadU32(mailbox.Mailbox + mailbox.OffDbgMiniLinkDataCached)
-		pre, _ = d.ReadU32(mailbox.Mailbox + mailbox.OffDbgPreMclmodeldata)
-		post, _ = d.ReadU32(mailbox.Mailbox + mailbox.OffDbgPostswapMclmodeldata)
-		safetyCur, _ = d.ReadU32(mailbox.Mailbox + mailbox.OffDbgSafetyCheckCurrent)
-		safetyCnt, _ = d.ReadU32(mailbox.Mailbox + mailbox.OffDbgSafetyFiredCount)
-		return
+		for i := 0; i < mailbox.MailboxPoseSlotCap; i++ {
+			seq, err := d.Read(mailbox.Mailbox+avatar.OffPoseSeq(i), 1)
+			if err != nil || len(seq) != 1 || seq[0] == 0 {
+				continue
+			}
+			ptr, err := mem.ReadU32(d, mailbox.Mailbox+avatar.OffPoseBufPtr(i))
+			if err != nil || ptr < 0x80000000 || ptr >= 0x81800000 {
+				continue
+			}
+			buf, err := d.Read(ptr, n)
+			if err == nil && len(buf) == n && string(buf) == string(got) {
+				return i
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	dprog0, _ := d.ReadU32(mailbox.Mailbox + 0x0C) // draw_progress
-	efMode0, cached0, pre0, post0, sc0, sn0 := read()
-	time.Sleep(500 * time.Millisecond)
-	dprog1, _ := d.ReadU32(mailbox.Mailbox + 0x0C)
-	_, _, _, _, _, sn1 := read()
-
-	fmt.Printf("eye_fix_mode = %d\n", efMode0)
-	fmt.Printf("draw_progress: t0=%d  t1=%d (38=full pipeline ok, 31=stuck pre-safety-check)\n", dprog0, dprog1)
-	fmt.Printf("\nSafety-check inputs (compare these against mini_link_data_cached):\n")
-	fmt.Printf("  mini_link_data (cached, C static):  0x%08X\n", cached0)
-	fmt.Printf("  *(this+0x328) at hook entry:        0x%08X  %s\n", pre0, eyeFixCmp(pre0, cached0))
-	fmt.Printf("  *(this+0x328) post swap+restore:    0x%08X  %s\n", post0, eyeFixPostswapCmp(post0, cached0, efMode0))
-	fmt.Printf("  *(this+0x328) at safety-check site: 0x%08X  %s\n", sc0, eyeFixCmp(sc0, cached0))
-	fmt.Printf("\nSafety-check bail counter:\n")
-	fmt.Printf("  count: t0=%d  t1=%d  delta=%d (%s)\n", sn0, sn1, sn1-sn0, eyeFixSafetyVerdict(sn1-sn0))
-}
-
-func eyeFixCmp(observed, want uint32) string {
-	if observed == want {
-		return "= cached (OK)"
-	}
-	return fmt.Sprintf("DIFFERS from cached (Δ = 0x%08X)", observed^want)
-}
-
-func eyeFixPostswapCmp(observed, cached uint32, efMode byte) string {
-	if efMode != 1 && efMode != 2 {
-		return "(not written; mode != 1, 2)"
-	}
-	return eyeFixCmp(observed, cached)
-}
-
-func eyeFixSafetyVerdict(delta uint32) string {
-	switch {
-	case delta == 0:
-		return "stable — safety check NOT firing"
-	case delta < 5:
-		return "occasional bails — likely transient"
-	default:
-		return "FIRING EVERY FRAME — this is the freeze cause"
-	}
+	return -1
 }
 
 // runEyeFixGates reads Link #1's three gating-state fields that
@@ -599,11 +553,12 @@ func eyeFixSafetyVerdict(delta uint32) string {
 //     `beq cr0, 0x80107860` jumps to four-pass if the bit is CLEAR.
 //
 // Four-pass recipe RUNS when ALL hold:
-//   (field_0x2b0 > -85.0f) AND (cameraInfo & 0x20 == 0) AND (NOT freeze)
 //
-// Run this BEFORE and AFTER setting eye_fix_step > 0 to see which
-// gate (if any) is being flipped — that's the state our run_eye_fix
-// is corrupting between frames.
+//	(field_0x2b0 > -85.0f) AND (cameraInfo & 0x20 == 0) AND (NOT freeze)
+//
+// Compare a run with no mini-Link drawn (shadow-mode 0) against one with
+// the pose feed drawing (shadow-mode 5) to see which gate (if any)
+// run_eye_fix flips between frames.
 func runEyeFixGates() {
 	d, err := findDolphin("GZLE01")
 	if err != nil {
@@ -646,12 +601,6 @@ func runEyeFixGates() {
 		fmt.Printf("read mNoResetFlg0: %v\n", err)
 		os.Exit(1)
 	}
-	stepBytes, _ := d.Read(mailbox.Mailbox+mailbox.OffEyeFixStep, 1)
-	var step byte
-	if len(stepBytes) == 1 {
-		step = stepBytes[0]
-	}
-
 	r24 := field2b0 <= -85.0
 	freezeBit := (flags2a0 & 0x800) != 0
 	attentionBit := (camEntry & 0x20) != 0
@@ -660,7 +609,6 @@ func runEyeFixGates() {
 	playerNoDraw := camAttn02 || noDrawBit
 
 	fmt.Printf("Link actor:           0x%08X\n", linkPtr)
-	fmt.Printf("eye_fix_step:         %d\n", step)
 	fmt.Println()
 	fmt.Printf("field_0x2b0:          %f  (r24 = (<= -85.0) = %v)\n", field2b0, r24)
 	fmt.Printf("this+0x2A0:           0x%08X  (& 0x800 freeze → %v)\n", flags2a0, freezeBit)
@@ -690,23 +638,11 @@ func runEyeFixGates() {
 	}
 }
 
-// runEyeFixPostChain reads the post-draw chain snapshot the C blob writes
-// each frame at mailbox+0xEC..+0x114. The C side captures opa_p0 bucket[0]
-// head and walks .next up to 10 hops AFTER daPy_lk_c_draw returns and
-// BEFORE run_eye_fix mutates anything. This is the definitive test for
-// whether the four-pass body executed: the 4 statics
-// (l_offCupOnAupPacket1=0x803E46DC, l_onCupOffAupPacket2=0x803E46F8,
-//  l_offCupOnAupPacket2=0x803E46C0, l_onCupOffAupPacket1=0x803E46A4)
-// appear in the chain only if the four-pass ran.
-//
-// At step=0 baseline we expect to see at least 1-2 statics in the first
-// 10 entries (chain has 18 entries with statics interleaved). At step=4
-// if the four-pass body ran, same; if it didn't, no statics appear.
-// runEyeAnimFind scans MEM1 for J3DModel candidates whose +0x10 (mModelData)
-// equals mailbox.dbg_model_data (mini_link_data). Filters by sanity checks on
-// other header fields and cross-references mailbox.dbg_node_mtx_ptr (= the
-// known *(mini_link_model+0x8C) value) to identify which candidate is
-// mini_link_models[0]. Prints all candidates with their headers.
+// runEyeAnimFind scans MEM1 for J3DModel candidates whose +0x04 (mModelData)
+// equals Link's mpCLModelData (= mini_link_data). Filters by sanity checks on
+// other header fields and marks Link #1's own model (daPy_lk_c+0x32C); the
+// other candidates are the mini-Links. Prints all candidates with their
+// headers.
 func runEyeAnimFind() {
 	d, err := findDolphin("GZLE01")
 	if err != nil {
@@ -715,14 +651,14 @@ func runEyeAnimFind() {
 	}
 	defer d.Close()
 
-	modelData, err := d.ReadU32(mailbox.Mailbox + 0x94)
+	modelData, err := linkModelData(d)
 	if err != nil || modelData == 0 {
-		fmt.Printf("mini_link_data not published yet (got 0x%08X)\n", modelData)
+		fmt.Printf("Link's mpCLModelData not available (got 0x%08X, err=%v)\n", modelData, err)
 		os.Exit(1)
 	}
-	dbgNodeMtx, _ := d.ReadU32(mailbox.Mailbox + 0xA0)
-	fmt.Printf("mini_link_data       = 0x%08X (mailbox+0x94)\n", modelData)
-	fmt.Printf("dbg_node_mtx_ptr     = 0x%08X (mailbox+0xA0; = *(mini_link_models[0]+0x8C))\n\n", dbgNodeMtx)
+	ownModel := linkModel(d)
+	fmt.Printf("mini_link_data       = 0x%08X (Link+0x328)\n", modelData)
+	fmt.Printf("Link #1's J3DModel   = 0x%08X (Link+0x32C)\n\n", ownModel)
 
 	const memLo, memHi = uint32(0x80000000), uint32(0x81800000)
 	const chunk = uint32(2 * 1024 * 1024)
@@ -753,7 +689,6 @@ func runEyeAnimFind() {
 	fmt.Printf("MEM1 scan: %d u32-aligned addresses had +0x04 == mini_link_data\n\n", len(hits))
 
 	isMEM1 := func(v uint32) bool { return v >= 0x80000000 && v < 0x81800000 }
-	matched := 0
 	for _, h := range hits {
 		hdr, err := d.Read(h, 0xC0)
 		if err != nil {
@@ -769,64 +704,14 @@ func runEyeAnimFind() {
 		if !isMEM1(vtable) || vtable >= 0x80800000 {
 			continue
 		}
-		mark := ""
-		if dbgNodeMtx != 0 && nodeMtx == dbgNodeMtx {
-			mark = "  *** matches dbg_node_mtx_ptr (mini_link_models[0]) ***"
-			matched++
+		mark := "  (mini-Link)"
+		if h == ownModel {
+			mark = "  (Link #1's own model)"
 		}
 		fmt.Printf("J3DModel @ 0x%08X%s\n", h, mark)
 		fmt.Printf("  +0x00 vtable=0x%08X  +0x04 modelData=0x%08X  +0x0C flag=0x%08X\n", vtable, modelData, flag)
 		fmt.Printf("  +0x14 userArea=0x%08X  +0x8C mpNodeMtx=0x%08X  +0xB4 matpktField=0x%08X\n",
 			userArea, nodeMtx, matField)
-	}
-
-	// Second pass: scan MEM1 for ANY u32 == dbgNodeMtx — print all locations
-	// (no J3DModel filter). Helps diagnose if the dbg_node_mtx_ptr is published
-	// from an unexpected source.
-	fmt.Println("\n--- Locations holding the value 0x80EFD124 (= dbg_node_mtx_ptr) ---")
-	if dbgNodeMtx == 0 {
-		fmt.Println("(skipped: dbg_node_mtx_ptr is zero)")
-		return
-	}
-	rawHits := []uint32{}
-	for base := memLo; base < memHi; base += chunk {
-		size := chunk
-		if base+size > memHi {
-			size = memHi - base
-		}
-		buf, err := d.Read(base, int(size))
-		if err != nil {
-			continue
-		}
-		for o := 0; o+4 <= len(buf); o += 4 {
-			if binary.BigEndian.Uint32(buf[o:o+4]) == dbgNodeMtx {
-				rawHits = append(rawHits, base+uint32(o))
-			}
-		}
-	}
-	fmt.Printf("Found %d locations holding the value 0x%08X:\n", len(rawHits), dbgNodeMtx)
-	for _, h := range rawHits {
-		// For each hit, show the context of preceding 0x10 bytes (model header
-		// would put +0x10 = modelData if this is +0x8C of a model).
-		// Print the value at h-0x8C+0x10 = h-0x7C to check if it's modelData.
-		var md uint32
-		if h >= 0x7C {
-			md, _ = d.ReadU32(h - 0x7C)
-		}
-		mark := ""
-		if md == modelData {
-			mark = "  *** model+0x10 == mini_link_data — HIT ***"
-		}
-		// And +0x14 of model would be h - 0x78
-		var ua uint32
-		if h >= 0x78 {
-			ua, _ = d.ReadU32(h - 0x78)
-		}
-		fmt.Printf("  @ 0x%08X  (if model+0x8C: model=0x%08X, +0x10=0x%08X, +0x14=0x%08X)%s\n",
-			h, h-0x8C, md, ua, mark)
-	}
-	if matched == 0 {
-		fmt.Println("\n(no candidate matched dbg_node_mtx_ptr — slot 0 may not be initialized)")
 	}
 }
 
@@ -1227,18 +1112,12 @@ func runFaceDlLoop(secs int, forceLsb int) {
 	}
 	defer d.Close()
 
-	// Locate mini-link's J3DModel via mailbox dbg_node_mtx_ptr scan.
-	// Same logic as runEyeAnimFind condensed: scan MEM1 for J3DModel
-	// candidates whose +0x04 == mini_link_data, then pick the one with
-	// +0x8C == dbg_node_mtx_ptr.
-	miniData, err := d.ReadU32(mailbox.Mailbox + 0x94)
+	// Locate the mini-links' J3DModels. Same logic as runEyeAnimFind
+	// condensed: scan MEM1 for J3DModel candidates whose +0x04 ==
+	// mini_link_data (Link's mpCLModelData), minus Link's own model.
+	miniData, err := linkModelData(d)
 	if err != nil || miniData < 0x80000000 || miniData >= 0x81800000 {
-		fmt.Printf("mini_link_data not published (got 0x%08X)\n", miniData)
-		os.Exit(1)
-	}
-	dbgNodeMtx, _ := d.ReadU32(mailbox.Mailbox + 0xA0)
-	if dbgNodeMtx == 0 {
-		fmt.Println("dbg_node_mtx_ptr is 0; mini-link not yet alive. Run mp-local first.")
+		fmt.Printf("Link's mpCLModelData not available (got 0x%08X)\n", miniData)
 		os.Exit(1)
 	}
 
@@ -1249,9 +1128,9 @@ func runFaceDlLoop(secs int, forceLsb int) {
 	const memLo, memHi = uint32(0x80000000), uint32(0x81800000)
 	const chunk = uint32(2 * 1024 * 1024)
 	type candidate struct {
-		addr     uint32
-		matpkts  uint32
-		nodeMtx  uint32
+		addr    uint32
+		matpkts uint32
+		nodeMtx uint32
 	}
 	var cands []candidate
 	for base := memLo; base < memHi; base += chunk {
@@ -1293,41 +1172,38 @@ func runFaceDlLoop(secs int, forceLsb int) {
 		os.Exit(1)
 	}
 
-	// Identify slot for each candidate. dbg_node_mtx_ptr matches
-	// mini_link_models[0]. Other mini-link slots have unique nodeMtx
-	// addresses but no dbg field; pick by exclusion (anything that's
-	// not Link's own model — Link's model is the one whose userArea
-	// matches the live Link actor, which we can identify by it not
-	// appearing in mini-link slot scans).
+	// Identify slot for each candidate. The mini-links are the
+	// candidates that aren't Link's own model. The slot number decides
+	// which face_state the loop writes onto that model, so it must be
+	// the real one: C copies pose_bufs[slot] (published as
+	// pose_buf_ptrs[slot]) over the model's mpNodeMtx before its second
+	// calc every frame, so the candidate whose mpNodeMtx head matches a
+	// slot's pose buffer head is that slot. A candidate that matches no
+	// driven slot (pose_seqs == 0) is skipped.
 	const matpacketSize = uint32(0x3C)
 	const matLeft = 1
 	const matRight = 4
 	type slotInfo struct {
-		slot     int
-		modelAt  uint32
-		dlPtr    [2]uint32 // [0]=mat[1], [1]=mat[4]
-		dlLen    [2]uint32
-		dlOffs   [2][]uint32 // 0x06/0x27 byte offsets per mat
+		slot    int
+		modelAt uint32
+		dlPtr   [2]uint32 // [0]=mat[1], [1]=mat[4]
+		dlLen   [2]uint32
+		dlOffs  [2][]uint32 // 0x06/0x27 byte offsets per mat
 	}
 	var slots []slotInfo
-	// Easier strategy: pick the first 2 candidates that have userArea
-	// != 0 (Link's actor pointer) and aren't Link's own model. Since
-	// MAX_REMOTE_LINKS = 2, that gives us slot 0 and slot 1.
-	// dbg_node_mtx_ptr identifies slot 0; any other valid candidate
-	// with the same userArea is slot 1.
+	ownModel := linkModel(d)
 	for _, c := range cands {
 		// Skip Link's own model. Mini-link models have mpNodeMtx in
 		// the allocated mod/heap range (~0x80EF..0x810F); Link's own
 		// is up in 0x815F**. Filter on nodeMtx range to keep only
 		// mini-links.
-		if c.nodeMtx < 0x80000000 || c.nodeMtx >= 0x81100000 {
+		if c.nodeMtx < 0x80000000 || c.nodeMtx >= 0x81100000 || c.addr == ownModel {
 			continue
 		}
-		var slot int
-		if c.nodeMtx == dbgNodeMtx {
-			slot = 0
-		} else {
-			slot = 1
+		slot := matchMiniLinkSlot(d, c.nodeMtx)
+		if slot < 0 {
+			fmt.Printf("model@0x%08X: mpNodeMtx matches no driven slot's pose buffer, skipped\n", c.addr)
+			continue
 		}
 		s := slotInfo{slot: slot, modelAt: c.addr}
 		// Walk to mat[1] and mat[4] matpackets via matpkts + idx*0x3C.
@@ -1805,9 +1681,9 @@ func runFaceSyncWatch(secs int) {
 	defer d.Close()
 	fmt.Printf("Watching face_state for %d seconds...\n", secs)
 	type slotState struct {
-		seq                              byte
-		t1_0, t1_1, t4_0, t4_1           uint16
-		t14_0, t14_1, t15_0, t15_1       uint16
+		seq                        byte
+		t1_0, t1_1, t4_0, t4_1     uint16
+		t14_0, t14_1, t15_0, t15_1 uint16
 	}
 	prev := make([]slotState, avatar.Cap)
 	var lastSwaps uint32
@@ -1829,15 +1705,15 @@ func runFaceSyncWatch(secs int) {
 				continue
 			}
 			cur := slotState{
-				seq:    seq[0],
-				t1_0:   binary.BigEndian.Uint16(fs[0:2]),
-				t1_1:   binary.BigEndian.Uint16(fs[2:4]),
-				t4_0:   binary.BigEndian.Uint16(fs[4:6]),
-				t4_1:   binary.BigEndian.Uint16(fs[6:8]),
-				t14_0:  binary.BigEndian.Uint16(fs[8:10]),
-				t14_1:  binary.BigEndian.Uint16(fs[10:12]),
-				t15_0:  binary.BigEndian.Uint16(fs[12:14]),
-				t15_1:  binary.BigEndian.Uint16(fs[14:16]),
+				seq:   seq[0],
+				t1_0:  binary.BigEndian.Uint16(fs[0:2]),
+				t1_1:  binary.BigEndian.Uint16(fs[2:4]),
+				t4_0:  binary.BigEndian.Uint16(fs[4:6]),
+				t4_1:  binary.BigEndian.Uint16(fs[6:8]),
+				t14_0: binary.BigEndian.Uint16(fs[8:10]),
+				t14_1: binary.BigEndian.Uint16(fs[10:12]),
+				t15_0: binary.BigEndian.Uint16(fs[12:14]),
+				t15_1: binary.BigEndian.Uint16(fs[14:16]),
 			}
 			if cur != prev[slot] {
 				fmt.Printf("[t+%5dms] slot %d: seq=%d eyes mat1=(%04X,%04X) mat4=(%04X,%04X) mouth mat14=(%04X,%04X) mat15=(%04X,%04X)\n",
@@ -2096,57 +1972,6 @@ func runFaceSyncFakeLoop(slot int, hexStr string, secs int) {
 	}
 }
 
-func runEyeFixPostChain() {
-	d, err := findDolphin("GZLE01")
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	defer d.Close()
-
-	const postChainOff = 0xEC
-	buf, err := d.Read(mailbox.Mailbox+postChainOff, 0x29)
-	if err != nil {
-		fmt.Printf("read post-chain snapshot: %v\n", err)
-		os.Exit(1)
-	}
-	stepBytes, _ := d.Read(mailbox.Mailbox+mailbox.OffEyeFixStep, 1)
-	var step byte
-	if len(stepBytes) == 1 {
-		step = stepBytes[0]
-	}
-	count := buf[0x28]
-
-	statics := map[uint32]string{
-		0x803E46A4: "l_onCupOffAupPacket1",
-		0x803E46C0: "l_offCupOnAupPacket2",
-		0x803E46DC: "l_offCupOnAupPacket1",
-		0x803E46F8: "l_onCupOffAupPacket2",
-	}
-
-	fmt.Printf("eye_fix_step:         %d\n", step)
-	fmt.Printf("post-draw chain depth: %d (out of 10 max)\n\n", count)
-
-	staticHits := 0
-	for i := 0; i < int(count) && i < 10; i++ {
-		v := binary.BigEndian.Uint32(buf[i*4 : i*4+4])
-		label := ""
-		if name, ok := statics[v]; ok {
-			label = "  *** STATIC: " + name + " ***"
-			staticHits++
-		}
-		fmt.Printf("  [%2d] 0x%08X%s\n", i, v, label)
-	}
-	fmt.Println()
-	if staticHits > 0 {
-		fmt.Printf("Verdict: four-pass DID execute — %d/4 statics in first %d hops\n",
-			staticHits, count)
-	} else {
-		fmt.Printf("Verdict: four-pass DID NOT execute — no statics in first %d hops\n", count)
-		fmt.Println("(or all 4 statics live deeper than 10 hops; expected at least 1 if it ran)")
-	}
-}
-
 // runEyeFixChain dumps the OPA P0 draw buffer's bucket-0 chain so we can
 // see in what order packets render, whether the chain has cycles, and
 // where Link #1's face/hair matpackets sit. Reads mpOpaListP0 from
@@ -2188,9 +2013,9 @@ func runEyeFixChain() {
 	}
 	fmt.Printf("bucket[0] head = 0x%08X\n", bucket0)
 
-	// Read face + hair shape addresses via mailbox model_data → joint chain.
+	// Read face + hair shape addresses via Link's model data → joint chain.
 	var faceShape, hairShape uint32
-	if md, err := d.ReadU32(mailbox.Mailbox + 0x94); err == nil && md != 0 {
+	if md, err := linkModelData(d); err == nil && md != 0 {
 		if jointArr, err := d.ReadU32(md + 0x2C); err == nil && jointArr != 0 {
 			if linkRoot, err := d.ReadU32(jointArr); err == nil && linkRoot != 0 {
 				if mtl, err := d.ReadU32(linkRoot + 0x60); err == nil && mtl != 0 {
@@ -2337,7 +2162,7 @@ func decodePPC(insn, pc uint32) string {
 		// in bottom 16 bits (sign-extended, low 2 bits 0).
 		bo := rD
 		bi := rA
-		bd := int32(int16(insn&0xFFFC)) // already low-2-zero by encoding
+		bd := int32(int16(insn & 0xFFFC)) // already low-2-zero by encoding
 		absBit := insn & 0x2
 		lkBit := insn & 0x1
 		target := uint32(int32(pc) + bd)
@@ -2487,9 +2312,11 @@ func decodePPC(insn, pc uint32) string {
 // readDOLBytes opens a Wii/GC DOL file and returns `n` bytes starting at the
 // given virtual load address (e.g. 0x80107308 for daPy_lk_c::draw). The DOL
 // file format places its 0x100-byte header at file offset 0:
-//   +0x00..+0x47 — file offsets[0..17]   (7 text + 11 data)
-//   +0x48..+0x8F — load addrs[0..17]
-//   +0x90..+0xD7 — section sizes[0..17]
+//
+//	+0x00..+0x47 — file offsets[0..17]   (7 text + 11 data)
+//	+0x48..+0x8F — load addrs[0..17]
+//	+0x90..+0xD7 — section sizes[0..17]
+//
 // We linearly find the section containing addr and read from
 // fileOffset[i] + (addr - loadAddr[i]).
 func readDOLBytes(path string, addr uint32, n int) ([]byte, error) {
@@ -2622,10 +2449,10 @@ func runEyeFixFindShape() {
 	}
 	defer d.Close()
 
-	// Resolve face + hair shape addrs via mailbox.dbg_model_data.
-	modelData, err := d.ReadU32(mailbox.Mailbox + 0x94)
+	// Resolve face + hair shape addrs via Link's model data.
+	modelData, err := linkModelData(d)
 	if err != nil || modelData == 0 {
-		fmt.Printf("dbg_model_data not published (got 0x%08X, err=%v)\n", modelData, err)
+		fmt.Printf("Link's mpCLModelData not available (got 0x%08X, err=%v)\n", modelData, err)
 		os.Exit(1)
 	}
 	jointArr, err := d.ReadU32(modelData + 0x2C)
@@ -2868,7 +2695,7 @@ func runEyeFixFindShape() {
 	}
 }
 
-// runEyeFixProbe walks the live J3D pointer chain via mailbox.dbg_model_data
+// runEyeFixProbe walks the live J3D pointer chain from Link's mpCLModelData
 // to read link_root.mMesh[i].mShape.mFlags for every material on link_root.
 // Prints whether the HIDE bit is set per material. Used to figure out
 // whether our run_eye_fix is leaving face/hair (mtl indices 2 and 5) with
@@ -2882,9 +2709,9 @@ func runEyeFixProbe() {
 	}
 	defer d.Close()
 
-	modelData, err := d.ReadU32(mailbox.Mailbox + 0x94) // dbg_model_data
+	modelData, err := linkModelData(d)
 	if err != nil || modelData == 0 {
-		fmt.Printf("dbg_model_data not published yet (got 0x%08X, err=%v)\n", modelData, err)
+		fmt.Printf("Link's mpCLModelData not available (got 0x%08X, err=%v)\n", modelData, err)
 		os.Exit(1)
 	}
 	fmt.Printf("link J3DModelData @ 0x%08X\n", modelData)
@@ -3030,60 +2857,35 @@ func runFindPos() {
 
 func runShadowMode(s string) {
 	v, err := strconv.Atoi(s)
-	if err != nil || v < 0 || v > 5 {
-		fmt.Println("mode must be 0 (baseline), 1 (refresh), 2 (freeze), 3 (no-op basicMtxCalc), 4 (echo-ring), or 5 (pose-feed)")
+	if err != nil || (v != 0 && v != 5) {
+		fmt.Println("mode must be 0 (off) or 5 (pose-feed); the dev modes 1-4 were deleted in Phase E0")
 		os.Exit(1)
 	}
 	d, err := findDolphin("GZLE01")
-	if err != nil { fmt.Println(err); os.Exit(1) }
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 	defer d.Close()
 	if err := d.Write(mailbox.Mailbox+mailbox.OffShadowMode, []byte{byte(v)}); err != nil {
 		fmt.Printf("write failed: %v\n", err)
 		os.Exit(1)
 	}
-	// Give the draw hook one frame to react and (in mode 2) latch.
-	time.Sleep(50 * time.Millisecond)
-	latched, _ := d.Read(mailbox.Mailbox+mailbox.OffShadowLatched, 1)
-	labels := []string{
-		"off (no Link #2 rendered — default at boot)",
-		"mirror-refresh (shadow daPy_lk_c, copy every frame)",
-		"mirror-freeze (shadow daPy_lk_c, copy once)",
-		"no-op basicMtxCalc (decouple; Link #2 freezes)",
-		"echo-ring (capture + delayed replay; set echo-delay)",
-		"pose-feed (mpNodeMtx from mailbox.pose_buf; run pose-test or broadcast-pose)",
+	label := "off (no Link #2 rendered — default at boot)"
+	if v == 5 {
+		label = "pose-feed (mpNodeMtx from mailbox.pose_buf; run pose-test or broadcast-pose)"
 	}
-	latchedStr := fmt.Sprintf("%d", latched[0])
-	if latched[0] == 0xFF {
-		latchedStr = "0xFF (shadow_link alloc failed — falling back to mUserArea=this_)"
-	}
-	fmt.Printf("shadow_mode = %d  [%s]   latched=%s\n", v, labels[v], latchedStr)
-	if v == 4 {
-		ringState, _ := d.Read(mailbox.Mailbox+mailbox.OffEchoRingState, 1)
-		echoDelay, _ := d.Read(mailbox.Mailbox+mailbox.OffEchoDelay, 1)
-		rsMsg := fmt.Sprintf("%d", ringState[0])
-		switch ringState[0] {
-		case 0:
-			rsMsg = "0 (unallocated — give it a frame)"
-		case 1:
-			rsMsg = "1 (allocated)"
-		case 0xFE:
-			rsMsg = "0xFE (bad jointNum — check dbg_joint_num in dump)"
-		case 0xFD:
-			rsMsg = "0xFD (GameHeap alloc failed)"
-		}
-		fmt.Printf("echo_ring_state=%s  echo_delay=%d\n", rsMsg, echoDelay[0])
-	}
+	fmt.Printf("shadow_mode = %d  [%s]\n", v, label)
 }
 
 // Smoke test for shadow_mode 5 (pose-feed) without any networking.
 //
-//   mirror — every tick, copy the live mpNodeMtx (already populated by
-//            mini-Link's first calc) into pose_buf. Result should look
-//            identical to mode 0 — proves the pose_buf -> mpNodeMtx
-//            overwrite + double-calc plumbing is non-destructive.
-//   freeze — capture mpNodeMtx ONCE and stop writing. Link #2 should
-//            freeze in that pose while Link #1 keeps animating —
-//            decisive proof that pose_buf is the actual pose source.
+//	mirror — every tick, copy Link #1's live mpNodeMtx into pose_buf.
+//	         Link #2 should mirror Link #1 — proves the pose_buf ->
+//	         mpNodeMtx overwrite + double-calc plumbing is non-destructive.
+//	freeze — capture mpNodeMtx ONCE and stop writing. Link #2 should
+//	         freeze in that pose while Link #1 keeps animating —
+//	         decisive proof that pose_buf is the actual pose source.
 //
 // Either way the dolphin-side allocation happens lazily on the first
 // frame after we set shadow_mode=5, so we poll pose_buf_state until C
@@ -3203,7 +3005,7 @@ func runPoseTest(mode string, durSec int) {
 	}
 
 	// mirror mode: continuously echo live mpNodeMtx -> pose_buf
-	fmt.Printf("mirror: copying live mpNodeMtx -> pose_buf for %ds. Link #2 should look identical to mode 0.\n", durSec)
+	fmt.Printf("mirror: copying live mpNodeMtx -> pose_buf for %ds. Link #2 should mirror Link #1.\n", durSec)
 	// One-shot debug: prove the read chain works and the matrices change.
 	if linkPtr, _ := player.NewLink(d).Ptr(); linkPtr != 0 {
 		modelPtr, _ := d.ReadU32(linkPtr + 0x032C)
@@ -3217,7 +3019,6 @@ func runPoseTest(mode string, durSec int) {
 	ticks := 0
 	var lastFirstRow []byte
 	changes := 0
-	nextProbe := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		data := captureFromLinkOne()
 		if data != nil {
@@ -3235,41 +3036,17 @@ func runPoseTest(mode string, durSec int) {
 				lastFirstRow = append(lastFirstRow[:0], data[:16]...)
 			}
 		}
-		if time.Now().After(nextProbe) {
-			nextProbe = time.Now().Add(2 * time.Second)
-			wrote := uint32(0)
-			if data != nil {
-				wrote = binary.BigEndian.Uint32(data[:4])
-			}
-			cSawPose, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffDbgPoseFirstWord)
-			cSawNode, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffDbgNodeMtxFirst)
-			fmt.Printf("[probe] go-wrote=%08X  c-saw-pose=%08X  c-saw-node-after-calc=%08X\n",
-				wrote, cSawPose, cSawNode)
-		}
 		time.Sleep(16 * time.Millisecond)
 	}
 	fmt.Printf("\ndone. %d ticks written, %d distinct first-row values seen.\n", ticks, changes)
 }
 
-func runEchoDelay(s string) {
-	v, err := strconv.Atoi(s)
-	if err != nil || v < 0 || v > 59 {
-		fmt.Println("delay must be 0..59 (frames; ring holds 60)")
-		os.Exit(1)
-	}
-	d, err := findDolphin("GZLE01")
-	if err != nil { fmt.Println(err); os.Exit(1) }
-	defer d.Close()
-	if err := d.Write(mailbox.Mailbox+mailbox.OffEchoDelay, []byte{byte(v)}); err != nil {
-		fmt.Printf("write failed: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("echo_delay = %d frames (~%.2fs at 60fps)\n", v, float64(v)/60.0)
-}
-
 func runDump() {
 	d, err := findDolphin("GZLE01")
-	if err != nil { fmt.Println(err); os.Exit(1) }
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 	defer d.Close()
 
 	// Mailbox header (spawn_trigger, progress, pads)
@@ -3277,7 +3054,9 @@ func runDump() {
 	fmt.Printf("mailbox hdr  @ 0x%08X: ", mailbox.Mailbox)
 	for j, b := range hdr {
 		fmt.Printf("%02X", b)
-		if j%4 == 3 { fmt.Print(" ") }
+		if j%4 == 3 {
+			fmt.Print(" ")
+		}
 	}
 	fmt.Println()
 
@@ -3285,25 +3064,8 @@ func runDump() {
 		fmt.Printf("progress: %d (1=gate 3=link-ready 5=spawn-queued 8=spawned 9=syncing 10=actor-lost)\n", progress)
 	}
 
-	// Shadow-instance experiment state (mailbox +0x90 / +0x91)
-	if sh, err := d.Read(mailbox.Mailbox+mailbox.OffShadowMode, 2); err == nil {
-		fmt.Printf("shadow_mode: %d   shadow_latched: %d\n", sh[0], sh[1])
-	}
-	// Mini-link J3DModelData pointer + current basicMtxCalc value
-	if md, err := d.ReadU32(mailbox.Mailbox + 0x94); err == nil {
-		if bc, err := d.ReadU32(mailbox.Mailbox + 0x98); err == nil {
-			fmt.Printf("mini_link_data: 0x%08X   basicMtxCalc (@+0x24): 0x%08X\n", md, bc)
-		}
-	}
-	// Echo-ring diagnostics (populated after mini-link exists; echo_ring_state
-	// only becomes non-zero after first shadow_mode=4 frame).
-	if jn, err := d.Read(mailbox.Mailbox+mailbox.OffDbgJointNum, 2); err == nil {
-		jointNum := binary.BigEndian.Uint16(jn)
-		nmp, _ := d.ReadU32(mailbox.Mailbox + mailbox.OffDbgNodeMtxPtr)
-		rs, _ := d.Read(mailbox.Mailbox+mailbox.OffEchoRingState, 1)
-		ed, _ := d.Read(mailbox.Mailbox+mailbox.OffEchoDelay, 1)
-		fmt.Printf("echo: joint_num=%d  mpNodeMtx=0x%08X  ring_state=0x%02X  delay=%d\n",
-			jointNum, nmp, rs[0], ed[0])
+	if sh, err := d.Read(mailbox.Mailbox+mailbox.OffShadowMode, 1); err == nil {
+		fmt.Printf("shadow_mode: %d (0=off 5=pose-feed)\n", sh[0])
 	}
 	// Pose-feed (mode 5) diagnostics. pose_buf_state stays 0 until the
 	// first mode-5 frame fires the lazy alloc.
@@ -3331,7 +3093,9 @@ func runDump() {
 		fmt.Printf("slot %d       @ 0x%08X: ", i, feed.SlotAddr(i, 0))
 		for j, b := range data {
 			fmt.Printf("%02X", b)
-			if j%4 == 3 { fmt.Print(" ") }
+			if j%4 == 3 {
+				fmt.Print(" ")
+			}
 		}
 		fmt.Println()
 	}
@@ -3344,7 +3108,9 @@ func runDump() {
 		fmt.Printf("             @ 0x%08X: ", addr)
 		for j, b := range data {
 			fmt.Printf("%02X", b)
-			if j%4 == 3 { fmt.Print(" ") }
+			if j%4 == 3 {
+				fmt.Print(" ")
+			}
 		}
 		fmt.Println()
 	}
@@ -3539,9 +3305,10 @@ func runInputRelease() {
 // we can graduate this into a proper `input` subcommand.
 //
 // Layout assumed (standard libogc PADStatus, big-endian on PPC):
-//   0x803ED84A: u16 button        (e.g. 0x0008 = DPad Up)
-//   0x803ED84C: s8  stickX        (-128..+127, 0 = centred)
-//   0x803ED84D: s8  stickY        (-128..+127, 0 = centred)
+//
+//	0x803ED84A: u16 button        (e.g. 0x0008 = DPad Up)
+//	0x803ED84C: s8  stickX        (-128..+127, 0 = centred)
+//	0x803ED84D: s8  stickY        (-128..+127, 0 = centred)
 func runInputProbe(buttonsHex, stickXStr, stickYStr string, ms int) {
 	buttons64, err := strconv.ParseUint(strings.TrimPrefix(buttonsHex, "0x"), 16, 16)
 	if err != nil {

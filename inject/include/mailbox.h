@@ -109,59 +109,44 @@ typedef struct {
     u16 mat15_tex1;
 } FaceState;
 
-// Total mailbox size = 0x10 + MAX_PUPPETS * 0x20 + 0x04 tail. With 4 slots: 0x94 B.
+// Total mailbox size: 0x1A0 B (see the end of the struct).
+//
+// Phase E0 deleted the C experiments behind several fields (shadow modes
+// 1-4, the echo ring, the eye-fix probe steps 1-7 and modes 1-2, and the
+// dbg_* / warp_dbg_* / eye_fix_post_chain / draw_progress diagnostics)
+// WITHOUT changing this layout: those fields keep their names and
+// offsets but nothing reads or writes them any more ("UNUSED since E0").
+// The E2 layout bump turns them into _reserved.
 typedef struct {
     u32 spawn_trigger;   // +0x00: per-frame heartbeat counter
     u32 progress;        // +0x04: debug marker — see multiplayer.c
     u32 _pad0;           // +0x08: also reused by main01_init as CALLBACK_PTR slot (mailbox+0x08 = 0x80410F08)
-    u32 draw_progress;   // +0x0C: draw-hook-only diagnostic — mirrors progress but written only from daPy_draw_hook
+    u32 draw_progress;   // +0x0C: UNUSED since E0 (was a draw-hook diagnostic)
     Puppet puppets[MAX_PUPPETS];  // +0x10 .. +0x10 + 0x20*N
-    // Shadow daPy_lk_c experiment (docs/06 "Next Session Priority" step 1).
-    // Go writes shadow_mode to route Link #2's joint callbacks:
-    //   0 = baseline: userArea = Link #1's actor (mirrors Link #1, proven recipe)
-    //   1 = refresh:  copy Link #1 into our shadow each frame, userArea = shadow
-    //                 (same visual as mode 0 if routing works)
-    //   2 = freeze:   copy once on mode entry, userArea = shadow every frame
-    //                 (decisive test: Link #2 should FREEZE while Link #1 moves)
-    // C publishes shadow_latched=1 after it has taken the mode-2 snapshot.
+    // Go writes shadow_mode to switch Link #2 rendering:
+    //   0 = off (the boot value): no mini-Link is drawn
+    //   5 = pose feed: each slot drawn from its pose buffer (below)
+    // Values 1-4 were the mirror / freeze / no-op-calc / echo-ring dev
+    // modes, deleted in E0; they now draw nothing, like 0.
     u8  shadow_mode;     // +0x90
-    u8  shadow_latched;  // +0x91
+    u8  shadow_latched;  // +0x91: UNUSED since E0 (mode-2 latch)
     u8  _pad1[2];        // +0x92
-    // Diagnostics for the mode-3 basicMtxCalc swap. Populated each frame
-    // after Link's draw returns so Go can see what the pointers are.
-    u32 dbg_model_data;      // +0x94 — value of mini_link_data
-    u32 dbg_saved_basic;     // +0x98 — value of *(mini_link_data + 0x24) before our write
-    // Echo-Link ring buffer (shadow_mode 4). See docs/06 "Next Session Priority".
-    //   dbg_joint_num   — mJointNum read from mini_link_data + 0x28 each frame.
-    //                     Used to size the per-frame mpNodeMtx copy. Expected ~42.
-    //   dbg_node_mtx_ptr — value of *(mini_link_model + 0x8C). Must be non-NULL
-    //                     after calc runs or replay writes nowhere.
-    //   echo_delay      — Go writes number of frames to delay the replay.
-    //                     0 = identity overwrite (sanity: same visual as mirror).
-    //                     1..ECHO_BUF_FRAMES-1 = replay from that many frames ago.
-    //   echo_ring_state — C publishes: 0 unalloc, 1 alloc ok, 0xFE bad jointNum,
-    //                     0xFD alloc failed. Lets Go distinguish silent failures.
+    // +0x94..+0xA7: UNUSED since E0 (mode-3/4 diagnostics and the
+    // mode-4 echo ring's delay and state).
+    u32 dbg_model_data;      // +0x94
+    u32 dbg_saved_basic;     // +0x98
     u16 dbg_joint_num;       // +0x9C
     u16 _pad2;               // +0x9E
     u32 dbg_node_mtx_ptr;    // +0xA0
     u8  echo_delay;          // +0xA4
     u8  echo_ring_state;     // +0xA5
     u16 _pad3;               // +0xA6
-    // Pose-sync v0 (shadow_mode 5). Same shape as mode 4 (double-calc with
-    // no-op basicMtxCalc swapped in for the second pass), but the source
-    // for mpNodeMtx is a fixed GameHeap-resident buffer that Go fills from
-    // either a local capture (pose-test) or the network (broadcast-pose).
+    // Pose feed (shadow_mode 5). For each slot C runs the mini-Link calc
+    // twice: once with Link's real walker, then, after copying the slot's
+    // pose buffer (which Go fills from the network or pose-test) over
+    // mpNodeMtx, with a no-op walker so the envelope pass rebuilds
+    // mpDrawMtxBuf from that pose.
     //
-    //   pose_buf_ptr     — C publishes after JKRHeap_alloc succeeds.
-    //                      Go reads, then writes Mtx[joint_count] (=2016 B
-    //                      for Link) directly via WriteProcessMemory.
-    //   pose_joint_count — C publishes (Link = 42). Go must use this to
-    //                      size its writes; if it ever changes mid-run
-    //                      (joint-tree swap) the buffer would need realloc.
-    //   pose_buf_state   — 0 unalloc, 1 ready, 0xFE bad joint count,
-    //                      0xFD JKRHeap_alloc failed.
-    //   pose_seq         — Go bumps each write so future C-side code can
-    //                      detect freshness; v0 just always reads latest.
     // Pose-feed slots, parallel arrays sized MAX_REMOTE_LINKS:
     //   pose_buf_ptrs[i]      — C publishes after JKRHeap_alloc per slot.
     //   pose_joint_counts[i]  — currently always 42 (Link). Per-slot in
@@ -177,9 +162,7 @@ typedef struct {
     u16 pose_joint_counts[MAILBOX_POSE_SLOT_CAP];  // +0xB0
     u8  pose_buf_states[MAILBOX_POSE_SLOT_CAP];    // +0xB4
     u8  pose_seqs[MAILBOX_POSE_SLOT_CAP];          // +0xB6
-    // Diagnostic for slot 0 only — every mode-5 draw frame C publishes
-    // `*pose_buf[0]` (before copy) and `mpNodeMtx[0][0]` (after second
-    // calc). Lets Go confirm the read/copy/calc round-trip.
+    // UNUSED since E0 (slot-0 pose round-trip diagnostics).
     u32 dbg_pose_first_word;                  // +0xB8
     u32 dbg_node_mtx_first;                   // +0xBC
     // --- SENDER SIDE publish buffer (v0.1.3) ---------------------------
@@ -228,9 +211,7 @@ typedef struct {
     f32 warp_x;                               // +0xD0
     f32 warp_y;                               // +0xD4
     f32 warp_z;                               // +0xD8
-    // Warp diagnostics — populated each time the warp handler fires so
-    // Go can verify the write actually reached memory and identify
-    // which actor we're writing to.
+    // UNUSED since E0 (warp diagnostics).
     u32 warp_dbg_link_addr;                   // +0xDC — value of (u32)link
     f32 warp_dbg_post_x;                      // +0xE0 — current.pos.x AFTER our write (proves write landed)
     // Force-warp mode: when nonzero, C writes (warp_x, warp_y, warp_z)
@@ -239,107 +220,20 @@ typedef struct {
     // reverted by Link's per-frame execute() vs hitting a deeper reset.
     u8  warp_force;                           // +0xE4
     u8  _pad5[3];                             // +0xE5
-    // --- EYE-FIX STEPWISE PROBE (v0.1.7+) -------------------------------
-    // Mini-Link's face is blank: pupils, eye outline, eyelids, eyebrows
-    // missing. daPy_lk_c::draw runs a 5-pass eye-decal recipe (see
-    // d_a_player_main.cpp:1827-1881 in zeldaret/tww @ 6aa7ba91) that
-    // mDoExt_modelEntryDL alone doesn't reproduce. Three previous
-    // attempts (A: entryIn-only, B: viewCalc + entryIn, C: bake texNo)
-    // all crashed or were inert.
-    //
-    // To dodge the per-attempt save-state regen friction, all 5 passes
-    // are wired into the C blob ONCE behind this byte: Go flips the
-    // value, observation is immediate. Each step is cumulative.
-    //   0 = use default (= step 8). Default-on so baseline boot ships
-    //       eye decals without manual `eye-fix-step 8` from Go.
-    //   1 = + j3dSys.setModel(mini_link) + setListP0 / setListP1 swap
-    //       (no entryOpa / entryIn yet — pure list state probe)
-    //   2 = + Pass 1's l_onCupOffAupPacket2.entryOpa ONLY
-    //       (no shape vis, no entryIn — isolates entryOpa side effects)
-    //   3 = + Pass 1's shape vis toggle (zOffBlend/zOn hide, zOffNone show)
-    //       (still no entryIn — isolates shape-vis side effects)
-    //   4 = + Pass 1's cl_eye/cl_mayu entryIn (= old step 2 state)
-    //   5 = + Pass 2 (l_offCupOnAupPacket2 + flipped shape vis + entryIn)
-    //   6 = + Pass 3 (link_root entryIn — SKIPPED in our codepath since it
-    //       cycles with mDoExt's link_root re-entry; effectively == step 5)
-    //   7 = + Pass 4 (l_onCupOffAupPacket1 + zOn-shown + entryIn)
-    //   8 = + Pass 5 (l_offCupOnAupPacket1 + zOn-hidden) = full recipe (DEFAULT)
-    // If step N crashes Dolphin, kill + restart with save state, set step
-    // to N-1 from Go, iterate. ONE save-state cycle covers all 8 levels.
+    // UNUSED since E0. Was the eye-fix stepwise probe (0 = default 8,
+    // 1-7 = partial recipes); C now always runs the full recipe (the old
+    // step 8, multiplayer.c run_eye_fix).
     u8  eye_fix_step;                         // +0xE8
     u8  _pad6[3];                             // +0xE9
-    // --- EYE-FIX POST-DRAW CHAIN SNAPSHOT (session 5) ------------------
-    // Right after daPy_lk_c_draw returns and BEFORE run_eye_fix touches
-    // anything, snapshot opa_p0 bucket[0] head plus first 10 chain
-    // entries via .next walk. The 4 static packets (l_*AupPacket1/2
-    // at 0x803E46A4/C0/DC/F8) are entered by daPy_lk_c::draw's
-    // four-pass eye-decal recipe; their presence/absence in the
-    // post-draw chain is the definitive test for whether the four-pass
-    // body actually executed. Resolves the session-4-part-2 anomaly:
-    // eye-fix-gates says four-pass should run at step=4, but find-shape
-    // never sees the statics. Either gates are misanalyzed (eliminated
-    // by session-5 disasm) or entries are vanishing post-submission.
+    // UNUSED since E0 (post-draw chain snapshot for the eye-fix probe).
     u32 eye_fix_post_chain[10];               // +0xEC..+0x113
     u8  eye_fix_post_chain_count;             // +0x114
     u8  _pad7[3];                             // +0x115
-    // --- EYE-FIX V5 MULTI-MODE EXPERIMENT (session 5) ----------------
-    // Approach-(2) variants ("skip the recipe — let Link's own four-pass
-    // submit eye decals at mini-link's pose"). Set via
-    // `./ww-multiplayer.exe eye-fix-mode <N>`:
-    //   0 = legacy behavior (run_eye_fix gated by eye_fix_step + mDoExt
-    //       mini-link). Session-5 confirmed entries vanish in
-    //       run_eye_fix's entryIn at step ≥ 4.
-    //   1 = mClModel-swap one-draw: pre-draw, swap *(this+0x32C) to
-    //       mini_link_models[0]. Link's daPy_lk_c::draw then consumes
-    //       mini-link's matpackets / mpDrawMtxBuf. Skip run_eye_fix and
-    //       skip the mDoExt mini-link submit (already submitted by the
-    //       swapped draw). Expected: Link invisible, mini-link renders
-    //       full body + eye decals at mini-link's pose. Confirms the
-    //       swap reaches the four-pass before we double-draw.
-    //   2 = two-draw: same swap as mode 1, then RESTORE mClModel and
-    //       call daPy_lk_c_draw a second time so Link draws normally.
-    //       Skip run_eye_fix; skip mDoExt mini-link. Final visual:
-    //       both Links render with eye decals.
+    // UNUSED since E0. Was the eye-fix mClModel-swap experiment (modes
+    // 1-2); C always draws mini-Link the mode-0 way.
     u8  eye_fix_mode;                         // +0x118
     u8  _pad8[3];                             // +0x119
-    // --- EYE-FIX V5 SESSION 6: MODE-1 FREEZE DIAGNOSTICS ---------------
-    // Mode 1 (mClModel-swap one-draw) makes mini-link's eye decals
-    // render but mini-link is FROZEN — draw_progress sticks at 31, so
-    // the mode-5 multi-slot calc loop (which copies the network pose
-    // into mini-link's mpNodeMtxBuf) never runs. The only `return`
-    // between draw_progress=31 and =32 is the save-reload safety check
-    // at multiplayer.c ~line 1020:
-    //     if (current_data != mini_link_data || current_data == 0)
-    //         return result;
-    // where current_data = *(this+0x328) (Link's live mClModelData
-    // pointer). These five fields capture the comparison's inputs each
-    // frame so Go can confirm whether the safety check is the culprit
-    // and, if so, why current_data drifted.
-    //
-    //   dbg_mini_link_data_cached   — value of the C static
-    //                                 mini_link_data, published at hook
-    //                                 entry. Equals what the safety
-    //                                 check compares against.
-    //   dbg_pre_mclmodeldata        — *(this+0x328) at hook entry,
-    //                                 BEFORE the mode-1/2 swap. Should
-    //                                 equal mini_link_data in steady
-    //                                 state.
-    //   dbg_postswap_mclmodeldata   — *(this+0x328) immediately after
-    //                                 the mode-1/2 swap+restore. Only
-    //                                 written when ef_mode is 1 or 2.
-    //                                 If this differs from
-    //                                 dbg_pre_mclmodeldata, the swapped
-    //                                 daPy_lk_c::draw mutated +0x328.
-    //   dbg_safety_check_current   — *(this+0x328) read at the safety
-    //                                 check site itself.
-    //   dbg_safety_fired_count      — saturating count of frames the
-    //                                 safety check returned early. In
-    //                                 mode 0 baseline this should stay
-    //                                 at 0 (or near 0 across stage
-    //                                 transitions). In mode 1, if it's
-    //                                 incrementing every frame, the
-    //                                 safety check is the freeze
-    //                                 culprit.
+    // +0x11C..+0x12F: UNUSED since E0 (mode-1 freeze diagnostics).
     u32 dbg_mini_link_data_cached;            // +0x11C
     u32 dbg_pre_mclmodeldata;                 // +0x120
     u32 dbg_postswap_mclmodeldata;            // +0x124

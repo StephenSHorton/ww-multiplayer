@@ -58,7 +58,9 @@ func registrySubcommands(t *testing.T) []string {
 // moved to wwdev, each of them dispatches to its own entry, and none of
 // them opens the window or the TUI, with or without the window in the
 // build. No name but help is in both binaries' lists, and the union of
-// the two lists is the pre-D6 list.
+// the two lists is the pre-D6 list, less the five wwdev probes Phase E0
+// deleted with the C code they drove (echo-delay, eye-fix-mode,
+// eye-fix-mode-probe, eye-fix-post-chain, eye-fix-step).
 func TestCLISubcommandsUnchanged(t *testing.T) {
 	got := registrySubcommands(t)
 	if *updateSubcommands {

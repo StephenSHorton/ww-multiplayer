@@ -15,10 +15,8 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
 	"net"
 	"os"
 	"runtime"
@@ -37,7 +35,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
 
@@ -175,20 +172,7 @@ func runWarp(xs, ys, zs string) {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
 	}
-	// Diagnostic: read what the C handler stashed about its write so we
-	// can tell if the write reached memory and what actor it hit.
-	dbgAddrBuf, _ := d.Read(mailbox.Mailbox+mailbox.OffWarpDbgLinkAddr, 4)
-	dbgPostBuf, _ := d.Read(mailbox.Mailbox+mailbox.OffWarpDbgPostX, 4)
-	dbgAddr := binary.BigEndian.Uint32(dbgAddrBuf)
-	dbgPostX := math.Float32frombits(binary.BigEndian.Uint32(dbgPostBuf))
-	linkPtr, _ := player.NewLink(d).Ptr()
 	fmt.Printf("Warped Link to (%.1f, %.1f, %.1f).\n", x, y, z)
-	fmt.Printf("  C handler saw link=0x%08X (Go GetLinkPtr=0x%08X) — %s\n",
-		dbgAddr, linkPtr,
-		map[bool]string{true: "MATCH", false: "MISMATCH!"}[dbgAddr == linkPtr])
-	fmt.Printf("  Post-write current.pos.x = %.2f (target %.2f) — %s\n",
-		dbgPostX, x,
-		map[bool]string{true: "write landed", false: "write was reverted within frame"}[abs32(dbgPostX-float32(x)) < 1.0])
 	posAfter, _ := player.NewLink(d).Position()
 	if posAfter != nil {
 		fmt.Printf("  Read-after-warp current.pos = (%.2f, %.2f, %.2f) — %s\n",

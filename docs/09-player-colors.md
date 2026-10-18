@@ -311,7 +311,7 @@ The casual shirt does not depend on the color pipeline, since C reads no image b
 - **Why the first build overflowed.** At `-O2`, gcc unrolled both 8-word copy loops and inlined `tunic_restore` at its three call sites. `tunic_swap` alone was 0xF0 bytes.
 - **As built:** `tunic_swap` is 0xC8 bytes (0xE4 with §5.6's casual case), `tunic_restore` 0x60, and the statics (`tunic_hdr`, `tunic_saved[8]`) 0x24. The allocation block and the call sites are the rest.
 - **The check.** `TestT2EndsBelowMailbox` (`internal/inject/t2_budget_test.go`) checks the T2 end against `blob.go` at test time and logs the free bytes (0x18 now).
-- **0x18 is the last room in T2.** M7 needs about 0x700 (docs/08 §4.5). The next C feature therefore needs finish-plan D2 (drop the dead shadow modes 1-4 and the echo ring) or the option-A arena move first.
+- **0x18 is the last room in T2.** M7 needs about 0x700 (docs/08 §4.5). The next C feature therefore needs finish-plan D2 (drop the dead shadow modes 1-4 and the echo ring) or the option-A arena move first. (Phase E0 did the D2 code deletion: T2 now ends at 0x80412588, 0x978 bytes below the mailbox; docs/api/00-design.md.)
 
 **Memory.**
 - 3 × the image size from GameHeap, allocated once. If `linktexS3TC` is 256x256 with no mips, that is 3 × 32 KiB = 96 KiB **(inferred; `tunic-probe` prints the size)**. Go refuses images over 64 KiB.

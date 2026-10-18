@@ -134,8 +134,7 @@ go build -o wwdev.exe ./cmd/wwdev
 ./wwdev.exe send-shift-f1                               # Diagnostic: probe whether your Dolphin build accepts synthetic Shift+F1 hotkeys
 ./ww-multiplayer.exe debug                              # Print Link's position for 5 sec
 ./wwdev.exe dump                                        # Dump mailbox state (shadow_mode, pose seqs, etc.)
-./wwdev.exe shadow-mode <0..5>                          # 0=off, 1/2=mirror dev, 3=freeze, 4=echo-ring, 5=pose-feed
-./wwdev.exe echo-delay <N>                              # Mode-4 delay frames (for echo-link experiment)
+./wwdev.exe shadow-mode <0|5>                           # 0=off, 5=pose-feed (the dev modes 1-4 were deleted in Phase E0)
 ./wwdev.exe poke-u32 <addr-hex> <val-hex>               # Direct memory write
 ./wwdev.exe move-puppet <x> <y> <z> [slot]              # Manually drive a puppet actor slot
 ./wwdev.exe unhide-puppet                               # Apply per-proc unhide poke (mSwitchNo / m678)
@@ -377,7 +376,7 @@ scratch.
   units, and never under `--coop`. Override via `MP_LOCAL_SHIFT_X/Y/Z`
   env, or set all three to 0 to disable.
 - **Diagnostic toolkit** (`find-pos`, `scan-pos`, `peek`, `poke-vec3`,
-  `track-pos`, `warp`, `warp-force[-off]`, `eye-fix-step`,
+  `track-pos`, `warp`, `warp-force[-off]`,
   `eye-fix-gates`, `eye-fix-chain`, `eye-fix-find-shape`, `j3dsys-probe`,
   `ppc-disasm`) is available for memory probing when something doesn't
   behave as expected. They are wwdev's (`./wwdev.exe <command>`; the

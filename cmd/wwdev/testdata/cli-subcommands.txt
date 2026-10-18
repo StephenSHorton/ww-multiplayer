@@ -8,7 +8,6 @@ coop-watch
 disasm
 dolphin2
 dump
-echo-delay
 enemy-kill
 eye-anim-dl-dump
 eye-anim-find
@@ -17,11 +16,7 @@ eye-anim-watch
 eye-fix-chain
 eye-fix-find-shape
 eye-fix-gates
-eye-fix-mode
-eye-fix-mode-probe
-eye-fix-post-chain
 eye-fix-probe
-eye-fix-step
 face-dl-loop
 face-hook-arm
 face-hook-disarm

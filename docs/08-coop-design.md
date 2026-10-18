@@ -338,7 +338,7 @@ Current layout (`inject/build.py:109,142-145`; `mailbox.h:33`; `internal/inject/
 **M0-M6** use no code space.
 
 **M7 prerequisite: make room.**
-1. Finish-plan **D2**: drop the dead shadow modes 1-4 and the echo ring.
+1. Finish-plan **D2**: drop the dead shadow modes 1-4 and the echo ring. (Done in Phase E0, layout unchanged: T2 ends at 0x80412588, 0x978 bytes free; docs/api/00-design.md.)
 2. **Option A, recommended.** It reuses a proven mechanism: the arena has been bumped in 4 KB steps before, and the mailbox has moved four times (`mailbox.h:10`; the callback slot five times, per the `multiplayer.c` header).
    - Change `addi r3,r3,0x4000` to `0x6000` at 0x80301820, so `__OSArenaLo` = **0x80416000**. That is +8 KB taken from ZeldaHeap.
    - Move the mailbox to **0x80415000**, layout unchanged. `frame_shim` becomes `lis 12,0x8041; lwz 12,0x5008(12)`. `extract_blob.py` emits `MailboxAddr`, `MailboxLayoutVersion` and `ArenaLo` into `blob.go`, so `main.go` stops hard-coding them.
