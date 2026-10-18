@@ -119,7 +119,7 @@
 #define WWENEMY_ERR_SETID        4            // setID / home room mismatch
 #define WWENEMY_ERR_MORF         5            // mpMorf or model null
 #define WWENEMY_ERR_RANGE        6            // NaN or |pos| > 1e6
-#define WWENEMY_ERR_MODE         7            // mo2 mMode != 0
+#define WWENEMY_ERR_MODE         7            // mo2 mMode 5 (carried) or 0xF (statue); 0 and 1 (lantern/jail variant) are mirrored
 
 #define WWENEMY_HR_DROPPED       0
 #define WWENEMY_HR_APPLIED_AT    1

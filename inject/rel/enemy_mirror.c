@@ -17,8 +17,8 @@
 //   1 scope    releases everything unless the game is in the block's stage
 //              and room and no stage change is queued;
 //   2 resolve  fopAcM_SearchByID(pid) and revalidates the actor every frame
-//              (proc, initState, keyed setID + home room, mo2 mMode, morf and
-//              model); adopts it by setting mPauseFlag bit 1 at proc+0x0B so
+//              (proc, initState, keyed setID + home room, mo2 mMode not carried
+//              or statue, morf and model); adopts it by setting mPauseFlag bit 1 at proc+0x0B so
 //              fpcEx_Execute skips daMo2_Execute (f_pc_executor.cpp), and
 //              re-asserts the bit every frame because fopScnPause_Disable
 //              clears it on every leaf at overlap wipes (f_op_scene_pause.cpp);
@@ -146,7 +146,11 @@ typedef f32 (*em_sincos_t)(s16 a);                                   // cM_ssin_
 // fopEn_enemy_c (f_op_actor.h:329-358)
 #define EN_BT_NOW_FRAME   0x2A4   // f32 mBtNowFrame; daMo2_Execute writes 100.0f when no parry opening (d_a_mo2.cpp:3668)
 // mo2_class (d_a_mo2.h)
-#define MO2_MODE          0x2BC   // u8  mMode: 0 normal (1 jail, 5 carried, 0xF statue refused)
+#define MO2_MODE          0x2BC   // u8  mMode = the low param byte at create (d_a_mo2.cpp:4080): 0 normal, 1 the lantern/jail
+                                  //     variant (a normal Moblin once any pearl is held, rouya_mode 0, :4134-4146),
+                                  //     5 carried (:4147), 0xF statue (:4163); M_Dai room 1's keyed three are modes 1, 1, 0
+#define MO2_MODE_CARRIED  5
+#define MO2_MODE_STATUE   0xF
 #define MO2_MORF          0x2C4   // mDoExt_McaMorf* mpMorf
 #define MO2_INVULN        0x5B4   // s16 m05B4: invulnerable frames
 #define MO2_DR            0x614   // damagereaction mDamageReaction
@@ -343,7 +347,10 @@ static u8 em_validate(void* a, s8 room) {
     if (AF(a, s16, AC_PROC_NAME) != PROC_MO2) return WWENEMY_ERR_PROC;
     if (AF(a, s8, AC_INIT_STATE) != 2) return WWENEMY_ERR_INIT;
     if (AF(a, u16, AC_SETID) >= EM_KEYED_SETID_MAX || AF(a, s8, AC_HOME_ROOM) != room) return WWENEMY_ERR_SETID;
-    if (AF(a, u8, MO2_MODE) != 0) return WWENEMY_ERR_MODE;
+    {
+        u8 mode = AF(a, u8, MO2_MODE);
+        if (mode == MO2_MODE_CARRIED || mode == MO2_MODE_STATUE) return WWENEMY_ERR_MODE;
+    }
     morf = AF(a, void*, MO2_MORF);
     if (!morf) return WWENEMY_ERR_MORF;
     if (!AF(morf, void*, MORF_MODEL) || AF(morf, void*, MORF_MODEL) != AF(a, void*, AC_MODEL)) return WWENEMY_ERR_MORF;

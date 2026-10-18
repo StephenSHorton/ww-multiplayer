@@ -105,7 +105,9 @@ draw phase and the collision pass):
 2. **Resolve and revalidate, every frame.** `fopAcM_SearchByID(pid)`;
    then proc 0x00BD at +0x08, initState 2 at +0x0C, a keyed setID (< 0x200
    at +0x1BC) whose `home.roomNo` (+0x1E2) is the block's room, mo2 `mMode`
-   (+0x2BC) == 0 (jail, carried and statue Moblins are refused), `mpMorf`
+   (+0x2BC) neither 5 (carried) nor 0xF (statue): mode 0 and the mode 1
+   lantern/jail variant (a normal Moblin once any pearl is held; M_Dai
+   room 1's keyed three are modes 1, 1, 0) are mirrored, `mpMorf`
    (+0x2C4) non-null and its model (+0x50) equal to the actor's (+0x24C).
    A failure releases the slot, reports `last_err` and counts
    `revalidate_failures`. The first good frame adopts: `pause_prev` = the
@@ -179,7 +181,7 @@ in the word at +0x15C.
 **Status, every frame:** per slot the actor address, pid, state (0
 unresolved, 1 mirrored, 2 released, 3 missing, 4 dying, 5 refused),
 `pause_prev`, `last_err` (1 pid, 2 proc, 3 initState, 4 setID/room, 5
-morf/model, 6 range, 7 mode) and the frames mirrored; `adopted_mask`,
+morf/model, 6 range, 7 mode 5 or 0xF) and the frames mirrored; `adopted_mask`,
 `epoch_seen` and the four canaries (`pause_reasserts`, `anm_unresolved`,
 `revalidate_failures`, `watchdog_releases`).
 
