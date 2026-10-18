@@ -86,7 +86,8 @@ const (
 	EnemyHAAtTypeOff   = 0x08 // u32 cCcD_ObjAt mType
 	EnemyHAAtpOff      = 0x0C // u8
 	EnemyHAPosOff      = 0x10 // f32 x, y, z
-	EnemyHASize        = 0x1C
+	EnemyHAPIDOff      = 0x1C // u32 the host's pid of that setID's Moblin (Go resolves it; the REL checks setID and room against it)
+	EnemyHASize        = 0x20 // ends at +0xF0 = EnemySeqTailOff
 
 	// The REL-written span: +EnemyGoSpan..+EnemySize.
 	EnemyAckSeqOff      = 0xF4  // u32 last seq consumed
@@ -171,6 +172,7 @@ type EnemyHitApply struct {
 	AtType   uint32
 	Atp      uint8
 	Pos      [3]float32
+	PID      uint32 // the host's Moblin with that setID, from the sampler's cache
 }
 
 // EnemyBlock is the Go-written span of the block. Encode lays it out;
@@ -260,6 +262,7 @@ func (b *EnemyBlock) Encode() ([]byte, error) {
 	for k := range 3 {
 		be.PutUint32(o[EnemyHAPosOff+4*k:], math.Float32bits(h.Pos[k]))
 	}
+	be.PutUint32(o[EnemyHAPIDOff:], h.PID)
 	be.PutUint32(out[EnemySeqTailOff:], b.Seq)
 	return out, nil
 }
@@ -340,6 +343,7 @@ func DecodeEnemyBlock(b []byte) (blk EnemyBlock, seqTail uint32, err error) {
 		Collider: o[EnemyHAColliderOff],
 		AtType:   be.Uint32(o[EnemyHAAtTypeOff:]),
 		Atp:      o[EnemyHAAtpOff],
+		PID:      be.Uint32(o[EnemyHAPIDOff:]),
 	}
 	for k := range 3 {
 		blk.HitApply.Pos[k] = math.Float32frombits(be.Uint32(o[EnemyHAPosOff+4*k:]))

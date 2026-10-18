@@ -15,8 +15,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
 
-// wwenemyHeader is inject/include/wwenemy.h, which lands with the REL
-// PR; until then the pin test skips.
+// wwenemyHeader is inject/include/wwenemy.h, the source of these
+// constants (the REL module reads the same file).
 const wwenemyHeader = "../../inject/include/wwenemy.h"
 
 // headerDefines reads every `#define NAME value` of path the way
@@ -25,9 +25,6 @@ const wwenemyHeader = "../../inject/include/wwenemy.h"
 func headerDefines(t *testing.T, path string) map[string]uint64 {
 	t.Helper()
 	src, err := os.ReadFile(filepath.FromSlash(path))
-	if errors.Is(err, os.ErrNotExist) {
-		t.Skipf("%s is not here yet (it lands with the REL PR); nothing to pin against", path)
-	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,6 +100,7 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_HA_ATTYPE_OFF":     EnemyHAAtTypeOff,
 		"WWENEMY_HA_ATP_OFF":        EnemyHAAtpOff,
 		"WWENEMY_HA_POS_OFF":        EnemyHAPosOff,
+		"WWENEMY_HA_PID_OFF":        EnemyHAPIDOff,
 		"WWENEMY_HA_SIZE":           EnemyHASize,
 		"WWENEMY_ACK_SEQ_OFF":       EnemyAckSeqOff,
 		"WWENEMY_ACK_FRAME_OFF":     EnemyAckFrameOff,
@@ -192,7 +190,7 @@ func TestEnemyBlockPlacement(t *testing.T) {
 		got, want int
 	}{
 		{"slots end", EnemySlotsOff + EnemyMaxSlots*EnemySlotSize, EnemyHitApplyOff},
-		{"hit_apply end", EnemyHitApplyOff + EnemyHASize, EnemyHitApplyOff + 0x1C},
+		{"hit_apply end", EnemyHitApplyOff + EnemyHASize, EnemySeqTailOff},
 		{"seq_tail", EnemySeqTailOff + 4, EnemyGoSpan},
 		{"REL span start", EnemyAckSeqOff, EnemyGoSpan},
 		{"status end", EnemyStatusOff + EnemyMaxSlots*EnemyStatusSize, EnemyHitsOff},
@@ -222,7 +220,7 @@ func sampleEnemyBlock() *EnemyBlock {
 				AttackType: 1, AttackPhase: 2, Health: 3, Flags: EnemySFSnap | EnemySFDying, MorfFrame: 7.5, MorfRate: 1, SampleSeq: 99},
 			{PID: 0, Pos: [3]float32{1, 2, 3}},
 		},
-		HitApply: EnemyHitApply{Seq: 5, SetID: 2, Collider: 1, AtType: 0x80000, Atp: 2, Pos: [3]float32{4, 5, 6}},
+		HitApply: EnemyHitApply{Seq: 5, SetID: 2, Collider: 1, AtType: 0x80000, Atp: 2, Pos: [3]float32{4, 5, 6}, PID: 421},
 	}
 }
 
@@ -253,7 +251,7 @@ func TestEnemyBlockEncode(t *testing.T) {
 	}
 	ha := out[EnemyHitApplyOff:]
 	if be.Uint32(ha[EnemyHASeqOff:]) != 5 || be.Uint16(ha[EnemyHASetIDOff:]) != 2 || ha[EnemyHAColliderOff] != 1 ||
-		be.Uint32(ha[EnemyHAAtTypeOff:]) != 0x80000 || ha[EnemyHAAtpOff] != 2 || math.Float32frombits(be.Uint32(ha[EnemyHAPosOff+4:])) != 5 {
+		be.Uint32(ha[EnemyHAAtTypeOff:]) != 0x80000 || ha[EnemyHAAtpOff] != 2 || math.Float32frombits(be.Uint32(ha[EnemyHAPosOff+4:])) != 5 || be.Uint32(ha[EnemyHAPIDOff:]) != 421 {
 		t.Errorf("hit_apply %x", ha[:EnemyHASize])
 	}
 	got, tail, err := DecodeEnemyBlock(out)

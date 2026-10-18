@@ -37,7 +37,9 @@ import (
 const enemyWatchUsage = "enemy-watch [secs=10, 0 = until Ctrl+C] [--csv <path>]"
 
 // mo2Layouts is the private walk layout: a Moblin's enemyice and its u8
-// mMode. combat.Layouts() is shared and untouched.
+// mMode (actors.Actor.Mode is then mo2 mMode; Actor.Ice.Mode is
+// enemy_ice's own mode, which the actors probe prints as "mode").
+// combat.Layouts() is shared and untouched.
 var mo2Layouts = actors.Layouts{int16(stage.ProcMO2): {Ice: addr.Mo2OffIce, Mode: addr.Mo2OffMode, ModeU8: true}}
 
 // The probe's timing.
@@ -134,6 +136,8 @@ type mo2Sample struct {
 	HeadC     [3]float32
 	M28C8     [3]float32
 	IceTimer  int8
+	IceMode   int8 // enemy_ice's mMode (what the actors probe's "mode" column shows), not mo2 mMode
+	Mo2Mode   uint8
 	Invuln    int16
 	Tilt      int16
 }
@@ -174,6 +178,8 @@ func readMo2(m mem.Reader, a *actors.Actor) (mo2Sample, error) {
 	s.HeadC = vec(addr.Mo2OffHeadSph + addr.Mo2CcCenterOff)
 	s.M28C8 = vec(addr.Mo2OffHeadCenter)
 	s.IceTimer = int8(b[addr.Mo2OffIceShrink])
+	s.IceMode = int8(b[addr.Mo2OffIce+addr.EnemyIceOffMode])
+	s.Mo2Mode = b[addr.Mo2OffMode]
 	s.Invuln = int16(be.Uint16(b[addr.Mo2OffInvuln:]))
 	s.Tilt = int16(be.Uint16(b[addr.Mo2OffTilt:]))
 	if at := s.Morf + addr.McaMorfOffFrameCtrl; mem.CheckRange(at, addr.McaMorfFrameCtrlLen) == nil {
@@ -191,13 +197,14 @@ func readMo2(m mem.Reader, a *actors.Actor) (mo2Sample, error) {
 	return s, nil
 }
 
-// keyedMoblins returns the keyed, executing, mode-0 Moblins of room
-// among w's actors, sorted by setID.
+// keyedMoblins returns the keyed, executing Moblins of room among w's
+// actors whose mMode is 0 or 1 (a carried one, 5, and a statue, 0xF, are
+// refused; addr.Mo2OffMode), sorted by setID.
 func keyedMoblins(w *actors.Walk, room int8) []actors.Actor {
 	var out []actors.Actor
 	for i := range w.Actors {
 		a := &w.Actors[i]
-		if a.Proc == int16(stage.ProcMO2) && a.Keyed() && a.InitState == 2 && a.ModeOK && a.Mode == 0 && a.HomeRoom == room {
+		if a.Proc == int16(stage.ProcMO2) && a.Keyed() && a.InitState == 2 && a.ModeOK && (a.Mode == 0 || a.Mode == 1) && a.HomeRoom == room {
 			out = append(out, *a)
 		}
 	}
@@ -215,7 +222,7 @@ func enemyScope(m mem.Reader) (stageName string, room int8, err error) {
 	return stageName, r, err
 }
 
-const enemyCSVHeader = "t_ms,addr,pid,setID,room,x,y,z,angle_y,shape_y,health,dr_mode,dr_action,attack_type,attack_phase,morf,morf_attr,morf_rate,morf_frame,pause,co_x,co_y,co_z,co_dx,co_dy,co_dz,tg_x,tg_y,tg_z,head_x,head_y,head_z,m28c8_x,m28c8_y,m28c8_z,ice_timer,invuln,tilt"
+const enemyCSVHeader = "t_ms,addr,pid,setID,room,x,y,z,angle_y,shape_y,health,dr_mode,dr_action,attack_type,attack_phase,morf,morf_attr,morf_rate,morf_frame,pause,co_x,co_y,co_z,co_dx,co_dy,co_dz,tg_x,tg_y,tg_z,head_x,head_y,head_z,m28c8_x,m28c8_y,m28c8_z,ice_timer,invuln,tilt,mo2_mode,ice_mode"
 
 // enemyWatch runs the probe over m for d (0: until ctx ends).
 func enemyWatch(ctx context.Context, w, csv io.Writer, m mem.Reader, d time.Duration) error {
@@ -262,10 +269,10 @@ func enemyWatch(ctx context.Context, w, csv io.Writer, m mem.Reader, d time.Dura
 			now2[i] = moblins[i].PID
 		}
 		if !slices.Equal(was, now2) {
-			fmt.Fprintf(w, "[%6.3fs] walk: %d actors (%s), %d keyed mode-0 Moblins in room %d of %q:", now.Sub(start).Seconds(), len(aw.Actors), walkNote(&aw), len(moblins), room, stageName)
+			fmt.Fprintf(w, "[%6.3fs] walk: %d actors (%s), %d keyed mode-0/1 Moblins in room %d of %q:", now.Sub(start).Seconds(), len(aw.Actors), walkNote(&aw), len(moblins), room, stageName)
 			for i := range moblins {
 				a := &moblins[i]
-				fmt.Fprintf(w, " [setID %d pid %d 0x%08X]", a.SetID, a.PID, a.Addr)
+				fmt.Fprintf(w, " [setID %d pid %d 0x%08X mode %d]", a.SetID, a.PID, a.Addr, a.Mode)
 			}
 			fmt.Fprintln(w)
 		}
@@ -331,11 +338,11 @@ func printMo2(w io.Writer, ms int64, s *mo2Sample) {
 	} else if s.Morf != 0 {
 		morf = fmt.Sprintf("morf 0x%08X (outside MEM1)", s.Morf)
 	}
-	fmt.Fprintf(w, "%7d setID %d pid %d 0x%08X r%d pos %.1f %.1f %.1f ang %d shape %d hp %d dr %d/%d atk %d/%d %s pause 0x%02X co %.1f %.1f %.1f (d %.1f %.1f %.1f) tg %.1f %.1f %.1f head %.1f %.1f %.1f m28C8 %.1f %.1f %.1f ice %d inv %d tilt %d\n",
-		ms, s.SetID, s.PID, s.Addr, s.HomeRoom, s.Pos[0], s.Pos[1], s.Pos[2], s.AngleY, s.ShapeY, s.Health, s.DRMode, s.DRAction, s.AttackT, s.AttackP, morf, s.Pause,
+	fmt.Fprintf(w, "%7d setID %d pid %d 0x%08X r%d mo2_mode %d pos %.1f %.1f %.1f ang %d shape %d hp %d dr %d/%d atk %d/%d %s pause 0x%02X co %.1f %.1f %.1f (d %.1f %.1f %.1f) tg %.1f %.1f %.1f head %.1f %.1f %.1f m28C8 %.1f %.1f %.1f ice %d ice_mode %d inv %d tilt %d\n",
+		ms, s.SetID, s.PID, s.Addr, s.HomeRoom, s.Mo2Mode, s.Pos[0], s.Pos[1], s.Pos[2], s.AngleY, s.ShapeY, s.Health, s.DRMode, s.DRAction, s.AttackT, s.AttackP, morf, s.Pause,
 		s.CoCenter[0], s.CoCenter[1], s.CoCenter[2], s.CoCenter[0]-s.Pos[0], s.CoCenter[1]-s.Pos[1], s.CoCenter[2]-s.Pos[2],
 		s.TgCenter[0], s.TgCenter[1], s.TgCenter[2], s.HeadC[0], s.HeadC[1], s.HeadC[2], s.M28C8[0], s.M28C8[1], s.M28C8[2],
-		s.IceTimer, s.Invuln, s.Tilt)
+		s.IceTimer, s.IceMode, s.Invuln, s.Tilt)
 }
 
 // csvMo2 writes one Moblin's tick as a CSV row (enemyCSVHeader).
@@ -348,7 +355,7 @@ func csvMo2(w io.Writer, ms int64, room int8, s *mo2Sample) {
 		fmt.Sprintf("0x%08X", s.Morf), strconv.Itoa(int(s.MorfAttr)), f(s.MorfRate), f(s.MorfFrame), strconv.Itoa(int(s.Pause)),
 		f(s.CoCenter[0]), f(s.CoCenter[1]), f(s.CoCenter[2]), f(s.CoCenter[0] - s.Pos[0]), f(s.CoCenter[1] - s.Pos[1]), f(s.CoCenter[2] - s.Pos[2]),
 		f(s.TgCenter[0]), f(s.TgCenter[1]), f(s.TgCenter[2]), f(s.HeadC[0]), f(s.HeadC[1]), f(s.HeadC[2]), f(s.M28C8[0]), f(s.M28C8[1]), f(s.M28C8[2]),
-		strconv.Itoa(int(s.IceTimer)), strconv.Itoa(int(s.Invuln)), strconv.Itoa(int(s.Tilt)),
+		strconv.Itoa(int(s.IceTimer)), strconv.Itoa(int(s.Invuln)), strconv.Itoa(int(s.Tilt)), strconv.Itoa(int(s.Mo2Mode)), strconv.Itoa(int(s.IceMode)),
 	}
 	fmt.Fprintln(w, strings.Join(cols, ","))
 }

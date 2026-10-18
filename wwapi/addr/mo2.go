@@ -7,10 +7,15 @@ package addr
 // the field. Nothing here is executed yet on a live game but what the
 // enemy-watch probe reads back (step 1 of the prototype).
 const (
-	// Mo2OffMode is u8 mMode (d_a_mo2.h:38): 0 for a placed Moblin on
-	// patrol; 1 jail, 5 carried, 0xF statue are refused by the mirror
-	// (create's switch, d_a_mo2.cpp:4080-4166).
-	Mo2OffMode = 0x2BC
+	// Mo2OffMode is u8 mMode (d_a_mo2.h:38), the low byte of the actor's
+	// params at create (d_a_mo2.cpp:4080): 0 a placed Moblin on patrol, 1
+	// the lantern/jail-capable variant, which is a normal Moblin once the
+	// player holds a pearl (rouya_mode 0, d_a_mo2.cpp:4134-4146; M_Dai
+	// room 1's setIDs 0 and 1 are mode 1, setID 2 mode 0); the mirror
+	// takes 0 and 1 and refuses Mo2ModeCarried and Mo2ModeStatue.
+	Mo2OffMode     = 0x2BC
+	Mo2ModeCarried = 5
+	Mo2ModeStatue  = 0xF
 	// Mo2OffMorf is mDoExt_McaMorf* mpMorf (d_a_mo2.h:45).
 	Mo2OffMorf = 0x2C4
 	// Mo2OffInvuln is s16 m05B4 (d_a_mo2.h:67): nonzero while

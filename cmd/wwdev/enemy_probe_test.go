@@ -20,23 +20,24 @@ import (
 // serves the fake).
 var mDai = fakegame.Stage{Name: "M_Dai", Table: addr.TableDRC, Room: 1}
 
-// placeMoblins is the prototype's room: three keyed mode-0 Moblins in
-// room 1, a jailed one (mode 1), a runtime one (setID 0xFFFF) and one in
+// placeMoblins is the prototype's room as the live read found it: three
+// keyed Moblins in room 1 (setIDs 0 and 1 mode 1, setID 2 mode 0), a
+// carried one (mode 5, refused), a runtime one (setID 0xFFFF) and one in
 // room 2.
 func placeMoblins() *fakegame.Enemies {
 	return fakegame.PlaceEnemies(
 		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 2, Proc: stage.ProcMO2},
-		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 0, Proc: stage.ProcMO2},
-		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 1, Proc: stage.ProcMO2},
-		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 3, Proc: stage.ProcMO2}, // jailed below
+		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 0, Proc: stage.ProcMO2, Mode: 1},
+		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 1, Proc: stage.ProcMO2, Mode: 1},
+		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: 3, Proc: stage.ProcMO2, Mode: addr.Mo2ModeCarried},
 		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: addr.ActorSetIDNone, Proc: stage.ProcMO2},
 		fakegame.Enemy{Stage: mDai.Name, Room: 2, SetID: 4, Proc: stage.ProcMO2},
 	)
 }
 
 // moblinRoom loads M_Dai with Link in room 1 (room 2 a neighbour), runs
-// the placed Moblins to their execute state, jails placed entry 3 and
-// gives setID 0 a position, angles and a morf.
+// the placed Moblins to their execute state and gives setID 0 a
+// position, angles, a morf and an enemy_ice mode.
 func moblinRoom(t *testing.T) (*fakegame.FakeGame, *mem.FakeMem, *fakegame.Enemies) {
 	t.Helper()
 	m := mem.NewFakeMem()
@@ -53,11 +54,6 @@ func moblinRoom(t *testing.T) (*fakegame.FakeGame, *mem.FakeMem, *fakegame.Enemi
 			t.Fatal(err)
 		}
 	}
-	jail, ok := es.Of(3)
-	if !ok {
-		t.Fatal("the jailed Moblin is not live")
-	}
-	store(t, m, jail.Addr+addr.Mo2OffMode, []byte{1})
 	a, ok := es.Of(1) // setID 0
 	if !ok {
 		t.Fatal("setID 0 is not live")
@@ -80,6 +76,7 @@ func moblinRoom(t *testing.T) (*fakegame.FakeGame, *mem.FakeMem, *fakegame.Enemi
 		return b
 	}())
 	store(t, m, a.Addr+addr.Mo2OffIceShrink, []byte{5})
+	store(t, m, a.Addr+addr.Mo2OffIce+addr.EnemyIceOffMode, []byte{2})
 	store(t, m, a.Addr+addr.Mo2OffInvuln, []byte{0, 7})
 	store(t, m, a.Addr+addr.Mo2OffTilt, []byte{0xFF, 0xFE})
 	const morf = uint32(0x80C00000)
@@ -106,10 +103,11 @@ func TestEnemyWatch(t *testing.T) {
 	s := out.String()
 	for _, want := range []string{
 		`stage "M_Dai" room 1; REL words at 0x804130B0: magic 0x5757524C linked=true build 0xAC19DE43 frames 77`,
-		"3 keyed mode-0 Moblins in room 1 of \"M_Dai\":",
+		"3 keyed mode-0/1 Moblins in room 1 of \"M_Dai\":",
 		"setID 0 pid", "setID 1 pid", "setID 2 pid",
-		"pos -1500.5 250.0 3000.0 ang 16384 shape 16383 hp 4 dr -100/20 atk 2/1 morf 0x80C00000 attr 2 rate 1.50 frame 12.25 pause 0x02 co -1500.5 250.0 3035.0 (d 0.0 0.0 35.0)",
-		"ice 5 inv 7 tilt -2",
+		"mo2_mode 1 pos -1500.5 250.0 3000.0 ang 16384 shape 16383 hp 4 dr -100/20 atk 2/1 morf 0x80C00000 attr 2 rate 1.50 frame 12.25 pause 0x02 co -1500.5 250.0 3035.0 (d 0.0 0.0 35.0)",
+		"ice 5 ice_mode 2 inv 7 tilt -2",
+		"mo2_mode 0 pos 0.0",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("output lacks %q:\n%s", want, s)
@@ -123,7 +121,7 @@ func TestEnemyWatch(t *testing.T) {
 	// The walk line lists them in setID order, whatever the queue's.
 	walk := s[strings.Index(s, "Moblins in room 1"):]
 	walk = walk[:strings.Index(walk, "\n")]
-	if i0, i1, i2 := strings.Index(walk, "[setID 0 "), strings.Index(walk, "[setID 1 "), strings.Index(walk, "[setID 2 "); !(i0 < i1 && i1 < i2) {
+	if i0, i1, i2 := strings.Index(walk, "[setID 0 "), strings.Index(walk, "[setID 1 "), strings.Index(walk, "[setID 2 "); !(i0 < i1 && i1 < i2) || !strings.Contains(walk, "mode 1]") || !strings.Contains(walk, "mode 0]") {
 		t.Errorf("walk line not sorted: %s", walk)
 	}
 	lines := strings.Split(strings.TrimSpace(csv.String()), "\n")
@@ -131,7 +129,7 @@ func TestEnemyWatch(t *testing.T) {
 		t.Fatalf("csv:\n%s", csv.String())
 	}
 	cols := strings.Split(lines[1], ",")
-	if len(cols) != strings.Count(enemyCSVHeader, ",")+1 || cols[3] != "0" || cols[4] != "1" || cols[5] != "-1500.500" || cols[25] != "35.000" || cols[35] != "5" || cols[37] != "-2" {
+	if len(cols) != strings.Count(enemyCSVHeader, ",")+1 || cols[3] != "0" || cols[4] != "1" || cols[5] != "-1500.500" || cols[25] != "35.000" || cols[35] != "5" || cols[37] != "-2" || cols[38] != "1" || cols[39] != "2" {
 		t.Errorf("csv row: %v", cols)
 	}
 

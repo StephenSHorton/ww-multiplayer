@@ -72,6 +72,10 @@ const (
 var (
 	weaponField = map[stage.Proc]uint32{stage.ProcBK: 0x1200, stage.ProcST: 0x1DCC, stage.ProcTN: 0x1410}
 	modeField   = map[stage.Proc]uint32{stage.ProcRD: 0x2AC, stage.ProcFM: 0x2AC}
+	// modeU8Field is the mode a Moblin keeps as a u8 (mMode, d_a_mo2.h:38,
+	// addr.Mo2OffMode): 0 on patrol, 1 the lantern variant, 5 carried,
+	// 0xF a statue.
+	modeU8Field = map[stage.Proc]uint32{stage.ProcMO2: addr.Mo2OffMode}
 	holdField   = map[stage.Proc]struct {
 		off  uint32
 		s8   bool
@@ -96,7 +100,8 @@ type Enemy struct {
 	// Weapon creates a BOKO it holds, with CARRY set, for a class that has
 	// a weapon field (fopAcM_setCarryNow, d_a_bk.cpp:4220-4224).
 	Weapon bool
-	// Mode is a ReDead's or Floormaster's mMode as it is created.
+	// Mode is a ReDead's or Floormaster's mMode (s32), or a Moblin's
+	// (u8 at addr.Mo2OffMode), as it is created.
 	Mode int32
 	// FailCreate makes its create fail: it is queued, then gone without
 	// having executed.
@@ -523,6 +528,9 @@ func (e *Enemies) create(g *FakeGame, i int) {
 	g.layActor(a, p, status)
 	if off, ok := modeField[p.Proc]; ok {
 		g.st32(a.at+off, uint32(p.Mode))
+	}
+	if off, ok := modeU8Field[p.Proc]; ok {
+		g.st8(a.at+off, uint8(p.Mode))
 	}
 }
 
