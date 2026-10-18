@@ -387,3 +387,37 @@ func TestMirrorRaw(t *testing.T) {
 		t.Errorf("raw: %+v", blocks)
 	}
 }
+
+// TestMirrorStickyErr: the REL's last_err is sticky, so an unresolved
+// slot's error forces one walk when it appears, not a walk every tick.
+func TestMirrorStickyErr(t *testing.T) {
+	_, m, _, tick := clientRoom(t)
+	start := time.Unix(2000, 0)
+	c := NewMirror(m, log.Discard{}, nil, false, start)
+	now := start
+	pushState(t, c, hostState(1, 0), now)
+	tick()
+	if _, _, err := c.Tick(now); err != nil {
+		t.Fatal(err)
+	}
+	first := c.matchNext
+	stOff := mailbox.EnemyBlockAddr + mailbox.EnemyStatusOff
+	store(t, m, stOff+mailbox.EnemySTStateOff, []byte{mailbox.EnemyStateMissing, 0, mailbox.EnemyErrPID})
+	now = now.Add(16 * time.Millisecond)
+	pushState(t, c, hostState(2, 16), now)
+	tick()
+	c.Tick(now)
+	if c.matchNext == first {
+		t.Fatal("a new last_err did not force a walk")
+	}
+	forced := c.matchNext
+	for i := 3; i < 6; i++ {
+		now = now.Add(16 * time.Millisecond)
+		pushState(t, c, hostState(uint32(i), uint32(i)*16), now)
+		tick()
+		c.Tick(now)
+	}
+	if c.matchNext != forced {
+		t.Error("the sticky last_err forced a walk again")
+	}
+}

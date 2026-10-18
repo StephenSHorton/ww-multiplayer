@@ -85,7 +85,10 @@ type Mirror struct {
 	logNext  time.Time
 	hitSeq   uint16
 	lastHits [MaxSlots]uint16 // the last hit_seq drained per slot
-	Stats    MirrorStats
+	// lastStatus is each slot's (state, last_err) at the last tick: the
+	// REL's last_err is sticky, so only a change forces a walk.
+	lastStatus [MaxSlots][2]uint8
+	Stats      MirrorStats
 }
 
 // MirrorStats are counters a probe or test reads.
@@ -358,11 +361,17 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		return nil, 0, err
 	}
 	c.Stats.LastStatus = status
+	// The REL's last_err is sticky (it keeps the last failure seen, not
+	// the current state), so a resolve failure forces a walk only when
+	// the slot's (state, last_err) pair changed since the last tick.
 	force := false
 	for i := range status.Status {
-		if e := status.Status[i].LastErr; e >= mailbox.EnemyErrPID && e <= mailbox.EnemyErrSetID {
+		e := &status.Status[i]
+		key := [2]uint8{e.State, e.LastErr}
+		if key != c.lastStatus[i] && e.LastErr >= mailbox.EnemyErrPID && e.LastErr <= mailbox.EnemyErrSetID {
 			force = true
 		}
+		c.lastStatus[i] = key
 	}
 	if err := c.match(now, scope, st, force); err != nil {
 		return nil, 0, err
