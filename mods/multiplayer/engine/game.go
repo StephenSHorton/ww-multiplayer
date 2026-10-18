@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/enemysync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
@@ -52,6 +53,10 @@ type GameDeps struct {
 	Pipelines func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter) error
 	// Reset resets Dolphin pid's mailbox after the pipelines stopped.
 	Reset func(pid uint32)
+	// EnemySync runs the enemy-sync pipeline on Dolphin pid beside the
+	// pose pipelines, as the host (the sampler) or a joiner (the mirror);
+	// nil runs none (WW_ENEMY_SYNC unset).
+	EnemySync func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, host bool, rep log.Reporter) error
 	// CoopSync runs coop-sync on Dolphin pid for co-op side cs until ctx
 	// ends (CoopApp.Sync); nil runs none.
 	CoopSync func(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs CoopSide) error
@@ -89,6 +94,12 @@ func realGameDeps(ls *LiveState, c Config) *GameDeps {
 	}
 	if c.Coop != nil {
 		d.CoopSync = c.Coop.Sync
+	}
+	if enemysync.Enabled() {
+		d.EnemySync = func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, host bool, rep log.Reporter) error {
+			p, _ := enemyPipeline(host, c.Env.Feed, name, addr, pid, rep, feed.NewConnectLog(addr, rep))
+			return RunPipelines(ctx, cancel, rep, p)
+		}
 	}
 	return d
 }
@@ -134,6 +145,9 @@ type GameRunner struct {
 	// coop is the session's co-op side once it started (SetCoop): its
 	// coop-sync runs beside the pose pipelines.
 	coop CoopSide
+	// host says this player hosts the lobby (SetHost): its enemy-sync
+	// pipeline is the sampler, a joiner's the mirror.
+	host bool
 }
 
 // NewGameRunner is a lobby session's game side on deps, playing as name
@@ -177,6 +191,21 @@ func (g *GameRunner) Stop() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.err
+}
+
+// SetHost says whether this player is the lobby's host, which decides
+// the enemy-sync pipeline's side (GameDeps.EnemySync) at the next
+// pipelines start; the lobby calls it at START.
+func (g *GameRunner) SetHost(host bool) {
+	g.mu.Lock()
+	g.host = host
+	g.mu.Unlock()
+}
+
+func (g *GameRunner) isHost() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.host
 }
 
 // SetCoop starts coop-sync for co-op side cs on this player's
@@ -400,7 +429,7 @@ func (g *GameRunner) run(ctx context.Context) {
 			done := make(chan error, 1)
 			pid := info.PID
 			played[pid], pipePID = true, pid
-			go func() { done <- d.Pipelines(pctx, cancel, g.name, g.addr, pid, g.out) }()
+			go func() { done <- g.runPipelines(pctx, cancel, pid) }()
 			pipeCancel, pipeDone = cancel, done
 			info.Pipelines = true
 			log.Logf(g.out, log.OK, "Playing on Dolphin (pid %d): remote Links appear in your game.", pid)
@@ -444,6 +473,24 @@ func (g *GameRunner) run(ctx context.Context) {
 		case <-t.C:
 		}
 	}
+}
+
+// runPipelines runs the pose pipelines on pid and, when the deps have
+// enemy sync, the enemy-sync pipeline beside them under one cancel.
+func (g *GameRunner) runPipelines(ctx context.Context, cancel context.CancelFunc, pid uint32) error {
+	d := g.deps
+	if d.EnemySync == nil {
+		return d.Pipelines(ctx, cancel, g.name, g.addr, pid, g.out)
+	}
+	host := g.isHost()
+	return RunPipelines(ctx, cancel, g.out,
+		Pipeline{Name: "pose", Run: func(ctx context.Context) error {
+			return d.Pipelines(ctx, cancel, g.name, g.addr, pid, g.out)
+		}},
+		Pipeline{Name: "enemy-sync", Run: func(ctx context.Context) error {
+			return d.EnemySync(ctx, cancel, g.name, g.addr, pid, host, g.out)
+		}},
+	)
 }
 
 // badLog says once what the Dolphin runs instead of the patched game.

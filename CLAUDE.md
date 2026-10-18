@@ -165,6 +165,9 @@ WW_POSE_RAW=1                               # Skip pose localization (debug)
 WW_LINK2_OFFSET_{X,Y,Z}                     # Loopback render offset (default 0)
 WW_COLOR=<color>                            # Default tunic color when --color isn't given (docs/09)
 WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/join) leaves the tunic slots to the tunic-slot dev command
+WW_ENEMY_SYNC=1                             # Enemy sync (mods/enemysync, the Moblin mirror prototype): host/join and the app run enemy-host / enemy-client,
+                                            #   mp-local spawns enemy-A (host, Dolphin A) and enemy-B (client, Dolphin B); needs the REL module linked
+WW_ENEMY_RAW=1                              # enemy-client bypasses the smoother and sets the block's raw flag (the lag measurement)
 WW_MINIMAP_SCALE=<f>                        # TUI minimap world units per cell (default 10)
 WW_LISTEN_HOST=<addr>                       # App only: a hosted lobby's server listens on <addr> alone (local checks: 127.0.0.1)
                                             #   and LAN discovery stays on it (127.0.0.1: beacons sent to, and heard on, loopback only)

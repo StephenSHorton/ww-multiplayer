@@ -154,6 +154,7 @@ func (e *Engine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, 
 				if beginGame != nil {
 					beginGame()
 				}
+				game.SetHost(isHost(lc))
 				game.Start(gctx)
 			})
 		}

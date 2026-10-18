@@ -124,6 +124,8 @@ func commandTable() []command {
 		{name: "peek-demo", group: groupDev, run: runCoopDiag},
 		// Enemy sync, the host-authoritative Moblin prototype (enemy_probe.go).
 		{name: "enemy-watch", group: groupDev, run: runEnemyWatch},
+		{name: "enemy-mirror-local", group: groupDev, run: runEnemyMirrorLocal},
+		{name: "enemy-block-dump", group: groupDev, run: runEnemyBlockDump},
 	}
 }
 

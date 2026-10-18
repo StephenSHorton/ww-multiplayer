@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
+	"github.com/StephenSHorton/ww-multiplayer/mods/enemysync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
@@ -108,7 +109,7 @@ func RunHostSession(ctx context.Context, cancel context.CancelFunc, env Env, nam
 	}
 	rep.Log(log.Info, "Ctrl+C to stop.")
 
-	err := runMultiplayerGoroutines(ctx, cancel, env.Feed, name, fmt.Sprintf("localhost:%d", port), rep, LiveStateClientSetter(ls), LiveStateLocalPosSetter(ls), coop)
+	err := runMultiplayerGoroutines(ctx, cancel, env.Feed, name, fmt.Sprintf("localhost:%d", port), rep, LiveStateClientSetter(ls), LiveStateLocalPosSetter(ls), coop, true)
 
 	srv.Stop()
 	if coop != nil {
@@ -147,7 +148,7 @@ func RunJoinSession(ctx context.Context, cancel context.CancelFunc, env Env, add
 	}
 	rep.Log(log.Info, "Ctrl+C to stop.")
 
-	err := runMultiplayerGoroutines(ctx, cancel, env.Feed, name, addr, rep, LiveStateClientSetter(ls), LiveStateLocalPosSetter(ls), coop)
+	err := runMultiplayerGoroutines(ctx, cancel, env.Feed, name, addr, rep, LiveStateClientSetter(ls), LiveStateLocalPosSetter(ls), coop, false)
 
 	env.clear()
 	return err
@@ -171,9 +172,12 @@ func RunJoinSession(ctx context.Context, cancel context.CancelFunc, env Env, add
 // own Dolphin handle and co-op connection), and hears the puppet-sync
 // client for its warps (Coop.WithPoseClient); nil runs the two pose
 // pipelines alone, as before co-op.
+// host says this is the host's session: with WW_ENEMY_SYNC=1 the host
+// runs the enemy-host pipeline (its Moblins are the authority) and a
+// joiner the enemy-client pipeline (enemyPipeline).
 // Returns RunPipelines' result: the first real failure, or nil on a normal
 // ctx-cancel shutdown.
-func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, fe feed.Env, name, addr string, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32), coop Coop) error {
+func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, fe feed.Env, name, addr string, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32), coop Coop, host bool) error {
 	connLog := feed.NewConnectLog(addr, rep)
 	// A warp to the partner takes its position from pose sync (without
 	// co-op, onClient is as given).
@@ -191,5 +195,27 @@ func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, fe
 	if coop != nil {
 		ps = append(ps, coop.Pipelines(name, addr, rep)...)
 	}
+	if p, ok := enemyPipeline(host, fe, name, addr, 0, rep, connLog); ok {
+		ps = append(ps, p)
+	}
 	return RunPipelines(ctx, cancel, rep, ps...)
+}
+
+// enemyPipeline is the enemy-sync pipeline of this session on Dolphin
+// pid (0: the env's), when WW_ENEMY_SYNC=1 (enemysync.Enabled): the host
+// runs 'enemy-host' (the sampler; its own Go is no enemy client), a
+// joiner 'enemy-client' (the mirror). ok is false when enemy sync is off.
+func enemyPipeline(host bool, fe feed.Env, name, addr string, pid uint32, rep log.Reporter, connLog *network.ConnectLog) (Pipeline, bool) {
+	if !enemysync.Enabled() {
+		return Pipeline{}, false
+	}
+	env := enemysync.Env{Open: fe.Open}
+	if host {
+		return Pipeline{Name: "enemy-host", Run: func(ctx context.Context) error {
+			return enemysync.HostPipeline(ctx, env, name, addr, pid, rep, connLog)
+		}}, true
+	}
+	return Pipeline{Name: "enemy-client", Run: func(ctx context.Context) error {
+		return enemysync.ClientPipeline(ctx, env, name, addr, pid, rep, connLog)
+	}}, true
 }
