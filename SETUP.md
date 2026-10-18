@@ -1,12 +1,15 @@
 # Setup on a new machine
 
-This repo is just the Go side. To actually build a patched ISO and test code injection, you need the following set up locally — none of these are committed.
+This repo holds the Go app and tools and the injected C source (`inject/`). To rebuild the C blob or test on real Dolphins you also need the external pieces below, none of which are committed.
 
 ## Required external pieces
 
+### 0. Go
+- Go 1.26.2 or newer (the `go` line in `go.mod`; CI uses the same file). macOS builds also need the Xcode command-line tools (cgo).
+
 ### 1. Dolphin emulator
 - Install or extract a Dolphin build (this project was developed against Dolphin 2603, x64).
-- Note the install path; the dev workflow assumes `Roms/` and `User/` directories live next to `Dolphin.exe`.
+- The dev defaults expect Dolphin at `%USERPROFILE%\Desktop\Dolphin-x64` with the patched ISO in its `Roms/` folder. Dolphin's user dir is `<exe dir>/User` only in portable mode (`portable.txt` next to `Dolphin.exe`), otherwise `%APPDATA%\Dolphin Emulator`. Override with `DOLPHIN_EXE` / `ISO_PATH` / `USER_DIR_1` / `USER_DIR_2`, or let the app's Setup find them.
 
 ### 2. Wind Waker GZLE01 disc image
 - A legally obtained Wind Waker (NTSC-U, GameCube) image, CISO or ISO format.
@@ -41,7 +44,8 @@ cd inject && python build.py && cd ..
 python scripts/extract_blob.py
 
 # 3. Build the Go side
-go build -o ww-multiplayer.exe ./cmd/ww-multiplayer
+go build -tags desktop,production -o ww-multiplayer.exe ./cmd/ww-multiplayer   # the app window, as releases build it
+# (without the tags you get the CLI/TUI build, and no arguments opens the TUI)
 go build -o wwdev.exe ./cmd/wwdev   # the developer tools (dump, dolphin2, mp-local, ...)
 
 # 4. Patch your own vanilla disc (ISO or CISO) with the new blob
@@ -54,6 +58,10 @@ go build -o wwdev.exe ./cmd/wwdev   # the developer tools (dump, dolphin2, mp-lo
 ./wwdev.exe dump              # read the mailbox the patched DOL publishes
 ./ww-multiplayer.exe debug    # read Link's position for 5 seconds
 ```
+
+On macOS, `scripts/build-mac.sh` builds `WW Multiplayer.app` and its zip
+the way releases do, and `scripts/setup-mac-dolphin.sh` makes the
+re-signed Dolphin copy the memory reader needs.
 
 ## Bundled Dolphin cheat pack (optional, for testing)
 
@@ -79,6 +87,8 @@ tick the ones you want.
 
 ## See also
 - `CLAUDE.md` — context for AI sessions
-- `docs/01-architecture.md` through `docs/06-history.md` — design + session-by-session history
+- `docs/01` through `docs/10` — architecture, memory, injection, addresses, known issues, history, research, co-op, player colors, lobby
+- `docs/api/` — the modding API and how to write a mod
+- `docs/TESTING.md` — the pre-push check matrix and live checks
 - [GitHub issues](https://github.com/StephenSHorton/ww-multiplayer/issues) — open work, grouped by epic
 - `docs/05-known-issues.md` — known pitfalls and workarounds (memory layout, Freighter clobbers, render pipeline)

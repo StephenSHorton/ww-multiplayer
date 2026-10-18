@@ -11,12 +11,20 @@ walking around in-game. Runs on **Windows and macOS** (Apple Silicon + Intel).
 
 ## Status
 
-What works today:
-- Reading your own Link's position + skeletal pose from a running Dolphin
-- Hosting / joining a TCP session and exchanging positions + poses
-- **Rendering each other's Link in-game** — your friend's Link walks around
-  on Outset (or wherever you are) at their actual world coords, with their
-  real animations, at ~50 ms latency on LAN
+What works today (v0.4.0):
+- **A desktop app** that does it all: first-run Setup patches your own
+  disc and finds Dolphin, then a lobby where everyone gathers, and the
+  host's **Start** launches each player's Dolphin with the patched game
+- **Easy joining:** sessions on your network are listed with a Join
+  button; anyone else pastes the host's short join code (`WW-30AG-09AX`)
+  or address
+- **IP addresses hidden on screen**, so streaming the app is safe
+- **Each other's Link in your game**, at their real position with their
+  real animations, each in that player's own tunic color (a player in
+  casual clothes shows the casual shirt)
+- **Optional co-op worlds:** shared progress across everyone's saves
+- **Built on a modding API:** multiplayer and co-op are mods on `wwapi`
+  (`ww-multiplayer mods` lists them)
 
 Known limits:
 - Only Outset Island has been heavily tested. Stage / room transitions
@@ -123,7 +131,14 @@ original game-code bytes.
 ## Playing
 
 **Both players must run the same version.** `ww-multiplayer version`
-prints it. v0.3.0 and later can't play with v0.2.x, so upgrade together.
+prints it. v0.4.0 can't play with v0.3.x (or older), so upgrade
+together. The host also turns away a player whose built-in mods differ
+from its own.
+
+**After updating, patch your disc again** (Setup in the app, or
+`ww-multiplayer patch`) and boot it from Dolphin's game list. Dolphin
+save states taken on an older version are refused: load your in-game
+save and take a new state.
 
 **The app.** Run `ww-multiplayer` with no arguments — double-click
 `ww-multiplayer.exe` on Windows or `WW Multiplayer.app` on macOS — and the
@@ -187,7 +202,9 @@ Warp to partner, Pause co-op writes and Copy status, and the log has a
 Co-op sync tab. Save in game after a bind so your card keeps the tag. On Windows the window
 needs Microsoft's WebView2 runtime (Windows 11 and current Windows 10
 have it); without it the app offers to install it, and opens the terminal
-menu if you decline. In-game tunic colors arrive in a later update too.
+menu if you decline. Each player's Link is drawn in their chosen tunic
+color in everyone's game; a player still in casual clothes shows up in
+the casual shirt instead.
 
 **The terminal menu.** `ww-multiplayer tui` opens the menu that no
 arguments used to open. Pick Host or Join, enter a player name (and the
@@ -226,7 +243,7 @@ firewall when Windows asks.
 - Windows 10+, or macOS 12+ (Apple Silicon or Intel)
 - [Dolphin emulator](https://dolphin-emu.org/) — recent stable release
 - Your own legitimate copy of The Wind Waker (NTSC-U, game ID `GZLE01`)
-- [Go 1.21+](https://go.dev/dl/) — only if building from source. macOS
+- [Go 1.26.2+](https://go.dev/dl/) (the `go` line in `go.mod`) — only if building from source. macOS
   builds also need the Xcode command-line tools (`xcode-select --install`)
   because the Mach VM bridge uses cgo.
 
@@ -319,14 +336,24 @@ sooner.
 ./ww-multiplayer.exe debug         # Print Link's position for 5 seconds (sanity check)
 ./ww-multiplayer.exe server        # Run a TCP server on :25565 with no UI
 ./ww-multiplayer.exe fake-client   # Connect a bot that walks in circles
+./ww-multiplayer.exe mods          # List the built-in mods and their status
 ./ww-multiplayer.exe help          # Full command list
 ```
+
+Developer and research commands (dump, dolphin2, mp-local, the co-op and
+tunic diagnostics, probes) live in a separate `wwdev` tool, not shipped in
+releases: `go build -o wwdev.exe ./cmd/wwdev` (see `SETUP.md`).
 
 ## Contributing / hacking
 
 - `docs/01-architecture.md` — how the pieces fit together
 - `docs/06-history.md` — session-by-session log of what was built and why
-- `docs/api/00-design.md` — the approved plan for the modding API, with multiplayer and co-op as mods
+- The modding API (`wwapi/`): design in `docs/api/00-design.md`, mods in
+  `docs/api/02-mods.md`, a walkthrough in `docs/api/03-writing-a-mod.md`;
+  multiplayer and co-op are mods under `mods/`
+- `go build -o wwdev.exe ./cmd/wwdev` — developer tools (dump, dolphin2,
+  mp-local, co-op and tunic diagnostics, probes), not shipped in releases
+- `docs/TESTING.md` — the checks to run before pushing
 - [GitHub issues](../../issues) — what's next, organized by epic
 - `SETUP.md` — what you need to install if you want to work on the C
   injection side (devkitPPC, Freighter, etc.)

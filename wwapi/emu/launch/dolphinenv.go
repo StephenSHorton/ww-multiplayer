@@ -8,8 +8,8 @@
 //
 // The code was moved out of package main (mp_local.go, auto_recapture.go)
 // without a change in behaviour (it was internal/dolphinenv before Phase C
-// C10); the CLI's dolphin2, mp-local and
-// auto-recapture call it. Everything that decides something is a pure
+// C10); wwdev's dolphin2, mp-local and auto-recapture (cmd/wwdev) and
+// the app's Dolphin detection and launch call it. Everything that decides something is a pure
 // function of an Env or of its arguments, so it is tested on any OS with
 // fakes; what asks the OS (running processes, the registry, `open`) sits
 // in files with build tags (docs/01-architecture.md).

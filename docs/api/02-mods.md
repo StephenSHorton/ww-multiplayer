@@ -1,6 +1,6 @@
 # wwapi: mods, manifests and the supervisor
 
-**Status: v0 UNSTABLE.** Phase B step B3 of [00-design.md](00-design.md), with `Context.Game` and `Context.Commands` from D3. The one real mod so far is the example, `mods/example` (a dev mod); the app's mod list is still empty until the multiplayer and co-op mods exist and dev mods can be shown (Phase D). Its API can change in any 0.x minor version.
+**Status: v0 UNSTABLE.** Phase B step B3 of [00-design.md](00-design.md), with `Context.Game` and `Context.Commands` from D3. The app compiles in two mods, `multiplayer` and `coop` (`compiledMods()`), plus the dev example `mods/example` (`devMods()`, shown with `--dev`). Its API can change in any 0.x minor version.
 
 Import paths: `github.com/StephenSHorton/ww-multiplayer/wwapi` (the runtime), `.../wwapi/semver` (versions and ranges), `.../wwapi/schema` (the manifest schema and its validator). Events are in [01-events.md](01-events.md). For a walk through a whole mod, its commands and its tests, see [03-writing-a-mod.md](03-writing-a-mod.md).
 
@@ -37,7 +37,7 @@ Optional interfaces, found by type assertion:
 | `CLI` (`Commands() []Command`) | CLI subcommands. A `wwapi.Command` has a name, aliases, `Hidden`, a help group label (`GroupPlay`, `GroupPatch`, `GroupLocal`, `GroupLower`, `GroupDev`), the help's usage and summary, and `Run(name, args)`. The app appends each loaded mod's commands to its own, in load order (co-op's `coop-tables`, `coop-tag`, `coop-world`, `save-diff`, `save-merge`). |
 | `PostPatcher` (`PostPatch(w io.Writer, image string)`) | A step after `patch` (and the app's setup patch) on the disc Dolphin will run: it writes its line on `w` and never fails the patch. Loaded mods' steps run in load order (co-op builds its stage tables). |
 
-`UI` and `NetChannel` (design §6.1) are not defined yet. What they build on partly exists: a mod registers commands (`mod.<id>.*`) through `Context.Commands()` today, and anything that can reach the registry runs them ([03-writing-a-mod.md](03-writing-a-mod.md)). The app integration (D4) added the `--mods`, `--no-mod` and `--dev` flags (for `tui`, `ui` and `mods`) and the window's Mods page, which runs a mod's commands (`Bridge.CallMod`); mod console verbs in the TUI and mod panels are not built yet, and `NetChannel` waits on the multiplayer mod (D1).
+`UI` and `NetChannel` (design §6.1) are not defined yet. What they build on partly exists: a mod registers commands (`mod.<id>.*`) through `Context.Commands()` today, and anything that can reach the registry runs them ([03-writing-a-mod.md](03-writing-a-mod.md)). The app integration (D4) added the `--mods`, `--no-mod` and `--dev` flags (for `tui`, `ui` and `mods`) and the window's Mods page, which runs a mod's commands (`Bridge.CallMod`); mod console verbs in the TUI and mod panels are not built yet, and `NetChannel` is not defined yet (the co-op 'O' channel is still wired directly in `mods/multiplayer/net`).
 
 The app lists its mods statically in `compiledMods()` (`cmd/ww-multiplayer/mods.go`, at the repo root before D7). There is no `init()` registration and no drop-in loading: Go's `plugin` package does not work on Windows.
 
@@ -80,7 +80,7 @@ The app lists its mods statically in `compiledMods()` (`cmd/ww-multiplayer/mods.
 | `multiplayer` | | `client_required` (every player needs it; it counts in `mods_hash`), `host_only`, or `local_only` (the default). |
 | `provides` | | Roles. Only `net` exists. At most one loading mod per role. |
 | `needs` | | Features of the patched blob it needs. A missing one gives `NEEDS_REPATCH`. |
-| `writes` | | **Placeholder** for the declared write set (decision 10): `[{"start":"0x80410000","end":"0x80410010","why":"..."}]`, `[start, end)` in MEM1. Ranges may not overlap within the manifest or with another loading mod's. Nothing enforces writes yet; `wwapi/write` comes later. |
+| `writes` | | **Placeholder** for the declared write set (decision 10): `[{"start":"0x80410000","end":"0x80410010","why":"..."}]`, `[start, end)` in MEM1. Ranges may not overlap within the manifest or with another loading mod's. Nothing enforces a mod's declared writes yet; `wwapi/write` has the vocabulary (`write.Range`) and co-op's guarded engine, and `Context.Allow` comes with enforcement. |
 | `c` | | Reserved for C modules. Must be `null`. |
 
 Unknown fields are refused, and so are duplicate keys.
@@ -111,7 +111,7 @@ Hyphen ranges are not supported. As in npm, a prerelease such as `1.3.0-rc.1` sa
 `wwapi.Resolve(mods, opts)` never fails. Every problem becomes one mod's status, and a mod whose dependency does not load fails too. The checks, in order:
 
 1. The manifest parses, and no two mods share an id (all of them fail).
-2. The enable filter: `opts.Enabled` (settings `mods.<id>.enabled`, CLI flags later), else `enabled_by_default`, and `dev` mods only with `opts.Dev`.
+2. The enable filter: `opts.Enabled` (settings `mods.<id>.enabled` under the `--mods`/`--no-mod` flags), else `enabled_by_default`, and `dev` mods only with `opts.Dev`.
 3. The `api` range contains the wwapi version.
 4. `needs` against the blob's Features, when they are known (`NEEDS_REPATCH`). `wwapi.CheckContract` reads them from the WWMB header's features word (strict mode, E1). A game the check refuses provides none: no header (so every mod with needs would be `NEEDS_REPATCH`), another ABI or layout, or another blob's code. The runtime does not pass them to `Resolve` until a step attaches a `wwapi.Game` (D4 left that open), so for now this check is skipped.
 5. `NetProvider` and `"provides": ["net"]` agree.

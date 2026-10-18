@@ -1,6 +1,6 @@
 # Wind Waker modding API: design (decided)
 
-**Status:** approved plan. The owner approved every recommended option in the full design review. This page keeps what was decided and drops the alternatives that were turned down. No code has changed yet; this page is Phase A step A0.
+**Status:** approved plan. The owner approved every recommended option in the full design review. This page keeps what was decided and drops the alternatives that were turned down. **Implemented through Phase E4 (v0.4.0);** only the co-op M7 items under §8 "Later" remain. The page keeps the decisions as approved (it was Phase A step A0).
 
 **Baseline.** The design was checked against `origin/main` at 6afb07c. This page was written on top of 26f9bec, after #74 (shared tunic colors) and #75 (first-run setup) merged.
 
@@ -44,7 +44,7 @@ The plan:
 | 15 | Two event systems | `wwapi/events` is the source of truth. `session.Controller` adapts to it through `EventMod` from D4 on. |
 | 16 | What "mods" means | Compiled-in Go packages, not drop-in folders. Out-of-process mods over loopback RPC are the possible future path. The C side is an open question for Phase E (§10). |
 | 17 | Moving package main (D7) | Keep package main at the repo root through D6. Move it to `cmd/ww-multiplayer` in **one dedicated PR (D7)** at the end of Phase D, with a dry-run release build. |
-| 18 | Contract check before E1 | **Two modes.** Before E1: a missing header means ABI 0 with today's fixed Features, and writes are gated only by the Go-computed blob hash. From E1 on: strict. Main never refuses today's header-less blob. |
+| 18 | Contract check before E1 | **Two modes.** Before E1: a missing header means ABI 0 with today's fixed Features, and writes are gated only by the Go-computed blob hash. From E1 on: strict. (Done in E1: the pre-E1 mode is gone; a header-less blob or an old save state is refused.) |
 
 ---
 
@@ -97,7 +97,7 @@ The plan:
 
 **Facts that shape the plan:**
 - Before E0 only **0x18 bytes** of code space were free. E0 (the D2 code deletion, layout unchanged) freed 0x960, leaving **0x978**; D2 was the only way to free T2 bytes without an arena bump. E1 took 0x20 of that and the E3 split 0x4E0, leaving **0x478**.
-- The 8 reserved header bytes hold the magic, ABI and layout version and nothing else. Features go past +0x1A0, inside the 0xF60 slack.
+- The 8 reserved header bytes hold the magic, ABI and layout version and nothing else. Features go past +0x1A0, inside the 0xF50 slack (since E1).
 - The blob hash needs no C field. Go hashes T2's read-only sections (`.rodata`, `.text`, `.init`, `.fini`: blob.go's `HashRanges`, E1) read back from RAM against `blob.go`'s `BlobHash`. It skips `.data`/`.bss`/`.ctors`/`.dtors`, which change at runtime (checked in E1: `.text` is constant across a live session).
 - The 1 MB Outset arena bump failed. Arena growth is taken from ZeldaHeap and must stay small.
 
@@ -106,6 +106,8 @@ The plan:
 ## 4. Target layout
 
 One Go module. Paths in parentheses show where the code comes from.
+
+**Note (v0.4.0):** this was the target; the shipped layout differs, and CLAUDE.md's "Repository Structure" is current. The Python generators are in `scripts/`; there is no `tests/` directory (cross-package tests stayed in `cmd/` and `mods/`) and no `check_no_game_code.py`; `patch` and `netutil` are `internal/patch` and `internal/netutil`; the `tint-*` commands were deleted in A4; `docs/` keeps its numbered files (`06-history.md`, ...) plus `api/` and `TESTING.md`.
 
 ```
 ww-multiplayer/
@@ -413,15 +415,15 @@ Ground rules for every PR:
 
 ### Phase A: now
 - [x] **A0** `docs/api/00-design.md` (this page). No code.
-- [ ] **A1** Delete the legacy injector (`internal/dolphin/inject.go`, `inject_code.go`, `helpers.go`) and the `inject`/`check` commands. Subcommand list 91 → 89 on purpose.
-- [ ] **A2** Stale comment and docs sweep (comments and docs only, no code; `blob.go` byte-identical after re-running `extract_blob.py`).
-- [ ] **A3** CI: blob freshness, T2 budget and mailbox layout tests on every PR; dedupe the vet steps; move generators to `tools/` with `go:generate`.
-- [ ] **A4** Delete dead experiment commands: write-test, teleport-test, hijack-test, scan-npcs, scan-actors, tint-material, inspect-materials. **Do not touch** move-puppet, unhide-puppet or broadcast-link.
+- [x] **A1** (#76) Delete the legacy injector (`internal/dolphin/inject.go`, `inject_code.go`, `helpers.go`) and the `inject`/`check` commands. Subcommand list 91 → 89 on purpose.
+- [x] **A2** (#78) Stale comment and docs sweep (comments and docs only, no code; `blob.go` byte-identical after re-running `extract_blob.py`).
+- [x] **A3** (#79) CI: blob freshness, T2 budget and mailbox layout tests on every PR; dedupe the vet steps; move generators to `tools/` with `go:generate`.
+- [x] **A4** (#76) Delete dead experiment commands: write-test, teleport-test, hijack-test, scan-npcs, scan-actors, tint-material, inspect-materials. **Do not touch** move-puppet, unhide-puppet or broadcast-link.
 
 ### Phase B: after #74 (merged)
-- [ ] **B1** Command registry replaces the CLI switch; printHelp generated from it; `TestCLISubcommandsUnchanged` and `TestCoopDiagDispatched` rewritten to read the registry.
-- [ ] **B2** `wwapi/events`: Bus, Meta, On/Chan/Last/Wait, drop-oldest, namespace rules.
-- [ ] **B3** `wwapi` mod runtime: Mod, Manifest plus schema, resolver, Context, status, supervisor, `mods --json`, `tools/validate_manifests`, `mods/_fixtures`.
+- [x] **B1** (#90) Command registry replaces the CLI switch; printHelp generated from it; `TestCLISubcommandsUnchanged` and `TestCoopDiagDispatched` rewritten to read the registry.
+- [x] **B2** (#89) `wwapi/events`: Bus, Meta, On/Chan/Last/Wait, drop-oldest, namespace rules.
+- [x] **B3** (#91) `wwapi` mod runtime: Mod, Manifest plus schema, resolver, Context, status, supervisor, `mods --json`, `tools/validate_manifests`, `mods/_fixtures`.
 
 ### Phase C: after app PR 9 and the owner's uncommitted work
 Order: C1 first; C4 before C8; C6 before C7; C8 before C14; C5 any time after C1.
@@ -488,9 +490,9 @@ The plan above assumes that **a C mod always needs a blob rebuild and an ISO re-
 - what the `c` field in `mod.json` means;
 - whether the E3 split and the later `WwModuleDesc` dispatcher should be shaped around loaded modules instead of a static table.
 
-**What Phase E must answer before E3:**
+**Still open after E3** (deferred to co-op M7 or an out-of-tree C mod):
 1. Does a boot-time loader run under Dolphin's JIT for GZLE01? Code loaded before the game first runs it may avoid the runtime-injection wall in docs/03 and docs/05, but nobody has tested this.
-2. Where would the loader and its heap live, given 0xF8 free bytes of T2 and the failed 1 MB arena bump?
+2. Where would the loader and its heap live, given 0x478 free bytes of T2 (since E3) and the failed 1 MB arena bump?
 3. How would the contract check and blob hash cover code that is loaded at boot rather than patched into the DOL?
 4. Is it worth the cost now, or only when an out-of-tree C mod appears? The research note itself advises not chasing Kuribo for multiplayer v1.
 

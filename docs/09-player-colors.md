@@ -1,6 +1,6 @@
 # Player tunic colors (v1.0 / v1.1)
 
-**Status:** built, 2026-10-16, on branch `feat/player-tunic-colors`, rebased onto `origin/main` a301890 (F18 heap fix #64, hat fix #66, session layer #65). The Go side and the C side are both in, and the blob is regenerated. None of it has run on Dolphin yet. §7 is the owner's live check, and §7.0 says how to force the hero's clothes for it.
+**Status:** shipped in v0.4.0 (merged to main) and checked live (§5.6; docs/05: "CLI host / join on the same two games: both Links drawn, red and blue"). It was built 2026-10-16 on branch `feat/player-tunic-colors`, rebased onto `origin/main` a301890 (F18 heap fix #64, hat fix #66, session layer #65). §7 is the owner's live check, and §7.0 says how to force the hero's clothes for it.
 
 **Request (Stephen):** "each player in the session should be assigned a different color and the green Link clothes should have their color swapped out to the player's assigned color."
 
@@ -21,7 +21,7 @@
 - **How the recolor is done.** Because the texture is CMPR, a recolor only moves the two RGB565 endpoint colors of each green 4x4 block. There is no decode or re-encode. Go does it at join time (`wwapi/gfx/texture`, was `internal/tunic`; implemented here).
 - **Who picks the colors.** Each player picks their own, from an 8-color palette (green, red, blue, purple, then orange, cyan, pink, black) or any `#RRGGBB`, with `--color`, `WW_COLOR` or the app's lobby. Players may wear the same color; a player who picks none wears classic green. The server records each player *name*'s color and sends it to everyone. The colors travel in a backward-compatible trailer on `MsgPlayerList`, so there is **no protocol version bump** (§5.1). This part is implemented and tested here.
 - **What must be checked live first.** One Go-only check runs before any blob change: the `tunic-probe` and `tunic-recolor` diagnostics (implemented here). They prove the texture facts and the recolor quality on a live Dolphin (§7.1).
-- **The C part (built).** It is `tunic_swap` / `tunic_restore` plus a one-time allocation, measured at **0x120 bytes** of T2 with devkitPPC 16.2 (§6). The casual shirt for remotes (§5.6) added 0x20; deleting the actor puppets (docs/05, "Actor puppets outlived their slot") added 0xC0, so T2 now ends at 0x80412EE8, **0x18 bytes** below the mailbox. The blob is regenerated; it still needs one Shift+F1 recapture and a user re-patch.
+- **The C part (built).** It is `tunic_swap` / `tunic_restore` plus a one-time allocation, measured at **0x120 bytes** of T2 with devkitPPC 16.2 (§6). The casual shirt for remotes (§5.6) added 0x20; deleting the actor puppets (docs/05, "Actor puppets outlived their slot") added 0xC0, so T2 then ended at 0x80412EE8, 0x18 bytes below the mailbox. Since Phase E0 and the E3 split, T2 ends at 0x80412A88, 0x478 bytes below the mailbox (`TestT2EndsBelowMailbox` logs it).
 - **Owner decisions (2026-10-16).**
   - Green stays in the palette: the vanilla tunic is a valid color, and it is what a player with no preference wears.
   - Colors will later be chosen in a Wails desktop lobby, so selection stays in Go packages the app can call: `mods/multiplayer/playercolor` (palette, `Parse`), `network.Client.SetColorPreference`, and `session.Player.Color` for display.
@@ -113,9 +113,9 @@
 - A test checks that every pair is at least 120 apart (redmean RGB, `Distance`), so the choices are easy to tell apart. Players may still pick the same one.
 - `Parse` accepts a palette name or `#RRGGBB`.
 
-**Assignment** (`network/server.go`, `pickColorLocked`), under `s.mu` at join:
+**Assignment** (`mods/multiplayer/net/server.go`, `pickColorLocked`), under `s.mu` at join:
 0. (App PR 4, docs/10-lobby.md §4.) A connection whose name is a lobby member's gets the member's color, which the member chose.
-1. A connection whose name matches a live player gets that player's color. Each human runs two connections, broadcast-pose and puppet-sync, under one name (see `dedupePlayersByName` in `main.go`).
+1. A connection whose name matches a live player gets that player's color. Each human runs two connections, broadcast-pose and puppet-sync, under one name (see `dedupePlayersByName` in `mods/multiplayer/engine/livestate.go`).
 2. Otherwise, the hello's preference, whoever else wears it.
 3. Otherwise, the color this name had earlier in the server's life. A reconnect keeps its color.
 4. Otherwise, classic green.
@@ -134,10 +134,10 @@ The name memory is capped at 256 entries.
 
 **Options:**
 - `--color <name|#RRGGBB>` anywhere before a bare `--`, or the `WW_COLOR` env. `--color` wins.
-- Both are stripped from `os.Args` before the subcommand switch (`playercolor_flag.go`). Every player client is created through `newPlayerClient`.
+- Both are stripped before the command registry dispatches (`internal/cliutil/playercolor_flag.go`, `cliutil.ApplyColorPrefFromArgs`). Every player client comes from `engine.NewPlayerClient`.
 - `mp-local` gives both of its players the same preference, and both wear it (shared colors are allowed, §1 owner decisions). Without `WW_COLOR` both wear green, so a two-color mp-local check needs a per-player `MP_LOCAL_COLOR_A/B`, which is not built yet.
 
-**TUI:** the status panel's "In game" row shows `■ name (color)` in the player's color (`renderStatus`). The color reaches the TUI as `session.Player.Color` (§5.4). Showing the local player's own color is left to the lobby work.
+**TUI:** the status panel's "In game" row shows `■ name (color)` in the player's color (`renderStatus`). The color reaches the TUI as `session.Player.Color` (§5.4). The app's Setup and Lobby screens show and pick your own color (docs/10 §4).
 
 ### 5.2 Recolor (`wwapi/gfx/texture`, was `internal/tunic`) — implemented on this branch
 
@@ -160,8 +160,8 @@ The name memory is capped at 256 entries.
 ### 5.3 C bracket (built)
 
 **Mailbox block** (`inject/include/mailbox_core.h`, "TUNIC COLORS").
-- +0x180..+0x187 stay reserved for the docs/08 §4.5 option A header.
-- The mailbox grows from 0x180 to 0x1A0 bytes. 0x80413080..0x80414000 was unused.
+- +0x180..+0x187 is the WWMB contract header (Phase E1; `main01_init` writes it, the strict contract check reads it).
+- The mailbox grew from 0x180 to 0x1A0 bytes for the colors, and is 0x1B0 since E1: +0x1A0..+0x1AF holds the features word and padding.
 - The Go offsets are generated from `mailbox_core.h` + `mailbox_mp.h` (`tools/gen_mailbox` → `wwapi/mailbox/layout_gen.go`, since Phase C step C9). `TestMailboxLayout` (wwapi/mailbox) fails when that file is stale, and the generator refuses a header whose own `+0xNN` comments disagree with the struct.
 
 | Off | Field | Writer |
@@ -209,7 +209,7 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
 **Call sites** (`daPy_draw_hook`):
 - **Local:** `tunic_swap(this_, TUNIC_SLOT_LOCAL); result = daPy_lk_c_draw(this_); tunic_restore();`.
   - Link #1's diff runs inside his draw (`mDoExt_modelEntryDL(mpCLModel)`, `d_a_player_main.cpp:1886`), so his differed DL bakes the swapped image.
-  - The eye-fix mode 1/2 experiment draws are not wrapped.
+  - The eye-fix mode 1/2 experiment draws were not wrapped (deleted in Phase E0).
 - **Remote:** inside each slot's face bracket, around `run_eye_fix` and `mDoExt_skip_recipe_joints` / `mini_link_entry_dl`, in the order `face_emit_swap_for_slot; tunic_swap(this_, slot); … ; tunic_restore(); face_emit_restore();`.
 
 **Why the texture in RAM stays pristine.** Every swap is restored inside the same draw hook call, and C never writes the image. Go reads the original image outside the bracket (§5.4), so no backup file is needed.
@@ -253,9 +253,9 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
 - `dump` prints the tunic block: state, size, swaps, and each slot's buffer and enable.
 
 **TUI and app.**
-- The color travels as `session.Player.Color` / `HasColor` in internal/session, the controller/snapshot API that the TUI and the future Wails app share.
+- The color travels as `session.Player.Color` / `HasColor` in internal/session, the controller/snapshot API that the TUI and the Wails app share.
 - The status panel shows `■ name (color)`.
-- Showing the local player's own color, and picking a color before connecting, are left to the lobby work.
+- The app's Setup and Lobby screens show your own color and let you pick one before connecting (docs/10 §4).
 
 **Help text.** `--color` is still not in `printHelp`. Add it when colors are confirmed live (§7.3).
 
@@ -310,8 +310,8 @@ The casual shirt does not depend on the color pipeline, since C reads no image b
 
 - **Why the first build overflowed.** At `-O2`, gcc unrolled both 8-word copy loops and inlined `tunic_restore` at its three call sites. `tunic_swap` alone was 0xF0 bytes.
 - **As built:** `tunic_swap` is 0xC8 bytes (0xE4 with §5.6's casual case), `tunic_restore` 0x60, and the statics (`tunic_hdr`, `tunic_saved[8]`) 0x24. The allocation block and the call sites are the rest.
-- **The check.** `TestT2EndsBelowMailbox` (`internal/inject/t2_budget_test.go`) checks the T2 end against `blob.go` at test time and logs the free bytes (0x18 now).
-- **0x18 is the last room in T2.** M7 needs about 0x700 (docs/08 §4.5). The next C feature therefore needs finish-plan D2 (drop the dead shadow modes 1-4 and the echo ring) or the option-A arena move first. (Phase E0 did the D2 code deletion: T2 now ends at 0x80412588, 0x978 bytes below the mailbox; docs/api/00-design.md.)
+- **The check.** `TestT2EndsBelowMailbox` (`internal/inject/t2_budget_test.go`) checks the T2 end against `blob.go` at test time and logs the free bytes (0x478 since E3).
+- **0x18 was the last room in T2 (resolved by Phase E0).** M7 needs about 0x700 (docs/08 §4.5). The next C feature therefore needs finish-plan D2 (drop the dead shadow modes 1-4 and the echo ring) or the option-A arena move first. (Phase E0 did the D2 code deletion: T2 now ends at 0x80412588, 0x978 bytes below the mailbox; docs/api/00-design.md.)
 
 **Memory.**
 - 3 × the image size from GameHeap, allocated once. If `linktexS3TC` is 256x256 with no mips, that is 3 × 32 KiB = 96 KiB **(inferred; `tunic-probe` prints the size)**. Go refuses images over 64 KiB.
@@ -320,7 +320,7 @@ The casual shirt does not depend on the color pipeline, since C reads no image b
 - Gate: the heap error counters (`gameHeapErrors` 0x803F68F8, docs/08 §4.5) stay 0.
 
 **Save-state coupling.** This branch changes `multiplayer.c` and `mailbox.h`, so:
-1. Rebuild: `cd inject && python build.py && cd .. && python scripts/extract_blob.py && go build ./cmd/ww-multiplayer`, then `./ww-multiplayer.exe patch <vanilla> <out.iso>`. `blob.go` is already regenerated on the branch; patching the ISO is the owner's step.
+1. Rebuild: `cd inject && python build.py && cd .. && python scripts/extract_blob.py && go build ./cmd/ww-multiplayer && go build -o wwdev.exe ./cmd/wwdev`, then `./ww-multiplayer.exe patch <vanilla> <out.iso>`. `blob.go` is already regenerated on the branch; patching the ISO is the owner's step.
 2. Run `./wwdev.exe auto-recapture`, then the owner presses **Shift+F1** once.
 3. Users re-patch their ISO.
 
@@ -442,7 +442,6 @@ Setup: run `SAVE_STATE=… ./wwdev.exe dolphin2`, then `WW_TUNIC=off ./wwdev.exe
 4. **Wiring: built.** `tunicSync` (now `avatar.Tunics`) in puppet-sync for the remote slots and the local slot, the appearance byte, `WW_TUNIC=off`.
 5. **Left:**
    - `--color` in the help text and README, once §7.3 passes;
-   - the lobby color picker (Wails);
    - the casual-shirt recolor (§5.5);
    - per-player `mp-local` colors.
 
@@ -453,7 +452,7 @@ Setup: run `SAVE_STATE=… ./wwdev.exe dolphin2`, then `WW_TUNIC=off ./wwdev.exe
 - **The mask catches other greens (medium).** For example, eye highlights, if any share the atlas. Tune `DefaultMask` from the §7.1 screenshots, or ship a hand-made block mask. A mask is our own data, not Nintendo's.
 - **Diff buffer and texmap stage (low).** The differed buffer is sized for TexNoNum = 2 (`J3DPacket.h:39-49`). Face sync proves texmap stages 0-1. A tunic texmap ≥ 2 needs a look at the matpacket's differed sizing (check `tunic-probe` (c) before §7.2).
 - **GameHeap headroom (medium).** See §6.
-- **Code space (known).** 0x18 bytes are left in T2 (§6). The next C feature needs D2 or M7 first.
+- **Code space (resolved).** 0x18 bytes were left in T2 (§6); Phase E0 did D2, and 0x478 bytes are free since E3.
 - **Multiple Dolphins and IDs (low).** Colors key on names, so two humans with the same name share a color. That is the existing dedup's assumption too.
 
 **Decided (owner, 2026-10-16):** green stays in the palette; the vanilla tunic is a valid color.

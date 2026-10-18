@@ -7,7 +7,7 @@
 <meta name="description" content="Real-time multiplayer for The Wind Waker on Dolphin: see your friend's Link walking around in your game. Windows and macOS.">
 <meta property="og:title" content="Wind Waker Multiplayer">
 <meta property="og:description" content="See your friend's Link running around in your own game of The Wind Waker on Dolphin. Their real moves, live.">
-<meta property="og:image" content="img/two-links-ingame.png">
+<meta property="og:image" content="https://stephenshorton.github.io/ww-multiplayer/img/two-links-ingame.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 1 31 16 16 31 1 16Z' fill='%23d8262e' stroke='%23101a33' stroke-width='2'/%3E%3Cpath d='M7 18c5 0 9-2 9-6 0-3-4-3-4 0 0 2 3 2 3 0' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -353,7 +353,7 @@ footer span { color: var(--text-dim); }
 			<p class="sub">Everyone plays in their own Dolphin. The app reads your Link's position and pose, shares it with the other players over the network, and draws their Link in your world.</p>
 			<div class="steps">
 				<div class="panel step"><h3>Set up once</h3><p>Pick your name and tunic color, and point the app at your own Wind Waker disc image and at Dolphin. It writes a patched copy of the disc and never touches the original.</p></div>
-				<div class="panel step"><h3>Host or join</h3><p>One player hosts, the others join with the host's address. Everyone meets in the lobby. IP addresses stay hidden on screen unless you show them.</p></div>
+				<div class="panel step"><h3>Host or join</h3><p>One player hosts. Others on the same network see the session listed under Join and click it; anyone else pastes the host's join code (like <code class="i">WW-30AG-09AX</code>) or address. Everyone meets in the lobby. IP addresses stay hidden on screen unless you show them.</p></div>
 				<div class="panel step"><h3>Start together</h3><p>The host presses Start and everyone's Dolphin starts with the patched game. Load any save; within a second or two you'll see each other.</p></div>
 			</div>
 		</section>
@@ -374,7 +374,7 @@ footer span { color: var(--text-dim); }
 							<p>If Windows says "Windows protected your PC", click <b>More info</b>, then <b>Run anyway</b>. The app isn't code-signed yet, so SmartScreen doesn't know it.</p></li>
 						<li><b>Setup.</b> The first time, the app asks for your name and tunic color, your Wind Waker disc and Dolphin.
 							<p>It writes a patched copy of the disc next to the original, which it never changes, and finds Dolphin for you (or Browse&hellip;).</p></li>
-						<li><b>Host or join.</b> One player hosts; the others join with the host's address. Everyone meets in the lobby.
+						<li><b>Host or join.</b> One player hosts. The others click the host's session under Join when on the same network, or paste the host's join code or address. Everyone meets in the lobby.
 							<p>When everyone is Ready, the host presses <b>Start</b> and each player's Dolphin starts with the patched game. If Windows asks, allow the app through the firewall.</p></li>
 					</ol>
 					<details>
@@ -384,7 +384,7 @@ footer span { color: var(--text-dim); }
 							<div class="cmd"><code>.\ww-multiplayer.exe tui</code><button type="button">Copy</button></div>
 							<div class="cmd"><code>.\ww-multiplayer.exe patch path\to\your-wind-waker.iso</code><button type="button">Copy</button></div>
 							<div class="cmd"><code>.\ww-multiplayer.exe host YourName</code><button type="button">Copy</button></div>
-							<div class="cmd"><code>.\ww-multiplayer.exe join &lt;host-ip&gt; YourName</code><button type="button">Copy</button></div>
+							<div class="cmd"><code>.\ww-multiplayer.exe join &lt;host-ip or join code&gt; YourName</code><button type="button">Copy</button></div>
 						</div>
 					</details>
 				</div>
@@ -396,7 +396,7 @@ footer span { color: var(--text-dim); }
 							<p>The app isn't notarized by Apple yet, so the first time macOS says it can't verify it. Control-click (right-click) the app, choose <b>Open</b>, then <b>Open</b> again. On macOS 15 or later: after the warning, go to System Settings &rarr; Privacy &amp; Security and click <b>Open Anyway</b>.</p></li>
 						<li><b>Setup.</b> Your name and tunic color, your Wind Waker disc and Dolphin. Press <b>Prepare Dolphin</b> once (and again after each Dolphin update).
 							<p>It makes a copy at <code class="i">~/Applications/Dolphin.app</code> that the app is allowed to read; your original Dolphin is left alone. No password needed.</p></li>
-						<li><b>Host or join.</b> When everyone is Ready, the host presses <b>Start</b> in the lobby and each player's Dolphin starts with the patched game.</li>
+						<li><b>Host or join.</b> Pick the host's session under Join, or paste the host's join code or address. When everyone is Ready, the host presses <b>Start</b> in the lobby and each player's Dolphin starts with the patched game.</li>
 					</ol>
 					<details>
 						<summary>Advanced: the terminal menu and command line</summary>
@@ -405,7 +405,7 @@ footer span { color: var(--text-dim); }
 							<div class="cmd"><code>xattr -cr .</code><button type="button">Copy</button></div>
 							<div class="cmd"><code>./ww-multiplayer tui</code><button type="button">Copy</button></div>
 							<div class="cmd"><code>./ww-multiplayer host YourName</code><button type="button">Copy</button></div>
-							<div class="cmd"><code>./ww-multiplayer join &lt;host-ip&gt; YourName</code><button type="button">Copy</button></div>
+							<div class="cmd"><code>./ww-multiplayer join &lt;host-ip or join code&gt; YourName</code><button type="button">Copy</button></div>
 						</div>
 					</details>
 				</div>
@@ -414,11 +414,11 @@ footer span { color: var(--text-dim); }
 
 		<section id="play">
 			<div class="head"><h2 class="hud">Playing over the internet</h2></div>
-			<p class="sub">On the same home network, just join the host's LAN IP. Across the internet, the joiner needs to reach the host on TCP port 25565.</p>
+			<p class="sub">On the same home network the host's session shows up under Join by itself. Across the internet, the joiner needs to reach the host on TCP port 25565; the host can share a join code instead of the IP.</p>
 			<div class="grid2">
 				<div class="card">
-					<h3 class="hud">Easiest: Radmin VPN</h3>
-					<p>Free, no router setup. Everyone installs <a href="https://www.radmin-vpn.com/">Radmin VPN</a>. The host creates a network, friends join it with its name and password, and joiners use the host's Radmin IP (<code class="i">26.x.x.x</code>). If Windows asks, allow <code class="i">ww-multiplayer.exe</code> on all networks. Windows only.</p>
+					<h3 class="hud">Easiest: a free VPN</h3>
+					<p>No router setup. <b>Windows and macOS:</b> everyone installs <a href="https://tailscale.com/">Tailscale</a> and joins the same tailnet, and joiners use the host's Tailscale IP (<code class="i">100.x.x.x</code>). <b>Windows only:</b> <a href="https://www.radmin-vpn.com/">Radmin VPN</a>; the host creates a network, friends join it with its name and password, and joiners use the host's Radmin IP (<code class="i">26.x.x.x</code>). If Windows asks, allow <code class="i">ww-multiplayer.exe</code> on all networks.</p>
 				</div>
 				<div class="card blue">
 					<h3 class="hud">Port forwarding</h3>
@@ -435,17 +435,21 @@ footer span { color: var(--text-dim); }
 					<h3 class="hud">Works</h3>
 					<ul>
 						<li>Your friend's Link in your game, at their real position with their real animations</li>
+						<li>Each player's Link in their own tunic color, in everyone's game</li>
+						<li>Join from the list of sessions on your network, or with a short join code</li>
+						<li>IP addresses hidden on screen, safe for streaming</li>
 						<li>Hosting and joining, with automatic reconnect if the connection drops</li>
 						<li>A desktop app: first-run setup, a lobby with chat, and an in-game screen with a minimap</li>
 						<li>Optional co-op worlds that share story progress, when the host turns them on</li>
 						<li>A terminal menu and command line for advanced use</li>
+						<li>Built on a modding API: multiplayer and co-op are mods</li>
 					</ul>
 				</div>
 				<div class="card blue limits">
 					<h3 class="hud">Known limits</h3>
 					<ul>
 						<li>Outset Island is the most tested. Room and stage changes aren't smooth yet.</li>
-						<li>No built-in NAT traversal: use Radmin VPN or a port forward.</li>
+						<li>No built-in NAT traversal: use a VPN such as Tailscale or Radmin, or a port forward.</li>
 						<li>Linux can patch and run a server, but can't play yet.</li>
 					</ul>
 				</div>
@@ -454,7 +458,8 @@ footer span { color: var(--text-dim); }
 
 		<section id="faq">
 			<div class="head"><h2 class="hud">FAQ</h2></div>
-			<details><summary>Do all players need the same version?</summary><div>Yes. Check with <code class="i">ww-multiplayer version</code>. A host turns away players on an incompatible version with a message telling them to update.</div></details>
+			<details><summary>Do all players need the same version?</summary><div>Yes. Check with <code class="i">ww-multiplayer version</code>. A host turns away players on an incompatible version with a message telling them to update. v0.4.0 can't play with v0.3.x or older. The host also turns away a player whose built-in mods differ.</div></details>
+			<details><summary>I updated and the app says my disc or save state is from another version</summary><div>Patch your disc again in Setup and boot it from Dolphin's game list. Save states taken on an older version can't be used: load your in-game save and take a new state.</div></details>
 			<details><summary>Do I need a specific version of the game?</summary><div>Yes: the North American GameCube release, game ID <code class="i">GZLE01</code>, as <code class="i">.iso</code> or <code class="i">.ciso</code>. Already-patched images are detected and skipped.</div></details>
 			<details><summary>Why don't you just ship a patched ISO?</summary><div>That would mean distributing Nintendo's game. The patcher only contains this project's own code plus a list of edits; every original byte comes from your own copy.</div></details>
 			<details><summary>How do I check my download is genuine?</summary><div>Each release includes <code class="i">SHA256SUMS</code>. On Windows, run <code class="i">Get-FileHash ww-multiplayer.exe</code> in PowerShell and compare. On macOS: <code class="i">shasum -a 256 -c SHA256SUMS --ignore-missing</code>.</div></details>

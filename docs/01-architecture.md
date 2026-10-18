@@ -2,52 +2,46 @@
 
 ## Goal
 
-Enable two players to see each other in Wind Waker on Dolphin — each player runs their own Dolphin instance with their own save, and sees the other player's Link walking around in real-time.
+Let several players see each other in Wind Waker on Dolphin: each player runs their own Dolphin with their own save and sees the other players' Links walking around in real time, optionally sharing story progress in a co-op world. Players meet on the same LAN, over a VPN (Radmin VPN, Tailscale) or through a forwarded port; a lobby holds up to 24 members.
 
-## Three-Layer Design
+## Layers
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    Player A's Machine                    │
-│                                                          │
-│  ┌─────────────┐     ┌──────────────┐     ┌──────────┐  │
-│  │   Dolphin   │◄───►│  ww-mult Go  │◄───►│  Server  │  │
-│  │ + WW (GZLE01)│    │              │     │(TCP:25565)│  │
-│  └─────────────┘     └──────────────┘     └────┬─────┘  │
-│         ▲                    │                 │        │
-│         │                    │                 │        │
-│         └─ ReadProcessMemory │                 │        │
-│         └─ WriteProcessMemory│                 │        │
-│                                                │        │
-│                                                │        │
-└────────────────────────────────────────────────┼────────┘
-                                                 │
-                                          TCP over LAN
-                                                 │
-┌────────────────────────────────────────────────┼────────┐
-│                    Player B's Machine          │        │
-│                                                 │        │
-│  ┌─────────────┐     ┌──────────────┐         │        │
-│  │   Dolphin   │◄───►│  ww-mult Go  │◄────────┘        │
-│  │ + WW (GZLE01)│    │ (client mode)│                  │
-│  └─────────────┘     └──────────────┘                  │
-└──────────────────────────────────────────────────────────┘
+Player A (host)                                   Player B (joiner)
+
+app window / TUI / CLI                            app window / TUI / CLI
+        │                                                 │
+session.Controller (internal/session)             session.Controller
+        │                                                 │
+mods on the wwapi runtime                         mods on the wwapi runtime
+  multiplayer (engine, pose pipelines)              multiplayer
+  coop (co-op worlds, optional)                     coop (optional)
+        │            │                                    │          │
+        │      server (TCP 25565):  ◄──── TCP ────────────┘          │
+        │      lobby, player (pose)       (LAN, VPN such as          │
+        │      and co-op connections       Radmin or Tailscale,      │
+        │                                  or a forwarded port;      │
+        │                                  LAN beacons on UDP 25565) │
+        ▼                                                            ▼
+wwapi/emu ── read/write ──► Dolphin              wwapi/emu ── read/write ──► Dolphin
+                            + patched WW                                     + patched WW
+                            (C blob: core + mp)                              (C blob: core + mp)
 ```
 
 ## Data Flow
 
-1. Each Go client reads its local player's position from Dolphin memory at ~60fps (50ms intervals).
-2. Position data is sent to the server via TCP.
-3. Server broadcasts position to all other clients.
-4. Each client writes the received position to a "second Link" actor in its Dolphin memory.
-5. The game renders the second actor at the received position, creating the illusion of another player.
+1. Each client's broadcast-pose reads Link's position and skeletal pose (`mpNodeMtx`) about every 16 ms (~60 Hz).
+2. It sends them to the server over TCP.
+3. The server relays them to every other player connection.
+4. Each client's puppet-sync writes each remote's pose into the mailbox pose buffers.
+5. The injected C (`inject/src/mp/minilink.c`, shadow_mode 5) draws a mini-Link per slot (2 slots, `MAX_REMOTE_LINKS`). A remote beyond the slots, or one with no usable pose, is drawn as an actor puppet (`inject/src/mp/puppets.c`) after a 2 s wait (docs/05).
 
 ## Components
 
 ### `wwapi/emu/`
 
-Windows process memory access via `kernel32.dll` P/Invoke (ReadProcessMemory / WriteProcessMemory). Handles:
-- Process discovery (find Dolphin.exe)
+Cross-platform process memory access: `kernel32.dll` (ReadProcessMemory / WriteProcessMemory) on Windows (`memory_windows.go`), Mach VM (`task_for_pid` / `mach_vm`) on macOS (`memory_darwin.go`; it needs the cs.debugger entitlement and an unhardened Dolphin copy, see docs/05), and a stub elsewhere (`memory_other.go`). Handles:
+- Process discovery (find Dolphin)
 - Memory base scanning (locate emulated GameCube RAM in Dolphin's process — works on any Dolphin version including modern 64-bit builds)
 - Big-endian / little-endian conversion (GameCube is big-endian, x86 is little-endian)
 - Read/write at absolute GC addresses (`Read`/`Write`, bounds-checked to MEM1; a `*emu.Dolphin` is a `mem.Mem`). `emu.Attach(Options)` picks the process; package main fills the options from `WW_DOLPHIN_PID`/`WW_DOLPHIN_INDEX`. Window, screenshot and key input are in `wwapi/emu/host`.
@@ -67,14 +61,30 @@ Simple TCP-based protocol with message framing (`[type:1][length:2][data]`). Mes
 
 A connection has one of three roles, set in its hello: a **player** (pose, position, chat and the roster; every CLI connection), a **co-op** connection (`RoleCoop`, the co-op pipeline), or a **lobby** connection (`RoleLobby`, the desktop app's pre-game lobby: members, colors, ready flags, the host's co-op settings, Start). Co-op and lobby connections are never players: not in the roster, the player count or the relays. Every server has a lobby (`LobbyHub`), inert until a lobby connection arrives; a server from before the lobby refuses the role with `RejectRole`, and the app then joins directly, so the protocol version stayed 2. The server's `CoopHandler` can be set after `Start` (`Server.SetCoop`); while the lobby's host has chosen co-op and the session isn't in game yet, a co-op hello is held for it instead of refused, and `Stop` releases a held one (docs/10-lobby.md §7). A name the lobby's host kicked gets `MsgReject` (`RejectBadName`) on player and co-op connections until the lobby empties, so a reconnecting CLI join stops. Lobby connections are rate-limited and STATE is merged per connection, so a member can't make the server flood the others (docs/10-lobby.md §3).
 
-Server runs on port `25565`. UDP would be lower-latency for position data but TCP is fine for LAN play.
+Server runs on port `25565`. UDP would be lower-latency for position data, but TCP works for LAN, VPN and port-forwarded internet play.
+
+### `wwapi/` and `mods/`: the mod runtime
+
+`wwapi` is the modding API (v0 UNSTABLE): the game-facing packages (`emu`, `mem`, `player`, `avatar`, `events`, `write`, `tables`, ...) and the mod runtime (manifest, resolver, supervisor) that runs compiled-in mods. Multiplayer (`mods/multiplayer`: engine, pose feed, network) and co-op (`mods/coop`) are mods on it; `mods/example` is the dev example (`--dev`). `ww-multiplayer mods` lists them. See docs/api (00-design, 01-events, 02-mods, 03-writing-a-mod).
+
+### `cmd/wwdev`: developer tools
+
+`wwdev.exe` holds the commands players never need: the two-Dolphin harness (`dolphin2`, `mp-local`), `auto-recapture`, `dump`, the co-op and tunic diagnostics and the research probes (moved out of ww-multiplayer.exe in Phase D6). CI builds it; releases don't ship it.
+
+### `inject/src/core` and `inject/src/mp`: the injected C
+
+Since Phase E3 the C blob is a core (`inject/src/core`: the hooks, with the call order fixed in one dispatcher, and the services a C mod calls) plus the multiplayer C mod (`inject/src/mp`: mini-Links, actor puppets, face sync). The mailbox is split the same way: `inject/include/mailbox_core.h` owns the core fields and the WWMB header, `mailbox_mp.h` the multiplayer mod's (docs/api §6.6).
+
+### The contract check
+
+`wwapi.CheckContract` is strict (Phase E1): a Dolphin counts as running this build's mod only when it runs GZLE01 with this build's WWMB header (ABI, layout) and the blob's read-only sections hash to blob.go's `BlobHash`. A disc patched by another version, or a save state taken on one, is refused with `wwapi.RepatchAdvice`: patch again and cold-boot (docs/api/00-design.md).
 
 ### Front ends and `internal/session`
 
 One exe has three faces (`app_face.go`). Every subcommand is the CLI, dispatched by the command registry in `commands.go` (which replaced main's switch in Phase B1) exactly as before; running with no arguments opens the desktop app window (`internal/gui`, below), or, in a build without the window, the Bubble Tea TUI (`internal/tui`, brought back in v0.1.5 after v0.1.2 removed the v0.0 one), which `ww-multiplayer tui` always opens; `ui` opens the window too and `ui --browser` serves its UI to a browser. `TestCLISubcommandsUnchanged` pins the registry's subcommand list to the one before the window (`cmd/ww-multiplayer/testdata/cli-subcommands.txt`; package main moved from the repo root to `cmd/ww-multiplayer` in Phase D7) and checks none of them opens anything but the CLI. The CLI faces:
 
 - `ww-multiplayer.exe host` / `ww-multiplayer.exe join <ip>` — the user-facing multiplayer entry points (one process per player; signal handler resets the mailbox on Ctrl+C).
-- `ww-multiplayer.exe server` / `broadcast-pose` / `puppet-sync` — lower-level building blocks. `mp-local` runs the same pipelines in one process for the two-Dolphin local harness.
+- `ww-multiplayer.exe server` / `broadcast-pose` / `puppet-sync` — lower-level building blocks. `wwdev.exe mp-local` (cmd/wwdev) runs the same pipelines in one process for the two-Dolphin local harness.
 - `ww-multiplayer.exe debug`, `wwdev.exe dump`, `wwdev.exe shadow-mode` — diagnostic CLIs. Plain-text output — good for piping into agents.
 
 The front ends do not call the session code directly. They drive a **session controller** (`internal/session`), the UI-free owner of a session's state that the desktop app (`internal/gui`) drives too:
@@ -114,7 +124,7 @@ engine.Engine (mods/multiplayer/engine) ── RunHostSession / RunJoinSession (
 
 #### Co-op through the controller
 
-A `--coop` session's questions and console (docs/08-coop-design.md §5, §6.7; Appendix C items 64, 70, 162, 163, 164) go through two seams in package main:
+A `--coop` session's questions and console (docs/08-coop-design.md §5, §6.7; Appendix C items 64, 70, 162, 163, 164) go through two seams in mods/coop/session (session.go, console.go):
 
 - **Questions: `coopAsker`.** A co-op session asks its bind and scrub questions through a `coopAsker` (`question(ctx, rep, session.Question) bool`). A `session.Question` has the kind (bind or scrub), the player, a one-line title, the whole prompt as the CLI prints it, and a bind's preflight lines. Two askers exist:
   - `coopPrompter`, the CLI's: today's stdin prompter, unchanged (y/N, `--yes`, EOF or a closed input is no, the 50 ms settle, Appendix C item 64). Its reader also takes the console commands.
@@ -123,13 +133,13 @@ A `--coop` session's questions and console (docs/08-coop-design.md §5, §6.7; A
 - **Console: `coopConsole.exec`.** The verbs (`/refresh`, `/warp`, `/coop off|on`, `/status`, `/help`) run in `coopConsole.exec`. A line typed on stdin reaches it through `do`, as before; `Controller.Command(session.Command)` and `Controller.CommandLine(line)` reach it through `engine.Engine` (the co-op side's `engine.CoopSide`: `CoopCommand`, `CoopLine`). `Command` returns the refusal that kept a command from every pipeline (none runs yet, no such player, which player?), which is also logged; `CommandLine` only logs it. `/status`'s text is `formatStatus`, which `Snapshot().CoopStatus` also carries for a UI.
 - **Front ends.** `coopEnv.front` (a `coopFront`) says which asker a session uses, who hears its advice, and hands the session to the engine (`attach`) for the console commands. Its zero value is the CLI's.
 
-**The CLI.** `host` and `join` run on a controller over `newCLIEngine()`: no `engine.LiveState`, `Options.Log` is `report.Stdout`, and the stdin prompter answers the questions. `engine.RunCLISession` waits for the session and exits 1 when it ended `Failed`. The output, prompts, flags and exit codes are those of the direct calls it replaced: `mods/coop/session/golden_test.go` compares every co-op prompt and console flow with transcripts recorded before the change (`mods/coop/session/testdata/coop-golden`), and `TestRunCLISession` compares the driver with the old `logSessionErr` (now `engine.LogSessionErr`) + `os.Exit(1)` path. `mp-local` (two Dolphins in one process) still runs its pipelines directly, with the same stdin prompter and console.
+**The CLI.** `host` and `join` run on a controller over `newCLIEngine()`: no `engine.LiveState`, `Options.Log` is `report.Stdout`, and the stdin prompter answers the questions. `engine.RunCLISession` waits for the session and exits 1 when it ended `Failed`. The output, prompts, flags and exit codes are those of the direct calls it replaced: `mods/coop/session/golden_test.go` compares every co-op prompt and console flow with transcripts recorded before the change (`mods/coop/session/testdata/coop-golden`), and `TestRunCLISession` compares the driver with the old `logSessionErr` (now `engine.LogSessionErr`) + `os.Exit(1)` path. `wwdev.exe mp-local` (cmd/wwdev; two Dolphins in one process) still runs its pipelines directly, with the same stdin prompter and console.
 
 **The TUI.** It masks the IP addresses it draws as the window does (`internal/redact`): the dashboard header's Host IPs or joined address, the log and chat panels and the end reason, and on the connect screen the Host IP field (a dot per character, like a password) and its error. **Ctrl+R** shows or masks them on every screen (the help line says which); the TUI doesn't save it. The CLI's `host` and `join` print the address to share on purpose, unmasked. The connect screen has a **Co-op** row (left/right): for a host Off, New world (from the file you load) or Continue *world* (from `CoopWorlds`, as `coop-world list` shows them); for a joiner Off or On. With co-op on, a dashboard line starting with `/` is a console command, the status panel gets a co-op line per pipeline, and an open question replaces the log panel until it is answered with `y` or `n`. A `y` or `n` counts only once the question has been shown, and the keyboard quiet, for 600 ms, so a key typed for the chat never answers it (Appendix C item 164). The dashboard's open questions are `Snapshot().Questions`, re-read on each status tick: a subscription may drop question events like any other.
 
 ### App environment: settings, logs, Dolphin, patching
 
-App PR 3 adds the pieces the desktop app's first-run setup and session screens need, without changing the CLI (`cli_golden_test.go` compares `patch` and `dolphin2` with transcripts recorded before the change in `testdata/cli-golden`; `dolphinenv_equiv_test.go` compares the moved path and argument code with the old code kept verbatim in the test).
+App PR 3 adds the pieces the desktop app's first-run setup and session screens need, without changing the CLI (cmd/ww-multiplayer's `cli_golden_test.go` compares `patch` with transcripts recorded before the change in `testdata/cli-golden`; dolphin2's golden test is cmd/wwdev's `cli_golden_test.go`, and cmd/wwdev's `dolphinenv_equiv_test.go` compares the moved path and argument code with the old code kept verbatim in the test).
 
 - **`internal/config`: the app's saved settings**, `<os.UserConfigDir>/ww-multiplayer/config.json` (the root co-op already uses for `worlds/` and `backups/`). Schema-versioned JSON (`version: 1`): name, color, recent hosts (10), port, Dolphin exe and user dir, launch-on-start and cheats switches, patched and vanilla ISO, the last co-op choice, window size and `setupDone`.
   - `Load` is tolerant and never fails. A missing file is `Defaults()`. A file that doesn't parse, or one over 1 MiB, gives the defaults and one warning, and is kept as `config.json.bad` by the next save that succeeds (moved there just before the new file is renamed into place, so a failed save leaves it where it was; later saves leave `.bad` alone). A file that can't be opened or read gives the defaults and a warning only. Top-level keys match without case, as the nested ones do (`"Name"` is read as `name`, an exact key winning), and are saved once, under their own name. A top-level section that doesn't decode, or a value out of range (port, a color `playercolor.Parse` refuses, co-op mode), gives that section's default and a warning; the rest is read.
@@ -137,7 +147,7 @@ App PR 3 adds the pieces the desktop app's first-run setup and session screens n
   - `WithEnv` applies `DOLPHIN_EXE`, `ISO_PATH`, `USER_DIR_1` and `WW_COLOR` over the settings for the app's run, never into the file.
   - **The CLI does not read it** (owner decision 11): scripts and tests stay deterministic, env vars remain the CLI's knobs. `TestCLIReadsNoConfig` keeps package main from importing it.
 - **`internal/applog`: per-session log files.** Each session the TUI or the GUI runs writes `<UserConfigDir>/ww-multiplayer/logs/<UTC time>-<role>.log` through `Options.SessionLog` (`session_log.go`): a header line (build, OS, role, name, address, co-op), then every line the CLI would print, each stamped `2006-01-02T15:04:05.000Z LEVEL`. `Open` keeps the newest 20 files; a file stops at 8 MiB with one line saying so. Lines are redacted first: the home directory becomes `~` (it usually holds the account name) and values labelled `token`, `secret`, `password` or `api key` become `<redacted>` (the lobby's reconnect token is the first such value). The CLI's `host` and `join` write no file: their lines are on the terminal. `Diagnostics.Text` is the "Copy diagnostics" text (app version, OS, Dolphin path and version, user dir, log file, co-op `/status` lines, the last 200 log lines from `File.Tail`), redacted the same way. Nothing is uploaded.
-- **`internal/dolphinenv` (`wwapi/emu/launch` since Phase C C10): Dolphin detection, user dirs, launch, cheats, the macOS prepare step.** The code `dolphin2` and `auto-recapture` used from `mp_local.go` moved here unchanged (`mp-local` used none of it and is untouched): `Defaults`/`DefaultPaths` (the per-OS fallbacks), `Paths.WithEnv`/`FromEnv` (`DOLPHIN_EXE`, `ISO_PATH`, `USER_DIR_1/2`), `Launch` (`-u <userDir> -e <iso> [--save_state=…]`, detached; `open -n -a` through LaunchServices on macOS, in `launch_darwin.go`), `BootstrapUserDir` (copy user dir 1 to 2 without `Cache/`), `EnsureCheatsIni` (main still embeds `cheats/GZLE01.ini` and passes it in). New for the app:
+- **`internal/dolphinenv` (`wwapi/emu/launch` since Phase C C10): Dolphin detection, user dirs, launch, cheats, the macOS prepare step.** The code `dolphin2` and `auto-recapture` used from `mp_local.go` moved here unchanged (`mp-local` used none of it and is untouched): `Defaults`/`DefaultPaths` (the per-OS fallbacks), `Paths.WithEnv`/`FromEnv` (`DOLPHIN_EXE`, `ISO_PATH`, `USER_DIR_1/2`), `Launch` (`-u <userDir> -e <iso> [--save_state=…]`, detached; `open -n -a` through LaunchServices on macOS, in `launch_darwin.go`), `BootstrapUserDir` (copy user dir 1 to 2 without `Cache/`), `EnsureCheatsIni` (package `cheats` embeds `GZLE01.ini` and the caller passes it in). New for the app:
   - `Detect(Env)` tries, in order: a running Dolphin's own executable (Win32 `QueryFullProcessImageNameW`, macOS `ps -o comm=`), `DOLPHIN_EXE`, then on Windows `%ProgramFiles%\Dolphin`, `%ProgramFiles%\Dolphin-x64`, the installer's uninstall-registry `InstallLocation`, `%USERPROFILE%\Desktop\Dolphin-x64` (today's default) and scoop; on macOS `~/Applications/Dolphin.app` (the prepared copy) then `/Applications/Dolphin.app`; elsewhere `dolphin-emu` on `PATH`. It returns the first found and every candidate (with where it came from), or the default path to show beside "Browse…". `UserDir` gives `<exe dir>/User` when `portable.txt` sits beside the exe, else Dolphin's default (`DefaultUserDirs`, the same as `backup.DefaultUserDirs`).
   - `PrepareMac` runs `scripts/setup-mac-dolphin.sh`'s steps as Go through a `Runner` (copy to `~/Applications`, strip xattrs, `CFBundleIdentifier` `org.dolphin-emu.dolphin-unhardened`, ad-hoc `codesign` without the hardened runtime, `lsregister -f`, verify), logging the script's lines; no step needs sudo. The steps are `MacPlan(src, dst)`, a pure list a test checks against the script without running anything, and `MacVerify`; `PrepareMacHere` and `MacStatusHere` (this Mac) are in the darwin-only `macprep_darwin.go`. `MacCheck` says whether it is needed: no copy, a copy that still has the hardened runtime, or a copy whose `Info.plist` version differs from the original's ("Dolphin was updated — refresh the copy"). The script stays for CLI users.
   - Everything that decides is a pure function of an `Env` (or its arguments) and is tested with fakes on any OS; only `detect_windows.go`, `detect_darwin.go`, `detect_other.go`, `launch_darwin.go` and `launch_other.go` ask the OS. No test starts Dolphin.

@@ -105,7 +105,9 @@ Used Dolphin's `[OnFrame]` patch section to write 1KB of PPC code byte-by-byte e
 - Why Gecko C2 hooks properly invalidate JIT but equivalent AR/OnFrame writes don't.
 - Whether the code-area write problem is specific to Dolphin 2603 or a general behavior.
 
-## Next Approach to Try
+## Approaches considered (superseded)
+
+Superseded: `ww-multiplayer patch` now does the ISO and CISO rebuild in Go (`internal/inject/iso.go`, `ciso.go`: CISO decode, DOL splice, FST relocation). The notes below are kept as history.
 
 **Proper ISO rebuild with tool like GCIT.** Instead of patching the CISO directly, use a dedicated tool that:
 1. Extracts the game to a folder

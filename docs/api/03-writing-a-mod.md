@@ -160,13 +160,12 @@ When the mod is quarantined, or the runtime stops, its two commands are removed 
 
 `example_test.go` runs the real mod in a real runtime against `wwapi/fakegame`, a deterministic fake of the game's memory, with no Dolphin.
 
-**A game whose contract allows writes.** The fake RAM gets the disc ID and this build's T2, as the patched ISO leaves them, then `wwapi.NewGame` runs the contract check:
+**A game whose contract allows writes.** The fake RAM gets the disc ID, this build's T2 and its WWMB header, as the patched ISO leaves them, then `wwapi.NewGame` runs the contract check:
 
 ```go
 m := mem.NewFakeMem()
 fg := fakegame.New(m)
-m.Store(addr.MEM1Base, []byte(wwapi.GameID))
-m.Store(inject.T2Address, inject.T2Bytes)
+fakegame.Boot(m) // the disc ID, this build's T2 and its WWMB header
 g, _ := wwapi.NewGame(m, wwapi.GameOptions{})
 ```
 

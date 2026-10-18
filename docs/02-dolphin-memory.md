@@ -2,7 +2,7 @@
 
 ## The Process Model
 
-Dolphin is a normal Windows process. When it runs a GameCube game, it allocates a block of virtual memory to hold the emulated GameCube's 24MB of RAM. External tools (like us) can read/write this memory using `ReadProcessMemory` and `WriteProcessMemory`.
+Dolphin is a normal process. When it runs a GameCube game, it allocates a block of virtual memory to hold the emulated GameCube's 24MB of RAM. External tools (like us) can read/write this memory. The scanner (`wwapi/emu/memory.go`) is the same on every OS; only the backend differs: `ReadProcessMemory` / `WriteProcessMemory` on Windows (`memory_windows.go`), `task_for_pid` / `mach_vm` on macOS (`memory_darwin.go`, which needs an unhardened Dolphin copy and the cs.debugger entitlement; see docs/05, "macOS: User-Copy Dolphin Silently Replaced by /Applications/"), and `memory_other.go` elsewhere. The rest of this page describes the Windows case.
 
 ## Finding the Emulated RAM
 
@@ -63,7 +63,7 @@ Proven:
 - Set rupees to 999 → game capped at wallet max (200) when rupee picked up
 - Teleport Link 500 units up → Link floated, then fell due to gravity
 
-Writing to **code addresses** (inside `.text` sections) to patch instructions DOES write to memory, but **Dolphin's JIT keeps the cached x86 translation**. The emulated CPU continues executing the cached version, ignoring our patch. This is the main blocker — see `docs/05-known-issues.md`.
+Writing to **code addresses** (inside `.text` sections) to patch instructions DOES write to memory, but **Dolphin's JIT keeps the cached x86 translation**. The emulated CPU continues executing the cached version, ignoring our patch. This was the original blocker. It was solved by DOL injection at boot (docs/03, and docs/05 "The JIT Cache Wall — SOLVED").
 
 ## Dual Mapping Caveat
 
@@ -76,4 +76,4 @@ For most game data, these point to the same physical memory — writes propagate
 
 ## Performance
 
-Position reads at 50ms intervals (~20Hz) work flawlessly with no measurable overhead. Could easily do 16ms (60Hz) for smoother sync.
+Pose and position reads run every 16 ms (~60 Hz, since v0.1.7; 50 ms before) with no measurable overhead. broadcast-pose reads the whole 2016-byte pose each tick, not just the position.

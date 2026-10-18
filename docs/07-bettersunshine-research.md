@@ -115,6 +115,8 @@ That's the biggest SMS advantage: **compile against decomp-like headers**, not o
 | High-level Mario API | Manual offsets + `game.h` decls + zeldaret/tww |
 | Multi-module compose | Single inject blob (all features co-located) |
 
+**Since then (v0.4.0, 2026-10-17):** the C side is a core (`inject/src/core`: hooks, services, the call order fixed in one dispatcher) plus the multiplayer C mod (`inject/src/mp`; docs/api §6.6). `game.h` became `inject/include/wwapi.h`. Settings live in the desktop app (lobby, Mods page) and in each mod's `mod.json`, with the `mods` command. The Go features are mods on `wwapi/` (`mods/multiplayer`, `mods/coop`). The table above is as of 2026-07-28.
+
 We already have the **host/guest split** BSE doesn't provide:
 
 ```

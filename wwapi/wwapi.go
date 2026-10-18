@@ -5,8 +5,8 @@
 // # v0 UNSTABLE
 //
 // This package is wwapi v0. Its API may change in any 0.x minor version,
-// without a deprecation period. Nothing outside wwapi uses it yet (Phase B
-// step B3 of docs/api/00-design.md); docs/api/02-mods.md describes it.
+// without a deprecation period. The app (cmd/ww-multiplayer) runs the
+// multiplayer and co-op mods under it; docs/api/02-mods.md describes it.
 //
 // # Mods
 //

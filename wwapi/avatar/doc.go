@@ -6,7 +6,7 @@
 // (Tunics, over wwapi/gfx/texture).
 //
 // Who sits in which slot, and what the network sends, is the caller's
-// business (puppet-sync today, the multiplayer mod later): this package
+// business (the multiplayer mod's pose feed, mods/multiplayer/feed): this package
 // only writes what it is told into the mailbox. Cap is the number of
 // pose-feed slots, mailbox.MaxRemoteLinks (2 today).
 //
