@@ -39,6 +39,10 @@ type model struct {
 	dashboard dashboardModel
 	quitting  bool
 
+	// notice is the one-line update notice (package main: internal/update),
+	// shown above the splash and the connect screen; "" for none.
+	notice string
+
 	// showIPs is showIPsKey's toggle: off (the default), every screen
 	// masks the IP addresses it draws (internal/redact; owner decision
 	// 2026-10-16, streamer-safe). The TUI doesn't save it. The CLI's host
@@ -159,6 +163,9 @@ func (m model) View() string {
 		// Dashboard wants full width/height; skip lipgloss.Place center.
 		return m.dashboard.view(m.width, m.height)
 	}
+	if m.notice != "" {
+		content = lipgloss.NewStyle().Foreground(zeldaGreen).Bold(true).Render(m.notice) + "\n\n" + content
+	}
 	return lipgloss.Place(
 		m.width, m.height,
 		lipgloss.Center, lipgloss.Center,
@@ -181,6 +188,12 @@ func (m model) View() string {
 // bail out before ever touching Bubble Tea with a clear, actionable error
 // instead of letting the raw-mode call die cryptically.
 func Run(version string, ctrl *session.Controller) error {
+	return RunNotice(version, "", ctrl)
+}
+
+// RunNotice is Run with a one-line update notice (internal/update) shown
+// over the splash and the connect screen; "" shows none.
+func RunNotice(version, notice string, ctrl *session.Controller) error {
 	if !hasInteractiveStdin() {
 		return fmt.Errorf(
 			"no interactive terminal detected on stdin.\n"+
@@ -192,7 +205,9 @@ func Run(version string, ctrl *session.Controller) error {
 		)
 	}
 
-	p := tea.NewProgram(newModel(ctrl, version), tea.WithAltScreen(), tea.WithInputTTY())
+	m := newModel(ctrl, version)
+	m.notice = notice
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithInputTTY())
 	_, err := p.Run()
 	if err != nil {
 		return fmt.Errorf("TUI error: %w", err)

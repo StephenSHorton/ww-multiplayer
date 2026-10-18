@@ -15,6 +15,7 @@ import { $, el, toast, swatches, openDialog, closeDialog, dialogKey, setDialogTe
 import { initSetup, openSetup, onPatch } from "./setup.js";
 import { renderCoop, dialogExtra, coopAction, initCoop } from "./coop.js";
 import { initMods, refreshMods } from "./mods.js";
+import { initUpdate, startUpdate, onUpdate, render as renderUpdate } from "./update.js";
 
 const LOG_MAX = 500;
 
@@ -73,6 +74,7 @@ function show(v) {
 	$("setup-btn").hidden = v === "session" || v === "mods";
 	$("mods-btn").hidden = v === "setup" || v === "mods";
 	if (v === "mods") refreshMods();
+	renderUpdate(); // the update banner: Home and Mods only, never in a session
 	$("bar").hidden = v !== "session";
 	if (v !== "session") $("leave-btn").hidden = true;
 	if (v === "home") {
@@ -637,6 +639,7 @@ async function refresh() {
 	state = st;
 	if (view === "session" && state.session !== session && state.running) session = state.session;
 	render();
+	renderUpdate(); // the banner is back once the session is over (Mods too)
 }
 
 function onEv(ev) {
@@ -671,6 +674,9 @@ function onEv(ev) {
 			break;
 		case "patch":
 			onPatch(ev.patch);
+			break;
+		case "update":
+			onUpdate(ev.update);
 			break;
 	}
 }
@@ -739,6 +745,7 @@ function wire() {
 	});
 	$("mods-back").addEventListener("click", () => show(beforeMods === "session" && !(state && state.running) ? "home" : beforeMods));
 	initMods({ openSetup });
+	initUpdate({ view: () => view, running: () => !!(state && state.running), openSetup, onPatch });
 	$("showips").addEventListener("click", async () => {
 		try {
 			await call("SetShowIPs", !info.showIPs);
@@ -847,6 +854,7 @@ async function main() {
 	} else {
 		show("home");
 	}
+	startUpdate();
 	setInterval(() => {
 		if (view === "session") refresh();
 		else if (view === "home") refreshLan();

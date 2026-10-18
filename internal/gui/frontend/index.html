@@ -24,11 +24,32 @@
 		<button class="badge" type="button" id="setup-btn" hidden>Setup</button>
 		<button class="badge" type="button" id="mods-btn" hidden>Mods</button>
 		<button class="btn back" type="button" id="leave-btn" hidden>Leave</button>
-		<span class="ver" id="version"></span>
+		<!-- the version: opens the update settings (update.js) -->
+		<button class="ver" type="button" id="version" title="Version and updates"></button>
 	</div>
 </header>
 
 <main>
+	<!-- a newer release: the update banner (update.js), on Home and Mods only -->
+	<div class="panel updbar" id="updbar" role="status" hidden>
+		<h2>New version</h2>
+		<div class="updrow">
+			<p class="updtext"><b id="upd-title"></b> <span id="upd-text"></span></p>
+			<div class="updbtns" id="upd-btns">
+				<button class="btn primary" type="button" id="upd-go">Update</button>
+				<button class="btn primary" type="button" id="upd-restart" hidden>Restart</button>
+				<button class="btn" type="button" id="upd-notes">Release notes</button>
+				<button class="btn" type="button" id="upd-later">Later</button>
+			</div>
+		</div>
+		<div class="meterrow" id="upd-progress" hidden>
+			<div class="meter" role="progressbar" aria-label="Downloading the update"><i id="upd-meter"></i></div>
+			<span class="pct" id="upd-pct"></span>
+			<button class="btn" type="button" id="upd-cancel">Cancel</button>
+		</div>
+		<p class="error" id="upd-error" role="alert"></p>
+	</div>
+
 	<!-- Home: who you are, then Host or Join -->
 	<section id="home" class="screen" hidden>
 		<h1 class="hud">Set sail together</h1>

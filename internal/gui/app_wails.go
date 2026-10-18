@@ -33,6 +33,8 @@ func Run(o Options) error {
 		return err
 	}
 	b := NewBridge(o)
+	// Last: an update's new version starts once this window is gone.
+	defer b.relaunchNow()
 	defer b.close()
 
 	hidden := hideConsole()
@@ -54,6 +56,7 @@ func Run(o Options) error {
 			b.setDialogs(wailsDialogs{ctx})
 			b.setDesktop(func(s string) error { return wruntime.ClipboardSetText(ctx, s) },
 				func(u string) error { wruntime.BrowserOpenURL(ctx, u); return nil })
+			b.setQuit(func() { wruntime.Quit(ctx) }, false)
 			b.pump(ctx, func(ev EventView) { wruntime.EventsEmit(ctx, eventName, ev) })
 		},
 		OnBeforeClose: func(ctx context.Context) bool {

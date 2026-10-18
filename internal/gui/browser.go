@@ -58,6 +58,8 @@ var browserMethods = map[string]bool{
 	"LanSessions": true,
 	// The Mods page (Phase D D4).
 	"Mods": true, "SetModEnabled": true, "CallMod": true,
+	// One-click updates (update.go).
+	"UpdateStatus": true, "CheckUpdate": true, "SetCheckUpdates": true, "InstallUpdate": true, "CancelUpdate": true, "Repatch": true, "RestartUpdate": true,
 }
 
 // windowOnly are the Bridge methods only the window has: PickFile opens a
@@ -67,7 +69,7 @@ var browserMethods = map[string]bool{
 // window.open), and which a page on 127.0.0.1 shouldn't drive on the
 // machine serving it. OpenFolder opens the desktop's file manager, the
 // same.
-var windowOnly = map[string]bool{"PickFile": true, "Copy": true, "OpenDownloads": true, "OpenFolder": true}
+var windowOnly = map[string]bool{"PickFile": true, "Copy": true, "OpenDownloads": true, "OpenFolder": true, "OpenReleaseNotes": true}
 
 // BrowserServer is a running ServeBrowser.
 type BrowserServer struct {
@@ -83,6 +85,10 @@ type BrowserServer struct {
 	mu      sync.Mutex
 	clients map[chan EventView]struct{}
 	stop    context.CancelFunc
+
+	// quit closes once an update asks the app to close (Wait returns).
+	quit     chan struct{}
+	quitOnce sync.Once
 }
 
 // ServeBrowser starts the browser UI on 127.0.0.1:port (0 picks a free
@@ -101,7 +107,8 @@ func serveBrowser(b *Bridge, ln net.Listener) (*BrowserServer, error) {
 		ln.Close()
 		return nil, err
 	}
-	s := &BrowserServer{bridge: b, token: hex.EncodeToString(tok), addr: ln.Addr().String(), ln: ln, clients: map[chan EventView]struct{}{}}
+	s := &BrowserServer{bridge: b, token: hex.EncodeToString(tok), addr: ln.Addr().String(), ln: ln, clients: map[chan EventView]struct{}{}, quit: make(chan struct{})}
+	b.setQuit(func() { s.quitOnce.Do(func() { close(s.quit) }) }, true)
 	s.URL = "http://" + s.addr + "/?token=" + s.token
 	assets, err := Frontend()
 	if err != nil {
@@ -120,16 +127,22 @@ func serveBrowser(b *Bridge, ln net.Listener) (*BrowserServer, error) {
 	return s, nil
 }
 
-// Close stops the server, ends the session (Leave) and the event pump.
+// Close stops the server, ends the session (Leave) and the event pump,
+// and then starts the new version an update installed, if one did.
 func (s *BrowserServer) Close() error {
 	s.stop()
 	s.bridge.close()
-	return s.srv.Close()
+	err := s.srv.Close()
+	s.bridge.relaunchNow()
+	return err
 }
 
-// Wait blocks until ctx ends, then closes s.
+// Wait blocks until ctx ends or an update closes the app, then closes s.
 func (s *BrowserServer) Wait(ctx context.Context) error {
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+	case <-s.quit:
+	}
 	return s.Close()
 }
 

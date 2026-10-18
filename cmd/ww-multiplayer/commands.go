@@ -149,7 +149,10 @@ func commandTable() []command {
 			group:   groupLower,
 			usage:   "version",
 			summary: "Print the version (both players should match)",
-			run:     func(string, []string) { fmt.Println(versionLine()) },
+			run: func(string, []string) {
+				fmt.Println(versionLine())
+				printUpdateNotice(true)
+			},
 		},
 		{
 			name:    "help",
@@ -229,6 +232,7 @@ func cmdHost(string, []string) {
 	if err != nil {
 		exitUsage(err, "host [name] [--port N]")
 	}
+	printUpdateNotice(false)
 	runHost(name, port, co)
 }
 
@@ -244,6 +248,7 @@ func cmdJoin(string, []string) {
 	if err != nil {
 		exitUsage(err, "join <host-ip[:port]> [name] [--port N]")
 	}
+	printUpdateNotice(false)
 	runJoin(addr, name, co)
 }
 

@@ -68,9 +68,11 @@ func main() {
 	// (app_face.go); every other subcommand is the CLI's command registry
 	// (commands.go).
 	if f := appFace(os.Args[1:], gui.Available()); f != faceCLI {
+		cleanupOldExe(true)
 		runFace(f, os.Args[1:])
 		return
 	}
+	cleanupOldExe(false)
 	if len(os.Args) > 1 {
 		runCommand(os.Args[1], os.Args[2:])
 	}

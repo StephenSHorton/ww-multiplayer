@@ -168,6 +168,8 @@ type EventView struct {
 	// page reads them again with Bridge.Mods.
 	Mod    string `json:"mod,omitempty"`
 	Status string `json:"status,omitempty"`
+	// Update is an "update" event's banner state (update.go).
+	Update *UpdateView `json:"update,omitempty"`
 }
 
 // eventKinds names each controller event kind for the frontend.
