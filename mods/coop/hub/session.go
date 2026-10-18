@@ -14,6 +14,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // worldClearCount is the mClearCount of every file a world holds. Second
@@ -91,7 +92,7 @@ func (p *peer) bound() bool { return p.state == StateBound }
 // compares with the world.
 type candidate struct {
 	file  fileKey
-	image world.Image
+	image save.Image
 }
 
 // verdict is how a candidate stands against the world (§5.3).
@@ -414,7 +415,7 @@ func (h *Hub) onBoundHello(p *peer, m *wire.CoHello) {
 // --- WORLD and GAINS ------------------------------------------------------------
 
 func (h *Hub) onWorld(p *peer, m *wire.World) {
-	img := world.Image(m.Image)
+	img := m.Image
 	id := world.ID(m.WorldID)
 	if !p.bound() {
 		// An unbound file's image is never merged: it is what the bind
@@ -461,7 +462,7 @@ func (h *Hub) onWorld(p *peer, m *wire.World) {
 // preflight records an unbound file's image and tells the replica when it
 // can't bind without --coop-merge (judge). The NOTICE also names the
 // world's story bits the file's holds would keep back once it is bound.
-func (h *Hub) preflight(p *peer, img *world.Image) {
+func (h *Hub) preflight(p *peer, img *save.Image) {
 	c := &candidate{file: keyOf(p.hello), image: *img}
 	p.candidate = c
 	v := h.judge(c)
@@ -593,7 +594,7 @@ func (h *Hub) rejects(p *peer, rej []world.Reject) {
 func (h *Hub) sendWorld(p *peer) {
 	cur := h.store.Image()
 	img, _ := strip(&cur, p.features)
-	h.send(p, &wire.World{WorldID: wire.ID(h.id), Seq: h.store.Seq(), Image: wire.Image(img)})
+	h.send(p, &wire.World{WorldID: wire.ID(h.id), Seq: h.store.Seq(), Image: img})
 }
 
 // sendTombstones tells p every bit the host blocked, so its replica never

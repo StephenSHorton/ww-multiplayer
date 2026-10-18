@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // fakeClock runs a Store's timers when the test says so.
@@ -275,7 +276,7 @@ func TestStoreBackups(t *testing.T) {
 type crashRig struct {
 	root, dir string
 	clk       *fakeClock
-	images    [4]Image // the image at each seq
+	images    [4]save.Image // the image at each seq
 }
 
 func newCrashRig(t *testing.T) *crashRig {
@@ -661,7 +662,7 @@ func TestStoreConcurrent(t *testing.T) {
 				case 0:
 					s.ApplyGains(Player(g+1), gainAt(off, byte(1)<<(i%8)))
 				case 1:
-					var img Image
+					var img save.Image
 					img[off] = byte(i)
 					s.Merge(Player(g+1), &img)
 				default:

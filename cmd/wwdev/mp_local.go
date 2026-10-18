@@ -34,7 +34,7 @@ func dolphin2Defaults() (exe, iso, userDir1, userDir2 string) {
 	return p.Exe, p.ISO, p.UserDir1, p.UserDir2
 }
 
-// runDolphin2 is the Go port of scripts/dolphin2.sh — bootstraps the
+// runDolphin2 (the Go port of the retired scripts/dolphin2.sh) bootstraps the
 // "Dolphin Emulator 2" user dir and launches the missing Dolphin
 // instance(s) so two are running side-by-side. mp-local can then attach
 // to both without any env-var juggling.
@@ -170,7 +170,7 @@ func ensureCheatsIni(rep log.Reporter, userDir string) {
 	launch.EnsureCheatsIni(rep, userDir, bundledCheatsIni)
 }
 
-// runMpLocal is the Go port of scripts/mplay2.sh — spins up the relay
+// runMpLocal (the Go port of the retired scripts/mplay2.sh) spins up the relay
 // server + 4 client goroutines (broadcast-pose × 2, puppet-sync × 2)
 // inside this process so a single Ctrl+C tears the whole demo down and
 // resets shadow_mode on both Dolphins.
@@ -298,7 +298,7 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	rep.Log(log.OK, "Server listening on :25565")
 
 	// Give the listener a tick before the first connect — mirrors the
-	// 2 s sleep in mplay2.sh that suppressed accept-races on Windows.
+	// 2 s sleep in the retired mplay2.sh that suppressed accept-races on Windows.
 	time.Sleep(500 * time.Millisecond)
 
 	addr := "localhost:25565"
@@ -333,7 +333,7 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	// 0.3 s stagger between connects: four simultaneous accepts against
 	// a freshly-listening server occasionally produced "expected welcome,
 	// got error or wrong type" on Windows pre-staggering (TCP accept +
-	// welcome-write race). Same delay as scripts/mplay2.sh.
+	// welcome-write race). Same delay as the retired scripts/mplay2.sh.
 	spawn("bcast-A", broadcast(nameA, pidA))
 	time.Sleep(300 * time.Millisecond)
 	spawn("puppet-A", puppet(nameA, pidA))

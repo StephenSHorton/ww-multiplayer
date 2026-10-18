@@ -40,10 +40,6 @@ import (
 // ImageSize is the size of the canonical image, dSv_save_c (d_save.h:916).
 const ImageSize = save.ImageSize
 
-// Image is the canonical dSv_save_c image (§3), save.Image. The name is
-// kept for one release (docs/api/00-design.md, C6; E4 removes it).
-type Image = save.Image
-
 // ID is a worldID or a bindNonce: 8 bytes minted by Go at a bind (§5.3).
 // It has the layout of bind.WorldID, bind.Nonce and wire.ID.
 type ID [8]byte
@@ -100,8 +96,8 @@ func SharedMask(off int) byte {
 // Shared returns img with every bit the world never holds cleared: the
 // DERIVED, PER_PLAYER, NEVER and TAG bytes, and the bits of merging bytes
 // outside their class mask.
-func Shared(img *Image) Image {
-	var out Image
+func Shared(img *save.Image) save.Image {
+	var out save.Image
 	for off := range out {
 		out[off] = img[off] & shared[off]
 	}
@@ -112,8 +108,8 @@ func Shared(img *Image) Image {
 // OR and OR_MASKED bytes, the larger masked value for MAX bytes, zero for
 // the bytes that never merge. It is commutative, associative and
 // idempotent, and never lowers a shared byte of either side.
-func Join(a, b *Image) Image {
-	var out Image
+func Join(a, b *save.Image) save.Image {
+	var out save.Image
 	for off := range out {
 		x, y := a[off]&shared[off], b[off]&shared[off]
 		if isMax[off] {
@@ -130,7 +126,7 @@ func Join(a, b *Image) Image {
 // a MAX byte to's masked value where it is above from's. It is empty
 // exactly when to adds nothing to from, so a replica's Differ can use it
 // for rising edges and a preflight for "is this file a subset".
-func Diff(from, to *Image) []Gain {
+func Diff(from, to *save.Image) []Gain {
 	var gs []Gain
 	for off := range from {
 		f, t := from[off]&shared[off], to[off]&shared[off]
@@ -154,7 +150,7 @@ func Diff(from, to *Image) []Gain {
 // merge is skipped, and bits outside the class mask are ignored (a MAX
 // value with any is skipped whole). Replicas use it to fold a GAINS relay
 // into their view of the world.
-func Apply(img *Image, gs []Gain) int {
+func Apply(img *save.Image, gs []Gain) int {
 	before := *img
 	for _, g := range gs {
 		off := int(g.Off)
@@ -211,7 +207,7 @@ func (s *BitSet) Add(off int, mask byte) bool {
 }
 
 // AddImage puts every set bit of img into the set.
-func (s *BitSet) AddImage(img *Image) {
+func (s *BitSet) AddImage(img *save.Image) {
 	for off := range s {
 		s[off] |= img[off]
 	}
@@ -393,7 +389,7 @@ type World struct {
 	id      ID
 	created time.Time
 	seq     uint64
-	image   Image
+	image   save.Image
 	tomb    BitSet
 	fresh   map[ID]time.Time
 	policy  *Policy
@@ -423,7 +419,7 @@ func (w *World) Created() time.Time { return w.created }
 func (w *World) Seq() uint64 { return w.seq }
 
 // Image returns a copy of the merged image.
-func (w *World) Image() Image { return w.image }
+func (w *World) Image() save.Image { return w.image }
 
 // Tombstones returns a copy of the tombstone set.
 func (w *World) Tombstones() BitSet { return w.tomb }
@@ -489,7 +485,7 @@ func (w *World) ApplyGains(gs []Gain) Result {
 // never merge and the bits outside a class mask are ignored, so an image
 // straight from a snapshot is fine. Bits the policy does not open or the
 // host tombstoned are refused and listed in Rejected.
-func (w *World) Merge(img *Image) Result {
+func (w *World) Merge(img *save.Image) Result {
 	next := w.image
 	var rej []Reject
 	for off := range img {
@@ -502,7 +498,7 @@ func (w *World) Merge(img *Image) Result {
 
 // merge folds the class-masked value v of byte off into next under pol and
 // the tombstones, appending what it refuses to rej.
-func (w *World) merge(next *Image, off int, v byte, pol *Policy, rej []Reject) []Reject {
+func (w *World) merge(next *save.Image, off int, v byte, pol *Policy, rej []Reject) []Reject {
 	allowed, tomb := shared[off]&pol[off], w.tomb[off]
 	if isMax[off] {
 		switch {
@@ -527,7 +523,7 @@ func (w *World) merge(next *Image, off int, v byte, pol *Policy, rej []Reject) [
 }
 
 // commit makes next the image if it differs, bumping the seq.
-func (w *World) commit(next *Image, rej []Reject) Result {
+func (w *World) commit(next *save.Image, rej []Reject) Result {
 	delta := Diff(&w.image, next)
 	if len(delta) > 0 {
 		w.image = *next

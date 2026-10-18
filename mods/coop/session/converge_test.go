@@ -26,6 +26,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -185,13 +186,13 @@ func (cg *coGame) put(off int, v byte) {
 func (cg *coGame) get(off int) byte { return cg.read(cg.byteAddr(off), 1)[0] }
 
 // image is the game's canonical image now.
-func (cg *coGame) image() world.Image {
+func (cg *coGame) image() save.Image {
 	cg.t.Helper()
 	s, err := state.Read(cg.m, state.Options{})
 	if err != nil {
 		cg.t.Fatal(err)
 	}
-	return world.Image(s.Image())
+	return save.Image(s.Image())
 }
 
 // play does one random thing in the game: progress (a bit or a raised MAX
@@ -246,7 +247,7 @@ func coShareable() (or, mx []int) {
 
 // coWithin is img's bits the default policy shares: what a replica
 // proposes of it, and what its planner may plan.
-func coWithin(img world.Image) world.Image {
+func coWithin(img save.Image) save.Image {
 	pol := world.DefaultPolicy()
 	s := world.Shared(&img)
 	for off := range s {
@@ -439,7 +440,7 @@ func (h *coHost) restart() {
 }
 
 // world is the hub's world now.
-func (h *coHost) world() world.Image { return h.cs.store.Image() }
+func (h *coHost) world() save.Image { return h.cs.store.Image() }
 
 // coPlayer is one Dolphin of the session: its game and its coop-sync
 // pipeline, connected through a coWire.
@@ -509,7 +510,7 @@ func (p *coPlayer) step() {
 
 // planned is the image the player's game would reach if the replica's
 // plan were applied (M3), within the default policy.
-func (p *coPlayer) planned() world.Image {
+func (p *coPlayer) planned() save.Image {
 	img := p.image()
 	local := world.Shared(&img)
 	return coWithin(replica.Planned(&local, p.s.r.Status().Planned))
@@ -530,7 +531,7 @@ func (p *coPlayer) tagWrites(t *testing.T) []mem.WriteRecord {
 
 // coMonotone reports how cur lowers anything prev held: an OR bit gone or
 // a MAX value lowered.
-func coMonotone(prev, cur *world.Image) string {
+func coMonotone(prev, cur *save.Image) string {
 	for off := range prev {
 		if class.Of(off).Class == class.Max {
 			if cur[off] < prev[off] {
@@ -544,7 +545,7 @@ func coMonotone(prev, cur *world.Image) string {
 }
 
 // coDiff names the bytes where a and b differ, for failure messages.
-func coDiff(a, b *world.Image) string {
+func coDiff(a, b *save.Image) string {
 	var parts []string
 	for off := range a {
 		if a[off] != b[off] {
@@ -720,7 +721,7 @@ func TestCoopSessionConverges(t *testing.T) {
 	}
 
 	// Quiesce: no more play; wait until the world and both plans agree.
-	converge := func(why string, want func() world.Image, plannedFor func(p *coPlayer, w world.Image) world.Image) {
+	converge := func(why string, want func() save.Image, plannedFor func(p *coPlayer, w save.Image) save.Image) {
 		t.Helper()
 		waitArmed(why)
 		deadline := time.Now().Add(20 * time.Second)
@@ -751,22 +752,22 @@ func TestCoopSessionConverges(t *testing.T) {
 			time.Sleep(5 * time.Millisecond)
 		}
 	}
-	merged := func() world.Image {
+	merged := func() save.Image {
 		ia, ib := coWithin(a.image()), coWithin(b.image())
 		return world.Join(&ia, &ib)
 	}
-	converge("after the play", merged, func(_ *coPlayer, w world.Image) world.Image { return w })
+	converge("after the play", merged, func(_ *coPlayer, w save.Image) save.Image { return w })
 
 	// Each game clears progress of its own that the other lacks: the
 	// world keeps it, the other still plans it, and the game that
 	// cleared it does not get it planned back.
 	before := h.world()
-	cleared := map[*coPlayer]world.Image{} // the bits each game cleared
+	cleared := map[*coPlayer]save.Image{} // the bits each game cleared
 	ia, ib := a.image(), b.image()
-	mine := map[*coPlayer]world.Image{a: coWithin(ia), b: coWithin(ib)}
+	mine := map[*coPlayer]save.Image{a: coWithin(ia), b: coWithin(ib)}
 	for _, pair := range [][2]*coPlayer{{a, b}, {b, a}} {
 		p, other := pair[0], pair[1]
-		var c world.Image
+		var c save.Image
 		n := 0
 		for _, off := range or {
 			bits := mine[p][off] &^ mine[other][off]
@@ -782,7 +783,7 @@ func TestCoopSessionConverges(t *testing.T) {
 		}
 		cleared[p] = c
 	}
-	converge("after the clears", func() world.Image { return before }, func(p *coPlayer, w world.Image) world.Image {
+	converge("after the clears", func() save.Image { return before }, func(p *coPlayer, w save.Image) save.Image {
 		out := w
 		for off, bits := range cleared[p] {
 			out[off] &^= bits
@@ -794,7 +795,7 @@ func TestCoopSessionConverges(t *testing.T) {
 	// lost, and the plans stand.
 	drop(a, b)
 	h.restart()
-	converge("after the last restart", func() world.Image { return before }, func(p *coPlayer, w world.Image) world.Image {
+	converge("after the last restart", func() save.Image { return before }, func(p *coPlayer, w save.Image) save.Image {
 		out := w
 		for off, bits := range cleared[p] {
 			out[off] &^= bits

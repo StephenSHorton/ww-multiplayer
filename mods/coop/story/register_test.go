@@ -6,6 +6,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // TestApplyRegister: figurines by OR, a MAX register by the larger field
@@ -41,7 +42,7 @@ func TestApplyRegister(t *testing.T) {
 
 // TestApplyRegisters: only the allowlisted registers change.
 func TestApplyRegisters(t *testing.T) {
-	var img, w world.Image
+	var img, w save.Image
 	for off := range w {
 		w[off] = 0xFF
 	}
@@ -105,7 +106,7 @@ func FuzzApplyRegister(f *testing.F) {
 		}
 		// The world's merge of the same two bytes has the same field.
 		off := addr.OffEvent + i
-		var img world.Image
+		var img save.Image
 		img[off] = l
 		world.Apply(&img, []world.Gain{{Off: uint16(off), Val: w & world.SharedMask(off)}})
 		if m := world.SharedMask(off); i >= addr.EventRegFirst && got&m != img[off]&m {

@@ -6,6 +6,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/savefile"
 )
 
@@ -15,7 +16,7 @@ import (
 // never fails and is idempotent, and with key and heart tables too it is
 // idempotent, sets small keys at the live derive's target wherever the
 // merge moved a source or door, and never lowers max life.
-func checkMerge(t *testing.T, a, b *world.Image) {
+func checkMerge(t *testing.T, a, b *save.Image) {
 	opt := MergeOptions{Policy: world.FullPolicy(), Derive: Derive(nil, nil)}
 	m, err := Merge(a, b, opt)
 	if err != nil {

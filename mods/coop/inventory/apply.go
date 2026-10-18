@@ -4,6 +4,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -32,7 +33,7 @@ func (p Plan) Due(st gate.Status, entry bool) []Write { return Due(p.Writes, st,
 // the byte, an OpSet write sets it only while it still reads Old. Writes
 // to bytes it does not know are ignored. It is what a test, or a dry run,
 // expects the receiver to read back.
-func Apply(raw *world.Image, ctx Context, ws []Write) (world.Image, Context) {
+func Apply(raw *save.Image, ctx Context, ws []Write) (save.Image, Context) {
 	img := *raw
 	for _, w := range ws {
 		var b *byte

@@ -48,7 +48,6 @@ package inventory
 import (
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
@@ -200,7 +199,7 @@ func (p Plan) Empty() bool { return len(p.Writes) == 0 && len(p.Ammo) == 0 && le
 // from view, the world's image (the receiver's view of it), in ctx.
 // Bytes of view outside the inventory are ignored, and so are view's slot,
 // equipment and ammo bytes: the receiver derives those from the flags.
-func Pending(view, raw *world.Image, ctx Context) Plan {
+func Pending(view, raw *save.Image, ctx Context) Plan {
 	pl := planner{view: view, raw: raw, ctx: ctx, m: *raw}
 	pl.rules()
 	pl.flags()
@@ -213,11 +212,11 @@ func Pending(view, raw *world.Image, ctx Context) Plan {
 }
 
 type planner struct {
-	view, raw *world.Image
+	view, raw *save.Image
 	ctx       Context
 	// m is raw with every write planned so far applied: what the
 	// receiver holds once they land.
-	m world.Image
+	m save.Image
 	p Plan
 
 	ff1, gtower bool

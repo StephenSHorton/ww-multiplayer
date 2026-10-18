@@ -4,9 +4,9 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -50,7 +50,7 @@ var event0801 = addr.EventByte(0x0801)
 // (d_s_play.cpp:1369-1374; the barrel that carries Link there does too,
 // d_a_obj_demo_barrel.cpp:101-104). A STAG that can't be read counts as
 // FF1-type: the sword waits.
-func (c Context) ff1(raw *world.Image) bool {
+func (c Context) ff1(raw *save.Image) bool {
 	if raw[addr.OffEvent+event0801.Off]&event0801.Mask == 0 {
 		return false
 	}

@@ -24,6 +24,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 func TestExtractCoopFlags(t *testing.T) {
@@ -104,7 +105,7 @@ func TestCoopFlagsForJoin(t *testing.T) {
 }
 
 // coWorld creates a world under root, founded at created, with img merged.
-func coWorld(t *testing.T, root string, id world.ID, created time.Time, img *world.Image) {
+func coWorld(t *testing.T, root string, id world.ID, created time.Time, img *save.Image) {
 	t.Helper()
 	w := world.New(id, created)
 	if img != nil {

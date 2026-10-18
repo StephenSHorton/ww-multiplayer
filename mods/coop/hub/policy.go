@@ -3,7 +3,7 @@ package hub
 import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/story"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // The policies themselves (DefaultPolicy, SessionPolicy, SwitchPolicy,
@@ -32,7 +32,7 @@ func gateOf(off int) Feature {
 // strip returns img with every byte zeroed whose feature f lacks
 // (gateOf), and how many of them had bits: what a player granted f
 // neither proposes nor is sent.
-func strip(img *world.Image, f Feature) (world.Image, int) {
+func strip(img *save.Image, f Feature) (save.Image, int) {
 	out, n := *img, 0
 	if f&gated == gated {
 		return out, 0

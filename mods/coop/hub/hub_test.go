@@ -15,6 +15,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 var (
@@ -276,12 +277,12 @@ func hello(fs wire.FileState, w world.ID, n byte) *wire.CoHello {
 	return m
 }
 
-func img(gs ...world.Gain) wire.Image {
-	var im world.Image
+func img(gs ...world.Gain) save.Image {
+	var im save.Image
 	for _, g := range gs {
 		im[g.Off] |= g.Val
 	}
-	return wire.Image(im)
+	return im
 }
 
 func worldMsg(w world.ID, seq uint64, gs ...world.Gain) *wire.World {

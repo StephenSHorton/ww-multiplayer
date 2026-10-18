@@ -16,6 +16,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // fakeClock is a Config.Now that moves only when told.
@@ -40,7 +41,7 @@ func armedRig(t *testing.T, cfg Config) *replicaRig {
 	if !rep.World || rep.State != StateArmed {
 		t.Fatalf("not armed after the welcome: %+v; sent %s", rep, subs(sent))
 	}
-	say(t, rr.r, worldOf(1, world.Image{}))
+	say(t, rr.r, worldOf(1, save.Image{}))
 	return rr
 }
 
@@ -85,7 +86,7 @@ func TestReplicaSession(t *testing.T) {
 	}
 	w, _ := find[*wire.World](sent)
 	img := rr.image()
-	wantImg := wire.Image(img)
+	wantImg := img
 	wire.StripLocal(&wantImg)
 	if w.WorldID != wire.ID(testWorld) || w.Image != wantImg {
 		t.Fatalf("WORLD %s seq %d: not the file's stripped image", w.WorldID, w.Seq)
@@ -225,7 +226,7 @@ func TestReplicaDryRunNeverWrites(t *testing.T) {
 func TestReplicaPlanLogsOnce(t *testing.T) {
 	rr := armedRig(t, Config{})
 	c, m := chest(addr.TableDRC, 7)
-	var img world.Image
+	var img save.Image
 	img[c] = m
 	say(t, rr.r, worldOf(2, img))
 	label := DefaultLabel(c, bits.TrailingZeros8(m))
@@ -402,7 +403,7 @@ func TestReplicaScopedBounded(t *testing.T) {
 	}
 
 	t.Run("an unbound file", func(t *testing.T) {
-		rr := unboundRig(t, proto.DefaultFeatures, world.Image{})
+		rr := unboundRig(t, proto.DefaultFeatures, save.Image{})
 		for i := range 300 {
 			say(t, rr.r, kill(t, i))
 		}
@@ -421,7 +422,7 @@ func TestReplicaScopedBounded(t *testing.T) {
 	})
 	t.Run("sent with the welcome, before the replica arms", func(t *testing.T) {
 		rr := bound(t, proto.DefaultFeatures)
-		say(t, rr.r, dan, worldOf(1, world.Image{}))
+		say(t, rr.r, dan, worldOf(1, save.Image{}))
 		rr.meet(outset, int(outset.Room))
 		if !rr.log.has("would set dan switch 0x80") {
 			t.Fatalf("the store sent with the welcome was not planned:\n%s", rr.log)
@@ -510,7 +511,7 @@ func TestReplicaRebaselineSendsWorld(t *testing.T) {
 
 // unboundRig is a replica with a never-saved New Game, connected, its
 // unbound welcome and the hub's WORLD (img) handled.
-func unboundRig(t *testing.T, f proto.Feature, img world.Image) *replicaRig {
+func unboundRig(t *testing.T, f proto.Feature, img save.Image) *replicaRig {
 	t.Helper()
 	rr := newReplicaRig(t, Config{})
 	rr.m.Record(true)
@@ -526,7 +527,7 @@ func unboundRig(t *testing.T, f proto.Feature, img world.Image) *replicaRig {
 
 func TestReplicaBind(t *testing.T) {
 	t.Run("a fresh file into an empty world", func(t *testing.T) {
-		rr := unboundRig(t, proto.FeatureImage, world.Image{})
+		rr := unboundRig(t, proto.FeatureImage, save.Image{})
 		rr.tick()
 		if len(rr.pfs) != 1 || rr.pfs[0].Verdict != PreflightSame {
 			t.Fatalf("preflights %+v", rr.pfs)
@@ -583,7 +584,7 @@ func TestReplicaBind(t *testing.T) {
 		}
 	})
 	t.Run("the host says no", func(t *testing.T) {
-		rr := unboundRig(t, proto.FeatureImage, world.Image{})
+		rr := unboundRig(t, proto.FeatureImage, save.Image{})
 		rr.r.RequestBind()
 		rr.settle()
 		rr.r.Confirm(rr.offers[0].Plan)
@@ -602,7 +603,7 @@ func TestReplicaBind(t *testing.T) {
 		}
 	})
 	t.Run("a file ahead of the world needs --coop-merge", func(t *testing.T) {
-		rr := unboundRig(t, proto.FeatureImage, world.Image{})
+		rr := unboundRig(t, proto.FeatureImage, save.Image{})
 		c, m := chest(addr.TableSea, 5)
 		rr.set(c, m)
 		rr.r.RequestBind()
@@ -612,7 +613,7 @@ func TestReplicaBind(t *testing.T) {
 		}
 	})
 	t.Run("a file ahead of the world, with --coop-merge", func(t *testing.T) {
-		rr := unboundRig(t, proto.FeatureImage|proto.FeatureMerge, world.Image{})
+		rr := unboundRig(t, proto.FeatureImage|proto.FeatureMerge, save.Image{})
 		c, m := chest(addr.TableSea, 5)
 		rr.set(c, m)
 		rr.r.RequestBind()
@@ -790,18 +791,18 @@ func TestReplicaOutOfOrder(t *testing.T) {
 		worldOf(4, at4), // a WORLD from before it
 		gain(3, c1, m1), // and an older relay
 	)
-	view, seq := func() (world.Image, uint64) {
+	view, seq := func() (save.Image, uint64) {
 		rr.r.mu.Lock()
 		defer rr.r.mu.Unlock()
 		return rr.r.view, rr.r.viewSeq
 	}()
 	if want := imageOf(c1, m1, c2, m2); view != want || seq != 5 {
-		t.Fatalf("view %s at seq %d, want the chests of seq 5", fmtGains(world.Diff(&world.Image{}, &view)), seq)
+		t.Fatalf("view %s at seq %d, want the chests of seq 5", fmtGains(world.Diff(&save.Image{}, &view)), seq)
 	}
 	say(t, rr.r, gain(6, c3, m3), worldOf(6, at6), worldOf(4, at4))
 	rr.tick()
 	st := rr.r.Status()
-	if got := writesImage(st.Planned, world.Image{}); got != at6 || st.Seq != 6 {
+	if got := writesImage(st.Planned, save.Image{}); got != at6 || st.Seq != 6 {
 		t.Fatalf("planned %+v at seq %d, want the three chests at seq 6", st.Planned, st.Seq)
 	}
 }

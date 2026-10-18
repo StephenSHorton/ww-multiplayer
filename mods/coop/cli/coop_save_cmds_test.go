@@ -13,8 +13,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables/stagetablestest"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/savefile"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
@@ -22,8 +22,8 @@ import (
 // saveImage is a played file's image as a new file starts
 // (dSv_player_status_a_c::init, d_save.cpp:24-47): 3 hearts, nothing
 // equipped, every slot empty, and a name.
-func saveImage(name string) world.Image {
-	var img world.Image
+func saveImage(name string) save.Image {
+	var img save.Image
 	img[addr.OffMaxLife+1], img[addr.OffLife+1] = 12, 12
 	for i := range 4 {
 		img[addr.OffSelectEquip+i] = 0xFF
@@ -37,7 +37,7 @@ func saveImage(name string) world.Image {
 
 // writeSave writes a GCI file holding imgs in slots 0, 1, ... (a nil one
 // stays a New Game) and returns its path.
-func writeSave(t *testing.T, dir, name string, imgs ...*world.Image) string {
+func writeSave(t *testing.T, dir, name string, imgs ...*save.Image) string {
 	t.Helper()
 	f := savefile.New()
 	for n, img := range imgs {
@@ -56,13 +56,13 @@ func writeSave(t *testing.T, dir, name string, imgs ...*world.Image) string {
 	return path
 }
 
-func setSaveEvent(img *world.Image, id uint16) {
+func setSaveEvent(img *save.Image, id uint16) {
 	b := addr.EventByte(id)
 	img[addr.OffEvent+b.Off] |= b.Mask
 }
 
 // setChest sets tbox bit no of table t; setMemSwitch memory switch no.
-func setChest(t *testing.T, img *world.Image, table, no int) {
+func setChest(t *testing.T, img *save.Image, table, no int) {
 	t.Helper()
 	b, err := addr.TboxBit(no)
 	if err != nil {
@@ -71,7 +71,7 @@ func setChest(t *testing.T, img *world.Image, table, no int) {
 	img[addr.OffMemBit(table)+b.Off] |= b.Mask
 }
 
-func setMemSwitch(t *testing.T, img *world.Image, table, no int) (off int, mask byte) {
+func setMemSwitch(t *testing.T, img *save.Image, table, no int) (off int, mask byte) {
 	t.Helper()
 	_, b, err := addr.SwitchBit(no)
 	if err != nil {
@@ -288,7 +288,7 @@ func TestSaveMerge(t *testing.T) {
 
 // bindSave gives img, the image of a file in slot n, a tag binding it to
 // world w as bind.Bind would (V1-V5 pass), and the save's mDateIPL stamp.
-func bindSave(img *world.Image, n int, w bind.WorldID) [bind.TagSize]byte {
+func bindSave(img *save.Image, n int, w bind.WorldID) [bind.TagSize]byte {
 	tag := bind.Tag{Layout: bind.LayoutV1, Slot: uint8(n), World: w, Nonce: bind.Nonce{byte(n + 1), 0x5A},
 		NameHash: bind.NameHash(img[addr.OffPlayerName : addr.OffPlayerName+bind.PlayerNameSize])}.Encode()
 	copy(img[addr.OffReserve:], tag[:])
@@ -303,29 +303,29 @@ func TestSaveMergeTag(t *testing.T) {
 	w, other := bind.WorldID{1, 2, 3, 4, 5, 6, 7, 8}, bind.WorldID{9, 9, 9, 9, 9, 9, 9, 9}
 	for _, c := range []struct {
 		name    string
-		a, b    func(a, b *world.Image)
+		a, b    func(a, b *save.Image)
 		aSlot   int
 		kept    bool     // the merged slot holds a's tag bytes
 		want    []string // in the log
 		notWant []string
 	}{
 		{name: "a bound, b unbound with progress",
-			a: func(a, b *world.Image) { bindSave(a, 0, w) }, b: func(a, b *world.Image) { setChest(t, b, 3, 2) },
+			a: func(a, b *save.Image) { bindSave(a, 0, w) }, b: func(a, b *save.Image) { setChest(t, b, 3, 2) },
 			want: []string{"WARNING: a is bound to co-op world 0102030405060708 and b is not, so the merged file leaves a's tag out: a bound file's progress enters its world unjudged. At its next --coop join it is an unbound file the host judges like any other",
 				"needs the host's --coop-merge if it holds progress the world lacks (b's)"}},
-		{name: "a bound, b bound to another world", a: func(a, b *world.Image) { bindSave(a, 0, w) },
-			b:    func(a, b *world.Image) { setChest(t, b, 3, 2); bindSave(b, 0, other) },
+		{name: "a bound, b bound to another world", a: func(a, b *save.Image) { bindSave(a, 0, w) },
+			b:    func(a, b *save.Image) { setChest(t, b, 3, 2); bindSave(b, 0, other) },
 			want: []string{"and b is not, so the merged file leaves a's tag out"}},
-		{name: "a and b bound to one world", kept: true, a: func(a, b *world.Image) { bindSave(a, 0, w) },
-			b:    func(a, b *world.Image) { setChest(t, b, 3, 2); bindSave(b, 0, w) },
+		{name: "a and b bound to one world", kept: true, a: func(a, b *save.Image) { bindSave(a, 0, w) },
+			b:    func(a, b *save.Image) { setChest(t, b, 3, 2); bindSave(b, 0, w) },
 			want: []string{"WARNING: a and b are both bound to co-op world 0102030405060708, and the merged file keeps a's tag: at its next session the host takes b's progress into that world as this file's offline progress, with no bind judgement and no --coop-merge"}},
-		{name: "a bound, b adds nothing", kept: true, a: func(a, b *world.Image) { setChest(t, a, 3, 2); bindSave(a, 0, w) },
-			b: func(a, b *world.Image) { setChest(t, b, 3, 2) }, notWant: []string{"co-op tag", "co-op world"}},
+		{name: "a bound, b adds nothing", kept: true, a: func(a, b *save.Image) { setChest(t, a, 3, 2); bindSave(a, 0, w) },
+			b: func(a, b *save.Image) { setChest(t, b, 3, 2) }, notWant: []string{"co-op tag", "co-op world"}},
 		{name: "a's tag leaked into another slot", kept: true, aSlot: 1,
-			a: func(a, b *world.Image) { bindSave(a, 0, w) }, b: func(a, b *world.Image) { setChest(t, b, 3, 2) },
+			a: func(a, b *save.Image) { bindSave(a, 0, w) }, b: func(a, b *save.Image) { setChest(t, b, 3, 2) },
 			want:    []string{"WARNING: a carries a co-op tag of world 0102030405060708 that binds it to no world: the tag leaked from another file (V2: carried into another slot). The merged file keeps those bytes, and a co-op session offers to scrub them"},
 			notWant: []string{"is bound to co-op world"}},
-		{name: "a unbound", kept: true, b: func(a, b *world.Image) { setChest(t, b, 3, 2); bindSave(b, 0, w) },
+		{name: "a unbound", kept: true, b: func(a, b *save.Image) { setChest(t, b, 3, 2); bindSave(b, 0, w) },
 			notWant: []string{"co-op tag", "co-op world"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -335,7 +335,7 @@ func TestSaveMergeTag(t *testing.T) {
 				c.a(&a, &b)
 			}
 			c.b(&a, &b)
-			slots := make([]*world.Image, c.aSlot+1)
+			slots := make([]*save.Image, c.aSlot+1)
 			slots[c.aSlot] = &a
 			pa := writeSave(t, dir, "a.gci", slots...)
 			pb := writeSave(t, dir, "b.gci", &b)

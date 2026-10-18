@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // The journal, journal.log next to world.wwco: one line per change to the
@@ -267,7 +269,7 @@ func replay(w *World, recs []Record) int {
 }
 
 // applyInto merges gs into next under the class table and the tombstones.
-func (w *World) applyInto(next *Image, gs []Gain) {
+func (w *World) applyInto(next *save.Image, gs []Gain) {
 	full := FullPolicy()
 	for _, g := range gs {
 		off := int(g.Off)

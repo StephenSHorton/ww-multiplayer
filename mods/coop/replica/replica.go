@@ -77,6 +77,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
@@ -346,11 +347,11 @@ type Replica struct {
 	everArmed    bind.WorldID        // the world the file was last armed in: offline queueing
 	toldMissing  proto.Feature       // the M4 classes a welcome was last said not to grant (sayUngranted)
 	batch        uint32
-	queued       world.Image // gains detected while armed offline, joined
+	queued       save.Image // gains detected while armed offline, joined
 	queuedN      int
 
 	// The world as the hub told it.
-	view      world.Image
+	view      save.Image
 	viewSeq   uint64
 	viewWorld bind.WorldID
 	haveView  bool
@@ -385,7 +386,7 @@ type Replica struct {
 	planned    []Write
 	held       []HeldBit
 	loggedOR   world.BitSet
-	loggedMax  world.Image
+	loggedMax  save.Image
 	loggedHeld world.BitSet
 	loggedSc   map[scopeKey][]uint32
 
@@ -779,11 +780,11 @@ func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
 		// story bit then reaches the world unbatched, which the receiver's
 		// own gates (story bits on its stage transitions, the inventory
 		// when IDLE) make harmless.
-		r.differ.Withhold((*world.Image)(&m.Image))
+		r.differ.Withhold((*save.Image)(&m.Image))
 		out.send(m)
 		r.worldUp, rep.World = true, true
 		if r.queuedN > 0 {
-			if gs := r.news(world.Diff(&world.Image{}, &r.queued)); len(gs) > 0 {
+			if gs := r.news(world.Diff(&save.Image{}, &r.queued)); len(gs) > 0 {
 				out.send(r.gainsMsg(gs))
 				rep.Gains += len(gs)
 			}
@@ -809,7 +810,7 @@ func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
 			rep.Gains += len(gs)
 		case r.offlineBound(v):
 			world.Apply(&r.queued, gs)
-			r.queuedN = len(world.Diff(&world.Image{}, &r.queued))
+			r.queuedN = len(world.Diff(&save.Image{}, &r.queued))
 			rep.Queued = len(gs)
 		}
 	}
@@ -874,7 +875,7 @@ func (r *Replica) dropQueue(why string) {
 	if why != "" && r.queuedN > 0 {
 		r.logf("co-op: dropped %d queued gain bytes: %s", r.queuedN, why)
 	}
-	r.queued, r.queuedN = world.Image{}, 0
+	r.queued, r.queuedN = save.Image{}, 0
 }
 
 // state says where the session is, and why it is not armed.
@@ -1073,7 +1074,7 @@ func (r *Replica) viewOf(w bind.WorldID) bool {
 		return false
 	}
 	if r.viewWorld != w {
-		r.view, r.viewSeq, r.viewWorld, r.haveView = world.Image{}, 0, w, false
+		r.view, r.viewSeq, r.viewWorld, r.haveView = save.Image{}, 0, w, false
 		r.tomb = world.BitSet{}
 		r.scopedIn, r.loggedSc = map[scopeKey][]uint32{}, map[scopeKey][]uint32{}
 	}
@@ -1091,7 +1092,7 @@ func (r *Replica) onWorld(m *wire.World) {
 		r.logf("co-op: ignored a WORLD of world %s, not this session's %s", w, r.sessionWorld)
 		return
 	}
-	img := world.Image(m.Image)
+	img := m.Image
 	img = world.Shared(&img)
 	// GAINS relayed before the first WORLD are in the view (and viewSeq)
 	// already: a WORLD older than them, the hub's answer to this
@@ -1177,7 +1178,7 @@ func (r *Replica) onCtrl(m *wire.Ctrl, out *outbox) {
 // worldMsg is the file's WORLD: its shared bits (and the DERIVED bytes the
 // hub's preflight reads) within the policy, without tombstoned bits.
 func (r *Replica) worldMsg(o *obs) *wire.World {
-	img := wire.Image(o.raw)
+	img := o.raw
 	wire.StripLocal(&img)
 	for off := range img {
 		if world.SharedMask(off) == 0 {
@@ -1289,7 +1290,7 @@ func presenceOf(o *obs, armed bool) *wire.Presence {
 func (r *Replica) plan(o *obs, armed bool) {
 	if !armed || !r.haveView || r.viewWorld != r.sessionWorld {
 		r.planned, r.held = nil, nil
-		r.loggedOR, r.loggedMax, r.loggedHeld = world.BitSet{}, world.Image{}, world.BitSet{}
+		r.loggedOR, r.loggedMax, r.loggedHeld = world.BitSet{}, save.Image{}, world.BitSet{}
 		return
 	}
 	if !o.consistent() {
@@ -1320,7 +1321,7 @@ func (r *Replica) plan(o *obs, armed bool) {
 // took the bits out of the view already; a GAINS relayed after it must not
 // bring them back): a MAX value with a tombstoned bit is dropped whole, as
 // the world refuses it.
-func (r *Replica) desired() world.Image {
+func (r *Replica) desired() save.Image {
 	v := r.view
 	for off, t := range r.tomb {
 		switch {
@@ -1339,7 +1340,7 @@ func (r *Replica) desired() world.Image {
 func (r *Replica) logPlan(ws []Write, held []HeldBit) {
 	var lines []string
 	var nowOR, nowHeld world.BitSet
-	var nowMax world.Image
+	var nowMax save.Image
 	// Holds first: they are few, and say why the plan is short of the
 	// world.
 	for _, h := range held {

@@ -262,8 +262,10 @@ Go builds work without the C toolchain. To rebuild the injected C code, see
 `SETUP.md` (devkitPPC + Freighter), then run:
 
 ```bash
-cd inject && python build.py        # rebuilds patched.dol
+cd inject && python build.py        # rebuilds patched.dol (devkitPPC from $DEVKITPPC)
 cd .. && python scripts/extract_blob.py  # regenerates blob.go
+go build -o ww-multiplayer.exe ./cmd/ww-multiplayer
+./ww-multiplayer.exe patch <vanilla.iso|ciso> <out.iso>   # a disc with the new blob
 ```
 
 ### Releases, code signing and the website
@@ -327,7 +329,7 @@ sooner.
 - `docs/api/00-design.md` — the approved plan for the modding API, with multiplayer and co-op as mods
 - [GitHub issues](../../issues) — what's next, organized by epic
 - `SETUP.md` — what you need to install if you want to work on the C
-  injection side (devkitPPC, Freighter, wit, etc.)
+  injection side (devkitPPC, Freighter, etc.)
 
 ## License
 

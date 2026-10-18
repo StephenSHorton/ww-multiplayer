@@ -14,9 +14,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/savefile"
 )
 
@@ -171,7 +171,7 @@ func cardWith(t *testing.T, files ...struct {
 		if fl.name == "" {
 			continue
 		}
-		var img world.Image
+		var img save.Image
 		copy(img[addr.OffPlayerName:], fl.name)
 		binary.BigEndian.PutUint16(img[addr.OffMaxLife:], uint16(fl.hearts*4))
 		binary.BigEndian.PutUint64(img[addr.OffDateIPL:], 0x1234) // saved and loaded

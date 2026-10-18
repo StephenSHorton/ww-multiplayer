@@ -11,6 +11,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -71,7 +72,7 @@ type obs struct {
 	screen screen
 	// raw is the canonical image (state.Snapshot.Image), local bytes
 	// included; local is its shared bits (world.Shared).
-	raw, local world.Image
+	raw, local save.Image
 	// stagTable is the save table the loaded STAG chunk names
 	// (dStage_stagInfo_GetSaveTbl, d_stage.h:1027-1029), or -1 when its
 	// pointer is null or unreadable.
@@ -90,7 +91,7 @@ type obs struct {
 func observe(m mem.Mem, s *state.Snapshot, st gate.Status) *obs {
 	o := &obs{s: s, st: st, file: bind.FileOf(s), screen: screenOf(s), stagTable: -1}
 	o.key = keyOf(o.file)
-	o.raw = world.Image(s.Image())
+	o.raw = save.Image(s.Image())
 	o.local = world.Shared(&o.raw)
 	table, typ, ok := readStag(m, s.StagInfo)
 	if ok {
@@ -193,7 +194,7 @@ type Differ struct {
 
 	have bool
 	file fileKey
-	base world.Image
+	base save.Image
 
 	sc    scopeBase
 	pace  pace

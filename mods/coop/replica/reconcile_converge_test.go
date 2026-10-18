@@ -14,6 +14,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // m3TblHash is the stage tables' identity the M3 loopback's host and
@@ -126,8 +127,8 @@ func m3HandOffByte(i int) int {
 }
 
 // m3Image is img's M3 bytes within pol, everything else zero.
-func m3Image(img *world.Image, pol *world.Policy) world.Image {
-	var out world.Image
+func m3Image(img *save.Image, pol *world.Policy) save.Image {
+	var out save.Image
 	for _, off := range m3Bytes(pol) {
 		out[off] = img[off] & world.SharedMask(off) & pol[off]
 	}
@@ -255,7 +256,7 @@ func TestConvergeM3Loopback(t *testing.T) {
 		wimg := h.store.Image()
 		want := m3Image(&wimg, pol)
 		ok := true
-		var join world.Image
+		var join save.Image
 		for i, p := range players {
 			img := p.image()
 			got := m3Image(&img, pol)

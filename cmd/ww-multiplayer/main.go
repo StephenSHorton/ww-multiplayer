@@ -98,8 +98,8 @@ func runPatch(in, out string) {
 // mirroring locally. Link's J3DModel is at daPy_lk_c + 0x032C; mpNodeMtx
 // is at J3DModel + 0x8C; sizeof(Mtx) = 48; Link has 42 joints.
 //
-// Standalone-CLI wrapper. Preserves the `ww-multiplayer.exe broadcast-pose` entry
-// point that scripts/mplay2.sh relies on. Installs the same SIGINT handler
+// Standalone-CLI wrapper: the `ww-multiplayer.exe broadcast-pose` entry
+// point, the pipeline mp-local runs in-process, as its own process. Installs the same SIGINT handler
 // as host/join so Ctrl+C exits cleanly (the broadcast side doesn't touch
 // shadow_mode so there's nothing to clean up — the signal handler just
 // gets us out of the send tick immediately instead of on the next tick).
@@ -120,9 +120,10 @@ func runBroadcastPose(name, addr string) {
 //
 //	remote player -> server -> puppet-sync -> mailbox -> C hook -> actor pos
 //
-// Standalone-CLI wrapper. Honors WW_SELF_NAME (kept for mplay2.sh); host/
-// join call feed.PuppetSync directly with an explicit filter name. Installs
-// the same SIGINT handler as host/join so mplay2.sh's Ctrl+C path resets
+// Standalone-CLI wrapper. Honors WW_SELF_NAME (a puppet-sync run next to
+// its own broadcast-pose on one Dolphin); host/join call feed.PuppetSync
+// directly with an explicit filter name. Installs the same SIGINT handler
+// as host/join so Ctrl+C resets
 // the mailbox (shadow_mode=0 + pose_seqs[*]=0) instead of leaving Link #2
 // frozen at the last received pose.
 func runPuppetSync(name, addr string) {

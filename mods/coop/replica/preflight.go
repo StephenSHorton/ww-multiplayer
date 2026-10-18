@@ -7,6 +7,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // The join preflight (§5.3): before a file is bound to a world, what each
@@ -115,7 +116,7 @@ type PreflightOptions struct {
 // Preflight compares a file with a world: file is the file's canonical
 // image (local bytes included: its clear count and equipment matter),
 // worldImg the world's. It is a pure function of the two images.
-func Preflight(file, worldImg *world.Image, opt PreflightOptions) PreflightReport {
+func Preflight(file, worldImg *save.Image, opt PreflightOptions) PreflightReport {
 	pol, label := opt.Policy, opt.Label
 	if pol == nil {
 		pol = world.DefaultPolicy()

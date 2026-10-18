@@ -5,7 +5,7 @@
 # Any PR that edits inject/src, inject/include or inject/build.py,
 # comment-only edits included, must carry its own restamp.
 blob 4801557c0432e8dd93b15871a065ed2795d63342f43c29c91a141b95f4aeb81b
-input 919be8b80b39ce185c67b69acd2c5e9f06bcf31b52c1df0d0a20feac4a82823a inject/build.py
+input 1c4a4fb4407193955d9ddcce8ec95efd96c36a31ef2051bace6e8c3f895b7103 inject/build.py
 input ba439166894001f3863547cd17f88115cee173fb47479cdbdee02fada30921b9 inject/include/mailbox_core.h
 input 6f5b427fbf3b09f9de56a29cc137ba43328445177cdd3be09ec8743d8514efd5 inject/include/mailbox_mp.h
 input 47c625ecf7f979f52400d9641f55a823a77ee0bec0679389b1c7b30a952b1dcd inject/include/wwapi.h

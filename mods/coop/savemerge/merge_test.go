@@ -12,8 +12,8 @@ import (
 
 // freshImage is a new file's image as dSv_player_status_a_c::init leaves
 // it (d_save.cpp:24-47): 3 hearts, nothing equipped, every slot empty.
-func freshImage(name string) world.Image {
-	var img world.Image
+func freshImage(name string) save.Image {
+	var img save.Image
 	img[addr.OffMaxLife+1], img[addr.OffLife+1] = 12, 12
 	for i := range 4 {
 		img[addr.OffSelectEquip+i] = save.ItemNone
@@ -26,12 +26,12 @@ func freshImage(name string) world.Image {
 }
 
 // setEvent sets story bit id in img.
-func setEvent(img *world.Image, id uint16) {
+func setEvent(img *save.Image, id uint16) {
 	b := addr.EventByte(id)
 	img[addr.OffEvent+b.Off] |= b.Mask
 }
 
-func hasEvent(img *world.Image, id uint16) bool {
+func hasEvent(img *save.Image, id uint16) bool {
 	b := addr.EventByte(id)
 	return img[addr.OffEvent+b.Off]&b.Mask == b.Mask
 }
@@ -77,13 +77,13 @@ func TestMergeClasses(t *testing.T) {
 	for _, c := range []struct {
 		name  string
 		pol   *world.Policy
-		a, b  func(*world.Image)
-		check func(t *testing.T, a, m *world.Image, r MergeResult)
+		a, b  func(*save.Image)
+		check func(t *testing.T, a, m *save.Image, r MergeResult)
 	}{
 		{"OR bits union", nil,
-			func(a *world.Image) { a[tboxOff] = 0x01 },
-			func(b *world.Image) { b[tboxOff] = 0x04; b[addr.OffTact] = 0x02 },
-			func(t *testing.T, a, m *world.Image, r MergeResult) {
+			func(a *save.Image) { a[tboxOff] = 0x01 },
+			func(b *save.Image) { b[tboxOff] = 0x04; b[addr.OffTact] = 0x02 },
+			func(t *testing.T, a, m *save.Image, r MergeResult) {
 				if m[tboxOff] != 0x05 || m[addr.OffTact] != 0x02 {
 					t.Errorf("chests %#x songs %#x", m[tboxOff], m[addr.OffTact])
 				}
@@ -92,32 +92,32 @@ func TestMergeClasses(t *testing.T) {
 				}
 			}},
 		{"OR_MASKED closed by default", nil,
-			func(*world.Image) {},
-			func(b *world.Image) { b[swOff] |= swMask; setEvent(b, 0x1001) },
-			func(t *testing.T, a, m *world.Image, r MergeResult) {
+			func(*save.Image) {},
+			func(b *save.Image) { b[swOff] |= swMask; setEvent(b, 0x1001) },
+			func(t *testing.T, a, m *save.Image, r MergeResult) {
 				if *m != *a || len(r.Gains) != 0 {
 					t.Errorf("default policy merged OR_MASKED bits: %+v", r.Gains)
 				}
 			}},
 		{"OR_MASKED within the policy", granted,
-			func(*world.Image) {},
-			func(b *world.Image) { b[swOff] |= swMask | swMask<<1; setEvent(b, 0x1001); setEvent(b, 0x1002) },
-			func(t *testing.T, a, m *world.Image, r MergeResult) {
+			func(*save.Image) {},
+			func(b *save.Image) { b[swOff] |= swMask | swMask<<1; setEvent(b, 0x1001); setEvent(b, 0x1002) },
+			func(t *testing.T, a, m *save.Image, r MergeResult) {
 				if m[swOff] != swMask || !hasEvent(m, 0x1001) || hasEvent(m, 0x1002) {
 					t.Errorf("switch byte %#x, 0x1001 %v, 0x1002 %v", m[swOff], hasEvent(m, 0x1001), hasEvent(m, 0x1002))
 				}
 			}},
 		{"MAX raised, never lowered", nil,
-			func(a *world.Image) { a[addr.OffWalletSize] = 1; a[addr.OffArrowMax] = 60 },
-			func(b *world.Image) { b[addr.OffWalletSize] = 2; b[addr.OffArrowMax] = 30 },
-			func(t *testing.T, a, m *world.Image, r MergeResult) {
+			func(a *save.Image) { a[addr.OffWalletSize] = 1; a[addr.OffArrowMax] = 60 },
+			func(b *save.Image) { b[addr.OffWalletSize] = 2; b[addr.OffArrowMax] = 30 },
+			func(t *testing.T, a, m *save.Image, r MergeResult) {
 				if m[addr.OffWalletSize] != 2 || m[addr.OffArrowMax] != 60 {
 					t.Errorf("wallet %d arrows %d", m[addr.OffWalletSize], m[addr.OffArrowMax])
 				}
 			}},
 		{"PER_PLAYER, NEVER, TAG and DERIVED are a's", world.FullPolicy(),
-			func(a *world.Image) { a[addr.OffReserve] = 0xAA },
-			func(b *world.Image) {
+			func(a *save.Image) { a[addr.OffReserve] = 0xAA },
+			func(b *save.Image) {
 				b[addr.OffRupee+1] = 99
 				b[addr.OffLife+1] = 40
 				b[addr.OffMaxLife+1] = 40
@@ -128,7 +128,7 @@ func TestMergeClasses(t *testing.T) {
 				b[addr.OffEvent+0x50] = 0xFF // unnamed event byte: never
 				b[addr.OffMemBit(5)+addr.MemBitOffKeyNum] = 3
 			},
-			func(t *testing.T, a, m *world.Image, r MergeResult) {
+			func(t *testing.T, a, m *save.Image, r MergeResult) {
 				if *m != *a {
 					for _, c := range Diff(a, m) {
 						t.Errorf("changed %s at 0x%03X (%s)", c.Rule.Field, c.Off, c.Rule.Class)
@@ -136,9 +136,9 @@ func TestMergeClasses(t *testing.T) {
 				}
 			}},
 		{"held story bit", world.FullPolicy(),
-			func(*world.Image) {},
-			func(b *world.Image) { setEvent(b, metKorl); setEvent(b, 0x0801) },
-			func(t *testing.T, a, m *world.Image, r MergeResult) {
+			func(*save.Image) {},
+			func(b *save.Image) { setEvent(b, metKorl); setEvent(b, 0x0801) },
+			func(t *testing.T, a, m *save.Image, r MergeResult) {
 				if hasEvent(m, metKorl) || hasEvent(m, 0x0801) {
 					t.Error("resume-stage bits applied to a file without MET_KORL")
 				}
@@ -147,9 +147,9 @@ func TestMergeClasses(t *testing.T) {
 				}
 			}},
 		{"hold released by a's own bit", world.FullPolicy(),
-			func(a *world.Image) { setEvent(a, metKorl) },
-			func(b *world.Image) { setEvent(b, metKorl); setEvent(b, 0x0801) },
-			func(t *testing.T, a, m *world.Image, r MergeResult) {
+			func(a *save.Image) { setEvent(a, metKorl) },
+			func(b *save.Image) { setEvent(b, metKorl); setEvent(b, 0x0801) },
+			func(t *testing.T, a, m *save.Image, r MergeResult) {
 				if !hasEvent(m, 0x0801) || len(r.Held) != 0 {
 					t.Errorf("0x0801 %v held %+v", hasEvent(m, 0x0801), r.Held)
 				}
@@ -221,7 +221,7 @@ func TestMergeDeriveRules(t *testing.T) {
 	a[addr.OffMaxLife+1], a[addr.OffMaxMagic] = 20, 16
 	b[addr.OffTact] = 1
 
-	_, err := Merge(&a, &b, MergeOptions{Derive: func(img, _, _ *world.Image) []string {
+	_, err := Merge(&a, &b, MergeOptions{Derive: func(img, _, _ *save.Image) []string {
 		img[addr.OffRupee+1] = 1
 		return nil
 	}})
@@ -229,7 +229,7 @@ func TestMergeDeriveRules(t *testing.T) {
 		t.Errorf("a derive that changes a PER_PLAYER byte: %v", err)
 	}
 
-	r, err := Merge(&a, &b, MergeOptions{Derive: func(img, _, _ *world.Image) []string {
+	r, err := Merge(&a, &b, MergeOptions{Derive: func(img, _, _ *save.Image) []string {
 		img[addr.OffMaxLife], img[addr.OffMaxLife+1] = 0, 12
 		img[addr.OffMaxMagic] = 0
 		img[addr.OffItems+19] = 0x2F

@@ -396,7 +396,7 @@ func (cg *coGame) view() save.View {
 // the Deku Leaf's slots once their flags are in, and the derived values
 // over the game's own flags: DRC's keys when it is loaded, max life by
 // the heart table, max magic, with no count left pending.
-func (m *coM4) lacks(cg *coGame, w *world.Image) []string {
+func (m *coM4) lacks(cg *coGame, w *save.Image) []string {
 	var out []string
 	saved := func(off int) byte { return cg.read(addr.SaveImage+uint32(off), 1)[0] }
 	for off := range addr.SaveImageSize {

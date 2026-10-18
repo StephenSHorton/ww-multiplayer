@@ -15,6 +15,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -795,7 +796,7 @@ func TestFrameWriterDryRun(t *testing.T) {
 func TestFrameWriterTransitionStorm(t *testing.T) {
 	r := newWriterRig(t, GuardConfig{Policy: world.FullPolicy()})
 	r.m.Record(true)
-	view := world.Image{}
+	view := save.Image{}
 	for _, tb := range []int{addr.TableSea, addr.TableSea2, addr.TableDRC} {
 		m := addr.OffMemBit(tb)
 		view[m+addr.MemBitOffTbox+3] = 0x0F

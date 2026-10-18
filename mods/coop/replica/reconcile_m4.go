@@ -15,6 +15,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
@@ -164,7 +165,7 @@ func (r *Replica) reconcileM4(o *obs, armed bool, rep *Report) {
 		r.logf("co-op: %s", n)
 	}
 
-	var view world.Image
+	var view save.Image
 	if ready {
 		view = r.m4View()
 	}
@@ -277,7 +278,7 @@ func (r *Replica) storyWrites(o *obs, gains []world.Gain, dry bool) {
 // without what the host tombstoned (desired), within the policy. A MAX
 // byte whose value the policy does not wholly open is dropped, as the
 // planner drops it.
-func (r *Replica) m4View() world.Image {
+func (r *Replica) m4View() save.Image {
 	v := r.desired()
 	for off := range v {
 		m := r.policy[off]

@@ -40,8 +40,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/savemerge"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/story"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/savefile"
 )
 
@@ -204,7 +204,7 @@ var saveClasses = []struct {
 // A flag bit outside a merging byte's class mask goes with PER_PLAYER, as
 // it is each player's own (class.Rule): the bottle contents above bit 0
 // of mGetItem[0..2], the Hero's Charm worn in mCollect[4].
-func edgesByClass(a, b *world.Image) map[class.Class][]diag.SaveEdge {
+func edgesByClass(a, b *save.Image) map[class.Class][]diag.SaveEdge {
 	out := make(map[class.Class][]diag.SaveEdge)
 	for _, e := range diag.DiffSave(a[:], b[:], -1) {
 		if i := e.Off - addr.OffItems; i >= 0 && i < addr.SlotCount {
@@ -376,7 +376,7 @@ func saveMerge(w io.Writer, args saveArgs, tablesFor func(iso string) (*stagetab
 // from it: card_to_memory brings back mReserve with the rest, mDataNum is
 // n, and mDateIPL is the stamp the game's save put into the card copy
 // (addr.OffDateIPL).
-func slotFile(n int, img *world.Image) bind.File {
+func slotFile(n int, img *save.Image) bind.File {
 	f := bind.File{Slot: uint8(n), ClearCount: img[addr.OffClearCount], DateIPL: binary.BigEndian.Uint64(img[addr.OffDateIPL:])}
 	copy(f.Tag[:], img[addr.OffReserve:])
 	copy(f.Name[:], img[addr.OffPlayerName:])
@@ -399,7 +399,7 @@ func slotFile(n int, img *world.Image) bind.File {
 // lacks or one far behind it needs the host's --coop-merge. A tag that
 // binds a to no world (leaked, or a newer layout's) is kept as it is and
 // said to be what it is.
-func mergedTag(a, b *saveInput, img *world.Image, adds bool) string {
+func mergedTag(a, b *saveInput, img *save.Image, adds bool) string {
 	va := bind.Classify(slotFile(a.slot.N, &a.slot.Image), bind.Expect{})
 	switch va.State {
 	case bind.Bound:
@@ -426,7 +426,7 @@ func mergedTag(a, b *saveInput, img *world.Image, adds bool) string {
 
 // eventBitSet reports whether img has story bit id: byte HH of mEvent,
 // mask LL (onEventBit, d_save.cpp:1187-1189).
-func eventBitSet(img *world.Image, id uint16) bool {
+func eventBitSet(img *save.Image, id uint16) bool {
 	b := addr.EventByte(id)
 	return img[addr.OffEvent+b.Off]&b.Mask == b.Mask
 }
@@ -454,7 +454,7 @@ func writeNewFile(path string, b []byte) error {
 // checkMerged reads path back as the game would load slot n: a GCI whose
 // entry, copies and slot checksum hold (savefile.Verify) and whose slot is
 // want.
-func checkMerged(path string, n int, want *world.Image) error {
+func checkMerged(path string, n int, want *save.Image) error {
 	f, kind, err := savefile.Read(path)
 	if err != nil {
 		return err

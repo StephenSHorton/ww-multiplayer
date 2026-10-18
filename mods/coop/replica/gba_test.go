@@ -13,6 +13,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/keys"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
@@ -156,7 +157,7 @@ func TestGBAHoldsMemorySwitches(t *testing.T) {
 	}
 	off, m5 := switchImageByte(addr.TableSea, gbaSea)
 	_, m6 := switchImageByte(addr.TableSea, plainSea)
-	var img world.Image
+	var img save.Image
 	img[off] = m5 | m6
 	rr.world(img)
 	rr.ticks(gate5)
@@ -393,7 +394,7 @@ func TestGBARecheck(t *testing.T) {
 		proto.FeatureImage|proto.FeatureSwitches|proto.FeatureLiveSwitches)
 	rr.settleRooms()
 	off, m5 := switchImageByte(addr.TableSea, gbaSea)
-	var img world.Image
+	var img save.Image
 	img[off] = m5
 	rr.world(img)
 	// The link comes up between the snapshot (heartbeat read 1) and the

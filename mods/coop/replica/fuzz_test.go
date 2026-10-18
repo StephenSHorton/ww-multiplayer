@@ -10,6 +10,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // Native fuzz targets in the style of mods/multiplayer/net/fuzz_test.go. The
@@ -167,7 +168,7 @@ func FuzzDiffer(f *testing.F) {
 		dr := newDifferRig(t, world.FullPolicy())
 		dr.ticks(2)
 		stages := []fakegame.Stage{outset, drc, drcBoss, woods}
-		var sets world.Image // bits the game set since the last tick
+		var sets save.Image // bits the game set since the last tick
 		type sk struct {
 			kind wire.ScopeKind
 			room int8
@@ -235,7 +236,7 @@ func FuzzDiffer(f *testing.F) {
 					if err := dr.g.LoadFile(0); err != nil {
 						t.Fatal(err)
 					}
-					sets = world.Image{} // the differ re-baselines on the reload
+					sets = save.Image{} // the differ re-baselines on the reload
 					clear(scoped)
 				}
 				dr.load(stages[a%len(stages)])
@@ -258,7 +259,7 @@ func FuzzDiffer(f *testing.F) {
 						}
 					}
 				}
-				sets = world.Image{}
+				sets = save.Image{}
 				clear(scoped)
 			}
 		}

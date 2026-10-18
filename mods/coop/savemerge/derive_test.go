@@ -22,27 +22,27 @@ func TestDeriveSlots(t *testing.T) {
 	bowSlot := addr.OffItems + addr.SlotBow
 	for _, c := range []struct {
 		name       string
-		a, b       func(*world.Image)
+		a, b       func(*save.Image)
 		off        int
 		want       byte
 		wantNote   string
 		wantSilent bool
 	}{
-		{"empty slot filled", nil, func(b *world.Image) { b[addr.OffGetItem+19] = 1 }, addr.OffItems + 19, 0x2F, "hookshot", false},
-		{"best bow variant", nil, func(b *world.Image) { b[addr.OffGetItem+addr.SlotBow] = 0x07 }, bowSlot, lightArrow, "bow", false},
-		{"lesser variant raised", func(a *world.Image) { a[addr.OffGetItem+addr.SlotBow] = 1; a[bowSlot] = bow },
-			func(b *world.Image) { b[addr.OffGetItem+addr.SlotBow] = 3 }, bowSlot, magicArrow, "0x27 -> 0x35", false},
-		{"better variant kept", func(a *world.Image) { a[addr.OffGetItem+addr.SlotBow] = 7; a[bowSlot] = lightArrow },
-			func(b *world.Image) { b[addr.OffGetItem+addr.SlotBow] = 1 }, bowSlot, lightArrow, "", true},
-		{"unknown item kept", func(a *world.Image) { a[addr.OffItems+5] = 0x99 },
-			func(b *world.Image) { b[addr.OffGetItem+5] = 1 }, addr.OffItems + 5, 0x99, "kept item 0x99", false},
-		{"deluxe picto box", nil, func(b *world.Image) { b[addr.OffGetItem+8] = 3 }, addr.OffItems + 8, 0x26, "picto box", false},
-		{"no flag, no item", nil, func(b *world.Image) { b[addr.OffItems+20] = 0x33 }, addr.OffItems + 20, save.ItemNone, "", true},
-		{"sword equipped", nil, func(b *world.Image) { b[addr.OffCollectFlags] = 0x03 }, addr.OffSelectEquip, ms1, "sword", false},
-		{"sword raised", func(a *world.Image) { a[addr.OffCollectFlags] = 1; a[addr.OffSelectEquip] = sword },
-			func(b *world.Image) { b[addr.OffCollectFlags] = 0x0F }, addr.OffSelectEquip, ms3, "0x38 -> 0x3E", false},
-		{"mirror shield", nil, func(b *world.Image) { b[addr.OffCollectFlags+1] = 3 }, addr.OffSelectEquip + 1, 0x3C, "shield", false},
-		{"bracelets", nil, func(b *world.Image) { b[addr.OffCollectFlags+2] = 1 }, addr.OffSelectEquip + 2, 0x28, "mSelectEquip (power bracelets)", false},
+		{"empty slot filled", nil, func(b *save.Image) { b[addr.OffGetItem+19] = 1 }, addr.OffItems + 19, 0x2F, "hookshot", false},
+		{"best bow variant", nil, func(b *save.Image) { b[addr.OffGetItem+addr.SlotBow] = 0x07 }, bowSlot, lightArrow, "bow", false},
+		{"lesser variant raised", func(a *save.Image) { a[addr.OffGetItem+addr.SlotBow] = 1; a[bowSlot] = bow },
+			func(b *save.Image) { b[addr.OffGetItem+addr.SlotBow] = 3 }, bowSlot, magicArrow, "0x27 -> 0x35", false},
+		{"better variant kept", func(a *save.Image) { a[addr.OffGetItem+addr.SlotBow] = 7; a[bowSlot] = lightArrow },
+			func(b *save.Image) { b[addr.OffGetItem+addr.SlotBow] = 1 }, bowSlot, lightArrow, "", true},
+		{"unknown item kept", func(a *save.Image) { a[addr.OffItems+5] = 0x99 },
+			func(b *save.Image) { b[addr.OffGetItem+5] = 1 }, addr.OffItems + 5, 0x99, "kept item 0x99", false},
+		{"deluxe picto box", nil, func(b *save.Image) { b[addr.OffGetItem+8] = 3 }, addr.OffItems + 8, 0x26, "picto box", false},
+		{"no flag, no item", nil, func(b *save.Image) { b[addr.OffItems+20] = 0x33 }, addr.OffItems + 20, save.ItemNone, "", true},
+		{"sword equipped", nil, func(b *save.Image) { b[addr.OffCollectFlags] = 0x03 }, addr.OffSelectEquip, ms1, "sword", false},
+		{"sword raised", func(a *save.Image) { a[addr.OffCollectFlags] = 1; a[addr.OffSelectEquip] = sword },
+			func(b *save.Image) { b[addr.OffCollectFlags] = 0x0F }, addr.OffSelectEquip, ms3, "0x38 -> 0x3E", false},
+		{"mirror shield", nil, func(b *save.Image) { b[addr.OffCollectFlags+1] = 3 }, addr.OffSelectEquip + 1, 0x3C, "shield", false},
+		{"bracelets", nil, func(b *save.Image) { b[addr.OffCollectFlags+2] = 1 }, addr.OffSelectEquip + 2, 0x28, "mSelectEquip (power bracelets)", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			a, b := freshImage("Link"), freshImage("Tetra")
@@ -80,48 +80,48 @@ func keyTable(pass bool) *keys.Result {
 
 func TestDeriveKeys(t *testing.T) {
 	keyOff := addr.OffMemBit(3) + addr.MemBitOffKeyNum
-	chest := func(img *world.Image, i int) {
+	chest := func(img *save.Image, i int) {
 		b, _ := addr.TboxBit(i)
 		img[addr.OffMemBit(3)+b.Off] |= b.Mask
 	}
-	door := func(img *world.Image, i int) {
+	door := func(img *save.Image, i int) {
 		_, b, _ := addr.SwitchBit(0x10 + i)
 		img[addr.OffMemBit(3)+b.Off] |= b.Mask
 	}
 	for _, c := range []struct {
 		name     string
 		pass     bool
-		a, b     func(*world.Image)
+		a, b     func(*save.Image)
 		want     byte
 		wantNote string
 		noNote   string // a note that must not show
 	}{
-		{"partner's key", true, nil, func(b *world.Image) { chest(b, 0); b[keyOff] = 1 }, 1, "0 -> 1", ""},
+		{"partner's key", true, nil, func(b *save.Image) { chest(b, 0); b[keyOff] = 1 }, 1, "0 -> 1", ""},
 		{"same key, partner spent it", true,
-			func(a *world.Image) { chest(a, 0); a[keyOff] = 1 },
-			func(b *world.Image) { chest(b, 0); door(b, 0) }, 0, "1 -> 0", "beyond"},
+			func(a *save.Image) { chest(a, 0); a[keyOff] = 1 },
+			func(b *save.Image) { chest(b, 0); door(b, 0) }, 0, "1 -> 0", "beyond"},
 		{"key on a door a opened too", true,
-			func(a *world.Image) { chest(a, 0); door(a, 0) },
-			func(b *world.Image) { chest(b, 0); door(b, 0) }, 0, "", ""},
+			func(a *save.Image) { chest(a, 0); door(a, 0) },
+			func(b *save.Image) { chest(b, 0); door(b, 0) }, 0, "", ""},
 		{"one key, two doors", true,
-			func(a *world.Image) { chest(a, 0); door(a, 0) },
-			func(b *world.Image) { chest(b, 0); door(b, 1) }, 0, "", ""},
+			func(a *save.Image) { chest(a, 0); door(a, 0) },
+			func(b *save.Image) { chest(b, 0); door(b, 1) }, 0, "", ""},
 		// a is the output of "one key, two doors": keys(t) is -1 over its
 		// flags and its 0 keys are the HUD's clamp, no key from anywhere.
 		{"a with more doors than sources", true,
-			func(a *world.Image) { chest(a, 0); door(a, 0); door(a, 1) },
-			func(b *world.Image) { chest(b, 0); chest(b, 1); door(b, 0); door(b, 1) }, 0, "", "kept"},
+			func(a *save.Image) { chest(a, 0); door(a, 0); door(a, 1) },
+			func(b *save.Image) { chest(b, 0); chest(b, 1); door(b, 0); door(b, 1) }, 0, "", "kept"},
 		{"a's key beyond its flags goes", true,
-			func(a *world.Image) { chest(a, 0); a[keyOff] = 2 },
-			func(b *world.Image) { chest(b, 0); door(b, 0) }, 0, "2 -> 0: 1 of 3 source(s) taken, 1 of 3 door(s) open; a held 1 key(s) beyond what its own flags give", ""},
+			func(a *save.Image) { chest(a, 0); a[keyOff] = 2 },
+			func(b *save.Image) { chest(b, 0); door(b, 0) }, 0, "2 -> 0: 1 of 3 source(s) taken, 1 of 3 door(s) open; a held 1 key(s) beyond what its own flags give", ""},
 		{"a's key beyond its flags, b's door debt", true,
-			func(a *world.Image) { chest(a, 0); a[keyOff] = 2 },
-			func(b *world.Image) { chest(b, 0); door(b, 0); door(b, 1) }, 0, "a held 1 key(s)", ""},
+			func(a *save.Image) { chest(a, 0); a[keyOff] = 2 },
+			func(b *save.Image) { chest(b, 0); door(b, 0); door(b, 1) }, 0, "a held 1 key(s)", ""},
 		{"past the HUD's 99", true,
-			func(a *world.Image) { chest(a, 0); a[keyOff] = 120 },
-			func(b *world.Image) { chest(b, 1) }, 2, "120 -> 2", ""},
-		{"failing table kept", false, nil, func(b *world.Image) { chest(b, 0); chest(b, 1) }, 0, "not derived: its M1 key invariant fails", ""},
-		{"untouched table kept", true, func(a *world.Image) { chest(a, 0); a[keyOff] = 0 }, nil, 0, "", ""},
+			func(a *save.Image) { chest(a, 0); a[keyOff] = 120 },
+			func(b *save.Image) { chest(b, 1) }, 2, "120 -> 2", ""},
+		{"failing table kept", false, nil, func(b *save.Image) { chest(b, 0); chest(b, 1) }, 0, "not derived: its M1 key invariant fails", ""},
+		{"untouched table kept", true, func(a *save.Image) { chest(a, 0); a[keyOff] = 0 }, nil, 0, "", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			a, b := freshImage("Link"), freshImage("Tetra")
@@ -192,38 +192,38 @@ func heartTable(pass bool) *hearts.Result {
 }
 
 func TestDeriveLife(t *testing.T) {
-	piece := func(img *world.Image, i int) {
+	piece := func(img *save.Image, i int) {
 		b, _ := addr.TboxBit(i)
 		img[addr.OffMemBit(0)+b.Off] |= b.Mask
 	}
-	container := func(img *world.Image, table int) {
+	container := func(img *save.Image, table int) {
 		img[addr.OffMemBit(table)+addr.MemBitOffDungeonItem] |= 1 << addr.DungeonItemStageLife
 	}
 	for _, c := range []struct {
 		name     string
 		pass     bool
 		maxLife  int
-		a, b     func(*world.Image)
+		a, b     func(*save.Image)
 		want     int
 		wantNote string
 	}{
 		{"partner's piece and container", true, 12, nil,
-			func(b *world.Image) { piece(b, 1); container(b, 4) }, 17, "1 heart piece(s) and 1 container(s)"},
+			func(b *save.Image) { piece(b, 1); container(b, 4) }, 17, "1 heart piece(s) and 1 container(s)"},
 		{"piece both took counts once", true, 13,
-			func(a *world.Image) { piece(a, 0) },
-			func(b *world.Image) { piece(b, 0); piece(b, 1) }, 14, "13 -> 14"},
-		{"reward by its event bit", true, 12, nil, func(b *world.Image) { setEvent(b, 0x1340) }, 13, "1 heart piece"},
+			func(a *save.Image) { piece(a, 0) },
+			func(b *save.Image) { piece(b, 0); piece(b, 1) }, 14, "13 -> 14"},
+		{"reward by its event bit", true, 12, nil, func(b *save.Image) { setEvent(b, 0x1340) }, 13, "1 heart piece"},
 		// The letter register merges by MAX, so a's file reads the letter
 		// read. The mailbox hands over only a stocked letter
 		// (d_a_obj_toripost.cpp:270) and nothing stocks a read one
 		// (d_letter.cpp:53-62): its piece comes with the merge or never.
-		{"reward by its letter read", true, 12, nil, func(b *world.Image) { b[addr.OffEvent+0xAC] |= 0x03 }, 13, "1 heart piece"},
-		{"a letter not yet read", true, 12, nil, func(b *world.Image) { b[addr.OffEvent+0xAC] |= 0x02 }, 12, ""},
+		{"reward by its letter read", true, 12, nil, func(b *save.Image) { b[addr.OffEvent+0xAC] |= 0x03 }, 13, "1 heart piece"},
+		{"a letter not yet read", true, 12, nil, func(b *save.Image) { b[addr.OffEvent+0xAC] |= 0x02 }, 12, ""},
 		// a's 16 holds a minigame piece no flag records: the merge adds to it.
-		{"a's unrecorded reward kept", true, 16, nil, func(b *world.Image) { piece(b, 0) }, 17, "16 -> 17"},
-		{"cap", true, 0x4E, nil, func(b *world.Image) { container(b, 3) }, 0x50, "78 -> 80"},
-		{"at the cap", true, 0x50, nil, func(b *world.Image) { piece(b, 1) }, 0x50, "the cap"},
-		{"failing table kept", false, 12, nil, func(b *world.Image) { piece(b, 1) }, 12, "fails its check"},
+		{"a's unrecorded reward kept", true, 16, nil, func(b *save.Image) { piece(b, 0) }, 17, "16 -> 17"},
+		{"cap", true, 0x4E, nil, func(b *save.Image) { container(b, 3) }, 0x50, "78 -> 80"},
+		{"at the cap", true, 0x50, nil, func(b *save.Image) { piece(b, 1) }, 0x50, "the cap"},
+		{"failing table kept", false, 12, nil, func(b *save.Image) { piece(b, 1) }, 12, "fails its check"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			a, b := freshImage("Link"), freshImage("Tetra")
@@ -286,7 +286,7 @@ func TestDeriveMagic(t *testing.T) {
 }
 
 func TestFlagSet(t *testing.T) {
-	var img world.Image
+	var img save.Image
 	img[addr.OffMapComplete+3] = 0x01 // chart 1: bit 0 of the first word
 	img[addr.OffMapComplete+4] = 0x80 // chart 64: bit 63, the second word's top
 	ob, _ := addr.OceanBit(9, 3)
@@ -313,17 +313,17 @@ func TestFlagSet(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		rec  tables.Record
-		set  func(*world.Image)
+		set  func(*save.Image)
 		want bool
 	}{
-		{"event bit", tables.Record{Kind: tables.RecordEventBit, ID: 0x1340}, func(img *world.Image) { setEvent(img, 0x1340) }, true},
-		{"event bit unset", tables.Record{Kind: tables.RecordEventBit, ID: 0x1340}, func(img *world.Image) { setEvent(img, 0x1380) }, false},
-		{"letter read", tables.Record{Kind: tables.RecordLetterRead, ID: 0xAC03}, func(img *world.Image) { img[addr.OffEvent+reg.Off] = 0x03 }, true},
-		{"letter in the mailbox", tables.Record{Kind: tables.RecordLetterRead, ID: 0xAC03}, func(img *world.Image) { img[addr.OffEvent+reg.Off] = 0x02 }, false},
-		{"letter read, the byte's other fields set", tables.Record{Kind: tables.RecordLetterRead, ID: 0xAC03}, func(img *world.Image) { img[addr.OffEvent+reg.Off] = 0xF3 }, true},
-		{"no record", tables.Record{}, func(img *world.Image) { setEvent(img, 0x1340) }, false},
+		{"event bit", tables.Record{Kind: tables.RecordEventBit, ID: 0x1340}, func(img *save.Image) { setEvent(img, 0x1340) }, true},
+		{"event bit unset", tables.Record{Kind: tables.RecordEventBit, ID: 0x1340}, func(img *save.Image) { setEvent(img, 0x1380) }, false},
+		{"letter read", tables.Record{Kind: tables.RecordLetterRead, ID: 0xAC03}, func(img *save.Image) { img[addr.OffEvent+reg.Off] = 0x03 }, true},
+		{"letter in the mailbox", tables.Record{Kind: tables.RecordLetterRead, ID: 0xAC03}, func(img *save.Image) { img[addr.OffEvent+reg.Off] = 0x02 }, false},
+		{"letter read, the byte's other fields set", tables.Record{Kind: tables.RecordLetterRead, ID: 0xAC03}, func(img *save.Image) { img[addr.OffEvent+reg.Off] = 0xF3 }, true},
+		{"no record", tables.Record{}, func(img *save.Image) { setEvent(img, 0x1340) }, false},
 	} {
-		var img world.Image
+		var img save.Image
 		c.set(&img)
 		if got := rewardGiven(&img, c.rec); got != c.want {
 			t.Errorf("rewardGiven %s = %v, want %v", c.name, got, c.want)

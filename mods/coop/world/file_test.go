@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // sampleWorld is a world with something in every section.
@@ -130,7 +131,7 @@ func TestFileDamage(t *testing.T) {
 // skipped, and bits the class table doesn't hold (or the file's own
 // tombstones refuse) are dropped and counted, not taken as damage.
 func TestFileStripsAndSkips(t *testing.T) {
-	var img Image
+	var img save.Image
 	img[addr.OffLife] = 0x0C                                // per player: 2 bits
 	img[addr.OffMemBit(0)+addr.MemBitOffDungeonItem] = 0xC1 // 0xC0 outside the mask: 2 bits
 	img[offItem] = 0x03                                     // bit 1 tombstoned below: 1 bit

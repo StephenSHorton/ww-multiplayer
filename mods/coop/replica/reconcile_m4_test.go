@@ -227,7 +227,7 @@ func TestReconcileM4StoryOnTransition(t *testing.T) {
 	off, m := syncedStory(t)
 	reg := registerOff(t)
 	rm := class.Of(reg).Mask
-	var img world.Image
+	var img save.Image
 	img[off], img[reg] = m, rm
 	rr.world(img)
 	rr.ticks(gate.StableTicks + 2)
@@ -281,7 +281,7 @@ func TestReconcileM4HeldStoryBits(t *testing.T) {
 	oCourt, mCourt := eventBit(evHyruleCourtyard)
 	oZelda, mZelda := eventBit(evZeldaAwakened)
 	o2D10, m2D10 := eventBit(ev2D10)
-	var img world.Image
+	var img save.Image
 	img[o0801] |= m0801
 	img[oCourt] |= mCourt
 	img[o2D10] |= m2D10
@@ -339,20 +339,20 @@ func TestReconcileM4ClassesNotGranted(t *testing.T) {
 	cases := []struct {
 		name  string
 		f     proto.Feature
-		world func(img *world.Image)
+		world func(img *save.Image)
 		log   string
 	}{
 		{"story", proto.FeatureImage | proto.FeatureInventory | proto.FeatureMagic,
-			func(img *world.Image) { img[off] |= m },
+			func(img *save.Image) { img[off] |= m },
 			"the world's story is not written to this game: the session does not grant story"},
 		{"inventory", proto.FeatureImage | proto.FeatureStory | proto.FeatureMagic,
-			func(img *world.Image) { img[addr.OffGetItem+save.SlotTelescope] = 0x01 },
+			func(img *save.Image) { img[addr.OffGetItem+save.SlotTelescope] = 0x01 },
 			"the world's inventory is not written to this game: the session does not grant inventory"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)}, c.f)
-			var img world.Image
+			var img save.Image
 			c.world(&img)
 			rr.world(img)
 			rr.ticks(gate.StableTicks + 2)
@@ -370,7 +370,7 @@ func TestReconcileM4ClassesNotGranted(t *testing.T) {
 	// Max magic without FeatureMagic: the Deku Leaf is the receiver's
 	// (inventory), its magic is not.
 	rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)}, proto.FeatureImage|proto.FeatureInventory)
-	var img world.Image
+	var img save.Image
 	img[addr.OffGetItem+save.SlotDekuLeaf] = 0x01
 	rr.world(img)
 	rr.ticks(m4Settle)
@@ -391,7 +391,7 @@ func TestReconcileM4ClassesNotGranted(t *testing.T) {
 func TestReconcileM4Inventory(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)}, proto.FeatureImage|proto.FeatureInventory)
 	bow, tele := addr.OffGetItem+save.SlotBow, addr.OffGetItem+save.SlotTelescope
-	var img world.Image
+	var img save.Image
 	img[bow], img[addr.OffArrowMax], img[tele] = 0x01, 30, 0x01
 	rr.g.SetEvent(1, 0)
 	rr.world(img)
@@ -459,7 +459,7 @@ func TestReconcileM4GrantNeverLowersACapacity(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)}, proto.FeatureImage|proto.FeatureInventory)
 	rr.put(addr.OffArrowMax, 60)
 	bow := addr.OffGetItem + save.SlotBow
-	var img world.Image
+	var img save.Image
 	img[bow] = 0x01
 	rr.world(img)
 	rr.ticks(gate.StableTicks + 4)
@@ -483,7 +483,7 @@ func TestReconcileM4GrantNeverLowersACapacity(t *testing.T) {
 func TestReconcileM4MaxMagic(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, Policy: proto.SessionPolicy(nil)},
 		proto.FeatureImage|proto.FeatureInventory|proto.FeatureMagic)
-	var img world.Image
+	var img save.Image
 	img[addr.OffGetItem+save.SlotDekuLeaf] = 0x01
 	rr.world(img)
 	rr.ticks(m4Settle)
@@ -507,7 +507,7 @@ func TestReconcileM4MaxMagic(t *testing.T) {
 func TestReconcileM4MaxLife(t *testing.T) {
 	tb := m4Tables(t)
 	rr := newRecRig(t, Config{Apply: true, Tables: tb, Policy: m4Policy(tb)}, proto.FeatureImage|proto.FeatureLife)
-	var img world.Image
+	var img save.Image
 	for no := range 3 {
 		off, m := chest(addr.TableSea, no)
 		img[off] |= m
@@ -568,7 +568,7 @@ func TestReconcileM4Keys(t *testing.T) {
 		}
 	}
 	world := func(rr *recRig, tboxes []int, doors []int) {
-		var img world.Image
+		var img save.Image
 		for _, no := range tboxes {
 			off, m := chest(addr.TableDRC, no)
 			img[off] |= m
@@ -724,7 +724,7 @@ func TestReconcileM4DryRun(t *testing.T) {
 	rr := newRecRig(t, Config{Tables: tb, Policy: m4Policy(tb)}, proto.FeatureImage)
 	off, m := syncedStory(t)
 	tbox, tm := chest(addr.TableDRC, 1)
-	var img world.Image
+	var img save.Image
 	img[off], img[addr.OffGetItem+save.SlotBow], img[addr.OffArrowMax], img[tbox] = m, 0x01, 30, tm
 	rr.world(img)
 	rr.load(drcKeys)

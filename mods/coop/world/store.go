@@ -13,6 +13,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // A world's directory, <root>/<worldID>/ under os.UserConfigDir()/
@@ -353,7 +355,7 @@ func (s *Store) Seq() uint64 {
 }
 
 // Image returns a copy of the merged image.
-func (s *Store) Image() Image {
+func (s *Store) Image() save.Image {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.w.image
@@ -386,7 +388,7 @@ func (s *Store) ApplyGains(origin Player, gs []Gain) (Result, error) {
 }
 
 // Merge is World.Merge, journaled with origin and flushed.
-func (s *Store) Merge(origin Player, img *Image) (Result, error) {
+func (s *Store) Merge(origin Player, img *save.Image) (Result, error) {
 	return s.change(origin, OpWorld, func(w *World) Result { return w.Merge(img) })
 }
 

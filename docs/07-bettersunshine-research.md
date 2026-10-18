@@ -192,6 +192,6 @@ Equivalent shape for us:
 1. `ww-multiplayer.exe patch <rom.iso>`
 2. Boot patched ISO in Desktop Dolphin, load save on Outset
 3. `ww-multiplayer.exe debug` — confirm Link position reads
-4. Local 2-player harness if available (`scripts/mplay2` / host+fake-client)
+4. Local 2-player harness if available (`wwdev mp-local` / host+fake-client)
 
 Research-only; no code changes required to benefit from the callback/versioning mindset above.

@@ -15,6 +15,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -124,13 +125,13 @@ func (r *rig) clear(off int, bits byte) {
 func (r *rig) put(off int, v byte) { r.store(r.byteAddr(off), []byte{v}) }
 
 // image is the canonical image of the game now.
-func (r *rig) image() world.Image {
+func (r *rig) image() save.Image {
 	r.t.Helper()
 	s, err := state.Read(r.m, state.Options{})
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	return world.Image(s.Image())
+	return save.Image(s.Image())
 }
 
 // tag writes t over the tag bytes as card_to_memory would, and gives the
@@ -375,8 +376,8 @@ func welcome(st wire.Status, f uint32, fresh bool) *wire.CoWelcome {
 }
 
 // worldOf is a WORLD of testWorld with img.
-func worldOf(seq uint64, img world.Image) *wire.World {
-	m := &wire.World{WorldID: wire.ID(testWorld), Seq: seq, Image: wire.Image(img)}
+func worldOf(seq uint64, img save.Image) *wire.World {
+	m := &wire.World{WorldID: wire.ID(testWorld), Seq: seq, Image: img}
 	wire.StripLocal(&m.Image)
 	return m
 }

@@ -70,6 +70,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
 )
@@ -778,7 +779,7 @@ func foundFrom(rep log.Reporter, s *state.Snapshot, pol *world.Policy) (*world.W
 	}
 	w := world.New(world.ID(id), time.Now())
 	w.SetPolicy(pol)
-	img := world.Image(s.Image())
+	img := save.Image(s.Image())
 	r := w.Merge(&img)
 	log.Logf(rep, log.OK, "co-op: founded world %s from %s (%d shared bytes).", id, bind.Describe(f), len(r.Delta))
 	return w, nil

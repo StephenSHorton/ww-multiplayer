@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
@@ -65,7 +64,7 @@ const lifeCap = 0x50
 //   - max magic: 16 once the Deku Leaf's flag is set, and at least the
 //     larger of a's and b's, capped at 0x20.
 func Derive(k *keys.Result, h *hearts.Result) Deriver {
-	return func(img, a, b *world.Image) []string {
+	return func(img, a, b *save.Image) []string {
 		var notes []string
 		for _, r := range save.ItemSlots() {
 			notes = append(notes, deriveSlot(r, img, "mItems")...)
@@ -90,7 +89,7 @@ func Derive(k *keys.Result, h *hearts.Result) Deriver {
 // the slot is empty or holds a lesser one. The slot's own Derive does the
 // same silently; this one notes what it did, and a kept item it can't
 // name.
-func deriveSlot(r save.Slot, img *world.Image, field string) []string {
+func deriveSlot(r save.Slot, img *save.Image, field string) []string {
 	v, ok := r.Best(img[r.FlagOff])
 	if !ok {
 		return nil
@@ -120,7 +119,7 @@ func deriveSlot(r save.Slot, img *world.Image, field string) []string {
 
 // flagSet reports whether f is set in img, and false for ok when f is not
 // a saved image bit.
-func flagSet(img *world.Image, f itemsrc.Flag) (set, ok bool) {
+func flagSet(img *save.Image, f itemsrc.Flag) (set, ok bool) {
 	var off int
 	var b addr.Bit
 	var err error
@@ -157,7 +156,7 @@ func flagSet(img *world.Image, f itemsrc.Flag) (set, ok bool) {
 
 // keyCount counts t's sources whose flag is set in img, and its doors
 // whose memory switch is: keys(t) is the one less the other (§6.4).
-func keyCount(img *world.Image, t *keys.Table) (sources, doors int) {
+func keyCount(img *save.Image, t *keys.Table) (sources, doors int) {
 	for _, s := range t.Sources {
 		if set, _ := flagSet(img, s.Flag); set {
 			sources++
@@ -182,7 +181,7 @@ func keyCount(img *world.Image, t *keys.Table) (sources, doors int) {
 // co-op session synced before the key went) or a duplicate, and a co-op
 // session would take them out too. A table whose sources and doors the
 // merge left as they were keeps a's count.
-func deriveKeys(img, a *world.Image, t *keys.Table) []string {
+func deriveKeys(img, a *save.Image, t *keys.Table) []string {
 	if !addr.ValidTable(t.SaveTable) {
 		return nil
 	}
@@ -215,7 +214,7 @@ func deriveKeys(img, a *world.Image, t *keys.Table) []string {
 // lifeSources counts the heart pieces and containers h knows whose record
 // is set in img: a stage piece by its own save bit, a reward by the record
 // its Record names (rewardGiven), a container by its STAGE_LIFE.
-func lifeSources(img *world.Image, h *hearts.Result) (pieces, containers int) {
+func lifeSources(img *save.Image, h *hearts.Result) (pieces, containers int) {
 	for _, s := range h.Pieces {
 		if set, _ := flagSet(img, s.Flag); set {
 			pieces++
@@ -238,7 +237,7 @@ func lifeSources(img *world.Image, h *hearts.Result) (pieces, containers int) {
 // img, as the live derive reads it (save.View.RecordSet): its event bit,
 // or its letter register reading READ. A reward no save bit records
 // (tables.RecordNone: the minigames) never counts.
-func rewardGiven(img *world.Image, rec tables.Record) bool {
+func rewardGiven(img *save.Image, rec tables.Record) bool {
 	b := addr.EventByte(rec.ID)
 	switch rec.Kind {
 	case tables.RecordEventBit:
@@ -250,7 +249,7 @@ func rewardGiven(img *world.Image, rec tables.Record) bool {
 }
 
 // deriveLife raises max life in img by the heart sources the merge set.
-func deriveLife(img, a *world.Image, h *hearts.Result) []string {
+func deriveLife(img, a *save.Image, h *hearts.Result) []string {
 	p, c := lifeSources(img, h)
 	p0, c0 := lifeSources(a, h)
 	dp, dc := p-p0, c-c0
@@ -273,7 +272,7 @@ func deriveLife(img, a *world.Image, h *hearts.Result) []string {
 // what its own Deku Leaf and upgrade gave, and the two add up to at most
 // the cap, so the union of the two files' sources gives exactly the
 // larger), and 16 once the merged Deku Leaf flag is set.
-func deriveMagic(img, a, b *world.Image) []string {
+func deriveMagic(img, a, b *save.Image) []string {
 	had := a[addr.OffMaxMagic]
 	want := max(had, min(b[addr.OffMaxMagic], magicCap))
 	why := "b's max magic"
