@@ -18,6 +18,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
@@ -156,7 +157,7 @@ func newM6Rig(t *testing.T) *m6Rig {
 		rec.tick()
 	}
 	rec.welcome(proto.FeatureImage | proto.FeatureCombat)
-	say(t, r, worldOf(1, world.Image{}))
+	say(t, r, worldOf(1, save.Image{}))
 	rec.tick()
 	r6.hub.take()
 	es := m6Enemies()

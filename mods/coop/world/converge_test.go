@@ -4,6 +4,8 @@ import (
 	"math/rand/v2"
 	"slices"
 	"testing"
+
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // A loopback model of two dry-run replicas and the hub's world, at the
@@ -15,9 +17,9 @@ import (
 // holds every bit a replica still has, and nothing a replica never had.
 
 type replica struct {
-	local    Image // what its game holds now
-	baseline Image // what its differ last looked at
-	view     Image // the world as the hub told it
+	local    save.Image // what its game holds now
+	baseline save.Image // what its differ last looked at
+	view     save.Image // the world as the hub told it
 	online   bool
 	epoch    int // bumped on every reconnect; older frames are gone with their connection
 }
@@ -25,13 +27,13 @@ type replica struct {
 type upFrame struct {
 	from, epoch int
 	gains       []Gain
-	world       *Image
+	world       *save.Image
 }
 
 type downFrame struct {
 	to, epoch int
 	gains     []Gain
-	world     *Image
+	world     *save.Image
 }
 
 type loop struct {
@@ -40,7 +42,7 @@ type loop struct {
 	reps []*replica
 	up   []upFrame
 	down []downFrame
-	sent Image // the join of every bit any replica ever proposed
+	sent save.Image // the join of every bit any replica ever proposed
 }
 
 // play is one step of a replica's game: new flags, raised counters, and
@@ -77,7 +79,7 @@ func (l *loop) diff(i int) {
 }
 
 func (l *loop) propose(f upFrame) {
-	var img Image
+	var img save.Image
 	if f.world != nil {
 		img = *f.world
 	} else {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // unhex decodes a hex string, ignoring spaces and '|' separators.
@@ -559,7 +560,7 @@ func TestEncodeRefuses(t *testing.T) {
 // TestStripLocal: what StripLocal leaves is exactly the shared bits, and a
 // stripped image always encodes.
 func TestStripLocal(t *testing.T) {
-	var img Image
+	var img save.Image
 	for i := range img {
 		img[i] = 0xFF
 	}

@@ -73,16 +73,15 @@ ww-multiplayer/
 │   │                            #   eye fix; mp_frame, mp_draw_post), face.c (face hook arm/disarm, per-slot face bracket)
 │   ├── include/                 # wwapi.h (game types/addresses + the core services a C mod calls), mailbox_core.h (MAILBOX_ADDR, WWMB header,
 │   │                            #   the Mailbox struct), mailbox_mp.h (MAX_PUPPETS, MAX_REMOTE_LINKS, MAILBOX_POSE_SLOT_CAP, Puppet)
-│   ├── build.py                 # Freighter wrapper — builds patched.dol from original.dol (C_SOURCES: one add_c_file per unit)
-│   └── patch_iso.py             # Local-dev ISO splicer (relies on `wit copy`-prepped ISO)
+│   └── build.py                 # Freighter wrapper — builds patched.dol from original.dol (C_SOURCES: one add_c_file per unit;
+│                                #   devkitPPC from $DEVKITPPC, default C:\devkitpro\devkitPPC; also writes build/WWMultiplayer.map, T2's Dolphin symbol map)
 ├── cheats/
 │   ├── GZLE01.ini               # Curated Gecko code pack, copied into <USER_DIR>/GameSettings by `dolphin2` and the app's Dolphin launch
 │   └── cheats.go                # package cheats: GZLE01.ini embedded for both binaries
 ├── scripts/
 │   ├── extract_blob.py          # Diffs original.dol vs patched.dol → internal/inject/blob.go
 │   ├── gen_event_masks.py       # Generates mods/coop/class/syncmask_gen.go from the decomp
-│   ├── build-mac.sh, setup-mac-dolphin.sh   # macOS release build (WW Multiplayer.app + ditto zip); one-time Dolphin re-sign
-│   └── dolphin2.sh, mplay2.sh   # Legacy bash harness (Go ports: dolphin2, mp-local)
+│   └── build-mac.sh, setup-mac-dolphin.sh   # macOS release build (WW Multiplayer.app + ditto zip); one-time Dolphin re-sign
 ├── packaging/
 │   └── ww-multiplayer.exe.manifest  # Windows app manifest (DPI, Common Controls 6, asInvoker), in cmd/ww-multiplayer/ww_windows.syso via go generate
 ├── tools/
@@ -121,7 +120,7 @@ go build -o wwdev.exe ./cmd/wwdev
 ./ww-multiplayer.exe host [name] [--port N]             # Host a session (server + this player's pipelines)
 ./ww-multiplayer.exe join <host-ip[:port]> [name]       # Join a host's session
 
-# Multiplayer runtime CLIs (the pipelines mp-local runs in one process; scripts/mplay2.sh runs them as subprocesses).
+# Multiplayer runtime CLIs (the pipelines mp-local runs in one process; they also run as separate processes).
 # wwdev is the developer tools (cmd/wwdev); `./wwdev.exe help` lists its commands.
 ./ww-multiplayer.exe server [--port N]                  # Headless TCP server on :25565
 ./ww-multiplayer.exe broadcast-pose <name> <addr>       # Stream this Dolphin's Link pose+pos to server
@@ -161,7 +160,7 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
   WW_MIN_SESSION_SECS / WW_WRITE_TIMEOUT_SECS / WW_FREEZE_SECS / WW_DESPAWN_SECS
                                             # Network timing knobs; defaults 5/15/8/5/1/10/2/5 s (mods/multiplayer/net/netconfig.go)
 
-# Local two-Dolphin harness (v0.1.6+: Go-native, replaces the bash scripts)
+# Local two-Dolphin harness
 ./wwdev.exe dolphin2 [--reset]              # Bootstrap & launch a 2nd Dolphin instance
 ./wwdev.exe mp-local [A] [B]                # Server + 2x broadcast-pose + 2x puppet-sync (one process)
 # Env knobs honored by `dolphin2` and `auto-recapture` (defaults: wwapi/emu/launch Defaults;
@@ -175,26 +174,28 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
 #                 (co-op's card backups read USER_DIR_1/2 too)
 #   SAVE_STATE    .sav loaded into both Dolphins (skips menus). If unset, both boot to title screen.
 #   SAVE_STATE_2  .sav loaded into Dolphin 2 only (requires SAVE_STATE). Produces distinct btp phases for face-sync visual proof (#5).
-
-# Legacy bash scripts (kept for now; prefer the Go subcommands above)
-scripts/dolphin2.sh [--reset]               # Same as `wwdev.exe dolphin2`
-scripts/mplay2.sh                           # Same as `wwdev.exe mp-local`, but via 5 subprocesses
 ```
 
 ## Build pipeline (C side → ww-multiplayer.exe)
 
 ```bash
-# Iterate on the C side (inject/src, inject/include) locally (build.py removes
-# each unit's old object itself):
-cd inject && python build.py && python patch_iso.py
-# Then quit + relaunch Dolphin to pick up the new patched ISO.
+# Build the C side (inject/src, inject/include). build.py removes each
+# unit's old object itself. devkitPPC comes from $DEVKITPPC (default
+# C:\devkitpro\devkitPPC; the installer's MSYS form /opt/devkitpro/... is
+# read as C:\devkitpro/...). Needs inject/original.dol (the vanilla DOL,
+# untracked). Also writes inject/build/WWMultiplayer.map, T2's symbols as a
+# Dolphin map (Symbols > Load Other Map File).
+cd inject && python build.py && cd ..
 
-# When happy with C changes, regenerate the embedded blob the standalone
-# patcher uses:
+# Regenerate the embedded blob the patcher uses:
 python scripts/extract_blob.py
 # (Reads inject/{original,patched}.dol, writes internal/inject/blob.go,
 # then runs `go run ./tools/blobstamp` to rewrite internal/inject/blob.stamp.)
-go build -o ww-multiplayer.exe ./cmd/ww-multiplayer
+go build -o ww-multiplayer.exe ./cmd/ww-multiplayer && go build -o wwdev.exe ./cmd/wwdev
+
+# Patch a disc with the new blob (the patcher players use; it replaced
+# inject/patch_iso.py), then quit + relaunch Dolphin on it:
+./ww-multiplayer.exe patch <vanilla.iso|ciso> <out.iso>
 ```
 
 **Releases and the website.** A `v*` tag publishes `ww-multiplayer.exe`,
@@ -306,7 +307,7 @@ the OLD blob over the freshly-patched ISO's new code.
 
 After a C-side change, the recapture cycle reduces to:
 
-1. Claude: rebuild the blob (`cd inject && python build.py && python patch_iso.py && cd .. && python scripts/extract_blob.py && go build -o ww-multiplayer.exe ./cmd/ww-multiplayer && go build -o wwdev.exe ./cmd/wwdev`)
+1. Claude: rebuild the blob and re-patch the ISO (`cd inject && python build.py && cd .. && python scripts/extract_blob.py && go build -o ww-multiplayer.exe ./cmd/ww-multiplayer && go build -o wwdev.exe ./cmd/wwdev && ./ww-multiplayer.exe patch <vanilla.iso|ciso> <ISO_PATH>`)
 2. Claude: `./wwdev.exe auto-recapture`. This kills running Dolphins,
    cold-boots the patched ISO, drives the title/intro/file-select menus to
    in-game via input injection, screenshots the spawn spot, then prompts the

@@ -8,6 +8,8 @@ import (
 	"hash/crc32"
 	"slices"
 	"time"
+
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // The world file, world.wwco (§4.4): a 36-byte header, then TLV sections,
@@ -149,7 +151,7 @@ func decode(b []byte) (*World, int, error) {
 	w := New(id, time.Time{})
 	w.seq = binary.BigEndian.Uint64(b[0x14:])
 
-	var img Image
+	var img save.Image
 	seen := map[uint16]bool{}
 	stripped := 0
 	for body := b[headerLen:]; len(body) > 0; {

@@ -7,6 +7,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // Held is a bit of the world a hold keeps out of the receiver's game.
@@ -58,14 +59,14 @@ func (p Plan) Writes() []world.Gain {
 // The holds are judged on raw, and UntilWith also on raw with the plan's
 // unheld story bits in it (Released), to a fixed point: holding a bit can
 // keep back what another hold waits for.
-func Pending(view, raw *world.Image, ever *world.BitSet, everMax *world.Image) Plan {
+func Pending(view, raw *save.Image, ever *world.BitSet, everMax *save.Image) Plan {
 	if ever == nil {
 		ever = new(world.BitSet)
 	}
 	if everMax == nil {
-		everMax = new(world.Image)
+		everMax = new(save.Image)
 	}
-	var miss world.Image
+	var miss save.Image
 	for i := range addr.EventBitBytes {
 		off := addr.OffEvent + i
 		miss[off] = view[off] & class.SyncMaskOf(i) &^ raw[off] &^ ever.Mask(off)
@@ -124,7 +125,7 @@ func holdIndex(holds []class.Hold, id uint16) int {
 // raw alone, UntilWith reads after, and UntilMasterSword reads the sword
 // slot of raw (daPy_lk_c::checkMasterSwordEquip, d_a_player.h:600-604).
 // An unknown condition holds.
-func Released(h class.Hold, raw, after *world.Image) bool {
+func Released(h class.Hold, raw, after *save.Image) bool {
 	if after == nil {
 		after = raw
 	}
@@ -140,7 +141,7 @@ func Released(h class.Hold, raw, after *world.Image) bool {
 }
 
 // eventSet reports whether img has every mask bit of event bit id.
-func eventSet(img *world.Image, id uint16) bool {
+func eventSet(img *save.Image, id uint16) bool {
 	b := addr.EventByte(id)
 	return b.Mask != 0 && b.Off < addr.EventSize && img[addr.OffEvent+b.Off]&b.Mask == b.Mask
 }
@@ -181,7 +182,7 @@ type Receiver struct {
 // starts a stage change and ok is set, and the plan, for the log and the
 // TUI.
 func (r *Receiver) Tick(st gate.Status, enable int8, ok bool,
-	view, raw *world.Image, ever *world.BitSet, everMax *world.Image) ([]world.Gain, Plan) {
+	view, raw *save.Image, ever *world.BitSet, everMax *save.Image) ([]world.Gain, Plan) {
 	first := r.have && r.enable == 0 && enable == 1
 	r.have, r.enable = true, enable
 	p := Pending(view, raw, ever, everMax)

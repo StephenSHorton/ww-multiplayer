@@ -8,6 +8,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // The reconciler (§4.2, §9 M3) turns the Planner's plan into game writes.
@@ -210,7 +211,7 @@ func (r *Replica) reconcile(o *obs, armed bool, rep *Report) {
 	case r.writer.DryRun():
 		return
 	case !armed || !r.haveView || r.viewWorld != r.sessionWorld:
-		r.loggedOR, r.loggedMax, r.loggedHeld = world.BitSet{}, world.Image{}, world.BitSet{}
+		r.loggedOR, r.loggedMax, r.loggedHeld = world.BitSet{}, save.Image{}, world.BitSet{}
 		// The memory switches' window, still waiting for the hold, goes
 		// with the room change's: the change is not theirs either. Both
 		// close on the first STABLE tick, IDLE or not, so a change seen
@@ -314,7 +315,7 @@ func (r *Replica) logWaits(planned, waiting []Write, held []HeldBit, o *obs, cal
 	st := o.st
 	var lines []string
 	var nowOR, nowHeld world.BitSet
-	var nowMax world.Image
+	var nowMax save.Image
 	for _, h := range held {
 		nowHeld[h.Off] |= h.Mask
 		if fresh := h.Mask &^ r.loggedHeld[h.Off]; fresh != 0 {

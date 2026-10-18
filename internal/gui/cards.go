@@ -11,9 +11,9 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/savefile"
 )
 
@@ -108,7 +108,7 @@ func findSave(userDir string) (cardSave, error) {
 
 // slotBindFile is slot n of image img as the tag rules see the file
 // loaded from it (package main's slotFile).
-func slotBindFile(n int, img *world.Image) bind.File {
+func slotBindFile(n int, img *save.Image) bind.File {
 	f := bind.File{Slot: uint8(n), ClearCount: img[addr.OffClearCount], DateIPL: binary.BigEndian.Uint64(img[addr.OffDateIPL:])}
 	copy(f.Tag[:], img[addr.OffReserve:])
 	copy(f.Name[:], img[addr.OffPlayerName:])

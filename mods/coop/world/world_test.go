@@ -8,6 +8,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 var (
@@ -23,8 +24,8 @@ const offItem = addr.OffGetItem + 3
 // randImage is a random image: every byte random, so the shared bits, the
 // bits outside the masks and the bytes that never merge are all exercised.
 // Sparse makes most bytes zero, as a real image's flags are.
-func randImage(r *rand.Rand, sparse bool) *Image {
-	var img Image
+func randImage(r *rand.Rand, sparse bool) *save.Image {
+	var img save.Image
 	for off := range img {
 		if !sparse || r.IntN(16) == 0 {
 			img[off] = byte(r.Uint32())
@@ -59,7 +60,7 @@ func newTestWorld() *World {
 // checkGrows fails unless after is before grown under the class rules:
 // no shared byte lowered, no bit outside a class mask, nothing in a byte
 // that never merges.
-func checkGrows(t *testing.T, what string, before, after *Image) {
+func checkGrows(t *testing.T, what string, before, after *save.Image) {
 	t.Helper()
 	for off := range after {
 		m := shared[off]
@@ -116,13 +117,13 @@ func TestJoinLaws(t *testing.T) {
 // changed, the seq moves only with a change, and nothing is ever lowered.
 func TestMergeOrderFree(t *testing.T) {
 	type op struct {
-		img   *Image
+		img   *save.Image
 		gains []Gain
 	}
 	for seed := uint64(0); seed < 25; seed++ {
 		r := rand.New(rand.NewPCG(seed, 99))
 		var ops []op
-		want := Image{}
+		want := save.Image{}
 		for i := 0; i < 30; i++ {
 			if r.IntN(3) == 0 {
 				img := randImage(r, true)
@@ -131,7 +132,7 @@ func TestMergeOrderFree(t *testing.T) {
 			} else {
 				gs := randGains(r)
 				ops = append(ops, op{gains: gs})
-				var img Image
+				var img save.Image
 				Apply(&img, gs)
 				want = Join(&want, &img)
 			}
@@ -334,7 +335,7 @@ func TestTombstone(t *testing.T) {
 
 // TestDiffAndApply checks the two replica-side helpers on known bytes.
 func TestDiffAndApply(t *testing.T) {
-	var a, b Image
+	var a, b save.Image
 	a[offItem], b[offItem] = 0x03, 0x06                 // OR: b adds 0x04
 	a[addr.OffWalletSize], b[addr.OffWalletSize] = 2, 1 // MAX: b is lower
 	a[addr.OffArrowMax], b[addr.OffArrowMax] = 30, 60   // MAX: b is higher
@@ -438,7 +439,7 @@ func TestBitSet(t *testing.T) {
 	if !s.Add(5, 0x03) || s.Add(5, 0x01) || !s.Has(5, 0x03) || s.Has(5, 0x07) || s.Add(-1, 1) || s.Add(ImageSize, 1) {
 		t.Error("Add/Has")
 	}
-	img := Image{9: 0x80}
+	img := save.Image{9: 0x80}
 	s.AddImage(&img)
 	if s.Count() != 3 || !slices.Equal(s.Entries(), []Gain{{5, 0x03}, {9, 0x80}}) || s.Mask(9) != 0x80 || s.Mask(-1) != 0 {
 		t.Errorf("set %v (%d bits)", s.Entries(), s.Count())

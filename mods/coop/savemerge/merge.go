@@ -7,6 +7,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // Change is one image byte that differs between two images.
@@ -18,7 +19,7 @@ type Change struct {
 
 // Diff returns every byte where a and b differ, in image order, with its
 // class (class.Of).
-func Diff(a, b *world.Image) []Change {
+func Diff(a, b *save.Image) []Change {
 	var out []Change
 	for off := range a {
 		if a[off] != b[off] {
@@ -32,7 +33,7 @@ func Diff(a, b *world.Image) []Change {
 // shared flags, in place: a is the file merged into and b the one merged
 // from. It may change only DERIVED bytes (Merge refuses anything else) and
 // returns notes for the user: what it derived, or why it kept a byte.
-type Deriver func(img, a, b *world.Image) []string
+type Deriver func(img, a, b *save.Image) []string
 
 // MergeOptions tune Merge.
 type MergeOptions struct {
@@ -49,7 +50,7 @@ type MergeOptions struct {
 
 // MergeResult is what Merge made.
 type MergeResult struct {
-	Image world.Image
+	Image save.Image
 	// Gains are the bytes the class merge raised: A is a's byte, B the
 	// merged one.
 	Gains []Change
@@ -86,7 +87,7 @@ const mergeRounds = 4
 // judged on a with its derived bytes, as a's replica would judge it once
 // its game had applied the merge, so Merge plans again until nothing
 // changes.
-func Merge(a, b *world.Image, opt MergeOptions) (MergeResult, error) {
+func Merge(a, b *save.Image, opt MergeOptions) (MergeResult, error) {
 	sharedB := world.Shared(b)
 	planner := replica.NewPlanner(opt.Policy)
 	img := *a
@@ -143,7 +144,7 @@ func Merge(a, b *world.Image, opt MergeOptions) (MergeResult, error) {
 
 // keepAddOnly puts back a's max life and max magic where img has less:
 // both are add-only (§3 "Max life", "Max magic"), whatever a derive says.
-func keepAddOnly(img, a *world.Image) []string {
+func keepAddOnly(img, a *save.Image) []string {
 	var notes []string
 	if got, had := be16(img[addr.OffMaxLife:]), be16(a[addr.OffMaxLife:]); got < had {
 		img[addr.OffMaxLife], img[addr.OffMaxLife+1] = a[addr.OffMaxLife], a[addr.OffMaxLife+1]

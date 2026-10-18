@@ -9,11 +9,12 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // imageOf builds an image from bits: (off, mask) pairs ORed in.
-func imageOf(pairs ...any) world.Image {
-	var img world.Image
+func imageOf(pairs ...any) save.Image {
+	var img save.Image
 	for i := 0; i < len(pairs); i += 2 {
 		img[pairs[i].(int)] |= pairs[i+1].(byte)
 	}
@@ -37,7 +38,7 @@ func TestPreflight(t *testing.T) {
 
 	cases := []struct {
 		name        string
-		file, world world.Image
+		file, world save.Image
 		full        bool // world.FullPolicy instead of the default
 		verdict     PreflightVerdict
 		merge       bool
@@ -53,8 +54,8 @@ func TestPreflight(t *testing.T) {
 			verdict: PreflightSubset, worldGains: 3, worldCat: map[Category]int{CatStage: 1, CatInventory: 2}},
 		{name: "ahead of the world (a host founding one)", file: imageOf(c1, m1, c2, m2), verdict: PreflightAhead, merge: true, fileGains: 2},
 		{name: "divergent", file: imageOf(c1, m1), world: imageOf(c2, m2), verdict: PreflightDivergent, merge: true, fileGains: 1, worldGains: 1},
-		{name: "a MAX byte counts by value", file: func() world.Image { var i world.Image; i[wallet] = 1; return i }(),
-			world:   func() world.Image { var i world.Image; i[wallet] = 2; return i }(),
+		{name: "a MAX byte counts by value", file: func() save.Image { var i save.Image; i[wallet] = 1; return i }(),
+			world:   func() save.Image { var i save.Image; i[wallet] = 2; return i }(),
 			verdict: PreflightSubset, worldGains: 1, worldCat: map[Category]int{CatCapacity: 1}},
 		{name: "the default policy leaves memory switches out", file: imageOf(c1, m1), world: imageOf(c1, m1, sw, swMask), verdict: PreflightSame},
 		{name: "a full policy counts them", file: imageOf(c1, m1), world: imageOf(c1, m1, sw, swMask), full: true,
@@ -113,8 +114,8 @@ func FuzzPreflight(f *testing.F) {
 	f.Add([]byte{byte(korl >> 8), byte(korl), korlMask}, []byte{0x00, 0x51, 0xFF, 0x00, 0x1A, 0x02}, true)
 	f.Add([]byte{0x00, 0x1A, 0x03, 0x02, 0x00, 0x01}, []byte{0x00, 0x1A, 0x04}, true)
 	f.Fuzz(func(t *testing.T, fileOps, worldOps []byte, full bool) {
-		build := func(ops []byte) world.Image {
-			var img world.Image
+		build := func(ops []byte) save.Image {
+			var img save.Image
 			for i := 0; i+2 < len(ops); i += 3 {
 				off := (int(ops[i])<<8 | int(ops[i+1])) % addr.SaveImageSize
 				img[off] |= ops[i+2]
@@ -134,7 +135,7 @@ func FuzzPreflight(f *testing.F) {
 			t.Fatal("Preflight is not deterministic")
 		}
 		lf, lw := world.Shared(&file), world.Shared(&wimg)
-		check := func(side string, gs []Bit, from, to *world.Image, byCat [numCategories]int) {
+		check := func(side string, gs []Bit, from, to *save.Image, byCat [numCategories]int) {
 			total := 0
 			for _, n := range byCat {
 				total += n

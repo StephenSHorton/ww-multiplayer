@@ -1,9 +1,17 @@
 """
 Build script for Wind Waker multiplayer code injection.
 Uses Freighter to compile C code and inject it into the DOL.
+
+The devkitPPC folder comes from the DEVKITPPC environment variable
+(default C:\\devkitpro\\devkitPPC). devkitPro's Windows installer sets it
+in MSYS form (/opt/devkitpro/devkitPPC); that prefix is read as
+C:\\devkitpro. Besides patched.dol, the build writes build/WWMultiplayer.map,
+a Dolphin symbol map of T2 (Symbols > Load Other Map File).
 """
 
+import importlib.util
 import os
+import subprocess
 import sys
 
 # The C units, in link order: the core first, then the multiplayer mod.
@@ -15,6 +23,107 @@ C_SOURCES = [
     "src/mp/face.c",
 ]
 
+DEFAULT_DEVKITPRO = r"C:\devkitpro"
+DEFAULT_DEVKITPPC = os.path.join(DEFAULT_DEVKITPRO, "devkitPPC")
+MSYS_DEVKITPRO = "/opt/devkitpro"
+
+# Freighter's linked ELF and the symbol map written from it.
+ELF = os.path.join("build", "temp", "WWMultiplayer.o")
+SYMBOL_MAP = os.path.join("build", "WWMultiplayer.map")
+
+
+def devkitppc_dir():
+    """The devkitPPC folder: $DEVKITPPC, else the default."""
+    env = os.environ.get("DEVKITPPC", "").strip()
+    if not env:
+        return DEFAULT_DEVKITPPC
+    if os.name == "nt" and not os.path.isdir(env):
+        # MSYS form, as devkitPro's installer sets it. Git Bash passes it
+        # on as C:/Program Files/Git/opt/devkitpro/devkitPPC.
+        i = env.replace("\\", "/").lower().find(MSYS_DEVKITPRO)
+        if i >= 0:
+            return os.path.normpath(DEFAULT_DEVKITPRO + env[i + len(MSYS_DEVKITPRO):])
+    return os.path.normpath(env)
+
+
+def tool(bin_dir, name):
+    return os.path.join(bin_dir, name + (".exe" if os.name == "nt" else ""))
+
+
+def setup_devkitppc():
+    """Point the environment and Freighter at devkitPPC.
+
+    Freighter 0.2.4 hard-codes C:/devkitPro/devkitPPC/bin/ (Windows) or
+    /opt/devkitpro/devkitPPC/bin/ when freighter.constants is imported, and
+    its set_devkitppc has no effect, so freighter.constants is loaded here
+    with that path replaced. This runs at import time, not in main():
+    Freighter compiles in child processes, which import this file again
+    (as __mp_main__) before they import Freighter.
+    """
+    ppc = devkitppc_dir()
+    bin_dir = os.path.join(ppc, "bin")
+    if not os.path.isfile(tool(bin_dir, "powerpc-eabi-gcc")):
+        print(f"ERROR: no powerpc-eabi-gcc in {bin_dir} "
+              f"(DEVKITPPC={os.environ.get('DEVKITPPC', '')!r}); "
+              f"set DEVKITPPC to the devkitPPC folder", file=sys.stderr)
+        sys.exit(1)
+    os.environ["DEVKITPPC"] = ppc
+    os.environ["DEVKITPRO"] = os.path.dirname(ppc)
+    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+    if "freighter.constants" in sys.modules:
+        return bin_dir
+    spec = importlib.util.find_spec("freighter")
+    if spec is None or not spec.submodule_search_locations:
+        print("ERROR: Freighter is not installed (pip install freighter)", file=sys.stderr)
+        sys.exit(1)
+    path = os.path.join(spec.submodule_search_locations[0], "constants.py")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    win, unix = '"C:/devkitPro/devkitPPC/bin/"', '"/opt/devkitpro/devkitPPC/bin/"'
+    if win not in src or unix not in src:
+        print(f"ERROR: {path} does not hard-code the devkitPPC path this build "
+              f"replaces; is Freighter 0.2.4 installed?", file=sys.stderr)
+        sys.exit(1)
+    want = repr(bin_dir.replace("\\", "/").rstrip("/") + "/")
+    src = src.replace(win, want).replace(unix, want)
+    mod_spec = importlib.util.spec_from_file_location("freighter.constants", path)
+    mod = importlib.util.module_from_spec(mod_spec)
+    sys.modules["freighter.constants"] = mod
+    exec(compile(src, path, "exec"), mod.__dict__)
+    return bin_dir
+
+
+BIN_DIR = setup_devkitppc()
+
+
+def write_symbol_map(elf, out):
+    """Write T2's symbols as a Dolphin (CodeWarrior-style) map.
+
+    Freighter's own map writer stays disabled (main): it merges into a
+    CodeWarrior map of the game, which this project does not have. The
+    symbols come from devkitPPC's nm on the linked ELF instead.
+    """
+    nm = subprocess.run([tool(BIN_DIR, "powerpc-eabi-nm"), "-n", "-S", "--defined-only", elf],
+                        capture_output=True, text=True, check=True).stdout
+    sections = {"t": ".text", "d": ".data", "r": ".data", "b": ".bss"}
+    lines = {".text": [], ".data": [], ".bss": []}
+    for line in nm.splitlines():
+        parts = line.split()
+        if len(parts) != 4:
+            continue  # no size: a linker-script or absolute symbol
+        addr, size, typ, name = int(parts[0], 16), int(parts[1], 16), parts[2].lower(), parts[3]
+        sec = sections.get(typ)
+        if sec is None or addr < 0x80000000:
+            continue
+        lines[sec].append(f"  {addr:08x} {size:06x} {addr:08x}  0 {name}")
+    with open(out, "w", newline="\n") as f:
+        for sec, syms in lines.items():
+            if syms:
+                f.write(f"{sec} section layout\n")
+                f.write("  Starting        Virtual\n  address  Size   address\n  -----------------------\n")
+                f.write("\n".join(syms) + "\n\n")
+    print(f"Symbol map ({sum(len(s) for s in lines.values())} symbols) saved to {out}")
+
 
 def main():
     # Fix encoding for Freighter's emoji output
@@ -25,16 +134,14 @@ def main():
     except Exception:
         pass
 
-    # Set devkitPPC environment
-    os.environ["DEVKITPPC"] = r"C:\devkitpro\devkitPPC"
-    os.environ["DEVKITPRO"] = r"C:\devkitpro"
-    os.environ["PATH"] = r"C:\devkitpro\devkitPPC\bin;" + os.environ.get("PATH", "")
+    print(f"devkitPPC: {os.environ['DEVKITPPC']}")
 
     from freighter import Project
 
-    # Monkey-patch to skip map saving (crashes without a CW symbol map)
+    # Monkey-patch to skip Freighter's map saving: it merges our symbols
+    # into a CodeWarrior map of the game (it crashes without one).
+    # write_symbol_map below writes T2's symbols instead.
     import freighter.devkit_tools
-    original_save_map = freighter.devkit_tools.Project._Project__save_map
     freighter.devkit_tools.Project._Project__save_map = lambda self: None
 
     # Project setup
@@ -202,6 +309,8 @@ def main():
             f.seek(off)
             f.write(orig[off:off + n])
             print(f"Reverted Freighter clobber @ file 0x{off:08x} ({n}B)")
+
+    write_symbol_map(ELF, SYMBOL_MAP)
 
 if __name__ == '__main__':
     main()

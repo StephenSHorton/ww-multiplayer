@@ -371,7 +371,7 @@ func TestM4GuardAllowlist(t *testing.T) {
 	// inventory's plans, the planner's agree: a full world plans nothing
 	// the guard refuses.
 	view := fullView()
-	var raw world.Image
+	var raw save.Image
 	ws, _ := NewPlanner(world.FullPolicy()).Plan(&view, &raw, &raw, addr.TableSea)
 	full := NewGuardFor(AllTargets)
 	for _, w := range ws {

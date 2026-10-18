@@ -8,6 +8,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // Bits and bytes the tests use (d_save_event_flag.inc).
@@ -109,7 +110,7 @@ func runTicks(t *testing.T, b *Batcher, ticks []tick) {
 
 // merged is gs merged into one image and listed again, ascending.
 func merged(gs ...world.Gain) []world.Gain {
-	var img world.Image
+	var img save.Image
 	world.Apply(&img, gs)
 	return gainsOf(&img)
 }
@@ -252,7 +253,7 @@ func TestBatchWithhold(t *testing.T) {
 	var b Batcher
 	b.Tick(time.Unix(0, 0), false, []world.Gain{ev(ev0520), reg(regLetter, 2), sw(addr.TableSea, 3)})
 
-	var img world.Image
+	var img save.Image
 	for _, g := range []world.Gain{ev(ev0520), ev(ev1820), reg(regLetter, 1), reg(regFigure, 0x81),
 		sw(addr.TableSea, 3), sw(addr.TableSea, 4), {Off: orByte, Val: 0xFF}} {
 		img[g.Off] |= g.Val

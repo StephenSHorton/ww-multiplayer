@@ -6,6 +6,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // BatchIdle is how long the sender's game must have been IDLE before its
@@ -40,8 +41,8 @@ const BatchIdle = time.Second
 // A batch that is waiting is not in the sender's WORLD either (Withhold).
 // The zero Batcher is ready to use. It is not safe for concurrent use.
 type Batcher struct {
-	batch   world.Image // story bits (OR) and registers (OR bits or MAX values) waiting
-	coupled world.Image // memory switch bits waiting with them
+	batch   save.Image // story bits (OR) and registers (OR bits or MAX values) waiting
+	coupled save.Image // memory switch bits waiting with them
 	waiting bool
 	idleAt  time.Time // when the current IDLE run began; zero while the game is busy
 	lastAt  time.Time // when the batch last gained a story bit or register
@@ -75,7 +76,7 @@ func (b *Batcher) Tick(now time.Time, idle bool, gains []world.Gain) []world.Gai
 			}
 		}
 	}
-	var out world.Image
+	var out save.Image
 	for _, g := range gains {
 		off := int(g.Off)
 		switch {
@@ -112,7 +113,7 @@ func (b *Batcher) due(now time.Time) bool {
 }
 
 func (b *Batcher) drop() {
-	b.batch, b.coupled, b.waiting, b.lastAt = world.Image{}, world.Image{}, false, time.Time{}
+	b.batch, b.coupled, b.waiting, b.lastAt = save.Image{}, save.Image{}, false, time.Time{}
 }
 
 // Waiting returns what the batch holds, story bits, registers and the
@@ -132,7 +133,7 @@ func (b *Batcher) Waiting() []world.Gain {
 // register's whole field, so the batch does not reach the world early.
 // The world merges only up, so the lower value is harmless; the batch
 // follows as gains when it is due.
-func (b *Batcher) Withhold(img *world.Image) {
+func (b *Batcher) Withhold(img *save.Image) {
 	if !b.waiting {
 		return
 	}

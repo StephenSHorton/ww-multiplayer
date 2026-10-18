@@ -7,6 +7,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // TestPolicy: the story policy opens exactly the SyncMask of the event bit
@@ -98,7 +99,7 @@ func FuzzPending(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte, swordItem byte) {
 		// data fills mEvent of view, raw, the ever-had set and everMax in
 		// turn.
-		var view, raw, everMax world.Image
+		var view, raw, everMax save.Image
 		var ever world.BitSet
 		for i, b := range data {
 			if i >= 4*addr.EventSize {
@@ -119,7 +120,7 @@ func FuzzPending(f *testing.F) {
 		raw[addr.OffSelectEquip] = swordItem
 		p := Pending(&view, &raw, &ever, &everMax)
 
-		var held world.Image
+		var held save.Image
 		for _, h := range p.Held {
 			held[h.Off] |= h.Mask
 			if h.Mask&^addr.EventByte(h.Hold.ID).Mask != 0 || int(h.Off) != addr.OffEvent+addr.EventByte(h.Hold.ID).Off {

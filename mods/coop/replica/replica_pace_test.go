@@ -8,11 +8,12 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // gainsOf joins the GAINS in ms.
-func gainsOf(ms []wire.Msg) world.Image {
-	var img world.Image
+func gainsOf(ms []wire.Msg) save.Image {
+	var img save.Image
 	for _, g := range all[*wire.GainsUp](ms) {
 		for _, x := range g.Gains {
 			world.Apply(&img, []world.Gain{{Off: x.Off, Val: x.Val}})

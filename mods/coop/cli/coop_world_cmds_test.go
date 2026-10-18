@@ -19,6 +19,7 @@ import (
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // coTestChild is the test binary, run with -test.run=run and with the
@@ -60,7 +61,7 @@ func coProcs(procs map[int]string) func(int) (bool, string, error) {
 }
 
 // coWorld creates a world under root, founded at created, with img merged.
-func coWorld(t *testing.T, root string, id world.ID, created time.Time, img *world.Image) {
+func coWorld(t *testing.T, root string, id world.ID, created time.Time, img *save.Image) {
 	t.Helper()
 	w := world.New(id, created)
 	if img != nil {
@@ -133,7 +134,7 @@ func TestCoopWorldBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var img world.Image
+	var img save.Image
 	img[chest.off] = chest.mask
 	coWorld(t, root, id, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), &img)
 	file := filepath.Join(world.Path(root, id), "world.wwco")

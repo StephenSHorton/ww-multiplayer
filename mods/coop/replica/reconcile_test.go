@@ -20,6 +20,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // beatMem is the Mem a reconciling replica runs over in these tests. The
@@ -349,7 +350,7 @@ type recRig struct {
 func newRecRig(t *testing.T, cfg Config, f proto.Feature) *recRig {
 	t.Helper()
 	rr := newRecRigNoWorld(t, cfg, f)
-	say(t, rr.r, worldOf(1, world.Image{}))
+	say(t, rr.r, worldOf(1, save.Image{}))
 	rr.tick()
 	rr.hub.take()
 	return rr
@@ -472,7 +473,7 @@ func (rr *recRig) untilWrite(n int) int {
 }
 
 // world makes img the world the hub tells the replica.
-func (rr *recRig) world(img world.Image) {
+func (rr *recRig) world(img save.Image) {
 	rr.t.Helper()
 	rr.seq++
 	say(rr.t, rr.r, worldOf(rr.seq, img))
@@ -642,7 +643,7 @@ func TestReconcileStageProgress(t *testing.T) {
 	drcRoom, drcRoomM := visited(addr.TableDRC, 2)
 	drcItems := addr.OffMemBit(addr.TableDRC) + addr.MemBitOffDungeonItem
 	fwPickup := addr.OffMemBit(addr.TableFW) + addr.MemBitOffItem + 1
-	var img world.Image
+	var img save.Image
 	img[seaChest], img[drcChest], img[drcRoom], img[drcItems], img[fwPickup] = seaM, drcM, drcRoomM, 0x07, 0x40
 	rr.world(img)
 
@@ -730,7 +731,7 @@ func TestReconcileSwitchWaitsForRoomChange(t *testing.T) {
 	seaSw, m := switchImageByte(addr.TableSea, 0x05)
 	drcSw, _ := switchImageByte(addr.TableDRC, 0x05)
 	off10, m10 := switchImageByte(addr.TableSea, 0x10) // not latching: outside the policy
-	var img world.Image
+	var img save.Image
 	img[seaSw], img[drcSw], img[off10] = m, m, img[off10]|m10
 	rr.world(img)
 
@@ -853,7 +854,7 @@ func TestReconcileDropsAWindowSeenUnarmed(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			rr := c.rig(t)
 			sw, m := switchImageByte(addr.TableSea, 0x05)
-			var img world.Image
+			var img save.Image
 			img[sw] = m
 			rr.world(img) // the session's first
 			if n := rr.ticks(rr.holdTicks() + 20); n != 0 {
@@ -876,7 +877,7 @@ func TestReconcileDropsAWindowSeenUnarmed(t *testing.T) {
 // next room change.
 func TestReconcileWindowIsOneTick(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, Policy: switchPolicy(t, 0x05, 0x06, 0x07)}, proto.FeatureImage|proto.FeatureSwitches)
-	var img world.Image
+	var img save.Image
 	img[addr.OffOcean+5] = 0x04
 	sw, m5 := switchImageByte(addr.TableSea, 0x05)
 	_, m6 := switchImageByte(addr.TableSea, 0x06)
@@ -930,7 +931,7 @@ func TestReconcileLiveSwitches(t *testing.T) {
 	rr.settleRooms()
 	seaSw, m := switchImageByte(addr.TableSea, 0x05)
 	_, m6 := switchImageByte(addr.TableSea, 0x06)
-	var img world.Image
+	var img save.Image
 	img[seaSw] = m
 	rr.g.SetPauseMenu(true)
 	rr.world(img)
@@ -1032,7 +1033,7 @@ func TestReconcileSwitchRoomHold(t *testing.T) {
 				c.pause(rr, true)
 			}
 			off, m := switchImageByte(addr.TableDRC, no)
-			var img world.Image
+			var img save.Image
 			img[off] = m
 			rr.world(img) // the partner's, right after the room change
 			if c.pause != nil {
@@ -1063,7 +1064,7 @@ func TestReconcileNoSwitchesUngranted(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage)
 	seaSw, m := switchImageByte(addr.TableSea, 0x05)
 	drcSw, _ := switchImageByte(addr.TableDRC, 0x05)
-	var img world.Image
+	var img save.Image
 	img[seaSw], img[drcSw] = m, m
 	rr.world(img)
 	rr.ticks(3)
@@ -1099,7 +1100,7 @@ func TestReconcileOceanAtRoomChange(t *testing.T) {
 	} {
 		t.Run(move.name, func(t *testing.T) {
 			rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage|proto.FeatureSwitches)
-			var img world.Image
+			var img save.Image
 			img[addr.OffOcean+5] = 0x04
 			img[addr.OffMapGet+2] = 0x10
 			img[addr.OffMapOpen+2] = 0x10
@@ -1199,7 +1200,7 @@ func TestReconcileLogsAnIdleWait(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage|proto.FeatureSwitches)
 			rr.ticks(10)
-			var img world.Image
+			var img save.Image
 			img[c.off] = c.mask
 			label := DefaultLabel(c.off, bits.TrailingZeros8(c.mask))
 			if c.arrives == before {
@@ -1286,7 +1287,7 @@ func TestReconcileLogsAPendingStageChange(t *testing.T) {
 				t.Fatal(err)
 			}
 			rr.g.SetEvent(1, 0) // the door's exit event
-			var img world.Image
+			var img save.Image
 			img[c.off] = c.mask
 			label := DefaultLabel(c.off, bits.TrailingZeros8(c.mask))
 			rr.world(img)
@@ -1331,7 +1332,7 @@ func TestReconcileLogsAPendingStageChange(t *testing.T) {
 func TestReconcileLaterClasses(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, Policy: world.FullPolicy()}, proto.FeatureImage)
 	zelda, zm := eventBit(evZeldaAwakened)
-	var img world.Image
+	var img save.Image
 	img[zelda] = zm
 	img[addr.OffGetItem+2] = 0x01
 	img[addr.OffWalletSize] = 2
@@ -1356,7 +1357,7 @@ func TestReconcileLaterClasses(t *testing.T) {
 // game has all of it.
 func TestReconcileTransitionStorm(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage|proto.FeatureSwitches)
-	var img world.Image
+	var img save.Image
 	for _, tb := range []int{addr.TableSea, addr.TableDRC, addr.TableFW} {
 		for no := range 6 {
 			off, m := chest(tb, no*5)
@@ -1426,7 +1427,7 @@ func TestReconcileDryRunWritesNothing(t *testing.T) {
 	rr := newRecRig(t, Config{}, proto.FeatureImage|proto.FeatureSwitches)
 	seaChest, m := chest(addr.TableSea, 3)
 	sw, sm := switchImageByte(addr.TableSea, 0x05)
-	var img world.Image
+	var img save.Image
 	img[seaChest], img[sw], img[addr.OffOcean] = m, sm, 0x01
 	rr.world(img)
 	for _, move := range []func(){
@@ -1459,7 +1460,7 @@ func TestReconcileDryRunWritesNothing(t *testing.T) {
 func TestReconcileTurnOff(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, BeatTimeout: 10 * time.Second}, proto.FeatureImage|proto.FeatureSwitches)
 	c1, m1 := chest(addr.TableDRC, 1)
-	var img world.Image
+	var img save.Image
 	img[c1] = m1
 	rr.r.TurnOff("the user typed coop off")
 	rr.world(img)
@@ -1522,7 +1523,7 @@ func TestReconcileTurnOff(t *testing.T) {
 func TestReconcileStallKeepsTheWindow(t *testing.T) {
 	rr := newRecRig(t, Config{Apply: true, BeatTimeout: testBeat}, proto.FeatureImage|proto.FeatureSwitches)
 	seaSw, m := switchImageByte(addr.TableSea, 0x05)
-	var img world.Image
+	var img save.Image
 	img[seaSw] = m
 	img[addr.OffOcean+5] = 0x04
 	rr.world(img)
@@ -1562,11 +1563,11 @@ func TestReplicaWorldAfterGains(t *testing.T) {
 	rr := newRecRigNoWorld(t, Config{Apply: true}, proto.FeatureImage)
 	off := addr.OffOcean + 0x51
 	say(t, rr.r, &wire.GainsDown{Seq: 5, Origin: 1, Gains: []wire.Gain{{Off: uint16(off), Val: 0x01}}})
-	say(t, rr.r, worldOf(4, world.Image{}))
+	say(t, rr.r, worldOf(4, save.Image{}))
 	if v, seq := rr.view(); v[off] != 0x01 || seq != 5 {
 		t.Fatalf("view byte 0x%02X at seq %d: the older WORLD replaced the GAINS", v[off], seq)
 	}
-	var later world.Image
+	var later save.Image
 	later[off+1] = 0x02
 	say(t, rr.r, worldOf(5, later))
 	if v, _ := rr.view(); v[off] != 0 || v[off+1] != 0x02 {
@@ -1575,7 +1576,7 @@ func TestReplicaWorldAfterGains(t *testing.T) {
 }
 
 // view is the replica's view of the world and its seq.
-func (rr *recRig) view() (world.Image, uint64) {
+func (rr *recRig) view() (save.Image, uint64) {
 	rr.r.mu.Lock()
 	defer rr.r.mu.Unlock()
 	return rr.r.view, rr.r.viewSeq
@@ -1611,7 +1612,7 @@ func TestReconcileHoldsBossBitsInABossStage(t *testing.T) {
 			rr.load(drcBoss)
 			rr.stagType(stageTypeBoss)
 			rr.ticks(gate.StableTicks + 2)
-			var img world.Image
+			var img save.Image
 			img[items] = 0x2B // map, compass, boss defeated, demo seen
 			rr.world(img)
 			rr.ticks(10)
@@ -1675,7 +1676,7 @@ func TestReconcileSaveStateOfAnotherFile(t *testing.T) {
 			rr := newRecRig(t, Config{Apply: true}, proto.FeatureImage)
 			seaChest, seaM := chest(addr.TableSea, 3)
 			drcChest, drcM := chest(addr.TableDRC, 7)
-			var img world.Image
+			var img save.Image
 			img[seaChest], img[drcChest] = seaM, drcM
 			solo := soloState(t, c.frames)
 			_, rel, _ := memBitTable(seaChest)

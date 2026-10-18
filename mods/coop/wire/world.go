@@ -9,11 +9,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
-// Image is the canonical 0x778-byte dSv_save_c image (§3), save.Image.
-// The name is kept for one release (docs/api/00-design.md, C6; E4
-// removes it).
-type Image = save.Image
-
 // keep[off] is the bits of image byte off that travel in a WORLD: the class
 // mask of a byte that merges, every bit of a DERIVED byte (receivers
 // recompute those, but the hub's preflight reads them), nothing of a
@@ -34,14 +29,14 @@ var keep = func() (k [addr.SaveImageSize]byte) {
 // PER_PLAYER, NEVER and TAG bytes, and the bits of OR and MAX bytes
 // outside their class mask. An image from a snapshot is ready for a WORLD
 // after it.
-func StripLocal(img *Image) {
+func StripLocal(img *save.Image) {
 	for off := range img {
 		img[off] &= keep[off]
 	}
 }
 
 // checkImage reports the first bit of img that StripLocal would clear.
-func checkImage(img *Image) error {
+func checkImage(img *save.Image) error {
 	for off, b := range img {
 		if extra := b &^ keep[off]; extra != 0 {
 			r := class.Of(off)
@@ -61,7 +56,7 @@ func checkImage(img *Image) error {
 type World struct {
 	WorldID ID
 	Seq     uint64
-	Image   Image
+	Image   save.Image
 }
 
 const worldHeaderLen = 18

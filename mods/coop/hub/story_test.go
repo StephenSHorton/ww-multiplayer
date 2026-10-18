@@ -12,6 +12,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // Event bits the tests name (d_save_event_flag.inc).
@@ -338,7 +339,7 @@ func TestDerivedNeverInWorld(t *testing.T) {
 	r, alice, _ := storyRig(t)
 	keyNum := addr.OffMemBit(addr.TableDRC) + addr.MemBitOffKeyNum
 	derived := []int{addr.OffMaxLife, addr.OffMaxLife + 1, addr.OffMaxMagic, addr.OffItems, addr.OffSelectEquip, keyNum}
-	var im wire.Image
+	var im save.Image
 	for _, off := range derived {
 		if class.Of(off).Class != class.Derived {
 			t.Fatalf("byte 0x%03X is %s, not DERIVED", off, class.Of(off).Class)

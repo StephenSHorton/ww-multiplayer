@@ -2,8 +2,8 @@ package story
 
 import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // ApplyRegister returns event register byte i (mEvent 0x79-0xFF) of the
@@ -39,7 +39,7 @@ func ApplyRegister(i int, l, w byte) byte {
 // canonical image (as at a load: a save merge, or the getSave shim of M7),
 // byte by byte with ApplyRegister, and returns how many bytes changed.
 // Nothing outside the allowlisted registers is touched.
-func ApplyRegisters(img, w *world.Image) int {
+func ApplyRegisters(img, w *save.Image) int {
 	n := 0
 	for i := addr.EventRegFirst; i < addr.EventSize; i++ {
 		off := addr.OffEvent + i
@@ -54,7 +54,7 @@ func ApplyRegisters(img, w *world.Image) int {
 // ApplyPlan applies p's writes to img as the receiver's writer would, the
 // story bits by OR and the registers by ApplyRegister, and returns img's
 // new value: the image the receiver reaches if every write lands.
-func ApplyPlan(img *world.Image, p Plan) world.Image {
+func ApplyPlan(img *save.Image, p Plan) save.Image {
 	out := *img
 	for _, g := range p.Bits {
 		if IsStoryByte(int(g.Off)) {

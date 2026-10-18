@@ -18,6 +18,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // host is the host side of a loopback session: a world store, the real
@@ -151,7 +152,7 @@ func (p *player) step() {
 }
 
 // view is the replica's view of the world.
-func (p *player) view() (world.Image, uint64) {
+func (p *player) view() (save.Image, uint64) {
 	p.r.mu.Lock()
 	defer p.r.mu.Unlock()
 	return p.r.view, p.r.viewSeq
@@ -307,7 +308,7 @@ func TestConvergeLoopback(t *testing.T) {
 func converged(t *testing.T, h *host, players []*player, report bool) bool {
 	t.Helper()
 	pol := world.DefaultPolicy()
-	within := func(img world.Image) world.Image {
+	within := func(img save.Image) save.Image {
 		s := world.Shared(&img)
 		for off := range s {
 			if class.Of(off).Class == class.Max && s[off]&^pol[off] != 0 {
@@ -319,7 +320,7 @@ func converged(t *testing.T, h *host, players []*player, report bool) bool {
 		return s
 	}
 	wimg := h.store.Image()
-	var join world.Image
+	var join save.Image
 	for _, p := range players {
 		img := p.image()
 		local := within(img)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // Fuzz targets for everything here that reads bytes someone else wrote:
@@ -107,7 +108,7 @@ func FuzzMerge(f *testing.F) {
 			t.Fatal("delta is not what changed")
 		}
 		for b := data; len(b) >= ImageSize; b = b[ImageSize:] {
-			img := Image(b[:ImageSize])
+			img := save.Image(b[:ImageSize])
 			before = w.Image()
 			res := w.Merge(&img)
 			after = w.Image()

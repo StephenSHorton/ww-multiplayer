@@ -29,6 +29,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // Policy returns base (nil: world.DefaultPolicy) with its event bit bytes
@@ -76,7 +77,7 @@ func isSwitchByte(off int) bool {
 }
 
 // gainsOf lists img's non-zero bytes as gains, in ascending offset order.
-func gainsOf(img *world.Image) []world.Gain {
+func gainsOf(img *save.Image) []world.Gain {
 	var gs []world.Gain
 	for off, v := range img {
 		if v != 0 {

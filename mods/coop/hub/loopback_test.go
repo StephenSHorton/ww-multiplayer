@@ -12,6 +12,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // The hub behind a real network.Server on loopback, with two dry-run
@@ -77,10 +78,10 @@ type model struct {
 	welcomes chan *wire.CoWelcome
 
 	mu       sync.Mutex
-	local    world.Image // what its game holds
-	baseline world.Image // what its differ last looked at
-	view     world.Image // the world as the hub told it
-	sent     world.Image // the join of everything it ever proposed
+	local    save.Image // what its game holds
+	baseline save.Image // what its differ last looked at
+	view     save.Image // the world as the hub told it
+	sent     save.Image // the join of everything it ever proposed
 	batch    uint32
 	online   bool
 	gen      int    // the connection; frames of an older one are ignored
@@ -117,7 +118,7 @@ func (m *model) onCoop(gen int, p []byte) {
 		join := m.asked[0]
 		m.asked = m.asked[1:]
 		if join {
-			img := world.Image(x.Image)
+			img := x.Image
 			m.view = world.Join(&m.view, &img) // a late WORLD reply never takes back a newer relay
 		}
 	case *wire.GainsDown:
@@ -178,7 +179,7 @@ func (m *model) connect(addr string) {
 	m.online = true
 	m.asked = append(m.asked, true)
 	m.mu.Unlock()
-	m.send(&wire.World{WorldID: wire.ID(testWorld), Image: wire.Image(img)})
+	m.send(&wire.World{WorldID: wire.ID(testWorld), Image: img})
 }
 
 // barrier returns once the hub has handled everything m sent: a RESYNC
@@ -244,7 +245,7 @@ func (m *model) diff(r *rand.Rand) {
 		for i, g := range gs {
 			up.Gains[i] = wire.Gain(g)
 		}
-		var im world.Image
+		var im save.Image
 		world.Apply(&im, gs)
 		m.sent = world.Join(&m.sent, &im)
 	}
@@ -364,7 +365,7 @@ func loopbackRun(t *testing.T, seed uint64) {
 		return true
 	})
 	w := hs.hub.store.Image()
-	var proposed world.Image
+	var proposed save.Image
 	for _, m := range reps {
 		m.mu.Lock()
 		if !converged && m.view != w {

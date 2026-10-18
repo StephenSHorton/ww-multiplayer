@@ -212,10 +212,10 @@ type Hold struct {
 	// released reports whether the hold is over, from the receiver's
 	// canonical image (raw, local bytes included) and that image with
 	// the plan's other story bits in it (after).
-	released func(raw, after *world.Image) bool
+	released func(raw, after *save.Image) bool
 }
 
-func eventSet(img *world.Image, id uint16) bool {
+func eventSet(img *save.Image, id uint16) bool {
 	b := addr.EventByte(id)
 	return img[addr.OffEvent+b.Off]&b.Mask == b.Mask
 }
@@ -238,7 +238,7 @@ const (
 // d_item_data.h:64-69).
 var masterSwords = [...]byte{save.ItemMasterSword1, save.ItemMasterSword2, save.ItemMasterSword3}
 
-func masterSwordEquipped(raw *world.Image) bool {
+func masterSwordEquipped(raw *save.Image) bool {
 	for _, it := range masterSwords {
 		if raw[addr.OffSelectEquip] == it {
 			return true
@@ -255,25 +255,25 @@ func masterSwordEquipped(raw *world.Image) bool {
 // unmet (daShip_c, d_a_ship.cpp:4224-4229). §6.5 names two of them; the
 // decomp's third clause, UNK_3E10 without UNK_3F80, is held the same way.
 var Holds = []Hold{
-	{evMetKorl, "MET_KORL moves the resume stage to Windfall", func(raw, _ *world.Image) bool {
+	{evMetKorl, "MET_KORL moves the resume stage to Windfall", func(raw, _ *save.Image) bool {
 		return eventSet(raw, evMetKorl)
 	}},
-	{ev0801, "0x0801 moves the resume stage to MajyuE", func(_, after *world.Image) bool {
+	{ev0801, "0x0801 moves the resume stage to MajyuE", func(_, after *save.Image) bool {
 		return eventSet(after, evMetKorl)
 	}},
-	{ev0808, "0x0808 moves the resume stage to MajyuE", func(_, after *world.Image) bool {
+	{ev0808, "0x0808 moves the resume stage to MajyuE", func(_, after *save.Image) bool {
 		return eventSet(after, evMetKorl)
 	}},
-	{ev2401, "0x2401 moves the resume stage to A_umikz", func(_, after *world.Image) bool {
+	{ev2401, "0x2401 moves the resume stage to A_umikz", func(_, after *save.Image) bool {
 		return eventSet(after, evMetKorl)
 	}},
-	{ev2D10, "0x2D10 locks the boat until a Master Sword is equipped", func(raw, _ *world.Image) bool {
+	{ev2D10, "0x2D10 locks the boat until a Master Sword is equipped", func(raw, _ *save.Image) bool {
 		return masterSwordEquipped(raw)
 	}},
-	{evHyruleCourtyard, "0x3804 locks the boat until ZELDA_AWAKENED", func(_, after *world.Image) bool {
+	{evHyruleCourtyard, "0x3804 locks the boat until ZELDA_AWAKENED", func(_, after *save.Image) bool {
 		return eventSet(after, evZeldaAwakened)
 	}},
-	{ev3E10, "0x3E10 locks the boat until 0x3F80", func(_, after *world.Image) bool {
+	{ev3E10, "0x3E10 locks the boat until 0x3F80", func(_, after *save.Image) bool {
 		return eventSet(after, ev3F80)
 	}},
 }
@@ -325,7 +325,7 @@ type Planner struct {
 	have    bool
 	file    fileKey
 	ever    world.BitSet
-	everMax world.Image
+	everMax save.Image
 	boss    bool // the last tick's stage holds the boss bits (bossStage)
 }
 
@@ -377,7 +377,7 @@ func (p *Planner) observe(o *obs) {
 	}
 	if !p.have || p.file != o.key {
 		p.have, p.file = true, o.key
-		p.ever, p.everMax = world.BitSet{}, world.Image{}
+		p.ever, p.everMax = world.BitSet{}, save.Image{}
 	}
 	for off, b := range o.local {
 		if b == 0 {
@@ -424,8 +424,8 @@ func planMask(off int) byte {
 // loaded, in ascending offset order, and the bits holds keep back: §6.5's
 // story-bit holds and, when the plan is written, table cur's boss bits
 // while the last observed stage is a boss stage (bossHold).
-func (p *Planner) Plan(view, raw, local *world.Image, cur int) ([]Write, []HeldBit) {
-	var miss world.Image
+func (p *Planner) Plan(view, raw, local *save.Image, cur int) ([]Write, []HeldBit) {
+	var miss save.Image
 	for off := range view {
 		m := planMask(off) & p.policy[off]
 		if m == 0 {
@@ -490,7 +490,7 @@ func (p *Planner) Plan(view, raw, local *world.Image, cur int) ([]Write, []HeldB
 
 // Planned returns local with ws applied: the image the receiver would
 // reach if every planned write landed.
-func Planned(local *world.Image, ws []Write) world.Image {
+func Planned(local *save.Image, ws []Write) save.Image {
 	out := *local
 	for _, w := range ws {
 		if w.Max {

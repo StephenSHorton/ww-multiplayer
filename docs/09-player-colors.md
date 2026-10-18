@@ -320,7 +320,7 @@ The casual shirt does not depend on the color pipeline, since C reads no image b
 - Gate: the heap error counters (`gameHeapErrors` 0x803F68F8, docs/08 §4.5) stay 0.
 
 **Save-state coupling.** This branch changes `multiplayer.c` and `mailbox.h`, so:
-1. Rebuild: `cd inject && python build.py && python patch_iso.py && cd .. && python scripts/extract_blob.py && go build`. `blob.go` is already regenerated on the branch; `patch_iso.py` is the owner's step.
+1. Rebuild: `cd inject && python build.py && cd .. && python scripts/extract_blob.py && go build ./cmd/ww-multiplayer`, then `./ww-multiplayer.exe patch <vanilla> <out.iso>`. `blob.go` is already regenerated on the branch; patching the ISO is the owner's step.
 2. Run `./wwdev.exe auto-recapture`, then the owner presses **Shift+F1** once.
 3. Users re-patch their ISO.
 

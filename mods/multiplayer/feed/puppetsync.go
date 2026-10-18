@@ -121,8 +121,8 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 	// twin's pose (= our local Link's live position) gets written into
 	// a puppet actor that then physics-collides with our own Link. Empty
 	// (default) keeps the loopback "mirror yourself with offset" demo
-	// working. mplay2.sh still works because the CLI wrapper above reads
-	// WW_SELF_NAME into this arg; `ww-multiplayer.exe host/join` pass the player name
+	// working. The standalone puppet-sync CLI reads WW_SELF_NAME into
+	// this arg; `ww-multiplayer.exe host/join` pass the player name
 	// so users never have to know the env var exists.
 	if selfFilter != "" {
 		log.Logf(rep, log.Info, "Filtering self-echo: remotes named %q will be ignored.", selfFilter)

@@ -11,12 +11,13 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
 // consistentObs is a consistent tick of table t whose canonical image is
 // raw, for driving a Planner without a game.
-func consistentObs(t int, raw world.Image) *obs {
+func consistentObs(t int, raw save.Image) *obs {
 	return &obs{s: &state.Snapshot{Table: int8(t)}, screen: screenGame, stagTable: t, raw: raw, local: world.Shared(&raw)}
 }
 
@@ -65,7 +66,7 @@ func TestPlannerTargets(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			var view, raw world.Image
+			var view, raw save.Image
 			view[c.off] = c.val
 			p := NewPlanner(world.FullPolicy())
 			ws, held := p.Plan(&view, &raw, &raw, cur)
@@ -89,7 +90,7 @@ func TestPlannerMissing(t *testing.T) {
 	story, storyMask := eventBit(evZeldaAwakened)
 
 	t.Run("what the receiver has is not planned", func(t *testing.T) {
-		var view, raw world.Image
+		var view, raw save.Image
 		view[chestOff], raw[chestOff] = chestMask|0x10, chestMask
 		ws, _ := NewPlanner(nil).Plan(&view, &raw, &raw, addr.TableSea)
 		if len(ws) != 1 || ws[0].Bits != 0x10 {
@@ -98,7 +99,7 @@ func TestPlannerMissing(t *testing.T) {
 	})
 	t.Run("a MAX byte only above the receiver's value", func(t *testing.T) {
 		for _, c := range []struct{ view, local, want byte }{{2, 1, 2}, {1, 2, 0}, {2, 2, 0}} {
-			var view, raw world.Image
+			var view, raw save.Image
 			view[wallet], raw[wallet] = c.view, c.local
 			ws, _ := NewPlanner(nil).Plan(&view, &raw, &raw, addr.TableSea)
 			switch {
@@ -110,7 +111,7 @@ func TestPlannerMissing(t *testing.T) {
 		}
 	})
 	t.Run("the default policy plans no story bit", func(t *testing.T) {
-		var view, raw world.Image
+		var view, raw save.Image
 		view[story] = storyMask
 		if ws, _ := NewPlanner(nil).Plan(&view, &raw, &raw, addr.TableSea); len(ws) != 0 {
 			t.Fatalf("plan %+v", ws)
@@ -118,13 +119,13 @@ func TestPlannerMissing(t *testing.T) {
 	})
 	t.Run("a bit the receiver ever had is suppressed", func(t *testing.T) {
 		p := NewPlanner(world.FullPolicy())
-		var had world.Image
+		var had save.Image
 		had[story], had[swOff], had[openOff], had[wallet] = storyMask, swMask, 0x04, 3
 		p.observe(consistentObs(addr.TableSea, had))
 		// The game cleared the story bit, the switch and the chart's
 		// deciphered bit (and lowered the wallet); the world still has
 		// them.
-		var view, now world.Image
+		var view, now save.Image
 		view[story], view[swOff], view[openOff], view[wallet] = storyMask, swMask, 0x04, 3
 		p.observe(consistentObs(addr.TableSea, now))
 		if ws, _ := p.Plan(&view, &now, &now, addr.TableSea); len(ws) != 0 {
@@ -141,7 +142,7 @@ func TestPlannerMissing(t *testing.T) {
 	})
 	t.Run("the dry run suppresses every bit the receiver ever had, as M2 did", func(t *testing.T) {
 		p := NewPlanner(world.FullPolicy())
-		var had, view, now world.Image
+		var had, view, now save.Image
 		had[chestOff], had[addr.OffMapGet] = chestMask, 0x01
 		view = had
 		p.observe(consistentObs(addr.TableSea, had))
@@ -174,7 +175,7 @@ func TestPlannerMissing(t *testing.T) {
 		}
 		p := NewPlanner(world.FullPolicy())
 		p.writes = true
-		var had, view, now world.Image
+		var had, view, now save.Image
 		for _, h := range heal {
 			had[h.off] |= h.mask
 			view[h.off] |= h.mask
@@ -208,7 +209,7 @@ func TestPlannerMissing(t *testing.T) {
 	t.Run("a bit the reconciler wrote is ever-had before a tick reads it", func(t *testing.T) {
 		p := NewPlanner(world.FullPolicy())
 		p.writes = true
-		var none, view world.Image
+		var none, view save.Image
 		p.observe(consistentObs(addr.TableSea, none))
 		p.wrote(swOff, swMask)
 		view[swOff] = swMask
@@ -226,7 +227,7 @@ func TestPlannerMissing(t *testing.T) {
 		} {
 			p := NewPlanner(world.FullPolicy())
 			p.writes = true
-			var had, view, now world.Image
+			var had, view, now save.Image
 			had[swOff] = swMask
 			view[swOff] = swMask
 			p.observe(consistentObs(addr.TableSea, had))
@@ -245,12 +246,12 @@ func TestPlannerMissing(t *testing.T) {
 	})
 	t.Run("an inconsistent tick adds nothing to ever-had", func(t *testing.T) {
 		p := NewPlanner(world.FullPolicy())
-		var had world.Image
+		var had save.Image
 		had[chestOff] = chestMask
 		o := consistentObs(addr.TableSea, had)
 		o.stagTable = addr.TableDRC
 		p.observe(o)
-		var view, now world.Image
+		var view, now save.Image
 		view[chestOff] = chestMask
 		if ws, _ := p.Plan(&view, &now, &now, addr.TableSea); len(ws) != 1 {
 			t.Fatalf("plan %+v, want the chest", ws)
@@ -258,13 +259,13 @@ func TestPlannerMissing(t *testing.T) {
 	})
 	t.Run("another file starts ever-had over", func(t *testing.T) {
 		p := NewPlanner(world.FullPolicy())
-		var had world.Image
+		var had save.Image
 		had[chestOff] = chestMask
 		p.observe(consistentObs(addr.TableSea, had))
-		o := consistentObs(addr.TableSea, world.Image{})
+		o := consistentObs(addr.TableSea, save.Image{})
 		o.key.name[0] = 'Z'
 		p.observe(o)
-		var view, now world.Image
+		var view, now save.Image
 		view[chestOff] = chestMask
 		if ws, _ := p.Plan(&view, &now, &now, addr.TableSea); len(ws) != 1 {
 			t.Fatalf("plan %+v, want the chest for the new file", ws)
@@ -297,8 +298,8 @@ func TestPlannerHolds(t *testing.T) {
 		{"0x3E10 waits for 0x3F80 (the decomp's third boat lock)", state{view: []uint16{ev3E10}}, nil, []uint16{ev3E10}},
 		{"0x3E10 with 0x3F80 local", state{view: []uint16{ev3E10}, local: []uint16{ev3F80}}, []uint16{ev3E10}, nil},
 	}
-	ids := func(set []uint16) world.Image {
-		var img world.Image
+	ids := func(set []uint16) save.Image {
+		var img save.Image
 		for _, id := range set {
 			off, m := eventBit(id)
 			img[off] |= m
@@ -311,10 +312,10 @@ func TestPlannerHolds(t *testing.T) {
 			raw[addr.OffSelectEquip] = c.st.sword
 			local := world.Shared(&raw)
 			ws, held := NewPlanner(world.FullPolicy()).Plan(&view, &raw, &local, addr.TableSea)
-			if got, want := writesImage(ws, world.Image{}), ids(c.planned); got != want {
+			if got, want := writesImage(ws, save.Image{}), ids(c.planned); got != want {
 				t.Errorf("planned %+v, want events %04X", ws, c.planned)
 			}
-			var heldImg world.Image
+			var heldImg save.Image
 			for _, h := range held {
 				heldImg[h.Off] |= h.Mask
 				if h.Hold.Why == "" {
@@ -329,7 +330,7 @@ func TestPlannerHolds(t *testing.T) {
 }
 
 // writesImage ORs ws into img.
-func writesImage(ws []Write, img world.Image) world.Image {
+func writesImage(ws []Write, img save.Image) save.Image {
 	for _, w := range ws {
 		img[w.Off] |= w.Bits
 	}
@@ -338,8 +339,8 @@ func writesImage(ws []Write, img world.Image) world.Image {
 
 // fullView is a world with every bit the class table shares set, MAX
 // bytes at their mask.
-func fullView() world.Image {
-	var v world.Image
+func fullView() save.Image {
+	var v save.Image
 	for off := range v {
 		v[off] = world.SharedMask(off)
 	}
@@ -351,7 +352,7 @@ func TestPlannedReachesTheWorld(t *testing.T) {
 	// join of the receiver and the world within the policy.
 	for _, pol := range []*world.Policy{world.DefaultPolicy(), world.FullPolicy()} {
 		view := fullView()
-		var raw world.Image
+		var raw save.Image
 		raw[addr.OffSelectEquip] = 0x39
 		for _, id := range []uint16{evMetKorl, evZeldaAwakened, ev3F80} {
 			off, m := eventBit(id)
@@ -378,7 +379,7 @@ func TestPlannedReachesTheWorld(t *testing.T) {
 func TestGuardAllowsEveryPlannedWrite(t *testing.T) {
 	g := NewGuard()
 	view := fullView()
-	var raw world.Image
+	var raw save.Image
 	for cur := range addr.TableCount {
 		ws, _ := NewPlanner(world.FullPolicy()).Plan(&view, &raw, &raw, cur)
 		if len(ws) == 0 {
@@ -497,7 +498,7 @@ func TestFrameWriterIsADryRun(t *testing.T) {
 	m.Record(true)
 	w := &FrameWriter{Mem: m, Guard: NewGuard()}
 	view := fullView()
-	var raw world.Image
+	var raw save.Image
 	ws, _ := NewPlanner(world.FullPolicy()).Plan(&view, &raw, &raw, addr.TableSea)
 	if err := w.Apply(ws); !errors.Is(err, ErrDryRun) {
 		t.Fatalf("Apply = %v, want ErrDryRun", err)
@@ -515,7 +516,7 @@ func TestFrameWriterIsADryRun(t *testing.T) {
 func TestPlannerBossHold(t *testing.T) {
 	drcItems := addr.OffMemBit(addr.TableDRC) + addr.MemBitOffDungeonItem
 	fwItems := addr.OffMemBit(addr.TableFW) + addr.MemBitOffDungeonItem
-	var view world.Image
+	var view save.Image
 	view[drcItems], view[fwItems] = 0x2B, 0x08
 	cases := []struct {
 		name   string
@@ -532,12 +533,12 @@ func TestPlannerBossHold(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			p := NewPlanner(world.FullPolicy())
 			p.writes = c.writes
-			var now world.Image
+			var now save.Image
 			o := consistentObs(addr.TableDRC, now)
 			o.boss = c.boss
 			p.observe(o)
 			ws, held := p.Plan(&view, &now, &now, addr.TableDRC)
-			got := writesImage(ws, world.Image{})
+			got := writesImage(ws, save.Image{})
 			if got[drcItems] != c.drc || got[fwItems] != 0x08 {
 				t.Fatalf("planned DRC 0x%02X, FW 0x%02X; want DRC 0x%02X and FW's boss bit", got[drcItems], got[fwItems], c.drc)
 			}

@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
@@ -17,8 +16,8 @@ import (
 // fresh returns a new file's image as far as the inventory goes: every
 // slot, button and equipment byte empty (dSv_player_item_c::init and
 // dSv_player_status_a_c::init, d_save.cpp:25-46, :88-92).
-func fresh() world.Image {
-	var img world.Image
+func fresh() save.Image {
+	var img save.Image
 	for i := range addr.SlotCount {
 		img[addr.OffItems+i] = save.ItemNone
 	}
@@ -32,7 +31,7 @@ func fresh() world.Image {
 }
 
 // with returns img with each (off, val) pair set.
-func with(img world.Image, kv ...int) world.Image {
+func with(img save.Image, kv ...int) save.Image {
 	for i := 0; i+1 < len(kv); i += 2 {
 		img[kv[i]] = byte(kv[i+1])
 	}
@@ -283,7 +282,7 @@ func TestDeriveVariants(t *testing.T) {
 func TestGrants(t *testing.T) {
 	cases := []struct {
 		name      string
-		raw, view world.Image
+		raw, view save.Image
 		ctx       Context
 		writes    []string
 		ammo      []string
@@ -443,7 +442,7 @@ func TestGrants(t *testing.T) {
 
 // checkIdempotent applies p and checks the plan on the result writes
 // nothing and holds what p held.
-func checkIdempotent(t *testing.T, view, raw *world.Image, ctx Context, p Plan) {
+func checkIdempotent(t *testing.T, view, raw *save.Image, ctx Context, p Plan) {
 	t.Helper()
 	img, ctx2 := Apply(raw, ctx, append(slices.Clone(p.Writes), p.Ammo...))
 	q := Pending(view, &img, ctx2)
@@ -497,7 +496,7 @@ func TestContextRules(t *testing.T) {
 	bowView := with(fresh(), offBowFlags, 0x07, addr.OffArrowMax, 60)
 	cases := []struct {
 		name       string
-		raw, view  world.Image
+		raw, view  save.Image
 		ctx, after Context
 		writes     []string
 		held       []string
@@ -623,7 +622,7 @@ func TestContextRules(t *testing.T) {
 func TestRulesNeedTheirCondition(t *testing.T) {
 	cases := []struct {
 		name string
-		raw  world.Image
+		raw  save.Image
 		ctx  Context
 		ff1  bool
 		gt   bool
@@ -659,7 +658,7 @@ func TestButtons(t *testing.T) {
 	magicView := with(fresh(), offBowFlags, 0x03)
 	cases := []struct {
 		name      string
-		raw, view world.Image
+		raw, view save.Image
 		btns      [Buttons]btn
 		want      []string
 	}{

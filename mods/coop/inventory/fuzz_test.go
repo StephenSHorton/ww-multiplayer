@@ -36,7 +36,7 @@ var fuzzOffsets = func() []int {
 // fuzzImage fills fresh()'s fuzzOffsets from b, a byte each; byte values
 // are folded so slots, flags and capacities land on interesting values
 // often.
-func fuzzImage(b []byte) world.Image {
+func fuzzImage(b []byte) save.Image {
 	img := fresh()
 	for i, off := range fuzzOffsets {
 		if i < len(b) {
@@ -122,7 +122,7 @@ func pick(b []byte) []byte {
 }
 
 // checkPlan checks one plan's writes against the images it was made from.
-func checkPlan(t *testing.T, view, raw *world.Image, ctx Context, p Plan) {
+func checkPlan(t *testing.T, view, raw *save.Image, ctx Context, p Plan) {
 	t.Helper()
 	seen := map[uint32]bool{}
 	ff1, gt := ctx.ff1(raw), ctx.gtower()

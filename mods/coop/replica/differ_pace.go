@@ -6,6 +6,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/story"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // The sender's pace (§6.5, §6.6, M4). M2 and M3 send every rising edge on
@@ -58,7 +59,7 @@ type pace struct {
 	ticks int64
 
 	batch story.Batcher
-	inv   world.Image // inventory flags (OR) and capacities (MAX) waiting for IDLE
+	inv   save.Image // inventory flags (OR) and capacities (MAX) waiting for IDLE
 }
 
 // Pace turns on M4's sender pace (see above), with clock as its clock (nil:
@@ -84,7 +85,7 @@ func (p *pace) now() time.Time {
 // run is the game's, not the batch's, so it is kept (story.Batcher.Reset).
 func (p *pace) drop() {
 	p.batch.Reset()
-	p.inv = world.Image{}
+	p.inv = save.Image{}
 }
 
 // quiet takes a tick the Differ skips (Link between stages, a stage load
@@ -111,11 +112,11 @@ func (p *pace) release(now time.Time, idle bool, gs []world.Gain) []world.Gain {
 			rest = append(rest, g)
 		}
 	}
-	var out world.Image
+	var out save.Image
 	world.Apply(&out, p.batch.Tick(now, idle, rest))
 	if idle {
 		world.Apply(&out, nonZero(&p.inv))
-		p.inv = world.Image{}
+		p.inv = save.Image{}
 	}
 	if gs := nonZero(&out); len(gs) > 0 {
 		return gs
@@ -126,7 +127,7 @@ func (p *pace) release(now time.Time, idle bool, gs []world.Gain) []world.Gain {
 // waiting lists what the pace holds back, in ascending offset order: the
 // story batch with its switches, and the inventory waiting for IDLE.
 func (p *pace) waiting() []world.Gain {
-	var all world.Image
+	var all save.Image
 	world.Apply(&all, p.batch.Waiting())
 	world.Apply(&all, nonZero(&p.inv))
 	return nonZero(&all)
@@ -142,7 +143,7 @@ func (d *Differ) Waiting() []world.Gain { return d.pace.waiting() }
 // merges only up, so the lower value is harmless; the held edges follow
 // as gains in their time (story.Batcher.Withhold). An unpaced Differ
 // withholds nothing.
-func (d *Differ) Withhold(img *world.Image) {
+func (d *Differ) Withhold(img *save.Image) {
 	p := &d.pace
 	if !p.on {
 		return
@@ -168,7 +169,7 @@ func inventoryByte(off int) bool {
 }
 
 // nonZero lists img's non-zero bytes as gains, in ascending offset order.
-func nonZero(img *world.Image) []world.Gain {
+func nonZero(img *save.Image) []world.Gain {
 	var gs []world.Gain
 	for off, v := range img {
 		if v != 0 {

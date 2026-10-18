@@ -9,6 +9,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 )
 
@@ -20,8 +21,8 @@ const (
 )
 
 // image returns an image with gs set (OR; a register gain as its value).
-func image(gs ...world.Gain) world.Image {
-	var img world.Image
+func image(gs ...world.Gain) save.Image {
+	var img save.Image
 	for _, g := range gs {
 		img[g.Off] |= g.Val
 	}
@@ -169,11 +170,11 @@ func TestReleased(t *testing.T) {
 	with := image(ev(evMetKorl), ev(evZeldaAwakened))
 	cases := []struct {
 		id         uint16
-		raw, after *world.Image
+		raw, after *save.Image
 		want       bool
 	}{
 		{ev0801, &raw, nil, true},
-		{ev0801, &world.Image{}, &with, false}, // UntilLocal: the write's own MET_KORL does not count
+		{ev0801, &save.Image{}, &with, false}, // UntilLocal: the write's own MET_KORL does not count
 		{ev3804, &raw, nil, false},
 		{ev3804, &raw, &with, true},
 		{ev2D10, &raw, &with, false},
@@ -213,7 +214,7 @@ func TestPendingRegisters(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			off := addr.OffEvent + c.reg
-			var view, raw, everMax world.Image
+			var view, raw, everMax save.Image
 			var ever world.BitSet
 			view[off], raw[off] = c.w, c.l
 			if class.Of(off).Class == class.Max {
@@ -279,7 +280,7 @@ func good(hb uint32, enable int8) *state.Snapshot {
 // heartbeat or when the caller says no.
 func TestReceiverOnTransition(t *testing.T) {
 	view := image(ev(ev0520))
-	var raw world.Image
+	var raw save.Image
 	type step struct {
 		hb     uint32
 		enable int8

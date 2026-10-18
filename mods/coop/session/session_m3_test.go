@@ -26,6 +26,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/tablestest"
 )
 
@@ -303,9 +304,9 @@ func (b *coBeat) warps() []replica.Pos {
 // stage, switch and ocean categories that M3's allowlist covers.
 type coM3 struct {
 	pol  *world.Policy
-	mask world.Image // per byte, the bits M3 converges
-	offs []int       // the bytes with a bit in mask
-	sw   []int       // of those, the memory switch bytes of the tables the stages use
+	mask save.Image // per byte, the bits M3 converges
+	offs []int      // the bytes with a bit in mask
+	sw   []int      // of those, the memory switch bytes of the tables the stages use
 }
 
 func newCoM3(pol *world.Policy) *coM3 {
@@ -347,8 +348,8 @@ func coSwitchTable(off int) (int, bool) {
 }
 
 // of is img's M3 bytes, everything else zero.
-func (m *coM3) of(img world.Image) world.Image {
-	var out world.Image
+func (m *coM3) of(img save.Image) save.Image {
+	var out save.Image
 	for _, off := range m.offs {
 		out[off] = img[off] & m.mask[off]
 	}
@@ -801,7 +802,7 @@ func TestCoopSessionM3(t *testing.T) {
 		}
 	}
 	converge("after the play")
-	if w := m3.of(h.world()); w == (world.Image{}) {
+	if w := m3.of(h.world()); w == (save.Image{}) {
 		t.Fatal("the world has no M3 progress: the play made none")
 	}
 	for _, p := range players {

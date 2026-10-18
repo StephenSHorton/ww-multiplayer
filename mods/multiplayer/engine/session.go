@@ -156,7 +156,7 @@ func RunJoinSession(ctx context.Context, cancel context.CancelFunc, env Env, add
 // runMultiplayerGoroutines spawns broadcast-pose + puppet-sync against the
 // given server address. Player name is passed as selfFilter so the two
 // in-process clients don't self-echo on the co-located broadcast/puppet
-// twin (the WW_SELF_NAME workaround from mplay2.sh, but automatic). Blocks
+// twin (what WW_SELF_NAME does for the standalone puppet-sync, but automatic). Blocks
 // until either goroutine exits or ctx is cancelled, then waits for both to
 // finish before returning.
 // onClient, when non-nil, is forwarded to the puppet-sync goroutine so its

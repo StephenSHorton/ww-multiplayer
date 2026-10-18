@@ -19,6 +19,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 )
 
 // batchTicks is how many ticks of the tick clock make story.BatchIdle.
@@ -326,7 +327,7 @@ func FuzzDifferPaced(f *testing.F) {
 		dr := newDifferRig(t, pol)
 		dr.d.Pace(nil)
 		un := NewDiffer(pol)
-		var sent, rose world.Image
+		var sent, rose save.Image
 		stages := []fakegame.Stage{outset, drc, drcBoss, woods}
 		arg := func(i int) int {
 			if i < len(ops) {
@@ -355,7 +356,7 @@ func FuzzDifferPaced(f *testing.F) {
 			world.Apply(&sent, pe.Gains)
 			// Stage progress (not story, register, inventory or switch)
 			// goes as it rises.
-			var now, pnow world.Image
+			var now, pnow save.Image
 			for _, g := range ue.Gains {
 				if off := int(g.Off); !inventoryByte(off) && !story.IsStoryByte(off) && !story.IsRegisterByte(off) && !proto.IsSwitchByte(off) {
 					world.Apply(&now, []world.Gain{g})
@@ -369,7 +370,7 @@ func FuzzDifferPaced(f *testing.F) {
 			if now != pnow {
 				t.Fatalf("stage progress: paced %s, unpaced %s", fmtGains(nonZero(&pnow)), fmtGains(nonZero(&now)))
 			}
-			var all world.Image = sent
+			var all save.Image = sent
 			world.Apply(&all, dr.d.Waiting())
 			if all != rose {
 				t.Fatalf("sent and waiting %s, rose %s", fmtGains(nonZero(&all)), fmtGains(nonZero(&rose)))

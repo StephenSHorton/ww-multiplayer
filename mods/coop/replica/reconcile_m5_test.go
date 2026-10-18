@@ -16,6 +16,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
@@ -225,7 +226,7 @@ func newM5Rig(t *testing.T, cfg Config, f proto.Feature) *m5Rig {
 		t.Fatalf("no CO_HELLO: %s", subs(sent))
 	}
 	rec.welcome(f)
-	say(t, r, worldOf(1, world.Image{}))
+	say(t, r, worldOf(1, save.Image{}))
 	rec.tick()
 	rr.hub.take()
 	m5 := &m5Rig{recRig: rec, zm: zm, tb: m5Tables(t)}
@@ -1188,7 +1189,7 @@ func FuzzReconcileM5(f *testing.F) {
 				}
 			}
 		}
-		var img world.Image
+		var img save.Image
 		dans := []int{danOK, danOK2, danTimed, 0xBF}
 		zones := []int{zoneOK, zoneOK2, zoneTimed, 0xDF}
 		rooms := []int{roomOK, roomOK2, roomTimed, 0xEF}
