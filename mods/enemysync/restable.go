@@ -30,7 +30,7 @@ type Mo2Res struct {
 	ok    bool
 	entry int    // the Mo2 entry's index, -1 when none
 	res   uint32 // its mRes
-	count uint16 // its mCount
+	count uint16 // its mCount: a reference count (dRes_info_c incCount/decCount, d_resorce.h:26-32), not a resource count
 	why   string // why the table is not ok
 
 	missNext time.Time
@@ -95,10 +95,6 @@ func (r *Mo2Res) Resolve(m mem.Reader) error {
 	}
 	if r.entry < 0 {
 		r.why = "no loaded Mo2 entry in mObjectInfo"
-		return nil
-	}
-	if int(r.count) <= addr.Mo2BckLast {
-		r.why = fmt.Sprintf("the Mo2 entry holds %d resources, fewer than the BCK range", r.count)
 		return nil
 	}
 	at := r.res + 4*addr.Mo2BckFirst

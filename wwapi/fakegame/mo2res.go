@@ -37,7 +37,7 @@ func Mo2Res(idx uint8) uint32 {
 }
 
 // LoadMo2Res loads the "Mo2" archive into mObjectInfo[Mo2ResEntry] with
-// mCount Mo2BckLast+1 and mRes at Mo2ResTable (d_resorce.h:40-47).
+// mCount 3 (a reference count, one per user of the archive) and mRes at Mo2ResTable (d_resorce.h:40-47).
 func (g *FakeGame) LoadMo2Res() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -45,7 +45,7 @@ func (g *FakeGame) LoadMo2Res() {
 	name := make([]byte, addr.ResInfoNameLen)
 	copy(name, addr.Mo2Arc)
 	g.store(e+addr.ResInfoOffName, name)
-	g.st16(e+addr.ResInfoOffCount, addr.Mo2BckLast+1)
+	g.st16(e+addr.ResInfoOffCount, 3)
 	g.st32(e+addr.ResInfoOffArchive, mo2Archive)
 	g.st32(e+addr.ResInfoOffRes, Mo2ResTable)
 	for i := range addr.Mo2BckLast + 1 {

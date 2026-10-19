@@ -17,7 +17,7 @@ const (
 	resMo2Entry = 28
 	resMo2Arc   = uint32(0x8123_4560)
 	resMo2Res   = uint32(0x8130_0000)
-	resMo2Count = uint16(0x7D)
+	resMo2Count = uint16(3) // a reference count: one per Moblin using the archive
 	resBckBase  = uint32(0x8140_0000)
 	resBckStep  = uint32(0x1A40)
 )
@@ -190,9 +190,6 @@ func TestMo2ResRefuses(t *testing.T) {
 		{"archive outside MEM1", func(t *testing.T, m *mem.FakeMem, _ [addr.Mo2BckCount]uint32) {
 			resPutEntry(t, m, resMo2Entry, addr.Mo2Arc, resMo2Count, 0x9123_4560, resMo2Res)
 		}, 1},
-		{"mCount short of the BCK range", func(t *testing.T, m *mem.FakeMem, _ [addr.Mo2BckCount]uint32) {
-			resPutEntry(t, m, resMo2Entry, addr.Mo2Arc, addr.Mo2BckLast, resMo2Arc, resMo2Res)
-		}, 1},
 		{"mRes 0", func(t *testing.T, m *mem.FakeMem, _ [addr.Mo2BckCount]uint32) {
 			resPutEntry(t, m, resMo2Entry, addr.Mo2Arc, resMo2Count, resMo2Arc, 0)
 		}, 1},
@@ -235,12 +232,14 @@ func TestMo2ResRefuses(t *testing.T) {
 			}
 		})
 	}
-	// The count boundary: mRes[0x75] is the last BCK, so 0x76 resources
-	// is the least that holds the range.
-	m, _ := resFixture(t)
-	resPutEntry(t, m, resMo2Entry, addr.Mo2Arc, addr.Mo2BckLast+1, resMo2Arc, resMo2Res)
-	if r, _ := resResolve(t, m); !r.OK() {
-		t.Errorf("mCount 0x%X: not ok (%s)", addr.Mo2BckLast+1, r.Why())
+	// mCount is a reference count (three Moblins in M_Dai room 1 read 3
+	// live), not the number of resources: any nonzero count resolves.
+	for _, n := range []uint16{1, 3} {
+		m, _ := resFixture(t)
+		resPutEntry(t, m, resMo2Entry, addr.Mo2Arc, n, resMo2Arc, resMo2Res)
+		if r, _ := resResolve(t, m); !r.OK() {
+			t.Errorf("mCount %d: not ok (%s)", n, r.Why())
+		}
 	}
 }
 
