@@ -246,8 +246,10 @@ own damage code apply the hit, as if the host Link's sword had landed:
   `dCcD_Sph` constructor exists in the DOL), checked by its vptr
   (`__vt__8dCcD_Sph` 0x803899D0, else detail 6), with the At hit callback
   word and the At SPrm zeroed. Both objects are static because `cCcS::Set`
-  keeps their pointers until `dScnPly_Draw`'s Move; both are rebuilt after
-  a relink from flags in the state.
+  keeps their pointers until `dScnPly_Draw`'s Move. The sphere image is
+  rebuilt after a relink from a flag in the state; the stts is constructed
+  and `Init`'d from the current Link on every request (a Link recreated at
+  the same address after a stage load gets a new process id).
 - Per request a `dCcD_SrcSph` is filled from the HIT: At type (0 = sword
   0x2), atp (0 = 1), At SPrm Set|VsEnemy, Se (0 = 1, the sword hit sound),
   hit mark (0 = 0xD, the normal particle and sword flash), Spl (1 = a kill
@@ -266,12 +268,17 @@ own damage code apply the hit, as if the host Link's sword had landed:
   cross at all gets one more `StartCAt` + `cCcS::Set` with a recomputed
   centre, then detail 1 (`hit_nocross`++), or with `HAF_FALLBACK_SHRINK`
   the v1 shrink (result 3, detail 10) when the Moblin is neither
-  invulnerable nor ragdolling. The sphere is never re-Set after a cross:
+  invulnerable, ragdolling nor defending. The sphere is never re-Set after a cross:
   the Moblin's Tg NoConHit would dedupe it and its Move would clear the
   record (`cCcS::ClrAtHitInf` only walks that frame's objects).
 - Any early return of the per-frame loop, a release of everything, delete
   or `_epilog` while a request is open acks it dropped with detail 8
-  (`hit_aborted`++).
+  (`hit_aborted`++), unless the sphere was already Set and its At record
+  shows the cross on the target (result 1: the Moblin took the hit).
+- While a request is open the REL does not take another request's fields
+  from the block; Go writes the next request only after the ack, and a
+  request Go timed out is superseded by a cancel (a new seq with pid 0,
+  acked no-actor).
 
 The ack is the result word at +0x190 (byte 3 result, byte 2 detail, byte
 1 executes from the first Set to the result, byte 0 Sets issued) followed

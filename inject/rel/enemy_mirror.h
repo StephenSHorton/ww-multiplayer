@@ -7,8 +7,9 @@
 // actor with the profile's mSize and frees it with the actor, and the module
 // is unlinked when the last actor of its proc is deleted. The only state
 // outside the actor is the host's two static collision objects in the
-// mailbox slack (WWENEMY_SPH_OFF, WWENEMY_STTS_OFF), rebuilt lazily after a
-// relink from sph_built and stts_link below.
+// mailbox slack (WWENEMY_SPH_OFF, WWENEMY_STTS_OFF): the sphere image is
+// rebuilt lazily after a relink (sph_built below), the stts is re-Init'd
+// from the current Link on every request.
 #ifndef WW_ENEMY_MIRROR_H
 #define WW_ENEMY_MIRROR_H
 
@@ -96,7 +97,7 @@ typedef struct {
     u32 ha_attype;      // +0x3C
     cXyz ha_pos;        // +0x40 the client's collider centre
     u32 ha_actor;       // +0x4C the target actor of the open request (0 = none)
-    u32 stts_link;      // +0x50 the Link pointer the static stts was Init'd with (0 = not built)
+    u32 stts_link;      // +0x50 the Link pointer the static stts was last Init'd with (a diagnostic: it is re-Init'd on every request)
     em_slot slots[WWENEMY_MAX_SLOTS]; // +0x54
 } enemy_mirror_state;   // 0x54 + 4 * 0x5C = 0x1C4
 

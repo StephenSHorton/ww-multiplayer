@@ -44,7 +44,9 @@
 //              Moblin into JYUNKAI mode -10 (a 60-frame wait, d_a_mo2.cpp
 //              :1304-1313), and after S2 restores its own wait loop, weapon
 //              byte and timers; death = release + health 0 + the light-arrow
-//              shrink timer (enemy_ice, c_damagereaction.cpp:117-168);
+//              shrink timer (enemy_ice, c_damagereaction.cpp:117-168), the
+//              dying copy keeping its last mirrored pose and weapon byte (no
+//              wait-loop or weapon restore); RELEASE with DYING kills;
 //   host role  hit_apply: v2 builds a one-off At sphere (a copy of the
 //              target's own head sphere image, Set from a dCcD_SrcSph, with
 //              a stts Init'd from the host Link) and registers it with
@@ -279,6 +281,7 @@ static const char EM_MO2_ARC[4] = "Mo2";
 #define CC_STTS           0x44    // cCcD_Stts* cCcD_Obj.mStts (SetStts is an inline store, c_cc_d.h:608)
 #define CC_GAT_CALLBACK   0x58    // dCcD_GObjAt mHitCallback (dCcD_GAtTgCoCommonBase +0x08 at +0x50)
 #define CC_SHAPE_CENTER   0x118   // cM3dGCyl/cM3dGSph (the SetC `this`)
+#define CC_SHAPE_RADIUS   0x124   // f32 cM3dGSph.mRadius (+0x0C past the centre, c_m3d_g_sph.h:16-19)
 // dCcD_SrcSph (0x40, d_cc_d.h:158-161; c_cc_d.h:286-314): the fill em_hit_submit writes
 #define SRC_AT_TYPE       0x04    // u32
 #define SRC_AT_ATP        0x08    // u8
@@ -522,7 +525,12 @@ static void em_consume(enemy_mirror_state* s, u32 seq, u32 frame) {
             }
         }
     }
-    if (s->role == WWENEMY_ROLE_HOST) {
+    // The request is taken only while none is open: em_hit_tick,
+    // em_hit_submit and em_hit_center read these fields until the open one
+    // publishes, so a newer request Go writes meanwhile (after its ack
+    // timeout) must not change its target, centre or At parameters. The
+    // newer seq is read at the first consume (or keepalive) after that.
+    if (s->role == WWENEMY_ROLE_HOST && s->ha_state == EM_HA_IDLE) {
         s->ha_seq = EB_U32(WWENEMY_HIT_APPLY_OFF + WWENEMY_HA_SEQ_OFF);
         s->ha_pid = EB_U32(WWENEMY_HIT_APPLY_OFF + WWENEMY_HA_PID_OFF);
         s->ha_setid = EB_U16(WWENEMY_HIT_APPLY_OFF + WWENEMY_HA_SETID_OFF);
@@ -624,8 +632,18 @@ static void em_adopt(enemy_mirror_state* s, em_slot* sl, void* a, int i) {
 // (enemy_ice runs at the top of daMo2_Execute, d_a_mo2.cpp:3379-3388, and
 // c_damagereaction.cpp:117-168 shrinks, drops the item, sets the death
 // switch and deletes the actor). The latch keeps later samples from
-// adopting the shrinking copy.
+// adopting the shrinking copy. A dying copy never resumes its AI, so it
+// keeps its last mirrored pose and weapon byte while it shrinks (enemy_ice
+// plays the current morf at speed 3, d_a_mo2.cpp:3379-3387): the S2 part
+// of em_handback (the wait-loop setAnm and the weapon_prev restore) is
+// skipped, only its blur/gate/skip clears are kept.
 static void em_die(em_slot* sl, void* a) {
+    if (sl->anm_state != WWENEMY_ANM_S1) {
+        AF(a, u32, MO2_BLUR_ON) = 0;
+        AF(a, s16, MO2_ANM_GATE) = 0;
+        AF(a, s16, MO2_PLAY_SKIP) = 0;
+        sl->anm_state = WWENEMY_ANM_S1;
+    }
     em_release(sl);
     AF(a, s8, AC_HEALTH) = 0;
     AF(a, s8, MO2_ICE_SHRINK) = 1;
@@ -712,6 +730,9 @@ static void em_animate(enemy_mirror_state* s, em_slot* sl, void* a, void* morf, 
         f32 loop = (f32)AF(morf, s16, MORF_LOOP);
         f32 last = end - 0.001f;                    // EMode_NONE's stop value (J3DAnimation.cpp:154)
         if (n > EM_FRAME_LEAD_CAP) n = EM_FRAME_LEAD_CAP;
+        // The host skipped play() (m05B2, d_a_mo2.cpp:3488-3490), so its
+        // frame is held while the rate stays as it was: no lead.
+        if (sl->tgt_flags2 & WWENEMY_SF2_PLAY_SKIP) n = 0;
         while (n-- > 0) target += sl->anm_rate;
         if (sl->anm_attr == MORF_ATTR_LOOP) {
             // One wrap with update()'s own guards (J3DAnimation.cpp:166-182),
@@ -810,7 +831,11 @@ static void em_slot_frame(enemy_mirror_state* s, int i, u32 frame) {
         em_release(sl);
         return;
     }
-    if (sl->tgt_flags & WWENEMY_SF_RELEASE) {
+    // A plain release hands the copy back. RELEASE with DYING (Go's
+    // late-joiner catch-up slot: a setID the host killed that is still
+    // alive here) is a kill: resolve, validate and adopt as usual, then
+    // em_die below.
+    if ((sl->tgt_flags & (WWENEMY_SF_RELEASE | WWENEMY_SF_DYING)) == WWENEMY_SF_RELEASE) {
         em_release(sl);
         return;
     }
@@ -993,13 +1018,17 @@ static void em_hit_submit(enemy_mirror_state* s, void* a) {
         em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_NO_LINK);
         return;
     }
-    if (s->stts_link != link) {
-        // Link's own mStts.Init(120, 0xFF, this): apid = fopAcM_GetID(link),
-        // mp_actor = link, room (d_cc_d.cpp:66-88; c_cc_d.cpp:185-192).
-        dCcD_Stts_ct(EM_STTS);
-        dCcD_Stts_Init(EM_STTS, EM_STTS_WEIGHT, EM_STTS_P1, (void*)link);
-        s->stts_link = link;
-    }
+    // Link's own mStts.Init(120, 0xFF, this): apid = fopAcM_GetID(link),
+    // mp_actor = link, room (d_cc_d.cpp:66-88; c_cc_d.cpp:185-192). On
+    // every submit, not keyed on the pointer: the module outlives a stage
+    // load and a recreated Link can sit at the old address with a new
+    // process id; a stale apid makes the Moblin's ChkTgHit fail
+    // (fopAcM_SearchByID NULL, d_cc_d.cpp:14-24,188-197; d_cc_s.cpp:434)
+    // while our At record still reads as a cross. No allocation; nothing
+    // holds the stts between Moves. stts_link stays as a diagnostic.
+    dCcD_Stts_ct(EM_STTS);
+    dCcD_Stts_Init(EM_STTS, EM_STTS_WEIGHT, EM_STTS_P1, (void*)link);
+    s->stts_link = link;
     if (!s->sph_built) {
         // A live image beats hand construction: no __ct__8dCcD_SphFv exists
         // in the DOL. mHeadSph carries no At hit callback (mWeaponSph does:
@@ -1047,11 +1076,23 @@ static void em_hit_submit(enemy_mirror_state* s, void* a) {
 // Every execute while a request is open; live == 0 on an early return,
 // a release of everything, delete or unlink: the request is acked
 // HD_ABORTED (a Set happens in execute and its Move in the same frame's
-// draw, so no Set is left behind; the objects are static anyway).
+// draw, so no Set is left behind; the objects are static anyway). An
+// abort in EM_HA_SET reads the static At record first: a cross on the
+// target's head sphere or Tg cylinder in the last Move means the Moblin's
+// damage_check takes the hit anyway, so it is APPLIED_AT. Only ha_actor's
+// value is compared; the actor may be gone, so it is never dereferenced
+// (no parry check here).
 static void em_hit_tick(enemy_mirror_state* s, int live) {
     void* a;
     if (s->ha_state == EM_HA_IDLE) return;
     if (!live) {
+        if (s->ha_state == EM_HA_SET && s->ha_actor != 0 && (AF(EM_SPH, u32, CC_AT_RPRM) & 1)) {
+            u32 obj = AF(EM_SPH, u32, CC_AT_HIT_OBJ);
+            if (obj == s->ha_actor + MO2_HEAD_SPH || obj == s->ha_actor + MO2_TG_CYL) {
+                em_hit_publish(s, WWENEMY_HR_APPLIED_AT, WWENEMY_HD_NONE);
+                return;
+            }
+        }
         em_sat_inc(&s->canary2[3]);
         em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_ABORTED);
         return;
@@ -1094,8 +1135,15 @@ static void em_hit_tick(enemy_mirror_state* s, int live) {
             em_hit_register(s, a);               // the collider was not Set that frame, or the head moved
         } else {
             em_sat_inc(&s->canary2[2]);
+            // Never on a defending Moblin: its head and Tg colliders are
+            // lowered out of reach (d_a_mo2.cpp:3586-3588) and the shield
+            // parries in the real game (v1 drops it as HD_DEFENCE). The
+            // shield radius is set positive only in defence (:2219, :2249)
+            // and to -200 otherwise (:3071).
             if ((s->ha_flags & WWENEMY_HAF_FALLBACK_SHRINK) && AF(a, s16, MO2_INVULN) == 0 &&
-                AF(a, s16, MO2_DR_MODE) > MO2_MODE_RAGDOLL) {
+                AF(a, s16, MO2_DR_MODE) > MO2_MODE_RAGDOLL &&
+                AF(a, s16, MO2_DR_ACTION) != MO2_ACTION_DEFENCE &&
+                !(AF(a, f32, MO2_DEF_SPH + CC_SHAPE_RADIUS) > 0.0f)) {
                 AF(a, s8, MO2_ICE_SHRINK) = 1;
                 em_hit_publish(s, WWENEMY_HR_SHRINK, WWENEMY_HD_FALLBACK_SHRINK);
             } else {
