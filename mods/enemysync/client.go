@@ -55,6 +55,10 @@ type Mirror struct {
 
 	epoch uint32
 	seq   uint32
+	// hostEpoch is the epoch of the last STATE mirrored (haveHost once
+	// one was): a change is a restarted host whose host_ms began again.
+	hostEpoch uint32
+	haveHost  bool
 
 	// Gates.
 	contractOK, contractRan bool
@@ -149,6 +153,10 @@ func (c *Mirror) newEpoch(why string) {
 	for _, s := range c.sm {
 		s.Reset()
 	}
+	// The REL renumbers its hit_seq from 1 on every link (enemy_mirror_init
+	// zeroes the state) and a save state restores an older one: a drained
+	// seq from before must not hide a new entry's.
+	c.lastHits = [MaxSlots]uint16{}
 	log.Logf(c.rep, log.Info, "enemy client: epoch %d (%s)", c.epoch, why)
 }
 
@@ -275,6 +283,23 @@ func (c *Mirror) writeBlock(now time.Time, st *State, slots []mailbox.EnemySlot)
 	if c.seq == 0 {
 		c.seq = 1
 	}
+	// Each slot's sample_seq is this block's seq: the smoother re-times
+	// MorfFrame to the render time on every write, so the REL must re-anchor
+	// its frame and rate on every block it consumes (em_consume takes them
+	// only when sample_seq changes) and its S2.5 lead covers only the
+	// write-to-consume gap (design S2.5; with the STATE's seq a STATE gap
+	// froze the copy after EM_FRAME_LEAD_CAP frames, and a bck switch the
+	// smoother made between STATEs reached the REL with the previous anim's
+	// frame and rate). Raw mode keeps the STATE's seq: its frame is the
+	// newest sample's, not re-timed, so re-anchoring on a repeat write would
+	// throw away the lead the REL added since that sample.
+	for i := range slots {
+		if !c.raw || st == nil {
+			slots[i].SampleSeq = c.seq
+		} else {
+			slots[i].SampleSeq = st.Seq
+		}
+	}
 	// The block's flags follow the STATE's: the animation stream only
 	// while the host resolved its Mo2 table, the colliders while the host
 	// asks for them (design "wire_and_block", CLIENT).
@@ -385,9 +410,21 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 	if err := c.match(now, scope, st, force); err != nil {
 		return nil, 0, err
 	}
+	// A new host epoch is a restarted host Go (pipelines.go: the epoch is
+	// its start time) whose host_ms began again near 0: every smoother
+	// re-bases, or each would drop the new samples as older than its newest
+	// and hold the old host's last pose.
+	if c.haveHost && st.Epoch != c.hostEpoch {
+		log.Logf(c.rep, log.Info, "enemy client: the host's epoch went %d -> %d (the host restarted); the smoothers re-base", c.hostEpoch, st.Epoch)
+		for _, s := range c.sm {
+			s.Rebase()
+		}
+	}
+	c.hostEpoch, c.haveHost = st.Epoch, true
 
 	// Smooth and lay the slots out.
 	slots := make([]mailbox.EnemySlot, 0, len(st.Slots))
+	ids := make([]uint16, 0, len(st.Slots)) // each written slot's setID
 	seen := map[uint16]bool{}
 	for i := range st.Slots {
 		sl := &st.Slots[i]
@@ -407,7 +444,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		// at its render time (smooth.go copies the whole slot).
 		es := mailbox.EnemySlot{Pos: out.Pos, AngleY: out.AngleY, Tilt: out.Tilt, Action: out.Action, Mode: out.Mode,
 			AttackType: out.AttackType, AttackPhase: out.AttackPhase, Health: out.Health, Flags: out.Flags,
-			MorfFrame: out.MorfFrame, MorfRate: out.MorfRate, SampleSeq: st.Seq,
+			MorfFrame: out.MorfFrame, MorfRate: out.MorfRate, // SampleSeq: writeBlock
 			Bck: out.Bck, AnmAttr: out.AnmAttr, AnmSeq: out.AnmSeq, Morf: out.Morf, Flags2: out.Flags2, BlurShape: out.BlurShape, BlurScale: out.BlurScale}
 		if mo, ok := c.local[sl.SetID]; ok {
 			es.PID = mo.PID
@@ -416,6 +453,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 			es.Flags |= mailbox.EnemySFDying
 		}
 		slots = append(slots, es)
+		ids = append(ids, sl.SetID)
 	}
 	// A setID the host no longer lists but whose zone bit is set, and
 	// which this game still has alive: dying (a late joiner's catch-up).
@@ -423,8 +461,9 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		if seen[id] || id >= 8 || st.DeadMask&(1<<id) == 0 || len(slots) >= MaxSlots {
 			continue
 		}
-		slots = append(slots, mailbox.EnemySlot{PID: mo.PID, Flags: mailbox.EnemySFDying | mailbox.EnemySFRelease, SampleSeq: st.Seq,
+		slots = append(slots, mailbox.EnemySlot{PID: mo.PID, Flags: mailbox.EnemySFDying | mailbox.EnemySFRelease,
 			Bck: mailbox.EnemyBckNone, AnmAttr: AnmAttrUnknown})
+		ids = append(ids, id)
 	}
 	for id, s := range c.sm {
 		if !seen[id] {
@@ -452,19 +491,27 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 			c.seq, c.Stats.LastWriteMS, status.AckSeq, status.AckFrame, st.HostBeat, status.AdoptedMask, statusLine(&status), status.Canaries, status.Canaries2)
 	}
 
-	// Hits the REL flagged: read the hit object, send, clear pending.
+	// Hits the REL flagged: read the hit object, send, clear pending. The
+	// pending byte is cleared for every pending entry, a repeated hit_seq
+	// included: the REL withholds the slot's collider until it reads 0
+	// (enemy_mirror.c:737-747 em_hits), so an entry left pending would keep the
+	// copy unhittable. Only the send is de-duplicated. A slot past the
+	// host's list is a catch-up (dying, not listed): the host has no slot
+	// for its setID, so its hit is cleared and not sent.
 	for i := range status.Hits {
 		h := status.Hits[i]
-		if h.Pending == 0 || i >= len(slots) || h.HitSeq == c.lastHits[i] {
+		if h.Pending == 0 {
 			continue
 		}
-		c.lastHits[i] = h.HitSeq
-		hit, err := c.readHit(st, slots[i].PID, i, h)
-		if err != nil {
-			log.Logf(c.rep, log.Warn, "enemy client: hit slot %d: %v", i, err)
-		} else if hit != nil {
-			hits = append(hits, hit)
-			c.Stats.Hits++
+		if i < len(st.Slots) && i < len(slots) && h.HitSeq != c.lastHits[i] {
+			c.lastHits[i] = h.HitSeq
+			hit, err := c.readHit(st, ids[i], slots[i].PID, i, h)
+			if err != nil {
+				log.Logf(c.rep, log.Warn, "enemy client: hit slot %d: %v", i, err)
+			} else if hit != nil {
+				hits = append(hits, hit)
+				c.Stats.Hits++
+			}
 		}
 		at := mailbox.EnemyBlockAddr + mailbox.EnemyHitsOff + uint32(i)*mailbox.EnemyHitSize + 3
 		if err := c.m.Write(at, []byte{0}); err != nil {
@@ -474,11 +521,15 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 	return hits, 0, nil
 }
 
-// readHit builds the HIT for slot i: the hit object's At type and atp
-// (cCcD_ObjAt mType at obj+0x10, mAtp at +0x14, c_cc_d.h:438-439), its
-// dCcD_GObjAt's SPrm low byte, Se, HitMark and Spl (addr.CcAtOff*; one
-// hitObjReadLen read from obj+0x10) and the collider's centre.
-func (c *Mirror) readHit(st *State, pid uint32, i int, h mailbox.EnemyHitEntry) (*Hit, error) {
+// readHit builds the HIT for slot i, whose setID is the one written there
+// this tick (its pid checked against the REL's status), stamped with the
+// epoch of the host STATE mirrored: the host's HitApplier gates on its
+// own epoch (host.go Offer), never on this mirror's. It carries the hit
+// object's At type and atp (cCcD_ObjAt mType at obj+0x10, mAtp at +0x14,
+// c_cc_d.h:438-439), its dCcD_GObjAt's SPrm low byte, Se, HitMark and
+// Spl (addr.CcAtOff*; one hitObjReadLen read from obj+0x10) and the
+// collider's centre.
+func (c *Mirror) readHit(st *State, setID uint16, pid uint32, i int, h mailbox.EnemyHitEntry) (*Hit, error) {
 	var col uint32
 	switch h.Collider {
 	case ColliderHead:
@@ -496,7 +547,7 @@ func (c *Mirror) readHit(st *State, pid uint32, i int, h mailbox.EnemyHitEntry) 
 	if err != nil {
 		return nil, err
 	}
-	hit := &Hit{Collider: h.Collider, Epoch: c.epoch, Stage: st.Stage, Room: st.Room, SetID: st.Slots[i].SetID, HitSeq: h.HitSeq, ClientFrame: c.hb}
+	hit := &Hit{Collider: h.Collider, Epoch: st.Epoch, Stage: st.Stage, Room: st.Room, SetID: setID, HitSeq: h.HitSeq, ClientFrame: c.hb}
 	if addr.InMEM1(obj) {
 		b, err := c.m.Read(obj+hitObjReadOff, hitObjReadLen)
 		if err != nil {

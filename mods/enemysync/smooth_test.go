@@ -37,6 +37,12 @@ func TestSmoother60Hz(t *testing.T) {
 	s := NewSmoother(t0, false)
 	lag := 40 * time.Millisecond
 	last := feed(s, t0, 30, 16*time.Millisecond, lag, noJitter)
+	// The frame advances by the rate (1 per game frame). (Each At call is
+	// later than the one before: the render time never steps back.)
+	out, _ := s.At(last)
+	if wantF := float32(renderX(t0, last, lag, MinDelay)) / float32(FrameMS); math.Abs(float64(out.MorfFrame-wantF)) > 1.5 {
+		t.Errorf("frame %.2f, want ~%.2f", out.MorfFrame, wantF)
+	}
 	for _, dt := range []time.Duration{0, 5 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond} {
 		now := last.Add(dt)
 		out, ok := s.At(now)
@@ -51,18 +57,13 @@ func TestSmoother60Hz(t *testing.T) {
 	// Extrapolation stops at MaxExtrapolate past the newest sample, and
 	// holds once no sample arrived for MaxGap.
 	newestHost := float32(29 * 16)
-	out, _ := s.At(last.Add(400 * time.Millisecond))
-	if out.Pos[0] != newestHost {
-		t.Errorf("after a gap: x %.1f, want the newest sample %.1f (held)", out.Pos[0], newestHost)
-	}
 	out, _ = s.At(last.Add(240 * time.Millisecond))
 	if max := newestHost + float32(MaxExtrapolate.Milliseconds()); out.Pos[0] > max+0.5 || out.Pos[0] < newestHost {
 		t.Errorf("extrapolated to %.1f, want at most %.1f", out.Pos[0], max)
 	}
-	// The frame advances by the rate (1 per game frame).
-	out, _ = s.At(last)
-	if wantF := float32(renderX(t0, last, lag, MinDelay)) / float32(FrameMS); math.Abs(float64(out.MorfFrame-wantF)) > 1.5 {
-		t.Errorf("frame %.2f, want ~%.2f", out.MorfFrame, wantF)
+	out, _ = s.At(last.Add(400 * time.Millisecond))
+	if out.Pos[0] != newestHost {
+		t.Errorf("after a gap: x %.1f, want the newest sample %.1f (held)", out.Pos[0], newestHost)
 	}
 }
 
@@ -226,14 +227,130 @@ func TestSmootherAnimSwitch(t *testing.T) {
 		if !ok || anim(out) != anim(a) {
 			t.Errorf("at b%v: bck %02X anim %v, want a's %v", dt, out.Bck, anim(out), anim(a))
 		}
-	}
-	if out, _ := s.At(bAt.Add(-50 * time.Millisecond)); out.Pos[0] <= 0 || out.Pos[0] >= 10 {
-		t.Errorf("between a and b: x %.1f not lerped", out.Pos[0])
+		if dt == -50*time.Millisecond && (out.Pos[0] <= 0 || out.Pos[0] >= 10) {
+			t.Errorf("between a and b: x %.1f not lerped", out.Pos[0])
+		}
 	}
 	for _, dt := range []time.Duration{0, 50 * time.Millisecond} {
 		out, ok := s.At(bAt.Add(dt))
 		if !ok || anim(out) != anim(b) {
 			t.Errorf("at b+%v: bck %02X anim %v, want b's %v", dt, out.Bck, anim(out), anim(b))
 		}
+	}
+}
+
+// TestSmootherFrameAcrossBck: across a bck change between the bracket's
+// samples the frame is never blended toward b's (another animation's):
+// up to b's render time it is a's frame advanced by a's rate, with a's
+// rate; from b's render time on it is b's.
+func TestSmootherFrameAcrossBck(t *testing.T) {
+	t0 := time.Unix(100, 0)
+	s := NewSmoother(t0, false)
+	a := Slot{Bck: 0x73, AnmAttr: AnmAttrLoop, AnmSeq: 1, MorfFrame: 10, MorfRate: 1}
+	b := Slot{Bck: 0x45, AnmAttr: AnmAttrNone, AnmSeq: 2, MorfFrame: 0, MorfRate: 0.5}
+	s.Push(0, t0, a, 1)
+	s.Push(100, t0.Add(100*time.Millisecond), b, 1)
+	bAt := t0.Add(100*time.Millisecond + MinDelay) // render time 100
+	near := func(x, want float32) bool { return math.Abs(float64(x-want)) < 0.01 }
+	for _, renderMS := range []int64{50, 99} {
+		out, _ := s.At(bAt.Add(time.Duration(renderMS-100) * time.Millisecond))
+		want := a.MorfFrame + a.MorfRate*float32(float64(renderMS)/FrameMS)
+		if out.Bck != a.Bck || !near(out.MorfFrame, want) || out.MorfRate != a.MorfRate {
+			t.Errorf("render %d: bck %02X frame %.3f rate %.2f, want a's %02X %.3f %.2f", renderMS, out.Bck, out.MorfFrame, out.MorfRate, a.Bck, want, a.MorfRate)
+		}
+	}
+	if out, _ := s.At(bAt); out.Bck != b.Bck || out.MorfFrame != b.MorfFrame || out.MorfRate != b.MorfRate {
+		t.Errorf("at b's render time: bck %02X frame %.3f rate %.2f, want b's", out.Bck, out.MorfFrame, out.MorfRate)
+	}
+}
+
+// TestSmootherNoAnimRegress: the quickest arrival lag rising (the one
+// fast sample rolling out of the ring) would move the render time back
+// behind the sample a bck and AnmSeq change came from; the render time
+// holds instead, so Bck and AnmSeq never go back to the older anim and
+// the position never runs backwards.
+func TestSmootherNoAnimRegress(t *testing.T) {
+	t0 := time.Unix(100, 0)
+	s := NewSmoother(t0, false)
+	const change = 27 // samples from here on carry bck 0x45, seq 2
+	push := func(i int) time.Time {
+		lag := 50 * time.Millisecond
+		if i == 0 {
+			lag = 0 // the one fast sample: quickest 0 while it is held
+		}
+		host := time.Duration(i) * 16 * time.Millisecond
+		sl := Slot{Pos: [3]float32{float32(i * 16), 0, 0}, Bck: 0x73, AnmSeq: 1, MorfRate: 1}
+		if i >= change {
+			sl.Bck, sl.AnmSeq = 0x45, 2
+		}
+		at := t0.Add(host + lag)
+		s.Push(uint32(host/time.Millisecond), at, sl, 1)
+		return at
+	}
+	var now time.Time
+	for i := range ringSize {
+		now = push(i)
+	}
+	// Render time 546-0-100 = 446: past the change's 432.
+	out, _ := s.At(now)
+	if out.Bck != 0x45 || out.AnmSeq != 2 {
+		t.Fatalf("before: bck %02X seq %d, want the new anim", out.Bck, out.AnmSeq)
+	}
+	prevX := out.Pos[0]
+	// The next sample pushes the fast one out: quickest 50, so the raw
+	// render time would be 562-50-100 = 412, before the change.
+	for i := ringSize; i < ringSize+8; i++ {
+		now = push(i)
+		out, _ = s.At(now)
+		if out.Bck != 0x45 || out.AnmSeq != 2 {
+			t.Fatalf("sample %d: bck %02X seq %d went back to the old anim", i, out.Bck, out.AnmSeq)
+		}
+		if out.Pos[0] < prevX {
+			t.Fatalf("sample %d: x %.1f went backwards from %.1f", i, out.Pos[0], prevX)
+		}
+		prevX = out.Pos[0]
+	}
+}
+
+// TestSmootherRebase: a restarted host's host_ms (back near 0) is dropped
+// as older than the newest held until Rebase; after it the smoother
+// takes the new timeline, snaps once and lerps it.
+func TestSmootherRebase(t *testing.T) {
+	t0 := time.Unix(100, 0)
+	s := NewSmoother(t0, false)
+	for i := range 10 {
+		s.Push(500000+uint32(i)*16, t0.Add(time.Duration(i)*16*time.Millisecond), Slot{Pos: [3]float32{1000, 0, 0}}, 1)
+	}
+	now := t0.Add(200 * time.Millisecond)
+	s.At(now)
+	s.Push(16, now, Slot{Pos: [3]float32{5, 0, 0}}, 1)
+	if s.Len() != 10 {
+		t.Fatalf("a restarted host's sample was taken without a rebase (len %d)", s.Len())
+	}
+	s.Rebase()
+	for i := range 10 {
+		s.Push(uint32(i)*16, now.Add(time.Duration(i)*16*time.Millisecond), Slot{Pos: [3]float32{float32(i * 16), 0, 0}}, 1)
+	}
+	if s.Len() != 10 {
+		t.Fatalf("after the rebase: len %d", s.Len())
+	}
+	last := now.Add(9 * 16 * time.Millisecond)
+	out, ok := s.At(last)
+	want := float32(9*16) - float32(MinDelay.Milliseconds())
+	if !ok || out.Flags&SlotSnap == 0 || math.Abs(float64(out.Pos[0]-want)) > 2 {
+		t.Errorf("after the rebase: x %.1f flags %08b, want ~%.1f snapped (the old render time dropped)", out.Pos[0], out.Flags, want)
+	}
+}
+
+// TestSmootherPlaySkip: while the host skips play() the frame is held,
+// not advanced by the rate.
+func TestSmootherPlaySkip(t *testing.T) {
+	sl := Slot{MorfFrame: 10, MorfRate: 1}
+	if got := advanceFrame(&sl, 100); got != 13 {
+		t.Errorf("playing: frame %v, want 13", got)
+	}
+	sl.Flags2 = SlotF2PlaySkip
+	if got := advanceFrame(&sl, 100); got != 10 {
+		t.Errorf("play skipped: frame %v, want 10", got)
 	}
 }

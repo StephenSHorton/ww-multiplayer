@@ -340,6 +340,15 @@ func hostBlocks(t *testing.T, m *mem.FakeMem) []mailbox.EnemyBlock {
 	return out
 }
 
+// hostRELFrame stores the REL module's words as a linked module whose
+// actor has run frame times (the game's write, never recorded).
+func hostRELFrame(t *testing.T, m *mem.FakeMem, frame uint32) {
+	t.Helper()
+	b := binary.BigEndian.AppendUint32(nil, mailbox.RELMagic)
+	b = binary.BigEndian.AppendUint32(b, 0x1234)
+	store(t, m, mailbox.Mailbox+mailbox.OffRELMagic, binary.BigEndian.AppendUint32(b, frame))
+}
+
 // hostAckREL stores the REL's result word and then its ack of seq.
 func hostAckREL(t *testing.T, m *mem.FakeMem, seq uint32, r mailbox.EnemyHitResult) {
 	t.Helper()
@@ -354,7 +363,8 @@ func hostAckREL(t *testing.T, m *mem.FakeMem, seq uint32, r mailbox.EnemyHitResu
 // result word into the ACK; a keepalive after it carries the acked
 // request, never seq 0; a replayed, stale, out-of-scope or unknown HIT is
 // acknowledged at once with its detail; HitRate holds per Moblin; a
-// request the REL never acks is no-actor after hitAckTicks polls.
+// request the REL never acks is no-actor after hitAckFrames REL frames
+// and a keepalive after it carries the cancel, never the request.
 func TestHitApplier(t *testing.T) {
 	m, a, st, mos := hitRig(t)
 	now := time.Unix(1000, 0)
@@ -440,18 +450,20 @@ func TestHitApplier(t *testing.T) {
 	}
 
 	// Rate: a second hit on setID 0 within HitRate is dropped; after it,
-	// taken; the REL never acks: no-actor after hitAckTicks.
+	// taken; the REL never acks: no-actor after hitAckFrames REL frames.
 	if ack := a.Offer(hostHit(4, 0, 1), st, mos, now.Add(HitRate/2)); ack == nil || ack.Result != AckDropped || ack.Detail != HDRate {
 		t.Errorf("within HitRate: %+v", ack)
 	}
 	if ack := a.Offer(hostHit(4, 0, 2), st, mos, now.Add(2*HitRate)); ack != nil {
 		t.Errorf("after HitRate: %+v", ack)
 	}
-	for i := range hitAckTicks {
+	for f := uint32(0); f < hitAckFrames; f++ {
+		hostRELFrame(t, m, f)
 		if ack, err := a.Poll(st, now); err != nil || ack != nil {
-			t.Fatalf("poll %d: %+v %v", i, ack, err)
+			t.Fatalf("poll at REL frame %d: %+v %v", f, ack, err)
 		}
 	}
+	hostRELFrame(t, m, hitAckFrames)
 	got, err := a.Poll(st, now)
 	if err != nil || got == nil || got.Result != AckNoActor || got.Client != 4 || got.HitSeq != 2 {
 		t.Errorf("timed out: %+v %v", got, err)
@@ -460,7 +472,7 @@ func TestHitApplier(t *testing.T) {
 	if err := a.Keepalive(Scope{Stage: "M_Dai", Room: 1, InPlay: true}, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if blks := hostBlocks(t, m); len(blks) != 1 || blks[0].HitApply.Seq != seq1+1 {
+	if blks := hostBlocks(t, m); len(blks) != 1 || blks[0].HitApply != (mailbox.EnemyHitApply{Seq: seq1 + 2}) {
 		t.Errorf("keepalive after the timeout: %+v", blks)
 	}
 	// Without the REL, every hit is dropped.
@@ -479,6 +491,183 @@ func TestHitApplier(t *testing.T) {
 	}
 	if w := m.Writes(); len(w) != 1 || w[0].Addr != mailbox.EnemyBlockAddr || len(w[0].Data) != 4 || binary.BigEndian.Uint32(w[0].Data) != 0 {
 		t.Errorf("shutdown writes: %+v", w)
+	}
+}
+
+// TestHitApplierHostEpoch (C10/C15): the applier compares a HIT's epoch
+// with the host's, which the client takes from the STATE it acted on, not
+// its own mirror epoch (1 and up); the ACK echoes the host epoch back.
+func TestHitApplierHostEpoch(t *testing.T) {
+	const epoch = 0xBEEF // pipelines.go: start.Unix() & 0xFFFF
+	m := mem.NewFakeMem()
+	m.Record(true)
+	a := newHitApplier(m, log.Discard{}, epoch)
+	a.SetREL(true)
+	_, _, st, mos := hitRig(t)
+	st.Epoch = epoch
+	now := time.Unix(1000, 0)
+	mirror := hostHit(1, 0, 1)
+	mirror.Epoch = 1 // a client that stamped its own mirror epoch
+	if ack := a.Offer(mirror, st, mos, now); ack == nil || ack.Result != AckDropped || ack.Detail != HDGoGate || ack.Epoch != 1 {
+		t.Errorf("the mirror's epoch: %+v", ack)
+	}
+	h := hostHit(1, 0, 2)
+	h.Epoch = st.Epoch
+	if ack := a.Offer(h, st, mos, now); ack != nil {
+		t.Fatalf("the STATE's epoch: %+v", ack)
+	}
+	hostAckREL(t, m, epoch<<16+1, mailbox.EnemyHitResult{Result: AckAppliedAt, Frames: 3, Sets: 1})
+	ack, err := a.Poll(st, now)
+	if err != nil || ack == nil || ack.Epoch != epoch || ack.Client != 1 || ack.SetID != 0 || ack.HitSeq != 2 || ack.Result != AckAppliedAt {
+		t.Errorf("ack: %+v %v", ack, err)
+	}
+}
+
+// hostTake offers h at now, which must be queued at the head, and has
+// the REL ack it; it returns the ACK Poll sends.
+func hostTake(t *testing.T, m *mem.FakeMem, a *HitApplier, h *Hit, st *State, mos []Moblin, now time.Time) *Ack {
+	t.Helper()
+	if ack := a.Offer(h, st, mos, now); ack != nil {
+		t.Fatalf("client %d setID %d hit %d: %+v", h.Client, h.SetID, h.HitSeq, ack)
+	}
+	hostAckREL(t, m, a.seq, mailbox.EnemyHitResult{Result: AckAppliedAt})
+	ack, err := a.Poll(st, now)
+	if err != nil || ack == nil || ack.HitSeq != h.HitSeq || ack.Result != AckAppliedAt {
+		t.Fatalf("client %d setID %d hit %d: ack %+v %v", h.Client, h.SetID, h.HitSeq, ack, err)
+	}
+	return ack
+}
+
+// TestHitApplierReplay (C11/C16): the REL counts hit_seq per slot, so the
+// replay check is per (client, setID): one client's overlapping counters
+// on two Moblins are all taken; only the same seq again is a replay; a
+// seq behind the last (a relinked REL, a save state) is taken; a STATE in
+// another room starts over.
+func TestHitApplierReplay(t *testing.T) {
+	m, a, st, mos := hitRig(t)
+	now := time.Unix(1000, 0)
+	for seq := uint16(1); seq <= 3; seq++ {
+		for _, setID := range []uint16{0, 1} {
+			now = now.Add(HitRate)
+			hostTake(t, m, a, hostHit(1, setID, seq), st, mos, now)
+		}
+	}
+	now = now.Add(HitRate)
+	if ack := a.Offer(hostHit(1, 1, 3), st, mos, now); ack == nil || ack.Result != AckDropped || ack.Detail != HDGoGate {
+		t.Errorf("the same seq again: %+v", ack)
+	}
+	// Another client's seq 3 on setID 1 is its own.
+	hostTake(t, m, a, hostHit(2, 1, 3), st, mos, now.Add(HitRate))
+	// A reset: setID 0 at 3, then 1.
+	now = now.Add(2 * HitRate)
+	hostTake(t, m, a, hostHit(1, 0, 1), st, mos, now)
+	// Another room: setID 1's seq 3 is new there.
+	other := *st
+	other.Room = 2
+	now = now.Add(HitRate)
+	h := hostHit(1, 1, 3)
+	h.Room = 2
+	hostTake(t, m, a, h, &other, mos, now)
+}
+
+// TestHitApplierTimeout (C6/C14/C17): the ack timeout counts REL frames,
+// so a paused host game (the frame counter frozen) times out only at the
+// wall-clock backstop; a timed-out request is superseded at once by a
+// cancel (a new seq, PID 0, no flags) that keepalives carry, so the REL
+// can never apply it late; a late ack of it and the REL's ack of the
+// cancel are ignored; a frame counter that went back (a relink) times
+// out at once.
+func TestHitApplierTimeout(t *testing.T) {
+	m, a, st, mos := hitRig(t)
+	a.V1 = true // the cancel carries no flags even so
+	for i := range st.Slots {
+		st.Slots[i].Flags = 0
+	}
+	t0 := time.Unix(1000, 0)
+	const seq1 = 7<<16 + 1
+	hostRELFrame(t, m, 100)
+	if ack := a.Offer(hostHit(1, 0, 1), st, mos, t0); ack != nil {
+		t.Fatalf("offer: %+v", ack)
+	}
+	// Paused: the counter stays at 100 while the wall clock runs.
+	for _, d := range []time.Duration{time.Second, 5 * time.Second, hitAckBackstop - time.Millisecond} {
+		if ack, err := a.Poll(st, t0.Add(d)); err != nil || ack != nil {
+			t.Fatalf("paused, %v: %+v %v", d, ack, err)
+		}
+	}
+	m.ResetWrites()
+	ack, err := a.Poll(st, t0.Add(hitAckBackstop))
+	if err != nil || ack == nil || ack.Result != AckNoActor || ack.HitSeq != 1 {
+		t.Fatalf("the backstop: %+v %v", ack, err)
+	}
+	cancel := mailbox.EnemyHitApply{Seq: seq1 + 1}
+	if blks := hostBlocks(t, m); len(blks) != 1 || blks[0].HitApply != cancel {
+		t.Errorf("the cancel's write: %+v", blks)
+	}
+
+	// Running: 59 REL frames wait, the 60th times out.
+	t1 := t0.Add(time.Minute)
+	if ack := a.Offer(hostHit(1, 1, 1), st, mos, t1); ack != nil {
+		t.Fatalf("offer 2: %+v", ack)
+	}
+	hostRELFrame(t, m, 100+hitAckFrames-1)
+	if ack, err := a.Poll(st, t1); err != nil || ack != nil {
+		t.Fatalf("59 frames: %+v %v", ack, err)
+	}
+	// A second request queues behind it.
+	if ack := a.Offer(hostHit(2, 2, 1), st, mos, t1); ack != nil {
+		t.Fatalf("offer 3: %+v", ack)
+	}
+	hostRELFrame(t, m, 100+hitAckFrames)
+	m.ResetWrites()
+	ack, err = a.Poll(st, t1)
+	if err != nil || ack == nil || ack.Result != AckNoActor || ack.SetID != 1 {
+		t.Fatalf("60 frames: %+v %v", ack, err)
+	}
+	// The next request replaces the timed-out one in the block.
+	blks := hostBlocks(t, m)
+	if len(blks) != 1 || blks[0].HitApply.Seq != seq1+3 || blks[0].HitApply.SetID != 2 || blks[0].HitApply.PID != 422 {
+		t.Fatalf("the next request: %+v", blks)
+	}
+	// The REL finishing the timed-out request late, then taking the first
+	// cancel: neither is this request's ack.
+	for _, seq := range []uint32{seq1 + 2, seq1 + 1, seq1 + 4} {
+		hostAckREL(t, m, seq, mailbox.EnemyHitResult{Result: AckAppliedAt})
+		if ack, err := a.Poll(st, t1); err != nil || ack != nil {
+			t.Errorf("an ack of %d: %+v %v", seq, ack, err)
+		}
+	}
+	// Its timeout counts from its own write (frame 160): the REL relinks
+	// and the counter starts over, so it can never land: timed out at once.
+	hostRELFrame(t, m, 3)
+	m.ResetWrites()
+	ack, err = a.Poll(st, t1)
+	if err != nil || ack == nil || ack.Result != AckNoActor || ack.Client != 2 {
+		t.Fatalf("relinked: %+v %v", ack, err)
+	}
+	cancel = mailbox.EnemyHitApply{Seq: seq1 + 5}
+	if blks := hostBlocks(t, m); len(blks) != 1 || blks[0].HitApply != cancel || blks[0].Stage != "" {
+		t.Errorf("the cancel after the relink: %+v", blks)
+	}
+	m.ResetWrites()
+	if err := a.Keepalive(Scope{Stage: "M_Dai", Room: 1, InPlay: true}, t1.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if blks := hostBlocks(t, m); len(blks) != 1 || blks[0].HitApply != cancel {
+		t.Errorf("the keepalive after it: %+v", blks)
+	}
+	// Without the REL, the cancel waits for the keepalive.
+	if ack := a.Offer(hostHit(3, 3, 1), st, mos, t1.Add(2*time.Minute)); ack != nil {
+		t.Fatalf("offer 4: %+v", ack)
+	}
+	a.SetREL(false)
+	hostRELFrame(t, m, 3+hitAckFrames)
+	m.ResetWrites()
+	if ack, err := a.Poll(st, t1.Add(2*time.Minute)); err != nil || ack == nil || ack.Result != AckNoActor {
+		t.Fatalf("no REL: %+v %v", ack, err)
+	}
+	if w := m.Writes(); len(w) != 0 {
+		t.Errorf("a cancel written without the REL: %d writes", len(w))
 	}
 }
 

@@ -19,6 +19,16 @@ import (
 // shortest arc; the morf frame advances by the rate (frames per game
 // frame at FrameMS) from the sample before the render time, whose
 // action, mode and attack fields the output takes.
+//
+// The render time never steps back (renderHW): the quickest lag rising
+// when the fastest sample rolls out of the ring, or a late sample growing
+// the delay, would otherwise move it behind the sample a bck or AnmSeq
+// change came from and replay the older anim's fields, and the REL would
+// setAnm the old bck and then the new one again (a restart firing twice,
+// anmseq.go). Holding the render time keeps Bck, AnmAttr, AnmSeq, Morf,
+// Flags2, the blur, the frame and the rate from one sample, so the REL
+// never gets one sample's bck with another's frame. Rebase drops the mark
+// with the unwrap origin when the host's timeline restarts.
 const (
 	MinDelay       = 100 * time.Millisecond
 	FrameMS        = 1000.0 / 30.0 // the game runs at 30 Hz
@@ -46,6 +56,11 @@ type Smoother struct {
 	snap    bool // the next output carries SlotSnap
 	hadRag  bool
 	wasRag  bool
+	// renderHW is the latest render time output (host ms, as hostMS);
+	// haveHW is false until the first. Reset keeps it (the same host
+	// timeline), Rebase drops it.
+	renderHW int64
+	haveHW   bool
 }
 
 // NewSmoother returns a smoother starting its local clock at start. raw
@@ -59,6 +74,16 @@ func (s *Smoother) Reset() {
 	s.ring = s.ring[:0]
 	s.snap = true
 	s.hadRag = false
+}
+
+// Rebase drops the history, the host_ms unwrap origin and the render
+// time high-water mark: the host's timeline restarted (a new host epoch,
+// its host_ms back near 0), so every new sample would otherwise look
+// older than the newest held and be dropped. The next output snaps.
+func (s *Smoother) Rebase() {
+	s.Reset()
+	s.haveAny, s.base = false, 0
+	s.haveHW, s.renderHW = false, 0
 }
 
 // Len is the number of samples held.
@@ -147,6 +172,10 @@ func (s *Smoother) At(now time.Time) (out Slot, ok bool) {
 	nowMS := s.localMS(now)
 	quickest, delay := s.delay()
 	renderT := nowMS - quickest - delay
+	if s.haveHW && renderT < s.renderHW {
+		renderT = s.renderHW // never backwards (the header)
+	}
+	s.renderHW, s.haveHW = renderT, true
 	if renderT <= s.ring[0].hostMS {
 		return s.ring[0].slot, true
 	}
@@ -163,11 +192,15 @@ func (s *Smoother) At(now time.Time) (out Slot, ok bool) {
 			for i := range 3 {
 				out.Pos[i] = newest.slot.Pos[i] + (newest.slot.Pos[i]-prev.slot.Pos[i])*k
 			}
-			out.MorfFrame = newest.slot.MorfFrame + newest.slot.MorfRate*float32(float64(dt)/FrameMS)
+			out.MorfFrame = advanceFrame(&newest.slot, dt)
 		}
 		return out, true
 	}
-	// Bracket: a.hostMS <= renderT < b.hostMS.
+	// Bracket: a.hostMS <= renderT < b.hostMS. The frame is a's advanced
+	// by a's rate, never a blend toward b's: across a bck, attribute or
+	// AnmSeq change b's frame belongs to another animation, and inside one
+	// a loop wrap between a and b would lerp backwards through it. b's
+	// frame takes over at b's render time with b's discrete fields.
 	i := n - 2
 	for i > 0 && s.ring[i].hostMS > renderT {
 		i--
@@ -184,7 +217,7 @@ func (s *Smoother) At(now time.Time) (out Slot, ok bool) {
 	}
 	out.AngleY = lerpS16(a.slot.AngleY, b.slot.AngleY, k)
 	out.Tilt = lerpS16(a.slot.Tilt, b.slot.Tilt, k)
-	out.MorfFrame = a.slot.MorfFrame + a.slot.MorfRate*float32(float64(renderT-a.hostMS)/FrameMS)
+	out.MorfFrame = advanceFrame(&a.slot, renderT-a.hostMS)
 	return out, true
 }
 
@@ -193,4 +226,14 @@ func (s *Smoother) At(now time.Time) (out Slot, ok bool) {
 func lerpS16(a, b int16, k float32) int16 {
 	d := int16(b - a) // wraps: the shortest arc
 	return int16(int32(a) + int32(float32(d)*k))
+}
+
+// advanceFrame is sl's morf frame advanced by its rate over ms of host
+// time; held while the host skips play() (SlotF2PlaySkip: m05B2,
+// d_a_mo2.cpp:3488-3490), which freezes the frame on the host too.
+func advanceFrame(sl *Slot, ms int64) float32 {
+	if sl.Flags2&SlotF2PlaySkip != 0 {
+		return sl.MorfFrame
+	}
+	return sl.MorfFrame + sl.MorfRate*float32(float64(ms)/FrameMS)
 }

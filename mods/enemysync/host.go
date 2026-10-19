@@ -204,15 +204,21 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 // block is rewritten every KeepaliveEvery so the REL's stale watchdog
 // never trips between hits. A request the validation drops is
 // acknowledged at once with a detail.
+//
+// The HIT's epoch is the host's: the client stamps the Epoch of the STATE
+// it resolved the hit against (every STATE carries the host's epoch), not
+// its own mirror epoch, and every ACK echoes the HIT's epoch, setID and
+// hit_seq so the client matches it to the hit it sent.
 type HitApplier struct {
 	m        mem.Mem
 	rep      log.Reporter
 	epoch    uint32
-	lastSeq  map[uint8]uint16     // per client: the last hit_seq taken
-	lastHit  map[uint16]time.Time // per setID: when a hit was last applied
-	seq      uint32               // hit_apply seq, ++ per request
-	queue    []*pendingHit        // queue[0] is in the block
-	last     *pendingHit          // the request acked last: keepalives carry it so the REL never sees seq 0 as new
+	lastSeq  map[uint32]uint16      // per hitSeqKey(client, setID): the last hit_seq taken
+	seqScope Scope                  // the stage and room lastSeq belongs to
+	lastHit  map[uint16]time.Time   // per setID: when a hit was last applied
+	seq      uint32                 // hit_apply seq, ++ per request and per cancel
+	queue    []*pendingHit          // queue[0] is in the block
+	last     *mailbox.EnemyHitApply // with the queue empty, the block's hit_apply: a seq the REL already took, or a cancel
 	relOK    bool
 	warned   bool
 	blockSeq uint32
@@ -237,17 +243,34 @@ type pendingHit struct {
 	pid   uint32
 	seq   uint32
 	at    time.Time
-	ticks int
 	stage string
 	room  int8
+
+	// When the request became the head (its first write into the block):
+	// the REL's frame counter (mailbox.ReadREL) and the wall clock, which
+	// Poll's timeout counts from.
+	written  bool
+	relFrame uint32
+	wroteAt  time.Time
 }
 
 // HitRate is the least time between two hits applied to one Moblin (six
 // host frames at 30 Hz).
 const HitRate = 200 * time.Millisecond
 
-// hitAckTicks is how many ticks a hit_apply waits for the REL's ack.
-const hitAckTicks = 30
+// A hit_apply waits for the REL's ack hitAckFrames REL executes (2 s at
+// 30 Hz; an open request resolves in a few dozen at most, the 8-execute
+// wait included), counted on the REL's own frame counter (WWREL_FRAME,
+// rel_main.c wwrel_execute), so a host whose game is paused (Dolphin
+// paused, or the pause menu: the REL actor has no NOPAUSE and
+// fopAc_Execute skips it, f_op_actor.cpp:175) never times out a request
+// the REL could still take. hitAckBackstop is the wall-clock limit for a
+// REL that never runs again. These replaced hitAckTicks (30 Go ticks,
+// ~480 ms), which kept counting while the game was paused.
+const (
+	hitAckFrames   = 60
+	hitAckBackstop = 10 * time.Second
+)
 
 // HitQueueDepth is how many requests the applier holds for the REL, one
 // per (client, setID); the next is acknowledged HDBusy at once.
@@ -266,8 +289,15 @@ func NewHitApplier(m mem.Mem, rep log.Reporter, epoch uint32) *HitApplier {
 // The hit_apply seq starts at epoch<<16, so a host Go restarted against a
 // still-linked REL never reuses a seq the REL last acked.
 func newHitApplier(m mem.Mem, rep log.Reporter, epoch uint32) *HitApplier {
-	return &HitApplier{m: m, rep: rep, epoch: epoch, seq: epoch << 16, lastSeq: map[uint8]uint16{}, lastHit: map[uint16]time.Time{}}
+	return &HitApplier{m: m, rep: rep, epoch: epoch, seq: epoch << 16, lastSeq: map[uint32]uint16{}, lastHit: map[uint16]time.Time{}}
 }
+
+// hitSeqKey is lastSeq's key. The REL counts hit_seq per slot
+// (enemy_mirror.c em_hits: sl->hit_seq++), so one client's hits on two
+// Moblins carry independent counters: the replay check is per (client,
+// setID), and setIDs are per room, so lastSeq is cleared when the STATE's
+// stage or room changes.
+func hitSeqKey(client uint8, setID uint16) uint32 { return uint32(client)<<16 | uint32(setID) }
 
 // SetREL tells the applier whether the host's REL module is linked with
 // this build's id: without it no request is written and every HIT is
@@ -291,10 +321,25 @@ func (a *HitApplier) Offer(h *Hit, st *State, moblins []Moblin, now time.Time) *
 	if st == nil || h.Epoch != a.epoch || h.Stage != st.Stage || h.Room != st.Room || st.Flags&StateFlagInScope == 0 {
 		return drop(ack, HDGoGate)
 	}
-	if last, ok := a.lastSeq[h.Client]; ok && int16(h.HitSeq-last) <= 0 {
-		return drop(ack, HDGoGate) // replayed or old
+	// A replay is only the same hit_seq again: TCP neither duplicates nor
+	// reorders, the client drains each slot's entry once (lastHits), and a
+	// client Go restarted against a still-linked REL can at most resend
+	// that slot's current seq. A seq behind the last one is taken: the
+	// per-slot counter goes back on a REL relink (enemy_mirror_init zeroes
+	// it), on a client save-state load (the old counters come back) and
+	// when the setID is adopted into another slot, always to small
+	// numbers, so a "far behind means reset" rule would still drop those.
+	// HitRate caps what a wrongly taken seq can do at one hit per Moblin
+	// per 200 ms. This holds as well for a per-client counter.
+	if st.Stage != a.seqScope.Stage || st.Room != a.seqScope.Room {
+		clear(a.lastSeq)
+		a.seqScope = Scope{Stage: st.Stage, Room: st.Room}
 	}
-	a.lastSeq[h.Client] = h.HitSeq
+	key := hitSeqKey(h.Client, h.SetID)
+	if last, ok := a.lastSeq[key]; ok && h.HitSeq == last {
+		return drop(ack, HDGoGate) // replayed
+	}
+	a.lastSeq[key] = h.HitSeq
 	var sl *Slot
 	for i := range st.Slots {
 		if st.Slots[i].SetID == h.SetID {
@@ -344,7 +389,7 @@ func (a *HitApplier) Offer(h *Hit, st *State, moblins []Moblin, now time.Time) *
 	a.lastHit[h.SetID] = now
 	a.queue = append(a.queue, &pendingHit{hit: *h, pid: pid, seq: a.seq, at: now, stage: st.Stage, room: st.Room})
 	if len(a.queue) == 1 {
-		if err := a.writeBlock(now); err != nil {
+		if err := a.writeHead(now); err != nil {
 			log.Logf(a.rep, log.Warn, "enemy host: hit_apply write: %v", err)
 			a.queue = nil
 			return drop(ack, HDAborted)
@@ -387,10 +432,23 @@ func (a *HitApplier) Keepalive(scope Scope, now time.Time) error {
 	return a.writeBlock(now)
 }
 
+// writeHead writes the block for a request that just became the head and
+// records the REL frame and the time Poll's timeout counts from.
+func (a *HitApplier) writeHead(now time.Time) error {
+	p := a.queue[0]
+	rel, err := mailbox.ReadREL(a.m)
+	if err != nil {
+		return err
+	}
+	p.written, p.relFrame, p.wroteAt = true, rel.Frames, now
+	return a.writeBlock(now)
+}
+
 // writeBlock writes the host's block: role host, no slots, the head of
-// the queue as hit_apply (or the last one acked, whose seq the REL already
-// took, so a keepalive never starts a request), the stage and room of
-// that request (its STATE's) or of the host's scope.
+// the queue as hit_apply, else a.last (the request the REL acked last,
+// whose seq it already took, or the cancel that superseded a request Go
+// timed out), so a keepalive never starts a request; the stage and room
+// of the head request (its STATE's) or of the host's scope.
 func (a *HitApplier) writeBlock(now time.Time) error {
 	a.blockSeq++
 	a.lastWr = now
@@ -402,7 +460,7 @@ func (a *HitApplier) writeBlock(now time.Time) error {
 		b.Stage, b.Room = p.stage, p.room
 		b.HitApply = a.hitApply(p)
 	} else if a.last != nil {
-		b.HitApply = a.hitApply(a.last)
+		b.HitApply = *a.last
 	}
 	if len(b.Stage) > mailbox.EnemyStageLen {
 		b.Stage = b.Stage[:mailbox.EnemyStageLen]
@@ -429,8 +487,17 @@ func (a *HitApplier) hitApply(p *pendingHit) mailbox.EnemyHitApply {
 
 // Poll reads the block's tail for the head request's ack. It returns the
 // ACK once the REL acked it (the result word's result, detail, frames and
-// Sets), or a no-actor ACK after hitAckTicks ticks without one; the next
-// queued request is then written. An ack for another seq is ignored.
+// Sets), or a no-actor ACK once it timed out (timedOut); the next queued
+// request is then written. An ack for another seq is ignored.
+//
+// A request Go timed out is never applied late: Poll supersedes it with a
+// cancel, a hit_apply with a new seq and nothing else (PID 0), which
+// becomes a.last and is written at once when the queue is empty (else the
+// next request replaces it in the block). The REL takes the cancel as a
+// new request, em_hit_actor finds no actor for pid 0 (em_actor_of) and
+// em_hit_apply publishes NO_ACTOR for the cancel's seq, which matches no
+// queued request and is ignored. A REL that took the timed-out request
+// before the cancel arrived still finishes it; that ack is ignored too.
 func (a *HitApplier) Poll(st *State, now time.Time) (*Ack, error) {
 	if len(a.queue) == 0 {
 		return nil, nil
@@ -448,25 +515,61 @@ func (a *HitApplier) Poll(st *State, now time.Time) (*Ack, error) {
 			}
 		}
 	}
-	switch {
-	case status.HitApplyAck == p.seq:
+	cancelled := false
+	if status.HitApplyAck == p.seq {
 		r := status.HitResult
 		ack.Result, ack.Detail, ack.Frames, ack.Sets = r.Result, r.Detail, r.Frames, r.Sets
-	case p.ticks >= hitAckTicks:
-		ack.Result = AckNoActor
-		log.Logf(a.rep, log.Warn, "enemy host: the REL did not ack hit_apply %d within %d ticks", p.seq, hitAckTicks)
-	default:
-		p.ticks++
-		return nil, nil
-	}
-	a.last = p
-	a.queue = a.queue[1:]
-	if len(a.queue) > 0 {
-		if err := a.writeBlock(now); err != nil {
-			log.Logf(a.rep, log.Warn, "enemy host: hit_apply write: %v", err)
+		ha := a.hitApply(p)
+		a.last = &ha
+	} else {
+		why, err := a.timedOut(p, now)
+		if err != nil || why == "" {
+			return nil, err
 		}
+		ack.Result, cancelled = AckNoActor, true
+		a.seq++
+		a.last = &mailbox.EnemyHitApply{Seq: a.seq}
+		log.Logf(a.rep, log.Warn, "enemy host: the REL did not ack %v (%s); cancelled by hit_apply %d", p, why, a.seq)
+	}
+	a.queue = a.queue[1:]
+	err = nil
+	switch {
+	case len(a.queue) > 0:
+		err = a.writeHead(now)
+	case cancelled && a.relOK:
+		err = a.writeBlock(now) // the cancel, now (else the next keepalive)
+	}
+	if err != nil {
+		log.Logf(a.rep, log.Warn, "enemy host: hit_apply write: %v", err)
 	}
 	return ack, nil
+}
+
+// timedOut says why the head request p has waited too long for the REL's
+// ack, or "" while the ack may still come: hitAckFrames REL executes
+// since p was written; the REL's frame counter behind the one at the
+// write (the module relinked, and enemy_mirror_init starts acked on
+// whatever seq the block holds, so p can never land; or it unlinked,
+// which reads frame 0); or hitAckBackstop of wall clock.
+func (a *HitApplier) timedOut(p *pendingHit, now time.Time) (string, error) {
+	if !p.written {
+		// writeHead failed reading the REL words: write it now, and count
+		// from here.
+		return "", a.writeHead(now)
+	}
+	rel, err := mailbox.ReadREL(a.m)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case rel.Frames < p.relFrame:
+		return fmt.Sprintf("the REL's frame counter went back from %d to %d", p.relFrame, rel.Frames), nil
+	case rel.Frames-p.relFrame >= hitAckFrames:
+		return fmt.Sprintf("%d REL frames", rel.Frames-p.relFrame), nil
+	case now.Sub(p.wroteAt) >= hitAckBackstop:
+		return fmt.Sprintf("%v without %d REL frames", hitAckBackstop, hitAckFrames), nil
+	}
+	return "", nil
 }
 
 // Shutdown writes magic 0 so the host REL forgets the request.
