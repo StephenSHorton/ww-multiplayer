@@ -1105,7 +1105,7 @@ static void em_hit_tick(enemy_mirror_state* s, int live) {
     }
 }
 
-// A new request (ha_seq != hit_apply_ack) while none is open.
+// A new request (ha_seq nonzero and != hit_apply_ack) while none is open.
 static void em_hit_apply(enemy_mirror_state* s) {
     void* a;
     s->hit_apply_ack = s->ha_seq;                // taken; the block's ack word carries the result
@@ -1210,7 +1210,9 @@ void enemy_mirror_frame(enemy_mirror_state* s, u32 frame) {
     // host role: the open request first (its record from last frame's
     // Move), then a new one
     em_hit_tick(s, 1);
-    if (s->role == WWENEMY_ROLE_HOST && s->ha_state == EM_HA_IDLE && s->ha_seq != s->hit_apply_ack) em_hit_apply(s);
+    // (seq 0 is never a request: a block written before the first hit)
+    if (s->role == WWENEMY_ROLE_HOST && s->ha_state == EM_HA_IDLE && s->ha_seq != 0 && s->ha_seq != s->hit_apply_ack)
+        em_hit_apply(s);
 
     em_write_status(s);
 }
