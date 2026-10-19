@@ -46,7 +46,7 @@ func headerDefines(t *testing.T, path string) map[string]uint64 {
 func TestEnemyHeaderPins(t *testing.T) {
 	defs := headerDefines(t, wwenemyHeader)
 	if got, ok := defs["WWENEMY_LAYOUT"]; !ok || got != uint64(EnemyLayout) {
-		t.Skipf("inject/include/wwenemy.h is WWENEMY_LAYOUT %d and this Go mirror is layout %d: the REL change that rewrites the header to layout %d lands apart; the pins are compared once both carry the same layout", got, EnemyLayout, EnemyLayout)
+		t.Fatalf("inject/include/wwenemy.h is WWENEMY_LAYOUT %d and this Go mirror is layout %d: a layout change must move both in the same PR", got, EnemyLayout)
 	}
 	pins := map[string]uint64{
 		"WWENEMY_MAGIC":               uint64(EnemyMagic),
