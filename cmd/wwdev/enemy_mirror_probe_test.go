@@ -104,21 +104,31 @@ func TestEnemyMirrorLocal(t *testing.T) {
 // tail.
 func TestEnemyBlockDump(t *testing.T) {
 	m := mem.NewFakeMem()
-	blk := &mailbox.EnemyBlock{Magic: mailbox.EnemyMagic, Seq: 42, HostBeat: 7, GoWriteMS: 99, Flags: 0x05, Layout: 1, Epoch: 3, Stage: "M_Dai", Room: 1, Role: 2,
-		Slots: []mailbox.EnemySlot{{PID: 1002, Pos: [3]float32{1, 2, 3}, Health: 4, Flags: 0x03, MorfFrame: 1.5, MorfRate: 1, SampleSeq: 9}}}
+	blk := &mailbox.EnemyBlock{Magic: mailbox.EnemyMagic, Seq: 42, HostBeat: 7, GoWriteMS: 99, Flags: 0x05, Layout: 2, Epoch: 3, Stage: "M_Dai", Room: 1, Role: 2,
+		Slots: []mailbox.EnemySlot{{PID: 1002, Pos: [3]float32{1, 2, 3}, Health: 4, Flags: 0x03, MorfFrame: 1.5, MorfRate: 1, SampleSeq: 9,
+			Bck: 0x73, AnmAttr: 2, AnmSeq: 5, Morf: 15, Flags2: 0x05, BlurShape: 3, BlurScale: 1.25}},
+		HitApply: mailbox.EnemyHitApply{Seq: 0x30001, SetID: 2, Collider: 1, Flags: 0x02, AtType: 2, Atp: 2, Se: 1, HitMark: 0xD, Spl: 1, PID: 620}}
 	if err := mailbox.WriteEnemyBlock(m, blk); err != nil {
 		t.Fatal(err)
 	}
 	store(t, m, mailbox.EnemyBlockAddr+mailbox.EnemyAckSeqOff, u32b(41))
 	store(t, m, mailbox.EnemyBlockAddr+mailbox.EnemyCanariesOff, []byte{1, 2, 3, 4})
+	store(t, m, mailbox.EnemyBlockAddr+mailbox.EnemyCanaries2Off, []byte{5, 6, 7, 8})
+	store(t, m, mailbox.EnemyBlockAddr+mailbox.EnemyHitApplyAckOff, u32b(0x30001))
+	store(t, m, mailbox.EnemyBlockAddr+mailbox.EnemyHitResultOff, []byte{1, 0, 1, 1})
+	store(t, m, mailbox.EnemyBlockAddr+mailbox.EnemyStatusOff+mailbox.EnemyStatusSize+mailbox.EnemySTAnmStateOff, []byte{1})
+	store(t, m, mailbox.EnemyBlockAddr+mailbox.EnemyStatusOff+mailbox.EnemyStatusSize+mailbox.EnemySTBckOff, []byte{0x73, 9})
 	var out bytes.Buffer
 	if err := enemyBlockDump(&out, m); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"enemy block at 0x80413100 (0x160 bytes)",
-		"magic 0x5757454E 'WWEN' seq_head 42 seq_tail 42 host_beat 7 go_write_ms 99 count 1 flags 0x05 layout 1 epoch 3 stage \"M_Dai\" room 1 role 2",
-		"slot 0: pid 1002 pos 1.0 2.0 3.0", "health 4 flags 0x03 frame 1.50 rate 1.00 sample 9",
+		"enemy block at 0x80413100 (0x198 bytes)",
+		"magic 0x5757454E 'WWEN' seq_head 42 seq_tail 42 host_beat 7 go_write_ms 99 count 1 flags 0x05 layout 2 epoch 3 stage \"M_Dai\" room 1 role 2",
+		"slot 0: pid 1002 pos 1.0 2.0 3.0", "health 4 flags 0x03 frame 1.50 rate 1.00 sample 9 bck 0x73 attr 2 anm_seq 5 morf 15 flags2 0x05 blur 3/1.25",
+		"hit_apply: seq 196609 setID 2 collider 1 flags 0x02 atType 0x00000002 atp 2 se 1 hit_mark 13 spl 1 pos 0.0 0.0 0.0 pid 620",
+		"hit_apply_ack 196609 result 1 detail 0 frames 1 sets 1", "canaries2 {5 6 7 8}",
+		"status 1: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 0 anm_state 1 bck 0x73 anm_changes 9;",
 		"ack_seq 41", "canaries pause_reasserts 1 anm_unresolved 2 revalidate_failures 3 watchdog_releases 4",
 		"status 3: actor 0x00000000",
 	} {

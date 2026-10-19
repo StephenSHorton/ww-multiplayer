@@ -233,7 +233,7 @@ func ReadSample(m mem.Reader, mo *Moblin) (Sample, error) {
 		return s, err
 	}
 	s.Bck, s.AnmAttr = addr.Mo2BckNone, AnmAttrUnknown
-	if at := morf + addr.McaMorfAnimSpanOff; morf != 0 && mem.CheckRange(at, addr.McaMorfAnimSpanLen) == nil {
+	if at := morf + addr.McaMorfAnimSpanOff; addr.InMEM1(morf) && mem.CheckRange(at, addr.McaMorfAnimSpanLen) == nil {
 		fc, err := m.Read(at, addr.McaMorfAnimSpanLen)
 		if err != nil {
 			return s, err

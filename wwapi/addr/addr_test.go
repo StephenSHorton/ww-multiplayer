@@ -526,9 +526,12 @@ func TestMo2Offsets(t *testing.T) {
 		{"Mo2OffBlurScale", Mo2OffBlurScale, 0x590},
 		{"Mo2OffBlurOn", Mo2OffBlurOn, Mo2OffBlurScale + 4},
 		{"Mo2OffBlurShape", Mo2OffBlurShape, Mo2OffBlurOn + 4},
+		{"Mo2OffBlurOn (d_a_mo2.h:59)", Mo2OffBlurOn, 0x594},
+		{"Mo2OffBlurShape (d_a_mo2.h:60)", Mo2OffBlurShape, 0x598},
 		// d_a_mo2.h:65-67: s16 m05B0, m05B2, m05B4 back to back.
 		{"Mo2OffAnmGate", Mo2OffAnmGate, 0x5B0},
 		{"Mo2OffPlaySkip", Mo2OffPlaySkip, Mo2OffAnmGate + 2},
+		{"Mo2OffPlaySkip (d_a_mo2.h:66)", Mo2OffPlaySkip, 0x5B2},
 		{"Mo2OffInvuln (m05B2 + 2)", Mo2OffInvuln, Mo2OffPlaySkip + 2},
 		{"Mo2OffHasWeapon (d_a_mo2.h:90)", Mo2OffHasWeapon, 0xDD4},
 		{"Mo2OffDR", Mo2OffDR, 0x614},
@@ -563,7 +566,9 @@ func TestMo2Offsets(t *testing.T) {
 		{"McaMorfOffPrevMorf", McaMorfOffPrevMorf, McaMorfOffCurMorf + 4},
 		{"McaMorfOffMorfStep", McaMorfOffMorfStep, McaMorfOffPrevMorf + 4},
 		{"McaMorfOffSound", McaMorfOffSound, McaMorfOffMorfStep + 4},
-		{"McaMorfOffSound", McaMorfOffSound, 0x80},
+		{"McaMorfOffPrevMorf (m_Do_ext.h:375)", McaMorfOffPrevMorf, 0x78},
+		{"McaMorfOffMorfStep (m_Do_ext.h:376)", McaMorfOffMorfStep, 0x7C},
+		{"McaMorfOffSound (m_Do_ext.h:377)", McaMorfOffSound, 0x80},
 		{"McaMorfAnimSpanOff (mpAnm)", McaMorfAnimSpanOff, 0x54},
 		{"McaMorfAnimSpanLen (mpAnm .. mMorfStep inclusive)", McaMorfAnimSpanLen, 0x2C},
 		{"McaMorfAnimSpanLen covers mMorfStep", McaMorfAnimSpanOff + McaMorfAnimSpanLen, McaMorfOffMorfStep + 4},
@@ -573,12 +578,20 @@ func TestMo2Offsets(t *testing.T) {
 		{"CcAtOffSe (dCcD_GAtTgCoCommonBase 0x1C)", CcAtOffSe, CcAtOffSPrm + 0x1C},
 		{"CcAtOffHitMark (mSe, mMtrl, mHitMark)", CcAtOffHitMark, CcAtOffSe + 2},
 		{"CcAtOffSpl", CcAtOffSpl, CcAtOffHitMark + 1},
+		{"CcAtOffSe", CcAtOffSe, 0x6C},
+		{"CcAtOffHitMark", CcAtOffHitMark, 0x6E},
+		{"CcAtOffSpl", CcAtOffSpl, 0x6F},
 		// d_resorce.h:40-47.
 		{"ResInfoSize", ResInfoSize, 0x24},
 		{"ResInfoOffCount (char[14])", ResInfoOffCount, ResInfoOffName + ResInfoNameLen},
 		{"ResInfoOffArchive (mCount u16, mpDMCommand)", ResInfoOffArchive, ResInfoOffCount + 2 + 4},
 		{"ResInfoOffRes (mpArchive, mpParentHeap, mDataHeap)", ResInfoOffRes, ResInfoOffArchive + 4 + 4 + 4},
 		{"ResInfoSize (mRes last)", ResInfoSize, ResInfoOffRes + 4},
+		{"ResInfoOffName (char mArchiveName[14])", ResInfoOffName, 0x00},
+		{"ResInfoOffCount", ResInfoOffCount, 0x0E},
+		{"ResInfoOffArchive", ResInfoOffArchive, 0x14},
+		{"ResInfoOffRes", ResInfoOffRes, 0x20},
+		{"ObjectInfoCount (mObjectInfo[64])", ObjectInfoCount, 64},
 		// Mo2.h:64-119.
 		{"Mo2BckFirst", Mo2BckFirst, 0x3E},
 		{"Mo2BckLast", Mo2BckLast, 0x75},
@@ -601,6 +614,8 @@ func TestMo2Offsets(t *testing.T) {
 		{"RoomStayNo", RoomStayNo, StayNo},
 		{"RoomStayNo (sym:18667)", RoomStayNo, 0x803F6A78},
 		{"CalcMtxPtr (sym:18270)", CalcMtxPtr, 0x803F63A0},
+		{"MObjectInfo (wwapi.h:266)", MObjectInfo, 0x803E0BC8},
+		{"PlayerInfo0Ptr (d_com_inf_game.h:787-791)", PlayerInfo0Ptr, 0x803CA74C},
 	})
 	if CcS+0x1404 > Play+PlaySize || CcS%4 != 0 || CalcMtxPtr%4 != 0 {
 		t.Error("mCcS runs past play, or a pointer is misaligned")

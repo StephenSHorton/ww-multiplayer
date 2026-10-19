@@ -229,17 +229,20 @@ func enemyBlockDump(w io.Writer, m mem.Reader) error {
 	fmt.Fprintf(w, "Go span: magic 0x%08X %s seq_head %d seq_tail %d%s host_beat %d go_write_ms %d count %d flags 0x%02X layout %d epoch %d stage %q room %d role %d\n",
 		blk.Magic, magic, blk.Seq, tail, torn, blk.HostBeat, blk.GoWriteMS, len(blk.Slots), blk.Flags, blk.Layout, blk.Epoch, blk.Stage, blk.Room, blk.Role)
 	for i, s := range blk.Slots {
-		fmt.Fprintf(w, "  slot %d: pid %d pos %.1f %.1f %.1f angle %d tilt %d action %d mode %d attack %d/%d health %d flags 0x%02X frame %.2f rate %.2f sample %d\n",
-			i, s.PID, s.Pos[0], s.Pos[1], s.Pos[2], s.AngleY, s.Tilt, s.Action, s.Mode, s.AttackType, s.AttackPhase, s.Health, s.Flags, s.MorfFrame, s.MorfRate, s.SampleSeq)
+		fmt.Fprintf(w, "  slot %d: pid %d pos %.1f %.1f %.1f angle %d tilt %d action %d mode %d attack %d/%d health %d flags 0x%02X frame %.2f rate %.2f sample %d bck 0x%02X attr %d anm_seq %d morf %d flags2 0x%02X blur %d/%.2f\n",
+			i, s.PID, s.Pos[0], s.Pos[1], s.Pos[2], s.AngleY, s.Tilt, s.Action, s.Mode, s.AttackType, s.AttackPhase, s.Health, s.Flags, s.MorfFrame, s.MorfRate, s.SampleSeq,
+			s.Bck, s.AnmAttr, s.AnmSeq, s.Morf, s.Flags2, s.BlurShape, s.BlurScale)
 	}
 	h := blk.HitApply
-	fmt.Fprintf(w, "  hit_apply: seq %d setID %d collider %d atType 0x%08X atp %d pos %.1f %.1f %.1f\n", h.Seq, h.SetID, h.Collider, h.AtType, h.Atp, h.Pos[0], h.Pos[1], h.Pos[2])
-	fmt.Fprintf(w, "REL span: ack_seq %d ack_frame %d adopted %04b epoch_seen %d hit_apply_ack %d last_result %d canaries pause_reasserts %d anm_unresolved %d revalidate_failures %d watchdog_releases %d\n",
-		st.AckSeq, st.AckFrame, st.AdoptedMask, st.EpochSeen, st.HitApplyAck, st.LastResult,
-		st.Canaries.PauseReasserts, st.Canaries.AnmUnresolved, st.Canaries.RevalidateFailures, st.Canaries.WatchdogReleases)
+	fmt.Fprintf(w, "  hit_apply: seq %d setID %d collider %d flags 0x%02X atType 0x%08X atp %d se %d hit_mark %d spl %d pos %.1f %.1f %.1f pid %d\n",
+		h.Seq, h.SetID, h.Collider, h.Flags, h.AtType, h.Atp, h.Se, h.HitMark, h.Spl, h.Pos[0], h.Pos[1], h.Pos[2], h.PID)
+	r := st.HitResult
+	fmt.Fprintf(w, "REL span: ack_seq %d ack_frame %d adopted %04b epoch_seen %d hit_apply_ack %d result %d detail %d frames %d sets %d canaries pause_reasserts %d anm_unresolved %d revalidate_failures %d watchdog_releases %d canaries2 %v\n",
+		st.AckSeq, st.AckFrame, st.AdoptedMask, st.EpochSeen, st.HitApplyAck, r.Result, r.Detail, r.Frames, r.Sets,
+		st.Canaries.PauseReasserts, st.Canaries.AnmUnresolved, st.Canaries.RevalidateFailures, st.Canaries.WatchdogReleases, st.Canaries2)
 	for i, e := range st.Status {
-		fmt.Fprintf(w, "  status %d: actor 0x%08X pid %d state %d pause_prev 0x%02X last_err %d frames %d; hit: seq %d collider %d pending %d\n",
-			i, e.Actor, e.PID, e.State, e.PausePrev, e.LastErr, e.Frames, st.Hits[i].HitSeq, st.Hits[i].Collider, st.Hits[i].Pending)
+		fmt.Fprintf(w, "  status %d: actor 0x%08X pid %d state %d pause_prev 0x%02X last_err %d frames %d anm_state %d bck 0x%02X anm_changes %d; hit: seq %d collider %d pending %d\n",
+			i, e.Actor, e.PID, e.State, e.PausePrev, e.LastErr, e.Frames, e.AnmState, e.Bck, e.AnmChanges, st.Hits[i].HitSeq, st.Hits[i].Collider, st.Hits[i].Pending)
 	}
 	return nil
 }

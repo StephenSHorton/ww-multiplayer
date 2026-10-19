@@ -212,6 +212,7 @@ type HitApplier struct {
 	lastHit  map[uint16]time.Time // per setID: when a hit was last applied
 	seq      uint32               // hit_apply seq, ++ per request
 	queue    []*pendingHit        // queue[0] is in the block
+	last     *pendingHit          // the request acked last: keepalives carry it so the REL never sees seq 0 as new
 	relOK    bool
 	warned   bool
 	blockSeq uint32
@@ -255,9 +256,17 @@ const HitQueueDepth = 4
 // NewHitApplier returns an applier over m at epoch with the knobs read
 // from the environment.
 func NewHitApplier(m mem.Mem, rep log.Reporter, epoch uint32) *HitApplier {
-	return &HitApplier{m: m, rep: rep, epoch: epoch, lastSeq: map[uint8]uint16{}, lastHit: map[uint16]time.Time{},
-		V1: os.Getenv("WW_ENEMY_HIT_V1") == "1", FallbackShrink: os.Getenv("WW_ENEMY_HIT_FALLBACK") == "shrink",
-		DemoGate: os.Getenv("WW_ENEMY_HIT_DEMO") != "0"}
+	a := newHitApplier(m, rep, epoch)
+	a.V1, a.FallbackShrink = os.Getenv("WW_ENEMY_HIT_V1") == "1", os.Getenv("WW_ENEMY_HIT_FALLBACK") == "shrink"
+	a.DemoGate = os.Getenv("WW_ENEMY_HIT_DEMO") != "0"
+	return a
+}
+
+// newHitApplier is NewHitApplier with every knob off (tests set them).
+// The hit_apply seq starts at epoch<<16, so a host Go restarted against a
+// still-linked REL never reuses a seq the REL last acked.
+func newHitApplier(m mem.Mem, rep log.Reporter, epoch uint32) *HitApplier {
+	return &HitApplier{m: m, rep: rep, epoch: epoch, seq: epoch << 16, lastSeq: map[uint8]uint16{}, lastHit: map[uint16]time.Time{}}
 }
 
 // SetREL tells the applier whether the host's REL module is linked with
@@ -379,7 +388,8 @@ func (a *HitApplier) Keepalive(scope Scope, now time.Time) error {
 }
 
 // writeBlock writes the host's block: role host, no slots, the head of
-// the queue as hit_apply (or the last one acked), the stage and room of
+// the queue as hit_apply (or the last one acked, whose seq the REL already
+// took, so a keepalive never starts a request), the stage and room of
 // that request (its STATE's) or of the host's scope.
 func (a *HitApplier) writeBlock(now time.Time) error {
 	a.blockSeq++
@@ -391,6 +401,8 @@ func (a *HitApplier) writeBlock(now time.Time) error {
 		p := a.queue[0]
 		b.Stage, b.Room = p.stage, p.room
 		b.HitApply = a.hitApply(p)
+	} else if a.last != nil {
+		b.HitApply = a.hitApply(a.last)
 	}
 	if len(b.Stage) > mailbox.EnemyStageLen {
 		b.Stage = b.Stage[:mailbox.EnemyStageLen]
@@ -447,6 +459,7 @@ func (a *HitApplier) Poll(st *State, now time.Time) (*Ack, error) {
 		p.ticks++
 		return nil, nil
 	}
+	a.last = p
 	a.queue = a.queue[1:]
 	if len(a.queue) > 0 {
 		if err := a.writeBlock(now); err != nil {

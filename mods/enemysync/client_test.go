@@ -421,3 +421,121 @@ func TestMirrorStickyErr(t *testing.T) {
 		t.Error("the sticky last_err forced a walk again")
 	}
 }
+
+// TestMirrorAnimFields: the block's slots carry the seven animation
+// fields from the smoother's output, and a catch-up (dead_mask) slot
+// carries Bck and AnmAttr 0xFF.
+func TestMirrorAnimFields(t *testing.T) {
+	_, m, es, tick := clientRoom(t)
+	start := time.Unix(2000, 0)
+	c := NewMirror(m, log.Discard{}, nil, false, start)
+	m.Record(true)
+	now := start.Add(time.Second)
+	st := hostState(1, 1000)
+	st.Slots = st.Slots[:2] // setIDs 0, 1
+	st.DeadMask = 1 << 2    // setID 2: a catch-up slot
+	for i := range st.Slots {
+		sl := &st.Slots[i]
+		sl.Bck, sl.AnmAttr, sl.AnmSeq, sl.Morf = 0x45+uint8(i), AnmAttrLoop, 3+uint8(i), 10
+		sl.Flags2, sl.BlurShape, sl.BlurScale = 0x05, 1+uint8(i), 1.5+float32(i)
+	}
+	pushState(t, c, st, now)
+	tick()
+	if _, _, err := c.Tick(now); err != nil {
+		t.Fatal(err)
+	}
+	blocks := blockWrites(t, m)
+	if len(blocks) != 1 || len(blocks[0].Slots) != 3 {
+		t.Fatalf("blocks: %+v", blocks)
+	}
+	for i := range 2 {
+		got, want := blocks[0].Slots[i], st.Slots[i]
+		if got.Bck != want.Bck || got.AnmAttr != want.AnmAttr || got.AnmSeq != want.AnmSeq || got.Morf != want.Morf ||
+			got.Flags2 != want.Flags2 || got.BlurShape != want.BlurShape || got.BlurScale != want.BlurScale {
+			t.Errorf("slot %d: %+v, want the anim fields of %+v", i, got, want)
+		}
+	}
+	a2, _ := es.Of(0)
+	cu := blocks[0].Slots[2]
+	if cu.PID != a2.PID || cu.Bck != mailbox.EnemyBckNone || cu.AnmAttr != 0xFF || cu.Flags&mailbox.EnemySFRelease == 0 {
+		t.Errorf("catch-up slot: %+v", cu)
+	}
+}
+
+// TestMirrorBlockFlags: the block's FLAG_ANIM and FLAG_COLLIDERS follow
+// the STATE's StateFlagAnim and StateFlagColliders, both, neither or
+// one; FLAG_MIRROR is always set.
+func TestMirrorBlockFlags(t *testing.T) {
+	_, m, _, tick := clientRoom(t)
+	start := time.Unix(2000, 0)
+	c := NewMirror(m, log.Discard{}, nil, false, start)
+	m.Record(true)
+	now := start
+	for i, f := range []uint8{StateFlagAnim | StateFlagColliders, 0, StateFlagAnim, StateFlagColliders} {
+		st := hostState(uint32(i+1), uint32(i*16))
+		st.Flags = StateFlagInScope | f
+		pushState(t, c, st, now)
+		tick()
+		if _, _, err := c.Tick(now); err != nil {
+			t.Fatal(err)
+		}
+		blocks := blockWrites(t, m)
+		if len(blocks) != i+1 {
+			t.Fatalf("state flags %02b: %d blocks", f, len(blocks))
+		}
+		b := blocks[i]
+		anim, cols := b.Flags&mailbox.EnemyFlagAnim != 0, b.Flags&mailbox.EnemyFlagColliders != 0
+		if b.Flags&mailbox.EnemyFlagMirror == 0 || anim != (f&StateFlagAnim != 0) || cols != (f&StateFlagColliders != 0) {
+			t.Errorf("state flags %02b: block flags %04b", f, b.Flags)
+		}
+		now = now.Add(16 * time.Millisecond)
+	}
+}
+
+// readLogMem logs every Read (address and length) over a FakeMem.
+type readLogMem struct {
+	*mem.FakeMem
+	reads [][2]uint32
+}
+
+func (r *readLogMem) Read(a uint32, n int) ([]byte, error) {
+	r.reads = append(r.reads, [2]uint32{a, uint32(n)})
+	return r.FakeMem.Read(a, n)
+}
+
+// TestMirrorReadHit: readHit fills At type and atp (obj+0x10, +0x14),
+// AtSPrm (the low byte of the u32 at obj+0x50), Se, HitMark and Spl
+// (obj+0x6C, +0x6E, +0x6F) from one 0x60-byte read of the hit object.
+func TestMirrorReadHit(t *testing.T) {
+	fm := mem.NewFakeMem()
+	rm := &readLogMem{FakeMem: fm}
+	start := time.Unix(2000, 0)
+	c := NewMirror(rm, log.Discard{}, nil, false, start)
+	const actor, pid, obj = uint32(0x80C00000), uint32(0x1234), uint32(0x80D00000)
+	c.Stats.LastStatus.Status[0] = mailbox.EnemySlotStatus{Actor: actor, PID: pid, State: mailbox.EnemyStateMirrored}
+	store(t, fm, actor+addr.Mo2OffTgCyl+addr.Mo2CcTgHitObjOff, binary.BigEndian.AppendUint32(nil, obj))
+	store(t, fm, actor+addr.Mo2OffTgCyl+addr.Mo2CcCenterOff, f32s(4, 5, 6))
+	store(t, fm, obj+0x10, []byte{0, 0x08, 0, 0, 3})
+	store(t, fm, obj+addr.CcAtOffSPrm, []byte{0xAA, 0xBB, 0xCC, 0x02})
+	store(t, fm, obj+addr.CcAtOffSe, []byte{0x11, 0x99, 0x03, 0x01}) // mSe, mMtrl, mHitMark, mSpl
+	store(t, fm, obj+0x0C, []byte{0xEE, 0xEE, 0xEE, 0xEE})           // outside the read
+	store(t, fm, obj+0x70, []byte{0xEE, 0xEE, 0xEE, 0xEE})
+	st := hostState(1, 0)
+	h, err := c.readHit(st, pid, 0, mailbox.EnemyHitEntry{HitSeq: 5, Collider: ColliderTgCyl, Pending: 1})
+	if err != nil || h == nil {
+		t.Fatalf("readHit: %v %v", h, err)
+	}
+	if h.AtType != 0x00080000 || h.Atp != 3 || h.AtSPrm != 0x02 || h.Se != 0x11 || h.HitMark != 0x03 || h.Spl != 0x01 ||
+		h.Collider != ColliderTgCyl || h.HitSeq != 5 || h.SetID != 0 || h.Pos != [3]float32{4, 5, 6} {
+		t.Errorf("hit: %+v", h)
+	}
+	var objReads [][2]uint32
+	for _, r := range rm.reads {
+		if r[0] >= obj && r[0] < obj+0x1000 {
+			objReads = append(objReads, r)
+		}
+	}
+	if len(objReads) != 1 || objReads[0] != [2]uint32{obj + 0x10, 0x60} {
+		t.Errorf("hit object reads %x, want one of 0x60 bytes at obj+0x10", objReads)
+	}
+}

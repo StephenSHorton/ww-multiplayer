@@ -24,7 +24,11 @@ import (
 //	    rate < 0 and frame > prev + 0.5. That catches NAJAB's three
 //	    phases, all on bck 0x61 (d_a_mo2.cpp:1994); a loop's wrap is never
 //	    a restart, and a wait_set that re-sets the same loop costs only
-//	    its blend, which (c) catches while it runs.
+//	    its blend, which (c) catches while it runs. A rate of 0 takes the
+//	    previous sample's direction: a NONE anim played backwards stops
+//	    at its start with rate 0 (J3DFrameCtrl::update), and that last
+//	    step down (0.999 to 0, defence's BWALKFB at speed -1,
+//	    d_a_mo2.cpp:2213) is play, not a reset.
 //
 // The client REL compares the byte to the one it last setAnm'd for and
 // calls setAnm again on a change; the smoother never touches it, so a
@@ -38,6 +42,7 @@ type AnmTrack struct {
 	attr    uint8
 	curMorf float32
 	frame   float32
+	rate    float32
 	seq     uint8
 	morf    uint8
 }
@@ -58,7 +63,11 @@ func (t *AnmTrack) Update(s *Sample) {
 		case s.Anm != t.anm, s.AnmAttr != t.attr, s.CurMorf < t.curMorf:
 			restart = true
 		case s.AnmAttr != AnmAttrLoop && s.AnmAttr != AnmAttrLoopReverse:
-			if (s.MorfRate >= 0 && s.MorfFrame < t.frame-0.5) || (s.MorfRate < 0 && s.MorfFrame > t.frame+0.5) {
+			rate := s.MorfRate
+			if rate == 0 {
+				rate = t.rate
+			}
+			if (rate >= 0 && s.MorfFrame < t.frame-0.5) || (rate < 0 && s.MorfFrame > t.frame+0.5) {
 				restart = true
 			}
 		}
@@ -69,7 +78,7 @@ func (t *AnmTrack) Update(s *Sample) {
 		}
 		t.morf = morfOf(s.CurMorf, s.MorfStep)
 	}
-	t.have, t.anm, t.attr, t.curMorf, t.frame = true, s.Anm, s.AnmAttr, s.CurMorf, s.MorfFrame
+	t.have, t.anm, t.attr, t.curMorf, t.frame, t.rate = true, s.Anm, s.AnmAttr, s.CurMorf, s.MorfFrame, s.MorfRate
 	s.AnmSeq, s.Morf = t.seq, t.morf
 }
 

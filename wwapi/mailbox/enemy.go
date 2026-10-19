@@ -112,9 +112,9 @@ const (
 	EnemyHAPIDOff      = 0x1C // u32 the host's pid of that setID's Moblin (Go resolves it; the REL checks setID and room against it)
 	EnemyHASize        = 0x20 // ends at +0x120 = EnemySeqTailOff
 
-	EnemyHAFForceV1       uint8 = 0x01 // the REL runs the v1 branch (the light-shrink kill) verbatim
+	EnemyHAFForceV1        uint8 = 0x01 // the REL runs the v1 branch (the light-shrink kill) verbatim
 	EnemyHAFFallbackShrink uint8 = 0x02 // after two Sets crossed nothing, write the shrink instead of HD_NO_CROSS
-	EnemyHAFNoHitMark     uint8 = 0x04 // the At sphere carries dCcG_AtSPrm_NoHitMark_e
+	EnemyHAFNoHitMark      uint8 = 0x04 // the At sphere carries dCcG_AtSPrm_NoHitMark_e
 
 	// The REL-written span: +EnemyGoSpan..+EnemySize.
 	EnemyAckSeqOff      = 0x124 // u32 last seq consumed
@@ -128,7 +128,7 @@ const (
 	EnemyHitApplyAckOff = 0x184 // u32 hit_apply seq acked (its result at EnemyHitResultOff)
 	EnemyCanariesOff    = 0x188 // u8 pause_reasserts, u8 anm_unresolved, u8 revalidate_failures, u8 watchdog_releases
 	EnemyCanaries2Off   = 0x18C // u8 anm_res_null, u8 anm_range, u8 hit_nocross, u8 hit_aborted
-	EnemyHitResultOff   = 0x190 // u32 BE: byte3 EnemyHR* result, byte2 EnemyHD* detail, byte1 REL executes from Set to result, byte0 Sets issued
+	EnemyHitResultOff   = 0x190 // u32 BE: bits 31-24 (byte +0) EnemyHR* result, 23-16 EnemyHD* detail, 15-8 REL executes from Set to result, 7-0 Sets issued
 	EnemyReserved2Off   = 0x194 // u32
 
 	// Status fields, from the status start.
@@ -165,31 +165,31 @@ const (
 	EnemyAnmResNull    uint8 = 3 // getRes gave NULL or a bad pointer
 	EnemyAnmRange      uint8 = 4 // index or attribute out of range
 
-	// hit_apply results (byte 3 of EnemyHitResultOff).
+	// hit_apply results (bits 31-24, the first byte, of EnemyHitResultOff).
 	EnemyHRDropped   uint8 = 0
 	EnemyHRAppliedAt uint8 = 1 // the At sphere crossed the target's head or Tg; its own damage code ran
 	EnemyHRNoActor   uint8 = 2
 	EnemyHRShrink    uint8 = 3 // the v1 light-shrink kill was written
 	EnemyHRParried   uint8 = 4 // the Moblin's defence sphere took it
 
-	// hit_apply details (byte 2 of EnemyHitResultOff; EnemyHDGoGate on
+	// hit_apply details (bits 23-16, the second byte, of EnemyHitResultOff; EnemyHDGoGate on
 	// are Go-side drops that never reach the REL).
-	EnemyHDNone          uint8 = 0
-	EnemyHDNoCross       uint8 = 1  // two Sets, nothing crossed
-	EnemyHDInvuln        uint8 = 2  // m05B4 still set after the wait (or v1's pre-drop)
-	EnemyHDRagdoll       uint8 = 3  // damagereaction mode <= -100
-	EnemyHDDying         uint8 = 4  // health <= 0 or the death action
-	EnemyHDNoLink        uint8 = 5  // PlayerInfo0Ptr is not a PLAYER, or differs from PlayerPtr
-	EnemyHDNoSphere      uint8 = 6  // the sphere image's vptr sanity failed
-	EnemyHDWrongObj      uint8 = 7  // another object's Tg crossed first
-	EnemyHDAborted       uint8 = 8  // REL early return, release or delete mid-request
-	EnemyHDDefence       uint8 = 9  // v1's pre-drop only
+	EnemyHDNone           uint8 = 0
+	EnemyHDNoCross        uint8 = 1  // two Sets, nothing crossed
+	EnemyHDInvuln         uint8 = 2  // m05B4 still set after the wait (or v1's pre-drop)
+	EnemyHDRagdoll        uint8 = 3  // damagereaction mode <= -100
+	EnemyHDDying          uint8 = 4  // health <= 0 or the death action
+	EnemyHDNoLink         uint8 = 5  // PlayerInfo0Ptr is not a PLAYER, or differs from PlayerPtr
+	EnemyHDNoSphere       uint8 = 6  // the sphere image's vptr sanity failed
+	EnemyHDWrongObj       uint8 = 7  // another object's Tg crossed first
+	EnemyHDAborted        uint8 = 8  // REL early return, release or delete mid-request
+	EnemyHDDefence        uint8 = 9  // v1's pre-drop only
 	EnemyHDFallbackShrink uint8 = 10 // HAF_FALLBACK_SHRINK applied the shrink after NO_CROSS
-	EnemyHDGoGate        uint8 = 11 // epoch, stage, room, scope, replayed hit_seq or no REL
-	EnemyHDRate          uint8 = 12 // within HitRate of the last hit on that Moblin
-	EnemyHDBusy          uint8 = 13 // the request queue is full or holds that (client, setID)
-	EnemyHDGoFlags       uint8 = 14 // the sample's flags pre-dropped it (ragdoll/dying; the four flags in v1 mode)
-	EnemyHDDemo          uint8 = 15 // the host Link is in a demo (mDemo.mDemoType != 0)
+	EnemyHDGoGate         uint8 = 11 // epoch, stage, room, scope, replayed hit_seq or no REL
+	EnemyHDRate           uint8 = 12 // within HitRate of the last hit on that Moblin
+	EnemyHDBusy           uint8 = 13 // the request queue is full or holds that (client, setID)
+	EnemyHDGoFlags        uint8 = 14 // the sample's flags pre-dropped it (ragdoll/dying; the four flags in v1 mode)
+	EnemyHDDemo           uint8 = 15 // the host Link is in a demo (mDemo.mDemoType != 0)
 
 	// EnemyStaleFrames is how many REL frames without a new seq release
 	// every adopted slot.

@@ -350,6 +350,12 @@ func TestEnemyBlockEncode(t *testing.T) {
 	if out[0x107] != EnemyHAFNoHitMark || out[0x10D] != 1 || out[0x10E] != 0xD || out[0x10F] != 1 || be.Uint32(out[0x120:]) != b.Seq || len(out) != 0x124 {
 		t.Errorf("hit_apply bytes at their absolute offsets: %x", out[0x100:])
 	}
+	// Slot 0's layout-2 bytes at their absolute offsets: bck, attr,
+	// anm_seq, morf, flags2, blur_shape, the u16 pad and the f32
+	// blur_scale at +0x30+0x28..+0x30+0x33; hit_apply's pid at +0x11C.
+	if got := hex.EncodeToString(out[0x30+0x28 : 0x30+0x34]); got != "6a02110f050300003fa00000" || be.Uint32(out[0x11C:]) != 421 {
+		t.Errorf("slot 0 bck..blur_scale %s, hit_apply pid %d", got, be.Uint32(out[0x11C:]))
+	}
 	if got := hex.EncodeToString(out); got != enemyGoSpanGolden {
 		t.Errorf("the Go span's bytes changed:\n got %s\nwant %s", got, enemyGoSpanGolden)
 	}
@@ -448,6 +454,39 @@ func TestEnemyBlockWriteReadStatus(t *testing.T) {
 	}
 	if _, err := DecodeEnemyStatus(tailBytes[:len(tailBytes)-1]); err == nil {
 		t.Error("a short status decoded")
+	}
+}
+
+// TestEnemyStatusOffsets: DecodeEnemyStatus reads each field at the
+// layout-2 block offset the REL writes it (literal offsets, not the
+// constants): every 0x10-byte status entry from 0x134 with anm_state at
+// +0x0B, bck at +0x0E and anm_changes at +0x0F, canaries2 at 0x18C, and
+// the HIT_RESULT word at 0x190 whose first byte is the result.
+func TestEnemyStatusOffsets(t *testing.T) {
+	blk := make([]byte, 0x198)
+	for i := range 4 {
+		e := blk[0x134+0x10*i:]
+		e[0x08] = EnemyStateMirrored
+		e[0x0B] = EnemyAnmSynced + uint8(i)
+		e[0x0E] = byte(0x3E + i)
+		e[0x0F] = byte(10 * (i + 1))
+	}
+	copy(blk[0x18C:], []byte{0x11, 0x22, 0x33, 0x44})
+	copy(blk[0x190:], []byte{EnemyHRParried, EnemyHDDefence, 3, 2})
+	st, err := DecodeEnemyStatus(blk[0x124:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, s := range st.Status {
+		if s.State != EnemyStateMirrored || s.AnmState != EnemyAnmSynced+uint8(i) || s.Bck != 0x3E+uint8(i) || s.AnmChanges != uint8(10*(i+1)) || s.Frames != 0 || s.LastErr != 0 {
+			t.Errorf("status %d: %+v", i, s)
+		}
+	}
+	if st.Canaries2 != (EnemyCanaries2{AnmResNull: 0x11, AnmRange: 0x22, HitNoCross: 0x33, HitAborted: 0x44}) || st.Canaries != (EnemyCanaries{}) {
+		t.Errorf("canaries %+v, canaries2 %+v", st.Canaries, st.Canaries2)
+	}
+	if st.HitResult != (EnemyHitResult{Result: EnemyHRParried, Detail: EnemyHDDefence, Frames: 3, Sets: 2}) || st.HitApplyAck != 0 {
+		t.Errorf("hit result %+v (ack %d)", st.HitResult, st.HitApplyAck)
 	}
 }
 

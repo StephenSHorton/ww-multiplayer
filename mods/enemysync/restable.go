@@ -145,13 +145,14 @@ func (r *Mo2Res) Index(anm uint32) uint8 {
 
 // Lookup is Index with the miss rule: a miss counts in Stats.BckMiss and,
 // at most once per MissReread, re-reads the table from m and looks again
-// (the archive may have been reloaded under the sampler).
+// (the archive may have been reloaded under the sampler, or loaded since
+// a walk found the table not ok).
 func (r *Mo2Res) Lookup(m mem.Reader, anm uint32, now time.Time) (uint8, error) {
 	if idx := r.Index(anm); idx != addr.Mo2BckNone {
 		return idx, nil
 	}
 	r.Stats.BckMiss++
-	if !r.ok || now.Before(r.missNext) {
+	if now.Before(r.missNext) {
 		return addr.Mo2BckNone, nil
 	}
 	r.missNext = now.Add(MissReread)

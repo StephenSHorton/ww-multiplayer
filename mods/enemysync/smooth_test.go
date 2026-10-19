@@ -204,3 +204,36 @@ func TestSmootherRaw(t *testing.T) {
 		t.Errorf("an old sample was taken: %+v len %d", out, s.Len())
 	}
 }
+
+// TestSmootherAnimSwitch: the discrete animation fields come from the
+// bracket's earlier sample, so a new bck shows from the later sample's
+// render time on, not before (design "Unit, client").
+func TestSmootherAnimSwitch(t *testing.T) {
+	t0 := time.Unix(100, 0)
+	s := NewSmoother(t0, false)
+	a := Slot{Pos: [3]float32{0, 0, 0}, Bck: 0x73, AnmAttr: AnmAttrLoop, AnmSeq: 1, Morf: 15, Flags2: 0x01, BlurShape: 0, BlurScale: 0}
+	b := Slot{Pos: [3]float32{10, 0, 0}, Bck: 0x45, AnmAttr: AnmAttrNone, AnmSeq: 2, Morf: 5, Flags2: 0x05, BlurShape: 2, BlurScale: 1.5}
+	// 100 ms apart with a 0 lag: the delay is MinDelay, so b's render
+	// time is its arrival plus MinDelay.
+	s.Push(0, t0, a, 1)
+	s.Push(100, t0.Add(100*time.Millisecond), b, 1)
+	bAt := t0.Add(100*time.Millisecond + MinDelay)
+	anim := func(sl Slot) [7]float32 {
+		return [7]float32{float32(sl.Bck), float32(sl.AnmAttr), float32(sl.AnmSeq), float32(sl.Morf), float32(sl.Flags2), float32(sl.BlurShape), sl.BlurScale}
+	}
+	for _, dt := range []time.Duration{-50 * time.Millisecond, -time.Millisecond} {
+		out, ok := s.At(bAt.Add(dt))
+		if !ok || anim(out) != anim(a) {
+			t.Errorf("at b%v: bck %02X anim %v, want a's %v", dt, out.Bck, anim(out), anim(a))
+		}
+	}
+	if out, _ := s.At(bAt.Add(-50 * time.Millisecond)); out.Pos[0] <= 0 || out.Pos[0] >= 10 {
+		t.Errorf("between a and b: x %.1f not lerped", out.Pos[0])
+	}
+	for _, dt := range []time.Duration{0, 50 * time.Millisecond} {
+		out, ok := s.At(bAt.Add(dt))
+		if !ok || anim(out) != anim(b) {
+			t.Errorf("at b+%v: bck %02X anim %v, want b's %v", dt, out.Bck, anim(out), anim(b))
+		}
+	}
+}
