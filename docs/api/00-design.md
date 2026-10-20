@@ -64,9 +64,11 @@ The plan:
  0x804130B0   Mailbox end                 -> 0xF50 bytes slack, of which:
  0x804130B0   the REL module's words (mailbox +0x1B0..+0x1BC, inject/include/wwrel.h):
               'WWRL' magic, build id, frame counter; written by inject/rel/rel_main.c
- 0x80413100   the enemy-mirror block (mailbox +0x200..+0x360, inject/include/wwenemy.h):
-              Go writes +0x00..+0xF4 per tick, inject/rel/enemy_mirror.c writes +0xF4..+0x160
- 0x80413260   free slack (a co-op region here would start at mailbox +0x360)
+ 0x80413100   the enemy-mirror block (mailbox +0x200..+0x398, inject/include/wwenemy.h, layout 2):
+              Go writes +0x00..+0x124 per tick, inject/rel/enemy_mirror.c writes +0x124..+0x198
+ 0x804132A0   the host's v2 At sphere, a dCcD_Sph image (mailbox +0x3A0..+0x4CC, WWENEMY_SPH_OFF)
+ 0x804133D0   its dCcD_Stts (mailbox +0x4D0..+0x50C, WWENEMY_STTS_OFF); enemy sync ends at +0x510
+ 0x80413410   free slack (a co-op region here would start at mailbox +0x510, WWENEMY_REGION_END)
  0x80414000   patched __ArenaLo (OSInit patched by build.py)
 ```
 

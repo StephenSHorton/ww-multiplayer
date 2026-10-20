@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -202,6 +205,9 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 		os.Exit(1)
 	}
 	pidA, pidB := pids[0], pids[1]
+	if a, b, ok := pinnedPIDs(os.Getenv("MP_LOCAL_PIDS"), pids); ok {
+		pidA, pidB = a, b
+	}
 	log.Logf(rep, log.OK, "Found Dolphin A (pid %d) and B (pid %d).", pidA, pidB)
 
 	// Wait until both Dolphins have a save loaded — player.Link.Ready returns
@@ -464,4 +470,23 @@ func contractRefused(pid uint32) string {
 		return ""
 	}
 	return c.Why
+}
+
+// pinnedPIDs reads MP_LOCAL_PIDS ("<A>,<B>", two running Dolphin PIDs):
+// which Dolphin is A (the host of every pipeline that has one) instead of
+// the enumeration order. Anything else is ignored.
+func pinnedPIDs(v string, running []uint32) (a, b uint32, ok bool) {
+	parts := strings.Split(v, ",")
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	var got [2]uint32
+	for i, s := range parts {
+		n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
+		if err != nil || !slices.Contains(running, uint32(n)) {
+			return 0, 0, false
+		}
+		got[i] = uint32(n)
+	}
+	return got[0], got[1], got[0] != got[1]
 }
