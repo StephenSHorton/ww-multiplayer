@@ -22,6 +22,15 @@
 // create allocates nothing and registers no model or collision, so the
 // actor is invisible; draw, delete and is_delete just return TRUE.
 //
+// Remote-Link (remote.c; design: ww-multiplayer-handoff/design/
+// remote-link-design.md section 5.1) gives the profile two roles, chosen
+// by mParameters: 0 is the keeper above (plus remote.c's swap state, body
+// lifecycle and client apply), WWREMOTE_BODY_PARAMS_TAG | slot << 8 | gen
+// is a lite body (remote.c's remote_body_*), created only by the keeper.
+// mSize is WWREMOTE_ACTOR_SIZE (0x600) for both. _prolog also publishes
+// wwrel_exec_hook (T2's exec shim target) at WWREL_EXEC_HOOK_OFF, last;
+// _epilog clears it first.
+//
 // Build (inject/build.py build_rel): powerpc-eabi-gcc -mcpu=750 -std=c99
 // -fno-inline -Og -fshort-enums -fno-jump-tables -ffreestanding
 // -fno-builtin -G0 ..., then powerpc-eabi-ld --relocatable -T ww_rel.ld.
@@ -40,6 +49,10 @@
 // The Moblin mirror (enemy_mirror.c): its state lives in the actor below
 // and it runs from execute; delete and _epilog release what it adopted.
 #include "enemy_mirror.h"
+
+// Remote-Link (remote.c): the keeper's swap state follows the mirror's
+// state in the actor; the lite body is the profile's second role.
+#include "remote.h"
 
 // The build id: build.py passes -DWWREL_BUILD_ID=<CRC-32 of inject/rel's
 // sources and the slack headers>, so it changes with the source and never
@@ -136,18 +149,31 @@ extern const u8 g_fopAc_Method[];        // actor_method_class, f_op_actor.cpp
 
 // The actor. f_op/f_op_actor.h fopAc_ac_c is 0x290 bytes in GZLE01
 // (the decomp's "Size: 0x290"); the game's fopAc create fills that part
-// before our create runs. The module's own fields follow it, as
-// d_a_*.h classes do, and mSize covers both: the frame count and the
-// Moblin mirror's state (enemy_mirror.h), so nothing lives in .bss.
+// before our create runs. The keeper's own fields follow it, as d_a_*.h
+// classes do: the frame count, the Moblin mirror's state (enemy_mirror.h)
+// and remote-Link's swap state (remote.h), so nothing lives in .bss. The
+// lite body (remote.h remote_body) overlays the same allocation; mSize is
+// WWREMOTE_ACTOR_SIZE, the larger of the two roles, so the keeper pays
+// 0x600 - 0x458 = 0x1A8 bytes of ZeldaHeap more than before (section 5.1).
 #define FOPAC_AC_C_SIZE 0x290
 typedef struct {
     u8  base[FOPAC_AC_C_SIZE];           // fopAc_ac_c
     u32 frames;                          // +0x290 this actor's execute count
     enemy_mirror_state mirror;           // +0x294 enemy_mirror.c's slots and counters
+    remote_swap_state swap;              // +0x458 remote.c's latches, body records, client apply
 } wwrel_actor;
 typedef char wwrel_check_actor_layout[(__builtin_offsetof(wwrel_actor, frames) == 0x290 &&
                                        __builtin_offsetof(wwrel_actor, mirror) == 0x294 &&
-                                       sizeof(wwrel_actor) == 0x294 + sizeof(enemy_mirror_state)) ? 1 : -1];
+                                       __builtin_offsetof(wwrel_actor, swap) == 0x294 + sizeof(enemy_mirror_state) &&
+                                       __builtin_offsetof(wwrel_actor, swap) == WWREMOTE_KEEPER_SWAP_OFF) ? 1 : -1];
+typedef char wwrel_check_actor_size[(sizeof(wwrel_actor) <= WWREMOTE_ACTOR_SIZE &&
+                                     sizeof(remote_body) <= WWREMOTE_ACTOR_SIZE &&
+                                     (WWREMOTE_ACTOR_SIZE & 3) == 0) ? 1 : -1];
+// The two new slack words follow the frame counter and stay below the
+// enemy block.
+typedef char wwrel_check_hook_words[(WWREL_EXEC_HOOK_OFF == WWREL_FRAME_OFF + 4 &&
+                                     WWREL_SWAP_STATE_OFF == WWREL_EXEC_HOOK_OFF + 4 &&
+                                     WWREL_SWAP_STATE_OFF + 4 <= WWENEMY_OFF) ? 1 : -1];
 
 // --- Profile constants (zeldaret/tww) ------------------------------------
 #define fpcLy_CURRENT_e        0xFFFFFFFDu // f_pc/f_pc_layer_tag.h
@@ -158,6 +184,7 @@ typedef char wwrel_check_actor_layout[(__builtin_offsetof(wwrel_actor, frames) =
 #define fopAc_ACTOR_e          0x0         // f_op/f_op_actor.h fopAc_Group_e
 #define fopAc_CULLBOX_0_e      0x0         // f_op/f_op_actor.h
 #define cPhs_COMPLEATE_e       4           // SSystem/SComponent/c_phase.h
+#define cPhs_ERROR_e           5           // the game deletes the process
 #define TRUE                   1
 
 // --- Actor methods -------------------------------------------------------
@@ -165,30 +192,43 @@ typedef char wwrel_check_actor_layout[(__builtin_offsetof(wwrel_actor, frames) =
 // fopAc_ac_c, the others the actor class; all are called through
 // process_method_func, so they take void*.
 
-// Allocates nothing, registers no model and no collision: the actor is
-// invisible and untouchable. cPhs_COMPLEATE_e ends the create phase.
+// The keeper (params 0) allocates nothing, registers no model and no
+// collision: the actor is invisible and untouchable. cPhs_COMPLEATE_e
+// ends the create phase. A lite body (remote_is_body) is remote.c's;
+// any other params is not ours.
 static int wwrel_create(void* actor) {
     wwrel_actor* a = (wwrel_actor*)actor;
+    if (remote_is_body(actor)) return remote_body_create(actor);
+    if (*(u32*)((u8*)actor + 0xB0) != 0) return cPhs_ERROR_e;   // mParameters (f_pc_base.h:30)
     a->frames = 0;
     enemy_mirror_init(&a->mirror);
+    remote_keeper_init(&a->swap);
     return cPhs_COMPLEATE_e;
 }
 
-// Hands every mirrored Moblin back before the actor goes.
+// The keeper hands every mirrored Moblin back and retires its bodies
+// before it goes.
 static int wwrel_delete(void* actor) {
     wwrel_actor* a = (wwrel_actor*)actor;
+    if (remote_is_body(actor)) return remote_body_delete(actor);
     enemy_mirror_delete(&a->mirror);
+    remote_keeper_delete(&a->swap);
     return TRUE;
 }
 
-// Once per frame while the actor lives: the frame counter Go watches,
-// then the Moblin mirror's whole per-frame loop.
+// Once per frame while the keeper lives: the frame counter Go watches,
+// then the Moblin mirror's whole per-frame loop, then remote-Link's
+// (after the mirror, so the client apply sees this frame's adopted
+// Moblins). A body poses itself (remote.c).
 static int wwrel_execute(void* actor) {
     wwrel_actor* a = (wwrel_actor*)actor;
-    u32 frame = WWREL_WORD(WWREL_FRAME_OFF) + 1;
+    u32 frame;
+    if (remote_is_body(actor)) return remote_body_execute(actor);
+    frame = WWREL_WORD(WWREL_FRAME_OFF) + 1;
     a->frames++;
     WWREL_WORD(WWREL_FRAME_OFF) = frame;
     enemy_mirror_frame(&a->mirror, frame);
+    remote_keeper_frame(&a->swap, &a->mirror, frame);
     return TRUE;
 }
 
@@ -197,7 +237,8 @@ static int wwrel_is_delete(void* actor) {
     return TRUE;
 }
 
-// Draws nothing.
+// Draws nothing, in either role (the mini-Link keeps rendering the
+// remote player).
 static int wwrel_draw(void* actor) {
     (void)actor;
     return TRUE;
@@ -219,7 +260,7 @@ const actor_process_profile_definition g_profile_WWREL = {
     fpcNm_RECTANGLE_e,                   // mProcName = 0xB5
     { 0, 0 },
     g_fpcLf_Method,                      // sub_method
-    sizeof(wwrel_actor),                 // mSize
+    WWREMOTE_ACTOR_SIZE,                 // mSize: keeper or lite body (0x600)
     0,                                   // mSizeOther
     0,                                   // mParameters
     g_fopAc_Method,                      // leaf_sub_method
@@ -241,15 +282,24 @@ const actor_process_profile_definition g_profile_WWREL = {
 static void* _ctors __attribute__((section(".ctors"))) = 0;
 static void* _dtors __attribute__((section(".dtors"))) = 0;
 
+// The exec hook word is written last: T2's exec shim branches to it on the
+// next actor execute (fpcEx_Handler runs after fpcCt_Handler, so never
+// while this runs). The swap state word is the keeper create's.
 void _prolog(void) {
     DynamicLink_ModuleConstructorsX(&_ctors);
     DynamicLink_ModuleProlog();
     WWREL_WORD(WWREL_FRAME_OFF) = 0;
     WWREL_WORD(WWREL_BUILD_ID_OFF) = g_wwrel_build_id;
+    WWREL_WORD(WWREL_SWAP_STATE_OFF) = 0;
     WWREL_WORD(WWREL_MAGIC_OFF) = WWREL_MAGIC;
+    WWREL_WORD(WWREL_EXEC_HOOK_OFF) = (u32)wwrel_exec_hook;
 }
 
+// The exec hook word is cleared first, before this code can go away
+// (the unlink follows in fpcDt_Handler, never during an execute).
 void _epilog(void) {
+    WWREL_WORD(WWREL_EXEC_HOOK_OFF) = 0;
+    remote_unlink();                     // clears WWREL_SWAP_STATE_OFF
     enemy_mirror_unlink();               // release_all if delete never ran
     WWREL_WORD(WWREL_MAGIC_OFF) = 0;
     DynamicLink_ModuleEpilog();

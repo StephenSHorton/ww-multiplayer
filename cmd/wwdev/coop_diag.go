@@ -1156,9 +1156,11 @@ const canaryChunk = 0x400
 
 // canaryRegions are the gaps beside the mod the design wants proven free
 // (§4.5, §11 item 5): the TRK stack up to T2, and the slack between the
-// mailbox and the patched arena in its two parts around the enemy-mirror
-// block (mailbox.EnemyBlockRegion), which Go and the REL write while
-// enemy sync runs and which the probe therefore never arms or checks.
+// mailbox and the patched arena in its two parts around the REL's exec-
+// hook words (mailbox.RELHookRegion, which T2 branches to), the
+// enemy-mirror block (mailbox.EnemyBlockRegion) and the remote-Link block
+// (mailbox.RemoteBlockRegion), which Go and the REL write while they run
+// and which the probe therefore never arms or checks.
 var canaryRegions = []addr.Region{mailbox.CanaryTRK, mailbox.CanaryArena, mailbox.CanaryArenaHigh}
 
 // canaryForbidden is what a canary must never cover: the main stack and
@@ -1169,7 +1171,9 @@ func canaryForbidden() []addr.Region {
 		mailbox.MainStack,
 		mailbox.MainStackHeader,
 		{Name: "T2, its slack and the mailbox", Start: inject.T2Address, End: mailbox.Mailbox + mailbox.MailboxSize},
+		mailbox.RELHookRegion,
 		mailbox.EnemyBlockRegion,
+		mailbox.RemoteBlockRegion,
 		{Name: "the arena", Start: mailbox.PatchedArenaLo, End: addr.MEM1End},
 	}
 }

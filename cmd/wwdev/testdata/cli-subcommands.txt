@@ -49,6 +49,9 @@ pose-fake-loop
 pose-test
 ppc-disasm
 region-probe
+remote-flags
+remote-slot
+remote-watch
 scan-pos
 screenshot
 send-shift-f1

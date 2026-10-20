@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
+	posefeed "github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
@@ -62,14 +63,46 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 			log.Logf(rep, log.Warn, "enemy host: clearing the block: %v", err)
 		}
 	}()
+	// The remote-Link side (players.go): the WWRP block only under
+	// WW_ENEMY_REMOTE; the remote players' mini-Links come from this
+	// session's pose feed (posefeed.RosterFor: PuppetSync runs under the same
+	// name on the same Dolphin).
+	cfg := RemoteConfigFromEnv(rep)
+	if cfg.On {
+		log.Logf(rep, log.Info, "enemy host: remote-Link block on, flags 0x%04X, %d policies, FF denylist %v", cfg.Flags, len(cfg.Policy), cfg.FFDeny)
+	}
+	remote := NewRemoteHost(d, rep, cfg, epoch)
+	roster := posefeed.RosterFor(name, dolphinPID)
+	defer func() {
+		if err := remote.Shutdown(); err != nil {
+			log.Logf(rep, log.Warn, "enemy host: clearing the remote-Link block: %v", err)
+		}
+	}()
+	applier.Attrib = remote.AttribFlags
 	hits := make(chan *Hit, 64)
 	client := network.NewEnemyClient(name, network.RoleEnemyHost)
 	client.OnLog = func(msg string) { rep.Log(log.Net, msg) }
 	client.OnEnemy = func(data []byte) {
-		if h, err := DecodeHit(data); err == nil {
-			select {
-			case hits <- h:
-			default:
+		sub, err := Sub(data)
+		if err != nil {
+			return
+		}
+		switch sub {
+		case SubHit:
+			if h, err := DecodeHit(data); err == nil {
+				remote.NoteHit(h, time.Now())
+				select {
+				case hits <- h:
+				default:
+				}
+			}
+		case SubPState:
+			if p, err := DecodePState(data); err == nil {
+				remote.OnPState(p, time.Now())
+			}
+		case SubPAck:
+			if a, err := DecodePAck(data); err == nil {
+				remote.OnPAck(a)
 			}
 		}
 	}
@@ -88,7 +121,8 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 			case <-t.C:
 			}
 			now := time.Now()
-			applier.SetREL(gate.check(d, now))
+			relOK := gate.check(d, now)
+			applier.SetREL(relOK)
 			st, err := host.Tick(now)
 			if err != nil {
 				log.Logf(rep, log.Warn, "enemy host: %v", err)
@@ -123,6 +157,16 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 			}
 			if err := applier.Keepalive(host.Scope(), now); err != nil {
 				log.Logf(rep, log.Warn, "enemy host: keepalive: %v", err)
+			}
+			views, viewsAt := roster.Snapshot()
+			phits, err := remote.Tick(now, host.Scope(), relOK, views, viewsAt)
+			if err != nil {
+				log.Logf(rep, log.Warn, "enemy remote: %v", err)
+			}
+			for _, p := range phits {
+				if b, err := EncodePHit(p); err == nil {
+					send(b)
+				}
 			}
 		}
 	}
@@ -169,6 +213,18 @@ func ClientPipeline(ctx context.Context, env Env, name, addr string, dolphinPID 
 			log.Logf(rep, log.Warn, "enemy client: clearing the block: %v", err)
 		}
 	}()
+	// The remote-Link side: PSTATE always, the WWRP block only under
+	// WW_ENEMY_REMOTE (players.go).
+	cfg := RemoteConfigFromEnv(rep)
+	if cfg.On {
+		log.Logf(rep, log.Info, "enemy client: remote-Link block on, flags 0x%04X", cfg.Flags)
+	}
+	mirror.Remote = NewRemoteClient(d, rep, brk, cfg, time.Now())
+	defer func() {
+		if err := mirror.Remote.Shutdown(); err != nil {
+			log.Logf(rep, log.Warn, "enemy client: clearing the remote-Link block: %v", err)
+		}
+	}()
 	return RunMirror(ctx, mirror, name, addr, rep, connLog)
 }
 
@@ -198,6 +254,17 @@ func RunMirror(ctx context.Context, mirror *Mirror, name, addr string, rep log.R
 				b, err := EncodeHit(h)
 				if err == nil {
 					send(b)
+				}
+			}
+			if mirror.Remote != nil && err == nil {
+				if scope, serr := ReadScope(mirror.m); serr == nil {
+					out, rerr := mirror.Remote.Tick(now, scope, mirror.RemoteGate())
+					if rerr != nil {
+						log.Logf(rep, log.Warn, "enemy remote: %v", rerr)
+					}
+					for _, b := range out {
+						send(b)
+					}
 				}
 			}
 			if sleep == 0 {

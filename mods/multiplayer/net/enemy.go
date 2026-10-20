@@ -31,6 +31,25 @@ import (
 //	               the host's ACK can name it
 //	ACK   (sub 3)  host -> the enemy client whose ID is at
 //	               EnemyClientIDOff (the one the HIT was stamped with)
+//	PHIT  (sub 4)  host -> the enemy client whose ID is at
+//	               EnemyClientIDOff, as an ACK (an enemy hit on that
+//	               player's remote body, for its client to replay)
+//	PACK  (sub 5)  enemy client -> the host, stamped like a HIT (what the
+//	               client did with a PHIT)
+//	PSTATE (sub 6) enemy client -> the host, stamped like a HIT (the
+//	               client Link's stage, room and combat state)
+//
+// Since wire version 3 (the remote-Link design,
+// ww-multiplayer-handoff/design/remote-link-design.md §8.4) the server
+// also stamps the player id of the enemy connection's player into a HIT
+// (EnemyHitPlayerIDOff) and a PSTATE (EnemyPStatePlayerIDOff): the host
+// learns which player (whose pose it draws as a mini-Link) sent it. The
+// pair is made by name: both enemy pipelines join with their player
+// session's name, so the player connection whose name equals the enemy
+// connection's (case-insensitively, the lobby's lobbyKey) is the one. No
+// match, or two players sharing the name (CLI sessions without a lobby do
+// not force unique names), stamps 0: the host then attributes to its own
+// Link and sends no PHIT.
 //
 // Anything else on an enemy connection is dropped, as is a MsgEnemy on a
 // player connection. The server checks only the frame shape at ingress
@@ -40,9 +59,12 @@ import (
 // The MsgEnemy payload shapes the server checks at ingress. Package
 // mods/enemysync builds and parses them; the sizes are pinned there too.
 const (
-	EnemySubState byte = 1
-	EnemySubHit   byte = 2
-	EnemySubAck   byte = 3
+	EnemySubState  byte = 1
+	EnemySubHit    byte = 2
+	EnemySubAck    byte = 3
+	EnemySubPHit   byte = 4
+	EnemySubPAck   byte = 5
+	EnemySubPState byte = 6
 
 	// EnemyStateHeaderLen is a STATE's fixed header (sub, ver, flags,
 	// count, epoch, seq, hostBeat, host_ms, stage[8], room, dead_mask,
@@ -52,13 +74,24 @@ const (
 	EnemySlotLen        = 48
 	EnemyMaxSlots       = 4
 	// EnemyHitLen and EnemyAckLen are the fixed HIT and ACK sizes (the HIT
-	// 48 since version 2 added the sword object's Se/HitMark/Spl/SPrm).
-	EnemyHitLen = 48
+	// 48 since version 2 added the sword object's Se/HitMark/Spl/SPrm, 52
+	// since version 3 added cut_type, cut_count and the player id).
+	EnemyHitLen = 52
 	EnemyAckLen = 16
-	// EnemyClientIDOff is the payload byte of a HIT and an ACK that
+	// The remote-Link subs' fixed sizes (wire version 3;
+	// inject/include/wwremote.h's header comment carries the layouts).
+	EnemyPHitLen   = 60
+	EnemyPAckLen   = 16
+	EnemyPStateLen = 24
+	// EnemyClientIDOff is the payload byte of every sub but STATE that
 	// carries the enemy client's connection ID: the server stamps it into
-	// a HIT and routes an ACK by it.
+	// a HIT, PACK and PSTATE and routes an ACK and a PHIT by it.
 	EnemyClientIDOff = 2
+	// EnemyHitPlayerIDOff and EnemyPStatePlayerIDOff are the bytes the
+	// server stamps with the sender's player id (enemyPlayerIDLocked; 0 =
+	// unmapped).
+	EnemyHitPlayerIDOff    = 48
+	EnemyPStatePlayerIDOff = 19
 )
 
 // EnemyStateLen is the length of a STATE with count slots.
@@ -89,6 +122,18 @@ func enemyFrameShape(role byte, data []byte) string {
 	case sub == EnemySubAck && role == RoleEnemyHost:
 		if len(data) != EnemyAckLen {
 			return fmt.Sprintf("%d-byte ACK (want %d)", len(data), EnemyAckLen)
+		}
+	case sub == EnemySubPHit && role == RoleEnemyHost:
+		if len(data) != EnemyPHitLen {
+			return fmt.Sprintf("%d-byte PHIT (want %d)", len(data), EnemyPHitLen)
+		}
+	case sub == EnemySubPAck && role == RoleEnemyClient:
+		if len(data) != EnemyPAckLen {
+			return fmt.Sprintf("%d-byte PACK (want %d)", len(data), EnemyPAckLen)
+		}
+	case sub == EnemySubPState && role == RoleEnemyClient:
+		if len(data) != EnemyPStateLen {
+			return fmt.Sprintf("%d-byte PSTATE (want %d)", len(data), EnemyPStateLen)
 		}
 	default:
 		return fmt.Sprintf("sub %d from role %d", sub, role)
@@ -241,8 +286,9 @@ func (s *Server) handleEnemy(conn net.Conn, name string, role byte) {
 }
 
 // relayEnemy forwards one well-shaped MsgEnemy payload from c by role:
-// a STATE to every enemy client, a HIT to the host (stamped with c's ID),
-// an ACK to the client it names. A recipient whose write fails is closed,
+// a STATE to every enemy client; a HIT, PACK or PSTATE to the host,
+// stamped with c's ID (and a HIT and PSTATE with c's player id); an ACK or
+// PHIT to the client it names. A recipient whose write fails is closed,
 // which ends its handleEnemy.
 func (s *Server) relayEnemy(c *enemyConn, data []byte) {
 	var to []*enemyConn
@@ -252,12 +298,18 @@ func (s *Server) relayEnemy(c *enemyConn, data []byte) {
 		for _, ec := range s.enemyClients {
 			to = append(to, ec)
 		}
-	case EnemySubHit:
+	case EnemySubHit, EnemySubPAck, EnemySubPState:
 		if s.enemyHost != nil {
 			data[EnemyClientIDOff] = c.id
+			switch data[0] {
+			case EnemySubHit:
+				data[EnemyHitPlayerIDOff] = s.enemyPlayerIDLocked(c.name)
+			case EnemySubPState:
+				data[EnemyPStatePlayerIDOff] = s.enemyPlayerIDLocked(c.name)
+			}
 			to = append(to, s.enemyHost)
 		}
-	case EnemySubAck:
+	case EnemySubAck, EnemySubPHit:
 		if ec, ok := s.enemyClients[data[EnemyClientIDOff]]; ok {
 			to = append(to, ec)
 		}
@@ -268,6 +320,33 @@ func (s *Server) relayEnemy(c *enemyConn, data []byte) {
 			ec.close()
 		}
 	}
+}
+
+// enemyPlayerIDLocked is the id of the player connection an enemy
+// connection named name belongs to: the one broadcasting player whose
+// name equals it case-insensitively (lobbyKey, the lobby's own
+// comparison), else 0 (no such player, or more than one). Each human runs
+// two player connections under one name (broadcast-pose and puppet-sync;
+// pickColorLocked), and only the broadcaster sends positions and poses
+// (handlePlayer's MsgPosition sets Position, MsgPose sets posed), so the
+// puppet-sync twin is never a candidate. The broadcaster's id is also the
+// one the host's roster carries (feed.Feeder.Views skips a remote with no
+// Position). Player ids are 1..255 (allocIDLocked), so 0 never names a
+// player. The caller holds s.mu (read or write; Position is written under
+// it).
+func (s *Server) enemyPlayerIDLocked(name string) byte {
+	key := lobbyKey(name)
+	var id byte
+	for pid, p := range s.players {
+		if lobbyKey(p.Name) != key || (p.Position == nil && !p.posed.Load()) {
+			continue
+		}
+		if id != 0 {
+			return 0 // the name is ambiguous
+		}
+		id = pid
+	}
+	return id
 }
 
 // closeEnemyLocked closes every enemy connection; the caller holds s.mu.

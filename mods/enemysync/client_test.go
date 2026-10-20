@@ -670,13 +670,17 @@ func TestMirrorReadHit(t *testing.T) {
 	store(t, fm, obj+addr.CcAtOffSe, []byte{0x11, 0x99, 0x03, 0x01}) // mSe, mMtrl, mHitMark, mSpl
 	store(t, fm, obj+0x0C, []byte{0xEE, 0xEE, 0xEE, 0xEE})           // outside the read
 	store(t, fm, obj+0x70, []byte{0xEE, 0xEE, 0xEE, 0xEE})
+	// Wire v3: the client Link's cut type and count (+0x290/+0x291).
+	const link = uint32(0x80A00000)
+	store(t, fm, addr.PlayerPtr, binary.BigEndian.AppendUint32(nil, link))
+	store(t, fm, link+addr.PlayerOffCutType, []byte{0x0B, 2})
 	st := hostState(1, 0)
 	h, err := c.readHit(st, 0, pid, 0, mailbox.EnemyHitEntry{HitSeq: 5, Collider: ColliderTgCyl, Pending: 1})
 	if err != nil || h == nil {
 		t.Fatalf("readHit: %v %v", h, err)
 	}
 	if h.AtType != 0x00080000 || h.Atp != 3 || h.AtSPrm != 0x02 || h.Se != 0x11 || h.HitMark != 0x03 || h.Spl != 0x01 ||
-		h.Collider != ColliderTgCyl || h.HitSeq != 5 || h.SetID != 0 || h.Pos != [3]float32{4, 5, 6} {
+		h.Collider != ColliderTgCyl || h.HitSeq != 5 || h.SetID != 0 || h.Pos != [3]float32{4, 5, 6} || h.CutType != 0x0B || h.CutCount != 2 {
 		t.Errorf("hit: %+v", h)
 	}
 	var objReads [][2]uint32

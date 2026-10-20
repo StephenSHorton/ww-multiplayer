@@ -11,7 +11,7 @@ end, and BlobHash, the CRC-32 of T2's read-only sections (HashRanges:
 .rodata, .text, .init, .fini) that wwapi's contract check compares
 against the same ranges read back from RAM) and DOLPatches: every
 in-DOL byte run that differs
-between original.dol and patched.dol (the four hook_branchlink sites and
+between original.dol and patched.dol (the five hook_branchlink sites and
 the OSInit __OSArenaLo immediates), found by a byte-wise diff, which
 internal/inject/dol.go applies. The Freighter clobbers that build.py
 reverts never show up in the diff, because build.py restores the original

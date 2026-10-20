@@ -93,6 +93,10 @@ type Mirror struct {
 	// REL's last_err is sticky, so only a change forces a walk.
 	lastStatus [MaxSlots][2]uint8
 	Stats      MirrorStats
+
+	// Remote, when set, is this joiner's remote-Link side (players.go):
+	// OnEnemy hands it the PHITs and RunMirror ticks it after the mirror.
+	Remote *RemoteClient
 }
 
 // MirrorStats are counters a probe or test reads.
@@ -135,7 +139,25 @@ func (c *Mirror) OnEnemy(data []byte, now time.Time) {
 		c.mu.Lock()
 		c.acks = append(c.acks, a)
 		c.mu.Unlock()
+	case SubPHit:
+		if c.Remote == nil {
+			return
+		}
+		if p, err := DecodePHit(data); err == nil {
+			c.Remote.OnPHit(p)
+		}
 	}
+}
+
+// RemoteGate is what RemoteClient.Tick takes from the mirror at the last
+// Tick: the contract held and the REL was linked with this build, the
+// latest host STATE's epoch, the heartbeat and the mirror's own epoch.
+func (c *Mirror) RemoteGate() ClientGate {
+	g := ClientGate{RELOK: c.contractOK && c.relOK, Frame: c.hb, Epoch: c.epoch}
+	if st, _ := c.Latest(); st != nil {
+		g.HostEpoch, g.HaveHost = st.Epoch, true
+	}
+	return g
 }
 
 // Latest returns the latest STATE and its arrival.
@@ -557,6 +579,14 @@ func (c *Mirror) readHit(st *State, setID uint16, pid uint32, i int, h mailbox.E
 		return nil, err
 	}
 	hit := &Hit{Collider: h.Collider, Epoch: st.Epoch, Stage: st.Stage, Room: st.Room, SetID: setID, HitSeq: h.HitSeq, ClientFrame: c.hb}
+	// Wire v3: the swing's cut type and count, which the host stages into
+	// this player's remote body under ATTRIB (best effort: a failed read
+	// sends 0, an untyped hit).
+	if link, err := mem.ReadU32(c.m, addr.PlayerPtr); err == nil && addr.InMEM1(link) {
+		if b, err := c.m.Read(link+addr.PlayerOffCutType, 2); err == nil && len(b) == 2 {
+			hit.CutType, hit.CutCount = b[0], b[1]
+		}
+	}
 	if addr.InMEM1(obj) {
 		b, err := c.m.Read(obj+hitObjReadOff, hitObjReadLen)
 		if err != nil {

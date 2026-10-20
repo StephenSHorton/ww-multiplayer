@@ -5,26 +5,32 @@ instead of as T2 bytes in the DOL (T2 has 0x258 bytes left below the
 mailbox). Plan: `ww-multiplayer-handoff/design/rel-module-plan.md`.
 `rel_main.c` is the module (the profile, the actor, the prolog/epilog);
 `enemy_mirror.c` is the Moblin mirror of the host-authoritative enemy
-prototype (below), run from the actor's execute.
+prototype (below), run from the actor's execute; `remote.c` is
+remote-Link (below): the lite bodies, the pointer swap T2's exec shim
+calls into, the host hit ring and the client apply.
 
 ## What it is
 
 `rel_main.c` is an actor module. Its profile, `g_profile_WWREL`
 (`.rodata`, 0x30 bytes, the decomp's `actor_process_profile_definition`),
 describes proc 0xB5 with a five-method table (create, delete, execute,
-is_delete, draw) and an actor of `sizeof(fopAc_ac_c)` (0x290 in GZLE01)
-plus one u32 of its own and the Moblin mirror's state (`mSize` = 0x294 +
-`sizeof(enemy_mirror_state)`, 0x458 bytes with layout 2):
+is_delete, draw) and an actor of `WWREMOTE_ACTOR_SIZE` (0x600) bytes: the
+keeper role (params 0) is `fopAc_ac_c` (0x290 in GZLE01) plus one u32 of
+its own, the Moblin mirror's state (0x1C4, to +0x458) and remote.c's swap
+state (from +0x458); the lite-body role (params `0x52000000 | slot << 8 |
+gen`, remote.c) overlays the same size:
 
 - `_prolog` runs the module's constructors (none) and the linker's
-  `ModuleProlog`, then writes the mailbox slack words (below).
+  `ModuleProlog`, then writes the mailbox slack words (below), the exec
+  hook word last.
 - create allocates nothing and registers no model or collision, so the
   actor is invisible and untouchable; it zeroes the mirror's state and
   returns `cPhs_COMPLEATE_e`.
 - execute bumps the slack frame counter once per frame, then runs the
   Moblin mirror's per-frame loop (`enemy_mirror_frame`).
 - delete releases every mirrored Moblin; draw and is_delete return TRUE.
-- `_epilog` releases too if delete never ran, clears the magic word, then
+- `_epilog` clears the exec hook word first, then the swap state word,
+  releases too if delete never ran, clears the magic word, then
   `ModuleEpilog` and the destructors.
 
 Game functions are called through absolute function-pointer casts, as
@@ -67,6 +73,8 @@ The struct and its size are unchanged; the offsets are `#define`s in
 | +0x1B0 `WWREL_MAGIC_OFF` | 0x804130B0 | `'WWRL'` 0x5757524C | `_prolog` sets, `_epilog` clears |
 | +0x1B4 `WWREL_BUILD_ID_OFF` | 0x804130B4 | build id          | `_prolog`                 |
 | +0x1B8 `WWREL_FRAME_OFF` | 0x804130B8 | frame counter       | `_prolog` zeroes, execute +1 |
+| +0x1BC `WWREL_EXEC_HOOK_OFF` | 0x804130BC | `&wwrel_exec_hook` | `_prolog` sets last, `_epilog` clears first; T2's exec shim branches to it |
+| +0x1C0 `WWREL_SWAP_STATE_OFF` | 0x804130C0 | keeper + 0x458 (remote.c's swap state) | keeper create sets, keeper delete and `_epilog` clear |
 
 The build id is a CRC-32 of `inject/rel`'s sources (`build.py`
 `rel_build_id`, passed as `-DWWREL_BUILD_ID`), also exported as
@@ -310,6 +318,84 @@ and `::ClrAtHit` 0x800AB7C4, `dCcD_Sph::Set` 0x800ABFC0 and `::StartCAt`
 0x803CA74C, `mpPlayerPtr[0]` 0x803CA754, `__vt__8dCcD_Sph` 0x803899D0
 (compared, never called).
 
+## remote.c: remote-Link
+
+The REL side of remote-Link (handoff `design/remote-link-design.md`
+sections 5, 7.1, 8.5, 8.6 and its "Step -1 results"; the mailbox contract
+is `inject/include/wwremote.h`, the WWRP block at `MAILBOX_ADDR + 0x520`).
+Every behaviour is behind a Go-written flag; with the block's magic 0 the
+module does what it did before, except that the exec hook counts its calls
+(`WWREMOTE_CTR_HOOK_CALLS`) and the keeper writes the status words.
+
+- **Keeper** (after the Moblin mirror, every frame): block intake by the
+  enemy block's rules (magic, layout, a role that agrees with the enemy
+  block's, seq_head == seq_tail, stale after 90 frames); an epoch change
+  resets the latches (their Moblins' m714 back on the host Link first) and
+  the create tries; latches whose enemy is gone are reaped. **Host,
+  `FLAG_BODIES`:** per slot EMPTY → QUEUED (`fopAcM_create(0xB5, params,
+  ...)`, at most 3 tries per stage and per owner, cooldown after a failure)
+  → LIVE (the pid resolves to a `'WWRB'` body of that slot) → DYING
+  (slot released, owner gen changed, stage mismatch, block stale or off,
+  BODIES cleared: m714 rewrite, `fopAcM_deleteByID`; a queued stage change
+  or a Medli/Makar window only parks it and gates the create)
+  → EMPTY; a pid that vanished (stage teardown) is GONE. **Client,
+  `FLAG_APPLY`:** a new apply seq resolves the attacker setID among the
+  mirror's adopted Moblins (none: NO_MIRROR), builds the static sphere
+  (`enemy_mirror_sph_image`) with a stts naming that Moblin, the host's At
+  values and At SPrm Set|VsPlayer, and registers it at the client Link's
+  position + rel_hit with At vector rvec (StartCAt/MoveCAt). One execute
+  later the At record says APPLIED/GUARDED (crossed Link's mCyl), NO_CROSS
+  with detail IFRAMES (Link's Tg Set bit off) or one re-register; two
+  executes later a cross without DAMAGE mode and without a life change is
+  EARLY_OUT. Then the status: body_status (PARKED is reported for a LIVE
+  body that parked itself), and the hook's fast-path byte.
+- **Lite body** (host only): create checks the slot, the block, the
+  `__vt__9daPy_py_c`/`lk_c` checkPlayerGuard fingerprints, the host Link
+  and its mCyl vptr (`__vt__8dCcD_Cyl`), else `cPhs_ERROR_e` with the
+  reason in the keeper's record; it copies the vtable (pure slots and
+  checkPlayerGuard stubbed) and Link's mCyl (DOL-built, no vptr remap),
+  neutralises the copy (no At, Tg Set|IsPlayer only, no Co, no callbacks,
+  no shield bits, the shield-angle pointer at its own word), constructs and
+  Inits its own stts and becomes a stage actor. Execute: park check (no
+  keeper record, block, slot active and gen, stage and room, DEAD/NO_HIT,
+  pose feed state 1 and its seq moving within 30 frames, host Link);
+  `FLAG_DETECT` pushes last Move's Tg hit into the ring (the attacker's
+  type/atp from the At object at +0x10/+0x14, Se/HitMark/Spl from its
+  GObjAt at +0x6C/+0x6E/+0x6F) and clears it; parked bodies stand on the
+  host Link and never Set; else pose, cut state, shield angle, i-frames,
+  the guard bits and (`FLAG_HITTABLE`) the cylinder Set. Delete rewrites
+  the Moblins that cached it and clears the keeper's pointer.
+- **Hook** (`wwrel_exec_hook`): hook_calls++, then the swap state word and
+  its fast-path byte (valid host block, `FLAG_SWAP`, a LIVE unparked
+  candidate body, no stage change queued). Then PROC_POLICY (DENY wins;
+  ALLOW, or `FLAG_GROUP_WIDE` over the ENEMY group), the host-Link gate,
+  the FF denylist (unless `FLAG_FF_GATE_OFF`), mo2's jail gate
+  (`(*(u8*)0x803C4CBC & 0x0F) == 0`, unless `FLAG_ROUYA_GATE_OFF`) and
+  demo/mode fields, the target (attacker wins with `FLAG_ATTACKER`, else
+  the latch with min_hold and margin, no switch mid-attack; a full latch
+  table means no swap), and the swap of `mPlayerInfo[0].mpPlayer`
+  (0x803CA74C; also 0x803CA754 for a BOTH_WORDS proc with
+  `FLAG_BOTH_WORDS_ENABLE`; bodies named 0xA9 with `FLAG_NAME_A9`) around
+  the one `fpcMtd_Execute` call, restored unconditionally.
+- **ATTRIB** (enemy_mirror.c's v2, `FLAG_ATTRIB` and the request's
+  `WWREMOTE_HAF_ATTRIB_BODY`): with the slot's body LIVE and unparked the
+  stts names the body, the Moblin's latch is forced onto it for 3 executes
+  and, when it was not the current target, the first Set waits one
+  execute; otherwise the host-Link path with detail `WWREMOTE_HD_NO_BODY`.
+
+Game functions remote.c calls (absolute casts, `config/GZLE01/symbols.txt`):
+`fpcMtd_Execute` 0x8003EF38, `fopAcM_create` 0x8002451C, `fpcM_IsCreating`
+0x8003E3B0, `fopAcM_SearchByID` 0x800241C0, `fopAcM_delete__FUi`
+0x800244B8, `fopAcM_setStageLayer` 0x80024060,
+`dCcD_GAtTgCoCommonBase::GetAc` 0x800AB2AC, `cM3dGCyl::SetC/SetH/SetR`
+0x80251D88/0x80252020/0x8025214C, `cCcS::Set` 0x80242D04,
+`dCcD_GObjInf::ClrTgHit/ClrAtHit` 0x800AB958/0x800AB7C4, `dCcD_Sph::Set/
+StartCAt/MoveCAt` 0x800ABFC0/0x800AC02C/0x800AC078, `__ct__9dCcD_SttsFv`
+0x80100EB8, `dCcD_Stts::Init` 0x800AB3DC. Data: 0x803CA74C, 0x803CA754,
+`mCurStage.mName` 0x803C9D3C, `mStayNo` 0x803F6A78, `mNextStage.mEnable`
+0x803C9D54, mLife 0x803C4C0A, mCollect[0] 0x803C4CBC, the vtables above
+(read, never called).
+
 ## The build
 
 `cd inject && python build.py` builds T2 as before and then this module
@@ -352,9 +438,10 @@ symbols; `R_PPC_ADDR16_HA`/`_LO` pairs for `&_ctors`/`&_dtors` in the
 prolog and epilog, for `enemy_mirror.c`'s float constants (gcc merges
 them into `.rodata.cst4`, which the converter copies), its `"Mo2"`
 archive name in `.rodata` and its one `.data`
-pointer; and `R_PPC_REL24` for `rel_main.c`'s four calls into
-`enemy_mirror.c` (a `bl` between objects; the converter and `OSLink` apply
-them). Calls within one unit are resolved by the compiler; game calls go
+pointer, and for remote.c's vtable stub addresses and `&wwrel_exec_hook`
+(`.text` self-relocations); and `R_PPC_REL24` for the calls between
+`rel_main.c`, `enemy_mirror.c` and `remote.c` (a `bl` between objects; the
+converter and `OSLink` apply them). Calls within one unit are resolved by the compiler; game calls go
 through absolute pointers and need none.
 
 ## Who creates the actor

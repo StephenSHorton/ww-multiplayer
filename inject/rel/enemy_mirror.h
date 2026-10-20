@@ -93,7 +93,7 @@ typedef struct {
     u8  ha_detail;      // +0x38 WWENEMY_HD_* of the last result
     u8  sph_built;      // +0x39 1 once the static sphere image was copied and checked
     u8  ha_waited;      // +0x3A executes spent in EM_HA_WAIT_INVULN
-    u8  _pad;           // +0x3B
+    u8  ha_attrib;      // +0x3B remote-Link ATTRIB (remote.c): 0 none, 1 the stts names the client's body, 2 asked but no LIVE body (detail WWREMOTE_HD_NO_BODY)
     u32 ha_attype;      // +0x3C
     cXyz ha_pos;        // +0x40 the client's collider centre
     u32 ha_actor;       // +0x4C the target actor of the open request (0 = none)
@@ -109,5 +109,10 @@ void enemy_mirror_frame(enemy_mirror_state* s, u32 frame);
 void enemy_mirror_delete(enemy_mirror_state* s);
 // _epilog: release_all on the live state if delete never ran.
 void enemy_mirror_unlink(void);
+// The static At sphere image at WWENEMY_SPH_OFF, built once per link from
+// a live Moblin's mHeadSph with every vptr pointed at the DOL's tables:
+// 1 when it is ready, 0 when the image's vptr fingerprint failed. The
+// host's v2 submit and the client's remote-Link apply (remote.c) share it.
+int enemy_mirror_sph_image(enemy_mirror_state* s, void* a);
 
 #endif

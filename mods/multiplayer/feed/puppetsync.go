@@ -99,6 +99,10 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 	// connect/run callbacks for ReconnectLoop share it, and a transient
 	// drop must not lose slot assignments.
 	feeder := NewFeeder(d, selfFilter, rep)
+	// The session's roster (roster.go): what this feeder draws, for the
+	// enemy host pipeline's remote bodies. Emptied when the sync stops.
+	roster := RosterFor(name, dolphinPID)
+	defer roster.Publish(nil, time.Now())
 	// Session over: disarm face sync (F20). The flag lives in RAM and
 	// would keep the C bracket swapping stale face_state into the next
 	// session's mini-Links. Only into a game the contract check allows.
@@ -157,6 +161,7 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 				feeder.Connected(client.ServerEpoch())
 			}
 			feeder.Feed(ctx, remotes, now)
+			roster.Publish(feeder.Views(remotes, now), now)
 
 			if tunics != nil {
 				mine, haveMine := client.MyColor()

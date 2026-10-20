@@ -42,10 +42,10 @@ SYMBOL_MAP = os.path.join("build", "WWMultiplayer.map")
 # game data it references by address, and its outputs. Built apart from
 # T2 (plain gcc + `ld --relocatable`, no Freighter); extract_blob.py
 # embeds REL_ELF as is and the Go converter (wwapi/rel) makes the REL.
-REL_SOURCES = ["rel/rel_main.c", "rel/enemy_mirror.c"]
+REL_SOURCES = ["rel/rel_main.c", "rel/enemy_mirror.c", "rel/remote.c"]
 # The headers the module's build id also covers (rel_build_id): its own
-# and the two slack layouts it reads and writes.
-REL_HEADERS = ["rel/enemy_mirror.h", "include/wwrel.h", "include/wwenemy.h"]
+# and the three slack layouts it reads and writes.
+REL_HEADERS = ["rel/enemy_mirror.h", "rel/remote.h", "include/wwrel.h", "include/wwenemy.h", "include/wwremote.h"]
 REL_LD = os.path.join("rel", "ww_rel.ld")
 REL_OBJ_DIR = os.path.join("build", "temp", "rel")
 REL_ELF = os.path.join("build", "wwrel.elf")
@@ -340,6 +340,16 @@ def main():
     # what the game's logic actually reads — reflect the override.
     # Disabled at idle (input_enable=0 ⇒ pass-through).
     proj.hook_branchlink("pad_read_shim", 0x802C39A0)
+
+    # Actor-execute hook (remote-Link, ww-multiplayer-handoff/design/
+    # remote-link-design.md §4). fopAc_Execute (0x8002362C) calls
+    # `bl fpcMtd_Execute` (0x8003EF38) at 0x8002395C with r3 = the actor's
+    # sub_method and r4 = the actor. exec_shim (naked, 0x28 bytes, no
+    # frame) tail-calls the REL's wwrel_exec_hook through mailbox+0x1BC
+    # (wwrel.h WWREL_EXEC_HOOK_OFF) while the module is linked, else the
+    # vanilla fpcMtd_Execute, with r3/r4 and LR (0x80023960) untouched,
+    # so the callee returns straight to fopAc_Execute. T2 holds no policy.
+    proj.hook_branchlink("exec_shim", 0x8002395C)
 
     # Set entry function (required for linker)
     proj.set_entry_function("main01_init")

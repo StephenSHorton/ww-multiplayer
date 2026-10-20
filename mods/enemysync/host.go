@@ -236,6 +236,11 @@ type HitApplier struct {
 	//   DemoGate (WW_ENEMY_HIT_DEMO=0 disables): a hit while the host Link
 	//   is in a demo (mDemo.mDemoType != 0) is dropped HDDemo.
 	V1, FallbackShrink, NoHitMark, DemoGate bool
+
+	// Attrib, when set, gives a request's extra hit_apply flags: the
+	// remote-Link ATTRIB bits (RemoteHost.AttribFlags, remote-link-design.md
+	// §8.6) that attribute the hit to its sender's body.
+	Attrib func(h *Hit) uint8
 }
 
 type pendingHit struct {
@@ -480,6 +485,9 @@ func (a *HitApplier) hitApply(p *pendingHit) mailbox.EnemyHitApply {
 	}
 	if a.NoHitMark || h.AtSPrm&addr.CcAtSPrmNoHitMark != 0 {
 		flags |= mailbox.EnemyHAFNoHitMark
+	}
+	if a.Attrib != nil {
+		flags |= a.Attrib(h)
 	}
 	return mailbox.EnemyHitApply{Seq: p.seq, SetID: h.SetID, Collider: h.Collider, Flags: flags, AtType: h.AtType, Atp: h.Atp,
 		Se: h.Se, HitMark: h.HitMark, Spl: h.Spl, Pos: h.Pos, PID: p.pid}

@@ -145,7 +145,8 @@ func TestStateDecodeRefuses(t *testing.T) {
 		{"empty", nil},
 		{"one byte", []byte{SubState}},
 		{"short header", good[:StateHeaderLen-1]},
-		{"wrong version", func() []byte { b := bytes.Clone(good); b[1] = 3; return b }()},
+		{"wrong version", func() []byte { b := bytes.Clone(good); b[1] = 4; return b }()},
+		{"version 2", func() []byte { b := bytes.Clone(good); b[1] = 2; return b }()},
 		{"version 1, 48-byte slots", func() []byte { b := bytes.Clone(good); b[1] = 1; return b }()},
 		// A version-1 STATE as an old host builds it.
 		{"version 1, 36-byte slots", v1Sized(1, 2)},
@@ -209,6 +210,7 @@ func TestHitAckRoundTrip(t *testing.T) {
 	for _, bad := range [][]byte{
 		nil, b[:HitLen-1], append(bytes.Clone(b), 0), func() []byte { c := bytes.Clone(b); c[0] = SubAck; return c }(),
 		b[:44], // a v1-sized HIT
+		b[:48], // a v2-sized HIT
 		func() []byte { c := bytes.Clone(b); c[1] = 1; return c }(),
 	} {
 		if _, err := DecodeHit(bad); err == nil {
@@ -241,12 +243,12 @@ func TestHitAckRoundTrip(t *testing.T) {
 }
 
 // TestSlotFlagsAndSizes: the wire's slot flags, flags2, ACK results and
-// details are the block's (wwapi/mailbox), and the sizes are version 2's.
+// details are the block's (wwapi/mailbox), and the sizes are version 3's.
 func TestSlotFlagsAndSizes(t *testing.T) {
 	if SlotSnap != 1 || SlotDying != 2 || SlotInvuln != 4 || SlotDefence != 8 || SlotRagdoll != 0x10 || SlotBareHanded != 0x20 || SlotHidden != 0x40 || SlotRelease != 0x80 {
 		t.Error("slot flags moved")
 	}
-	if StateHeaderLen != 32 || SlotLen != 48 || HitLen != 48 || AckLen != 16 || MaxSlots != 4 || WireVersion != 2 {
+	if StateHeaderLen != 32 || SlotLen != 48 || HitLen != 52 || AckLen != 16 || MaxSlots != 4 || WireVersion != 3 {
 		t.Errorf("sizes: header %d slot %d hit %d ack %d max %d ver %d", StateHeaderLen, SlotLen, HitLen, AckLen, MaxSlots, WireVersion)
 	}
 	pins := []struct {
@@ -313,17 +315,17 @@ func TestResultDetailNames(t *testing.T) {
 		HDNone: "none", HDNoCross: "no_cross", HDInvuln: "invuln", HDRagdoll: "ragdoll", HDDying: "dying",
 		HDNoLink: "no_link", HDNoSphere: "no_sphere", HDWrongObj: "wrong_obj", HDAborted: "aborted",
 		HDDefence: "defence", HDFallbackShrink: "fallback_shrink", HDGoGate: "go_gate", HDRate: "rate",
-		HDBusy: "busy", HDGoFlags: "go_flags", HDDemo: "demo",
+		HDBusy: "busy", HDGoFlags: "go_flags", HDDemo: "demo", HDNoBody: "no_body",
 	}
-	if len(details) != int(HDDemo)+1 {
-		t.Fatalf("%d details listed, HDDemo is %d", len(details), HDDemo)
+	if len(details) != int(HDNoBody)+1 {
+		t.Fatalf("%d details listed, HDNoBody is %d", len(details), HDNoBody)
 	}
 	for d, want := range details {
 		if got := DetailName(d); got != want {
 			t.Errorf("DetailName(%d) = %q, want %q", d, got, want)
 		}
 	}
-	for _, d := range []uint8{HDDemo + 1, 0xFF} {
+	for _, d := range []uint8{HDNoBody + 1, 0xFF} {
 		if got, want := DetailName(d), "detail_"+strconv.Itoa(int(d)); got != want {
 			t.Errorf("DetailName(%d) = %q, want %q", d, got, want)
 		}
@@ -395,7 +397,7 @@ func FuzzDecodeHit(f *testing.F) {
 			return
 		}
 		enc, err := EncodeHit(h)
-		if want := canonical(data, 8, 46, 47); err != nil || !bytes.Equal(enc, want) {
+		if want := canonical(data, 8, 49, 50, 51); err != nil || !bytes.Equal(enc, want) {
 			t.Fatalf("round trip = %x (%v), want %x", enc, err, want)
 		}
 	})
