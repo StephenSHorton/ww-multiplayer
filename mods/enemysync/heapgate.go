@@ -205,6 +205,11 @@ func (g *heapGate) verdict(m mem.Reader, now time.Time, scope Scope, stageChange
 		}
 	}
 
+	if (want >= 0 || waiting > 0) && g.nextWalk.After(now.Add(HeapWalkFast)) {
+		// A slot began waiting during a slow walk: walk at once rather
+		// than spend the REL's FULL wait on NO_SAMPLE.
+		g.nextWalk = now
+	}
 	var walkErr error
 	if !now.Before(g.nextWalk) {
 		archive, err := shanmAllocated(m)

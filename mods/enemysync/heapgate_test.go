@@ -35,7 +35,10 @@ type gateRig struct {
 	st    mailbox.RemoteStatus
 	// stages is each remote's PSTATE stage by player id (absent: the
 	// host's); "-" sends none (the slot's PSTATE goes stale).
-	stages map[uint8]string
+	stages    map[uint8]string
+	lastStage map[uint8]string // each view's stage at the last tick
+	flags     map[uint8]uint8  // each remote's PSTATE flags by player id
+	noMove    bool             // a stage change does not move the views
 }
 
 func newGateRig(t *testing.T, mut func(c *RemoteConfig)) *gateRig {
@@ -48,7 +51,7 @@ func newGateRig(t *testing.T, mut func(c *RemoteConfig)) *gateRig {
 		mut(&cfg)
 	}
 	g := &gateRig{t: t, m: m, scope: scope, r: NewRemoteHost(m, log.Discard{}, cfg, 9), now: time.Unix(100, 0),
-		views: []posefeed.RemoteView{{ID: 4, LinkSlot: 0, Live: true}}, stages: map[uint8]string{}}
+		views: []posefeed.RemoteView{{ID: 4, LinkSlot: 0, Live: true}}, stages: map[uint8]string{}, lastStage: map[uint8]string{}, flags: map[uint8]uint8{}}
 	g.heaps(0x100000, 0x20000, 0x30000)
 	return g
 }
@@ -74,13 +77,21 @@ func (g *gateRig) body(i int, state, kind uint8) {
 func (g *gateRig) tick(d time.Duration) mailbox.RemoteBlock {
 	g.t.Helper()
 	g.now = g.now.Add(d)
-	for _, v := range g.views {
+	for k := range g.views {
+		v := &g.views[k]
 		stage, ok := g.stages[v.ID]
 		if !ok {
 			stage = g.scope.Stage
 		}
+		if was, ok := g.lastStage[v.ID]; ok && was != stage && stage != "-" && !g.noMove {
+			// A new stage spawns the remote somewhere new (players.go
+			// arrival): its position moves with the stage.
+			v.Pos[0] += 1000
+			v.Target[0] += 1000
+		}
+		g.lastStage[v.ID] = stage
 		if stage != "-" {
-			g.r.OnPState(&PState{Client: 2, PlayerID: v.ID, Stage: stage, Room: g.scope.Room}, g.now)
+			g.r.OnPState(&PState{Client: 2, PlayerID: v.ID, Stage: stage, Room: g.scope.Room, Flags: g.flags[v.ID]}, g.now)
 		}
 	}
 	if _, err := g.r.Tick(g.now, g.scope, true, g.views, g.now); err != nil {
@@ -271,8 +282,14 @@ func TestHeapGateFreshness(t *testing.T) {
 	// Nobody waits: the stale sample still names the reason (no flapping).
 	g.want("stale, nobody waits", g.tick(HeapSampleFresh+100*time.Millisecond), 0, mailbox.RemoteHGOpen)
 	g.views = []posefeed.RemoteView{{ID: 4, LinkSlot: 0, Live: true}}
-	g.want("stale sample, a slot waits", g.tick(16*time.Millisecond), 0, mailbox.RemoteHGNoSample)
-	g.want("walked again", g.tick(HeapWalkSlow), 0x01, mailbox.RemoteHGOpen)
+	// A slot starts waiting: the slow walk is pulled in, so the gate
+	// opens on a fresh sample at once instead of NO_SAMPLE until it.
+	g.want("a slot waits, walked at once", g.tick(16*time.Millisecond), 0x01, mailbox.RemoteHGOpen)
+	// A failed walk leaves the stale sample: NO_SAMPLE while a slot waits.
+	g.counter(addr.GameHeapPtr, 0)
+	g.want("walk fails, a slot waits", g.tick(HeapWalkFast), 0, mailbox.RemoteHGNoSample)
+	g.heaps(0x100000, 0x20000, 0x30000)
+	g.want("walked again", g.tick(HeapWalkFast), 0x01, mailbox.RemoteHGOpen)
 
 	g.scope.Pending, g.scope.InPlay = true, false
 	g.want("pending", g.tick(16*time.Millisecond), 0, mailbox.RemoteHGStageSettle)
@@ -411,4 +428,42 @@ func TestHeapGateSettling(t *testing.T) {
 	g.want("first sample", g.tick(16*time.Millisecond), 0, mailbox.RemoteHGStageSettle)
 	g.want("between samples", g.tick(100*time.Millisecond), 0, mailbox.RemoteHGStageSettle)
 	g.want("1 first", g.tick(150*time.Millisecond), 0x02, mailbox.RemoteHGQueued)
+}
+
+// TestHeapGateArrival: a remote whose PSTATE names the host's stage
+// while it still loads gets no stage in its slot (the REL neither creates
+// nor runs down its FULL wait); once loaded it holds QUEUED until a new
+// position comes in and the smoothed one has caught up.
+func TestHeapGateArrival(t *testing.T) {
+	g := newGateRig(t, nil)
+	g.noMove = true
+	old := [3]float32{1398.9, 3648.4, -2063.9}
+	g.views[0].Pos, g.views[0].Target = old, old
+	g.stages[4] = "sea"
+	g.want("first sample", g.tick(16*time.Millisecond), 0, mailbox.RemoteHGStageSettle)
+	g.want("between samples", g.tick(100*time.Millisecond), 0, mailbox.RemoteHGStageSettle)
+	g.want("other stage", g.tick(2100*time.Millisecond), 0, mailbox.RemoteHGOpen)
+
+	// Loading into the host's stage: no stage in the slot, no bit.
+	delete(g.stages, 4)
+	g.flags[4] = PSLoading
+	b := g.tick(2100 * time.Millisecond)
+	g.want("loading", b, 0, mailbox.RemoteHGOpen)
+	if b.Slots[0].Stage != "" {
+		t.Errorf("loading: slot stage %q, want none", b.Slots[0].Stage)
+	}
+	// Loaded, but no new position yet: QUEUED.
+	g.flags[4] = 0
+	b = g.tick(250 * time.Millisecond)
+	g.want("no new position", b, 0, mailbox.RemoteHGQueued)
+	if b.Slots[0].Stage != g.scope.Stage {
+		t.Errorf("loaded: slot stage %q, want %q", b.Slots[0].Stage, g.scope.Stage)
+	}
+	// The new position arrives; the smoother is still sliding: QUEUED.
+	g.views[0].Target = [3]float32{-7003.8, -300, 3090.5}
+	g.want("sliding", g.tick(250*time.Millisecond), 0, mailbox.RemoteHGQueued)
+	// Caught up: the bit.
+	g.views[0].Pos = g.views[0].Target
+	g.tick(16 * time.Millisecond)
+	g.want("arrived", g.tick(250*time.Millisecond), 0x01, mailbox.RemoteHGOpen)
 }

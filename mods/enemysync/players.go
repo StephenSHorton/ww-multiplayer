@@ -537,7 +537,8 @@ type RemoteHost struct {
 	mu      sync.Mutex
 	pstates map[uint8]pstateEntry // by player id
 	packs   []*PAck
-	hitCuts map[uint8]hitCut // by player id: the last HIT's cut type and count
+	hitCuts map[uint8]hitCut  // by player id: the last HIT's cut type and count
+	arrive  map[uint8]arrival // by player id: has a position come in since its stage changed
 
 	seq           uint32
 	blockEpoch    uint32 // the WWRP epoch: bumped on a stage change
@@ -555,6 +556,16 @@ type RemoteHost struct {
 	gateErrLogged bool
 
 	Stats RemoteHostStats
+}
+
+// arrival is what slots keeps per remote to tell when its position
+// belongs to the stage its PSTATE names: during and after a load the
+// position stream still carries the stage before's coordinates until the
+// new Link sends one.
+type arrival struct {
+	stage  string
+	target [3]float32 // the position when the stage changed
+	moved  bool       // a new position has come in since
 }
 
 type pstateEntry struct {
@@ -585,7 +596,7 @@ type RemoteHostStats struct {
 // STATE epoch every PHIT carries.
 func NewRemoteHost(m mem.Mem, rep log.Reporter, cfg RemoteConfig, epoch uint32) *RemoteHost {
 	return &RemoteHost{m: m, rep: rep, cfg: cfg, epoch: epoch, blockEpoch: epoch << 8,
-		pstates: map[uint8]pstateEntry{}, hitCuts: map[uint8]hitCut{}, lastPHit: map[uint32]uint32{},
+		pstates: map[uint8]pstateEntry{}, hitCuts: map[uint8]hitCut{}, arrive: map[uint8]arrival{}, lastPHit: map[uint32]uint32{},
 		phitSeq: map[uint8]uint16{}, dropWarned: map[string]bool{}, gate: newHeapGate(cfg.HeapSizes, int(cfg.FullMax))}
 }
 
@@ -719,6 +730,30 @@ func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteVi
 			continue
 		}
 		p := &ps.p
+		loading := p.Flags&PSLoading != 0
+		a, seen := r.arrive[v.ID]
+		switch {
+		case loading:
+			// The position stream holds the stage before's (no Link to
+			// send one) until the load ends: wait for a new one.
+			a = arrival{stage: p.Stage, target: v.Target}
+		case !seen || p.Stage != a.stage:
+			// First sight, or a change seen in play: whatever position
+			// came with it is the new stage's (SettleDist covers a slide).
+			a = arrival{stage: p.Stage, target: v.Target, moved: true}
+		case v.Target != a.target:
+			a.moved = true
+		}
+		r.arrive[v.ID] = a
+		settling[i] = settling[i] || !a.moved
+		if loading {
+			// Loading: no stage, as for a stale PSTATE, so the REL neither
+			// creates a body at the stage before's position nor runs down
+			// its FULL wait; a body it has parks.
+			s.SFlags = slotFlags(p, scope, v.Live)
+			out[i] = s
+			continue
+		}
 		s.Stage, s.Room, s.IFrames, s.ShieldAngleY = p.Stage, p.Room, p.IFrames, p.ShieldAngleY
 		s.CutType, s.CutCount = p.CutType, p.CutCount
 		if hc, ok := r.hitCuts[v.ID]; ok && now.Sub(hc.at) <= HitCutHold {

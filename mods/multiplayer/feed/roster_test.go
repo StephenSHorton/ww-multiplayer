@@ -38,6 +38,11 @@ func TestFeederViews(t *testing.T) {
 		if v.Pos != [3]float32{float32(100*(i+1)) + 7, 0, 0} {
 			t.Errorf("view %d pos = %v", i, v.Pos)
 		}
+		// Target carries the same offset as Pos (the first sample snaps,
+		// so they agree): enemysync's SettleDist compares the two.
+		if v.Target != v.Pos {
+			t.Errorf("view %d target = %v, pos %v", i, v.Target, v.Pos)
+		}
 		if v.Live != (wantSlot >= 0) {
 			t.Errorf("view %d live = %v", i, v.Live)
 		}
