@@ -6,8 +6,9 @@
 // the samples and writes one block per tick into the mailbox slack
 // (wwapi/mailbox/enemy.go) for the REL module to mirror.
 //
-// This file is the wire format: the STATE, HIT and ACK payloads of a
-// MsgEnemy frame ([type 'E'][len:2 BE][payload], payload =
+// This file is the wire format: the STATE, HIT, ACK and (wire version 3,
+// the remote-Link design) PHIT, PACK and PSTATE payloads of a MsgEnemy
+// frame ([type 'E'][len:2 BE][payload], payload =
 // [sub:1][ver:1][body], every field big-endian). The server checks only
 // the shape (network.EnemyStateLen and friends); the fields are encoded
 // and decoded here. Decoders never panic and refuse a short or garbled
@@ -22,25 +23,37 @@ import (
 	"math"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // WireVersion is the ver byte every payload carries. 2: the slot grew to
 // 48 bytes with the animation identity (bck, attribute, anm_seq, morf,
 // flags2, blur), the HIT to 48 with the sword object's Se/HitMark/Spl and
 // At SPrm, and the ACK carries a detail, the REL's frame and Set counts.
-const WireVersion byte = 2
+// 3 (remote-link-design.md §8; the layouts in inject/include/wwremote.h's
+// header comment): the HIT grew to 52 with the client Link's cut type and
+// count and the server-stamped player id, and the PHIT, PACK and PSTATE
+// subs carry an enemy hit on a remote player's body to that player.
+const WireVersion byte = 3
 
 // The sub bytes and sizes, from the server's ingress rules.
 const (
 	SubState = network.EnemySubState
 	SubHit   = network.EnemySubHit
 	SubAck   = network.EnemySubAck
+	// The remote-Link subs (wire version 3).
+	SubPHit   = network.EnemySubPHit
+	SubPAck   = network.EnemySubPAck
+	SubPState = network.EnemySubPState
 
 	StateHeaderLen = network.EnemyStateHeaderLen
 	SlotLen        = network.EnemySlotLen
 	MaxSlots       = network.EnemyMaxSlots
 	HitLen         = network.EnemyHitLen
 	AckLen         = network.EnemyAckLen
+	PHitLen        = network.EnemyPHitLen
+	PAckLen        = network.EnemyPAckLen
+	PStateLen      = network.EnemyPStateLen
 
 	// StageLen is the stage name field: char[8], NUL-padded, as
 	// dStage_startStage_c::mName (d_stage.h:949).
@@ -100,6 +113,10 @@ const (
 	HDBusy           uint8 = 13 // the host's request queue is full or holds that (client, setID)
 	HDGoFlags        uint8 = 14 // the sample's flags pre-dropped it
 	HDDemo           uint8 = 15 // the host Link is in a demo
+	// HDNoBody is the REL's: ATTRIB asked for the hit to be attributed to
+	// the sender's remote body, but that body was not LIVE, so the host
+	// Link's path ran (mailbox.RemoteHDNoBody).
+	HDNoBody uint8 = mailbox.RemoteHDNoBody
 )
 
 // ResultName and DetailName name an ACK's result and detail for logs.
@@ -120,7 +137,7 @@ func ResultName(r uint8) string {
 }
 
 func DetailName(d uint8) string {
-	names := [...]string{"none", "no_cross", "invuln", "ragdoll", "dying", "no_link", "no_sphere", "wrong_obj", "aborted", "defence", "fallback_shrink", "go_gate", "rate", "busy", "go_flags", "demo"}
+	names := [...]string{"none", "no_cross", "invuln", "ragdoll", "dying", "no_link", "no_sphere", "wrong_obj", "aborted", "defence", "fallback_shrink", "go_gate", "rate", "busy", "go_flags", "demo", "no_body"}
 	if int(d) < len(names) {
 		return names[d]
 	}
@@ -208,6 +225,14 @@ type Hit struct {
 	HitMark uint8
 	Spl     uint8
 	AtSPrm  uint8
+	// Version 3: the client Link's mCutType and mCutCount (+0x290/+0x291,
+	// d_a_player.h:479-480) at the hit, which the host stages into the
+	// sender's remote body for at_power_check (ATTRIB), and the sender's
+	// player id, which the server stamps (network.EnemyHitPlayerIDOff; 0 =
+	// unmapped, attributed to the host Link); a client sends 0.
+	CutType  uint8
+	CutCount uint8
+	PlayerID uint8
 }
 
 // Ack is an ACK payload: what the host did with a HIT. Client is the HIT's
@@ -397,6 +422,7 @@ func EncodeHit(h *Hit) ([]byte, error) {
 	}
 	binary.BigEndian.PutUint32(b[40:], h.ClientFrame)
 	b[44], b[45] = h.Spl, h.AtSPrm
+	b[46], b[47], b[network.EnemyHitPlayerIDOff] = h.CutType, h.CutCount, h.PlayerID
 	return b, nil
 }
 
@@ -427,6 +453,9 @@ func DecodeHit(data []byte) (*Hit, error) {
 		HitMark:     data[23],
 		Spl:         data[44],
 		AtSPrm:      data[45],
+		CutType:     data[46],
+		CutCount:    data[47],
+		PlayerID:    data[network.EnemyHitPlayerIDOff],
 	}
 	for i := range 3 {
 		h.Pos[i] = math.Float32frombits(binary.BigEndian.Uint32(data[28+4*i:]))
@@ -472,4 +501,246 @@ func DecodeAck(data []byte) (*Ack, error) {
 		Frames: data[14],
 		Sets:   data[15],
 	}, nil
+}
+
+// --- remote Link (wire version 3) --------------------------------------------
+
+// PSTATE flags (wire byte [3]; mailbox.RemotePS*). They are not the WWRP
+// slot's sflags: the host translates them (players.go slotFlags).
+const (
+	PSGuard      = mailbox.RemotePSGuard      // checkPlayerGuard (d_a_player_main.cpp:1038-1040)
+	PSCrouchDef  = mailbox.RemotePSCrouchDef  // mCurProc CROUCH_DEFENSE or its slip
+	PSDamageMode = mailbox.RemotePSDamageMode // mModeFlg DAMAGE
+	PSDead       = mailbox.RemotePSDead       // life 0 or the death demo
+	PSInEvent    = mailbox.RemotePSInEvent    // an event runs (mEvtCtrl.mMode != 0) or a player demo
+	PSSwim       = mailbox.RemotePSSwim       // mModeFlg SWIM
+	PSOnShip     = mailbox.RemotePSOnShip     // mModeFlg IN_SHIP
+	PSLoading    = mailbox.RemotePSLoading    // not in play, or a stage change is pending
+)
+
+// PHIT flags (wire byte [3]; the apply record's mailbox.RemoteAF*).
+const (
+	PHitHostShield = mailbox.RemoteAFHostShield // the host saw a shield hit on the body
+	PHitHostGuard  = mailbox.RemoteAFHostGuard  // the host's guard flag for this remote
+)
+
+// PACK results and details (mailbox.RemoteAR*, RemoteAD*).
+const (
+	PAckNone       = mailbox.RemoteARNone
+	PAckDropped    = mailbox.RemoteARDropped
+	PAckApplied    = mailbox.RemoteARApplied
+	PAckGuarded    = mailbox.RemoteARGuarded
+	PAckNoCross    = mailbox.RemoteARNoCross
+	PAckNoMirror   = mailbox.RemoteARNoMirror
+	PAckLinkAbsent = mailbox.RemoteARLinkAbsent
+	PAckEarlyOut   = mailbox.RemoteAREarlyOut
+
+	PADNone       = mailbox.RemoteADNone
+	PADIFrames    = mailbox.RemoteADIFrames
+	PADGoGate     = mailbox.RemoteADGoGate
+	PADNotInPlay  = mailbox.RemoteADNotInPlay
+	PADStaleEpoch = mailbox.RemoteADStaleEpoch
+	PADAborted    = mailbox.RemoteADAborted
+)
+
+// PAckResultName and PAckDetailName name a PACK's result and detail for
+// logs.
+func PAckResultName(r uint8) string {
+	names := [...]string{"none", "dropped", "applied", "guarded", "no_cross", "no_mirror", "link_absent", "early_out"}
+	if int(r) < len(names) {
+		return names[r]
+	}
+	return fmt.Sprintf("result_%d", r)
+}
+
+func PAckDetailName(d uint8) string {
+	names := [...]string{"none", "iframes", "go_gate", "not_in_play", "stale_epoch", "aborted"}
+	if int(d) < len(names) {
+		return names[d]
+	}
+	return fmt.Sprintf("detail_%d", d)
+}
+
+// PState is a PSTATE payload: the client Link's scope and combat state,
+// which the host writes into that player's WWRP slot
+// (remote-link-design.md §8.1). Client and PlayerID are the server's
+// stamps (a client sends 0). Epoch is the host epoch of the client's
+// latest STATE (0 before one): diagnostic, the host does not gate on it.
+type PState struct {
+	Client       uint8
+	Flags        uint8 // PS*
+	Epoch        uint32
+	Stage        string
+	Room         int8
+	CutType      uint8 // Link +0x290
+	CutCount     uint8 // Link +0x291
+	PlayerID     uint8
+	IFrames      int16 // Link mDamageWaitTimer (+0x294)
+	ShieldAngleY int16 // Link mShieldFrontRangeYAngle (+0x3546)
+}
+
+// PHit is a PHIT payload: an enemy's At crossed the remote body of the
+// player whose enemy connection is Client, on the host (§8.2). Seq counts
+// per target client; the attacker fields are the host REL's hit ring
+// entry's (mailbox.RemoteHit).
+type PHit struct {
+	Client    uint8
+	Flags     uint8 // PHit*
+	Epoch     uint32
+	Stage     string
+	Room      int8
+	Atp       uint8
+	SetID     uint16
+	Seq       uint16
+	Se        uint8
+	HitMark   uint8
+	AtType    uint32
+	Spl       uint8
+	RelHit    [3]float32 // Tg HitPos - body pos
+	RVec      [3]float32 // Tg RVec
+	HostFrame uint32     // the host REL's frame at detection
+}
+
+// PAck is a PACK payload: what the client did with a PHIT (§8.3). Client
+// is the server's stamp; Seq is the PHIT's.
+type PAck struct {
+	Client      uint8
+	Result      uint8 // PAck*
+	Seq         uint16
+	Detail      uint8 // PAD*
+	LifeBefore  uint8 // quarter hearts, clamped to 255
+	ClientFrame uint32
+	LifeDelta   int16 // life after - life before, quarter hearts
+}
+
+// EncodePState builds a PSTATE payload (PStateLen bytes). It refuses a
+// stage name over StageLen bytes.
+func EncodePState(p *PState) ([]byte, error) {
+	b := make([]byte, PStateLen)
+	b[0], b[1], b[network.EnemyClientIDOff], b[3] = SubPState, WireVersion, p.Client, p.Flags
+	binary.BigEndian.PutUint32(b[4:], p.Epoch)
+	if err := putStage(b[8:16], p.Stage); err != nil {
+		return nil, err
+	}
+	b[16], b[17], b[18], b[network.EnemyPStatePlayerIDOff] = byte(p.Room), p.CutType, p.CutCount, p.PlayerID
+	binary.BigEndian.PutUint16(b[20:], uint16(p.IFrames))
+	binary.BigEndian.PutUint16(b[22:], uint16(p.ShieldAngleY))
+	return b, nil
+}
+
+// DecodePState parses a PSTATE payload.
+func DecodePState(data []byte) (*PState, error) {
+	if err := wantSub(data, SubPState, "PSTATE", PStateLen); err != nil {
+		return nil, err
+	}
+	return &PState{
+		Client:       data[network.EnemyClientIDOff],
+		Flags:        data[3],
+		Epoch:        binary.BigEndian.Uint32(data[4:]),
+		Stage:        getStage(data[8:16]),
+		Room:         int8(data[16]),
+		CutType:      data[17],
+		CutCount:     data[18],
+		PlayerID:     data[network.EnemyPStatePlayerIDOff],
+		IFrames:      int16(binary.BigEndian.Uint16(data[20:])),
+		ShieldAngleY: int16(binary.BigEndian.Uint16(data[22:])),
+	}, nil
+}
+
+// EncodePHit builds a PHIT payload (PHitLen bytes). It refuses a NaN or
+// Inf and a stage name over StageLen bytes.
+func EncodePHit(p *PHit) ([]byte, error) {
+	if err := finite(p.RelHit[0], p.RelHit[1], p.RelHit[2], p.RVec[0], p.RVec[1], p.RVec[2]); err != nil {
+		return nil, err
+	}
+	b := make([]byte, PHitLen)
+	b[0], b[1], b[network.EnemyClientIDOff], b[3] = SubPHit, WireVersion, p.Client, p.Flags
+	binary.BigEndian.PutUint32(b[4:], p.Epoch)
+	if err := putStage(b[8:16], p.Stage); err != nil {
+		return nil, err
+	}
+	b[16], b[17] = byte(p.Room), p.Atp
+	binary.BigEndian.PutUint16(b[18:], p.SetID)
+	binary.BigEndian.PutUint16(b[20:], p.Seq)
+	b[22], b[23] = p.Se, p.HitMark
+	binary.BigEndian.PutUint32(b[24:], p.AtType)
+	b[28] = p.Spl
+	for i := range 3 {
+		binary.BigEndian.PutUint32(b[32+4*i:], math.Float32bits(p.RelHit[i]))
+		binary.BigEndian.PutUint32(b[44+4*i:], math.Float32bits(p.RVec[i]))
+	}
+	binary.BigEndian.PutUint32(b[56:], p.HostFrame)
+	return b, nil
+}
+
+// DecodePHit parses a PHIT payload; it refuses a NaN or Inf.
+func DecodePHit(data []byte) (*PHit, error) {
+	if err := wantSub(data, SubPHit, "PHIT", PHitLen); err != nil {
+		return nil, err
+	}
+	p := &PHit{
+		Client:    data[network.EnemyClientIDOff],
+		Flags:     data[3],
+		Epoch:     binary.BigEndian.Uint32(data[4:]),
+		Stage:     getStage(data[8:16]),
+		Room:      int8(data[16]),
+		Atp:       data[17],
+		SetID:     binary.BigEndian.Uint16(data[18:]),
+		Seq:       binary.BigEndian.Uint16(data[20:]),
+		Se:        data[22],
+		HitMark:   data[23],
+		AtType:    binary.BigEndian.Uint32(data[24:]),
+		Spl:       data[28],
+		HostFrame: binary.BigEndian.Uint32(data[56:]),
+	}
+	for i := range 3 {
+		p.RelHit[i] = math.Float32frombits(binary.BigEndian.Uint32(data[32+4*i:]))
+		p.RVec[i] = math.Float32frombits(binary.BigEndian.Uint32(data[44+4*i:]))
+	}
+	if err := finite(p.RelHit[0], p.RelHit[1], p.RelHit[2], p.RVec[0], p.RVec[1], p.RVec[2]); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// EncodePAck builds a PACK payload (PAckLen bytes).
+func EncodePAck(a *PAck) []byte {
+	b := make([]byte, PAckLen)
+	b[0], b[1], b[network.EnemyClientIDOff], b[3] = SubPAck, WireVersion, a.Client, a.Result
+	binary.BigEndian.PutUint16(b[4:], a.Seq)
+	b[6], b[7] = a.Detail, a.LifeBefore
+	binary.BigEndian.PutUint32(b[8:], a.ClientFrame)
+	binary.BigEndian.PutUint16(b[12:], uint16(a.LifeDelta))
+	return b
+}
+
+// DecodePAck parses a PACK payload.
+func DecodePAck(data []byte) (*PAck, error) {
+	if err := wantSub(data, SubPAck, "PACK", PAckLen); err != nil {
+		return nil, err
+	}
+	return &PAck{
+		Client:      data[network.EnemyClientIDOff],
+		Result:      data[3],
+		Seq:         binary.BigEndian.Uint16(data[4:]),
+		Detail:      data[6],
+		LifeBefore:  data[7],
+		ClientFrame: binary.BigEndian.Uint32(data[8:]),
+		LifeDelta:   int16(binary.BigEndian.Uint16(data[12:])),
+	}, nil
+}
+
+// wantSub checks a fixed-size payload's version, sub and length.
+func wantSub(data []byte, sub byte, name string, n int) error {
+	got, err := Sub(data)
+	if err != nil {
+		return err
+	}
+	if got != sub {
+		return fmt.Errorf("enemysync: sub %d is not %s", got, name)
+	}
+	if len(data) != n {
+		return fmt.Errorf("enemysync: %d-byte %s (want %d)", len(data), name, n)
+	}
+	return nil
 }

@@ -172,6 +172,17 @@ WW_ENEMY_COLLIDERS=0                        # enemy-host's STATE stops asking th
 WW_ENEMY_HIT_V1=1                           # enemy-host applies a client's hit as the v1 shrink kill instead of the v2 sphere hit
 WW_ENEMY_HIT_FALLBACK=shrink                # enemy-host: a v2 hit that crossed nothing after two Sets falls back to the shrink kill
 WW_ENEMY_HIT_DEMO=0                         # enemy-host: no cutscene gate on client hits (default: a hit during the host Link's demo is dropped)
+WW_ENEMY_REMOTE=<flags>                     # Remote-Link block (mods/enemysync/players.go, design remote-link-design.md): unset = never written (today's game).
+                                            #   <flags> = a number (0x2F) or names joined by , or +: bodies swap hittable detect apply attrib name_a9 guard
+                                            #   attacker group_wide both_words iframe_stamp ff_gate_off rouya_gate_off, or a step preset step0..step6
+                                            #   (design §10; each includes the ones before; step0 = the block with every flag clear). Set it on the host
+                                            #   (bodies, swap, detect, attrib, ...) and on each joiner (apply); the joiner's PSTATE is sent either way
+WW_ENEMY_REMOTE_MARGIN / _MIN_HOLD / _IFRAMES / _COOLDOWN   # latch switch margin (q8, default 164), latch min hold (30 frames),
+                                            #   body i-frames stamped on a hit (30), frames after a failed body create (30)
+WW_ENEMY_REMOTE_DY_MAX / _EYE_DY / _CYL_R / _CYL_H          # f32: latch |dy| limit (400), body eye height (110), body Tg cylinder radius (30) and height (120)
+WW_ENEMY_REMOTE_POLICY=<proc=flags,...>     # PROC_POLICY edits over the seed (ALLOW mo2 0xBD; DENY FM, RD, BK, the bosses): e.g. 0x1D5=allow+no_latch,0x79=off;
+                                            #   flags allow deny both_words no_latch, off removes; "none" alone = an empty table
+WW_ENEMY_REMOTE_FF=<stage,...>              # FF stage denylist, at most 4 (default MajyuE,majroom,Majroom,Mjtower); "none" = empty
 WW_MINIMAP_SCALE=<f>                        # TUI minimap world units per cell (default 10)
 WW_LISTEN_HOST=<addr>                       # App only: a hosted lobby's server listens on <addr> alone (local checks: 127.0.0.1)
                                             #   and LAN discovery stays on it (127.0.0.1: beacons sent to, and heard on, loopback only)

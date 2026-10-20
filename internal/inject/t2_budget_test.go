@@ -260,3 +260,51 @@ func TestFrameShimLoadsCallbackSlot(t *testing.T) {
 		t.Errorf("blob.go T2Bytes has no lis r12,0x8041; lwz r12,0x%X(r12) pair: the blob is stale against hooks.c", cb&0xFFFF)
 	}
 }
+
+// TestExecShimLoadsHookSlot: exec_shim (hooks.c, the remote-Link design
+// §4) loads the REL's exec-hook word, mailbox+WWREL_EXEC_HOOK_OFF
+// (inject/include/wwrel.h), and falls back to fpcMtd_Execute 0x8003EF38,
+// and the committed blob carries those ten instructions as one run.
+func TestExecShimLoadsHookSlot(t *testing.T) {
+	mailbox := define(t, mailboxH, "MAILBOX_ADDR")
+	hookOff := define(t, "../../inject/include/wwrel.h", "WWREL_EXEC_HOOK_OFF")
+	hook := define(t, hooksC, "EXEC_HOOK_PTR_ADDR")
+	if hook != mailbox+hookOff {
+		t.Fatalf("EXEC_HOOK_PTR_ADDR 0x%08X, want MAILBOX_ADDR+WWREL_EXEC_HOOK_OFF = 0x%08X", hook, mailbox+hookOff)
+	}
+	if hook&0x8000 != 0 || hook>>16 != lisR12_8041&0xFFFF {
+		t.Fatalf("EXEC_HOOK_PTR_ADDR 0x%08X is not reachable as lis 12,0x8041 + a positive lwz offset; exec_shim needs rewriting", hook)
+	}
+	src, err := os.ReadFile(hooksC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asm := fmt.Sprintf(`"lis\s+12,\s*0x8041\s*\\n"\s*"lwz\s+12,\s*0x%X\(12\)`, hook&0xFFFF)
+	if !regexp.MustCompile(asm).Match(src) {
+		t.Errorf("hooks.c exec_shim does not load 0x%X(12) after lis 12,0x8041", hook&0xFFFF)
+	}
+	want := []uint32{
+		lisR12_8041, lwzR12R12Base | hook&0xFFFF,
+		0x2C0C0000, // cmpwi r12, 0
+		0x4182000C, // beq- +0xC
+		0x7D8903A6, // mtctr r12
+		0x4E800420, // bctr: wwrel_exec_hook
+		0x3D808003, // lis r12, 0x8003
+		0x618CEF38, // ori r12, r12, 0xEF38: fpcMtd_Execute
+		0x7D8903A6, // mtctr r12
+		0x4E800420, // bctr
+	}
+	found := false
+	for i := 0; i+4*len(want) <= len(T2Bytes) && !found; i += 4 {
+		found = true
+		for k, w := range want {
+			if binary.BigEndian.Uint32(T2Bytes[i+4*k:]) != w {
+				found = false
+				break
+			}
+		}
+	}
+	if !found {
+		t.Error("blob.go T2Bytes has no exec_shim run (lis/lwz 0x30BC, cmpwi, beq, bctr, fpcMtd_Execute fallback): the blob is stale against hooks.c")
+	}
+}

@@ -56,27 +56,35 @@ func TestModRegions(t *testing.T) {
 	if BootLRSlot != MainStack.End+4 || !MainStackHeader.Contains(BootLRSlot, 4) || CanaryTRK.Contains(BootLRSlot, 4) {
 		t.Errorf("boot LR slot 0x%08X is not 4(_stack_addr) inside the stack header", BootLRSlot)
 	}
-	if CanaryTRK.End != T2Base || CanaryArena.Start != Mailbox+MailboxSize || CanaryArena.End != EnemyBlockRegion.Start ||
-		CanaryArenaHigh.Start != EnemyBlockRegion.End || CanaryArenaHigh.End != PatchedArenaLo {
-		t.Error("canary regions do not border T2, the mailbox, the enemy block and the arena")
+	if CanaryTRK.End != T2Base || CanaryArena.Start != Mailbox+MailboxSize || CanaryArena.End != RELHookRegion.Start ||
+		RELHookRegion.End > EnemyBlockRegion.Start || EnemyBlockRegion.End != RemoteBlockRegion.Start ||
+		CanaryArenaHigh.Start != RemoteBlockRegion.End || CanaryArenaHigh.End != PatchedArenaLo {
+		t.Error("canary regions do not border T2, the mailbox, the REL hook words, the enemy and remote-Link blocks and the arena")
 	}
 	// The enemy region ends at the WWENEMY_REGION_END the REL uses, past
-	// its collision objects (0x80413410); CanaryArenaHigh is the rest of
-	// the slack, 0x80413410..0x80414000 = 0xBF0 (the design's 0xAF0 is an
-	// arithmetic slip: 0x80414000 - 0x80413410).
+	// its collision objects (0x80413410), where the remote-Link region
+	// starts; that ends at 0x80413750 past the WWRP block, and
+	// CanaryArenaHigh is the rest of the slack, 0x80413750..0x80414000 =
+	// 0x8B0. CanaryArena stops at the REL's exec-hook word (0x804130BC).
 	if EnemyBlockRegion.End != Mailbox+EnemyRegionEnd {
 		t.Errorf("enemy region ends at 0x%08X, not Mailbox+EnemyRegionEnd 0x%08X", EnemyBlockRegion.End, Mailbox+EnemyRegionEnd)
 	}
 	if EnemyRegionEnd != 0x510 || Mailbox+EnemyRegionEnd != 0x80413410 {
 		t.Errorf("EnemyRegionEnd 0x%X (0x%08X), want 0x510 (0x80413410)", EnemyRegionEnd, Mailbox+EnemyRegionEnd)
 	}
-	if CanaryTRK.Size() != 0x3050 || CanaryArena.Size() != 0x50 || CanaryArenaHigh.Size() != 0xBF0 || EnemyBlockRegion.Size() != 0x310 {
-		t.Errorf("canary sizes 0x%X / 0x%X / 0x%X around a 0x%X enemy region, want 0x3050 / 0x50 / 0xBF0 / 0x310 (§4.5; 0xDA0 / 0x160 before layout 2 added the collision objects, the slack was 0xF50 before the enemy block, 0xF60 before E1 grew the mailbox to 0x1B0)",
-			CanaryTRK.Size(), CanaryArena.Size(), CanaryArenaHigh.Size(), EnemyBlockRegion.Size())
+	if RemoteBlockRegion.Start != 0x80413410 || RemoteBlockRegion.End != 0x80413750 || RELHookRegion != (addr.Region{Name: RELHookRegion.Name, Start: 0x804130BC, End: 0x804130C4}) {
+		t.Errorf("remote-Link region 0x%08X-0x%08X, hook words 0x%08X-0x%08X; want 0x80413410-0x80413750, 0x804130BC-0x804130C4",
+			RemoteBlockRegion.Start, RemoteBlockRegion.End, RELHookRegion.Start, RELHookRegion.End)
+	}
+	if CanaryTRK.Size() != 0x3050 || CanaryArena.Size() != 0x0C || CanaryArenaHigh.Size() != 0x8B0 || EnemyBlockRegion.Size() != 0x310 || RemoteBlockRegion.Size() != 0x340 {
+		t.Errorf("canary sizes 0x%X / 0x%X / 0x%X around a 0x%X enemy region and a 0x%X remote-Link region, want 0x3050 / 0x0C / 0x8B0 / 0x310 / 0x340 (§4.5; 0x50 / 0xBF0 before the REL hook words and the remote-Link block, 0xDA0 / 0x160 before layout 2 added the collision objects, the slack was 0xF50 before the enemy block, 0xF60 before E1 grew the mailbox to 0x1B0)",
+			CanaryTRK.Size(), CanaryArena.Size(), CanaryArenaHigh.Size(), EnemyBlockRegion.Size(), RemoteBlockRegion.Size())
 	}
 	for _, r := range []addr.Region{CanaryTRK, CanaryArena, CanaryArenaHigh} {
 		if r.Contains(SpawnTrigger, 4) || r.Contains(T2Base, 4) || r.Contains(EnemyBlockAddr, 4) || r.Contains(EnemyBlockAddr+EnemySize-4, 4) ||
-			r.Contains(Mailbox+EnemySphOff, 4) || r.Contains(Mailbox+EnemySttsOff+EnemySttsSize-4, 4) {
+			r.Contains(Mailbox+EnemySphOff, 4) || r.Contains(Mailbox+EnemySttsOff+EnemySttsSize-4, 4) ||
+			r.Contains(Mailbox+OffRELExecHook, 4) || r.Contains(Mailbox+OffRELSwapState, 4) ||
+			r.Contains(RemoteBlockAddr, 4) || r.Contains(RemoteBlockAddr+RemoteSize-4, 4) {
 			t.Errorf("%s overlaps the mod", r.Name)
 		}
 	}

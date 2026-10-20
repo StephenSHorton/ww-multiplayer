@@ -238,8 +238,8 @@ func TestEnemyBlockPlacement(t *testing.T) {
 	if EnemyBlockRegion != (addr.Region{Name: "enemy block", Start: EnemyBlockAddr, End: Mailbox + EnemyRegionEnd}) {
 		t.Errorf("EnemyBlockRegion %+v", EnemyBlockRegion)
 	}
-	if CanaryArena.End != EnemyBlockRegion.Start || CanaryArenaHigh.Start != EnemyBlockRegion.End {
-		t.Error("the canary regions do not stop at the enemy block")
+	if CanaryArena.End > EnemyBlockRegion.Start || CanaryArenaHigh.Start < EnemyBlockRegion.End {
+		t.Error("the canary regions reach into the enemy block")
 	}
 	if !CanaryArena.Contains(relStart, int(relEnd-relStart)) {
 		t.Error("the REL words left the low canary region")

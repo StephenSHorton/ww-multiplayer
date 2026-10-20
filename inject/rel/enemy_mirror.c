@@ -70,6 +70,7 @@
 #include "mailbox_core.h"
 #include "wwrel.h"
 #include "enemy_mirror.h"
+#include "remote.h"
 
 // --- The block ------------------------------------------------------------
 #define EB_ADDR      (MAILBOX_ADDR + WWENEMY_OFF)
@@ -964,8 +965,13 @@ static void em_slot_frame(enemy_mirror_state* s, int i, u32 frame) {
 // drop (invulnerable, defending, ragdoll: d_a_mo2.cpp:3072, 3581-3586) and
 // otherwise kills it the K1 way.
 
-// The result word and the ack, the last two stores of a request.
+// The result word and the ack, the last two stores of a request. A request
+// that asked for remote-Link attribution (WWREMOTE_HAF_ATTRIB_BODY) while
+// the body was not LIVE ran the host-Link path: its otherwise empty detail
+// says so (WWREMOTE_HD_NO_BODY, design section 8.6).
 static void em_hit_publish(enemy_mirror_state* s, u8 result, u8 detail) {
+    if (detail == WWENEMY_HD_NONE && s->ha_attrib == 2) detail = WWREMOTE_HD_NO_BODY;
+    s->ha_attrib = 0;
     s->ha_detail = detail;
     EB_U32(WWENEMY_HIT_RESULT_OFF) = ((u32)result << 24) | ((u32)detail << 16) |
                                      ((u32)s->ha_frames << 8) | (u32)s->ha_sets;
@@ -1017,6 +1023,37 @@ static void em_hit_register(enemy_mirror_state* s, void* a) {
     s->ha_sets++;
 }
 
+// The static sphere image (built lazily, after enemy_mirror_init's
+// zeroing). A live image beats hand construction: no __ct__8dCcD_SphFv
+// exists in the DOL. mHeadSph carries no At hit callback (mWeaponSph does:
+// never that one); the callback word and the At SPrm are zeroed so the
+// image is not an At until Set says so. Everything else stale in the copy
+// is reset by ClrAtHit, CalcArea, StartCAt or Set. Shared with remote.c's
+// client apply (the sphere is idle on a client).
+int enemy_mirror_sph_image(enemy_mirror_state* s, void* a) {
+    u32* dst = (u32*)EM_SPH;
+    const u32* img = (const u32*)((u8*)a + MO2_HEAD_SPH);
+    u32 vt;
+    int i;
+    if (s->sph_built) return 1;
+    for (i = 0; i < EM_SPH_SIZE / 4; i++) dst[i] = img[i];
+    // Fingerprint the image's dCcD_Sph table (the DOL's own, or a REL's
+    // copy of it), then point every vptr at the DOL's tables.
+    vt = AF(EM_SPH, u32, CC_VPTR);
+    if (!em_in_mem1(vt) || AF(EM_SPH, u32, CC_SHAPE_VPTR) != vt + 0x28 ||
+        AF(EM_SPH, u32, CC_GSPH_VPTR) != vt + 0x7C || !em_in_mem1(AF(EM_SPH, u32, CC_AAB_VPTR)) ||
+        AF(vt, u32, EM_VT_SLOT_A) != AF(EM_VT_DCCD_SPH, u32, EM_VT_SLOT_A) ||
+        AF(vt, u32, EM_VT_SLOT_B) != AF(EM_VT_DCCD_SPH, u32, EM_VT_SLOT_B)) return 0;
+    AF(EM_SPH, u32, CC_VPTR) = EM_VT_DCCD_SPH;
+    AF(EM_SPH, u32, CC_SHAPE_VPTR) = EM_VT_SPH_SHAPE;
+    AF(EM_SPH, u32, CC_GSPH_VPTR) = EM_VT_SPH_GSPH;
+    AF(EM_SPH, u32, CC_AAB_VPTR) = EM_VT_GAAB;
+    AF(EM_SPH, u32, CC_GAT_CALLBACK) = 0;
+    AF(EM_SPH, u32, CC_AT_SPRM) = 0;
+    s->sph_built = 1;
+    return 1;
+}
+
 // The first Set of a request: the host Link, the static stts and sphere
 // image (built lazily, after enemy_mirror_init's zeroing), the dCcD_SrcSph
 // fill and dCcD_Sph::Set, then the registration. Publishes on a failure.
@@ -1027,14 +1064,27 @@ static void em_hit_submit(enemy_mirror_state* s, void* a) {
     cXyz c;
     int i;
 
+    // remote-Link ATTRIB (design section 8.6): the sphere hits as the
+    // client's own body while it is still a LIVE, unparked body of this
+    // module (it may have parked since em_hit_apply), so damage_check's
+    // attacker, cut type and knockback bearing are the real attacker's;
+    // else today's path.
+    if (s->ha_attrib == 1) {
+        link = remote_attrib_body(s->ha_flags);
+        if (!link) {
+            s->ha_attrib = 2;
+            link = EM_PLAYER_INFO0;
+        }
+    }
     // The Link the sphere hits as: the word at_power_check reads, a PLAYER,
     // and equal to mpPlayerPtr[0] (during a Medli/Makar window the two
     // differ and the hit would be attributed to an NPC): never a shrink.
-    if (!em_in_mem1(link) || AF(link, s16, AC_PROC_NAME) != PROC_PLAYER || link != EM_PLAYER_PTR0) {
+    if (s->ha_attrib != 1 &&
+        (!em_in_mem1(link) || AF(link, s16, AC_PROC_NAME) != PROC_PLAYER || link != EM_PLAYER_PTR0)) {
         em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_NO_LINK);
         return;
     }
-    // Link's own mStts.Init(120, 0xFF, this): apid = fopAcM_GetID(link),
+    // Link's own mStts.Init(120, 0xFF, this) (the body's with ATTRIB): apid = fopAcM_GetID(link),
     // mp_actor = link, room (d_cc_d.cpp:66-88; c_cc_d.cpp:185-192). On
     // every submit, not keyed on the pointer: the module outlives a stage
     // load and a recreated Link can sit at the old address with a new
@@ -1045,33 +1095,9 @@ static void em_hit_submit(enemy_mirror_state* s, void* a) {
     dCcD_Stts_ct(EM_STTS);
     dCcD_Stts_Init(EM_STTS, EM_STTS_WEIGHT, EM_STTS_P1, (void*)link);
     s->stts_link = link;
-    if (!s->sph_built) {
-        // A live image beats hand construction: no __ct__8dCcD_SphFv exists
-        // in the DOL. mHeadSph carries no At hit callback (mWeaponSph does:
-        // never that one); the callback word and the At SPrm are zeroed so
-        // the image is not an At until Set says so. Everything else stale
-        // in the copy is reset by ClrAtHit, CalcArea, StartCAt or Set.
-        u32* dst = (u32*)EM_SPH;
-        const u32* img = (const u32*)((u8*)a + MO2_HEAD_SPH);
-        u32 vt;
-        for (i = 0; i < EM_SPH_SIZE / 4; i++) dst[i] = img[i];
-        // Fingerprint the image's dCcD_Sph table (the DOL's own, or a REL's
-        // copy of it), then point every vptr at the DOL's tables.
-        vt = AF(EM_SPH, u32, CC_VPTR);
-        if (!em_in_mem1(vt) || AF(EM_SPH, u32, CC_SHAPE_VPTR) != vt + 0x28 ||
-            AF(EM_SPH, u32, CC_GSPH_VPTR) != vt + 0x7C || !em_in_mem1(AF(EM_SPH, u32, CC_AAB_VPTR)) ||
-            AF(vt, u32, EM_VT_SLOT_A) != AF(EM_VT_DCCD_SPH, u32, EM_VT_SLOT_A) ||
-            AF(vt, u32, EM_VT_SLOT_B) != AF(EM_VT_DCCD_SPH, u32, EM_VT_SLOT_B)) {
-            em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_NO_SPHERE);
-            return;
-        }
-        AF(EM_SPH, u32, CC_VPTR) = EM_VT_DCCD_SPH;
-        AF(EM_SPH, u32, CC_SHAPE_VPTR) = EM_VT_SPH_SHAPE;
-        AF(EM_SPH, u32, CC_GSPH_VPTR) = EM_VT_SPH_GSPH;
-        AF(EM_SPH, u32, CC_AAB_VPTR) = EM_VT_GAAB;
-        AF(EM_SPH, u32, CC_GAT_CALLBACK) = 0;
-        AF(EM_SPH, u32, CC_AT_SPRM) = 0;
-        s->sph_built = 1;
+    if (!enemy_mirror_sph_image(s, a)) {
+        em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_NO_SPHERE);
+        return;
     }
 
     // The dCcD_SrcSph (read only during Set): Link's sword literal with the
@@ -1183,11 +1209,13 @@ static void em_hit_tick(enemy_mirror_state* s, int live) {
 // A new request (ha_seq nonzero and != hit_apply_ack) while none is open.
 static void em_hit_apply(enemy_mirror_state* s) {
     void* a;
+    int delay = 0;
     s->hit_apply_ack = s->ha_seq;                // taken; the block's ack word carries the result
     s->ha_frames = 0;
     s->ha_sets = 0;
     s->ha_waited = 0;
     s->ha_actor = 0;
+    s->ha_attrib = 0;
     a = em_hit_actor(s);
     if (!a) {
         em_hit_publish(s, WWENEMY_HR_NO_ACTOR, WWENEMY_HD_NONE);
@@ -1207,6 +1235,18 @@ static void em_hit_apply(enemy_mirror_state* s) {
         }
         return;
     }
+    // remote-Link ATTRIB (design section 8.6): with the client's body LIVE
+    // the Moblin's latch is forced onto it for 3 executes (honoured with
+    // WWREMOTE_FLAG_ATTACKER), and when it was not the current target the
+    // first Set waits one keeper execute (the WAIT_INVULN state), so the
+    // consuming execute's damage_check bearing (m05D6) is computed toward
+    // the body (d_a_mo2.cpp:3112-3163, 2903-2911). No LIVE body: today's
+    // host-Link path, detail WWREMOTE_HD_NO_BODY.
+    if (s->ha_flags & WWREMOTE_HAF_ATTRIB_BODY) {
+        u32 body = remote_attrib_body(s->ha_flags);
+        s->ha_attrib = body ? 1 : 2;
+        if (body) delay = remote_attrib_force((u32)a, body);
+    }
     // v2: the colliders sit at y-20000 while ragdolling (d_a_mo2.cpp:3580-3593)
     // and a dying Moblin takes no hit; defence is not pre-dropped (the
     // shield parries, the faithful outcome).
@@ -1214,7 +1254,7 @@ static void em_hit_apply(enemy_mirror_state* s) {
         em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_RAGDOLL);
     } else if (AF(a, s8, AC_HEALTH) <= 0 || AF(a, s16, MO2_DR_ACTION) == MO2_ACTION_FAIL) {
         em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_DYING);
-    } else if (AF(a, s16, MO2_INVULN) != 0) {
+    } else if (AF(a, s16, MO2_INVULN) != 0 || delay) {
         s->ha_state = EM_HA_WAIT_INVULN;
         s->ha_actor = (u32)a;
     } else {

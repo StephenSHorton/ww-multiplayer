@@ -66,17 +66,22 @@ var (
 	CanaryTRK = addr.Region{Name: "TRK stack", Start: MainStackHeader.End, End: T2Base}
 
 	// CanaryArena and CanaryArenaHigh are the slack between the mailbox
-	// and the patched arena, less the enemy-mirror region (enemy.go,
-	// EnemyBlockRegion: the block and the host REL's static collision
-	// objects past it, to EnemyRegionEnd) between them: the block is
-	// written by Go every tick and by the REL every frame while enemy sync
-	// runs, so a canary armed over it would be reported changed by the
-	// mod's own traffic, and arming over it would tear a block the REL is
-	// reading. The region probe arms and checks the two parts and skips
-	// the region. CanaryArena still holds the REL module's words
+	// and the patched arena, less what the mod writes there. Between them
+	// lie the REL's exec-hook words (remote.go, RELHookRegion: T2's
+	// exec_shim branches to the first, so a canary there would be
+	// executed), the enemy-mirror region (enemy.go, EnemyBlockRegion: the
+	// block and the host REL's static collision objects past it, to
+	// EnemyRegionEnd) and the remote-Link block (remote.go,
+	// RemoteBlockRegion, to RemoteRegionEnd). Go writes the blocks every
+	// tick and the REL every frame while they run, so a canary armed over
+	// them would be reported changed by the mod's own traffic, and arming
+	// would tear a block the REL is reading. The region probe arms and
+	// checks the two parts and skips the rest; the free 0x3C bytes between
+	// the hook words and the enemy block (+0x1C4..+0x200) go unprobed.
+	// CanaryArena still holds the REL module's first three words
 	// (OffRELMagic..), which only a linked module writes.
-	CanaryArena     = addr.Region{Name: "below arena", Start: Mailbox + MailboxSize, End: Mailbox + EnemyOff}
-	CanaryArenaHigh = addr.Region{Name: "below arena (past the enemy block)", Start: Mailbox + EnemyRegionEnd, End: PatchedArenaLo}
+	CanaryArena     = addr.Region{Name: "below arena", Start: Mailbox + MailboxSize, End: Mailbox + OffRELExecHook}
+	CanaryArenaHigh = addr.Region{Name: "below arena (past the remote-Link block)", Start: Mailbox + RemoteRegionEnd, End: PatchedArenaLo}
 )
 
 const (

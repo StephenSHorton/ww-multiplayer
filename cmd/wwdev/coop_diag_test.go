@@ -571,8 +571,8 @@ func TestCompareBlob(t *testing.T) {
 // refuses anything touching the main stack, T2, the mailbox or the arena.
 func TestCanaryRegions(t *testing.T) {
 	if mailbox.CanaryTRK.Start != 0x8040CFB0 || mailbox.CanaryTRK.End != 0x80410000 ||
-		mailbox.CanaryArena.Start != 0x804130B0 || mailbox.CanaryArena.End != 0x80413100 ||
-		mailbox.CanaryArenaHigh.Start != 0x80413410 || mailbox.CanaryArenaHigh.End != 0x80414000 {
+		mailbox.CanaryArena.Start != 0x804130B0 || mailbox.CanaryArena.End != 0x804130BC ||
+		mailbox.CanaryArenaHigh.Start != 0x80413750 || mailbox.CanaryArenaHigh.End != 0x80414000 {
 		t.Fatalf("canary ranges moved: %+v %+v %+v", mailbox.CanaryTRK, mailbox.CanaryArena, mailbox.CanaryArenaHigh)
 	}
 	for _, r := range canaryRegions {
@@ -593,6 +593,10 @@ func TestCanaryRegions(t *testing.T) {
 		{Name: "enemy block tail", Start: 0x80413294, End: 0x80413298},
 		{Name: "enemy sphere image", Start: 0x804132A0, End: 0x804132A4},
 		{Name: "enemy stts tail", Start: 0x8041340C, End: 0x80413410},
+		{Name: "REL exec hook word", Start: 0x804130BC, End: 0x804130C0},
+		{Name: "REL swap state word", Start: 0x804130C0, End: 0x804130C4},
+		{Name: "remote-Link block", Start: 0x80413420, End: 0x80413424},
+		{Name: "remote-Link block tail", Start: 0x8041374C, End: 0x80413750},
 		{Name: "across the enemy block", Start: 0x804130B0, End: 0x80414000},
 		{Name: "misaligned", Start: 0x8040CFAA, End: 0x8040D000},
 		{Name: "empty", Start: 0x8040D000, End: 0x8040D000},
@@ -648,8 +652,8 @@ func TestArmAndCheckCanaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"4 changed (3 now zero, 1 other)", "0x8040D0B0-0x8040D0BC (3 words)",
-		"below arena  0x804130B0-0x80413100 (20 words): all intact",
-		"below arena (past the enemy block) 0x80413410-0x80414000 (764 words): all intact"} {
+		"below arena  0x804130B0-0x804130BC (3 words): all intact",
+		"below arena (past the remote-Link block) 0x80413750-0x80414000 (556 words): all intact"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("region-probe check lacks %q:\n%s", want, out.String())
 		}

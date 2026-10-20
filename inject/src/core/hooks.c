@@ -1,6 +1,6 @@
 // Wind Waker Multiplayer — the core's hooks (src/core; Phase E3 split
 // multiplayer.c into src/core and src/mp, docs/api/00-design.md §6.6).
-// Four entry points, all hooked via Freighter's hook_branchlink
+// Five entry points, all hooked via Freighter's hook_branchlink
 // (inject/build.py):
 //   main01_init — fires once from main01 (one-shot). Installs the address of
 //     multiplayer_update at CALLBACK_PTR_ADDR so the per-frame shim can find
@@ -13,6 +13,9 @@
 //   daPy_draw_hook — Link #1's draw, bracketed by the core services and
 //     followed by the mods' post-draw steps.
 //   pad_read_shim — the synthetic-input override after PADRead.
+//   exec_shim   — naked asm. Fires per actor execute from fopAc_Execute's
+//     `bl fpcMtd_Execute`; branches to the REL's exec hook (mailbox+0x1BC)
+//     when it is published, else to the vanilla fpcMtd_Execute.
 //
 // Why the indirection? Freighter's hook_branchlink overwrites the target
 // instruction outright — if we hook fapGm_Execute's first instruction the
@@ -27,6 +30,7 @@
 
 #include "wwapi.h"
 #include "mailbox_core.h"
+#include "wwrel.h"
 #include "core.h"
 #include "mods.h"
 
@@ -50,6 +54,14 @@ static int frame_count = 0;
 // Publishes multiplayer_update's address for frame_shim to find.
 void main01_init(void) {
     *(volatile u32*)CALLBACK_PTR_ADDR = (u32)&multiplayer_update;
+    // The REL's remote-Link words (wwrel.h). The slack is orphan memory
+    // nothing zeroes for us (relload.c clears the magic only once Link
+    // exists), and exec_shim branches to WWREL_EXEC_HOOK_OFF on the first
+    // actor execute: a stale word from a reset or an earlier boot must
+    // read as "no module" before any actor runs. _prolog writes it again
+    // (last) when the module links.
+    *(volatile u32*)(MAILBOX_ADDR + WWREL_EXEC_HOOK_OFF) = 0;
+    *(volatile u32*)(MAILBOX_ADDR + WWREL_SWAP_STATE_OFF) = 0;
     // WWMB header (Phase E1): magic, ABI, layout version and the
     // features word, for Go's contract check (wwapi.CheckContract).
     mailbox->hdr_magic = WWMB_MAGIC;
@@ -113,6 +125,52 @@ void frame_shim(void) {
         "ori   12, 12, 0x49AC   \n"
         "mtctr 12               \n"
         "bctr                   \n"  // tail-call — 0x802449AC blrs to 0x80023208
+    );
+}
+
+// --- Actor-execute hook (remote-Link, design §4) ----------------------
+// Hooked at 0x8002395C inside fopAc_Execute (0x8002362C), replacing
+// `bl fpcMtd_Execute` (0x8003EF38) on the move-approved path
+// (f_op_actor.cpp:200). At the bl, r3 = actor->sub_method (lwz 0xEC(r30))
+// and r4 = the actor (mr r4,r30); DOL words at 0x80023954:
+// 807E00EC 7FC4F378 4801B5DD 7C7F1B78. Paused or event-stopped actors
+// never reach the bl.
+//
+// The shim reads WWREL_EXEC_HOOK (mailbox+0x1BC, wwrel.h): the REL's
+// wwrel_exec_hook while the module is linked, else 0. Either target is
+// tail-called through ctr with r3/r4 and LR (0x80023960) untouched, so the
+// callee returns straight to fopAc_Execute and its r3 result is the
+// original's. No frame and no LR replay (unlike frame_shim): r12, ctr and
+// cr0 are volatile across a bl. 10 instructions, 0x28 bytes. All policy
+// lives in the REL and in Go-written words (design D4); T2 only branches.
+//
+// Code lifetime: fpcM_Management runs fpcDt_Handler, fpcCt_Handler, then
+// fpcEx_Handler (f_pc_manager.cpp:267-295), so the module cannot unlink
+// while an execute is in flight; _prolog writes the word last and _epilog
+// clears it first (rel_main.c).
+//
+// MUST match the `lwz 12, 0x30BC(12)` offset in exec_shim asm below.
+#define EXEC_HOOK_PTR_ADDR 0x804130BC
+_Static_assert(EXEC_HOOK_PTR_ADDR == MAILBOX_ADDR + WWREL_EXEC_HOOK_OFF,
+               "exec_shim's lwz offset must load mailbox+WWREL_EXEC_HOOK_OFF");
+_Static_assert((EXEC_HOOK_PTR_ADDR >> 16) == 0x8041 && (EXEC_HOOK_PTR_ADDR & 0x8000) == 0,
+               "exec_shim's lis 12,0x8041 + positive lwz offset must reach EXEC_HOOK_PTR_ADDR");
+#define FPCMTD_EXECUTE_ADDR 0x8003EF38   // fpcMtd_Execute (symbols.txt:1162)
+
+__attribute__((naked))
+void exec_shim(void) {
+    asm volatile(
+        "lis   12, 0x8041       \n"
+        "lwz   12, 0x30BC(12)   \n"  // = EXEC_HOOK_PTR_ADDR (mailbox+0x1BC) = 0x804130BC
+        "cmpwi 12, 0            \n"
+        "beq-  1f               \n"
+        "mtctr 12               \n"
+        "bctr                   \n"  // wwrel_exec_hook(r3, r4); returns to 0x80023960
+        "1:                     \n"
+        "lis   12, 0x8003       \n"
+        "ori   12, 12, 0xEF38   \n"  // = FPCMTD_EXECUTE_ADDR, the vanilla callee
+        "mtctr 12               \n"
+        "bctr                   \n"  // fpcMtd_Execute(r3, r4); returns to 0x80023960
     );
 }
 

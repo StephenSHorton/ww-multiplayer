@@ -59,6 +59,27 @@ func enemyAck(id, tag byte) []byte {
 	return b
 }
 
+// enemyPHit, enemyPAck and enemyPState are well-shaped wire v3 remote-Link
+// payloads; a PHIT names client id, the others are sent with 0 in the
+// stamped bytes.
+func enemyPHit(id, tag byte) []byte {
+	b := make([]byte, EnemyPHitLen)
+	b[0], b[1], b[EnemyClientIDOff], b[3] = EnemySubPHit, 3, id, tag
+	return b
+}
+
+func enemyPAck(tag byte) []byte {
+	b := make([]byte, EnemyPAckLen)
+	b[0], b[1], b[3] = EnemySubPAck, 3, tag
+	return b
+}
+
+func enemyPState(tag byte) []byte {
+	b := make([]byte, EnemyPStateLen)
+	b[0], b[1], b[3] = EnemySubPState, 3, tag
+	return b
+}
+
 // connectEnemy connects an enemy client of role to addr with an inbox.
 func connectEnemy(t *testing.T, addr, name string, role byte) (*Client, *enemyInbox) {
 	t.Helper()
@@ -99,6 +120,19 @@ func TestEnemyFrameShape(t *testing.T) {
 		{"state one v1 slot", RoleEnemyHost, enemyState(1, 0)[:EnemyStateHeaderLen+36], false},
 		{"state four v1 slots", RoleEnemyHost, enemyState(4, 0)[:EnemyStateLen(3)], false},
 		{"hit v1", RoleEnemyClient, enemyHit(0)[:44], false},
+		{"hit v2", RoleEnemyClient, enemyHit(0)[:48], false},
+		// The remote-Link subs (wire version 3): PHIT only from the host,
+		// PACK and PSTATE only from a client, exact sizes.
+		{"phit", RoleEnemyHost, enemyPHit(1, 0), true},
+		{"phit short", RoleEnemyHost, enemyPHit(1, 0)[:EnemyPHitLen-1], false},
+		{"phit long", RoleEnemyHost, append(enemyPHit(1, 0), 0), false},
+		{"phit from client", RoleEnemyClient, enemyPHit(1, 0), false},
+		{"pack", RoleEnemyClient, enemyPAck(0), true},
+		{"pack short", RoleEnemyClient, enemyPAck(0)[:EnemyPAckLen-1], false},
+		{"pack from host", RoleEnemyHost, enemyPAck(0), false},
+		{"pstate", RoleEnemyClient, enemyPState(0), true},
+		{"pstate long", RoleEnemyClient, append(enemyPState(0), 0), false},
+		{"pstate from host", RoleEnemyHost, enemyPState(0), false},
 		{"ack short", RoleEnemyHost, enemyAck(1, 0)[:EnemyAckLen-1], false},
 		{"empty", RoleEnemyHost, nil, false},
 		{"one byte", RoleEnemyHost, []byte{EnemySubState}, false},
@@ -109,8 +143,11 @@ func TestEnemyFrameShape(t *testing.T) {
 			t.Errorf("%s: enemyFrameShape = %q, want ok=%v", c.name, why, c.ok)
 		}
 	}
-	if EnemySlotLen != 48 || EnemyStateLen(0) != 32 || EnemyStateLen(4) != 32+4*48 || EnemyHitLen != 48 || EnemyAckLen != 16 {
+	if EnemySlotLen != 48 || EnemyStateLen(0) != 32 || EnemyStateLen(4) != 32+4*48 || EnemyHitLen != 52 || EnemyAckLen != 16 {
 		t.Errorf("sizes: slot=%d state(0)=%d state(4)=%d hit=%d ack=%d", EnemySlotLen, EnemyStateLen(0), EnemyStateLen(4), EnemyHitLen, EnemyAckLen)
+	}
+	if EnemyPHitLen != 60 || EnemyPAckLen != 16 || EnemyPStateLen != 24 || EnemyHitPlayerIDOff != 48 || EnemyPStatePlayerIDOff != 19 {
+		t.Errorf("v3: phit=%d pack=%d pstate=%d hit pid @%d pstate pid @%d", EnemyPHitLen, EnemyPAckLen, EnemyPStateLen, EnemyHitPlayerIDOff, EnemyPStatePlayerIDOff)
 	}
 }
 
@@ -213,6 +250,110 @@ func TestEnemyRelay(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if !cb.IsConnected() {
 		t.Error("client b dropped after a HIT with no host")
+	}
+}
+
+// TestEnemyRemoteRelay (wire v3): a PSTATE and a PACK from a client reach
+// the host stamped with the client's ID, the PSTATE and a HIT also with
+// the player id of the player connection of that name (case-insensitive:
+// lobbyKey), 0 for a name with no player or two; a PHIT reaches only the
+// client it names.
+func TestEnemyRemoteRelay(t *testing.T) {
+	fastNetTimers(t)
+	srv, addr := mustListen(t)
+	defer srv.Stop()
+
+	// Every human runs two player connections under one name: the
+	// broadcaster (positions and poses) and a puppet-sync twin that never
+	// sends either. "BOB" is Bob's twin; "dup" and "DUP" both broadcast.
+	players := map[string]*Client{}
+	for _, n := range []string{"alice", "Bob", "BOB", "dup", "DUP"} {
+		p := NewClient(n)
+		if err := p.Connect(addr); err != nil {
+			t.Fatal(err)
+		}
+		defer p.Disconnect()
+		players[n] = p
+	}
+	if !waitFor(2*time.Second, func() bool { return srv.PlayerCount() == 5 }) {
+		t.Fatalf("players %d", srv.PlayerCount())
+	}
+	for _, n := range []string{"alice", "Bob", "dup"} {
+		if err := players[n].SendPose(1, make([]byte, 48), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := players["DUP"].SendPosition(&PlayerPosition{PosX: 1}); err != nil { // a position alone counts
+		t.Fatal(err)
+	}
+	broadcasting := func() int {
+		srv.mu.RLock()
+		defer srv.mu.RUnlock()
+		n := 0
+		for _, p := range srv.players {
+			if p.Position != nil || p.posed.Load() {
+				n++
+			}
+		}
+		return n
+	}
+	if !waitFor(2*time.Second, func() bool { return broadcasting() == 4 }) {
+		t.Fatalf("broadcasting players %d, want 4", broadcasting())
+	}
+	host, hostIn := connectEnemy(t, addr, "alice", RoleEnemyHost)
+	bob, bobIn := connectEnemy(t, addr, "bob", RoleEnemyClient) // player "Bob", not its twin "BOB"
+	dup, _ := connectEnemy(t, addr, "dup", RoleEnemyClient)     // two players share the key
+	ghost, _ := connectEnemy(t, addr, "ghost", RoleEnemyClient) // no such player
+
+	want := func(n int) [][]byte {
+		t.Helper()
+		if !waitFor(2*time.Second, func() bool { return hostIn.len() == n }) {
+			t.Fatalf("host got %d payloads, want %d", hostIn.len(), n)
+		}
+		return hostIn.snapshot()
+	}
+	bob.SendEnemy(enemyPState(0x21))
+	got := want(1)[0]
+	if got[0] != EnemySubPState || got[3] != 0x21 || got[EnemyClientIDOff] != bob.MyID() || got[EnemyPStatePlayerIDOff] != players["Bob"].MyID() {
+		t.Errorf("PSTATE % x: want client %d player %d", got, bob.MyID(), players["Bob"].MyID())
+	}
+	bob.SendEnemy(enemyHit(4))
+	got = want(2)[1]
+	if got[EnemyClientIDOff] != bob.MyID() || got[EnemyHitPlayerIDOff] != players["Bob"].MyID() {
+		t.Errorf("HIT % x: want client %d player %d", got, bob.MyID(), players["Bob"].MyID())
+	}
+	bob.SendEnemy(enemyPAck(2))
+	got = want(3)[2]
+	if got[0] != EnemySubPAck || got[3] != 2 || got[EnemyClientIDOff] != bob.MyID() {
+		t.Errorf("PACK % x", got)
+	}
+	// A client that writes a player id itself is overwritten.
+	forged := enemyPState(1)
+	forged[EnemyPStatePlayerIDOff] = 99
+	dup.SendEnemy(forged)
+	if got = want(4)[3]; got[EnemyPStatePlayerIDOff] != 0 || got[EnemyClientIDOff] != dup.MyID() {
+		t.Errorf("ambiguous name: PSTATE % x, want player 0", got)
+	}
+	ghost.SendEnemy(enemyHit(1))
+	if got = want(5)[4]; got[EnemyHitPlayerIDOff] != 0 {
+		t.Errorf("unknown name: HIT % x, want player 0", got)
+	}
+
+	// PHIT host -> bob only, as an ACK.
+	host.SendEnemy(enemyPHit(bob.MyID(), 0x33))
+	if !waitFor(2*time.Second, func() bool { return bobIn.len() == 1 }) {
+		t.Fatal("PHIT not relayed")
+	}
+	if got := bobIn.snapshot()[0]; got[0] != EnemySubPHit || got[3] != 0x33 {
+		t.Errorf("bob got % x", got)
+	}
+	// Wrong directions are dropped: a PHIT from a client, a PSTATE from
+	// the host.
+	bob.SendEnemy(enemyPHit(bob.MyID(), 1))
+	host.SendEnemy(enemyPState(1))
+	time.Sleep(100 * time.Millisecond)
+	if bobIn.len() != 1 || hostIn.len() != 5 {
+		t.Errorf("stray relays: bob %d host %d", bobIn.len(), hostIn.len())
 	}
 }
 
