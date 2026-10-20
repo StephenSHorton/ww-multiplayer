@@ -76,6 +76,20 @@ func TestRemoteLinkProcs(t *testing.T) {
 		{"ProcBGN2", ProcBGN2, ProcBGN + 1},
 		{"ProcBGN3", ProcBGN3, ProcBGN + 2},
 		{"ProcBoko is not the Bokoblin", ProcBoko, 0x1D5},
+		{"ProcOship", ProcOship, 0xB4},
+		{"ProcBB", ProcBB, 0xB6},
+		{"ProcST (after BK)", ProcST, ProcBK + 1},
+		{"ProcTN (after ST)", ProcTN, ProcST + 1},
+		{"ProcAM", ProcAM, 0xCB},
+		{"ProcAM2 (after AM)", ProcAM2, ProcAM + 1},
+		{"ProcCC", ProcCC, 0xCF},
+		{"ProcPW (after BPW)", ProcPW, ProcBPW + 1},
+		{"ProcKI", ProcKI, 0xD8},
+		{"ProcBWDS (after BWD)", ProcBWDS, ProcBWD + 1},
+		{"ProcBMDFoot (after BMD)", ProcBMDFoot, ProcBMD + 2},
+		{"ProcFGMahou (after Fganon)", ProcFGMahou, ProcFganon + 1},
+		{"ProcSSS", ProcSSS, 0xFE},
+		{"ProcNpcJi1", ProcNpcJi1, 0x140},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s = 0x%X, want 0x%X", c.name, c.got, c.want)
@@ -84,7 +98,9 @@ func TestRemoteLinkProcs(t *testing.T) {
 	seen := map[int]string{}
 	for name, p := range map[string]int{"Player": ProcPlayer, "Mo2": ProcMo2, "FM": ProcFM, "BK": ProcBK, "BPW": ProcBPW,
 		"BWD": ProcBWD, "RD": ProcRD, "Daiocta": ProcDaiocta, "BTD": ProcBTD, "BMD": ProcBMD, "BDK": ProcBDK, "BST": ProcBST,
-		"Fganon": ProcFganon, "BGN": ProcBGN, "BGN2": ProcBGN2, "BGN3": ProcBGN3, "Boko": ProcBoko} {
+		"Fganon": ProcFganon, "BGN": ProcBGN, "BGN2": ProcBGN2, "BGN3": ProcBGN3, "Boko": ProcBoko,
+		"Oship": ProcOship, "BB": ProcBB, "ST": ProcST, "TN": ProcTN, "AM": ProcAM, "AM2": ProcAM2, "CC": ProcCC, "PW": ProcPW,
+		"KI": ProcKI, "BWDS": ProcBWDS, "BMDFoot": ProcBMDFoot, "FGMahou": ProcFGMahou, "SSS": ProcSSS, "NpcJi1": ProcNpcJi1} {
 		if other, ok := seen[p]; ok {
 			t.Errorf("Proc%s and Proc%s are both 0x%X", name, other, p)
 		}

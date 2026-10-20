@@ -179,13 +179,25 @@ func ParseRemoteFlags(s string) (uint16, error) {
 	return flags, nil
 }
 
-// SeedPolicy is the PROC_POLICY seed (§6.4): ALLOW the Moblin (the one
-// audited proc, §3), DENY the enemies whose execute writes into or grabs
-// the player and the bosses. Unlisted procs swap only under GROUP_WIDE.
+// SeedPolicy is the PROC_POLICY seed (§6.4, widened by the enemy audit of
+// 2026-10-20, ww-multiplayer-handoff/archive/enemy-audit): ALLOW the
+// enemies whose execute only reads the player (the Moblin, §3, and the
+// audited ones; the Bokoblin, Darknut, ChuChu and warship rely on the
+// REL's per-proc m714 rewrite and demo gates, remote.c rl_m714_off and
+// rl_proc_gated), Stalfos without the latch; DENY the enemies that grab,
+// possess or move the player or order events with it, and the bosses.
+// The DENY entries in the ENEMY group matter under GROUP_WIDE, which
+// swaps every unlisted enemy.
 func SeedPolicy() []mailbox.RemotePolicy {
-	p := []mailbox.RemotePolicy{{Proc: addr.ProcMo2, Flags: mailbox.RemotePFAllow}}
-	for _, proc := range []int16{addr.ProcFM, addr.ProcRD, addr.ProcBK, addr.ProcBPW, addr.ProcBWD, addr.ProcDaiocta,
-		addr.ProcBTD, addr.ProcBMD, addr.ProcBDK, addr.ProcBST, addr.ProcFganon, addr.ProcBGN, addr.ProcBGN2, addr.ProcBGN3} {
+	var p []mailbox.RemotePolicy
+	for _, proc := range []int16{addr.ProcMo2, addr.ProcBK, addr.ProcTN, addr.ProcCC, addr.ProcOship, addr.ProcBB,
+		addr.ProcAM, addr.ProcAM2, addr.ProcKI, addr.ProcBWDS, addr.ProcBMDFoot, addr.ProcBGN2, addr.ProcBGN3} {
+		p = append(p, mailbox.RemotePolicy{Proc: proc, Flags: mailbox.RemotePFAllow})
+	}
+	p = append(p, mailbox.RemotePolicy{Proc: addr.ProcST, Flags: mailbox.RemotePFAllow | mailbox.RemotePFNoLatch})
+	for _, proc := range []int16{addr.ProcFM, addr.ProcRD, addr.ProcPW, addr.ProcSSS, addr.ProcNpcJi1, addr.ProcFGMahou,
+		addr.ProcBPW, addr.ProcBWD, addr.ProcDaiocta, addr.ProcBTD, addr.ProcBMD, addr.ProcBDK, addr.ProcBST, addr.ProcFganon,
+		addr.ProcBGN} {
 		p = append(p, mailbox.RemotePolicy{Proc: proc, Flags: mailbox.RemotePFDeny})
 	}
 	return p

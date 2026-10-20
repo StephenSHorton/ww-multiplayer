@@ -63,20 +63,32 @@ func TestSeedPolicy(t *testing.T) {
 	if p[0] != (mailbox.RemotePolicy{Proc: addr.ProcMo2, Flags: mailbox.RemotePFAllow}) {
 		t.Errorf("seed[0] = %+v", p[0])
 	}
-	allow := 0
-	seen := map[int16]bool{}
+	flags := map[int16]uint8{}
 	for _, e := range p {
-		if seen[e.Proc] {
+		if _, ok := flags[e.Proc]; ok {
 			t.Errorf("proc 0x%X twice", e.Proc)
 		}
-		seen[e.Proc] = true
-		if e.Flags == mailbox.RemotePFAllow {
-			allow++
-		} else if e.Flags != mailbox.RemotePFDeny {
-			t.Errorf("proc 0x%X flags %d", e.Proc, e.Flags)
+		flags[e.Proc] = e.Flags
+	}
+	// The enemy audit's verdicts (players.go SeedPolicy).
+	for proc, want := range map[int16]uint8{
+		addr.ProcMo2: mailbox.RemotePFAllow, addr.ProcBK: mailbox.RemotePFAllow, addr.ProcTN: mailbox.RemotePFAllow,
+		addr.ProcCC: mailbox.RemotePFAllow, addr.ProcOship: mailbox.RemotePFAllow, addr.ProcKI: mailbox.RemotePFAllow,
+		addr.ProcST: mailbox.RemotePFAllow | mailbox.RemotePFNoLatch,
+		addr.ProcFM: mailbox.RemotePFDeny, addr.ProcRD: mailbox.RemotePFDeny, addr.ProcPW: mailbox.RemotePFDeny,
+		addr.ProcSSS: mailbox.RemotePFDeny, addr.ProcNpcJi1: mailbox.RemotePFDeny, addr.ProcFGMahou: mailbox.RemotePFDeny,
+		addr.ProcBGN: mailbox.RemotePFDeny, addr.ProcFganon: mailbox.RemotePFDeny,
+	} {
+		if flags[proc] != want {
+			t.Errorf("proc 0x%X flags %d, want %d", proc, flags[proc], want)
 		}
 	}
-	if allow != 1 || !seen[addr.ProcFM] || !seen[addr.ProcRD] || !seen[addr.ProcBK] || seen[addr.ProcBoko] || len(p) > mailbox.RemoteProcPolicyMax {
+	for proc, f := range flags {
+		if f&mailbox.RemotePFAllow != 0 && f&mailbox.RemotePFDeny != 0 || f&mailbox.RemotePFBothWords != 0 {
+			t.Errorf("proc 0x%X flags %d", proc, f)
+		}
+	}
+	if _, ok := flags[addr.ProcBoko]; ok || len(p) > mailbox.RemoteProcPolicyMax {
 		t.Errorf("seed = %+v", p)
 	}
 	if ff := SeedFFDeny(); len(ff) != mailbox.RemoteFFDenyMax {
