@@ -475,7 +475,7 @@ func TestRemoteHostEpoch(t *testing.T) {
 
 // ringHit is a Moblin spear hit on body slot.
 func ringHit(n uint32, slot uint8, setID uint16, frame uint32) mailbox.RemoteHit {
-	return mailbox.RemoteHit{Seq: uint16(n), Slot: slot, PID: 0x99, SetID: setID, Proc: addr.ProcMo2, AtType: 0x800, Atp: 2, Se: 3,
+	return mailbox.RemoteHit{Seq: uint16(n), Slot: slot, PID: 0x900 + uint32(setID), SetID: setID, Proc: addr.ProcMo2, AtType: 0x800, Atp: 2, Se: 3,
 		HitMark: 0x0D, Spl: 6, RelHit: [3]float32{1, 50, -1}, RVec: [3]float32{0, 0, 9}, Frame: frame}
 }
 
@@ -493,8 +493,9 @@ func push(t *testing.T, m *mem.FakeMem, st *mailbox.RemoteStatus, hits ...mailbo
 // TestRemoteHostPHit: the ring entries pushed before the host's first read
 // are not sent; a new Moblin hit on a slot becomes a PHIT to the client
 // of the PSTATE whose player owns the slot, with the host's epoch, scope
-// and the entry's attacker fields; non-Moblin, unkeyed, unowned and
-// clientless hits are dropped and counted; one per (client, setID) per
+// and the entry's attacker fields; a non-Moblin or unkeyed attacker goes
+// with NoMirrorSetID (the client's stand-in owner); unowned and clientless
+// hits are dropped and counted; one per (client, attacker) per
 // PHitRateFrames.
 func TestRemoteHostPHit(t *testing.T) {
 	m, scope, r := remoteHostGame(t, mailbox.RemoteFlagDetect)
@@ -514,7 +515,7 @@ func TestRemoteHostPHit(t *testing.T) {
 	notKeyed.HFlags = mailbox.RemoteHFNotKeyed
 	push(t, m, &st, shield, notMo2, notKeyed, ringHit(0, 1, 1, 200)) // the last: slot 1's owner has no PSTATE
 	out, err := r.Tick(now, scope, true, views, now)
-	if err != nil || len(out) != 1 {
+	if err != nil || len(out) != 3 {
 		t.Fatalf("PHITs %+v %v", out, err)
 	}
 	want := &PHit{Client: 2, Flags: PHitHostShield | PHitHostGuard, Epoch: 9, Stage: "M_Dai", Room: 1, Atp: 2, SetID: 1, Seq: 1,
@@ -522,14 +523,19 @@ func TestRemoteHostPHit(t *testing.T) {
 	if !reflect.DeepEqual(out[0], want) {
 		t.Errorf("PHIT\n got %+v\nwant %+v", out[0], want)
 	}
-	if s := r.Stats; s.DropNotMo2 != 1 || s.DropNotKeyed != 1 || s.DropNoClient != 1 || s.PHits != 1 {
+	for i, o := range out[1:] {
+		if o.SetID != NoMirrorSetID || o.Seq != uint16(i+2) {
+			t.Errorf("stand-in PHIT %d: %+v", i, o)
+		}
+	}
+	if s := r.Stats; s.StandIn != 2 || s.DropNoClient != 1 || s.PHits != 3 {
 		t.Errorf("stats %+v", s)
 	}
-	// The rate limit: same (client, setID) within 15 frames dropped,
-	// another setID and a later frame sent; seq counts per client.
+	// The rate limit: same (client, attacker) within 15 frames dropped,
+	// another attacker and a later frame sent; seq counts per client.
 	push(t, m, &st, ringHit(0, 0, 1, 210), ringHit(0, 0, 3, 211), ringHit(0, 0, 1, 215))
 	out, _ = r.Tick(now, scope, true, views, now)
-	if len(out) != 2 || out[0].SetID != 3 || out[0].Seq != 2 || out[1].SetID != 1 || out[1].Seq != 3 || r.Stats.DropRate != 1 {
+	if len(out) != 2 || out[0].SetID != 3 || out[0].Seq != 4 || out[1].SetID != 1 || out[1].Seq != 5 || r.Stats.DropRate != 1 {
 		t.Errorf("rate: %+v drops %d", out, r.Stats.DropRate)
 	}
 	// An unowned slot (the remote left).

@@ -564,8 +564,8 @@ type RemoteHost struct {
 	owners        [mailbox.RemoteMaxSlots]slotOwner
 	haveHead      bool
 	lastHead      uint32
-	lastPHit      map[uint32]uint32 // (client<<16 | setID) -> host REL frame of the last PHIT
-	phitSeq       map[uint8]uint16  // per target client
+	lastPHit      map[phitKey]uint32 // (client, attacker pid) -> host REL frame of the last PHIT
+	phitSeq       map[uint8]uint16   // per target client
 	logNext       time.Time
 	dropWarned    map[string]bool
 	gate          *heapGate // the full-body heap gate, under FULL_BODIES with HeapGate
@@ -574,6 +574,17 @@ type RemoteHost struct {
 
 	Stats RemoteHostStats
 }
+
+// phitKey is a PHIT rate key: one per (target client, attacker).
+type phitKey struct {
+	client uint8
+	pid    uint32
+}
+
+// NoMirrorSetID is a PHIT's SetID for an attacker the client has no mirror
+// of (a non-Moblin, an unkeyed Moblin): above every keyed setID, so the
+// client REL takes its stand-in owner.
+const NoMirrorSetID = 0xFFFF
 
 // arrival is what slots keeps per remote to tell when its position
 // belongs to the stage its PSTATE names: during and after a load the
@@ -607,15 +618,18 @@ type RemoteHostStats struct {
 	Writes, PStates, PStatesUnmapped, PHits, PAcks uint64
 	// Ring hits dropped by why: not a Moblin, not keyed, no owner, no
 	// client id for the owner, rate limited.
-	DropNotMo2, DropNotKeyed, DropNoOwner, DropNoClient, DropRate uint64
-	LastStatus                                                    mailbox.RemoteStatus
+	DropNoOwner, DropNoClient, DropRate uint64
+	// StandIn counts PHITs from an attacker the client has no mirror of
+	// (sent with NoMirrorSetID).
+	StandIn    uint64
+	LastStatus mailbox.RemoteStatus
 }
 
 // NewRemoteHost returns the host side over m with cfg; epoch is the host
 // STATE epoch every PHIT carries.
 func NewRemoteHost(m mem.Mem, rep log.Reporter, cfg RemoteConfig, epoch uint32) *RemoteHost {
 	return &RemoteHost{m: m, rep: rep, cfg: cfg, epoch: epoch, blockEpoch: epoch << 8,
-		pstates: map[uint8]pstateEntry{}, hitCuts: map[uint8]hitCut{}, arrive: map[uint8]arrival{}, lastPHit: map[uint32]uint32{},
+		pstates: map[uint8]pstateEntry{}, hitCuts: map[uint8]hitCut{}, arrive: map[uint8]arrival{}, lastPHit: map[phitKey]uint32{},
 		phitSeq: map[uint8]uint16{}, dropWarned: map[string]bool{}, gate: newHeapGate(cfg.HeapSizes, int(cfg.FullMax))}
 }
 
@@ -871,20 +885,16 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 }
 
 // phit turns a ring entry into the PHIT for its body's player, or nil
-// (dropped and counted): a non-Moblin or unkeyed attacker (Go drops them,
-// §7.2), a slot nobody owns, an owner whose enemy client is unknown (no
-// PSTATE yet), or within PHitRateFrames of the last PHIT for that
-// (client, attacker).
+// (dropped and counted): a slot nobody owns, an owner whose enemy client
+// is unknown (no PSTATE yet), or within PHitRateFrames of the last PHIT
+// for that (client, attacker). A non-Moblin or unkeyed attacker has no
+// mirror on the client: it goes with SetID NoMirrorSetID, and the
+// client REL replays it with its keeper as the stand-in At owner.
 func (r *RemoteHost) phit(h *mailbox.RemoteHit, b *mailbox.RemoteBlock, scope Scope) *PHit {
-	switch {
-	case h.HFlags&mailbox.RemoteHFNotMo2 != 0:
-		r.Stats.DropNotMo2++
-		r.warnDrop("not_mo2", fmt.Sprintf("a proc 0x%X attacker hit a remote body; only Moblin hits are sent", uint16(h.Proc)))
-		return nil
-	case h.HFlags&mailbox.RemoteHFNotKeyed != 0:
-		r.Stats.DropNotKeyed++
-		r.warnDrop("not_keyed", fmt.Sprintf("an unkeyed Moblin (setID 0x%X) hit a remote body; it has no mirror to replay it from", h.SetID))
-		return nil
+	setID := h.SetID
+	if h.HFlags&(mailbox.RemoteHFNotMo2|mailbox.RemoteHFNotKeyed) != 0 {
+		setID = NoMirrorSetID
+		r.Stats.StandIn++
 	}
 	if int(h.Slot) >= mailbox.MaxRemoteLinks || r.owners[h.Slot].player == 0 {
 		r.Stats.DropNoOwner++
@@ -899,14 +909,14 @@ func (r *RemoteHost) phit(h *mailbox.RemoteHit, b *mailbox.RemoteBlock, scope Sc
 		return nil
 	}
 	client := ps.p.Client
-	key := uint32(client)<<16 | uint32(h.SetID)
+	key := phitKey{client, h.PID}
 	if last, ok := r.lastPHit[key]; ok && h.Frame-last < PHitRateFrames {
 		r.Stats.DropRate++
 		return nil
 	}
 	r.lastPHit[key] = h.Frame
 	r.phitSeq[client]++
-	p := &PHit{Client: client, Epoch: r.epoch, Stage: scope.Stage, Room: scope.Room, Atp: h.Atp, SetID: h.SetID,
+	p := &PHit{Client: client, Epoch: r.epoch, Stage: scope.Stage, Room: scope.Room, Atp: h.Atp, SetID: setID,
 		Seq: r.phitSeq[client], Se: h.Se, HitMark: h.HitMark, AtType: h.AtType, Spl: h.Spl, RelHit: h.RelHit, RVec: h.RVec,
 		HostFrame: h.Frame}
 	if len(p.Stage) > StageLen {
