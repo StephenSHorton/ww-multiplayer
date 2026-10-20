@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"image/png"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/host"
@@ -223,7 +225,7 @@ func waitForModBlob(pid uint32, timeout time.Duration) error {
 
 // driveMenusToInGame sends the canonical "boot to Outset" sequence:
 // 9× Start to clear title + intro pages, then spams A every 1.5 s until
-// Link's actor pointer appears in RAM. WW's File Selection has *two*
+// Link is in play (inPlay). WW's File Selection has *two*
 // confirmation steps (pick quest-log slot → Start-button-highlighted
 // detail view), so we don't hardcode an A count — we just keep
 // pressing A until we're in-game or hit the 30 s ceiling.
@@ -245,7 +247,7 @@ func driveMenusToInGame(pid uint32, rep log.Reporter) error {
 	rep.Log(log.Info, "confirming menus with A until Link spawns")
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		if player.NewLink(d).Ready() {
+		if inPlay(d) {
 			// Give the spawn animation a beat to settle so the save
 			// state captures Link standing, not mid-fade-in.
 			time.Sleep(1500 * time.Millisecond)
@@ -256,7 +258,26 @@ func driveMenusToInGame(pid uint32, rep log.Reporter) error {
 		}
 		time.Sleep(1500 * time.Millisecond)
 	}
-	return fmt.Errorf("Link actor never appeared within 30s of menu-confirm A presses")
+	return fmt.Errorf("Link never reached a play stage within 30s of menu-confirm A presses")
+}
+
+// inPlay reports whether Link is in a play stage: his pointer alone is
+// not enough, since the title's sea_T and file select's Name scenes
+// leave mpPlayerPtr[0] pointing into MEM1 too (the driver used to stop
+// at File Selection on it and wait for Shift+F1 there).
+func inPlay(d *emu.Dolphin) bool {
+	if !player.NewLink(d).Ready() {
+		return false
+	}
+	b, err := d.Read(addr.CurStageName, addr.StageNameLen)
+	if err != nil {
+		return false
+	}
+	if i := bytes.IndexByte(b, 0); i >= 0 {
+		b = b[:i]
+	}
+	name := string(b)
+	return name != "" && name != addr.StageTitle && name != addr.StageFileSelect
 }
 
 // waitForSaveFileUpdate polls the given path until its mtime advances
