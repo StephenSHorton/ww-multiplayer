@@ -689,3 +689,49 @@ func TestMirrorReadHit(t *testing.T) {
 		t.Errorf("hit object reads %x, want one of 0x60 bytes at obj+0x10", objReads)
 	}
 }
+
+// TestMirrorRELStall: a REL frame counter that stands still (the pause
+// menu, an event, a hit-stop, a host running slowly) gates the mirror,
+// and when it moves on again the mirror resumes in the same epoch; only a
+// counter that starts over (a relink) starts a new epoch.
+func TestMirrorRELStall(t *testing.T) {
+	_, m, _, tick := clientRoom(t)
+	start := time.Unix(3000, 0)
+	c := NewMirror(m, log.Discard{}, nil, false, start)
+	now := start
+	pushState(t, c, hostState(1, 0), now)
+	tick()
+	if _, sleep, err := c.Tick(now); err != nil || sleep != 0 {
+		t.Fatalf("arm: sleep %v err %v", sleep, err)
+	}
+	epoch := c.Epoch()
+	// Still across a RELEvery: gated, same epoch.
+	now = now.Add(RELEvery)
+	if _, sleep, _ := c.Tick(now); sleep != GateSleep {
+		t.Fatalf("a still counter is not gated (sleep %v)", sleep)
+	}
+	// Moving again (one frame on, as a slow host would): resumed, same epoch.
+	now = now.Add(RELEvery)
+	tick()
+	pushState(t, c, hostState(2, 16), now)
+	if _, sleep, err := c.Tick(now); err != nil || sleep != 0 {
+		t.Fatalf("resume: sleep %v err %v", sleep, err)
+	}
+	if c.Epoch() != epoch {
+		t.Errorf("a stall and resume moved the epoch %d -> %d", epoch, c.Epoch())
+	}
+	// Still again, then the counter starts over (a relink): a new epoch.
+	now = now.Add(RELEvery)
+	c.Tick(now)
+	if err := mailbox.WriteREL(gameWriter{m}, mailbox.REL{Linked: true, BuildID: inject.RELBuildID, Frames: 3}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(RELEvery)
+	pushState(t, c, hostState(3, 32), now)
+	if _, sleep, err := c.Tick(now); err != nil || sleep != 0 {
+		t.Fatalf("relinked: sleep %v err %v", sleep, err)
+	}
+	if c.Epoch() != epoch+1 {
+		t.Errorf("epoch %d after the counter started over, want %d", c.Epoch(), epoch+1)
+	}
+}

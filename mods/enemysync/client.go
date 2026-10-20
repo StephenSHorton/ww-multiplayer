@@ -190,6 +190,10 @@ func (c *Mirror) checkContract(now time.Time) bool {
 	return c.contractOK
 }
 
+// relStill is checkREL's reason while the REL actor's frame counter
+// stands still.
+const relStill = "the REL module's actor is not running (its frame counter is still)"
+
 // checkREL reads the REL words every RELEvery: linked with this build's
 // id and its frame counter moving since the last read.
 func (c *Mirror) checkREL(now time.Time) bool {
@@ -208,14 +212,19 @@ func (c *Mirror) checkREL(now time.Time) bool {
 	case r.BuildID != inject.RELBuildID:
 		why = fmt.Sprintf("the linked REL module is build %08X, this build's is %08X", r.BuildID, inject.RELBuildID)
 	case r.Frames == c.relFrames:
-		why = "the REL module's actor is not running (its frame counter is still)"
+		why = relStill
 	}
+	// A relink is the module gone or replaced, or its counter starting
+	// over (a new link counts from 0). A counter that stood still and then
+	// moves on (the pause menu, an event, a hit-stop, a slow host) is the
+	// same link: no new epoch, which would release and re-adopt every copy.
+	relinked := c.relWhy != "" && c.relWhy != relStill || r.Frames < c.relFrames
 	c.relFrames = r.Frames
 	ok := why == ""
 	if ok != c.relOK || (why != "" && why != c.relWhy) {
 		if ok {
 			c.rep.Log(log.OK, fmt.Sprintf("enemy client: REL module linked (build %08X, frame %d)", r.BuildID, r.Frames))
-			if c.relWhy != "" {
+			if c.relWhy != "" && relinked {
 				c.newEpoch("REL module relinked")
 			}
 		} else {
