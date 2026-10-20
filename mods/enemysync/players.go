@@ -54,6 +54,13 @@ const (
 	// RosterStale is how old the roster may be before the host treats
 	// every slot as empty (PuppetSync publishes every 16 ms).
 	RosterStale = time.Second
+	// SettleDist is how far a slot's smoothed position may trail the
+	// remote's last position before the slot counts as still crossing a
+	// jump (heapgate.go holds its FULL create: a body placed mid-slide can
+	// land over the void and never find ground). Running trails by about
+	// 35 units and the ship at full sail by about 110; a stage change,
+	// warp or void-out moves thousands.
+	SettleDist = 300
 	// HitCutHold is how long a HIT's cut type and count override the
 	// PSTATE's in the sender's slot (ATTRIB stages them into the body).
 	HitCutHold = 500 * time.Millisecond
@@ -675,9 +682,10 @@ func slotFlags(p *PState, scope Scope, live bool) uint8 {
 
 // slots lays out the block's slots: slot i is pose-feed slot i (the
 // roster's LinkSlot), so PoseSlot = i. An owner change bumps the slot's
-// gen (the REL recreates the body).
-func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteView) [mailbox.RemoteMaxSlots]mailbox.RemoteSlot {
-	var out [mailbox.RemoteMaxSlots]mailbox.RemoteSlot
+// gen (the REL recreates the body). settling marks the slots whose
+// position is still more than SettleDist from the remote's (the smoother
+// crossing a jump).
+func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteView) (out [mailbox.RemoteMaxSlots]mailbox.RemoteSlot, settling [mailbox.RemoteMaxSlots]bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for i := range mailbox.MaxRemoteLinks {
@@ -697,6 +705,12 @@ func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteVi
 		}
 		s := mailbox.RemoteSlot{Active: true, PlayerID: v.ID, Pos: v.Pos, AngleY: v.RotY, EyeDY: r.cfg.EyeDY,
 			CylR: r.cfg.CylR, CylH: r.cfg.CylH, PoseSlot: uint8(i), Gen: r.owners[i].gen}
+		var d2 float32
+		for k := range 3 {
+			d := v.Target[k] - v.Pos[k]
+			d2 += d * d
+		}
+		settling[i] = d2 > SettleDist*SettleDist
 		ps, ok := r.pstates[v.ID]
 		if !ok || now.Sub(ps.at) > PStateStale {
 			// No stage: the REL parks the body (stage mismatch).
@@ -713,7 +727,7 @@ func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteVi
 		s.SFlags = slotFlags(p, scope, v.Live)
 		out[i] = s
 	}
-	return out
+	return out, settling
 }
 
 // Tick runs the host side once at now: with the block on and relOK (the
@@ -736,14 +750,15 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 		views = nil
 	}
 	b := r.cfg.block(mailbox.RemoteRoleHost, nextSeq(&r.seq), r.blockEpoch)
-	b.Slots = r.slots(now, scope, views)
+	var settling [mailbox.RemoteMaxSlots]bool
+	b.Slots, settling = r.slots(now, scope, views)
 	b.Flags2 = r.cfg.Flags2
 	if r.cfg.Flags&mailbox.RemoteFlagFullBodies != 0 && r.cfg.HeapGate {
 		// The verdict goes out with this block, from the status the last
 		// Tick read; a gate read error shuts it (NO_SAMPLE) and is logged.
 		was := r.gate.reason
 		var gerr error
-		b.FullAllow, b.HeapReason, gerr = r.gate.tick(r.m, now, scope, stageChanged, &r.Stats.LastStatus, r.statusAt, &b.Slots)
+		b.FullAllow, b.HeapReason, gerr = r.gate.tick(r.m, now, scope, stageChanged, &r.Stats.LastStatus, r.statusAt, &b.Slots, &settling)
 		switch {
 		case gerr != nil && !r.gateErrLogged:
 			r.gateErrLogged = true

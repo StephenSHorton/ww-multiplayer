@@ -386,3 +386,29 @@ func TestHeapGateLog(t *testing.T) {
 		}
 	}
 }
+
+// TestHeapGateSettling: a slot whose position still trails its remote's
+// by more than SettleDist (the smoother crossing a stage change) gets no
+// bit and holds with QUEUED, a transient reason the REL waits on; once it
+// arrives the bit is its.
+func TestHeapGateSettling(t *testing.T) {
+	g := newGateRig(t, nil)
+	g.views[0].Pos = [3]float32{1398.9, 3648.4, -2063.9} // the stage before
+	g.views[0].Target = [3]float32{-7003.8, -300, 3090.5}
+	g.want("first sample", g.tick(16*time.Millisecond), 0, mailbox.RemoteHGStageSettle)
+	g.want("between samples", g.tick(100*time.Millisecond), 0, mailbox.RemoteHGStageSettle)
+	g.want("sliding", g.tick(150*time.Millisecond), 0, mailbox.RemoteHGQueued)
+	g.want("still sliding", g.tick(250*time.Millisecond), 0, mailbox.RemoteHGQueued)
+	// Within SettleDist (running lag): the bit.
+	g.views[0].Pos = [3]float32{-6990, -295, 3080}
+	g.tick(16 * time.Millisecond)
+	g.want("arrived", g.tick(250*time.Millisecond), 0x01, mailbox.RemoteHGOpen)
+
+	// Two slots, 0 sliding: 1 gets the bit, QUEUED (0 still waits).
+	g = newGateRig(t, nil)
+	g.views[0].Target = [3]float32{5000, 0, 0}
+	g.views = append(g.views, posefeed.RemoteView{ID: 5, LinkSlot: 1, Live: true})
+	g.want("first sample", g.tick(16*time.Millisecond), 0, mailbox.RemoteHGStageSettle)
+	g.want("between samples", g.tick(100*time.Millisecond), 0, mailbox.RemoteHGStageSettle)
+	g.want("1 first", g.tick(150*time.Millisecond), 0x02, mailbox.RemoteHGQueued)
+}
