@@ -33,6 +33,7 @@ face-sync-watch
 face-tev-hammer
 find-pos
 frame-phase-probe
+fullbody-globals
 heap-free
 help
 input

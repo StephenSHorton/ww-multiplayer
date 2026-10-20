@@ -130,6 +130,8 @@ func commandTable() []command {
 		{name: "remote-watch", group: groupDev, run: runRemoteWatch},
 		{name: "remote-flags", group: groupDev, run: runRemoteFlags},
 		{name: "remote-slot", group: groupDev, run: runRemoteSlot},
+		// Stage 4 full body: the section 3.5 globals before/after (fullbody_globals.go).
+		{name: "fullbody-globals", group: groupDev, run: runFullbodyGlobals},
 	}
 }
 
