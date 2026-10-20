@@ -29,8 +29,13 @@ type RemoteView struct {
 	// Pos is where its mini-Link stands: the lerp-smoothed position the
 	// pose is re-applied at, plus WW_LINK2_OFFSET (feedPose). RotY is the
 	// remote's raw current angle.y (moveActor writes it unsmoothed too).
-	Pos  [3]float32
-	RotY int16
+	Pos [3]float32
+	// Target is where the remote's last position puts it (unsmoothed,
+	// plus the same offset): Pos closes on it every tick, so a big gap is
+	// the smoother still crossing a jump (a stage change, a warp, a
+	// void-out).
+	Target [3]float32
+	RotY   int16
 	// Live is false while its pose stream is frozen or despawned
 	// (network.PoseLiveness): the mini-Link holds a stale pose.
 	Live bool
@@ -98,7 +103,8 @@ func (f *Feeder) Views(remotes []network.RemotePlayer, now time.Time) []RemoteVi
 		}
 		st := &f.slots[idx]
 		v := RemoteView{ID: rp.ID, Name: rp.Name, LinkSlot: -1, RotY: rp.Position.RotY,
-			Pos: [3]float32{st.curX + f.offX, st.curY + f.offY, st.curZ + f.offZ}}
+			Pos:    [3]float32{st.curX + f.offX, st.curY + f.offY, st.curZ + f.offZ},
+			Target: [3]float32{rp.Position.PosX + f.offX, rp.Position.PosY + f.offY, rp.Position.PosZ + f.offZ}}
 		if ls, ok := f.remoteToLinkSlot[rp.ID]; ok {
 			v.LinkSlot = ls
 			frozen, despawned := network.PoseLiveness(rp.LastPose, now, f.freezeAfter, f.despawnAfter)

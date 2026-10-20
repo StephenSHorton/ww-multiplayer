@@ -54,6 +54,18 @@ const (
 	// RosterStale is how old the roster may be before the host treats
 	// every slot as empty (PuppetSync publishes every 16 ms).
 	RosterStale = time.Second
+	// SettleDist is how far a slot's smoothed position may trail the
+	// remote's last position before the slot counts as still crossing a
+	// jump (heapgate.go holds its FULL create: a body placed mid-slide can
+	// land over the void and never find ground). Running trails by about
+	// 35 units and the ship at full sail by about 110; a stage change,
+	// warp or void-out moves thousands.
+	SettleDist = 300
+	// ArriveWait is how long after a load a slot waits for a new
+	// position before it stops waiting (the REL gives up on its FULL
+	// bit after RL_FULL_WAIT, 120 frames = 4 s): a remote that respawned
+	// exactly where it was would otherwise never get a FULL body.
+	ArriveWait = 2500 * time.Millisecond
 	// HitCutHold is how long a HIT's cut type and count override the
 	// PSTATE's in the sender's slot (ATTRIB stages them into the body).
 	HitCutHold = 500 * time.Millisecond
@@ -530,7 +542,8 @@ type RemoteHost struct {
 	mu      sync.Mutex
 	pstates map[uint8]pstateEntry // by player id
 	packs   []*PAck
-	hitCuts map[uint8]hitCut // by player id: the last HIT's cut type and count
+	hitCuts map[uint8]hitCut  // by player id: the last HIT's cut type and count
+	arrive  map[uint8]arrival // by player id: has a position come in since its stage changed
 
 	seq           uint32
 	blockEpoch    uint32 // the WWRP epoch: bumped on a stage change
@@ -548,6 +561,18 @@ type RemoteHost struct {
 	gateErrLogged bool
 
 	Stats RemoteHostStats
+}
+
+// arrival is what slots keeps per remote to tell when its position
+// belongs to the stage its PSTATE names: during and after a load the
+// position stream still carries the stage before's coordinates until the
+// new Link sends one.
+type arrival struct {
+	stage   string
+	target  [3]float32 // the position when the load began
+	loading bool
+	moved   bool      // a new position has come in since
+	loaded  time.Time // when the load ended
 }
 
 type pstateEntry struct {
@@ -578,7 +603,7 @@ type RemoteHostStats struct {
 // STATE epoch every PHIT carries.
 func NewRemoteHost(m mem.Mem, rep log.Reporter, cfg RemoteConfig, epoch uint32) *RemoteHost {
 	return &RemoteHost{m: m, rep: rep, cfg: cfg, epoch: epoch, blockEpoch: epoch << 8,
-		pstates: map[uint8]pstateEntry{}, hitCuts: map[uint8]hitCut{}, lastPHit: map[uint32]uint32{},
+		pstates: map[uint8]pstateEntry{}, hitCuts: map[uint8]hitCut{}, arrive: map[uint8]arrival{}, lastPHit: map[uint32]uint32{},
 		phitSeq: map[uint8]uint16{}, dropWarned: map[string]bool{}, gate: newHeapGate(cfg.HeapSizes, int(cfg.FullMax))}
 }
 
@@ -675,9 +700,10 @@ func slotFlags(p *PState, scope Scope, live bool) uint8 {
 
 // slots lays out the block's slots: slot i is pose-feed slot i (the
 // roster's LinkSlot), so PoseSlot = i. An owner change bumps the slot's
-// gen (the REL recreates the body).
-func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteView) [mailbox.RemoteMaxSlots]mailbox.RemoteSlot {
-	var out [mailbox.RemoteMaxSlots]mailbox.RemoteSlot
+// gen (the REL recreates the body). settling marks the slots whose
+// position is still more than SettleDist from the remote's (the smoother
+// crossing a jump).
+func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteView) (out [mailbox.RemoteMaxSlots]mailbox.RemoteSlot, settling [mailbox.RemoteMaxSlots]bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for i := range mailbox.MaxRemoteLinks {
@@ -697,6 +723,12 @@ func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteVi
 		}
 		s := mailbox.RemoteSlot{Active: true, PlayerID: v.ID, Pos: v.Pos, AngleY: v.RotY, EyeDY: r.cfg.EyeDY,
 			CylR: r.cfg.CylR, CylH: r.cfg.CylH, PoseSlot: uint8(i), Gen: r.owners[i].gen}
+		var d2 float32
+		for k := range 3 {
+			d := v.Target[k] - v.Pos[k]
+			d2 += d * d
+		}
+		settling[i] = d2 > SettleDist*SettleDist
 		ps, ok := r.pstates[v.ID]
 		if !ok || now.Sub(ps.at) > PStateStale {
 			// No stage: the REL parks the body (stage mismatch).
@@ -705,6 +737,36 @@ func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteVi
 			continue
 		}
 		p := &ps.p
+		loading := p.Flags&PSLoading != 0
+		a, seen := r.arrive[v.ID]
+		switch {
+		case loading && !(seen && a.loading):
+			// A load begins: the position now is the stage before's (no
+			// Link sends one until the new stage spawns it). Wait for a
+			// new one; it may come in before PSTATE's loading flag clears.
+			a = arrival{stage: p.Stage, target: v.Target, loading: true}
+		case loading:
+			a.stage = p.Stage
+		case a.loading:
+			a.loading, a.stage, a.loaded = false, p.Stage, now
+		case !seen || p.Stage != a.stage:
+			// First sight, or a change seen in play: whatever position
+			// came with it is the new stage's (SettleDist covers a slide).
+			a = arrival{stage: p.Stage, target: v.Target, moved: true}
+		}
+		if v.Target != a.target || (!a.loading && now.Sub(a.loaded) > ArriveWait) {
+			a.moved = true
+		}
+		r.arrive[v.ID] = a
+		settling[i] = settling[i] || !a.moved
+		if loading {
+			// Loading: no stage, as for a stale PSTATE, so the REL neither
+			// creates a body at the stage before's position nor runs down
+			// its FULL wait; a body it has parks.
+			s.SFlags = slotFlags(p, scope, v.Live)
+			out[i] = s
+			continue
+		}
 		s.Stage, s.Room, s.IFrames, s.ShieldAngleY = p.Stage, p.Room, p.IFrames, p.ShieldAngleY
 		s.CutType, s.CutCount = p.CutType, p.CutCount
 		if hc, ok := r.hitCuts[v.ID]; ok && now.Sub(hc.at) <= HitCutHold {
@@ -713,7 +775,7 @@ func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteVi
 		s.SFlags = slotFlags(p, scope, v.Live)
 		out[i] = s
 	}
-	return out
+	return out, settling
 }
 
 // Tick runs the host side once at now: with the block on and relOK (the
@@ -736,14 +798,15 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 		views = nil
 	}
 	b := r.cfg.block(mailbox.RemoteRoleHost, nextSeq(&r.seq), r.blockEpoch)
-	b.Slots = r.slots(now, scope, views)
+	var settling [mailbox.RemoteMaxSlots]bool
+	b.Slots, settling = r.slots(now, scope, views)
 	b.Flags2 = r.cfg.Flags2
 	if r.cfg.Flags&mailbox.RemoteFlagFullBodies != 0 && r.cfg.HeapGate {
 		// The verdict goes out with this block, from the status the last
 		// Tick read; a gate read error shuts it (NO_SAMPLE) and is logged.
 		was := r.gate.reason
 		var gerr error
-		b.FullAllow, b.HeapReason, gerr = r.gate.tick(r.m, now, scope, stageChanged, &r.Stats.LastStatus, r.statusAt, &b.Slots)
+		b.FullAllow, b.HeapReason, gerr = r.gate.tick(r.m, now, scope, stageChanged, &r.Stats.LastStatus, r.statusAt, &b.Slots, &settling)
 		switch {
 		case gerr != nil && !r.gateErrLogged:
 			r.gateErrLogged = true

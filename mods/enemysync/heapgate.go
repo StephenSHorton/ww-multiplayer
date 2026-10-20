@@ -22,14 +22,17 @@ import (
 // what holds on this Tick's inputs. The bit goes only to a slot the REL
 // can create in (createEligible); while another such slot waits for a
 // body the open gate says QUEUED, so that slot waits its turn instead of
-// falling back to lite.
+// falling back to lite. A slot whose position is still crossing a jump
+// (settling, players.go SettleDist) waits too: it counts as waiting but
+// gets no bit until it arrives.
 
 // Heap gate timing.
 const (
 	// HeapSampleFresh is how old a sample may be and still open the gate.
 	HeapSampleFresh = 500 * time.Millisecond
 	// HeapWalkFast is the walk cadence while an active slot has no body
-	// (it may want a full one); HeapWalkSlow otherwise (for the log).
+	// (it may want a full one, a settling one too); HeapWalkSlow
+	// otherwise (for the log).
 	HeapWalkFast = 250 * time.Millisecond
 	HeapWalkSlow = 2 * time.Second
 	// heapSettleSamples is how many good samples a new stage needs.
@@ -116,8 +119,8 @@ func shanmAllocated(m mem.Reader) (bool, error) {
 // about to be written. Read errors are counted and shut the gate
 // (NO_SAMPLE) for the Tick; they are returned for the log.
 func (g *heapGate) tick(m mem.Reader, now time.Time, scope Scope, stageChanged bool, st *mailbox.RemoteStatus, stAt time.Time,
-	slots *[mailbox.RemoteMaxSlots]mailbox.RemoteSlot) (uint8, uint8, error) {
-	allow, reason, err := g.verdict(m, now, scope, stageChanged, st, stAt, slots)
+	slots *[mailbox.RemoteMaxSlots]mailbox.RemoteSlot, settling *[mailbox.RemoteMaxSlots]bool) (uint8, uint8, error) {
+	allow, reason, err := g.verdict(m, now, scope, stageChanged, st, stAt, slots, settling)
 	g.allow, g.reason = allow, reason
 	return allow, reason, err
 }
@@ -134,7 +137,7 @@ func createEligible(s *mailbox.RemoteSlot, scope Scope) bool {
 }
 
 func (g *heapGate) verdict(m mem.Reader, now time.Time, scope Scope, stageChanged bool, st *mailbox.RemoteStatus, stAt time.Time,
-	slots *[mailbox.RemoteMaxSlots]mailbox.RemoteSlot) (uint8, uint8, error) {
+	slots *[mailbox.RemoteMaxSlots]mailbox.RemoteSlot, settling *[mailbox.RemoteMaxSlots]bool) (uint8, uint8, error) {
 	if stageChanged || scope.Pending {
 		g.flux = true
 	}
@@ -159,6 +162,8 @@ func (g *heapGate) verdict(m mem.Reader, now time.Time, scope Scope, stageChange
 		}
 		waiting++
 		switch {
+		case settling[i]:
+			// Still crossing a jump: it waits (QUEUED) for its position.
 		case b.Kind == mailbox.RemoteKindFull && b.Tries > 0:
 			if spent < 0 {
 				spent = i
@@ -200,6 +205,11 @@ func (g *heapGate) verdict(m mem.Reader, now time.Time, scope Scope, stageChange
 		}
 	}
 
+	if (want >= 0 || waiting > 0) && g.nextWalk.After(now.Add(HeapWalkFast)) {
+		// A slot began waiting during a slow walk: walk at once rather
+		// than spend the REL's FULL wait on NO_SAMPLE.
+		g.nextWalk = now
+	}
 	var walkErr error
 	if !now.Before(g.nextWalk) {
 		archive, err := shanmAllocated(m)
@@ -223,7 +233,7 @@ func (g *heapGate) verdict(m mem.Reader, now time.Time, scope Scope, stageChange
 		switch {
 		case g.problems > 0 && g.problems < heapProblemStreak:
 			g.nextWalk = now
-		case want >= 0:
+		case want >= 0 || waiting > 0:
 			g.nextWalk = now.Add(HeapWalkFast)
 		default:
 			g.nextWalk = now.Add(HeapWalkSlow)
@@ -256,6 +266,10 @@ func (g *heapGate) verdict(m mem.Reader, now time.Time, scope Scope, stageChange
 		return 0, r, walkErr
 	}
 	if want < 0 {
+		if waiting > 0 {
+			// Every waiting slot is settling: they hold for their bit.
+			return 0, mailbox.RemoteHGQueued, walkErr
+		}
 		return 0, mailbox.RemoteHGOpen, walkErr
 	}
 	if waiting > 1 {
