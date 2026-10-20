@@ -924,6 +924,9 @@ func fgJudge(da, db, dbase *fgDump, a, b *fgCapture, ra, rb fgRole) (string, str
 				other += fmt.Sprintf("; b maba_timer %d..%d outside the baseline %d..%d", alo, ahi, lo, hi)
 			}
 		}
+		// Judge both dumps and report the worst: a FAIL in b must not
+		// hide behind a MASKED a.
+		verdict, why := fgPass, "blink still running"
 		for _, d := range []struct {
 			r fgRole
 			n int
@@ -933,19 +936,21 @@ func fgJudge(da, db, dbase *fgDump, a, b *fgCapture, ra, rb fgRole) (string, str
 			if d.n >= 2 {
 				continue
 			}
-			if d.v == 0 {
+			switch {
+			case d.v != 0 && (d.r == fgAfter || d.r == fgDel):
+				return note(fgFail, "blink frozen in "+d.s+" ("+string(d.r)+"); "+other)
+			case verdict != fgPass:
+			case d.v == 0:
 				// m_maba_timer rests at 0 between blinks for seconds at a
 				// time with no body at all (live S4-3 run, 2026-10-20), so a
 				// one-second window at 0 says nothing; frozen means stuck
 				// mid-count.
-				return note(fgMasked, "blink timer resting at 0 in "+d.s+" ("+string(d.r)+"); "+other)
+				verdict, why = fgMasked, "blink timer resting at 0 in "+d.s+" ("+string(d.r)+")"
+			default:
+				verdict, why = fgMasked, "blink not running in "+d.s+" ("+string(d.r)+")"
 			}
-			if d.r == fgAfter || d.r == fgDel {
-				return note(fgFail, "blink frozen in "+d.s+" ("+string(d.r)+"); "+other)
-			}
-			return note(fgMasked, "blink not running in "+d.s+" ("+string(d.r)+"); "+other)
 		}
-		return note(fgPass, "blink still running; "+other)
+		return note(verdict, why+"; "+other)
 	case fgNoise:
 		check := func(d *fgDump, rs []fgBodyRange, what string) string {
 			for i, s := range d.Samples {
@@ -1463,6 +1468,9 @@ func fgWait(ctx context.Context, w io.Writer, m mem.Reader, o fgSnapOpts) (fgBod
 	}
 	w0 := sh.Windows
 	if o.HasSince {
+		if o.Since > w0 {
+			return last, fmt.Errorf("--since capture's shanm windows %d is past the live %d (another boot or a reset table?)", o.Since, w0)
+		}
 		w0 = o.Since
 	}
 	fmt.Fprintf(w, "waiting for slot %d %s (shanm windows %d)\n", o.Slot, o.Wait, w0)

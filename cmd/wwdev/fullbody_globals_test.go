@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -433,5 +434,32 @@ func TestFGModal(t *testing.T) {
 	out, code = diff(capt(0x0E, 0, 0), capt(0x0E, 0x08, 3))
 	if r := fgRow(t, out, "host_linktex"); code != 2 || !strings.Contains(r, "INVALID") {
 		t.Errorf("no usual value code %d: %s", code, r)
+	}
+}
+
+// TestFGBlinkWorst: a blink timer resting at 0 in a does not hide one
+// stuck mid-count in b.
+func TestFGBlinkWorst(t *testing.T) {
+	ma := fgFakeHost(t)
+	fgWithBody(t, ma)
+	store(t, ma, 0x803F6F1E, []byte{0, 0, 0, 0})
+	a := fgCapt(t, ma, 6, false, nil) // after: resting at 0
+	mb := fgFakeHost(t)
+	store(t, mb, 0x803F6F1E, []byte{37, 0, 0, 3})
+	b := fgCapt(t, mb, 6, false, nil) // del: stuck at 37
+	var w bytes.Buffer
+	code := fgDiff(&w, a, b, nil)
+	if r := fgRow(t, w.String(), "matanm"); code != 1 || !strings.Contains(r, "blink frozen in b") {
+		t.Fatalf("code %d: %s", code, r)
+	}
+}
+
+// TestFGSinceAhead: a --since count past the live shanm windows is an
+// error, not a wrapped rise that passes the wait at once.
+func TestFGSinceAhead(t *testing.T) {
+	m := fgFakeHost(t)
+	_, err := fgWait(context.Background(), io.Discard, m, fgSnapOpts{Wait: "full", Timeout: time.Second, Since: 99, HasSince: true})
+	if err == nil || !strings.Contains(err.Error(), "past the live") {
+		t.Fatalf("err %v", err)
 	}
 }
