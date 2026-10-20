@@ -16,6 +16,7 @@ dolphin2
 dump
 enemy-block-dump
 enemy-kill
+enemy-match
 enemy-mirror-local
 enemy-watch
 eye-anim-dl-dump

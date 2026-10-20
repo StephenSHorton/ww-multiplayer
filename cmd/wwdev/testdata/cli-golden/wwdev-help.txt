@@ -18,4 +18,5 @@ Diagnostics and research probes (Dolphin picked by WW_DOLPHIN_INDEX / WW_DOLPHIN
   face-sync-fake-loop j3dsys-probe ppc-disasm find-pos track-pos coop-probe
   coop-watch actors zone-dump frame-phase-probe heap-free blob-verify-live
   region-probe stage-hop enemy-kill peek-demo enemy-watch enemy-mirror-local
-  enemy-block-dump remote-watch remote-flags remote-slot fullbody-globals
+  enemy-block-dump enemy-match remote-watch remote-flags remote-slot
+  fullbody-globals

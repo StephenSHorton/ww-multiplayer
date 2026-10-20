@@ -126,6 +126,8 @@ func commandTable() []command {
 		{name: "enemy-watch", group: groupDev, run: runEnemyWatch},
 		{name: "enemy-mirror-local", group: groupDev, run: runEnemyMirrorLocal},
 		{name: "enemy-block-dump", group: groupDev, run: runEnemyBlockDump},
+		// The generalised mirror's L0 pairing check (enemy_kinds_probe.go).
+		{name: "enemy-match", group: groupDev, run: runEnemyMatch},
 		// Remote-Link, host enemies targeting every player (remote_probe.go).
 		{name: "remote-watch", group: groupDev, run: runRemoteWatch},
 		{name: "remote-flags", group: groupDev, run: runRemoteFlags},

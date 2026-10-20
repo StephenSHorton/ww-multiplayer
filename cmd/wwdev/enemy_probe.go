@@ -44,7 +44,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
-const enemyWatchUsage = "enemy-watch [secs=10, 0 = until Ctrl+C] [--csv <path>]"
+const enemyWatchUsage = "enemy-watch [secs=10, 0 = until Ctrl+C] [--csv <path>] [--kind mo2|bk|cc]"
 
 // mo2Layouts is the private walk layout: a Moblin's enemyice and its u8
 // mMode (actors.Actor.Mode is then mo2 mMode; Actor.Ice.Mode is
@@ -94,13 +94,26 @@ func splitValueFlags(args []string, valued []string, allowed ...string) (pos []s
 
 // runEnemyWatch is the enemy-watch command.
 func runEnemyWatch(cmd string, args []string) {
-	pos, _, values, err := splitValueFlags(args, []string{"csv"})
+	pos, _, values, err := splitValueFlags(args, []string{"csv", "kind"})
 	if err != nil {
 		exitUsage(err, enemyWatchUsage)
 	}
 	secs, err := diagIntArg(pos, 0, 10, 0, 86400, "secs")
 	if err != nil {
 		exitUsage(err, enemyWatchUsage)
+	}
+	// --kind bk|cc is the generalised mirror's L0 probe
+	// (enemy_kinds_probe.go); mo2, the default, is this probe unchanged.
+	if name := values["kind"]; name != "" && name != "mo2" {
+		k, ok := enemysync.KindByName(name)
+		if !ok {
+			exitUsage(fmt.Errorf("unknown --kind %q", name), enemyWatchUsage)
+		}
+		if values["csv"] != "" {
+			exitUsage(errors.New("--csv is the Moblin probe's only"), enemyWatchUsage)
+		}
+		runEnemyKindWatch(cmd, secs, k.ID)
+		return
 	}
 	var csv io.Writer
 	if path := values["csv"]; path != "" {
