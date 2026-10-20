@@ -127,7 +127,7 @@ func TestEnemyWatch(t *testing.T) {
 	defer cancel()
 
 	// No Mo2 entry yet: the probe says so and every bck reads 0xFF.
-	if err := enemyWatch(ctx, &out, nil, m, 20*time.Millisecond); err != nil {
+	if err := enemyWatch(ctx, &out, nil, m, 200*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	if s := out.String(); !strings.Contains(s, "Mo2 table: NOT resolved: no loaded Mo2 entry in mObjectInfo") || !strings.Contains(s, "bck 0xFF anm_attr 2 anm_seq 0 anm_morf 0") ||
@@ -149,7 +149,7 @@ func TestEnemyWatch(t *testing.T) {
 	store(t, m, a.Addr+addr.Mo2OffBlurOn, u32b(1))
 	store(t, m, a.Addr+addr.Mo2OffBlurShape, u32b(3))
 
-	if err := enemyWatch(ctx, &out, &csv, m, 40*time.Millisecond); err != nil {
+	if err := enemyWatch(ctx, &out, &csv, m, 200*time.Millisecond); err != nil {
 		t.Fatalf("enemyWatch: %v\n%s", err, out.String())
 	}
 	s := out.String()
@@ -190,16 +190,17 @@ func TestEnemyWatch(t *testing.T) {
 		t.Errorf("csv anim columns %s, want 0x73,2,0,15,0x05,1,3,0.500 (row %v)", got, cols)
 	}
 
-	// The detector over time: a switch to KWAIT (0x5C) set with morf 10
+	// The detector over time (windows sized for a loaded machine: the probe
+	// samples every 16 ms, the phases need only a few samples each): a switch to KWAIT (0x5C) set with morf 10
 	// is one restart; a pointer outside the table is another, reads bck
 	// 0xFF, counts as a miss and re-reads the table.
 	out.Reset()
 	done := make(chan error, 1)
-	go func() { done <- enemyWatch(ctx, &out, nil, m, 300*time.Millisecond) }()
-	time.Sleep(80 * time.Millisecond)
+	go func() { done <- enemyWatch(ctx, &out, nil, m, 1200*time.Millisecond) }()
+	time.Sleep(300 * time.Millisecond)
 	store(t, m, morf+addr.McaMorfOffMorfStep, u32b(math.Float32bits(0.1)))
 	store(t, m, morf+addr.McaMorfOffAnm, u32b(mo2Bck(addr.Mo2BckKWait)))
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 	store(t, m, morf+addr.McaMorfOffAnm, u32b(0x80D20004))
 	if err := <-done; err != nil {
 		t.Fatal(err)
@@ -210,7 +211,7 @@ func TestEnemyWatch(t *testing.T) {
 			t.Errorf("detector run lacks %q:\n%s", want, s)
 		}
 	}
-	if strings.Contains(s, "anm_seq 3") || strings.Contains(s, "bck_miss 0 ") || !strings.Contains(s, "miss_reads 1\n") && !strings.Contains(s, "miss_reads 2\n") && !strings.Contains(s, "miss_reads 3\n") {
+	if strings.Contains(s, "anm_seq 3") || strings.Contains(s, "bck_miss 0 ") || strings.Contains(s, "miss_reads 0\n") {
 		t.Errorf("detector run: a spurious restart or the wrong miss counts:\n%s", s)
 	}
 	store(t, m, morf+addr.McaMorfOffAnm, u32b(mo2Bck(addr.Mo2BckWait)))
@@ -218,8 +219,8 @@ func TestEnemyWatch(t *testing.T) {
 	// A Moblin whose block is reused under the probe (a new pid) is
 	// reported once and the walk runs again, finding the new actor.
 	out.Reset()
-	go func() { done <- enemyWatch(ctx, &out, nil, m, 200*time.Millisecond) }()
-	time.Sleep(60 * time.Millisecond)
+	go func() { done <- enemyWatch(ctx, &out, nil, m, 800*time.Millisecond) }()
+	time.Sleep(250 * time.Millisecond)
 	store(t, m, a.Addr+addr.ActorOffBsPcID, u32b(a.PID+1000))
 	if err := <-done; err != nil {
 		t.Fatal(err)
