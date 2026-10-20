@@ -735,7 +735,8 @@ func fgCaptureProblems(c *fgCapture) []string {
 		}
 		if c.Slot >= 0 && c.Slot < mailbox.RemoteMaxSlots {
 			b0, b := f.Bodies[c.Slot], mt.Bodies[c.Slot]
-			if b.State != b0.State || b.Kind != b0.Kind || b.Actor != b0.Actor {
+			// LIVE <-> PARKED is the same body (a pose feed hiccup parks it).
+			if (b.State != b0.State && !(b.liveFull() && b0.liveFull())) || b.Kind != b0.Kind || b.Actor != b0.Actor {
 				add("the body changed during the capture")
 			}
 		}
