@@ -56,11 +56,8 @@ const (
 )
 
 // Proc names (fpcNm_*, f_pc_name.h) of the remote-Link PROC_POLICY seed
-// (remote-link-design.md §6.4): ProcMo2 is the one audited ALLOW (§3);
-// the rest are DENY, enemies whose execute writes into or grabs the
-// player: Floormaster's grab (d_a_fm.cpp:2783-2790), ReDead's
-// getLinkPlayer reads (d_a_rd.cpp:438-1224), the bosses, and the
-// Bokoblin until its GetName gates are audited. ProcBoko (play.go) is the
+// (remote-link-design.md §6.4 and the enemy audit; mods/enemysync
+// SeedPolicy says which are ALLOW and DENY). ProcBoko (play.go) is the
 // weapon, not the Bokoblin.
 const (
 	ProcPlayer  = 0x0A9 // fpcNm_PLAYER_e (:178)
@@ -79,6 +76,24 @@ const (
 	ProcBGN     = 0x0F5 // fpcNm_BGN_e (:257)
 	ProcBGN2    = 0x0F6 // fpcNm_BGN2_e (:258)
 	ProcBGN3    = 0x0F7 // fpcNm_BGN3_e (:259)
+
+	// The enemy audit (2026-10-20): ALLOW candidates, the procs fixed by
+	// the REL's per-proc m714 offsets and demo gates, and the ENEMY-group
+	// procs that must be listed DENY (GROUP_WIDE would swap them).
+	ProcOship   = 0x0B4 // fpcNm_OSHIP_e (:189), enemy warship
+	ProcBB      = 0x0B6 // fpcNm_BB_e (:191), Kargaroc
+	ProcST      = 0x0BF // fpcNm_ST_e (:200), Stalfos
+	ProcTN      = 0x0C0 // fpcNm_TN_e (:201), Darknut
+	ProcAM      = 0x0CB // fpcNm_AM_e (:215), Armos Knight
+	ProcAM2     = 0x0CC // fpcNm_AM2_e (:216), Armos
+	ProcCC      = 0x0CF // fpcNm_CC_e (:219), ChuChu
+	ProcPW      = 0x0D5 // fpcNm_PW_e (:225), Poe
+	ProcKI      = 0x0D8 // fpcNm_KI_e (:228), Keese
+	ProcBWDS    = 0x0DB // fpcNm_BWDS_e (:231), Molgera larva
+	ProcBMDFoot = 0x0EE // fpcNm_BMDFOOT_e (:250), Kalle Demos tentacle
+	ProcFGMahou = 0x0F4 // fpcNm_FGMAHOU_e (:256), Phantom Ganon's orb volley
+	ProcSSS     = 0x0FE // fpcNm_SSS_e (:266), grabbing vine
+	ProcNpcJi1  = 0x140 // fpcNm_NPC_JI1_e (:332), Orca
 )
 
 // FF stage names (dStage_startStage_c mName) the remote-Link FF denylist

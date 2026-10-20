@@ -393,8 +393,8 @@
 #define WWREMOTE_HE_FRAME_OFF       0x2C         // u32 WWREL frame at detection
 
 #define WWREMOTE_HF_SHIELD          0x01         // Tg RPrm shield-hit bit (cyl+0x98 & 2)
-#define WWREMOTE_HF_NOT_MO2         0x02         // attacker proc != WWREMOTE_PROC_MO2 (Go drops)
-#define WWREMOTE_HF_NOT_KEYED       0x04         // attacker setID >= WWREMOTE_KEYED_SETID_MAX (Go drops)
+#define WWREMOTE_HF_NOT_MO2         0x02         // attacker proc != WWREMOTE_PROC_MO2 (Go sends it with setID 0xFFFF: the client stand-in owner)
+#define WWREMOTE_HF_NOT_KEYED       0x04         // attacker setID >= WWREMOTE_KEYED_SETID_MAX (likewise)
 #define WWREMOTE_KEYED_SETID_MAX    0x200        // = EM_KEYED_SETID_MAX (enemy_mirror.c:333)
 
 // apply results (byte3 of WWREMOTE_APPLY_RESULT_OFF; PACK [3])

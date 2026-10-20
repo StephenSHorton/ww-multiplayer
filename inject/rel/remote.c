@@ -245,6 +245,8 @@ typedef void (*rl_stts_init_t)(void* stts, int weight, int p1, void* actor); // 
 #define LK_MODE_FLG       0x3618  // u32 mModeFlg
 #define LK_MODE_DAMAGE    0x08    // daPyModeFlg ModeFlg_DAMAGE (d_a_player_main.h:899)
 #define LK_CYL            0x4024  // dCcD_Cyl mCyl (0x130)
+#define LK_FAN_WIND_SPH   0x49C4  // dCcD_Sph mFanWindSph (d_a_player_main.h:2347; 0x12C to mFanLightCps)
+#define RL_STANDIN_REACH  4.0f    // keeper eyePos = Link eye + rel_hit.xz * this (any length: only the bearing counts)
 // mo2_class (d_a_mo2.h; actions d_a_mo2.cpp:23-43, Step -1)
 #define MO2_MODE          0x2BC   // u8 mMode: 5 carried, 0xF statue (enemy_mirror.c)
 #define MO2_DR_ACTION     0x61A   // s16 mDamageReaction.mAction
@@ -264,6 +266,26 @@ typedef void (*rl_stts_init_t)(void* stts, int weight, int p1, void* actor); // 
 #define MO2_ACTION_FIGHT  5       // ACTION_FIGHT (FIGHT_RUN is 4)
 #define MO2_ACTION_E3_DEMO 40     // ACTION_E3_DEMO
 #define PROC_MO2          WWREMOTE_PROC_MO2
+// Other ALLOW candidates with a damagereaction (c_damagereaction.h:170
+// m714 = the cached target) or a cutscene path the swap must skip
+// (enemy audit 2026-10-20, ww-multiplayer-handoff archive).
+#define PROC_BK           0x00BE  // Bokoblin (f_pc_name.h)
+#define PROC_TN           0x00C0  // Darknut
+#define PROC_CC           0x00CF  // ChuChu
+#define PROC_OSHIP        0x00B4  // enemy warship
+#define BK_M714           0xA84   // dr (+0x370, d_a_bk.h:72) + 0x714
+#define BK_TYPE           0x2B4   // u8 mType: 0xA = the sword-guard demo (d_a_bk.cpp:3911-4100)
+#define BK_TYPE_DEMO      0xA
+#define BK_1234           0x1234  // s8 demo step (d_a_bk.cpp:3921-3931)
+#define TN_M714           0xB88   // mDamageReaction (+0x474, d_a_tn.h:84) + 0x714
+#define TN_14F8           0x14F8  // s8 boss demo camera (d_a_tn.cpp:2551-2565 orderPotentialEvent)
+#define AC_STATUS         0x1C4   // u32 actor_status (f_op_actor.h:284)
+#define AC_STATUS_BOSS    0x04000000 // fopAcStts_BOSS_e (f_op_actor.h:43)
+#define CC_BEHAVIOR       0x2F0   // u8 mBehaviorType: 2 = Deku Tree ChuChu (events :1483, :1533)
+#define CC_ACTION         0x2F4   // u8 mCurrAction: 5 = the Deku demo action (:886, :1034)
+#define CC_304            0x304   // u8: "not the player" insta-kill variant (:477)
+#define OSHIP_PROC        0x2AC   // int mCurrentProc: 3 = MODE_DELETE (GOLD_SHIP_DELETE event, :736)
+#define OSHIP_MODEL       0x2B6   // u8 mModelType: != 0xFF = the gold ship
 #define AT_TYPE_UNK800    0x800   // the spear's At type during a thrust (Step -1)
 // Collider objects: dCcD_Cyl/Sph = dCcD_GObjInf (0xF8) + cCcD_ShapeAttr
 // (0x20) + the shape at +0x118. cCcD_ObjAt at +0x00 (mSPrm, mRPrm, mHitObj,
@@ -461,19 +483,28 @@ static rl_latch* rl_latch_find(remote_swap_state* st, u32 pid, int alloc) {
 // every tracked Moblin whose cached m714 points at it (or, for body 0, at
 // any body) gets the host Link back, and latches/forces naming its pid
 // fall back to the host. The deletion itself lands at the next
-// fpcDt_Handler, before the next execute. Never touches a non-mo2 actor.
+// fpcDt_Handler, before the next execute. Only procs with a known m714
+// offset are written (rl_m714_off).
+static u32 rl_m714_off(s16 proc) {
+    if (proc == PROC_MO2) return MO2_M714;
+    if (proc == PROC_BK) return BK_M714;
+    if (proc == PROC_TN) return TN_M714;
+    return 0;
+}
+
 static void rl_forget_body(remote_swap_state* st, u32 body, u32 body_pid) {
     u32 host = RL_PLAYER_PTR0;
     int i;
     for (i = 0; i < RL_LATCH_MAX; i++) {
         rl_latch* e = &st->latch[i];
         if (e->enemy_pid == 0) continue;
-        if (e->is_mo2 && rl_in_mem1(host)) {
+        if (rl_in_mem1(host)) {
             void* m = rl_actor_of(e->enemy_pid);
-            if (m && AF(m, s16, AC_PROC_NAME) == PROC_MO2) {
-                u32 p = AF(m, u32, MO2_M714);
+            u32 off = m ? rl_m714_off(AF(m, s16, AC_PROC_NAME)) : 0;
+            if (off) {
+                u32 p = AF(m, u32, off);
                 if (body ? p == body : rl_body_slot_of(st, p) >= 0) {
-                    AF(m, u32, MO2_M714) = host;
+                    AF(m, u32, off) = host;
                     rl_ctr(WWREMOTE_CTR_PARK_REWRITES);
                 }
             }
@@ -835,6 +866,8 @@ static void rl_ap_start(remote_swap_state* st, enemy_mirror_state* mirror, u32 s
     u32 src[SRC_WORDS];
     u8* sb = (u8*)src;
     void* m;
+    u8* owner;
+    f32 dx, dz;
     int i;
     st->ap_ack = seq;
     st->ap_seq = seq;
@@ -844,25 +877,42 @@ static void rl_ap_start(remote_swap_state* st, enemy_mirror_state* mirror, u32 s
         rl_ap_publish(st, WWREMOTE_AR_LINK_ABSENT, WWREMOTE_AD_NONE);
         return;
     }
+    // The At owner: the mirrored Moblin with that setID, or else (another
+    // enemy, an unkeyed Moblin) the keeper itself as a stand-in. Never
+    // NULL and never Link (D9: ChkShieldFrontRange needs an owner, and
+    // ChkNoHitAtTg rejects Link's own); the stand-in's eyePos is put on
+    // the side of Link the host hit came from, below.
     m = rl_mirrored_by_setid(mirror, RB_U16(WWREMOTE_APPLY_OFF + WWREMOTE_AP_SETID_OFF));
-    if (!m) {
-        rl_ap_publish(st, WWREMOTE_AR_NO_MIRROR, WWREMOTE_AD_NONE);
-        return;
-    }
+    owner = m ? (u8*)m : (u8*)st - WWREMOTE_KEEPER_SWAP_OFF;
     st->ap_rel.x = RB_F32(WWREMOTE_APPLY_OFF + WWREMOTE_AP_REL_HIT_OFF + 0);
     st->ap_rel.y = RB_F32(WWREMOTE_APPLY_OFF + WWREMOTE_AP_REL_HIT_OFF + 4);
     st->ap_rel.z = RB_F32(WWREMOTE_APPLY_OFF + WWREMOTE_AP_REL_HIT_OFF + 8);
     st->ap_rvec.x = RB_F32(WWREMOTE_APPLY_OFF + WWREMOTE_AP_RVEC_OFF + 0);
     st->ap_rvec.y = RB_F32(WWREMOTE_APPLY_OFF + WWREMOTE_AP_RVEC_OFF + 4);
     st->ap_rvec.z = RB_F32(WWREMOTE_APPLY_OFF + WWREMOTE_AP_RVEC_OFF + 8);
-    if (rl_vec_bad(&st->ap_rel) || rl_vec_bad(&st->ap_rvec) || !enemy_mirror_sph_image(mirror, m)) {
+    if (rl_vec_bad(&st->ap_rel) || rl_vec_bad(&st->ap_rvec) ||
+        !enemy_mirror_sph_image_at(mirror, m ? (u8*)m + MO2_HEAD_SPH : (u8*)link + LK_FAN_WIND_SPH)) {
         rl_ap_publish(st, WWREMOTE_AR_DROPPED, WWREMOTE_AD_NONE);
         return;
     }
-    // The stts names the mirrored Moblin: not Link (cCcS::ChkNoHitAtTg
-    // rejects the same actor, c_cc_s.cpp:100-111), not NULL (no guard).
+    if (!m) {
+        // ChkShieldFrontRange compares the owner's eyePos with Link's
+        // (d_cc_s.cpp:83-100): the hit point's XZ offset from the body
+        // points at the attacker; with none, the At vector's reverse.
+        dx = st->ap_rel.x;
+        dz = st->ap_rel.z;
+        if (dx * dx + dz * dz < 1.0f) {
+            dx = -st->ap_rvec.x;
+            dz = -st->ap_rvec.z;
+        }
+        AF(owner, f32, AC_EYE_POS + 0) = AF(link, f32, AC_EYE_POS + 0) + dx * RL_STANDIN_REACH;
+        AF(owner, f32, AC_EYE_POS + 4) = AF(link, f32, AC_EYE_POS + 4);
+        AF(owner, f32, AC_EYE_POS + 8) = AF(link, f32, AC_EYE_POS + 8) + dz * RL_STANDIN_REACH;
+    }
+    // The stts names the owner: not Link (cCcS::ChkNoHitAtTg rejects the
+    // same actor, c_cc_s.cpp:100-111), not NULL (no guard).
     dCcD_Stts_ct(RL_STTS);
-    dCcD_Stts_Init(RL_STTS, RL_STTS_WEIGHT, RL_STTS_P1, m);
+    dCcD_Stts_Init(RL_STTS, RL_STTS_WEIGHT, RL_STTS_P1, owner);
     // The dCcD_SrcSph: the host's At values; At SPrm Set|VsPlayer, so the
     // sphere can never hit a mirrored Moblin; GObjAt SPrm 0.
     for (i = 0; i < SRC_WORDS; i++) src[i] = 0;
@@ -1470,6 +1520,28 @@ static int rl_mo2_gated(remote_swap_state* st, void* a) {
     return mode == MO2_MODE_CARRIED || mode == MO2_MODE_STATUE;
 }
 
+// The other procs' demo/event gates (enemy audit): 1 = leave this execute
+// on the host Link, because it would order an event or move the player
+// with the swapped getPlayer(0) as partner.
+static int rl_proc_gated(s16 proc, void* a) {
+    switch (proc) {
+    case PROC_BK:
+        return AF(a, u8, BK_TYPE) == BK_TYPE_DEMO || AF(a, s8, BK_1234) != 0;
+    case PROC_TN:
+        // A boss-status Darknut (miniboss, Master Sword ambush, death
+        // switch; d_a_tn.cpp:4213-4245) sets m14F8 in the same execute
+        // that kills it (damage_check :3123-3128) and orders the death
+        // demo right after (:2556-2558), so its flag is read too late:
+        // those stay on the host Link for good.
+        return (AF(a, u32, AC_STATUS) & AC_STATUS_BOSS) != 0 || AF(a, s8, TN_14F8) != 0;
+    case PROC_CC:
+        return AF(a, u8, CC_BEHAVIOR) == 2 || AF(a, u8, CC_ACTION) == 5 || AF(a, u8, CC_304) != 0;
+    case PROC_OSHIP:
+        return AF(a, s32, OSHIP_PROC) == 3 || AF(a, u8, OSHIP_MODEL) != 0xFF;
+    }
+    return 0;
+}
+
 // The actor that owns the collider at obj (obj+0x44 = stts, stts+0x0C =
 // actor), or 0.
 static u32 rl_obj_actor(u32 obj) {
@@ -1567,7 +1639,7 @@ static u32 rl_target(remote_swap_state* st, void* a, u8 pf, u32 host, int is_mo2
     rl_latch* e = rl_latch_find(st, AF(a, u32, AC_PID), 1);
     rl_cands c;
     int best, cur, k, t;
-    // A full table means no swap: an untracked Moblin's m714 could not be
+    // A full table means no swap: an untracked enemy's m714 could not be
     // rewritten when a body goes (section 5.5).
     if (!e) return host;
     e->is_mo2 = (u8)is_mo2;
@@ -1632,8 +1704,8 @@ static int rl_swap_execute(remote_swap_state* st, void* mtd, void* a) {
         rl_ctr(WWREMOTE_CTR_ROUYA_SKIPS);
         return fpcMtd_Execute(mtd, a);
     }
-    // 4b the jail/demo gate (mo2).
-    if (proc == PROC_MO2 && rl_mo2_gated(st, a)) {
+    // 4b the jail/demo gate (mo2) and the other procs' demo gates.
+    if ((proc == PROC_MO2 && rl_mo2_gated(st, a)) || rl_proc_gated(proc, a)) {
         rl_ctr(WWREMOTE_CTR_ROUYA_SKIPS);
         return fpcMtd_Execute(mtd, a);
     }

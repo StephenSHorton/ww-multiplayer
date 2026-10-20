@@ -292,8 +292,8 @@ const (
 	RemoteHEFrameOff   = 0x2C // u32 WWREL frame at detection
 
 	RemoteHFShield      uint8  = 0x01  // Tg RPrm shield-hit bit (cyl+0x98 & 2)
-	RemoteHFNotMo2      uint8  = 0x02  // attacker proc != RemoteProcMo2 (Go drops)
-	RemoteHFNotKeyed    uint8  = 0x04  // attacker setID >= RemoteKeyedSetIDMax (Go drops)
+	RemoteHFNotMo2      uint8  = 0x02  // attacker proc != RemoteProcMo2 (sent with enemysync.NoMirrorSetID)
+	RemoteHFNotKeyed    uint8  = 0x04  // attacker setID >= RemoteKeyedSetIDMax (likewise)
 	RemoteKeyedSetIDMax uint16 = 0x200 // = EM_KEYED_SETID_MAX (enemy_mirror.c:333)
 
 	// apply results (byte3 of RemoteApplyResultOff; PACK [3])
@@ -302,7 +302,7 @@ const (
 	RemoteARApplied    uint8 = 2
 	RemoteARGuarded    uint8 = 3 // crossed Link's Tg with its shield-hit bit
 	RemoteARNoCross    uint8 = 4
-	RemoteARNoMirror   uint8 = 5 // no mirrored Moblin with that setID (no NULL fallback, D9)
+	RemoteARNoMirror   uint8 = 5 // no longer published: a missing mirror takes the keeper stand-in owner
 	RemoteARLinkAbsent uint8 = 6 // no client Link (0x803CA754 not an in-MEM1 0xA9)
 	RemoteAREarlyOut   uint8 = 7 // crossed, but changeDamageProc took an early out
 

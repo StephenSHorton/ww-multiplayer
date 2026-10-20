@@ -114,5 +114,6 @@ void enemy_mirror_unlink(void);
 // 1 when it is ready, 0 when the image's vptr fingerprint failed. The
 // host's v2 submit and the client's remote-Link apply (remote.c) share it.
 int enemy_mirror_sph_image(enemy_mirror_state* s, void* a);
+int enemy_mirror_sph_image_at(enemy_mirror_state* s, const void* sph);
 
 #endif

@@ -179,13 +179,25 @@ func ParseRemoteFlags(s string) (uint16, error) {
 	return flags, nil
 }
 
-// SeedPolicy is the PROC_POLICY seed (§6.4): ALLOW the Moblin (the one
-// audited proc, §3), DENY the enemies whose execute writes into or grabs
-// the player and the bosses. Unlisted procs swap only under GROUP_WIDE.
+// SeedPolicy is the PROC_POLICY seed (§6.4, widened by the enemy audit of
+// 2026-10-20, ww-multiplayer-handoff/archive/enemy-audit): ALLOW the
+// enemies whose execute only reads the player (the Moblin, §3, and the
+// audited ones; the Bokoblin, Darknut, ChuChu and warship rely on the
+// REL's per-proc m714 rewrite and demo gates, remote.c rl_m714_off and
+// rl_proc_gated), Stalfos without the latch; DENY the enemies that grab,
+// possess or move the player or order events with it, and the bosses.
+// The DENY entries in the ENEMY group matter under GROUP_WIDE, which
+// swaps every unlisted enemy.
 func SeedPolicy() []mailbox.RemotePolicy {
-	p := []mailbox.RemotePolicy{{Proc: addr.ProcMo2, Flags: mailbox.RemotePFAllow}}
-	for _, proc := range []int16{addr.ProcFM, addr.ProcRD, addr.ProcBK, addr.ProcBPW, addr.ProcBWD, addr.ProcDaiocta,
-		addr.ProcBTD, addr.ProcBMD, addr.ProcBDK, addr.ProcBST, addr.ProcFganon, addr.ProcBGN, addr.ProcBGN2, addr.ProcBGN3} {
+	var p []mailbox.RemotePolicy
+	for _, proc := range []int16{addr.ProcMo2, addr.ProcBK, addr.ProcTN, addr.ProcCC, addr.ProcOship, addr.ProcBB,
+		addr.ProcAM, addr.ProcAM2, addr.ProcKI, addr.ProcBWDS, addr.ProcBMDFoot, addr.ProcBGN2, addr.ProcBGN3} {
+		p = append(p, mailbox.RemotePolicy{Proc: proc, Flags: mailbox.RemotePFAllow})
+	}
+	p = append(p, mailbox.RemotePolicy{Proc: addr.ProcST, Flags: mailbox.RemotePFAllow | mailbox.RemotePFNoLatch})
+	for _, proc := range []int16{addr.ProcFM, addr.ProcRD, addr.ProcPW, addr.ProcSSS, addr.ProcNpcJi1, addr.ProcFGMahou,
+		addr.ProcBPW, addr.ProcBWD, addr.ProcDaiocta, addr.ProcBTD, addr.ProcBMD, addr.ProcBDK, addr.ProcBST, addr.ProcFganon,
+		addr.ProcBGN} {
 		p = append(p, mailbox.RemotePolicy{Proc: proc, Flags: mailbox.RemotePFDeny})
 	}
 	return p
@@ -552,8 +564,8 @@ type RemoteHost struct {
 	owners        [mailbox.RemoteMaxSlots]slotOwner
 	haveHead      bool
 	lastHead      uint32
-	lastPHit      map[uint32]uint32 // (client<<16 | setID) -> host REL frame of the last PHIT
-	phitSeq       map[uint8]uint16  // per target client
+	lastPHit      map[phitKey]uint32 // (client, attacker pid) -> host REL frame of the last PHIT
+	phitSeq       map[uint8]uint16   // per target client
 	logNext       time.Time
 	dropWarned    map[string]bool
 	gate          *heapGate // the full-body heap gate, under FULL_BODIES with HeapGate
@@ -562,6 +574,17 @@ type RemoteHost struct {
 
 	Stats RemoteHostStats
 }
+
+// phitKey is a PHIT rate key: one per (target client, attacker).
+type phitKey struct {
+	client uint8
+	pid    uint32
+}
+
+// NoMirrorSetID is a PHIT's SetID for an attacker the client has no mirror
+// of (a non-Moblin, an unkeyed Moblin): above every keyed setID, so the
+// client REL takes its stand-in owner.
+const NoMirrorSetID = 0xFFFF
 
 // arrival is what slots keeps per remote to tell when its position
 // belongs to the stage its PSTATE names: during and after a load the
@@ -595,15 +618,18 @@ type RemoteHostStats struct {
 	Writes, PStates, PStatesUnmapped, PHits, PAcks uint64
 	// Ring hits dropped by why: not a Moblin, not keyed, no owner, no
 	// client id for the owner, rate limited.
-	DropNotMo2, DropNotKeyed, DropNoOwner, DropNoClient, DropRate uint64
-	LastStatus                                                    mailbox.RemoteStatus
+	DropNotAllowed, DropNoOwner, DropNoClient, DropRate uint64
+	// StandIn counts the sent PHITs from an attacker the client has no
+	// mirror of (with NoMirrorSetID).
+	StandIn    uint64
+	LastStatus mailbox.RemoteStatus
 }
 
 // NewRemoteHost returns the host side over m with cfg; epoch is the host
 // STATE epoch every PHIT carries.
 func NewRemoteHost(m mem.Mem, rep log.Reporter, cfg RemoteConfig, epoch uint32) *RemoteHost {
 	return &RemoteHost{m: m, rep: rep, cfg: cfg, epoch: epoch, blockEpoch: epoch << 8,
-		pstates: map[uint8]pstateEntry{}, hitCuts: map[uint8]hitCut{}, arrive: map[uint8]arrival{}, lastPHit: map[uint32]uint32{},
+		pstates: map[uint8]pstateEntry{}, hitCuts: map[uint8]hitCut{}, arrive: map[uint8]arrival{}, lastPHit: map[phitKey]uint32{},
 		phitSeq: map[uint8]uint16{}, dropWarned: map[string]bool{}, gate: newHeapGate(cfg.HeapSizes, int(cfg.FullMax))}
 }
 
@@ -859,20 +885,24 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 }
 
 // phit turns a ring entry into the PHIT for its body's player, or nil
-// (dropped and counted): a non-Moblin or unkeyed attacker (Go drops them,
-// §7.2), a slot nobody owns, an owner whose enemy client is unknown (no
-// PSTATE yet), or within PHitRateFrames of the last PHIT for that
-// (client, attacker).
+// (dropped and counted): an attacker that is not a Moblin and not ALLOW in
+// the policy (the host's bombs, world hazards, denied or unswapped
+// enemies: the joiner's own copy of a shared hazard hits it already,
+// design §11.8), one with no actor (pid 0), a slot nobody owns, an owner
+// whose enemy client is unknown (no PSTATE yet), or within PHitRateFrames
+// of the last PHIT for that (client, attacker). A non-Moblin or unkeyed
+// attacker has no mirror on the client: it goes with SetID
+// NoMirrorSetID, and the client REL replays it with its keeper as the
+// stand-in At owner.
 func (r *RemoteHost) phit(h *mailbox.RemoteHit, b *mailbox.RemoteBlock, scope Scope) *PHit {
-	switch {
-	case h.HFlags&mailbox.RemoteHFNotMo2 != 0:
-		r.Stats.DropNotMo2++
-		r.warnDrop("not_mo2", fmt.Sprintf("a proc 0x%X attacker hit a remote body; only Moblin hits are sent", uint16(h.Proc)))
+	if h.PID == 0 || (h.Proc != addr.ProcMo2 && !r.allowed(h.Proc)) {
+		r.Stats.DropNotAllowed++
+		r.warnDrop("not_allowed", fmt.Sprintf("a proc 0x%X attacker hit a remote body; only Moblins and ALLOW procs are sent", uint16(h.Proc)))
 		return nil
-	case h.HFlags&mailbox.RemoteHFNotKeyed != 0:
-		r.Stats.DropNotKeyed++
-		r.warnDrop("not_keyed", fmt.Sprintf("an unkeyed Moblin (setID 0x%X) hit a remote body; it has no mirror to replay it from", h.SetID))
-		return nil
+	}
+	setID, standIn := h.SetID, h.HFlags&(mailbox.RemoteHFNotMo2|mailbox.RemoteHFNotKeyed) != 0
+	if standIn {
+		setID = NoMirrorSetID
 	}
 	if int(h.Slot) >= mailbox.MaxRemoteLinks || r.owners[h.Slot].player == 0 {
 		r.Stats.DropNoOwner++
@@ -887,14 +917,14 @@ func (r *RemoteHost) phit(h *mailbox.RemoteHit, b *mailbox.RemoteBlock, scope Sc
 		return nil
 	}
 	client := ps.p.Client
-	key := uint32(client)<<16 | uint32(h.SetID)
+	key := phitKey{client, h.PID}
 	if last, ok := r.lastPHit[key]; ok && h.Frame-last < PHitRateFrames {
 		r.Stats.DropRate++
 		return nil
 	}
 	r.lastPHit[key] = h.Frame
 	r.phitSeq[client]++
-	p := &PHit{Client: client, Epoch: r.epoch, Stage: scope.Stage, Room: scope.Room, Atp: h.Atp, SetID: h.SetID,
+	p := &PHit{Client: client, Epoch: r.epoch, Stage: scope.Stage, Room: scope.Room, Atp: h.Atp, SetID: setID,
 		Seq: r.phitSeq[client], Se: h.Se, HitMark: h.HitMark, AtType: h.AtType, Spl: h.Spl, RelHit: h.RelHit, RVec: h.RVec,
 		HostFrame: h.Frame}
 	if len(p.Stage) > StageLen {
@@ -907,7 +937,21 @@ func (r *RemoteHost) phit(h *mailbox.RemoteHit, b *mailbox.RemoteBlock, scope Sc
 		p.Flags |= PHitHostGuard
 	}
 	r.Stats.PHits++
+	if standIn {
+		r.Stats.StandIn++
+	}
 	return p
+}
+
+// allowed reports whether proc has an ALLOW entry (and no DENY) in the
+// block's policy.
+func (r *RemoteHost) allowed(proc int16) bool {
+	for _, e := range r.cfg.Policy {
+		if e.Proc == proc {
+			return e.Flags&mailbox.RemotePFAllow != 0 && e.Flags&mailbox.RemotePFDeny == 0
+		}
+	}
+	return false
 }
 
 func (r *RemoteHost) warnDrop(kind, msg string) {

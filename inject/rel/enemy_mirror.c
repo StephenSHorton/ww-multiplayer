@@ -1031,8 +1031,15 @@ static void em_hit_register(enemy_mirror_state* s, void* a) {
 // is reset by ClrAtHit, CalcArea, StartCAt or Set. Shared with remote.c's
 // client apply (the sphere is idle on a client).
 int enemy_mirror_sph_image(enemy_mirror_state* s, void* a) {
+    return enemy_mirror_sph_image_at(s, (const u8*)a + MO2_HEAD_SPH);
+}
+
+// The same from any live dCcD_Sph (remote.c's client apply falls back to
+// Link's mFanWindSph when no mirrored Moblin exists): only the first call
+// per relink copies, and the vtable fingerprint below must hold.
+int enemy_mirror_sph_image_at(enemy_mirror_state* s, const void* sph) {
     u32* dst = (u32*)EM_SPH;
-    const u32* img = (const u32*)((u8*)a + MO2_HEAD_SPH);
+    const u32* img = (const u32*)sph;
     u32 vt;
     int i;
     if (s->sph_built) return 1;

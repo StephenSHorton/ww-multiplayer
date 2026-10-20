@@ -63,20 +63,32 @@ func TestSeedPolicy(t *testing.T) {
 	if p[0] != (mailbox.RemotePolicy{Proc: addr.ProcMo2, Flags: mailbox.RemotePFAllow}) {
 		t.Errorf("seed[0] = %+v", p[0])
 	}
-	allow := 0
-	seen := map[int16]bool{}
+	flags := map[int16]uint8{}
 	for _, e := range p {
-		if seen[e.Proc] {
+		if _, ok := flags[e.Proc]; ok {
 			t.Errorf("proc 0x%X twice", e.Proc)
 		}
-		seen[e.Proc] = true
-		if e.Flags == mailbox.RemotePFAllow {
-			allow++
-		} else if e.Flags != mailbox.RemotePFDeny {
-			t.Errorf("proc 0x%X flags %d", e.Proc, e.Flags)
+		flags[e.Proc] = e.Flags
+	}
+	// The enemy audit's verdicts (players.go SeedPolicy).
+	for proc, want := range map[int16]uint8{
+		addr.ProcMo2: mailbox.RemotePFAllow, addr.ProcBK: mailbox.RemotePFAllow, addr.ProcTN: mailbox.RemotePFAllow,
+		addr.ProcCC: mailbox.RemotePFAllow, addr.ProcOship: mailbox.RemotePFAllow, addr.ProcKI: mailbox.RemotePFAllow,
+		addr.ProcST: mailbox.RemotePFAllow | mailbox.RemotePFNoLatch,
+		addr.ProcFM: mailbox.RemotePFDeny, addr.ProcRD: mailbox.RemotePFDeny, addr.ProcPW: mailbox.RemotePFDeny,
+		addr.ProcSSS: mailbox.RemotePFDeny, addr.ProcNpcJi1: mailbox.RemotePFDeny, addr.ProcFGMahou: mailbox.RemotePFDeny,
+		addr.ProcBGN: mailbox.RemotePFDeny, addr.ProcFganon: mailbox.RemotePFDeny,
+	} {
+		if flags[proc] != want {
+			t.Errorf("proc 0x%X flags %d, want %d", proc, flags[proc], want)
 		}
 	}
-	if allow != 1 || !seen[addr.ProcFM] || !seen[addr.ProcRD] || !seen[addr.ProcBK] || seen[addr.ProcBoko] || len(p) > mailbox.RemoteProcPolicyMax {
+	for proc, f := range flags {
+		if f&mailbox.RemotePFAllow != 0 && f&mailbox.RemotePFDeny != 0 || f&mailbox.RemotePFBothWords != 0 {
+			t.Errorf("proc 0x%X flags %d", proc, f)
+		}
+	}
+	if _, ok := flags[addr.ProcBoko]; ok || len(p) > mailbox.RemoteProcPolicyMax {
 		t.Errorf("seed = %+v", p)
 	}
 	if ff := SeedFFDeny(); len(ff) != mailbox.RemoteFFDenyMax {
@@ -463,7 +475,7 @@ func TestRemoteHostEpoch(t *testing.T) {
 
 // ringHit is a Moblin spear hit on body slot.
 func ringHit(n uint32, slot uint8, setID uint16, frame uint32) mailbox.RemoteHit {
-	return mailbox.RemoteHit{Seq: uint16(n), Slot: slot, PID: 0x99, SetID: setID, Proc: addr.ProcMo2, AtType: 0x800, Atp: 2, Se: 3,
+	return mailbox.RemoteHit{Seq: uint16(n), Slot: slot, PID: 0x900 + uint32(setID), SetID: setID, Proc: addr.ProcMo2, AtType: 0x800, Atp: 2, Se: 3,
 		HitMark: 0x0D, Spl: 6, RelHit: [3]float32{1, 50, -1}, RVec: [3]float32{0, 0, 9}, Frame: frame}
 }
 
@@ -481,8 +493,9 @@ func push(t *testing.T, m *mem.FakeMem, st *mailbox.RemoteStatus, hits ...mailbo
 // TestRemoteHostPHit: the ring entries pushed before the host's first read
 // are not sent; a new Moblin hit on a slot becomes a PHIT to the client
 // of the PSTATE whose player owns the slot, with the host's epoch, scope
-// and the entry's attacker fields; non-Moblin, unkeyed, unowned and
-// clientless hits are dropped and counted; one per (client, setID) per
+// and the entry's attacker fields; a non-Moblin or unkeyed attacker goes
+// with NoMirrorSetID (the client's stand-in owner); unowned and clientless
+// hits are dropped and counted; one per (client, attacker) per
 // PHitRateFrames.
 func TestRemoteHostPHit(t *testing.T) {
 	m, scope, r := remoteHostGame(t, mailbox.RemoteFlagDetect)
@@ -502,7 +515,7 @@ func TestRemoteHostPHit(t *testing.T) {
 	notKeyed.HFlags = mailbox.RemoteHFNotKeyed
 	push(t, m, &st, shield, notMo2, notKeyed, ringHit(0, 1, 1, 200)) // the last: slot 1's owner has no PSTATE
 	out, err := r.Tick(now, scope, true, views, now)
-	if err != nil || len(out) != 1 {
+	if err != nil || len(out) != 3 {
 		t.Fatalf("PHITs %+v %v", out, err)
 	}
 	want := &PHit{Client: 2, Flags: PHitHostShield | PHitHostGuard, Epoch: 9, Stage: "M_Dai", Room: 1, Atp: 2, SetID: 1, Seq: 1,
@@ -510,15 +523,30 @@ func TestRemoteHostPHit(t *testing.T) {
 	if !reflect.DeepEqual(out[0], want) {
 		t.Errorf("PHIT\n got %+v\nwant %+v", out[0], want)
 	}
-	if s := r.Stats; s.DropNotMo2 != 1 || s.DropNotKeyed != 1 || s.DropNoClient != 1 || s.PHits != 1 {
+	for i, o := range out[1:] {
+		if o.SetID != NoMirrorSetID || o.Seq != uint16(i+2) {
+			t.Errorf("stand-in PHIT %d: %+v", i, o)
+		}
+	}
+	if s := r.Stats; s.StandIn != 2 || s.DropNoClient != 1 || s.PHits != 3 {
 		t.Errorf("stats %+v", s)
 	}
-	// The rate limit: same (client, setID) within 15 frames dropped,
-	// another setID and a later frame sent; seq counts per client.
+	// The rate limit: same (client, attacker) within 15 frames dropped,
+	// another attacker and a later frame sent; seq counts per client.
 	push(t, m, &st, ringHit(0, 0, 1, 210), ringHit(0, 0, 3, 211), ringHit(0, 0, 1, 215))
 	out, _ = r.Tick(now, scope, true, views, now)
-	if len(out) != 2 || out[0].SetID != 3 || out[0].Seq != 2 || out[1].SetID != 1 || out[1].Seq != 3 || r.Stats.DropRate != 1 {
+	if len(out) != 2 || out[0].SetID != 3 || out[0].Seq != 4 || out[1].SetID != 1 || out[1].Seq != 5 || r.Stats.DropRate != 1 {
 		t.Errorf("rate: %+v drops %d", out, r.Stats.DropRate)
+	}
+	// Not a Moblin and not ALLOW (a host bomb, proc 0x14C here), or no
+	// attacker actor at all: dropped, never sent to the client.
+	bomb := ringHit(0, 0, 5, 400)
+	bomb.HFlags, bomb.Proc = mailbox.RemoteHFNotMo2, 0x14C
+	noActor := ringHit(0, 0, 6, 400)
+	noActor.HFlags, noActor.PID = mailbox.RemoteHFNotKeyed, 0
+	push(t, m, &st, bomb, noActor)
+	if out, _ = r.Tick(now, scope, true, views, now); len(out) != 0 || r.Stats.DropNotAllowed != 2 {
+		t.Errorf("not allowed: %+v %+v", out, r.Stats)
 	}
 	// An unowned slot (the remote left).
 	push(t, m, &st, ringHit(0, 0, 4, 300))
