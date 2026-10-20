@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -277,6 +278,26 @@ func TestFGDiff(t *testing.T) {
 	out, code = diff(withBody(nil), del, nil)
 	if r := fgRow(t, out, "cur_heap"); code != 1 || !strings.Contains(r, "del sample") || !strings.Contains(out, "b (del)") {
 		t.Fatalf("delete code %d: %s\n%s", code, r, out)
+	}
+
+	// A region missing from one capture (an edited file or another
+	// table) cannot pass unseen: INVALID; a --track one is only noted;
+	// a region with no class is INVALID too.
+	short := idle()
+	short.Regions = slices.DeleteFunc(short.Regions, func(d fgDump) bool { return d.Name == "direction" })
+	short.Regions = append(short.Regions, fgDump{Name: "mytrack", Class: fgInfo})
+	out, code = diff(idle(), short, nil)
+	if r := fgRow(t, out, "direction"); code != 2 || !strings.Contains(r, "INVALID") || !strings.Contains(r, "missing in b") {
+		t.Fatalf("missing code %d: %s", code, r)
+	}
+	if r := fgRow(t, out, "mytrack"); !strings.Contains(r, "INFO") || !strings.Contains(r, "missing in a") {
+		t.Fatalf("missing track: %s", r)
+	}
+	nc, nc2 := idle(), idle()
+	nc.Regions[0].Class, nc2.Regions[0].Class = "", ""
+	out, code = diff(nc, nc2, nil)
+	if r := fgRow(t, out, nc.Regions[0].Name); code != 2 || !strings.Contains(r, "unknown class") {
+		t.Fatalf("no class code %d: %s", code, r)
 	}
 }
 

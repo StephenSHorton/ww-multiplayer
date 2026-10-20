@@ -764,6 +764,7 @@ func fgCompare(a, b, base *fgCapture, ra, rb fgRole) []fgResult {
 		da := &a.Regions[i]
 		db := b.region(da.Name)
 		if db == nil {
+			out = append(out, fgMissingRow(da, "b"))
 			continue
 		}
 		var dbase *fgDump
@@ -778,7 +779,24 @@ func fgCompare(a, b, base *fgCapture, ra, rb fgRole) []fgResult {
 		}
 		out = append(out, r)
 	}
+	for i := range b.Regions {
+		if a.region(b.Regions[i].Name) == nil {
+			out = append(out, fgMissingRow(&b.Regions[i], "a"))
+		}
+	}
 	return out
+}
+
+// fgMissingRow is the row of a region one capture lacks (a capture from
+// another table, or an edited file): a judged region cannot pass unseen,
+// so it is INVALID; a --track (INFO) region is only noted.
+func fgMissingRow(d *fgDump, in string) fgResult {
+	r := fgResult{Name: d.Name, Addr: fgAddrText(d), Size: fmt.Sprintf("0x%X", d.Size), Class: string(d.Class), Verdict: fgInvalid,
+		Note: "missing in " + in + ": re-snap both with the same table and --track list"}
+	if d.Class == fgInfo {
+		r.Verdict, r.Note = fgInfoV, "only in one capture (missing in "+in+")"
+	}
+	return r
 }
 
 // fgJudge applies the class rule to one region.
@@ -999,7 +1017,7 @@ func fgJudge(da, db, dbase *fgDump, a, b *fgCapture, ra, rb fgRole) (string, str
 		}
 		return note(fgPass)
 	}
-	return note(fgInfoV, "unknown class")
+	return note(fgInvalid, fmt.Sprintf("unknown class %q (a missing or edited key)", da.Class))
 }
 
 // fgAddrsMoved names a pointer region whose resolved address differs
