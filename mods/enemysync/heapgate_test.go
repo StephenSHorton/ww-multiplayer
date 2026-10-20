@@ -259,16 +259,19 @@ func TestHeapGateSizes(t *testing.T) {
 	}
 }
 
-// TestHeapGateFreshness: out of play, a pending stage change or a sample
-// older than HeapSampleFresh shut the gate with a transient reason.
+// TestHeapGateFreshness: out of play, a pending stage change or, while a
+// slot waits, a sample older than HeapSampleFresh shut the gate with a
+// transient reason.
 func TestHeapGateFreshness(t *testing.T) {
 	g := newGateRig(t, nil)
 	g.settle("stage")
 	// No slot wants a body: walks slow down to HeapWalkSlow.
 	g.views = nil
 	g.want("walked, nobody waits", g.tick(300*time.Millisecond), 0, mailbox.RemoteHGOpen)
-	g.want("stale sample", g.tick(HeapSampleFresh+100*time.Millisecond), 0, mailbox.RemoteHGNoSample)
+	// Nobody waits: the stale sample still names the reason (no flapping).
+	g.want("stale, nobody waits", g.tick(HeapSampleFresh+100*time.Millisecond), 0, mailbox.RemoteHGOpen)
 	g.views = []posefeed.RemoteView{{ID: 4, LinkSlot: 0, Live: true}}
+	g.want("stale sample, a slot waits", g.tick(16*time.Millisecond), 0, mailbox.RemoteHGNoSample)
 	g.want("walked again", g.tick(HeapWalkSlow), 0x01, mailbox.RemoteHGOpen)
 
 	g.scope.Pending, g.scope.InPlay = true, false

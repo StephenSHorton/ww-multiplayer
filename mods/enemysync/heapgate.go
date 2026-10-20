@@ -239,7 +239,9 @@ func (g *heapGate) verdict(m mem.Reader, now time.Time, scope Scope, stageChange
 		return 0, mailbox.RemoteHGInflight, walkErr
 	case liveFull >= g.fullMax:
 		return 0, mailbox.RemoteHGFullMax, walkErr
-	case !g.haveSample || now.Sub(g.sampleAt) > HeapSampleFresh:
+	case !g.haveSample || (want >= 0 && now.Sub(g.sampleAt) > HeapSampleFresh):
+		// With no slot waiting the walk is slow and the last sample only
+		// names the reason (no bit is given), so it may be older.
 		return 0, mailbox.RemoteHGNoSample, walkErr
 	case !g.sampleAt.After(g.reopenAt):
 		return 0, mailbox.RemoteHGInflight, walkErr
