@@ -467,3 +467,36 @@ func TestHeapGateArrival(t *testing.T) {
 	g.tick(16 * time.Millisecond)
 	g.want("arrived", g.tick(250*time.Millisecond), 0x01, mailbox.RemoteHGOpen)
 }
+
+// TestHeapGateArrivalEarly: the new stage's position can come in while
+// PSTATE still says loading (the Link spawns first); the slot counts it
+// as arrived, so a remote standing still at its spawn gets the bit. With
+// no new position at all, ArriveWait after the load ends the wait.
+func TestHeapGateArrivalEarly(t *testing.T) {
+	for _, early := range []bool{true, false} {
+		g := newGateRig(t, nil)
+		g.noMove = true
+		old := [3]float32{1398.9, 3648.4, -2063.9}
+		g.views[0].Pos, g.views[0].Target = old, old
+		g.stages[4] = "sea"
+		g.want("first sample", g.tick(16*time.Millisecond), 0, mailbox.RemoteHGStageSettle)
+		g.want("between samples", g.tick(100*time.Millisecond), 0, mailbox.RemoteHGStageSettle)
+		g.want("other stage", g.tick(2100*time.Millisecond), 0, mailbox.RemoteHGOpen)
+		delete(g.stages, 4)
+		g.flags[4] = PSLoading
+		g.tick(2100 * time.Millisecond)
+		if early {
+			spawn := [3]float32{-7003.8, -300, 3090.5}
+			g.views[0].Pos, g.views[0].Target = spawn, spawn
+			g.tick(250 * time.Millisecond)
+		}
+		g.flags[4] = 0
+		if early {
+			g.want("loaded, early position", g.tick(250*time.Millisecond), 0x01, mailbox.RemoteHGOpen)
+			continue
+		}
+		g.want("loaded, no position", g.tick(250*time.Millisecond), 0, mailbox.RemoteHGQueued)
+		g.tick(ArriveWait)
+		g.want("arrive wait over", g.tick(250*time.Millisecond), 0x01, mailbox.RemoteHGOpen)
+	}
+}

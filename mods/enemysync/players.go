@@ -61,6 +61,11 @@ const (
 	// 35 units and the ship at full sail by about 110; a stage change,
 	// warp or void-out moves thousands.
 	SettleDist = 300
+	// ArriveWait is how long after a load a slot waits for a new
+	// position before it stops waiting (the REL gives up on its FULL
+	// bit after RL_FULL_WAIT, 120 frames = 4 s): a remote that respawned
+	// exactly where it was would otherwise never get a FULL body.
+	ArriveWait = 2500 * time.Millisecond
 	// HitCutHold is how long a HIT's cut type and count override the
 	// PSTATE's in the sender's slot (ATTRIB stages them into the body).
 	HitCutHold = 500 * time.Millisecond
@@ -563,9 +568,11 @@ type RemoteHost struct {
 // position stream still carries the stage before's coordinates until the
 // new Link sends one.
 type arrival struct {
-	stage  string
-	target [3]float32 // the position when the stage changed
-	moved  bool       // a new position has come in since
+	stage   string
+	target  [3]float32 // the position when the load began
+	loading bool
+	moved   bool      // a new position has come in since
+	loaded  time.Time // when the load ended
 }
 
 type pstateEntry struct {
@@ -733,15 +740,21 @@ func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteVi
 		loading := p.Flags&PSLoading != 0
 		a, seen := r.arrive[v.ID]
 		switch {
+		case loading && !(seen && a.loading):
+			// A load begins: the position now is the stage before's (no
+			// Link sends one until the new stage spawns it). Wait for a
+			// new one; it may come in before PSTATE's loading flag clears.
+			a = arrival{stage: p.Stage, target: v.Target, loading: true}
 		case loading:
-			// The position stream holds the stage before's (no Link to
-			// send one) until the load ends: wait for a new one.
-			a = arrival{stage: p.Stage, target: v.Target}
+			a.stage = p.Stage
+		case a.loading:
+			a.loading, a.stage, a.loaded = false, p.Stage, now
 		case !seen || p.Stage != a.stage:
 			// First sight, or a change seen in play: whatever position
 			// came with it is the new stage's (SettleDist covers a slide).
 			a = arrival{stage: p.Stage, target: v.Target, moved: true}
-		case v.Target != a.target:
+		}
+		if v.Target != a.target || (!a.loading && now.Sub(a.loaded) > ArriveWait) {
 			a.moved = true
 		}
 		r.arrive[v.ID] = a
