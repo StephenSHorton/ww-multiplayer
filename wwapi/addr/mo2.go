@@ -18,9 +18,24 @@ const (
 	Mo2ModeStatue  = 0xF
 	// Mo2OffMorf is mDoExt_McaMorf* mpMorf (d_a_mo2.h:45).
 	Mo2OffMorf = 0x2C4
+	// The sword-blur mesh (d_a_mo2.h:58-60; br_draw, d_a_mo2.cpp:601-638):
+	// f32 m0590 its scale, int m0594 on, int m0598 its shape.
+	Mo2OffBlurScale = 0x590
+	Mo2OffBlurOn    = 0x594
+	Mo2OffBlurShape = 0x598
+	// Mo2OffAnmGate is s16 m05B0 (d_a_mo2.h:65): while nonzero anm_init is
+	// a no-op (d_a_mo2.cpp:137-153). Mo2OffPlaySkip is s16 m05B2
+	// (d_a_mo2.h:66): while nonzero the Moblin skips its morf's play()
+	// (d_a_mo2.cpp:3488-3490), so the frame and the blend stand still.
+	Mo2OffAnmGate  = 0x5B0
+	Mo2OffPlaySkip = 0x5B2
 	// Mo2OffInvuln is s16 m05B4 (d_a_mo2.h:67): nonzero while
 	// damage_check drops hits (d_a_mo2.cpp:3072).
 	Mo2OffInvuln = 0x5B4
+	// Mo2OffHasWeapon is s8 mbHasInnateWeapon (d_a_mo2.h:90): the spear
+	// shape is drawn iff it is 1 (d_a_mo2.cpp:3882-3890) and wait_set picks
+	// its rows by it (d_a_mo2.cpp:1059-1100).
+	Mo2OffHasWeapon = 0xDD4
 	// Mo2OffDR is damagereaction mDamageReaction (d_a_mo2.h:88;
 	// c_damagereaction.h:71-84): mMode s16 at +4, mAction s16 at +6.
 	Mo2OffDR       = 0x614
@@ -86,6 +101,31 @@ const (
 	McaMorfOffFrame     = McaMorfOffFrameCtrl + 0x10 // f32 mFrame (J3DAnimation.h:876)
 	McaMorfFrameCtrlLen = 0x14                       // J3DFrameCtrl's size (J3DAnimation.h:877)
 	McaMorfOffCurMorf   = 0x74                       // f32 mCurMorf (m_Do_ext.h:374)
+	McaMorfOffPrevMorf  = 0x78                       // f32 mPrevMorf (m_Do_ext.h:375)
+	McaMorfOffMorfStep  = 0x7C                       // f32 mMorfStep (m_Do_ext.h:376): setMorf's 1/morf (m_Do_ext.cpp:1452-1460)
+	McaMorfOffSound     = 0x80                       // mDoExt_zelAnime* mpSound (m_Do_ext.h:377)
+	// McaMorfAnimSpanOff and McaMorfAnimSpanLen are the one read the host
+	// sampler makes of a morf: mpAnm through mMorfStep (m_Do_ext.h:370-376),
+	// 0x2C bytes from +0x54.
+	McaMorfAnimSpanOff = McaMorfOffAnm
+	McaMorfAnimSpanLen = McaMorfOffSound - McaMorfOffAnm
+)
+
+// The collider fields a hit object carries beyond its cCcD_ObjAt (the
+// mType and mAtp at +0x10 and +0x14 the client reads today): dCcD_GObjAt
+// sits at +0x50 of a dCcD_GObjInf (after cCcD_Obj 0x40 and cCcD_DivideInfo
+// 0x08; d_cc_d.h:305-332), its dCcD_GAtTgCoCommonBase mSPrm first (0x1C
+// bytes: mSPrm, mRPrm, mHitCallback, mApid, mAc, mEffCounter, vptr), then
+// u8 mSe +0x1C, u8 mMtrl +0x1D, u8 mHitMark +0x1E, u8 mSpl +0x1F
+// (d_cc_d.h:325-331). The host's v2 At sphere copies Se, HitMark and Spl
+// from the client's sword object and NoHitMark from its GAt mSPrm.
+const (
+	CcAtOffSPrm    = 0x50
+	CcAtOffSe      = 0x6C
+	CcAtOffHitMark = 0x6E
+	CcAtOffSpl     = 0x6F
+	// CcAtSPrmNoHitMark is dCcG_AtSPrm_NoHitMark_e in GAt mSPrm's low byte.
+	CcAtSPrmNoHitMark uint8 = 0x02
 )
 
 // Statics the mirror reads or the REL calls through.

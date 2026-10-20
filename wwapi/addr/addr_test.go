@@ -106,6 +106,8 @@ func TestPlayFields(t *testing.T) {
 		{"EvtOrderCount", EvtOrderCount, Play + PlayOffEvtCtrl + EvtOffOrderCnt},
 		{"EvtMode", EvtMode, Play + PlayOffEvtCtrl + EvtOffMode},
 		{"PlayerPtr", PlayerPtr, Play + PlayOffPlayerPtr},
+		{"PlayerInfo0Ptr", PlayerInfo0Ptr, Play + PlayOffPlayerInfo},
+		{"PlayerInfo0Ptr (d_com_inf_game.h:787-791: mPlayerInfo[1] of 8 before mpPlayerPtr)", PlayerInfo0Ptr, PlayerPtr - 8},
 		{"ItemLifeCount", ItemLifeCount, Play + PlayOffItemLifeCount},
 		{"ItemRupeeCount", ItemRupeeCount, Play + PlayOffItemRupeeCount},
 		{"ItemKeyNumCount", ItemKeyNumCount, Play + PlayOffItemKeyNumCount},
@@ -324,6 +326,7 @@ func TestEverythingInMEM1(t *testing.T) {
 		"ArchiveHeapErrors": ArchiveHeapErrors, "OSArenaLo": OSArenaLo,
 		"JKRHeapCodeEnd": JKRHeapCodeEnd, "DMC": DMC, "GbaCom": GbaCom,
 		"RoomStayNo": RoomStayNo, "CcS": CcS, "CalcMtxPtr": CalcMtxPtr,
+		"MObjectInfo": MObjectInfo, "PlayerInfo0Ptr": PlayerInfo0Ptr,
 	}
 	for name, a := range all {
 		if a < MEM1Base || a >= MEM1End {
@@ -519,6 +522,18 @@ func TestMo2Offsets(t *testing.T) {
 		{"Mo2OffMode", Mo2OffMode, 0x2BC},
 		{"Mo2OffMorf", Mo2OffMorf, 0x2C4},
 		{"Mo2OffInvuln", Mo2OffInvuln, 0x5B4},
+		// d_a_mo2.h:58-60: f32 m0590, int m0594, int m0598 back to back.
+		{"Mo2OffBlurScale", Mo2OffBlurScale, 0x590},
+		{"Mo2OffBlurOn", Mo2OffBlurOn, Mo2OffBlurScale + 4},
+		{"Mo2OffBlurShape", Mo2OffBlurShape, Mo2OffBlurOn + 4},
+		{"Mo2OffBlurOn (d_a_mo2.h:59)", Mo2OffBlurOn, 0x594},
+		{"Mo2OffBlurShape (d_a_mo2.h:60)", Mo2OffBlurShape, 0x598},
+		// d_a_mo2.h:65-67: s16 m05B0, m05B2, m05B4 back to back.
+		{"Mo2OffAnmGate", Mo2OffAnmGate, 0x5B0},
+		{"Mo2OffPlaySkip", Mo2OffPlaySkip, Mo2OffAnmGate + 2},
+		{"Mo2OffPlaySkip (d_a_mo2.h:66)", Mo2OffPlaySkip, 0x5B2},
+		{"Mo2OffInvuln (m05B2 + 2)", Mo2OffInvuln, Mo2OffPlaySkip + 2},
+		{"Mo2OffHasWeapon (d_a_mo2.h:90)", Mo2OffHasWeapon, 0xDD4},
 		{"Mo2OffDR", Mo2OffDR, 0x614},
 		{"Mo2OffDRMode", Mo2OffDRMode, 0x618},
 		{"Mo2OffDRAction", Mo2OffDRAction, 0x61A},
@@ -547,6 +562,43 @@ func TestMo2Offsets(t *testing.T) {
 		{"McaMorfOffRate", McaMorfOffRate, 0x64},
 		{"McaMorfOffFrame", McaMorfOffFrame, 0x68},
 		{"McaMorfOffCurMorf (frame ctrl 0x14, mpTransformInfo, mpQuat)", McaMorfOffCurMorf, McaMorfOffFrameCtrl + McaMorfFrameCtrlLen + 4 + 4},
+		// m_Do_ext.h:374-377: mCurMorf, mPrevMorf, mMorfStep, mpSound.
+		{"McaMorfOffPrevMorf", McaMorfOffPrevMorf, McaMorfOffCurMorf + 4},
+		{"McaMorfOffMorfStep", McaMorfOffMorfStep, McaMorfOffPrevMorf + 4},
+		{"McaMorfOffSound", McaMorfOffSound, McaMorfOffMorfStep + 4},
+		{"McaMorfOffPrevMorf (m_Do_ext.h:375)", McaMorfOffPrevMorf, 0x78},
+		{"McaMorfOffMorfStep (m_Do_ext.h:376)", McaMorfOffMorfStep, 0x7C},
+		{"McaMorfOffSound (m_Do_ext.h:377)", McaMorfOffSound, 0x80},
+		{"McaMorfAnimSpanOff (mpAnm)", McaMorfAnimSpanOff, 0x54},
+		{"McaMorfAnimSpanLen (mpAnm .. mMorfStep inclusive)", McaMorfAnimSpanLen, 0x2C},
+		{"McaMorfAnimSpanLen covers mMorfStep", McaMorfAnimSpanOff + McaMorfAnimSpanLen, McaMorfOffMorfStep + 4},
+		// dCcD_GObjInf: cCcD_Obj 0x40, cCcD_DivideInfo 0x08, then dCcD_GObjAt
+		// (d_cc_d.h:305-332; facts at-sphere tables[2]).
+		{"CcAtOffSPrm (cCcD_Obj 0x40 + cCcD_DivideInfo 0x08 + 0x08)", CcAtOffSPrm, 0x50},
+		{"CcAtOffSe (dCcD_GAtTgCoCommonBase 0x1C)", CcAtOffSe, CcAtOffSPrm + 0x1C},
+		{"CcAtOffHitMark (mSe, mMtrl, mHitMark)", CcAtOffHitMark, CcAtOffSe + 2},
+		{"CcAtOffSpl", CcAtOffSpl, CcAtOffHitMark + 1},
+		{"CcAtOffSe", CcAtOffSe, 0x6C},
+		{"CcAtOffHitMark", CcAtOffHitMark, 0x6E},
+		{"CcAtOffSpl", CcAtOffSpl, 0x6F},
+		// d_resorce.h:40-47.
+		{"ResInfoSize", ResInfoSize, 0x24},
+		{"ResInfoOffCount (char[14])", ResInfoOffCount, ResInfoOffName + ResInfoNameLen},
+		{"ResInfoOffArchive (mCount u16, mpDMCommand)", ResInfoOffArchive, ResInfoOffCount + 2 + 4},
+		{"ResInfoOffRes (mpArchive, mpParentHeap, mDataHeap)", ResInfoOffRes, ResInfoOffArchive + 4 + 4 + 4},
+		{"ResInfoSize (mRes last)", ResInfoSize, ResInfoOffRes + 4},
+		{"ResInfoOffName (char mArchiveName[14])", ResInfoOffName, 0x00},
+		{"ResInfoOffCount", ResInfoOffCount, 0x0E},
+		{"ResInfoOffArchive", ResInfoOffArchive, 0x14},
+		{"ResInfoOffRes", ResInfoOffRes, 0x20},
+		{"ObjectInfoCount (mObjectInfo[64])", ObjectInfoCount, 64},
+		// Mo2.h:64-119.
+		{"Mo2BckFirst", Mo2BckFirst, 0x3E},
+		{"Mo2BckLast", Mo2BckLast, 0x75},
+		{"Mo2BckCount", Mo2BckCount, 56},
+		{"Mo2BckWait", Mo2BckWait, 0x73},
+		{"Mo2BckKWait", Mo2BckKWait, 0x5C},
+		{"Mo2BckNBWait", Mo2BckNBWait, 0x62},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s = 0x%X, want 0x%X", c.name, c.got, c.want)
@@ -562,8 +614,32 @@ func TestMo2Offsets(t *testing.T) {
 		{"RoomStayNo", RoomStayNo, StayNo},
 		{"RoomStayNo (sym:18667)", RoomStayNo, 0x803F6A78},
 		{"CalcMtxPtr (sym:18270)", CalcMtxPtr, 0x803F63A0},
+		{"MObjectInfo (wwapi.h:266)", MObjectInfo, 0x803E0BC8},
+		{"PlayerInfo0Ptr (d_com_inf_game.h:787-791)", PlayerInfo0Ptr, 0x803CA74C},
 	})
 	if CcS+0x1404 > Play+PlaySize || CcS%4 != 0 || CalcMtxPtr%4 != 0 {
 		t.Error("mCcS runs past play, or a pointer is misaligned")
+	}
+	// The resource table: 64 entries from MObjectInfo (wwapi.h:266) fit
+	// before the game heap pointers; every BCK index names one of the 56
+	// pointers at mRes + 4*idx; the handback rows are BCK indices.
+	if MObjectInfo%4 != 0 || MObjectInfo+ObjectInfoCount*ResInfoSize > GameHeapErrors {
+		t.Errorf("mObjectInfo 0x%08X+0x%X is misaligned or runs into the heap statics", MObjectInfo, ObjectInfoCount*ResInfoSize)
+	}
+	for _, idx := range []int{Mo2BckWait, Mo2BckKWait, Mo2BckNBWait} {
+		if idx < Mo2BckFirst || idx > Mo2BckLast {
+			t.Errorf("BCK index 0x%X is outside 0x%X..0x%X", idx, Mo2BckFirst, Mo2BckLast)
+		}
+	}
+	if Mo2BckNone <= Mo2BckLast || Mo2BckNone > 0xFF {
+		t.Errorf("Mo2BckNone 0x%X collides with an index", Mo2BckNone)
+	}
+	// The sampler's second span, +0x590..+0xDD4 inclusive, holds every
+	// field it is read for.
+	for name, off := range map[string]int{"blur scale": Mo2OffBlurScale, "anm gate": Mo2OffAnmGate, "play skip": Mo2OffPlaySkip, "invuln": Mo2OffInvuln,
+		"dr mode": Mo2OffDRMode, "dr action": Mo2OffDRAction, "tilt": Mo2OffTilt, "has weapon": Mo2OffHasWeapon} {
+		if off < Mo2OffBlurScale || off > Mo2OffHasWeapon {
+			t.Errorf("%s at +0x%X is outside the sampler's +0x%X..+0x%X span", name, off, Mo2OffBlurScale, Mo2OffHasWeapon)
+		}
 	}
 }

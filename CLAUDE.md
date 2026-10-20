@@ -168,6 +168,10 @@ WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/j
 WW_ENEMY_SYNC=1                             # Enemy sync (mods/enemysync, the Moblin mirror prototype): host/join and the app run enemy-host / enemy-client,
                                             #   mp-local spawns enemy-A (host, Dolphin A) and enemy-B (client, Dolphin B); needs the REL module linked
 WW_ENEMY_RAW=1                              # enemy-client bypasses the smoother and sets the block's raw flag (the lag measurement)
+WW_ENEMY_COLLIDERS=0                        # enemy-host's STATE stops asking the clients to submit their copies' colliders (default on)
+WW_ENEMY_HIT_V1=1                           # enemy-host applies a client's hit as the v1 shrink kill instead of the v2 sphere hit
+WW_ENEMY_HIT_FALLBACK=shrink                # enemy-host: a v2 hit that crossed nothing after two Sets falls back to the shrink kill
+WW_ENEMY_HIT_DEMO=0                         # enemy-host: no cutscene gate on client hits (default: a hit during the host Link's demo is dropped)
 WW_MINIMAP_SCALE=<f>                        # TUI minimap world units per cell (default 10)
 WW_LISTEN_HOST=<addr>                       # App only: a hosted lobby's server listens on <addr> alone (local checks: 127.0.0.1)
                                             #   and LAN discovery stays on it (127.0.0.1: beacons sent to, and heard on, loopback only)

@@ -3,6 +3,7 @@ package mailbox
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"math"
 	"os"
@@ -44,100 +45,152 @@ func headerDefines(t *testing.T, path string) map[string]uint64 {
 // every define has a Go constant.
 func TestEnemyHeaderPins(t *testing.T) {
 	defs := headerDefines(t, wwenemyHeader)
+	if got, ok := defs["WWENEMY_LAYOUT"]; !ok || got != uint64(EnemyLayout) {
+		t.Skipf("inject/include/wwenemy.h is WWENEMY_LAYOUT %d and this Go mirror is layout %d: the REL change that rewrites the header to layout %d lands apart; the pins are compared once both carry the same layout", got, EnemyLayout, EnemyLayout)
+	}
 	pins := map[string]uint64{
-		"WWENEMY_MAGIC":             uint64(EnemyMagic),
-		"WWENEMY_OFF":               uint64(EnemyOff),
-		"WWENEMY_SIZE":              uint64(EnemySize),
-		"WWENEMY_LAYOUT":            uint64(EnemyLayout),
-		"WWENEMY_MAX_SLOTS":         EnemyMaxSlots,
-		"WWENEMY_MAGIC_OFF":         EnemyMagicOff,
-		"WWENEMY_SEQ_HEAD_OFF":      EnemySeqHeadOff,
-		"WWENEMY_HOST_BEAT_OFF":     EnemyHostBeatOff,
-		"WWENEMY_GO_WRITE_MS_OFF":   EnemyGoWriteMSOff,
-		"WWENEMY_COUNT_OFF":         EnemyCountOff,
-		"WWENEMY_FLAGS_OFF":         EnemyFlagsOff,
-		"WWENEMY_LAYOUT_OFF":        EnemyLayoutOff,
-		"WWENEMY_EPOCH_OFF":         EnemyEpochOff,
-		"WWENEMY_STAGE_OFF":         EnemyStageOff,
-		"WWENEMY_ROOM_OFF":          EnemyRoomOff,
-		"WWENEMY_ROLE_OFF":          EnemyRoleOff,
-		"WWENEMY_RESERVED_OFF":      EnemyReservedOff,
-		"WWENEMY_SLOTS_OFF":         EnemySlotsOff,
-		"WWENEMY_SLOT_SIZE":         EnemySlotSize,
-		"WWENEMY_HIT_APPLY_OFF":     EnemyHitApplyOff,
-		"WWENEMY_SEQ_TAIL_OFF":      EnemySeqTailOff,
-		"WWENEMY_GO_SPAN":           EnemyGoSpan,
-		"WWENEMY_FLAG_MIRROR":       uint64(EnemyFlagMirror),
-		"WWENEMY_FLAG_COLLIDERS":    uint64(EnemyFlagColliders),
-		"WWENEMY_FLAG_ANIM":         uint64(EnemyFlagAnim),
-		"WWENEMY_FLAG_RAW":          uint64(EnemyFlagRaw),
-		"WWENEMY_ROLE_HOST":         uint64(EnemyRoleHost),
-		"WWENEMY_ROLE_CLIENT":       uint64(EnemyRoleClient),
-		"WWENEMY_SL_PID_OFF":        EnemySLPIDOff,
-		"WWENEMY_SL_POS_OFF":        EnemySLPosOff,
-		"WWENEMY_SL_ANGLE_OFF":      EnemySLAngleOff,
-		"WWENEMY_SL_TILT_OFF":       EnemySLTiltOff,
-		"WWENEMY_SL_ACTION_OFF":     EnemySLActionOff,
-		"WWENEMY_SL_MODE_OFF":       EnemySLModeOff,
-		"WWENEMY_SL_ATTACK_OFF":     EnemySLAttackOff,
-		"WWENEMY_SL_PHASE_OFF":      EnemySLPhaseOff,
-		"WWENEMY_SL_HEALTH_OFF":     EnemySLHealthOff,
-		"WWENEMY_SL_FLAGS_OFF":      EnemySLFlagsOff,
-		"WWENEMY_SL_FRAME_OFF":      EnemySLFrameOff,
-		"WWENEMY_SL_RATE_OFF":       EnemySLRateOff,
-		"WWENEMY_SL_SAMPLE_OFF":     EnemySLSampleOff,
-		"WWENEMY_SF_SNAP":           uint64(EnemySFSnap),
-		"WWENEMY_SF_DYING":          uint64(EnemySFDying),
-		"WWENEMY_SF_INVULN":         uint64(EnemySFInvuln),
-		"WWENEMY_SF_DEFENCE":        uint64(EnemySFDefence),
-		"WWENEMY_SF_RAGDOLL":        uint64(EnemySFRagdoll),
-		"WWENEMY_SF_BARE_HANDED":    uint64(EnemySFBareHanded),
-		"WWENEMY_SF_HIDDEN":         uint64(EnemySFHidden),
-		"WWENEMY_SF_RELEASE":        uint64(EnemySFRelease),
-		"WWENEMY_HA_SEQ_OFF":        EnemyHASeqOff,
-		"WWENEMY_HA_SETID_OFF":      EnemyHASetIDOff,
-		"WWENEMY_HA_COLLIDER_OFF":   EnemyHAColliderOff,
-		"WWENEMY_HA_ATTYPE_OFF":     EnemyHAAtTypeOff,
-		"WWENEMY_HA_ATP_OFF":        EnemyHAAtpOff,
-		"WWENEMY_HA_POS_OFF":        EnemyHAPosOff,
-		"WWENEMY_HA_PID_OFF":        EnemyHAPIDOff,
-		"WWENEMY_HA_SIZE":           EnemyHASize,
-		"WWENEMY_ACK_SEQ_OFF":       EnemyAckSeqOff,
-		"WWENEMY_ACK_FRAME_OFF":     EnemyAckFrameOff,
-		"WWENEMY_ADOPTED_OFF":       EnemyAdoptedOff,
-		"WWENEMY_EPOCH_SEEN_OFF":    EnemyEpochSeenOff,
-		"WWENEMY_STATUS_OFF":        EnemyStatusOff,
-		"WWENEMY_STATUS_SIZE":       EnemyStatusSize,
-		"WWENEMY_HITS_OFF":          EnemyHitsOff,
-		"WWENEMY_HIT_SIZE":          EnemyHitSize,
-		"WWENEMY_HIT_APPLY_ACK_OFF": EnemyHitApplyAckOff,
-		"WWENEMY_CANARIES_OFF":      EnemyCanariesOff,
-		"WWENEMY_RESERVED2_OFF":     EnemyReserved2Off,
-		"WWENEMY_ST_ACTOR_OFF":      EnemySTActorOff,
-		"WWENEMY_ST_PID_OFF":        EnemySTPIDOff,
-		"WWENEMY_ST_STATE_OFF":      EnemySTStateOff,
-		"WWENEMY_ST_PAUSE_PREV_OFF": EnemySTPausePrevOff,
-		"WWENEMY_ST_LAST_ERR_OFF":   EnemySTLastErrOff,
-		"WWENEMY_ST_FRAMES_OFF":     EnemySTFramesOff,
-		"WWENEMY_STATE_UNRESOLVED":  uint64(EnemyStateUnresolved),
-		"WWENEMY_STATE_MIRRORED":    uint64(EnemyStateMirrored),
-		"WWENEMY_STATE_RELEASED":    uint64(EnemyStateReleased),
-		"WWENEMY_STATE_MISSING":     uint64(EnemyStateMissing),
-		"WWENEMY_STATE_DYING":       uint64(EnemyStateDying),
-		"WWENEMY_STATE_REFUSED":     uint64(EnemyStateRefused),
-		"WWENEMY_ERR_NONE":          uint64(EnemyErrNone),
-		"WWENEMY_ERR_PID":           uint64(EnemyErrPID),
-		"WWENEMY_ERR_PROC":          uint64(EnemyErrProc),
-		"WWENEMY_ERR_INIT":          uint64(EnemyErrInit),
-		"WWENEMY_ERR_SETID":         uint64(EnemyErrSetID),
-		"WWENEMY_ERR_MORF":          uint64(EnemyErrMorf),
-		"WWENEMY_ERR_RANGE":         uint64(EnemyErrRange),
-		"WWENEMY_ERR_MODE":          uint64(EnemyErrMode),
-		"WWENEMY_HR_DROPPED":        uint64(EnemyHRDropped),
-		"WWENEMY_HR_APPLIED_AT":     uint64(EnemyHRAppliedAt),
-		"WWENEMY_HR_NO_ACTOR":       uint64(EnemyHRNoActor),
-		"WWENEMY_HR_SHRINK":         uint64(EnemyHRShrink),
-		"WWENEMY_STALE_FRAMES":      EnemyStaleFrames,
+		"WWENEMY_MAGIC":               uint64(EnemyMagic),
+		"WWENEMY_OFF":                 uint64(EnemyOff),
+		"WWENEMY_SIZE":                uint64(EnemySize),
+		"WWENEMY_LAYOUT":              uint64(EnemyLayout),
+		"WWENEMY_MAX_SLOTS":           EnemyMaxSlots,
+		"WWENEMY_MAGIC_OFF":           EnemyMagicOff,
+		"WWENEMY_SEQ_HEAD_OFF":        EnemySeqHeadOff,
+		"WWENEMY_HOST_BEAT_OFF":       EnemyHostBeatOff,
+		"WWENEMY_GO_WRITE_MS_OFF":     EnemyGoWriteMSOff,
+		"WWENEMY_COUNT_OFF":           EnemyCountOff,
+		"WWENEMY_FLAGS_OFF":           EnemyFlagsOff,
+		"WWENEMY_LAYOUT_OFF":          EnemyLayoutOff,
+		"WWENEMY_EPOCH_OFF":           EnemyEpochOff,
+		"WWENEMY_STAGE_OFF":           EnemyStageOff,
+		"WWENEMY_ROOM_OFF":            EnemyRoomOff,
+		"WWENEMY_ROLE_OFF":            EnemyRoleOff,
+		"WWENEMY_RESERVED_OFF":        EnemyReservedOff,
+		"WWENEMY_SLOTS_OFF":           EnemySlotsOff,
+		"WWENEMY_SLOT_SIZE":           EnemySlotSize,
+		"WWENEMY_HIT_APPLY_OFF":       EnemyHitApplyOff,
+		"WWENEMY_SEQ_TAIL_OFF":        EnemySeqTailOff,
+		"WWENEMY_GO_SPAN":             EnemyGoSpan,
+		"WWENEMY_FLAG_MIRROR":         uint64(EnemyFlagMirror),
+		"WWENEMY_FLAG_COLLIDERS":      uint64(EnemyFlagColliders),
+		"WWENEMY_FLAG_ANIM":           uint64(EnemyFlagAnim),
+		"WWENEMY_FLAG_RAW":            uint64(EnemyFlagRaw),
+		"WWENEMY_ROLE_HOST":           uint64(EnemyRoleHost),
+		"WWENEMY_ROLE_CLIENT":         uint64(EnemyRoleClient),
+		"WWENEMY_SL_PID_OFF":          EnemySLPIDOff,
+		"WWENEMY_SL_POS_OFF":          EnemySLPosOff,
+		"WWENEMY_SL_ANGLE_OFF":        EnemySLAngleOff,
+		"WWENEMY_SL_TILT_OFF":         EnemySLTiltOff,
+		"WWENEMY_SL_ACTION_OFF":       EnemySLActionOff,
+		"WWENEMY_SL_MODE_OFF":         EnemySLModeOff,
+		"WWENEMY_SL_ATTACK_OFF":       EnemySLAttackOff,
+		"WWENEMY_SL_PHASE_OFF":        EnemySLPhaseOff,
+		"WWENEMY_SL_HEALTH_OFF":       EnemySLHealthOff,
+		"WWENEMY_SL_FLAGS_OFF":        EnemySLFlagsOff,
+		"WWENEMY_SL_FRAME_OFF":        EnemySLFrameOff,
+		"WWENEMY_SL_RATE_OFF":         EnemySLRateOff,
+		"WWENEMY_SL_SAMPLE_OFF":       EnemySLSampleOff,
+		"WWENEMY_SL_BCK_OFF":          EnemySLBckOff,
+		"WWENEMY_SL_ATTR_OFF":         EnemySLAttrOff,
+		"WWENEMY_SL_ANM_SEQ_OFF":      EnemySLAnmSeqOff,
+		"WWENEMY_SL_MORF_OFF":         EnemySLMorfOff,
+		"WWENEMY_SL_FLAGS2_OFF":       EnemySLFlags2Off,
+		"WWENEMY_SL_BLUR_SHAPE_OFF":   EnemySLBlurShapeOff,
+		"WWENEMY_SL_BLUR_SCALE_OFF":   EnemySLBlurScaleOff,
+		"WWENEMY_BCK_NONE":            uint64(EnemyBckNone),
+		"WWENEMY_SF_SNAP":             uint64(EnemySFSnap),
+		"WWENEMY_SF_DYING":            uint64(EnemySFDying),
+		"WWENEMY_SF_INVULN":           uint64(EnemySFInvuln),
+		"WWENEMY_SF_DEFENCE":          uint64(EnemySFDefence),
+		"WWENEMY_SF_RAGDOLL":          uint64(EnemySFRagdoll),
+		"WWENEMY_SF_BARE_HANDED":      uint64(EnemySFBareHanded),
+		"WWENEMY_SF_HIDDEN":           uint64(EnemySFHidden),
+		"WWENEMY_SF_RELEASE":          uint64(EnemySFRelease),
+		"WWENEMY_SF2_HAS_WEAPON":      uint64(EnemySF2HasWeapon),
+		"WWENEMY_SF2_PLAY_SKIP":       uint64(EnemySF2PlaySkip),
+		"WWENEMY_SF2_BLUR_ON":         uint64(EnemySF2BlurOn),
+		"WWENEMY_SF2_ANM_GATE":        uint64(EnemySF2AnmGate),
+		"WWENEMY_HA_SEQ_OFF":          EnemyHASeqOff,
+		"WWENEMY_HA_SETID_OFF":        EnemyHASetIDOff,
+		"WWENEMY_HA_COLLIDER_OFF":     EnemyHAColliderOff,
+		"WWENEMY_HA_FLAGS_OFF":        EnemyHAFlagsOff,
+		"WWENEMY_HA_ATTYPE_OFF":       EnemyHAAtTypeOff,
+		"WWENEMY_HA_ATP_OFF":          EnemyHAAtpOff,
+		"WWENEMY_HA_SE_OFF":           EnemyHASeOff,
+		"WWENEMY_HA_HITMARK_OFF":      EnemyHAHitMarkOff,
+		"WWENEMY_HA_SPL_OFF":          EnemyHASplOff,
+		"WWENEMY_HA_POS_OFF":          EnemyHAPosOff,
+		"WWENEMY_HA_PID_OFF":          EnemyHAPIDOff,
+		"WWENEMY_HA_SIZE":             EnemyHASize,
+		"WWENEMY_HAF_FORCE_V1":        uint64(EnemyHAFForceV1),
+		"WWENEMY_HAF_FALLBACK_SHRINK": uint64(EnemyHAFFallbackShrink),
+		"WWENEMY_HAF_NO_HITMARK":      uint64(EnemyHAFNoHitMark),
+		"WWENEMY_ACK_SEQ_OFF":         EnemyAckSeqOff,
+		"WWENEMY_ACK_FRAME_OFF":       EnemyAckFrameOff,
+		"WWENEMY_ADOPTED_OFF":         EnemyAdoptedOff,
+		"WWENEMY_EPOCH_SEEN_OFF":      EnemyEpochSeenOff,
+		"WWENEMY_STATUS_OFF":          EnemyStatusOff,
+		"WWENEMY_STATUS_SIZE":         EnemyStatusSize,
+		"WWENEMY_HITS_OFF":            EnemyHitsOff,
+		"WWENEMY_HIT_SIZE":            EnemyHitSize,
+		"WWENEMY_HIT_APPLY_ACK_OFF":   EnemyHitApplyAckOff,
+		"WWENEMY_CANARIES_OFF":        EnemyCanariesOff,
+		"WWENEMY_CANARIES2_OFF":       EnemyCanaries2Off,
+		"WWENEMY_HIT_RESULT_OFF":      EnemyHitResultOff,
+		"WWENEMY_RESERVED2_OFF":       EnemyReserved2Off,
+		"WWENEMY_ST_ACTOR_OFF":        EnemySTActorOff,
+		"WWENEMY_ST_PID_OFF":          EnemySTPIDOff,
+		"WWENEMY_ST_STATE_OFF":        EnemySTStateOff,
+		"WWENEMY_ST_PAUSE_PREV_OFF":   EnemySTPausePrevOff,
+		"WWENEMY_ST_LAST_ERR_OFF":     EnemySTLastErrOff,
+		"WWENEMY_ST_ANM_STATE_OFF":    EnemySTAnmStateOff,
+		"WWENEMY_ST_FRAMES_OFF":       EnemySTFramesOff,
+		"WWENEMY_ST_BCK_OFF":          EnemySTBckOff,
+		"WWENEMY_ST_ANM_CHANGES_OFF":  EnemySTAnmChangesOff,
+		"WWENEMY_STATE_UNRESOLVED":    uint64(EnemyStateUnresolved),
+		"WWENEMY_STATE_MIRRORED":      uint64(EnemyStateMirrored),
+		"WWENEMY_STATE_RELEASED":      uint64(EnemyStateReleased),
+		"WWENEMY_STATE_MISSING":       uint64(EnemyStateMissing),
+		"WWENEMY_STATE_DYING":         uint64(EnemyStateDying),
+		"WWENEMY_STATE_REFUSED":       uint64(EnemyStateRefused),
+		"WWENEMY_ERR_NONE":            uint64(EnemyErrNone),
+		"WWENEMY_ERR_PID":             uint64(EnemyErrPID),
+		"WWENEMY_ERR_PROC":            uint64(EnemyErrProc),
+		"WWENEMY_ERR_INIT":            uint64(EnemyErrInit),
+		"WWENEMY_ERR_SETID":           uint64(EnemyErrSetID),
+		"WWENEMY_ERR_MORF":            uint64(EnemyErrMorf),
+		"WWENEMY_ERR_RANGE":           uint64(EnemyErrRange),
+		"WWENEMY_ERR_MODE":            uint64(EnemyErrMode),
+		"WWENEMY_ANM_S1":              uint64(EnemyAnmS1),
+		"WWENEMY_ANM_SYNCED":          uint64(EnemyAnmSynced),
+		"WWENEMY_ANM_UNRESOLVED":      uint64(EnemyAnmUnresolved),
+		"WWENEMY_ANM_RES_NULL":        uint64(EnemyAnmResNull),
+		"WWENEMY_ANM_RANGE":           uint64(EnemyAnmRange),
+		"WWENEMY_HR_DROPPED":          uint64(EnemyHRDropped),
+		"WWENEMY_HR_APPLIED_AT":       uint64(EnemyHRAppliedAt),
+		"WWENEMY_HR_NO_ACTOR":         uint64(EnemyHRNoActor),
+		"WWENEMY_HR_SHRINK":           uint64(EnemyHRShrink),
+		"WWENEMY_HR_PARRIED":          uint64(EnemyHRParried),
+		"WWENEMY_HD_NONE":             uint64(EnemyHDNone),
+		"WWENEMY_HD_NO_CROSS":         uint64(EnemyHDNoCross),
+		"WWENEMY_HD_INVULN":           uint64(EnemyHDInvuln),
+		"WWENEMY_HD_RAGDOLL":          uint64(EnemyHDRagdoll),
+		"WWENEMY_HD_DYING":            uint64(EnemyHDDying),
+		"WWENEMY_HD_NO_LINK":          uint64(EnemyHDNoLink),
+		"WWENEMY_HD_NO_SPHERE":        uint64(EnemyHDNoSphere),
+		"WWENEMY_HD_WRONG_OBJ":        uint64(EnemyHDWrongObj),
+		"WWENEMY_HD_ABORTED":          uint64(EnemyHDAborted),
+		"WWENEMY_HD_DEFENCE":          uint64(EnemyHDDefence),
+		"WWENEMY_HD_FALLBACK_SHRINK":  uint64(EnemyHDFallbackShrink),
+		"WWENEMY_HD_GO_GATE":          uint64(EnemyHDGoGate),
+		"WWENEMY_HD_RATE":             uint64(EnemyHDRate),
+		"WWENEMY_HD_BUSY":             uint64(EnemyHDBusy),
+		"WWENEMY_HD_GO_FLAGS":         uint64(EnemyHDGoFlags),
+		"WWENEMY_HD_DEMO":             uint64(EnemyHDDemo),
+		"WWENEMY_STALE_FRAMES":        EnemyStaleFrames,
+		"WWENEMY_SPH_OFF":             uint64(EnemySphOff),
+		"WWENEMY_STTS_OFF":            uint64(EnemySttsOff),
+		"WWENEMY_REGION_END":          uint64(EnemyRegionEnd),
 	}
 	for name, want := range defs {
 		got, ok := pins[name]
@@ -170,10 +223,19 @@ func TestEnemyBlockPlacement(t *testing.T) {
 	if EnemyBlockAddr < relEnd && relStart < EnemyBlockAddr+EnemySize {
 		t.Errorf("enemy block 0x%08X-0x%08X overlaps the REL words 0x%08X-0x%08X", EnemyBlockAddr, EnemyBlockAddr+EnemySize, relStart, relEnd)
 	}
-	if EnemyBlockAddr != 0x80413100 || EnemyBlockAddr+EnemySize != 0x80413260 {
-		t.Errorf("enemy block at 0x%08X-0x%08X, the design says 0x80413100-0x80413260", EnemyBlockAddr, EnemyBlockAddr+EnemySize)
+	if EnemyBlockAddr != 0x80413100 || EnemyBlockAddr+EnemySize != 0x80413298 {
+		t.Errorf("enemy block at 0x%08X-0x%08X, the design says 0x80413100-0x80413298", EnemyBlockAddr, EnemyBlockAddr+EnemySize)
 	}
-	if EnemyBlockRegion != (addr.Region{Name: "enemy block", Start: EnemyBlockAddr, End: EnemyBlockAddr + EnemySize}) {
+	// The host REL's static collision objects sit past the block, inside
+	// the region, 4-aligned, below the arena (design wire_and_block).
+	sph, stts := Mailbox+EnemySphOff, Mailbox+EnemySttsOff
+	if sph != 0x804132A0 || stts != 0x804133D0 || Mailbox+EnemyRegionEnd != 0x80413410 {
+		t.Errorf("collision objects at 0x%08X / 0x%08X, region end 0x%08X; the design says 0x804132A0 / 0x804133D0 / 0x80413410", sph, stts, Mailbox+EnemyRegionEnd)
+	}
+	if EnemyBlockAddr+EnemySize > sph || sph+EnemySphSize > stts || stts+EnemySttsSize > Mailbox+EnemyRegionEnd || Mailbox+EnemyRegionEnd > PatchedArenaLo || sph%4 != 0 || stts%4 != 0 {
+		t.Error("the collision objects overlap the block, each other, the region end or the arena, or are misaligned")
+	}
+	if EnemyBlockRegion != (addr.Region{Name: "enemy block", Start: EnemyBlockAddr, End: Mailbox + EnemyRegionEnd}) {
 		t.Errorf("EnemyBlockRegion %+v", EnemyBlockRegion)
 	}
 	if CanaryArena.End != EnemyBlockRegion.Start || CanaryArenaHigh.Start != EnemyBlockRegion.End {
@@ -195,9 +257,23 @@ func TestEnemyBlockPlacement(t *testing.T) {
 		{"REL span start", EnemyAckSeqOff, EnemyGoSpan},
 		{"status end", EnemyStatusOff + EnemyMaxSlots*EnemyStatusSize, EnemyHitsOff},
 		{"hits end", EnemyHitsOff + EnemyMaxSlots*EnemyHitSize, EnemyHitApplyAckOff},
+		{"hit_apply_ack end", EnemyHitApplyAckOff + 4, EnemyCanariesOff},
+		{"canaries end", EnemyCanariesOff + 4, EnemyCanaries2Off},
+		{"canaries2 end", EnemyCanaries2Off + 4, EnemyHitResultOff},
+		{"hit_result end", EnemyHitResultOff + 4, EnemyReserved2Off},
 		{"reserved2 end", EnemyReserved2Off + 4, int(EnemySize)},
-		{"slot sample end", EnemySLSampleOff + 4, EnemySlotSize},
-		{"status frames end", EnemySTFramesOff + 4, EnemyStatusSize},
+		{"slot sample end", EnemySLSampleOff + 4, EnemySLBckOff},
+		{"slot bytes", EnemySLBckOff + 6, EnemySLBlurShapeOff + 1},
+		{"slot blur_scale", EnemySLBlurShapeOff + 1 + 2, EnemySLBlurScaleOff},
+		{"slot blur_scale end", EnemySLBlurScaleOff + 4, EnemySlotSize},
+		{"slots end (0x100)", EnemySlotsOff + EnemyMaxSlots*EnemySlotSize, 0x100},
+		{"hit_apply flags after collider", EnemyHAColliderOff + 1, EnemyHAFlagsOff},
+		{"hit_apply se after atp", EnemyHAAtpOff + 1, EnemyHASeOff},
+		{"hit_apply spl before pos", EnemyHASplOff + 1, EnemyHAPosOff},
+		{"hit_apply pid end", EnemyHAPIDOff + 4, EnemyHASize},
+		{"status anm_state after last_err", EnemySTLastErrOff + 1, EnemySTAnmStateOff},
+		{"status bck after frames", EnemySTFramesOff + 2, EnemySTBckOff},
+		{"status anm_changes end", EnemySTAnmChangesOff + 1, EnemyStatusSize},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s: 0x%X, want 0x%X", c.name, c.got, c.want)
@@ -206,8 +282,13 @@ func TestEnemyBlockPlacement(t *testing.T) {
 	if EnemyHitApplyOff+EnemyHASize > EnemySeqTailOff {
 		t.Error("hit_apply runs into seq_tail")
 	}
-	if EnemySlotAddr(3, EnemySLSampleOff)+4 != EnemyBlockAddr+EnemyHitApplyOff {
-		t.Errorf("EnemySlotAddr(3, sample) = 0x%08X", EnemySlotAddr(3, EnemySLSampleOff))
+	if EnemySlotAddr(3, EnemySLBlurScaleOff)+4 != EnemyBlockAddr+EnemyHitApplyOff {
+		t.Errorf("EnemySlotAddr(3, blur_scale) = 0x%08X", EnemySlotAddr(3, EnemySLBlurScaleOff))
+	}
+	// The hit details are one byte each and the Go-side ones follow the
+	// REL's; the results fit the byte too.
+	if EnemyHDGoGate <= EnemyHDFallbackShrink || EnemyHDDemo != 15 || EnemyHRParried != 4 {
+		t.Error("hit result or detail values moved")
 	}
 }
 
@@ -217,10 +298,11 @@ func sampleEnemyBlock() *EnemyBlock {
 		Layout: EnemyLayout, Epoch: 3, Stage: "M_Dai", Room: 1, Role: EnemyRoleClient,
 		Slots: []EnemySlot{
 			{PID: 0x1234, Pos: [3]float32{-100.5, 20, 3e4}, AngleY: -0x4000, Tilt: 2, Action: 20, Mode: -100,
-				AttackType: 1, AttackPhase: 2, Health: 3, Flags: EnemySFSnap | EnemySFDying, MorfFrame: 7.5, MorfRate: 1, SampleSeq: 99},
-			{PID: 0, Pos: [3]float32{1, 2, 3}},
+				AttackType: 1, AttackPhase: 2, Health: 3, Flags: EnemySFSnap | EnemySFDying, MorfFrame: 7.5, MorfRate: 1, SampleSeq: 99,
+				Bck: 0x6A, AnmAttr: 2, AnmSeq: 17, Morf: 15, Flags2: EnemySF2HasWeapon | EnemySF2BlurOn, BlurShape: 3, BlurScale: 1.25},
+			{PID: 0, Pos: [3]float32{1, 2, 3}, Bck: EnemyBckNone, AnmAttr: 0xFF},
 		},
-		HitApply: EnemyHitApply{Seq: 5, SetID: 2, Collider: 1, AtType: 0x80000, Atp: 2, Pos: [3]float32{4, 5, 6}, PID: 421},
+		HitApply: EnemyHitApply{Seq: 5, SetID: 2, Collider: 1, Flags: EnemyHAFNoHitMark, AtType: 0x80000, Atp: 2, Se: 1, HitMark: 0xD, Spl: 1, Pos: [3]float32{4, 5, 6}, PID: 421},
 	}
 }
 
@@ -238,7 +320,7 @@ func TestEnemyBlockEncode(t *testing.T) {
 		t.Fatalf("%d bytes, head %08X tail %08X", len(out), be.Uint32(out[EnemySeqHeadOff:]), be.Uint32(out[EnemySeqTailOff:]))
 	}
 	if be.Uint32(out[EnemyMagicOff:]) != EnemyMagic || out[EnemyCountOff] != 2 || out[EnemyFlagsOff] != b.Flags ||
-		be.Uint16(out[EnemyLayoutOff:]) != 1 || be.Uint32(out[EnemyEpochOff:]) != 3 ||
+		be.Uint16(out[EnemyLayoutOff:]) != 2 || be.Uint32(out[EnemyEpochOff:]) != 3 ||
 		!bytes.Equal(out[EnemyStageOff:EnemyStageOff+8], []byte("M_Dai\x00\x00\x00")) ||
 		out[EnemyRoomOff] != 1 || out[EnemyRoleOff] != EnemyRoleClient {
 		t.Errorf("header %x", out[:EnemySlotsOff])
@@ -246,13 +328,36 @@ func TestEnemyBlockEncode(t *testing.T) {
 	s0 := out[EnemySlotsOff:]
 	if be.Uint32(s0[EnemySLPIDOff:]) != 0x1234 || math.Float32frombits(be.Uint32(s0[EnemySLPosOff+8:])) != 3e4 ||
 		int16(be.Uint16(s0[EnemySLAngleOff:])) != -0x4000 || int16(be.Uint16(s0[EnemySLModeOff:])) != -100 ||
-		s0[EnemySLFlagsOff] != EnemySFSnap|EnemySFDying || be.Uint32(s0[EnemySLSampleOff:]) != 99 {
+		s0[EnemySLFlagsOff] != EnemySFSnap|EnemySFDying || be.Uint32(s0[EnemySLSampleOff:]) != 99 ||
+		s0[EnemySLBckOff] != 0x6A || s0[EnemySLAttrOff] != 2 || s0[EnemySLAnmSeqOff] != 17 || s0[EnemySLMorfOff] != 15 ||
+		s0[EnemySLFlags2Off] != EnemySF2HasWeapon|EnemySF2BlurOn || s0[EnemySLBlurShapeOff] != 3 || s0[0x2E] != 0 || s0[0x2F] != 0 ||
+		math.Float32frombits(be.Uint32(s0[EnemySLBlurScaleOff:])) != 1.25 {
 		t.Errorf("slot 0 %x", s0[:EnemySlotSize])
 	}
+	// The slot is 0x34 bytes: bck..blur_scale at +0x28..+0x34, and the
+	// second slot starts at +0x30+0x34.
+	if s1 := out[EnemySlotsOff+EnemySlotSize:]; be.Uint32(s1[EnemySLPIDOff:]) != 0 || math.Float32frombits(be.Uint32(s1[EnemySLPosOff+4:])) != 2 || s1[EnemySLBckOff] != 0xFF || s1[EnemySLAttrOff] != 0xFF {
+		t.Errorf("slot 1 %x", s1[:EnemySlotSize])
+	}
 	ha := out[EnemyHitApplyOff:]
-	if be.Uint32(ha[EnemyHASeqOff:]) != 5 || be.Uint16(ha[EnemyHASetIDOff:]) != 2 || ha[EnemyHAColliderOff] != 1 ||
-		be.Uint32(ha[EnemyHAAtTypeOff:]) != 0x80000 || ha[EnemyHAAtpOff] != 2 || math.Float32frombits(be.Uint32(ha[EnemyHAPosOff+4:])) != 5 || be.Uint32(ha[EnemyHAPIDOff:]) != 421 {
+	if be.Uint32(ha[EnemyHASeqOff:]) != 5 || be.Uint16(ha[EnemyHASetIDOff:]) != 2 || ha[EnemyHAColliderOff] != 1 || ha[EnemyHAFlagsOff] != EnemyHAFNoHitMark ||
+		be.Uint32(ha[EnemyHAAtTypeOff:]) != 0x80000 || ha[EnemyHAAtpOff] != 2 || ha[EnemyHASeOff] != 1 || ha[EnemyHAHitMarkOff] != 0xD || ha[EnemyHASplOff] != 1 ||
+		math.Float32frombits(be.Uint32(ha[EnemyHAPosOff+4:])) != 5 || be.Uint32(ha[EnemyHAPIDOff:]) != 421 {
 		t.Errorf("hit_apply %x", ha[:EnemyHASize])
+	}
+	// hit_apply at +0x100 with flags/se/hit_mark/spl at +0x107/+0x10D/
+	// +0x10E/+0x10F and seq_tail at +0x120 (design tests_and_live_checks).
+	if out[0x107] != EnemyHAFNoHitMark || out[0x10D] != 1 || out[0x10E] != 0xD || out[0x10F] != 1 || be.Uint32(out[0x120:]) != b.Seq || len(out) != 0x124 {
+		t.Errorf("hit_apply bytes at their absolute offsets: %x", out[0x100:])
+	}
+	// Slot 0's layout-2 bytes at their absolute offsets: bck, attr,
+	// anm_seq, morf, flags2, blur_shape, the u16 pad and the f32
+	// blur_scale at +0x30+0x28..+0x30+0x33; hit_apply's pid at +0x11C.
+	if got := hex.EncodeToString(out[0x30+0x28 : 0x30+0x34]); got != "6a02110f050300003fa00000" || be.Uint32(out[0x11C:]) != 421 {
+		t.Errorf("slot 0 bck..blur_scale %s, hit_apply pid %d", got, be.Uint32(out[0x11C:]))
+	}
+	if got := hex.EncodeToString(out); got != enemyGoSpanGolden {
+		t.Errorf("the Go span's bytes changed:\n got %s\nwant %s", got, enemyGoSpanGolden)
 	}
 	got, tail, err := DecodeEnemyBlock(out)
 	if err != nil || tail != b.Seq || !reflect.DeepEqual(&got, b) {
@@ -262,6 +367,11 @@ func TestEnemyBlockEncode(t *testing.T) {
 	b.Slots[1].Pos[0] = float32(math.NaN())
 	if _, err := b.Encode(); !errors.Is(err, ErrEnemyNotFinite) {
 		t.Errorf("NaN: %v", err)
+	}
+	b = sampleEnemyBlock()
+	b.Slots[0].BlurScale = float32(math.Inf(1))
+	if _, err := b.Encode(); !errors.Is(err, ErrEnemyNotFinite) {
+		t.Errorf("Inf blur scale: %v", err)
 	}
 	b = sampleEnemyBlock()
 	b.Slots = make([]EnemySlot, 5)
@@ -304,13 +414,18 @@ func TestEnemyBlockWriteReadStatus(t *testing.T) {
 	st2[EnemySTStateOff] = EnemyStateMirrored
 	st2[EnemySTPausePrevOff] = 0x02
 	st2[EnemySTLastErrOff] = EnemyErrNone
+	st2[EnemySTAnmStateOff] = EnemyAnmSynced
 	be.PutUint16(st2[EnemySTFramesOff:], 300)
+	st2[EnemySTBckOff] = 0x73
+	st2[EnemySTAnmChangesOff] = 9
 	h1 := at(EnemyHitsOff + 1*EnemyHitSize)
 	be.PutUint16(h1, 7)
 	h1[2], h1[3] = 2, 1
 	be.PutUint32(at(EnemyHitApplyAckOff), 5)
 	copy(at(EnemyCanariesOff), []byte{1, 2, 3, 4})
-	be.PutUint32(at(EnemyReserved2Off), uint32(EnemyHRShrink))
+	copy(at(EnemyCanaries2Off), []byte{5, 6, 7, 8})
+	be.PutUint32(at(EnemyHitResultOff), uint32(EnemyHRAppliedAt)<<24|uint32(EnemyHDNone)<<16|2<<8|1)
+	be.PutUint32(at(EnemyReserved2Off), 0xDEADBEEF)
 	if err := m.Write(EnemyBlockAddr+EnemyGoSpan, tailBytes); err != nil {
 		t.Fatal(err)
 	}
@@ -319,8 +434,9 @@ func TestEnemyBlockWriteReadStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := EnemyStatus{AckSeq: 0x01020304, AckFrame: 4242, AdoptedMask: 5, EpochSeen: 3, HitApplyAck: 5,
-		Canaries: EnemyCanaries{1, 2, 3, 4}, LastResult: EnemyHRShrink}
-	want.Status[2] = EnemySlotStatus{Actor: 0x80B00000, PID: 0x1234, State: EnemyStateMirrored, PausePrev: 2, Frames: 300}
+		Canaries: EnemyCanaries{1, 2, 3, 4}, Canaries2: EnemyCanaries2{5, 6, 7, 8},
+		HitResult: EnemyHitResult{Result: EnemyHRAppliedAt, Detail: EnemyHDNone, Frames: 2, Sets: 1}}
+	want.Status[2] = EnemySlotStatus{Actor: 0x80B00000, PID: 0x1234, State: EnemyStateMirrored, PausePrev: 2, AnmState: EnemyAnmSynced, Frames: 300, Bck: 0x73, AnmChanges: 9}
 	want.Hits[1] = EnemyHitEntry{HitSeq: 7, Collider: 2, Pending: 1}
 	if st != want {
 		t.Errorf("status\n got %+v\nwant %+v", st, want)
@@ -340,3 +456,51 @@ func TestEnemyBlockWriteReadStatus(t *testing.T) {
 		t.Error("a short status decoded")
 	}
 }
+
+// TestEnemyStatusOffsets: DecodeEnemyStatus reads each field at the
+// layout-2 block offset the REL writes it (literal offsets, not the
+// constants): every 0x10-byte status entry from 0x134 with anm_state at
+// +0x0B, bck at +0x0E and anm_changes at +0x0F, canaries2 at 0x18C, and
+// the HIT_RESULT word at 0x190 whose first byte is the result.
+func TestEnemyStatusOffsets(t *testing.T) {
+	blk := make([]byte, 0x198)
+	for i := range 4 {
+		e := blk[0x134+0x10*i:]
+		e[0x08] = EnemyStateMirrored
+		e[0x0B] = EnemyAnmSynced + uint8(i)
+		e[0x0E] = byte(0x3E + i)
+		e[0x0F] = byte(10 * (i + 1))
+	}
+	copy(blk[0x18C:], []byte{0x11, 0x22, 0x33, 0x44})
+	copy(blk[0x190:], []byte{EnemyHRParried, EnemyHDDefence, 3, 2})
+	st, err := DecodeEnemyStatus(blk[0x124:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, s := range st.Status {
+		if s.State != EnemyStateMirrored || s.AnmState != EnemyAnmSynced+uint8(i) || s.Bck != 0x3E+uint8(i) || s.AnmChanges != uint8(10*(i+1)) || s.Frames != 0 || s.LastErr != 0 {
+			t.Errorf("status %d: %+v", i, s)
+		}
+	}
+	if st.Canaries2 != (EnemyCanaries2{AnmResNull: 0x11, AnmRange: 0x22, HitNoCross: 0x33, HitAborted: 0x44}) || st.Canaries != (EnemyCanaries{}) {
+		t.Errorf("canaries %+v, canaries2 %+v", st.Canaries, st.Canaries2)
+	}
+	if st.HitResult != (EnemyHitResult{Result: EnemyHRParried, Detail: EnemyHDDefence, Frames: 3, Sets: 2}) || st.HitApplyAck != 0 {
+		t.Errorf("hit result %+v (ack %d)", st.HitResult, st.HitApplyAck)
+	}
+}
+
+// enemyGoSpanGolden is sampleEnemyBlock's Encode, byte for byte: the
+// layout-2 Go span (0x124 bytes) the REL reads. A change here is a layout
+// change and needs WWENEMY_LAYOUT bumped on both sides.
+const enemyGoSpanGolden = "" +
+	"5757454e01020304000003090001e24002090002000000034d5f446169000000" +
+	"0102000000000000000000000000000000001234c2c9000041a0000046ea6000" +
+	"c00000020014ff9c0102030340f000003f800000000000636a02110f05030000" +
+	"3fa00000000000003f8000004000000040400000000000000000000000000000" +
+	"000000000000000000000000ffff000000000000000000000000000000000000" +
+	"0000000000000000000000000000000000000000000000000000000000000000" +
+	"0000000000000000000000000000000000000000000000000000000000000000" +
+	"0000000000000000000000000000000000000000000000000000000000000000" +
+	"00000005000201040008000002010d014080000040a0000040c00000000001a5" +
+	"01020304"

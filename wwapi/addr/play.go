@@ -9,6 +9,7 @@ const (
 	PlayOffNextStage            = 0x3EA0 // dStage_nextStage_c mNextStage (d_com_inf_game.h:724)
 	PlayOffStageData            = 0x3EB0 // dStage_stageDt_c mStageData (d_com_inf_game.h:726)
 	PlayOffEvtCtrl              = 0x3F38 // dEvt_control_c mEvtCtrl (d_com_inf_game.h:728)
+	PlayOffPlayerInfo           = 0x48A4 // struct { fopAc_ac_c* mpPlayer; s8 mCameraID } mPlayerInfo[1] (d_com_inf_game.h:787-790)
 	PlayOffPlayerPtr            = 0x48AC // fopAc_ac_c* mpPlayerPtr[3]: Link, partner, ship (d_com_inf_game.h:791)
 	PlayOffItemLifeCount        = 0x48BC // f32 (d_com_inf_game.h:793)
 	PlayOffItemRupeeCount       = 0x48C0 // s32 (d_com_inf_game.h:794)
@@ -77,6 +78,13 @@ const (
 	// The offsets are inferred: dEvt_control_c has no STATIC_ASSERT.
 	EvtOrderCount uint32 = 0x803C9EA0
 	EvtMode       uint32 = 0x803C9EA2
+
+	// PlayerInfo0Ptr is mPlayerInfo[0].mpPlayer, dComIfGp_getPlayer(0)
+	// (d_com_inf_game.h:787-791): the word at_power_check reads for the
+	// attacker's cut state (d_cc_uty.cpp:86-88). changePlayer writes this
+	// one alone (d_a_player.cpp:13-24), so it differs from PlayerPtr while
+	// Medli or Makar is controlled; the host REL drops a hit then.
+	PlayerInfo0Ptr uint32 = 0x803CA74C
 
 	// PlayerPtr is mpPlayerPtr[0], Link's actor; 0 on the title and file
 	// select screens.

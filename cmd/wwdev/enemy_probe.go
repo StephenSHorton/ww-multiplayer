@@ -12,10 +12,19 @@ package main
 // from pos, which the design says is 35 units forward), the head sphere's
 // centre against m28C8, the enemy_ice shrink timer, the invulnerability
 // word and the tilt. Nothing is written.
+//
+// It is also the S2 pre-build probe (moblin-s2-v2 design,
+// tests_and_live_checks[7]): every Moblin is sampled a second time
+// through enemysync.ReadSample and the host's Tracker (the Mo2 resource
+// table resolved at every walk, the lookup-miss re-read, the AnmTrack
+// restart detector), so the bck, attr, anm_seq, morf, flags2 and blur
+// columns are exactly what the host would stream. The table's state is
+// printed at start and whenever it changes, its Stats at the end.
 
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -27,6 +36,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
+	"github.com/StephenSHorton/ww-multiplayer/mods/enemysync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
@@ -222,10 +232,43 @@ func enemyScope(m mem.Reader) (stageName string, room int8, err error) {
 	return stageName, r, err
 }
 
-const enemyCSVHeader = "t_ms,addr,pid,setID,room,x,y,z,angle_y,shape_y,health,dr_mode,dr_action,attack_type,attack_phase,morf,morf_attr,morf_rate,morf_frame,pause,co_x,co_y,co_z,co_dx,co_dy,co_dz,tg_x,tg_y,tg_z,head_x,head_y,head_z,m28c8_x,m28c8_y,m28c8_z,ice_timer,invuln,tilt,mo2_mode,ice_mode"
+const enemyCSVHeader = "t_ms,addr,pid,setID,room,x,y,z,angle_y,shape_y,health,dr_mode,dr_action,attack_type,attack_phase,morf,morf_attr,morf_rate,morf_frame,pause,co_x,co_y,co_z,co_dx,co_dy,co_dz,tg_x,tg_y,tg_z,head_x,head_y,head_z,m28c8_x,m28c8_y,m28c8_z,ice_timer,invuln,tilt,mo2_mode,ice_mode,bck,anm_attr,anm_seq,anm_morf,flags2,blur_on,blur_shape,blur_scale"
 
-// enemyWatch runs the probe over m for d (0: until ctx ends).
+// mo2Table resolves tr's Mo2 table from m as the host's walk does and
+// prints its state the first time and whenever it differs from *why
+// (which it then sets).
+func mo2Table(w io.Writer, m mem.Reader, tr *enemysync.Tracker, why *string, first bool) error {
+	if err := tr.Res.Resolve(m); err != nil {
+		return err
+	}
+	now := tr.Res.Why()
+	if !first && now == *why {
+		return nil
+	}
+	*why = now
+	if now != "" {
+		fmt.Fprintf(w, "Mo2 table: NOT resolved: %s (every bck reads 0xFF)\n", now)
+		return nil
+	}
+	entry, res := tr.Res.Entry()
+	ptrs := tr.Res.Ptrs()
+	fmt.Fprintf(w, "Mo2 table: resolved, mObjectInfo[%d] mRes 0x%08X (BCK 0x%02X..0x%02X at 0x%08X..0x%08X)\n",
+		entry, res, addr.Mo2BckFirst, addr.Mo2BckLast, ptrs[0], ptrs[addr.Mo2BckCount-1])
+	return nil
+}
+
+// enemyWatch runs the probe over m for d (0: until ctx ends) and prints
+// the Mo2 table's Stats at the end.
 func enemyWatch(ctx context.Context, w, csv io.Writer, m mem.Reader, d time.Duration) error {
+	var tr enemysync.Tracker
+	err := enemyWatchWith(ctx, w, csv, m, d, &tr)
+	st := tr.Res.Stats
+	fmt.Fprintf(w, "Mo2 table stats: reads %d bck_miss %d miss_reads %d\n", st.Reads, st.BckMiss, st.MissReads)
+	return err
+}
+
+// enemyWatchWith is enemyWatch over tr.
+func enemyWatchWith(ctx context.Context, w, csv io.Writer, m mem.Reader, d time.Duration, tr *enemysync.Tracker) error {
 	stageName, room, err := enemyScope(m)
 	if err != nil {
 		return err
@@ -249,6 +292,8 @@ func enemyWatch(ctx context.Context, w, csv io.Writer, m mem.Reader, d time.Dura
 	}
 	var moblins []actors.Actor
 	var nextWalk time.Time
+	var resWhy string
+	resFirst := true
 	walk := func(now time.Time) error {
 		nextWalk = now.Add(enemyWalkEvery)
 		stageName, room, err = enemyScope(m)
@@ -268,6 +313,11 @@ func enemyWatch(ctx context.Context, w, csv io.Writer, m mem.Reader, d time.Dura
 		for i := range moblins {
 			now2[i] = moblins[i].PID
 		}
+		tr.Keep(now2)
+		if err := mo2Table(w, m, tr, &resWhy, resFirst); err != nil {
+			return err
+		}
+		resFirst = false
 		if !slices.Equal(was, now2) {
 			fmt.Fprintf(w, "[%6.3fs] walk: %d actors (%s), %d keyed mode-0/1 Moblins in room %d of %q:", now.Sub(start).Seconds(), len(aw.Actors), walkNote(&aw), len(moblins), room, stageName)
 			for i := range moblins {
@@ -305,9 +355,25 @@ func enemyWatch(ctx context.Context, w, csv io.Writer, m mem.Reader, d time.Dura
 					rewalk = true
 					continue
 				}
-				printMo2(w, ms, &s)
+				// The host's sample of the same Moblin, derived as the
+				// host derives it.
+				a := &moblins[i]
+				hs, err := enemysync.ReadSample(m, &enemysync.Moblin{Addr: a.Addr, PID: a.PID, SetID: a.SetID, HomeRoom: a.HomeRoom, Mode: uint8(a.Mode)})
+				if err == nil {
+					err = tr.Derive(m, a.PID, &hs, now)
+				}
+				var host *enemysync.Sample
+				if err != nil {
+					fmt.Fprintf(w, "[%6.3fs] host sample: %v\n", now.Sub(start).Seconds(), err)
+					if errors.Is(err, actors.ErrChanged) {
+						rewalk = true
+					}
+				} else {
+					host = &hs
+				}
+				printMo2(w, ms, &s, host)
 				if csv != nil {
-					csvMo2(csv, ms, room, &s)
+					csvMo2(csv, ms, room, &s, host)
 				}
 			}
 			if rewalk {
@@ -330,23 +396,44 @@ func walkNote(aw *actors.Walk) string {
 	return strings.Join(aw.Notes, "; ")
 }
 
-// printMo2 prints one Moblin's tick on one line.
-func printMo2(w io.Writer, ms int64, s *mo2Sample) {
+// printMo2 prints one Moblin's tick on one line; h is the host's sample
+// of it (nil when ReadSample or Derive failed).
+func printMo2(w io.Writer, ms int64, s *mo2Sample, h *enemysync.Sample) {
 	morf := "morf -"
 	if s.MorfOK {
 		morf = fmt.Sprintf("morf 0x%08X attr %d rate %.2f frame %.2f", s.Morf, s.MorfAttr, s.MorfRate, s.MorfFrame)
 	} else if s.Morf != 0 {
 		morf = fmt.Sprintf("morf 0x%08X (outside MEM1)", s.Morf)
 	}
-	fmt.Fprintf(w, "%7d setID %d pid %d 0x%08X r%d mo2_mode %d pos %.1f %.1f %.1f ang %d shape %d hp %d dr %d/%d atk %d/%d %s pause 0x%02X co %.1f %.1f %.1f (d %.1f %.1f %.1f) tg %.1f %.1f %.1f head %.1f %.1f %.1f m28C8 %.1f %.1f %.1f ice %d ice_mode %d inv %d tilt %d\n",
+	fmt.Fprintf(w, "%7d setID %d pid %d 0x%08X r%d mo2_mode %d pos %.1f %.1f %.1f ang %d shape %d hp %d dr %d/%d atk %d/%d %s pause 0x%02X co %.1f %.1f %.1f (d %.1f %.1f %.1f) tg %.1f %.1f %.1f head %.1f %.1f %.1f m28C8 %.1f %.1f %.1f ice %d ice_mode %d inv %d tilt %d %s\n",
 		ms, s.SetID, s.PID, s.Addr, s.HomeRoom, s.Mo2Mode, s.Pos[0], s.Pos[1], s.Pos[2], s.AngleY, s.ShapeY, s.Health, s.DRMode, s.DRAction, s.AttackT, s.AttackP, morf, s.Pause,
 		s.CoCenter[0], s.CoCenter[1], s.CoCenter[2], s.CoCenter[0]-s.Pos[0], s.CoCenter[1]-s.Pos[1], s.CoCenter[2]-s.Pos[2],
 		s.TgCenter[0], s.TgCenter[1], s.TgCenter[2], s.HeadC[0], s.HeadC[1], s.HeadC[2], s.M28C8[0], s.M28C8[1], s.M28C8[2],
-		s.IceTimer, s.IceMode, s.Invuln, s.Tilt)
+		s.IceTimer, s.IceMode, s.Invuln, s.Tilt, anmText(h))
 }
 
-// csvMo2 writes one Moblin's tick as a CSV row (enemyCSVHeader).
-func csvMo2(w io.Writer, ms int64, room int8, s *mo2Sample) {
+// anmText is the host-derived columns of h: the BCK index, attribute,
+// restart counter, setAnm morf, flags2 and the sword blur (on/shape and
+// scale).
+func anmText(h *enemysync.Sample) string {
+	if h == nil {
+		return "bck - anm_attr - anm_seq - anm_morf - flags2 - blur -"
+	}
+	return fmt.Sprintf("bck 0x%02X anm_attr %d anm_seq %d anm_morf %d flags2 0x%02X blur %d/%d scale %.2f",
+		h.Bck, h.AnmAttr, h.AnmSeq, h.Morf, h.Flags2, blurOn(h), h.BlurShape, h.BlurScale)
+}
+
+// blurOn is 1 when h's SlotF2BlurOn is set.
+func blurOn(h *enemysync.Sample) int {
+	if h.Flags2&enemysync.SlotF2BlurOn != 0 {
+		return 1
+	}
+	return 0
+}
+
+// csvMo2 writes one Moblin's tick as a CSV row (enemyCSVHeader); the
+// host-derived columns are empty when h is nil.
+func csvMo2(w io.Writer, ms int64, room int8, s *mo2Sample, h *enemysync.Sample) {
 	f := func(v float32) string { return strconv.FormatFloat(float64(v), 'f', 3, 32) }
 	cols := []string{
 		strconv.FormatInt(ms, 10), fmt.Sprintf("0x%08X", s.Addr), strconv.FormatUint(uint64(s.PID), 10), strconv.Itoa(int(s.SetID)), strconv.Itoa(int(room)),
@@ -356,6 +443,12 @@ func csvMo2(w io.Writer, ms int64, room int8, s *mo2Sample) {
 		f(s.CoCenter[0]), f(s.CoCenter[1]), f(s.CoCenter[2]), f(s.CoCenter[0] - s.Pos[0]), f(s.CoCenter[1] - s.Pos[1]), f(s.CoCenter[2] - s.Pos[2]),
 		f(s.TgCenter[0]), f(s.TgCenter[1]), f(s.TgCenter[2]), f(s.HeadC[0]), f(s.HeadC[1]), f(s.HeadC[2]), f(s.M28C8[0]), f(s.M28C8[1]), f(s.M28C8[2]),
 		strconv.Itoa(int(s.IceTimer)), strconv.Itoa(int(s.Invuln)), strconv.Itoa(int(s.Tilt)), strconv.Itoa(int(s.Mo2Mode)), strconv.Itoa(int(s.IceMode)),
+	}
+	if h != nil {
+		cols = append(cols, fmt.Sprintf("0x%02X", h.Bck), strconv.Itoa(int(h.AnmAttr)), strconv.Itoa(int(h.AnmSeq)), strconv.Itoa(int(h.Morf)),
+			fmt.Sprintf("0x%02X", h.Flags2), strconv.Itoa(blurOn(h)), strconv.Itoa(int(h.BlurShape)), f(h.BlurScale))
+	} else {
+		cols = append(cols, "", "", "", "", "", "", "", "")
 	}
 	fmt.Fprintln(w, strings.Join(cols, ","))
 }

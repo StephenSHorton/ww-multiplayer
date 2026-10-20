@@ -87,8 +87,36 @@ func moblinRoom(t *testing.T) (*fakegame.FakeGame, *mem.FakeMem, *fakegame.Enemi
 	return g, m, es
 }
 
+// The fake Mo2 resource table: mObjectInfo[mo2Entry] is "Mo2" with its
+// mRes at mo2Res and BCK i's resource at mo2Bck(i).
+const (
+	mo2Entry = 28 // M_Dai's, as s2_res_probe found it (SESSION-2026-10-18)
+	mo2Arch  = uint32(0x80D80000)
+	mo2Res   = uint32(0x80D00000)
+)
+
+func mo2Bck(idx int) uint32 { return 0x80D10000 + 0x100*uint32(idx) }
+
+// placeMo2Table writes the fake Mo2 entry and its 56 BCK pointers.
+func placeMo2Table(t *testing.T, m *mem.FakeMem) {
+	t.Helper()
+	e := make([]byte, addr.ResInfoSize)
+	copy(e[addr.ResInfoOffName:], addr.Mo2Arc)
+	binary.BigEndian.PutUint16(e[addr.ResInfoOffCount:], 0x80)
+	binary.BigEndian.PutUint32(e[addr.ResInfoOffArchive:], mo2Arch)
+	binary.BigEndian.PutUint32(e[addr.ResInfoOffRes:], mo2Res)
+	store(t, m, addr.MObjectInfo+mo2Entry*addr.ResInfoSize, e)
+	var p []byte
+	for i := addr.Mo2BckFirst; i <= addr.Mo2BckLast; i++ {
+		p = binary.BigEndian.AppendUint32(p, mo2Bck(i))
+	}
+	store(t, m, mo2Res+4*addr.Mo2BckFirst, p)
+}
+
 // TestEnemyWatch: the probe keeps the three keyed mode-0 Moblins of Link's
-// room, sorted by setID, prints every field it read and writes the CSV.
+// room, sorted by setID, prints every field it read and writes the CSV,
+// with the host-derived animation columns (bck through the Mo2 table,
+// attr, anm_seq, morf, flags2, blur) appended.
 func TestEnemyWatch(t *testing.T) {
 	_, m, es := moblinRoom(t)
 	if err := mailbox.WriteREL(m, mailbox.REL{Linked: true, BuildID: 0xAC19DE43, Frames: 77}); err != nil {
@@ -97,7 +125,31 @@ func TestEnemyWatch(t *testing.T) {
 	var out, csv bytes.Buffer
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := enemyWatch(ctx, &out, &csv, m, 40*time.Millisecond); err != nil {
+
+	// No Mo2 entry yet: the probe says so and every bck reads 0xFF.
+	if err := enemyWatch(ctx, &out, nil, m, 200*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.String(); !strings.Contains(s, "Mo2 table: NOT resolved: no loaded Mo2 entry in mObjectInfo") || !strings.Contains(s, "bck 0xFF anm_attr 2 anm_seq 0 anm_morf 0") ||
+		!strings.Contains(s, "Mo2 table stats: reads ") {
+		t.Errorf("without the table:\n%s", s)
+	}
+	out.Reset()
+
+	// setID 0 plays WAIT (0x73, a loop) set with morf 15, its spear
+	// drawn and its blur on with shape 3 at half scale.
+	a, _ := es.Of(1)
+	const morf = uint32(0x80C00000)
+	placeMo2Table(t, m)
+	store(t, m, morf+addr.McaMorfOffAnm, u32b(mo2Bck(addr.Mo2BckWait)))
+	store(t, m, morf+addr.McaMorfOffCurMorf, u32b(math.Float32bits(0)))
+	store(t, m, morf+addr.McaMorfOffMorfStep, u32b(math.Float32bits(1.0/15)))
+	store(t, m, a.Addr+addr.Mo2OffHasWeapon, []byte{1})
+	store(t, m, a.Addr+addr.Mo2OffBlurScale, u32b(math.Float32bits(0.5)))
+	store(t, m, a.Addr+addr.Mo2OffBlurOn, u32b(1))
+	store(t, m, a.Addr+addr.Mo2OffBlurShape, u32b(3))
+
+	if err := enemyWatch(ctx, &out, &csv, m, 200*time.Millisecond); err != nil {
 		t.Fatalf("enemyWatch: %v\n%s", err, out.String())
 	}
 	s := out.String()
@@ -106,8 +158,10 @@ func TestEnemyWatch(t *testing.T) {
 		"3 keyed mode-0/1 Moblins in room 1 of \"M_Dai\":",
 		"setID 0 pid", "setID 1 pid", "setID 2 pid",
 		"mo2_mode 1 pos -1500.5 250.0 3000.0 ang 16384 shape 16383 hp 4 dr -100/20 atk 2/1 morf 0x80C00000 attr 2 rate 1.50 frame 12.25 pause 0x02 co -1500.5 250.0 3035.0 (d 0.0 0.0 35.0)",
-		"ice 5 ice_mode 2 inv 7 tilt -2",
+		"ice 5 ice_mode 2 inv 7 tilt -2 bck 0x73 anm_attr 2 anm_seq 0 anm_morf 15 flags2 0x05 blur 1/3 scale 0.50",
 		"mo2_mode 0 pos 0.0",
+		"Mo2 table: resolved, mObjectInfo[28] mRes 0x80D00000 (BCK 0x3E..0x75 at 0x80D13E00..0x80D17500)",
+		"Mo2 table stats: reads 1 bck_miss 0 miss_reads 0",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("output lacks %q:\n%s", want, s)
@@ -132,14 +186,41 @@ func TestEnemyWatch(t *testing.T) {
 	if len(cols) != strings.Count(enemyCSVHeader, ",")+1 || cols[3] != "0" || cols[4] != "1" || cols[5] != "-1500.500" || cols[25] != "35.000" || cols[35] != "5" || cols[37] != "-2" || cols[38] != "1" || cols[39] != "2" {
 		t.Errorf("csv row: %v", cols)
 	}
+	if got := strings.Join(cols[40:], ","); got != "0x73,2,0,15,0x05,1,3,0.500" {
+		t.Errorf("csv anim columns %s, want 0x73,2,0,15,0x05,1,3,0.500 (row %v)", got, cols)
+	}
+
+	// The detector over time (windows sized for a loaded machine: the probe
+	// samples every 16 ms, the phases need only a few samples each): a switch to KWAIT (0x5C) set with morf 10
+	// is one restart; a pointer outside the table is another, reads bck
+	// 0xFF, counts as a miss and re-reads the table.
+	out.Reset()
+	done := make(chan error, 1)
+	go func() { done <- enemyWatch(ctx, &out, nil, m, 1200*time.Millisecond) }()
+	time.Sleep(300 * time.Millisecond)
+	store(t, m, morf+addr.McaMorfOffMorfStep, u32b(math.Float32bits(0.1)))
+	store(t, m, morf+addr.McaMorfOffAnm, u32b(mo2Bck(addr.Mo2BckKWait)))
+	time.Sleep(400 * time.Millisecond)
+	store(t, m, morf+addr.McaMorfOffAnm, u32b(0x80D20004))
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	s = out.String()
+	for _, want := range []string{"bck 0x73 anm_attr 2 anm_seq 0 anm_morf 15", "bck 0x5C anm_attr 2 anm_seq 1 anm_morf 10", "bck 0xFF anm_attr 2 anm_seq 2 anm_morf 10"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("detector run lacks %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "anm_seq 3") || strings.Contains(s, "bck_miss 0 ") || strings.Contains(s, "miss_reads 0\n") {
+		t.Errorf("detector run: a spurious restart or the wrong miss counts:\n%s", s)
+	}
+	store(t, m, morf+addr.McaMorfOffAnm, u32b(mo2Bck(addr.Mo2BckWait)))
 
 	// A Moblin whose block is reused under the probe (a new pid) is
 	// reported once and the walk runs again, finding the new actor.
-	a, _ := es.Of(1)
 	out.Reset()
-	done := make(chan error, 1)
-	go func() { done <- enemyWatch(ctx, &out, nil, m, 200*time.Millisecond) }()
-	time.Sleep(60 * time.Millisecond)
+	go func() { done <- enemyWatch(ctx, &out, nil, m, 800*time.Millisecond) }()
+	time.Sleep(250 * time.Millisecond)
 	store(t, m, a.Addr+addr.ActorOffBsPcID, u32b(a.PID+1000))
 	if err := <-done; err != nil {
 		t.Fatal(err)

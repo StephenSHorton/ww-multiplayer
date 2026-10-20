@@ -40,7 +40,7 @@ func (b *enemyInbox) snapshot() [][]byte {
 // enemyState is a well-shaped STATE with count zero slots.
 func enemyState(count int, tag byte) []byte {
 	b := make([]byte, EnemyStateLen(count))
-	b[0], b[1], b[2], b[3] = EnemySubState, 1, tag, byte(count)
+	b[0], b[1], b[2], b[3] = EnemySubState, 2, tag, byte(count)
 	return b
 }
 
@@ -48,14 +48,14 @@ func enemyState(count int, tag byte) []byte {
 // client sends it.
 func enemyHit(tag byte) []byte {
 	b := make([]byte, EnemyHitLen)
-	b[0], b[1], b[3] = EnemySubHit, 1, tag
+	b[0], b[1], b[3] = EnemySubHit, 2, tag
 	return b
 }
 
 // enemyAck is a well-shaped ACK naming enemy client id.
 func enemyAck(id, tag byte) []byte {
 	b := make([]byte, EnemyAckLen)
-	b[0], b[1], b[EnemyClientIDOff], b[3] = EnemySubAck, 1, id, tag
+	b[0], b[1], b[EnemyClientIDOff], b[3] = EnemySubAck, 2, id, tag
 	return b
 }
 
@@ -93,6 +93,13 @@ func TestEnemyFrameShape(t *testing.T) {
 		{"ack", RoleEnemyHost, enemyAck(1, 0), true},
 		{"ack long", RoleEnemyHost, append(enemyAck(1, 0), 0), false},
 		{"ack from client", RoleEnemyClient, enemyAck(1, 0), false},
+		// Wire version 1's sizes (36-byte slots, a 44-byte HIT) no longer
+		// pass; the ACK kept its 16 bytes.
+		{"state v1 slots", RoleEnemyHost, enemyState(2, 0)[:EnemyStateHeaderLen+2*36], false},
+		{"state one v1 slot", RoleEnemyHost, enemyState(1, 0)[:EnemyStateHeaderLen+36], false},
+		{"state four v1 slots", RoleEnemyHost, enemyState(4, 0)[:EnemyStateLen(3)], false},
+		{"hit v1", RoleEnemyClient, enemyHit(0)[:44], false},
+		{"ack short", RoleEnemyHost, enemyAck(1, 0)[:EnemyAckLen-1], false},
 		{"empty", RoleEnemyHost, nil, false},
 		{"one byte", RoleEnemyHost, []byte{EnemySubState}, false},
 		{"unknown sub", RoleEnemyHost, []byte{9, 1, 0, 0}, false},
@@ -102,8 +109,8 @@ func TestEnemyFrameShape(t *testing.T) {
 			t.Errorf("%s: enemyFrameShape = %q, want ok=%v", c.name, why, c.ok)
 		}
 	}
-	if EnemyStateLen(4) != 32+4*36 || EnemyHitLen != 44 || EnemyAckLen != 16 {
-		t.Errorf("sizes: state(4)=%d hit=%d ack=%d", EnemyStateLen(4), EnemyHitLen, EnemyAckLen)
+	if EnemySlotLen != 48 || EnemyStateLen(0) != 32 || EnemyStateLen(4) != 32+4*48 || EnemyHitLen != 48 || EnemyAckLen != 16 {
+		t.Errorf("sizes: slot=%d state(0)=%d state(4)=%d hit=%d ack=%d", EnemySlotLen, EnemyStateLen(0), EnemyStateLen(4), EnemyHitLen, EnemyAckLen)
 	}
 }
 

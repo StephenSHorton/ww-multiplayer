@@ -132,25 +132,41 @@ func KeyedMoblins(m mem.Reader, room int8) ([]Moblin, error) {
 	return out, nil
 }
 
-// Sample is one Moblin's fields as a tick read them.
+// Sample is one Moblin's fields as a tick read them: the wire Slot plus
+// what the host keeps for itself. The Slot's Bck, AnmSeq and Morf are
+// not read but derived (Tracker.Derive) from the raw morf fields here.
 type Sample struct {
 	Slot
 	IceTimer int8
 	Hidden   bool
+	// The raw morf fields the detector works from (ReadSample's R5 span):
+	// MorfOK is false when mpMorf was unreadable, and then AnmAttr is
+	// AnmAttrUnknown.
+	MorfOK    bool
+	Anm       uint32  // mpAnm (mpMorf+0x54)
+	MorfState uint8   // J3DFrameCtrl mState
+	CurMorf   float32 // mCurMorf (+0x74)
+	MorfStep  float32 // mMorfStep (+0x7C)
 }
 
-// The per-tick reads of one Moblin, beyond its fopAc_ac_c: the spans
-// below, each one Read.
+// The per-tick reads of one Moblin (design "host_side", SAMPLER): six
+// Reads, R1 the actor (addr.ActorSize at +0), R2 the span below from the
+// blur scale through mbHasInnateWeapon, R3 the attack type and phase, R4
+// mpMorf, R5 the morf's animation span (addr.McaMorfAnimSpanOff..Len) and
+// R6 the tail from m2943 through the ice timer.
 const (
-	readInvulnOff = addr.Mo2OffInvuln                                // s16 m05B4 .. through damagereaction mode/action
-	readInvulnLen = addr.Mo2OffDRAction + 2 - addr.Mo2OffInvuln      // 0x68
-	readTailOff   = addr.Mo2OffBareHanded                            // u8 m2943 .. s8 m2A1C .. ice timer
-	readTailLen   = addr.Mo2OffIceShrink + 1 - addr.Mo2OffBareHanded // 0x118
+	readMidOff  = addr.Mo2OffBlurScale                             // f32 m0590 .. s8 mbHasInnateWeapon (+0xDD4)
+	readMidLen  = addr.Mo2OffHasWeapon + 1 - addr.Mo2OffBlurScale  // 0x845
+	readTailOff = addr.Mo2OffBareHanded                            // u8 m2943 .. s8 m2A1C .. ice timer
+	readTailLen = addr.Mo2OffIceShrink + 1 - addr.Mo2OffBareHanded // 0x118
+	// ReadsPerSample is how many Reads ReadSample makes.
+	ReadsPerSample = 6
 )
 
 // ReadSample reads mo's fields for one tick. It checks the actor is
 // still mo (process ID, proc, initState 2, setID); a mismatch is
 // actors.ErrChanged and the caller drops the entry and walks again.
+// Bck, AnmSeq and Morf are left for Tracker.Derive.
 func ReadSample(m mem.Reader, mo *Moblin) (Sample, error) {
 	var s Sample
 	b, err := m.Read(mo.Addr, addr.ActorSize)
@@ -172,21 +188,39 @@ func ReadSample(m mem.Reader, mo *Moblin) (Sample, error) {
 	s.AngleY = int16(be.Uint16(b[addr.ActorOffCurAngle+2:]))
 	s.Health = int8(b[addr.ActorOffHealth])
 
-	d, err := m.Read(mo.Addr+readInvulnOff, readInvulnLen)
+	d, err := m.Read(mo.Addr+readMidOff, readMidLen)
 	if err != nil {
 		return s, err
 	}
-	if len(d) != readInvulnLen {
-		return s, fmt.Errorf("enemysync: actor 0x%08X: short damagereaction read", mo.Addr)
+	if len(d) != readMidLen {
+		return s, fmt.Errorf("enemysync: actor 0x%08X: short blur/damagereaction read", mo.Addr)
 	}
-	invuln := int16(be.Uint16(d))
-	s.Mode = int16(be.Uint16(d[addr.Mo2OffDRMode-readInvulnOff:]))
-	s.Action = int16(be.Uint16(d[addr.Mo2OffDRAction-readInvulnOff:]))
-	tilt, err := mem.ReadS16(m, mo.Addr+addr.Mo2OffTilt)
-	if err != nil {
-		return s, err
+	mid := func(off uint32) []byte { return d[off-readMidOff:] }
+	s.BlurScale = math.Float32frombits(be.Uint32(mid(addr.Mo2OffBlurScale)))
+	if !finiteOK(s.BlurScale) {
+		s.BlurScale = 1
 	}
-	s.Tilt = tilt
+	blurOn := be.Uint32(mid(addr.Mo2OffBlurOn)) != 0
+	s.BlurShape = uint8(be.Uint32(mid(addr.Mo2OffBlurShape)))
+	anmGate := be.Uint16(mid(addr.Mo2OffAnmGate)) != 0
+	playSkip := be.Uint16(mid(addr.Mo2OffPlaySkip)) != 0
+	invuln := int16(be.Uint16(mid(addr.Mo2OffInvuln)))
+	s.Mode = int16(be.Uint16(mid(addr.Mo2OffDRMode)))
+	s.Action = int16(be.Uint16(mid(addr.Mo2OffDRAction)))
+	s.Tilt = int16(be.Uint16(mid(addr.Mo2OffTilt)))
+	hasWeapon := mid(addr.Mo2OffHasWeapon)[0] != 0
+	if hasWeapon {
+		s.Flags2 |= SlotF2HasWeapon
+	}
+	if playSkip {
+		s.Flags2 |= SlotF2PlaySkip
+	}
+	if blurOn {
+		s.Flags2 |= SlotF2BlurOn
+	}
+	if anmGate {
+		s.Flags2 |= SlotF2AnmGate
+	}
 	atk, err := m.Read(mo.Addr+addr.Mo2OffAttackType, 8)
 	if err != nil {
 		return s, err
@@ -198,14 +232,22 @@ func ReadSample(m mem.Reader, mo *Moblin) (Sample, error) {
 	if err != nil {
 		return s, err
 	}
-	if at := morf + addr.McaMorfOffFrameCtrl; mem.CheckRange(at, addr.McaMorfFrameCtrlLen) == nil {
-		fc, err := m.Read(at, addr.McaMorfFrameCtrlLen)
+	s.Bck, s.AnmAttr = addr.Mo2BckNone, AnmAttrUnknown
+	if at := morf + addr.McaMorfAnimSpanOff; addr.InMEM1(morf) && mem.CheckRange(at, addr.McaMorfAnimSpanLen) == nil {
+		fc, err := m.Read(at, addr.McaMorfAnimSpanLen)
 		if err != nil {
 			return s, err
 		}
-		if len(fc) == addr.McaMorfFrameCtrlLen {
-			s.MorfRate = math.Float32frombits(be.Uint32(fc[addr.McaMorfOffRate-addr.McaMorfOffFrameCtrl:]))
-			s.MorfFrame = math.Float32frombits(be.Uint32(fc[addr.McaMorfOffFrame-addr.McaMorfOffFrameCtrl:]))
+		if len(fc) == addr.McaMorfAnimSpanLen {
+			f := func(off uint32) []byte { return fc[off-addr.McaMorfAnimSpanOff:] }
+			s.MorfOK = true
+			s.Anm = be.Uint32(f(addr.McaMorfOffAnm))
+			s.AnmAttr = f(addr.McaMorfOffAttr)[0]
+			s.MorfState = f(addr.McaMorfOffState)[0]
+			s.MorfRate = math.Float32frombits(be.Uint32(f(addr.McaMorfOffRate)))
+			s.MorfFrame = math.Float32frombits(be.Uint32(f(addr.McaMorfOffFrame)))
+			s.CurMorf = math.Float32frombits(be.Uint32(f(addr.McaMorfOffCurMorf)))
+			s.MorfStep = math.Float32frombits(be.Uint32(f(addr.McaMorfOffMorfStep)))
 		}
 	}
 	tail, err := m.Read(mo.Addr+readTailOff, readTailLen)
