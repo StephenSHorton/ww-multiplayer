@@ -7,7 +7,9 @@ mailbox). Plan: `ww-multiplayer-handoff/design/rel-module-plan.md`.
 `enemy_mirror.c` is the Moblin mirror of the host-authoritative enemy
 prototype (below), run from the actor's execute; `remote.c` is
 remote-Link (below): the lite bodies, the pointer swap T2's exec shim
-calls into, the host hit ring and the client apply.
+calls into, the host hit ring and the client apply; `fullbody.c` and
+`shanm.c` are its stage-4 full body, a real `daPy_lk_c` behind
+`WWREMOTE_FLAG_FULL_BODIES` (below, "The second profile").
 
 ## What it is
 
@@ -64,7 +66,7 @@ state in the actor either way.
 
 `Mailbox` (`inject/include/mailbox_core.h`) is 0x1B0 bytes at
 `MAILBOX_ADDR` 0x80412F00; `__OSArenaLo` is 0x80414000, so 0xF50 bytes
-past the struct belong to nobody. The module uses the first three words.
+past the struct belong to nobody. The module uses the first six words.
 The struct and its size are unchanged; the offsets are `#define`s in
 `rel_main.c`, read by `extract_blob.py` into `blob.go`.
 
@@ -75,6 +77,7 @@ The struct and its size are unchanged; the offsets are `#define`s in
 | +0x1B8 `WWREL_FRAME_OFF` | 0x804130B8 | frame counter       | `_prolog` zeroes, execute +1 |
 | +0x1BC `WWREL_EXEC_HOOK_OFF` | 0x804130BC | `&wwrel_exec_hook` | `_prolog` sets last, `_epilog` clears first; T2's exec shim branches to it |
 | +0x1C0 `WWREL_SWAP_STATE_OFF` | 0x804130C0 | keeper + 0x458 (remote.c's swap state) | keeper create sets, keeper delete and `_epilog` clear |
+| +0x1C4 `WWREL_SHANM_OFF` | 0x804130C4 | the full bodies' shanm table (archive heap, `'WWSA'`) | T2's `main01_init` zeroes it at boot; the first full create sets it; never cleared after (not by `_epilog`), never freed |
 
 The build id is a CRC-32 of `inject/rel`'s sources (`build.py`
 `rel_build_id`, passed as `-DWWREL_BUILD_ID`), also exported as
@@ -396,6 +399,84 @@ StartCAt/MoveCAt` 0x800ABFC0/0x800AC02C/0x800AC078, `__ct__9dCcD_SttsFv`
 0x803C9D54, mLife 0x803C4C0A, mCollect[0] 0x803C4CBC, the vtables above
 (read, never called).
 
+## The second profile: the full body (fullbody.c, shanm.c)
+
+Stage 4 of remote-Link (handoff `design/remote-link-stage4-plan.md`,
+`design/remote-link-design.md` section 9; contract `wwremote.h`
+`WWREMOTE_FULL_*`, `WWREMOTE_FP_*`, `WWREMOTE_SA_*`; addresses `dapy.h`).
+Everything ships off: with `WWREMOTE_FLAG_FULL_BODIES` clear the keeper
+creates only lite bodies and nothing below runs.
+
+- **The profile.** `rel_main.c` exports a second profile,
+  `g_profile_WWBODY` (`.rodata`, 0x30): `g_profile_WWREL`'s fields but
+  mSize `WWREMOTE_FULL_SIZE` (0x4C80: `daPy_lk_c` 0x4C28 plus the
+  `rl_full_tail`) and the `fullbody_*` methods; mProcName stays 0xB5. The
+  patcher points profile slot 0x27 (Seatag, never placed on the GZLE01
+  disc) at it and `build.py` patches proc 0x27's DynamicNameTable entry
+  (0x80339938, DOL file 0x33693C) to the name proc 0xB5 uses,
+  `"d_a_rectangle"`, so `DMC[0x27] == DMC[0xB5]`: both procs load this
+  module through one DynamicModuleControl and a full body pins it like a
+  keeper. The two patches are only safe together, so the keeper checks
+  both (`DMC[0x27] == DMC[0xB5]`, list slot 0x27 == `&g_profile_WWBODY`)
+  before every full create (else `WWREMOTE_BERR_PROFILE`, lite).
+- **The keeper** (remote.c) picks the kind per create: FULL when
+  `FULL_BODIES` (host) is set, the slot's `FULL_ALLOW` bit (Go's heap gate,
+  latched per consumed seq and cleared by the create it starts) is set,
+  the slot's full attempt is unspent this stage/epoch/gen, no full body is
+  QUEUED and the profile checks. A clear allow bit waits up to 120 keeper
+  frames while `HEAP_REASON` is transient (NONE, NO_SAMPLE, INFLIGHT,
+  STAGE_SETTLE, QUEUED), then creates a lite body with `BERR_HEAP_DENIED`.
+  Go gives the bit only to a slot the keeper can create in (active, a
+  fresh PSTATE in the host's stage) and says QUEUED while another such
+  slot also waits, so that one waits its turn. A full
+  create that fails (create ERROR, LOST, GONE within 60 LIVE frames) spends
+  the attempt: lite for the rest of the stage. Clearing `FULL_BODIES`
+  retires a LIVE full body; no upgrade within a stage. body_status +0x0F is
+  the kind. The new keeper fields live in the swap state's old pads
+  (`full_allow` +0x19, `flags2` +0x1A, `full_denied` +0x79, `full_wait`
+  +0x7A, `rl_body.kind` +0x13), so its size (0x17C) and every field the
+  probe reads keep their offsets.
+- **create** (`fullbody_create`, one call per frame in `fpcCt_Handler`):
+  FP_NEW checks the params tag, caches slot/gen, allocates the shanm table
+  if the boot has none (`BERR_SHANM_ALLOC`), becomes a stage actor and
+  rewrites the params to 0xFF000040; FP_PARAMS waits for the host Link
+  (created), the block and no queued stage change, runs
+  `__ct__9daPy_lk_cFv` (vptr fingerprint 0x8038FDC0, `BERR_FULL_VTABLE`),
+  places itself at the slot, then `playerInit` inside the window (linktex
+  ResTIMG, shanm, global snapshot, `mLastMode` 0) and fails with
+  `BERR_HEAP_ERRORS` if GameHeapErrors or solidHeapErrors moved across it;
+  then ww-online's mAcch fixups and mDemo 0; FP_INIT runs `makeBgWait` in
+  the window (cl.bdl joints 0x02/0x1D saved and restored around it) until it
+  finds ground, makes the body inert (attention 0, mResetFlg0 0, no cut At,
+  mCurProc WAIT, no damage/ship/crawl mode, Co off unless
+  `FLAG2_FULL_CO`) and completes, magic last. Every phase but the last
+  returns `cPhs_INIT_e` (any other value ends the create,
+  `fpcBs_SubCreate`); past 120 calls it is `BERR_PHASE_TIMEOUT`. Vanilla
+  phase_1 (setPlayer/setLinkPlayer) never runs.
+- **execute**: the lite body's park check and hit read (shared, on
+  `mCyl`), then the pose (position, angles, room, eyePos), the 42 cl.bdl
+  node matrices from the pose feed into `mpCLModel->mpNodeMtx` and its base
+  TR, cut bytes, mCurProc WAIT or CROUCH_DEFENSE (`FLAG_GUARD` + slot
+  guard: the real `checkPlayerGuard` answers), mDamageWaitTimer = the
+  longer of the slot's i-frames and the stamp, mResetFlg0 0, the shield
+  bits and angle, Co, and (`FLAG_HITTABLE`) `setCollision` with the shared
+  Deku Leaf anms held at their last frame. Never a proc, a calc or
+  `daPy_lk_c::execute`.
+- **draw** returns TRUE (the mini-Link renders the remote).
+- **delete** (also after a create ERROR): the keeper's record and the m714
+  rewrite, then, once `playerInit` ran, CASUAL cleared and `playerDelete`
+  in the window; the shanm delete scan (`SA_DELETE_SCAN`, must be 0).
+- **shanm.c** ports ww-online's `puppet_sharedanm.c` without the
+  per-actor swap list: every animator slot of the "Link" archive's model
+  data (joint 0 `mMtxCalc`, material `mMaterialAnm` and its 26 slots) is
+  snapshotted when a window opens and every changed word is written back
+  when it closes, so outside the windows the shared data is the local
+  Link's. Its tables and variables live in one archive-heap block
+  (`WWREMOTE_SHANM_BYTES`, header `WWREMOTE_SA_*`), allocated at the first
+  full create of a boot and never freed; the module still has no `.bss`.
+  `fullbody.c`, `fullbody.h`, `shanm.c` and `shanm.h` carry ww-online's
+  MIT notice.
+
 ## The build
 
 `cd inject && python build.py` builds T2 as before and then this module
@@ -421,10 +502,14 @@ no `.comment`, so the ELF has only `.text`, `.rodata`, `.data`, `.bss`,
 `.ctors`, `.dtors` and their `.rela.*`.
 
 `build_rel` prints the section table, the relocation counts per type,
-`_prolog`/`_epilog`/`_unresolved`/`g_profile_WWREL` with section and
-offset, and the `.text` size, and fails on an undefined symbol (the game
+`_prolog`/`_epilog`/`_unresolved`/`g_profile_WWREL`/`g_profile_WWBODY`
+with section and offset, and the `.text` size, and fails on an undefined symbol (the game
 would route the call to `_unresolved`), an `R_PPC_REL32`, a small-data
-section, or a missing symbol. `scripts/extract_blob.py` repeats those
+section, or a missing symbol. After it, `main` patches proc 0x27's
+name-table entry in `patched.dol` (`patch_body_name`: the entry's
+vanilla bytes asserted first, the file offset from the DOL's section
+table, `dol_file_offset`); `--no-rel` skips both, and the module's
+`.bss` stays 0. `scripts/extract_blob.py` repeats those
 checks on the ELF it embeds (pure Python, no devkitPPC), verifies the
 profile's `mProcName`, and emits `RELELF` plus the constants into
 `internal/inject/blob.go`; without the ELF it emits an empty `RELELF`.
@@ -440,7 +525,8 @@ them into `.rodata.cst4`, which the converter copies), its `"Mo2"`
 archive name in `.rodata` and its one `.data`
 pointer, and for remote.c's vtable stub addresses and `&wwrel_exec_hook`
 (`.text` self-relocations); and `R_PPC_REL24` for the calls between
-`rel_main.c`, `enemy_mirror.c` and `remote.c` (a `bl` between objects; the
+`rel_main.c`, `enemy_mirror.c`, `remote.c`, `fullbody.c` and `shanm.c`
+(a `bl` between objects; the
 converter and `OSLink` apply them). Calls within one unit are resolved by the compiler; game calls go
 through absolute pointers and need none.
 

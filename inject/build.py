@@ -10,12 +10,16 @@ a Dolphin symbol map of T2 (Symbols > Load Other Map File).
 
 After T2 it builds the REL module (rel/, see rel/README.md) into
 build/wwrel.elf, a relocatable ELF that scripts/extract_blob.py embeds
-and the patcher converts to a REL; `python build.py --no-rel` skips it.
+and the patcher converts to a REL, then patches the DOL's name-table
+entry of proc 0x27 so that proc loads the REL's module too (the full
+body's profile, rel/README.md "The second profile"); `python build.py
+--no-rel` skips both.
 """
 
 import importlib.util
 import os
 import re
+import struct
 import subprocess
 import sys
 import zlib
@@ -42,16 +46,17 @@ SYMBOL_MAP = os.path.join("build", "WWMultiplayer.map")
 # game data it references by address, and its outputs. Built apart from
 # T2 (plain gcc + `ld --relocatable`, no Freighter); extract_blob.py
 # embeds REL_ELF as is and the Go converter (wwapi/rel) makes the REL.
-REL_SOURCES = ["rel/rel_main.c", "rel/enemy_mirror.c", "rel/remote.c"]
+REL_SOURCES = ["rel/rel_main.c", "rel/enemy_mirror.c", "rel/remote.c", "rel/fullbody.c", "rel/shanm.c"]
 # The headers the module's build id also covers (rel_build_id): its own
 # and the three slack layouts it reads and writes.
-REL_HEADERS = ["rel/enemy_mirror.h", "rel/remote.h", "include/wwrel.h", "include/wwenemy.h", "include/wwremote.h"]
+REL_HEADERS = ["rel/enemy_mirror.h", "rel/remote.h", "rel/fullbody.h", "rel/shanm.h", "rel/dapy.h",
+               "include/wwrel.h", "include/wwenemy.h", "include/wwremote.h"]
 REL_LD = os.path.join("rel", "ww_rel.ld")
 REL_OBJ_DIR = os.path.join("build", "temp", "rel")
 REL_ELF = os.path.join("build", "wwrel.elf")
 REL_MAP = os.path.join("build", "wwrel.map")
 # The symbols the converter and the patcher look up by name.
-REL_SYMBOLS = ["_prolog", "_epilog", "_unresolved", "g_profile_WWREL"]
+REL_SYMBOLS = ["_prolog", "_epilog", "_unresolved", "g_profile_WWREL", "g_profile_WWBODY"]
 # Compile flags, ww-online's (WWOnline.Patcher/Tools/DevKitPpcToolchain.cs)
 # plus this project's freestanding ones:
 #   -fno-jump-tables   a switch's jump table would need R_PPC_REL32,
@@ -74,6 +79,17 @@ REL_CFLAGS = [
 # converter would have to understand. A new section name here means a
 # code change the converter must learn first.
 REL_BAD_SECTIONS = {".sdata", ".sbss", ".sdata2", ".sbss2", ".eh_frame", ".eh_frame_hdr"}
+
+# The full body's second profile (rel/README.md "The second profile",
+# ww-multiplayer-handoff/design/remote-link-stage4-plan.md D4-1, section
+# 3.9): proc 0x27's DynamicNameTable entry (.rodata, DOL section 11) gets
+# the name pointer of "d_a_rectangle", the module name proc 0xB5 already
+# uses, so cCc_Init gives both procs one DynamicModuleControl
+# (c_dylink.cpp:465-510). Mirrors wwremote.h WWREMOTE_FULL_NAME_ENTRY /
+# WWREMOTE_FULL_NAME_PTR and internal/inject/relbody.go.
+BODY_NAME_ENTRY = 0x80339938
+BODY_NAME_ENTRY_ORIG = bytes.fromhex("002700008033A6F3")  # {s16 0x0027, pad, char* "d_a_seatag"}
+BODY_NAME_PTR = 0x8033AE39                             # "d_a_rectangle"
 
 
 def devkitppc_dir():
@@ -265,6 +281,46 @@ def build_rel():
     text = int(m.group(1), 16) if m else 0
     print(f"  .text size 0x{text:X} ({text} bytes); build id 0x{build_id:08X}")
     print(f"REL module saved to {REL_ELF} (map: {REL_MAP})")
+
+
+def dol_file_offset(dol, addr):
+    """The file offset of a DOL load address, from the 18-entry section table.
+
+    The table holds file offsets at 0x00, load addresses at 0x48 and sizes
+    at 0x90 (7 text sections, then 11 data sections). The T1 patches in
+    main() use T1_FILE + (addr - T1_LOAD), right only inside text section 1;
+    this is right in any section. None if no section holds addr.
+    """
+    for i in range(18):
+        off, load, size = (struct.unpack_from(">I", dol, base + 4 * i)[0] for base in (0x00, 0x48, 0x90))
+        if size and load <= addr < load + size:
+            return off + (addr - load)
+    return None
+
+
+def patch_body_name(dol_path):
+    """Point proc 0x27's DynamicNameTable entry at "d_a_rectangle".
+
+    Asserts the entry's original 8 bytes first, so a different DOL (or a
+    patched one) fails the build instead of being patched blind.
+    """
+    with open(dol_path, "rb") as f:
+        dol = bytearray(f.read())
+    off = dol_file_offset(dol, BODY_NAME_ENTRY)
+    if off is None or bytes(dol[off:off + 8]) != BODY_NAME_ENTRY_ORIG:
+        got = "no section" if off is None else bytes(dol[off:off + 8]).hex()
+        print(f"ERROR: {dol_path}: proc 0x27's name entry at 0x{BODY_NAME_ENTRY:08x} is {got}, "
+              f"want {BODY_NAME_ENTRY_ORIG.hex()} (a vanilla GZLE01 DOL)", file=sys.stderr)
+        sys.exit(1)
+    name = dol_file_offset(dol, BODY_NAME_PTR)
+    if name is None or bytes(dol[name:name + 14]) != b"d_a_rectangle\0":
+        print(f"ERROR: {dol_path}: 0x{BODY_NAME_PTR:08x} is not \"d_a_rectangle\"", file=sys.stderr)
+        sys.exit(1)
+    word = struct.pack(">I", BODY_NAME_PTR)
+    with open(dol_path, "r+b") as f:
+        f.seek(off + 4)
+        f.write(word)
+    print(f"Patched @ 0x{BODY_NAME_ENTRY + 4:08x} (file 0x{off + 4:x}): {word.hex()} (proc 0x27 -> d_a_rectangle)")
 
 
 def main():
@@ -479,6 +535,9 @@ def main():
 
     if "--no-rel" not in sys.argv[1:]:
         build_rel()
+        # After the REL built: extract_blob.py wants the name patch exactly
+        # when the ELF (with g_profile_WWBODY) is there.
+        patch_body_name(output_dol)
 
 if __name__ == '__main__':
     main()

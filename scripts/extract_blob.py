@@ -27,6 +27,16 @@ at patch time) with the module's constants: the module ID and proc it
 hijacks, the profile symbol, the build id read from the ELF, and the
 mailbox slack words its _prolog writes. Without the ELF (a checkout
 without devkitPPC) RELELF is emitted empty and the file says so.
+
+The module also exports a second profile, g_profile_WWBODY (the
+remote-Link full body; ww-multiplayer-handoff/design/
+remote-link-stage4-plan.md D4-1), which proc 0x27 reaches through a
+DynamicNameTable patch build.py applies (the name pointer of proc 0x27's
+entry becomes "d_a_rectangle"). This script checks both halves: the
+profile's mProcName and mSize (WWREMOTE_FULL_SIZE, read from
+inject/include/wwremote.h), and patched.dol's name-table entry. Nothing
+new goes into blob.go for it: the name patch is an ordinary DOLPatches
+run, and the patcher's constants live in internal/inject/relbody.go.
 """
 
 import os
@@ -57,6 +67,12 @@ REL_PROC_ID = 0xB5       # PROC_RECTANGLE, the profile's mProcName
 REL_PROFILE_SYMBOL = "g_profile_WWREL"
 REL_BUILD_ID_SYMBOL = "g_wwrel_build_id"
 REL_ENTRY_SYMBOLS = ["_prolog", "_epilog", "_unresolved"]
+# The second profile (the remote-Link full body) and the header its
+# proc, size and name-table patch are read from (WWREMOTE_FULL_*).
+WWREMOTE_H = os.path.join(ROOT, "inject", "include", "wwremote.h")
+REL_BODY_PROFILE_SYMBOL = "g_profile_WWBODY"
+# process_profile_definition: mProcName (s16) at +0x08, mSize (s32) at +0x10.
+PROFILE_SIZE, PROFILE_PROC_OFF, PROFILE_MSIZE_OFF = 0x30, 0x08, 0x10  # tww include/f_pc/f_pc_profile.h:8-17
 
 # The patched OSInit's `lis r3, hi` / `addi r3, r3, lo` (inject/build.py).
 T1_LOAD, T1_FILE = 0x800056E0, 0x2620
@@ -173,7 +189,7 @@ def rel_module(mailbox_addr, arena):
             print(f"ERROR: {REL_MAIN_C}: WWREL_{k}_OFF 0x{off:X} is not in the mailbox slack "
                   f"(0x{mailbox_size:X}..0x{arena - mailbox_addr:X})", file=sys.stderr)
             sys.exit(1)
-    info = {"magic": magic, "offs": offs, "elf": b"", "build_id": 0, "text": 0, "relocs": {}}
+    info = {"magic": magic, "offs": offs, "elf": b"", "build_id": 0, "text": 0, "relocs": {}, "profiles": {}}
     if not os.path.exists(REL_ELF):
         return info
     e = elf_bytes(REL_ELF)
@@ -182,7 +198,7 @@ def rel_module(mailbox_addr, arena):
     if undefined:
         print(f"ERROR: {REL_ELF} has undefined symbols: {', '.join(undefined)}", file=sys.stderr)
         sys.exit(1)
-    for name in REL_ENTRY_SYMBOLS + [REL_PROFILE_SYMBOL, REL_BUILD_ID_SYMBOL]:
+    for name in REL_ENTRY_SYMBOLS + [REL_PROFILE_SYMBOL, REL_BODY_PROFILE_SYMBOL, REL_BUILD_ID_SYMBOL]:
         if name not in syms:
             print(f"ERROR: {REL_ELF} lacks the symbol {name}", file=sys.stderr)
             sys.exit(1)
@@ -190,16 +206,29 @@ def rel_module(mailbox_addr, arena):
         if syms[name][0] != ".text":
             print(f"ERROR: {REL_ELF}: {name} is in {syms[name][0]}, not .text", file=sys.stderr)
             sys.exit(1)
-    sec, off, size, data = syms[REL_PROFILE_SYMBOL]
-    if sec != ".rodata" or size != 0x30:
-        print(f"ERROR: {REL_ELF}: {REL_PROFILE_SYMBOL} is {size:#x} bytes in {sec}, "
-              f"want 0x30 in .rodata", file=sys.stderr)
-        sys.exit(1)
-    proc, = struct.unpack(">H", data[off + 8:off + 10])
-    if proc != REL_PROC_ID:
-        print(f"ERROR: {REL_ELF}: {REL_PROFILE_SYMBOL}.mProcName is 0x{proc:X}, "
-              f"not the hijacked proc 0x{REL_PROC_ID:X}", file=sys.stderr)
-        sys.exit(1)
+    # Both profiles: 0x30 bytes in .rodata, mProcName 0xB5 (the body keeps
+    # the keeper's proc name; only its profile slot is 0x27), and the
+    # mSize each role needs (keeper and lite body 0x600, full body
+    # WWREMOTE_FULL_SIZE).
+    info["profiles"] = {}
+    for name, want_size in ((REL_PROFILE_SYMBOL, source_define(WWREMOTE_H, "WWREMOTE_ACTOR_SIZE")),
+                            (REL_BODY_PROFILE_SYMBOL, source_define(WWREMOTE_H, "WWREMOTE_FULL_SIZE"))):
+        sec, off, size, data = syms[name]
+        if sec != ".rodata" or size != PROFILE_SIZE:
+            print(f"ERROR: {REL_ELF}: {name} is {size:#x} bytes in {sec}, "
+                  f"want {PROFILE_SIZE:#x} in .rodata", file=sys.stderr)
+            sys.exit(1)
+        proc, = struct.unpack(">H", data[off + PROFILE_PROC_OFF:off + PROFILE_PROC_OFF + 2])
+        if proc != REL_PROC_ID:
+            print(f"ERROR: {REL_ELF}: {name}.mProcName is 0x{proc:X}, "
+                  f"not the hijacked proc 0x{REL_PROC_ID:X}", file=sys.stderr)
+            sys.exit(1)
+        msize, = struct.unpack(">I", data[off + PROFILE_MSIZE_OFF:off + PROFILE_MSIZE_OFF + 4])
+        if msize != want_size:
+            print(f"ERROR: {REL_ELF}: {name}.mSize is 0x{msize:X}, want 0x{want_size:X} "
+                  f"({WWREMOTE_H})", file=sys.stderr)
+            sys.exit(1)
+        info["profiles"][name] = (proc, msize)
     sec, off, size, data = syms[REL_BUILD_ID_SYMBOL]
     if size != 4:
         print(f"ERROR: {REL_ELF}: {REL_BUILD_ID_SYMBOL} is {size} bytes, not 4", file=sys.stderr)
@@ -214,8 +243,49 @@ def rel_module(mailbox_addr, arena):
         if name == ".text":
             info["text"] = size
     info["elf"] = e
-    info["symbols"] = {n: syms[n][:3] for n in REL_ENTRY_SYMBOLS + [REL_PROFILE_SYMBOL, REL_BUILD_ID_SYMBOL]}
+    info["symbols"] = {n: syms[n][:3] for n in REL_ENTRY_SYMBOLS + [REL_PROFILE_SYMBOL, REL_BODY_PROFILE_SYMBOL, REL_BUILD_ID_SYMBOL]}
     return info
+
+
+def dol_file_offset(dol, addr, size=1):
+    """The file offset of [addr, addr+size) in a DOL, from its 18 section
+    headers (7 text, 11 data), or None when no section holds it."""
+    offs = struct.unpack(">18I", dol[0x00:0x48])
+    addrs = struct.unpack(">18I", dol[0x48:0x90])
+    sizes = struct.unpack(">18I", dol[0x90:0xD8])
+    for off, a, sz in zip(offs, addrs, sizes):
+        if sz and a <= addr and addr + size <= a + sz:
+            return off + (addr - a)
+    return None
+
+
+def body_name_patch(orig, patched, rel):
+    """Check proc 0x27's DynamicNameTable entry: with the module's body
+    profile, patched.dol's entry must be {0x0027, pad, WWREMOTE_FULL_NAME_PTR}
+    (build.py's name patch) and the original's {0x0027, pad, 0x8033A6F3};
+    without a module the entry must be vanilla (the name patch alone
+    would alias proc 0x27 to a module that lacks the profile)."""
+    entry = source_define(WWREMOTE_H, "WWREMOTE_FULL_NAME_ENTRY")
+    proc = source_define(WWREMOTE_H, "WWREMOTE_FULL_PROC")
+    want_ptr = source_define(WWREMOTE_H, "WWREMOTE_FULL_NAME_PTR")
+    off = dol_file_offset(orig, entry, 8)
+    if off is None or dol_file_offset(patched, entry, 8) != off:
+        print(f"ERROR: name entry 0x{entry:08X} is not in one DOL section of both DOLs", file=sys.stderr)
+        sys.exit(1)
+    o_key, o_ptr = struct.unpack(">H2xI", orig[off:off + 8])
+    p_key, p_ptr = struct.unpack(">H2xI", patched[off:off + 8])
+    if o_key != proc or p_key != proc:
+        print(f"ERROR: name entry 0x{entry:08X} (file 0x{off:X}) is proc 0x{o_key:X}/0x{p_key:X}, "
+              f"want 0x{proc:X}", file=sys.stderr)
+        sys.exit(1)
+    want = want_ptr if rel["elf"] else o_ptr
+    if p_ptr != want:
+        print(f"ERROR: patched.dol name pointer of proc 0x{proc:X} at 0x{entry + 4:08X} (file 0x{off + 4:X}) "
+              f"is 0x{p_ptr:08X}, want 0x{want:08X} "
+              f"({'the body profile needs build.py name patch' if rel['elf'] else 'no REL module: vanilla'})",
+              file=sys.stderr)
+        sys.exit(1)
+    return entry, off, o_ptr, p_ptr
 
 
 def header_size():
@@ -326,6 +396,7 @@ def main():
     features = header_define("WW_FEATURES")
     arena = arena_lo(patched)
     rel = rel_module(mailbox_addr, arena)
+    name_entry, name_off, name_orig, name_ptr = body_name_patch(orig, patched, rel)
 
     # Diff orig vs patched within the original DOL's footprint to find every
     # in-DOL byte modification: the hook_branchlink sites Freighter writes,
@@ -365,6 +436,10 @@ def main():
                                         for t, n in sorted(rel["relocs"].items())))
         for name, (sec, off, size) in rel["symbols"].items():
             print(f"  {name:<18} {sec}+0x{off:04x} size 0x{size:x}")
+        for name, (proc, msize) in rel["profiles"].items():
+            print(f"  profile: {name:<18} mProcName 0x{proc:X} mSize 0x{msize:X}")
+        print(f"  name:    proc 0x27 entry 0x{name_entry:08x} (file 0x{name_off:x}) pointer "
+              f"0x{name_orig:08x} -> 0x{name_ptr:08x}")
         print(f"  mailbox: magic 0x{rel['magic']:08x} @ +0x{rel['offs']['MAGIC']:x}, build id @ "
               f"+0x{rel['offs']['BUILD_ID']:x}, frames @ +0x{rel['offs']['FRAME']:x}")
     else:

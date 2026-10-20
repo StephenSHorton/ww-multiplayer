@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject/rels/relstest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/rel"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage/stagetest"
@@ -249,5 +250,68 @@ func TestPatchRELSArcRejects(t *testing.T) {
 	orig, _ := testRELSArc(t)
 	if !bytes.Equal(arc, orig) {
 		t.Error("the input archive changed")
+	}
+}
+
+// TestPatchRELSArcProfiles: the synthetic archive with relstest's list
+// (entries at 4*proc): entry 0x27 moves from module 0xA6 into 0x58 and
+// that import goes; the bad targets are refused by name.
+func TestPatchRELSArcProfiles(t *testing.T) {
+	arc := relstest.Arc()
+	newREL := testREL(t, relstest.PuppetModule, 0x200)
+	main := ProfileTarget{Proc: relstest.PuppetProc, Section: 2, Offset: 0x40}
+	body := []ProfileTarget{{Proc: relstest.SeatagProc, Section: 2, Offset: 0x10}}
+	out, err := PatchRELSArcProfiles(arc, relstest.PuppetModule, newREL, main, body, RELSArcMaxGrowth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := stage.ParseArchive(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lf *rel.File
+	for _, f := range a.Files() {
+		b, _ := a.Read(f)
+		if len(b) >= 4 && binary.BigEndian.Uint32(b) == ProfileListModule {
+			lf, _ = rel.Parse(b)
+		}
+	}
+	if lf == nil {
+		t.Fatal("no profile list")
+	}
+	imp := lf.Import(relstest.PuppetModule)
+	if lf.Import(relstest.SeatagModule) != nil || imp == nil || len(imp.Relocs) != 2 {
+		t.Fatalf("imports %+v", lf.Imports)
+	}
+	for _, c := range []struct {
+		off  uint32
+		want uint32
+	}{{4 * relstest.PuppetProc, 0x40}, {4 * relstest.SeatagProc, 0x10}} {
+		i, k := lf.RelocAt(2, c.off)
+		if i == nil || i.Module != relstest.PuppetModule || i.Relocs[k].Addend != c.want || i.Relocs[k].TargetSection != 2 {
+			t.Errorf("entry +0x%x: %+v", c.off, i)
+		}
+	}
+	if r, _ := lf.SoleReloc(relstest.OtherModule); r == nil || r.Offset != 4*relstest.OtherProc || r.Addend != 0x20 {
+		t.Errorf("module 0x42's entry %+v", r)
+	}
+	if again, err := PatchRELSArcProfiles(out, relstest.PuppetModule, newREL, main, body, RELSArcMaxGrowth); err != nil || !bytes.Equal(again, out) {
+		t.Errorf("not a fixed point: %v", err)
+	}
+
+	for name, c := range map[string]struct {
+		main  ProfileTarget
+		extra []ProfileTarget
+		want  string
+	}{
+		"proc 0":                {main, []ProfileTarget{{Proc: 0, Section: 2}}, "process 0x0 given twice (or 0)"},
+		"twice":                 {main, []ProfileTarget{body[0], body[0]}, "process 0x27 given twice"},
+		"no entry":              {main, []ProfileTarget{{Proc: 0x30, Section: 2}}, "no relocation at process 0x30's entry (section 2 offset 0xc0)"},
+		"body past section":     {main, []ProfileTarget{{Proc: relstest.SeatagProc, Section: 2, Offset: 0x80}}, "profile at 0x80 is past the end"},
+		"main not at its entry": {ProfileTarget{Proc: 0x30, Section: 2}, nil, "0 relocations against module 0x58 at process 0x30's entry"},
+	} {
+		if _, err := PatchRELSArcProfiles(arc, relstest.PuppetModule, newREL, c.main, c.extra, RELSArcMaxGrowth); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", name, err, c.want)
+		}
 	}
 }

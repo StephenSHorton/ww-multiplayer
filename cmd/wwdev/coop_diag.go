@@ -36,6 +36,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/heap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
@@ -895,132 +896,17 @@ func printPhase(w io.Writer, r phaseReport, ran time.Duration) {
 // ---------------------------------------------------------------------
 // heap-free
 
-// Heap statics addr leaves out.
-const (
-	solidHeapErrors   uint32 = 0x803F68F4 // sym:18576
-	commandHeapErrors uint32 = 0x803F6900 // sym:18579
-	unknownHeapErrors uint32 = 0x803F6908 // sym:18581
-	heapErrorsTotal   uint32 = 0x803F690C // heapErrors: every failure, any heap (sym:18582)
-	commandHeapPtr    uint32 = 0x803F6930 // sym:18592; created by mDoExt_createCommandHeap (m_Do_ext.cpp:911)
-	expHeapVtable     uint32 = 0x8039CC60 // __vt__10JKRExpHeap (sym:16882)
-
-	// expHeapHeaderSize covers a JKRExpHeap through mTailUsedList
-	// (JKRExpHeap.h:96-106).
-	expHeapHeaderSize = addr.ExpHeapOffUsedTail + 4
-	maxFreeBlocks     = 1 << 16
-)
-
-// heapCounters are the allocation-failure counters, in declaration order
-// (m_Do_machine.cpp:35-41); the failure handler bumps one per failure by
-// heap (m_Do_machine.cpp:121-135).
-var heapCounters = []struct {
-	name string
-	a    uint32
-}{
-	{"solid", solidHeapErrors},
-	{"game", addr.GameHeapErrors},
-	{"zelda", addr.ZeldaHeapErrors},
-	{"command", commandHeapErrors},
-	{"archive", addr.ArchiveHeapErrors},
-	{"unknown", unknownHeapErrors},
-	{"total", heapErrorsTotal},
-}
-
-// heapInfo is one JKRExpHeap's free list.
-type heapInfo struct {
-	Name                  string
-	Ptr, Start, End, Size uint32
-	Blocks                int
-	Free                  uint64 // what do_getTotalFreeSize returns (JKRExpHeap.cpp:487-496)
-	Largest               uint32 // what do_getFreeSize returns (JKRExpHeap.cpp:459-470)
-	// Problem says why the walk was cut short or the list looks
-	// inconsistent; the totals then cover what was walked.
-	Problem string
-}
-
-// walkHeap reads the JKRExpHeap whose pointer is at ptrAddr and sums its
-// free list (mHeadFreeList, JKRExpHeap.h:103) the way do_getTotalFreeSize
-// does. The heap must carry JKRExpHeap's vtable and sane bounds; each
-// block must lie inside the heap with its content (the CMemBlock header,
-// JKRExpHeap.h:36-42, then size bytes), link back to the block before it
-// and not repeat. Free blocks are not checked for the 'HM' magic: the
-// first is initiated with it but setFreeBlock zeroes it (JKRExpHeap.cpp:
-// 85,575). The error is a read error; a bad list is reported in Problem.
-func walkHeap(m mem.Mem, name string, ptrAddr uint32) (heapInfo, error) {
-	h := heapInfo{Name: name}
-	p, err := mem.ReadU32(m, ptrAddr)
-	if err != nil {
-		return h, err
-	}
-	if h.Ptr = p; p == 0 {
-		h.Problem = "not created"
-		return h, nil
-	}
-	hdr, err := m.Read(p, expHeapHeaderSize)
-	if err != nil {
-		h.Problem = fmt.Sprintf("heap pointer 0x%08X: %v", p, err)
-		return h, nil
-	}
-	if vt := be32(hdr); vt != expHeapVtable {
-		h.Problem = fmt.Sprintf("vtable 0x%08X is not JKRExpHeap's 0x%08X", vt, expHeapVtable)
-		return h, nil
-	}
-	h.Start, h.End, h.Size = be32(hdr[addr.HeapOffStart:]), be32(hdr[addr.HeapOffEnd:]), be32(hdr[addr.HeapOffSize:])
-	if h.Start >= h.End || mem.CheckRange(h.Start, int(h.End-h.Start)) != nil || h.Size != h.End-h.Start {
-		h.Problem = fmt.Sprintf("bounds 0x%08X-0x%08X size 0x%X do not fit MEM1", h.Start, h.End, h.Size)
-		return h, nil
-	}
-	tail := be32(hdr[addr.ExpHeapOffFreeTail:])
-	seen := make(map[uint32]bool)
-	var prev uint32
-	for b := be32(hdr[addr.ExpHeapOffFreeHead:]); b != 0; {
-		switch {
-		case h.Blocks >= maxFreeBlocks:
-			h.Problem = fmt.Sprintf("more than %d free blocks", maxFreeBlocks)
-		case b&3 != 0 || b < h.Start || b > h.End-addr.MemBlockSize:
-			h.Problem = fmt.Sprintf("free block 0x%08X is outside the heap", b)
-		case seen[b]:
-			h.Problem = fmt.Sprintf("free block 0x%08X comes round again: the list has a cycle", b)
-		}
-		if h.Problem != "" {
-			return h, nil
-		}
-		seen[b] = true
-		blk, err := m.Read(b, addr.MemBlockSize)
-		if err != nil {
-			return h, err
-		}
-		if bp := be32(blk[addr.MemBlockOffPrev:]); bp != prev {
-			h.Problem = fmt.Sprintf("free block 0x%08X has prev 0x%08X, not 0x%08X: the heap changed during the walk", b, bp, prev)
-			return h, nil
-		}
-		size := be32(blk[addr.MemBlockOffSize:])
-		if uint64(b)+addr.MemBlockSize+uint64(size) > uint64(h.End) {
-			h.Problem = fmt.Sprintf("free block 0x%08X of 0x%X bytes runs past the heap's end", b, size)
-			return h, nil
-		}
-		h.Blocks++
-		h.Free += uint64(size)
-		h.Largest = max(h.Largest, size)
-		prev, b = b, be32(blk[addr.MemBlockOffNext:])
-	}
-	if prev != tail {
-		h.Problem = fmt.Sprintf("the last free block is 0x%08X but mTailFreeList is 0x%08X", prev, tail)
-	}
-	return h, nil
-}
-
 // heapFree reports the heap error counters, where the arena starts, and
 // each JKRExpHeap's free space: the §4.5 margin an arena bump would take.
 func heapFree(w io.Writer, m mem.Mem) error {
 	fmt.Fprintln(w, "heap error counters (any increase means an allocation failed):")
+	c, err := heap.ReadCounters(m)
+	if err != nil {
+		return err
+	}
 	var parts []string
-	for _, c := range heapCounters {
-		v, err := mem.ReadU32(m, c.a)
-		if err != nil {
-			return err
-		}
-		parts = append(parts, fmt.Sprintf("%s %d", c.name, v))
+	for i, v := range c.Values() {
+		parts = append(parts, fmt.Sprintf("%s %d", heap.CounterNames[i], v))
 	}
 	fmt.Fprintf(w, "  %s\n", strings.Join(parts, "  "))
 
@@ -1043,16 +929,8 @@ func heapFree(w io.Writer, m mem.Mem) error {
 	fmt.Fprintf(w, "       __OSArenaLo now 0x%08X (initArena moves it to the arena top, JKRHeap.cpp:94)\n", arenaLo)
 
 	fmt.Fprintln(w, "JKRExpHeap free lists (free = getTotalFreeSize, largest = getFreeSize):")
-	for _, hp := range []struct {
-		name string
-		a    uint32
-	}{
-		{"zelda", addr.ZeldaHeapPtr},
-		{"game", addr.GameHeapPtr},
-		{"archive", addr.ArchiveHeapPtr},
-		{"command", commandHeapPtr},
-	} {
-		h, err := walkHeap(m, hp.name, hp.a)
+	for _, hp := range heap.ExpHeaps {
+		h, err := heap.Walk(m, hp.Name, hp.Ptr)
 		if err != nil {
 			return err
 		}

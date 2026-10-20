@@ -9,6 +9,7 @@ import (
 	posefeed "github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/heap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
@@ -31,6 +32,10 @@ func TestParseRemoteFlags(t *testing.T) {
 		{"step1", mailbox.RemoteFlagBodies},
 		{"step3", mailbox.RemoteFlagBodies | mailbox.RemoteFlagSwap | mailbox.RemoteFlagHittable | mailbox.RemoteFlagDetect | mailbox.RemoteFlagIFrameStamp},
 		{"step6", 0x00FF&^(mailbox.RemoteFlagFFGateOff|mailbox.RemoteFlagRouyaGateOff) | mailbox.RemoteFlagAttacker | mailbox.RemoteFlagIFrameStamp},
+		{"step7", 0x00FF&^(mailbox.RemoteFlagFFGateOff|mailbox.RemoteFlagRouyaGateOff) | mailbox.RemoteFlagAttacker | mailbox.RemoteFlagIFrameStamp |
+			mailbox.RemoteFlagFullBodies},
+		{"step3+full_bodies", mailbox.RemoteFlagBodies | mailbox.RemoteFlagSwap | mailbox.RemoteFlagHittable | mailbox.RemoteFlagDetect |
+			mailbox.RemoteFlagIFrameStamp | mailbox.RemoteFlagFullBodies},
 		{"step2,rouya_gate_off,ff_gate_off", mailbox.RemoteFlagBodies | mailbox.RemoteFlagSwap | mailbox.RemoteFlagRouyaGateOff | mailbox.RemoteFlagFFGateOff},
 		{"group_wide,both_words,name_a9,guard,attrib,apply,hittable,attacker,iframe_stamp", mailbox.RemoteFlagGroupWide | mailbox.RemoteFlagBothWordsEnable |
 			mailbox.RemoteFlagNameA9 | mailbox.RemoteFlagGuard | mailbox.RemoteFlagAttrib | mailbox.RemoteFlagApply | mailbox.RemoteFlagHittable |
@@ -42,11 +47,11 @@ func TestParseRemoteFlags(t *testing.T) {
 		}
 	}
 	// No step preset turns a safety gate off.
-	all, _ := ParseRemoteFlags("step6")
+	all, _ := ParseRemoteFlags("step7")
 	if all&(mailbox.RemoteFlagFFGateOff|mailbox.RemoteFlagRouyaGateOff|mailbox.RemoteFlagGroupWide|mailbox.RemoteFlagBothWordsEnable) != 0 {
-		t.Errorf("step6 = 0x%04X carries an opt-out or a widening", all)
+		t.Errorf("step7 = 0x%04X carries an opt-out or a widening", all)
 	}
-	for _, bad := range []string{"bodys", "step7", "stepx", "0x10000"} {
+	for _, bad := range []string{"bodys", "step8", "stepx", "0x10000", "full_body"} {
 		if _, err := ParseRemoteFlags(bad); err == nil {
 			t.Errorf("ParseRemoteFlags(%q) parsed", bad)
 		}
@@ -107,7 +112,8 @@ func TestParseRemotePolicy(t *testing.T) {
 func TestRemoteConfigFromEnv(t *testing.T) {
 	for _, k := range []string{"WW_ENEMY_REMOTE", "WW_ENEMY_REMOTE_MARGIN", "WW_ENEMY_REMOTE_MIN_HOLD", "WW_ENEMY_REMOTE_IFRAMES",
 		"WW_ENEMY_REMOTE_DY_MAX", "WW_ENEMY_REMOTE_EYE_DY", "WW_ENEMY_REMOTE_CYL_R", "WW_ENEMY_REMOTE_CYL_H",
-		"WW_ENEMY_REMOTE_COOLDOWN", "WW_ENEMY_REMOTE_POLICY", "WW_ENEMY_REMOTE_FF"} {
+		"WW_ENEMY_REMOTE_COOLDOWN", "WW_ENEMY_REMOTE_POLICY", "WW_ENEMY_REMOTE_FF",
+		"WW_ENEMY_REMOTE_HEAP", "WW_ENEMY_REMOTE_FULL_MAX", "WW_ENEMY_REMOTE_FLAGS2"} {
 		t.Setenv(k, "")
 	}
 	c := RemoteConfigFromEnv(log.Discard{})
@@ -116,6 +122,9 @@ func TestRemoteConfigFromEnv(t *testing.T) {
 	}
 	if c.MarginQ8 != 164 || c.MinHold != 30 || c.BodyIFrames != 30 || c.DYMax != 400 || c.EyeDY != 110 || c.CylR != 30 || c.CylH != 120 || c.CreateCooldown != 30 {
 		t.Errorf("tunables = %+v", c)
+	}
+	if c.HeapGate || c.FullMax != 1 || c.Flags2 != 0 || c.HeapSizes != heap.DefaultThresholds() {
+		t.Errorf("full-body defaults = %+v", c)
 	}
 	t.Setenv("WW_ENEMY_REMOTE", "step2")
 	t.Setenv("WW_ENEMY_REMOTE_MARGIN", "200")
@@ -139,6 +148,36 @@ func TestRemoteConfigFromEnv(t *testing.T) {
 	if !reflect.DeepEqual(c.FFDeny, []string{"sea", "MajyuE"}) {
 		t.Errorf("FF = %v", c.FFDeny)
 	}
+	if c.HeapGate {
+		t.Error("heap gate on without full_bodies")
+	}
+
+	// The full-body knobs: the gate follows FULL_BODIES.
+	t.Setenv("WW_ENEMY_REMOTE", "step7")
+	t.Setenv("WW_ENEMY_REMOTE_HEAP", "0xFFFFFFF, 0, 0x10")
+	t.Setenv("WW_ENEMY_REMOTE_FULL_MAX", "2")
+	t.Setenv("WW_ENEMY_REMOTE_FLAGS2", "full_co")
+	c = RemoteConfigFromEnv(log.Discard{})
+	if !c.HeapGate || c.Flags&mailbox.RemoteFlagFullBodies == 0 || c.FullMax != 2 || c.Flags2 != mailbox.RemoteFlag2FullCo ||
+		c.HeapSizes != (heap.Thresholds{GameLargest: 0xFFFFFFF, ZeldaLargest: 0x10, ArchiveLargest: heap.GateArchiveLargest}) {
+		t.Errorf("full knobs = %+v", c)
+	}
+	t.Setenv("WW_ENEMY_REMOTE_HEAP", "off")
+	t.Setenv("WW_ENEMY_REMOTE_FLAGS2", "0x1")
+	if c = RemoteConfigFromEnv(log.Discard{}); c.HeapSizes != (heap.Thresholds{}) || c.Flags2 != 1 {
+		t.Errorf("heap off: %+v", c)
+	}
+	for _, bad := range [][2]string{{"WW_ENEMY_REMOTE_HEAP", "1,2"}, {"WW_ENEMY_REMOTE_HEAP", "a,b,c"}, {"WW_ENEMY_REMOTE_FLAGS2", "co"},
+		{"WW_ENEMY_REMOTE_FULL_MAX", "300"}} {
+		t.Setenv("WW_ENEMY_REMOTE_HEAP", "")
+		t.Setenv("WW_ENEMY_REMOTE_FLAGS2", "")
+		t.Setenv("WW_ENEMY_REMOTE_FULL_MAX", "")
+		t.Setenv(bad[0], bad[1])
+		if c = RemoteConfigFromEnv(log.Discard{}); c.HeapSizes != heap.DefaultThresholds() || c.Flags2 != 0 || c.FullMax != 1 {
+			t.Errorf("%s=%q kept no default: %+v", bad[0], bad[1], c)
+		}
+	}
+
 	t.Setenv("WW_ENEMY_REMOTE", "warp")
 	t.Setenv("WW_ENEMY_REMOTE_FF", "none")
 	if c = RemoteConfigFromEnv(log.Discard{}); c.On || c.FFDeny != nil {

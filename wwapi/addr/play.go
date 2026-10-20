@@ -329,6 +329,23 @@ const (
 	GameHeapErrors    uint32 = 0x803F68F8 // sym:18577
 	ZeldaHeapErrors   uint32 = 0x803F68FC // sym:18578
 	ArchiveHeapErrors uint32 = 0x803F6904 // sym:18580
+	SolidHeapErrors   uint32 = 0x803F68F4 // sym:18576
+	CommandHeapErrors uint32 = 0x803F6900 // sym:18579
+	UnknownHeapErrors uint32 = 0x803F6908 // sym:18581
+	HeapErrorsTotal   uint32 = 0x803F690C // heapErrors: every failure, any heap (sym:18582)
+
+	// HeapCountersAddr..+HeapCountersLen is the seven counters in
+	// declaration order (m_Do_machine.cpp:35-41): solid, game, zelda,
+	// command, archive, unknown, total; one read takes them all.
+	HeapCountersAddr = SolidHeapErrors
+	HeapCountersLen  = 0x1C
+
+	// CommandHeapPtr is the command heap mDoExt_createCommandHeap makes
+	// (m_Do_ext.cpp:911), sym:18592.
+	CommandHeapPtr uint32 = 0x803F6930
+	// ExpHeapVtable is __vt__10JKRExpHeap (sym:16882): a JKRExpHeap's
+	// first word.
+	ExpHeapVtable uint32 = 0x8039CC60
 
 	// OSArenaLo is the __OSArenaLo variable (sym:18462). JKRHeap::initArena
 	// moves it to the arena top at boot (JKRHeap.cpp:94), so read

@@ -21,6 +21,12 @@
 //            mCyl and neutralises them; execute parks or poses itself from
 //            the slot, reads its Tg hit into the ring (FLAG_DETECT) and
 //            Sets its cylinder (FLAG_HITTABLE);
+//   full     (FLAG_FULL_BODIES, host only; stage-4 plan D4-6, D4-7): the
+//            keeper may create the slot's body as the real daPy_lk_c of
+//            the second profile (proc WWREMOTE_FULL_PROC, fullbody.c)
+//            when Go's heap gate set the slot's FULL_ALLOW bit; any full
+//            failure falls back to a lite body for the rest of the stage.
+//            With the flag clear nothing here differs from the lite path;
 //   hook     wwrel_exec_hook, T2's exec shim target for every actor
 //            execute: counts, then for an eligible enemy (PROC_POLICY,
 //            gates) writes mPlayerInfo[0].mpPlayer = the chosen Link
@@ -82,7 +88,7 @@ typedef char rl_check_fields[(WWREMOTE_SL_STAGE_OFF + WWREMOTE_STAGE_LEN <= WWRE
                               WWREMOTE_SL_PAD_OFF + 2 == WWREMOTE_SLOT_SIZE &&
                               WWREMOTE_AP_RVEC_OFF + 12 <= WWREMOTE_APPLY_SIZE &&
                               WWREMOTE_HE_FRAME_OFF + 4 == WWREMOTE_HIT_SIZE &&
-                              WWREMOTE_BS_PAD_OFF + 1 == WWREMOTE_BODY_STATUS_SIZE &&
+                              WWREMOTE_BS_KIND_OFF + 1 == WWREMOTE_BODY_STATUS_SIZE &&
                               WWREMOTE_HIT_RING_LEN == 4 &&
                               WWREMOTE_ROLE_HOST == WWENEMY_ROLE_HOST &&
                               WWREMOTE_ROLE_CLIENT == WWENEMY_ROLE_CLIENT &&
@@ -96,8 +102,16 @@ typedef char rl_check_attrib[(((WWENEMY_HAF_FORCE_V1 | WWENEMY_HAF_FALLBACK_SHRI
                               WWREMOTE_HD_NO_BODY > WWENEMY_HD_DEMO) ? 1 : -1];
 // The keeper's swap state and the body overlay.
 typedef char rl_check_state[(sizeof(rl_latch) == 0x10 && sizeof(rl_body) == 0x14 &&
+                             __builtin_offsetof(rl_body, kind) == 0x13 &&
                              __builtin_offsetof(remote_swap_state, flags) == 0x10 &&
+                             __builtin_offsetof(remote_swap_state, full_allow) == 0x19 &&
+                             __builtin_offsetof(remote_swap_state, flags2) == 0x1A &&
                              __builtin_offsetof(remote_swap_state, dy_max) == 0x1C &&
+                             __builtin_offsetof(remote_swap_state, full_denied) == 0x79 &&
+                             __builtin_offsetof(remote_swap_state, full_wait) == 0x7A &&
+                             __builtin_offsetof(remote_swap_state, latch) == 0x7C &&
+                             sizeof(remote_swap_state) == 0x17C &&
+                             MAX_REMOTE_LINKS <= 2 && MAX_REMOTE_LINKS <= 8 &&
                              __builtin_offsetof(remote_swap_state, stage) == 0x20 &&
                              __builtin_offsetof(remote_swap_state, bodies) == 0x28 &&
                              __builtin_offsetof(remote_swap_state, ap_seq) == 0x28 + MAX_REMOTE_LINKS * 0x14 &&
@@ -125,6 +139,30 @@ typedef char rl_check_body[(__builtin_offsetof(remote_body, cut_type) == WWREMOT
                             WWREMOTE_BODY_STTS_OFF + WWREMOTE_BODY_STTS_SIZE <= WWREMOTE_BODY_MAGIC_OFF &&
                             WWREMOTE_BODY_VT_OFF + WWREMOTE_BODY_VT_SIZE <= WWREMOTE_BODY_CYL_OFF &&
                             sizeof(remote_body) <= WWREMOTE_ACTOR_SIZE) ? 1 : -1];
+// rl_btail is the lite body's +0x530..+0x578, field for field.
+#define RL_BT(f) (__builtin_offsetof(remote_body, magic) + __builtin_offsetof(rl_btail, f) == __builtin_offsetof(remote_body, f))
+typedef char rl_check_btail[(RL_BT(magic) && RL_BT(slot) && RL_BT(gen) && RL_BT(iframes_left) && RL_BT(state) &&
+                             RL_BT(shield_angle) && RL_BT(hand_mtx) && RL_BT(last_pose_seq) && RL_BT(park_since) &&
+                             RL_BT(pose_seq_frame) && sizeof(rl_btail) == 0x48 &&
+                             __builtin_offsetof(remote_body, magic) + sizeof(rl_btail) == sizeof(remote_body)) ? 1 : -1];
+#undef RL_BT
+// The full body's tail keeps that order at WWREMOTE_FULL_TAIL_OFF.
+#define RL_FT(f, off) (WWREMOTE_FULL_TAIL_OFF + __builtin_offsetof(rl_btail, f) == (off))
+typedef char rl_check_full_tail[(RL_FT(magic, WWREMOTE_FULL_MAGIC_OFF) && RL_FT(slot, WWREMOTE_FULL_SLOT_OFF) &&
+                                 RL_FT(gen, WWREMOTE_FULL_GEN_OFF) && RL_FT(iframes_left, WWREMOTE_FULL_IFRAMES_LEFT_OFF) &&
+                                 RL_FT(state, WWREMOTE_FULL_STATE_OFF) && RL_FT(shield_angle, WWREMOTE_FULL_SHIELD_ANGLE_OFF) &&
+                                 RL_FT(last_pose_seq, WWREMOTE_FULL_LAST_POSE_SEQ_OFF) &&
+                                 RL_FT(park_since, WWREMOTE_FULL_PARK_SINCE_OFF) &&
+                                 WWREMOTE_FULL_TAIL_OFF + __builtin_offsetof(rl_full_tail, phase) == WWREMOTE_FULL_PHASE_OFF &&
+                                 WWREMOTE_FULL_TAIL_OFF + __builtin_offsetof(rl_full_tail, kind) == WWREMOTE_FULL_KIND_OFF &&
+                                 WWREMOTE_FULL_TAIL_OFF + __builtin_offsetof(rl_full_tail, create_frames) == WWREMOTE_FULL_CREATE_FRAMES_OFF &&
+                                 WWREMOTE_FULL_TAIL_OFF + __builtin_offsetof(rl_full_tail, shanm_diff) == WWREMOTE_FULL_SHANM_DIFF_OFF &&
+                                 WWREMOTE_FULL_TAIL_OFF + __builtin_offsetof(rl_full_tail, heap_err) == WWREMOTE_FULL_HEAP_ERR_OFF &&
+                                 WWREMOTE_FULL_TAIL_OFF + __builtin_offsetof(rl_full_tail, init_bad) == WWREMOTE_FULL_END &&
+                                 WWREMOTE_FULL_TAIL_OFF == WWREMOTE_FULL_DAPY_SIZE &&
+                                 WWREMOTE_FULL_TAIL_OFF + sizeof(rl_full_tail) <= WWREMOTE_FULL_SIZE &&
+                                 (WWREMOTE_FULL_SIZE & 0x1F) == 0 && sizeof(rl_full_tail) == 0x58) ? 1 : -1];
+#undef RL_FT
 // The pose-feed arrays the park check reads (mailbox_core.h: +0xB4, +0xB6).
 typedef char rl_check_pose[(__builtin_offsetof(Mailbox, pose_buf_states) == 0xB4 &&
                             __builtin_offsetof(Mailbox, pose_seqs) == 0xB6) ? 1 : -1];
@@ -282,6 +320,14 @@ typedef void (*rl_stts_init_t)(void* stts, int weight, int p1, void* actor); // 
 #define RL_STTS_P1        0xFF
 #define RL_AP_MAX_SETS    2       // N, and N+1 if Link's Tg was Set but nothing crossed
 #define RL_MAX_TRIES      3       // body creates per stage
+#define RL_FULL_WAIT      120     // keeper frames a slot waits for its FULL_ALLOW bit on a transient HEAP_REASON
+#define RL_FULL_EARLY     60      // a full body GONE within this many LIVE frames failed (stage-4 plan section 3.2)
+// The profile slot the full body is created through (stage-4 plan D4-1,
+// D4-7): DMC[0x27] must be DMC[0xB5] (the DOL name-table patch) and the
+// profile list's slot 0x27 must be g_profile_WWBODY (the RELS.arc patch).
+#define RL_DMC_FULL       (*(volatile u32*)WWREMOTE_DMC_FULL_ADDR)
+#define RL_DMC_REL        (*(volatile u32*)WWREMOTE_DMC_REL_ADDR)
+#define RL_PROFILE_LIST   (*(volatile u32*)WWREMOTE_PROFILE_LIST_PTR)
 #define RL_FORCE_FRAMES   3       // ATTRIB's force latch
 #define RL_RANGE          1000000.0f
 #define RL_DY_MAX_DEF     ((f32)WWREMOTE_DEF_DY_MAX)
@@ -300,6 +346,13 @@ static remote_swap_state* rl_state(void) {
     return (remote_swap_state*)RL_WORD(WWREL_SWAP_STATE_OFF);
 }
 
+static int rl_in_mem1(u32 p);
+
+remote_swap_state* rl_state_checked(void) {
+    remote_swap_state* st = rl_state();
+    return (st && rl_in_mem1((u32)st)) ? st : 0;
+}
+
 static int rl_in_mem1(u32 p) {
     return p >= RL_MEM1_LO && p < RL_MEM1_HI && (p & 3) == 0;
 }
@@ -312,7 +365,7 @@ static void rl_sat_inc(u8* c) {
     if (*c != 0xFF) (*c)++;
 }
 
-static int rl_f32_bad(f32 v) {
+int rl_f32_bad(f32 v) {
     return v != v || v > RL_RANGE || v < -RL_RANGE;
 }
 
@@ -325,7 +378,7 @@ static void* rl_actor_of(u32 pid) {
 // The host Link the swap and the bodies hang on (section 5.2 create 3):
 // mpPlayerPtr[0], in MEM1, a PLAYER, and equal to mPlayerInfo[0] (they
 // differ while Medli or Makar is controlled, d_a_player.cpp:13-24).
-static u32 rl_host_link(void) {
+u32 rl_host_link(void) {
     u32 l = RL_PLAYER_PTR0;
     if (!rl_in_mem1(l) || AF(l, s16, AC_PROC_NAME) != PROC_PLAYER || RL_PLAYER_INFO0 != l) return 0;
     return l;
@@ -355,7 +408,7 @@ static int rl_stage_same(const u8* name) {
 
 // sqrt for speedF only: a bit-trick seed and three Newton steps (no
 // libm; fdivs is hardware).
-static f32 rl_sqrt(f32 x) {
+f32 rl_sqrt(f32 x) {
     union { f32 f; u32 u; } v;
     f32 y;
     if (!(x > 0.0f)) return 0.0f;
@@ -443,6 +496,16 @@ static void rl_latch_reset(remote_swap_state* st) {
     for (n = 0; n < sizeof(st->latch) / 4; n++) w[n] = 0;
 }
 
+// --- Keeper: full-body bookkeeping (stage-4 plan D4-7) -------------------------
+// The slots in mask get their full attempt back: a new stage, epoch or gen.
+static void rl_full_reset(remote_swap_state* st, u8 mask) {
+    int i;
+    st->full_denied &= (u8)~mask;
+    for (i = 0; i < MAX_REMOTE_LINKS; i++) {
+        if (mask & (1u << i)) st->full_wait[i] = 0;
+    }
+}
+
 // --- Keeper: intake -----------------------------------------------------------
 static void rl_consume(remote_swap_state* st, u32 seq, u32 frame) {
     f32 dy = RB_F32(WWREMOTE_DY_MAX_OFF);
@@ -451,6 +514,11 @@ static void rl_consume(remote_swap_state* st, u32 seq, u32 frame) {
     st->margin_q8 = RB_U8(WWREMOTE_MARGIN_Q8_OFF);
     st->min_hold = RB_U8(WWREMOTE_MIN_HOLD_OFF);
     st->body_iframes = RB_U8(WWREMOTE_BODY_IFRAMES_OFF);
+    // FULL_ALLOW is latched per consumed seq; issuing a full create clears
+    // the slot's bit, so one seq starts at most one (stage-4 plan D4-3).
+    st->full_allow = (st->role == WWREMOTE_ROLE_HOST && (st->flags & WWREMOTE_FLAG_FULL_BODIES))
+                         ? RB_U8(WWREMOTE_FULL_ALLOW_OFF) : 0;
+    st->flags2 = RB_U16(WWREMOTE_FLAGS2_OFF);
     st->dy_max = (rl_f32_bad(dy) || !(dy > 0.0f)) ? RL_DY_MAX_DEF : dy;
     st->last_seq = seq;
     st->stale_frames = 0;
@@ -484,6 +552,7 @@ static void rl_intake(remote_swap_state* st, u32 frame) {
             int i;
             for (i = 0; i < MAX_REMOTE_LINKS; i++) st->bodies[i].tries = 0;
         }
+        rl_full_reset(st, 0xFF);
     }
     head = RB_U32(WWREMOTE_SEQ_HEAD_OFF);
     tail = RB_U32(WWREMOTE_SEQ_TAIL_OFF);
@@ -514,7 +583,7 @@ static int rl_slot_may_create(remote_swap_state* st, int i) {
     return rl_slot_keeps_body(st, i) && NEXT_STAGE_ENABLE == 0 && rl_host_link() != 0;
 }
 
-static void rl_body_create(remote_swap_state* st, int i) {
+static void rl_body_create(remote_swap_state* st, int i, u8 kind, u8 note) {
     rl_body* bd = &st->bodies[i];
     u32 off = RB_SLOT(i);
     u32 link = rl_host_link();
@@ -534,9 +603,13 @@ static void rl_body_create(remote_swap_state* st, int i) {
     ang.y = RB_S16(off + WWREMOTE_SL_ANGLE_OFF);
     ang.z = 0;
     // fopAcM_create only queues (wwapi.h): the body's create runs in the
-    // next fpcCt_Handler, outside any execute.
-    pid = fopAcM_create(PROC_WWREL, WWREMOTE_BODY_PARAMS_TAG | ((u32)i << 8) | gen, &pos,
+    // next fpcCt_Handler, outside any execute. A full body is the second
+    // profile (fullbody.c), same params.
+    pid = fopAcM_create(kind == WWREMOTE_KIND_FULL ? WWREMOTE_FULL_PROC : PROC_WWREL,
+                        WWREMOTE_BODY_PARAMS_TAG | ((u32)i << 8) | gen, &pos,
                         (int)RL_STAY_NO, &ang, 0, -1, 0);
+    bd->kind = kind;
+    if (kind == WWREMOTE_KIND_FULL) st->full_allow &= (u8)~(1u << i);
     bd->tries++;
     bd->gen = gen;
     bd->del_sent = 0;
@@ -546,11 +619,68 @@ static void rl_body_create(remote_swap_state* st, int i) {
         bd->err = WWREMOTE_BERR_CREATE;
         bd->cooldown = RB_U16(WWREMOTE_CREATE_COOLDOWN_OFF);
         bd->pid = 0;
+        if (kind == WWREMOTE_KIND_FULL) st->full_denied |= (u8)(1u << i);
         return;
     }
     bd->pid = pid;
-    bd->err = WWREMOTE_BERR_NONE;
+    // A lite body that stands in for a refused full one keeps the reason
+    // (BERR 10-15) visible; with FULL_BODIES clear note is always NONE.
+    bd->err = note;
     bd->state = WWREMOTE_BODY_QUEUED;
+}
+
+// The full body's profile slot is usable (stage-4 plan D4-7): the keeper
+// is alive, so module 0x58 is linked and OSLink applied the list's
+// relocation.
+static int rl_full_profile_ok(void) {
+    u32 list = RL_PROFILE_LIST;
+    return RL_DMC_FULL != 0 && RL_DMC_FULL == RL_DMC_REL && rl_in_mem1(list) &&
+           AF(list, u32, 4 * WWREMOTE_FULL_PROC) == wwrel_body_profile();
+}
+
+// A FULL body is being created (QUEUED) in some slot.
+static int rl_full_queued(remote_swap_state* st) {
+    int k;
+    for (k = 0; k < MAX_REMOTE_LINKS; k++) {
+        if (st->bodies[k].state == WWREMOTE_BODY_QUEUED && st->bodies[k].kind == WWREMOTE_KIND_FULL) return 1;
+    }
+    return 0;
+}
+
+// The heap-gate reasons the keeper waits on (Go reopens by itself).
+static int rl_hg_transient(u8 r) {
+    return r == WWREMOTE_HG_NONE || r == WWREMOTE_HG_NO_SAMPLE || r == WWREMOTE_HG_INFLIGHT ||
+           r == WWREMOTE_HG_STAGE_SETTLE || r == WWREMOTE_HG_QUEUED;
+}
+
+// EMPTY -> QUEUED, with the kind of stage-4 plan D4-7: FULL when
+// FULL_BODIES is set, the slot's latched allow bit is set, its full
+// attempt is unspent, no FULL body is QUEUED and the profile checks; a
+// clear allow bit waits up to RL_FULL_WAIT frames on a transient
+// HEAP_REASON (read live), then (or at once) LITE with HEAP_DENIED.
+// FULL_BODIES clear: LITE, as Batch A.
+static void rl_body_issue(remote_swap_state* st, int i) {
+    u8 bit = (u8)(1u << i);
+    u8 note = WWREMOTE_BERR_NONE;
+    if ((st->flags & WWREMOTE_FLAG_FULL_BODIES) && st->role == WWREMOTE_ROLE_HOST && !(st->full_denied & bit)) {
+        if (st->full_allow & bit) {
+            st->full_wait[i] = 0;
+            if (rl_full_queued(st)) return;
+            if (rl_full_profile_ok()) {
+                rl_body_create(st, i, WWREMOTE_KIND_FULL, WWREMOTE_BERR_NONE);
+                return;
+            }
+            st->full_denied |= bit;
+            note = WWREMOTE_BERR_PROFILE;
+        } else if (rl_hg_transient(RB_U8(WWREMOTE_HEAP_REASON_OFF)) && st->full_wait[i] < RL_FULL_WAIT) {
+            st->full_wait[i]++;
+            return;
+        } else {
+            st->full_wait[i] = RL_FULL_WAIT;
+            note = WWREMOTE_BERR_HEAP_DENIED;
+        }
+    }
+    rl_body_create(st, i, WWREMOTE_KIND_LITE, note);
 }
 
 // LIVE -> DYING: the m714 rewrite first, then the delete (retried while
@@ -586,19 +716,24 @@ static void rl_lifecycle(remote_swap_state* st, int i) {
             bd->cooldown--;
         } else if (rl_slot_may_create(st, i)) {
             if (bd->tries >= RL_MAX_TRIES) bd->err = WWREMOTE_BERR_TRIES;
-            else rl_body_create(st, i);
+            else rl_body_issue(st, i);
         }
         break;
     case WWREMOTE_BODY_QUEUED:
         if (fpcM_IsCreating(bd->pid)) break;
         a = rl_actor_of(bd->pid);
-        if (a && AF(a, u32, WWREMOTE_BODY_MAGIC_OFF) == WWREMOTE_BODY_MAGIC &&
-            AF(a, u8, WWREMOTE_BODY_SLOT_OFF) == (u8)i) {
+        if (a && (bd->kind == WWREMOTE_KIND_FULL ?
+                  (AF(a, u32, WWREMOTE_FULL_MAGIC_OFF) == WWREMOTE_BODY_MAGIC &&
+                   AF(a, u8, WWREMOTE_FULL_SLOT_OFF) == (u8)i) :
+                  (AF(a, u32, WWREMOTE_BODY_MAGIC_OFF) == WWREMOTE_BODY_MAGIC &&
+                   AF(a, u8, WWREMOTE_BODY_SLOT_OFF) == (u8)i))) {
             bd->actor = (u32)a;
             bd->state = WWREMOTE_BODY_LIVE;
             bd->frames_live = 0;
         } else {
             // The body's own create may have said why (bd->err); else lost.
+            // A full one spent the slot's full attempt: lite next.
+            if (bd->kind == WWREMOTE_KIND_FULL) st->full_denied |= (u8)(1u << i);
             rl_body_empty(bd, bd->err ? 0 : WWREMOTE_BERR_LOST, cool);
         }
         break;
@@ -607,10 +742,19 @@ static void rl_lifecycle(remote_swap_state* st, int i) {
         if (!a || (u32)a != bd->actor) {
             // Gone under us (stage teardown); its delete did the rewrite.
             if (bd->actor) rl_forget_body(st, bd->actor, bd->pid);
+            if (bd->kind == WWREMOTE_KIND_FULL && bd->frames_live < RL_FULL_EARLY) st->full_denied |= (u8)(1u << i);
             rl_body_empty(bd, WWREMOTE_BERR_GONE, cool);
         } else if (!keep || gen != bd->gen) {
-            // A new owner (gen) gets its own create tries.
-            if (gen != bd->gen) bd->tries = 0;
+            // A new owner (gen) gets its own create tries (and full attempt).
+            if (gen != bd->gen) {
+                bd->tries = 0;
+                rl_full_reset(st, (u8)(1u << i));
+            }
+            rl_body_retire(st, i);
+        } else if (bd->kind == WWREMOTE_KIND_FULL && !(st->flags & WWREMOTE_FLAG_FULL_BODIES)) {
+            // FULL_BODIES cleared: retire the full body, lite next; no full
+            // again in this stage (no upgrades, stage-4 plan D4-7).
+            st->full_denied |= (u8)(1u << i);
             rl_body_retire(st, i);
         } else if (bd->frames_live != 0xFFFF) {
             bd->frames_live++;
@@ -826,7 +970,7 @@ static void rl_write_status(remote_swap_state* st) {
             RB_U8(off + WWREMOTE_BS_LATCHED_BY_OFF) = latched;
             RB_U16(off + WWREMOTE_BS_FRAMES_LIVE_OFF) = bd->frames_live;
             RB_U8(off + WWREMOTE_BS_TRIES_OFF) = bd->tries;
-            RB_U8(off + WWREMOTE_BS_PAD_OFF) = 0;
+            RB_U8(off + WWREMOTE_BS_KIND_OFF) = bd->kind;
         } else {
             for (k = 0; k < WWREMOTE_BODY_STATUS_SIZE; k += 4) RB_U32(off + k) = 0;
         }
@@ -857,6 +1001,7 @@ void remote_keeper_frame(remote_swap_state* st, enemy_mirror_state* mirror, u32 
     if (!rl_stage_same(st->stage)) {
         for (i = 0; i < WWREMOTE_STAGE_LEN; i++) st->stage[i] = RL_CUR_STAGE_NAME[i];
         for (i = 0; i < MAX_REMOTE_LINKS; i++) st->bodies[i].tries = 0;
+        rl_full_reset(st, 0xFF);
     }
 
     // Reap latches whose enemy is gone (section 5.4).
@@ -1025,7 +1170,9 @@ int remote_body_create(void* actor) {
     b->park_since = RL_WORD(WWREL_FRAME_OFF);
     rl_body_hand(b);
     b->magic = WWREMOTE_BODY_MAGIC;
-    st->bodies[slot].err = WWREMOTE_BERR_NONE;
+    // A lite body standing in for a refused full one keeps that reason
+    // (WWREMOTE_BERR_HEAP_DENIED.., only ever set with FULL_BODIES).
+    if (st->bodies[slot].err < WWREMOTE_BERR_HEAP_DENIED) st->bodies[slot].err = WWREMOTE_BERR_NONE;
     return cPhs_COMPLEATE_e;
 }
 
@@ -1050,14 +1197,41 @@ int remote_body_delete(void* actor) {
     return 1;
 }
 
+// The full body's delete (fullbody.c): the same as the lite one above for
+// the keeper's record.
+void rl_body_gone(remote_swap_state* st, void* a, u8 slot) {
+    if (st && rl_in_mem1((u32)st) && slot < MAX_REMOTE_LINKS) {
+        rl_body* bd = &st->bodies[slot];
+        if (bd->actor == (u32)a) {
+            rl_forget_body(st, (u32)a, bd->pid);
+            bd->actor = 0;
+            bd->parked = 1;
+            st->live_mask &= (u8)~(1u << slot);
+            if (!st->live_mask) st->swap_ready = 0;
+        }
+    }
+}
+
+// The full body's park entry (fullbody.c): the lite execute's own, below.
+void rl_body_park_enter(remote_swap_state* st, void* a, rl_btail* t, u32 frame) {
+    t->state = WWREMOTE_BODY_PARKED;
+    t->park_since = frame;
+    if (st && rl_in_mem1((u32)st) && t->slot < MAX_REMOTE_LINKS && st->bodies[t->slot].actor == (u32)a) {
+        st->bodies[t->slot].parked = 1;
+        st->live_mask &= (u8)~(1u << t->slot);
+        if (!st->live_mask) st->swap_ready = 0;
+        rl_forget_body(st, (u32)a, st->bodies[t->slot].pid);
+    }
+}
+
 // --- Lite body: execute (section 5.2) ----------------------------------------------
 // The hit read (section 7.1, FLAG_DETECT): the Tg record from the previous
 // Move (it survives until the next Move's ClrTgHitInf, c_cc_s.cpp:74-85),
 // read before this frame's pose and Set. The attacker side (type, atp, Se,
 // HitMark, Spl) comes from the At object that crossed, not the body's own
-// Tg. The ring entry's seq and the head are written last.
-static void rl_body_hits(remote_swap_state* st, remote_body* b, u32 frame) {
-    u8* cyl = b->cyl;
+// Tg. The ring entry's seq and the head are written last. Both kinds: a
+// is the body, t its tail, cyl its Tg cylinder (lite b->cyl, full mCyl).
+void rl_body_hits(remote_swap_state* st, void* a, rl_btail* t, u8* cyl, u32 frame) {
     void* att;
     u32 obj, n, e;
     u8 hf = 0;
@@ -1077,7 +1251,7 @@ static void rl_body_hits(remote_swap_state* st, remote_body* b, u32 frame) {
     if (!att || setid >= WWREMOTE_KEYED_SETID_MAX) hf |= WWREMOTE_HF_NOT_KEYED;
     n = RB_U32(WWREMOTE_HIT_RING_HEAD_OFF) + 1;
     e = WWREMOTE_HIT_RING_OFF + ((n - 1) & (WWREMOTE_HIT_RING_LEN - 1)) * WWREMOTE_HIT_SIZE;
-    RB_U8(e + WWREMOTE_HE_SLOT_OFF) = b->slot;
+    RB_U8(e + WWREMOTE_HE_SLOT_OFF) = t->slot;
     RB_U8(e + WWREMOTE_HE_HFLAGS_OFF) = hf;
     RB_U32(e + WWREMOTE_HE_PID_OFF) = pid;
     RB_U16(e + WWREMOTE_HE_SETID_OFF) = setid;
@@ -1092,9 +1266,9 @@ static void rl_body_hits(remote_swap_state* st, remote_body* b, u32 frame) {
         RB_U32(e + WWREMOTE_HE_ATTYPE_OFF) = 0;
         RB_U32(e + WWREMOTE_HE_ATP_OFF) = 0;     // atp, se, hitmark, spl
     }
-    RB_F32(e + WWREMOTE_HE_REL_HIT_OFF + 0) = AF(cyl, f32, CC_GTG_HIT_POS + 0) - AF(b, f32, AC_CUR_POS + 0);
-    RB_F32(e + WWREMOTE_HE_REL_HIT_OFF + 4) = AF(cyl, f32, CC_GTG_HIT_POS + 4) - AF(b, f32, AC_CUR_POS + 4);
-    RB_F32(e + WWREMOTE_HE_REL_HIT_OFF + 8) = AF(cyl, f32, CC_GTG_HIT_POS + 8) - AF(b, f32, AC_CUR_POS + 8);
+    RB_F32(e + WWREMOTE_HE_REL_HIT_OFF + 0) = AF(cyl, f32, CC_GTG_HIT_POS + 0) - AF(a, f32, AC_CUR_POS + 0);
+    RB_F32(e + WWREMOTE_HE_REL_HIT_OFF + 4) = AF(cyl, f32, CC_GTG_HIT_POS + 4) - AF(a, f32, AC_CUR_POS + 4);
+    RB_F32(e + WWREMOTE_HE_REL_HIT_OFF + 8) = AF(cyl, f32, CC_GTG_HIT_POS + 8) - AF(a, f32, AC_CUR_POS + 8);
     RB_F32(e + WWREMOTE_HE_RVEC_OFF + 0) = AF(cyl, f32, CC_GTG_RVEC + 0);
     RB_F32(e + WWREMOTE_HE_RVEC_OFF + 4) = AF(cyl, f32, CC_GTG_RVEC + 4);
     RB_F32(e + WWREMOTE_HE_RVEC_OFF + 8) = AF(cyl, f32, CC_GTG_RVEC + 8);
@@ -1105,20 +1279,21 @@ static void rl_body_hits(remote_swap_state* st, remote_body* b, u32 frame) {
     // the record ourselves. The stamp dedupes wepon and wepon2 (separate
     // At spheres of one thrust).
     dCcD_GObjInf_ClrTgHit(cyl);
-    if (st->flags & WWREMOTE_FLAG_IFRAME_STAMP) b->iframes_left = st->body_iframes;
-    if (b->slot < MAX_REMOTE_LINKS) rl_sat_inc(&st->bodies[b->slot].hits);
+    if (st->flags & WWREMOTE_FLAG_IFRAME_STAMP) t->iframes_left = st->body_iframes;
+    if (t->slot < MAX_REMOTE_LINKS) rl_sat_inc(&st->bodies[t->slot].hits);
 }
 
 // Why the body parks this frame (0 = it may stand), section 5.2 step 1.
-static int rl_body_should_park(remote_swap_state* st, remote_body* b, u32 frame) {
+// Both kinds: a is the body, t its tail.
+int rl_body_should_park(remote_swap_state* st, void* a, rl_btail* t, u32 frame) {
     u32 off;
     u8 ps, sf;
     if (!st || !rl_in_mem1((u32)st) || !st->valid || st->role != WWREMOTE_ROLE_HOST ||
         !(st->flags & WWREMOTE_FLAG_BODIES)) return 1;
-    if (b->slot >= MAX_REMOTE_LINKS || st->bodies[b->slot].actor != (u32)b ||
-        st->bodies[b->slot].state != WWREMOTE_BODY_LIVE) return 1;
-    off = RB_SLOT(b->slot);
-    if (!RB_U8(off + WWREMOTE_SL_ACTIVE_OFF) || RB_U8(off + WWREMOTE_SL_GEN_OFF) != b->gen) return 1;
+    if (t->slot >= MAX_REMOTE_LINKS || st->bodies[t->slot].actor != (u32)a ||
+        st->bodies[t->slot].state != WWREMOTE_BODY_LIVE) return 1;
+    off = RB_SLOT(t->slot);
+    if (!RB_U8(off + WWREMOTE_SL_ACTIVE_OFF) || RB_U8(off + WWREMOTE_SL_GEN_OFF) != t->gen) return 1;
     if (NEXT_STAGE_ENABLE != 0 || !rl_stage_is(off + WWREMOTE_SL_STAGE_OFF)) return 1;
     if (RB_S8(off + WWREMOTE_SL_ROOM_OFF) != RL_STAY_NO) return 1;
     sf = RB_U8(off + WWREMOTE_SL_SFLAGS_OFF);
@@ -1129,10 +1304,10 @@ static int rl_body_should_park(remote_swap_state* st, remote_body* b, u32 frame)
     if (*(volatile u8*)(MAILBOX_ADDR + __builtin_offsetof(Mailbox, pose_buf_states) + ps) != 1) return 1;
     {
         u32 seq = *(volatile u8*)(MAILBOX_ADDR + __builtin_offsetof(Mailbox, pose_seqs) + ps);
-        if (seq != b->last_pose_seq) {
-            b->last_pose_seq = seq;
-            b->pose_seq_frame = frame;
-        } else if (frame - b->pose_seq_frame > WWREMOTE_POSE_STALE_FRAMES) {
+        if (seq != t->last_pose_seq) {
+            t->last_pose_seq = seq;
+            t->pose_seq_frame = frame;
+        } else if (frame - t->pose_seq_frame > WWREMOTE_POSE_STALE_FRAMES) {
             return 1;
         }
     }
@@ -1157,11 +1332,11 @@ int remote_body_execute(void* actor) {
     int i;
 
     if (b->magic != WWREMOTE_BODY_MAGIC) return 1;
-    park = rl_body_should_park(st, b, frame);
+    park = rl_body_should_park(st, b, (rl_btail*)&b->magic, frame);
 
     // 2 the hit read, before anything moves (the record is last Move's).
     if (st && rl_in_mem1((u32)st)) {
-        if (st->flags & WWREMOTE_FLAG_DETECT) rl_body_hits(st, b, frame);
+        if (st->flags & WWREMOTE_FLAG_DETECT) rl_body_hits(st, b, (rl_btail*)&b->magic, b->cyl, frame);
         else if (AF(b->cyl, u32, CC_TG_RPRM) & 1) dCcD_GObjInf_ClrTgHit(b->cyl);
     }
 
@@ -1517,7 +1692,9 @@ u32 remote_attrib_body(u8 ha_flags) {
     if (!st || !rl_in_mem1((u32)st) || !st->valid || st->role != WWREMOTE_ROLE_HOST ||
         !(st->flags & WWREMOTE_FLAG_ATTRIB) || i >= MAX_REMOTE_LINKS) return 0;
     b = rl_body_actor(st, i);
-    if (!b || st->bodies[i].parked || AF(b, u32, WWREMOTE_BODY_MAGIC_OFF) != WWREMOTE_BODY_MAGIC ||
+    if (!b || st->bodies[i].parked ||
+        AF(b, u32, st->bodies[i].kind == WWREMOTE_KIND_FULL ? WWREMOTE_FULL_MAGIC_OFF : WWREMOTE_BODY_MAGIC_OFF) !=
+            WWREMOTE_BODY_MAGIC ||
         AF(b, u32, AC_PID) != st->bodies[i].pid) return 0;
     return b;
 }

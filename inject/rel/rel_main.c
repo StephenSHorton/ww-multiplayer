@@ -31,6 +31,14 @@
 // wwrel_exec_hook (T2's exec shim target) at WWREL_EXEC_HOOK_OFF, last;
 // _epilog clears it first.
 //
+// Stage 4 (ww-multiplayer-handoff/design/remote-link-stage4-plan.md D4-1)
+// adds a second profile in the same module, g_profile_WWBODY: the full
+// body (fullbody.c), a real daPy_lk_c of WWREMOTE_FULL_SIZE bytes. The
+// patcher points profile slot WWREMOTE_FULL_PROC (0x27) at it and the DOL
+// name-table patch (build.py) makes proc 0x27 load this module too, so
+// DMC[0x27] is DMC[0xB5]. Its mProcName is 0xB5 like the keeper's; only
+// the keeper creates it (remote.c), only with FLAG_FULL_BODIES.
+//
 // Build (inject/build.py build_rel): powerpc-eabi-gcc -mcpu=750 -std=c99
 // -fno-inline -Og -fshort-enums -fno-jump-tables -ffreestanding
 // -fno-builtin -G0 ..., then powerpc-eabi-ld --relocatable -T ww_rel.ld.
@@ -53,6 +61,9 @@
 // Remote-Link (remote.c): the keeper's swap state follows the mirror's
 // state in the actor; the lite body is the profile's second role.
 #include "remote.h"
+
+// The full body (fullbody.c): the second profile's methods.
+#include "fullbody.h"
 
 // The build id: build.py passes -DWWREL_BUILD_ID=<CRC-32 of inject/rel's
 // sources and the slack headers>, so it changes with the source and never
@@ -169,11 +180,19 @@ typedef char wwrel_check_actor_layout[(__builtin_offsetof(wwrel_actor, frames) =
 typedef char wwrel_check_actor_size[(sizeof(wwrel_actor) <= WWREMOTE_ACTOR_SIZE &&
                                      sizeof(remote_body) <= WWREMOTE_ACTOR_SIZE &&
                                      (WWREMOTE_ACTOR_SIZE & 3) == 0) ? 1 : -1];
-// The two new slack words follow the frame counter and stay below the
-// enemy block.
+// The full body: daPy_lk_c (0x4C28, d_a_player_main.h:2375), then its tail.
+typedef char wwrel_check_full_size[(WWREMOTE_FULL_TAIL_OFF == WWREMOTE_FULL_DAPY_SIZE &&
+                                    WWREMOTE_FULL_TAIL_OFF + sizeof(rl_full_tail) <= WWREMOTE_FULL_SIZE &&
+                                    WWREMOTE_FULL_END <= WWREMOTE_FULL_SIZE &&
+                                    (WWREMOTE_FULL_SIZE & 0x1F) == 0 &&
+                                    WWREMOTE_FULL_PROC != 0x00B5) ? 1 : -1];
+// The remote-Link slack words (exec hook, swap state, shanm table) follow
+// the frame counter and stay below the enemy block.
 typedef char wwrel_check_hook_words[(WWREL_EXEC_HOOK_OFF == WWREL_FRAME_OFF + 4 &&
                                      WWREL_SWAP_STATE_OFF == WWREL_EXEC_HOOK_OFF + 4 &&
-                                     WWREL_SWAP_STATE_OFF + 4 <= WWENEMY_OFF) ? 1 : -1];
+                                     WWREL_SWAP_STATE_OFF + 4 <= WWENEMY_OFF &&
+                                     WWREL_SHANM_OFF == WWREL_SWAP_STATE_OFF + 4 &&
+                                     WWREL_SHANM_OFF + 4 <= WWENEMY_OFF) ? 1 : -1];
 
 // --- Profile constants (zeldaret/tww) ------------------------------------
 #define fpcLy_CURRENT_e        0xFFFFFFFDu // f_pc/f_pc_layer_tag.h
@@ -249,6 +268,13 @@ static const actor_method_class l_wwrel_method = {
     { 0 },
 };
 
+// The full body (fullbody.c), proc WWREMOTE_FULL_PROC's profile: draw
+// returns TRUE, is_delete too.
+static const actor_method_class l_wwbody_method = {
+    { { fullbody_create, fullbody_delete, fullbody_execute, wwrel_is_delete }, fullbody_draw },
+    { 0 },
+};
+
 // The profile the patcher points the profile list's slot 0xB5 at. In
 // .rodata (const) so the patcher finds it by symbol in a read-only
 // section; layer, list, priorities, status, group and cull type are
@@ -273,6 +299,37 @@ const actor_process_profile_definition g_profile_WWREL = {
     { 0, 0 },
 };
 
+// The profile the patcher points the profile list's slot WWREMOTE_FULL_PROC
+// (0x27) at (stage-4 plan D4-1): g_profile_WWREL's but for mSize (a
+// daPy_lk_c plus its tail; fpcBs_Create is mSize's only reader,
+// f_pc_base.cpp:93) and the methods. mProcName stays 0xB5 (fpcBs_Create
+// copies it, mProfName becomes 0x27), so remote.c's proc checks, NAME_A9
+// and Go's classification see the same proc as a lite body. Status
+// 0x00040000 has no NOCULLEXEC: culling never skips the execute.
+const actor_process_profile_definition g_profile_WWBODY = {
+    fpcLy_CURRENT_e,                     // mLayerID
+    0x0007,                              // mListID
+    fpcPi_CURRENT_e,                     // mListPrio
+    fpcNm_RECTANGLE_e,                   // mProcName = 0xB5
+    { 0, 0 },
+    g_fpcLf_Method,                      // sub_method
+    WWREMOTE_FULL_SIZE,                  // mSize: daPy_lk_c + rl_full_tail (0x4C80)
+    0,                                   // mSizeOther
+    0,                                   // mParameters
+    g_fopAc_Method,                      // leaf_sub_method
+    fpcDwPi_RECTANGLE_e,                 // mPriority
+    { 0, 0 },
+    &l_wwbody_method,                    // actor_sub_method
+    fopAcStts_UNK40000_e,                // status
+    fopAc_ACTOR_e,                       // group
+    fopAc_CULLBOX_0_e,                   // cullType
+    { 0, 0 },
+};
+
+u32 wwrel_body_profile(void) {
+    return (u32)&g_profile_WWBODY;
+}
+
 // --- Module entry points -------------------------------------------------
 // The REL header's prolog/epilog/unresolved point at these (the
 // converter finds them by name). As ww-online's puppet.c and the
@@ -296,7 +353,10 @@ void _prolog(void) {
 }
 
 // The exec hook word is cleared first, before this code can go away
-// (the unlink follows in fpcDt_Handler, never during an execute).
+// (the unlink follows in fpcDt_Handler, never during an execute). The
+// shanm word (WWREL_SHANM_OFF) is kept: its archive-heap table outlives
+// the module (full bodies deleted at a stage teardown still need it, and
+// the next link reuses it).
 void _epilog(void) {
     WWREL_WORD(WWREL_EXEC_HOOK_OFF) = 0;
     remote_unlink();                     // clears WWREL_SWAP_STATE_OFF

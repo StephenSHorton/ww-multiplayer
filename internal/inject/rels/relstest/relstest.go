@@ -13,14 +13,29 @@ import (
 )
 
 // The modules in the archive: ProfileListModule is f_pc_profile_lst.rel's
-// ID, OtherModule and PuppetModule two actor modules, PuppetModule being
-// d_a_rectangle.rel's (proc 0xB5, PROC_RECTANGLE), the one the mod's
-// REL replaces (inject.RELModuleID).
+// ID, OtherModule, PuppetModule and SeatagModule three actor modules,
+// PuppetModule being d_a_rectangle.rel's (proc 0xB5, PROC_RECTANGLE), the
+// one the mod's REL replaces (inject.RELModuleID), and SeatagModule
+// d_a_seatag.rel's (proc 0x27), whose entry the full body's profile
+// takes (inject.RELBodyProcID).
 const (
 	ProfileListModule = 1
 	OtherModule       = 0x42
 	PuppetModule      = 0x58
+	SeatagModule      = 0xA6
 )
+
+// The processes whose profile-list entries the modules' relocations
+// patch: the entry of process p is the pointer at 4*p in the list's
+// .data, as in the disc's f_pc_profile_lst.rel.
+const (
+	OtherProc  = 0x42
+	PuppetProc = 0xB5
+	SeatagProc = 0x27
+)
+
+// SeatagFile is SeatagModule's REL in the archive.
+const SeatagFile = "mmem/d_a_seatag.rel"
 
 // PuppetFile is the archive path of PuppetModule's REL, as on the disc.
 const PuppetFile = "mmem/d_a_rectangle.rel"
@@ -54,9 +69,10 @@ func REL(id uint32, n int) []byte {
 }
 
 // ProfileList is a REL like f_pc_profile_lst.rel: module 1, a .data of
-// pointers, one ADDR32 relocation against each of OtherModule and
-// PuppetModule pointing at that module's profile in its .data, and a
-// few against module 0.
+// pointers indexed by process, one ADDR32 relocation against each of
+// OtherModule, PuppetModule and SeatagModule at its process's entry
+// pointing at that module's profile in its .data, and a few against
+// module 0.
 func ProfileList() []byte {
 	f := &rel.File{
 		ID: ProfileListModule, Version: 3, Align: 8, BSSAlign: 1,
@@ -64,11 +80,12 @@ func ProfileList() []byte {
 		Sections: []rel.Section{
 			{},
 			{Offset: 1, Exec: true, Data: make([]byte, 0x20)},
-			{Offset: 1, Data: make([]byte, 0x40)},
+			{Offset: 1, Data: make([]byte, 4*0x100)},
 		},
 		Imports: []rel.Import{
-			{Module: OtherModule, Relocs: []rel.Reloc{{Section: 2, Offset: 4, Type: rel.RelocAddr32, TargetSection: 2, Addend: 0x20}}},
-			{Module: PuppetModule, Relocs: []rel.Reloc{{Section: 2, Offset: 8, Type: rel.RelocAddr32, TargetSection: 2, Addend: 0x30}}},
+			{Module: OtherModule, Relocs: []rel.Reloc{{Section: 2, Offset: 4 * OtherProc, Type: rel.RelocAddr32, TargetSection: 2, Addend: 0x20}}},
+			{Module: SeatagModule, Relocs: []rel.Reloc{{Section: 2, Offset: 4 * SeatagProc, Type: rel.RelocAddr32, TargetSection: 2, Addend: 0x20}}},
+			{Module: PuppetModule, Relocs: []rel.Reloc{{Section: 2, Offset: 4 * PuppetProc, Type: rel.RelocAddr32, TargetSection: 2, Addend: 0x30}}},
 			{Module: 0, Relocs: []rel.Reloc{
 				{Section: 1, Offset: 0, Type: rel.RelocRel24, Addend: 0x80001234},
 				{Section: 2, Offset: 0, Type: rel.RelocAddr32, Addend: 0x80005678},
@@ -90,6 +107,7 @@ func Files() []stagetest.File {
 		{Path: "mmem/f_pc_profile_lst.rel", Data: ProfileList(), Yaz0: true},
 		{Path: "mmem/d_a_other.rel", Data: REL(OtherModule, 0x300), Yaz0: true},
 		{Path: PuppetFile, Data: REL(PuppetModule, 0x40), Yaz0: true},
+		{Path: SeatagFile, Data: REL(SeatagModule, 0x40), Yaz0: true},
 		{Path: "mmem/plain.bin", Data: []byte("not a REL at all, eight bytes and more")},
 	}
 }

@@ -1,6 +1,7 @@
 package rels
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -21,6 +22,16 @@ type Module struct {
 	// Profile names the actor profile in the ELF (inject.RELProfileSymbol)
 	// that the profile list's entry for the module is pointed at.
 	Profile string
+	// Proc is the process whose profile-list entry is the module's own
+	// (inject.RELProcID, 0xB5): its relocation sits at 4*Proc. 0 means
+	// the sole relocation against ID.
+	Proc uint16
+	// Body is a second profile the module serves (the remote-Link full
+	// body, remote-link-stage4-plan.md D4-1), or nil. Its process's entry
+	// is moved into the module's import and pointed at Body.Symbol; the
+	// DOL's name-table patch (blob.go's DOLPatches) aliases the process
+	// to this module, so the two ship together.
+	Body *BodyProfile
 	// BuildID is the id the module's _prolog writes into the mailbox
 	// slack (inject.RELBuildID), reported by the patcher.
 	BuildID uint32
@@ -29,12 +40,67 @@ type Module struct {
 	MaxGrowth int
 }
 
+// BodyProfile is a module's second profile: process Proc's entry points
+// at the ELF symbol Symbol.
+type BodyProfile struct {
+	Proc   uint16
+	Symbol string
+}
+
+// bodyNamePatchFileOff is where in the GZLE01 DOL the name-table patch
+// that aliases inject.RELBodyProcID to this module lands: the low half of
+// the name pointer at inject.RELBodyNameEntryAddr + 4 (DOL section 11,
+// file offset = address - 0x80003000; remote-link-stage4-plan.md D4-1).
+const bodyNamePatchFileOff = 0x33693E
+
+// BlobAliasesBody reports whether this build's DOL patches carry the
+// name-table patch that makes inject.RELBodyProcID load this module
+// (inject/build.py writes it in the same build as g_profile_WWBODY).
+func BlobAliasesBody() bool {
+	want := []byte{byte(inject.RELBodyNamePtr >> 8 & 0xFF), byte(inject.RELBodyNamePtr & 0xFF)}
+	for _, p := range inject.DOLPatches {
+		// Any run that writes those two bytes there (extract_blob.py emits
+		// just the two that differ, but a wider run is the same patch).
+		if p.FileOff <= bodyNamePatchFileOff && uint64(p.FileOff)+uint64(len(p.Bytes)) >= bodyNamePatchFileOff+2 {
+			at := bodyNamePatchFileOff - p.FileOff
+			if bytes.Equal(p.Bytes[at:at+2], want) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Blob is this build's module, from the generated internal/inject/blob.go.
+// It has the Body (inject/relbody.go's constants) exactly when the
+// blob's DOL aliases the body's process to this module
+// (BlobAliasesBody): the DOL patch and the profile list's entry ship
+// together or not at all, and Build refuses a Body whose symbol the ELF
+// lacks. A blob from before the full body patches as Batch A did.
 func Blob() Module {
-	return Module{
-		ELF: inject.RELELF, ID: inject.RELModuleID,
+	m := Module{
+		ELF: inject.RELELF, ID: inject.RELModuleID, Proc: inject.RELProcID,
 		Profile: inject.RELProfileSymbol, BuildID: inject.RELBuildID,
 	}
+	if BlobAliasesBody() {
+		m.Body = &BodyProfile{Proc: inject.RELBodyProcID, Symbol: inject.RELBodyProfileSymbol}
+	}
+	return m
+}
+
+// HasBody reports whether the module has a Body whose symbol its ELF
+// defines. A blob built before the body profile existed has not; Build
+// refuses it.
+func (m Module) HasBody() bool {
+	if m.Body == nil || m.Empty() {
+		return false
+	}
+	_, lay, err := rel.FromELF(m.ELF, m.ID, rel.ELFOptions{})
+	if err != nil {
+		return false
+	}
+	_, _, ok := lay.Symbol(m.Body.Symbol)
+	return ok
 }
 
 // Empty reports whether there is no module to ship (blob.go generated
@@ -49,6 +115,9 @@ type Built struct {
 	// Profile is where the actor profile landed in the REL: the
 	// section and offset the profile list's entry now points at.
 	Profile rel.Symbol
+	// BodyProfile is where the Body's profile landed (HasBody).
+	BodyProfile rel.Symbol
+	HasBody     bool
 	// Growth is how many bytes bigger than the archive given the patched
 	// one is (negative when smaller).
 	Growth int
@@ -71,6 +140,16 @@ func (m Module) Build(vanilla []byte) (Built, error) {
 	if !ok {
 		return Built{}, fmt.Errorf("rels: ELF to REL: no %s symbol in the module (the actor profile)", m.Profile)
 	}
+	var extra []ProfileTarget
+	var body rel.Symbol
+	if m.Body != nil {
+		bs, bo, ok := lay.Symbol(m.Body.Symbol)
+		if !ok {
+			return Built{}, fmt.Errorf("rels: ELF to REL: no %s symbol in the module (the body profile of process 0x%x)", m.Body.Symbol, m.Body.Proc)
+		}
+		body = rel.Symbol{Section: bs, Offset: bo}
+		extra = []ProfileTarget{{Proc: m.Body.Proc, Section: bs, Offset: bo}}
+	}
 	relBytes, err := f.Bytes(false)
 	if err != nil {
 		return Built{}, fmt.Errorf("rels: write REL: %w", err)
@@ -79,14 +158,15 @@ func (m Module) Build(vanilla []byte) (Built, error) {
 	if maxGrowth == 0 {
 		maxGrowth = RELSArcMaxGrowth
 	}
-	arc, file, err := patchRELSArc(vanilla, m.ID, relBytes, section, offset, maxGrowth)
+	arc, file, err := patchRELSArc(vanilla, m.ID, relBytes, ProfileTarget{Proc: m.Proc, Section: section, Offset: offset}, extra, maxGrowth)
 	if err != nil {
 		return Built{}, fmt.Errorf("patch RELS.arc: %w", err)
 	}
 	return Built{
 		Arc: arc, File: file.Path, REL: relBytes,
-		Profile: rel.Symbol{Section: section, Offset: offset},
-		Growth:  len(arc) - len(vanilla),
+		Profile:     rel.Symbol{Section: section, Offset: offset},
+		BodyProfile: body, HasBody: m.Body != nil,
+		Growth: len(arc) - len(vanilla),
 	}, nil
 }
 
@@ -115,6 +195,9 @@ type Result struct {
 	BuildID  uint32
 	RELSize  int
 	Growth   int
+	// BodyProc is the second process whose entry now points into the
+	// module (the full body's 0x27), 0 for none.
+	BodyProc uint16
 }
 
 // PatchISOWithREL patches the disc image at inPath into outPath as
@@ -166,6 +249,9 @@ func (m Module) result(res inject.Result, b Built) Result {
 	if !m.Empty() && res.RELSArcReplaced() {
 		r.HasREL, r.ModuleID, r.File, r.BuildID = true, m.ID, b.File, m.BuildID
 		r.RELSize, r.Growth = len(b.REL), b.Growth
+		if b.HasBody {
+			r.BodyProc = m.Body.Proc
+		}
 	}
 	return r
 }

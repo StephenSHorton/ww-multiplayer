@@ -10,6 +10,7 @@ import (
 
 	posefeed "github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/heap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
@@ -87,6 +88,21 @@ type RemoteConfig struct {
 	CreateCooldown uint16
 	Policy         []mailbox.RemotePolicy
 	FFDeny         []string
+
+	// The full bodies (remote-link-stage4-plan.md D4-2, D4-3), host only.
+	// HeapGate runs the Go heap gate that sets FULL_ALLOW; it is on
+	// whenever Flags has RemoteFlagFullBodies (RemoteConfigFromEnv). It is
+	// a Go setting, never a flags bit: flags reach the REL as given. With
+	// it off FULL_ALLOW stays 0 and the REL falls back to lite bodies.
+	HeapGate bool
+	// HeapSizes are the gate's heap-size rules (WW_ENEMY_REMOTE_HEAP;
+	// zero fields skip their rule). The counter, in-flight and FullMax
+	// rules always apply.
+	HeapSizes heap.Thresholds
+	// FullMax is how many FULL bodies may be LIVE at once (default 1).
+	FullMax uint8
+	// Flags2 is the block's FLAGS2 (mailbox.RemoteFlag2*), host only.
+	Flags2 uint16
 }
 
 // remoteFlagNames are WW_ENEMY_REMOTE's flag names.
@@ -105,6 +121,7 @@ var remoteFlagNames = map[string]uint16{
 	"group_wide":     mailbox.RemoteFlagGroupWide,
 	"both_words":     mailbox.RemoteFlagBothWordsEnable,
 	"iframe_stamp":   mailbox.RemoteFlagIFrameStamp,
+	"full_bodies":    mailbox.RemoteFlagFullBodies,
 }
 
 // remoteSteps are the design's step presets (§10): each adds its flags to
@@ -117,13 +134,14 @@ var remoteSteps = [...]uint16{
 	mailbox.RemoteFlagApply,
 	mailbox.RemoteFlagAttrib | mailbox.RemoteFlagAttacker,
 	mailbox.RemoteFlagNameA9 | mailbox.RemoteFlagGuard,
+	mailbox.RemoteFlagFullBodies, // step7: the real daPy_lk_c bodies (Stage 4), behind the heap gate
 }
 
 // ParseRemoteFlags parses WW_ENEMY_REMOTE: a number (0x2F, 47), or names
 // and step presets joined by ',' or '+' (bodies, swap, hittable, detect,
 // apply, attrib, name_a9, guard, ff_gate_off, rouya_gate_off, attacker,
-// group_wide, both_words, iframe_stamp; step0..step6, each with the steps
-// before it).
+// group_wide, both_words, iframe_stamp, full_bodies; step0..step7, each
+// with the steps before it).
 func ParseRemoteFlags(s string) (uint16, error) {
 	s = strings.TrimSpace(s)
 	if v, err := strconv.ParseUint(s, 0, 16); err == nil {
@@ -293,7 +311,72 @@ func RemoteConfigFromEnv(rep log.Reporter) RemoteConfig {
 			c.FFDeny = ff
 		}
 	}
+	c.HeapGate = c.Flags&mailbox.RemoteFlagFullBodies != 0
+	if v := os.Getenv("WW_ENEMY_REMOTE_HEAP"); strings.TrimSpace(v) != "" {
+		if th, err := parseHeapSizes(v); err != nil {
+			warn(err)
+		} else {
+			c.HeapSizes = th
+		}
+	}
+	u8("WW_ENEMY_REMOTE_FULL_MAX", &c.FullMax)
+	if v := os.Getenv("WW_ENEMY_REMOTE_FLAGS2"); strings.TrimSpace(v) != "" {
+		if f, err := parseFlags2(v); err != nil {
+			warn(err)
+		} else {
+			c.Flags2 = f
+		}
+	}
 	return c
+}
+
+// parseHeapSizes parses WW_ENEMY_REMOTE_HEAP: "off" (no heap-size rule;
+// the counter, in-flight and FullMax rules still hold) or
+// <game_largest>,<game_free>,<zelda_largest> (numbers, 0x allowed; the
+// archive rule keeps its default).
+func parseHeapSizes(s string) (heap.Thresholds, error) {
+	s = strings.TrimSpace(s)
+	if strings.EqualFold(s, "off") {
+		return heap.Thresholds{}, nil
+	}
+	parts := strings.Split(s, ",")
+	if len(parts) != 3 {
+		return heap.Thresholds{}, fmt.Errorf("WW_ENEMY_REMOTE_HEAP=%q: want off or <game_largest>,<game_free>,<zelda_largest>", s)
+	}
+	var v [3]uint32
+	for i, p := range parts {
+		n, err := strconv.ParseUint(strings.TrimSpace(p), 0, 32)
+		if err != nil {
+			return heap.Thresholds{}, fmt.Errorf("WW_ENEMY_REMOTE_HEAP=%q: %v", s, err)
+		}
+		v[i] = uint32(n)
+	}
+	th := heap.DefaultThresholds()
+	th.GameLargest, th.GameFree, th.ZeldaLargest = v[0], v[1], v[2]
+	return th, nil
+}
+
+// remoteFlag2Names are WW_ENEMY_REMOTE_FLAGS2's names.
+var remoteFlag2Names = map[string]uint16{
+	"full_co": mailbox.RemoteFlag2FullCo,
+}
+
+// parseFlags2 parses WW_ENEMY_REMOTE_FLAGS2: a number or names joined by
+// ',' or '+' (full_co).
+func parseFlags2(s string) (uint16, error) {
+	s = strings.TrimSpace(s)
+	if v, err := strconv.ParseUint(s, 0, 16); err == nil {
+		return uint16(v), nil
+	}
+	var f uint16
+	for _, part := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == '+' }) {
+		v, ok := remoteFlag2Names[strings.ToLower(strings.TrimSpace(part))]
+		if !ok {
+			return 0, fmt.Errorf("WW_ENEMY_REMOTE_FLAGS2: unknown flag %q", part)
+		}
+		f |= v
+	}
+	return f, nil
 }
 
 // parseFFDeny parses WW_ENEMY_REMOTE_FF: stage names joined by ',', or
@@ -325,11 +408,13 @@ func DefaultRemoteConfig() RemoteConfig {
 		MarginQ8: mailbox.RemoteDefMarginQ8, MinHold: mailbox.RemoteDefMinHold, BodyIFrames: mailbox.RemoteDefBodyIFrames,
 		DYMax: mailbox.RemoteDefDYMax, EyeDY: mailbox.RemoteDefEyeDY, CylR: mailbox.RemoteDefCylR, CylH: mailbox.RemoteDefCylH,
 		CreateCooldown: mailbox.RemoteDefCreateCooldown, Policy: SeedPolicy(), FFDeny: SeedFFDeny(),
+		HeapSizes: heap.DefaultThresholds(), FullMax: 1,
 	}
 }
 
 // block is the Go-written span for role with c's settings (no slots, no
-// apply record).
+// apply record, and FULL_ALLOW, HEAP_REASON and FLAGS2 0: the host's Tick
+// sets them, the client never does).
 func (c *RemoteConfig) block(role uint8, seq, epoch uint32) *mailbox.RemoteBlock {
 	return &mailbox.RemoteBlock{Magic: mailbox.RemoteMagic, Seq: seq, Layout: mailbox.RemoteLayout, Flags: c.Flags, Epoch: epoch,
 		MarginQ8: c.MarginQ8, MinHold: c.MinHold, BodyIFrames: c.BodyIFrames, Role: role, DYMax: c.DYMax,
@@ -447,17 +532,20 @@ type RemoteHost struct {
 	packs   []*PAck
 	hitCuts map[uint8]hitCut // by player id: the last HIT's cut type and count
 
-	seq        uint32
-	blockEpoch uint32 // the WWRP epoch: bumped on a stage change
-	stage      string
-	wrote      bool
-	owners     [mailbox.RemoteMaxSlots]slotOwner
-	haveHead   bool
-	lastHead   uint32
-	lastPHit   map[uint32]uint32 // (client<<16 | setID) -> host REL frame of the last PHIT
-	phitSeq    map[uint8]uint16  // per target client
-	logNext    time.Time
-	dropWarned map[string]bool
+	seq           uint32
+	blockEpoch    uint32 // the WWRP epoch: bumped on a stage change
+	stage         string
+	wrote         bool
+	owners        [mailbox.RemoteMaxSlots]slotOwner
+	haveHead      bool
+	lastHead      uint32
+	lastPHit      map[uint32]uint32 // (client<<16 | setID) -> host REL frame of the last PHIT
+	phitSeq       map[uint8]uint16  // per target client
+	logNext       time.Time
+	dropWarned    map[string]bool
+	gate          *heapGate // the full-body heap gate, under FULL_BODIES with HeapGate
+	statusAt      time.Time // when Stats.LastStatus was read
+	gateErrLogged bool
 
 	Stats RemoteHostStats
 }
@@ -491,7 +579,7 @@ type RemoteHostStats struct {
 func NewRemoteHost(m mem.Mem, rep log.Reporter, cfg RemoteConfig, epoch uint32) *RemoteHost {
 	return &RemoteHost{m: m, rep: rep, cfg: cfg, epoch: epoch, blockEpoch: epoch << 8,
 		pstates: map[uint8]pstateEntry{}, hitCuts: map[uint8]hitCut{}, lastPHit: map[uint32]uint32{},
-		phitSeq: map[uint8]uint16{}, dropWarned: map[string]bool{}}
+		phitSeq: map[uint8]uint16{}, dropWarned: map[string]bool{}, gate: newHeapGate(cfg.HeapSizes, int(cfg.FullMax))}
 }
 
 // Config is the host's settings.
@@ -638,7 +726,8 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 	if !r.cfg.On || !relOK {
 		return nil, nil
 	}
-	if scope.Stage != r.stage {
+	stageChanged := scope.Stage != r.stage
+	if stageChanged {
 		// A new stage: a new WWRP epoch (the REL clears its latches).
 		r.stage = scope.Stage
 		r.blockEpoch++
@@ -648,6 +737,22 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 	}
 	b := r.cfg.block(mailbox.RemoteRoleHost, nextSeq(&r.seq), r.blockEpoch)
 	b.Slots = r.slots(now, scope, views)
+	b.Flags2 = r.cfg.Flags2
+	if r.cfg.Flags&mailbox.RemoteFlagFullBodies != 0 && r.cfg.HeapGate {
+		// The verdict goes out with this block, from the status the last
+		// Tick read; a gate read error shuts it (NO_SAMPLE) and is logged.
+		was := r.gate.reason
+		var gerr error
+		b.FullAllow, b.HeapReason, gerr = r.gate.tick(r.m, now, scope, stageChanged, &r.Stats.LastStatus, r.statusAt, &b.Slots)
+		switch {
+		case gerr != nil && !r.gateErrLogged:
+			r.gateErrLogged = true
+			log.Logf(r.rep, log.Warn, "enemy remote: heap gate (the gate stays shut while reads fail; logged once): %v", gerr)
+		case gerr == nil:
+			r.gateErrLogged = false
+		}
+		r.gate.logChange(r.rep, was)
+	}
 	if err := mailbox.WriteRemoteBlock(r.m, b); err != nil {
 		return nil, err
 	}
@@ -658,7 +763,7 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 	if err != nil {
 		return nil, err
 	}
-	r.Stats.LastStatus = st
+	r.Stats.LastStatus, r.statusAt = st, now
 	if !r.haveHead || st.HitRingHead < r.lastHead {
 		// The first read (hits from before this Go are not ours to send)
 		// or the REL relinked (its ring counts from 0 again).
@@ -677,8 +782,15 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 	r.lastHead = st.HitRingHead
 	if now.After(r.logNext) {
 		r.logNext = now.Add(RemoteLogEvery)
-		log.Logf(r.rep, log.Info, "enemy remote: seq %d ack %d bodies %s counters %s phits %d packs %d", r.seq, st.AckSeq,
-			bodiesLine(&st), countersLine(&st), r.Stats.PHits, r.Stats.PAcks)
+		gate := ""
+		if r.cfg.Flags&mailbox.RemoteFlagFullBodies != 0 {
+			gate = " heap " + r.gate.line()
+			if !r.cfg.HeapGate {
+				gate = " heap gate off (FULL_ALLOW 0)"
+			}
+		}
+		log.Logf(r.rep, log.Info, "enemy remote: seq %d ack %d bodies %s counters %s phits %d packs %d%s", r.seq, st.AckSeq,
+			bodiesLine(&st), countersLine(&st), r.Stats.PHits, r.Stats.PAcks, gate)
 	}
 	return out, nil
 }
@@ -762,11 +874,28 @@ func (r *RemoteHost) Shutdown() error {
 	return mailbox.ClearRemoteBlock(r.m)
 }
 
+// remoteBErrNames name the RemoteBErr* codes by value.
+var remoteBErrNames = [...]string{"none", "slot", "block", "vtable", "host_link", "cyl", "create", "lost", "tries", "gone",
+	"heap_denied", "phase_timeout", "heap_errors", "profile", "shanm_alloc", "full_vtable"}
+
+func bErrName(e uint8) string {
+	if int(e) < len(remoteBErrNames) {
+		return remoteBErrNames[e]
+	}
+	return fmt.Sprintf("err%d", e)
+}
+
+// bodiesLine is each body's state, err (with its name when set), hits,
+// latch entries, tries and kind (k0 lite, k1 full).
 func bodiesLine(st *mailbox.RemoteStatus) string {
 	s := ""
 	for i := range mailbox.MaxRemoteLinks {
 		b := &st.Bodies[i]
-		s += fmt.Sprintf("[%d:s%d e%d h%d l%d t%d]", i, b.State, b.Err, b.Hits, b.LatchedBy, b.Tries)
+		e := fmt.Sprint(b.Err)
+		if b.Err != mailbox.RemoteBErrNone {
+			e += "(" + bErrName(b.Err) + ")"
+		}
+		s += fmt.Sprintf("[%d:s%d e%s h%d l%d t%d k%d]", i, b.State, e, b.Hits, b.LatchedBy, b.Tries, b.Kind)
 	}
 	return s
 }

@@ -21,6 +21,9 @@
 //   +0x1BC..+0x1C4  REL words: WWREL_EXEC_HOOK_OFF (T2's exec_shim
 //                   branches to it), WWREL_SWAP_STATE_OFF (wwrel.h); never
 //                   canary-armed
+//   +0x1C4..+0x1C8  WWREL_SHANM_OFF (wwrel.h): the full bodies' shanm table
+//                   (an archive-heap block, once per boot; T2 zeroes it at
+//                   boot, the REL never clears it); never canary-armed
 //   +0x200..+0x510  enemy-mirror block + v2 sphere/stts (wwenemy.h)
 //   +0x510..+0x520  unused, inside the remote region (alignment)
 //   +0x520..+0x850  this block (WWREMOTE_OFF, WWREMOTE_SIZE)
@@ -37,7 +40,10 @@
 //   +0x013 u8 role (1 host, 2 client: must equal the enemy block's role)
 //   +0x014 f32 dy_max
 //   +0x018 u8 proc_policy_count  +0x019 u8 ff_deny_count
-//   +0x01A u16 create_cooldown   +0x01C u32 reserved, 0 (was collect_ptr)
+//   +0x01A u16 create_cooldown
+//   +0x01C u8 full_allow (bit i: slot i may begin one full create)
+//   +0x01D u8 heap_reason (WWREMOTE_HG_*)  +0x01E u16 flags2 (WWREMOTE_FLAG2_*)
+//              (the word was reserved, 0; 0 in all three is today's behaviour)
 //   +0x020 slot[4] x 0x30 (runtime uses MAX_REMOTE_LINKS = 2)
 //   +0x0E0 client apply record, 0x28
 //   +0x108 char[8] x 4 FF stage denylist
@@ -47,7 +53,7 @@
 //   REL-written span +0x1F0..+0x330
 //   +0x1F0 u32 ack_seq (the last valid seq the REL consumed)
 //   +0x1F4 u32 WWREL frame at that consume
-//   +0x1F8 body_status[4] x 0x10
+//   +0x1F8 body_status[4] x 0x10 (+0x0F kind: WWREMOTE_KIND_*, was pad)
 //   +0x238 counters u32[10], cumulative (WWREMOTE_CTR_* index)
 //   +0x260 u32 hit_ring_head   +0x264 hit_ring[4] x 0x30
 //   +0x324 u32 apply_ack (the apply seq consumed)
@@ -69,7 +75,11 @@
 // same bit positions, inverted) disable the FF denylist gate and the jail
 // gate; clear means the gate runs. Clearing BODIES or SWAP returns to
 // today's behaviour within one frame. ATTRIB's force latch is honoured only
-// with ATTACKER also set.
+// with ATTACKER also set. FULL_BODIES (host, with BODIES) makes a slot's
+// body the real daPy_lk_c (the proc 0x27 profile) when Go's heap gate set
+// the slot's FULL_ALLOW bit; clear, every body is the lite one, exactly as
+// before. WWREMOTE_LAYOUT stays 1: FULL_ALLOW, HEAP_REASON and FLAGS2 at 0,
+// and body_status kind 0, are today's behaviour.
 //
 // Jail gate (Step -1): isCollect(0, i) is bit i of mCollect[0] (d_save.cpp:
 // 756-759) at WWREMOTE_COLLECT_ADDR (wwapi/addr Collect); mo2's jail mode
@@ -92,6 +102,16 @@
 // swap state starts at WWREMOTE_KEEPER_SWAP_OFF and ends at or before
 // WWREMOTE_ACTOR_SIZE (static-asserted in the REL); WWREL_SWAP_STATE_OFF
 // points at it. WWREMOTE_BODY_* offsets are from the body actor.
+//
+// Full body (FLAG_FULL_BODIES; ww-multiplayer-handoff/design/
+// remote-link-stage4-plan.md D4-1, D4-6): a daPy_lk_c of the second profile
+// g_profile_WWBODY in the same REL, profile slot WWREMOTE_FULL_PROC (0x27,
+// Seatag) aliased to module 0x58 by a DOL name-table patch and a RELS.arc
+// profile-list patch; mProcName 0xB5, mSize WWREMOTE_FULL_SIZE (daPy_lk_c
+// plus a 0x58 tail at WWREMOTE_FULL_TAIL_OFF whose first 0x48 bytes keep
+// the lite body's +0x530..+0x578 field order). WWREMOTE_FULL_* offsets are
+// from the body actor. The shanm table (WWREMOTE_SA_* header) lives at
+// *(u32*)(MAILBOX_ADDR + WWREL_SHANM_OFF).
 //
 // Wire v3 (Go only: mods/multiplayer/net/enemy.go checks the shapes,
 // mods/enemysync/wire.go the fields; WireVersion 2 -> 3, so old and new
@@ -161,7 +181,9 @@
 #define WWREMOTE_POLICY_COUNT_OFF   0x018        // u8 PROC_POLICY entries in use (0..48)
 #define WWREMOTE_FF_COUNT_OFF       0x019        // u8 FF denylist entries in use (0..4)
 #define WWREMOTE_CREATE_COOLDOWN_OFF 0x01A       // u16 frames after a failed body create
-#define WWREMOTE_RESERVED_OFF       0x01C        // u32 0 (the design's collect_ptr; Step -1: direct read)
+#define WWREMOTE_FULL_ALLOW_OFF     0x01C        // u8 bit i: slot i may begin one daPy_lk_c create (FLAG_FULL_BODIES only; Go heap gate)
+#define WWREMOTE_HEAP_REASON_OFF    0x01D        // u8 WWREMOTE_HG_* why the gate is shut (REL: wait vs fall back only)
+#define WWREMOTE_FLAGS2_OFF         0x01E        // u16 WWREMOTE_FLAG2_*; 0 = today
 #define WWREMOTE_SLOTS_OFF          0x020        // slot[4] x WWREMOTE_SLOT_SIZE
 #define WWREMOTE_SLOT_SIZE          0x30
 #define WWREMOTE_APPLY_OFF          0x0E0        // client apply record (WWREMOTE_AP_*)
@@ -188,6 +210,26 @@
 #define WWREMOTE_FLAG_GROUP_WIDE    0x0800       // ENEMY group eligible unless DENY (else ALLOW only)
 #define WWREMOTE_FLAG_BOTH_WORDS_ENABLE 0x1000   // honour per-proc WWREMOTE_PF_BOTH_WORDS (also swap 0x803CA754)
 #define WWREMOTE_FLAG_IFRAME_STAMP  0x2000       // stamp body_iframes on detection
+#define WWREMOTE_FLAG_FULL_BODIES   0x4000       // host: bodies are the real daPy_lk_c (proc 0x27 profile) when the slot's FULL_ALLOW bit is set; else lite
+
+// flags2 (+0x01E); all clear = today's behaviour
+#define WWREMOTE_FLAG2_FULL_CO      0x0001       // full bodies keep mCyl's Co Set bit (default: Co off)
+
+// heap-gate reasons (+0x01D, Go-written; the REL waits on the transient ones)
+#define WWREMOTE_HG_NONE            0            // gate not run (FULL_BODIES off, client, or no sample yet this session)
+#define WWREMOTE_HG_OPEN            1
+#define WWREMOTE_HG_NO_SAMPLE       2            // no fresh sample in this stage (transient)
+#define WWREMOTE_HG_WALK_PROBLEM    3            // walker reported a Problem (retry next sample)
+#define WWREMOTE_HG_GAME_LARGEST    4
+#define WWREMOTE_HG_GAME_FREE       5
+#define WWREMOTE_HG_ZELDA_LARGEST   6
+#define WWREMOTE_HG_COUNTER_ROSE    7            // Game/Zelda error counter rose this stage (or solid during a FULL create)
+#define WWREMOTE_HG_INFLIGHT        8            // a FULL body is QUEUED (transient)
+#define WWREMOTE_HG_STAGE_SETTLE    9            // stage change, fewer than 2 good samples (transient)
+#define WWREMOTE_HG_STICKY          10           // two stages closed by counters: shut for the session
+#define WWREMOTE_HG_ARCHIVE_LARGEST 11           // shanm table not allocated yet and the archive heap is short
+#define WWREMOTE_HG_FULL_MAX        12           // FullMax FULL bodies already LIVE
+#define WWREMOTE_HG_QUEUED          13           // open, the bit is another slot's; this one waits its turn (transient)
 
 #define WWREMOTE_ROLE_HOST          1            // = WWENEMY_ROLE_HOST
 #define WWREMOTE_ROLE_CLIENT        2            // = WWENEMY_ROLE_CLIENT
@@ -294,7 +336,10 @@
 #define WWREMOTE_BS_LATCHED_BY_OFF  0x0B         // u8 latch entries targeting this body
 #define WWREMOTE_BS_FRAMES_LIVE_OFF 0x0C         // u16 executes LIVE (saturating)
 #define WWREMOTE_BS_TRIES_OFF       0x0E         // u8 creates this stage
-#define WWREMOTE_BS_PAD_OFF         0x0F
+#define WWREMOTE_BS_KIND_OFF        0x0F         // u8 WWREMOTE_KIND_* (was pad)
+
+#define WWREMOTE_KIND_LITE          0
+#define WWREMOTE_KIND_FULL          1
 
 #define WWREMOTE_BODY_EMPTY         0
 #define WWREMOTE_BODY_QUEUED        1
@@ -312,6 +357,12 @@
 #define WWREMOTE_BERR_LOST          7            // creating ended and SearchByID found no 'WWRB'
 #define WWREMOTE_BERR_TRIES         8            // 3 tries this stage spent
 #define WWREMOTE_BERR_GONE          9            // the pid vanished (stage teardown)
+#define WWREMOTE_BERR_HEAP_DENIED   10           // FULL wanted, allow bit clear (fell back to lite)
+#define WWREMOTE_BERR_PHASE_TIMEOUT 11           // full create still INIT after WWREMOTE_FULL_CREATE_FRAMES
+#define WWREMOTE_BERR_HEAP_ERRORS   12           // GameHeapErrors or solidHeapErrors rose across playerInit
+#define WWREMOTE_BERR_PROFILE       13           // DMC[0x27] != DMC[0xB5] or profile slot 0x27 != g_profile_WWBODY
+#define WWREMOTE_BERR_SHANM_ALLOC   14           // archive-heap shanm table alloc failed or invalid
+#define WWREMOTE_BERR_FULL_VTABLE   15           // after __ct__9daPy_lk_cFv, vptr +0x31C != 0x8038FDC0
 
 // counters (u32 index from WWREMOTE_COUNTERS_OFF)
 #define WWREMOTE_CTR_HOOK_CALLS     0            // every exec hook entry, even with magic 0
@@ -399,6 +450,63 @@
 #define WWREMOTE_BODY_LAST_POSE_SEQ_OFF 0x56C    // u32
 #define WWREMOTE_BODY_PARK_SINCE_OFF 0x570       // u32 WWREL frame parked at
 #define WWREMOTE_BODY_END           0x574        // <= WWREMOTE_ACTOR_SIZE
+
+// --- the full body (FLAG_FULL_BODIES; stage-4 plan D4-1, D4-6) -------------
+#define WWREMOTE_FULL_PROC          0x0027       // hijacked proc/profile slot (Seatag; never placed on the GZLE01 disc)
+#define WWREMOTE_FULL_NAME_ENTRY    0x80339938   // DynamicNameTable entry of proc 0x27 (SYM:13851 + 12*8)
+#define WWREMOTE_FULL_NAME_PTR      0x8033AE39   // "d_a_rectangle": patched into WWREMOTE_FULL_NAME_ENTRY + 4 (was 0x8033A6F3)
+#define WWREMOTE_DMC_FULL_ADDR      0x803B92B4   // DMC[0x27] (DMC 0x803B9218, SYM:17371)
+#define WWREMOTE_DMC_REL_ADDR       0x803B94EC   // DMC[0xB5]
+#define WWREMOTE_PROFILE_LIST_PTR   0x803F6A68   // g_fpcPf_ProfileList_p (SYM:18664); slot = list + 4 * proc
+#define WWREMOTE_FULL_SIZE          0x4C80       // profile mSize: sizeof(daPy_lk_c) 0x4C28 + tail 0x58
+#define WWREMOTE_FULL_DAPY_SIZE     0x4C28       // d_a_player_main.h:2375
+#define WWREMOTE_FULL_TAIL_OFF      0x4C28
+#define WWREMOTE_FULL_MAGIC_OFF     0x4C28       // u32 WWREMOTE_BODY_MAGIC, written last in create
+#define WWREMOTE_FULL_SLOT_OFF      0x4C2C       // u8
+#define WWREMOTE_FULL_GEN_OFF       0x4C2D       // u8
+#define WWREMOTE_FULL_IFRAMES_LEFT_OFF 0x4C2E    // u8
+#define WWREMOTE_FULL_STATE_OFF     0x4C2F       // u8 WWREMOTE_BODY_LIVE / _PARKED
+#define WWREMOTE_FULL_SHIELD_ANGLE_OFF 0x4C30    // s16 slot shield angle (the live one is +0x3546)
+#define WWREMOTE_FULL_LAST_POSE_SEQ_OFF 0x4C64   // u32 (= lite +0x56C - 0x530 + tail)
+#define WWREMOTE_FULL_PARK_SINCE_OFF 0x4C68      // u32
+#define WWREMOTE_FULL_PHASE_OFF     0x4C70       // u8 WWREMOTE_FP_*
+#define WWREMOTE_FULL_KIND_OFF      0x4C71       // u8 WWREMOTE_KIND_FULL
+#define WWREMOTE_FULL_CREATE_FRAMES_OFF 0x4C72   // u16 create calls so far
+#define WWREMOTE_FULL_SHANM_DIFF_OFF 0x4C74      // u32 shared words restored after the create windows
+#define WWREMOTE_FULL_HEAP_ERR_OFF  0x4C78       // u32 byte3 game-errors delta, byte2 solid delta across playerInit
+#define WWREMOTE_FULL_END           0x4C7C       // <= WWREMOTE_FULL_SIZE
+#define WWREMOTE_FULL_CREATE_FRAMES 120          // phase_2 gate + makeBgWait INIT retries before cPhs_ERROR_e
+#define WWREMOTE_FP_NEW             0            // phase_1 not run
+#define WWREMOTE_FP_PARAMS          1            // phase_1 done (params cached, then rewritten to 0xFF000040)
+#define WWREMOTE_FP_INIT            2            // ctor + playerInit done: delete must run playerDelete
+#define WWREMOTE_FP_LIVE            3            // makeBgWait returned NEXT: create complete
+#define WWREMOTE_FULL_PARAMS        0xFF000040   // params after phase_1: event 0xFF, mode 0, room 0, 0x40 skip setRestartRoom
+
+// daPy_lk_c fields the REL and the probe touch (DPMH / d_a_player.h)
+#define WWREMOTE_FULL_DAMAGE_WAIT_OFF 0x294      // s16 mDamageWaitTimer (d_a_player.h:482)
+#define WWREMOTE_FULL_NO_RESET1_OFF 0x2A0        // u32 mNoResetFlg1 (CASUAL 0x08 cleared before delete)
+#define WWREMOTE_FULL_RESET0_OFF    0x2A4        // u32 mResetFlg0 = 0 every execute
+#define WWREMOTE_FULL_VPTR_OFF      0x31C        // == 0x8038FDC0 after the ctor
+#define WWREMOTE_FULL_MODEL_OFF     0x32C        // J3DModel* mpCLModel (DPMH:1993)
+#define WWREMOTE_FULL_LINKTEX_OFF   0x338        // ResTIMG* mpCurrLinktex
+#define WWREMOTE_FULL_STTS_OFF      0x3FE8       // dCcD_Stts mStts
+#define WWREMOTE_FULL_CYL_OFF       0x4024       // dCcD_Cyl mCyl (Step -1 offsets apply from here)
+#define WWREMOTE_FULL_CUR_PROC_OFF  0x31D8       // int mCurProc (WAIT 0x04, CROUCH_DEFENSE 0x0C)
+#define WWREMOTE_FULL_SHIELD_RANGE_OFF 0x3546    // s16 mShieldFrontRangeYAngle (mCyl's shield-angle pointer target)
+#define WWREMOTE_FULL_MODE_FLG_OFF  0x3618       // u32 mModeFlg (clear DAMAGE 0x8, IN_SHIP 0x2000, CRAWL 0x01000000)
+
+// shanm table header (archive block at *(u32*)(MAILBOX_ADDR + WWREL_SHANM_OFF))
+#define WWREMOTE_SHANM_MAGIC        0x57575341   // 'WWSA'
+#define WWREMOTE_SHANM_BYTES        0x4760       // header 0x60 + joint_addr[64] + mat_addr[256] + val[4224]
+#define WWREMOTE_SA_MAGIC_OFF       0x00         // u32
+#define WWREMOTE_SA_SIZE_OFF        0x04         // u32 WWREMOTE_SHANM_BYTES
+#define WWREMOTE_SA_SELF_OFF        0x08         // u32 the block's own address
+#define WWREMOTE_SA_WORDS_OFF       0x0C         // u32 words tracked at the last refresh (live ~2598, cap 4224)
+#define WWREMOTE_SA_CREATE_DIFF_OFF 0x10         // u32 words restored after the last create window
+#define WWREMOTE_SA_DELETE_DIFF_OFF 0x14         // u32 words restored after the last delete window
+#define WWREMOTE_SA_DELETE_SCAN_OFF 0x18         // u32 tracked words pointing into a deleted body's instance or heaps (must be 0)
+#define WWREMOTE_SA_WINDOWS_OFF     0x1C         // u32 windows opened (cumulative)
+#define WWREMOTE_SA_JOINT_DIFF_OFF  0x20         // u32 cl.bdl joints 0x02/0x1D mMtxCalc restores (cumulative)
 
 // jail gate (Step -1): the save's mCollect[0], a direct byte read
 #define WWREMOTE_COLLECT_ADDR       0x803C4CBC   // wwapi/addr Collect (d_save.cpp:756-759)

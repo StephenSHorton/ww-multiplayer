@@ -10,6 +10,12 @@
 // Moblin mirror plus remote_swap_state at WWREMOTE_KEEPER_SWAP_OFF);
 // WWREMOTE_BODY_PARAMS_TAG | slot << 8 | gen is a lite body (host only,
 // remote_body below). The profile's mSize is WWREMOTE_ACTOR_SIZE for both.
+// Stage 4 (FLAG_FULL_BODIES; ww-multiplayer-handoff/design/
+// remote-link-stage4-plan.md) adds a second profile, g_profile_WWBODY
+// (proc WWREMOTE_FULL_PROC, mSize WWREMOTE_FULL_SIZE): the full body, a
+// real daPy_lk_c (fullbody.c) with the same tail fields (rl_btail) at
+// WWREMOTE_FULL_TAIL_OFF instead of +0x530. The keeper picks the kind per
+// create (rl_body.kind); with the flag clear every body is the lite one.
 //
 // The swap state lives in the keeper, never in .bss: the T2 exec shim's
 // target (wwrel_exec_hook) and the bodies find it through the mailbox word
@@ -51,7 +57,7 @@ typedef struct {
     u8  hits;           // +0x10 hits detected (saturating)
     u8  del_sent;       // +0x11 fopAcM_deleteByID accepted the delete
     u8  parked;         // +0x12 the body's own verdict (its execute, section 5.2 step 1)
-    u8  _pad;           // +0x13
+    u8  kind;           // +0x13 WWREMOTE_KIND_* of the last create (was pad)
 } rl_body;              // 0x14
 
 // Client apply ("v2 in reverse", section 8.5)
@@ -73,7 +79,8 @@ typedef struct {
     u8  margin_q8;      // +0x16 tunables of the last consume
     u8  min_hold;       // +0x17
     u8  body_iframes;   // +0x18
-    u8  _pad0[3];       // +0x19
+    u8  full_allow;     // +0x19 FULL_ALLOW latched at consume (host + FULL_BODIES), bit i cleared when slot i's full create is issued
+    u16 flags2;         // +0x1A WWREMOTE_FLAG2_* of the last consume
     f32 dy_max;         // +0x1C
     u8  stage[8];       // +0x20 the stage the create tries belong to
     rl_body bodies[MAX_REMOTE_LINKS]; // +0x28
@@ -87,9 +94,42 @@ typedef struct {
     u8  ap_state;       // +0x76 RL_AP_*
     u8  ap_frames;      // +0x77 executes from the first Set (saturating)
     u8  ap_sets;        // +0x78 cCcS::Set calls for the request
-    u8  _pad1[3];       // +0x79
+    u8  full_denied;    // +0x79 bit i: slot i spent its full attempt (this stage, epoch and gen)
+    u8  full_wait[2];   // +0x7A keeper frames slot i waited for its allow bit (RL_FULL_WAIT; MAX_REMOTE_LINKS <= 2)
     rl_latch latch[RL_LATCH_MAX]; // +0x7C
 } remote_swap_state;    // 0x17C
+
+// The tail fields both body kinds share, in this order: the lite body's
+// +0x530..+0x578 (remote_body below), the full body's
+// WWREMOTE_FULL_TAIL_OFF (rl_full_tail). remote.c's park check and hit
+// read take one, so they serve both kinds.
+typedef struct {
+    u32 magic;          // +0x00 WWREMOTE_BODY_MAGIC
+    u8  slot;           // +0x04
+    u8  gen;            // +0x05
+    u8  iframes_left;   // +0x06 provisional i-frames (FLAG_IFRAME_STAMP)
+    u8  state;          // +0x07 WWREMOTE_BODY_LIVE or _PARKED as the body sees itself
+    s16 shield_angle;   // +0x08 the slot's shield angle (lite: the cyl's mpShieldFrontRangeYAngle target)
+    u8  _p5[2];         // +0x0A
+    f32 hand_mtx[3][4]; // +0x0C lite: the vt+0x08/+0x0C hand matrices; full: unused
+    u32 last_pose_seq;  // +0x3C the pose-feed seq byte last seen
+    u32 park_since;     // +0x40 the WWREL frame parked at (0 while LIVE)
+    u32 pose_seq_frame; // +0x44 the WWREL frame last_pose_seq changed at (REL-private)
+} rl_btail;             // 0x48
+
+// The full body's tail at WWREMOTE_FULL_TAIL_OFF (fullbody.c), after
+// sizeof(daPy_lk_c) 0x4C28; the profile's mSize is WWREMOTE_FULL_SIZE.
+typedef struct {
+    rl_btail t;         // +0x00
+    u8  phase;          // +0x48 WWREMOTE_FP_*
+    u8  kind;           // +0x49 WWREMOTE_KIND_FULL
+    u16 create_frames;  // +0x4A create calls so far
+    u32 shanm_diff;     // +0x4C shared words restored after the create windows
+    u32 heap_err;       // +0x50 byte3 GameHeapErrors delta, byte2 solidHeapErrors delta across playerInit
+    u8  init_bad;       // +0x54 REL-private: playerInit returned with the heap counters up or no
+                        //       mpCLModel; delete then checks its child heaps first (fullbody.c)
+    u8  _pad[3];        // +0x55
+} rl_full_tail;         // 0x58
 
 // The lite body (section 5.2), host only: the fopAc_ac_c head, the few
 // daPy_py_c fields the Moblin reads (section 3 audit), a REL-owned copy of
@@ -142,6 +182,26 @@ int  remote_body_execute(void* actor);
 // The T2 exec shim's target (ABI of fpcMtd_Execute, 0x8003EF38, which it
 // calls exactly once); _prolog publishes its address at WWREL_EXEC_HOOK_OFF.
 int  wwrel_exec_hook(void* mtd, void* actor);
+// &g_profile_WWBODY (rel_main.c), for the keeper's profile check.
+u32  wwrel_body_profile(void);
+
+// --- fullbody.c (the full body, FLAG_FULL_BODIES) ---------------------------
+// The keeper's swap state through WWREL_SWAP_STATE_OFF, or 0 (not in MEM1).
+remote_swap_state* rl_state_checked(void);
+// The host Link (0x803CA754, a PLAYER in MEM1, equal to 0x803CA74C), or 0.
+u32  rl_host_link(void);
+// Why a body parks this frame (0 = it may stand); a, its tail.
+int  rl_body_should_park(remote_swap_state* st, void* a, rl_btail* t, u32 frame);
+// The hit read (FLAG_DETECT) from the body's Tg cylinder cyl.
+void rl_body_hits(remote_swap_state* st, void* a, rl_btail* t, u8* cyl, u32 frame);
+// A LIVE body enters PARKED: out of the latch, its Moblins back on the host.
+void rl_body_park_enter(remote_swap_state* st, void* a, rl_btail* t, u32 frame);
+// The game deletes a body: the keeper's record forgets it first.
+void rl_body_gone(remote_swap_state* st, void* a, u8 slot);
+// A NaN or |v| > 1e6 (not a usable position or tunable).
+int  rl_f32_bad(f32 v);
+// sqrt without libm (speedF from the XZ step).
+f32  rl_sqrt(f32 x);
 
 // --- enemy_mirror.c (host v2 hit, section 8.6 ATTRIB) -----------------------
 // The LIVE, unparked body of the slot ha_flags names when ATTRIB is on and

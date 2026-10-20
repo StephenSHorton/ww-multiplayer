@@ -112,3 +112,21 @@ After a change to co-op behaviour, or a move of its code that the goldens cannot
 - **M6.0** K1-K10: the kill union and the light-shrink.
 
 Each section of §8.2 lists its fixtures (F1-F5 save states) and steps.
+
+### Remote-Link Stage 4: the full bodies (S4)
+
+After the Stage 4 REL lands (the real daPy_lk_c remote body; `ww-multiplayer-handoff/design/remote-link-stage4-plan.md` §6 has the detail), the owner runs these on the host Dolphin with `WW_ENEMY_REMOTE=step6`, adding `full_bodies` (or `step7`) where a step says so. The host uses a save with a sword (user-4, 15-StartET). The tools are `./wwdev.exe heap-free`, `remote-watch` (its `full`, `profile` and `shanm` lines and the FULL body read), `peek` and `screenshot`; the host's log prints the heap gate (`heap gate <reason> allow 0x..`) on every change and in its 5 s status line.
+
+- [ ] **S4-0 boot, flag off**: DMC[0x27] == DMC[0xB5] and the profile list's slot 0x27 points at `g_profile_WWBODY` once the keeper links (`remote-watch` profile line); the shanm word is 0; body kind 0, FULL_ALLOW 0, HEAP_REASON 0; the Batch A Step 0-6 checks and S2/v2 LC1-LC4 pass unchanged; the Outset to A_mori hop keeps 'WWRL'.
+- [ ] **S4-1 vanilla baseline**: no session, 5 stage hops; per hop the Game/Zelda/Archive largest and free and the seven counters (`heap-free`). Solid +1 per load, Game and Zelda +0.
+- [ ] **S4-2 Outset, one create** (`+full_bodies`, one remote): GameHeap drop at most 0xCCF00, ZeldaHeap about 0x4C80, Archive about 0x4760 on the first create only; `remote-watch`: kind FULL, phase LIVE, vptr daPy_lk_c ok, small create_frames, heap_err 0, shanm words about 2598, create diff and joint diffs reported.
+- [ ] **S4-3 globals untouched**: every plan §3.5 address equal before and after the create and the delete (`peek`); the host Link is not dropped, his tunic texture and blink unchanged.
+- [ ] **S4-4 entry variants**: as S4-3 after arriving by ship, after a void-out and after a respawn; the ship does not move, no startDemo 0xCB, event bits unchanged.
+- [ ] **S4-5 M_Dai**: a Moblin spear hits the full body through its real mCyl (one hit ring entry, proc 0xBD) and the PHIT applies on the client; a guarding client gives mCurProc 0x0C on the body and the Moblin's guard recoil.
+- [ ] **S4-6 visibility**: screenshots: no second Link model at the body's position, the mini-Link still drawn and posed, the host Link normal.
+- [ ] **S4-7 Deku Leaf**: with the body LIVE and HITTABLE the leaf's wind lasts as without it; no fan sound from the body; no wind At at the world origin.
+- [ ] **S4-8 delete and reload**: the remote leaves (DYING, then EMPTY), then 10 stage loads: no crash in `J3DJoint::entryIn`, shanm delete_scan 0, delete diff reported, GameHeap largest back to the S4-2 "before" value within one block.
+- [ ] **S4-9 20 hops**: the remote follows the host over 20 hops (Outset, sea, A_mori, M_Dai): GameHeap largest does not trend down, archive largest stable after the first allocation, Game/Zelda counters flat, one FULL body per stage, kind FULL each time.
+- [ ] **S4-10 fallback**: (a) `WW_ENEMY_REMOTE_HEAP=0xFFFFFFF,0,0`: a lite body with err heap_denied after the 120-frame wait; (b) a spawn over the void: phase_timeout, then lite; (c) `poke-u32 0x803B92B4` to another DMC pointer before the create (restored after): profile, then lite. No FULL retry in that stage; FULL again after the next stage load.
+- [ ] **S4-11 flag flips**: clearing `full_bodies` mid-stage retires the FULL body cleanly (the S4-8 conditions), then lite; setting it again does not upgrade within the stage; the next stage gets FULL.
+- [ ] **S4-12 regression**: `full_bodies` clear after all of the above: S4-0 again; the only heap change against the pre-Stage-4 baseline is the shanm table in the ArchiveHeap.

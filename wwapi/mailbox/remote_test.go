@@ -73,7 +73,9 @@ func TestRemoteHeaderPins(t *testing.T) {
 		"WWREMOTE_POLICY_COUNT_OFF":       uint64(RemotePolicyCountOff),
 		"WWREMOTE_FF_COUNT_OFF":           uint64(RemoteFFCountOff),
 		"WWREMOTE_CREATE_COOLDOWN_OFF":    uint64(RemoteCreateCooldownOff),
-		"WWREMOTE_RESERVED_OFF":           uint64(RemoteReservedOff),
+		"WWREMOTE_FULL_ALLOW_OFF":         uint64(RemoteFullAllowOff),
+		"WWREMOTE_HEAP_REASON_OFF":        uint64(RemoteHeapReasonOff),
+		"WWREMOTE_FLAGS2_OFF":             uint64(RemoteFlags2Off),
 		"WWREMOTE_SLOTS_OFF":              uint64(RemoteSlotsOff),
 		"WWREMOTE_SLOT_SIZE":              uint64(RemoteSlotSize),
 		"WWREMOTE_APPLY_OFF":              uint64(RemoteApplyOff),
@@ -98,6 +100,22 @@ func TestRemoteHeaderPins(t *testing.T) {
 		"WWREMOTE_FLAG_GROUP_WIDE":        uint64(RemoteFlagGroupWide),
 		"WWREMOTE_FLAG_BOTH_WORDS_ENABLE": uint64(RemoteFlagBothWordsEnable),
 		"WWREMOTE_FLAG_IFRAME_STAMP":      uint64(RemoteFlagIFrameStamp),
+		"WWREMOTE_FLAG_FULL_BODIES":       uint64(RemoteFlagFullBodies),
+		"WWREMOTE_FLAG2_FULL_CO":          uint64(RemoteFlag2FullCo),
+		"WWREMOTE_HG_NONE":                uint64(RemoteHGNone),
+		"WWREMOTE_HG_OPEN":                uint64(RemoteHGOpen),
+		"WWREMOTE_HG_NO_SAMPLE":           uint64(RemoteHGNoSample),
+		"WWREMOTE_HG_WALK_PROBLEM":        uint64(RemoteHGWalkProblem),
+		"WWREMOTE_HG_GAME_LARGEST":        uint64(RemoteHGGameLargest),
+		"WWREMOTE_HG_GAME_FREE":           uint64(RemoteHGGameFree),
+		"WWREMOTE_HG_ZELDA_LARGEST":       uint64(RemoteHGZeldaLargest),
+		"WWREMOTE_HG_COUNTER_ROSE":        uint64(RemoteHGCounterRose),
+		"WWREMOTE_HG_INFLIGHT":            uint64(RemoteHGInflight),
+		"WWREMOTE_HG_STAGE_SETTLE":        uint64(RemoteHGStageSettle),
+		"WWREMOTE_HG_STICKY":              uint64(RemoteHGSticky),
+		"WWREMOTE_HG_ARCHIVE_LARGEST":     uint64(RemoteHGArchiveLargest),
+		"WWREMOTE_HG_FULL_MAX":            uint64(RemoteHGFullMax),
+		"WWREMOTE_HG_QUEUED":              uint64(RemoteHGQueued),
 		"WWREMOTE_ROLE_HOST":              uint64(RemoteRoleHost),
 		"WWREMOTE_ROLE_CLIENT":            uint64(RemoteRoleClient),
 		"WWREMOTE_DEF_MARGIN_Q8":          uint64(RemoteDefMarginQ8),
@@ -185,7 +203,9 @@ func TestRemoteHeaderPins(t *testing.T) {
 		"WWREMOTE_BS_LATCHED_BY_OFF":      uint64(RemoteBSLatchedByOff),
 		"WWREMOTE_BS_FRAMES_LIVE_OFF":     uint64(RemoteBSFramesLiveOff),
 		"WWREMOTE_BS_TRIES_OFF":           uint64(RemoteBSTriesOff),
-		"WWREMOTE_BS_PAD_OFF":             uint64(RemoteBSPadOff),
+		"WWREMOTE_BS_KIND_OFF":            uint64(RemoteBSKindOff),
+		"WWREMOTE_KIND_LITE":              uint64(RemoteKindLite),
+		"WWREMOTE_KIND_FULL":              uint64(RemoteKindFull),
 		"WWREMOTE_BODY_EMPTY":             uint64(RemoteBodyEmpty),
 		"WWREMOTE_BODY_QUEUED":            uint64(RemoteBodyQueued),
 		"WWREMOTE_BODY_LIVE":              uint64(RemoteBodyLive),
@@ -201,6 +221,12 @@ func TestRemoteHeaderPins(t *testing.T) {
 		"WWREMOTE_BERR_LOST":              uint64(RemoteBErrLost),
 		"WWREMOTE_BERR_TRIES":             uint64(RemoteBErrTries),
 		"WWREMOTE_BERR_GONE":              uint64(RemoteBErrGone),
+		"WWREMOTE_BERR_HEAP_DENIED":       uint64(RemoteBErrHeapDenied),
+		"WWREMOTE_BERR_PHASE_TIMEOUT":     uint64(RemoteBErrPhaseTimeout),
+		"WWREMOTE_BERR_HEAP_ERRORS":       uint64(RemoteBErrHeapErrors),
+		"WWREMOTE_BERR_PROFILE":           uint64(RemoteBErrProfile),
+		"WWREMOTE_BERR_SHANM_ALLOC":       uint64(RemoteBErrShanmAlloc),
+		"WWREMOTE_BERR_FULL_VTABLE":       uint64(RemoteBErrFullVtable),
 		"WWREMOTE_CTR_HOOK_CALLS":         uint64(RemoteCtrHookCalls),
 		"WWREMOTE_CTR_SWAPS":              uint64(RemoteCtrSwaps),
 		"WWREMOTE_CTR_SWITCHES":           uint64(RemoteCtrSwitches),
@@ -273,14 +299,66 @@ func TestRemoteHeaderPins(t *testing.T) {
 		"WWREMOTE_BODY_LAST_POSE_SEQ_OFF": uint64(RemoteBodyLastPoseSeqOff),
 		"WWREMOTE_BODY_PARK_SINCE_OFF":    uint64(RemoteBodyParkSinceOff),
 		"WWREMOTE_BODY_END":               uint64(RemoteBodyEnd),
+		"WWREMOTE_FULL_PROC":              uint64(RemoteFullProc),
+		"WWREMOTE_FULL_NAME_ENTRY":        uint64(RemoteFullNameEntry),
+		"WWREMOTE_FULL_NAME_PTR":          uint64(RemoteFullNamePtr),
+		"WWREMOTE_DMC_FULL_ADDR":          uint64(RemoteDMCFullAddr),
+		"WWREMOTE_DMC_REL_ADDR":           uint64(RemoteDMCRELAddr),
+		"WWREMOTE_PROFILE_LIST_PTR":       uint64(RemoteProfileListPtr),
+		"WWREMOTE_FULL_SIZE":              uint64(RemoteFullSize),
+		"WWREMOTE_FULL_DAPY_SIZE":         uint64(RemoteFullDaPySize),
+		"WWREMOTE_FULL_TAIL_OFF":          uint64(RemoteFullTailOff),
+		"WWREMOTE_FULL_MAGIC_OFF":         uint64(RemoteFullMagicOff),
+		"WWREMOTE_FULL_SLOT_OFF":          uint64(RemoteFullSlotOff),
+		"WWREMOTE_FULL_GEN_OFF":           uint64(RemoteFullGenOff),
+		"WWREMOTE_FULL_IFRAMES_LEFT_OFF":  uint64(RemoteFullIFramesLeftOff),
+		"WWREMOTE_FULL_STATE_OFF":         uint64(RemoteFullStateOff),
+		"WWREMOTE_FULL_SHIELD_ANGLE_OFF":  uint64(RemoteFullShieldAngleOff),
+		"WWREMOTE_FULL_LAST_POSE_SEQ_OFF": uint64(RemoteFullLastPoseSeqOff),
+		"WWREMOTE_FULL_PARK_SINCE_OFF":    uint64(RemoteFullParkSinceOff),
+		"WWREMOTE_FULL_PHASE_OFF":         uint64(RemoteFullPhaseOff),
+		"WWREMOTE_FULL_KIND_OFF":          uint64(RemoteFullKindOff),
+		"WWREMOTE_FULL_CREATE_FRAMES_OFF": uint64(RemoteFullCreateFramesOff),
+		"WWREMOTE_FULL_SHANM_DIFF_OFF":    uint64(RemoteFullShanmDiffOff),
+		"WWREMOTE_FULL_HEAP_ERR_OFF":      uint64(RemoteFullHeapErrOff),
+		"WWREMOTE_FULL_END":               uint64(RemoteFullEnd),
+		"WWREMOTE_FULL_CREATE_FRAMES":     uint64(RemoteFullCreateFrames),
+		"WWREMOTE_FP_NEW":                 uint64(RemoteFPNew),
+		"WWREMOTE_FP_PARAMS":              uint64(RemoteFPParams),
+		"WWREMOTE_FP_INIT":                uint64(RemoteFPInit),
+		"WWREMOTE_FP_LIVE":                uint64(RemoteFPLive),
+		"WWREMOTE_FULL_PARAMS":            uint64(RemoteFullParams),
+		"WWREMOTE_FULL_DAMAGE_WAIT_OFF":   uint64(RemoteFullDamageWaitOff),
+		"WWREMOTE_FULL_NO_RESET1_OFF":     uint64(RemoteFullNoReset1Off),
+		"WWREMOTE_FULL_RESET0_OFF":        uint64(RemoteFullReset0Off),
+		"WWREMOTE_FULL_VPTR_OFF":          uint64(RemoteFullVPtrOff),
+		"WWREMOTE_FULL_MODEL_OFF":         uint64(RemoteFullModelOff),
+		"WWREMOTE_FULL_LINKTEX_OFF":       uint64(RemoteFullLinktexOff),
+		"WWREMOTE_FULL_STTS_OFF":          uint64(RemoteFullSttsOff),
+		"WWREMOTE_FULL_CYL_OFF":           uint64(RemoteFullCylOff),
+		"WWREMOTE_FULL_CUR_PROC_OFF":      uint64(RemoteFullCurProcOff),
+		"WWREMOTE_FULL_SHIELD_RANGE_OFF":  uint64(RemoteFullShieldRangeOff),
+		"WWREMOTE_FULL_MODE_FLG_OFF":      uint64(RemoteFullModeFlgOff),
+		"WWREMOTE_SHANM_MAGIC":            uint64(RemoteShanmMagic),
+		"WWREMOTE_SHANM_BYTES":            uint64(RemoteShanmBytes),
+		"WWREMOTE_SA_MAGIC_OFF":           uint64(RemoteSAMagicOff),
+		"WWREMOTE_SA_SIZE_OFF":            uint64(RemoteSASizeOff),
+		"WWREMOTE_SA_SELF_OFF":            uint64(RemoteSASelfOff),
+		"WWREMOTE_SA_WORDS_OFF":           uint64(RemoteSAWordsOff),
+		"WWREMOTE_SA_CREATE_DIFF_OFF":     uint64(RemoteSACreateDiffOff),
+		"WWREMOTE_SA_DELETE_DIFF_OFF":     uint64(RemoteSADeleteDiffOff),
+		"WWREMOTE_SA_DELETE_SCAN_OFF":     uint64(RemoteSADeleteScanOff),
+		"WWREMOTE_SA_WINDOWS_OFF":         uint64(RemoteSAWindowsOff),
+		"WWREMOTE_SA_JOINT_DIFF_OFF":      uint64(RemoteSAJointDiffOff),
 		"WWREMOTE_COLLECT_ADDR":           uint64(RemoteCollectAddr),
 		"WWREMOTE_COLLECT_JAIL_MASK":      uint64(RemoteCollectJailMask),
 	})
 }
 
-// TestRELHeaderPins: wwrel.h's five words (the three REL words and the
-// two remote-Link words T2's exec_shim and the swap read) equal their Go
-// constants, and the header defines nothing else.
+// TestRELHeaderPins: wwrel.h's six words (the three REL words, the two
+// remote-Link words T2's exec_shim and the swap read, and the full bodies'
+// shanm table word) equal their Go constants, and the header defines
+// nothing else.
 func TestRELHeaderPins(t *testing.T) {
 	pinHeader(t, wwrelHeader, headerDefines(t, wwrelHeader), map[string]uint64{
 		"WWREL_MAGIC":          uint64(RELMagic),
@@ -289,7 +367,19 @@ func TestRELHeaderPins(t *testing.T) {
 		"WWREL_FRAME_OFF":      uint64(OffRELFrame),
 		"WWREL_EXEC_HOOK_OFF":  uint64(OffRELExecHook),
 		"WWREL_SWAP_STATE_OFF": uint64(OffRELSwapState),
+		"WWREL_SHANM_OFF":      uint64(OffRELShanm),
 	})
+	// The shanm word follows the swap-state word (rel_main.c asserts the
+	// same), below the enemy block and outside every canary region, and it
+	// is not one of the hook words RELHookRegion covers.
+	if OffRELShanm != OffRELSwapState+4 || OffRELShanm+4 > EnemyOff || Mailbox+OffRELShanm != 0x804130C4 || RELHookRegion.Contains(Mailbox+OffRELShanm, 1) {
+		t.Errorf("REL shanm word at +0x%X (0x%08X)", OffRELShanm, Mailbox+OffRELShanm)
+	}
+	for _, r := range []addr.Region{CanaryTRK, CanaryArena, CanaryArenaHigh} {
+		if r.Contains(Mailbox+OffRELShanm, 4) {
+			t.Errorf("%s covers the REL shanm word", r.Name)
+		}
+	}
 	// The two new words follow the frame counter, in the slack past the
 	// Mailbox struct, below the enemy block, outside every canary region;
 	// T2's exec_shim loads 0x30BC(0x8041 << 16).
@@ -339,8 +429,10 @@ func TestRemoteBlockPlacement(t *testing.T) {
 		{"dy_max after role", RemoteRoleOff + 1, RemoteDYMaxOff},
 		{"counts after dy_max", RemoteDYMaxOff + 4, RemotePolicyCountOff},
 		{"cooldown after counts", RemoteFFCountOff + 1, RemoteCreateCooldownOff},
-		{"reserved after cooldown", RemoteCreateCooldownOff + 2, RemoteReservedOff},
-		{"slots after reserved", RemoteReservedOff + 4, RemoteSlotsOff},
+		{"full_allow after cooldown", RemoteCreateCooldownOff + 2, RemoteFullAllowOff},
+		{"heap_reason after full_allow", RemoteFullAllowOff + 1, RemoteHeapReasonOff},
+		{"flags2 after heap_reason", RemoteHeapReasonOff + 1, RemoteFlags2Off},
+		{"slots after flags2", RemoteFlags2Off + 2, RemoteSlotsOff},
 		{"slots end", RemoteSlotsOff + RemoteMaxSlots*RemoteSlotSize, RemoteApplyOff},
 		{"apply end", RemoteApplyOff + RemoteApplySize, RemoteFFDenyOff},
 		{"FF denylist end", RemoteFFDenyOff + RemoteFFDenyMax*RemoteStageLen, RemotePolicyOff},
@@ -383,7 +475,8 @@ func TestRemoteBlockPlacement(t *testing.T) {
 		{"bs state", RemoteBSPIDOff + 4, RemoteBSStateOff},
 		{"bs frames_live", RemoteBSLatchedByOff + 1, RemoteBSFramesLiveOff},
 		{"bs tries", RemoteBSFramesLiveOff + 2, RemoteBSTriesOff},
-		{"bs end", RemoteBSPadOff + 1, RemoteBodyStatusSize},
+		{"bs kind", RemoteBSTriesOff + 1, RemoteBSKindOff},
+		{"bs end", RemoteBSKindOff + 1, RemoteBodyStatusSize},
 		{"hit pid", RemoteHEHFlagsOff + 1, RemoteHEPIDOff},
 		{"hit setid", RemoteHEPIDOff + 4, RemoteHESetIDOff},
 		{"hit attype", RemoteHEProcOff + 2, RemoteHEAtTypeOff},
@@ -425,14 +518,26 @@ func TestRemoteContractValues(t *testing.T) {
 	var seen uint16
 	for _, f := range []uint16{RemoteFlagBodies, RemoteFlagSwap, RemoteFlagHittable, RemoteFlagDetect, RemoteFlagApply, RemoteFlagAttrib,
 		RemoteFlagNameA9, RemoteFlagGuard, RemoteFlagFFGateOff, RemoteFlagRouyaGateOff, RemoteFlagAttacker, RemoteFlagGroupWide,
-		RemoteFlagBothWordsEnable, RemoteFlagIFrameStamp} {
+		RemoteFlagBothWordsEnable, RemoteFlagIFrameStamp, RemoteFlagFullBodies} {
 		if f == 0 || f&(f-1) != 0 || seen&f != 0 {
 			t.Errorf("flag 0x%04X is not a fresh single bit", f)
 		}
 		seen |= f
 	}
-	if seen != 0x3FFF {
-		t.Errorf("flags cover 0x%04X, design §6.3 has 0x0001..0x2000", seen)
+	if seen != 0x7FFF {
+		t.Errorf("flags cover 0x%04X, design §6.3 has 0x0001..0x2000 and the stage-4 plan D4-2 0x4000", seen)
+	}
+	if RemoteFlag2FullCo != 0x0001 {
+		t.Errorf("FLAG2_FULL_CO 0x%04X", RemoteFlag2FullCo)
+	}
+	// Heap-gate reasons 0..12 and the new body errors 10..15 are dense and
+	// past the Batch A codes; kind 0 is the lite body (today).
+	if RemoteHGNone != 0 || RemoteHGOpen != 1 || RemoteHGFullMax != 12 || RemoteKindLite != 0 || RemoteKindFull != 1 ||
+		RemoteBErrHeapDenied != RemoteBErrGone+1 || RemoteBErrFullVtable != 15 {
+		t.Error("heap-gate reasons, kinds or the full-body BERR codes moved (stage-4 plan §2.1)")
+	}
+	if RemoteFPNew != 0 || RemoteFPParams != 1 || RemoteFPInit != 2 || RemoteFPLive != 3 || RemoteFullCreateFrames != 120 || RemoteFullParams != 0xFF000040 {
+		t.Error("full-body create phases or params moved (stage-4 plan §2.1)")
 	}
 	if RemoteKeeperSwapOff != 0x458 || RemoteActorSize != 0x600 || RemoteBodyEnd > RemoteActorSize ||
 		RemoteBodyVTOff+RemoteBodyVTSize > RemoteBodyCylOff || RemoteBodyCylOff+RemoteBodyCylSize != RemoteBodySttsOff ||
@@ -565,7 +670,7 @@ func TestRemoteBlockEncode(t *testing.T) {
 func sampleRemoteStatus() *RemoteStatus {
 	st := &RemoteStatus{AckSeq: 0x0A0B0C0D, AckFrame: 4242, HitRingHead: 6, ApplyAck: 3,
 		ApplyResult: RemoteApplyResult{Result: RemoteARGuarded, Detail: RemoteADNone, Frames: 2, Sets: 1}, LifeBefore: 12, LifeAfter: 12}
-	st.Bodies[1] = RemoteBodyStatus{Actor: 0x80B12340, PID: 0x77, State: RemoteBodyLive, Err: RemoteBErrNone, Hits: 3, LatchedBy: 2, FramesLive: 900, Tries: 1}
+	st.Bodies[1] = RemoteBodyStatus{Actor: 0x80B12340, PID: 0x77, State: RemoteBodyLive, Err: RemoteBErrNone, Hits: 3, LatchedBy: 2, FramesLive: 900, Tries: 1, Kind: RemoteKindFull}
 	st.Bodies[3] = RemoteBodyStatus{State: RemoteBodyEmpty, Err: RemoteBErrVtable, Tries: 3}
 	for i := range st.Counters {
 		st.Counters[i] = uint32(0x100*i + 1)
@@ -588,7 +693,8 @@ func TestRemoteStatusRoundTrip(t *testing.T) {
 	copy(blk[0x1F0:], b)
 	if len(b) != 0x140 || be.Uint32(blk[0x1F0:]) != 0x0A0B0C0D || be.Uint32(blk[0x1F4:]) != 4242 ||
 		be.Uint32(blk[0x1F8+0x10:]) != 0x80B12340 || blk[0x1F8+0x10+0x08] != RemoteBodyLive || blk[0x1F8+0x10+0x0B] != 2 ||
-		be.Uint16(blk[0x1F8+0x10+0x0C:]) != 900 || blk[0x1F8+0x30+0x09] != RemoteBErrVtable || blk[0x1F8+0x30+0x0E] != 3 ||
+		be.Uint16(blk[0x1F8+0x10+0x0C:]) != 900 || blk[0x1F8+0x10+0x0F] != RemoteKindFull || blk[0x1F8+0x30+0x0F] != RemoteKindLite ||
+		blk[0x1F8+0x30+0x09] != RemoteBErrVtable || blk[0x1F8+0x30+0x0E] != 3 ||
 		be.Uint32(blk[0x238:]) != 1 || be.Uint32(blk[0x238+4*9:]) != 0x901 || be.Uint32(blk[0x260:]) != 6 ||
 		be.Uint32(blk[0x324:]) != 3 || !bytes.Equal(blk[0x328:0x32C], []byte{RemoteARGuarded, 0, 2, 1}) || be.Uint16(blk[0x32C:]) != 12 || be.Uint16(blk[0x32E:]) != 12 {
 		t.Errorf("REL span at the wrong offsets: %x", blk[0x1F0:])
@@ -631,6 +737,114 @@ func TestRemoteStatusRoundTrip(t *testing.T) {
 	// The Go write never touches the unused word or the REL span.
 	if w := m.b[RemoteBlockAddr+RemoteUnusedOff]; w != 0 {
 		t.Errorf("unused word written: %x", w)
+	}
+}
+
+// TestRemoteBlockFullFields: the three stage-4 fields in the old reserved
+// word (+0x1C u8 FULL_ALLOW, +0x1D u8 HEAP_REASON, +0x1E u16 FLAGS2) encode
+// at their literal offsets and change nothing else: the Go span is the
+// layout-1 golden with only bytes 0x1C..0x1F replaced, so WWREMOTE_LAYOUT
+// stays 1. At 0 (sampleRemoteBlock) the golden itself is unchanged.
+func TestRemoteBlockFullFields(t *testing.T) {
+	b := sampleRemoteBlock()
+	b.Flags |= RemoteFlagFullBodies
+	b.FullAllow, b.HeapReason, b.Flags2 = 0x01, RemoteHGOpen, RemoteFlag2FullCo
+	out, err := b.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := hex.DecodeString(remoteGoSpanGolden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy(want[0x1C:0x20], []byte{0x01, 0x01, 0x00, 0x01})
+	binary.BigEndian.PutUint16(want[0x0A:], 0x6003) // BODIES | SWAP | IFRAME_STAMP | FULL_BODIES
+	if !bytes.Equal(out, want) {
+		t.Errorf("full fields:\n got %x\nwant %x", out, want)
+	}
+	if got := hex.EncodeToString(out); got != remoteGoSpanGoldenFull {
+		t.Errorf("the full-fields Go span changed:\n got %s\nwant %s", got, remoteGoSpanGoldenFull)
+	}
+	got, tail, err := DecodeRemoteBlock(out)
+	if err != nil || tail != b.Seq || !reflect.DeepEqual(&got, b) {
+		t.Errorf("decode: tail %08X, %v\n got %+v\nwant %+v", tail, err, got, *b)
+	}
+	b.FullAllow, b.HeapReason, b.Flags2 = 0xFF, RemoteHGFullMax, 0xFFFF
+	if out, err = b.Encode(); err != nil || !bytes.Equal(out[0x1C:0x20], []byte{0xFF, 0x0C, 0xFF, 0xFF}) || !bytes.Equal(out[0x18:0x1C], want[0x18:0x1C]) || !bytes.Equal(out[0x20:0x50], want[0x20:0x50]) {
+		t.Errorf("saturated full fields spill: %x %v", out[0x18:0x50], err)
+	}
+}
+
+// TestRemoteFullTailOrder: the full body's tail keeps the lite body's
+// +0x530.. field order (one REL tail struct serves both), sits right past
+// daPy_lk_c, fits the profile's mSize, and the daPy_lk_c fields the REL
+// touches lie inside the actor in their decomp order.
+func TestRemoteFullTailOrder(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		full, lite int
+	}{
+		{"slot", RemoteFullSlotOff, RemoteBodySlotOff},
+		{"gen", RemoteFullGenOff, RemoteBodyGenOff},
+		{"iframes_left", RemoteFullIFramesLeftOff, RemoteBodyIFramesLeftOff},
+		{"state", RemoteFullStateOff, RemoteBodyStateOff},
+		{"shield_angle", RemoteFullShieldAngleOff, RemoteBodyShieldAngleOff},
+		{"last_pose_seq", RemoteFullLastPoseSeqOff, RemoteBodyLastPoseSeqOff},
+		{"park_since", RemoteFullParkSinceOff, RemoteBodyParkSinceOff},
+	} {
+		if c.full-RemoteFullMagicOff != c.lite-RemoteBodyMagicOff {
+			t.Errorf("full tail %s at magic+0x%X, the lite body's at magic+0x%X", c.name, c.full-RemoteFullMagicOff, c.lite-RemoteBodyMagicOff)
+		}
+	}
+	tail := RemoteFullSize - RemoteFullDaPySize
+	if RemoteFullDaPySize != 0x4C28 || tail != 0x58 || RemoteFullTailOff != int(RemoteFullDaPySize) || RemoteFullMagicOff != RemoteFullTailOff ||
+		RemoteFullEnd > int(RemoteFullSize) || RemoteFullPhaseOff != RemoteFullTailOff+0x48 ||
+		RemoteBodyEnd-RemoteBodyMagicOff > RemoteFullPhaseOff-RemoteFullMagicOff {
+		t.Errorf("full body: daPy_lk_c 0x%X, tail 0x%X at +0x%X, end +0x%X, phase +0x%X", RemoteFullDaPySize, tail, RemoteFullTailOff, RemoteFullEnd, RemoteFullPhaseOff)
+	}
+	for _, c := range []struct {
+		name      string
+		got, want int
+	}{
+		{"kind after phase", RemoteFullPhaseOff + 1, RemoteFullKindOff},
+		{"create_frames after kind", RemoteFullKindOff + 1, RemoteFullCreateFramesOff},
+		{"shanm_diff after create_frames", RemoteFullCreateFramesOff + 2, RemoteFullShanmDiffOff},
+		{"heap_err after shanm_diff", RemoteFullShanmDiffOff + 4, RemoteFullHeapErrOff},
+		{"end after heap_err", RemoteFullHeapErrOff + 4, RemoteFullEnd},
+	} {
+		if c.got != c.want {
+			t.Errorf("full tail %s: 0x%X, want 0x%X", c.name, c.got, c.want)
+		}
+	}
+	if RemoteFullShanmDiffOff%4 != 0 || RemoteFullHeapErrOff%4 != 0 || RemoteFullLastPoseSeqOff%4 != 0 || RemoteFullCreateFramesOff%2 != 0 {
+		t.Error("a full tail word is misaligned")
+	}
+	// daPy_lk_c fields: the shared daPy_py_c ones equal the lite body's
+	// images, the rest lie in decomp order inside the actor.
+	if RemoteFullDamageWaitOff != RemoteBodyDamageWaitOff || RemoteFullVPtrOff != RemoteBodyVPtrOff {
+		t.Error("full mDamageWaitTimer / vptr differ from the lite body's daPy_py_c images")
+	}
+	order := []int{RemoteFullDamageWaitOff, RemoteFullNoReset1Off, RemoteFullReset0Off, RemoteFullVPtrOff, RemoteFullModelOff, RemoteFullLinktexOff,
+		RemoteFullCurProcOff, RemoteFullShieldRangeOff, RemoteFullModeFlgOff, RemoteFullSttsOff, RemoteFullCylOff}
+	for i := 1; i < len(order); i++ {
+		if order[i] <= order[i-1] {
+			t.Errorf("daPy_lk_c field +0x%X not after +0x%X", order[i], order[i-1])
+		}
+	}
+	if RemoteFullCylOff+RemoteBodyCylSize > RemoteFullTailOff || RemoteFullSttsOff+RemoteBodySttsSize > RemoteFullCylOff {
+		t.Error("full mStts/mCyl do not fit before the tail")
+	}
+	// Profile and name-table addresses (stage-4 plan D4-1).
+	if RemoteFullProc != 0x27 || RemoteDMCFullAddr != 0x803B9218+4*uint32(RemoteFullProc) || RemoteDMCRELAddr != 0x803B9218+4*0xB5 ||
+		RemoteFullNameEntry != 0x80339938 || RemoteFullNamePtr != 0x8033AE39 || RemoteProfileListPtr != 0x803F6A68 {
+		t.Error("full-body profile, DMC or name-table addresses moved")
+	}
+	// shanm table: header 0x60, then joint_addr[64], mat_addr[256], val[4224].
+	if RemoteShanmBytes != 0x60+4*64+4*256+4*4224 || string(binary.BigEndian.AppendUint32(nil, RemoteShanmMagic)) != "WWSA" ||
+		RemoteSAJointDiffOff+4 > 0x60 || RemoteSASizeOff != RemoteSAMagicOff+4 || RemoteSASelfOff != RemoteSASizeOff+4 ||
+		RemoteSAWordsOff != RemoteSASelfOff+4 || RemoteSACreateDiffOff != RemoteSAWordsOff+4 || RemoteSADeleteDiffOff != RemoteSACreateDiffOff+4 ||
+		RemoteSADeleteScanOff != RemoteSADeleteDiffOff+4 || RemoteSAWindowsOff != RemoteSADeleteScanOff+4 || RemoteSAJointDiffOff != RemoteSAWindowsOff+4 {
+		t.Error("the shanm table header does not tile or its size is not 0x4760")
 	}
 }
 
@@ -682,6 +896,27 @@ func TestReadRELHook(t *testing.T) {
 // change and needs WWREMOTE_LAYOUT bumped on both sides.
 const remoteGoSpanGolden = "" +
 	"575752500a0b0c0d0001200300000007a41e1e0143c800000202001e00000000" +
+	"010301050202000c4d5f446169000000c4bb900043480000453b8000c0001234" +
+	"42dc000041f0000042f000000109000000000000000000000000000000000000" +
+	"0000000000000000000000000000000000000000000000000000000000000000" +
+	"0000ff000000000073656100000000004080000040a0000040c0000000000000" +
+	"0000000000000000000000000000000000000000000000000000000000000000" +
+	"0000000000000000000000000000000000000000000000000000000000000000" +
+	"00000003001202030d060501000008003f80000042480000c000000000000000" +
+	"00000000c1f00000536972656e0000007365615f540000000000000000000000" +
+	"000000000000000000bd020001d5090000000000000000000000000000000000" +
+	"0000000000000000000000000000000000000000000000000000000000000000" +
+	"0000000000000000000000000000000000000000000000000000000000000000" +
+	"0000000000000000000000000000000000000000000000000000000000000000" +
+	"0000000000000000000000000000000000000000000000000000000000000000" +
+	"0000000000000000000000000000000000000000000000000000000000000000" +
+	"00000000000000000a0b0c0d"
+
+// remoteGoSpanGoldenFull is TestRemoteBlockFullFields' Encode: the golden
+// above with flags 0x6003 (FULL_BODIES added) and +0x1C..+0x1F = 01 01 00
+// 01 (FULL_ALLOW slot 0, HEAP_REASON OPEN, FLAGS2 FULL_CO), still layout 1.
+const remoteGoSpanGoldenFull = "" +
+	"575752500a0b0c0d0001600300000007a41e1e0143c800000202001e01010001" +
 	"010301050202000c4d5f446169000000c4bb900043480000453b8000c0001234" +
 	"42dc000041f0000042f000000109000000000000000000000000000000000000" +
 	"0000000000000000000000000000000000000000000000000000000000000000" +

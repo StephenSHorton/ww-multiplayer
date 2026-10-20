@@ -327,11 +327,25 @@ func TestEverythingInMEM1(t *testing.T) {
 		"JKRHeapCodeEnd": JKRHeapCodeEnd, "DMC": DMC, "GbaCom": GbaCom,
 		"RoomStayNo": RoomStayNo, "CcS": CcS, "CalcMtxPtr": CalcMtxPtr,
 		"MObjectInfo": MObjectInfo, "PlayerInfo0Ptr": PlayerInfo0Ptr,
+		"SolidHeapErrors": SolidHeapErrors, "CommandHeapErrors": CommandHeapErrors,
+		"UnknownHeapErrors": UnknownHeapErrors, "HeapErrorsTotal": HeapErrorsTotal,
+		"HeapCountersAddr": HeapCountersAddr, "HeapCountersEnd-1": HeapCountersAddr + HeapCountersLen - 1,
+		"CommandHeapPtr": CommandHeapPtr, "ExpHeapVtable": ExpHeapVtable,
 	}
 	for name, a := range all {
 		if a < MEM1Base || a >= MEM1End {
 			t.Errorf("%s = 0x%08X is outside MEM1", name, a)
 		}
+	}
+	// The seven heap counters are one contiguous run, in declaration order.
+	for i, a := range []uint32{SolidHeapErrors, GameHeapErrors, ZeldaHeapErrors, CommandHeapErrors,
+		ArchiveHeapErrors, UnknownHeapErrors, HeapErrorsTotal} {
+		if a != HeapCountersAddr+uint32(4*i) {
+			t.Errorf("heap counter %d at 0x%08X, want 0x%08X", i, a, HeapCountersAddr+uint32(4*i))
+		}
+	}
+	if HeapCountersLen != 7*4 {
+		t.Errorf("HeapCountersLen 0x%X, want 0x1C", HeapCountersLen)
 	}
 	if GameInfo+GameInfoSize > MEM1End || RoomStatus+RoomStatusSize > GameInfo {
 		t.Error("gameInfo or mStatus overruns its neighbours")
