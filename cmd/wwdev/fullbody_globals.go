@@ -63,7 +63,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
-const fullbodyGlobalsUsage = "fullbody-globals snap <out.json> [--samples 60] [--every 16ms] [--wait none|full|empty] [--settle 60] [--timeout 30s] [--slot 0] [--track name=expr ...]\n" +
+const fullbodyGlobalsUsage = "fullbody-globals snap <out.json> [--samples 60] [--every 16ms] [--wait none|full|empty] [--settle 60] [--timeout 30s] [--slot 0] [--since <capture.json>] [--track name=expr ...]\n" +
 	"       fullbody-globals diff <a.json> <b.json> [--base <noise.json>]\n" +
 	"       fullbody-globals watch [secs=60, 0 = until Ctrl+C] [--slot 0] [--baseline 3] [--csv <path>] [--track name=expr ...]\n" +
 	"  expr: 0xADDR[*][+0xOFF[*]]...:len (hex; * derefs a u32), e.g. brk=0x803CA754*+0x2F34*+0x04:8\n" +
@@ -81,6 +81,10 @@ const (
 	fgTolerance fgClass = "TOLERANCE" // the ship: XZ within 5.0
 	fgCounters  fgClass = "COUNTERS"  // the heap error counters
 	fgInfo      fgClass = "INFO"      // printed, never judged (init$4884, --track)
+	// fgModal: compared by its usual value. The tunic swap (core/services.c
+	// tunic_swap) repoints the shared linktex header around each remote
+	// Link's draw and puts it back, so a read may catch it mid-draw.
+	fgModal fgClass = "MODAL"
 )
 
 // Field offsets the table and the body reads use.
@@ -138,7 +142,7 @@ var fgTable = []fgRegion{
 	// :463-474 delete).
 	{Name: "cur_heap", Expr: "0x803F772C:4", Class: fgNoise, Cite: "JKRHeap::sCurrentHeap (dapy.h:54); restored around playerInit only"},
 	{Name: "save_cur_heap", Expr: "0x803F6940:4", Class: fgNoise, Cite: "mDoExt_SaveCurrentHeap (dapy.h:55); restored around playerInit only"},
-	{Name: "host_linktex", Expr: fgPlayerPtrExpr + "*+0x338*:0x20", Class: fgStatic, Cite: "*(L+0x338) ResTIMG header (WWREMOTE_FULL_LINKTEX_OFF; fb_tex_copy)"},
+	{Name: "host_linktex", Expr: fgPlayerPtrExpr + "*+0x338*:0x20", Class: fgModal, Cite: "*(L+0x338) ResTIMG header (WWREMOTE_FULL_LINKTEX_OFF; fb_tex_copy)"},
 	{Name: "heap_counters", Expr: "0x803F68F4:0x1C", Class: fgCounters, Cite: "solid, game, zelda, command, archive, unknown, total (dapy.h:52-53; addr.HeapCountersAddr)"},
 	// Host observables of the S4-3 and S4-4 pass rows.
 	{Name: "restart", Expr: "0x803C5D30:0x30", Class: fgStatic, Cite: "dSv_restart_c, mLastMode at +0x2C: setRestartRoom did not run"},
@@ -529,6 +533,20 @@ type fgDump struct {
 	Body       []fgHex `json:"body,omitempty"`  // TRACKS: the body's own field, same sample
 }
 
+// fgMode returns the most common sample and how many samples hold it.
+func fgMode(samples []fgHex) (fgHex, int) {
+	var best fgHex
+	n := 0
+	count := map[string]int{}
+	for _, v := range samples {
+		count[string(v)]++
+		if c := count[string(v)]; c > n {
+			best, n = v, c
+		}
+	}
+	return best, n
+}
+
 // stats recomputes First, Mask, Distinct and Unresolved from Samples.
 func (d *fgDump) stats() {
 	d.First, d.Mask, d.Distinct, d.Unresolved = nil, nil, 0, 0
@@ -846,6 +864,18 @@ func fgJudge(da, db, dbase *fgDump, a, b *fgCapture, ra, rb fgRole) (string, str
 			return note(fgFail, "changed"+fgOffs(da.First, db.First, nil)+": missing restore, joins l_fb_snap (plan section 7 risk 2)")
 		}
 		return note(fgPass)
+	case fgModal:
+		ma, na := fgMode(da.Samples)
+		mb, nb := fgMode(db.Samples)
+		switch {
+		case 2*na <= len(da.Samples) || 2*nb <= len(db.Samples):
+			return note(fgInvalid, fmt.Sprintf("no usual value (%d/%d and %d/%d samples agree), redo", na, len(da.Samples), nb, len(db.Samples)))
+		case !bytes.Equal(ma, mb):
+			return note(fgFail, "usual value changed"+fgOffs(ma, mb, nil)+": missing restore, joins l_fb_snap (plan section 7 risk 2)")
+		case na < len(da.Samples) || nb < len(db.Samples):
+			return note(fgPass, fmt.Sprintf("usual value equal; %d and %d sample(s) caught mid-draw (tunic swap)", len(da.Samples)-na, len(db.Samples)-nb))
+		}
+		return note(fgPass)
 	case fgIdle:
 		if ra == fgBefore && nonzero(da.Mask) {
 			return note(fgInvalid, "host not idle, redo (a moved"+fgOffs(nil, nil, da.Mask)+")")
@@ -898,9 +928,17 @@ func fgJudge(da, db, dbase *fgDump, a, b *fgCapture, ra, rb fgRole) (string, str
 			r fgRole
 			n int
 			s string
-		}{{ra, ra0, "a"}, {rb, rb0, "b"}} {
+			v byte
+		}{{ra, ra0, "a", da.First[0]}, {rb, rb0, "b", db.First[0]}} {
 			if d.n >= 2 {
 				continue
+			}
+			if d.v == 0 {
+				// m_maba_timer rests at 0 between blinks for seconds at a
+				// time with no body at all (live S4-3 run, 2026-10-20), so a
+				// one-second window at 0 says nothing; frozen means stuck
+				// mid-count.
+				return note(fgMasked, "blink timer resting at 0 in "+d.s+" ("+string(d.r)+"); "+other)
 			}
 			if d.r == fgAfter || d.r == fgDel {
 				return note(fgFail, "blink frozen in "+d.s+" ("+string(d.r)+"); "+other)
@@ -1301,6 +1339,11 @@ type fgSnapOpts struct {
 	Settle  int
 	Timeout time.Duration
 	Slot    int
+	// Since, when HasSince, is the shanm WINDOWS count the wait counts
+	// from (an earlier capture's), so a body created before this snap
+	// started still counts.
+	Since    uint32
+	HasSince bool
 }
 
 func cmdFGSnap(args []string) (int, error) {
@@ -1308,7 +1351,7 @@ func cmdFGSnap(args []string) (int, error) {
 	if err != nil {
 		exitUsage(err, fullbodyGlobalsUsage)
 	}
-	pos, _, values, err := splitValueFlags(rest, []string{"samples", "every", "wait", "settle", "timeout", "slot"})
+	pos, _, values, err := splitValueFlags(rest, []string{"samples", "every", "wait", "settle", "timeout", "slot", "since"})
 	if err != nil {
 		exitUsage(err, fullbodyGlobalsUsage)
 	}
@@ -1346,6 +1389,13 @@ func cmdFGSnap(args []string) (int, error) {
 	}
 	if o.Slot, err = fgSlotArg(values); err != nil {
 		exitUsage(err, fullbodyGlobalsUsage)
+	}
+	if p, ok := values["since"]; ok {
+		c, err := fgLoad(p)
+		if err != nil {
+			exitUsage(fmt.Errorf("--since: %w", err), fullbodyGlobalsUsage)
+		}
+		o.Since, o.HasSince = c.windows(), true
 	}
 	regs, err := fgRegions(tracks)
 	if err != nil {
@@ -1412,6 +1462,9 @@ func fgWait(ctx context.Context, w io.Writer, m mem.Reader, o fgSnapOpts) (fgBod
 		return last, err
 	}
 	w0 := sh.Windows
+	if o.HasSince {
+		w0 = o.Since
+	}
 	fmt.Fprintf(w, "waiting for slot %d %s (shanm windows %d)\n", o.Slot, o.Wait, w0)
 	for {
 		st, err := mailbox.ReadRemoteStatus(m)

@@ -227,12 +227,19 @@ func TestFGDiff(t *testing.T) {
 		t.Fatalf("keep_pos leak code %d: %s", code, r)
 	}
 
-	// The blink frozen after the create: FAIL.
+	// The blink timer stuck mid-count after the create: FAIL.
 	m := fgFakeHost(t)
 	fgWithBody(t, m)
+	store(t, m, 0x803F6F1E, []byte{17, 0, 0, 3})
 	out, code = diff(idle(), fgCapt(t, m, 6, false, nil), nil)
 	if r := fgRow(t, out, "matanm"); code != 1 || !strings.Contains(r, "blink frozen in b") {
 		t.Fatalf("matanm code %d: %s", code, r)
+	}
+	// Resting at 0 between blinks: MASKED, not FAIL.
+	store(t, m, 0x803F6F1E, []byte{0, 0, 0, 0})
+	out, code = diff(idle(), fgCapt(t, m, 6, false, nil), nil)
+	if r := fgRow(t, out, "matanm"); code != 0 || !strings.Contains(r, "resting at 0") {
+		t.Fatalf("matanm rest code %d: %s", code, r)
 	}
 
 	// solidHeapErrors +1: a stage load, INVALID.
@@ -388,5 +395,43 @@ func TestFGWatch(t *testing.T) {
 	}
 	if !strings.HasPrefix(csv.String(), "t_ms,state,kind,err,evt_exception,") || strings.Count(csv.String(), "\n") < 50 {
 		t.Errorf("csv:\n%.300s", csv.String())
+	}
+}
+
+// TestFGModal: the linktex header is judged by its usual value, so the
+// tunic swap caught mid-draw passes and a changed usual value fails.
+func TestFGModal(t *testing.T) {
+	capt := func(usual, odd byte, nOdd int) *fgCapture {
+		c := fgCapt(t, fgFakeHost(t), 6, true, nil)
+		d := c.region("host_linktex")
+		if d == nil || d.Class != fgModal {
+			t.Fatalf("host_linktex: %+v", d)
+		}
+		for i := range d.Samples {
+			v := bytes.Repeat([]byte{usual}, d.Size)
+			if i < nOdd {
+				v[0] = odd
+			}
+			d.Samples[i] = v
+		}
+		d.stats()
+		return c
+	}
+	diff := func(a, b *fgCapture) (string, int) {
+		var w bytes.Buffer
+		code := fgDiff(&w, a, b, nil)
+		return w.String(), code
+	}
+	out, code := diff(capt(0x0E, 0, 0), capt(0x0E, 0x08, 1))
+	if r := fgRow(t, out, "host_linktex"); code != 0 || !strings.Contains(r, "PASS") || !strings.Contains(r, "mid-draw") {
+		t.Errorf("mid-draw code %d: %s", code, r)
+	}
+	out, code = diff(capt(0x0E, 0, 0), capt(0x08, 0, 0))
+	if r := fgRow(t, out, "host_linktex"); code != 1 || !strings.Contains(r, "FAIL") {
+		t.Errorf("changed code %d: %s", code, r)
+	}
+	out, code = diff(capt(0x0E, 0, 0), capt(0x0E, 0x08, 3))
+	if r := fgRow(t, out, "host_linktex"); code != 2 || !strings.Contains(r, "INVALID") {
+		t.Errorf("no usual value code %d: %s", code, r)
 	}
 }
