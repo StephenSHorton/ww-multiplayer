@@ -657,3 +657,141 @@ func TestMo2Offsets(t *testing.T) {
 		}
 	}
 }
+
+// TestBkOffsets pins bk_class's fields (d_a_bk.h:13-143) to the design's
+// numbers ("type_table" Bokoblin_0xBE) and to each other: the
+// damagereaction fields hang off dr, m0B2C follows dr's 0x7BC bytes, the
+// colliders are a dCcD_Cyl (0x130) or dCcD_Sph (0x12C) apart, and the
+// enemyice fields hang off mEnemyIce.
+func TestBkOffsets(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		got, want int
+	}{
+		{"BkClassSize (d_a_bk.h:143)", BkClassSize, 0x1848},
+		{"BkOffType (d_a_bk.h:16)", BkOffType, 0x2B4},
+		{"BkOffDrawGate (d_a_bk.h:22)", BkOffDrawGate, 0x2BA},
+		{"BkOffMorf (d_a_bk.h:24)", BkOffMorf, 0x2BC},
+		{"BkOffEyeBtp (d_a_bk.h:26)", BkOffEyeBtp, 0x2C4},
+		{"BkOffShieldModel (d_a_bk.h:32)", BkOffShieldModel, 0x2D0},
+		{"BkOffShieldGate (d_a_bk.h:33)", BkOffShieldGate, BkOffShieldModel + 4},
+		{"BkOffBouenModel (d_a_bk.h:36)", BkOffBouenModel, 0x2D8},
+		{"BkOffBouenGate (d_a_bk.h:37)", BkOffBouenGate, BkOffBouenModel + 4},
+		{"BkOffHide2 (d_a_bk.h:39)", BkOffHide2, 0x2DE},
+		// d_a_bk.h:44-46: f32 m02EC, int m02F0, int m02F4 back to back.
+		{"BkOffBlurScale", BkOffBlurScale, 0x2EC},
+		{"BkOffBlurOn", BkOffBlurOn, BkOffBlurScale + 4},
+		{"BkOffBlurShape", BkOffBlurShape, BkOffBlurOn + 4},
+		// d_a_bk.h:51-52: s16 m030C, m030E.
+		{"BkOffPlaySkip", BkOffPlaySkip, 0x30C},
+		{"BkOffInvuln", BkOffInvuln, BkOffPlaySkip + 2},
+		{"BkOffDR (d_a_bk.h:72)", BkOffDR, 0x370},
+		{"BkOffDRMode", BkOffDRMode, 0x374},
+		{"BkOffDRAction", BkOffDRAction, 0x376},
+		{"BkOffTilt", BkOffTilt, 0x7FC},
+		{"BkOffTiltZ", BkOffTiltZ, 0x800},
+		{"BkOffDRInvincible", BkOffDRInvincible, 0x83E},
+		{"BkOffDRM714", BkOffDRM714, 0xA84},
+		{"DamageReactionSize (c_damagereaction.h:193)", DamageReactionSize, 0x7BC},
+		{"m0B2C follows dr (d_a_bk.h:73)", BkOffDR + DamageReactionSize, 0xB2C},
+		{"BkOffWeaponHold (d_a_bk.h:74)", BkOffWeaponHold, 0xB30},
+		{"BkOffCoCyl (d_a_bk.h:89)", BkOffCoCyl, 0xB88},
+		{"BkOffTgCyl (m0B88 + dCcD_Cyl 0x130)", BkOffTgCyl, BkOffCoCyl + 0x130},
+		{"BkOffHeadSph (m0CB8 + dCcD_Cyl 0x130)", BkOffHeadSph, BkOffTgCyl + 0x130},
+		{"BkOffShieldSph (m0DE8 + dCcD_Sph 0x12C)", BkOffShieldSph, BkOffHeadSph + 0x12C},
+		{"BkOffAtSph (m0F14 + dCcD_Sph 0x12C)", BkOffAtSph, BkOffShieldSph + 0x12C},
+		{"BkOffHeadCenter (m1040 + dCcD_Sph 0x12C)", BkOffHeadCenter, BkOffAtSph + 0x12C},
+		{"BkOffHeadCenter (d_a_bk.h:94)", BkOffHeadCenter, 0x116C},
+		{"BkOffShieldCenter (d_a_bk.h:102)", BkOffShieldCenter, 0x11CC},
+		{"BkOffJaw (d_a_bk.h:109)", BkOffJaw, 0x11F4},
+		{"BkOffBokoPID (d_a_bk.h:112)", BkOffBokoPID, 0x1200},
+		{"BkOffBokoAttach (d_a_bk.h:118)", BkOffBokoAttach, 0x1214},
+		{"BkOffDeleteReq (d_a_bk.h:123)", BkOffDeleteReq, 0x121C},
+		{"BkOffDemoGate (d_a_bk.h:134)", BkOffDemoGate, 0x1234},
+		{"BkOffIce (d_a_bk.h:140)", BkOffIce, 0x1264},
+		{"BkOffIceShrink (ice +6)", BkOffIceShrink, 0x126A},
+		{"BkOffIceFreeze (ice +0xE)", BkOffIceFreeze, 0x1272},
+		{"BkOffJntHit (d_a_bk.h:142)", BkOffJntHit, BkClassSize - 4},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = 0x%X, want 0x%X", c.name, c.got, c.want)
+		}
+	}
+	if BkBokoNone != 0xFFFFFFFF || BkParamTypeMask != 0xF || BkTypeTorchShield != 0xB {
+		t.Error("BK params constants moved")
+	}
+}
+
+// TestCcOffsets pins cc_class's fields (d_a_cc.h:14-95) to the design's
+// numbers ("type_table" ChuChu_0xCF) and to each other.
+func TestCcOffsets(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		got, want int
+	}{
+		{"CcClassSize (d_a_cc.h:95)", CcClassSize, 0xE04},
+		{"CcOffMorf (d_a_cc.h:17)", CcOffMorf, 0x2B4},
+		{"CcOffBehavior (d_a_cc.h:28)", CcOffBehavior, 0x2F0},
+		{"CcOffColor (d_a_cc.h:29)", CcOffColor, CcOffBehavior + 1},
+		{"CcOffAction (d_a_cc.h:32)", CcOffAction, 0x2F4},
+		{"CcOffSubstate (d_a_cc.h:33)", CcOffSubstate, CcOffAction + 1},
+		{"CcOffElectric (d_a_cc.h:35)", CcOffElectric, 0x2F7},
+		{"CcOffNoShadowBG (d_a_cc.h:37)", CcOffNoShadowBG, 0x2F9},
+		{"CcOffStone (d_a_cc.h:42)", CcOffStone, 0x2FE},
+		{"CcOffSplit (d_a_cc.h:45)", CcOffSplit, 0x301},
+		{"CcOffInstaKill (d_a_cc.h:48)", CcOffInstaKill, 0x304},
+		{"CcOffWobble (d_a_cc.h:52)", CcOffWobble, 0x310},
+		{"CcOffGroundTilt (d_a_cc.h:53; m310 csXyz + 6)", CcOffGroundTilt, CcOffWobble + 6},
+		{"CcOffGroundTiltZ", CcOffGroundTiltZ, 0x31A},
+		{"CcOffSquashPhase (d_a_cc.h:54)", CcOffSquashPhase, 0x31C},
+		{"CcOffBckIndex (d_a_cc.h:55)", CcOffBckIndex, 0x320},
+		{"CcOffYOffset (d_a_cc.h:57)", CcOffYOffset, 0x328},
+		{"CcOffScale (d_a_cc.h:60)", CcOffScale, 0x334},
+		{"CcOffTimers (d_a_cc.h:68)", CcOffTimers, 0x34E},
+		{"CcOffStunTimer (m34E[4])", CcOffStunTimer, 0x356},
+		{"CcOffTimersEnd (m34E[7], d_a_cc.h:69)", CcOffTimersEnd, CcOffTimers + 7*2},
+		{"CcOffStts (d_a_cc.h:89)", CcOffStts, 0x680},
+		{"CcOffCyl (mStts + dCcD_Stts 0x3C, d_a_cc.h:90)", CcOffCyl, 0x6BC},
+		{"CcOffMtx (mCyl + dCcD_Cyl 0x130, d_a_cc.h:91)", CcOffMtx, CcOffCyl + 0x130},
+		{"CcCylOffTgSPrm (cCcD_ObjAt 0x18)", CcCylOffTgSPrm, 0x18},
+		{"CcCylOffCoSPrm (+ cCcD_ObjTg 0x14)", CcCylOffCoSPrm, CcCylOffTgSPrm + 0x14},
+		{"Tg SPrm vs the Moblin's Tg hit word (mRPrm = mSPrm + 4)", CcCylOffTgSPrm + 4, Mo2CcTgHitOff},
+		{"CcOffCylSPrmEnd", CcOffCylSPrmEnd, 0x6EC},
+		{"CcOffIce (d_a_cc.h:92; m7EC Mtx 0x30)", CcOffIce, CcOffMtx + 0x30},
+		{"CcOffIceShrink", CcOffIceShrink, 0x822},
+		{"CcOffIceFreeze", CcOffIceFreeze, 0x82A},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = 0x%X, want 0x%X", c.name, c.got, c.want)
+		}
+	}
+	if CcSPrmSet != 1 || CcColorBlack != 3 || CcSubstateDying != 0x35 || CcActionDying != 4 {
+		t.Error("CC flag constants moved")
+	}
+}
+
+// TestKindBckRanges pins the Bk and Cc BCK ranges (Bk.h:43-85, Cc.h:22-36).
+func TestKindBckRanges(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		got, want int
+	}{
+		{"BkBckFirst (AOMUKE)", BkBckFirst, 0x29},
+		{"BkBckLast (WALK2)", BkBckLast, 0x53},
+		{"BkBckCount", BkBckCount, 43},
+		{"BkBckWait", BkBckWait, 0x51},
+		{"CcBckFirst (ATACK01)", CcBckFirst, 0x14},
+		{"CcBckLast (TSTART02)", CcBckLast, 0x22},
+		{"CcBckCount", CcBckCount, 15},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = 0x%X, want 0x%X", c.name, c.got, c.want)
+		}
+	}
+	if BkArc != "Bk" || CcArc != "CC" || len(BkArc) >= ResInfoNameLen || len(CcArc) >= ResInfoNameLen {
+		t.Errorf("archive names %q %q", BkArc, CcArc)
+	}
+	if BkBckWait < BkBckFirst || BkBckWait > BkBckLast || Mo2BckNone <= BkBckLast {
+		t.Error("BK wait row or the none index out of range")
+	}
+}

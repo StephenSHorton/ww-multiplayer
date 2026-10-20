@@ -38,3 +38,26 @@ const (
 	Mo2BckKWait  = 0x5C // dRes_INDEX_MO2_BCK_KWAIT_e
 	Mo2BckNBWait = 0x62 // dRes_INDEX_MO2_BCK_NBWAIT_e
 )
+
+// The Bokoblin's and ChuChu's archives as the table stores them, and
+// their BCK ranges (design "animation": ArcRes per kind).
+const (
+	// BkArc is bk_class's archive (dComIfG_resLoad "Bk", d_a_bk.cpp:4747).
+	BkArc = "Bk"
+	// Bk.arc's BCK indices are contiguous (assets/GZLE01/res/Object/
+	// Bk.h:43-85): dRes_INDEX_BK_BCK_BK_AOMUKE_e 0x29 through
+	// dRes_INDEX_BK_BCK_BK_WALK2_e 0x53, 43 of them.
+	BkBckFirst = 0x29
+	BkBckLast  = 0x53
+	BkBckCount = BkBckLast - BkBckFirst + 1
+	BkBckWait  = 0x51 // dRes_INDEX_BK_BCK_BK_WAIT_e (Bk.h:83)
+	// CcArc is cc_class's archive (dComIfG_resLoad "CC", d_a_cc.cpp:2558).
+	CcArc = "CC"
+	// Cc.arc's BCK indices (assets/GZLE01/res/Object/Cc.h:22-36):
+	// dRes_INDEX_CC_BCK_ATACK01_e 0x14 through dRes_INDEX_CC_BCK_TSTART02_e
+	// 0x22, 15 of them (0x17 CC_BETA and 0x18 CC_PTCL drive other morfs;
+	// their pointers are still distinct).
+	CcBckFirst = 0x14
+	CcBckLast  = 0x22
+	CcBckCount = CcBckLast - CcBckFirst + 1
+)

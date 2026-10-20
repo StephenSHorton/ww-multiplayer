@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -157,4 +158,193 @@ func (r *Mo2Res) Lookup(m mem.Reader, anm uint32, now time.Time) (uint8, error) 
 		return addr.Mo2BckNone, err
 	}
 	return r.Index(anm), nil
+}
+
+// ArcRes is Mo2Res for any kind's archive (design "animation": ArcRes
+// per kind, MO2 'Mo2' 0x3E count 56, BK 'Bk' 0x29 count 43, CC 'CC' 0x14
+// count 15): Count BCK pointers at mRes + 4*First of the loaded
+// dRes_info_c named Name. The rules are Mo2Res's: the entry must have
+// mCount != 0 (a reference count) and mpArchive in MEM1, and the table is
+// ok iff every pointer is in MEM1, 4-aligned and distinct. Resolve makes
+// two Reads. Batch 1 uses it from the probes only; the Moblin host keeps
+// its Mo2Res.
+type ArcRes struct {
+	Name  string
+	First int
+	Count int
+
+	ptrs  []uint32
+	ok    bool
+	entry int
+	res   uint32
+	count uint16
+	why   string
+
+	missNext time.Time
+
+	// Stats as Mo2Res's.
+	Stats struct {
+		Reads, BckMiss, MissReads uint64
+	}
+}
+
+// NewArcRes is the table of k's archive.
+func NewArcRes(k *Kind) *ArcRes {
+	return &ArcRes{Name: k.Arc, First: k.BckFirst, Count: k.BckCount(), entry: -1}
+}
+
+// OK reports whether the last Resolve found a usable table.
+func (r *ArcRes) OK() bool { return r.ok }
+
+// Why says why the table is not ok ("" when it is).
+func (r *ArcRes) Why() string { return r.why }
+
+// Entry returns the entry's index in mObjectInfo (-1 when none), its mRes
+// and its mCount.
+func (r *ArcRes) Entry() (int, uint32, uint16) { return r.entry, r.res, r.count }
+
+// Ptrs returns the pointers of the last ok Resolve (index i is bck
+// First+i), nil when the table is not ok.
+func (r *ArcRes) Ptrs() []uint32 { return r.ptrs }
+
+// Resolve reads the table from m. A read error is returned; a table that
+// is not usable is not an error: OK reports false and Why says why.
+func (r *ArcRes) Resolve(m mem.Reader) error {
+	r.Stats.Reads++
+	r.ok, r.entry, r.res, r.count, r.why, r.ptrs = false, -1, 0, 0, "", nil
+	if r.Count <= 0 || r.First < 0 || r.First+r.Count > 0x100 || len(r.Name) >= addr.ResInfoNameLen {
+		r.why = fmt.Sprintf("bad table %q 0x%X+%d", r.Name, r.First, r.Count)
+		return nil
+	}
+	n := addr.ObjectInfoCount * addr.ResInfoSize
+	b, err := m.Read(addr.MObjectInfo, n)
+	if err != nil {
+		return fmt.Errorf("enemysync: mObjectInfo: %w", err)
+	}
+	if len(b) != n {
+		return fmt.Errorf("enemysync: mObjectInfo: %d bytes read, want %d", len(b), n)
+	}
+	be := binary.BigEndian
+	want := []byte(r.Name)
+	for i := range addr.ObjectInfoCount {
+		e := b[i*addr.ResInfoSize:]
+		name := e[addr.ResInfoOffName : addr.ResInfoOffName+addr.ResInfoNameLen]
+		if k := bytes.IndexByte(name, 0); k >= 0 {
+			name = name[:k]
+		}
+		if !bytes.Equal(name, want) {
+			continue
+		}
+		count := be.Uint16(e[addr.ResInfoOffCount:])
+		arc := be.Uint32(e[addr.ResInfoOffArchive:])
+		if count == 0 || !addr.InMEM1(arc) {
+			continue // getResInfo skips it too
+		}
+		r.entry, r.res, r.count = i, be.Uint32(e[addr.ResInfoOffRes:]), count
+		break
+	}
+	if r.entry < 0 {
+		r.why = fmt.Sprintf("no loaded %s entry in mObjectInfo", r.Name)
+		return nil
+	}
+	at := r.res + 4*uint32(r.First)
+	if mem.CheckRange(at, 4*r.Count) != nil {
+		r.why = fmt.Sprintf("the %s entry's mRes 0x%08X is outside MEM1", r.Name, r.res)
+		return nil
+	}
+	p, err := m.Read(at, 4*r.Count)
+	if err != nil {
+		return fmt.Errorf("enemysync: %s mRes: %w", r.Name, err)
+	}
+	if len(p) != 4*r.Count {
+		return fmt.Errorf("enemysync: %s mRes: %d bytes read", r.Name, len(p))
+	}
+	ptrs := make([]uint32, r.Count)
+	seen := map[uint32]bool{}
+	for i := range ptrs {
+		v := be.Uint32(p[4*i:])
+		if !addr.InMEM1(v) || v%4 != 0 || seen[v] {
+			r.why = fmt.Sprintf("%s BCK 0x%02X's pointer 0x%08X is outside MEM1, misaligned or a duplicate", r.Name, r.First+i, v)
+			return nil
+		}
+		seen[v] = true
+		ptrs[i] = v
+	}
+	r.ptrs, r.ok = ptrs, true
+	return nil
+}
+
+// Index returns the BCK index of anm, or addr.Mo2BckNone (0xFF) when it
+// is not one of the table's pointers or the table is not ok.
+func (r *ArcRes) Index(anm uint32) uint8 {
+	if !r.ok || anm == 0 {
+		return addr.Mo2BckNone
+	}
+	for i, p := range r.ptrs {
+		if p == anm {
+			return uint8(r.First + i)
+		}
+	}
+	return addr.Mo2BckNone
+}
+
+// Lookup is Index with Mo2Res's miss rule (one re-read per MissReread).
+func (r *ArcRes) Lookup(m mem.Reader, anm uint32, now time.Time) (uint8, error) {
+	if idx := r.Index(anm); idx != addr.Mo2BckNone {
+		return idx, nil
+	}
+	r.Stats.BckMiss++
+	if now.Before(r.missNext) {
+		return addr.Mo2BckNone, nil
+	}
+	r.missNext = now.Add(MissReread)
+	r.Stats.MissReads++
+	if err := r.Resolve(m); err != nil {
+		return addr.Mo2BckNone, err
+	}
+	return r.Index(anm), nil
+}
+
+// KindTracker is Tracker over every kind: one ArcRes per kind and the
+// restart detector per process ID. The probes derive a KindSample's Bck,
+// AnmSeq and Morf through it.
+type KindTracker struct {
+	Res    [len(Kinds)]*ArcRes
+	tracks map[uint32]*AnmTrack
+}
+
+// NewKindTracker is a tracker with every kind's table unresolved.
+func NewKindTracker() *KindTracker {
+	t := &KindTracker{tracks: map[uint32]*AnmTrack{}}
+	for i := range Kinds {
+		t.Res[i] = NewArcRes(&Kinds[i])
+	}
+	return t
+}
+
+// Derive fills s's Bck (through s.Kind's table, with the miss rule),
+// AnmSeq and Morf for the actor with process ID pid at now.
+func (t *KindTracker) Derive(m mem.Reader, pid uint32, s *KindSample, now time.Time) error {
+	tr := t.tracks[pid]
+	if tr == nil {
+		tr = &AnmTrack{}
+		t.tracks[pid] = tr
+	}
+	tr.Update(&s.Sample)
+	s.Bck = addr.Mo2BckNone
+	if !s.MorfOK || s.Kind.Row() == nil {
+		return nil
+	}
+	idx, err := t.Res[s.Kind].Lookup(m, s.Anm, now)
+	s.Bck = idx
+	return err
+}
+
+// Keep drops the tracks of every actor not in pids.
+func (t *KindTracker) Keep(pids []uint32) {
+	for pid := range t.tracks {
+		if !slices.Contains(pids, pid) {
+			delete(t.tracks, pid)
+		}
+	}
 }
