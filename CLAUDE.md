@@ -413,6 +413,9 @@ See docs/TESTING.md for the full pre-push matrix.
   only when both are in the same stage, layer and room, idle, and within 5
   units, and never under `--coop`. Override via `MP_LOCAL_SHIFT_X/Y/Z`
   env, or set all three to 0 to disable.
+- `MP_LOCAL_PIDS=<A>,<B>` pins which running Dolphin is A (the host of
+  every pipeline that has one, e.g. enemy sync) and which is B; without it
+  the process enumeration order decides.
 - **Diagnostic toolkit** (`find-pos`, `scan-pos`, `peek`, `poke-vec3`,
   `track-pos`, `warp`, `warp-force[-off]`,
   `eye-fix-gates`, `eye-fix-chain`, `eye-fix-find-shape`, `j3dsys-probe`,

@@ -162,9 +162,25 @@ typedef char em_check_state[(sizeof(em_slot) == 0x5C &&
 // (d_com_inf_game.h:791; wwapi.h PLAYER_PTR_ARRAY, addr.PlayerPtr).
 // daPy_py_c::changePlayer writes only the first (d_a_player.cpp:13-24).
 #define EM_PLAYER_PTR0    (*(volatile u32*)0x803CA754)
-// __vt__8dCcD_Sph (symbols.txt:15249): the primary vptr at +0x3C of a live
-// dCcD_Sph, the sanity check on the copied image.
+// The DOL's vtables for the four vptrs of a dCcD_Sph image (symbols.txt):
+// __vt__8dCcD_Sph (:15249) at +0x3C; its cCcD_ShapeAttr part (+0x28 into
+// it) at +0x114 and its cM3dGSph part (+0x7C) at +0x128; __vt__8cM3dGAab
+// (:14741) at +0x110 (the shape's AABB, before the ShapeAttr vptr; MWCC
+// puts a class's vptr after its members). dCcD_Sph's ctor is inline, so a
+// sphere built in an actor REL (d_a_mo2.rel) points at that REL's own copy
+// of these tables (live: 0x8132F794, +0x28 and +0x7C at +0x114/+0x128,
+// the AABB table 0x8132F8BC): the same layout, its dtor slots REL copies
+// of the same code. The static image must never keep those: the REL can
+// be unloaded at a stage change while the image lives on.
 #define EM_VT_DCCD_SPH    0x803899D0
+#define EM_VT_SPH_SHAPE   0x803899F8    // EM_VT_DCCD_SPH + 0x28
+#define EM_VT_SPH_GSPH    0x80389A4C    // EM_VT_DCCD_SPH + 0x7C
+#define EM_VT_GAAB        0x80375CAC
+#define EM_VT_SLOT_A      0x10          // two slots that hold DOL functions in
+#define EM_VT_SLOT_B      0x1C          // both copies (0x800AB7C0, 0x800AB7C4)
+#define CC_AAB_VPTR       0x110
+#define CC_SHAPE_VPTR     0x114
+#define CC_GSPH_VPTR      0x128
 #define EM_MEM1_LO        0x80000000u
 #define EM_MEM1_HI        0x83000000u   // 48 MB MEM1 (docs/05 "48 MB MEM1")
 
@@ -1037,11 +1053,22 @@ static void em_hit_submit(enemy_mirror_state* s, void* a) {
         // in the copy is reset by ClrAtHit, CalcArea, StartCAt or Set.
         u32* dst = (u32*)EM_SPH;
         const u32* img = (const u32*)((u8*)a + MO2_HEAD_SPH);
+        u32 vt;
         for (i = 0; i < EM_SPH_SIZE / 4; i++) dst[i] = img[i];
-        if (AF(EM_SPH, u32, CC_VPTR) != EM_VT_DCCD_SPH) {
+        // Fingerprint the image's dCcD_Sph table (the DOL's own, or a REL's
+        // copy of it), then point every vptr at the DOL's tables.
+        vt = AF(EM_SPH, u32, CC_VPTR);
+        if (!em_in_mem1(vt) || AF(EM_SPH, u32, CC_SHAPE_VPTR) != vt + 0x28 ||
+            AF(EM_SPH, u32, CC_GSPH_VPTR) != vt + 0x7C || !em_in_mem1(AF(EM_SPH, u32, CC_AAB_VPTR)) ||
+            AF(vt, u32, EM_VT_SLOT_A) != AF(EM_VT_DCCD_SPH, u32, EM_VT_SLOT_A) ||
+            AF(vt, u32, EM_VT_SLOT_B) != AF(EM_VT_DCCD_SPH, u32, EM_VT_SLOT_B)) {
             em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_NO_SPHERE);
             return;
         }
+        AF(EM_SPH, u32, CC_VPTR) = EM_VT_DCCD_SPH;
+        AF(EM_SPH, u32, CC_SHAPE_VPTR) = EM_VT_SPH_SHAPE;
+        AF(EM_SPH, u32, CC_GSPH_VPTR) = EM_VT_SPH_GSPH;
+        AF(EM_SPH, u32, CC_AAB_VPTR) = EM_VT_GAAB;
         AF(EM_SPH, u32, CC_GAT_CALLBACK) = 0;
         AF(EM_SPH, u32, CC_AT_SPRM) = 0;
         s->sph_built = 1;

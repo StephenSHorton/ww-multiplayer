@@ -346,3 +346,26 @@ func TestStartupShiftNeverUnderCoop(t *testing.T) {
 		})
 	}
 }
+
+// TestPinnedPIDs: MP_LOCAL_PIDS picks A and B among the running Dolphins.
+func TestPinnedPIDs(t *testing.T) {
+	running := []uint32{34368, 40644}
+	for _, c := range []struct {
+		v    string
+		a, b uint32
+		ok   bool
+	}{
+		{"40644,34368", 40644, 34368, true},
+		{" 34368 , 40644 ", 34368, 40644, true},
+		{"", 0, 0, false},
+		{"40644", 0, 0, false},
+		{"40644,40644", 40644, 40644, false},
+		{"40644,1", 0, 0, false},
+		{"x,34368", 0, 0, false},
+	} {
+		a, b, ok := pinnedPIDs(c.v, running)
+		if ok != c.ok || (ok && (a != c.a || b != c.b)) {
+			t.Errorf("%q: %d %d %v", c.v, a, b, ok)
+		}
+	}
+}
