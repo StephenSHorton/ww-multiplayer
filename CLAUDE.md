@@ -181,7 +181,7 @@ WW_ENEMY_REMOTE=<flags>                     # Remote-Link block (mods/enemysync/
 WW_ENEMY_REMOTE_MARGIN / _MIN_HOLD / _IFRAMES / _COOLDOWN   # latch switch margin (q8, default 164), latch min hold (30 frames),
                                             #   body i-frames stamped on a hit (30), frames after a failed body create (30)
 WW_ENEMY_REMOTE_DY_MAX / _EYE_DY / _CYL_R / _CYL_H          # f32: latch |dy| limit (400), body eye height (110), body Tg cylinder radius (30) and height (120)
-WW_ENEMY_REMOTE_POLICY=<proc=flags,...>     # PROC_POLICY edits over the seed (ALLOW mo2 0xBD; DENY FM, RD, BK, the bosses): e.g. 0x1D5=allow+no_latch,0x79=off;
+WW_ENEMY_REMOTE_POLICY=<proc=flags,...>     # PROC_POLICY edits over the seed (enemy audit, mods/enemysync SeedPolicy: ALLOW Moblin, Bokoblin, Darknut, ChuChu, warship, Kargaroc, Armos(+Knight), Keese, Molgera larva, Kalle Demos tentacle, Puppet Ganon 2-3, Stalfos +no_latch; DENY Floormaster, ReDead, Poe, vine, Orca, PG orbs, the bosses): e.g. 0x1D5=allow+no_latch,0x79=off;
                                             #   flags allow deny both_words no_latch, off removes; "none" alone = an empty table
 WW_ENEMY_REMOTE_FF=<stage,...>              # FF stage denylist, at most 4 (default MajyuE,majroom,Majroom,Mjtower); "none" = empty
 WW_ENEMY_REMOTE_HEAP=off|<game_largest>,<game_free>,<zelda_largest>   # full_bodies heap gate's size rules (default 0xD0090,0x10CF00,0x14C90; the

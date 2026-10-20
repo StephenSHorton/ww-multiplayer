@@ -538,6 +538,16 @@ func TestRemoteHostPHit(t *testing.T) {
 	if len(out) != 2 || out[0].SetID != 3 || out[0].Seq != 4 || out[1].SetID != 1 || out[1].Seq != 5 || r.Stats.DropRate != 1 {
 		t.Errorf("rate: %+v drops %d", out, r.Stats.DropRate)
 	}
+	// Not a Moblin and not ALLOW (a host bomb, proc 0x14C here), or no
+	// attacker actor at all: dropped, never sent to the client.
+	bomb := ringHit(0, 0, 5, 400)
+	bomb.HFlags, bomb.Proc = mailbox.RemoteHFNotMo2, 0x14C
+	noActor := ringHit(0, 0, 6, 400)
+	noActor.HFlags, noActor.PID = mailbox.RemoteHFNotKeyed, 0
+	push(t, m, &st, bomb, noActor)
+	if out, _ = r.Tick(now, scope, true, views, now); len(out) != 0 || r.Stats.DropNotAllowed != 2 {
+		t.Errorf("not allowed: %+v %+v", out, r.Stats)
+	}
 	// An unowned slot (the remote left).
 	push(t, m, &st, ringHit(0, 0, 4, 300))
 	if out, _ = r.Tick(now, scope, true, nil, now); len(out) != 0 || r.Stats.DropNoOwner != 1 {

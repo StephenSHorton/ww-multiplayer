@@ -618,9 +618,9 @@ type RemoteHostStats struct {
 	Writes, PStates, PStatesUnmapped, PHits, PAcks uint64
 	// Ring hits dropped by why: not a Moblin, not keyed, no owner, no
 	// client id for the owner, rate limited.
-	DropNoOwner, DropNoClient, DropRate uint64
-	// StandIn counts PHITs from an attacker the client has no mirror of
-	// (sent with NoMirrorSetID).
+	DropNotAllowed, DropNoOwner, DropNoClient, DropRate uint64
+	// StandIn counts the sent PHITs from an attacker the client has no
+	// mirror of (with NoMirrorSetID).
 	StandIn    uint64
 	LastStatus mailbox.RemoteStatus
 }
@@ -885,16 +885,24 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 }
 
 // phit turns a ring entry into the PHIT for its body's player, or nil
-// (dropped and counted): a slot nobody owns, an owner whose enemy client
-// is unknown (no PSTATE yet), or within PHitRateFrames of the last PHIT
-// for that (client, attacker). A non-Moblin or unkeyed attacker has no
-// mirror on the client: it goes with SetID NoMirrorSetID, and the
-// client REL replays it with its keeper as the stand-in At owner.
+// (dropped and counted): an attacker that is not a Moblin and not ALLOW in
+// the policy (the host's bombs, world hazards, denied or unswapped
+// enemies: the joiner's own copy of a shared hazard hits it already,
+// design §11.8), one with no actor (pid 0), a slot nobody owns, an owner
+// whose enemy client is unknown (no PSTATE yet), or within PHitRateFrames
+// of the last PHIT for that (client, attacker). A non-Moblin or unkeyed
+// attacker has no mirror on the client: it goes with SetID
+// NoMirrorSetID, and the client REL replays it with its keeper as the
+// stand-in At owner.
 func (r *RemoteHost) phit(h *mailbox.RemoteHit, b *mailbox.RemoteBlock, scope Scope) *PHit {
-	setID := h.SetID
-	if h.HFlags&(mailbox.RemoteHFNotMo2|mailbox.RemoteHFNotKeyed) != 0 {
+	if h.PID == 0 || (h.Proc != addr.ProcMo2 && !r.allowed(h.Proc)) {
+		r.Stats.DropNotAllowed++
+		r.warnDrop("not_allowed", fmt.Sprintf("a proc 0x%X attacker hit a remote body; only Moblins and ALLOW procs are sent", uint16(h.Proc)))
+		return nil
+	}
+	setID, standIn := h.SetID, h.HFlags&(mailbox.RemoteHFNotMo2|mailbox.RemoteHFNotKeyed) != 0
+	if standIn {
 		setID = NoMirrorSetID
-		r.Stats.StandIn++
 	}
 	if int(h.Slot) >= mailbox.MaxRemoteLinks || r.owners[h.Slot].player == 0 {
 		r.Stats.DropNoOwner++
@@ -929,7 +937,21 @@ func (r *RemoteHost) phit(h *mailbox.RemoteHit, b *mailbox.RemoteBlock, scope Sc
 		p.Flags |= PHitHostGuard
 	}
 	r.Stats.PHits++
+	if standIn {
+		r.Stats.StandIn++
+	}
 	return p
+}
+
+// allowed reports whether proc has an ALLOW entry (and no DENY) in the
+// block's policy.
+func (r *RemoteHost) allowed(proc int16) bool {
+	for _, e := range r.cfg.Policy {
+		if e.Proc == proc {
+			return e.Flags&mailbox.RemotePFAllow != 0 && e.Flags&mailbox.RemotePFDeny == 0
+		}
+	}
+	return false
 }
 
 func (r *RemoteHost) warnDrop(kind, msg string) {

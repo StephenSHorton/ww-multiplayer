@@ -279,6 +279,8 @@ typedef void (*rl_stts_init_t)(void* stts, int weight, int p1, void* actor); // 
 #define BK_1234           0x1234  // s8 demo step (d_a_bk.cpp:3921-3931)
 #define TN_M714           0xB88   // mDamageReaction (+0x474, d_a_tn.h:84) + 0x714
 #define TN_14F8           0x14F8  // s8 boss demo camera (d_a_tn.cpp:2551-2565 orderPotentialEvent)
+#define AC_STATUS         0x1C4   // u32 actor_status (f_op_actor.h:284)
+#define AC_STATUS_BOSS    0x04000000 // fopAcStts_BOSS_e (f_op_actor.h:43)
 #define CC_BEHAVIOR       0x2F0   // u8 mBehaviorType: 2 = Deku Tree ChuChu (events :1483, :1533)
 #define CC_ACTION         0x2F4   // u8 mCurrAction: 5 = the Deku demo action (:886, :1034)
 #define CC_304            0x304   // u8: "not the player" insta-kill variant (:477)
@@ -1526,7 +1528,12 @@ static int rl_proc_gated(s16 proc, void* a) {
     case PROC_BK:
         return AF(a, u8, BK_TYPE) == BK_TYPE_DEMO || AF(a, s8, BK_1234) != 0;
     case PROC_TN:
-        return AF(a, s8, TN_14F8) != 0;
+        // A boss-status Darknut (miniboss, Master Sword ambush, death
+        // switch; d_a_tn.cpp:4213-4245) sets m14F8 in the same execute
+        // that kills it (damage_check :3123-3128) and orders the death
+        // demo right after (:2556-2558), so its flag is read too late:
+        // those stay on the host Link for good.
+        return (AF(a, u32, AC_STATUS) & AC_STATUS_BOSS) != 0 || AF(a, s8, TN_14F8) != 0;
     case PROC_CC:
         return AF(a, u8, CC_BEHAVIOR) == 2 || AF(a, u8, CC_ACTION) == 5 || AF(a, u8, CC_304) != 0;
     case PROC_OSHIP:
