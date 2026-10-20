@@ -70,6 +70,10 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 	cfg := RemoteConfigFromEnv(rep)
 	if cfg.On {
 		log.Logf(rep, log.Info, "enemy host: remote-Link block on, flags 0x%04X, %d policies, FF denylist %v", cfg.Flags, len(cfg.Policy), cfg.FFDeny)
+		if cfg.Flags&mailbox.RemoteFlagFullBodies != 0 {
+			log.Logf(rep, log.Info, "enemy host: full bodies on: heap gate %v (game largest 0x%X free 0x%X zelda largest 0x%X archive largest 0x%X), full_max %d, flags2 0x%04X",
+				cfg.HeapGate, cfg.HeapSizes.GameLargest, cfg.HeapSizes.GameFree, cfg.HeapSizes.ZeldaLargest, cfg.HeapSizes.ArchiveLargest, cfg.FullMax, cfg.Flags2)
+		}
 	}
 	remote := NewRemoteHost(d, rep, cfg, epoch)
 	roster := posefeed.RosterFor(name, dolphinPID)

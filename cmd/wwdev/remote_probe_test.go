@@ -171,12 +171,14 @@ func TestRemoteWatch(t *testing.T) {
 		"policy (1): 0x00BD ALLOW",
 		"exec_hook 0x80500000 swap_state 0x80C80458 (keeper 0x80C80000 proc 0x00B5 ok)",
 		"block valid: seq 9 ack_seq 9 ack_frame 995 flags 0x0003 bodies|swap (ff gate on, rouya gate on) role 1",
-		"collect 0x00 & 0x0F = 0x0 (no pearls: the rouya gate skips every mo2 swap)", "reserved(+0x1C) 0x00000000",
+		"collect 0x00 & 0x0F = 0x0 (no pearls: the rouya gate skips every mo2 swap)", "create_cooldown 0; full_allow 0x00 heap_reason none flags2 0x0000 (Co off)",
+		"full: full_allow 0x00 heap_reason none flags2 0x0000 (Co off)", "profile: DMC[0x27] 0x00000000 DMC[0xB5] 0x00000000 empty (not booted?); no profile list",
+		"shanm: not allocated (no FULL create this boot)", "body: lite LIVE err none", "read: proc 0x00B5 prof 0x0000 magic 'WWRB'",
 		"mPlayerInfo[0] 0x", " equal;",
 		"hook_calls 400(+300)", "hook_calls/frame 100.0 over 3 REL frames", "rouya_skips 3(+0)",
 		"slot 0: active true sflags 0x01 stage \"M_Dai\" room 1 pos 10.0 20.0 30.0", "pose_buf_state 1 (ready) pose_seq 7",
-		"body: LIVE err none actor 0x80C90000 pid 4242", "magic 'WWRB' slot 0 gen 1 state LIVE iframes_left 5 vptr 0x80C90320 own vt vt+0x1C 0x80510000",
-		"swap: valid 1 role 1 flags 0x0003 swap_ready 1 live_mask 01 last_seq 9 stale_frames 0; body0 parked 0 gen 1 cooldown 0 del_sent 0; body1 parked 0 gen 0 cooldown 30 del_sent 0",
+		"body: lite LIVE err none actor 0x80C90000 pid 4242", "magic 'WWRB' slot 0 gen 1 state LIVE iframes_left 5 vptr 0x80C90320 own vt vt+0x1C 0x80510000",
+		"swap: valid 1 role 1 flags 0x0003 swap_ready 1 live_mask 01 last_seq 9 stale_frames 0 full_allow 00 flags2 0x0000 full_denied 00; body0 parked 0 gen 1 cooldown 0 del_sent 0 kind lite full_wait 0; body1 parked 0 gen 0 cooldown 30 del_sent 0 kind lite full_wait 0",
 		"latch: [2] enemy pid ", " -> body0 (pid 4242) hold 31 force pid 0/0 mo2 1", "+0x000: 00000009 00000000",
 		"HIT seq 1 slot 0 hflags shield attacker pid", "proc 0x00BD attype 0x00000800 atp 2 se 3 hitmark 13 spl 6", "frame 1003",
 		"-> host", "-> body0", "-> other 0x80001234",
@@ -222,14 +224,14 @@ func TestRemoteSnapValidity(t *testing.T) {
 		t.Fatal(err)
 	}
 	store(t, m, mailbox.RemoteBlockAddr+mailbox.RemoteSeqTailOff, u32b(4))
-	store(t, m, mailbox.RemoteBlockAddr+mailbox.RemoteReservedOff, u32b(1))
+	store(t, m, mailbox.RemoteBlockAddr+mailbox.RemoteFullAllowOff, []byte{3, 0x20, 0, 2})
 	st := mailbox.RemoteStatus{AckFrame: 800}
 	storeStatus(t, m, &st)
 	store(t, m, fakeKeeper+addr.ActorOffProcName, u16b(0x00BD))
 	if s, err = readRemoteSnap(m); err != nil {
 		t.Fatal(err)
 	}
-	if v := s.valid(); v != "TORN head 5 tail 4, never acked (the REL has not consumed a write), reserved +0x1C is 0x00000001, not 0, STALE: last ack 200 REL frames ago" {
+	if v := s.valid(); v != "TORN head 5 tail 4, never acked (the REL has not consumed a write), full_allow 0x03 without full_bodies, heap_reason 32 unknown, flags2 0x0002 has unknown bits, STALE: last ack 200 REL frames ago" {
 		t.Errorf("torn/stale: %q", v)
 	}
 	if s.KeeperOK {
@@ -455,6 +457,11 @@ func TestSwapStatePins(t *testing.T) {
 		{"remote_swap_state", "live_mask", swLiveMask},
 		{"remote_swap_state", "bodies", swBodies},
 		{"remote_swap_state", "latch", swLatch},
+		{"remote_swap_state", "full_allow", swFullAllow},
+		{"remote_swap_state", "flags2", swFlags2},
+		{"remote_swap_state", "full_denied", swFullDenied},
+		{"remote_swap_state", "full_wait", swFullWait},
+		{"rl_body", "kind", swBodyKind},
 		{"rl_body", "gen", swBodyGen},
 		{"rl_body", "cooldown", swBodyCool},
 		{"rl_body", "del_sent", swBodyDelSent},

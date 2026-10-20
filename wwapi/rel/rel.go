@@ -281,6 +281,64 @@ func (f *File) SoleReloc(module uint32) (*Reloc, error) {
 	return found, nil
 }
 
+// RelocAt returns the relocation that patches section at offset: its
+// import and its index in the import's Relocs, or nil and -1 when no
+// relocation (R_DOLPHIN_NOP markers aside) patches there. With several,
+// the first in file order (by import, then by index) is returned: the
+// profile list has one per entry.
+func (f *File) RelocAt(section uint8, offset uint32) (imp *Import, idx int) {
+	for i := range f.Imports {
+		for j, r := range f.Imports[i].Relocs {
+			if r.Type != RelocNop && r.Section == section && r.Offset == offset {
+				return &f.Imports[i], j
+			}
+		}
+	}
+	return nil, -1
+}
+
+// MoveReloc moves the relocation at index idx of from (one of f's
+// Imports) into the import of module to, which is added at the end of
+// Imports when there is none, and returns it there (its target section
+// and addend unchanged: the caller points it at the new module's
+// symbol). from is dropped when nothing but R_DOLPHIN_NOP markers is left
+// in it, unless it is module 0 or the file's own module. Moving within
+// the same module returns the relocation where it is. Pointers into
+// Imports taken before the call are invalid after it.
+func (f *File) MoveReloc(from *Import, idx int, to uint32) (*Reloc, error) {
+	fi := -1
+	for i := range f.Imports {
+		if &f.Imports[i] == from {
+			fi = i
+		}
+	}
+	if fi < 0 {
+		return nil, fmt.Errorf("rel: MoveReloc: the import is not one of the file's")
+	}
+	if idx < 0 || idx >= len(from.Relocs) {
+		return nil, fmt.Errorf("rel: MoveReloc: no relocation %d against module 0x%x (%d)", idx, from.Module, len(from.Relocs))
+	}
+	r := from.Relocs[idx]
+	if r.Type == RelocNop {
+		return nil, fmt.Errorf("rel: MoveReloc: relocation %d against module 0x%x is a NOP marker", idx, from.Module)
+	}
+	if from.Module == to {
+		return &from.Relocs[idx], nil
+	}
+	from.Relocs = slices.Delete(from.Relocs, idx, idx+1)
+	if from.Module != 0 && from.Module != f.ID && !slices.ContainsFunc(from.Relocs, func(r Reloc) bool { return r.Type != RelocNop }) {
+		f.Imports = slices.Delete(f.Imports, fi, fi+1)
+	}
+	ti := slices.IndexFunc(f.Imports, func(imp Import) bool { return imp.Module == to })
+	if ti < 0 {
+		f.Imports = append(f.Imports, Import{Module: to})
+		ti = len(f.Imports) - 1
+	}
+	t := &f.Imports[ti]
+	t.Relocs = append(t.Relocs, r)
+	return &t.Relocs[len(t.Relocs)-1], nil
+}
+
 // Bytes writes the file out, the way rel.py's save_changes does: the
 // section table right after the header, each section's data 4-aligned
 // after it (or, with preserveOffsets, at the Offset it has, which must

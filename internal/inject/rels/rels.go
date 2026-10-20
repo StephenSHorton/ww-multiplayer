@@ -48,13 +48,50 @@ var ErrRELSArcGrowth = errors.New("RELS.arc would grow past the ARAM guard")
 // by more than maxGrowth bytes (RELSArcMaxGrowth, see there) is refused
 // with ErrRELSArcGrowth.
 func PatchRELSArc(arc []byte, moduleID uint32, newREL []byte, profileSection uint8, profileOffset uint32, maxGrowth int) ([]byte, error) {
-	out, _, err := patchRELSArc(arc, moduleID, newREL, profileSection, profileOffset, maxGrowth)
+	out, _, err := patchRELSArc(arc, moduleID, newREL, ProfileTarget{Section: profileSection, Offset: profileOffset}, nil, maxGrowth)
 	return out, err
 }
 
-// patchRELSArc is PatchRELSArc, also returning the archive entry the
-// new REL took (its path names the module's file).
-func patchRELSArc(arc []byte, moduleID uint32, newREL []byte, profileSection uint8, profileOffset uint32, maxGrowth int) ([]byte, stage.ArchiveFile, error) {
+// ProfileTarget is a profile-list entry to point into the new REL: the
+// entry of process Proc (offset 4*Proc in the list's pointer table,
+// g_fpcPfLst_ProfileList[Proc]) at the actor profile at Offset in the new
+// REL's Section.
+type ProfileTarget struct {
+	Proc    uint16
+	Section uint8
+	Offset  uint32
+}
+
+// PatchRELSArcProfiles is PatchRELSArc for a module that serves more
+// than one process (remote-link-stage4-plan.md D4-1). main is the
+// module's own entry: its relocation against moduleID at offset
+// 4*main.Proc (main.Proc 0: the sole relocation against moduleID, as
+// PatchRELSArc finds it), which also names the list's section. Each extra
+// entry's relocation, found at (that section, 4*Proc) whatever module it
+// is against today, is moved into moduleID's import and pointed at its
+// profile; the import it left is dropped when that emptied it. The
+// result is a fixed point: patching it again with the same inputs gives
+// it back.
+func PatchRELSArcProfiles(arc []byte, moduleID uint32, newREL []byte, main ProfileTarget, extra []ProfileTarget, maxGrowth int) ([]byte, error) {
+	out, _, err := patchRELSArc(arc, moduleID, newREL, main, extra, maxGrowth)
+	return out, err
+}
+
+// checkProfile checks the new REL f has data at the profile p names.
+func checkProfile(f *rel.File, p ProfileTarget) error {
+	if int(p.Section) >= len(f.Sections) || f.Sections[p.Section].Offset == 0 {
+		return fmt.Errorf("rels: the new REL has no data in section %d for the profile", p.Section)
+	}
+	if uint64(p.Offset) >= uint64(len(f.Sections[p.Section].Data)) {
+		return fmt.Errorf("rels: profile at 0x%x is past the end of the new REL's section %d (0x%x bytes)",
+			p.Offset, p.Section, len(f.Sections[p.Section].Data))
+	}
+	return nil
+}
+
+// patchRELSArc is PatchRELSArcProfiles, also returning the archive entry
+// the new REL took (its path names the module's file).
+func patchRELSArc(arc []byte, moduleID uint32, newREL []byte, main ProfileTarget, extra []ProfileTarget, maxGrowth int) ([]byte, stage.ArchiveFile, error) {
 	var none stage.ArchiveFile
 	if moduleID == 0 || moduleID == ProfileListModule {
 		return nil, none, fmt.Errorf("rels: module 0x%x can't be replaced", moduleID)
@@ -69,12 +106,18 @@ func patchRELSArc(arc []byte, moduleID uint32, newREL []byte, profileSection uin
 	if f.ID != moduleID {
 		return nil, none, fmt.Errorf("rels: the new REL is module 0x%x, not 0x%x", f.ID, moduleID)
 	}
-	if int(profileSection) >= len(f.Sections) || f.Sections[profileSection].Offset == 0 {
-		return nil, none, fmt.Errorf("rels: the new REL has no data in section %d for the profile", profileSection)
+	if err := checkProfile(f, main); err != nil {
+		return nil, none, err
 	}
-	if uint64(profileOffset) >= uint64(len(f.Sections[profileSection].Data)) {
-		return nil, none, fmt.Errorf("rels: profile at 0x%x is past the end of the new REL's section %d (0x%x bytes)",
-			profileOffset, profileSection, len(f.Sections[profileSection].Data))
+	seen := map[uint16]bool{main.Proc: true}
+	for _, p := range extra {
+		if p.Proc == 0 || seen[p.Proc] {
+			return nil, none, fmt.Errorf("rels: process 0x%x given twice (or 0)", p.Proc)
+		}
+		seen[p.Proc] = true
+		if err := checkProfile(f, p); err != nil {
+			return nil, none, err
+		}
 	}
 
 	a, err := stage.ParseArchive(arc)
@@ -99,14 +142,33 @@ func patchRELSArc(arc []byte, moduleID uint32, newREL []byte, profileSection uin
 	if err != nil {
 		return nil, none, fmt.Errorf("rels: %s: %w", lstFile.Path, err)
 	}
-	r, err := lf.SoleReloc(moduleID)
+	r, err := mainReloc(lf, moduleID, main.Proc)
 	if err != nil {
 		return nil, none, fmt.Errorf("rels: %s: %w", lstFile.Path, err)
 	}
 	if r.Type != rel.RelocAddr32 {
 		return nil, none, fmt.Errorf("rels: %s: the relocation against module 0x%x is type 0x%x, not ADDR32", lstFile.Path, moduleID, r.Type)
 	}
-	r.TargetSection, r.Addend = profileSection, profileOffset
+	r.TargetSection, r.Addend = main.Section, main.Offset
+	listSection := r.Section
+	for _, p := range extra {
+		at := 4 * uint32(p.Proc)
+		imp, idx := lf.RelocAt(listSection, at)
+		if imp == nil {
+			return nil, none, fmt.Errorf("rels: %s: no relocation at process 0x%x's entry (section %d offset 0x%x)", lstFile.Path, p.Proc, listSection, at)
+		}
+		if t := imp.Relocs[idx].Type; t != rel.RelocAddr32 {
+			return nil, none, fmt.Errorf("rels: %s: process 0x%x's entry is type 0x%x, not ADDR32", lstFile.Path, p.Proc, t)
+		}
+		if imp.Module == 0 || imp.Module == lf.ID {
+			return nil, none, fmt.Errorf("rels: %s: process 0x%x's entry points into module 0x%x, not an actor module", lstFile.Path, p.Proc, imp.Module)
+		}
+		moved, err := lf.MoveReloc(imp, idx, moduleID)
+		if err != nil {
+			return nil, none, fmt.Errorf("rels: %s: %w", lstFile.Path, err)
+		}
+		moved.TargetSection, moved.Addend = p.Section, p.Offset
+	}
 	patched, err := lf.Bytes(true)
 	if err != nil {
 		return nil, none, fmt.Errorf("rels: %s: %w", lstFile.Path, err)
@@ -124,6 +186,33 @@ func patchRELSArc(arc []byte, moduleID uint32, newREL []byte, profileSection uin
 		return nil, none, fmt.Errorf("rels: %w", err)
 	}
 	return out, modFile, nil
+}
+
+// mainReloc is the module's own entry in the profile list lf: the sole
+// relocation against moduleID (proc 0), or the one against it at offset
+// 4*proc.
+func mainReloc(lf *rel.File, moduleID uint32, proc uint16) (*rel.Reloc, error) {
+	if proc == 0 {
+		return lf.SoleReloc(moduleID)
+	}
+	var found *rel.Reloc
+	n := 0
+	for i := range lf.Imports {
+		imp := &lf.Imports[i]
+		if imp.Module != moduleID {
+			continue
+		}
+		for j := range imp.Relocs {
+			if r := &imp.Relocs[j]; r.Type != rel.RelocNop && r.Offset == 4*uint32(proc) {
+				found = r
+				n++
+			}
+		}
+	}
+	if n != 1 {
+		return nil, fmt.Errorf("%d relocations against module 0x%x at process 0x%x's entry (offset 0x%x), want one", n, moduleID, proc, 4*uint32(proc))
+	}
+	return found, nil
 }
 
 // findByFirstWord returns the first file of e (in entry order) whose

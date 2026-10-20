@@ -76,8 +76,9 @@ var (
 	// tick and the REL every frame while they run, so a canary armed over
 	// them would be reported changed by the mod's own traffic, and arming
 	// would tear a block the REL is reading. The region probe arms and
-	// checks the two parts and skips the rest; the free 0x3C bytes between
-	// the hook words and the enemy block (+0x1C4..+0x200) go unprobed.
+	// checks the two parts and skips the rest; the REL's shanm word
+	// (OffRELShanm, +0x1C4) and the free 0x38 bytes after it, up to the
+	// enemy block (+0x1C8..+0x200), go unprobed.
 	// CanaryArena still holds the REL module's first three words
 	// (OffRELMagic..), which only a linked module writes.
 	CanaryArena     = addr.Region{Name: "below arena", Start: Mailbox + MailboxSize, End: Mailbox + OffRELExecHook}

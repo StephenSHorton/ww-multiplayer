@@ -62,6 +62,10 @@ void main01_init(void) {
     // (last) when the module links.
     *(volatile u32*)(MAILBOX_ADDR + WWREL_EXEC_HOOK_OFF) = 0;
     *(volatile u32*)(MAILBOX_ADDR + WWREL_SWAP_STATE_OFF) = 0;
+    // The full bodies' shanm table (an archive-heap block the REL allocates
+    // once per boot and never frees): a pointer left from before this boot
+    // names a heap that no longer exists.
+    *(volatile u32*)(MAILBOX_ADDR + WWREL_SHANM_OFF) = 0;
     // WWMB header (Phase E1): magic, ABI, layout version and the
     // features word, for Go's contract check (wwapi.CheckContract).
     mailbox->hdr_magic = WWMB_MAGIC;

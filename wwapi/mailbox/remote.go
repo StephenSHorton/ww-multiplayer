@@ -42,6 +42,14 @@ const (
 	OffRELSwapState uint32 = 0x1C0
 	// relHookWordsLen is the two words' span.
 	relHookWordsLen = OffRELSwapState + 4 - OffRELExecHook
+	// OffRELShanm is WWREL_SHANM_OFF: the full bodies' shanm table (an
+	// archive-heap block of RemoteShanmBytes, RemoteSA* header), allocated
+	// by the REL at the first full create of a boot and never freed; T2's
+	// main01_init zeroes the word and the REL never clears it. Like the
+	// hook words it is the REL's alone and never canary-armed (CanaryArena
+	// ends at OffRELExecHook), but it is not part of RELHookRegion or
+	// relHookWordsLen: Go reads it by itself.
+	OffRELShanm uint32 = 0x1C4
 )
 
 const (
@@ -72,7 +80,9 @@ const (
 	RemotePolicyCountOff    = 0x018 // u8 PROC_POLICY entries in use (0..48)
 	RemoteFFCountOff        = 0x019 // u8 FF denylist entries in use (0..4)
 	RemoteCreateCooldownOff = 0x01A // u16 frames after a failed body create
-	RemoteReservedOff       = 0x01C // u32 0 (the design's collect_ptr; Step -1: direct read)
+	RemoteFullAllowOff      = 0x01C // u8 bit i: slot i may begin one daPy_lk_c create (RemoteFlagFullBodies only; Go heap gate)
+	RemoteHeapReasonOff     = 0x01D // u8 RemoteHG* why the gate is shut (REL: wait vs fall back only)
+	RemoteFlags2Off         = 0x01E // u16 RemoteFlag2*; 0 = today
 	RemoteSlotsOff          = 0x020 // slot[4] x RemoteSlotSize
 	RemoteSlotSize          = 0x30
 	RemoteApplyOff          = 0x0E0 // client apply record (RemoteAP*)
@@ -99,6 +109,26 @@ const (
 	RemoteFlagGroupWide       uint16 = 0x0800 // ENEMY group eligible unless DENY (else ALLOW only)
 	RemoteFlagBothWordsEnable uint16 = 0x1000 // honour per-proc RemotePFBothWords (also swap 0x803CA754)
 	RemoteFlagIFrameStamp     uint16 = 0x2000 // stamp body_iframes on detection
+	RemoteFlagFullBodies      uint16 = 0x4000 // host: bodies are the real daPy_lk_c (proc 0x27 profile) when the slot's FULL_ALLOW bit is set; else lite
+
+	// flags2 (+0x01E); all clear = today's behaviour
+	RemoteFlag2FullCo uint16 = 0x0001 // full bodies keep mCyl's Co Set bit (default: Co off)
+
+	// heap-gate reasons (+0x01D, Go-written; the REL waits on the transient ones)
+	RemoteHGNone           uint8 = 0 // gate not run (FULL_BODIES off, client, or no sample yet this session)
+	RemoteHGOpen           uint8 = 1
+	RemoteHGNoSample       uint8 = 2 // no fresh sample in this stage (transient)
+	RemoteHGWalkProblem    uint8 = 3 // walker reported a Problem (retry next sample)
+	RemoteHGGameLargest    uint8 = 4
+	RemoteHGGameFree       uint8 = 5
+	RemoteHGZeldaLargest   uint8 = 6
+	RemoteHGCounterRose    uint8 = 7  // Game/Zelda error counter rose this stage (or solid during a FULL create)
+	RemoteHGInflight       uint8 = 8  // a FULL body is QUEUED (transient)
+	RemoteHGStageSettle    uint8 = 9  // stage change, fewer than 2 good samples (transient)
+	RemoteHGSticky         uint8 = 10 // two stages closed by counters: shut for the session
+	RemoteHGArchiveLargest uint8 = 11 // shanm table not allocated yet and the archive heap is short
+	RemoteHGFullMax        uint8 = 12 // FullMax FULL bodies already LIVE
+	RemoteHGQueued         uint8 = 13 // open, the bit is another slot's; this one waits its turn (transient)
 
 	RemoteRoleHost   uint8 = 1 // = EnemyRoleHost
 	RemoteRoleClient uint8 = 2 // = EnemyRoleClient
@@ -205,7 +235,10 @@ const (
 	RemoteBSLatchedByOff  = 0x0B // u8 latch entries targeting this body
 	RemoteBSFramesLiveOff = 0x0C // u16 executes LIVE (saturating)
 	RemoteBSTriesOff      = 0x0E // u8 creates this stage
-	RemoteBSPadOff        = 0x0F
+	RemoteBSKindOff       = 0x0F // u8 RemoteKind* (was pad)
+
+	RemoteKindLite uint8 = 0
+	RemoteKindFull uint8 = 1
 
 	RemoteBodyEmpty  uint8 = 0
 	RemoteBodyQueued uint8 = 1
@@ -213,16 +246,22 @@ const (
 	RemoteBodyParked uint8 = 3
 	RemoteBodyDying  uint8 = 4
 
-	RemoteBErrNone     uint8 = 0
-	RemoteBErrSlot     uint8 = 1 // slot >= MAX_REMOTE_LINKS
-	RemoteBErrBlock    uint8 = 2 // WWRP invalid, stale or not the host role
-	RemoteBErrVtable   uint8 = 3 // __vt__9daPy_py_c / lk_c fingerprint failed
-	RemoteBErrHostLink uint8 = 4 // 0x803CA754 not an in-MEM1 0xA9, or != 0x803CA74C
-	RemoteBErrCyl      uint8 = 5 // Link mCyl vptr != __vt__8dCcD_Cyl 0x8038AF08
-	RemoteBErrCreate   uint8 = 6 // fopAcM_create returned 0xFFFFFFFF
-	RemoteBErrLost     uint8 = 7 // creating ended and SearchByID found no 'WWRB'
-	RemoteBErrTries    uint8 = 8 // 3 tries this stage spent
-	RemoteBErrGone     uint8 = 9 // the pid vanished (stage teardown)
+	RemoteBErrNone         uint8 = 0
+	RemoteBErrSlot         uint8 = 1  // slot >= MAX_REMOTE_LINKS
+	RemoteBErrBlock        uint8 = 2  // WWRP invalid, stale or not the host role
+	RemoteBErrVtable       uint8 = 3  // __vt__9daPy_py_c / lk_c fingerprint failed
+	RemoteBErrHostLink     uint8 = 4  // 0x803CA754 not an in-MEM1 0xA9, or != 0x803CA74C
+	RemoteBErrCyl          uint8 = 5  // Link mCyl vptr != __vt__8dCcD_Cyl 0x8038AF08
+	RemoteBErrCreate       uint8 = 6  // fopAcM_create returned 0xFFFFFFFF
+	RemoteBErrLost         uint8 = 7  // creating ended and SearchByID found no 'WWRB'
+	RemoteBErrTries        uint8 = 8  // 3 tries this stage spent
+	RemoteBErrGone         uint8 = 9  // the pid vanished (stage teardown)
+	RemoteBErrHeapDenied   uint8 = 10 // FULL wanted, allow bit clear (fell back to lite)
+	RemoteBErrPhaseTimeout uint8 = 11 // full create still INIT after RemoteFullCreateFrames
+	RemoteBErrHeapErrors   uint8 = 12 // GameHeapErrors or solidHeapErrors rose across playerInit
+	RemoteBErrProfile      uint8 = 13 // DMC[0x27] != DMC[0xB5] or profile slot 0x27 != g_profile_WWBODY
+	RemoteBErrShanmAlloc   uint8 = 14 // archive-heap shanm table alloc failed or invalid
+	RemoteBErrFullVtable   uint8 = 15 // after __ct__9daPy_lk_cFv, vptr +0x31C != 0x8038FDC0
 
 	// counters (u32 index from RemoteCountersOff)
 	RemoteCtrHookCalls         = 0 // every exec hook entry, even with magic 0
@@ -311,6 +350,66 @@ const (
 	RemoteBodyParkSinceOff   = 0x570 // u32 WWREL frame parked at
 	RemoteBodyEnd            = 0x574 // <= RemoteActorSize
 
+	// the full body (RemoteFlagFullBodies; stage-4 plan D4-1, D4-6): a
+	// daPy_lk_c of the REL's second profile g_profile_WWBODY in slot
+	// RemoteFullProc, offsets from the body actor; the tail's first 0x48
+	// bytes keep the lite body's +0x530..+0x578 field order
+	RemoteFullProc            uint16 = 0x0027     // hijacked proc/profile slot (Seatag; never placed on the GZLE01 disc)
+	RemoteFullNameEntry       uint32 = 0x80339938 // DynamicNameTable entry of proc 0x27 (SYM:13851 + 12*8)
+	RemoteFullNamePtr         uint32 = 0x8033AE39 // "d_a_rectangle": patched into RemoteFullNameEntry + 4 (was 0x8033A6F3)
+	RemoteDMCFullAddr         uint32 = 0x803B92B4 // DMC[0x27] (DMC 0x803B9218, SYM:17371)
+	RemoteDMCRELAddr          uint32 = 0x803B94EC // DMC[0xB5]
+	RemoteProfileListPtr      uint32 = 0x803F6A68 // g_fpcPf_ProfileList_p (SYM:18664); slot = list + 4 * proc
+	RemoteFullSize            uint32 = 0x4C80     // profile mSize: sizeof(daPy_lk_c) 0x4C28 + tail 0x58
+	RemoteFullDaPySize        uint32 = 0x4C28     // d_a_player_main.h:2375
+	RemoteFullTailOff                = 0x4C28
+	RemoteFullMagicOff               = 0x4C28     // u32 RemoteBodyMagic, written last in create
+	RemoteFullSlotOff                = 0x4C2C     // u8
+	RemoteFullGenOff                 = 0x4C2D     // u8
+	RemoteFullIFramesLeftOff         = 0x4C2E     // u8
+	RemoteFullStateOff               = 0x4C2F     // u8 RemoteBodyLive / RemoteBodyParked
+	RemoteFullShieldAngleOff         = 0x4C30     // s16 slot shield angle (the live one is +0x3546)
+	RemoteFullLastPoseSeqOff         = 0x4C64     // u32 (= lite +0x56C - 0x530 + tail)
+	RemoteFullParkSinceOff           = 0x4C68     // u32
+	RemoteFullPhaseOff               = 0x4C70     // u8 RemoteFP*
+	RemoteFullKindOff                = 0x4C71     // u8 RemoteKindFull
+	RemoteFullCreateFramesOff        = 0x4C72     // u16 create calls so far
+	RemoteFullShanmDiffOff           = 0x4C74     // u32 shared words restored after the create windows
+	RemoteFullHeapErrOff             = 0x4C78     // u32 byte3 game-errors delta, byte2 solid delta across playerInit
+	RemoteFullEnd                    = 0x4C7C     // <= RemoteFullSize
+	RemoteFullCreateFrames           = 120        // phase_2 gate + makeBgWait INIT retries before cPhs_ERROR_e
+	RemoteFPNew               uint8  = 0          // phase_1 not run
+	RemoteFPParams            uint8  = 1          // phase_1 done (params cached, then rewritten to 0xFF000040)
+	RemoteFPInit              uint8  = 2          // ctor + playerInit done: delete must run playerDelete
+	RemoteFPLive              uint8  = 3          // makeBgWait returned NEXT: create complete
+	RemoteFullParams          uint32 = 0xFF000040 // params after phase_1: event 0xFF, mode 0, room 0, 0x40 skip setRestartRoom
+
+	// daPy_lk_c fields the REL and the probe touch (DPMH / d_a_player.h)
+	RemoteFullDamageWaitOff  = 0x294  // s16 mDamageWaitTimer (d_a_player.h:482)
+	RemoteFullNoReset1Off    = 0x2A0  // u32 mNoResetFlg1 (CASUAL 0x08 cleared before delete)
+	RemoteFullReset0Off      = 0x2A4  // u32 mResetFlg0 = 0 every execute
+	RemoteFullVPtrOff        = 0x31C  // == 0x8038FDC0 after the ctor
+	RemoteFullModelOff       = 0x32C  // J3DModel* mpCLModel (DPMH:1993)
+	RemoteFullLinktexOff     = 0x338  // ResTIMG* mpCurrLinktex
+	RemoteFullSttsOff        = 0x3FE8 // dCcD_Stts mStts
+	RemoteFullCylOff         = 0x4024 // dCcD_Cyl mCyl (Step -1 offsets apply from here)
+	RemoteFullCurProcOff     = 0x31D8 // int mCurProc (WAIT 0x04, CROUCH_DEFENSE 0x0C)
+	RemoteFullShieldRangeOff = 0x3546 // s16 mShieldFrontRangeYAngle (mCyl's shield-angle pointer target)
+	RemoteFullModeFlgOff     = 0x3618 // u32 mModeFlg (clear DAMAGE 0x8, IN_SHIP 0x2000, CRAWL 0x01000000)
+
+	// shanm table header (archive block at *(u32*)(Mailbox + OffRELShanm))
+	RemoteShanmMagic      uint32 = 0x57575341 // 'WWSA'
+	RemoteShanmBytes      uint32 = 0x4760     // header 0x60 + joint_addr[64] + mat_addr[256] + val[4224]
+	RemoteSAMagicOff             = 0x00       // u32
+	RemoteSASizeOff              = 0x04       // u32 RemoteShanmBytes
+	RemoteSASelfOff              = 0x08       // u32 the block's own address
+	RemoteSAWordsOff             = 0x0C       // u32 words tracked at the last refresh (live ~2598, cap 4224)
+	RemoteSACreateDiffOff        = 0x10       // u32 words restored after the last create window
+	RemoteSADeleteDiffOff        = 0x14       // u32 words restored after the last delete window
+	RemoteSADeleteScanOff        = 0x18       // u32 tracked words pointing into a deleted body's instance or heaps (must be 0)
+	RemoteSAWindowsOff           = 0x1C       // u32 windows opened (cumulative)
+	RemoteSAJointDiffOff         = 0x20       // u32 cl.bdl joints 0x02/0x1D mMtxCalc restores (cumulative)
+
 	// jail gate (Step -1): the save's mCollect[0], a direct byte read
 	RemoteCollectAddr     uint32 = 0x803C4CBC // wwapi/addr Collect (d_save.cpp:756-759)
 	RemoteCollectJailMask uint8  = 0x0F       // none of isCollect(0, 0..3) set -> mo2 rouya mode
@@ -391,6 +490,9 @@ type RemoteBlock struct {
 	Role           uint8 // RemoteRole*, the enemy block's role
 	DYMax          float32
 	CreateCooldown uint16
+	FullAllow      uint8  // bit i: slot i may begin one full create (host, RemoteFlagFullBodies); 0 = none
+	HeapReason     uint8  // RemoteHG*: why the heap gate is shut; 0 = gate not run
+	Flags2         uint16 // RemoteFlag2*; 0 = today
 	Slots          [RemoteMaxSlots]RemoteSlot
 	Apply          RemoteApply
 	FFDeny         []string       // at most RemoteFFDenyMax stage names
@@ -467,6 +569,9 @@ func (b *RemoteBlock) Encode() ([]byte, error) {
 	out[RemotePolicyCountOff] = byte(len(b.Policy))
 	out[RemoteFFCountOff] = byte(len(b.FFDeny))
 	be.PutUint16(out[RemoteCreateCooldownOff:], b.CreateCooldown)
+	out[RemoteFullAllowOff] = b.FullAllow
+	out[RemoteHeapReasonOff] = b.HeapReason
+	be.PutUint16(out[RemoteFlags2Off:], b.Flags2)
 	for i := range b.Slots {
 		s := &b.Slots[i]
 		if err := remoteFinite(s.Pos[0], s.Pos[1], s.Pos[2], s.EyeDY, s.CylR, s.CylH); err != nil {
@@ -543,6 +648,9 @@ func DecodeRemoteBlock(b []byte) (blk RemoteBlock, seqTail uint32, err error) {
 	blk.Role = b[RemoteRoleOff]
 	blk.DYMax = math.Float32frombits(be.Uint32(b[RemoteDYMaxOff:]))
 	blk.CreateCooldown = be.Uint16(b[RemoteCreateCooldownOff:])
+	blk.FullAllow = b[RemoteFullAllowOff]
+	blk.HeapReason = b[RemoteHeapReasonOff]
+	blk.Flags2 = be.Uint16(b[RemoteFlags2Off:])
 	for i := range blk.Slots {
 		o := b[RemoteSlotsOff+i*RemoteSlotSize:]
 		blk.Slots[i] = RemoteSlot{
@@ -619,6 +727,7 @@ type RemoteBodyStatus struct {
 	LatchedBy  uint8 // latch entries targeting this body
 	FramesLive uint16
 	Tries      uint8 // creates this stage
+	Kind       uint8 // RemoteKind*: lite (0) or the full daPy_lk_c body
 }
 
 // RemoteHit is one hit ring entry: an enemy At that crossed a body's Tg.
@@ -715,6 +824,7 @@ func DecodeRemoteStatus(b []byte) (RemoteStatus, error) {
 			LatchedBy:  o[RemoteBSLatchedByOff],
 			FramesLive: be.Uint16(o[RemoteBSFramesLiveOff:]),
 			Tries:      o[RemoteBSTriesOff],
+			Kind:       o[RemoteBSKindOff],
 		}
 	}
 	for i := range st.Counters {
@@ -767,6 +877,7 @@ func (st *RemoteStatus) Encode() []byte {
 		o[RemoteBSLatchedByOff] = s.LatchedBy
 		be.PutUint16(o[RemoteBSFramesLiveOff:], s.FramesLive)
 		o[RemoteBSTriesOff] = s.Tries
+		o[RemoteBSKindOff] = s.Kind
 	}
 	for i, c := range st.Counters {
 		be.PutUint32(at(RemoteCountersOff+4*i), c)

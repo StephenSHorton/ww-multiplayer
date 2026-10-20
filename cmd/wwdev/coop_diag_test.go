@@ -18,6 +18,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/heap/heaptest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
@@ -446,37 +447,9 @@ func TestPhaseAccAnomalies(t *testing.T) {
 	}
 }
 
-// fakeHeap lays out a JKRExpHeap at h with the free blocks given as
-// {offset from the heap's start, content size}, linked in order.
-func fakeHeap(t *testing.T, m *mem.FakeMem, h, start, end uint32, blocks [][2]uint32) {
-	t.Helper()
-	store(t, m, h, u32b(expHeapVtable))
-	store(t, m, h+addr.HeapOffStart, u32b(start))
-	store(t, m, h+addr.HeapOffEnd, u32b(end))
-	store(t, m, h+addr.HeapOffSize, u32b(end-start))
-	var head, tail uint32
-	for i, b := range blocks {
-		at := start + b[0]
-		var prev, next uint32
-		if i > 0 {
-			prev = start + blocks[i-1][0]
-		}
-		if i+1 < len(blocks) {
-			next = start + blocks[i+1][0]
-		}
-		store(t, m, at+addr.MemBlockOffSize, u32b(b[1]))
-		store(t, m, at+addr.MemBlockOffPrev, u32b(prev))
-		store(t, m, at+addr.MemBlockOffNext, u32b(next))
-		if i == 0 {
-			head = at
-		}
-		tail = at
-	}
-	store(t, m, h+addr.ExpHeapOffFreeHead, u32b(head))
-	store(t, m, h+addr.ExpHeapOffFreeTail, u32b(tail))
-}
-
-func TestWalkHeap(t *testing.T) {
+// TestHeapFree: heap-free's output over a fake heap (the walk itself is
+// wwapi/heap's TestWalk).
+func TestHeapFree(t *testing.T) {
 	const (
 		heap  uint32 = 0x80C00000
 		start uint32 = 0x80C00100
@@ -485,37 +458,8 @@ func TestWalkHeap(t *testing.T) {
 	blocks := [][2]uint32{{0, 0x100}, {0x1000, 0x2000}, {0x8000, 0x40}}
 	setup := func() *mem.FakeMem {
 		m := mem.NewFakeMem()
-		store(t, m, addr.ZeldaHeapPtr, u32b(heap))
-		fakeHeap(t, m, heap, start, end, blocks)
+		heaptest.FakeAt(t, m, addr.ZeldaHeapPtr, heap, start, end, blocks)
 		return m
-	}
-	h, err := walkHeap(setup(), "zelda", addr.ZeldaHeapPtr)
-	if err != nil || h.Problem != "" || h.Blocks != 3 || h.Free != 0x2140 || h.Largest != 0x2000 || h.Size != 0x10000 {
-		t.Fatalf("walk: %+v, %v", h, err)
-	}
-
-	cases := []struct {
-		name string
-		mut  func(m *mem.FakeMem)
-		want string
-	}{
-		{"not created", func(m *mem.FakeMem) { m.Store(addr.ZeldaHeapPtr, u32b(0)) }, "not created"},
-		{"pointer outside MEM1", func(m *mem.FakeMem) { m.Store(addr.ZeldaHeapPtr, u32b(0x7FFFFFF0)) }, "outside MEM1"},
-		{"not an ExpHeap", func(m *mem.FakeMem) { m.Store(heap, u32b(0x8039CCC0)) }, "is not JKRExpHeap's"},
-		{"bounds", func(m *mem.FakeMem) { m.Store(heap+addr.HeapOffSize, u32b(1)) }, "do not fit"},
-		{"cycle", func(m *mem.FakeMem) { m.Store(start+0x8000+addr.MemBlockOffNext, u32b(start)) }, "has a cycle"},
-		{"outside the heap", func(m *mem.FakeMem) { m.Store(start+0x1000+addr.MemBlockOffNext, u32b(end)) }, "outside the heap"},
-		{"overrun", func(m *mem.FakeMem) { m.Store(start+0x8000+addr.MemBlockOffSize, u32b(0x10000)) }, "runs past"},
-		{"prev", func(m *mem.FakeMem) { m.Store(start+0x1000+addr.MemBlockOffPrev, u32b(0)) }, "changed during the walk"},
-		{"tail", func(m *mem.FakeMem) { m.Store(heap+addr.ExpHeapOffFreeTail, u32b(start)) }, "mTailFreeList"},
-	}
-	for _, c := range cases {
-		m := setup()
-		c.mut(m)
-		h, err := walkHeap(m, "zelda", addr.ZeldaHeapPtr)
-		if err != nil || !strings.Contains(h.Problem, c.want) {
-			t.Errorf("%s: problem %q, err %v; want %q", c.name, h.Problem, err, c.want)
-		}
 	}
 
 	var out bytes.Buffer

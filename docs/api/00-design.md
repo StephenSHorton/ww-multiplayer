@@ -64,6 +64,11 @@ The plan:
  0x804130B0   Mailbox end                 -> 0xF50 bytes slack, of which:
  0x804130B0   the REL module's words (mailbox +0x1B0..+0x1BC, inject/include/wwrel.h):
               'WWRL' magic, build id, frame counter; written by inject/rel/rel_main.c
+ 0x804130BC   the REL's remote-Link words (mailbox +0x1BC..+0x1C4, wwrel.h): WWREL_EXEC_HOOK_OFF (T2's
+              exec_shim branches to it) and WWREL_SWAP_STATE_OFF (the keeper's swap state); never canary-armed
+ 0x804130C4   WWREL_SHANM_OFF (mailbox +0x1C4): the remote-Link full bodies' shanm table, an archive-heap
+              block allocated once per boot and never freed; T2's main01_init zeroes it, the REL never clears it
+ 0x804130C8   free slack up to the enemy block (0x38 bytes, unprobed)
  0x80413100   the enemy-mirror block (mailbox +0x200..+0x398, inject/include/wwenemy.h, layout 2):
               Go writes +0x00..+0x124 per tick, inject/rel/enemy_mirror.c writes +0x124..+0x198
  0x804132A0   the host's v2 At sphere, a dCcD_Sph image (mailbox +0x3A0..+0x4CC, WWENEMY_SPH_OFF)

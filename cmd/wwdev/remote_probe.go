@@ -46,6 +46,18 @@ package main
 // host Link's position plus an offset so the body follows Link), and the
 // flags word read back from the game each tick, so remote-flags can step
 // BODIES -> SWAP -> HITTABLE|DETECT mid-run. On stop it writes magic 0.
+//
+// Stage 4 (remote-link-stage4-plan.md): a body's kind is body_status
+// +0x0F. A lite body reads as before; a FULL body (the real daPy_lk_c,
+// proc 0x27 profile) reads the full tail (magic, slot, gen, iframes,
+// state, phase, create_frames, shanm_diff, heap_err) and the daPy fields
+// (vptr == __vt__9daPy_lk_c, mCurProc, mDamageWaitTimer, mCyl's Tg, Co and
+// GObjTg SPrm). Every body prints mProfName (+0x0E: 0xB5 lite, 0x27
+// full). The summary adds the block's FULL_ALLOW / HEAP_REASON / FLAGS2,
+// a profile line (DMC[0x27] == DMC[0xB5], the profile list's slot 0x27
+// and the profile it points at, read live) and a shanm line (the archive
+// table at WWREL_SHANM_OFF: header validity, words, create/delete diffs,
+// delete scan, windows, joint restores).
 
 import (
 	"context"
@@ -75,7 +87,7 @@ import (
 
 const (
 	remoteWatchUsage = "remote-watch [secs=10, 0 = until Ctrl+C] [--csv <path>] [--latch-raw]"
-	remoteFlagsUsage = "remote-flags <hex | name,name,...> --yes   (names: " + "bodies swap hittable detect apply attrib name_a9 guard ff_gate_off rouya_gate_off attacker group_wide both_words_enable iframe_stamp; 0 = all off)"
+	remoteFlagsUsage = "remote-flags <hex | name,name,...> --yes   (names: " + "bodies swap hittable detect apply attrib name_a9 guard ff_gate_off rouya_gate_off attacker group_wide both_words_enable iframe_stamp full_bodies; 0 = all off)"
 	remoteSlotUsage  = "remote-slot <slot 0-3> --yes [secs=60, 0 = until Ctrl+C] [--flags <hex|names>] [--sflags <hex>] [--offset dx,dy,dz] [--at x,y,z] [--room n] [--stage name] [--role host|client] [--pose-slot n] [--gen n] [--iframes n] [--eye-dy f] [--cyl-r f] [--cyl-h f]"
 )
 
@@ -100,12 +112,17 @@ const (
 	swRole        = 0x13 // u8
 	swSwapReady   = 0x14 // u8 the hook's fast-path byte
 	swLiveMask    = 0x15 // u8 bit i: body i a latch candidate
+	swFullAllow   = 0x19 // u8 FULL_ALLOW latched at consume (Stage 4)
+	swFlags2      = 0x1A // u16 FLAGS2 of the last consume
+	swFullDenied  = 0x79 // u8 bit i: slot i spent its full attempt this stage
+	swFullWait    = 0x7A // u8[MAX_REMOTE_LINKS] frames slot i waited for its allow bit
 	swBodies      = 0x28 // rl_body[MAX_REMOTE_LINKS]
 	swBodySize    = 0x14
 	swBodyGen     = 0x0B // u8
 	swBodyCool    = 0x0C // u16 cooldown
 	swBodyDelSent = 0x11 // u8
 	swBodyParked  = 0x12 // u8
+	swBodyKind    = 0x13 // u8 WWREMOTE_KIND_* of the last create
 	swLatch       = 0x7C // rl_latch[RL_LATCH_MAX]
 	swSize        = 0x17C
 	latchEntry    = 0x10
@@ -142,6 +159,7 @@ var remoteFlagNames = []struct {
 	{mailbox.RemoteFlagGroupWide, "group_wide"},
 	{mailbox.RemoteFlagBothWordsEnable, "both_words_enable"},
 	{mailbox.RemoteFlagIFrameStamp, "iframe_stamp"},
+	{mailbox.RemoteFlagFullBodies, "full_bodies"},
 }
 
 // remoteFlagsText is f as hex, its names and the two gates in words.
@@ -200,9 +218,14 @@ func parseRemoteFlags(s string) (uint16, error) {
 // Names of the REL-written enums, for the lines.
 var (
 	remoteBodyStateNames = []string{"EMPTY", "QUEUED", "LIVE", "PARKED", "DYING"}
-	remoteBErrNames      = []string{"none", "slot", "block", "vtable", "host_link", "cyl", "create", "lost", "tries", "gone"}
-	remoteARNames        = []string{"NONE", "DROPPED", "APPLIED", "GUARDED", "NO_CROSS", "NO_MIRROR", "LINK_ABSENT", "EARLY_OUT"}
-	remoteADNames        = []string{"none", "iframes", "go_gate", "not_in_play", "stale_epoch", "aborted"}
+	remoteBErrNames      = []string{"none", "slot", "block", "vtable", "host_link", "cyl", "create", "lost", "tries", "gone",
+		"heap_denied", "phase_timeout", "heap_errors", "profile", "shanm_alloc", "full_vtable"}
+	remoteKindNames = []string{"lite", "FULL"}
+	remoteFPNames   = []string{"NEW", "PARAMS", "INIT", "LIVE"}
+	remoteHGNames   = []string{"none", "open", "no_sample", "walk_problem", "game_largest", "game_free", "zelda_largest",
+		"counter_rose", "inflight", "stage_settle", "sticky", "archive_largest", "full_max", "queued"}
+	remoteARNames = []string{"NONE", "DROPPED", "APPLIED", "GUARDED", "NO_CROSS", "NO_MIRROR", "LINK_ABSENT", "EARLY_OUT"}
+	remoteADNames = []string{"none", "iframes", "go_gate", "not_in_play", "stale_epoch", "aborted"}
 )
 
 // enumName is names[v], or the number when out of range.
@@ -213,11 +236,26 @@ func enumName(names []string, v uint8) string {
 	return strconv.Itoa(int(v))
 }
 
+// The full body's daPy_lk_c fingerprint and mCyl fields (Step -1 dump,
+// remote-link-design.md: Tg SPrm +0x18, Co SPrm +0x2C, GObjTg SPrm +0x94).
+const (
+	dapyLkVtable  uint32 = 0x8038FDC0 // __vt__9daPy_lk_c, SYM:15801
+	actorOffProf         = 0x0E       // s16 mProfName (base_process_class)
+	cylOffTgSPrm         = 0x18
+	cylOffCoSPrm         = 0x2C
+	cylOffGTgSPrm        = 0x94
+	fullHeadLen          = mailbox.RemoteFullLinktexOff + 4 // proc, pos, eyePos, the daPy fields through mpCurrLinktex
+	fullTailLen          = mailbox.RemoteFullEnd - mailbox.RemoteFullTailOff
+	fullCylLen           = cylOffGTgSPrm + 4
+)
+
 // remoteBodyRead is one body actor as the probe read it back.
 type remoteBodyRead struct {
 	Read        bool   // the actor was in MEM1 and read
 	Err         string // why not
+	Kind        uint8  // body_status kind: which layout was read
 	Proc        int16
+	Prof        int16 // mProfName: 0xB5 lite, 0x27 full
 	Magic       uint32
 	Slot, Gen   uint8
 	IFramesLeft uint8
@@ -226,6 +264,38 @@ type remoteBodyRead struct {
 	Pos, Eye    [3]float32
 	LastPoseSeq uint32
 	ParkSince   uint32
+	// FULL bodies only.
+	Phase, TailKind uint8
+	CreateFrames    uint16
+	ShanmDiff       uint32
+	HeapErr         uint32
+	Model, Linktex  uint32
+	CurProc         uint32
+	DamageWait      int16
+	TgSPrm, CoSPrm  uint32
+	GTgSPrm         uint32
+	ShieldRange     int16
+	ModeFlg, Reset0 uint32
+}
+
+// remoteShanmRead is the archive-heap shanm table's header (WWREL_SHANM_OFF).
+type remoteShanmRead struct {
+	Word                                                          uint32 // the slack word: 0 until the first FULL create of the boot
+	Err                                                           string // the word is set but the header does not check out
+	Words, CreateDiff, DeleteDiff, DeleteScan, Windows, JointDiff uint32
+}
+
+// remoteProfileRead is the second profile's wiring, read live: the DMC
+// alias (DMC[0x27] == DMC[0xB5], the DOL name-table patch) and the
+// profile list's slot 0x27 (the RELS.arc patch, applied by OSLink while
+// module 0x58 is linked) with the profile it points at.
+type remoteProfileRead struct {
+	DMCFull, DMCREL uint32
+	List            uint32 // g_fpcPf_ProfileList_p
+	Slot27, SlotB5  uint32
+	ProcName        int16 // of the slot-0x27 profile
+	Size            uint32
+	Err             string
 }
 
 // remoteSnap is one tick's read of everything remote-watch prints.
@@ -234,8 +304,9 @@ type remoteSnap struct {
 	Hook         mailbox.RELHook
 	Blk          mailbox.RemoteBlock
 	Tail         uint32
-	Reserved     uint32 // +0x01C, must be 0 (the design's collect_ptr is gone)
 	St           mailbox.RemoteStatus
+	Shanm        remoteShanmRead
+	Profile      remoteProfileRead
 	Collect      uint8 // the collect byte at addr.Collect (all of it)
 	Info0        uint32
 	Player       uint32
@@ -271,7 +342,10 @@ func readRemoteSnap(m mem.Reader) (*remoteSnap, error) {
 	if s.Blk, s.Tail, s.St, err = mailbox.ReadRemoteBlock(m); err != nil {
 		return nil, err
 	}
-	if s.Reserved, err = mem.ReadU32(m, mailbox.RemoteBlockAddr+mailbox.RemoteReservedOff); err != nil {
+	if s.Shanm, err = readShanm(m); err != nil {
+		return nil, err
+	}
+	if s.Profile, err = readProfile(m); err != nil {
 		return nil, err
 	}
 	if s.Collect, err = mem.ReadU8(m, mailbox.RemoteCollectAddr); err != nil {
@@ -298,7 +372,7 @@ func readRemoteSnap(m mem.Reader) (*remoteSnap, error) {
 		return nil, err
 	}
 	for i := range s.Bodies {
-		s.Bodies[i] = readRemoteBody(m, s.St.Bodies[i].Actor)
+		s.Bodies[i] = readRemoteBody(m, s.St.Bodies[i].Actor, s.St.Bodies[i].Kind)
 	}
 	if ss := s.Hook.SwapState; ss != 0 {
 		keeper := ss - mailbox.RemoteKeeperSwapOff
@@ -320,11 +394,88 @@ func readRemoteSnap(m mem.Reader) (*remoteSnap, error) {
 	return s, nil
 }
 
-// readRemoteBody reads the body actor at a (0: none).
-func readRemoteBody(m mem.Reader, a uint32) remoteBodyRead {
-	var r remoteBodyRead
+// readShanm reads the shanm table's header through WWREL_SHANM_OFF.
+func readShanm(m mem.Reader) (remoteShanmRead, error) {
+	var r remoteShanmRead
+	var err error
+	if r.Word, err = mem.ReadU32(m, mailbox.Mailbox+mailbox.OffRELShanm); err != nil || r.Word == 0 {
+		return r, err
+	}
+	const n = mailbox.RemoteSAJointDiffOff + 4
+	if r.Word&3 != 0 || mem.CheckRange(r.Word, int(mailbox.RemoteShanmBytes)) != nil {
+		r.Err = fmt.Sprintf("0x%08X is not an aligned MEM1 block of 0x%X bytes", r.Word, mailbox.RemoteShanmBytes)
+		return r, nil
+	}
+	b, err := m.Read(r.Word, n)
+	if err != nil || len(b) != n {
+		r.Err = fmt.Sprintf("read 0x%08X: %v", r.Word, err)
+		return r, nil
+	}
+	be := binary.BigEndian
+	switch {
+	case be.Uint32(b[mailbox.RemoteSAMagicOff:]) != mailbox.RemoteShanmMagic:
+		r.Err = fmt.Sprintf("magic 0x%08X, not 'WWSA'", be.Uint32(b[mailbox.RemoteSAMagicOff:]))
+	case be.Uint32(b[mailbox.RemoteSASizeOff:]) != mailbox.RemoteShanmBytes:
+		r.Err = fmt.Sprintf("size 0x%X, not 0x%X", be.Uint32(b[mailbox.RemoteSASizeOff:]), mailbox.RemoteShanmBytes)
+	case be.Uint32(b[mailbox.RemoteSASelfOff:]) != r.Word:
+		r.Err = fmt.Sprintf("self 0x%08X, not the block", be.Uint32(b[mailbox.RemoteSASelfOff:]))
+	}
+	r.Words, r.CreateDiff = be.Uint32(b[mailbox.RemoteSAWordsOff:]), be.Uint32(b[mailbox.RemoteSACreateDiffOff:])
+	r.DeleteDiff, r.DeleteScan = be.Uint32(b[mailbox.RemoteSADeleteDiffOff:]), be.Uint32(b[mailbox.RemoteSADeleteScanOff:])
+	r.Windows, r.JointDiff = be.Uint32(b[mailbox.RemoteSAWindowsOff:]), be.Uint32(b[mailbox.RemoteSAJointDiffOff:])
+	return r, nil
+}
+
+// readProfile reads the DMC alias and the profile list's slot 0x27.
+func readProfile(m mem.Reader) (remoteProfileRead, error) {
+	var r remoteProfileRead
+	var err error
+	if r.DMCFull, err = mem.ReadU32(m, mailbox.RemoteDMCFullAddr); err != nil {
+		return r, err
+	}
+	if r.DMCREL, err = mem.ReadU32(m, mailbox.RemoteDMCRELAddr); err != nil {
+		return r, err
+	}
+	if r.List, err = mem.ReadU32(m, mailbox.RemoteProfileListPtr); err != nil {
+		return r, err
+	}
+	if r.List == 0 {
+		r.Err = "no profile list (f_pc_profile_lst not linked)"
+		return r, nil
+	}
+	if !addr.InMEM1(r.List) || mem.CheckRange(r.List, 4*int(inject.RELProcID)+4) != nil {
+		r.Err = fmt.Sprintf("profile list 0x%08X is not in MEM1", r.List)
+		return r, nil
+	}
+	if r.Slot27, err = mem.ReadU32(m, r.List+4*uint32(mailbox.RemoteFullProc)); err != nil {
+		return r, err
+	}
+	if r.SlotB5, err = mem.ReadU32(m, r.List+4*uint32(inject.RELProcID)); err != nil {
+		return r, err
+	}
+	if !addr.InMEM1(r.Slot27) || mem.CheckRange(r.Slot27, 0x14) != nil {
+		r.Err = fmt.Sprintf("slot 0x27 0x%08X is not in MEM1", r.Slot27)
+		return r, nil
+	}
+	b, err := m.Read(r.Slot27, 0x14)
+	if err != nil || len(b) != 0x14 {
+		r.Err = fmt.Sprintf("read 0x%08X: %v", r.Slot27, err)
+		return r, nil
+	}
+	// process_profile_definition: mProcName s16 +0x08, mSize s32 +0x10
+	// (f_pc_profile.h:8-17).
+	r.ProcName, r.Size = int16(binary.BigEndian.Uint16(b[0x08:])), binary.BigEndian.Uint32(b[0x10:])
+	return r, nil
+}
+
+// readRemoteBody reads the body actor at a (0: none) laid out as kind.
+func readRemoteBody(m mem.Reader, a uint32, kind uint8) remoteBodyRead {
+	r := remoteBodyRead{Kind: kind}
 	if a == 0 {
 		return r
+	}
+	if kind == mailbox.RemoteKindFull {
+		return readFullBody(m, a, r)
 	}
 	if !addr.InMEM1(a) || mem.CheckRange(a, mailbox.RemoteBodyEnd) != nil {
 		r.Err = fmt.Sprintf("0x%08X not in MEM1", a)
@@ -338,6 +489,7 @@ func readRemoteBody(m mem.Reader, a uint32) remoteBodyRead {
 	be := binary.BigEndian
 	r.Read = true
 	r.Proc = int16(be.Uint16(b[addr.ActorOffProcName:]))
+	r.Prof = int16(be.Uint16(b[actorOffProf:]))
 	r.Magic = be.Uint32(b[mailbox.RemoteBodyMagicOff:])
 	r.Slot = b[mailbox.RemoteBodySlotOff]
 	r.Gen = b[mailbox.RemoteBodyGenOff]
@@ -349,6 +501,62 @@ func readRemoteBody(m mem.Reader, a uint32) remoteBodyRead {
 	r.Eye = vec3At(b, int(addr.ActorOffEyePos))
 	r.LastPoseSeq = be.Uint32(b[mailbox.RemoteBodyLastPoseSeqOff:])
 	r.ParkSince = be.Uint32(b[mailbox.RemoteBodyParkSinceOff:])
+	return r
+}
+
+// readFullBody reads a FULL body: the actor and daPy fields up to
+// mpCurrLinktex, the tail, mCurProc, the shield range and mModeFlg, and
+// mCyl's SPrm words.
+func readFullBody(m mem.Reader, a uint32, r remoteBodyRead) remoteBodyRead {
+	if !addr.InMEM1(a) || mem.CheckRange(a, int(mailbox.RemoteFullSize)) != nil {
+		r.Err = fmt.Sprintf("0x%08X not in MEM1", a)
+		return r
+	}
+	read := func(off uint32, n int) []byte {
+		if r.Err != "" {
+			return nil
+		}
+		b, err := m.Read(a+off, n)
+		if err != nil || len(b) != n {
+			r.Err = fmt.Sprintf("read +0x%X: %v", off, err)
+			return nil
+		}
+		return b
+	}
+	h := read(0, fullHeadLen)
+	t := read(mailbox.RemoteFullTailOff, fullTailLen)
+	cp := read(mailbox.RemoteFullCurProcOff, 4)
+	sr := read(mailbox.RemoteFullShieldRangeOff, 2)
+	mf := read(mailbox.RemoteFullModeFlgOff, 4)
+	cyl := read(mailbox.RemoteFullCylOff, fullCylLen)
+	if r.Err != "" {
+		return r
+	}
+	be := binary.BigEndian
+	tl := func(off int) []byte { return t[off-mailbox.RemoteFullTailOff:] }
+	r.Read = true
+	r.Proc = int16(be.Uint16(h[addr.ActorOffProcName:]))
+	r.Prof = int16(be.Uint16(h[actorOffProf:]))
+	r.Pos = vec3At(h, int(addr.ActorOffCurPos))
+	r.Eye = vec3At(h, int(addr.ActorOffEyePos))
+	r.DamageWait = int16(be.Uint16(h[mailbox.RemoteFullDamageWaitOff:]))
+	r.Reset0 = be.Uint32(h[mailbox.RemoteFullReset0Off:])
+	r.VPtr = be.Uint32(h[mailbox.RemoteFullVPtrOff:])
+	r.Model = be.Uint32(h[mailbox.RemoteFullModelOff:])
+	r.Linktex = be.Uint32(h[mailbox.RemoteFullLinktexOff:])
+	r.Magic = be.Uint32(tl(mailbox.RemoteFullMagicOff))
+	r.Slot, r.Gen = tl(mailbox.RemoteFullSlotOff)[0], tl(mailbox.RemoteFullGenOff)[0]
+	r.IFramesLeft, r.State = tl(mailbox.RemoteFullIFramesLeftOff)[0], tl(mailbox.RemoteFullStateOff)[0]
+	r.LastPoseSeq = be.Uint32(tl(mailbox.RemoteFullLastPoseSeqOff))
+	r.ParkSince = be.Uint32(tl(mailbox.RemoteFullParkSinceOff))
+	r.Phase, r.TailKind = tl(mailbox.RemoteFullPhaseOff)[0], tl(mailbox.RemoteFullKindOff)[0]
+	r.CreateFrames = be.Uint16(tl(mailbox.RemoteFullCreateFramesOff))
+	r.ShanmDiff = be.Uint32(tl(mailbox.RemoteFullShanmDiffOff))
+	r.HeapErr = be.Uint32(tl(mailbox.RemoteFullHeapErrOff))
+	r.CurProc = be.Uint32(cp)
+	r.ShieldRange = int16(be.Uint16(sr))
+	r.ModeFlg = be.Uint32(mf)
+	r.TgSPrm, r.CoSPrm, r.GTgSPrm = be.Uint32(cyl[cylOffTgSPrm:]), be.Uint32(cyl[cylOffCoSPrm:]), be.Uint32(cyl[cylOffGTgSPrm:])
 	return r
 }
 
@@ -388,8 +596,22 @@ func (s *remoteSnap) valid() string {
 	if s.Blk.Magic == mailbox.RemoteMagic && s.St.AckSeq == 0 {
 		why = append(why, "never acked (the REL has not consumed a write)")
 	}
-	if s.Reserved != 0 {
-		why = append(why, fmt.Sprintf("reserved +0x1C is 0x%08X, not 0", s.Reserved))
+	// The +0x1C word: FULL_ALLOW only under FULL_BODIES, one bit, a slot
+	// that exists; the client writes none of it; FLAGS2 bits known.
+	b := &s.Blk
+	switch {
+	case b.Role == mailbox.RemoteRoleClient && (b.FullAllow != 0 || b.HeapReason != 0 || b.Flags2 != 0):
+		why = append(why, fmt.Sprintf("client block carries full_allow 0x%02X heap_reason %d flags2 0x%04X", b.FullAllow, b.HeapReason, b.Flags2))
+	case b.FullAllow != 0 && b.Flags&mailbox.RemoteFlagFullBodies == 0:
+		why = append(why, fmt.Sprintf("full_allow 0x%02X without full_bodies", b.FullAllow))
+	case b.FullAllow&(b.FullAllow-1) != 0 || b.FullAllow>>mailbox.MaxRemoteLinks != 0:
+		why = append(why, fmt.Sprintf("full_allow 0x%02X is not one slot bit", b.FullAllow))
+	}
+	if b.HeapReason >= uint8(len(remoteHGNames)) {
+		why = append(why, fmt.Sprintf("heap_reason %d unknown", b.HeapReason))
+	}
+	if b.Flags2&^mailbox.RemoteFlag2FullCo != 0 {
+		why = append(why, fmt.Sprintf("flags2 0x%04X has unknown bits", b.Flags2))
 	}
 	if s.Blk.Magic == mailbox.RemoteMagic && s.St.AckFrame != 0 && s.REL.Frames-s.St.AckFrame > mailbox.RemoteStaleFrames {
 		why = append(why, fmt.Sprintf("STALE: last ack %d REL frames ago", s.REL.Frames-s.St.AckFrame))
@@ -460,7 +682,7 @@ const remoteCSVHeader = "t_ms,rel_frames,exec_hook,swap_state,magic,seq_head,seq
 	"hook_calls,swaps,switches,attacker_overrides,denied,rouya_skips,park_rewrites,both_word_swaps,vt_refusals,gate_skips,hit_head," +
 	"b0_state,b0_err,b0_actor,b0_pid,b0_hits,b0_latched_by,b0_frames_live,b1_state,b1_err,b1_actor,b1_pid,b1_hits,b1_latched_by,b1_frames_live," +
 	"b2_state,b2_err,b2_actor,b2_pid,b2_hits,b2_latched_by,b2_frames_live,b3_state,b3_err,b3_actor,b3_pid,b3_hits,b3_latched_by,b3_frames_live," +
-	"apply_seq,apply_ack,apply_result,apply_detail,life_before,life_after,m714"
+	"apply_seq,apply_ack,apply_result,apply_detail,life_before,life_after,full_allow,heap_reason,flags2,b0_kind,b1_kind,b2_kind,b3_kind,m714"
 
 // remoteWatch runs the watch over m for d (0: until ctx ends).
 func remoteWatch(ctx context.Context, w, csv io.Writer, m mem.Reader, d time.Duration, latchRaw bool) error {
@@ -558,8 +780,8 @@ func remoteWatch(ctx context.Context, w, csv io.Writer, m mem.Reader, d time.Dur
 		lastHead = s.St.HitRingHead
 		for i, b := range s.St.Bodies {
 			if b.State != lastState[i] {
-				fmt.Fprintf(w, "[%6.3fs] body %d: %s -> %s (err %s actor 0x%08X pid %d tries %d)\n", at, i,
-					enumName(remoteBodyStateNames, lastState[i]), enumName(remoteBodyStateNames, b.State), enumName(remoteBErrNames, b.Err), b.Actor, b.PID, b.Tries)
+				fmt.Fprintf(w, "[%6.3fs] body %d: %s -> %s (kind %s err %s actor 0x%08X pid %d tries %d)\n", at, i,
+					enumName(remoteBodyStateNames, lastState[i]), enumName(remoteBodyStateNames, b.State), enumName(remoteKindNames, b.Kind), enumName(remoteBErrNames, b.Err), b.Actor, b.PID, b.Tries)
 				lastState[i] = b.State
 			}
 		}
@@ -610,8 +832,8 @@ func remoteWatch(ctx context.Context, w, csv io.Writer, m mem.Reader, d time.Dur
 // remoteHeader prints the tunables, PROC_POLICY and the FF denylist.
 func remoteHeader(w io.Writer, s *remoteSnap) {
 	b := &s.Blk
-	fmt.Fprintf(w, "tunables: epoch %d margin_q8 %d min_hold %d body_iframes %d role %d dy_max %.1f create_cooldown %d reserved(+0x1C) 0x%08X\n",
-		b.Epoch, b.MarginQ8, b.MinHold, b.BodyIFrames, b.Role, b.DYMax, b.CreateCooldown, s.Reserved)
+	fmt.Fprintf(w, "tunables: epoch %d margin_q8 %d min_hold %d body_iframes %d role %d dy_max %.1f create_cooldown %d; %s\n",
+		b.Epoch, b.MarginQ8, b.MinHold, b.BodyIFrames, b.Role, b.DYMax, b.CreateCooldown, fullFieldsText(b))
 	var pol []string
 	for _, p := range b.Policy {
 		var f []string
@@ -626,6 +848,52 @@ func remoteHeader(w io.Writer, s *remoteSnap) {
 		pol = append(pol, fmt.Sprintf("0x%04X %s", uint16(p.Proc), strings.Join(f, "|")))
 	}
 	fmt.Fprintf(w, "policy (%d): %s; ff denylist (%d): %q\n", len(b.Policy), strings.Join(pol, ", "), len(b.FFDeny), b.FFDeny)
+}
+
+// fullFieldsText is the +0x1C word: FULL_ALLOW, HEAP_REASON, FLAGS2.
+func fullFieldsText(b *mailbox.RemoteBlock) string {
+	co := "Co off"
+	if b.Flags2&mailbox.RemoteFlag2FullCo != 0 {
+		co = "Co on"
+	}
+	return fmt.Sprintf("full_allow 0x%02X heap_reason %s flags2 0x%04X (%s)", b.FullAllow, enumName(remoteHGNames, b.HeapReason), b.Flags2, co)
+}
+
+// profileText is the second profile's wiring.
+func profileText(p *remoteProfileRead) string {
+	alias := "aliased"
+	switch {
+	case p.DMCFull == 0 && p.DMCREL == 0:
+		alias = "empty (not booted?)"
+	case p.DMCFull != p.DMCREL:
+		alias = "NOT ALIASED (no name-table patch: a FULL create is refused, BERR profile)"
+	}
+	out := fmt.Sprintf("DMC[0x27] 0x%08X DMC[0xB5] 0x%08X %s", p.DMCFull, p.DMCREL, alias)
+	if p.Err != "" {
+		return out + "; " + p.Err
+	}
+	prof := "g_profile_WWBODY (proc 0x00B5, size 0x4C80)"
+	if uint16(p.ProcName) != inject.RELProcID || p.Size != mailbox.RemoteFullSize {
+		prof = fmt.Sprintf("NOT the body profile (proc 0x%04X size 0x%X; module 0x58 not linked or no RELS.arc patch)", uint16(p.ProcName), p.Size)
+	}
+	return out + fmt.Sprintf("; list 0x%08X slot 0x27 -> 0x%08X %s, slot 0xB5 -> 0x%08X", p.List, p.Slot27, prof, p.SlotB5)
+}
+
+// shanmText is the shanm table's header.
+func shanmText(t *remoteShanmRead) string {
+	if t.Word == 0 {
+		return "not allocated (no FULL create this boot)"
+	}
+	out := fmt.Sprintf("0x%08X", t.Word)
+	if t.Err != "" {
+		return out + " BAD: " + t.Err + " (the REL treats it as 0)"
+	}
+	scan := "ok"
+	if t.DeleteScan != 0 {
+		scan = "NOT 0: tracked words point into a deleted body"
+	}
+	return out + fmt.Sprintf(" 'WWSA' ok: words %d create_diff %d delete_diff %d delete_scan %d (%s) windows %d joint_diff %d",
+		t.Words, t.CreateDiff, t.DeleteDiff, t.DeleteScan, scan, t.Windows, t.JointDiff)
 }
 
 // remoteSummary prints the once-a-second block.
@@ -658,6 +926,7 @@ func remoteSummary(w io.Writer, at float64, s, prev *remoteSnap, dt time.Duratio
 	fmt.Fprintf(w, "        block %s: seq %d ack_seq %d ack_frame %d flags %s role %d; collect 0x%02X & 0x0F = 0x%X (%s); mPlayerInfo[0] 0x%08X mpPlayerPtr[0] 0x%08X %s; Link eye_dy %.1f\n",
 		s.valid(), s.Blk.Seq, s.St.AckSeq, s.St.AckFrame, remoteFlagsText(s.Blk.Flags), s.Blk.Role,
 		s.Collect, s.Collect&mailbox.RemoteCollectJailMask, jail, s.Info0, s.Player, pp, s.LinkEyeDY)
+	fmt.Fprintf(w, "        full: %s\n        profile: %s\n        shanm: %s\n", fullFieldsText(&s.Blk), profileText(&s.Profile), shanmText(&s.Shanm))
 	var cs []string
 	for i, c := range s.St.Counters {
 		cs = append(cs, fmt.Sprintf("%s %d(+%d)", mailbox.RemoteCounterNames[i], c, c-prev.St.Counters[i]))
@@ -685,8 +954,8 @@ func remoteSummary(w io.Writer, at float64, s, prev *remoteSnap, dt time.Duratio
 		}
 		fmt.Fprintf(w, "        slot %d: active %v sflags 0x%02X stage %q room %d pos %.1f %.1f %.1f ang %d shield %d eye_dy %.1f cyl %.1f/%.1f iframes %d cut %d/%d pid %d pose_slot %d gen %d; %s\n",
 			i, sl.Active, sl.SFlags, sl.Stage, sl.Room, sl.Pos[0], sl.Pos[1], sl.Pos[2], sl.AngleY, sl.ShieldAngleY, sl.EyeDY, sl.CylR, sl.CylH, sl.IFrames, sl.CutType, sl.CutCount, sl.PlayerID, sl.PoseSlot, sl.Gen, pose)
-		fmt.Fprintf(w, "          body: %s err %s actor 0x%08X pid %d hits %d latched_by %d frames_live %d tries %d; %s\n",
-			enumName(remoteBodyStateNames, bs.State), enumName(remoteBErrNames, bs.Err), bs.Actor, bs.PID, bs.Hits, bs.LatchedBy, bs.FramesLive, bs.Tries, remoteBodyText(bs.Actor, &s.Bodies[i]))
+		fmt.Fprintf(w, "          body: %s %s err %s actor 0x%08X pid %d hits %d latched_by %d frames_live %d tries %d; %s\n",
+			enumName(remoteKindNames, bs.Kind), enumName(remoteBodyStateNames, bs.State), enumName(remoteBErrNames, bs.Err), bs.Actor, bs.PID, bs.Hits, bs.LatchedBy, bs.FramesLive, bs.Tries, remoteBodyText(bs.Actor, &s.Bodies[i]))
 	}
 	fmt.Fprintf(w, "        swap: %s\n        latch: %s\n", swapText(s), latchText(s))
 	if latchRaw && s.SwapState != nil {
@@ -723,6 +992,9 @@ func remoteBodyText(actor uint32, r *remoteBodyRead) string {
 	if !r.Read {
 		return "unread: " + r.Err
 	}
+	if r.Kind == mailbox.RemoteKindFull {
+		return fullBodyText(r)
+	}
 	magic := "'WWRB'"
 	if r.Magic != mailbox.RemoteBodyMagic {
 		magic = fmt.Sprintf("BAD 0x%08X", r.Magic)
@@ -731,9 +1003,36 @@ func remoteBodyText(actor uint32, r *remoteBodyRead) string {
 	if r.VPtr != actor+mailbox.RemoteBodyVTOff {
 		vp = fmt.Sprintf("NOT own vt (want 0x%08X)", actor+mailbox.RemoteBodyVTOff)
 	}
-	return fmt.Sprintf("read: proc 0x%04X magic %s slot %d gen %d state %s iframes_left %d vptr 0x%08X %s vt+0x1C 0x%08X pos %.1f %.1f %.1f eye_dy %.1f last_pose_seq %d park_since %d",
-		uint16(r.Proc), magic, r.Slot, r.Gen, enumName(remoteBodyStateNames, r.State), r.IFramesLeft, r.VPtr, vp, r.VT1C,
+	return fmt.Sprintf("read: proc 0x%04X prof 0x%04X magic %s slot %d gen %d state %s iframes_left %d vptr 0x%08X %s vt+0x1C 0x%08X pos %.1f %.1f %.1f eye_dy %.1f last_pose_seq %d park_since %d",
+		uint16(r.Proc), uint16(r.Prof), magic, r.Slot, r.Gen, enumName(remoteBodyStateNames, r.State), r.IFramesLeft, r.VPtr, vp, r.VT1C,
 		r.Pos[0], r.Pos[1], r.Pos[2], r.Eye[1]-r.Pos[1], r.LastPoseSeq, r.ParkSince)
+}
+
+// fullBodyText is a FULL body read back: the tail (the magic is written
+// last in create, so 0 while it is still creating), the vtable
+// fingerprint and the daPy fields execute keeps.
+func fullBodyText(r *remoteBodyRead) string {
+	magic := "'WWRB'"
+	if r.Magic != mailbox.RemoteBodyMagic {
+		magic = fmt.Sprintf("0x%08X (not yet: creating, or BAD)", r.Magic)
+	}
+	vp := "daPy_lk_c ok"
+	if r.VPtr != dapyLkVtable {
+		vp = fmt.Sprintf("NOT __vt__9daPy_lk_c 0x%08X", dapyLkVtable)
+	}
+	prof := "ok"
+	if uint16(r.Prof) != mailbox.RemoteFullProc || uint16(r.Proc) != inject.RELProcID {
+		prof = fmt.Sprintf("WANT proc 0x%04X prof 0x%04X", inject.RELProcID, mailbox.RemoteFullProc)
+	}
+	co := "Co off"
+	if r.CoSPrm&1 != 0 {
+		co = "Co SET"
+	}
+	return fmt.Sprintf("FULL read: proc 0x%04X prof 0x%04X (%s) magic %s slot %d gen %d state %s iframes_left %d phase %s kind %d create_frames %d shanm_diff %d heap_err 0x%08X; vptr 0x%08X %s model 0x%08X linktex 0x%08X cur_proc 0x%X damage_wait %d reset0 0x%08X mode_flg 0x%08X shield %d; mCyl tg_sprm 0x%08X co_sprm 0x%08X (%s) gtg_sprm 0x%08X; pos %.1f %.1f %.1f eye_dy %.1f last_pose_seq %d park_since %d",
+		uint16(r.Proc), uint16(r.Prof), prof, magic, r.Slot, r.Gen, enumName(remoteBodyStateNames, r.State), r.IFramesLeft,
+		enumName(remoteFPNames, r.Phase), r.TailKind, r.CreateFrames, r.ShanmDiff, r.HeapErr,
+		r.VPtr, vp, r.Model, r.Linktex, r.CurProc, r.DamageWait, r.Reset0, r.ModeFlg, r.ShieldRange,
+		r.TgSPrm, r.CoSPrm, co, r.GTgSPrm, r.Pos[0], r.Pos[1], r.Pos[2], r.Eye[1]-r.Pos[1], r.LastPoseSeq, r.ParkSince)
 }
 
 // swapText is the keeper's intake words and runtime body slots.
@@ -746,11 +1045,13 @@ func swapText(s *remoteSnap) string {
 	}
 	be := binary.BigEndian
 	b := s.SwapState
-	out := fmt.Sprintf("valid %d role %d flags 0x%04X swap_ready %d live_mask %02b last_seq %d stale_frames %d",
-		b[swValid], b[swRole], be.Uint16(b[swFlags:]), b[swSwapReady], b[swLiveMask], be.Uint32(b[swLastSeq:]), be.Uint32(b[swStaleFrames:]))
+	out := fmt.Sprintf("valid %d role %d flags 0x%04X swap_ready %d live_mask %02b last_seq %d stale_frames %d full_allow %02b flags2 0x%04X full_denied %02b",
+		b[swValid], b[swRole], be.Uint16(b[swFlags:]), b[swSwapReady], b[swLiveMask], be.Uint32(b[swLastSeq:]), be.Uint32(b[swStaleFrames:]),
+		b[swFullAllow], be.Uint16(b[swFlags2:]), b[swFullDenied])
 	for i := range mailbox.MaxRemoteLinks {
 		o := b[swBodies+i*swBodySize:]
-		out += fmt.Sprintf("; body%d parked %d gen %d cooldown %d del_sent %d", i, o[swBodyParked], o[swBodyGen], be.Uint16(o[swBodyCool:]), o[swBodyDelSent])
+		out += fmt.Sprintf("; body%d parked %d gen %d cooldown %d del_sent %d kind %s full_wait %d", i, o[swBodyParked], o[swBodyGen], be.Uint16(o[swBodyCool:]), o[swBodyDelSent],
+			enumName(remoteKindNames, o[swBodyKind]), b[swFullWait+i])
 	}
 	return out
 }
@@ -823,7 +1124,12 @@ func remoteCSV(w io.Writer, ms int64, s *remoteSnap, m714 string) {
 		cols = append(cols, u(uint64(b.State)), u(uint64(b.Err)), x(b.Actor), u(uint64(b.PID)), u(uint64(b.Hits)), u(uint64(b.LatchedBy)), u(uint64(b.FramesLive)))
 	}
 	r := s.St.ApplyResult
-	cols = append(cols, u(uint64(s.Blk.Apply.Seq)), u(uint64(s.St.ApplyAck)), u(uint64(r.Result)), u(uint64(r.Detail)), u(uint64(s.St.LifeBefore)), u(uint64(s.St.LifeAfter)), m714)
+	cols = append(cols, u(uint64(s.Blk.Apply.Seq)), u(uint64(s.St.ApplyAck)), u(uint64(r.Result)), u(uint64(r.Detail)), u(uint64(s.St.LifeBefore)), u(uint64(s.St.LifeAfter)),
+		fmt.Sprintf("0x%02X", s.Blk.FullAllow), u(uint64(s.Blk.HeapReason)), fmt.Sprintf("0x%04X", s.Blk.Flags2))
+	for _, b := range s.St.Bodies {
+		cols = append(cols, u(uint64(b.Kind)))
+	}
+	cols = append(cols, m714)
 	fmt.Fprintln(w, strings.Join(cols, ","))
 }
 

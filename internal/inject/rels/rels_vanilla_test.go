@@ -119,6 +119,125 @@ func TestPatchRELSArcVanilla(t *testing.T) {
 	if _, err := rels.PatchRELSArc(arc, puppetModule, dummy, profileSection, profileOffset, growth-1); !errors.Is(err, rels.ErrRELSArcGrowth) {
 		t.Errorf("with the guard one byte under the growth: %v", err)
 	}
+
+	// Two profiles (remote-link-stage4-plan.md D4-1): entry 0xB5 found at
+	// its offset, entry 0x27 moved from 0xA6's import into the dummy's;
+	// every other list entry as on the disc; a fixed point.
+	main := rels.ProfileTarget{Proc: 0xB5, Section: profileSection, Offset: profileOffset}
+	body := []rels.ProfileTarget{{Proc: seatagProc, Section: profileSection, Offset: profileOffset + 0x30}}
+	two, err := rels.PatchRELSArcProfiles(arc, puppetModule, dummy, main, body, rels.RELSArcMaxGrowth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkProfileList(t, "two profiles", profileListOf(t, arc), profileListOf(t, two),
+		rel.Symbol{Section: profileSection, Offset: profileOffset}, rel.Symbol{Section: profileSection, Offset: profileOffset + 0x30})
+	if again, err := rels.PatchRELSArcProfiles(two, puppetModule, dummy, main, body, rels.RELSArcMaxGrowth); err != nil || !bytes.Equal(again, two) {
+		t.Errorf("patching the two-profile archive again differs: %v", err)
+	}
+}
+
+// profileListOf parses the profile list (the file starting with module
+// ID 1) out of the archive arc.
+func profileListOf(t *testing.T, arc []byte) *rel.File {
+	t.Helper()
+	a, err := stage.ParseArchive(arc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range a.Files() {
+		b, err := a.Read(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(b) >= 4 && binary.BigEndian.Uint32(b) == rels.ProfileListModule {
+			lf, err := rel.Parse(b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return lf
+		}
+	}
+	t.Fatal("no profile list in the archive")
+	return nil
+}
+
+// seatagProc and seatagModule are the full body's process and the module
+// whose import its profile-list entry is against on the disc (D4-1).
+const (
+	seatagProc   = 0x27
+	seatagModule = 0xA6
+)
+
+// listEntry is a profile-list relocation keyed by where it patches.
+type listEntry struct {
+	module uint32
+	r      rel.Reloc
+}
+
+func listEntries(f *rel.File) map[[2]uint32]listEntry {
+	out := map[[2]uint32]listEntry{}
+	for _, imp := range f.Imports {
+		for _, r := range imp.Relocs {
+			if r.Type != rel.RelocNop {
+				out[[2]uint32{uint32(r.Section), r.Offset}] = listEntry{imp.Module, r}
+			}
+		}
+	}
+	return out
+}
+
+// checkProfileList compares the patched profile list with the disc's:
+// on the disc entry 0xB5 is against module 0x58 and entry 0x27 against
+// 0xA6 (section 4 +0x20, the plan's reading), both in the list's .data;
+// after, both are against 0x58 pointing at profile and body, 0xA6 has no
+// import left, and every other relocation is unchanged.
+func checkProfileList(t *testing.T, path string, was, got *rel.File, profile, body rel.Symbol) {
+	t.Helper()
+	before, after := listEntries(was), listEntries(got)
+	var main listEntry
+	okm := false
+	var listSection uint32
+	for k, e := range before {
+		if e.module == puppetModule && k[1] == 4*0xB5 {
+			main, okm, listSection = e, true, k[0]
+		}
+	}
+	if !okm || main.r.Type != rel.RelocAddr32 {
+		t.Fatalf("%s: the entry of 0xB5 on the disc is not one ADDR32 against 0x%x: %+v", path, puppetModule, main)
+	}
+	keyMain, keyBody := [2]uint32{listSection, 4 * 0xB5}, [2]uint32{listSection, 4 * seatagProc}
+	if e := before[keyBody]; e.module != seatagModule || e.r.Type != rel.RelocAddr32 || e.r.TargetSection != 4 || e.r.Addend != 0x20 {
+		t.Errorf("%s: the entry of 0x27 on the disc is %+v, want ADDR32 against 0x%x section 4 +0x20", path, e, seatagModule)
+	}
+	if got.Import(seatagModule) != nil {
+		t.Errorf("%s: the import of module 0x%x is still there", path, seatagModule)
+	}
+	if len(before) != len(after) {
+		t.Errorf("%s: %d relocations, the disc has %d", path, len(after), len(before))
+	}
+	for k, b := range before {
+		a, ok := after[k]
+		switch {
+		case !ok:
+			t.Errorf("%s: the relocation at section %d +0x%x is gone", path, k[0], k[1])
+		case k == keyMain || k == keyBody:
+			want := profile
+			if k == keyBody {
+				want = body
+			}
+			if a.module != puppetModule || a.r.Type != rel.RelocAddr32 || a.r.TargetSection != want.Section || a.r.Addend != want.Offset {
+				t.Errorf("%s: entry at +0x%x = %+v, want ADDR32 against 0x%x to %+v", path, k[1], a, puppetModule, want)
+			}
+		case a != b:
+			t.Errorf("%s: the relocation at section %d +0x%x changed: %+v, was %+v", path, k[0], k[1], a, b)
+		}
+	}
+	// The list's sections are untouched.
+	for i := range was.Sections {
+		if i < len(got.Sections) && !bytes.Equal(was.Sections[i].Data, got.Sections[i].Data) {
+			t.Errorf("%s: section %d data changed", path, i)
+		}
+	}
 }
 
 // The real pipeline end to end on the vanilla disc, in memory: this
@@ -126,14 +245,21 @@ func TestPatchRELSArcVanilla(t *testing.T) {
 // Module.PatchISOInMemory). The output parses as a disc, its RELS.arc at
 // the offset the result gives parses, module 0x58 reads back as our REL
 // (ID 0x58, prolog section and offset the Layout's), the profile list's
-// relocation against it points at the profile, every other entry is
-// byte for byte the disc's, and the output patched again is
+// entries 0xB5 and 0x27 (the full body, remote-link-stage4-plan.md D4-1)
+// point at their profiles in it, every other list entry is as on the
+// disc, the import of d_a_seatag.rel (0xA6) is gone, every other archive
+// entry is byte for byte the disc's, and the output patched again is
 // ErrAlreadyPatched. Nothing is written to disk. (This holds the
-// decompressed disc and its patched copy: about 3 GB.)
+// decompressed disc and its patched copy: about 3 GB.) A blob from before
+// the body profile points entry 0x27 at the keeper's profile instead.
 func TestPatchISOWithRELVanilla(t *testing.T) {
 	m := rels.Blob()
 	if m.Empty() {
 		t.Skip("this blob has no REL module (RELELF is empty)")
+	}
+	if m.Body == nil {
+		t.Logf("this blob predates the body profile: entry 0x%x points at %s", inject.RELBodyProcID, m.Profile)
+		m.Body = &rels.BodyProfile{Proc: inject.RELBodyProcID, Symbol: m.Profile}
 	}
 	p := vanillatest.Path()
 	if p == "" {
@@ -152,7 +278,8 @@ func TestPatchISOWithRELVanilla(t *testing.T) {
 		t.Fatal(err)
 	}
 	img = nil // let the GC have the input
-	if !res.HasREL || !res.RELSArcReplaced() || res.ModuleID != puppetModule || res.File != "mmem/d_a_rectangle.rel" || res.BuildID != inject.RELBuildID {
+	if !res.HasREL || !res.RELSArcReplaced() || res.ModuleID != puppetModule || res.File != "mmem/d_a_rectangle.rel" || res.BuildID != inject.RELBuildID ||
+		res.BodyProc != seatagProc {
 		t.Errorf("result %+v", res)
 	}
 	t.Logf("FST 0x%X -> 0x%X, RELS.arc at 0x%X (%d bytes, %+d), REL %d bytes, build 0x%08X",
@@ -192,6 +319,10 @@ func TestPatchISOWithRELVanilla(t *testing.T) {
 	section, offset, ok := lay.Symbol(m.Profile)
 	if !ok {
 		t.Fatalf("no %s in the ELF", m.Profile)
+	}
+	bodySection, bodyOffset, ok := lay.Symbol(m.Body.Symbol)
+	if !ok {
+		t.Fatalf("no %s in the ELF", m.Body.Symbol)
 	}
 	bf, af := before.Files(), after.Files()
 	if len(bf) != len(af) {
@@ -234,13 +365,11 @@ func TestPatchISOWithRELVanilla(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: %v", a.Path, err)
 			}
-			r, err := lf.SoleReloc(puppetModule)
-			if err != nil || r.Type != rel.RelocAddr32 || r.TargetSection != section || r.Addend != offset {
-				t.Errorf("%s: relocation against 0x%x = %+v, %v; want ADDR32 to section %d offset 0x%x", a.Path, puppetModule, r, err, section, offset)
+			vf, err := rel.Parse(was)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if len(got) != len(was) {
-				t.Errorf("%s: %d bytes, the disc's is %d", a.Path, len(got), len(was))
-			}
+			checkProfileList(t, a.Path, vf, lf, rel.Symbol{Section: section, Offset: offset}, rel.Symbol{Section: bodySection, Offset: bodyOffset})
 		default:
 			if !bytes.Equal(got, was) || a.Size != b.Size {
 				t.Errorf("%s changed (%d bytes stored, was %d)", a.Path, a.Size, b.Size)
