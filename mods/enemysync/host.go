@@ -497,7 +497,7 @@ func (h *Host) wireSlot(e *Enemy, ks *KindSample, now time.Time) Slot {
 	if t, ok := h.engaged[e.Ident]; ok && now.Sub(t) < EngagedFor {
 		s.WFlags |= WFlagEngaged
 	}
-	if e.Kind != KindMO2 && ks.Attn&addr.AttnLockonBattle == 0 {
+	if e.Kind == KindCC && ks.Attn&addr.AttnLockonBattle == 0 && ks.Status&addr.ActorStatusCarry == 0 {
 		s.WFlags |= WFlagDormant
 	}
 	return s

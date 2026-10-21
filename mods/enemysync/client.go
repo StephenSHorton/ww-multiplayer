@@ -539,7 +539,7 @@ func selectSlots(cands []cand, cur [MaxSlots]selSlot, locked [MaxSlots]bool, now
 	}
 
 	// kept is rule 2. For a newcomer (rule 3) KeepR does not shield a
-	// dormant copy (WFlagDormant): Siren room 3's four ceiling ChuChus,
+	// dormant ChuChu's copy (WFlagDormant): Siren room 3's four ceiling ChuChus,
 	// about 1400 from Link, held every slot while an awake ChuChu at about
 	// 750 ran its own AI on the client. An awake copy keeps the strict
 	// KeepR, so two Bokoblins circling the host's Link near this one do

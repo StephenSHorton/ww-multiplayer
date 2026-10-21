@@ -423,8 +423,8 @@ func TestHostState30Hz(t *testing.T) {
 // Bokoblin's m48C.z and jaw in Aux, SF2 bit 6 (KindF2Light) when it dies
 // with its ice timer running, a ChuChu's m316.z in the attack bytes and
 // WFlagEngaged while its At Set bit is on, WFlagDormant while its
-// attention flags lack LOCKON_BATTLE; the host block carries the enabled
-// set as its kind mask.
+// attention flags lack LOCKON_BATTLE and it is not carried (a Bokoblin
+// never); the host block carries the enabled set as its kind mask.
 func TestHostKinds(t *testing.T) {
 	_, m, es := kindRoom(t)
 	bk, _ := es.Of(0)
@@ -467,8 +467,20 @@ func TestHostKinds(t *testing.T) {
 	if sc.Kind != KindCC || sc.CcM316Z() != -5 || sc.WFlags != WFlagEngaged || sc.Handle == 0 || sc.Handle == sb.Handle {
 		t.Errorf("CC slot %+v", *sc)
 	}
-	if sb.WFlags&WFlagDormant == 0 { // the fixture Bokoblin's attention flags are 0
-		t.Errorf("BK slot not dormant: %+v", *sb)
+	if sb.WFlags&WFlagDormant != 0 { // the fixture Bokoblin's attention flags are 0
+		t.Errorf("BK slot dormant: %+v", *sb)
+	}
+	// The ChuChu without LOCKON_BATTLE: dormant, unless carried.
+	store(t, m, cc.Addr+addr.ActorOffAttnFlags, []byte{0, 0, 0, 0})
+	store(t, m, cc.Addr+addr.CcOffCyl+addr.CcCylOffAtSPrm, []byte{0, 0, 0, 0})
+	h.engaged = map[Ident]time.Time{}
+	if st, _ = h.Tick(time.Unix(1000, 16e6)); slotOf2(st, addr.ProcCC, 4).WFlags != WFlagDormant {
+		t.Errorf("CC without LOCKON_BATTLE: %+v", slotOf2(st, addr.ProcCC, 4))
+	}
+	st0 := binary.BigEndian.AppendUint32(nil, addr.ActorStatusCarry)
+	store(t, m, cc.Addr+addr.ActorOffStatus, st0)
+	if st, _ = h.Tick(time.Unix(1000, 32e6)); slotOf2(st, addr.ProcCC, 4).WFlags != 0 {
+		t.Errorf("carried CC: %+v", slotOf2(st, addr.ProcCC, 4))
 	}
 	a := newHitApplier(m, log.Discard{}, 7)
 	a.Kinds = h.Kinds
@@ -799,4 +811,16 @@ func TestMirrorEpochForgets(t *testing.T) {
 	if _, s := slotByPID(&b[0], a0.PID); s == nil || s.Flags != mailbox.EnemySFDying|mailbox.EnemySFRelease {
 		t.Errorf("after the save state: setID 0 not caught up again: %+v", b[0].Slots)
 	}
+}
+
+// slotOf2 is st's slot for proc and setID (a zero Slot if none).
+func slotOf2(st *State, proc, setID uint16) Slot {
+	if st != nil {
+		for _, s := range st.Slots {
+			if s.Proc == proc && s.SetID == setID {
+				return s
+			}
+		}
+	}
+	return Slot{}
 }
