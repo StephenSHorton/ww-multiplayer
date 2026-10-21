@@ -392,7 +392,7 @@ func MaskSet(mask uint32) KindSet {
 }
 
 // MirrorKinds is WW_ENEMY_MIRROR_KINDS parsed; a value ParseKinds refuses
-// falls back to DefaultMirrorKinds (Moblins, keyed) with the error to log.
+// falls back to DefaultMirrorKinds with the error to log.
 func MirrorKinds() (KindSet, error) {
 	s, err := ParseKinds(os.Getenv("WW_ENEMY_MIRROR_KINDS"))
 	if err != nil {

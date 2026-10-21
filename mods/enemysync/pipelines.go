@@ -19,7 +19,7 @@ import (
 
 // The two pipelines, in feed.PuppetSync's shape (Env, Open, a client,
 // ReconnectLoop): HostPipeline samples this Dolphin's enemies (the kinds
-// WW_ENEMY_MIRROR_KINDS enables, Moblins by default) and streams
+// WW_ENEMY_MIRROR_KINDS enables, DefaultMirrorKinds by default) and streams
 // them on a RoleEnemyHost connection; ClientPipeline receives them on a
 // RoleEnemyClient connection and mirrors them into this Dolphin. Both are
 // behind WW_ENEMY_SYNC=1 (Enabled) in the engine and mp-local.

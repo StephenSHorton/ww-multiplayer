@@ -19,7 +19,7 @@ import (
 // The host sampler (design "host_side", generalised by enemy-mirror-
 // general.json "slots" and "identity".host_side): every tick it samples
 // the mirrorable enemies of every enabled kind (Candidates over
-// WW_ENEMY_MIRROR_KINDS, default "mo2") in the room Link is in and
+// WW_ENEMY_MIRROR_KINDS, default DefaultMirrorKinds) in the room Link is in and
 // returns the STATE to send, or a count-0 keepalive every KeepaliveEvery
 // while the game is not in play or a stage change is pending. It walks
 // every WalkEvery, after a validation failure and on a stage or room
