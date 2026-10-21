@@ -95,6 +95,9 @@ func (id KindID) String() string {
 	if k := id.Row(); k != nil {
 		return k.Name
 	}
+	if k := id.StagedRow(); k != nil {
+		return k.Name
+	}
 	return "none"
 }
 
@@ -345,13 +348,19 @@ var (
 	ccBckNames = []string{"ATACK01", "ATACK02", "ATACK03", "CC_BETA", "CC_PTCL", "DEKU_START", "HUKKATSU", "HUSE2TACHI", "HUSE_WALK", "MAHI", "START", "TACHI2HUSE", "TACHI_WALK", "TSTART01", "TSTART02"}
 )
 
-// BckName is the name of BCK idx in kind id's archive, "-" for none.
+// BckName is the name of BCK idx in kind id's archive (a staged row's
+// too), "-" for none.
 func BckName(id KindID, idx uint8) string {
+	var names []string
 	k := id.Row()
-	if k == nil {
+	switch {
+	case k != nil:
+		names = [...][]string{KindMO2: mo2BckNames, KindBK: bkBckNames, KindCC: ccBckNames}[id]
+	case id.StagedRow() != nil:
+		k, names = id.StagedRow(), stagedBckNames[id-KindKI]
+	default:
 		return "-"
 	}
-	names := [...][]string{KindMO2: mo2BckNames, KindBK: bkBckNames, KindCC: ccBckNames}[id]
 	i := int(idx) - k.BckFirst
 	if i < 0 || i >= len(names) {
 		return "-"

@@ -61,3 +61,38 @@ const (
 	CcBckLast  = 0x22
 	CcBckCount = CcBckLast - CcBckFirst + 1
 )
+
+// The Keese's, Armos Knight's and Armos's archives and BCK ranges (allow
+// batch "type_table" KI, AM, AM2 ARC and BCK_*).
+const (
+	// KiArc is ki_class's archive (dComIfG_resLoad "Ki", d_a_ki.cpp:1370).
+	KiArc = "Ki"
+	// Ki.arc's BCK indices (assets/GZLE01/res/Object/Ki.h:18-23):
+	// dRes_INDEX_KI_BCK_ATTACK1_e 0x0F through dRes_INDEX_KI_BCK_WAIT1_e
+	// 0x14, 6 of them; WAIT1 is the morf's create row (d_a_ki.cpp:1211).
+	KiBckFirst = 0x0F
+	KiBckLast  = 0x14
+	KiBckCount = KiBckLast - KiBckFirst + 1
+	KiBckWait  = 0x14
+	// AmArc is am_class's archive (dComIfG_resLoad "AM", d_a_am.cpp:1171).
+	AmArc = "AM"
+	// Am.arc's BCK indices (assets/GZLE01/res/Object/Am.h:25-36):
+	// dRes_INDEX_AM_BCK_BOM_NOMI_e 0x14 through dRes_INDEX_AM_BCK_SLEEP_LOOP_e
+	// 0x1F, 12 of them; SLEEP_LOOP is the create row (d_a_am.cpp:498,
+	// 1128), DEAD (0x1A) the death's (d_a_am.cpp:911, 1006).
+	AmBckFirst = 0x14
+	AmBckLast  = 0x1F
+	AmBckCount = AmBckLast - AmBckFirst + 1
+	AmBckWait  = 0x1F
+	AmBckDead  = 0x1A
+	// Am2Arc is am2_class's archive (dComIfG_resLoad "AM2",
+	// d_a_am2.cpp:1294).
+	Am2Arc = "AM2"
+	// Am2.arc's BCK indices (assets/GZLE01/res/Object/Am2.h:11-20):
+	// dRes_INDEX_AM2_BCK_BURUBURU_e 0x06 through dRes_INDEX_AM2_BCK_WAIT_e
+	// 0x0F, 10 of them; WAIT is the create row (d_a_am2.cpp:1227).
+	Am2BckFirst = 0x06
+	Am2BckLast  = 0x0F
+	Am2BckCount = Am2BckLast - Am2BckFirst + 1
+	Am2BckWait  = 0x0F
+)
