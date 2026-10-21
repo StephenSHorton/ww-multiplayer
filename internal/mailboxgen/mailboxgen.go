@@ -145,6 +145,35 @@ func Parse(name string, src []byte, read Reader) (*Layout, error) {
 	return p.l, nil
 }
 
+// ParseDefines reads only the numeric #defines of a header that is not
+// the mailbox's (inject/include/wwenemy_kinds.h, whose rows
+// mods/enemysync pins), one per line in the form Parse accepts
+// (`#define NAME <decimal|0xhex>`, an optional // comment). Any other line,
+// a string #define included, is skipped; a name defined twice is an error.
+func ParseDefines(name string, src []byte) ([]Define, error) {
+	var out []Define
+	seen := map[string]bool{}
+	sc := bufio.NewScanner(bytes.NewReader(src))
+	n := 0
+	for sc.Scan() {
+		n++
+		m := defRE.FindStringSubmatch(strings.TrimRight(sc.Text(), "\r"))
+		if m == nil {
+			continue
+		}
+		v, err := strconv.ParseInt(m[2], 0, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s:%d: %v", name, n, err)
+		}
+		if seen[m[1]] {
+			return nil, fmt.Errorf("%s:%d: %s defined twice", name, n, m[1])
+		}
+		seen[m[1]] = true
+		out = append(out, Define{Name: m[1], Value: v, Text: m[2]})
+	}
+	return out, sc.Err()
+}
+
 // ParseDir parses the root header at headerPath and the headers it
 // includes from the same directory.
 func ParseDir(headerPath string) (*Layout, error) {

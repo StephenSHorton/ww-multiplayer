@@ -535,6 +535,7 @@ func TestMo2Offsets(t *testing.T) {
 	}{
 		{"Mo2OffMode", Mo2OffMode, 0x2BC},
 		{"Mo2OffMorf", Mo2OffMorf, 0x2C4},
+		{"Mo2OffDeathSwitch (d_a_mo2.h:42)", Mo2OffDeathSwitch, 0x2C0},
 		{"Mo2OffInvuln", Mo2OffInvuln, 0x5B4},
 		// d_a_mo2.h:58-60: f32 m0590, int m0594, int m0598 back to back.
 		{"Mo2OffBlurScale", Mo2OffBlurScale, 0x590},
@@ -670,6 +671,7 @@ func TestBkOffsets(t *testing.T) {
 	}{
 		{"BkClassSize (d_a_bk.h:143)", BkClassSize, 0x1848},
 		{"BkOffType (d_a_bk.h:16)", BkOffType, 0x2B4},
+		{"BkOffDeathSwitch (d_a_bk.h:20)", BkOffDeathSwitch, 0x2B8},
 		{"BkOffDrawGate (d_a_bk.h:22)", BkOffDrawGate, 0x2BA},
 		{"BkOffMorf (d_a_bk.h:24)", BkOffMorf, 0x2BC},
 		{"BkOffEyeBtp (d_a_bk.h:26)", BkOffEyeBtp, 0x2C4},

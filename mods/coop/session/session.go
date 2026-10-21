@@ -59,6 +59,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
@@ -1151,9 +1152,12 @@ type coopFileKey struct {
 
 // RunSync is the coop-sync pipeline of the Dolphin dolphinPID
 // picks (0: the one WW_DOLPHIN_INDEX / WW_DOLPHIN_PID select), with its own
-// handle on it, connecting to the hub at addr as name. It returns the
-// error opening Dolphin, or nil when ctx ends.
-func RunSync(ctx context.Context, env Env, name, addr string, dolphinPID uint32, rep log.Reporter, cs *Session) error {
+// handle on it, connecting to the hub at addr as name. claimed is that
+// game's enemy-mirror claims (the Claimed of the enemysync.ClaimSet its
+// own enemy client fills; nil: none), which its K1 never light-shrinks
+// (replica.Config.Claimed). It returns the error opening Dolphin, or nil
+// when ctx ends.
+func RunSync(ctx context.Context, env Env, name, addr string, dolphinPID uint32, rep log.Reporter, cs *Session, claimed combat.ClaimFunc) error {
 	d, err := env.Open(dolphinPID)
 	if err != nil {
 		return err
@@ -1167,7 +1171,7 @@ func RunSync(ctx context.Context, env Env, name, addr string, dolphinPID uint32,
 		<-ctx.Done()
 		return nil
 	}
-	s, err := cs.newSync(ctx, name, d, rep)
+	s, err := cs.newSyncClaimed(ctx, name, d, rep, claimed)
 	if err != nil {
 		return err
 	}
@@ -1191,6 +1195,12 @@ func RunSync(ctx context.Context, env Env, name, addr string, dolphinPID uint32,
 // replica, configured as M2 configured it: no tables, M2's policy, the
 // image alone asked for.
 func (cs *Session) newSync(ctx context.Context, name string, m mem.Mem, rep log.Reporter) (*coopSync, error) {
+	return cs.newSyncClaimed(ctx, name, m, rep, nil)
+}
+
+// newSyncClaimed is newSync with m's game's enemy-mirror claims
+// (replica.Config.Claimed; nil: none).
+func (cs *Session) newSyncClaimed(ctx context.Context, name string, m mem.Mem, rep log.Reporter, claimed combat.ClaimFunc) (*coopSync, error) {
 	s := &coopSync{cs: cs, name: name, rep: rep, m: m, asked: cs.askedFor(name)}
 	logf := func(format string, args ...any) {
 		rep.Log(log.Info, strings.TrimRight(fmt.Sprintf(format, args...), "\n")) // a preflight summary ends in one
@@ -1201,6 +1211,7 @@ func (cs *Session) newSync(ctx context.Context, name string, m mem.Mem, rep log.
 		Logf:        logf,
 		OnOffer:     func(o replica.Offer) { s.offer(ctx, o) },
 		OnPreflight: s.preflight,
+		Claimed:     claimed,
 	}
 	if !cs.flags.dryRun {
 		cfg.Apply = true

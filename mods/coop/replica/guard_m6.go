@@ -35,6 +35,9 @@ type CombatTick struct {
 	// Unverified lets an unverified class be shrunk (the enemy-kill
 	// diagnostic's --unverified; never the receiver's).
 	Unverified bool
+	// Claimed is the game's enemy-mirror claims (Config.Claimed): a pid it
+	// claims is never light-shrunk (combat.Eligible). Nil claims nothing.
+	Claimed combat.ClaimFunc
 	// Demo: Link's demo gate passed: its offset is verified
 	// (combat.DemoTypeVerified) and it read 0 (TYPE_NONE).
 	Demo bool
@@ -45,6 +48,18 @@ func (w *WriteGuard) SetCombat(c CombatTick) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.combat, w.combatOK = c, w.have
+}
+
+// combatClaimed is the tick's claim func (CombatTick.Claimed), which the
+// FrameWriter's re-read before a light-shrink (combat.Revalidate) takes
+// too; nil without a plan.
+func (w *WriteGuard) combatClaimed() combat.ClaimFunc {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.combatOK {
+		return nil
+	}
+	return w.combat.Claimed
 }
 
 // noteShrunk records that carrier's timer was written and read back
@@ -204,7 +219,7 @@ func (w *WriteGuard) judgeActor(k actorKind, c *actors.Actor, wp *actors.Actor, 
 		if old != 0 || val != 1 {
 			return RefuseValue, fmt.Sprintf("the timer may only go from 0 to 1, not from %d to %d", int8(old), int8(val))
 		}
-		if why := combat.Eligible(c, cb.Unverified); why != "" {
+		if why := combat.Eligible(c, cb.Unverified, cb.Claimed); why != "" {
 			return RefuseTarget, fmt.Sprintf("%s: %s", c, why)
 		}
 	case actorWeapon:

@@ -2,6 +2,7 @@ package combat
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -56,7 +57,7 @@ func eligibleActor() actors.Actor {
 // TestK1GateMatrix: each per-actor gate of §7.2 refuses on its own.
 func TestK1GateMatrix(t *testing.T) {
 	unverify(t, stage.ProcPW)
-	if why := Eligible(&[]actors.Actor{eligibleActor()}[0], false); why != "" {
+	if why := Eligible(&[]actors.Actor{eligibleActor()}[0], false, nil); why != "" {
 		t.Fatalf("the eligible Bokoblin: %s", why)
 	}
 	rd := eligibleActor()
@@ -101,10 +102,70 @@ func TestK1GateMatrix(t *testing.T) {
 	} {
 		a := c.base
 		c.mut(&a)
-		got := Eligible(&a, c.unverified)
+		got := Eligible(&a, c.unverified, nil)
 		if c.want == "" && got != "" || c.want != "" && !strings.Contains(got, c.want) {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// TestEligiblePausedAndClaimed: the enemy mirror's gates
+// (enemy-mirror-general.json D8). A copy with the REL's pause bit, or a
+// pid the claim func claims, is refused, and as that rather than by a
+// later gate; other mPauseFlag bits, a nil claim func and a claim of
+// another pid pass. Revalidate refuses a copy adopted, or a pid claimed,
+// between the walk and the write.
+func TestEligiblePausedAndClaimed(t *testing.T) {
+	claims := func(pids ...uint32) ClaimFunc {
+		return func(pid uint32) bool { return slices.Contains(pids, pid) }
+	}
+	for _, c := range []struct {
+		name    string
+		mut     func(a *actors.Actor)
+		claimed ClaimFunc
+		want    string
+	}{
+		{"paused by the mirror", func(a *actors.Actor) { a.Pause = addr.ActorPauseMirrorBit }, nil, "paused: mirror"},
+		{"paused, other bits too", func(a *actors.Actor) { a.Pause = 0x03 }, nil, "paused: mirror"},
+		{"paused before the ice gates", func(a *actors.Actor) { a.Pause, a.Ice.Timer = 1, 1 }, nil, "paused: mirror"},
+		{"claimed", func(*actors.Actor) {}, claims(7), "claimed"},
+		{"claimed before the health gate", func(a *actors.Actor) { a.Health = 0 }, claims(7), "claimed"},
+		{"paused and claimed", func(a *actors.Actor) { a.Pause = 1 }, claims(7), "paused: mirror"},
+		{"the class gate first", func(a *actors.Actor) { a.Proc, a.Pause = 0x1CB, 1 }, claims(7), "not a K1 class"},
+		// Pass:
+		{"another pause bit", func(a *actors.Actor) { a.Pause = 0x02 }, nil, ""},
+		{"nil claims nothing", func(*actors.Actor) {}, nil, ""},
+		{"another pid claimed", func(*actors.Actor) {}, claims(8, 0), ""},
+	} {
+		a := eligibleActor()
+		c.mut(&a)
+		got := Eligible(&a, false, c.claimed)
+		if c.want == "" && got != "" || c.want != "" && !strings.Contains(got, c.want) {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+
+	// Read from the game: the walk reads mPauseFlag, and Revalidate's
+	// fresh read catches an adopt or a claim since the walk.
+	_, m, es := fakeEnemies(t)
+	w, err := Read(m, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, _ := es.Of(0)
+	bk, _ := w.ByPID(live.PID)
+	if bk.Pause != 0 || Eligible(bk, false, nil) != "" {
+		t.Fatalf("the Bokoblin: pause 0x%02X, %s", bk.Pause, Eligible(bk, false, nil))
+	}
+	if _, _, err := Revalidate(m, bk, nil, false, claims(bk.PID)); !errors.Is(err, actors.ErrChanged) || !strings.Contains(err.Error(), "claimed") {
+		t.Errorf("claimed since the walk: %v", err)
+	}
+	store(t, m, bk.Addr+addr.ActorOffPauseFlag, []byte{addr.ActorPauseMirrorBit})
+	if w2, _ := Read(m, 0); func() bool { b, _ := w2.ByPID(bk.PID); return b.Pause != addr.ActorPauseMirrorBit }() {
+		t.Error("the walk did not read mPauseFlag")
+	}
+	if _, _, err := Revalidate(m, bk, nil, false, nil); !errors.Is(err, actors.ErrChanged) || !strings.Contains(err.Error(), "paused: mirror") {
+		t.Errorf("adopted since the walk: %v", err)
 	}
 }
 
@@ -147,14 +208,14 @@ func TestRevalidate(t *testing.T) {
 	}
 	bkLive, _ := es.Of(0)
 	bk, ok := w.ByPID(bkLive.PID)
-	if !ok || Eligible(bk, false) != "" {
-		t.Fatalf("the Bokoblin: %+v, %s", bk, Eligible(bk, false))
+	if !ok || Eligible(bk, false, nil) != "" {
+		t.Fatalf("the Bokoblin: %+v, %s", bk, Eligible(bk, false, nil))
 	}
 	wp, why := WeaponOf(&w, bk, false)
 	if wp == nil || why != "" {
 		t.Fatalf("its weapon: %v %s", wp, why)
 	}
-	if now, nw, err := Revalidate(m, bk, wp, false); err != nil || now.PID != bk.PID || nw == nil || nw.PID != wp.PID {
+	if now, nw, err := Revalidate(m, bk, wp, false, nil); err != nil || now.PID != bk.PID || nw == nil || nw.PID != wp.PID {
 		t.Fatalf("Revalidate: %v", err)
 	}
 
@@ -164,7 +225,7 @@ func TestRevalidate(t *testing.T) {
 	if w2, _ := Read(m, 0); func() bool { b, _ := w2.ByPID(bk.PID); x, _ := WeaponOf(&w2, b, false); return x != nil }() {
 		t.Error("a weapon on the ground is let go")
 	}
-	if _, _, err := Revalidate(m, bk, wp, false); !errors.Is(err, actors.ErrChanged) {
+	if _, _, err := Revalidate(m, bk, wp, false, nil); !errors.Is(err, actors.ErrChanged) {
 		t.Errorf("a weapon no longer carried: %v", err)
 	}
 
@@ -174,7 +235,7 @@ func TestRevalidate(t *testing.T) {
 	if _, err := es.FreeAndReuse(g, cc.PID, stage.ProcCC); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := Revalidate(m, ccA, nil, false); !errors.Is(err, actors.ErrChanged) || !strings.Contains(err.Error(), "reused") {
+	if _, _, err := Revalidate(m, ccA, nil, false, nil); !errors.Is(err, actors.ErrChanged) || !strings.Contains(err.Error(), "reused") {
 		t.Errorf("a reused block: %v", err)
 	}
 
@@ -185,7 +246,7 @@ func TestRevalidate(t *testing.T) {
 	bk, _ = w.ByPID(bkLive.PID)
 	zn, _ := addr.ZoneNoAddr(fakeRoom)
 	store(t, m, zn, []byte{0xFF})
-	if _, _, err := Revalidate(m, bk, nil, false); !errors.Is(err, actors.ErrChanged) || !strings.Contains(err.Error(), "has zone -1") {
+	if _, _, err := Revalidate(m, bk, nil, false, nil); !errors.Is(err, actors.ErrChanged) || !strings.Contains(err.Error(), "has zone -1") {
 		t.Errorf("the zone gone: %v", err)
 	}
 	if ok, _ := actors.ZoneHolds(m, fakeRoom); ok {
@@ -198,12 +259,12 @@ func TestRevalidate(t *testing.T) {
 	bkLive, _ = es.Of(0)
 	bk, _ = w.ByPID(bkLive.PID)
 	store(t, m, bk.TimerAddr(), []byte{1})
-	if _, _, err := Revalidate(m, bk, nil, false); !errors.Is(err, actors.ErrChanged) {
+	if _, _, err := Revalidate(m, bk, nil, false, nil); !errors.Is(err, actors.ErrChanged) {
 		t.Errorf("a timer already set: %v", err)
 	}
 	store(t, m, bk.TimerAddr(), []byte{0})
 	store(t, m, bk.Node+addr.TagOffUse, []byte{0})
-	if _, _, err := Revalidate(m, bk, nil, false); !errors.Is(err, actors.ErrChanged) {
+	if _, _, err := Revalidate(m, bk, nil, false, nil); !errors.Is(err, actors.ErrChanged) {
 		t.Errorf("a node off the queue: %v", err)
 	}
 }
@@ -261,10 +322,10 @@ func TestWeaponHeld(t *testing.T) {
 	if why := HeldBy(bk, lw); why == "" {
 		t.Error("HeldBy takes Link's stick")
 	}
-	if _, nw, err := Revalidate(m, bk, lw, false); !errors.Is(err, actors.ErrChanged) || nw != nil {
+	if _, nw, err := Revalidate(m, bk, lw, false, nil); !errors.Is(err, actors.ErrChanged) || nw != nil {
 		t.Errorf("Revalidate with Link's stick: %v", err)
 	}
-	if _, nw, err := Revalidate(m, bk, nil, false); err != nil || nw != nil {
+	if _, nw, err := Revalidate(m, bk, nil, false, nil); err != nil || nw != nil {
 		t.Errorf("Revalidate of the carrier alone: %v", err)
 	}
 	// Its record says it holds one while the stick is Link's: hold.
@@ -285,7 +346,7 @@ func TestWeaponHeld(t *testing.T) {
 	if err := es.TakeWeapon(g, bkLive.PID); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := Revalidate(m, bk, nil, false); !errors.Is(err, actors.ErrChanged) || !strings.Contains(err.Error(), "took up a weapon") {
+	if _, _, err := Revalidate(m, bk, nil, false, nil); !errors.Is(err, actors.ErrChanged) || !strings.Contains(err.Error(), "took up a weapon") {
 		t.Errorf("a stick taken up after the walk: %v", err)
 	}
 	w, bk = walk()

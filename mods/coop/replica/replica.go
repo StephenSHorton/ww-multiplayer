@@ -69,6 +69,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/class"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
@@ -177,6 +178,14 @@ type Config struct {
 	// called under the replica's lock, so it must not call back into
 	// the replica. Nil leaves only the warps that change stage.
 	PartnerPos func() (Pos, bool)
+	// Claimed is this game's enemy-mirror claims (enemysync.ClaimSet's
+	// Claimed, enemy-mirror-general.json D8): M6 never light-shrinks a
+	// pid it claims, as the host's enemy owns that death. It is this
+	// Dolphin's own, from the enemy client on the same game, never
+	// another's. Nil claims nothing (no enemy client on this game). It is
+	// called from Tick and the writes, so it must be safe for concurrent
+	// use and must not call back into the replica.
+	Claimed combat.ClaimFunc
 }
 
 // Offer is a tag write waiting for the user's yes.

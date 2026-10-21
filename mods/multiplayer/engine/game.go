@@ -92,12 +92,18 @@ func realGameDeps(ls *LiveState, c Config) *GameDeps {
 		Reset:  resetMailboxOn,
 		EnvPID: envDolphinPID(),
 	}
+	// The two seams on one Dolphin share its enemy claim set (gameClaims):
+	// co-op's K1 refuses what the enemy client claims (enemy-mirror-general
+	// .json D8).
+	claims := &gameClaims{}
 	if c.Coop != nil {
-		d.CoopSync = c.Coop.Sync
+		d.CoopSync = func(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs CoopSide) error {
+			return c.Coop.Sync(ctx, name, addr, pid, rep, cs, claims.claimed(pid))
+		}
 	}
 	if enemysync.Enabled() {
 		d.EnemySync = func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, host bool, rep log.Reporter) error {
-			p, _ := enemyPipeline(host, c.Env.Feed, name, addr, pid, rep, feed.NewConnectLog(addr, rep))
+			p, _ := enemyPipeline(host, c.Env.Feed, name, addr, pid, rep, feed.NewConnectLog(addr, rep), claims.of(pid, host))
 			return RunPipelines(ctx, cancel, rep, p)
 		}
 	}

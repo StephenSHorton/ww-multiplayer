@@ -66,29 +66,46 @@ func ReadScope(m mem.Reader) (Scope, error) {
 	return s, nil
 }
 
-// DeadMask reads the room's dead-actor bits for keyed setIDs 0..7 (bit n
-// = setID n), the way the co-op kill path addresses them: mStatus[room].
-// mZoneNo names the zone, whose dSv_zoneActor_c words sit at ZoneOffActor
-// (dSv_zoneActor_c::on, d_save.cpp:1326-1329). A room without a zone has
-// no deaths recorded: mask 0.
-func DeadMask(m mem.Reader, room int8) (uint8, error) {
+// ReadDeadWords reads the room's dead-actor words 0..DeadWords-1 (setIDs
+// 0..127; bit n of word w = setID 32*w+n), the way the co-op kill path
+// addresses them: mStatus[room].mZoneNo names the zone, whose
+// dSv_zoneActor_c words sit at ZoneOffActor (dSv_zoneActor_c::on,
+// d_save.cpp:1326-1329). One read of the four words. A room without a
+// zone has no deaths recorded: all zero. The STATE carries them (State.
+// SetDead): the highest keyed ALLOW setID measured is 81 (design
+// death_and_drops.signals), which DeadMask's eight bits never covered.
+func ReadDeadWords(m mem.Reader, room int8) ([DeadWords]uint32, error) {
+	var w [DeadWords]uint32
 	zn, err := addr.ZoneNoAddr(int(room))
 	if err != nil {
-		return 0, nil
+		return w, nil
 	}
 	z, err := mem.ReadS8(m, zn)
 	if err != nil {
-		return 0, err
+		return w, err
 	}
 	za, err := addr.ZoneAddr(int(z))
 	if err != nil {
-		return 0, nil // -1: no zone
+		return w, nil // -1: no zone
 	}
-	word, err := mem.ReadU32(m, za+addr.ZoneOffActor)
+	b, err := m.Read(za+addr.ZoneOffActor, 4*DeadWords)
 	if err != nil {
-		return 0, err
+		return w, err
 	}
-	return uint8(word & 0xFF), nil
+	if len(b) != 4*DeadWords {
+		return w, fmt.Errorf("enemysync: zone %d dead-actor words: %d bytes read", z, len(b))
+	}
+	for i := range w {
+		w[i] = binary.BigEndian.Uint32(b[4*i:])
+	}
+	return w, nil
+}
+
+// DeadMask is the low byte of ReadDeadWords' word 0: the dead-actor bits of
+// keyed setIDs 0..7 (bit n = setID n), the Moblin prototype's dead_mask.
+func DeadMask(m mem.Reader, room int8) (uint8, error) {
+	w, err := ReadDeadWords(m, room)
+	return uint8(w[0]), err
 }
 
 // Moblin is a keyed, executing Moblin a walk found, with an mMode the
@@ -289,9 +306,8 @@ func finiteOK(fs ...float32) bool { return finite(fs...) == nil }
 
 // The generalised samplers (design "flags".host_reads BK and CC): the
 // Bokoblin and the ChuChu each in five Reads, the Moblin through
-// ReadSample's six, unchanged. Batch 1 runs them from the read-only
-// probes only (enemy-watch --kind); the host pipeline still samples
-// Moblins with ReadSample.
+// ReadSample's six, unchanged. The host samples every candidate through
+// ReadKindSample; the probes (enemy-watch --kind) too.
 
 // KindSample is one enemy's tick: the Moblin-shaped Sample (Slot fields
 // per kind as the design's slot table maps them) plus what only the new

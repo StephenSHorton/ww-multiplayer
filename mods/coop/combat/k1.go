@@ -20,6 +20,17 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/enemies"
 )
 
+// ClaimFunc reports whether the enemy mirror has claimed a local pid for
+// this game (mods/enemysync ClaimSet.Claimed; ww-multiplayer-handoff/
+// design/enemy-mirror-general.json D8): the host owns that enemy's death,
+// so K1 must not light-shrink it. Nil claims nothing. It is per game
+// handle, never a package global: the session wiring
+// (mods/multiplayer/engine runMultiplayerGoroutines, wwdev mp-local)
+// gives each game's replica (replica.Config.Claimed) the Claimed of the
+// ClaimSet its own enemy client fills, and Eligible refuses what it
+// claims.
+type ClaimFunc func(pid uint32) bool
+
 // The K1 light-shrink (§7.2): one byte, 1, written to a live enemy's
 // enemyice.mLightShrinkTimer (an s8 at enemyice +6, c_damagereaction.h:16)
 // runs the generic light-arrow death on its next executed frames: about
@@ -239,14 +250,33 @@ func ProcName(p int16) string {
 //     (Link holds it);
 //   - eventInfo.mCommand 0: no event has ordered it;
 //   - the class's mode is not one its gate holds (a ReDead's grab or
-//     switch wait, a Floormaster's grab).
-func Eligible(a *actors.Actor, unverified bool) string {
+//     switch wait, a Floormaster's grab);
+//   - no enemy-mirror copy (enemy-mirror-general.json D8): its
+//     mPauseFlag lacks addr.ActorPauseMirrorBit, which the REL sets on
+//     the copy it adopts (pb|1, enemy_mirror.c:613) and which stops its
+//     execute (fpcPause_IsEnable(proc, 1), f_pc_executor.cpp:31), so a
+//     timer written then would wait and the host's death would race it;
+//     and claimed does not claim its pid: the enemy client matched it to
+//     an enemy the host lists, adopted or not, or catches its death up
+//     from the host's dead words. The host owns those deaths, and K1's
+//     light-shrink would drop a second item ball on this game (enemy_ice,
+//     c_damagereaction.cpp:117-171). claimed nil claims nothing (no enemy
+//     client on this game).
+//
+// The two mirror gates come right after the class's, so a copy is held
+// as one ("paused: mirror", "claimed") rather than by a later gate its
+// paused state happens to close.
+func Eligible(a *actors.Actor, unverified bool, claimed ClaimFunc) string {
 	c, ok := K1(a.Proc)
 	switch {
 	case !ok:
 		return "not a K1 class"
 	case !c.Verified && !unverified:
 		return fmt.Sprintf("class %s is not verified (docs/08 §8.2 K1)", c.Name)
+	case a.Pause&addr.ActorPauseMirrorBit != 0:
+		return fmt.Sprintf("paused: mirror (mPauseFlag 0x%02X)", a.Pause)
+	case claimed != nil && claimed(a.PID):
+		return "claimed: the enemy mirror's host owns its death"
 	case a.InitState != 2:
 		return fmt.Sprintf("mInitState %d: not executing", a.InitState)
 	case a.Group != 2:
@@ -410,9 +440,11 @@ func WeaponOf(w *actors.Walk, a *actors.Actor, unverified bool) (weapon *actors.
 //     is unchanged. A timer written then would leave the new weapon CARRY
 //     on a deleted carrier.
 //
-// The first two are actors.Reread's. unverified is Eligible's. The error
-// is a read error or one matching actors.ErrChanged.
-func Revalidate(m mem.Reader, a, w *actors.Actor, unverified bool) (actors.Actor, *actors.Actor, error) {
+// The first two are actors.Reread's. unverified and claimed are
+// Eligible's: a copy the mirror adopted, or a pid its client claimed,
+// since the walk is not written. The error is a read error or one
+// matching actors.ErrChanged.
+func Revalidate(m mem.Reader, a, w *actors.Actor, unverified bool, claimed ClaimFunc) (actors.Actor, *actors.Actor, error) {
 	typ, err := mem.ReadU32(m, addr.FopAcType)
 	if err != nil {
 		return actors.Actor{}, nil, err
@@ -421,7 +453,7 @@ func Revalidate(m mem.Reader, a, w *actors.Actor, unverified bool) (actors.Actor
 	if err != nil {
 		return actors.Actor{}, nil, err
 	}
-	if why := Eligible(&now, unverified); why != "" {
+	if why := Eligible(&now, unverified, claimed); why != "" {
 		return now, nil, fmt.Errorf("%w: %s: %s", actors.ErrChanged, now.String(), why)
 	}
 	if now.SetID != addr.ActorSetIDNone {

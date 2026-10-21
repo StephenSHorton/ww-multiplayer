@@ -825,17 +825,49 @@ static void rl_ap_publish(remote_swap_state* st, u8 result, u8 detail) {
     st->ap_link = 0;
 }
 
-// The local mirrored Moblin with that setID among enemy_mirror's adopted
-// slots (resolved this frame), or 0: no NULL-actor fallback (D9: a NULL At
-// actor makes a guard impossible, d_cc_s.cpp:83-91).
-static void* rl_mirrored_by_setid(enemy_mirror_state* mirror, u16 setid) {
+// The apply's owner (the attacker's local mirrored copy) among
+// enemy_mirror's adopted slots (resolved this frame), or 0 for the
+// stand-in: no NULL-actor fallback (D9: a NULL At actor makes a guard
+// impossible, d_cc_s.cpp:83-91). Client Go writes a client-local id
+// (enemy-mirror-general.json closed_before_build "PHIT owner"): below
+// WWREMOTE_KEYED_SETID_MAX a keyed setID (the adopted copy of a kind with
+// a row and that setID, unless it is dying); WWENEMY_OWNER_SLOT_BASE + j,
+// j < WWENEMY_MAX_SLOTS exactly, block slot j's copy unless it is dying (an
+// unkeyed attacker); anything else (0xFFFF, 0xFE04..) the stand-in. An
+// unkeyed copy's setID is 0xFFFF, so 0xFFFF is never compared with one. A
+// dying (adopted: quiet) copy is the stand-in on both paths: it is deleted
+// at the end of its shrink, which would leave Link's Tg hit naming a freed
+// actor mid-apply (dCcD_GAtTgCoCommonBase::GetAc NULL, d_cc_d.cpp:189-197).
+static void* rl_mirror_owner(enemy_mirror_state* mirror, u16 id) {
+    em_slot* sl;
     int i;
-    for (i = 0; i < WWENEMY_MAX_SLOTS; i++) {
-        em_slot* sl = &mirror->slots[i];
-        if (sl->adopted && sl->actor && AF(sl->actor, s16, AC_PROC_NAME) == PROC_MO2 &&
-            AF(sl->actor, u16, AC_SETID) == setid) return (void*)sl->actor;
+    if (id < WWREMOTE_KEYED_SETID_MAX) {
+        for (i = 0; i < WWENEMY_MAX_SLOTS; i++) {
+            sl = &mirror->slots[i];
+            if (sl->adopted && sl->actor && sl->state != WWENEMY_STATE_DYING &&
+                em_kind_of((u16)AF(sl->actor, s16, AC_PROC_NAME)) && AF(sl->actor, u16, AC_SETID) == id)
+                return (void*)sl->actor;
+        }
+        return 0;
+    }
+    if (id >= WWENEMY_OWNER_SLOT_BASE && id < WWENEMY_OWNER_SLOT_BASE + WWENEMY_MAX_SLOTS) {
+        sl = &mirror->slots[id - WWENEMY_OWNER_SLOT_BASE];
+        if (sl->adopted && sl->actor && sl->state != WWENEMY_STATE_DYING &&
+            em_kind_of((u16)AF(sl->actor, s16, AC_PROC_NAME))) return (void*)sl->actor;
     }
     return 0;
+}
+
+// The host's ring entry flag HF_NOT_MO2 (kept as HF_NOT_MIRROR): the
+// attacker is not one this host mirrors, i.e. its proc has no kind row or
+// that kind's bit is clear in the host's own enemy block (kind_mask,
+// WWENEMY_KIND_MASK_OFF; host Go writes it). No live layout-3 block: none.
+static int rl_mirrored_proc(s16 proc) {
+    u32 eb = MAILBOX_ADDR + WWENEMY_OFF;
+    const em_kind* k = em_kind_of((u16)proc);
+    if (!k || *(volatile u32*)(eb + WWENEMY_MAGIC_OFF) != WWENEMY_MAGIC ||
+        *(volatile u16*)(eb + WWENEMY_LAYOUT_OFF) != WWENEMY_LAYOUT) return 0;
+    return (*(volatile u32*)(eb + WWENEMY_KIND_MASK_OFF) >> k->id) & 1;
 }
 
 // Register the sphere for this frame's Move: c = the client Link's
@@ -866,6 +898,7 @@ static void rl_ap_start(remote_swap_state* st, enemy_mirror_state* mirror, u32 s
     u32 src[SRC_WORDS];
     u8* sb = (u8*)src;
     void* m;
+    const em_kind* mk;
     u8* owner;
     f32 dx, dz;
     int i;
@@ -877,13 +910,16 @@ static void rl_ap_start(remote_swap_state* st, enemy_mirror_state* mirror, u32 s
         rl_ap_publish(st, WWREMOTE_AR_LINK_ABSENT, WWREMOTE_AD_NONE);
         return;
     }
-    // The At owner: the mirrored Moblin with that setID, or else (another
-    // enemy, an unkeyed Moblin) the keeper itself as a stand-in. Never
-    // NULL and never Link (D9: ChkShieldFrontRange needs an owner, and
-    // ChkNoHitAtTg rejects Link's own); the stand-in's eyePos is put on
-    // the side of Link the host hit came from, below.
-    m = rl_mirrored_by_setid(mirror, RB_U16(WWREMOTE_APPLY_OFF + WWREMOTE_AP_SETID_OFF));
+    // The At owner: the mirrored copy the apply names (rl_mirror_owner),
+    // or else (an enemy not mirrored here) the keeper itself as a
+    // stand-in. Never NULL and never Link (D9: ChkShieldFrontRange needs
+    // an owner, and ChkNoHitAtTg rejects Link's own); the stand-in's eyePos
+    // is put on the side of Link the host hit came from, below. The sphere
+    // image comes from the owner kind's sph_src, else Link's mFanWindSph
+    // (a ChuChu has no sphere; built once per relink either way).
+    m = rl_mirror_owner(mirror, RB_U16(WWREMOTE_APPLY_OFF + WWREMOTE_AP_SETID_OFF));
     owner = m ? (u8*)m : (u8*)st - WWREMOTE_KEEPER_SWAP_OFF;
+    mk = m ? em_kind_of((u16)AF(m, s16, AC_PROC_NAME)) : 0;
     st->ap_rel.x = RB_F32(WWREMOTE_APPLY_OFF + WWREMOTE_AP_REL_HIT_OFF + 0);
     st->ap_rel.y = RB_F32(WWREMOTE_APPLY_OFF + WWREMOTE_AP_REL_HIT_OFF + 4);
     st->ap_rel.z = RB_F32(WWREMOTE_APPLY_OFF + WWREMOTE_AP_REL_HIT_OFF + 8);
@@ -891,7 +927,7 @@ static void rl_ap_start(remote_swap_state* st, enemy_mirror_state* mirror, u32 s
     st->ap_rvec.y = RB_F32(WWREMOTE_APPLY_OFF + WWREMOTE_AP_RVEC_OFF + 4);
     st->ap_rvec.z = RB_F32(WWREMOTE_APPLY_OFF + WWREMOTE_AP_RVEC_OFF + 8);
     if (rl_vec_bad(&st->ap_rel) || rl_vec_bad(&st->ap_rvec) ||
-        !enemy_mirror_sph_image_at(mirror, m ? (u8*)m + MO2_HEAD_SPH : (u8*)link + LK_FAN_WIND_SPH)) {
+        !enemy_mirror_sph_image_at(mirror, (mk && mk->sph_src) ? (u8*)m + mk->sph_src : (u8*)link + LK_FAN_WIND_SPH)) {
         rl_ap_publish(st, WWREMOTE_AR_DROPPED, WWREMOTE_AD_NONE);
         return;
     }
@@ -1297,7 +1333,7 @@ void rl_body_hits(remote_swap_state* st, void* a, rl_btail* t, u8* cyl, u32 fram
         setid = AF(att, u16, AC_SETID);
     }
     if (AF(cyl, u32, CC_GTG_RPRM) & CC_GTG_SHIELD_HIT) hf |= WWREMOTE_HF_SHIELD;
-    if (!att || proc != PROC_MO2) hf |= WWREMOTE_HF_NOT_MO2;
+    if (!att || !rl_mirrored_proc(proc)) hf |= WWREMOTE_HF_NOT_MO2;   // HF_NOT_MIRROR (rl_mirrored_proc)
     if (!att || setid >= WWREMOTE_KEYED_SETID_MAX) hf |= WWREMOTE_HF_NOT_KEYED;
     n = RB_U32(WWREMOTE_HIT_RING_HEAD_OFF) + 1;
     e = WWREMOTE_HIT_RING_OFF + ((n - 1) & (WWREMOTE_HIT_RING_LEN - 1)) * WWREMOTE_HIT_SIZE;

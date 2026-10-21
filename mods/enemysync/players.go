@@ -572,6 +572,10 @@ type RemoteHost struct {
 	statusAt      time.Time // when Stats.LastStatus was read
 	gateErrLogged bool
 
+	// Kinds is the host's enabled set (the Host's): an attacker of an
+	// enabled kind is sent like an ALLOW proc, as the mirror's own.
+	Kinds KindSet
+
 	Stats RemoteHostStats
 }
 
@@ -581,9 +585,11 @@ type phitKey struct {
 	pid    uint32
 }
 
-// NoMirrorSetID is a PHIT's SetID for an attacker the client has no mirror
-// of (a non-Moblin, an unkeyed Moblin): above every keyed setID, so the
-// client REL takes its stand-in owner.
+// NoMirrorSetID is the apply record's owner id for an attacker the client
+// has no mirror of: above every keyed setID and outside OwnerSlotBase's
+// range, so the client REL takes its stand-in owner. A PHIT's SetID field
+// carries the attacker's handle (wire version 4), NoMirrorHandle for one
+// the host does not list, and the client translates it (RemoteClient.Owner).
 const NoMirrorSetID = 0xFFFF
 
 // arrival is what slots keeps per remote to tell when its position
@@ -619,8 +625,8 @@ type RemoteHostStats struct {
 	// Ring hits dropped by why: not a Moblin, not keyed, no owner, no
 	// client id for the owner, rate limited.
 	DropNotAllowed, DropNoOwner, DropNoClient, DropRate uint64
-	// StandIn counts the sent PHITs from an attacker the client has no
-	// mirror of (with NoMirrorSetID).
+	// StandIn counts the sent PHITs from an attacker the host does not
+	// list (with NoMirrorHandle).
 	StandIn    uint64
 	LastStatus mailbox.RemoteStatus
 }
@@ -808,8 +814,9 @@ func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteVi
 // REL linked with this build, hostGate), it writes the block (scope the
 // host's, views the session's roster published at viewsAt), reads the
 // REL's tail and returns the PHITs to send for the ring entries new since
-// the last Tick. It also logs the PACKs that arrived.
-func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefeed.RemoteView, viewsAt time.Time) ([]*PHit, error) {
+// the last Tick, each attacker named by its handle in listing (the host's
+// last STATE). It also logs the PACKs that arrived.
+func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefeed.RemoteView, viewsAt time.Time, listing *Listing) ([]*PHit, error) {
 	r.logPAcks()
 	if !r.cfg.On || !relOK {
 		return nil, nil
@@ -864,7 +871,7 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 	}
 	var out []*PHit
 	for _, h := range st.HitsSince(r.lastHead) {
-		if p := r.phit(&h, b, scope); p != nil {
+		if p := r.phit(&h, b, scope, listing); p != nil {
 			out = append(out, p)
 		}
 	}
@@ -885,25 +892,27 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 }
 
 // phit turns a ring entry into the PHIT for its body's player, or nil
-// (dropped and counted): an attacker that is not a Moblin and not ALLOW in
+// (dropped and counted): an attacker of no enabled kind and not ALLOW in
 // the policy (the host's bombs, world hazards, denied or unswapped
 // enemies: the joiner's own copy of a shared hazard hits it already,
 // design §11.8), one with no actor (pid 0), a slot nobody owns, an owner
 // whose enemy client is unknown (no PSTATE yet), or within PHitRateFrames
-// of the last PHIT for that (client, attacker). A non-Moblin or unkeyed
-// attacker has no mirror on the client: it goes with SetID
-// NoMirrorSetID, and the client REL replays it with its keeper as the
-// stand-in At owner.
-func (r *RemoteHost) phit(h *mailbox.RemoteHit, b *mailbox.RemoteBlock, scope Scope) *PHit {
-	if h.PID == 0 || (h.Proc != addr.ProcMo2 && !r.allowed(h.Proc)) {
+// of the last PHIT for that (client, attacker). The PHIT names the
+// attacker by its handle, looked up in listing by the ring entry's
+// attacker pid (mailbox.RemoteHit.PID, the ring's +0x04): keyed and
+// unkeyed alike (design closed_before_build "PHIT owner"). One the host
+// does not list has no mirror on the client: it goes with
+// NoMirrorHandle, and the client REL replays it with its keeper as the
+// stand-in At owner (the REL's HF_NOT_MIRROR/HF_NOT_KEYED bits no longer
+// decide it).
+func (r *RemoteHost) phit(h *mailbox.RemoteHit, b *mailbox.RemoteBlock, scope Scope, listing *Listing) *PHit {
+	if h.PID == 0 || (!r.Kinds.Enabled(uint16(h.Proc)) && !r.allowed(h.Proc)) {
 		r.Stats.DropNotAllowed++
-		r.warnDrop("not_allowed", fmt.Sprintf("a proc 0x%X attacker hit a remote body; only Moblins and ALLOW procs are sent", uint16(h.Proc)))
+		r.warnDrop("not_allowed", fmt.Sprintf("a proc 0x%X attacker hit a remote body; only the mirrored kinds and ALLOW procs are sent", uint16(h.Proc)))
 		return nil
 	}
-	setID, standIn := h.SetID, h.HFlags&(mailbox.RemoteHFNotMo2|mailbox.RemoteHFNotKeyed) != 0
-	if standIn {
-		setID = NoMirrorSetID
-	}
+	setID := listing.HandleOfPID(h.PID)
+	standIn := setID == NoMirrorHandle
 	if int(h.Slot) >= mailbox.MaxRemoteLinks || r.owners[h.Slot].player == 0 {
 		r.Stats.DropNoOwner++
 		return nil
@@ -1037,11 +1046,19 @@ type RemoteClient struct {
 	epoch      uint32              // the block's epoch: the mirror's (ClientGate.Epoch)
 	wrote      bool
 
+	// Owner translates a PHIT's attacker handle into the apply record's
+	// owner id when the request is written (Mirror.OwnerOf: a keyed local
+	// setID, OwnerSlotBase|j for an unkeyed copy in block slot j, else
+	// NoMirrorSetID); never the raw handle, which starts at 1 and would
+	// alias keyed setIDs. Nil: every attacker is a stand-in.
+	Owner func(handle uint16) uint16
+
 	Stats RemoteClientStats
 }
 
 type pendingApply struct {
 	p      PHit
+	owner  uint16 // the translated attacker (RemoteClient.Owner), set at the write
 	seq    uint32
 	wrote  bool
 	frame  uint32    // the REL frame at the write
@@ -1129,7 +1146,7 @@ func (r *RemoteClient) Tick(now time.Time, scope Scope, g ClientGate) ([][]byte,
 			return out, err
 		}
 		q := r.queue[0]
-		q.wrote, q.frame, q.at = true, rel.Frames, now
+		q.wrote, q.frame, q.at, q.owner = true, rel.Frames, now, r.ownerOf(q.p.SetID)
 		r.last = applyRecord(q)
 	}
 	r.epoch = g.Epoch
@@ -1170,12 +1187,38 @@ func (r *RemoteClient) drop(p *PHit, detail uint8, frame uint32) []byte {
 	return EncodePAck(&PAck{Result: PAckDropped, Seq: p.Seq, Detail: detail, ClientFrame: frame})
 }
 
-// applyRecord lays q out as the block's apply record: At SPrm Set|VsPlayer
-// (mailbox.RemoteApplyAtSPrm: it cannot hit mirrored Moblins), the PHIT's
+// ownerOf translates a PHIT's attacker handle (Owner), NoMirrorSetID for
+// NoMirrorHandle or without a translator.
+func (r *RemoteClient) ownerOf(handle uint16) uint16 {
+	if r.Owner == nil || handle == NoMirrorHandle || handle == HandleNone {
+		return NoMirrorSetID
+	}
+	return r.Owner(handle)
+}
+
+// LockedSlots reports the block slots an apply the REL has not acked yet
+// names (OwnerSlotBase|j): the mirror must not give slot j to another
+// enemy before the REL resolved the owner (design closed_before_build
+// "PHIT owner").
+func (r *RemoteClient) LockedSlots() (out [MaxSlots]bool) {
+	if r == nil {
+		return out
+	}
+	for _, q := range r.queue {
+		if q.wrote && q.owner >= OwnerSlotBase && q.owner < OwnerSlotBase+MaxSlots {
+			out[q.owner-OwnerSlotBase] = true
+		}
+	}
+	return out
+}
+
+// applyRecord lays q out as the block's apply record: the translated
+// owner id (q.owner, never the PHIT's raw handle), At SPrm Set|VsPlayer
+// (mailbox.RemoteApplyAtSPrm: it cannot hit mirrored enemies), the PHIT's
 // flags as RemoteAF* (the same bits).
 func applyRecord(q *pendingApply) mailbox.RemoteApply {
 	p := &q.p
-	return mailbox.RemoteApply{Seq: q.seq, SetID: p.SetID, Atp: p.Atp, Se: p.Se, HitMark: p.HitMark, Spl: p.Spl,
+	return mailbox.RemoteApply{Seq: q.seq, SetID: q.owner, Atp: p.Atp, Se: p.Se, HitMark: p.HitMark, Spl: p.Spl,
 		AtSPrm: mailbox.RemoteApplyAtSPrm, Flags: p.Flags & (mailbox.RemoteAFHostShield | mailbox.RemoteAFHostGuard),
 		AtType: p.AtType, RelHit: p.RelHit, RVec: p.RVec}
 }
@@ -1243,7 +1286,7 @@ func (r *RemoteClient) poll(now time.Time, frame uint32) (*PAck, error) {
 	r.queue = r.queue[1:]
 	if len(r.queue) > 0 {
 		next := r.queue[0]
-		next.wrote, next.frame, next.at = true, rel.Frames, now
+		next.wrote, next.frame, next.at, next.owner = true, rel.Frames, now, r.ownerOf(next.p.SetID)
 		r.last = applyRecord(next)
 		if err := r.writeBlock(); err != nil {
 			return a, err

@@ -166,8 +166,8 @@ func (r *Mo2Res) Lookup(m mem.Reader, anm uint32, now time.Time) (uint8, error) 
 // dRes_info_c named Name. The rules are Mo2Res's: the entry must have
 // mCount != 0 (a reference count) and mpArchive in MEM1, and the table is
 // ok iff every pointer is in MEM1, 4-aligned and distinct. Resolve makes
-// two Reads. Batch 1 uses it from the probes only; the Moblin host keeps
-// its Mo2Res.
+// two Reads. The host's KindTracker holds one per kind (the Moblin's
+// included); Mo2Res stays for the Moblin probes.
 type ArcRes struct {
 	Name  string
 	First int

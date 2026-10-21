@@ -14,6 +14,11 @@ const (
 	// (d_a_bk.cpp:4759), except that 0xB becomes 4 with m02DC = 1
 	// (d_a_bk.cpp:4762-4766). The mirror takes live types 0, 1 and 4.
 	BkOffType = 0x2B4
+	// BkOffDeathSwitch is u8 m02B8 (d_a_bk.h:20), the death switch: params
+	// angle.z, 0xFF read as 0 (create); fail() sets it (d_a_bk.cpp:2644-2646,
+	// :2729-2731), which a quiet death on a client never runs, so client Go
+	// sets it (enemy-mirror-general.json death_and_drops.quiet_steps).
+	BkOffDeathSwitch = 0x2B8
 	// BkOffDrawGate is u8 m02BA (d_a_bk.h:22): nonzero hides the
 	// Bokoblin (d_a_bk.cpp:526).
 	BkOffDrawGate = 0x2BA

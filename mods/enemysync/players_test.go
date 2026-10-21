@@ -334,7 +334,7 @@ func TestRemoteHostSlots(t *testing.T) {
 	}
 	r.OnPState(&PState{Client: 2, PlayerID: 4, Flags: PSGuard, Stage: "M_Dai", Room: 1, CutType: 1, CutCount: 2, IFrames: 5, ShieldAngleY: 77}, now)
 	r.OnPState(&PState{Client: 3, PlayerID: 0, Stage: "M_Dai", Room: 1}, now) // unmapped: dropped
-	if _, err := r.Tick(now, scope, true, views, now); err != nil {
+	if _, err := r.Tick(now, scope, true, views, now, nil); err != nil {
 		t.Fatal(err)
 	}
 	blk := readBlock(t, m)
@@ -364,7 +364,7 @@ func TestRemoteHostSlots(t *testing.T) {
 	// Slot 1 changes owner: gen 2. Slot 0 freed: inactive.
 	later := now.Add(time.Second)
 	views = []posefeed.RemoteView{{ID: 5, LinkSlot: 1, Live: true}}
-	if _, err := r.Tick(later, scope, true, views, later); err != nil {
+	if _, err := r.Tick(later, scope, true, views, later, nil); err != nil {
 		t.Fatal(err)
 	}
 	blk = readBlock(t, m)
@@ -374,7 +374,7 @@ func TestRemoteHostSlots(t *testing.T) {
 	// Back to bob, with his PSTATE now stale.
 	stale := now.Add(PStateStale + time.Second)
 	views = []posefeed.RemoteView{{ID: 4, LinkSlot: 1, Live: true}}
-	if _, err := r.Tick(stale, scope, true, views, stale); err != nil {
+	if _, err := r.Tick(stale, scope, true, views, stale, nil); err != nil {
 		t.Fatal(err)
 	}
 	blk = readBlock(t, m)
@@ -382,7 +382,7 @@ func TestRemoteHostSlots(t *testing.T) {
 		t.Errorf("stale PSTATE: %+v", s)
 	}
 	// A stale roster empties every slot.
-	if _, err := r.Tick(stale.Add(time.Second), scope, true, views, stale.Add(-RosterStale)); err != nil {
+	if _, err := r.Tick(stale.Add(time.Second), scope, true, views, stale.Add(-RosterStale), nil); err != nil {
 		t.Fatal(err)
 	}
 	if blk = readBlock(t, m); blk.Slots[1].Active {
@@ -428,20 +428,20 @@ func TestRemoteHostGates(t *testing.T) {
 	now := time.Unix(100, 0)
 	m.Record(true)
 	off := NewRemoteHost(m, log.Discard{}, DefaultRemoteConfig(), 9)
-	if _, err := off.Tick(now, scope, true, nil, now); err != nil {
+	if _, err := off.Tick(now, scope, true, nil, now, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := off.Shutdown(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Tick(now, scope, false, nil, now); err != nil {
+	if _, err := r.Tick(now, scope, false, nil, now, nil); err != nil {
 		t.Fatal(err)
 	}
 	if w := m.Writes(); len(w) != 0 {
 		t.Fatalf("writes with the block off or no REL: %+v", w)
 	}
 	// Step 0: on with every flag clear writes the block (magic, no flags).
-	if _, err := r.Tick(now, scope, true, nil, now); err != nil {
+	if _, err := r.Tick(now, scope, true, nil, now, nil); err != nil {
 		t.Fatal(err)
 	}
 	if blk := readBlock(t, m); blk.Flags != 0 || blk.Magic != mailbox.RemoteMagic {
@@ -460,13 +460,13 @@ func TestRemoteHostGates(t *testing.T) {
 func TestRemoteHostEpoch(t *testing.T) {
 	m, scope, r := remoteHostGame(t, 0)
 	now := time.Unix(100, 0)
-	r.Tick(now, scope, true, nil, now)
+	r.Tick(now, scope, true, nil, now, nil)
 	a := readBlock(t, m)
-	r.Tick(now, scope, true, nil, now)
+	r.Tick(now, scope, true, nil, now, nil)
 	b := readBlock(t, m)
 	other := scope
 	other.Stage = "sea"
-	r.Tick(now, other, true, nil, now)
+	r.Tick(now, other, true, nil, now, nil)
 	c := readBlock(t, m)
 	if a.Epoch != b.Epoch || c.Epoch == b.Epoch || b.Seq != a.Seq+1 || c.Seq != b.Seq+1 {
 		t.Errorf("epochs %d %d %d seqs %d %d %d", a.Epoch, b.Epoch, c.Epoch, a.Seq, b.Seq, c.Seq)
@@ -493,18 +493,24 @@ func push(t *testing.T, m *mem.FakeMem, st *mailbox.RemoteStatus, hits ...mailbo
 // TestRemoteHostPHit: the ring entries pushed before the host's first read
 // are not sent; a new Moblin hit on a slot becomes a PHIT to the client
 // of the PSTATE whose player owns the slot, with the host's epoch, scope
-// and the entry's attacker fields; a non-Moblin or unkeyed attacker goes
-// with NoMirrorSetID (the client's stand-in owner); unowned and clientless
-// hits are dropped and counted; one per (client, attacker) per
-// PHitRateFrames.
+// and the entry's attacker fields, the attacker named by its handle in
+// the host's listing (looked up by the ring entry's attacker pid: an
+// unkeyed listed one, HF_NOT_KEYED in the ring, gets its handle too); an
+// attacker the host does not list goes with NoMirrorHandle (the client's
+// stand-in owner); unowned and clientless hits are dropped and counted;
+// one per (client, attacker) per PHitRateFrames.
 func TestRemoteHostPHit(t *testing.T) {
 	m, scope, r := remoteHostGame(t, mailbox.RemoteFlagDetect)
+	r.Kinds, _ = ParseKinds("mo2")
 	now := time.Unix(100, 0)
+	// ringHit's attacker pid is 0x900+setID: setIDs 1, 3 and 5 are listed
+	// (handles 7, 9, 11), and the unkeyed Moblin of pid 0xC00 (handle 12).
+	l := &Listing{Entries: []Listed{{PID: 0x901, Handle: 7}, {PID: 0x903, Handle: 9}, {PID: 0x905, Handle: 11}, {PID: 0xC00, Handle: 12}}}
 	views := []posefeed.RemoteView{{ID: 4, LinkSlot: 0, Live: true}, {ID: 6, LinkSlot: 1, Live: true}}
 	r.OnPState(&PState{Client: 2, PlayerID: 4, Flags: PSGuard, Stage: "M_Dai", Room: 1}, now)
 	var st mailbox.RemoteStatus
 	push(t, m, &st, ringHit(0, 0, 1, 50)) // before this Go: never sent
-	if out, err := r.Tick(now, scope, true, views, now); err != nil || len(out) != 0 {
+	if out, err := r.Tick(now, scope, true, views, now, l); err != nil || len(out) != 0 {
 		t.Fatalf("first tick: %v %v", out, err)
 	}
 	shield := ringHit(0, 0, 1, 200)
@@ -514,49 +520,50 @@ func TestRemoteHostPHit(t *testing.T) {
 	notKeyed := ringHit(0, 0, 0x300, 200)
 	notKeyed.HFlags = mailbox.RemoteHFNotKeyed
 	push(t, m, &st, shield, notMo2, notKeyed, ringHit(0, 1, 1, 200)) // the last: slot 1's owner has no PSTATE
-	out, err := r.Tick(now, scope, true, views, now)
+	out, err := r.Tick(now, scope, true, views, now, l)
 	if err != nil || len(out) != 3 {
 		t.Fatalf("PHITs %+v %v", out, err)
 	}
-	want := &PHit{Client: 2, Flags: PHitHostShield | PHitHostGuard, Epoch: 9, Stage: "M_Dai", Room: 1, Atp: 2, SetID: 1, Seq: 1,
+	want := &PHit{Client: 2, Flags: PHitHostShield | PHitHostGuard, Epoch: 9, Stage: "M_Dai", Room: 1, Atp: 2, SetID: 7, Seq: 1,
 		Se: 3, HitMark: 0x0D, AtType: 0x800, Spl: 6, RelHit: [3]float32{1, 50, -1}, RVec: [3]float32{0, 0, 9}, HostFrame: 200}
 	if !reflect.DeepEqual(out[0], want) {
 		t.Errorf("PHIT\n got %+v\nwant %+v", out[0], want)
 	}
-	for i, o := range out[1:] {
-		if o.SetID != NoMirrorSetID || o.Seq != uint16(i+2) {
-			t.Errorf("stand-in PHIT %d: %+v", i, o)
-		}
+	if out[1].SetID != NoMirrorHandle || out[1].Seq != 2 {
+		t.Errorf("stand-in PHIT (an unlisted Bokoblin): %+v", out[1])
 	}
-	if s := r.Stats; s.StandIn != 2 || s.DropNoClient != 1 || s.PHits != 3 {
+	if out[2].SetID != 12 || out[2].Seq != 3 {
+		t.Errorf("listed unkeyed PHIT: %+v", out[2])
+	}
+	if s := r.Stats; s.StandIn != 1 || s.DropNoClient != 1 || s.PHits != 3 {
 		t.Errorf("stats %+v", s)
 	}
 	// The rate limit: same (client, attacker) within 15 frames dropped,
 	// another attacker and a later frame sent; seq counts per client.
 	push(t, m, &st, ringHit(0, 0, 1, 210), ringHit(0, 0, 3, 211), ringHit(0, 0, 1, 215))
-	out, _ = r.Tick(now, scope, true, views, now)
-	if len(out) != 2 || out[0].SetID != 3 || out[0].Seq != 4 || out[1].SetID != 1 || out[1].Seq != 5 || r.Stats.DropRate != 1 {
+	out, _ = r.Tick(now, scope, true, views, now, l)
+	if len(out) != 2 || out[0].SetID != 9 || out[0].Seq != 4 || out[1].SetID != 7 || out[1].Seq != 5 || r.Stats.DropRate != 1 {
 		t.Errorf("rate: %+v drops %d", out, r.Stats.DropRate)
 	}
-	// Not a Moblin and not ALLOW (a host bomb, proc 0x14C here), or no
+	// Not an enabled kind and not ALLOW (a host bomb, proc 0x14C here), or no
 	// attacker actor at all: dropped, never sent to the client.
 	bomb := ringHit(0, 0, 5, 400)
 	bomb.HFlags, bomb.Proc = mailbox.RemoteHFNotMo2, 0x14C
 	noActor := ringHit(0, 0, 6, 400)
 	noActor.HFlags, noActor.PID = mailbox.RemoteHFNotKeyed, 0
 	push(t, m, &st, bomb, noActor)
-	if out, _ = r.Tick(now, scope, true, views, now); len(out) != 0 || r.Stats.DropNotAllowed != 2 {
+	if out, _ = r.Tick(now, scope, true, views, now, l); len(out) != 0 || r.Stats.DropNotAllowed != 2 {
 		t.Errorf("not allowed: %+v %+v", out, r.Stats)
 	}
 	// An unowned slot (the remote left).
 	push(t, m, &st, ringHit(0, 0, 4, 300))
-	if out, _ = r.Tick(now, scope, true, nil, now); len(out) != 0 || r.Stats.DropNoOwner != 1 {
+	if out, _ = r.Tick(now, scope, true, nil, now, l); len(out) != 0 || r.Stats.DropNoOwner != 1 {
 		t.Errorf("unowned: %+v %+v", out, r.Stats)
 	}
 	// The REL relinked: the head starts over and the new hit is sent.
 	st = mailbox.RemoteStatus{}
 	push(t, m, &st, ringHit(0, 0, 5, 10))
-	if out, _ = r.Tick(now, scope, true, views, now); len(out) != 1 || out[0].SetID != 5 {
+	if out, _ = r.Tick(now, scope, true, views, now, l); len(out) != 1 || out[0].SetID != 11 {
 		t.Errorf("relink: %+v", out)
 	}
 }
@@ -570,7 +577,7 @@ func TestRemoteAttrib(t *testing.T) {
 	now := time.Unix(100, 0)
 	views := []posefeed.RemoteView{{ID: 4, LinkSlot: 0, Live: true}, {ID: 6, LinkSlot: 1, Live: true}}
 	r.OnPState(&PState{Client: 2, PlayerID: 6, Stage: "M_Dai", Room: 1, CutType: 1, CutCount: 1}, now)
-	r.Tick(now, scope, true, views, now)
+	r.Tick(now, scope, true, views, now, nil)
 	for _, c := range []struct {
 		player uint8
 		want   uint8
@@ -590,13 +597,13 @@ func TestRemoteAttrib(t *testing.T) {
 		t.Errorf("hit_apply flags 0x%02X", ha.Flags)
 	}
 	r.NoteHit(&Hit{PlayerID: 6, CutType: 0x0B, CutCount: 4}, now)
-	r.Tick(now, scope, true, views, now)
+	r.Tick(now, scope, true, views, now, nil)
 	if s := readBlock(t, m).Slots[1]; s.CutType != 0x0B || s.CutCount != 4 {
 		t.Errorf("HIT cut not staged: %+v", s)
 	}
 	later := now.Add(HitCutHold + time.Millisecond)
 	r.OnPState(&PState{Client: 2, PlayerID: 6, Stage: "M_Dai", Room: 1, CutType: 1, CutCount: 1}, later)
-	r.Tick(later, scope, true, views, later)
+	r.Tick(later, scope, true, views, later, nil)
 	if s := readBlock(t, m).Slots[1]; s.CutType != 1 || s.CutCount != 1 {
 		t.Errorf("HIT cut held too long: %+v", s)
 	}
@@ -721,15 +728,27 @@ func TestRemoteClientGates(t *testing.T) {
 func TestRemoteClientApply(t *testing.T) {
 	m, scope, r, g := remoteClientGame(t, true, mailbox.RemoteFlagApply)
 	now := time.Unix(100, 0)
+	// The PHIT names handle 1, which the mirror has in block slot 2 (an
+	// unkeyed copy): the record carries OwnerSlotBase|2, never the handle,
+	// and slot 2 stays locked while the REL has not acked it.
+	r.Owner = func(h uint16) uint16 {
+		if h == 1 {
+			return OwnerSlotBase | 2
+		}
+		return NoMirrorSetID
+	}
 	r.OnPHit(phitFor(5))
 	r.OnPHit(phitFor(6))
 	out, err := r.Tick(now, scope, g)
 	if _, packs := splitOut(t, out); err != nil || len(packs) != 0 {
 		t.Fatalf("first tick: %+v %v", packs, err)
 	}
+	if l := r.LockedSlots(); l != [MaxSlots]bool{2: true} {
+		t.Errorf("locked %v while the apply naming slot 2 waits", l)
+	}
 	blk := readBlock(t, m)
 	seq := uint32(3) << 16
-	wantAp := mailbox.RemoteApply{Seq: seq + 1, SetID: 1, Atp: 2, Se: 3, HitMark: 0x0D, Spl: 6, AtSPrm: mailbox.RemoteApplyAtSPrm,
+	wantAp := mailbox.RemoteApply{Seq: seq + 1, SetID: OwnerSlotBase | 2, Atp: 2, Se: 3, HitMark: 0x0D, Spl: 6, AtSPrm: mailbox.RemoteApplyAtSPrm,
 		Flags: mailbox.RemoteAFHostShield, AtType: 0x800, RelHit: [3]float32{1, 2, 3}, RVec: [3]float32{0, 0, 9}}
 	if blk.Role != mailbox.RemoteRoleClient || blk.Epoch != 3 || blk.Flags != mailbox.RemoteFlagApply || blk.Apply != wantAp || blk.Policy != nil || blk.FFDeny != nil {
 		t.Fatalf("block %+v\nwant apply %+v", blk, wantAp)
@@ -784,6 +803,9 @@ func TestRemoteClientApply(t *testing.T) {
 	out, _ = r.Tick(now, scope, g)
 	if _, packs = splitOut(t, out); len(packs) != applyQueueDepth {
 		t.Errorf("REL gone: %d PACKs", len(packs))
+	}
+	if l := r.LockedSlots(); l != [MaxSlots]bool{} {
+		t.Errorf("locked %v with nothing queued", l)
 	}
 	if err := r.Shutdown(); err != nil {
 		t.Fatal(err)

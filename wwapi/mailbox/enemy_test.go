@@ -65,6 +65,7 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_STAGE_OFF":           EnemyStageOff,
 		"WWENEMY_ROOM_OFF":            EnemyRoomOff,
 		"WWENEMY_ROLE_OFF":            EnemyRoleOff,
+		"WWENEMY_KIND_MASK_OFF":       EnemyKindMaskOff,
 		"WWENEMY_RESERVED_OFF":        EnemyReservedOff,
 		"WWENEMY_SLOTS_OFF":           EnemySlotsOff,
 		"WWENEMY_SLOT_SIZE":           EnemySlotSize,
@@ -81,10 +82,10 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_SL_POS_OFF":          EnemySLPosOff,
 		"WWENEMY_SL_ANGLE_OFF":        EnemySLAngleOff,
 		"WWENEMY_SL_TILT_OFF":         EnemySLTiltOff,
-		"WWENEMY_SL_ACTION_OFF":       EnemySLActionOff,
-		"WWENEMY_SL_MODE_OFF":         EnemySLModeOff,
+		"WWENEMY_SL_PKEY_OFF":         EnemySLPKeyOff,
 		"WWENEMY_SL_ATTACK_OFF":       EnemySLAttackOff,
 		"WWENEMY_SL_PHASE_OFF":        EnemySLPhaseOff,
+		"WWENEMY_SL_CC_M316Z_OFF":     EnemySLCcM316ZOff,
 		"WWENEMY_SL_HEALTH_OFF":       EnemySLHealthOff,
 		"WWENEMY_SL_FLAGS_OFF":        EnemySLFlagsOff,
 		"WWENEMY_SL_FRAME_OFF":        EnemySLFrameOff,
@@ -96,6 +97,7 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_SL_MORF_OFF":         EnemySLMorfOff,
 		"WWENEMY_SL_FLAGS2_OFF":       EnemySLFlags2Off,
 		"WWENEMY_SL_BLUR_SHAPE_OFF":   EnemySLBlurShapeOff,
+		"WWENEMY_SL_PROC_OFF":         EnemySLProcOff,
 		"WWENEMY_SL_BLUR_SCALE_OFF":   EnemySLBlurScaleOff,
 		"WWENEMY_BCK_NONE":            uint64(EnemyBckNone),
 		"WWENEMY_SF_SNAP":             uint64(EnemySFSnap),
@@ -110,6 +112,8 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_SF2_PLAY_SKIP":       uint64(EnemySF2PlaySkip),
 		"WWENEMY_SF2_BLUR_ON":         uint64(EnemySF2BlurOn),
 		"WWENEMY_SF2_ANM_GATE":        uint64(EnemySF2AnmGate),
+		"WWENEMY_SF2_LIGHT":           uint64(EnemySF2Light),
+		"WWENEMY_SF2_QUIET":           uint64(EnemySF2Quiet),
 		"WWENEMY_HA_SEQ_OFF":          EnemyHASeqOff,
 		"WWENEMY_HA_SETID_OFF":        EnemyHASetIDOff,
 		"WWENEMY_HA_COLLIDER_OFF":     EnemyHAColliderOff,
@@ -153,6 +157,7 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_STATE_MISSING":       uint64(EnemyStateMissing),
 		"WWENEMY_STATE_DYING":         uint64(EnemyStateDying),
 		"WWENEMY_STATE_REFUSED":       uint64(EnemyStateRefused),
+		"WWENEMY_STATE_DEAD":          uint64(EnemyStateDead),
 		"WWENEMY_ERR_NONE":            uint64(EnemyErrNone),
 		"WWENEMY_ERR_PID":             uint64(EnemyErrPID),
 		"WWENEMY_ERR_PROC":            uint64(EnemyErrProc),
@@ -161,6 +166,10 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_ERR_MORF":            uint64(EnemyErrMorf),
 		"WWENEMY_ERR_RANGE":           uint64(EnemyErrRange),
 		"WWENEMY_ERR_MODE":            uint64(EnemyErrMode),
+		"WWENEMY_ERR_KIND":            uint64(EnemyErrKind),
+		"WWENEMY_ERR_GATE":            uint64(EnemyErrGate),
+		"WWENEMY_ERR_KEY":             uint64(EnemyErrKey),
+		"WWENEMY_ERR_ICE":             uint64(EnemyErrIce),
 		"WWENEMY_ANM_S1":              uint64(EnemyAnmS1),
 		"WWENEMY_ANM_SYNCED":          uint64(EnemyAnmSynced),
 		"WWENEMY_ANM_UNRESOLVED":      uint64(EnemyAnmUnresolved),
@@ -187,6 +196,25 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_HD_BUSY":             uint64(EnemyHDBusy),
 		"WWENEMY_HD_GO_FLAGS":         uint64(EnemyHDGoFlags),
 		"WWENEMY_HD_DEMO":             uint64(EnemyHDDemo),
+		"WWENEMY_HD_KIND":             uint64(EnemyHDKind),
+		"WWENEMY_OWNER_SLOT_BASE":     uint64(EnemyOwnerSlotBase),
+		"WWENEMY_ANNEX_OFF":           uint64(EnemyAnnexOff),
+		"WWENEMY_ANNEX_SIZE":          uint64(EnemyAnnexSize),
+		"WWENEMY_ANNEX_AUX_SIZE":      EnemyAnnexAuxSize,
+		"WWENEMY_ANNEX_SEQ_OFF":       uint64(EnemyAnnexSeqOff),
+		"WWENEMY_ANNEX_OVR_OFF":       uint64(EnemyAnnexOvrOff),
+		"WWENEMY_ANNEX_OVR_SIZE":      EnemyAnnexOvrSize,
+		"WWENEMY_ANNEX_OVR_HOOKS_OFF": EnemyAnnexOvrHooksOff,
+		"WWENEMY_ANNEX_OVR_QUIET_OFF": EnemyAnnexOvrQuietOff,
+		"WWENEMY_ANNEX_OVR_TG_UP_OFF": EnemyAnnexOvrTgUpOff,
+		"WWENEMY_ANNEX_INVW_OFF":      uint64(EnemyAnnexInvWOff),
+		"WWENEMY_ANNEX_KINDS":         EnemyAnnexKinds,
+		"WWENEMY_HKD_MODEL_EQ":        uint64(EnemyHKDModelEq),
+		"WWENEMY_HKD_ATTACH":          uint64(EnemyHKDAttach),
+		"WWENEMY_HKD_EYE":             uint64(EnemyHKDEye),
+		"WWENEMY_HKD_LEGACY_DEATH":    uint64(EnemyHKDLegacyDeath),
+		"WWENEMY_HKD_ATTN":            uint64(EnemyHKDAttn),
+		"WWENEMY_HKD_MTX_PLAIN":       uint64(EnemyHKDMtxPlain),
 		"WWENEMY_STALE_FRAMES":        EnemyStaleFrames,
 		"WWENEMY_SPH_OFF":             uint64(EnemySphOff),
 		"WWENEMY_STTS_OFF":            uint64(EnemySttsOff),
@@ -235,7 +263,7 @@ func TestEnemyBlockPlacement(t *testing.T) {
 	if EnemyBlockAddr+EnemySize > sph || sph+EnemySphSize > stts || stts+EnemySttsSize > Mailbox+EnemyRegionEnd || Mailbox+EnemyRegionEnd > PatchedArenaLo || sph%4 != 0 || stts%4 != 0 {
 		t.Error("the collision objects overlap the block, each other, the region end or the arena, or are misaligned")
 	}
-	if EnemyBlockRegion != (addr.Region{Name: "enemy block", Start: EnemyBlockAddr, End: Mailbox + EnemyRegionEnd}) {
+	if EnemyBlockRegion != (addr.Region{Name: "enemy block", Start: Mailbox + EnemyAnnexOff, End: Mailbox + EnemyRegionEnd}) {
 		t.Errorf("EnemyBlockRegion %+v", EnemyBlockRegion)
 	}
 	if CanaryArena.End > EnemyBlockRegion.Start || CanaryArenaHigh.Start < EnemyBlockRegion.End {
@@ -243,6 +271,24 @@ func TestEnemyBlockPlacement(t *testing.T) {
 	}
 	if !CanaryArena.Contains(relStart, int(relEnd-relStart)) {
 		t.Error("the REL words left the low canary region")
+	}
+	// Layout 3's annex fills the slack between the REL's shanm word and the
+	// block exactly, and the region (what canaryForbidden covers) starts
+	// at it.
+	if EnemyAnnexOff != OffRELShanm+4 || EnemyAnnexOff+EnemyAnnexSize != EnemyOff || EnemyAnnexAddr != 0x804130C8 {
+		t.Errorf("annex at Mailbox+0x%X size 0x%X; the design says +0x1C8, right after the shanm word and up to the block", EnemyAnnexOff, EnemyAnnexSize)
+	}
+	if EnemyAnnexSeqOff != EnemyAnnexOff+EnemyMaxSlots*EnemyAnnexAuxSize || EnemyAnnexOvrOff != EnemyAnnexSeqOff+4 ||
+		EnemyAnnexInvWOff != EnemyAnnexOvrOff+EnemyAnnexKinds*EnemyAnnexOvrSize || EnemyAnnexInvWOff+EnemyAnnexKinds+1 > EnemyOff ||
+		EnemyWriteSpan != 0x15C {
+		t.Error("the annex's fields overlap, or run past the block")
+	}
+	if EnemySLCcM316ZOff != EnemySLAttackOff || EnemySLPKeyOff+4 != EnemySLAttackOff || EnemySLProcOff != EnemySLBlurShapeOff+1 ||
+		EnemyKindMaskOff+4 != EnemyReservedOff || EnemyReservedOff+8 != EnemySlotsOff {
+		t.Error("layout 3's slot or header fields moved")
+	}
+	if EnemyHDKind != RemoteHDNoBody+1 || EnemyStateDead != 6 || EnemyErrKey != 10 {
+		t.Error("layout 3's new enum values moved")
 	}
 	if string(binary.BigEndian.AppendUint32(nil, EnemyMagic)) != "WWEN" {
 		t.Errorf("EnemyMagic 0x%08X is not 'WWEN'", EnemyMagic)
@@ -264,7 +310,7 @@ func TestEnemyBlockPlacement(t *testing.T) {
 		{"reserved2 end", EnemyReserved2Off + 4, int(EnemySize)},
 		{"slot sample end", EnemySLSampleOff + 4, EnemySLBckOff},
 		{"slot bytes", EnemySLBckOff + 6, EnemySLBlurShapeOff + 1},
-		{"slot blur_scale", EnemySLBlurShapeOff + 1 + 2, EnemySLBlurScaleOff},
+		{"slot blur_scale", EnemySLProcOff + 2, EnemySLBlurScaleOff},
 		{"slot blur_scale end", EnemySLBlurScaleOff + 4, EnemySlotSize},
 		{"slots end (0x100)", EnemySlotsOff + EnemyMaxSlots*EnemySlotSize, 0x100},
 		{"hit_apply flags after collider", EnemyHAColliderOff + 1, EnemyHAFlagsOff},
@@ -295,12 +341,17 @@ func TestEnemyBlockPlacement(t *testing.T) {
 func sampleEnemyBlock() *EnemyBlock {
 	return &EnemyBlock{
 		Magic: EnemyMagic, Seq: 0x01020304, HostBeat: 777, GoWriteMS: 123456, Flags: EnemyFlagMirror | EnemyFlagRaw,
-		Layout: EnemyLayout, Epoch: 3, Stage: "M_Dai", Room: 1, Role: EnemyRoleClient,
+		Layout: EnemyLayout, Epoch: 3, Stage: "M_Dai", Room: 1, Role: EnemyRoleClient, KindMask: 0b101,
 		Slots: []EnemySlot{
-			{PID: 0x1234, Pos: [3]float32{-100.5, 20, 3e4}, AngleY: -0x4000, Tilt: 2, Action: 20, Mode: -100,
+			{PID: 0x1234, Pos: [3]float32{-100.5, 20, 3e4}, AngleY: -0x4000, Tilt: 2, PKey: 0xD0264F5D,
 				AttackType: 1, AttackPhase: 2, Health: 3, Flags: EnemySFSnap | EnemySFDying, MorfFrame: 7.5, MorfRate: 1, SampleSeq: 99,
-				Bck: 0x6A, AnmAttr: 2, AnmSeq: 17, Morf: 15, Flags2: EnemySF2HasWeapon | EnemySF2BlurOn, BlurShape: 3, BlurScale: 1.25},
-			{PID: 0, Pos: [3]float32{1, 2, 3}, Bck: EnemyBckNone, AnmAttr: 0xFF},
+				Bck: 0x6A, AnmAttr: 2, AnmSeq: 17, Morf: 15, Flags2: EnemySF2HasWeapon | EnemySF2BlurOn | EnemySF2Quiet, BlurShape: 3, Proc: 0x00BD, BlurScale: 1.25},
+			{PID: 0, Pos: [3]float32{1, 2, 3}, Bck: EnemyBckNone, AnmAttr: 0xFF, Proc: 0x00CF},
+		},
+		Annex: EnemyAnnex{
+			Aux:        [EnemyMaxSlots][4]int16{1: {-5, 6, 7, -8}},
+			Override:   [EnemyAnnexKinds]EnemyKindOverride{1: {HookDisable: EnemyHKDAttach, QuietFrames: 30, TgHitUp: 50}},
+			InvulnWait: [EnemyAnnexKinds]uint8{0, 12, 0},
 		},
 		HitApply: EnemyHitApply{Seq: 5, SetID: 2, Collider: 1, Flags: EnemyHAFNoHitMark, AtType: 0x80000, Atp: 2, Se: 1, HitMark: 0xD, Spl: 1, Pos: [3]float32{4, 5, 6}, PID: 421},
 	}
@@ -320,17 +371,17 @@ func TestEnemyBlockEncode(t *testing.T) {
 		t.Fatalf("%d bytes, head %08X tail %08X", len(out), be.Uint32(out[EnemySeqHeadOff:]), be.Uint32(out[EnemySeqTailOff:]))
 	}
 	if be.Uint32(out[EnemyMagicOff:]) != EnemyMagic || out[EnemyCountOff] != 2 || out[EnemyFlagsOff] != b.Flags ||
-		be.Uint16(out[EnemyLayoutOff:]) != 2 || be.Uint32(out[EnemyEpochOff:]) != 3 ||
+		be.Uint16(out[EnemyLayoutOff:]) != 3 || be.Uint32(out[EnemyEpochOff:]) != 3 || be.Uint32(out[EnemyKindMaskOff:]) != 0b101 ||
 		!bytes.Equal(out[EnemyStageOff:EnemyStageOff+8], []byte("M_Dai\x00\x00\x00")) ||
 		out[EnemyRoomOff] != 1 || out[EnemyRoleOff] != EnemyRoleClient {
 		t.Errorf("header %x", out[:EnemySlotsOff])
 	}
 	s0 := out[EnemySlotsOff:]
 	if be.Uint32(s0[EnemySLPIDOff:]) != 0x1234 || math.Float32frombits(be.Uint32(s0[EnemySLPosOff+8:])) != 3e4 ||
-		int16(be.Uint16(s0[EnemySLAngleOff:])) != -0x4000 || int16(be.Uint16(s0[EnemySLModeOff:])) != -100 ||
+		int16(be.Uint16(s0[EnemySLAngleOff:])) != -0x4000 || be.Uint32(s0[EnemySLPKeyOff:]) != 0xD0264F5D ||
 		s0[EnemySLFlagsOff] != EnemySFSnap|EnemySFDying || be.Uint32(s0[EnemySLSampleOff:]) != 99 ||
 		s0[EnemySLBckOff] != 0x6A || s0[EnemySLAttrOff] != 2 || s0[EnemySLAnmSeqOff] != 17 || s0[EnemySLMorfOff] != 15 ||
-		s0[EnemySLFlags2Off] != EnemySF2HasWeapon|EnemySF2BlurOn || s0[EnemySLBlurShapeOff] != 3 || s0[0x2E] != 0 || s0[0x2F] != 0 ||
+		s0[EnemySLFlags2Off] != EnemySF2HasWeapon|EnemySF2BlurOn|EnemySF2Quiet || s0[EnemySLBlurShapeOff] != 3 || s0[0x2E] != 0 || s0[0x2F] != 0xBD ||
 		math.Float32frombits(be.Uint32(s0[EnemySLBlurScaleOff:])) != 1.25 {
 		t.Errorf("slot 0 %x", s0[:EnemySlotSize])
 	}
@@ -350,18 +401,48 @@ func TestEnemyBlockEncode(t *testing.T) {
 	if out[0x107] != EnemyHAFNoHitMark || out[0x10D] != 1 || out[0x10E] != 0xD || out[0x10F] != 1 || be.Uint32(out[0x120:]) != b.Seq || len(out) != 0x124 {
 		t.Errorf("hit_apply bytes at their absolute offsets: %x", out[0x100:])
 	}
-	// Slot 0's layout-2 bytes at their absolute offsets: bck, attr,
-	// anm_seq, morf, flags2, blur_shape, the u16 pad and the f32
-	// blur_scale at +0x30+0x28..+0x30+0x33; hit_apply's pid at +0x11C.
-	if got := hex.EncodeToString(out[0x30+0x28 : 0x30+0x34]); got != "6a02110f050300003fa00000" || be.Uint32(out[0x11C:]) != 421 {
+	// Slot 0's layout-3 bytes at their absolute offsets: the pkey at
+	// +0x30+0x14; bck, attr, anm_seq, morf, flags2, blur_shape, the u16
+	// proc and the f32 blur_scale at +0x30+0x28..+0x30+0x33; kind_mask at
+	// +0x24; hit_apply's pid at +0x11C.
+	if got := hex.EncodeToString(out[0x30+0x28 : 0x30+0x34]); got != "6a02110f850300bd3fa00000" || be.Uint32(out[0x11C:]) != 421 ||
+		hex.EncodeToString(out[0x30+0x14:0x30+0x18]) != "d0264f5d" || hex.EncodeToString(out[0x24:0x28]) != "00000005" {
 		t.Errorf("slot 0 bck..blur_scale %s, hit_apply pid %d", got, be.Uint32(out[0x11C:]))
 	}
 	if got := hex.EncodeToString(out); got != enemyGoSpanGolden {
 		t.Errorf("the Go span's bytes changed:\n got %s\nwant %s", got, enemyGoSpanGolden)
 	}
 	got, tail, err := DecodeEnemyBlock(out)
+	got.Annex = b.Annex // the block decode leaves the annex to DecodeEnemyAnnex
 	if err != nil || tail != b.Seq || !reflect.DeepEqual(&got, b) {
 		t.Errorf("decode: tail %08X, %v\n got %+v\nwant %+v", tail, err, got, *b)
+	}
+	if c := (EnemySlot{}); func() bool {
+		c.SetCcM316Z(-0x1234)
+		return c.CcM316Z() != -0x1234 || c.AttackType != 0xED || c.AttackPhase != 0xCC
+	}() {
+		t.Error("SetCcM316Z does not store m316.z big-endian over attack/phase")
+	}
+
+	// The whole write: the annex (annex_seq == the block's seq) then the
+	// block, from EnemyAnnexAddr.
+	w, err := b.EncodeWrite()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ax := w[:EnemyAnnexSize]
+	if len(w) != EnemyWriteSpan || !bytes.Equal(w[EnemyAnnexSize:], out) || be.Uint32(ax[EnemyAnnexSeqOff-EnemyAnnexOff:]) != b.Seq ||
+		hex.EncodeToString(ax[8:16]) != "fffb00060007fff8" ||
+		hex.EncodeToString(ax[EnemyAnnexOvrOff-EnemyAnnexOff+4:EnemyAnnexOvrOff-EnemyAnnexOff+8]) != "021e0032" ||
+		hex.EncodeToString(ax[EnemyAnnexInvWOff-EnemyAnnexOff:EnemyAnnexSize]) != "000c0000"+"00000000" {
+		t.Errorf("annex %x", ax)
+	}
+	gotAx, axSeq, err := DecodeEnemyAnnex(ax)
+	if err != nil || axSeq != b.Seq || gotAx != b.Annex {
+		t.Errorf("annex decode: seq %08X %v\n got %+v\nwant %+v", axSeq, err, gotAx, b.Annex)
+	}
+	if _, _, err := DecodeEnemyAnnex(ax[:EnemyAnnexSize-1]); err == nil {
+		t.Error("a short annex decoded")
 	}
 
 	b.Slots[1].Pos[0] = float32(math.NaN())
@@ -388,8 +469,9 @@ func TestEnemyBlockEncode(t *testing.T) {
 	}
 }
 
-// TestEnemyBlockWriteReadStatus: WriteEnemyBlock is one write of the Go
-// span at the block; ClearEnemyBlock writes the magic word alone;
+// TestEnemyBlockWriteReadStatus: WriteEnemyBlock is one write of the
+// annex and the Go span from the annex; ClearEnemyBlock writes the magic
+// word alone;
 // ReadEnemyStatus decodes what a REL would leave in the tail.
 func TestEnemyBlockWriteReadStatus(t *testing.T) {
 	m := &fakeWords{}
@@ -397,8 +479,11 @@ func TestEnemyBlockWriteReadStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	blk, tail, st, err := ReadEnemyBlock(m)
-	if err != nil || blk.Magic != EnemyMagic || tail != 0x01020304 || st != (EnemyStatus{}) {
+	if err != nil || blk.Magic != EnemyMagic || tail != 0x01020304 || st != (EnemyStatus{}) || blk.Slots[0].PKey != 0xD0264F5D {
 		t.Fatalf("read back: %+v tail %08X status %+v %v", blk, tail, st, err)
+	}
+	if ax, seq, err := ReadEnemyAnnex(m); err != nil || seq != 0x01020304 || ax != sampleEnemyBlock().Annex {
+		t.Fatalf("annex read back: %+v seq %08X %v", ax, seq, err)
 	}
 	// The REL's tail.
 	tailBytes := make([]byte, EnemySize-EnemyGoSpan)
@@ -491,14 +576,14 @@ func TestEnemyStatusOffsets(t *testing.T) {
 }
 
 // enemyGoSpanGolden is sampleEnemyBlock's Encode, byte for byte: the
-// layout-2 Go span (0x124 bytes) the REL reads. A change here is a layout
+// layout-3 Go span (0x124 bytes) the REL reads. A change here is a layout
 // change and needs WWENEMY_LAYOUT bumped on both sides.
 const enemyGoSpanGolden = "" +
-	"5757454e01020304000003090001e24002090002000000034d5f446169000000" +
-	"0102000000000000000000000000000000001234c2c9000041a0000046ea6000" +
-	"c00000020014ff9c0102030340f000003f800000000000636a02110f05030000" +
+	"5757454e01020304000003090001e24002090003000000034d5f446169000000" +
+	"0102000000000005000000000000000000001234c2c9000041a0000046ea6000" +
+	"c0000002d0264f5d0102030340f000003f800000000000636a02110f850300bd" +
 	"3fa00000000000003f8000004000000040400000000000000000000000000000" +
-	"000000000000000000000000ffff000000000000000000000000000000000000" +
+	"000000000000000000000000ffff0000000000cf000000000000000000000000" +
 	"0000000000000000000000000000000000000000000000000000000000000000" +
 	"0000000000000000000000000000000000000000000000000000000000000000" +
 	"0000000000000000000000000000000000000000000000000000000000000000" +

@@ -279,7 +279,7 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 		ws, mask := stores[room], masks[room]
 		return setID >= 0 && setID < enemies.MaxSetID && ws != nil && ws[setID/32]&(1<<(setID%32)) != 0 && mask.Has(setID)
 	}
-	ct := CombatTick{Flags: o.rooms.flags, FlagsOK: o.rooms.ok, Kills: kills}
+	ct := CombatTick{Flags: o.rooms.flags, FlagsOK: o.rooms.ok, Kills: kills, Claimed: r.cfg.Claimed}
 	if !live {
 		r.setCombat(ct)
 		return
@@ -311,7 +311,7 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 		if !allow(a) || m.ever[a.PID] {
 			continue
 		}
-		if why := combat.Eligible(a, false); why != "" {
+		if why := combat.Eligible(a, false, r.cfg.Claimed); why != "" {
 			m.hold(a.PID, why)
 			continue
 		}

@@ -18,6 +18,10 @@ const (
 	Mo2ModeStatue  = 0xF
 	// Mo2OffMorf is mDoExt_McaMorf* mpMorf (d_a_mo2.h:45).
 	Mo2OffMorf = 0x2C4
+	// Mo2OffDeathSwitch is u8 mDeathSwitch (d_a_mo2.h:42), the switch the
+	// Moblin's death sets; a quiet death on a client never runs it, so client
+	// Go sets it (enemy-mirror-general.json death_and_drops.quiet_steps).
+	Mo2OffDeathSwitch = 0x2C0
 	// The sword-blur mesh (d_a_mo2.h:58-60; br_draw, d_a_mo2.cpp:601-638):
 	// f32 m0590 its scale, int m0594 on, int m0598 its shape.
 	Mo2OffBlurScale = 0x590

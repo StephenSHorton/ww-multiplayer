@@ -163,6 +163,9 @@ func (w *FrameWriter) ApplyActors(ctx context.Context, ts []ActorTarget, demo, u
 		}
 	}
 
+	// The game's enemy-mirror claims, as the tick's plan gave them: a pid
+	// claimed since the walk is held, as a copy adopted since is.
+	claimed := w.wg.combatClaimed()
 	var first error
 	note := func(err error) {
 		if first == nil {
@@ -178,7 +181,7 @@ func (w *FrameWriter) ApplyActors(ctx context.Context, ts []ActorTarget, demo, u
 			note(err)
 			break
 		}
-		c, wp, err := combat.Revalidate(w.Mem, &t.Carrier, t.Weapon, unverified)
+		c, wp, err := combat.Revalidate(w.Mem, &t.Carrier, t.Weapon, unverified, claimed)
 		if errors.Is(err, actors.ErrChanged) {
 			res.Held = append(res.Held, ActorHeld{Carrier: t.Carrier, Why: err.Error()})
 			continue

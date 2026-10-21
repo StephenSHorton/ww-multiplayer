@@ -40,14 +40,20 @@ type gameWriter struct{ m *mem.FakeMem }
 
 func (w gameWriter) Write(a uint32, b []byte) error { return w.m.Store(a, b) }
 
-// hostState is a STATE for the three keyed Moblins of M_Dai room 1.
+// hostState is a STATE for the three keyed Moblins of M_Dai room 1
+// (handles setID+1), from a host with the Moblin kind enabled and this
+// build's kind table.
 func hostState(seq uint32, hostMS uint32) *State {
-	st := &State{Flags: StateFlagInScope | StateFlagAnim, Epoch: 7, Seq: seq, HostBeat: 1000 + seq, HostMS: hostMS, Stage: "M_Dai", Room: 1}
+	st := &State{Flags: StateFlagInScope | StateFlagAnim, Epoch: 7, Seq: seq, HostBeat: 1000 + seq, HostMS: hostMS, Stage: "M_Dai", Room: 1,
+		HostKindMask: 1 << KindMO2, KindHash: KindHash()}
 	for id := uint16(0); id < 3; id++ {
-		st.Slots = append(st.Slots, Slot{SetID: id, Proc: ProcMO2, Pos: [3]float32{float32(id) * 100, 10, float32(hostMS)}, Health: 4, MorfRate: 1})
+		st.Slots = append(st.Slots, Slot{SetID: id, Proc: ProcMO2, Kind: KindMO2, Handle: id + 1, Pos: [3]float32{float32(id) * 100, 10, float32(hostMS)}, Health: 4, MorfRate: 1})
 	}
 	return st
 }
+
+// mo2Key is the match key of the keyed Moblin setID.
+func mo2Key(setID uint16) Ident { return Ident{Proc: ProcMO2, SetID: setID} }
 
 func pushState(t *testing.T, c *Mirror, st *State, now time.Time) {
 	t.Helper()
@@ -63,22 +69,25 @@ func blockWrites(t *testing.T, m *mem.FakeMem) []mailbox.EnemyBlock {
 	t.Helper()
 	var out []mailbox.EnemyBlock
 	for _, w := range m.Writes() {
-		if w.Addr != mailbox.EnemyBlockAddr || len(w.Data) != mailbox.EnemyGoSpan {
+		if w.Addr != mailbox.EnemyAnnexAddr || len(w.Data) != mailbox.EnemyWriteSpan {
 			continue
 		}
-		blk, tail, err := mailbox.DecodeEnemyBlock(w.Data)
-		if err != nil || tail != blk.Seq {
-			t.Fatalf("block write: %v tail %d head %d", err, tail, blk.Seq)
+		blk, tail, annexSeq, err := mailbox.DecodeEnemyWrite(w.Data)
+		if err != nil || tail != blk.Seq || annexSeq != blk.Seq {
+			t.Fatalf("block write: %v tail %d annex %d head %d", err, tail, annexSeq, blk.Seq)
 		}
 		out = append(out, blk)
 	}
 	return out
 }
 
-// TestMirrorWritesBlock: with every gate open, one tick writes one block
-// of EnemyGoSpan bytes with seq_head == seq_tail, the host's setIDs
-// matched to this game's Moblins by (room, setID) and an unmatched one
-// given pid 0; the next tick's seq is one up; Shutdown writes magic 0.
+// TestMirrorWritesBlock: with every gate open, one tick writes the annex
+// and the block in one write with seq_head == seq_tail == annex_seq, the
+// host's setIDs matched to this game's Moblins by (proc, setID), each
+// slot with the local actor's own pkey and proc and the block with the
+// Moblin kind mask; a listed enemy this game has no match for (setID 3,
+// carried here) takes no slot; the next tick's seq is one up; Shutdown
+// writes magic 0.
 func TestMirrorWritesBlock(t *testing.T) {
 	_, m, es, tick := clientRoom(t)
 	start := time.Unix(2000, 0)
@@ -102,12 +111,21 @@ func TestMirrorWritesBlock(t *testing.T) {
 	a1, _ := es.Of(2)
 	a2, _ := es.Of(0)
 	if b.Magic != mailbox.EnemyMagic || b.Seq != 1 || b.Role != mailbox.EnemyRoleClient || b.Flags&mailbox.EnemyFlagMirror == 0 || b.Flags&mailbox.EnemyFlagRaw != 0 ||
-		b.Layout != mailbox.EnemyLayout || b.Epoch != c.Epoch() || b.Stage != "M_Dai" || b.Room != 1 || b.HostBeat != 1001 || len(b.Slots) != 4 {
+		b.Layout != mailbox.EnemyLayout || b.Epoch != c.Epoch() || b.Stage != "M_Dai" || b.Room != 1 || b.HostBeat != 1001 || len(b.Slots) != 3 ||
+		b.KindMask != 1<<KindMO2 {
 		t.Fatalf("block: %+v", b)
 	}
-	for i, want := range []uint32{a0.PID, a1.PID, a2.PID, 0} {
-		if b.Slots[i].PID != want {
-			t.Errorf("slot %d pid %d, want %d", i, b.Slots[i].PID, want)
+	for i, a := range []fakegame.LiveEnemy{a0, a1, a2} {
+		want := uint32(0)
+		if ens, err := Candidates(m, 1, KindSet{On: [len(Kinds)]bool{KindMO2: true}}); err == nil {
+			for _, e := range ens {
+				if e.PID == a.PID {
+					want = e.Ident.PKey
+				}
+			}
+		}
+		if s := b.Slots[i]; s.PID != a.PID || s.PKey != want || want == 0 || s.Proc != ProcMO2 {
+			t.Errorf("slot %d: pid %d pkey 0x%08X proc 0x%04X, want pid %d pkey 0x%08X", i, s.PID, s.PKey, s.Proc, a.PID, want)
 		}
 	}
 	if s := b.Slots[1]; s.Pos != [3]float32{100, 10, 1000} || s.Flags&mailbox.EnemySFSnap == 0 || s.SampleSeq != 1 || s.Health != 4 {
@@ -298,7 +316,7 @@ func TestMirrorEpochAndDying(t *testing.T) {
 	// dead_mask bit 1 while this game's setID 1 lives: dying; and a setID
 	// the host no longer lists with its bit set: a dying release slot.
 	st := hostState(4, 48)
-	st.DeadMask = 1<<1 | 1<<2
+	st.SetDead([DeadWords]uint32{1<<1 | 1<<2})
 	st.Slots = st.Slots[:2] // setIDs 0, 1
 	now = now.Add(16 * time.Millisecond)
 	pushState(t, c, st, now)
@@ -351,7 +369,7 @@ func TestMirrorHits(t *testing.T) {
 		t.Fatalf("hits %v err %v", hits, err)
 	}
 	h := hits[0]
-	if h.Collider != ColliderHead || h.SetID != 0 || h.HitSeq != 9 || h.AtType != 0x00080000 || h.Atp != 2 || h.Pos != [3]float32{1, 2, 3} || h.Epoch != 7 || h.Stage != "M_Dai" || h.Room != 1 {
+	if h.Collider != ColliderHead || h.SetID != 0 || h.HitSeq != 1 || h.AtType != 0x00080000 || h.Atp != 2 || h.Pos != [3]float32{1, 2, 3} || h.Epoch != 7 || h.Stage != "M_Dai" || h.Room != 1 {
 		t.Errorf("hit: %+v (want the host STATE's epoch 7)", h)
 	}
 	if c.Epoch() == 7 {
@@ -395,6 +413,21 @@ func TestMirrorHits(t *testing.T) {
 	if p, _ := m.Read(hitOff+3, 1); p[0] != 0 {
 		t.Error("a repeated hit_seq left the pending byte set")
 	}
+	// The REL's seq starts low again (the enemy adopted into another slot,
+	// whose counter is behind): the HIT carries the mirror's own seq, the
+	// next one, which the host's per-handle replay check never takes for
+	// the last one (review 2: it dropped a real hit as replayed).
+	store(t, m, hitOff, []byte{0, 1, ColliderHead, 1})
+	now = now.Add(16 * time.Millisecond)
+	pushState(t, c, hostState(4, 48), now)
+	tick()
+	hits, _, err = c.Tick(now)
+	if err != nil || len(hits) != 1 || hits[0].HitSeq != 2 {
+		t.Fatalf("second hit %v err %v", hits, err)
+	}
+	if ack := ap.Offer(hits[0], hst, mos, now.Add(time.Second)); ack != nil && ack.Detail == HDGoGate {
+		t.Errorf("the host's applier dropped the second hit as replayed: %+v", ack)
+	}
 	// A new epoch forgets the drained seqs: seq 9 is new again.
 	c.newEpoch("test")
 	if c.lastHits != [MaxSlots]uint16{} {
@@ -403,8 +436,9 @@ func TestMirrorHits(t *testing.T) {
 }
 
 // TestMirrorHitCatchUp: a pending hit on a catch-up slot (a setID the
-// host no longer lists, appended after the host's slots) neither panics
-// nor is sent, and its pending byte is cleared.
+// host no longer lists, its dead bit set) neither panics nor is sent, and
+// its pending byte is cleared. The catch-up keeps the block slot its
+// setID had (2); setID 1, no longer listed and not dead, frees slot 1.
 func TestMirrorHitCatchUp(t *testing.T) {
 	_, m, es, tick := clientRoom(t)
 	start := time.Unix(2000, 0)
@@ -415,18 +449,18 @@ func TestMirrorHitCatchUp(t *testing.T) {
 	if _, _, err := c.Tick(now); err != nil {
 		t.Fatal(err)
 	}
-	// The host drops setID 2 (dead there): it becomes slot 1, a catch-up
-	// after the one listed slot, with the pid the REL resolved for it.
+	// The host drops setID 2 (dead there): block slot 2 stays its, now a
+	// catch-up, with the pid the REL resolved for it.
 	a2, _ := es.Of(0)
-	stOff := mailbox.EnemyBlockAddr + mailbox.EnemyStatusOff + mailbox.EnemyStatusSize
+	stOff := mailbox.EnemyBlockAddr + mailbox.EnemyStatusOff + 2*mailbox.EnemyStatusSize
 	store(t, m, stOff+mailbox.EnemySTActorOff, binary.BigEndian.AppendUint32(nil, a2.Addr))
 	store(t, m, stOff+mailbox.EnemySTPIDOff, binary.BigEndian.AppendUint32(nil, a2.PID))
 	store(t, m, stOff+mailbox.EnemySTStateOff, []byte{mailbox.EnemyStateMirrored})
-	hitOff := mailbox.EnemyBlockAddr + mailbox.EnemyHitsOff + mailbox.EnemyHitSize
+	hitOff := mailbox.EnemyBlockAddr + mailbox.EnemyHitsOff + 2*mailbox.EnemyHitSize
 	store(t, m, hitOff, []byte{0, 1, ColliderHead, 1})
 	st := hostState(2, 16)
 	st.Slots = st.Slots[:1]
-	st.DeadMask = 1 << 2
+	st.SetDead([DeadWords]uint32{1 << 2})
 	now = now.Add(16 * time.Millisecond)
 	pushState(t, c, st, now)
 	tick()
@@ -436,7 +470,8 @@ func TestMirrorHitCatchUp(t *testing.T) {
 		t.Fatalf("catch-up hit: hits %v err %v", hits, err)
 	}
 	blocks := blockWrites(t, m)
-	if len(blocks) != 1 || len(blocks[0].Slots) != 2 || blocks[0].Slots[1].PID != a2.PID {
+	if len(blocks) != 1 || len(blocks[0].Slots) != 3 || blocks[0].Slots[1].PID != 0 || blocks[0].Slots[2].PID != a2.PID ||
+		blocks[0].Slots[2].Flags2&mailbox.EnemySF2Quiet == 0 {
 		t.Fatalf("blocks: %+v", blocks)
 	}
 	if p, _ := m.Read(hitOff+3, 1); p[0] != 0 {
@@ -517,7 +552,7 @@ func TestMirrorHostRestart(t *testing.T) {
 	pushState(t, c, st2, now)
 	tick()
 	c.Tick(now)
-	if s := c.sm[0]; s.Len() != 2 {
+	if s := c.sm[mo2Key(0)]; s.Len() != 2 {
 		t.Errorf("the new host's samples held: %d, want 2", s.Len())
 	}
 }
@@ -573,17 +608,21 @@ func TestMirrorStickyErr(t *testing.T) {
 }
 
 // TestMirrorAnimFields: the block's slots carry the seven animation
-// fields from the smoother's output, and a catch-up (dead_mask) slot
-// carries Bck and AnmAttr 0xFF.
+// fields from the smoother's output, and a catch-up (dead word) slot
+// carries Bck and AnmAttr 0xFF, released, dying and quiet (a Moblin's
+// catch-up too: never the legacy em_die on a copy never mirrored alive).
+// Legacy selection keeps the prototype's order (the host's, then the
+// catch-ups).
 func TestMirrorAnimFields(t *testing.T) {
 	_, m, es, tick := clientRoom(t)
 	start := time.Unix(2000, 0)
 	c := NewMirror(m, log.Discard{}, nil, false, start)
+	c.Select = SelectLegacy
 	m.Record(true)
 	now := start.Add(time.Second)
 	st := hostState(1, 1000)
-	st.Slots = st.Slots[:2] // setIDs 0, 1
-	st.DeadMask = 1 << 2    // setID 2: a catch-up slot
+	st.Slots = st.Slots[:2]               // setIDs 0, 1
+	st.SetDead([DeadWords]uint32{1 << 2}) // setID 2: a catch-up slot
 	for i := range st.Slots {
 		sl := &st.Slots[i]
 		sl.Bck, sl.AnmAttr, sl.AnmSeq, sl.Morf = 0x45+uint8(i), AnmAttrLoop, 3+uint8(i), 10
@@ -607,7 +646,8 @@ func TestMirrorAnimFields(t *testing.T) {
 	}
 	a2, _ := es.Of(0)
 	cu := blocks[0].Slots[2]
-	if cu.PID != a2.PID || cu.Bck != mailbox.EnemyBckNone || cu.AnmAttr != 0xFF || cu.Flags&mailbox.EnemySFRelease == 0 {
+	if cu.PID != a2.PID || cu.Bck != mailbox.EnemyBckNone || cu.AnmAttr != 0xFF || cu.Flags != mailbox.EnemySFDying|mailbox.EnemySFRelease ||
+		cu.Flags2 != mailbox.EnemySF2Quiet {
 		t.Errorf("catch-up slot: %+v", cu)
 	}
 }
@@ -675,12 +715,12 @@ func TestMirrorReadHit(t *testing.T) {
 	store(t, fm, addr.PlayerPtr, binary.BigEndian.AppendUint32(nil, link))
 	store(t, fm, link+addr.PlayerOffCutType, []byte{0x0B, 2})
 	st := hostState(1, 0)
-	h, err := c.readHit(st, 0, pid, 0, mailbox.EnemyHitEntry{HitSeq: 5, Collider: ColliderTgCyl, Pending: 1})
+	h, err := c.readHit(st, &st.Slots[0], pid, KindMO2, 0, mailbox.EnemyHitEntry{HitSeq: 5, Collider: ColliderTgCyl, Pending: 1})
 	if err != nil || h == nil {
 		t.Fatalf("readHit: %v %v", h, err)
 	}
 	if h.AtType != 0x00080000 || h.Atp != 3 || h.AtSPrm != 0x02 || h.Se != 0x11 || h.HitMark != 0x03 || h.Spl != 0x01 ||
-		h.Collider != ColliderTgCyl || h.HitSeq != 5 || h.SetID != 0 || h.Pos != [3]float32{4, 5, 6} || h.CutType != 0x0B || h.CutCount != 2 {
+		h.Collider != ColliderTgCyl || h.HitSeq != 1 || h.SetID != 0 || h.Pos != [3]float32{4, 5, 6} || h.CutType != 0x0B || h.CutCount != 2 {
 		t.Errorf("hit: %+v", h)
 	}
 	var objReads [][2]uint32
