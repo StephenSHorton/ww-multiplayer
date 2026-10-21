@@ -1865,6 +1865,12 @@ static void em_hits(enemy_mirror_state* s, em_slot* sl, const em_kind* k, void* 
             sl->hit_withheld = 0;
         }
     }
+    // A frame that skips the swallow test leaves the mouth un-Set, and
+    // cCcS only clears the Co records of Set objects: drop the record the
+    // last Move left (a bomb that touched the mouth on the frame a hit was
+    // reported) so the next test never reads a stale contact.
+    if (k->id == EMK_KIND_AM && (sl->hit_cooldown || sl->hit_withheld || (hkd & WWENEMY_HKD_SPECIAL)))
+        dCcD_GObjInf_ClrCoHit((u8*)a + EMK_AM_MOUTH_SPH);
     if (sl->hit_cooldown) {
         sl->hit_cooldown--;
         return;
@@ -1941,8 +1947,8 @@ void em_colliders_post(const em_slot* sl, const em_ext* x, const em_kind* k, voi
 
 // R-13 client (D11): bomb_nomi_check (d_a_am.cpp:372-426) on the copy,
 // from the stream. The mouth sphere's Co record from the last Move is
-// read, then cleared (a record is only ever one Move old: the mouth goes
-// un-Set while a hit is pending or cooling down), then the mouth is Set
+// read, then cleared (a record is only ever one Move old: em_hits clears
+// it on every frame the mouth stays un-Set), then the mouth is Set
 // Co-only at mMouthPos (its nodeCallBack wrote it during this frame's
 // calc) with R 100 (d_a_am.cpp:1066-1068; Co Set | IsPlayer | VsOther |
 // NoCrr, :1268-1296: no push). The hit actor qualifies when it is a live
@@ -1950,7 +1956,10 @@ void em_colliders_post(const em_slot* sl, const em_ext* x, const em_kind* k, voi
 // record never names freed memory), the host's bck is a mouth-open one
 // (DAMAGE, DAMAGE_LOOP, OPEN, OPEN_LOOP: the decomp's set, CONTRACT.md),
 // this client's Link is within 0x2000 of the copy's facing, and the bomb
-// is above mMouthPos.y - 20. The bomb is then deleted here (the host's
+// is above mMouthPos.y - 20, and, as bomb_nomi_check asks (d_a_am.cpp:
+// 397, 409), not already eaten with more than one fuse frame left (BOMB:
+// !getBombCheck_Flag, getBombRestTime > 1; Bomb2: !chk_eat, get_time > 1).
+// The bomb is then deleted here (the host's
 // own swallow eats its bomb, d_a_am.cpp:400-405; the client's bomb never
 // reaches the host) and 1 is returned: em_hits reports EMK_HIT_SPECIAL.
 int em_am_swallow_client(em_slot* sl, const em_kind* k, void* a) {
@@ -1966,7 +1975,9 @@ int em_am_swallow_client(em_slot* sl, const em_kind* k, void* a) {
         if (em_in_mem1(bomb)) {
             s16 proc = AF(bomb, s16, AC_PROC_NAME);
             u32 pid = AF(bomb, u32, AC_PROC_ID);
-            if ((proc == EMK_PROC_BOMB || proc == EMK_PROC_BOMB2) && (u32)em_actor_of(pid) == bomb &&
+            int fuse_ok = proc == EMK_PROC_BOMB ? (AF(bomb, u8, EMK_BOMB_CHECK_FLAG) == 0 && AF(bomb, s16, EMK_BOMB_REST_TIME) > 1)
+                        : proc == EMK_PROC_BOMB2 ? (AF(bomb, u8, EMK_BOMB2_EAT) == 0 && AF(bomb, s32, EMK_BOMB2_TIMER) > 1) : 0;
+            if (fuse_ok && (u32)em_actor_of(pid) == bomb &&
                 cLib_distanceAngleS(AF(a, s16, AC_SHAPE_ANGLE_Y), fopAcM_searchPlayerAngleY(a)) <= EMK_AM_SWALLOW_FACING &&
                 AF(bomb, f32, AC_CUR_POS + 4) > AF(a, f32, EMK_AM_MOUTH_POS + 4) - (f32)EMK_AM_SWALLOW_DY) {
                 fopAcM_delete_id(pid);

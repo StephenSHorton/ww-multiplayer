@@ -151,7 +151,7 @@ Live, on the user-4 fixture: regression first with the default kinds (the #156-#
 - [ ] **Mixed**: Siren room 8 (KI and AM2), kaze room 9 (three dormant Armos and ten ChuChus: WFlagDormant slot pressure), kaze room 11 (AM and four Bokoblins).
 
 
-First run (REL 0x345EFD80, `ww-multiplayer-handoff/archive/enemy-allow-a1/`), item by item:
+First run (REL 0x345EFD80, `ww-multiplayer-handoff/archive/enemy-allow-a1/`), item by item. The PR's review then fixed the AM swallow's stale mouth record and fuse checks (REL 0xCEC08E63); on that build the AM wake and copy, the AM sword hits and the Moblin kill were rerun and pass:
 
 - Regression, default kinds: passed. M_Dai room 2 ChuChus adopt; M_Dai room 1 Moblin set 0 dies to five client hits (10 to 0), deleted on both, no client drop; 8 hops with every kind on: solid +1 per load, canaries flat apart from PauseReasserts, WatchdogReleases +1 per hop as on main.
 - KI, fly type (`Cave09 0 1`, `ki+u`): passed. Identical pkeys, four copies fly with the host's, five client hits gave five ACKs and the host went from 10 Keese to 5, the copies vanished with no item and no rupees. Wait type (`M_NewD2 7 4`): pkeys match and the five ceiling Keese adopt, but none woke with the host Link under them, so the ceiling return and LUNGE are untested. Flame btk: untested (above).

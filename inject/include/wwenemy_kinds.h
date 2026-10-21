@@ -465,6 +465,10 @@
 #define EMK_AM_SWALLOW_DY        20           // the bomb's y > mMouthPos.y - this (d_a_am.cpp:397, 412)
 #define EMK_PROC_BOMB            0x0128       // fpcNm_BOMB_e (f_pc_name.h:308)
 #define EMK_PROC_BOMB2           0x0129       // fpcNm_Bomb2_e (f_pc_name.h:309)
+#define EMK_BOMB_CHECK_FLAG      0x6F1        // daBomb_c u8 field_0x6F1 = getBombCheck_Flag (d_a_bomb.h:215, d_a_bomb_static.cpp:22)
+#define EMK_BOMB_REST_TIME       0x6FC        // daBomb_c s16 mRestTime = getBombRestTime (d_a_bomb.h:223)
+#define EMK_BOMB2_TIMER          0x738        // daBomb2::Act_c int mBombTimer = get_time (d_a_bomb2.h:211)
+#define EMK_BOMB2_EAT            0x745        // daBomb2::Act_c bool field_0x745 = chk_eat (d_a_bomb2.h:218)
 #define EMK_AM_F2_ATTN           0x01         // flags2 bits: host attention_info.flags != 0
 #define EMK_AM_F2_PLAY_SKIP      0x02         // host mCountDownTimers[1] != 0 (== WWENEMY_SF2_PLAY_SKIP)
 
