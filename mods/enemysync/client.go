@@ -413,7 +413,7 @@ type selSlot struct {
 
 // cand is one enemy the selection may give a slot: listed by the host and
 // matched here, or a catch-up (a local enemy the host's dead words or
-// tombstones say is dead). Dist is the xz distance from this game's Link
+// tombstones say is dead). Dist is the 3D distance from this game's Link
 // to the host's enemy (to the local actor for a catch-up), +Inf unknown.
 // Late marks a tombstone (WFlagTomb) or a catch-up: an enemy already gone
 // on the host, which SelectLegacy gives only a slot left free.
@@ -716,7 +716,7 @@ func (c *Mirror) candidates(st *State, link [3]float32, haveLink bool) ([]cand, 
 		if !haveLink {
 			return math.Inf(1)
 		}
-		return math.Sqrt(xzDist2(p, [][3]float32{link}))
+		return math.Sqrt(dist2(p, [][3]float32{link}))
 	}
 	var cands []cand
 	offers := map[Ident]offer{}

@@ -78,7 +78,7 @@ func TestParseKinds(t *testing.T) {
 		in, want string
 		mask     uint32
 	}{
-		{"", "mo2", 1},
+		{"", "mo2,bk+u,cc+u", 7},
 		{"mo2", "mo2", 1},
 		{"none", "none", 0},
 		{"mo2,bk", "mo2,bk", 3},

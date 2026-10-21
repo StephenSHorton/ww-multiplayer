@@ -289,6 +289,7 @@ func TestMirrorKindGates(t *testing.T) {
 	_, m, es, tick := clientRoom(t)
 	start := time.Unix(2000, 0)
 	c := NewMirror(m, log.Discard{}, nil, false, start)
+	c.Kinds, _ = ParseKinds("mo2") // this game mirrors Moblins only
 	c.Claims = NewClaimSet()
 	m.Record(true)
 	now := start
@@ -335,7 +336,7 @@ func TestMirrorKindGates(t *testing.T) {
 	}
 }
 
-// TestHostOrder: the host lists by the least xz distance to any player
+// TestHostOrder: the host lists by the least 3D distance to any player
 // (its own Link, then the remote players SetPlayers gives), ties by
 // Ident; WW_ENEMY_SELECT=legacy keeps the lowest setIDs first.
 func TestHostOrder(t *testing.T) {

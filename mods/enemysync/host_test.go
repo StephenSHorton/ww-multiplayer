@@ -126,7 +126,7 @@ func TestHostSampler(t *testing.T) {
 		t.Fatal(err)
 	}
 	if st == nil || !eq16(setIDs(st), []uint16{0, 1, 2}) || st.Flags&StateFlagInScope == 0 || st.Epoch != 7 || st.Seq != 1 || st.Stage != "M_Dai" || st.Room != 1 || st.DeadMask != 0 ||
-		st.HostKindMask != 1<<KindMO2 || st.KindHash != KindHash() {
+		st.HostKindMask != 1<<KindMO2|1<<KindBK|1<<KindCC || st.KindHash != KindHash() { // DefaultMirrorKinds
 		t.Fatalf("first tick: %+v", st)
 	}
 	ens := h.Enemies()
