@@ -92,6 +92,13 @@ const (
 const (
 	WFlagEngaged uint8 = 1 << 0 // a client HIT or a host PHIT on this enemy within 3 s (CC also its At Set bit): the client keeps its slot
 	WFlagTomb    uint8 = 1 << 1 // a tombstone: the enemy died or vanished on the host (sent DYING|RELEASE for 300 host frames)
+	// WFlagDormant: a Bokoblin or ChuChu whose attention flags lack
+	// LOCKON_BATTLE on the host (a ChuChu still in the ground or on the
+	// ceiling, d_a_cc.cpp:2645 and :785; a Bokoblin out of the fight,
+	// d_a_bk.cpp:2615-3101). KeepR does not shield its copy from a much
+	// nearer newcomer (client selectSlots rule 3). A client that predates
+	// the bit ignores it.
+	WFlagDormant uint8 = 1 << 2
 )
 
 // STATE header flags.

@@ -55,9 +55,9 @@ const (
 // The selection's hysteresis (design slots.client_selectSlots): an
 // adopted copy stays while its host enemy is within KeepR of this game's
 // Link, engaged (WFlagEngaged) or adopted less than MinHold ago; a
-// newcomer takes a free slot, or evicts a copy neither engaged nor
-// younger than MinHold only when it is nearer than EvictRatio of that
-// copy's distance and within EnterR (within KeepR too).
+// newcomer takes a free slot, or evicts a copy no rule keeps (a dormant
+// one within KeepR too) only when it is nearer than EvictRatio of that
+// copy's distance and within EnterR.
 const (
 	KeepR      = 1500.0
 	EnterR     = 1200.0
@@ -424,6 +424,7 @@ type cand struct {
 	Dying   bool
 	Late    bool
 	Engaged bool
+	Dormant bool // WFlagDormant: KeepR does not shield it from a much nearer newcomer
 }
 
 // selectSlots gives the MaxSlots block slots their enemies at now (design
@@ -439,11 +440,9 @@ type cand struct {
 //     less than MinHold ago; one whose enemy is no longer offered frees
 //     its slot.
 //  3. Newcomers fill free slots by distance; one may evict the farthest
-//     copy that is not engaged or younger than MinHold, within KeepR or
-//     not, only when nearer than EvictRatio of its distance and within
-//     EnterR. (Siren room 3: four dormant ceiling ChuChus about 1400 from
-//     Link held every slot under a strict KeepR while an awake one at
-//     about 750 ran its own AI on the client.)
+//     copy no rule keeps (KeepR not counting for a dormant copy,
+//     WFlagDormant) only when nearer than EvictRatio of its distance and
+//     within EnterR.
 //
 // A locked slot (an unacked remote-Link apply names it, players.go
 // LockedSlots) keeps its enemy and, once freed, is not given to another.
@@ -539,9 +538,12 @@ func selectSlots(cands []cand, cur [MaxSlots]selSlot, locked [MaxSlots]bool, now
 		return next
 	}
 
-	// hardKept: pinned, locked, unlisted, engaged or younger than MinHold;
-	// no candidate evicts it. kept adds KeepR, which only a newcomer
-	// EvictRatio nearer overrides (rule 3).
+	// kept is rule 2. For a newcomer (rule 3) KeepR does not shield a
+	// dormant copy (WFlagDormant): Siren room 3's four ceiling ChuChus,
+	// about 1400 from Link, held every slot while an awake ChuChu at about
+	// 750 ran its own AI on the client. An awake copy keeps the strict
+	// KeepR, so two Bokoblins circling the host's Link near this one do
+	// not trade a slot every MinHold.
 	hardKept := func(j int) bool {
 		s := &next[j]
 		if s.Pinned || locked[j] {
@@ -551,6 +553,7 @@ func selectSlots(cands []cand, cur [MaxSlots]selSlot, locked [MaxSlots]bool, now
 		return k == nil || k.Engaged || now.Sub(s.AdoptedAt) < MinHold
 	}
 	kept := func(j int) bool { return hardKept(j) || by[next[j].Key].Dist < KeepR }
+	keptAwake := func(j int) bool { return hardKept(j) || (by[next[j].Key].Dist < KeepR && !by[next[j].Key].Dormant) }
 	victim := func(keep func(int) bool) int {
 		best := -1
 		for j := range next {
@@ -592,7 +595,7 @@ func selectSlots(cands []cand, cur [MaxSlots]selSlot, locked [MaxSlots]bool, now
 			place(j, k)
 			continue
 		}
-		if v := victim(hardKept); v >= 0 && k.Dist < EvictRatio*by[next[v].Key].Dist && k.Dist < EnterR {
+		if v := victim(keptAwake); v >= 0 && k.Dist < EvictRatio*by[next[v].Key].Dist && k.Dist < EnterR {
 			place(v, k)
 		}
 	}
@@ -752,7 +755,8 @@ func (c *Mirror) candidates(st *State, link [3]float32, haveLink bool) ([]cand, 
 		if !ok {
 			continue
 		}
-		cands = append(cands, cand{Key: k, Dist: dist(sl.Pos), Dying: dying, Late: sl.WFlags&WFlagTomb != 0, Engaged: sl.WFlags&WFlagEngaged != 0})
+		cands = append(cands, cand{Key: k, Dist: dist(sl.Pos), Dying: dying, Late: sl.WFlags&WFlagTomb != 0, Engaged: sl.WFlags&WFlagEngaged != 0,
+			Dormant: sl.WFlags&WFlagDormant != 0})
 		offers[k] = offer{wire: sl, loc: loc}
 		claims = append(claims, loc.PID)
 	}

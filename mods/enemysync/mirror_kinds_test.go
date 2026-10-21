@@ -422,8 +422,9 @@ func TestHostState30Hz(t *testing.T) {
 // room's Bokoblins and ChuChus with their kind, aux and handles: a
 // Bokoblin's m48C.z and jaw in Aux, SF2 bit 6 (KindF2Light) when it dies
 // with its ice timer running, a ChuChu's m316.z in the attack bytes and
-// WFlagEngaged while its At Set bit is on; the host block carries the
-// enabled set as its kind mask.
+// WFlagEngaged while its At Set bit is on, WFlagDormant while its
+// attention flags lack LOCKON_BATTLE; the host block carries the enabled
+// set as its kind mask.
 func TestHostKinds(t *testing.T) {
 	_, m, es := kindRoom(t)
 	bk, _ := es.Of(0)
@@ -434,6 +435,7 @@ func TestHostKinds(t *testing.T) {
 	store(t, m, bk.Addr+addr.BkOffIceShrink, []byte{1})
 	store(t, m, cc.Addr+addr.CcOffGroundTiltZ, []byte{0xFF, 0xFB})
 	store(t, m, cc.Addr+addr.CcOffCyl+addr.CcCylOffAtSPrm, []byte{0, 0, 0, 1})
+	store(t, m, cc.Addr+addr.ActorOffAttnFlags, []byte{0, 0, 0, addr.AttnLockonBattle})
 	h := NewHost(m, log.Discard{}, 7, time.Unix(1000, 0))
 	h.Kinds, _ = ParseKinds("bk,cc")
 	h.Select = SelectLegacy
@@ -464,6 +466,9 @@ func TestHostKinds(t *testing.T) {
 	}
 	if sc.Kind != KindCC || sc.CcM316Z() != -5 || sc.WFlags != WFlagEngaged || sc.Handle == 0 || sc.Handle == sb.Handle {
 		t.Errorf("CC slot %+v", *sc)
+	}
+	if sb.WFlags&WFlagDormant == 0 { // the fixture Bokoblin's attention flags are 0
+		t.Errorf("BK slot not dormant: %+v", *sb)
 	}
 	a := newHitApplier(m, log.Discard{}, 7)
 	a.Kinds = h.Kinds
