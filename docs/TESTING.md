@@ -150,4 +150,15 @@ Live, on the user-4 fixture: regression first with the default kinds (the #156-#
 - [ ] **AM**: `kaze 2 2`, `kaze 11 11`, `Cave09 0 8` (two unkeyed, asleep). The eye tracks; a client eye arrow stuns it on both sides; a light arrow kills it; a client bomb in the open mouth gives collider code 3 and the host swallow (44-47); a client Grappling Hook on the eye does nothing on the host; `WW_ENEMY_ANNEX=am:hooks=special` turns the swallow off live.
 - [ ] **Mixed**: Siren room 8 (KI and AM2), kaze room 9 (three dormant Armos and ten ChuChus: WFlagDormant slot pressure), kaze room 11 (AM and four Bokoblins).
 
+
+First run (REL 0x345EFD80, `ww-multiplayer-handoff/archive/enemy-allow-a1/`), item by item:
+
+- Regression, default kinds: passed. M_Dai room 2 ChuChus adopt; M_Dai room 1 Moblin set 0 dies to five client hits (10 to 0), deleted on both, no client drop; 8 hops with every kind on: solid +1 per load, canaries flat apart from PauseReasserts, WatchdogReleases +1 per hop as on main.
+- KI, fly type (`Cave09 0 1`, `ki+u`): passed. Identical pkeys, four copies fly with the host's, five client hits gave five ACKs and the host went from 10 Keese to 5, the copies vanished with no item and no rupees. Wait type (`M_NewD2 7 4`): pkeys match and the five ceiling Keese adopt, but none woke with the host Link under them, so the ceiling return and LUNGE are untested. Flame btk: untested (above).
+- AM2 (`kaze 4 4`): passed with a caveat. A client weak-spot hit counts only when the host Link is behind the Armos too: `week_atari_check` (d_a_am2.cpp:209-212) measures the angle to player 0, the host Link, and the Armos faces the Link it chases, so a client back-stab on an Armos that faces the host is applied but ignored (ACK `applied_at`, health unchanged). With the host behind it, two client hits took set 6 from 2 to 0 and it was deleted on both sides with no client drop; the dance itself was not watched. A front sword hit is applied and does nothing; a sword hit on the body is filtered on the client. With `WW_ENEMY_REMOTE=step6` (swap) the check was inconclusive (no weak-spot hit landed on the copy). Hammer, statue handback: untested.
+- AM (`kaze 2 2`): pkeys match, the knight wakes on the host and its copy matches its pose (screenshots), four client sword hits applied with health 10 unchanged. Eye arrow, light arrow, the bomb swallow (collider 3, `em_am_swallow_apply`), the Grappling Hook and `am:hooks=special`: untested (the client has no bombs or arrows on the fixture).
+- Mixed: kaze room 9 passed (four ChuChus hold the slots, the three dormant Armos take none). Siren room 8 and kaze room 11: untested.
+
+Rig: never warp a Link again while its void-out respawn runs (within about 10 s): Link sticks in its create (`actors` shows the player `init 1` at (0, 5, ~300), a black screen), with or without a session. Kill that Dolphin.
+
 Every run: sweep both players' full Player.log, not only the reported issues, and confirm no adopt while gated.
