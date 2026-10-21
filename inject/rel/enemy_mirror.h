@@ -108,7 +108,7 @@ typedef struct {
 // One row of the kind table (wwenemy_kinds.h). enemy_mirror.c holds
 // static const em_kind EM_KINDS[EMK_KIND_COUNT] in .rodata, each field
 // initialised from its EMK_<KIND>_* define; 0 in an offset field means the
-// class has none. Offsets are u16 (every class here is < 0x10000 bytes).
+// class has none (KI's co_cyl/tg_cyl are spheres: EMK_CAP_SPH_COLL). Offsets are u16 (every class here is < 0x10000 bytes).
 // Width per field: gate/bare u8; morf/blur_on/blur_shape/weapon (BK) s32
 // or pointer; tilt/invuln/anm_gate/play_skip s16; blur_scale f32; MO2's
 // weapon is s8 (its accesses sit in a kind == MO2 case).
@@ -120,7 +120,7 @@ typedef struct {
     u8  coll;           // +0x05 EMK_COLL_*
     u8  attach;         // +0x06 EMK_ATTACH_*
     u8  eye;            // +0x07 EMK_EYE_*
-    char arc[4];        // +0x08 the archive name, NUL-padded ("Mo2", "Bk", "CC")
+    char arc[4];        // +0x08 the archive name, NUL-padded ("Mo2", "Bk", "CC", "Ki", "AM", "AM2")
     u8  bck_first;      // +0x0C
     u8  bck_last;       // +0x0D
     u8  bck_wait;       // +0x0E the handback row (0: CC setAnms its own m320)
@@ -150,12 +150,13 @@ typedef struct {
     u16 sph_src;        // +0x3C the At image source (0: Link's mFanWindSph +0x49C4)
     s16 co_forward;     // +0x3E Co centre ahead along angle.y
     s16 tg_hit_up;      // +0x40 collider 2's centre height (annex override wins when non-zero)
-    u16 pad;            // +0x42
+    u8  attn_f2;        // +0x42 EMK_*_ATTN_F2: the flags2 bit that is this kind's streamed attention (D4; 0 none)
+    u8  spare;          // +0x43
 } em_kind;              // 0x44
-typedef char em_check_kind_size[(sizeof(em_kind) == 0x44) ? 1 : -1];
+typedef char em_check_kind_size[(sizeof(em_kind) == 0x44 && __builtin_offsetof(em_kind, attn_f2) == 0x42) ? 1 : -1];
 
 // em_ext slot entry: what em_consume caches per block slot.
-#define EM_XF_ATTN        0x01  // flags_ext bit0: the streamed ATTN bit (BK flags2 b3, CC b5)
+#define EM_XF_ATTN        0x01  // flags_ext bit0: the streamed ATTN bit (flags2 & kind->attn_f2)
 
 typedef struct {
     u16 proc;           // +0x00 the slot's proc (WWENEMY_SL_PROC_OFF) at the last consume, 0 none
@@ -183,7 +184,7 @@ typedef struct {
     em_ext_slot slots[WWENEMY_MAX_SLOTS];       // +0x00
     u8  kind_mask;      // +0x18 the consumed block's kind_mask (low byte)
     u8  pad;            // +0x19
-    em_kind_ovr ovr[WWENEMY_ANNEX_KINDS];       // +0x1A
+    em_kind_ovr ovr[WWENEMY_ANNEX_KINDS];       // +0x1A ids < WWENEMY_ANNEX_KINDS only: never index it with an id >= 3 (R-1)
     u8  invuln_wait[WWENEMY_ANNEX_KINDS];       // +0x26 0 = kind->invuln_wait
     u8  ovr_pad;        // +0x29
     u8  spare[2];       // +0x2A
@@ -191,6 +192,63 @@ typedef struct {
 typedef char em_check_ext_size[(sizeof(em_ext_slot) == 0x06 && sizeof(em_kind_ovr) == 0x04 && sizeof(em_ext) == 0x2C &&
                                 __builtin_offsetof(em_ext, kind_mask) == 0x18 && __builtin_offsetof(em_ext, ovr) == 0x1A &&
                                 __builtin_offsetof(em_ext, invuln_wait) == 0x26 && __builtin_offsetof(em_ext, spare) == 0x2A) ? 1 : -1];
+
+// --- The allow batch's hooks (enemy-mirror-allow.json rel_changes; A1) -----
+// Defined in enemy_mirror.c and called only from there; declared here so
+// the contract names them (ww-mp-allow CONTRACT.md). x is the live em_ext,
+// k the slot's row, a the adopted copy, morf its mpMorf. Each is a no-op
+// for a kind it has no case for, so MO2/BK/CC stay byte-identical.
+//
+// R-1: hook_disable for k: x->ovr[id] for id < WWENEMY_ANNEX_KINDS, the
+// annex byte WWENEMY_ANNEX_HKDX_OFF + (id - WWENEMY_ANNEX_KINDS) read
+// directly for ids 3..6, else 0.
+u8 em_hkd(const em_ext* x, const em_kind* k);
+// R-1: the quiet-death frame count: the annex override (ids < 3 only),
+// else EMK_QUIET_FRAMES_LIGHT under SF2_LIGHT, else the compiled
+// EMK_<K>_QUIET_FRAMES (KI 20, AM 40, AM2 20) or EMK_QUIET_FRAMES.
+u8 em_quiet_frames(const em_ext* x, const em_kind* k, u8 flags2);
+// R-1: collider 2's centre height (annex override for ids < 3, else
+// k->tg_hit_up) and the hit applier's invuln wait (likewise, else
+// k->invuln_wait).
+s16 em_tg_hit_up(const em_ext* x, const em_kind* k);
+u8 em_invuln_wait(const em_ext* x, const em_kind* k);
+// R-3: EMK_MTX_PLAIN into m: T(sl->cur) * Ry(sl->cur_angle) * Rx(s16
+// a+0x20C) * Rz(s16 a+0x210), no scale fold (D16). em_base_matrix's case
+// copies m to the morf model's base TR (+0x24) unless HKD_MTX_PLAIN.
+void em_plain_matrix(const em_slot* sl, void* a, f32 (*m)[4]);
+// R-7: EMK_EYE_FIXED, after McaMorf_calc (where em_cc_eye runs) unless
+// HKD_EYE: KI eye = cur, attn = eye + 50; AM eye = cur + 250, attn = cur +
+// 330; AM2 eye = *(a+0x2E0) - (0, 15, 0), attn = cur + 120.
+void em_fixed_eye(const em_slot* sl, const em_kind* k, void* a);
+// R-5 before STD (D6, D8): AM2's weak Tg Set bit from EMK_AM2_F2_WEAK_TG
+// and body Co Set bit from EMK_AM2_F2_BODY_CO; AM's needle At Set bit off.
+void em_colliders_pre(const em_slot* sl, const em_kind* k, void* a);
+// R-5 after STD, every frame (INVULN frames included), behind HKD_EXTRA:
+// the radii the class's execute sets each frame (KI Tg 40/20 and Co 80/0
+// by EMK_KI_F2_LUNGE; AM eye 60, body R 80 H 300; AM2 body R 35 H 150,
+// weak R 30).
+void em_colliders_post(const em_slot* sl, const em_ext* x, const em_kind* k, void* a);
+// R-13 client (AM, HKD_SPECIAL clear): Set mMouthSph Co-only at mMouthPos
+// R 100; return 1 when its Co hit is a bomb (EMK_PROC_BOMB/BOMB2) the
+// host's bomb_nomi_check would take (streamed bck in the mouth-open set,
+// client Link within EMK_AM_SWALLOW_FACING of shape.y, bomb y above
+// mMouthPos.y - EMK_AM_SWALLOW_DY), after fopAcM_delete'ing that bomb.
+// em_hits then reports EMK_HIT_SPECIAL.
+int em_am_swallow_client(em_slot* sl, const em_kind* k, void* a);
+// R-13 host, in execute context from em_hit_apply for collider
+// EMK_HIT_SPECIAL: if AM's mCurrBckIdx is in the mouth-open set and it is
+// not ITAI with mMode >= 44, write mAction 3 / mMode 44 and return 1;
+// else 0 (the caller publishes NO_CROSS). No v2 sphere is built.
+int em_am_swallow_apply(void* a);
+// R-9: the per-kind frame writes (em_kind_fields gains the cases): KI
+// m2D4 = 0 when SF_HIDDEN is clear and m540 = 0; AM/AM2 mCurrBckIdx is
+// written by em_animate on every setAnm (em_bck_index_off gives where).
+u16 em_bck_index_off(const em_kind* k);
+// R-10, behind HKD_EXTRA, never on a dying frame: play__14mDoExt_baseAnmFv
+// on the KI btk (a+0x920) when mDamageType (a+0x905) != 0, and on the
+// AM2 btk (a+0x2C0) and brk (a+0x2C4). The first cut (implementation
+// batch A1 cut order).
+void em_extra_anm(const em_slot* sl, const em_ext* x, const em_kind* k, void* a);
 
 // create: zero the state and the cache, and remember both for the epilog.
 void enemy_mirror_init(enemy_mirror_state* s, em_ext* x);

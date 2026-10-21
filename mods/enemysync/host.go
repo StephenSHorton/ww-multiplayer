@@ -241,7 +241,7 @@ func (h *Host) resetScope() {
 func (h *Host) walk(now time.Time) error {
 	h.nextWalk = now.Add(WalkEvery)
 	was := h.cache
-	cache, err := Candidates(h.m, h.scope.Room, h.Kinds)
+	cache, err := CandidatesSince(h.m, h.scope.Stage, h.scope.Room, h.Kinds, was)
 	if err != nil {
 		return err
 	}
@@ -479,9 +479,10 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 
 // wireSlot lays a kind sample out as e's wire slot: the kind, the host
 // actor's pkey, its handle and aux values (BK m48C.z and the jaw, CC
-// shape_angle.x and m310; MO2 none), a ChuChu's m316.z in the attack
-// bytes, flags2 bit 6 (KindF2Light) when it dies with its ice shrink timer
-// running, and WFlagEngaged.
+// shape_angle.x and m310; KI shape.x, shape.z, m326, m328; AM mEyeRot;
+// MO2 and AM2 none), a ChuChu's m316.z in the attack bytes, flags2 bit 6
+// (KindF2Light) when it dies with its ice shrink timer running,
+// WFlagEngaged, and WFlagDormant (dormant).
 func (h *Host) wireSlot(e *Enemy, ks *KindSample, now time.Time) Slot {
 	s := ks.Slot
 	s.Kind, s.PKey, s.Handle, s.Aux = e.Kind, e.Ident.PKey, h.HandleOf(e.Ident), ks.Aux
@@ -497,10 +498,41 @@ func (h *Host) wireSlot(e *Enemy, ks *KindSample, now time.Time) Slot {
 	if t, ok := h.engaged[e.Ident]; ok && now.Sub(t) < EngagedFor {
 		s.WFlags |= WFlagEngaged
 	}
-	if e.Kind == KindCC && ks.Attn&addr.AttnLockonBattle == 0 && ks.Status&addr.ActorStatusCarry == 0 {
+	if dormant(e.Kind, ks, s.Flags) {
 		s.WFlags |= WFlagDormant
 	}
 	return s
+}
+
+// dormant is the WFlagDormant rule (design slots: a dormant copy does not
+// hold its client slot against a much nearer newcomer). Per kind:
+//
+//   - CC: attention without LOCKON_BATTLE (a ceiling or buried ChuChu),
+//     not carried.
+//   - KI: the sampler's rule (allow design type_table KI): mAction WAIT
+//     with mBehaviorType 0 or 1 (hanging from the ceiling), or m2D4 (it
+//     waits on a switch, hidden). A Keese keeps LOCKON_BATTLE from create
+//     (d_a_ki.cpp:1453), so attention is no test.
+//   - AM: asleep, mAction DOUSA with mMode <= 1 on SLEEP_LOOP.
+//   - AM2: attention without LOCKON_BATTLE (a statue: create and the
+//     inactive return clear it, d_a_am2.cpp:1336, 1017-1022).
+//
+// An allow kind is never dormant while carried (an Armos statue stunned
+// in MAHI mode 12 gains ACTION_CARRY, not LOCKON, d_a_am2.cpp:669, and can
+// be picked up) or dying (a light arrow clears attention_info,
+// d_a_am.cpp:279, d_a_am2.cpp:174): the player is at it, and its copy
+// keeps its slot.
+func dormant(id KindID, ks *KindSample, flags uint8) bool {
+	if ks.Status&addr.ActorStatusCarry != 0 {
+		return false
+	}
+	switch id {
+	case KindCC:
+		return ks.Attn&addr.AttnLockonBattle == 0
+	case KindKI, KindAM, KindAM2:
+		return flags&SlotDying == 0 && ks.St.Dormant
+	}
+	return false
 }
 
 // HitApplier is the host's hit path (design "v2"): a HIT from a client is
@@ -792,7 +824,7 @@ func (a *HitApplier) writeBlock(now time.Time) error {
 	b := &mailbox.EnemyBlock{Magic: mailbox.EnemyMagic, Seq: a.blockSeq, GoWriteMS: uint32(now.UnixMilli()),
 		Flags: mailbox.EnemyFlagMirror, Layout: mailbox.EnemyLayout, Epoch: a.epoch, Role: mailbox.EnemyRoleHost,
 		Stage: a.scope.Stage, Room: a.scope.Room, KindMask: a.Kinds.Mask(),
-		Annex: mailbox.EnemyAnnex{Override: a.Annex.Override, InvulnWait: a.Annex.InvulnWait}}
+		Annex: mailbox.EnemyAnnex{Override: a.Annex.Override, InvulnWait: a.Annex.InvulnWait, HookDisableX: a.Annex.HookDisableX}}
 	if len(a.queue) > 0 {
 		p := a.queue[0]
 		b.Stage, b.Room = p.stage, p.room

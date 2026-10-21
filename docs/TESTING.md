@@ -130,3 +130,24 @@ After the Stage 4 REL lands (the real daPy_lk_c remote body; `ww-multiplayer-han
 - [ ] **S4-10 fallback**: (a) `WW_ENEMY_REMOTE_HEAP=0xFFFFFFF,0,0`: a lite body with err heap_denied after the 120-frame wait; (b) a spawn over the void: phase_timeout, then lite; (c) `poke-u32 0x803B92B4` to another DMC pointer before the create (restored after): profile, then lite. No FULL retry in that stage; FULL again after the next stage load.
 - [ ] **S4-11 flag flips**: clearing `full_bodies` mid-stage retires the FULL body cleanly (the S4-8 conditions), then lite; setting it again does not upgrade within the stage; the next stage gets FULL.
 - [ ] **S4-12 regression**: `full_bodies` clear after all of the above: S4-0 again; the only heap change against the pre-Stage-4 baseline is the shanm table in the ArchiveHeap.
+
+### Enemy mirror: Keese, Armos Knight and Armos (A1)
+
+The allow batch (`ww-multiplayer-handoff/design/enemy-mirror-allow.json`, batch A1) adds kind rows 3 KI, 4 AM and 5 AM2. They are off by default; a run turns them on with `WW_ENEMY_MIRROR_KINDS=mo2,bk+u,cc+u,ki+u,am+u,am2+u` on both sides.
+
+Offline, before any live run (`go test -count=1 ./mods/enemysync ./wwapi/mailbox ./wwapi/addr ./internal/inject/... ./cmd/wwdev`):
+
+- `TestKindTablePins`, `TestColliderOffPins` and `TestKindHash` (the pin is 0x97EDB0F9: a build from before A1 and one after refuse each other's STATE); `TestKindRows`, `TestAllowRows`, `TestStaticGates` (the allow kinds' LiveOK), `TestBckName`.
+- `TestClassifyWalkAllow` and `TestClassifyWalkAllowLive`: an unkeyed Keese only with params low byte 1, never on GanonK; the live gates of R-8 (Keese mAction 2/30 or m2DC; Armos Knight ITAI from mMode 44; Armos carried, MODORU, in the abyss, or ITAI from mMode 22). `TestClassifyWalkAllowSticky` and `TestHostAllowSticky`: those gates refuse only a new enemy; one the host's previous walk listed stays listed through the swallow, the dance, the carry and FAIL (a carried Moblin is still refused).
+- The samplers (`TestReadSampleKI*`, `TestReadSampleAM*`, `TestReadSampleAM2*`, five Reads, the Keese six) and `TestPKeyNoPosVector`: a keyed Keese's pkey hashes no home.pos, the same bytes as the REL's `EMK_PKEY_TV2_*` vector, for any home.
+- `TestWireSlotDormantAllow` (WFlagDormant, never carried or dying), `TestForwardHit` and `TestMirrorReadHit` (the AM eye drops the Grappling Hook, the AM2 weak spot the Hookshot, the AM2 body forwards only the Skull Hammer), `TestParseAnnex` (`ki:hooks=extra` accepted, `ki:quiet=5` refused) and the annex writers (`TestHostKinds`, `TestMirrorCatchUpPin`: the bytes at +0x1FC).
+- `TestEnemyHeaderPins` and `TestEnemyBlockPlacement` (mailbox), `TestBlobFresh` and `TestT2EndsBelowMailbox` (the REL rebuild and restamp), and the REL's own static asserts (kind count 6, em_kind 0x44, PLAIN rows with FOPEN and a morf). RELS.arc growth stays under 0x10000.
+
+Live, on the user-4 fixture: regression first with the default kinds (the #156-#158 Moblin, Bokoblin and ChuChu checks unchanged, a `bk:tg_hit_up` annex override still applies). Then per kind, at these verified hops (stage point room; `M_NewD2 0 4` does not exist and hangs the game):
+
+- [ ] **KI**: `M_NewD2 0 7` (two Fire Keese, switch-hidden), `M_NewD2 7 4` (five keyed), `M_Dai 15 14` (six keyed), `Cave09 0 1` (ten unkeyed fliers, `ki+u`). The copy flies with the host's pitch and bank, a client sword hit kills it on the host and the copy shrinks quietly with no item; a woken wait-type Keese returns to the ceiling with no ERR_KEY churn; LUNGE shrinks the Tg to 20 and the Co to 0. The Fire Keese flame btk (R-10) has no verified hop: the `M_NewD2 0 7` pair stays switch-hidden (never drawn), and the other hops have plain Keese only. The disc's other Fire Keese rooms (M_NewD2 r2 and r15, Cave09 r12 and r13) need a verified hop before the flame can be checked; until then it is untested.
+- [ ] **AM2**: `kaze 4 4` (seven keyed), `kaze 1 1`, `Cave09 0 7` (unkeyed), `Siren 0 8` (four Armos and two Keese). The kaze room 9 Armos are switch-inactive statues (params 0xC1010AFF). A back-stab takes two hits, then the dance, the host delete and the client's quiet death; one hammer hit kills; a front sword hit only clinks; a statue hands back as a statue.
+- [ ] **AM**: `kaze 2 2`, `kaze 11 11`, `Cave09 0 8` (two unkeyed, asleep). The eye tracks; a client eye arrow stuns it on both sides; a light arrow kills it; a client bomb in the open mouth gives collider code 3 and the host swallow (44-47); a client Grappling Hook on the eye does nothing on the host; `WW_ENEMY_ANNEX=am:hooks=special` turns the swallow off live.
+- [ ] **Mixed**: Siren room 8 (KI and AM2), kaze room 9 (three dormant Armos and ten ChuChus: WFlagDormant slot pressure), kaze room 11 (AM and four Bokoblins).
+
+Every run: sweep both players' full Player.log, not only the reported issues, and confirm no adopt while gated.

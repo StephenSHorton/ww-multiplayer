@@ -79,6 +79,10 @@ const (
 	Am2ActItai   = 2
 	Am2ActHandou = 3
 	Am2ActModoru = 4
+	// Am2ModeDance is the first ITAI mMode of the death dance (mode 22 on
+	// health 0, d_a_am2.cpp:878-880, 898-971): the mirror refuses to adopt
+	// from it (allow design R-8).
+	Am2ModeDance = 22
 	// Am2EyeDown and Am2AttnUp: eyePos is mEyeballPos less 15, the
 	// attention point 120 above current.pos (d_a_am2.cpp:1166-1169);
 	// Am2TgHitUp the body cylinder's half height.

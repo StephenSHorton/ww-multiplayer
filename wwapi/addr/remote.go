@@ -93,6 +93,8 @@ const (
 	ProcBMDFoot = 0x0EE // fpcNm_BMDFOOT_e (:250), Kalle Demos tentacle
 	ProcFGMahou = 0x0F4 // fpcNm_FGMAHOU_e (:256), Phantom Ganon's orb volley
 	ProcSSS     = 0x0FE // fpcNm_SSS_e (:266), grabbing vine
+	ProcBomb    = 0x128 // fpcNm_BOMB_e (:308), the bomb an Armos Knight swallows (d_a_am.cpp:394)
+	ProcBomb2   = 0x129 // fpcNm_Bomb2_e (:309), likewise (d_a_am.cpp:409)
 	ProcNpcJi1  = 0x140 // fpcNm_NPC_JI1_e (:332), Orca
 )
 

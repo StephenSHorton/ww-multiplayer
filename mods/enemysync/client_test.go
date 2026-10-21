@@ -117,7 +117,7 @@ func TestMirrorWritesBlock(t *testing.T) {
 	}
 	for i, a := range []fakegame.LiveEnemy{a0, a1, a2} {
 		want := uint32(0)
-		if ens, err := Candidates(m, 1, KindSet{On: [len(Kinds)]bool{KindMO2: true}}); err == nil {
+		if ens, err := Candidates(m, "", 1, KindSet{On: [len(Kinds)]bool{KindMO2: true}}); err == nil {
 			for _, e := range ens {
 				if e.PID == a.PID {
 					want = e.Ident.PKey
@@ -732,6 +732,18 @@ func TestMirrorReadHit(t *testing.T) {
 	}
 	if len(objReads) != 1 || objReads[0] != [2]uint32{obj + 0x10, 0x60} {
 		t.Errorf("hit object reads %x, want one of 0x60 bytes at obj+0x10", objReads)
+	}
+
+	// An Armos's body hit by anything but the Skull Hammer is not
+	// forwarded (ForwardHit): nil, no error; the hammer is.
+	store(t, fm, actor+addr.Am2OffBodyCyl+addr.Mo2CcTgHitObjOff, binary.BigEndian.AppendUint32(nil, obj))
+	store(t, fm, obj+0x10, binary.BigEndian.AppendUint32(nil, 1<<1)) // AT_TYPE_SWORD
+	if h, err := c.readHit(st, &st.Slots[0], pid, KindAM2, 0, mailbox.EnemyHitEntry{HitSeq: 6, Collider: HitTg, Pending: 1}); h != nil || err != nil || c.Stats.HitsFiltered != 1 {
+		t.Errorf("AM2 body sword: %+v %v filtered %d", h, err, c.Stats.HitsFiltered)
+	}
+	store(t, fm, obj+0x10, binary.BigEndian.AppendUint32(nil, AtTypeSkullHammer))
+	if h, err := c.readHit(st, &st.Slots[0], pid, KindAM2, 0, mailbox.EnemyHitEntry{HitSeq: 7, Collider: HitTg, Pending: 1}); h == nil || err != nil || h.AtType != AtTypeSkullHammer {
+		t.Errorf("AM2 body hammer: %+v %v", h, err)
 	}
 }
 

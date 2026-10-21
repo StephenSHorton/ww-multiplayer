@@ -168,7 +168,7 @@ func TestAm2Offsets(t *testing.T) {
 		{"Am2OffIceShrink (ice +6)", Am2OffIceShrink, 0xA92},
 		{"Am2OffIceFreeze (ice +0xE)", Am2OffIceFreeze, 0xA9A},
 	})
-	if Am2ActItai != 2 || Am2ActModoru != 4 || Am2EyeDown != 15 || Am2AttnUp != 120 || Am2TgHitUp != 75 {
+	if Am2ActItai != 2 || Am2ActModoru != 4 || Am2ModeDance != 22 || Am2EyeDown != 15 || Am2AttnUp != 120 || Am2TgHitUp != 75 {
 		t.Error("AM2 action constants moved")
 	}
 }

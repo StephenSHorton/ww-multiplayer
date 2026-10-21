@@ -255,6 +255,10 @@ const (
 	ActorOffModel      = 0x24C // J3DModel* model (f_op_actor.h:300)
 	ActorOffSpeedF     = 0x254 // f32 speedF (f_op_actor.h:302)
 	ActorOffEyePos     = 0x260 // cXyz eyePos (f_op_actor.h:305)
+	// The y of current.angle and of shape_angle (csXyz .y at +2): the
+	// enemy mirror's per-kind AngleOff (enemy-mirror-allow.json D13).
+	ActorOffCurAngleY   = ActorOffCurAngle + 2   // s16 current.angle.y
+	ActorOffShapeAngleY = ActorOffShapeAngle + 2 // s16 shape_angle.y
 )
 
 // AcchOffGroundH is dBgS_Acch's f32 m_ground_h (d_bg_s_acch.h:235), the

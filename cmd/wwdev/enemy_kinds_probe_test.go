@@ -78,7 +78,7 @@ func TestEnemyMatchDry(t *testing.T) {
 	s := out.String()
 	bk, _ := es.Of(0)
 	for _, want := range []string{
-		"scope stage=M_Dai room=1 kinds=mo2+u,bk+u,cc+u walk=complete\n",
+		"scope stage=M_Dai room=1 kinds=mo2+u,bk+u,cc+u,ki+u,am+u,am2+u walk=complete\n",
 		// The test vector's params and home, in home room 1.
 		fmt.Sprintf("ident kind=bk proc=0x00BE setID=0x0000 pkey=0x%08X params=0xFFFF8784 home_room=1 home=0x44A00000,0xC3480000,0x45BB8000 verdict=ok pid=", bkPKey),
 		" bk_type=4\n",

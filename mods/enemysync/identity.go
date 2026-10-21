@@ -81,9 +81,24 @@ func pkeyFinish(h uint32) uint32 {
 	return h
 }
 
-// ActorIdent is a's Ident, its pkey computed from the walk's fields.
+// PKeyFor is PKey under kind k's rule: a keyed (setID < 0x200) actor of
+// a PKeyNoPos row hashes home.pos as zero (allow design D9; REL em_pkey
+// with EMK_CAP_PKEY_NO_POS, R-16): a wait-type Keese rewrites its home on
+// its ceiling return (d_a_ki.cpp:675-682), and a keyed setID is unique per
+// room anyway. An unkeyed actor keeps its home (D10), and so does every
+// other row. k nil is PKey.
+func PKeyFor(k *Kind, proc, setID uint16, params uint32, homeRoom int8, homePos [3]uint32) uint32 {
+	if k != nil && k.PKeyNoPos && setID < addr.ZoneActorCount {
+		homePos = [3]uint32{}
+	}
+	return PKey(proc, setID, params, homeRoom, homePos)
+}
+
+// ActorIdent is a's Ident, its pkey computed from the walk's fields under
+// its kind's rule (PKeyFor; KindNone hashes as PKey).
 func ActorIdent(a *actors.Actor) Ident {
-	return Ident{Proc: uint16(a.Proc), SetID: a.SetID, PKey: PKey(uint16(a.Proc), a.SetID, a.Params, a.HomeRoom, a.HomePos)}
+	k := KindOf(uint16(a.Proc)).Row()
+	return Ident{Proc: uint16(a.Proc), SetID: a.SetID, PKey: PKeyFor(k, uint16(a.Proc), a.SetID, a.Params, a.HomeRoom, a.HomePos)}
 }
 
 // Enemy is an actor of a known kind a walk found in the room, with its
@@ -98,8 +113,9 @@ type Enemy struct {
 	Live      LiveGate
 	// LiveModeOK reports whether Live.Mode was read (the walk read the
 	// class's mode); LiveSpanOK whether a ChuChu's Live.Color and
-	// Live.InstaKill were (an actor refused before the gate read leaves
-	// them zero, unread).
+	// Live.InstaKill, or an allow kind's Live.SubMode, Fade and Abyss,
+	// were (an actor refused before the gate read leaves them zero,
+	// unread).
 	LiveModeOK, LiveSpanOK bool
 	// Refused is why the mirror would not take it ("" when it would).
 	Refused string
@@ -115,7 +131,21 @@ const (
 	RefuseLive       = "live-gate"
 	RefuseDuplicate  = "duplicate-ident"
 	RefuseNoGate     = "gate-unreadable"
+	RefuseStage      = "stage-gate" // the kind is refused on this stage (an unkeyed Keese on GanonK)
 )
+
+// StageGanonK is Puppet Ganon's stage, whose Keese swarms the boss spawns
+// unkeyed (d_a_bgn.cpp:3343, d_a_bgn2.cpp:1048) and whose Keese die
+// through their own table (d_a_ki.cpp:830).
+const StageGanonK = "GanonK"
+
+// StageOK is the kind's gate on the stage (allow design D10): an unkeyed
+// Keese is refused on GanonK, a second guard beside UnkeyedParamsOK
+// (the swarms are params 0xFFFF0003, which that already refuses). stage
+// "" (a caller that has none) passes.
+func (k *Kind) StageOK(stage string, setID uint16) bool {
+	return !(k.ID == KindKI && setID == addr.ActorSetIDNone && stage == StageGanonK)
+}
 
 // ccGateSpan is the ChuChu's live gate read: mBehaviorType through m304.
 const ccGateSpan = addr.CcOffInstaKill + 1 - addr.CcOffBehavior
@@ -123,18 +153,87 @@ const ccGateSpan = addr.CcOffInstaKill + 1 - addr.CcOffBehavior
 // Classify walks the actors and returns every actor of an enabled kind
 // whose home room is room, each with its Ident and why it is refused ("" when the mirror takes it), sorted by Ident. The rule
 // (design identity.host_side): initState 2; keyed, or unkeyed with the
-// kind's "+u"; home room == room; the kind's ParamsOK and LiveOK; and no
-// other live actor with the same Ident (both are refused).
-func Classify(m mem.Reader, room int8, set KindSet) ([]Enemy, error) {
+// kind's "+u"; home room == room; the kind's StageOK on stage, ParamsOK
+// and LiveOK; and no other live actor with the same Ident (both are
+// refused).
+func Classify(m mem.Reader, stage string, room int8, set KindSet) ([]Enemy, error) {
 	w, err := actors.ReadWith(m, 0, KindLayouts)
 	if err != nil {
 		return nil, err
 	}
-	return ClassifyWalk(m, &w, room, set)
+	return classifyWalk(m, &w, stage, room, set, nil)
+}
+
+// The allow kinds' live gate reads beyond the walk's mAction (LiveGate):
+// the Keese's m2DC, the Armos Knight's mMode, the Armos's mMode through
+// mInAbyssTimer.
+const (
+	kiGateOff  = addr.KiOffShrinkDelete
+	amGateOff  = addr.AmOffMode
+	am2GateOff = addr.Am2OffMode
+	am2GateLen = addr.Am2OffAbyssTimer + 1 - addr.Am2OffMode
+)
+
+// readAllowGate reads an allow kind's LiveGate bytes beyond Mode into g
+// (one Read); false when it came back short.
+func readAllowGate(m mem.Reader, id KindID, base uint32, g *LiveGate) (bool, error) {
+	var off uint32
+	n := 1
+	switch id {
+	case KindKI:
+		off = kiGateOff
+	case KindAM:
+		off = amGateOff
+	case KindAM2:
+		off, n = am2GateOff, am2GateLen
+	default:
+		return true, nil
+	}
+	b, err := m.Read(base+off, n)
+	if err != nil || len(b) != n {
+		return false, err
+	}
+	switch id {
+	case KindKI:
+		g.Fade = b[0]
+	case KindAM:
+		g.SubMode = b[0]
+	case KindAM2:
+		g.SubMode, g.Abyss = b[0], b[addr.Am2OffAbyssTimer-am2GateOff]
+	}
+	return true, nil
 }
 
 // ClassifyWalk is Classify over a walk already read with KindLayouts.
-func ClassifyWalk(m mem.Reader, w *actors.Walk, room int8, set KindSet) ([]Enemy, error) {
+func ClassifyWalk(m mem.Reader, w *actors.Walk, stage string, room int8, set KindSet) ([]Enemy, error) {
+	return classifyWalk(m, w, stage, room, set, nil)
+}
+
+// liveSticky reports whether kind id's LiveOK is an adopt gate only (the
+// allow kinds: the REL's em_validate, design R-8): its refused states (an
+// Armos Knight's swallow and death, an Armos's dance, carry and abyss, a
+// Keese's FIRE_SET, FAIL and fade) are ones a live enemy passes through,
+// and the samplers stream them (ReadSampleKI/AM/AM2: SlotDying,
+// SlotInvuln, Am2F2Carried). MO2/BK/CC keep refusing on every walk.
+func liveSticky(id KindID) bool {
+	return id == KindKI || id == KindAM || id == KindAM2
+}
+
+// wasListed reports whether e is an actor of was (same PID, address and
+// Ident): one an earlier walk took.
+func wasListed(was []Enemy, e *Enemy) bool {
+	for i := range was {
+		if was[i].PID == e.PID && was[i].Addr == e.Addr && was[i].Ident == e.Ident {
+			return true
+		}
+	}
+	return false
+}
+
+// classifyWalk is ClassifyWalk; an allow-kind actor of was (the caller's
+// previous taken list) skips LiveOK (liveSticky), so a host enemy stays
+// listed through the states its sampler mirrors.
+func classifyWalk(m mem.Reader, w *actors.Walk, stage string, room int8, set KindSet, was []Enemy) ([]Enemy, error) {
 	var out []Enemy
 	for i := range w.Actors {
 		a := &w.Actors[i]
@@ -148,6 +247,7 @@ func ClassifyWalk(m mem.Reader, w *actors.Walk, room int8, set KindSet) ([]Enemy
 		k := id.Row()
 		e := Enemy{Kind: id, Ident: ActorIdent(a), Addr: a.Addr, PID: a.PID, Params: a.Params, HomeRoom: a.HomeRoom, HomePos: a.HomePos}
 		e.Live.Mode, e.LiveModeOK = uint8(a.Mode), a.ModeOK
+		e.Live.Carried = a.Carried()
 		switch {
 		case a.InitState != 2:
 			e.Refused = RefuseInit
@@ -157,6 +257,9 @@ func ClassifyWalk(m mem.Reader, w *actors.Walk, room int8, set KindSet) ([]Enemy
 			}
 		case !a.Keyed():
 			e.Refused = RefuseNotKeyed
+		}
+		if e.Refused == "" && !k.StageOK(stage, a.SetID) {
+			e.Refused = RefuseStage
 		}
 		if e.Refused == "" && !a.ModeOK {
 			e.Refused = RefuseNoGate
@@ -173,10 +276,21 @@ func ClassifyWalk(m mem.Reader, w *actors.Walk, room int8, set KindSet) ([]Enemy
 				e.LiveModeOK, e.LiveSpanOK = true, true
 			}
 		}
-		if e.Refused == "" && !k.ParamsOK(a.Params) {
+		if e.Refused == "" && (id == KindKI || id == KindAM || id == KindAM2) {
+			ok, err := readAllowGate(m, id, a.Addr, &e.Live)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				e.Refused = RefuseNoGate
+			} else {
+				e.LiveSpanOK = true
+			}
+		}
+		if e.Refused == "" && (!k.ParamsOK(a.Params) || (a.SetID == addr.ActorSetIDNone && !k.UnkeyedParamsOK(a.Params))) {
 			e.Refused = RefuseParams
 		}
-		if e.Refused == "" && !k.LiveOK(e.Live) {
+		if e.Refused == "" && !k.LiveOK(e.Live) && !(liveSticky(id) && wasListed(was, &e)) {
 			e.Refused = RefuseLive
 		}
 		out = append(out, e)
@@ -206,8 +320,21 @@ func RefuseDuplicates(es []Enemy) {
 // Candidates is Classify's taken actors only: the room's mirrorable
 // enemies of the enabled kinds, sorted by Ident. Unlike KeyedMoblins it
 // does not cap at MaxSlots (picking slots is the client's selection).
-func Candidates(m mem.Reader, room int8, set KindSet) ([]Enemy, error) {
-	all, err := Classify(m, room, set)
+func Candidates(m mem.Reader, stage string, room int8, set KindSet) ([]Enemy, error) {
+	return CandidatesSince(m, stage, room, set, nil)
+}
+
+// CandidatesSince is Candidates after a walk that took was (the host's
+// cache): an allow-kind enemy already listed is not dropped by LiveOK
+// (liveSticky). Its sampler streams the state instead: the Armos
+// Knight's swallow as SlotInvuln and its death as SlotDying, the Armos's
+// dance and carry, the Keese's FAIL as SlotDying.
+func CandidatesSince(m mem.Reader, stage string, room int8, set KindSet, was []Enemy) ([]Enemy, error) {
+	w, err := actors.ReadWith(m, 0, KindLayouts)
+	if err != nil {
+		return nil, err
+	}
+	all, err := classifyWalk(m, &w, stage, room, set, was)
 	if err != nil {
 		return nil, err
 	}

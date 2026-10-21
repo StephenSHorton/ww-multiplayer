@@ -343,14 +343,15 @@ type KindSample struct {
 	CcBehavior, CcColor, CcAction, CcSubstate, CcElectric uint8
 	CcBck                                                 int32
 	CcAtSPrm, CcTgSPrm, CcCoSPrm                          uint32
-	// St is a staged kind's (KI, AM, AM2; the allow batch's A0 probe).
-	St StagedFields
+	// St is an allow kind's (KI, AM, AM2; allow design type_table samplers).
+	St AllowFields
 }
 
-// StagedFields is what ReadSampleKI, ReadSampleAM and ReadSampleAM2 read
-// beyond the Slot fields: what batch A0 must verify live (design
-// implementation_batches A0) before A1 builds the rows on it.
-type StagedFields struct {
+// AllowFields is what ReadSampleKI, ReadSampleAM and ReadSampleAM2 read
+// beyond the Slot fields: what batch A0 verified live (design
+// implementation_batches A0), the host's dormant rule and what the
+// enemy-watch probe prints.
+type AllowFields struct {
 	// CurAngle is current.angle (+0x204) and ShapeAngle shape_angle
 	// (+0x20C), x/y/z: the samplers stream shape.y as AngleY (the design's
 	// AngleOff 0x20E), and A0 checks how far current.y drifts from it.
@@ -421,15 +422,10 @@ const (
 
 // readKindActor is R1 for e: the actor, checked to still be e (process
 // ID, proc, initState 2, setID, home room and the pkey of its params and
-// home). A mismatch is actors.ErrChanged.
+// home, under the kind's rule: PKeyFor, so a keyed Keese, which moves its
+// home.pos (d_a_ki.cpp:681-682), is rechecked without it, allow design
+// D9). A mismatch is actors.ErrChanged.
 func readKindActor(m mem.Reader, e *Enemy, proc uint16) ([]byte, error) {
-	return readKindActorKey(m, e, proc, true)
-}
-
-// readKindActorKey is readKindActor with the pkey check optional: a keyed
-// Keese moves its home.pos (d_a_ki.cpp:681-682), so its pkey is not
-// rechecked (design D9; PKey itself is unchanged in A0).
-func readKindActorKey(m mem.Reader, e *Enemy, proc uint16, checkPKey bool) ([]byte, error) {
 	b, err := m.Read(e.Addr, addr.ActorSize)
 	if err != nil {
 		return nil, err
@@ -445,19 +441,25 @@ func readKindActorKey(m mem.Reader, e *Enemy, proc uint16, checkPKey bool) ([]by
 	setID := be.Uint16(b[addr.ActorOffSetID:])
 	room := int8(b[addr.ActorOffHomeRoomNo])
 	if be.Uint32(b[addr.ActorOffBsPcID:]) != e.PID || be.Uint16(b[addr.ActorOffProcName:]) != proc || int8(b[addr.ActorOffInitState]) != 2 ||
-		setID != e.Ident.SetID || room != e.HomeRoom || (checkPKey && PKey(proc, setID, be.Uint32(b[addr.ActorOffParameters:]), room, home) != e.Ident.PKey) {
+		setID != e.Ident.SetID || room != e.HomeRoom || PKeyFor(KindOf(proc).Row(), proc, setID, be.Uint32(b[addr.ActorOffParameters:]), room, home) != e.Ident.PKey {
 		return nil, fmt.Errorf("%w: %s pid %d at 0x%08X", actors.ErrChanged, e.Ident, e.PID, e.Addr)
 	}
 	return b, nil
 }
 
-// kindActorFields fills s's actor-level fields from R1.
+// kindActorFields fills s's actor-level fields from R1: AngleY is the
+// row's AngleOff (allow design D13: current.angle.y for MO2, BK and CC,
+// shape_angle.y for KI, AM and AM2).
 func kindActorFields(s *KindSample, b []byte) {
 	be := binary.BigEndian
 	for i := range 3 {
 		s.Pos[i] = math.Float32frombits(be.Uint32(b[addr.ActorOffCurPos+4*i:]))
 	}
-	s.AngleY = int16(be.Uint16(b[addr.ActorOffCurAngle+2:]))
+	angleOff := uint32(addr.ActorOffCurAngleY)
+	if k := s.Kind.Row(); k != nil {
+		angleOff = k.AngleOff
+	}
+	s.AngleY = int16(be.Uint16(b[angleOff:]))
 	s.Health = int8(b[addr.ActorOffHealth])
 	s.Attn = be.Uint32(b[addr.ActorOffAttnFlags:])
 	s.Status = be.Uint32(b[addr.ActorOffStatus:])
@@ -708,7 +710,8 @@ func ReadSampleCC(m mem.Reader, e *Enemy) (KindSample, error) {
 
 // ReadKindSample samples e by its kind: a Moblin through ReadSample (its
 // six Reads, byte-identical to the host's), a Bokoblin through
-// ReadSampleBK, a ChuChu through ReadSampleCC.
+// ReadSampleBK, a ChuChu through ReadSampleCC, a Keese, an Armos Knight
+// and an Armos through ReadSampleKI, ReadSampleAM and ReadSampleAM2.
 func ReadKindSample(m mem.Reader, e *Enemy) (KindSample, error) {
 	switch e.Kind {
 	case KindMO2:
@@ -719,19 +722,25 @@ func ReadKindSample(m mem.Reader, e *Enemy) (KindSample, error) {
 		return ReadSampleBK(m, e)
 	case KindCC:
 		return ReadSampleCC(m, e)
+	case KindKI:
+		return ReadSampleKI(m, e)
+	case KindAM:
+		return ReadSampleAM(m, e)
+	case KindAM2:
+		return ReadSampleAM2(m, e)
 	}
 	return KindSample{}, fmt.Errorf("enemysync: no sampler for kind %s (proc 0x%04X)", e.Kind, e.Ident.Proc)
 }
 
-// The staged kinds' samplers (enemy-mirror-allow.json "type_table" KI,
-// AM, AM2 sampler; batch A0, probe-only: ReadKindSample does not reach
-// them until A1 adds the rows). Each makes five Reads: R1 the actor, R2
+// The allow kinds' samplers (enemy-mirror-allow.json "type_table" KI,
+// AM, AM2 sampler; batch A0, rows of Kinds since A1, ReadKindSample's).
+// Each makes five Reads: R1 the actor, R2
 // the class's mid span, R3 its colliders in one span, R4 the enemyice,
 // R5 the morf's animation span (the Keese one more, its u8 mDamageType).
 // AngleY is shape.y (the design's AngleOff 0x20E); St carries
 // current.angle beside it.
 
-// The staged spans.
+// The allow kinds' spans.
 const (
 	kiReadMidOff   = addr.KiOffMorf                          // mpMorf .. m339
 	kiReadMidLen   = addr.KiOffAcchCir - addr.KiOffMorf      // 0x88: through +0x33C
@@ -747,14 +756,14 @@ const (
 	am2ReadCollLen = addr.Am2OffSmokeCb - addr.Am2OffBodyCyl // 0x4B8
 )
 
-// colliderSpec names one collider of a staged class.
+// colliderSpec names one collider of an allow class.
 type colliderSpec struct {
 	name string
 	off  uint32
 	cyl  bool
 }
 
-// Each staged class's colliders in header order (d_a_ki.h:77-79,
+// Each allow class's colliders in header order (d_a_ki.h:77-79,
 // d_a_am.h:51-54, d_a_am2.h:51-54).
 var (
 	kiColliders = []colliderSpec{{"at", addr.KiOffAtSph, false}, {"co", addr.KiOffCoSph, false}, {"tg", addr.KiOffTgSph, false}}
@@ -764,10 +773,10 @@ var (
 		{"eye", addr.Am2OffEyeSph, false}, {"weak", addr.Am2OffWeakSph, false}}
 )
 
-// stagedActorFields fills s's actor-level fields from R1 as
-// kindActorFields does, then AngleY from shape.y and St's angles, home
-// and scale.
-func stagedActorFields(s *KindSample, b []byte) {
+// allowActorFields fills s's actor-level fields from R1 as
+// kindActorFields does (AngleY the row's AngleOff, shape.y), then St's
+// angles, home and scale.
+func allowActorFields(s *KindSample, b []byte) {
 	kindActorFields(s, b)
 	be := binary.BigEndian
 	for i := range 3 {
@@ -775,7 +784,6 @@ func stagedActorFields(s *KindSample, b []byte) {
 		s.St.ShapeAngle[i] = int16(be.Uint16(b[addr.ActorOffShapeAngle+2*i:]))
 		s.St.HomePos[i] = be.Uint32(b[addr.ActorOffHomePos+4*i:])
 	}
-	s.AngleY = s.St.ShapeAngle[1]
 	s.St.Scale = math.Float32frombits(be.Uint32(b[addr.ActorOffScale:]))
 	s.St.BckIdx = -1
 }
@@ -820,9 +828,9 @@ func readColliders(m mem.Reader, base, off uint32, n int, specs []colliderSpec) 
 	return out, nil
 }
 
-// readStagedIce is R4: the shrink and freeze timers of the enemyice at
+// readAllowIce is R4: the shrink and freeze timers of the enemyice at
 // base+off.
-func readStagedIce(m mem.Reader, base, off uint32, s *KindSample) error {
+func readAllowIce(m mem.Reader, base, off uint32, s *KindSample) error {
 	ice, err := readExact(m, base+off, addr.EnemyIceSize, "enemyice")
 	if err != nil {
 		return err
@@ -832,8 +840,8 @@ func readStagedIce(m mem.Reader, base, off uint32, s *KindSample) error {
 	return nil
 }
 
-// stagedFinish sets the generic LIGHT bit and checks the floats.
-func stagedFinish(s *KindSample, e *Enemy, what string) error {
+// allowFinish sets the generic LIGHT bit and checks the floats.
+func allowFinish(s *KindSample, e *Enemy, what string) error {
 	if s.Flags&SlotDying != 0 && s.IceTimer != 0 {
 		s.Flags2 |= KindF2Light
 	}
@@ -844,8 +852,8 @@ func stagedFinish(s *KindSample, e *Enemy, what string) error {
 }
 
 // ReadSampleKI reads a Keese's tick (design type_table KI sampler): R1
-// the actor (its pkey not rechecked when keyed: the Keese moves its
-// home.pos, D9), R2 +0x2B4..+0x33C (mpMorf .. m339), R3 the three spheres
+// the actor (a keyed one's pkey rechecked without home.pos, which the
+// Keese moves: PKeyFor, D9), R2 +0x2B4..+0x33C (mpMorf .. m339), R3 the three spheres
 // (+0x580..+0x904), u8 mDamageType (+0x905), R4 the enemyice (+0x924), R5
 // the morf. Action is mAction, Mode mBehaviorType; Aux {shape.x, shape.z,
 // m326, m328}. Flags: DYING health <= 0, mAction 30 (ACT_FAIL_MOVE) or the
@@ -855,12 +863,12 @@ func stagedFinish(s *KindSample, e *Enemy, what string) error {
 // d_a_ki.cpp:1453, so attention is no test).
 func ReadSampleKI(m mem.Reader, e *Enemy) (KindSample, error) {
 	s := KindSample{Kind: KindKI, Ident: e.Ident}
-	b, err := readKindActorKey(m, e, addr.ProcKI, !e.Ident.Keyed())
+	b, err := readKindActor(m, e, addr.ProcKI)
 	if err != nil {
 		return s, err
 	}
 	s.SetID, s.Proc = e.Ident.SetID, addr.ProcKI
-	stagedActorFields(&s, b)
+	allowActorFields(&s, b)
 	be := binary.BigEndian
 
 	d, err := readExact(m, e.Addr+kiReadMidOff, kiReadMidLen, "Keese mpMorf..m339")
@@ -885,7 +893,7 @@ func ReadSampleKI(m mem.Reader, e *Enemy) (KindSample, error) {
 	if st.DmgType, err = mem.ReadU8(m, e.Addr+addr.KiOffDmgType); err != nil {
 		return s, err
 	}
-	if err := readStagedIce(m, e.Addr, addr.KiOffIce, &s); err != nil {
+	if err := readAllowIce(m, e.Addr, addr.KiOffIce, &s); err != nil {
 		return s, err
 	}
 	if err := readMorfAnim(m, morf, &s.Sample); err != nil {
@@ -909,7 +917,7 @@ func ReadSampleKI(m mem.Reader, e *Enemy) (KindSample, error) {
 		s.Flags2 |= KiF2Lunge
 	}
 	st.Dormant = (action == addr.KiActWait && (st.Behavior == 0 || st.Behavior == 1)) || st.DrawGate != 0
-	return s, stagedFinish(&s, e, "Keese")
+	return s, allowFinish(&s, e, "Keese")
 }
 
 // ReadSampleAM reads an Armos Knight's tick in five Reads (design
@@ -927,7 +935,7 @@ func ReadSampleAM(m mem.Reader, e *Enemy) (KindSample, error) {
 		return s, err
 	}
 	s.SetID, s.Proc = e.Ident.SetID, addr.ProcAM
-	stagedActorFields(&s, b)
+	allowActorFields(&s, b)
 	be := binary.BigEndian
 
 	d, err := readExact(m, e.Addr+amReadMidOff, amReadMidLen, "Armos Knight mpMorf..mTargetEyeRot")
@@ -948,7 +956,7 @@ func ReadSampleAM(m mem.Reader, e *Enemy) (KindSample, error) {
 	if st.Colliders, err = readColliders(m, e.Addr, amReadCollOff, amReadCollLen, amColliders); err != nil {
 		return s, err
 	}
-	if err := readStagedIce(m, e.Addr, addr.AmOffIce, &s); err != nil {
+	if err := readAllowIce(m, e.Addr, addr.AmOffIce, &s); err != nil {
 		return s, err
 	}
 	if err := readMorfAnim(m, morf, &s.Sample); err != nil {
@@ -969,7 +977,7 @@ func ReadSampleAM(m mem.Reader, e *Enemy) (KindSample, error) {
 		s.Flags2 |= AmF2PlaySkip
 	}
 	st.Dormant = action == addr.AmActDousa && mode <= 1 && st.BckIdx == addr.AmBckWait
-	return s, stagedFinish(&s, e, "Armos Knight")
+	return s, allowFinish(&s, e, "Armos Knight")
 }
 
 // ReadSampleAM2 reads an Armos's tick in five Reads (design type_table
@@ -988,7 +996,7 @@ func ReadSampleAM2(m mem.Reader, e *Enemy) (KindSample, error) {
 		return s, err
 	}
 	s.SetID, s.Proc = e.Ident.SetID, addr.ProcAM2
-	stagedActorFields(&s, b)
+	allowActorFields(&s, b)
 	be := binary.BigEndian
 
 	d, err := readExact(m, e.Addr+am2ReadMidOff, am2ReadMidLen, "Armos mpMorf..mAcchRadius")
@@ -1008,7 +1016,7 @@ func ReadSampleAM2(m mem.Reader, e *Enemy) (KindSample, error) {
 	if st.Colliders, err = readColliders(m, e.Addr, am2ReadCollOff, am2ReadCollLen, am2Colliders); err != nil {
 		return s, err
 	}
-	if err := readStagedIce(m, e.Addr, addr.Am2OffIce, &s); err != nil {
+	if err := readAllowIce(m, e.Addr, addr.Am2OffIce, &s); err != nil {
 		return s, err
 	}
 	if err := readMorfAnim(m, morf, &s.Sample); err != nil {
@@ -1031,19 +1039,5 @@ func ReadSampleAM2(m mem.Reader, e *Enemy) (KindSample, error) {
 		s.Flags2 |= Am2F2Carried
 	}
 	st.Dormant = s.Attn&addr.AttnLockonBattle == 0
-	return s, stagedFinish(&s, e, "Armos")
-}
-
-// ReadStagedSample samples a staged kind's e (the probes' path; the
-// pipelines' ReadKindSample knows only the Kinds rows).
-func ReadStagedSample(m mem.Reader, e *Enemy) (KindSample, error) {
-	switch e.Kind {
-	case KindKI:
-		return ReadSampleKI(m, e)
-	case KindAM:
-		return ReadSampleAM(m, e)
-	case KindAM2:
-		return ReadSampleAM2(m, e)
-	}
-	return KindSample{}, fmt.Errorf("enemysync: no staged sampler for kind %s (proc 0x%04X)", e.Kind, e.Ident.Proc)
+	return s, allowFinish(&s, e, "Armos")
 }

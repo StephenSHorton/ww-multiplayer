@@ -315,7 +315,9 @@ wwapi.h, with `mObjectInfo` 0x803E0BC8), `dr_matrix_set` 0x80022460,
 0x8025238C, `cCcS::Set` 0x80242D04, `dCcD_GObjInf::ClrTgHit` 0x800AB958
 and `::ClrAtHit` 0x800AB7C4, `dCcD_Sph::Set` 0x800ABFC0 and `::StartCAt`
 0x800AC02C, `__ct__9dCcD_SttsFv` 0x80100EB8, `dCcD_Stts::Init`
-0x800AB3DC, `cM_ssin` 0x800F0054, `cM_scos` 0x800F0038. Data read:
+0x800AB3DC, `cM_ssin` 0x800F0054, `cM_scos` 0x800F0038,
+`dPa_smokeEcallBack::end` 0x8007BB80 (the Armos Knight's mouth smoke,
+`mSmokeCbs[2]`, at the bomb swallow and at adopt). Data read:
 `calc_mtx` 0x803F63A0, `mCurStage.mName` 0x803C9D3C, `mStayNo`
 0x803F6A78, `mNextStage.mEnable` 0x803C9D54, `mPlayerInfo[0].mpPlayer`
 0x803CA74C, `mpPlayerPtr[0]` 0x803CA754, `__vt__8dCcD_Sph` 0x803899D0

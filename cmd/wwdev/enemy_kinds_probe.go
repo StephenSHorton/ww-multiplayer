@@ -15,12 +15,12 @@ package main
 // BOKO its m1200 names, with that BOKO's proc and mNowMode.
 // --kind mo2 (and no --kind) is the Moblin probe, unchanged.
 //
-// enemy-watch --kind ki|am|am2 is the allow batch's A0 probe
+// enemy-watch --kind ki|am|am2 is the allow batch's probe
 // (ww-multiplayer-handoff/design/enemy-mirror-allow.json,
-// implementation_batches A0): the staged rows, which are not in the
-// Kinds table (enemysync/staged.go), walked with ProbeLayouts, classified
-// by ClassifyStaged and sampled by ReadSampleKI / AM / AM2. Each tick it
-// prints what A0 must verify live: current.angle beside shape_angle (the
+// implementation_batches A0, A1): rows of the Kinds table since A1,
+// classified by ClassifyWalk and sampled by ReadKindSample (ReadSampleKI
+// / AM / AM2) like the others. Each tick it also prints what A0
+// verified live: current.angle beside shape_angle (the
 // AngleOff question; "ang" is shape.y), the kind's action fields, the BCK
 // from the morf beside mCurrBckIdx, every collider's At/Tg/Co mSPrm words,
 // centre and radius, the attention flags, the status word, the ice
@@ -32,18 +32,18 @@ package main
 // machines must agree on (the placement-derived identity and the
 // verdict) before " pid=", and everything per-machine or live from
 // " pid=" on: the pids, the live gate bytes (bk_type, cc_*, mo2_mode,
-// ki_action, am_action, am2_action; "-" when the classification did not
-// read one) and a Bokoblin's BOKO state, which the game changes as it
+// ki_action, am_action, am2_action and the allow kinds' others; "-" when
+// the classification did not read one) and a Bokoblin's BOKO state, which the game changes as it
 // plays. Two Dolphins in the same room therefore diff clean after
-// `sed 's/ pid=.*//'` on both outputs. The staged kinds (ki, am, am2)
-// are listed too, by default and when --kinds names them; their verdict
-// has no live gate yet (A1). A keyed Keese's pkey still hashes home.pos,
-// which the Keese moves (d_a_ki.cpp:681-682), so its pkey and home can
-// differ between machines and walks; the design's D9 drops home.pos from
-// a keyed Keese's pkey in A1, and a "note" line says so.
+// `sed 's/ pid=.*//'` on both outputs. The allow kinds (ki, am, am2)
+// are rows like the others: listed by default and when --kinds names
+// them, with the extra live gate bytes their LiveOK reads (ki_m2dc,
+// am_mode, am2_mode, am2_abyss, am2_carried). A keyed Keese's pkey
+// hashes no home.pos (enemysync.PKeyFor, design D9), so it matches across
+// machines although the Keese moves its home (d_a_ki.cpp:681-682); the
+// home printed still can differ.
 
 import (
-	"cmp"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -102,44 +102,18 @@ func liveGateText(e *enemysync.Enemy) string {
 		return "bk_type=" + mode
 	case enemysync.KindCC:
 		return fmt.Sprintf("cc_behavior=%s cc_color=%s cc_m304=%s", mode, val(e.LiveSpanOK, e.Live.Color), val(e.LiveSpanOK, e.Live.InstaKill))
-	case enemysync.KindKI, enemysync.KindAM, enemysync.KindAM2:
-		return e.Kind.String() + "_action=" + mode
+	case enemysync.KindKI:
+		return fmt.Sprintf("ki_action=%s ki_m2dc=%s", mode, val(e.LiveSpanOK, e.Live.Fade))
+	case enemysync.KindAM:
+		return fmt.Sprintf("am_action=%s am_mode=%s", mode, val(e.LiveSpanOK, e.Live.SubMode))
+	case enemysync.KindAM2:
+		carried := uint8(0)
+		if e.Live.Carried {
+			carried = 1
+		}
+		return fmt.Sprintf("am2_action=%s am2_mode=%s am2_abyss=%s am2_carried=%d", mode, val(e.LiveSpanOK, e.Live.SubMode), val(e.LiveSpanOK, e.Live.Abyss), carried)
 	}
 	return ""
-}
-
-// splitStagedKinds splits an enemy-match --kinds value into the Kinds
-// rows' set (ParseKinds) and the staged kinds it names ("ki", "am",
-// "am2"; a "+u" suffix is accepted and means nothing: the probe lists
-// every staged actor). A value of staged kinds alone enables no row.
-func splitStagedKinds(v string) (enemysync.KindSet, []enemysync.KindID, error) {
-	var live []string
-	var staged []enemysync.KindID
-	for _, tok := range strings.Split(v, ",") {
-		name, _ := strings.CutSuffix(strings.ToLower(strings.TrimSpace(tok)), "+u")
-		if k, ok := enemysync.StagedByName(name); ok {
-			if slices.Contains(staged, k.ID) {
-				return enemysync.KindSet{}, nil, fmt.Errorf("enemy kind %q listed twice", name)
-			}
-			staged = append(staged, k.ID)
-			continue
-		}
-		live = append(live, tok)
-	}
-	if len(live) == 0 {
-		return enemysync.KindSet{}, staged, nil
-	}
-	set, err := enemysync.ParseKinds(strings.Join(live, ","))
-	return set, staged, err
-}
-
-// allStaged is every staged kind.
-func allStaged() []enemysync.KindID {
-	var out []enemysync.KindID
-	for _, k := range enemysync.StagedKinds {
-		out = append(out, k.ID)
-	}
-	return out
 }
 
 // bokoInfo is what a Bokoblin's m1200 names: the walk's actor with that
@@ -222,14 +196,14 @@ func runEnemyMatch(cmd string, args []string) {
 	if err == nil && !flags["dry"] {
 		err = errors.New("only --dry is implemented (Batch 1 writes nothing)")
 	}
-	set, staged := enemysync.AllKinds(), allStaged()
+	set := enemysync.AllKinds()
 	if err == nil && values["kinds"] != "" {
-		set, staged, err = splitStagedKinds(values["kinds"])
+		set, err = enemysync.ParseKinds(values["kinds"])
 	}
 	if err != nil {
 		exitUsage(err, enemyMatchUsage)
 	}
-	err = diag.WithMem(openDolphin, func(m mem.Mem) error { return enemyMatch(os.Stdout, m, set, staged...) })
+	err = diag.WithMem(openDolphin, func(m mem.Mem) error { return enemyMatch(os.Stdout, m, set) })
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", cmd, err)
 		os.Exit(1)
@@ -237,40 +211,24 @@ func runEnemyMatch(cmd string, args []string) {
 }
 
 // enemyMatch prints m's Idents for its current stage and room: a scope
-// line, one ident line per actor of an enabled kind or a staged kind in
-// staged (taken or refused), a note when a keyed Keese is listed, a boko
-// line per Bokoblin, and a summary. On the ident and boko lines the
+// line, one ident line per actor of an enabled kind (taken or refused),
+// a boko line per Bokoblin, and a summary. On the ident and boko lines the
 // per-machine and live fields come from " pid=" on (see the file
 // comment).
-func enemyMatch(w io.Writer, m mem.Reader, set enemysync.KindSet, staged ...enemysync.KindID) error {
+func enemyMatch(w io.Writer, m mem.Reader, set enemysync.KindSet) error {
 	stageName, room, err := enemyScope(m)
 	if err != nil {
 		return err
 	}
-	layouts := enemysync.KindLayouts
-	if len(staged) > 0 {
-		layouts = enemysync.ProbeLayouts
-	}
-	aw, err := actors.ReadWith(m, 0, layouts)
+	aw, err := actors.ReadWith(m, 0, enemysync.KindLayouts)
 	if err != nil {
 		return err
 	}
-	es, err := enemysync.ClassifyWalk(m, &aw, room, set)
+	es, err := enemysync.ClassifyWalk(m, &aw, stageName, room, set)
 	if err != nil {
 		return err
 	}
 	scope := fmt.Sprintf("scope stage=%s room=%d kinds=%s walk=%s", stageName, room, set, strings.ReplaceAll(walkNote(&aw), " ", "_"))
-	if len(staged) > 0 {
-		es = append(es, enemysync.ClassifyStaged(&aw, room, staged...)...)
-		slices.SortStableFunc(es, func(a, b enemysync.Enemy) int {
-			return cmp.Or(cmp.Compare(a.Ident.Proc, b.Ident.Proc), cmp.Compare(a.Ident.SetID, b.Ident.SetID), cmp.Compare(a.Ident.PKey, b.Ident.PKey))
-		})
-		var names []string
-		for _, id := range staged {
-			names = append(names, id.String())
-		}
-		scope += " staged=" + strings.Join(names, ",")
-	}
 	fmt.Fprintln(w, scope)
 	byPID := pidIndex(&aw)
 	taken := 0
@@ -280,9 +238,6 @@ func enemyMatch(w io.Writer, m mem.Reader, set enemysync.KindSet, staged ...enem
 			taken++
 		}
 		fmt.Fprintf(w, "ident %s verdict=%s pid=%d %s\n", identFields(e), verdict(e), e.PID, liveGateText(e))
-	}
-	if slices.ContainsFunc(es, func(e enemysync.Enemy) bool { return e.Kind == enemysync.KindKI && e.Ident.Keyed() }) {
-		fmt.Fprintln(w, "note kind=ki keyed pkey hashes home.pos, which the Keese moves (d_a_ki.cpp:681-682): pkey and home may differ between machines (design D9 drops home.pos for keyed KI in A1)")
 	}
 	for i := range es {
 		e := &es[i]
@@ -313,24 +268,16 @@ func enemyMatch(w io.Writer, m mem.Reader, set enemysync.KindSet, staged ...enem
 }
 
 // enemyKindWatch is enemy-watch --kind bk|cc|ki|am|am2 over m for d (0:
-// until ctx ends). A staged kind (ki, am, am2) has no Kinds row: its walk
-// reads ProbeLayouts, ClassifyStaged takes it, ReadStagedSample samples
-// it, and its BCK resolves through its own ArcRes (KindTracker's tables
-// are the rows').
+// until ctx ends). An allow kind (ki, am, am2) also prints allowExtra's
+// tail each tick.
 func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Duration, id enemysync.KindID) error {
 	tr := enemysync.NewKindTracker()
-	k, layouts := id.Row(), enemysync.KindLayouts
-	var res *enemysync.ArcRes
-	staged := k == nil
-	if staged {
-		k, layouts = id.StagedRow(), enemysync.ProbeLayouts
-		if k == nil {
-			return fmt.Errorf("no kind %d", id)
-		}
-		res = enemysync.NewArcRes(k)
-	} else {
-		res = tr.Res[id]
+	k := id.Row()
+	if k == nil {
+		return fmt.Errorf("no kind %d", id)
 	}
+	res := tr.Res[id]
+	allow := id >= enemysync.KindKI
 	defer func() {
 		st := res.Stats
 		fmt.Fprintf(w, "%s table stats: reads %d bck_miss %d miss_reads %d\n", k.Arc, st.Reads, st.BckMiss, st.MissReads)
@@ -357,14 +304,12 @@ func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Durat
 		if err != nil {
 			return err
 		}
-		aw, err := actors.ReadWith(m, 0, layouts)
+		aw, err := actors.ReadWith(m, 0, enemysync.KindLayouts)
 		if err != nil {
 			return err
 		}
-		var es []enemysync.Enemy
-		if staged {
-			es = enemysync.ClassifyStaged(&aw, room, id)
-		} else if es, err = enemysync.ClassifyWalk(m, &aw, room, kindOnly(id)); err != nil {
+		es, err := enemysync.ClassifyWalk(m, &aw, stageName, room, kindOnly(id))
+		if err != nil {
 			return err
 		}
 		byPID = pidIndex(&aw)
@@ -423,18 +368,9 @@ func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Durat
 			rewalk := false
 			for i := range taken {
 				e := &taken[i]
-				var s enemysync.KindSample
-				var err error
-				if staged {
-					s, err = enemysync.ReadStagedSample(m, e)
-				} else {
-					s, err = enemysync.ReadKindSample(m, e)
-				}
+				s, err := enemysync.ReadKindSample(m, e)
 				if err == nil {
 					err = tr.Derive(m, e.PID, &s, now)
-				}
-				if err == nil && staged && s.MorfOK {
-					s.Bck, err = res.Lookup(m, s.Anm, now)
 				}
 				if err != nil {
 					fmt.Fprintf(w, "[%6.3fs] %s pid %d: %v\n", now.Sub(start).Seconds(), e.Ident, e.PID, err)
@@ -444,8 +380,8 @@ func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Durat
 					continue
 				}
 				extra := ""
-				if staged {
-					extra = stagedExtra(id, &s)
+				if allow {
+					extra = allowExtra(id, &s)
 				} else if id == enemysync.KindBK {
 					b, err := readBoko(m, byPID, s.BokoPID)
 					if err != nil {
@@ -523,12 +459,12 @@ func bitNames(f uint8, names []struct {
 	return strings.Join(out, " ")
 }
 
-// stagedExtra is a staged kind's per-tick tail: the morf's last frame
+// allowExtra is an allow kind's per-tick tail (A0's fields): the morf's last frame
 // (mEnd; for the Armos Knight's DEAD, 0x1A, the design's
 // EMK_AM_QUIET_FRAMES), current.angle beside shape_angle, the status
 // word, the ice freeze timer, the dormant rule, the kind's own fields,
 // and every collider.
-func stagedExtra(id enemysync.KindID, s *enemysync.KindSample) string {
+func allowExtra(id enemysync.KindID, s *enemysync.KindSample) string {
 	st := &s.St
 	var b strings.Builder
 	fmt.Fprintf(&b, "end %d cur %d/%d/%d shape %d/%d/%d dy %d status 0x%08X freeze %d dormant %v", s.MorfEnd,
