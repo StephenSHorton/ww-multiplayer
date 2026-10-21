@@ -22,23 +22,25 @@ func sampleSlot(i int) Slot {
 		Health: -1, Flags: SlotSnap | SlotDying | uint8(i),
 		Bck: 0x3E + uint8(i), AnmAttr: AnmAttrLoop, AnmSeq: 0xFE + uint8(i), Morf: 15,
 		Flags2: SlotF2HasWeapon | SlotF2BlurOn | uint8(i)<<4, BlurShape: 2, BlurScale: 0.75 + float32(i),
+		WFlags: WFlagEngaged, Kind: KindMO2, PKey: 0xA0000000 + uint32(i), Handle: uint16(1 + i), Aux: [4]int16{int16(i), -2, 3, -4},
 	}
 }
 
 func sampleState(n int) *State {
 	s := &State{Flags: StateFlagInScope | StateFlagAnim, Epoch: 7, Seq: 0xDEADBEEF, HostBeat: 123456, HostMS: 98765,
-		Stage: "M_Dai", Room: 1, DeadMask: 0x05}
+		Stage: "M_Dai", Room: 1, HostKindMask: 0b011, KindHash: KindHash()}
+	s.SetDead([DeadWords]uint32{0x05, 0, 1 << 17, 0x80000000})
 	for i := range n {
 		s.Slots = append(s.Slots, sampleSlot(i))
 	}
 	return s
 }
 
-// TestStateRoundTrip: 0..4 slots encode to the server's size (48-byte
-// slots) and decode to the same State, the animation identity included;
-// an empty-slot STATE decodes with nil Slots.
+// TestStateRoundTrip: 0..16 slots encode to the server's size (64-byte
+// slots) and decode to the same State, the animation identity and the v4
+// fields included; an empty-slot STATE decodes with nil Slots.
 func TestStateRoundTrip(t *testing.T) {
-	for n := 0; n <= MaxSlots; n++ {
+	for n := 0; n <= WireMaxSlots; n++ {
 		s := sampleState(n)
 		b, err := EncodeState(s)
 		if err != nil {
@@ -47,18 +49,18 @@ func TestStateRoundTrip(t *testing.T) {
 		if len(b) != network.EnemyStateLen(n) || b[0] != SubState || b[1] != WireVersion || int(b[3]) != n {
 			t.Fatalf("%d slots: %d bytes, header %x", n, len(b), b[:4])
 		}
-		if len(b) != StateHeaderLen+48*n {
-			t.Fatalf("%d slots: %d bytes, want %d", n, len(b), StateHeaderLen+48*n)
+		if len(b) != StateHeaderLen+64*n {
+			t.Fatalf("%d slots: %d bytes, want %d", n, len(b), StateHeaderLen+64*n)
 		}
 		if why := networkShape(b); why != "" {
 			t.Fatalf("%d slots: the server would drop it: %s", n, why)
 		}
 		// The v2 tail of each slot at its design offsets (@36..@41 bytes,
-		// @42 pad u16, @44 blur_scale).
+		// @42 wflags and @43 kind since v4, @44 blur_scale).
 		for i := range n {
 			sl, want := b[StateHeaderLen+SlotLen*i:], s.Slots[i]
 			if sl[36] != want.Bck || sl[37] != want.AnmAttr || sl[38] != want.AnmSeq || sl[39] != want.Morf ||
-				sl[40] != want.Flags2 || sl[41] != want.BlurShape || sl[42] != 0 || sl[43] != 0 ||
+				sl[40] != want.Flags2 || sl[41] != want.BlurShape || sl[42] != want.WFlags || sl[43] != uint8(want.Kind) ||
 				math.Float32frombits(binary.BigEndian.Uint32(sl[44:])) != want.BlurScale {
 				t.Errorf("%d slots: slot %d tail % x", n, i, sl[36:48])
 			}
@@ -88,9 +90,9 @@ func networkShape(b []byte) string {
 }
 
 func TestStateEncodeRefuses(t *testing.T) {
-	s := sampleState(5)
+	s := sampleState(WireMaxSlots + 1)
 	if _, err := EncodeState(s); err == nil {
-		t.Error("5 slots encoded")
+		t.Error("17 slots encoded")
 	}
 	s = sampleState(1)
 	s.Stage = "toolongname"
@@ -145,7 +147,8 @@ func TestStateDecodeRefuses(t *testing.T) {
 		{"empty", nil},
 		{"one byte", []byte{SubState}},
 		{"short header", good[:StateHeaderLen-1]},
-		{"wrong version", func() []byte { b := bytes.Clone(good); b[1] = 4; return b }()},
+		{"wrong version", func() []byte { b := bytes.Clone(good); b[1] = 5; return b }()},
+		{"version 3", func() []byte { b := bytes.Clone(good); b[1] = 3; return b }()},
 		{"version 2", func() []byte { b := bytes.Clone(good); b[1] = 2; return b }()},
 		{"version 1, 48-byte slots", func() []byte { b := bytes.Clone(good); b[1] = 1; return b }()},
 		// A version-1 STATE as an old host builds it.
@@ -156,7 +159,7 @@ func TestStateDecodeRefuses(t *testing.T) {
 		// Four v1 slots are exactly three v2 slots' bytes: the count refuses it.
 		{"four 36-byte slots", v1Sized(WireVersion, 4)},
 		{"wrong sub", func() []byte { b := bytes.Clone(good); b[0] = SubHit; return b }()},
-		{"count over max", func() []byte { b := bytes.Clone(good); b[3] = 5; return b }()},
+		{"count over max", func() []byte { b := bytes.Clone(good); b[3] = WireMaxSlots + 1; return b }()},
 		{"count under length", func() []byte { b := bytes.Clone(good); b[3] = 1; return b }()},
 		{"count over length", func() []byte { b := bytes.Clone(good); b[3] = 3; return b }()},
 		{"truncated slot", good[:len(good)-1]},
@@ -186,7 +189,7 @@ func TestStateDecodeRefuses(t *testing.T) {
 func TestHitAckRoundTrip(t *testing.T) {
 	h := &Hit{Client: 0, Collider: ColliderHead, Epoch: 9, Stage: "M_Dai", Room: 1, Atp: 2, SetID: 2, HitSeq: 300,
 		AtType: 0x80000, Pos: [3]float32{1, -2.5, 3e4}, ClientFrame: 0xFFFFFFFF,
-		Se: 0x11, HitMark: 0x22, Spl: 1, AtSPrm: 0x02}
+		Se: 0x11, HitMark: 0x22, Spl: 1, AtSPrm: 0x02, Handle: 0x1234}
 	b, err := EncodeHit(h)
 	if err != nil {
 		t.Fatal(err)
@@ -194,8 +197,8 @@ func TestHitAckRoundTrip(t *testing.T) {
 	if len(b) != network.EnemyHitLen || b[0] != SubHit || b[1] != WireVersion {
 		t.Fatalf("hit: %d bytes, header %x", len(b), b[:4])
 	}
-	if b[22] != 0x11 || b[23] != 0x22 || b[44] != 1 || b[45] != 0x02 || b[46] != 0 || b[47] != 0 {
-		t.Errorf("hit v2 bytes: @22 % x, @44 % x", b[22:24], b[44:48])
+	if b[22] != 0x11 || b[23] != 0x22 || b[44] != 1 || b[45] != 0x02 || b[46] != 0 || b[47] != 0 || b[52] != 0x12 || b[53] != 0x34 {
+		t.Errorf("hit v2 bytes: @22 % x, @44 % x, handle @52 % x", b[22:24], b[44:48], b[52:54])
 	}
 	// The server stamps the client ID.
 	b[network.EnemyClientIDOff] = 42
@@ -211,6 +214,7 @@ func TestHitAckRoundTrip(t *testing.T) {
 		nil, b[:HitLen-1], append(bytes.Clone(b), 0), func() []byte { c := bytes.Clone(b); c[0] = SubAck; return c }(),
 		b[:44], // a v1-sized HIT
 		b[:48], // a v2-sized HIT
+		b[:52], // a v3-sized HIT
 		func() []byte { c := bytes.Clone(b); c[1] = 1; return c }(),
 	} {
 		if _, err := DecodeHit(bad); err == nil {
@@ -219,14 +223,14 @@ func TestHitAckRoundTrip(t *testing.T) {
 	}
 
 	for _, a := range []*Ack{
-		{Client: 42, Result: AckShrink, Epoch: 9, SetID: 2, HitSeq: 300, Health: -128, Detail: HDFallbackShrink, Frames: 3, Sets: 2},
-		{Client: 7, Result: AckParried, Epoch: 0xFFFFFFFF, SetID: 0xFFFF, HitSeq: 1, Health: 5, Detail: HDNone, Frames: 255, Sets: 1},
+		{Client: 42, Result: AckShrink, Epoch: 9, SetID: 2, Handle: 3, HitSeq: 300, Health: -128, Detail: HDFallbackShrink, Frames: 3, Sets: 2},
+		{Client: 7, Result: AckParried, Epoch: 0xFFFFFFFF, SetID: 0xFFFF, Handle: 0xFFFE, HitSeq: 1, Health: 5, Detail: HDNone, Frames: 255, Sets: 1},
 	} {
 		ab := EncodeAck(a)
 		if len(ab) != network.EnemyAckLen || ab[0] != SubAck || ab[1] != WireVersion || ab[network.EnemyClientIDOff] != a.Client || ab[3] != a.Result {
 			t.Fatalf("ack: %d bytes, %x", len(ab), ab)
 		}
-		if ab[13] != a.Detail || ab[14] != a.Frames || ab[15] != a.Sets {
+		if ab[13] != a.Detail || ab[14] != a.Frames || ab[15] != a.Sets || binary.BigEndian.Uint16(ab[16:]) != a.Handle {
 			t.Errorf("ack @13 % x, want %d %d %d", ab[13:], a.Detail, a.Frames, a.Sets)
 		}
 		ga, err := DecodeAck(ab)
@@ -235,7 +239,7 @@ func TestHitAckRoundTrip(t *testing.T) {
 		}
 	}
 	ab := EncodeAck(&Ack{Client: 42, Result: AckParried, Detail: HDNone, Frames: 1, Sets: 1})
-	for _, bad := range [][]byte{nil, ab[:AckLen-1], append(bytes.Clone(ab), 0), func() []byte { c := bytes.Clone(ab); c[1] = 1; return c }()} {
+	for _, bad := range [][]byte{nil, ab[:AckLen-1], ab[:16], append(bytes.Clone(ab), 0), func() []byte { c := bytes.Clone(ab); c[1] = 1; return c }()} {
 		if _, err := DecodeAck(bad); err == nil {
 			t.Errorf("ack %x decoded", bad)
 		}
@@ -243,13 +247,13 @@ func TestHitAckRoundTrip(t *testing.T) {
 }
 
 // TestSlotFlagsAndSizes: the wire's slot flags, flags2, ACK results and
-// details are the block's (wwapi/mailbox), and the sizes are version 3's.
+// details are the block's (wwapi/mailbox), and the sizes are version 4's.
 func TestSlotFlagsAndSizes(t *testing.T) {
 	if SlotSnap != 1 || SlotDying != 2 || SlotInvuln != 4 || SlotDefence != 8 || SlotRagdoll != 0x10 || SlotBareHanded != 0x20 || SlotHidden != 0x40 || SlotRelease != 0x80 {
 		t.Error("slot flags moved")
 	}
-	if StateHeaderLen != 32 || SlotLen != 48 || HitLen != 52 || AckLen != 16 || MaxSlots != 4 || WireVersion != 3 {
-		t.Errorf("sizes: header %d slot %d hit %d ack %d max %d ver %d", StateHeaderLen, SlotLen, HitLen, AckLen, MaxSlots, WireVersion)
+	if StateHeaderLen != 52 || SlotLen != 64 || HitLen != 56 || AckLen != 20 || MaxSlots != 4 || WireMaxSlots != 16 || WireVersion != 4 {
+		t.Errorf("sizes: header %d slot %d hit %d ack %d max %d wire max %d ver %d", StateHeaderLen, SlotLen, HitLen, AckLen, MaxSlots, WireMaxSlots, WireVersion)
 	}
 	pins := []struct {
 		name      string
@@ -288,6 +292,7 @@ func TestSlotFlagsAndSizes(t *testing.T) {
 		{"HDBusy", HDBusy, mailbox.EnemyHDBusy},
 		{"HDGoFlags", HDGoFlags, mailbox.EnemyHDGoFlags},
 		{"HDDemo", HDDemo, mailbox.EnemyHDDemo},
+		{"HDKind", HDKind, mailbox.EnemyHDKind},
 	}
 	for _, p := range pins {
 		if p.wire != p.blk {
@@ -315,17 +320,17 @@ func TestResultDetailNames(t *testing.T) {
 		HDNone: "none", HDNoCross: "no_cross", HDInvuln: "invuln", HDRagdoll: "ragdoll", HDDying: "dying",
 		HDNoLink: "no_link", HDNoSphere: "no_sphere", HDWrongObj: "wrong_obj", HDAborted: "aborted",
 		HDDefence: "defence", HDFallbackShrink: "fallback_shrink", HDGoGate: "go_gate", HDRate: "rate",
-		HDBusy: "busy", HDGoFlags: "go_flags", HDDemo: "demo", HDNoBody: "no_body",
+		HDBusy: "busy", HDGoFlags: "go_flags", HDDemo: "demo", HDNoBody: "no_body", HDKind: "kind",
 	}
-	if len(details) != int(HDNoBody)+1 {
-		t.Fatalf("%d details listed, HDNoBody is %d", len(details), HDNoBody)
+	if len(details) != int(HDKind)+1 {
+		t.Fatalf("%d details listed, HDKind is %d", len(details), HDKind)
 	}
 	for d, want := range details {
 		if got := DetailName(d); got != want {
 			t.Errorf("DetailName(%d) = %q, want %q", d, got, want)
 		}
 	}
-	for _, d := range []uint8{HDNoBody + 1, 0xFF} {
+	for _, d := range []uint8{HDKind + 1, 0xFF} {
 		if got, want := DetailName(d), "detail_"+strconv.Itoa(int(d)); got != want {
 			t.Errorf("DetailName(%d) = %q, want %q", d, got, want)
 		}
@@ -358,7 +363,7 @@ func canonical(data []byte, stageOff int, pads ...int) []byte {
 }
 
 func FuzzDecodeState(f *testing.F) {
-	for n := 0; n <= MaxSlots; n++ {
+	for _, n := range []int{0, 1, MaxSlots, WireMaxSlots} {
 		b, _ := EncodeState(sampleState(n))
 		f.Add(b)
 	}
@@ -371,14 +376,14 @@ func FuzzDecodeState(f *testing.F) {
 			return
 		}
 		// A STATE that decodes re-encodes to the bytes it came from, less
-		// the header's pad (@30) and each slot's (@42).
+		// the header's pad (@31) and each slot's (@54).
 		enc, err := EncodeState(s)
 		if err != nil {
 			t.Fatalf("re-encode: %v", err)
 		}
-		pads := []int{30, 31}
+		pads := []int{31}
 		for i := range s.Slots {
-			pads = append(pads, StateHeaderLen+SlotLen*i+42, StateHeaderLen+SlotLen*i+43)
+			pads = append(pads, StateHeaderLen+SlotLen*i+54, StateHeaderLen+SlotLen*i+55)
 		}
 		if want := canonical(data, 20, pads...); !bytes.Equal(enc, want) {
 			t.Fatalf("round trip = %x, want %x", enc, want)
@@ -397,7 +402,7 @@ func FuzzDecodeHit(f *testing.F) {
 			return
 		}
 		enc, err := EncodeHit(h)
-		if want := canonical(data, 8, 49, 50, 51); err != nil || !bytes.Equal(enc, want) {
+		if want := canonical(data, 8, 49, 50, 51, 54, 55); err != nil || !bytes.Equal(enc, want) {
 			t.Fatalf("round trip = %x (%v), want %x", enc, err, want)
 		}
 	})
@@ -413,8 +418,9 @@ func FuzzDecodeAck(f *testing.F) {
 		if err != nil {
 			return
 		}
-		// Every byte of a version-2 ACK is a field: no pads.
-		if enc := EncodeAck(a); !bytes.Equal(enc, data) {
+		// Every byte of the version-3 part is a field; version 4's handle
+		// is followed by a u16 pad.
+		if enc := EncodeAck(a); !bytes.Equal(enc, canonical(data, -1, 18, 19)) {
 			t.Fatalf("round trip = %x, want %x", enc, data)
 		}
 	})

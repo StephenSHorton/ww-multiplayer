@@ -95,8 +95,9 @@ func eq16(a, b []uint16) bool {
 	return true
 }
 
-// TestHostSampler: exactly the three keyed mode-0 Moblins of Link's room,
-// sorted by setID, with their fields; the first sample snaps; without a
+// TestHostSampler (WW_ENEMY_SELECT=legacy: the prototype's order): exactly
+// the three keyed mode-0 Moblins of Link's room, sorted by setID, with
+// their fields, kind, pkey and handles 1..3 in discovery (Ident) order; the first sample snaps; without a
 // Mo2 resource table the STATE has no anim flag and every Bck is
 // unresolved (a readable morf still gives its attribute, an unset one
 // 0xFF); a PID change under the sampler drops the entry; the title
@@ -119,23 +120,32 @@ func TestHostSampler(t *testing.T) {
 
 	start := time.Unix(1000, 0)
 	h := NewHost(m, log.Discard{}, 7, start)
+	h.Select = SelectLegacy
 	st, err := h.Tick(start)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st == nil || !eq16(setIDs(st), []uint16{0, 1, 2}) || st.Flags&StateFlagInScope == 0 || st.Epoch != 7 || st.Seq != 1 || st.Stage != "M_Dai" || st.Room != 1 || st.DeadMask != 0 {
+	if st == nil || !eq16(setIDs(st), []uint16{0, 1, 2}) || st.Flags&StateFlagInScope == 0 || st.Epoch != 7 || st.Seq != 1 || st.Stage != "M_Dai" || st.Room != 1 || st.DeadMask != 0 ||
+		st.HostKindMask != 1<<KindMO2 || st.KindHash != KindHash() {
 		t.Fatalf("first tick: %+v", st)
+	}
+	ens := h.Enemies()
+	for i := range st.Slots {
+		if s := st.Slots[i]; s.Kind != KindMO2 || s.Handle != uint16(i)+1 || s.PKey != ens[i].Ident.PKey || s.WFlags != 0 {
+			t.Errorf("slot %d: kind %s handle %d pkey 0x%08X wflags %02X, want handle %d pkey 0x%08X", i, s.Kind, s.Handle, s.PKey, s.WFlags, i+1, ens[i].Ident.PKey)
+		}
 	}
 	if st.Flags&StateFlagAnim != 0 {
 		t.Errorf("the anim flag without a Mo2 table: %02X", st.Flags)
 	}
-	if mos := h.Moblins(); len(mos) != 3 || mos[0].Mode != 1 || mos[1].Mode != 1 || mos[2].Mode != 0 || mos[0].PID != a0.PID {
+	if mos := h.Enemies(); len(mos) != 3 || mos[0].Live.Mode != 1 || mos[1].Live.Mode != 1 || mos[2].Live.Mode != 0 || mos[0].PID != a0.PID {
 		t.Fatalf("cache: %+v", mos)
 	}
 	s0 := st.Slots[0]
 	want := Slot{SetID: 0, Proc: ProcMO2, Pos: [3]float32{-1500.5, 250, 3000}, AngleY: 0x4000, Tilt: -2, Action: 10, Mode: 2, AttackType: 2, AttackPhase: 1,
 		MorfFrame: 12.25, MorfRate: 1.5, Health: 4, Flags: SlotSnap | SlotInvuln | SlotDefence | SlotBareHanded,
-		Bck: addr.Mo2BckNone, AnmAttr: AnmAttrNone} // the morf is zeroed but readable; no table, no Bck
+		Bck: addr.Mo2BckNone, AnmAttr: AnmAttrNone, // the morf is zeroed but readable; no table, no Bck
+		Kind: KindMO2, PKey: ens[0].Ident.PKey, Handle: 1}
 	if s0 != want {
 		t.Errorf("slot 0\n got %+v\nwant %+v", s0, want)
 	}
@@ -175,19 +185,35 @@ func TestHostSampler(t *testing.T) {
 		t.Errorf("dead_mask %08b, want bit 2", st.DeadMask)
 	}
 
-	// The block of setID 1 freed and reused by a runtime Moblin: the
-	// entry is dropped at the tick that sees it, and the walk after it
-	// does not take the new actor (setID 0xFFFF).
+	// The block of setID 1 (dying: action 20) freed and reused by a
+	// runtime Moblin: the entry is dropped at the tick that sees it, and
+	// the walk after it does not take the new actor (setID 0xFFFF). It
+	// vanished dying, so it is listed first as a tombstone (DYING|RELEASE,
+	// WFlagTomb, its handle kept) for TombFrames host frames.
 	if _, err := es.FreeAndReuse(g, a1.PID, stage.ProcMO2); err != nil {
 		t.Fatal(err)
 	}
 	st, err = h.Tick(start.Add(48 * time.Millisecond))
-	if err != nil || !eq16(setIDs(st), []uint16{0, 2}) {
+	if err != nil || !eq16(setIDs(st), []uint16{1, 0, 2}) {
 		t.Fatalf("after the reuse: %v %v", setIDs(st), err)
 	}
+	if s := st.Slots[0]; s.WFlags != WFlagTomb || s.Flags&(SlotDying|SlotRelease) != SlotDying|SlotRelease || s.Handle != 2 {
+		t.Errorf("tombstone: %+v", s)
+	}
 	st, _ = h.Tick(start.Add(64 * time.Millisecond))
-	if !eq16(setIDs(st), []uint16{0, 2}) || len(h.Moblins()) != 2 {
-		t.Errorf("after the walk: %v, cache %v", setIDs(st), h.Moblins())
+	if !eq16(setIDs(st), []uint16{1, 0, 2}) || len(h.Enemies()) != 2 {
+		t.Errorf("after the walk: %v, cache %v", setIDs(st), h.Enemies())
+	}
+	if l := h.Listing(); len(l.Entries) != 3 || l.Entries[0].PID != 0 || l.HandleOfPID(a0.PID) != 1 {
+		t.Errorf("listing: %+v", l.Entries)
+	}
+	// TombFrames host frames later the tombstone is gone.
+	frames(t, g, es, TombFrames)
+	st, _ = h.Tick(start.Add(80 * time.Millisecond))
+	for _, s := range st.Slots {
+		if s.SetID == 1 {
+			t.Errorf("setID 1's tombstone outlived TombFrames: %+v", st.Slots)
+		}
 	}
 
 	// The title screen: a count-0 keepalive, then nothing for
@@ -205,7 +231,7 @@ func TestHostSampler(t *testing.T) {
 	if st, _ = h.Tick(start.Add(time.Second + KeepaliveEvery)); st == nil || len(st.Slots) != 0 {
 		t.Errorf("no keepalive at KeepaliveEvery: %+v", st)
 	}
-	if n := len(h.Moblins()); n != 0 {
+	if n := len(h.Enemies()); n != 0 {
 		t.Errorf("cache kept %d Moblins off play", n)
 	}
 }
@@ -235,7 +261,7 @@ func TestHostSamplerAnim(t *testing.T) {
 	now := start.Add(WalkEvery + 16*time.Millisecond)
 	st, err = h.Tick(now)
 	if err != nil || st.Flags&StateFlagAnim == 0 {
-		t.Fatalf("after the walk: flags %02X %v (%s)", st.Flags, err, h.Tracker.Res.Why())
+		t.Fatalf("after the walk: flags %02X %v (%s)", st.Flags, err, h.Tracker.Res[KindMO2].Why())
 	}
 	if s := st.Slots[0]; s.Bck != addr.Mo2BckWait || s.AnmAttr != AnmAttrLoop || s.AnmSeq != 0 || s.Morf != 15 || s.MorfFrame != 3 || s.MorfRate != 1 {
 		t.Errorf("WAIT: %+v", s)
@@ -303,24 +329,26 @@ func TestHostSamplerOutOfRoom(t *testing.T) {
 // off), recording writes, with the sampler's five Moblins of M_Dai room 1
 // (setIDs 0..4, pids 420..424) and their STATE: setID 1 invulnerable,
 // 2 in defence, 3 ragdolling, 4 dying.
-func hitRig(t *testing.T) (*mem.FakeMem, *HitApplier, *State, []Moblin) {
+func hitRig(t *testing.T) (*mem.FakeMem, *HitApplier, *State, *Listing) {
 	t.Helper()
 	m := mem.NewFakeMem()
 	m.Record(true)
 	a := newHitApplier(m, log.Discard{}, 7)
 	a.SetREL(true)
 	st := &State{Flags: StateFlagInScope, Epoch: 7, Stage: "M_Dai", Room: 1}
-	var mos []Moblin
+	l := &Listing{}
 	for i, f := range []uint8{0, SlotInvuln, SlotDefence, SlotRagdoll, SlotDying} {
-		mos = append(mos, Moblin{Addr: 0x80AA0000 + 0x3000*uint32(i), PID: 420 + uint32(i), SetID: uint16(i), HomeRoom: 1, Mode: 1})
-		st.Slots = append(st.Slots, Slot{SetID: uint16(i), Health: int8(4 - i%2), Flags: f})
+		sl := Slot{SetID: uint16(i), Proc: ProcMO2, Health: int8(4 - i%2), Flags: f, Handle: uint16(i) + 1}
+		st.Slots = append(st.Slots, sl)
+		l.Entries = append(l.Entries, Listed{Ident: sl.Ident(), Handle: sl.Handle, PID: 420 + uint32(i), Slot: sl})
 	}
-	return m, a, st, mos
+	return m, a, st, l
 }
 
-// hostHit is client's hit_seq seq on setID in M_Dai room 1 at epoch 7.
+// hostHit is client's hit_seq seq on setID (handle setID+1, as hitRig
+// lists them) in M_Dai room 1 at epoch 7.
 func hostHit(client uint8, setID, seq uint16) *Hit {
-	return &Hit{Client: client, Collider: ColliderHead, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: setID, HitSeq: seq}
+	return &Hit{Client: client, Collider: ColliderHead, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: setID, Handle: setID + 1, HitSeq: seq}
 }
 
 // hostBlocks decodes every block write m recorded since the last reset.
@@ -328,11 +356,11 @@ func hostBlocks(t *testing.T, m *mem.FakeMem) []mailbox.EnemyBlock {
 	t.Helper()
 	var out []mailbox.EnemyBlock
 	for _, w := range m.Writes() {
-		if w.Addr != mailbox.EnemyBlockAddr || len(w.Data) != mailbox.EnemyGoSpan {
+		if w.Addr != mailbox.EnemyAnnexAddr || len(w.Data) != mailbox.EnemyWriteSpan {
 			t.Fatalf("a write that is not the host block: 0x%08X %d B", w.Addr, len(w.Data))
 		}
-		blk, tail, err := mailbox.DecodeEnemyBlock(w.Data)
-		if err != nil || tail != blk.Seq {
+		blk, tail, annexSeq, err := mailbox.DecodeEnemyWrite(w.Data)
+		if err != nil || tail != blk.Seq || annexSeq != blk.Seq {
 			t.Fatalf("block: %+v tail %d %v", blk, tail, err)
 		}
 		out = append(out, blk)
@@ -362,14 +390,14 @@ func hostAckREL(t *testing.T, m *mem.FakeMem, seq uint32, r mailbox.EnemyHitResu
 // epoch<<16+1; Poll ignores an ack for another seq and maps the REL's
 // result word into the ACK; a keepalive after it carries the acked
 // request, never seq 0; a replayed, stale, out-of-scope or unknown HIT is
-// acknowledged at once with its detail; HitRate holds per Moblin; a
+// acknowledged at once with its detail; HitRate holds per (client, handle); a
 // request the REL never acks is no-actor after hitAckFrames REL frames
 // and a keepalive after it carries the cancel, never the request.
 func TestHitApplier(t *testing.T) {
 	m, a, st, mos := hitRig(t)
 	now := time.Unix(1000, 0)
 	a.SetScope(Scope{Stage: "sea", Room: 5, InPlay: true})
-	hit := &Hit{Client: 3, Collider: ColliderHead, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: 0, HitSeq: 1, AtType: 0x80000, Atp: 2,
+	hit := &Hit{Client: 3, Collider: ColliderHead, Epoch: 7, Stage: "M_Dai", Room: 1, SetID: 0, Handle: 1, HitSeq: 1, AtType: 0x80000, Atp: 2,
 		Pos: [3]float32{1, 2, 3}, Se: 1, HitMark: 0xF, Spl: 1}
 	if ack := a.Offer(hit, st, mos, now); ack != nil {
 		t.Fatalf("a valid hit was acked at once: %+v", ack)
@@ -408,7 +436,7 @@ func TestHitApplier(t *testing.T) {
 	// two Sets (four distinct bytes pin their order).
 	hostAckREL(t, m, seq1, mailbox.EnemyHitResult{Result: AckShrink, Detail: HDFallbackShrink, Frames: 5, Sets: 2})
 	ack, err := a.Poll(st, now)
-	if err != nil || ack == nil || *ack != (Ack{Client: 3, Result: AckShrink, Epoch: 7, SetID: 0, HitSeq: 1, Health: 4, Detail: HDFallbackShrink, Frames: 5, Sets: 2}) {
+	if err != nil || ack == nil || *ack != (Ack{Client: 3, Result: AckShrink, Epoch: 7, SetID: 0, Handle: 1, HitSeq: 1, Health: 4, Detail: HDFallbackShrink, Frames: 5, Sets: 2}) {
 		t.Fatalf("acked: %+v %v", ack, err)
 	}
 	if a.Pending() != 0 {
@@ -449,12 +477,13 @@ func TestHitApplier(t *testing.T) {
 		t.Errorf("out of scope: %+v", ack)
 	}
 
-	// Rate: a second hit on setID 0 within HitRate is dropped; after it,
-	// taken; the REL never acks: no-actor after hitAckFrames REL frames.
-	if ack := a.Offer(hostHit(4, 0, 1), st, mos, now.Add(HitRate/2)); ack == nil || ack.Result != AckDropped || ack.Detail != HDRate {
+	// Rate, per (client, handle): client 3's second hit on setID 0 within
+	// HitRate is dropped; after it, taken; the REL never acks: no-actor
+	// after hitAckFrames REL frames.
+	if ack := a.Offer(hostHit(3, 0, 11), st, mos, now.Add(HitRate/2)); ack == nil || ack.Result != AckDropped || ack.Detail != HDRate {
 		t.Errorf("within HitRate: %+v", ack)
 	}
-	if ack := a.Offer(hostHit(4, 0, 2), st, mos, now.Add(2*HitRate)); ack != nil {
+	if ack := a.Offer(hostHit(3, 0, 12), st, mos, now.Add(2*HitRate)); ack != nil {
 		t.Errorf("after HitRate: %+v", ack)
 	}
 	for f := uint32(0); f < hitAckFrames; f++ {
@@ -465,7 +494,7 @@ func TestHitApplier(t *testing.T) {
 	}
 	hostRELFrame(t, m, hitAckFrames)
 	got, err := a.Poll(st, now)
-	if err != nil || got == nil || got.Result != AckNoActor || got.Client != 4 || got.HitSeq != 2 {
+	if err != nil || got == nil || got.Result != AckNoActor || got.Client != 3 || got.HitSeq != 12 || got.Handle != 1 {
 		t.Errorf("timed out: %+v %v", got, err)
 	}
 	m.ResetWrites()
@@ -525,7 +554,7 @@ func TestHitApplierHostEpoch(t *testing.T) {
 
 // hostTake offers h at now, which must be queued at the head, and has
 // the REL ack it; it returns the ACK Poll sends.
-func hostTake(t *testing.T, m *mem.FakeMem, a *HitApplier, h *Hit, st *State, mos []Moblin, now time.Time) *Ack {
+func hostTake(t *testing.T, m *mem.FakeMem, a *HitApplier, h *Hit, st *State, mos *Listing, now time.Time) *Ack {
 	t.Helper()
 	if ack := a.Offer(h, st, mos, now); ack != nil {
 		t.Fatalf("client %d setID %d hit %d: %+v", h.Client, h.SetID, h.HitSeq, ack)

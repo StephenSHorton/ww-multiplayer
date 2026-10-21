@@ -68,8 +68,8 @@ func (coopApp) Worlds() ([]session.CoopWorld, error) {
 	return out, nil
 }
 
-func (a coopApp) Sync(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs engine.CoopSide) error {
-	return appCoopSync(ctx, a.env, name, addr, pid, rep, cs.(*Session))
+func (a coopApp) Sync(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs engine.CoopSide, claimed func(pid uint32) bool) error {
+	return appCoopSync(ctx, a.env, name, addr, pid, rep, cs.(*Session), claimed)
 }
 
 // frontOf is the coopFront of the engine's front end f: the CLI's (no
@@ -174,10 +174,10 @@ func (h *coopHook) WithPoseClient(name string, next func(*network.Client)) func(
 }
 
 // Pipelines is coop-sync, with its own Dolphin handle and co-op
-// connection.
-func (h *coopHook) Pipelines(name, addr string, rep log.Reporter) []engine.Pipeline {
+// connection, and claimed, the game's enemy-mirror claims, for its K1.
+func (h *coopHook) Pipelines(name, addr string, rep log.Reporter, claimed func(pid uint32) bool) []engine.Pipeline {
 	return []engine.Pipeline{{Name: "coop-sync", Run: func(ctx context.Context) error {
-		return RunSync(ctx, h.env, name, addr, 0, rep, h.cs)
+		return RunSync(ctx, h.env, name, addr, 0, rep, h.cs, claimed)
 	}}}
 }
 

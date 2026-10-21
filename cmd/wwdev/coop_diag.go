@@ -425,7 +425,7 @@ func iceLine(a *actors.Actor) string {
 	if a.HoldOK {
 		s += fmt.Sprintf(" (holding record %d)", a.Hold) // m0B30, m1DD0: 0 when the weapon field is stale
 	}
-	if why := combat.Eligible(a, true); why != "" {
+	if why := combat.Eligible(a, true, nil); why != "" {
 		return s + "; K1 held: " + why
 	}
 	if c, _ := combat.K1(a.Proc); !c.Verified {
@@ -466,7 +466,7 @@ func enemyKill(ctx context.Context, w io.Writer, m mem.Mem, pid uint32, unverifi
 		return fmt.Errorf("no actor has process ID %d (the actors diagnostic lists them)", pid)
 	}
 	fmt.Fprintf(w, "target: %s; %s\n", a, iceLine(a))
-	if why := combat.Eligible(a, unverified); why != "" {
+	if why := combat.Eligible(a, unverified, nil); why != "" {
 		return fmt.Errorf("not written: %s", why)
 	}
 	if a.Keyed() {

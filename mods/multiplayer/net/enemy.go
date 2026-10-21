@@ -68,16 +68,21 @@ const (
 
 	// EnemyStateHeaderLen is a STATE's fixed header (sub, ver, flags,
 	// count, epoch, seq, hostBeat, host_ms, stage[8], room, dead_mask,
-	// pad u16); EnemySlotLen follows it EnemyMaxSlots times at most (48
-	// since wire version 2 added the animation identity).
-	EnemyStateHeaderLen = 32
-	EnemySlotLen        = 48
-	EnemyMaxSlots       = 4
+	// host kind mask, pad, dead[4] u32, kind hash u32: 52 since wire
+	// version 4); EnemySlotLen follows it EnemyMaxSlots times at most (48
+	// since wire version 2 added the animation identity, 64 since version
+	// 4 added wflags, kind, pkey, handle and aux[4]). Version 4 lists up to
+	// 16 candidates; each client picks the 4 its REL mirrors
+	// (ww-multiplayer-handoff/design/enemy-mirror-general.json "wire").
+	EnemyStateHeaderLen = 52
+	EnemySlotLen        = 64
+	EnemyMaxSlots       = 16
 	// EnemyHitLen and EnemyAckLen are the fixed HIT and ACK sizes (the HIT
 	// 48 since version 2 added the sword object's Se/HitMark/Spl/SPrm, 52
-	// since version 3 added cut_type, cut_count and the player id).
-	EnemyHitLen = 52
-	EnemyAckLen = 16
+	// since version 3 added cut_type, cut_count and the player id, 56 and
+	// the ACK 20 since version 4 added the target's handle).
+	EnemyHitLen = 56
+	EnemyAckLen = 20
 	// The remote-Link subs' fixed sizes (wire version 3;
 	// inject/include/wwremote.h's header comment carries the layouts).
 	EnemyPHitLen   = 60

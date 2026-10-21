@@ -161,9 +161,11 @@ extern const u8 g_fopAc_Method[];        // actor_method_class, f_op_actor.cpp
 // The actor. f_op/f_op_actor.h fopAc_ac_c is 0x290 bytes in GZLE01
 // (the decomp's "Size: 0x290"); the game's fopAc create fills that part
 // before our create runs. The keeper's own fields follow it, as d_a_*.h
-// classes do: the frame count, the Moblin mirror's state (enemy_mirror.h)
-// and remote-Link's swap state (remote.h), so nothing lives in .bss. The
-// lite body (remote.h remote_body) overlays the same allocation; mSize is
+// classes do: the frame count, the enemy mirror's state (enemy_mirror.h),
+// remote-Link's swap state (remote.h) and the enemy mirror's layout-3
+// cache (em_ext, which fills the allocation to 0x600), so nothing lives
+// in .bss. The lite body (remote.h remote_body) overlays the same
+// allocation; mSize is
 // WWREMOTE_ACTOR_SIZE, the larger of the two roles, so the keeper pays
 // 0x600 - 0x458 = 0x1A8 bytes of ZeldaHeap more than before (section 5.1).
 #define FOPAC_AC_C_SIZE 0x290
@@ -172,11 +174,23 @@ typedef struct {
     u32 frames;                          // +0x290 this actor's execute count
     enemy_mirror_state mirror;           // +0x294 enemy_mirror.c's slots and counters
     remote_swap_state swap;              // +0x458 remote.c's latches, body records, client apply
+    em_ext ext;                          // +0x5D4 the enemy mirror's layout-3 cache (enemy_mirror.h), to 0x600
 } wwrel_actor;
 typedef char wwrel_check_actor_layout[(__builtin_offsetof(wwrel_actor, frames) == 0x290 &&
                                        __builtin_offsetof(wwrel_actor, mirror) == 0x294 &&
                                        __builtin_offsetof(wwrel_actor, swap) == 0x294 + sizeof(enemy_mirror_state) &&
                                        __builtin_offsetof(wwrel_actor, swap) == WWREMOTE_KEEPER_SWAP_OFF) ? 1 : -1];
+// em_ext takes the keeper's free tail: right after the swap state (0x458 +
+// 0x17C, remote.c:113,119), 0x2C bytes, ending at WWREMOTE_ACTOR_SIZE. A
+// lite body ends at WWREMOTE_BODY_END (0x574) and never reaches it.
+typedef char wwrel_check_actor_ext[(__builtin_offsetof(wwrel_actor, ext) == WWREMOTE_KEEPER_SWAP_OFF + sizeof(remote_swap_state) &&
+                                    __builtin_offsetof(wwrel_actor, ext) == 0x5D4 &&
+                                    sizeof(em_ext) == 0x2C &&
+                                    __builtin_offsetof(wwrel_actor, ext) + sizeof(em_ext) <= WWREMOTE_ACTOR_SIZE &&
+                                    WWREMOTE_BODY_END <= __builtin_offsetof(wwrel_actor, ext)) ? 1 : -1];
+// The REL's hit detail for a kind refusal must not reuse remote-Link's
+// NO_BODY (both reach the same result byte, em_hit_publish).
+typedef char wwrel_check_hd_kind[(WWENEMY_HD_KIND != WWREMOTE_HD_NO_BODY && WWENEMY_HD_KIND > WWREMOTE_HD_NO_BODY) ? 1 : -1];
 typedef char wwrel_check_actor_size[(sizeof(wwrel_actor) <= WWREMOTE_ACTOR_SIZE &&
                                      sizeof(remote_body) <= WWREMOTE_ACTOR_SIZE &&
                                      (WWREMOTE_ACTOR_SIZE & 3) == 0) ? 1 : -1];
@@ -187,12 +201,15 @@ typedef char wwrel_check_full_size[(WWREMOTE_FULL_TAIL_OFF == WWREMOTE_FULL_DAPY
                                     (WWREMOTE_FULL_SIZE & 0x1F) == 0 &&
                                     WWREMOTE_FULL_PROC != 0x00B5) ? 1 : -1];
 // The remote-Link slack words (exec hook, swap state, shanm table) follow
-// the frame counter and stay below the enemy block.
+// the frame counter and stay below the enemy block and its annex
+// (wwenemy.h WWENEMY_ANNEX_OFF, layout 3).
 typedef char wwrel_check_hook_words[(WWREL_EXEC_HOOK_OFF == WWREL_FRAME_OFF + 4 &&
                                      WWREL_SWAP_STATE_OFF == WWREL_EXEC_HOOK_OFF + 4 &&
                                      WWREL_SWAP_STATE_OFF + 4 <= WWENEMY_OFF &&
                                      WWREL_SHANM_OFF == WWREL_SWAP_STATE_OFF + 4 &&
-                                     WWREL_SHANM_OFF + 4 <= WWENEMY_OFF) ? 1 : -1];
+                                     WWREL_SHANM_OFF + 4 <= WWENEMY_OFF &&
+                                     WWREL_SHANM_OFF + 4 <= WWENEMY_ANNEX_OFF &&
+                                     WWENEMY_ANNEX_OFF + WWENEMY_ANNEX_SIZE == WWENEMY_OFF) ? 1 : -1];
 
 // --- Profile constants (zeldaret/tww) ------------------------------------
 #define fpcLy_CURRENT_e        0xFFFFFFFDu // f_pc/f_pc_layer_tag.h
@@ -220,7 +237,7 @@ static int wwrel_create(void* actor) {
     if (remote_is_body(actor)) return remote_body_create(actor);
     if (*(u32*)((u8*)actor + 0xB0) != 0) return cPhs_ERROR_e;   // mParameters (f_pc_base.h:30)
     a->frames = 0;
-    enemy_mirror_init(&a->mirror);
+    enemy_mirror_init(&a->mirror, &a->ext);
     remote_keeper_init(&a->swap);
     return cPhs_COMPLEATE_e;
 }
@@ -230,7 +247,7 @@ static int wwrel_create(void* actor) {
 static int wwrel_delete(void* actor) {
     wwrel_actor* a = (wwrel_actor*)actor;
     if (remote_is_body(actor)) return remote_body_delete(actor);
-    enemy_mirror_delete(&a->mirror);
+    enemy_mirror_delete(&a->mirror, &a->ext);
     remote_keeper_delete(&a->swap);
     return TRUE;
 }
@@ -246,7 +263,7 @@ static int wwrel_execute(void* actor) {
     frame = WWREL_WORD(WWREL_FRAME_OFF) + 1;
     a->frames++;
     WWREL_WORD(WWREL_FRAME_OFF) = frame;
-    enemy_mirror_frame(&a->mirror, frame);
+    enemy_mirror_frame(&a->mirror, &a->ext, frame);
     remote_keeper_frame(&a->swap, &a->mirror, frame);
     return TRUE;
 }

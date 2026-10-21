@@ -13,6 +13,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/mods/enemysync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
@@ -138,14 +139,18 @@ type m6Rig struct {
 	tb *tables.Tables
 }
 
-func newM6Rig(t *testing.T) *m6Rig {
+func newM6Rig(t *testing.T) *m6Rig { t.Helper(); return newM6RigWith(t, nil) }
+
+// newM6RigWith is newM6Rig with the replica's claim func (Config.Claimed)
+// claimed.
+func newM6RigWith(t *testing.T, claimed combat.ClaimFunc) *m6Rig {
 	t.Helper()
 	demoVerified(t, true)
 	tb := m6Tables(t)
 	r6 := &replicaRig{rig: newRig(t, "Link"), hub: &hubEnd{t: t}, log: &logBuf{}}
 	bm := &beatMem{FakeMem: r6.m, game: r6.g}
 	zm := &zoneMem{beatMem: bm}
-	r, err := New(Config{Mem: zm, Logf: r6.log.logf, Apply: true, Tables: tb, Policy: switch5Policy(t), BeatTimeout: time.Second})
+	r, err := New(Config{Mem: zm, Logf: r6.log.logf, Apply: true, Tables: tb, Policy: switch5Policy(t), BeatTimeout: time.Second, Claimed: claimed})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,6 +388,69 @@ func TestReconcileM6Gates(t *testing.T) {
 				t.Fatalf("not shrunk once the gate opened: timer %d\n%s", rr.timer(c.enemy), rr.log)
 			}
 		})
+	}
+}
+
+// TestReconcileM6MirrorPaused: a copy the enemy mirror adopted (its REL
+// sets addr.ActorPauseMirrorBit) is held as "paused: mirror", never
+// light-shrunk, until the REL hands it back (enemy-mirror-general.json
+// D8).
+func TestReconcileM6MirrorPaused(t *testing.T) {
+	rr := newM6Rig(t)
+	cc, _ := rr.live(m6CC)
+	rr.store(cc.Addr+addr.ActorOffPauseFlag, []byte{addr.ActorPauseMirrorBit})
+	rr.kill(1, 3)
+	rr.ticks(5)
+	if rr.timer(m6CC) != 0 {
+		t.Fatalf("a mirror copy shrunk: timer %d", rr.timer(m6CC))
+	}
+	if st := rr.r.Status().Combat; st.Held == 0 || !strings.Contains(st.LastHeld, "paused: mirror") {
+		t.Errorf("not held as a mirror copy: %+v", st)
+	}
+	rr.store(cc.Addr+addr.ActorOffPauseFlag, []byte{0})
+	rr.ticks(5)
+	if rr.timer(m6CC) <= 0 {
+		t.Fatalf("not shrunk once handed back: timer %d\n%s", rr.timer(m6CC), rr.log)
+	}
+}
+
+// TestClaimPerHandle: two games, each with its own enemy client's claim
+// set (enemysync.ClaimSet, one per game handle as the session wiring
+// makes them), do not see each other's pids. The fake games create the
+// same enemies with the same process IDs, so game A's claim of its
+// ChuChu's pid would hold game B's ChuChu too were the set shared: it
+// holds A's alone, and B's shrinks. A claim made after the walk is
+// caught too: the tick's plan (CombatTick.Claimed) gives it to
+// combat.Revalidate's re-read before the write.
+func TestClaimPerHandle(t *testing.T) {
+	csA, csB := enemysync.NewClaimSet(), enemysync.NewClaimSet()
+	a := newM6RigWith(t, csA.Claimed)
+	b := newM6RigWith(t, csB.Claimed)
+	ccA, _ := a.live(m6CC)
+	ccB, _ := b.live(m6CC)
+	if ccA.PID != ccB.PID {
+		t.Fatalf("the fake games' ChuChus are pids %d and %d; the test needs them equal", ccA.PID, ccB.PID)
+	}
+	csA.Replace([]uint32{ccA.PID})
+	a.kill(1, 3)
+	b.kill(1, 3)
+	a.ticks(5)
+	b.ticks(5)
+	if a.timer(m6CC) != 0 {
+		t.Errorf("game A shrunk its claimed ChuChu: timer %d", a.timer(m6CC))
+	}
+	if st := a.r.Status().Combat; !strings.Contains(st.LastHeld, "claimed") {
+		t.Errorf("game A did not hold it as claimed: %+v", st)
+	}
+	if b.timer(m6CC) <= 0 {
+		t.Errorf("game B's ChuChu was held by game A's claim: timer %d\n%s", b.timer(m6CC), b.log)
+	}
+
+	// Unclaimed, A's shrinks.
+	csA.Replace(nil)
+	a.ticks(5)
+	if a.timer(m6CC) <= 0 {
+		t.Fatalf("game A's ChuChu not shrunk once unclaimed: timer %d\n%s", a.timer(m6CC), a.log)
 	}
 }
 

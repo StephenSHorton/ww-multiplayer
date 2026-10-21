@@ -18,7 +18,8 @@ import (
 )
 
 // The two pipelines, in feed.PuppetSync's shape (Env, Open, a client,
-// ReconnectLoop): HostPipeline samples this Dolphin's Moblins and streams
+// ReconnectLoop): HostPipeline samples this Dolphin's enemies (the kinds
+// WW_ENEMY_MIRROR_KINDS enables, Moblins by default) and streams
 // them on a RoleEnemyHost connection; ClientPipeline receives them on a
 // RoleEnemyClient connection and mirrors them into this Dolphin. Both are
 // behind WW_ENEMY_SYNC=1 (Enabled) in the engine and mp-local.
@@ -28,6 +29,15 @@ type Env struct {
 	// Open attaches to the Dolphin with this PID; 0 means the one the
 	// environment selects (WW_DOLPHIN_INDEX / WW_DOLPHIN_PID).
 	Open func(pid uint32) (*emu.Dolphin, error)
+	// Claims, when non-nil, is the client's claim set for this game (the
+	// client Replaces it every tick; co-op's K1 reads it through
+	// Claims.Claimed). Nil: nothing is published (no co-op on this game).
+	Claims *ClaimSet
+	// CoopSwitchSync, when it reports true, says co-op syncs this game's
+	// switches: a quiet death's death switch then arrives through co-op
+	// and the client does not write it (design death_and_drops.quiet_steps,
+	// the BK death switch). Nil: the client writes it.
+	CoopSwitchSync func() bool
 }
 
 // Enabled reports WW_ENEMY_SYNC=1.
@@ -58,6 +68,8 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 	epoch := uint32(start.Unix() & 0xFFFF)
 	host := NewHost(d, rep, epoch, start)
 	applier := NewHitApplier(d, rep, epoch)
+	applier.Kinds = host.Kinds
+	log.Logf(rep, log.Info, "enemy host: mirroring %s (WW_ENEMY_MIRROR_KINDS), selecting by %s (WW_ENEMY_SELECT), STATE 30 Hz gate %v", host.Kinds, host.Select, host.State30Hz)
 	defer func() {
 		if err := applier.Shutdown(); err != nil {
 			log.Logf(rep, log.Warn, "enemy host: clearing the block: %v", err)
@@ -76,6 +88,7 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 		}
 	}
 	remote := NewRemoteHost(d, rep, cfg, epoch)
+	remote.Kinds = host.Kinds
 	roster := posefeed.RosterFor(name, dolphinPID)
 	defer func() {
 		if err := remote.Shutdown(); err != nil {
@@ -127,6 +140,19 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 			now := time.Now()
 			relOK := gate.check(d, now)
 			applier.SetREL(relOK)
+			// The remote players' positions order the host's candidates
+			// (with the host Link's own): those drawn here as a live
+			// mini-Link, the ones in this stage (the roster carries no room).
+			views, viewsAt := roster.Snapshot()
+			var players [][3]float32
+			if !viewsAt.IsZero() && now.Sub(viewsAt) <= RosterStale {
+				for _, v := range views {
+					if v.LinkSlot >= 0 && v.Live {
+						players = append(players, v.Pos)
+					}
+				}
+			}
+			host.SetPlayers(players)
 			st, err := host.Tick(now)
 			if err != nil {
 				log.Logf(rep, log.Warn, "enemy host: %v", err)
@@ -146,8 +172,10 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 			for drained := false; !drained; {
 				select {
 				case h := <-hits:
-					if ack := applier.Offer(h, last, host.Moblins(), now); ack != nil {
+					if ack := applier.Offer(h, last, host.Listing(), now); ack != nil {
 						send(EncodeAck(ack))
+					} else {
+						host.NoteEngaged(h.Handle, now) // a hit that landed and was queued
 					}
 				default:
 					drained = true
@@ -162,12 +190,12 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 			if err := applier.Keepalive(host.Scope(), now); err != nil {
 				log.Logf(rep, log.Warn, "enemy host: keepalive: %v", err)
 			}
-			views, viewsAt := roster.Snapshot()
-			phits, err := remote.Tick(now, host.Scope(), relOK, views, viewsAt)
+			phits, err := remote.Tick(now, host.Scope(), relOK, views, viewsAt, host.Listing())
 			if err != nil {
 				log.Logf(rep, log.Warn, "enemy remote: %v", err)
 			}
 			for _, p := range phits {
+				host.NoteEngaged(p.SetID, now) // the attacker's handle
 				if b, err := EncodePHit(p); err == nil {
 					send(b)
 				}
@@ -212,6 +240,8 @@ func ClientPipeline(ctx context.Context, env Env, name, addr string, dolphinPID 
 	rep.Log(log.OK, "Dolphin found.")
 	brk := write.NewBreaker(write.BreakerConfig{Logf: func(format string, args ...any) { log.Logf(rep, log.Warn, format, args...) }})
 	mirror := NewMirror(d, rep, brk, Raw(), time.Now())
+	mirror.Claims, mirror.CoopSwitchSync = env.Claims, env.CoopSwitchSync
+	log.Logf(rep, log.Info, "enemy client: mirroring %s (WW_ENEMY_MIRROR_KINDS), quiet deaths for %s (WW_ENEMY_QUIET_DEATH), selecting by %s (WW_ENEMY_SELECT)", mirror.Kinds, mirror.Quiet, mirror.Select)
 	defer func() {
 		if err := mirror.Shutdown(); err != nil {
 			log.Logf(rep, log.Warn, "enemy client: clearing the block: %v", err)
@@ -224,6 +254,7 @@ func ClientPipeline(ctx context.Context, env Env, name, addr string, dolphinPID 
 		log.Logf(rep, log.Info, "enemy client: remote-Link block on, flags 0x%04X", cfg.Flags)
 	}
 	mirror.Remote = NewRemoteClient(d, rep, brk, cfg, time.Now())
+	mirror.Remote.Owner = mirror.OwnerOf
 	defer func() {
 		if err := mirror.Remote.Shutdown(); err != nil {
 			log.Logf(rep, log.Warn, "enemy client: clearing the remote-Link block: %v", err)

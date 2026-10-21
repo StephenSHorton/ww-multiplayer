@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
@@ -46,8 +47,11 @@ type Coop interface {
 	// then calls next if set.
 	WithPoseClient(name string, next func(*network.Client)) func(*network.Client)
 	// Pipelines are the pipelines co-op runs next to the pose pipelines
-	// against addr (coop-sync).
-	Pipelines(name, addr string, rep log.Reporter) []Pipeline
+	// against addr (coop-sync). claimed is this game's enemy-mirror claims
+	// (enemysync.ClaimSet.Claimed, the set this game's enemy client
+	// fills; a combat.ClaimFunc), which its K1 must not light-shrink; nil
+	// claims nothing.
+	Pipelines(name, addr string, rep log.Reporter, claimed func(pid uint32) bool) []Pipeline
 	// Stop ends co-op. The host stops it after the server.
 	Stop()
 }
@@ -175,9 +179,13 @@ func RunJoinSession(ctx context.Context, cancel context.CancelFunc, env Env, add
 // host says this is the host's session: with WW_ENEMY_SYNC=1 the host
 // runs the enemy-host pipeline (its Moblins are the authority) and a
 // joiner the enemy-client pipeline (enemyPipeline).
+// A joiner with both makes one enemysync.ClaimSet for its game: the
+// enemy client fills it, and co-op's K1 on the same game refuses what it
+// claims (enemy-mirror-general.json D8); the host's game has none.
 // Returns RunPipelines' result: the first real failure, or nil on a normal
 // ctx-cancel shutdown.
 func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, fe feed.Env, name, addr string, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32), coop Coop, host bool) error {
+	claims := enemyClaims(host)
 	connLog := feed.NewConnectLog(addr, rep)
 	// A warp to the partner takes its position from pose sync (without
 	// co-op, onClient is as given).
@@ -193,9 +201,9 @@ func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, fe
 		}},
 	}
 	if coop != nil {
-		ps = append(ps, coop.Pipelines(name, addr, rep)...)
+		ps = append(ps, coop.Pipelines(name, addr, rep, claimFunc(claims))...)
 	}
-	if p, ok := enemyPipeline(host, fe, name, addr, 0, rep, connLog); ok {
+	if p, ok := enemyPipeline(host, fe, name, addr, 0, rep, connLog, claims); ok {
 		ps = append(ps, p)
 	}
 	return RunPipelines(ctx, cancel, rep, ps...)
@@ -205,17 +213,81 @@ func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, fe
 // pid (0: the env's), when WW_ENEMY_SYNC=1 (enemysync.Enabled): the host
 // runs 'enemy-host' (the sampler; its own Go is no enemy client), a
 // joiner 'enemy-client' (the mirror). ok is false when enemy sync is off.
-func enemyPipeline(host bool, fe feed.Env, name, addr string, pid uint32, rep log.Reporter, connLog *network.ConnectLog) (Pipeline, bool) {
+// claims is the game's claim set the client fills (enemysync.Env.Claims;
+// nil: none), emptied when the client stops, so a stale claim never
+// keeps co-op's K1 off an enemy no mirror owns any more.
+func enemyPipeline(host bool, fe feed.Env, name, addr string, pid uint32, rep log.Reporter, connLog *network.ConnectLog, claims *enemysync.ClaimSet) (Pipeline, bool) {
 	if !enemysync.Enabled() {
 		return Pipeline{}, false
 	}
-	env := enemysync.Env{Open: fe.Open}
+	env := enemysync.Env{Open: fe.Open, Claims: claims}
 	if host {
 		return Pipeline{Name: "enemy-host", Run: func(ctx context.Context) error {
 			return enemysync.HostPipeline(ctx, env, name, addr, pid, rep, connLog)
 		}}, true
 	}
 	return Pipeline{Name: "enemy-client", Run: func(ctx context.Context) error {
+		defer claims.Replace(nil)
 		return enemysync.ClientPipeline(ctx, env, name, addr, pid, rep, connLog)
 	}}, true
+}
+
+// enemyClaims is a new claim set for one game, the one its enemy client
+// fills and its co-op K1 reads (enemy-mirror-general.json D8): one per
+// game handle, never shared between games. It is nil for the host's game
+// (its enemies are the authority: nothing is mirrored there) and when
+// enemy sync is off.
+func enemyClaims(host bool) *enemysync.ClaimSet {
+	if host || !enemysync.Enabled() {
+		return nil
+	}
+	return enemysync.NewClaimSet()
+}
+
+// claimFunc is cs's Claimed for co-op's K1, nil for a nil set.
+func claimFunc(cs *enemysync.ClaimSet) func(pid uint32) bool {
+	if cs == nil {
+		return nil
+	}
+	return cs.Claimed
+}
+
+// gameClaims are the claim sets of the games a GameRunner plays, by
+// Dolphin pid: its EnemySync and CoopSync seams run apart on the same
+// game, and meet here.
+type gameClaims struct {
+	mu   sync.Mutex
+	sets map[uint32]*enemysync.ClaimSet
+}
+
+// of is game pid's claim set, made on first use; nil for the host's game
+// and with enemy sync off (enemyClaims).
+func (g *gameClaims) of(pid uint32, host bool) *enemysync.ClaimSet {
+	if host || !enemysync.Enabled() {
+		return nil
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.sets == nil {
+		g.sets = map[uint32]*enemysync.ClaimSet{}
+	}
+	cs := g.sets[pid]
+	if cs == nil {
+		cs = enemysync.NewClaimSet()
+		g.sets[pid] = cs
+	}
+	return cs
+}
+
+// claimed is game pid's claim func for co-op's K1. It looks the set up at
+// each call, so it does not matter which seam starts first; a game that
+// never ran an enemy client claims nothing, and one whose client stopped
+// has an empty set (enemyPipeline).
+func (g *gameClaims) claimed(pid uint32) func(uint32) bool {
+	return func(p uint32) bool {
+		g.mu.Lock()
+		cs := g.sets[pid]
+		g.mu.Unlock()
+		return cs.Claimed(p)
+	}
 }

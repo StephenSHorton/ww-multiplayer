@@ -9,6 +9,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
@@ -620,13 +621,13 @@ func (cs *Session) retryBinds(ctx context.Context, wait time.Duration) {
 // for the app. The app's game side starts coop-sync again after an
 // error, a Dolphin relaunch or a new boot, so each run leaves the console
 // when it stops (appSyncOn); the CLI's runs once a process.
-func appCoopSync(ctx context.Context, env Env, name, addr string, pid uint32, rep log.Reporter, cs *Session) error {
+func appCoopSync(ctx context.Context, env Env, name, addr string, pid uint32, rep log.Reporter, cs *Session, claimed combat.ClaimFunc) error {
 	d, err := env.Open(pid)
 	if err != nil {
 		return err
 	}
 	defer d.Close()
-	return appSyncOn(ctx, cs, name, d, rep, func(ctx context.Context, s *coopSync) error {
+	return appSyncOnClaimed(ctx, cs, name, d, rep, claimed, func(ctx context.Context, s *coopSync) error {
 		return s.run(ctx, addr)
 	})
 }
@@ -635,7 +636,13 @@ func appCoopSync(ctx context.Context, env Env, name, addr string, pid uint32, re
 // and takes it from the console once run returns: its Dolphin handle is
 // closed then, and its replica stopped.
 func appSyncOn(ctx context.Context, cs *Session, name string, m mem.Mem, rep log.Reporter, run func(context.Context, *coopSync) error) error {
-	s, err := cs.newSync(ctx, name, m, rep)
+	return appSyncOnClaimed(ctx, cs, name, m, rep, nil, run)
+}
+
+// appSyncOnClaimed is appSyncOn with the game's enemy-mirror claims
+// (newSyncClaimed).
+func appSyncOnClaimed(ctx context.Context, cs *Session, name string, m mem.Mem, rep log.Reporter, claimed combat.ClaimFunc, run func(context.Context, *coopSync) error) error {
+	s, err := cs.newSyncClaimed(ctx, name, m, rep, claimed)
 	if err != nil {
 		return err
 	}

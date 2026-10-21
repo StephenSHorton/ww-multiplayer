@@ -192,3 +192,20 @@ func FuzzParse(f *testing.F) {
 		_, _ = l.Go()
 	})
 }
+
+// TestParseDefines: the defines-only reader takes the numeric #defines
+// Parse takes, skips string defines and every other line, and refuses a
+// name defined twice.
+func TestParseDefines(t *testing.T) {
+	src := "#ifndef X_H\n#define X_H\n#define A 0x10   // a comment\r\n#define B 7\n#define ARC \"Mo2\"\n#define NEG (-1)\ntypedef struct {\n    u8 a; // +0x00\n} S;\n#endif\n"
+	ds, err := ParseDefines("x.h", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ds) != 2 || ds[0] != (Define{Name: "A", Value: 0x10, Text: "0x10"}) || ds[1] != (Define{Name: "B", Value: 7, Text: "7"}) {
+		t.Errorf("defines %+v", ds)
+	}
+	if _, err := ParseDefines("x.h", []byte("#define A 1\n#define A 2\n")); err == nil || !strings.Contains(err.Error(), "x.h:2") {
+		t.Errorf("a define twice: %v", err)
+	}
+}

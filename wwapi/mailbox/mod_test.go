@@ -76,8 +76,8 @@ func TestModRegions(t *testing.T) {
 		t.Errorf("remote-Link region 0x%08X-0x%08X, hook words 0x%08X-0x%08X; want 0x80413410-0x80413750, 0x804130BC-0x804130C4",
 			RemoteBlockRegion.Start, RemoteBlockRegion.End, RELHookRegion.Start, RELHookRegion.End)
 	}
-	if CanaryTRK.Size() != 0x3050 || CanaryArena.Size() != 0x0C || CanaryArenaHigh.Size() != 0x8B0 || EnemyBlockRegion.Size() != 0x310 || RemoteBlockRegion.Size() != 0x340 {
-		t.Errorf("canary sizes 0x%X / 0x%X / 0x%X around a 0x%X enemy region and a 0x%X remote-Link region, want 0x3050 / 0x0C / 0x8B0 / 0x310 / 0x340 (§4.5; 0x50 / 0xBF0 before the REL hook words and the remote-Link block, 0xDA0 / 0x160 before layout 2 added the collision objects, the slack was 0xF50 before the enemy block, 0xF60 before E1 grew the mailbox to 0x1B0)",
+	if CanaryTRK.Size() != 0x3050 || CanaryArena.Size() != 0x0C || CanaryArenaHigh.Size() != 0x8B0 || EnemyBlockRegion.Size() != 0x348 || RemoteBlockRegion.Size() != 0x340 {
+		t.Errorf("canary sizes 0x%X / 0x%X / 0x%X around a 0x%X enemy region and a 0x%X remote-Link region, want 0x3050 / 0x0C / 0x8B0 / 0x348 / 0x340 (§4.5; the enemy region was 0x310 before layout 3 added the annex, 0x50 / 0xBF0 before the REL hook words and the remote-Link block, 0xDA0 / 0x160 before layout 2 added the collision objects, the slack was 0xF50 before the enemy block, 0xF60 before E1 grew the mailbox to 0x1B0)",
 			CanaryTRK.Size(), CanaryArena.Size(), CanaryArenaHigh.Size(), EnemyBlockRegion.Size(), RemoteBlockRegion.Size())
 	}
 	for _, r := range []addr.Region{CanaryTRK, CanaryArena, CanaryArenaHigh} {

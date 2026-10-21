@@ -49,7 +49,7 @@ func (f *fakeCoop) WithPoseClient(name string, next func(*network.Client)) func(
 	return next
 }
 
-func (f *fakeCoop) Pipelines(name, addr string, _ log.Reporter) []Pipeline {
+func (f *fakeCoop) Pipelines(name, addr string, _ log.Reporter, claimed func(uint32) bool) []Pipeline {
 	f.call("pipelines " + name + " " + addr)
 	return []Pipeline{{Name: "coop-sync", Run: func(context.Context) error { return f.fail }}}
 }

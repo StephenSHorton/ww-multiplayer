@@ -45,7 +45,9 @@ type sample struct {
 	slot      Slot
 }
 
-// Smoother is one Moblin's sample ring and output.
+// Smoother is one enemy's sample ring and output (the client keys them by
+// match key). Its ragdoll edge is SlotRagdoll, which the Moblin and the
+// Bokoblin set (dr mMode <= -100) and the ChuChu never does.
 type Smoother struct {
 	raw     bool
 	start   time.Time
@@ -216,7 +218,12 @@ func (s *Smoother) At(now time.Time) (out Slot, ok bool) {
 		out.Pos[j] = a.slot.Pos[j] + (b.slot.Pos[j]-a.slot.Pos[j])*k
 	}
 	out.AngleY = lerpS16(a.slot.AngleY, b.slot.AngleY, k)
-	out.Tilt = lerpS16(a.slot.Tilt, b.slot.Tilt, k)
+	if a.slot.Kind != KindCC {
+		// A ChuChu's tilt is its m316.x ground tilt, which the REL writes
+		// raw (no smoothing; CONTRACT slot table): a's, as the discrete
+		// fields.
+		out.Tilt = lerpS16(a.slot.Tilt, b.slot.Tilt, k)
+	}
 	out.MorfFrame = advanceFrame(&a.slot, renderT-a.hostMS)
 	return out, true
 }
@@ -229,11 +236,25 @@ func lerpS16(a, b int16, k float32) int16 {
 }
 
 // advanceFrame is sl's morf frame advanced by its rate over ms of host
-// time; held while the host skips play() (SlotF2PlaySkip: m05B2,
-// d_a_mo2.cpp:3488-3490), which freezes the frame on the host too.
+// time; held while the host skips play() (playSkip), which freezes the
+// frame on the host too.
 func advanceFrame(sl *Slot, ms int64) float32 {
-	if sl.Flags2&SlotF2PlaySkip != 0 {
+	if playSkip(sl) {
 		return sl.MorfFrame
 	}
 	return sl.MorfFrame + sl.MorfRate*float32(float64(ms)/FrameMS)
+}
+
+// playSkip reports the kind's PLAY_SKIP flags2 bit: the Moblin's
+// SlotF2PlaySkip (m05B2, d_a_mo2.cpp:3488-3490), the Bokoblin's BkF2PlaySkip
+// (m030C, play gated at d_a_bk.cpp:4362-4367). A ChuChu has none (its bit 1
+// is CcF2Co).
+func playSkip(sl *Slot) bool {
+	switch sl.Kind {
+	case KindMO2:
+		return sl.Flags2&SlotF2PlaySkip != 0
+	case KindBK:
+		return sl.Flags2&BkF2PlaySkip != 0
+	}
+	return false
 }

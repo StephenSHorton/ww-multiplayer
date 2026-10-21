@@ -255,6 +255,12 @@ const (
 	ActorOffEyePos     = 0x260 // cXyz eyePos (f_op_actor.h:305)
 )
 
+// ActorPauseMirrorBit is the mPauseFlag (ActorOffPauseFlag) value bit the
+// enemy mirror's REL sets on an adopted copy (pb|1, enemy_mirror.c:613;
+// the game tests fpcPause_IsEnable(proc, 1), f_pc_executor.cpp:31): co-op's
+// K1 refuses an actor with it set (enemy-mirror-general.json D8).
+const ActorPauseMirrorBit = 0x01
+
 // enemyice (c_damagereaction.h:12-46), the member every enemy that polls
 // enemy_ice (c_damagereaction.cpp:108-410) embeds at a per-class offset.
 const (

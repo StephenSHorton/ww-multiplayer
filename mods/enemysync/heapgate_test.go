@@ -94,7 +94,7 @@ func (g *gateRig) tick(d time.Duration) mailbox.RemoteBlock {
 			g.r.OnPState(&PState{Client: 2, PlayerID: v.ID, Stage: stage, Room: g.scope.Room, Flags: g.flags[v.ID]}, g.now)
 		}
 	}
-	if _, err := g.r.Tick(g.now, g.scope, true, g.views, g.now); err != nil {
+	if _, err := g.r.Tick(g.now, g.scope, true, g.views, g.now, nil); err != nil {
 		g.t.Fatal(err)
 	}
 	return readBlock(g.t, g.m)

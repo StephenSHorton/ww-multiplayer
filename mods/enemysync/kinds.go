@@ -2,20 +2,23 @@ package enemysync
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // The kind table of the generalised enemy mirror (ww-multiplayer-handoff/
 // design/enemy-mirror-general.json, "type_table" and "identity".per_kind):
 // one row per enemy class the mirror knows, Moblin, Bokoblin and ChuChu.
-// Batch 1 ("L0 read-only tooling") reads with it only: the Moblin
-// pipelines (host.go, client.go, pipelines.go) still run on Layouts,
-// KeyedMoblins, ReadSample and Mo2Res, untouched. The C copy of this
-// table (wwenemy_kinds.h) and the pin between the two come with the REL
-// build.
+// The pipelines (host.go, client.go) walk, sample and match by it over the
+// kinds WW_ENEMY_MIRROR_KINDS enables (default "mo2": the Moblin
+// prototype's behaviour). The C copy of this table is
+// inject/include/wwenemy_kinds.h, pinned to this one and to wwapi/addr by
+// TestKindTablePins.
 
 // KindID is a row of the table; its value is the kind's bit in a
 // kind_mask (design block_layout header +0x24: 0 MO2, 1 BK, 2 CC).
@@ -96,6 +99,32 @@ func (id KindID) String() string {
 	return "none"
 }
 
+// kindRowLayout is KindHash's version of the row encoding: bump it when
+// a field joins or leaves the hash.
+const kindRowLayout = 1
+
+// KindHash is the hash a version-4 STATE carries (State.KindHash): FNV-1a
+// over kindRowLayout and, per row in KindID order, ID u8, Proc BE16, the
+// archive name (u8 length, bytes), BckFirst, BckLast, BckWait (u8 each),
+// MorfOff, IceOff, GateOff (BE32 each). It covers the table's offsets and
+// row layout only, not which kinds are enabled (that is the STATE's
+// HostKindMask), so two builds whose tables differ refuse each other
+// (design "wire".state_header_52) while two configurations do not.
+func KindHash() uint32 {
+	b := []byte{kindRowLayout}
+	be32 := func(v uint32) { b = append(b, byte(v>>24), byte(v>>16), byte(v>>8), byte(v)) }
+	for i := range Kinds {
+		k := &Kinds[i]
+		b = append(b, byte(k.ID), byte(k.Proc>>8), byte(k.Proc), byte(len(k.Arc)))
+		b = append(b, k.Arc...)
+		b = append(b, byte(k.BckFirst), byte(k.BckLast), byte(k.BckWait))
+		be32(k.MorfOff)
+		be32(k.IceOff)
+		be32(k.GateOff)
+	}
+	return fnv1a(b)
+}
+
 // KindLayouts is the walk layout over every row: each class's enemyice
 // and its live gate byte (actors.Actor.Mode). Layouts, the Moblin
 // pipelines' own, is untouched.
@@ -164,8 +193,8 @@ const DefaultMirrorKinds = "mo2"
 
 // ParseKinds parses a WW_ENEMY_MIRROR_KINDS value: kind names joined by
 // "," (a "+u" suffix also takes that kind's unkeyed actors); "" is
-// DefaultMirrorKinds and "none" the empty set. Batch 1 parses it only;
-// nothing in the pipelines reads it yet.
+// DefaultMirrorKinds and "none" the empty set. The host and the client
+// read it at construction (MirrorKinds).
 func ParseKinds(v string) (KindSet, error) {
 	var s KindSet
 	v = strings.TrimSpace(v)
@@ -284,9 +313,8 @@ func (k *Kind) StaticOK(params uint32, g LiveGate) bool {
 	return k.ParamsOK(params) && k.LiveOK(g)
 }
 
-// Per-kind flags2 bits (design "flags".flags2). The Moblin keeps the
-// SlotF2* bits; these are Go-side only in Batch 1 (the block and the wire
-// carry nothing of a Bokoblin or ChuChu yet).
+// Per-kind flags2 bits (design "flags".flags2; wwenemy_kinds.h
+// EMK_BK_F2_* and EMK_CC_F2_*). The Moblin keeps the SlotF2* bits.
 const (
 	BkF2HasWeapon uint8 = 1 << 0 // m0B30 != 0
 	BkF2PlaySkip  uint8 = 1 << 1 // m030C != 0
@@ -328,4 +356,268 @@ func BckName(id KindID, idx uint8) string {
 		return "-"
 	}
 	return names[i]
+}
+
+// --- Batch 5: the pipelines' knobs and per-kind tables ----------------------
+
+// Enabled reports whether proc has a row and its kind is in s: the host's
+// test for an enemy it mirrors (MirrorEnabled in the design, players.go
+// phit) and the client's for a wire slot.
+func (s KindSet) Enabled(proc uint16) bool { return s.Has(KindOf(proc)) }
+
+// And is the kinds both s and o enable, "+u" only where both take it: a
+// client mirrors kind k only when the host (State.HostKindMask) and this
+// game enable it (design "wire".state_header_52).
+func (s KindSet) And(o KindSet) KindSet {
+	var out KindSet
+	for i := range s.On {
+		out.On[i] = s.On[i] && o.On[i]
+		out.Unkeyed[i] = out.On[i] && s.Unkeyed[i] && o.Unkeyed[i]
+	}
+	return out
+}
+
+// MaskSet is the KindSet of a kind_mask (unkeyed is not in a mask: the
+// set takes every kind's unkeyed actors, which And narrows to the local
+// set's).
+func MaskSet(mask uint32) KindSet {
+	var s KindSet
+	for i := range s.On {
+		if mask&(1<<i) != 0 {
+			s.On[i], s.Unkeyed[i] = true, true
+		}
+	}
+	return s
+}
+
+// MirrorKinds is WW_ENEMY_MIRROR_KINDS parsed; a value ParseKinds refuses
+// falls back to DefaultMirrorKinds (Moblins, keyed) with the error to log.
+func MirrorKinds() (KindSet, error) {
+	s, err := ParseKinds(os.Getenv("WW_ENEMY_MIRROR_KINDS"))
+	if err != nil {
+		d, _ := ParseKinds(DefaultMirrorKinds)
+		return d, err
+	}
+	return s, nil
+}
+
+// DefaultQuietKinds is WW_ENEMY_QUIET_DEATH's default: the Bokoblin and the
+// ChuChu die quietly (the copy stays paused, shrinks in the REL and is
+// deleted; design D7); the Moblin keeps its legacy em_die until batch 8.
+const DefaultQuietKinds = "bk,cc"
+
+// ParseQuietKinds parses a WW_ENEMY_QUIET_DEATH value: kind names joined
+// by ","; "" is DefaultQuietKinds and "none" the empty set. A "+u" suffix
+// is refused (a death is quiet or not whatever the key).
+func ParseQuietKinds(v string) (KindSet, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		v = DefaultQuietKinds
+	}
+	if strings.Contains(v, "+u") {
+		return KindSet{}, fmt.Errorf("enemysync: WW_ENEMY_QUIET_DEATH %q: \"+u\" means nothing here", v)
+	}
+	s, err := ParseKinds(v)
+	if err != nil {
+		return KindSet{}, err
+	}
+	return s, nil
+}
+
+// QuietKinds is WW_ENEMY_QUIET_DEATH parsed, DefaultQuietKinds (with the
+// error) when it does not parse.
+func QuietKinds() (KindSet, error) {
+	s, err := ParseQuietKinds(os.Getenv("WW_ENEMY_QUIET_DEATH"))
+	if err != nil {
+		d, _ := ParseQuietKinds(DefaultQuietKinds)
+		return d, err
+	}
+	return s, nil
+}
+
+// SelectMode is how slots are chosen: by distance with hysteresis (the
+// host orders its candidates by player distance, each client keeps its
+// MaxSlots by design slots.client_selectSlots), or SelectLegacy, the
+// Moblin prototype's lowest setIDs (KeyedMoblins), for regression runs.
+type SelectMode uint8
+
+const (
+	SelectDistance SelectMode = iota
+	SelectLegacy
+)
+
+func (m SelectMode) String() string {
+	if m == SelectLegacy {
+		return "legacy"
+	}
+	return "distance"
+}
+
+// ParseSelect parses a WW_ENEMY_SELECT value: "distance" (or "") or
+// "legacy".
+func ParseSelect(v string) (SelectMode, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "distance":
+		return SelectDistance, nil
+	case "legacy":
+		return SelectLegacy, nil
+	}
+	return SelectDistance, fmt.Errorf("enemysync: WW_ENEMY_SELECT %q (want distance or legacy)", v)
+}
+
+// SelectFromEnv is WW_ENEMY_SELECT parsed (SelectDistance, with the error,
+// when it does not parse).
+func SelectFromEnv() (SelectMode, error) { return ParseSelect(os.Getenv("WW_ENEMY_SELECT")) }
+
+// State30Hz reports WW_ENEMY_STATE_30HZ=1: the host sends a STATE only when
+// its REL's frame counter advanced since the last one (about half the
+// bytes at 62.5 Hz ticks; design slots.knobs), and at least every
+// KeepaliveEvery so a client's StaleAfter never trips while the game is
+// paused.
+func State30Hz() bool { return os.Getenv("WW_ENEMY_STATE_30HZ") == "1" }
+
+// annexHookNames are WW_ENEMY_ANNEX's hook names (the EnemyHKD* bits).
+var annexHookNames = map[string]uint8{
+	"model_eq": mailbox.EnemyHKDModelEq, "attach": mailbox.EnemyHKDAttach, "eye": mailbox.EnemyHKDEye,
+	"legacy_death": mailbox.EnemyHKDLegacyDeath, "attn": mailbox.EnemyHKDAttn, "mtx_plain": mailbox.EnemyHKDMtxPlain,
+}
+
+// ParseAnnex parses a WW_ENEMY_ANNEX value into the annex overrides (the
+// block's per-kind override row and invuln wait; design block_layout.annex,
+// the Go-only fixes after the one REL build): entries <kind>:<field>=<v>
+// joined by ",", fields
+//
+//	tg_hit_up  s16  collider 2's centre height above pos (host em_hit_center; BK 56, CC 50 compiled)
+//	invuln     u8   executes the host's hit applier waits on the invuln field (CC 8 compiled)
+//	quiet      u8   quiet-death frames (client; 20 compiled, 90 under SF2_LIGHT)
+//	hooks      u8   hook_disable bits: a number or names joined by "+"
+//	                (model_eq attach eye legacy_death attn mtx_plain)
+//
+// e.g. "bk:tg_hit_up=60,cc:invuln=10,bk:hooks=attach". "" and "none" are
+// no overrides; 0 is the compiled default. Each side writes its own block's
+// annex, so a host value (tg_hit_up, invuln) is set on the host and a
+// client value (quiet, hooks) on each client.
+func ParseAnnex(v string) (mailbox.EnemyAnnex, error) {
+	var a mailbox.EnemyAnnex
+	v = strings.TrimSpace(v)
+	if v == "" || strings.EqualFold(v, "none") {
+		return a, nil
+	}
+	for _, tok := range strings.Split(v, ",") {
+		tok = strings.ToLower(strings.TrimSpace(tok))
+		kn, rest, ok1 := strings.Cut(tok, ":")
+		field, val, ok2 := strings.Cut(rest, "=")
+		if !ok1 || !ok2 {
+			return mailbox.EnemyAnnex{}, fmt.Errorf("enemysync: WW_ENEMY_ANNEX entry %q (want <kind>:<field>=<value>)", tok)
+		}
+		k, ok := KindByName(kn)
+		if !ok || int(k.ID) >= mailbox.EnemyAnnexKinds {
+			return mailbox.EnemyAnnex{}, fmt.Errorf("enemysync: WW_ENEMY_ANNEX entry %q: unknown kind %q (want %s)", tok, kn, strings.Join(kindNames(), ", "))
+		}
+		o := &a.Override[k.ID]
+		switch field {
+		case "tg_hit_up":
+			n, err := strconv.ParseInt(val, 0, 16)
+			if err != nil {
+				return mailbox.EnemyAnnex{}, fmt.Errorf("enemysync: WW_ENEMY_ANNEX entry %q: %v", tok, err)
+			}
+			o.TgHitUp = int16(n)
+		case "invuln", "quiet":
+			n, err := strconv.ParseUint(val, 0, 8)
+			if err != nil {
+				return mailbox.EnemyAnnex{}, fmt.Errorf("enemysync: WW_ENEMY_ANNEX entry %q: %v", tok, err)
+			}
+			if field == "invuln" {
+				a.InvulnWait[k.ID] = uint8(n)
+			} else {
+				o.QuietFrames = uint8(n)
+			}
+		case "hooks":
+			var bits uint8
+			for _, h := range strings.Split(val, "+") {
+				if b, ok := annexHookNames[h]; ok {
+					bits |= b
+					continue
+				}
+				n, err := strconv.ParseUint(h, 0, 8)
+				if err != nil {
+					return mailbox.EnemyAnnex{}, fmt.Errorf("enemysync: WW_ENEMY_ANNEX entry %q: hook %q (want a number or model_eq, attach, eye, legacy_death, attn, mtx_plain)", tok, h)
+				}
+				bits |= uint8(n)
+			}
+			o.HookDisable = bits
+		default:
+			return mailbox.EnemyAnnex{}, fmt.Errorf("enemysync: WW_ENEMY_ANNEX entry %q: unknown field %q (want tg_hit_up, invuln, quiet or hooks)", tok, field)
+		}
+	}
+	return a, nil
+}
+
+// AnnexFromEnv is WW_ENEMY_ANNEX parsed (no overrides, with the error,
+// when it does not parse). Only the overrides are set; Aux stays zero.
+func AnnexFromEnv() (mailbox.EnemyAnnex, error) { return ParseAnnex(os.Getenv("WW_ENEMY_ANNEX")) }
+
+// ColliderOff is the actor offset of a kind's hit collider code (the REL's
+// em_hits codes, design hit_path.client): 1 the head sphere, 2 the Tg
+// cylinder (MO2 0x22EC/0x21BC, BK 0xDE8/0xCB8, CC none/0x6BC; the
+// wwenemy_kinds.h HEAD_SPH and TG_CYL, pinned by TestColliderOffPins). 0
+// for a code the kind has no collider for.
+func ColliderOff(id KindID, code uint8) uint32 {
+	t := [...][2]uint32{
+		KindMO2: {addr.Mo2OffHeadSph, addr.Mo2OffTgCyl},
+		KindBK:  {addr.BkOffHeadSph, addr.BkOffTgCyl},
+		KindCC:  {0, addr.CcOffCyl},
+	}
+	if int(id) >= len(t) || code < 1 || code > 2 {
+		return 0
+	}
+	return t[id][code-1]
+}
+
+// DeathSwitchOff is the offset of a kind's u8 death switch, which its
+// own death sets (onSwitch) and a quiet death on the client never runs:
+// BK m02B8 (d_a_bk.h:20; d_a_bk.cpp:2644-2646), MO2 mDeathSwitch
+// (d_a_mo2.h:42). 0 for the ChuChu, which has none (design
+// death_and_drops.quiet_steps).
+func DeathSwitchOff(id KindID) uint32 {
+	switch id {
+	case KindMO2:
+		return addr.Mo2OffDeathSwitch
+	case KindBK:
+		return addr.BkOffDeathSwitch
+	}
+	return 0
+}
+
+// DeathSwitchSet reports whether a death switch byte names a switch:
+// create turns 0xFF into 0 (d_a_bk.cpp create, design facts), so 0 and
+// 0xFF are none.
+func DeathSwitchSet(no uint8) bool { return no != 0 && no != 0xFF }
+
+// QuietCarryGuard is the Go copy of the REL's guard on a quiet Bokoblin
+// death's CARRY clear (design critic_applied "BK quiet death: CARRY clear
+// on a stale m1200", combat.HeldBy's rule): the BOKO the copy's m1200
+// names is cleared only when the copy holds a weapon (m0B30 != 0), the
+// actor is a BOKO (proc 0x1D5), its CARRY bit is set and its mNowMode is
+// Mode_ENEMY_CARRY_e. A stale m1200 naming a stick in Link's hands
+// (Mode_PLAYER_CARRY_e) or on the ground (CARRY clear) is left alone.
+// "" means clear it; otherwise why not.
+func QuietCarryGuard(hold uint32, boko *actors.Actor) string {
+	switch {
+	case hold == 0:
+		return "the copy holds no weapon (m0B30 0)"
+	case boko == nil:
+		return "m1200 names no live actor"
+	case boko.Proc != addr.ProcBoko:
+		return fmt.Sprintf("m1200 names proc 0x%04X, not BOKO", uint16(boko.Proc))
+	case !boko.Carried():
+		return "the stick is not carried (on the ground)"
+	case !boko.ModeOK:
+		return "the stick's mNowMode is unreadable"
+	case boko.Mode == addr.BokoModePlayerCarry:
+		return "Link holds the stick"
+	case boko.Mode != addr.BokoModeEnemyCarry:
+		return fmt.Sprintf("the stick is in mNowMode %d, not ENEMY_CARRY", boko.Mode)
+	}
+	return ""
 }

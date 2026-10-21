@@ -14,7 +14,8 @@ import (
 
 // The wire v3 subs, byte for byte against inject/include/wwremote.h's
 // header comment (the contract): PHIT 60, PACK 16, PSTATE 24, the HIT's
-// new tail at [46..51].
+// new tail at [46..51]. Version 4 keeps their layouts (the version byte
+// is 4; PHIT's setID field carries a handle) and grows the HIT to 56.
 
 func unhex(t *testing.T, s string) []byte {
 	t.Helper()
@@ -30,7 +31,7 @@ func TestV3Sizes(t *testing.T) {
 	if SubPHit != 4 || SubPAck != 5 || SubPState != 6 {
 		t.Errorf("subs %d %d %d", SubPHit, SubPAck, SubPState)
 	}
-	if PHitLen != 60 || PAckLen != 16 || PStateLen != 24 || HitLen != 52 {
+	if PHitLen != 60 || PAckLen != 16 || PStateLen != 24 || HitLen != 56 {
 		t.Errorf("sizes phit %d pack %d pstate %d hit %d", PHitLen, PAckLen, PStateLen, HitLen)
 	}
 	if network.EnemyHitPlayerIDOff != 48 || network.EnemyPStatePlayerIDOff != 19 || network.EnemyClientIDOff != 2 {
@@ -54,7 +55,7 @@ func TestPHitGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := unhex(t, "04 03 07 03 01020304 4D5F446169000000 FE 04 0102 ABCD 03 0D 00000800 07 000000"+
+	want := unhex(t, "04 04 07 03 01020304 4D5F446169000000 FE 04 0102 ABCD 03 0D 00000800 07 000000"+
 		"3F800000 40000000 BF800000 00000000 00000000 3F000000 DEADBEEF")
 	if !bytes.Equal(b, want) {
 		t.Fatalf("PHIT\n got % x\nwant % x", b, want)
@@ -89,7 +90,7 @@ func TestPHitGolden(t *testing.T) {
 func TestPAckGolden(t *testing.T) {
 	a := &PAck{Client: 9, Result: PAckGuarded, Seq: 0x1234, Detail: PADIFrames, LifeBefore: 12, ClientFrame: 0xA0B0C0D0, LifeDelta: -4}
 	b := EncodePAck(a)
-	want := unhex(t, "05 03 09 03 1234 01 0C A0B0C0D0 FFFC 0000")
+	want := unhex(t, "05 04 09 03 1234 01 0C A0B0C0D0 FFFC 0000")
 	if !bytes.Equal(b, want) {
 		t.Fatalf("PACK\n got % x\nwant % x", b, want)
 	}
@@ -111,7 +112,7 @@ func TestPStateGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := unhex(t, "06 03 00 21 00000005 7365610000000000 2C 08 02 00 FFFF 4000")
+	want := unhex(t, "06 04 00 21 00000005 7365610000000000 2C 08 02 00 FFFF 4000")
 	if !bytes.Equal(b, want) {
 		t.Fatalf("PSTATE\n got % x\nwant % x", b, want)
 	}
@@ -129,14 +130,15 @@ func TestPStateGolden(t *testing.T) {
 }
 
 // TestHitV3Tail: the HIT's cut type and count at [46]/[47] and the stamped
-// player id at [48]; [49..51] stay 0.
+// player id at [48]; [49..51] stay 0, and so does v4's handle at [52..53]
+// when none is set.
 func TestHitV3Tail(t *testing.T) {
 	h := &Hit{Stage: "M_Dai", SetID: 1, CutType: 0x0B, CutCount: 3, PlayerID: 0}
 	b, err := EncodeHit(h)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b[46] != 0x0B || b[47] != 3 || b[48] != 0 || !bytes.Equal(b[49:], []byte{0, 0, 0}) {
+	if b[46] != 0x0B || b[47] != 3 || b[48] != 0 || !bytes.Equal(b[49:], []byte{0, 0, 0, 0, 0, 0, 0}) {
 		t.Fatalf("tail % x", b[44:])
 	}
 	b[network.EnemyHitPlayerIDOff] = 5

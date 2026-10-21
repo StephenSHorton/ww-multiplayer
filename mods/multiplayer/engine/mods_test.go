@@ -80,7 +80,7 @@ type modsCoopApp struct{ coop Coop }
 func (a modsCoopApp) Session(session.CoopOptions, Front) Coop { return a.coop }
 func (modsCoopApp) Lobby(context.Context, LobbyEnv) LobbyCoop { return nil }
 func (modsCoopApp) Worlds() ([]session.CoopWorld, error)      { return nil, nil }
-func (modsCoopApp) Sync(context.Context, string, string, uint32, log.Reporter, CoopSide) error {
+func (modsCoopApp) Sync(context.Context, string, string, uint32, log.Reporter, CoopSide, func(uint32) bool) error {
 	return nil
 }
 

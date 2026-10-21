@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/cheats"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/enemysync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
@@ -345,21 +346,33 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	spawn("bcast-B", broadcast(nameB, pidB))
 	time.Sleep(300 * time.Millisecond)
 	spawn("puppet-B", puppet(nameB, pidB))
+	// Dolphin B's enemy claims (enemy-mirror-general.json D8): enemy-B
+	// fills them and coop-B's K1 refuses what they claim. Per game, never
+	// shared: A is the host and mirrors nothing, so coop-A gets none.
+	claimsA, claimsB := mpLocalClaims(enemysync.Enabled())
 	if enemysync.Enabled() {
 		// WW_ENEMY_SYNC=1: Dolphin A's Moblins are the authority (the
 		// sampler), Dolphin B mirrors them.
+		envA, envB := enemyEnv, enemyEnv
+		envA.Claims, envB.Claims = claimsA, claimsB
 		time.Sleep(300 * time.Millisecond)
-		spawn("enemy-A", func(r log.Reporter) error { return enemysync.HostPipeline(ctx, enemyEnv, nameA, addr, pidA, r, nil) })
+		spawn("enemy-A", func(r log.Reporter) error { return enemysync.HostPipeline(ctx, envA, nameA, addr, pidA, r, nil) })
 		time.Sleep(300 * time.Millisecond)
-		spawn("enemy-B", func(r log.Reporter) error { return enemysync.ClientPipeline(ctx, enemyEnv, nameB, addr, pidB, r, nil) })
+		spawn("enemy-B", func(r log.Reporter) error {
+			defer claimsB.Replace(nil) // a stopped client claims nothing
+			return enemysync.ClientPipeline(ctx, envB, nameB, addr, pidB, r, nil)
+		})
 	}
 	if coop != nil {
 		for _, d := range []struct {
 			label, name string
 			pid         uint32
-		}{{"coop-A", nameA, pidA}, {"coop-B", nameB, pidB}} {
+			claims      *enemysync.ClaimSet
+		}{{"coop-A", nameA, pidA, claimsA}, {"coop-B", nameB, pidB, claimsB}} {
 			time.Sleep(300 * time.Millisecond)
-			spawn(d.label, func(r log.Reporter) error { return coopsession.RunSync(ctx, coopEnv, d.name, addr, d.pid, r, coop) })
+			spawn(d.label, func(r log.Reporter) error {
+				return coopsession.RunSync(ctx, coopEnv, d.name, addr, d.pid, r, coop, mpLocalClaimFunc(d.claims))
+			})
 		}
 	}
 
@@ -387,6 +400,26 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 		d.Close()
 	}
 	rep.Log(log.OK, "Done.")
+}
+
+// mpLocalClaims are mp-local's enemy claim sets, one per Dolphin
+// (enemy-mirror-general.json D8): none for A, the host, whose enemies
+// are the authority; a set of its own for B, the mirror, which enemy-B
+// fills and coop-B's K1 reads. Both nil with enemy sync off.
+func mpLocalClaims(enemySync bool) (a, b *enemysync.ClaimSet) {
+	if !enemySync {
+		return nil, nil
+	}
+	return nil, enemysync.NewClaimSet()
+}
+
+// mpLocalClaimFunc is cs's Claimed for a coop-sync's K1, nil for a nil
+// set.
+func mpLocalClaimFunc(cs *enemysync.ClaimSet) combat.ClaimFunc {
+	if cs == nil {
+		return nil
+	}
+	return cs.Claimed
 }
 
 // waitForReady blocks until both Dolphins report player.Link.Ready() = true,

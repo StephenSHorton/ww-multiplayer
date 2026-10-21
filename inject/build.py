@@ -50,7 +50,7 @@ REL_SOURCES = ["rel/rel_main.c", "rel/enemy_mirror.c", "rel/remote.c", "rel/full
 # The headers the module's build id also covers (rel_build_id): its own
 # and the three slack layouts it reads and writes.
 REL_HEADERS = ["rel/enemy_mirror.h", "rel/remote.h", "rel/fullbody.h", "rel/shanm.h", "rel/dapy.h",
-               "include/wwrel.h", "include/wwenemy.h", "include/wwremote.h"]
+               "include/wwrel.h", "include/wwenemy.h", "include/wwenemy_kinds.h", "include/wwremote.h"]
 REL_LD = os.path.join("rel", "ww_rel.ld")
 REL_OBJ_DIR = os.path.join("build", "temp", "rel")
 REL_ELF = os.path.join("build", "wwrel.elf")

@@ -40,7 +40,7 @@ func (b *enemyInbox) snapshot() [][]byte {
 // enemyState is a well-shaped STATE with count zero slots.
 func enemyState(count int, tag byte) []byte {
 	b := make([]byte, EnemyStateLen(count))
-	b[0], b[1], b[2], b[3] = EnemySubState, 2, tag, byte(count)
+	b[0], b[1], b[2], b[3] = EnemySubState, 4, tag, byte(count)
 	return b
 }
 
@@ -48,14 +48,14 @@ func enemyState(count int, tag byte) []byte {
 // client sends it.
 func enemyHit(tag byte) []byte {
 	b := make([]byte, EnemyHitLen)
-	b[0], b[1], b[3] = EnemySubHit, 2, tag
+	b[0], b[1], b[3] = EnemySubHit, 4, tag
 	return b
 }
 
 // enemyAck is a well-shaped ACK naming enemy client id.
 func enemyAck(id, tag byte) []byte {
 	b := make([]byte, EnemyAckLen)
-	b[0], b[1], b[EnemyClientIDOff], b[3] = EnemySubAck, 2, id, tag
+	b[0], b[1], b[EnemyClientIDOff], b[3] = EnemySubAck, 4, id, tag
 	return b
 }
 
@@ -104,7 +104,8 @@ func TestEnemyFrameShape(t *testing.T) {
 	}{
 		{"state 0 slots", RoleEnemyHost, enemyState(0, 0), true},
 		{"state 4 slots", RoleEnemyHost, enemyState(4, 0), true},
-		{"state 5 slots", RoleEnemyHost, append(enemyState(4, 0), make([]byte, EnemySlotLen)...), false},
+		{"state 16 slots", RoleEnemyHost, enemyState(16, 0), true},
+		{"state 17 slots", RoleEnemyHost, append(enemyState(16, 0), make([]byte, EnemySlotLen)...), false},
 		{"state wrong length", RoleEnemyHost, enemyState(2, 0)[:EnemyStateLen(2)-1], false},
 		{"state count lies", RoleEnemyHost, func() []byte { b := enemyState(1, 0); b[3] = 2; return b }(), false},
 		{"state from client", RoleEnemyClient, enemyState(0, 0), false},
@@ -121,6 +122,11 @@ func TestEnemyFrameShape(t *testing.T) {
 		{"state four v1 slots", RoleEnemyHost, enemyState(4, 0)[:EnemyStateLen(3)], false},
 		{"hit v1", RoleEnemyClient, enemyHit(0)[:44], false},
 		{"hit v2", RoleEnemyClient, enemyHit(0)[:48], false},
+		// Version 3's sizes no longer pass either (32-byte header and
+		// 48-byte slots, a 52-byte HIT, a 16-byte ACK).
+		{"state v3 slots", RoleEnemyHost, make([]byte, 32+2*48), false},
+		{"hit v3", RoleEnemyClient, enemyHit(0)[:52], false},
+		{"ack v3", RoleEnemyHost, enemyAck(1, 0)[:16], false},
 		// The remote-Link subs (wire version 3): PHIT only from the host,
 		// PACK and PSTATE only from a client, exact sizes.
 		{"phit", RoleEnemyHost, enemyPHit(1, 0), true},
@@ -143,8 +149,8 @@ func TestEnemyFrameShape(t *testing.T) {
 			t.Errorf("%s: enemyFrameShape = %q, want ok=%v", c.name, why, c.ok)
 		}
 	}
-	if EnemySlotLen != 48 || EnemyStateLen(0) != 32 || EnemyStateLen(4) != 32+4*48 || EnemyHitLen != 52 || EnemyAckLen != 16 {
-		t.Errorf("sizes: slot=%d state(0)=%d state(4)=%d hit=%d ack=%d", EnemySlotLen, EnemyStateLen(0), EnemyStateLen(4), EnemyHitLen, EnemyAckLen)
+	if EnemySlotLen != 64 || EnemyStateLen(0) != 52 || EnemyStateLen(16) != 52+16*64 || EnemyHitLen != 56 || EnemyAckLen != 20 || EnemyMaxSlots != 16 {
+		t.Errorf("sizes: slot=%d state(0)=%d state(16)=%d hit=%d ack=%d max=%d", EnemySlotLen, EnemyStateLen(0), EnemyStateLen(16), EnemyHitLen, EnemyAckLen, EnemyMaxSlots)
 	}
 	if EnemyPHitLen != 60 || EnemyPAckLen != 16 || EnemyPStateLen != 24 || EnemyHitPlayerIDOff != 48 || EnemyPStatePlayerIDOff != 19 {
 		t.Errorf("v3: phit=%d pack=%d pstate=%d hit pid @%d pstate pid @%d", EnemyPHitLen, EnemyPAckLen, EnemyPStateLen, EnemyHitPlayerIDOff, EnemyPStatePlayerIDOff)

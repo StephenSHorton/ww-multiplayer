@@ -4,7 +4,9 @@
 // and streams them as MsgEnemy STATE frames on a RoleEnemyHost
 // connection; each joiner's Go matches them to its own Moblins, smooths
 // the samples and writes one block per tick into the mailbox slack
-// (wwapi/mailbox/enemy.go) for the REL module to mirror.
+// (wwapi/mailbox/enemy.go) for the REL module to mirror. The generalised
+// mirror (enemy-mirror-general.json; kinds.go, identity.go, wire version
+// 4) extends it to Bokoblins and ChuChus, keyed and unkeyed.
 //
 // This file is the wire format: the STATE, HIT, ACK and (wire version 3,
 // the remote-Link design) PHIT, PACK and PSTATE payloads of a MsgEnemy
@@ -34,7 +36,13 @@ import (
 // header comment): the HIT grew to 52 with the client Link's cut type and
 // count and the server-stamped player id, and the PHIT, PACK and PSTATE
 // subs carry an enemy hit on a remote player's body to that player.
-const WireVersion byte = 3
+// 4 (enemy-mirror-general.json "wire"): the STATE lists up to
+// WireMaxSlots candidates of every enabled kind, each with its kind, pkey,
+// a per-epoch handle, wire flags and aux[4]; the header carries the host's
+// kind mask, the room's dead-actor words 0..3 and the kind table's hash;
+// HIT and ACK name their target by handle, and PHIT's setID field carries
+// the attacker's handle. Sub refuses every other version.
+const WireVersion byte = 4
 
 // The sub bytes and sizes, from the server's ingress rules.
 const (
@@ -48,16 +56,42 @@ const (
 
 	StateHeaderLen = network.EnemyStateHeaderLen
 	SlotLen        = network.EnemySlotLen
-	MaxSlots       = network.EnemyMaxSlots
-	HitLen         = network.EnemyHitLen
-	AckLen         = network.EnemyAckLen
-	PHitLen        = network.EnemyPHitLen
-	PAckLen        = network.EnemyPAckLen
-	PStateLen      = network.EnemyPStateLen
+	// WireMaxSlots is how many candidates a STATE may list (16); MaxSlots
+	// is how many the block and the REL mirror (4): each client picks its
+	// MaxSlots from the WireMaxSlots.
+	WireMaxSlots = network.EnemyMaxSlots
+	MaxSlots     = mailbox.EnemyMaxSlots
+	HitLen       = network.EnemyHitLen
+	AckLen       = network.EnemyAckLen
+	PHitLen      = network.EnemyPHitLen
+	PAckLen      = network.EnemyPAckLen
+	PStateLen    = network.EnemyPStateLen
 
 	// StageLen is the stage name field: char[8], NUL-padded, as
 	// dStage_startStage_c::mName (d_stage.h:949).
 	StageLen = 8
+
+	// DeadWords is how many u32 dead-actor words a STATE carries: the
+	// room's zone words 0..3, keyed setIDs 0..127.
+	DeadWords = 4
+)
+
+// Handles (wire version 4): the host names every listed enemy by a u16
+// handle, assigned monotonically per host epoch from 1 and never 0 or
+// 0xFFFF; HIT and ACK carry it, and PHIT's SetID field carries the
+// attacker's (NoMirrorHandle: no mirrored attacker). A client never writes
+// a handle into the REL's apply record: it translates it to an owner id
+// (a keyed local setID, OwnerSlotBase|j for block slot j, or 0xFFFF).
+const (
+	HandleNone     uint16 = 0
+	NoMirrorHandle uint16 = 0xFFFF
+	OwnerSlotBase         = mailbox.EnemyOwnerSlotBase
+)
+
+// Wire slot flags (Slot.WFlags; the wire only, never the block).
+const (
+	WFlagEngaged uint8 = 1 << 0 // a client HIT or a host PHIT on this enemy within 3 s (CC also its At Set bit): the client keeps its slot
+	WFlagTomb    uint8 = 1 << 1 // a tombstone: the enemy died or vanished on the host (sent DYING|RELEASE for 300 host frames)
 )
 
 // STATE header flags.
@@ -117,6 +151,9 @@ const (
 	// the sender's remote body, but that body was not LIVE, so the host
 	// Link's path ran (mailbox.RemoteHDNoBody).
 	HDNoBody uint8 = mailbox.RemoteHDNoBody
+	// HDKind is the REL's (layout 3): the target's kind has no row or is
+	// not enabled on the host (mailbox.EnemyHDKind).
+	HDKind uint8 = mailbox.EnemyHDKind
 )
 
 // ResultName and DetailName name an ACK's result and detail for logs.
@@ -137,20 +174,24 @@ func ResultName(r uint8) string {
 }
 
 func DetailName(d uint8) string {
-	names := [...]string{"none", "no_cross", "invuln", "ragdoll", "dying", "no_link", "no_sphere", "wrong_obj", "aborted", "defence", "fallback_shrink", "go_gate", "rate", "busy", "go_flags", "demo", "no_body"}
+	names := [...]string{"none", "no_cross", "invuln", "ragdoll", "dying", "no_link", "no_sphere", "wrong_obj", "aborted", "defence", "fallback_shrink", "go_gate", "rate", "busy", "go_flags", "demo", "no_body", "kind"}
 	if int(d) < len(names) {
 		return names[d]
 	}
 	return fmt.Sprintf("detail_%d", d)
 }
 
-// Slot is one Moblin in a STATE.
+// Slot is one enemy in a STATE. The fields are the Moblin's; a Bokoblin
+// or ChuChu fills them per kind (enemy-mirror-general.json "flags"): Tilt
+// is BK dr.m48C.x or CC m316.x, a ChuChu's Action/Mode are its
+// mCurrAction/m2F5, and its AttackType/AttackPhase carry m316.z
+// (SetCcM316Z).
 type Slot struct {
-	SetID       uint16
-	Proc        uint16 // 0x00BD (fpcNm_MO2_e)
+	SetID       uint16 // < 0x200 keyed, 0xFFFF unkeyed
+	Proc        uint16 // the kind's proc (0x00BD, 0x00BE, 0x00CF)
 	Pos         [3]float32
 	AngleY      int16 // current.angle.y (+0x206)
-	Tilt        int16 // damagereaction m48C.x (+0xAA0)
+	Tilt        int16 // MO2 dr.m48C.x (+0xAA0), BK dr.m48C.x (+0x7FC), CC m316.x
 	Action      int16 // damagereaction mAction (+0x61A)
 	Mode        int16 // damagereaction mMode (+0x618)
 	AttackType  uint8 // m2060
@@ -170,7 +211,28 @@ type Slot struct {
 	Flags2    uint8
 	BlurShape uint8
 	BlurScale float32
+	// Version 4: wire flags (WFlag*), the kind (the client checks it
+	// against KindOf(Proc); the decoder does not, so a newer row does not
+	// fail the whole STATE), the host actor's placement key, its handle
+	// and the kind's four aux values (the block annex's).
+	WFlags uint8
+	Kind   KindID
+	PKey   uint32
+	Handle uint16
+	Aux    [4]int16
 }
+
+// SetCcM316Z stores a ChuChu's m316.z in the AttackType/AttackPhase bytes
+// (big-endian), where a Moblin carries its attack.
+func (sl *Slot) SetCcM316Z(v int16) {
+	sl.AttackType, sl.AttackPhase = uint8(uint16(v)>>8), uint8(v)
+}
+
+// CcM316Z is the m316.z SetCcM316Z stored.
+func (sl *Slot) CcM316Z() int16 { return int16(uint16(sl.AttackType)<<8 | uint16(sl.AttackPhase)) }
+
+// Ident is the slot's identity.
+func (sl *Slot) Ident() Ident { return Ident{Proc: sl.Proc, SetID: sl.SetID, PKey: sl.PKey} }
 
 // Slot flags2 (wire and block share them: wwapi/mailbox.EnemySF2*).
 const (
@@ -190,8 +252,8 @@ const (
 	AnmAttrUnknown     uint8 = 0xFF
 )
 
-// State is a STATE payload: the host's keyed Moblins in its room, or a
-// count-0 keepalive.
+// State is a STATE payload: the host's candidates in its room (at most
+// WireMaxSlots, of every enabled kind), or a count-0 keepalive.
 type State struct {
 	Flags    uint8
 	Epoch    uint32
@@ -200,13 +262,32 @@ type State struct {
 	HostMS   uint32 // the host's monotonic ms, sender-relative (the smoother's clock)
 	Stage    string // at most StageLen bytes
 	Room     int8
-	DeadMask uint8 // bit n: keyed setID n's dead-actor bit is set in this room's zone
-	Slots    []Slot
+	DeadMask uint8 // bit n: keyed setID n's dead-actor bit is set in this room's zone; == uint8(Dead[0]) (SetDead)
+	// Version 4: the host's enabled kinds (bit KindID; the client mirrors
+	// a kind only when both sides enable it), the room's zone dead-actor
+	// words 0..3 (setIDs 0..127) and the host's KindHash (a client
+	// refuses a STATE whose hash is not its own).
+	HostKindMask uint8
+	Dead         [DeadWords]uint32
+	KindHash     uint32
+	Slots        []Slot
+}
+
+// SetDead sets the dead words and DeadMask, their low byte, together.
+func (s *State) SetDead(words [DeadWords]uint32) {
+	s.Dead, s.DeadMask = words, uint8(words[0])
+}
+
+// IsDead reports whether keyed setID id's dead-actor bit is set in the
+// STATE's words (false past setID 127).
+func (s *State) IsDead(id uint16) bool {
+	return int(id) < 32*DeadWords && s.Dead[id/32]&(1<<(id%32)) != 0
 }
 
 // Hit is a HIT payload: a client's sword or arrow landed on a mirrored
 // copy. Client is the enemy client's connection ID, which the server
-// stamps on the way to the host; a client sends 0.
+// stamps on the way to the host; a client sends 0. Version 4: Handle
+// names the target (the host resolves it); SetID stays for logs.
 type Hit struct {
 	Client      uint8
 	Collider    uint8
@@ -215,6 +296,7 @@ type Hit struct {
 	Room        int8
 	Atp         uint8
 	SetID       uint16
+	Handle      uint16
 	HitSeq      uint16
 	AtType      uint32
 	Pos         [3]float32
@@ -236,12 +318,14 @@ type Hit struct {
 }
 
 // Ack is an ACK payload: what the host did with a HIT. Client is the HIT's
-// stamped connection ID, which the server routes the ACK by.
+// stamped connection ID, which the server routes the ACK by; Handle is
+// the HIT's (version 4).
 type Ack struct {
 	Client uint8
 	Result uint8
 	Epoch  uint32
 	SetID  uint16
+	Handle uint16
 	HitSeq uint16
 	Health int8
 	Detail uint8 // HD*
@@ -280,11 +364,11 @@ func getStage(b []byte) string {
 	return string(b[:n])
 }
 
-// EncodeState builds a STATE payload. It refuses more than MaxSlots
+// EncodeState builds a STATE payload. It refuses more than WireMaxSlots
 // slots, a stage name over StageLen bytes and a NaN or Inf anywhere.
 func EncodeState(s *State) ([]byte, error) {
-	if len(s.Slots) > MaxSlots {
-		return nil, fmt.Errorf("enemysync: %d slots (max %d)", len(s.Slots), MaxSlots)
+	if len(s.Slots) > WireMaxSlots {
+		return nil, fmt.Errorf("enemysync: %d slots (max %d)", len(s.Slots), WireMaxSlots)
 	}
 	b := make([]byte, StateHeaderLen+SlotLen*len(s.Slots))
 	b[0], b[1], b[2], b[3] = SubState, WireVersion, s.Flags, byte(len(s.Slots))
@@ -295,7 +379,11 @@ func EncodeState(s *State) ([]byte, error) {
 	if err := putStage(b[20:28], s.Stage); err != nil {
 		return nil, err
 	}
-	b[28], b[29] = byte(s.Room), s.DeadMask
+	b[28], b[29], b[30], b[31] = byte(s.Room), s.DeadMask, s.HostKindMask, 0
+	for i, w := range s.Dead {
+		binary.BigEndian.PutUint32(b[32+4*i:], w)
+	}
+	binary.BigEndian.PutUint32(b[48:], s.KindHash)
 	for i := range s.Slots {
 		if err := encodeSlot(b[StateHeaderLen+SlotLen*i:], &s.Slots[i]); err != nil {
 			return nil, fmt.Errorf("slot %d: %w", i, err)
@@ -322,8 +410,14 @@ func encodeSlot(b []byte, sl *Slot) error {
 	binary.BigEndian.PutUint32(b[30:], math.Float32bits(sl.MorfRate))
 	b[34], b[35] = byte(sl.Health), sl.Flags
 	b[36], b[37], b[38], b[39], b[40], b[41] = sl.Bck, sl.AnmAttr, sl.AnmSeq, sl.Morf, sl.Flags2, sl.BlurShape
-	b[42], b[43] = 0, 0
+	b[42], b[43] = sl.WFlags, uint8(sl.Kind)
 	binary.BigEndian.PutUint32(b[44:], math.Float32bits(sl.BlurScale))
+	binary.BigEndian.PutUint32(b[48:], sl.PKey)
+	binary.BigEndian.PutUint16(b[52:], sl.Handle)
+	b[54], b[55] = 0, 0
+	for i, v := range sl.Aux {
+		binary.BigEndian.PutUint16(b[56+2*i:], uint16(v))
+	}
 	return nil
 }
 
@@ -354,8 +448,8 @@ func DecodeState(data []byte) (*State, error) {
 		return nil, fmt.Errorf("enemysync: %d-byte STATE is shorter than its %d-byte header", len(data), StateHeaderLen)
 	}
 	count := int(data[3])
-	if count > MaxSlots {
-		return nil, fmt.Errorf("enemysync: STATE with %d slots (max %d)", count, MaxSlots)
+	if count > WireMaxSlots {
+		return nil, fmt.Errorf("enemysync: STATE with %d slots (max %d)", count, WireMaxSlots)
 	}
 	if len(data) != StateHeaderLen+SlotLen*count {
 		return nil, fmt.Errorf("enemysync: %d-byte STATE with %d slots (want %d bytes)", len(data), count, StateHeaderLen+SlotLen*count)
@@ -369,6 +463,12 @@ func DecodeState(data []byte) (*State, error) {
 		Stage:    getStage(data[20:28]),
 		Room:     int8(data[28]),
 		DeadMask: data[29],
+
+		HostKindMask: data[30],
+		KindHash:     binary.BigEndian.Uint32(data[48:]),
+	}
+	for i := range s.Dead {
+		s.Dead[i] = binary.BigEndian.Uint32(data[32+4*i:])
 	}
 	if count > 0 {
 		s.Slots = make([]Slot, count)
@@ -396,7 +496,13 @@ func decodeSlot(b []byte, sl *Slot) error {
 	sl.MorfRate = math.Float32frombits(binary.BigEndian.Uint32(b[30:]))
 	sl.Health, sl.Flags = int8(b[34]), b[35]
 	sl.Bck, sl.AnmAttr, sl.AnmSeq, sl.Morf, sl.Flags2, sl.BlurShape = b[36], b[37], b[38], b[39], b[40], b[41]
+	sl.WFlags, sl.Kind = b[42], KindID(b[43])
 	sl.BlurScale = math.Float32frombits(binary.BigEndian.Uint32(b[44:]))
+	sl.PKey = binary.BigEndian.Uint32(b[48:])
+	sl.Handle = binary.BigEndian.Uint16(b[52:])
+	for i := range sl.Aux {
+		sl.Aux[i] = int16(binary.BigEndian.Uint16(b[56+2*i:]))
+	}
 	return finite(sl.Pos[0], sl.Pos[1], sl.Pos[2], sl.MorfFrame, sl.MorfRate, sl.BlurScale)
 }
 
@@ -423,6 +529,7 @@ func EncodeHit(h *Hit) ([]byte, error) {
 	binary.BigEndian.PutUint32(b[40:], h.ClientFrame)
 	b[44], b[45] = h.Spl, h.AtSPrm
 	b[46], b[47], b[network.EnemyHitPlayerIDOff] = h.CutType, h.CutCount, h.PlayerID
+	binary.BigEndian.PutUint16(b[52:], h.Handle)
 	return b, nil
 }
 
@@ -446,6 +553,7 @@ func DecodeHit(data []byte) (*Hit, error) {
 		Room:        int8(data[16]),
 		Atp:         data[17],
 		SetID:       binary.BigEndian.Uint16(data[18:]),
+		Handle:      binary.BigEndian.Uint16(data[52:]),
 		HitSeq:      binary.BigEndian.Uint16(data[20:]),
 		AtType:      binary.BigEndian.Uint32(data[24:]),
 		ClientFrame: binary.BigEndian.Uint32(data[40:]),
@@ -475,6 +583,7 @@ func EncodeAck(a *Ack) []byte {
 	binary.BigEndian.PutUint16(b[10:], a.HitSeq)
 	b[12] = byte(a.Health)
 	b[13], b[14], b[15] = a.Detail, a.Frames, a.Sets
+	binary.BigEndian.PutUint16(b[16:], a.Handle)
 	return b
 }
 
@@ -495,6 +604,7 @@ func DecodeAck(data []byte) (*Ack, error) {
 		Result: data[3],
 		Epoch:  binary.BigEndian.Uint32(data[4:]),
 		SetID:  binary.BigEndian.Uint16(data[8:]),
+		Handle: binary.BigEndian.Uint16(data[16:]),
 		HitSeq: binary.BigEndian.Uint16(data[10:]),
 		Health: int8(data[12]),
 		Detail: data[13],
@@ -582,7 +692,9 @@ type PState struct {
 // PHit is a PHIT payload: an enemy's At crossed the remote body of the
 // player whose enemy connection is Client, on the host (§8.2). Seq counts
 // per target client; the attacker fields are the host REL's hit ring
-// entry's (mailbox.RemoteHit).
+// entry's (mailbox.RemoteHit). Version 4: SetID carries the attacker's
+// handle (NoMirrorHandle when the host lists no such enemy); the client
+// translates it to an owner id before it reaches the REL.
 type PHit struct {
 	Client    uint8
 	Flags     uint8 // PHit*

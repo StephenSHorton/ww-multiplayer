@@ -233,6 +233,23 @@ func enemyMirrorLocal(ctx context.Context, w io.Writer, m mem.Mem, d time.Durati
 	if src == nil || dst == nil {
 		return fmt.Errorf("need keyed mode-0 Moblins setID 0 and 1 in %s room %d; found %d: %+v", scope.Stage, scope.Room, len(mos), mos)
 	}
+	// Layout 3: the slot carries dst's own placement key, which the REL
+	// recomputes from dst and compares (ERR_KEY on a mismatch), as the
+	// client writes the local actor's.
+	mo2, _ := enemysync.ParseKinds("mo2")
+	ens, err := enemysync.Candidates(m, scope.Room, mo2)
+	if err != nil {
+		return err
+	}
+	var dstKey uint32
+	for _, e := range ens {
+		if e.PID == dst.PID {
+			dstKey = e.Ident.PKey
+		}
+	}
+	if dstKey == 0 {
+		return fmt.Errorf("setID 1 (pid %d) is no Moblin candidate: no placement key for it", dst.PID)
+	}
 	pausePrev, err := mem.ReadU8(m, dst.Addr+addr.ActorOffPauseFlag)
 	if err != nil {
 		return err
@@ -320,10 +337,13 @@ func enemyMirrorLocal(ctx context.Context, w io.Writer, m mem.Mem, d time.Durati
 			// SampleSeq is the block seq: one new sample per write, so the
 			// REL's per-sample work (the canaries, the S2.5 frame) runs on
 			// every write as it does under the client.
+			// Layout 3: the slot's proc and dst's own pkey, and the block's
+			// kind_mask (the Moblin row only).
 			b := &mailbox.EnemyBlock{Magic: mailbox.EnemyMagic, Seq: seq, GoWriteMS: uint32(now.Sub(start).Milliseconds()),
 				Flags: flags, Layout: mailbox.EnemyLayout, Epoch: epoch, Stage: scope.Stage, Room: scope.Room, Role: mailbox.EnemyRoleClient,
-				Slots: []mailbox.EnemySlot{{PID: dst.PID, Pos: [3]float32{s.Pos[0] + mirrorLocalOffsetX, s.Pos[1], s.Pos[2]}, AngleY: s.AngleY, Tilt: s.Tilt,
-					Action: s.Action, Mode: s.Mode, AttackType: s.AttackType, AttackPhase: s.AttackPhase, Health: s.Health,
+				KindMask: 1 << enemysync.KindMO2,
+				Slots: []mailbox.EnemySlot{{PID: dst.PID, PKey: dstKey, Pos: [3]float32{s.Pos[0] + mirrorLocalOffsetX, s.Pos[1], s.Pos[2]}, AngleY: s.AngleY, Tilt: s.Tilt,
+					Proc: s.Proc, AttackType: s.AttackType, AttackPhase: s.AttackPhase, Health: s.Health,
 					Flags: s.Flags &^ enemysync.SlotDying, MorfFrame: s.MorfFrame, MorfRate: s.MorfRate, SampleSeq: seq,
 					Bck: s.Bck, AnmAttr: s.AnmAttr, AnmSeq: s.AnmSeq, Morf: s.Morf, Flags2: s.Flags2, BlurShape: s.BlurShape, BlurScale: s.BlurScale}}}
 			if snap {
@@ -439,13 +459,22 @@ func enemyBlockDump(w io.Writer, m mem.Reader) error {
 	if tail != blk.Seq {
 		torn = " (TORN: head != tail)"
 	}
-	fmt.Fprintf(w, "Go span: magic 0x%08X %s seq_head %d seq_tail %d%s host_beat %d go_write_ms %d count %d flags 0x%02X layout %d epoch %d stage %q room %d role %d\n",
-		blk.Magic, magic, blk.Seq, tail, torn, blk.HostBeat, blk.GoWriteMS, len(blk.Slots), blk.Flags, blk.Layout, blk.Epoch, blk.Stage, blk.Room, blk.Role)
+	fmt.Fprintf(w, "Go span: magic 0x%08X %s seq_head %d seq_tail %d%s host_beat %d go_write_ms %d count %d flags 0x%02X layout %d epoch %d stage %q room %d role %d kind_mask 0x%X\n",
+		blk.Magic, magic, blk.Seq, tail, torn, blk.HostBeat, blk.GoWriteMS, len(blk.Slots), blk.Flags, blk.Layout, blk.Epoch, blk.Stage, blk.Room, blk.Role, blk.KindMask)
 	for i, s := range blk.Slots {
-		fmt.Fprintf(w, "  slot %d: pid %d pos %.1f %.1f %.1f angle %d tilt %d action %d mode %d attack %d/%d health %d flags 0x%02X frame %.2f rate %.2f sample %d bck 0x%02X attr %d anm_seq %d morf %d flags2 0x%02X blur %d/%.2f\n",
-			i, s.PID, s.Pos[0], s.Pos[1], s.Pos[2], s.AngleY, s.Tilt, s.Action, s.Mode, s.AttackType, s.AttackPhase, s.Health, s.Flags, s.MorfFrame, s.MorfRate, s.SampleSeq,
+		fmt.Fprintf(w, "  slot %d: pid %d proc 0x%04X pkey 0x%08X pos %.1f %.1f %.1f angle %d tilt %d attack %d/%d health %d flags 0x%02X frame %.2f rate %.2f sample %d bck 0x%02X attr %d anm_seq %d morf %d flags2 0x%02X blur %d/%.2f\n",
+			i, s.PID, s.Proc, s.PKey, s.Pos[0], s.Pos[1], s.Pos[2], s.AngleY, s.Tilt, s.AttackType, s.AttackPhase, s.Health, s.Flags, s.MorfFrame, s.MorfRate, s.SampleSeq,
 			s.Bck, s.AnmAttr, s.AnmSeq, s.Morf, s.Flags2, s.BlurShape, s.BlurScale)
 	}
+	ax, axSeq, err := mailbox.ReadEnemyAnnex(m)
+	if err != nil {
+		return err
+	}
+	stale := ""
+	if axSeq != blk.Seq {
+		stale = " (STALE: != seq_head; the REL ignores it)"
+	}
+	fmt.Fprintf(w, "annex at 0x%08X: annex_seq %d%s aux %v override %+v invuln_wait %v\n", mailbox.EnemyAnnexAddr, axSeq, stale, ax.Aux, ax.Override, ax.InvulnWait)
 	h := blk.HitApply
 	fmt.Fprintf(w, "  hit_apply: seq %d setID %d collider %d flags 0x%02X atType 0x%08X atp %d se %d hit_mark %d spl %d pos %.1f %.1f %.1f pid %d\n",
 		h.Seq, h.SetID, h.Collider, h.Flags, h.AtType, h.Atp, h.Se, h.HitMark, h.Spl, h.Pos[0], h.Pos[1], h.Pos[2], h.PID)

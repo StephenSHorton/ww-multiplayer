@@ -18,19 +18,23 @@ type Actor struct {
 	PID        uint32 // mBsPcId
 	Proc       int16  // mProcName
 	InitState  int8   // mInitState: 2 while it executes
-	SetID      uint16
-	Group      uint8
-	HomeRoom   int8
-	HomePos    [3]uint32 // home.pos, the f32 bits as the entry had them
-	HomeAngle  [3]int16
-	Pos        [3]float32 // current.pos
-	Params     uint32
-	Status     uint32 // actor_status
-	ParentID   uint32 // parentActorID: 0xFFFFFFFF for a placed actor
-	EvtCmd     uint16 // eventInfo.mCommand: 0 outside an event's order
-	Health     int8
-	MaxHealth  int8
-	Attn       uint32 // attention_info.flags
+	// Pause is mPauseFlag (f_pc_base.h:18): the enemy mirror's REL sets
+	// addr.ActorPauseMirrorBit on a copy it adopts, which co-op's K1
+	// refuses (enemy-mirror-general.json D8).
+	Pause     uint8
+	SetID     uint16
+	Group     uint8
+	HomeRoom  int8
+	HomePos   [3]uint32 // home.pos, the f32 bits as the entry had them
+	HomeAngle [3]int16
+	Pos       [3]float32 // current.pos
+	Params    uint32
+	Status    uint32 // actor_status
+	ParentID  uint32 // parentActorID: 0xFFFFFFFF for a placed actor
+	EvtCmd    uint16 // eventInfo.mCommand: 0 outside an event's order
+	Health    int8
+	MaxHealth int8
+	Attn      uint32 // attention_info.flags
 
 	// Ice is the enemyice at Layout.Ice; Ice.Off is 0 without one.
 	Ice IceState
@@ -135,6 +139,7 @@ func decode(node uint32, b []byte) Actor {
 		PID:       be32(b[addr.ActorOffBsPcID:]),
 		Proc:      int16(be16(b[addr.ActorOffProcName:])),
 		InitState: int8(b[addr.ActorOffInitState]),
+		Pause:     b[addr.ActorOffPauseFlag],
 		SetID:     be16(b[addr.ActorOffSetID:]),
 		Group:     b[addr.ActorOffGroup],
 		HomeRoom:  int8(b[addr.ActorOffHomeRoomNo]),

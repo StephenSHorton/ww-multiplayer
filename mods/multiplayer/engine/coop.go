@@ -27,8 +27,10 @@ type CoopApp interface {
 	// Worlds lists the co-op worlds (Engine.CoopWorlds).
 	Worlds() ([]session.CoopWorld, error)
 	// Sync runs coop-sync for co-op side cs on Dolphin pid against the
-	// server at addr until ctx ends (GameDeps.CoopSync).
-	Sync(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs CoopSide) error
+	// server at addr until ctx ends (GameDeps.CoopSync). claimed is that
+	// game's enemy-mirror claims, as for Coop.Pipelines; nil claims
+	// nothing.
+	Sync(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs CoopSide, claimed func(pid uint32) bool) error
 }
 
 // CoopSide is a running co-op session as the engine reaches it: its

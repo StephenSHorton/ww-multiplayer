@@ -137,7 +137,7 @@ func TestWalkK1(t *testing.T) {
 	edge.at = addr.MEM1End - addr.ActorSize
 	m = mem.NewFakeMem()
 	layActors(t, m, edge)
-	if w, err := Read(m, 0); err != nil || len(w.Actors) != 1 || w.Actors[0].Ice.Read || Eligible(&w.Actors[0], false) != "enemyice unreadable" {
+	if w, err := Read(m, 0); err != nil || len(w.Actors) != 1 || w.Actors[0].Ice.Read || Eligible(&w.Actors[0], false, nil) != "enemyice unreadable" {
 		t.Errorf("ice past MEM1: %+v %v", w.Actors, err)
 	}
 }
@@ -163,7 +163,7 @@ func FuzzRevalidate(f *testing.F) {
 		store(t, m, zn, []byte{4})
 		store(t, m, za+addr.ZoneOffRoomNo, []byte{byte(room)})
 		w, err := Read(m, 0)
-		if err != nil || len(w.Actors) != 1 || Eligible(&w.Actors[0], false) != "" {
+		if err != nil || len(w.Actors) != 1 || Eligible(&w.Actors[0], false, nil) != "" {
 			t.Fatalf("the base Bokoblin: %+v %v", w, err)
 		}
 		a := w.Actors[0]
@@ -179,7 +179,7 @@ func FuzzRevalidate(f *testing.F) {
 		}
 		poke(off1, v1)
 		poke(off2, v2)
-		now, _, err := Revalidate(m, &a, nil, false)
+		now, _, err := Revalidate(m, &a, nil, false, nil)
 		if err != nil && !errors.Is(err, actors.ErrChanged) {
 			t.Fatalf("Revalidate: %v", err)
 		}
@@ -196,6 +196,7 @@ func FuzzRevalidate(f *testing.F) {
 			u32(addr.ActorOffBsPcID) == a.PID && binary.BigEndian.Uint16(blk[addr.ActorOffProcName:]) == uint16(a.Proc) &&
 			binary.BigEndian.Uint16(blk[addr.ActorOffSetID:]) == a.SetID && int8(u8(addr.ActorOffHomeRoomNo)) == a.HomeRoom &&
 			u8(addr.ActorOffInitState) == 2 && u8(addr.ActorOffGroup) == 2 && int8(u8(addr.ActorOffHealth)) > 0 &&
+			u8(addr.ActorOffPauseFlag)&addr.ActorPauseMirrorBit == 0 && // not a mirror copy (the REL's pause bit)
 			u32(addr.ActorOffStatus)&(addr.ActorStatusBoss|addr.ActorStatusCarry) == 0 &&
 			binary.BigEndian.Uint16(blk[addr.ActorOffEventCommand:]) == 0 &&
 			u32(ice) == boko.at && u8(ice+addr.EnemyIceOffTimer) == 0 && u8(ice+addr.EnemyIceOffMode) == 1 &&
