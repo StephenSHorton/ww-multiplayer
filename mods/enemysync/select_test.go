@@ -33,10 +33,10 @@ func adopted(setID uint16, at time.Time) selSlot {
 
 // TestSelectSlots: design slots.client_selectSlots. Newcomers fill free
 // slots nearest first; a held enemy keeps its slot whatever the order the
-// candidates come in (the remap); a copy within KeepR, engaged or adopted
-// less than MinHold ago is never evicted; a newcomer evicts the farthest
-// copy no rule keeps only when nearer than EvictRatio of its distance and
-// within EnterR; a dying candidate takes a free slot, else evicts such a
+// candidates come in (the remap); an engaged copy or one adopted less
+// than MinHold ago is never evicted; a newcomer evicts the farthest other
+// copy, within KeepR or not, only when nearer than EvictRatio of its
+// distance and within EnterR; a dying candidate takes a free slot, else evicts such a
 // copy, else waits; an enemy no longer offered frees its slot; a locked
 // slot keeps its enemy and is not refilled; legacy mode keeps the given
 // (lowest setID) order.
@@ -63,18 +63,19 @@ func TestSelectSlots(t *testing.T) {
 		}
 	}
 
-	// The remap: reshuffled candidates, nearer newcomers but every copy
-	// kept (within KeepR): nobody moves.
+	// The remap: reshuffled candidates, nearer newcomers but none nearer
+	// than EvictRatio of the farthest copy (0.7*1400): nobody moves.
 	cur := [MaxSlots]selSlot{adopted(3, old), adopted(1, old), adopted(5, old), adopted(4, old)}
-	got = selectSlots(cands(10, 900, 20, 1000, 1100, 1400), cur, none, now, SelectDistance)
+	got = selectSlots(cands(1000, 900, 1050, 1000, 1100, 1400), cur, none, now, SelectDistance)
 	if h := held(got); h != [MaxSlots]int{3, 1, 5, 4} {
 		t.Errorf("remap: %v", h)
 	}
 
-	// Rule 2 against rule 3: setID 3 at 1600, no longer kept, is the only
-	// victim. A newcomer at 100 evicts it (100 < 0.7*1600, < EnterR);
-	// engaged, or adopted less than MinHold ago, it stays.
-	cs := cands(100, 300, 300, 1600, 300, 300)
+	// Rule 2 against rule 3: setID 3 at 1600, no longer kept, is the
+	// victim (the copies at 300 are not 0.7 farther than the newcomer). A
+	// newcomer at 250 evicts it (250 < 0.7*1600, < EnterR); engaged, or
+	// adopted less than MinHold ago, it stays.
+	cs := cands(250, 300, 300, 1600, 300, 300)
 	cs = cs[:4]
 	cs[1].Key, cs[2].Key = key(1), key(5)
 	cs = append(cs, cand{Key: key(4), Dist: 300})
@@ -92,10 +93,18 @@ func TestSelectSlots(t *testing.T) {
 	if h := held(selectSlots(cs, young, none, now, SelectDistance)); h != [MaxSlots]int{3, 1, 5, 4} {
 		t.Errorf("min hold: %v", h)
 	}
-	cs[3].Dist = 1400 // within KeepR
-	if h := held(selectSlots(cs, cur, none, now, SelectDistance)); h != [MaxSlots]int{3, 1, 5, 4} {
-		t.Errorf("within KeepR: %v", h)
+	// Within KeepR a copy stays unless a newcomer is nearer than
+	// EvictRatio of its distance (Siren room 3: dormant ceiling ChuChus at
+	// about 1400, an awake one at about 750).
+	cs[3].Dist = 1400
+	if h := held(selectSlots(cs, cur, none, now, SelectDistance)); h != [MaxSlots]int{0, 1, 5, 4} {
+		t.Errorf("within KeepR, newcomer at 250: %v", h)
 	}
+	cs[0].Dist = 1000 // >= 0.7*1400
+	if h := held(selectSlots(cs, cur, none, now, SelectDistance)); h != [MaxSlots]int{3, 1, 5, 4} {
+		t.Errorf("within KeepR, newcomer at 1000: %v", h)
+	}
+	cs[0].Dist = 250
 
 	// The ratio and EnterR.
 	for _, c := range []struct {
@@ -135,7 +144,7 @@ func TestSelectSlots(t *testing.T) {
 
 	// No longer offered: freed; a locked slot keeps its enemy, and once
 	// freed is not refilled.
-	cs = []cand{{Key: key(1), Dist: 100}, {Key: key(3), Dist: 1600}, {Key: key(7), Dist: 50}, {Key: key(8), Dist: 60}}
+	cs = []cand{{Key: key(1), Dist: 80}, {Key: key(3), Dist: 1600}, {Key: key(7), Dist: 50}, {Key: key(8), Dist: 60}}
 	locked := [MaxSlots]bool{0: true, 2: true}
 	got = selectSlots(cs, cur, locked, now, SelectDistance)
 	if h := held(got); h != [MaxSlots]int{3, 1, -1, 7} {
