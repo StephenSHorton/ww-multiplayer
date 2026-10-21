@@ -94,7 +94,7 @@ func TestParseKinds(t *testing.T) {
 			t.Errorf("ParseKinds(%q) = %s mask %d, want %s mask %d", c.in, s, s.Mask(), c.want, c.mask)
 		}
 	}
-	for _, bad := range []string{"ki", "mo2,mo2", "bk+x", "mo2,,bk"} {
+	for _, bad := range []string{"xx", "mo2,mo2", "bk+x", "mo2,,bk", "am2,am2"} {
 		if _, err := ParseKinds(bad); err == nil {
 			t.Errorf("ParseKinds(%q) accepted", bad)
 		}
@@ -103,10 +103,10 @@ func TestParseKinds(t *testing.T) {
 	if !s.Has(KindBK) || !s.TakesUnkeyed(KindBK) || s.Has(KindMO2) || s.TakesUnkeyed(KindCC) || s.Has(KindNone) {
 		t.Errorf("bk+u = %+v", s)
 	}
-	if a := AllKinds(); a.String() != "mo2+u,bk+u,cc+u" {
+	if a := AllKinds(); a.String() != "mo2+u,bk+u,cc+u,ki+u,am+u,am2+u" {
 		t.Errorf("AllKinds = %s", a)
 	}
-	if !strings.Contains(func() string { _, err := ParseKinds("zz"); return err.Error() }(), "mo2, bk, cc") {
+	if !strings.Contains(func() string { _, err := ParseKinds("zz"); return err.Error() }(), "mo2, bk, cc, ki, am, am2") {
 		t.Error("the unknown-kind error does not list the kinds")
 	}
 }
@@ -119,6 +119,7 @@ func TestParseKinds(t *testing.T) {
 // ChuChus 0xFF460300 and red 0xFF460100.
 func TestStaticGates(t *testing.T) {
 	bk, cc := &Kinds[KindBK], &Kinds[KindCC]
+	ki, am, am2 := &Kinds[KindKI], &Kinds[KindAM], &Kinds[KindAM2]
 	for _, c := range []struct {
 		name             string
 		k                *Kind
@@ -152,6 +153,22 @@ func TestStaticGates(t *testing.T) {
 		{"CC colour 13 reads 3 (black)", cc, 0xFF000D00, LiveGate{Color: 3}, false, false},
 		{"CC colour 15 is the insta-kill", cc, 0xFF000F00, LiveGate{Color: 1, InstaKill: 1}, false, false},
 		{"CC live m304 set", cc, 0xFF000100, LiveGate{Color: 1, InstaKill: 1}, true, false},
+		// The allow kinds (allow design go_changes LiveOK, R-8): no params
+		// gate here (an unkeyed Keese's is UnkeyedParamsOK).
+		{"KI fire Keese 0x80FF8201 flying", ki, 0x80FF8201, LiveGate{Mode: addr.KiActFly}, true, true},
+		{"KI FIRE_SET", ki, 0x80FF8201, LiveGate{Mode: addr.KiActFireSet}, true, false},
+		{"KI FAIL_MOVE", ki, 0x80FF8201, LiveGate{Mode: addr.KiActFail}, true, false},
+		{"KI m2DC fade", ki, 0xFFFF0101, LiveGate{Mode: addr.KiActFly, Fade: 1}, true, false},
+		{"AM asleep", am, 0, LiveGate{}, true, true},
+		{"AM ITAI 43", am, 0, LiveGate{Mode: addr.AmActItai, SubMode: 43}, true, true},
+		{"AM swallow 44", am, 0, LiveGate{Mode: addr.AmActItai, SubMode: addr.AmModeBombSwallow}, true, false},
+		{"AM DEAD 47", am, 0, LiveGate{Mode: addr.AmActItai, SubMode: addr.AmModeDead}, true, false},
+		{"AM2 kaze r9 statue 0xC1010AFF", am2, 0xC1010AFF, LiveGate{Mode: addr.Am2ActMahi, SubMode: 12}, true, true},
+		{"AM2 carried", am2, 0x82000C01, LiveGate{Mode: addr.Am2ActMahi, SubMode: 13, Carried: true}, true, false},
+		{"AM2 MODORU", am2, 0x82000C01, LiveGate{Mode: addr.Am2ActModoru}, true, false},
+		{"AM2 in the abyss", am2, 0x82000C01, LiveGate{Abyss: 1}, true, false},
+		{"AM2 ITAI 21", am2, 0x82000C01, LiveGate{Mode: addr.Am2ActItai, SubMode: 21}, true, true},
+		{"AM2 dance 22", am2, 0x82000C01, LiveGate{Mode: addr.Am2ActItai, SubMode: addr.Am2ModeDance}, true, false},
 	} {
 		if got := c.k.ParamsOK(c.params); got != c.paramsOK {
 			t.Errorf("%s: ParamsOK = %v, want %v", c.name, got, c.paramsOK)

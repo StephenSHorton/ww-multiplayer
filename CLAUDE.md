@@ -165,25 +165,29 @@ WW_POSE_RAW=1                               # Skip pose localization (debug)
 WW_LINK2_OFFSET_{X,Y,Z}                     # Loopback render offset (default 0)
 WW_COLOR=<color>                            # Default tunic color when --color isn't given (docs/09)
 WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/join) leaves the tunic slots to the tunic-slot dev command
-WW_ENEMY_SYNC=1                             # Enemy sync (mods/enemysync, the enemy mirror: Moblins, Bokoblins, ChuChus): host/join and the app run enemy-host / enemy-client,
+WW_ENEMY_SYNC=1                             # Enemy sync (mods/enemysync, the enemy mirror: Moblins, Bokoblins, ChuChus; Keese, Armos Knights, Armos opt-in): host/join and the app run enemy-host / enemy-client,
                                             #   mp-local spawns enemy-A (host, Dolphin A) and enemy-B (client, Dolphin B); needs the REL module linked
 WW_ENEMY_RAW=1                              # enemy-client bypasses the smoother and sets the block's raw flag (the lag measurement)
 WW_ENEMY_COLLIDERS=0                        # enemy-host's STATE stops asking the clients to submit their copies' colliders (default on)
 WW_ENEMY_HIT_V1=1                           # enemy-host applies a client's hit as the v1 shrink kill instead of the v2 sphere hit
 WW_ENEMY_HIT_FALLBACK=shrink                # enemy-host: a v2 hit that crossed nothing after two Sets falls back to the shrink kill
 WW_ENEMY_HIT_DEMO=0                         # enemy-host: no cutscene gate on client hits (default: a hit during the host Link's demo is dropped)
-WW_ENEMY_MIRROR_KINDS=<kinds>               # Enemy kinds mirrored (mods/enemysync/kinds.go): mo2, bk, cc joined by "," (default mo2,bk+u,cc+u); a "+u" suffix
-                                            #   (bk+u) also takes that kind's unkeyed (setID 0xFFFF) placements; "none". Host and client each set theirs: a kind is
-                                            #   mirrored only when both enable it (the STATE's host kind mask AND the client's)
+WW_ENEMY_MIRROR_KINDS=<kinds>               # Enemy kinds mirrored (mods/enemysync/kinds.go): mo2, bk, cc, ki (Keese), am (Armos Knight), am2 (Armos) joined by ","
+                                            #   (default mo2,bk+u,cc+u: ki, am, am2 are off until named); a "+u" suffix (bk+u, ki+u) also takes that kind's unkeyed
+                                            #   (setID 0xFFFF) placements (ki+u: fly-type Keese only, never on GanonK); "none". Host and client each set theirs: a kind
+                                            #   is mirrored only when both enable it (the STATE's host kind mask AND the client's)
 WW_ENEMY_QUIET_DEATH=<kinds>                # enemy-client: kinds whose copies die quietly (stay paused, shrink in the REL, deleted; the client sets the zone bit and
-                                            #   death switch), default mo2,bk,cc; bk,cc brings back the Moblin's legacy em_die (which drops an item on the client too)
+                                            #   death switch), default mo2,bk,cc,ki,am,am2; bk,cc brings back the Moblin's legacy em_die (which drops an item on the
+                                            #   client too); ki, am and am2 always die quietly (the REL forces it for kind ids >= 3)
 WW_ENEMY_SELECT=legacy                      # host and client: the prototype's lowest-setID slot order (default distance: the host lists by player distance, each
                                             #   client keeps its 4 block slots with KEEP_R/ENTER_R/MIN_HOLD hysteresis)
 WW_ENEMY_STATE_30HZ=1                       # enemy-host: send a STATE only when the host REL's frame counter moved (and at least every 250 ms)
 WW_ENEMY_ANNEX=<kind>:<field>=<v>,...       # Enemy block annex overrides (mods/enemysync ParseAnnex; 0 = the REL's compiled value), each side its own block's:
                                             #   host tg_hit_up (s16, collider-2 centre height: BK 56, CC 50) and invuln (u8 hit-applier wait: CC 8); client quiet
                                             #   (u8 quiet-death frames: 20, 90 light) and hooks (hook_disable: a number or model_eq attach eye legacy_death attn
-                                            #   mtx_plain joined by +). e.g. bk:tg_hit_up=60,cc:invuln=10; "none" = no overrides
+                                            #   mtx_plain special extra joined by +). ki, am and am2 take hooks only (their annex bytes +0x1FC..; quiet, tg_hit_up
+                                            #   and invuln are compiled in the REL and refused): special = AM's bomb swallow, extra = btk/brk play and collider
+                                            #   radii. e.g. bk:tg_hit_up=60,cc:invuln=10,am:hooks=special; "none" = no overrides
 WW_ENEMY_REMOTE=<flags>                     # Remote-Link block (mods/enemysync/players.go, design remote-link-design.md): unset = never written (today's game).
                                             #   <flags> = a number (0x2F) or names joined by , or +: bodies swap hittable detect apply attrib name_a9 guard
                                             #   attacker group_wide both_words iframe_stamp full_bodies ff_gate_off rouya_gate_off, or a step preset step0..step7

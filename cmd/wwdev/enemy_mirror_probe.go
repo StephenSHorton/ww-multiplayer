@@ -237,7 +237,7 @@ func enemyMirrorLocal(ctx context.Context, w io.Writer, m mem.Mem, d time.Durati
 	// recomputes from dst and compares (ERR_KEY on a mismatch), as the
 	// client writes the local actor's.
 	mo2, _ := enemysync.ParseKinds("mo2")
-	ens, err := enemysync.Candidates(m, scope.Room, mo2)
+	ens, err := enemysync.Candidates(m, scope.Stage, scope.Room, mo2)
 	if err != nil {
 		return err
 	}

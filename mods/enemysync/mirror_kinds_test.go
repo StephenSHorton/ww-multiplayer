@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"math"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,7 +44,7 @@ func localIdent(t *testing.T, m mem.Reader, set string, pid uint32) Ident {
 	if err != nil {
 		t.Fatal(err)
 	}
-	es, err := Candidates(m, 1, s)
+	es, err := Candidates(m, "", 1, s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,14 +495,15 @@ func TestHostKinds(t *testing.T) {
 	}
 	// WW_ENEMY_ANNEX's overrides go out in the host block's annex (the REL's
 	// em_hit_center and em_hit_tick read them from it).
-	if a.Annex, err = ParseAnnex("bk:tg_hit_up=60,cc:invuln=10"); err != nil {
+	if a.Annex, err = ParseAnnex("bk:tg_hit_up=60,cc:invuln=10,am:hooks=special"); err != nil {
 		t.Fatal(err)
 	}
 	m.ResetWrites()
 	if err := a.Keepalive(h.Scope(), time.Unix(1001, 0)); err != nil {
 		t.Fatal(err)
 	}
-	if b := hostBlocks(t, m); len(b) != 1 || b[0].Annex.Override[KindBK].TgHitUp != 60 || b[0].Annex.InvulnWait[KindCC] != 10 {
+	if b := hostBlocks(t, m); len(b) != 1 || b[0].Annex.Override[KindBK].TgHitUp != 60 || b[0].Annex.InvulnWait[KindCC] != 10 ||
+		b[0].Annex.HookDisableX[KindAM-mailbox.EnemyAnnexKinds] != mailbox.EnemyHKDSpecial {
 		t.Errorf("host block annex: %+v", b)
 	}
 }
@@ -532,6 +534,28 @@ func TestParseAnnex(t *testing.T) {
 			t.Errorf("%q parsed", v)
 		}
 	}
+	// The allow kinds take hooks= only, into HookDisableX (allow design
+	// D3); their quiet, tg_hit_up and invuln are compiled in the REL.
+	a, err = ParseAnnex("ki:hooks=extra,am:hooks=special+eye,am2:hooks=mtx_plain+0x80,bk:hooks=attn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = mailbox.EnemyAnnex{}
+	want.Override[KindBK].HookDisable = mailbox.EnemyHKDAttn
+	want.HookDisableX[KindKI-mailbox.EnemyAnnexKinds] = mailbox.EnemyHKDExtra
+	want.HookDisableX[KindAM-mailbox.EnemyAnnexKinds] = mailbox.EnemyHKDSpecial | mailbox.EnemyHKDEye
+	want.HookDisableX[KindAM2-mailbox.EnemyAnnexKinds] = mailbox.EnemyHKDMtxPlain | mailbox.EnemyHKDExtra
+	if a != want {
+		t.Errorf("allow hooks: parsed %+v, want %+v", a, want)
+	}
+	for _, v := range []string{"ki:quiet=5", "am:tg_hit_up=150", "am2:invuln=40", "ki:speed=1", "am:hooks=wings"} {
+		if _, err := ParseAnnex(v); err == nil {
+			t.Errorf("%q parsed", v)
+		}
+	}
+	if _, err := ParseAnnex("ki:quiet=5"); err == nil || !strings.Contains(err.Error(), "hooks= only") {
+		t.Errorf("ki:quiet=5: %v, want the hooks-only error", err)
+	}
 }
 
 // TestMirrorCatchUpPin: a fresh catch-up slot starts where its copy
@@ -560,7 +584,7 @@ func TestMirrorCatchUpPin(t *testing.T) {
 	store(t, m, a81.Addr+addr.ActorOffCurAngle+2, []byte{0x12, 0x34})
 	start := time.Unix(2000, 0)
 	c := NewMirror(m, log.Discard{}, nil, false, start)
-	if c.Annex, err = ParseAnnex("mo2:quiet=40"); err != nil {
+	if c.Annex, err = ParseAnnex("mo2:quiet=40,ki:hooks=extra"); err != nil {
 		t.Fatal(err)
 	}
 	m.Record(true)
@@ -581,7 +605,7 @@ func TestMirrorCatchUpPin(t *testing.T) {
 		if len(b) != 1 {
 			t.Fatalf("%d blocks", len(b))
 		}
-		if b[0].Annex.Override[KindMO2].QuietFrames != 40 {
+		if b[0].Annex.Override[KindMO2].QuietFrames != 40 || b[0].Annex.HookDisableX[KindKI-mailbox.EnemyAnnexKinds] != mailbox.EnemyHKDExtra {
 			t.Errorf("block annex %+v", b[0].Annex)
 		}
 		_, s := slotByPID(&b[0], a81.PID)

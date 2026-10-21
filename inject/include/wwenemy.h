@@ -81,7 +81,7 @@
 #define WWENEMY_SL_ATTR_OFF      0x29         // u8  J3DFrameCtrl attribute 0..4, 0xFF unknown
 #define WWENEMY_SL_ANM_SEQ_OFF   0x2A         // u8  bumped by Go when the host restarted the anim (setAnm)
 #define WWENEMY_SL_MORF_OFF      0x2B         // u8  the host's anm_init morf (blend frames), 0 = snap
-#define WWENEMY_SL_FLAGS2_OFF    0x2C         // u8  bits 0-5 per kind (WWENEMY_SF2_* for MO2, EMK_BK_F2_*, EMK_CC_F2_*), bits 6-7 WWENEMY_SF2_LIGHT/QUIET
+#define WWENEMY_SL_FLAGS2_OFF    0x2C         // u8  bits 0-5 per kind (WWENEMY_SF2_* for MO2, EMK_<K>_F2_* for BK CC KI AM AM2), bits 6-7 WWENEMY_SF2_LIGHT/QUIET
 #define WWENEMY_SL_BLUR_SHAPE_OFF 0x2D        // u8  blur shape: MO2 m0598, BK m02F4, CC 0
 #define WWENEMY_SL_PROC_OFF      0x2E         // u16 the slot's proc (EMK_*_PROC); the REL refuses an actor of another proc (ERR_KIND)
 #define WWENEMY_SL_BLUR_SCALE_OFF 0x30        // f32 MO2 m0590, BK m02EC, CC m328 (the y offset)
@@ -97,8 +97,9 @@
 
 #define WWENEMY_BCK_NONE         0xFF         // slot bck: the host could not resolve mpAnm
 
-// flags2 bits 0-3 as the Moblin uses them; a Bokoblin or ChuChu slot uses
-// its own bits 0-5 (wwenemy_kinds.h EMK_BK_F2_*, EMK_CC_F2_*).
+// flags2 bits 0-3 as the Moblin uses them; every other kind's slot uses
+// its own bits 0-5 (wwenemy_kinds.h EMK_BK_F2_*, EMK_CC_F2_*, EMK_KI_F2_*,
+// EMK_AM_F2_*, EMK_AM2_F2_*), and the row's ATTN_F2 names its attention bit.
 #define WWENEMY_SF2_HAS_WEAPON   0x01         // mo2 mbHasInnateWeapon (+0xDD4) != 0
 #define WWENEMY_SF2_PLAY_SKIP    0x02         // mo2 m05B2 != 0: the host skips play()
 #define WWENEMY_SF2_BLUR_ON      0x04         // mo2 m0594 != 0
@@ -109,7 +110,7 @@
 // hit_apply fields (host role), from WWENEMY_HIT_APPLY_OFF
 #define WWENEMY_HA_SEQ_OFF       0x00         // u32 request seq (REL acks it at WWENEMY_HIT_APPLY_ACK_OFF)
 #define WWENEMY_HA_SETID_OFF     0x04         // u16 the host actor's setID (0xFFFF for an unkeyed one; the REL compares it, 0xFFFF == 0xFFFF included)
-#define WWENEMY_HA_COLLIDER_OFF  0x06         // u8 1 the kind's head sph, 2 its tg cyl
+#define WWENEMY_HA_COLLIDER_OFF  0x06         // u8 EMK_HIT_*: 1 the kind's head sph, 2 its tg cyl, 3 the AM bomb swallow (no v2 sphere; R-13)
 #define WWENEMY_HA_FLAGS_OFF     0x07         // u8 WWENEMY_HAF_*
 #define WWENEMY_HA_ATTYPE_OFF    0x08         // u32 cCcD_ObjAt mType
 #define WWENEMY_HA_ATP_OFF       0x0C         // u8
@@ -227,17 +228,25 @@
 #define WWENEMY_ANNEX_OVR_HOOKS_OFF 0x00      // u8 WWENEMY_HKD_*
 #define WWENEMY_ANNEX_OVR_QUIET_OFF 0x01      // u8 quiet-death frames (0 = EMK_QUIET_FRAMES, or EMK_QUIET_FRAMES_LIGHT under SF2_LIGHT)
 #define WWENEMY_ANNEX_OVR_TG_UP_OFF 0x02      // s16 collider-2 centre height (0 = EMK_*_TG_HIT_UP)
-#define WWENEMY_ANNEX_INVW_OFF   0x1F8        // mailbox-relative: u8 invuln_wait[WWENEMY_ANNEX_KINDS] (0 = EMK_*_INVULN_WAIT), u8 pad; +0x1FC..+0x200 spare
-#define WWENEMY_ANNEX_KINDS      3            // overrides cover kinds 0..2 (MO2, BK, CC)
+#define WWENEMY_ANNEX_INVW_OFF   0x1F8        // mailbox-relative: u8 invuln_wait[WWENEMY_ANNEX_KINDS] (0 = EMK_*_INVULN_WAIT), u8 pad
+#define WWENEMY_ANNEX_KINDS      3            // overrides cover kinds 0..2 (MO2, BK, CC); ids >= 3 use their compiled quiet frames, tg_hit_up and invuln_wait
+// The allow batch's hook bytes (enemy-mirror-allow.json D3, R-1): kind id
+// WWENEMY_ANNEX_KINDS + j's u8 hook_disable at +j, the annex's last four
+// bytes. The REL reads it directly at the point of use (em_hkd), not
+// cached in em_ext, so a change tears for at most one frame.
+#define WWENEMY_ANNEX_HKDX_OFF   0x1FC        // mailbox-relative: u8 hook_disable[WWENEMY_ANNEX_HKDX_KINDS] for kind ids 3..6 (WWENEMY_HKD_*)
+#define WWENEMY_ANNEX_HKDX_KINDS 4            // ids WWENEMY_ANNEX_KINDS .. +3 (KI, AM, AM2, and batch B's id 6); ends at WWENEMY_OFF
 
 // hook_disable bits (annex override byte 0): a set bit turns that kind's
 // hook off without a rebuild
 #define WWENEMY_HKD_MODEL_EQ     0x01         // skip the actor->model == morf model check
 #define WWENEMY_HKD_ATTACH       0x02         // skip the attach hook (EMK_ATTACH_BK)
-#define WWENEMY_HKD_EYE          0x04         // skip the eye hook (EMK_EYE_CC)
+#define WWENEMY_HKD_EYE          0x04         // skip the eye hook (EMK_EYE_CC, EMK_EYE_FIXED)
 #define WWENEMY_HKD_LEGACY_DEATH 0x08         // never take the legacy em_die: always the quiet path
 #define WWENEMY_HKD_ATTN         0x10         // skip the per-frame attention_info.flags write
-#define WWENEMY_HKD_MTX_PLAIN    0x20         // skip EMK_MTX_PLAIN (staged rows)
+#define WWENEMY_HKD_MTX_PLAIN    0x20         // skip EMK_MTX_PLAIN (KI, AM, AM2)
+#define WWENEMY_HKD_SPECIAL      0x40         // skip the kind's special collider (AM: the bomb swallow, EMK_HIT_SPECIAL; R-13)
+#define WWENEMY_HKD_EXTRA        0x80         // skip the kind's extras: the btk/brk play (R-10) and the per-frame collider radius writes (R-5)
 
 // --- REL-owned static collision objects past the block (from MAILBOX_ADDR) --
 #define WWENEMY_SPH_OFF          0x3A0        // dCcD_Sph image, 0x12C bytes: the host's v2 At sphere

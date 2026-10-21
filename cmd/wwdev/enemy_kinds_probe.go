@@ -15,14 +15,33 @@ package main
 // BOKO its m1200 names, with that BOKO's proc and mNowMode.
 // --kind mo2 (and no --kind) is the Moblin probe, unchanged.
 //
+// enemy-watch --kind ki|am|am2 is the allow batch's probe
+// (ww-multiplayer-handoff/design/enemy-mirror-allow.json,
+// implementation_batches A0, A1): rows of the Kinds table since A1,
+// classified by ClassifyWalk and sampled by ReadKindSample (ReadSampleKI
+// / AM / AM2) like the others. Each tick it also prints what A0
+// verified live: current.angle beside shape_angle (the
+// AngleOff question; "ang" is shape.y), the kind's action fields, the BCK
+// from the morf beside mCurrBckIdx, every collider's At/Tg/Co mSPrm words,
+// centre and radius, the attention flags, the status word, the ice
+// timers, the Keese's LUNGE and home.pos, the Armos's weak-sphere Tg bit,
+// and the dormant rule the host would apply.
+//
 // enemy-match --dry lists one Dolphin's Idents for its current stage and
 // room as key=value lines, sorted by Ident. Each line carries what both
 // machines must agree on (the placement-derived identity and the
 // verdict) before " pid=", and everything per-machine or live from
-// " pid=" on: the pids, the live gate bytes (bk_type, cc_*, mo2_mode;
-// "-" when the classification did not read one) and a Bokoblin's BOKO
-// state, which the game changes as it plays. Two Dolphins in the same
-// room therefore diff clean after `sed 's/ pid=.*//'` on both outputs.
+// " pid=" on: the pids, the live gate bytes (bk_type, cc_*, mo2_mode,
+// ki_action, am_action, am2_action and the allow kinds' others; "-" when
+// the classification did not read one) and a Bokoblin's BOKO state, which the game changes as it
+// plays. Two Dolphins in the same room therefore diff clean after
+// `sed 's/ pid=.*//'` on both outputs. The allow kinds (ki, am, am2)
+// are rows like the others: listed by default and when --kinds names
+// them, with the extra live gate bytes their LiveOK reads (ki_m2dc,
+// am_mode, am2_mode, am2_abyss, am2_carried). A keyed Keese's pkey
+// hashes no home.pos (enemysync.PKeyFor, design D9), so it matches across
+// machines although the Keese moves its home (d_a_ki.cpp:681-682); the
+// home printed still can differ.
 
 import (
 	"context"
@@ -43,7 +62,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
-const enemyMatchUsage = "enemy-match --dry [--kinds mo2,bk,cc (default every kind, +u on each)]"
+const enemyMatchUsage = "enemy-match --dry [--kinds mo2,bk,cc,ki,am,am2 (default every kind, +u on each)]"
 
 // kindOnly is the set with id alone enabled, keyed and unkeyed.
 func kindOnly(id enemysync.KindID) enemysync.KindSet {
@@ -83,6 +102,16 @@ func liveGateText(e *enemysync.Enemy) string {
 		return "bk_type=" + mode
 	case enemysync.KindCC:
 		return fmt.Sprintf("cc_behavior=%s cc_color=%s cc_m304=%s", mode, val(e.LiveSpanOK, e.Live.Color), val(e.LiveSpanOK, e.Live.InstaKill))
+	case enemysync.KindKI:
+		return fmt.Sprintf("ki_action=%s ki_m2dc=%s", mode, val(e.LiveSpanOK, e.Live.Fade))
+	case enemysync.KindAM:
+		return fmt.Sprintf("am_action=%s am_mode=%s", mode, val(e.LiveSpanOK, e.Live.SubMode))
+	case enemysync.KindAM2:
+		carried := uint8(0)
+		if e.Live.Carried {
+			carried = 1
+		}
+		return fmt.Sprintf("am2_action=%s am2_mode=%s am2_abyss=%s am2_carried=%d", mode, val(e.LiveSpanOK, e.Live.SubMode), val(e.LiveSpanOK, e.Live.Abyss), carried)
 	}
 	return ""
 }
@@ -183,8 +212,8 @@ func runEnemyMatch(cmd string, args []string) {
 
 // enemyMatch prints m's Idents for its current stage and room: a scope
 // line, one ident line per actor of an enabled kind (taken or refused),
-// a boko line per Bokoblin, and a summary. On the ident and boko lines
-// the per-machine and live fields come from " pid=" on (see the file
+// a boko line per Bokoblin, and a summary. On the ident and boko lines the
+// per-machine and live fields come from " pid=" on (see the file
 // comment).
 func enemyMatch(w io.Writer, m mem.Reader, set enemysync.KindSet) error {
 	stageName, room, err := enemyScope(m)
@@ -195,11 +224,12 @@ func enemyMatch(w io.Writer, m mem.Reader, set enemysync.KindSet) error {
 	if err != nil {
 		return err
 	}
-	es, err := enemysync.ClassifyWalk(m, &aw, room, set)
+	es, err := enemysync.ClassifyWalk(m, &aw, stageName, room, set)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "scope stage=%s room=%d kinds=%s walk=%s\n", stageName, room, set, strings.ReplaceAll(walkNote(&aw), " ", "_"))
+	scope := fmt.Sprintf("scope stage=%s room=%d kinds=%s walk=%s", stageName, room, set, strings.ReplaceAll(walkNote(&aw), " ", "_"))
+	fmt.Fprintln(w, scope)
 	byPID := pidIndex(&aw)
 	taken := 0
 	for i := range es {
@@ -237,12 +267,17 @@ func enemyMatch(w io.Writer, m mem.Reader, set enemysync.KindSet) error {
 	return nil
 }
 
-// enemyKindWatch is enemy-watch --kind bk|cc over m for d (0: until ctx
-// ends).
+// enemyKindWatch is enemy-watch --kind bk|cc|ki|am|am2 over m for d (0:
+// until ctx ends). An allow kind (ki, am, am2) also prints allowExtra's
+// tail each tick.
 func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Duration, id enemysync.KindID) error {
-	k := id.Row()
 	tr := enemysync.NewKindTracker()
+	k := id.Row()
+	if k == nil {
+		return fmt.Errorf("no kind %d", id)
+	}
 	res := tr.Res[id]
+	allow := id >= enemysync.KindKI
 	defer func() {
 		st := res.Stats
 		fmt.Fprintf(w, "%s table stats: reads %d bck_miss %d miss_reads %d\n", k.Arc, st.Reads, st.BckMiss, st.MissReads)
@@ -273,7 +308,7 @@ func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Durat
 		if err != nil {
 			return err
 		}
-		es, err := enemysync.ClassifyWalk(m, &aw, room, kindOnly(id))
+		es, err := enemysync.ClassifyWalk(m, &aw, stageName, room, kindOnly(id))
 		if err != nil {
 			return err
 		}
@@ -345,7 +380,9 @@ func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Durat
 					continue
 				}
 				extra := ""
-				if id == enemysync.KindBK {
+				if allow {
+					extra = allowExtra(id, &s)
+				} else if id == enemysync.KindBK {
 					b, err := readBoko(m, byPID, s.BokoPID)
 					if err != nil {
 						return err
@@ -397,6 +434,12 @@ func kindFlag2Names(id enemysync.KindID, f uint8) string {
 	case enemysync.KindCC:
 		names = []nb{{enemysync.CcF2Tg, "TG"}, {enemysync.CcF2Co, "CO"}, {enemysync.CcF2Squash, "SQUASH"}, {enemysync.CcF2LowEye, "LOW_EYE"},
 			{enemysync.CcF2NoShadow, "NO_SHADOW"}, {enemysync.CcF2Attn, "ATTN"}}
+	case enemysync.KindKI:
+		names = []nb{{enemysync.KiF2Attn, "ATTN"}, {enemysync.KiF2Lunge, "LUNGE"}}
+	case enemysync.KindAM:
+		names = []nb{{enemysync.AmF2Attn, "ATTN"}, {enemysync.AmF2PlaySkip, "PLAY_SKIP"}}
+	case enemysync.KindAM2:
+		names = []nb{{enemysync.Am2F2Attn, "ATTN"}, {enemysync.Am2F2WeakTg, "WEAK_TG"}, {enemysync.Am2F2BodyCo, "BODY_CO"}, {enemysync.Am2F2Carried, "CARRIED"}}
 	}
 	names = append(names, nb{enemysync.KindF2Light, "LIGHT"})
 	return bitNames(f, names)
@@ -416,7 +459,42 @@ func bitNames(f uint8, names []struct {
 	return strings.Join(out, " ")
 }
 
-// runEnemyKindWatch runs enemy-watch --kind bk|cc.
+// allowExtra is an allow kind's per-tick tail (A0's fields): the morf's last frame
+// (mEnd; for the Armos Knight's DEAD, 0x1A, the design's
+// EMK_AM_QUIET_FRAMES), current.angle beside shape_angle, the status
+// word, the ice freeze timer, the dormant rule, the kind's own fields,
+// and every collider.
+func allowExtra(id enemysync.KindID, s *enemysync.KindSample) string {
+	st := &s.St
+	var b strings.Builder
+	fmt.Fprintf(&b, "end %d cur %d/%d/%d shape %d/%d/%d dy %d status 0x%08X freeze %d dormant %v", s.MorfEnd,
+		st.CurAngle[0], st.CurAngle[1], st.CurAngle[2], st.ShapeAngle[0], st.ShapeAngle[1], st.ShapeAngle[2],
+		int16(st.CurAngle[1]-st.ShapeAngle[1]), s.Status, s.IceFreeze, st.Dormant)
+	bckIdx := func() string {
+		if st.BckIdx < 0 || st.BckIdx > 0xFF {
+			return fmt.Sprintf("bckidx %d -", st.BckIdx)
+		}
+		return fmt.Sprintf("bckidx 0x%02X %s", st.BckIdx, enemysync.BckName(id, uint8(st.BckIdx)))
+	}
+	switch id {
+	case enemysync.KindKI:
+		fmt.Fprintf(&b, " beh %d m2D4 %d m2DC %d params %d fire %d m314 %d home 0x%08X,0x%08X,0x%08X",
+			st.Behavior, st.DrawGate, st.ShrinkDelete, st.Params, st.DmgType, st.Invuln, st.HomePos[0], st.HomePos[1], st.HomePos[2])
+	case enemysync.KindAM:
+		fmt.Fprintf(&b, " %s play_skip %d body_hit %d swallow 0x%08X", bckIdx(), st.PlaySkip, st.BodyHit, st.SwallowPID)
+	case enemysync.KindAM2:
+		fmt.Fprintf(&b, " %s act_scale %.2f weak_hit %d not_home %d abyss %d stun %d", bckIdx(), st.Scale, st.WeakHit, st.NotHome, st.Abyss, st.Stun)
+	}
+	for _, c := range st.Colliders {
+		fmt.Fprintf(&b, " | %s+0x%X at/tg/co 0x%X/0x%X/0x%X c %.1f %.1f %.1f r %.1f", c.Name, c.Off, c.AtSPrm, c.TgSPrm, c.CoSPrm, c.Center[0], c.Center[1], c.Center[2], c.R)
+		if c.Cyl {
+			fmt.Fprintf(&b, " h %.1f", c.H)
+		}
+	}
+	return b.String()
+}
+
+// runEnemyKindWatch runs enemy-watch --kind bk|cc|ki|am|am2.
 func runEnemyKindWatch(cmd string, secs int, id enemysync.KindID) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

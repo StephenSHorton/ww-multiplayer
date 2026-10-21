@@ -65,6 +65,12 @@ const (
 	// +0 of the shape (c_m3d_g_cyl.h:17-22) after dCcD_GObjInf (0xF8) and
 	// cCcD_ShapeAttr (0x20) (header arithmetic, never read live yet).
 	Mo2CcCenterOff = 0x118
+	// CcShapeOffR is a collider's f32 radius, cM3dGCyl/cM3dGSph mRadius at
+	// +0xC of the shape (c_m3d_g_cyl.h:20), and CcShapeOffH a cylinder's f32
+	// mHeight at +0x10 (c_m3d_g_cyl.h:21); the REL's CC_SHAPE_RADIUS and
+	// CC_SHAPE_HEIGHT (inject/rel/enemy_mirror.c:368-369).
+	CcShapeOffR = Mo2CcCenterOff + 0xC
+	CcShapeOffH = Mo2CcCenterOff + 0x10
 	// Mo2CcTgHitOff is a collider's Tg hit word: cCcD_ObjHitInf Tg at
 	// +0x18 (c_cc_d.h:505-510), cCcD_ObjCommonBase mRPrm at +4 of it
 	// (c_cc_d.h:379-384); bit 0 is cCcD_TgRPrm_Hit_e (c_cc_d.h:42-43).

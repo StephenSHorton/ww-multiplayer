@@ -250,11 +250,20 @@ const (
 	ActorOffPauseFlag  = 0x00B // u8 mPauseFlag (f_pc_base.h:18): bit 1 set skips the actor's execute (fpcPause_IsEnable, f_pc_executor.cpp:30-34)
 	ActorOffOldPos     = 0x1E4 // cXyz old.pos (actor_place old, f_op_actor.h:288)
 	ActorOffShapeAngle = 0x20C // csXyz shape_angle (f_op_actor.h:291)
+	ActorOffScale      = 0x214 // cXyz scale (f_op_actor.h:291 in the decomp the allow batch read; .x first)
 	ActorOffSpeed      = 0x220 // cXyz speed (f_op_actor.h:293)
 	ActorOffModel      = 0x24C // J3DModel* model (f_op_actor.h:300)
 	ActorOffSpeedF     = 0x254 // f32 speedF (f_op_actor.h:302)
 	ActorOffEyePos     = 0x260 // cXyz eyePos (f_op_actor.h:305)
+	// The y of current.angle and of shape_angle (csXyz .y at +2): the
+	// enemy mirror's per-kind AngleOff (enemy-mirror-allow.json D13).
+	ActorOffCurAngleY   = ActorOffCurAngle + 2   // s16 current.angle.y
+	ActorOffShapeAngleY = ActorOffShapeAngle + 2 // s16 shape_angle.y
 )
+
+// AcchOffGroundH is dBgS_Acch's f32 m_ground_h (d_bg_s_acch.h:235), the
+// ground height under the actor, from the start of its dBgS_ObjAcch.
+const AcchOffGroundH = 0x94
 
 // ActorPauseMirrorBit is the mPauseFlag (ActorOffPauseFlag) value bit the
 // enemy mirror's REL sets on an adopted copy (pb|1, enemy_mirror.c:613;

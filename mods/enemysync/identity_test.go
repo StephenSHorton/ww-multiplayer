@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
@@ -26,6 +27,53 @@ const (
 )
 
 var pkeyTVHome = [3]uint32{0x44A00000, 0xC3480000, 0x45BB8000}
+
+// The no-pos test vector (allow design D9, R-16; wwenemy_kinds.h
+// EMK_PKEY_TV2_*): a keyed Keese's pkey hashes home.pos as zero. M_NewD2
+// room 7's fire Keese setID 0 (A0 live). pkeyTV2Out was computed outside
+// Go (a Python FNV-1a over 00D8 0000 80FF8201 07 and 12 zero bytes).
+const (
+	pkeyTV2Proc   = uint16(0x00D8)
+	pkeyTV2SetID  = uint16(0x0000)
+	pkeyTV2Params = uint32(0x80FF8201)
+	pkeyTV2Room   = int8(7)
+	pkeyTV2Out    = uint32(0x268F152E)
+)
+
+// TestPKeyNoPosVector: the no-pos vector is PKey over a zero home, and
+// the Keese row's path (PKeyFor, ActorIdent) gives it for any home of a
+// keyed Keese. An unkeyed Keese (D10) and every other row keep home.pos.
+func TestPKeyNoPosVector(t *testing.T) {
+	if got := PKey(pkeyTV2Proc, pkeyTV2SetID, pkeyTV2Params, pkeyTV2Room, [3]uint32{}); got != pkeyTV2Out {
+		t.Errorf("PKey(no-pos vector) = 0x%08X, want 0x%08X", got, pkeyTV2Out)
+	}
+	ki := KindKI.Row()
+	if ki.Proc != pkeyTV2Proc {
+		t.Fatalf("the vector's proc 0x%04X is not the Keese's 0x%04X", pkeyTV2Proc, ki.Proc)
+	}
+	for _, home := range [][3]uint32{{}, pkeyTVHome, {0x3F800000, 0, 0xC0000000}} {
+		if got := PKeyFor(ki, pkeyTV2Proc, pkeyTV2SetID, pkeyTV2Params, pkeyTV2Room, home); got != pkeyTV2Out {
+			t.Errorf("PKeyFor(KI, home %08X) = 0x%08X, want 0x%08X", home, got, pkeyTV2Out)
+		}
+		a := actors.Actor{Proc: int16(pkeyTV2Proc), SetID: pkeyTV2SetID, Params: pkeyTV2Params, HomeRoom: pkeyTV2Room, HomePos: home}
+		if got := ActorIdent(&a).PKey; got != pkeyTV2Out {
+			t.Errorf("ActorIdent(KI, home %08X).PKey = 0x%08X, want 0x%08X", home, got, pkeyTV2Out)
+		}
+	}
+	if got, want := PKeyFor(ki, pkeyTV2Proc, addr.ActorSetIDNone, pkeyTV2Params, pkeyTV2Room, pkeyTVHome),
+		PKey(pkeyTV2Proc, addr.ActorSetIDNone, pkeyTV2Params, pkeyTV2Room, pkeyTVHome); got != want {
+		t.Errorf("PKeyFor(KI, unkeyed) = 0x%08X, want PKey's 0x%08X", got, want)
+	}
+	for _, id := range []KindID{KindMO2, KindBK, KindCC, KindAM, KindAM2} {
+		k := id.Row()
+		if got, want := PKeyFor(k, k.Proc, 3, 0, 1, pkeyTVHome), PKey(k.Proc, 3, 0, 1, pkeyTVHome); got != want {
+			t.Errorf("PKeyFor(%s, keyed) = 0x%08X, want PKey's 0x%08X", k.Name, got, want)
+		}
+	}
+	if got, want := PKeyFor(nil, pkeyTVProc, pkeyTVSetID, pkeyTVParams, pkeyTVRoom, pkeyTVHome), pkeyTVOut; got != want {
+		t.Errorf("PKeyFor(nil) = 0x%08X, want 0x%08X", got, want)
+	}
+}
 
 func TestPKey(t *testing.T) {
 	if PKeyLen != 21 {
@@ -137,7 +185,7 @@ func identsOf(es []Enemy) []Ident {
 
 func TestClassify(t *testing.T) {
 	_, m, es := kindRoom(t)
-	all, err := Classify(m, 1, AllKinds())
+	all, err := Classify(m, "", 1, AllKinds())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +222,7 @@ func TestClassify(t *testing.T) {
 	// Without +u the unkeyed ChuChu is refused; with only mo2 enabled
 	// only the Moblin is listed.
 	s, _ := ParseKinds("bk,cc")
-	all, _ = Classify(m, 1, s)
+	all, _ = Classify(m, "", 1, s)
 	for _, e := range all {
 		if e.Ident.SetID == addr.ActorSetIDNone && e.Refused != RefuseUnkeyedOff {
 			t.Errorf("unkeyed without +u: %q", e.Refused)
@@ -184,7 +232,7 @@ func TestClassify(t *testing.T) {
 		}
 	}
 	mo, _ := ParseKinds("mo2")
-	cs, _ := Candidates(m, 1, mo)
+	cs, _ := Candidates(m, "", 1, mo)
 	if len(cs) != 1 || cs[0].Kind != KindMO2 || cs[0].Ident.SetID != 2 {
 		t.Errorf("mo2 Candidates = %+v", cs)
 	}
@@ -192,7 +240,7 @@ func TestClassify(t *testing.T) {
 	// The live gate: the red ChuChu turned insta-kill (m304) is refused.
 	a, _ := es.Of(3)
 	store(t, m, a.Addr+addr.CcOffInstaKill, []byte{1})
-	all, _ = Classify(m, 1, AllKinds())
+	all, _ = Classify(m, "", 1, AllKinds())
 	for _, e := range all {
 		if e.Ident.SetID == 4 && e.Refused != RefuseLive {
 			t.Errorf("CC with m304: %q", e.Refused)
@@ -204,15 +252,15 @@ func TestClassify(t *testing.T) {
 // Ident alone; moving its home does not.
 func TestPKeyIndependentOfPos(t *testing.T) {
 	_, m, es := kindRoom(t)
-	before, _ := Candidates(m, 1, AllKinds())
+	before, _ := Candidates(m, "", 1, AllKinds())
 	a, _ := es.Of(0)
 	store(t, m, a.Addr+addr.ActorOffCurPos, f32s(100, 200, 300))
-	after, _ := Candidates(m, 1, AllKinds())
+	after, _ := Candidates(m, "", 1, AllKinds())
 	if !slices.Equal(identsOf(before), identsOf(after)) {
 		t.Errorf("current.pos moved an Ident:\n%v\n%v", identsOf(before), identsOf(after))
 	}
 	store(t, m, a.Addr+addr.ActorOffHomePos, f32s(100, 200, 300))
-	moved, _ := Candidates(m, 1, AllKinds())
+	moved, _ := Candidates(m, "", 1, AllKinds())
 	if slices.Equal(identsOf(before), identsOf(moved)) {
 		t.Error("home.pos did not move the BK's pkey")
 	}
@@ -247,7 +295,7 @@ func TestDuplicateIdent(t *testing.T) {
 		fakegame.Enemy{Stage: mDai.Name, Room: 1, SetID: addr.ActorSetIDNone, Proc: stage.ProcCC, Params: 0xFF000100},
 	)
 	frames(t, g, two, 4)
-	all, err := Classify(m, 1, AllKinds())
+	all, err := Classify(m, "", 1, AllKinds())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +318,7 @@ func TestDuplicateIdent(t *testing.T) {
 func TestCandidatesMO2Legacy(t *testing.T) {
 	_, m, _ := moblinRoom(t)
 	mo, _ := ParseKinds("mo2")
-	cs, err := Candidates(m, 1, mo)
+	cs, err := Candidates(m, "", 1, mo)
 	if err != nil {
 		t.Fatal(err)
 	}

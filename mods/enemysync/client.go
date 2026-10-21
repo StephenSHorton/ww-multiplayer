@@ -187,6 +187,9 @@ type MirrorStats struct {
 	// Deaths counts the copies the REL reported dead (quiet deaths),
 	// ZoneBits the zone bits and Switches the death switches written.
 	Deaths, ZoneBits, Switches uint64
+	// HitsFiltered counts the hits ForwardHit dropped (a weapon the kind's
+	// collider ignores on the host).
+	HitsFiltered uint64
 }
 
 // NewMirror returns a mirror over m with its breaker; raw bypasses the
@@ -653,7 +656,7 @@ func (c *Mirror) match(now time.Time, scope Scope, st *State, force bool) error 
 	if err != nil {
 		return err
 	}
-	es, err := ClassifyWalk(c.m, &w, scope.Room, c.Kinds)
+	es, err := ClassifyWalk(c.m, &w, scope.Stage, scope.Room, c.Kinds)
 	if err != nil {
 		return err
 	}
@@ -1214,7 +1217,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		}
 	}
 	on := c.Kinds.And(MaskSet(uint32(st.HostKindMask)))
-	annex := mailbox.EnemyAnnex{Override: c.Annex.Override, InvulnWait: c.Annex.InvulnWait}
+	annex := mailbox.EnemyAnnex{Override: c.Annex.Override, InvulnWait: c.Annex.InvulnWait, HookDisableX: c.Annex.HookDisableX}
 	n := 0
 	for j := range c.blk {
 		if c.blk[j].Used {
@@ -1365,7 +1368,8 @@ func (c *Mirror) OwnerOf(handle uint16) uint16 {
 // (ColliderOff). It carries the hit object's At type and atp (cCcD_ObjAt
 // mType at obj+0x10, mAtp at +0x14, c_cc_d.h:438-439), its dCcD_GObjAt's
 // SPrm low byte, Se, HitMark and Spl (addr.CcAtOff*; one hitObjReadLen
-// read from obj+0x10) and the collider's centre.
+// read from obj+0x10) and the collider's centre. A hit ForwardHit drops
+// is (nil, nil): not sent, its pending byte still cleared by the caller.
 func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, h mailbox.EnemyHitEntry) (*Hit, error) {
 	col := ColliderOff(kind, h.Collider)
 	if col == 0 {
@@ -1375,9 +1379,14 @@ func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, 
 	if stat.Actor == 0 || !addr.InMEM1(stat.Actor) || stat.PID != pid {
 		return nil, errors.New("no resolved actor for the slot")
 	}
-	obj, err := mem.ReadU32(c.m, stat.Actor+col+addr.Mo2CcTgHitObjOff)
-	if err != nil {
-		return nil, err
+	// The special collider (AM's mouth, code 3) reports a Co hit, which has
+	// no Tg hit object: its hit goes out untyped.
+	var obj uint32
+	if h.Collider != HitSpecial {
+		var err error
+		if obj, err = mem.ReadU32(c.m, stat.Actor+col+addr.Mo2CcTgHitObjOff); err != nil {
+			return nil, err
+		}
 	}
 	// The HIT's seq is this mirror's own counter, never the REL's: that one
 	// counts per block slot (em_hits), so an enemy that moved to another slot
@@ -1412,6 +1421,11 @@ func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, 
 			hit.Spl = at(addr.CcAtOffSpl)[0]
 		}
 	}
+	if !ForwardHit(kind, h.Collider, hit.AtType) {
+		c.Stats.HitsFiltered++
+		log.Logf(c.rep, log.Info, "enemy client: hit slot %d: %s collider %d at type 0x%08X not forwarded", i, kind, h.Collider, hit.AtType)
+		return nil, nil
+	}
 	p, err := c.m.Read(stat.Actor+col+addr.Mo2CcCenterOff, 12)
 	if err != nil {
 		return nil, err
@@ -1422,6 +1436,45 @@ func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, 
 		}
 	}
 	return hit, nil
+}
+
+// The At types ForwardHit tests (d_cc_d.h:14-38 dCcG_At_Type).
+const (
+	AtTypeHookshot      uint32 = 1 << 15 // AT_TYPE_HOOKSHOT
+	AtTypeSkullHammer   uint32 = 1 << 16 // AT_TYPE_SKULL_HAMMER
+	AtTypeGrapplingHook uint32 = 1 << 27 // AT_TYPE_GRAPPLING_HOOK
+)
+
+// ForwardHit reports whether a client hit on kind's collider code with At
+// type atType goes to the host (allow design go_changes, client hit
+// forwarding). The host applies a forwarded hit through its own At sphere
+// carrying atType, so a weapon the host's collider handles differently
+// from what the copy's took is dropped here:
+//
+//   - AM collider 1 (the eye): not the Grappling Hook, whose eye hit
+//     steals an item (medama_atari_check, d_a_am.cpp:247-261).
+//   - AM2 collider 1 (the weak spot): not the Hookshot, which the copy's
+//     sphere takes but which would damage through the default case of
+//     week_atari_check (d_a_am2.cpp:234-310).
+//   - AM2 collider 2 (the body): the Skull Hammer only, the one weapon
+//     body_atari_check acts on (HANDOU, d_a_am2.cpp:342-364; the others
+//     only sound); it also keeps a weak-spot hit that overlapped the body
+//     from landing twice. An unread hit object (at type 0) is dropped.
+//
+// Everything else forwards, the AM bomb swallow (collider 3, whose Co hit
+// carries no At object) included. readHit has taken the HIT's seq before
+// this runs, so a dropped hit leaves a gap in the seqs sent (harmless: the
+// host's replay check needs them only to grow).
+func ForwardHit(kind KindID, collider uint8, atType uint32) bool {
+	switch {
+	case kind == KindAM && collider == HitHead:
+		return atType&AtTypeGrapplingHook == 0
+	case kind == KindAM2 && collider == HitHead:
+		return atType&AtTypeHookshot == 0
+	case kind == KindAM2 && collider == HitTg:
+		return atType&AtTypeSkullHammer != 0
+	}
+	return true
 }
 
 // The hit object read: from cCcD_ObjAt mType (obj+0x10) through

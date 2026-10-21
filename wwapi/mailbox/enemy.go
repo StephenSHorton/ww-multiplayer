@@ -225,16 +225,23 @@ const (
 	EnemyAnnexOvrHooksOff        = 0x00  // u8 EnemyHKD*
 	EnemyAnnexOvrQuietOff        = 0x01  // u8 quiet-death frames
 	EnemyAnnexOvrTgUpOff         = 0x02  // s16 collider-2 centre height
-	EnemyAnnexInvWOff     uint32 = 0x1F8 // u8 invuln_wait[EnemyAnnexKinds], u8 pad; +0x1FC..+0x200 spare
-	EnemyAnnexKinds              = 3     // overrides cover kinds 0..2 (MO2, BK, CC)
+	EnemyAnnexInvWOff     uint32 = 0x1F8 // u8 invuln_wait[EnemyAnnexKinds], u8 pad
+	EnemyAnnexKinds              = 3     // overrides cover kinds 0..2 (MO2, BK, CC); ids >= 3 use their compiled values
+	// The allow batch's hook bytes (enemy-mirror-allow.json D3): kind id
+	// EnemyAnnexKinds+j's u8 hook_disable at +j, the annex's last four
+	// bytes, which the REL reads directly (no seq-cached copy).
+	EnemyAnnexHKDXOff   uint32 = 0x1FC // u8 hook_disable[EnemyAnnexHKDXKinds] for kind ids 3..6 (EnemyHKD*)
+	EnemyAnnexHKDXKinds        = 4     // ids EnemyAnnexKinds..+3 (KI, AM, AM2, batch B's id 6); ends at EnemyOff
 
 	// Hook-disable bits (an annex override's byte 0).
 	EnemyHKDModelEq     uint8 = 0x01 // skip the actor->model == morf model check
 	EnemyHKDAttach      uint8 = 0x02 // skip the attach hook (BK)
-	EnemyHKDEye         uint8 = 0x04 // skip the eye hook (CC)
+	EnemyHKDEye         uint8 = 0x04 // skip the eye hook (CC, and the fixed eye of KI, AM, AM2)
 	EnemyHKDLegacyDeath uint8 = 0x08 // never the legacy em_die: always the quiet path
 	EnemyHKDAttn        uint8 = 0x10 // skip the per-frame attention flags write
-	EnemyHKDMtxPlain    uint8 = 0x20 // skip the plain matrix hook (staged rows)
+	EnemyHKDMtxPlain    uint8 = 0x20 // skip the plain matrix hook (KI, AM, AM2)
+	EnemyHKDSpecial     uint8 = 0x40 // skip the kind's special collider (AM: the bomb swallow, collider code 3)
+	EnemyHKDExtra       uint8 = 0x80 // skip the kind's extras: btk/brk play and the per-frame collider radius writes
 
 	// EnemyWriteSpan is the one Go write per tick: the annex, then the
 	// block's Go span, from EnemyAnnexAddr.
@@ -319,6 +326,9 @@ type EnemyAnnex struct {
 	Aux        [EnemyMaxSlots][4]int16
 	Override   [EnemyAnnexKinds]EnemyKindOverride
 	InvulnWait [EnemyAnnexKinds]uint8 // 0 = the kind's compiled wait
+	// HookDisableX is kind id EnemyAnnexKinds+j's hook_disable (EnemyHKD*),
+	// the bytes at EnemyAnnexHKDXOff.
+	HookDisableX [EnemyAnnexHKDXKinds]uint8
 }
 
 // EnemyHitApply is the host-role hit_apply request at EnemyHitApplyOff.
@@ -460,6 +470,7 @@ func (a *EnemyAnnex) EncodeAnnex(seq uint32) []byte {
 		be.PutUint16(at[EnemyAnnexOvrTgUpOff:], uint16(o.TgHitUp))
 	}
 	copy(out[EnemyAnnexInvWOff-EnemyAnnexOff:], a.InvulnWait[:])
+	copy(out[EnemyAnnexHKDXOff-EnemyAnnexOff:], a.HookDisableX[:])
 	return out
 }
 
@@ -480,6 +491,7 @@ func DecodeEnemyAnnex(b []byte) (a EnemyAnnex, seq uint32, err error) {
 		a.Override[k] = EnemyKindOverride{HookDisable: at[EnemyAnnexOvrHooksOff], QuietFrames: at[EnemyAnnexOvrQuietOff], TgHitUp: int16(be.Uint16(at[EnemyAnnexOvrTgUpOff:]))}
 	}
 	copy(a.InvulnWait[:], b[EnemyAnnexInvWOff-EnemyAnnexOff:])
+	copy(a.HookDisableX[:], b[EnemyAnnexHKDXOff-EnemyAnnexOff:])
 	return a, be.Uint32(b[EnemyAnnexSeqOff-EnemyAnnexOff:]), nil
 }
 

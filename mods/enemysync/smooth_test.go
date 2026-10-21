@@ -353,4 +353,16 @@ func TestSmootherPlaySkip(t *testing.T) {
 	if got := advanceFrame(&sl, 100); got != 10 {
 		t.Errorf("play skipped: frame %v, want 10", got)
 	}
+	// Per kind: the Armos Knight's bit 1 is PLAY_SKIP, the Armos's (the
+	// same bit) its weak Tg, the Keese's none.
+	for _, c := range []struct {
+		kind  KindID
+		f2    uint8
+		frame float32
+	}{{KindAM, AmF2PlaySkip, 10}, {KindAM2, Am2F2WeakTg, 13}, {KindKI, 0x02, 13}} {
+		sl := Slot{Kind: c.kind, MorfFrame: 10, MorfRate: 1, Flags2: c.f2}
+		if got := advanceFrame(&sl, 100); got != c.frame {
+			t.Errorf("%s flags2 0x%02X: frame %v, want %v", c.kind, c.f2, got, c.frame)
+		}
+	}
 }

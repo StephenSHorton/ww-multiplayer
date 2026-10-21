@@ -247,14 +247,18 @@ func advanceFrame(sl *Slot, ms int64) float32 {
 
 // playSkip reports the kind's PLAY_SKIP flags2 bit: the Moblin's
 // SlotF2PlaySkip (m05B2, d_a_mo2.cpp:3488-3490), the Bokoblin's BkF2PlaySkip
-// (m030C, play gated at d_a_bk.cpp:4362-4367). A ChuChu has none (its bit 1
-// is CcF2Co).
+// (m030C, play gated at d_a_bk.cpp:4362-4367), the Armos Knight's
+// AmF2PlaySkip (mCountDownTimers[1], d_a_am.cpp:1034-1036). A ChuChu, a
+// Keese (D15) and an Armos have none (the ChuChu's bit 1 is CcF2Co, the
+// Armos's Am2F2WeakTg).
 func playSkip(sl *Slot) bool {
 	switch sl.Kind {
 	case KindMO2:
 		return sl.Flags2&SlotF2PlaySkip != 0
 	case KindBK:
 		return sl.Flags2&BkF2PlaySkip != 0
+	case KindAM:
+		return sl.Flags2&AmF2PlaySkip != 0
 	}
 	return false
 }

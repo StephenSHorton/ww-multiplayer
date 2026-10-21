@@ -215,6 +215,10 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_HKD_LEGACY_DEATH":    uint64(EnemyHKDLegacyDeath),
 		"WWENEMY_HKD_ATTN":            uint64(EnemyHKDAttn),
 		"WWENEMY_HKD_MTX_PLAIN":       uint64(EnemyHKDMtxPlain),
+		"WWENEMY_HKD_SPECIAL":         uint64(EnemyHKDSpecial),
+		"WWENEMY_HKD_EXTRA":           uint64(EnemyHKDExtra),
+		"WWENEMY_ANNEX_HKDX_OFF":      uint64(EnemyAnnexHKDXOff),
+		"WWENEMY_ANNEX_HKDX_KINDS":    EnemyAnnexHKDXKinds,
 		"WWENEMY_STALE_FRAMES":        EnemyStaleFrames,
 		"WWENEMY_SPH_OFF":             uint64(EnemySphOff),
 		"WWENEMY_STTS_OFF":            uint64(EnemySttsOff),
@@ -279,8 +283,8 @@ func TestEnemyBlockPlacement(t *testing.T) {
 		t.Errorf("annex at Mailbox+0x%X size 0x%X; the design says +0x1C8, right after the shanm word and up to the block", EnemyAnnexOff, EnemyAnnexSize)
 	}
 	if EnemyAnnexSeqOff != EnemyAnnexOff+EnemyMaxSlots*EnemyAnnexAuxSize || EnemyAnnexOvrOff != EnemyAnnexSeqOff+4 ||
-		EnemyAnnexInvWOff != EnemyAnnexOvrOff+EnemyAnnexKinds*EnemyAnnexOvrSize || EnemyAnnexInvWOff+EnemyAnnexKinds+1 > EnemyOff ||
-		EnemyWriteSpan != 0x15C {
+		EnemyAnnexInvWOff != EnemyAnnexOvrOff+EnemyAnnexKinds*EnemyAnnexOvrSize || EnemyAnnexInvWOff+EnemyAnnexKinds+1 > EnemyAnnexHKDXOff ||
+		EnemyAnnexHKDXOff+EnemyAnnexHKDXKinds != EnemyOff || EnemyWriteSpan != 0x15C {
 		t.Error("the annex's fields overlap, or run past the block")
 	}
 	if EnemySLCcM316ZOff != EnemySLAttackOff || EnemySLPKeyOff+4 != EnemySLAttackOff || EnemySLProcOff != EnemySLBlurShapeOff+1 ||
@@ -352,6 +356,8 @@ func sampleEnemyBlock() *EnemyBlock {
 			Aux:        [EnemyMaxSlots][4]int16{1: {-5, 6, 7, -8}},
 			Override:   [EnemyAnnexKinds]EnemyKindOverride{1: {HookDisable: EnemyHKDAttach, QuietFrames: 30, TgHitUp: 50}},
 			InvulnWait: [EnemyAnnexKinds]uint8{0, 12, 0},
+			// kind id 4's hook byte (the allow batch's HKDX, D3)
+			HookDisableX: [EnemyAnnexHKDXKinds]uint8{1: EnemyHKDSpecial | EnemyHKDExtra},
 		},
 		HitApply: EnemyHitApply{Seq: 5, SetID: 2, Collider: 1, Flags: EnemyHAFNoHitMark, AtType: 0x80000, Atp: 2, Se: 1, HitMark: 0xD, Spl: 1, Pos: [3]float32{4, 5, 6}, PID: 421},
 	}
@@ -434,7 +440,7 @@ func TestEnemyBlockEncode(t *testing.T) {
 	if len(w) != EnemyWriteSpan || !bytes.Equal(w[EnemyAnnexSize:], out) || be.Uint32(ax[EnemyAnnexSeqOff-EnemyAnnexOff:]) != b.Seq ||
 		hex.EncodeToString(ax[8:16]) != "fffb00060007fff8" ||
 		hex.EncodeToString(ax[EnemyAnnexOvrOff-EnemyAnnexOff+4:EnemyAnnexOvrOff-EnemyAnnexOff+8]) != "021e0032" ||
-		hex.EncodeToString(ax[EnemyAnnexInvWOff-EnemyAnnexOff:EnemyAnnexSize]) != "000c0000"+"00000000" {
+		hex.EncodeToString(ax[EnemyAnnexInvWOff-EnemyAnnexOff:EnemyAnnexSize]) != "000c0000"+"00c00000" {
 		t.Errorf("annex %x", ax)
 	}
 	gotAx, axSeq, err := DecodeEnemyAnnex(ax)

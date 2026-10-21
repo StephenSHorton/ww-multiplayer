@@ -99,8 +99,10 @@ const (
 	// is not dormant. KeepR does not shield a dormant copy from a much
 	// nearer newcomer (client selectSlots rule 3). A Bokoblin is never
 	// dormant: daBk_Execute sets LOCKON_BATTLE every frame
-	// (d_a_bk.cpp:4283), clearing it only when it dies or in a demo. A
-	// client that predates the bit ignores it.
+	// (d_a_bk.cpp:4283), clearing it only when it dies or in a demo. The
+	// allow kinds (host.go dormant): a Keese asleep on the ceiling or
+	// waiting on its switch, an Armos Knight asleep, an Armos statue; never
+	// while carried or dying. A client that predates the bit ignores it.
 	WFlagDormant uint8 = 1 << 2
 )
 
