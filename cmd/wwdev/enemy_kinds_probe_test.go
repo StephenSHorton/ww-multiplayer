@@ -72,7 +72,7 @@ var bkPKey = enemysync.PKey(addr.ProcBK, 0, 0xFFFF8784, 1, [3]uint32{0x44A00000,
 func TestEnemyMatchDry(t *testing.T) {
 	m, es := kindProbeRoom(t)
 	var out bytes.Buffer
-	if err := enemyMatch(&out, m, enemysync.AllKinds()); err != nil {
+	if err := enemyMatch(&out, m, enemysync.AllKinds(), enemysync.StagedSet{}); err != nil {
 		t.Fatal(err)
 	}
 	s := out.String()
@@ -130,7 +130,7 @@ func TestEnemyMatchDry(t *testing.T) {
 	// --kinds without +u refuses the unkeyed ChuChu.
 	out.Reset()
 	set, _ := enemysync.ParseKinds("cc")
-	if err := enemyMatch(&out, m, set); err != nil {
+	if err := enemyMatch(&out, m, set, enemysync.StagedSet{}); err != nil {
 		t.Fatal(err)
 	}
 	// It is refused before the gate read: its colour and m304 are unread.

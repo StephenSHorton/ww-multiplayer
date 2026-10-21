@@ -119,6 +119,9 @@ func (id KindID) String() string {
 	if k := id.Row(); k != nil {
 		return k.Name
 	}
+	if k := id.StagedRow(); k != nil {
+		return k.Name
+	}
 	return "none"
 }
 
@@ -261,7 +264,10 @@ func kindNames() []string {
 // design R-8): SubMode the Armos Knight's or the Armos's mMode (+0x2C5,
 // +0x2CD), Fade the Keese's m2DC shrink-delete (+0x2DC), Abyss the
 // Armos's mInAbyssTimer (+0x2D2), Carried actor_status CARRY (the walk's
-// status word).
+// status word). The staged Darknut's (TN design R-4, go_changes LiveGate;
+// read by ClassifyStaged, judged by TnLiveRefusal, probe-only in B0):
+// Boss actor_status BOSS, DrAction the s16 dr.mAction (+0x47A), Equip
+// mEquipmentType, and m02C1, m1518, m14F8, m140C.
 type LiveGate struct {
 	Mode      uint8
 	Color     uint8
@@ -270,6 +276,11 @@ type LiveGate struct {
 	Fade      uint8
 	Abyss     uint8
 	Carried   bool
+
+	Boss                       bool
+	DrAction                   int16
+	Equip                      uint8
+	M02C1, M1518, M14F8, M140C uint8
 }
 
 // ParamsOK is the kind's gate on the actor's params (+0xB0), the value
@@ -438,13 +449,19 @@ var (
 // bckNames is each row's names, by KindID.
 var bckNames = [len(Kinds)][]string{KindMO2: mo2BckNames, KindBK: bkBckNames, KindCC: ccBckNames, KindKI: kiBckNames, KindAM: amBckNames, KindAM2: am2BckNames}
 
-// BckName is the name of BCK idx in kind id's archive, "-" for none.
+// BckName is the name of BCK idx in kind id's archive (a staged row's
+// too), "-" for none.
 func BckName(id KindID, idx uint8) string {
+	var names []string
 	k := id.Row()
-	if k == nil {
+	switch {
+	case k != nil:
+		names = bckNames[id]
+	case id.StagedRow() != nil:
+		k, names = id.StagedRow(), stagedBckNames[id-KindTN]
+	default:
 		return "-"
 	}
-	names := bckNames[id]
 	i := int(idx) - k.BckFirst
 	if i < 0 || i >= len(names) {
 		return "-"

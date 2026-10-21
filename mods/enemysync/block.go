@@ -345,6 +345,9 @@ type KindSample struct {
 	CcAtSPrm, CcTgSPrm, CcCoSPrm                          uint32
 	// St is an allow kind's (KI, AM, AM2; allow design type_table samplers).
 	St AllowFields
+	// Tn is the staged Darknut's (ReadSampleTN, staged.go; St carries its
+	// angles and colliders).
+	Tn TnFields
 }
 
 // AllowFields is what ReadSampleKI, ReadSampleAM and ReadSampleAM2 read

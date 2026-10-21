@@ -51,7 +51,7 @@ func allowProbeRoom(t *testing.T) (*mem.FakeMem, *fakegame.Enemies) {
 func TestEnemyMatchDryAllow(t *testing.T) {
 	m, _ := allowProbeRoom(t)
 	var out bytes.Buffer
-	if err := enemyMatch(&out, m, enemysync.AllKinds()); err != nil {
+	if err := enemyMatch(&out, m, enemysync.AllKinds(), enemysync.StagedSet{}); err != nil {
 		t.Fatal(err)
 	}
 	s := out.String()
@@ -84,7 +84,7 @@ func TestEnemyMatchDryAllow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enemyMatch(&out, m, bk); err != nil {
+	if err := enemyMatch(&out, m, bk, enemysync.StagedSet{}); err != nil {
 		t.Fatal(err)
 	}
 	if s := out.String(); strings.Contains(s, "kind=ki") || strings.Contains(s, "note ") || !strings.Contains(s, "summary idents=1 ") {

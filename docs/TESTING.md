@@ -162,3 +162,32 @@ First run (REL 0x345EFD80, `ww-multiplayer-handoff/archive/enemy-allow-a1/`), it
 Rig: never warp a Link again while its void-out respawn runs (within about 10 s): Link sticks in its create (`actors` shows the player `init 1` at (0, 5, ~300), a black screen), with or without a session. Kill that Dolphin.
 
 Every run: sweep both players' full Player.log, not only the reported issues, and confirm no adopt while gated.
+
+### Enemy mirror: Darknut probes (B0)
+
+The TN batch's first step (`ww-multiplayer-handoff/design/enemy-mirror-tn.json`, test_plan P0-b and P0-c) is Go only: the Darknut is a staged row (`mods/enemysync/staged.go`, id 6), read by the probes and by nothing else. It is not in `Kinds`, so `KindHash` (0x97EDB0F9), `WW_ENEMY_MIRROR_KINDS` (which refuses `tn`) and the REL are unchanged.
+
+Offline: `TestTnOffsets` and `TestTnBckRange` (`wwapi/addr`), `TestStagedTN`, `TestTnLiveRefusal`, `TestClassifyStagedTN` and `TestReadSampleTN*` (`mods/enemysync`: five Reads, DYING from dr.mAction 20..22 or the ice shrink and never from health), and `TestEnemyMatchDryTN` and `TestEnemyKindWatchTN` (`cmd/wwdev`).
+
+Live, host only, on the current build (P0-b), in `kaze 8 8` and `Cave11 0 9`:
+
+```
+./wwdev.exe enemy-match --dry --kinds tn        # kaze r8: keyed; the unkeyed ones show unkeyed-off
+./wwdev.exe enemy-match --dry --kinds tn+u      # Cave11 r9: the four unkeyed Darknuts
+./wwdev.exe enemy-watch 0 --kind tn             # per tick: action (dr.mAction), mode, pieces, equip, m03F0, m140C, m1444, the sword
+```
+
+`enemy-match` prints the would-be live gate after ` pid=` (`tn_action`, `tn_boss`, `tn_equip`, `tn_m02c1`, `tn_m1518`, `tn_m14f8`, `tn_m140c`, and `tn_live=ok` or the first refusal). B0 refuses on placement and params (behaviour nibble 12..15) only, so `enemy-watch` keeps sampling a Darknut through states the gate would refuse at adopt. The sword line resolves `mBokoPcId` (0x1410) to its actor: pass when it is `proc 0x01D5`. Pieces (0x2D0) start at 0x0F with a shield (equipment 2 and up) and 0x0B without one (d_a_tn.cpp:4232-4236), then lose bit 1 (armor), 2 (helmet) or 4 (shield) as they break.
+
+P0-c: every `enemy-watch --kind tn` walk line ends with `exec <daTn_Execute> part_move <exec-0x1040> yoroi_break <exec-0x224C>`, read as `*(*(actor+0xEC)+8)`. Dump the words there with the existing tools; no new command is needed:
+
+```
+./wwdev.exe ppc-disasm <part_move> 2            # expect an stwu r1,-N(r1) prologue
+./wwdev.exe ppc-disasm <yoroi_break> 2
+# or by hand from the actor address (enemy-watch's walk line, or `actors`):
+./wwdev.exe peek <actor+0xEC>                   # the actor_method_class*
+./wwdev.exe peek <method+0x8>                   # daTn_Execute
+./wwdev.exe peek <exec-0x1040> 8                # two words (n is in decimal bytes)
+```
+
+Record the two words at each address for the batch C choice (design D6).
