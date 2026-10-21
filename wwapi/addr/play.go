@@ -237,6 +237,7 @@ const (
 	ActorOffCurAngle   = 0x204              // csXyz current.angle (actor_place +0xC, f_op_actor.h:214)
 	ActorOffCurRoomNo  = 0x20A              // s8 current.roomNo (actor_place +0x12, f_op_actor.h:215)
 	ActorOffAttnFlags  = 0x280              // u32 attention_info.flags: attention_info +0x26C, flags +0x14 (f_op_actor.h:219-223, :305)
+	AttnLockonBattle   = 0x4                // fopAc_Attn_LOCKON_BATTLE_e (f_op_actor.h:76): set while an enemy can be Z-targeted in a fight
 	ActorOffMaxHealth  = 0x284              // s8 max_health (f_op_actor.h:306)
 	ActorStatusCarry   = 0x00002000         // fopAcStts_CARRY_e (f_op_actor.h:32)
 	ActorStatusBoss    = 0x04000000         // fopAcStts_BOSS_e (f_op_actor.h:43)

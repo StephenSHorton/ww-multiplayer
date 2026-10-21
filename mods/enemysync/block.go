@@ -320,8 +320,9 @@ type KindSample struct {
 	TiltZ int16
 	// Aux is the annex's s16[4] (design block_layout annex): BK {m48C.z,
 	// jaw m11F4, 0, 0}; CC {shape_angle.x, m310.x, m310.y, m310.z}.
-	Aux  [4]int16
-	Attn uint32 // attention_info.flags (+0x280)
+	Aux    [4]int16
+	Attn   uint32 // attention_info.flags (+0x280)
+	Status uint32 // actor_status (+0x1C4)
 	// The Bokoblin's: live mType, the BOKO pid m1200 and its attach flag
 	// m1214, the demo gate m1234, dr mInvincibleTimer and the ice freeze
 	// timer.
@@ -392,6 +393,7 @@ func kindActorFields(s *KindSample, b []byte) {
 	s.AngleY = int16(be.Uint16(b[addr.ActorOffCurAngle+2:]))
 	s.Health = int8(b[addr.ActorOffHealth])
 	s.Attn = be.Uint32(b[addr.ActorOffAttnFlags:])
+	s.Status = be.Uint32(b[addr.ActorOffStatus:])
 }
 
 // readMorfAnim is R5: the morf's animation span, when morf is in MEM1.

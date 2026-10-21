@@ -172,11 +172,11 @@ WW_ENEMY_COLLIDERS=0                        # enemy-host's STATE stops asking th
 WW_ENEMY_HIT_V1=1                           # enemy-host applies a client's hit as the v1 shrink kill instead of the v2 sphere hit
 WW_ENEMY_HIT_FALLBACK=shrink                # enemy-host: a v2 hit that crossed nothing after two Sets falls back to the shrink kill
 WW_ENEMY_HIT_DEMO=0                         # enemy-host: no cutscene gate on client hits (default: a hit during the host Link's demo is dropped)
-WW_ENEMY_MIRROR_KINDS=<kinds>               # Enemy kinds mirrored (mods/enemysync/kinds.go): mo2, bk, cc joined by "," (default mo2 = the Moblin prototype); a "+u" suffix
+WW_ENEMY_MIRROR_KINDS=<kinds>               # Enemy kinds mirrored (mods/enemysync/kinds.go): mo2, bk, cc joined by "," (default mo2,bk+u,cc+u); a "+u" suffix
                                             #   (bk+u) also takes that kind's unkeyed (setID 0xFFFF) placements; "none". Host and client each set theirs: a kind is
                                             #   mirrored only when both enable it (the STATE's host kind mask AND the client's)
 WW_ENEMY_QUIET_DEATH=<kinds>                # enemy-client: kinds whose copies die quietly (stay paused, shrink in the REL, deleted; the client sets the zone bit and
-                                            #   death switch), default bk,cc; adding mo2 retires the Moblin's legacy em_die (which drops an item on the client too)
+                                            #   death switch), default mo2,bk,cc; bk,cc brings back the Moblin's legacy em_die (which drops an item on the client too)
 WW_ENEMY_SELECT=legacy                      # host and client: the prototype's lowest-setID slot order (default distance: the host lists by player distance, each
                                             #   client keeps its 4 block slots with KEEP_R/ENTER_R/MIN_HOLD hysteresis)
 WW_ENEMY_STATE_30HZ=1                       # enemy-host: send a STATE only when the host REL's frame counter moved (and at least every 250 ms)

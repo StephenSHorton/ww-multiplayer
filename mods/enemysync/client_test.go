@@ -618,6 +618,7 @@ func TestMirrorAnimFields(t *testing.T) {
 	start := time.Unix(2000, 0)
 	c := NewMirror(m, log.Discard{}, nil, false, start)
 	c.Select = SelectLegacy
+	c.Quiet, _ = ParseQuietKinds("bk,cc") // the Moblin's legacy death: Flags2 without the quiet bit
 	m.Record(true)
 	now := start.Add(time.Second)
 	st := hostState(1, 1000)

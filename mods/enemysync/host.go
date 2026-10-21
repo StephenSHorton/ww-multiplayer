@@ -19,7 +19,7 @@ import (
 // The host sampler (design "host_side", generalised by enemy-mirror-
 // general.json "slots" and "identity".host_side): every tick it samples
 // the mirrorable enemies of every enabled kind (Candidates over
-// WW_ENEMY_MIRROR_KINDS, default "mo2") in the room Link is in and
+// WW_ENEMY_MIRROR_KINDS, default DefaultMirrorKinds) in the room Link is in and
 // returns the STATE to send, or a count-0 keepalive every KeepaliveEvery
 // while the game is not in play or a stage change is pending. It walks
 // every WalkEvery, after a validation failure and on a stage or room
@@ -32,7 +32,7 @@ import (
 // enemy last seen dying, with health <= 0 or with its ice timer running
 // that vanished: sent DYING|RELEASE with WFlagTomb for TombFrames host
 // frames, so a client that had not adopted it yet still kills its copy
-// quietly), then the live ones by the least xz distance to any player in
+// quietly), then the live ones by the least 3D distance to any player in
 // the room (the host Link and the remote players SetPlayers gives), ties
 // by Ident; under WW_ENEMY_SELECT=legacy by Ident alone (the Moblin
 // prototype's lowest setIDs). Each enemy carries a handle, assigned per
@@ -314,13 +314,15 @@ func (h *Host) linkPos() ([3]float32, bool) {
 	return p, finiteOK(p[0], p[1], p[2])
 }
 
-// xzDist2 is the squared xz distance from p to the nearest of players
-// (+Inf with none).
-func xzDist2(p [3]float32, players [][3]float32) float64 {
+// dist2 is the squared 3D distance from p to the nearest of players
+// (+Inf with none). It is 3D, not xz: Siren room 3's ceiling ChuChus hang
+// about 1360 above Link, and an xz ranking let them hold every client
+// slot while an awake ChuChu beside Link ran its own AI on the client.
+func dist2(p [3]float32, players [][3]float32) float64 {
 	best := math.Inf(1)
 	for _, q := range players {
-		dx, dz := float64(p[0]-q[0]), float64(p[2]-q[2])
-		best = min(best, dx*dx+dz*dz)
+		dx, dy, dz := float64(p[0]-q[0]), float64(p[1]-q[1]), float64(p[2]-q[2])
+		best = min(best, dx*dx+dy*dy+dz*dz)
 	}
 	return best
 }
@@ -408,7 +410,7 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 		sampled[e.Ident] = true
 		delete(h.tombs, e.Ident) // listed live again: a tombstone of this Ident is stale
 		h.last[e.Ident] = lastSeen{slot: s, dying: s.Flags&SlotDying != 0 || s.Health <= 0 || ks.IceTimer != 0}
-		lives = append(lives, live{l: Listed{Ident: e.Ident, Handle: s.Handle, PID: e.PID, Slot: s}, dist2: xzDist2(s.Pos, players)})
+		lives = append(lives, live{l: Listed{Ident: e.Ident, Handle: s.Handle, PID: e.PID, Slot: s}, dist2: dist2(s.Pos, players)})
 	}
 	if rewalk {
 		h.walkFailed = true
@@ -494,6 +496,9 @@ func (h *Host) wireSlot(e *Enemy, ks *KindSample, now time.Time) Slot {
 	}
 	if t, ok := h.engaged[e.Ident]; ok && now.Sub(t) < EngagedFor {
 		s.WFlags |= WFlagEngaged
+	}
+	if e.Kind == KindCC && ks.Attn&addr.AttnLockonBattle == 0 && ks.Status&addr.ActorStatusCarry == 0 {
+		s.WFlags |= WFlagDormant
 	}
 	return s
 }

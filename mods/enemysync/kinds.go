@@ -15,8 +15,7 @@ import (
 // design/enemy-mirror-general.json, "type_table" and "identity".per_kind):
 // one row per enemy class the mirror knows, Moblin, Bokoblin and ChuChu.
 // The pipelines (host.go, client.go) walk, sample and match by it over the
-// kinds WW_ENEMY_MIRROR_KINDS enables (default "mo2": the Moblin
-// prototype's behaviour). The C copy of this table is
+// kinds WW_ENEMY_MIRROR_KINDS enables (default DefaultMirrorKinds). The C copy of this table is
 // inject/include/wwenemy_kinds.h, pinned to this one and to wwapi/addr by
 // TestKindTablePins.
 
@@ -188,8 +187,10 @@ func AllKinds() KindSet {
 	return s
 }
 
-// DefaultMirrorKinds is WW_ENEMY_MIRROR_KINDS's default.
-const DefaultMirrorKinds = "mo2"
+// DefaultMirrorKinds is WW_ENEMY_MIRROR_KINDS's default: the Moblin by
+// setID, the Bokoblin and the ChuChu by setID and unkeyed (live checks L6,
+// L7 TyuTyu and Cave10, L8, L9). An unkeyed Moblin has had no live check.
+const DefaultMirrorKinds = "mo2,bk+u,cc+u"
 
 // ParseKinds parses a WW_ENEMY_MIRROR_KINDS value: kind names joined by
 // "," (a "+u" suffix also takes that kind's unkeyed actors); "" is
@@ -391,7 +392,7 @@ func MaskSet(mask uint32) KindSet {
 }
 
 // MirrorKinds is WW_ENEMY_MIRROR_KINDS parsed; a value ParseKinds refuses
-// falls back to DefaultMirrorKinds (Moblins, keyed) with the error to log.
+// falls back to DefaultMirrorKinds with the error to log.
 func MirrorKinds() (KindSet, error) {
 	s, err := ParseKinds(os.Getenv("WW_ENEMY_MIRROR_KINDS"))
 	if err != nil {
@@ -401,10 +402,12 @@ func MirrorKinds() (KindSet, error) {
 	return s, nil
 }
 
-// DefaultQuietKinds is WW_ENEMY_QUIET_DEATH's default: the Bokoblin and the
-// ChuChu die quietly (the copy stays paused, shrinks in the REL and is
-// deleted; design D7); the Moblin keeps its legacy em_die until batch 8.
-const DefaultQuietKinds = "bk,cc"
+// DefaultQuietKinds is WW_ENEMY_QUIET_DEATH's default: every kind's copy
+// dies quietly (it stays paused, shrinks in the REL and is deleted; design
+// D7). The Moblin's legacy em_die, which drops an item on the client too,
+// stays behind WW_ENEMY_QUIET_DEATH=bk,cc (live check L1b: a quiet Moblin
+// death leaves nothing on the client).
+const DefaultQuietKinds = "mo2,bk,cc"
 
 // ParseQuietKinds parses a WW_ENEMY_QUIET_DEATH value: kind names joined
 // by ","; "" is DefaultQuietKinds and "none" the empty set. A "+u" suffix

@@ -92,6 +92,16 @@ const (
 const (
 	WFlagEngaged uint8 = 1 << 0 // a client HIT or a host PHIT on this enemy within 3 s (CC also its At Set bit): the client keeps its slot
 	WFlagTomb    uint8 = 1 << 1 // a tombstone: the enemy died or vanished on the host (sent DYING|RELEASE for 300 host frames)
+	// WFlagDormant: a ChuChu whose attention flags lack LOCKON_BATTLE on
+	// the host and that is not being carried: still in the ground or on
+	// the ceiling (d_a_cc.cpp:2645, set at :785/:808 when it comes out),
+	// frozen or turned to stone on the floor. A carried one (stone, :1826)
+	// is not dormant. KeepR does not shield a dormant copy from a much
+	// nearer newcomer (client selectSlots rule 3). A Bokoblin is never
+	// dormant: daBk_Execute sets LOCKON_BATTLE every frame
+	// (d_a_bk.cpp:4283), clearing it only when it dies or in a demo. A
+	// client that predates the bit ignores it.
+	WFlagDormant uint8 = 1 << 2
 )
 
 // STATE header flags.

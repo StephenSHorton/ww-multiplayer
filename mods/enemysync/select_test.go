@@ -1,6 +1,7 @@
 package enemysync
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -32,10 +33,10 @@ func adopted(setID uint16, at time.Time) selSlot {
 
 // TestSelectSlots: design slots.client_selectSlots. Newcomers fill free
 // slots nearest first; a held enemy keeps its slot whatever the order the
-// candidates come in (the remap); a copy within KeepR, engaged or adopted
-// less than MinHold ago is never evicted; a newcomer evicts the farthest
-// copy no rule keeps only when nearer than EvictRatio of its distance and
-// within EnterR; a dying candidate takes a free slot, else evicts such a
+// candidates come in (the remap); a copy within KeepR (unless dormant),
+// engaged or adopted less than MinHold ago is never evicted; a newcomer
+// evicts the farthest copy no rule keeps only when nearer than EvictRatio
+// of its distance and within EnterR; a dying candidate takes a free slot, else evicts such a
 // copy, else waits; an enemy no longer offered frees its slot; a locked
 // slot keeps its enemy and is not refilled; legacy mode keeps the given
 // (lowest setID) order.
@@ -95,6 +96,22 @@ func TestSelectSlots(t *testing.T) {
 	if h := held(selectSlots(cs, cur, none, now, SelectDistance)); h != [MaxSlots]int{3, 1, 5, 4} {
 		t.Errorf("within KeepR: %v", h)
 	}
+	// Dormant (WFlagDormant) within KeepR: a newcomer EvictRatio nearer
+	// evicts it (Siren room 3: ceiling ChuChus at about 1400, an awake one
+	// at about 750), one not that near does not; MinHold still holds it.
+	cs[3].Dormant = true
+	if h := held(selectSlots(cs, cur, none, now, SelectDistance)); h != [MaxSlots]int{0, 1, 5, 4} {
+		t.Errorf("dormant within KeepR, newcomer at 100: %v", h)
+	}
+	cs[0].Dist = 1000 // >= 0.7*1400
+	if h := held(selectSlots(cs, cur, none, now, SelectDistance)); h != [MaxSlots]int{3, 1, 5, 4} {
+		t.Errorf("dormant within KeepR, newcomer at 1000: %v", h)
+	}
+	cs[0].Dist = 100
+	if h := held(selectSlots(cs, young, none, now, SelectDistance)); h != [MaxSlots]int{3, 1, 5, 4} {
+		t.Errorf("dormant, min hold: %v", h)
+	}
+	cs[3].Dormant = false
 
 	// The ratio and EnterR.
 	for _, c := range []struct {
@@ -370,16 +387,16 @@ func TestColliderOffPins(t *testing.T) {
 	}
 }
 
-// TestBatch5Knobs: WW_ENEMY_QUIET_DEATH (default bk,cc; "+u" refused),
+// TestBatch5Knobs: WW_ENEMY_QUIET_DEATH (default mo2,bk,cc; "+u" refused),
 // WW_ENEMY_SELECT (distance, legacy), WW_ENEMY_STATE_30HZ, and the kind
 // set helpers the client narrows the host's mask with.
 func TestBatch5Knobs(t *testing.T) {
 	q, err := ParseQuietKinds("")
-	if err != nil || q.String() != "bk,cc" || q.Has(KindMO2) {
+	if err != nil || q.String() != "mo2,bk,cc" {
 		t.Errorf("quiet default: %v %v", q, err)
 	}
-	if q, err = ParseQuietKinds("mo2,bk,cc"); err != nil || !q.Has(KindMO2) {
-		t.Errorf("quiet all: %v %v", q, err)
+	if q, err = ParseQuietKinds("bk,cc"); err != nil || q.Has(KindMO2) {
+		t.Errorf("quiet without the Moblin: %v %v", q, err)
 	}
 	if _, err = ParseQuietKinds("bk+u"); err == nil {
 		t.Error("quiet +u accepted")
@@ -400,7 +417,7 @@ func TestBatch5Knobs(t *testing.T) {
 		t.Error("WW_ENEMY_STATE_30HZ=1")
 	}
 	t.Setenv("WW_ENEMY_MIRROR_KINDS", "xx")
-	if s, err := MirrorKinds(); err == nil || s.String() != "mo2" {
+	if s, err := MirrorKinds(); err == nil || s.String() != "mo2,bk+u,cc+u" {
 		t.Errorf("a bad WW_ENEMY_MIRROR_KINDS: %v %v", s, err)
 	}
 	local, _ := ParseKinds("mo2,bk+u,cc+u")
@@ -411,5 +428,23 @@ func TestBatch5Knobs(t *testing.T) {
 	keyedOnly, _ := ParseKinds("bk")
 	if keyedOnly.And(MaskSet(1 << KindBK)).TakesUnkeyed(KindBK) {
 		t.Error("the local keyed-only set took unkeyed")
+	}
+}
+
+// TestDist2Vertical: selection distance is 3D. Siren room 3's ceiling
+// ChuChus hang about 1360 above Link and must rank behind an awake one
+// about 700 away on the floor (an xz ranking put them first).
+func TestDist2Vertical(t *testing.T) {
+	link := [][3]float32{{4143, -2078, 907}}
+	ceiling := dist2([3]float32{4218, -715, 1026}, link)
+	floor := dist2([3]float32{4720, -1736, 570}, link)
+	if !(floor < ceiling) {
+		t.Fatalf("floor %v ceiling %v", floor, ceiling)
+	}
+	if d := dist2([3]float32{3, 4, 12}, [][3]float32{{0, 0, 0}, {100, 0, 0}}); d != 169 {
+		t.Errorf("nearest player: %v", d)
+	}
+	if d := dist2([3]float32{}, nil); !math.IsInf(d, 1) {
+		t.Errorf("no players: %v", d)
 	}
 }
