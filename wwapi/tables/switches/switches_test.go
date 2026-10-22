@@ -30,6 +30,7 @@ var realNames = []struct {
 	{"Bdk", stage.ProcBDK}, {"Kui", procKui}, {"koisi1", procStone}, {"Warpt", procWarpt},
 	{"MhmrSW0", procSwhammer}, {"Fganon", stage.ProcFganon}, {"Mn", procNpcMn},
 	{"agbA", procAgbsw0}, {"agbMW", procAgbsw0}, {"agbCSW", procAgbsw0},
+	{"Ss", procSs}, {"gmos", stage.ProcGM},
 	{"Sitem", stage.ProcItem}, // a proc the table doesn't read
 }
 
@@ -194,6 +195,21 @@ func TestClasses(t *testing.T) {
 		{"Bokoblin none", []stage.Actor{act("Bk", 0, 0, 0, 0xFF)}, nil, 0, false},
 		{"boss Bokoblin", []stage.Actor{act("Bk", 0xA)},
 			[]want{{roomSw(tb, "D", 1, 0xE0), Latching, OpSet, true}, {roomSw(tb, "D", 1, 0xE1), Latching, OpSet, true}}, 2, false},
+		// FW's door plants (kindan r5 #1: 0x13010000) and Mothulas (kinMB
+		// #35 0x19000000 and r15 #141 0xA0010000 with angle.z 1; r9 #2
+		// 0xFF010000).
+		{"door plant", []stage.Actor{act("Ss", 0x13010000)}, []want{{m(0x13), Latching, OpSet, true}}, 1, false},
+		{"chest plant", []stage.Actor{act("Ss", 0x01000000)}, []want{{m(0x01), Latching, OpSet, true}}, 1, false},
+		{"door plant 0xFF", []stage.Actor{act("Ss", 0xFF010000)}, nil, 0, false},
+		{"door plant 0", []stage.Actor{act("Ss", 0x00010000)}, nil, 0, false},
+		{"Mothula", []stage.Actor{act("gmos", 0x19000000, 0, 0, 1)}, []want{{m(0x19), Latching, OpSet, true}}, 1, false},
+		{"Mothula dan", []stage.Actor{act("gmos", 0xA0010000, 0, 0, 1)}, []want{{dan(tb, 0xA0), Latching, OpSet, true}}, 1, false},
+		{"Mothula byte 1 0xFF", []stage.Actor{act("gmos", 0x1900FF00, 0, 0, 1)}, []want{{m(0x19), Latching, OpSet, true}}, 1, false},
+		{"Mothula switch 0", []stage.Actor{act("gmos", 0x00000000, 0, 0, 0x0301)}, []want{{m(0x00), Latching, OpSet, true}}, 1, false},
+		{"Mothula angle.z 0", []stage.Actor{act("gmos", 0x19000000, 0, 0, 0x0100)}, nil, 0, false},
+		{"Mothula byte 1 set", []stage.Actor{act("gmos", 0x19000100, 0, 0, 1)}, nil, 0, false},
+		{"Mothula none", []stage.Actor{act("gmos", 0xFF010000, 0, 0, 1)}, nil, 0, false},
+		{"Mothula 0xFF", []stage.Actor{act("gmos", 0xFF000000, 0, 0, 1)}, nil, 0, false},
 		{"Helmaroc", []stage.Actor{act("Bdk", 0)}, []want{{dan(tb, 0x80), Unsafe, OpSetClear, false}}, 1, false},
 		{"Phantom Ganon", []stage.Actor{act("Fganon", 0x24<<24|0x23<<16)},
 			[]want{{m(0x23), Latching, OpSet, true}, {m(0x24), Unsafe, OpSetClear, false}}, 2, false},
@@ -251,6 +267,10 @@ func timedCrystal(no int) stage.Actor {
 	return act("SW_HIT0", 0x10<<20|uint32(no), 0, 0, 0xFF) // no stop switch
 }
 
+// timedTorch is a torch with a timer and no stop switch: an unsafe writer
+// that is no momentary input.
+func timedTorch(no int) stage.Actor { return act("bonbori", uint32(no)<<24|0xFF<<16|0x10<<8) }
+
 func TestANDPropagation(t *testing.T) {
 	const tb = addr.TableFW
 	m := func(no int) Key { return mem(tb, no) }
@@ -262,7 +282,7 @@ func TestANDPropagation(t *testing.T) {
 	}{
 		{"chain", []stage.Actor{crystal(0x11), crystal(0x12), andsw2(0, 0x10, 2, 0xFF), andsw0(0, 0x20, 1, 0x10)},
 			[]want{{m(0x10), Latching, OpSet, true}, {m(0x20), Latching, OpSet, true}}, nil},
-		{"unsafe input", []stage.Actor{crystal(0x11), timedCrystal(0x12), andsw2(0, 0x10, 2, 0xFF), andsw0(0, 0x20, 1, 0x10)},
+		{"unsafe input", []stage.Actor{crystal(0x11), timedTorch(0x12), andsw2(0, 0x10, 2, 0xFF), andsw0(0, 0x20, 1, 0x10)},
 			[]want{{m(0x10), Unsafe, OpSet, false}, {m(0x20), Unsafe, OpSet, false}, {m(0x11), Latching, OpSet, true}},
 			map[int]string{0x10: "fed by memory t4 0x12", 0x20: "fed by memory t4 0x10"}},
 		{"input with no setter", []stage.Actor{andsw2(0, 0x50, 1, 0xFF)},
@@ -309,12 +329,27 @@ func TestANDPropagation(t *testing.T) {
 		// mustn't spring this game's ambush.
 		{"one-shot AND of an area switch", []stage.Actor{area(0x11), andsw0(0, 0x10, 1, 0x11)},
 			[]want{{m(0x10), Unsafe, OpSet, false}}, map[int]string{0x10: "fed by memory t4 0x11"}},
-		{"floor switch a GBA shares", []stage.Actor{plate(0x11), agb("agbA", 0, 0x11, 0xFF), andsw0(0, 0x10, 1, 0x11)},
-			[]want{{m(0x10), Unsafe, OpSet, false}}, map[int]string{0x10: "fed by memory t4 0x11"}},
-		{"floor switch and timed crystal", []stage.Actor{plate(0x11), timedCrystal(0x12), andsw0(0, 0x10, 2, 0x11)},
+		{"floor switch and timed torch", []stage.Actor{plate(0x11), timedTorch(0x12), andsw0(0, 0x10, 2, 0x11)},
 			[]want{{m(0x10), Unsafe, OpSet, false}}, map[int]string{0x10: "fed by memory t4 0x12"}},
-		{"latching mixed with AND", []stage.Actor{crystal(0x70), timedCrystal(0x71), andsw2(0, 0x70, 1, 0x71)},
+		{"floor switch and timed crystal", []stage.Actor{plate(0x11), timedCrystal(0x12), andsw0(0, 0x10, 2, 0x11)},
+			[]want{{m(0x10), Latching, OpSet, true}}, nil},
+		{"latching mixed with AND", []stage.Actor{crystal(0x70), timedTorch(0x71), andsw2(0, 0x70, 1, 0x71)},
 			[]want{{m(0x70), Latching, OpSet, false}}, nil},
+		// Timed crystals are momentary inputs too (FW r13 sw7, kinMB
+		// sw226): a one-shot AND of them latches, a continuous or timed
+		// one doesn't.
+		{"one-shot AND of timed crystals", []stage.Actor{timedCrystal(0x11), timedCrystal(0x12), andsw0(0, 0x10, 2, 0x11)},
+			[]want{{m(0x10), Latching, OpSet, true}, {m(0x11), Unsafe, OpSetClear, false}, {m(0x12), Unsafe, OpSetClear, false}}, nil},
+		{"one-shot andsw2 of a timed crystal", []stage.Actor{timedCrystal(0x11), andsw2(0, 0x10, 1, 0xFF)},
+			[]want{{m(0x10), Latching, OpSet, true}}, nil},
+		{"continuous AND of timed crystals", []stage.Actor{timedCrystal(0x71), timedCrystal(0x72), andsw0(1, 0x70, 2, 0)},
+			[]want{{m(0x70), Unsafe, OpSetClear, false}}, nil},
+		{"timed andsw0 of timed crystals", []stage.Actor{timedCrystal(0x71), timedCrystal(0x72), andsw0(2, 0x70, 2, 0)},
+			[]want{{m(0x70), Unsafe, OpSet, false}}, map[int]string{0x70: "fed by memory t4 0x71"}},
+		{"timed crystal a switch timer clears", []stage.Actor{timedCrystal(0x11), act("ObjTime", 0x11<<16|5), andsw0(0, 0x10, 1, 0x11)},
+			[]want{{m(0x10), Unsafe, OpSet, false}}, map[int]string{0x10: "fed by memory t4 0x11"}},
+		{"timed crystal and its AND's clear", []stage.Actor{timedCrystal(0x11), andsw0(2, 0x20, 1, 0x11), andsw0(0, 0x10, 1, 0x11)},
+			[]want{{m(0x10), Unsafe, OpSet, false}}, map[int]string{0x10: "fed by memory t4 0x11"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			tbl := Build([]*stage.Stage{mkStage("W", tb, nil, c.actors)}, testNames(t))
@@ -356,7 +391,7 @@ func checkFixedPoint(t testing.TB, tbl *Table) {
 				if is, _ := tbl.Lookup(in); !tbl.Synced(in) && !(w.Op == OpSet && is != nil && momentary(is)) {
 					t.Errorf("%v: latching AND %v has unsynced input %v", s.Key, w.Ref, in)
 				}
-				if tbl.GBADependent(in) {
+				if is, _ := tbl.Lookup(in); tbl.GBADependent(in) || is != nil && momentary(is) && slices.ContainsFunc(is.Writers, func(w Writer) bool { return w.Class == GBA }) {
 					gba = true
 				}
 			}
@@ -441,6 +476,46 @@ func TestTingleTuner(t *testing.T) {
 	tbl := Build([]*stage.Stage{mkStage("D", tb, nil, []stage.Actor{agb("agbA", 0, 0x60, 0xFF)})}, testNames(t))
 	if len(tbl.Switches) != 1 {
 		t.Errorf("switches %v, want only 0x60", keysOf(tbl))
+	}
+}
+
+// TestMomentaryGBA covers momentary inputs a Tingle Tuner writer shares:
+// the GBA writer leaves the input momentary, and the one-shot AND it feeds
+// syncs only while no GBA is linked (GBA), as FW r13's sw7 does over sw9
+// (an agbA2 in r14 shares it; the tests name every Tuner agbA).
+func TestMomentaryGBA(t *testing.T) {
+	const tb = addr.TableFW
+	m := func(no int) Key { return mem(tb, no) }
+	// stopped is a 90-frame crystal of switch no that stop holds on, as
+	// kindan r13's (params 0x0060FF08..0C, angle.z 7).
+	stopped := func(no, stop int) stage.Actor { return act("SW_HIT0", 0x06<<20|0xFF<<8|uint32(no), 0, 0, stop) }
+	for _, c := range []struct {
+		name        string
+		actors      []stage.Actor
+		key         Key
+		synced, gba bool
+	}{
+		{"floor switch a GBA shares", []stage.Actor{plate(0x11), agb("agbA", 0, 0x11, 0xFF), andsw0(0, 0x10, 1, 0x11)}, m(0x10), true, true},
+		{"timed crystal a GBA shares", []stage.Actor{timedCrystal(0x11), agb("agbA", 0, 0x11, 0xFF), andsw0(0, 0x10, 1, 0x11)}, m(0x10), true, true},
+		{"timed crystals, no GBA", []stage.Actor{timedCrystal(0x11), timedCrystal(0x12), andsw0(0, 0x10, 2, 0x11)}, m(0x10), true, false},
+		{"chain over a GBA-shared crystal", []stage.Actor{timedCrystal(0x11), agb("agbA", 0, 0x11, 0xFF), andsw0(0, 0x10, 1, 0x11), andsw0(0, 0x20, 1, 0x10)}, m(0x20), true, true},
+		{"only a GBA writer", []stage.Actor{agb("agbA", 0, 0x11, 0xFF), andsw0(0, 0x10, 1, 0x11)}, m(0x10), false, false},
+		{"FW r13 sw7", []stage.Actor{
+			stopped(0x08, 0x07), stopped(0x09, 0x07), stopped(0x0A, 0x07), stopped(0x0B, 0x07), stopped(0x0C, 0x07),
+			act("AND_SW0", 0x07FF0005, 0xFF, 0x8000, 0xFFFF), agb("agbA", 0, 0x07, 0xFF), agb("agbA", 0, 0x09, 0xFF),
+		}, m(0x07), true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tbl := Build([]*stage.Stage{mkStage("W", tb, nil, c.actors)}, testNames(t))
+			s, ok := tbl.Lookup(c.key)
+			if !ok {
+				t.Fatalf("%v missing; have %v", c.key, keysOf(tbl))
+			}
+			if s.Synced != c.synced || s.GBA != c.gba {
+				t.Errorf("%v: synced %v GBA %v, want %v %v (%s)", c.key, s.Synced, s.GBA, c.synced, c.gba, s.Reason)
+			}
+			checkFixedPoint(t, tbl)
+		})
 	}
 }
 
@@ -674,7 +749,7 @@ func TestUndecodedAndUnnamed(t *testing.T) {
 func sample(t testing.TB) *Table {
 	return Build([]*stage.Stage{
 		mkStage("M_NewD2", addr.TableDRC, []stage.Actor{act("door10", 0xFF<<20|4<<8|0x12, 1|2<<6)},
-			[]stage.Actor{crystal(0x05), timedCrystal(0x06), andsw2(0, 0x07, 2, 0x05), act("Hfbot1A", 0), agb("agbA", 0, 0x05, 0xFF)},
+			[]stage.Actor{crystal(0x05), timedTorch(0x06), andsw2(0, 0x07, 2, 0x05), act("Hfbot1A", 0), agb("agbA", 0, 0x05, 0xFF)},
 			[]stage.Actor{act("osiBLK0", 1<<24|0x20<<8, 0, 0, 0x21<<8|0x01), act("ALLdie", 0xC3<<8), act("Bk", 0xA)}),
 		mkStage("M_DaiB", addr.TableDRC, []stage.Actor{crystal(0xC9)}, []stage.Actor{act("Bdk", 0), act("Htobi1", 0x30)}),
 		mkStage("sea", addr.TableSea, nil, []stage.Actor{act("Evsw", 1<<24|0x30), act("Nope", 0)}),
