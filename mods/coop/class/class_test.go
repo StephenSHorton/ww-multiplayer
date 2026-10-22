@@ -26,8 +26,9 @@ func TestGoldenCoverage(t *testing.T) {
 	want := map[Class]int{
 		// mGetItem 21, beast and bait 2, mCollect 5, songs/shards/pearls 3,
 		// charts 0x30, mFmapBits 49, Triforce charts 1, 16 x (tbox 4,
-		// item 4, visited 8, dungeonItem 1), ocean 0x64, figurines 17.
-		OR: 518,
+		// item 4, visited 8, dungeonItem 1), ocean 0x64, figurines 17,
+		// warp pots 6.
+		OR: 524,
 		// 16 x 16 memory-switch bytes, 66 event-bit bytes.
 		ORMasked: 322,
 		// wallet, arrow max, bomb max, 12 letters, Beedle points, ghost ship.
@@ -38,7 +39,7 @@ func TestGoldenCoverage(t *testing.T) {
 		Never: 140,
 		Tag:   addr.ReserveSize,
 		// everything else.
-		PerPlayer: 795,
+		PerPlayer: 789,
 	}
 	total := 0
 	for c, n := range want {
@@ -170,6 +171,10 @@ func TestSpotClasses(t *testing.T) {
 		"figurine 0x9CFF":     {ev(0x9CFF), want{OR, 0xFF}},
 		"figurine 0xB1FF":     {ev(0xB1FF), want{OR, 0xFF}},
 		"0x85FF, not figure":  {ev(0x85FF), want{PerPlayer, 0}},
+		"warp pot 0x9F07":     {ev(0x9F07), want{OR, 0x07}},
+		"warp pot 0xA207":     {ev(0xA207), want{OR, 0x07}},
+		"warp pot 0xA407":     {ev(0xA407), want{OR, 0x07}},
+		"0xA507, not a pot":   {ev(0xA507), want{PerPlayer, 0}},
 		"Beedle points":       {ev(0x86FF), want{Max, 0xFF}},
 		"GHOST_SHIP":          {ev(0x8803), want{Max, 0x03}},
 		"LETTER_ARYLL":        {ev(0x8B03), want{Max, 0x03}},
@@ -219,14 +224,17 @@ func TestEventMasks(t *testing.T) {
 }
 
 // TestRegisterAllowlist: every allowlisted register is a register (byte
-// 0x79-0xFF) with a field mask, appears once, and the figurine set is the
-// 17 of l_figure_comp.
+// 0x79-0xFF) with a field mask, appears once, the figurine set is the
+// 17 of l_figure_comp and the warp pot set the 6 of m_event_reg.
 func TestRegisterAllowlist(t *testing.T) {
 	if len(figurineRegs) != 17 {
 		t.Errorf("%d figurine registers, want l_figure_comp's 17", len(figurineRegs))
 	}
+	if len(warpPotRegs) != 6 {
+		t.Errorf("%d warp pot registers, want m_event_reg's 6", len(warpPotRegs))
+	}
 	seen := map[int]uint16{}
-	for _, list := range [][]uint16{figurineRegs, maxRegs} {
+	for _, list := range [][]uint16{figurineRegs, warpPotRegs, maxRegs} {
 		for _, id := range list {
 			b := addr.EventByte(id)
 			if b.Off < addr.EventRegFirst || b.Mask == 0 {

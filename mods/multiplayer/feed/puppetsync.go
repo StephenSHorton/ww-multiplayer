@@ -99,6 +99,9 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 	// connect/run callbacks for ReconnectLoop share it, and a transient
 	// drop must not lose slot assignments.
 	feeder := NewFeeder(d, selfFilter, rep)
+	// The stage gate (partner.go): co-op's coop-sync of this session
+	// publishes where the partner is; without co-op nothing is.
+	feeder.partner = PartnerFor(name, dolphinPID)
 	// The session's roster (roster.go): what this feeder draws, for the
 	// enemy host pipeline's remote bodies. Emptied when the sync stops.
 	roster := RosterFor(name, dolphinPID)

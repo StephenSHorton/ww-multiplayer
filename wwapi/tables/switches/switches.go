@@ -7,8 +7,9 @@
 // Boy Advance is linked (the Tingle Tuner's, class GBA). A switch with a
 // GBA writer syncs only while no GBA is linked (Switch.GBA), which the
 // runtime checks every tick. An AND switch's setter latches only while
-// all its inputs are synced, transitively, and is GBA-dependent while an
-// input is.
+// all its inputs are synced, transitively, except that a one-shot AND
+// latches over momentary inputs too (momentary), and is GBA-dependent
+// while an input is.
 //
 // Build is a pure function of the stages and the l_objectName table;
 // its Table marshals to JSON for the cache §6.2 keys by DOL hash.
@@ -395,12 +396,32 @@ func synced(s *Switch) bool {
 	return latch
 }
 
+// momentary reports whether s is a momentary input: it has a writer, and
+// every writer is a floor or iron-boots switch that sets it while pressed
+// and clears it on release (swpush type 1, swheavy types 0 and 1; swpush
+// type 2 only clears, so it is decoded OpClear and is no momentary input).
+// A one-shot AND fed by such inputs only ever sets its output (andsw0
+// behaviours 0 and 3, d_a_andsw0.cpp:40-57, :129-135; andsw2 type 0,
+// d_a_andsw2.cpp:87-135), so the partner's set stands for the solved
+// puzzle as any latching setter's does, while the presses never sync
+// (DRC's r16 floor switches feeding sw41, the r14 barricade). An area
+// switch's per-frame writer (SW_C00 type 0) is not momentary, so an AND
+// it feeds still can't spring the partner's ambush (§6.2); nor is an input
+// a timer, an AND's own clear (andsw0 behaviour 2) or a GBA writer shares.
+// It reads only decoded classes, which propagate never changes.
+func momentary(s *Switch) bool {
+	return len(s.Writers) > 0 && !slices.ContainsFunc(s.Writers, func(w Writer) bool {
+		return w.Op != OpSetClear || (w.Proc != stage.ProcSwpush && w.Proc != stage.ProcSwheavy)
+	})
+}
+
 // propagate demotes every latching AND writer with an input that is not
 // synced, until nothing changes: the greatest set of synced switches
 // closed under "an AND is synced only if its inputs are". Inputs with no
-// known writer are not synced. Each switch is queued at most once, when
-// it first stops being synced, so a cycle of ANDs ends; one with no
-// unsynced input anywhere stays synced, as no unsafe writer can reach it.
+// known writer are not synced. A one-shot AND (OpSet) keeps latching over
+// a momentary input. Each switch is queued at most once, when it first
+// stops being synced, so a cycle of ANDs ends; one with no unsynced input
+// anywhere stays synced, as no unsafe writer can reach it.
 func (b *builder) propagate() {
 	type dep struct {
 		s *Switch
@@ -436,9 +457,10 @@ func (b *builder) propagate() {
 	for len(queue) > 0 {
 		k := queue[0]
 		queue = queue[1:]
+		mom := momentary(b.byKey[k])
 		for _, d := range deps[k] {
 			w := &d.s.Writers[d.w]
-			if w.Class != Latching {
+			if w.Class != Latching || mom && w.Op == OpSet {
 				continue
 			}
 			w.Class = Unsafe

@@ -37,7 +37,8 @@ type RemoteView struct {
 	Target [3]float32
 	RotY   int16
 	// Live is false while its pose stream is frozen or despawned
-	// (network.PoseLiveness): the mini-Link holds a stale pose.
+	// (network.PoseLiveness): the mini-Link holds a stale pose; and while
+	// the stage gate hides it (partner.go: it is in another stage).
 	Live bool
 }
 
@@ -108,7 +109,8 @@ func (f *Feeder) Views(remotes []network.RemotePlayer, now time.Time) []RemoteVi
 		if ls, ok := f.remoteToLinkSlot[rp.ID]; ok {
 			v.LinkSlot = ls
 			frozen, despawned := network.PoseLiveness(rp.LastPose, now, f.freezeAfter, f.despawnAfter)
-			v.Live = !frozen && !despawned && !f.linkSlots[ls].frozen && !f.linkSlots[ls].despawned
+			sl := &f.linkSlots[ls]
+			v.Live = !frozen && !despawned && !sl.frozen && !sl.despawned && !sl.hidden
 		}
 		out = append(out, v)
 	}

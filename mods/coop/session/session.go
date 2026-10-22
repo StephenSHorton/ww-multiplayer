@@ -66,7 +66,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/procstate"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
@@ -1175,6 +1177,7 @@ func RunSync(ctx context.Context, env Env, name, addr string, dolphinPID uint32,
 	if err != nil {
 		return err
 	}
+	s.publishPartner(dolphinPID)
 	gctx, stopGuard := context.WithCancel(ctx)
 	defer stopGuard()
 	go guardContract(gctx, d, s.r, rep, ContractEvery)
@@ -1236,6 +1239,25 @@ func (cs *Session) newSyncClaimed(ctx context.Context, name string, m mem.Mem, r
 	s.client.OnCoop = r.Handle
 	cs.console.add(ctx, s)
 	return s, nil
+}
+
+// publishPartner hands every PRESENCE the hub relays (the partner's) to
+// the pose feed of this player on Dolphin pid (feed.PartnerFor), whose
+// stage gate hides the partner's mini-Link while it is in another stage.
+// It wraps the co-op client's OnCoop, so it is called before run.
+func (s *coopSync) publishPartner(pid uint32) {
+	place := feed.PartnerFor(s.name, pid)
+	handle := s.client.OnCoop
+	s.client.OnCoop = func(payload []byte) {
+		handle(payload)
+		if len(payload) == 0 || wire.Sub(payload[0]) != wire.SubPresence {
+			return
+		}
+		if m, err := wire.Decode(payload, wire.Down); err == nil {
+			p := m.(*wire.Presence)
+			place.Publish(p.Stage.String(), p.Flags&wire.PresenceInGame != 0, p.Flags&wire.PresenceTransitioning != 0, time.Now())
+		}
+	}
 }
 
 // WithPoseClient returns an onClient for name's puppet-sync pipeline that

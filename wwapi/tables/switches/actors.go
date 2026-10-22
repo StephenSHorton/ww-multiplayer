@@ -275,7 +275,9 @@ var specs = []spec{
 	//
 	//	0 STAY_PRESSED|OBEY_SAVE: set on press (mode_u_l :540-559), stays down
 	//	1 UNK20: pops up when released and clears (mode_l_u :611-623)
-	//	2 ON_IS_UP|STAY_PRESSED|OBEY_SAVE: clears on press (:547-548)
+	//	2 ON_IS_UP|STAY_PRESSED|OBEY_SAVE: clears on press (:547-548) and
+	//	  never sets: STAY_PRESSED keeps mChangingState off on the way up
+	//	  (mode_lower :590-599), so mode_l_u's on_switch (:616-618) never runs
 	//	3 REQ_HEAVY|STAY_PRESSED|OBEY_SAVE: as 0, pressed by a heavy load
 	//
 	// Type 1 stays down while swSave2 is on (mode_lower :570-600).
@@ -293,7 +295,7 @@ var specs = []spec{
 		case 1:
 			return []use{setClear(sw, "momentary floor switch: cleared when released"), read(swSave2, "holds the floor switch down")}
 		case 2:
-			return []use{setClear(sw, "inverted floor switch: cleared when pressed")}
+			return []use{clear(sw, "inverted floor switch: cleared when pressed, never set")}
 		}
 		return []use{set(sw, Unknown, fmt.Sprintf("floor switch type %d is past M_attr's four entries", typ))}
 	}},

@@ -158,7 +158,7 @@ func TestClasses(t *testing.T) {
 		{"floor switch 1", []stage.Actor{act("Kbota_A", 1<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpSetClear, false}}, 1, false},
 		{"floor switch 1 v1", []stage.Actor{act("Kbota_A", 1<<30|1<<24|0x10<<8, 0, 0, 0x11)},
 			[]want{{m(0x10), Unsafe, OpSetClear, false}, {m(0x11), "", "", false}}, 2, false},
-		{"floor switch 2", []stage.Actor{act("Kbota_A", 2<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpSetClear, false}}, 1, false},
+		{"floor switch 2", []stage.Actor{act("Kbota_A", 2<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpClear, false}}, 1, false},
 		{"floor switch 3", []stage.Actor{act("Kbota_A", 3<<24|0x10<<8)}, []want{{m(0x10), Latching, OpSet, true}}, 1, false},
 		{"floor switch 5", []stage.Actor{act("Kbota_A", 5<<24|0x10<<8)}, []want{{m(0x10), Unknown, OpSet, false}}, 1, false},
 		{"iron boots 0", []stage.Actor{act("Hhbot1", 0<<24|0x10<<8)}, []want{{m(0x10), Unsafe, OpSetClear, false}}, 1, false},
@@ -241,6 +241,12 @@ func andsw0(beh, out, num, first int) stage.Actor {
 }
 
 func crystal(no int) stage.Actor { return act("SW_HIT0", 0xFF<<20|uint32(no)) }
+
+// plate is a momentary floor switch (swpush type 1), as DRC r16's Kbota_B.
+func plate(no int) stage.Actor { return act("Kbota_A", 1<<24|uint32(no)<<8) }
+
+// area is a per-frame area switch (SW_C00 type 0).
+func area(no int) stage.Actor { return act("SW_C00", 0<<16|0xFF<<8|uint32(no)) }
 func timedCrystal(no int) stage.Actor {
 	return act("SW_HIT0", 0x10<<20|uint32(no), 0, 0, 0xFF) // no stop switch
 }
@@ -279,6 +285,34 @@ func TestANDPropagation(t *testing.T) {
 		{"andsw2 no output", []stage.Actor{andsw2(0, 0xFF, 1, 0x10)}, nil, nil},
 		{"andsw2 other type", []stage.Actor{andsw2(2, 0x70, 1, 0x71)}, nil, nil},
 		{"too many inputs", []stage.Actor{andsw2(0, 0x70, MaxANDInputs+1, 0x00)}, []want{{m(0x70), Unknown, OpSet, false}}, nil},
+		// A one-shot AND latches over momentary inputs (DRC sw41: the AND
+		// of r16's two Kbota_B room switches), though they never sync.
+		{"one-shot AND of floor switches", []stage.Actor{plate(0x11), plate(0x12), andsw0(0, 0x10, 2, 0x11)},
+			[]want{{m(0x10), Latching, OpSet, true}, {m(0x11), Unsafe, OpSetClear, false}, {m(0x12), Unsafe, OpSetClear, false}}, nil},
+		{"one-shot AND of room floor switches", []stage.Actor{plate(0xE0), plate(0xE1), andsw0(0, 0x29, 2, 0xE0)},
+			[]want{{m(0x29), Latching, OpSet, true}}, nil},
+		{"delayed andsw0 of a floor switch", []stage.Actor{plate(0x71), andsw0(3, 0x70, 1, 0)}, []want{{m(0x70), Latching, OpSet, true}}, nil},
+		{"one-shot andsw2 of iron boots", []stage.Actor{act("Hhbot1", 0<<24|0x11<<8), andsw2(0, 0x10, 1, 0xFF)},
+			[]want{{m(0x10), Latching, OpSet, true}}, nil},
+		{"chain over a floor switch", []stage.Actor{plate(0x11), andsw2(0, 0x10, 1, 0xFF), andsw0(0, 0x20, 1, 0x10)},
+			[]want{{m(0x10), Latching, OpSet, true}, {m(0x20), Latching, OpSet, true}}, nil},
+		{"continuous AND of a floor switch", []stage.Actor{plate(0x71), andsw0(1, 0x70, 1, 0)},
+			[]want{{m(0x70), Unsafe, OpSetClear, false}}, nil},
+		// An inverted floor switch (swpush type 2) only clears, so it is no
+		// momentary input and its unmodelled setter keeps the AND unsafe.
+		{"one-shot AND of an inverted floor switch", []stage.Actor{act("Kbota_A", 2<<24|0x11<<8), andsw0(0, 0x10, 1, 0x11)},
+			[]want{{m(0x10), Unsafe, OpSet, false}}, map[int]string{0x10: "fed by memory t4 0x11"}},
+		// The timed AND clears its inputs, so they aren't momentary.
+		{"timed andsw0 of a floor switch", []stage.Actor{plate(0x71), andsw0(2, 0x70, 1, 0)},
+			[]want{{m(0x70), Unsafe, OpSet, false}}, map[int]string{0x70: "fed by memory t4 0x71"}},
+		// An area switch is no momentary input: a partner walking in
+		// mustn't spring this game's ambush.
+		{"one-shot AND of an area switch", []stage.Actor{area(0x11), andsw0(0, 0x10, 1, 0x11)},
+			[]want{{m(0x10), Unsafe, OpSet, false}}, map[int]string{0x10: "fed by memory t4 0x11"}},
+		{"floor switch a GBA shares", []stage.Actor{plate(0x11), agb("agbA", 0, 0x11, 0xFF), andsw0(0, 0x10, 1, 0x11)},
+			[]want{{m(0x10), Unsafe, OpSet, false}}, map[int]string{0x10: "fed by memory t4 0x11"}},
+		{"floor switch and timed crystal", []stage.Actor{plate(0x11), timedCrystal(0x12), andsw0(0, 0x10, 2, 0x11)},
+			[]want{{m(0x10), Unsafe, OpSet, false}}, map[int]string{0x10: "fed by memory t4 0x12"}},
 		{"latching mixed with AND", []stage.Actor{crystal(0x70), timedCrystal(0x71), andsw2(0, 0x70, 1, 0x71)},
 			[]want{{m(0x70), Latching, OpSet, false}}, nil},
 	} {
@@ -319,7 +353,7 @@ func checkFixedPoint(t testing.TB, tbl *Table) {
 				continue
 			}
 			for _, in := range w.Inputs {
-				if !tbl.Synced(in) {
+				if is, _ := tbl.Lookup(in); !tbl.Synced(in) && !(w.Op == OpSet && is != nil && momentary(is)) {
 					t.Errorf("%v: latching AND %v has unsynced input %v", s.Key, w.Ref, in)
 				}
 				if tbl.GBADependent(in) {

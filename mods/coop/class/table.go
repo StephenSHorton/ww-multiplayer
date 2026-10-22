@@ -184,9 +184,11 @@ func validateRules(rules []keyed) error {
 // regRule is the class of event register byte i: OR or MAX for the
 // allowlisted registers, per player for the rest.
 func regRule(i int) (Class, byte) {
-	for _, id := range figurineRegs {
-		if b := addr.EventByte(id); b.Off == i {
-			return OR, b.Mask
+	for _, list := range [][]uint16{figurineRegs, warpPotRegs} {
+		for _, id := range list {
+			if b := addr.EventByte(id); b.Off == i {
+				return OR, b.Mask
+			}
 		}
 	}
 	for _, id := range maxRegs {

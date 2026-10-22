@@ -19,6 +19,9 @@ type slotState struct {
 	active           bool
 	haveCur          bool
 	curX, curY, curZ float32
+	// away is the stage gate's decision this slot last moved under
+	// (Feed snaps the lerp when it changes).
+	away bool
 }
 
 // linkSlotState is a pose-feed link slot's displayed pose and liveness.
@@ -31,6 +34,9 @@ type linkSlotState struct {
 	frozen    bool
 	despawned bool
 	despawnAt time.Time
+	// hidden: the stage gate cleared the slot (its remote is in another
+	// stage); it stays reserved and is re-armed when the remote is back.
+	hidden bool
 }
 
 // actorSlot returns rp's actor-puppet slot, assigning a free one on first
@@ -45,8 +51,10 @@ type linkSlotState struct {
 // A remote with a pose but no link slot to get (one beyond avatar.Cap)
 // keeps waiting and gets its actor, as does one that never sends a
 // usable pose. A remote is usually first seen with its position alone
-// (the pose is a separate message), hence the wait.
-func (f *Feeder) actorSlot(rp *network.RemotePlayer, hasPose bool, now time.Time) (int, bool) {
+// (the pose is a separate message), hence the wait. A remote the stage
+// gate holds away (in another stage) counts as this game out of play.
+func (f *Feeder) actorSlot(rp *network.RemotePlayer, hasPose, away bool, now time.Time) (int, bool) {
+	inPlay := func() bool { return !away && f.inPlay() }
 	idx, ok := f.remoteToSlot[rp.ID]
 	if !ok {
 		// Find a free slot. Walk 0..N; first index not already
@@ -69,11 +77,11 @@ func (f *Feeder) actorSlot(rp *network.RemotePlayer, hasPose bool, now time.Time
 	}
 	since, waiting := f.actorWait[rp.ID]
 	if !waiting {
-		if f.slots[idx].active && !f.inPlay() {
+		if f.slots[idx].active && !inPlay() {
 			// This game left play (reset, quit to the title, file
-			// select, a stage change): release the actor, which the C
-			// side then deletes, and bring it back through the
-			// in-play grace.
+			// select, a stage change), or the remote left this stage:
+			// release the actor, which the C side then deletes, and
+			// bring it back through the in-play grace.
 			f.setActorActive(idx, false)
 			f.actorWait[rp.ID] = now
 		}
@@ -88,7 +96,7 @@ func (f *Feeder) actorSlot(rp *network.RemotePlayer, hasPose bool, now time.Time
 	switch {
 	case hasPose && (holdsLink || len(f.remoteToLinkSlot) < avatar.Cap):
 		delete(f.actorWait, rp.ID) // drawn as a Link: no actor
-	case !f.inPlay():
+	case !inPlay():
 		// The grace counts in-play time only: a remote seen on the
 		// title or file select waits actorGrace from when this game
 		// enters a play stage, so its pose can still arrive first.
@@ -117,23 +125,31 @@ func (f *Feeder) setActorActive(idx int, on bool) {
 // where the C side has no Link to spawn an actor puppet next to (and
 // deletes every actor puppet). A read error counts as not in play.
 func (f *Feeder) inPlay() bool {
+	_, ok := f.stageHere()
+	return ok
+}
+
+// stageHere is this game's stage (mCurStage.mName) and whether it is in
+// play (inPlay).
+func (f *Feeder) stageHere() (string, bool) {
 	link, err := f.m.ReadU32(addr.PlayerPtr)
 	if err != nil || !addr.InMEM1(link) {
-		return false
+		return "", false
 	}
 	n := int(addr.NextStageEnable-addr.CurStageName) + 1
 	b, err := f.m.Read(addr.CurStageName, n)
 	if err != nil || len(b) != n {
-		return false
+		return "", false
 	}
 	if b[len(b)-1] != 0 {
-		return false // a stage change is under way
+		return "", false // a stage change is under way
 	}
 	name := b[:addr.StageNameLen]
 	if n := bytes.IndexByte(name, 0); n >= 0 {
 		name = name[:n]
 	}
-	return len(name) != 0 && string(name) != addr.StageTitle && string(name) != addr.StageFileSelect
+	s := string(name)
+	return s, s != "" && s != addr.StageTitle && s != addr.StageFileSelect
 }
 
 // moveActor lerps actor slot idx toward pos (lerpK per tick; the first

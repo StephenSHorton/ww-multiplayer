@@ -628,6 +628,7 @@ func appCoopSync(ctx context.Context, env Env, name, addr string, pid uint32, re
 	}
 	defer d.Close()
 	return appSyncOnClaimed(ctx, cs, name, d, rep, claimed, func(ctx context.Context, s *coopSync) error {
+		s.publishPartner(pid)
 		return s.run(ctx, addr)
 	})
 }
