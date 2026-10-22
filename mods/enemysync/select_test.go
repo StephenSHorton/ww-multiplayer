@@ -387,12 +387,12 @@ func TestColliderOffPins(t *testing.T) {
 	}
 }
 
-// TestBatch5Knobs: WW_ENEMY_QUIET_DEATH (default mo2,bk,cc,ki,am,am2,tn,bb,mt; "+u" refused),
+// TestBatch5Knobs: WW_ENEMY_QUIET_DEATH (default mo2,bk,cc,ki,am,am2,tn,bb; "+u" refused),
 // WW_ENEMY_SELECT (distance, legacy), WW_ENEMY_STATE_30HZ, and the kind
 // set helpers the client narrows the host's mask with.
 func TestBatch5Knobs(t *testing.T) {
 	q, err := ParseQuietKinds("")
-	if err != nil || q.String() != "mo2,bk,cc,ki,am,am2,tn,bb,mt" {
+	if err != nil || q.String() != "mo2,bk,cc,ki,am,am2,tn,bb" {
 		t.Errorf("quiet default: %v %v", q, err)
 	}
 	if q, err = ParseQuietKinds("bk,cc"); err != nil || q.Has(KindMO2) {

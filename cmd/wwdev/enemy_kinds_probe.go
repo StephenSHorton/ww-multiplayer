@@ -62,24 +62,17 @@ package main
 // verdict=live-gate (the host's walk, which also keeps a listed Darknut
 // through the gate's non-BOSS terms, liveSticky, has no "was" here).
 //
-// enemy-watch --kind bb and --kind mt are batch C's P0-BB and P0-MT
-// probes (ww-multiplayer-handoff/design/enemy-mirror-batch-c.json
-// test_plan; rows 7 and 8 of Kinds, off by default, which --kind and
-// --kinds enable for the probe alone). A Kargaroc's walk line prints its
-// execute, tail_control below it (exec - addr.BbExecToTail) and the
+// enemy-watch --kind bb is batch C's P0-BB probe
+// (ww-multiplayer-handoff/design/enemy-mirror-batch-c.json test_plan; row
+// 7 of Kinds, off by default, which --kind and --kinds enable for the
+// probe alone; the P0-MT probe went with the Magtail row, cut by R-20).
+// A Kargaroc's walk line prints its execute, tail_control below it (exec - addr.BbExecToTail) and the
 // tail fingerprint words with fp=ok or fp=miss (the REL's em_bb_fp_ok);
 // its tick prints the type, state, unk_2DF, unk_2F2, unk_C7E, the
 // knockback, the attack timer, unk_366/unk_368, the would-be live gate
 // (BbLiveRefusal), the tail root unk_BD4[1] beside unk_AA8[0] and every
-// sphere. A Magtail's tick prints mode/action, the ring index (+0xBF4)
-// beside the dive timer, the ball timer, the colour phase and frames, the
-// death, eye HP, killed and respawn bytes, the would-be live gate
-// (MtLiveRefusal), the eye sphere's centre beside eyePos, and per
-// segment i its model's base translation (morf[i] -> model + 0x24),
-// body sphere i's centre and anchor +0x350[i]: P0-MT passes when the
-// translations trail the head and the sphere centres equal them.
-// enemy-match --dry lists bb (bb_type, bb_m2df, bb_knock, bb_live) and mt
-// (mt_mode, mt_appear, mt_death, mt_killed, mt_ice, mt_live) after " pid=".
+// sphere. enemy-match --dry lists bb (bb_type, bb_m2df, bb_knock,
+// bb_live) after " pid=".
 
 import (
 	"context"
@@ -100,7 +93,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
-const enemyMatchUsage = "enemy-match --dry [--kinds mo2,bk,cc,ki,am,am2,tn,bb,mt (default every kind, +u on each)]"
+const enemyMatchUsage = "enemy-match --dry [--kinds mo2,bk,cc,ki,am,am2,tn,bb (default every kind, +u on each)]"
 
 // kindOnly is the set with id alone enabled, keyed and unkeyed.
 func kindOnly(id enemysync.KindID) enemysync.KindSet {
@@ -169,13 +162,6 @@ func liveGateText(e *enemysync.Enemy) string {
 			return fmt.Sprintf("bb_type=%s bb_m2df=- bb_knock=- bb_live=-", mode)
 		}
 		return fmt.Sprintf("bb_type=%s bb_m2df=%d bb_knock=%.2f bb_live=%s", mode, e.Live.BbRider, e.Live.BbKnock, okText(enemysync.BbLiveRefusal(e.Live)))
-	case enemysync.KindMT:
-		if !e.LiveSpanOK {
-			return fmt.Sprintf("mt_mode=%s mt_appear=- mt_death=- mt_killed=- mt_ice=- mt_live=-", mode)
-		}
-		g := &e.Live
-		return fmt.Sprintf("mt_mode=%s mt_appear=%d mt_death=%d mt_killed=%d mt_ice=%d mt_live=%s", mode, g.MtAppear, g.MtDeath, g.MtKilled, g.MtIce,
-			okText(enemysync.MtLiveRefusal(*g)))
 	}
 	return ""
 }
@@ -344,10 +330,10 @@ func enemyMatch(w io.Writer, m mem.Reader, set enemysync.KindSet) error {
 	return nil
 }
 
-// enemyKindWatch is enemy-watch --kind bk|cc|ki|am|am2|tn|bb|mt over m
-// for d (0: until ctx ends). An allow kind (ki, am, am2) also prints
-// allowExtra's tail each tick, the Darknut (tn) tnExtra's, the Kargaroc
-// (bb) bbExtra's and the Magtail (mt) mtExtra's.
+// enemyKindWatch is enemy-watch --kind bk|cc|ki|am|am2|tn|bb over m for
+// d (0: until ctx ends). An allow kind (ki, am, am2) also prints
+// allowExtra's tail each tick, the Darknut (tn) tnExtra's and the
+// Kargaroc (bb) bbExtra's.
 func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Duration, id enemysync.KindID) error {
 	tr := enemysync.NewKindTracker()
 	k := id.Row()
@@ -485,10 +471,6 @@ func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Durat
 					if extra, err = bbExtra(m, e, &s); err != nil {
 						return err
 					}
-				} else if id == enemysync.KindMT {
-					if extra, err = mtExtra(m, e, &s); err != nil {
-						return err
-					}
 				} else if id == enemysync.KindBK {
 					b, err := readBoko(m, byPID, s.BokoPID)
 					if err != nil {
@@ -551,8 +533,6 @@ func kindFlag2Names(id enemysync.KindID, f uint8) string {
 		names = []nb{{enemysync.TnF2HasWeapon, "WEAPON"}, {enemysync.TnF2PlaySkip, "PLAY_SKIP"}, {enemysync.TnF2Attn, "ATTN"}}
 	case enemysync.KindBB:
 		names = []nb{{enemysync.BbF2Attn, "ATTN"}}
-	case enemysync.KindMT:
-		names = []nb{{1, "PHASE1"}, {2, "PHASE2"}, {enemysync.MtF2Shield, "SHIELD"}, {enemysync.MtF2Dive, "DIVE"}, {enemysync.MtF2Attn, "ATTN"}}
 	}
 	names = append(names, nb{enemysync.KindF2Light, "LIGHT"})
 	return bitNames(f, names)
@@ -666,7 +646,7 @@ func tnExtra(e *enemysync.Enemy, s *enemysync.KindSample, sword bokoInfo) string
 	return b.String()
 }
 
-// runEnemyKindWatch runs enemy-watch --kind bk|cc|ki|am|am2|tn|bb|mt.
+// runEnemyKindWatch runs enemy-watch --kind bk|cc|ki|am|am2|tn|bb.
 func runEnemyKindWatch(cmd string, secs int, id enemysync.KindID) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

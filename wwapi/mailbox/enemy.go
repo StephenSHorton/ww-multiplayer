@@ -53,7 +53,7 @@ const (
 	EnemyKnobGenOff   = 0x22  // u16 layout 4: the knob table's gen this block names, 0 = no table
 	EnemyKindMaskOff  = 0x24  // u32 bit k = kind k enabled (enemysync KindID); both roles write it; ids < 16
 	EnemyHkdHiOff     = 0x28  // u8[EnemyHkdHiKinds] layout 4: hook_disable (EnemyHKD*) for kind ids 7..14, inside the seq span
-	EnemyHkdHiKinds   = 8     // ids 7..14 (BB +0x28, MT +0x29); the former reserved u32[2]
+	EnemyHkdHiKinds   = 8     // ids 7..14 (BB +0x28; +0x29 the reserved MT id 8, unread); the former reserved u32[2]
 	EnemySlotsOff     = 0x30  // slot[4] x EnemySlotSize
 	EnemySlotSize     = 0x34  // slots end at +0x100
 	EnemyHitApplyOff  = 0x100 // host role: a HIT to apply (EnemyHA*)

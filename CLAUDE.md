@@ -165,7 +165,7 @@ WW_POSE_RAW=1                               # Skip pose localization (debug)
 WW_LINK2_OFFSET_{X,Y,Z}                     # Loopback render offset (default 0)
 WW_COLOR=<color>                            # Default tunic color when --color isn't given (docs/09)
 WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/join) leaves the tunic slots to the tunic-slot dev command
-WW_ENEMY_SYNC=0                             # Enemy sync off (mods/enemysync, the enemy mirror: Moblins, Bokoblins, ChuChus; Keese, Armos Knights, Armos, Darknuts, Kargarocs, Magtails opt-in).
+WW_ENEMY_SYNC=0                             # Enemy sync off (mods/enemysync, the enemy mirror: Moblins, Bokoblins, ChuChus; Keese, Armos Knights, Armos, Darknuts, Kargarocs opt-in).
                                             #   Default on: host/join and the app run enemy-host / enemy-client, mp-local spawns enemy-A (host, Dolphin A) and
                                             #   enemy-B (client, Dolphin B); needs the REL module linked. A fatal enemy error (a reject, a panic) turns enemies off
                                             #   until the pipelines next start; pose sync keeps running (engine Degradable)
@@ -175,15 +175,15 @@ WW_ENEMY_HIT_V1=1                           # enemy-host applies a client's hit 
 WW_ENEMY_HIT_FALLBACK=shrink                # enemy-host: a v2 hit that crossed nothing after two Sets falls back to the shrink kill
 WW_ENEMY_HIT_DEMO=0                         # enemy-host: no cutscene gate on client hits (default: a hit during the host Link's demo is dropped)
 WW_ENEMY_MIRROR_KINDS=<kinds>               # Enemy kinds mirrored (mods/enemysync/kinds.go): mo2, bk, cc, ki (Keese), am (Armos Knight), am2 (Armos), tn (Darknut),
-                                            #   bb (Kargaroc), mt (Magtail) joined by "," (default mo2,bk+u,cc+u: ki, am, am2, tn, bb, mt are off until named); a "+u"
-                                            #   suffix (bk+u, ki+u, tn+u, bb+u, mt+u) also takes that kind's unkeyed (setID 0xFFFF) placements (ki+u: fly-type Keese only,
+                                            #   bb (Kargaroc) joined by "," (default mo2,bk+u,cc+u: ki, am, am2, tn, bb are off until named); a "+u"
+                                            #   suffix (bk+u, ki+u, tn+u, bb+u) also takes that kind's unkeyed (setID 0xFFFF) placements (ki+u: fly-type Keese only,
                                             #   never on GanonK; tn+u: the cave Darknuts; BOSS, behaviour 12..15 and caped Darknuts are always refused; bb: the keyed
-                                            #   DRC perches, bb+u also the sea birds, a rider carrying a Moblin/Bokoblin (type 5/6) is always refused; mt+u: every
-                                            #   DRC Magtail is unkeyed, so mt alone takes none); "none". Host and client each set theirs: a kind is mirrored only
-                                            #   when both enable it (the STATE's host kind mask AND the client's; u16 since batch C)
+                                            #   DRC perches, bb+u also the sea birds, a rider carrying a Moblin/Bokoblin (type 5/6) is always refused); "none".
+                                            #   mt and mt+u are refused: batch C cut the Magtail row after the P0-MT live probe (id 8 stays reserved). Host and
+                                            #   client each set theirs: a kind is mirrored only when both enable it (the STATE's host kind mask AND the client's; u16 since batch C)
 WW_ENEMY_QUIET_DEATH=<kinds>                # enemy-client: kinds whose copies die quietly (stay paused, shrink in the REL, deleted; the client sets the zone bit and
-                                            #   death switch), default mo2,bk,cc,ki,am,am2,tn,bb,mt; bk,cc brings back the Moblin's legacy em_die (which drops an item
-                                            #   on the client too); ki, am, am2, tn, bb and mt always die quietly (the REL forces it for kind ids >= 3)
+                                            #   death switch), default mo2,bk,cc,ki,am,am2,tn,bb; bk,cc brings back the Moblin's legacy em_die (which drops an item
+                                            #   on the client too); ki, am, am2, tn and bb always die quietly (the REL forces it for kind ids >= 3)
 WW_ENEMY_SELECT=legacy                      # host and client: the prototype's lowest-setID slot order (default distance: the host lists by player distance, each
                                             #   client keeps its 4 block slots with KEEP_R/ENTER_R/MIN_HOLD hysteresis)
 WW_ENEMY_STATE_30HZ=1                       # enemy-host: send a STATE only when the host REL's frame counter moved (and at least every 250 ms)
@@ -192,12 +192,11 @@ WW_ENEMY_ANNEX=<kind>:<field>=<v>,...       # Enemy block overrides (mods/enemys
                                             #   (u8 quiet-death frames: 20, 90 light) and hooks (hook_disable: a number or model_eq attach eye legacy_death attn
                                             #   mtx_plain special extra joined by +). mo2, bk, cc: the annex. ki, am, am2, tn: hooks in their annex bytes
                                             #   +0x1FC..+0x1FF; quiet, invuln and tg_hit_up in layout 4's knob table (0x80413750; batch C, e.g. ki:quiet=60).
-                                            #   bb, mt: hooks in the block's bytes +0x28/+0x29 (0x80413128/9), quiet/invuln/tg_hit_up in the knob table.
+                                            #   bb: hooks in the block's byte +0x28 (0x80413128; +0x29 is the reserved MT id's, unread), quiet/invuln/tg_hit_up in the knob table.
                                             #   special = AM's bomb swallow and AM2's direct apply (am2:hooks=special on either side restores the old sphere
                                             #   path), extra = btk/brk play and collider radii. Per-kind names (docs/TESTING.md B1, batch C): tn shield (=model_eq)
                                             #   attach sword (=eye) coll (=legacy_death) attn adopt_anm (=mtx_plain); bk ambush (=special: the hidden ambusher's
-                                            #   stick park and potted handback); bb tail (=attach) beak (=eye) mtx (=mtx_plain) handback (=special); mt coll
-                                            #   (=model_eq) chain (=attach) fire (=eye) respawn (=legacy_death) mtx custody (=special). tn:tg_hit_up=1..255 stays
+                                            #   stick park and potted handback); bb tail (=attach) beak (=eye) mtx (=mtx_plain) handback (=special). tn:tg_hit_up=1..255 stays
                                             #   the host's u8 at +0x1FB (compiled 68). e.g. bk:tg_hit_up=60,cc:invuln=10,am:hooks=special,tn:hooks=sword+coll,
                                             #   bb:hooks=tail,ki:quiet=60; "none" = no overrides
 WW_ENEMY_REMOTE=<flags>                     # Remote-Link block (mods/enemysync/players.go, design remote-link-design.md): unset = step6 with DefaultPolicy (ALLOW only

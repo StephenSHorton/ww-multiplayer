@@ -367,11 +367,9 @@ type KindSample struct {
 	// St is an allow kind's (KI, AM, AM2; allow design type_table samplers).
 	St AllowFields
 	// Tn is the Darknut's (ReadSampleTN, tn.go; St carries its angles and
-	// colliders), Bb the Kargaroc's (ReadSampleBB, bb.go) and Mt the
-	// Magtail's (ReadSampleMT, mt.go), batch C's.
+	// colliders) and Bb the Kargaroc's (ReadSampleBB, bb.go), batch C's.
 	Tn TnFields
 	Bb BbFields
-	Mt MtFields
 }
 
 // AllowFields is what ReadSampleKI, ReadSampleAM and ReadSampleAM2 read
@@ -759,8 +757,6 @@ func ReadKindSample(m mem.Reader, e *Enemy) (KindSample, error) {
 		return ReadSampleTN(m, e)
 	case KindBB:
 		return ReadSampleBB(m, e)
-	case KindMT:
-		return ReadSampleMT(m, e)
 	}
 	return KindSample{}, fmt.Errorf("enemysync: no sampler for kind %s (proc 0x%04X)", e.Kind, e.Ident.Proc)
 }

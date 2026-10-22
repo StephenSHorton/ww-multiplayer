@@ -2,13 +2,14 @@ package addr
 
 // The Magtail, mt_class (proc fpcNm_MT_e 0x00D9, ProcMT in remote.go,
 // f_pc_name.h:229; size 0x1CC0, g_profile_MT), as the enemy mirror's batch
-// C names it (ww-multiplayer-handoff/design/enemy-mirror-batch-c.json "mt";
-// the C copy is inject/include/wwenemy_kinds.h EMK_MT_*, pinned by
-// mods/enemysync TestKindTablePins). The decomp has no field layout for
+// C designed it (ww-multiplayer-handoff/design/enemy-mirror-batch-c.json
+// "mt"). The row was cut after the P0-MT live probe (body sphere centres
+// were not the segment translations); kind id 8 stays reserved and these
+// offsets are kept for a later attempt. The decomp has no field layout for
 // it: every offset is from an offline disassembly of the retail
 // d_a_mt.rel (SHA-1 9d7de8625389ef01cb34539efc782f2a0d0aeda1,
-// design/research/C1-magtail.md, "mt.rel 0xNNNN" a .text offset) and is
-// unverified live until the P0-MT probe; MT is the batch's first cut.
+// design/research/C1-magtail.md, "mt.rel 0xNNNN" a .text offset); only
+// eyePos/eye sphere matched live (archive/enemy-batch-c/P0.md).
 const (
 	// MtClassSize is the profile's size (g_profile_MT +0x10).
 	MtClassSize = 0x1CC0
@@ -39,8 +40,7 @@ const (
 	MtOffIceShrink = MtOffIce + EnemyIceOffTimer
 )
 
-// What the batch C sampler (mods/enemysync ReadSampleMT) and the
-// enemy-watch probe read beyond the row's fields ("mt".stream; the
+// What the cut batch C sampler and probe read beyond the row's fields ("mt".stream; the
 // widths are the retail code's loads and stores).
 const (
 	// MtOffType is u8 params & 0xFF (0xFF reads 0): type 0 copies carry
@@ -85,5 +85,6 @@ const (
 
 // J3DModelOffBaseTRMtx is J3DModel's Mtx mBaseTransformMtx (J3DModel.h:149):
 // the 8 Magtail segments' base matrices, whose translations (+0x0C,
-// +0x1C, +0x2C) the P0-MT probe compares with the body spheres' centres.
+// +0x1C, +0x2C) the P0-MT probe compared with the body spheres' centres
+// (they did not match).
 const J3DModelOffBaseTRMtx = 0x24

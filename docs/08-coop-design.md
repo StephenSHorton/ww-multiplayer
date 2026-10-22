@@ -694,7 +694,6 @@ The receiver also keeps its copy of a store only while Link is in the game, in t
 | Miniblin `pt` | 0xF9 | +0x7EA | — | synced; verified live in K1 (item 141) |
 | Poe `pw` | 0xD5 | +0x88A | — | synced; verified live in K1 (item 141) |
 | Boko Baba `bo` | 0xD7 | +0xA02 | — | synced; verified live in K1 (item 141) |
-| Magtail `mt` | 0xD9 | +0x1906 | — | unverified (enemyice +0x1900 from the retail `d_a_mt.rel`, `wwapi/addr/mt.go`): the enemy mirror's batch C rig row, so `enemy-kill --unverified` reaches it; held by the applier |
 
 The proc numbers match the GZLE01 `fpcNm` enum (`f_pc_name.h`), as M1 checked. *Corrected (item 142):* the Bokoblin prelude +0xB34 and the Moblin prelude +0xDD5 this section named do nothing once the timer is set, since their `yari_off_check` runs after `enemy_ice`'s early return (`d_a_bk.cpp:4159-4169` against `:4420`; `d_a_mo2.cpp:3380-3388` against `:3570`). The Stalfos's +0x1DCC is its weapon's process ID, not a flag.
 

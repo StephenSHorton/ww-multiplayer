@@ -504,8 +504,7 @@ func vanishTomb(id KindID) bool { return id == KindBB }
 // wireSlot lays a kind sample out as e's wire slot: the kind, the host
 // actor's pkey, its handle and aux values (BK m48C.z and the jaw, CC
 // shape_angle.x and m310; KI shape.x, shape.z, m326, m328; AM mEyeRot;
-// TN dr.m48C.z; MT mode|action, the ball timer, the colour frames and
-// shape.z; MO2, AM2 and BB none), a ChuChu's m316.z and a Kargaroc's
+// TN dr.m48C.z; MO2, AM2 and BB none), a ChuChu's m316.z and a Kargaroc's
 // current.angle.z in the attack bytes, flags2 bit 6
 // (KindF2Light) when it dies with its ice shrink timer running,
 // WFlagEngaged, and WFlagDormant (dormant).
@@ -544,8 +543,8 @@ func (h *Host) wireSlot(e *Enemy, ks *KindSample, now time.Time) Slot {
 //     inactive return clear it, d_a_am2.cpp:1336, 1017-1022).
 //   - TN: never (TN design go_changes host.go: ReadSampleTN sets no
 //     dormant rule; a D_DOZOU statue is refused at adopt instead).
-//   - BB, MT: never (batch C: a perched Kargaroc and a Magtail on its
-//     patrol are the player's to approach).
+//   - BB: never (batch C: a perched Kargaroc is the player's to
+//     approach).
 //
 // An allow kind is never dormant while carried (an Armos statue stunned
 // in MAHI mode 12 gains ACTION_CARRY, not LOCKON, d_a_am2.cpp:669, and can
@@ -562,8 +561,6 @@ func dormant(id KindID, ks *KindSample, flags uint8) bool {
 	case KindKI, KindAM, KindAM2:
 		return flags&SlotDying == 0 && ks.St.Dormant
 	case KindTN, KindBB:
-		return false
-	case KindMT:
 		return false
 	}
 	return false
@@ -1020,8 +1017,6 @@ func (a *HitApplier) writeBlock(now time.Time) error {
 //   - TN: never the remote-Link ATTRIB bits (TN design D12): an unswapped
 //     consuming execute would leave the body as proc 0xA9, and an armored
 //     hit would become a pure clank (d_a_tn.cpp:2916-2920, 3006-3011).
-//   - MT collider code 4 (HitMtKill, batch C MT-4): never ATTRIB either.
-//     It is a client custody death, not a swing; no body hit it.
 //   - AM2 collider 1 with the client REL's verdict (Hit.ClientFlags
 //     HitCFVerdict, R-14): mailbox.EnemyHAFVerdict, EnemyHAFBack when
 //     HitCFBack, and EnemyHAFCrit when am2Crit. The host REL takes the
@@ -1042,7 +1037,7 @@ func (a *HitApplier) hitApply(p *pendingHit) mailbox.EnemyHitApply {
 	if a.NoHitMark || h.AtSPrm&addr.CcAtSPrmNoHitMark != 0 {
 		flags |= mailbox.EnemyHAFNoHitMark
 	}
-	if a.Attrib != nil && p.kind != KindTN && !mtKillHit(p.kind, h.Collider) {
+	if a.Attrib != nil && p.kind != KindTN {
 		flags |= a.Attrib(h)
 	}
 	if p.kind == KindAM2 && h.Collider == HitHead && h.ClientFlags&HitCFVerdict != 0 {

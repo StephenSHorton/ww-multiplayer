@@ -141,7 +141,7 @@ Offline, before any live run (`go test -count=1 ./mods/enemysync ./wwapi/mailbox
 - `TestClassifyWalkAllow` and `TestClassifyWalkAllowLive`: an unkeyed Keese only with params low byte 1, never on GanonK; the live gates of R-8 (Keese mAction 2/30 or m2DC; Armos Knight ITAI from mMode 44; Armos carried, MODORU, in the abyss, or ITAI from mMode 22). `TestClassifyWalkAllowSticky` and `TestHostAllowSticky`: those gates refuse only a new enemy; one the host's previous walk listed stays listed through the swallow, the dance, the carry and FAIL (a carried Moblin is still refused).
 - The samplers (`TestReadSampleKI*`, `TestReadSampleAM*`, `TestReadSampleAM2*`, five Reads, the Keese six) and `TestPKeyNoPosVector`: a keyed Keese's pkey hashes no home.pos, the same bytes as the REL's `EMK_PKEY_TV2_*` vector, for any home.
 - `TestWireSlotDormantAllow` (WFlagDormant, never carried or dying), `TestForwardHit` and `TestMirrorReadHit` (the AM eye drops the Grappling Hook, the AM2 weak spot the Hookshot, the AM2 body forwards only the Skull Hammer), `TestParseAnnex` (`ki:hooks=extra` accepted; `ki:quiet=5` was refused until batch C's layout 4 took it into the knob table, `TestParseAnnexL4`) and the annex writers (`TestHostKinds`, `TestMirrorCatchUpPin`: the bytes at +0x1FC).
-- `TestEnemyHeaderPins` and `TestEnemyBlockPlacement` (mailbox), `TestBlobFresh` and `TestT2EndsBelowMailbox` (the REL rebuild and restamp), and the REL's own static asserts (kind count 6 at A1, 9 since batch C; em_kind 0x44, PLAIN rows with FOPEN and a morf). RELS.arc growth stays under 0x10000.
+- `TestEnemyHeaderPins` and `TestEnemyBlockPlacement` (mailbox), `TestBlobFresh` and `TestT2EndsBelowMailbox` (the REL rebuild and restamp), and the REL's own static asserts (kind count 6 at A1, 8 since batch C; em_kind 0x44, PLAIN rows with FOPEN and a morf). RELS.arc growth stays under 0x10000.
 
 Live, on the user-4 fixture: regression first with the default kinds (the #156-#158 Moblin, Bokoblin and ChuChu checks unchanged, a `bk:tg_hit_up` annex override still applies). Then per kind, at these verified hops (stage point room; `M_NewD2 0 4` does not exist and hangs the game):
 
@@ -198,7 +198,7 @@ The TN batch's B1 (`ww-multiplayer-handoff/design/enemy-mirror-tn.json`: D1-D14,
 
 Offline, before any live run (`go test -count=1 ./mods/enemysync ./wwapi/mailbox ./wwapi/addr ./internal/inject/... ./cmd/wwdev`):
 
-- `TestKindTablePins`, `TestColliderOffPins`, `TestKindHash` (the pin was 0x0F3064EE at B1, 0xB826567A since batch C: a build from before a pin change and one after refuse each other's STATE), `TestEnemyHeaderPins`, `TestEnemyBlockPlacement` (HD 18 direct, 19 front; the TN tg_hit_up byte 0x1FB; HAF 0x20/0x40/0x80 clear of 0x01..0x10), `TestBlobFresh` and `TestT2EndsBelowMailbox` (the REL rebuild and restamp), and the REL's own static asserts (kind count 7 at B1, 9 since batch C).
+- `TestKindTablePins`, `TestColliderOffPins`, `TestKindHash` (the pin was 0x0F3064EE at B1, 0x587E10C2 since batch C (0xB826567A before its MT cut): a build from before a pin change and one after refuse each other's STATE), `TestEnemyHeaderPins`, `TestEnemyBlockPlacement` (HD 18 direct, 19 front; the TN tg_hit_up byte 0x1FB; HAF 0x20/0x40/0x80 clear of 0x01..0x10), `TestBlobFresh` and `TestT2EndsBelowMailbox` (the REL rebuild and restamp), and the REL's own static asserts (kind count 7 at B1, 8 since batch C: 9 until its MT cut, id 8 now reserved).
 - `TestKindTNRow` (row, sets, defaults: off in `DefaultMirrorKinds`, on in `DefaultQuietKinds`), `TestTnLiveRefusal`, `TestClassifyWalkTN` (the live gate refuses an unlisted Darknut; a listed one stays through S_DEMO, m14F8 and m140C but not BOSS), `TestReadSampleTNFlags` (DYING from dr.mAction 20..22, the ice shrink, or health <= 0 with dr.mMode <= -100; health 0 alone is not dying), `TestDormantPlaySkipTN`, `TestForwardHitTN` (head and Tg, everything but the Hookshot).
 - AM2 direct apply: `TestHitClientFlags` and `TestMirrorReadHitVerdict` (the client's pending byte 0x02/0x04 into HIT byte 54), `TestHitClientFlagsWire`, `TestHitApplierTN` (TN never ATTRIB, D12; HAF_VERDICT/HAF_BACK only for AM2 collider 1, from the host slot's kind), `TestHitApplierAM2Crit` and `TestAm2CritPins` (HAF_CRIT: a crit sword cut or the hammer's side swing, d_a_am2.cpp:236-280).
 - `TestParseAnnexTN` and `TestAnnexTnTgHitUpWritten` (`tn:tg_hit_up` reaches byte 0x1FB on both sides), `TestEnemyMatchDryTN` and `TestEnemyKindWatchTN` (`cmd/wwdev`).
@@ -289,29 +289,29 @@ Gaps:
 - **A copy the REL does not take stays its own.** Refused (ERR_GATE, ERR_MORF, an early BOKO_ATTACH, ERR_ICE) or never given a slot, it runs its own AI and comes out on its own; Go does not write it.
 - **Handback loses the leap (batch C's AMB unit hands a still-hidden copy back into action 15, R-9, check AMB-4).** A copy handed back while still hidden (the host left the room, a hold ran out) goes to action 0/0: em_handback knows only the create pairs. It comes out without the leap and patrols. A proper handback (action 15 for a still-hidden ambusher) is a REL change.
 - **Pot-gone reveal scale.** When the host's pot is broken first, the host's Bokoblin comes out stunned at half scale and grows back. Scale is not streamed, so the copy shows full size.
-- **Not covered here:** the M_Dra09 Kargaroc and the Moblin it carries have no mirror (batch C refuses the rider, D9), and the Magtails have one only with `mt+u` (batch C). Each game keeps its own copy, and an unkeyed one the host kills stays a ghost on the client (audit option B: a host tombstone for refused unkeyed enemies, a wire change).
+- **Not covered here:** the M_Dra09 Kargaroc and the Moblin it carries have no mirror (batch C refuses the rider, D9), and the Magtails have none (batch C cut its MT row after P0-MT). Each game keeps its own copy, and an unkeyed one the host kills stays a ghost on the client (audit option B: a host tombstone for refused unkeyed enemies, a wire change).
 
-### Enemy mirror: layout 4, the ambusher REL path, Kargaroc and Magtail (batch C)
+### Enemy mirror: layout 4, the ambusher REL path and the Kargaroc (batch C)
 
-Batch C (`ww-multiplayer-handoff/design/enemy-mirror-batch-c.json`: D1-D14, layout4, R-1..R-21, go_changes, ambush_cleanup, bb, mt, test_plan, cut_order; `enemy-mirror-batch-c-facts.json`) has four parts:
+Batch C (`ww-multiplayer-handoff/design/enemy-mirror-batch-c.json`: D1-D14, layout4, R-1..R-21, go_changes, ambush_cleanup, bb, mt, test_plan, cut_order; `enemy-mirror-batch-c-facts.json`) has three parts; its fourth, the Magtail, was cut after P0-MT:
 
-- **L4, the enemy block's layout 4** (additive: the layout-3 annex and block bytes do not move). It adds hook-disable bytes for kind ids 7..14 at block +0x28 (BB 0x80413128, MT 0x80413129), inside the seq span. It adds a knob table at 0x80413750, written separately, that carries live quiet, tg_hit_up and invuln for ids 3..15. Its gen is a u16 at block +0x22, the REL echoes it at +0x194 (0x80413294), and the BB fingerprint misses count at +0x196.
+- **L4, the enemy block's layout 4** (additive: the layout-3 annex and block bytes do not move). It adds hook-disable bytes for kind ids 7..14 at block +0x28 (BB 0x80413128; 0x80413129, the reserved MT id 8, is unread), inside the seq span. It adds a knob table at 0x80413750, written separately, that carries live quiet, tg_hit_up and invuln for ids 3..15. Its gen is a u16 at block +0x22, the REL echoes it at +0x194 (0x80413294), and the BB fingerprint misses count at +0x196.
 - **AMB**: the REL takes the pot ambushers' live mType 2/3, parks a hidden copy's stick and hands a still-potted copy back into tubo_wait. The client's mType-0 write is gone in the same build.
 - **BB**: the Kargaroc is kind row 7. Tokens `bb` (keyed) and `bb+u` (the sea birds).
-- **MT**: the Magtail is kind row 8. Token `mt+u` (every DRC Magtail is unkeyed). It is the first cut: if P0-MT disproves its offsets, R-20 deletes the row before the recapture.
+- **MT (cut)**: the Magtail was kind row 8, the first cut. P0-MT disproved its sphere model, so R-20 deleted the row before the recapture; id 8 stays reserved and `mt` / `mt+u` are refused with the reason (the MT note below).
 
-BB and MT are off by default (`DefaultMirrorKinds` stays `mo2,bk+u,cc+u`). The kind table hash is 0xB826567A. The network protocol is 4: a v0.5.0 peer is refused at the hello, and the LAN list shows it as incompatible.
+BB is off by default (`DefaultMirrorKinds` stays `mo2,bk+u,cc+u`). The kind table hash is 0x587E10C2 (0xB826567A with the MT row). The network protocol is 4: a v0.5.0 peer is refused at the hello, and the LAN list shows it as incompatible.
 
 Offline, before any live run (`go test -count=1 ./mods/enemysync ./wwapi/mailbox ./wwapi/addr ./mods/multiplayer/net ./internal/inject/... ./cmd/wwdev`):
 
 - **L4 block**: `TestEnemyHeaderPins`, `TestEnemyBlockPlacement` (the annex bytes identical to layout 3), `TestEnemyBlockEncode` (the golden moved only at +0x12, 0003 -> 0004), `TestEnemyBlockL4`, `TestEnemyKnobsEncode`.
-- **L4 Go writers**: `TestKnobWriterGens` (a new nonzero gen on the first block, on a value change, an epoch change and after a disarm), `TestKnobRewriteOnEcho` (exactly one rewrite on an echo mismatch once the REL acked a block naming the gen, and one log line `knob table rewritten: seen G<n> want G<m>`), `TestMirrorKnobTable` and `TestHitApplierKnobTable` (the table written before the first block of each side, the gen and the hook bytes in every block), `TestParseAnnexL4` (`bb:hooks=tail` at +0x28 bit 0x02; `ki:quiet=5` accepted into the table; `tn:tg_hit_up` still the annex u8; `mt:hooks` accepted while the MT row exists).
-- **Kind table and wire**: `TestKindTablePins` (every row's 37 fields and the batch's offsets against `wwenemy_kinds.h`), `TestKindsBatchC`, `TestKindHash` (0xB826567A), `TestWireHostKindMask16` (bit 8 round-trips in byte 31; an old frame with byte 31 0 is unchanged), `TestHelloGoldenBytes` and `TestVersion3PeersRefused`.
+- **L4 Go writers**: `TestKnobWriterGens` (a new nonzero gen on the first block, on a value change, an epoch change and after a disarm), `TestKnobRewriteOnEcho` (exactly one rewrite on an echo mismatch once the REL acked a block naming the gen, and one log line `knob table rewritten: seen G<n> want G<m>`), `TestMirrorKnobTable` and `TestHitApplierKnobTable` (the table written before the first block of each side, the gen and the hook bytes in every block), `TestParseAnnexL4` (`bb:hooks=tail` at +0x28 bit 0x02; `ki:quiet=5` accepted into the table; `tn:tg_hit_up` still the annex u8; `mt:hooks` refused since the MT cut).
+- **Kind table and wire**: `TestKindTablePins` (every row's 37 fields and the batch's offsets against `wwenemy_kinds.h`), `TestKindsBatchC` (also: `mt`, `mt+u` and `mt:` overrides refused with the cut's reason), `TestKindHash` (0x587E10C2), `TestWireHostKindMask16` (bit 8, the reserved id, round-trips in byte 31; an old frame with byte 31 0 is unchanged), `TestHelloGoldenBytes` and `TestVersion3PeersRefused`.
 - **AMB**: `TestMirrorAmbusher` and `TestMirrorAmbusherReoffer` (no mType write, ever; the pot and scale writes as before).
 - **BB**: `TestBbOffsets` (`wwapi/addr`), `TestBbLiveRefusal`, `TestStaticGatesBB` (types 5/6 refused keyed and unkeyed; unk_2DF and a knockback refuse an unlisted bird; a listed one stays through the knockback), `TestReadSampleBB*` (five Reads; DYING from health, mbDead or the shrink; HIDDEN from unk_2F2), `TestHostBBWireSlot` (current.angle.z in slot +0x18), `TestHostTombstoneBBVanish` (a bird that vanishes alive is a tombstone; a Moblin is not).
-- **MT**: `TestMtOffsets` (`wwapi/addr`), `TestMtLiveRefusal`, `TestClassifyWalkMT` (a listed Magtail stays listed in BALL), `TestReadSampleMT*` (BALL is not dying; DEAD, the death flag >= 2 or the shrink are), `TestMtHits` (collider code 4 for MT only; a collider-2 hit reads the body sphere that holds the hit object), `TestHitApplierMtKill` (code 4 never carries the remote-Link ATTRIB bits), `TestMtDeathSwitch` (a quiet death sets mDeathSwitch +0x2B9 on the client).
-- **Probes** (`cmd/wwdev`): `TestEnemyMatchDryBatchC`, `TestEnemyKindWatchBB` (fp=ok, then fp=miss after one word changes), `TestEnemyKindWatchMT`, `TestEnemyBlockDump` (knob_gen, hkd_hi, the knob table line, knob_gen_seen and fp_miss).
-- **REL**: `TestBlobFresh` and `TestT2EndsBelowMailbox`, after the one REL build and restamp (R-21), plus build.py's static asserts (kind count 9, or 8 after an MT cut). The patcher's RELS.arc growth line stays under 0x10000 with at least 0x800 of headroom after each commit. v0.5.0 is at +33856 (0x7BC0 headroom).
+- **MT (cut)**: only `TestMtOffsets` (`wwapi/addr`: the Magtail offsets stay for research) remains; the samplers, hit, custody and probe tests went with the row.
+- **Probes** (`cmd/wwdev`): `TestEnemyMatchDryBatchC`, `TestEnemyKindWatchBB` (fp=ok, then fp=miss after one word changes), `TestEnemyBlockDump` (knob_gen, hkd_hi, the knob table line, knob_gen_seen and fp_miss).
+- **REL**: `TestBlobFresh` and `TestT2EndsBelowMailbox`, after the one REL build and restamp (R-21), plus build.py's static asserts (kind count 8 after the MT cut). The patcher's RELS.arc growth line stays under 0x10000 with at least 0x800 of headroom after each commit. v0.5.0 is at +33856 (0x7BC0 headroom).
 
 Rig (`ww-multiplayer-handoff/archive/`): host A user-4 (sword), client B user-3 booted with `s2v2-live/boot_b_sword.sh`, and `s2v2-live/healer.sh` on both pids under `mp-local`. Take hops only from `archive/coop-drc/HOPS.md`. In M_NewD2, room 5 has no PLYR and `M_NewD2 0 4` and `0 6` hang. M_Dra09 needs room 9. Never warp a Link during its void-out respawn. "B restart" means restarting B's client with a new `WW_ENEMY_ANNEX`. No step needs a human player. After every step, sweep both players' full Player.log, not only the reported issues.
 
@@ -319,14 +319,7 @@ P0 runs on the v0.5.0 build, before the REL code (rig only):
 
 - [ ] **P0-L4 region proof**: `region-probe arm --yes`, then hop `M_NewD2 0 0`, `6 3`, `7 4`, `0 7`, `14 8`, `15 10`, `3 12`, `0 16` and `M_Dra09 0 9`, then `region-probe check`. Pass: every canary word in 0x80413750..0x804137AF is intact. Fail: move the table into a canary-clean span of +0x8B0..+0x1100 before L4. Run it with the v0.5.0 `wwdev.exe`: from batch C on, `CanaryArenaHigh` starts past the table (0x804137B0, mailbox/mod.go) and `canaryForbidden` lists `EnemyKnobRegion` (coop_diag.go), so this build's probe no longer arms the table's span. If the table moves, both follow it (`CanaryArenaHigh` is derived from `EnemyKnobOff` + `EnemyKnobSize`).
 - [ ] **P0-BB**: `stage-hop M_NewD2 6 3 --yes`, then `./wwdev.exe enemy-watch 0 --kind bb` on A. Pass: each walk line ends `fp=ok`, meaning the four words at exec and at tc and the blr at tc+0x59C are the batch's fingerprint. Record `type` for sets 0 and 2 (expect 4 and 7) and `m2f2 0x00`.
-- [ ] **P0-MT gate**: hop `M_NewD2 14 8`, `15 10`, `3 12`, `0 16`, then `./wwdev.exe enemy-watch 0 --kind mt` on A. Pass:
-  - the modes cycle between 0 and 1;
-  - `ring` advances while `dive` is 0;
-  - each `segN tr` (the model's base translation) trails the head, and `sph` (body sphere N's centre) equals it;
-  - `eye_sph` equals `eyePos`;
-  - in room 16, `mt_appear` is nonzero on `enemy-match` until sw227.
-
-  Any mismatch cuts the MT row (CONTRACT.md section 7).
+- [x] **P0-MT gate**: failed on `M_NewD2 14 8` (body sphere centres off the segment translations), so the MT row was cut (the MT note below). The `--kind mt` probe went with the row.
 - [ ] **P0-PATH** (offline, information only): read path 0 of M_Dra09 room 9 for mArg3 5 vs 6. The rider is refused either way.
 
 L4 (never cut):
@@ -349,7 +342,7 @@ L4 (never cut):
 
   Repeat after a save-state load on B. During the clobber, a `bb:hooks` bit at 0x80413128 stays in force.
 - [ ] **L4-5 wire, mixed builds**:
-  - With `bb` on A, the HostKindMask in B's client log includes bit 7 (`enemy-block-dump` kind_mask). Bit 8 shows only if MT ships; otherwise the unit test covers it.
+  - With `bb` on A, the HostKindMask in B's client log includes bit 7 (`enemy-block-dump` kind_mask). Bit 8 (the reserved MT id) never shows; `TestWireHostKindMask16` covers it.
   - A v0.5.0 exe against a batch-C disc logs the RELBuildID refusal.
   - A batch-C peer against a v0.5.0 peer is refused at the hello (protocol 4 vs 3, D13).
 
@@ -389,26 +382,10 @@ BB (`M_NewD2 6 3`, `M_Dra09 1 9`):
 
   A Kargaroc that vanishes alive on the host (a path end, the forest's andsw0) is listed as a tombstone and ends quietly on the client.
 
-MT (only if it ships; `M_NewD2 14 8`, `15 10`, `3 12`, `0 16`). MT-3 and MT-4 need `enemy-kill --unverified`: the Magtail is K1 in `wwapi/tables/enemies/classes.go` (Ice 0x1900, K1Verified false; `TestClasses`, `TestK1MatchesDesign` and `TestK1GateMatrix` pin it), so `enemy-kill` takes it only with `--unverified`:
-
-- [ ] **MT-1 adopt**: `mt+u` on both sides, `stage-hop M_NewD2 14 8 --yes`. Pass: in the screenshot pair, the head and 8 segments trail A's path, and type-0 copies carry the flames. Bisect with `mt:hooks=chain|fire|extra|mtx`.
-- [ ] **MT-2 hit and custody**: B swords the body (`backstab.py`; 0x20E is the head yaw for MT). Pass:
-  - an ACK shows a hit;
-  - A's Magtail curls (mode 2), and B's copy is released as a local BALL that curls natively;
-  - the copy is re-adopted once both uncurl.
-
-  With `mt:hooks=custody`, B's BALL stays mirrored and paused.
-- [ ] **MT-3 respawn parity**: `stage-hop M_NewD2 3 12 --yes` (the respawn bit is set here). A runs `enemy-kill <mt pid> --unverified --yes`. Pass:
-  - B's copy dies quietly with 0x1CBC = 1 (peek before the delete);
-  - both games re-create it at home (`actors`), the pkeys match, and B re-adopts.
-
-  Control: with `mt:hooks=respawn`, B never respawns.
-- [ ] **MT-4 code 4**: during custody, B runs `enemy-kill <B copy pid> --unverified --yes`. Pass: B logs collider code 4, and A sets 0x18F8 = 2 and bakuhas only if its Magtail is still mode 2. Repeat after A's Magtail uncurls: the hit is stale and A is unchanged.
+MT: cut after P0-MT. On `M_NewD2 14 8` the eye sphere sat at `eyePos`, but the body sphere centres were not the segment translations (segment 0 about 65 units off, segments 1..4 about 10; samples in `archive/enemy-batch-c/p0mt-room8.txt`), so the segment and sphere model the REL's MT code was built on (offline, from the retail `d_a_mt.rel`) was wrong. By `cut_order` and CONTRACT.md section 7, R-20 deleted the Magtail row before the recapture: `EMK_KIND_MT` / `KindMT` 8 stays a reserved id with no row (`EMK_KIND_COUNT` 8), the block's hook byte +0x29 is unread, and `mt`, `mt+u`, `WW_ENEMY_QUIET_DEATH=...,mt` and `WW_ENEMY_ANNEX=mt:...` are refused with the reason. MT-1..MT-4 do not run. The Magtail stays a local enemy on each game, and `classes.go` has it as `Other` again (no `enemy-kill`).
 
 Not covered by the rig:
 
-- carrying a Magtail onto r16's Kbota_B (needs a scripted A-press carry and throw);
-- the Magtail pin/parry kill (host lock-on with mCutType 0x10);
 - a BB hidden at create revealing in I_SubAN r9, and the sea Kargaroc (I_SubAN and the sea are not in HOPS.md: run `verify_plyr.py` first, because a missing (point, room) halts in d_stage.cpp:1463);
 - real light arrows (`boot_b_sword` has none; `enemy-kill` writes instead).
 
