@@ -8,8 +8,8 @@
 // GBA writer syncs only while no GBA is linked (Switch.GBA), which the
 // runtime checks every tick. An AND switch's setter latches only while
 // all its inputs are synced, transitively, except that a one-shot AND
-// latches over momentary inputs too (momentary), and is GBA-dependent
-// while an input is.
+// latches over momentary inputs too (momentary: floor, iron-boots and
+// timed crystal switches), and is GBA-dependent while an input is.
 //
 // Build is a pure function of the stages and the l_objectName table;
 // its Table marshals to JSON for the cache §6.2 keys by DOL hash.
@@ -396,23 +396,46 @@ func synced(s *Switch) bool {
 	return latch
 }
 
-// momentary reports whether s is a momentary input: it has a writer, and
-// every writer is a floor or iron-boots switch that sets it while pressed
-// and clears it on release (swpush type 1, swheavy types 0 and 1; swpush
-// type 2 only clears, so it is decoded OpClear and is no momentary input).
-// A one-shot AND fed by such inputs only ever sets its output (andsw0
+// momentary reports whether s is a momentary input: it has a momentary
+// writer, and every other writer is momentary too or GBA. A momentary
+// writer sets the switch from a press or hit and clears it again on its
+// own: a floor or iron-boots switch that clears on release (swpush type
+// 1, swheavy types 0 and 1; swpush type 2 only clears, so it is decoded
+// OpClear and is no momentary input) or a timed crystal switch, whose
+// timer clears it (SWHIT0 with a timer, d_a_swhit0.cpp:337-365). A
+// one-shot AND fed by such inputs only ever sets its output (andsw0
 // behaviours 0 and 3, d_a_andsw0.cpp:40-57, :129-135; andsw2 type 0,
 // d_a_andsw2.cpp:87-135), so the partner's set stands for the solved
-// puzzle as any latching setter's does, while the presses never sync
-// (DRC's r16 floor switches feeding sw41, the r14 barricade). An area
-// switch's per-frame writer (SW_C00 type 0) is not momentary, so an AND
-// it feeds still can't spring the partner's ambush (§6.2); nor is an input
-// a timer, an AND's own clear (andsw0 behaviour 2) or a GBA writer shares.
-// It reads only decoded classes, which propagate never changes.
+// puzzle as any latching setter's does, while the presses and hits never
+// sync (DRC's r16 floor switches feeding sw41, the r14 barricade; FW's r13
+// five-crystal gate sw7 and kinMB's exit pair sw226). An area switch's
+// per-frame writer (SW_C00 type 0) is not momentary, so an AND it feeds
+// still can't spring the partner's ambush (§6.2); nor is an input another
+// clearer writes: a switch timer (Obj_Timer), a timed AND's clear of its
+// inputs (andsw0 behaviour 2) or a timed torch. A GBA writer (the Tingle
+// Tuner's) writes only while a GBA is linked, so it leaves the input
+// momentary, and markGBA makes the AND's output GBA-dependent (FW sw9, an
+// sw7 input the Tuner shares). It reads only decoded classes, which
+// propagate never changes.
 func momentary(s *Switch) bool {
-	return len(s.Writers) > 0 && !slices.ContainsFunc(s.Writers, func(w Writer) bool {
-		return w.Op != OpSetClear || (w.Proc != stage.ProcSwpush && w.Proc != stage.ProcSwheavy)
-	})
+	mom := false
+	for _, w := range s.Writers {
+		switch {
+		case w.Class == GBA:
+		case w.Op == OpSetClear && (w.Proc == stage.ProcSwpush || w.Proc == stage.ProcSwheavy || w.Proc == stage.ProcSwhit0):
+			mom = true
+		default:
+			return false
+		}
+	}
+	return mom
+}
+
+// gbaInput reports whether AND input s may be written by a Game Boy
+// Advance: it is synced only while none is linked (GBA), or it is a
+// momentary input with a GBA writer.
+func gbaInput(s *Switch) bool {
+	return s != nil && (s.GBA || momentary(s) && slices.ContainsFunc(s.Writers, func(w Writer) bool { return w.Class == GBA }))
 }
 
 // propagate demotes every latching AND writer with an input that is not
@@ -500,9 +523,10 @@ func (b *builder) finish() {
 
 // markGBA sets GBA on every synced switch that a GBA writer shares, and
 // then, until nothing changes, on every synced switch a latching AND
-// writer sets from an input that is GBA: while a GBA is linked that input
-// may be the Tuner's, so the AND's output is too. Each pass marks at least
-// one more switch or ends, so it ends.
+// writer sets from an input that is GBA or a momentary input a GBA writer
+// shares (gbaInput): while a GBA is linked that input may be the Tuner's,
+// so the AND's output is too. Each pass marks at least one more switch or
+// ends, so it ends.
 func (b *builder) markGBA(keys []Key) {
 	for _, k := range keys {
 		s := b.byKey[k]
@@ -516,7 +540,7 @@ func (b *builder) markGBA(keys []Key) {
 				continue
 			}
 			for _, w := range s.Writers {
-				if w.Class == Latching && slices.ContainsFunc(w.Inputs, func(in Key) bool { return b.byKey[in] != nil && b.byKey[in].GBA }) {
+				if w.Class == Latching && slices.ContainsFunc(w.Inputs, func(in Key) bool { return gbaInput(b.byKey[in]) }) {
 					s.GBA, changed = true, true
 					break
 				}

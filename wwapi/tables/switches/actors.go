@@ -73,6 +73,7 @@ const (
 	procEbomzo      stage.Proc = 0x0A4 // fpcNm_Obj_Ebomzo_e, f_pc_name.h:173; "Ebomzo" (d_stage.cpp:1118)
 	procOship       stage.Proc = 0x0B4 // fpcNm_OSHIP_e, f_pc_name.h:189; "Oship" (d_stage.cpp:816)
 	procKui         stage.Proc = 0x0FC // fpcNm_KUI_e, f_pc_name.h:264; "Kui" (d_stage.cpp:645)
+	procSs          stage.Proc = 0x0FD // fpcNm_SS_e, f_pc_name.h:265; door plant "Ss" (d_stage.cpp:892)
 	procFlame       stage.Proc = 0x10D // fpcNm_Obj_Flame_e, f_pc_name.h:281; "Yfire00" (d_stage.cpp:788)
 	procTenmado     stage.Proc = 0x119 // fpcNm_Obj_Tenmado_e, f_pc_name.h:293; "Tenmado" (d_stage.cpp:992)
 	procFirewall    stage.Proc = 0x120 // fpcNm_Obj_Firewall_e, f_pc_name.h:300; "Yswdr00" (d_stage.cpp:1100)
@@ -589,6 +590,39 @@ var specs = []spec{
 	// d_a_tn.cpp: create :4212, :4237-4238, set :2070-2072, enemy_ice
 	// :4335.
 	{proc: stage.ProcTN, name: "TN", decode: func(e entry) []use { return deathSwitch(e, "Darknut") }},
+
+	// d_a_ss.cpp and d_a_gm.cpp are NonMatching (configure.py), so these
+	// two are read from the retail RELs' .text (GZLE01 d_a_ss.rel and
+	// d_a_gm.rel; offsets named with config/GZLE01/rels/<rel>/symbols.txt).
+	// Neither has an offSwitch or revSwitch, and neither hands enemy_ice a
+	// death switch.
+	//
+	// Door plant. daSs_Create (0x3204-0x3264): m2BE = params >> 24, 0xFF
+	// read as 0; create fails while m2BE is on (isSwitch in its own room).
+	// core_move (0x2920-0x2950) sets m2BE, if not 0, as it deletes the dead
+	// plant; it doesn't test m2BD ((params >> 8) & 0xFF), so the chest
+	// plants and the door plants write alike.
+	{proc: procSs, name: "SS", decode: func(e entry) []use {
+		sw := e.byte(24)
+		if sw == 0xFF || sw == 0 {
+			return nil
+		}
+		return []use{set(sw, Latching, "door plant: set when cut")}
+	}},
+	// Mothula. daGM_Create (0x7F24-0x7FE4): m2CD = (params >> 8) & 0xFF
+	// and m2CF = params >> 24; m2CD reads 0xFF as 0, m2CF does not, so
+	// only 0xFF means none and 0 is switch 0. Only for m2CD 0 does m2D6
+	// take (u8)current.angle.z (home.angle.z at create). Create fails while
+	// m2CF is on (isSwitch in mStayNo). Each write is "if (m2CF != 0xFF &&
+	// m2D6 != 0) onSwitch(m2CF)" as it dies: action_ground_attack (0x5854,
+	// 0x5A2C), action_demo (0x6860, the death camera) and daGM_Delete
+	// (0x77C8).
+	{proc: stage.ProcGM, name: "GM", decode: func(e entry) []use {
+		if typ := e.byte(8); typ != 0 && typ != 0xFF || e.angleByte(2) == 0 {
+			return nil
+		}
+		return []use{set(e.byte(24), Latching, "Mothula: set when killed")}
+	}},
 
 	// Bosses. d_a_bdk.cpp sets dan switch 0x80 in the Helmaroc King's
 	// fight (:2064) and clears it again (:2308).

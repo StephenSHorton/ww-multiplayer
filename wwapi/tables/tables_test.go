@@ -744,6 +744,10 @@ var schemaShapes = map[int]string{
 	// 6: the same shape; a one-shot AND latches over momentary floor and
 	// iron-boots switch inputs (DRC sw41).
 	6: "18e463dd4d344be73cbc4e9f0f99bf72f2021d56a876e6db3cd6bc86cddd5014",
+	// 7: the same shape; the door plant (SS) and Mothula (GM) death
+	// switches are decoded, and timed crystal switches are momentary
+	// inputs, with a Tuner writer allowed beside them (FW sw7, sw226).
+	7: "18e463dd4d344be73cbc4e9f0f99bf72f2021d56a876e6db3cd6bc86cddd5014",
 }
 
 func TestSchemaShape(t *testing.T) {
