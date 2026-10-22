@@ -287,7 +287,7 @@ Ring entries carry `seq` plus an XOR check byte.
 
 ### 4.4 Network protocol v2
 
-**Version bump.** `ProtocolVersion` is 2 (`mods/multiplayer/net/handshake.go`; 1 was v0.3.x's handshake). Peers with mismatched versions are already rejected with a clear message.
+**Version bump.** `ProtocolVersion` became 2 here (`mods/multiplayer/net/handshake.go`; 1 was v0.3.x's handshake); enemy sync later raised it to 3. Peers with mismatched versions are already rejected with a clear message.
 
 **Free type letters.** J W P L D C M K Q H R are taken (`protocol.go`, the `Msg*` constants). Co-op uses one new type, **'O' (0x4F)**. The frame format `[type:1][len:2 BE][payload]` with `MaxPayload` 0xFFFF is unchanged.
 

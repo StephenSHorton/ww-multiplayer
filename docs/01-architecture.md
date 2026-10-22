@@ -50,7 +50,7 @@ Cross-platform process memory access: `kernel32.dll` (ReadProcessMemory / WriteP
 
 Simple TCP-based protocol with message framing (`[type:1][length:2][data]`). Message types:
 - `J` (Join) — client announces name
-- `H` (Hello) — protocol version, and from protocol 2 the connection role and caps (`handshake.go`)
+- `H` (Hello) — protocol version, and from protocol 2 the connection role and caps (`handshake.go`); protocol 3 (enemy sync) adds the enemy-host and enemy-client roles
 - `W` (Welcome) — server assigns an ID; `R` (Reject) — the server refuses the connection, with a code and a reason
 - `P` (Position) — 18-byte position update (3 floats + 3 int16s); `M` (Pose) — the skeletal pose
 - `L` (PlayerList) — server announces who's connected (with the tunic-color trailer, docs/09); `D` (Leave)

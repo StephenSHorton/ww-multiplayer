@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -363,9 +364,65 @@ func TestEnemyRemoteRelay(t *testing.T) {
 	}
 }
 
-// TestEnemySecondHostRefused: one enemy host per server; the second gets a
-// fatal RejectRole, and after the first leaves a new one is taken.
-func TestEnemySecondHostRefused(t *testing.T) {
+// TestEnemyHostSameNameReplaces: a second enemy host under the first's
+// name (case-insensitive) is that host reconnecting before its old
+// connection is reaped: it is admitted with a fresh ID, the old connection
+// is closed, the old one's teardown leaves the new one in the slot, and
+// the new one's STATE reaches a client.
+func TestEnemyHostSameNameReplaces(t *testing.T) {
+	fastNetTimers(t)
+	var mu sync.Mutex
+	var lines []string
+	srv, addr := listenCoopLog(t, nil, func(s string) {
+		mu.Lock()
+		lines = append(lines, s)
+		mu.Unlock()
+	})
+	logged := func(want string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, l := range lines {
+			if strings.Contains(l, want) {
+				return true
+			}
+		}
+		return false
+	}
+
+	first, _ := connectEnemy(t, addr, "Link", RoleEnemyHost)
+	_, in := connectEnemy(t, addr, "bob", RoleEnemyClient)
+	second, _ := connectEnemy(t, addr, "link", RoleEnemyHost)
+	if second.MyID() == first.MyID() {
+		t.Errorf("replacing host reused ID %d", first.MyID())
+	}
+	if !waitFor(2*time.Second, func() bool { return !first.IsConnected() }) {
+		t.Fatal("the replaced host's connection was not closed")
+	}
+	// The old handler logs its disconnect as its last line, then its
+	// deferred teardown runs: from then on the slot must stay the new
+	// host's.
+	gone := fmt.Sprintf("Link (enemy host %d) disconnected", first.MyID())
+	if !waitFor(2*time.Second, func() bool { return logged(gone) }) {
+		t.Fatalf("no %q in the server log", gone)
+	}
+	if waitFor(300*time.Millisecond, func() bool { return !srv.EnemyHostConnected() }) {
+		t.Fatal("the old host's teardown cleared the new host")
+	}
+	if err := second.SendEnemy(enemyState(1, 42)); err != nil {
+		t.Fatal(err)
+	}
+	if !waitFor(2*time.Second, func() bool { return in.len() == 1 }) {
+		t.Fatalf("STATE from the new host not relayed: client got %d", in.len())
+	}
+	if got := in.snapshot()[0]; got[0] != EnemySubState || got[2] != 42 {
+		t.Errorf("client got %x, want the new host's STATE", got)
+	}
+}
+
+// TestEnemyHostOtherNameRefused: one enemy host per server; a second under
+// another name gets a fatal RejectRole, and after the first leaves a new
+// one is taken.
+func TestEnemyHostOtherNameRefused(t *testing.T) {
 	fastNetTimers(t)
 	srv, addr := mustListen(t)
 	defer srv.Stop()
@@ -552,5 +609,35 @@ func TestRunEnemySession(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("RunEnemy did not return after cancel")
+	}
+}
+
+// TestRunEnemySessionPanic: a panic in the session (the enemy tick loop,
+// on runRoleSession's goroutine) ends RunEnemy with a fatal
+// *SessionPanicError instead of crashing the process.
+func TestRunEnemySessionPanic(t *testing.T) {
+	fastNetTimers(t)
+	srv, addr := mustListen(t)
+	defer srv.Stop()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- RunEnemy(context.Background(), NewEnemyClient("h", RoleEnemyHost), addr, nil, func(context.Context, func([]byte) error) error {
+			var slots []int
+			_ = slots[3] // index out of range
+			return nil
+		})
+	}()
+	select {
+	case err := <-done:
+		var sp *SessionPanicError
+		if !errors.As(err, &sp) || !errors.Is(err, ErrFatal) {
+			t.Fatalf("RunEnemy = %v, want a fatal *SessionPanicError", err)
+		}
+		if !strings.Contains(err.Error(), "index out of range") || len(sp.Stack) == 0 {
+			t.Errorf("err %q, stack %d bytes", err, len(sp.Stack))
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunEnemy did not return after the session panicked")
 	}
 }

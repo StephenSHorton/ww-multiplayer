@@ -165,8 +165,10 @@ WW_POSE_RAW=1                               # Skip pose localization (debug)
 WW_LINK2_OFFSET_{X,Y,Z}                     # Loopback render offset (default 0)
 WW_COLOR=<color>                            # Default tunic color when --color isn't given (docs/09)
 WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/join) leaves the tunic slots to the tunic-slot dev command
-WW_ENEMY_SYNC=1                             # Enemy sync (mods/enemysync, the enemy mirror: Moblins, Bokoblins, ChuChus; Keese, Armos Knights, Armos, Darknuts opt-in): host/join and the app run enemy-host / enemy-client,
-                                            #   mp-local spawns enemy-A (host, Dolphin A) and enemy-B (client, Dolphin B); needs the REL module linked
+WW_ENEMY_SYNC=0                             # Enemy sync off (mods/enemysync, the enemy mirror: Moblins, Bokoblins, ChuChus; Keese, Armos Knights, Armos, Darknuts opt-in).
+                                            #   Default on: host/join and the app run enemy-host / enemy-client, mp-local spawns enemy-A (host, Dolphin A) and
+                                            #   enemy-B (client, Dolphin B); needs the REL module linked. A fatal enemy error (a reject, a panic) turns enemies off
+                                            #   until the pipelines next start; pose sync keeps running (engine Degradable)
 WW_ENEMY_RAW=1                              # enemy-client bypasses the smoother and sets the block's raw flag (the lag measurement)
 WW_ENEMY_COLLIDERS=0                        # enemy-host's STATE stops asking the clients to submit their copies' colliders (default on)
 WW_ENEMY_HIT_V1=1                           # enemy-host applies a client's hit as the v1 shrink kill instead of the v2 sphere hit
@@ -192,7 +194,9 @@ WW_ENEMY_ANNEX=<kind>:<field>=<v>,...       # Enemy block annex overrides (mods/
                                             #   (docs/TESTING.md B1): shield (=model_eq) attach sword (=eye) coll (=legacy_death) attn adopt_anm (=mtx_plain);
                                             #   tn also takes tg_hit_up=1..255 (host, u8 at +0x1FB, compiled 68). e.g. bk:tg_hit_up=60,cc:invuln=10,
                                             #   am:hooks=special,tn:hooks=sword+coll; "none" = no overrides
-WW_ENEMY_REMOTE=<flags>                     # Remote-Link block (mods/enemysync/players.go, design remote-link-design.md): unset = never written (today's game).
+WW_ENEMY_REMOTE=<flags>                     # Remote-Link block (mods/enemysync/players.go, design remote-link-design.md): unset = step6 with DefaultPolicy (ALLOW only
+                                            #   the mirrored kinds' procs, WW_ENEMY_MIRROR_KINDS, plus the seed's DENY list); off, none, false or 0 = never written.
+                                            #   An explicit <flags> keeps SeedPolicy (the dev rig's table).
                                             #   <flags> = a number (0x2F) or names joined by , or +: bodies swap hittable detect apply attrib name_a9 guard
                                             #   attacker group_wide both_words iframe_stamp full_bodies ff_gate_off rouya_gate_off, or a step preset step0..step7
                                             #   (design §10; each includes the ones before; step0 = the block with every flag clear; step7 = step6 + full_bodies,
@@ -201,7 +205,7 @@ WW_ENEMY_REMOTE=<flags>                     # Remote-Link block (mods/enemysync/
 WW_ENEMY_REMOTE_MARGIN / _MIN_HOLD / _IFRAMES / _COOLDOWN   # latch switch margin (q8, default 164), latch min hold (30 frames),
                                             #   body i-frames stamped on a hit (30), frames after a failed body create (30)
 WW_ENEMY_REMOTE_DY_MAX / _EYE_DY / _CYL_R / _CYL_H          # f32: latch |dy| limit (400), body eye height (110), body Tg cylinder radius (30) and height (120)
-WW_ENEMY_REMOTE_POLICY=<proc=flags,...>     # PROC_POLICY edits over the seed (enemy audit, mods/enemysync SeedPolicy: ALLOW Moblin, Bokoblin, Darknut, ChuChu, warship, Kargaroc, Armos(+Knight), Keese, Molgera larva, Kalle Demos tentacle, Puppet Ganon 2-3, Stalfos +no_latch; DENY Floormaster, ReDead, Poe, vine, Orca, PG orbs, the bosses): e.g. 0x1D5=allow+no_latch,0x79=off;
+WW_ENEMY_REMOTE_POLICY=<proc=flags,...>     # PROC_POLICY edits over the table WW_ENEMY_REMOTE chose (DefaultPolicy, or the seed: enemy audit, mods/enemysync SeedPolicy: ALLOW Moblin, Bokoblin, Darknut, ChuChu, warship, Kargaroc, Armos(+Knight), Keese, Molgera larva, Kalle Demos tentacle, Puppet Ganon 2-3, Stalfos +no_latch; DENY Floormaster, ReDead, Poe, vine, Orca, PG orbs, the bosses): e.g. 0x1D5=allow+no_latch,0x79=off;
                                             #   flags allow deny both_words no_latch, off removes; "none" alone = an empty table
 WW_ENEMY_REMOTE_FF=<stage,...>              # FF stage denylist, at most 4 (default MajyuE,majroom,Majroom,Mjtower); "none" = empty
 WW_ENEMY_REMOTE_HEAP=off|<game_largest>,<game_free>,<zelda_largest>   # full_bodies heap gate's size rules (default 0xD0090,0x10CF00,0x14C90; the

@@ -86,7 +86,9 @@ func TestHelloModsForm(t *testing.T) {
 
 // oldHostServer mimics a host from before mods (protocol 2 with colors):
 // it reads the role and caps, ignores every byte after the color block
-// and the caps bits, and welcomes the player. It reports the hello.
+// and the caps bits, and welcomes the player. It reports the hello. Its
+// welcome carries this build's ProtocolVersion (3 since enemy sync), so it
+// models that host's hello parsing only, not its version.
 func oldHostServer(hellos chan<- []byte) func(net.Conn) {
 	return func(conn net.Conn) {
 		if msg, err := ReadMessage(conn); err != nil || msg.Type != MsgJoin {

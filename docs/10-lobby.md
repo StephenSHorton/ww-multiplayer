@@ -76,7 +76,7 @@ Every player needs the same `client_required` mods at the same versions (docs/ap
 
 The dialog's first button, "Open Mods", opens the Mods page, where a compiled-in mod is turned on or off from the next start; "Close" closes it.
 
-`mods_differ` is fatal, like `name_taken`. A HELLO without `modsHash` (a build from before mods) joins as before, and a host from before mods ignores the field (its decoder takes unknown fields). The player connections the app opens at START carry the same hash in their hello (docs/api/02-mods.md), so a CLI `join` is checked too; a refused one gets `MsgReject` with `RejectMods` and the same text. ProtocolVersion stays 2.
+`mods_differ` is fatal, like `name_taken`. A HELLO without `modsHash` (a build from before mods) joins as before, and a host from before mods ignores the field (its decoder takes unknown fields). The player connections the app opens at START carry the same hash in their hello (docs/api/02-mods.md), so a CLI `join` is checked too; a refused one gets `MsgReject` with `RejectMods` and the same text. The mods hash did not change ProtocolVersion (it stayed 2); enemy sync later raised it to 3 (§6).
 
 ## 6. Compatibility
 
@@ -86,7 +86,9 @@ The dialog's first button, "Open Mods", opens the Mods page, where a compiled-in
 | Lobby client (the app) | lobby hello → `RejectRole` → `network.IsLegacyHost(err)` → the controller joins directly | full lobby |
 | Mods hash (this build) | ignored: HELLO's `modsHash`, and a player hello's `CapModsHash` and hash, are unknown to it | checked: another hash is refused (`mods_differ`, `RejectMods`); none is admitted |
 
-`TestLobbyMixedVersions` runs the previous release's exact player bytes against a server with a live lobby; `TestLobbyLegacyHostFallback` runs the lobby client against a stub of the pre-lobby server (and a protocol-1 one, which stays a version error).
+The table is protocol 2's. Since enemy sync, `ProtocolVersion` is 3: a protocol-2 build (v0.4.1 or older) and this one refuse each other at the hello with `RejectVersion` (the version dialog), whatever the role, and the LAN list greys the other build (`TestVersion2PeersRefused`, `TestClientsStopOnVersion2Welcome`; the LAN list: `TestLanSessionViewMasked`). The doubles below now model a protocol-3 server.
+
+`TestLobbyMixedVersions` runs a pre-lobby player client's exact bytes (at this build's protocol) against a server with a live lobby; `TestLobbyLegacyHostFallback` runs the lobby client against a stub of the pre-lobby server (and a protocol-1 one, which stays a version error).
 
 ## 7. The co-op start order
 

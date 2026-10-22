@@ -3,7 +3,10 @@ package enemysync
 import (
 	"encoding/binary"
 	"fmt"
+	"os"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,19 +123,42 @@ func TestParseRemotePolicy(t *testing.T) {
 	}
 }
 
-// TestRemoteConfigFromEnv: unset is off with the contract defaults; every
-// knob lands; a bad one keeps its default.
+// TestRemoteConfigFromEnv: unset is the default bodies (step6, no
+// full_bodies, DefaultPolicy of the default kinds) with the contract
+// defaults; off, none, 0 are the block off without a warning; every knob
+// lands; a bad one keeps its default.
 func TestRemoteConfigFromEnv(t *testing.T) {
-	for _, k := range []string{"WW_ENEMY_REMOTE", "WW_ENEMY_REMOTE_MARGIN", "WW_ENEMY_REMOTE_MIN_HOLD", "WW_ENEMY_REMOTE_IFRAMES",
+	for _, k := range []string{"WW_ENEMY_MIRROR_KINDS", "WW_ENEMY_REMOTE", "WW_ENEMY_REMOTE_MARGIN", "WW_ENEMY_REMOTE_MIN_HOLD", "WW_ENEMY_REMOTE_IFRAMES",
 		"WW_ENEMY_REMOTE_DY_MAX", "WW_ENEMY_REMOTE_EYE_DY", "WW_ENEMY_REMOTE_CYL_R", "WW_ENEMY_REMOTE_CYL_H",
 		"WW_ENEMY_REMOTE_COOLDOWN", "WW_ENEMY_REMOTE_POLICY", "WW_ENEMY_REMOTE_FF",
 		"WW_ENEMY_REMOTE_HEAP", "WW_ENEMY_REMOTE_FULL_MAX", "WW_ENEMY_REMOTE_FLAGS2"} {
 		t.Setenv(k, "")
 	}
-	c := RemoteConfigFromEnv(log.Discard{})
-	if c.On || c.Flags != 0 || !reflect.DeepEqual(c, DefaultRemoteConfig()) {
-		t.Errorf("defaults = %+v", c)
+	os.Unsetenv("WW_ENEMY_REMOTE") // unset, not only blank
+	var warns remoteWarnRep
+	c := RemoteConfigFromEnv(&warns)
+	step6 := mailbox.RemoteFlagBodies | mailbox.RemoteFlagSwap | mailbox.RemoteFlagHittable | mailbox.RemoteFlagDetect |
+		mailbox.RemoteFlagIFrameStamp | mailbox.RemoteFlagApply | mailbox.RemoteFlagAttrib | mailbox.RemoteFlagAttacker |
+		mailbox.RemoteFlagNameA9 | mailbox.RemoteFlagGuard
+	kinds, _ := ParseKinds(DefaultMirrorKinds)
+	if !c.On || c.Flags != step6 || c.Flags&(mailbox.RemoteFlagFullBodies|mailbox.RemoteFlagGroupWide) != 0 || c.HeapGate ||
+		!reflect.DeepEqual(c.Policy, DefaultPolicy(kinds)) || warns.n != 0 {
+		t.Errorf("defaults = %+v (%d warnings)", c, warns.n)
 	}
+	off := DefaultRemoteConfig()
+	off.On, off.Flags, off.Policy = c.On, c.Flags, c.Policy
+	if !reflect.DeepEqual(c, off) {
+		t.Errorf("default tunables = %+v", c)
+	}
+	for _, v := range []string{"off", "OFF", " none ", "0", "false"} {
+		t.Setenv("WW_ENEMY_REMOTE", v)
+		var w remoteWarnRep
+		if c := RemoteConfigFromEnv(&w); c.On || c.Flags != 0 || w.n != 0 {
+			t.Errorf("WW_ENEMY_REMOTE=%q: on %v flags 0x%X, %d warnings", v, c.On, c.Flags, w.n)
+		}
+	}
+	t.Setenv("WW_ENEMY_REMOTE", "")
+	c = RemoteConfigFromEnv(log.Discard{})
 	if c.MarginQ8 != 164 || c.MinHold != 30 || c.BodyIFrames != 30 || c.DYMax != 400 || c.EyeDY != 110 || c.CylR != 30 || c.CylH != 120 || c.CreateCooldown != 30 {
 		t.Errorf("tunables = %+v", c)
 	}
@@ -193,12 +219,100 @@ func TestRemoteConfigFromEnv(t *testing.T) {
 
 	t.Setenv("WW_ENEMY_REMOTE", "warp")
 	t.Setenv("WW_ENEMY_REMOTE_FF", "none")
-	if c = RemoteConfigFromEnv(log.Discard{}); c.On || c.FFDeny != nil {
-		t.Errorf("bad flags: %+v", c)
+	var bad remoteWarnRep
+	if c = RemoteConfigFromEnv(&bad); c.On || c.FFDeny != nil || !strings.Contains(bad.all, "stays off") {
+		t.Errorf("bad flags: %+v (warnings %q)", c, bad.all)
 	}
 	t.Setenv("WW_ENEMY_REMOTE_FF", "a,b,c,d,e")
 	if c = RemoteConfigFromEnv(log.Discard{}); !reflect.DeepEqual(c.FFDeny, SeedFFDeny()) {
 		t.Errorf("5 FF names: %v", c.FFDeny)
+	}
+}
+
+// remoteWarnRep counts the Warns logged through it and keeps their text.
+type remoteWarnRep struct {
+	n   int
+	all string
+}
+
+func (r *remoteWarnRep) Log(level log.Level, msg string) {
+	if level == log.Warn {
+		r.n++
+		r.all += msg + "|"
+	}
+}
+
+// TestDefaultPolicyPinned: the default bodies' PROC_POLICY ALLOWs exactly
+// the mirrored kinds' procs (the Moblin, Bokoblin and ChuChu by default;
+// a Keese named in the kinds too), never the Stalfos or any other seed
+// ALLOW, and keeps the seed's DENY list.
+func TestDefaultPolicyPinned(t *testing.T) {
+	split := func(p []mailbox.RemotePolicy) (allow, deny []int16) {
+		for _, e := range p {
+			switch e.Flags {
+			case mailbox.RemotePFAllow:
+				allow = append(allow, e.Proc)
+			case mailbox.RemotePFDeny:
+				deny = append(deny, e.Proc)
+			default:
+				t.Errorf("proc 0x%X flags 0x%X", e.Proc, e.Flags)
+			}
+		}
+		return allow, deny
+	}
+	var seedDeny []int16
+	for _, e := range SeedPolicy() {
+		if e.Flags == mailbox.RemotePFDeny {
+			seedDeny = append(seedDeny, e.Proc)
+		}
+	}
+	for _, c := range []struct {
+		kinds string
+		allow []int16
+	}{
+		{DefaultMirrorKinds, []int16{addr.ProcMo2, addr.ProcBK, addr.ProcCC}},
+		{"mo2,ki", []int16{addr.ProcMo2, addr.ProcKI}},
+		{"none", nil},
+	} {
+		kinds, err := ParseKinds(c.kinds)
+		if err != nil {
+			t.Fatal(err)
+		}
+		allow, deny := split(DefaultPolicy(kinds))
+		if !reflect.DeepEqual(allow, c.allow) || !reflect.DeepEqual(deny, seedDeny) || len(deny) != 15 {
+			t.Errorf("kinds %q: allow %X deny %X, want allow %X deny %X", c.kinds, allow, deny, c.allow, seedDeny)
+		}
+		if slices.Contains(allow, addr.ProcST) {
+			t.Errorf("kinds %q: the Stalfos is ALLOW", c.kinds)
+		}
+	}
+	// The env-less config takes WW_ENEMY_MIRROR_KINDS's set.
+	t.Setenv("WW_ENEMY_REMOTE", "")
+	t.Setenv("WW_ENEMY_MIRROR_KINDS", "mo2,ki")
+	t.Setenv("WW_ENEMY_REMOTE_POLICY", "")
+	if allow, _ := split(RemoteConfigFromEnv(log.Discard{}).Policy); !reflect.DeepEqual(allow, []int16{addr.ProcMo2, addr.ProcKI}) {
+		t.Errorf("WW_ENEMY_MIRROR_KINDS=mo2,ki: allow %X", allow)
+	}
+}
+
+// TestRemoteHostPHitDefaultPolicy: under the default policy and kinds, a
+// Darknut (proc TN: SeedPolicy's ALLOW, not mirrored by default) hitting
+// a remote body is no PHIT (DropNotAllowed), while a Bokoblin passes that
+// filter.
+func TestRemoteHostPHitDefaultPolicy(t *testing.T) {
+	_, _, r := remoteHostGame(t, mailbox.RemoteFlagDetect)
+	r.Kinds, _ = ParseKinds(DefaultMirrorKinds)
+	r.cfg.Policy = DefaultPolicy(r.Kinds)
+	tn := ringHit(0, 0, 1, 200)
+	tn.Proc = addr.ProcTN
+	if p := r.phit(&tn, &mailbox.RemoteBlock{}, Scope{}, &Listing{}); p != nil || r.Stats.DropNotAllowed != 1 {
+		t.Errorf("a Darknut's hit: %+v, drops %d", p, r.Stats.DropNotAllowed)
+	}
+	bk := ringHit(0, 0, 2, 200)
+	bk.Proc = addr.ProcBK
+	r.phit(&bk, &mailbox.RemoteBlock{}, Scope{}, &Listing{})
+	if r.Stats.DropNotAllowed != 1 {
+		t.Errorf("a Bokoblin's hit was not allowed: drops %d", r.Stats.DropNotAllowed)
 	}
 }
 
@@ -793,7 +907,7 @@ func TestRemoteClientPState(t *testing.T) {
 	if out, _ = r.Tick(now.Add(20*time.Millisecond+PStateEvery), scope, g); len(out) != 1 {
 		t.Errorf("after PStateEvery: %d payloads", len(out))
 	}
-	// The block is never written with WW_ENEMY_REMOTE unset.
+	// The block is never written while the config is off.
 	if blk, _, _, _ := mailbox.ReadRemoteBlock(m); blk.Magic != 0 || r.Shutdown() != nil {
 		t.Errorf("block off: %+v", blk)
 	}

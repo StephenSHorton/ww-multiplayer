@@ -39,7 +39,7 @@ The plan:
 | 10 | Write safety | **Each mod declares the address set it may write.** The sets must not overlap (checked at Init). Every write goes through `wwapi/write` (gate, heartbeat, verify, breaker), and a backup is taken before a mod's first save write. |
 | 11 | Splitting `runPuppetSyncCtx` | Do it inside C12 and D1, only after the probes are gone. Keep a two-Dolphin smoke checklist: pose, face, colors, stage change, leave and reset. |
 | 12 | Root package-main tests | Move tests with their code. Cross-package tests (cli golden, coop converge, dolphinenv equivalence) go to `tests/`. `TestCLIReadsNoConfig`, `TestCLISubcommandsUnchanged` and `TestCoopDiagDispatched` read source files, so B1 and D7 rewrite them, not just move them. |
-| 13 | `mods_hash` on the wire | A JSON field in the lobby join, plus a **player-role caps bit** with the hash after a `hasColor` byte for direct `join`. Caps mean different things per role, so it is not a global bit. No `ProtocolVersion` bump. |
+| 13 | `mods_hash` on the wire | A JSON field in the lobby join, plus a **player-role caps bit** with the hash after a `hasColor` byte for direct `join`. Caps mean different things per role, so it is not a global bit. No `ProtocolVersion` bump (protocol 3 came later, with enemy sync). |
 | 14 | C in CI | No devkitPPC job for now. Freshness, budget and layout tests run on every PR (A3); the owner smoke-tests each C PR. |
 | 15 | Two event systems | `wwapi/events` is the source of truth. `session.Controller` adapts to it through `EventMod` from D4 on. |
 | 16 | What "mods" means | Compiled-in Go packages, not drop-in folders. Out-of-process mods over loopback RPC are the possible future path. The C side is an open question for Phase E (§10). |

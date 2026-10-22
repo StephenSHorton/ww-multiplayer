@@ -54,9 +54,11 @@ type GameDeps struct {
 	// Reset resets Dolphin pid's mailbox after the pipelines stopped.
 	Reset func(pid uint32)
 	// EnemySync runs the enemy-sync pipeline on Dolphin pid beside the
-	// pose pipelines, as the host (the sampler) or a joiner (the mirror);
-	// nil runs none (WW_ENEMY_SYNC unset).
-	EnemySync func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, host bool, rep log.Reporter) error
+	// pose pipelines, as the host (the sampler) or a joiner (the mirror),
+	// until ctx ends or it fails; the runner wraps it in Degradable, so a
+	// failure never stops the pose pipelines. nil runs none
+	// (WW_ENEMY_SYNC=0).
+	EnemySync func(ctx context.Context, name, addr string, pid uint32, host bool, rep log.Reporter) error
 	// CoopSync runs coop-sync on Dolphin pid for co-op side cs until ctx
 	// ends (CoopApp.Sync); nil runs none.
 	CoopSync func(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs CoopSide) error
@@ -101,10 +103,14 @@ func realGameDeps(ls *LiveState, c Config) *GameDeps {
 			return c.Coop.Sync(ctx, name, addr, pid, rep, cs, claims.claimed(pid))
 		}
 	}
+	// The enemy pipeline runs under the runner's Degradable, never with
+	// the pipelines' cancel: an enemy failure turns enemies off and leaves
+	// pose running (release-readiness A2). Its CoopSwitchSync stays nil
+	// (enemyPipeline).
 	if enemysync.Enabled() {
-		d.EnemySync = func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, host bool, rep log.Reporter) error {
+		d.EnemySync = func(ctx context.Context, name, addr string, pid uint32, host bool, rep log.Reporter) error {
 			p, _ := enemyPipeline(host, c.Env.Feed, name, addr, pid, rep, feed.NewConnectLog(addr, rep), claims.of(pid, host))
-			return RunPipelines(ctx, cancel, rep, p)
+			return p.Run(ctx)
 		}
 	}
 	return d
@@ -482,7 +488,9 @@ func (g *GameRunner) run(ctx context.Context) {
 }
 
 // runPipelines runs the pose pipelines on pid and, when the deps have
-// enemy sync, the enemy-sync pipeline beside them under one cancel.
+// enemy sync, the enemy-sync pipeline beside them under one cancel. The
+// enemy side is Degradable (enemyDegradable): its failure never ends the
+// pose pipelines, nor reaches the runner's fatal path.
 func (g *GameRunner) runPipelines(ctx context.Context, cancel context.CancelFunc, pid uint32) error {
 	d := g.deps
 	if d.EnemySync == nil {
@@ -493,9 +501,9 @@ func (g *GameRunner) runPipelines(ctx context.Context, cancel context.CancelFunc
 		Pipeline{Name: "pose", Run: func(ctx context.Context) error {
 			return d.Pipelines(ctx, cancel, g.name, g.addr, pid, g.out)
 		}},
-		Pipeline{Name: "enemy-sync", Run: func(ctx context.Context) error {
-			return d.EnemySync(ctx, cancel, g.name, g.addr, pid, host, g.out)
-		}},
+		enemyDegradable(Pipeline{Name: "enemy-sync", Run: func(ctx context.Context) error {
+			return d.EnemySync(ctx, g.name, g.addr, pid, host, g.out)
+		}}, g.out),
 	)
 }
 

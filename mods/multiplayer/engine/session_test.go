@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/enemysync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
@@ -164,5 +165,48 @@ func TestRunJoinSessionNoCoop(t *testing.T) {
 	}
 	if clears != 1 {
 		t.Errorf("mailbox reset %d times, want once", clears)
+	}
+}
+
+// TestRunMultiplayerGoroutinesEnemyRejectKeepsPose: on the CLI path, an
+// enemy pipeline the server refuses (a RejectError, ErrFatal) turns enemy
+// sync off and leaves the pose pipelines running: the session goes on
+// until it is cancelled, and then ends cleanly (release-readiness A2).
+func TestRunMultiplayerGoroutinesEnemyRejectKeepsPose(t *testing.T) {
+	old := newEnemyPipeline
+	t.Cleanup(func() { newEnemyPipeline = old })
+	newEnemyPipeline = func(host bool, _ feed.Env, _, _ string, _ uint32, _ log.Reporter, _ *network.ConnectLog, _ *enemysync.ClaimSet) (Pipeline, bool) {
+		return Pipeline{Name: "enemy-client", Run: func(context.Context) error {
+			return &network.RejectError{Code: network.RejectRole, Reason: "the host runs no enemy sync"}
+		}}, true
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	clears := 0
+	rep := &syncReporter{}
+	done := make(chan error, 1)
+	go func() {
+		done <- runMultiplayerGoroutines(ctx, cancel, idleEnv(ctx, &clears).Feed, "Link", "127.0.0.1:1", rep, nil, nil, nil, false)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for rep.count("enemy sync off for this session") == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if rep.count("enemy sync off for this session") != 1 {
+		t.Fatal("enemy sync was not turned off")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("the session ended with the enemy pipeline: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runMultiplayerGoroutines after cancel = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the session did not end after cancel")
 	}
 }

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -176,9 +177,11 @@ func RunJoinSession(ctx context.Context, cancel context.CancelFunc, env Env, add
 // own Dolphin handle and co-op connection), and hears the puppet-sync
 // client for its warps (Coop.WithPoseClient); nil runs the two pose
 // pipelines alone, as before co-op.
-// host says this is the host's session: with WW_ENEMY_SYNC=1 the host
+// host says this is the host's session: unless WW_ENEMY_SYNC=0 the host
 // runs the enemy-host pipeline (its Moblins are the authority) and a
-// joiner the enemy-client pipeline (enemyPipeline).
+// joiner the enemy-client pipeline (enemyPipeline), under Degradable
+// (enemyDegradable): its failure turns enemies off and leaves pose
+// running.
 // A joiner with both makes one enemysync.ClaimSet for its game: the
 // enemy client fills it, and co-op's K1 on the same game refuses what it
 // claims (enemy-mirror-general.json D8); the host's game has none.
@@ -203,14 +206,30 @@ func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, fe
 	if coop != nil {
 		ps = append(ps, coop.Pipelines(name, addr, rep, claimFunc(claims))...)
 	}
-	if p, ok := enemyPipeline(host, fe, name, addr, 0, rep, connLog, claims); ok {
-		ps = append(ps, p)
+	// The enemy pipeline has its own ConnectLog: one logs a fatal error
+	// once, so an enemy reject on the shared one would leave a later pose
+	// reject unreported.
+	if p, ok := newEnemyPipeline(host, fe, name, addr, 0, rep, feed.NewConnectLog(addr, rep), claims); ok {
+		ps = append(ps, enemyDegradable(p, rep))
 	}
 	return RunPipelines(ctx, cancel, rep, ps...)
 }
 
+// newEnemyPipeline is runMultiplayerGoroutines' enemyPipeline; tests
+// replace it.
+var newEnemyPipeline = enemyPipeline
+
+// enemyDegradable is the enemy-sync pipeline p under Degradable: a
+// Dolphin or network error runs it again after a backoff; a fatal one
+// (errors.Is network.ErrFatal: a reject or a version mismatch) or a
+// panic turns enemy sync off until the pipelines next start, and the
+// pose pipelines beside it keep running (release-readiness A2).
+func enemyDegradable(p Pipeline, rep log.Reporter) Pipeline {
+	return Degradable(p, rep, func(err error) bool { return !errors.Is(err, network.ErrFatal) }, nil)
+}
+
 // enemyPipeline is the enemy-sync pipeline of this session on Dolphin
-// pid (0: the env's), when WW_ENEMY_SYNC=1 (enemysync.Enabled): the host
+// pid (0: the env's), unless WW_ENEMY_SYNC=0 (enemysync.Enabled): the host
 // runs 'enemy-host' (the sampler; its own Go is no enemy client), a
 // joiner 'enemy-client' (the mirror). ok is false when enemy sync is off.
 // claims is the game's claim set the client fills (enemysync.Env.Claims;
@@ -220,6 +239,15 @@ func enemyPipeline(host bool, fe feed.Env, name, addr string, pid uint32, rep lo
 	if !enemysync.Enabled() {
 		return Pipeline{}, false
 	}
+	// CoopSwitchSync stays nil, so the client writes a quiet death's
+	// death switch itself, as co-op may too: both OR the same bit
+	// (release-readiness A8). The right predicate is the replica's
+	// negotiated FeatureLiveSwitches with co-op on and not dry-run, which
+	// this seam does not see: the CLI's --coop-live-switches and the app's
+	// saved setting are wrong on the joiner, the only side that writes,
+	// and co-op also syncs switches at a room change without live
+	// switches. A wrong predicate would drop the mirror's write when
+	// nothing else syncs the switch.
 	env := enemysync.Env{Open: fe.Open, Claims: claims}
 	if host {
 		return Pipeline{Name: "enemy-host", Run: func(ctx context.Context) error {

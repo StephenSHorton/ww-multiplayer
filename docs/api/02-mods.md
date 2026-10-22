@@ -183,7 +183,7 @@ ww-multiplayer mods --dev --no-mod=coop   # what the app's mod flags would load
 
 Players in one session must run the same `client_required` mods at the same versions. `wwapi.ModsHash(infos)` (or `Plan.ModsID()`) takes the mods that load (`LOADED`) with `"multiplayer": "client_required"`, sorts their `id@version` strings, and hashes them joined by newlines with SHA-256 (`wwapi.ModsID{List, Hash}`). `host_only` and `local_only` mods, and mods that do not load, never count. Today both compiled-in mods count: `coop@1.0.0` and `multiplayer@1.0.0`, so a player who turns co-op off (the mod, not the session option) cannot join a host who has it on.
 
-The CLI's `host` and `join` use the mods `mods` lists (manifest defaults); the app uses its runtime's, after settings and flags. The hash goes on the wire in two places, with no `ProtocolVersion` bump (decision 13):
+The CLI's `host` and `join` use the mods `mods` lists (manifest defaults); the app uses its runtime's, after settings and flags. The hash goes on the wire in two places, with no `ProtocolVersion` bump (decision 13; protocol 3 came later, with enemy sync):
 
 - **The lobby.** HELLO's `modsHash`, 64 lowercase hex digits (docs/10-lobby.md §5a). Another hash gets the notice `mods_differ`.
 - **The player hello** (direct `join`, and the app's player connections). Caps bit 0 of a player hello is `CapModsHash` (caps mean something per role; in a lobby hello the same bit is `LobbyCapJSON`). With it, the hello is `[version:2][role 0][caps:2][hasColor:1][r][g][b][hash:32]`; `hasColor` is 0 (and rgb 0) without a color preference. A client that has a hash always sends this form. Another hash gets `MsgReject` with `RejectMods` (5).

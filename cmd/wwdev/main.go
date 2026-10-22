@@ -30,7 +30,7 @@ var feedEnv = feed.Env{Open: cliutil.OpenDolphin, NewClient: engine.NewPlayerCli
 var coopEnv = coopsession.Env{Open: cliutil.OpenDolphin}
 
 // enemyEnv is what enemy sync (mods/enemysync) takes from wwdev (mp-local
-// with WW_ENEMY_SYNC=1, enemy-mirror-local): cliutil.OpenDolphin.
+// unless WW_ENEMY_SYNC=0, enemy-mirror-local): cliutil.OpenDolphin.
 var enemyEnv = enemysync.Env{Open: cliutil.OpenDolphin}
 
 // findDolphin and openDolphin are cliutil's, under the names the moved
