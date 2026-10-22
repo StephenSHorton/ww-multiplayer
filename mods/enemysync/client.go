@@ -2,6 +2,7 @@ package enemysync
 
 import (
 	"cmp"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -207,6 +208,12 @@ type blkSlot struct {
 	catchUp bool // assigned while already dying: never mirrored alive, always quiet
 	sw      uint8
 	swOK    bool              // sw was read (at the pin)
+	ambush  bool              // a Bokoblin pot ambusher (BkAmbusher): ambushType rewrites its mType
+	pot     bool              // and no switch gate (BkPotHidden): ambushPot keeps it in its pot
+	typed   bool              // its mType 0 is written (or was found 0/1/4)
+	oldType uint8             // the mType ambushType replaced (2 or 3), 0 when none was
+	adopted bool              // the REL reported this pid MIRRORED: ambushRestore leaves its mType 0
+	sized   bool              // ambushPot set its scale 1 since the REL last took it
 	last    mailbox.EnemySlot // the last slot written, which a pinned slot the host no longer lists keeps
 	lastAux [4]int16          // and its annex aux
 	haveLst bool
@@ -220,6 +227,10 @@ type MirrorStats struct {
 	// Deaths counts the copies the REL reported dead (quiet deaths),
 	// ZoneBits the zone bits and Switches the death switches written.
 	Deaths, ZoneBits, Switches uint64
+	// Ambushers counts Mirror.ambushType's mType 0 writes (again after an
+	// ambushRestore), AmbushHides the m02BA writes that put one back in
+	// its pot.
+	Ambushers, AmbushHides uint64
 	// HitsFiltered counts the hits ForwardHit dropped (a weapon the kind's
 	// collider ignores on the host).
 	HitsFiltered uint64
@@ -1006,6 +1017,140 @@ func (c *Mirror) orByte(a uint32, mask byte) error {
 	return c.m.Write(a, []byte{v | mask})
 }
 
+// --- Pot ambushers ----------------------------------------------------------
+
+// ambushType writes mType 0 into this game's pot ambusher (a Bokoblin of
+// params type 2 or 3) before its slot is offered: the REL's em_bk_gate
+// (enemy_mirror.c:1421-1429) takes a live mType 0/1/4 only, and its
+// handback (em_handback) knows the create pairs of those. After create,
+// the only read of 2/3 is tubo_wait's leap pick (d_a_bk.cpp:3024; create
+// :5052-5055 already set m02BA, dr.mAction 15 and m030E, and nothing but
+// the type 7 demo, :3162, writes mType again), so a copy the REL takes
+// and hands back patrols as type 0 does. A slot dropped before the REL
+// ever took the copy gives the type back (ambushRestore). The write is
+// done once per local actor, and only for one the walk still lists
+// (offered: a pinned slot's actor may be gone).
+func (c *Mirror) ambushType(b *blkSlot) {
+	if c.brk != nil && c.brk.Off() {
+		return
+	}
+	at := b.addr + addr.BkOffType
+	v, err := mem.ReadU8(c.m, at)
+	if err != nil {
+		return
+	}
+	if v == BkTypeAmbushJump || v == BkTypeAmbushLeap {
+		if err := c.m.Write(at, []byte{0}); err != nil {
+			c.warnOnce("ambush type "+b.Key.String(), fmt.Sprintf("enemy client: mType of ambusher %s: %v", b.Key, err))
+			return
+		}
+		b.oldType = v
+		c.Stats.Ambushers++
+		log.Logf(c.rep, log.Info, "enemy client: %s is a pot ambusher (mType %d); mType 0 written so the REL takes it", b.Key, v)
+	}
+	b.typed = true
+}
+
+// ambushRestore gives back the mType ambushType replaced when b's slot
+// goes (the selection dropped it, or gave it another enemy) before the
+// REL ever reported the copy MIRRORED: that copy stays this game's, and
+// its own reveal leaps (type 3, JATTACK1) as it was placed to. Only while
+// the walk still has the same actor (its pid); a copy the REL took keeps
+// 0 (the REL may still hold it, and its handback patrols as type 0).
+func (c *Mirror) ambushRestore(b *blkSlot) {
+	if !b.Used || b.oldType == 0 || b.adopted || (c.brk != nil && c.brk.Off()) {
+		return
+	}
+	loc, ok := c.local[b.Key]
+	if !ok || loc.PID != b.pid {
+		return
+	}
+	at := loc.Addr + addr.BkOffType
+	if v, err := mem.ReadU8(c.m, at); err != nil || v != 0 {
+		return
+	}
+	if err := c.m.Write(at, []byte{b.oldType}); err != nil {
+		c.warnOnce("ambush restore "+b.Key.String(), fmt.Sprintf("enemy client: mType of ambusher %s back: %v", b.Key, err))
+		return
+	}
+	log.Logf(c.rep, log.Info, "enemy client: %s left the block before the REL took it; mType %d written back", b.Key, b.oldType)
+	b.oldType = 0
+}
+
+// ambushPot runs for an ambusher's copy the REL reports MIRRORED (status
+// pid b.pid), and only then: a copy the REL does not hold (refused, not
+// yet adopted) runs its own AI, and a write there would fight it (a
+// re-hidden copy whose pot is gone reveals again the next frame,
+// d_a_bk.cpp:4239-4249, resetting m0300/m0310 and, moving, knocking
+// itself back). The adopted copy is paused, so what Go writes stays.
+//
+// Its scale goes to 1 once per adoption, on the actor and on the model's
+// base scale: a reveal with the pot gone sets 0.5 (:4248), and only the
+// copy's own execute grows it back (tubo_wait :3014) and copies it to the
+// model (:4362), which the REL never does (it rebuilds the base matrix
+// only); the scale is not streamed.
+//
+// hide (b.pot, the host's slot HIDDEN and not DYING) puts a copy that
+// came out here before the adoption back in its pot: the REL clears
+// m02BA when the host's reveals (em_kind_fields) but never sets it.
+// 0xFF is the ambusher's own hidden value (create :5053); an ambusher
+// placed with a switch gate holds m02B7 + 1 there instead (:5064-5068)
+// and is not written. The tick after the adoption is the first that
+// sees MIRRORED, so a copy that was out stands visible for that tick.
+func (c *Mirror) ambushPot(b *blkSlot, hide bool) {
+	if c.brk != nil && c.brk.Off() {
+		return
+	}
+	if !b.sized {
+		b.sized = c.ambushScale(b)
+	}
+	if !hide {
+		return
+	}
+	at := b.addr + addr.BkOffDrawGate
+	v, err := mem.ReadU8(c.m, at)
+	if err != nil || v != 0 {
+		return
+	}
+	if err := c.m.Write(at, []byte{0xFF}); err != nil {
+		c.warnOnce("ambush hide "+b.Key.String(), fmt.Sprintf("enemy client: hiding ambusher %s: %v", b.Key, err))
+		return
+	}
+	c.Stats.AmbushHides++
+}
+
+// ambushScale writes scale 1 into b's actor and its model's base scale
+// (mpMorf -> mpModel -> mBaseScale) where either is not 1, and reports
+// whether both were read (and written where needed).
+func (c *Mirror) ambushScale(b *blkSlot) bool {
+	morf, err := mem.ReadU32(c.m, b.addr+addr.BkOffMorf)
+	if err != nil || !addr.InMEM1(morf) {
+		return false
+	}
+	model, err := mem.ReadU32(c.m, morf+addr.McaMorfOffModel)
+	if err != nil || !addr.InMEM1(model) {
+		return false
+	}
+	one := make([]byte, 0, 12)
+	for range 3 {
+		one = binary.BigEndian.AppendUint32(one, math.Float32bits(1))
+	}
+	for _, at := range []uint32{b.addr + addr.ActorOffScale, model + addr.J3DModelOffBaseScale} {
+		cur, err := c.m.Read(at, len(one))
+		if err != nil {
+			return false
+		}
+		if slices.Equal(cur, one) {
+			continue
+		}
+		if err := c.m.Write(at, one); err != nil {
+			c.warnOnce("ambush scale "+b.Key.String(), fmt.Sprintf("enemy client: scale of ambusher %s: %v", b.Key, err))
+			return false
+		}
+	}
+	return true
+}
+
 // --- The tick -----------------------------------------------------------------
 
 // writeBlock writes one block with the slots, annex and kind mask given
@@ -1311,6 +1456,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		n := next[j]
 		if !n.Used {
 			if b.Used {
+				c.ambushRestore(b)
 				c.lastHits[j], c.lastStatus[j] = 0, [2]uint8{}
 			}
 			*b = blkSlot{}
@@ -1318,8 +1464,10 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		}
 		o, offered := offers[n.Key]
 		if !b.Used || b.Key != n.Key {
+			c.ambushRestore(b)
 			*b = blkSlot{pid: o.loc.PID, local: o.loc.Ident, kind: o.loc.Kind, room: o.loc.HomeRoom, addr: o.loc.Addr,
-				catchUp: n.Pinned}
+				catchUp: n.Pinned, ambush: o.loc.Kind == KindBK && BkAmbusher(o.loc.Params)}
+			b.pot = b.ambush && BkPotHidden(o.loc.Params)
 			c.lastHits[j], c.lastStatus[j] = 0, [2]uint8{}
 		} else if offered && !b.Pinned && o.loc.PID != b.pid {
 			// The same key under a new local actor (re-created in this room: a
@@ -1327,7 +1475,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 			// follows the walk, as the prototype re-read the pid every tick. A
 			// pinned slot is unpin's (a new pid there is done).
 			b.pid, b.local, b.kind, b.room, b.addr = o.loc.PID, o.loc.Ident, o.loc.Kind, o.loc.HomeRoom, o.loc.Addr
-			b.haveLst = false
+			b.haveLst, b.typed, b.oldType, b.adopted, b.sized = false, false, 0, false, false
 			c.lastHits[j], c.lastStatus[j] = 0, [2]uint8{}
 		}
 		if n.Pinned && !b.Pinned {
@@ -1341,6 +1489,9 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		}
 		b.selSlot = n
 		b.quiet = c.Quiet.Has(b.kind) || b.catchUp
+		if b.ambush && !b.typed && offered {
+			c.ambushType(b)
+		}
 	}
 
 	// Smooth every listed enemy matched here (a newcomer then has its
@@ -1424,6 +1575,16 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		es.PID, es.PKey, es.Proc = b.pid, b.local.PKey, b.local.Proc
 		if b.quiet {
 			es.Flags2 |= mailbox.EnemySF2Quiet
+		}
+		if b.ambush {
+			// Only a copy the REL holds (ambushPot); status is the read after
+			// the walk, its pid this slot's local actor.
+			if e := &status.Status[j]; e.PID == b.pid && e.State == mailbox.EnemyStateMirrored {
+				b.adopted = true
+				c.ambushPot(b, b.pot && es.Flags&(mailbox.EnemySFHidden|mailbox.EnemySFDying) == mailbox.EnemySFHidden)
+			} else {
+				b.sized = false
+			}
 		}
 		b.last, b.haveLst = es, true
 		slots[j] = es

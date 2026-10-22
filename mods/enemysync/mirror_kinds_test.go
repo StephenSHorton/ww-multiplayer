@@ -848,3 +848,246 @@ func slotOf2(st *State, proc, setID uint16) Slot {
 	}
 	return Slot{}
 }
+
+// TestMirrorAmbusher: a pot ambusher (kindRoom's BK setID 1, type 2)
+// matched to the host's has its mType written 0 before the block that
+// offers it (the REL's em_bk_gate takes 0/1/4 only), once. Nothing else is
+// written while the REL does not report the copy MIRRORED (refused: its
+// own AI runs). Once it does, and while the host's slot is HIDDEN, a copy
+// that came out here (m02BA 0) is put back in its pot (0xFF) and its
+// actor and model scale go to 1; once the host's reveals, m02BA is the
+// REL's. A re-adoption with the host's already out sets the scale only,
+// and an adopted ambusher the host stops listing keeps mType 0. The torch
+// Bokoblin beside it is never written.
+func TestMirrorAmbusher(t *testing.T) {
+	g, m, es := kindRoom(t)
+	tick := booted(t, g, m)
+	torch, _ := es.Of(0)
+	amb, _ := es.Of(1)
+	const morf, model = uint32(0x817E0000), uint32(0x817E1000)
+	store(t, m, amb.Addr+addr.BkOffMorf, binary.BigEndian.AppendUint32(nil, morf))
+	store(t, m, morf+addr.McaMorfOffModel, binary.BigEndian.AppendUint32(nil, model))
+	half := binary.BigEndian.AppendUint32(nil, math.Float32bits(0.5))
+	halves := func() {
+		t.Helper()
+		store(t, m, amb.Addr+addr.ActorOffScale, slices.Concat(half, half, half)) // its pot gone (d_a_bk.cpp:4248)
+		store(t, m, model+addr.J3DModelOffBaseScale, slices.Concat(half, half, half))
+	}
+	store(t, m, amb.Addr+addr.BkOffDrawGate, []byte{0}) // revealed here first
+	halves()
+	start := time.Unix(2000, 0)
+	c := NewMirror(m, log.Discard{}, nil, false, start)
+	c.Kinds, _ = ParseKinds("bk")
+	m.Record(true)
+	now := start.Add(time.Second)
+	st := &State{Flags: StateFlagInScope, Epoch: 7, Seq: 1, HostBeat: 9, HostMS: 1000, Stage: "M_Dai", Room: 1,
+		HostKindMask: 1 << KindBK, KindHash: KindHash()}
+	st.Slots = []Slot{
+		{SetID: 0, Proc: addr.ProcBK, Kind: KindBK, Handle: 1, Health: 5, MorfRate: 1},
+		{SetID: 1, Proc: addr.ProcBK, Kind: KindBK, Handle: 2, Health: 5, MorfRate: 1, Flags: SlotHidden},
+	}
+	step := func() *mailbox.EnemyBlock {
+		t.Helper()
+		now = now.Add(16 * time.Millisecond)
+		st.Seq++
+		st.HostMS = uint32(now.Sub(start).Milliseconds())
+		pushState(t, c, st, now)
+		tick()
+		m.ResetWrites()
+		if _, _, err := c.Tick(now); err != nil {
+			t.Fatal(err)
+		}
+		b := blockWrites(t, m)
+		if len(b) != 1 {
+			t.Fatalf("%d blocks", len(b))
+		}
+		return &b[0]
+	}
+	u8 := func(a uint32) uint8 {
+		t.Helper()
+		v, err := mem.ReadU8(m, a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	scales := func(want float32) {
+		t.Helper()
+		for _, a := range []uint32{amb.Addr + addr.ActorOffScale, model + addr.J3DModelOffBaseScale} {
+			for i := range uint32(3) {
+				if v, _ := mem.ReadF32(m, a+4*i); v != want {
+					t.Errorf("scale at 0x%08X[%d] = %v, want %v", a, i, v, want)
+				}
+			}
+		}
+	}
+	// wrote reports whether this tick wrote m02BA or a scale.
+	wrote := func() bool {
+		for _, w := range m.Writes() {
+			switch w.Addr {
+			case amb.Addr + addr.BkOffDrawGate, amb.Addr + addr.ActorOffScale, model + addr.J3DModelOffBaseScale:
+				return true
+			}
+		}
+		return false
+	}
+	status := func(j int, state, lastErr uint8) {
+		t.Helper()
+		at := mailbox.EnemyBlockAddr + mailbox.EnemyStatusOff + uint32(j)*mailbox.EnemyStatusSize
+		store(t, m, at+mailbox.EnemySTActorOff, binary.BigEndian.AppendUint32(nil, amb.Addr))
+		store(t, m, at+mailbox.EnemySTPIDOff, binary.BigEndian.AppendUint32(nil, amb.PID))
+		store(t, m, at+mailbox.EnemySTStateOff, []byte{state})
+		store(t, m, at+mailbox.EnemySTLastErrOff, []byte{lastErr})
+	}
+
+	// Offered, not yet adopted: mType 0 before the block, nothing else. The
+	// block, slots included, is one write from the annex
+	// (mailbox.EnemyBlock.EncodeWrite), so before it is before the slots.
+	b := step()
+	j, s := slotByPID(b, amb.PID)
+	if s == nil || s.Flags&mailbox.EnemySFHidden == 0 {
+		t.Fatalf("the ambusher has no hidden slot: %+v", b.Slots)
+	}
+	if u8(amb.Addr+addr.BkOffType) != 0 || u8(amb.Addr+addr.BkOffDrawGate) != 0 || u8(torch.Addr+addr.BkOffType) != 4 {
+		t.Errorf("mType %d m02BA 0x%02X, torch mType %d", u8(amb.Addr+addr.BkOffType), u8(amb.Addr+addr.BkOffDrawGate), u8(torch.Addr+addr.BkOffType))
+	}
+	typeAt, blockAt, blocks := -1, -1, 0
+	for i, w := range m.Writes() {
+		switch {
+		case w.Addr == amb.Addr+addr.BkOffType:
+			typeAt = i
+		case w.Addr >= mailbox.EnemyAnnexAddr && w.Addr < mailbox.EnemyAnnexAddr+uint32(mailbox.EnemyWriteSpan):
+			blocks++
+			if w.Addr == mailbox.EnemyAnnexAddr && len(w.Data) == mailbox.EnemyWriteSpan {
+				blockAt = i
+			}
+		case w.Addr == torch.Addr+addr.BkOffType:
+			t.Error("the torch Bokoblin's mType was written")
+		}
+	}
+	if typeAt < 0 || blockAt < 0 || typeAt > blockAt || blocks != 1 {
+		t.Errorf("the mType write (%d) is not before the one block write (%d, %d block writes)", typeAt, blockAt, blocks)
+	}
+	if wrote() || c.Stats.Ambushers != 1 || c.Stats.AmbushHides != 0 {
+		t.Errorf("before the adoption: wrote %v stats %+v", wrote(), c.Stats)
+	}
+	scales(0.5)
+
+	// Refused (its own AI runs): left alone.
+	status(j, mailbox.EnemyStateRefused, mailbox.EnemyErrGate)
+	step()
+	if wrote() || c.Stats.AmbushHides != 0 {
+		t.Errorf("refused: wrote %v stats %+v", wrote(), c.Stats)
+	}
+
+	// Adopted: back in its pot, full size; then nothing more to write.
+	status(j, mailbox.EnemyStateMirrored, mailbox.EnemyErrNone)
+	step()
+	if u8(amb.Addr+addr.BkOffDrawGate) != 0xFF || c.Stats.Ambushers != 1 || c.Stats.AmbushHides != 1 {
+		t.Errorf("adopted: m02BA 0x%02X stats %+v", u8(amb.Addr+addr.BkOffDrawGate), c.Stats)
+	}
+	scales(1)
+	step()
+	if wrote() || c.Stats.AmbushHides != 1 {
+		t.Errorf("adopted, second tick: wrote %v stats %+v", wrote(), c.Stats)
+	}
+
+	// The host's came out: once the block's slot (the smoother's render
+	// time) is no longer HIDDEN, m02BA is left to the REL.
+	// (Until then each tick's m02BA 0 below is put back: still HIDDEN.)
+	st.Slots[1].Flags &^= SlotHidden
+	revealed := false
+	for range 30 {
+		store(t, m, amb.Addr+addr.BkOffDrawGate, []byte{0})
+		b := step()
+		_, s := slotByPID(b, amb.PID)
+		if s == nil || s.Flags&mailbox.EnemySFHidden != 0 {
+			continue
+		}
+		revealed = true
+		for _, w := range m.Writes() {
+			if w.Addr == amb.Addr+addr.BkOffDrawGate || w.Addr == amb.Addr+addr.BkOffType {
+				t.Errorf("a write at 0x%08X after the reveal", w.Addr)
+			}
+		}
+		if u8(amb.Addr+addr.BkOffDrawGate) != 0 {
+			t.Error("m02BA rewritten after the reveal")
+		}
+	}
+	if !revealed || c.Stats.Ambushers != 1 {
+		t.Errorf("revealed %v stats %+v", revealed, c.Stats)
+	}
+
+	// Handed back, out at half size, adopted again with the host's out: the
+	// scale goes to 1, m02BA stays the REL's.
+	hides := c.Stats.AmbushHides
+	status(j, mailbox.EnemyStateReleased, mailbox.EnemyErrNone)
+	step()
+	halves()
+	status(j, mailbox.EnemyStateMirrored, mailbox.EnemyErrNone)
+	step()
+	scales(1)
+	if u8(amb.Addr+addr.BkOffDrawGate) != 0 || c.Stats.AmbushHides != hides {
+		t.Errorf("re-adopted: m02BA 0x%02X stats %+v", u8(amb.Addr+addr.BkOffDrawGate), c.Stats)
+	}
+
+	// Adopted, then no longer listed: its mType stays 0.
+	st.Slots = st.Slots[:1]
+	for range 3 {
+		step()
+	}
+	if u8(amb.Addr+addr.BkOffType) != 0 {
+		t.Errorf("an adopted ambusher's mType went back to %d", u8(amb.Addr+addr.BkOffType))
+	}
+}
+
+// TestMirrorAmbusherRestore: an ambusher whose slot goes before the REL
+// ever took it gets its mType back (its own reveal picks its leap as
+// placed); the next offer writes 0 again.
+func TestMirrorAmbusherRestore(t *testing.T) {
+	g, m, es := kindRoom(t)
+	tick := booted(t, g, m)
+	amb, _ := es.Of(1)
+	start := time.Unix(2000, 0)
+	c := NewMirror(m, log.Discard{}, nil, false, start)
+	c.Kinds, _ = ParseKinds("bk")
+	now := start.Add(time.Second)
+	st := &State{Flags: StateFlagInScope, Epoch: 7, Seq: 1, HostBeat: 9, HostMS: 1000, Stage: "M_Dai", Room: 1,
+		HostKindMask: 1 << KindBK, KindHash: KindHash()}
+	listed := []Slot{
+		{SetID: 0, Proc: addr.ProcBK, Kind: KindBK, Handle: 1, Health: 5, MorfRate: 1},
+		{SetID: 1, Proc: addr.ProcBK, Kind: KindBK, Handle: 2, Health: 5, MorfRate: 1, Flags: SlotHidden},
+	}
+	step := func(slots []Slot) {
+		t.Helper()
+		st.Slots = slots
+		now = now.Add(16 * time.Millisecond)
+		st.Seq++
+		st.HostMS = uint32(now.Sub(start).Milliseconds())
+		pushState(t, c, st, now)
+		tick()
+		if _, _, err := c.Tick(now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mType := func() uint8 {
+		t.Helper()
+		v, err := mem.ReadU8(m, amb.Addr+addr.BkOffType)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	step(listed)
+	if mType() != 0 || c.Stats.Ambushers != 1 {
+		t.Fatalf("offered: mType %d stats %+v", mType(), c.Stats)
+	}
+	step(listed[:1])
+	if mType() != BkTypeAmbushJump {
+		t.Errorf("dropped unadopted: mType %d, want %d", mType(), BkTypeAmbushJump)
+	}
+	step(listed)
+	if mType() != 0 || c.Stats.Ambushers != 2 {
+		t.Errorf("offered again: mType %d stats %+v", mType(), c.Stats)
+	}
+}
