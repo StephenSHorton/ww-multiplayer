@@ -283,9 +283,11 @@ jobs:
 
             See your friend's Link in your game, live. Download the app, double-click it, and it walks you through the rest.
 
+            **New in v0.5.0: shared enemies.** The host's game runs the Moblins, Bokoblins and ChuChus, and everyone else sees and fights those same enemies; your hits land on the host's enemy and a kill counts for everyone. Each remote player also has a real body in the host's game that these enemies chase and hit. Other enemy types still run separately on each player's game for now. It is on by default; `WW_ENEMY_SYNC=0` turns it off. The patched disc now runs with 48 MB of Dolphin memory, which the app sets for you on every launch (booting from Dolphin's own game list needs Dolphin 2609 or newer, or that override turned on by hand).
+
             **You need** [Dolphin](https://dolphin-emu.org/) (a recent stable build) and **your own legitimate copy of The Legend of Zelda: The Wind Waker (NTSC-U, GZLE01)** as a `.iso` or `.ciso` file.
 
-            **Everyone must run the same version.** A host turns away a player on an incompatible version with a message saying to update (v0.4.0 can't play with v0.3.x or older), and a player whose built-in mods differ from the host's.
+            **Everyone must run the same version.** A host turns away a player on an incompatible version with a message saying to update (v0.5.0 can't play with v0.4.x or older), and a player whose built-in mods differ from the host's.
 
             **Upgrading?** Patch your vanilla (unmodified) disc again with this version (Setup in the app does it) and boot it from Dolphin's game list. Dolphin save states taken on an older version are refused: load your in-game save and take a new state.
 
