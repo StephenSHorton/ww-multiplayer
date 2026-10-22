@@ -64,6 +64,21 @@ import (
 // d_stage.cpp:2059-2068; the room tables have no STAG, :2181-2193): its
 // one entry at the chunk offset, whatever the count says
 // (dStage_stagInfoInit, :1670-1678).
+//
+// PLYR, the player starts, has 0x20-byte entries like ACTR and is read
+// from both kinds of file (dStage_dt_c_stageLoader, d_stage.cpp:2157;
+// dStage_dt_c_roomLoader, :2182) by dStage_playerInit (:1428-1475), which
+// creates Link from the first PLYR chunk the play scene decodes: once Link
+// exists it returns at once (:1432). stage.dzs is decoded before any room,
+// so a stage with a PLYR chunk always starts Link from it; otherwise the
+// start room's room.dzr does. A start point >= 0 picks the entry whose
+// (u8)angle.z equals it (Actor.StartPoint) and JUT_ASSERTs that one does
+// (:1455-1463), even in an empty chunk, and JUT_ASSERT is not compiled
+// out of the retail game (JUTAssert.h:9): a point the list lacks halts it.
+// The matched entry's room (Actor.StartRoom) then becomes the start room
+// (:1479-1480). For stage.dzs's starts that happens before any room is
+// loaded, so the game loads that room (dStage_Create, :2231-2232) and the
+// room the stage change asked for is ignored.
 const (
 	dzxHeaderSize     = 4
 	dzxChunkSize      = 0xC
@@ -71,6 +86,7 @@ const (
 	scaledEntrySize   = 0x24
 	stagSize          = 0x20
 	stagTag           = "STAG"
+	playerTag         = "PLYR"
 	layerTagSuffixes  = "0123456789ab"
 	stagTypeShift     = 16
 	stagTypeMask      = 7
@@ -112,6 +128,10 @@ type DZx struct {
 	Chunks []Chunk // the whole chunk table in file order, every tag, read or not
 	Stag   *Stag   // the first STAG chunk's entry; nil when there is none
 	Actors []Actor // the actor chunks' entries, every layer, in creation order
+	// Players is the first PLYR chunk's entries, the player starts
+	// (Layer AllLayers); empty when it has none, nil when there is no PLYR
+	// chunk (HasPlayers).
+	Players []Actor
 }
 
 // Chunk is one chunk header.
@@ -144,6 +164,16 @@ func (a Actor) DeadChecked() bool { return !a.Scaled }
 // OnLayer reports whether the game creates the entry when its file is
 // read on layer layer (0-11).
 func (a Actor) OnLayer(layer int) bool { return a.Layer == AllLayers || a.Layer == layer }
+
+// StartPoint is the start point a PLYR entry answers to: the low byte of
+// its angle z (dStage_playerInit, d_stage.cpp:1456). The high byte is
+// something else (the ship's spawn point, 0xFF for none).
+func (a Actor) StartPoint() int { return int(uint8(a.Angle[2])) }
+
+// StartRoom is the room a PLYR entry starts Link in: its parameters' low
+// 6 bits, which dStage_playerInit makes the start room
+// (d_stage.cpp:1479-1480).
+func (a Actor) StartRoom() int { return int(a.Params & 0x3F) }
 
 // Stag is a stage's STAG entry (stage_stag_info_class, d_stage.h:66-77).
 type Stag struct {
@@ -288,28 +318,51 @@ func ParseDZx(b []byte) (*DZx, error) {
 		off := int(d.Chunks[i].Offset)
 		d.Actors = slices.Grow(d.Actors, count)
 		for k := range count {
-			e := b[off+k*int(size):]
-			a := Actor{
-				Tag: pt.tag, Layer: pt.layer, Index: k,
-				Name:   cName(str[off+k*int(size):][:8]),
-				Params: be.Uint32(e[0x08:]),
-				Pos: [3]float32{
-					math.Float32frombits(be.Uint32(e[0x0C:])),
-					math.Float32frombits(be.Uint32(e[0x10:])),
-					math.Float32frombits(be.Uint32(e[0x14:])),
-				},
-				Angle:  [3]int16{int16(be.Uint16(e[0x18:])), int16(be.Uint16(e[0x1A:])), int16(be.Uint16(e[0x1C:]))},
-				SetID:  be.Uint16(e[0x1E:]),
-				Scaled: pt.scaled,
-			}
-			if pt.scaled {
-				a.Scale = [3]uint8{e[0x20], e[0x21], e[0x22]}
-			}
-			d.Actors = append(d.Actors, a)
+			d.Actors = append(d.Actors, readActor(b, str, off+k*int(size), pt.tag, pt.layer, k, pt.scaled))
+		}
+	}
+
+	if i, ok := first[playerTag]; ok {
+		count, err := entries(i, actorEntrySize)
+		if err != nil {
+			return nil, err
+		}
+		d.Players = make([]Actor, 0, count)
+		off := int(d.Chunks[i].Offset)
+		for k := range count {
+			d.Players = append(d.Players, readActor(b, str, off+k*actorEntrySize, playerTag, AllLayers, k, false))
 		}
 	}
 	return d, nil
 }
+
+// readActor reads the entry at off of b (str is b as a string), checked
+// to fit by the caller.
+func readActor(b []byte, str string, off int, tag string, layer, index int, scaled bool) Actor {
+	be := binary.BigEndian
+	e := b[off:]
+	a := Actor{
+		Tag: tag, Layer: layer, Index: index,
+		Name:   cName(str[off:][:8]),
+		Params: be.Uint32(e[0x08:]),
+		Pos: [3]float32{
+			math.Float32frombits(be.Uint32(e[0x0C:])),
+			math.Float32frombits(be.Uint32(e[0x10:])),
+			math.Float32frombits(be.Uint32(e[0x14:])),
+		},
+		Angle:  [3]int16{int16(be.Uint16(e[0x18:])), int16(be.Uint16(e[0x1A:])), int16(be.Uint16(e[0x1C:]))},
+		SetID:  be.Uint16(e[0x1E:]),
+		Scaled: scaled,
+	}
+	if scaled {
+		a.Scale = [3]uint8{e[0x20], e[0x21], e[0x22]}
+	}
+	return a
+}
+
+// HasPlayers reports whether the file has a PLYR chunk: whether the game
+// starts Link from it when it is the first such file decoded.
+func (d *DZx) HasPlayers() bool { return d.Players != nil }
 
 // OnLayer returns the entries the game creates reading the file on layer
 // layer (0-11): every-layer chunks' and that layer's, in creation order.
