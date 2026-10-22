@@ -614,3 +614,14 @@ On the eye phase Btd's own
 `end()` runs its death demo, the floor drop, the heart container,
 STAGE_BOSS_ENEMY and the warp flower. Nothing is deleted. The op is
 stateless and adds nothing to the keeper's actor.
+
+Kalle Demos (`research/C1-kalle-demos-relay.md`) is the second proc,
+0x00EC (Bmd), taken only in the stage named exactly `kinBOSS`. `bk_bmd`
+answers mMode 0xB `already`, applies only at the fallen, open flower (mMode
+3 at `m302` 2..5, `m304` not 0, `m310` 0, `mB74` 0; `m304` alone can be
+left over at `m302` 0..1) and answers every other state
+`waiting`. The apply is all of `core_damage_check`'s lethal block
+(d_a_bmd.cpp:609-617): `m306` 100, `mB74` 100, `m310` 20000, `mBE0` 2,
+`mBDC` 1.0f, `m302` 0, `mMode` 0xB, then `mDoAud_bgmStop(30)` through
+`zel_basic` (two fields alone would leave `end()` waiting on an `mB76` that
+never counts). The result bytes for this proc are mMode, `m302`, `m304`.
