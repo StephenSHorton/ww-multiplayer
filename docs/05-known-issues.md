@@ -866,7 +866,7 @@ Evidence (owner machine): logs in `C:\Users\4step\.claude\jobs\10f6fa34\tmp\pd\d
 ## Shared enemies
 
 Enemy sync (`mods/enemysync`) and the remote players' bodies are on by default, with no env
-vars: the host's Moblins, Bokoblins and ChuChus (`DefaultMirrorKinds`, `mo2,bk+u,cc+u`) are
+vars: the host's Moblins, Bokoblins, ChuChus and Keese (`DefaultMirrorKinds`, `mo2,bk+u,cc+u,ki+u`) are
 the real ones, every other game mirrors them, and remote bodies run at step6 with
 `DefaultPolicy`, which arms only those kinds' procs. Each start logs what it runs:
 `enemy host: host-authoritative enemies on (kinds ...), remote Link bodies step6 ...` and

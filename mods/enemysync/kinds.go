@@ -238,8 +238,10 @@ func AllKinds() KindSet {
 
 // DefaultMirrorKinds is WW_ENEMY_MIRROR_KINDS's default: the Moblin by
 // setID, the Bokoblin and the ChuChu by setID and unkeyed (live checks L6,
-// L7 TyuTyu and Cave10, L8, L9). An unkeyed Moblin has had no live check.
-const DefaultMirrorKinds = "mo2,bk+u,cc+u"
+// L7 TyuTyu and Cave10, L8, L9), and the Keese keyed and fly-type unkeyed
+// (Cave09 fly kill, #159; DRC room 4 wait-type wake and attack on a remote
+// body, 2026-10-22). An unkeyed Moblin has had no live check.
+const DefaultMirrorKinds = "mo2,bk+u,cc+u,ki+u"
 
 // ParseKinds parses a WW_ENEMY_MIRROR_KINDS value: kind names joined by
 // "," (a "+u" suffix also takes that kind's unkeyed actors); "" is

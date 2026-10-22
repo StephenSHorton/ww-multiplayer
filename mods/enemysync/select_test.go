@@ -417,7 +417,7 @@ func TestBatch5Knobs(t *testing.T) {
 		t.Error("WW_ENEMY_STATE_30HZ=1")
 	}
 	t.Setenv("WW_ENEMY_MIRROR_KINDS", "xx")
-	if s, err := MirrorKinds(); err == nil || s.String() != "mo2,bk+u,cc+u" {
+	if s, err := MirrorKinds(); err == nil || s.String() != "mo2,bk+u,cc+u,ki+u" {
 		t.Errorf("a bad WW_ENEMY_MIRROR_KINDS: %v %v", s, err)
 	}
 	local, _ := ParseKinds("mo2,bk+u,cc+u")
