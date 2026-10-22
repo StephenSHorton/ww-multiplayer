@@ -459,8 +459,9 @@ func enemyBlockDump(w io.Writer, m mem.Reader) error {
 	if tail != blk.Seq {
 		torn = " (TORN: head != tail)"
 	}
-	fmt.Fprintf(w, "Go span: magic 0x%08X %s seq_head %d seq_tail %d%s host_beat %d go_write_ms %d count %d flags 0x%02X layout %d epoch %d stage %q room %d role %d kind_mask 0x%X\n",
-		blk.Magic, magic, blk.Seq, tail, torn, blk.HostBeat, blk.GoWriteMS, len(blk.Slots), blk.Flags, blk.Layout, blk.Epoch, blk.Stage, blk.Room, blk.Role, blk.KindMask)
+	fmt.Fprintf(w, "Go span: magic 0x%08X %s seq_head %d seq_tail %d%s host_beat %d go_write_ms %d count %d flags 0x%02X layout %d epoch %d stage %q room %d role %d kind_mask 0x%X knob_gen %d hkd_hi % X\n",
+		blk.Magic, magic, blk.Seq, tail, torn, blk.HostBeat, blk.GoWriteMS, len(blk.Slots), blk.Flags, blk.Layout, blk.Epoch, blk.Stage, blk.Room, blk.Role, blk.KindMask,
+		blk.KnobGen, blk.HkdHi[:])
 	for i, s := range blk.Slots {
 		fmt.Fprintf(w, "  slot %d: pid %d proc 0x%04X pkey 0x%08X pos %.1f %.1f %.1f angle %d tilt %d attack %d/%d health %d flags 0x%02X frame %.2f rate %.2f sample %d bck 0x%02X attr %d anm_seq %d morf %d flags2 0x%02X blur %d/%.2f\n",
 			i, s.PID, s.Proc, s.PKey, s.Pos[0], s.Pos[1], s.Pos[2], s.AngleY, s.Tilt, s.AttackType, s.AttackPhase, s.Health, s.Flags, s.MorfFrame, s.MorfRate, s.SampleSeq,
@@ -474,14 +475,37 @@ func enemyBlockDump(w io.Writer, m mem.Reader) error {
 	if axSeq != blk.Seq {
 		stale = " (STALE: != seq_head; the REL ignores it)"
 	}
-	fmt.Fprintf(w, "annex at 0x%08X: annex_seq %d%s aux %v override %+v invuln_wait %v\n", mailbox.EnemyAnnexAddr, axSeq, stale, ax.Aux, ax.Override, ax.InvulnWait)
+	fmt.Fprintf(w, "annex at 0x%08X: annex_seq %d%s aux %v override %+v invuln_wait %v hkdx % X tn_tg_hit_up %d\n", mailbox.EnemyAnnexAddr, axSeq, stale, ax.Aux, ax.Override,
+		ax.InvulnWait, ax.HookDisableX[:], ax.TnTgHitUp)
+	// Layout 4's knob table (batch C): valid when both gen words equal the
+	// block's knob_gen, its layout is 4 and its count covers the kinds
+	// (the REL's em_knob_validate, which echoes the gen at knob_gen_seen).
+	kn, kok, err := mailbox.ReadEnemyKnobs(m, blk.KnobGen, len(enemysync.Kinds))
+	if err != nil {
+		return err
+	}
+	kb, err := m.Read(mailbox.EnemyKnobAddr, int(mailbox.EnemyKnobSize))
+	if err != nil {
+		return err
+	}
+	if len(kb) != int(mailbox.EnemyKnobSize) {
+		return fmt.Errorf("knob table: %d bytes read", len(kb))
+	}
+	be := binary.BigEndian
+	valid := "INVALID for knob_gen (the REL uses its compiled values)"
+	if kok {
+		valid = "valid for knob_gen"
+	}
+	fmt.Fprintf(w, "knob table at 0x%08X: gen_head %d gen_tail %d layout %d count %d: %s; hook %v quiet %v tg_hit_up %v invuln %v\n",
+		mailbox.EnemyKnobAddr, be.Uint32(kb[mailbox.EnemyKnobGenHeadOff:]), be.Uint32(kb[mailbox.EnemyKnobGenTailOff:]), be.Uint16(kb[mailbox.EnemyKnobLayoutOff:]),
+		kb[mailbox.EnemyKnobCountOff], valid, kn.Hook, kn.Quiet, kn.TgUp, kn.Invuln)
 	h := blk.HitApply
 	fmt.Fprintf(w, "  hit_apply: seq %d setID %d collider %d flags 0x%02X atType 0x%08X atp %d se %d hit_mark %d spl %d pos %.1f %.1f %.1f pid %d\n",
 		h.Seq, h.SetID, h.Collider, h.Flags, h.AtType, h.Atp, h.Se, h.HitMark, h.Spl, h.Pos[0], h.Pos[1], h.Pos[2], h.PID)
 	r := st.HitResult
-	fmt.Fprintf(w, "REL span: ack_seq %d ack_frame %d adopted %04b epoch_seen %d hit_apply_ack %d result %d detail %d frames %d sets %d canaries pause_reasserts %d anm_unresolved %d revalidate_failures %d watchdog_releases %d canaries2 %v\n",
+	fmt.Fprintf(w, "REL span: ack_seq %d ack_frame %d adopted %04b epoch_seen %d hit_apply_ack %d result %d detail %d frames %d sets %d canaries pause_reasserts %d anm_unresolved %d revalidate_failures %d watchdog_releases %d canaries2 %v knob_gen_seen %d fp_miss %d\n",
 		st.AckSeq, st.AckFrame, st.AdoptedMask, st.EpochSeen, st.HitApplyAck, r.Result, r.Detail, r.Frames, r.Sets,
-		st.Canaries.PauseReasserts, st.Canaries.AnmUnresolved, st.Canaries.RevalidateFailures, st.Canaries.WatchdogReleases, st.Canaries2)
+		st.Canaries.PauseReasserts, st.Canaries.AnmUnresolved, st.Canaries.RevalidateFailures, st.Canaries.WatchdogReleases, st.Canaries2, st.KnobGenSeen, st.FpMiss)
 	for i, e := range st.Status {
 		fmt.Fprintf(w, "  status %d: actor 0x%08X pid %d state %d pause_prev 0x%02X last_err %d frames %d anm_state %d bck 0x%02X anm_changes %d; hit: seq %d collider %d pending %d\n",
 			i, e.Actor, e.PID, e.State, e.PausePrev, e.LastErr, e.Frames, e.AnmState, e.Bck, e.AnmChanges, st.Hits[i].HitSeq, st.Hits[i].Collider, st.Hits[i].Pending)

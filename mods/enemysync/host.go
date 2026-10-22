@@ -351,7 +351,7 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 		return nil, err
 	}
 	st := &State{Epoch: h.epoch, HostBeat: hb, HostMS: h.HostMS(now), Stage: scope.Stage, Room: scope.Room,
-		HostKindMask: uint8(h.Kinds.Mask()), KindHash: KindHash()}
+		HostKindMask: uint16(h.Kinds.Mask()), KindHash: KindHash()}
 	if !scope.InPlay {
 		h.resetScope()
 		// The first out-of-play STATE goes at once: the in-play sends keep
@@ -429,13 +429,14 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 		h.nextWalk = now // walk at the next tick
 	}
 	// An Ident sampled before and gone now (its actor deleted, or changed
-	// under the sampler) died if it was last seen dying.
+	// under the sampler) died if it was last seen dying; a Kargaroc's
+	// tombstones it whatever it was last seen doing (vanishTomb).
 	for id, ls := range h.last {
 		if sampled[id] {
 			continue
 		}
 		delete(h.last, id)
-		if ls.dying {
+		if ls.dying || vanishTomb(ls.slot.Kind) {
 			s := ls.slot
 			s.Flags = s.Flags&^SlotSnap | SlotDying | SlotRelease
 			s.WFlags = WFlagTomb
@@ -489,20 +490,32 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 	return st, nil
 }
 
+// vanishTomb reports a kind whose enemy gets a tombstone when it vanishes
+// alive (batch C go_changes BB sampler): a Kargaroc deletes itself
+// without dying at the end of a path whose mArg3 is 6 (d_a_bb.cpp:825-834)
+// and when the forest's andsw0 removes it (hajimarinomori_check,
+// d_a_andsw0.cpp:228-243). A client copy handed back instead would fly on
+// as this game's own bird; the tombstone (DYING|RELEASE, WFlagTomb) ends
+// it quietly (ids >= KI always die quietly in the REL). A listed
+// Kargaroc leaves the walk only so (liveSticky keeps it through a
+// knockback; its type and room never change).
+func vanishTomb(id KindID) bool { return id == KindBB }
+
 // wireSlot lays a kind sample out as e's wire slot: the kind, the host
 // actor's pkey, its handle and aux values (BK m48C.z and the jaw, CC
 // shape_angle.x and m310; KI shape.x, shape.z, m326, m328; AM mEyeRot;
-// TN dr.m48C.z; MO2 and AM2 none), a ChuChu's m316.z in the attack bytes, flags2 bit 6
+// TN dr.m48C.z; MO2, AM2 and BB none), a ChuChu's m316.z and a Kargaroc's
+// current.angle.z in the attack bytes, flags2 bit 6
 // (KindF2Light) when it dies with its ice shrink timer running,
 // WFlagEngaged, and WFlagDormant (dormant).
 func (h *Host) wireSlot(e *Enemy, ks *KindSample, now time.Time) Slot {
 	s := ks.Slot
 	s.Kind, s.PKey, s.Handle, s.Aux = e.Kind, e.Ident.PKey, h.HandleOf(e.Ident), ks.Aux
-	if e.Kind == KindCC {
-		s.SetCcM316Z(ks.TiltZ)
-		if ks.CcAtSPrm&addr.CcSPrmSet != 0 {
-			h.engaged[e.Ident] = now
-		}
+	if e.Kind == KindCC || e.Kind == KindBB {
+		s.SetCcM316Z(ks.TiltZ) // CC m316.z; BB current.angle.z (ReadSampleBB)
+	}
+	if e.Kind == KindCC && ks.CcAtSPrm&addr.CcSPrmSet != 0 {
+		h.engaged[e.Ident] = now
 	}
 	if s.Flags&SlotDying != 0 && ks.IceTimer != 0 {
 		s.Flags2 |= KindF2Light
@@ -530,6 +543,8 @@ func (h *Host) wireSlot(e *Enemy, ks *KindSample, now time.Time) Slot {
 //     inactive return clear it, d_a_am2.cpp:1336, 1017-1022).
 //   - TN: never (TN design go_changes host.go: ReadSampleTN sets no
 //     dormant rule; a D_DOZOU statue is refused at adopt instead).
+//   - BB: never (batch C: a perched Kargaroc is the player's to
+//     approach).
 //
 // An allow kind is never dormant while carried (an Armos statue stunned
 // in MAHI mode 12 gains ACTION_CARRY, not LOCKON, d_a_am2.cpp:669, and can
@@ -545,7 +560,7 @@ func dormant(id KindID, ks *KindSample, flags uint8) bool {
 		return ks.Attn&addr.AttnLockonBattle == 0
 	case KindKI, KindAM, KindAM2:
 		return flags&SlotDying == 0 && ks.St.Dormant
-	case KindTN:
+	case KindTN, KindBB:
 		return false
 	}
 	return false
@@ -613,8 +628,13 @@ type HitApplier struct {
 
 	// Annex is the annex every host block carries (WW_ENEMY_ANNEX): the
 	// REL's em_hit_center and em_hit_tick read its tg_hit_up and invuln
-	// wait overrides from this block. NewHitApplier reads it.
+	// wait overrides from this block. HkdHi and Knobs are layout 4's hook
+	// bytes for kind ids 7..14 and knob table values (ParseOverrides: the
+	// host's tg_hit_up and invuln of ids 3..15). NewHitApplier reads them.
 	Annex mailbox.EnemyAnnex
+	HkdHi [mailbox.EnemyHkdHiKinds]uint8
+	Knobs mailbox.EnemyKnobs
+	knob  knobWriter
 }
 
 // heldHit is a hit held over the host Link's demo, with when it came in.
@@ -680,10 +700,11 @@ func NewHitApplier(m mem.Mem, rep log.Reporter, epoch uint32) *HitApplier {
 	a.V1, a.FallbackShrink = os.Getenv("WW_ENEMY_HIT_V1") == "1", os.Getenv("WW_ENEMY_HIT_FALLBACK") == "shrink"
 	a.DemoGate = os.Getenv("WW_ENEMY_HIT_DEMO") != "0"
 	a.Kinds, _ = MirrorKinds()
-	var err error
-	if a.Annex, err = AnnexFromEnv(); err != nil {
+	o, err := OverridesFromEnv()
+	if err != nil {
 		log.Logf(rep, log.Warn, "enemy host: %v; no annex overrides", err)
 	}
+	a.Annex, a.HkdHi, a.Knobs = o.Annex, o.HkdHi, o.Knobs
 	return a
 }
 
@@ -691,7 +712,9 @@ func NewHitApplier(m mem.Mem, rep log.Reporter, epoch uint32) *HitApplier {
 // The hit_apply seq starts at epoch<<16, so a host Go restarted against a
 // still-linked REL never reuses a seq the REL last acked.
 func newHitApplier(m mem.Mem, rep log.Reporter, epoch uint32) *HitApplier {
-	return &HitApplier{m: m, rep: rep, epoch: epoch, seq: epoch << 16, lastSeq: map[uint32]uint16{}, lastHit: map[uint32]time.Time{}}
+	a := &HitApplier{m: m, rep: rep, epoch: epoch, seq: epoch << 16, lastSeq: map[uint32]uint16{}, lastHit: map[uint32]time.Time{}}
+	a.knob.seed(uint64(epoch))
+	return a
 }
 
 // hitKey is lastSeq's and lastHit's key: (client, handle) (design
@@ -925,7 +948,25 @@ func (a *HitApplier) Keepalive(scope Scope, now time.Time) error {
 	if !a.relOK || (!a.lastWr.IsZero() && now.Sub(a.lastWr) < KeepaliveEvery) {
 		return nil
 	}
+	if err := a.checkKnobs(); err != nil {
+		log.Logf(a.rep, log.Warn, "enemy host: knob table: %v", err) // tuning only: the keepalive still goes out
+	}
 	return a.writeBlock(now)
+}
+
+// checkKnobs reads the REL's knob echo before a keepalive (Poll checks
+// it with the ack it reads anyway): the host REL validates the host's
+// own table at each consume (both roles run em_consume) and its
+// tg_hit_up and invuln waits come from it.
+func (a *HitApplier) checkKnobs() error {
+	if a.knob.gen == 0 {
+		return nil
+	}
+	status, err := mailbox.ReadEnemyStatus(a.m)
+	if err != nil {
+		return err
+	}
+	return a.knob.check(a.m, a.rep, "enemy host", &status)
 }
 
 // writeHead writes the block for a request that just became the head and
@@ -950,8 +991,13 @@ func (a *HitApplier) writeBlock(now time.Time) error {
 	a.lastWr = now
 	b := &mailbox.EnemyBlock{Magic: mailbox.EnemyMagic, Seq: a.blockSeq, GoWriteMS: uint32(now.UnixMilli()),
 		Flags: mailbox.EnemyFlagMirror, Layout: mailbox.EnemyLayout, Epoch: a.epoch, Role: mailbox.EnemyRoleHost,
-		Stage: a.scope.Stage, Room: a.scope.Room, KindMask: a.Kinds.Mask(),
+		Stage: a.scope.Stage, Room: a.scope.Room, KindMask: a.Kinds.Mask(), HkdHi: a.HkdHi,
 		Annex: mailbox.EnemyAnnex{Override: a.Annex.Override, InvulnWait: a.Annex.InvulnWait, HookDisableX: a.Annex.HookDisableX, TnTgHitUp: a.Annex.TnTgHitUp}}
+	gen, err := a.knob.prepare(a.m, &a.Knobs, a.epoch, a.blockSeq)
+	if err != nil {
+		return err
+	}
+	b.KnobGen = gen
 	if len(a.queue) > 0 {
 		p := a.queue[0]
 		b.Stage, b.Room = p.stage, p.room
@@ -1065,6 +1111,9 @@ func (a *HitApplier) Poll(st *State, now time.Time) (*Ack, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := a.knob.check(a.m, a.rep, "enemy host", &status); err != nil {
+		log.Logf(a.rep, log.Warn, "enemy host: knob table: %v", err)
+	}
 	ack := &Ack{Client: p.hit.Client, Epoch: p.hit.Epoch, SetID: p.hit.SetID, Handle: p.hit.Handle, HitSeq: p.hit.HitSeq}
 	if st != nil {
 		for i := range st.Slots {
@@ -1135,6 +1184,7 @@ func (a *HitApplier) Shutdown() error {
 	if a.blockSeq == 0 {
 		return nil
 	}
+	a.knob.reset()
 	return mailbox.ClearEnemyBlock(a.m)
 }
 

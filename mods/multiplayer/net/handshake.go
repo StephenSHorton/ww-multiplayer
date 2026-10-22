@@ -82,6 +82,14 @@ import (
 // which is fatal and would end a joiner's whole session, and an older
 // joiner would leave a newer host's enemies silently unshared. Under 3 a
 // mixed pair is refused at the handshake with the version reject instead.
+//
+// Enemy mirror batch C (enemy-mirror-batch-c.json D13) bumped it to 4: its
+// kind table (the Kargaroc; its Magtail row was cut after P0-MT) changes
+// the enemy KindHash, so a v0.5.0 peer would pass a protocol-3 hello and
+// then lose every default-on enemy to the client's KindHash disarm, with
+// only a log line. Under 4 that
+// mixed pair is refused at the hello and shown incompatible in the LAN
+// list (internal/gui/lan.go) instead.
 
 // ProtocolVersion is the wire protocol this build speaks. Bump it on any
 // change an older build can't handle: client and server must match.
@@ -90,7 +98,9 @@ import (
 //	2  co-op: the hello's role and caps, MsgCoop
 //	3  enemy sync: RoleEnemyHost/RoleEnemyClient, MsgEnemy (WireVersion 4);
 //	   enemy layer and remote bodies on by default
-const ProtocolVersion uint16 = 3
+//	4  enemy mirror batch C: the BB kind row (a new KindHash; MT cut),
+//	   the u16 host kind mask (WireVersion stays 4)
+const ProtocolVersion uint16 = 4
 
 // Connection roles, the hello's role byte.
 const (

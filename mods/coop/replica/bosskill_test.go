@@ -55,16 +55,73 @@ func TestBossKillWanted(t *testing.T) {
 			if c.edit != nil {
 				c.edit(o)
 			}
-			if got := bossKillWanted(o, c.armed, c.held); got != c.want {
-				t.Fatalf("bossKillWanted = %v, want %v", got, c.want)
+			got := bossKillWanted(o, c.armed, c.held)
+			if (got != nil) != c.want || (got != nil && got.proc != mailbox.BossProcBtd) {
+				t.Fatalf("bossKillWanted = %+v, want %v", got, c.want)
 			}
 		})
 	}
 }
 
+// fwBossItems is Forbidden Woods' mDungeonItem byte in the image.
+var fwBossItems = addr.OffMemBit(addr.TableFW) + addr.MemBitOffDungeonItem
+
+// fwBoss is the Kalle Demos arena, a BOSS-type stage of FW's table.
+var fwBoss = fakegame.Stage{Name: "kinBOSS", Table: addr.TableFW, KeyHUD: true}
+
+// TestBossKillWantedRows: each row fires in its own arena with its own
+// table's bit held, and asks for its own proc; neither fires with the
+// other's table or bit, in an X stage, or once the local save has the
+// bit.
+func TestBossKillWantedRows(t *testing.T) {
+	held := func(off int) []HeldBit {
+		return []HeldBit{{Off: uint16(off), Mask: bossEnemy, Hold: bossHold}}
+	}
+	cases := []struct {
+		name  string
+		stage string
+		table int8
+		held  []HeldBit
+		local int // an image byte with the bit set locally, -1 for none
+		want  uint16
+	}{
+		{"Gohma", "M_DragB", addr.TableDRC, held(drcBossItems), -1, mailbox.BossProcBtd},
+		{"Kalle Demos", "kinBOSS", addr.TableFW, held(fwBossItems), -1, mailbox.BossProcBmd},
+		{"kinBOSS with DRC's bit held", "kinBOSS", addr.TableFW, held(drcBossItems), -1, 0},
+		{"M_DragB with FW's bit held", "M_DragB", addr.TableDRC, held(fwBossItems), -1, 0},
+		{"kinBOSS with DRC's table", "kinBOSS", addr.TableDRC, held(fwBossItems), -1, 0},
+		{"kinBOSS, the local bit set", "kinBOSS", addr.TableFW, held(fwBossItems), fwBossItems, 0},
+		{"M_DragB, the local bit set", "M_DragB", addr.TableDRC, held(drcBossItems), drcBossItems, 0},
+		{"an X stage on FW's table", "Xboss1", addr.TableFW, held(fwBossItems), -1, 0},
+		{"an X stage on DRC's table", "Xboss0", addr.TableDRC, held(drcBossItems), -1, 0},
+		{"the FW dungeon", "kindan", addr.TableFW, held(fwBossItems), -1, 0},
+		{"the Mothula room", "kinMB", addr.TableFW, held(fwBossItems), -1, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			o := &obs{s: &state.Snapshot{StageName: c.stage, Table: c.table}, screen: screenGame, boss: true}
+			if c.local >= 0 {
+				o.raw[c.local] |= bossEnemy
+			}
+			got := bossKillWanted(o, true, c.held)
+			switch {
+			case c.want == 0 && got != nil:
+				t.Fatalf("bossKillWanted = %+v, want none", got)
+			case c.want != 0 && (got == nil || got.proc != c.want || got.stage != c.stage || got.table != c.table):
+				t.Fatalf("bossKillWanted = %+v, want proc 0x%04X", got, c.want)
+			}
+		})
+	}
+	for _, row := range bossKillRows {
+		if row.stage[0] == 'X' {
+			t.Fatalf("an X refight stage in bossKillRows: %+v", row)
+		}
+	}
+}
+
 // TestBossGuardRules: the allowlist takes the request's seq, and its proc
-// and tag only as Gohma's proc and the tag, on pathBoss alone; the REL's
-// ack and result are no target.
+// and tag only as a bossKillRows proc (Gohma's, Kalle Demos') and the tag,
+// on pathBoss alone; the REL's ack and result are no target.
 func TestBossGuardRules(t *testing.T) {
 	g := NewGuardFor(AllTargets)
 	judge := func(a uint32, val byte) Refusal {
@@ -86,9 +143,25 @@ func TestBossGuardRules(t *testing.T) {
 			t.Fatalf("proc/tag byte %d 0x%02X refused: %s", i, b, r)
 		}
 	}
-	other, _ := mailbox.BossRequestFields(0x00EC, 1) // Kalle Demos' proc: not the REL's
-	if r := judge(procAt+1, other[1]); r != RefuseValue {
-		t.Fatalf("another proc: %s", r)
+	bmd, _ := mailbox.BossRequestFields(mailbox.BossProcBmd, 1)
+	for i, b := range bmd {
+		if r := judge(procAt+uint32(i), b); r != 0 {
+			t.Fatalf("Kalle Demos' proc/tag byte %d 0x%02X refused: %s", i, b, r)
+		}
+	}
+	// Every proc byte value: taken exactly when a row's proc has it there.
+	for i := range 2 {
+		for v := range 256 {
+			want := false
+			for _, row := range bossKillRows {
+				var p [2]byte
+				binary.BigEndian.PutUint16(p[:], row.proc)
+				want = want || p[i] == byte(v)
+			}
+			if r := judge(procAt+uint32(i), byte(v)); (r == 0) != want {
+				t.Fatalf("proc byte %d value 0x%02X: refusal %v, want taken %v", i, v, r, want)
+			}
+		}
 	}
 	if r := judge(procAt+3, 'X'); r != RefuseValue {
 		t.Fatalf("another tag: %s", r)
@@ -327,5 +400,132 @@ func TestBossKillLogOnce(t *testing.T) {
 	}
 	if n := br.log.count("not acked after"); n != 1 {
 		t.Fatalf("not acked logged %d times:\n%s", n, br.log)
+	}
+}
+
+// partnerKilledFW is the world with the partner's Kalle Demos dead (and
+// its demo seen), and the map and compass.
+func (br *bossRig) partnerKilledFW() {
+	var img save.Image
+	img[fwBossItems] = 0x2B
+	br.world(img)
+}
+
+// TestBossKillRelayBmd: the partner kills Kalle Demos while this game is
+// in kinBOSS. The request names Bmd's proc; the REL's waiting answers
+// (the intro, the vines up, the flower falling) are asked again after
+// bossRetry and logged with Bmd's fields, the vines-up modes once; an
+// applied kill is not asked again while end() runs, and the relay stops
+// once the game has set FW's bit itself.
+func TestBossKillRelayBmd(t *testing.T) {
+	br := newBossRig(t, fwBoss, true)
+	br.partnerKilledFW()
+	br.ticks(3)
+	seq, proc, tag := br.request()
+	if seq == 0 || proc != mailbox.BossProcBmd || tag != mailbox.BossTag {
+		t.Fatalf("request seq %d proc 0x%X tag 0x%X; log:\n%s", seq, proc, tag, br.log)
+	}
+	if v := br.liveByte(fwBossItems); v&bossEnemy != 0 {
+		t.Fatalf("the boss bit was written live in the arena: 0x%02X", v)
+	}
+	if st := br.r.Status(); !st.BossKill.Wanted || st.BossKill.Boss != "Kalle Demos" || st.BossKill.Requests != 1 {
+		t.Fatalf("status %+v", st.BossKill)
+	}
+	if !br.log.has("the partner killed Kalle Demos") || !br.log.has("once its flower is down and open") {
+		t.Fatalf("no Kalle Demos line:\n%s", br.log)
+	}
+
+	// The intro, then the vines up (modes 0..2 turning over), then the
+	// flower falling (mode 3, m304 0): each waiting, asked again.
+	answers := []struct{ mode, step, core uint8 }{
+		{mailbox.BossBmdModeIntro, 0, 1},
+		{0, 0xFF, 0}, {1, 2, 0}, {2, 1, 0}, {0, 3, 0},
+		{mailbox.BossBmdModeFallen, 1, 0},
+	}
+	for _, a := range answers {
+		s, _, _ := br.request()
+		br.relPhase(s, mailbox.BossRWaiting, a.mode, a.step, a.core)
+		br.ticks(1)
+		if n, _, _ := br.request(); n != s {
+			t.Fatalf("asked again (%d) before bossRetry", n)
+		}
+		br.clock.advance(bossRetry)
+		br.ticks(1)
+		if n, _, _ := br.request(); n != s+1 {
+			t.Fatalf("after waiting in mode %d: seq %d, want %d; log:\n%s", a.mode, n, s+1, br.log)
+		}
+	}
+	if n := br.log.count("waiting (mMode 0x"); n != 3 {
+		t.Fatalf("waiting logged %d times, want 3 (intro, vines, falling):\n%s", n, br.log)
+	}
+	if !br.log.has("waiting (mMode 0xA, m302 0, m304 1)") || !br.log.has("waiting (mMode 0x3, m302 1, m304 0)") {
+		t.Fatalf("Bmd's fields not logged:\n%s", br.log)
+	}
+
+	// Applied at the open flower: not asked again while end() runs.
+	s, _, _ := br.request()
+	br.relPhase(s, mailbox.BossRApplied, mailbox.BossBmdModeFallen, 3, 1)
+	br.ticks(1)
+	br.clock.advance(10 * bossRetry)
+	br.ticks(3)
+	if n, _, _ := br.request(); n != s {
+		t.Fatalf("asked again (%d) while end() runs", n)
+	}
+	if st := br.r.Status(); st.BossKill.Applied != 1 || st.BossKill.Result != "applied" {
+		t.Fatalf("status %+v", st.BossKill)
+	}
+	if !br.log.has("applied (mMode 0x3, m302 3, m304 1)") {
+		t.Fatalf("no applied line:\n%s", br.log)
+	}
+
+	// end() sets FW's bit: the relay ends.
+	br.set(fwBossItems, bossEnemy)
+	br.clock.advance(bossSettle)
+	br.ticks(3)
+	if n, _, _ := br.request(); n != s {
+		t.Fatalf("asked again (%d) once the game has the bit", n)
+	}
+	if st := br.r.Status(); st.BossKill.Wanted {
+		t.Fatalf("still wanted with the bit set: %+v", st.BossKill)
+	}
+}
+
+// TestBossKillBmdNeverInRefight: an X stage on FW's table never gets a
+// Kalle Demos request.
+func TestBossKillBmdNeverInRefight(t *testing.T) {
+	br := newBossRig(t, fakegame.Stage{Name: "Xboss1", Table: addr.TableFW, KeyHUD: true}, true)
+	br.partnerKilledFW()
+	br.ticks(5)
+	if seq, _, _ := br.request(); seq != 0 {
+		t.Fatalf("a request in a refight stage: seq %d", seq)
+	}
+}
+
+// TestBossKillBmdNotWhenLocalHasIt: a game that killed its own Kalle
+// Demos has FW's bit; the world's adds nothing to ask for.
+func TestBossKillBmdNotWhenLocalHasIt(t *testing.T) {
+	br := newBossRig(t, fwBoss, true)
+	br.set(fwBossItems, bossEnemy)
+	br.ticks(2)
+	br.partnerKilledFW()
+	br.ticks(5)
+	if seq, _, _ := br.request(); seq != 0 {
+		t.Fatalf("a request with the bit already local: seq %d", seq)
+	}
+}
+
+// TestBossKillBmdNoREL: without the REL module the Kalle Demos relay
+// writes nothing and names its boss once.
+func TestBossKillBmdNoREL(t *testing.T) {
+	br := newBossRig(t, fwBoss, false)
+	br.partnerKilledFW()
+	br.ticks(3)
+	br.clock.advance(bossRetry)
+	br.ticks(3)
+	if seq, _, _ := br.request(); seq != 0 {
+		t.Fatalf("a request without the REL: seq %d", seq)
+	}
+	if n := br.log.count("the arena keeps Kalle Demos until it is"); n != 1 {
+		t.Fatalf("logged %d times:\n%s", n, br.log)
 	}
 }

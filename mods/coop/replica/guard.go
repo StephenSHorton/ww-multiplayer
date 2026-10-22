@@ -91,11 +91,12 @@ const (
 	// actor the tick's walk has (FrameWriter.ApplyActors). M6.
 	TargetK1
 	// TargetBoss is the mailbox's boss_kill request (wwapi/mailbox
-	// boss.go, inject/include/wwboss.h): its proc and tag, held to Gohma's
-	// proc and the request's tag, and its seq. The REL gives this game's
-	// own boss the death a lethal hit gives it, so the boss bits the
-	// planner holds in a boss stage (bossHold) are set by the game itself
-	// (bosskill.go; design research C3-C6-gohma.md B5). No save data:
+	// boss.go, inject/include/wwboss.h): its proc and tag, held to the
+	// procs of bosskill.go's bossKillRows (Gohma, Kalle Demos) and the
+	// request's tag, and its seq. The REL gives this game's own boss the
+	// death a lethal hit gives it, so the boss bits the planner holds in
+	// a boss stage (bossHold) are set by the game itself (bosskill.go;
+	// design research C3-C6-gohma.md B5, C1-kalle-demos-relay.md). No save data:
 	// FrameWriter.ApplyBossKill writes it, when IDLE.
 	TargetBoss
 
@@ -384,15 +385,33 @@ func NewGuardFor(t Target) *Guard {
 }
 
 // bossRules is the boss_kill request's proc and tag (wwapi/mailbox
-// boss.go), each byte held to the one value the REL runs: Gohma's proc
-// (mailbox.BossProcBtd, the only boss the REL takes) and mailbox.BossTag.
+// boss.go), each byte held to what the REL runs: a proc of bossKillRows
+// (Gohma's mailbox.BossProcBtd, Kalle Demos' mailbox.BossProcBmd) and
+// mailbox.BossTag. Each proc byte is held to the range of the rows'
+// bytes there, which is exactly the rows' procs while they are adjacent
+// (0x00EB, 0x00EC; TestBossGuardRules checks every byte value).
 func bossRules() []byteRule {
-	var want [4]byte
-	binary.BigEndian.PutUint16(want[:], mailbox.BossProcBtd)
-	binary.BigEndian.PutUint16(want[2:], mailbox.BossTag)
-	rs := make([]byteRule, len(want))
-	for i, b := range want {
-		rs[i] = byteRule{mask: 0xFF, rule: ruleRange, target: TargetBoss, paths: pathBoss, lo: int8(b), hi: int8(b)}
+	var lo, hi [2]int8
+	for i, row := range bossKillRows {
+		var p [2]byte
+		binary.BigEndian.PutUint16(p[:], row.proc)
+		for j, b := range p {
+			if i == 0 || int8(b) < lo[j] {
+				lo[j] = int8(b)
+			}
+			if i == 0 || int8(b) > hi[j] {
+				hi[j] = int8(b)
+			}
+		}
+	}
+	var tag [2]byte
+	binary.BigEndian.PutUint16(tag[:], mailbox.BossTag)
+	rs := make([]byteRule, 4)
+	for j := range lo {
+		rs[j] = byteRule{mask: 0xFF, rule: ruleRange, target: TargetBoss, paths: pathBoss, lo: lo[j], hi: hi[j]}
+	}
+	for j, b := range tag {
+		rs[2+j] = byteRule{mask: 0xFF, rule: ruleRange, target: TargetBoss, paths: pathBoss, lo: int8(b), hi: int8(b)}
 	}
 	return rs
 }

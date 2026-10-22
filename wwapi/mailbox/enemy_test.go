@@ -66,7 +66,9 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_ROOM_OFF":            EnemyRoomOff,
 		"WWENEMY_ROLE_OFF":            EnemyRoleOff,
 		"WWENEMY_KIND_MASK_OFF":       EnemyKindMaskOff,
-		"WWENEMY_RESERVED_OFF":        EnemyReservedOff,
+		"WWENEMY_KNOB_GEN_OFF":        EnemyKnobGenOff,
+		"WWENEMY_HKD_HI_OFF":          EnemyHkdHiOff,
+		"WWENEMY_HKD_HI_KINDS":        EnemyHkdHiKinds,
 		"WWENEMY_SLOTS_OFF":           EnemySlotsOff,
 		"WWENEMY_SLOT_SIZE":           EnemySlotSize,
 		"WWENEMY_HIT_APPLY_OFF":       EnemyHitApplyOff,
@@ -147,7 +149,9 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_CANARIES_OFF":        EnemyCanariesOff,
 		"WWENEMY_CANARIES2_OFF":       EnemyCanaries2Off,
 		"WWENEMY_HIT_RESULT_OFF":      EnemyHitResultOff,
-		"WWENEMY_RESERVED2_OFF":       EnemyReserved2Off,
+		"WWENEMY_KNOB_SEEN_OFF":       EnemyKnobSeenOff,
+		"WWENEMY_FP_MISS_OFF":         EnemyFpMissOff,
+		"WWENEMY_TAIL_SPARE_OFF":      EnemyTailSpareOff,
 		"WWENEMY_ST_ACTOR_OFF":        EnemySTActorOff,
 		"WWENEMY_ST_PID_OFF":          EnemySTPIDOff,
 		"WWENEMY_ST_STATE_OFF":        EnemySTStateOff,
@@ -228,6 +232,16 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_HKD_EXTRA":           uint64(EnemyHKDExtra),
 		"WWENEMY_ANNEX_HKDX_OFF":      uint64(EnemyAnnexHKDXOff),
 		"WWENEMY_ANNEX_HKDX_KINDS":    EnemyAnnexHKDXKinds,
+		"WWENEMY_KNOB_OFF":            uint64(EnemyKnobOff),
+		"WWENEMY_KNOB_SIZE":           uint64(EnemyKnobSize),
+		"WWENEMY_KNOB_KINDS":          EnemyKnobKinds,
+		"WWENEMY_KNOB_GEN_HEAD_OFF":   EnemyKnobGenHeadOff,
+		"WWENEMY_KNOB_LAYOUT_OFF":     EnemyKnobLayoutOff,
+		"WWENEMY_KNOB_COUNT_OFF":      EnemyKnobCountOff,
+		"WWENEMY_KNOB_OVR_OFF":        EnemyKnobOvrOff,
+		"WWENEMY_KNOB_INVW_OFF":       EnemyKnobInvWOff,
+		"WWENEMY_KNOB_GEN_TAIL_OFF":   EnemyKnobGenTailOff,
+		"WWENEMY_KNOB_ID_MIN":         EnemyKnobIDMin,
 		"WWENEMY_STALE_FRAMES":        EnemyStaleFrames,
 		"WWENEMY_SPH_OFF":             uint64(EnemySphOff),
 		"WWENEMY_STTS_OFF":            uint64(EnemySttsOff),
@@ -282,6 +296,11 @@ func TestEnemyBlockPlacement(t *testing.T) {
 	if CanaryArena.End > EnemyBlockRegion.Start || CanaryArenaHigh.Start < EnemyBlockRegion.End {
 		t.Error("the canary regions reach into the enemy block")
 	}
+	for _, r := range []addr.Region{CanaryTRK, CanaryArena, CanaryArenaHigh} {
+		if r.Start < EnemyKnobRegion.End && EnemyKnobRegion.Start < r.End {
+			t.Errorf("%s 0x%08X-0x%08X reaches into the knob table %+v", r.Name, r.Start, r.End, EnemyKnobRegion)
+		}
+	}
 	if !CanaryArena.Contains(relStart, int(relEnd-relStart)) {
 		t.Error("the REL words left the low canary region")
 	}
@@ -297,8 +316,23 @@ func TestEnemyBlockPlacement(t *testing.T) {
 		t.Error("the annex's fields overlap, or run past the block")
 	}
 	if EnemySLCcM316ZOff != EnemySLAttackOff || EnemySLPKeyOff+4 != EnemySLAttackOff || EnemySLProcOff != EnemySLBlurShapeOff+1 ||
-		EnemyKindMaskOff+4 != EnemyReservedOff || EnemyReservedOff+8 != EnemySlotsOff {
+		EnemyKindMaskOff+4 != EnemyHkdHiOff || EnemyHkdHiOff+EnemyHkdHiKinds != EnemySlotsOff {
 		t.Error("layout 3's slot or header fields moved")
+	}
+	// Layout 4 (batch C D1, D2, D4) moves nothing: knob_gen fills the pad
+	// between ROLE and KIND_MASK, the ids 7..14 hook bytes the old reserved
+	// u32[2] (inside the Go span, so a kill switch never tears), the echo and
+	// fp_miss the old reserved2 u32; the knob table lies in the free slack
+	// past the remote-Link block, outside the enemy region, below the arena.
+	if EnemyKnobGenOff != EnemyRoleOff+1 || EnemyKnobGenOff+2 != EnemyKindMaskOff || EnemyHkdHiOff+EnemyHkdHiKinds > EnemyGoSpan ||
+		EnemyKnobSeenOff != EnemyHitResultOff+4 || EnemyFpMissOff != EnemyKnobSeenOff+2 || EnemyTailSpareOff+1 != int(EnemySize) ||
+		7+EnemyHkdHiKinds < EnemyKnobKinds-1 {
+		t.Error("layout 4's block fields moved")
+	}
+	if EnemyKnobAddr != 0x80413750 || EnemyKnobRegion.End != 0x804137B0 || EnemyKnobRegion.Start < Mailbox+EnemyRegionEnd ||
+		EnemyKnobRegion.End > PatchedArenaLo || EnemyKnobOvrOff+EnemyKnobKinds*EnemyAnnexOvrSize != EnemyKnobInvWOff ||
+		EnemyKnobInvWOff+EnemyKnobKinds > EnemyKnobGenTailOff || EnemyKnobGenTailOff+4 > int(EnemyKnobSize) || EnemyKnobAddr%4 != 0 {
+		t.Errorf("knob table %+v: fields overlap or it left the free slack", EnemyKnobRegion)
 	}
 	if EnemyHDKind != RemoteHDNoBody+1 || EnemyHDDirect != EnemyHDKind+1 || EnemyHDFront != EnemyHDDirect+1 ||
 		EnemyAnnexTnTgUpOff != EnemyAnnexInvWOff+EnemyAnnexKinds || EnemyAnnexTnTgUpOff+1 != EnemyAnnexHKDXOff ||
@@ -322,8 +356,8 @@ func TestEnemyBlockPlacement(t *testing.T) {
 		{"hit_apply_ack end", EnemyHitApplyAckOff + 4, EnemyCanariesOff},
 		{"canaries end", EnemyCanariesOff + 4, EnemyCanaries2Off},
 		{"canaries2 end", EnemyCanaries2Off + 4, EnemyHitResultOff},
-		{"hit_result end", EnemyHitResultOff + 4, EnemyReserved2Off},
-		{"reserved2 end", EnemyReserved2Off + 4, int(EnemySize)},
+		{"hit_result end", EnemyHitResultOff + 4, EnemyKnobSeenOff},
+		{"tail spare end", EnemyTailSpareOff + 1, int(EnemySize)},
 		{"slot sample end", EnemySLSampleOff + 4, EnemySLBckOff},
 		{"slot bytes", EnemySLBckOff + 6, EnemySLBlurShapeOff + 1},
 		{"slot blur_scale", EnemySLProcOff + 2, EnemySLBlurScaleOff},
@@ -389,7 +423,7 @@ func TestEnemyBlockEncode(t *testing.T) {
 		t.Fatalf("%d bytes, head %08X tail %08X", len(out), be.Uint32(out[EnemySeqHeadOff:]), be.Uint32(out[EnemySeqTailOff:]))
 	}
 	if be.Uint32(out[EnemyMagicOff:]) != EnemyMagic || out[EnemyCountOff] != 2 || out[EnemyFlagsOff] != b.Flags ||
-		be.Uint16(out[EnemyLayoutOff:]) != 3 || be.Uint32(out[EnemyEpochOff:]) != 3 || be.Uint32(out[EnemyKindMaskOff:]) != 0b101 ||
+		be.Uint16(out[EnemyLayoutOff:]) != 4 || be.Uint32(out[EnemyEpochOff:]) != 3 || be.Uint32(out[EnemyKindMaskOff:]) != 0b101 ||
 		!bytes.Equal(out[EnemyStageOff:EnemyStageOff+8], []byte("M_Dai\x00\x00\x00")) ||
 		out[EnemyRoomOff] != 1 || out[EnemyRoleOff] != EnemyRoleClient {
 		t.Errorf("header %x", out[:EnemySlotsOff])
@@ -487,6 +521,85 @@ func TestEnemyBlockEncode(t *testing.T) {
 	}
 }
 
+// TestEnemyBlockL4: layout 4's block fields sit at their header offsets
+// inside the Go span (knob_gen u16 at +0x22, ids 7..14 hook bytes at
+// +0x28..+0x2F) and round-trip, with every layout-3 byte unchanged.
+func TestEnemyBlockL4(t *testing.T) {
+	b := sampleEnemyBlock()
+	base, err := b.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.KnobGen = 0xBEEF
+	b.HkdHi = [EnemyHkdHiKinds]uint8{0: EnemyHKDAttach, 1: EnemyHKDExtra, 7: 0x5A}
+	out, err := b.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hex.EncodeToString(out[0x20:0x30]); got != "0102beef00000005"+"028000000000005a" {
+		t.Errorf("header +0x20..+0x30 %s", got)
+	}
+	for i := range out {
+		if (i >= EnemyKnobGenOff && i < EnemyKnobGenOff+2) || (i >= EnemyHkdHiOff && i < EnemyHkdHiOff+EnemyHkdHiKinds) {
+			continue
+		}
+		if out[i] != base[i] {
+			t.Errorf("byte +0x%X moved: 0x%02X, layout 3 had 0x%02X", i, out[i], base[i])
+		}
+	}
+	got, _, err := DecodeEnemyBlock(out)
+	if err != nil || got.KnobGen != 0xBEEF || got.HkdHi != b.HkdHi {
+		t.Errorf("decode: knob_gen %04X hkd_hi %x %v", got.KnobGen, got.HkdHi, err)
+	}
+}
+
+// TestEnemyKnobsEncode: the knob table's bytes at their header offsets,
+// the gen words both ends, and DecodeEnemyKnobs' validity rule (the REL's
+// em_knob_validate): gen != 0, head == tail == gen, layout 4, count >= kinds.
+func TestEnemyKnobsEncode(t *testing.T) {
+	k := &EnemyKnobs{Gen: 0x1234}
+	k.Quiet[3], k.TgUp[7], k.Invuln[8], k.Hook[15] = 60, -20, 9, EnemyHKDAttn
+	out := k.Encode()
+	be := binary.BigEndian
+	if len(out) != int(EnemyKnobSize) || be.Uint32(out[0x00:]) != 0x1234 || be.Uint16(out[0x04:]) != 4 || out[0x06] != 16 ||
+		out[0x08+3*4+1] != 60 || int16(be.Uint16(out[0x08+7*4+2:])) != -20 || out[0x48+8] != 9 || out[0x08+15*4] != EnemyHKDAttn ||
+		be.Uint32(out[0x58:]) != 0x1234 {
+		t.Fatalf("knob table %x", out)
+	}
+	got, ok, err := DecodeEnemyKnobs(out, 0x1234, 9)
+	if err != nil || !ok || got != *k {
+		t.Errorf("decode ok=%v %v\n got %+v\nwant %+v", ok, err, got, *k)
+	}
+	for _, c := range []struct {
+		name  string
+		mod   func(b []byte)
+		gen   uint16
+		kinds int
+	}{
+		{"gen 0", func([]byte) {}, 0, 9},
+		{"another gen", func([]byte) {}, 0x1235, 9},
+		{"torn tail", func(b []byte) { b[0x5B] ^= 1 }, 0x1234, 9},
+		{"layout 3", func(b []byte) { b[0x05] = 3 }, 0x1234, 9},
+		{"too few rows", func([]byte) {}, 0x1234, 17},
+	} {
+		b := append([]byte(nil), out...)
+		c.mod(b)
+		if _, ok, _ := DecodeEnemyKnobs(b, c.gen, c.kinds); ok {
+			t.Errorf("%s: the table validated", c.name)
+		}
+	}
+	m := &fakeWords{}
+	if err := WriteEnemyKnobs(m, k); err != nil {
+		t.Fatal(err)
+	}
+	if back, ok, err := ReadEnemyKnobs(m, 0x1234, 9); err != nil || !ok || back != *k {
+		t.Errorf("read back ok=%v %v %+v", ok, err, back)
+	}
+	if _, _, err := DecodeEnemyKnobs(out[:EnemyKnobSize-1], 0x1234, 9); err == nil {
+		t.Error("a short table decoded")
+	}
+}
+
 // TestEnemyBlockWriteReadStatus: WriteEnemyBlock is one write of the
 // annex and the Go span from the annex; ClearEnemyBlock writes the magic
 // word alone;
@@ -528,7 +641,9 @@ func TestEnemyBlockWriteReadStatus(t *testing.T) {
 	copy(at(EnemyCanariesOff), []byte{1, 2, 3, 4})
 	copy(at(EnemyCanaries2Off), []byte{5, 6, 7, 8})
 	be.PutUint32(at(EnemyHitResultOff), uint32(EnemyHRAppliedAt)<<24|uint32(EnemyHDNone)<<16|2<<8|1)
-	be.PutUint32(at(EnemyReserved2Off), 0xDEADBEEF)
+	// Layout 4's echo and fp_miss in the old reserved2 word; its last byte
+	// is spare and not decoded.
+	be.PutUint32(at(EnemyKnobSeenOff), 0xBEEF03EE)
 	if err := m.Write(EnemyBlockAddr+EnemyGoSpan, tailBytes); err != nil {
 		t.Fatal(err)
 	}
@@ -538,7 +653,8 @@ func TestEnemyBlockWriteReadStatus(t *testing.T) {
 	}
 	want := EnemyStatus{AckSeq: 0x01020304, AckFrame: 4242, AdoptedMask: 5, EpochSeen: 3, HitApplyAck: 5,
 		Canaries: EnemyCanaries{1, 2, 3, 4}, Canaries2: EnemyCanaries2{5, 6, 7, 8},
-		HitResult: EnemyHitResult{Result: EnemyHRAppliedAt, Detail: EnemyHDNone, Frames: 2, Sets: 1}}
+		HitResult:   EnemyHitResult{Result: EnemyHRAppliedAt, Detail: EnemyHDNone, Frames: 2, Sets: 1},
+		KnobGenSeen: 0xBEEF, FpMiss: 3}
 	want.Status[2] = EnemySlotStatus{Actor: 0x80B00000, PID: 0x1234, State: EnemyStateMirrored, PausePrev: 2, AnmState: EnemyAnmSynced, Frames: 300, Bck: 0x73, AnmChanges: 9}
 	want.Hits[1] = EnemyHitEntry{HitSeq: 7, Collider: 2, Pending: 1}
 	if st != want {
@@ -594,10 +710,12 @@ func TestEnemyStatusOffsets(t *testing.T) {
 }
 
 // enemyGoSpanGolden is sampleEnemyBlock's Encode, byte for byte: the
-// layout-3 Go span (0x124 bytes) the REL reads. A change here is a layout
-// change and needs WWENEMY_LAYOUT bumped on both sides.
+// layout-4 Go span (0x124 bytes) the REL reads; with KnobGen and HkdHi
+// zero it is layout 3's but for the layout word at +0x12 (batch C D1). A
+// change here is a layout change and needs WWENEMY_LAYOUT bumped on both
+// sides.
 const enemyGoSpanGolden = "" +
-	"5757454e01020304000003090001e24002090003000000034d5f446169000000" +
+	"5757454e01020304000003090001e24002090004000000034d5f446169000000" +
 	"0102000000000005000000000000000000001234c2c9000041a0000046ea6000" +
 	"c0000002d0264f5d0102030340f000003f800000000000636a02110f850300bd" +
 	"3fa00000000000003f8000004000000040400000000000000000000000000000" +

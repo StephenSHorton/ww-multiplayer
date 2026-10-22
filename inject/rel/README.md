@@ -306,6 +306,45 @@ canaries (`pause_reasserts`, `anm_unresolved`, `revalidate_failures`,
 `watchdog_releases`) and the second four (`anm_res_null`, `anm_range`,
 `hit_nocross`, `hit_aborted`).
 
+**Batch C (layout 4, `design/enemy-mirror-batch-c.json`).** Nothing in
+the block or the annex moves. Block +0x22 is `knob_gen`, +0x28..+0x2F the
+hook-disable bytes for kind ids 7..14 (BB +0x28; +0x29, the reserved id 8,
+is unread; inside Go's seq span, read live by `em_hkd`), +0x194 the REL's
+echo of the knob table it validated (0 when none or invalid, so Go
+rewrites a clobbered table), +0x196 a saturating count of BB fingerprint misses. The knob table at
+mailbox +0x850 (0x80413750, 0x60 bytes, its own write) is valid when the
+block's `knob_gen` is nonzero and equals its head and tail words, its
+layout is 4 and it has a row per kind; then ids 3..15 take their quiet
+frames, `tg_hit_up` (not TN: its annex byte 0x1FB stays) and invuln wait
+from it, else the compiled values. `em_ext.kind_mask` is u16 (bit 8, the
+reserved MT id, is never set).
+- **Ambush Bokoblin.** `em_bk_gate` takes `mType` 0..4 (2 and 3 the pot
+  ambushers, unconditionally; Go no longer writes 0 into them). While the
+  host slot is hidden the copy's stick is parked at (-10000, -10000, 0) as
+  the hidden host's is. A copy released still in its pot (its own `m02BA`
+  0xFF, `mType` 2/3) gets `tubo_wait` (action 15, mode 0, `m0300[0]` and
+  `m0310` 0, scale 1) instead of the create pair, so it can still leap.
+  Both writes skip under `bk:hooks=ambush` (BK's 0x40).
+- **Kargaroc (BB, proc 0xB6, kind 7).** Its base matrix is
+  `EMK_MTX_TRYXZ` from `current.angle` (the smoothed yaw, the smoothed
+  tilt in `current.angle.x` by `EMK_CAP_TILT_CUR`, the streamed roll in
+  `current.angle.z` from slot +0x18), with `setBaseScale`; the head and beak
+  words C00/C4E are zeroed before calc; after calc the tail root is copied
+  to the tail chain and the retail `tail_control` is called through the
+  copy's own profile (`sub_method->mpExecuteFunc` - 0x69A8 + 0x404) when
+  its fingerprint matched once per adopt, else the chain collapses onto
+  the root. Riders (types 5/6), mbDead, knockback and a hidden copy with a
+  shown host are refused; the draw gate 0x2F2 is cleared while the host is
+  shown; a release hands it back into the attack state with its timer
+  seeded (450, `l_bbHIO.unk_16`).
+- **Magtail (MT, proc 0xD9): cut.** The row was cut by R-20 after the
+  P0-MT live probe failed (`M_NewD2` room 8: the eye sphere sat at
+  `eyePos`, but the body sphere centres did not equal the segment
+  translations, segment 0 about 65 units off and segments 1..4 about 10),
+  so the offline `d_a_mt.rel` segment and sphere model the `em_mt_*`
+  section was built on was wrong. `EMK_KIND_MT` 8 stays a reserved id with
+  no row (`EMK_KIND_COUNT` 8) and the hook byte +0x29 is unread.
+
 Game functions called, all through absolute function-pointer casts
 (`config/GZLE01/symbols.txt`): `fopAcM_SearchByID` 0x800241C0,
 `mDoExt_McaMorf::play` 0x8001300C, `::calc` 0x800132E8 and `::setAnm`
@@ -318,7 +357,8 @@ and `::ClrAtHit` 0x800AB7C4, `dCcD_Sph::Set` 0x800ABFC0 and `::StartCAt`
 0x800AB3DC, `cM_ssin` 0x800F0054, `cM_scos` 0x800F0038,
 `dPa_smokeEcallBack::end` 0x8007BB80 (the Armos Knight's mouth smoke,
 `mSmokeCbs[2]`, at the bomb swallow and at adopt), `cc_at_check`
-0x800AEEF8 (the TN batch's AM2 direct apply, `em_hit_direct`). Data read:
+0x800AEEF8 (the TN batch's AM2 direct apply, `em_hit_direct`); batch C:
+BB's `tail_control` in the loaded `d_a_bb.rel` (fingerprinted). Data read:
 `calc_mtx` 0x803F63A0, `mCurStage.mName` 0x803C9D3C, `mStayNo`
 0x803F6A78, `mNextStage.mEnable` 0x803C9D54, `mPlayerInfo[0].mpPlayer`
 0x803CA74C, `mpPlayerPtr[0]` 0x803CA754, `__vt__8dCcD_Sph` 0x803899D0
@@ -570,3 +610,14 @@ On the eye phase Btd's own
 `end()` runs its death demo, the floor drop, the heart container,
 STAGE_BOSS_ENEMY and the warp flower. Nothing is deleted. The op is
 stateless and adds nothing to the keeper's actor.
+
+Kalle Demos (`research/C1-kalle-demos-relay.md`) is the second proc,
+0x00EC (Bmd), taken only in the stage named exactly `kinBOSS`. `bk_bmd`
+answers mMode 0xB `already`, applies only at the fallen, open flower (mMode
+3 at `m302` 2..5, `m304` not 0, `m310` 0, `mB74` 0; `m304` alone can be
+left over at `m302` 0..1) and answers every other state
+`waiting`. The apply is all of `core_damage_check`'s lethal block
+(d_a_bmd.cpp:609-617): `m306` 100, `mB74` 100, `m310` 20000, `mBE0` 2,
+`mBDC` 1.0f, `m302` 0, `mMode` 0xB, then `mDoAud_bgmStop(30)` through
+`zel_basic` (two fields alone would leave `end()` waiting on an `mB76` that
+never counts). The result bytes for this proc are mMode, `m302`, `m304`.

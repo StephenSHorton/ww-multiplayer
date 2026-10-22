@@ -863,7 +863,8 @@ static void* rl_mirror_owner(enemy_mirror_state* mirror, u16 id) {
 // The host's ring entry flag HF_NOT_MO2 (kept as HF_NOT_MIRROR): the
 // attacker is not one this host mirrors, i.e. its proc has no kind row or
 // that kind's bit is clear in the host's own enemy block (kind_mask,
-// WWENEMY_KIND_MASK_OFF; host Go writes it). No live layout-3 block: none.
+// WWENEMY_KIND_MASK_OFF; host Go writes it; layout 4's u32 serves ids up to
+// 15; bit 8, the reserved MT id, has no row). No live layout-4 block: none.
 static int rl_mirrored_proc(s16 proc) {
     u32 eb = MAILBOX_ADDR + WWENEMY_OFF;
     const em_kind* k = em_kind_of((u16)proc);

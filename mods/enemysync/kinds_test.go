@@ -78,7 +78,7 @@ func TestParseKinds(t *testing.T) {
 		in, want string
 		mask     uint32
 	}{
-		{"", "mo2,bk+u,cc+u", 7},
+		{"", "mo2,bk+u,cc+u,ki+u", 15},
 		{"mo2", "mo2", 1},
 		{"none", "none", 0},
 		{"mo2,bk", "mo2,bk", 3},
@@ -103,10 +103,10 @@ func TestParseKinds(t *testing.T) {
 	if !s.Has(KindBK) || !s.TakesUnkeyed(KindBK) || s.Has(KindMO2) || s.TakesUnkeyed(KindCC) || s.Has(KindNone) {
 		t.Errorf("bk+u = %+v", s)
 	}
-	if a := AllKinds(); a.String() != "mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u" {
+	if a := AllKinds(); a.String() != "mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u,bb+u" {
 		t.Errorf("AllKinds = %s", a)
 	}
-	if !strings.Contains(func() string { _, err := ParseKinds("zz"); return err.Error() }(), "mo2, bk, cc, ki, am, am2, tn") {
+	if !strings.Contains(func() string { _, err := ParseKinds("zz"); return err.Error() }(), "mo2, bk, cc, ki, am, am2, tn, bb)") {
 		t.Error("the unknown-kind error does not list the kinds")
 	}
 }
@@ -129,10 +129,11 @@ func TestStaticGates(t *testing.T) {
 	}{
 		{"BK torch 0xFFFF8784", bk, 0xFFFF8784, LiveGate{Mode: 4}, true, true},
 		// The pot ambushers (d_a_bk.cpp:5052-5055, tubo_wait): taken as
-		// placed, and as the client's copy reads once Mirror.ambushType
-		// wrote mType 0 (nothing in d_a_bk.cpp rewrites 2/3).
+		// placed (nothing in d_a_bk.cpp rewrites 2/3; batch C's REL takes
+		// them live, so no client writes 0), and a copy a v0.5.0 client
+		// wrote mType 0 into still passes.
 		{"BK pot ambusher 0xFFFF0002", bk, 0xFFFF0002, LiveGate{Mode: 2}, true, true},
-		{"BK pot ambusher, mType 0 written", bk, 0xFFFF0002, LiveGate{Mode: 0}, true, true},
+		{"BK pot ambusher, mType 0 (a v0.5.0 client's write)", bk, 0xFFFF0002, LiveGate{Mode: 0}, true, true},
 		{"BK DRC r7 leaper 0xFFFF3203", bk, 0xFFFF3203, LiveGate{Mode: 3}, true, true},
 		// Type 7, the A_mori demo group (z_demo_1, :3159-3165 sets mType 0
 		// when it wakes): the nibble still refuses it.

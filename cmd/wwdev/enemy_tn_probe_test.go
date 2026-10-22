@@ -65,7 +65,7 @@ func TestEnemyMatchDryTN(t *testing.T) {
 	}
 	s := out.String()
 	for _, want := range []string{
-		" kinds=mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u walk=complete\n",
+		" kinds=mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u,bb+u walk=complete\n",
 		"ident kind=bk proc=0x00BE setID=0x0000 ",
 		"ident kind=tn proc=0x00C0 setID=0x0005 ", " verdict=ok pid=",
 		" tn_behavior=4 tn_action=10 tn_boss=0 tn_equip=3 tn_m02c1=0 tn_m1518=0 tn_m14f8=0 tn_m140c=0 tn_live=ok\n",

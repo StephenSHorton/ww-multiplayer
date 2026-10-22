@@ -165,7 +165,13 @@ type Mirror struct {
 	CoopSwitchSync func() bool
 	// Annex is the annex overrides every block carries (WW_ENEMY_ANNEX:
 	// quiet frames, hook_disable; its Aux is ignored, the slots' own go in).
+	// HkdHi is the block's hook bytes for kind ids 7..14 and Knobs the knob
+	// table's values (layout 4, ParseOverrides), which knob writes under a
+	// gen each block names.
 	Annex mailbox.EnemyAnnex
+	HkdHi [mailbox.EnemyHkdHiKinds]uint8
+	Knobs mailbox.EnemyKnobs
+	knob  knobWriter
 	// StaleHold is how long past StaleAfter a stale STATE holds the copies
 	// frozen (StaleHoldMax; WW_ENEMY_STALE_HOLD, 0 releases at once).
 	StaleHold time.Duration
@@ -241,11 +247,8 @@ type blkSlot struct {
 	catchUp bool // assigned while already dying: never mirrored alive, always quiet
 	sw      uint8
 	swOK    bool              // sw was read (at the pin)
-	ambush  bool              // a Bokoblin pot ambusher (BkAmbusher): ambushType rewrites its mType
+	ambush  bool              // a Bokoblin pot ambusher (BkAmbusher): ambushPot's, once the REL holds its copy
 	pot     bool              // and no switch gate (BkPotHidden): ambushPot keeps it in its pot
-	typed   bool              // its mType 0 is written (or was found 0/1/4)
-	oldType uint8             // the mType ambushType replaced (2 or 3), 0 when none was
-	adopted bool              // the REL reported this pid MIRRORED: ambushRestore leaves its mType 0
 	sized   bool              // ambushPot set its scale 1 since the REL last took it
 	last    mailbox.EnemySlot // the last slot written, which a pinned slot the host no longer lists keeps
 	lastAux [4]int16          // and its annex aux
@@ -260,9 +263,9 @@ type MirrorStats struct {
 	// Deaths counts the copies the REL reported dead (quiet deaths),
 	// ZoneBits the zone bits and Switches the death switches written.
 	Deaths, ZoneBits, Switches uint64
-	// Ambushers counts Mirror.ambushType's mType 0 writes (again after an
-	// ambushRestore), AmbushHides the m02BA writes that put one back in
-	// its pot.
+	// Ambushers counts the block slots given to a pot ambusher (batch C:
+	// its mType is never written, the REL takes a live 2/3),
+	// AmbushHides the m02BA writes that put one back in its pot.
 	Ambushers, AmbushHides uint64
 	// HitsFiltered counts the hits ForwardHit dropped (a weapon the kind's
 	// collider ignores on the host).
@@ -290,9 +293,12 @@ func NewMirror(m mem.Mem, rep log.Reporter, brk *write.Breaker, raw bool, start 
 	if c.Select, err = SelectFromEnv(); err != nil {
 		log.Logf(rep, log.Warn, "enemy client: %v; selecting by %s", err, c.Select)
 	}
-	if c.Annex, err = AnnexFromEnv(); err != nil {
+	o, err := OverridesFromEnv()
+	if err != nil {
 		log.Logf(rep, log.Warn, "enemy client: %v; no annex overrides", err)
 	}
+	c.Annex, c.HkdHi, c.Knobs = o.Annex, o.HkdHi, o.Knobs
+	c.knob.seed(uint64(start.UnixNano()))
 	if c.StaleHold, err = StaleHoldFromEnv(); err != nil {
 		log.Logf(rep, log.Warn, "enemy client: %v; holding a stale STATE's copies %v", err, c.StaleHold)
 	}
@@ -1093,63 +1099,13 @@ func (c *Mirror) orByte(a uint32, mask byte) error {
 
 // --- Pot ambushers ----------------------------------------------------------
 
-// ambushType writes mType 0 into this game's pot ambusher (a Bokoblin of
-// params type 2 or 3) before its slot is offered: the REL's em_bk_gate
-// (enemy_mirror.c:1421-1429) takes a live mType 0/1/4 only, and its
-// handback (em_handback) knows the create pairs of those. After create,
-// the only read of 2/3 is tubo_wait's leap pick (d_a_bk.cpp:3024; create
-// :5052-5055 already set m02BA, dr.mAction 15 and m030E, and nothing but
-// the type 7 demo, :3162, writes mType again), so a copy the REL takes
-// and hands back patrols as type 0 does. A slot dropped before the REL
-// ever took the copy gives the type back (ambushRestore). The write is
-// done once per local actor, and only for one the walk still lists
-// (offered: a pinned slot's actor may be gone).
-func (c *Mirror) ambushType(b *blkSlot) {
-	if c.brk != nil && c.brk.Off() {
-		return
-	}
-	at := b.addr + addr.BkOffType
-	v, err := mem.ReadU8(c.m, at)
-	if err != nil {
-		return
-	}
-	if v == BkTypeAmbushJump || v == BkTypeAmbushLeap {
-		if err := c.m.Write(at, []byte{0}); err != nil {
-			c.warnOnce("ambush type "+b.Key.String(), fmt.Sprintf("enemy client: mType of ambusher %s: %v", b.Key, err))
-			return
-		}
-		b.oldType = v
-		c.Stats.Ambushers++
-		log.Logf(c.rep, log.Info, "enemy client: %s is a pot ambusher (mType %d); mType 0 written so the REL takes it", b.Key, v)
-	}
-	b.typed = true
-}
-
-// ambushRestore gives back the mType ambushType replaced when b's slot
-// goes (the selection dropped it, or gave it another enemy) before the
-// REL ever reported the copy MIRRORED: that copy stays this game's, and
-// its own reveal leaps (type 3, JATTACK1) as it was placed to. Only while
-// the walk still has the same actor (its pid); a copy the REL took keeps
-// 0 (the REL may still hold it, and its handback patrols as type 0).
-func (c *Mirror) ambushRestore(b *blkSlot) {
-	if !b.Used || b.oldType == 0 || b.adopted || (c.brk != nil && c.brk.Off()) {
-		return
-	}
-	loc, ok := c.local[b.Key]
-	if !ok || loc.PID != b.pid {
-		return
-	}
-	at := loc.Addr + addr.BkOffType
-	if v, err := mem.ReadU8(c.m, at); err != nil || v != 0 {
-		return
-	}
-	if err := c.m.Write(at, []byte{b.oldType}); err != nil {
-		c.warnOnce("ambush restore "+b.Key.String(), fmt.Sprintf("enemy client: mType of ambusher %s back: %v", b.Key, err))
-		return
-	}
-	log.Logf(c.rep, log.Info, "enemy client: %s left the block before the REL took it; mType %d written back", b.Key, b.oldType)
-	b.oldType = 0
-}
+// A pot ambusher (a Bokoblin of params type 2 or 3) is offered with its
+// own mType: batch C's REL (ambush_cleanup, R-6..R-9) takes a live 2/3 in
+// em_bk_gate, parks the hidden copy's stick and hands a still-potted copy
+// back into tubo_wait (dr.mAction 15). Before it the client wrote mType 0
+// into its copy before offering the slot and gave 2/3 back when the slot
+// went unadopted (Mirror.ambushType, ambushRestore); both are gone, in the
+// same build as the REL change (without it every ambusher is refused).
 
 // ambushPot runs for an ambusher's copy the REL reports MIRRORED (status
 // pid b.pid), and only then: a copy the REL does not hold (refused, not
@@ -1261,7 +1217,17 @@ func (c *Mirror) writeBlock(now time.Time, st *State, slots []mailbox.EnemySlot,
 	// seq_head, with annex_seq = seq (mailbox.EnemyBlock.EncodeWrite).
 	b := &mailbox.EnemyBlock{Magic: mailbox.EnemyMagic, Seq: c.seq, GoWriteMS: uint32(now.Sub(c.start).Milliseconds()),
 		Flags: mailbox.EnemyFlagMirror, Layout: mailbox.EnemyLayout, Epoch: c.epoch, Role: mailbox.EnemyRoleClient, Slots: slots,
-		KindMask: kindMask, Annex: annex}
+		KindMask: kindMask, HkdHi: c.HkdHi, Annex: annex}
+	// Layout 4: the knob table goes first, its own write, whenever the
+	// block is to name a new gen (knobWriter).
+	gen, err := c.knob.prepare(c.m, &c.Knobs, c.epoch, c.seq)
+	if err != nil {
+		if c.brk != nil {
+			c.brk.Fault(write.FaultRefusal, "enemy knob table: "+err.Error())
+		}
+		return err
+	}
+	b.KnobGen = gen
 	if c.raw {
 		b.Flags |= mailbox.EnemyFlagRaw
 	}
@@ -1305,6 +1271,7 @@ func (c *Mirror) disarm(now time.Time, why string) error {
 	}
 	err := c.writeBlock(now, nil, nil, mailbox.EnemyAnnex{}, 0)
 	c.armed = false
+	c.knob.reset() // the next arm writes a new gen
 	return err
 }
 
@@ -1515,6 +1482,9 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		return nil, 0, err
 	}
 	c.Stats.LastStatus = status
+	if err := c.knob.check(c.m, c.rep, "enemy client", &status); err != nil {
+		log.Logf(c.rep, log.Warn, "enemy client: knob table: %v", err)
+	}
 	// A new host epoch is a restarted host Go (pipelines.go: the epoch is
 	// its start time) whose host_ms began again near 0: every smoother
 	// re-bases, or each would drop the new samples as older than its newest
@@ -1545,7 +1515,6 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		n := next[j]
 		if !n.Used {
 			if b.Used {
-				c.ambushRestore(b)
 				c.lastHits[j], c.lastStatus[j] = 0, [2]uint8{}
 			}
 			*b = blkSlot{}
@@ -1553,10 +1522,12 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		}
 		o, offered := offers[n.Key]
 		if !b.Used || b.Key != n.Key {
-			c.ambushRestore(b)
 			*b = blkSlot{pid: o.loc.PID, local: o.loc.Ident, kind: o.loc.Kind, room: o.loc.HomeRoom, addr: o.loc.Addr,
 				catchUp: n.Pinned, ambush: o.loc.Kind == KindBK && BkAmbusher(o.loc.Params)}
 			b.pot = b.ambush && BkPotHidden(o.loc.Params)
+			if b.ambush {
+				c.Stats.Ambushers++
+			}
 			c.lastHits[j], c.lastStatus[j] = 0, [2]uint8{}
 		} else if offered && !b.Pinned && o.loc.PID != b.pid {
 			// The same key under a new local actor (re-created in this room: a
@@ -1564,7 +1535,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 			// follows the walk, as the prototype re-read the pid every tick. A
 			// pinned slot is unpin's (a new pid there is done).
 			b.pid, b.local, b.kind, b.room, b.addr = o.loc.PID, o.loc.Ident, o.loc.Kind, o.loc.HomeRoom, o.loc.Addr
-			b.haveLst, b.typed, b.oldType, b.adopted, b.sized = false, false, 0, false, false
+			b.haveLst, b.sized = false, false
 			c.lastHits[j], c.lastStatus[j] = 0, [2]uint8{}
 		}
 		if n.Pinned && !b.Pinned {
@@ -1578,9 +1549,6 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		}
 		b.selSlot = n
 		b.quiet = c.Quiet.Has(b.kind) || b.catchUp
-		if b.ambush && !b.typed && offered {
-			c.ambushType(b)
-		}
 	}
 
 	// Smooth every listed enemy matched here (a newcomer then has its
@@ -1669,7 +1637,6 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 			// Only a copy the REL holds (ambushPot); status is the read after
 			// the walk, its pid this slot's local actor.
 			if e := &status.Status[j]; e.PID == b.pid && e.State == mailbox.EnemyStateMirrored {
-				b.adopted = true
 				c.ambushPot(b, b.pot && es.Flags&(mailbox.EnemySFHidden|mailbox.EnemySFDying) == mailbox.EnemySFHidden)
 			} else {
 				b.sized = false

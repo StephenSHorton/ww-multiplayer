@@ -367,8 +367,9 @@ type KindSample struct {
 	// St is an allow kind's (KI, AM, AM2; allow design type_table samplers).
 	St AllowFields
 	// Tn is the Darknut's (ReadSampleTN, tn.go; St carries its angles and
-	// colliders).
+	// colliders) and Bb the Kargaroc's (ReadSampleBB, bb.go), batch C's.
 	Tn TnFields
+	Bb BbFields
 }
 
 // AllowFields is what ReadSampleKI, ReadSampleAM and ReadSampleAM2 read
@@ -754,6 +755,8 @@ func ReadKindSample(m mem.Reader, e *Enemy) (KindSample, error) {
 		return ReadSampleAM2(m, e)
 	case KindTN:
 		return ReadSampleTN(m, e)
+	case KindBB:
+		return ReadSampleBB(m, e)
 	}
 	return KindSample{}, fmt.Errorf("enemysync: no sampler for kind %s (proc 0x%04X)", e.Kind, e.Ident.Proc)
 }
@@ -835,6 +838,12 @@ func readColliders(m mem.Reader, base, off uint32, n int, specs []colliderSpec) 
 	if err != nil {
 		return nil, err
 	}
+	return parseColliders(d, off, specs), nil
+}
+
+// parseColliders is readColliders' parse of d, the bytes read from the
+// actor's +off.
+func parseColliders(d []byte, off uint32, specs []colliderSpec) []ColliderSample {
 	be := binary.BigEndian
 	f := func(o uint32) float32 { return math.Float32frombits(be.Uint32(d[o:])) }
 	out := make([]ColliderSample, len(specs))
@@ -851,7 +860,7 @@ func readColliders(m mem.Reader, base, off uint32, n int, specs []colliderSpec) 
 		}
 		out[i] = c
 	}
-	return out, nil
+	return out
 }
 
 // readAllowIce is R4: the shrink and freeze timers of the enemyice at

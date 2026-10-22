@@ -127,7 +127,7 @@ func TestHostSampler(t *testing.T) {
 		t.Fatal(err)
 	}
 	if st == nil || !eq16(setIDs(st), []uint16{0, 1, 2}) || st.Flags&StateFlagInScope == 0 || st.Epoch != 7 || st.Seq != 1 || st.Stage != "M_Dai" || st.Room != 1 || st.DeadMask != 0 ||
-		st.HostKindMask != 1<<KindMO2|1<<KindBK|1<<KindCC || st.KindHash != KindHash() { // DefaultMirrorKinds
+		st.HostKindMask != 1<<KindMO2|1<<KindBK|1<<KindCC|1<<KindKI || st.KindHash != KindHash() { // DefaultMirrorKinds
 		t.Fatalf("first tick: %+v", st)
 	}
 	ens := h.Enemies()
@@ -356,7 +356,7 @@ func hostHit(client uint8, setID, seq uint16) *Hit {
 func hostBlocks(t *testing.T, m *mem.FakeMem) []mailbox.EnemyBlock {
 	t.Helper()
 	var out []mailbox.EnemyBlock
-	for _, w := range m.Writes() {
+	for _, w := range blockSideWrites(m) {
 		if w.Addr != mailbox.EnemyAnnexAddr || len(w.Data) != mailbox.EnemyWriteSpan {
 			t.Fatalf("a write that is not the host block: 0x%08X %d B", w.Addr, len(w.Data))
 		}
@@ -852,7 +852,7 @@ func TestHitApplierKeepalive(t *testing.T) {
 		} else if err := a.Keepalive(sea, now); err != nil {
 			t.Fatal(err)
 		}
-		if n := len(m.Writes()); n != s.want {
+		if n := len(blockSideWrites(m)); n != s.want {
 			t.Errorf("at %d ms: %d writes, want %d", s.at, n, s.want)
 		}
 	}

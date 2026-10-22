@@ -427,7 +427,7 @@ func RemoteSlotAddr(i int, off uint32) uint32 {
 // RemoteBlockRegion is the RAM remote-Link owns: from the enemy region's
 // end (the 0x10 bytes before the block are alignment, owned so the slack
 // still tiles) to the block's end. The region probe must not arm it
-// (mod.go, CanaryArenaHigh).
+// (mod.go, CanaryArenaHigh, which starts past the knob table after it).
 var RemoteBlockRegion = addr.Region{Name: "remote-Link block", Start: Mailbox + RemoteRegionStart, End: Mailbox + RemoteRegionEnd}
 
 // RELHookRegion is the REL's exec-hook and swap-state words. A canary

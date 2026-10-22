@@ -1046,9 +1046,10 @@ const canaryChunk = 0x400
 // (§4.5, §11 item 5): the TRK stack up to T2, and the slack between the
 // mailbox and the patched arena in its two parts around the REL's exec-
 // hook words (mailbox.RELHookRegion, which T2 branches to), the
-// enemy-mirror block (mailbox.EnemyBlockRegion) and the remote-Link block
-// (mailbox.RemoteBlockRegion), which Go and the REL write while they run
-// and which the probe therefore never arms or checks.
+// enemy-mirror block (mailbox.EnemyBlockRegion), the remote-Link block
+// (mailbox.RemoteBlockRegion) and the enemy knob table after it
+// (mailbox.EnemyKnobRegion, layout 4), which Go and the REL write while
+// they run and which the probe therefore never arms or checks.
 var canaryRegions = []addr.Region{mailbox.CanaryTRK, mailbox.CanaryArena, mailbox.CanaryArenaHigh}
 
 // canaryForbidden is what a canary must never cover: the main stack and
@@ -1062,6 +1063,7 @@ func canaryForbidden() []addr.Region {
 		mailbox.RELHookRegion,
 		mailbox.EnemyBlockRegion,
 		mailbox.RemoteBlockRegion,
+		mailbox.EnemyKnobRegion,
 		{Name: "the arena", Start: mailbox.PatchedArenaLo, End: addr.MEM1End},
 	}
 }

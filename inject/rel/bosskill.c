@@ -48,6 +48,45 @@
 // "M_DragB". The refight stages are the 'X' ones (Xboss0..3), where end()
 // takes the refight branch instead (d_a_btd.cpp:905-910); the exact name
 // keeps them out, and so does the explicit first-letter test below.
+//
+// Kalle Demos (WWBOSS_PROC_BMD, the stage exactly "kinBOSS"; ww-multiplayer-
+// handoff/design/research/C1-kalle-demos-relay.md). bk_bmd writes all of
+// core_damage_check's lethal block (d_a_bmd.cpp:609-617), not just mMode
+// and m302: mB76, the clock end() waits on for STAGE_BOSS_ENEMY and the
+// warp flower (:561-565), counts only while mB74 is nonzero (:1523-1538),
+// and the death camera's case 101 holds Link in place every frame
+// (:1462-1470) until the head death (m306 100) reaches 110 (:760-764). So
+// m306 = 100, mB74 = 100, m310 = 20000, mBE0 = 2, mBDC = 1.0f, m302 = 0,
+// mMode = 0xB, then the boss music stopped as mDoAud_bgmStop(30) does.
+// health, the 8-frame hit pause and the last-hit SE are skipped. end(),
+// the head death and the death camera then give the heart container
+// (:747), Makar's drop and NPC_CB1 (:1439, :1488), STAGE_BOSS_ENEMY and
+// the warp flower (:562-563) in this game, in vanilla order.
+//
+// Bmd's branches:
+//   1. no Bmd (none, still creating, or its create refused because this
+//      game has the boss bit, :1970-1977): WWBOSS_R_NO_ACTOR;
+//   2. any state but the open flower: WWBOSS_R_WAITING, nothing written;
+//   3. mMode 3 (fallen) at m302 2..5 with m304 nonzero (the core out),
+//      m310 0 and mB74 0: the lethal block, WWBOSS_R_APPLIED;
+//   4. mMode 0xB: WWBOSS_R_ALREADY.
+// The gate (branch 3) is vanilla's own reach: the intro shuts
+// core_damage_check (m310 = 8 every frame, :427), and with the vines up
+// the body sphere shields the core and m304 is 0 (:942, :1625-1629). It
+// is also where the hands and feet are down: end() lays them down only
+// through the one-frame m332 8 and 9 signals, which a foot takes only in
+// its damage state (d_a_bmdfoot.cpp:567) and a hand only in its down state
+// (d_a_bmdhand.cpp:558), both entered on the m332 = 3 fall signal (:160),
+// always before m304 = 1 (:164). Killed with the vines up, the hands and
+// feet would attack on through the death scene, and move() would keep the
+// body hung by m331 (:1087-1095). m304 alone is not enough: it is
+// nonzero in eat (:327), the intro (:433) and end() (:517), and wait()
+// clears it only 60 frames after the flower closes (:938-943), while
+// damage_check runs in every mode but 3 (:1096): vines cut inside that
+// window enter mMode 3 at m302 0 with the old m304, before the m332 = 3
+// fall signal (:158-161). So m302 must be 2..5 too. Never a
+// delete: the hands and feet keep a static pointer to the boss
+// (d_a_bmdhand.cpp:34, d_a_bmdfoot.cpp:35).
 #include "mailbox_core.h"
 #include "wwenemy.h"
 #include "wwremote.h"
@@ -79,10 +118,25 @@ typedef BOOL (*bk_search_name_t)(s16 proc, fopAc_ac_c** out);
 // fpc base's mProcName (s16 at +0x08, f_pc_base.h), as enemy_mirror.c checks it.
 #define BK_PROC_NAME_OFF 0x08
 
-// The stage the op may run in, NUL-padded to the name's 8 bytes.
-static int bk_stage_ok(void) {
-    static const char want[8] = { 'M', '_', 'D', 'r', 'a', 'g', 'B', 0 };
+// mDoAud_bgmStop (m_Do_audio.h:107-109): zel_basic->bgmStop(fade, 0).
+typedef void (*bk_bgm_stop_t)(void* self, u32 fade, s32 arg);
+#define bk_bgmStop ((bk_bgm_stop_t)WWBOSS_BGM_STOP_FN)
+#define BK_ZEL_BASIC (*(void* volatile*)WWBOSS_ZEL_BASIC)
+
+// The stage proc's op may run in, NUL-padded to the name's 8 bytes: Btd
+// only in M_DragB, Bmd only in kinBOSS, never an 'X' refight stage.
+static int bk_stage_ok(u16 proc) {
+    static const char drag_b[8] = { 'M', '_', 'D', 'r', 'a', 'g', 'B', 0 };
+    static const char kin_boss[8] = { 'k', 'i', 'n', 'B', 'O', 'S', 'S', 0 };
+    const char* want;
     int i;
+    if (proc == WWBOSS_PROC_BTD) {
+        want = drag_b;
+    } else if (proc == WWBOSS_PROC_BMD) {
+        want = kin_boss;
+    } else {
+        return 0;
+    }
     if (BK_CUR_STAGE_NAME[0] == 'X') return 0;
     for (i = 0; i < 8; i++) {
         if (BK_CUR_STAGE_NAME[i] != (u8)want[i]) return 0;
@@ -100,30 +154,14 @@ void bosskill_link(void) {
     bk_ack(BK_WORD(WWBOSS_SEQ_OFF), WWBOSS_R_NONE, 0, 0, 0);
 }
 
-void bosskill_frame(void) {
-    u32 seq = BK_WORD(WWBOSS_SEQ_OFF);
-    fopAc_ac_c* a = 0;
-    volatile s16* act;
-    volatile s16* state;
-    s16 was, st;
-    u8 phase;
+// bk_btd runs a request on Gohma (the header's branches 2-4).
+static void bk_btd(u32 seq, fopAc_ac_c* a) {
+    volatile s16* act = (volatile s16*)((u8*)a + WWBOSS_BTD_M02E4_OFF);
+    volatile s16* state = (volatile s16*)((u8*)a + WWBOSS_BTD_STATE_OFF);
+    s16 was = *act;
+    s16 st = *state;
+    u8 phase = *(volatile u8*)((u8*)a + WWBOSS_BTD_M02E0_OFF);
 
-    if (seq == BK_WORD(WWBOSS_ACK_OFF)) return;
-    if (NEXT_STAGE_ENABLE != 0 || BK_HALF(WWBOSS_PROC_OFF) != WWBOSS_PROC_BTD ||
-        BK_HALF(WWBOSS_TAG_OFF) != WWBOSS_TAG || !bk_stage_ok()) {
-        bk_ack(seq, WWBOSS_R_GATE, 0, 0, 0);
-        return;
-    }
-    if (!bk_SearchByName((s16)WWBOSS_PROC_BTD, &a) || !a ||
-        *(volatile s16*)((u8*)a + BK_PROC_NAME_OFF) != (s16)WWBOSS_PROC_BTD) {
-        bk_ack(seq, WWBOSS_R_NO_ACTOR, 0, 0, 0);
-        return;
-    }
-    act = (volatile s16*)((u8*)a + WWBOSS_BTD_M02E4_OFF);
-    state = (volatile s16*)((u8*)a + WWBOSS_BTD_STATE_OFF);
-    was = *act;
-    st = *state;
-    phase = *(volatile u8*)((u8*)a + WWBOSS_BTD_M02E0_OFF);
     switch (was) {
     case 0:
     case 1:
@@ -145,5 +183,65 @@ void bosskill_frame(void) {
     default:
         bk_ack(seq, WWBOSS_R_WAITING, was, st, phase);
         return;
+    }
+}
+
+#define BK_S16(a, off) (*(volatile s16*)((u8*)(a) + (off)))
+
+// bk_bmd runs a request on Kalle Demos (the header's Bmd branches 2-4).
+// The result carries mMode, m302 and m304 as found.
+static void bk_bmd(u32 seq, fopAc_ac_c* a) {
+    s16 mode = BK_S16(a, WWBOSS_BMD_MODE_OFF);
+    s16 step = BK_S16(a, WWBOSS_BMD_M302_OFF);
+    s16 core = BK_S16(a, WWBOSS_BMD_M304_OFF);
+    void* zel;
+
+    if (mode == WWBOSS_BMD_MODE_END) {
+        bk_ack(seq, WWBOSS_R_ALREADY, mode, step, (u8)core);
+        return;
+    }
+    // The open flower (header): fallen and landed, the core out, no hit
+    // i-frames and no demo camera.
+    if (mode != WWBOSS_BMD_MODE_FALLEN || step < WWBOSS_BMD_STEP_LANDED || core == 0 ||
+        BK_S16(a, WWBOSS_BMD_M310_OFF) != 0 || BK_S16(a, WWBOSS_BMD_MB74_OFF) != 0) {
+        bk_ack(seq, WWBOSS_R_WAITING, mode, step, (u8)core);
+        return;
+    }
+    // core_damage_check's lethal block (d_a_bmd.cpp:609-617), mMode and
+    // m302 last so end() starts on the full set (one frame on the main
+    // thread either way).
+    BK_S16(a, WWBOSS_BMD_M306_OFF) = WWBOSS_BMD_M306_DEAD;
+    BK_S16(a, WWBOSS_BMD_MB74_OFF) = WWBOSS_BMD_MB74_DEATH;
+    BK_S16(a, WWBOSS_BMD_M310_OFF) = WWBOSS_BMD_M310_DEAD;
+    *(volatile u8*)((u8*)a + WWBOSS_BMD_MBE0_OFF) = WWBOSS_BMD_MBE0_DEAD;
+    *(volatile f32*)((u8*)a + WWBOSS_BMD_MBDC_OFF) = 1.0f;
+    BK_S16(a, WWBOSS_BMD_M302_OFF) = 0;
+    BK_S16(a, WWBOSS_BMD_MODE_OFF) = WWBOSS_BMD_MODE_END;
+    zel = BK_ZEL_BASIC;
+    if (zel) bk_bgmStop(zel, WWBOSS_BGM_STOP_FADE, 0);
+    bk_ack(seq, WWBOSS_R_APPLIED, mode, step, (u8)core);
+}
+
+void bosskill_frame(void) {
+    u32 seq = BK_WORD(WWBOSS_SEQ_OFF);
+    u16 proc;
+    fopAc_ac_c* a = 0;
+
+    if (seq == BK_WORD(WWBOSS_ACK_OFF)) return;
+    proc = BK_HALF(WWBOSS_PROC_OFF);
+    if (NEXT_STAGE_ENABLE != 0 || (proc != WWBOSS_PROC_BTD && proc != WWBOSS_PROC_BMD) ||
+        BK_HALF(WWBOSS_TAG_OFF) != WWBOSS_TAG || !bk_stage_ok(proc)) {
+        bk_ack(seq, WWBOSS_R_GATE, 0, 0, 0);
+        return;
+    }
+    if (!bk_SearchByName((s16)proc, &a) || !a ||
+        *(volatile s16*)((u8*)a + BK_PROC_NAME_OFF) != (s16)proc) {
+        bk_ack(seq, WWBOSS_R_NO_ACTOR, 0, 0, 0);
+        return;
+    }
+    if (proc == WWBOSS_PROC_BTD) {
+        bk_btd(seq, a);
+    } else {
+        bk_bmd(seq, a);
     }
 }

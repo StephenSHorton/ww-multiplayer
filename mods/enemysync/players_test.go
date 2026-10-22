@@ -270,7 +270,7 @@ func TestDefaultPolicyPinned(t *testing.T) {
 		kinds string
 		allow []int16
 	}{
-		{DefaultMirrorKinds, []int16{addr.ProcMo2, addr.ProcBK, addr.ProcCC}},
+		{DefaultMirrorKinds, []int16{addr.ProcMo2, addr.ProcBK, addr.ProcCC, addr.ProcKI}},
 		{"mo2,ki", []int16{addr.ProcMo2, addr.ProcKI}},
 		{"none", nil},
 	} {

@@ -22,7 +22,7 @@ What works today:
 - **Each other's Link in your game**, at their real position with their
   real animations, each in that player's own tunic color (a player in
   casual clothes shows the casual shirt)
-- **Shared enemies:** the host's Moblins, Bokoblins and ChuChus are the
+- **Shared enemies:** the host's Moblins, Bokoblins, ChuChus and Keese are the
   real ones, and a hit from any player counts
 - **Other players have a body** those enemies can see and hit
 - **Optional co-op worlds:** shared progress across everyone's saves

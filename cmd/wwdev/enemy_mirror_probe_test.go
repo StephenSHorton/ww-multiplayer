@@ -314,7 +314,8 @@ func TestMirrorLoopPeriod(t *testing.T) {
 // tail.
 func TestEnemyBlockDump(t *testing.T) {
 	m := mem.NewFakeMem()
-	blk := &mailbox.EnemyBlock{Magic: mailbox.EnemyMagic, Seq: 42, HostBeat: 7, GoWriteMS: 99, Flags: 0x05, Layout: 3, Epoch: 3, Stage: "M_Dai", Room: 1, Role: 2, KindMask: 1,
+	blk := &mailbox.EnemyBlock{Magic: mailbox.EnemyMagic, Seq: 42, HostBeat: 7, GoWriteMS: 99, Flags: 0x05, Layout: 4, Epoch: 3, Stage: "M_Dai", Room: 1, Role: 2, KindMask: 1,
+		KnobGen: 0x1234, HkdHi: [mailbox.EnemyHkdHiKinds]uint8{0x02, 0x40},
 		Slots: []mailbox.EnemySlot{{PID: 1002, Proc: 0x00BD, PKey: 0xD0264F5D, Pos: [3]float32{1, 2, 3}, Health: 4, Flags: 0x03, MorfFrame: 1.5, MorfRate: 1, SampleSeq: 9,
 			Bck: 0x73, AnmAttr: 2, AnmSeq: 5, Morf: 15, Flags2: 0x05, BlurShape: 3, BlurScale: 1.25}},
 		HitApply: mailbox.EnemyHitApply{Seq: 0x30001, SetID: 2, Collider: 1, Flags: 0x02, AtType: 2, Atp: 2, Se: 1, HitMark: 0xD, Spl: 1, PID: 620},
@@ -323,6 +324,12 @@ func TestEnemyBlockDump(t *testing.T) {
 		t.Fatal(err)
 	}
 	store(t, m, mailbox.EnemyBlockAddr+mailbox.EnemyAckSeqOff, u32b(41))
+	store(t, m, mailbox.EnemyBlockAddr+mailbox.EnemyKnobSeenOff, []byte{0x12, 0x34, 3})
+	knobs := mailbox.EnemyKnobs{Gen: 0x1234}
+	knobs.Quiet[3] = 5
+	if err := mailbox.WriteEnemyKnobs(m, &knobs); err != nil {
+		t.Fatal(err)
+	}
 	store(t, m, mailbox.EnemyBlockAddr+mailbox.EnemyCanariesOff, []byte{1, 2, 3, 4})
 	store(t, m, mailbox.EnemyBlockAddr+mailbox.EnemyCanaries2Off, []byte{5, 6, 7, 8})
 	store(t, m, mailbox.EnemyBlockAddr+mailbox.EnemyHitApplyAckOff, u32b(0x30001))
@@ -335,7 +342,9 @@ func TestEnemyBlockDump(t *testing.T) {
 	}
 	for _, want := range []string{
 		"enemy block at 0x80413100 (0x198 bytes)",
-		"magic 0x5757454E 'WWEN' seq_head 42 seq_tail 42 host_beat 7 go_write_ms 99 count 1 flags 0x05 layout 3 epoch 3 stage \"M_Dai\" room 1 role 2 kind_mask 0x1",
+		"magic 0x5757454E 'WWEN' seq_head 42 seq_tail 42 host_beat 7 go_write_ms 99 count 1 flags 0x05 layout 4 epoch 3 stage \"M_Dai\" room 1 role 2 kind_mask 0x1 knob_gen 4660 hkd_hi 02 40 00 00 00 00 00 00",
+		"knob table at 0x80413750: gen_head 4660 gen_tail 4660 layout 4 count 16: valid for knob_gen; hook [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] quiet [0 0 0 5 0",
+		"knob_gen_seen 4660 fp_miss 3",
 		"slot 0: pid 1002 proc 0x00BD pkey 0xD0264F5D pos 1.0 2.0 3.0", "health 4 flags 0x03 frame 1.50 rate 1.00 sample 9 bck 0x73 attr 2 anm_seq 5 morf 15 flags2 0x05 blur 3/1.25",
 		"hit_apply: seq 196609 setID 2 collider 1 flags 0x02 atType 0x00000002 atp 2 se 1 hit_mark 13 spl 1 pos 0.0 0.0 0.0 pid 620",
 		"hit_apply_ack 196609 result 1 detail 0 frames 1 sets 1", "canaries2 {5 6 7 8}",

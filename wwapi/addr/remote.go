@@ -89,6 +89,7 @@ const (
 	ProcCC      = 0x0CF // fpcNm_CC_e (:219), ChuChu
 	ProcPW      = 0x0D5 // fpcNm_PW_e (:225), Poe
 	ProcKI      = 0x0D8 // fpcNm_KI_e (:228), Keese
+	ProcMT      = 0x0D9 // fpcNm_MT_e (:229), Magtail (kind id 8 reserved: the batch C row was cut)
 	ProcBWDS    = 0x0DB // fpcNm_BWDS_e (:231), Molgera larva
 	ProcBMDFoot = 0x0EE // fpcNm_BMDFOOT_e (:250), Kalle Demos tentacle
 	ProcFGMahou = 0x0F4 // fpcNm_FGMAHOU_e (:256), Phantom Ganon's orb volley

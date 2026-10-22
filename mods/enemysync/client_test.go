@@ -104,8 +104,8 @@ func TestMirrorWritesBlock(t *testing.T) {
 		t.Fatalf("tick: hits %v sleep %v err %v", hits, sleep, err)
 	}
 	blocks := blockWrites(t, m)
-	if len(blocks) != 1 || len(m.Writes()) != 1 {
-		t.Fatalf("writes: %d blocks of %d writes", len(blocks), len(m.Writes()))
+	if len(blocks) != 1 || len(blockSideWrites(m)) != 1 || len(knobWrites(t, m)) != 1 {
+		t.Fatalf("writes: %d blocks of %d writes (and %d knob tables)", len(blocks), len(blockSideWrites(m)), len(knobWrites(t, m)))
 	}
 	b := blocks[0]
 	a0, _ := es.Of(1)

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/mailboxgen"
@@ -32,7 +33,7 @@ func kindsHeader(t *testing.T) ([]byte, map[string]int64) {
 	return src, out
 }
 
-// emkRowFields are the fields every row (MO2, BK, CC, KI, AM, AM2, TN)
+// emkRowFields are the fields every row (MO2, BK, CC, KI, AM, AM2, TN, BB)
 // defines: the em_kind struct's (inject/rel/enemy_mirror.h), one
 // EMK_<KIND>_<FIELD> each, 0 for "none".
 var emkRowFields = []string{"ID", "PROC", "CLASS_SIZE", "BCK_FIRST", "BCK_LAST", "BCK_WAIT", "MORF", "GATE", "DR", "DR_MODE", "DR_ACTION",
@@ -46,7 +47,11 @@ var emkRowFields = []string{"ID", "PROC", "CLASS_SIZE", "BCK_FIRST", "BCK_LAST",
 // the block's; and the PKey test vector is the one TestPKey checks.
 func TestKindTablePins(t *testing.T) {
 	src, defs := kindsHeader(t)
-	prefix := map[KindID]string{KindMO2: "EMK_MO2_", KindBK: "EMK_BK_", KindCC: "EMK_CC_", KindKI: "EMK_KI_", KindAM: "EMK_AM_", KindAM2: "EMK_AM2_", KindTN: "EMK_TN_"}
+	prefix := map[KindID]string{KindMO2: "EMK_MO2_", KindBK: "EMK_BK_", KindCC: "EMK_CC_", KindKI: "EMK_KI_", KindAM: "EMK_AM_", KindAM2: "EMK_AM2_", KindTN: "EMK_TN_",
+		KindBB: "EMK_BB_"}
+	if len(prefix) != len(Kinds) {
+		t.Fatalf("the pins name %d rows, Kinds has %d", len(prefix), len(Kinds))
+	}
 	for id, p := range prefix {
 		for _, f := range emkRowFields {
 			if _, ok := defs[p+f]; !ok {
@@ -71,6 +76,7 @@ func TestKindTablePins(t *testing.T) {
 		// kind ids and the masks they make
 		"EMK_KIND_MO2": int64(KindMO2), "EMK_KIND_BK": int64(KindBK), "EMK_KIND_CC": int64(KindCC), "EMK_KIND_NONE": int64(KindNone),
 		"EMK_KIND_KI": int64(KindKI), "EMK_KIND_AM": int64(KindAM), "EMK_KIND_AM2": int64(KindAM2), "EMK_KIND_TN": int64(KindTN),
+		"EMK_KIND_BB": int64(KindBB), "EMK_KIND_MT": int64(KindMT),
 		// the hit collider codes
 		"EMK_HIT_HEAD": int64(HitHead), "EMK_HIT_TG": int64(HitTg), "EMK_HIT_SPECIAL": int64(HitSpecial),
 		"EMK_KIND_COUNT": int64(len(Kinds)),
@@ -173,6 +179,29 @@ func TestKindTablePins(t *testing.T) {
 		"EMK_TN_HKD_SHIELD": int64(mailbox.EnemyHKDModelEq), "EMK_TN_HKD_ATTACH": int64(mailbox.EnemyHKDAttach),
 		"EMK_TN_HKD_SWORD": int64(mailbox.EnemyHKDEye), "EMK_TN_HKD_COLL": int64(mailbox.EnemyHKDLegacyDeath),
 		"EMK_TN_HKD_ADOPT_ANM": int64(mailbox.EnemyHKDMtxPlain), "EMK_TN_HKD_DIRECT": int64(mailbox.EnemyHKDSpecial),
+		// Batch C: the ambush Bokoblin (ambush_cleanup R-6..R-9) and BB
+		// (enemy-mirror-batch-c.json "bb"; wwapi/addr/bb.go); each per-kind
+		// hook name is its generic bit (D7) and ParseAnnex's.
+		"EMK_BK_TYPE_AMBUSH_JUMP": BkTypeAmbushJump, "EMK_BK_TYPE_AMBUSH_LEAP": BkTypeAmbushLeap, "EMK_BK_TYPE_TORCH": 4,
+		"EMK_BK_HKD_AMBUSH": int64(bkHookNames["ambush"]), "EMK_AC_ANGLE_X": addr.ActorOffCurAngle, "EMK_AC_ANGLE_Z": addr.ActorOffCurAngle + 4,
+		"EMK_BB_TILT": addr.ActorOffCurAngle, "EMK_BB_CLASS_SIZE": addr.BbClassSize, "EMK_BB_EYE_BTP": addr.BbOffEyeBtp, "EMK_BB_STATE": addr.BbOffState, "EMK_BB_RIDER": addr.BbOffRider,
+		"EMK_BB_DRAW_GATE": addr.BbOffDrawGate, "EMK_BB_TIMERS": addr.BbOffTimers, "EMK_BB_ATTACK_TIMER": addr.BbOffAttackTimer,
+		"EMK_BB_INVULN": addr.BbOffInvuln, "EMK_BB_KNOCK": addr.BbOffKnock, "EMK_BB_AT_SPH": addr.BbOffHeadAtSph, "EMK_BB_HEAD_SPH": addr.BbOffHeadTgSph,
+		"EMK_BB_SPH_SRC": addr.BbOffHeadTgSph, "EMK_BB_TG_CYL": addr.BbOffBodyTgSph, "EMK_BB_CO_CYL": addr.BbOffBodyCoSph, "EMK_BB_DEAD": addr.BbOffDead,
+		"EMK_BB_TYPE_RIDER_MO2": BbTypeRiderMO2, "EMK_BB_TYPE_RIDER_BK": BbTypeRiderBK, "EMK_BB_F2_ATTN": int64(BbF2Attn), "EMK_BB_ATTN_F2": int64(BbF2Attn),
+		"EMK_BB_HKD_TAIL": int64(bbHookNames["tail"]), "EMK_BB_HKD_BEAK": int64(bbHookNames["beak"]), "EMK_BB_HKD_MTX": int64(bbHookNames["mtx"]),
+		"EMK_BB_HKD_HANDBACK": int64(bbHookNames["handback"]), "EMK_BB_HKD_ATTN": int64(mailbox.EnemyHKDAttn), "EMK_BB_HKD_EXTRA": int64(mailbox.EnemyHKDExtra),
+		// The batch C sampler's and probe's offsets (bb.go).
+		"EMK_BB_TYPE_PERCH": addr.BbTypePerch, "EMK_BB_TYPE_PERCH2": addr.BbTypePerch2, "EMK_BB_M2F0": addr.BbOffM2F0, "EMK_BB_M2F1": addr.BbOffM2F1,
+		"EMK_BB_M34C": addr.BbOffM34C, "EMK_BB_M35D": addr.BbOffM35D, "EMK_BB_M366": addr.BbOffM366, "EMK_BB_M368": addr.BbOffM368,
+		"EMK_BB_GROUND_H": addr.BbOffGroundH, "EMK_BB_TAIL_MODELS": addr.BbOffTailModels, "EMK_BB_TAIL_POS": addr.BbOffTailPos,
+		"EMK_BB_TAIL_ROT": addr.BbOffTailRot, "EMK_BB_TAIL_VEL": addr.BbOffTailVel, "EMK_BB_TAIL_ROOT": addr.BbOffTailRoot,
+		"EMK_BB_TAIL_ROOT1": addr.BbOffTailRoot1, "EMK_BB_TAIL_LEN": addr.BbTailLen, "EMK_BB_HEAD_ROT": addr.BbOffHeadRot,
+		"EMK_BB_BEAK": addr.BbOffBeak, "EMK_BB_C58": addr.BbOffC58, "EMK_BB_ICE": addr.BbOffIce, "EMK_BB_ICE_Y": addr.BbOffIceY,
+		"EMK_BB_TEXT_EXEC": addr.BbTextExec, "EMK_BB_TEXT_TAIL": addr.BbTextTail, "EMK_BB_TAIL_BLR_OFF": addr.BbTailBlrOff,
+		"EMK_BB_FP_EXEC0": int64(addr.BbFpExec[0]), "EMK_BB_FP_EXEC1": int64(addr.BbFpExec[1]), "EMK_BB_FP_EXEC2": int64(addr.BbFpExec[2]),
+		"EMK_BB_FP_EXEC3": int64(addr.BbFpExec[3]), "EMK_BB_FP_TAIL0": int64(addr.BbFpTail[0]), "EMK_BB_FP_TAIL1": int64(addr.BbFpTail[1]),
+		"EMK_BB_FP_TAIL2": int64(addr.BbFpTail[2]), "EMK_BB_FP_TAIL3": int64(addr.BbFpTail[3]), "EMK_BB_FP_BLR": addr.BbFpBlr,
 	}
 	for name, want := range pins {
 		got, ok := defs[name]
@@ -190,7 +219,8 @@ func TestKindTablePins(t *testing.T) {
 		t.Errorf("KindF2Light 0x%X, block SF2_LIGHT 0x%X", KindF2Light, mailbox.EnemySF2Light)
 	}
 	for _, b := range []uint8{BkF2HasWeapon, BkF2PlaySkip, BkF2BlurOn, BkF2Attn, CcF2Tg, CcF2Co, CcF2Squash, CcF2LowEye, CcF2NoShadow, CcF2Attn,
-		KiF2Attn, KiF2Lunge, AmF2Attn, AmF2PlaySkip, Am2F2Attn, Am2F2WeakTg, Am2F2BodyCo, Am2F2Carried, TnF2HasWeapon, TnF2PlaySkip, TnF2Attn} {
+		KiF2Attn, KiF2Lunge, AmF2Attn, AmF2PlaySkip, Am2F2Attn, Am2F2WeakTg, Am2F2BodyCo, Am2F2Carried, TnF2HasWeapon, TnF2PlaySkip, TnF2Attn,
+		BbF2Attn} {
 		if b&0xC0 != 0 {
 			t.Errorf("per-kind flags2 bit 0x%02X overlaps SF2_LIGHT/QUIET", b)
 		}
@@ -199,14 +229,52 @@ func TestKindTablePins(t *testing.T) {
 	if defs["EMK_MO2_CAPS"] != defs["EMK_CAP_DR"]|defs["EMK_CAP_MODEL_EQ"]|defs["EMK_CAP_FOPEN"]|defs["EMK_CAP_WAIT_MODE1"]|defs["EMK_CAP_ADDR_SUCCESS"] ||
 		defs["EMK_BK_CAPS"] != defs["EMK_CAP_DR"]|defs["EMK_CAP_MODEL_EQ"]|defs["EMK_CAP_FOPEN"] || defs["EMK_CC_CAPS"] != defs["EMK_CAP_FOPEN"] ||
 		defs["EMK_KI_CAPS"] != defs["EMK_CAP_FOPEN"]|defs["EMK_CAP_PKEY_NO_POS"]|defs["EMK_CAP_SPH_COLL"] || defs["EMK_AM_CAPS"] != defs["EMK_CAP_FOPEN"] ||
-		defs["EMK_AM2_CAPS"] != defs["EMK_CAP_FOPEN"]|defs["EMK_CAP_MODEL_EQ"] || defs["EMK_TN_CAPS"] != defs["EMK_CAP_DR"]|defs["EMK_CAP_FOPEN"] {
+		defs["EMK_AM2_CAPS"] != defs["EMK_CAP_FOPEN"]|defs["EMK_CAP_MODEL_EQ"] || defs["EMK_TN_CAPS"] != defs["EMK_CAP_DR"]|defs["EMK_CAP_FOPEN"] ||
+		defs["EMK_BB_CAPS"] != defs["EMK_CAP_FOPEN"]|defs["EMK_CAP_SPH_COLL"]|defs["EMK_CAP_TILT_CUR"] {
 		t.Error("a row's caps are not the type table's")
 	}
 	if defs["EMK_MO2_MTX"] != defs["EMK_MTX_DR"] || defs["EMK_BK_MTX"] != defs["EMK_MTX_DR"] || defs["EMK_CC_MTX"] != defs["EMK_MTX_CC"] ||
 		defs["EMK_BK_ATTACH"] != defs["EMK_ATTACH_BK"] || defs["EMK_CC_EYE"] != defs["EMK_EYE_CC"] || defs["EMK_CC_COLL"] != defs["EMK_COLL_CC"] ||
 		defs["EMK_TN_MTX"] != defs["EMK_MTX_DR"] || defs["EMK_TN_COLL"] != defs["EMK_COLL_STD"] || defs["EMK_TN_ATTACH"] != defs["EMK_ATTACH_TN"] ||
-		defs["EMK_TN_EYE"] != defs["EMK_EYE_NONE"] {
+		defs["EMK_TN_EYE"] != defs["EMK_EYE_NONE"] ||
+		defs["EMK_BB_MTX"] != defs["EMK_MTX_TRYXZ"] || defs["EMK_BB_COLL"] != defs["EMK_COLL_STD"] || defs["EMK_BB_ATTACH"] != defs["EMK_ATTACH_NONE"] ||
+		defs["EMK_BB_EYE"] != defs["EMK_EYE_NONE"] {
 		t.Error("a row's hooks are not the type table's")
+	}
+	// Batch C (D7): the hook ids are new, distinct values; no BB per-kind
+	// hook name reuses ATTN or EXTRA, whose generic readers fire for every
+	// kind; the per-kind names are the C pins' (above) and stay clear of the
+	// generic names ParseAnnex also takes.
+	if defs["EMK_MTX_TRYXZ"] != 5 || defs["EMK_CAP_TILT_CUR"] != 0x80 {
+		t.Error("batch C's hook id or cap moved")
+	}
+	// The MT cut (R-20, after P0-MT): EMK_KIND_MT stays as the reserved id
+	// 8, past the last row, and nothing else of the Magtail row is left.
+	if defs["EMK_KIND_MT"] != int64(KindMT) || int(KindMT) != len(Kinds) || KindMT.Row() != nil || KindOf(addr.ProcMT) != KindNone {
+		t.Errorf("EMK_KIND_MT %d: the reserved id is not past the last row (%d rows)", defs["EMK_KIND_MT"], len(Kinds))
+	}
+	for name := range defs {
+		if strings.HasPrefix(name, "EMK_MT_") || name == "EMK_MTX_MT" || name == "EMK_COLL_MT" || name == "EMK_HIT_MT_KILL" {
+			t.Errorf("wwenemy_kinds.h still defines %s after the MT cut", name)
+		}
+	}
+	for name, m := range map[string]map[string]uint8{"bk": bkHookNames, "bb": bbHookNames, "tn": tnHookNames} {
+		for h, b := range m {
+			if _, generic := annexHookNames[h]; generic {
+				t.Errorf("%s:hooks=%s shadows a generic name", name, h)
+			}
+			if b == mailbox.EnemyHKDAttn || b == mailbox.EnemyHKDExtra {
+				t.Errorf("%s:hooks=%s reuses ATTN/EXTRA 0x%02X (D7)", name, h, b)
+			}
+		}
+	}
+	for name, want := range map[string]string{"EMK_BB_BCK_WAIT": "FLY01", "EMK_BB_BCK_FIRST": "ATACK01", "EMK_BB_BCK_LAST": "WALK"} {
+		if got := BckName(KindBB, uint8(defs[name])); got != want {
+			t.Errorf("%s 0x%X is %s, want %s", name, defs[name], got, want)
+		}
+	}
+	if len(bbBckNames) != KindBB.Row().BckCount() {
+		t.Error("the BB BCK name list does not cover its range")
 	}
 	// The allow rows (type_table KI, AM, AM2): MTX_PLAIN, COLL_STD, the
 	// fixed eye, no attach; the caps bit a row's no-pos pkey reads is the
@@ -251,9 +319,75 @@ func TestKindTablePins(t *testing.T) {
 		}
 	}
 	// The annex overrides cover the first rows by kind id; the hook bytes
-	// (HKDX, allow design D3) every row past them.
-	if mailbox.EnemyAnnexKinds > len(Kinds) || mailbox.EnemyAnnexKinds+mailbox.EnemyAnnexHKDXKinds < len(Kinds) || mailbox.EnemyAnnexKinds != int(KindKI) {
-		t.Errorf("the annex has %d override rows and %d hook bytes for %d kinds", mailbox.EnemyAnnexKinds, mailbox.EnemyAnnexHKDXKinds, len(Kinds))
+	// (HKDX, allow design D3) ids 3..6; layout 4's block hook bytes ids
+	// 7..14 (batch C D2) and its knob table every id; a kind_mask is u16
+	// on the wire and in the REL (D5, D6).
+	if mailbox.EnemyAnnexKinds > len(Kinds) || mailbox.EnemyAnnexKinds != int(KindKI) ||
+		mailbox.EnemyAnnexKinds+mailbox.EnemyAnnexHKDXKinds != int(KindBB) ||
+		int(KindBB)+mailbox.EnemyHkdHiKinds < len(Kinds) || mailbox.EnemyKnobKinds < len(Kinds) || len(Kinds) > 16 {
+		t.Errorf("the annex has %d override rows and %d hook bytes, layout 4 %d hook bytes and %d knob rows, for %d kinds",
+			mailbox.EnemyAnnexKinds, mailbox.EnemyAnnexHKDXKinds, mailbox.EnemyHkdHiKinds, mailbox.EnemyKnobKinds, len(Kinds))
+	}
+}
+
+// TestKindsBatchC: BB is row 7 with the design's fields (batch C
+// "bb".row), off by default, quiet by default; BB's params gate refuses
+// the riders keyed and unkeyed (D9). MT (id 8) was cut after P0-MT: no
+// row, and its tokens are refused with the reason.
+func TestKindsBatchC(t *testing.T) {
+	bb := KindBB.Row()
+	if bb == nil || KindOf(addr.ProcBB) != KindBB || KindBB.String() != "bb" || KindMT.Row() != nil || KindMT.String() != "none" {
+		t.Fatalf("rows %+v %+v", bb, KindMT.Row())
+	}
+	if bb.Arc != "Bb" || bb.BckFirst != 0x15 || bb.BckLast != 0x22 || bb.BckWait != 0x18 || bb.MorfOff != 0x2B4 || bb.IceOff != 0xC80 ||
+		bb.GateOff != 0x2D8 || bb.AngleOff != addr.ActorOffCurAngleY || bb.PKeyNoPos {
+		t.Errorf("bb row %+v", *bb)
+	}
+	d, _ := ParseKinds("")
+	if d.Has(KindBB) || d.Has(KindMT) {
+		t.Errorf("default kinds %s enable bb or mt", d)
+	}
+	if s, err := ParseKinds("bb,bb+u"); err == nil {
+		t.Errorf("bb listed twice parsed: %s", s)
+	}
+	if s, err := ParseKinds("bb+u"); err != nil || !s.TakesUnkeyed(KindBB) || s.Mask() != 1<<7 {
+		t.Errorf("bb+u = %s (mask 0x%X) %v", s, s.Mask(), err)
+	}
+	for _, v := range []string{"mt", "mt+u", "bb+u,mt+u", "MT"} {
+		s, err := ParseKinds(v)
+		if err == nil || !strings.Contains(err.Error(), `enemy kind "mt" is not supported`) || !strings.Contains(err.Error(), "P0-MT") {
+			t.Errorf("ParseKinds(%q) = %s, %v; want the MT cut's refusal", v, s, err)
+		}
+	}
+	if _, err := ParseQuietKinds("mo2,mt"); err == nil || !strings.Contains(err.Error(), "P0-MT") {
+		t.Errorf("quiet mt: %v", err)
+	}
+	if _, err := ParseOverrides("mt:quiet=5"); err == nil || !strings.Contains(err.Error(), "P0-MT") {
+		t.Errorf("WW_ENEMY_ANNEX mt:quiet: %v", err)
+	}
+	if _, err := ParseKinds("zz"); err == nil || strings.Contains(err.Error(), "P0-MT") {
+		t.Errorf("an unknown kind names the MT cut: %v", err)
+	}
+	if q, _ := ParseQuietKinds(""); !q.Has(KindBB) || q.Has(KindMT) {
+		t.Errorf("quiet default %s", q)
+	}
+	for _, c := range []struct {
+		params uint32
+		ok     bool
+	}{{0xFFFFFF04, true}, {0xFFFF0507, true}, {0xE000FF05, false}, {0xFFFFFF06, false}, {0xFFFFFF03, true}} {
+		if got := bb.ParamsOK(c.params) && bb.UnkeyedParamsOK(c.params); got != c.ok {
+			t.Errorf("bb params 0x%08X: %v, want %v", c.params, got, c.ok)
+		}
+	}
+	if !bb.LiveOK(LiveGate{Mode: 4}) || bb.LiveOK(LiveGate{Mode: BbTypeRiderMO2}) || bb.LiveOK(LiveGate{Mode: BbTypeRiderBK}) {
+		t.Error("bb LiveOK on the type byte")
+	}
+	if ColliderOff(KindBB, HitHead) != addr.BbOffHeadTgSph || ColliderOff(KindBB, HitTg) != addr.BbOffBodyTgSph ||
+		ColliderOff(KindMT, HitHead) != 0 || ColliderOff(KindMT, HitTg) != 0 {
+		t.Error("BB collider offsets, or a collider for the cut MT id")
+	}
+	if a, err := ParseAnnex("bk:hooks=ambush"); err != nil || a.Override[KindBK].HookDisable != mailbox.EnemyHKDSpecial {
+		t.Errorf("bk:hooks=ambush = %+v %v", a.Override[KindBK], err)
 	}
 }
 
@@ -261,7 +395,7 @@ func TestKindTablePins(t *testing.T) {
 // table change (hosts and clients of different builds refuse each other)
 // and must be deliberate.
 func TestKindHash(t *testing.T) {
-	const want = 0x0F3064EE // TN batch B1: the TN row (was 0x97EDB0F9, allow batch A1; before it 0x73A3A496)
+	const want = 0x587E10C2 // batch C: the BB row, MT cut by R-20 after P0-MT (0xB826567A with the MT row; was 0x0F3064EE, TN batch B1; 0x97EDB0F9, allow batch A1; before it 0x73A3A496)
 	if got := KindHash(); got != want {
 		t.Errorf("KindHash() = 0x%08X, pinned 0x%08X: the Kinds table changed", got, want)
 	}

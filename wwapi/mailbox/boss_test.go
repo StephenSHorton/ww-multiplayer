@@ -38,6 +38,26 @@ func TestBossHeaderPins(t *testing.T) {
 		"WWBOSS_BTD_M02F6_OFF":   BossBtdM02F6Off,
 		"WWBOSS_BTD_PHASE_BARE":  BossBtdPhaseBare,
 		"WWBOSS_BTD_ROCK_LANDED": BossBtdRockLand,
+		"WWBOSS_PROC_BMD":        uint64(BossProcBmd),
+		"WWBOSS_BMD_MODE_OFF":    BossBmdModeOff,
+		"WWBOSS_BMD_M302_OFF":    BossBmdM302Off,
+		"WWBOSS_BMD_M304_OFF":    BossBmdM304Off,
+		"WWBOSS_BMD_M306_OFF":    BossBmdM306Off,
+		"WWBOSS_BMD_M310_OFF":    BossBmdM310Off,
+		"WWBOSS_BMD_MB74_OFF":    BossBmdMB74Off,
+		"WWBOSS_BMD_MBDC_OFF":    BossBmdMBDCOff,
+		"WWBOSS_BMD_MBE0_OFF":    BossBmdMBE0Off,
+		"WWBOSS_BMD_MODE_FALLEN": BossBmdModeFallen,
+		"WWBOSS_BMD_STEP_LANDED": BossBmdStepLanded,
+		"WWBOSS_BMD_MODE_INTRO":  BossBmdModeIntro,
+		"WWBOSS_BMD_MODE_END":    BossBmdModeEnd,
+		"WWBOSS_BMD_M306_DEAD":   BossBmdM306Dead,
+		"WWBOSS_BMD_MB74_DEATH":  BossBmdMB74Death,
+		"WWBOSS_BMD_M310_DEAD":   BossBmdM310Dead,
+		"WWBOSS_BMD_MBE0_DEAD":   BossBmdMBE0Dead,
+		"WWBOSS_BGM_STOP_FN":     uint64(BossBgmStopFn),
+		"WWBOSS_ZEL_BASIC":       uint64(BossZelBasic),
+		"WWBOSS_BGM_STOP_FADE":   BossBgmStopFade,
 	})
 }
 
@@ -85,5 +105,32 @@ func TestBossReadAndFields(t *testing.T) {
 	}
 	if b, _ := m.Read(BossAddr+BossProcOff, 4); b[0] != 0x00 || b[1] != 0xEB || b[2] != 'B' || b[3] != 'K' {
 		t.Fatalf("proc and tag bytes % X", b)
+	}
+}
+
+// TestBossDetailPerProc: the result's bytes after BossR* read as Btd's
+// m02E4, mGohmaState and m02E0 for Gohma, and as Bmd's mMode, m302 and
+// m304 for Kalle Demos; the request carries the proc it was made for.
+func TestBossDetailPerProc(t *testing.T) {
+	st := BossStatus{Result: BossRApplied, Act: BossBmdModeFallen, State: 3, Phase: 1}
+	if got, want := BossDetail(BossProcBmd, st), "mMode 0x3, m302 3, m304 1"; got != want {
+		t.Fatalf("Bmd detail %q, want %q", got, want)
+	}
+	if got, want := BossDetail(BossProcBtd, st), "m02E4 0x3, state 0x3, m02E0 1"; got != want {
+		t.Fatalf("Btd detail %q, want %q", got, want)
+	}
+	if got := BossDetail(BossProcBmd, BossStatus{Act: BossBmdModeIntro, State: 0xFF}); got != "mMode 0xA, m302 -1, m304 0" {
+		t.Fatalf("Bmd intro detail %q", got)
+	}
+	if BossProcName(BossProcBmd) != "Kalle Demos (Bmd)" || BossProcName(BossProcBtd) != "Gohma (Btd)" || BossProcName(0xED) != "proc 0x00ED" {
+		t.Fatal("BossProcName")
+	}
+	m := mem.NewFakeMem()
+	pt, _ := BossRequestFields(BossProcBmd, 3)
+	if err := m.Write(BossAddr+BossProcOff, pt); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := m.Read(BossAddr+BossProcOff, 4); b[0] != 0x00 || b[1] != 0xEC || b[2] != 'B' || b[3] != 'K' {
+		t.Fatalf("Bmd proc and tag bytes % X", b)
 	}
 }
