@@ -241,13 +241,13 @@ func TestParseDZxReadsWhatTheGameReads(t *testing.T) {
 	b := stagetest.DZx(
 		stagetest.Actors("ACTR", stagetest.Actor{Name: "Bk"}),
 		stagetest.Chunk{Tag: "SOND", Count: -5},
-		stagetest.Chunk{Tag: "PLYR", Count: 1000},
+		stagetest.Chunk{Tag: "RCAM", Count: 1000},
 		stagetest.Chunk{Tag: "ACTR", Count: 1000},
 		stagetest.Chunk{Tag: "TGOB", Count: 0},
 		stagetest.Chunk{Tag: "STAG"}, // no entry yet: patched below
 	)
 	be := binary.BigEndian
-	be.PutUint32(b[4+2*0xC+8:], 0xFFFFFFF0) // PLYR offset past the end
+	be.PutUint32(b[4+2*0xC+8:], 0xFFFFFFF0) // RCAM offset past the end
 	be.PutUint32(b[4+4*0xC+8:], 0)          // TGOB: zero count at offset 0
 	be.PutUint32(b[4+5*0xC+8:], 4)          // STAG over the chunk table, in bounds
 	d, err := ParseDZx(b)
@@ -256,6 +256,45 @@ func TestParseDZxReadsWhatTheGameReads(t *testing.T) {
 	}
 	if len(d.Actors) != 1 || d.Actors[0].Name != "Bk" || len(d.Chunks) != 6 || d.Stag == nil {
 		t.Errorf("parsed %+v", d)
+	}
+}
+
+// TestParseDZxPlayers: the first PLYR chunk's entries are the player
+// starts, kept out of Actors; a start's point is the low byte of its
+// angle z; an empty chunk is a list (the game asserts on it) and no chunk
+// is none; a PLYR chunk running past the end is refused.
+func TestParseDZxPlayers(t *testing.T) {
+	plyr := func(point uint16, params uint32) stagetest.Actor {
+		return stagetest.Actor{Name: "Link", Params: params, Pos: [3]float32{1, 2, 3}, Angle: [3]int16{0, 0x4000, int16(point)}, SetID: 0xFFFF}
+	}
+	d, err := ParseDZx(stagetest.DZx(
+		stagetest.Actors("ACTR", stagetest.Actor{Name: "Bk"}),
+		stagetest.Actors("PLYR", plyr(0xFF07, 0x1004), plyr(0x0012, 0x7004)),
+		stagetest.Actors("PLYR", plyr(9, 0)), // never read
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Actors) != 1 || !d.HasPlayers() || len(d.Players) != 2 {
+		t.Fatalf("actors %+v, players %+v", d.Actors, d.Players)
+	}
+	if p := d.Players[0]; p.StartPoint() != 7 || p.Tag != "PLYR" || p.Name != "Link" || p.Params != 0x1004 || p.Pos != [3]float32{1, 2, 3} || p.Index != 0 {
+		t.Errorf("first start %+v, point %d", p, p.StartPoint())
+	}
+	if p := d.Players[1]; p.StartPoint() != 0x12 || p.Index != 1 {
+		t.Errorf("second start %+v, point %d", p, p.StartPoint())
+	}
+
+	empty, err := ParseDZx(stagetest.DZx(stagetest.Chunk{Tag: "PLYR"}))
+	if err != nil || !empty.HasPlayers() || len(empty.Players) != 0 {
+		t.Errorf("empty PLYR: %+v, %v", empty, err)
+	}
+	none, err := ParseDZx(stagetest.DZx(stagetest.Actors("ACTR", stagetest.Actor{Name: "Bk"})))
+	if err != nil || none.HasPlayers() {
+		t.Errorf("no PLYR: %+v, %v", none, err)
+	}
+	if _, err := ParseDZx(stagetest.DZx(stagetest.Chunk{Tag: "PLYR", Count: 2, Data: make([]byte, 0x20)})); err == nil || !strings.Contains(err.Error(), "PLYR") {
+		t.Errorf("a PLYR chunk past the end: %v", err)
 	}
 }
 
