@@ -14,8 +14,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
-// tnProbeRoom is M_Dai with Link in room 1 and the TN batch's B0 cases
-// placed: 0 TN setID 5 guarding with its sword (a BOKO), 1 an unkeyed TN,
+// tnProbeRoom is M_Dai with Link in room 1 and the TN batch's probe
+// cases placed: 0 TN setID 5 guarding with its sword (a BOKO), 1 an unkeyed TN,
 // 2 TN setID 6 with miniboss params 0xD (refused by the params gate), 3
 // BK setID 0.
 func tnProbeRoom(t *testing.T) (*mem.FakeMem, *fakegame.Enemies) {
@@ -53,18 +53,19 @@ func tnProbeRoom(t *testing.T) (*mem.FakeMem, *fakegame.Enemies) {
 	return m, es
 }
 
-// TestEnemyMatchDryTN: enemy-match lists the staged Darknuts beside the
-// rows (sorted by Ident) with their live gate bytes after " pid=", their
-// sword on a boko line, and "tn" without "+u" leaves the unkeyed one off.
+// TestEnemyMatchDryTN: enemy-match lists the Darknuts as a row (TN batch
+// B1: sorted by Ident with the others, its live gate bytes after " pid=",
+// its sword on a boko line); "tn" without "+u" leaves the unkeyed one
+// off, and the live gate refuses (m140C: the sword is not attached yet).
 func TestEnemyMatchDryTN(t *testing.T) {
-	m, _ := tnProbeRoom(t)
+	m, es := tnProbeRoom(t)
 	var out bytes.Buffer
-	if err := enemyMatch(&out, m, enemysync.AllKinds(), enemysync.AllStaged()); err != nil {
+	if err := enemyMatch(&out, m, enemysync.AllKinds()); err != nil {
 		t.Fatal(err)
 	}
 	s := out.String()
 	for _, want := range []string{
-		" kinds=mo2+u,bk+u,cc+u,ki+u,am+u,am2+u walk=complete staged=tn+u\n",
+		" kinds=mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u walk=complete\n",
 		"ident kind=bk proc=0x00BE setID=0x0000 ",
 		"ident kind=tn proc=0x00C0 setID=0x0005 ", " verdict=ok pid=",
 		" tn_behavior=4 tn_action=10 tn_boss=0 tn_equip=3 tn_m02c1=0 tn_m1518=0 tn_m14f8=0 tn_m140c=0 tn_live=ok\n",
@@ -76,6 +77,9 @@ func TestEnemyMatchDryTN(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("output lacks %q:\n%s", want, s)
 		}
+	}
+	if strings.Contains(s, "staged") {
+		t.Errorf("a staged field is left:\n%s", s)
 	}
 	var procs []string
 	for _, l := range strings.Split(s, "\n") {
@@ -90,33 +94,42 @@ func TestEnemyMatchDryTN(t *testing.T) {
 		t.Errorf("ident order %v", procs)
 	}
 
-	set, staged, err := splitStagedKinds("bk,tn")
+	set, err := enemysync.ParseKinds("bk,tn")
 	if err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if err := enemyMatch(&out, m, set, staged); err != nil {
+	if err := enemyMatch(&out, m, set); err != nil {
 		t.Fatal(err)
 	}
 	s = out.String()
-	if !strings.Contains(s, " kinds=bk walk=complete staged=tn\n") || !strings.Contains(s, "setID=0xFFFF ") ||
+	if !strings.Contains(s, " kinds=bk,tn walk=complete\n") || !strings.Contains(s, "setID=0xFFFF ") ||
 		!strings.Contains(s, "verdict=unkeyed-off pid=") || !strings.Contains(s, "tn_action=- ") {
 		t.Errorf("--kinds bk,tn:\n%s", s)
 	}
-	if _, staged, err := splitStagedKinds("tn+u"); err != nil || !staged.TakesUnkeyed(enemysync.KindTN) {
-		t.Errorf("tn+u: %v %v", staged, err)
+	if set, err := enemysync.ParseKinds("tn+u"); err != nil || !set.TakesUnkeyed(enemysync.KindTN) {
+		t.Errorf("tn+u: %v %v", set, err)
 	}
-	if _, _, err := splitStagedKinds("tn,tn+u"); err == nil {
-		t.Error("tn listed twice accepted")
+
+	// The live gate refuses on enemy-match (no "was": liveSticky keeps only
+	// the host pipeline's listed Darknuts).
+	tn, _ := es.Of(0)
+	store(t, m, tn.Addr+addr.TnOffM140C, []byte{1})
+	out.Reset()
+	if err := enemyMatch(&out, m, enemysync.AllKinds()); err != nil {
+		t.Fatal(err)
 	}
-	if _, _, err := splitStagedKinds("tn,zz"); err == nil {
-		t.Error("an unknown kind beside tn accepted")
+	s = out.String()
+	if !strings.Contains(s, "verdict=live-gate pid=") || !strings.Contains(s, " tn_m140c=1 tn_live=m140c\n") ||
+		!strings.Contains(s, "summary idents=4 taken=2 refused=2\n") {
+		t.Errorf("m140C set:\n%s", s)
 	}
 }
 
-// TestEnemyKindWatchTN: enemy-watch --kind tn resolves the Tn table on
-// its own ArcRes, samples through ReadSampleTN and prints P0-b's fields,
-// the sword's BOKO and the P0-c execute addresses.
+// TestEnemyKindWatchTN: enemy-watch --kind tn resolves the Tn table
+// through the tracker like any row, samples through ReadKindSample
+// (ReadSampleTN) and prints P0-b's fields, the sword's BOKO and the P0-c
+// execute addresses.
 func TestEnemyKindWatchTN(t *testing.T) {
 	m, es := tnProbeRoom(t)
 	const morf = uint32(0x80C00000)

@@ -11,48 +11,26 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
-// The TN batch's B0 (enemy-mirror-tn.json): the Darknut is a staged row
-// the probes read, outside Kinds, so nothing the pipelines see moves.
+// The TN batch (enemy-mirror-tn.json): B0 read the Darknut as a staged
+// probe-only row; B1 made it row 6 of Kinds (its header pins are
+// TestKindTablePins'), off by default.
 
-// TestStagedTN: the Darknut is staged at the design's id 6 (D1) and is
-// not a row: KindHash, ParseKinds, KindOf, KindLayouts, the sets, the
-// annex, ColliderOff and DeathSwitchOff do not know it, while String,
-// BckName, StagedOf, StagedByName and ProbeLayouts do.
-func TestStagedTN(t *testing.T) {
-	if KindHash() != 0x97EDB0F9 {
-		t.Errorf("KindHash 0x%08X moved: B0 must not change the table", KindHash())
+// TestKindTNRow: the Darknut is row 6 (D1) with the design's fields (R-1,
+// D7, D8), every table knows it, and it stays off by default.
+func TestKindTNRow(t *testing.T) {
+	k := KindTN.Row()
+	if k == nil || k.ID != KindTN || KindOf(addr.ProcTN) != KindTN || KindTN.String() != "tn" || len(Kinds) != 7 {
+		t.Fatalf("tn row %+v", k)
 	}
-	if KindTN.Row() != nil || KindOf(addr.ProcTN) != KindNone || len(Kinds) != 6 {
-		t.Fatal("tn is a Kinds row")
-	}
-	if _, ok := KindLayouts[int16(addr.ProcTN)]; ok {
-		t.Error("KindLayouts has tn")
-	}
-	for _, v := range []string{"tn", "tn+u", "mo2,tn"} {
-		if _, err := ParseKinds(v); err == nil {
-			t.Errorf("ParseKinds(%q) accepted", v)
-		}
-	}
-	if _, err := ParseAnnex("tn:hooks=attach"); err == nil {
-		t.Error("ParseAnnex accepted tn")
-	}
-	if AllKinds().Has(KindTN) || MaskSet(0xFF).Has(KindTN) || ColliderOff(KindTN, HitHead) != 0 || DeathSwitchOff(KindTN) != 0 {
-		t.Error("a pipeline table knows tn")
-	}
-
-	k := KindTN.StagedRow()
-	if k == nil || k.ID != KindTN || StagedOf(addr.ProcTN) != KindTN || KindTN.String() != "tn" {
-		t.Fatalf("staged row %+v", k)
-	}
-	if r, ok := StagedByName("tn"); !ok || r != k {
-		t.Error("StagedByName(tn)")
-	}
-	if KindID(7).StagedRow() != nil || KindAM2.StagedRow() != nil || StagedOf(addr.ProcBK) != KindNone {
-		t.Error("StagedRow beyond the staged rows")
+	if r, ok := KindByName("tn"); !ok || r != k {
+		t.Error("KindByName(tn)")
 	}
 	if k.Proc != addr.ProcTN || k.Arc != "Tn" || k.BckFirst != 0x28 || k.BckLast != 0x55 || k.BckWait != 0x3D ||
 		k.MorfOff != 0x2C4 || k.IceOff != 0x1524 || k.GateOff != 0x2BC || k.AngleOff != addr.ActorOffCurAngleY || k.PKeyNoPos {
 		t.Errorf("tn row %+v (design R-1, D7, D8)", *k)
+	}
+	if l, ok := KindLayouts[int16(addr.ProcTN)]; !ok || l.Mode != addr.TnOffBehavior || l.Ice != addr.TnOffIce || !l.ModeU8 {
+		t.Errorf("KindLayouts[tn] = %+v", l)
 	}
 	if len(tnBckNames) != k.BckCount() || len(tnBckNames) != 46 {
 		t.Errorf("%d tn BCK names for %d rows", len(tnBckNames), k.BckCount())
@@ -61,29 +39,35 @@ func TestStagedTN(t *testing.T) {
 		BckName(KindTN, 0x55) != "S_DEMO_M2" || BckName(KindTN, 0x56) != "-" || BckName(KindTN, 0x27) != "-" {
 		t.Error("tn BCK names (Tn.h:44-89)")
 	}
-	if l, ok := ProbeLayouts[int16(addr.ProcTN)]; !ok || l.Mode != addr.TnOffBehavior || l.Ice != addr.TnOffIce || !l.ModeU8 {
-		t.Errorf("ProbeLayouts[tn] = %+v", l)
+	for v, unkeyed := range map[string]bool{"tn": false, "tn+u": true, "mo2,tn+u": true} {
+		s, err := ParseKinds(v)
+		if err != nil || !s.Has(KindTN) || s.TakesUnkeyed(KindTN) != unkeyed {
+			t.Errorf("ParseKinds(%q) = %v %v", v, s, err)
+		}
 	}
-	for p, l := range KindLayouts {
-		if ProbeLayouts[p] != l {
-			t.Errorf("ProbeLayouts[0x%X] differs from KindLayouts", p)
+	if def, _ := ParseKinds(DefaultMirrorKinds); def.Has(KindTN) {
+		t.Error("tn is on by default (D1: off until named)")
+	}
+	if q, _ := ParseQuietKinds(DefaultQuietKinds); !q.Has(KindTN) {
+		t.Error("DefaultQuietKinds lacks tn (D1)")
+	}
+	if !AllKinds().Has(KindTN) || !MaskSet(1<<KindTN).Has(KindTN) || MaskSet(1<<KindTN).Has(KindAM2) {
+		t.Error("the sets do not know tn")
+	}
+	if ColliderOff(KindTN, HitHead) != addr.TnOffHeadSph || ColliderOff(KindTN, HitTg) != addr.TnOffTgCyl || ColliderOff(KindTN, HitSpecial) != 0 ||
+		DeathSwitchOff(KindTN) != addr.TnOffDeathSwitch {
+		t.Error("tn ColliderOff / DeathSwitchOff")
+	}
+	for params, ok := range map[uint32]bool{0xFFFF7814: true, 0xFFFFFF30: true, 0xFFFF000B: true, 0xFFFF000C: false, 0xFFFF000D: false, 0xFFFF000F: false} {
+		if k.ParamsOK(params) != ok || !k.UnkeyedParamsOK(params) {
+			t.Errorf("ParamsOK(0x%08X) = %v, want %v", params, k.ParamsOK(params), ok)
 		}
 	}
 	if TnF2PlaySkip != mailbox.EnemySF2PlaySkip {
 		t.Error("TnF2PlaySkip != SF2_PLAY_SKIP (design R-1 Flags2)")
 	}
-	for _, b := range []uint8{TnF2HasWeapon, TnF2PlaySkip, TnF2Attn} {
-		if b&0xC0 != 0 {
-			t.Errorf("tn flags2 bit 0x%02X overlaps SF2_LIGHT/QUIET", b)
-		}
-	}
-
-	var s StagedSet
-	if s.Any() || s.String() != "none" || !s.Enable(KindTN, false) || s.Enable(KindBK, true) {
-		t.Error("StagedSet Enable")
-	}
-	if !s.Has(KindTN) || s.TakesUnkeyed(KindTN) || s.String() != "tn" || AllStaged().String() != "tn+u" || s.Has(KindBK) {
-		t.Errorf("StagedSet %v", s)
+	if !liveSticky(KindTN) {
+		t.Error("the TN live gate is not adopt-only")
 	}
 }
 
@@ -111,16 +95,18 @@ func TestTnLiveRefusal(t *testing.T) {
 	} {
 		g := ok
 		c.set(&g)
-		if got := TnLiveRefusal(g); got != c.want {
+		if got := TnLiveRefusal(g); got != c.want || KindTN.Row().LiveOK(g) != (c.want == "") {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}
 }
 
-// TestClassifyStagedTN: keyed Darknuts are taken, unkeyed ones only with
+// TestClassifyWalkTN: keyed Darknuts are taken, unkeyed ones only with
 // "+u", the params gate refuses behaviour nibbles 12..15, and the live
-// gate bytes are read but refuse nothing (B0 prints them).
-func TestClassifyStagedTN(t *testing.T) {
+// gate (readTnGate, TnLiveRefusal) refuses a Darknut the host has not
+// listed yet. A listed one stays through the gate's other terms
+// (liveSticky: S_DEMO, m14F8, m140C) but not through BOSS.
+func TestClassifyWalkTN(t *testing.T) {
 	m := mem.NewFakeMem()
 	p := kindPut{t, m}
 	act := func(setID uint16, params uint32, init int8) actors.Actor {
@@ -128,7 +114,7 @@ func TestClassifyStagedTN(t *testing.T) {
 			HomeRoom: 1, Params: params, ModeOK: true}
 	}
 	w := actors.Walk{Actors: []actors.Actor{
-		act(0x10, 0xFFFF0004, 2),                // keyed, guards
+		act(0x10, 0xFFFF0004, 2),                // keyed, gate bytes set below
 		act(addr.ActorSetIDNone, 0xFFFF0000, 2), // unkeyed
 		act(0x12, 0xFFFF000D, 2),                // miniboss params: refused
 		act(0x13, 0xFFFF000F, 2),                // frozen statue params: refused
@@ -145,7 +131,11 @@ func TestClassifyStagedTN(t *testing.T) {
 	p.b(a0+addr.TnOffM14F8, 0x32)
 	p.b(a0+addr.TnOffM1518, 1)
 
-	es, err := ClassifyStaged(m, &w, 1, AllStaged())
+	tnu, err := ParseKinds("tn+u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	es, err := ClassifyWalk(m, &w, "M_Dai", 1, tnu)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +143,7 @@ func TestClassifyStagedTN(t *testing.T) {
 	for _, e := range es {
 		got[e.Kind.String()+":"+verdictOf(e)]++
 	}
-	want := map[string]int{"tn:ok": 2, "tn:" + RefuseParams: 2, "tn:" + RefuseInit: 1}
+	want := map[string]int{"tn:ok": 1, "tn:" + RefuseLive: 1, "tn:" + RefuseParams: 2, "tn:" + RefuseInit: 1}
 	if len(got) != len(want) {
 		t.Errorf("verdicts %v, want %v", got, want)
 	}
@@ -163,26 +153,26 @@ func TestClassifyStagedTN(t *testing.T) {
 			break
 		}
 	}
-	var keyed *Enemy
-	for i := range es {
-		if es[i].Ident.SetID == 0x10 {
-			keyed = &es[i]
+	keyed := func(es []Enemy) *Enemy {
+		for i := range es {
+			if es[i].Ident.SetID == 0x10 {
+				return &es[i]
+			}
 		}
+		t.Fatal("no keyed tn")
+		return nil
 	}
-	if keyed == nil || !keyed.LiveSpanOK {
-		t.Fatalf("keyed tn: %+v", keyed)
+	k := keyed(es)
+	if !k.LiveSpanOK || k.Refused != RefuseLive {
+		t.Fatalf("keyed tn: %+v", k)
 	}
-	g := keyed.Live
+	g := k.Live
 	if !g.Boss || g.M02C1 != 2 || g.Equip != 5 || g.DrAction != addr.TnActDDozou || g.M140C != 1 || g.M14F8 != 0x32 || g.M1518 != 1 {
 		t.Errorf("gate bytes %+v", g)
 	}
-	if TnLiveRefusal(g) != "boss" || keyed.Refused != "" {
-		t.Errorf("the live gate refuses in B0: %q / %q", TnLiveRefusal(g), keyed.Refused)
-	}
 
-	var keyedOnly StagedSet
-	keyedOnly.Enable(KindTN, false)
-	es, err = ClassifyStaged(m, &w, 1, keyedOnly)
+	tn, _ := ParseKinds("tn")
+	es, err = ClassifyWalk(m, &w, "M_Dai", 1, tn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,11 +181,36 @@ func TestClassifyStagedTN(t *testing.T) {
 			t.Errorf("tn without +u: unkeyed %q span %v", e.Refused, e.LiveSpanOK)
 		}
 	}
-	if es, _ := ClassifyStaged(m, &w, 1, StagedSet{}); len(es) != 0 {
-		t.Errorf("no staged kinds: %+v", es)
-	}
-	if es, _ := ClassifyStaged(m, &w, 2, AllStaged()); len(es) != 0 {
+	if es, _ := ClassifyWalk(m, &w, "M_Dai", 2, tnu); len(es) != 0 {
 		t.Errorf("room 2: %+v", es)
+	}
+
+	// Sticky: the keyed Darknut listed on a clean walk stays listed while
+	// it starts S_DEMO with m14F8 and m140C (states a listed one streams),
+	// and is refused once BOSS turns on.
+	w.Actors[0].Status = 0
+	p.b(a0+addr.TnOffM02C1, 0)
+	p.b(a0+addr.TnOffEquip, 3)
+	p.u16(a0+addr.TnOffDRAction, addr.TnActFight)
+	p.b(a0+addr.TnOffM140C, 0)
+	p.b(a0+addr.TnOffM14F8, 0)
+	p.b(a0+addr.TnOffM1518, 0)
+	was, err := classifyWalk(m, &w, "M_Dai", 1, tnu, nil)
+	if err != nil || keyed(was).Refused != "" {
+		t.Fatalf("clean walk: %+v %v", keyed(was), err)
+	}
+	p.u16(a0+addr.TnOffDRAction, addr.TnActSDemo)
+	p.b(a0+addr.TnOffM14F8, 0x33)
+	p.b(a0+addr.TnOffM140C, 1)
+	if es, _ := classifyWalk(m, &w, "M_Dai", 1, tnu, was); keyed(es).Refused != "" {
+		t.Errorf("listed tn in S_DEMO: %q, want kept", keyed(es).Refused)
+	}
+	if es, _ := classifyWalk(m, &w, "M_Dai", 1, tnu, nil); keyed(es).Refused != RefuseLive {
+		t.Errorf("unlisted tn in S_DEMO: %q, want %s", keyed(es).Refused, RefuseLive)
+	}
+	w.Actors[0].Status = addr.ActorStatusBoss
+	if es, _ := classifyWalk(m, &w, "M_Dai", 1, tnu, was); keyed(es).Refused != RefuseLive {
+		t.Errorf("listed tn gaining BOSS: %q, want %s", keyed(es).Refused, RefuseLive)
 	}
 }
 
@@ -327,7 +342,8 @@ func TestReadSampleTN(t *testing.T) {
 }
 
 // TestReadSampleTNFlags sets one source at a time (design go_changes
-// block.go: DYING from dr.mAction 20..22 or the shrink, never health).
+// block.go and the binding P0 death order: DYING from dr.mAction 20..22,
+// the shrink, or health <= 0 with the ragdoll; health alone is not).
 func TestReadSampleTNFlags(t *testing.T) {
 	base := tnFixture{Health: 8, DrAction: addr.TnActFight, Pieces: 0x0B}
 	for _, c := range []struct {
@@ -338,6 +354,10 @@ func TestReadSampleTNFlags(t *testing.T) {
 	}{
 		{"nothing", func(*tnFixture) {}, 0, 0},
 		{"health 0 is not dying", func(f *tnFixture) { f.Health = 0 }, 0, 0},
+		{"health 0 ragdoll, action 0: dying", func(f *tnFixture) { f.Health, f.DrMode, f.DrAction = 0, -100, addr.TnActJyunkai }, SlotDying | SlotRagdoll, 0},
+		{"health -3 ragdoll: dying", func(f *tnFixture) { f.Health, f.DrMode = -3, -101 }, SlotDying | SlotRagdoll, 0},
+		{"ragdoll with health: not dying", func(f *tnFixture) { f.DrMode = -100 }, SlotRagdoll, 0},
+		{"health 0, mode -99: not dying", func(f *tnFixture) { f.Health, f.DrMode = 0, -99 }, 0, 0},
 		{"action 20 fail", func(f *tnFixture) { f.DrAction = addr.TnActFail }, SlotDying, 0},
 		{"action 21 yogan fail", func(f *tnFixture) { f.DrAction = addr.TnActYoganFail }, SlotDying, 0},
 		{"action 22 water fail", func(f *tnFixture) { f.DrAction = addr.TnActWaterFail }, SlotDying, 0},
@@ -345,7 +365,6 @@ func TestReadSampleTNFlags(t *testing.T) {
 		{"ice shrink: dying, light", func(f *tnFixture) { f.Ice = 2 }, SlotDying, KindF2Light},
 		{"m03F0 invuln", func(f *tnFixture) { f.Invuln = 5 }, SlotInvuln, 0},
 		{"action 10 defence", func(f *tnFixture) { f.DrAction = addr.TnActDefence; f.M1444 = 1 }, SlotDefence, 0},
-		{"ragdoll", func(f *tnFixture) { f.DrMode = -100 }, SlotRagdoll, 0},
 		{"m02C1 hidden", func(f *tnFixture) { f.M02C1 = 3 }, SlotHidden, 0},
 		{"m1518 hidden", func(f *tnFixture) { f.M1518 = 1 }, SlotHidden, 0},
 		{"m0C34 weapon", func(f *tnFixture) { f.Weapon = 2 }, 0, TnF2HasWeapon},
@@ -367,26 +386,18 @@ func TestReadSampleTNFlags(t *testing.T) {
 	}
 }
 
-// TestReadSampleTNChanged: a Darknut whose actor is no longer the walk's
-// is actors.ErrChanged; ReadStagedSample routes TN and refuses the rows.
+// TestReadSampleTNChanged: ReadKindSample routes TN to ReadSampleTN, and
+// a Darknut whose actor is no longer the walk's is actors.ErrChanged.
 func TestReadSampleTNChanged(t *testing.T) {
 	m := mem.NewFakeMem()
 	p := kindPut{t, m}
 	e := tnActor(p, 7, 0xFFFF0004)
 	kindMorf(p)
-	if _, err := ReadStagedSample(m, &e); err != nil {
-		t.Fatalf("ReadStagedSample: %v", err)
+	if s, err := ReadKindSample(m, &e); err != nil || s.Kind != KindTN || s.Tn.DeathSwitch != 0 {
+		t.Fatalf("ReadKindSample: %+v %v", s.Kind, err)
 	}
 	p.u32(blkActor+addr.ActorOffParameters, 0xFFFF0005)
-	if _, err := ReadSampleTN(m, &e); !errors.Is(err, actors.ErrChanged) {
+	if _, err := ReadKindSample(m, &e); !errors.Is(err, actors.ErrChanged) {
 		t.Errorf("params changed: %v", err)
-	}
-	bk := e
-	bk.Kind = KindBK
-	if _, err := ReadStagedSample(m, &bk); err == nil {
-		t.Error("ReadStagedSample sampled a Kinds row")
-	}
-	if _, err := ReadKindSample(m, &e); err == nil {
-		t.Error("ReadKindSample sampled the staged tn")
 	}
 }

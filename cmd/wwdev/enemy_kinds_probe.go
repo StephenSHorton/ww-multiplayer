@@ -43,25 +43,26 @@ package main
 // machines although the Keese moves its home (d_a_ki.cpp:681-682); the
 // home printed still can differ.
 //
-// enemy-watch --kind tn is the TN batch's B0 probe (ww-multiplayer-handoff/
-// design/enemy-mirror-tn.json, test_plan P0-b): the Darknut is a staged
-// row, not in the Kinds table (enemysync/staged.go), walked with
-// ProbeLayouts, classified by ClassifyStaged, sampled by ReadSampleTN and
-// its BCK resolved through its own ArcRes (KindTracker's tables are the
-// rows'). Each tick prints what P0-b checks: dr.mAction / mMode (action,
+// enemy-watch --kind tn is the TN batch's probe (ww-multiplayer-handoff/
+// design/enemy-mirror-tn.json, test_plan P0-b; B0 read the Darknut as a
+// staged row, B1 made it row 6 of Kinds): classified by ClassifyWalk
+// (readTnGate's live gate, which refuses), sampled by ReadKindSample
+// (ReadSampleTN) and its BCK resolved through the tracker's Tn table like
+// the other rows. Each tick prints what P0-b checks: dr.mAction / mMode (action,
 // mode), pieces 0x2D0, equipment 0x3C5, m1444, m03F0, m140C, the sword
 // mBokoPcId resolved to its actor (a proc 0x1D5 BOKO), the would-be live
 // gate (TnLiveRefusal) and every collider. Each walk line also prints the
 // actor's execute function (*(*(actor+0xEC)+8)) and the two P0-c
 // addresses below it, daTn_Execute-0x1040 (part_move) and -0x224C
 // (yoroi_break); dump their words with ppc-disasm (docs/TESTING.md).
-// enemy-match --dry lists tn (and tn+u) the same way, by default and
+// enemy-match --dry lists tn (and tn+u) like any row, by default and
 // when --kinds names it; without "+u" an unkeyed Darknut is unkeyed-off.
-// Its live gate bytes and verdict (tn_behavior .. tn_live) come after
-// " pid=": B0 prints the gate and refuses on placement and params only.
+// Its live gate bytes (tn_behavior .. tn_m140c) and TnLiveRefusal
+// (tn_live) come after " pid="; a refusal by the live gate is
+// verdict=live-gate (the host's walk, which also keeps a listed Darknut
+// through the gate's non-BOSS terms, liveSticky, has no "was" here).
 
 import (
-	"cmp"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -148,30 +149,6 @@ func liveGateText(e *enemysync.Enemy) string {
 	return ""
 }
 
-// splitStagedKinds splits an enemy-match --kinds value into the Kinds
-// rows' set (ParseKinds) and the staged kinds it names ("tn", "tn+u"). A
-// value of staged kinds alone enables no row.
-func splitStagedKinds(v string) (enemysync.KindSet, enemysync.StagedSet, error) {
-	var live []string
-	var staged enemysync.StagedSet
-	for _, tok := range strings.Split(v, ",") {
-		name, unkeyed := strings.CutSuffix(strings.ToLower(strings.TrimSpace(tok)), "+u")
-		if k, ok := enemysync.StagedByName(name); ok {
-			if staged.Has(k.ID) {
-				return enemysync.KindSet{}, staged, fmt.Errorf("enemy kind %q listed twice", name)
-			}
-			staged.Enable(k.ID, unkeyed)
-			continue
-		}
-		live = append(live, tok)
-	}
-	if len(live) == 0 {
-		return enemysync.KindSet{}, staged, nil
-	}
-	set, err := enemysync.ParseKinds(strings.Join(live, ","))
-	return set, staged, err
-}
-
 // bokoInfo is what a Bokoblin's m1200 names: the walk's actor with that
 // pid, re-read for its pid, proc and mNowMode.
 type bokoInfo struct {
@@ -252,14 +229,14 @@ func runEnemyMatch(cmd string, args []string) {
 	if err == nil && !flags["dry"] {
 		err = errors.New("only --dry is implemented (Batch 1 writes nothing)")
 	}
-	set, staged := enemysync.AllKinds(), enemysync.AllStaged()
+	set := enemysync.AllKinds()
 	if err == nil && values["kinds"] != "" {
-		set, staged, err = splitStagedKinds(values["kinds"])
+		set, err = enemysync.ParseKinds(values["kinds"])
 	}
 	if err != nil {
 		exitUsage(err, enemyMatchUsage)
 	}
-	err = diag.WithMem(openDolphin, func(m mem.Mem) error { return enemyMatch(os.Stdout, m, set, staged) })
+	err = diag.WithMem(openDolphin, func(m mem.Mem) error { return enemyMatch(os.Stdout, m, set) })
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", cmd, err)
 		os.Exit(1)
@@ -267,20 +244,16 @@ func runEnemyMatch(cmd string, args []string) {
 }
 
 // enemyMatch prints m's Idents for its current stage and room: a scope
-// line, one ident line per actor of an enabled kind or of a staged kind
-// staged enables (taken or refused), a boko line per Bokoblin and per
-// Darknut, and a summary. On the ident and boko lines the per-machine and
-// live fields come from " pid=" on (see the file comment).
-func enemyMatch(w io.Writer, m mem.Reader, set enemysync.KindSet, staged enemysync.StagedSet) error {
+// line, one ident line per actor of an enabled kind (taken or refused), a
+// boko line per Bokoblin and per Darknut (its sword), and a summary. On
+// the ident and boko lines the per-machine and live fields come from
+// " pid=" on (see the file comment).
+func enemyMatch(w io.Writer, m mem.Reader, set enemysync.KindSet) error {
 	stageName, room, err := enemyScope(m)
 	if err != nil {
 		return err
 	}
-	layouts := enemysync.KindLayouts
-	if staged.Any() {
-		layouts = enemysync.ProbeLayouts
-	}
-	aw, err := actors.ReadWith(m, 0, layouts)
+	aw, err := actors.ReadWith(m, 0, enemysync.KindLayouts)
 	if err != nil {
 		return err
 	}
@@ -289,17 +262,6 @@ func enemyMatch(w io.Writer, m mem.Reader, set enemysync.KindSet, staged enemysy
 		return err
 	}
 	scope := fmt.Sprintf("scope stage=%s room=%d kinds=%s walk=%s", stageName, room, set, strings.ReplaceAll(walkNote(&aw), " ", "_"))
-	if staged.Any() {
-		ss, err := enemysync.ClassifyStaged(m, &aw, room, staged)
-		if err != nil {
-			return err
-		}
-		es = append(es, ss...)
-		slices.SortStableFunc(es, func(a, b enemysync.Enemy) int {
-			return cmp.Or(cmp.Compare(a.Ident.Proc, b.Ident.Proc), cmp.Compare(a.Ident.SetID, b.Ident.SetID), cmp.Compare(a.Ident.PKey, b.Ident.PKey))
-		})
-		scope += " staged=" + staged.String()
-	}
 	fmt.Fprintln(w, scope)
 	byPID := pidIndex(&aw)
 	taken := 0
@@ -345,27 +307,15 @@ func enemyMatch(w io.Writer, m mem.Reader, set enemysync.KindSet, staged enemysy
 
 // enemyKindWatch is enemy-watch --kind bk|cc|ki|am|am2|tn over m for d
 // (0: until ctx ends). An allow kind (ki, am, am2) also prints allowExtra's
-// tail each tick. A staged kind (tn) has no Kinds row: its walk reads
-// ProbeLayouts, ClassifyStaged takes it (keyed and unkeyed),
-// ReadStagedSample samples it, its BCK resolves through its own ArcRes,
-// and it prints tnExtra's tail.
+// tail each tick, the Darknut (tn) tnExtra's.
 func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Duration, id enemysync.KindID) error {
 	tr := enemysync.NewKindTracker()
-	k, layouts := id.Row(), enemysync.KindLayouts
-	var res *enemysync.ArcRes
-	staged := k == nil
-	if staged {
-		k, layouts = id.StagedRow(), enemysync.ProbeLayouts
-		if k == nil {
-			return fmt.Errorf("no kind %d", id)
-		}
-		res = enemysync.NewArcRes(k)
-	} else {
-		res = tr.Res[id]
+	k := id.Row()
+	if k == nil {
+		return fmt.Errorf("no kind %d", id)
 	}
-	allow := !staged && id >= enemysync.KindKI
-	var stagedSet enemysync.StagedSet
-	stagedSet.Enable(id, true)
+	res := tr.Res[id]
+	allow := id >= enemysync.KindKI && id != enemysync.KindTN
 	defer func() {
 		st := res.Stats
 		fmt.Fprintf(w, "%s table stats: reads %d bck_miss %d miss_reads %d\n", k.Arc, st.Reads, st.BckMiss, st.MissReads)
@@ -392,16 +342,11 @@ func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Durat
 		if err != nil {
 			return err
 		}
-		aw, err := actors.ReadWith(m, 0, layouts)
+		aw, err := actors.ReadWith(m, 0, enemysync.KindLayouts)
 		if err != nil {
 			return err
 		}
-		var es []enemysync.Enemy
-		if staged {
-			es, err = enemysync.ClassifyStaged(m, &aw, room, stagedSet)
-		} else {
-			es, err = enemysync.ClassifyWalk(m, &aw, stageName, room, kindOnly(id))
-		}
+		es, err := enemysync.ClassifyWalk(m, &aw, stageName, room, kindOnly(id))
 		if err != nil {
 			return err
 		}
@@ -469,18 +414,9 @@ func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Durat
 			rewalk := false
 			for i := range taken {
 				e := &taken[i]
-				var s enemysync.KindSample
-				var err error
-				if staged {
-					s, err = enemysync.ReadStagedSample(m, e)
-				} else {
-					s, err = enemysync.ReadKindSample(m, e)
-				}
+				s, err := enemysync.ReadKindSample(m, e)
 				if err == nil {
 					err = tr.Derive(m, e.PID, &s, now)
-				}
-				if err == nil && staged && s.MorfOK {
-					s.Bck, err = res.Lookup(m, s.Anm, now)
 				}
 				if err != nil {
 					fmt.Fprintf(w, "[%6.3fs] %s pid %d: %v\n", now.Sub(start).Seconds(), e.Ident, e.PID, err)
@@ -490,7 +426,7 @@ func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Durat
 					continue
 				}
 				extra := ""
-				if staged {
+				if id == enemysync.KindTN {
 					b, err := readBoko(m, byPID, s.Tn.BokoPID)
 					if err != nil {
 						return err

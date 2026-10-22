@@ -165,9 +165,9 @@ Every run: sweep both players' full Player.log, not only the reported issues, an
 
 ### Enemy mirror: Darknut probes (B0)
 
-The TN batch's first step (`ww-multiplayer-handoff/design/enemy-mirror-tn.json`, test_plan P0-b and P0-c) is Go only: the Darknut is a staged row (`mods/enemysync/staged.go`, id 6), read by the probes and by nothing else. It is not in `Kinds`, so `KindHash` (0x97EDB0F9), `WW_ENEMY_MIRROR_KINDS` (which refuses `tn`) and the REL are unchanged.
+The TN batch's first step (`ww-multiplayer-handoff/design/enemy-mirror-tn.json`, test_plan P0-b and P0-c) was Go only: the Darknut was a staged row (id 6), read by the probes and by nothing else. B1 (next section) made it row 6 of `Kinds`; the probes below work unchanged on the B1 build, except that `enemy-match` now refuses a Darknut the live gate refuses (`verdict=live-gate`), and `enemy-watch --kind tn` samples only the taken ones.
 
-Offline: `TestTnOffsets` and `TestTnBckRange` (`wwapi/addr`), `TestStagedTN`, `TestTnLiveRefusal`, `TestClassifyStagedTN` and `TestReadSampleTN*` (`mods/enemysync`: five Reads, DYING from dr.mAction 20..22 or the ice shrink and never from health), and `TestEnemyMatchDryTN` and `TestEnemyKindWatchTN` (`cmd/wwdev`).
+Offline: `TestTnOffsets` and `TestTnBckRange` (`wwapi/addr`), `TestTnLiveRefusal` and `TestReadSampleTN*` (`mods/enemysync`, five Reads), and `TestEnemyMatchDryTN` and `TestEnemyKindWatchTN` (`cmd/wwdev`).
 
 Live, host only, on the current build (P0-b), in `kaze 8 8` and `Cave11 0 9`:
 
@@ -177,7 +177,7 @@ Live, host only, on the current build (P0-b), in `kaze 8 8` and `Cave11 0 9`:
 ./wwdev.exe enemy-watch 0 --kind tn             # per tick: action (dr.mAction), mode, pieces, equip, m03F0, m140C, m1444, the sword
 ```
 
-`enemy-match` prints the would-be live gate after ` pid=` (`tn_action`, `tn_boss`, `tn_equip`, `tn_m02c1`, `tn_m1518`, `tn_m14f8`, `tn_m140c`, and `tn_live=ok` or the first refusal). B0 refuses on placement and params (behaviour nibble 12..15) only, so `enemy-watch` keeps sampling a Darknut through states the gate would refuse at adopt. The sword line resolves `mBokoPcId` (0x1410) to its actor: pass when it is `proc 0x01D5`. Pieces (0x2D0) start at 0x0F with a shield (equipment 2 and up) and 0x0B without one (d_a_tn.cpp:4232-4236), then lose bit 1 (armor), 2 (helmet) or 4 (shield) as they break.
+`enemy-match` prints the live gate after ` pid=` (`tn_action`, `tn_boss`, `tn_equip`, `tn_m02c1`, `tn_m1518`, `tn_m14f8`, `tn_m140c`, and `tn_live=ok` or the first refusal). B0 refused on placement and params (behaviour nibble 12..15) only; on B1 the gate refuses too. The sword line resolves `mBokoPcId` (0x1410) to its actor: pass when it is `proc 0x01D5`. Pieces (0x2D0) start at 0x0F with a shield (equipment 2 and up) and 0x0B without one (d_a_tn.cpp:4232-4236), then lose bit 1 (armor), 2 (helmet) or 4 (shield) as they break.
 
 P0-c: every `enemy-watch --kind tn` walk line ends with `exec <daTn_Execute> part_move <exec-0x1040> yoroi_break <exec-0x224C>`, read as `*(*(actor+0xEC)+8)`. Dump the words there with the existing tools; no new command is needed:
 
@@ -191,3 +191,38 @@ P0-c: every `enemy-watch --kind tn` walk line ends with `exec <daTn_Execute> par
 ```
 
 Record the two words at each address for the batch C choice (design D6).
+
+### Enemy mirror: Darknut row and Armos direct apply (B1)
+
+The TN batch's B1 (`ww-multiplayer-handoff/design/enemy-mirror-tn.json`: D1-D14, R-1..R-16, test_plan P1 and T1-T6 with the P0 amendments; `archive/enemy-tn-b/P0-NOTES.md`) makes the Darknut kind row 6 (layout 3 holds it: the annex HKDX byte 0x1FF is id 6's; id 7 needs layout 4) and adds the Armos (AM2) direct apply. TN is off by default; a run turns it on with `tn` (keyed: kaze r8, M_Dai r17) or `tn+u` (the cave Darknuts) in `WW_ENEMY_MIRROR_KINDS` on both sides. BOSS Darknuts (D3), behaviour 12..15 and caped ones (equipment 4 and up, D5) are refused.
+
+Offline, before any live run (`go test -count=1 ./mods/enemysync ./wwapi/mailbox ./wwapi/addr ./internal/inject/... ./cmd/wwdev`):
+
+- `TestKindTablePins`, `TestColliderOffPins`, `TestKindHash` (the pin is 0x0F3064EE: a build from before B1 and one after refuse each other's STATE), `TestEnemyHeaderPins`, `TestEnemyBlockPlacement` (HD 18 direct, 19 front; the TN tg_hit_up byte 0x1FB; HAF 0x20/0x40/0x80 clear of 0x01..0x10), `TestBlobFresh` and `TestT2EndsBelowMailbox` (the REL rebuild and restamp), and the REL's own static asserts (kind count 7).
+- `TestKindTNRow` (row, sets, defaults: off in `DefaultMirrorKinds`, on in `DefaultQuietKinds`), `TestTnLiveRefusal`, `TestClassifyWalkTN` (the live gate refuses an unlisted Darknut; a listed one stays through S_DEMO, m14F8 and m140C but not BOSS), `TestReadSampleTNFlags` (DYING from dr.mAction 20..22, the ice shrink, or health <= 0 with dr.mMode <= -100; health 0 alone is not dying), `TestDormantPlaySkipTN`, `TestForwardHitTN` (head and Tg, everything but the Hookshot).
+- AM2 direct apply: `TestHitClientFlags` and `TestMirrorReadHitVerdict` (the client's pending byte 0x02/0x04 into HIT byte 54), `TestHitClientFlagsWire`, `TestHitApplierTN` (TN never ATTRIB, D12; HAF_VERDICT/HAF_BACK only for AM2 collider 1, from the host slot's kind), `TestHitApplierAM2Crit` and `TestAm2CritPins` (HAF_CRIT: a crit sword cut or the hammer's side swing, d_a_am2.cpp:236-280).
+- `TestParseAnnexTN` and `TestAnnexTnTgHitUpWritten` (`tn:tg_hit_up` reaches byte 0x1FB on both sides), `TestEnemyMatchDryTN` and `TestEnemyKindWatchTN` (`cmd/wwdev`).
+
+`WW_ENEMY_ANNEX=tn:hooks=...` bisects the TN hooks on a client, byte 0x1FF (design R-3, D9). TN reuses the generic bits whose generic meaning is dead for it, under its own names (the generic names work too):
+
+| bit | generic name | tn name | turns off |
+|---|---|---|---|
+| 0x01 | model_eq | shield | the shield morf pre-calc (AGUARD/ATATE_ON on the shield, the left arm's guard pose) |
+| 0x02 | attach | attach | the pieces mask, the armor/helmet/shield parts, the armor morf play and calc, the defence sphere centre |
+| 0x04 | eye | sword | the sword carry, its hand matrix, the HAS_WEAPON drop and the TN quiet drop |
+| 0x08 | legacy_death | coll | the TN colliders case (shield bits by pieces, the helmet hit mark) |
+| 0x10 | attn | attn | the per-frame attention write (generic) |
+| 0x20 | mtx_plain | adopt_anm | the adopt-time armor YKIHON1 setAnm and the armor play |
+| 0x40 | special | special | reserved for batch C (TN armor direct apply); no-op |
+| 0x80 | extra | extra | not reused (generic code returns on it) |
+
+The AM2 direct apply is switched by AM2's own `special` bit (byte 0x1FE): `WW_ENEMY_ANNEX=am2:hooks=special` on a client sends no verdict, on the host ignores one, and the hit takes the old sphere path either way (D10).
+
+Rig (`ww-multiplayer-handoff/archive/`): host A user-4 (15-StartET card, sword), client B user-3 booted with `s2v2-live/boot_b_sword.sh`; `s2v2-live/healer.sh <bin> <pidA> <pidB>` on both PIDs for the whole run; `remote-link-live/warp_near.py` and `enemy-allow-a1/backstab.py` to place a Link. P1: one REL build, the restamp, then one Shift+F1 recapture (`./wwdev.exe auto-recapture`); `go test ./...` green first. Hop one room at a time (`./wwdev.exe stage-hop <stage> <point> <room> --yes`; `M_NewD2` once hung the game).
+
+- [ ] **T1 kaze r8, adopt and look**: `WW_ENEMY_MIRROR_KINDS=mo2,bk+u,cc+u,tn` on both sides, `stage-hop kaze 8 8 --yes` on both. On B, `./wwdev.exe enemy-block-dump` (or the client log's slots line) shows three kind-6 slots; `WW_DOLPHIN_PID=<A> ./wwdev.exe enemy-match --dry --kinds tn` on A and on B diff clean before ` pid=`; nothing adopts while A's Darknut has m140C != 0 (`enemy-watch 0 --kind tn` on A). Screenshots of both: armor, helmet, shield and sword on the right joints, the left arm holding the shield, the shadow following the copy. The AGUARD shield follow is a rig gap (P0: the guard needs the host Link's cut while Z-locked; it holds only if Stephen plays the host). Bisect a wrong piece with B restarts: `tn:hooks=shield`, `attach`, `sword`, `coll`, `adopt_anm`.
+- [ ] **T2 kaze r8, client hits**: B swings at an unguarded Darknut: the ACK's Health drops (the pass signal is the client ACK Health, never `applied_at` alone). B hits the front until the armor breaks: A's pieces go 0x0B -> 0x0A (or 0x0F -> 0x0E) and B's copy hides the armor when the bit clears, then streams the B* bcks (0x45..0x55, BRUN2, BSURI_SFB1). A back-stab from A with B watching: the copy's armor vanishes about 13 frames after the strike (no pop, no particles: design animation). A Tg-height miss is retuned live with `WW_ENEMY_ANNEX=tn:tg_hit_up=<n>` on A (R-13; 0 = the compiled 68). Guard-defence (A's Darknut in DEFENCE, action 10: the ACK's result is `parried` with detail `none`, from the defence sphere's Tg record on the v2 path; detail `defence`, 9, appears only under `WW_ENEMY_HIT_V1=1`) is a rig gap as in T1: it runs only if Stephen plays the host.
+- [ ] **T3 kaze r8, quiet death (P0 death order)**: kill all three (some from A, some from B). Pass: at health 0 A's Darknut ragdolls (`enemy-watch` on A: mode -100, action 0, BDOWN_A1 then BDOWN_U1, about 1.6 s) and B's copy plays the same ragdoll at full size (it is DYING from the first ragdoll sample and holds scale through `EMK_TN_QUIET_HOLD`), then shrinks quietly; it is never handed back at health 0. Then `./wwdev.exe actors` on B shows no proc 0x00C0 and no orphan proc 0x01D5 sword; B's kill-all bars on switch 0x85 open (d_a_door12.cpp:154-170); death switches 0x86..0x88 are set on B; no miniboss sub-BGM change on either side (D4). Known gap: after a host sword drop and re-pickup the copy stays unarmed.
+- [ ] **T4 caves, unkeyed**: `tn+u` on both sides, `stage-hop Cave11 0 9 --yes`: the four unkeyed Darknuts fill exactly the four slots; rerun the T1-T3 checks. Then `Cave10 0 16` with `mo2+u,tn+u` (two Darknuts among five enemies, four slots) last.
+- [ ] **T5 AM2 direct apply**: `am2+u` both sides, `WW_ENEMY_REMOTE` unset, `stage-hop Cave09 0 7 --yes`. B positions with `backstab.py <bin> <armos> 6 90 back|front` (WW_DOLPHIN_PID=B); A stands with `warp_near.py` (or `backstab.py ... 1 90 back|front` on A for A's own swing). Pass: B back + A front: Health drops by the atp, ACK detail `direct`. B back + A back: one drop, no double damage. B front + A back: no drop, detail `front` (the negative control the old path got wrong). B front + A front: no drop, `front`. A alone back-stabbing: vanilla, unchanged. After an arrow stun (MAHI): hittable; carried, or MAHI mode 15: detail `invuln`. A hammer hit kills (health 0, m2CE 7/8). A hit during the Armos's invuln is retried, not dropped. Then `kaze 4 4` keyed with A at z >= 2900 (z < 2900 is void). Then once with `WW_ENEMY_REMOTE=step6` on both: no double apply, and the `attacker_overrides` counter does not tick on a direct hit. Then `WW_ENEMY_ANNEX=am2:hooks=special` on both: the old path returns (a B back-stab with A in front is `applied_at` and ignored, as on A1). Accepted divergences (am2_fix): the ITAI knockback heads away from A's Link; the hit SE and hit-stop use A's cut count; no crit flash particle on A. Rig gap: `backstab.py` has no warp-only mode in the archive copy, so placing A behind without a swing is a hand `warp` plus the angle pokes from the script.
+- [ ] **T6 regression**: the default kinds and then every kind on (`mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u`): the A1 fixture rooms (the kinds probe goldens, one kill each for MO2, BK, CC, KI, AM), a `bk:tg_hit_up` override still applying, 8 hops with canaries flat apart from PauseReasserts. Sweep both players' full Player.log and the mplocal logs afterwards, not only the reported issues, and confirm no adopt while gated.

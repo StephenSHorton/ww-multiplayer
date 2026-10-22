@@ -3,12 +3,15 @@
 // host hit applier (the v2 At sphere, or v1's shrink behind a flag), and,
 // from block layout 3, any enemy class with a row in the kind table
 // (wwenemy_kinds.h: Moblin, Bokoblin, ChuChu; the allow batch's Keese,
-// Armos Knight and Armos), the per-class hooks and the quiet death.
+// Armos Knight and Armos; the TN batch's Darknut), the per-class hooks and
+// the quiet death.
 // Design: ww-multiplayer-handoff/design/host-authoritative-prototype.md,
 // moblin-s2-v2-final.txt (s2.rel_side, v2), enemy-mirror-general.json
-// (layout 3: "rel_changes", "closed_before_build", "critic_applied") and
+// (layout 3: "rel_changes", "closed_before_build", "critic_applied"),
 // enemy-mirror-allow.json (KI, AM, AM2: "rel_changes" R-1..R-16, decisions
-// D2-D16); docs: inject/rel/README.md "enemy_mirror.c".
+// D2-D16) and enemy-mirror-tn.json (TN and AM2's direct apply: "rel_changes"
+// R-1..R-16, decisions D1-D14, "p0_findings"); docs: inject/rel/README.md
+// "enemy_mirror.c".
 //
 // Go writes one block per tick into the mailbox slack at MAILBOX_ADDR +
 // WWENEMY_OFF (inject/include/wwenemy.h), with the annex below it in the
@@ -71,7 +74,10 @@
 //              read one execute later for the result. v1
 //              (WWENEMY_HAF_FORCE_V1) writes the shrink timer instead.
 //              Collider 3 (the Armos Knight's bomb swallow) builds no
-//              sphere: the swallow mode is written directly.
+//              sphere: the swallow mode is written directly. An Armos
+//              weak-spot hit the client judged (WWENEMY_HAF_VERDICT) Sets
+//              no sphere either: the same sphere goes straight through
+//              cc_at_check and week_atari_check's tail (em_hit_direct).
 // Every game call is an absolute function-pointer cast (no relocation);
 // no libc, no float library calls; the state is in the actor struct except
 // the two static collision objects in the mailbox slack.
@@ -293,6 +299,13 @@ typedef s16 (*em_player_angle_t)(void* a);
 #define fopAcM_searchPlayerAngleY ((em_player_angle_t)0x800F0CCC)
 typedef s16 (*em_dist_angle_t)(s16 a, s16 b);
 #define cLib_distanceAngleS ((em_dist_angle_t)0x8025397C)
+// cc_at_check__FP10fopAc_ac_cP8CcAtInfo (EMK_FN_CC_AT_CHECK, symbols.txt
+// :3275): at_power_check on info->mpObj (its attacker through the obj's
+// stts, d_cc_uty.cpp:87-114), then the target's health, hit SE and
+// hit-stop (:188-260). AM2's week_atari_check calls it after its own
+// bearing test (d_a_am2.cpp:290-296); em_hit_direct calls it in its place.
+typedef void* (*em_cc_at_check_t)(void* tg, void* info);
+#define cc_at_check ((em_cc_at_check_t)EMK_FN_CC_AT_CHECK)
 // play__14mDoExt_baseAnmFv (EMK_FN_BASE_ANM_PLAY): mFrameCtrl->update()
 // (m_Do_ext.cpp:116-120); btk and brk inherit it without an override.
 typedef BOOL (*em_anm_play_t)(void* anm);
@@ -464,6 +477,7 @@ typedef BOOL (*em_delete_t)(u32 pid);
 #define EM_ANM_RETRY      60      // frames before a failed bck index is asked of getRes again
 #define EM_FRAME_LEAD_CAP 3       // REL frames of rate added past the consumed sample
 #define EM_HANDBACK_MORF  5.0f    // the blend into the restored wait loop
+#define EM_TN_TATE_MORF   10.0f   // tate_anm_init's blend into the shield's ATATE_ON1 loop (d_a_tn.cpp:1939, 3458)
 #define EM_INVULN_WAIT    8       // executes to wait for the Moblin's 5-frame invuln (EMK_MO2_INVULN_WAIT)
 #define EM_MAX_SETS       2       // cCcS::Set calls per request (N, and N+1 if nothing crossed)
 // em_ext.spare[0]: the kind id of the open hit_apply request, so the
@@ -474,7 +488,8 @@ typedef BOOL (*em_delete_t)(u32 pid);
 
 // --- The kind table (wwenemy_kinds.h; design D1, D15) ----------------------
 // One row per live kind, indexed by kind id, in .rodata (the allow batch's
-// KI, AM and AM2 at ids 3-5, enemy-mirror-allow.json R-2).
+// KI, AM and AM2 at ids 3-5, enemy-mirror-allow.json R-2; TN at id 6, the
+// last id layout 3 holds, enemy-mirror-tn.json R-2, D2).
 #define EM_ROW(K) { EMK_##K##_PROC, EMK_##K##_ID, EMK_##K##_CAPS, EMK_##K##_MTX, EMK_##K##_COLL,           \
                     EMK_##K##_ATTACH, EMK_##K##_EYE, EMK_##K##_ARC, EMK_##K##_BCK_FIRST, EMK_##K##_BCK_LAST, \
                     EMK_##K##_BCK_WAIT, EMK_##K##_INVULN_WAIT, EMK_##K##_CLASS_SIZE, EMK_##K##_MORF,        \
@@ -485,21 +500,24 @@ typedef BOOL (*em_delete_t)(u32 pid);
                     EMK_##K##_BLUR_SCALE, EMK_##K##_ANM_GATE, EMK_##K##_PLAY_SKIP, EMK_##K##_SPH_SRC,       \
                     EMK_##K##_CO_FORWARD, EMK_##K##_TG_HIT_UP, EMK_##K##_ATTN_F2, 0 }
 static const em_kind EM_KINDS[EMK_KIND_COUNT] = { EM_ROW(MO2), EM_ROW(BK), EM_ROW(CC),
-                                                  EM_ROW(KI), EM_ROW(AM), EM_ROW(AM2) };
+                                                  EM_ROW(KI), EM_ROW(AM), EM_ROW(AM2),
+                                                  EM_ROW(TN) };
 
 // The rows sit at their ids; a kind id is a kind_mask bit of the low byte
 // em_ext caches; the annex overrides cover ids < WWENEMY_ANNEX_KINDS only
 // (R-1, em_hkd and friends), so no term ties the count to them.
 typedef char em_check_kind_ids[(EMK_MO2_ID == EMK_KIND_MO2 && EMK_BK_ID == EMK_KIND_BK && EMK_CC_ID == EMK_KIND_CC &&
                                 EMK_KI_ID == EMK_KIND_KI && EMK_AM_ID == EMK_KIND_AM && EMK_AM2_ID == EMK_KIND_AM2 &&
-                                EMK_KIND_COUNT == 6 && EMK_KIND_COUNT <= 8 &&
+                                EMK_TN_ID == EMK_KIND_TN &&
+                                EMK_KIND_COUNT == 7 && EMK_KIND_COUNT <= 8 &&
                                 sizeof(EMK_MO2_ARC) <= 4 && sizeof(EMK_BK_ARC) <= 4 && sizeof(EMK_CC_ARC) <= 4 &&
-                                sizeof(EMK_KI_ARC) <= 4 && sizeof(EMK_AM_ARC) <= 4 && sizeof(EMK_AM2_ARC) <= 4) ? 1 : -1];
+                                sizeof(EMK_KI_ARC) <= 4 && sizeof(EMK_AM_ARC) <= 4 && sizeof(EMK_AM2_ARC) <= 4 &&
+                                sizeof(EMK_TN_ARC) <= 4) ? 1 : -1];
 // EMK_MTX_PLAIN (R-2, R-3): only on an fopEn_enemy_c with a morf (the
 // matrix goes into its model; enemyice exists for the ice gates).
 #define EM_PLAIN_OK(K)    (EMK_##K##_MTX != EMK_MTX_PLAIN || ((EMK_##K##_CAPS & EMK_CAP_FOPEN) && EMK_##K##_MORF != 0))
 typedef char em_check_plain_rows[(EM_PLAIN_OK(MO2) && EM_PLAIN_OK(BK) && EM_PLAIN_OK(CC) && EM_PLAIN_OK(KI) &&
-                                  EM_PLAIN_OK(AM) && EM_PLAIN_OK(AM2)) ? 1 : -1];
+                                  EM_PLAIN_OK(AM) && EM_PLAIN_OK(AM2) && EM_PLAIN_OK(TN)) ? 1 : -1];
 // The allow rows' hooks and the fields their cases name (wwenemy_kinds.h
 // KI/AM/AM2; d_a_ki.h, d_a_am.h, d_a_am2.h): spheres in KI's cylinder
 // fields, one shared body for AM/AM2 (D7), the head sphere = the eye or
@@ -511,7 +529,7 @@ typedef char em_check_allow_rows[(EMK_KI_MTX == EMK_MTX_PLAIN && EMK_AM_MTX == E
                                   !(EMK_KI_CAPS & EMK_CAP_DR) && !(EMK_AM_CAPS & EMK_CAP_DR) && !(EMK_AM2_CAPS & EMK_CAP_DR) &&
                                   (EMK_AM2_CAPS & EMK_CAP_MODEL_EQ) && !(EMK_KI_CAPS & EMK_CAP_MODEL_EQ) &&
                                   !(EMK_AM_CAPS & EMK_CAP_MODEL_EQ) &&
-                                  !((EMK_MO2_CAPS | EMK_BK_CAPS | EMK_CC_CAPS | EMK_AM_CAPS | EMK_AM2_CAPS) &
+                                  !((EMK_MO2_CAPS | EMK_BK_CAPS | EMK_CC_CAPS | EMK_AM_CAPS | EMK_AM2_CAPS | EMK_TN_CAPS) &
                                     (EMK_CAP_SPH_COLL | EMK_CAP_PKEY_NO_POS)) &&
                                   EMK_KI_HEAD_SPH == 0 && EMK_KI_DEF_SPH == 0 && EMK_KI_CO_CYL != EMK_KI_TG_CYL &&
                                   EMK_AM_CO_CYL == EMK_AM_TG_CYL && EMK_AM_TG_CYL == EMK_AM_BODY_CYL &&
@@ -582,7 +600,58 @@ typedef char em_check_flags2[(EMK_BK_F2_HAS_WEAPON == WWENEMY_SF2_HAS_WEAPON &&
                               // so their bit 1 (AM2 WEAK_TG) is never read as one.
                               EMK_AM_F2_PLAY_SKIP == WWENEMY_SF2_PLAY_SKIP &&
                               EMK_KI_F2_LUNGE < WWENEMY_SF2_LIGHT && EMK_AM2_F2_CARRIED < WWENEMY_SF2_LIGHT &&
-                              EMK_AM2_F2_WEAK_TG < WWENEMY_SF2_LIGHT && EMK_AM2_F2_BODY_CO < WWENEMY_SF2_LIGHT) ? 1 : -1];
+                              EMK_AM2_F2_WEAK_TG < WWENEMY_SF2_LIGHT && EMK_AM2_F2_BODY_CO < WWENEMY_SF2_LIGHT &&
+                              // TN shares BK's bits 0-1: em_quiet_drop reads one
+                              // has-weapon bit for both, em_animate one play-skip.
+                              EMK_TN_F2_HAS_WEAPON == WWENEMY_SF2_HAS_WEAPON &&
+                              EMK_TN_F2_HAS_WEAPON == EMK_BK_F2_HAS_WEAPON &&
+                              EMK_TN_F2_PLAY_SKIP == WWENEMY_SF2_PLAY_SKIP &&
+                              EMK_TN_F2_ATTN < WWENEMY_SF2_LIGHT) ? 1 : -1];
+// The TN row and the fields its hooks name (wwenemy_kinds.h TN; d_a_tn.h,
+// c_damagereaction.h: dr +0x4 mMode, +0x6 mAction, +0x88 m088, +0x48C
+// m48C, +0x6E4 mSpawnY). No MODEL_EQ (d_a_tn never assigns actor->model,
+// R-1); no blur words (em_animate's u32 store would wipe the pieces byte);
+// the per-kind HKDX bits reuse only generic bits that are dead for this
+// row (R-3, D9); AM2's direct apply and the 0x1FB knob sit in the annex
+// and HIT_APPLY bytes layout 3 left free.
+#define EM_DR_SPAWN_Y     0x6E4   // f32 damagereaction mSpawnY: the generic fall test reads it before dr_body_bg_check refreshes it (c_damagereaction.cpp:1049, 1232)
+typedef char em_check_tn_row[(EMK_TN_CAPS == (EMK_CAP_DR | EMK_CAP_FOPEN) && EMK_TN_MTX == EMK_MTX_DR &&
+                              EMK_TN_COLL == EMK_COLL_STD && EMK_TN_ATTACH == EMK_ATTACH_TN && EMK_TN_EYE == EMK_EYE_NONE &&
+                              EMK_TN_DR_MODE == EMK_TN_DR + 4 && EMK_TN_DR_ACTION == EMK_TN_DR + 6 &&
+                              EMK_TN_TILT == EMK_TN_DR + 0x48C && EMK_TN_TILT_Z == EMK_TN_TILT + 4 &&
+                              EMK_TN_DR_M088 == EMK_TN_DR + 0x88 && (EMK_TN_DR_M088 & 3) == 0 && (EMK_TN_DR_M088_LEN & 3) == 0 &&
+                              EMK_BK_DR_SPAWN_Y == EMK_BK_DR + EM_DR_SPAWN_Y &&
+                              EMK_TN_DEF_R == EMK_TN_DEF_SPH + CC_SHAPE_RADIUS && EMK_TN_ATTN_F2 == EMK_TN_F2_ATTN &&
+                              EMK_TN_BLUR_ON == 0 && EMK_TN_BLUR_SHAPE == 0 && EMK_TN_BLUR_SCALE == 0 &&
+                              EMK_TN_ANM_GATE == 0 && EMK_TN_ICE != 0 && EMK_TN_WEAPON != 0 &&
+                              EMK_TN_ACT_DEFENCE == EM_DR_DEFENCE && EMK_TN_ACT_DIE_A < EMK_TN_ACT_DIE_C &&
+                              EMK_TN_HKD_SHIELD == WWENEMY_HKD_MODEL_EQ && EMK_TN_HKD_ATTACH == WWENEMY_HKD_ATTACH &&
+                              EMK_TN_HKD_SWORD == WWENEMY_HKD_EYE && EMK_TN_HKD_COLL == WWENEMY_HKD_LEGACY_DEATH &&
+                              EMK_TN_HKD_ADOPT_ANM == WWENEMY_HKD_MTX_PLAIN && EMK_TN_HKD_DIRECT == WWENEMY_HKD_SPECIAL &&
+                              EMK_TN_QUIET_HOLD < EMK_TN_QUIET_FRAMES && EMK_TN_QUIET_FRAMES < 0xFF &&
+                              EMK_TN_PIECE_MASK == (EMK_TN_PIECE_ARMOR | EMK_TN_PIECE_HELMET | EMK_TN_PIECE_SHIELD) &&
+                              EMK_TN_BCK_AGUARD1 >= EMK_TN_BCK_FIRST && EMK_TN_BCK_AHAKAI1 <= EMK_TN_BCK_LAST &&
+                              EMK_TN_BCK_TATE_ON >= EMK_TN_BCK_FIRST && EMK_TN_BCK_TATE_ON <= EMK_TN_BCK_LAST &&
+                              EMK_TN_BCK_WAIT >= EMK_TN_BCK_FIRST && EMK_TN_BCK_WAIT <= EMK_TN_BCK_LAST &&
+                              EMK_TN_BCK_ARMOR_KIHON > EMK_TN_BCK_LAST &&
+                              EMK_GTG_SPRM == CC_GTG_CALLBACK - 0x08 && EMK_GTG_HITMARK == EMK_GTG_SPRM + 0x1E &&
+                              EMK_AC_STATUS_BOSS == 0x04000000 &&
+                              WWENEMY_ANNEX_TN_TGUP_OFF == WWENEMY_ANNEX_INVW_OFF + WWENEMY_ANNEX_KINDS &&
+                              WWENEMY_ANNEX_TN_TGUP_OFF + 1 == WWENEMY_ANNEX_HKDX_OFF &&
+                              EMK_KIND_TN == WWENEMY_ANNEX_KINDS + WWENEMY_ANNEX_HKDX_KINDS - 1) ? 1 : -1];
+// AM2's direct apply (TN batch R-14..R-16): the pending byte's bits, the
+// HIT_APPLY flags past ATTRIB (remote.c rl_check_attrib), the details past
+// HD_KIND, and CcAtInfo's fields (d_cc_uty.h:7-21).
+typedef char em_check_am2_direct[(WWENEMY_HP_PENDING == 1 && !(WWENEMY_HP_VERDICT & WWENEMY_HP_PENDING) &&
+                                  !(WWENEMY_HP_BACK & (WWENEMY_HP_PENDING | WWENEMY_HP_VERDICT)) &&
+                                  !((WWENEMY_HAF_VERDICT | WWENEMY_HAF_BACK | WWENEMY_HAF_CRIT) &
+                                    (WWENEMY_HAF_FORCE_V1 | WWENEMY_HAF_FALLBACK_SHRINK | WWENEMY_HAF_NO_HITMARK)) &&
+                                  WWENEMY_HD_DIRECT == WWENEMY_HD_KIND + 1 && WWENEMY_HD_FRONT == WWENEMY_HD_DIRECT + 1 &&
+                                  EMK_CCATINFO_SIZE == 0x1C && (EMK_CCATINFO_SIZE & 3) == 0 &&
+                                  EMK_CCATINFO_OBJ == 0 && EMK_CCATINFO_PARTICLE == 0x14 &&
+                                  EMK_AM2_ITAI_MODE_HIT < EMK_AM2_MODE_DANCE &&
+                                  !(EMK_AT_OLD_PATH & (EMK_AT_SWORD_CLASS | EMK_AT_SKULL_HAMMER | EMK_AT_BOMB | EMK_AT_ARROWS)) &&
+                                  (EMK_AT_SWORD_CLASS & AT_TYPE_SWORD)) ? 1 : -1];
 
 // The placement key (identity.pkey; Go mods/enemysync PKey): FNV-1a-32
 // over the actor's bytes as stored (big-endian, as Go hashes them), 0 ->
@@ -671,13 +740,28 @@ u8 em_quiet_frames(const em_ext* x, const em_kind* k, u8 flags2) {
         return EMK_AM_QUIET_FRAMES;
     case EMK_KIND_AM2:
         return EMK_AM2_QUIET_FRAMES;
+    case EMK_KIND_TN:
+        return EMK_TN_QUIET_FRAMES;
     }
     return EMK_QUIET_FRAMES;
 }
 
-// Collider 2's centre height above current.pos (the host's v2 sphere).
+// The TN batch's hold (p0_findings DEATH ORDER): the frames em_die_quiet
+// keeps scale 1 before its shrink. A Darknut's DYING starts with its host
+// ragdoll (health <= 0, dr.mMode <= -100), whose BDOWN_A1/BDOWN_U1 the copy
+// plays while it holds; enemy_ice's light death (SF2_LIGHT) keeps the
+// generic 90 frames with no hold. Every other row: 0 (scale 1 - f/N).
+u8 em_quiet_hold(const em_kind* k, u8 flags2) {
+    if (k->id == EMK_KIND_TN && !(flags2 & WWENEMY_SF2_LIGHT)) return EMK_TN_QUIET_HOLD;
+    return 0;
+}
+
+// Collider 2's centre height above current.pos (the host's v2 sphere). TN's
+// one live knob is the invuln waits' pad byte (R-13, layout_decision: 0 =
+// compiled), read straight from the annex as em_hkd reads the hook bytes.
 s16 em_tg_hit_up(const em_ext* x, const em_kind* k) {
     if (k->id < WWENEMY_ANNEX_KINDS && x->ovr[k->id].tg_hit_up) return x->ovr[k->id].tg_hit_up;
+    if (k->id == EMK_KIND_TN && AX_U8(WWENEMY_ANNEX_TN_TGUP_OFF)) return AX_U8(WWENEMY_ANNEX_TN_TGUP_OFF);
     return k->tg_hit_up;
 }
 
@@ -770,19 +854,35 @@ static void em_set_anm(void* morf, void* res, int attr, f32 morf_frames, f32 rat
     AF(morf, u32, MORF_SOUND) = snd;
 }
 
-// --- Bokoblin: the stick it carries ---------------------------------------
+// --- Bokoblin and Darknut: the weapon they carry ----------------------------
 // The HeldBy guard (k1.go:304-337; closed_before_build "boko CARRY
-// clear"): the copy holds a stick (m0B30 != 0) and m1200 names a live
-// boko (proc 0x1D5) that is carried (fopAcStts_CARRY_e) by an enemy
-// (mNowMode 2 ENEMY_CARRY, d_a_boko.h:128). A stale m1200 may name a stick
-// on the ground or in Link's hands: never touched.
-static void* em_bk_boko(void* a) {
+// clear"): the copy holds a weapon (the row's weapon word: BK m0B30, TN
+// m0C34, != 0) and the row's pid (BK m1200, TN mBokoPcId m1410) names a
+// live boko (proc 0x1D5) that is carried (fopAcStts_CARRY_e) by an enemy
+// (mNowMode 2 ENEMY_CARRY, d_a_boko.h:128). A stale pid may name a weapon
+// on the ground or in Link's hands: never touched. A Darknut whose m140C
+// is still set has not attached its sword yet (daTn_Execute does it on
+// its first live frame, d_a_tn.cpp:3490-3497; the gate refuses it too).
+void* em_carried_boko(void* a, const em_kind* k) {
     void* b;
-    if (AF(a, s32, EMK_BK_WEAPON) == 0) return 0;
-    b = em_actor_of(AF(a, u32, EMK_BK_BOKO_PID));
+    u16 pid;
+    if (k->attach == EMK_ATTACH_BK) {
+        pid = EMK_BK_BOKO_PID;
+    } else if (k->attach == EMK_ATTACH_TN) {
+        if (AF(a, s8, EMK_TN_M140C) != 0) return 0;
+        pid = EMK_TN_BOKO_PID;
+    } else {
+        return 0;
+    }
+    if (AF(a, s32, k->weapon) == 0) return 0;
+    b = em_actor_of(AF(a, u32, pid));
     if (!b || AF(b, s16, AC_PROC_NAME) != EMK_BOKO_PROC || AF(b, u8, EMK_BOKO_MODE) != EMK_BOKO_MODE_CARRY ||
         !(AF(b, u8, EMK_BOKO_CARRY_BYTE) & EMK_BOKO_CARRY_BIT)) return 0;
     return b;
+}
+
+static void* em_bk_boko(void* a) {
+    return em_carried_boko(a, &EM_KINDS[EMK_KIND_BK]);
 }
 
 // The stick in the hand: nodeMtx[BUKI] * Ry(0x3E80) * T(0, 0, 65) into
@@ -797,6 +897,20 @@ static void em_bk_hand(void* boko, void* model) {
     PSMTXCopy(n, m);
     mDoMtx_YrotM(m, EMK_BK_HAND_RY);
     em_mtx_trans_m(m, 0.0f, 0.0f, (f32)EMK_BK_HAND_TZ);
+    PSMTXCopy(m, (u8*)bm + J3DMODEL_BASE_TR_MTX_OFFSET);
+}
+
+// The Darknut's sword in the hand: nodeMtx[ITEM_R1] * Rz(0x8000) * T(0, 0,
+// 85) (daTn_Execute with the REG8 debug offsets 0, d_a_tn.cpp:3708-3719;
+// its Y and X rotations by REG8_S(1)/(2) are by 0).
+static void em_tn_hand(void* boko, void* model) {
+    f32 m[3][4];
+    void* bm = AF(boko, void*, EMK_BOKO_MODEL);
+    void* n = em_node_mtx(model, EMK_TN_JOINT_ITEM_R1);
+    if (!n || !em_in_mem1((u32)bm)) return;
+    PSMTXCopy(n, m);
+    mDoMtx_ZrotM(m, (s16)EMK_TN_HAND_RZ);
+    em_mtx_trans_m(m, 0.0f, 0.0f, (f32)EMK_TN_HAND_TZ);
     PSMTXCopy(m, (u8*)bm + J3DMODEL_BASE_TR_MTX_OFFSET);
 }
 
@@ -844,7 +958,14 @@ static void em_bk_drop(void* boko) {
 //        the body Co on, angle.y = shape.y, mCurrBckIdx = the last setAnm;
 //        then the dormant statue its create would pick (mStartsInactive 1
 //        with a switch: MAHI 12, stun 600, no Z-target, weak spot off,
-//        d_a_am2.cpp:1494-1499) or the awake SLEEP (DOUSA 6, :589-607).
+//        d_a_am2.cpp:1494-1499) or the awake SLEEP (DOUSA 6, :589-607);
+//   TN   JYUNKAI (dr.mAction 0, mMode 0), mSpawnY = pos.y (the generic fall
+//        test in dr_damage_set reads it before dr_body_bg_check refreshes
+//        it, c_damagereaction.cpp:1049, 1232: a copy carried uphill would
+//        die on its first live frame), its Tg, head and defence hits
+//        cleared, the parry window m1444, play-skip m03EE and armor wobble
+//        m1402 cleared; after S2 the AWAIT1 loop (R-11). No blur words: the
+//        row has none (BK's lines would write actor+0).
 static void em_handback(void* a, em_slot* sl, const em_ext_slot* xs, const em_kind* k) {
     u32* src = (u32*)((u8*)a + AC_CURRENT);
     u32* dst = (u32*)((u8*)a + AC_OLD);
@@ -959,6 +1080,28 @@ static void em_handback(void* a, em_slot* sl, const em_ext_slot* xs, const em_ki
             AF(a, u8, EMK_AM2_MODE) = EMK_AM2_HANDBACK_MODE;
         }
         break;
+    case EMK_KIND_TN:
+        AF(a, s16, k->dr_action) = EMK_TN_ACT_JYUNKAI;
+        AF(a, s16, k->dr_mode) = 0;
+        AF(a, f32, k->dr + EM_DR_SPAWN_Y) = AF(a, f32, AC_CUR_POS + 4);
+        dCcD_GObjInf_ClrTgHit((u8*)a + k->tg_cyl);
+        dCcD_GObjInf_ClrTgHit((u8*)a + k->head_sph);
+        dCcD_GObjInf_ClrTgHit((u8*)a + k->def_sph);
+        AF(a, s8, EMK_TN_M1444) = 0;
+        AF(a, s16, k->play_skip) = 0;
+        AF(a, s16, EMK_TN_M1402) = 0;
+        if (sl->anm_state != WWENEMY_ANM_S1) {
+            void* sh = AF(a, void*, EMK_TN_SHIELD_MORF);
+            res = morf ? em_bck_res(k, k->bck_wait) : 0;
+            if (res) em_set_anm(morf, res, MORF_ATTR_LOOP, EM_HANDBACK_MORF, 1.0f);
+            // The shield morf may hold a guard's last frame (em_tn_shield):
+            // back to the ATATE_ON1 loop wait_set's callers give it
+            // (d_a_tn.cpp:1939, 3458).
+            if ((AF(a, s8, EMK_TN_PIECES) & EMK_TN_PIECE_SHIELD) && em_in_mem1((u32)sh) &&
+                (res = em_bck_res(k, EMK_TN_BCK_TATE_ON)) != 0)
+                em_set_anm(sh, res, MORF_ATTR_LOOP, EM_HANDBACK_MORF, 1.0f);
+        }
+        break;
     }
     sl->anm_state = WWENEMY_ANM_S1;
 }
@@ -980,24 +1123,23 @@ static void em_dead(em_slot* sl) {
     sl->recently_dead = EM_DEAD_LATCH;
 }
 
-static void em_bk_quiet_drop(em_slot* sl, const em_ext_slot* xs, const em_kind* k, void* a, void* morf);
 static void em_base_matrix(em_slot* sl, const em_kind* k, void* a, void* morf, f32 scale, u8 hkd);
 
 // Every release path (pid change, pid 0, RELEASE, scope, epoch,
 // watchdog, delete, unlink) comes through here: a living copy is handed
 // back, a quiet-dying one is deleted (fopAcM_delete only queues it, so
 // this is safe from _epilog too) and reports STATE_DEAD. A quiet-dying
-// Bokoblin lets its stick go first, as em_die_quiet's last frame does
-// (closed_before_build "boko CARRY clear"): daBk_Delete never cancels the
-// carry and procCarry only reads back a base matrix nobody writes any
-// more (d_a_bk.cpp:4509-4524, d_a_boko.cpp:638-642), so the stick would
-// hang in mid-air.
-static void em_release(em_slot* sl, const em_ext_slot* xs) {
+// Bokoblin or Darknut lets its weapon go first, as em_die_quiet's last
+// frame does (closed_before_build "boko CARRY clear"): daBk_Delete and
+// daTn_Delete never cancel the carry and procCarry only reads back a base
+// matrix nobody writes any more (d_a_bk.cpp:4509-4524, d_a_tn.cpp
+// :3744-3784, d_a_boko.cpp:638-642), so the weapon would hang in mid-air.
+static void em_release(em_slot* sl, const em_ext* x, const em_ext_slot* xs) {
     if (sl->adopted) {
         void* a = em_actor_of(sl->apid);
         const em_kind* k = a ? em_kind_of_actor(a) : 0;
         if (em_quiet_dying(sl)) {
-            if (k && k->attach == EMK_ATTACH_BK) em_bk_quiet_drop(sl, xs, k, a, AF(a, void*, k->morf));
+            if (k) em_quiet_drop(sl, k, a, AF(a, void*, k->morf), em_hkd(x, k));
             if (k) fopAcM_delete_id(sl->apid);
             em_dead(sl);                         // keeps apid (the latch's pid)
         } else {
@@ -1019,7 +1161,7 @@ static void em_release_all(enemy_mirror_state* s, em_ext* x, int forget) {
     int i;
     for (i = 0; i < WWENEMY_MAX_SLOTS; i++) {
         em_slot* sl = &s->slots[i];
-        em_release(sl, &x->slots[i]);
+        em_release(sl, x, &x->slots[i]);
         if (forget) {
             sl->recently_dead = 0;
             sl->apid = 0;
@@ -1067,7 +1209,8 @@ static int em_f32_bad(f32 v) {
 // and jaw and CC's shape.x and wobble from the annex (only when annex_seq
 // matched), CC's ground tilt m316.x/z from the slot (raw, no smoothing);
 // KI's shape.x/z (its EMK_MTX_PLAIN tilt) and m326/m328, AM's mEyeRot.x/y
-// from the annex (R-6; AM2 streams none). A fresh adopt gets them one
+// from the annex (R-6; AM2 streams none), TN's dr.m48C.z from the annex
+// (aux[0], as BK). A fresh adopt gets them one
 // consume later. MO2 reads nothing here.
 static void em_consume_owned(em_slot* sl, const em_kind* k, void* a, u32 off, u32 aux, int annex) {
     switch (k->id) {
@@ -1100,6 +1243,11 @@ static void em_consume_owned(em_slot* sl, const em_kind* k, void* a, u32 off, u3
             AF(a, s16, EMK_AM_EYE_ROT) = AX_S16(aux + 0);
             AF(a, s16, EMK_AM_EYE_ROT_Y) = AX_S16(aux + 2);
         }
+        break;
+    case EMK_KIND_TN:
+        // dr.m48C.z, the ground roll dr_matrix_set reads (as BK's; its x
+        // is the slot tilt).
+        if (annex) AF(a, s16, EMK_TN_TILT_Z) = AX_S16(aux + 0);
         break;
     }
 }
@@ -1318,6 +1466,32 @@ static int em_allow_gate(void* a, const em_kind* k, u16 setid) {
     return 1;
 }
 
+// R-4, a Darknut (D3, D5; the TN batch's gate): no BOSS status (death
+// switch 1..0x7F and behaviours 13/14, d_a_tn.cpp:4211-4215, 4244-4245),
+// not frozen in time (behaviour 15), not the statue or the demo (dr.mAction
+// 23 / 25: it adopts once awake, :2331, 2536), not hidden (m02C1, m1518:
+// Draw returns early and the sword and cape are parked, :437-439,
+// 3499-3522), no demo camera (m14F8, :2551-2575), its sword attached
+// (m140C, :3490-3497), no cape (mEquipmentType >= 4: daMant is an
+// undecompiled stub, D5), and, as em_bk_gate, no ragdoll and not dying
+// (dr.mAction 20..22). em_validate re-runs this every frame on an adopted
+// copy, but on the copy's own fields, frozen under the pause: no TN hook
+// writes dr.mMode/mAction (only em_handback, at release) or the gate's
+// bytes, and no term reads health (em_die_quiet zeroes it), so a host
+// ragdoll or death never releases a copy (p0_findings DEATH ORDER: it
+// refuses adoption only).
+int em_tn_gate(void* a, const em_kind* k) {
+    s16 act = AF(a, s16, k->dr_action);
+    if (AF(a, u32, EMK_AC_STATUS) & EMK_AC_STATUS_BOSS) return 0;
+    if (AF(a, u8, k->gate) == EMK_TN_BEHAVIOR_FROZEN) return 0;
+    if (act == EMK_TN_ACT_D_DOZOU || act == EMK_TN_ACT_S_DEMO) return 0;
+    if (AF(a, u8, EMK_TN_M02C1) != 0 || AF(a, s8, EMK_TN_M1518) != 0 || AF(a, s8, EMK_TN_M14F8) != 0 ||
+        AF(a, s8, EMK_TN_M140C) != 0) return 0;
+    if (AF(a, u8, EMK_TN_EQUIP) >= EMK_TN_EQUIP_CAPE) return 0;
+    if (AF(a, s16, k->dr_mode) <= EM_DR_RAGDOLL || (act >= EMK_TN_ACT_DIE_A && act <= EMK_TN_ACT_DIE_C)) return 0;
+    return 1;
+}
+
 // WWENEMY_ERR_NONE or the first failing check, in the design's order
 // (rel_changes em_validate): kind, initState, setID + home room, the
 // Moblin's mode, the kind's gates, the morf and its model.
@@ -1346,6 +1520,9 @@ static u8 em_validate(const em_ext* x, const em_ext_slot* xs, const em_kind* k, 
     case EMK_KIND_AM2:
         if (!em_allow_gate(a, k, setid)) return WWENEMY_ERR_GATE;
         break;
+    case EMK_KIND_TN:
+        if (!em_tn_gate(a, k)) return WWENEMY_ERR_GATE;
+        break;
     }
     morf = AF(a, void*, k->morf);
     if (!morf) return WWENEMY_ERR_MORF;
@@ -1359,12 +1536,32 @@ static u8 em_validate(const em_ext* x, const em_ext_slot* xs, const em_kind* k, 
     return WWENEMY_ERR_NONE;
 }
 
+// R-5, em_adopt's TN tail: what the paused copy's own execute would decay
+// and never will (d_a_tn.cpp:3480-3482, 3293-3298 the m1402 armor wobble;
+// the damagereaction joint offsets m088 the body nodeCallBack rotates
+// every joint by, :276-281), the parry window m1444 and the defence
+// sphere's R 70 (damage_check sets it every defence frame, :2831); unless
+// EMK_TN_HKD_ADOPT_ANM, the armor morf on the YKIHON1 loop, free-running
+// from here (yoroi_anm_init's, which skips a broken armor, :108-114).
+void em_tn_adopt(void* a, const em_kind* k, u8 hkd) {
+    void* armor = AF(a, void*, EMK_TN_ARMOR_MORF);
+    void* res;
+    int n;
+    AF(a, s16, EMK_TN_M1402) = 0;
+    for (n = 0; n < EMK_TN_DR_M088_LEN; n += 4) AF(a, u32, EMK_TN_DR_M088 + n) = 0;
+    AF(a, s8, EMK_TN_M1444) = 0;
+    AF(a, f32, EMK_TN_DEF_R) = (f32)EMK_TN_DEF_R_VAL;
+    if (!(hkd & EMK_TN_HKD_ADOPT_ANM) && (AF(a, s8, EMK_TN_PIECES) & EMK_TN_PIECE_ARMOR) && em_in_mem1((u32)armor) &&
+        em_in_mem1(AF(armor, u32, MORF_MODEL)) && (res = em_bck_res(k, EMK_TN_BCK_ARMOR_KIHON)) != 0)
+        em_set_anm(armor, res, MORF_ATTR_LOOP, 0.0f, 1.0f);
+}
+
 // Adopt a validated actor, or WWENEMY_ERR_ICE (not paused) when its own
 // enemy_ice is already running (light shrink or freeze timer): K1 or a
 // local death got there first and owns it (design D7). Its own code, not
 // ERR_GATE: Go's unpin takes it as final, while em_validate's gates pass
 // again a moment later.
-static u8 em_adopt(enemy_mirror_state* s, em_slot* sl, em_ext_slot* xs, const em_kind* k, void* a, int i) {
+static u8 em_adopt(enemy_mirror_state* s, em_slot* sl, em_ext_slot* xs, const em_kind* k, void* a, int i, u8 hkd) {
     u32 off = WWENEMY_HITS_OFF + i * WWENEMY_HIT_SIZE;
     u8 pb;
     // A row without enemyice (ice 0, none today) has no timers to read (D12).
@@ -1428,6 +1625,9 @@ static u8 em_adopt(enemy_mirror_state* s, em_slot* sl, em_ext_slot* xs, const em
         // nor does the handback's mode 0 reach it.
         dPa_smokeEcallBack_end((u8*)a + EMK_AM_SMOKE_MOUTH);
         break;
+    case EMK_KIND_TN:
+        em_tn_adopt(a, k, hkd);
+        break;
     }
     // A clean hit entry and no stale Tg hit from the copy's own last frame.
     EB_U16(off + 0) = sl->hit_seq;
@@ -1450,14 +1650,14 @@ static u8 em_adopt(enemy_mirror_state* s, em_slot* sl, em_ext_slot* xs, const em
 // of em_handback (the wait-loop setAnm and the weapon restore) is skipped,
 // only its blur/gate/skip clears are kept. Only a row with enemyice comes
 // here (the death select sends ice 0 to the quiet path, D12).
-static void em_die(em_slot* sl, const em_ext_slot* xs, const em_kind* k, void* a) {
+static void em_die(em_slot* sl, const em_ext* x, const em_ext_slot* xs, const em_kind* k, void* a) {
     if (sl->anm_state != WWENEMY_ANM_S1) {
         if (k->blur_on) AF(a, u32, k->blur_on) = 0;
         if (k->anm_gate) AF(a, s16, k->anm_gate) = 0;
         if (k->play_skip) AF(a, s16, k->play_skip) = 0;
         sl->anm_state = WWENEMY_ANM_S1;
     }
-    em_release(sl, xs);
+    em_release(sl, x, xs);
     AF(a, s8, AC_HEALTH) = 0;
     if (k->ice) AF(a, s8, k->ice + EMK_ICE_SHRINK) = 1;
     AF(a, u32, AC_ATTN_FLAGS) = 0;
@@ -1471,28 +1671,38 @@ static void em_die(em_slot* sl, const em_ext_slot* xs, const em_kind* k, void* a
 // never spawns an item or sets a switch. The first frame takes health and
 // the Z-target away and marks the slot DYING (SF2_QUIET kept); every frame
 // counts hit_cooldown up (no collider runs while dying, so em_hits never
-// counts it down) and returns the base-matrix scale 1 - f/N; at f == N the
-// copy is deleted (fopAcM_delete), STATE_DEAD, and 0 is returned. N is
-// em_quiet_frames' (the annex's quiet_frames for ids < 3, else
-// EMK_QUIET_FRAMES_LIGHT when the host's own death was enemy_ice's
-// (SF2_LIGHT), else the row's compiled count). A Bokoblin's carried stick
-// is let go first (em_bk_quiet_drop). apid stays the dead pid (em_dead).
+// counts it down) and returns the base-matrix scale: 1 for the first H
+// frames (em_quiet_hold: TN's hold, else 0; a death that starts RELEASE
+// starts its count at H), then 1 - (f - H)/(N - H), so
+// with H 0 it is 1 - f/N as before; at f == N the copy is deleted
+// (fopAcM_delete), STATE_DEAD, and 0 is returned. N is em_quiet_frames'
+// (the annex's quiet_frames for ids < 3, else EMK_QUIET_FRAMES_LIGHT when
+// the host's own death was enemy_ice's (SF2_LIGHT), else the row's compiled
+// count). A Bokoblin's carried stick or a Darknut's sword is let go first
+// (em_quiet_drop). apid stays the dead pid (em_dead).
 static int em_die_quiet(em_slot* sl, const em_ext* x, const em_ext_slot* xs, const em_kind* k, void* a,
                         f32* scale) {
     u8 n = em_quiet_frames(x, k, sl->tgt_flags2);
+    u8 h = em_quiet_hold(k, sl->tgt_flags2);
+    (void)xs;
     if (sl->state != WWENEMY_STATE_DYING) {
         AF(a, s8, AC_HEALTH) = 0;
         AF(a, u32, AC_ATTN_FLAGS) = 0;
         sl->state = WWENEMY_STATE_DYING;
         sl->tgt_flags2 |= WWENEMY_SF2_QUIET;
-        sl->hit_cooldown = 0;
+        // A death that starts RELEASE (a catch-up, or a copy first adopted
+        // from a tombstone) streams no host ragdoll for the hold to show:
+        // the count starts past it, so the copy shrinks at once as the
+        // other rows do. hit_cooldown is the latch: a later RELEASE (the
+        // host's delete after action 20) leaves a running hold alone.
+        sl->hit_cooldown = (sl->tgt_flags & WWENEMY_SF_RELEASE) ? h : 0;
     }
     if (sl->hit_cooldown != 0xFF) sl->hit_cooldown++;
     if (sl->hit_cooldown < n) {
-        *scale = 1.0f - (f32)sl->hit_cooldown / (f32)n;
+        *scale = sl->hit_cooldown < h ? 1.0f : 1.0f - (f32)(sl->hit_cooldown - h) / (f32)(n - h);
         return 1;
     }
-    if (k->attach == EMK_ATTACH_BK) em_bk_quiet_drop(sl, xs, k, a, AF(a, void*, k->morf));
+    em_quiet_drop(sl, k, a, AF(a, void*, k->morf), em_hkd(x, k));
     fopAcM_delete_id(sl->apid);
     em_dead(sl);
     sl->actor = 0;
@@ -1502,26 +1712,31 @@ static int em_die_quiet(em_slot* sl, const em_ext* x, const em_ext_slot* xs, con
     return 0;
 }
 
-// The quiet death's last frame for a Bokoblin holding its stick (under the
-// HeldBy guard): the stick's base matrix is written once from the
-// unscaled hand (the copy's base rebuilt at scale 1 and calc'd, then its
-// shrunken base put back and calc'd again so it never pops to full size
-// on its last drawn frame), so procCarry's MtxToRot never reads a
-// degenerate matrix and the stick falls from the hand; then CARRY is
-// cleared. With the streamed weapon bit clear the stick falls from its
-// stale matrix (accepted, closed_before_build item 4).
-static void em_bk_quiet_drop(em_slot* sl, const em_ext_slot* xs, const em_kind* k, void* a, void* morf) {
-    void* boko = em_bk_boko(a);
+// The quiet death's last frame for a Bokoblin holding its stick or a
+// Darknut holding its sword (under the HeldBy guard, em_carried_boko; a
+// Darknut not under EMK_TN_HKD_SWORD): the weapon's base matrix is written
+// once from the unscaled hand (the copy's base rebuilt at scale 1 and
+// calc'd, then its shrunken base put back and calc'd again so it never
+// pops to full size on its last drawn frame), so procCarry's MtxToRot
+// never reads a degenerate matrix and the weapon falls from the hand; then
+// CARRY is cleared. With the streamed weapon bit clear it falls from its
+// stale matrix (accepted, closed_before_build item 4). No other row has a
+// carried weapon.
+void em_quiet_drop(em_slot* sl, const em_kind* k, void* a, void* morf, u8 hkd) {
+    void* boko;
     void* model;
     f32 save[3][4];
-    (void)xs;
+    if (k->attach != EMK_ATTACH_BK && k->attach != EMK_ATTACH_TN) return;
+    if (k->attach == EMK_ATTACH_TN && (hkd & EMK_TN_HKD_SWORD)) return;
+    boko = em_carried_boko(a, k);
     if (!boko) return;
     model = morf ? AF(morf, void*, MORF_MODEL) : 0;
-    if (model && (sl->tgt_flags2 & EMK_BK_F2_HAS_WEAPON)) {
+    if (model && (sl->tgt_flags2 & EMK_BK_F2_HAS_WEAPON)) {   // == EMK_TN_F2_HAS_WEAPON (em_check_flags2)
         PSMTXCopy((u8*)model + J3DMODEL_BASE_TR_MTX_OFFSET, save);
         em_base_matrix(sl, k, a, morf, 1.0f, 0);
         McaMorf_calc(morf);
-        em_bk_hand(boko, model);
+        if (k->attach == EMK_ATTACH_TN) em_tn_hand(boko, model);
+        else em_bk_hand(boko, model);
         PSMTXCopy(save, (u8*)model + J3DMODEL_BASE_TR_MTX_OFFSET);
         McaMorf_calc(morf);
     }
@@ -1760,6 +1975,133 @@ static void em_bk_attach(const enemy_mirror_state* s, em_slot* sl, void* a, void
     }
 }
 
+// EMK_ATTACH_TN, R-6, between em_base_matrix and the body calc (dying
+// frames too), unless EMK_TN_HKD_SHIELD, only while the copy still has its
+// shield: what daTn_Execute does before mpBodyMorf->calc() (d_a_tn.cpp
+// :3603-3612). The shield morf's model takes the body's base matrix (the
+// shrunken one on a dying frame) and is calc'd first, so the body calc's
+// nodeCallBack copies its fresh left-arm joints (KATA_L1..YUBI_L2, :259-281)
+// and the body's own callbacks (head centre, eye) win. The shield's bck
+// follows the streamed body bck: AGUARD1, AGUARD2 and AHAKAI1 play the same
+// index with the same attribute and rate (anm_init and tate_anm_init in
+// pairs, :1924-1928, 2871-2872), its frame then locked to the body's;
+// everything else the ATATE_ON1 loop (:1939, 2511, 3458). setAnm runs only
+// when the shield's mpAnm is not that bck already, and play is skipped
+// while the host skips it (m03EE, :3531-3536). No wire bytes.
+void em_tn_shield(em_slot* sl, const em_kind* k, void* a, void* morf, u8 hkd) {
+    void* sh = AF(a, void*, EMK_TN_SHIELD_MORF);
+    void* bm = AF(morf, void*, MORF_MODEL);
+    void* sm;
+    void* res;
+    u8 b = sl->anm_bck;
+    int same;
+    if (k->attach != EMK_ATTACH_TN || (hkd & EMK_TN_HKD_SHIELD) || !(AF(a, s8, EMK_TN_PIECES) & EMK_TN_PIECE_SHIELD))
+        return;
+    if (!em_in_mem1((u32)sh) || !em_in_mem1((u32)bm)) return;
+    sm = AF(sh, void*, MORF_MODEL);
+    if (!em_in_mem1((u32)sm)) return;
+    PSMTXCopy((u8*)bm + J3DMODEL_BASE_TR_MTX_OFFSET, (u8*)sm + J3DMODEL_BASE_TR_MTX_OFFSET);
+    // The body's mpAnm is that bck's resource while SYNCED (em_animate set
+    // it from em_bck_res on the change that made anm_bck).
+    same = sl->anm_state == WWENEMY_ANM_SYNCED &&
+           (b == EMK_TN_BCK_AGUARD1 || b == EMK_TN_BCK_AGUARD2 || b == EMK_TN_BCK_AHAKAI1);
+    res = same ? AF(morf, void*, MORF_ANM) : em_bck_res(k, EMK_TN_BCK_TATE_ON);
+    if (em_in_mem1((u32)res) && AF(sh, void*, MORF_ANM) != res) {
+        if (same) em_set_anm(sh, res, sl->anm_attr, (f32)sl->tgt_morf, sl->anm_rate);
+        else em_set_anm(sh, res, MORF_ATTR_LOOP, EM_TN_TATE_MORF, 1.0f);
+    }
+    if (!(sl->tgt_flags2 & EMK_TN_F2_PLAY_SKIP)) McaMorf_play(sh, 0, 0, 0);
+    if (same) {
+        AF(sh, f32, MORF_RATE) = AF(morf, f32, MORF_RATE);
+        AF(sh, f32, MORF_FRAME) = AF(morf, f32, MORF_FRAME);
+    }
+    McaMorf_calc(sh);
+}
+
+// EMK_ATTACH_TN, R-7, after the body calc (dying frames too, so the parts
+// follow the shrink): what daTn_Execute does after it (d_a_tn.cpp
+// :3708-3732) and part_move's on-the-body case (:3143-3318).
+//   (a) pieces, unless EMK_TN_HKD_ATTACH: the copy's mRemainingEquipment-
+//       Pieces ANDed with the host's (the slot's blur_shape byte carries
+//       its low three bits; the AND keeps the copy's others and only ever
+//       clears: a broken piece never comes back), and a cleared armor
+//       (part 0) or helmet (part 1) hidden at once (m08 = -1: part_draw
+//       skips it, :398-427; the host's break flies it off over ~13 frames,
+//       which the copy does not mirror). A catch-up / tombstone (RELEASE)
+//       carries no host sample: no AND;
+//   (b) parts, unless ATTACH: every part with m08 >= 0 still on the body
+//       (m09 0) takes the body's anmMtx[MUNE1 / ATAMA1 / ITEM_L1]
+//       (j_dt, :3140) as its base matrix (part 0 is the armor morf's model,
+//       1 and 2 their mpPartModel, :3286-3305; part 2 only with the
+//       shield, :415); no m1402 wobble (zeroed at adopt);
+//   (c) armor, unless ATTACH and while part 0 is shown: play (not under
+//       the host's play-skip or EMK_TN_HKD_ADOPT_ANM), then calc, whose
+//       nodeCallBack_kata copies the body's joints (:387-397, 3316);
+//   (d) sword, unless EMK_TN_HKD_SWORD: the carried boko (em_carried_boko)
+//       at the hand (em_tn_hand), let go as em_bk_attach lets the stick go
+//       when the streamed weapon bit falls (yari_off_check, the host's
+//       m0C34 -> 0), never on a shrinking dying frame (the hold's are
+//       unscaled);
+//   (e) defence centre, unless ATTACH: m13E4 = the ITEM_L1 translation (the
+//       defence sphere's centre, :2831-2837).
+void em_tn_attach(const enemy_mirror_state* s, em_slot* sl, const em_kind* k, void* a, void* morf, u8 hkd, int dying) {
+    static const u8 joint[3] = { EMK_TN_JOINT_MUNE1, EMK_TN_JOINT_ATAMA1, EMK_TN_JOINT_ITEM_L1 };
+    void* bm = AF(morf, void*, MORF_MODEL);
+    void* armor = AF(a, void*, EMK_TN_ARMOR_MORF);
+    void* am = em_in_mem1((u32)armor) ? AF(armor, void*, MORF_MODEL) : 0;
+    void* boko;
+    void* n;
+    u8* part;
+    u8 p;
+    int i;
+    if (k->attach != EMK_ATTACH_TN || !em_in_mem1((u32)bm)) return;
+    if (!em_in_mem1((u32)am)) am = 0;
+    if (!(hkd & EMK_TN_HKD_ATTACH)) {
+        p = AF(a, u8, EMK_TN_PIECES);
+        if (!(sl->tgt_flags & WWENEMY_SF_RELEASE)) p &= (u8)(sl->tgt_blur_shape | (u8)~EMK_TN_PIECE_MASK);
+        AF(a, u8, EMK_TN_PIECES) = p;
+        if (!(p & EMK_TN_PIECE_ARMOR)) AF(a, s8, EMK_TN_PART0 + EMK_TN_PART_M08) = -1;
+        if (!(p & EMK_TN_PIECE_HELMET)) AF(a, s8, EMK_TN_PART0 + EMK_TN_PART_STRIDE + EMK_TN_PART_M08) = -1;
+        for (i = 0; i < 3; i++) {
+            void* pm;
+            part = (u8*)a + EMK_TN_PART0 + i * EMK_TN_PART_STRIDE;
+            if (AF(part, s8, EMK_TN_PART_M08) < 0 || AF(part, s8, EMK_TN_PART_M09) != 0) continue;
+            if (i == 2 && !(p & EMK_TN_PIECE_SHIELD)) continue;
+            pm = i == 0 ? am : AF(part, void*, EMK_TN_PART_MODEL);
+            n = em_node_mtx(bm, joint[i]);
+            if (!n || !em_in_mem1((u32)pm)) continue;
+            PSMTXCopy(n, (u8*)pm + J3DMODEL_BASE_TR_MTX_OFFSET);
+        }
+        if (am && AF(a, s8, EMK_TN_PART0 + EMK_TN_PART_M08) >= 0) {
+            if (!(sl->tgt_flags2 & EMK_TN_F2_PLAY_SKIP) && !(hkd & EMK_TN_HKD_ADOPT_ANM)) McaMorf_play(armor, 0, 0, 0);
+            McaMorf_calc(armor);
+        }
+        if ((n = em_node_mtx(bm, EMK_TN_JOINT_ITEM_L1)) != 0) {
+            AF(a, f32, EMK_TN_DEF_CENTER + 0) = ((f32*)n)[3];
+            AF(a, f32, EMK_TN_DEF_CENTER + 4) = ((f32*)n)[7];
+            AF(a, f32, EMK_TN_DEF_CENTER + 8) = ((f32*)n)[11];
+        }
+    }
+    if (!(hkd & EMK_TN_HKD_SWORD) && (boko = em_carried_boko(a, k)) != 0) {
+        u8 hold = em_quiet_hold(k, sl->tgt_flags2);
+        em_tn_hand(boko, bm);
+        // A dying frame inside the quiet death's hold is still at scale 1
+        // (em_die_quiet counted it in hit_cooldown): the host's ragdoll lets
+        // its sword go there (daTn_Execute's m0C38 at health 0, d_a_tn.cpp
+        // :3558-3561, then yari_off_check), and the copy can drop it from an
+        // unscaled hand. Past the hold the hand shrinks: em_quiet_drop's.
+        // A death that starts RELEASE starts its count past the hold
+        // (em_die_quiet): its sword goes on that first frame (count H + 1,
+        // scale 1 - 1/(N - H)), never from a shrunken hand at the end.
+        if ((!dying || sl->hit_cooldown < hold ||
+             ((sl->tgt_flags & WWENEMY_SF_RELEASE) && sl->hit_cooldown == hold + 1)) &&
+            (s->flags & WWENEMY_FLAG_ANIM) && !(sl->tgt_flags2 & EMK_TN_F2_HAS_WEAPON)) {
+            em_bk_drop(boko);
+            AF(a, s32, k->weapon) = 0;
+        }
+    }
+}
+
 // EMK_EYE_CC: daCC_Execute's eye and attention positions (d_a_cc.cpp
 // :2108-2122), from the mirrored position: +10 low (m2F5 in [6, 11) or
 // action 1 on the host, EMK_CC_F2_LOW_EYE), else +70; attention 30 above
@@ -1818,7 +2160,7 @@ void em_fixed_eye(const em_slot* sl, const em_kind* k, void* a) {
 // switch gate m2D4 = 0 and its m540 = 0 as its execute writes it every
 // frame (d_a_ki.cpp:997-998; read by Draw's shadow, :246-249, and the BG
 // check, :1079-1089) (R-9). KI, AM and AM2 write no Bt fields (their
-// executes do not either).
+// executes do not either); TN writes BK's (the TN batch's R-10).
 static void em_kind_fields(em_slot* sl, const em_kind* k, void* a) {
     switch (k->id) {
     case EMK_KIND_MO2:
@@ -1839,6 +2181,15 @@ static void em_kind_fields(em_slot* sl, const em_kind* k, void* a) {
         if (!(sl->tgt_flags & WWENEMY_SF_HIDDEN)) AF(a, u8, EMK_KI_DRAW_GATE) = 0;
         AF(a, u8, EMK_KI_SHADOW) = 0;
         break;
+    case EMK_KIND_TN:
+        // daTn_Execute's setBtAttackData(100, 100, 10000, OPENING_NONE) +
+        // setBtNowFrame(0) (d_a_tn.cpp:3539-3540), BK's values; its own
+        // case, since BK's also writes BK's draw gate (R-10).
+        AF(a, f32, EMK_AC_BT_START) = 100.0f;
+        AF(a, f32, EMK_AC_BT_END) = 100.0f;
+        AF(a, f32, EMK_AC_BT_NOW) = 0.0f;
+        AF(a, u8, EMK_AC_BT_TYPE) = 0;
+        break;
     }
 }
 
@@ -1855,7 +2206,9 @@ static void em_kind_fields(em_slot* sl, const em_kind* k, void* a) {
 // REL already consumed: no Tg record to keep or clear, the mouth simply
 // stays un-Set while it is pending). The swallow test runs only where a
 // hit can be reported (no cooldown, nothing pending), so a deleted bomb is
-// always reported.
+// always reported. An Armos (AM2) weak-spot hit with its HKD_SPECIAL clear
+// also carries the client's bearing verdict in the pending byte
+// (WWENEMY_HP_VERDICT, WWENEMY_HP_BACK; em_am2_verdict).
 static void em_hits(enemy_mirror_state* s, em_slot* sl, const em_kind* k, void* a, int i, u8 hkd) {
     u32 off = WWENEMY_HITS_OFF + i * WWENEMY_HIT_SIZE;
     if (sl->hit_withheld) {
@@ -1885,7 +2238,12 @@ static void em_hits(enemy_mirror_state* s, em_slot* sl, const em_kind* k, void* 
         sl->hit_seq++;
         EB_U16(off + 0) = sl->hit_seq;
         EB_U8(off + 2) = col;
-        EB_U8(off + 3) = 1;
+        // The TN batch's R-14: an Armos weak-spot hit carries this client's
+        // own bearing verdict for the host's direct apply (any nonzero
+        // pending byte is pending to Go and to the test above).
+        EB_U8(off + 3) = (k->id == EMK_KIND_AM2 && col == EMK_HIT_HEAD && !(hkd & WWENEMY_HKD_SPECIAL))
+                             ? (u8)(WWENEMY_HP_PENDING | em_am2_verdict(a))
+                             : (u8)WWENEMY_HP_PENDING;
         sl->hit_withheld = col;
         sl->hit_cooldown = EM_HIT_COOLDOWN;
         // The other collider's hit (the same swing) must not fire next frame.
@@ -1914,6 +2272,43 @@ void em_colliders_pre(const em_slot* sl, const em_kind* k, void* a) {
             (AF(a, u32, k->co_cyl + CC_CO_SPRM) & ~1u) | ((sl->tgt_flags2 & EMK_AM2_F2_BODY_CO) ? 1u : 0u);
         break;
     }
+}
+
+// The TN batch's R-12, right after em_colliders_pre, unless EMK_TN_HKD_COLL:
+// what daTn_Execute writes on its colliders before Setting them (d_a_tn.cpp
+// :3636-3654), from the copy's pieces (em_tn_attach ANDed them with the
+// host's): the Tg cylinder clanks while the armor is on (GObjTg Shield),
+// the head sphere while the helmet is on (Shield, Set, the purple hit
+// mark), else Shield off and hit mark UNK1. The Set bit's CUT_KESA test
+// reads the host Link's cut, which the copy has no use for (skipped). A
+// client-local clank only: the hit itself is forwarded either way. STD
+// then places and Sets them.
+void em_tn_colliders_pre(const em_slot* sl, const em_kind* k, void* a, u8 hkd) {
+    u8* tg = (u8*)a + k->tg_cyl;
+    u8* head = (u8*)a + k->head_sph;
+    u8 p;
+    (void)sl;
+    if (k->id != EMK_KIND_TN || (hkd & EMK_TN_HKD_COLL)) return;
+    p = AF(a, u8, EMK_TN_PIECES);
+    if (p & EMK_TN_PIECE_ARMOR) AF(tg, u32, EMK_GTG_SPRM) |= EMK_GTG_SPRM_SHIELD;
+    else AF(tg, u32, EMK_GTG_SPRM) &= ~(u32)EMK_GTG_SPRM_SHIELD;
+    if (p & EMK_TN_PIECE_HELMET) {
+        AF(head, u32, CC_TG_SPRM) |= 1u;
+        AF(head, u32, EMK_GTG_SPRM) |= EMK_GTG_SPRM_SHIELD;
+        AF(head, u8, EMK_GTG_HITMARK) = EMK_GTG_HITMARK_PURPLE;
+    } else {
+        AF(head, u32, EMK_GTG_SPRM) &= ~(u32)EMK_GTG_SPRM_SHIELD;
+        AF(head, u8, EMK_GTG_HITMARK) = EMK_GTG_HITMARK_UNK1;
+    }
+}
+
+// The TN batch's R-14 (D10, D11), client: week_atari_check's bearing test
+// (d_a_am2.cpp:205-211) on this game's Link, player 0 here (f_op_actor_mng
+// .h:637-639), never the host's: >= EMK_AM2_BACK_MIN is a back hit.
+u8 em_am2_verdict(void* a) {
+    if (cLib_distanceAngleS(AF(a, s16, AC_SHAPE_ANGLE_Y), fopAcM_searchPlayerAngleY(a)) >= EMK_AM2_BACK_MIN)
+        return WWENEMY_HP_VERDICT | WWENEMY_HP_BACK;
+    return WWENEMY_HP_VERDICT;
 }
 
 // R-5 after STD, every frame STD runs (INVULN frames included, D8), behind
@@ -2091,6 +2486,7 @@ static void em_colliders(enemy_mirror_state* s, em_slot* sl, const em_ext* x, co
     }
     if (k->coll != EMK_COLL_STD) return;
     em_colliders_pre(sl, k, a);
+    em_tn_colliders_pre(sl, k, a, hkd);
     co = (u8*)a + k->co_cyl;
     tg = (u8*)a + k->tg_cyl;
     c.x = sl->cur.x + (f32)k->co_forward * cM_ssin(sl->cur_angle);
@@ -2137,7 +2533,7 @@ static void em_slot_frame(enemy_mirror_state* s, em_ext* x, int i, u32 frame) {
 
     sl->actor = 0;
     if (sl->adopted && sl->apid != sl->pid)
-        em_release(sl, xs);                      // the slot now names another actor (a quiet-dying copy: deleted, STATE_DEAD)
+        em_release(sl, x, xs);                   // the slot now names another actor (a quiet-dying copy: deleted, STATE_DEAD)
     if (sl->recently_dead) {
         // The dying latch (apid = the dead pid) holds only while Go still
         // names that pid or none. A quiet death's (STATE_DEAD): the copy is
@@ -2156,7 +2552,7 @@ static void em_slot_frame(enemy_mirror_state* s, em_ext* x, int i, u32 frame) {
         sl->apid = 0;
     }
     if (sl->pid == 0) {
-        em_release(sl, xs);
+        em_release(sl, x, xs);
         return;
     }
     // A plain release hands the copy back (a quiet-dying one is deleted).
@@ -2164,7 +2560,7 @@ static void em_slot_frame(enemy_mirror_state* s, em_ext* x, int i, u32 frame) {
     // host killed that is still alive here) is a kill: resolve, validate
     // and adopt as usual, then die below.
     if ((sl->tgt_flags & (WWENEMY_SF_RELEASE | WWENEMY_SF_DYING)) == WWENEMY_SF_RELEASE) {
-        em_release(sl, xs);
+        em_release(sl, x, xs);
         return;
     }
     a = em_actor_of(sl->pid);
@@ -2178,7 +2574,7 @@ static void em_slot_frame(enemy_mirror_state* s, em_ext* x, int i, u32 frame) {
             sl->anm_state = WWENEMY_ANM_S1;
             return;
         }
-        em_release(sl, xs);                      // the actor is gone: nothing to restore
+        em_release(sl, x, xs);                   // the actor is gone: nothing to restore
         sl->state = WWENEMY_STATE_MISSING;
         sl->last_err = WWENEMY_ERR_PID;
         return;
@@ -2186,7 +2582,7 @@ static void em_slot_frame(enemy_mirror_state* s, em_ext* x, int i, u32 frame) {
     k = em_kind_at(xs->kind);
     err = em_validate(x, xs, k, a, s->room);
     if (err) {
-        em_release(sl, xs);
+        em_release(sl, x, xs);
         if (sl->state != WWENEMY_STATE_DEAD) sl->state = WWENEMY_STATE_REFUSED;
         sl->last_err = err;
         em_sat_inc(&s->canary[2]);
@@ -2199,7 +2595,7 @@ static void em_slot_frame(enemy_mirror_state* s, em_ext* x, int i, u32 frame) {
     hkd = em_hkd(x, k);
 
     if (!sl->adopted) {
-        err = em_adopt(s, sl, xs, k, a, i);
+        err = em_adopt(s, sl, xs, k, a, i, hkd);
         if (err) {
             sl->actor = 0;
             sl->state = WWENEMY_STATE_REFUSED;
@@ -2230,7 +2626,7 @@ static void em_slot_frame(enemy_mirror_state* s, em_ext* x, int i, u32 frame) {
         int quiet = em_quiet_dying(sl) || (sl->tgt_flags2 & WWENEMY_SF2_QUIET) || (hkd & WWENEMY_HKD_LEGACY_DEATH) ||
                     (sl->tgt_flags & WWENEMY_SF_RELEASE) || k->id >= EMK_KIND_KI || k->ice == 0;
         if (!quiet) {
-            em_die(sl, xs, k, a);
+            em_die(sl, x, xs, k, a);
             return;
         }
         if (!em_die_quiet(sl, x, xs, k, a, &scale)) return;
@@ -2297,8 +2693,10 @@ static void em_slot_frame(enemy_mirror_state* s, em_ext* x, int i, u32 frame) {
     // then calc so the joint callbacks (head centre, eye position) follow;
     // then the kind's hooks.
     em_base_matrix(sl, k, a, morf, scale, hkd);
+    if (k->attach == EMK_ATTACH_TN) em_tn_shield(sl, k, a, morf, hkd);       // R-6: before the body calc
     McaMorf_calc(morf);
     if (k->attach == EMK_ATTACH_BK && !(hkd & WWENEMY_HKD_ATTACH)) em_bk_attach(s, sl, a, morf, dying);
+    else if (k->attach == EMK_ATTACH_TN) em_tn_attach(s, sl, k, a, morf, hkd, dying);   // R-7: its bits gate inside
     if (k->eye == EMK_EYE_CC && !(hkd & WWENEMY_HKD_EYE)) em_cc_eye(sl, a);
     else if (k->eye == EMK_EYE_FIXED && !(hkd & WWENEMY_HKD_EYE)) em_fixed_eye(sl, k, a);
     // The Z-target flag (BK, CC): a CC is created with flags 0 and gets
@@ -2444,10 +2842,11 @@ int enemy_mirror_sph_image_at(enemy_mirror_state* s, const void* sph) {
     return 1;
 }
 
-// The first Set of a request: the host Link, the static stts and sphere
-// image (built lazily, after enemy_mirror_init's zeroing), the dCcD_SrcSph
-// fill and dCcD_Sph::Set, then the registration. Publishes on a failure.
-static void em_hit_submit(enemy_mirror_state* s, const em_ext* x, const em_kind* k, void* a) {
+// The sphere of a request, before its first Set or a direct apply: the
+// host Link, the static stts and sphere image (built lazily, after
+// enemy_mirror_init's zeroing), the dCcD_SrcSph fill and dCcD_Sph::Set.
+// Publishes and returns 0 on a failure.
+static int em_hit_build(enemy_mirror_state* s, const em_ext* x, const em_kind* k, void* a) {
     u32 link = EM_PLAYER_INFO0;
     u32 src[SRC_WORDS];
     u8* sb = (u8*)src;
@@ -2472,7 +2871,7 @@ static void em_hit_submit(enemy_mirror_state* s, const em_ext* x, const em_kind*
     if (s->ha_attrib != 1 &&
         (!em_in_mem1(link) || AF(link, s16, AC_PROC_NAME) != PROC_PLAYER || link != EM_PLAYER_PTR0)) {
         em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_NO_LINK);
-        return;
+        return 0;
     }
     // Link's own mStts.Init(120, 0xFF, this) (the body's with ATTRIB): apid = fopAcM_GetID(link),
     // mp_actor = link, room (d_cc_d.cpp:66-88; c_cc_d.cpp:185-192). On
@@ -2487,7 +2886,7 @@ static void em_hit_submit(enemy_mirror_state* s, const em_ext* x, const em_kind*
     s->stts_link = link;
     if (!enemy_mirror_sph_image(s, a)) {
         em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_NO_SPHERE);
-        return;
+        return 0;
     }
 
     // The dCcD_SrcSph (read only during Set): Link's sword literal with the
@@ -2510,10 +2909,86 @@ static void em_hit_submit(enemy_mirror_state* s, const em_ext* x, const em_kind*
     // store is an inline (c_cc_d.h:608) Set does not touch.
     dCcD_Sph_Set(EM_SPH, src);
     AF(EM_SPH, u32, CC_STTS) = (u32)EM_STTS;
+    return 1;
+}
+
+// The first Set of a request: the sphere (em_hit_build), then the
+// registration. Publishes on a failure.
+static void em_hit_submit(enemy_mirror_state* s, const em_ext* x, const em_kind* k, void* a) {
+    if (!em_hit_build(s, x, k, a)) return;
     em_hit_register(s, x, k, a);
     s->ha_state = EM_HA_SET;
     s->ha_actor = (u32)a;
     s->ha_frames = 0;
+}
+
+// --- AM2 direct apply (the TN batch's R-15/R-16, hit_path, am2_fix) ---------
+// An Armos weak-spot hit the client judged itself (WWENEMY_HAF_VERDICT,
+// em_am2_verdict on the client's own Link) never takes the sphere path,
+// whose consumer week_atari_check measures the bearing to the host Link
+// (player 0, d_a_am2.cpp:205-211), so a client's back-stab counted only
+// with the host Link behind too. The host's AM2 HKD_SPECIAL turns it off
+// (D10): the request then takes the sphere path as before, VERDICT ignored.
+// Light arrow, wind and boomerang keep the sphere path (vanilla returns
+// before cc_at_check for them, :227-233, 262-268).
+int em_hit_direct_ok(const enemy_mirror_state* s, const em_ext* x, const em_kind* k) {
+    return k->id == EMK_KIND_AM2 && s->ha_collider == EMK_HIT_HEAD && (s->ha_flags & WWENEMY_HAF_VERDICT) &&
+           !(s->ha_attype & EMK_AT_OLD_PATH) && !(em_hkd(x, k) & WWENEMY_HKD_SPECIAL);
+}
+
+// R-16 on the direct path only: where vanilla never reaches
+// week_atari_check: carried (the gate refuses a carried Armos, but the
+// host may pick it up after adoption), or MAHI with mMode 15, thrown
+// (d_a_am2.cpp:841-846). em_hit_vulnerable stays as it was, so the sphere
+// path is unchanged.
+int em_am2_direct_refused(void* a) {
+    return (AF(a, u32, EMK_AC_STATUS) & EMK_AC_STATUS_CARRY) ||
+           (AF(a, u8, EMK_AM2_GATE) == EMK_AM2_ACT_MAHI && AF(a, u8, EMK_AM2_MODE) == EMK_AM2_MODE_THROWN);
+}
+
+// week_atari_check's m2CE for the request's At type (d_a_am2.cpp:234-290;
+// 0 = Link's sword, as em_hit_build fills it). Its switch compares the At
+// type for equality, so a type names a class only when all its bits are in
+// that class's mask. The crit cut types (sword :241-260, the hammer's side
+// swing :278-280) are Go's to judge from the HIT's CutType: one bit,
+// WWENEMY_HAF_CRIT.
+u8 em_am2_m2ce(u32 attype, u8 ha_flags) {
+    u32 t = attype ? attype : AT_TYPE_SWORD;
+    int crit = (ha_flags & WWENEMY_HAF_CRIT) != 0;
+    if (t == EMK_AT_SKULL_HAMMER) return crit ? EMK_AM2_M2CE_HAMMER_SIDE : EMK_AM2_M2CE_HAMMER;
+    if (t == EMK_AT_BOMB) return EMK_AM2_M2CE_BOMB;
+    if (!(t & ~(u32)EMK_AT_ARROWS)) return EMK_AM2_M2CE_ARROW;
+    if (!(t & ~(u32)EMK_AT_SWORD_CLASS)) return crit ? EMK_AM2_M2CE_CRIT : 0;
+    return 0;
+}
+
+// The direct apply on a vulnerable, back-hit Armos (em_hit_apply's direct
+// branch, or the WAIT_INVULN retry): the sphere built exactly as for a Set
+// (the stts on the host Link, so at_power_check sees a PLAYER attacker,
+// d_cc_uty.cpp:111-134) but never registered with cCcS; a zeroed CcAtInfo
+// (mbDead must start 0, d_cc_uty.cpp:226-244) naming it, no particle
+// position; cc_at_check(a, &info): the health, hit SE and hit-stop; then
+// week_atari_check's tail (d_a_am2.cpp:212-213, 290-316): m2CE, the weak
+// spot marked hit, ITAI mode 20, health 0 for the hammer. Its own
+// mStts.Move() and the crit particles are skipped (accepted, am2_fix).
+// Published HR_APPLIED_AT / HD_DIRECT at once: there is no At record to
+// read next execute.
+void em_hit_direct(enemy_mirror_state* s, const em_ext* x, const em_kind* k, void* a) {
+    u32 info[EMK_CCATINFO_SIZE / 4];
+    u8 m;
+    int i;
+    if (!em_hit_build(s, x, k, a)) return;
+    for (i = 0; i < EMK_CCATINFO_SIZE / 4; i++) info[i] = 0;
+    info[EMK_CCATINFO_OBJ / 4] = (u32)EM_SPH;
+    info[EMK_CCATINFO_PARTICLE / 4] = 0;
+    m = em_am2_m2ce(s->ha_attype, s->ha_flags);
+    AF(a, u8, EMK_AM2_M2CE) = m;
+    AF(a, u8, EMK_AM2_WEAK_HIT) = 1;
+    cc_at_check(a, info);
+    AF(a, u8, k->gate) = EMK_AM2_ACT_ITAI;
+    AF(a, u8, EMK_AM2_MODE) = EMK_AM2_ITAI_MODE_HIT;
+    if (m == EMK_AM2_M2CE_HAMMER || m == EMK_AM2_M2CE_HAMMER_SIDE) AF(a, s8, AC_HEALTH) = 0;
+    em_hit_publish(s, WWENEMY_HR_APPLIED_AT, WWENEMY_HD_DIRECT);
 }
 
 // The target's invulnerability is over: its invuln timer is 0 (MO2
@@ -2539,7 +3014,11 @@ static int em_hit_vulnerable(const enemy_mirror_state* s, const em_kind* k, void
 // BK death, c_damagereaction.cpp:1146-1150); CC action 4; KI health <= 0
 // or ACT_FAIL (d_a_ki.cpp:1121, 1147-1149); AM swallowing (ITAI mode >= 44,
 // d_a_am.cpp:849-956) or shrinking; AM2 in the death dance (ITAI mode >=
-// 22, or ITAI with no health: :873-971) or shrinking (R-12).
+// 22, or ITAI with no health: :873-971) or shrinking (R-12); TN dr.mAction
+// 20-22 (22 from dr_body_bg_check, c_damagereaction.cpp:669-676), shrinking,
+// or health <= 0 (p0_findings DEATH ORDER: the host ragdolls ~1.6 s at
+// health 0 before action 20; the ragdoll test before this one already
+// drops most of that window as HD_RAGDOLL).
 static int em_hit_dying(const em_kind* k, void* a) {
     switch (k->id) {
     case EMK_KIND_MO2:
@@ -2559,6 +3038,11 @@ static int em_hit_dying(const em_kind* k, void* a) {
         return (AF(a, u8, k->gate) == EMK_AM2_ACT_ITAI &&
                 (AF(a, u8, EMK_AM2_MODE) >= EMK_AM2_MODE_DANCE || AF(a, s8, AC_HEALTH) <= 0)) ||
                AF(a, s8, k->ice + EMK_ICE_SHRINK) != 0;
+    case EMK_KIND_TN: {
+        s16 act = AF(a, s16, k->dr_action);
+        return (act >= EMK_TN_ACT_DIE_A && act <= EMK_TN_ACT_DIE_C) || AF(a, s8, k->ice + EMK_ICE_SHRINK) != 0 ||
+               AF(a, s8, AC_HEALTH) <= 0;
+    }
     }
     return 0;
 }
@@ -2642,7 +3126,16 @@ static void em_hit_tick(enemy_mirror_state* s, em_ext* x, int live) {
         // annex's, else the row's.
         u8 wait = em_invuln_wait(x, k);
         if (em_hit_vulnerable(s, k, a)) {
-            em_hit_submit(s, x, k, a);
+            // A parked direct-apply hit (AM2 verdict) retries on the direct
+            // path, never into week_atari_check's player-0 gate. Dying is
+            // re-tested as em_hit_apply's first pass does: a light arrow can
+            // start enemy_ice's shrink while the hit waits, and daAM2_Execute
+            // then returns early (d_a_am2.cpp:1120), leaving mode and the
+            // weak sphere's Tg Set bit as they were.
+            if (!em_hit_direct_ok(s, x, k)) em_hit_submit(s, x, k, a);
+            else if (em_hit_dying(k, a)) em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_DYING);
+            else if (em_am2_direct_refused(a)) em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_INVULN);
+            else em_hit_direct(s, x, k, a);
         } else if (++s->ha_waited > wait) {
             em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_INVULN);
         }
@@ -2722,6 +3215,27 @@ static void em_hit_apply(enemy_mirror_state* s, em_ext* x) {
             em_hit_publish(s, WWENEMY_HR_APPLIED_AT, WWENEMY_HD_NONE);
         else
             em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_NO_CROSS);
+        return;
+    }
+    // The TN batch's AM2 direct apply (hit_path): before FORCE_V1 and
+    // ATTRIB, so remote_attrib_force never runs for it and ha_attrib stays
+    // 0 (no double apply with WW_ENEMY_REMOTE's step6). An Armos is not a
+    // damagereaction kind: no ragdoll test. A front verdict is dropped here
+    // (HD_FRONT), never re-judged against the host Link; an invulnerable
+    // weak spot parks the hit (WAIT_INVULN) as the sphere path does.
+    if (em_hit_direct_ok(s, x, k)) {
+        if (em_hit_dying(k, a)) {
+            em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_DYING);
+        } else if (em_am2_direct_refused(a)) {
+            em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_INVULN);
+        } else if (!(s->ha_flags & WWENEMY_HAF_BACK)) {
+            em_hit_publish(s, WWENEMY_HR_DROPPED, WWENEMY_HD_FRONT);
+        } else if (!em_hit_vulnerable(s, k, a)) {
+            s->ha_state = EM_HA_WAIT_INVULN;
+            s->ha_actor = (u32)a;
+        } else {
+            em_hit_direct(s, x, k, a);
+        }
         return;
     }
     if (s->ha_flags & WWENEMY_HAF_FORCE_V1) {

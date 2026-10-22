@@ -2,137 +2,21 @@ package enemysync
 
 import (
 	"encoding/binary"
-	"fmt"
 	"math"
-	"slices"
-	"strings"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
-// The staged kinds of the TN batch (ww-multiplayer-handoff/design/
-// enemy-mirror-tn.json; step B0, the pattern of the allow batch's A0):
-// the Darknut, read on the host by the probes (enemy-watch --kind tn,
-// enemy-match --dry) and nothing else. It is NOT a row of Kinds:
-// KindHash, KindLayouts, ParseKinds, the KindSet arrays, ReadKindSample
-// and the pipelines see only MO2..AM2 until a later step moves the row
-// into the table with its REL cases. Its id is the one the design gives
-// EMK_KIND_TN (D1: 6); KindID.Row() is nil for it, StagedRow() is not.
-
-// KindTN is the staged Darknut id (design D1).
-const KindTN KindID = 6
-
-// StagedKinds is the staged rows, KindTN first. GateOff is u8
-// mBehaviorType (the walk's actors.Actor.Mode; dr.mAction is an s16 the
-// classification reads itself, go_changes kinds.go). AngleOff is
-// current.angle.y (design D8: daTn_Execute copies shape_angle from it and
-// builds the matrix from it, d_a_tn.cpp:3551, 3615); kindActorFields
-// falls back to it anyway for a kind with no Kinds row.
-var StagedKinds = [...]Kind{
-	{ID: KindTN, Name: "tn", Proc: addr.ProcTN, Arc: addr.TnArc, BckFirst: addr.TnBckFirst, BckLast: addr.TnBckLast, BckWait: addr.TnBckWait,
-		MorfOff: addr.TnOffMorf, IceOff: addr.TnOffIce, GateOff: addr.TnOffBehavior, AngleOff: addr.ActorOffCurAngleY},
-}
-
-// StagedRow returns id's staged row, nil when id is not staged.
-func (id KindID) StagedRow() *Kind {
-	if id < KindTN || int(id-KindTN) >= len(StagedKinds) {
-		return nil
-	}
-	return &StagedKinds[id-KindTN]
-}
-
-// StagedOf returns the staged row of proc, KindNone when there is none.
-func StagedOf(proc uint16) KindID {
-	for i := range StagedKinds {
-		if StagedKinds[i].Proc == proc {
-			return StagedKinds[i].ID
-		}
-	}
-	return KindNone
-}
-
-// StagedByName returns the staged row named name ("tn").
-func StagedByName(name string) (*Kind, bool) {
-	for i := range StagedKinds {
-		if StagedKinds[i].Name == name {
-			return &StagedKinds[i], true
-		}
-	}
-	return nil, false
-}
-
-// StagedSet is which staged kinds a probe lists and, per kind, whether it
-// takes their unkeyed (setID 0xFFFF) actors ("+u": the cave Darknuts are
-// unkeyed, design D1).
-type StagedSet struct {
-	On      [len(StagedKinds)]bool
-	Unkeyed [len(StagedKinds)]bool
-}
-
-// AllStaged enables every staged kind, keyed and unkeyed.
-func AllStaged() StagedSet {
-	var s StagedSet
-	for i := range s.On {
-		s.On[i], s.Unkeyed[i] = true, true
-	}
-	return s
-}
-
-// Enable turns id on (with "+u" when unkeyed); false when id is not
-// staged.
-func (s *StagedSet) Enable(id KindID, unkeyed bool) bool {
-	if id.StagedRow() == nil {
-		return false
-	}
-	s.On[id-KindTN], s.Unkeyed[id-KindTN] = true, unkeyed
-	return true
-}
-
-// Has reports whether id is enabled.
-func (s StagedSet) Has(id KindID) bool { return id.StagedRow() != nil && s.On[id-KindTN] }
-
-// TakesUnkeyed reports whether id is enabled with "+u".
-func (s StagedSet) TakesUnkeyed(id KindID) bool { return s.Has(id) && s.Unkeyed[id-KindTN] }
-
-// Any reports whether any staged kind is enabled.
-func (s StagedSet) Any() bool { return slices.Contains(s.On[:], true) }
-
-func (s StagedSet) String() string {
-	var parts []string
-	for i, on := range s.On {
-		if !on {
-			continue
-		}
-		p := StagedKinds[i].Name
-		if s.Unkeyed[i] {
-			p += "+u"
-		}
-		parts = append(parts, p)
-	}
-	if len(parts) == 0 {
-		return "none"
-	}
-	return strings.Join(parts, ",")
-}
-
-// ProbeLayouts is KindLayouts plus every staged row: the walk the probes
-// read, so a staged actor's enemyice and gate byte are read too. The
-// pipelines keep KindLayouts.
-var ProbeLayouts = func() actors.Layouts {
-	l := actors.Layouts{}
-	for p, v := range KindLayouts {
-		l[p] = v
-	}
-	for _, k := range StagedKinds {
-		l[int16(k.Proc)] = actors.Layout{Ice: k.IceOff, Mode: k.GateOff, ModeU8: true}
-	}
-	return l
-}()
+// The Darknut's row helpers (ww-multiplayer-handoff/design/
+// enemy-mirror-tn.json; batch B1, the row Kinds[KindTN]): its flags2
+// bits, BCK names, live gate, gate read and sampler. B0 read it here as a
+// probe-only staged row outside Kinds; B1 moved the row into the table
+// (KindHash 0x0F3064EE) with its REL cases, and the staged path is gone.
 
 // The Darknut's flags2 bits (design rel_changes R-1 Flags2; the REL's
-// EMK_TN_F2_* land with the REL step). KindF2Light stays generic.
+// EMK_TN_F2_*, pinned by TestKindTablePins). KindF2Light stays generic.
 const (
 	TnF2HasWeapon uint8 = 1 << 0 // m0C34 != 0 (d_a_tn.cpp:478)
 	TnF2PlaySkip  uint8 = 1 << 1 // m03EE != 0; == mailbox.EnemySF2PlaySkip
@@ -147,21 +31,6 @@ var tnBckNames = []string{
 	"ASURI_FB1", "ASURI_LR1", "ATATE_ON1", "AWAIT1", "AWALK1", "BAT_JUMP1", "BAT_KAITEN2", "BAT_KAITEN3", "BAT_KAITEN4",
 	"BAT_KERI1", "BAT_SYOUTEI_L1", "BAT_SYOUTEI_S1", "BAT_TATE1", "BAT_YOKO1", "BBACK1", "BBACK_S1", "BDOWN_A1", "BDOWN_U1",
 	"BHIROU_K1", "BKAMAE_S1", "BOKIRU_A1", "BOKIRU_U1", "BRUN1", "BRUN2", "BSURI_SFB1", "BSURI_SLR1", "S_DEMO_M1", "S_DEMO_M2",
-}
-
-// stagedBckNames is each staged row's names, by id - KindTN.
-var stagedBckNames = [...][]string{tnBckNames}
-
-// stagedParamsOK is the design's params gate for the staged rows
-// (go_changes ParamsOK, "a second check"): a Darknut whose behaviour
-// nibble params & 0xF is 12..15 is refused (12 and 13/14 start in S_DEMO
-// and 13/14 are BOSS, d_a_tn.cpp:4244-4262; 15 is the frozen-in-time
-// statue).
-func stagedParamsOK(id KindID, params uint32) bool {
-	if id == KindTN {
-		return params&0xF < 12
-	}
-	return true
 }
 
 // TnLiveRefusal is the design's TN LiveOK (go_changes kinds.go, mirroring
@@ -220,62 +89,6 @@ func readTnGate(m mem.Reader, a *actors.Actor, g *LiveGate) error {
 	return err
 }
 
-// ClassifyStaged is ClassifyWalk for the staged kinds s enables over a
-// walk read with ProbeLayouts: initState 2; keyed, or unkeyed with the
-// kind's "+u"; home room == room; the gate byte read; the design's params
-// gate; no duplicate Ident. A Darknut's live gate bytes are read into
-// Live (LiveSpanOK) but do not refuse it: B0's probes sample it through
-// the states the gate refuses at adopt (a D_DOZOU statue waking, S_DEMO)
-// and print TnLiveRefusal beside it. Sorted by Ident.
-func ClassifyStaged(m mem.Reader, w *actors.Walk, room int8, s StagedSet) ([]Enemy, error) {
-	var out []Enemy
-	for i := range w.Actors {
-		a := &w.Actors[i]
-		id := StagedOf(uint16(a.Proc))
-		if id == KindNone || !s.Has(id) || a.HomeRoom != room {
-			continue
-		}
-		e := Enemy{Kind: id, Ident: ActorIdent(a), Addr: a.Addr, PID: a.PID, Params: a.Params, HomeRoom: a.HomeRoom, HomePos: a.HomePos}
-		e.Live.Mode, e.LiveModeOK = uint8(a.Mode), a.ModeOK
-		e.Live.Carried = a.Carried()
-		switch {
-		case a.InitState != 2:
-			e.Refused = RefuseInit
-		case a.SetID == addr.ActorSetIDNone && a.HomeRoom >= 0 && int(a.HomeRoom) < addr.RoomCount:
-			if !s.TakesUnkeyed(id) {
-				e.Refused = RefuseUnkeyedOff
-			}
-		case !a.Keyed():
-			e.Refused = RefuseNotKeyed
-		}
-		if e.Refused == "" && !a.ModeOK {
-			e.Refused = RefuseNoGate
-		}
-		if e.Refused == "" && id == KindTN {
-			if err := readTnGate(m, a, &e.Live); err != nil {
-				return nil, err
-			}
-			e.LiveSpanOK = true
-		}
-		if e.Refused == "" && !stagedParamsOK(id, a.Params) {
-			e.Refused = RefuseParams
-		}
-		out = append(out, e)
-	}
-	RefuseDuplicates(out)
-	slices.SortStableFunc(out, func(a, b Enemy) int { return compareIdent(a.Ident, b.Ident) })
-	return out, nil
-}
-
-// ReadStagedSample samples a staged kind's e (the probes' path; the
-// pipelines' ReadKindSample knows only the Kinds rows).
-func ReadStagedSample(m mem.Reader, e *Enemy) (KindSample, error) {
-	if e.Kind == KindTN {
-		return ReadSampleTN(m, e)
-	}
-	return KindSample{}, fmt.Errorf("enemysync: no staged sampler for kind %s (proc 0x%04X)", e.Kind, e.Ident.Proc)
-}
-
 // TnFields is what ReadSampleTN reads beyond the Slot fields: what P0-b
 // checks live (design test_plan) and the enemy-watch probe prints.
 type TnFields struct {
@@ -330,9 +143,16 @@ var tnColliders = []colliderSpec{{"co", addr.TnOffCoCyl, true}, {"tg", addr.TnOf
 // enemyice: m13E4, m1402, m140C, mBokoPcId, m1444, m14F8, m1518, the ice
 // timers), R5 the body morf. Action is dr.mAction, Mode dr.mMode, Tilt
 // dr.m48C.x, TiltZ m48C.z; Aux {m48C.z, 0, 0, 0}; BlurShape pieces & 7
-// (never BlurScale). Flags: DYING dr.mAction 20..22 or the ice shrink
-// timer, never health (c_damagereaction.cpp:1147-1152); INVULN m03F0;
-// DEFENCE dr.mAction 10; RAGDOLL dr.mMode <= -100; HIDDEN m02C1 or m1518.
+// (never BlurScale). Flags: DYING dr.mAction 20..22, the ice shrink
+// timer, or health <= 0 with the ragdoll (dr.mMode <= -100): P0's death
+// order (archive/enemy-tn-b/P0-NOTES.md) is health 0, about 97 samples of
+// ragdoll (mode -100, action 0, BDOWN_A1 then BDOWN_U1), then action 20
+// for about 2 samples and the delete (c_damagereaction.cpp:1050-1062,
+// 1147-1152), so action 20..22 alone would start the quiet death 1.6 s
+// late. The copy holds full size through EMK_TN_QUIET_HOLD while the
+// ragdoll bcks stream (contract section 5); health alone (a stun at 0
+// that has not ragdolled yet) is not dying. INVULN m03F0; DEFENCE
+// dr.mAction 10; RAGDOLL dr.mMode <= -100; HIDDEN m02C1 or m1518.
 // flags2: HAS_WEAPON m0C34, PLAY_SKIP m03EE, ATTN. A Darknut is never
 // dormant (go_changes host.go).
 func ReadSampleTN(m mem.Reader, e *Enemy) (KindSample, error) {
@@ -403,7 +223,7 @@ func ReadSampleTN(m mem.Reader, e *Enemy) (KindSample, error) {
 		return s, err
 	}
 
-	if (s.Action >= addr.TnActFail && s.Action <= addr.TnActWaterFail) || s.IceTimer != 0 {
+	if (s.Action >= addr.TnActFail && s.Action <= addr.TnActWaterFail) || s.IceTimer != 0 || (s.Health <= 0 && s.Mode <= -100) {
 		s.Flags |= SlotDying
 	}
 	if tn.Invuln != 0 {

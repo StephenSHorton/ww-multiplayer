@@ -124,6 +124,15 @@
 #define WWENEMY_HAF_FORCE_V1     0x01         // the v1 shrink branch (WW_ENEMY_HIT_V1=1)
 #define WWENEMY_HAF_FALLBACK_SHRINK 0x02      // shrink after two Sets crossed nothing (WW_ENEMY_HIT_FALLBACK=shrink)
 #define WWENEMY_HAF_NO_HITMARK   0x04         // dCcG_AtSPrm_NoHitMark on the sphere
+// 0x08 and 0x10 are WWREMOTE_HAF_ATTRIB_BODY / _SLOT1 (wwremote.h). The TN
+// batch's AM2 direct apply (enemy-mirror-tn.json R-15, D10, hit_path): the
+// client REL's verdict, carried by Go from the hit entry's pending byte
+// (WWENEMY_HP_*) through HIT byte 54. The host REL reads them only for AM2
+// collider 1 while AM2's own WWENEMY_HKD_SPECIAL is clear; otherwise the
+// request takes the sphere path as before.
+#define WWENEMY_HAF_VERDICT      0x20         // the client judged this AM2 weak-spot hit (WWENEMY_HAF_BACK says which way)
+#define WWENEMY_HAF_BACK         0x40         // with VERDICT: the client's Link was behind (>= EMK_AM2_BACK_MIN), else HD_FRONT
+#define WWENEMY_HAF_CRIT         0x80         // with VERDICT: Go saw a crit cut type (d_a_am2.cpp:241-260; hammer: HAMMER_SIDESWING): m2CE 1 / 8
 
 // --- REL-written span: +0x124..+0x198 -------------------------------------
 #define WWENEMY_ACK_SEQ_OFF      0x124        // u32 last seq consumed
@@ -134,6 +143,12 @@
 #define WWENEMY_STATUS_SIZE      0x10
 #define WWENEMY_HITS_OFF         0x174        // hit[4] x 4: u16 hit_seq, u8 collider, u8 pending
 #define WWENEMY_HIT_SIZE         0x04
+// the hit entry's pending byte (+3): any nonzero value is pending (Go
+// clears it to 0); the REL writes PENDING alone, or for an AM2 collider-1
+// hit with AM2's HKD_SPECIAL clear PENDING | VERDICT (| BACK) (TN batch R-14)
+#define WWENEMY_HP_PENDING       0x01
+#define WWENEMY_HP_VERDICT       0x02         // the client REL judged the bearing (AM2 weak spot)
+#define WWENEMY_HP_BACK          0x04         // with VERDICT: cLib_distanceAngleS(shape.y, angle to this game's Link) >= EMK_AM2_BACK_MIN
 #define WWENEMY_HIT_APPLY_ACK_OFF 0x184       // u32 hit_apply seq acked (result: WWENEMY_HIT_RESULT_OFF)
 #define WWENEMY_CANARIES_OFF     0x188        // u8 pause_reasserts, u8 anm_unresolved, u8 revalidate_failures, u8 watchdog_releases
 #define WWENEMY_CANARIES2_OFF    0x18C        // u8 anm_res_null, u8 anm_range, u8 hit_nocross, u8 hit_aborted
@@ -205,6 +220,8 @@
 #define WWENEMY_HD_GO_FLAGS      14           // slot flags dropped it before the REL
 #define WWENEMY_HD_DEMO          15           // the host Link is in a cutscene
 #define WWENEMY_HD_KIND          17           // the resolved actor's kind has no row or its bit is clear in the host's kind_mask (16 is WWREMOTE_HD_NO_BODY)
+#define WWENEMY_HD_DIRECT        18           // with HR_APPLIED_AT: AM2 direct apply ran cc_at_check and the week_atari_check tail (no sphere Set)
+#define WWENEMY_HD_FRONT         19           // with HR_DROPPED: an AM2 verdict hit from the front (HAF_VERDICT without HAF_BACK)
 
 // remote-Link owner ids (remote.c rl_mirror_owner; apply +0x04, ring
 // +0x08, PHIT [18] are all u16): < 0x200 a keyed local setID;
@@ -230,22 +247,28 @@
 #define WWENEMY_ANNEX_OVR_TG_UP_OFF 0x02      // s16 collider-2 centre height (0 = EMK_*_TG_HIT_UP)
 #define WWENEMY_ANNEX_INVW_OFF   0x1F8        // mailbox-relative: u8 invuln_wait[WWENEMY_ANNEX_KINDS] (0 = EMK_*_INVULN_WAIT), u8 pad
 #define WWENEMY_ANNEX_KINDS      3            // overrides cover kinds 0..2 (MO2, BK, CC); ids >= 3 use their compiled quiet frames, tg_hit_up and invuln_wait
+// The TN batch's one live knob (R-13, layout_decision): the invuln waits'
+// pad byte, 0 = compiled. Layout 3 stays: no other annex byte moves.
+#define WWENEMY_ANNEX_TN_TGUP_OFF 0x1FB       // mailbox-relative: u8 TN collider-2 centre height (1..255, 0 = EMK_TN_TG_HIT_UP); == WWENEMY_ANNEX_INVW_OFF + WWENEMY_ANNEX_KINDS
 // The allow batch's hook bytes (enemy-mirror-allow.json D3, R-1): kind id
 // WWENEMY_ANNEX_KINDS + j's u8 hook_disable at +j, the annex's last four
 // bytes. The REL reads it directly at the point of use (em_hkd), not
 // cached in em_ext, so a change tears for at most one frame.
 #define WWENEMY_ANNEX_HKDX_OFF   0x1FC        // mailbox-relative: u8 hook_disable[WWENEMY_ANNEX_HKDX_KINDS] for kind ids 3..6 (WWENEMY_HKD_*)
-#define WWENEMY_ANNEX_HKDX_KINDS 4            // ids WWENEMY_ANNEX_KINDS .. +3 (KI, AM, AM2, and batch B's id 6); ends at WWENEMY_OFF
+#define WWENEMY_ANNEX_HKDX_KINDS 4            // ids WWENEMY_ANNEX_KINDS .. +3 (KI, AM, AM2, TN at 0x1FF); ends at WWENEMY_OFF: id 7 needs layout 4 (TN batch D2)
 
 // hook_disable bits (annex override byte 0): a set bit turns that kind's
-// hook off without a rebuild
+// hook off without a rebuild. TN (byte 0x1FF) gives MODEL_EQ, ATTACH, EYE,
+// LEGACY_DEATH, MTX_PLAIN and SPECIAL its own meanings (wwenemy_kinds.h
+// EMK_TN_HKD_*, TN batch R-3); AM2's SPECIAL also turns its direct apply
+// off on both sides (D10).
 #define WWENEMY_HKD_MODEL_EQ     0x01         // skip the actor->model == morf model check
 #define WWENEMY_HKD_ATTACH       0x02         // skip the attach hook (EMK_ATTACH_BK)
 #define WWENEMY_HKD_EYE          0x04         // skip the eye hook (EMK_EYE_CC, EMK_EYE_FIXED)
 #define WWENEMY_HKD_LEGACY_DEATH 0x08         // never take the legacy em_die: always the quiet path
 #define WWENEMY_HKD_ATTN         0x10         // skip the per-frame attention_info.flags write
 #define WWENEMY_HKD_MTX_PLAIN    0x20         // skip EMK_MTX_PLAIN (KI, AM, AM2)
-#define WWENEMY_HKD_SPECIAL      0x40         // skip the kind's special collider (AM: the bomb swallow, EMK_HIT_SPECIAL; R-13)
+#define WWENEMY_HKD_SPECIAL      0x40         // skip the kind's special path (AM: the bomb swallow, EMK_HIT_SPECIAL, R-13; AM2: direct apply, TN batch D10)
 #define WWENEMY_HKD_EXTRA        0x80         // skip the kind's extras: the btk/brk play (R-10) and the per-frame collider radius writes (R-5)
 
 // --- REL-owned static collision objects past the block (from MAILBOX_ADDR) --

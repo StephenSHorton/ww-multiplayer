@@ -250,6 +250,89 @@ u16 em_bck_index_off(const em_kind* k);
 // batch A1 cut order).
 void em_extra_anm(const em_slot* sl, const em_ext* x, const em_kind* k, void* a);
 
+// --- The TN batch's hooks (enemy-mirror-tn.json rel_changes; B1) ----------
+// Defined in enemy_mirror.c and called only from there; declared here so
+// the contract names them (ww-mp-tn CONTRACT.md). x, k, a and morf as
+// above; hkd is em_hkd(x, k) for the frame. Each is a no-op for a kind it
+// has no case for, so MO2..AM2 stay byte-identical except where AM2's
+// direct apply is named (behind AM2's HKD_SPECIAL).
+//
+// R-4 (em_validate's EMK_KIND_TN case; 0 = ERR_GATE): BOSS status, behaviour
+// 15, dr.mAction 23 or 25, m02C1, m1518, m14F8 or m140C nonzero, a cape
+// (mEquipmentType >= 4), and, as em_bk_gate does, dr.mMode <= -100 or
+// dr.mAction 20..22. em_validate re-runs it every frame on an adopted copy,
+// but on the copy's own fields, which stay frozen under the pause and which
+// no TN hook writes: the ragdoll and dying terms refuse adoption only and
+// never release a copy whose host ragdolls (p0_findings DEATH ORDER).
+int em_tn_gate(void* a, const em_kind* k);
+// R-5, em_adopt's tail: m1402 = 0, dr.m088[20] zeroed, m1444 = 0, the
+// defence sphere R 70; unless EMK_TN_HKD_ADOPT_ANM, the armor morf
+// em_set_anm'd to YKIHON1 loop (it free-runs from there).
+void em_tn_adopt(void* a, const em_kind* k, u8 hkd);
+// R-6, between em_base_matrix and McaMorf_calc(body), dying frames too,
+// unless EMK_TN_HKD_SHIELD and only with pieces & EMK_TN_PIECE_SHIELD: the
+// body model's base TR (scaled on a dying frame) into the shield morf's
+// model, the shield bck from sl->anm_bck (AGUARD1/AGUARD2/AHAKAI1 the same
+// index, else ATATE_ON1 loop; setAnm only on a change), play(NULL) unless
+// the host skips play (EMK_TN_F2_PLAY_SKIP), McaMorf_calc(shield).
+void em_tn_shield(em_slot* sl, const em_kind* k, void* a, void* morf, u8 hkd);
+// R-7, after McaMorf_calc(body) where em_bk_attach runs, dying frames too:
+// (a) unless EMK_TN_HKD_ATTACH, pieces &= (sl->tgt_blur_shape |
+// ~EMK_TN_PIECE_MASK), and m08 = -1 for a cleared armor (part 0) or helmet
+// (part 1); (b) unless ATTACH, parts with m08 >= 0 and m09 == 0 take body
+// anmMtx[MUNE1 / ATAMA1 / ITEM_L1] as their base TR (part 0 the armor
+// morf's model, 1 and 2 mpPartModel); (c) unless ATTACH, the armor morf's
+// play(NULL) (not under PLAY_SKIP or EMK_TN_HKD_ADOPT_ANM) and calc; (d)
+// unless EMK_TN_HKD_SWORD, the carried sword (em_carried_boko) at
+// anmMtx[ITEM_R1] * Rz(0x8000) * T(0, 0, 85), dropped as em_bk_attach drops
+// on the streamed HAS_WEAPON falling edge (not while dying); (e) unless
+// ATTACH, m13E4 = the ITEM_L1 translation.
+void em_tn_attach(const enemy_mirror_state* s, em_slot* sl, const em_kind* k, void* a, void* morf, u8 hkd, int dying);
+// R-7 d, R-8: em_bk_boko generalised on k->id: the BOKO the row's weapon
+// (BK m0B30, TN m0C34) and pid (BK m1200, TN m1410) name under the HeldBy
+// guard (proc 0x1D5, ENEMY_CARRY, CARRY set); TN also needs m140C == 0.
+void* em_carried_boko(void* a, const em_kind* k);
+// R-8: the quiet death's sword drop for EMK_ATTACH_BK or EMK_ATTACH_TN
+// (em_release, em_die_quiet's last frame), em_bk_quiet_drop generalised
+// with the row's hand matrix; a TN row skips it under EMK_TN_HKD_SWORD.
+void em_quiet_drop(em_slot* sl, const em_kind* k, void* a, void* morf, u8 hkd);
+// R-9 amendment: the frames em_die_quiet holds scale 1 before its shrink
+// (TN EMK_TN_QUIET_HOLD without SF2_LIGHT, else 0: scale 1 - f/n as
+// before; em_die_quiet starts a RELEASE death's count past it);
+// em_quiet_frames gains the EMK_TN_QUIET_FRAMES case.
+u8 em_quiet_hold(const em_kind* k, u8 flags2);
+// R-12, from em_colliders right after em_colliders_pre, unless
+// EMK_TN_HKD_COLL: the Tg cylinder's GObjTg Shield bit iff pieces & ARMOR;
+// the head sphere's Shield bit and purple hitmark iff pieces & HELMET, else
+// Shield off and hitmark UNK1 (d_a_tn.cpp:3636-3654, no CUT_KESA test).
+void em_tn_colliders_pre(const em_slot* sl, const em_kind* k, void* a, u8 hkd);
+// R-14, client, in em_hits when AM2 reports EMK_HIT_HEAD with its
+// HKD_SPECIAL clear: WWENEMY_HP_VERDICT | (WWENEMY_HP_BACK when
+// cLib_distanceAngleS(shape.y, fopAcM_searchPlayerAngleY(a)) >=
+// EMK_AM2_BACK_MIN), ORed into the pending byte with WWENEMY_HP_PENDING.
+u8 em_am2_verdict(void* a);
+// R-15 host: 1 when the open request takes the direct path: AM2, collider
+// EMK_HIT_HEAD, WWENEMY_HAF_VERDICT, no EMK_AT_OLD_PATH bit in ha_attype,
+// and AM2's own HKD_SPECIAL clear. em_hit_apply (after the code-3 branch,
+// before FORCE_V1) and em_hit_tick's WAIT_INVULN arm both ask it.
+int em_hit_direct_ok(const enemy_mirror_state* s, const em_ext* x, const em_kind* k);
+// R-15 host: the direct apply on a vulnerable AM2: the static At sphere
+// Set from the request exactly as em_hit_submit builds it (stts Init'd from
+// the host Link, no em_hit_register), a zeroed CcAtInfo with mpObj = the
+// sphere, cc_at_check(a, &info), then week_atari_check's tail: m2CE
+// (em_am2_m2ce; 7/8 also health 0), mbIsWeakBeingHit 1, mAction ITAI,
+// mMode 20; publishes HR_APPLIED_AT / HD_DIRECT (or HD_NO_LINK /
+// HD_NO_SPHERE as em_hit_submit does).
+void em_hit_direct(enemy_mirror_state* s, const em_ext* x, const em_kind* k, void* a);
+// R-15: m2CE for the request's At type (EMK_AT_*) and WWENEMY_HAF_CRIT.
+u8 em_am2_m2ce(u32 attype, u8 ha_flags);
+// R-16, on the direct path only (em_hit_apply's direct branch and the
+// WAIT_INVULN retry before em_hit_direct): 1 when vanilla would skip
+// week_atari_check (d_a_am2.cpp:846): carried, or MAHI with mMode
+// EMK_AM2_MODE_THROWN. em_hit_vulnerable is NOT changed, so the sphere
+// path (AM2's HKD_SPECIAL set, or no verdict) stays byte-identical.
+int em_am2_direct_refused(void* a);
+
 // create: zero the state and the cache, and remember both for the epilog.
 void enemy_mirror_init(enemy_mirror_state* s, em_ext* x);
 // execute, every frame of the module actor: the whole per-frame loop.

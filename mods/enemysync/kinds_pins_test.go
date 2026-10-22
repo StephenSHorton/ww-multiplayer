@@ -32,7 +32,7 @@ func kindsHeader(t *testing.T) ([]byte, map[string]int64) {
 	return src, out
 }
 
-// emkRowFields are the fields every row (MO2, BK, CC, KI, AM, AM2)
+// emkRowFields are the fields every row (MO2, BK, CC, KI, AM, AM2, TN)
 // defines: the em_kind struct's (inject/rel/enemy_mirror.h), one
 // EMK_<KIND>_<FIELD> each, 0 for "none".
 var emkRowFields = []string{"ID", "PROC", "CLASS_SIZE", "BCK_FIRST", "BCK_LAST", "BCK_WAIT", "MORF", "GATE", "DR", "DR_MODE", "DR_ACTION",
@@ -46,7 +46,7 @@ var emkRowFields = []string{"ID", "PROC", "CLASS_SIZE", "BCK_FIRST", "BCK_LAST",
 // the block's; and the PKey test vector is the one TestPKey checks.
 func TestKindTablePins(t *testing.T) {
 	src, defs := kindsHeader(t)
-	prefix := map[KindID]string{KindMO2: "EMK_MO2_", KindBK: "EMK_BK_", KindCC: "EMK_CC_", KindKI: "EMK_KI_", KindAM: "EMK_AM_", KindAM2: "EMK_AM2_"}
+	prefix := map[KindID]string{KindMO2: "EMK_MO2_", KindBK: "EMK_BK_", KindCC: "EMK_CC_", KindKI: "EMK_KI_", KindAM: "EMK_AM_", KindAM2: "EMK_AM2_", KindTN: "EMK_TN_"}
 	for id, p := range prefix {
 		for _, f := range emkRowFields {
 			if _, ok := defs[p+f]; !ok {
@@ -70,7 +70,7 @@ func TestKindTablePins(t *testing.T) {
 	pins := map[string]int64{
 		// kind ids and the masks they make
 		"EMK_KIND_MO2": int64(KindMO2), "EMK_KIND_BK": int64(KindBK), "EMK_KIND_CC": int64(KindCC), "EMK_KIND_NONE": int64(KindNone),
-		"EMK_KIND_KI": int64(KindKI), "EMK_KIND_AM": int64(KindAM), "EMK_KIND_AM2": int64(KindAM2),
+		"EMK_KIND_KI": int64(KindKI), "EMK_KIND_AM": int64(KindAM), "EMK_KIND_AM2": int64(KindAM2), "EMK_KIND_TN": int64(KindTN),
 		// the hit collider codes
 		"EMK_HIT_HEAD": int64(HitHead), "EMK_HIT_TG": int64(HitTg), "EMK_HIT_SPECIAL": int64(HitSpecial),
 		"EMK_KIND_COUNT": int64(len(Kinds)),
@@ -86,7 +86,7 @@ func TestKindTablePins(t *testing.T) {
 		"EMK_AC_STATUS": addr.ActorOffStatus, "EMK_AC_STATUS_CARRY": addr.ActorStatusCarry, "EMK_AC_ANGLE_Y": addr.ActorOffCurAngleY,
 		"EMK_AC_SHAPE_X": addr.ActorOffShapeAngle, "EMK_AC_SHAPE_Y": addr.ActorOffShapeAngleY, "EMK_AC_SHAPE_Z": addr.ActorOffShapeAngle + 4,
 		"EMK_AC_ATTN_FLAGS": addr.ActorOffAttnFlags, "EMK_ATTN_LOCKON_BATTLE": addr.AttnLockonBattle, "EMK_AC_HEALTH": addr.ActorOffHealth,
-		"EMK_AC_EYE_POS": addr.ActorOffEyePos,
+		"EMK_AC_EYE_POS": addr.ActorOffEyePos, "EMK_AC_STATUS_BOSS": addr.ActorStatusBoss,
 		// MO2: the legacy Moblin offsets
 		"EMK_MO2_DR": addr.Mo2OffDR, "EMK_MO2_DR_MODE": addr.Mo2OffDRMode, "EMK_MO2_DR_ACTION": addr.Mo2OffDRAction, "EMK_MO2_TILT": addr.Mo2OffTilt,
 		"EMK_MO2_CO_CYL": addr.Mo2OffCoCyl, "EMK_MO2_TG_CYL": addr.Mo2OffTgCyl, "EMK_MO2_HEAD_SPH": addr.Mo2OffHeadSph, "EMK_MO2_DEF_SPH": addr.Mo2OffDefenseSph,
@@ -117,7 +117,7 @@ func TestKindTablePins(t *testing.T) {
 		"EMK_CC_F2_NO_SHADOW": int64(CcF2NoShadow), "EMK_CC_F2_ATTN": int64(CcF2Attn),
 		// the attention bit of each row (D4)
 		"EMK_MO2_ATTN_F2": 0, "EMK_BK_ATTN_F2": int64(BkF2Attn), "EMK_CC_ATTN_F2": int64(CcF2Attn),
-		"EMK_KI_ATTN_F2": int64(KiF2Attn), "EMK_AM_ATTN_F2": int64(AmF2Attn), "EMK_AM2_ATTN_F2": int64(Am2F2Attn),
+		"EMK_KI_ATTN_F2": int64(KiF2Attn), "EMK_AM_ATTN_F2": int64(AmF2Attn), "EMK_AM2_ATTN_F2": int64(Am2F2Attn), "EMK_TN_ATTN_F2": int64(TnF2Attn),
 		// KI (allow design type_table KI; wwapi/addr/ki.go)
 		"EMK_KI_CLASS_SIZE": addr.KiClassSize, "EMK_KI_CO_CYL": addr.KiOffCoSph, "EMK_KI_TG_CYL": addr.KiOffTgSph, "EMK_KI_SPH_SRC": addr.KiOffTgSph,
 		"EMK_KI_INVULN": addr.KiOffInvuln, "EMK_KI_AT_SPH": addr.KiOffAtSph, "EMK_KI_PARAMS": addr.KiOffParams, "EMK_KI_TYPE_FLY": KiTypeFly,
@@ -148,6 +148,31 @@ func TestKindTablePins(t *testing.T) {
 		"EMK_AM2_ACT_MODORU": addr.Am2ActModoru, "EMK_AM2_MODE_DANCE": addr.Am2ModeDance,
 		"EMK_AM2_F2_ATTN": int64(Am2F2Attn), "EMK_AM2_F2_WEAK_TG": int64(Am2F2WeakTg), "EMK_AM2_F2_BODY_CO": int64(Am2F2BodyCo), "EMK_AM2_F2_CARRIED": int64(Am2F2Carried),
 		"EMK_PROC_BOMB": addr.ProcBomb, "EMK_PROC_BOMB2": addr.ProcBomb2,
+		// AM2 direct apply (TN design R-14..R-16): the weak-spot ITAI mMode and
+		// the m2CE values the host REL writes, the class's own.
+		"EMK_AM2_BACK_MIN": 0x4000, "EMK_AM2_MODE_THROWN": 15, "EMK_AM2_ITAI_MODE_HIT": 20,
+		// TN (TN design R-1; wwapi/addr/tn.go)
+		"EMK_TN_CLASS_SIZE": addr.TnClassSize, "EMK_TN_DR": addr.TnOffDR, "EMK_TN_DR_MODE": addr.TnOffDRMode, "EMK_TN_DR_ACTION": addr.TnOffDRAction,
+		"EMK_TN_TILT": addr.TnOffTilt, "EMK_TN_TILT_Z": addr.TnOffTiltZ, "EMK_TN_CO_CYL": addr.TnOffCoCyl, "EMK_TN_TG_CYL": addr.TnOffTgCyl, "EMK_TN_HEAD_SPH": addr.TnOffHeadSph,
+		"EMK_TN_DEF_SPH": addr.TnOffDefSph, "EMK_TN_HEAD_CENTER": addr.TnOffHeadCenter, "EMK_TN_DEF_CENTER": addr.TnOffDefCenter,
+		"EMK_TN_INVULN": addr.TnOffInvuln, "EMK_TN_WEAPON": addr.TnOffWeapon, "EMK_TN_PLAY_SKIP": addr.TnOffPlaySkip, "EMK_TN_SPH_SRC": addr.TnOffHeadSph,
+		"EMK_TN_DEATH_SWITCH": addr.TnOffDeathSwitch, "EMK_TN_M02C1": addr.TnOffM02C1, "EMK_TN_SHIELD_MORF": addr.TnOffShieldMorf,
+		"EMK_TN_ARMOR_MORF": addr.TnOffArmorMorf, "EMK_TN_PIECES": addr.TnOffPieces, "EMK_TN_PIECE_ARMOR": addr.TnPieceArmor,
+		"EMK_TN_PIECE_HELMET": addr.TnPieceHelmet, "EMK_TN_PIECE_SHIELD": addr.TnPieceShield,
+		"EMK_TN_PIECE_MASK": addr.TnPieceArmor | addr.TnPieceHelmet | addr.TnPieceShield, "EMK_TN_PART0": addr.TnOffParts,
+		"EMK_TN_PART_STRIDE": addr.TnPartStride, "EMK_TN_PART_MODEL": addr.TnPartOffModel, "EMK_TN_PART_M08": addr.TnPartOffM08,
+		"EMK_TN_PART_M09": addr.TnPartOffM09, "EMK_TN_EQUIP": addr.TnOffEquip, "EMK_TN_EQUIP_CAPE": addr.TnEquipCape,
+		"EMK_TN_DR_M088": addr.TnOffDRM088, "EMK_TN_DR_M088_LEN": addr.TnDRM088Len, "EMK_TN_DEF_R": addr.TnOffDefR,
+		"EMK_TN_M1402": addr.TnOffM1402, "EMK_TN_M140C": addr.TnOffM140C, "EMK_TN_BOKO_PID": addr.TnOffBokoPID, "EMK_TN_M1444": addr.TnOffM1444,
+		"EMK_TN_M14F8": addr.TnOffM14F8, "EMK_TN_M1518": addr.TnOffM1518, "EMK_TN_BEHAVIOR_FROZEN": addr.TnBehaviorFrozen,
+		"EMK_TN_ACT_JYUNKAI": addr.TnActJyunkai, "EMK_TN_ACT_DEFENCE": addr.TnActDefence, "EMK_TN_ACT_DIE_A": addr.TnActFail,
+		"EMK_TN_ACT_DIE_C": addr.TnActWaterFail, "EMK_TN_ACT_D_DOZOU": addr.TnActDDozou, "EMK_TN_ACT_S_DEMO": addr.TnActSDemo,
+		"EMK_TN_JOINT_MUNE1": addr.TnJntMune1, "EMK_TN_JOINT_ITEM_L1": addr.TnJntItemL1, "EMK_TN_JOINT_ITEM_R1": addr.TnJntItemR1,
+		"EMK_TN_JOINT_ATAMA1": addr.TnJntAtama1, "EMK_TN_BCK_TATE_ON": addr.TnBckTateOn, "EMK_TN_BCK_ARMOR_KIHON": addr.TnBckArmorKihon,
+		"EMK_TN_F2_HAS_WEAPON": int64(TnF2HasWeapon), "EMK_TN_F2_PLAY_SKIP": int64(TnF2PlaySkip), "EMK_TN_F2_ATTN": int64(TnF2Attn),
+		"EMK_TN_HKD_SHIELD": int64(mailbox.EnemyHKDModelEq), "EMK_TN_HKD_ATTACH": int64(mailbox.EnemyHKDAttach),
+		"EMK_TN_HKD_SWORD": int64(mailbox.EnemyHKDEye), "EMK_TN_HKD_COLL": int64(mailbox.EnemyHKDLegacyDeath),
+		"EMK_TN_HKD_ADOPT_ANM": int64(mailbox.EnemyHKDMtxPlain), "EMK_TN_HKD_DIRECT": int64(mailbox.EnemyHKDSpecial),
 	}
 	for name, want := range pins {
 		got, ok := defs[name]
@@ -165,7 +190,7 @@ func TestKindTablePins(t *testing.T) {
 		t.Errorf("KindF2Light 0x%X, block SF2_LIGHT 0x%X", KindF2Light, mailbox.EnemySF2Light)
 	}
 	for _, b := range []uint8{BkF2HasWeapon, BkF2PlaySkip, BkF2BlurOn, BkF2Attn, CcF2Tg, CcF2Co, CcF2Squash, CcF2LowEye, CcF2NoShadow, CcF2Attn,
-		KiF2Attn, KiF2Lunge, AmF2Attn, AmF2PlaySkip, Am2F2Attn, Am2F2WeakTg, Am2F2BodyCo, Am2F2Carried} {
+		KiF2Attn, KiF2Lunge, AmF2Attn, AmF2PlaySkip, Am2F2Attn, Am2F2WeakTg, Am2F2BodyCo, Am2F2Carried, TnF2HasWeapon, TnF2PlaySkip, TnF2Attn} {
 		if b&0xC0 != 0 {
 			t.Errorf("per-kind flags2 bit 0x%02X overlaps SF2_LIGHT/QUIET", b)
 		}
@@ -174,11 +199,13 @@ func TestKindTablePins(t *testing.T) {
 	if defs["EMK_MO2_CAPS"] != defs["EMK_CAP_DR"]|defs["EMK_CAP_MODEL_EQ"]|defs["EMK_CAP_FOPEN"]|defs["EMK_CAP_WAIT_MODE1"]|defs["EMK_CAP_ADDR_SUCCESS"] ||
 		defs["EMK_BK_CAPS"] != defs["EMK_CAP_DR"]|defs["EMK_CAP_MODEL_EQ"]|defs["EMK_CAP_FOPEN"] || defs["EMK_CC_CAPS"] != defs["EMK_CAP_FOPEN"] ||
 		defs["EMK_KI_CAPS"] != defs["EMK_CAP_FOPEN"]|defs["EMK_CAP_PKEY_NO_POS"]|defs["EMK_CAP_SPH_COLL"] || defs["EMK_AM_CAPS"] != defs["EMK_CAP_FOPEN"] ||
-		defs["EMK_AM2_CAPS"] != defs["EMK_CAP_FOPEN"]|defs["EMK_CAP_MODEL_EQ"] {
+		defs["EMK_AM2_CAPS"] != defs["EMK_CAP_FOPEN"]|defs["EMK_CAP_MODEL_EQ"] || defs["EMK_TN_CAPS"] != defs["EMK_CAP_DR"]|defs["EMK_CAP_FOPEN"] {
 		t.Error("a row's caps are not the type table's")
 	}
 	if defs["EMK_MO2_MTX"] != defs["EMK_MTX_DR"] || defs["EMK_BK_MTX"] != defs["EMK_MTX_DR"] || defs["EMK_CC_MTX"] != defs["EMK_MTX_CC"] ||
-		defs["EMK_BK_ATTACH"] != defs["EMK_ATTACH_BK"] || defs["EMK_CC_EYE"] != defs["EMK_EYE_CC"] || defs["EMK_CC_COLL"] != defs["EMK_COLL_CC"] {
+		defs["EMK_BK_ATTACH"] != defs["EMK_ATTACH_BK"] || defs["EMK_CC_EYE"] != defs["EMK_EYE_CC"] || defs["EMK_CC_COLL"] != defs["EMK_COLL_CC"] ||
+		defs["EMK_TN_MTX"] != defs["EMK_MTX_DR"] || defs["EMK_TN_COLL"] != defs["EMK_COLL_STD"] || defs["EMK_TN_ATTACH"] != defs["EMK_ATTACH_TN"] ||
+		defs["EMK_TN_EYE"] != defs["EMK_EYE_NONE"] {
 		t.Error("a row's hooks are not the type table's")
 	}
 	// The allow rows (type_table KI, AM, AM2): MTX_PLAIN, COLL_STD, the
@@ -195,6 +222,21 @@ func TestKindTablePins(t *testing.T) {
 		}
 		if _, ok := defs[p+"QUIET_FRAMES"]; !ok {
 			t.Errorf("wwenemy_kinds.h has no %sQUIET_FRAMES", p)
+		}
+	}
+	// TN (TN design R-1, D7, p0_findings): no blur fields (the u32 blur
+	// store would wipe the pieces byte), play-skip and HAS_WEAPON are the
+	// generic SF2 bits, the quiet hold fits inside the quiet frames, and the
+	// bcks the REL picks are the archive's names.
+	if defs["EMK_TN_BLUR_ON"] != 0 || defs["EMK_TN_BLUR_SHAPE"] != 0 || defs["EMK_TN_BLUR_SCALE"] != 0 ||
+		TnF2PlaySkip != mailbox.EnemySF2PlaySkip || TnF2HasWeapon != mailbox.EnemySF2HasWeapon ||
+		defs["EMK_TN_QUIET_HOLD"] <= 0 || defs["EMK_TN_QUIET_HOLD"] >= defs["EMK_TN_QUIET_FRAMES"] || defs["EMK_TN_QUIET_FRAMES"] >= 0xFF {
+		t.Error("the TN row's blur, flags2 or quiet death constants are off")
+	}
+	for name, want := range map[string]string{"EMK_TN_BCK_WAIT": "AWAIT1", "EMK_TN_BCK_AGUARD1": "AGUARD1", "EMK_TN_BCK_AGUARD2": "AGUARD2",
+		"EMK_TN_BCK_AHAKAI1": "AHAKAI1", "EMK_TN_BCK_TATE_ON": "ATATE_ON1", "EMK_TN_BCK_BDOWN_A1": "BDOWN_A1", "EMK_TN_BCK_BDOWN_U1": "BDOWN_U1"} {
+		if got := BckName(KindTN, uint8(defs[name])); got != want {
+			t.Errorf("%s 0x%X is %s, want %s", name, defs[name], got, want)
 		}
 	}
 	if defs["EMK_AM_QUIET_FRAMES"] != 40 {
@@ -219,7 +261,7 @@ func TestKindTablePins(t *testing.T) {
 // table change (hosts and clients of different builds refuse each other)
 // and must be deliberate.
 func TestKindHash(t *testing.T) {
-	const want = 0x97EDB0F9 // allow batch A1: the KI, AM and AM2 rows (was 0x73A3A496)
+	const want = 0x0F3064EE // TN batch B1: the TN row (was 0x97EDB0F9, allow batch A1; before it 0x73A3A496)
 	if got := KindHash(); got != want {
 		t.Errorf("KindHash() = 0x%08X, pinned 0x%08X: the Kinds table changed", got, want)
 	}

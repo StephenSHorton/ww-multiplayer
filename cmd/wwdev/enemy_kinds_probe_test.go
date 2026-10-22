@@ -72,13 +72,13 @@ var bkPKey = enemysync.PKey(addr.ProcBK, 0, 0xFFFF8784, 1, [3]uint32{0x44A00000,
 func TestEnemyMatchDry(t *testing.T) {
 	m, es := kindProbeRoom(t)
 	var out bytes.Buffer
-	if err := enemyMatch(&out, m, enemysync.AllKinds(), enemysync.StagedSet{}); err != nil {
+	if err := enemyMatch(&out, m, enemysync.AllKinds()); err != nil {
 		t.Fatal(err)
 	}
 	s := out.String()
 	bk, _ := es.Of(0)
 	for _, want := range []string{
-		"scope stage=M_Dai room=1 kinds=mo2+u,bk+u,cc+u,ki+u,am+u,am2+u walk=complete\n",
+		"scope stage=M_Dai room=1 kinds=mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u walk=complete\n",
 		// The test vector's params and home, in home room 1.
 		fmt.Sprintf("ident kind=bk proc=0x00BE setID=0x0000 pkey=0x%08X params=0xFFFF8784 home_room=1 home=0x44A00000,0xC3480000,0x45BB8000 verdict=ok pid=", bkPKey),
 		" bk_type=4\n",
@@ -130,7 +130,7 @@ func TestEnemyMatchDry(t *testing.T) {
 	// --kinds without +u refuses the unkeyed ChuChu.
 	out.Reset()
 	set, _ := enemysync.ParseKinds("cc")
-	if err := enemyMatch(&out, m, set, enemysync.StagedSet{}); err != nil {
+	if err := enemyMatch(&out, m, set); err != nil {
 		t.Fatal(err)
 	}
 	// It is refused before the gate read: its colour and m304 are unread.

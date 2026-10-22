@@ -104,13 +104,10 @@ func runEnemyWatch(cmd string, args []string) {
 	}
 	// --kind bk|cc is the generalised mirror's L0 probe and --kind
 	// ki|am|am2 the allow batch's probe of its rows, --kind tn the TN
-	// batch's B0 probe of its staged row (enemy_kinds_probe.go); mo2, the
-	// default, is this probe unchanged.
+	// batch's probe of its row (enemy_kinds_probe.go); mo2, the default,
+	// is this probe unchanged.
 	if name := values["kind"]; name != "" && name != "mo2" {
 		k, ok := enemysync.KindByName(name)
-		if !ok {
-			k, ok = enemysync.StagedByName(name)
-		}
 		if !ok {
 			exitUsage(fmt.Errorf("unknown --kind %q", name), enemyWatchUsage)
 		}

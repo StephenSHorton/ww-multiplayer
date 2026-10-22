@@ -175,7 +175,8 @@ const (
 )
 
 // readAllowGate reads an allow kind's LiveGate bytes beyond Mode into g
-// (one Read); false when it came back short.
+// (one Read); false when it came back short. The Darknut's are readTnGate's
+// (tn.go: six fields across the class, and Boss from the walk's actor).
 func readAllowGate(m mem.Reader, id KindID, base uint32, g *LiveGate) (bool, error) {
 	var off uint32
 	n := 1
@@ -214,9 +215,20 @@ func ClassifyWalk(m mem.Reader, w *actors.Walk, stage string, room int8, set Kin
 // Armos Knight's swallow and death, an Armos's dance, carry and abyss, a
 // Keese's FIRE_SET, FAIL and fade) are ones a live enemy passes through,
 // and the samplers stream them (ReadSampleKI/AM/AM2: SlotDying,
-// SlotInvuln, Am2F2Carried). MO2/BK/CC keep refusing on every walk.
+// SlotInvuln, Am2F2Carried). The Darknut's too (TN design R-4 and the P0
+// death order): its gate refuses the ragdoll, dying, D_DOZOU and S_DEMO
+// at adopt only, and ReadSampleTN streams them, but a listed Darknut whose
+// BOSS status turns on is refused all the same (stickyRefused).
+// MO2/BK/CC keep refusing on every walk.
 func liveSticky(id KindID) bool {
-	return id == KindKI || id == KindAM || id == KindAM2
+	return id == KindKI || id == KindAM || id == KindAM2 || id == KindTN
+}
+
+// stickyRefused reports a refusal liveSticky does not cover: a Darknut's
+// BOSS status (D3; in practice per pkey, since behaviours 13/14 are
+// params-refused, but re-read on every walk all the same).
+func stickyRefused(id KindID, g LiveGate) bool {
+	return id == KindTN && g.Boss
 }
 
 // wasListed reports whether e is an actor of was (same PID, address and
@@ -287,10 +299,16 @@ func classifyWalk(m mem.Reader, w *actors.Walk, stage string, room int8, set Kin
 				e.LiveSpanOK = true
 			}
 		}
+		if e.Refused == "" && id == KindTN {
+			if err := readTnGate(m, a, &e.Live); err != nil {
+				return nil, err
+			}
+			e.LiveSpanOK = true
+		}
 		if e.Refused == "" && (!k.ParamsOK(a.Params) || (a.SetID == addr.ActorSetIDNone && !k.UnkeyedParamsOK(a.Params))) {
 			e.Refused = RefuseParams
 		}
-		if e.Refused == "" && !k.LiveOK(e.Live) && !(liveSticky(id) && wasListed(was, &e)) {
+		if e.Refused == "" && !k.LiveOK(e.Live) && (!liveSticky(id) || !wasListed(was, &e) || stickyRefused(id, e.Live)) {
 			e.Refused = RefuseLive
 		}
 		out = append(out, e)

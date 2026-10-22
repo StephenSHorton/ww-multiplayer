@@ -1217,7 +1217,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		}
 	}
 	on := c.Kinds.And(MaskSet(uint32(st.HostKindMask)))
-	annex := mailbox.EnemyAnnex{Override: c.Annex.Override, InvulnWait: c.Annex.InvulnWait, HookDisableX: c.Annex.HookDisableX}
+	annex := mailbox.EnemyAnnex{Override: c.Annex.Override, InvulnWait: c.Annex.InvulnWait, HookDisableX: c.Annex.HookDisableX, TnTgHitUp: c.Annex.TnTgHitUp}
 	n := 0
 	for j := range c.blk {
 		if c.blk[j].Used {
@@ -1370,6 +1370,11 @@ func (c *Mirror) OwnerOf(handle uint16) uint16 {
 // SPrm low byte, Se, HitMark and Spl (addr.CcAtOff*; one hitObjReadLen
 // read from obj+0x10) and the collider's centre. A hit ForwardHit drops
 // is (nil, nil): not sent, its pending byte still cleared by the caller.
+// An AM2 weak-spot hit (collider 1) whose pending byte carries the REL's
+// verdict (mailbox.EnemyHPVerdict, and EnemyHPBack when this game's Link
+// was behind; TN design R-14) goes out with Hit.ClientFlags HitCFVerdict
+// (and HitCFBack); every other hit with 0. The REL writes no verdict with
+// AM2's HKD_SPECIAL set on this side, so the host takes the old path.
 func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, h mailbox.EnemyHitEntry) (*Hit, error) {
 	col := ColliderOff(kind, h.Collider)
 	if col == 0 {
@@ -1397,7 +1402,8 @@ func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, 
 	if c.hitSeq == 0 {
 		c.hitSeq = 1
 	}
-	hit := &Hit{Collider: h.Collider, Epoch: st.Epoch, Stage: st.Stage, Room: st.Room, SetID: wire.SetID, Handle: wire.Handle, HitSeq: c.hitSeq, ClientFrame: c.hb}
+	hit := &Hit{Collider: h.Collider, Epoch: st.Epoch, Stage: st.Stage, Room: st.Room, SetID: wire.SetID, Handle: wire.Handle, HitSeq: c.hitSeq, ClientFrame: c.hb,
+		ClientFlags: hitClientFlags(kind, h.Collider, h.Pending)}
 	// Wire v3: the swing's cut type and count, which the host stages into
 	// this player's remote body under ATTRIB (best effort: a failed read
 	// sends 0, an untyped hit).
@@ -1438,6 +1444,21 @@ func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, 
 	return hit, nil
 }
 
+// hitClientFlags is a HIT's ClientFlags from its REL hit entry (TN design
+// R-14, go_changes client.go): AM2 collider 1 only, HitCFVerdict when the
+// pending byte carries mailbox.EnemyHPVerdict, plus HitCFBack for
+// EnemyHPBack. Pending stays "nonzero" (the caller's test), never "== 1".
+func hitClientFlags(kind KindID, collider, pending uint8) uint8 {
+	if kind != KindAM2 || collider != HitHead || pending&mailbox.EnemyHPVerdict == 0 {
+		return 0
+	}
+	f := HitCFVerdict
+	if pending&mailbox.EnemyHPBack != 0 {
+		f |= HitCFBack
+	}
+	return f
+}
+
 // The At types ForwardHit tests (d_cc_d.h:14-38 dCcG_At_Type).
 const (
 	AtTypeHookshot      uint32 = 1 << 15 // AT_TYPE_HOOKSHOT
@@ -1460,6 +1481,11 @@ const (
 //     body_atari_check acts on (HANDOU, d_a_am2.cpp:342-364; the others
 //     only sound); it also keeps a weak-spot hit that overlapped the body
 //     from landing twice. An unread hit object (at type 0) is dropped.
+//     A weak-spot hit the client REL judged from the front (no HitCFBack)
+//     still goes: the host drops it with HDFront and logs it.
+//   - TN colliders 1 (the head) and 2 (the Tg cylinder): not the Hookshot
+//     (TN design go_changes client.go); every other At type, the Darknut's
+//     own damage_check sorts guard, armor and the defence sphere.
 //
 // Everything else forwards, the AM bomb swallow (collider 3, whose Co hit
 // carries no At object) included. readHit has taken the HIT's seq before
@@ -1473,6 +1499,8 @@ func ForwardHit(kind KindID, collider uint8, atType uint32) bool {
 		return atType&AtTypeHookshot == 0
 	case kind == KindAM2 && collider == HitTg:
 		return atType&AtTypeSkullHammer != 0
+	case kind == KindTN && (collider == HitHead || collider == HitTg):
+		return atType&AtTypeHookshot == 0
 	}
 	return true
 }

@@ -51,12 +51,12 @@ func allowProbeRoom(t *testing.T) (*mem.FakeMem, *fakegame.Enemies) {
 func TestEnemyMatchDryAllow(t *testing.T) {
 	m, _ := allowProbeRoom(t)
 	var out bytes.Buffer
-	if err := enemyMatch(&out, m, enemysync.AllKinds(), enemysync.StagedSet{}); err != nil {
+	if err := enemyMatch(&out, m, enemysync.AllKinds()); err != nil {
 		t.Fatal(err)
 	}
 	s := out.String()
 	for _, want := range []string{
-		" kinds=mo2+u,bk+u,cc+u,ki+u,am+u,am2+u walk=complete\n",
+		" kinds=mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u walk=complete\n",
 		"ident kind=bk proc=0x00BE setID=0x0000 ",
 		"ident kind=am proc=0x00CB setID=0x0006 ", " verdict=ok pid=", " am_action=0 am_mode=0\n",
 		"ident kind=am2 proc=0x00CC setID=0x0007 ", " am2_action=0 am2_mode=0 am2_abyss=0 am2_carried=0\n",
@@ -84,7 +84,7 @@ func TestEnemyMatchDryAllow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enemyMatch(&out, m, bk, enemysync.StagedSet{}); err != nil {
+	if err := enemyMatch(&out, m, bk); err != nil {
 		t.Fatal(err)
 	}
 	if s := out.String(); strings.Contains(s, "kind=ki") || strings.Contains(s, "note ") || !strings.Contains(s, "summary idents=1 ") {

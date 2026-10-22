@@ -480,7 +480,7 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 // wireSlot lays a kind sample out as e's wire slot: the kind, the host
 // actor's pkey, its handle and aux values (BK m48C.z and the jaw, CC
 // shape_angle.x and m310; KI shape.x, shape.z, m326, m328; AM mEyeRot;
-// MO2 and AM2 none), a ChuChu's m316.z in the attack bytes, flags2 bit 6
+// TN dr.m48C.z; MO2 and AM2 none), a ChuChu's m316.z in the attack bytes, flags2 bit 6
 // (KindF2Light) when it dies with its ice shrink timer running,
 // WFlagEngaged, and WFlagDormant (dormant).
 func (h *Host) wireSlot(e *Enemy, ks *KindSample, now time.Time) Slot {
@@ -516,6 +516,8 @@ func (h *Host) wireSlot(e *Enemy, ks *KindSample, now time.Time) Slot {
 //   - AM: asleep, mAction DOUSA with mMode <= 1 on SLEEP_LOOP.
 //   - AM2: attention without LOCKON_BATTLE (a statue: create and the
 //     inactive return clear it, d_a_am2.cpp:1336, 1017-1022).
+//   - TN: never (TN design go_changes host.go: ReadSampleTN sets no
+//     dormant rule; a D_DOZOU statue is refused at adopt instead).
 //
 // An allow kind is never dormant while carried (an Armos statue stunned
 // in MAHI mode 12 gains ACTION_CARRY, not LOCKON, d_a_am2.cpp:669, and can
@@ -531,6 +533,8 @@ func dormant(id KindID, ks *KindSample, flags uint8) bool {
 		return ks.Attn&addr.AttnLockonBattle == 0
 	case KindKI, KindAM, KindAM2:
 		return flags&SlotDying == 0 && ks.St.Dormant
+	case KindTN:
+		return false
 	}
 	return false
 }
@@ -600,6 +604,7 @@ type pendingHit struct {
 	hit   Hit
 	pid   uint32
 	setID uint16 // the host actor's (0xFFFF unkeyed), from the handle
+	kind  KindID // the host slot's kind (its own STATE's, never the client's claim): hitApply's per-kind flags
 	seq   uint32
 	at    time.Time
 	stage string
@@ -756,7 +761,7 @@ func (a *HitApplier) Offer(h *Hit, st *State, listing *Listing, now time.Time) *
 	}
 	a.seq++
 	a.lastHit[key] = now
-	a.queue = append(a.queue, &pendingHit{hit: *h, pid: pid, setID: sl.SetID, seq: a.seq, at: now, stage: st.Stage, room: st.Room})
+	a.queue = append(a.queue, &pendingHit{hit: *h, pid: pid, setID: sl.SetID, kind: sl.Kind, seq: a.seq, at: now, stage: st.Stage, room: st.Room})
 	if len(a.queue) == 1 {
 		if err := a.writeHead(now); err != nil {
 			log.Logf(a.rep, log.Warn, "enemy host: hit_apply write: %v", err)
@@ -824,7 +829,7 @@ func (a *HitApplier) writeBlock(now time.Time) error {
 	b := &mailbox.EnemyBlock{Magic: mailbox.EnemyMagic, Seq: a.blockSeq, GoWriteMS: uint32(now.UnixMilli()),
 		Flags: mailbox.EnemyFlagMirror, Layout: mailbox.EnemyLayout, Epoch: a.epoch, Role: mailbox.EnemyRoleHost,
 		Stage: a.scope.Stage, Room: a.scope.Room, KindMask: a.Kinds.Mask(),
-		Annex: mailbox.EnemyAnnex{Override: a.Annex.Override, InvulnWait: a.Annex.InvulnWait, HookDisableX: a.Annex.HookDisableX}}
+		Annex: mailbox.EnemyAnnex{Override: a.Annex.Override, InvulnWait: a.Annex.InvulnWait, HookDisableX: a.Annex.HookDisableX, TnTgHitUp: a.Annex.TnTgHitUp}}
 	if len(a.queue) > 0 {
 		p := a.queue[0]
 		b.Stage, b.Room = p.stage, p.room
@@ -838,7 +843,20 @@ func (a *HitApplier) writeBlock(now time.Time) error {
 	return mailbox.WriteEnemyBlock(a.m, b)
 }
 
-// hitApply lays p out as the block's request with the knobs' flags.
+// hitApply lays p out as the block's request with the knobs' flags, by
+// the host slot's kind (p.kind):
+//
+//   - TN: never the remote-Link ATTRIB bits (TN design D12): an unswapped
+//     consuming execute would leave the body as proc 0xA9, and an armored
+//     hit would become a pure clank (d_a_tn.cpp:2916-2920, 3006-3011).
+//   - AM2 collider 1 with the client REL's verdict (Hit.ClientFlags
+//     HitCFVerdict, R-14): mailbox.EnemyHAFVerdict, EnemyHAFBack when
+//     HitCFBack, and EnemyHAFCrit when am2Crit. The host REL takes the
+//     direct path on them only with its own AM2 HKD_SPECIAL clear (D10),
+//     and before its ATTRIB block, so ATTRIB stays ORed here (step6's
+//     remote_attrib_force never runs on a direct hit).
+//
+// Every other hit carries no verdict bits, whatever its ClientFlags say.
 func (a *HitApplier) hitApply(p *pendingHit) mailbox.EnemyHitApply {
 	h := &p.hit
 	var flags uint8
@@ -851,11 +869,56 @@ func (a *HitApplier) hitApply(p *pendingHit) mailbox.EnemyHitApply {
 	if a.NoHitMark || h.AtSPrm&addr.CcAtSPrmNoHitMark != 0 {
 		flags |= mailbox.EnemyHAFNoHitMark
 	}
-	if a.Attrib != nil {
+	if a.Attrib != nil && p.kind != KindTN {
 		flags |= a.Attrib(h)
+	}
+	if p.kind == KindAM2 && h.Collider == HitHead && h.ClientFlags&HitCFVerdict != 0 {
+		flags |= mailbox.EnemyHAFVerdict
+		if h.ClientFlags&HitCFBack != 0 {
+			flags |= mailbox.EnemyHAFBack
+		}
+		if am2Crit(h.AtType, h.CutType) {
+			flags |= mailbox.EnemyHAFCrit
+		}
 	}
 	return mailbox.EnemyHitApply{Seq: p.seq, SetID: p.setID, Collider: h.Collider, Flags: flags, AtType: h.AtType, Atp: h.Atp,
 		Se: h.Se, HitMark: h.HitMark, Spl: h.Spl, Pos: h.Pos, PID: p.pid}
+}
+
+// The At types and cut types am2Crit tests (d_cc_d.h:14-38; the REL's
+// EMK_AT_SWORD_CLASS and EMK_AT_SKULL_HAMMER, pinned by
+// TestAm2CritPins).
+const (
+	// AtTypeSwordClass is week_atari_check's sword case: SWORD, MACHETE,
+	// UNK800, DARKNUT_SWORD and MOBLIN_SPEAR (d_a_am2.cpp:236-240).
+	AtTypeSwordClass uint32 = 0x14000C02
+	// CutTypeHammerSide is daPy_py_c::CUT_TYPE_HAMMER_SIDESWING
+	// (d_a_player.h:462), the hammer's m2CE 8 (d_a_am2.cpp:278-280).
+	CutTypeHammerSide uint8 = 0x11
+)
+
+// am2CritCuts are the cut types week_atari_check counts as a crit for a
+// sword-class hit, m2CE 1 (d_a_am2.cpp:241-260; d_a_player.h:445-476):
+// CUT_EA, CUT_EB, CUT_TURN, CUT_ROLL, JUMPCUT_SWORD, JUMPCUT_STICK,
+// JUMPCUT_MACHETE, BT_ROLLCUT, BT_VERTICALJUMPCUT, JUMPCUT_CLUB,
+// JUMPCUT_SPEAR, CUT_EXA, CUT_EXB, CUT_EXMJ, CUT_KESA.
+var am2CritCuts = [...]uint8{0x06, 0x07, 0x08, 0x09, 0x0A, 0x0C, 0x0E, 0x0F, 0x10, 0x15, 0x19, 0x1A, 0x1B, 0x1E, 0x1F}
+
+// am2Crit reports mailbox.EnemyHAFCrit for an AM2 verdict hit (TN design
+// R-15; CONTRACT.md 7: the hit_apply record has no cut-type byte, so Go
+// decides and the REL's em_am2_m2ce reads one bit): a sword-class At type
+// (or an unread hit object, at type 0, which the REL also takes as the
+// sword) with a crit cut, which the REL turns into m2CE 1, or the Skull
+// Hammer's side swing, m2CE 8. The cut type is the client Link's, read at
+// the hit (client.go readHit), where vanilla reads player 0's.
+func am2Crit(atType uint32, cut uint8) bool {
+	switch { // em_am2_m2ce's order: the hammer first
+	case atType&AtTypeSkullHammer != 0:
+		return cut == CutTypeHammerSide
+	case atType == 0 || atType&AtTypeSwordClass != 0:
+		return slices.Contains(am2CritCuts[:], cut)
+	}
+	return false
 }
 
 // Poll reads the block's tail for the head request's ack. It returns the

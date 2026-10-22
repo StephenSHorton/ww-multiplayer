@@ -95,9 +95,11 @@ typedef char rl_check_fields[(WWREMOTE_SL_STAGE_OFF + WWREMOTE_STAGE_LEN <= WWRE
                               MAX_REMOTE_LINKS <= WWREMOTE_MAX_SLOTS &&
                               MAX_REMOTE_LINKS <= MAILBOX_POSE_SLOT_CAP &&
                               MAX_REMOTE_LINKS <= 8) ? 1 : -1];
-// The ATTRIB bits extend WWENEMY_HAF_* (0x01, 0x02, 0x04) without overlap,
-// and HD_NO_BODY sits past the enemy block's details (0..15).
-typedef char rl_check_attrib[(((WWENEMY_HAF_FORCE_V1 | WWENEMY_HAF_FALLBACK_SHRINK | WWENEMY_HAF_NO_HITMARK) &
+// The ATTRIB bits extend WWENEMY_HAF_* (0x01, 0x02, 0x04, and the TN
+// batch's AM2 verdict bits 0x20, 0x40, 0x80) without overlap, and
+// HD_NO_BODY sits past the enemy block's details (0..15).
+typedef char rl_check_attrib[(((WWENEMY_HAF_FORCE_V1 | WWENEMY_HAF_FALLBACK_SHRINK | WWENEMY_HAF_NO_HITMARK |
+                                WWENEMY_HAF_VERDICT | WWENEMY_HAF_BACK | WWENEMY_HAF_CRIT) &
                                (WWREMOTE_HAF_ATTRIB_BODY | WWREMOTE_HAF_SLOT1)) == 0 &&
                               WWREMOTE_HD_NO_BODY > WWENEMY_HD_DEMO) ? 1 : -1];
 // The keeper's swap state and the body overlay.

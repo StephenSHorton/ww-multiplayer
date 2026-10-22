@@ -345,8 +345,8 @@ type KindSample struct {
 	CcAtSPrm, CcTgSPrm, CcCoSPrm                          uint32
 	// St is an allow kind's (KI, AM, AM2; allow design type_table samplers).
 	St AllowFields
-	// Tn is the staged Darknut's (ReadSampleTN, staged.go; St carries its
-	// angles and colliders).
+	// Tn is the Darknut's (ReadSampleTN, tn.go; St carries its angles and
+	// colliders).
 	Tn TnFields
 }
 
@@ -731,6 +731,8 @@ func ReadKindSample(m mem.Reader, e *Enemy) (KindSample, error) {
 		return ReadSampleAM(m, e)
 	case KindAM2:
 		return ReadSampleAM2(m, e)
+	case KindTN:
+		return ReadSampleTN(m, e)
 	}
 	return KindSample{}, fmt.Errorf("enemysync: no sampler for kind %s (proc 0x%04X)", e.Kind, e.Ident.Proc)
 }
