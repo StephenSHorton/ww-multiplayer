@@ -181,6 +181,11 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 					drained = true
 				}
 			}
+			// The hits held over the host Link's demo: applied once it
+			// ends, or dropped (aged out, the target gone).
+			for _, ack := range applier.ReleaseHeld(last, host.Listing(), now) {
+				send(EncodeAck(ack))
+			}
 			ack, err := applier.Poll(last, now)
 			if err != nil {
 				log.Logf(rep, log.Warn, "enemy host: %v", err)

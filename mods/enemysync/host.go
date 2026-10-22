@@ -227,8 +227,12 @@ func (h *Host) NoteEngaged(handle uint16, now time.Time) {
 
 // resetScope forgets what belongs to a stage and room: the cache, the last
 // samples, the tombstones and the engaged marks. Handles stay (per epoch).
+// The next in-play tick walks: back in the same stage and room (a void-out
+// reload, a Game Over's continue) nothing else would, and until WalkEvery
+// ran out every STATE would list no enemy.
 func (h *Host) resetScope() {
 	h.cache = nil
+	h.nextWalk = time.Time{}
 	clear(h.last)
 	clear(h.tombs)
 	clear(h.engaged)
@@ -336,6 +340,7 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 		return nil, err
 	}
 	changed := scope.Stage != h.scope.Stage || scope.Room != h.scope.Room
+	left := h.scope.InPlay && !scope.InPlay
 	h.scope = scope
 	hb, err := mem.ReadU32(h.m, mailbox.SpawnTrigger)
 	if err != nil {
@@ -345,7 +350,10 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 		HostKindMask: uint8(h.Kinds.Mask()), KindHash: KindHash()}
 	if !scope.InPlay {
 		h.resetScope()
-		if !h.lastKeep.IsZero() && now.Sub(h.lastKeep) < KeepaliveEvery {
+		// The first out-of-play STATE goes at once: the in-play sends keep
+		// lastKeep fresh, and a client that saw no out-of-play STATE before
+		// the host came back with an empty room never held its copies.
+		if !left && !h.lastKeep.IsZero() && now.Sub(h.lastKeep) < KeepaliveEvery {
 			return nil, nil
 		}
 		h.lastKeep = now
@@ -480,7 +488,7 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 // wireSlot lays a kind sample out as e's wire slot: the kind, the host
 // actor's pkey, its handle and aux values (BK m48C.z and the jaw, CC
 // shape_angle.x and m310; KI shape.x, shape.z, m326, m328; AM mEyeRot;
-// MO2 and AM2 none), a ChuChu's m316.z in the attack bytes, flags2 bit 6
+// TN dr.m48C.z; MO2 and AM2 none), a ChuChu's m316.z in the attack bytes, flags2 bit 6
 // (KindF2Light) when it dies with its ice shrink timer running,
 // WFlagEngaged, and WFlagDormant (dormant).
 func (h *Host) wireSlot(e *Enemy, ks *KindSample, now time.Time) Slot {
@@ -516,6 +524,8 @@ func (h *Host) wireSlot(e *Enemy, ks *KindSample, now time.Time) Slot {
 //   - AM: asleep, mAction DOUSA with mMode <= 1 on SLEEP_LOOP.
 //   - AM2: attention without LOCKON_BATTLE (a statue: create and the
 //     inactive return clear it, d_a_am2.cpp:1336, 1017-1022).
+//   - TN: never (TN design go_changes host.go: ReadSampleTN sets no
+//     dormant rule; a D_DOZOU statue is refused at adopt instead).
 //
 // An allow kind is never dormant while carried (an Armos statue stunned
 // in MAHI mode 12 gains ACTION_CARRY, not LOCKON, d_a_am2.cpp:669, and can
@@ -531,6 +541,8 @@ func dormant(id KindID, ks *KindSample, flags uint8) bool {
 		return ks.Attn&addr.AttnLockonBattle == 0
 	case KindKI, KindAM, KindAM2:
 		return flags&SlotDying == 0 && ks.St.Dormant
+	case KindTN:
+		return false
 	}
 	return false
 }
@@ -576,8 +588,13 @@ type HitApplier struct {
 	//   NoHitMark: the At sphere carries NoHitMark (no env; a HIT's own
 	//   AtSPrm bit sets it per request too);
 	//   DemoGate (WW_ENEMY_HIT_DEMO=0 disables): a hit while the host Link
-	//   is in a demo (mDemo.mDemoType != 0) is dropped HDDemo.
+	//   is in a demo (mDemo.mDemoType != 0) is held (held, ReleaseHeld)
+	//   and applied when the demo ends.
 	V1, FallbackShrink, NoHitMark, DemoGate bool
+
+	// held are the hits that came in during the host Link's demo, oldest
+	// first (at most DemoHoldDepth, one per (client, handle)).
+	held []heldHit
 
 	// Attrib, when set, gives a request's extra hit_apply flags: the
 	// remote-Link ATTRIB bits (RemoteHost.AttribFlags, remote-link-design.md
@@ -596,10 +613,27 @@ type HitApplier struct {
 	Annex mailbox.EnemyAnnex
 }
 
+// heldHit is a hit held over the host Link's demo, with when it came in.
+type heldHit struct {
+	hit Hit
+	at  time.Time
+}
+
+// A hit that lands during the host Link's demo (a chest, a door, a
+// cutscene) is held instead of dropped HDDemo (coop-slice-drc.md A6): the
+// client's copies stand frozen while the host's enemies do, and its
+// swings would be lost. DemoHoldDepth bounds the held hits (one per
+// (client, handle)); one held DemoHoldMax is dropped HDDemo.
+const (
+	DemoHoldDepth = 8
+	DemoHoldMax   = 15 * time.Second
+)
+
 type pendingHit struct {
 	hit   Hit
 	pid   uint32
 	setID uint16 // the host actor's (0xFFFF unkeyed), from the handle
+	kind  KindID // the host slot's kind (its own STATE's, never the client's claim): hitApply's per-kind flags
 	seq   uint32
 	at    time.Time
 	stage string
@@ -682,10 +716,11 @@ func drop(ack *Ack, detail uint8) *Ack {
 // sampler last listed them, where the handle resolves to the host actor's
 // pid) at now. It returns the ACK to send now (a
 // drop, with its detail), or nil when the request was queued and the ACK
-// follows from Poll. The ACK echoes the HIT's handle.
+// follows from Poll, or held over the host Link's demo and the ACK follows
+// from ReleaseHeld (or Poll). The ACK echoes the HIT's handle.
 func (a *HitApplier) Offer(h *Hit, st *State, listing *Listing, now time.Time) *Ack {
-	ack := &Ack{Client: h.Client, Result: AckDropped, Epoch: h.Epoch, SetID: h.SetID, Handle: h.Handle, HitSeq: h.HitSeq}
-	if st == nil || h.Epoch != a.epoch || h.Stage != st.Stage || h.Room != st.Room || st.Flags&StateFlagInScope == 0 {
+	ack := hitAck(h)
+	if !a.inScope(h, st) {
 		return drop(ack, HDGoGate)
 	}
 	// A replay is only the same hit_seq again: TCP neither duplicates nor
@@ -706,6 +741,25 @@ func (a *HitApplier) Offer(h *Hit, st *State, listing *Listing, now time.Time) *
 		return drop(ack, HDGoGate) // replayed
 	}
 	a.lastSeq[key] = h.HitSeq
+	return a.admit(h, st, listing, now, ack)
+}
+
+// hitAck is the ACK for h before a verdict: dropped, echoing the HIT.
+func hitAck(h *Hit) *Ack {
+	return &Ack{Client: h.Client, Result: AckDropped, Epoch: h.Epoch, SetID: h.SetID, Handle: h.Handle, HitSeq: h.HitSeq}
+}
+
+// inScope is Offer's first gate: h is of this host's epoch and of st's
+// stage and room, and st is in play.
+func (a *HitApplier) inScope(h *Hit, st *State) bool {
+	return st != nil && h.Epoch == a.epoch && h.Stage == st.Stage && h.Room == st.Room && st.Flags&StateFlagInScope != 0
+}
+
+// admit is Offer past its scope and replay gates (and ReleaseHeld's for a
+// held hit): the target, its flags, the rate, the REL, the demo (which
+// holds it) and the queue.
+func (a *HitApplier) admit(h *Hit, st *State, listing *Listing, now time.Time, ack *Ack) *Ack {
+	key := hitKey(h.Client, h.Handle)
 	// The handle names the target: its slot in st (the flags and health
 	// the request is judged by) and its pid in the listing (a tombstone has
 	// none: its actor is gone). The hit_apply carries that actor's own
@@ -744,19 +798,14 @@ func (a *HitApplier) Offer(h *Hit, st *State, listing *Listing, now time.Time) *
 		return drop(ack, HDGoGate)
 	}
 	if a.DemoGate && a.inDemo() {
-		return drop(ack, HDDemo)
+		return a.holdHit(h, now, ack)
 	}
-	if len(a.queue) >= HitQueueDepth {
+	if len(a.queue) >= HitQueueDepth || a.queued(h) {
 		return drop(ack, HDBusy)
-	}
-	for _, p := range a.queue {
-		if p.hit.Client == h.Client && p.hit.Handle == h.Handle {
-			return drop(ack, HDBusy)
-		}
 	}
 	a.seq++
 	a.lastHit[key] = now
-	a.queue = append(a.queue, &pendingHit{hit: *h, pid: pid, setID: sl.SetID, seq: a.seq, at: now, stage: st.Stage, room: st.Room})
+	a.queue = append(a.queue, &pendingHit{hit: *h, pid: pid, setID: sl.SetID, kind: sl.Kind, seq: a.seq, at: now, stage: st.Stage, room: st.Room})
 	if len(a.queue) == 1 {
 		if err := a.writeHead(now); err != nil {
 			log.Logf(a.rep, log.Warn, "enemy host: hit_apply write: %v", err)
@@ -765,6 +814,80 @@ func (a *HitApplier) Offer(h *Hit, st *State, listing *Listing, now time.Time) *
 		}
 	}
 	return nil
+}
+
+// holdHit holds h over the host Link's demo (nil: its ACK follows from
+// ReleaseHeld), or drops it HDBusy when DemoHoldDepth hits are held or
+// one of the same (client, handle) is.
+func (a *HitApplier) holdHit(h *Hit, now time.Time, ack *Ack) *Ack {
+	if len(a.held) >= DemoHoldDepth {
+		return drop(ack, HDBusy)
+	}
+	for _, p := range a.held {
+		if p.hit.Client == h.Client && p.hit.Handle == h.Handle {
+			return drop(ack, HDBusy)
+		}
+	}
+	a.held = append(a.held, heldHit{hit: *h, at: now})
+	log.Logf(a.rep, log.Info, "enemy host: hit on handle %d (client %d, hit_seq %d) held: the host Link is in a demo", h.Handle, h.Client, h.HitSeq)
+	return nil
+}
+
+// Held is how many hits are held over the host Link's demo.
+func (a *HitApplier) Held() int { return len(a.held) }
+
+// ReleaseHeld runs every tick (after the HITs are offered): it returns the
+// ACKs of the held hits it drops, each logged with why. One held past
+// DemoHoldMax is dropped HDDemo, demo or not. Once the host Link's demo
+// is over, the rest go through admit against st (the host's latest
+// STATE) and listing, oldest first, as a fresh HIT would after its
+// replay gate: a target gone (AckNoActor), dying or ragdolling
+// (HDGoFlags), or a host out of the hit's stage and room (HDGoGate) drops
+// it; one admit queues waits for Poll's ACK. A hit whose (client, handle)
+// is queued, or that finds the queue full, stays held for a later tick.
+func (a *HitApplier) ReleaseHeld(st *State, listing *Listing, now time.Time) []*Ack {
+	if len(a.held) == 0 {
+		return nil
+	}
+	var out []*Ack
+	var keep []heldHit
+	held := a.held
+	a.held = nil // admit may hold again (a demo that began since the read)
+	demo := a.DemoGate && a.inDemo()
+	for _, p := range held {
+		h := p.hit
+		switch {
+		case now.Sub(p.at) > DemoHoldMax:
+			log.Logf(a.rep, log.Info, "enemy host: held hit on handle %d (client %d, hit_seq %d) dropped: held over %v", h.Handle, h.Client, h.HitSeq, DemoHoldMax)
+			out = append(out, drop(hitAck(&h), HDDemo))
+			continue
+		case demo || len(a.queue) >= HitQueueDepth || a.queued(&h):
+			keep = append(keep, p)
+			continue
+		}
+		var ack *Ack
+		if !a.inScope(&h, st) {
+			ack = drop(hitAck(&h), HDGoGate)
+		} else {
+			ack = a.admit(&h, st, listing, now, hitAck(&h))
+		}
+		if ack != nil {
+			log.Logf(a.rep, log.Info, "enemy host: held hit on handle %d (client %d, hit_seq %d) dropped after the demo: %s/%s", h.Handle, h.Client, h.HitSeq, ResultName(ack.Result), DetailName(ack.Detail))
+			out = append(out, ack)
+		}
+	}
+	a.held = append(keep, a.held...)
+	return out
+}
+
+// queued reports a request of h's (client, handle) in the queue.
+func (a *HitApplier) queued(h *Hit) bool {
+	for _, p := range a.queue {
+		if p.hit.Client == h.Client && p.hit.Handle == h.Handle {
+			return true
+		}
+	}
+	return false
 }
 
 // inDemo reads the host Link's mDemo.mDemoType (addr.PlayerOffDemoType):
@@ -824,7 +947,7 @@ func (a *HitApplier) writeBlock(now time.Time) error {
 	b := &mailbox.EnemyBlock{Magic: mailbox.EnemyMagic, Seq: a.blockSeq, GoWriteMS: uint32(now.UnixMilli()),
 		Flags: mailbox.EnemyFlagMirror, Layout: mailbox.EnemyLayout, Epoch: a.epoch, Role: mailbox.EnemyRoleHost,
 		Stage: a.scope.Stage, Room: a.scope.Room, KindMask: a.Kinds.Mask(),
-		Annex: mailbox.EnemyAnnex{Override: a.Annex.Override, InvulnWait: a.Annex.InvulnWait, HookDisableX: a.Annex.HookDisableX}}
+		Annex: mailbox.EnemyAnnex{Override: a.Annex.Override, InvulnWait: a.Annex.InvulnWait, HookDisableX: a.Annex.HookDisableX, TnTgHitUp: a.Annex.TnTgHitUp}}
 	if len(a.queue) > 0 {
 		p := a.queue[0]
 		b.Stage, b.Room = p.stage, p.room
@@ -838,7 +961,20 @@ func (a *HitApplier) writeBlock(now time.Time) error {
 	return mailbox.WriteEnemyBlock(a.m, b)
 }
 
-// hitApply lays p out as the block's request with the knobs' flags.
+// hitApply lays p out as the block's request with the knobs' flags, by
+// the host slot's kind (p.kind):
+//
+//   - TN: never the remote-Link ATTRIB bits (TN design D12): an unswapped
+//     consuming execute would leave the body as proc 0xA9, and an armored
+//     hit would become a pure clank (d_a_tn.cpp:2916-2920, 3006-3011).
+//   - AM2 collider 1 with the client REL's verdict (Hit.ClientFlags
+//     HitCFVerdict, R-14): mailbox.EnemyHAFVerdict, EnemyHAFBack when
+//     HitCFBack, and EnemyHAFCrit when am2Crit. The host REL takes the
+//     direct path on them only with its own AM2 HKD_SPECIAL clear (D10),
+//     and before its ATTRIB block, so ATTRIB stays ORed here (step6's
+//     remote_attrib_force never runs on a direct hit).
+//
+// Every other hit carries no verdict bits, whatever its ClientFlags say.
 func (a *HitApplier) hitApply(p *pendingHit) mailbox.EnemyHitApply {
 	h := &p.hit
 	var flags uint8
@@ -851,11 +987,56 @@ func (a *HitApplier) hitApply(p *pendingHit) mailbox.EnemyHitApply {
 	if a.NoHitMark || h.AtSPrm&addr.CcAtSPrmNoHitMark != 0 {
 		flags |= mailbox.EnemyHAFNoHitMark
 	}
-	if a.Attrib != nil {
+	if a.Attrib != nil && p.kind != KindTN {
 		flags |= a.Attrib(h)
+	}
+	if p.kind == KindAM2 && h.Collider == HitHead && h.ClientFlags&HitCFVerdict != 0 {
+		flags |= mailbox.EnemyHAFVerdict
+		if h.ClientFlags&HitCFBack != 0 {
+			flags |= mailbox.EnemyHAFBack
+		}
+		if am2Crit(h.AtType, h.CutType) {
+			flags |= mailbox.EnemyHAFCrit
+		}
 	}
 	return mailbox.EnemyHitApply{Seq: p.seq, SetID: p.setID, Collider: h.Collider, Flags: flags, AtType: h.AtType, Atp: h.Atp,
 		Se: h.Se, HitMark: h.HitMark, Spl: h.Spl, Pos: h.Pos, PID: p.pid}
+}
+
+// The At types and cut types am2Crit tests (d_cc_d.h:14-38; the REL's
+// EMK_AT_SWORD_CLASS and EMK_AT_SKULL_HAMMER, pinned by
+// TestAm2CritPins).
+const (
+	// AtTypeSwordClass is week_atari_check's sword case: SWORD, MACHETE,
+	// UNK800, DARKNUT_SWORD and MOBLIN_SPEAR (d_a_am2.cpp:236-240).
+	AtTypeSwordClass uint32 = 0x14000C02
+	// CutTypeHammerSide is daPy_py_c::CUT_TYPE_HAMMER_SIDESWING
+	// (d_a_player.h:462), the hammer's m2CE 8 (d_a_am2.cpp:278-280).
+	CutTypeHammerSide uint8 = 0x11
+)
+
+// am2CritCuts are the cut types week_atari_check counts as a crit for a
+// sword-class hit, m2CE 1 (d_a_am2.cpp:241-260; d_a_player.h:445-476):
+// CUT_EA, CUT_EB, CUT_TURN, CUT_ROLL, JUMPCUT_SWORD, JUMPCUT_STICK,
+// JUMPCUT_MACHETE, BT_ROLLCUT, BT_VERTICALJUMPCUT, JUMPCUT_CLUB,
+// JUMPCUT_SPEAR, CUT_EXA, CUT_EXB, CUT_EXMJ, CUT_KESA.
+var am2CritCuts = [...]uint8{0x06, 0x07, 0x08, 0x09, 0x0A, 0x0C, 0x0E, 0x0F, 0x10, 0x15, 0x19, 0x1A, 0x1B, 0x1E, 0x1F}
+
+// am2Crit reports mailbox.EnemyHAFCrit for an AM2 verdict hit (TN design
+// R-15; CONTRACT.md 7: the hit_apply record has no cut-type byte, so Go
+// decides and the REL's em_am2_m2ce reads one bit): a sword-class At type
+// (or an unread hit object, at type 0, which the REL also takes as the
+// sword) with a crit cut, which the REL turns into m2CE 1, or the Skull
+// Hammer's side swing, m2CE 8. The cut type is the client Link's, read at
+// the hit (client.go readHit), where vanilla reads player 0's.
+func am2Crit(atType uint32, cut uint8) bool {
+	switch { // em_am2_m2ce's order: the hammer first
+	case atType&AtTypeSkullHammer != 0:
+		return cut == CutTypeHammerSide
+	case atType == 0 || atType&AtTypeSwordClass != 0:
+		return slices.Contains(am2CritCuts[:], cut)
+	}
+	return false
 }
 
 // Poll reads the block's tail for the head request's ack. It returns the

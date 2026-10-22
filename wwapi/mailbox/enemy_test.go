@@ -129,6 +129,9 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_HAF_FORCE_V1":        uint64(EnemyHAFForceV1),
 		"WWENEMY_HAF_FALLBACK_SHRINK": uint64(EnemyHAFFallbackShrink),
 		"WWENEMY_HAF_NO_HITMARK":      uint64(EnemyHAFNoHitMark),
+		"WWENEMY_HAF_VERDICT":         uint64(EnemyHAFVerdict),
+		"WWENEMY_HAF_BACK":            uint64(EnemyHAFBack),
+		"WWENEMY_HAF_CRIT":            uint64(EnemyHAFCrit),
 		"WWENEMY_ACK_SEQ_OFF":         EnemyAckSeqOff,
 		"WWENEMY_ACK_FRAME_OFF":       EnemyAckFrameOff,
 		"WWENEMY_ADOPTED_OFF":         EnemyAdoptedOff,
@@ -137,6 +140,9 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_STATUS_SIZE":         EnemyStatusSize,
 		"WWENEMY_HITS_OFF":            EnemyHitsOff,
 		"WWENEMY_HIT_SIZE":            EnemyHitSize,
+		"WWENEMY_HP_PENDING":          uint64(EnemyHPPending),
+		"WWENEMY_HP_VERDICT":          uint64(EnemyHPVerdict),
+		"WWENEMY_HP_BACK":             uint64(EnemyHPBack),
 		"WWENEMY_HIT_APPLY_ACK_OFF":   EnemyHitApplyAckOff,
 		"WWENEMY_CANARIES_OFF":        EnemyCanariesOff,
 		"WWENEMY_CANARIES2_OFF":       EnemyCanaries2Off,
@@ -197,6 +203,8 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_HD_GO_FLAGS":         uint64(EnemyHDGoFlags),
 		"WWENEMY_HD_DEMO":             uint64(EnemyHDDemo),
 		"WWENEMY_HD_KIND":             uint64(EnemyHDKind),
+		"WWENEMY_HD_DIRECT":           uint64(EnemyHDDirect),
+		"WWENEMY_HD_FRONT":            uint64(EnemyHDFront),
 		"WWENEMY_OWNER_SLOT_BASE":     uint64(EnemyOwnerSlotBase),
 		"WWENEMY_ANNEX_OFF":           uint64(EnemyAnnexOff),
 		"WWENEMY_ANNEX_SIZE":          uint64(EnemyAnnexSize),
@@ -209,6 +217,7 @@ func TestEnemyHeaderPins(t *testing.T) {
 		"WWENEMY_ANNEX_OVR_TG_UP_OFF": EnemyAnnexOvrTgUpOff,
 		"WWENEMY_ANNEX_INVW_OFF":      uint64(EnemyAnnexInvWOff),
 		"WWENEMY_ANNEX_KINDS":         EnemyAnnexKinds,
+		"WWENEMY_ANNEX_TN_TGUP_OFF":   uint64(EnemyAnnexTnTgUpOff),
 		"WWENEMY_HKD_MODEL_EQ":        uint64(EnemyHKDModelEq),
 		"WWENEMY_HKD_ATTACH":          uint64(EnemyHKDAttach),
 		"WWENEMY_HKD_EYE":             uint64(EnemyHKDEye),
@@ -291,7 +300,10 @@ func TestEnemyBlockPlacement(t *testing.T) {
 		EnemyKindMaskOff+4 != EnemyReservedOff || EnemyReservedOff+8 != EnemySlotsOff {
 		t.Error("layout 3's slot or header fields moved")
 	}
-	if EnemyHDKind != RemoteHDNoBody+1 || EnemyStateDead != 6 || EnemyErrKey != 10 {
+	if EnemyHDKind != RemoteHDNoBody+1 || EnemyHDDirect != EnemyHDKind+1 || EnemyHDFront != EnemyHDDirect+1 ||
+		EnemyAnnexTnTgUpOff != EnemyAnnexInvWOff+EnemyAnnexKinds || EnemyAnnexTnTgUpOff+1 != EnemyAnnexHKDXOff ||
+		(EnemyHAFForceV1|EnemyHAFFallbackShrink|EnemyHAFNoHitMark|RemoteHAFAttribBody|RemoteHAFSlot1)&(EnemyHAFVerdict|EnemyHAFBack|EnemyHAFCrit) != 0 ||
+		EnemyStateDead != 6 || EnemyErrKey != 10 {
 		t.Error("layout 3's new enum values moved")
 	}
 	if string(binary.BigEndian.AppendUint32(nil, EnemyMagic)) != "WWEN" {

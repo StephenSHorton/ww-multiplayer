@@ -3,7 +3,9 @@
 // ww-multiplayer-handoff/design/enemy-mirror-general.json "type_table",
 // "flags", "rel_changes"; decisions D1 and D15; the allow batch's KI, AM
 // and AM2 rows and hooks: enemy-mirror-allow.json "type_table",
-// "rel_changes" R-1..R-16, decisions D2-D16). enemy_mirror.c builds its
+// "rel_changes" R-1..R-16, decisions D2-D16; the TN batch's Darknut row
+// and AM2 direct apply: enemy-mirror-tn.json "rel_changes" R-1..R-16,
+// decisions D1-D14, "p0_findings"). enemy_mirror.c builds its
 // static const em_kind EM_KINDS[] (enemy_mirror.h) from these #defines,
 // and static-asserts the Moblin row against the legacy MO2_* defines
 // (EMK_MO2_TG_CYL == MO2_TG_CYL, ...): a const array element is not an
@@ -29,7 +31,8 @@
 #define EMK_KIND_KI              3            // allow batch A1, default off (WW_ENEMY_MIRROR_KINDS ki / ki+u)
 #define EMK_KIND_AM              4            // default off (am / am+u)
 #define EMK_KIND_AM2             5            // default off (am2 / am2+u)
-#define EMK_KIND_COUNT           6            // rows MO2, BK, CC, KI, AM, AM2 (the Go Kinds table); the annex overrides cover ids < WWENEMY_ANNEX_KINDS only
+#define EMK_KIND_TN              6            // TN batch B (D1), default off (tn / tn+u); the last id layout 3 holds (HKDX byte 0x1FF; D2: id 7 needs layout 4)
+#define EMK_KIND_COUNT           7            // rows MO2, BK, CC, KI, AM, AM2, TN (the Go Kinds table); the annex overrides cover ids < WWENEMY_ANNEX_KINDS only
 #define EMK_KIND_NONE            0xFF
 
 // --- capability bits (row caps) ------------------------------------------
@@ -52,6 +55,7 @@
 #define EMK_COLL_CC              2            // mCyl only: SetC(cur), R 35, H 30 (HUSE_WALK) or 100, At stripped, Tg/Co from flags2
 #define EMK_ATTACH_NONE          0
 #define EMK_ATTACH_BK            1            // boko stick, shield, bouen (d_a_bk.cpp:4104-4136, 4371-4416)
+#define EMK_ATTACH_TN            2            // TN (R-6, R-7): the shield pre-calc before the body calc, then parts, armor calc, sword, pieces AND, def centre after it
 #define EMK_EYE_NONE             0
 #define EMK_EYE_CC               1            // eyePos and attention position every frame (d_a_cc.cpp:2108-2122)
 #define EMK_EYE_FIXED            2            // D5: a switch on the kind id after McaMorf_calc, per-kind EMK_<K>_EYE_* / ATTN_UP constants; HKD_EYE skips it
@@ -67,6 +71,7 @@
 #define EMK_AC_HOME_ROOM         0x1E2        // s8 home.roomNo
 #define EMK_AC_STATUS            0x1C4        // u32 actor_status (f_op_actor.h:284)
 #define EMK_AC_STATUS_CARRY      0x2000       // fopAcStts_CARRY_e (f_op_actor.h:32): AM2 refuses adoption while carried
+#define EMK_AC_STATUS_BOSS       0x04000000   // fopAcStts_BOSS_e (f_op_actor.h:43): TN refuses adoption (D3; wwapi/addr ActorStatusBoss)
 #define EMK_AC_ANGLE_Y           0x206        // s16 current.angle.y: the slot AngleY of MO2/BK/CC (Go Kind.AngleOff)
 #define EMK_AC_SHAPE_X           0x20C        // s16 shape_angle.x (CC annex aux[0]; KI aux[0])
 #define EMK_AC_SHAPE_Y           0x20E        // s16 shape_angle.y: the slot AngleY of KI/AM/AM2 (D13, Go Kind.AngleOff)
@@ -548,5 +553,161 @@
 #define EMK_AM2_F2_WEAK_TG       0x02         // host mWeakSph Tg Set: written to the copy's before STD (D6)
 #define EMK_AM2_F2_BODY_CO       0x04         // host mBodyCyl Co Set (cleared while carried, d_a_am2.cpp:694, 709)
 #define EMK_AM2_F2_CARRIED       0x08         // host actor_status CARRY (informational)
+// AM2 direct apply (TN batch D10, D11, R-14..R-16, am2_fix, hit_path): the
+// client REL judges back/front from its own Link and Go carries the
+// verdict (WWENEMY_HP_VERDICT/BACK -> HIT byte 54 -> WWENEMY_HAF_VERDICT/
+// BACK); the host REL runs week_atari_check's tail itself (d_a_am2.cpp
+// :290-323) through cc_at_check, never week_atari_check's player-0 gate
+// (:205-211). Both sides only while AM2's WWENEMY_HKD_SPECIAL is clear.
+#define EMK_AM2_BACK_MIN         0x4000       // cLib_distanceAngleS(shape.y, searchPlayerAngleY) >= this is a back hit (d_a_am2.cpp:209-211, D11)
+#define EMK_AM2_MODE_THROWN      15           // MAHI mMode 15 (thrown, d_a_am2.cpp:841): vanilla skips week_atari_check (:846); refused (R-16)
+#define EMK_AM2_ITAI_MODE_HIT    20           // the tail's mAction ITAI, mMode 20 (d_a_am2.cpp:312-313)
+#define EMK_AM2_M2CE_CRIT        1            // a crit cut (d_a_am2.cpp:241-260): sword-class At with WWENEMY_HAF_CRIT
+#define EMK_AM2_M2CE_ARROW       5            // normal, fire or ice arrow (:287-290)
+#define EMK_AM2_M2CE_BOMB        6            // (:282-284)
+#define EMK_AM2_M2CE_HAMMER      7            // skull hammer (:274-277); 7 and 8 also write health 0 (:314-316)
+#define EMK_AM2_M2CE_HAMMER_SIDE 8            // the hammer with WWENEMY_HAF_CRIT (CUT_TYPE_HAMMER_SIDESWING, :278-280); ITAI mode 30 reads it (:999)
+// cCcD_ObjAt mType bits the tail switches on (d_cc_d.h:14-39), as masks
+#define EMK_AT_SWORD_CLASS       0x14000C02   // SWORD 0x2 | MACHETE 0x400 | UNK800 0x800 | DARKNUT_SWORD 0x04000000 | MOBLIN_SPEAR 0x10000000 (d_a_am2.cpp:236-240)
+#define EMK_AT_SKULL_HAMMER      0x10000      // (d_a_am2.cpp:274)
+#define EMK_AT_BOMB              0x20         // (d_a_am2.cpp:282)
+#define EMK_AT_ARROWS            0xC4000      // NORMAL_ARROW 0x4000 | FIRE_ARROW 0x40000 | ICE_ARROW 0x80000 (d_a_am2.cpp:285-287)
+#define EMK_AT_OLD_PATH          0x300040     // LIGHT_ARROW 0x100000 | WIND 0x200000 | BOOMERANG 0x40: never applied directly (:227-233, 262-268), the sphere path keeps them
+// cc_at_check__FP10fopAc_ac_cP8CcAtInfo (GZLE01 symbols.txt:3275) and CcAtInfo (d_cc_uty.h:7-21)
+#define EMK_FN_CC_AT_CHECK       0x800AEEF8
+#define EMK_CCATINFO_SIZE        0x1C         // zero-initialised: mbDead (+0x09) must start 0 (d_cc_uty.cpp:233-240)
+#define EMK_CCATINFO_OBJ         0x00         // cCcD_Obj* mpObj = the host's static At sphere (WWENEMY_SPH_OFF)
+#define EMK_CCATINFO_PARTICLE    0x14         // cXyz* pParticlePos = NULL (d_a_am2.cpp:296)
+
+// --- row TN: Darknut, fpcNm_TN_e (d_a_tn.h:12-165) ---------------------------
+// TN batch B (enemy-mirror-tn.json R-1; GZLE layout: no m0414_demo, m1520
+// present, d_a_tn.h:69-72, 158-161; wwapi/addr/tn.go). A DR/STD row like
+// BK. Wire: AngleY is current.angle.y (D8: daTn_Execute copies shape from
+// it, d_a_tn.cpp:3551, 3615); the slot's blur_shape byte carries the host's
+// pieces & EMK_TN_PIECE_MASK, never blur_scale; aux {dr.m48C.z, 0, 0, 0}.
+#define EMK_TN_ID                6
+#define EMK_TN_PROC              0x00C0       // f_pc_name.h:201; wwapi/addr/remote.go ProcTN
+#define EMK_TN_CLASS_SIZE        0x1B08       // d_a_tn.h:165
+#define EMK_TN_ARC               "Tn"
+#define EMK_TN_BCK_FIRST         0x28         // AAT_KAITEN1 (res/Object/Tn.h:44)
+#define EMK_TN_BCK_LAST          0x55         // S_DEMO_M2 (Tn.h:89); 0x56..0x67 are the Y* armor bcks the body never plays (D7)
+#define EMK_TN_BCK_WAIT          0x3D         // AWAIT1 (Tn.h:65; d_a_tn.cpp:2205)
+#define EMK_TN_MORF              0x2C4        // mpBodyMorf (d_a_tn.h:40)
+#define EMK_TN_GATE              0x2BC        // u8 mBehaviorType (d_a_tn.h:33): 15 frozen-in-time refused; the s16 dr.mAction is read by the gate itself
+#define EMK_TN_DR                0x474        // damagereaction mDamageReaction (d_a_tn.h:84)
+#define EMK_TN_DR_MODE           0x478        // s16 dr.mMode (c_damagereaction.h:80)
+#define EMK_TN_DR_ACTION         0x47A        // s16 dr.mAction (c_damagereaction.h:81; Action d_a_tn.cpp:25-42)
+#define EMK_TN_TILT              0x900        // s16 dr.m48C.x (0x474 + 0x48C)
+#define EMK_TN_CO_CYL            0xC74        // dCcD_Cyl mCoCyl (d_a_tn.h:94)
+#define EMK_TN_TG_CYL            0xDA4        // dCcD_Cyl mTgCyl (d_a_tn.h:95)
+#define EMK_TN_HEAD_SPH          0xED4        // dCcD_Sph mHeadSph (d_a_tn.h:96)
+#define EMK_TN_DEF_SPH           0x1000       // dCcD_Sph mDefenceSph (d_a_tn.h:97): parries inside damage_check (v2 ACK result parried; detail defence 9 only under HIT_V1)
+#define EMK_TN_HEAD_CENTER       0x1384       // cXyz m1384 (d_a_tn.h:100), the head sphere's centre (d_a_tn.cpp:3625)
+#define EMK_TN_DEF_CENTER        0x13E4       // cXyz m13E4 (d_a_tn.h:108): the ITEM_L1 translation (R-7 e; d_a_tn.cpp:2831-2837)
+#define EMK_TN_CO_FORWARD        35           // mCoCyl at pos + 35 along current.angle.y (d_a_tn.cpp:3614-3621)
+#define EMK_TN_TG_HIT_UP         68           // R30 sphere at +68 bottoms at +38, over the DEFENCE-lowered Tg top +37.5 (d_a_tn.cpp:3631-3634); live knob WWENEMY_ANNEX_TN_TGUP_OFF (R-13)
+#define EMK_TN_INVULN            0x3F0        // s16 m03F0 (d_a_tn.h:60): a hit sets 5 (d_a_tn.cpp:2049)
+#define EMK_TN_INVULN_WAIT       8            // compiled (ids >= 3 have no annex override)
+#define EMK_TN_ICE               0x1524       // enemyice mEnemyIce (d_a_tn.h:162): shrink 0x152A, freeze 0x1532
+#define EMK_TN_WEAPON            0xC34        // int m0C34 (d_a_tn.h:86): nonzero while the sword is held
+#define EMK_TN_BARE              0
+#define EMK_TN_BLUR_ON           0            // none: em_animate's u32 blur_shape store would wipe the pieces byte 0x2D0 (every generic blur write is guarded on blur_on)
+#define EMK_TN_BLUR_SHAPE        0
+#define EMK_TN_BLUR_SCALE        0
+#define EMK_TN_ANM_GATE          0
+#define EMK_TN_PLAY_SKIP         0x3EE        // s16 m03EE (d_a_tn.h:59; d_a_tn.cpp:3531-3536), streamed as WWENEMY_SF2_PLAY_SKIP
+#define EMK_TN_SPH_SRC           0xED4        // mHeadSph
+#define EMK_TN_CAPS              0x05         // DR | FOPEN; no MODEL_EQ: d_a_tn never assigns actor->model (the em_validate check would be ERR_MORF)
+#define EMK_TN_MTX               1            // EMK_MTX_DR (dr_matrix_set at 0x474, tilt 0x900)
+#define EMK_TN_COLL              1            // EMK_COLL_STD
+#define EMK_TN_ATTACH            2            // EMK_ATTACH_TN
+#define EMK_TN_EYE               0            // EMK_EYE_NONE: the nodeCallBack writes eyePos/attention/m1384 during calc (d_a_tn.cpp:282-305)
+#define EMK_TN_ATTN_F2           0x08         // EMK_TN_F2_ATTN
+#define EMK_TN_DEATH_SWITCH      0x2C0        // u8 mDisableSpawnOnDeathSwitch (d_a_tn.h:37): client Go writes it under quiet death; 1..0x7F is BOSS (refused)
+// TN quiet death (p0_findings DEATH ORDER): the host ragdolls at health 0
+// (dr.mMode -100, BDOWN_A1 then BDOWN_U1, ~1.6 s) before dr.mAction 20.
+// The sampler's DYING includes health <= 0 with the ragdoll, so the copy
+// starts em_die_quiet at the ragdoll's first frame; it holds scale 1 for
+// QUIET_HOLD frames (the streamed BDOWN bcks and position keep playing:
+// em_animate and the smoothing run on dying frames), then shrinks over
+// the remaining QUIET_FRAMES - QUIET_HOLD. SF2_LIGHT keeps the generic 90
+// with no hold, and a death that starts RELEASE (a catch-up or a copy
+// first adopted from a tombstone: no ragdoll streams) skips the hold and
+// shrinks over the 20 at once. Compiled (no annex for ids >= 3).
+#define EMK_TN_QUIET_FRAMES      68           // 48 held + 20 shrinking (EMK_QUIET_FRAMES)
+#define EMK_TN_QUIET_HOLD        48           // ~1.6 s of ragdoll at 30 executes/s (P0-b: ~97 Go samples at 62.5 Hz)
+// TN class fields the gates, hooks, handback and quiet death use (d_a_tn.h)
+#define EMK_TN_M02C1             0x2C1        // u8 m02C1 (d_a_tn.h:38): != 0 hidden (Draw, d_a_tn.cpp:437-439): gate
+#define EMK_TN_SHIELD_MORF       0x2C8        // mDoExt_McaMorf* mpShieldMorf (d_a_tn.h:41)
+#define EMK_TN_ARMOR_MORF        0x2CC        // mDoExt_McaMorf* mpArmorMorf (d_a_tn.h:42): part 0's model
+#define EMK_TN_PIECES            0x2D0        // s8 mRemainingEquipmentPieces (d_a_tn.h:43): 0x0F with a shield, 0x0B without at create (d_a_tn.cpp:4232-4236, P0-b)
+#define EMK_TN_PIECE_ARMOR       0x01         // EQUIPMENT_PIECE_BODY_ARMOR (d_a_tn.cpp:62-67): part 0, the Tg Shield bit
+#define EMK_TN_PIECE_HELMET      0x02         // EQUIPMENT_PIECE_HELMET: part 1, the head Shield bit + purple hitmark
+#define EMK_TN_PIECE_SHIELD      0x04         // EQUIPMENT_PIECE_SHIELD: part 2 and the shield morf
+#define EMK_TN_PIECE_MASK        0x07         // the streamed bits; the AND keeps the copy's others: pieces &= (blur_shape | ~MASK) (0x08 UNKNOWN, never read after create)
+#define EMK_TN_PART0             0x2E0        // tn_p mParts[3] (d_a_tn.h:50, tn_p :12-27)
+#define EMK_TN_PART_STRIDE       0x4C
+#define EMK_TN_PART_MODEL        0x00         // J3DModel* mpPartModel: parts 1 and 2 (0x32C, 0x378); part 0 draws the armor morf's model (d_a_tn.cpp:3286-3290)
+#define EMK_TN_PART_M08          0x08         // s8 m08: < 0 part_draw skips it (d_a_tn.cpp:398-427)
+#define EMK_TN_PART_M09          0x09         // s8 m09: 0 = on the body (copy anmMtx[j_dt[i]], d_a_tn.cpp:3291-3305)
+#define EMK_TN_EQUIP             0x3C5        // u8 mEquipmentType (d_a_tn.h:52): >= EMK_TN_EQUIP_CAPE refused (D5)
+#define EMK_TN_EQUIP_CAPE        4            // EQUIPMENT_SHIELD_AND_CAPE (d_a_tn.cpp:53-60)
+#define EMK_TN_TILT_Z            0x904        // s16 dr.m48C.z (c_damagereaction.h:124): annex aux[0] -> em_consume_owned, as BK
+#define EMK_TN_DR_M088           0x4FC        // csXyz dr.m088[20] (0x474 + 0x88): zeroed at adopt (R-5)
+#define EMK_TN_DR_M088_LEN       0x78
+#define EMK_TN_DEF_R             0x1124       // f32 mDefenceSph radius (0x1000 + 0x124): 70 at adopt (d_a_tn.cpp:2831)
+#define EMK_TN_DEF_R_VAL         70
+#define EMK_TN_M1402             0x1402       // s16 m1402 (d_a_tn.h:116): the armor wobble, zeroed at adopt and handback
+#define EMK_TN_M140C             0x140C       // s8 m140C (d_a_tn.h:120): != 0 the sword is not attached yet (d_a_tn.cpp:3490-3497): gate, sword guard
+#define EMK_TN_BOKO_PID          0x1410       // fpc_ProcID mBokoPcId (d_a_tn.h:122): the carried sword (EMK_BOKO_PROC)
+#define EMK_TN_M1444             0x1444       // s8 m1444 (d_a_tn.h:141): the parry window, 0 at adopt and handback
+#define EMK_TN_M14F8             0x14F8       // s8 m14F8 (d_a_tn.h:148): != 0 the demo camera (d_a_tn.cpp:2551-2575): gate
+#define EMK_TN_M1518             0x1518       // s8 m1518 (d_a_tn.h:154): != 0 hidden (d_a_tn.cpp:3499-3522): gate
+#define EMK_TN_BEHAVIOR_FROZEN   15           // BEHAVIOR_FROZEN_IN_TIME (d_a_tn.cpp:51): refused
+#define EMK_TN_ACT_JYUNKAI       0            // dr.mAction (d_a_tn.cpp:25-42): the handback's
+#define EMK_TN_ACT_DEFENCE       10           // SF_DEFENCE (== EM_DR_DEFENCE)
+#define EMK_TN_ACT_DIE_A         20           // DYING 20..22: fail, yogan fail, water fail (22 from dr_body_bg_check, c_damagereaction.cpp:669-676)
+#define EMK_TN_ACT_DIE_C         22
+#define EMK_TN_ACT_D_DOZOU       23           // the statue: refused per sample (wakes later)
+#define EMK_TN_ACT_S_DEMO        25           // refused per sample
+// TN joints (res/Object/Tn.h:259-277) and the sword hand
+#define EMK_TN_JOINT_MUNE1       0x0A         // armor (part 0)
+#define EMK_TN_JOINT_ITEM_L1     0x0F         // shield hand (part 2, the def centre)
+#define EMK_TN_JOINT_ITEM_R1     0x17         // sword hand
+#define EMK_TN_JOINT_ATAMA1      0x1C         // helmet (part 1)
+#define EMK_TN_HAND_RZ           0x8000       // sword: nodeMtx[ITEM_R1] * Rz(0x8000) * T(0, 0, 85) (d_a_tn.cpp:3708-3719; REG8 offsets 0)
+#define EMK_TN_HAND_TZ           85
+// TN bcks the REL picks itself (Tn.h:52-104): the shield morf follows the
+// streamed body bck (R-6; d_a_tn.cpp:1924-1939, 2511, 2872, 3458), the
+// armor morf free-runs YKIHON1 from adopt (R-5)
+#define EMK_TN_BCK_AGUARD1       0x30         // same index on the shield
+#define EMK_TN_BCK_AGUARD2       0x31         // same index on the shield
+#define EMK_TN_BCK_AHAKAI1       0x33         // same index on the shield
+#define EMK_TN_BCK_TATE_ON       0x3C         // ATATE_ON1, the shield's loop for every other body bck
+#define EMK_TN_BCK_BDOWN_A1      0x4A         // the death ragdoll's bcks (P0-b), in the body range
+#define EMK_TN_BCK_BDOWN_U1      0x4B
+#define EMK_TN_BCK_ARMOR_KIHON   0x64         // YKIHON1: the armor morf (outside the body range: em_bck_res reads any index)
+// The collider bits R-12 writes (d_cc_d.h:56-60, 98-103; dCcD_GObjTg at
+// +0x94 of a collider, its mSPrm +0x00, mHitMark +0x1E)
+#define EMK_GTG_SPRM             0x94         // u32 dCcD_GObjTg mSPrm
+#define EMK_GTG_HITMARK          0xB2         // u8 dCcD_GObjTg mHitMark
+#define EMK_GTG_SPRM_SHIELD      0x01         // dCcG_TgSPrm_Shield_e (OnTgShield)
+#define EMK_GTG_HITMARK_PURPLE   0x0C         // dCcg_TgHitMark_Purple_e (d_a_tn.cpp:3648)
+#define EMK_GTG_HITMARK_UNK1     0x01         // dCcG_TgHitMark_Unk1_e (d_a_tn.cpp:3652)
+#define EMK_TN_F2_HAS_WEAPON     0x01         // flags2 bits: host m0C34 != 0 (== WWENEMY_SF2_HAS_WEAPON)
+#define EMK_TN_F2_PLAY_SKIP      0x02         // host m03EE != 0 (== WWENEMY_SF2_PLAY_SKIP)
+#define EMK_TN_F2_ATTN           0x08         // host attention_info.flags != 0
+// TN's hook_disable bits (R-3; annex byte WWENEMY_ANNEX_HKDX_OFF + 3 =
+// 0x1FF): per-kind meanings of WWENEMY_HKD_* bits whose generic reads are
+// dead for a DR, non-MODEL_EQ, non-PLAIN, eyeless row with id >= 3
+// (MODEL_EQ enemy_mirror.c:1357, EYE :2302-2303, LEGACY_DEATH :2230-2231,
+// MTX_PLAIN :1715). ATTN (0x10) keeps its generic meaning; EXTRA (0x80) is
+// not reused (generic code returns on it, :1927, :2039).
+#define EMK_TN_HKD_SHIELD        0x01         // == WWENEMY_HKD_MODEL_EQ (tn:hooks=model_eq): skip the shield pre-calc (R-6)
+#define EMK_TN_HKD_ATTACH        0x02         // == WWENEMY_HKD_ATTACH (attach): skip parts, armor play/calc, pieces AND, def centre (R-7 a-c, e)
+#define EMK_TN_HKD_SWORD         0x04         // == WWENEMY_HKD_EYE (eye): skip the sword carry/matrix/drop and the TN quiet drop (R-7 d, R-8)
+#define EMK_TN_HKD_COLL          0x08         // == WWENEMY_HKD_LEGACY_DEATH (legacy_death): skip the TN em_colliders_pre case (R-12)
+#define EMK_TN_HKD_ADOPT_ANM     0x20         // == WWENEMY_HKD_MTX_PLAIN (mtx_plain): skip the adopt-time armor setAnm and the armor play (R-5, R-7 c)
+#define EMK_TN_HKD_DIRECT        0x40         // == WWENEMY_HKD_SPECIAL (special): reserved for batch C's TN direct apply, a no-op in B (D13)
 
 #endif

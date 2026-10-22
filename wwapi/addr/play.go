@@ -204,6 +204,27 @@ const (
 	// (f_pc_base.cpp:36-40; sym:18651).
 	ProcessIDCounter uint32 = 0x803F6A24
 
+	// OverlapReq is l_fopOvlpM_overlap[0], the scene change's overlap (the
+	// wipe) request (f_op_overlap_mng.cpp:14; sym:18169). fopScnRq_Request
+	// sets it with the change request (fopOvlpM_Request,
+	// f_op_scene_req.cpp:66; f_op_overlap_mng.cpp:77-79) and
+	// fopOvlpM_Management clears it only once the request's last phase ran
+	// (f_op_overlap_mng.cpp:86-91): after the new scene was created and the
+	// fade-in finished (fopOvlpReq_phase_WaitOfFadeout..phase_Done,
+	// f_op_overlap_req.cpp:14-55). Nonzero spans a scene change's
+	// fade-out, the old scene's delete and every create phase of the new
+	// one, mNextStage.mEnable included or not. Its only setter stores
+	// fopOvlpReq_Request's return (f_op_overlap_mng.cpp:78,
+	// f_op_overlap_req.cpp:86-114): NULL or OverlapRequest, never another
+	// value.
+	OverlapReq uint32 = 0x803F6160
+
+	// OverlapRequest is l_fopOvlpM_Request, the one overlap request
+	// OverlapReq points at while it is live (f_op_overlap_mng.cpp:74;
+	// sym:17412). A reader that sees any other nonzero value at OverlapReq
+	// is not reading l_fopOvlpM_overlap (another build or map).
+	OverlapRequest uint32 = 0x803B9E30
+
 	// MaxActorNodes is where an actor walk gives up (§7.2: "stop after
 	// 1024 nodes").
 	MaxActorNodes = 1024

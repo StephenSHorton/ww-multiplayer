@@ -629,6 +629,8 @@ func TestMo2Offsets(t *testing.T) {
 		{"RoomStayNo", RoomStayNo, StayNo},
 		{"RoomStayNo (sym:18667)", RoomStayNo, 0x803F6A78},
 		{"CalcMtxPtr (sym:18270)", CalcMtxPtr, 0x803F63A0},
+		{"OverlapReq (sym:18169)", OverlapReq, 0x803F6160},
+		{"OverlapRequest (sym:17412)", OverlapRequest, 0x803B9E30},
 		{"MObjectInfo (wwapi.h:266)", MObjectInfo, 0x803E0BC8},
 		{"PlayerInfo0Ptr (d_com_inf_game.h:787-791)", PlayerInfo0Ptr, 0x803CA74C},
 	})

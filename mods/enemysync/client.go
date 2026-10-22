@@ -67,6 +67,29 @@ const (
 	// reports it dead or gone (an epoch change made the REL forget it, a
 	// legacy death latched past the status) frees its slot after it.
 	PinMax = 10 * time.Second
+	// HostHoldMax bounds the hold (Mirror.hold): while the host is out of
+	// play (a STATE without StateFlagInScope: its death demo's end, Game
+	// Over, a void-out reload, a stage load) the adopted copies stay
+	// frozen this long before they go back to this game's AI.
+	HostHoldMax = 30 * time.Second
+	// ReloadGrace bounds the hold over an in-scope STATE that lists no
+	// enemy in the stage and room of a last STATE that listed live ones
+	// (Mirror.reloading): a host whose room's actors are being deleted
+	// and re-created (a void-out reload read as in play, a host build
+	// before Scope.Loading) or not yet walked. A real end of the list
+	// comes with tombstones (SlotDying) or the dead-actor bits first;
+	// past the grace the empty list releases as before.
+	//
+	// The cost, by design: the last listed enemy leaving the list with
+	// neither looks the same as a reload. That is a despawn, a kind whose
+	// death shows no SlotDying, health <= 0 or ice timer before
+	// fopAcM_delete, or an unkeyed (+u, setID 0xFFFF) enemy whose death
+	// was never sampled as dying (no dead bit to fall back on). Its copy
+	// then stays frozen and adopted up to ReloadGrace before it is
+	// released, and a hit landed on it meanwhile is cleared unsent (hold;
+	// the host has no actor left to apply it to). Only a list gone fully
+	// empty does this (TestMirrorEmptyVanish).
+	ReloadGrace = 3 * time.Second
 )
 
 // Mirror is the client's state machine; Tick drives it.
@@ -151,6 +174,16 @@ type Mirror struct {
 	lastStatus [MaxSlots][2]uint8
 	Stats      MirrorStats
 
+	// The hold (Mirror.hold): the last in-scope STATE a block was written
+	// from and that block's kind mask, and when the host went out of play
+	// with the copies held (zero: not holding).
+	holdSt    *State
+	holdMask  uint32
+	holdSince time.Time
+	// emptySince is when the host's in-scope STATEs started listing no
+	// enemy while the copies were held over it (zero: not so).
+	emptySince time.Time
+
 	// Remote, when set, is this joiner's remote-Link side (players.go):
 	// OnEnemy hands it the PHITs and RunMirror ticks it after the mirror.
 	Remote *RemoteClient
@@ -190,6 +223,9 @@ type MirrorStats struct {
 	// HitsFiltered counts the hits ForwardHit dropped (a weapon the kind's
 	// collider ignores on the host).
 	HitsFiltered uint64
+	// Holds counts the holds begun (the host out of play), HeldHits the
+	// hits on a held copy cleared unsent (the host would drop them HDGoGate).
+	Holds, HeldHits uint64
 }
 
 // NewMirror returns a mirror over m with its breaker; raw bypasses the
@@ -630,6 +666,7 @@ func (c *Mirror) resetScope() {
 	clear(c.sm)
 	clear(c.local)
 	c.lastKeys, c.matchNext = nil, time.Time{}
+	c.holdSt, c.holdSince, c.emptySince = nil, time.Time{}, time.Time{}
 }
 
 // match walks this game's enemies of (stage, room) when the scope changed,
@@ -1042,12 +1079,103 @@ func (c *Mirror) disarm(now time.Time, why string) error {
 		log.Logf(c.rep, log.Info, "enemy client: not mirroring: %s", why)
 	}
 	c.Claims.Replace(nil)
+	c.holdSince, c.emptySince = time.Time{}, time.Time{}
 	if !c.armed {
 		return nil
 	}
 	err := c.writeBlock(now, nil, nil, mailbox.EnemyAnnex{}, 0)
 	c.armed = false
 	return err
+}
+
+// hold keeps the copies adopted and frozen while the host is out of play
+// (coop-slice-drc.md A2): released, they would run this game's AI against
+// this Link while the host's own enemies stand in a load or a Game Over
+// ("mauls B", seen live). It rewrites the last block's slots from the last
+// in-scope STATE (its stage and room, this game's: the REL's scope step
+// keeps them) with a new seq, so the REL's stale watchdog
+// (WWENEMY_STALE_FRAMES) never releases them, the pause bit stays set
+// (em_adopt) and the targets stand still; MorfRate 0 holds the animation
+// frame (S2.5 adds no lead) and SNAP is spent. A dying copy keeps its slot
+// as written, so a quiet death runs out. A hit on a held copy is cleared
+// unsent (the host drops every HIT while out of play, HDGoGate, and one
+// drained after the hold would land late). It reports false, and the
+// caller releases as before, when nothing is armed, the last block was
+// another scope's, or the hold ran HostHoldMax. No REL change: Q3 found no
+// freeze bit in the block, and none is needed.
+func (c *Mirror) hold(now time.Time, why string) (bool, error) {
+	st := c.holdSt
+	if !c.armed || st == nil || st.Stage != c.localStage || st.Room != c.localRoom {
+		return false, nil
+	}
+	n := 0
+	for j := range c.blk {
+		if c.blk[j].Used && c.blk[j].haveLst {
+			n = j + 1
+		}
+	}
+	if c.holdSince.IsZero() {
+		c.holdSince = now
+		c.Stats.Holds++
+		log.Logf(c.rep, log.Info, "enemy client: %s; holding the copies frozen (up to %v)", why, HostHoldMax)
+	} else if now.Sub(c.holdSince) > HostHoldMax {
+		log.Logf(c.rep, log.Info, "enemy client: the host stayed out of play %v; releasing the copies", HostHoldMax)
+		return false, nil
+	}
+	c.gateWhy = "" // a release after the hold logs its reason again
+	slots := make([]mailbox.EnemySlot, n)
+	annex := mailbox.EnemyAnnex{Override: c.Annex.Override, InvulnWait: c.Annex.InvulnWait, HookDisableX: c.Annex.HookDisableX, TnTgHitUp: c.Annex.TnTgHitUp}
+	for j := range n {
+		b := &c.blk[j]
+		if !b.Used || !b.haveLst {
+			continue // pid 0: the REL releases the slot
+		}
+		es := b.last
+		es.MorfRate = 0
+		es.Flags &^= mailbox.EnemySFSnap
+		slots[j], annex.Aux[j] = es, b.lastAux
+	}
+	if err := c.writeBlock(now, st, slots, annex, c.holdMask); err != nil {
+		return true, err
+	}
+	status, err := mailbox.ReadEnemyStatus(c.m)
+	if err != nil {
+		return true, err
+	}
+	for i := range status.Hits {
+		if status.Hits[i].Pending == 0 {
+			continue
+		}
+		c.Stats.HeldHits++
+		at := mailbox.EnemyBlockAddr + mailbox.EnemyHitsOff + uint32(i)*mailbox.EnemyHitSize + 3
+		if err := c.m.Write(at, []byte{0}); err != nil {
+			log.Logf(c.rep, log.Warn, "enemy client: clearing hit slot %d: %v", i, err)
+		}
+	}
+	return true, nil
+}
+
+// reloading reports whether st, an in-scope STATE of this game's stage
+// and room, follows a held block whose last STATE (same epoch, stage and
+// room) listed an enemy neither dying, a tombstone nor dead in st's
+// dead-actor bits: an empty list then is the host's room being re-created,
+// not its enemies gone (Tick holds the copies up to ReloadGrace).
+func (c *Mirror) reloading(st *State) bool {
+	h := c.holdSt
+	if h == nil || h.Epoch != st.Epoch || h.Stage != st.Stage || h.Room != st.Room {
+		return false
+	}
+	for i := range h.Slots {
+		sl := &h.Slots[i]
+		if sl.Flags&SlotDying != 0 || sl.WFlags&WFlagTomb != 0 {
+			continue
+		}
+		if id := sl.Ident(); id.Keyed() && st.IsDead(id.SetID) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // Tick runs one 16 ms tick at now. It returns the HITs to send (the REL
@@ -1095,11 +1223,32 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 	case now.Sub(at) > StaleAfter:
 		return nil, GateSleep, c.disarm(now, "the host's STATE is stale")
 	case st.Flags&StateFlagInScope == 0:
+		// Out of play is the host's own load, death or Game Over: hold
+		// the copies (hold) until it comes back, or release after
+		// HostHoldMax. Back in another stage or room, the gate below
+		// releases as before. A run of empty in-scope STATEs after it
+		// gets a ReloadGrace of its own.
+		c.emptySince = time.Time{}
+		if held, err := c.hold(now, "the host is out of play"); held || err != nil {
+			return nil, GateSleep, err
+		}
 		return nil, GateSleep, c.disarm(now, "the host is not in play")
 	case st.KindHash != KindHash():
 		return nil, GateSleep, c.disarm(now, fmt.Sprintf("the host's enemy kind table is another build's (hash %08X, this build's %08X)", st.KindHash, KindHash()))
 	case st.Stage != scope.Stage || st.Room != scope.Room:
 		return nil, GateSleep, c.disarm(now, fmt.Sprintf("the host is in %s room %d, this game in %s room %d", st.Stage, st.Room, scope.Stage, scope.Room))
+	}
+	if len(st.Slots) == 0 && c.reloading(st) {
+		if c.emptySince.IsZero() {
+			c.emptySince = now
+		}
+		if now.Sub(c.emptySince) <= ReloadGrace {
+			if held, err := c.hold(now, "the host lists no enemy in this room (a reload?)"); held || err != nil {
+				return nil, GateSleep, err
+			}
+		}
+	} else {
+		c.emptySince = time.Time{}
 	}
 	c.gateWhy = ""
 
@@ -1217,7 +1366,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		}
 	}
 	on := c.Kinds.And(MaskSet(uint32(st.HostKindMask)))
-	annex := mailbox.EnemyAnnex{Override: c.Annex.Override, InvulnWait: c.Annex.InvulnWait, HookDisableX: c.Annex.HookDisableX}
+	annex := mailbox.EnemyAnnex{Override: c.Annex.Override, InvulnWait: c.Annex.InvulnWait, HookDisableX: c.Annex.HookDisableX, TnTgHitUp: c.Annex.TnTgHitUp}
 	n := 0
 	for j := range c.blk {
 		if c.blk[j].Used {
@@ -1282,6 +1431,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 	if err := c.writeBlock(now, st, slots, annex, on.Mask()); err != nil {
 		return nil, 0, err
 	}
+	c.holdSt, c.holdMask, c.holdSince = st, on.Mask(), time.Time{}
 
 	// Liveness and the periodic line.
 	if !c.ackSeen && status.AckSeq != 0 && status.AckSeq == c.seq-1 {
@@ -1370,6 +1520,11 @@ func (c *Mirror) OwnerOf(handle uint16) uint16 {
 // SPrm low byte, Se, HitMark and Spl (addr.CcAtOff*; one hitObjReadLen
 // read from obj+0x10) and the collider's centre. A hit ForwardHit drops
 // is (nil, nil): not sent, its pending byte still cleared by the caller.
+// An AM2 weak-spot hit (collider 1) whose pending byte carries the REL's
+// verdict (mailbox.EnemyHPVerdict, and EnemyHPBack when this game's Link
+// was behind; TN design R-14) goes out with Hit.ClientFlags HitCFVerdict
+// (and HitCFBack); every other hit with 0. The REL writes no verdict with
+// AM2's HKD_SPECIAL set on this side, so the host takes the old path.
 func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, h mailbox.EnemyHitEntry) (*Hit, error) {
 	col := ColliderOff(kind, h.Collider)
 	if col == 0 {
@@ -1397,7 +1552,8 @@ func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, 
 	if c.hitSeq == 0 {
 		c.hitSeq = 1
 	}
-	hit := &Hit{Collider: h.Collider, Epoch: st.Epoch, Stage: st.Stage, Room: st.Room, SetID: wire.SetID, Handle: wire.Handle, HitSeq: c.hitSeq, ClientFrame: c.hb}
+	hit := &Hit{Collider: h.Collider, Epoch: st.Epoch, Stage: st.Stage, Room: st.Room, SetID: wire.SetID, Handle: wire.Handle, HitSeq: c.hitSeq, ClientFrame: c.hb,
+		ClientFlags: hitClientFlags(kind, h.Collider, h.Pending)}
 	// Wire v3: the swing's cut type and count, which the host stages into
 	// this player's remote body under ATTRIB (best effort: a failed read
 	// sends 0, an untyped hit).
@@ -1438,6 +1594,21 @@ func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, 
 	return hit, nil
 }
 
+// hitClientFlags is a HIT's ClientFlags from its REL hit entry (TN design
+// R-14, go_changes client.go): AM2 collider 1 only, HitCFVerdict when the
+// pending byte carries mailbox.EnemyHPVerdict, plus HitCFBack for
+// EnemyHPBack. Pending stays "nonzero" (the caller's test), never "== 1".
+func hitClientFlags(kind KindID, collider, pending uint8) uint8 {
+	if kind != KindAM2 || collider != HitHead || pending&mailbox.EnemyHPVerdict == 0 {
+		return 0
+	}
+	f := HitCFVerdict
+	if pending&mailbox.EnemyHPBack != 0 {
+		f |= HitCFBack
+	}
+	return f
+}
+
 // The At types ForwardHit tests (d_cc_d.h:14-38 dCcG_At_Type).
 const (
 	AtTypeHookshot      uint32 = 1 << 15 // AT_TYPE_HOOKSHOT
@@ -1460,6 +1631,11 @@ const (
 //     body_atari_check acts on (HANDOU, d_a_am2.cpp:342-364; the others
 //     only sound); it also keeps a weak-spot hit that overlapped the body
 //     from landing twice. An unread hit object (at type 0) is dropped.
+//     A weak-spot hit the client REL judged from the front (no HitCFBack)
+//     still goes: the host drops it with HDFront and logs it.
+//   - TN colliders 1 (the head) and 2 (the Tg cylinder): not the Hookshot
+//     (TN design go_changes client.go); every other At type, the Darknut's
+//     own damage_check sorts guard, armor and the defence sphere.
 //
 // Everything else forwards, the AM bomb swallow (collider 3, whose Co hit
 // carries no At object) included. readHit has taken the HIT's seq before
@@ -1473,6 +1649,8 @@ func ForwardHit(kind KindID, collider uint8, atType uint32) bool {
 		return atType&AtTypeHookshot == 0
 	case kind == KindAM2 && collider == HitTg:
 		return atType&AtTypeSkullHammer != 0
+	case kind == KindTN && (collider == HitHead || collider == HitTg):
+		return atType&AtTypeHookshot == 0
 	}
 	return true
 }

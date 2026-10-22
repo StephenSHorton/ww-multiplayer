@@ -2,6 +2,7 @@ package enemysync
 
 import (
 	"encoding/binary"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -455,8 +456,8 @@ func TestRemoteHostGates(t *testing.T) {
 	}
 }
 
-// TestRemoteHostEpoch: the WWRP epoch moves on a stage change only, and
-// seq never repeats.
+// TestRemoteHostEpoch: the WWRP epoch moves on a stage change (in play
+// throughout, it does not move between ticks), and seq never repeats.
 func TestRemoteHostEpoch(t *testing.T) {
 	m, scope, r := remoteHostGame(t, 0)
 	now := time.Unix(100, 0)
@@ -470,6 +471,121 @@ func TestRemoteHostEpoch(t *testing.T) {
 	c := readBlock(t, m)
 	if a.Epoch != b.Epoch || c.Epoch == b.Epoch || b.Seq != a.Seq+1 || c.Seq != b.Seq+1 {
 		t.Errorf("epochs %d %d %d seqs %d %d %d", a.Epoch, b.Epoch, c.Epoch, a.Seq, b.Seq, c.Seq)
+	}
+}
+
+// TestRemoteHostEpochReload (coop-slice-drc.md A1): the epoch, which
+// makes remote.c reset every slot's create tries (rl_intake), also moves
+// when the host comes back into play in the same stage (a void-out or
+// Game Over reload) and when a remote's load ends in the host's stage;
+// not while the host is out of play, not at a remote's load start, not
+// for a remote that arrives in another stage, and once for a stage
+// change that is also the return to play.
+func TestRemoteHostEpochReload(t *testing.T) {
+	m, scope, r := remoteHostGame(t, mailbox.RemoteFlagBodies)
+	now := time.Unix(100, 0)
+	views := []posefeed.RemoteView{{ID: 4, LinkSlot: 0, Pos: [3]float32{1, 2, 3}, Live: true}}
+	epoch := func(sc Scope, p *PState, pos [3]float32) uint32 {
+		t.Helper()
+		now = now.Add(100 * time.Millisecond)
+		if p != nil {
+			p.PlayerID = 4
+			r.OnPState(p, now)
+		}
+		views[0].Pos, views[0].Target = pos, pos
+		if _, err := r.Tick(now, sc, true, views, now, nil); err != nil {
+			t.Fatal(err)
+		}
+		return readBlock(t, m).Epoch
+	}
+	here := &PState{Stage: "M_Dai", Room: 1}
+	e0 := epoch(scope, here, [3]float32{1, 2, 3})
+	if e := epoch(scope, here, [3]float32{1, 2, 3}); e != e0 {
+		t.Fatalf("in play: epoch %d -> %d", e0, e)
+	}
+	// The host's void-out: out of play (no move), back in the same stage (one).
+	out := scope
+	out.InPlay, out.Pending = false, true
+	if e := epoch(out, here, [3]float32{1, 2, 3}); e != e0 {
+		t.Errorf("out of play: epoch %d -> %d", e0, e)
+	}
+	e1 := epoch(scope, here, [3]float32{1, 2, 3})
+	if e1 != e0+1 {
+		t.Errorf("back in play: epoch %d, want %d", e1, e0+1)
+	}
+	// The remote's void-out: loading (no move), its load ends in the host's
+	// stage (one), then in play (no move).
+	if e := epoch(scope, &PState{Stage: "M_Dai", Room: 1, Flags: PSLoading}, [3]float32{1, 2, 3}); e != e1 {
+		t.Errorf("remote loading: epoch %d -> %d", e1, e)
+	}
+	e2 := epoch(scope, here, [3]float32{7, 8, 9})
+	if e2 != e1+1 {
+		t.Errorf("remote arrived: epoch %d, want %d", e2, e1+1)
+	}
+	if e := epoch(scope, here, [3]float32{7, 8, 9}); e != e2 {
+		t.Errorf("remote in play: epoch %d -> %d", e2, e)
+	}
+	// A remote load that ends in another stage: no move.
+	epoch(scope, &PState{Stage: "M_Dai", Room: 1, Flags: PSLoading}, [3]float32{7, 8, 9})
+	if e := epoch(scope, &PState{Stage: "sea", Room: 1}, [3]float32{5, 5, 5}); e != e2 {
+		t.Errorf("remote arrived elsewhere: epoch %d -> %d", e2, e)
+	}
+	// A new stage on the return to play: one.
+	epoch(out, nil, [3]float32{5, 5, 5})
+	sea := scope
+	sea.Stage = "sea"
+	if e := epoch(sea, nil, [3]float32{5, 5, 5}); e != e2+1 {
+		t.Errorf("new stage on return: epoch %d, want %d", e, e2+1)
+	}
+}
+
+// TestRemoteHostOverlap: the scope as ReadScope reads it through a
+// void-out reload. The request (mEnable and the overlap set) and the new
+// play scene's create phases before phase_4 (mEnable cleared, Link's
+// pointer still the deleted Link's, the overlap live until the fade-in
+// ends) are both out of play: the PSTATE is LOADING alone and the epoch
+// does not move; the fade-in's end is the one return to play, one move.
+// Without Scope.Loading the create phases read as in play: a PSTATE of
+// the deleted Link and a second move when phase_4 nulls the pointer.
+func TestRemoteHostOverlap(t *testing.T) {
+	m, scope, r := remoteHostGame(t, mailbox.RemoteFlagBodies)
+	now := time.Unix(100, 0)
+	views := []posefeed.RemoteView{{ID: 4, LinkSlot: 0, Pos: [3]float32{1, 2, 3}, Live: true}}
+	tick := func(name string, inPlay, pending, loading bool) uint32 {
+		t.Helper()
+		sc, err := ReadScope(m)
+		if err != nil || sc.InPlay != inPlay || sc.Pending != pending || sc.Loading != loading || sc.Stage != scope.Stage || sc.Room != scope.Room {
+			t.Fatalf("%s: scope %+v %v", name, sc, err)
+		}
+		p, err := ReadPState(m, sc, 0)
+		if err != nil || (p.Flags == PSLoading) == inPlay {
+			t.Errorf("%s: pstate %+v %v", name, p, err)
+		}
+		now = now.Add(100 * time.Millisecond)
+		r.OnPState(&PState{PlayerID: 4, Stage: "M_Dai", Room: 1}, now)
+		if _, err := r.Tick(now, sc, true, views, now, nil); err != nil {
+			t.Fatal(err)
+		}
+		return readBlock(t, m).Epoch
+	}
+	e0 := tick("in play", true, false, false)
+	store(t, m, addr.NextStageEnable, []byte{1})
+	store(t, m, addr.OverlapReq, binary.BigEndian.AppendUint32(nil, addr.OverlapRequest))
+	if e := tick("requested", false, true, true); e != e0 {
+		t.Errorf("requested: epoch %d -> %d", e0, e)
+	}
+	store(t, m, addr.NextStageEnable, []byte{0})
+	for i := range 3 {
+		if e := tick(fmt.Sprintf("create phase %d", i), false, false, true); e != e0 {
+			t.Errorf("create phase %d: epoch %d -> %d", i, e0, e)
+		}
+	}
+	store(t, m, addr.OverlapReq, []byte{0, 0, 0, 0})
+	if e := tick("fade-in done", true, false, false); e != e0+1 {
+		t.Errorf("fade-in done: epoch %d, want %d", e, e0+1)
+	}
+	if e := tick("in play again", true, false, false); e != e0+1 {
+		t.Errorf("in play again: epoch %d, want %d", e, e0+1)
 	}
 }
 

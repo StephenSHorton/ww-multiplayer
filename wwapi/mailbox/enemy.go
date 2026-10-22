@@ -122,6 +122,13 @@ const (
 	EnemyHAFForceV1        uint8 = 0x01 // the REL runs the v1 branch (the light-shrink kill) verbatim
 	EnemyHAFFallbackShrink uint8 = 0x02 // after two Sets crossed nothing, write the shrink instead of HD_NO_CROSS
 	EnemyHAFNoHitMark      uint8 = 0x04 // the At sphere carries dCcG_AtSPrm_NoHitMark_e
+	// 0x08 and 0x10 are RemoteHAFAttribBody / RemoteHAFSlot1 (remote.go).
+	// The TN batch's AM2 direct apply (enemy-mirror-tn.json R-15, D10): the
+	// client REL's verdict (EnemyHP*), carried in HIT byte 54; the host REL
+	// reads them only for AM2 collider 1 with AM2's own EnemyHKDSpecial clear.
+	EnemyHAFVerdict uint8 = 0x20 // the client judged this AM2 weak-spot hit
+	EnemyHAFBack    uint8 = 0x40 // with EnemyHAFVerdict: from behind (else the REL drops it, EnemyHDFront)
+	EnemyHAFCrit    uint8 = 0x80 // with EnemyHAFVerdict: a crit cut type (d_a_am2.cpp:241-260), or the hammer's side swing
 
 	// The REL-written span: +EnemyGoSpan..+EnemySize.
 	EnemyAckSeqOff      = 0x124 // u32 last seq consumed
@@ -137,6 +144,12 @@ const (
 	EnemyCanaries2Off   = 0x18C // u8 anm_res_null, u8 anm_range, u8 hit_nocross, u8 hit_aborted
 	EnemyHitResultOff   = 0x190 // u32 BE: bits 31-24 (byte +0) EnemyHR* result, 23-16 EnemyHD* detail, 15-8 REL executes from Set to result, 7-0 Sets issued
 	EnemyReserved2Off   = 0x194 // u32
+
+	// The hit entry's pending byte (+3): any nonzero value is pending; the
+	// REL ORs the AM2 verdict bits into it (TN batch R-14).
+	EnemyHPPending uint8 = 0x01
+	EnemyHPVerdict uint8 = 0x02 // the client REL judged the AM2 weak-spot bearing
+	EnemyHPBack    uint8 = 0x04 // with EnemyHPVerdict: this game's Link was behind
 
 	// Status fields, from the status start.
 	EnemySTActorOff      = 0x00 // u32 actor address (0 when unresolved)
@@ -203,7 +216,9 @@ const (
 	EnemyHDGoFlags        uint8 = 14 // the sample's flags pre-dropped it (ragdoll/dying; the four flags in v1 mode)
 	EnemyHDDemo           uint8 = 15 // the host Link is in a demo (mDemo.mDemoType != 0)
 	// 16 is RemoteHDNoBody (remote.go).
-	EnemyHDKind uint8 = 17 // the resolved actor's kind has no row or its bit is clear in the host's kind_mask
+	EnemyHDKind   uint8 = 17 // the resolved actor's kind has no row or its bit is clear in the host's kind_mask
+	EnemyHDDirect uint8 = 18 // with EnemyHRAppliedAt: AM2 direct apply (cc_at_check and week_atari_check's tail, no sphere Set)
+	EnemyHDFront  uint8 = 19 // with EnemyHRDropped: an AM2 verdict hit from the front
 
 	// EnemyOwnerSlotBase is the remote-Link owner id of block slot j:
 	// EnemyOwnerSlotBase+j, j < EnemyMaxSlots exactly (remote.c
@@ -227,11 +242,14 @@ const (
 	EnemyAnnexOvrTgUpOff         = 0x02  // s16 collider-2 centre height
 	EnemyAnnexInvWOff     uint32 = 0x1F8 // u8 invuln_wait[EnemyAnnexKinds], u8 pad
 	EnemyAnnexKinds              = 3     // overrides cover kinds 0..2 (MO2, BK, CC); ids >= 3 use their compiled values
+	// EnemyAnnexTnTgUpOff is the invuln waits' pad byte, the TN batch's one
+	// live knob (R-13): the Darknut's collider-2 centre height, 0 = compiled.
+	EnemyAnnexTnTgUpOff uint32 = 0x1FB
 	// The allow batch's hook bytes (enemy-mirror-allow.json D3): kind id
 	// EnemyAnnexKinds+j's u8 hook_disable at +j, the annex's last four
 	// bytes, which the REL reads directly (no seq-cached copy).
 	EnemyAnnexHKDXOff   uint32 = 0x1FC // u8 hook_disable[EnemyAnnexHKDXKinds] for kind ids 3..6 (EnemyHKD*)
-	EnemyAnnexHKDXKinds        = 4     // ids EnemyAnnexKinds..+3 (KI, AM, AM2, batch B's id 6); ends at EnemyOff
+	EnemyAnnexHKDXKinds        = 4     // ids EnemyAnnexKinds..+3 (KI, AM, AM2, TN); ends at EnemyOff: id 7 needs layout 4
 
 	// Hook-disable bits (an annex override's byte 0).
 	EnemyHKDModelEq     uint8 = 0x01 // skip the actor->model == morf model check
@@ -240,7 +258,7 @@ const (
 	EnemyHKDLegacyDeath uint8 = 0x08 // never the legacy em_die: always the quiet path
 	EnemyHKDAttn        uint8 = 0x10 // skip the per-frame attention flags write
 	EnemyHKDMtxPlain    uint8 = 0x20 // skip the plain matrix hook (KI, AM, AM2)
-	EnemyHKDSpecial     uint8 = 0x40 // skip the kind's special collider (AM: the bomb swallow, collider code 3)
+	EnemyHKDSpecial     uint8 = 0x40 // skip the kind's special path (AM: the bomb swallow, collider code 3; AM2: direct apply)
 	EnemyHKDExtra       uint8 = 0x80 // skip the kind's extras: btk/brk play and the per-frame collider radius writes
 
 	// EnemyWriteSpan is the one Go write per tick: the annex, then the
@@ -329,6 +347,9 @@ type EnemyAnnex struct {
 	// HookDisableX is kind id EnemyAnnexKinds+j's hook_disable (EnemyHKD*),
 	// the bytes at EnemyAnnexHKDXOff.
 	HookDisableX [EnemyAnnexHKDXKinds]uint8
+	// TnTgHitUp is the Darknut's collider-2 centre height above pos, the
+	// byte at EnemyAnnexTnTgUpOff (0 = the REL's EMK_TN_TG_HIT_UP).
+	TnTgHitUp uint8
 }
 
 // EnemyHitApply is the host-role hit_apply request at EnemyHitApplyOff.
@@ -471,6 +492,7 @@ func (a *EnemyAnnex) EncodeAnnex(seq uint32) []byte {
 	}
 	copy(out[EnemyAnnexInvWOff-EnemyAnnexOff:], a.InvulnWait[:])
 	copy(out[EnemyAnnexHKDXOff-EnemyAnnexOff:], a.HookDisableX[:])
+	out[EnemyAnnexTnTgUpOff-EnemyAnnexOff] = a.TnTgHitUp
 	return out
 }
 
@@ -492,6 +514,7 @@ func DecodeEnemyAnnex(b []byte) (a EnemyAnnex, seq uint32, err error) {
 	}
 	copy(a.InvulnWait[:], b[EnemyAnnexInvWOff-EnemyAnnexOff:])
 	copy(a.HookDisableX[:], b[EnemyAnnexHKDXOff-EnemyAnnexOff:])
+	a.TnTgHitUp = b[EnemyAnnexTnTgUpOff-EnemyAnnexOff]
 	return a, be.Uint32(b[EnemyAnnexSeqOff-EnemyAnnexOff:]), nil
 }
 

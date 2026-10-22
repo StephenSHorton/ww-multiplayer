@@ -321,16 +321,17 @@ func TestResultDetailNames(t *testing.T) {
 		HDNoLink: "no_link", HDNoSphere: "no_sphere", HDWrongObj: "wrong_obj", HDAborted: "aborted",
 		HDDefence: "defence", HDFallbackShrink: "fallback_shrink", HDGoGate: "go_gate", HDRate: "rate",
 		HDBusy: "busy", HDGoFlags: "go_flags", HDDemo: "demo", HDNoBody: "no_body", HDKind: "kind",
+		HDDirect: "direct", HDFront: "front",
 	}
-	if len(details) != int(HDKind)+1 {
-		t.Fatalf("%d details listed, HDKind is %d", len(details), HDKind)
+	if len(details) != int(HDFront)+1 {
+		t.Fatalf("%d details listed, HDFront is %d", len(details), HDFront)
 	}
 	for d, want := range details {
 		if got := DetailName(d); got != want {
 			t.Errorf("DetailName(%d) = %q, want %q", d, got, want)
 		}
 	}
-	for _, d := range []uint8{HDKind + 1, 0xFF} {
+	for _, d := range []uint8{HDFront + 1, 0xFF} {
 		if got, want := DetailName(d), "detail_"+strconv.Itoa(int(d)); got != want {
 			t.Errorf("DetailName(%d) = %q, want %q", d, got, want)
 		}

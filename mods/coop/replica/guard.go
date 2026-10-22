@@ -90,10 +90,18 @@ const (
 	// WriteGuard.checkActor lets through exactly two writes, each of an
 	// actor the tick's walk has (FrameWriter.ApplyActors). M6.
 	TargetK1
+	// TargetBoss is the mailbox's boss_kill request (wwapi/mailbox
+	// boss.go, inject/include/wwboss.h): its proc and tag, held to Gohma's
+	// proc and the request's tag, and its seq. The REL gives this game's
+	// own boss the death a lethal hit gives it, so the boss bits the
+	// planner holds in a boss stage (bossHold) are set by the game itself
+	// (bosskill.go; design research C3-C6-gohma.md B5). No save data:
+	// FrameWriter.ApplyBossKill writes it, when IDLE.
+	TargetBoss
 
 	// AllTargets is the most any milestone writes: NewGuard's allowlist.
 	AllTargets = TargetStage | TargetOcean | TargetStory | TargetInventory | TargetDerived |
-		TargetCounters | TargetSelectItem | TargetScoped | TargetKills | TargetTag | TargetEscape | TargetK1
+		TargetCounters | TargetSelectItem | TargetScoped | TargetKills | TargetTag | TargetEscape | TargetK1 | TargetBoss
 	// M3Targets is what M3's reconciler writes (§9 M3): the stage
 	// progress bits and memory switches, the ocean, the charts and the
 	// sea map. A replica's WriteGuard adds TargetEscape for the escape
@@ -110,13 +118,13 @@ const (
 	M5Targets = TargetScoped
 	// M6Targets is what M6's receiver adds (§9 M6): the zones' dead-actor
 	// words and the light-shrink. A replica that writes guards M3Targets |
-	// M4Targets | M5Targets | M6Targets | TargetEscape.
+	// M4Targets | M5Targets | M6Targets | TargetEscape | TargetBoss.
 	M6Targets = TargetKills | TargetK1
 )
 
 var targetNames = [...]string{
 	"stage", "ocean", "story", "inventory", "derived",
-	"counters", "select-item", "scoped", "kills", "tag", "escape", "k1",
+	"counters", "select-item", "scoped", "kills", "tag", "escape", "k1", "boss",
 }
 
 func (t Target) String() string {
@@ -183,7 +191,9 @@ type byteRule struct {
 //     and the room's status they rest on were read again;
 //   - pathActor, FrameWriter.ApplyActors: a light-shrink timer and a
 //     weapon's CARRY byte (M6), each of an actor read again just before
-//     (combat.Revalidate), judged by WriteGuard.checkActor.
+//     (combat.Revalidate), judged by WriteGuard.checkActor;
+//   - pathBoss, FrameWriter.ApplyBossKill: the mailbox's boss_kill
+//     request (bosskill.go).
 type path uint8
 
 const (
@@ -194,10 +204,11 @@ const (
 	pathScoped
 	pathKill
 	pathActor
+	pathBoss
 
 	// pathAny is WriteGuard.Check's: a byte judged as written by its own
 	// path, whichever that is.
-	pathAny = pathMerge | pathDerive | pathEscape | pathTag | pathScoped | pathKill | pathActor
+	pathAny = pathMerge | pathDerive | pathEscape | pathTag | pathScoped | pathKill | pathActor | pathBoss
 )
 
 func (p path) String() string {
@@ -213,6 +224,7 @@ func (p path) String() string {
 		{pathScoped, "the scoped path (FrameWriter.ApplyScoped)"},
 		{pathKill, "the kill path (FrameWriter.ApplyKills)"},
 		{pathActor, "the light-shrink (FrameWriter.ApplyActors)"},
+		{pathBoss, "the boss_kill request (FrameWriter.ApplyBossKill)"},
 	} {
 		if p&n.p != 0 {
 			parts = append(parts, n.name)
@@ -366,7 +378,23 @@ func NewGuardFor(t Target) *Guard {
 	add(addr.NextStage, escapeRules(), "mNextStage")
 	add(mailbox.WarpSeq, whole(4, ruleSet, TargetEscape, pathEscape), "mailbox.warp_seq")
 	add(WarpPos, whole(12, ruleSet, TargetEscape, pathEscape), "mailbox.warp_x/y/z")
+	add(mailbox.BossAddr+mailbox.BossSeqOff, whole(4, ruleSet, TargetBoss, pathBoss), "mailbox.boss_kill seq")
+	add(mailbox.BossAddr+mailbox.BossProcOff, bossRules(), "mailbox.boss_kill proc and tag")
 	return g
+}
+
+// bossRules is the boss_kill request's proc and tag (wwapi/mailbox
+// boss.go), each byte held to the one value the REL runs: Gohma's proc
+// (mailbox.BossProcBtd, the only boss the REL takes) and mailbox.BossTag.
+func bossRules() []byteRule {
+	var want [4]byte
+	binary.BigEndian.PutUint16(want[:], mailbox.BossProcBtd)
+	binary.BigEndian.PutUint16(want[2:], mailbox.BossTag)
+	rs := make([]byteRule, len(want))
+	for i, b := range want {
+		rs[i] = byteRule{mask: 0xFF, rule: ruleRange, target: TargetBoss, paths: pathBoss, lo: int8(b), hi: int8(b)}
+	}
+	return rs
 }
 
 // escapeRules is mNextStage's allowlist (dStage_nextStage_c, d_stage.h:

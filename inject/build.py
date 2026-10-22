@@ -46,11 +46,11 @@ SYMBOL_MAP = os.path.join("build", "WWMultiplayer.map")
 # game data it references by address, and its outputs. Built apart from
 # T2 (plain gcc + `ld --relocatable`, no Freighter); extract_blob.py
 # embeds REL_ELF as is and the Go converter (wwapi/rel) makes the REL.
-REL_SOURCES = ["rel/rel_main.c", "rel/enemy_mirror.c", "rel/remote.c", "rel/fullbody.c", "rel/shanm.c"]
+REL_SOURCES = ["rel/rel_main.c", "rel/enemy_mirror.c", "rel/remote.c", "rel/fullbody.c", "rel/shanm.c", "rel/bosskill.c"]
 # The headers the module's build id also covers (rel_build_id): its own
-# and the three slack layouts it reads and writes.
-REL_HEADERS = ["rel/enemy_mirror.h", "rel/remote.h", "rel/fullbody.h", "rel/shanm.h", "rel/dapy.h",
-               "include/wwrel.h", "include/wwenemy.h", "include/wwenemy_kinds.h", "include/wwremote.h"]
+# and the four slack layouts it reads and writes.
+REL_HEADERS = ["rel/enemy_mirror.h", "rel/remote.h", "rel/fullbody.h", "rel/shanm.h", "rel/dapy.h", "rel/bosskill.h",
+               "include/wwrel.h", "include/wwenemy.h", "include/wwenemy_kinds.h", "include/wwremote.h", "include/wwboss.h"]
 REL_LD = os.path.join("rel", "ww_rel.ld")
 REL_OBJ_DIR = os.path.join("build", "temp", "rel")
 REL_ELF = os.path.join("build", "wwrel.elf")

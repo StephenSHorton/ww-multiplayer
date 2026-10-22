@@ -96,3 +96,23 @@ const (
 	Am2BckCount = Am2BckLast - Am2BckFirst + 1
 	Am2BckWait  = 0x0F
 )
+
+// The Darknut's archive and body BCK range (TN design D7, rel_changes R-1
+// ARC and BCK_*).
+const (
+	// TnArc is tn_class's archive (dComIfG_getObjectRes "Tn",
+	// d_a_tn.cpp:87-113).
+	TnArc = "Tn"
+	// Tn.arc's body BCK indices (assets/GZLE01/res/Object/Tn.h:44-89):
+	// dRes_INDEX_TN_BCK_AAT_KAITEN1_e 0x28 through
+	// dRes_INDEX_TN_BCK_S_DEMO_M2_e 0x55, 46 of them. 0x56..0x67 are the
+	// Y* armor BCKs (Tn.h:90-107), which only the armor morf plays. AWAIT1
+	// 0x3D is the wait row (d_a_tn.cpp:2205); YKIHON1 0x64 the armor morf's
+	// (design R-5); ATATE_ON1 0x3C the shield's (R-6).
+	TnBckFirst      = 0x28
+	TnBckLast       = 0x55
+	TnBckCount      = TnBckLast - TnBckFirst + 1
+	TnBckWait       = 0x3D
+	TnBckTateOn     = 0x3C
+	TnBckArmorKihon = 0x64
+)

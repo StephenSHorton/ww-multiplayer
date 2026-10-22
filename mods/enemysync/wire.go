@@ -158,7 +158,7 @@ const (
 	HDRate           uint8 = 12 // within HitRate of the last hit on that Moblin
 	HDBusy           uint8 = 13 // the host's request queue is full or holds that (client, setID)
 	HDGoFlags        uint8 = 14 // the sample's flags pre-dropped it
-	HDDemo           uint8 = 15 // the host Link is in a demo
+	HDDemo           uint8 = 15 // the host Link is in a demo: a hit held over it aged out (DemoHoldMax)
 	// HDNoBody is the REL's: ATTRIB asked for the hit to be attributed to
 	// the sender's remote body, but that body was not LIVE, so the host
 	// Link's path ran (mailbox.RemoteHDNoBody).
@@ -166,6 +166,12 @@ const (
 	// HDKind is the REL's (layout 3): the target's kind has no row or is
 	// not enabled on the host (mailbox.EnemyHDKind).
 	HDKind uint8 = mailbox.EnemyHDKind
+	// HDDirect and HDFront are the REL's AM2 direct apply (TN design R-15,
+	// hit_path): applied through cc_at_check and week_atari_check's tail
+	// with no sphere Set (with AckAppliedAt), and a client verdict hit from
+	// the front (with AckDropped).
+	HDDirect uint8 = mailbox.EnemyHDDirect
+	HDFront  uint8 = mailbox.EnemyHDFront
 )
 
 // ResultName and DetailName name an ACK's result and detail for logs.
@@ -186,7 +192,7 @@ func ResultName(r uint8) string {
 }
 
 func DetailName(d uint8) string {
-	names := [...]string{"none", "no_cross", "invuln", "ragdoll", "dying", "no_link", "no_sphere", "wrong_obj", "aborted", "defence", "fallback_shrink", "go_gate", "rate", "busy", "go_flags", "demo", "no_body", "kind"}
+	names := [...]string{"none", "no_cross", "invuln", "ragdoll", "dying", "no_link", "no_sphere", "wrong_obj", "aborted", "defence", "fallback_shrink", "go_gate", "rate", "busy", "go_flags", "demo", "no_body", "kind", "direct", "front"}
 	if int(d) < len(names) {
 		return names[d]
 	}
@@ -327,7 +333,21 @@ type Hit struct {
 	CutType  uint8
 	CutCount uint8
 	PlayerID uint8
+	// ClientFlags is HIT byte 54 (spare until the TN batch; no WireVersion
+	// bump, the KindHash change already separates builds): the client
+	// REL's AM2 verdict (HitCF*), set only for an AM2 collider-1 hit
+	// whose pending byte carried mailbox.EnemyHPVerdict (TN design R-14,
+	// go_changes client.go). 0 for every other hit.
+	ClientFlags uint8
 }
+
+// The HIT's ClientFlags bits (byte 54). The host turns them into the
+// hit_apply flags mailbox.EnemyHAFVerdict and EnemyHAFBack (host.go
+// hitApply), plus EnemyHAFCrit from CutType and AtType.
+const (
+	HitCFVerdict uint8 = 0x01 // the client REL judged the AM2 weak-spot bearing (pending & EnemyHPVerdict)
+	HitCFBack    uint8 = 0x02 // with HitCFVerdict: from behind (pending & EnemyHPBack)
+)
 
 // Ack is an ACK payload: what the host did with a HIT. Client is the HIT's
 // stamped connection ID, which the server routes the ACK by; Handle is
@@ -542,6 +562,7 @@ func EncodeHit(h *Hit) ([]byte, error) {
 	b[44], b[45] = h.Spl, h.AtSPrm
 	b[46], b[47], b[network.EnemyHitPlayerIDOff] = h.CutType, h.CutCount, h.PlayerID
 	binary.BigEndian.PutUint16(b[52:], h.Handle)
+	b[54] = h.ClientFlags
 	return b, nil
 }
 
@@ -576,6 +597,7 @@ func DecodeHit(data []byte) (*Hit, error) {
 		CutType:     data[46],
 		CutCount:    data[47],
 		PlayerID:    data[network.EnemyHitPlayerIDOff],
+		ClientFlags: data[54],
 	}
 	for i := range 3 {
 		h.Pos[i] = math.Float32frombits(binary.BigEndian.Uint32(data[28+4*i:]))

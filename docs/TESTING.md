@@ -162,3 +162,87 @@ First run (REL 0x345EFD80, `ww-multiplayer-handoff/archive/enemy-allow-a1/`), it
 Rig: never warp a Link again while its void-out respawn runs (within about 10 s): Link sticks in its create (`actors` shows the player `init 1` at (0, 5, ~300), a black screen), with or without a session. Kill that Dolphin.
 
 Every run: sweep both players' full Player.log, not only the reported issues, and confirm no adopt while gated.
+
+### Enemy mirror: Darknut probes (B0)
+
+The TN batch's first step (`ww-multiplayer-handoff/design/enemy-mirror-tn.json`, test_plan P0-b and P0-c) was Go only: the Darknut was a staged row (id 6), read by the probes and by nothing else. B1 (next section) made it row 6 of `Kinds`; the probes below work unchanged on the B1 build, except that `enemy-match` now refuses a Darknut the live gate refuses (`verdict=live-gate`), and `enemy-watch --kind tn` samples only the taken ones.
+
+Offline: `TestTnOffsets` and `TestTnBckRange` (`wwapi/addr`), `TestTnLiveRefusal` and `TestReadSampleTN*` (`mods/enemysync`, five Reads), and `TestEnemyMatchDryTN` and `TestEnemyKindWatchTN` (`cmd/wwdev`).
+
+Live, host only, on the current build (P0-b), in `kaze 8 8` and `Cave11 0 9`:
+
+```
+./wwdev.exe enemy-match --dry --kinds tn        # kaze r8: keyed; the unkeyed ones show unkeyed-off
+./wwdev.exe enemy-match --dry --kinds tn+u      # Cave11 r9: the four unkeyed Darknuts
+./wwdev.exe enemy-watch 0 --kind tn             # per tick: action (dr.mAction), mode, pieces, equip, m03F0, m140C, m1444, the sword
+```
+
+`enemy-match` prints the live gate after ` pid=` (`tn_action`, `tn_boss`, `tn_equip`, `tn_m02c1`, `tn_m1518`, `tn_m14f8`, `tn_m140c`, and `tn_live=ok` or the first refusal). B0 refused on placement and params (behaviour nibble 12..15) only; on B1 the gate refuses too. The sword line resolves `mBokoPcId` (0x1410) to its actor: pass when it is `proc 0x01D5`. Pieces (0x2D0) start at 0x0F with a shield (equipment 2 and up) and 0x0B without one (d_a_tn.cpp:4232-4236), then lose bit 1 (armor), 2 (helmet) or 4 (shield) as they break.
+
+P0-c: every `enemy-watch --kind tn` walk line ends with `exec <daTn_Execute> part_move <exec-0x1040> yoroi_break <exec-0x224C>`, read as `*(*(actor+0xEC)+8)`. Dump the words there with the existing tools; no new command is needed:
+
+```
+./wwdev.exe ppc-disasm <part_move> 2            # expect an stwu r1,-N(r1) prologue
+./wwdev.exe ppc-disasm <yoroi_break> 2
+# or by hand from the actor address (enemy-watch's walk line, or `actors`):
+./wwdev.exe peek <actor+0xEC>                   # the actor_method_class*
+./wwdev.exe peek <method+0x8>                   # daTn_Execute
+./wwdev.exe peek <exec-0x1040> 8                # two words (n is in decimal bytes)
+```
+
+Record the two words at each address for the batch C choice (design D6).
+
+### Enemy mirror: Darknut row and Armos direct apply (B1)
+
+The TN batch's B1 (`ww-multiplayer-handoff/design/enemy-mirror-tn.json`: D1-D14, R-1..R-16, test_plan P1 and T1-T6 with the P0 amendments; `archive/enemy-tn-b/P0-NOTES.md`) makes the Darknut kind row 6 (layout 3 holds it: the annex HKDX byte 0x1FF is id 6's; id 7 needs layout 4) and adds the Armos (AM2) direct apply. TN is off by default; a run turns it on with `tn` (keyed: kaze r8, M_Dai r17) or `tn+u` (the cave Darknuts) in `WW_ENEMY_MIRROR_KINDS` on both sides. BOSS Darknuts (D3), behaviour 12..15 and caped ones (equipment 4 and up, D5) are refused.
+
+Offline, before any live run (`go test -count=1 ./mods/enemysync ./wwapi/mailbox ./wwapi/addr ./internal/inject/... ./cmd/wwdev`):
+
+- `TestKindTablePins`, `TestColliderOffPins`, `TestKindHash` (the pin is 0x0F3064EE: a build from before B1 and one after refuse each other's STATE), `TestEnemyHeaderPins`, `TestEnemyBlockPlacement` (HD 18 direct, 19 front; the TN tg_hit_up byte 0x1FB; HAF 0x20/0x40/0x80 clear of 0x01..0x10), `TestBlobFresh` and `TestT2EndsBelowMailbox` (the REL rebuild and restamp), and the REL's own static asserts (kind count 7).
+- `TestKindTNRow` (row, sets, defaults: off in `DefaultMirrorKinds`, on in `DefaultQuietKinds`), `TestTnLiveRefusal`, `TestClassifyWalkTN` (the live gate refuses an unlisted Darknut; a listed one stays through S_DEMO, m14F8 and m140C but not BOSS), `TestReadSampleTNFlags` (DYING from dr.mAction 20..22, the ice shrink, or health <= 0 with dr.mMode <= -100; health 0 alone is not dying), `TestDormantPlaySkipTN`, `TestForwardHitTN` (head and Tg, everything but the Hookshot).
+- AM2 direct apply: `TestHitClientFlags` and `TestMirrorReadHitVerdict` (the client's pending byte 0x02/0x04 into HIT byte 54), `TestHitClientFlagsWire`, `TestHitApplierTN` (TN never ATTRIB, D12; HAF_VERDICT/HAF_BACK only for AM2 collider 1, from the host slot's kind), `TestHitApplierAM2Crit` and `TestAm2CritPins` (HAF_CRIT: a crit sword cut or the hammer's side swing, d_a_am2.cpp:236-280).
+- `TestParseAnnexTN` and `TestAnnexTnTgHitUpWritten` (`tn:tg_hit_up` reaches byte 0x1FB on both sides), `TestEnemyMatchDryTN` and `TestEnemyKindWatchTN` (`cmd/wwdev`).
+
+`WW_ENEMY_ANNEX=tn:hooks=...` bisects the TN hooks on a client, byte 0x1FF (design R-3, D9). TN reuses the generic bits whose generic meaning is dead for it, under its own names (the generic names work too):
+
+| bit | generic name | tn name | turns off |
+|---|---|---|---|
+| 0x01 | model_eq | shield | the shield morf pre-calc (AGUARD/ATATE_ON on the shield, the left arm's guard pose) |
+| 0x02 | attach | attach | the pieces mask, the armor/helmet/shield parts, the armor morf play and calc, the defence sphere centre |
+| 0x04 | eye | sword | the sword carry, its hand matrix, the HAS_WEAPON drop and the TN quiet drop |
+| 0x08 | legacy_death | coll | the TN colliders case (shield bits by pieces, the helmet hit mark) |
+| 0x10 | attn | attn | the per-frame attention write (generic) |
+| 0x20 | mtx_plain | adopt_anm | the adopt-time armor YKIHON1 setAnm and the armor play |
+| 0x40 | special | special | reserved for batch C (TN armor direct apply); no-op |
+| 0x80 | extra | extra | not reused (generic code returns on it) |
+
+The AM2 direct apply is switched by AM2's own `special` bit (byte 0x1FE): `WW_ENEMY_ANNEX=am2:hooks=special` on a client sends no verdict, on the host ignores one, and the hit takes the old sphere path either way (D10).
+
+Rig (`ww-multiplayer-handoff/archive/`): host A user-4 (15-StartET card, sword), client B user-3 booted with `s2v2-live/boot_b_sword.sh`; `s2v2-live/healer.sh <bin> <pidA> <pidB>` on both PIDs for the whole run; `remote-link-live/warp_near.py` and `enemy-allow-a1/backstab.py` to place a Link. P1: one REL build, the restamp, then one Shift+F1 recapture (`./wwdev.exe auto-recapture`); `go test ./...` green first. Hop one room at a time (`./wwdev.exe stage-hop <stage> <point> <room> --yes`; `M_NewD2` once hung the game).
+
+- [ ] **T1 kaze r8, adopt and look**: `WW_ENEMY_MIRROR_KINDS=mo2,bk+u,cc+u,tn` on both sides, `stage-hop kaze 8 8 --yes` on both. On B, `./wwdev.exe enemy-block-dump` (or the client log's slots line) shows three kind-6 slots; `WW_DOLPHIN_PID=<A> ./wwdev.exe enemy-match --dry --kinds tn` on A and on B diff clean before ` pid=`; nothing adopts while A's Darknut has m140C != 0 (`enemy-watch 0 --kind tn` on A). Screenshots of both: armor, helmet, shield and sword on the right joints, the left arm holding the shield, the shadow following the copy. The AGUARD shield follow is a rig gap (P0: the guard needs the host Link's cut while Z-locked; it holds only if Stephen plays the host). Bisect a wrong piece with B restarts: `tn:hooks=shield`, `attach`, `sword`, `coll`, `adopt_anm`.
+- [ ] **T2 kaze r8, client hits**: B swings at an unguarded Darknut: the ACK's Health drops (the pass signal is the client ACK Health, never `applied_at` alone). B hits the front until the armor breaks: A's pieces go 0x0B -> 0x0A (or 0x0F -> 0x0E) and B's copy hides the armor when the bit clears, then streams the B* bcks (0x45..0x55, BRUN2, BSURI_SFB1). A back-stab from A with B watching: the copy's armor vanishes about 13 frames after the strike (no pop, no particles: design animation). A Tg-height miss is retuned live with `WW_ENEMY_ANNEX=tn:tg_hit_up=<n>` on A (R-13; 0 = the compiled 68). Guard-defence (A's Darknut in DEFENCE, action 10: the ACK's result is `parried` with detail `none`, from the defence sphere's Tg record on the v2 path; detail `defence`, 9, appears only under `WW_ENEMY_HIT_V1=1`) is a rig gap as in T1: it runs only if Stephen plays the host.
+- [ ] **T3 kaze r8, quiet death (P0 death order)**: kill all three (some from A, some from B). Pass: at health 0 A's Darknut ragdolls (`enemy-watch` on A: mode -100, action 0, BDOWN_A1 then BDOWN_U1, about 1.6 s) and B's copy plays the same ragdoll at full size (it is DYING from the first ragdoll sample and holds scale through `EMK_TN_QUIET_HOLD`), then shrinks quietly; it is never handed back at health 0. Then `./wwdev.exe actors` on B shows no proc 0x00C0 and no orphan proc 0x01D5 sword; B's kill-all bars on switch 0x85 open (d_a_door12.cpp:154-170); death switches 0x86..0x88 are set on B; no miniboss sub-BGM change on either side (D4). Known gap: after a host sword drop and re-pickup the copy stays unarmed.
+- [ ] **T4 caves, unkeyed**: `tn+u` on both sides, `stage-hop Cave11 0 9 --yes`: the four unkeyed Darknuts fill exactly the four slots; rerun the T1-T3 checks. Then `Cave10 0 16` with `mo2+u,tn+u` (two Darknuts among five enemies, four slots) last.
+- [ ] **T5 AM2 direct apply**: `am2+u` both sides, `WW_ENEMY_REMOTE` unset, `stage-hop Cave09 0 7 --yes`. B positions with `backstab.py <bin> <armos> 6 90 back|front` (WW_DOLPHIN_PID=B); A stands with `warp_near.py` (or `backstab.py ... 1 90 back|front` on A for A's own swing). Pass: B back + A front: Health drops by the atp, ACK detail `direct`. B back + A back: one drop, no double damage. B front + A back: no drop, detail `front` (the negative control the old path got wrong). B front + A front: no drop, `front`. A alone back-stabbing: vanilla, unchanged. After an arrow stun (MAHI): hittable; carried, or MAHI mode 15: detail `invuln`. A hammer hit kills (health 0, m2CE 7/8). A hit during the Armos's invuln is retried, not dropped. Then `kaze 4 4` keyed with A at z >= 2900 (z < 2900 is void). Then once with `WW_ENEMY_REMOTE=step6` on both: no double apply, and the `attacker_overrides` counter does not tick on a direct hit. Then `WW_ENEMY_ANNEX=am2:hooks=special` on both: the old path returns (a B back-stab with A in front is `applied_at` and ignored, as on A1). Accepted divergences (am2_fix): the ITAI knockback heads away from A's Link; the hit SE and hit-stop use A's cut count; no crit flash particle on A. Rig gap: `backstab.py` has no warp-only mode in the archive copy, so placing A behind without a swing is a hand `warp` plus the angle pokes from the script.
+- [ ] **T6 regression**: the default kinds and then every kind on (`mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u`): the A1 fixture rooms (the kinds probe goldens, one kill each for MO2, BK, CC, KI, AM), a `bk:tg_hit_up` override still applying, 8 hops with canaries flat apart from PauseReasserts. Sweep both players' full Player.log and the mplocal logs afterwards, not only the reported issues, and confirm no adopt while gated.
+
+### Co-op: the Gohma kill relay (B5, A9)
+
+Each game fights its own Gohma (`ww-multiplayer-handoff/design/research/C3-C6-gohma.md`, "The relay op (B5, revised)"). When one player kills theirs, the world gets DRC's STAGE_BOSS_ENEMY, but a partner still in M_DragB keeps the bit held (bossHold, unchanged). Its replica instead writes the boss_kill request (`mods/coop/replica/bosskill.go`; 16 bytes at 0x80413410, `inject/include/wwboss.h`), and the REL (`inject/rel/bosskill.c`) gives that game's own Btd the lethal-hit death: s16 +0x2E4 = 0xB and s16 +0x2E6 = 0x32 (d_a_btd.cpp:463-475). Its own death demo then drops the floor, spawns the heart container, sets the bit and creates the warp flower. The REL applies it only once the receiver has broken its own Gohma's armor (u8 +0x2E0 m02E0 = 1, the only phase vanilla's lethal eye hit takes, d_a_btd.cpp:457): an armored Gohma answers `waiting`, so the partner's kill ends the receiver's fight at the eye phase, never on the armored model. The REL takes only proc 0x00EB in the stage named exactly `M_DragB`, so never an X refight stage. Go asks only a REL of its own build (`inject.RELBuildID`); another build gets no request and one log line naming both ids. The receiver's log prints `boss_kill <seq>: <result> (m02E4 0x.., state 0x.., m02E0 n)` once per change of result, phase or action (the fight's m02E4 0..2 count as one), not once per seq: `waiting` and `no actor` are asked again every 500 ms, `none` (consumed at the keeper's create) too, `applied` and `already` not for 45 s.
+
+Offline (`go test -count=1 ./mods/coop/replica ./wwapi/mailbox ./internal/inject/...`): `TestBossHeaderPins`, `TestBossRequestPlace` (the gap +0x510..+0x520 inside RemoteBlockRegion, outside the canary arenas), `TestBossReadAndFields`, `TestBossKillWanted` (only with the bit held and the game in M_DragB, a boss stage, with DRC loaded; never `Xboss0`; not once the local save has the bit), `TestBossGuardRules` (the guard takes the proc and tag only as 0x00EB and 'BK', on pathBoss alone), `TestBossKillRelay` (asked again while waiting and after a swallowed request, not during the death demo, stopped once the game has the bit), `TestBossKillNeverInRefight`, `TestBossKillNotWhenLocalHasIt`, `TestBossKillNoREL`, `TestBossKillWrongREL` (another REL build: no request, one line), `TestBossKillLogOnce` (an armored `waiting` with rising seqs and turning m02E4 logged once, the broken armor's again, `not acked` once), `TestBlobFresh`.
+
+Rig: two Dolphins with `mp-local --coop` on one world, both players at the M_DragB boss door with the boss not yet killed on either file. Read the request and its answer with `WW_DOLPHIN_INDEX=<n> ./wwdev.exe peek 0x80413410 16` (seq, proc 00EB, tag 424B, ack, then the result byte, m02E4, mGohmaState and m02E0). Before the first live run: one REL build, the restamp and a recapture (the REL change rides in the same build as B1).
+
+- [ ] **D4-0 boot**: on both Dolphins, before any request, ack equals seq at 0x80413410 (the keeper consumed whatever the slack held at its create); no `boss_kill` line in either log outside M_DragB.
+- [ ] **D4-1a armored**: B in the fight with the armor intact (no rock hit yet, or one or two), A kills its Gohma. B's log: `waiting (m02E4 0x0..0x2, ..., m02E0 0)`, logged once (not once per seq) while B fights on; no death demo, BGM and materials unchanged. Drop the rock on B's Gohma meanwhile: the rock damage runs as vanilla. B breaks the armor: the next answer is `applied` with m02E0 1.
+- [ ] **D4-1 forced from each pose**: B in the fight with the armor broken (m02E0 1, the eye phase), A kills its Gohma. B's log: `boss_kill N: applied`, and B's Gohma plays its death from wait, then (rerun) from attack and from the damage poses. Screenshot B: `end()` re-inits the DEAD bck, and the blend from a non-damage pose is unverified (design D4 (1)).
+- [ ] **D4-2 receiver busy**: as D4-1 with B hanging on the grapple (Kui), then with B under Gohma's fire attack: the death runs, B is not stuck on the rope, no fire left burning on the boards.
+- [ ] **D4-3 during the intro**: B is already in M_DragB and holds within 200 units of (-1534, 0, 909), which keeps Btd at m02E4 0xA without ordering its intro (d_a_btd.cpp:366-385), while A kills its Gohma; then B walks in. (B entering M_DragB after A's kill gets the bit live outside the boss stage, so no Gohma and no request: that is the Q6 path, not this check.) B's log shows `waiting (m02E4 0xA ...)` once, its intro plays out, then `waiting (m02E4 0x0.., m02E0 0)` through the armored fight, then `applied` once B breaks the armor. No death demo on a Gohma still at y -10000.
+- [ ] **D4-4 the exit**: after D4-1 on B: the floor drops, the warp flower appears, the heart container spawns if STAGE_LIFE is clear (it does not if A already took A's), B's own save gets STAGE_BOSS_ENEMY (the planner's DRC hold line clears) and the flower warps B out (`Adanmae`).
+- [ ] **D4-5 same frame**: both kill on the same frame (or within the demo): each log shows at most `already` and nothing applied twice; one heart container between the two files.
+- [ ] **D4-6 never in a refight**: with the world's DRC boss bit set, stage-hop B to an X refight stage (`Xboss0`): no request (seq at 0x80413410 does not move), no `boss_kill` line.
+- [ ] **D4-7 hop and recreate**: with a request answered `waiting`, hop B out of M_DragB and back. The keeper survives the hop (`inject/rel/README.md`, "Who creates the actor") and acks every request within a frame, so no `none` appears: the hold stays, the seq at 0x80413410 keeps rising, and after re-entry a new request gets its answer. `none` comes only from a keeper create with a seq in the slack: check it across a reset (D4-0's ack equals seq), not a hop.
+
+Until a disc with this REL is in use, the playthrough rule stays: the second player waits outside M_DragB until the kill, then walks in and takes the warp; a player trapped inside dies and continues at the M_NewD2 entrance, or uses /warp.
