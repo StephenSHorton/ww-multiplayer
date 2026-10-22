@@ -181,20 +181,30 @@ func TestMirrorGates(t *testing.T) {
 		t.Fatalf("no STATE: sleep %v err %v writes %d", sleep, err, len(m.Writes()))
 	}
 	arm()
-	// Stale STATE (over StaleAfter without one, 32 ticks): a count-0
-	// block, once.
+	// Stale STATE (over StaleAfter without one, 32 ticks): held, the
+	// three slots frozen (TestMirrorStaleHold), until StaleHold past it;
+	// then a count-0 block, once.
+	c.StaleHold = StaleHoldMax
 	for i := 1; i <= 32; i++ {
 		tick()
 		if _, _, err := c.Tick(now.Add(time.Duration(i) * 16 * time.Millisecond)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if counts := countOf(); len(counts) != 33 || counts[31] != 3 || counts[32] != 0 {
-		t.Fatalf("stale: block counts %v", counts)
+	if counts := countOf(); len(counts) != 33 || counts[31] != 3 || counts[32] != 3 || c.holdSince.IsZero() {
+		t.Fatalf("stale: block counts %v, holding since %v", counts, c.holdSince)
+	}
+	now = now.Add(StaleAfter + StaleHoldMax + time.Millisecond)
+	tick()
+	if _, sleep, _ := c.Tick(now); sleep != GateSleep {
+		t.Errorf("stale past the hold: slept %v", sleep)
+	}
+	if counts := countOf(); len(counts) != 34 || counts[33] != 0 {
+		t.Fatalf("stale past the hold: block counts %v", counts)
 	}
 	now = now.Add(time.Second)
 	tick()
-	if _, sleep, _ := c.Tick(now); sleep != GateSleep || len(countOf()) != 33 {
+	if _, sleep, _ := c.Tick(now); sleep != GateSleep || len(countOf()) != 34 {
 		t.Errorf("a second stale tick wrote again (%d blocks) or slept %v", len(countOf()), sleep)
 	}
 	// Another room than the host's.

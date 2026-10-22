@@ -170,6 +170,8 @@ WW_ENEMY_SYNC=0                             # Enemy sync off (mods/enemysync, th
                                             #   enemy-B (client, Dolphin B); needs the REL module linked. A fatal enemy error (a reject, a panic) turns enemies off
                                             #   until the pipelines next start; pose sync keeps running (engine Degradable)
 WW_ENEMY_RAW=1                              # enemy-client bypasses the smoother and sets the block's raw flag (the lag measurement)
+WW_ENEMY_STALE_HOLD=<dur>                   # enemy-client: how long past 500 ms a STATE that stopped coming (a stall) holds the copies frozen before
+                                            #   they are released to this game's AI (a Go duration or ms; default 2.5s; 0 = release at once)
 WW_ENEMY_COLLIDERS=0                        # enemy-host's STATE stops asking the clients to submit their copies' colliders (default on)
 WW_ENEMY_HIT_V1=1                           # enemy-host applies a client's hit as the v1 shrink kill instead of the v2 sphere hit
 WW_ENEMY_HIT_FALLBACK=shrink                # enemy-host: a v2 hit that crossed nothing after two Sets falls back to the shrink kill
