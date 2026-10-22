@@ -113,7 +113,7 @@ func TestParseKinds(t *testing.T) {
 
 // TestStaticGates runs the gates on the params the enemy audit found
 // live (design test_plan.unit): M_NewD2 room 0's torch Bokoblins
-// 0xFFFF8784 (type 4), room 6's sleepers 0xFFFF0002 (type 2) and machete
+// 0xFFFF8784 (type 4), room 6's pot ambushers 0xFFFF0002 (type 2) and machete
 // 0xFFFF9644 (type 4), A_nami's 0xFFFF1460 (type 0), a runner 0xFF00FF19
 // (type 9), a Kargaroc rider 0xFFFF05 (type 5); M_Dai room 2's black
 // ChuChus 0xFF460300 and red 0xFF460100.
@@ -128,10 +128,15 @@ func TestStaticGates(t *testing.T) {
 		paramsOK, static bool
 	}{
 		{"BK torch 0xFFFF8784", bk, 0xFFFF8784, LiveGate{Mode: 4}, true, true},
-		{"BK sleeper 0xFFFF0002", bk, 0xFFFF0002, LiveGate{Mode: 2}, false, false},
-		// A sleeper that woke: d_a_bk.cpp:3162 sets mType 0, the nibble
-		// still refuses it.
-		{"BK sleeper woke, mType 0", bk, 0xFFFF0002, LiveGate{Mode: 0}, false, false},
+		// The pot ambushers (d_a_bk.cpp:5052-5055, tubo_wait): taken as
+		// placed, and as the client's copy reads once Mirror.ambushType
+		// wrote mType 0 (nothing in d_a_bk.cpp rewrites 2/3).
+		{"BK pot ambusher 0xFFFF0002", bk, 0xFFFF0002, LiveGate{Mode: 2}, true, true},
+		{"BK pot ambusher, mType 0 written", bk, 0xFFFF0002, LiveGate{Mode: 0}, true, true},
+		{"BK DRC r7 leaper 0xFFFF3203", bk, 0xFFFF3203, LiveGate{Mode: 3}, true, true},
+		// Type 7, the A_mori demo group (z_demo_1, :3159-3165 sets mType 0
+		// when it wakes): the nibble still refuses it.
+		{"BK demo group type 7 woke, mType 0", bk, 0xFFFFFF07, LiveGate{Mode: 0}, false, false},
 		{"BK machete 0xFFFF9644", bk, 0xFFFF9644, LiveGate{Mode: 4}, true, true},
 		{"BK A_nami 0xFFFF1460", bk, 0xFFFF1460, LiveGate{Mode: 0}, true, true},
 		{"BK runner 0xFF00FF19", bk, 0xFF00FF19, LiveGate{Mode: 9}, false, false},
@@ -216,6 +221,33 @@ func TestBckName(t *testing.T) {
 			if BckName(k.ID, uint8(i)) == "-" {
 				t.Errorf("%s BCK 0x%02X has no name", k.Name, i)
 			}
+		}
+	}
+}
+
+// TestBkAmbusher: the pot ambusher types 2 and 3 (d_a_bk.cpp:5052-5055)
+// and which of them keep m02BA = 0xFF (no switch gate m02B7, params >>
+// 24): the Dragon Roost placements (r1 0xFFFF6443, r6 0xFFFF0002, r7
+// 0xFFFF3203, r11 0xFFFF1E03) all do.
+func TestBkAmbusher(t *testing.T) {
+	for _, c := range []struct {
+		params      uint32
+		ambush, pot bool
+	}{
+		{0xFFFF6443, true, true},
+		{0xFFFF0002, true, true},
+		{0xFFFF3203, true, true},
+		{0xFFFF1E03, true, true},
+		{0x05FF0003, true, false}, // m02B7 5: create writes m02BA = 6
+		{0xFF02FF40, false, false},
+		{0xFFFF8784, false, false},
+		{0xFFFFFF07, false, false},
+	} {
+		if got := BkAmbusher(c.params); got != c.ambush {
+			t.Errorf("BkAmbusher(0x%08X) = %v, want %v", c.params, got, c.ambush)
+		}
+		if got := BkPotHidden(c.params); got != c.pot {
+			t.Errorf("BkPotHidden(0x%08X) = %v, want %v", c.params, got, c.pot)
 		}
 	}
 }

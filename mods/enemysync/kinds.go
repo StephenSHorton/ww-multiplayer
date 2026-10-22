@@ -295,10 +295,17 @@ type LiveGate struct {
 //   - MO2: none. The Moblin's gate is its live mMode (MirrorsMode), as
 //     KeyedMoblins has it; a params gate would change what the Moblin
 //     pipelines take.
-//   - BK: the type nibble params & 0xF in {0, 1, 4, 0xB} (create,
-//     d_a_bk.cpp:4759-4766; 0xB is the torch Bokoblin, mType 4). Type 6
-//     rewrites its home (d_a_bk.cpp:1461-1463), 9 runs, 5 rides a
-//     Kargaroc, 2 and 3 sleep: refused.
+//   - BK: the type nibble params & 0xF in {0, 1, 2, 3, 4, 0xB} (create,
+//     d_a_bk.cpp:4759-4766; 0xB is the torch Bokoblin, mType 4). 2 and 3
+//     are the pot ambushers: hidden in a pot (m02BA 0xFF, dr.mAction 15
+//     tubo_wait, d_a_bk.cpp:5052-5055) until the Link comes near or the
+//     pot goes, then a leap (3 JATTACK1, 2 JUMP1, :3024-3035) and type
+//     0's patrol; mType never changes. The REL's em_bk_gate takes only a
+//     live 0/1/4, so the client writes 0 into its own copy before it
+//     offers the slot (Mirror.ambushType; tubo_wait's leap pick is the only
+//     read of 2/3 after create). Type 6 rewrites its home
+//     (d_a_bk.cpp:1461-1463), 9 runs, 5 rides a Kargaroc, 7 is the
+//     A_mori demo group: refused.
 //   - CC: create's own decode (d_a_cc.cpp:2564-2605): behaviour params &
 //     0xFF (0xFF read as 0) in {0, 1, 3}; colour params >> 8 & 0xFF (0xFF
 //     read as 0; 10.. less 10, 15 the insta-kill m304, refused) in
@@ -314,7 +321,7 @@ func (k *Kind) ParamsOK(params uint32) bool {
 		return true
 	case KindBK:
 		switch params & addr.BkParamTypeMask {
-		case 0, 1, 4, addr.BkTypeTorchShield:
+		case 0, 1, BkTypeAmbushJump, BkTypeAmbushLeap, 4, addr.BkTypeTorchShield:
 			return true
 		}
 		return false
@@ -327,6 +334,27 @@ func (k *Kind) ParamsOK(params uint32) bool {
 		return params&0xF < 12
 	}
 	return false
+}
+
+// The Bokoblin's pot ambusher types (mType = params & 0xF, create
+// d_a_bk.cpp:5052-5055): 2 jumps out (JUMP1), 3 leaps at the Link
+// (JATTACK1, :3024-3035).
+const (
+	BkTypeAmbushJump = 2
+	BkTypeAmbushLeap = 3
+)
+
+// BkAmbusher reports whether a Bokoblin's params are a pot ambusher's.
+func BkAmbusher(params uint32) bool {
+	t := uint8(params & addr.BkParamTypeMask)
+	return t == BkTypeAmbushJump || t == BkTypeAmbushLeap
+}
+
+// BkPotHidden reports whether a pot ambusher's params leave its m02BA
+// the pot's 0xFF: no switch gate m02B7 (params >> 24, 0xFF none; create
+// d_a_bk.cpp:4770, :5064-5068 overwrites m02BA with m02B7 + 1).
+func BkPotHidden(params uint32) bool {
+	return BkAmbusher(params) && params>>24 == 0xFF
 }
 
 // UnkeyedParamsOK is the params gate an unkeyed (setID 0xFFFF) actor
@@ -372,7 +400,8 @@ func ccColorOK(c uint8) bool    { return c == 0 || c == 1 || c == 2 || c == 4 }
 // LiveOK is the kind's gate on the live class bytes:
 //
 //   - MO2: mMode 0 or 1 (MirrorsMode; carried 5 and statue 0xF refused).
-//   - BK: mType in {0, 1, 4} (create turned 0xB into 4).
+//   - BK: mType in {0, 1, 2, 3, 4} (create turned 0xB into 4; the
+//     client's own ambusher reads 0 once Mirror.ambushType wrote it).
 //   - CC: mBehaviorType in {0, 1, 3}, mColorType in {0, 1, 2, 4}, m304 0.
 //   - KI: mAction not 2 (FIRE_SET) nor 30 (FAIL_MOVE), and m2DC 0 (the
 //     shrink-delete fade scales the actor, d_a_ki.cpp:961-967; D16).
@@ -391,7 +420,7 @@ func (k *Kind) LiveOK(g LiveGate) bool {
 	case KindMO2:
 		return MirrorsMode(int32(g.Mode))
 	case KindBK:
-		return g.Mode == 0 || g.Mode == 1 || g.Mode == 4
+		return g.Mode <= BkTypeAmbushLeap || g.Mode == 4
 	case KindCC:
 		return ccBehaviorOK(g.Mode) && ccColorOK(g.Color) && g.InstaKill == 0
 	case KindKI:

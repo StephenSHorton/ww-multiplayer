@@ -570,6 +570,7 @@ func TestMo2Offsets(t *testing.T) {
 		{"Mo2OffIce", Mo2OffIce, 0x2A54},
 		{"Mo2OffIceShrink", Mo2OffIceShrink, 0x2A5A},
 		{"McaMorfOffModel", McaMorfOffModel, 0x50},
+		{"J3DModelOffBaseScale (J3DModel.h:148; base TR mtx at 0x24)", J3DModelOffBaseScale, 0x24 - 12},
 		{"McaMorfOffAnm", McaMorfOffAnm, 0x54},
 		{"McaMorfOffFrameCtrl", McaMorfOffFrameCtrl, 0x58},
 		{"McaMorfOffAttr", McaMorfOffAttr, 0x5C},

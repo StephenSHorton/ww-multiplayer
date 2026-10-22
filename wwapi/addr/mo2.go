@@ -121,6 +121,12 @@ const (
 	McaMorfAnimSpanLen = McaMorfOffSound - McaMorfOffAnm
 )
 
+// J3DModelOffBaseScale is J3DModel's Vec mBaseScale (J3DModel.h:148),
+// which setBaseScale writes and calc folds into the joints
+// (J3DModel.cpp:494, 784). The base matrix follows it (mBaseTransformMtx,
+// 0x24: J3DMODEL_BASE_TR_MTX_OFFSET in inject/include/wwapi.h).
+const J3DModelOffBaseScale = 0x18
+
 // The collider fields a hit object carries beyond its cCcD_ObjAt (the
 // mType and mAtp at +0x10 and +0x14 the client reads today): dCcD_GObjAt
 // sits at +0x50 of a dCcD_GObjInf (after cCcD_Obj 0x40 and cCcD_DivideInfo

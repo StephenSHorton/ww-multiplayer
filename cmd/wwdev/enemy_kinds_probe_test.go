@@ -19,7 +19,7 @@ import (
 
 // kindProbeRoom is M_Dai with Link in room 1 and the L0 cases placed:
 // placed 0 BK setID 0 torch 0xFFFF8784 holding a BOKO, 1 BK setID 1
-// sleeper 0xFFFF0002, 2 CC setID 3 black 0xFF460300, 3 CC setID 4 red
+// pot ambusher 0xFFFF0002, 2 CC setID 3 black 0xFF460300, 3 CC setID 4 red
 // 0xFF460100, 4 an unkeyed green CC, 5 MO2 setID 2.
 func kindProbeRoom(t *testing.T) (*mem.FakeMem, *fakegame.Enemies) {
 	t.Helper()
@@ -93,7 +93,7 @@ func TestEnemyMatchDry(t *testing.T) {
 		" boko_state=found boko_proc=0x01D5 boko_mode=2\n",
 		"boko kind=bk setID=0x0001 ",
 		" boko_pid=0 boko_state=none boko_proc=0x0000 boko_mode=0\n",
-		"summary idents=6 taken=4 refused=2\n",
+		"summary idents=6 taken=5 refused=1\n",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("output lacks %q:\n%s", want, s)
@@ -178,9 +178,9 @@ func TestEnemyKindWatch(t *testing.T) {
 	for _, want := range []string{
 		`stage "M_Dai" room 1; kind bk proc 0x00BE arc "Bk" bck 0x29..0x53 morf +0x2BC ice +0x1264 gate +0x2B4`,
 		"Bk table: resolved, mObjectInfo[30] mRes 0x80E00000 mCount 2 (BCK 0x29..0x53 at 0x80E12900..0x80E15300)",
-		"2 bk in room 1 of \"M_Dai\", 1 taken:",
+		"2 bk in room 1 of \"M_Dai\", 2 taken:",
 		fmt.Sprintf("kind=bk proc=0x00BE setID=0x0000 pkey=0x%08X params=0xFFFF8784 home_room=1 home=0x44A00000,0xC3480000,0x45BB8000 gate ok bk_type=4", bkPKey),
-		"setID=0x0001 pkey=", "gate params-gate bk_type=2",
+		"setID=0x0001 pkey=", "gate ok bk_type=2",
 		"mode 0 action 20", "flags 0x02 [DYING]", "flags2 0x03 [PLAY_SKIP WEAPON]", "bck 0x51 BK_WAIT attr 2",
 		"type 4 boko pid ", "proc 0x01D5 mode 2 (enemy-carry)",
 		"Bk table stats: reads ",

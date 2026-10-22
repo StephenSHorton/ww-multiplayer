@@ -135,7 +135,7 @@ func TestPKey(t *testing.T) {
 }
 
 // kindRoom is M_Dai with Link in room 1 and a mix of kinds placed:
-// placed indices 0 BK setID 0 torch, 1 BK setID 1 sleeper (type 2), 2 CC
+// placed indices 0 BK setID 0 torch, 1 BK setID 1 pot ambusher (type 2), 2 CC
 // setID 3 black, 3 CC setID 4 red, 4 CC unkeyed green, 5 MO2 setID 2,
 // 6 BK setID 7 in room 2, 7 a BOKO-less BK setID 8 of type 0.
 func kindRoom(t *testing.T) (*fakegame.FakeGame, *mem.FakeMem, *fakegame.Enemies) {
@@ -198,7 +198,7 @@ func TestClassify(t *testing.T) {
 			t.Errorf("%s: pkey or home room wrong", e.Ident)
 		}
 	}
-	want := map[uint16]string{0: "", 1: RefuseParams, 3: RefuseParams, 4: "", addr.ActorSetIDNone: "", 2: "", 8: ""}
+	want := map[uint16]string{0: "", 1: "", 3: RefuseParams, 4: "", addr.ActorSetIDNone: "", 2: "", 8: ""}
 	for id, w := range want {
 		got, ok := why[id]
 		if !ok {
