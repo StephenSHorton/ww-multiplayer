@@ -351,7 +351,7 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	// shared: A is the host and mirrors nothing, so coop-A gets none.
 	claimsA, claimsB := mpLocalClaims(enemysync.Enabled())
 	if enemysync.Enabled() {
-		// WW_ENEMY_SYNC=1: Dolphin A's Moblins are the authority (the
+		// Unless WW_ENEMY_SYNC=0: Dolphin A's Moblins are the authority (the
 		// sampler), Dolphin B mirrors them.
 		envA, envB := enemyEnv, enemyEnv
 		envA.Claims, envB.Claims = claimsA, claimsB

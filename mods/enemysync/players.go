@@ -36,9 +36,10 @@ import (
 //     as an At sphere on its own Link ("v2 in reverse", §8.5), and answers
 //     with the REL's result as a PACK.
 //
-// Nothing is written into the WWRP block unless WW_ENEMY_REMOTE is set
-// (RemoteConfigFromEnv): magic 0 / never written is today's game, and so
-// is every flag clear. The PSTATE stream runs whenever the enemy client
+// Nothing is written into the WWRP block when WW_ENEMY_REMOTE turns it
+// off (off/none/false/0; RemoteConfigFromEnv): magic 0 / never written is
+// today's game, and so is every flag clear. Unset is step6 with
+// DefaultPolicy. The PSTATE stream runs whenever the enemy client
 // runs (it only informs the host).
 
 // Remote-Link timing.
@@ -195,12 +196,52 @@ func SeedPolicy() []mailbox.RemotePolicy {
 		p = append(p, mailbox.RemotePolicy{Proc: proc, Flags: mailbox.RemotePFAllow})
 	}
 	p = append(p, mailbox.RemotePolicy{Proc: addr.ProcST, Flags: mailbox.RemotePFAllow | mailbox.RemotePFNoLatch})
+	return append(p, seedDeny()...)
+}
+
+// seedDeny is the seed's DENY entries, SeedPolicy's and DefaultPolicy's
+// alike.
+func seedDeny() []mailbox.RemotePolicy {
+	var p []mailbox.RemotePolicy
 	for _, proc := range []int16{addr.ProcFM, addr.ProcRD, addr.ProcPW, addr.ProcSSS, addr.ProcNpcJi1, addr.ProcFGMahou,
 		addr.ProcBPW, addr.ProcBWD, addr.ProcDaiocta, addr.ProcBTD, addr.ProcBMD, addr.ProcBDK, addr.ProcBST, addr.ProcFganon,
 		addr.ProcBGN} {
 		p = append(p, mailbox.RemotePolicy{Proc: proc, Flags: mailbox.RemotePFDeny})
 	}
 	return p
+}
+
+// DefaultPolicy is the PROC_POLICY of the default bodies (WW_ENEMY_REMOTE
+// unset, release-readiness A4): ALLOW only the Proc of each kind kinds
+// enables (the mirrored kinds: mo2, bk, cc by default; WW_ENEMY_MIRROR_KINDS
+// naming ki ALLOWs the Keese), and the seed's DENY list. Every other enemy
+// is no ALLOW, so without group_wide the REL never swaps its target to a
+// body (remote.c) and the host sends no PHIT for it (RemoteHost.phit):
+// an unmirrored enemy runs apart on each game and ignores the remote
+// bodies, as before there were bodies, on the host and the joiner alike.
+func DefaultPolicy(kinds KindSet) []mailbox.RemotePolicy {
+	var p []mailbox.RemotePolicy
+	for i := range Kinds {
+		if kinds.On[i] {
+			p = append(p, mailbox.RemotePolicy{Proc: int16(Kinds[i].Proc), Flags: mailbox.RemotePFAllow})
+		}
+	}
+	return append(p, seedDeny()...)
+}
+
+// defaultRemoteSteps is the default bodies' flags: step6 (bodies, swap,
+// hittable, detect, iframe_stamp, apply, attrib, attacker, name_a9,
+// guard), without step7's full_bodies.
+const defaultRemoteSteps = 6
+
+// remoteOff reports a WW_ENEMY_REMOTE value that turns the block off
+// (off, none, false, 0; any case).
+func remoteOff(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "off", "none", "false", "0":
+		return true
+	}
+	return false
 }
 
 // SeedFFDeny is the FF stage denylist seed (addr.StageFF*).
@@ -274,13 +315,27 @@ func ParseRemotePolicy(s string, base []mailbox.RemotePolicy) ([]mailbox.RemoteP
 	return out, nil
 }
 
-// RemoteConfigFromEnv reads the WW_ENEMY_REMOTE* knobs (CLAUDE.md). A bad
-// value is reported through rep and its default kept; a bad
+// RemoteConfigFromEnv reads the WW_ENEMY_REMOTE* knobs (CLAUDE.md).
+// WW_ENEMY_REMOTE unset or blank is the default bodies: the block on at
+// step6 with DefaultPolicy of the mirrored kinds (MirrorKinds, the set
+// the Host, the HitApplier and the Mirror read from the same env, so the
+// policy and the PHIT filter agree); off, none, false or 0 is the block
+// off, quietly; any other value is parsed as flags with SeedPolicy (the
+// dev rig's table). WW_ENEMY_REMOTE_POLICY edits whichever table that
+// is. A bad value is reported through rep and its default kept; a bad
 // WW_ENEMY_REMOTE leaves the block off.
 func RemoteConfigFromEnv(rep log.Reporter) RemoteConfig {
 	c := DefaultRemoteConfig()
 	warn := func(err error) { log.Logf(rep, log.Warn, "enemy remote: %v", err) }
-	if v, ok := os.LookupEnv("WW_ENEMY_REMOTE"); ok && strings.TrimSpace(v) != "" {
+	switch v := os.Getenv("WW_ENEMY_REMOTE"); {
+	case strings.TrimSpace(v) == "":
+		kinds, _ := MirrorKinds() // the host and the client log a bad value
+		c.On, c.Policy = true, DefaultPolicy(kinds)
+		for i := 0; i <= defaultRemoteSteps; i++ {
+			c.Flags |= remoteSteps[i]
+		}
+	case remoteOff(v):
+	default:
 		f, err := ParseRemoteFlags(v)
 		if err != nil {
 			warn(fmt.Errorf("%v; the remote-Link block stays off", err))
@@ -426,7 +481,9 @@ func parseFFDeny(s string) ([]string, error) {
 }
 
 // DefaultRemoteConfig is the block off, with the contract's default
-// tunables (mailbox.RemoteDef*) and the seed policy and FF denylist.
+// tunables (mailbox.RemoteDef*) and the seed policy and FF denylist: the
+// base RemoteConfigFromEnv starts from (its default bodies turn the block
+// on with DefaultPolicy instead).
 func DefaultRemoteConfig() RemoteConfig {
 	return RemoteConfig{
 		MarginQ8: mailbox.RemoteDefMarginQ8, MinHold: mailbox.RemoteDefMinHold, BodyIFrames: mailbox.RemoteDefBodyIFrames,

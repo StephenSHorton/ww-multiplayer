@@ -11,7 +11,7 @@ walking around in-game. Runs on **Windows and macOS** (Apple Silicon + Intel).
 
 ## Status
 
-What works today (v0.4.0):
+What works today:
 - **A desktop app** that does it all: first-run Setup patches your own
   disc and finds Dolphin, then a lobby where everyone gathers, and the
   host's **Start** launches each player's Dolphin with the patched game
@@ -22,14 +22,22 @@ What works today (v0.4.0):
 - **Each other's Link in your game**, at their real position with their
   real animations, each in that player's own tunic color (a player in
   casual clothes shows the casual shirt)
+- **Shared enemies:** the host's Moblins, Bokoblins and ChuChus are the
+  real ones, and a hit from any player counts
+- **Other players have a body** those enemies can see and hit
 - **Optional co-op worlds:** shared progress across everyone's saves
 - **Built on a modding API:** multiplayer and co-op are mods on `wwapi`
   (`ww-multiplayer mods` lists them)
 
 Known limits:
 - Only Outset Island has been heavily tested. Stage / room transitions
-  aren't gracefully handled yet (your friend's Link just renders at the
-  last known coords if they cross to a different room).
+  aren't gracefully handled yet: without co-op, your friend's Link just
+  renders at the last known coords if they cross to a different stage
+  (in a two-player co-op world it is hidden while they are elsewhere).
+- Other enemy types still run separately on each player's game. Only the
+  first two other players get bodies, and each player mirrors at most 4
+  enemies at once. Shared enemies have not yet been tested over the
+  internet.
 - Internet play needs a port-forward or a VPN such as Tailscale (see
   [Playing](#playing)); there's no built-in NAT traversal.
 - macOS first-run requires a one-time step, the app's **Prepare Dolphin**
@@ -44,8 +52,9 @@ Active work is tracked in [GitHub issues](../../issues) — epics group related 
 
 ## Quick start (end users)
 
-You need [Dolphin](https://dolphin-emu.org/) (a recent stable build) and
-your own legitimate copy of Wind Waker (NTSC-U, game ID `GZLE01`, `.iso`
+You need a recent [Dolphin](https://dolphin-emu.org/) (the patched disc
+needs 48 MB of memory, and the app sets this itself every time it starts
+Dolphin) and your own legitimate copy of Wind Waker (NTSC-U, game ID `GZLE01`, `.iso`
 or `.ciso`). **Download the app, double-click it**, and it walks you
 through the rest.
 
@@ -131,15 +140,18 @@ original game-code bytes.
 ## Playing
 
 **Both players must run the same version.** `ww-multiplayer version`
-prints it. v0.4.0 can't play with v0.3.x (or older), so upgrade
+prints it. This version can't play with v0.4.1 or older, so upgrade
 together. The host also turns away a player whose built-in mods differ
 from its own.
 
-**After updating, patch your disc again** (Setup in the app, or
-`ww-multiplayer patch`) and boot it from Dolphin's game list. Dolphin
-save states taken on an older version are refused: load your in-game
-save and take a new state. The app's one-click update does the re-patch
-for you ([Updates](#updates)).
+**After updating, your disc is patched again.** The app's first start
+after an update re-patches it from the original disc Setup saved; if it
+has none, it opens Setup to pick it ([Updates](#updates)). With the
+command line, run `ww-multiplayer patch` again. Dolphin save states
+taken on an older version are refused: load your in-game save and take a
+new state. If you boot the disc from Dolphin's game list instead of from
+the app, use Dolphin 2609 or newer, or turn on Dolphin's memory override
+(MEM1 48 MB) yourself.
 
 **The app.** Run `ww-multiplayer` with no arguments — double-click
 `ww-multiplayer.exe` on Windows or `WW Multiplayer.app` on macOS — and the
@@ -206,6 +218,17 @@ have it); without it the app offers to install it, and opens the terminal
 menu if you decline. Each player's Link is drawn in their chosen tunic
 color in everyone's game; a player still in casual clothes shows up in
 the casual shirt instead.
+
+**Shared enemies are on by default.** The host's Moblins, Bokoblins and
+ChuChus are the real ones: everyone else's game mirrors them, a hit from
+any player counts, and those enemies see, chase and hit the other
+players' bodies. Other enemy types still run separately on each game and
+ignore the other players. If an enemy connection fails for good (a
+refusal, an error), the log says "enemy sync off for this session:
+<reason>; multiplayer is unaffected", and you keep seeing each other.
+To turn it off, every player starts the app with `WW_ENEMY_SYNC=0` (the
+whole enemy layer) or `WW_ENEMY_REMOTE=off` (bodies only); all players
+set the same value. Known limits: [05-known-issues.md](docs/05-known-issues.md#shared-enemies).
 
 **The terminal menu.** `ww-multiplayer tui` opens the menu that no
 arguments used to open. Pick Host or Join, enter a player name (and the
@@ -287,7 +310,9 @@ fake server on 127.0.0.1).
 ## Requirements
 
 - Windows 10+, or macOS 12+ (Apple Silicon or Intel)
-- [Dolphin emulator](https://dolphin-emu.org/) — recent stable release
+- A recent [Dolphin emulator](https://dolphin-emu.org/). The patched disc
+  needs 48 MB of memory, and the app sets this itself every time it
+  starts Dolphin
 - Your own legitimate copy of The Wind Waker (NTSC-U, game ID `GZLE01`)
 - [Go 1.26.2+](https://go.dev/dl/) (the `go` line in `go.mod`) — only if building from source. macOS
   builds also need the Xcode command-line tools (`xcode-select --install`)

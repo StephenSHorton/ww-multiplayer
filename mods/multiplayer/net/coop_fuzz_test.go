@@ -147,7 +147,10 @@ func FuzzServerHello(f *testing.F) {
 	stream := frame(MsgCoop, []byte{0x08, 0x01, 0, 0, 0, 0})
 	for _, hello := range [][]byte{
 		HelloMessage(ProtocolVersion), HelloMessage(1), HelloRoleMessage(ProtocolVersion, RoleCoop, 0),
-		HelloRoleMessage(ProtocolVersion, 2, 0), {0, 2, 1}, nil,
+		HelloRoleMessage(ProtocolVersion, 2, 0), append(HelloMessage(ProtocolVersion), 1), nil,
+		// A protocol-2 (v0.4.x) hello cut off inside its role: an old
+		// version, refused before the role is read.
+		{0, 2, 1},
 		seedModsHello(nil), seedModsHello(&seedColor), seedModsHello(nil)[:helloModsLen-1],
 	} {
 		f.Add(hello, stream)

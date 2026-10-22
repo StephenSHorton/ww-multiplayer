@@ -53,8 +53,8 @@ import (
 // The desktop app's lobby (docs/10-lobby.md) is a third role, RoleLobby,
 // with LobbyCapJSON in caps: a member of the pre-game lobby, never a
 // player either. A server from before the lobby refuses role 2 with
-// RejectRole, which the app takes as "join directly", so ProtocolVersion
-// stays 2.
+// RejectRole, which the app takes as "join directly", so the lobby did not
+// bump ProtocolVersion (it was 2 then).
 //
 // Tunic colors (docs/09-player-colors.md). A player with a color preference
 // (--color / WW_COLOR) sends the role form with role RolePlayer and caps 0,
@@ -74,15 +74,23 @@ import (
 // bit, from an older client, is accepted as before. Every CLI and app
 // build since D5 has a hash, so its player hello is always this form; the
 // 2-byte and caps-0 color forms are what older clients (and writeJoin
-// without a hash) send. ProtocolVersion stays 2 (docs/api/00-design.md
-// decision 13).
+// without a hash) send. The mods hash did not bump ProtocolVersion
+// (docs/api/00-design.md decision 13).
+//
+// Enemy sync (enemy.go) is roles 3 and 4 and MsgEnemy. It did bump
+// ProtocolVersion, to 3: an older server refuses role 4 with RejectRole,
+// which is fatal and would end a joiner's whole session, and an older
+// joiner would leave a newer host's enemies silently unshared. Under 3 a
+// mixed pair is refused at the handshake with the version reject instead.
 
 // ProtocolVersion is the wire protocol this build speaks. Bump it on any
 // change an older build can't handle: client and server must match.
 //
 //	1  v0.3.0: the version handshake
 //	2  co-op: the hello's role and caps, MsgCoop
-const ProtocolVersion uint16 = 2
+//	3  enemy sync: RoleEnemyHost/RoleEnemyClient, MsgEnemy (WireVersion 4);
+//	   enemy layer and remote bodies on by default
+const ProtocolVersion uint16 = 3
 
 // Connection roles, the hello's role byte.
 const (

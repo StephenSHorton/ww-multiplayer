@@ -3,7 +3,9 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -157,5 +159,145 @@ func TestRunPipelinesFatalReportedOnce(t *testing.T) {
 	LogSessionErr(rep, errors.New("dolphin not running"))
 	if len(rep.lines) != 1 {
 		t.Errorf("LogSessionErr logged %q for an ordinary failure, want one line", rep.lines)
+	}
+}
+
+// syncReporter is a log.Reporter that keeps every line, safe for the
+// pipelines' goroutines.
+type syncReporter struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (r *syncReporter) Log(_ log.Level, msg string) {
+	r.mu.Lock()
+	r.lines = append(r.lines, msg)
+	r.mu.Unlock()
+}
+
+// count is how many lines contain sub.
+func (r *syncReporter) count(sub string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, l := range r.lines {
+		if strings.Contains(l, sub) {
+			n++
+		}
+	}
+	return n
+}
+
+// shortDegradeBackoff makes Degradable's waits a millisecond for the test.
+func shortDegradeBackoff(t *testing.T) {
+	t.Helper()
+	b, m := degradeBackoff, degradeBackoffMax
+	degradeBackoff, degradeBackoffMax = time.Millisecond, 4*time.Millisecond
+	t.Cleanup(func() { degradeBackoff, degradeBackoffMax = b, m })
+}
+
+// TestDegradable: a Degradable pipeline never ends its group. A fatal
+// error or a panic calls onDown once, after p's own deferred cleanup, and
+// the pipeline returns nil only once ctx ends; a retryable error runs p
+// again (one Warn per reason); a nil return waits for ctx too. The pose
+// pipeline beside it is never cancelled.
+func TestDegradable(t *testing.T) {
+	shortDegradeBackoff(t)
+	retryable := func(err error) bool { return !errors.Is(err, network.ErrFatal) }
+	for _, c := range []struct {
+		name  string
+		fail  func(run int) error // run counts from 1
+		runs  int                 // how many runs before the check
+		downs int
+	}{
+		{"fatal", func(int) error { return &network.RejectError{Code: network.RejectRole, Reason: "enemy host taken"} }, 1, 1},
+		{"panic", func(int) error { panic("index out of range") }, 1, 1},
+		// A panic in the session goroutine, as network.RunEnemy returns it.
+		{"session panic", func(int) error {
+			return &network.SessionPanicError{Value: "index out of range", Stack: []byte("goroutine 7")}
+		}, 1, 1},
+		{"retry", func(run int) error {
+			if run < 4 {
+				return errors.New("dolphin: read failed")
+			}
+			return fmt.Errorf("%w: version mismatch", network.ErrFatal)
+		}, 4, 1},
+		{"nil", func(int) error { return nil }, 1, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			rep := &syncReporter{}
+			var mu sync.Mutex
+			runs, cleanups, downs := 0, 0, 0
+			var downCleanups int
+			enemy := Degradable(Pipeline{Name: "enemy-sync", Run: func(context.Context) error {
+				mu.Lock()
+				runs++
+				run := runs
+				mu.Unlock()
+				defer func() {
+					mu.Lock()
+					cleanups++
+					mu.Unlock()
+				}()
+				return c.fail(run)
+			}}, rep, retryable, func(error) {
+				mu.Lock()
+				downs++
+				downCleanups = cleanups
+				mu.Unlock()
+			})
+			poseDone := make(chan error, 1)
+			done := make(chan error, 1)
+			go func() {
+				done <- RunPipelines(ctx, cancel, rep,
+					Pipeline{Name: "pose", Run: func(ctx context.Context) error {
+						<-ctx.Done()
+						poseDone <- ctx.Err()
+						return nil
+					}}, enemy)
+			}()
+			settled := func() bool {
+				mu.Lock()
+				defer mu.Unlock()
+				return runs >= c.runs && downs >= c.downs
+			}
+			deadline := time.Now().Add(time.Second)
+			for !settled() && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
+			time.Sleep(20 * time.Millisecond) // time for a wrong extra run or a cancel
+			select {
+			case <-poseDone:
+				t.Fatal("the pose pipeline was cancelled")
+			case err := <-done:
+				t.Fatalf("RunPipelines returned %v before ctx ended", err)
+			default:
+			}
+			mu.Lock()
+			if runs != c.runs || downs != c.downs || (c.downs == 1 && downCleanups != runs) {
+				t.Errorf("runs %d downs %d (cleanups before onDown %d), want runs %d downs %d", runs, downs, downCleanups, c.runs, c.downs)
+			}
+			mu.Unlock()
+			if c.downs == 1 && rep.count("enemy sync off for this session") != 1 {
+				t.Errorf("enemy sync off said %d times", rep.count("enemy sync off for this session"))
+			}
+			if c.name == "session panic" && rep.count("goroutine 7") != 1 {
+				t.Errorf("the session panic's stack logged %d times, want once", rep.count("goroutine 7"))
+			}
+			if c.name == "retry" && rep.count("dolphin: read failed") != 1 {
+				t.Errorf("the retry reason warned %d times, want once", rep.count("dolphin: read failed"))
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatalf("RunPipelines = %v, want nil", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("RunPipelines did not return after cancel")
+			}
+		})
 	}
 }

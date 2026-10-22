@@ -848,7 +848,9 @@ func TestLobbyMemberAndCLIShareAColor(t *testing.T) {
 
 // preLobbyServer mimics the server of 331e772 (protocol 2, co-op, no
 // lobby): it refuses any role but player and co-op with RejectRole,
-// "unknown connection role N".
+// "unknown connection role N". Its welcome carries this build's
+// ProtocolVersion (3 since enemy sync), so it models that server's role
+// handling only: a real protocol-2 host now refuses at the version check.
 func preLobbyServer(conn net.Conn) {
 	join, err := ReadMessage(conn)
 	if err != nil || join.Type != MsgJoin {

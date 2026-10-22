@@ -10,11 +10,11 @@ import (
 // Lobby wire format (docs/10-lobby.md, app design §3).
 //
 // A lobby connection is a third connection role, RoleLobby, in the
-// protocol-2 hello: MsgJoin(name), then MsgHello [version:2][role=2][caps:2]
+// protocol-2+ hello: MsgJoin(name), then MsgHello [version:2][role=2][caps:2]
 // with LobbyCapJSON set in caps. A server from before the lobby refuses role
 // 2 with RejectRole ("unknown connection role 2"), and the app then joins
-// directly as before; old clients never send it. So the lobby needs no
-// ProtocolVersion bump.
+// directly as before; old clients never send it. So the lobby needed no
+// ProtocolVersion bump (protocol 3 is enemy sync's, handshake.go).
 //
 // After the welcome, both sides exchange MsgLobby ('B') frames:
 //

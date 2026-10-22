@@ -215,7 +215,7 @@ func TestHelloGoldenBytes(t *testing.T) {
 	if err := writeJoin(&player, "Link"); err != nil {
 		t.Fatalf("writeJoin: %v", err)
 	}
-	want := []byte{'J', 0, 4, 'L', 'i', 'n', 'k', 'H', 0, 2, 0x00, 0x02}
+	want := []byte{'J', 0, 4, 'L', 'i', 'n', 'k', 'H', 0, 2, 0x00, 0x03}
 	if !bytes.Equal(player.Bytes(), want) {
 		t.Errorf("player join = %x, want %x", player.Bytes(), want)
 	}
@@ -224,7 +224,7 @@ func TestHelloGoldenBytes(t *testing.T) {
 	if err := writeJoinRole(&coop, "Link", RoleCoop, 0x8001, nil, nil); err != nil {
 		t.Fatalf("writeJoinRole: %v", err)
 	}
-	want = []byte{'J', 0, 4, 'L', 'i', 'n', 'k', 'H', 0, 5, 0x00, 0x02, 0x01, 0x80, 0x01}
+	want = []byte{'J', 0, 4, 'L', 'i', 'n', 'k', 'H', 0, 5, 0x00, 0x03, 0x01, 0x80, 0x01}
 	if !bytes.Equal(coop.Bytes(), want) {
 		t.Errorf("co-op join = %x, want %x", coop.Bytes(), want)
 	}
@@ -281,8 +281,8 @@ func TestVersion1PeerRejected(t *testing.T) {
 		conn := dialRaw(t, addr)
 		conn.Write(append(frame(MsgJoin, []byte("v030")), frame(MsgHello, hello)...))
 		reason := expectReject(t, conn, RejectVersion)
-		if !strings.Contains(reason, "newer") || !strings.Contains(reason, "network protocol 2, yours is 1") {
-			t.Errorf("hello %x: reason %q, want the newer-host message naming protocols 2 and 1", hello, reason)
+		if !strings.Contains(reason, "newer") || !strings.Contains(reason, fmt.Sprintf("network protocol %d, yours is 1", ProtocolVersion)) {
+			t.Errorf("hello %x: reason %q, want the newer-host message naming protocols %d and 1", hello, reason, ProtocolVersion)
 		}
 	}
 	if srv.PlayerCount() != 0 || srv.CoopCount() != 0 {
@@ -314,7 +314,7 @@ func TestClientsStopOnVersion1Server(t *testing.T) {
 		func() *Client { return NewCoopClient("joiner", 0) },
 	} {
 		err := mk().Connect(serveOnce(t, v030Server))
-		if !errors.Is(err, ErrFatal) || !strings.Contains(err.Error(), "older ww-multiplayer (network protocol 1, yours is 2)") {
+		if !errors.Is(err, ErrFatal) || !strings.Contains(err.Error(), fmt.Sprintf("older ww-multiplayer (network protocol 1, yours is %d)", ProtocolVersion)) {
 			t.Errorf("against a v0.3.0 host: Connect = %v, want its fatal version reject", err)
 		}
 
@@ -327,8 +327,63 @@ func TestClientsStopOnVersion1Server(t *testing.T) {
 			drain(conn)
 		})
 		err = mk().Connect(addr)
-		if !errors.Is(err, ErrFatal) || !strings.Contains(err.Error(), "host speaks network protocol 1 and this build speaks 2") {
+		if !errors.Is(err, ErrFatal) || !strings.Contains(err.Error(), fmt.Sprintf("host speaks network protocol 1 and this build speaks %d", ProtocolVersion)) {
 			t.Errorf("against a version-1 welcome: Connect = %v, want the fatal mismatch", err)
+		}
+	}
+}
+
+// TestVersion2PeersRefused: a protocol-2 (v0.4.x) hello of every role it
+// could send is refused at the version check, before its role is read,
+// with the newer-host version reject (the app's version dialog); nothing
+// is admitted. An old joiner's role-4 hello used to end its whole session
+// with a RejectRole from an old host; under 3 both directions are a
+// version mismatch instead.
+func TestVersion2PeersRefused(t *testing.T) {
+	srv, addr := listenCoop(t, newCoopRecorder())
+	for _, hello := range [][]byte{
+		HelloMessage(2),
+		HelloRoleMessage(2, RoleCoop, 0),
+		HelloRoleMessage(2, RoleLobby, LobbyCapJSON),
+		HelloRoleMessage(2, RoleEnemyClient, 0),
+		HelloRoleMessage(2, RoleEnemyHost, 0),
+	} {
+		conn := dialRaw(t, addr)
+		conn.Write(append(frame(MsgJoin, []byte("v041")), frame(MsgHello, hello)...))
+		reason := expectReject(t, conn, RejectVersion)
+		if !strings.Contains(reason, "newer") || !strings.Contains(reason, fmt.Sprintf("network protocol %d, yours is 2", ProtocolVersion)) {
+			t.Errorf("hello %x: reason %q, want the newer-host message naming protocols %d and 2", hello, reason, ProtocolVersion)
+		}
+	}
+	if srv.PlayerCount() != 0 || srv.CoopCount() != 0 || srv.EnemyClientCount() != 0 || srv.EnemyHostConnected() {
+		t.Fatalf("PlayerCount=%d CoopCount=%d EnemyClientCount=%d EnemyHost=%v, want none admitted",
+			srv.PlayerCount(), srv.CoopCount(), srv.EnemyClientCount(), srv.EnemyHostConnected())
+	}
+}
+
+// TestClientsStopOnVersion2Welcome: a player, co-op or enemy client of this
+// build refuses a protocol-2 host's welcome itself, fatally, with a
+// RejectVersion that says both players need the same version.
+func TestClientsStopOnVersion2Welcome(t *testing.T) {
+	for _, mk := range []func() *Client{
+		func() *Client { return NewClient("joiner") },
+		func() *Client { return NewCoopClient("joiner", 0) },
+		func() *Client { return NewEnemyClient("joiner", RoleEnemyClient) },
+	} {
+		addr := serveOnce(t, func(conn net.Conn) {
+			ReadMessage(conn)
+			ReadMessage(conn)
+			w := WelcomeMessage(4, 1)
+			w[9], w[10] = 0, 2
+			WriteMessage(conn, MsgWelcome, w)
+			drain(conn)
+		})
+		err := mk().Connect(addr)
+		var rej *RejectError
+		if !errors.As(err, &rej) || rej.Code != RejectVersion || !errors.Is(err, ErrFatal) ||
+			!strings.Contains(err.Error(), fmt.Sprintf("host speaks network protocol 2 and this build speaks %d", ProtocolVersion)) ||
+			!strings.Contains(err.Error(), "same ww-multiplayer version") {
+			t.Errorf("against a version-2 welcome: Connect = %v, want the fatal version mismatch", err)
 		}
 	}
 }
@@ -373,8 +428,8 @@ func TestBadRoleHellosRefused(t *testing.T) {
 			want  string
 		}{
 			{HelloRoleMessage(ProtocolVersion, 7, 0), RejectRole, "unknown connection role 7"},
-			{[]byte{0, 2, 1}, RejectVersion, "malformed hello"},
-			{[]byte{0, 2, 1, 0}, RejectVersion, "malformed hello"},
+			{append(HelloMessage(ProtocolVersion), 1), RejectVersion, "malformed hello"},
+			{append(HelloMessage(ProtocolVersion), 1, 0), RejectVersion, "malformed hello"},
 		}
 		for _, c := range cases {
 			conn := dialRaw(t, addr)

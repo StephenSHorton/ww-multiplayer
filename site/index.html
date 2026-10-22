@@ -360,7 +360,7 @@ footer span { color: var(--text-dim); }
 
 		<section id="install">
 			<div class="head"><h2 class="hud">Install</h2></div>
-			<p class="sub">Download the app and double-click it; it walks you through the rest. You'll need <a href="https://dolphin-emu.org/">Dolphin</a> (a recent stable build) and your own copy of The Wind Waker, NTSC-U (game ID <b>GZLE01</b>), as an .iso or .ciso.</p>
+			<p class="sub">Download the app and double-click it; it walks you through the rest. You'll need a recent <a href="https://dolphin-emu.org/">Dolphin</a> (the patched disc needs 48 MB of memory, and the app sets this itself every time it starts Dolphin) and your own copy of The Wind Waker, NTSC-U (game ID <b>GZLE01</b>), as an .iso or .ciso.</p>
 
 			<div class="tabbox">
 				<div class="tablist" role="tablist">
@@ -436,6 +436,8 @@ footer span { color: var(--text-dim); }
 					<ul>
 						<li>Your friend's Link in your game, at their real position with their real animations</li>
 						<li>Each player's Link in their own tunic color, in everyone's game</li>
+						<li>Shared enemies: the host's Moblins, Bokoblins and ChuChus are the real ones, and a hit from any player counts</li>
+						<li>Other players have a body those enemies can see and hit</li>
 						<li>Join from the list of sessions on your network, or with a short join code</li>
 						<li>IP addresses hidden on screen, safe for streaming</li>
 						<li>Hosting and joining, with automatic reconnect if the connection drops</li>
@@ -448,7 +450,9 @@ footer span { color: var(--text-dim); }
 				<div class="card blue limits">
 					<h3 class="hud">Known limits</h3>
 					<ul>
-						<li>Outset Island is the most tested. Room and stage changes aren't smooth yet.</li>
+						<li>Outset Island is the most tested. Room and stage changes aren't smooth yet; in a two-player co-op world a player in another stage is hidden.</li>
+						<li>Other enemy types still run separately on each player's game. Only the first two other players get bodies, and each player mirrors at most 4 enemies at once.</li>
+						<li>Shared enemies have not yet been tested over the internet.</li>
 						<li>No built-in NAT traversal: use a VPN such as Tailscale or Radmin, or a port forward.</li>
 						<li>Linux can patch and run a server, but can't play yet.</li>
 					</ul>
@@ -458,8 +462,8 @@ footer span { color: var(--text-dim); }
 
 		<section id="faq">
 			<div class="head"><h2 class="hud">FAQ</h2></div>
-			<details><summary>Do all players need the same version?</summary><div>Yes. Check with <code class="i">ww-multiplayer version</code>. A host turns away players on an incompatible version with a message telling them to update. v0.4.0 can't play with v0.3.x or older. The host also turns away a player whose built-in mods differ.</div></details>
-			<details><summary>I updated and the app says my disc or save state is from another version</summary><div>Patch your disc again in Setup and boot it from Dolphin's game list. Save states taken on an older version can't be used: load your in-game save and take a new state.</div></details>
+			<details><summary>Do all players need the same version?</summary><div>Yes. Check with <code class="i">ww-multiplayer version</code>. A host turns away players on an incompatible version with a message telling them to update. This version can't play with v0.4.1 or older. The host also turns away a player whose built-in mods differ.</div></details>
+			<details><summary>I updated and the app says my disc or save state is from another version</summary><div>The app's first start after an update patches your disc again from the original you chose in Setup, or opens Setup to pick it when it has none. Save states taken on an older version can't be used: load your in-game save and take a new state. If you boot the disc from Dolphin's game list instead of from the app, use Dolphin 2609 or newer, or turn on Dolphin's memory override (MEM1 48 MB) yourself.</div></details>
 			<details><summary>Do I need a specific version of the game?</summary><div>Yes: the North American GameCube release, game ID <code class="i">GZLE01</code>, as <code class="i">.iso</code> or <code class="i">.ciso</code>. Already-patched images are detected and skipped.</div></details>
 			<details><summary>Why don't you just ship a patched ISO?</summary><div>That would mean distributing Nintendo's game. The patcher only contains this project's own code plus a list of edits; every original byte comes from your own copy.</div></details>
 			<details><summary>How do I check my download is genuine?</summary><div>Each release includes <code class="i">SHA256SUMS</code>. On Windows, run <code class="i">Get-FileHash ww-multiplayer.exe</code> in PowerShell and compare. On macOS: <code class="i">shasum -a 256 -c SHA256SUMS --ignore-missing</code>.</div></details>

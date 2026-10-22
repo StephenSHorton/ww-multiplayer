@@ -14,6 +14,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/write"
 )
 
@@ -22,7 +23,7 @@ import (
 // WW_ENEMY_MIRROR_KINDS enables, DefaultMirrorKinds by default) and streams
 // them on a RoleEnemyHost connection; ClientPipeline receives them on a
 // RoleEnemyClient connection and mirrors them into this Dolphin. Both are
-// behind WW_ENEMY_SYNC=1 (Enabled) in the engine and mp-local.
+// on unless WW_ENEMY_SYNC=0 (Enabled) in the engine and mp-local.
 
 // Env is what the pipelines take from the program that runs them.
 type Env struct {
@@ -40,8 +41,10 @@ type Env struct {
 	CoopSwitchSync func() bool
 }
 
-// Enabled reports WW_ENEMY_SYNC=1.
-func Enabled() bool { return os.Getenv("WW_ENEMY_SYNC") == "1" }
+// Enabled reports enemy sync on: the default, off only with
+// WW_ENEMY_SYNC=0. It is the one switch for the pipelines and the claim
+// sets alike (engine, mp-local), so the two never disagree.
+func Enabled() bool { return os.Getenv("WW_ENEMY_SYNC") != "0" }
 
 // Raw reports WW_ENEMY_RAW=1: the client bypasses the smoother and sets
 // the block's raw flag (the lag measurement).
@@ -69,17 +72,17 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 	host := NewHost(d, rep, epoch, start)
 	applier := NewHitApplier(d, rep, epoch)
 	applier.Kinds = host.Kinds
-	log.Logf(rep, log.Info, "enemy host: mirroring %s (WW_ENEMY_MIRROR_KINDS), selecting by %s (WW_ENEMY_SELECT), STATE 30 Hz gate %v", host.Kinds, host.Select, host.State30Hz)
 	defer func() {
 		if err := applier.Shutdown(); err != nil {
 			log.Logf(rep, log.Warn, "enemy host: clearing the block: %v", err)
 		}
 	}()
-	// The remote-Link side (players.go): the WWRP block only under
-	// WW_ENEMY_REMOTE; the remote players' mini-Links come from this
-	// session's pose feed (posefeed.RosterFor: PuppetSync runs under the same
-	// name on the same Dolphin).
+	// The remote-Link side (players.go): the WWRP block unless
+	// WW_ENEMY_REMOTE turns it off; the remote players' mini-Links come
+	// from this session's pose feed (posefeed.RosterFor: PuppetSync runs
+	// under the same name on the same Dolphin).
 	cfg := RemoteConfigFromEnv(rep)
+	log.Logf(rep, log.Info, "enemy host: host-authoritative enemies on (kinds %s), remote Link bodies %s (WW_ENEMY_SYNC=0 turns enemy sync off); selecting by %s (WW_ENEMY_SELECT), STATE 30 Hz gate %v", host.Kinds, remoteStepLabel(cfg), host.Select, host.State30Hz)
 	if cfg.On {
 		log.Logf(rep, log.Info, "enemy host: remote-Link block on, flags 0x%04X, %d policies, FF denylist %v", cfg.Flags, len(cfg.Policy), cfg.FFDeny)
 		if cfg.Flags&mailbox.RemoteFlagFullBodies != 0 {
@@ -126,7 +129,7 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 	if connLog == nil {
 		connLog = network.NewConnectLog(addr, func(s string) { rep.Log(log.Warn, s) }, func(s string) { rep.Log(log.OK, s) })
 	}
-	var gate hostGate
+	gate := hostGate{rep: rep}
 	session := func(ctx context.Context, send func([]byte) error) error {
 		var last *State
 		t := time.NewTicker(Tick)
@@ -212,13 +215,18 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 
 // hostGate is the host's contract and REL gate, checked every
 // ContractEvery: the hit applier writes the block only when both hold.
+// Each change of verdict is logged once through rep (nil: silent), in the
+// client's checkREL words: a Warn with the reason while hits wait, an OK
+// when the REL is linked.
 type hostGate struct {
+	rep  log.Reporter
 	next time.Time
+	ran  bool
 	ok   bool
 	why  string
 }
 
-func (g *hostGate) check(m *emu.Dolphin, now time.Time) bool {
+func (g *hostGate) check(m mem.Reader, now time.Time) bool {
 	if now.Before(g.next) {
 		return g.ok
 	}
@@ -227,8 +235,45 @@ func (g *hostGate) check(m *emu.Dolphin, now time.Time) bool {
 	if err != nil {
 		return g.ok
 	}
-	g.ok = c.WritesAllowed && c.REL.Linked && c.REL.BuildID == inject.RELBuildID
+	why := ""
+	switch {
+	case !c.WritesAllowed:
+		why = "this Dolphin's game is not this version's patch (" + c.Why + ")"
+	case !c.REL.Linked:
+		why = "the REL module is not linked"
+	case c.REL.BuildID != inject.RELBuildID:
+		why = fmt.Sprintf("the linked REL module is build %08X, this build's is %08X", c.REL.BuildID, inject.RELBuildID)
+	}
+	ok := why == ""
+	if g.rep != nil && (!g.ran || ok != g.ok || why != g.why) {
+		if ok {
+			log.Logf(g.rep, log.OK, "enemy host: REL module linked (build %08X); host hits apply", c.REL.BuildID)
+		} else {
+			g.rep.Log(log.Warn, "enemy host: "+why+"; host hits wait")
+		}
+	}
+	g.ran, g.ok, g.why = true, ok, why
 	return g.ok
+}
+
+// remoteStepLabel names cfg's remote-Link flags for the start-of-session
+// lines: "off", the step preset they equal ("step6"), or the raw flags.
+func remoteStepLabel(cfg RemoteConfig) string {
+	if !cfg.On {
+		return "off"
+	}
+	var steps [len(remoteSteps)]uint16
+	var acc uint16
+	for k, f := range remoteSteps {
+		acc |= f
+		steps[k] = acc
+	}
+	for k := len(steps) - 1; k >= 0; k-- {
+		if cfg.Flags == steps[k] {
+			return fmt.Sprintf("step%d", k)
+		}
+	}
+	return fmt.Sprintf("flags 0x%04X", cfg.Flags)
 }
 
 // ClientPipeline runs the mirror on Dolphin dolphinPID against the server
@@ -246,15 +291,15 @@ func ClientPipeline(ctx context.Context, env Env, name, addr string, dolphinPID 
 	brk := write.NewBreaker(write.BreakerConfig{Logf: func(format string, args ...any) { log.Logf(rep, log.Warn, format, args...) }})
 	mirror := NewMirror(d, rep, brk, Raw(), time.Now())
 	mirror.Claims, mirror.CoopSwitchSync = env.Claims, env.CoopSwitchSync
-	log.Logf(rep, log.Info, "enemy client: mirroring %s (WW_ENEMY_MIRROR_KINDS), quiet deaths for %s (WW_ENEMY_QUIET_DEATH), selecting by %s (WW_ENEMY_SELECT)", mirror.Kinds, mirror.Quiet, mirror.Select)
 	defer func() {
 		if err := mirror.Shutdown(); err != nil {
 			log.Logf(rep, log.Warn, "enemy client: clearing the block: %v", err)
 		}
 	}()
-	// The remote-Link side: PSTATE always, the WWRP block only under
-	// WW_ENEMY_REMOTE (players.go).
+	// The remote-Link side: PSTATE always, the WWRP block unless
+	// WW_ENEMY_REMOTE turns it off (players.go).
 	cfg := RemoteConfigFromEnv(rep)
+	log.Logf(rep, log.Info, "enemy client: mirroring the host's enemies (kinds %s), remote bodies %s; quiet deaths for %s (WW_ENEMY_QUIET_DEATH), selecting by %s (WW_ENEMY_SELECT)", mirror.Kinds, remoteStepLabel(cfg), mirror.Quiet, mirror.Select)
 	if cfg.On {
 		log.Logf(rep, log.Info, "enemy client: remote-Link block on, flags 0x%04X", cfg.Flags)
 	}

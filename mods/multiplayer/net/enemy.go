@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 )
@@ -146,7 +148,9 @@ func enemyFrameShape(role byte, data []byte) string {
 	return ""
 }
 
-// enemyHostTakenReason is the MsgReject reason for a second RoleEnemyHost.
+// enemyHostTakenReason is the MsgReject reason for a second RoleEnemyHost
+// under another name. A second one under the same name replaces the first
+// (handleEnemy).
 const enemyHostTakenReason = "this host already has an enemy-sync host connection; only one is allowed"
 
 // enemyConn is the server's side of one enemy-sync connection.
@@ -206,25 +210,38 @@ func (s *Server) allocEnemyIDLocked() (id byte, ok bool) {
 // handleEnemy runs an enemy-sync connection whose join and hello
 // handlePlayer has read and checked (version, name). It returns when the
 // connection ends; handlePlayer closes conn.
+//
+// One enemy host per server. A second RoleEnemyHost under the same name
+// (case-insensitive) is that host reconnecting while its old connection is
+// not yet reaped (a pipeline restart, or a stalled process whose old
+// connection lingers until the read timeout): it replaces the old one,
+// which is closed. Under another name it is refused with RejectRole.
 func (s *Server) handleEnemy(conn net.Conn, name string, role byte) {
 	c := &enemyConn{name: name, role: role, conn: conn, srv: s, done: make(chan struct{})}
 	s.mu.Lock()
 	stopping := s.stopping()
 	var id byte
 	var ok, taken bool
+	var replaced *enemyConn
 	if !stopping {
-		if role == RoleEnemyHost && s.enemyHost != nil {
+		if role == RoleEnemyHost && s.enemyHost != nil && !strings.EqualFold(s.enemyHost.name, name) {
 			taken = true
 		} else if id, ok = s.allocEnemyIDLocked(); ok {
 			c.id = id
 			if role == RoleEnemyHost {
-				s.enemyHost = c
+				// The old host's defer clears the slot only while it is
+				// still its own, so it leaves this one alone.
+				replaced, s.enemyHost = s.enemyHost, c
 			} else {
 				s.enemyClients[id] = c
 			}
 		}
 	}
 	s.mu.Unlock()
+	if replaced != nil {
+		replaced.close()
+		s.log(fmt.Sprintf("%s (enemy host %d) replaced by a new connection under the same name", replaced.name, replaced.id))
+	}
 	if stopping {
 		// Stop has closed the enemy connections already: close without
 		// a reject (which would be fatal), so the client retries.
@@ -298,6 +315,10 @@ func (s *Server) handleEnemy(conn net.Conn, name string, role byte) {
 func (s *Server) relayEnemy(c *enemyConn, data []byte) {
 	var to []*enemyConn
 	s.mu.RLock()
+	if c.role == RoleEnemyHost && s.enemyHost != c {
+		s.mu.RUnlock()
+		return // a replaced host's last frames
+	}
 	switch data[0] {
 	case EnemySubState:
 		for _, ec := range s.enemyClients {
@@ -393,15 +414,55 @@ func (c *Client) SendEnemy(payload []byte) error {
 // addr until ctx ends, exactly as RunCoop keeps a co-op client: each
 // attempt is c.ConnectContext under ReconnectLoop's backoff, flap floor
 // and fatal-error stop (a server that refuses the role, or that already
-// has an enemy host, answers RejectRole, which is fatal). session runs
+// has an enemy host under another name, answers RejectRole, which is
+// fatal; under the same name this connection replaces it). session runs
 // once per live connection with send, which writes one 'E' payload;
 // inbound payloads reach c.OnEnemy from the read loop meanwhile.
+//
+// session runs on a goroutine of its own, so a panic in it (the enemy
+// layer's per-tick work) is recovered here: it ends RunEnemy with a
+// *SessionPanicError, which is fatal, instead of the process.
 func RunEnemy(ctx context.Context, c *Client, addr string, connLog *ConnectLog, session func(ctx context.Context, send func(payload []byte) error) error) error {
 	if !isEnemyRole(c.role) {
 		return errors.New("RunEnemy needs an enemy-sync client (NewEnemyClient)")
 	}
-	return runRoleSession(ctx, c, addr, connLog, c.SendEnemy, session)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var mu sync.Mutex
+	var panicked error
+	guarded := func(ctx context.Context, send func(payload []byte) error) (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = &SessionPanicError{Value: r, Stack: debug.Stack()}
+				mu.Lock()
+				panicked = err
+				mu.Unlock()
+				cancel() // ReconnectLoop ignores run errors: end it here
+			}
+		}()
+		return session(ctx, send)
+	}
+	err := runRoleSession(ctx, c, addr, connLog, c.SendEnemy, guarded)
+	mu.Lock()
+	defer mu.Unlock()
+	if panicked != nil {
+		return panicked
+	}
+	return err
 }
+
+// SessionPanicError is a panic recovered from a RunEnemy session. It is
+// fatal (errors.Is ErrFatal): the same code would panic again on the next
+// connection. Stack is the panicking goroutine's stack.
+type SessionPanicError struct {
+	Value any
+	Stack []byte
+}
+
+func (e *SessionPanicError) Error() string { return fmt.Sprintf("enemy session panic: %v", e.Value) }
+
+// Is reports whether target is ErrFatal.
+func (e *SessionPanicError) Is(target error) bool { return target == ErrFatal }
 
 // runRoleSession is RunCoop's and RunEnemy's shared lifecycle: connect
 // under ReconnectLoop, then run session for the life of each connection,

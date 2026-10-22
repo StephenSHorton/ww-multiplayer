@@ -863,6 +863,51 @@ Evidence (owner machine): logs in `C:\Users\4step\.claude\jobs\10f6fa34\tmp\pd\d
 (`base-fake3.log`, `base-fake4.log`, `base-mplocal.log`, `fake3.log`, `fake4.log`), screenshots in
 `...\d1b\shots` (`base-A-fake3.png`, `base-A-fake4.png`).
 
+## Shared enemies
+
+Enemy sync (`mods/enemysync`) and the remote players' bodies are on by default, with no env
+vars: the host's Moblins, Bokoblins and ChuChus (`DefaultMirrorKinds`, `mo2,bk+u,cc+u`) are
+the real ones, every other game mirrors them, and remote bodies run at step6 with
+`DefaultPolicy`, which arms only those kinds' procs. Each start logs what it runs:
+`enemy host: host-authoritative enemies on (kinds ...), remote Link bodies step6 ...` and
+`enemy client: mirroring the host's enemies (kinds ...), remote bodies step6 ...`.
+
+### Turning it off
+
+- `WW_ENEMY_SYNC=0` turns the whole enemy layer off: no enemy connections, and co-op's kill
+  sync claims nothing for the mirror.
+- `WW_ENEMY_REMOTE=off` (or `none`, `false`, `0`) keeps the mirrored enemies and drops the
+  bodies.
+- Both players set the same value: the two sides do not negotiate it.
+
+### Limits
+
+- Other enemy types (Keese, Armos Knights, Armos, Darknuts, Kargarocs and the rest) still run
+  separately on each player's game, and they ignore the other players' bodies.
+- Only the first two other players get bodies (`MAX_REMOTE_LINKS` 2).
+- Each player mirrors at most 4 enemies at once (the block's 4 slots); the host lists by
+  player distance.
+- Shared enemies have not been tested over the internet. Every live pass on record ran under
+  `wwdev mp-local` (one process, two Dolphins); docs/TESTING.md "Release defaults" is the
+  checklist that covers the app, two machines and WAN.
+
+### When it fails
+
+The enemy pipeline runs isolated from pose sync (engine `Degradable`). A Dolphin or network
+error is retried after 2 s, doubling up to 30 s, with one Warn per reason. A fatal error (a
+refusal such as `RejectRole`, `ErrFatal`) or a panic (in setup, or in the tick loop, which
+`network.RunEnemy` recovers as a fatal `SessionPanicError`) logs once:
+
+```
+enemy sync off for this session: <reason>; multiplayer is unaffected
+```
+
+Pose sync, co-op and the lobby keep running. "For this session" means until the pipelines next
+start (a pose failure or a Dolphin change), which gives enemies a fresh try. A host that
+reconnects under the same name takes the enemy-host slot over from its stale connection
+instead of being refused. While the host's REL module is not linked (or is another build),
+host hits wait and the host logs one Warn naming the reason, then one OK line once it is.
+
 ## Shared shape hide flags: mini-Link's head under casual clothes
 
 mini-Link is built from Link #1's own `J3DModelData`, so the two
