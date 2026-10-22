@@ -72,6 +72,24 @@ const (
 	// Over, a void-out reload, a stage load) the adopted copies stay
 	// frozen this long before they go back to this game's AI.
 	HostHoldMax = 30 * time.Second
+	// ReloadGrace bounds the hold over an in-scope STATE that lists no
+	// enemy in the stage and room of a last STATE that listed live ones
+	// (Mirror.reloading): a host whose room's actors are being deleted
+	// and re-created (a void-out reload read as in play, a host build
+	// before Scope.Loading) or not yet walked. A real end of the list
+	// comes with tombstones (SlotDying) or the dead-actor bits first;
+	// past the grace the empty list releases as before.
+	//
+	// The cost, by design: the last listed enemy leaving the list with
+	// neither looks the same as a reload. That is a despawn, a kind whose
+	// death shows no SlotDying, health <= 0 or ice timer before
+	// fopAcM_delete, or an unkeyed (+u, setID 0xFFFF) enemy whose death
+	// was never sampled as dying (no dead bit to fall back on). Its copy
+	// then stays frozen and adopted up to ReloadGrace before it is
+	// released, and a hit landed on it meanwhile is cleared unsent (hold;
+	// the host has no actor left to apply it to). Only a list gone fully
+	// empty does this (TestMirrorEmptyVanish).
+	ReloadGrace = 3 * time.Second
 )
 
 // Mirror is the client's state machine; Tick drives it.
@@ -162,6 +180,9 @@ type Mirror struct {
 	holdSt    *State
 	holdMask  uint32
 	holdSince time.Time
+	// emptySince is when the host's in-scope STATEs started listing no
+	// enemy while the copies were held over it (zero: not so).
+	emptySince time.Time
 
 	// Remote, when set, is this joiner's remote-Link side (players.go):
 	// OnEnemy hands it the PHITs and RunMirror ticks it after the mirror.
@@ -645,7 +666,7 @@ func (c *Mirror) resetScope() {
 	clear(c.sm)
 	clear(c.local)
 	c.lastKeys, c.matchNext = nil, time.Time{}
-	c.holdSt, c.holdSince = nil, time.Time{}
+	c.holdSt, c.holdSince, c.emptySince = nil, time.Time{}, time.Time{}
 }
 
 // match walks this game's enemies of (stage, room) when the scope changed,
@@ -1058,7 +1079,7 @@ func (c *Mirror) disarm(now time.Time, why string) error {
 		log.Logf(c.rep, log.Info, "enemy client: not mirroring: %s", why)
 	}
 	c.Claims.Replace(nil)
-	c.holdSince = time.Time{}
+	c.holdSince, c.emptySince = time.Time{}, time.Time{}
 	if !c.armed {
 		return nil
 	}
@@ -1082,7 +1103,7 @@ func (c *Mirror) disarm(now time.Time, why string) error {
 // caller releases as before, when nothing is armed, the last block was
 // another scope's, or the hold ran HostHoldMax. No REL change: Q3 found no
 // freeze bit in the block, and none is needed.
-func (c *Mirror) hold(now time.Time) (bool, error) {
+func (c *Mirror) hold(now time.Time, why string) (bool, error) {
 	st := c.holdSt
 	if !c.armed || st == nil || st.Stage != c.localStage || st.Room != c.localRoom {
 		return false, nil
@@ -1096,7 +1117,7 @@ func (c *Mirror) hold(now time.Time) (bool, error) {
 	if c.holdSince.IsZero() {
 		c.holdSince = now
 		c.Stats.Holds++
-		log.Logf(c.rep, log.Info, "enemy client: the host is out of play; holding the copies frozen (up to %v)", HostHoldMax)
+		log.Logf(c.rep, log.Info, "enemy client: %s; holding the copies frozen (up to %v)", why, HostHoldMax)
 	} else if now.Sub(c.holdSince) > HostHoldMax {
 		log.Logf(c.rep, log.Info, "enemy client: the host stayed out of play %v; releasing the copies", HostHoldMax)
 		return false, nil
@@ -1132,6 +1153,29 @@ func (c *Mirror) hold(now time.Time) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// reloading reports whether st, an in-scope STATE of this game's stage
+// and room, follows a held block whose last STATE (same epoch, stage and
+// room) listed an enemy neither dying, a tombstone nor dead in st's
+// dead-actor bits: an empty list then is the host's room being re-created,
+// not its enemies gone (Tick holds the copies up to ReloadGrace).
+func (c *Mirror) reloading(st *State) bool {
+	h := c.holdSt
+	if h == nil || h.Epoch != st.Epoch || h.Stage != st.Stage || h.Room != st.Room {
+		return false
+	}
+	for i := range h.Slots {
+		sl := &h.Slots[i]
+		if sl.Flags&SlotDying != 0 || sl.WFlags&WFlagTomb != 0 {
+			continue
+		}
+		if id := sl.Ident(); id.Keyed() && st.IsDead(id.SetID) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // Tick runs one 16 ms tick at now. It returns the HITs to send (the REL
@@ -1182,8 +1226,10 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		// Out of play is the host's own load, death or Game Over: hold
 		// the copies (hold) until it comes back, or release after
 		// HostHoldMax. Back in another stage or room, the gate below
-		// releases as before.
-		if held, err := c.hold(now); held || err != nil {
+		// releases as before. A run of empty in-scope STATEs after it
+		// gets a ReloadGrace of its own.
+		c.emptySince = time.Time{}
+		if held, err := c.hold(now, "the host is out of play"); held || err != nil {
 			return nil, GateSleep, err
 		}
 		return nil, GateSleep, c.disarm(now, "the host is not in play")
@@ -1191,6 +1237,18 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		return nil, GateSleep, c.disarm(now, fmt.Sprintf("the host's enemy kind table is another build's (hash %08X, this build's %08X)", st.KindHash, KindHash()))
 	case st.Stage != scope.Stage || st.Room != scope.Room:
 		return nil, GateSleep, c.disarm(now, fmt.Sprintf("the host is in %s room %d, this game in %s room %d", st.Stage, st.Room, scope.Stage, scope.Room))
+	}
+	if len(st.Slots) == 0 && c.reloading(st) {
+		if c.emptySince.IsZero() {
+			c.emptySince = now
+		}
+		if now.Sub(c.emptySince) <= ReloadGrace {
+			if held, err := c.hold(now, "the host lists no enemy in this room (a reload?)"); held || err != nil {
+				return nil, GateSleep, err
+			}
+		}
+	} else {
+		c.emptySince = time.Time{}
 	}
 	c.gateWhy = ""
 

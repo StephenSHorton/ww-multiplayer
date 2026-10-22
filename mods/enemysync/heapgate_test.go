@@ -270,8 +270,9 @@ func TestHeapGateSizes(t *testing.T) {
 	}
 }
 
-// TestHeapGateFreshness: out of play, a pending stage change or, while a
-// slot waits, a sample older than HeapSampleFresh shut the gate with a
+// TestHeapGateFreshness: out of play, a pending stage change, a scene
+// change's create phases and fade-in (Scope.Loading) or, while a slot
+// waits, a sample older than HeapSampleFresh shut the gate with a
 // transient reason.
 func TestHeapGateFreshness(t *testing.T) {
 	g := newGateRig(t, nil)
@@ -293,7 +294,12 @@ func TestHeapGateFreshness(t *testing.T) {
 
 	g.scope.Pending, g.scope.InPlay = true, false
 	g.want("pending", g.tick(16*time.Millisecond), 0, mailbox.RemoteHGStageSettle)
-	g.scope.Pending, g.scope.InPlay = false, true
+	// The new scene's create phases and fade-in: mEnable cleared, the
+	// overlap still live (Scope.Loading), still out of play.
+	g.scope.Pending, g.scope.Loading = false, true
+	g.want("loading", g.tick(16*time.Millisecond), 0, mailbox.RemoteHGStageSettle)
+	g.want("still loading", g.tick(HeapWalkFast), 0, mailbox.RemoteHGStageSettle)
+	g.scope.Loading, g.scope.InPlay = false, true
 	g.settle("after the reload")
 }
 

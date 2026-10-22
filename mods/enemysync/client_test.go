@@ -2,6 +2,7 @@ package enemysync
 
 import (
 	"encoding/binary"
+	"slices"
 	"testing"
 	"time"
 
@@ -889,5 +890,279 @@ func TestMirrorRELStall(t *testing.T) {
 	}
 	if c.Epoch() != epoch+1 {
 		t.Errorf("epoch %d after the counter started over, want %d", c.Epoch(), epoch+1)
+	}
+}
+
+// TestMirrorHoldReload (the live void-out, a host build before
+// Scope.Loading): the host's in-scope STATEs in the same stage and room
+// list no enemy while its reload re-creates the room's actors, then it
+// goes out of play, then it lists them again. The client holds the copies
+// through all of it (each block the last one's slots, frozen), one hold,
+// and mirrors the re-created three after. Past ReloadGrace an empty list
+// releases.
+func TestMirrorHoldReload(t *testing.T) {
+	_, m, _, tick := clientRoom(t)
+	start := time.Unix(2000, 0)
+	c := NewMirror(m, log.Discard{}, nil, false, start)
+	now := start
+	seq := uint32(0)
+	step := func(st *State) time.Duration {
+		t.Helper()
+		pushState(t, c, st, now)
+		tick()
+		_, sleep, err := c.Tick(now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sleep
+	}
+	next := func(ms uint32) *State {
+		seq++
+		return hostState(seq, ms)
+	}
+	step(next(0))
+	m.Record(true)
+	step(next(16))
+	last := blockWrites(t, m)[0]
+	if len(last.Slots) != 3 {
+		t.Fatalf("mirrored: %+v", last)
+	}
+	m.ResetWrites()
+	empty := func(ms uint32) *State {
+		st := next(ms)
+		st.Slots = nil
+		return st
+	}
+	for i := range 5 { // ~1.3 s of in-scope STATEs listing no enemy
+		now = now.Add(GateSleep)
+		if sleep := step(empty(uint32(100 + 16*i))); sleep != GateSleep {
+			t.Fatalf("empty %d: sleep %v", i, sleep)
+		}
+	}
+	out := next(500)
+	out.Flags, out.Slots, out.Stage = 0, nil, ""
+	for range 16 { // out of play past ReloadGrace
+		now = now.Add(GateSleep)
+		step(out)
+	}
+	// Empty again after the out-of-play run: a grace of its own.
+	now = now.Add(GateSleep)
+	step(empty(800))
+	blks := blockWrites(t, m)
+	if len(blks) != 22 || c.Stats.Holds != 1 {
+		t.Fatalf("%d blocks, %d holds; want 22, 1", len(blks), c.Stats.Holds)
+	}
+	for i, b := range blks {
+		if len(b.Slots) != 3 || b.Stage != "M_Dai" || b.Room != 1 {
+			t.Fatalf("held block %d: %+v", i, b)
+		}
+		for j, s := range b.Slots {
+			if w := last.Slots[j]; s.PID != w.PID || s.Pos != w.Pos || s.MorfRate != 0 {
+				t.Errorf("held block %d slot %d: %+v, last %+v", i, j, s, w)
+			}
+		}
+	}
+	// Back with the re-created three: mirrored again, the hold over.
+	m.ResetWrites()
+	now = now.Add(GateSleep)
+	if sleep := step(next(1000)); sleep != 0 {
+		t.Fatalf("back: sleep %v", sleep)
+	}
+	if b := blockWrites(t, m); len(b) != 1 || len(b[0].Slots) != 3 || b[0].Slots[1].Pos != [3]float32{100, 10, 1000} || !c.holdSince.IsZero() || !c.emptySince.IsZero() {
+		t.Fatalf("back: %+v", b)
+	}
+	// An empty list past ReloadGrace releases.
+	m.ResetWrites()
+	for t0 := now; now.Sub(t0) < ReloadGrace+2*GateSleep; {
+		now = now.Add(GateSleep)
+		step(empty(2000))
+	}
+	b := blockWrites(t, m)
+	if len(b) == 0 {
+		t.Fatal("past the grace: no block")
+	}
+	if lb := b[len(b)-1]; len(lb.Slots) != 0 && lb.Slots[0].Flags&mailbox.EnemySFRelease == 0 || c.Stats.Holds != 2 {
+		t.Fatalf("past the grace: %d holds, last block %+v", c.Stats.Holds, lb)
+	}
+}
+
+// TestMirrorEmptyReleases: an empty list after the host's enemies died
+// (their last STATE listed them dying, or their dead-actor bits are set)
+// is the room cleared, not a reload: no hold.
+func TestMirrorEmptyReleases(t *testing.T) {
+	for _, how := range []string{"dying", "dead bits"} {
+		_, m, _, tick := clientRoom(t)
+		start := time.Unix(2000, 0)
+		c := NewMirror(m, log.Discard{}, nil, false, start)
+		now := start
+		step := func(st *State) {
+			t.Helper()
+			pushState(t, c, st, now)
+			tick()
+			if _, _, err := c.Tick(now); err != nil {
+				t.Fatal(err)
+			}
+		}
+		step(hostState(1, 0))
+		st := hostState(2, 16)
+		if how == "dying" {
+			for i := range st.Slots {
+				st.Slots[i].Flags |= SlotDying
+				st.Slots[i].WFlags |= WFlagTomb
+			}
+		}
+		now = now.Add(16 * time.Millisecond)
+		step(st)
+		empty := hostState(3, 32)
+		empty.Slots = nil
+		if how == "dead bits" {
+			empty.SetDead([DeadWords]uint32{1<<0 | 1<<1 | 1<<2})
+		}
+		now = now.Add(16 * time.Millisecond)
+		step(empty)
+		if c.Stats.Holds != 0 || !c.holdSince.IsZero() {
+			t.Errorf("%s: %d holds", how, c.Stats.Holds)
+		}
+	}
+}
+
+// TestMirrorEmptyVanish (the backstop's cost, ReloadGrace): the host's
+// enemies leaving the list with no tombstone and no dead bit (a despawn,
+// a death never sampled as dying) is the same to the client as a reload.
+// One gone while others stay listed releases its copy at once; the last
+// gone holds every copy frozen, clearing a hit unsent, until ReloadGrace
+// runs out and the empty list releases. A listed enemy in between gives
+// the next empty run a grace of its own.
+func TestMirrorEmptyVanish(t *testing.T) {
+	_, m, _, tick := clientRoom(t)
+	start := time.Unix(2000, 0)
+	c := NewMirror(m, log.Discard{}, nil, false, start)
+	now := start
+	seq := uint32(0)
+	step := func(st *State) time.Duration {
+		t.Helper()
+		pushState(t, c, st, now)
+		tick()
+		_, sleep, err := c.Tick(now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sleep
+	}
+	listing := func(ms uint32, ids ...uint16) *State {
+		seq++
+		st := hostState(seq, ms)
+		var keep []Slot
+		for _, sl := range st.Slots {
+			if slices.Contains(ids, sl.SetID) {
+				keep = append(keep, sl)
+			}
+		}
+		st.Slots = keep
+		return st
+	}
+	step(listing(0, 0, 1, 2))
+	m.Record(true)
+	now = now.Add(16 * time.Millisecond)
+	step(listing(16, 0, 1, 2))
+	if b := blockWrites(t, m); len(b) != 1 || len(b[0].Slots) != 3 {
+		t.Fatalf("mirrored: %+v", b)
+	}
+	// setID 2 vanishes, 0 and 1 stay: no hold.
+	m.ResetWrites()
+	now = now.Add(16 * time.Millisecond)
+	if sleep := step(listing(32, 0, 1)); sleep != 0 || c.Stats.Holds != 0 {
+		t.Fatalf("one vanished: sleep %v, %d holds", sleep, c.Stats.Holds)
+	}
+	last := blockWrites(t, m)
+	if len(last) != 1 {
+		t.Fatalf("one vanished: %d blocks", len(last))
+	}
+	// The last two vanish: held, frozen, a hit cleared unsent.
+	m.ResetWrites()
+	hitOff := mailbox.EnemyBlockAddr + mailbox.EnemyHitsOff
+	t0 := now.Add(GateSleep)
+	for i := 0; ; i++ {
+		now = now.Add(GateSleep)
+		if now.Sub(t0) > ReloadGrace {
+			break
+		}
+		if i == 2 {
+			store(t, m, hitOff, []byte{0, 9, ColliderHead, 1})
+		}
+		if sleep := step(listing(uint32(100 + 16*i))); sleep != GateSleep {
+			t.Fatalf("empty %d: sleep %v", i, sleep)
+		}
+	}
+	blks := blockWrites(t, m)
+	if len(blks) == 0 || c.Stats.Holds != 1 || c.Stats.HeldHits != 1 || c.holdSince.IsZero() {
+		t.Fatalf("in the grace: %d blocks, %d holds, %d held hits", len(blks), c.Stats.Holds, c.Stats.HeldHits)
+	}
+	if p, _ := m.Read(hitOff+3, 1); p[0] != 0 {
+		t.Errorf("the held hit is still pending")
+	}
+	for i, b := range blks {
+		for j, s := range b.Slots {
+			if w := last[0].Slots[j]; s.PID != w.PID || s.Pos != w.Pos || s.MorfRate != 0 {
+				t.Fatalf("held block %d slot %d: %+v, last %+v", i, j, s, w)
+			}
+		}
+	}
+	// Past the grace: released.
+	m.ResetWrites()
+	if sleep := step(listing(2000)); sleep != 0 {
+		t.Fatalf("past the grace: sleep %v", sleep)
+	}
+	b := blockWrites(t, m)
+	if len(b) != 1 || c.Stats.Holds != 1 {
+		t.Fatalf("past the grace: %d blocks, %d holds", len(b), c.Stats.Holds)
+	}
+	for j, s := range b[0].Slots {
+		if s.PID != 0 && s.Flags&mailbox.EnemySFRelease == 0 {
+			t.Errorf("past the grace: slot %d still mirrored: %+v", j, s)
+		}
+	}
+	if c.reloading(listing(2016)) {
+		t.Error("an empty list after the released one still reads as a reload")
+	}
+
+	// A listed enemy between two empty runs: each gets its own grace.
+	now = now.Add(GateSleep)
+	step(listing(3000, 0, 1, 2))
+	now = now.Add(GateSleep)
+	step(listing(3016))
+	first := c.emptySince
+	now = now.Add(ReloadGrace - GateSleep)
+	step(listing(3032, 0, 1, 2))
+	if !c.emptySince.IsZero() {
+		t.Fatalf("listed again: emptySince %v", c.emptySince)
+	}
+	now = now.Add(GateSleep)
+	holds := c.Stats.Holds
+	if sleep := step(listing(3048)); sleep != GateSleep || c.emptySince == first || c.Stats.Holds != holds+1 {
+		t.Errorf("the second empty run: sleep %v, emptySince %v (first %v), %d holds", sleep, c.emptySince, first, c.Stats.Holds)
+	}
+}
+
+// TestMirrorReloadingUnkeyed: an unkeyed (+u, setID 0xFFFF) enemy has no
+// dead bit, so a last STATE that listed it alive reads as a reload
+// whatever st's dead-actor bits say; a keyed one whose bit is set does
+// not.
+func TestMirrorReloadingUnkeyed(t *testing.T) {
+	c := &Mirror{}
+	empty := hostState(2, 16)
+	empty.Slots = nil
+	empty.SetDead([DeadWords]uint32{^uint32(0), ^uint32(0), ^uint32(0), ^uint32(0)})
+	for _, tc := range []struct {
+		name  string
+		setID uint16
+		want  bool
+	}{{"unkeyed", addr.ActorSetIDNone, true}, {"keyed, dead bit set", 1, false}} {
+		h := hostState(1, 0)
+		h.Slots = []Slot{{SetID: tc.setID, Proc: ProcMO2, Kind: KindMO2, Handle: 1, Health: 4}}
+		c.holdSt = h
+		if got := c.reloading(empty); got != tc.want {
+			t.Errorf("%s: reloading %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

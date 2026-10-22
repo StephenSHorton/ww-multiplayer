@@ -227,8 +227,12 @@ func (h *Host) NoteEngaged(handle uint16, now time.Time) {
 
 // resetScope forgets what belongs to a stage and room: the cache, the last
 // samples, the tombstones and the engaged marks. Handles stay (per epoch).
+// The next in-play tick walks: back in the same stage and room (a void-out
+// reload, a Game Over's continue) nothing else would, and until WalkEvery
+// ran out every STATE would list no enemy.
 func (h *Host) resetScope() {
 	h.cache = nil
+	h.nextWalk = time.Time{}
 	clear(h.last)
 	clear(h.tombs)
 	clear(h.engaged)
@@ -336,6 +340,7 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 		return nil, err
 	}
 	changed := scope.Stage != h.scope.Stage || scope.Room != h.scope.Room
+	left := h.scope.InPlay && !scope.InPlay
 	h.scope = scope
 	hb, err := mem.ReadU32(h.m, mailbox.SpawnTrigger)
 	if err != nil {
@@ -345,7 +350,10 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 		HostKindMask: uint8(h.Kinds.Mask()), KindHash: KindHash()}
 	if !scope.InPlay {
 		h.resetScope()
-		if !h.lastKeep.IsZero() && now.Sub(h.lastKeep) < KeepaliveEvery {
+		// The first out-of-play STATE goes at once: the in-play sends keep
+		// lastKeep fresh, and a client that saw no out-of-play STATE before
+		// the host came back with an empty room never held its copies.
+		if !left && !h.lastKeep.IsZero() && now.Sub(h.lastKeep) < KeepaliveEvery {
 			return nil, nil
 		}
 		h.lastKeep = now

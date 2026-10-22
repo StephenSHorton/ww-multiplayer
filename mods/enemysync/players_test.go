@@ -2,6 +2,7 @@ package enemysync
 
 import (
 	"encoding/binary"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -535,6 +536,56 @@ func TestRemoteHostEpochReload(t *testing.T) {
 	sea.Stage = "sea"
 	if e := epoch(sea, nil, [3]float32{5, 5, 5}); e != e2+1 {
 		t.Errorf("new stage on return: epoch %d, want %d", e, e2+1)
+	}
+}
+
+// TestRemoteHostOverlap: the scope as ReadScope reads it through a
+// void-out reload. The request (mEnable and the overlap set) and the new
+// play scene's create phases before phase_4 (mEnable cleared, Link's
+// pointer still the deleted Link's, the overlap live until the fade-in
+// ends) are both out of play: the PSTATE is LOADING alone and the epoch
+// does not move; the fade-in's end is the one return to play, one move.
+// Without Scope.Loading the create phases read as in play: a PSTATE of
+// the deleted Link and a second move when phase_4 nulls the pointer.
+func TestRemoteHostOverlap(t *testing.T) {
+	m, scope, r := remoteHostGame(t, mailbox.RemoteFlagBodies)
+	now := time.Unix(100, 0)
+	views := []posefeed.RemoteView{{ID: 4, LinkSlot: 0, Pos: [3]float32{1, 2, 3}, Live: true}}
+	tick := func(name string, inPlay, pending, loading bool) uint32 {
+		t.Helper()
+		sc, err := ReadScope(m)
+		if err != nil || sc.InPlay != inPlay || sc.Pending != pending || sc.Loading != loading || sc.Stage != scope.Stage || sc.Room != scope.Room {
+			t.Fatalf("%s: scope %+v %v", name, sc, err)
+		}
+		p, err := ReadPState(m, sc, 0)
+		if err != nil || (p.Flags == PSLoading) == inPlay {
+			t.Errorf("%s: pstate %+v %v", name, p, err)
+		}
+		now = now.Add(100 * time.Millisecond)
+		r.OnPState(&PState{PlayerID: 4, Stage: "M_Dai", Room: 1}, now)
+		if _, err := r.Tick(now, sc, true, views, now, nil); err != nil {
+			t.Fatal(err)
+		}
+		return readBlock(t, m).Epoch
+	}
+	e0 := tick("in play", true, false, false)
+	store(t, m, addr.NextStageEnable, []byte{1})
+	store(t, m, addr.OverlapReq, binary.BigEndian.AppendUint32(nil, addr.OverlapRequest))
+	if e := tick("requested", false, true, true); e != e0 {
+		t.Errorf("requested: epoch %d -> %d", e0, e)
+	}
+	store(t, m, addr.NextStageEnable, []byte{0})
+	for i := range 3 {
+		if e := tick(fmt.Sprintf("create phase %d", i), false, false, true); e != e0 {
+			t.Errorf("create phase %d: epoch %d -> %d", i, e0, e)
+		}
+	}
+	store(t, m, addr.OverlapReq, []byte{0, 0, 0, 0})
+	if e := tick("fade-in done", true, false, false); e != e0+1 {
+		t.Errorf("fade-in done: epoch %d, want %d", e, e0+1)
+	}
+	if e := tick("in play again", true, false, false); e != e0+1 {
+		t.Errorf("in play again: epoch %d, want %d", e, e0+1)
 	}
 }
 

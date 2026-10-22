@@ -26,23 +26,44 @@ var Layouts = actors.Layouts{int16(stage.ProcMO2): {Ice: addr.Mo2OffIce, Mode: a
 
 // Scope is where a game is: its stage and room, and whether it is in play
 // (feed.inPlay's rule: Link loaded, not the title or file select, no
-// stage change pending).
+// stage change pending; and no scene change's overlap live).
 type Scope struct {
 	Stage  string
 	Room   int8
 	InPlay bool
 	// Pending is mNextStage.mEnable: a stage change is under way.
 	Pending bool
+	// Loading is the overlap request (addr.OverlapReq) live: a scene
+	// change from its request to the end of its fade-in. It outlasts
+	// Pending: the new play scene's phase_1 clears mEnable
+	// (d_s_play.cpp:1277-1278) while mpPlayerPtr[0] still holds the
+	// deleted Link until phase_4 (d_s_play.cpp:1338-1339), and the resource
+	// loads between run several frames. Without it that window read as in
+	// play in the same stage and room with every actor gone: a void-out
+	// reload (dStage_restartRoom, d_stage.cpp:2368-2372) sent in-scope
+	// STATEs listing no enemy, and the client released its copies. Only
+	// OverlapReq == addr.OverlapRequest counts: the game stores nothing
+	// else there but 0, so any other value means the address is not
+	// l_fopOvlpM_overlap on this game, and the rule falls back to the
+	// Link pointer and mEnable alone rather than holding every pipeline
+	// that reads the scope (host, client, remote-Link, heap gate) out of
+	// play for good.
+	Loading bool
 }
 
 // ReadScope reads the scope from m: PlayerPtr, CurStageName..NextStageEnable
-// in one read, and mStayNo.
+// in one read, mStayNo and the overlap request.
 func ReadScope(m mem.Reader) (Scope, error) {
 	var s Scope
 	link, err := mem.ReadU32(m, addr.PlayerPtr)
 	if err != nil {
 		return s, err
 	}
+	ovlp, err := mem.ReadU32(m, addr.OverlapReq)
+	if err != nil {
+		return s, err
+	}
+	s.Loading = ovlp == addr.OverlapRequest
 	n := int(addr.NextStageEnable-addr.CurStageName) + 1
 	b, err := m.Read(addr.CurStageName, n)
 	if err != nil {
@@ -62,7 +83,7 @@ func ReadScope(m mem.Reader) (Scope, error) {
 		return s, err
 	}
 	s.Room = room
-	s.InPlay = addr.InMEM1(link) && !s.Pending && s.Stage != "" && s.Stage != addr.StageTitle && s.Stage != addr.StageFileSelect
+	s.InPlay = addr.InMEM1(link) && !s.Pending && !s.Loading && s.Stage != "" && s.Stage != addr.StageTitle && s.Stage != addr.StageFileSelect
 	return s, nil
 }
 

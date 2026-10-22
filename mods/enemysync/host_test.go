@@ -2,6 +2,7 @@ package enemysync
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -1042,6 +1043,18 @@ func TestDeadMaskAndScope(t *testing.T) {
 	if err != nil || sc != (Scope{Stage: "M_Dai", Room: 1, InPlay: true}) {
 		t.Fatalf("scope: %+v %v", sc, err)
 	}
+	// The overlap request: live only as &l_fopOvlpM_Request; any other
+	// value is not the game's (a wrong address) and leaves the rule as it
+	// was, never every pipeline out of play.
+	for _, c := range []struct {
+		v       uint32
+		loading bool
+	}{{addr.OverlapRequest, true}, {0x803B9E34, false}, {0xFFFFFFFF, false}, {1, false}, {0, false}} {
+		store(t, m, addr.OverlapReq, binary.BigEndian.AppendUint32(nil, c.v))
+		if sc, err := ReadScope(m); err != nil || sc.Loading != c.loading || sc.InPlay == c.loading || sc.Pending {
+			t.Errorf("overlap 0x%08X: %+v %v, want loading %v", c.v, sc, err, c.loading)
+		}
+	}
 	for _, id := range []int{0, 2, 7} {
 		if err := g.OnActor(id, 1); err != nil {
 			t.Fatal(err)
@@ -1065,5 +1078,92 @@ func TestDeadMaskAndScope(t *testing.T) {
 	}
 	if sc, _ := ReadScope(m); sc.InPlay || !sc.Pending {
 		t.Errorf("with a stage change pending: %+v", sc)
+	}
+}
+
+// TestHostVoidOutReload (the live void-out in kaze room 4): a same-stage
+// reload (dStage_restartRoom) deletes and re-creates the room's actors
+// while the stage and room stay. The host goes out of play with the
+// request (Pending), at once although its last in-play STATE went a frame
+// ago; stays out while the new play scene clears mEnable with the old
+// Link pointer still set and no enemy yet (the overlap request, Loading);
+// and comes back listing the re-created enemies. No in-scope STATE ever
+// lists no enemy, the empty list the client released its copies on.
+func TestHostVoidOutReload(t *testing.T) {
+	g, m, es := moblinRoom(t)
+	start := time.Unix(1000, 0)
+	h := NewHost(m, log.Discard{}, 7, start)
+	h.Select = SelectLegacy
+	now := start
+	tick := func(what string) *State {
+		t.Helper()
+		st, err := h.Tick(now)
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+		if st != nil && st.Flags&StateFlagInScope != 0 && len(st.Slots) == 0 {
+			t.Fatalf("%s: an in-scope STATE listing no enemy: %+v", what, st)
+		}
+		return st
+	}
+	if st := tick("in play"); st == nil || !eq16(setIDs(st), []uint16{0, 1, 2}) {
+		t.Fatalf("in play: %+v", st)
+	}
+	// startRestartRoom: mNextStage set; dScnPly_Draw's change request
+	// sets the overlap.
+	if err := g.SetNextStage(mDai); err != nil {
+		t.Fatal(err)
+	}
+	store(t, m, addr.OverlapReq, []byte{0x80, 0x3B, 0x9E, 0x30}) // &l_fopOvlpM_Request
+	now = now.Add(16 * time.Millisecond)
+	if st := tick("requested"); st == nil || st.Flags&StateFlagInScope != 0 || st.Stage != "M_Dai" || st.Room != 1 {
+		t.Fatalf("the first out-of-play tick: %+v, want an out-of-play STATE at once", st)
+	}
+	// The new play scene: mEnable cleared, Link's pointer kept, the old
+	// actors deleted and the new ones still being created.
+	if err := g.ChangeStage(); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.EnterRoom(1, 2); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := ReadScope(m)
+	if err != nil || sc.Pending || !sc.Loading || sc.InPlay || sc.Stage != "M_Dai" || sc.Room != 1 {
+		t.Fatalf("the reload's scope: %+v %v", sc, err)
+	}
+	for i := range 40 {
+		frames(t, g, es, 1)
+		now = now.Add(16 * time.Millisecond)
+		if st := tick(fmt.Sprintf("reload frame %d", i)); st != nil && st.Flags&StateFlagInScope != 0 {
+			t.Fatalf("reload frame %d: in scope while the overlap is live: %+v", i, st)
+		}
+	}
+	// The fade-in done: back in play with the re-created three, walked at
+	// once (not WalkEvery after the last walk).
+	store(t, m, addr.OverlapReq, []byte{0, 0, 0, 0})
+	frames(t, g, es, 1)
+	now = now.Add(16 * time.Millisecond)
+	if st := tick("back"); st == nil || st.Flags&StateFlagInScope == 0 || !eq16(setIDs(st), []uint16{0, 1, 2}) {
+		t.Fatalf("back: %+v", st)
+	}
+}
+
+// TestHostWalksOnReentry: back in play in the same stage and room, the
+// host walks on its first in-play tick: the cache resetScope dropped is
+// not left empty until WalkEvery.
+func TestHostWalksOnReentry(t *testing.T) {
+	_, m, _ := moblinRoom(t)
+	start := time.Unix(1000, 0)
+	h := NewHost(m, log.Discard{}, 7, start)
+	if st, err := h.Tick(start); err != nil || len(st.Slots) != 3 {
+		t.Fatalf("in play: %+v %v", st, err)
+	}
+	store(t, m, addr.OverlapReq, []byte{0x80, 0x3B, 0x9E, 0x30})
+	if st, err := h.Tick(start.Add(16 * time.Millisecond)); err != nil || st == nil || st.Flags&StateFlagInScope != 0 {
+		t.Fatalf("out: %+v %v", st, err)
+	}
+	store(t, m, addr.OverlapReq, []byte{0, 0, 0, 0})
+	if st, err := h.Tick(start.Add(32 * time.Millisecond)); err != nil || st == nil || st.Flags&StateFlagInScope == 0 || len(st.Slots) != 3 {
+		t.Fatalf("back: %+v %v", st, err)
 	}
 }
