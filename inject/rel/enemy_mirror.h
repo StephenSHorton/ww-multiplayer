@@ -157,13 +157,19 @@ typedef char em_check_kind_size[(sizeof(em_kind) == 0x44 && __builtin_offsetof(e
 
 // em_ext slot entry: what em_consume caches per block slot.
 #define EM_XF_ATTN        0x01  // flags_ext bit0: the streamed ATTN bit (flags2 & kind->attn_f2)
+#define EM_XF_MT_BALL     0x02  // flags_ext bit1 (batch C MT-4): the host's Magtail is curled (annex aux[0] mode EMK_MT_MODE_BALL)
+// kind_bits bit4 (batch C MT-4): the copy was handed back curled and the
+// slot watches it for its own death (em_mt_custody_watch). It belongs to
+// the pid the slot named at that handback: em_consume clears it when the
+// slot's pid changes, so a reassigned slot never watches its new actor.
+#define EM_XB_MT_CUSTODY  0x10
 
 typedef struct {
     u16 proc;           // +0x00 the slot's proc (WWENEMY_SL_PROC_OFF) at the last consume, 0 none
     u8  kind;           // +0x02 EMK_KIND_* of that proc, EMK_KIND_NONE without a row
     u8  cc_saved_bits;  // +0x03 CC: the copy's own mCyl At/Tg/Co Set bits at adopt (bit0 At, bit1 Tg, bit2 Co), restored at handback
     u8  flags_ext;      // +0x04 EM_XF_*
-    u8  pad;            // +0x05
+    u8  kind_bits;      // +0x05 (was pad) the adopted copy's own per-kind bits, not block-derived: BB EM_XB_* (enemy_mirror.c), MT EM_XB_MT_CUSTODY (above; cleared on a pid change); zeroed at adopt
 } em_ext_slot;          // 0x06
 
 // One kind's annex override, cached at consume when annex_seq == seq
@@ -182,13 +188,16 @@ typedef struct {
 // seq-protected read); enemy_mirror_init zeroes it (kinds EMK_KIND_NONE).
 typedef struct {
     em_ext_slot slots[WWENEMY_MAX_SLOTS];       // +0x00
-    u8  kind_mask;      // +0x18 the consumed block's kind_mask (low byte)
-    u8  pad;            // +0x19
+    u16 kind_mask;      // +0x18 the consumed block's kind_mask, bits 0..15 (layout 4, D5: was u8 + pad; bit 8 is MT)
     em_kind_ovr ovr[WWENEMY_ANNEX_KINDS];       // +0x1A ids < WWENEMY_ANNEX_KINDS only: never index it with an id >= 3 (R-1)
     u8  invuln_wait[WWENEMY_ANNEX_KINDS];       // +0x26 0 = kind->invuln_wait
     u8  ovr_pad;        // +0x29
-    u8  spare[2];       // +0x2A
+    u8  spare[2];       // +0x2A [EM_X_HA_KIND] (enemy_mirror.c), [EM_X_KNOB_OK]
 } em_ext;               // 0x2C
+// em_ext.spare[1] (layout 4, R-3): 1 when the knob table at WWENEMY_KNOB_OFF
+// validated at the last consume (em_knob_validate), else 0. Every knob read
+// is live at the point of use and gated on it; nothing else is cached.
+#define EM_X_KNOB_OK      1
 typedef char em_check_ext_size[(sizeof(em_ext_slot) == 0x06 && sizeof(em_kind_ovr) == 0x04 && sizeof(em_ext) == 0x2C &&
                                 __builtin_offsetof(em_ext, kind_mask) == 0x18 && __builtin_offsetof(em_ext, ovr) == 0x1A &&
                                 __builtin_offsetof(em_ext, invuln_wait) == 0x26 && __builtin_offsetof(em_ext, spare) == 0x2A) ? 1 : -1];
@@ -201,7 +210,8 @@ typedef char em_check_ext_size[(sizeof(em_ext_slot) == 0x06 && sizeof(em_kind_ov
 //
 // R-1: hook_disable for k: x->ovr[id] for id < WWENEMY_ANNEX_KINDS, the
 // annex byte WWENEMY_ANNEX_HKDX_OFF + (id - WWENEMY_ANNEX_KINDS) read
-// directly for ids 3..6, else 0.
+// directly for ids 3..6; layout 4 (batch C R-4): the block byte
+// WWENEMY_HKD_HI_OFF + (id - 7) for ids 7..14, the knob table for 15.
 u8 em_hkd(const em_ext* x, const em_kind* k);
 // R-1: the quiet-death frame count: the annex override (ids < 3 only),
 // else EMK_QUIET_FRAMES_LIGHT under SF2_LIGHT, else the compiled
@@ -332,6 +342,153 @@ u8 em_am2_m2ce(u32 attype, u8 ha_flags);
 // EMK_AM2_MODE_THROWN. em_hit_vulnerable is NOT changed, so the sphere
 // path (AM2's HKD_SPECIAL set, or no verdict) stays byte-identical.
 int em_am2_direct_refused(void* a);
+
+// --- Batch C: layout 4 (enemy-mirror-batch-c.json layout4, R-1..R-5) -------
+// Defined in enemy_mirror.c and called only from there; declared here so
+// the contract names them (ww-mp-batchc CONTRACT.md). Every new read is
+// live at the point of use; MO2..TN stay byte-identical with an absent or
+// invalid knob table and all hook bytes 0.
+//
+// R-3, em_consume after the annex cache: knob_ok = knob_gen (u16 block
+// +WWENEMY_KNOB_GEN_OFF) != 0 && the table's gen_head == gen_tail ==
+// knob_gen && its layout == WWENEMY_LAYOUT && its count >= EMK_KIND_COUNT.
+// Stores knob_ok in x->spare[EM_X_KNOB_OK]; when valid, writes knob_gen to
+// block +WWENEMY_KNOB_SEEN_OFF (the echo Go compares). Returns knob_ok.
+int em_knob_validate(em_ext* x);
+// R-4, em_hkd's new arms: ids 0..2 x->ovr (unchanged), 3..6 the annex HKDX
+// bytes (unchanged), 7..14 the block byte WWENEMY_HKD_HI_OFF + id - 7 (live,
+// inside the seq span: no knob gate), 15 the table's ovr[15].hook only when
+// knob_ok, else 0. em_quiet_frames, em_tg_hit_up and em_invuln_wait gain,
+// for ids WWENEMY_KNOB_ID_MIN..15, the table value when knob_ok and nonzero,
+// before their compiled fallbacks (em_tg_hit_up: TN's 0x1FB stays first for
+// id 6, the table's row 6 tg is not read). Helpers the three call:
+u8 em_knob_quiet(const em_ext* x, const em_kind* k);     // 0 = none
+s16 em_knob_tg_hit_up(const em_ext* x, const em_kind* k); // 0 = none
+u8 em_knob_invuln(const em_ext* x, const em_kind* k);    // 0 = none
+
+// --- Batch C: the ambush Bokoblin (ambush_cleanup, R-6..R-9) ---------------
+// One unit with Go's ambushType/ambushRestore deletion (atomic, D8).
+// R-6: em_bk_gate takes mType {0, 1, 2, 3, 4} unconditionally (no hook
+// bit refuses 2/3). R-8, em_bk_attach while sl->tgt_flags & SF_HIDDEN and
+// !(hkd & EMK_BK_HKD_AMBUSH): instead of em_bk_hand, the boko's model base
+// TR is the translation-only (-EMK_BK_STICK_PARK, -EMK_BK_STICK_PARK, 0)
+// identity, and the em_bk_drop test is skipped (d_a_bk.cpp:4219-4227).
+void em_bk_ambush_park(void* boko);
+// R-9, em_handback's BK case, before its type4 (1,-1) / (0,0) write: when
+// !(hkd & EMK_BK_HKD_AMBUSH), the copy's u8 EMK_BK_DRAW_GATE ==
+// EMK_BK_DRAW_GATE_POT and its mType is EMK_BK_TYPE_AMBUSH_JUMP/LEAP:
+// dr.mAction EMK_BK_ACTION_TUBO, dr.mMode 0, s16 EMK_BK_M0300 0, s16
+// EMK_BK_M0310 0, actor scale 1.0 (x, y, z), EMK_BK_INVULN untouched; the
+// caller then skips the bck_wait setAnm (tubo_wait owns the anim). Returns
+// 1 when it wrote (keyed on the copy's own m02BA, never on slot flags).
+int em_bk_ambush_handback(void* a, const em_kind* k, u8 hkd);
+
+// --- Batch C: Kargaroc BB (R-10..R-18; "bb") -------------------------------
+// hkd is em_hkd(x, k) (block byte WWENEMY_HKD_HI_OFF + 0); bits EMK_BB_HKD_*.
+// xs->kind_bits holds the slot's EM_XB_BB_* (enemy_mirror.c), zeroed at adopt.
+// R-13, em_validate's EMK_KIND_BB case (0 = ERR_GATE): type 5/6, rider
+// 0x2DF != 0, dead 0xC7E != 0, knockback f32 0x348 > 0.01, and (before
+// adoption only) 0x2F2 != 0 while the host slot is not SF_HIDDEN. No health
+// term (em_die_quiet zeroes it; the em_tn_gate rule), no ice (em_adopt's
+// ERR_ICE).
+int em_bb_gate(const em_slot* sl, void* a, const em_kind* k);
+// R-11, em_adopt's BB case: EMK_BB_M366/M368 zeroed, the tail seed armed
+// (after the first calc). em_adopt seeds cur_angle from current.angle.y and,
+// by EMK_CAP_TILT_CUR, cur_tilt from current.angle.x.
+void em_bb_adopt(const em_slot* sl, em_ext_slot* xs, void* a);
+// R-11, em_base_matrix's EMK_MTX_TRYXZ case unless EMK_BB_HKD_MTX: the
+// d_a_bb.cpp:2313-2322 matrix from the copy's current.angle (x = cur_tilt,
+// y = cur_angle, z = the consumed slot z) into m; the caller copies it to
+// the morf model's base TR with setBaseScale(actor.scale).
+void em_tryxz_matrix(const em_slot* sl, void* a, f32 (*m)[4]);
+// Behind EMK_BB_HKD_BEAK, in em_base_matrix's TRYXZ case before the matrix
+// and McaMorf_calc: zero EMK_BB_HEAD_ROT[0..10] and s16 EMK_BB_BEAK (the
+// copy's paused execute no longer re-zeroes them, d_a_bb.cpp:2410-2412).
+void em_bb_pre_calc(void* a);
+// R-14, em_slot_frame right after McaMorf_calc, dying frames too, unless
+// EMK_BB_HKD_TAIL: AA8[0] = BD4[1]; the seed AA8[1..9] = BD4[1], B5C[0..9] =
+// 0 on the first frame after adopt and on the host's hidden->shown edge;
+// the fingerprint once per adopt (a miss bumps WWENEMY_FP_MISS_OFF); then
+// with EXTRA clear ground_h = -1e9 and tail_control(a) when it matched, else
+// the collapsed tail (AA8[0..9] = BD4[1], B5C = 0), which a dying copy also
+// takes with EXTRA clear.
+void em_bb_tail(const em_slot* sl, em_ext_slot* xs, void* a, u8 hkd, int dying);
+// R-14 c: 1 when exec = *(*(a + EMK_AC_SUB_METHOD) + EMK_METHOD_EXECUTE)
+// and tc = exec - EMK_BB_TEXT_EXEC + EMK_BB_TEXT_TAIL are inside MEM1 and
+// exec[0..3], tc[0..3] and tc[EMK_BB_TAIL_BLR_OFF / 4] equal EMK_BB_FP_*.
+int em_bb_fp_ok(const void* a);
+// R-15, em_kind_fields' BB case: u8 EMK_BB_DRAW_GATE = 0 while the host
+// slot is not SF_HIDDEN; while HIDDEN the copy's own byte stays.
+// R-16: em_hit_dying's BB case (health <= 0, EMK_BB_DEAD, ice shrink) and
+// em_hit_shrink_ok returning 0 for BB need no prototype.
+// R-17, em_handback's BB case unless EMK_BB_HKD_HANDBACK: STATE =
+// EMK_BB_STATE_ATTACK, ATTACK_TIMER = EMK_BB_ATTACK_SEED, M35D, M2F1, M2F0,
+// KNOCK, M34C, C58, HEAD_ROT[] and BEAK = 0, both Tg spheres' hits cleared,
+// then the tail seed; never writes EMK_BB_DRAW_GATE.
+void em_bb_handback(void* a);
+// R-18, em_extra_anm's BB case unless EMK_BB_HKD_EXTRA: u8 EMK_BB_EYE_BTP = 0.
+void em_bb_extra(void* a);
+
+// --- Batch C: Magtail MT (R-19; "mt") -- THE FIRST CUT -----------------------
+// Everything MT is in these functions and the dispatch lines that call them
+// (and EM_XF_MT_BALL above); the cut (R-20) deletes this block, those lines,
+// EM_ROW(MT), the MT section of enemy_mirror.c and the MT section of
+// wwenemy_kinds.h. hkd is em_hkd(x, k) (block byte WWENEMY_HKD_HI_OFF + 1).
+// MT-1, em_validate's MT case (0 = ERR_GATE): EMK_MT_APPEAR != 0, mode not
+// in {MOVE, FIGHT, PINNED}, EMK_MT_DEATH != 0, EMK_MT_KILLED != 0, ice
+// shrink running, actor_status CARRY. em_validate also refuses while the
+// host is curled (EM_XF_MT_BALL) unless EMK_MT_HKD_CUSTODY.
+int em_mt_gate(void* a, const em_kind* k);
+// MT-1 adopt: clear EMK_MT_BLUR and every sphere's hit; translate the ring
+// and chain by the snap delta (dx, dy, dz) so the body does not whip.
+void em_mt_adopt(void* a, f32 dx, f32 dy, f32 dz);
+// em_consume_owned's MT case (annex matched): aux[0] mode/action (MOVE,
+// FIGHT, PINNED only; MOVE -> chain takes the engage snapshot), aux[1] the
+// ball timer, aux[3] shape.z; EXTRA clear: phase (flags2) and colour frames
+// (aux[2]). aux is the slot's annex offset (mailbox-relative).
+void em_mt_consume(const em_slot* sl, void* a, u32 aux, u8 hkd);
+// MT-2, em_base_matrix's EMK_MTX_MT case unless EMK_MT_HKD_MTX: push the
+// head into the ring (MOVE; advance & 63 unless EMK_MT_F2_DIVE) or the
+// 35-unit chain (FIGHT, PINNED), the 8 segment base matrices (segments
+// 1..7 unless EMK_MT_HKD_CHAIN), each model's base scale = actor scale *
+// scale (the quiet death), EMK_MT_ANCHOR, eyePos and the attention
+// position, the sphere centres and radii; FIRE clear on a living type-0
+// copy: the per-segment flames.
+void em_mt_matrix(const em_slot* sl, void* a, u8 hkd, f32 scale);
+// MT-3, em_colliders' EMK_COLL_MT case unless EMK_MT_HKD_COLL: the 8 body
+// spheres (Tg + Co, At Set cleared) and the eye (Tg) into cCcS, the Shield
+// bit onto body sph[0] from EMK_MT_F2_SHIELD; a pending code withholds its
+// collider (code 2: all 8). em_hits' MT case (em_mt_hit_collider): eye ->
+// EMK_HIT_HEAD, the first body sphere hit -> EMK_HIT_TG (every other
+// sphere's hit cleared), a thrown Magtail's hit dropped.
+void em_mt_colliders(const em_slot* sl, void* a);
+int em_mt_hit_collider(em_slot* sl, void* a);   // 0 none, EMK_HIT_HEAD, EMK_HIT_TG
+void em_mt_clr_hits(void* a, int eye, int body);
+// Host em_hit_center's MT case: collider 2 at body sph[EMK_MT_HIT_CENTER_SEG];
+// em_hit_vulnerable's: the hit cooldown 0x460 is 0.
+void em_mt_hit_center(void* a, cXyz* c);
+int em_mt_vulnerable(void* a);
+// MT-4, em_handback's MT case: hits and blur cleared; when the host curled
+// (EM_XF_MT_BALL) and EMK_MT_HKD_CUSTODY is clear, the custody BALL (mode
+// BALL, action 0, ball timer aux[1], phase 1 and frames aux[2], the streamed
+// health, eye HP 0, Shield off) and xs->kind_bits EM_XB_MT_CUSTODY. slot is
+// the block slot; same is 0 when the release is a reassignment (the slot
+// already names another actor, whose state xs and the slot now carry): no
+// custody then.
+void em_mt_handback(void* a, em_ext_slot* xs, u8 hkd, int slot, int same);
+// MT-4, em_slot_frame's refusal of an MT slot: while EM_XB_MT_CUSTODY (set
+// for this pid: em_consume drops it on a pid change), the slot reports the copy as its actor, and its death (EMK_MT_DEATH >= 2,
+// mode DEAD or ice shrink) once as a hit entry with EMK_HIT_MT_KILL.
+// Returns 1 while the slot watches one (its refusals then skip
+// revalidate_failures).
+int em_mt_custody_watch(em_slot* sl, em_ext_slot* xs, void* a, int slot);
+// MT-4 host, em_hit_apply's code-4 branch: EMK_MT_DEATH = 2 only if its
+// copy is still BALL with EMK_MT_DEATH 0 (returns 0 = stale).
+int em_mt_kill_apply(void* a);
+// MT-5, before both fopAcM_delete sites (em_release and em_die_quiet)
+// unless EMK_MT_HKD_RESPAWN: u8 EMK_MT_KILLED = 1 when EMK_MT_RESPAWN_BIT
+// is set (daMt_Delete then re-creates it at home).
+void em_mt_mark_respawn(void* a, u8 hkd);
 
 // create: zero the state and the cache, and remember both for the epilog.
 void enemy_mirror_init(enemy_mirror_state* s, em_ext* x);

@@ -15,12 +15,14 @@ import (
 
 // TestK1MatchesDesign pins the K1 classes to the design's §7.2 timer
 // offsets (mLightShrinkTimer is enemyice +6): every class but Morth, which
-// is no target (every placed one is a generator).
+// is no target (every placed one is a generator). The Magtail is the
+// enemy mirror's batch C rig row: unverified, so held without
+// --unverified.
 func TestK1MatchesDesign(t *testing.T) {
 	timers := map[string]uint32{
 		"BK": 0x126A, "MO2": 0x2A5A, "ST": 0x1FAE, "RD": 0x6E6, "CC": 0x822, "KI": 0x92A,
 		"AM": 0xAC2, "AM2": 0xA92, "BB": 0xC86, "FM": 0xAEE, "TN": 0x152A,
-		"PH": 0x99E, "PT": 0x7EA, "PW": 0x88A, "BO": 0xA02,
+		"PH": 0x99E, "PT": 0x7EA, "PW": 0x88A, "BO": 0xA02, "MT": 0x1906,
 	}
 	cs := Classes()
 	if len(cs) != len(timers) {
@@ -33,8 +35,8 @@ func TestK1MatchesDesign(t *testing.T) {
 		if c.Ice < addr.ActorSize {
 			t.Errorf("%s: enemyice at 0x%X is inside fopAc_ac_c", c.Name, c.Ice)
 		}
-		if !c.Verified { // the live check K1, 2026-10-15
-			t.Errorf("%s: not verified", c.Name)
+		if c.Verified == (c.Name == "MT") { // the live check K1, 2026-10-15; MT unchecked
+			t.Errorf("%s: verified %v", c.Name, c.Verified)
 		}
 	}
 	if _, ok := K1(int16(stage.ProcKS)); ok {
@@ -75,6 +77,7 @@ func TestK1GateMatrix(t *testing.T) {
 		{"Morth", eligibleActor(), func(a *actors.Actor) { a.Proc = int16(stage.ProcKS) }, false, "not a K1 class"},
 		{"a boss", eligibleActor(), func(a *actors.Actor) { a.Proc = int16(stage.ProcBDK) }, false, "not a K1 class"},
 		{"unverified", eligibleActor(), func(a *actors.Actor) { a.Proc = int16(stage.ProcPW) }, false, "not verified"},
+		{"Magtail unverified", eligibleActor(), func(a *actors.Actor) { a.Proc = int16(stage.ProcMT) }, false, "not verified"},
 		{"creating", eligibleActor(), func(a *actors.Actor) { a.InitState = 1 }, false, "mInitState 1"},
 		{"leaving", eligibleActor(), func(a *actors.Actor) { a.InitState = 3 }, false, "mInitState 3"},
 		{"group", eligibleActor(), func(a *actors.Actor) { a.Group = 3 }, false, "group 3"},
@@ -97,6 +100,7 @@ func TestK1GateMatrix(t *testing.T) {
 		// Pass:
 		{"unkeyed", eligibleActor(), func(a *actors.Actor) { a.SetID, a.HomeRoom = addr.ActorSetIDNone, -1 }, false, ""},
 		{"unverified with --unverified", eligibleActor(), func(a *actors.Actor) { a.Proc = int16(stage.ProcPW) }, true, ""},
+		{"Magtail with --unverified", eligibleActor(), func(a *actors.Actor) { a.Proc = int16(stage.ProcMT) }, true, ""},
 		{"ReDead walking", rd, func(a *actors.Actor) { a.Mode = 4 }, false, ""},
 		{"Floormaster waiting", fm, func(a *actors.Actor) { a.Mode = 7 }, false, ""},
 	} {

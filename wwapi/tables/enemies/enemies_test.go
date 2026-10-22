@@ -137,7 +137,8 @@ func TestClasses(t *testing.T) {
 	}
 
 	// §7.2's K1 table: proc and the enemyice mLightShrinkTimer offset
-	// (enemyice + 6, c_damagereaction.h:15), which the headers confirm.
+	// (enemyice + 6, c_damagereaction.h:15), which the headers confirm;
+	// and batch C's Magtail rig row (unverified, from the retail REL).
 	k1 := map[string]struct {
 		proc  stage.Proc
 		timer uint32
@@ -146,6 +147,7 @@ func TestClasses(t *testing.T) {
 		"CC": {0xCF, 0x822}, "KI": {0xD8, 0x92A}, "AM": {0xCB, 0xAC2}, "AM2": {0xCC, 0xA92},
 		"BB": {0xB6, 0xC86}, "FM": {0x79, 0xAEE}, "KS": {0xCE, 0x6AE}, "TN": {0xC0, 0x152A},
 		"PH": {0xD2, 0x99E}, "PT": {0xF9, 0x7EA}, "PW": {0xD5, 0x88A}, "BO": {0xD7, 0xA02},
+		"MT": {0xD9, 0x1906},
 	}
 	got := K1Classes()
 	if len(got) != len(k1) {
@@ -159,6 +161,9 @@ func TestClasses(t *testing.T) {
 		}
 		if c.Proc != w.proc || c.Ice+6 != w.timer {
 			t.Errorf("%s: proc 0x%X timer +0x%X, §7.2 has 0x%X +0x%X", c.Name, uint16(c.Proc), c.Ice+6, uint16(w.proc), w.timer)
+		}
+		if c.K1Verified == (c.Name == "MT") {
+			t.Errorf("%s: K1Verified %v (only the Magtail is unverified)", c.Name, c.K1Verified)
 		}
 	}
 	// §7.2 says Keese and Kargaroc move home.pos; so does a Bokoblin on

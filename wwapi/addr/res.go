@@ -116,3 +116,27 @@ const (
 	TnBckTateOn     = 0x3C
 	TnBckArmorKihon = 0x64
 )
+
+// The Kargaroc's and Magtail's archives and BCK ranges (enemy mirror
+// batch C, enemy-mirror-batch-c.json "bb".row and "mt".row ARC and BCK_*).
+const (
+	// BbArc is bb_class's archive (dComIfG_getObjectRes "Bb",
+	// d_a_bb.cpp:314-355).
+	BbArc = "Bb"
+	// Bb.arc's BCK indices (assets/GZLE01/res/Object/Bb.h:25-38):
+	// dRes_INDEX_BB_BCK_ATACK01_e 0x15 through WALK 0x22. FLY01 0x18 is
+	// the handback loop (WAIT 0x21 is the perched idle, batch C
+	// judge_errors_resolved).
+	BbBckFirst = 0x15
+	BbBckLast  = 0x22
+	BbBckCount = BbBckLast - BbBckFirst + 1
+	BbBckWait  = 0x18
+	// MtArc is mt_class's archive (res/Object/Mt.h).
+	MtArc = "Mt"
+	// Mt.arc's BCK indices (Mt.h:11-14): ATTACK 7, SUKI 8, TUKKOMI 9,
+	// WAIT1 10; only the head morf plays them.
+	MtBckFirst = 0x07
+	MtBckLast  = 0x0A
+	MtBckCount = MtBckLast - MtBckFirst + 1
+	MtBckWait  = 0x0A
+)

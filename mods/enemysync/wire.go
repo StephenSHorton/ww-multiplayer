@@ -41,7 +41,9 @@ import (
 // a per-epoch handle, wire flags and aux[4]; the header carries the host's
 // kind mask, the room's dead-actor words 0..3 and the kind table's hash;
 // HIT and ACK name their target by handle, and PHIT's setID field carries
-// the attacker's handle. Sub refuses every other version.
+// the attacker's handle. Sub refuses every other version. Batch C widened
+// the kind mask to u16 through the header's spare byte 31 (D6) without a
+// bump, as the TN batch added HIT byte 54.
 const WireVersion byte = 4
 
 // The sub bytes and sizes, from the server's ingress rules.
@@ -284,8 +286,10 @@ type State struct {
 	// Version 4: the host's enabled kinds (bit KindID; the client mirrors
 	// a kind only when both sides enable it), the room's zone dead-actor
 	// words 0..3 (setIDs 0..127) and the host's KindHash (a client
-	// refuses a STATE whose hash is not its own).
-	HostKindMask uint8
+	// refuses a STATE whose hash is not its own). HostKindMask is u16 since
+	// batch C (D6): bits 0-7 at byte 30, bits 8-15 at byte 31, which older
+	// builds wrote 0 and ignored, so WireVersion stays 4.
+	HostKindMask uint16
 	Dead         [DeadWords]uint32
 	KindHash     uint32
 	Slots        []Slot
@@ -411,7 +415,7 @@ func EncodeState(s *State) ([]byte, error) {
 	if err := putStage(b[20:28], s.Stage); err != nil {
 		return nil, err
 	}
-	b[28], b[29], b[30], b[31] = byte(s.Room), s.DeadMask, s.HostKindMask, 0
+	b[28], b[29], b[30], b[31] = byte(s.Room), s.DeadMask, byte(s.HostKindMask), byte(s.HostKindMask>>8)
 	for i, w := range s.Dead {
 		binary.BigEndian.PutUint32(b[32+4*i:], w)
 	}
@@ -496,7 +500,7 @@ func DecodeState(data []byte) (*State, error) {
 		Room:     int8(data[28]),
 		DeadMask: data[29],
 
-		HostKindMask: data[30],
+		HostKindMask: uint16(data[30]) | uint16(data[31])<<8,
 		KindHash:     binary.BigEndian.Uint32(data[48:]),
 	}
 	for i := range s.Dead {

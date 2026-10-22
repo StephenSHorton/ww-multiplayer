@@ -19,7 +19,7 @@ import (
 // D7, D8), every table knows it, and it stays off by default.
 func TestKindTNRow(t *testing.T) {
 	k := KindTN.Row()
-	if k == nil || k.ID != KindTN || KindOf(addr.ProcTN) != KindTN || KindTN.String() != "tn" || len(Kinds) != 7 {
+	if k == nil || k.ID != KindTN || KindOf(addr.ProcTN) != KindTN || KindTN.String() != "tn" || len(Kinds) <= int(KindTN) {
 		t.Fatalf("tn row %+v", k)
 	}
 	if r, ok := KindByName("tn"); !ok || r != k {

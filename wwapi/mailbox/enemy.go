@@ -23,7 +23,11 @@ import (
 // hit path); enemy-mirror-general.json (layout 3: the slot's placement
 // key and proc, the header's kind_mask, and the annex at
 // Mailbox+EnemyAnnexOff, just below the block, which Go writes in the same
-// write as the block: EnemyWriteSpan bytes from EnemyAnnexAddr).
+// write as the block: EnemyWriteSpan bytes from EnemyAnnexAddr);
+// enemy-mirror-batch-c.json (layout 4, additive: the block's knob_gen at
+// +0x22, hook bytes for kind ids 7..14 at +0x28 inside the seq span, the
+// REL's echo and fp_miss at +0x194, and the knob table at
+// Mailbox+EnemyKnobOff, a separate write: EnemyKnobs).
 //
 // The slack is not zeroed at boot, so a block is valid only by its magic,
 // its epoch and a moving seq; Go writes magic 0 when it stops.
@@ -31,7 +35,7 @@ const (
 	EnemyMagic    uint32 = 0x5757454E // 'WWEN'
 	EnemyOff      uint32 = 0x200      // block start, from Mailbox
 	EnemySize     uint32 = 0x198
-	EnemyLayout   uint16 = 3 // u16 at +0x12: bumped on any layout change
+	EnemyLayout   uint16 = 4 // u16 at +0x12: bumped on any layout change (4: batch C, additive over 3)
 	EnemyMaxSlots        = 4
 
 	// The Go-written span: +0x00..+EnemyGoSpan, one write per tick.
@@ -46,8 +50,10 @@ const (
 	EnemyStageOff     = 0x18  // char[8] NUL-padded stage name
 	EnemyRoomOff      = 0x20  // s8 room (mStayNo)
 	EnemyRoleOff      = 0x21  // u8 EnemyRole*
-	EnemyKindMaskOff  = 0x24  // u32 bit k = kind k enabled (enemysync KindID); both roles write it
-	EnemyReservedOff  = 0x28  // u32[2]
+	EnemyKnobGenOff   = 0x22  // u16 layout 4: the knob table's gen this block names, 0 = no table
+	EnemyKindMaskOff  = 0x24  // u32 bit k = kind k enabled (enemysync KindID); both roles write it; ids < 16
+	EnemyHkdHiOff     = 0x28  // u8[EnemyHkdHiKinds] layout 4: hook_disable (EnemyHKD*) for kind ids 7..14, inside the seq span
+	EnemyHkdHiKinds   = 8     // ids 7..14 (BB +0x28, MT +0x29); the former reserved u32[2]
 	EnemySlotsOff     = 0x30  // slot[4] x EnemySlotSize
 	EnemySlotSize     = 0x34  // slots end at +0x100
 	EnemyHitApplyOff  = 0x100 // host role: a HIT to apply (EnemyHA*)
@@ -143,7 +149,9 @@ const (
 	EnemyCanariesOff    = 0x188 // u8 pause_reasserts, u8 anm_unresolved, u8 revalidate_failures, u8 watchdog_releases
 	EnemyCanaries2Off   = 0x18C // u8 anm_res_null, u8 anm_range, u8 hit_nocross, u8 hit_aborted
 	EnemyHitResultOff   = 0x190 // u32 BE: bits 31-24 (byte +0) EnemyHR* result, 23-16 EnemyHD* detail, 15-8 REL executes from Set to result, 7-0 Sets issued
-	EnemyReserved2Off   = 0x194 // u32
+	EnemyKnobSeenOff    = 0x194 // u16 layout 4: the last knob_gen the REL validated (0 none); Go rewrites the table while it differs
+	EnemyFpMissOff      = 0x196 // u8 layout 4: saturating count of BB tail fingerprint misses
+	EnemyTailSpareOff   = 0x197 // u8 spare
 
 	// The hit entry's pending byte (+3): any nonzero value is pending; the
 	// REL ORs the AM2 verdict bits into it (TN batch R-14).
@@ -249,7 +257,22 @@ const (
 	// EnemyAnnexKinds+j's u8 hook_disable at +j, the annex's last four
 	// bytes, which the REL reads directly (no seq-cached copy).
 	EnemyAnnexHKDXOff   uint32 = 0x1FC // u8 hook_disable[EnemyAnnexHKDXKinds] for kind ids 3..6 (EnemyHKD*)
-	EnemyAnnexHKDXKinds        = 4     // ids EnemyAnnexKinds..+3 (KI, AM, AM2, TN); ends at EnemyOff: id 7 needs layout 4
+	EnemyAnnexHKDXKinds        = 4     // ids EnemyAnnexKinds..+3 (KI, AM, AM2, TN); ends at EnemyOff: ids 7..14 use EnemyHkdHiOff
+
+	// Layout 4's knob table (mailbox-relative; batch C layout4.knob_table,
+	// D3): live quiet / tg_hit_up / invuln_wait for kind ids 3..15, written
+	// as its own write before the block naming its gen (EnemyKnobs). Tuning
+	// only: an invalid table is the compiled values, never a hook turned on.
+	EnemyKnobOff        uint32 = 0x850 // 0x80413750, past the remote-Link block
+	EnemyKnobSize       uint32 = 0x60  // +0x850..+0x8B0
+	EnemyKnobKinds             = 16    // rows per field, by kind id
+	EnemyKnobGenHeadOff        = 0x00  // u32 == the blocks' knob_gen
+	EnemyKnobLayoutOff         = 0x04  // u16 EnemyLayout
+	EnemyKnobCountOff          = 0x06  // u8 rows (EnemyKnobKinds); the REL needs >= its kind count
+	EnemyKnobOvrOff            = 0x08  // ovr[EnemyKnobKinds] x EnemyAnnexOvrSize (EnemyAnnexOvr*Off): hook (id 15 only), quiet, tg_hit_up
+	EnemyKnobInvWOff           = 0x48  // u8 invuln_wait[EnemyKnobKinds]
+	EnemyKnobGenTailOff        = 0x58  // u32 == gen_head, the last word
+	EnemyKnobIDMin             = 3     // the first kind id the table serves
 
 	// Hook-disable bits (an annex override's byte 0).
 	EnemyHKDModelEq     uint8 = 0x01 // skip the actor->model == morf model check
@@ -380,10 +403,14 @@ type EnemyBlock struct {
 	Stage     string
 	Room      int8
 	Role      uint8
+	KnobGen   uint16 // layout 4: the knob table's gen (EnemyKnobs.Gen) this block names, 0 = none
 	KindMask  uint32 // bit k = kind k enabled
-	Slots     []EnemySlot
-	HitApply  EnemyHitApply
-	Annex     EnemyAnnex // written with the block by EncodeWrite / WriteEnemyBlock
+	// HkdHi is kind id 7+j's hook_disable (EnemyHKD*), layout 4's bytes at
+	// EnemyHkdHiOff, written in the same seq-protected span as the slots.
+	HkdHi    [EnemyHkdHiKinds]uint8
+	Slots    []EnemySlot
+	HitApply EnemyHitApply
+	Annex    EnemyAnnex // written with the block by EncodeWrite / WriteEnemyBlock
 }
 
 // ErrEnemyNotFinite is Encode's error for a NaN or Inf.
@@ -421,7 +448,9 @@ func (b *EnemyBlock) Encode() ([]byte, error) {
 	copy(out[EnemyStageOff:EnemyStageOff+EnemyStageLen], b.Stage)
 	out[EnemyRoomOff] = byte(b.Room)
 	out[EnemyRoleOff] = b.Role
+	be.PutUint16(out[EnemyKnobGenOff:], b.KnobGen)
 	be.PutUint32(out[EnemyKindMaskOff:], b.KindMask)
+	copy(out[EnemyHkdHiOff:EnemyHkdHiOff+EnemyHkdHiKinds], b.HkdHi[:])
 	for i := range b.Slots {
 		s := &b.Slots[i]
 		if err := enemyFinite(s.Pos[0], s.Pos[1], s.Pos[2], s.MorfFrame, s.MorfRate, s.BlurScale); err != nil {
@@ -594,7 +623,9 @@ func DecodeEnemyBlock(b []byte) (blk EnemyBlock, seqTail uint32, err error) {
 	blk.Stage = string(stage[:n])
 	blk.Room = int8(b[EnemyRoomOff])
 	blk.Role = b[EnemyRoleOff]
+	blk.KnobGen = be.Uint16(b[EnemyKnobGenOff:])
 	blk.KindMask = be.Uint32(b[EnemyKindMaskOff:])
+	copy(blk.HkdHi[:], b[EnemyHkdHiOff:EnemyHkdHiOff+EnemyHkdHiKinds])
 	if count > EnemyMaxSlots {
 		count = EnemyMaxSlots
 	}
@@ -703,6 +734,10 @@ type EnemyStatus struct {
 	Canaries    EnemyCanaries
 	Canaries2   EnemyCanaries2
 	HitResult   EnemyHitResult
+	// Layout 4: the knob_gen whose table the REL last validated (0 none),
+	// and its BB tail fingerprint-miss count.
+	KnobGenSeen uint16
+	FpMiss      uint8
 }
 
 // enemyStatusLen is the REL-written span's size.
@@ -746,6 +781,8 @@ func DecodeEnemyStatus(b []byte) (EnemyStatus, error) {
 	st.Canaries2 = EnemyCanaries2{AnmResNull: c[0], AnmRange: c[1], HitNoCross: c[2], HitAborted: c[3]}
 	r := at(EnemyHitResultOff)
 	st.HitResult = EnemyHitResult{Result: r[0], Detail: r[1], Frames: r[2], Sets: r[3]}
+	st.KnobGenSeen = be.Uint16(at(EnemyKnobSeenOff))
+	st.FpMiss = at(EnemyFpMissOff)[0]
 	return st, nil
 }
 
@@ -793,3 +830,85 @@ func ReadEnemyBlock(m Reader) (blk EnemyBlock, seqTail uint32, st EnemyStatus, e
 // objects, up to Mailbox+EnemyRegionEnd. The region probe must not arm it
 // while enemy sync runs (mod.go, CanaryArena).
 var EnemyBlockRegion = addr.Region{Name: "enemy block", Start: EnemyAnnexAddr, End: Mailbox + EnemyRegionEnd}
+
+// EnemyKnobAddr is layout 4's knob table.
+const EnemyKnobAddr = Mailbox + EnemyKnobOff
+
+// EnemyKnobRegion is the knob table's RAM (layout 4). Go rewrites it
+// whenever the REL's echo differs from its gen, so the region probe never
+// arms it: CanaryArenaHigh starts at its end and canaryForbidden
+// (cmd/wwdev/coop_diag.go) lists it (batch C layout4.knob_table.canaries).
+// P0-L4 proves the span free on v0.5.0, whose arena still covers it.
+var EnemyKnobRegion = addr.Region{Name: "enemy knob table", Start: EnemyKnobAddr, End: EnemyKnobAddr + EnemyKnobSize}
+
+// EnemyKnobs is layout 4's knob table (EnemyKnobOff): per kind id, a
+// quiet-death frame count, a collider-2 centre height and an invuln wait,
+// 0 = the REL's compiled value. The REL reads rows EnemyKnobIDMin.. only
+// (ids 0..2 keep the annex overrides; TN's tg_hit_up keeps
+// EnemyAnnexTnTgUpOff) and Hook for id 15 only (ids 7..14's hook bytes are
+// EnemyBlock.HkdHi). Gen is written as both gen words; a block names it in
+// EnemyBlock.KnobGen.
+type EnemyKnobs struct {
+	Gen    uint16
+	Hook   [EnemyKnobKinds]uint8
+	Quiet  [EnemyKnobKinds]uint8
+	TgUp   [EnemyKnobKinds]int16
+	Invuln [EnemyKnobKinds]uint8
+}
+
+// Encode lays the table out (EnemyKnobSize bytes) with layout EnemyLayout
+// and count EnemyKnobKinds.
+func (k *EnemyKnobs) Encode() []byte {
+	out := make([]byte, EnemyKnobSize)
+	be := binary.BigEndian
+	be.PutUint32(out[EnemyKnobGenHeadOff:], uint32(k.Gen))
+	be.PutUint16(out[EnemyKnobLayoutOff:], EnemyLayout)
+	out[EnemyKnobCountOff] = EnemyKnobKinds
+	for i := range EnemyKnobKinds {
+		at := out[EnemyKnobOvrOff+i*EnemyAnnexOvrSize:]
+		at[EnemyAnnexOvrHooksOff] = k.Hook[i]
+		at[EnemyAnnexOvrQuietOff] = k.Quiet[i]
+		be.PutUint16(at[EnemyAnnexOvrTgUpOff:], uint16(k.TgUp[i]))
+	}
+	copy(out[EnemyKnobInvWOff:], k.Invuln[:])
+	be.PutUint32(out[EnemyKnobGenTailOff:], uint32(k.Gen))
+	return out
+}
+
+// DecodeEnemyKnobs parses a table (at least EnemyKnobSize bytes) and
+// whether it is one the REL would take for gen: gen != 0, both gen words
+// equal to it, layout EnemyLayout and count >= kinds.
+func DecodeEnemyKnobs(b []byte, gen uint16, kinds int) (k EnemyKnobs, ok bool, err error) {
+	if len(b) < int(EnemyKnobSize) {
+		return k, false, fmt.Errorf("mailbox: %d bytes, the enemy knob table is %d", len(b), EnemyKnobSize)
+	}
+	be := binary.BigEndian
+	head, tail := be.Uint32(b[EnemyKnobGenHeadOff:]), be.Uint32(b[EnemyKnobGenTailOff:])
+	k.Gen = uint16(head)
+	for i := range EnemyKnobKinds {
+		at := b[EnemyKnobOvrOff+i*EnemyAnnexOvrSize:]
+		k.Hook[i], k.Quiet[i], k.TgUp[i] = at[EnemyAnnexOvrHooksOff], at[EnemyAnnexOvrQuietOff], int16(be.Uint16(at[EnemyAnnexOvrTgUpOff:]))
+	}
+	copy(k.Invuln[:], b[EnemyKnobInvWOff:])
+	ok = gen != 0 && head == uint32(gen) && tail == head && be.Uint16(b[EnemyKnobLayoutOff:]) == EnemyLayout && int(b[EnemyKnobCountOff]) >= kinds
+	return k, ok, nil
+}
+
+// WriteEnemyKnobs writes the table in one write at EnemyKnobAddr. Write it
+// before the first block whose KnobGen names k.Gen.
+func WriteEnemyKnobs(m Writer, k *EnemyKnobs) error {
+	if err := m.Write(EnemyKnobAddr, k.Encode()); err != nil {
+		return fmt.Errorf("mailbox: enemy knob table: %w", err)
+	}
+	return nil
+}
+
+// ReadEnemyKnobs reads the table back and checks it against gen and kinds
+// as DecodeEnemyKnobs does.
+func ReadEnemyKnobs(m Reader, gen uint16, kinds int) (EnemyKnobs, bool, error) {
+	b, err := m.Read(EnemyKnobAddr, int(EnemyKnobSize))
+	if err != nil {
+		return EnemyKnobs{}, false, fmt.Errorf("mailbox: enemy knob table: %w", err)
+	}
+	return DecodeEnemyKnobs(b, gen, kinds)
+}

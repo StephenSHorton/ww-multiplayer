@@ -8,7 +8,10 @@
 // moblin-s2-v2-final.txt (layout 2: the S2 animation stream and the host
 // v2 At-sphere hit); enemy-mirror-general.json (layout 3: the kind table
 // in wwenemy_kinds.h, the placement key at slot +0x14, the slot proc at
-// +0x2E, kind_mask at +0x24 and the annex below the block).
+// +0x2E, kind_mask at +0x24 and the annex below the block);
+// enemy-mirror-batch-c.json (layout 4, D1-D5: additive, nothing moves:
+// knob_gen at +0x22, hook bytes for ids 7..14 at +0x28, the REL's echo at
+// +0x194 and the knob table at mailbox +0x850).
 //
 // Shared by inject/rel/enemy_mirror.c (reader/writer in the game) and
 // wwapi/mailbox/enemy.go (the Go mirror of these constants, pinned by a
@@ -21,7 +24,10 @@
 // 0x80414000 (inject/build.py). Go writes the annex and the block's Go
 // span in one write, +0x1C8..+0x324 from MAILBOX_ADDR. The slack is not
 // zeroed at boot: validity is magic + epoch + a moving seq_head ==
-// seq_tail (and, for the annex, annex_seq == that seq).
+// seq_tail (and, for the annex, annex_seq == that seq). Layout 4's knob
+// table (+0x850..+0x8B0) is a second, separate Go write before the block
+// write; it is valid only by its own gen words (WWENEMY_KNOB_*), and it
+// carries tuning only: every hook kill switch lives inside the seq span.
 //
 // Offsets are block-relative (from MAILBOX_ADDR + WWENEMY_OFF) unless the
 // comment says "mailbox-relative".
@@ -31,7 +37,7 @@
 #define WWENEMY_MAGIC            0x5757454E   // 'WWEN'
 #define WWENEMY_OFF              0x200        // block start, from MAILBOX_ADDR
 #define WWENEMY_SIZE             0x198        // whole block
-#define WWENEMY_LAYOUT           3            // u16 at +0x12: bump on any layout change
+#define WWENEMY_LAYOUT           4            // u16 at +0x12: bump on any layout change (4: batch C, additive over 3)
 #define WWENEMY_MAX_SLOTS        4
 
 // --- Go-written span: +0x00..+0x124, one write per tick ------------------
@@ -46,8 +52,10 @@
 #define WWENEMY_STAGE_OFF        0x18         // char[8] NUL-padded stage name
 #define WWENEMY_ROOM_OFF         0x20         // s8  room (mStayNo)
 #define WWENEMY_ROLE_OFF         0x21         // u8  WWENEMY_ROLE_*
-#define WWENEMY_KIND_MASK_OFF    0x24         // u32 bit k = kind k enabled (EMK_KIND_*, wwenemy_kinds.h); both roles write it (remote.c's HF_NOT_MIRROR reads the host's)
-#define WWENEMY_RESERVED_OFF     0x28         // u32[2]
+#define WWENEMY_KNOB_GEN_OFF     0x22         // u16 layout 4 (D4): the knob table's gen this block names, 0 = no table (the former pad)
+#define WWENEMY_KIND_MASK_OFF    0x24         // u32 bit k = kind k enabled (EMK_KIND_*, wwenemy_kinds.h); both roles write it (remote.c's HF_NOT_MIRROR reads the host's); ids < 16 (the REL caches it as u16, the wire as u16)
+#define WWENEMY_HKD_HI_OFF       0x28         // u8[WWENEMY_HKD_HI_KINDS] layout 4 (D2): hook_disable (WWENEMY_HKD_*) for kind ids 7..14 (BB at +0x28, MT at +0x29), inside the seq span
+#define WWENEMY_HKD_HI_KINDS     8            // ids 7..14; the former reserved u32[2], never read by layout 3
 #define WWENEMY_SLOTS_OFF        0x30         // slot[4] x WWENEMY_SLOT_SIZE
 #define WWENEMY_SLOT_SIZE        0x34
 #define WWENEMY_HIT_APPLY_OFF    0x100        // host role: a HIT to apply (see WWENEMY_HA_*)
@@ -72,7 +80,7 @@
 #define WWENEMY_SL_ATTACK_OFF    0x18         // u8  MO2 attack type (+0x2060), Go logs only
 #define WWENEMY_SL_PHASE_OFF     0x19         // u8  MO2 attack phase (+0x2064), Go logs only
 #define WWENEMY_SL_CC_M316Z_OFF  0x18         // s16 CC only, over attack/phase: m316.z (copy +0x31A)
-#define WWENEMY_SL_HEALTH_OFF    0x1A         // s8  health (+0x285), the REL does not read it
+#define WWENEMY_SL_HEALTH_OFF    0x1A         // s8  health (+0x285); the REL reads it only for MT's custody handback (em_mt_handback, batch C MT-4)
 #define WWENEMY_SL_FLAGS_OFF     0x1B         // u8  WWENEMY_SF_*
 #define WWENEMY_SL_FRAME_OFF     0x1C         // f32 morf frame (mpMorf+0x68)
 #define WWENEMY_SL_RATE_OFF      0x20         // f32 morf rate (mpMorf+0x64)
@@ -153,7 +161,9 @@
 #define WWENEMY_CANARIES_OFF     0x188        // u8 pause_reasserts, u8 anm_unresolved, u8 revalidate_failures, u8 watchdog_releases
 #define WWENEMY_CANARIES2_OFF    0x18C        // u8 anm_res_null, u8 anm_range, u8 hit_nocross, u8 hit_aborted
 #define WWENEMY_HIT_RESULT_OFF   0x190        // u32 BE: byte3 WWENEMY_HR_*, byte2 WWENEMY_HD_*, byte1 REL executes from Set to result, byte0 Sets issued
-#define WWENEMY_RESERVED2_OFF    0x194        // u32
+#define WWENEMY_KNOB_SEEN_OFF    0x194        // u16 layout 4 (D4): the last knob_gen whose table the REL validated (0 none); Go rewrites the table while it differs
+#define WWENEMY_FP_MISS_OFF      0x196        // u8  layout 4 (D10): saturating count of BB tail fingerprint misses (the collapsed tail ran)
+#define WWENEMY_TAIL_SPARE_OFF   0x197        // u8  spare (the former reserved u32's last byte)
 
 // status fields, from the status start
 #define WWENEMY_ST_ACTOR_OFF     0x00         // u32 actor address (0 when unresolved)
@@ -255,13 +265,43 @@
 // bytes. The REL reads it directly at the point of use (em_hkd), not
 // cached in em_ext, so a change tears for at most one frame.
 #define WWENEMY_ANNEX_HKDX_OFF   0x1FC        // mailbox-relative: u8 hook_disable[WWENEMY_ANNEX_HKDX_KINDS] for kind ids 3..6 (WWENEMY_HKD_*)
-#define WWENEMY_ANNEX_HKDX_KINDS 4            // ids WWENEMY_ANNEX_KINDS .. +3 (KI, AM, AM2, TN at 0x1FF); ends at WWENEMY_OFF: id 7 needs layout 4 (TN batch D2)
+#define WWENEMY_ANNEX_HKDX_KINDS 4            // ids WWENEMY_ANNEX_KINDS .. +3 (KI, AM, AM2, TN at 0x1FF); ends at WWENEMY_OFF: ids 7..14 use WWENEMY_HKD_HI_OFF (layout 4)
+
+// --- layout 4: the knob table (mailbox-relative; enemy-mirror-batch-c.json
+// layout4.knob_table, D3) ------------------------------------------------------
+// Live quiet / tg_hit_up / invuln_wait overrides for kind ids 3..15, which
+// the annex has no room for. Go writes it as its own write, before the
+// first block whose WWENEMY_KNOB_GEN_OFF names its gen, after every arm or
+// epoch bump and on any knob change (a new gen each time), and again
+// whenever the block's WWENEMY_KNOB_SEEN_OFF differs while acks advance
+// (savestate load, clobber). The REL's em_consume takes it as valid (em_ext
+// EM_X_KNOB_OK) only when knob_gen != 0 && gen_head == gen_tail == knob_gen
+// && layout == WWENEMY_LAYOUT && kinds >= EMK_KIND_COUNT, then echoes
+// knob_gen at WWENEMY_KNOB_SEEN_OFF. Invalid = the compiled values: it
+// carries no kill switch (ids 7..14 hooks are WWENEMY_HKD_HI_OFF in the
+// block; the hook byte here is read for id 15 only). Ids 0..2 keep the
+// annex overrides and ids 3..6 the HKDX bytes; the table's rows 0..6 hook
+// byte is ignored. TN's tg_hit_up keeps WWENEMY_ANNEX_TN_TGUP_OFF as its
+// single source (a nonzero table value for id 6 is not read).
+#define WWENEMY_KNOB_OFF         0x850        // mailbox-relative: 0x80413750, past the remote-Link block (wwremote.h) in the free +0x850..+0x1100
+#define WWENEMY_KNOB_SIZE        0x60         // +0x850..+0x8B0
+#define WWENEMY_KNOB_KINDS       16           // rows per field, indexed by kind id
+#define WWENEMY_KNOB_GEN_HEAD_OFF 0x00        // u32 == knob_gen of the blocks that name this table
+#define WWENEMY_KNOB_LAYOUT_OFF  0x04         // u16 WWENEMY_LAYOUT
+#define WWENEMY_KNOB_COUNT_OFF   0x06         // u8  rows written (WWENEMY_KNOB_KINDS); the REL needs >= EMK_KIND_COUNT
+#define WWENEMY_KNOB_OVR_OFF     0x08         // ovr[WWENEMY_KNOB_KINDS] x WWENEMY_ANNEX_OVR_SIZE: u8 hook (id 15 only), u8 quiet_frames, s16 tg_hit_up (WWENEMY_ANNEX_OVR_*_OFF); 0 = compiled
+#define WWENEMY_KNOB_INVW_OFF    0x48         // u8 invuln_wait[WWENEMY_KNOB_KINDS], 0 = compiled
+#define WWENEMY_KNOB_GEN_TAIL_OFF 0x58        // u32 == gen_head, the table's last word
+#define WWENEMY_KNOB_ID_MIN      3            // the first id the table serves (ids < 3: the annex overrides)
 
 // hook_disable bits (annex override byte 0): a set bit turns that kind's
 // hook off without a rebuild. TN (byte 0x1FF) gives MODEL_EQ, ATTACH, EYE,
 // LEGACY_DEATH, MTX_PLAIN and SPECIAL its own meanings (wwenemy_kinds.h
 // EMK_TN_HKD_*, TN batch R-3); AM2's SPECIAL also turns its direct apply
-// off on both sides (D10).
+// off on both sides (D10). Batch C (D7): BK's SPECIAL is "ambush"
+// (EMK_BK_HKD_AMBUSH); BB and MT give the bits their own names
+// (EMK_BB_HKD_*, EMK_MT_HKD_*) but keep ATTN 0x10 and EXTRA 0x80 at their
+// generic meaning, whose readers fire for every kind.
 #define WWENEMY_HKD_MODEL_EQ     0x01         // skip the actor->model == morf model check
 #define WWENEMY_HKD_ATTACH       0x02         // skip the attach hook (EMK_ATTACH_BK)
 #define WWENEMY_HKD_EYE          0x04         // skip the eye hook (EMK_EYE_CC, EMK_EYE_FIXED)

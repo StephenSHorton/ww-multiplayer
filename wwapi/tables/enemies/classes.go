@@ -257,7 +257,12 @@ var Classes = []Class{
 	// (:676-682).
 	{Proc: stage.ProcKI, Name: "KI", What: "Keese", Group: GroupEnemy, Kind: K1, Death: DeathOwn, Ice: 0x924, K1Verified: true, Boss: BossNever, HomeMoves: true},
 	// Group d_a_mt.cpp:215. NonMatching stub (configure.py:1693).
-	{Proc: stage.ProcMT, Name: "MT", What: "Magtail", Group: GroupEnemy, Kind: Other, Death: DeathUnknown, Boss: BossUnknown},
+	// enemyice +0x1900 (shrink timer 0x1906) is from the retail d_a_mt.rel
+	// disassembly (wwapi/addr/mt.go MtOffIce; batch C design go_changes,
+	// "rig tools"), unverified live: K1 only so the enemy mirror's P0-MT
+	// and MT-3/MT-4 rig steps can run 'enemy-kill <pid> --unverified
+	// --yes'; M6's applier holds it until a live check verifies it.
+	{Proc: stage.ProcMT, Name: "MT", What: "Magtail", Group: GroupEnemy, Kind: K1, Death: DeathUnknown, Ice: 0x1900, Boss: BossUnknown},
 	// Group d_a_bwd.cpp:2607; BOSS in the profile, :2606.
 	{Proc: stage.ProcBWD, Name: "BWD", What: "Molgera", Group: GroupEnemy, Kind: Boss, Death: DeathNone, Boss: BossAlways},
 	// Group d_a_bwds.cpp:1094; Molgera also creates them (d_a_bwd.cpp:612).

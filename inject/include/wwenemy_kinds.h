@@ -5,7 +5,9 @@
 // and AM2 rows and hooks: enemy-mirror-allow.json "type_table",
 // "rel_changes" R-1..R-16, decisions D2-D16; the TN batch's Darknut row
 // and AM2 direct apply: enemy-mirror-tn.json "rel_changes" R-1..R-16,
-// decisions D1-D14, "p0_findings"). enemy_mirror.c builds its
+// decisions D1-D14, "p0_findings"; batch C's Kargaroc and Magtail rows and
+// the ambush Bokoblin defines: enemy-mirror-batch-c.json "bb", "mt",
+// "rel_changes" R-6..R-20, decisions D7-D11). enemy_mirror.c builds its
 // static const em_kind EM_KINDS[] (enemy_mirror.h) from these #defines,
 // and static-asserts the Moblin row against the legacy MO2_* defines
 // (EMK_MO2_TG_CYL == MO2_TG_CYL, ...): a const array element is not an
@@ -20,9 +22,16 @@
 // Offsets are from the actor (fopAc_ac_c) start. 0 means "the class has
 // none" for an offset field (no class puts any of these at +0x0).
 // Decomp citations: zeldaret/tww include/d/actor/d_a_*.h and
-// src/d/actor/d_a_*.cpp, as the type_table cites them.
+// src/d/actor/d_a_*.cpp, as the type_table cites them; "mt.rel 0xNNNN" is
+// a .text offset of the retail d_a_mt.rel (batch C facts, C1-magtail.md).
+//
+// The per-kind hook-bit pins (batch C D7) are typedef asserts at the end
+// of this file, so this header includes wwenemy.h for the WWENEMY_HKD_*
+// bits; the Go parser skips every line that is not a #define.
 #ifndef WW_WWENEMY_KINDS_H
 #define WW_WWENEMY_KINDS_H
+
+#include "wwenemy.h"
 
 // --- kind ids (bit k of the block's kind_mask, WWENEMY_KIND_MASK_OFF) ----
 #define EMK_KIND_MO2             0
@@ -31,8 +40,10 @@
 #define EMK_KIND_KI              3            // allow batch A1, default off (WW_ENEMY_MIRROR_KINDS ki / ki+u)
 #define EMK_KIND_AM              4            // default off (am / am+u)
 #define EMK_KIND_AM2             5            // default off (am2 / am2+u)
-#define EMK_KIND_TN              6            // TN batch B (D1), default off (tn / tn+u); the last id layout 3 holds (HKDX byte 0x1FF; D2: id 7 needs layout 4)
-#define EMK_KIND_COUNT           7            // rows MO2, BK, CC, KI, AM, AM2, TN (the Go Kinds table); the annex overrides cover ids < WWENEMY_ANNEX_KINDS only
+#define EMK_KIND_TN              6            // TN batch B (D1), default off (tn / tn+u); the last id the annex's HKDX bytes hold (0x1FF)
+#define EMK_KIND_BB              7            // batch C, default off (bb / bb+u); hook byte WWENEMY_HKD_HI_OFF + 0
+#define EMK_KIND_MT              8            // batch C, default off (mt+u); hook byte WWENEMY_HKD_HI_OFF + 1; the first cut (R-20: this define stays, the row goes)
+#define EMK_KIND_COUNT           9            // rows MO2, BK, CC, KI, AM, AM2, TN, BB, MT (the Go Kinds table); 8 if MT is cut to a reservation (R-20)
 #define EMK_KIND_NONE            0xFF
 
 // --- capability bits (row caps) ------------------------------------------
@@ -43,13 +54,15 @@
 #define EMK_CAP_ADDR_SUCCESS     0x10         // MO2: the host hit's success test is the address compare; others use the stts owner (remote.c:1545-1553)
 #define EMK_CAP_PKEY_NO_POS      0x20         // KI (D9): em_pkey hashes home.pos as zero when setID < 0x200 (a wait-type Keese rewrites home.pos, d_a_ki.cpp:675-682); Go Kind.PKeyNoPos
 #define EMK_CAP_SPH_COLL         0x40         // KI: co_cyl and tg_cyl are dCcD_Sph (d_a_ki.h:78-79): COLL_STD centres them with cM3dGSph_SetC, and they have no height
+#define EMK_CAP_TILT_CUR         0x80         // batch C R-12 (BB): the smoothed tilt goes to the row's TILT (current.angle.x) without EMK_CAP_DR; em_adopt seeds cur_tilt from it too
 
 // --- hook ids --------------------------------------------------------------
 #define EMK_MTX_NONE             0
 #define EMK_MTX_DR               1            // dr_matrix_set(a + dr) (0x80022460) + PSMTXCopy calc_mtx -> model+0x24 + McaMorf_calc
 #define EMK_MTX_CC               2            // draw_SUB recipe (d_a_cc.cpp:80-104, D11) into a stack Mtx -> m2B4 model+0x24 + McaMorf_calc
 #define EMK_MTX_PLAIN            3            // T(cur) * Ry(cur_angle) * Rx(s16 +0x20C) * Rz(s16 +0x210), no scale fold (D16) -> model+0x24 + McaMorf_calc (d_a_ki.cpp:1053-1061, d_a_am.cpp:97-112, d_a_am2.cpp:73-87); HKD_MTX_PLAIN skips it
-#define EMK_MTX_MODEL            4            // reserved: a bare J3DModel (warship, batch C), not compiled in this build
+#define EMK_MTX_MODEL            4            // reserved: a bare J3DModel (warship), not compiled in this build
+#define EMK_MTX_TRYXZ            5            // batch C R-11 (BB): T(cur.x, cur.y + f32 ice+0x28, cur.z) * Ry(cur.y + s16 0x368 + C00[0].x/2) * Rx(cur.x + s16 0x366 + C00[0].z/2) * Rz(cur.z), setBaseScale(actor.scale) (d_a_bb.cpp:2313-2326); BB's HKD_MTX skips it
 #define EMK_COLL_NONE            0
 #define EMK_COLL_STD             1            // Co ahead by co_forward, Tg at cur, head sphere at head_center, defence at def_center (enemy_mirror.c:803-831); A1 (D7): no Tg Set when tg == co, no head/def when 0
 #define EMK_COLL_CC              2            // mCyl only: SetC(cur), R 35, H 30 (HUSE_WALK) or 100, At stripped, Tg/Co from flags2
@@ -65,6 +78,9 @@
 #define EMK_HIT_TG               2            // the row's tg_cyl
 #define EMK_HIT_SPECIAL          3            // AM only (D11, R-13): the bomb swallow through mMouthSph, behind WWENEMY_HKD_SPECIAL
 
+// EMK_MTX_MT, EMK_COLL_MT and EMK_HIT_MT_KILL are in the MT section (the
+// last one), so the MT cut (R-20) deletes them with the row.
+
 // --- generic actor fields (f_op_actor.h) -----------------------------------
 #define EMK_AC_PARAMS            0xB0         // u32 base_process_class.mParameters (f_pc_base.h:30)
 #define EMK_AC_HOME_POS          0x1D0        // f32[3] home.pos (f_op_actor.h:285-287), hashed as raw bits
@@ -72,7 +88,11 @@
 #define EMK_AC_STATUS            0x1C4        // u32 actor_status (f_op_actor.h:284)
 #define EMK_AC_STATUS_CARRY      0x2000       // fopAcStts_CARRY_e (f_op_actor.h:32): AM2 refuses adoption while carried
 #define EMK_AC_STATUS_BOSS       0x04000000   // fopAcStts_BOSS_e (f_op_actor.h:43): TN refuses adoption (D3; wwapi/addr ActorStatusBoss)
-#define EMK_AC_ANGLE_Y           0x206        // s16 current.angle.y: the slot AngleY of MO2/BK/CC (Go Kind.AngleOff)
+#define EMK_AC_ANGLE_X           0x204        // s16 current.angle.x: BB's tilt (EMK_CAP_TILT_CUR, batch C R-12)
+#define EMK_AC_ANGLE_Y           0x206        // s16 current.angle.y: the slot AngleY of MO2/BK/CC/TN/BB (Go Kind.AngleOff)
+#define EMK_AC_ANGLE_Z           0x208        // s16 current.angle.z: BB's roll, streamed in slot +0x18 (WWENEMY_SL_CC_M316Z_OFF, "kind z"; batch C R-12)
+#define EMK_AC_SUB_METHOD        0xEC         // profile_method_class* sub_method (f_op_actor.h); its mpExecuteFunc at EMK_METHOD_EXECUTE (f_pc_method.h:9-14): BB's tail fingerprint (R-14)
+#define EMK_METHOD_EXECUTE       0x08
 #define EMK_AC_SHAPE_X           0x20C        // s16 shape_angle.x (CC annex aux[0]; KI aux[0])
 #define EMK_AC_SHAPE_Y           0x20E        // s16 shape_angle.y: the slot AngleY of KI/AM/AM2 (D13, Go Kind.AngleOff)
 #define EMK_AC_SHAPE_Z           0x210        // s16 shape_angle.z (KI aux[1])
@@ -167,7 +187,7 @@
 #define EMK_BK_BCK_LAST          0x53         // WALK2 (Bk.h:85)
 #define EMK_BK_BCK_WAIT          0x51         // BK_WAIT (Bk.h:83), every live type
 #define EMK_BK_MORF              0x2BC        // d_a_bk.h:24
-#define EMK_BK_GATE              0x2B4        // u8 mType (d_a_bk.h:16): live {0, 1, 4}
+#define EMK_BK_GATE              0x2B4        // u8 mType (d_a_bk.h:16): live {0, 1, 2, 3, 4} (batch C R-6: 2/3 the pot ambushers, unconditionally)
 #define EMK_BK_DR                0x370        // d_a_bk.h:72
 #define EMK_BK_DR_MODE           0x374        // s16 dr.mMode (c_damagereaction.h:80)
 #define EMK_BK_DR_ACTION         0x376        // s16 dr.mAction (c_damagereaction.h:81)
@@ -228,6 +248,23 @@
 #define EMK_BK_ACTION_DIE_C      22
 #define EMK_BK_ACTION_REFUSE_A   19           // em_validate gate: dr.mAction not 19
 #define EMK_BK_ACTION_REFUSE_B   31           // nor 31 (carry drop)
+// The pot ambusher (batch C "ambush_cleanup", R-6..R-9; d_a_bk.cpp
+// :3009-3036, 4219-4249, 5052-5068). The REL's em_bk_gate takes mType 2/3
+// as it takes 0/1/4 (Go stops writing mType 0 into its copy in the same
+// build); while the host slot is SF_HIDDEN the copy's stick is parked at
+// (-EMK_BK_STICK_PARK, -EMK_BK_STICK_PARK, 0) as the host parks it; a copy
+// handed back still in its pot (m02BA == EMK_BK_DRAW_GATE_POT, mType 2/3)
+// gets dr.mAction EMK_BK_ACTION_TUBO, dr.mMode 0, m0300[0] 0, m0310 0 and
+// scale 1.0 so tubo_wait can leap. Both writes skip under EMK_BK_HKD_AMBUSH.
+#define EMK_BK_TYPE_AMBUSH_JUMP  2            // mType 2: JUMP1 out of the pot (Go BkTypeAmbushJump)
+#define EMK_BK_TYPE_AMBUSH_LEAP  3            // mType 3: JATTACK1 at the Link (Go BkTypeAmbushLeap)
+#define EMK_BK_TYPE_TORCH        4            // mType 4 (params 0xB at create)
+#define EMK_BK_DRAW_GATE_POT     0xFF         // m02BA while hidden in a pot (d_a_bk.cpp:5052-5055); a switch-gated BK has m02B7 + 1 instead
+#define EMK_BK_ACTION_TUBO       15           // dr.mAction tubo_wait (d_a_bk.cpp:3009-3036, 3433-3434)
+#define EMK_BK_M0300             0x300        // s16 m0300[0] (d_a_bk.h:49): the client-first reveal writes 50; the hidden handback 0
+#define EMK_BK_M0310             0x310        // s16 m0310 (d_a_bk.h:53): the reveal writes 20; the hidden handback 0
+#define EMK_BK_STICK_PARK        10000        // the parked stick's x and y are minus this (d_a_bk.cpp:4219-4227)
+#define EMK_BK_HKD_AMBUSH        0x40         // == WWENEMY_HKD_SPECIAL (bk:hooks=ambush): skip the hidden stick park (R-8) and the hidden handback 15 (R-9); never refuses 2/3 (D8)
 #define EMK_BK_F2_HAS_WEAPON     0x01         // flags2 bits: host m0B30 != 0
 #define EMK_BK_F2_PLAY_SKIP      0x02         // host m030C != 0
 #define EMK_BK_F2_BLUR_ON        0x04         // host m02F0 != 0
@@ -709,5 +746,276 @@
 #define EMK_TN_HKD_COLL          0x08         // == WWENEMY_HKD_LEGACY_DEATH (legacy_death): skip the TN em_colliders_pre case (R-12)
 #define EMK_TN_HKD_ADOPT_ANM     0x20         // == WWENEMY_HKD_MTX_PLAIN (mtx_plain): skip the adopt-time armor setAnm and the armor play (R-5, R-7 c)
 #define EMK_TN_HKD_DIRECT        0x40         // == WWENEMY_HKD_SPECIAL (special): reserved for batch C's TN direct apply, a no-op in B (D13)
+
+// --- row BB: Kargaroc, fpcNm_BB_e (d_a_bb.h:13-108) -------------------------
+// Batch C (enemy-mirror-batch-c.json "bb", R-10..R-18; D9, D10). An
+// fopEn_enemy_c with no damagereaction, drawn from current.angle (never
+// shape: d_a_bb.cpp:2313-2326 reads current.angle, and no shape_angle write
+// exists in d_a_bb.cpp). Wire: AngleY is current.angle.y, tilt
+// current.angle.x, angle.z in slot +0x18 (WWENEMY_SL_CC_M316Z_OFF, the CC
+// m316.z bytes). Riders (types 5/6) are refused on both sides (D9). Default
+// off; the row's hook byte is WWENEMY_HKD_HI_OFF + 0 (0x80413128).
+#define EMK_BB_ID                7
+#define EMK_BB_PROC              0x00B6       // f_pc_name.h:191; wwapi/addr/remote.go ProcBB
+#define EMK_BB_CLASS_SIZE        0x1260       // d_a_bb.h:108
+#define EMK_BB_ARC               "Bb"
+#define EMK_BB_BCK_FIRST         0x15         // ATACK01 (res/Object/Bb.h:25)
+#define EMK_BB_BCK_LAST          0x22         // WALK (Bb.h:38)
+#define EMK_BB_BCK_WAIT          0x18         // FLY01 (Bb.h:28); WAIT is 0x21, not the handback loop
+#define EMK_BB_MORF              0x2B4        // mpMorf (d_a_bb.h:16)
+#define EMK_BB_GATE              0x2D8        // u8 unk_2D8, the type (params byte 0, d_a_bb.cpp:2689-2737): 5/6 riders refused (em_bb_gate, Go ParamsOK)
+#define EMK_BB_DR                0
+#define EMK_BB_DR_MODE           0
+#define EMK_BB_DR_ACTION         0
+#define EMK_BB_TILT              0x204        // s16 current.angle.x (EMK_CAP_TILT_CUR, R-12): the smoothed slot tilt
+#define EMK_BB_CO_CYL            0x940        // dCcD_Sph mBodyCoSph (d_a_bb.h:80; R 87.5): EMK_CAP_SPH_COLL
+#define EMK_BB_TG_CYL            0x814        // dCcD_Sph mBodyTgSph (d_a_bb.h:79; R 62.5): hit collider 2
+#define EMK_BB_HEAD_SPH          0x6E8        // dCcD_Sph mHeadTgSph (d_a_bb.h:78): hit collider 1
+#define EMK_BB_DEF_SPH           0
+#define EMK_BB_HEAD_CENTER       0x260        // eyePos (EMK_AC_EYE_POS): the nodeCallBack writes it inside every calc (d_a_bb.cpp:133-197)
+#define EMK_BB_DEF_CENTER        0
+#define EMK_BB_CO_FORWARD        0
+#define EMK_BB_TG_HIT_UP         0            // the body Tg sphere is centred on current.pos (knob table: bb:tg_hit_up)
+#define EMK_BB_INVULN            0x340        // s16 unk_340: damage_check runs only while it is 0 (d_a_bb.cpp:2446)
+#define EMK_BB_INVULN_WAIT       8            // inferred (EM_INVULN_WAIT); knob table bb:invuln
+#define EMK_BB_ICE               0xC80        // enemyice mEnemyIce (d_a_bb.h:106): shrink 0xC86, freeze 0xC8E
+#define EMK_BB_WEAPON            0
+#define EMK_BB_BARE              0
+#define EMK_BB_BLUR_ON           0
+#define EMK_BB_BLUR_SHAPE        0
+#define EMK_BB_BLUR_SCALE        0
+#define EMK_BB_ANM_GATE          0
+#define EMK_BB_PLAY_SKIP         0
+#define EMK_BB_SPH_SRC           0x6E8        // mHeadTgSph (its hit callbacks are unverified: the REL implementer checks d_a_bb.cpp's create before R-10 ships)
+#define EMK_BB_CAPS              0xC4         // FOPEN | SPH_COLL | TILT_CUR; no DR, no MODEL_EQ (BB never writes actor.model)
+#define EMK_BB_MTX               5            // EMK_MTX_TRYXZ
+#define EMK_BB_COLL              1            // EMK_COLL_STD over the spheres (SPH_COLL)
+#define EMK_BB_ATTACH            0            // EMK_ATTACH_NONE (the tail step is BB's own, R-14)
+#define EMK_BB_EYE               0            // EMK_EYE_NONE: the nodeCallBack writes eyePos and the attention position during calc
+#define EMK_BB_ATTN_F2           0x01         // EMK_BB_F2_ATTN (d_a_bb.cpp:2251-2252: LOCKON_BATTLE | SHOWMAP every unhidden frame)
+#define EMK_BB_QUIET_FRAMES      20           // compiled; knob table bb:quiet
+// BB class fields the gates, hooks, handback and tail use (d_a_bb.h)
+#define EMK_BB_TYPE_PERCH        4            // keyed perch type (M_NewD2 r3 set 0, p 0xFFFFFF04)
+#define EMK_BB_TYPE_RIDER_MO2    5            // carries a Moblin (d_a_bb.cpp:2739-2754): refused (D9)
+#define EMK_BB_TYPE_RIDER_BK     6            // carries a Bokoblin: refused (D9)
+#define EMK_BB_TYPE_PERCH2       7            // keyed perch type (M_NewD2 r3 set 2, p 0xFFFF0507)
+#define EMK_BB_EYE_BTP           0x2CC        // u8 unk_2CC: the eye btp frame (Draw :625), 0 behind EMK_BB_HKD_EXTRA
+#define EMK_BB_STATE             0x2DD        // u8 unk_2DD: the handback writes EMK_BB_STATE_ATTACK (d_a_bb.cpp:2180-2184)
+#define EMK_BB_STATE_ATTACK      3
+#define EMK_BB_RIDER             0x2DF        // u8 unk_2DF: != 0 refused
+#define EMK_BB_M2F0              0x2F0        // s8 unk_2F0: handback 0
+#define EMK_BB_M2F1              0x2F1        // s8 unk_2F1: handback 0
+#define EMK_BB_DRAW_GATE         0x2F2        // u8 unk_2F2 = byte3 + 1 while hidden (d_a_bb.cpp:611-614, 2242-2249): the REL writes 0 while the host slot is not SF_HIDDEN (R-15), never in the handback
+#define EMK_BB_TIMERS            0x318        // s16 unk_318[6] (d_a_bb.h:45)
+#define EMK_BB_ATTACK_TIMER      0x31A        // s16 unk_318[1]: the handback seeds it (d_a_bb.cpp:2182)
+#define EMK_BB_ATTACK_SEED       450          // l_bbHIO.unk_16 = 0x1C2 (d_a_bb.cpp:41): vanilla seeds unk_16 + cM_rndF(unk_18 - unk_16); the REL writes this low end (resolves the design's open HIO range)
+#define EMK_BB_ATTACK_SEED_MAX   750          // l_bbHIO.unk_18 = 0x2EE (d_a_bb.cpp:42)
+#define EMK_BB_KNOCK             0x348        // f32 unk_348: knockback (d_a_bb.cpp:2269-2294); > 0.01 refused at adopt; handback 0
+#define EMK_BB_M34C              0x34C        // f32 unk_34C: handback 0
+#define EMK_BB_M35D              0x35D        // s8 unk_35D: handback 0 (d_a_bb.cpp:2183)
+#define EMK_BB_M366              0x366        // s16 unk_366: added to Rx (d_a_bb.cpp:2319), demo-only writer: zeroed at adopt
+#define EMK_BB_M368              0x368        // s16 unk_368: added to Ry (d_a_bb.cpp:2318): zeroed at adopt
+#define EMK_BB_GROUND_H          0x44C        // f32 mAcch (0x3B8) m_ground_h (d_bg_s_acch.h:235): -1e9 before tail_control behind EMK_BB_HKD_EXTRA
+#define EMK_BB_AT_SPH            0x5BC        // dCcD_Sph mHeadAtSph: the host Sets it on its own Link only; the copy never does
+#define EMK_BB_TAIL_MODELS       0xA84        // J3DModel* unk_A84[9]: the tail models Draw places (d_a_bb.cpp:289-306)
+#define EMK_BB_TAIL_POS          0xAA8        // cXyz unk_AA8[10] (d_a_bb.h:83): [0] = BD4[1] after calc; tail_control rebuilds 1..9
+#define EMK_BB_TAIL_ROT          0xB20        // csXyz unk_B20[10]
+#define EMK_BB_TAIL_VEL          0xB5C        // cXyz unk_B5C[10] (d_a_bb.h:85): seeded 0
+#define EMK_BB_TAIL_ROOT         0xBD4        // cXyz unk_BD4[2]: written by the nodeCallBack inside calc; [1] (0xBE0) is the tail root
+#define EMK_BB_TAIL_ROOT1        0xBE0        // unk_BD4[1]
+#define EMK_BB_TAIL_LEN          10           // AA8 and B5C entries; tail_control loops 1..9 (d_a_bb.cpp:230), tail_draw 0..8 (:293)
+#define EMK_BB_HEAD_ROT          0xC00        // csXyz unk_C00[11]: zeroed before calc behind EMK_BB_HKD_BEAK (d_a_bb.cpp:2410-2412); the matrix reads [0].x and [0].z
+#define EMK_BB_HEAD_ROT_LEN      0x42         // 11 csXyz, 0xC00..0xC41
+#define EMK_BB_BEAK              0xC4E        // s16 unk_C4E: the beak joints (nodeCallBack), zeroed with C00
+#define EMK_BB_C58               0xC58        // f32 unk_C58: handback 0
+#define EMK_BB_DEAD              0xC7E        // u8 unk_C7E: mbDead (d_a_bb.cpp:2138-2141): DYING, refused at adopt
+#define EMK_BB_ICE_Y             0xCA8        // f32 mEnemyIce.m028 (0xC80 + 0x28): the matrix's y lift
+// BB's tail_control call (D10, R-14 c): exec = *(*(a + EMK_AC_SUB_METHOD) +
+// EMK_METHOD_EXECUTE) is daBb_Execute; tail_control = exec -
+// EMK_BB_TEXT_EXEC + EMK_BB_TEXT_TAIL. Called only when exec and tc are in
+// MEM1 and every fingerprint word matches (retail GZLE d_a_bb.rel SHA-1
+// 4271e18f447d7b2d2b052a1ae4e0f0862052269f, tww config.yml:1158-1159;
+// symbols.txt:8,10,11,44), checked once per adopt; a miss bumps
+// WWENEMY_FP_MISS_OFF and collapses the tail onto BD4[1] each frame.
+#define EMK_BB_TEXT_EXEC         0x69A8       // daBb_Execute .text offset
+#define EMK_BB_TEXT_TAIL         0x404        // tail_control__FP8bb_class .text offset (size 0x5A0)
+#define EMK_BB_TAIL_BLR_OFF      0x59C        // tc + this: its blr
+#define EMK_BB_FP_EXEC0          0x9421FF70
+#define EMK_BB_FP_EXEC1          0x7C0802A6
+#define EMK_BB_FP_EXEC2          0x90010094
+#define EMK_BB_FP_EXEC3          0xDBE10080
+#define EMK_BB_FP_TAIL0          0x9421FEB0
+#define EMK_BB_FP_TAIL1          0x7C0802A6
+#define EMK_BB_FP_TAIL2          0x90010154
+#define EMK_BB_FP_TAIL3          0xDBE10140
+#define EMK_BB_FP_BLR            0x4E800020
+#define EMK_BB_F2_ATTN           0x01         // flags2 bits: host attention_info.flags != 0
+// BB's hook_disable bits (byte WWENEMY_HKD_HI_OFF + 0; D7): per-kind names
+// for bits whose generic readers are dead for a non-DR, non-MODEL_EQ,
+// non-PLAIN, eyeless, attach-less row; ATTN and EXTRA keep their generic
+// readers and meanings. 0x01 and 0x08 are unused.
+#define EMK_BB_HKD_TAIL          0x02         // == WWENEMY_HKD_ATTACH (bb:hooks=tail): skip the tail step (R-14: AA8[0] copy, tail_control, seeds)
+#define EMK_BB_HKD_BEAK          0x04         // == WWENEMY_HKD_EYE (beak): skip the C00/C4E zeroing before calc
+#define EMK_BB_HKD_ATTN          0x10         // == WWENEMY_HKD_ATTN (attn): generic
+#define EMK_BB_HKD_MTX           0x20         // == WWENEMY_HKD_MTX_PLAIN (mtx): skip EMK_MTX_TRYXZ (the copy freezes, proving the bit)
+#define EMK_BB_HKD_HANDBACK      0x40         // == WWENEMY_HKD_SPECIAL (handback): release with no BB writes (R-17)
+#define EMK_BB_HKD_EXTRA         0x80         // == WWENEMY_HKD_EXTRA (extra): skip the eye btp 0, the ground clamp and the dying tail fold (R-18)
+
+typedef char emk_check_bk_ambush[(EMK_BK_HKD_AMBUSH == WWENEMY_HKD_SPECIAL &&
+                                  EMK_BK_TYPE_AMBUSH_JUMP + 1 == EMK_BK_TYPE_AMBUSH_LEAP &&
+                                  EMK_BK_TYPE_AMBUSH_LEAP + 1 == EMK_BK_TYPE_TORCH) ? 1 : -1];
+typedef char emk_check_bb_row[(EMK_BB_ID == EMK_KIND_BB && EMK_KIND_BB == 7 &&
+                               EMK_KIND_BB < 7 + WWENEMY_HKD_HI_KINDS && EMK_KIND_BB < WWENEMY_KNOB_KINDS &&
+                               EMK_BB_HKD_TAIL == WWENEMY_HKD_ATTACH && EMK_BB_HKD_BEAK == WWENEMY_HKD_EYE &&
+                               EMK_BB_HKD_ATTN == WWENEMY_HKD_ATTN && EMK_BB_HKD_MTX == WWENEMY_HKD_MTX_PLAIN &&
+                               EMK_BB_HKD_HANDBACK == WWENEMY_HKD_SPECIAL && EMK_BB_HKD_EXTRA == WWENEMY_HKD_EXTRA &&
+                               EMK_BB_CAPS == (EMK_CAP_FOPEN | EMK_CAP_SPH_COLL | EMK_CAP_TILT_CUR) &&
+                               EMK_BB_MTX == EMK_MTX_TRYXZ && EMK_BB_COLL == EMK_COLL_STD &&
+                               EMK_BB_ATTACH == EMK_ATTACH_NONE && EMK_BB_EYE == EMK_EYE_NONE &&
+                               EMK_BB_ATTN_F2 == EMK_BB_F2_ATTN && EMK_BB_TILT == EMK_AC_ANGLE_X &&
+                               EMK_BB_ICE_Y == EMK_BB_ICE + 0x28 && EMK_BB_TAIL_ROOT1 == EMK_BB_TAIL_ROOT + 12 &&
+                               EMK_BB_TAIL_POS + EMK_BB_TAIL_LEN * 12 == EMK_BB_TAIL_ROT &&
+                               EMK_BB_TAIL_VEL + EMK_BB_TAIL_LEN * 12 == EMK_BB_TAIL_ROOT &&
+                               EMK_BB_HEAD_ROT + EMK_BB_HEAD_ROT_LEN <= EMK_BB_BEAK &&
+                               EMK_BB_ATTACK_TIMER == EMK_BB_TIMERS + 2 && EMK_BB_ATTACK_SEED < EMK_BB_ATTACK_SEED_MAX &&
+                               EMK_BB_BCK_WAIT >= EMK_BB_BCK_FIRST && EMK_BB_BCK_WAIT <= EMK_BB_BCK_LAST &&
+                               EMK_BB_TEXT_TAIL + EMK_BB_TAIL_BLR_OFF < EMK_BB_TEXT_EXEC) ? 1 : -1];
+
+// --- row MT: Magtail, fpcNm_MT_e (mt_class, size 0x1CC0) --------------------
+// Batch C (enemy-mirror-batch-c.json "mt", R-19; D11), THE FIRST CUT: it
+// ships only if the P0-MT live probe confirms these offsets (taken from an
+// offline disassembly of the retail d_a_mt.rel, SHA-1
+// 9d7de8625389ef01cb34539efc782f2a0d0aeda1, research/C1-magtail.md) and the
+// RELS.arc headroom after BB holds. Everything MT lives in this section and
+// in its own functions and typedef: the cut (R-20) deletes the section down
+// to EMK_KIND_MT (kept above), sets EMK_KIND_COUNT 8, and leaves the hook
+// byte WWENEMY_HKD_HI_OFF + 1 unread. Default off, unkeyed only (mt+u: every
+// DRC Magtail is unkeyed). Wire: AngleY shape_angle.y, tilt shape_angle.x;
+// aux[0] mode | action << 8, aux[1] ball timer 0x466, aux[2] colour frames
+// 0x2E8 | 0x2EC << 8, aux[3] shape_angle.z; flags2 EMK_MT_F2_*.
+#define EMK_MTX_MT               6            // R-19 MT-2: the ring push and the 8 segment matrices (body_control1/2 tails, mt.rel 0x1F30-0x2234); MT's HKD_MTX skips it
+#define EMK_COLL_MT              3            // R-19 MT-3: the 8 body spheres and the eye sphere re-Set (mt.rel 0x20EC-0x21D4)
+#define EMK_HIT_MT_KILL          4            // collider code 4 (MT-4): a client custody death, applied on the host only if its copy is still EMK_MT_MODE_BALL with EMK_MT_DEATH 0
+#define EMK_MT_ID                8
+#define EMK_MT_PROC              0x00D9       // f_pc_name.h:229; wwapi/addr/remote.go ProcMT
+#define EMK_MT_CLASS_SIZE        0x1CC0       // g_profile_MT +0x10 (C1-magtail.md; d_a_mt.h:11)
+#define EMK_MT_ARC               "Mt"
+#define EMK_MT_BCK_FIRST         0x07         // ATTACK (res/Object/Mt.h)
+#define EMK_MT_BCK_LAST          0x0A         // WAIT1
+#define EMK_MT_BCK_WAIT          0x0A         // WAIT1
+#define EMK_MT_MORF              0x2C4        // the head's mDoExt_McaMorf* (the only animated one of the 8 at +0x2C4 + 4i)
+#define EMK_MT_GATE              0x454        // u8 mode: adoptable in {0, 1, 6} (em_mt_gate)
+#define EMK_MT_DR                0
+#define EMK_MT_DR_MODE           0
+#define EMK_MT_DR_ACTION         0
+#define EMK_MT_TILT              0x20C        // s16 shape_angle.x: read by EMK_MTX_MT only (no DR or TILT_CUR cap)
+#define EMK_MT_CO_CYL            0xE48        // body dCcD_Sph[0] (8 at EMK_MT_BODY_SPH_STRIDE): COLL_MT walks all 8; generic code names [0] only for ClrTgHit
+#define EMK_MT_TG_CYL            0xE48        // body sph[0]: hit collider 2 is "any body sphere" (COLL_MT, em_hits MT case)
+#define EMK_MT_HEAD_SPH          0x17A8       // the eye dCcD_Sph: hit collider 1
+#define EMK_MT_DEF_SPH           0
+#define EMK_MT_HEAD_CENTER       0x260        // eyePos (EMK_AC_EYE_POS)
+#define EMK_MT_DEF_CENTER        0
+#define EMK_MT_CO_FORWARD        0
+#define EMK_MT_TG_HIT_UP         0            // em_hit_center's MT case centres collider 2 on body sph[4] instead
+#define EMK_MT_INVULN            0            // none: em_hit_vulnerable's MT case (the hit cooldown at +0x460 is unverified, P0-MT)
+#define EMK_MT_INVULN_WAIT       8
+#define EMK_MT_ICE               0x1900       // enemyice (C1-magtail.md): shrink 0x1906; freeze 0x1904 is never written (ice arrows stun)
+#define EMK_MT_WEAPON            0
+#define EMK_MT_BARE              0
+#define EMK_MT_BLUR_ON           0
+#define EMK_MT_BLUR_SHAPE        0
+#define EMK_MT_BLUR_SCALE        0
+#define EMK_MT_ANM_GATE          0
+#define EMK_MT_PLAY_SKIP         0            // MT's own rule instead: no play() while the streamed mode >= EMK_MT_MODE_BALL and ball timer > EMK_MT_PLAY_SKIP_TIMER (mt.rel 0x6F60-0x6F9C)
+#define EMK_MT_SPH_SRC           0x17A8       // the eye sphere
+#define EMK_MT_CAPS              0x04         // FOPEN
+#define EMK_MT_MTX               6            // EMK_MTX_MT
+#define EMK_MT_COLL              3            // EMK_COLL_MT
+#define EMK_MT_ATTACH            0            // EMK_ATTACH_NONE
+#define EMK_MT_EYE               0            // EMK_EYE_NONE
+#define EMK_MT_ATTN_F2           0x10         // EMK_MT_F2_ATTN
+#define EMK_MT_QUIET_FRAMES      20           // compiled; knob table mt:quiet
+// MT class fields (C1-magtail.md, batch C facts "Magtail MT"; mt.rel offsets)
+#define EMK_MT_ACTION            0x455        // u8 action (aux[0] high byte); written from the stream (other Magtails' mt_check counts FIGHT copies)
+#define EMK_MT_MODE_MOVE         0
+#define EMK_MT_MODE_FIGHT        1
+#define EMK_MT_MODE_BALL         2            // curled: the custody signal (MT-4)
+#define EMK_MT_MODE_DEAD         3            // bakuha scatter, then delete
+#define EMK_MT_MODE_PINNED       6            // the third adoptable mode (MT-2's PINNED chain)
+#define EMK_MT_BALL_TIMER        0x466        // s16 (aux[1])
+#define EMK_MT_PLAY_SKIP_TIMER   0x78
+#define EMK_MT_HIDE_TIMER        40           // segments +10000 y while mode BALL and the ball timer > this, or mode PINNED
+#define EMK_MT_HIDE_Y            10000
+#define EMK_MT_DIVE              0x48E        // != 0: the ring index does not advance (EMK_MT_F2_DIVE)
+#define EMK_MT_RESPAWN_BIT       0x2B6        // u8: set = daMt_Delete re-creates it (mt.rel 0x7CF4-0x7DF8)
+#define EMK_MT_DEATH_SWITCH      0x2B9        // u8 mDeathSwitch
+#define EMK_MT_APPEAR            0x2BB        // u8 != 0 hidden until its switch (r16 sw227): refused
+#define EMK_MT_COLOR_PHASE       0x2E4        // colour phase 0..2 (EMK_MT_F2_PHASE)
+#define EMK_MT_COLOR_A           0x2E8        // colour btk/brk frame (aux[2] low byte), behind EMK_MT_HKD_EXTRA
+#define EMK_MT_COLOR_B           0x2EC        // (aux[2] high byte)
+#define EMK_MT_ANCHOR            0x350        // cXyz [8]: segment translations (+EMK_MT_HIDE_Y y when hidden)
+#define EMK_MT_CHAIN_POS         0x4A0        // cXyz [8]: the 35-unit FIGHT/PINNED chain
+#define EMK_MT_CHAIN_ANGLE       0x560        // csXyz [8]: y = atan + 0x8000, x = -pitch (mt.rel 0x10B4-0x111C)
+#define EMK_MT_SCALE_A           0x600        // f32 [8]: segment x/y scale
+#define EMK_MT_SCALE_B           0x620        // f32 [8]: y = SCALE_A * SCALE_B
+#define EMK_MT_RING_POS          0x6F4        // cXyz [EMK_MT_RING_LEN]: the head trail
+#define EMK_MT_RING_ANGLE        0x9F4        // csXyz [EMK_MT_RING_LEN]
+#define EMK_MT_RING_WIGGLE       0xB74        // s16 [EMK_MT_RING_LEN]
+#define EMK_MT_RING_IDX          0xBF4        // ring index, & (EMK_MT_RING_LEN - 1)
+#define EMK_MT_RING_LEN          64
+#define EMK_MT_MOVE2_GATE        0xC00        // != 0: move_ad2 {0,-3..-21} instead of move_ad {0,-6..-42}
+#define EMK_MT_SEGS              8            // morfs at EMK_MT_MORF + 4i, body spheres, anchors
+#define EMK_MT_SEG_Z             0x470        // transM(0, 0, this) on each segment matrix
+#define EMK_MT_CHAIN_LINK        35
+#define EMK_MT_STTS              0xE0C        // dCcD_Stts
+#define EMK_MT_BODY_SPH          0xE48        // dCcD_Sph [8] (Tg + Co, At Set cleared): sph[0] R 50 at head * (0, 0, 100), sph[1..7] R 25 (enemy_mirror.c EM_MT_HEAD_*)
+#define EMK_MT_BODY_SPH_STRIDE   0x12C
+#define EMK_MT_BODY_SPH_CENTER   0xF60        // cM3dGSph centre of body sph[0] (0xE48 + 0x118)
+#define EMK_MT_BODY_SHIELD_SPRM  0xEDC        // body sph[0]'s GObjTg mSPrm (0xE48 + EMK_GTG_SPRM): bit0 Shield from EMK_MT_F2_SHIELD
+#define EMK_MT_BODY_R            25           // body sph[1..7] only (l_HIO +0x48); sph[0] is 50 (mt.rel rodata 0x44, 0x2180)
+#define EMK_MT_EYE_R             30           // the eye sphere, centred with eyePos at head * (0, 0, 30) (mt.rel 0x20EC-0x2124)
+#define EMK_MT_HIT_CENTER_SEG    4            // the host centres collider 2 on body sph[4]
+#define EMK_MT_BLUR              0x18D4       // u8: lunge blur models draw while != 0; cleared at adopt
+#define EMK_MT_DEATH             0x18F8       // u8 death flag: >= 2 bakuha (refused / DYING)
+#define EMK_MT_EYE_HP            0x18FB       // u8 eye HP
+#define EMK_MT_KILLED            0x1CBC       // u8: daMt_Delete respawns only when != 0; the REL writes 1 before both fopAcM_delete sites when EMK_MT_RESPAWN_BIT is set (MT-5)
+#define EMK_MT_FIRE_A            0x8058       // setSimple particle ids per segment for type-0 copies (mt.rel 0x71DC-0x737C), behind EMK_MT_HKD_FIRE
+#define EMK_MT_FIRE_B            0x8059
+#define EMK_MT_F2_PHASE          0x03         // flags2 bits 0-1: colour phase (0x2E4)
+#define EMK_MT_F2_SHIELD         0x04         // host body sph[0] Tg Shield bit (0xEDC bit0)
+#define EMK_MT_F2_DIVE           0x08         // host 0x48E != 0
+#define EMK_MT_F2_ATTN           0x10         // host attention_info.flags != 0
+// MT's hook_disable bits (byte WWENEMY_HKD_HI_OFF + 1; D7); ATTN and EXTRA
+// keep their generic readers. RESPAWN is inverted: set = skip the
+// +0x1CBC write.
+#define EMK_MT_HKD_COLL          0x01         // == WWENEMY_HKD_MODEL_EQ (mt:hooks=coll): skip COLL_MT's re-Sets (MT-3)
+#define EMK_MT_HKD_CHAIN         0x02         // == WWENEMY_HKD_ATTACH (chain): skip the trailing segments (ring / chain)
+#define EMK_MT_HKD_FIRE          0x04         // == WWENEMY_HKD_EYE (fire): skip the per-segment fire particles
+#define EMK_MT_HKD_RESPAWN       0x08         // == WWENEMY_HKD_LEGACY_DEATH (respawn): skip the +0x1CBC write (MT-5)
+#define EMK_MT_HKD_ATTN          0x10         // == WWENEMY_HKD_ATTN (attn): generic
+#define EMK_MT_HKD_MTX           0x20         // == WWENEMY_HKD_MTX_PLAIN (mtx): skip EMK_MTX_MT
+#define EMK_MT_HKD_CUSTODY       0x40         // == WWENEMY_HKD_SPECIAL (custody): a BALL stays mirrored and paused (no custody handback)
+#define EMK_MT_HKD_EXTRA         0x80         // == WWENEMY_HKD_EXTRA (extra): skip the colour phase and frames
+
+typedef char emk_check_mt_row[(EMK_MT_ID == EMK_KIND_MT && EMK_KIND_MT == EMK_KIND_BB + 1 &&
+                               EMK_KIND_MT < 7 + WWENEMY_HKD_HI_KINDS && EMK_KIND_MT < WWENEMY_KNOB_KINDS &&
+                               EMK_MT_HKD_COLL == WWENEMY_HKD_MODEL_EQ && EMK_MT_HKD_CHAIN == WWENEMY_HKD_ATTACH &&
+                               EMK_MT_HKD_FIRE == WWENEMY_HKD_EYE && EMK_MT_HKD_RESPAWN == WWENEMY_HKD_LEGACY_DEATH &&
+                               EMK_MT_HKD_ATTN == WWENEMY_HKD_ATTN && EMK_MT_HKD_MTX == WWENEMY_HKD_MTX_PLAIN &&
+                               EMK_MT_HKD_CUSTODY == WWENEMY_HKD_SPECIAL && EMK_MT_HKD_EXTRA == WWENEMY_HKD_EXTRA &&
+                               EMK_MT_CAPS == EMK_CAP_FOPEN && EMK_MT_MTX == EMK_MTX_MT && EMK_MT_COLL == EMK_COLL_MT &&
+                               EMK_MT_ATTN_F2 == EMK_MT_F2_ATTN &&
+                               !(EMK_MT_F2_ATTN & (EMK_MT_F2_PHASE | EMK_MT_F2_SHIELD | EMK_MT_F2_DIVE)) &&
+                               EMK_MT_HEAD_SPH == EMK_MT_SPH_SRC && EMK_MT_TG_CYL == EMK_MT_BODY_SPH &&
+                               EMK_MT_BODY_SPH_CENTER == EMK_MT_BODY_SPH + 0x118 &&
+                               EMK_MT_BODY_SHIELD_SPRM == EMK_MT_BODY_SPH + EMK_GTG_SPRM &&
+                               EMK_MT_BODY_SPH + EMK_MT_SEGS * EMK_MT_BODY_SPH_STRIDE <= EMK_MT_HEAD_SPH &&
+                               EMK_MT_RING_POS + EMK_MT_RING_LEN * 12 == EMK_MT_RING_ANGLE &&
+                               EMK_MT_RING_ANGLE + EMK_MT_RING_LEN * 6 == EMK_MT_RING_WIGGLE &&
+                               EMK_MT_RING_WIGGLE + EMK_MT_RING_LEN * 2 == EMK_MT_RING_IDX &&
+                               (EMK_MT_RING_LEN & (EMK_MT_RING_LEN - 1)) == 0 &&
+                               EMK_MT_ICE + 0x3B8 <= EMK_MT_KILLED && EMK_MT_KILLED < EMK_MT_CLASS_SIZE &&
+                               EMK_HIT_MT_KILL == EMK_HIT_SPECIAL + 1 &&
+                               EMK_MT_BCK_WAIT >= EMK_MT_BCK_FIRST && EMK_MT_BCK_WAIT <= EMK_MT_BCK_LAST) ? 1 : -1];
 
 #endif

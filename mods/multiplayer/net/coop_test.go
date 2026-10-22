@@ -215,7 +215,7 @@ func TestHelloGoldenBytes(t *testing.T) {
 	if err := writeJoin(&player, "Link"); err != nil {
 		t.Fatalf("writeJoin: %v", err)
 	}
-	want := []byte{'J', 0, 4, 'L', 'i', 'n', 'k', 'H', 0, 2, 0x00, 0x03}
+	want := []byte{'J', 0, 4, 'L', 'i', 'n', 'k', 'H', 0, 2, 0x00, 0x04}
 	if !bytes.Equal(player.Bytes(), want) {
 		t.Errorf("player join = %x, want %x", player.Bytes(), want)
 	}
@@ -224,7 +224,7 @@ func TestHelloGoldenBytes(t *testing.T) {
 	if err := writeJoinRole(&coop, "Link", RoleCoop, 0x8001, nil, nil); err != nil {
 		t.Fatalf("writeJoinRole: %v", err)
 	}
-	want = []byte{'J', 0, 4, 'L', 'i', 'n', 'k', 'H', 0, 5, 0x00, 0x03, 0x01, 0x80, 0x01}
+	want = []byte{'J', 0, 4, 'L', 'i', 'n', 'k', 'H', 0, 5, 0x00, 0x04, 0x01, 0x80, 0x01}
 	if !bytes.Equal(coop.Bytes(), want) {
 		t.Errorf("co-op join = %x, want %x", coop.Bytes(), want)
 	}
@@ -353,6 +353,32 @@ func TestVersion2PeersRefused(t *testing.T) {
 		reason := expectReject(t, conn, RejectVersion)
 		if !strings.Contains(reason, "newer") || !strings.Contains(reason, fmt.Sprintf("network protocol %d, yours is 2", ProtocolVersion)) {
 			t.Errorf("hello %x: reason %q, want the newer-host message naming protocols %d and 2", hello, reason, ProtocolVersion)
+		}
+	}
+	if srv.PlayerCount() != 0 || srv.CoopCount() != 0 || srv.EnemyClientCount() != 0 || srv.EnemyHostConnected() {
+		t.Fatalf("PlayerCount=%d CoopCount=%d EnemyClientCount=%d EnemyHost=%v, want none admitted",
+			srv.PlayerCount(), srv.CoopCount(), srv.EnemyClientCount(), srv.EnemyHostConnected())
+	}
+}
+
+// TestVersion3PeersRefused: a protocol-3 (v0.5.0) hello of every role it
+// could send is refused at the version check (batch C D13: its kind table
+// differs, which would otherwise surface only as the enemy KindHash
+// disarm), and nothing is admitted.
+func TestVersion3PeersRefused(t *testing.T) {
+	srv, addr := listenCoop(t, newCoopRecorder())
+	for _, hello := range [][]byte{
+		HelloMessage(3),
+		HelloRoleMessage(3, RoleCoop, 0),
+		HelloRoleMessage(3, RoleLobby, LobbyCapJSON),
+		HelloRoleMessage(3, RoleEnemyClient, 0),
+		HelloRoleMessage(3, RoleEnemyHost, 0),
+	} {
+		conn := dialRaw(t, addr)
+		conn.Write(append(frame(MsgJoin, []byte("v050")), frame(MsgHello, hello)...))
+		reason := expectReject(t, conn, RejectVersion)
+		if !strings.Contains(reason, "newer") || !strings.Contains(reason, fmt.Sprintf("network protocol %d, yours is 3", ProtocolVersion)) {
+			t.Errorf("hello %x: reason %q, want the newer-host message naming protocols %d and 3", hello, reason, ProtocolVersion)
 		}
 	}
 	if srv.PlayerCount() != 0 || srv.CoopCount() != 0 || srv.EnemyClientCount() != 0 || srv.EnemyHostConnected() {

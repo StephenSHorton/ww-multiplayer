@@ -269,8 +269,8 @@ func TestHitClientFlagsWire(t *testing.T) {
 
 // TestParseAnnexTN: tn takes hooks= (into HookDisableX[3], by the generic
 // names and its own aliases) and tg_hit_up=1..255 (the u8 at 0x1FB, R-13);
-// quiet and invuln are refused like the other ids >= 3, and the aliases
-// are tn's only.
+// quiet and invuln go to the knob table (layout 4), and the aliases are
+// tn's only.
 func TestParseAnnexTN(t *testing.T) {
 	a, err := ParseAnnex("tn:hooks=shield+coll,tn:tg_hit_up=72,am2:hooks=special")
 	if err != nil {
@@ -292,16 +292,17 @@ func TestParseAnnexTN(t *testing.T) {
 			t.Errorf("%q: 0x%02X %v, want 0x%02X", v, a.HookDisableX[3], err, bits)
 		}
 	}
-	for _, v := range []string{"tn:tg_hit_up=0", "tn:tg_hit_up=256", "tn:tg_hit_up=-1", "tn:quiet=30", "tn:invuln=5",
+	for _, v := range []string{"tn:tg_hit_up=0", "tn:tg_hit_up=256", "tn:tg_hit_up=-1",
 		"bk:hooks=shield", "am2:hooks=sword", "tn:hooks=wings"} {
 		if _, err := ParseAnnex(v); err == nil {
 			t.Errorf("%q parsed", v)
 		}
 	}
-	// The refusals name what tn does take: tg_hit_up beside hooks, and
-	// its own hook names.
-	if _, err := ParseAnnex("tn:quiet=30"); err == nil || !strings.Contains(err.Error(), "hooks= and tg_hit_up= only") {
-		t.Errorf("tn:quiet=30: %v, want the hooks-and-tg_hit_up error", err)
+	// Layout 4 (batch C): tn's quiet and invuln go to the knob table
+	// (TestParseAnnexL4); its tg_hit_up stays the u8 at 0x1FB. A refused
+	// hook names tn's own hook names.
+	if o, err := ParseOverrides("tn:quiet=30,tn:invuln=5"); err != nil || o.Knobs.Quiet[KindTN] != 30 || o.Knobs.Invuln[KindTN] != 5 {
+		t.Errorf("tn:quiet=30,tn:invuln=5: %+v %v", o.Knobs, err)
 	}
 	if _, err := ParseAnnex("tn:hooks=sheild"); err == nil || !strings.Contains(err.Error(), "shield, sword, coll, adopt_anm") {
 		t.Errorf("tn:hooks=sheild: %v, want the tn hook names", err)
@@ -327,7 +328,7 @@ func TestAnnexTnTgHitUpWritten(t *testing.T) {
 	if len(blks) != 1 || blks[0].Annex.TnTgHitUp != 68 {
 		t.Errorf("host block annex %+v", blks)
 	}
-	for _, w := range m.Writes() {
+	for _, w := range blockSideWrites(m) {
 		if w.Data[mailbox.EnemyAnnexTnTgUpOff-mailbox.EnemyAnnexOff] != 68 {
 			t.Error("byte 0x1FB of the host write is not the knob")
 		}

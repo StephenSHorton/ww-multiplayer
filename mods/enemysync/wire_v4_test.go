@@ -37,7 +37,7 @@ func TestWireV4(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := unhex(t, ""+
-		// header: sub ver flags count, epoch, seq, beat, ms, stage, room, deadMask, hostKindMask, pad
+		// header: sub ver flags count, epoch, seq, beat, ms, stage, room, deadMask, hostKindMask low, high (batch C D6)
 		"01 04 04 01 00000001 00000002 00000003 00000004 4D5F446169000000 02 05 05 00"+
 		// dead[4], kindHash
 		"00000105 80000000 00000000 00000001 73A3A496"+
@@ -113,5 +113,32 @@ func TestWireV4(t *testing.T) {
 	pb[1] = 3
 	if _, err := DecodePHit(pb); err == nil {
 		t.Error("a v3 PHIT decoded")
+	}
+}
+
+// TestWireHostKindMask16: batch C's u16 host kind mask (D6): bit 8 (MT)
+// round-trips through byte 31; bits 0-7 stay in byte 30, so a pre-batch-C
+// decoder (which read byte 30 alone) still sees BB's bit 7; an old frame
+// with byte 31 0 decodes exactly as before; WireVersion stays 4.
+func TestWireHostKindMask16(t *testing.T) {
+	st := &State{Flags: StateFlagInScope, Epoch: 1, Seq: 2, Stage: "M_NewD2", Room: 3,
+		HostKindMask: 1<<KindMO2 | 1<<KindBB | 1<<KindMT, KindHash: KindHash()}
+	b, err := EncodeState(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b[1] != 4 || b[30] != 0x81 || b[31] != 0x01 {
+		t.Fatalf("header bytes 30/31 %02X %02X (version %d)", b[30], b[31], b[1])
+	}
+	got, err := DecodeState(b)
+	if err != nil || got.HostKindMask != 0x181 || !MaskSet(uint32(got.HostKindMask)).Has(KindMT) {
+		t.Fatalf("decode mask 0x%X %v", got.HostKindMask, err)
+	}
+	if old := b[30]; old&(1<<KindBB) == 0 {
+		t.Error("an old decoder's byte 30 lost BB's bit")
+	}
+	b[31] = 0 // a pre-batch-C host
+	if got, err := DecodeState(b); err != nil || got.HostKindMask != 0x81 || MaskSet(uint32(got.HostKindMask)).Has(KindMT) {
+		t.Errorf("old frame mask 0x%X %v", got.HostKindMask, err)
 	}
 }

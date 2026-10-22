@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"math"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -95,7 +94,7 @@ func TestAnnexSpan(t *testing.T) {
 	if _, _, err := c.Tick(now); err != nil {
 		t.Fatal(err)
 	}
-	ws := m.Writes()
+	ws := blockSideWrites(m)
 	if len(ws) != 1 || ws[0].Addr != mailbox.EnemyAnnexAddr || len(ws[0].Data) != mailbox.EnemyWriteSpan {
 		t.Fatalf("writes: %d, first at 0x%08X", len(ws), ws[0].Addr)
 	}
@@ -548,13 +547,17 @@ func TestParseAnnex(t *testing.T) {
 	if a != want {
 		t.Errorf("allow hooks: parsed %+v, want %+v", a, want)
 	}
-	for _, v := range []string{"ki:quiet=5", "am:tg_hit_up=150", "am2:invuln=40", "ki:speed=1", "am:hooks=wings"} {
+	for _, v := range []string{"ki:speed=1", "am:hooks=wings"} {
 		if _, err := ParseAnnex(v); err == nil {
 			t.Errorf("%q parsed", v)
 		}
 	}
-	if _, err := ParseAnnex("ki:quiet=5"); err == nil || !strings.Contains(err.Error(), "hooks= only") {
-		t.Errorf("ki:quiet=5: %v, want the hooks-only error", err)
+	// Layout 4 (batch C): their quiet, tg_hit_up and invuln go to the knob
+	// table (TestParseAnnexL4), none of it to the annex.
+	for _, v := range []string{"ki:quiet=5", "am:tg_hit_up=150", "am2:invuln=40"} {
+		if a, err := ParseAnnex(v); err != nil || a != (mailbox.EnemyAnnex{}) {
+			t.Errorf("%q: %+v %v, want accepted into the knob table", v, a, err)
+		}
 	}
 }
 
@@ -850,15 +853,15 @@ func slotOf2(st *State, proc, setID uint16) Slot {
 }
 
 // TestMirrorAmbusher: a pot ambusher (kindRoom's BK setID 1, type 2)
-// matched to the host's has its mType written 0 before the block that
-// offers it (the REL's em_bk_gate takes 0/1/4 only), once. Nothing else is
-// written while the REL does not report the copy MIRRORED (refused: its
-// own AI runs). Once it does, and while the host's slot is HIDDEN, a copy
-// that came out here (m02BA 0) is put back in its pot (0xFF) and its
-// actor and model scale go to 1; once the host's reveals, m02BA is the
-// REL's. A re-adoption with the host's already out sets the scale only,
-// and an adopted ambusher the host stops listing keeps mType 0. The torch
-// Bokoblin beside it is never written.
+// matched to the host's is offered with its own mType: batch C's REL takes
+// a live 2/3 (ambush_cleanup), so no tick ever writes an mType, the
+// ambusher's or the torch Bokoblin's beside it. Nothing is written while
+// the REL does not report the copy MIRRORED (refused: its own AI runs).
+// Once it does, and while the host's slot is HIDDEN, a copy that came out
+// here (m02BA 0) is put back in its pot (0xFF) and its actor and model
+// scale go to 1; once the host's reveals, m02BA is the REL's. A
+// re-adoption with the host's already out sets the scale only, and an
+// adopted ambusher the host stops listing keeps its type 2.
 func TestMirrorAmbusher(t *testing.T) {
 	g, m, es := kindRoom(t)
 	tick := booted(t, g, m)
@@ -940,33 +943,29 @@ func TestMirrorAmbusher(t *testing.T) {
 		store(t, m, at+mailbox.EnemySTLastErrOff, []byte{lastErr})
 	}
 
-	// Offered, not yet adopted: mType 0 before the block, nothing else. The
-	// block, slots included, is one write from the annex
-	// (mailbox.EnemyBlock.EncodeWrite), so before it is before the slots.
+	// noType fails the test on any mType write this tick (batch C: never).
+	noType := func() {
+		t.Helper()
+		for _, w := range m.Writes() {
+			if w.Addr == amb.Addr+addr.BkOffType || w.Addr == torch.Addr+addr.BkOffType {
+				t.Errorf("an mType write at 0x%08X", w.Addr)
+			}
+		}
+	}
+
+	// Offered, not yet adopted: its own mType 2 in the block's slot, no
+	// write but the block.
 	b := step()
+	noType()
 	j, s := slotByPID(b, amb.PID)
 	if s == nil || s.Flags&mailbox.EnemySFHidden == 0 {
 		t.Fatalf("the ambusher has no hidden slot: %+v", b.Slots)
 	}
-	if u8(amb.Addr+addr.BkOffType) != 0 || u8(amb.Addr+addr.BkOffDrawGate) != 0 || u8(torch.Addr+addr.BkOffType) != 4 {
+	if u8(amb.Addr+addr.BkOffType) != BkTypeAmbushJump || u8(amb.Addr+addr.BkOffDrawGate) != 0 || u8(torch.Addr+addr.BkOffType) != 4 {
 		t.Errorf("mType %d m02BA 0x%02X, torch mType %d", u8(amb.Addr+addr.BkOffType), u8(amb.Addr+addr.BkOffDrawGate), u8(torch.Addr+addr.BkOffType))
 	}
-	typeAt, blockAt, blocks := -1, -1, 0
-	for i, w := range m.Writes() {
-		switch {
-		case w.Addr == amb.Addr+addr.BkOffType:
-			typeAt = i
-		case w.Addr >= mailbox.EnemyAnnexAddr && w.Addr < mailbox.EnemyAnnexAddr+uint32(mailbox.EnemyWriteSpan):
-			blocks++
-			if w.Addr == mailbox.EnemyAnnexAddr && len(w.Data) == mailbox.EnemyWriteSpan {
-				blockAt = i
-			}
-		case w.Addr == torch.Addr+addr.BkOffType:
-			t.Error("the torch Bokoblin's mType was written")
-		}
-	}
-	if typeAt < 0 || blockAt < 0 || typeAt > blockAt || blocks != 1 {
-		t.Errorf("the mType write (%d) is not before the one block write (%d, %d block writes)", typeAt, blockAt, blocks)
+	if n := len(blockSideWrites(m)); n != 1 {
+		t.Errorf("%d writes besides the knob table, want the block only", n)
 	}
 	if wrote() || c.Stats.Ambushers != 1 || c.Stats.AmbushHides != 0 {
 		t.Errorf("before the adoption: wrote %v stats %+v", wrote(), c.Stats)
@@ -976,6 +975,7 @@ func TestMirrorAmbusher(t *testing.T) {
 	// Refused (its own AI runs): left alone.
 	status(j, mailbox.EnemyStateRefused, mailbox.EnemyErrGate)
 	step()
+	noType()
 	if wrote() || c.Stats.AmbushHides != 0 {
 		t.Errorf("refused: wrote %v stats %+v", wrote(), c.Stats)
 	}
@@ -983,6 +983,7 @@ func TestMirrorAmbusher(t *testing.T) {
 	// Adopted: back in its pot, full size; then nothing more to write.
 	status(j, mailbox.EnemyStateMirrored, mailbox.EnemyErrNone)
 	step()
+	noType()
 	if u8(amb.Addr+addr.BkOffDrawGate) != 0xFF || c.Stats.Ambushers != 1 || c.Stats.AmbushHides != 1 {
 		t.Errorf("adopted: m02BA 0x%02X stats %+v", u8(amb.Addr+addr.BkOffDrawGate), c.Stats)
 	}
@@ -1031,20 +1032,22 @@ func TestMirrorAmbusher(t *testing.T) {
 		t.Errorf("re-adopted: m02BA 0x%02X stats %+v", u8(amb.Addr+addr.BkOffDrawGate), c.Stats)
 	}
 
-	// Adopted, then no longer listed: its mType stays 0.
+	// Adopted, then no longer listed: its mType stays its own.
 	st.Slots = st.Slots[:1]
 	for range 3 {
 		step()
+		noType()
 	}
-	if u8(amb.Addr+addr.BkOffType) != 0 {
-		t.Errorf("an adopted ambusher's mType went back to %d", u8(amb.Addr+addr.BkOffType))
+	if u8(amb.Addr+addr.BkOffType) != BkTypeAmbushJump {
+		t.Errorf("an adopted ambusher's mType is %d", u8(amb.Addr+addr.BkOffType))
 	}
 }
 
-// TestMirrorAmbusherRestore: an ambusher whose slot goes before the REL
-// ever took it gets its mType back (its own reveal picks its leap as
-// placed); the next offer writes 0 again.
-func TestMirrorAmbusherRestore(t *testing.T) {
+// TestMirrorAmbusherReoffer: an ambusher whose slot goes before the REL
+// ever took it, and comes back, is offered each time with its own mType
+// and never written (batch C retired the mType-0 write and its restore);
+// each offer counts in Stats.Ambushers.
+func TestMirrorAmbusherReoffer(t *testing.T) {
 	g, m, es := kindRoom(t)
 	tick := booted(t, g, m)
 	amb, _ := es.Of(1)
@@ -1078,8 +1081,9 @@ func TestMirrorAmbusherRestore(t *testing.T) {
 		}
 		return v
 	}
+	m.Record(true)
 	step(listed)
-	if mType() != 0 || c.Stats.Ambushers != 1 {
+	if mType() != BkTypeAmbushJump || c.Stats.Ambushers != 1 {
 		t.Fatalf("offered: mType %d stats %+v", mType(), c.Stats)
 	}
 	step(listed[:1])
@@ -1087,7 +1091,12 @@ func TestMirrorAmbusherRestore(t *testing.T) {
 		t.Errorf("dropped unadopted: mType %d, want %d", mType(), BkTypeAmbushJump)
 	}
 	step(listed)
-	if mType() != 0 || c.Stats.Ambushers != 2 {
+	if mType() != BkTypeAmbushJump || c.Stats.Ambushers != 2 {
 		t.Errorf("offered again: mType %d stats %+v", mType(), c.Stats)
+	}
+	for _, w := range m.Writes() {
+		if w.Addr == amb.Addr+addr.BkOffType {
+			t.Errorf("an mType write: % X", w.Data)
+		}
 	}
 }

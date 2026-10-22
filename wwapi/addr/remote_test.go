@@ -85,6 +85,7 @@ func TestRemoteLinkProcs(t *testing.T) {
 		{"ProcCC", ProcCC, 0xCF},
 		{"ProcPW (after BPW)", ProcPW, ProcBPW + 1},
 		{"ProcKI", ProcKI, 0xD8},
+		{"ProcMT (after KI)", ProcMT, ProcKI + 1},
 		{"ProcBWDS (after BWD)", ProcBWDS, ProcBWD + 1},
 		{"ProcBMDFoot (after BMD)", ProcBMDFoot, ProcBMD + 2},
 		{"ProcFGMahou (after Fganon)", ProcFGMahou, ProcFganon + 1},
@@ -100,7 +101,7 @@ func TestRemoteLinkProcs(t *testing.T) {
 		"BWD": ProcBWD, "RD": ProcRD, "Daiocta": ProcDaiocta, "BTD": ProcBTD, "BMD": ProcBMD, "BDK": ProcBDK, "BST": ProcBST,
 		"Fganon": ProcFganon, "BGN": ProcBGN, "BGN2": ProcBGN2, "BGN3": ProcBGN3, "Boko": ProcBoko,
 		"Oship": ProcOship, "BB": ProcBB, "ST": ProcST, "TN": ProcTN, "AM": ProcAM, "AM2": ProcAM2, "CC": ProcCC, "PW": ProcPW,
-		"KI": ProcKI, "BWDS": ProcBWDS, "BMDFoot": ProcBMDFoot, "FGMahou": ProcFGMahou, "SSS": ProcSSS, "NpcJi1": ProcNpcJi1} {
+		"KI": ProcKI, "MT": ProcMT, "BWDS": ProcBWDS, "BMDFoot": ProcBMDFoot, "FGMahou": ProcFGMahou, "SSS": ProcSSS, "NpcJi1": ProcNpcJi1} {
 		if other, ok := seen[p]; ok {
 			t.Errorf("Proc%s and Proc%s are both 0x%X", name, other, p)
 		}

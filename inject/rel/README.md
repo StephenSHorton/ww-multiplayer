@@ -306,6 +306,47 @@ canaries (`pause_reasserts`, `anm_unresolved`, `revalidate_failures`,
 `watchdog_releases`) and the second four (`anm_res_null`, `anm_range`,
 `hit_nocross`, `hit_aborted`).
 
+**Batch C (layout 4, `design/enemy-mirror-batch-c.json`).** Nothing in
+the block or the annex moves. Block +0x22 is `knob_gen`, +0x28..+0x2F the
+hook-disable bytes for kind ids 7..14 (BB +0x28, MT +0x29; inside Go's
+seq span, read live by `em_hkd`), +0x194 the REL's echo of the knob table
+it validated (0 when none or invalid, so Go rewrites a clobbered table),
++0x196 a saturating count of BB fingerprint misses. The knob table at
+mailbox +0x850 (0x80413750, 0x60 bytes, its own write) is valid when the
+block's `knob_gen` is nonzero and equals its head and tail words, its
+layout is 4 and it has a row per kind; then ids 3..15 take their quiet
+frames, `tg_hit_up` (not TN: its annex byte 0x1FB stays) and invuln wait
+from it, else the compiled values. `em_ext.kind_mask` is u16 (MT is bit
+8).
+- **Ambush Bokoblin.** `em_bk_gate` takes `mType` 0..4 (2 and 3 the pot
+  ambushers, unconditionally; Go no longer writes 0 into them). While the
+  host slot is hidden the copy's stick is parked at (-10000, -10000, 0) as
+  the hidden host's is. A copy released still in its pot (its own `m02BA`
+  0xFF, `mType` 2/3) gets `tubo_wait` (action 15, mode 0, `m0300[0]` and
+  `m0310` 0, scale 1) instead of the create pair, so it can still leap.
+  Both writes skip under `bk:hooks=ambush` (BK's 0x40).
+- **Kargaroc (BB, proc 0xB6, kind 7).** Its base matrix is
+  `EMK_MTX_TRYXZ` from `current.angle` (the smoothed yaw, the smoothed
+  tilt in `current.angle.x` by `EMK_CAP_TILT_CUR`, the streamed roll in
+  `current.angle.z` from slot +0x18), with `setBaseScale`; the head and beak
+  words C00/C4E are zeroed before calc; after calc the tail root is copied
+  to the tail chain and the retail `tail_control` is called through the
+  copy's own profile (`sub_method->mpExecuteFunc` - 0x69A8 + 0x404) when
+  its fingerprint matched once per adopt, else the chain collapses onto
+  the root. Riders (types 5/6), mbDead, knockback and a hidden copy with a
+  shown host are refused; the draw gate 0x2F2 is cleared while the host is
+  shown; a release hands it back into the attack state with its timer
+  seeded (450, `l_bbHIO.unk_16`).
+- **Magtail (MT, proc 0xD9, kind 8; the first cut).** All of it is the
+  `em_mt_*` section: the eight segment matrices (MOVE from the 64-entry
+  head ring, FIGHT/PINNED a 35-unit chain), eyePos, the anchors and the
+  per-segment flames, nine spheres (eye = collider 1, any body sphere =
+  collider 2), a curled host releasing the copy as this game's custody BALL
+  watched for its death (collider code 4, applied on the host only while
+  its Magtail is still curled), and the respawn flag 0x1CBC before both
+  quiet-death deletes. Offsets are from the retail `d_a_mt.rel`
+  disassembly, unverified live until the P0-MT probe.
+
 Game functions called, all through absolute function-pointer casts
 (`config/GZLE01/symbols.txt`): `fopAcM_SearchByID` 0x800241C0,
 `mDoExt_McaMorf::play` 0x8001300C, `::calc` 0x800132E8 and `::setAnm`
@@ -318,7 +359,10 @@ and `::ClrAtHit` 0x800AB7C4, `dCcD_Sph::Set` 0x800ABFC0 and `::StartCAt`
 0x800AB3DC, `cM_ssin` 0x800F0054, `cM_scos` 0x800F0038,
 `dPa_smokeEcallBack::end` 0x8007BB80 (the Armos Knight's mouth smoke,
 `mSmokeCbs[2]`, at the bomb swallow and at adopt), `cc_at_check`
-0x800AEEF8 (the TN batch's AM2 direct apply, `em_hit_direct`). Data read:
+0x800AEEF8 (the TN batch's AM2 direct apply, `em_hit_direct`); batch C:
+`cM_atan2s` 0x802460D0 and `dPa_control_c::setSimple` 0x8007DBC4 (on
+`mParticle` at 0x803CA6CC, with `g_whiteColor` 0x803F61A8) for MT, and
+BB's `tail_control` in the loaded `d_a_bb.rel` (fingerprinted). Data read:
 `calc_mtx` 0x803F63A0, `mCurStage.mName` 0x803C9D3C, `mStayNo`
 0x803F6A78, `mNextStage.mEnable` 0x803C9D54, `mPlayerInfo[0].mpPlayer`
 0x803CA74C, `mpPlayerPtr[0]` 0x803CA754, `__vt__8dCcD_Sph` 0x803899D0
