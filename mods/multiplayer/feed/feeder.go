@@ -126,6 +126,11 @@ type Feeder struct {
 	// Vanished-sender thresholds (#10). freezeAfter: hold the last pose;
 	// despawnAfter: clear the slot.
 	freezeAfter, despawnAfter time.Duration
+
+	// The stage gate (partner.go): partner is where co-op's PRESENCE puts
+	// the partner (nil: no gate); away is the gate's last decision.
+	partner *PartnerPlace
+	away    bool
 }
 
 // NewFeeder returns a Feeder drawing into m. Remotes named selfFilter
@@ -224,6 +229,7 @@ func (f *Feeder) Connected(serverEpoch uint64) {
 // left. ctx bounds a link slot's arming poll.
 func (f *Feeder) Feed(ctx context.Context, remotes []network.RemotePlayer, now time.Time) {
 	seen := map[byte]bool{}
+	away := f.partnerAway(remotes, now)
 	for i := range remotes {
 		rp := &remotes[i]
 		if rp.Position == nil {
@@ -242,10 +248,15 @@ func (f *Feeder) Feed(ctx context.Context, remotes []network.RemotePlayer, now t
 			log.Logf(f.rep, log.Warn, "player %d (%s) sent a %d-joint pose (%d B); Link has %d joints, so it won't drive a Link slot",
 				rp.ID, rp.Name, rp.PoseJoints, len(rp.PoseMatrices), avatar.JointCount)
 		}
-		idx, ok := f.actorSlot(rp, hasPose, now)
+		idx, ok := f.actorSlot(rp, hasPose, away, now)
 		if !ok {
 			// All slots full; drop this remote for now.
 			continue
+		}
+		if sl := &f.slots[idx]; sl.away != away {
+			// Into or out of another stage: snap to where it is now
+			// rather than glide there from the other stage's spot.
+			sl.away, sl.haveCur = away, false
 		}
 		st := f.moveActor(idx, rp.Position)
 
@@ -259,15 +270,16 @@ func (f *Feeder) Feed(ctx context.Context, remotes []network.RemotePlayer, now t
 		// for two-Dolphin play; set it to e.g. 500 for loopback
 		// development so Link #2 doesn't overlap your own Link.
 		if hasPose {
-			f.feedPose(ctx, rp, idx, st, now)
+			f.feedPose(ctx, rp, idx, st, away, now)
 		}
 	}
 	f.releaseGone(seen)
 }
 
 // feedPose is one tick of a pose-sending remote: liveness (freeze,
-// despawn, resume), its link slot, and the pose + face write.
-func (f *Feeder) feedPose(ctx context.Context, rp *network.RemotePlayer, idx int, st *slotState, now time.Time) {
+// despawn, resume), its link slot, and the pose + face write. While away
+// (the stage gate) its slot is cleared, as a despawn clears it, and kept.
+func (f *Feeder) feedPose(ctx context.Context, rp *network.RemotePlayer, idx int, st *slotState, away bool, now time.Time) {
 	// Vanished-sender classification (#10). LastPose stops
 	// advancing the moment the remote's pose stream goes silent
 	// (crash / cable pull), well before the server's MsgLeave at
@@ -289,6 +301,25 @@ func (f *Feeder) feedPose(ctx context.Context, rp *network.RemotePlayer, idx int
 		return
 	}
 	ls := &f.linkSlots[linkSlot]
+
+	// The stage gate: out of this stage, the pose's coordinates are
+	// another stage's. Clear the slot (Link vanishes) but keep it; back
+	// in this stage, re-arm it as a resume does and draw again.
+	if away {
+		if !ls.hidden {
+			avatar.ClearSlot(f.m, linkSlot)
+			ls.hidden = true
+			ls.displayed = nil
+		}
+		return
+	}
+	if ls.hidden {
+		avatar.Rearm(f.m, linkSlot)
+		f.poseBufPtrs[linkSlot] = 0
+		f.armedEpoch[linkSlot] = -1
+		ls.displayed = nil
+		ls.hidden = false
+	}
 
 	// Sender RESUMED after a freeze/despawn: re-arm the
 	// mailbox for this slot and snap back to live rendering.

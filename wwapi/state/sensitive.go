@@ -74,9 +74,11 @@ func DefaultSensitive() []Span {
 	for i, mask := range namedEventBits {
 		bits(addr.OffEvent+i, 1, mask)
 	}
-	for _, id := range figurineRegs {
-		b := addr.EventByte(id)
-		bits(addr.OffEvent+b.Off, 1, b.Mask)
+	for _, list := range [][]uint16{figurineRegs, warpPotRegs} {
+		for _, id := range list {
+			b := addr.EventByte(id)
+			bits(addr.OffEvent+b.Off, 1, b.Mask)
+		}
 	}
 	for _, id := range maxRegs {
 		b := addr.EventByte(id)
@@ -111,6 +113,11 @@ var (
 		0x8CFF, 0x8DFF, 0x8EFF, 0x8FFF, 0x90FF, 0x91FF, 0x92FF, 0x93FF, 0x94FF, 0x95FF,
 		0x9CFF, 0xB1FF,
 	}
+
+	// warpPotRegs are the warp pot registers, one bit per pot in the 0x07
+	// field, only ever set (daObj_Warpt_c::onWarpBit, d_a_obj_warpt.cpp:
+	// 285-289).
+	warpPotRegs = []uint16{0xA207, 0xA107, 0xA007, 0x9F07, 0xA307, 0xA407}
 
 	// maxRegs only move forward: the letters (NOSEND 0 -> SEND 1 -> STOCK
 	// 2 -> READ 3, d_letter.cpp:10-62), Beedle points (d_a_npc_bs1.cpp:

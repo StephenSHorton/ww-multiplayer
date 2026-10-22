@@ -21,6 +21,7 @@ func TestApplyRegister(t *testing.T) {
 	}{
 		{"figurines OR", regFigure, 0x05, 0x30, 0x35, ""},
 		{"figurines never clear", regFigure, 0xFF, 0x00, 0xFF, ""},
+		{"a warp pot ORs its field only", 0xA2, 0x81, 0xFE, 0x87, "DRC 0xA207"},
 		{"a letter raised", regLetter, 0x01, 0x03, 0x03, ""},
 		{"a letter raised keeps the other bits", regLetter, 0xFD, 0x02, 0xFE, "0xFC|1 -> 0xFC|2"},
 		{"the world's other bits are not taken", regLetter, 0x00, 0xF1, 0x01, ""},
@@ -71,8 +72,8 @@ func TestApplyRegisters(t *testing.T) {
 			t.Errorf("byte 0x%X outside the registers changed to 0x%02X", off, img[off])
 		}
 	}
-	if n != changed || n != 17+13 {
-		t.Errorf("ApplyRegisters changed %d bytes, counted %d, want 30", n, changed)
+	if n != changed || n != 17+6+13 {
+		t.Errorf("ApplyRegisters changed %d bytes, counted %d, want 36", n, changed)
 	}
 }
 

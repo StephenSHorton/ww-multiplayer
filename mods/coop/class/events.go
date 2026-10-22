@@ -37,6 +37,14 @@ var (
 		0x9CFF, 0xB1FF,
 	}
 
+	// warpPotRegs are the warp pot registers, one per pot set
+	// (daObj_Warpt_c::m_event_reg, d_a_obj_warpt.cpp:37-44; 0xA207 is
+	// DRC's). Each pot of a set owns one bit of the 0x07 field (bit 1, 2
+	// or 4, getArg, d_a_obj_warpt.cpp:729-743). The game only ever sets
+	// them (onWarpBit, :285-289, its only writer), so they merge by OR
+	// within the field; the byte's other bits stay local.
+	warpPotRegs = []uint16{0xA207, 0xA107, 0xA007, 0x9F07, 0xA307, 0xA407}
+
 	// maxRegs only move forward, so they merge by MAX of the field (the
 	// byte masked by MM); the byte's other bits stay local. Monotone is
 	// inferred from the setters named here.

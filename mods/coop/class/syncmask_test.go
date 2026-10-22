@@ -255,7 +255,8 @@ func TestHolds(t *testing.T) {
 
 // TestRegisterAllowlistUntouched pins the register bytes' classes: the
 // story sync adds nothing to them, so only l_figure_comp's 17 bitfields
-// merge by OR and the 14 registers of maxRegs by MAX within their field.
+// and the 6 warp pot fields merge by OR and the 14 registers of maxRegs by
+// MAX within their field.
 func TestRegisterAllowlistUntouched(t *testing.T) {
 	type rule struct {
 		c    Class
@@ -265,6 +266,9 @@ func TestRegisterAllowlistUntouched(t *testing.T) {
 	for _, b := range []int{0x80, 0x81, 0x82, 0x83, 0x84, 0x8C, 0x8D, 0x8E, 0x8F, 0x90, 0x91, 0x92,
 		0x93, 0x94, 0x95, 0x9C, 0xB1} {
 		want[b] = rule{OR, 0xFF}
+	}
+	for b := 0x9F; b <= 0xA4; b++ {
+		want[b] = rule{OR, 0x07}
 	}
 	for _, b := range []int{0x7A, 0x7B, 0x7C, 0x7D, 0x8B, 0x9D, 0xAC, 0xAE, 0xAF, 0xB0, 0xB2, 0xB5, 0x88} {
 		want[b] = rule{Max, 0x03}
