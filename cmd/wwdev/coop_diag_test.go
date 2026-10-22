@@ -700,6 +700,7 @@ func TestParseStageHop(t *testing.T) {
 		{"ABCDEFGH"},            // mName is char[8]
 		{"a-b"},                 // not a stage name
 		{"sea", "-1"},           // restart points
+		{"sea", "256"},          // a PLYR point is a u8
 		{"sea", "0", "64"},      // rooms 0..63
 		{"sea", "0", "0", "12"}, // l_layerFuncTable_p has 12 entries
 		{"sea", "0", "0", "-2"}, // -1 is the only negative layer

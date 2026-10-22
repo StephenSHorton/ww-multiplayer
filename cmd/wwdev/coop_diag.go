@@ -35,6 +35,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/heap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
@@ -55,14 +56,14 @@ var coopDiagUsage = map[string]string{
 	"heap-free":         "heap-free",
 	"blob-verify-live":  "blob-verify-live",
 	"region-probe":      "region-probe arm --yes [--force] | region-probe check",
-	"stage-hop":         "stage-hop <stage> [point=0] [room=0] [layer=-1] --yes",
+	"stage-hop":         "stage-hop <stage> [point=0] [room=first with the point] [layer=-1] [--no-check] --yes",
 }
 
 // coopDiagFlags is the --flags each diagnostic accepts.
 var coopDiagFlags = map[string][]string{
 	"coop-watch":   {"all"},
 	"region-probe": {"yes", "force"},
-	"stage-hop":    {"yes"},
+	"stage-hop":    {"yes", "no-check"},
 	"enemy-kill":   {"yes", "unverified"},
 }
 
@@ -168,6 +169,15 @@ func runCoopDiag(cmd string, args []string) {
 		h, perr := parseStageHop(pos)
 		if perr != nil {
 			exitUsage(perr, usage)
+		}
+		// Checked before --yes is looked at, so a hop the disc says
+		// would halt the game is refused either way.
+		if flags["no-check"] {
+			fmt.Println("Start not checked (--no-check): a start the stage lacks hangs the game.")
+			defaultRoomUnchecked(os.Stdout, &h, len(pos) > 2)
+		} else if cerr := verifyStageHop(os.Stdout, launch.FromEnv().ISO, &h, len(pos) > 2); cerr != nil {
+			fmt.Printf("ERROR: %v\n", cerr)
+			os.Exit(1)
 		}
 		fmt.Print(h.warning())
 		if !flags["yes"] {
@@ -1301,8 +1311,10 @@ func parseStageHop(pos []string) (stageHop, error) {
 		return v, nil
 	}
 	// Negative points mean restarts the raw write does not set up
-	// (d_com_inf_game.cpp:2369-2403 use -1 and -3), so only >= 0.
-	p, err := num(1, 0, math.MaxInt16, "point")
+	// (d_com_inf_game.cpp:2369-2403 use -1 and -3), so only >= 0; a
+	// point is matched against a PLYR entry's (u8)angle.z, so at most
+	// 255 (d_stage.cpp:1455-1463; write.StageRequest.Check).
+	p, err := num(1, 0, math.MaxUint8, "point")
 	if err != nil {
 		return h, err
 	}
@@ -1336,7 +1348,9 @@ func (h stageHop) warning() string {
 stage %q point %d room %d layer %d. It is a raw write, so it skips what
 dComIfGp_setNextStage also does (Link's last-scene speed and mode, and the restart point,
 d_com_inf_game.cpp:671-690): a death or a restart after the hop can put Link somewhere odd.
-A stage, point or room that does not exist can hang or crash the game. Debug sessions only.
+Unless --no-check was given or no disc was found, the stage, room and start point were
+checked against the disc above; one the stage lacks halts the game (d_stage.cpp:1463).
+Debug sessions only.
 `, addr.NextStage, addr.NextStage+addr.NextStageSize, h.Name, h.Point, h.Room, h.Layer)
 }
 

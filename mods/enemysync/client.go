@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -91,6 +94,23 @@ const (
 	// the host has no actor left to apply it to). Only a list gone fully
 	// empty does this (TestMirrorEmptyVanish).
 	ReloadGrace = 3 * time.Second
+	// StaleHoldMax is the default of Mirror.StaleHold (WW_ENEMY_STALE_HOLD):
+	// how long past StaleAfter a STATE that stopped coming holds the copies
+	// frozen (Mirror.hold) before they are released. A stall, the host's
+	// Go or Dolphin descheduled on a loaded machine, or this game's own
+	// read loop late, is seen live as a STATE StaleAfter old that comes
+	// back a moment later; released, the copies would run this game's AI
+	// meanwhile and be adopted again. A host gone for good costs the
+	// grace: its copies stay frozen that long, a hit on one cleared unsent.
+	StaleHoldMax = 2500 * time.Millisecond
+	// HeartbeatHitch is the stall checkHeartbeat allows between the
+	// heartbeat reads beside the clock: a forward jump within
+	// write.BeatLead of the time between them plus this is the game having
+	// run while this Go was away, not a save state. The cost: a save state
+	// loaded forward by fewer frames starts no epoch; the match walk
+	// (MatchEvery, and the REL's resolve errors forcing one) catches its
+	// pids instead. A heartbeat gone backwards is a save state as before.
+	HeartbeatHitch = 250 * time.Millisecond
 )
 
 // Mirror is the client's state machine; Tick drives it.
@@ -125,6 +145,13 @@ type Mirror struct {
 	hbOK                    bool
 	hb                      uint32
 	hbAt                    time.Time
+	// hbRead is the clock just before the last heartbeat read: Tick's now
+	// is stamped earlier, and a stall in between (the contract read, this
+	// Go descheduled) must not read as the game jumping (checkHeartbeat).
+	hbRead time.Time
+	// clock is the wall clock the heartbeat reads are timed by (nil:
+	// time.Now); tests set it.
+	clock func() time.Time
 
 	// Kinds is this game's enabled set (WW_ENEMY_MIRROR_KINDS), Quiet the
 	// kinds whose copies die quietly (WW_ENEMY_QUIET_DEATH), Select the
@@ -145,6 +172,9 @@ type Mirror struct {
 	HkdHi [mailbox.EnemyHkdHiKinds]uint8
 	Knobs mailbox.EnemyKnobs
 	knob  knobWriter
+	// StaleHold is how long past StaleAfter a stale STATE holds the copies
+	// frozen (StaleHoldMax; WW_ENEMY_STALE_HOLD, 0 releases at once).
+	StaleHold time.Duration
 	// Claims, when set, gets every local pid the mirror claims each tick
 	// (Env.Claims).
 	Claims *ClaimSet
@@ -269,7 +299,37 @@ func NewMirror(m mem.Mem, rep log.Reporter, brk *write.Breaker, raw bool, start 
 	}
 	c.Annex, c.HkdHi, c.Knobs = o.Annex, o.HkdHi, o.Knobs
 	c.knob.seed(uint64(start.UnixNano()))
+	if c.StaleHold, err = StaleHoldFromEnv(); err != nil {
+		log.Logf(rep, log.Warn, "enemy client: %v; holding a stale STATE's copies %v", err, c.StaleHold)
+	}
 	return c
+}
+
+// ParseStaleHold parses a WW_ENEMY_STALE_HOLD value: a Go duration ("2s",
+// "1500ms") or a bare number of milliseconds, 0 or more; empty is
+// StaleHoldMax. An error comes with StaleHoldMax.
+func ParseStaleHold(v string) (time.Duration, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return StaleHoldMax, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		n, nerr := strconv.ParseUint(v, 10, 32)
+		if nerr != nil {
+			return StaleHoldMax, fmt.Errorf("WW_ENEMY_STALE_HOLD=%q: not a duration", v)
+		}
+		d = time.Duration(n) * time.Millisecond
+	}
+	if d < 0 {
+		return StaleHoldMax, fmt.Errorf("WW_ENEMY_STALE_HOLD=%q: negative", v)
+	}
+	return d, nil
+}
+
+// StaleHoldFromEnv is ParseStaleHold(WW_ENEMY_STALE_HOLD).
+func StaleHoldFromEnv() (time.Duration, error) {
+	return ParseStaleHold(os.Getenv("WW_ENEMY_STALE_HOLD"))
 }
 
 // Epoch is the current epoch.
@@ -404,21 +464,32 @@ func (c *Mirror) checkREL(now time.Time) bool {
 
 // checkHeartbeat reads spawn_trigger and starts a new epoch when it went
 // backwards or jumped further than the game can have run since the last
-// read (a save state was loaded; write.BeatLead's rule).
+// read (a save state was loaded; write.BeatLead's rule). The time since
+// the last read is the longer of the ticks' and the clock's around the
+// reads, plus HeartbeatHitch: Tick's now is stamped before the contract
+// check, and a stall between the two (seen live on a loaded machine: 15
+// to 23 frames over a 16 ms tick) is the game running on, not a save
+// state; read as one, the new epoch released and re-adopted every copy.
 func (c *Mirror) checkHeartbeat(now time.Time) error {
+	clock := c.clock
+	if clock == nil {
+		clock = time.Now
+	}
+	before := clock()
 	hb, err := mem.ReadU32(c.m, mailbox.SpawnTrigger)
 	if err != nil {
 		return err
 	}
 	if c.hbOK {
+		since := max(now.Sub(c.hbAt), clock().Sub(c.hbRead))
 		d := int32(hb - c.hb)
 		if d < 0 {
 			c.newEpoch("the heartbeat went backwards: a save state was loaded")
-		} else if uint32(d) > write.BeatLead(now.Sub(c.hbAt)) {
-			c.newEpoch(fmt.Sprintf("the heartbeat jumped %d frames: a save state was loaded", d))
+		} else if uint32(d) > write.BeatLead(since+HeartbeatHitch) {
+			c.newEpoch(fmt.Sprintf("the heartbeat jumped %d frames in %v: a save state was loaded", d, since.Round(time.Millisecond)))
 		}
 	}
-	c.hb, c.hbAt, c.hbOK = hb, now, true
+	c.hb, c.hbAt, c.hbRead, c.hbOK = hb, now, before, true
 	return nil
 }
 
@@ -1217,9 +1288,10 @@ func (c *Mirror) disarm(now time.Time, why string) error {
 // unsent (the host drops every HIT while out of play, HDGoGate, and one
 // drained after the hold would land late). It reports false, and the
 // caller releases as before, when nothing is armed, the last block was
-// another scope's, or the hold ran HostHoldMax. No REL change: Q3 found no
+// another scope's, or the hold ran HostHoldMax (upTo, the caller's own
+// bound, only goes in the log). No REL change: Q3 found no
 // freeze bit in the block, and none is needed.
-func (c *Mirror) hold(now time.Time, why string) (bool, error) {
+func (c *Mirror) hold(now time.Time, why string, upTo time.Duration) (bool, error) {
 	st := c.holdSt
 	if !c.armed || st == nil || st.Stage != c.localStage || st.Room != c.localRoom {
 		return false, nil
@@ -1233,7 +1305,7 @@ func (c *Mirror) hold(now time.Time, why string) (bool, error) {
 	if c.holdSince.IsZero() {
 		c.holdSince = now
 		c.Stats.Holds++
-		log.Logf(c.rep, log.Info, "enemy client: %s; holding the copies frozen (up to %v)", why, HostHoldMax)
+		log.Logf(c.rep, log.Info, "enemy client: %s; holding the copies frozen (up to %v)", why, min(upTo, HostHoldMax))
 	} else if now.Sub(c.holdSince) > HostHoldMax {
 		log.Logf(c.rep, log.Info, "enemy client: the host stayed out of play %v; releasing the copies", HostHoldMax)
 		return false, nil
@@ -1336,7 +1408,16 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 	switch {
 	case st == nil:
 		return nil, GateSleep, c.disarm(now, "no STATE from the host yet")
+	case now.Sub(at) > StaleAfter+c.StaleHold:
+		return nil, GateSleep, c.disarm(now, "the host's STATE is stale")
 	case now.Sub(at) > StaleAfter:
+		// A STATE that stopped coming is most often a stall (a loaded
+		// machine, either side): hold the copies frozen (hold) for
+		// StaleHold, then release as before. A STATE back in time
+		// resumes the mirror, the hold over.
+		if held, err := c.hold(now, "the host's STATE is stale (a stall?)", c.StaleHold); held || err != nil {
+			return nil, GateSleep, err
+		}
 		return nil, GateSleep, c.disarm(now, "the host's STATE is stale")
 	case st.Flags&StateFlagInScope == 0:
 		// Out of play is the host's own load, death or Game Over: hold
@@ -1345,7 +1426,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		// releases as before. A run of empty in-scope STATEs after it
 		// gets a ReloadGrace of its own.
 		c.emptySince = time.Time{}
-		if held, err := c.hold(now, "the host is out of play"); held || err != nil {
+		if held, err := c.hold(now, "the host is out of play", HostHoldMax); held || err != nil {
 			return nil, GateSleep, err
 		}
 		return nil, GateSleep, c.disarm(now, "the host is not in play")
@@ -1359,7 +1440,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 			c.emptySince = now
 		}
 		if now.Sub(c.emptySince) <= ReloadGrace {
-			if held, err := c.hold(now, "the host lists no enemy in this room (a reload?)"); held || err != nil {
+			if held, err := c.hold(now, "the host lists no enemy in this room (a reload?)", ReloadGrace); held || err != nil {
 				return nil, GateSleep, err
 			}
 		}
