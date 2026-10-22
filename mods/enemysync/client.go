@@ -167,9 +167,12 @@ type Mirror struct {
 	ackSeen  bool
 	relQuiet bool
 	gateWhy  string
-	logNext  time.Time
-	hitSeq   uint16           // the last HIT seq sent: this mirror's own counter (readHit)
-	lastHits [MaxSlots]uint16 // the last hit_seq drained per block slot
+	// mirroring is whether the gates were open at the last tick: the
+	// first open tick after a closed one logs the host's listing once.
+	mirroring bool
+	logNext   time.Time
+	hitSeq    uint16           // the last HIT seq sent: this mirror's own counter (readHit)
+	lastHits  [MaxSlots]uint16 // the last hit_seq drained per block slot
 	// lastStatus is each block slot's (state, last_err) at the last tick:
 	// the REL's last_err is sticky, so only a change forces a walk.
 	lastStatus [MaxSlots][2]uint8
@@ -1219,6 +1222,7 @@ func (c *Mirror) writeBlock(now time.Time, st *State, slots []mailbox.EnemySlot,
 // disarm writes a count-0 block once (the REL releases its slots) when
 // the mirror was armed, and claims nothing.
 func (c *Mirror) disarm(now time.Time, why string) error {
+	c.mirroring = false
 	if why != c.gateWhy {
 		c.gateWhy = why
 		log.Logf(c.rep, log.Info, "enemy client: not mirroring: %s", why)
@@ -1396,6 +1400,10 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		c.emptySince = time.Time{}
 	}
 	c.gateWhy = ""
+	if !c.mirroring {
+		c.mirroring = true
+		log.Logf(c.rep, log.Info, "enemy client: mirroring: the host lists %d enemies in %s room %d", len(st.Slots), st.Stage, st.Room)
+	}
 
 	// The REL's tail: ack, status, hits.
 	status, err := mailbox.ReadEnemyStatus(c.m)

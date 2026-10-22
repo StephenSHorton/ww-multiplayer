@@ -64,6 +64,9 @@ type Host struct {
 	nextWalk   time.Time
 	lastKeep   time.Time
 	walkFailed bool
+	// walkLogged is whether this scope's enemy count was logged: the
+	// first walk of a scope logs it even at 0.
+	walkLogged bool
 	colliders  bool
 	resWhy     [len(Kinds)]string
 	resLogged  [len(Kinds)]bool
@@ -233,6 +236,7 @@ func (h *Host) NoteEngaged(handle uint16, now time.Time) {
 func (h *Host) resetScope() {
 	h.cache = nil
 	h.nextWalk = time.Time{}
+	h.walkLogged = false
 	clear(h.last)
 	clear(h.tombs)
 	clear(h.engaged)
@@ -265,8 +269,8 @@ func (h *Host) walk(now time.Time) error {
 		}
 	}
 	h.Tracker.Keep(pids)
-	if len(cache) != len(was) || h.walkFailed {
-		h.walkFailed = false
+	if len(cache) != len(was) || h.walkFailed || !h.walkLogged {
+		h.walkFailed, h.walkLogged = false, true
 		log.Logf(h.rep, log.Info, "enemy host: %d enemies (%s) in %s room %d", len(cache), h.Kinds, h.scope.Stage, h.scope.Room)
 	}
 	for i := range Kinds {
