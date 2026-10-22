@@ -158,7 +158,7 @@ const (
 	HDRate           uint8 = 12 // within HitRate of the last hit on that Moblin
 	HDBusy           uint8 = 13 // the host's request queue is full or holds that (client, setID)
 	HDGoFlags        uint8 = 14 // the sample's flags pre-dropped it
-	HDDemo           uint8 = 15 // the host Link is in a demo
+	HDDemo           uint8 = 15 // the host Link is in a demo: a hit held over it aged out (DemoHoldMax)
 	// HDNoBody is the REL's: ATTRIB asked for the hit to be attributed to
 	// the sender's remote body, but that body was not LIVE, so the host
 	// Link's path ran (mailbox.RemoteHDNoBody).

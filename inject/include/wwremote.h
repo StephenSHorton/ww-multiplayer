@@ -25,7 +25,8 @@
 //                   (an archive-heap block, once per boot; T2 zeroes it at
 //                   boot, the REL never clears it); never canary-armed
 //   +0x200..+0x510  enemy-mirror block + v2 sphere/stts (wwenemy.h)
-//   +0x510..+0x520  unused, inside the remote region (alignment)
+//   +0x510..+0x520  the boss_kill request (wwboss.h; co-op), inside the
+//                   remote region, which never writes it
 //   +0x520..+0x850  this block (WWREMOTE_OFF, WWREMOTE_SIZE)
 //   +0x850..+0x1100 free (wwapi/mailbox CanaryArenaHigh)
 //

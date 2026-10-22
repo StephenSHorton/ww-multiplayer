@@ -558,8 +558,9 @@ type RemoteHost struct {
 	arrive  map[uint8]arrival // by player id: has a position come in since its stage changed
 
 	seq           uint32
-	blockEpoch    uint32 // the WWRP epoch: bumped on a stage change
+	blockEpoch    uint32 // the WWRP epoch: bumped on a stage change, a reload and a remote's arrival (Tick)
 	stage         string
+	inPlay        bool // the host's scope was in play at the last Tick
 	wrote         bool
 	owners        [mailbox.RemoteMaxSlots]slotOwner
 	haveHead      bool
@@ -734,8 +735,9 @@ func slotFlags(p *PState, scope Scope, live bool) uint8 {
 // roster's LinkSlot), so PoseSlot = i. An owner change bumps the slot's
 // gen (the REL recreates the body). settling marks the slots whose
 // position is still more than SettleDist from the remote's (the smoother
-// crossing a jump).
-func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteView) (out [mailbox.RemoteMaxSlots]mailbox.RemoteSlot, settling [mailbox.RemoteMaxSlots]bool) {
+// crossing a jump). arrived reports a remote whose load ended in the
+// host's stage (Tick bumps the epoch for it).
+func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteView) (out [mailbox.RemoteMaxSlots]mailbox.RemoteSlot, settling [mailbox.RemoteMaxSlots]bool, arrived bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for i := range mailbox.MaxRemoteLinks {
@@ -781,6 +783,7 @@ func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteVi
 			a.stage = p.Stage
 		case a.loading:
 			a.loading, a.stage, a.loaded = false, p.Stage, now
+			arrived = arrived || p.Stage == scope.Stage
 		case !seen || p.Stage != a.stage:
 			// First sight, or a change seen in play: whatever position
 			// came with it is the new stage's (SettleDist covers a slide).
@@ -807,7 +810,7 @@ func (r *RemoteHost) slots(now time.Time, scope Scope, views []posefeed.RemoteVi
 		s.SFlags = slotFlags(p, scope, v.Live)
 		out[i] = s
 	}
-	return out, settling
+	return out, settling, arrived
 }
 
 // Tick runs the host side once at now: with the block on and relOK (the
@@ -822,8 +825,18 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 		return nil, nil
 	}
 	stageChanged := scope.Stage != r.stage
-	if stageChanged {
-		// A new stage: a new WWRP epoch (the REL clears its latches).
+	// A new WWRP epoch (rl_intake, remote.c: the REL clears its latches,
+	// every slot's create tries and full attempt) on a new stage, on the
+	// host's return to play (a void-out or Game Over reload of the same
+	// stage: the teardown deleted the bodies, and remote.c's own reset
+	// keys on the stage name only) and on a remote's arrival in the host's
+	// stage (its body was retired while it loaded). Without the last two a
+	// remote void-out or a host reload spends one of RL_MAX_TRIES, and the
+	// third leaves the slot BERR_TRIES, with no body, for the rest of the
+	// stage (coop-slice-drc.md A1; lava void-outs in 9 of DRC's 16 rooms).
+	reloaded := scope.InPlay && !r.inPlay
+	r.inPlay = scope.InPlay
+	if stageChanged || reloaded {
 		r.stage = scope.Stage
 		r.blockEpoch++
 	}
@@ -832,7 +845,12 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 	}
 	b := r.cfg.block(mailbox.RemoteRoleHost, nextSeq(&r.seq), r.blockEpoch)
 	var settling [mailbox.RemoteMaxSlots]bool
-	b.Slots, settling = r.slots(now, scope, views)
+	var arrived bool
+	b.Slots, settling, arrived = r.slots(now, scope, views)
+	if arrived && !stageChanged && !reloaded {
+		r.blockEpoch++
+		b.Epoch = r.blockEpoch
+	}
 	b.Flags2 = r.cfg.Flags2
 	if r.cfg.Flags&mailbox.RemoteFlagFullBodies != 0 && r.cfg.HeapGate {
 		// The verdict goes out with this block, from the status the last

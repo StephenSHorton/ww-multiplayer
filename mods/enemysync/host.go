@@ -580,8 +580,13 @@ type HitApplier struct {
 	//   NoHitMark: the At sphere carries NoHitMark (no env; a HIT's own
 	//   AtSPrm bit sets it per request too);
 	//   DemoGate (WW_ENEMY_HIT_DEMO=0 disables): a hit while the host Link
-	//   is in a demo (mDemo.mDemoType != 0) is dropped HDDemo.
+	//   is in a demo (mDemo.mDemoType != 0) is held (held, ReleaseHeld)
+	//   and applied when the demo ends.
 	V1, FallbackShrink, NoHitMark, DemoGate bool
+
+	// held are the hits that came in during the host Link's demo, oldest
+	// first (at most DemoHoldDepth, one per (client, handle)).
+	held []heldHit
 
 	// Attrib, when set, gives a request's extra hit_apply flags: the
 	// remote-Link ATTRIB bits (RemoteHost.AttribFlags, remote-link-design.md
@@ -599,6 +604,22 @@ type HitApplier struct {
 	// wait overrides from this block. NewHitApplier reads it.
 	Annex mailbox.EnemyAnnex
 }
+
+// heldHit is a hit held over the host Link's demo, with when it came in.
+type heldHit struct {
+	hit Hit
+	at  time.Time
+}
+
+// A hit that lands during the host Link's demo (a chest, a door, a
+// cutscene) is held instead of dropped HDDemo (coop-slice-drc.md A6): the
+// client's copies stand frozen while the host's enemies do, and its
+// swings would be lost. DemoHoldDepth bounds the held hits (one per
+// (client, handle)); one held DemoHoldMax is dropped HDDemo.
+const (
+	DemoHoldDepth = 8
+	DemoHoldMax   = 15 * time.Second
+)
 
 type pendingHit struct {
 	hit   Hit
@@ -687,10 +708,11 @@ func drop(ack *Ack, detail uint8) *Ack {
 // sampler last listed them, where the handle resolves to the host actor's
 // pid) at now. It returns the ACK to send now (a
 // drop, with its detail), or nil when the request was queued and the ACK
-// follows from Poll. The ACK echoes the HIT's handle.
+// follows from Poll, or held over the host Link's demo and the ACK follows
+// from ReleaseHeld (or Poll). The ACK echoes the HIT's handle.
 func (a *HitApplier) Offer(h *Hit, st *State, listing *Listing, now time.Time) *Ack {
-	ack := &Ack{Client: h.Client, Result: AckDropped, Epoch: h.Epoch, SetID: h.SetID, Handle: h.Handle, HitSeq: h.HitSeq}
-	if st == nil || h.Epoch != a.epoch || h.Stage != st.Stage || h.Room != st.Room || st.Flags&StateFlagInScope == 0 {
+	ack := hitAck(h)
+	if !a.inScope(h, st) {
 		return drop(ack, HDGoGate)
 	}
 	// A replay is only the same hit_seq again: TCP neither duplicates nor
@@ -711,6 +733,25 @@ func (a *HitApplier) Offer(h *Hit, st *State, listing *Listing, now time.Time) *
 		return drop(ack, HDGoGate) // replayed
 	}
 	a.lastSeq[key] = h.HitSeq
+	return a.admit(h, st, listing, now, ack)
+}
+
+// hitAck is the ACK for h before a verdict: dropped, echoing the HIT.
+func hitAck(h *Hit) *Ack {
+	return &Ack{Client: h.Client, Result: AckDropped, Epoch: h.Epoch, SetID: h.SetID, Handle: h.Handle, HitSeq: h.HitSeq}
+}
+
+// inScope is Offer's first gate: h is of this host's epoch and of st's
+// stage and room, and st is in play.
+func (a *HitApplier) inScope(h *Hit, st *State) bool {
+	return st != nil && h.Epoch == a.epoch && h.Stage == st.Stage && h.Room == st.Room && st.Flags&StateFlagInScope != 0
+}
+
+// admit is Offer past its scope and replay gates (and ReleaseHeld's for a
+// held hit): the target, its flags, the rate, the REL, the demo (which
+// holds it) and the queue.
+func (a *HitApplier) admit(h *Hit, st *State, listing *Listing, now time.Time, ack *Ack) *Ack {
+	key := hitKey(h.Client, h.Handle)
 	// The handle names the target: its slot in st (the flags and health
 	// the request is judged by) and its pid in the listing (a tombstone has
 	// none: its actor is gone). The hit_apply carries that actor's own
@@ -749,15 +790,10 @@ func (a *HitApplier) Offer(h *Hit, st *State, listing *Listing, now time.Time) *
 		return drop(ack, HDGoGate)
 	}
 	if a.DemoGate && a.inDemo() {
-		return drop(ack, HDDemo)
+		return a.holdHit(h, now, ack)
 	}
-	if len(a.queue) >= HitQueueDepth {
+	if len(a.queue) >= HitQueueDepth || a.queued(h) {
 		return drop(ack, HDBusy)
-	}
-	for _, p := range a.queue {
-		if p.hit.Client == h.Client && p.hit.Handle == h.Handle {
-			return drop(ack, HDBusy)
-		}
 	}
 	a.seq++
 	a.lastHit[key] = now
@@ -770,6 +806,80 @@ func (a *HitApplier) Offer(h *Hit, st *State, listing *Listing, now time.Time) *
 		}
 	}
 	return nil
+}
+
+// holdHit holds h over the host Link's demo (nil: its ACK follows from
+// ReleaseHeld), or drops it HDBusy when DemoHoldDepth hits are held or
+// one of the same (client, handle) is.
+func (a *HitApplier) holdHit(h *Hit, now time.Time, ack *Ack) *Ack {
+	if len(a.held) >= DemoHoldDepth {
+		return drop(ack, HDBusy)
+	}
+	for _, p := range a.held {
+		if p.hit.Client == h.Client && p.hit.Handle == h.Handle {
+			return drop(ack, HDBusy)
+		}
+	}
+	a.held = append(a.held, heldHit{hit: *h, at: now})
+	log.Logf(a.rep, log.Info, "enemy host: hit on handle %d (client %d, hit_seq %d) held: the host Link is in a demo", h.Handle, h.Client, h.HitSeq)
+	return nil
+}
+
+// Held is how many hits are held over the host Link's demo.
+func (a *HitApplier) Held() int { return len(a.held) }
+
+// ReleaseHeld runs every tick (after the HITs are offered): it returns the
+// ACKs of the held hits it drops, each logged with why. One held past
+// DemoHoldMax is dropped HDDemo, demo or not. Once the host Link's demo
+// is over, the rest go through admit against st (the host's latest
+// STATE) and listing, oldest first, as a fresh HIT would after its
+// replay gate: a target gone (AckNoActor), dying or ragdolling
+// (HDGoFlags), or a host out of the hit's stage and room (HDGoGate) drops
+// it; one admit queues waits for Poll's ACK. A hit whose (client, handle)
+// is queued, or that finds the queue full, stays held for a later tick.
+func (a *HitApplier) ReleaseHeld(st *State, listing *Listing, now time.Time) []*Ack {
+	if len(a.held) == 0 {
+		return nil
+	}
+	var out []*Ack
+	var keep []heldHit
+	held := a.held
+	a.held = nil // admit may hold again (a demo that began since the read)
+	demo := a.DemoGate && a.inDemo()
+	for _, p := range held {
+		h := p.hit
+		switch {
+		case now.Sub(p.at) > DemoHoldMax:
+			log.Logf(a.rep, log.Info, "enemy host: held hit on handle %d (client %d, hit_seq %d) dropped: held over %v", h.Handle, h.Client, h.HitSeq, DemoHoldMax)
+			out = append(out, drop(hitAck(&h), HDDemo))
+			continue
+		case demo || len(a.queue) >= HitQueueDepth || a.queued(&h):
+			keep = append(keep, p)
+			continue
+		}
+		var ack *Ack
+		if !a.inScope(&h, st) {
+			ack = drop(hitAck(&h), HDGoGate)
+		} else {
+			ack = a.admit(&h, st, listing, now, hitAck(&h))
+		}
+		if ack != nil {
+			log.Logf(a.rep, log.Info, "enemy host: held hit on handle %d (client %d, hit_seq %d) dropped after the demo: %s/%s", h.Handle, h.Client, h.HitSeq, ResultName(ack.Result), DetailName(ack.Detail))
+			out = append(out, ack)
+		}
+	}
+	a.held = append(keep, a.held...)
+	return out
+}
+
+// queued reports a request of h's (client, handle) in the queue.
+func (a *HitApplier) queued(h *Hit) bool {
+	for _, p := range a.queue {
+		if p.hit.Client == h.Client && p.hit.Handle == h.Handle {
+			return true
+		}
+	}
+	return false
 }
 
 // inDemo reads the host Link's mDemo.mDemoType (addr.PlayerOffDemoType):

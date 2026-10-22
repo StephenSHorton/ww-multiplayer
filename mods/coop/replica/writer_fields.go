@@ -54,6 +54,26 @@ func (w *FrameWriter) ApplyFields(ctx context.Context, fs []Field) (res Result, 
 	if w.wg == nil {
 		return res, ErrDryRun
 	}
+	return w.applyFields(ctx, fs, pathGuard{w.wg, pathEscape}, &w.stats.Escapes)
+}
+
+// ApplyBossKill makes a boss_kill request's writes (bosskill.go), fs in
+// order, as ApplyFields makes an escape's: the same heartbeat wait and
+// rechecks, all or nothing, every byte judged as written by pathBoss (the
+// request's seq, and its proc and tag held to Gohma's and the tag). The
+// caller puts the seq last, so a request stopped part way leaves a proc
+// and tag the REL ignores until a new seq. BossKills counts the requests
+// written. Errors as ApplyFields.
+func (w *FrameWriter) ApplyBossKill(ctx context.Context, fs []Field) (res Result, err error) {
+	if w.wg == nil {
+		return res, ErrDryRun
+	}
+	return w.applyFields(ctx, fs, pathGuard{w.wg, pathBoss}, &w.stats.BossKills)
+}
+
+// applyFields is ApplyFields and ApplyBossKill: fs through g, counted in
+// *n when any byte was written.
+func (w *FrameWriter) applyFields(ctx context.Context, fs []Field, g pathGuard, n *int) (res Result, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err := w.wg.brk.Err(); err != nil {
@@ -61,7 +81,7 @@ func (w *FrameWriter) ApplyFields(ctx context.Context, fs []Field) (res Result, 
 	}
 	defer func() {
 		if len(res.Wrote) > 0 {
-			w.stats.Escapes++
+			*n++
 		}
 		w.stats.Refused += res.Refused
 	}()
@@ -70,7 +90,7 @@ func (w *FrameWriter) ApplyFields(ctx context.Context, fs []Field) (res Result, 
 		from = &write.Beat{Heartbeat: w.tick.heartbeat, At: w.tick.at}
 	}
 	return w.eng.WriteFields(ctx, write.Batch{
-		Guard: escapeGuard{w.wg},
+		Guard: g,
 		From:  from,
 		Recheck: func() error {
 			if err := w.recheck(); err != nil {
@@ -90,10 +110,14 @@ func (w *FrameWriter) ApplyFields(ctx context.Context, fs []Field) (res Result, 
 	}, fs)
 }
 
-// escapeGuard is the WriteGuard as an escape's write.Guard: every byte
-// judged as written by an escape (pathEscape).
-type escapeGuard struct{ wg *WriteGuard }
+// pathGuard is the WriteGuard as a write.Guard for one path: every byte
+// judged as written by p (pathEscape for an escape, pathBoss for a
+// boss_kill request).
+type pathGuard struct {
+	wg *WriteGuard
+	p  path
+}
 
-func (g escapeGuard) Mask(a uint32) byte                  { return g.wg.Mask(a) }
-func (g escapeGuard) Ready(a uint32) error                { return g.wg.ready(a) }
-func (g escapeGuard) Check(a uint32, old, val byte) error { return g.wg.check(a, old, val, pathEscape) }
+func (g pathGuard) Mask(a uint32) byte                  { return g.wg.Mask(a) }
+func (g pathGuard) Ready(a uint32) error                { return g.wg.ready(a) }
+func (g pathGuard) Check(a uint32, old, val byte) error { return g.wg.check(a, old, val, g.p) }

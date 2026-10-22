@@ -547,3 +547,26 @@ any stage actor, it lives in a layer the stage load keeps (inferred: the root
 layer) and the module stayed linked through the load. On a disc whose RELS.arc was
 not patched the vanilla dummy is created instead and never writes the magic;
 `wwapi.Info` reports the module as not linked.
+
+## bosskill.c: the boss_kill relay op
+
+Co-op's Gohma kill relay (`ww-multiplayer-handoff/design/research/C3-C6-gohma.md`,
+"The relay op (B5, revised)"). The request is 16 bytes at
+`MAILBOX_ADDR + 0x510` (`include/wwboss.h`), the gap between the enemy
+region and the remote-Link block, which neither side of remote-Link writes:
+Go writes the proc (0x00EB, Btd) and tag ('BK'), then the seq; the keeper
+writes the result, then the ack. The keeper's create consumes whatever the
+slack holds (ack = seq, result `WWBOSS_R_NONE`), so a stale seq from an
+earlier boot never runs. Every frame, a new seq is run once: no stage change
+pending, the stage named exactly `M_DragB` (never an X refight stage), then
+`fopAcM_SearchByName(0xEB)`. Btd's `m02E4` 0xA (the intro) is answered
+`waiting`, 0xB `already`, and 0, 1 or 2 with the armor broken (`m02E0` 1, the
+only phase the lethal eye hit takes, d_a_btd.cpp:457) get that hit's two
+writes, `m02E4 = 0xB` and `mGohmaState = 0x32` (d_a_btd.cpp:463-475); an
+armored Gohma (`m02E0` 0) is answered `waiting`, since `end()` on phase 1
+would play the death on the armored model with the phase-2 anims bound to
+it (bosskill.c, "The armor gate"). The result's low byte carries `m02E0`.
+On the eye phase Btd's own
+`end()` runs its death demo, the floor drop, the heart container,
+STAGE_BOSS_ENEMY and the warp flower. Nothing is deleted. The op is
+stateless and adds nothing to the keeper's actor.

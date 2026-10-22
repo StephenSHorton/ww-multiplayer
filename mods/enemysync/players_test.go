@@ -455,8 +455,8 @@ func TestRemoteHostGates(t *testing.T) {
 	}
 }
 
-// TestRemoteHostEpoch: the WWRP epoch moves on a stage change only, and
-// seq never repeats.
+// TestRemoteHostEpoch: the WWRP epoch moves on a stage change (in play
+// throughout, it does not move between ticks), and seq never repeats.
 func TestRemoteHostEpoch(t *testing.T) {
 	m, scope, r := remoteHostGame(t, 0)
 	now := time.Unix(100, 0)
@@ -470,6 +470,71 @@ func TestRemoteHostEpoch(t *testing.T) {
 	c := readBlock(t, m)
 	if a.Epoch != b.Epoch || c.Epoch == b.Epoch || b.Seq != a.Seq+1 || c.Seq != b.Seq+1 {
 		t.Errorf("epochs %d %d %d seqs %d %d %d", a.Epoch, b.Epoch, c.Epoch, a.Seq, b.Seq, c.Seq)
+	}
+}
+
+// TestRemoteHostEpochReload (coop-slice-drc.md A1): the epoch, which
+// makes remote.c reset every slot's create tries (rl_intake), also moves
+// when the host comes back into play in the same stage (a void-out or
+// Game Over reload) and when a remote's load ends in the host's stage;
+// not while the host is out of play, not at a remote's load start, not
+// for a remote that arrives in another stage, and once for a stage
+// change that is also the return to play.
+func TestRemoteHostEpochReload(t *testing.T) {
+	m, scope, r := remoteHostGame(t, mailbox.RemoteFlagBodies)
+	now := time.Unix(100, 0)
+	views := []posefeed.RemoteView{{ID: 4, LinkSlot: 0, Pos: [3]float32{1, 2, 3}, Live: true}}
+	epoch := func(sc Scope, p *PState, pos [3]float32) uint32 {
+		t.Helper()
+		now = now.Add(100 * time.Millisecond)
+		if p != nil {
+			p.PlayerID = 4
+			r.OnPState(p, now)
+		}
+		views[0].Pos, views[0].Target = pos, pos
+		if _, err := r.Tick(now, sc, true, views, now, nil); err != nil {
+			t.Fatal(err)
+		}
+		return readBlock(t, m).Epoch
+	}
+	here := &PState{Stage: "M_Dai", Room: 1}
+	e0 := epoch(scope, here, [3]float32{1, 2, 3})
+	if e := epoch(scope, here, [3]float32{1, 2, 3}); e != e0 {
+		t.Fatalf("in play: epoch %d -> %d", e0, e)
+	}
+	// The host's void-out: out of play (no move), back in the same stage (one).
+	out := scope
+	out.InPlay, out.Pending = false, true
+	if e := epoch(out, here, [3]float32{1, 2, 3}); e != e0 {
+		t.Errorf("out of play: epoch %d -> %d", e0, e)
+	}
+	e1 := epoch(scope, here, [3]float32{1, 2, 3})
+	if e1 != e0+1 {
+		t.Errorf("back in play: epoch %d, want %d", e1, e0+1)
+	}
+	// The remote's void-out: loading (no move), its load ends in the host's
+	// stage (one), then in play (no move).
+	if e := epoch(scope, &PState{Stage: "M_Dai", Room: 1, Flags: PSLoading}, [3]float32{1, 2, 3}); e != e1 {
+		t.Errorf("remote loading: epoch %d -> %d", e1, e)
+	}
+	e2 := epoch(scope, here, [3]float32{7, 8, 9})
+	if e2 != e1+1 {
+		t.Errorf("remote arrived: epoch %d, want %d", e2, e1+1)
+	}
+	if e := epoch(scope, here, [3]float32{7, 8, 9}); e != e2 {
+		t.Errorf("remote in play: epoch %d -> %d", e2, e)
+	}
+	// A remote load that ends in another stage: no move.
+	epoch(scope, &PState{Stage: "M_Dai", Room: 1, Flags: PSLoading}, [3]float32{7, 8, 9})
+	if e := epoch(scope, &PState{Stage: "sea", Room: 1}, [3]float32{5, 5, 5}); e != e2 {
+		t.Errorf("remote arrived elsewhere: epoch %d -> %d", e2, e)
+	}
+	// A new stage on the return to play: one.
+	epoch(out, nil, [3]float32{5, 5, 5})
+	sea := scope
+	sea.Stage = "sea"
+	if e := epoch(sea, nil, [3]float32{5, 5, 5}); e != e2+1 {
+		t.Errorf("new stage on return: epoch %d, want %d", e, e2+1)
 	}
 }
 

@@ -263,6 +263,11 @@ type Report struct {
 	// and EscapeErr why it was not written.
 	Escape    EscapeKind
 	EscapeErr error
+	// BossKill is the seq of the boss_kill request this tick tried to
+	// write (bosskill.go), 0 for none, and BossKillErr why it was not
+	// written.
+	BossKill    uint32
+	BossKillErr error
 }
 
 // Status is the replica's state for the TUI and tests.
@@ -300,6 +305,8 @@ type Status struct {
 	// Combat is how the kill union stands (M6): the partner's kill bits
 	// held, written into zones and light-shrunk.
 	Combat CombatStatus
+	// BossKill is how the boss-dead relay stands (bosskill.go).
+	BossKill BossKillStatus
 }
 
 // helloKey is what a CO_HELLO describes: when it changes, the replica
@@ -391,6 +398,11 @@ type Replica struct {
 	heard   map[entryKey]int8 // the partner's, from its PRESENCE (inferred)
 	track   partnerTrack
 
+	// The boss-dead relay (bosskill.go), and the request this tick makes
+	// after the lock is released.
+	bk      bossKill
+	bossNow *bossReq
+
 	// The plan, and what of it was logged.
 	planned    []Write
 	held       []HeldBit
@@ -456,7 +468,7 @@ func New(cfg Config) (*Replica, error) {
 	}
 	w, err := NewFrameWriter(WriterConfig{Mem: r.m, DryRun: true})
 	if cfg.Apply {
-		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | M6Targets | TargetEscape, Policy: r.policy, GBA: &r.gba.mask, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
+		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | M6Targets | TargetEscape | TargetBoss, Policy: r.policy, GBA: &r.gba.mask, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
 		w, err = NewFrameWriter(WriterConfig{Mem: r.m, Guard: wg, BeatTimeout: cfg.BeatTimeout, Logf: r.logf, Label: r.label, GBA: r.gba.switches > 0})
 	}
 	if err != nil {
@@ -644,6 +656,7 @@ func (r *Replica) Status() Status {
 		Puzzle:   r.puzzleStatus(),
 		GBA:      GBAStatus{MayLink: r.gba.held, Switches: r.gba.switches},
 		Combat:   r.combatStatus(),
+		BossKill: r.bossKillStatus(),
 	}
 	_, st.WritesOff = r.writer.Disabled()
 	if r.preflight != nil {
@@ -705,11 +718,11 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 	r.mu.Lock()
 	var out outbox
 	rep := r.tick(s, err, &out)
-	ws, window, q := r.toWrite, r.window, r.escNow
+	ws, window, q, bq := r.toWrite, r.window, r.escNow, r.bossNow
 	ds := r.m4.take()
 	sc := r.m5.take()
 	cm := r.m6.take()
-	r.toWrite, r.window, r.escNow = nil, windows{}, nil
+	r.toWrite, r.window, r.escNow, r.bossNow = nil, windows{}, nil, nil
 	r.unlockAndFlush(&out)
 	var werr error
 	if len(ws) > 0 {
@@ -733,11 +746,12 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 			q.done <- EscapeResult{Kind: q.kind, Did: q.did, Err: err}
 		}
 	}
+	r.applyBossKill(ctx, bq, &rep)
 	return rep
 }
 
 func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
-	r.toWrite, r.window, r.escNow = nil, windows{}, nil
+	r.toWrite, r.window, r.escNow, r.bossNow = nil, windows{}, nil, nil
 	if err != nil {
 		st := r.gates.Observe(nil)
 		r.writer.Observe(nil, st, false)
@@ -842,6 +856,7 @@ func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
 	r.reconcileM5(o, armed)
 	r.reconcileM6(o, armed)
 	r.escapeTick(o, armed)
+	r.bossTick(o, armed)
 	r.runPreflight(o, v, out)
 	rep.State, rep.Why = r.state(o, v)
 	return rep

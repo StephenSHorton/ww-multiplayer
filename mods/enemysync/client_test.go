@@ -212,7 +212,8 @@ func TestMirrorGates(t *testing.T) {
 	if err := g.EnterRoom(1, 2); err != nil {
 		t.Fatal(err)
 	}
-	// The host not in play (a keepalive STATE).
+	// The host not in play (a keepalive STATE): held, the three slots
+	// again (TestMirrorHold), then released past HostHoldMax.
 	m.ResetWrites()
 	arm()
 	ka := hostState(2, 16)
@@ -222,8 +223,17 @@ func TestMirrorGates(t *testing.T) {
 	if _, sleep, _ := c.Tick(now); sleep != GateSleep {
 		t.Error("host keepalive not gated")
 	}
-	if counts := countOf(); len(counts) != 2 || counts[1] != 0 {
+	if counts := countOf(); len(counts) != 2 || counts[1] != 3 {
 		t.Errorf("host keepalive: counts %v", counts)
+	}
+	now = now.Add(HostHoldMax + time.Second)
+	pushState(t, c, ka, now)
+	tick()
+	if _, sleep, _ := c.Tick(now); sleep != GateSleep {
+		t.Error("host keepalive past the hold not gated")
+	}
+	if counts := countOf(); len(counts) != 3 || counts[2] != 0 {
+		t.Errorf("host keepalive past the hold: counts %v", counts)
 	}
 	// This game not in play.
 	m.ResetWrites()
@@ -275,6 +285,95 @@ func TestMirrorGates(t *testing.T) {
 	tick()
 	if _, sleep, _ := c.Tick(now); sleep != GateSleep || len(m.Writes()) != 0 {
 		t.Errorf("contract: sleep %v writes %d", sleep, len(m.Writes()))
+	}
+}
+
+// TestMirrorHold (coop-slice-drc.md A2): while the host's STATE says it
+// is out of play (a void-out reload, a Game Over), the client holds the
+// copies: each tick rewrites the last block's slots (same pids, targets,
+// stage and room, kind mask) with a new seq, MorfRate 0 and no SNAP, and
+// clears a pending hit unsent. The host back in the same room resumes the
+// normal mirror (the first block after it is the STATE's again); a host
+// back in another room releases (count 0), as before.
+func TestMirrorHold(t *testing.T) {
+	_, m, _, tick := clientRoom(t)
+	start := time.Unix(2000, 0)
+	c := NewMirror(m, log.Discard{}, nil, false, start)
+	now := start
+	pushState(t, c, hostState(1, 0), now)
+	tick()
+	if _, _, err := c.Tick(now); err != nil {
+		t.Fatal(err)
+	}
+	m.Record(true)
+	pushState(t, c, hostState(2, 16), now)
+	tick()
+	if _, _, err := c.Tick(now); err != nil {
+		t.Fatal(err)
+	}
+	last := blockWrites(t, m)[0]
+	hitOff := mailbox.EnemyBlockAddr + mailbox.EnemyHitsOff
+	ka := hostState(3, 32)
+	ka.Flags, ka.Slots, ka.Stage = 0, nil, ""
+	for i := 1; i <= 3; i++ {
+		now = now.Add(GateSleep)
+		if i == 2 {
+			store(t, m, hitOff, []byte{0, 9, ColliderHead, 1})
+		}
+		pushState(t, c, ka, now)
+		tick()
+		hits, sleep, err := c.Tick(now)
+		if err != nil || sleep != GateSleep || len(hits) != 0 {
+			t.Fatalf("hold %d: hits %v sleep %v err %v", i, hits, sleep, err)
+		}
+	}
+	blks := blockWrites(t, m)
+	if len(blks) != 4 {
+		t.Fatalf("%d blocks, want 4", len(blks))
+	}
+	for i, b := range blks[1:] {
+		if b.Seq != last.Seq+uint32(i)+1 || b.Stage != "M_Dai" || b.Room != 1 || b.Epoch != last.Epoch || b.KindMask != last.KindMask ||
+			b.Flags != last.Flags || b.HostBeat != last.HostBeat || len(b.Slots) != len(last.Slots) {
+			t.Fatalf("held block %d: %+v, last %+v", i, b, last)
+		}
+		for j, s := range b.Slots {
+			w := last.Slots[j]
+			if s.PID != w.PID || s.PKey != w.PKey || s.Pos != w.Pos || s.AngleY != w.AngleY || s.MorfFrame != w.MorfFrame || s.Bck != w.Bck ||
+				s.MorfRate != 0 || s.Flags&mailbox.EnemySFSnap != 0 || s.Flags != w.Flags&^mailbox.EnemySFSnap || s.SampleSeq != b.Seq {
+				t.Errorf("held block %d slot %d: %+v, last %+v", i, j, s, w)
+			}
+		}
+	}
+	if p, _ := m.Read(hitOff+3, 1); p[0] != 0 || c.Stats.HeldHits != 1 || c.Stats.Hits != 0 || c.Stats.Holds != 1 {
+		t.Errorf("pending %d, held hits %d, hits %d, holds %d", p[0], c.Stats.HeldHits, c.Stats.Hits, c.Stats.Holds)
+	}
+	// Back in the same room: the STATE's slots again, the hold over.
+	m.ResetWrites()
+	now = now.Add(GateSleep)
+	pushState(t, c, hostState(4, 1000), now)
+	tick()
+	if _, sleep, err := c.Tick(now); err != nil || sleep != 0 {
+		t.Fatalf("back: sleep %v err %v", sleep, err)
+	}
+	if b := blockWrites(t, m); len(b) != 1 || len(b[0].Slots) != 3 || b[0].Slots[1].Pos != [3]float32{100, 10, 1000} || !c.holdSince.IsZero() {
+		t.Fatalf("back: %+v", b)
+	}
+	// Out again, then back in another room: released.
+	now = now.Add(GateSleep)
+	pushState(t, c, ka, now)
+	tick()
+	c.Tick(now)
+	m.ResetWrites()
+	now = now.Add(GateSleep)
+	elsewhere := hostState(5, 1200)
+	elsewhere.Room = 2
+	pushState(t, c, elsewhere, now)
+	tick()
+	if _, sleep, _ := c.Tick(now); sleep != GateSleep {
+		t.Error("another room not gated")
+	}
+	if b := blockWrites(t, m); len(b) != 1 || len(b[0].Slots) != 0 || c.Stats.Holds != 2 {
+		t.Errorf("another room: %+v, holds %d", b, c.Stats.Holds)
 	}
 }
 

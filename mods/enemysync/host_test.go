@@ -902,8 +902,9 @@ func TestHitApplierFlags(t *testing.T) {
 }
 
 // TestHitApplierDemo: with the gate on, a hit while the host Link's
-// mDemo.mDemoType is nonzero is dropped HDDemo; without a demo, with the
-// gate off, or with no Link (the title screen), it is queued.
+// mDemo.mDemoType is nonzero is held (no ACK, nothing written);
+// without a demo, with the gate off, or with no Link (the title screen),
+// it is queued.
 func TestHitApplierDemo(t *testing.T) {
 	const link = uint32(0x80A00000)
 	for _, c := range []struct {
@@ -911,7 +912,7 @@ func TestHitApplierDemo(t *testing.T) {
 		gate bool
 		link uint32
 		demo uint16
-		drop bool
+		held bool
 	}{
 		{"demo, gate on", true, link, 1, true},
 		{"no demo, gate on", true, link, 0, false},
@@ -922,12 +923,113 @@ func TestHitApplierDemo(t *testing.T) {
 		a.DemoGate = c.gate
 		store(t, m, addr.PlayerPtr, binary.BigEndian.AppendUint32(nil, c.link))
 		store(t, m, link+addr.PlayerOffDemoType, binary.BigEndian.AppendUint16(nil, c.demo))
-		ack := a.Offer(hostHit(1, 0, 1), st, mos, time.Unix(1000, 0))
-		if c.drop != (ack != nil) || (c.drop && (ack.Result != AckDropped || ack.Detail != HDDemo)) {
+		if ack := a.Offer(hostHit(1, 0, 1), st, mos, time.Unix(1000, 0)); ack != nil {
 			t.Errorf("%s: %+v", c.name, ack)
 		}
-		if n := len(m.Writes()); c.drop != (n == 0) {
-			t.Errorf("%s: %d writes", c.name, n)
+		if n := len(m.Writes()); c.held != (n == 0) || c.held != (a.Held() == 1) || c.held != (a.Pending() == 0) {
+			t.Errorf("%s: %d writes, %d held, %d pending", c.name, n, a.Held(), a.Pending())
+		}
+	}
+}
+
+// demoRig is hitRig with the demo gate on and the host Link in a demo
+// (setDemo ends or starts it).
+func demoRig(t *testing.T) (m *mem.FakeMem, a *HitApplier, st *State, mos *Listing, setDemo func(on bool)) {
+	t.Helper()
+	const link = uint32(0x80A00000)
+	m, a, st, mos = hitRig(t)
+	a.DemoGate = true
+	store(t, m, addr.PlayerPtr, binary.BigEndian.AppendUint32(nil, link))
+	setDemo = func(on bool) {
+		var v uint16
+		if on {
+			v = 1
+		}
+		store(t, m, link+addr.PlayerOffDemoType, binary.BigEndian.AppendUint16(nil, v))
+	}
+	setDemo(true)
+	return m, a, st, mos, setDemo
+}
+
+// TestHitApplierDemoHold (coop-slice-drc.md A6): hits during the host
+// Link's demo are held, one per (client, handle) and DemoHoldDepth in
+// all (the rest HDBusy); ReleaseHeld keeps them while the demo runs and
+// queues them, oldest first, once it ends: the first becomes the block's
+// request, the second waits in the queue, and no ACK goes out until Poll.
+func TestHitApplierDemoHold(t *testing.T) {
+	m, a, st, mos, setDemo := demoRig(t)
+	t0 := time.Unix(1000, 0)
+	if ack := a.Offer(hostHit(1, 0, 1), st, mos, t0); ack != nil {
+		t.Fatalf("first: %+v", ack)
+	}
+	if ack := a.Offer(hostHit(1, 0, 2), st, mos, t0); ack == nil || ack.Detail != HDBusy {
+		t.Fatalf("same (client, handle): %+v", ack)
+	}
+	if ack := a.Offer(hostHit(1, 1, 3), st, mos, t0); ack != nil {
+		t.Fatalf("second: %+v", ack)
+	}
+	for c := uint8(2); c <= 7; c++ {
+		if ack := a.Offer(hostHit(c, 0, 1), st, mos, t0); ack != nil {
+			t.Fatalf("client %d: %+v", c, ack)
+		}
+	}
+	if ack := a.Offer(hostHit(8, 0, 1), st, mos, t0); ack == nil || ack.Detail != HDBusy || a.Held() != DemoHoldDepth {
+		t.Fatalf("past DemoHoldDepth: %+v, %d held", ack, a.Held())
+	}
+	if acks := a.ReleaseHeld(st, mos, t0.Add(time.Second)); acks != nil || a.Held() != DemoHoldDepth || len(m.Writes()) != 0 {
+		t.Fatalf("during the demo: %+v, %d held, %d writes", acks, a.Held(), len(m.Writes()))
+	}
+	setDemo(false)
+	if acks := a.ReleaseHeld(st, mos, t0.Add(2*time.Second)); acks != nil {
+		t.Fatalf("after the demo: %+v", acks)
+	}
+	// The queue takes HitQueueDepth (client 1 on handles 1 and 2, clients 2
+	// and 3 on handle 1); the other four stay held for a later tick.
+	if a.Pending() != HitQueueDepth || a.Held() != DemoHoldDepth-HitQueueDepth {
+		t.Fatalf("%d pending, %d held", a.Pending(), a.Held())
+	}
+	blks := hostBlocks(t, m)
+	if len(blks) != 1 || blks[0].HitApply.PID != 420 || blks[0].HitApply.SetID != 0 {
+		t.Fatalf("the head: %+v", blks)
+	}
+	if a.queue[1].hit.Handle != 2 || a.queue[1].pid != 421 {
+		t.Errorf("the second: %v", a.queue[1])
+	}
+}
+
+// TestHitApplierDemoHoldDrops: a held hit is dropped, with its ACK, when
+// it ages past DemoHoldMax (HDDemo, even during the demo), when its target
+// died during the demo (HDGoFlags) or is gone (AckNoActor), or when the
+// host left the hit's room (HDGoGate).
+func TestHitApplierDemoHoldDrops(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	for _, c := range []struct {
+		name   string
+		demo   bool
+		after  time.Duration
+		change func(st *State, mos *Listing)
+		result uint8
+		detail uint8
+	}{
+		{"aged out", true, DemoHoldMax + time.Second, nil, AckDropped, HDDemo},
+		{"target dying", false, time.Second, func(st *State, _ *Listing) { st.Slots[0].Flags |= SlotDying }, AckDropped, HDGoFlags},
+		{"target gone", false, time.Second, func(st *State, mos *Listing) { st.Slots, mos.Entries = st.Slots[1:], mos.Entries[1:] }, AckNoActor, HDNone},
+		{"host left the room", false, time.Second, func(st *State, _ *Listing) { st.Room = 2 }, AckDropped, HDGoGate},
+	} {
+		m, a, st, mos, setDemo := demoRig(t)
+		if ack := a.Offer(hostHit(1, 0, 1), st, mos, t0); ack != nil {
+			t.Fatalf("%s: %+v", c.name, ack)
+		}
+		setDemo(c.demo)
+		if c.change != nil {
+			c.change(st, mos)
+		}
+		acks := a.ReleaseHeld(st, mos, t0.Add(c.after))
+		if len(acks) != 1 || acks[0].Result != c.result || acks[0].Detail != c.detail || acks[0].Handle != 1 || acks[0].HitSeq != 1 {
+			t.Errorf("%s: %+v", c.name, acks)
+		}
+		if a.Held() != 0 || a.Pending() != 0 || len(m.Writes()) != 0 {
+			t.Errorf("%s: %d held, %d pending, %d writes", c.name, a.Held(), a.Pending(), len(m.Writes()))
 		}
 	}
 }

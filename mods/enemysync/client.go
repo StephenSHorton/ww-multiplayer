@@ -67,6 +67,11 @@ const (
 	// reports it dead or gone (an epoch change made the REL forget it, a
 	// legacy death latched past the status) frees its slot after it.
 	PinMax = 10 * time.Second
+	// HostHoldMax bounds the hold (Mirror.hold): while the host is out of
+	// play (a STATE without StateFlagInScope: its death demo's end, Game
+	// Over, a void-out reload, a stage load) the adopted copies stay
+	// frozen this long before they go back to this game's AI.
+	HostHoldMax = 30 * time.Second
 )
 
 // Mirror is the client's state machine; Tick drives it.
@@ -151,6 +156,13 @@ type Mirror struct {
 	lastStatus [MaxSlots][2]uint8
 	Stats      MirrorStats
 
+	// The hold (Mirror.hold): the last in-scope STATE a block was written
+	// from and that block's kind mask, and when the host went out of play
+	// with the copies held (zero: not holding).
+	holdSt    *State
+	holdMask  uint32
+	holdSince time.Time
+
 	// Remote, when set, is this joiner's remote-Link side (players.go):
 	// OnEnemy hands it the PHITs and RunMirror ticks it after the mirror.
 	Remote *RemoteClient
@@ -190,6 +202,9 @@ type MirrorStats struct {
 	// HitsFiltered counts the hits ForwardHit dropped (a weapon the kind's
 	// collider ignores on the host).
 	HitsFiltered uint64
+	// Holds counts the holds begun (the host out of play), HeldHits the
+	// hits on a held copy cleared unsent (the host would drop them HDGoGate).
+	Holds, HeldHits uint64
 }
 
 // NewMirror returns a mirror over m with its breaker; raw bypasses the
@@ -630,6 +645,7 @@ func (c *Mirror) resetScope() {
 	clear(c.sm)
 	clear(c.local)
 	c.lastKeys, c.matchNext = nil, time.Time{}
+	c.holdSt, c.holdSince = nil, time.Time{}
 }
 
 // match walks this game's enemies of (stage, room) when the scope changed,
@@ -1042,12 +1058,80 @@ func (c *Mirror) disarm(now time.Time, why string) error {
 		log.Logf(c.rep, log.Info, "enemy client: not mirroring: %s", why)
 	}
 	c.Claims.Replace(nil)
+	c.holdSince = time.Time{}
 	if !c.armed {
 		return nil
 	}
 	err := c.writeBlock(now, nil, nil, mailbox.EnemyAnnex{}, 0)
 	c.armed = false
 	return err
+}
+
+// hold keeps the copies adopted and frozen while the host is out of play
+// (coop-slice-drc.md A2): released, they would run this game's AI against
+// this Link while the host's own enemies stand in a load or a Game Over
+// ("mauls B", seen live). It rewrites the last block's slots from the last
+// in-scope STATE (its stage and room, this game's: the REL's scope step
+// keeps them) with a new seq, so the REL's stale watchdog
+// (WWENEMY_STALE_FRAMES) never releases them, the pause bit stays set
+// (em_adopt) and the targets stand still; MorfRate 0 holds the animation
+// frame (S2.5 adds no lead) and SNAP is spent. A dying copy keeps its slot
+// as written, so a quiet death runs out. A hit on a held copy is cleared
+// unsent (the host drops every HIT while out of play, HDGoGate, and one
+// drained after the hold would land late). It reports false, and the
+// caller releases as before, when nothing is armed, the last block was
+// another scope's, or the hold ran HostHoldMax. No REL change: Q3 found no
+// freeze bit in the block, and none is needed.
+func (c *Mirror) hold(now time.Time) (bool, error) {
+	st := c.holdSt
+	if !c.armed || st == nil || st.Stage != c.localStage || st.Room != c.localRoom {
+		return false, nil
+	}
+	n := 0
+	for j := range c.blk {
+		if c.blk[j].Used && c.blk[j].haveLst {
+			n = j + 1
+		}
+	}
+	if c.holdSince.IsZero() {
+		c.holdSince = now
+		c.Stats.Holds++
+		log.Logf(c.rep, log.Info, "enemy client: the host is out of play; holding the copies frozen (up to %v)", HostHoldMax)
+	} else if now.Sub(c.holdSince) > HostHoldMax {
+		log.Logf(c.rep, log.Info, "enemy client: the host stayed out of play %v; releasing the copies", HostHoldMax)
+		return false, nil
+	}
+	c.gateWhy = "" // a release after the hold logs its reason again
+	slots := make([]mailbox.EnemySlot, n)
+	annex := mailbox.EnemyAnnex{Override: c.Annex.Override, InvulnWait: c.Annex.InvulnWait, HookDisableX: c.Annex.HookDisableX, TnTgHitUp: c.Annex.TnTgHitUp}
+	for j := range n {
+		b := &c.blk[j]
+		if !b.Used || !b.haveLst {
+			continue // pid 0: the REL releases the slot
+		}
+		es := b.last
+		es.MorfRate = 0
+		es.Flags &^= mailbox.EnemySFSnap
+		slots[j], annex.Aux[j] = es, b.lastAux
+	}
+	if err := c.writeBlock(now, st, slots, annex, c.holdMask); err != nil {
+		return true, err
+	}
+	status, err := mailbox.ReadEnemyStatus(c.m)
+	if err != nil {
+		return true, err
+	}
+	for i := range status.Hits {
+		if status.Hits[i].Pending == 0 {
+			continue
+		}
+		c.Stats.HeldHits++
+		at := mailbox.EnemyBlockAddr + mailbox.EnemyHitsOff + uint32(i)*mailbox.EnemyHitSize + 3
+		if err := c.m.Write(at, []byte{0}); err != nil {
+			log.Logf(c.rep, log.Warn, "enemy client: clearing hit slot %d: %v", i, err)
+		}
+	}
+	return true, nil
 }
 
 // Tick runs one 16 ms tick at now. It returns the HITs to send (the REL
@@ -1095,6 +1179,13 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 	case now.Sub(at) > StaleAfter:
 		return nil, GateSleep, c.disarm(now, "the host's STATE is stale")
 	case st.Flags&StateFlagInScope == 0:
+		// Out of play is the host's own load, death or Game Over: hold
+		// the copies (hold) until it comes back, or release after
+		// HostHoldMax. Back in another stage or room, the gate below
+		// releases as before.
+		if held, err := c.hold(now); held || err != nil {
+			return nil, GateSleep, err
+		}
 		return nil, GateSleep, c.disarm(now, "the host is not in play")
 	case st.KindHash != KindHash():
 		return nil, GateSleep, c.disarm(now, fmt.Sprintf("the host's enemy kind table is another build's (hash %08X, this build's %08X)", st.KindHash, KindHash()))
@@ -1282,6 +1373,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 	if err := c.writeBlock(now, st, slots, annex, on.Mask()); err != nil {
 		return nil, 0, err
 	}
+	c.holdSt, c.holdMask, c.holdSince = st, on.Mask(), time.Time{}
 
 	// Liveness and the periodic line.
 	if !c.ackSeen && status.AckSeq != 0 && status.AckSeq == c.seq-1 {
