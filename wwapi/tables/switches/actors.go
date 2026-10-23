@@ -117,6 +117,15 @@ const (
 // proportional to its input.
 const MaxANDInputs = 32
 
+// tryTypes is the length of daObjTry::Act_c::M_attr (d_a_obj_try.rel
+// .rodata 0x58, 0x618 bytes of 0x78-byte entries), types 0 to 12.
+const tryTypes = 13
+
+// tryReadsSwitch reports whether chk_appear tests the switch of an
+// Obj_Try of type typ: M_attr[typ]+0x70 is set for types 5 and 6 only
+// (d_a_obj_try.rel .rodata 0x320 and 0x398).
+func tryReadsSwitch(typ int) bool { return typ == 5 || typ == 6 }
+
 // agbsw0Types is the length of daAgbsw0_c::execute's ExeSubTable
 // (d_a_agbsw0.cpp:279-295), types 0 (A) to 0xE (M3).
 const agbsw0Types = 15
@@ -842,6 +851,7 @@ var specs = []spec{
 		return []use{setClear(e.byte(8), "Zephos and Cyclos: set and cleared in their events")}
 	}},
 	{proc: procCorrect, name: "Obj_Correct", decode: func(e entry) []use { // d_a_obj_correct.h:19-37; d_a_obj_correct.cpp:279-302
+		// A slot with an Obj_Try twin counts as latching (statueSlots).
 		return []use{setClear(e.byte(8), "placement check: set while the object is in place, cleared when it leaves")}
 	}},
 	{proc: procFerris, name: "Obj_Ferris", decode: func(e entry) []use { // d_a_obj_ferris.h:33-39; d_a_obj_ferris.cpp:351
@@ -877,16 +887,76 @@ var specs = []spec{
 		return []use{read(e.byte(8), "the lift rises when it is on")}
 	}},
 
-	// Unknown: a real switch field over code the decomp hasn't matched.
+	// Carried statues. d_a_obj_try.cpp is NonMatching (configure.py:1824),
+	// so this is read from the retail d_a_obj_try.rel's .text (offsets
+	// named with config/GZLE01/rels/d_a_obj_try/symbols.txt). Its one
+	// switch call is the isSwitch in chk_appear (0x428-0x50C, the call at
+	// 0x4A0), which _create calls once (0x688) with mType = PrmAbstract(4,
+	// 0) (0x670-0x680) and swSave PrmAbstract(8, 8) (0x47C-0x48C, as
+	// d_a_obj_try.h:25-36). It tests the switch only when M_attr[mType]
+	// +0x70 is set (0x444-0x460), which in the 13-entry M_attr (.rodata
+	// 0x58, 0x78 bytes each) holds for types 5 and 6 alone, the r0 key
+	// statues of TotG: the statue appears unless the switch is on and
+	// params bit 31 (PrmAbstract(1, 31), 0x464-0x46C) clear, or off and
+	// bit 31 set. The module has no onSwitch, offSwitch or revSwitch, so
+	// every type only reads. (Its prm_set_swSave(0xFF) when carried out
+	// of its home room, 0x1AC8-0x1B24, rewrites params, not a switch, and
+	// needs M_attr +0x72, which types 5 and 6 don't have.)
 	{proc: procTry, name: "Obj_Try", decode: func(e entry) []use {
-		// d_a_obj_try.h:25-36: PRM_SWSAVE PrmAbstract(8, 8), but
-		// d_a_obj_try.cpp is NonMatching (configure.py:1824) with no
-		// switch call decoded.
-		return []use{set(e.byte(8), Unknown, "Obj_Try is NonMatching; how it uses the switch is unknown")}
+		typ, sw := e.bits(0, 4), e.byte(8)
+		switch {
+		case typ >= tryTypes:
+			return []use{read(sw, fmt.Sprintf("statue type %d is past M_attr's %d entries, so whether it reads the switch is unknown", typ, tryTypes))}
+		case !tryReadsSwitch(typ):
+			return nil
+		case e.bits(31, 1) == 1:
+			return []use{read(sw, "the statue appears in place while it is on (a slot's twin)")}
+		}
+		return []use{read(sw, "the statue appears while it is off")}
+	}},
+
+	// Floor switches that a weight holds down. d_a_obj_swflat.cpp is
+	// NonMatching (configure.py) and its getters have no bodies
+	// (d_a_obj_swflat.h:9-10), so this is read from the retail
+	// d_a_obj_swflat.rel's .text. _create (0x2C8-0x4A0): type
+	// PrmAbstract(2, 0), sw PrmAbstract(8, 8), sw2 PrmAbstract(8, 16)
+	// (0x340-0x374). A type 2 becomes type 0 when sw2 is already on, else
+	// type 1 (0x434-0x474; isSwitch is false for 0xFF, d_save.cpp:
+	// 1586-1589, so a type 2 without sw2 stays type 1), and it starts
+	// pressed when the switch it then watches is on (0x478-0x4A0). The
+	// type is only ever compared with 0, 1 and 2. Pressed by an actor
+	// with fopAcStts_FREEZE_e (status & 0x400, 0xBC0-0xBC8), it sets sw
+	// every frame (0xD80) unless the presser is the player (profile
+	// fpcNm_PLAYER_e 0xA9: r29, 0xBD0-0xBDC, skip at 0xD64). The player's
+	// first press sets it once, after a camera event (state 0x468: 0x1018,
+	// 0x1078, 0x10CC), and it stays set, not re-set, while he stands there;
+	// 0xE5C, on any presser, runs only while the emitter's alpha (0x466)
+	// climbs back to 0xFA after a quick re-press (0xE28-0xE38). So a
+	// statue, box or other weight re-asserts sw every frame and Link does
+	// not. Unpressed, it clears sw every frame (0xF08). Only
+	// type 1 lets go when the weight leaves (0xC0C-0xC28), so types 0
+	// and 3 stay down once pressed; a type 2 whose sw2 turns on becomes
+	// type 0 there and then (0xC2C-0xC8C) and is held down (0xE04-0xE20,
+	// 0x10D0-0x10E0). Its create-time offSwitch of sw and sw2 (0x3DC-0x42C)
+	// runs only with l_HIO+0x19 set, which the HIO ctor zeroes (0x108).
+	{proc: procSwflat, name: "Obj_Swflat", decode: func(e entry) []use {
+		typ, sw := e.bits(0, 2), e.byte(8)
+		if typ == 2 && e.byte(16) == 0xFF {
+			typ = 1
+		}
+		switch typ {
+		case 1:
+			return []use{setClear(sw, "momentary floor switch: set while weighed down, cleared every frame it isn't")}
+		case 2:
+			return []use{
+				setClear(sw, "momentary floor switch: set while weighed down, cleared every frame it isn't, until its second switch is on"),
+				read(e.byte(16), "holds the floor switch down for good"),
+			}
+		}
+		return []use{set(sw, Latching, "floor switch: set when weighed down, then stays down (cleared every frame until its first press)")}
 	}},
 
 	// Undecoded: switch users whose fields the decomp doesn't give.
-	{proc: procSwflat, name: "Obj_Swflat", undecoded: stub("d_a_obj_swflat.cpp", "prmGetSwNo, prmGetSwNo2, d_a_obj_swflat.h:9-10")},
 	{proc: procItnak, name: "Obj_Itnak", undecoded: stub("d_a_obj_Itnak.cpp", "is_switch, param_get_swbit, d_a_obj_Itnak.h:10-12")},
 	{proc: procVds, name: "Obj_Vds", undecoded: stub("d_a_obj_Vds.cpp", "is_switch, d_a_obj_Vds.h:13")},
 	{proc: procAshut, name: "Obj_Ashut", undecoded: stub("d_a_obj_ashut.cpp", "is_switch, prm_get_swSave, d_a_obj_ashut.h:13-15")},

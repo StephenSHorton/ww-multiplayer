@@ -30,7 +30,8 @@ var realNames = []struct {
 	{"Bdk", stage.ProcBDK}, {"Kui", procKui}, {"koisi1", procStone}, {"Warpt", procWarpt},
 	{"MhmrSW0", procSwhammer}, {"Fganon", stage.ProcFganon}, {"Mn", procNpcMn},
 	{"agbA", procAgbsw0}, {"agbMW", procAgbsw0}, {"agbCSW", procAgbsw0},
-	{"Ss", procSs}, {"gmos", stage.ProcGM},
+	{"Ss", procSs}, {"gmos", stage.ProcGM}, {"CrTrM1", procCorrect}, {"Itnak", procItnak},
+	{"Hfbot1B", procSwflat}, {"Hfbot1C", procSwflat},
 	{"Sitem", stage.ProcItem}, // a proc the table doesn't read
 }
 
@@ -222,7 +223,24 @@ func TestClasses(t *testing.T) {
 		{"warp pot", []stage.Actor{act("Warpt", 0, 0xFF26)}, []want{{m(0x26), Latching, OpSet, true}}, 1, false},
 		{"hammer switch", []stage.Actor{act("MhmrSW0", 0x27<<8|0x28)},
 			[]want{{m(0x27), Latching, OpSet, true}, {m(0x28), Unsafe, OpClear, false}}, 2, false},
-		{"Obj_Try", []stage.Actor{act("Hseki1", 0x29<<8)}, []want{{m(0x29), Unknown, OpSet, false}}, 1, false},
+		// Obj_Try only reads, and only types 5 and 6 (TotG r0's Hmon1d
+		// 80000505, r4's Hmon1 00000505).
+		{"Obj_Try 5", []stage.Actor{act("Hseki1", 0x29<<8|5)}, []want{{m(0x29), "", "", false}}, 1, false},
+		{"Obj_Try 6 twin", []stage.Actor{act("Hseki1", 1<<31|0x29<<8|6)}, []want{{m(0x29), "", "", false}}, 1, false},
+		{"Obj_Try 0", []stage.Actor{act("Hseki1", 0x29<<8)}, nil, 0, false},
+		{"Obj_Try 12", []stage.Actor{act("Hseki1", 0x29<<8|12)}, nil, 0, false},
+		{"Obj_Try 13", []stage.Actor{act("Hseki1", 0x29<<8|13)}, []want{{m(0x29), "", "", false}}, 1, false},
+		// Obj_Swflat (TotG's Hfbot1B/C): type 1 and 2 clear when released,
+		// 2 reads sw2, 0 and 3 stay down.
+		{"swflat 1", []stage.Actor{act("Hfbot1A", 0x00001001)}, []want{{m(0x10), Unsafe, OpSetClear, false}}, 1, false},
+		{"swflat 2", []stage.Actor{act("Hfbot1A", 0x000C3202)},
+			[]want{{m(0x32), Unsafe, OpSetClear, false}, {m(0x0C), "", "", false}}, 2, false},
+		{"swflat 2 without sw2", []stage.Actor{act("Hfbot1A", 0x00FF2502)}, []want{{m(0x25), Unsafe, OpSetClear, false}}, 1, false},
+		{"swflat 1 ignores sw2", []stage.Actor{act("Hfbot1A", 0x000C1001)}, []want{{m(0x10), Unsafe, OpSetClear, false}}, 1, false},
+		{"swflat 0", []stage.Actor{act("Hfbot1A", 0x000C1000)}, []want{{m(0x10), Latching, OpSet, true}}, 1, false},
+		{"swflat 3", []stage.Actor{act("Hfbot1A", 0x000C1003)}, []want{{m(0x10), Latching, OpSet, true}}, 1, false},
+		{"swflat room switch", []stage.Actor{act("Hfbot1A", 0x0020E002)},
+			[]want{{roomSw(tb, "D", 1, 0xE0), Unsafe, OpSetClear, false}, {m(0x20), "", "", false}}, 2, false},
 		{"shutter", []stage.Actor{act("Htobi1", 0x2A)}, []want{{m(0x2A), "", "", false}}, 1, false},
 		{"Manny", []stage.Actor{act("Mn", 0x2C<<16|0x2B<<8)},
 			[]want{{m(0x2C), Latching, OpSet, true}, {m(0x2B), "", "", false}}, 2, false},
@@ -539,8 +557,8 @@ func TestMixedSetters(t *testing.T) {
 			mkStage("A", tb, nil, []stage.Actor{crystal(0x05)}, []stage.Actor{act("TagEv", 0x05<<8)}),
 		}, false, 2, "event writer A r1"},
 		{"latching and unknown", []*stage.Stage{
-			mkStage("A", tb, []stage.Actor{act("Hseki1", 0x05<<8)}, []stage.Actor{crystal(0x05)}),
-		}, false, 2, "unknown writer A stage ACTR#0 Hseki1"},
+			mkStage("A", tb, []stage.Actor{act("koisi1", 6<<24|0x05<<8)}, []stage.Actor{crystal(0x05)}),
+		}, false, 2, "unknown writer A stage ACTR#0 koisi1"},
 		{"latching and push block", []*stage.Stage{
 			mkStage("A", tb, nil, []stage.Actor{crystal(0x05), act("osiBLK0", 1<<24|0x05<<8, 0, 0, 0x02)}),
 		}, false, 2, "push block path 2"},
@@ -557,6 +575,181 @@ func TestMixedSetters(t *testing.T) {
 			}
 			if s.Synced != c.synced || len(s.Writers) != c.n || !strings.Contains(s.Reason, c.reason) {
 				t.Errorf("synced %v, %d writers, reason %q; want %v, %d, %q", s.Synced, len(s.Writers), s.Reason, c.synced, c.n, c.reason)
+			}
+		})
+	}
+}
+
+// swflat is an Obj_Swflat (Hfbot1B/C) of type typ on switch sw, with sw2
+// (type 2's latch).
+func swflat(typ, sw, sw2 int) stage.Actor {
+	return act("Hfbot1A", uint32(sw2)<<16|uint32(sw)<<8|uint32(typ))
+}
+
+// TestSwflat covers Obj_Swflat as TotG places it (params from the disc):
+// its momentary switches feed one-shot ANDs that sync, and a bit one
+// shares with a latching setter keeps syncing (sharedFloorSwitches).
+func TestSwflat(t *testing.T) {
+	const tb = addr.TableTotG
+	m := func(no int) Key { return mem(tb, no) }
+	// The stage's own key door r8-r10 (TGDR#11 keyshut 0FFFF40E), boss-key
+	// chest (TRES#11 takara4, open switch sw16) and r22 Joy Pendant chest
+	// (TRES#4 tkrAGc, sw17), here as ACTR entries; the rooms' floor
+	// switches, ANDs and the other sw0 and sw28 setters.
+	dzs := []stage.Actor{
+		act("door10", 0x0FFFF40E, 8|10<<6),
+		act("takara", 0xFF300000, 17, 0, 0x10),
+		act("takara", 0xFF009302, 22, 0, 0x11),
+	}
+	rooms := make([][]stage.Actor, 13)
+	rooms[0] = []stage.Actor{
+		act("Hfbot1C", 0x001C0002), act("Hfbot1C", 0x000C3202), act("Hfbot1C", 0x000C3302),
+		act("AND_SW0", 0x0C320002), act("Kui", 0xFF<<24),
+	}
+	rooms[4] = []stage.Actor{act("SW_C00", 1<<16|0xFF<<8|0x1C), act("Hfbot1B", 0x00002301)}
+	rooms[6] = []stage.Actor{act("Hfbot1C", 0x0020E002), act("Hfbot1C", 0x0020E102), act("Hfbot1C", 0x0020E202), act("AND_SW0", 0x20E00003)}
+	rooms[12] = []stage.Actor{act("Hfbot1B", 0x00000E01), act("Hfbot1B", 0x00001001), act("AND_SW0", 0x0FFF0102), act("Hfbot1B", 0x00001101)}
+	tbl := Build([]*stage.Stage{mkStage("Siren", tb, dzs, rooms...)}, testNames(t))
+	checkFixedPoint(t, tbl)
+	check(t, tbl,
+		// The r0 pair's one-shot AND opens the r0-r5 door, the r6 triple's
+		// raises the lifts; the presses don't sync.
+		want{m(0x0C), Latching, OpSet, true},
+		want{m(0x32), Unsafe, OpSetClear, false},
+		want{m(0x33), Unsafe, OpSetClear, false},
+		want{m(0x20), Latching, OpSet, true},
+		want{roomSw(tb, "Siren", 6, 0xE0), Unsafe, OpSetClear, false},
+		// A floor switch alone on its bit stays local (the r4 bridge).
+		want{m(0x23), Unsafe, OpSetClear, false},
+		// sw28, r0 #18's latch, syncs, and the r12 continuous AND doesn't.
+		want{m(0x1C), Latching, OpSet, true},
+		want{m(0x0F), Unsafe, OpSetClear, false},
+	)
+	for _, c := range []struct {
+		no, n  int    // switch, writers
+		swflat string // the swflat's index in "Siren rN ACTR#i"
+		by     string
+	}{
+		{0x00, 2, "Siren r0 ACTR#0", "Siren r0 ACTR#4 Kui"},
+		{0x0E, 2, "Siren r12 ACTR#0", "Siren stage ACTR#0 door10"},
+		{0x10, 2, "Siren r12 ACTR#1", "Siren stage ACTR#1 takara"},
+		{0x11, 2, "Siren r12 ACTR#3", "Siren stage ACTR#2 takara"},
+	} {
+		s, _ := tbl.Lookup(m(c.no))
+		if s == nil || !s.Synced || len(s.Writers) != c.n {
+			t.Errorf("0x%02X: %+v, want synced with %d writers", c.no, s, c.n)
+			continue
+		}
+		for _, w := range s.Writers {
+			if w.Proc != procSwflat {
+				continue
+			}
+			if !strings.HasPrefix(w.Ref.String(), c.swflat) || w.Class != Latching || w.Op != OpSetClear || !strings.Contains(w.Why, "latching setter "+c.by) {
+				t.Errorf("0x%02X: swflat writer %v %s %s %q, want %s latching set+clear by %s", c.no, w.Ref, w.Class, w.Op, w.Why, c.swflat, c.by)
+			}
+		}
+	}
+}
+
+// TestSwflatShared covers sharedFloorSwitches' guards: only a swflat is
+// counted as latching, only beside a latching setter that is not an AND,
+// and an unsafe writer beside them still keeps the switch unsynced.
+func TestSwflatShared(t *testing.T) {
+	const tb = addr.TableTotG
+	m := func(no int) Key { return mem(tb, no) }
+	for _, c := range []struct {
+		name   string
+		actors []stage.Actor
+		synced bool
+		class  Class // the floor switch's
+	}{
+		{"beside a crystal", []stage.Actor{swflat(1, 0x10, 0), crystal(0x10)}, true, Latching},
+		{"type 2 beside a crystal", []stage.Actor{swflat(2, 0x10, 0x11), crystal(0x10)}, true, Latching},
+		{"beside a Tuner switch only", []stage.Actor{swflat(1, 0x10, 0), agb("agbA", 0, 0x10, 0xFF)}, false, Unsafe},
+		{"beside a one-shot AND", []stage.Actor{swflat(1, 0x10, 0), crystal(0x11), andsw0(0, 0x10, 1, 0x11)}, false, Unsafe},
+		{"beside another swflat", []stage.Actor{swflat(1, 0x10, 0), swflat(0, 0x10, 0)}, false, Unsafe},
+		{"beside a crystal and a timed torch", []stage.Actor{swflat(1, 0x10, 0), crystal(0x10), timedTorch(0x10)}, false, Latching},
+		// The rule is swflat's: a swpush keeps its verdict.
+		{"swpush beside a crystal", []stage.Actor{plate(0x10), crystal(0x10)}, false, Unsafe},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tbl := Build([]*stage.Stage{mkStage("Siren", tb, nil, c.actors)}, testNames(t))
+			checkFixedPoint(t, tbl)
+			s, ok := tbl.Lookup(m(0x10))
+			if !ok {
+				t.Fatalf("0x10 missing: %v", keysOf(tbl))
+			}
+			if s.Synced != c.synced {
+				t.Errorf("synced %v, want %v (%s)", s.Synced, c.synced, s.Reason)
+			}
+			if w := s.Writers[0]; w.Op != OpSetClear || w.Class != c.class {
+				t.Errorf("floor switch %s %s (%s), want %s set+clear", w.Class, w.Op, w.Why, c.class)
+			}
+		})
+	}
+}
+
+// at places a at x, y, z.
+func at(a stage.Actor, x, y, z float32) stage.Actor {
+	a.Pos = [3]float32{x, y, z}
+	return a
+}
+
+// TestStatueSlots covers statueSlots with TotG r0's slots (CrTrM1
+// 00FF0504 and its twin Hmon1d 80000505 at (3115.6, -1637.1, -1311.3);
+// CrTrM2 00FF0605 and Hmon2d 80000606), and what keeps a slot unsafe.
+func TestStatueSlots(t *testing.T) {
+	const tb = addr.TableTotG
+	m := func(no int) Key { return mem(tb, no) }
+	slot := func(typ, sw int) stage.Actor {
+		return at(act("CrTrM1", 0xFF<<16|uint32(sw)<<8|uint32(typ)), 3115.6343, -1637.0668, -1311.3113)
+	}
+	statue := func(params uint32, dx float32) stage.Actor {
+		return at(act("Hseki1", params), 3115.6343+dx, -1637.1115, -1311.3113)
+	}
+	for _, c := range []struct {
+		name   string
+		rooms  [][]stage.Actor
+		synced bool
+		twin   string // in the slot's Why
+	}{
+		{"r0 sw5", [][]stage.Actor{{slot(4, 5), statue(0x80000505, 0)}, nil, nil, nil, {at(act("Hseki1", 0x00000505), 7733, -1442, -2577)}},
+			true, "twin statue Siren r0 ACTR#1 Hseki1"},
+		{"r0 sw6", [][]stage.Actor{{slot(5, 6), statue(0x80000606, 0)}}, true, "twin statue Siren r0 ACTR#1"},
+		{"twin just inside the slot", [][]stage.Actor{{slot(4, 5), statue(0x80000505, 2.99)}}, true, "twin statue"},
+		{"twin out of the slot", [][]stage.Actor{{slot(4, 5), statue(0x80000505, 3)}}, false, ""},
+		{"no twin", [][]stage.Actor{{slot(4, 5)}, {statue(0x00000505, 0)}}, false, ""},
+		{"twin in another room", [][]stage.Actor{{slot(4, 5)}, {statue(0x80000505, 0)}}, false, ""},
+		{"bit 31 clear", [][]stage.Actor{{slot(4, 5), statue(0x00000505, 0)}}, false, ""},
+		{"the other slot's type", [][]stage.Actor{{slot(4, 5), statue(0x80000506, 0)}}, false, ""},
+		{"a statue that doesn't read", [][]stage.Actor{{slot(1, 5), statue(0x80000502, 0)}}, false, ""},
+		{"twin and a timed torch", [][]stage.Actor{{slot(4, 5), statue(0x80000505, 0), timedTorch(0x05)}}, false, "twin statue"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tbl := Build([]*stage.Stage{mkStage("Siren", tb, nil, c.rooms...)}, testNames(t))
+			checkFixedPoint(t, tbl)
+			no := 5
+			if c.name == "r0 sw6" {
+				no = 6
+			}
+			s, ok := tbl.Lookup(m(no))
+			if !ok {
+				t.Fatalf("0x%02X missing: %v", no, keysOf(tbl))
+			}
+			if s.Synced != c.synced {
+				t.Errorf("synced %v, want %v (%s)", s.Synced, c.synced, s.Reason)
+			}
+			w := s.Writers[0]
+			if w.Proc != procCorrect || w.Op != OpSetClear {
+				t.Fatalf("first writer %v %s %s, want the slot's set+clear", w.Ref, w.Class, w.Op)
+			}
+			if latch := c.twin != ""; (w.Class == Latching) != latch || latch && !strings.Contains(w.Why, c.twin) {
+				t.Errorf("slot %s %q, want latching %v with %q", w.Class, w.Why, latch, c.twin)
+			}
+			for _, w := range s.Writers {
+				if w.Proc == procTry {
+					t.Errorf("Obj_Try writes: %+v", w)
+				}
 			}
 		})
 	}
@@ -725,12 +918,12 @@ func TestPushBlocks(t *testing.T) {
 }
 
 func TestUndecodedAndUnnamed(t *testing.T) {
-	st := mkStage("D", 7, nil, []stage.Actor{act("Hfbot1A", 0x1234), act("Nope", 0x05), crystal(0x05)})
+	st := mkStage("D", 7, nil, []stage.Actor{act("Itnak", 0x1234), act("Nope", 0x05), crystal(0x05)})
 	tbl := Build([]*stage.Stage{st, nil}, testNames(t))
 	if tbl.Stages != 1 || tbl.Users != 2 || tbl.Unnamed != 1 {
 		t.Errorf("stages %d, users %d, unnamed %d; want 1, 2, 1", tbl.Stages, tbl.Users, tbl.Unnamed)
 	}
-	if len(tbl.Undecoded) != 1 || tbl.Undecoded[0].Name != "Hfbot1A" || !strings.Contains(tbl.Undecoded[0].Why, "d_a_obj_swflat.cpp is NonMatching") {
+	if len(tbl.Undecoded) != 1 || tbl.Undecoded[0].Name != "Itnak" || !strings.Contains(tbl.Undecoded[0].Why, "d_a_obj_Itnak.cpp is NonMatching") {
 		t.Errorf("undecoded %+v", tbl.Undecoded)
 	}
 	if len(tbl.Switches) != 1 {
@@ -749,7 +942,7 @@ func TestUndecodedAndUnnamed(t *testing.T) {
 func sample(t testing.TB) *Table {
 	return Build([]*stage.Stage{
 		mkStage("M_NewD2", addr.TableDRC, []stage.Actor{act("door10", 0xFF<<20|4<<8|0x12, 1|2<<6)},
-			[]stage.Actor{crystal(0x05), timedTorch(0x06), andsw2(0, 0x07, 2, 0x05), act("Hfbot1A", 0), agb("agbA", 0, 0x05, 0xFF)},
+			[]stage.Actor{crystal(0x05), timedTorch(0x06), andsw2(0, 0x07, 2, 0x05), act("Itnak", 0), agb("agbA", 0, 0x05, 0xFF)},
 			[]stage.Actor{act("osiBLK0", 1<<24|0x20<<8, 0, 0, 0x21<<8|0x01), act("ALLdie", 0xC3<<8), act("Bk", 0xA)}),
 		mkStage("M_DaiB", addr.TableDRC, []stage.Actor{crystal(0xC9)}, []stage.Actor{act("Bdk", 0), act("Htobi1", 0x30)}),
 		mkStage("sea", addr.TableSea, nil, []stage.Actor{act("Evsw", 1<<24|0x30), act("Nope", 0)}),
@@ -794,7 +987,7 @@ func TestReport(t *testing.T) {
 		"Synced only while no GBA is linked (shared with the Tingle Tuner): 1 (memory 1, dan 0, zone 0, room 0)",
 		"Push blocks storing a path in switches (never synced): 1",
 		"  M_NewD2 r1 ACTR#0 osiBLK0 path 1: memory t3 0x20, memory t3 0x21",
-		"Undecoded switch users: 1\n  Hfbot1A  1",
+		"Undecoded switch users: 1\n  Itnak    1",
 		"Switch uses the game can't route: 1\n  M_DaiB stage ACTR#0 SW_HIT0: zone switch 0xC9 from room -1, which has no zone",
 		"Dragon Roost Cavern (table 3): 11 switches, 5 synced (ok*: while no GBA is linked)",
 		"  ok* memory t3 0x05  set by SW_HIT0; held while a GBA is linked (Tingle Tuner: agbA)",
