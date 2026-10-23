@@ -54,5 +54,12 @@ typedef void (*emt_clr_hit_t)(void* obj);              // ClrTgHit__12dCcD_GObjI
 #define EMT_RING_MASK   (EMK_MT_RING_LEN - 1)
 #define EMT_RESEED_STEPS 6            // the FIGHT -> MOVE reseed's j = 0..5 per segment (mt.rel 0x1458-0x1524)
 #define EMT_RESEED_DIV  5.0f          // rodata 0x70
+#define EMT_AC_POS      0x1F8         // cXyz current.pos: the copy's smoothed head
+// How far the copy's head must move from the ring's last kept entry before
+// the body step lets body_control1 advance the ring: about half the host
+// head's travel per ring advance in MOVE (6.0-6.4 on every advance of a
+// 20 s live sample, archive/enemy-batch-d/live/two/mtA3.txt; it drops to 0
+// at a dive in one frame, with no slow phase).
+#define EMT_RING_STEP_MIN 3.0f
 
 #endif

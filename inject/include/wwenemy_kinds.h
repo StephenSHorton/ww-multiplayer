@@ -959,7 +959,7 @@ typedef char emk_check_bb_row[(EMK_BB_ID == EMK_KIND_BB && EMK_KIND_BB == 7 &&
 #define EMK_MT_SWAY_FRAME        0x46A        // s16 the frame counter FIGHT's sway reads: the body step adds 1 every frame
 #define EMK_MT_F470              0x470        // f32 the stretch, transM(0, 0, f470) on segments 1..7 (eases to -10 MOVE, +20 FIGHT): the copy's own, the builders ease it
 #define EMK_MT_PLAY_SKIP_TIMER   0x78
-#define EMK_MT_DIVE              0x48E        // s16 dive timer: != 0 the ring index does not advance; D9: the body step writes 1 on a stale (unchanged) or diving (EMK_MT_F2_DIVE) sample, else 0, before body_control1
+#define EMK_MT_DIVE              0x48E        // s16 dive timer: != 0 the ring index does not advance; the body step writes 1 while the copy's head is within EMT_RING_STEP_MIN of the ring's last kept entry, else 0, before body_control1
 #define EMK_MT_RESPAWN_BIT       0x2B6        // u8: set = daMt_Delete re-creates it (mt.rel 0x7CF4-0x7DF8)
 #define EMK_MT_DEATH_SWITCH      0x2B9        // u8 mDeathSwitch
 #define EMK_MT_APPEAR            0x2BB        // u8 != 0 hidden until its switch (r16 sw227): refused
@@ -989,7 +989,7 @@ typedef char emk_check_bb_row[(EMK_BB_ID == EMK_KIND_BB && EMK_KIND_BB == 7 &&
 #define EMK_MT_KILLED            0x1CBC       // u8: daMt_Delete respawns only when != 0; the REL writes 1 before both fopAcM_delete sites when EMK_MT_RESPAWN_BIT is set (MT-5)
 #define EMK_MT_F2_PHASE          0x03         // flags2 bits 0-1: colour phase (0x2E4)
 #define EMK_MT_F2_SHIELD         0x04         // host body sph[0] Tg Shield bit (0xEDC bit0)
-#define EMK_MT_F2_DIVE           0x08         // host 0x48E != 0
+#define EMK_MT_F2_DIVE           0x08         // host 0x48E != 0 (streamed for the probes; the copy's ring hold reads its own motion, em_mt_body_step)
 #define EMK_MT_F2_ATTN           0x10         // host attention_info.flags != 0
 // The mode edges (R-D6; C1b-magtail-redo.md MT-2 (e)), unless
 // EMK_MT_HKD_CHAIN: a streamed 0 -> 1 copies the ring into the chain

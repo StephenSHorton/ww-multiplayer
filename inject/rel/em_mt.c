@@ -21,7 +21,8 @@
 // all nine into cCcS (C1b section 2, 4). What a copy's paused execute no
 // longer does around them, the body step does: the streamed head, the
 // latch and the hit cooldown cleared, the sway clock ticked, the ring held
-// on a stale sample (D9), the bite state cleared before FIGHT's builder,
+// while the copy's head has not moved (em_mt_body_step), the bite state
+// cleared before FIGHT's builder,
 // and the two mode edges. P0-MT2 verified the builders' model live (MOVE
 // 0.000; FIGHT 0.000 but one 0.857 transition frame, archive/enemy-batch-d/
 // P0.md). PINNED calls no builder (D8): body_control5 needs Execute's
@@ -51,8 +52,8 @@ typedef char emt_check_rel[(EMK_MT_ID == EMK_KIND_MT && sizeof(EMK_MT_ARC) <= 4 
                             EMT_RING_MASK == 0x3F && EMK_HIT_MT_KILL > EMK_HIT_SPECIAL && EMK_HIT_MT_KILL < 0x100 &&
                             // a slot holds one kind: MT's kind_bits are BB's values
                             EM_XB_MT_FP_DONE == 0x04 && EM_XB_MT_FP_OK == 0x08 &&
-                            !((EM_XB_MT_CUSTODY | EM_XB_MT_FRESH) & (EM_XB_MT_FP_DONE | EM_XB_MT_FP_OK)) &&
-                            EM_XB_MT_CUSTODY != EM_XB_MT_FRESH && EM_XF_MT_BALL != EM_XF_ATTN &&
+                            !(EM_XB_MT_CUSTODY & (EM_XB_MT_FP_DONE | EM_XB_MT_FP_OK)) &&
+                            EM_XF_MT_BALL != EM_XF_ATTN &&
                             EMK_MT_MODE_MOVE == 0 && EMK_MT_MODE_FIGHT == 1 && EMK_MT_MODE_PINNED == 6 &&
                             EMK_MT_GATE + 1 == EMK_MT_ACTION && EMK_MT_COLOR_A + 4 == EMK_MT_COLOR_B &&
                             EMT_CC_SHAPE_CENTER == 0x118 && EMK_MT_BODY_SPH_CENTER == EMK_MT_BODY_SPH + EMT_CC_SHAPE_CENTER &&
@@ -265,10 +266,19 @@ void em_mt_consume(const em_slot* sl, void* a, u32 off, u32 aux, int annex, u8 h
 // the copy's Execute did before its builder: the latch +0xC01 0, the hit
 // cooldown +0x460 0 (only Execute counts it down, 0x63B8-0x63C8, and PINNED
 // sets 5, 0x6994: left set, every body sphere would stay at R -200), the
-// sway clock +0x46A + 1. MOVE: +0x48E = 1 when this frame brought no fresh
-// sample (EM_XB_MT_FRESH clear) or the host dives (EMK_MT_F2_DIVE), else 0
-// (D9: the ring holds on a repeat, so a stream gap does not compress the
-// trail, C1b-magtail-redo.md:68), then body_control1. FIGHT: the bite state
+// sway clock +0x46A + 1. MOVE: +0x48E = 1 (the ring holds, C1b-magtail-
+// redo.md:68) while the copy's own head is within EMT_RING_STEP_MIN of the
+// last entry the ring kept (idx - 1), else 0, then body_control1. D9 held
+// it on a stale sample or the host's dive flag instead, but the copy plays
+// the host's head a few frames late while the flag acts at once: the ring
+// stopped while the head still eased in (seg0-seg1 stretched to about 60
+// at each host stop) and restarted before it moved (a 29/62 kink ran down
+// the tail), live MT-L1 2026-10-23. Gating on the copy's own motion holds
+// it through a dive and wherever the smoothed head stands still; through a
+// stream gap it records what the head does (Go's smoother extrapolates up to
+// 150 ms, then snaps back to the newest sample, mods/enemysync/smooth.go),
+// as D9 did. FIGHT: +0x48E 0 (body_control2 skips its sway while it is
+// set, and with EMK_MT_HKD_CHAIN no edge clears it), the bite state
 // +0xC04 0 (a copy adopted at 2 would keep a live bite, at 1 an unhittable
 // head: body_control2 0x1314-0x1374), then body_control2. PINNED (D8): no
 // call; the matrices and centres hold (body_control5 keeps sph0's centre
@@ -300,16 +310,20 @@ void em_mt_body_step(const em_slot* sl, em_ext_slot* xs, void* a, u8 hkd, f32 sc
     EMT_AF(a, s16, EMK_MT_HIT_COOL) = 0;
     EMT_AF(a, s16, EMK_MT_SWAY_FRAME) = (s16)(EMT_AF(a, s16, EMK_MT_SWAY_FRAME) + 1);
     if (mode == EMK_MT_MODE_MOVE) {
-        EMT_AF(a, s16, EMK_MT_DIVE) =
-            (!(xs->kind_bits & EM_XB_MT_FRESH) || (sl->tgt_flags2 & EMK_MT_F2_DIVE)) ? 1 : 0;
+        const f32* last = (const f32*)((u8*)a + EMK_MT_RING_POS) +
+                          ((EMT_AF(a, u32, EMK_MT_RING_IDX) - 1u) & EMT_RING_MASK) * 3;
+        f32 dx = EMT_AF(a, f32, EMT_AC_POS + 0) - last[0];
+        f32 dy = EMT_AF(a, f32, EMT_AC_POS + 4) - last[1];
+        f32 dz = EMT_AF(a, f32, EMT_AC_POS + 8) - last[2];
+        EMT_AF(a, s16, EMK_MT_DIVE) = (dx * dx + dy * dy + dz * dz < EMT_RING_STEP_MIN * EMT_RING_STEP_MIN) ? 1 : 0;
         fn = emt_builder(a, EMK_MT_TEXT_BC1);
         if (fn) ((emt_builder_t)fn)(a);
     } else if (mode == EMK_MT_MODE_FIGHT) {
+        EMT_AF(a, s16, EMK_MT_DIVE) = 0;
         EMT_AF(a, u8, EMK_MT_BITE) = 0;
         fn = emt_builder(a, EMK_MT_TEXT_BC2);
         if (fn) ((emt_builder_t)fn)(a);
     }
-    xs->kind_bits &= (u8)~EM_XB_MT_FRESH;
 }
 
 // R-D6/D8 em_colliders' EMK_COLL_MT case unless EMK_MT_HKD_COLL, after

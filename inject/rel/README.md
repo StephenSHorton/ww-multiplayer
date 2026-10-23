@@ -357,8 +357,9 @@ and `body_control2`'s first words and both builders' `blr` in the loaded
 frame `em_mt_body_step` writes the streamed head (shape x/y/z, the wiggle
 +0x468 from slot +0x18), clears the latch +0xC01 and the hit cooldown
 +0x460, ticks the sway clock +0x46A and calls `body_control1` (MOVE, with
-+0x48E = 1 on a stale or diving sample so a gap does not compress the
-ring) or `body_control2` (FIGHT, after +0xC04 = 0); PINNED calls nothing.
++0x48E = 1 while the copy's head is within 3 units of the ring's last kept
+entry, so the ring advances on the copy's own motion) or `body_control2`
+(FIGHT, after +0x48E = 0 and +0xC04 = 0); PINNED calls nothing.
 The builders write the eight segment matrices and enter the nine spheres
 themselves; `em_mt_coll_post` then clears the body spheres' At, puts a
 withheld collider at R -200, and in PINNED clears At and Co on the bodies

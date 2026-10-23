@@ -1525,16 +1525,6 @@ static void em_consume(enemy_mirror_state* s, em_ext* x, u32 seq, u32 frame) {
             if (em_f32_bad(x0) || em_f32_bad(y0) || em_f32_bad(z0)) {
                 sl->last_err = WWENEMY_ERR_RANGE;      // keep the previous target
             } else {
-#if EMK_WITH_MT
-                // Batch D D9: an MT target that moved since the last consume
-                // (position or angle). em_mt_body_step holds the ring
-                // (EMK_MT_DIVE 1) on every frame without one, so a stream
-                // gap or Go's hold never compresses the body.
-                if (k && k->id == EMK_KIND_MT &&
-                    (x0 != sl->tgt.x || y0 != sl->tgt.y || z0 != sl->tgt.z ||
-                     EB_S16(off + WWENEMY_SL_ANGLE_OFF) != sl->tgt_angle))
-                    xs->kind_bits |= EM_XB_MT_FRESH;
-#endif
                 sl->tgt.x = x0;
                 sl->tgt.y = y0;
                 sl->tgt.z = z0;

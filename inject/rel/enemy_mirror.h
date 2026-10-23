@@ -167,12 +167,9 @@ typedef char em_check_kind_size[(sizeof(em_kind) == 0x44 && __builtin_offsetof(e
 // values, enemy_mirror.c; a slot holds one kind): the builders' fingerprint
 // was checked for this pid (em_mt_fp_ok, before the adoption it gates;
 // em_consume drops both bits on a pid change, em_adopt keeps them), and
-// matched; em_consume took a sample that moved (D9: without it the body
-// step holds EMK_MT_DIVE 1, so a stream gap does not compress the ring;
-// zeroed at adopt).
+// matched.
 #define EM_XB_MT_FP_DONE  0x04
 #define EM_XB_MT_FP_OK    0x08
-#define EM_XB_MT_FRESH    0x20
 // The bits that belong to one pid (em_consume drops them on a pid change).
 #define EM_XB_MT_PID_BITS (EM_XB_MT_CUSTODY | EM_XB_MT_FP_DONE | EM_XB_MT_FP_OK)
 
@@ -473,8 +470,7 @@ void em_mt_adopt(void* a, f32 dx, f32 dy, f32 dz);
 // mode/action (MOVE, FIGHT, PINNED only), its edge first (em_mt_edge,
 // unless EMK_MT_HKD_CHAIN); aux[1] the ball timer, aux[3] shape.z; EXTRA
 // clear: phase (flags2) and colour frames (aux[2]). aux is the slot's
-// annex offset (mailbox-relative). em_consume itself sets xs->kind_bits
-// EM_XB_MT_FRESH when the slot's position or angle moved.
+// annex offset (mailbox-relative).
 void em_mt_consume(const em_slot* sl, void* a, u32 off, u32 aux, int annex, u8 hkd);
 // R-D6 the mode edges, unless EMK_MT_HKD_CHAIN (wwenemy_kinds.h "The mode
 // edges"): MOVE -> FIGHT copies the ring into the chain (mt.rel
@@ -485,10 +481,10 @@ void em_mt_edge(void* a, u8 from, u8 to);
 // which has no xs) unless EMK_MT_HKD_MTX, the body step, only with
 // EM_XB_MT_FP_OK: pos +0x1F8 and shape +0x20C/E/10 (the host's post-sway
 // values) are the smoothed slot's; then EMK_MT_LATCH 0, EMK_MT_HIT_COOL 0,
-// EMK_MT_SWAY_FRAME += 1; mode MOVE: EMK_MT_DIVE 1 when EM_XB_MT_FRESH is
-// clear or flags2 has EMK_MT_F2_DIVE, else 0 (D9), then body_control1(a);
-// FIGHT: EMK_MT_BITE 0, then body_control2(a); PINNED (D8): no builder (the
-// matrices hold). Clears EM_XB_MT_FRESH. dying (the quiet death): no
+// EMK_MT_SWAY_FRAME += 1; mode MOVE: EMK_MT_DIVE 1 while the copy's pos is
+// within EMT_RING_STEP_MIN of the ring's last kept entry, else 0, then
+// body_control1(a); FIGHT: EMK_MT_BITE 0, then body_control2(a); PINNED
+// (D8): no builder (the matrices hold). dying (the quiet death): no
 // builder, each segment model's base scale = actor scale * scale.
 void em_mt_body_step(const em_slot* sl, em_ext_slot* xs, void* a, u8 hkd, f32 scale, int dying);
 // R-D6/D8 em_colliders' EMK_COLL_MT case unless EMK_MT_HKD_COLL, after the
