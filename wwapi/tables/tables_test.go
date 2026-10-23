@@ -748,6 +748,11 @@ var schemaShapes = map[int]string{
 	// switches are decoded, and timed crystal switches are momentary
 	// inputs, with a Tuner writer allowed beside them (FW sw7, sw226).
 	7: "18e463dd4d344be73cbc4e9f0f99bf72f2021d56a876e6db3cd6bc86cddd5014",
+	// 8: the same shape; Obj_Swflat (TotG's floor switches) is decoded and
+	// momentary, a swflat beside a latching setter counts as latching
+	// (TotG sw0, sw14, sw16, sw17), Obj_Try only reads, and an Obj_Correct
+	// slot with an Obj_Try twin latches (TotG sw5, sw6).
+	8: "18e463dd4d344be73cbc4e9f0f99bf72f2021d56a876e6db3cd6bc86cddd5014",
 }
 
 func TestSchemaShape(t *testing.T) {

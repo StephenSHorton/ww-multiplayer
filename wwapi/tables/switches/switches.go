@@ -9,7 +9,12 @@
 // runtime checks every tick. An AND switch's setter latches only while
 // all its inputs are synced, transitively, except that a one-shot AND
 // latches over momentary inputs too (momentary: floor, iron-boots and
-// timed crystal switches), and is GBA-dependent while an input is.
+// timed crystal switches), and is GBA-dependent while an input is. Two
+// passes count set-and-clear writers as latching: statueSlots, where the
+// game makes them so (a twin statue holds the slot down), and
+// sharedFloorSwitches, a provisional sync policy where the game does not
+// (an unpressed swflat clears its bit every frame) that a live check
+// must confirm.
 //
 // Build is a pure function of the stages and the l_objectName table;
 // its Table marshals to JSON for the cache §6.2 keys by DOL hash.
@@ -283,7 +288,7 @@ func (t *Table) GBADependent(k Key) bool {
 // Entries whose name names has no proc for are counted in Unnamed; with a
 // nil names, every entry is. A nil stage is skipped.
 func Build(stages []*stage.Stage, names *stage.ObjectNames) *Table {
-	b := &builder{t: &Table{}, byKey: make(map[Key]*Switch)}
+	b := &builder{t: &Table{}, byKey: make(map[Key]*Switch), pos: make(map[Ref][3]float32)}
 	for _, st := range stages {
 		if st == nil {
 			continue
@@ -293,6 +298,8 @@ func Build(stages []*stage.Stage, names *stage.ObjectNames) *Table {
 			b.place(st, p, names)
 		}
 	}
+	b.statueSlots()
+	b.sharedFloorSwitches()
 	b.propagate()
 	b.finish()
 	return b.t
@@ -301,6 +308,7 @@ func Build(stages []*stage.Stage, names *stage.ObjectNames) *Table {
 type builder struct {
 	t     *Table
 	byKey map[Key]*Switch
+	pos   map[Ref][3]float32 // where each Obj_Try and Obj_Correct is placed, for statueSlots
 }
 
 // sw returns switch k, adding it.
@@ -331,6 +339,9 @@ func (b *builder) place(st *stage.Stage, p stage.Placed, names *stage.ObjectName
 	ref := Ref{
 		Stage: st.Name, Room: p.Room, Layer: p.Layer, Tag: p.Tag, Index: p.Index,
 		Name: p.Name, Proc: proc, Params: p.Params, Angle: p.Angle,
+	}
+	if proc == procTry || proc == procCorrect {
+		b.pos[ref] = p.Pos
 	}
 	if sp.undecoded != "" {
 		b.t.Undecoded = append(b.t.Undecoded, Undecoded{Ref: ref, Why: sp.undecoded})
@@ -400,15 +411,17 @@ func synced(s *Switch) bool {
 // writer, and every other writer is momentary too or GBA. A momentary
 // writer sets the switch from a press or hit and clears it again on its
 // own: a floor or iron-boots switch that clears on release (swpush type
-// 1, swheavy types 0 and 1; swpush type 2 only clears, so it is decoded
-// OpClear and is no momentary input) or a timed crystal switch, whose
-// timer clears it (SWHIT0 with a timer, d_a_swhit0.cpp:337-365). A
-// one-shot AND fed by such inputs only ever sets its output (andsw0
-// behaviours 0 and 3, d_a_andsw0.cpp:40-57, :129-135; andsw2 type 0,
-// d_a_andsw2.cpp:87-135), so the partner's set stands for the solved
-// puzzle as any latching setter's does, while the presses and hits never
-// sync (DRC's r16 floor switches feeding sw41, the r14 barricade; FW's r13
-// five-crystal gate sw7 and kinMB's exit pair sw226). An area switch's
+// 1, swheavy types 0 and 1, swflat types 1 and 2; swpush type 2 only
+// clears, so it is decoded OpClear and is no momentary input) or a timed
+// crystal switch, whose timer clears it (SWHIT0 with a timer,
+// d_a_swhit0.cpp:337-365). A one-shot AND fed by such inputs only ever
+// sets its output (andsw0 behaviours 0 and 3, d_a_andsw0.cpp:40-57,
+// :129-135; andsw2 type 0, d_a_andsw2.cpp:87-135), so the partner's set
+// stands for the solved puzzle as any latching setter's does, while the
+// presses and hits never sync (DRC's r16 floor switches feeding sw41, the
+// r14 barricade; FW's r13 five-crystal gate sw7 and kinMB's exit pair
+// sw226; TotG's r0 pair feeding sw12 and r6 triple feeding sw32, type 2
+// swflats that stay down once that AND's output is on). An area switch's
 // per-frame writer (SW_C00 type 0) is not momentary, so an AND it feeds
 // still can't spring the partner's ambush (§6.2); nor is an input another
 // clearer writes: a switch timer (Obj_Timer), a timed AND's clear of its
@@ -422,13 +435,104 @@ func momentary(s *Switch) bool {
 	for _, w := range s.Writers {
 		switch {
 		case w.Class == GBA:
-		case w.Op == OpSetClear && (w.Proc == stage.ProcSwpush || w.Proc == stage.ProcSwheavy || w.Proc == stage.ProcSwhit0):
+		case w.Op == OpSetClear && (w.Proc == stage.ProcSwpush || w.Proc == stage.ProcSwheavy || w.Proc == stage.ProcSwhit0 || w.Proc == procSwflat):
 			mom = true
 		default:
 			return false
 		}
 	}
 	return mom
+}
+
+// statueSlotRadius2 is the squared distance within which an Obj_Correct
+// slot of type 4 or 5 holds an Obj_Try while its switch is on: mode_on
+// searches with field_0x2A4 = L_attr[type].field_0x4, 9.0f for both
+// (d_a_obj_correct.cpp:30-39, :289-292), through chk_try_actor2, which
+// also wants the statue's swSave to be the slot's (:101-121).
+const statueSlotRadius2 = 9.0
+
+// statueTwin is the Obj_Try type an Obj_Correct slot of each type takes,
+// where that type reads its switch (tryReadsSwitch): search_tryKeyGate
+// (slot type 4) takes UNK_5 and search_tryKeyDoor (type 5) UNK_6
+// (d_a_obj_correct.cpp:186-229, M_search_proc :267-276). The other slots
+// take statues that don't read the switch, or push blocks.
+var statueTwin = map[int]int{4: 5, 5: 6}
+
+// statueSlots makes an Obj_Correct slot's set-and-clear latching where
+// the slot has a twin statue: an Obj_Try of the type it takes, reading
+// its switch with params bit 31 set (so it appears while the switch is
+// on), placed in the slot's room within statueSlotRadius2 of it. The slot
+// sets the switch while a statue sits in it and clears it when the
+// statue leaves (mode_off, mode_on, d_a_obj_correct.cpp:279-302), and it
+// starts in mode_on when the switch is on (:59-63). So in a game that
+// receives the switch, the carried statue doesn't appear (bit 31 clear)
+// and the twin does, in the slot, which keeps the switch on: the
+// partner's set stands for the placed statue (TotG r0: CrTrM1 with Hmon1d
+// on sw5, the iron grate; CrTrM2 with Hmon2d on sw6, the water spouts).
+// A player who lifts the twin out clears it in his own game until it is
+// next applied, and chk_appear refuses the twin while a statue of its
+// type already exists (M_attr +0x71, d_a_obj_try.rel 0x4D0-0x508).
+func (b *builder) statueSlots() {
+	for _, s := range b.byKey {
+		for i := range s.Writers {
+			w := &s.Writers[i]
+			if w.Proc != procCorrect || w.Op != OpSetClear || w.Class != Unsafe {
+				continue
+			}
+			want, ok := statueTwin[int(w.Params&0xF)]
+			if !ok {
+				continue
+			}
+			wp := b.pos[w.Ref]
+			for _, r := range s.Readers {
+				if r.Proc != procTry || r.Stage != w.Stage || r.Room != w.Room || int(r.Params&0xF) != want || r.Params>>31 == 0 {
+					continue
+				}
+				rp := b.pos[r.Ref]
+				dx, dy, dz := float64(rp[0]-wp[0]), float64(rp[1]-wp[1]), float64(rp[2]-wp[2])
+				if dx*dx+dy*dy+dz*dz >= statueSlotRadius2 {
+					continue
+				}
+				w.Class = Latching
+				w.Why += fmt.Sprintf("; latches: its twin statue %v appears in the slot while it is on", r.Ref)
+				break
+			}
+		}
+	}
+}
+
+// sharedFloorSwitches keeps a switch that a momentary swflat shares with
+// a latching setter synced, as it was before Obj_Swflat was decoded: the
+// swflat's writer is made latching when the switch has another latching
+// writer that is neither an AND (whose class propagate may still lower)
+// nor a swflat. TotG has four: sw0 (r0 #18, a type 2 that stays down once
+// sw28 is on, beside the Hmlif and Kui setters; the r0-r4 door reads it),
+// sw14 (r12 #0, beside the r8-r10 key door's keyInit), and sw16 and sw17
+// (r12 #1 and #4, beside the boss-key chest and the r22 Joy Pendant
+// chest). Unpressed, such a swflat clears the bit every frame in the game
+// it stands in (d_a_obj_swflat.rel 0xF08), as in a single-player game;
+// whether that relocks the key door or recloses a chest is for a live
+// check (the TotG slice's C2), so the rule is provisional. Only swflat is
+// treated so, which leaves every other floor switch's verdict as it was.
+func (b *builder) sharedFloorSwitches() {
+	for _, s := range b.byKey {
+		var by *Writer
+		for i := range s.Writers {
+			if w := &s.Writers[i]; w.Class == Latching && len(w.Inputs) == 0 && w.Proc != procSwflat {
+				by = w
+				break
+			}
+		}
+		if by == nil {
+			continue
+		}
+		for i := range s.Writers {
+			if w := &s.Writers[i]; w.Proc == procSwflat && w.Op == OpSetClear && w.Class == Unsafe {
+				w.Class = Latching
+				w.Why += fmt.Sprintf("; counted as latching: it shares the switch with latching setter %v (provisional until a live check)", by.Ref)
+			}
+		}
+	}
 }
 
 // gbaInput reports whether AND input s may be written by a Game Boy
