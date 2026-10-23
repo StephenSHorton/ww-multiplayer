@@ -72,7 +72,10 @@ package main
 // knockback, the attack timer, unk_366/unk_368, the would-be live gate
 // (BbLiveRefusal), the tail root unk_BD4[1] beside unk_AA8[0] and every
 // sphere. enemy-match --dry lists bb (bb_type, bb_m2df, bb_knock,
-// bb_live) after " pid=".
+// bb_live) and, since batch D restored the Magtail row, mt (mt_mode,
+// mt_appear, mt_death, mt_killed, mt_ice, mt_live) after " pid="; the
+// enemy-watch --kind mt tail (mtExtra) is the Go implementer's to restore
+// with the sampler (batch D G-D6/G-D7, CONTRACT.md).
 
 import (
 	"context"
@@ -93,7 +96,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
-const enemyMatchUsage = "enemy-match --dry [--kinds mo2,bk,cc,ki,am,am2,tn,bb (default every kind, +u on each)]"
+const enemyMatchUsage = "enemy-match --dry [--kinds mo2,bk,cc,ki,am,am2,tn,bb,mt (default every kind, +u on each)]"
 
 // kindOnly is the set with id alone enabled, keyed and unkeyed.
 func kindOnly(id enemysync.KindID) enemysync.KindSet {
@@ -162,6 +165,13 @@ func liveGateText(e *enemysync.Enemy) string {
 			return fmt.Sprintf("bb_type=%s bb_m2df=- bb_knock=- bb_live=-", mode)
 		}
 		return fmt.Sprintf("bb_type=%s bb_m2df=%d bb_knock=%.2f bb_live=%s", mode, e.Live.BbRider, e.Live.BbKnock, okText(enemysync.BbLiveRefusal(e.Live)))
+	case enemysync.KindMT:
+		if !e.LiveSpanOK {
+			return fmt.Sprintf("mt_mode=%s mt_appear=- mt_death=- mt_killed=- mt_ice=- mt_live=-", mode)
+		}
+		g := &e.Live
+		return fmt.Sprintf("mt_mode=%s mt_appear=%d mt_death=%d mt_killed=%d mt_ice=%d mt_live=%s", mode, g.MtAppear, g.MtDeath, g.MtKilled, g.MtIce,
+			okText(enemysync.MtLiveRefusal(*g)))
 	}
 	return ""
 }

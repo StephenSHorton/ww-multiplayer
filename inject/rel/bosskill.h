@@ -1,7 +1,8 @@
 // bosskill.h: the boss_kill relay op (bosskill.c), run by the keeper
 // (rel_main.c). The request's layout is include/wwboss.h; design:
 // ww-multiplayer-handoff/design/research/C3-C6-gohma.md, "The relay op
-// (B5, revised)"; Kalle Demos: research/C1-kalle-demos-relay.md.
+// (B5, revised)"; Kalle Demos: research/C1-kalle-demos-relay.md; Gohdan:
+// enemy-mirror-batch-d.json R-D2, R-D3 (bk_bst, under WWBOSS_WITH_BST).
 // Stateless: everything it keeps is the request's ack and result in the
 // mailbox slack, so the keeper's actor layout is unchanged.
 #ifndef WW_BOSSKILL_H

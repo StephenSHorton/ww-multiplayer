@@ -180,6 +180,7 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 	m.kills, m.targets, m.demo = nil, nil, false
 	m.rf.locks = nil
 	clear(m.rf.deathPIDs)
+	r.ar.cands = r.ar.cands[:0]
 	if o.st.Regressed {
 		// A save state was loaded: the actor heap and the process-ID
 		// counter (f_pc_base.cpp:36-40) went back with it, so an enemy
@@ -191,6 +192,7 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 		clear(m.held)
 		clear(m.demoHeld)
 		m.rf.forget()
+		r.ar.forget()
 	}
 	if o.consistent() {
 		if st, err := wire.MakeStage(o.s.StageName); err == nil {
@@ -237,7 +239,10 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 	// The stale-actor refresh (refresh.go) needs the walk too, when a
 	// switch landed, kill stores or none.
 	rt := r.newRefreshTick(o)
-	if len(stores) == 0 && !rt.any() {
+	// Tier 3 (refresh_relay.go) needs it when a bit of a kind
+	// --coop-refresh names landed: a chest or a pickup too.
+	rf := rt.anyRefresh(r.rfOn)
+	if len(stores) == 0 && !rt.any() && !rf {
 		return
 	}
 	name := stage.String()
@@ -292,7 +297,7 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 		return setID >= 0 && setID < enemies.MaxSetID && ws != nil && ws[setID/32]&(1<<(setID%32)) != 0 && mask.Has(setID)
 	}
 	ct := CombatTick{Flags: o.rooms.flags, FlagsOK: o.rooms.ok, Kills: kills, Claimed: r.cfg.Claimed}
-	if !live && !rt.any() {
+	if !live && !rt.any() && !rf {
 		r.setCombat(ct)
 		return
 	}
@@ -403,6 +408,9 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 	m.demo = demo
 	ct.Walk, ct.Allow, ct.Demo = &w, allow, demo
 	ct.Locks = r.planLocks(rt, &w, demo, demoWhy)
+	if rf {
+		r.planRefresh(rt, &w, demo, demoWhy)
+	}
 	r.setCombat(ct)
 }
 

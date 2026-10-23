@@ -134,6 +134,10 @@ func commandTable() []command {
 		{name: "remote-slot", group: groupDev, run: runRemoteSlot},
 		// Stage 4 full body: the section 3.5 globals before/after (fullbody_globals.go).
 		{name: "fullbody-globals", group: groupDev, run: runFullbodyGlobals},
+		// Batch D's P0 probes: Gohdan, the refresh procs, the Magtail body (enemy_batchd_probe.go).
+		{name: "bst-probe", group: groupDev, run: runBatchDProbe},
+		{name: "rf-probe", group: groupDev, run: runBatchDProbe},
+		{name: "mt2-probe", group: groupDev, run: runBatchDProbe},
 	}
 }
 

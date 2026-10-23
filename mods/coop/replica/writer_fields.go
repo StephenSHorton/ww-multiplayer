@@ -71,8 +71,21 @@ func (w *FrameWriter) ApplyBossKill(ctx context.Context, fs []Field) (res Result
 	return w.applyFields(ctx, fs, pathGuard{w.wg, pathBoss}, &w.stats.BossKills)
 }
 
-// applyFields is ApplyFields and ApplyBossKill: fs through g, counted in
-// *n when any byte was written.
+// ApplyRefresh makes an actor_refresh request's writes (refresh_relay.go),
+// fs in order, as ApplyBossKill makes a boss_kill request's: every byte
+// judged as written by pathRefresh (the request's body held to the
+// allow-list's procs and the tag, then its seq). The caller puts the seq
+// last, so a request stopped part way leaves a body the REL ignores until
+// a new seq. Refreshes counts the requests written. Errors as ApplyFields.
+func (w *FrameWriter) ApplyRefresh(ctx context.Context, fs []Field) (res Result, err error) {
+	if w.wg == nil {
+		return res, ErrDryRun
+	}
+	return w.applyFields(ctx, fs, pathGuard{w.wg, pathRefresh}, &w.stats.Refreshes)
+}
+
+// applyFields is ApplyFields, ApplyBossKill and ApplyRefresh: fs through
+// g, counted in *n when any byte was written.
 func (w *FrameWriter) applyFields(ctx context.Context, fs []Field, g pathGuard, n *int) (res Result, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -112,7 +125,7 @@ func (w *FrameWriter) applyFields(ctx context.Context, fs []Field, g pathGuard, 
 
 // pathGuard is the WriteGuard as a write.Guard for one path: every byte
 // judged as written by p (pathEscape for an escape, pathBoss for a
-// boss_kill request).
+// boss_kill request, pathRefresh for an actor_refresh one).
 type pathGuard struct {
 	wg *WriteGuard
 	p  path

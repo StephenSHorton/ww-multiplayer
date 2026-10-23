@@ -5,6 +5,7 @@ auto-recapture-pair
 blob-verify-live
 broadcast-link
 broadcast-pose
+bst-probe
 coop-probe
 coop-tables
 coop-tag
@@ -53,6 +54,7 @@ join
 mods
 move-puppet
 mp-local
+mt2-probe
 patch
 peek
 peek-demo
@@ -66,6 +68,7 @@ region-probe
 remote-flags
 remote-slot
 remote-watch
+rf-probe
 save-diff
 save-merge
 scan-pos

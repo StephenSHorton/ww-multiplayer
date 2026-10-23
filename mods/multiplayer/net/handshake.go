@@ -90,6 +90,12 @@ import (
 // only a log line. Under 4 that
 // mixed pair is refused at the hello and shown incompatible in the LAN
 // list (internal/gui/lan.go) instead.
+//
+// Batch D (enemy-mirror-batch-d.json G-D6, "magtail") bumped it to 5 for
+// the same reason: the restored Magtail row changes the KindHash again
+// (0x587E10C2 to 0xB826567A), and a batch C build (protocol 4, main
+// 56bfb22, unreleased) would pass a protocol-4 hello and then lose every
+// enemy to the KindHash disarm.
 
 // ProtocolVersion is the wire protocol this build speaks. Bump it on any
 // change an older build can't handle: client and server must match.
@@ -100,7 +106,10 @@ import (
 //	   enemy layer and remote bodies on by default
 //	4  enemy mirror batch C: the BB kind row (a new KindHash; MT cut),
 //	   the u16 host kind mask (WireVersion stays 4)
-const ProtocolVersion uint16 = 4
+//	5  enemy mirror batch D: the MT kind row back (a new KindHash; off by
+//	   default, mt+u), Gohdan's boss_kill and the actor_refresh request
+//	   (WireVersion stays 4)
+const ProtocolVersion uint16 = 5
 
 // Connection roles, the hello's role byte.
 const (

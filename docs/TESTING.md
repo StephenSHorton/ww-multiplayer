@@ -424,6 +424,43 @@ Rig: two Dolphins with `mp-local --coop` on one world. Run the Tier 1 checks onc
 
 Not covered: Tier 3 (barricades, boulders, leaf piles, freestanding items, chests, the door plants and Mothulas), the `--coop-refresh` knob (G6) and a dry-run log per candidate. Tiers 1 and 2 are on whenever combat is granted.
 
+### Batch D P0
+
+Design: `ww-multiplayer-handoff/design/enemy-mirror-batch-d.json`, key `p0` (offsets in `rel_changes`, `actor_refresh.procs` and `magtail`). P0 runs on today's build, before any batch D REL code, one Dolphin at a time. The three probes only read memory (`cmd/wwdev/enemy_batchd_probe.go`); the only writes are `stage-hop`, `region-probe arm` and the hand-poked BST recipe. Pick the Dolphin with `WW_DOLPHIN_PID=<pid>` on every command. Take hops only from `archive/coop-drc/HOPS.md` and the list below.
+
+Offline: `go test -count=1 ./cmd/wwdev -run 'Bst|Rf|Mt2|MtExec|RegionProbeCovers'`. `TestBstProbe` and `TestBstVerdictMissing` cover the parts sorted by +0x2B4 and APPLIED, WAITING, ALREADY and NO_ACTOR. `TestRfProbe` covers each proc's line, the Tbox and Saku fingerprints (the Saku one is information only), and the FAIL cases. `TestMt2Probe`, `TestMt2Verdict`, `TestMt2F470Eased`, `TestMt2Torn` and `TestMtExecTextMiss` cover the residuals, the build f470, a torn read, OVER, INCOMPLETE, PASS, FAIL, a missing matrix and fp=miss. `TestRegionProbeCoversRefresh` checks that `region-probe` arms 0x804137B0..0x804137D0.
+
+- [ ] **P0-L5 region proof** (the refresh block +0x8B0, 0x804137B0..0x804137CF). `CanaryArenaHigh` already starts at 0x804137B0 (past the enemy knob table), so the existing probe covers it. No change is needed until G-D5 moves it to +0x8D0; run this with a wwdev from before that move.
+
+  ```
+  WW_DOLPHIN_PID=<pid> ./wwdev.exe region-probe arm --yes
+  WW_DOLPHIN_PID=<pid> ./wwdev.exe stage-hop M_NewD2 0 0 --yes
+  ```
+
+  Then hop the rest the same way: `M_NewD2 20 1`, `M_NewD2 1 2`, `M_NewD2 6 3`, `M_NewD2 9 6`, `M_NewD2 14 8`, `kindan 0 1`, `Siren 0 0`, `SirenB 1 0`, `kinBOSS 1 0`. Finish with `WW_DOLPHIN_PID=<pid> ./wwdev.exe region-probe check`.
+  - Pass: the "below arena (past the enemy knob table)" region reports every word intact.
+  - Fail (any changed word in 0x804137B0..0x804137CF): move the refresh block to a clean span below +0x1100.
+- [ ] **P0-BST** (`stage-hop SirenB 1 0 --yes`):
+  - `WW_DOLPHIN_PID=<pid> ./wwdev.exe bst-probe` reads once. It prints the three proc 0xF2 actors sorted by +0x2B4 (head 0, hand1 1, hand2 2) with their addresses and raw words: `+0x10D4` (8 bytes: m10D4/act, m10D8/mDamage), `+0x2E7C` (m2E7C in the top byte), `+0x2E98` (m2E98, m2E9A) and `+0x10FC` (m10FC[0], the sleep timer). It decodes each word and ends with the answer bk_bst would give (`APPLIED`, `WAITING` with the terms that miss, `ALREADY` or `NO_ACTOR`, plus the result word).
+  - Through a real fight, run `WW_DOLPHIN_PID=<pid> ./wwdev.exe bst-probe 600`. It reads every tick and prints only on change. Confirm head m2E7C 1 -> 10 -> 11 -> 12, and head act 7 with mDamage 0 -> 3.
+  - Forced recipe. `poke-u32` takes a plain hex address, so add each offset to the part's address from bst-probe's line (for example, head 0x80B03000 + 0x2E7C = `poke-u32 0x80B05E7C 0x0C000000`):
+    - hands: `poke-u32 <hand>+0x10D4 0x00000006`, `poke-u32 <hand>+0x10D8 0`, `poke-u32 <hand>+0x10FC 0x0000012C`;
+    - head: `poke-u32 <head>+0x10D4 0x00000007`, `poke-u32 <head>+0x10D8 0`, `poke-u32 <head>+0x2E7C 0x0C000000`.
+
+    Then `bst-probe 30`.
+  - Pass: vanilla parks at head act 7, mDamage 3, m2E7C 12 with both hands act 6 (asleep), and the last line reads `bk_bst would answer APPLIED 0x0107030C`.
+- [ ] **P0-RF**: one `WW_DOLPHIN_PID=<pid> ./wwdev.exe rf-probe` after each hop. It prints every Stone2, Saku, daItem, Obj_Leaves and Tbox in the queue: params, the bit as the REL re-derives it, the design's fields, the generic gates the walk sees (`init`, `evtcmd`, `CARRY`, `pause`, dEvtMode, Link within 300 units) and the per-proc gate. Static checks print PASS or FAIL, and the last line is `P0-RF PASS|FAIL: <n> refresh actors, <k> static check(s) failed`. Any miss cuts that proc before the build.
+  - `M_NewD2 1 2` Ebrock2 sw17: the stone2 line with `sw 17` reads `m648 0 (idle)`. Lift it and re-run: `m648 1 (lifted)`, proc gate `m648 != 0`.
+  - `M_NewD2 20 1` Dsaku: `saku sw1 sw2 params&0xF +0xEF4 +0xEF8 +0xF00 +0xF04`; `+0xF00==sw1`, `+0xF04==sw2` and `half2-matches-params` PASS. `broken-fp(v2)` is still_open S3's fingerprint, information only.
+  - `M_NewD2 0 0` purple rupee: `item +0x630 (bit) +0x63A +0x669 +0x66B`. Expect `+0x66B 6` and `+0x669 & 0x48` clear (proc gate ok). Bit 0x7F or item 0x4B shows REFUSED.
+  - `kindan 0 1` Vochi: `leaves sw <(params>>13)&0xFF>`.
+  - `M_NewD2 9 6` closed chest: `tbox funcType bit +0x2BC +0x2C4 (closed) +0x348 +0x3F0`, the execute words `+0x0C 4BFFFA71 +0x1C 4E800020` (`execute-fp PASS`), the three derived action addresses and `+0x348 is actionOpenWait` (or SwOnWait/SwOnWait2) with `closed-chest-action PASS`.
+- [ ] **P0-MT2** (`stage-hop M_NewD2 14 8 --yes`): `WW_DOLPHIN_PID=<pid> ./wwdev.exe mt2-probe 120`, with at least one FIGHT stretch (walk Link into a Magtail's range while it runs).
+  - The walk line per Magtail records the live `exec`/`bc1`/`bc2` words and blr words with `fp=ok|miss` against R-D6.
+  - Each changed sample prints mode, `ring` (+0xBF4 & 63, read in the same class read as the sphere centres), f470, wiggle (+0x468), hit_cool (+0x460), bite (+0xC04), pos, then per segment `tr` and `col2` (morf[i] -> model +0x24), `sph` and the residual `d`. It ends with `eye`, `de`, `max`, the height spread `slope` and `ok`, `OVER` or `skip`. Residuals: sph_i - (tr_i - f470*col2_i) for i >= 1; sph_0 - (tr_0 + 100*col2_0); eye - (tr_0 + 30*col2_0). The game eases f470 by up to 1 per frame after it builds the matrices, so for i >= 1 the probe uses the build f470 (`built`, the least-squares fit over segments 1..7, at most 1 from the f470 read); without that every MOVE -> FIGHT stretch would read about 1.0 and FAIL.
+  - The probe reads the class again after the matrices and compares mode, ring idx, f470, wiggle, pos, the morfs and every sphere centre (the idx alone does not move in FIGHT or a dive). A change retries and, after three tries, is printed `TORN` and left out (the p0mt-room8.txt:195 tear).
+  - The run ends with a per-Magtail summary (samples per mode, torn, max residual MOVE and FIGHT, sloped samples) and `P0-MT2 PASS|INCOMPLETE|FAIL`. PASS means MOVE and FIGHT samples, all within 0.2. INCOMPLETE means no FIGHT sample (re-run). FAIL means EMK_WITH_MT=0 and the Go row reverted. A `sloped` count above 0 answers still_open S2.
+
 ### Release defaults (pre-release live checklist)
 
 Enemy sync and the remote bodies are on by default (docs/05-known-issues.md "Shared enemies"), and the network protocol is 4 (3 in v0.5.0; batch C bumped it, D13), so this build refuses v0.5.0 and older at the hello. Every enemy-layer live pass on record ran under `wwdev mp-local` (one process, two Dolphins, one machine); none has run through the app's GameRunner or the CLI's `host` / `join`, between two processes or two machines, over WAN, or on macOS. The owner runs this list on the release candidate binary before the tag. `mp-local` now runs the enemy pipelines too unless `WW_ENEMY_SYNC=0`, so the smoke and co-op checks above include them by default.

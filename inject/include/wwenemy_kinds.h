@@ -7,8 +7,9 @@
 // and AM2 direct apply: enemy-mirror-tn.json "rel_changes" R-1..R-16,
 // decisions D1-D14, "p0_findings"; batch C's Kargaroc row and the ambush
 // Bokoblin defines: enemy-mirror-batch-c.json "bb", "rel_changes"
-// R-6..R-20, decisions D7-D11; its Magtail row was cut by R-20 after the
-// P0-MT live probe, id 8 stays reserved). enemy_mirror.c builds its
+// R-6..R-20, decisions D7-D11; batch D's Magtail row, batch C's cut row
+// restored over the retail body_control1/2 calls: enemy-mirror-batch-d.json
+// R-D6, D8-D10, "magtail"). enemy_mirror.c builds its
 // static const em_kind EM_KINDS[] (enemy_mirror.h) from these #defines,
 // and static-asserts the Moblin row against the legacy MO2_* defines
 // (EMK_MO2_TG_CYL == MO2_TG_CYL, ...): a const array element is not an
@@ -23,7 +24,8 @@
 // Offsets are from the actor (fopAc_ac_c) start. 0 means "the class has
 // none" for an offset field (no class puts any of these at +0x0).
 // Decomp citations: zeldaret/tww include/d/actor/d_a_*.h and
-// src/d/actor/d_a_*.cpp, as the type_table cites them.
+// src/d/actor/d_a_*.cpp, as the type_table cites them; "mt.rel 0xNNNN" is
+// a .text offset of the retail d_a_mt.rel (batch C facts, C1-magtail.md).
 //
 // The per-kind hook-bit pins (batch C D7) are typedef asserts at the end
 // of this file, so this header includes wwenemy.h for the WWENEMY_HKD_*
@@ -42,8 +44,9 @@
 #define EMK_KIND_AM2             5            // default off (am2 / am2+u)
 #define EMK_KIND_TN              6            // TN batch B (D1), default off (tn / tn+u); the last id the annex's HKDX bytes hold (0x1FF)
 #define EMK_KIND_BB              7            // batch C, default off (bb / bb+u); hook byte WWENEMY_HKD_HI_OFF + 0
-#define EMK_KIND_MT              8            // reserved, no row: batch C's Magtail, cut by R-20 after P0-MT (body sphere centres off the segment translations); hook byte WWENEMY_HKD_HI_OFF + 1 stays unread
-#define EMK_KIND_COUNT           8            // rows MO2, BK, CC, KI, AM, AM2, TN, BB (the Go Kinds table); id 8 is EMK_KIND_MT's reservation
+#define EMK_KIND_MT              8            // batch D (R-D6), default off (mt+u only); hook byte WWENEMY_HKD_HI_OFF + 1; the first cut (cut_order 1: this define stays, the row goes)
+#define EMK_KIND_COUNT           9            // rows MO2, BK, CC, KI, AM, AM2, TN, BB, MT (the Go Kinds table); 8 when EMK_WITH_MT is 0 (set both by hand: the parser takes no expressions)
+#define EMK_WITH_MT              1            // batch D D10: 0 cuts the MT row before the build (no EM_ROW(MT), no em_mt_* code); emk_check_mt_count pins EMK_KIND_COUNT to it
 #define EMK_KIND_NONE            0xFF
 
 // --- capability bits (row caps) ------------------------------------------
@@ -77,6 +80,9 @@
 #define EMK_HIT_HEAD             1            // the row's head_sph
 #define EMK_HIT_TG               2            // the row's tg_cyl
 #define EMK_HIT_SPECIAL          3            // AM only (D11, R-13): the bomb swallow through mMouthSph, behind WWENEMY_HKD_SPECIAL
+
+// EMK_MTX_MT, EMK_COLL_MT and EMK_HIT_MT_KILL are in the MT section (the
+// last one), so the MT cut deletes them with the row.
 
 // --- generic actor fields (f_op_actor.h) -----------------------------------
 #define EMK_AC_PARAMS            0xB0         // u32 base_process_class.mParameters (f_pc_base.h:30)
@@ -877,5 +883,190 @@ typedef char emk_check_bb_row[(EMK_BB_ID == EMK_KIND_BB && EMK_KIND_BB == 7 &&
                                EMK_BB_ATTACK_TIMER == EMK_BB_TIMERS + 2 && EMK_BB_ATTACK_SEED < EMK_BB_ATTACK_SEED_MAX &&
                                EMK_BB_BCK_WAIT >= EMK_BB_BCK_FIRST && EMK_BB_BCK_WAIT <= EMK_BB_BCK_LAST &&
                                EMK_BB_TEXT_TAIL + EMK_BB_TAIL_BLR_OFF < EMK_BB_TEXT_EXEC) ? 1 : -1];
+
+// --- row MT: Magtail, fpcNm_MT_e (mt_class, size 0x1CC0) --------------------
+// Batch D (enemy-mirror-batch-d.json R-D6, D8-D10, "magtail"): batch C's
+// cut row (archive/enemy-batch-c/mt-row-restore.patch) with its hand-built
+// body (em_mt_matrix, em_mt_colliders) replaced by the copy's own retail
+// body_control1 (MOVE) and body_control2 (FIGHT), called in the loaded
+// d_a_mt.rel behind a fingerprint, the BB tail_control precedent (R-14).
+// P0-MT2 verified the retail body model live: MOVE residual 0.000, FIGHT
+// 0.000 but one 0.857 transition frame (archive/enemy-batch-d/P0.md).
+// Offsets are from the retail d_a_mt.rel (SHA-1
+// 9d7de8625389ef01cb34539efc782f2a0d0aeda1, tww config.yml:1510;
+// research/C1-magtail.md, C1b-magtail-redo.md; "mt.rel 0xNNNN" a .text
+// offset). THE FIRST CUT (cut_order 1): everything MT lives in this
+// section, its em_mt_* functions and typedefs; a cut sets EMK_WITH_MT 0
+// and EMK_KIND_COUNT 8, deletes this section down to EMK_KIND_MT (kept
+// above) and leaves the hook byte WWENEMY_HKD_HI_OFF + 1 unread. Default
+// off, unkeyed only (mt+u: every DRC Magtail is unkeyed). Wire (G-D6):
+// AngleY shape_angle.y, tilt shape_angle.x; slot +0x18 s16 EMK_MT_WIGGLE
+// (WWENEMY_SL_CC_M316Z_OFF's bytes); aux[0] mode | action << 8, aux[1]
+// ball timer 0x466, aux[2] colour frames 0x2E8 | 0x2EC << 8, aux[3]
+// shape_angle.z; flags2 EMK_MT_F2_*.
+#define EMK_MTX_MT               6            // R-D6 the body step (em_mt_body_step) unless EMK_MT_HKD_MTX: the per-frame writes, then MOVE body_control1, FIGHT body_control2 (EMK_MT_BITE 0 first), PINNED no call (D8); never runs without EM_XB_MT_FP_OK
+#define EMK_COLL_MT              3            // R-D6/D8 after the body step (em_mt_coll_post) unless EMK_MT_HKD_COLL: the builders Set the 9 spheres themselves; the REL clears At on the 8 body spheres after body_control2, in PINNED clears At and Co on the 8 and keeps the eye Set with Tg (body_control5's effect, mt.rel 0x2EFC-0x2F30), and withholds a pending code's collider (code 2: all 8)
+#define EMK_HIT_MT_KILL          4            // collider code 4 (MT-4): a client custody death, applied on the host only if its copy is still EMK_MT_MODE_BALL with EMK_MT_DEATH 0
+#define EMK_MT_ID                8
+#define EMK_MT_PROC              0x00D9       // f_pc_name.h:229; wwapi/addr/remote.go ProcMT
+#define EMK_MT_CLASS_SIZE        0x1CC0       // g_profile_MT +0x10 (C1-magtail.md; d_a_mt.h:11)
+#define EMK_MT_ARC               "Mt"
+#define EMK_MT_BCK_FIRST         0x07         // ATTACK (res/Object/Mt.h)
+#define EMK_MT_BCK_LAST          0x0A         // WAIT1
+#define EMK_MT_BCK_WAIT          0x0A         // WAIT1
+#define EMK_MT_MORF              0x2C4        // the head's mDoExt_McaMorf* (the only animated one of the 8 at +0x2C4 + 4i)
+#define EMK_MT_GATE              0x454        // u8 mode: adoptable in {0, 1, 6} (em_mt_gate)
+#define EMK_MT_DR                0
+#define EMK_MT_DR_MODE           0
+#define EMK_MT_DR_ACTION         0
+#define EMK_MT_TILT              0x20C        // s16 shape_angle.x: written from the stream before the body step (no DR or TILT_CUR cap)
+#define EMK_MT_CO_CYL            0xE48        // body dCcD_Sph[0] (8 at EMK_MT_BODY_SPH_STRIDE): the builders Set all 8; generic code names [0] only for ClrTgHit
+#define EMK_MT_TG_CYL            0xE48        // body sph[0]: hit collider 2 is "any body sphere" (em_hits MT case)
+#define EMK_MT_HEAD_SPH          0x17A8       // the eye dCcD_Sph: hit collider 1
+#define EMK_MT_DEF_SPH           0
+#define EMK_MT_HEAD_CENTER       0x260        // eyePos (EMK_AC_EYE_POS): the builders write it, M_0 * (0, 0, 30) (C1b-magtail-redo.md MT-3)
+#define EMK_MT_DEF_CENTER        0
+#define EMK_MT_CO_FORWARD        0
+#define EMK_MT_TG_HIT_UP         0            // em_hit_center's MT case centres collider 2 on body sph[4] instead
+#define EMK_MT_INVULN            0            // none: em_hit_vulnerable's MT case (the host's hit cooldown EMK_MT_HIT_COOL is 0)
+#define EMK_MT_INVULN_WAIT       8
+#define EMK_MT_ICE               0x1900       // enemyice (C1-magtail.md): shrink 0x1906; freeze 0x1904 is never written (ice arrows stun)
+#define EMK_MT_WEAPON            0
+#define EMK_MT_BARE              0
+#define EMK_MT_BLUR_ON           0
+#define EMK_MT_BLUR_SHAPE        0
+#define EMK_MT_BLUR_SCALE        0
+#define EMK_MT_ANM_GATE          0
+#define EMK_MT_PLAY_SKIP         0            // MT's own rule instead: no play() while the streamed mode >= EMK_MT_MODE_BALL and ball timer > EMK_MT_PLAY_SKIP_TIMER (mt.rel 0x6F60-0x6F9C)
+#define EMK_MT_SPH_SRC           0x17A8       // the eye sphere
+#define EMK_MT_CAPS              0x04         // FOPEN
+#define EMK_MT_MTX               6            // EMK_MTX_MT
+#define EMK_MT_COLL              3            // EMK_COLL_MT
+#define EMK_MT_ATTACH            0            // EMK_ATTACH_NONE
+#define EMK_MT_EYE               0            // EMK_EYE_NONE: the builders write eyePos
+#define EMK_MT_ATTN_F2           0x10         // EMK_MT_F2_ATTN
+#define EMK_MT_QUIET_FRAMES      20           // compiled; knob table mt:quiet
+// MT class fields (C1-magtail.md, C1b-magtail-redo.md; mt.rel offsets)
+#define EMK_MT_ACTION            0x455        // u8 action (aux[0] high byte); written from the stream (other Magtails' mt_check counts FIGHT copies)
+#define EMK_MT_MODE_MOVE         0
+#define EMK_MT_MODE_FIGHT        1
+#define EMK_MT_MODE_BALL         2            // curled: the custody signal (MT-4)
+#define EMK_MT_MODE_DEAD         3            // bakuha scatter, then delete
+#define EMK_MT_MODE_PINNED       6            // the third adoptable mode: no builder call (D8)
+#define EMK_MT_HIT_COOL          0x460        // s16 hit cooldown: only Execute decrements it (mt.rel 0x63B8-0x63C8), so the body step writes 0 every frame (else every body sphere stays R -200)
+#define EMK_MT_BALL_TIMER        0x466        // s16 (aux[1])
+#define EMK_MT_WIGGLE            0x468        // s16 the head yaw wiggle (mt_move's target, mt.rel 0x40A4-0x4114), from slot +0x18 every frame; body_control1 reads it
+#define EMK_MT_SWAY_FRAME        0x46A        // s16 the frame counter FIGHT's sway reads: the body step adds 1 every frame
+#define EMK_MT_F470              0x470        // f32 the stretch, transM(0, 0, f470) on segments 1..7 (eases to -10 MOVE, +20 FIGHT): the copy's own, the builders ease it
+#define EMK_MT_PLAY_SKIP_TIMER   0x78
+#define EMK_MT_DIVE              0x48E        // s16 dive timer: != 0 the ring index does not advance; D9: the body step writes 1 on a stale (unchanged) or diving (EMK_MT_F2_DIVE) sample, else 0, before body_control1
+#define EMK_MT_RESPAWN_BIT       0x2B6        // u8: set = daMt_Delete re-creates it (mt.rel 0x7CF4-0x7DF8)
+#define EMK_MT_DEATH_SWITCH      0x2B9        // u8 mDeathSwitch
+#define EMK_MT_APPEAR            0x2BB        // u8 != 0 hidden until its switch (r16 sw227): refused
+#define EMK_MT_COLOR_PHASE       0x2E4        // colour phase 0..2 (EMK_MT_F2_PHASE)
+#define EMK_MT_COLOR_A           0x2E8        // colour btk/brk frame (aux[2] low byte), behind EMK_MT_HKD_EXTRA
+#define EMK_MT_COLOR_B           0x2EC        // (aux[2] high byte)
+#define EMK_MT_ANCHOR            0x350        // cXyz [8]: segment translations, Execute-only (mt.rel 0x7210-0x7248): frozen on a copy
+#define EMK_MT_CHAIN_POS         0x4A0        // cXyz [8]: the 35-unit FIGHT/PINNED chain
+#define EMK_MT_CHAIN_ANGLE       0x560        // csXyz [8]: y = atan + 0x8000, x = -pitch (mt.rel 0x10B4-0x111C)
+#define EMK_MT_RING_POS          0x6F4        // cXyz [EMK_MT_RING_LEN]: the head trail
+#define EMK_MT_RING_ANGLE        0x9F4        // csXyz [EMK_MT_RING_LEN]
+#define EMK_MT_RING_WIGGLE       0xB74        // s16 [EMK_MT_RING_LEN]
+#define EMK_MT_RING_IDX          0xBF4        // ring index, & (EMK_MT_RING_LEN - 1); the 1 -> 0 edge writes 0
+#define EMK_MT_RING_LEN          64
+#define EMK_MT_LATCH             0xC01        // u8 the engage latch: the body step writes 0 every frame (set, body_control1 flips the mode and calls anm_init, mt.rel 0x225C-0x22A8)
+#define EMK_MT_BITE              0xC04        // u8 0 none, 1 wind-up (sph0 At/Tg/Co off), 2 bite (sph0 At on), mt.rel 0x1354-0x1374: the body step writes 0 before body_control2 (C1b-magtail-redo.md "Wrong" 1-2)
+#define EMK_MT_SEGS              8            // morfs at EMK_MT_MORF + 4i, body spheres, anchors
+#define EMK_MT_STTS              0xE0C        // dCcD_Stts
+#define EMK_MT_BODY_SPH          0xE48        // dCcD_Sph [8] (Tg + Co; At Set cleared at adopt and after body_control2)
+#define EMK_MT_BODY_SPH_STRIDE   0x12C
+#define EMK_MT_BODY_SPH_CENTER   0xF60        // cM3dGSph centre of body sph[0] (0xE48 + 0x118)
+#define EMK_MT_BODY_SHIELD_SPRM  0xEDC        // body sph[0]'s GObjTg mSPrm (0xE48 + EMK_GTG_SPRM): bit0 Shield from EMK_MT_F2_SHIELD
+#define EMK_MT_HIT_CENTER_SEG    4            // the host centres collider 2 on body sph[4]
+#define EMK_MT_BLUR              0x18D4       // u8: lunge blur models draw while != 0; cleared at adopt
+#define EMK_MT_DEATH             0x18F8       // u8 death flag: >= 2 bakuha (refused / DYING)
+#define EMK_MT_EYE_HP            0x18FB       // u8 eye HP
+#define EMK_MT_KILLED            0x1CBC       // u8: daMt_Delete respawns only when != 0; the REL writes 1 before both fopAcM_delete sites when EMK_MT_RESPAWN_BIT is set (MT-5)
+#define EMK_MT_F2_PHASE          0x03         // flags2 bits 0-1: colour phase (0x2E4)
+#define EMK_MT_F2_SHIELD         0x04         // host body sph[0] Tg Shield bit (0xEDC bit0)
+#define EMK_MT_F2_DIVE           0x08         // host 0x48E != 0
+#define EMK_MT_F2_ATTN           0x10         // host attention_info.flags != 0
+// The mode edges (R-D6; C1b-magtail-redo.md MT-2 (e)), unless
+// EMK_MT_HKD_CHAIN: a streamed 0 -> 1 copies the ring into the chain
+// (+0x4A0/+0x560) as body_control1's latch does (mt.rel 0x21D8-0x2218); a
+// 1 -> 0 reseeds the ring from the chain (mt.rel 0x1404-0x1524) and writes
+// EMK_MT_RING_IDX 0. Never through the latch EMK_MT_LATCH itself.
+//
+// The retail builders (R-D6, the BB tail_control pattern): exec =
+// *(*(a + EMK_AC_SUB_METHOD) + EMK_METHOD_EXECUTE) is daMt_Execute;
+// body_control1 = exec - EMK_MT_TEXT_EXEC + EMK_MT_TEXT_BC1, body_control2 =
+// exec - EMK_MT_TEXT_EXEC + EMK_MT_TEXT_BC2, each void f(mt_class*)
+// (d_a_mt.cpp:61-77,141 stubs). Called only when exec, bc1 and bc2 are in
+// MEM1 and every word matches (rels/d_a_mt/symbols.txt:18,30,46; P0-MT2
+// read them live, fp=ok on all 7 Magtails), checked once per adopt
+// (em_mt_fp_ok, cached in EM_XB_MT_FP_DONE/OK); a miss bumps
+// WWENEMY_FP_MISS_OFF (shared with BB) and refuses the adoption: no copy
+// runs without a body.
+#define EMK_MT_TEXT_EXEC         0x6188       // daMt_Execute .text offset (symbols.txt:46)
+#define EMK_MT_TEXT_BC1          0x1F10       // body_control1__FP8mt_class .text offset (:30, size 0x3C8)
+#define EMK_MT_TEXT_BC2          0xB28        // body_control2__FP8mt_class .text offset (:18, size 0xBF4)
+#define EMK_MT_BC1_BLR_OFF       0x3C4        // bc1 + this: its blr
+#define EMK_MT_BC2_BLR_OFF       0xBF0        // bc2 + this: its blr
+#define EMK_MT_FP_EXEC0          0x9421FCC0
+#define EMK_MT_FP_EXEC1          0x7C0802A6
+#define EMK_MT_FP_EXEC2          0x90010344
+#define EMK_MT_FP_EXEC3          0xDBE10330
+#define EMK_MT_FP_BC1_0          0x9421FF90
+#define EMK_MT_FP_BC1_1          0x7C0802A6
+#define EMK_MT_FP_BC1_2          0x90010074
+#define EMK_MT_FP_BC1_3          0x39610070
+#define EMK_MT_FP_BC2_0          0x9421FE60
+#define EMK_MT_FP_BC2_1          0x7C0802A6
+#define EMK_MT_FP_BC2_2          0x900101A4
+#define EMK_MT_FP_BC2_3          0xDBE10190
+#define EMK_MT_FP_BLR            0x4E800020
+// MT's hook_disable bits (byte WWENEMY_HKD_HI_OFF + 1; batch C D7, batch
+// D R-D6); ATTN and EXTRA keep their generic readers. RESPAWN is
+// inverted: set = skip the +0x1CBC write. FIRE has no reader in batch D
+// (batch C's per-segment flames were em_mt_matrix's, dropped with it; a
+// copy's +0x350 anchors are Execute-only): reserved, as TN's DIRECT was.
+#define EMK_MT_HKD_COLL          0x01         // == WWENEMY_HKD_MODEL_EQ (mt:hooks=coll): skip em_mt_coll_post (EMK_COLL_MT)
+#define EMK_MT_HKD_CHAIN         0x02         // == WWENEMY_HKD_ATTACH (chain): skip the mode-edge ring/chain copies (em_mt_edge)
+#define EMK_MT_HKD_FIRE          0x04         // == WWENEMY_HKD_EYE (fire): reserved, no reader in batch D
+#define EMK_MT_HKD_RESPAWN       0x08         // == WWENEMY_HKD_LEGACY_DEATH (respawn): skip the +0x1CBC write (MT-5)
+#define EMK_MT_HKD_ATTN          0x10         // == WWENEMY_HKD_ATTN (attn): generic
+#define EMK_MT_HKD_MTX           0x20         // == WWENEMY_HKD_MTX_PLAIN (mtx): skip the body step (EMK_MTX_MT: no writes, no builder call; the copy freezes, proving the bit)
+#define EMK_MT_HKD_CUSTODY       0x40         // == WWENEMY_HKD_SPECIAL (custody): a BALL stays mirrored and paused (no custody handback)
+#define EMK_MT_HKD_EXTRA         0x80         // == WWENEMY_HKD_EXTRA (extra): skip the colour phase and frames
+
+typedef char emk_check_mt_count[((EMK_WITH_MT == 1 && EMK_KIND_COUNT == EMK_KIND_MT + 1) ||
+                                 (EMK_WITH_MT == 0 && EMK_KIND_COUNT == EMK_KIND_MT)) ? 1 : -1];
+typedef char emk_check_mt_row[(EMK_MT_ID == EMK_KIND_MT && EMK_KIND_MT == EMK_KIND_BB + 1 &&
+                               EMK_KIND_MT < 7 + WWENEMY_HKD_HI_KINDS && EMK_KIND_MT < WWENEMY_KNOB_KINDS &&
+                               EMK_MT_HKD_COLL == WWENEMY_HKD_MODEL_EQ && EMK_MT_HKD_CHAIN == WWENEMY_HKD_ATTACH &&
+                               EMK_MT_HKD_FIRE == WWENEMY_HKD_EYE && EMK_MT_HKD_RESPAWN == WWENEMY_HKD_LEGACY_DEATH &&
+                               EMK_MT_HKD_ATTN == WWENEMY_HKD_ATTN && EMK_MT_HKD_MTX == WWENEMY_HKD_MTX_PLAIN &&
+                               EMK_MT_HKD_CUSTODY == WWENEMY_HKD_SPECIAL && EMK_MT_HKD_EXTRA == WWENEMY_HKD_EXTRA &&
+                               EMK_MT_CAPS == EMK_CAP_FOPEN && EMK_MT_MTX == EMK_MTX_MT && EMK_MT_COLL == EMK_COLL_MT &&
+                               EMK_MT_ATTN_F2 == EMK_MT_F2_ATTN &&
+                               !(EMK_MT_F2_ATTN & (EMK_MT_F2_PHASE | EMK_MT_F2_SHIELD | EMK_MT_F2_DIVE)) &&
+                               EMK_MT_HEAD_SPH == EMK_MT_SPH_SRC && EMK_MT_TG_CYL == EMK_MT_BODY_SPH &&
+                               EMK_MT_BODY_SPH_CENTER == EMK_MT_BODY_SPH + 0x118 &&
+                               EMK_MT_BODY_SHIELD_SPRM == EMK_MT_BODY_SPH + EMK_GTG_SPRM &&
+                               EMK_MT_BODY_SPH + EMK_MT_SEGS * EMK_MT_BODY_SPH_STRIDE <= EMK_MT_HEAD_SPH &&
+                               EMK_MT_RING_POS + EMK_MT_RING_LEN * 12 == EMK_MT_RING_ANGLE &&
+                               EMK_MT_RING_ANGLE + EMK_MT_RING_LEN * 6 == EMK_MT_RING_WIGGLE &&
+                               EMK_MT_RING_WIGGLE + EMK_MT_RING_LEN * 2 == EMK_MT_RING_IDX &&
+                               (EMK_MT_RING_LEN & (EMK_MT_RING_LEN - 1)) == 0 &&
+                               EMK_MT_CHAIN_POS + EMK_MT_SEGS * 12 <= EMK_MT_CHAIN_ANGLE &&
+                               EMK_MT_HIT_COOL < EMK_MT_BALL_TIMER && EMK_MT_BALL_TIMER < EMK_MT_WIGGLE &&
+                               EMK_MT_WIGGLE + 2 == EMK_MT_SWAY_FRAME && EMK_MT_SWAY_FRAME < EMK_MT_F470 &&
+                               EMK_MT_RING_IDX < EMK_MT_LATCH && EMK_MT_LATCH < EMK_MT_BITE && EMK_MT_BITE < EMK_MT_STTS &&
+                               EMK_MT_ICE + 0x3B8 <= EMK_MT_KILLED && EMK_MT_KILLED < EMK_MT_CLASS_SIZE &&
+                               EMK_HIT_MT_KILL == EMK_HIT_SPECIAL + 1 &&
+                               EMK_MT_TEXT_BC2 + EMK_MT_BC2_BLR_OFF < EMK_MT_TEXT_BC1 &&
+                               EMK_MT_TEXT_BC1 + EMK_MT_BC1_BLR_OFF < EMK_MT_TEXT_EXEC &&
+                               EMK_MT_FP_BLR == EMK_BB_FP_BLR &&
+                               EMK_MT_BCK_WAIT >= EMK_MT_BCK_FIRST && EMK_MT_BCK_WAIT <= EMK_MT_BCK_LAST) ? 1 : -1];
 
 #endif
