@@ -114,3 +114,24 @@ func hubCombatStatus(hs hub.Status) []string {
 	}
 	return out
 }
+
+// refreshStatus is /status's line for the stale-actor refresh
+// (mods/coop/replica/refresh.go), "" while it has nothing to say: the bits
+// this game's own writes landed this stage visit, the key door locks
+// cleared (Tier 1) and the death-switch light-shrinks (Tier 2), each with
+// what it holds and why.
+func refreshStatus(st replica.Status) string {
+	f, c := st.Refresh, st.Combat
+	if st.DryRun || !c.Granted || f.Landed == 0 && f.Locks == 0 && f.LockHeld == 0 && f.Shrunk == 0 && f.Held == 0 {
+		return ""
+	}
+	locks := fmt.Sprintf("%d lock(s) cleared, %d held", f.Locks, f.LockHeld)
+	if f.LockHeld > 0 {
+		locks += " (" + f.LockLastHeld + ")"
+	}
+	deaths := fmt.Sprintf("%d death-switch light-shrink(s), %d held", f.Shrunk, f.Held)
+	if f.Held > 0 {
+		deaths += " (" + f.LastHeld + ")"
+	}
+	return fmt.Sprintf("refresh: %d landed bit(s) this visit; %s; %s", f.Landed, locks, deaths)
+}

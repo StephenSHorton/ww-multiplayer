@@ -122,7 +122,10 @@ type FrameWriter struct {
 	kills   []pendingKill
 	kiAt    seen // the tick the dead-actor bytes were written in
 	shrinks []pendingShrink
-	stats   WriterStats
+	locks   []pendingLock
+	// landed is the bits written and verified this visit (landed.go).
+	landed landedSet
+	stats  WriterStats
 }
 
 // seen is what a snapshot said of the state the writes depend on, and
@@ -250,10 +253,12 @@ func (w *FrameWriter) observe(s *state.Snapshot, st gate.Status, armed bool, f b
 	if s != nil {
 		old, oldOK = w.oldStayOf(s)
 	}
+	w.landVisit(s, st, f)
 	rep := w.verify(s, st, f)
 	w.verifyScoped(s, st, f, old, oldOK, &rep)
 	w.verifyKills(s, st, f, &rep)
 	w.verifyShrinks(s, st, &rep)
+	w.verifyLocks(s, st, &rep)
 	w.watchDrains(s, st, f)
 	if st.Regressed {
 		w.wg.brk.Regressed()
@@ -283,6 +288,7 @@ func (w *FrameWriter) verify(s *state.Snapshot, st gate.Status, f bind.File) Ver
 		w.stats.Unverified += len(ps)
 		return rep
 	}
+	now := time.Now()
 	for _, p := range ps {
 		v, ok := snapByte(s, p.a)
 		switch {
@@ -291,6 +297,9 @@ func (w *FrameWriter) verify(s *state.Snapshot, st gate.Status, f bind.File) Ver
 			continue
 		case p.holds(v):
 			rep.Verified++
+			if !p.max && !p.set {
+				w.landMemBit(p.a, w.pendAt.table, p.val&^p.old, now)
+			}
 			continue
 		}
 		rep.Failed++
@@ -339,7 +348,8 @@ type WriterStats struct {
 	Kills      int // zone dead-actor bytes written (ApplyKills)
 	Shrunk     int // light-shrink timers written (ApplyActors)
 	Released   int // weapons let go after their carrier's timer (ApplyActors)
-	Held       int // light-shrinks not written: the actor changed or a gate closed after the beat
+	Held       int // light-shrinks and lock clears not written: the actor changed or a gate closed after the beat
+	Locks      int // key door locks cleared (ApplyLocks)
 	// CombatFailed counts the verify failures of the kill path and the
 	// light-shrink (in Failed too).
 	CombatFailed int
@@ -372,7 +382,7 @@ func (w *FrameWriter) Stop(why string) {
 	}
 	w.wg.brk.TurnOff(why)
 	w.mu.Lock()
-	w.pending, w.drains, w.scoped, w.kills, w.shrinks = nil, nil, nil, nil, nil
+	w.pending, w.drains, w.scoped, w.kills, w.shrinks, w.locks = nil, nil, nil, nil, nil, nil
 	w.mu.Unlock()
 }
 

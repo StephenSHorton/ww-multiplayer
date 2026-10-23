@@ -149,6 +149,7 @@ type use struct {
 	why     string
 	inputs  []int // an AND's inputs: the output is synced only if they all are
 	path    int   // a push block's path id when the write stores a path point; -1 otherwise
+	role    Role  // what the bit is to the actor, for a live refresh (LiveUses)
 }
 
 func set(no int, c Class, why string) use {
@@ -179,6 +180,12 @@ func and(no int, op Op, c Class, why string, inputs []int) use {
 // as gives the use class c.
 func (u use) as(c Class) use {
 	u.class = c
+	return u
+}
+
+// is gives the use role r.
+func (u use) is(r Role) use {
+	u.role = r
 	return u
 }
 
@@ -924,7 +931,7 @@ func doorUses(e entry, key string, frontSets, backSets bool) []use {
 	front, back := e.angle(0)&0x3F, e.angle(0)>>6&0x3F
 	var u []use
 	if key != "" && sw < 0x80 {
-		u = append(u, set(sw, Latching, key+": set when a key opens the lock").in(-1))
+		u = append(u, set(sw, Latching, key+": set when a key opens the lock").in(-1).is(RoleKeyLock))
 	}
 	if frontSets {
 		u = append(u, set(sw, Latching, "kill-all bars: set when the front room has no enemies").in(front))
@@ -945,5 +952,5 @@ func deathSwitch(e entry, who string) []use {
 	if sw == 0xFF || sw == 0 {
 		return nil
 	}
-	return []use{set(sw, Latching, who+": set when killed")}
+	return []use{set(sw, Latching, who+": set when killed").is(RoleDeath)}
 }

@@ -345,6 +345,9 @@ func formatStatus(player string, st replica.Status) []string {
 	out := []string{fmt.Sprintf("co-op: %s: %s; world %s at seq %d; %s; %d bytes written, %d escapes, %d verify failures",
 		player, replicaWhere(st), st.World, st.Seq, writesState(st), st.Writes.Written, st.Writes.Escapes, st.Writes.Failed)}
 	lines := append(progressionStatus(st), puzzleStatus(st), combatStatus(st))
+	if l := refreshStatus(st); l != "" {
+		lines = append(lines, l)
+	}
 	if l := gbaStatus(st); l != "" {
 		lines = append(lines, l)
 	}

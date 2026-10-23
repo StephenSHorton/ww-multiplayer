@@ -99,10 +99,18 @@ const (
 	// design research C3-C6-gohma.md B5, C1-kalle-demos-relay.md). No save data:
 	// FrameWriter.ApplyBossKill writes it, when IDLE.
 	TargetBoss
+	// TargetLock is a live key door's lock, dDoor_key2_c.mbEnabled (a
+	// bool at the lock's +0x00, d_door.h:89; DOOR10's lock at +0x308,
+	// d_a_door10.h:46, DOOR12's at +0x2E4, d_a_door12.h:51): one byte on
+	// the heap, from 1 to 0, of a door the tick's walk has whose lock
+	// switch the replica's own verified writes set (the stale-actor
+	// refresh's Tier 1, refresh.go). WriteGuard.checkLock lets through
+	// exactly that write (FrameWriter.ApplyLocks).
+	TargetLock
 
 	// AllTargets is the most any milestone writes: NewGuard's allowlist.
 	AllTargets = TargetStage | TargetOcean | TargetStory | TargetInventory | TargetDerived |
-		TargetCounters | TargetSelectItem | TargetScoped | TargetKills | TargetTag | TargetEscape | TargetK1 | TargetBoss
+		TargetCounters | TargetSelectItem | TargetScoped | TargetKills | TargetTag | TargetEscape | TargetK1 | TargetBoss | TargetLock
 	// M3Targets is what M3's reconciler writes (§9 M3): the stage
 	// progress bits and memory switches, the ocean, the charts and the
 	// sea map. A replica's WriteGuard adds TargetEscape for the escape
@@ -121,11 +129,15 @@ const (
 	// words and the light-shrink. A replica that writes guards M3Targets |
 	// M4Targets | M5Targets | M6Targets | TargetEscape | TargetBoss.
 	M6Targets = TargetKills | TargetK1
+	// RefreshTargets is what the stale-actor refresh adds
+	// (design/stale-actor-refresh.md Tier 1): the key doors' locks. Its
+	// Tier 2 is M6's light-shrink (TargetK1) with a second allow rule.
+	RefreshTargets = TargetLock
 )
 
 var targetNames = [...]string{
 	"stage", "ocean", "story", "inventory", "derived",
-	"counters", "select-item", "scoped", "kills", "tag", "escape", "k1", "boss",
+	"counters", "select-item", "scoped", "kills", "tag", "escape", "k1", "boss", "lock",
 }
 
 func (t Target) String() string {
