@@ -57,6 +57,25 @@ func Reread(m mem.Reader, a *Actor, typ uint32, layouts Layouts) (Actor, error) 
 	return now, nil
 }
 
+// RereadParams is Reread with the params compared too: a's base params
+// (+0xB0) still the walk's. Co-op's actor_refresh relay asks it of an
+// actor just before it names the actor in a request (enemy-mirror-
+// batch-d.json G-D3), whose params the REL compares again (MISMATCH).
+// Reread itself leaves the params out: a Boko weapon sets its own in life
+// (fopAcM_SetParam, d_a_boko.cpp:946), and M6's Revalidate rides on
+// Reread. The error is Reread's, or one matching ErrChanged for other
+// params.
+func RereadParams(m mem.Reader, a *Actor, typ uint32, layouts Layouts) (Actor, error) {
+	now, err := Reread(m, a, typ, layouts)
+	if err != nil {
+		return now, err
+	}
+	if now.Params != a.Params {
+		return now, fmt.Errorf("%w: %s now has params 0x%08X", ErrChanged, a.String(), now.Params)
+	}
+	return now, nil
+}
+
 // ZoneGone returns why room's zone does not hold, or "": mStatus[room].
 // mZoneNo is 0..31 and the zone's mRoomNo names room back (§3.1). A keyed
 // actor's light-shrink needs it to hold: onActor asserts the zone

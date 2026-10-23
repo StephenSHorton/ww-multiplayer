@@ -116,9 +116,8 @@ func TestWireV4(t *testing.T) {
 	}
 }
 
-// TestWireHostKindMask16: batch C's u16 host kind mask (D6): bit 8 (the
-// reserved MT id: no row since the MT cut, but the wire still carries ids
-// up to 15) round-trips through byte 31; bits 0-7 stay in byte 30, so a pre-batch-C
+// TestWireHostKindMask16: batch C's u16 host kind mask (D6): bit 8 (MT)
+// round-trips through byte 31; bits 0-7 stay in byte 30, so a pre-batch-C
 // decoder (which read byte 30 alone) still sees BB's bit 7; an old frame
 // with byte 31 0 decodes exactly as before; WireVersion stays 4.
 func TestWireHostKindMask16(t *testing.T) {
@@ -132,18 +131,14 @@ func TestWireHostKindMask16(t *testing.T) {
 		t.Fatalf("header bytes 30/31 %02X %02X (version %d)", b[30], b[31], b[1])
 	}
 	got, err := DecodeState(b)
-	if err != nil || got.HostKindMask != 0x181 {
+	if err != nil || got.HostKindMask != 0x181 || !MaskSet(uint32(got.HostKindMask)).Has(KindMT) {
 		t.Fatalf("decode mask 0x%X %v", got.HostKindMask, err)
-	}
-	// A pre-cut peer's bit 8 has no row here: MaskSet drops it.
-	if m := MaskSet(uint32(got.HostKindMask)).Mask(); m != 0x81 {
-		t.Errorf("MaskSet(0x181).Mask() = 0x%X, want 0x81", m)
 	}
 	if old := b[30]; old&(1<<KindBB) == 0 {
 		t.Error("an old decoder's byte 30 lost BB's bit")
 	}
 	b[31] = 0 // a pre-batch-C host
-	if got, err := DecodeState(b); err != nil || got.HostKindMask != 0x81 {
+	if got, err := DecodeState(b); err != nil || got.HostKindMask != 0x81 || MaskSet(uint32(got.HostKindMask)).Has(KindMT) {
 		t.Errorf("old frame mask 0x%X %v", got.HostKindMask, err)
 	}
 }

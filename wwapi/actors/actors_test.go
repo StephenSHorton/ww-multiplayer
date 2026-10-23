@@ -316,3 +316,25 @@ func TestReread(t *testing.T) {
 		t.Error("ZoneHolds with no zone")
 	}
 }
+
+// TestRereadParams: the walk's actor passes; new params are refused with
+// ErrChanged, which Reread alone takes.
+func TestRereadParams(t *testing.T) {
+	m := mem.NewFakeMem()
+	layActors(t, m, link, boko)
+	w, err := ReadWith(m, 0, testLayouts)
+	if err != nil || len(w.Actors) != 2 {
+		t.Fatalf("%+v %v", w, err)
+	}
+	b := w.Actors[1]
+	if now, err := RereadParams(m, &b, w.Type, testLayouts); err != nil || now != b {
+		t.Fatalf("RereadParams: %+v %v", now, err)
+	}
+	store(t, m, boko.at+addr.ActorOffParameters, u32b(b.Params^0x100))
+	if _, err := Reread(m, &b, w.Type, testLayouts); err != nil {
+		t.Errorf("Reread refused new params: %v", err)
+	}
+	if _, err := RereadParams(m, &b, w.Type, testLayouts); !errors.Is(err, ErrChanged) || !strings.Contains(err.Error(), "params") {
+		t.Errorf("new params: %v", err)
+	}
+}

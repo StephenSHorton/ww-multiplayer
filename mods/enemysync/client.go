@@ -784,7 +784,8 @@ func (c *Mirror) match(now time.Time, scope Scope, st *State, force bool) error 
 	if err != nil {
 		return err
 	}
-	es, err := ClassifyWalk(c.m, &w, scope.Stage, scope.Room, c.Kinds)
+	// A listed Magtail stays listed through its custody BALL (mtWas).
+	es, err := classifyWalk(c.m, &w, scope.Stage, scope.Room, c.Kinds, mtWas(c.local))
 	if err != nil {
 		return err
 	}
@@ -1741,20 +1742,32 @@ func (c *Mirror) OwnerOf(handle uint16) uint16 {
 // verdict (mailbox.EnemyHPVerdict, and EnemyHPBack when this game's Link
 // was behind; TN design R-14) goes out with Hit.ClientFlags HitCFVerdict
 // (and HitCFBack); every other hit with 0. The REL writes no verdict with
-// AM2's HKD_SPECIAL set on this side, so the host takes the old path.
+// AM2's HKD_SPECIAL set on this side, so the host takes the old path. A
+// Magtail's collider 2 is whichever body sphere holds the hit object
+// (mtHitCollider), and its code 4 (HitMtKill, a custody death) goes out
+// untyped at the copy's current.pos (batch C MT-4).
 func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, h mailbox.EnemyHitEntry) (*Hit, error) {
 	col := ColliderOff(kind, h.Collider)
-	if col == 0 {
+	kill := mtKillHit(kind, h.Collider)
+	if col == 0 && !kill {
 		return nil, fmt.Errorf("collider %d of kind %s", h.Collider, kind)
 	}
 	stat := c.Stats.LastStatus.Status[i]
 	if stat.Actor == 0 || !addr.InMEM1(stat.Actor) || stat.PID != pid {
 		return nil, errors.New("no resolved actor for the slot")
 	}
+	if kind == KindMT && h.Collider == HitTg {
+		col = mtHitCollider(c.m, stat.Actor)
+	}
 	// The special collider (AM's mouth, code 3) reports a Co hit, which has
-	// no Tg hit object: its hit goes out untyped.
+	// no Tg hit object: its hit goes out untyped. So does a Magtail's
+	// custody death (code 4, mtKillHit: no collider at all), placed at the
+	// copy's current.pos.
 	var obj uint32
-	if h.Collider != HitSpecial {
+	posAt := stat.Actor + col + addr.Mo2CcCenterOff
+	if kill {
+		posAt = stat.Actor + addr.ActorOffCurPos
+	} else if h.Collider != HitSpecial {
 		var err error
 		if obj, err = mem.ReadU32(c.m, stat.Actor+col+addr.Mo2CcTgHitObjOff); err != nil {
 			return nil, err
@@ -1799,7 +1812,7 @@ func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, 
 		log.Logf(c.rep, log.Info, "enemy client: hit slot %d: %s collider %d at type 0x%08X not forwarded", i, kind, h.Collider, hit.AtType)
 		return nil, nil
 	}
-	p, err := c.m.Read(stat.Actor+col+addr.Mo2CcCenterOff, 12)
+	p, err := c.m.Read(posAt, 12)
 	if err != nil {
 		return nil, err
 	}

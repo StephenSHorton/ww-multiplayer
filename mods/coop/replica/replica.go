@@ -192,6 +192,16 @@ type Config struct {
 	// (design/stale-actor-refresh.md gate 8); 0 is RefreshSettle, and a
 	// negative one acts at once (tests).
 	RefreshSettle time.Duration
+	// BossKill is the boss-dead relay's row set (--coop-boss-kill,
+	// ParseBossKill; bosskill.go): bossKillRows' keys joined by ",", or
+	// "none"; "" is BossKillDefault (gohma,kalle). The WriteGuard takes
+	// every row's proc whatever it is; a row left out is never asked for.
+	BossKill string
+	// Refresh is the actor_refresh relay's token set (--coop-refresh,
+	// ParseRefresh; refresh_relay.go): stone2, leaves, item, tbox and
+	// saku joined by ",", with dry to log the candidates only; "" (the
+	// default) or "none" asks for nothing.
+	Refresh string
 }
 
 // Offer is a tag write waiting for the user's yes.
@@ -274,6 +284,11 @@ type Report struct {
 	// written.
 	BossKill    uint32
 	BossKillErr error
+	// Refresh is the seq of the actor_refresh request this tick tried to
+	// write (refresh_relay.go), 0 for none, and RefreshErr why it was not
+	// written.
+	Refresh    uint32
+	RefreshErr error
 }
 
 // Status is the replica's state for the TUI and tests.
@@ -409,9 +424,16 @@ type Replica struct {
 	track   partnerTrack
 
 	// The boss-dead relay (bosskill.go), and the request this tick makes
-	// after the lock is released.
+	// after the lock is released; bossOn is Config.BossKill's procs.
 	bk      bossKill
 	bossNow *bossReq
+	bossOn  map[uint16]bool
+
+	// The actor_refresh relay (refresh_relay.go), likewise; rfOn is
+	// Config.Refresh's tokens.
+	ar    actorRefresh
+	arNow *refreshReq
+	rfOn  refreshSet
 
 	// The plan, and what of it was logged.
 	planned    []Write
@@ -445,6 +467,14 @@ func New(cfg Config) (*Replica, error) {
 	if cfg.Mem == nil {
 		return nil, errors.New("replica: no memory to read")
 	}
+	bossOn, err := ParseBossKill(cfg.BossKill)
+	if err != nil {
+		return nil, err
+	}
+	rfOn, err := ParseRefresh(cfg.Refresh)
+	if err != nil {
+		return nil, err
+	}
 	r := &Replica{
 		cfg:      cfg,
 		m:        cfg.Mem,
@@ -459,6 +489,9 @@ func New(cfg Config) (*Replica, error) {
 		declined: map[helloKey]bool{},
 		entries:  map[entryKey]int8{},
 		heard:    map[entryKey]int8{},
+		bossOn:   bossOn,
+		rfOn:     rfOn,
+		ar:       newActorRefresh(),
 	}
 	if r.policy == nil {
 		r.policy = world.DefaultPolicy()
@@ -478,7 +511,7 @@ func New(cfg Config) (*Replica, error) {
 	}
 	w, err := NewFrameWriter(WriterConfig{Mem: r.m, DryRun: true})
 	if cfg.Apply {
-		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | M6Targets | RefreshTargets | TargetEscape | TargetBoss, Policy: r.policy, GBA: &r.gba.mask, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
+		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | M6Targets | RefreshTargets | TargetEscape | TargetBoss | TargetRefresh, Policy: r.policy, GBA: &r.gba.mask, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
 		w, err = NewFrameWriter(WriterConfig{Mem: r.m, Guard: wg, BeatTimeout: cfg.BeatTimeout, Logf: r.logf, Label: r.label, GBA: r.gba.switches > 0})
 	}
 	if err != nil {
@@ -729,11 +762,11 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 	r.mu.Lock()
 	var out outbox
 	rep := r.tick(s, err, &out)
-	ws, window, q, bq := r.toWrite, r.window, r.escNow, r.bossNow
+	ws, window, q, bq, aq := r.toWrite, r.window, r.escNow, r.bossNow, r.arNow
 	ds := r.m4.take()
 	sc := r.m5.take()
 	cm := r.m6.take()
-	r.toWrite, r.window, r.escNow, r.bossNow = nil, windows{}, nil, nil
+	r.toWrite, r.window, r.escNow, r.bossNow, r.arNow = nil, windows{}, nil, nil, nil
 	r.unlockAndFlush(&out)
 	var werr error
 	if len(ws) > 0 {
@@ -758,11 +791,12 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 		}
 	}
 	r.applyBossKill(ctx, bq, &rep)
+	r.applyRefresh(ctx, aq, &rep)
 	return rep
 }
 
 func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
-	r.toWrite, r.window, r.escNow, r.bossNow = nil, windows{}, nil, nil
+	r.toWrite, r.window, r.escNow, r.bossNow, r.arNow = nil, windows{}, nil, nil, nil
 	if err != nil {
 		st := r.gates.Observe(nil)
 		r.writer.Observe(nil, st, false)
@@ -868,6 +902,7 @@ func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
 	r.reconcileM6(o, armed)
 	r.escapeTick(o, armed)
 	r.bossTick(o, armed)
+	r.actorRefreshTick(armed)
 	r.runPreflight(o, v, out)
 	rep.State, rep.Why = r.state(o, v)
 	return rep

@@ -46,11 +46,19 @@ SYMBOL_MAP = os.path.join("build", "WWMultiplayer.map")
 # game data it references by address, and its outputs. Built apart from
 # T2 (plain gcc + `ld --relocatable`, no Freighter); extract_blob.py
 # embeds REL_ELF as is and the Go converter (wwapi/rel) makes the REL.
-REL_SOURCES = ["rel/rel_main.c", "rel/enemy_mirror.c", "rel/remote.c", "rel/fullbody.c", "rel/shanm.c", "rel/bosskill.c"]
+REL_SOURCES = ["rel/rel_main.c", "rel/enemy_mirror.c", "rel/remote.c", "rel/fullbody.c", "rel/shanm.c", "rel/bosskill.c",
+               "rel/refresh.c", "rel/em_mt.c"]
 # The headers the module's build id also covers (rel_build_id): its own
-# and the four slack layouts it reads and writes.
+# and the five slack layouts it reads and writes.
 REL_HEADERS = ["rel/enemy_mirror.h", "rel/remote.h", "rel/fullbody.h", "rel/shanm.h", "rel/dapy.h", "rel/bosskill.h",
-               "include/wwrel.h", "include/wwenemy.h", "include/wwenemy_kinds.h", "include/wwremote.h", "include/wwboss.h"]
+               "rel/refresh.h", "rel/em_mt.h",
+               "include/wwrel.h", "include/wwenemy.h", "include/wwenemy_kinds.h", "include/wwremote.h", "include/wwboss.h",
+               "include/wwrefresh.h"]
+# The module's functions DOL code calls back through a pointer the module
+# hands it at run time (not the profile tables, which ww_rel.ld places):
+# each, when compiled in, must be a .text symbol of the linked ELF (batch D
+# R-D2: bosskill.c's fopAcIt_Judge callback, under WWBOSS_WITH_BST).
+REL_TEXT_CALLBACKS = ["bk_bst_judge"]
 REL_LD = os.path.join("rel", "ww_rel.ld")
 REL_OBJ_DIR = os.path.join("build", "temp", "rel")
 REL_ELF = os.path.join("build", "wwrel.elf")
@@ -197,6 +205,16 @@ def run_tool(name, *args):
     return r.stdout
 
 
+def rel_define(header, name):
+    """The plain number a `#define NAME value // comment` line gives, or 0."""
+    with open(header) as f:
+        for line in f:
+            m = re.match(r"#define\s+" + re.escape(name) + r"\s+(0x[0-9A-Fa-f]+|\d+)", line)
+            if m:
+                return int(m.group(1), 0)
+    return 0
+
+
 def rel_build_id():
     """The module's build id: a CRC-32 of its sources, headers and symbol script.
 
@@ -271,6 +289,13 @@ def build_rel():
     missing = [s for s in REL_SYMBOLS if s not in syms]
     if missing:
         print(f"ERROR: {REL_ELF} lacks {', '.join(missing)}", file=sys.stderr)
+        sys.exit(1)
+    for name in REL_TEXT_CALLBACKS:
+        if name in syms and syms[name][0] != ".text":
+            print(f"ERROR: {REL_ELF}: callback {name} is in {syms[name][0]}, not .text", file=sys.stderr)
+            sys.exit(1)
+    if rel_define("include/wwboss.h", "WWBOSS_WITH_BST") and "bk_bst_judge" not in syms:
+        print(f"ERROR: {REL_ELF} lacks bk_bst_judge with WWBOSS_WITH_BST on", file=sys.stderr)
         sys.exit(1)
     print("Symbols:")
     for name in REL_SYMBOLS + ["g_wwrel_build_id"]:

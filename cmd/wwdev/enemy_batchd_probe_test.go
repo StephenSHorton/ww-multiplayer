@@ -157,7 +157,7 @@ func rfRoom(t *testing.T) (*mem.FakeMem, map[int16]uint32) {
 	}
 	store(t, m, at[procItem]+itemOffBitNo, u32b(5))
 	store(t, m, at[procItem]+itemOffItemNo, []byte{0x04})
-	store(t, m, at[procItem]+itemOffStatus, []byte{itemStatusMain})
+	store(t, m, at[procItem]+itemOffStatus, []byte{0}) // STATUS_UNK0: lying in the world, as P0-RF read it
 	store(t, m, at[procTbox]+tboxOffBgOpen, u32b(0x81000000))
 	store(t, m, at[procTbox]+tboxOffBgCur, u32b(0x81000100))
 	const tboxMtd, tboxExec = uint32(0x80E40000), uint32(0x80E52FB0)
@@ -189,7 +189,7 @@ func TestRfProbe(t *testing.T) {
 		"proc 0x01CD room 1 params 0x00001100 ", "stone2 sw 17 m648 0 (idle); m648-in-{0,1} PASS | generic ok | proc gate ok",
 		"saku sw1 227 sw2 228 params&0xF 1 (half 2 true) +0xEF4 0 +0xEF8 1 1 +0xF00 227 +0xF04 228; +0xF00==sw1 PASS +0xF04==sw2 PASS half2-matches-params PASS",
 		"exec 0x80E1242C broken 0x80E10E8C [+0x1C 48000819 +0x2C 90030EF8 +0x80 4BFFF931 +0xD0 4E800020] broken-fp(v2) PASS",
-		"item +0x630 5 (bit 5) +0x63A 0x04 +0x669 0x00 +0x66B 6; | generic ok | proc gate ok",
+		"item +0x630 5 (bit 5) +0x63A 0x04 +0x669 0x00 +0x66B 0; | generic ok | proc gate ok",
 		"leaves sw 45 itemNo 0 itemSave 0;",
 		"tbox funcType 3 bit 3 +0x2BC 0x81000000 +0x2C4 0x81000100 (closed) +0x348 0x80E52634 +0x3F0 0x0000;",
 		"exec 0x80E52FB0 +0x0C 4BFFFA71 +0x1C 4E800020 execute-fp PASS OpenWait 0x80E52634 SwOnWait 0x80E527C8 SwOnWait2 0x80E528A0; +0x348 is actionOpenWait closed-chest-action PASS | generic ok | proc gate ok",
@@ -203,11 +203,12 @@ func TestRfProbe(t *testing.T) {
 	store(t, m, at[procSaku]+sakuOffSwitch, u32b(9))
 	store(t, m, at[procStone2]+stone2OffM648, u32b(7))
 	store(t, m, at[procItem]+itemOffFlag, []byte{0x40})
+	store(t, m, at[procItem]+itemOffStatus, []byte{6}) // STATUS_MAIN_NORMAL: the local pickup flight
 	s = run()
 	for _, want := range []string{
 		"+0x348 is none of them closed-chest-action FAIL | generic ok | proc gate action\n",
 		"+0xF00==sw1 FAIL", "m648 7 (other); m648-in-{0,1} FAIL | generic ok | proc gate m648 != 0",
-		"+0x669 0x40 +0x66B 6; | generic ok | proc gate flag & 0x48",
+		"+0x669 0x40 +0x66B 6; | generic ok | proc gate status 6 > 1, flag & 0x48",
 		"P0-RF FAIL: 5 refresh actors, 3 static check(s) failed\n",
 	} {
 		if !strings.Contains(s, want) {

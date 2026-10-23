@@ -70,6 +70,11 @@
 // execute runs a new one.
 #include "bosskill.h"
 
+// The actor_refresh op (refresh.c, batch D R-D5): stateless as boss_kill,
+// its block is in the slack (wwrefresh.h); create consumes a stale
+// request, execute runs a new one after boss_kill's.
+#include "refresh.h"
+
 // The build id: build.py passes -DWWREL_BUILD_ID=<CRC-32 of inject/rel's
 // sources and the slack headers>, so it changes with the source and never
 // with the clock (the ELF stays byte-identical across rebuilds of the
@@ -243,6 +248,7 @@ static int wwrel_create(void* actor) {
     if (*(u32*)((u8*)actor + 0xB0) != 0) return cPhs_ERROR_e;   // mParameters (f_pc_base.h:30)
     a->frames = 0;
     bosskill_link();
+    refresh_link();
     enemy_mirror_init(&a->mirror, &a->ext);
     remote_keeper_init(&a->swap);
     return cPhs_COMPLEATE_e;
@@ -261,7 +267,8 @@ static int wwrel_delete(void* actor) {
 // Once per frame while the keeper lives: the frame counter Go watches,
 // then the Moblin mirror's whole per-frame loop, then remote-Link's
 // (after the mirror, so the client apply sees this frame's adopted
-// Moblins), then a new boss_kill request, if any (bosskill.c). A body
+// Moblins), then a new boss_kill request, if any (bosskill.c), then a new
+// actor_refresh request (refresh.c). A body
 // poses itself (remote.c).
 static int wwrel_execute(void* actor) {
     wwrel_actor* a = (wwrel_actor*)actor;
@@ -273,6 +280,7 @@ static int wwrel_execute(void* actor) {
     enemy_mirror_frame(&a->mirror, &a->ext, frame);
     remote_keeper_frame(&a->swap, &a->mirror, frame);
     bosskill_frame();
+    refresh_frame();
     return TRUE;
 }
 

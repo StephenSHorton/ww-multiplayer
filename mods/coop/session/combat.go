@@ -116,13 +116,14 @@ func hubCombatStatus(hs hub.Status) []string {
 }
 
 // refreshStatus is /status's line for the stale-actor refresh
-// (mods/coop/replica/refresh.go), "" while it has nothing to say: the bits
-// this game's own writes landed this stage visit, the key door locks
-// cleared (Tier 1) and the death-switch light-shrinks (Tier 2), each with
-// what it holds and why.
+// (mods/coop/replica/refresh.go, refresh_relay.go), "" while it has
+// nothing to say: the bits this game's own writes landed this stage visit
+// (per store), the key door locks cleared (Tier 1), the death-switch
+// light-shrinks (Tier 2) and, with --coop-refresh, the actor_refresh
+// requests (Tier 3), each with what it holds and why.
 func refreshStatus(st replica.Status) string {
-	f, c := st.Refresh, st.Combat
-	if st.DryRun || !c.Granted || f.Landed == 0 && f.Locks == 0 && f.LockHeld == 0 && f.Shrunk == 0 && f.Held == 0 {
+	f, c, a := st.Refresh, st.Combat, st.Refresh.Actors
+	if st.DryRun || !c.Granted || f.Landed == 0 && f.Locks == 0 && f.LockHeld == 0 && f.Shrunk == 0 && f.Held == 0 && a.Requests == 0 {
 		return ""
 	}
 	locks := fmt.Sprintf("%d lock(s) cleared, %d held", f.Locks, f.LockHeld)
@@ -133,5 +134,36 @@ func refreshStatus(st replica.Status) string {
 	if f.Held > 0 {
 		deaths += " (" + f.LastHeld + ")"
 	}
-	return fmt.Sprintf("refresh: %d landed bit(s) this visit; %s; %s", f.Landed, locks, deaths)
+	line := fmt.Sprintf("refresh: %d landed bit(s) this visit%s; %s; %s", f.Landed, landedKinds(f.ByKind), locks, deaths)
+	if a.On != "" {
+		mode := ""
+		if a.Dry {
+			mode = ", dry run"
+		}
+		actors := fmt.Sprintf("; actor_refresh (%s%s): %d candidate(s), %d request(s), %d applied", a.On, mode, a.Candidates, a.Requests, a.Applied)
+		if a.Result != "" {
+			actors += fmt.Sprintf(", last %d %s", a.Seq, a.Result)
+		}
+		actors += fmt.Sprintf(", %d held", a.Held)
+		if a.Held > 0 {
+			actors += " (" + a.LastHeld + ")"
+		}
+		line += actors
+	}
+	return line
+}
+
+// landedKinds is the landed set's count per store kind, " (2 switch,
+// 1 tbox)", "" with none.
+func landedKinds(by map[replica.LandKind]int) string {
+	var parts []string
+	for _, k := range []replica.LandKind{replica.LandSwitch, replica.LandTbox, replica.LandItem, replica.LandKill} {
+		if n := by[k]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, k))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, ", ") + ")"
 }

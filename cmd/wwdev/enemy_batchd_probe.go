@@ -74,23 +74,24 @@ const (
 	procStone2 = int16(0x1CD) // fpcNm_Stone2_e, f_pc_name.h:473 ("Ebrock2", d_stage.cpp:656)
 )
 
-// Gohdan (bst_class, d_a_bst.h).
+// Gohdan (bst_class, d_a_bst.h). What bk_bst reads is the pinned
+// mailbox.BossBst* (wwboss.h); the probe reads the word each sits in.
 const (
-	bstOffPart   = 0x2B4  // u8 mBstPartType: 0 head, 1 and 2 the hands
-	bstOffMorf   = 0x2B8  // mDoExt_McaMorf* m02B8
-	bstOffAct    = 0x10D4 // s16 m10D4, s16 mActionType (+0x10D6)
-	bstOffDmg    = 0x10D8 // s16 m10D8, s16 mDamage (+0x10DA)
-	bstOffTimers = 0x10FC // s16 m10FC[0] (target timer), [1] (sleep timer)
-	bstOffM2E7C  = 0x2E7C // s8 m2E7C, then padding
-	bstOffM2E98  = 0x2E98 // s16 m2E98, s8 m2E9A (+0x2E9A)
+	bstOffPart   = mailbox.BossBstPartOff      // u8 mBstPartType: 0 head, 1 and 2 the hands
+	bstOffMorf   = mailbox.BossBstMorfOff      // mDoExt_McaMorf* m02B8
+	bstOffAct    = mailbox.BossBstActOff - 2   // s16 m10D4, s16 mActionType (+0x10D6)
+	bstOffDmg    = mailbox.BossBstDmgOff - 2   // s16 m10D8, s16 mDamage (+0x10DA)
+	bstOffTimers = 0x10FC                      // s16 m10FC[0] (target timer), [1] (sleep timer)
+	bstOffM2E7C  = mailbox.BossBstM2E7COff     // s8 m2E7C, then padding
+	bstOffM2E98  = mailbox.BossBstM2E9AOff - 2 // s16 m2E98, s8 m2E9A (+0x2E9A)
 
-	bstActSleep   = 6    // ACTION_SLEEP_e
-	bstActHeadDmg = 7    // ACTION_HEAD_DAMAGE_e
-	bstActEndDemo = 0x16 // ACTION_END_DEMO_e
-	bstDmgMouth   = 3    // KUTI_OPEN_LOOP (d_a_bst.cpp:1159-1166)
-	bstM2E7CEyes  = 12   // both hands asleep, eyes open (d_a_bst.cpp:1888-1905)
-	bstM2E7CDone  = 100  // d_a_bst.cpp:2534
-	bstM2E9ADeath = 0x32 // d_a_bst.cpp:1220
+	bstActSleep   = mailbox.BossBstActSleep   // ACTION_SLEEP_e
+	bstActHeadDmg = mailbox.BossBstActHeadDmg // ACTION_HEAD_DAMAGE_e
+	bstActEndDemo = mailbox.BossBstActEndDemo // ACTION_END_DEMO_e
+	bstDmgMouth   = mailbox.BossBstDmgMouth   // KUTI_OPEN_LOOP (d_a_bst.cpp:1159-1166)
+	bstM2E7CEyes  = mailbox.BossBstM2E7CEyes  // both hands asleep, eyes open (d_a_bst.cpp:1888-1905)
+	bstM2E7CDone  = mailbox.BossBstM2E7CDone  // d_a_bst.cpp:2534
+	bstM2E9ADeath = mailbox.BossBstM2E9ADeath // d_a_bst.cpp:1220
 )
 
 // bstPart is one proc 0xF2 actor as bst-probe reads it: the raw words
@@ -321,32 +322,33 @@ func bstProbe(ctx context.Context, w io.Writer, m mem.Reader, d time.Duration) e
 	}
 }
 
-// The refresh procs' fields (actor_refresh.procs).
+// The refresh procs' fields (actor_refresh.procs): the pinned
+// mailbox.Refresh* (wwrefresh.h) refresh.c reads, and the Saku v2 words.
 const (
-	stone2OffM648 = 0x648 // s32 m648: 0 mode_wait (idle), 1 lifted (d_a_stone2.h:138)
+	stone2OffM648 = mailbox.RefreshStone2M648Off // s32 m648: 0 mode_wait (idle), 1 lifted (d_a_stone2.h:138)
 
-	sakuOffBurn   = 0xEF4 // u8 field_0xEF4: 1 once burning (d_a_saku.cpp:345-377)
-	sakuOffState  = 0xEF8 // s32 field_0xEF8[2]: 0 none, 1 standing, 2 burning, 3 broken
-	sakuOffSwitch = 0xF00 // u32 mBottomHalfDestroyedSwitch, mTopHalfDestroyedSwitch (+0xF04)
+	sakuOffBurn   = mailbox.RefreshSakuBurnOff  // u8 field_0xEF4: 1 once burning (d_a_saku.cpp:345-377)
+	sakuOffState  = mailbox.RefreshSakuStateOff // s32 field_0xEF8[2]: 0 none, 1 standing, 2 burning, 3 broken
+	sakuOffSwitch = mailbox.RefreshSakuSwOff    // u32 mBottomHalfDestroyedSwitch, mTopHalfDestroyedSwitch (+0xF04)
 
-	itemOffBitNo           = 0x630 // s32 mItemBitNo (d_a_itembase.h:91)
-	itemOffItemNo          = 0x63A // u8 m_itemNo (d_a_itembase.h:94)
-	itemOffFlag            = 0x669 // u8 mFlag (d_a_item.h:121)
-	itemOffStatus          = 0x66B // u8 mItemStatus (d_a_item.h:123)
-	itemStatusMain         = 6     // STATUS_MAIN_NORMAL
-	itemFlagBusy           = 0x48  // FLAG_BOOMERANG | FLAG_HOOK
-	itemBitNone            = 0x7F
-	itemNoBlueJelly        = 0x4B
-	tboxOffBgOpen          = 0x2BC  // dBgW* mpBgWOpen
-	tboxOffBgCur           = 0x2C4  // dBgW* mpBgWCurrent
-	tboxOffActFn           = 0x348  // ActionFunc mActionFunc (+0x340), its function word
-	tboxOffFlags           = 0x3F0  // u16 mFlags
-	tboxFlagsBusy          = 0x38   // UNK_08, OPENING, APPEARING
-	tboxExecOff            = 0x2FB0 // daTbox_Execute (rels/d_a_tbox/symbols.txt:51)
-	tboxFpWord0C    uint32 = 0x4BFFFA71
-	tboxFpWord1C    uint32 = 0x4E800020
-	sakuExecOff            = 0x242C // daSaku_Execute (rels/d_a_saku/symbols.txt:44)
-	sakuBrokenOff          = 0xE8C  // broken__8daSaku_cFi (:19)
+	itemOffBitNo             = mailbox.RefreshItemBitNoOff      // s32 mItemBitNo (d_a_itembase.h:91)
+	itemOffItemNo            = mailbox.RefreshItemNoOff         // u8 m_itemNo (d_a_itembase.h:94)
+	itemOffFlag              = mailbox.RefreshItemFlagOff       // u8 mFlag (d_a_item.h:121)
+	itemOffStatus            = mailbox.RefreshItemStatusOff     // u8 mItemStatus (d_a_item.h:123)
+	itemStatusWaitMax        = mailbox.RefreshItemStatusWaitMax // STATUS_UNK1: 0 at rest, 1 moving (execWaitMain)
+	itemFlagBusy             = mailbox.RefreshItemFlagBusy      // FLAG_BOOMERANG | FLAG_HOOK
+	itemBitNone              = mailbox.RefreshItemBitNone
+	itemNoBlueJelly          = mailbox.RefreshItemNoBlueJelly
+	tboxOffBgOpen            = mailbox.RefreshTboxBgOpenOff // dBgW* mpBgWOpen
+	tboxOffBgCur             = mailbox.RefreshTboxBgCurOff  // dBgW* mpBgWCurrent
+	tboxOffActFn             = mailbox.RefreshTboxActFnOff  // ActionFunc mActionFunc (+0x340), its function word
+	tboxOffFlags             = mailbox.RefreshTboxFlagsOff  // u16 mFlags
+	tboxFlagsBusy            = mailbox.RefreshTboxFlagsBusy // UNK_08, OPENING, APPEARING
+	tboxExecOff              = mailbox.RefreshTboxTextExec  // daTbox_Execute (rels/d_a_tbox/symbols.txt:51)
+	tboxFpWord0C      uint32 = mailbox.RefreshTboxFpWord0
+	tboxFpWord1C      uint32 = mailbox.RefreshTboxFpWord1
+	sakuExecOff              = 0x242C // daSaku_Execute (rels/d_a_saku/symbols.txt:44)
+	sakuBrokenOff            = 0xE8C  // broken__8daSaku_cFi (:19)
 )
 
 // tboxActions are the Tbox actions the refresh accepts, at their .text
@@ -354,26 +356,27 @@ const (
 var tboxActions = []struct {
 	name string
 	off  uint32
-}{{"actionOpenWait", 0x2634}, {"actionSwOnWait", 0x27C8}, {"actionSwOnWait2", 0x28A0}}
+}{{"actionOpenWait", mailbox.RefreshTboxTextOpenWait}, {"actionSwOnWait", mailbox.RefreshTboxTextSwWait}, {"actionSwOnWait2", mailbox.RefreshTboxTextSwWait2}}
 
 // sakuBrokenFp is still_open S3's fingerprint of daSaku_c::broken (v2):
 // the word at each offset from broken.
 var sakuBrokenFp = []struct{ off, word uint32 }{{0x1C, 0x48000819}, {0x2C, 0x90030EF8}, {0x80, 0x4BFFF931}, {0xD0, 0x4E800020}}
 
-// The Magtail's retail d_a_mt.rel (SHA-1 9d7de862; R-D6).
+// The Magtail's retail d_a_mt.rel (SHA-1 9d7de862; R-D6): the pinned
+// addr.Mt* (wwenemy_kinds.h EMK_MT_*) em_mt_fp_ok checks.
 const (
-	mtExecOff = 0x6188 // daMt_Execute (rels/d_a_mt/symbols.txt:46)
-	mtBc1Off  = 0x1F10 // body_control1 (:30), size 0x3C8
-	mtBc2Off  = 0xB28  // body_control2 (:18), size 0xBF4
-	mtBc1Blr  = 0x3C4
-	mtBc2Blr  = 0xBF0
-	blrWord   = 0x4E800020
+	mtExecOff = addr.MtTextExec // daMt_Execute (rels/d_a_mt/symbols.txt:46)
+	mtBc1Off  = addr.MtTextBc1  // body_control1 (:30), size 0x3C8
+	mtBc2Off  = addr.MtTextBc2  // body_control2 (:18), size 0xBF4
+	mtBc1Blr  = addr.MtBc1Blr
+	mtBc2Blr  = addr.MtBc2Blr
+	blrWord   = addr.MtFpBlr
 )
 
 var (
-	mtFpExec = [4]uint32{0x9421FCC0, 0x7C0802A6, 0x90010344, 0xDBE10330}
-	mtFpBc1  = [4]uint32{0x9421FF90, 0x7C0802A6, 0x90010074, 0x39610070}
-	mtFpBc2  = [4]uint32{0x9421FE60, 0x7C0802A6, 0x900101A4, 0xDBE10190}
+	mtFpExec = addr.MtFpExec
+	mtFpBc1  = addr.MtFpBc1
+	mtFpBc2  = addr.MtFpBc2
 )
 
 // profileExec is actor's execute, *(*(actor+0xEC)+8); ok is false when
@@ -578,8 +581,8 @@ func rfLine(m mem.Reader, a *actors.Actor, env rfEnv) (string, int, error) {
 		if bit&0x7F == itemBitNone || no == itemNoBlueJelly {
 			g = append(g, "REFUSED")
 		}
-		if status != itemStatusMain {
-			g = append(g, fmt.Sprintf("status %d != 6", status))
+		if status > itemStatusWaitMax {
+			g = append(g, fmt.Sprintf("status %d > %d", status, itemStatusWaitMax))
 		}
 		if flag&itemFlagBusy != 0 {
 			g = append(g, "flag & 0x48")
@@ -748,12 +751,13 @@ func mtExecText(m mem.Reader, actor uint32) (string, error) {
 		exec, ew[0], ew[1], ew[2], ew[3], bc1, w1[0], w1[1], w1[2], w1[3], b1, bc2, w2[0], w2[1], w2[2], w2[3], b2, fp), nil
 }
 
-// The Magtail fields P0-MT2 adds to addr/mt.go's (C1b-magtail-redo.md).
+// The Magtail fields P0-MT2 reads (C1b-magtail-redo.md; the REL's, pinned
+// in addr/mt.go since batch D), and the fit's limits.
 const (
-	mtOffWiggle  = 0x468 // s16 head yaw wiggle
-	mtOffF470    = 0x470 // f32 stretch: eases to -10 in MOVE, +20 in FIGHT
-	mtOffBite    = 0xC04 // u8 the bite window
-	mtCcCenter   = 0x118 // dCcD_Sph's centre (addr.Mo2CcCenterOff)
+	mtOffWiggle  = addr.MtOffWiggle // s16 head yaw wiggle
+	mtOffF470    = addr.MtOffF470   // f32 stretch: eases to -10 in MOVE, +20 in FIGHT
+	mtOffBite    = addr.MtOffBite   // u8 the bite window
+	mtCcCenter   = 0x118            // dCcD_Sph's centre (addr.Mo2CcCenterOff)
 	mtPassResid  = 0.2
 	mtSphOff0    = 100 // sph[0] = M_0 * (0,0,100)
 	mtEyeOff     = 30  // eyePos = M_0 * (0,0,30)

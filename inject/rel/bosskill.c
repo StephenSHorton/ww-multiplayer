@@ -87,6 +87,48 @@
 // fall signal (:158-161). So m302 must be 2..5 too. Never a
 // delete: the hands and feet keep a static pointer to the boss
 // (d_a_bmdhand.cpp:34, d_a_bmdfoot.cpp:35).
+//
+// Gohdan (WWBOSS_PROC_BST, the stage exactly "SirenB"; enemy-mirror-
+// batch-d.json R-D1..R-D3, D2, D3, "gohdan"), under WWBOSS_WITH_BST.
+// SirenB places three proc 0xF2 actors, the head (mBstPartType 0) and two
+// hands (1, 2), and d_a_bst.rel keeps them in .bss statics (boss, hand[],
+// d_a_bst.cpp:44-45) the mod cannot read, so bk_bst finds each part with
+// fopAcIt_Judge (f_op_actor_iter.cpp:18-23) and bk_bst_judge, the first
+// function of this module a DOL iterator calls back (the profile method
+// tables are the same mechanism, rel_main.c; build.py checks it lies in
+// .text). The judge is f_op_actor_mng.cpp:65-74's rule for a part: proc
+// 0xF2, the part byte, mInitState 2 and not fpcM_IsCreating (an actor
+// joins the tag queue on its first create step, f_op_actor.cpp:261-263).
+// Its branches:
+//   1. any part missing, or the head's morf NULL: WWBOSS_R_NO_ACTOR;
+//   2. the head END_DEMO, m2E9A >= 0x32 or m2E7C 100 (the demo's end,
+//      :2534): WWBOSS_R_ALREADY;
+//   3. vanilla's own pre-death state, all of: head HEAD_DAMAGE with
+//      mDamage 3 (KUTI_OPEN_LOOP, the mouth open for a bomb, :1159-1166;
+//      2 is the KUTI_OPEN one-shot, D2), m2E7C 12 (the eyes open, both
+//      hands asleep, which case 12 holds every frame, :1888-1905), m2E9A
+//      0, both hands SLEEP: bom_eat_check's lethal block (:1219-1229),
+//      WWBOSS_R_APPLIED;
+//   4. anything else (the intro, the hands fighting, the eye phase, the
+//      beam, the fall, a bomb in the mouth, HUKKI): WWBOSS_R_WAITING,
+//      nothing written. Only damage_check's double eye kill enters
+//      HEAD_DAMAGE (:1468-1472), so the receiver beats both hands and both
+//      eyes itself first, as Gohma's armor and Kalle Demos's vines.
+// The lethal block, in one keeper frame and this order (R-D3): head m2E9A
+// 0x32, head mDamage 0, the DEAD anim (WWBOSS_BST_ANIM: anm_init's
+// getRes + setAnm, :111-120, :1222), each hand END_DEMO with mDamage 0xA
+// (main_cont stops forcing hand[0] asleep once m2E9A != 0, :1762, :1903,
+// and sleep() wakes a hand when its timer runs out, :916-920, so hands
+// left asleep would attack through the demo), the head END_DEMO last, then
+// mDoAud_bgmStop(30) and mDoAud_bgmStreamPrepare(JA_STRM_BST_CLEAR), which
+// demo case 51 plays (:2396). end_demo (:1604) and its camera cases 50-57
+// then place Link, set STAGE_BOSS_ENEMY, create the warp flower
+// (:2429-2436) and drop the heart (:2504-2510) in this game. Skipped:
+// health-- (read only by beam_attack :1015-1021, damage :1062,
+// damage_check's SE :1502 and main_cont :1837-1882, none of which drives
+// END_DEMO), the bomb delete (no bomb at mDamage 3), the LAST_HIT SE, the
+// particles and m10FC[3]. Never a delete. The result carries the head's
+// mActionType, mDamage and m2E7C as found.
 #include "mailbox_core.h"
 #include "wwenemy.h"
 #include "wwremote.h"
@@ -124,16 +166,24 @@ typedef void (*bk_bgm_stop_t)(void* self, u32 fade, s32 arg);
 #define BK_ZEL_BASIC (*(void* volatile*)WWBOSS_ZEL_BASIC)
 
 // The stage proc's op may run in, NUL-padded to the name's 8 bytes: Btd
-// only in M_DragB, Bmd only in kinBOSS, never an 'X' refight stage.
+// only in M_DragB, Bmd only in kinBOSS, Bst only in SirenB, never an 'X'
+// refight stage.
 static int bk_stage_ok(u16 proc) {
     static const char drag_b[8] = { 'M', '_', 'D', 'r', 'a', 'g', 'B', 0 };
     static const char kin_boss[8] = { 'k', 'i', 'n', 'B', 'O', 'S', 'S', 0 };
+#if WWBOSS_WITH_BST
+    static const char siren_b[8] = { 'S', 'i', 'r', 'e', 'n', 'B', 0, 0 };
+#endif
     const char* want;
     int i;
     if (proc == WWBOSS_PROC_BTD) {
         want = drag_b;
     } else if (proc == WWBOSS_PROC_BMD) {
         want = kin_boss;
+#if WWBOSS_WITH_BST
+    } else if (proc == WWBOSS_PROC_BST) {
+        want = siren_b;
+#endif
     } else {
         return 0;
     }
@@ -222,6 +272,118 @@ static void bk_bmd(u32 seq, fopAc_ac_c* a) {
     bk_ack(seq, WWBOSS_R_APPLIED, mode, step, (u8)core);
 }
 
+#if WWBOSS_WITH_BST
+// fopAcIt_Judge__FPFPvPv_PvPv (symbols.txt:632, f_op_actor_iter.cpp:18-23):
+// judge(actor, data) over the actor tag queue, the first non-NULL return.
+typedef void* (*bk_judge_t)(void* p, void* want);
+typedef void* (*bk_iter_judge_t)(bk_judge_t judge, void* data);
+#define bk_IterJudge ((bk_iter_judge_t)WWBOSS_ITER_JUDGE_FN)
+// dRes_control_c::getRes(const char*, s32, dRes_info_c*, int), static
+// (d_resorce.h:62): dComIfG_getObjectRes(arc, index)'s body
+// (d_com_inf_game.h:4112-4114, d_resorce.h:76-79).
+typedef void* (*bk_get_res_t)(const char* arc, s32 index, void* info, int count);
+#define bk_getRes ((bk_get_res_t)WWBOSS_GETRES_FN)
+// mDoExt_McaMorf::setAnm(J3DAnmTransform*, int loopMode, f32 morf, f32
+// speed, f32 start, f32 end, void* bas) (symbols.txt:318; the ints and
+// pointers in r3..r6, the floats in f1..f4, as d_a_bst.rel's anm_init
+// passes them, .text 0x2C0-0x3E4).
+typedef void (*bk_set_anm_t)(void* morf, void* anm, int loop, f32 morf_f, f32 speed, f32 start, f32 end, void* bas);
+#define bk_setAnm ((bk_set_anm_t)WWBOSS_SETANM_FN)
+// JAIZelBasic::bgmStreamPrepare(u32) (symbols.txt:10632), as
+// mDoAud_bgmStreamPrepare calls it (m_Do_audio.h:99-101).
+typedef void (*bk_strm_prepare_t)(void* self, u32 id);
+#define bk_bgmStreamPrepare ((bk_strm_prepare_t)WWBOSS_STRM_PREPARE_FN)
+
+// fpc base's mBsPcId (u32 +0x04) and mInitState (s8 +0x0C, 2 = executing,
+// f_pc_executor.cpp:49), as enemy_mirror.c reads them.
+#define BK_PROC_ID_OFF    0x04
+#define BK_INIT_STATE_OFF 0x0C
+#define BK_S8(a, off)     (*(volatile s8*)((u8*)(a) + (off)))
+
+// The judge DOL code calls back (header): the Bst actor of part *want,
+// once created, else NULL (keep iterating). Static and in .text: build.py
+// checks the symbol's section after the link.
+static void* bk_bst_judge(void* p, void* want) {
+    if (*(volatile s16*)((u8*)p + BK_PROC_NAME_OFF) != (s16)WWBOSS_PROC_BST) return 0;
+    if (*(volatile u8*)((u8*)p + WWBOSS_BST_PART_OFF) != *(const u8*)want) return 0;
+    if (BK_S8(p, BK_INIT_STATE_OFF) != 2) return 0;
+    if (fpcM_IsCreating(*(volatile u32*)((u8*)p + BK_PROC_ID_OFF))) return 0;
+    return p;
+}
+
+static void* bk_bst_part(u8 part) {
+    u8 want = part;
+    return bk_IterJudge(bk_bst_judge, &want);
+}
+
+// bk_bst runs a request on Gohdan (the header's Bst branches 1-4). The
+// result carries the head's mActionType, mDamage and m2E7C as found.
+static void bk_bst(u32 seq) {
+    void* head = bk_bst_part(WWBOSS_BST_PART_HEAD);
+    void* hand1 = bk_bst_part(WWBOSS_BST_PART_HAND1);
+    void* hand2 = bk_bst_part(WWBOSS_BST_PART_HAND2);
+    void* morf;
+    void* zel;
+    s16 act, dmg;
+    s8 phase, death;
+
+    if (!head || !hand1 || !hand2) {
+        bk_ack(seq, WWBOSS_R_NO_ACTOR, 0, 0, 0);
+        return;
+    }
+    morf = *(void* volatile*)((u8*)head + WWBOSS_BST_MORF_OFF);
+    act = BK_S16(head, WWBOSS_BST_ACT_OFF);
+    dmg = BK_S16(head, WWBOSS_BST_DMG_OFF);
+    phase = BK_S8(head, WWBOSS_BST_M2E7C_OFF);
+    death = BK_S8(head, WWBOSS_BST_M2E9A_OFF);
+    if (!morf) {
+        bk_ack(seq, WWBOSS_R_NO_ACTOR, act, dmg, (u8)phase);
+        return;
+    }
+    if (act == WWBOSS_BST_ACT_END_DEMO || death >= WWBOSS_BST_M2E9A_DEATH || phase == WWBOSS_BST_M2E7C_DONE) {
+        bk_ack(seq, WWBOSS_R_ALREADY, act, dmg, (u8)phase);
+        return;
+    }
+    if (act != WWBOSS_BST_ACT_HEAD_DMG || dmg != WWBOSS_BST_DMG_MOUTH || phase != WWBOSS_BST_M2E7C_EYES ||
+        death != 0 || BK_S16(hand1, WWBOSS_BST_ACT_OFF) != WWBOSS_BST_ACT_SLEEP ||
+        BK_S16(hand2, WWBOSS_BST_ACT_OFF) != WWBOSS_BST_ACT_SLEEP) {
+        bk_ack(seq, WWBOSS_R_WAITING, act, dmg, (u8)phase);
+        return;
+    }
+    // bom_eat_check's lethal block (d_a_bst.cpp:1219-1229), R-D3's order.
+    BK_S8(head, WWBOSS_BST_M2E9A_OFF) = WWBOSS_BST_M2E9A_DEATH;
+    BK_S16(head, WWBOSS_BST_DMG_OFF) = 0;
+#if WWBOSS_BST_ANIM
+    {
+        // anm_init(i_this, BST_DEAD, 1.0f, EMode_NONE, 1.0f, -1)
+        // (:111-120, :1222): no sound bas.
+        static const char arc[4] = { 'B', 's', 't', 0 };
+        void* res = bk_getRes(arc, WWBOSS_BST_ANM_DEAD, (void*)WWBOSS_OBJINFO, WWBOSS_OBJINFO_COUNT);
+        if (res) bk_setAnm(morf, res, 0, 1.0f, 1.0f, 0.0f, -1.0f, 0);
+    }
+#endif
+    BK_S16(hand1, WWBOSS_BST_ACT_OFF) = WWBOSS_BST_ACT_END_DEMO;
+    BK_S16(hand1, WWBOSS_BST_DMG_OFF) = WWBOSS_BST_HAND_DMG_END;
+    BK_S16(hand2, WWBOSS_BST_ACT_OFF) = WWBOSS_BST_ACT_END_DEMO;
+    BK_S16(hand2, WWBOSS_BST_DMG_OFF) = WWBOSS_BST_HAND_DMG_END;
+    BK_S16(head, WWBOSS_BST_ACT_OFF) = WWBOSS_BST_ACT_END_DEMO;
+    zel = BK_ZEL_BASIC;
+    if (zel) {
+        bk_bgmStop(zel, WWBOSS_BGM_STOP_FADE, 0);
+        bk_bgmStreamPrepare(zel, WWBOSS_STRM_BST_CLEAR);
+    }
+    bk_ack(seq, WWBOSS_R_APPLIED, act, dmg, (u8)phase);
+}
+#endif
+
+// The procs bosskill_frame takes (each only in its stage, bk_stage_ok).
+static int bk_proc_ok(u16 proc) {
+#if WWBOSS_WITH_BST
+    if (proc == WWBOSS_PROC_BST) return 1;
+#endif
+    return proc == WWBOSS_PROC_BTD || proc == WWBOSS_PROC_BMD;
+}
+
 void bosskill_frame(void) {
     u32 seq = BK_WORD(WWBOSS_SEQ_OFF);
     u16 proc;
@@ -229,11 +391,18 @@ void bosskill_frame(void) {
 
     if (seq == BK_WORD(WWBOSS_ACK_OFF)) return;
     proc = BK_HALF(WWBOSS_PROC_OFF);
-    if (NEXT_STAGE_ENABLE != 0 || (proc != WWBOSS_PROC_BTD && proc != WWBOSS_PROC_BMD) ||
+    if (NEXT_STAGE_ENABLE != 0 || !bk_proc_ok(proc) ||
         BK_HALF(WWBOSS_TAG_OFF) != WWBOSS_TAG || !bk_stage_ok(proc)) {
         bk_ack(seq, WWBOSS_R_GATE, 0, 0, 0);
         return;
     }
+#if WWBOSS_WITH_BST
+    // Three parts, none findable by name (the header): the judge.
+    if (proc == WWBOSS_PROC_BST) {
+        bk_bst(seq);
+        return;
+    }
+#endif
     if (!bk_SearchByName((s16)proc, &a) || !a ||
         *(volatile s16*)((u8*)a + BK_PROC_NAME_OFF) != (s16)proc) {
         bk_ack(seq, WWBOSS_R_NO_ACTOR, 0, 0, 0);

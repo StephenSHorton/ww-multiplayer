@@ -1047,8 +1047,9 @@ const canaryChunk = 0x400
 // mailbox and the patched arena in its two parts around the REL's exec-
 // hook words (mailbox.RELHookRegion, which T2 branches to), the
 // enemy-mirror block (mailbox.EnemyBlockRegion), the remote-Link block
-// (mailbox.RemoteBlockRegion) and the enemy knob table after it
-// (mailbox.EnemyKnobRegion, layout 4), which Go and the REL write while
+// (mailbox.RemoteBlockRegion), the enemy knob table after it
+// (mailbox.EnemyKnobRegion, layout 4) and batch D's actor_refresh request
+// after that (mailbox.RefreshRegion), which Go and the REL write while
 // they run and which the probe therefore never arms or checks.
 var canaryRegions = []addr.Region{mailbox.CanaryTRK, mailbox.CanaryArena, mailbox.CanaryArenaHigh}
 
@@ -1064,6 +1065,7 @@ func canaryForbidden() []addr.Region {
 		mailbox.EnemyBlockRegion,
 		mailbox.RemoteBlockRegion,
 		mailbox.EnemyKnobRegion,
+		mailbox.RefreshRegion,
 		{Name: "the arena", Start: mailbox.PatchedArenaLo, End: addr.MEM1End},
 	}
 }
