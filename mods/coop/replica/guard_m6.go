@@ -41,6 +41,10 @@ type CombatTick struct {
 	// Demo: Link's demo gate passed: its offset is verified
 	// (combat.DemoTypeVerified) and it read 0 (TYPE_NONE).
 	Demo bool
+	// Locks reports whether door d's lock may be cleared (TargetLock): a
+	// key door of the tick's plan, whose lock switch landed
+	// (refresh.go). Nil takes none.
+	Locks func(d *actors.Actor) bool
 }
 
 // SetCombat gives the guard the tick's M6 plan. SetTick forgets it.
@@ -242,6 +246,66 @@ func (w *WriteGuard) judgeActor(k actorKind, c *actors.Actor, wp *actors.Actor, 
 		}
 	default:
 		return RefuseTarget, "no light-shrink write"
+	}
+	return 0, ""
+}
+
+// checkLock reports whether val may be written over old at a, the lock
+// byte of door d as actors.Reread read it just before (TargetLock). It
+// lets through exactly mbEnabled of a lock class (lockOff) from 1 to 0,
+// for a door the tick's walk has with the same process ID, proc and
+// params, that the plan takes (CombatTick.Locks), with ARMED, IDLE and
+// the gates open and Link's demo gate passed. A refusal is counted, logged
+// and reported as Check's.
+func (w *WriteGuard) checkLock(d *actors.Actor, a uint32, old, val byte) error {
+	w.mu.Lock()
+	w.checked++
+	e := &RefusalError{Addr: a, Old: old, New: val, What: "key door lock"}
+	e.Reason, e.Why = w.judgeLock(d, a, old, val)
+	if e.Reason == 0 {
+		w.mu.Unlock()
+		return nil
+	}
+	return w.refuse(e)
+}
+
+// judgeLock is checkLock's verdict. w.mu is held.
+func (w *WriteGuard) judgeLock(d *actors.Actor, a uint32, old, val byte) (Refusal, string) {
+	switch {
+	case w.brk.Off():
+		return RefuseOff, w.brk.Why()
+	case w.allow.targets&TargetLock == 0:
+		return RefuseTarget, "the lock clear is not this guard's target"
+	case !w.have:
+		return RefuseGate, "no tick has opened the gates yet"
+	case w.closed != "":
+		return RefuseGate, w.closed
+	}
+	if why := w.tick.opens(TargetLock, a); why != "" {
+		return RefuseGate, why
+	}
+	cb := &w.combat
+	switch {
+	case !w.combatOK || cb.Walk == nil || cb.Locks == nil:
+		return RefuseGate, "no refresh plan this tick"
+	case !cb.Demo:
+		return RefuseGate, "Link's demo gate is closed (unverified, or Link is in a demo)"
+	case d == nil:
+		return RefuseTarget, "no door"
+	}
+	off, ok := lockOff(d.Proc)
+	in, inOK := cb.Walk.ByAddr(d.Addr)
+	switch {
+	case !ok:
+		return RefuseTarget, fmt.Sprintf("%s is no key door class", d)
+	case !inOK || in.PID != d.PID || in.Proc != d.Proc || in.Params != d.Params:
+		return RefuseTarget, fmt.Sprintf("%s is not in this tick's walk", d)
+	case !cb.Locks(d):
+		return RefuseTarget, fmt.Sprintf("%s is no lock clear of this tick's plan", d)
+	case a != d.Addr+off+lockOffEnabled:
+		return RefuseTarget, fmt.Sprintf("0x%08X is not %s's mbEnabled", a, d)
+	case old != 1 || val != 0:
+		return RefuseValue, fmt.Sprintf("a lock may only go from 1 to 0, not from %d to %d", old, val)
 	}
 	return 0, ""
 }

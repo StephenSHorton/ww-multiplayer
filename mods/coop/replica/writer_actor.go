@@ -33,6 +33,9 @@ import (
 type ActorTarget struct {
 	Carrier actors.Actor
 	Weapon  *actors.Actor
+	// Death is what is read again for a target the stale-actor refresh's
+	// death switch rule alone takes (refresh.go, Tier 2); nil for M6's.
+	Death *DeathRecheck
 }
 
 // ActorDone is a light-shrink ApplyActors wrote.
@@ -89,7 +92,10 @@ func (w *FrameWriter) readyK1() error {
 //     started holds every target;
 //  3. for each target: carrier and weapon read again (combat.Revalidate,
 //     with the home room's zone; unverified is its own), a target that
-//     changed is held; else a fresh read of the timer, which must be 0,
+//     changed is held; a death switch target (ActorTarget.Death) is held
+//     too when its death switch reads clear or Link, read again, is within
+//     300 units of it (deathHolds); else a fresh read of the timer, which
+//     must be 0,
 //     WriteGuard.checkActor (T), a 1-byte write of 1, and a read back. Only
 //     a timer that reads back nonzero lets the weapon go: a fresh read of
 //     its CARRY byte, CARRY cleared, checkActor (W), a 1-byte write;
@@ -190,6 +196,17 @@ func (w *FrameWriter) ApplyActors(ctx context.Context, ts []ActorTarget, demo, u
 			note(err)
 			break
 		}
+		if t.Death != nil {
+			why, err := w.deathHolds(t.Death, &c)
+			if err != nil {
+				note(err)
+				break
+			}
+			if why != "" {
+				res.Held = append(res.Held, ActorHeld{Carrier: t.Carrier, Why: fmt.Sprintf("%s: %s", c.String(), why)})
+				continue
+			}
+		}
 		ta := c.TimerAddr()
 		old, err := mem.ReadU8(w.Mem, ta)
 		if err != nil {
@@ -263,6 +280,30 @@ func (w *FrameWriter) demoHolds() (string, error) {
 	}
 	if t := uint16(b[0])<<8 | uint16(b[1]); t != 0 {
 		return fmt.Sprintf("link demo %d", t), nil
+	}
+	return "", nil
+}
+
+// deathHolds reads d's death switch and Link's position again and returns
+// why carrier c's light-shrink by the death switch rule must wait, or "":
+// the switch reads clear, or Link is gone or within 300 units of c in x
+// and z (the gates deathWhy judged by the tick's snapshot).
+func (w *FrameWriter) deathHolds(d *DeathRecheck, c *actors.Actor) (string, error) {
+	v, err := mem.ReadU8(w.Mem, d.Addr)
+	if err != nil {
+		return "", err
+	}
+	if v&d.Mask == 0 {
+		return fmt.Sprintf("its death switch 0x%02X reads clear", d.No), nil
+	}
+	lp, ok, err := readLinkPos(w.Mem)
+	switch {
+	case err != nil:
+		return "", err
+	case !ok:
+		return "no Link", nil
+	case !farFrom(lp, c.Pos):
+		return fmt.Sprintf("Link within %d units", linkRefreshRange), nil
 	}
 	return "", nil
 }

@@ -140,8 +140,9 @@ type Config struct {
 	Policy *world.Policy
 	// Apply makes the replica write the world's progress into the game
 	// (M3, M4), a co-present partner's room puzzles (M5) and its kills
-	// (M6): the reconcilers hand their writes to a FrameWriter through a
-	// WriteGuard of M3Targets | M4Targets | M5Targets | M6Targets. False
+	// (M6), and the stale-actor refresh (refresh.go): the reconcilers hand
+	// their writes to a FrameWriter through a WriteGuard of M3Targets |
+	// M4Targets | M5Targets | M6Targets | RefreshTargets. False
 	// is M2's dry run
 	// (--coop-dry-run): the plan is logged, never written.
 	Apply bool
@@ -186,6 +187,11 @@ type Config struct {
 	// called from Tick and the writes, so it must be safe for concurrent
 	// use and must not call back into the replica.
 	Claimed combat.ClaimFunc
+	// RefreshSettle is how long a bit must have been in the landed set
+	// (FrameWriter.Landed) before the stale-actor refresh acts on it
+	// (design/stale-actor-refresh.md gate 8); 0 is RefreshSettle, and a
+	// negative one acts at once (tests).
+	RefreshSettle time.Duration
 }
 
 // Offer is a tag write waiting for the user's yes.
@@ -307,6 +313,10 @@ type Status struct {
 	Combat CombatStatus
 	// BossKill is how the boss-dead relay stands (bosskill.go).
 	BossKill BossKillStatus
+	// Refresh is how the stale-actor refresh stands (refresh.go): the
+	// landed set, the key door locks cleared and the death-switch
+	// light-shrinks.
+	Refresh RefreshStatus
 }
 
 // helloKey is what a CO_HELLO describes: when it changes, the replica
@@ -468,7 +478,7 @@ func New(cfg Config) (*Replica, error) {
 	}
 	w, err := NewFrameWriter(WriterConfig{Mem: r.m, DryRun: true})
 	if cfg.Apply {
-		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | M6Targets | TargetEscape | TargetBoss, Policy: r.policy, GBA: &r.gba.mask, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
+		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | M6Targets | RefreshTargets | TargetEscape | TargetBoss, Policy: r.policy, GBA: &r.gba.mask, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
 		w, err = NewFrameWriter(WriterConfig{Mem: r.m, Guard: wg, BeatTimeout: cfg.BeatTimeout, Logf: r.logf, Label: r.label, GBA: r.gba.switches > 0})
 	}
 	if err != nil {
@@ -657,6 +667,7 @@ func (r *Replica) Status() Status {
 		GBA:      GBAStatus{MayLink: r.gba.held, Switches: r.gba.switches},
 		Combat:   r.combatStatus(),
 		BossKill: r.bossKillStatus(),
+		Refresh:  r.refreshStatus(),
 	}
 	_, st.WritesOff = r.writer.Disabled()
 	if r.preflight != nil {

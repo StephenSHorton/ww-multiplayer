@@ -3,6 +3,7 @@ package fakegame
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -88,7 +89,10 @@ const procBoko = 0x1D5
 
 // Enemy is a placed enemy: an ACTR entry of a room of a stage.
 type Enemy struct {
-	Stage  string
+	Stage string
+	// Room is its room; -1 places it in the stage file, as a door is (the
+	// stage's DOOR and TGDR entries): it is created with the stage and
+	// lives while the stage is loaded, in no room's scene.
 	Room   int
 	SetID  uint16 // 0xFFFF: unkeyed
 	Proc   stage.Proc
@@ -106,6 +110,12 @@ type Enemy struct {
 	// FailCreate makes its create fail: it is queued, then gone without
 	// having executed.
 	FailCreate bool
+	// Angle is its home.angle, as the entry gives it (dStage_actorCreate,
+	// d_stage.cpp:1300-1310): a K1 enemy's death switch is angle.z's low
+	// byte, a door's rooms angle.x's.
+	Angle [3]int16
+	// Pos is its current.pos as it is created.
+	Pos [3]float32
 }
 
 // liveActor is an actor in the fake's queue.
@@ -131,6 +141,7 @@ type Enemies struct {
 	free   []uint32     // freed blocks, reused first (FreeAndReuse)
 	next   uint32       // the next fresh block
 	stage  string
+	staged bool                      // the stage file's actors (room -1) were created
 	loads  uint64                    // the FakeGame's stage loads as the enemies were created
 	scene  [addr.RoomCount]roomScene // the room scene each room's enemies were created in
 	shrunk []uint32                  // pids the shrink deleted
@@ -393,7 +404,17 @@ func (e *Enemies) execute(g *FakeGame) error {
 		for len(e.live) > 0 {
 			e.remove(g, 0)
 		}
-		e.stage, e.loads, e.scene, changed = cur, g.loads, [addr.RoomCount]roomScene{}, true
+		e.stage, e.loads, e.scene, e.staged, changed = cur, g.loads, [addr.RoomCount]roomScene{}, false, true
+	}
+	if cur != "" && !e.staged {
+		// The stage file's actors (room -1) are created with the stage.
+		e.staged = true
+		for i, p := range e.placed {
+			if p.Stage == cur && p.Room == -1 {
+				e.create(g, i)
+				changed = true
+			}
+		}
 	}
 	for room := range addr.RoomCount {
 		proc, shown := g.sceneOf(room)
@@ -559,6 +580,10 @@ func (g *FakeGame) layActor(a *liveActor, p Enemy, status uint32) {
 	g.st8(a.at+addr.ActorOffHomeRoomNo, byte(p.Room))
 	g.st8(a.at+addr.ActorOffMaxHealth, byte(hp))
 	g.st8(a.at+addr.ActorOffHealth, byte(hp))
+	for i := range 3 {
+		g.st16(a.at+addr.ActorOffHomeAngle+uint32(2*i), uint16(p.Angle[i]))
+		g.st32(a.at+addr.ActorOffCurPos+uint32(4*i), math.Float32bits(p.Pos[i]))
+	}
 }
 
 // alloc takes a block: a freed one first.

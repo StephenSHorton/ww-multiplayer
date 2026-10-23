@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/bits"
 	"strings"
+	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
@@ -455,6 +456,7 @@ func (w *FrameWriter) verifyScoped(s *state.Snapshot, st gate.Status, f bind.Fil
 	}
 	same := s != nil && !st.Regressed && s.StageName == w.scAt.stage && s.Table == w.scAt.table && f == w.scAt.file
 	n := VerifyReport{}
+	now := time.Now()
 	for _, p := range ps {
 		ok := same
 		if ok && p.sw.Kind != wire.ScopeDan {
@@ -474,6 +476,9 @@ func (w *FrameWriter) verifyScoped(s *state.Snapshot, st gate.Status, f bind.Fil
 			continue
 		case v&p.sw.Bits == p.sw.Bits:
 			n.Verified++
+			sw := p.sw
+			sw.Bits = p.val &^ p.old
+			w.landScoped(sw, w.scAt.table, now)
 			continue
 		case p.sw.Kind == wire.ScopeRoomEdge && zoneWords(s, int(p.sw.Slot))[2] == 0:
 			// Every room switch of the zone is clear: clearRoomSwitch's

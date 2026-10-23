@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -311,6 +312,7 @@ func (w *FrameWriter) verifyKills(s *state.Snapshot, st gate.Status, f bind.File
 	}
 	same := s != nil && !st.Regressed && s.StageName == w.kiAt.stage && s.Table == w.kiAt.table && f == w.kiAt.file
 	n := VerifyReport{}
+	now := time.Now()
 	for _, p := range ps {
 		ok := same
 		if ok {
@@ -327,6 +329,9 @@ func (w *FrameWriter) verifyKills(s *state.Snapshot, st gate.Status, f bind.File
 			continue
 		case v&p.kw.Bits == p.kw.Bits:
 			n.Verified++
+			kw := p.kw
+			kw.Bits = p.val &^ p.old
+			w.landKills(kw, w.kiAt.table, now)
 			continue
 		}
 		n.Failed++

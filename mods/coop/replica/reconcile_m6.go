@@ -72,6 +72,9 @@ type m6 struct {
 
 	toldOn, toldOff bool
 
+	// rf is the stale-actor refresh's state (refresh.go).
+	rf refreshState
+
 	// What /status shows (CombatStatus).
 	place     world.Place
 	storeBits int
@@ -103,7 +106,7 @@ type CombatStatus struct {
 }
 
 func newM6() m6 {
-	return m6{ever: map[uint32]bool{}, held: map[uint32]string{}, demoHeld: map[uint32]bool{}, place: world.Nowhere}
+	return m6{ever: map[uint32]bool{}, held: map[uint32]string{}, demoHeld: map[uint32]bool{}, place: world.Nowhere, rf: newRefreshState()}
 }
 
 // combatStatus is the M6 receiver's part of r's Status. r.mu is held.
@@ -175,6 +178,8 @@ func (r *Replica) killMask(table int8, stage string, room int) enemies.KillSet {
 func (r *Replica) reconcileM6(o *obs, armed bool) {
 	m := &r.m6
 	m.kills, m.targets, m.demo = nil, nil, false
+	m.rf.locks = nil
+	clear(m.rf.deathPIDs)
 	if o.st.Regressed {
 		// A save state was loaded: the actor heap and the process-ID
 		// counter (f_pc_base.cpp:36-40) went back with it, so an enemy
@@ -185,6 +190,7 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 		clear(m.ever)
 		clear(m.held)
 		clear(m.demoHeld)
+		m.rf.forget()
 	}
 	if o.consistent() {
 		if st, err := wire.MakeStage(o.s.StageName); err == nil {
@@ -225,7 +231,13 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 			m.storeBits += popcount(w)
 		}
 	}
-	if len(stores) == 0 || !o.st.CanWriteIdle() {
+	if !o.st.CanWriteIdle() {
+		return
+	}
+	// The stale-actor refresh (refresh.go) needs the walk too, when a
+	// switch landed, kill stores or none.
+	rt := r.newRefreshTick(o)
+	if len(stores) == 0 && !rt.any() {
 		return
 	}
 	name := stage.String()
@@ -280,12 +292,13 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 		return setID >= 0 && setID < enemies.MaxSetID && ws != nil && ws[setID/32]&(1<<(setID%32)) != 0 && mask.Has(setID)
 	}
 	ct := CombatTick{Flags: o.rooms.flags, FlagsOK: o.rooms.ok, Kills: kills, Claimed: r.cfg.Claimed}
-	if !live {
+	if !live && !rt.any() {
 		r.setCombat(ct)
 		return
 	}
 
-	// The light-shrink of the store's live enemies.
+	// The light-shrink of the store's live enemies, and the refresh's
+	// candidates.
 	w, err := combat.Read(r.m, 0)
 	switch {
 	case err != nil:
@@ -304,34 +317,83 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 			}
 		}
 	}
-	allow := func(a *actors.Actor) bool { return a.Keyed() && kills(int(a.HomeRoom), int(a.SetID)) }
+	// Two rules take a light-shrink target: M6's, a keyed enemy whose
+	// death the partner's store has, of a room loaded and settled (the walk
+	// runs once a switch landed, not only when live says some store room
+	// is); and the refresh's Tier 2, a K1 enemy whose death switch landed
+	// (deathAllow), a keyed one only when its key syncs (rt.keys). The
+	// guard asks the same allow of the actor Revalidate read again
+	// (judgeActor).
+	rt.keys = map[int]enemies.KillSet{}
+	for i := range w.Actors {
+		if a := &w.Actors[i]; a.Keyed() {
+			room := int(a.HomeRoom)
+			if _, ok := rt.keys[room]; ok {
+				continue
+			}
+			if ks, ok := masks[room]; ok {
+				rt.keys[room] = ks
+			} else {
+				rt.keys[room] = r.killMask(s.Table, name, room)
+			}
+		}
+	}
+	keyed := func(a *actors.Actor) bool { return a.Keyed() && kills(int(a.HomeRoom), int(a.SetID)) }
+	allow := func(a *actors.Actor) bool {
+		return keyed(a) && rt.roomSettled(int(a.HomeRoom)) == "" || rt.deathAllow(a)
+	}
 	demo, demoWhy := r.linkDemo(o)
 	for i := range w.Actors {
 		a := &w.Actors[i]
-		if !allow(a) || m.ever[a.PID] {
+		if m.ever[a.PID] {
 			continue
 		}
+		// hold records why a target waits: a death-switch target's reason
+		// is the refresh's own (Status.Refresh), the keyed rule's M6's.
+		hold := m.hold
+		var death *DeathRecheck
+		if keyed(a) {
+			if why := rt.roomSettled(int(a.HomeRoom)); why != "" {
+				hold(a.PID, why)
+				continue
+			}
+		} else {
+			why, cand := rt.deathWhy(a)
+			if !cand {
+				continue
+			}
+			hold = m.rf.holdDeath
+			if why != "" {
+				hold(a.PID, why)
+				continue
+			}
+			if death = rt.deathRecheck(a); death == nil {
+				hold(a.PID, "its death switch has no byte to read again")
+				continue
+			}
+			m.rf.deathPIDs[a.PID] = true
+		}
 		if why := combat.Eligible(a, false, r.cfg.Claimed); why != "" {
-			m.hold(a.PID, why)
+			hold(a.PID, why)
 			continue
 		}
 		if _, ok := s.ZoneFor(int(a.HomeRoom)); !ok {
-			m.hold(a.PID, fmt.Sprintf("its home room %d has no zone (onActor asserts, d_save.cpp:1678-1679)", a.HomeRoom))
+			hold(a.PID, fmt.Sprintf("its home room %d has no zone (onActor asserts, d_save.cpp:1678-1679)", a.HomeRoom))
 			continue
 		}
 		wp, why := combat.WeaponOf(&w, a, false)
 		if why != "" {
-			m.hold(a.PID, why)
+			hold(a.PID, why)
 			continue
 		}
 		if !demo {
-			m.hold(a.PID, demoWhy)
-			if len(m.demoHeld) < maxM6Held {
+			hold(a.PID, demoWhy)
+			if len(m.demoHeld) < maxM6Held && !m.rf.deathPIDs[a.PID] {
 				m.demoHeld[a.PID] = true
 			}
 			continue
 		}
-		t := ActorTarget{Carrier: *a}
+		t := ActorTarget{Carrier: *a, Death: death}
 		if wp != nil {
 			c := *wp
 			t.Weapon = &c
@@ -340,6 +402,7 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 	}
 	m.demo = demo
 	ct.Walk, ct.Allow, ct.Demo = &w, allow, demo
+	ct.Locks = r.planLocks(rt, &w, demo, demoWhy)
 	r.setCombat(ct)
 }
 
@@ -379,27 +442,28 @@ func popcount(w uint32) int {
 	return n
 }
 
-// m6Writes are one tick's M6 writes.
+// m6Writes are one tick's M6 writes, the refresh's lock clears among them.
 type m6Writes struct {
 	kills   []KillWrite
 	targets []ActorTarget
 	demo    bool
+	locks   []LockTarget
 }
 
 // take returns this tick's writes and forgets them.
 func (m *m6) take() m6Writes {
-	ws := m6Writes{kills: m.kills, targets: m.targets, demo: m.demo}
-	m.kills, m.targets = nil, nil
+	ws := m6Writes{kills: m.kills, targets: m.targets, demo: m.demo, locks: m.rf.locks}
+	m.kills, m.targets, m.rf.locks = nil, nil, nil
 	return ws
 }
 
 // applyCombat makes a tick's M6 writes, after the scoped path's
 // (rep.WriteErr is the first error the tick's earlier paths had): not at
 // all when one stalled or the game moved on. The zone bytes go first, then
-// the light-shrinks, so onActor finds the bit set when the shrink ends. It
-// takes r.mu for the result.
+// the light-shrinks, so onActor finds the bit set when the shrink ends,
+// then the refresh's lock clears. It takes r.mu for the result.
 func (r *Replica) applyCombat(ctx context.Context, ws m6Writes, rep *Report) {
-	if len(ws.kills) == 0 && len(ws.targets) == 0 {
+	if len(ws.kills) == 0 && len(ws.targets) == 0 && len(ws.locks) == 0 {
 		return
 	}
 	err := rep.WriteErr
@@ -416,11 +480,16 @@ func (r *Replica) applyCombat(ctx context.Context, ws m6Writes, rep *Report) {
 	if len(ws.targets) > 0 && !errors.Is(kerr, ErrStall) && !errors.Is(kerr, ErrAborted) && !errors.Is(kerr, ErrOff) {
 		ares, aerr = r.writer.ApplyActors(ctx, ws.targets, ws.demo, false)
 	}
+	var lres LockResult
+	var lerr error
+	if len(ws.locks) > 0 && !stopped(kerr) && !stopped(aerr) {
+		lres, lerr = r.writer.ApplyLocks(ctx, ws.locks)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	m := &r.m6
-	rep.Wrote += len(kres.Wrote) + len(ares.Wrote)
-	for _, e := range []error{kerr, aerr} {
+	rep.Wrote += len(kres.Wrote) + len(ares.Wrote) + len(lres.Wrote)
+	for _, e := range []error{kerr, aerr, lerr} {
 		if rep.WriteErr == nil && e != nil {
 			rep.WriteErr = e
 		}
@@ -445,6 +514,11 @@ func (r *Replica) applyCombat(ctx context.Context, ws m6Writes, rep *Report) {
 		delete(m.demoHeld, d.Carrier.PID)
 		m.shrunk++
 		what := "light-shrunk the partner's kill: " + d.Carrier.String()
+		if m.rf.deathPIDs[d.Carrier.PID] {
+			delete(m.rf.swHeld, d.Carrier.PID)
+			m.rf.shrunk++
+			what = "refresh: light-shrunk a stale enemy whose death switch landed: " + d.Carrier.String()
+		}
 		if d.Released {
 			m.released++
 			what += ", its weapon let go"
@@ -452,14 +526,39 @@ func (r *Replica) applyCombat(ctx context.Context, ws m6Writes, rep *Report) {
 		lines = append(lines, what)
 	}
 	for _, h := range ares.Held {
+		if m.rf.deathPIDs[h.Carrier.PID] {
+			m.rf.holdDeath(h.Carrier.PID, h.Why)
+			continue
+		}
 		m.hold(h.Carrier.PID, h.Why)
+	}
+	for _, d := range lres.Done {
+		if len(m.rf.lockEver) >= maxM6Ever {
+			clear(m.rf.lockEver)
+		}
+		m.rf.lockEver[d.Door.PID] = true
+		delete(m.rf.lockHeld, d.Door.PID)
+		m.rf.cleared++
+		lines = append(lines, fmt.Sprintf("refresh: cleared the stale lock of %s: its switch 0x%02X landed", d.Door.String(), d.No))
+	}
+	for _, h := range lres.Held {
+		m.rf.holdLock(h.Door.PID, h.Why)
 	}
 	if len(lines) > 0 {
 		beat := kres.Beat
 		if beat == 0 {
 			beat = ares.Beat
 		}
-		r.logf("co-op: combat: wrote %d byte(s) after heartbeat %d", len(kres.Wrote)+len(ares.Wrote), beat)
+		if beat == 0 {
+			beat = lres.Beat
+		}
+		r.logf("co-op: combat: wrote %d byte(s) after heartbeat %d", len(kres.Wrote)+len(ares.Wrote)+len(lres.Wrote), beat)
 		r.logLines(lines)
 	}
+}
+
+// stopped reports whether err stops the tick's later writes: a stall, the
+// game moving on, or co-op off.
+func stopped(err error) bool {
+	return errors.Is(err, ErrStall) || errors.Is(err, ErrAborted) || errors.Is(err, ErrOff)
 }
