@@ -100,14 +100,6 @@ type Flags struct {
 	// iso is --coop-iso: the disc image whose M1 stage tables the session
 	// uses; "" for the disc patch last wrote.
 	iso string
-	// bossKill is --coop-boss-kill=<rows> (replica.ParseBossKill): the
-	// bosses the boss-dead relay asks this game's REL to kill; "" is
-	// replica.BossKillDefault. Each side's own.
-	bossKill string
-	// refresh is --coop-refresh=<tokens> (replica.ParseRefresh): the
-	// procs the actor_refresh relay asks this game's REL to delete once
-	// stale; "" is none. Each side's own.
-	refresh string
 }
 
 // On says whether f turns co-op on (--coop).
@@ -120,8 +112,8 @@ const coopWorldNew = "new"
 // JoinFlagsUsage is join's, which leaves the world and the host's
 // choices out.
 const (
-	FlagsUsage     = "[--coop[=new|<world-id>]] [--coop-merge] [--coop-live-switches] [--coop-dry-run] [--coop-iso <iso>] [--coop-boss-kill=" + replica.BossKillTokens + "|none] [--coop-refresh=" + replica.RefreshTokens + ",dry] [--yes]"
-	JoinFlagsUsage = "[--coop] [--coop-dry-run] [--coop-iso <iso>] [--coop-boss-kill=" + replica.BossKillTokens + "|none] [--coop-refresh=" + replica.RefreshTokens + ",dry] [--yes]"
+	FlagsUsage     = "[--coop[=new|<world-id>]] [--coop-merge] [--coop-live-switches] [--coop-dry-run] [--coop-iso <iso>] [--yes]"
+	JoinFlagsUsage = "[--coop] [--coop-dry-run] [--coop-iso <iso>] [--yes]"
 )
 
 // ExtractFlags takes the co-op options out of args (in any position
@@ -167,18 +159,6 @@ func ExtractFlags(args []string) (Flags, []string, error) {
 			f.dryRun = true
 		case a == "--coop-live-switches":
 			f.liveSwitches = true
-		case strings.HasPrefix(a, "--coop-boss-kill="):
-			v := strings.TrimPrefix(a, "--coop-boss-kill=")
-			if _, err := replica.ParseBossKill(v); err != nil {
-				return Flags{}, nil, err
-			}
-			f.bossKill = v
-		case strings.HasPrefix(a, "--coop-refresh="):
-			v := strings.TrimPrefix(a, "--coop-refresh=")
-			if _, err := replica.ParseRefresh(v); err != nil {
-				return Flags{}, nil, err
-			}
-			f.refresh = v
 		case a == "--yes":
 			f.yes = true
 		default:
@@ -1235,8 +1215,6 @@ func (cs *Session) newSyncClaimed(ctx context.Context, name string, m mem.Mem, r
 		OnOffer:     func(o replica.Offer) { s.offer(ctx, o) },
 		OnPreflight: s.preflight,
 		Claimed:     claimed,
-		BossKill:    cs.flags.bossKill,
-		Refresh:     cs.flags.refresh,
 	}
 	if !cs.flags.dryRun {
 		cfg.Apply = true

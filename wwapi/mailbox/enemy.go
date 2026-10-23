@@ -53,7 +53,7 @@ const (
 	EnemyKnobGenOff   = 0x22  // u16 layout 4: the knob table's gen this block names, 0 = no table
 	EnemyKindMaskOff  = 0x24  // u32 bit k = kind k enabled (enemysync KindID); both roles write it; ids < 16
 	EnemyHkdHiOff     = 0x28  // u8[EnemyHkdHiKinds] layout 4: hook_disable (EnemyHKD*) for kind ids 7..14, inside the seq span
-	EnemyHkdHiKinds   = 8     // ids 7..14 (BB +0x28, MT +0x29); the former reserved u32[2]
+	EnemyHkdHiKinds   = 8     // ids 7..14 (BB +0x28; +0x29 the reserved MT id 8, unread); the former reserved u32[2]
 	EnemySlotsOff     = 0x30  // slot[4] x EnemySlotSize
 	EnemySlotSize     = 0x34  // slots end at +0x100
 	EnemyHitApplyOff  = 0x100 // host role: a HIT to apply (EnemyHA*)
@@ -76,7 +76,7 @@ const (
 	EnemySLPKeyOff      = 0x14 // u32 the local actor's placement key (enemysync PKey); the REL recomputes and compares it
 	EnemySLAttackOff    = 0x18 // u8 MO2 attack type (+0x2060), logs only
 	EnemySLPhaseOff     = 0x19 // u8 MO2 attack phase (+0x2064), logs only
-	EnemySLCcM316ZOff   = 0x18 // s16 "kind z", over attack/phase: CC m316.z, BB angle.z, MT the wiggle +0x468 (batch D) (EnemySlot.SetCcM316Z)
+	EnemySLCcM316ZOff   = 0x18 // s16 CC only, over attack/phase: m316.z (EnemySlot.SetCcM316Z)
 	EnemySLHealthOff    = 0x1A // s8 health (+0x285)
 	EnemySLFlagsOff     = 0x1B // u8 EnemySF*
 	EnemySLFrameOff     = 0x1C // f32 morf frame (mpMorf+0x68)
@@ -150,7 +150,7 @@ const (
 	EnemyCanaries2Off   = 0x18C // u8 anm_res_null, u8 anm_range, u8 hit_nocross, u8 hit_aborted
 	EnemyHitResultOff   = 0x190 // u32 BE: bits 31-24 (byte +0) EnemyHR* result, 23-16 EnemyHD* detail, 15-8 REL executes from Set to result, 7-0 Sets issued
 	EnemyKnobSeenOff    = 0x194 // u16 layout 4: the last knob_gen the REL validated (0 none); Go rewrites the table while it differs
-	EnemyFpMissOff      = 0x196 // u8 layout 4: saturating count of BB tail and (batch D) MT builder fingerprint misses
+	EnemyFpMissOff      = 0x196 // u8 layout 4: saturating count of BB tail fingerprint misses
 	EnemyTailSpareOff   = 0x197 // u8 spare
 
 	// The hit entry's pending byte (+3): any nonzero value is pending; the

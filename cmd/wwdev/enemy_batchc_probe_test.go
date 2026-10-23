@@ -17,7 +17,8 @@ import (
 
 // batchCProbeRoom is M_Dai with Link in room 1 and batch C's probe cases
 // placed: 0 BB setID 0 (perch 4), 1 BB setID 2 (perch 7), 2 a rider BB
-// setID 5 (type 5, refused by params), 3 an unkeyed MT.
+// setID 5 (type 5, refused by params), 3 an unkeyed Magtail (no row since
+// the MT cut, R-20: never listed).
 func batchCProbeRoom(t *testing.T) (*mem.FakeMem, *fakegame.Enemies) {
 	t.Helper()
 	m := mem.NewFakeMem()
@@ -46,9 +47,9 @@ func batchCProbeRoom(t *testing.T) (*mem.FakeMem, *fakegame.Enemies) {
 	return m, es
 }
 
-// TestEnemyMatchDryBatchC: enemy-match lists the Kargarocs and the
-// Magtail as rows with their live gate bytes after " pid="; the rider is
-// refused by its params, a knocked-back perch by the live gate.
+// TestEnemyMatchDryBatchC: enemy-match lists the Kargarocs as rows with
+// their live gate bytes after " pid="; the rider is refused by its params,
+// a knocked-back perch by the live gate. The Magtail has no row (cut).
 func TestEnemyMatchDryBatchC(t *testing.T) {
 	m, es := batchCProbeRoom(t)
 	var out bytes.Buffer
@@ -60,8 +61,7 @@ func TestEnemyMatchDryBatchC(t *testing.T) {
 		"ident kind=bb proc=0x00B6 setID=0x0000 ", " bb_type=4 bb_m2df=0 bb_knock=0.00 bb_live=ok\n",
 		"ident kind=bb proc=0x00B6 setID=0x0002 ", " bb_type=7 ",
 		"ident kind=bb proc=0x00B6 setID=0x0005 ", "params=0xE000FF05 ", "verdict=params-gate pid=", " bb_type=5 bb_m2df=0 bb_knock=0.00 bb_live=rider\n",
-		"ident kind=mt proc=0x00D9 setID=0xFFFF ", " mt_mode=0 mt_appear=0 mt_death=0 mt_killed=0 mt_ice=0 mt_live=ok\n",
-		"summary idents=4 taken=3 refused=1\n",
+		"summary idents=3 taken=2 refused=1\n",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("output lacks %q:\n%s", want, s)
@@ -69,15 +69,15 @@ func TestEnemyMatchDryBatchC(t *testing.T) {
 	}
 	bb, _ := es.Of(0)
 	store(t, m, bb.Addr+addr.BbOffKnock, u32b(math.Float32bits(45)))
-	set, _ := enemysync.ParseKinds("bb,mt")
+	set, _ := enemysync.ParseKinds("bb")
 	out.Reset()
 	if err := enemyMatch(&out, m, set); err != nil {
 		t.Fatal(err)
 	}
 	s = out.String()
-	if !strings.Contains(s, " kinds=bb,mt walk=complete\n") || !strings.Contains(s, " bb_knock=45.00 bb_live=knock\n") ||
-		!strings.Contains(s, "kind=mt proc=0x00D9 setID=0xFFFF ") || !strings.Contains(s, "verdict=unkeyed-off") {
-		t.Errorf("--kinds bb,mt with a knockback:\n%s", s)
+	if !strings.Contains(s, " kinds=bb walk=complete\n") || !strings.Contains(s, " bb_knock=45.00 bb_live=knock\n") ||
+		strings.Contains(s, "kind=mt") {
+		t.Errorf("--kinds bb with a knockback:\n%s", s)
 	}
 }
 

@@ -341,7 +341,6 @@ type WriterStats struct {
 	Aborted    int // batches dropped because the game moved on
 	Escapes    int // escapes written (ApplyFields): refreshes and warps, §6.7
 	BossKills  int // boss_kill requests written (ApplyBossKill, bosskill.go)
-	Refreshes  int // actor_refresh requests written (ApplyRefresh, refresh_relay.go)
 	Derived    int // derive writes made (ApplyDerived)
 	Scoped     int // dan and zone switch bytes written (ApplyScoped)
 	Stale      int // derive writes dropped: their bytes moved since the plan

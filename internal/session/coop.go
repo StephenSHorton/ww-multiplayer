@@ -30,11 +30,6 @@ type CoopOptions struct {
 	ISO          string // --coop-iso; "" for the disc patch last wrote
 	// Yes answers every question yes at once (--yes).
 	Yes bool
-	// BossKill is --coop-boss-kill, the boss-dead relay's row set; "" is
-	// its default (gohma,kalle). Refresh is --coop-refresh, the
-	// actor_refresh relay's token set; "" is off. Each side's own.
-	BossKill string
-	Refresh  string
 }
 
 // QuestionKind says what a yes would write.

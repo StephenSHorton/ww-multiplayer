@@ -516,7 +516,7 @@ func TestCompareBlob(t *testing.T) {
 func TestCanaryRegions(t *testing.T) {
 	if mailbox.CanaryTRK.Start != 0x8040CFB0 || mailbox.CanaryTRK.End != 0x80410000 ||
 		mailbox.CanaryArena.Start != 0x804130B0 || mailbox.CanaryArena.End != 0x804130BC ||
-		mailbox.CanaryArenaHigh.Start != 0x804137D0 || mailbox.CanaryArenaHigh.End != 0x80414000 {
+		mailbox.CanaryArenaHigh.Start != 0x804137B0 || mailbox.CanaryArenaHigh.End != 0x80414000 {
 		t.Fatalf("canary ranges moved: %+v %+v %+v", mailbox.CanaryTRK, mailbox.CanaryArena, mailbox.CanaryArenaHigh)
 	}
 	for _, r := range canaryRegions {
@@ -543,8 +543,6 @@ func TestCanaryRegions(t *testing.T) {
 		{Name: "remote-Link block tail", Start: 0x8041374C, End: 0x80413750},
 		{Name: "enemy knob table", Start: 0x80413750, End: 0x80413754},
 		{Name: "enemy knob table tail", Start: 0x804137AC, End: 0x804137B0},
-		{Name: "actor_refresh request", Start: 0x804137B0, End: 0x804137B4},
-		{Name: "actor_refresh request tail", Start: 0x804137CC, End: 0x804137D0},
 		{Name: "across the enemy block", Start: 0x804130B0, End: 0x80414000},
 		{Name: "misaligned", Start: 0x8040CFAA, End: 0x8040D000},
 		{Name: "empty", Start: 0x8040D000, End: 0x8040D000},
@@ -601,7 +599,7 @@ func TestArmAndCheckCanaries(t *testing.T) {
 	}
 	for _, want := range []string{"4 changed (3 now zero, 1 other)", "0x8040D0B0-0x8040D0BC (3 words)",
 		"below arena  0x804130B0-0x804130BC (3 words): all intact",
-		"below arena (past the refresh block) 0x804137D0-0x80414000 (524 words): all intact"} {
+		"below arena (past the enemy knob table) 0x804137B0-0x80414000 (532 words): all intact"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("region-probe check lacks %q:\n%s", want, out.String())
 		}

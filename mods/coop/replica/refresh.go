@@ -2,7 +2,6 @@ package replica
 
 import (
 	"fmt"
-	"maps"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
@@ -85,7 +84,6 @@ type refreshState struct {
 	swLast   string
 
 	landed  int // bits in the landed set, as the last tick counted them
-	byKind  map[LandKind]int
 	visit   string
 	cleared int
 	shrunk  int
@@ -133,18 +131,13 @@ type RefreshStatus struct {
 	// (Tier 2); Held the targets held, LastHeld the last reason.
 	Shrunk, Held int
 	LastHeld     string
-	// ByKind counts the landed bits per store kind (LandSwitch ..
-	// LandKill), as the last tick counted them.
-	ByKind map[LandKind]int
-	// Actors is the actor_refresh relay's (Tier 3, refresh_relay.go).
-	Actors ActorRefreshStatus
 }
 
 // refreshStatus is the refresh's part of r's Status. r.mu is held.
 func (r *Replica) refreshStatus() RefreshStatus {
 	f := &r.m6.rf
 	return RefreshStatus{Landed: f.landed, Locks: f.cleared, LockHeld: len(f.lockHeld), LockLastHeld: f.lockLast,
-		Shrunk: f.shrunk, Held: len(f.swHeld), LastHeld: f.swLast, ByKind: maps.Clone(f.byKind), Actors: r.actorRefreshStatus()}
+		Shrunk: f.shrunk, Held: len(f.swHeld), LastHeld: f.swLast}
 }
 
 // refreshTick is what one tick's refresh judges its candidates by: the
@@ -337,10 +330,6 @@ func (r *Replica) newRefreshTick(o *obs) *refreshTick {
 	}
 	f := &r.m6.rf
 	f.landed = len(t.landed.At)
-	f.byKind = map[LandKind]int{}
-	for b := range t.landed.At {
-		f.byKind[b.Kind]++
-	}
 	if v := fmt.Sprintf("%s/%d", t.landed.Stage, t.landed.Table); v != f.visit {
 		// Another stage visit: what was held was held for the last one.
 		f.visit = v

@@ -54,7 +54,7 @@
 #define WWENEMY_ROLE_OFF         0x21         // u8  WWENEMY_ROLE_*
 #define WWENEMY_KNOB_GEN_OFF     0x22         // u16 layout 4 (D4): the knob table's gen this block names, 0 = no table (the former pad)
 #define WWENEMY_KIND_MASK_OFF    0x24         // u32 bit k = kind k enabled (EMK_KIND_*, wwenemy_kinds.h); both roles write it (remote.c's HF_NOT_MIRROR reads the host's); ids < 16 (the REL caches it as u16, the wire as u16)
-#define WWENEMY_HKD_HI_OFF       0x28         // u8[WWENEMY_HKD_HI_KINDS] layout 4 (D2): hook_disable (WWENEMY_HKD_*) for kind ids 7..14 (BB at +0x28, MT at +0x29), inside the seq span
+#define WWENEMY_HKD_HI_OFF       0x28         // u8[WWENEMY_HKD_HI_KINDS] layout 4 (D2): hook_disable (WWENEMY_HKD_*) for kind ids 7..14 (BB at +0x28; +0x29, the reserved MT id 8, unread), inside the seq span
 #define WWENEMY_HKD_HI_KINDS     8            // ids 7..14; the former reserved u32[2], never read by layout 3
 #define WWENEMY_SLOTS_OFF        0x30         // slot[4] x WWENEMY_SLOT_SIZE
 #define WWENEMY_SLOT_SIZE        0x34
@@ -79,8 +79,8 @@
 #define WWENEMY_SL_PKEY_OFF      0x14         // u32 the local actor's placement key (em_pkey), REL compares at consume (ERR_KEY)
 #define WWENEMY_SL_ATTACK_OFF    0x18         // u8  MO2 attack type (+0x2060), Go logs only
 #define WWENEMY_SL_PHASE_OFF     0x19         // u8  MO2 attack phase (+0x2064), Go logs only
-#define WWENEMY_SL_CC_M316Z_OFF  0x18         // s16 "kind z", over attack/phase: CC m316.z (copy +0x31A), BB current.angle.z (batch C R-12), MT the wiggle +0x468 (batch D G-D6, EMK_MT_WIGGLE)
-#define WWENEMY_SL_HEALTH_OFF    0x1A         // s8  health (+0x285); the REL reads it only for MT's custody handback (em_mt_handback, batch C MT-4)
+#define WWENEMY_SL_CC_M316Z_OFF  0x18         // s16 CC only, over attack/phase: m316.z (copy +0x31A)
+#define WWENEMY_SL_HEALTH_OFF    0x1A         // s8  health (+0x285), the REL does not read it
 #define WWENEMY_SL_FLAGS_OFF     0x1B         // u8  WWENEMY_SF_*
 #define WWENEMY_SL_FRAME_OFF     0x1C         // f32 morf frame (mpMorf+0x68)
 #define WWENEMY_SL_RATE_OFF      0x20         // f32 morf rate (mpMorf+0x64)
@@ -162,7 +162,7 @@
 #define WWENEMY_CANARIES2_OFF    0x18C        // u8 anm_res_null, u8 anm_range, u8 hit_nocross, u8 hit_aborted
 #define WWENEMY_HIT_RESULT_OFF   0x190        // u32 BE: byte3 WWENEMY_HR_*, byte2 WWENEMY_HD_*, byte1 REL executes from Set to result, byte0 Sets issued
 #define WWENEMY_KNOB_SEEN_OFF    0x194        // u16 layout 4 (D4): the last knob_gen whose table the REL validated (0 none); Go rewrites the table while it differs
-#define WWENEMY_FP_MISS_OFF      0x196        // u8  layout 4 (D10): saturating count of BB tail fingerprint misses (the collapsed tail ran) and, batch D R-D6, MT builder fingerprint misses (adoption refused)
+#define WWENEMY_FP_MISS_OFF      0x196        // u8  layout 4 (D10): saturating count of BB tail fingerprint misses (the collapsed tail ran)
 #define WWENEMY_TAIL_SPARE_OFF   0x197        // u8  spare (the former reserved u32's last byte)
 
 // status fields, from the status start
@@ -299,9 +299,9 @@
 // LEGACY_DEATH, MTX_PLAIN and SPECIAL its own meanings (wwenemy_kinds.h
 // EMK_TN_HKD_*, TN batch R-3); AM2's SPECIAL also turns its direct apply
 // off on both sides (D10). Batch C (D7): BK's SPECIAL is "ambush"
-// (EMK_BK_HKD_AMBUSH); BB and MT give the bits their own names
-// (EMK_BB_HKD_*, EMK_MT_HKD_*) but keep ATTN 0x10 and EXTRA 0x80 at their
-// generic meaning, whose readers fire for every kind.
+// (EMK_BK_HKD_AMBUSH); BB gives the bits its own names (EMK_BB_HKD_*)
+// but keeps ATTN 0x10 and EXTRA 0x80 at their generic meaning, whose
+// readers fire for every kind.
 #define WWENEMY_HKD_MODEL_EQ     0x01         // skip the actor->model == morf model check
 #define WWENEMY_HKD_ATTACH       0x02         // skip the attach hook (EMK_ATTACH_BK)
 #define WWENEMY_HKD_EYE          0x04         // skip the eye hook (EMK_EYE_CC, EMK_EYE_FIXED)

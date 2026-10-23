@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
@@ -57,24 +55,10 @@ import (
 // (mMode 3 at m302 2..5 with m304 not 0): the receiver cuts its own
 // vines first, as it breaks Gohma's armor, and every other state answers
 // "waiting".
-//
-// Gohdan (enemy-mirror-batch-d.json R-D1..R-D3, "gohdan") is the third
-// row: in SirenB with Tower of the Gods' table loaded, the REL gives this
-// game's own Bst bom_eat_check's lethal block (d_a_bst.cpp:1219-1229),
-// but only from vanilla's own pre-death state: the head in HEAD_DAMAGE
-// with its mouth open for a bomb (mDamage 3, m2E7C 12, m2E9A 0) and both
-// hands asleep. The receiver shoots out the eyes itself, as it breaks
-// Gohma's armor; the intro, the hands' fight and the eye phase answer
-// "waiting". Its demo (demo_camera case 50-57) then sets the bit, spawns
-// the warp flower and drops the heart (d_a_bst.cpp:2429-2436,
-// 2504-2510). The --coop-boss-kill row set (Config.BossKill) picks the
-// rows the relay asks for, gohma,kalle by default: gohdan joins it once
-// GD-2 and the D4 live check pass (docs/TESTING.md "Batch D").
 
 // bossRow is a boss the relay can kill: its arena, the save table loaded
 // there, the proc the REL takes there, and the words the log says.
 type bossRow struct {
-	key   string // its --coop-boss-kill token
 	stage string // the arena's stage name, the only one the REL accepts for proc (bosskill.c)
 	table int8   // the save table loaded in the arena, whose STAGE_BOSS_ENEMY is held
 	proc  uint16 // the boss's proc (mailbox.BossProc*)
@@ -85,39 +69,8 @@ type bossRow struct {
 // bossKillRows are the bosses the relay kills, one per arena. No X
 // refight stage is in it.
 var bossKillRows = []bossRow{
-	{key: "gohma", stage: "M_DragB", table: addr.TableDRC, proc: mailbox.BossProcBtd, name: "Gohma", gate: "once its armor is broken"},
-	{key: "kalle", stage: "kinBOSS", table: addr.TableFW, proc: mailbox.BossProcBmd, name: "Kalle Demos", gate: "once its flower is down and open"},
-	{key: "gohdan", stage: "SirenB", table: addr.TableTotG, proc: mailbox.BossProcBst, name: "Gohdan", gate: "once its mouth is open for a bomb"},
-}
-
-// BossKillDefault is the --coop-boss-kill row set when none is given:
-// Gohma and Kalle Demos. Gohdan joins it after GD-2 and the D4 live check
-// (enemy-mirror-batch-d.json G-D1).
-const BossKillDefault = "gohma,kalle"
-
-// BossKillTokens names every --coop-boss-kill token, for the usage.
-const BossKillTokens = "gohma,kalle,gohdan"
-
-// ParseBossKill parses a --coop-boss-kill row set: bossKillRows' keys
-// joined by ",", "none" for no row, "" for BossKillDefault. It returns the
-// rows' procs.
-func ParseBossKill(v string) (map[uint16]bool, error) {
-	if v == "" {
-		v = BossKillDefault
-	}
-	on := map[uint16]bool{}
-	if strings.EqualFold(v, "none") {
-		return on, nil
-	}
-	for tok := range strings.SplitSeq(v, ",") {
-		tok = strings.ToLower(strings.TrimSpace(tok))
-		i := slices.IndexFunc(bossKillRows, func(r bossRow) bool { return r.key == tok })
-		if i < 0 {
-			return nil, fmt.Errorf("--coop-boss-kill: %q is no boss (say %s, or none)", tok, BossKillTokens)
-		}
-		on[bossKillRows[i].proc] = true
-	}
-	return on, nil
+	{stage: "M_DragB", table: addr.TableDRC, proc: mailbox.BossProcBtd, name: "Gohma", gate: "once its armor is broken"},
+	{stage: "kinBOSS", table: addr.TableFW, proc: mailbox.BossProcBmd, name: "Kalle Demos", gate: "once its flower is down and open"},
 }
 
 // bossRowFor is the row of the arena stage, nil for any other stage.
@@ -207,23 +160,13 @@ func (r *Replica) bossLog(key, line string) {
 	r.logf("%s", line)
 }
 
-// bossAckKey is an ack line's bossLog key. Gohdan: the result, the
-// head's mActionType with the fight's actions as one (STAY and FLY, and
-// the hands' attacks 10..14, which turn over all fight long), mDamage and
-// m2E7C. Gohma: the result, the armor
+// bossAckKey is an ack line's bossLog key. Gohma: the result, the armor
 // phase and Btd's action, with the fight's actions 0..2 as one (they turn
 // over with every attack while an armored Gohma waits); mGohmaState is
 // left out. Kalle Demos: the result, whether the core is out (m304) and
 // Bmd's mMode, with the vines-up modes 0..2 as one; m302 is left out
 // (its -1 after the intro and after eat included).
 func bossAckKey(proc uint16, st mailbox.BossStatus) string {
-	if proc == mailbox.BossProcBst {
-		act := fmt.Sprintf("0x%X", st.Act)
-		if st.Act <= 1 || st.Act >= 10 && st.Act <= 14 {
-			act = "fight"
-		}
-		return fmt.Sprintf("ack %d bst act %s mDamage %d m2E7C %d", st.Result, act, int8(st.State), int8(st.Phase))
-	}
 	if proc == mailbox.BossProcBmd {
 		mode := fmt.Sprintf("0x%X", st.Act)
 		if st.Act <= 2 {
@@ -258,12 +201,6 @@ func (r *Replica) bossTick(o *obs, armed bool) {
 	b := &r.bk
 	now := r.now()
 	row := bossKillWanted(o, armed, r.held)
-	if row != nil && !r.bossOn[row.proc] {
-		// A row --coop-boss-kill leaves out: the arena keeps its boss.
-		line := fmt.Sprintf("co-op: the partner killed %s, but --coop-boss-kill leaves it out (%s): this game's arena keeps its %s until it is killed here", row.name, r.cfg.bossKillSet(), row.name)
-		r.bossLog(line, line)
-		row = nil
-	}
 	if row != b.row {
 		// Another boss, or none: nothing asked of the last one is
 		// waited on. A boss wanted from none is asked at once, as before.

@@ -190,8 +190,7 @@ func (ac *appCoop) OnStart(s network.LobbySettingsBody) {
 		return
 	}
 	own := ac.own()
-	f := Flags{on: true, world: s.Coop, merge: s.Merge, dryRun: s.DryRun, liveSwitches: s.LiveSwitches, iso: own.ISO, yes: own.Yes,
-		bossKill: own.BossKill, refresh: own.Refresh}
+	f := Flags{on: true, world: s.Coop, merge: s.Merge, dryRun: s.DryRun, liveSwitches: s.LiveSwitches, iso: own.ISO, yes: own.Yes}
 	ac.wg.Add(1)
 	go func() {
 		defer ac.wg.Done()
@@ -283,7 +282,7 @@ func (ac *appCoop) OnGo(s network.LobbySettingsBody, worldID string) {
 	go func() {
 		defer ac.wg.Done()
 		own := ac.own()
-		f := Flags{on: true, dryRun: s.DryRun || own.DryRun, iso: own.ISO, yes: own.Yes, bossKill: own.BossKill, refresh: own.Refresh}
+		f := Flags{on: true, dryRun: s.DryRun || own.DryRun, iso: own.ISO, yes: own.Yes}
 		env := ac.deps.env(ac.userDir())
 		env.front = ac.front(f)
 		cs := startCoopSession(ac.out, f, env)
