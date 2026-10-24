@@ -139,6 +139,11 @@ const (
 	ev0801            = 0x0801 // UNK_0801, :66
 	ev0808            = 0x0808 // UNK_0808, :63
 	ev2401            = 0x2401 // UNK_2401, :279
+	ev0101            = 0x0101 // UNK_0101, :20
+	ev0E20            = 0x0E20 // UNK_0E20, :105
+	ev0520            = 0x0520 // UNK_0520, :41
+	ev1820            = 0x1820 // UNK_1820, :183
+	ev2D01            = 0x2D01 // UNK_2D01, :346 (LocalOnly)
 	ev2D10            = 0x2D10 // UNK_2D10, :342
 	evZeldaAwakened   = 0x2D02 // ZELDA_AWAKENED, :345
 	evHyruleCourtyard = 0x3804 // HYRULE_COURTYARD_CUTSCENE, :430
@@ -157,6 +162,23 @@ const (
 // change nothing. MET_KORL is set as the MEETSHISHIOH event starts
 // (d_event_manager.cpp:599-600).
 //
+// getLayerNo picks Outset's layer (sea r44) from the first of 0x0520,
+// 0x0E20 and 0x0101 it has (d_com_inf_game.cpp:193-200), and Asoko's
+// from 0x0520 (:214-217). Layer 4/5 places no Tetra and no pirate ship,
+// so a partner's 0x0520 would leave a player who has not sailed yet with
+// no way off the island, and a partner's 0x0101 or 0x0E20 moves Outset
+// to the kidnapping or departure layer ahead of that player's own story.
+// The three wait for the receiver's own MET_KORL too: vanilla sets them
+// all before it, so from then on they change nothing the receiver's own
+// game would not have.
+//
+// The same table puts the Forsaken Fortress (sea r1) on layer 3 with
+// 0x1820, and ma2room loads ma3room's files with it (d_resorce.cpp:708).
+// Warpdm20 sets it as it is created once ZELDA_AWAKENED is set
+// (d_a_warpdm20.cpp:123-125), on the far side of Hyrule, so it waits for
+// the receiver's own rescue in FF2, 0x2D01, which is LocalOnly and so
+// always the receiver's own.
+//
 // daShip_c takes the boat's boarding action away while any of three
 // clauses holds (d_a_ship.cpp:4224-4229): 0x2D10 without a Master Sword
 // equipped (daPy_lk_c::checkMasterSwordEquip, d_a_player.h:600-604),
@@ -173,6 +195,14 @@ var holds = []Hold{
 		"moves where the file resumes, to MajyuE point 18"},
 	{EventBit{ev2401, "UNK_2401", "d_com_inf_game.cpp:1309"}, UntilLocal, evMetKorl,
 		"moves where the file resumes, to A_umikz point 204"},
+	{EventBit{ev0101, "UNK_0101", "d_com_inf_game.cpp:199-200; d_a_npc_zl1.cpp:302"}, UntilLocal, evMetKorl,
+		"moves Outset to layer 9 and changes Tetra's first state"},
+	{EventBit{ev0E20, "UNK_0E20", "d_com_inf_game.cpp:197-198; d_a_npc_zl1.cpp:313; d_a_spc_item01.cpp:79"}, UntilLocal, evMetKorl,
+		"moves Outset to layer 2/3, Tetra's departure offer and the shield"},
+	{EventBit{ev0520, "UNK_0520", "d_com_inf_game.cpp:195-196, :214-217; d_stage.cpp:2324-2329"}, UntilLocal, evMetKorl,
+		"moves Outset to layer 4/5 (no Tetra, no ship), Asoko to layer 2/3 and Asoko's deck exit"},
+	{EventBit{ev1820, "UNK_1820", "d_com_inf_game.cpp:207-208; d_resorce.cpp:708; d_a_warpdm20.cpp:123-125"}, UntilLocal, ev2D01,
+		"moves the Forsaken Fortress to layer 3 and ma2room to ma3room's files"},
 	{EventBit{ev2D10, "UNK_2D10", "d_a_ship.cpp:4225, :4229"}, UntilMasterSword, 0,
 		"keeps Link off the boat while no Master Sword is equipped"},
 	{EventBit{evHyruleCourtyard, "HYRULE_COURTYARD_CUTSCENE", "d_a_ship.cpp:4226, :4229"}, UntilWith, evZeldaAwakened,

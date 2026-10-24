@@ -581,6 +581,8 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
 - `scripts/gen_event_masks.py` generates the mask from the decomp, with citations. It is cross-checked against ww-online's 37-bit LocalOnly list (`docs/event-flags.md`, MIT) and committed as Go data.
 - **Holds** (receiver side: the bits stay in the world but are not applied locally yet):
   - MET_KORL 0x0F80, 0x0801, 0x0808 and 0x2401 move the resume stage (`d_com_inf_game.cpp:1302-1320`). They are held until this player has MET_KORL locally.
+  - 0x0101, 0x0E20 and 0x0520 pick Outset's layer (`sea` r44: 9, 2/3, 4/5; `d_com_inf_game.cpp:193-200`), and 0x0520 also Asoko's layer and deck exit (`:214-217`; `d_stage.cpp:2324-2329`). Layer 4/5 places no Tetra and no pirate ship, so a partner's 0x0520 would strand a player who has not sailed yet. They are held until this player has MET_KORL locally too (the overworld slice's A1).
+  - 0x1820 (the ruined Forsaken Fortress: `sea` r1 layer 3, ma2room loading ma3room's files, `d_com_inf_game.cpp:207-208`, `d_resorce.cpp:708`) is set by `Warpdm20` on create once ZELDA_AWAKENED is set (`d_a_warpdm20.cpp:123-125`). It is held until this player's own rescue, 0x2D01, which is LocalOnly (the overworld slice's A3). Between that rescue and the player's own `attack_ganon` it can still land; the main path, `M2tower` to `M2ganon`, loads neither `sea` r1 nor ma2room.
   - 0x2D10 is held until a Master Sword is equipped.
   - 0x3804 is held until ZELDA_AWAKENED.
   - The last two lock boat boarding (`d_a_ship.cpp:4224-4229`, per ww-online).
@@ -590,7 +592,7 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
   - From M7: the getSave shim applies them.
   - A cutscene-trigger switch (`daTag_Event` swbit, stage `mSpawnSwitchNo`, `d_event_manager.cpp:42-47`) is never sent without its batch.
 - **M4 as built** (`mods/coop/story`, `mods/coop/class/syncmask_gen.go`; items 86-93):
-  - **Holds.** MET_KORL itself is held until the receiver has it, so sync never applies it. RODE_KORL is LocalOnly, so far behind rests on the other four milestones (item 88). A third boat hold was added: 0x3E10 waits for 0x3F80 (`d_a_ship.cpp:4227`, `:4229`). `/status` lists each held bit and why.
+  - **Holds.** MET_KORL itself is held until the receiver has it, so sync never applies it. RODE_KORL is LocalOnly, so far behind rests on the other four milestones (item 88). A third boat hold was added: 0x3E10 waits for 0x3F80 (`d_a_ship.cpp:4227`, `:4229`). Outset's layer bits 0x0101, 0x0E20 and 0x0520 wait for MET_KORL, and 0x1820 for the receiver's own 0x2D01; an `UntilLocal` hold may wait for a LocalOnly bit, since it reads only the receiver's own image. `/status` lists each held bit and why.
   - **Batching** is the sender's pace (`replica.Differ.Pace`, `differ_pace.go`), on only for a writing replica. Story bits and the allowlisted registers wait in one batch until the game has been IDLE for `story.BatchIdle` (1 s) and the batch has gained nothing for as long. A memory switch always goes with a batch: one that rises with no batch waiting starts one. A reconnect's WORLD leaves the waiting bits out (`Differ.Withhold`) (item 90). The switch coupling is partial (item 91).
   - **Registers** travel in the story batch and are written on the same transition tick as the bits, not on load (item 89).
   - **Policy.** The hub's `DefaultPolicy` opens the SyncMask, and a session's policy is `hub.SessionPolicy(verdict)` everywhere: the hub, each writing replica and the world a host founds (item 92). The hub gates the story bytes 0x00-0x41 with `FeatureStory`.
@@ -1567,10 +1569,11 @@ Also needed from the owner, and not a decision: capture the fixture save states 
     - `getLayerNo` reads it for the Windfall sea room and M2tower (`d_com_inf_game.cpp:202`, `:252`). So a partner's milestone does not change the receiver's Windfall or tower layers until the receiver's own game sets the bit.
     - The story task's cross-check: LocalOnly and the four refight bits are ww-online's 37-bit list plus 0x2D01 (and 0x3F40, added with the GT slice).
 88. **Holds as built.**
-    - MET_KORL is itself held until the receiver has it (`UntilLocal`), so sync never applies it. It stays in the world and only releases 0x0801, 0x0808 and 0x2401.
+    - MET_KORL is itself held until the receiver has it (`UntilLocal`), so sync never applies it. It stays in the world and only releases 0x0801, 0x0808 and 0x2401, and since the overworld slice also Outset's layer bits 0x0101, 0x0E20 and 0x0520.
     - RODE_KORL (0x2A08) is LocalOnly, so no world ever holds it, and far behind (§5.3; `l_checkData`, `d_com_inf_game.cpp:1304-1311`) rests on MET_KORL, 0x0801, 0x0808 and 0x2401. The design's list of five is corrected.
     - MET_KORL is set as the MEETSHISHIOH event starts (`d_event_manager.cpp:599-600`). That it comes before boarding on every path is inferred.
     - A third boat hold, beyond §6.5's two: 0x3E10 waits for 0x3F80 (`d_a_ship.cpp:4227`, `:4229`; item 59). 0x2D10 waits for a Master Sword equipped (`checkMasterSwordEquip`, `d_a_player.h:600-604`), and HYRULE_COURTYARD_CUTSCENE 0x3804 for ZELDA_AWAKENED 0x2D02. A bit that waits for a partner bit may arrive in the same write as it.
+    - 0x1820 waits for 0x2D01, the receiver's own rescue (`UntilLocal`; 0x2D01 is LocalOnly, item 87, so only the receiver's game ever sets it).
     - The hub's far-behind and divergent NOTICEs list the held bits by name, as many as fit in `wire.MaxNoticeLen` (255 bytes), then "and N more".
 89. **Registers on the transition tick (changed from §3's "on load"; inferred).**
     - The allowlisted registers travel in the story batch, and the receiver writes them on the same transition tick as the story bits. The WriteGuard classes them with the story bits, and the planner's `timingOf` gives both `OnTransition`.

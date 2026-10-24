@@ -58,13 +58,13 @@ func bitIDs(p Plan) []uint16 {
 // TestPendingSubtracts: the story bits planned are the world's SyncMask
 // bits minus the receiver's own and its ever-had set.
 func TestPendingSubtracts(t *testing.T) {
-	view := image(ev(ev0520), ev(ev1820), ev(evZeldaAwakened), ev(evRodeKorl), ev(ev3F80))
-	raw := image(ev(ev1820))
+	view := image(ev(ev2A80), ev(ev3910), ev(evZeldaAwakened), ev(evRodeKorl), ev(ev3F80))
+	raw := image(ev(ev3910))
 	var ever world.BitSet
 	ever.Add(int(ev(ev3F80).Off), ev(ev3F80).Val)
 
 	p := Pending(&view, &raw, &ever, nil)
-	if got, want := bitIDs(p), []uint16{ev0520, evZeldaAwakened}; !slices.Equal(got, want) {
+	if got, want := bitIDs(p), []uint16{ev2A80, evZeldaAwakened}; !slices.Equal(got, want) {
 		t.Errorf("planned %04X, want %04X", got, want)
 	}
 	if len(p.Regs) != 0 || len(p.Held) != 0 {
@@ -75,7 +75,7 @@ func TestPendingSubtracts(t *testing.T) {
 	}
 
 	// A nil ever-had set is empty.
-	if got := bitIDs(Pending(&view, &raw, nil, nil)); !slices.Equal(got, []uint16{ev0520, evZeldaAwakened, ev3F80}) {
+	if got := bitIDs(Pending(&view, &raw, nil, nil)); !slices.Equal(got, []uint16{ev2A80, evZeldaAwakened, ev3F80}) {
 		t.Errorf("with no history: %04X", got)
 	}
 	// Nothing to do.
@@ -100,11 +100,32 @@ func TestPendingHolds(t *testing.T) {
 			[]world.Gain{ev(evMetKorl)}, nil, nil,
 			nil, []uint16{evMetKorl}},
 		{"the resume bits wait for MET_KORL",
-			[]world.Gain{ev(evMetKorl), ev(ev0801), ev(ev0808), ev(ev2401), ev(ev0520)}, nil, nil,
-			[]uint16{ev0520}, []uint16{evMetKorl, ev0801, ev0808, ev2401}},
+			[]world.Gain{ev(evMetKorl), ev(ev0801), ev(ev0808), ev(ev2401), ev(ev2A80)}, nil, nil,
+			[]uint16{ev2A80}, []uint16{evMetKorl, ev0801, ev0808, ev2401}},
 		{"the resume bits go once the receiver met Korl",
 			[]world.Gain{ev(evMetKorl), ev(ev0801), ev(ev0808), ev(ev2401)}, []world.Gain{ev(evMetKorl)}, nil,
 			[]uint16{ev0801, ev0808, ev2401}, nil},
+		{"Outset's layer bits wait for MET_KORL",
+			[]world.Gain{ev(ev0101), ev(ev0520), ev(ev0E20)}, nil, nil,
+			nil, []uint16{ev0101, ev0E20, ev0520}},
+		{"a world with 0x0520 and MET_KORL plans neither for a receiver still on Outset",
+			[]world.Gain{ev(evMetKorl), ev(ev0520)}, nil, nil,
+			nil, []uint16{evMetKorl, ev0520}},
+		{"0x0520 goes once the receiver has MET_KORL itself",
+			[]world.Gain{ev(evMetKorl), ev(ev0520)}, []world.Gain{ev(evMetKorl)}, nil,
+			[]uint16{ev0520}, nil},
+		{"Outset's layer bits go once the receiver met Korl",
+			[]world.Gain{ev(ev0101), ev(ev0520), ev(ev0E20)}, []world.Gain{ev(evMetKorl)}, nil,
+			[]uint16{ev0101, ev0520, ev0E20}, nil},
+		{"0x1820 waits for the receiver's own rescue",
+			[]world.Gain{ev(ev1820), ev(evZeldaAwakened)}, nil, nil,
+			[]uint16{evZeldaAwakened}, []uint16{ev1820}},
+		{"0x1820 goes after the receiver's own rescue",
+			[]world.Gain{ev(ev1820)}, []world.Gain{ev(ev2D01)}, nil,
+			[]uint16{ev1820}, nil},
+		{"the world's 0x2D01 is LocalOnly and releases nothing",
+			[]world.Gain{ev(ev1820), ev(ev2D01)}, nil, nil,
+			nil, []uint16{ev1820}},
 		{"0x2D10 waits for a Master Sword",
 			[]world.Gain{ev(ev2D10)}, []world.Gain{sword(heroSword)}, nil,
 			nil, []uint16{ev2D10}},
@@ -168,6 +189,7 @@ func TestReleased(t *testing.T) {
 	}
 	raw := image(ev(evMetKorl), world.Gain{Off: addr.OffSelectEquip, Val: heroSword})
 	with := image(ev(evMetKorl), ev(evZeldaAwakened))
+	rescued := image(ev(ev2D01))
 	cases := []struct {
 		id         uint16
 		raw, after *save.Image
@@ -178,6 +200,9 @@ func TestReleased(t *testing.T) {
 		{ev3804, &raw, nil, false},
 		{ev3804, &raw, &with, true},
 		{ev2D10, &raw, &with, false},
+		{ev0520, &raw, nil, true},
+		{ev1820, &raw, nil, false},
+		{ev1820, &rescued, nil, true},
 	}
 	for _, c := range cases {
 		if got := Released(byID[c.id], c.raw, c.after); got != c.want {
@@ -240,7 +265,7 @@ func TestPendingRegisters(t *testing.T) {
 // TestPlanWrites: Writes lists the story bits, then the registers, in
 // ascending order; ApplyPlan reaches the world without clearing anything.
 func TestPlanWrites(t *testing.T) {
-	view := image(ev(ev0520), ev(evZeldaAwakened), reg(regLetter, 2), reg(regFigure, 0x30))
+	view := image(ev(ev2A80), ev(evZeldaAwakened), reg(regLetter, 2), reg(regFigure, 0x30))
 	raw := image(reg(regLetter, 0xFC|1), reg(regFigure, 0x01))
 	p := Pending(&view, &raw, nil, nil)
 	ws := p.Writes()
@@ -249,7 +274,7 @@ func TestPlanWrites(t *testing.T) {
 	}
 	got := ApplyPlan(&raw, p)
 	want := raw
-	want[ev(ev0520).Off] |= ev(ev0520).Val
+	want[ev(ev2A80).Off] |= ev(ev2A80).Val
 	want[ev(evZeldaAwakened).Off] |= ev(evZeldaAwakened).Val
 	want[addr.OffEvent+regLetter] = 0xFC | 2
 	want[addr.OffEvent+regFigure] = 0x31
@@ -279,7 +304,7 @@ func good(hb uint32, enable int8) *state.Snapshot {
 // stage change only, and never without a history, with a stalled
 // heartbeat or when the caller says no.
 func TestReceiverOnTransition(t *testing.T) {
-	view := image(ev(ev0520))
+	view := image(ev(ev2A80))
 	var raw save.Image
 	type step struct {
 		hb     uint32
@@ -325,7 +350,7 @@ func TestReceiverOnTransition(t *testing.T) {
 				if ws != nil && !slices.Equal(ws, p.Writes()) {
 					t.Errorf("wrote %v, plan %v", ws, p.Writes())
 				}
-				if !slices.Equal(p.Bits, []world.Gain{ev(ev0520)}) {
+				if !slices.Equal(p.Bits, []world.Gain{ev(ev2A80)}) {
 					t.Errorf("plan %v", p.Bits)
 				}
 			}

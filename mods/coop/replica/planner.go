@@ -226,6 +226,11 @@ const (
 	ev0801            = 0x0801 // UNK_0801, :66
 	ev0808            = 0x0808 // UNK_0808, :63
 	ev2401            = 0x2401 // UNK_2401, :279
+	ev0101            = 0x0101 // UNK_0101, :20
+	ev0E20            = 0x0E20 // UNK_0E20, :105
+	ev0520            = 0x0520 // UNK_0520, :41
+	ev1820            = 0x1820 // UNK_1820, :183
+	ev2D01            = 0x2D01 // UNK_2D01, :346 (LocalOnly)
 	ev2D10            = 0x2D10 // UNK_2D10, :342
 	evZeldaAwakened   = 0x2D02 // ZELDA_AWAKENED, :345
 	evHyruleCourtyard = 0x3804 // HYRULE_COURTYARD_CUTSCENE, :430
@@ -251,9 +256,13 @@ func masterSwordEquipped(raw *save.Image) bool {
 // where a loaded file starts (l_checkData in dComIfGs_setGameStartStage,
 // d_com_inf_game.cpp:1304-1311): each but MET_KORL is held until the
 // receiver has MET_KORL itself, and MET_KORL until it gets it in its own
-// game. The other three lock boarding the boat while their condition is
-// unmet (daShip_c, d_a_ship.cpp:4224-4229). §6.5 names two of them; the
-// decomp's third clause, UNK_3E10 without UNK_3F80, is held the same way.
+// game. The three bits that pick Outset's layer (getLayerNo,
+// d_com_inf_game.cpp:193-200) wait for MET_KORL too, and 0x1820, the
+// ruined Forsaken Fortress (:207-208), for the receiver's own rescue,
+// 0x2D01 (class.Holds says why). The other three lock boarding the boat
+// while their condition is unmet (daShip_c, d_a_ship.cpp:4224-4229). §6.5
+// names two of them; the decomp's third clause, UNK_3E10 without
+// UNK_3F80, is held the same way.
 var Holds = []Hold{
 	{evMetKorl, "MET_KORL moves the resume stage to Windfall", func(raw, _ *save.Image) bool {
 		return eventSet(raw, evMetKorl)
@@ -266,6 +275,18 @@ var Holds = []Hold{
 	}},
 	{ev2401, "0x2401 moves the resume stage to A_umikz", func(_, after *save.Image) bool {
 		return eventSet(after, evMetKorl)
+	}},
+	{ev0101, "0x0101 moves Outset to layer 9 until MET_KORL", func(_, after *save.Image) bool {
+		return eventSet(after, evMetKorl)
+	}},
+	{ev0E20, "0x0E20 moves Outset to layer 2/3 until MET_KORL", func(_, after *save.Image) bool {
+		return eventSet(after, evMetKorl)
+	}},
+	{ev0520, "0x0520 moves Outset to layer 4/5, with no Tetra and no ship, until MET_KORL", func(_, after *save.Image) bool {
+		return eventSet(after, evMetKorl)
+	}},
+	{ev1820, "0x1820 ruins the Forsaken Fortress until this player's own rescue (0x2D01)", func(raw, _ *save.Image) bool {
+		return eventSet(raw, ev2D01)
 	}},
 	{ev2D10, "0x2D10 locks the boat until a Master Sword is equipped", func(raw, _ *save.Image) bool {
 		return masterSwordEquipped(raw)

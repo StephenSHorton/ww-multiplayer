@@ -2,6 +2,7 @@ package class
 
 import (
 	"math/bits"
+	"slices"
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -115,7 +116,7 @@ func TestStoryListsGolden(t *testing.T) {
 		}
 	}
 	// Story milestones the resume stage and the holds read sync.
-	for _, id := range []uint16{0x0F80, 0x0801, 0x0808, 0x2401, 0x2D02, 0x2D10, 0x3804, 0x3E10, 0x3F80} {
+	for _, id := range []uint16{0x0F80, 0x0801, 0x0808, 0x2401, 0x0101, 0x0E20, 0x0520, 0x1820, 0x2D02, 0x2D10, 0x3804, 0x3E10, 0x3F80} {
 		if !EventSyncs(id) {
 			t.Errorf("0x%04X does not sync", id)
 		}
@@ -218,8 +219,13 @@ func TestHolds(t *testing.T) {
 			t.Errorf("hold on 0x%04X has no reason or citation", h.ID)
 		}
 		switch h.Until {
-		case UntilLocal, UntilWith:
-			if !EventSyncs(h.Arg) && h.Arg != h.ID {
+		case UntilLocal:
+			// It reads the receiver's own bit, so a LocalOnly one will do.
+			if !EventSyncs(h.Arg) && h.Arg != h.ID && !slices.ContainsFunc(localOnlyBits, func(b EventBit) bool { return b.ID == h.Arg }) {
+				t.Errorf("hold on 0x%04X waits for 0x%04X, which neither syncs nor is LocalOnly", h.ID, h.Arg)
+			}
+		case UntilWith:
+			if !EventSyncs(h.Arg) {
 				t.Errorf("hold on 0x%04X waits for 0x%04X, which does not sync", h.ID, h.Arg)
 			}
 		case UntilMasterSword:
@@ -230,20 +236,29 @@ func TestHolds(t *testing.T) {
 			t.Errorf("hold on 0x%04X has condition %s", h.ID, h.Until)
 		}
 	}
-	want := map[uint16]HoldUntil{
-		0x0F80: UntilLocal, 0x0801: UntilLocal, 0x0808: UntilLocal, 0x2401: UntilLocal,
-		0x2D10: UntilMasterSword, 0x3804: UntilWith, 0x3E10: UntilWith,
+	type cond struct {
+		until HoldUntil
+		arg   uint16
+	}
+	want := map[uint16]cond{
+		// The resume stage and Outset's layers wait for MET_KORL.
+		0x0F80: {UntilLocal, evMetKorl}, 0x0801: {UntilLocal, evMetKorl}, 0x0808: {UntilLocal, evMetKorl},
+		0x2401: {UntilLocal, evMetKorl}, 0x0101: {UntilLocal, evMetKorl}, 0x0E20: {UntilLocal, evMetKorl},
+		0x0520: {UntilLocal, evMetKorl},
+		// The ruined fortress waits for the receiver's own rescue.
+		0x1820: {UntilLocal, ev2D01},
+		0x2D10: {UntilMasterSword, 0}, 0x3804: {UntilWith, evZeldaAwakened}, 0x3E10: {UntilWith, ev3F80},
 	}
 	if len(holds) != len(want) {
 		t.Errorf("%d holds, want %d", len(holds), len(want))
 	}
 	for _, h := range holds {
-		if want[h.ID] != h.Until {
-			t.Errorf("hold on 0x%04X is %s, want %s", h.ID, h.Until, want[h.ID])
+		if w := want[h.ID]; w.until != h.Until || w.arg != h.Arg {
+			t.Errorf("hold on 0x%04X is %s 0x%04X, want %s 0x%04X", h.ID, h.Until, h.Arg, w.until, w.arg)
 		}
-		if h.Until == UntilLocal && h.Arg != evMetKorl {
-			t.Errorf("resume-stage hold on 0x%04X waits for 0x%04X, want MET_KORL", h.ID, h.Arg)
-		}
+	}
+	if holds[0].ID != evMetKorl {
+		t.Errorf("the first hold is 0x%04X, want MET_KORL's", holds[0].ID)
 	}
 	if got := MasterSwords(); len(got) != 3 || got[0] != 0x39 || got[1] != 0x3A || got[2] != 0x3E {
 		t.Errorf("MasterSwords() = % X", got)
