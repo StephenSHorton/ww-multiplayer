@@ -199,7 +199,7 @@ func TestGBAHoldsProposals(t *testing.T) {
 	rr.onSwitch(plainSea, 0)
 	off, m5 := switchImageByte(addr.TableSea, gbaSea)
 	_, m6 := switchImageByte(addr.TableSea, plainSea)
-	sent := switchGains(rr, off, 3)
+	sent := switchGains(rr, off, batchTicks+3)
 	if sent&m6 == 0 || sent&m5 != 0 {
 		t.Fatalf("GAINS of the switch byte with a GBA linked: 0x%02X, want 0x%02X alone", sent, m6)
 	}
