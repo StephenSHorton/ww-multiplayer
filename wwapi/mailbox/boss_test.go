@@ -121,6 +121,22 @@ func TestBossHeaderPins(t *testing.T) {
 		"WWBOSS_BPW_ST_SPIKE":     BossBpwStSpike,
 		"WWBOSS_BPW_ST_SPIKE_AIR": BossBpwStSpikeAir,
 		"WWBOSS_BPW_ST_DEATH":     BossBpwStDeath,
+		// Batch F: Helmaroc King (design/relay-helmaroc.md).
+		"WWBOSS_PROC_BDK":          uint64(BossProcBdk),
+		"WWBOSS_WITH_BDK":          BossWithBdk,
+		"WWBOSS_BDK_MORF_OFF":      BossBdkMorfOff,
+		"WWBOSS_BDK_ACT_OFF":       BossBdkActOff,
+		"WWBOSS_BDK_MASK_OFF":      BossBdkMaskOff,
+		"WWBOSS_BDK_DEMO_OFF":      BossBdkDemoOff,
+		"WWBOSS_BDK_HEALTH_OFF":    BossBdkHealthOff,
+		"WWBOSS_BDK_ACT_FIGHT_MAX": BossBdkActFightMax,
+		"WWBOSS_BDK_ACT_MASK_DEMO": BossBdkActMaskDemo,
+		"WWBOSS_BDK_ACT_END":       BossBdkActEnd,
+		"WWBOSS_BDK_ACT_START":     BossBdkActStart,
+		"WWBOSS_BDK_ACT_T_FLY":     BossBdkActTFly,
+		"WWBOSS_BDK_ACT_T_DOWN":    BossBdkActTDown,
+		"WWBOSS_BDK_ACT_AFTER":     BossBdkActAfter,
+		"WWBOSS_BDK_MASK_BROKEN":   BossBdkMaskBroken,
 	})
 }
 
@@ -173,8 +189,9 @@ func TestBossReadAndFields(t *testing.T) {
 
 // TestBossDetailPerProc: the result's bytes after BossR* read as Btd's
 // m02E4, mGohmaState and m02E0 for Gohma, as Bmd's mMode, m302 and m304
-// for Kalle Demos, as Bwd's m18AE, m18B0 and m1BB5 for Molgera and as
-// Bpw's mBodyAction, mActionState and health for Jalhalla; the request
+// for Kalle Demos, as Bwd's m18AE, m18B0 and m1BB5 for Molgera, as Bpw's
+// mBodyAction, mActionState and health for Jalhalla and as Bdk's mAction,
+// m8F8 and health for Helmaroc King; the request
 // carries the proc it was made for.
 func TestBossDetailPerProc(t *testing.T) {
 	st := BossStatus{Result: BossRApplied, Act: BossBmdModeFallen, State: 3, Phase: 1}
@@ -197,8 +214,11 @@ func TestBossDetailPerProc(t *testing.T) {
 	if got, want := BossDetail(BossProcBpw, BossStatus{Act: BossBpwActDamage, State: BossBpwStSpike, Phase: 15}), "mBodyAction 3, mActionState 0x64, health 15"; got != want {
 		t.Fatalf("Bpw detail %q, want %q", got, want)
 	}
+	if got, want := BossDetail(BossProcBdk, BossStatus{Act: BossBdkActTFly, State: BossBdkMaskBroken, Phase: 0}), "mAction 0x64, m8F8 4, health 0"; got != want {
+		t.Fatalf("Bdk detail %q, want %q", got, want)
+	}
 	if BossProcName(BossProcBmd) != "Kalle Demos (Bmd)" || BossProcName(BossProcBtd) != "Gohma (Btd)" || BossProcName(0xED) != "proc 0x00ED" ||
-		BossProcName(BossProcBwd) != "Molgera (Bwd)" || BossProcName(BossProcBpw) != "Jalhalla (Bpw)" {
+		BossProcName(BossProcBwd) != "Molgera (Bwd)" || BossProcName(BossProcBpw) != "Jalhalla (Bpw)" || BossProcName(BossProcBdk) != "Helmaroc King (Bdk)" {
 		t.Fatal("BossProcName")
 	}
 	m := mem.NewFakeMem()
