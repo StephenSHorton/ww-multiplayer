@@ -93,7 +93,7 @@ const (
 	// TargetBoss is the mailbox's boss_kill request (wwapi/mailbox
 	// boss.go, inject/include/wwboss.h): its proc and tag, held to the
 	// procs of bosskill.go's bossKillRows (Gohma, Kalle Demos) and the
-	// request's tag, and its seq. The REL gives this game's own boss the
+	// request's tag, and its seq (Gohdan's too, batch D G-D1). The REL gives this game's own boss the
 	// death a lethal hit gives it, so the boss bits the planner holds in
 	// a boss stage (bossHold) are set by the game itself (bosskill.go;
 	// design research C3-C6-gohma.md B5, C1-kalle-demos-relay.md). No save data:
@@ -107,10 +107,20 @@ const (
 	// refresh's Tier 1, refresh.go). WriteGuard.checkLock lets through
 	// exactly that write (FrameWriter.ApplyLocks).
 	TargetLock
+	// TargetRefresh is the mailbox's actor_refresh request (wwapi/mailbox
+	// refresh.go, inject/include/wwrefresh.h; enemy-mirror-batch-d.json
+	// R-D4, G-D4, G-D5): its proc held to the allow-list's bytes, its tag,
+	// its bit kind (1..3), the pid, params, room and bit number the relay
+	// found (refresh_relay.go), and its seq. The REL re-derives and
+	// re-reads the bit, runs its own gates and refuses any proc off its
+	// allow-list, so a wrong request costs a refusal, never a wrong delete
+	// (the design's safety rule). No save data: FrameWriter.ApplyRefresh
+	// writes it, when IDLE.
+	TargetRefresh
 
 	// AllTargets is the most any milestone writes: NewGuard's allowlist.
 	AllTargets = TargetStage | TargetOcean | TargetStory | TargetInventory | TargetDerived |
-		TargetCounters | TargetSelectItem | TargetScoped | TargetKills | TargetTag | TargetEscape | TargetK1 | TargetBoss | TargetLock
+		TargetCounters | TargetSelectItem | TargetScoped | TargetKills | TargetTag | TargetEscape | TargetK1 | TargetBoss | TargetLock | TargetRefresh
 	// M3Targets is what M3's reconciler writes (§9 M3): the stage
 	// progress bits and memory switches, the ocean, the charts and the
 	// sea map. A replica's WriteGuard adds TargetEscape for the escape
@@ -132,12 +142,14 @@ const (
 	// RefreshTargets is what the stale-actor refresh adds
 	// (design/stale-actor-refresh.md Tier 1): the key doors' locks. Its
 	// Tier 2 is M6's light-shrink (TargetK1) with a second allow rule.
+	// Its Tier 3 (TargetRefresh) is a request the REL acts on, which a
+	// replica's WriteGuard adds beside TargetBoss.
 	RefreshTargets = TargetLock
 )
 
 var targetNames = [...]string{
 	"stage", "ocean", "story", "inventory", "derived",
-	"counters", "select-item", "scoped", "kills", "tag", "escape", "k1", "boss", "lock",
+	"counters", "select-item", "scoped", "kills", "tag", "escape", "k1", "boss", "lock", "refresh",
 }
 
 func (t Target) String() string {
@@ -169,6 +181,7 @@ const (
 	ruleArm                // 0 to 1 and nothing else: mNextStage.mEnable
 	ruleSlot               // a derived slot: from nothing or a lesser variant of its item to a better one
 	ruleButton             // a button's item: from nothing or a lesser variant to a better one of some derived slot
+	ruleIn                 // one of a set of values (in): a byte of a boss_kill or actor_refresh proc
 )
 
 // byteRule is what the allowlist says of one byte.
@@ -176,9 +189,10 @@ type byteRule struct {
 	mask   byte // the bits a write may change
 	rule   rule
 	target Target
-	paths  path // the FrameWriter calls that may write it
-	lo, hi int8 // ruleRange's bounds
-	slot   int8 // ruleSlot's slot, an index into derivedSlots
+	paths  path       // the FrameWriter calls that may write it
+	lo, hi int8       // ruleRange's bounds
+	slot   int8       // ruleSlot's slot, an index into derivedSlots
+	in     *[256]bool // ruleIn's values
 }
 
 // path is a FrameWriter call a write comes through (§4.2). Each byte of
@@ -206,8 +220,10 @@ type byteRule struct {
 //     weapon's CARRY byte (M6), each of an actor read again just before
 //     (combat.Revalidate), judged by WriteGuard.checkActor;
 //   - pathBoss, FrameWriter.ApplyBossKill: the mailbox's boss_kill
-//     request (bosskill.go).
-type path uint8
+//     request (bosskill.go);
+//   - pathRefresh, FrameWriter.ApplyRefresh: the mailbox's actor_refresh
+//     request (refresh_relay.go).
+type path uint16
 
 const (
 	pathMerge path = 1 << iota
@@ -218,10 +234,11 @@ const (
 	pathKill
 	pathActor
 	pathBoss
+	pathRefresh
 
 	// pathAny is WriteGuard.Check's: a byte judged as written by its own
 	// path, whichever that is.
-	pathAny = pathMerge | pathDerive | pathEscape | pathTag | pathScoped | pathKill | pathActor | pathBoss
+	pathAny = pathMerge | pathDerive | pathEscape | pathTag | pathScoped | pathKill | pathActor | pathBoss | pathRefresh
 )
 
 func (p path) String() string {
@@ -238,6 +255,7 @@ func (p path) String() string {
 		{pathKill, "the kill path (FrameWriter.ApplyKills)"},
 		{pathActor, "the light-shrink (FrameWriter.ApplyActors)"},
 		{pathBoss, "the boss_kill request (FrameWriter.ApplyBossKill)"},
+		{pathRefresh, "the actor_refresh request (FrameWriter.ApplyRefresh)"},
 	} {
 		if p&n.p != 0 {
 			parts = append(parts, n.name)
@@ -393,39 +411,71 @@ func NewGuardFor(t Target) *Guard {
 	add(WarpPos, whole(12, ruleSet, TargetEscape, pathEscape), "mailbox.warp_x/y/z")
 	add(mailbox.BossAddr+mailbox.BossSeqOff, whole(4, ruleSet, TargetBoss, pathBoss), "mailbox.boss_kill seq")
 	add(mailbox.BossAddr+mailbox.BossProcOff, bossRules(), "mailbox.boss_kill proc and tag")
+	add(mailbox.RefreshAddr+mailbox.RefreshSeqOff, whole(4, ruleSet, TargetRefresh, pathRefresh), "mailbox.actor_refresh seq")
+	add(mailbox.RefreshAddr+mailbox.RefreshProcOff, refreshRules(), "mailbox.actor_refresh request")
 	return g
 }
 
 // bossRules is the boss_kill request's proc and tag (wwapi/mailbox
 // boss.go), each byte held to what the REL runs: a proc of bossKillRows
-// (Gohma's mailbox.BossProcBtd, Kalle Demos' mailbox.BossProcBmd) and
-// mailbox.BossTag. Each proc byte is held to the range of the rows'
-// bytes there, which is exactly the rows' procs while they are adjacent
-// (0x00EB, 0x00EC; TestBossGuardRules checks every byte value).
+// (Gohma's mailbox.BossProcBtd, Kalle Demos' mailbox.BossProcBmd and
+// Gohdan's mailbox.BossProcBst, whatever --coop-boss-kill picks) and
+// mailbox.BossTag. Each proc byte is held to the rows' bytes there
+// (ruleIn: 0x00, and 0xEB, 0xEC or 0xF2; TestBossGuardRules checks every
+// byte value), so Bmd's hands and Helmaroc King in between (0xED..0xF1)
+// are no value.
 func bossRules() []byteRule {
-	var lo, hi [2]int8
+	procs := make([]uint16, len(bossKillRows))
 	for i, row := range bossKillRows {
-		var p [2]byte
-		binary.BigEndian.PutUint16(p[:], row.proc)
-		for j, b := range p {
-			if i == 0 || int8(b) < lo[j] {
-				lo[j] = int8(b)
-			}
-			if i == 0 || int8(b) > hi[j] {
-				hi[j] = int8(b)
-			}
+		procs[i] = row.proc
+	}
+	return procTagRules(procs, mailbox.BossTag, TargetBoss, pathBoss)
+}
+
+// procTagRules is a request's u16 proc and u16 tag, big-endian, as rules
+// of target tg on path p: each proc byte one of procs' bytes there
+// (ruleIn), the tag exactly tag.
+func procTagRules(procs []uint16, tag uint16, tg Target, p path) []byteRule {
+	var in [2][256]bool
+	for _, proc := range procs {
+		var b [2]byte
+		binary.BigEndian.PutUint16(b[:], proc)
+		for j, v := range b {
+			in[j][v] = true
 		}
 	}
-	var tag [2]byte
-	binary.BigEndian.PutUint16(tag[:], mailbox.BossTag)
+	var tb [2]byte
+	binary.BigEndian.PutUint16(tb[:], tag)
 	rs := make([]byteRule, 4)
-	for j := range lo {
-		rs[j] = byteRule{mask: 0xFF, rule: ruleRange, target: TargetBoss, paths: pathBoss, lo: lo[j], hi: hi[j]}
+	for j := range in {
+		rs[j] = byteRule{mask: 0xFF, rule: ruleIn, target: tg, paths: p, in: &in[j]}
 	}
-	for j, b := range tag {
-		rs[2+j] = byteRule{mask: 0xFF, rule: ruleRange, target: TargetBoss, paths: pathBoss, lo: int8(b), hi: int8(b)}
+	for j, b := range tb {
+		rs[2+j] = byteRule{mask: 0xFF, rule: ruleRange, target: tg, paths: p, lo: int8(b), hi: int8(b)}
 	}
 	return rs
+}
+
+// refreshRules is the actor_refresh request's body, +0x04..+0x14
+// (wwapi/mailbox refresh.go, mailbox.RefreshRequest.Fields): the proc's
+// bytes each one of the allow-list's bytes there (refreshProcs; the REL
+// refuses any other proc, so a cross of the bytes, 0x0126 with 0x0192 say,
+// costs a refusal), the tag exactly mailbox.RefreshTag, the bit kind a
+// mailbox.RefreshBit*, and the pid, params, room and bit number any value
+// (the REL compares each with the actor it looks up itself, MISMATCH).
+func refreshRules() []byteRule {
+	procs := make([]uint16, 0, len(refreshProcs))
+	for _, p := range refreshProcs {
+		procs = append(procs, p.proc)
+	}
+	rs := procTagRules(procs, mailbox.RefreshTag, TargetRefresh, pathRefresh)
+	set := byteRule{mask: 0xFF, rule: ruleSet, target: TargetRefresh, paths: pathRefresh}
+	for range mailbox.RefreshBitKindOff - mailbox.RefreshPIDOff {
+		rs = append(rs, set) // pid, params, room
+	}
+	rs = append(rs, byteRule{mask: 0xFF, rule: ruleRange, target: TargetRefresh, paths: pathRefresh,
+		lo: int8(mailbox.RefreshBitSw), hi: int8(mailbox.RefreshBitItem)})
+	return append(rs, set, set) // bit no
 }
 
 // escapeRules is mNextStage's allowlist (dStage_nextStage_c, d_stage.h:
@@ -606,6 +656,10 @@ func judgeByte(br byteRule, old, val byte) (Refusal, string) {
 	case ruleRange:
 		if v := int8(val); v < br.lo || v > br.hi {
 			return RefuseValue, fmt.Sprintf("%d is outside %d..%d", v, br.lo, br.hi)
+		}
+	case ruleIn:
+		if br.in == nil || !br.in[val] {
+			return RefuseValue, fmt.Sprintf("0x%02X is none of the values it may hold", val)
 		}
 	case ruleArm:
 		if old != 0 || val != 1 {

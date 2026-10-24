@@ -96,6 +96,13 @@ func TestBossKillWantedRows(t *testing.T) {
 		{"an X stage on DRC's table", "Xboss0", addr.TableDRC, held(drcBossItems), -1, 0},
 		{"the FW dungeon", "kindan", addr.TableFW, held(fwBossItems), -1, 0},
 		{"the Mothula room", "kinMB", addr.TableFW, held(fwBossItems), -1, 0},
+		{"Gohdan", "SirenB", addr.TableTotG, held(totgBossItems), -1, mailbox.BossProcBst},
+		{"SirenB with DRC's bit held", "SirenB", addr.TableTotG, held(drcBossItems), -1, 0},
+		{"SirenB with FW's table", "SirenB", addr.TableFW, held(fwBossItems), -1, 0},
+		{"SirenB, the local bit set", "SirenB", addr.TableTotG, held(totgBossItems), totgBossItems, 0},
+		{"the TotG dungeon", "Siren", addr.TableTotG, held(totgBossItems), -1, 0},
+		{"an X stage on TotG's table", "Xboss2", addr.TableTotG, held(totgBossItems), -1, 0},
+		{"M_DragB with TotG's bit held", "M_DragB", addr.TableDRC, held(totgBossItems), -1, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -163,6 +170,26 @@ func TestBossGuardRules(t *testing.T) {
 			}
 		}
 	}
+	bst, _ := mailbox.BossRequestFields(mailbox.BossProcBst, 1)
+	for i, b := range bst {
+		if r := judge(procAt+uint32(i), b); r != 0 {
+			t.Fatalf("Gohdan's proc/tag byte %d 0x%02X refused: %s", i, b, r)
+		}
+	}
+	// Between Bmd (0xEC) and Bst (0xF2): BMDHAND, BMDFOOT, Helmaroc King
+	// and the rest are no value of the proc's low byte.
+	for v := 0xED; v < 0xF2; v++ {
+		if r := judge(procAt+1, byte(v)); r != RefuseValue {
+			t.Fatalf("proc low byte 0x%02X: %v, want a value refusal", v, r)
+		}
+	}
+	// Gohdan's proc byte is the boss path's alone: the refresh request's
+	// bytes take none of the boss rows' procs (its proc is the allow-list's).
+	if _, br, ok := g.at(mailbox.RefreshAddr + mailbox.RefreshProcOff + 1); !ok || br.paths != pathRefresh {
+		t.Fatalf("the refresh proc byte: ok %v paths %s", ok, br.paths)
+	} else if r, _ := judgeByte(br, 0, 0xF2); r != RefuseValue {
+		t.Fatalf("0xF2 in the refresh request's proc: %v", r)
+	}
 	if r := judge(procAt+3, 'X'); r != RefuseValue {
 		t.Fatalf("another tag: %s", r)
 	}
@@ -188,8 +215,14 @@ type bossRig struct {
 
 func newBossRig(t *testing.T, stage fakegame.Stage, rel bool) *bossRig {
 	t.Helper()
+	return newBossRigSet(t, stage, rel, "")
+}
+
+// newBossRigSet is newBossRig with --coop-boss-kill set to rows.
+func newBossRigSet(t *testing.T, stage fakegame.Stage, rel bool, rows string) *bossRig {
+	t.Helper()
 	clock := &breakerClock{t: time.Unix(1_700_000_000, 0)}
-	rr := newRecRig(t, Config{Apply: true, Now: clock.Now}, proto.FeatureImage)
+	rr := newRecRig(t, Config{Apply: true, Now: clock.Now, BossKill: rows}, proto.FeatureImage)
 	br := &bossRig{recRig: rr, clock: clock}
 	rr.load(stage)
 	rr.stagType(stageTypeBoss)
@@ -527,5 +560,230 @@ func TestBossKillBmdNoREL(t *testing.T) {
 	}
 	if n := br.log.count("the arena keeps Kalle Demos until it is"); n != 1 {
 		t.Fatalf("logged %d times:\n%s", n, br.log)
+	}
+}
+
+// totgBossItems is Tower of the Gods' mDungeonItem byte in the image.
+var totgBossItems = addr.OffMemBit(addr.TableTotG) + addr.MemBitOffDungeonItem
+
+// totgBoss is the Gohdan arena, a BOSS-type stage of TotG's table.
+var totgBoss = fakegame.Stage{Name: "SirenB", Table: addr.TableTotG, KeyHUD: true}
+
+// gohdanRows is --coop-boss-kill with Gohdan named.
+const gohdanRows = "gohma,kalle,gohdan"
+
+// partnerKilledTotG is the world with the partner's Gohdan dead (and its
+// demo seen), and the map and compass.
+func (br *bossRig) partnerKilledTotG() {
+	var img save.Image
+	img[totgBossItems] = 0x2B
+	br.world(img)
+}
+
+// TestParseBossKill: the row set's tokens, the default and none.
+func TestParseBossKill(t *testing.T) {
+	for _, c := range []struct {
+		v    string
+		want []uint16
+		err  bool
+	}{
+		{"", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd}, false},
+		{BossKillDefault, []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd}, false},
+		{"gohma, KALLE ,gohdan", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBst}, false},
+		{"gohdan", []uint16{mailbox.BossProcBst}, false},
+		{"none", nil, false},
+		{"gohma,helmaroc", nil, true},
+	} {
+		on, err := ParseBossKill(c.v)
+		if (err != nil) != c.err {
+			t.Fatalf("%q: %v", c.v, err)
+		}
+		if c.err {
+			continue
+		}
+		if len(on) != len(c.want) {
+			t.Fatalf("%q: %v, want %v", c.v, on, c.want)
+		}
+		for _, p := range c.want {
+			if !on[p] {
+				t.Fatalf("%q: %v lacks 0x%04X", c.v, on, p)
+			}
+		}
+	}
+	if _, err := New(Config{Mem: newRecRig(t, Config{}, proto.FeatureImage).m, BossKill: "ganon"}); err == nil {
+		t.Fatal("New took an unknown --coop-boss-kill row")
+	}
+}
+
+// TestBossKillRelayBst: with Gohdan in the row set, the partner kills it
+// while this game is in SirenB. The request names Bst's proc; the REL's
+// waiting answers (the intro, the hands' fight with its actions turning
+// over, the eye phase, the mouth opening) are asked again after bossRetry
+// and logged with Bst's fields, the fight's actions once; an applied kill
+// is not asked again while the demo runs, and the relay stops once the
+// game has set TotG's bit itself.
+func TestBossKillRelayBst(t *testing.T) {
+	br := newBossRigSet(t, totgBoss, true, gohdanRows)
+	br.partnerKilledTotG()
+	br.ticks(3)
+	seq, proc, tag := br.request()
+	if seq == 0 || proc != mailbox.BossProcBst || tag != mailbox.BossTag {
+		t.Fatalf("request seq %d proc 0x%X tag 0x%X; log:\n%s", seq, proc, tag, br.log)
+	}
+	if v := br.liveByte(totgBossItems); v&bossEnemy != 0 {
+		t.Fatalf("the boss bit was written live in the arena: 0x%02X", v)
+	}
+	if st := br.r.Status(); !st.BossKill.Wanted || st.BossKill.Boss != "Gohdan" || st.BossKill.Requests != 1 {
+		t.Fatalf("status %+v", st.BossKill)
+	}
+	if !br.log.has("the partner killed Gohdan") || !br.log.has("once its mouth is open for a bomb") {
+		t.Fatalf("no Gohdan line:\n%s", br.log)
+	}
+	// act, mDamage, m2E7C: the hands' fight (STAY, FLY and the attacks
+	// 10..14 as one), the eye phase (12, the head still flying), the
+	// mouth opening (HEAD_DAMAGE, mDamage 2).
+	answers := []struct{ act, dmg, phase uint8 }{
+		{0, 0, 1}, {1, 0, 1}, {11, 0, 1}, {14, 0, 1},
+		{1, 0, mailbox.BossBstM2E7CEyes},
+		{mailbox.BossBstActHeadDmg, 2, mailbox.BossBstM2E7CEyes},
+	}
+	for _, a := range answers {
+		s, _, _ := br.request()
+		br.relPhase(s, mailbox.BossRWaiting, a.act, a.dmg, a.phase)
+		br.ticks(1)
+		if n, _, _ := br.request(); n != s {
+			t.Fatalf("asked again (%d) before bossRetry", n)
+		}
+		br.clock.advance(bossRetry)
+		br.ticks(1)
+		if n, _, _ := br.request(); n != s+1 {
+			t.Fatalf("after waiting at act %d: seq %d, want %d; log:\n%s", a.act, n, s+1, br.log)
+		}
+	}
+	if n := br.log.count(": waiting (action 0x"); n != 3 {
+		t.Fatalf("waiting logged %d times, want 3 (fight, eye phase, mouth opening):\n%s", n, br.log)
+	}
+	if !br.log.has("waiting (action 0x7, mDamage 2, m2E7C 12)") {
+		t.Fatalf("Bst's fields not logged:\n%s", br.log)
+	}
+
+	// Applied at the open mouth: not asked again while the demo runs.
+	s, _, _ := br.request()
+	br.relPhase(s, mailbox.BossRApplied, mailbox.BossBstActHeadDmg, mailbox.BossBstDmgMouth, mailbox.BossBstM2E7CEyes)
+	br.ticks(1)
+	br.clock.advance(10 * bossRetry)
+	br.ticks(3)
+	if n, _, _ := br.request(); n != s {
+		t.Fatalf("asked again (%d) during the demo", n)
+	}
+	if st := br.r.Status(); st.BossKill.Applied != 1 || st.BossKill.Result != "applied" {
+		t.Fatalf("status %+v", st.BossKill)
+	}
+	if !br.log.has("applied (action 0x7, mDamage 3, m2E7C 12)") {
+		t.Fatalf("no applied line:\n%s", br.log)
+	}
+
+	// The demo sets TotG's bit: the relay ends.
+	br.set(totgBossItems, bossEnemy)
+	br.clock.advance(bossSettle)
+	br.ticks(3)
+	if n, _, _ := br.request(); n != s {
+		t.Fatalf("asked again (%d) once the game has the bit", n)
+	}
+	if st := br.r.Status(); st.BossKill.Wanted {
+		t.Fatalf("still wanted with the bit set: %+v", st.BossKill)
+	}
+}
+
+// TestBossKillBstDefaultOff: with the default row set (gohma,kalle),
+// SirenB gets no request; the log says once why the arena keeps Gohdan.
+func TestBossKillBstDefaultOff(t *testing.T) {
+	br := newBossRig(t, totgBoss, true)
+	br.partnerKilledTotG()
+	br.ticks(3)
+	br.clock.advance(bossRetry)
+	br.ticks(3)
+	if seq, _, _ := br.request(); seq != 0 {
+		t.Fatalf("a Gohdan request without the row: seq %d", seq)
+	}
+	if st := br.r.Status(); st.BossKill.Wanted || st.Writes.BossKills != 0 {
+		t.Fatalf("status %+v", st.BossKill)
+	}
+	if n := br.log.count("--coop-boss-kill (gohma,kalle) leaves it out"); n != 1 {
+		t.Fatalf("logged %d times:\n%s", n, br.log)
+	}
+	// The other rows stay on: Gohma is still asked for.
+	g := newBossRig(t, drcBoss, true)
+	g.partnerKilled()
+	g.ticks(3)
+	if seq, proc, _ := g.request(); seq == 0 || proc != mailbox.BossProcBtd {
+		t.Fatalf("Gohma not asked for by default: seq %d proc 0x%X", seq, proc)
+	}
+}
+
+// TestBossKillBstNeverOutsideSirenB: with Gohdan named, no other stage of
+// TotG's table (the tower, an X refight stage) gets a Bst request, and
+// --coop-boss-kill=gohdan alone leaves Gohma's arena alone.
+func TestBossKillBstNeverOutsideSirenB(t *testing.T) {
+	for _, st := range []fakegame.Stage{
+		{Name: "Siren", Table: addr.TableTotG, KeyHUD: true},
+		{Name: "Xboss2", Table: addr.TableTotG, KeyHUD: true},
+	} {
+		br := newBossRigSet(t, st, true, gohdanRows)
+		br.partnerKilledTotG()
+		br.ticks(5)
+		if seq, _, _ := br.request(); seq != 0 {
+			t.Fatalf("%s: a request: seq %d", st.Name, seq)
+		}
+	}
+	br := newBossRigSet(t, drcBoss, true, "gohdan")
+	br.partnerKilled()
+	br.ticks(5)
+	if seq, _, _ := br.request(); seq != 0 {
+		t.Fatalf("Gohma asked for with --coop-boss-kill=gohdan: seq %d", seq)
+	}
+}
+
+// TestBossKillBstNoREL: without the REL module the Gohdan relay writes
+// nothing and names its boss once; a REL of another build likewise.
+func TestBossKillBstNoREL(t *testing.T) {
+	br := newBossRigSet(t, totgBoss, false, gohdanRows)
+	br.partnerKilledTotG()
+	br.ticks(3)
+	br.clock.advance(bossRetry)
+	br.ticks(3)
+	if seq, _, _ := br.request(); seq != 0 {
+		t.Fatalf("a request without the REL: seq %d", seq)
+	}
+	if n := br.log.count("the arena keeps Gohdan until it is"); n != 1 {
+		t.Fatalf("logged %d times:\n%s", n, br.log)
+	}
+	br.linkREL(inject.RELBuildID ^ 1)
+	br.clock.advance(bossRetry)
+	br.ticks(3)
+	if seq, _, _ := br.request(); seq != 0 {
+		t.Fatalf("a request to another REL build: seq %d", seq)
+	}
+	if n := br.log.count(fmt.Sprintf("is build %08X, this build's is %08X; the arena keeps Gohdan", inject.RELBuildID^1, inject.RELBuildID)); n != 1 {
+		t.Fatalf("logged %d times:\n%s", n, br.log)
+	}
+}
+
+// TestBossAckKeyBst: the fight's actions log as one key; the eye phase,
+// the mouth and the death differ.
+func TestBossAckKeyBst(t *testing.T) {
+	key := func(act, dmg, phase uint8) string {
+		return bossAckKey(mailbox.BossProcBst, mailbox.BossStatus{Result: mailbox.BossRWaiting, Act: act, State: dmg, Phase: phase})
+	}
+	fight := key(0, 0, 1)
+	for _, act := range []uint8{1, 10, 11, 12, 13, 14} {
+		if k := key(act, 0, 1); k != fight {
+			t.Errorf("act %d: %q, want %q", act, k, fight)
+		}
+	}
+	for _, k := range []string{key(5, 0, 1), key(6, 0, 1), key(7, 3, 12), key(0x16, 0, 12), key(0, 0, 12)} {
+		if k == fight {
+			t.Errorf("%q is the fight's key", k)
+		}
 	}
 }

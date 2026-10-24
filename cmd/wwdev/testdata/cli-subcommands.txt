@@ -3,6 +3,7 @@ auto-recapture
 auto-recapture-pair
 blob-verify-live
 broadcast-link
+bst-probe
 coop-probe
 coop-watch
 disasm
@@ -43,6 +44,7 @@ input-release
 j3dsys-probe
 move-puppet
 mp-local
+mt2-probe
 peek
 peek-demo
 poke-u32
@@ -54,6 +56,7 @@ region-probe
 remote-flags
 remote-slot
 remote-watch
+rf-probe
 scan-pos
 screenshot
 send-shift-f1

@@ -103,10 +103,10 @@ func TestParseKinds(t *testing.T) {
 	if !s.Has(KindBK) || !s.TakesUnkeyed(KindBK) || s.Has(KindMO2) || s.TakesUnkeyed(KindCC) || s.Has(KindNone) {
 		t.Errorf("bk+u = %+v", s)
 	}
-	if a := AllKinds(); a.String() != "mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u,bb+u" {
+	if a := AllKinds(); a.String() != "mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u,bb+u,mt+u" {
 		t.Errorf("AllKinds = %s", a)
 	}
-	if !strings.Contains(func() string { _, err := ParseKinds("zz"); return err.Error() }(), "mo2, bk, cc, ki, am, am2, tn, bb)") {
+	if !strings.Contains(func() string { _, err := ParseKinds("zz"); return err.Error() }(), "mo2, bk, cc, ki, am, am2, tn, bb, mt") {
 		t.Error("the unknown-kind error does not list the kinds")
 	}
 }

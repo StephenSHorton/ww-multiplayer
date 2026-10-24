@@ -44,7 +44,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
-const enemyWatchUsage = "enemy-watch [secs=10, 0 = until Ctrl+C] [--csv <path>] [--kind mo2|bk|cc|ki|am|am2|tn|bb]"
+const enemyWatchUsage = "enemy-watch [secs=10, 0 = until Ctrl+C] [--csv <path>] [--kind mo2|bk|cc|ki|am|am2|tn|bb|mt]"
 
 // mo2Layouts is the private walk layout: a Moblin's enemyice and its u8
 // mMode (actors.Actor.Mode is then mo2 mMode; Actor.Ice.Mode is
@@ -104,7 +104,7 @@ func runEnemyWatch(cmd string, args []string) {
 	}
 	// --kind bk|cc is the generalised mirror's L0 probe and --kind
 	// ki|am|am2 the allow batch's probe of its rows, --kind tn the TN
-	// batch's probe of its row, --kind bb batch C's P0-BB
+	// batch's probe of its row, --kind bb|mt batch C's P0-BB and P0-MT
 	// (enemy_kinds_probe.go); mo2, the default, is this probe unchanged.
 	if name := values["kind"]; name != "" && name != "mo2" {
 		k, ok := enemysync.KindByName(name)

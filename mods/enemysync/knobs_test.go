@@ -245,19 +245,19 @@ func TestHitApplierKnobTable(t *testing.T) {
 // block's hook bytes (bb:hooks=tail at +0x28 bit 0x02), ids 3..15's
 // quiet/invuln/tg_hit_up in the knob table (ki:quiet=5 is accepted now),
 // tn:tg_hit_up stays the annex's u8, ids 0..2 stay in the annex, and the
-// per-kind names are each kind's only. mt (the reserved id 8, cut after
-// P0-MT) is refused, so its hook byte +0x29 is never written.
+// per-kind names are each kind's only.
 func TestParseAnnexL4(t *testing.T) {
 	o, err := ParseOverrides("bb:hooks=tail,ki:quiet=5,am:tg_hit_up=150,am2:invuln=40,tn:tg_hit_up=72,tn:quiet=30," +
-		"bb:hooks=beak+handback,bb:quiet=9,bk:hooks=ambush,cc:quiet=12")
+		"bb:hooks=beak+handback,mt:hooks=custody+respawn,bb:quiet=9,mt:invuln=4,bk:hooks=ambush,cc:quiet=12")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var want Overrides
 	want.HkdHi[KindBB-7] = mailbox.EnemyHKDEye | mailbox.EnemyHKDSpecial // the later entry wins
+	want.HkdHi[KindMT-7] = mailbox.EnemyHKDSpecial | mailbox.EnemyHKDLegacyDeath
 	want.Knobs.Quiet[KindKI], want.Knobs.Quiet[KindTN], want.Knobs.Quiet[KindBB] = 5, 30, 9
 	want.Knobs.TgUp[KindAM] = 150
-	want.Knobs.Invuln[KindAM2] = 40
+	want.Knobs.Invuln[KindAM2], want.Knobs.Invuln[KindMT] = 40, 4
 	want.Annex.TnTgHitUp = 72
 	want.Annex.Override[KindBK].HookDisable = mailbox.EnemyHKDSpecial
 	want.Annex.Override[KindCC].QuietFrames = 12
@@ -279,11 +279,13 @@ func TestParseAnnexL4(t *testing.T) {
 	if _, err := ParseOverrides("bb:hooks=tial"); err == nil || !strings.Contains(err.Error(), "tail, beak, mtx, handback") {
 		t.Errorf("bb:hooks=tial: %v, want bb's hook names", err)
 	}
-	// The MT cut (R-20): no row, so mt:hooks is refused with the reason.
+	// mt:hooks is accepted while the MT row exists (R-20: a cut deletes the
+	// row, and KindByName then refuses "mt").
 	if _, ok := KindByName("mt"); ok {
-		t.Error("an MT row after the cut")
-	}
-	if _, err := ParseOverrides("mt:hooks=chain"); err == nil || !strings.Contains(err.Error(), "P0-MT") {
-		t.Errorf("mt:hooks: %v, want the MT cut's refusal", err)
+		if _, err := ParseOverrides("mt:hooks=chain+fire+coll"); err != nil {
+			t.Errorf("mt:hooks: %v", err)
+		}
+	} else if _, err := ParseOverrides("mt:hooks=chain"); err == nil {
+		t.Error("mt:hooks parsed without an MT row")
 	}
 }

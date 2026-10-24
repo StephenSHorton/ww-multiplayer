@@ -55,6 +55,9 @@ func TestExtractCoopFlags(t *testing.T) {
 		{name: "M3", args: []string{"Link", "--coop", "--coop-dry-run", "--coop-live-switches", "--coop-iso", "ww.iso"}, want: Flags{on: true, dryRun: true, liveSwitches: true, iso: "ww.iso"}, rest: []string{"Link"}},
 		{name: "--coop-iso=", args: []string{"--coop-iso=C:/Roms/ww.iso", "--coop"}, want: Flags{on: true, iso: "C:/Roms/ww.iso"}, rest: []string{}},
 		{name: "--coop-iso after --", args: []string{"--coop", "--", "--coop-iso", "x"}, want: Flags{on: true}, rest: []string{"--", "--coop-iso", "x"}},
+		// Batch D (enemy-mirror-batch-d.json G-D1, G-D5): each side's own.
+		{name: "--coop-boss-kill", args: []string{"--coop", "--coop-boss-kill=gohma,kalle,gohdan"}, want: Flags{on: true, bossKill: "gohma,kalle,gohdan"}, rest: []string{}},
+		{name: "--coop-refresh", args: []string{"--coop-refresh=stone2,tbox,dry", "--coop"}, want: Flags{on: true, refresh: "stone2,tbox,dry"}, rest: []string{}},
 
 		{name: "bad world", args: []string{"--coop=xyz"}, wantErr: "--coop=new, or a world ID"},
 		{name: "zero world", args: []string{"--coop=0000000000000000"}, wantErr: "--coop=new, or a world ID"},
@@ -62,6 +65,8 @@ func TestExtractCoopFlags(t *testing.T) {
 		{name: "two worlds", args: []string{"--coop=new", "--coop=" + id}, wantErr: "give one world"},
 		{name: "--coop-iso without a path", args: []string{"--coop", "--coop-iso"}, wantErr: "needs the path"},
 		{name: "two discs", args: []string{"--coop", "--coop-iso=a", "--coop-iso=b"}, wantErr: "give one disc image"},
+		{name: "an unknown boss", args: []string{"--coop", "--coop-boss-kill=ganon"}, wantErr: "is no boss"},
+		{name: "an unknown refresh token", args: []string{"--coop", "--coop-refresh=door"}, wantErr: "is no refresh token"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

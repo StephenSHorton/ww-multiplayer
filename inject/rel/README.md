@@ -308,16 +308,16 @@ canaries (`pause_reasserts`, `anm_unresolved`, `revalidate_failures`,
 
 **Batch C (layout 4, `design/enemy-mirror-batch-c.json`).** Nothing in
 the block or the annex moves. Block +0x22 is `knob_gen`, +0x28..+0x2F the
-hook-disable bytes for kind ids 7..14 (BB +0x28; +0x29, the reserved id 8,
-is unread; inside Go's seq span, read live by `em_hkd`), +0x194 the REL's
+hook-disable bytes for kind ids 7..14 (BB +0x28, batch D's MT +0x29;
+inside Go's seq span, read live by `em_hkd`), +0x194 the REL's
 echo of the knob table it validated (0 when none or invalid, so Go
-rewrites a clobbered table), +0x196 a saturating count of BB fingerprint misses. The knob table at
+rewrites a clobbered table), +0x196 a saturating count of BB and MT fingerprint misses. The knob table at
 mailbox +0x850 (0x80413750, 0x60 bytes, its own write) is valid when the
 block's `knob_gen` is nonzero and equals its head and tail words, its
 layout is 4 and it has a row per kind; then ids 3..15 take their quiet
 frames, `tg_hit_up` (not TN: its annex byte 0x1FB stays) and invuln wait
-from it, else the compiled values. `em_ext.kind_mask` is u16 (bit 8, the
-reserved MT id, is never set).
+from it, else the compiled values. `em_ext.kind_mask` is u16 (bit 8 is
+batch D's MT).
 - **Ambush Bokoblin.** `em_bk_gate` takes `mType` 0..4 (2 and 3 the pot
   ambushers, unconditionally; Go no longer writes 0 into them). While the
   host slot is hidden the copy's stick is parked at (-10000, -10000, 0) as
@@ -337,13 +337,36 @@ reserved MT id, is never set).
   shown host are refused; the draw gate 0x2F2 is cleared while the host is
   shown; a release hands it back into the attack state with its timer
   seeded (450, `l_bbHIO.unk_16`).
-- **Magtail (MT, proc 0xD9): cut.** The row was cut by R-20 after the
-  P0-MT live probe failed (`M_NewD2` room 8: the eye sphere sat at
-  `eyePos`, but the body sphere centres did not equal the segment
-  translations, segment 0 about 65 units off and segments 1..4 about 10),
-  so the offline `d_a_mt.rel` segment and sphere model the `em_mt_*`
-  section was built on was wrong. `EMK_KIND_MT` 8 stays a reserved id with
-  no row (`EMK_KIND_COUNT` 8) and the hook byte +0x29 is unread.
+- **Magtail (MT, proc 0xD9): cut in batch C.** The row was cut by R-20
+  after the P0-MT live probe failed (`M_NewD2` room 8: the eye sphere sat
+  at `eyePos`, but the body sphere centres did not equal the segment
+  translations, segment 0 about 65 units off and segments 1..4 about 10);
+  batch D brings it back on the copy's own retail builders (below).
+
+**Batch D (`design/enemy-mirror-batch-d.json` R-D6, D8-D10; still layout
+4).** Magtail is kind 8 again (`EMK_KIND_COUNT` 9), all of it in `em_mt.c`
+under `EMK_WITH_MT` (the first cut: `EMK_WITH_MT 0` with `EMK_KIND_COUNT 8`
+compiles it out) plus one guarded dispatch line per call site in
+`enemy_mirror.c`; Go sets kind bit 8 only for `mt+u` and a matching REL
+build id. Batch C's gate, hit forwarding (eye = collider 1, any body sphere
+= collider 2, a thrown Magtail dropped), custody BALL (collider code 4) and
+the respawn flag 0x1CBC are restored as they were. The hand-built body is
+gone: once per pid `em_mt_fp_ok` checks `daMt_Execute`'s, `body_control1`'s
+and `body_control2`'s first words and both builders' `blr` in the loaded
+`d_a_mt.rel` (a miss bumps +0x196 and refuses the adoption), and every
+frame `em_mt_body_step` writes the streamed head (shape x/y/z, the wiggle
++0x468 from slot +0x18), clears the latch +0xC01 and the hit cooldown
++0x460, ticks the sway clock +0x46A and calls `body_control1` (MOVE, with
++0x48E = 1 while the copy's head is within 3 units of the ring's last kept
+entry, so the ring advances on the copy's own motion) or `body_control2`
+(FIGHT, after +0x48E = 0 and +0xC04 = 0); PINNED calls nothing.
+The builders write the eight segment matrices and enter the nine spheres
+themselves; `em_mt_coll_post` then clears the body spheres' At, puts a
+withheld collider at R -200, and in PINNED clears At and Co on the bodies
+and enters the nine itself. The two mode edges copy the ring into the
+chain (MOVE -> FIGHT) or reseed the ring from it (back to MOVE), as the
+retail latch paths do. A dying copy calls nothing and shrinks through its
+segment models' base scale.
 
 Game functions called, all through absolute function-pointer casts
 (`config/GZLE01/symbols.txt`): `fopAcM_SearchByID` 0x800241C0,
@@ -358,7 +381,9 @@ and `::ClrAtHit` 0x800AB7C4, `dCcD_Sph::Set` 0x800ABFC0 and `::StartCAt`
 `dPa_smokeEcallBack::end` 0x8007BB80 (the Armos Knight's mouth smoke,
 `mSmokeCbs[2]`, at the bomb swallow and at adopt), `cc_at_check`
 0x800AEEF8 (the TN batch's AM2 direct apply, `em_hit_direct`); batch C:
-BB's `tail_control` in the loaded `d_a_bb.rel` (fingerprinted). Data read:
+BB's `tail_control` in the loaded `d_a_bb.rel` (fingerprinted); batch D:
+MT's `body_control1` and `body_control2` in the loaded `d_a_mt.rel`
+(fingerprinted). Data read:
 `calc_mtx` 0x803F63A0, `mCurStage.mName` 0x803C9D3C, `mStayNo`
 0x803F6A78, `mNextStage.mEnable` 0x803C9D54, `mPlayerInfo[0].mpPlayer`
 0x803CA74C, `mpPlayerPtr[0]` 0x803CA754, `__vt__8dCcD_Sph` 0x803899D0
@@ -621,3 +646,39 @@ left over at `m302` 0..1) and answers every other state
 `mBDC` 1.0f, `m302` 0, `mMode` 0xB, then `mDoAud_bgmStop(30)` through
 `zel_basic` (two fields alone would leave `end()` waiting on an `mB76` that
 never counts). The result bytes for this proc are mMode, `m302`, `m304`.
+
+Gohdan (batch D R-D1..R-D3, under `WWBOSS_WITH_BST`) is the third proc,
+0x00F2 (Bst), taken only in the stage named exactly `SirenB`. Its head and
+two hands are `.bss` statics of `d_a_bst.rel`, so `bk_bst` finds each part
+with `fopAcIt_Judge` (0x80023FB4) and `bk_bst_judge`, the first module
+function a DOL iterator calls back (build.py fails the build unless it is
+a `.text` symbol). Any part missing, or the head's morf NULL, is `no_actor`;
+END_DEMO, `m2E9A` >= 0x32 or `m2E7C` 100 is `already`; it applies only at
+vanilla's own pre-death state (head HEAD_DAMAGE with `mDamage` 3, the
+mouth open for a bomb, `m2E7C` 12, `m2E9A` 0, both hands SLEEP), else
+`waiting`. The apply is `bom_eat_check`'s lethal block (d_a_bst.cpp
+:1219-1229) without health, the bomb or the SE: head `m2E9A` 0x32 and
+`mDamage` 0, the DEAD anim through `getRes` + `mDoExt_McaMorf::setAnm`
+(behind `WWBOSS_BST_ANIM`), both hands END_DEMO with `mDamage` 0xA, the
+head END_DEMO last, then `bgmStop(30)` and `bgmStreamPrepare(BST_CLEAR)`;
+its own `end_demo` does the rest. The result bytes are the head's
+mActionType, `mDamage`, `m2E7C`.
+
+## refresh.c: the actor_refresh op
+
+Batch D's Tier 3 stale-actor refresh (`design/enemy-mirror-batch-d.json`
+R-D4, R-D5, D4-D7), under `WWREFRESH_ENABLE`. The request is 0x20 bytes at
+`MAILBOX_ADDR + 0x8B0` (0x804137B0, `include/wwrefresh.h`), past the
+enemy knob table; the keeper's create consumes a stale seq, as boss_kill's
+does, and its execute runs a new one after boss_kill. It deletes one
+actor of five allow-listed procs (Stone2, Obj_Leaves, daItem, Tbox, Saku)
+this game placed before the partner's bit landed, and only after it has
+itself re-derived the bit from the actor's params or fields, re-read it
+with the DOL's `isSwitch` / `isTbox` / `isItem`, and passed the generic
+gates (no stage change, no boss arena, created, no event command, not
+carried, not paused or mirrored, Link not in a demo and farther than 300
+units, the global event mode NONE) and the proc's own (Stone2 idle, daItem
+lying normally, Tbox closed and waiting behind its `daTbox_Execute`
+fingerprint, Saku not burning with every standing half's switch set).
+The delete is `fopAcM_delete__FUi`. The result is `R_*`, the gate id and
+the proc's state as found. Stateless; nothing is added to the keeper.

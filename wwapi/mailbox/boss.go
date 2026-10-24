@@ -15,7 +15,8 @@ import (
 // at Mailbox+BossOff, the alignment gap at the head of RemoteBlockRegion
 // that remote-Link never writes, so the canary probe skips it too. Design:
 // ww-multiplayer-handoff/design/research/C3-C6-gohma.md, "The relay op
-// (B5, revised)"; Kalle Demos: research/C1-kalle-demos-relay.md.
+// (B5, revised)"; Kalle Demos: research/C1-kalle-demos-relay.md; Gohdan:
+// enemy-mirror-batch-d.json R-D1..R-D3, "gohdan".
 //
 // Go writes the proc and tag, then the seq (two writes, the seq last); the
 // REL writes the result, then the ack. The keeper's create consumes any
@@ -29,18 +30,19 @@ const (
 	BossProcOff   = 0x04 // u16 the boss's proc (Go)
 	BossTagOff    = 0x06 // u16 BossTag (Go)
 	BossAckOff    = 0x08 // u32 the seq last consumed (REL)
-	BossResultOff = 0x0C // u32 BE: byte +0 BossR*, +1..+3 per proc: Btd m02E4, mGohmaState, m02E0; Bmd mMode, m302, m304 (REL)
+	BossResultOff = 0x0C // u32 BE: byte +0 BossR*, +1..+3 per proc: Btd m02E4, mGohmaState, m02E0; Bmd mMode, m302, m304; Bst mActionType, mDamage, m2E7C (REL)
 	BossGoSpan    = 0x08 // bytes Go writes: seq, proc, tag
 
 	BossTag     uint16 = 0x424B // 'BK'
 	BossProcBtd uint16 = 0x00EB // fpcNm_BTD_e, Gohma, only in M_DragB
 	BossProcBmd uint16 = 0x00EC // fpcNm_BMD_e, Kalle Demos, only in kinBOSS
+	BossProcBst uint16 = 0x00F2 // fpcNm_BST_e, Gohdan, only in SirenB (batch D)
 
 	BossRNone    uint8 = 0 // consumed at the keeper's create: ask again
-	BossRApplied uint8 = 1 // Btd: m02E4 0..2 with the armor broken; Bmd: the open flower; the death written
-	BossRWaiting uint8 = 2 // Btd: the intro, the armor intact or another state; Bmd: not the open flower; ask again
-	BossRAlready uint8 = 3 // m02E4 (Btd) or mMode (Bmd) 0xB: dying or dead
-	BossRNoActor uint8 = 4 // no actor of the proc, or one still creating
+	BossRApplied uint8 = 1 // Btd: m02E4 0..2 with the armor broken; Bmd: the open flower; Bst: the mouth open, the hands asleep; the death written
+	BossRWaiting uint8 = 2 // Btd: the intro, the armor intact or another state; Bmd: not the open flower; Bst: not the mouth-open window; ask again
+	BossRAlready uint8 = 3 // m02E4 (Btd) or mMode (Bmd) 0xB, Bst mActionType 0x16, m2E9A >= 0x32 or m2E7C 100: dying or dead
+	BossRNoActor uint8 = 4 // no actor of the proc, or one still creating (Bst: any of its three parts)
 	BossRGate    uint8 = 5 // a stage change pending, not the proc's stage, or a bad proc or tag
 
 	BossBtdM02E0Off  = 0x2E0 // u8 Btd's armor phase (d_a_btd.h:41)
@@ -77,6 +79,38 @@ const (
 	BossBgmStopFn   uint32 = 0x802A4658 // bgmStop__11JAIZelBasicFUll
 	BossZelBasic    uint32 = 0x803F7710 // zel_basic__11JAIZelBasic
 	BossBgmStopFade        = 30
+
+	// Bst (d_a_bst.h), Gohdan, batch D R-D1: the gate is the head's
+	// HEAD_DAMAGE with mDamage 3 (the mouth open for a bomb), m2E7C 12,
+	// m2E9A 0 and both hands asleep; the writes are bom_eat_check's lethal
+	// block (d_a_bst.cpp:1219-1229) plus the clear stream's prepare.
+	BossWithBst       = 1          // WWBOSS_WITH_BST, the compile switch
+	BossBstAnim       = 1          // WWBOSS_BST_ANIM, the DEAD anim's compile switch
+	BossBstPartOff    = 0x2B4      // u8 mBstPartType
+	BossBstPartHead   = 0          // part 0, the head
+	BossBstPartHand1  = 1          // part 1, a hand
+	BossBstPartHand2  = 2          // part 2, the other hand
+	BossBstMorfOff    = 0x2B8      // mDoExt_McaMorf*
+	BossBstActOff     = 0x10D6     // s16 mActionType
+	BossBstDmgOff     = 0x10DA     // s16 mDamage
+	BossBstM2E7COff   = 0x2E7C     // s8 m2E7C, the fight's phase
+	BossBstM2E9AOff   = 0x2E9A     // s8 m2E9A, the death count
+	BossBstActSleep   = 6          // ACTION_SLEEP_e
+	BossBstActHeadDmg = 7          // ACTION_HEAD_DAMAGE_e
+	BossBstActEndDemo = 0x16       // ACTION_END_DEMO_e
+	BossBstDmgMouth   = 3          // KUTI_OPEN_LOOP
+	BossBstM2E7CEyes  = 12         // both hands asleep, the eyes open
+	BossBstM2E7CDone  = 100        // after the demo
+	BossBstM2E9ADeath = 0x32       // the lethal block's m2E9A
+	BossBstHandDmgEnd = 0xA        // each hand's mDamage
+	BossBstAnmDead    = 0xB        // BST_BCK_DEAD
+	BossStrmPrepareFn = 0x802A334C // bgmStreamPrepare__11JAIZelBasicFUl
+	BossStrmBstClear  = 0xC0000019 // JA_STRM_BST_CLEAR
+	BossGetResFn      = 0x8006F208 // dRes_control_c::getRes
+	BossObjInfo       = 0x803E0BC8 // mObjectInfo
+	BossObjInfoCount  = 64         // its entries
+	BossSetAnmFn      = 0x80012D78 // mDoExt_McaMorf::setAnm
+	BossIterJudgeFn   = 0x80023FB4 // fopAcIt_Judge
 )
 
 // BossAddr is the request's address.
@@ -86,24 +120,30 @@ const BossAddr = Mailbox + BossOff
 var BossRequestRegion = addr.Region{Name: "boss_kill request", Start: BossAddr, End: BossAddr + BossSize}
 
 // BossProcName names a request's proc. The REL takes BossProcBtd only in
-// M_DragB and BossProcBmd only in kinBOSS; any other proc is refused
-// (BossRGate).
+// M_DragB, BossProcBmd only in kinBOSS and BossProcBst only in SirenB; any
+// other proc is refused (BossRGate).
 func BossProcName(proc uint16) string {
 	switch proc {
 	case BossProcBtd:
 		return "Gohma (Btd)"
 	case BossProcBmd:
 		return "Kalle Demos (Bmd)"
+	case BossProcBst:
+		return "Gohdan (Bst)"
 	}
 	return fmt.Sprintf("proc 0x%04X", proc)
 }
 
 // BossDetail is a result's bytes after BossR* for a request of proc, as
 // the REL found them: Btd's m02E4, mGohmaState and m02E0, Bmd's mMode,
-// m302 and m304 (each its low byte).
+// m302 and m304, Bst's head mActionType, mDamage and m2E7C (each its low
+// byte).
 func BossDetail(proc uint16, st BossStatus) string {
-	if proc == BossProcBmd {
+	switch proc {
+	case BossProcBmd:
 		return fmt.Sprintf("mMode 0x%X, m302 %d, m304 %d", st.Act, int8(st.State), int8(st.Phase))
+	case BossProcBst:
+		return fmt.Sprintf("action 0x%X, mDamage %d, m2E7C %d", st.Act, int8(st.State), int8(st.Phase))
 	}
 	return fmt.Sprintf("m02E4 0x%X, state 0x%X, m02E0 %d", st.Act, st.State, st.Phase)
 }
@@ -129,14 +169,15 @@ func BossResultName(r uint8) string {
 
 // BossStatus is the REL-written half of the request, with the seq Go last
 // wrote. Act, State and Phase are per proc (BossDetail): Btd's m02E4,
-// mGohmaState and m02E0, Bmd's mMode, m302 and m304.
+// mGohmaState and m02E0, Bmd's mMode, m302 and m304, Bst's head
+// mActionType, mDamage and m2E7C.
 type BossStatus struct {
 	Seq    uint32 // the request's seq as read
 	Ack    uint32 // the seq the REL last consumed
 	Result uint8  // BossR*, for Ack
-	Act    uint8  // Btd's m02E4 or Bmd's mMode, low byte, as the REL found it
-	State  uint8  // Btd's mGohmaState or Bmd's m302, low byte
-	Phase  uint8  // Btd's m02E0 (0 armored, 1 armor broken, 2 dying) or Bmd's m304, 0 with no actor
+	Act    uint8  // Btd's m02E4, Bmd's mMode or Bst's head mActionType, low byte, as the REL found it
+	State  uint8  // Btd's mGohmaState, Bmd's m302 or Bst's mDamage, low byte
+	Phase  uint8  // Btd's m02E0 (0 armored, 1 armor broken, 2 dying), Bmd's m304 or Bst's m2E7C, 0 with no actor
 }
 
 // ReadBoss reads the request's words.

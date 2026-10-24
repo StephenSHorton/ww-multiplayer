@@ -219,12 +219,16 @@ func ClassifyWalk(m mem.Reader, w *actors.Walk, stage string, room int8, set Kin
 // death order): its gate refuses the ragdoll, dying, D_DOZOU and S_DEMO
 // at adopt only, and ReadSampleTN streams them, but a listed Darknut whose
 // BOSS status turns on is refused all the same (stickyRefused). Batch
-// C's Kargaroc too (a knockback is transient, and its death is streamed).
+// C's Kargaroc (a knockback is transient, and its death is streamed) and
+// Magtail (BALL is the custody signal, DEAD streamed) too.
 // MO2/BK/CC keep refusing on every walk. The host's walk passes its whole
-// cache (CandidatesSince); the client's match passes none (ClassifyWalk).
+// cache (CandidatesSince); the client's match passes only its listed
+// Magtails (mtWas), so a custody BALL keeps its block slot.
 func liveSticky(id KindID) bool {
 	switch id {
 	case KindKI, KindAM, KindAM2, KindTN, KindBB:
+		return true
+	case KindMT:
 		return true
 	}
 	return false
@@ -321,6 +325,12 @@ func classifyWalk(m mem.Reader, w *actors.Walk, stage string, room int8, set Kin
 			} else {
 				e.LiveSpanOK = true
 			}
+		}
+		if e.Refused == "" && id == KindMT {
+			if err := readMtGate(m, a, &e.Live); err != nil {
+				return nil, err
+			}
+			e.LiveSpanOK = true
 		}
 		if e.Refused == "" && (!k.ParamsOK(a.Params) || (a.SetID == addr.ActorSetIDNone && !k.UnkeyedParamsOK(a.Params))) {
 			e.Refused = RefuseParams

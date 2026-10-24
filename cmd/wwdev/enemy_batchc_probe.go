@@ -1,9 +1,9 @@
 package main
 
-// Batch C's probe tail (enemy-watch --kind bb; the P0-BB step of
-// ww-multiplayer-handoff/design/enemy-mirror-batch-c.json test_plan): the
-// file comment of enemy_kinds_probe.go says what it prints. The P0-MT
-// tail (mtExtra) went with the Magtail row (R-20, after P0-MT failed).
+// Batch C's probe tails (enemy-watch --kind bb, --kind mt; the P0-BB and
+// P0-MT steps of ww-multiplayer-handoff/design/enemy-mirror-batch-c.json
+// test_plan): the file comment of enemy_kinds_probe.go says what each
+// prints. An MT cut (R-20) deletes mtExtra and its arm.
 
 import (
 	"fmt"
@@ -113,5 +113,57 @@ func bbExtra(m mem.Reader, e *enemysync.Enemy, s *enemysync.KindSample) (string,
 	fmt.Fprintf(&b, " live %s root %.1f %.1f %.1f tail0 %.1f %.1f %.1f", okText(enemysync.BbLiveRefusal(g)),
 		root[0], root[1], root[2], tail0[0], tail0[1], tail0[2])
 	colliderText(&b, s)
+	return b.String(), nil
+}
+
+// mtExtra is a Magtail's per-tick tail (P0-MT): mode/action, the ring
+// index beside the dive timer, the timers, the wiggle (+0x468, the slot's
+// +0x18 since batch D G-D6) and the stretch f470 (+0x470, the copy's
+// own), the colour phase and frames,
+// the class bytes, the would-be live gate, the eye sphere's centre beside
+// eyePos, and per segment its model's base translation, its body
+// sphere's centre and its anchor.
+func mtExtra(m mem.Reader, e *enemysync.Enemy, s *enemysync.KindSample) (string, error) {
+	st, mt := &s.St, &s.Mt
+	idx, err := mem.ReadU32(m, e.Addr+addr.MtOffRingIdx)
+	if err != nil {
+		return "", err
+	}
+	f470, err := mem.ReadF32(m, e.Addr+addr.MtOffF470)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "end %d shape %d/%d/%d status 0x%08X mode %d action %d ring %d dive %d ball %d hit_cool %d wiggle %d f470 %.2f phase %d color %d/%d death %d eye_hp %d killed %d respawn %d type %d blur %d shield 0x%08X",
+		s.MorfEnd, st.ShapeAngle[0], st.ShapeAngle[1], st.ShapeAngle[2], s.Status, mt.Mode, mt.Action, idx&(addr.MtRingLen-1), mt.Dive, mt.BallTimer,
+		mt.HitCool, mt.Wiggle, f470, mt.Phase, mt.ColorA, mt.ColorB, mt.Death, mt.EyeHP, mt.Killed, mt.Respawn, mt.Type, mt.Blur, mt.Shield)
+	g := e.Live
+	g.Mode, g.MtAppear, g.MtKilled, g.MtIce = mt.Mode, mt.Appear, mt.Killed, uint8(s.IceTimer)
+	g.MtDeath, g.Carried = uint8(mt.Death), s.Status&addr.ActorStatusCarry != 0
+	eye := st.Colliders[len(st.Colliders)-1].Center
+	fmt.Fprintf(&b, " live %s eye_sph %.1f %.1f %.1f eyePos %.1f %.1f %.1f", okText(enemysync.MtLiveRefusal(g)),
+		eye[0], eye[1], eye[2], mt.EyePos[0], mt.EyePos[1], mt.EyePos[2])
+	for i, morf := range mt.Morfs {
+		tr := "-"
+		if addr.InMEM1(morf) {
+			model, err := mem.ReadU32(m, morf+addr.McaMorfOffModel)
+			if err != nil {
+				return "", err
+			}
+			if addr.InMEM1(model) {
+				var t [3]float32
+				for k := range uint32(3) {
+					v, err := mem.ReadF32(m, model+addr.J3DModelOffBaseTRMtx+0xC+0x10*k)
+					if err != nil {
+						return "", err
+					}
+					t[k] = v
+				}
+				tr = fmt.Sprintf("%.1f %.1f %.1f", t[0], t[1], t[2])
+			}
+		}
+		c, a := st.Colliders[i].Center, mt.Anchor[i]
+		fmt.Fprintf(&b, " | seg%d tr %s sph %.1f %.1f %.1f r %.1f anchor %.1f %.1f %.1f", i, tr, c[0], c[1], c[2], st.Colliders[i].R, a[0], a[1], a[2])
+	}
 	return b.String(), nil
 }
