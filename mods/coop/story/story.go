@@ -7,8 +7,8 @@
 //   - the sender's Batcher: the story bits and registers its game gains
 //     go out as one batch once the game has been IDLE for BatchIdle, so a
 //     cutscene's side-effect bits travel together, and a memory switch
-//     that rises while an event runs (a cutscene's trigger switch) waits
-//     for that batch;
+//     waits for a batch too (one rising alone starts one), so a
+//     cutscene's trigger switch goes with that cutscene's bits;
 //   - the receiver's plan: the world's story bits its game lacks, minus
 //     its ever-had history and the bits class.Holds keeps back until their
 //     condition holds in its own game, plus the allowlisted registers it

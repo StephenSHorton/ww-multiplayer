@@ -170,8 +170,17 @@ func TestBatchTiming(t *testing.T) {
 			{100, true, nil, nil},
 			{1100, true, nil, []world.Gain{a}},
 		}},
-		{"a switch rising while idle with no batch goes at once", []tick{
-			{0, true, []world.Gain{sw(addr.TableSea, 5)}, []world.Gain{sw(addr.TableSea, 5)}},
+		{"a switch rising while idle with no batch waits one second", []tick{
+			{0, true, []world.Gain{sw(addr.TableSea, 5)}, nil},
+			{900, true, nil, nil},
+			{1000, true, nil, []world.Gain{sw(addr.TableSea, 5)}},
+		}},
+		{"a spawn switch set as its event starts waits for that event's bits", []tick{
+			{0, true, []world.Gain{sw(addr.TableSea, 5)}, nil},
+			{100, false, nil, nil},
+			{2000, false, []world.Gain{z}, nil},
+			{2100, true, nil, nil},
+			{3100, true, nil, merged(z, sw(addr.TableSea, 5))},
 		}},
 		{"a switch rising in an event waits for that event's bits", []tick{
 			{0, false, []world.Gain{sw(addr.TableSea, 5)}, nil},
@@ -294,10 +303,11 @@ func TestBatchReset(t *testing.T) {
 	}
 	runTicks(t, &b, []tick{
 		{1000, true, nil, nil},
-		// The IDLE run began at 0: a bit rising now waits for its own
-		// quiet second, and a switch with no batch goes at once.
-		{1100, true, []world.Gain{sw(addr.TableSea, 2)}, []world.Gain{sw(addr.TableSea, 2)}},
+		// The IDLE run began at 0: a switch rising now starts a batch with
+		// its own quiet second, and a bit joining it puts it off.
+		{1100, true, []world.Gain{sw(addr.TableSea, 2)}, nil},
 		{1200, true, []world.Gain{ev(ev1820)}, nil},
-		{2200, true, nil, []world.Gain{ev(ev1820)}},
+		{2100, true, nil, nil},
+		{2200, true, nil, merged(ev(ev1820), sw(addr.TableSea, 2))},
 	})
 }

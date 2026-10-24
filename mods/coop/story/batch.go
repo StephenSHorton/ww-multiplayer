@@ -26,13 +26,14 @@ const BatchIdle = time.Second
 //     too, since the quiet second has not passed when it starts;
 //   - story bits outside the SyncMask are dropped: they never sync, and the
 //     hub's policy refuses them anyway;
-//   - a memory switch that rises while the game is busy, or while a batch
-//     waits, waits with the batch. A stage event's spawn switch is set as
-//     its event starts (dEvent_exception_c::setStartDemo,
-//     d_event_manager.cpp:42-47), and a receiver given it skips that event
-//     (the same lines), so it must not arrive before the bits the event
-//     sets. A switch rising while the game is IDLE and no batch waits goes
-//     at once, as before;
+//   - a memory switch waits with the batch, and one rising when no batch
+//     waits starts one, so it too goes after the quiet second. A stage
+//     event's spawn switch is set as its event starts
+//     (dEvent_exception_c::setStartDemo, d_event_manager.cpp:42-47), on a
+//     tick that can still read IDLE, and a receiver given it skips that
+//     event (the same lines), so it must not arrive before the bits the
+//     event sets (GT's sw30 went ahead of 0x3B02 live, D2(9)). A switch
+//     rising while a batch waits does not put it off;
 //   - every other byte that merges goes at once, and one that does not (the
 //     Differ reports none) is dropped.
 //
@@ -81,9 +82,9 @@ func (b *Batcher) Tick(now time.Time, idle bool, gains []world.Gain) []world.Gai
 		off := int(g.Off)
 		switch {
 		case IsStoryByte(off), IsRegisterByte(off):
-		case isSwitchByte(off) && (!idle || b.waiting):
-			if world.Apply(&b.coupled, []world.Gain{g}) > 0 {
-				b.waiting = true
+		case isSwitchByte(off):
+			if world.Apply(&b.coupled, []world.Gain{g}) > 0 && !b.waiting {
+				b.waiting, b.lastAt = true, now
 			}
 		default:
 			world.Apply(&out, []world.Gain{g})

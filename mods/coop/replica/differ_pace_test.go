@@ -142,12 +142,16 @@ func TestDifferPaced(t *testing.T) {
 		t.Fatalf("still waiting %s", fmtGains(w))
 	}
 
-	// A switch rising while IDLE with no batch waiting goes at once.
+	// A switch rising while IDLE with no batch waiting starts one: it goes
+	// after the quiet second, so an event starting on its tick (a stage
+	// event's spawn switch) would hold it with that event's bits.
 	dr.onSwitch(0x06, int(outset.Room))
 	_, sb6, _ := addr.SwitchBit(0x06)
-	if e := dr.tick(); !slices.Equal(e.Gains, []world.Gain{{Off: swG.Off, Val: sb6.Mask}}) {
-		t.Fatalf("an IDLE switch: gains %s", fmtGains(e.Gains))
+	sw6 := world.Gain{Off: swG.Off, Val: sb6.Mask}
+	if e := dr.tick(); len(e.Gains) > 0 || !slices.Equal(e.Waiting, []world.Gain{sw6}) {
+		t.Fatalf("an IDLE switch: gains %s, waiting %s", fmtGains(e.Gains), fmtGains(e.Waiting))
 	}
+	expect("an IDLE switch", batchTicks, sw6)
 	// An inventory flag rising while IDLE goes at once too.
 	dr.set(int(itemG.Off), 0x08)
 	if e := dr.tick(); !slices.Equal(e.Gains, []world.Gain{{Off: itemG.Off, Val: 0x08}}) {
