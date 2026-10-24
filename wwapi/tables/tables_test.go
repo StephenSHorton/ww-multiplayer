@@ -763,6 +763,10 @@ var schemaShapes = map[int]string{
 	// a latching setter, and Ganon's Tower's two intros latch (GT sw30,
 	// sw31).
 	10: "18e463dd4d344be73cbc4e9f0f99bf72f2021d56a876e6db3cd6bc86cddd5014",
+	// 11: the same shape; a start event's writer keeps its switch each
+	// player's beside a latching setter unless the start latches (kenroom's
+	// swing_sword beside Hyroom's torches, table 9 sw13, no longer syncs).
+	11: "18e463dd4d344be73cbc4e9f0f99bf72f2021d56a876e6db3cd6bc86cddd5014",
 }
 
 func TestSchemaShape(t *testing.T) {
