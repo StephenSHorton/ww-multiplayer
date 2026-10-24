@@ -418,11 +418,13 @@ func NewGuardFor(t Target) *Guard {
 
 // bossRules is the boss_kill request's proc and tag (wwapi/mailbox
 // boss.go), each byte held to what the REL runs: a proc of bossKillRows
-// (Gohma's mailbox.BossProcBtd, Kalle Demos' mailbox.BossProcBmd and
-// Gohdan's mailbox.BossProcBst, whatever --coop-boss-kill picks) and
+// (Gohma's mailbox.BossProcBtd, Kalle Demos' mailbox.BossProcBmd,
+// Gohdan's mailbox.BossProcBst, Molgera's mailbox.BossProcBwd and
+// Jalhalla's mailbox.BossProcBpw, whatever --coop-boss-kill picks) and
 // mailbox.BossTag. Each proc byte is held to the rows' bytes there
-// (ruleIn: 0x00, and 0xEB, 0xEC or 0xF2; TestBossGuardRules checks every
-// byte value), so Bmd's hands and Helmaroc King in between (0xED..0xF1)
+// (ruleIn: 0x00, and 0xD4, 0xDA, 0xEB, 0xEC or 0xF2; TestBossGuardRules
+// checks every byte value), so Bmd's hands and Helmaroc King in between
+// (0xED..0xF1), Jalhalla's Poes (0xD5) and Molgera's larvae (0xDB, 0xDC)
 // are no value.
 func bossRules() []byteRule {
 	procs := make([]uint16, len(bossKillRows))

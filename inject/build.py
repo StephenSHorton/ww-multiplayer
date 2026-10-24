@@ -57,8 +57,9 @@ REL_HEADERS = ["rel/enemy_mirror.h", "rel/remote.h", "rel/fullbody.h", "rel/shan
 # The module's functions DOL code calls back through a pointer the module
 # hands it at run time (not the profile tables, which ww_rel.ld places):
 # each, when compiled in, must be a .text symbol of the linked ELF (batch D
-# R-D2: bosskill.c's fopAcIt_Judge callback, under WWBOSS_WITH_BST).
-REL_TEXT_CALLBACKS = ["bk_bst_judge"]
+# R-D2: bosskill.c's fopAcIt_Judge callbacks, bk_bst_judge under
+# WWBOSS_WITH_BST and bk_bpw_judge under WWBOSS_WITH_BPW).
+REL_TEXT_CALLBACKS = ["bk_bst_judge", "bk_bpw_judge"]
 REL_LD = os.path.join("rel", "ww_rel.ld")
 REL_OBJ_DIR = os.path.join("build", "temp", "rel")
 REL_ELF = os.path.join("build", "wwrel.elf")
@@ -296,6 +297,9 @@ def build_rel():
             sys.exit(1)
     if rel_define("include/wwboss.h", "WWBOSS_WITH_BST") and "bk_bst_judge" not in syms:
         print(f"ERROR: {REL_ELF} lacks bk_bst_judge with WWBOSS_WITH_BST on", file=sys.stderr)
+        sys.exit(1)
+    if rel_define("include/wwboss.h", "WWBOSS_WITH_BPW") and "bk_bpw_judge" not in syms:
+        print(f"ERROR: {REL_ELF} lacks bk_bpw_judge with WWBOSS_WITH_BPW on", file=sys.stderr)
         sys.exit(1)
     print("Symbols:")
     for name in REL_SYMBOLS + ["g_wwrel_build_id"]:

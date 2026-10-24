@@ -87,6 +87,40 @@ func TestBossHeaderPins(t *testing.T) {
 		"WWBOSS_OBJINFO_COUNT":    BossObjInfoCount,
 		"WWBOSS_SETANM_FN":        BossSetAnmFn,
 		"WWBOSS_ITER_JUDGE_FN":    BossIterJudgeFn,
+		// Batch E: Molgera (design/relay-molgera.md).
+		"WWBOSS_PROC_BWD":        uint64(BossProcBwd),
+		"WWBOSS_WITH_BWD":        BossWithBwd,
+		"WWBOSS_BWD_MORF_OFF":    BossBwdMorfOff,
+		"WWBOSS_BWD_ACT_OFF":     BossBwdActOff,
+		"WWBOSS_BWD_STEP_OFF":    BossBwdStepOff,
+		"WWBOSS_BWD_TONGUE_OFF":  BossBwdTongueOff,
+		"WWBOSS_BWD_HITS_OFF":    BossBwdHitsOff,
+		"WWBOSS_BWD_CRIT_OFF":    BossBwdCritOff,
+		"WWBOSS_BWD_DEMO_OFF":    BossBwdDemoOff,
+		"WWBOSS_BWD_ACT_INTRO":   BossBwdActIntro,
+		"WWBOSS_BWD_ACT_TONGUE":  BossBwdActTongue,
+		"WWBOSS_BWD_ACT_SFLY":    BossBwdActSFly,
+		"WWBOSS_BWD_ACT_END":     BossBwdActEnd,
+		"WWBOSS_BWD_ACT_INERT":   BossBwdActInert,
+		"WWBOSS_BWD_STEP_PULLED": BossBwdStepPulled,
+		"WWBOSS_BWD_HITS_LETHAL": BossBwdHitsLethal,
+		"WWBOSS_BWD_CRIT_PRE":    BossBwdCritPre,
+		// Batch E: Jalhalla (design/relay-jalhalla.md).
+		"WWBOSS_PROC_BPW":         uint64(BossProcBpw),
+		"WWBOSS_WITH_BPW":         BossWithBpw,
+		"WWBOSS_BPW_TYPE_OFF":     BossBpwTypeOff,
+		"WWBOSS_BPW_TYPE_BODY":    BossBpwTypeBody,
+		"WWBOSS_BPW_ACTION_OFF":   BossBpwActionOff,
+		"WWBOSS_BPW_STATE_OFF":    BossBpwStateOff,
+		"WWBOSS_BPW_HEALTH_OFF":   BossBpwHealthOff,
+		"WWBOSS_BPW_ACT_DAMAGE":   BossBpwActDamage,
+		"WWBOSS_BPW_ACT_SEPARATE": BossBpwActSeparate,
+		"WWBOSS_BPW_ACT_INTRO":    BossBpwActIntro,
+		"WWBOSS_BPW_ST_FROZEN_LO": BossBpwStFrozenLo,
+		"WWBOSS_BPW_ST_THROWN":    BossBpwStThrown,
+		"WWBOSS_BPW_ST_SPIKE":     BossBpwStSpike,
+		"WWBOSS_BPW_ST_SPIKE_AIR": BossBpwStSpikeAir,
+		"WWBOSS_BPW_ST_DEATH":     BossBpwStDeath,
 	})
 }
 
@@ -138,8 +172,10 @@ func TestBossReadAndFields(t *testing.T) {
 }
 
 // TestBossDetailPerProc: the result's bytes after BossR* read as Btd's
-// m02E4, mGohmaState and m02E0 for Gohma, and as Bmd's mMode, m302 and
-// m304 for Kalle Demos; the request carries the proc it was made for.
+// m02E4, mGohmaState and m02E0 for Gohma, as Bmd's mMode, m302 and m304
+// for Kalle Demos, as Bwd's m18AE, m18B0 and m1BB5 for Molgera and as
+// Bpw's mBodyAction, mActionState and health for Jalhalla; the request
+// carries the proc it was made for.
 func TestBossDetailPerProc(t *testing.T) {
 	st := BossStatus{Result: BossRApplied, Act: BossBmdModeFallen, State: 3, Phase: 1}
 	if got, want := BossDetail(BossProcBmd, st), "mMode 0x3, m302 3, m304 1"; got != want {
@@ -151,7 +187,18 @@ func TestBossDetailPerProc(t *testing.T) {
 	if got := BossDetail(BossProcBmd, BossStatus{Act: BossBmdModeIntro, State: 0xFF}); got != "mMode 0xA, m302 -1, m304 0" {
 		t.Fatalf("Bmd intro detail %q", got)
 	}
-	if BossProcName(BossProcBmd) != "Kalle Demos (Bmd)" || BossProcName(BossProcBtd) != "Gohma (Btd)" || BossProcName(0xED) != "proc 0x00ED" {
+	if got, want := BossDetail(BossProcBwd, BossStatus{Act: BossBwdActTongue, State: BossBwdStepPulled, Phase: 2}), "m18AE 0x3, m18B0 2, m1BB5 2"; got != want {
+		t.Fatalf("Bwd detail %q, want %q", got, want)
+	}
+	// The intro-skip create's m18B0 -10 (d_a_bwd.cpp:2545-2549).
+	if got, want := BossDetail(BossProcBwd, BossStatus{Act: 1, State: 0xF6}), "m18AE 0x1, m18B0 -10, m1BB5 0"; got != want {
+		t.Fatalf("Bwd intro-skip detail %q, want %q", got, want)
+	}
+	if got, want := BossDetail(BossProcBpw, BossStatus{Act: BossBpwActDamage, State: BossBpwStSpike, Phase: 15}), "mBodyAction 3, mActionState 0x64, health 15"; got != want {
+		t.Fatalf("Bpw detail %q, want %q", got, want)
+	}
+	if BossProcName(BossProcBmd) != "Kalle Demos (Bmd)" || BossProcName(BossProcBtd) != "Gohma (Btd)" || BossProcName(0xED) != "proc 0x00ED" ||
+		BossProcName(BossProcBwd) != "Molgera (Bwd)" || BossProcName(BossProcBpw) != "Jalhalla (Bpw)" {
 		t.Fatal("BossProcName")
 	}
 	m := mem.NewFakeMem()

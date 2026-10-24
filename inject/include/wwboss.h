@@ -16,7 +16,18 @@
 // hands asleep) the keeper writes bom_eat_check's lethal block
 // (d_a_bst.cpp:1219-1229) on the head and both hands, so end_demo's camera
 // cases 50-57 set STAGE_BOSS_ENEMY, create the warp flower and drop the
-// heart container in this game. Nothing is deleted.
+// heart container in this game. Nothing is deleted. Molgera (Bwd, kazeB)
+// is the fourth (design/relay-molgera.md): with the tongue pulled out and
+// looped on the sand, the keeper writes two counters (m1BB4 = 3 hits,
+// m1BB5 = 3 critical pulls), and Bwd's own sita_hit case 2 runs the
+// lethal block on its next move() (d_a_bwd.cpp:533-552), then end(), the
+// heart container, STAGE_BOSS_ENEMY and the warp flower. Jalhalla (Bpw,
+// M_DaiB) is the fifth (design/relay-jalhalla.md): frozen by light, carried,
+// thrown or hitting the spikes, the keeper writes health 0, so the next
+// spike landing creates no Poe and splits straight into the death demo
+// (d_a_bpw.rel .text 0x6284-0x651C), which drops the heart container, sets
+// STAGE_BOSS_ENEMY and creates the warp flower. Neither writes a call, an
+// anim or a delete.
 //
 // Shared by the REL and wwapi/mailbox/boss.go (the Go mirror of every
 // #define here, pinned by TestBossHeaderPins, which parses this file the
@@ -35,8 +46,9 @@
 //
 //   Go-written, in two writes, the seq last:
 //   +0x00 u32 seq   (Go bumps it for every request, never 0)
-//   +0x04 u16 proc  (WWBOSS_PROC_BTD, WWBOSS_PROC_BMD or WWBOSS_PROC_BST;
-//                    any other proc is refused)
+//   +0x04 u16 proc  (WWBOSS_PROC_BTD, WWBOSS_PROC_BMD, WWBOSS_PROC_BST,
+//                    WWBOSS_PROC_BWD or WWBOSS_PROC_BPW; any other proc
+//                    is refused)
 //   +0x06 u16 tag   (WWBOSS_TAG)
 //   REL-written, the result first:
 //   +0x08 u32 ack   (the seq last consumed)
@@ -48,7 +60,11 @@
 //                     Bmd: byte2 mMode's low byte, byte1 m302's low byte,
 //                     byte0 m304's low byte;
 //                     Bst: byte2 the head's mActionType low byte, byte1
-//                     its mDamage low byte, byte0 its m2E7C
+//                     its mDamage low byte, byte0 its m2E7C;
+//                     Bwd: byte2 m18AE's low byte, byte1 m18B0's low
+//                     byte, byte0 m1BB5;
+//                     Bpw: byte2 mBodyAction's low byte, byte1
+//                     mActionState's low byte, byte0 health
 //
 // The slack is not zeroed at boot, so the keeper's create consumes
 // whatever seq is there (ack = seq, result WWBOSS_R_NONE) before it ever
@@ -65,20 +81,22 @@
 #define WWBOSS_PROC_OFF          0x04         // u16 the boss's proc (Go)
 #define WWBOSS_TAG_OFF           0x06         // u16 WWBOSS_TAG (Go)
 #define WWBOSS_ACK_OFF           0x08         // u32 the seq last consumed (REL)
-#define WWBOSS_RESULT_OFF        0x0C         // u32 BE: byte3 WWBOSS_R_*, bytes 2..0 per proc: Btd m02E4, mGohmaState, m02E0; Bmd mMode, m302, m304; Bst head mActionType, mDamage, m2E7C (REL)
+#define WWBOSS_RESULT_OFF        0x0C         // u32 BE: byte3 WWBOSS_R_*, bytes 2..0 per proc: Btd m02E4, mGohmaState, m02E0; Bmd mMode, m302, m304; Bst head mActionType, mDamage, m2E7C; Bwd m18AE, m18B0, m1BB5; Bpw mBodyAction, mActionState, health (REL)
 #define WWBOSS_GO_SPAN           0x08         // bytes Go writes: seq, proc, tag
 
 #define WWBOSS_TAG               0x424B       // 'BK': with the proc, what a request must carry
 #define WWBOSS_PROC_BTD          0x00EB       // fpcNm_BTD_e, Gohma (f_pc_name.h:247), only in M_DragB
 #define WWBOSS_PROC_BMD          0x00EC       // fpcNm_BMD_e, Kalle Demos (f_pc_name.h:248), only in kinBOSS
 #define WWBOSS_PROC_BST          0x00F2       // fpcNm_BST_e, Gohdan (f_pc_name.h:254), only in SirenB (batch D R-D1)
+#define WWBOSS_PROC_BWD          0x00DA       // fpcNm_BWD_e, Molgera (f_pc_name.h:230), only in kazeB (retail ko_delete_sub tests 0xDB, BWDS, at d_a_bwd.rel .text 0x274)
+#define WWBOSS_PROC_BPW          0x00D4       // fpcNm_BPW_e, Jalhalla (f_pc_name.h:224), only in M_DaiB
 
 // Results (byte3 of WWBOSS_RESULT_OFF).
 #define WWBOSS_R_NONE            0            // consumed at the keeper's create (a stale or racing seq): ask again
-#define WWBOSS_R_APPLIED         1            // Btd: m02E4 was 0, 1 or 2 with m02E0 1, m02E4 = 0xB, mGohmaState = 0x32 written; Bmd: the flower down and open, the lethal block written; Bst: the mouth open for a bomb, the hands asleep, the lethal block written
-#define WWBOSS_R_WAITING         2            // Btd: m02E4 0xA (hidden or in its intro), the armor intact (m02E0 not 1) or another state; Bmd: not the open flower; Bst: any state but the APPLIED gate's; nothing written, ask again
-#define WWBOSS_R_ALREADY         3            // m02E4 (Btd) or mMode (Bmd) 0xB, Bst head mActionType 0x16, m2E9A >= 0x32 or m2E7C 100: already dying or dead, nothing written
-#define WWBOSS_R_NO_ACTOR        4            // no actor of the proc, or one still creating (Bst: any of the three parts, or the head's morf NULL): nothing written
+#define WWBOSS_R_APPLIED         1            // Btd: m02E4 was 0, 1 or 2 with m02E0 1, m02E4 = 0xB, mGohmaState = 0x32 written; Bmd: the flower down and open, the lethal block written; Bst: the mouth open for a bomb, the hands asleep, the lethal block written; Bwd: the tongue pulled out, two counters written; Bpw: frozen, carried, thrown or on the spikes with health > 0, health = 0 written
+#define WWBOSS_R_WAITING         2            // Btd: m02E4 0xA (hidden or in its intro), the armor intact (m02E0 not 1) or another state; Bmd: not the open flower; Bst: any state but the APPLIED gate's; Bwd: not the pulled tongue; Bpw: the intro, the fight, the light build-up, a wall bounce or the split; nothing written, ask again
+#define WWBOSS_R_ALREADY         3            // m02E4 (Btd) or mMode (Bmd) 0xB, Bst head mActionType 0x16, m2E9A >= 0x32 or m2E7C 100, Bwd m18AE 0xC/0xD, Bpw health <= 0 or mBodyAction 4 with mActionState >= 0x78: already dying or dead, nothing written
+#define WWBOSS_R_NO_ACTOR        4            // no actor of the proc, or one still creating (Bst: any of the three parts, or the head's morf NULL; Bwd: its morf NULL; Bpw: no executing body): nothing written
 #define WWBOSS_R_GATE            5            // a stage change pending, not the proc's stage (an X refight stage included), or a bad proc or tag
 
 // Btd (d_a_btd.h:44-45, btd_class).
@@ -166,5 +184,66 @@
 #define WWBOSS_OBJINFO_COUNT     64           // its entries, getRes's last argument (0x40)
 #define WWBOSS_SETANM_FN         0x80012D78   // mDoExt_McaMorf::setAnm (symbols.txt:318)
 #define WWBOSS_ITER_JUDGE_FN     0x80023FB4   // fopAcIt_Judge(judge, data) (symbols.txt:632; f_op_actor_iter.cpp:18-23)
+
+// Bwd (d_a_bwd.h, bwd_class), Molgera: design/relay-molgera.md. One Bwd in
+// kazeB r0, found by name. The APPLIED gate is vanilla's own pre-death
+// window, all of: m18AE TONGUE (sita_hit, entered only by the Hookshot
+// pull, d_a_bwd.cpp:340-348), m18B0 STEP_PULLED (the NUKARERU_LOOP that
+// holds the lethal test, :513-555), m1BB1 nonzero (the tongue-out timer:
+// at 0 case 2 drops back to wait, :527-531) and m3C1E 0 (no demo camera,
+// whose state end() overwrites, :1033). The writes: m1BB4 = HITS_LETHAL,
+// m1BB5 = CRIT_PRE, nothing else. On Bwd's next move() sita_hit's own
+// m1BB5++ makes it 4 and its lethal block runs (:533-552): the LAST_HIT
+// SE, m18AE 0xC, the hit pause, bgmStop(30), then end() (DEAD1, the death
+// camera, ko_delete_sub on every larva, :1020-1050), the heart container
+// (:1700-1705), STAGE_BOSS_ENEMY and the warp flower (:1764-1770). health
+// is not written: no code tests it for death (:350-353, :2515-2516).
+// ALREADY is m18AE END or INERT only (m3C1E 0x96 is also the intro's and
+// the throw demo's "camera done", :1626, :1502).
+#define WWBOSS_WITH_BWD          1            // compile switch: 0 builds the op without Bwd (bk_stage_ok and bosskill_frame refuse proc 0xDA as any other)
+#define WWBOSS_BWD_MORF_OFF      0x2C0        // mDoExt_McaMorf* mpHeadMorf (d_a_bwd.h:23; retail lwz 0x2c0 at d_a_bwd.rel .text 0x1CF0): NULL is NO_ACTOR
+#define WWBOSS_BWD_ACT_OFF       0x18AE       // s16 m18AE, the action move() dispatches (d_a_bwd.h:64; .text 0x5D8C)
+#define WWBOSS_BWD_STEP_OFF      0x18B0       // s16 m18B0, the action's step (d_a_bwd.h:65; .text 0x1D0C)
+#define WWBOSS_BWD_TONGUE_OFF    0x1BB1       // s8 m1BB1, the tongue-out timer (d_a_bwd.h:94; .text 0x1DC4)
+#define WWBOSS_BWD_HITS_OFF      0x1BB4       // s8 m1BB4, the hits during this pull (d_a_bwd.h:97; .text 0x1DE8)
+#define WWBOSS_BWD_CRIT_OFF      0x1BB5       // s8 m1BB5, the critical pulls (d_a_bwd.h:98; .text 0x1DF8-0x1E00, 0x1EA8)
+#define WWBOSS_BWD_DEMO_OFF      0x3C1E       // s16 m3C1E, the demo camera (d_a_bwd.h:146, after the USA m3C1C; .text 0x3FEC)
+#define WWBOSS_BWD_ACT_INTRO     0            // start, the intro (d_a_bwd.cpp:1404-1405)
+#define WWBOSS_BWD_ACT_TONGUE    3            // sita_hit (d_a_bwd.cpp:1413-1414)
+#define WWBOSS_BWD_ACT_SFLY      0xB          // s_fly, the intro's emergence (d_a_bwd.cpp:400-404, 1422-1423)
+#define WWBOSS_BWD_ACT_END       0xC          // end (d_a_bwd.cpp:1425-1426)
+#define WWBOSS_BWD_ACT_INERT     0xD          // the post-kill create, a no-op in move() (d_a_bwd.cpp:2539)
+#define WWBOSS_BWD_STEP_PULLED   2            // NUKARERU_LOOP, the tongue looped on the sand (d_a_bwd.cpp:516-526)
+#define WWBOSS_BWD_HITS_LETHAL   3            // the case-2 break while m1BB4 < 3 (d_a_bwd.cpp:533)
+#define WWBOSS_BWD_CRIT_PRE      3            // one below the lethal 4: vanilla's m1BB5++ makes it 4 (d_a_bwd.cpp:536, 543)
+
+// Bpw (d_a_bpw.h, bpw_class), Jalhalla: design/relay-jalhalla.md. The
+// body, the kantera, the damage balls and the torituki share proc 0xD4, so
+// bk_bpw finds the body with fopAcIt_Judge and bk_bpw_judge (proc 0xD4,
+// mType BODY, mInitState 2 and not fpcM_IsCreating: a kantera still
+// loading reads mType 0 too, cpp :4577-4579). The APPLIED gate: mBodyAction
+// DAMAGE at mActionState FROZEN_LO..THROWN, SPIKE or SPIKE_AIR, health > 0,
+// before any Poe exists. The one write: health = 0. In actions 0..3 health
+// is read only at the 0x65 landing (.text 0x6120, 0x6284), whose Poe loop
+// is bounded by it: the next spike landing creates no Poe, sets 4 / 0x6E,
+// and 0x6F tests health first and goes to 0x78 (.text 0x6478-0x651C). The
+// death demo then stops the BGM, prepares the clear stream, drops the
+// heart (0x86), sets STAGE_BOSS_ENEMY (0x87) and creates the warp flower
+// (0x88). With the Hero's Charm the boss gauge reads health (d_meter.cpp:
+// 3791), so it shows empty from the write until the death.
+#define WWBOSS_WITH_BPW          1            // compile switch: 0 builds the op without Bpw
+#define WWBOSS_BPW_TYPE_OFF      0x3DC        // u8 mType (retail stb at d_a_bpw.rel .text 0xD4B8)
+#define WWBOSS_BPW_TYPE_BODY     0            // the body; 1 kantera, 2 damage ball, 3 torituki share the proc
+#define WWBOSS_BPW_ACTION_OFF    0x444        // s16 mBodyAction (dispatch .text 0xA5A8)
+#define WWBOSS_BPW_STATE_OFF     0x446        // s16 mActionState (jump table .text 0x6324)
+#define WWBOSS_BPW_HEALTH_OFF    0x285        // s8 fopAc_ac_c health (f_op_actor.h:307; 0x6F reads it at .text 0x6478)
+#define WWBOSS_BPW_ACT_DAMAGE    3            // ACTION_DAMAGE
+#define WWBOSS_BPW_ACT_SEPARATE  4            // ACTION_SEPARATION_BUNRI_DOUSA
+#define WWBOSS_BPW_ACT_INTRO     0x14         // ACTION_START_DEMO (create .text 0xD8A0)
+#define WWBOSS_BPW_ST_FROZEN_LO  0x52         // frozen falling; gate 0x52..0x55
+#define WWBOSS_BPW_ST_THROWN     0x55         // ACTION_STATE_DAMAGE_THROWN, the gate's top
+#define WWBOSS_BPW_ST_SPIKE      0x64         // 100: hit the spikes
+#define WWBOSS_BPW_ST_SPIKE_AIR  0x65         // ACTION_STATE_DAMAGE_HIT: airborne until the landing that splits him
+#define WWBOSS_BPW_ST_DEATH      0x78         // the death demo's first state (.text 0x6518)
 
 #endif

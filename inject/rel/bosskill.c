@@ -129,6 +129,64 @@
 // END_DEMO), the bomb delete (no bomb at mDamage 3), the LAST_HIT SE, the
 // particles and m10FC[3]. Never a delete. The result carries the head's
 // mActionType, mDamage and m2E7C as found.
+//
+// Molgera (WWBOSS_PROC_BWD, the stage exactly "kazeB"; ww-multiplayer-
+// handoff/design/relay-molgera.md), under WWBOSS_WITH_BWD. kazeB places
+// one Bwd, so bk_SearchByName finds it. Unlike the rows above, the op does
+// not write the lethal block: in vanilla's own pre-death window it writes
+// two s8 counters and lets Bwd run the block itself. Its branches:
+//   1. the head morf NULL (sita_hit reads it first, d_a_bwd.rel .text
+//      0x1CF0): WWBOSS_R_NO_ACTOR;
+//   2. m18AE 0xC (end) or 0xD (the inert post-kill create, :2538-2544):
+//      WWBOSS_R_ALREADY. Not m3C1E: its 0x96 is also the "camera done" of
+//      the intro and the throw demo (:1626, :1502), with the fight alive;
+//   3. the tongue pulled out and looped, all of: m18AE 3 (sita_hit, which
+//      only the Hookshot pull enters, :340-348), m18B0 2 (NUKARERU_LOOP,
+//      :513-555), m1BB1 nonzero (the tongue-out timer, :527-531) and m3C1E
+//      0 (no demo camera, which end() would overwrite, :1033): m1BB4 = 3
+//      and m1BB5 = 3, WWBOSS_R_APPLIED. On Bwd's next move() case 2 passes
+//      the m1BB4 < 3 break, m1BB5++ makes it 4 and the lethal block runs
+//      (:533-552: LAST_HIT, m18AE 0xC, the 8-frame pause, bgmStop(30)),
+//      then end() (DEAD1, the death camera, ko_delete_sub on every larva),
+//      the heart container (:1700-1705), STAGE_BOSS_ENEMY and the warp
+//      flower (:1764-1770), all in vanilla order. Bwd's execute runs
+//      move() before sita_move() decrements m1BB1 (:1943, :2001-2002), so
+//      a nonzero m1BB1 seen here is still nonzero at the next move(),
+//      whichever of the keeper and Bwd runs first;
+//   4. anything else (the intro, wait, reset, eat, fly, the other sita_hit
+//      steps): WWBOSS_R_WAITING, nothing written.
+// health is not written (no code tests it for death, :350-353). The
+// result carries m18AE, m18B0 and m1BB5 as found.
+//
+// Jalhalla (WWBOSS_PROC_BPW, the stage exactly "M_DaiB"; ww-multiplayer-
+// handoff/design/relay-jalhalla.md), under WWBOSS_WITH_BPW. The body, the
+// kantera, the damage balls and the torituki share proc 0xD4, so bk_bpw
+// finds the body with fopAcIt_Judge and bk_bpw_judge (proc 0xD4, mType 0,
+// mInitState 2 and not fpcM_IsCreating; mType is written only once the
+// create's resLoad completes, cpp :4577-4579, so a child still loading
+// reads 0 and only the last two tests keep it out). Its branches:
+//   1. no executing body (none, its create refused on the boss bit,
+//      d_a_bpw.rel .text 0xD530-0xD548, or deleted after its demo,
+//      0x8B20): WWBOSS_R_NO_ACTOR;
+//   2. health <= 0, or mBodyAction 4 at mActionState >= 0x78 (the death
+//      demo): WWBOSS_R_ALREADY;
+//   3. mBodyAction 3 (ACTION_DAMAGE) at 0x52..0x55 (frozen by light,
+//      liftable, carried, thrown), 0x64 (the spike hit) or 0x65 (in the
+//      air after it), health > 0: health = 0, WWBOSS_R_APPLIED. No Poe
+//      exists yet; the 0x65 landing bounds its createChild loop by health
+//      (.text 0x6284-0x6290), so it creates none, sets 4 / 0x6E, and 0x6F
+//      tests health first and goes to 0x78 (.text 0x6478-0x651C): the BGM
+//      stop, the clear stream, the heart (0x86), STAGE_BOSS_ENEMY (0x87)
+//      and the warp flower (0x88) follow in this game. In actions 0..3
+//      health is read only at that landing, so a missed throw fights on
+//      until the next spike landing (requests in between: ALREADY). With
+//      the Hero's Charm the boss gauge shows it empty meanwhile;
+//   4. anything else (the intro 0x14, the fight 0..2, the light build-up,
+//      a wall bounce, the split 4 / 0x6E..0x75 with live Poes): WWBOSS_R_
+//      WAITING, nothing written. A Poe cannot be killed by a write (its
+//      Big_pow_down_check needs its own death, d_a_pw.rel .text 0x07CC),
+//      so the split is left to the receiver.
+// The result carries mBodyAction, mActionState and health as found.
 #include "mailbox_core.h"
 #include "wwenemy.h"
 #include "wwremote.h"
@@ -166,13 +224,19 @@ typedef void (*bk_bgm_stop_t)(void* self, u32 fade, s32 arg);
 #define BK_ZEL_BASIC (*(void* volatile*)WWBOSS_ZEL_BASIC)
 
 // The stage proc's op may run in, NUL-padded to the name's 8 bytes: Btd
-// only in M_DragB, Bmd only in kinBOSS, Bst only in SirenB, never an 'X'
-// refight stage.
+// only in M_DragB, Bmd only in kinBOSS, Bst only in SirenB, Bwd only in
+// kazeB, Bpw only in M_DaiB, never an 'X' refight stage.
 static int bk_stage_ok(u16 proc) {
     static const char drag_b[8] = { 'M', '_', 'D', 'r', 'a', 'g', 'B', 0 };
     static const char kin_boss[8] = { 'k', 'i', 'n', 'B', 'O', 'S', 'S', 0 };
 #if WWBOSS_WITH_BST
     static const char siren_b[8] = { 'S', 'i', 'r', 'e', 'n', 'B', 0, 0 };
+#endif
+#if WWBOSS_WITH_BWD
+    static const char kaze_b[8] = { 'k', 'a', 'z', 'e', 'B', 0, 0, 0 };
+#endif
+#if WWBOSS_WITH_BPW
+    static const char m_dai_b[8] = { 'M', '_', 'D', 'a', 'i', 'B', 0, 0 };
 #endif
     const char* want;
     int i;
@@ -183,6 +247,14 @@ static int bk_stage_ok(u16 proc) {
 #if WWBOSS_WITH_BST
     } else if (proc == WWBOSS_PROC_BST) {
         want = siren_b;
+#endif
+#if WWBOSS_WITH_BWD
+    } else if (proc == WWBOSS_PROC_BWD) {
+        want = kaze_b;
+#endif
+#if WWBOSS_WITH_BPW
+    } else if (proc == WWBOSS_PROC_BPW) {
+        want = m_dai_b;
 #endif
     } else {
         return 0;
@@ -272,12 +344,21 @@ static void bk_bmd(u32 seq, fopAc_ac_c* a) {
     bk_ack(seq, WWBOSS_R_APPLIED, mode, step, (u8)core);
 }
 
-#if WWBOSS_WITH_BST
+#if WWBOSS_WITH_BST || WWBOSS_WITH_BPW
 // fopAcIt_Judge__FPFPvPv_PvPv (symbols.txt:632, f_op_actor_iter.cpp:18-23):
 // judge(actor, data) over the actor tag queue, the first non-NULL return.
 typedef void* (*bk_judge_t)(void* p, void* want);
 typedef void* (*bk_iter_judge_t)(bk_judge_t judge, void* data);
 #define bk_IterJudge ((bk_iter_judge_t)WWBOSS_ITER_JUDGE_FN)
+
+// fpc base's mBsPcId (u32 +0x04) and mInitState (s8 +0x0C, 2 = executing,
+// f_pc_executor.cpp:49), as enemy_mirror.c reads them.
+#define BK_PROC_ID_OFF    0x04
+#define BK_INIT_STATE_OFF 0x0C
+#define BK_S8(a, off)     (*(volatile s8*)((u8*)(a) + (off)))
+#endif
+
+#if WWBOSS_WITH_BST
 // dRes_control_c::getRes(const char*, s32, dRes_info_c*, int), static
 // (d_resorce.h:62): dComIfG_getObjectRes(arc, index)'s body
 // (d_com_inf_game.h:4112-4114, d_resorce.h:76-79).
@@ -293,12 +374,6 @@ typedef void (*bk_set_anm_t)(void* morf, void* anm, int loop, f32 morf_f, f32 sp
 // mDoAud_bgmStreamPrepare calls it (m_Do_audio.h:99-101).
 typedef void (*bk_strm_prepare_t)(void* self, u32 id);
 #define bk_bgmStreamPrepare ((bk_strm_prepare_t)WWBOSS_STRM_PREPARE_FN)
-
-// fpc base's mBsPcId (u32 +0x04) and mInitState (s8 +0x0C, 2 = executing,
-// f_pc_executor.cpp:49), as enemy_mirror.c reads them.
-#define BK_PROC_ID_OFF    0x04
-#define BK_INIT_STATE_OFF 0x0C
-#define BK_S8(a, off)     (*(volatile s8*)((u8*)(a) + (off)))
 
 // The judge DOL code calls back (header): the Bst actor of part *want,
 // once created, else NULL (keep iterating). Static and in .text: build.py
@@ -376,10 +451,91 @@ static void bk_bst(u32 seq) {
 }
 #endif
 
+#if WWBOSS_WITH_BWD
+// bk_bwd runs a request on Molgera (the header's Bwd branches 1-4). The
+// result carries m18AE, m18B0 and m1BB5 as found.
+static void bk_bwd(u32 seq, fopAc_ac_c* a) {
+    void* morf = *(void* volatile*)((u8*)a + WWBOSS_BWD_MORF_OFF);
+    s16 act = BK_S16(a, WWBOSS_BWD_ACT_OFF);
+    s16 step = BK_S16(a, WWBOSS_BWD_STEP_OFF);
+    s8 crit = *(volatile s8*)((u8*)a + WWBOSS_BWD_CRIT_OFF);
+
+    if (!morf) {
+        bk_ack(seq, WWBOSS_R_NO_ACTOR, act, step, (u8)crit);
+        return;
+    }
+    if (act == WWBOSS_BWD_ACT_END || act == WWBOSS_BWD_ACT_INERT) {
+        bk_ack(seq, WWBOSS_R_ALREADY, act, step, (u8)crit);
+        return;
+    }
+    // The tongue pulled out and looped on the sand (header), no demo camera.
+    if (act != WWBOSS_BWD_ACT_TONGUE || step != WWBOSS_BWD_STEP_PULLED ||
+        *(volatile s8*)((u8*)a + WWBOSS_BWD_TONGUE_OFF) == 0 || BK_S16(a, WWBOSS_BWD_DEMO_OFF) != 0) {
+        bk_ack(seq, WWBOSS_R_WAITING, act, step, (u8)crit);
+        return;
+    }
+    // sita_hit case 2 then counts the fourth critical pull itself
+    // (d_a_bwd.cpp:533-552).
+    *(volatile s8*)((u8*)a + WWBOSS_BWD_HITS_OFF) = WWBOSS_BWD_HITS_LETHAL;
+    *(volatile s8*)((u8*)a + WWBOSS_BWD_CRIT_OFF) = WWBOSS_BWD_CRIT_PRE;
+    bk_ack(seq, WWBOSS_R_APPLIED, act, step, (u8)crit);
+}
+#endif
+
+#if WWBOSS_WITH_BPW
+// The judge DOL code calls back for Jalhalla (header): the executing Bpw
+// body, else NULL (keep iterating). want is unused; the signature is
+// bk_bst_judge's. Static and in .text: build.py checks the symbol's
+// section after the link.
+static void* bk_bpw_judge(void* p, void* want) {
+    (void)want;
+    if (*(volatile s16*)((u8*)p + BK_PROC_NAME_OFF) != (s16)WWBOSS_PROC_BPW) return 0;
+    if (*(volatile u8*)((u8*)p + WWBOSS_BPW_TYPE_OFF) != WWBOSS_BPW_TYPE_BODY) return 0;
+    if (BK_S8(p, BK_INIT_STATE_OFF) != 2) return 0;
+    if (fpcM_IsCreating(*(volatile u32*)((u8*)p + BK_PROC_ID_OFF))) return 0;
+    return p;
+}
+
+// bk_bpw runs a request on Jalhalla (the header's Bpw branches 1-4). The
+// result carries mBodyAction, mActionState and health as found.
+static void bk_bpw(u32 seq) {
+    void* b = bk_IterJudge(bk_bpw_judge, 0);
+    s16 act, st;
+    s8 hp;
+
+    if (!b) {
+        bk_ack(seq, WWBOSS_R_NO_ACTOR, 0, 0, 0);
+        return;
+    }
+    act = BK_S16(b, WWBOSS_BPW_ACTION_OFF);
+    st = BK_S16(b, WWBOSS_BPW_STATE_OFF);
+    hp = BK_S8(b, WWBOSS_BPW_HEALTH_OFF);
+    if (hp <= 0 || (act == WWBOSS_BPW_ACT_SEPARATE && st >= WWBOSS_BPW_ST_DEATH)) {
+        bk_ack(seq, WWBOSS_R_ALREADY, act, st, (u8)hp);
+        return;
+    }
+    // Frozen, carried, thrown or on the spikes (header): no Poe yet.
+    if (act != WWBOSS_BPW_ACT_DAMAGE ||
+        !((st >= WWBOSS_BPW_ST_FROZEN_LO && st <= WWBOSS_BPW_ST_THROWN) ||
+          st == WWBOSS_BPW_ST_SPIKE || st == WWBOSS_BPW_ST_SPIKE_AIR)) {
+        bk_ack(seq, WWBOSS_R_WAITING, act, st, (u8)hp);
+        return;
+    }
+    BK_S8(b, WWBOSS_BPW_HEALTH_OFF) = 0;
+    bk_ack(seq, WWBOSS_R_APPLIED, act, st, (u8)hp);
+}
+#endif
+
 // The procs bosskill_frame takes (each only in its stage, bk_stage_ok).
 static int bk_proc_ok(u16 proc) {
 #if WWBOSS_WITH_BST
     if (proc == WWBOSS_PROC_BST) return 1;
+#endif
+#if WWBOSS_WITH_BWD
+    if (proc == WWBOSS_PROC_BWD) return 1;
+#endif
+#if WWBOSS_WITH_BPW
+    if (proc == WWBOSS_PROC_BPW) return 1;
 #endif
     return proc == WWBOSS_PROC_BTD || proc == WWBOSS_PROC_BMD;
 }
@@ -403,6 +559,14 @@ void bosskill_frame(void) {
         return;
     }
 #endif
+#if WWBOSS_WITH_BPW
+    // The body shares its proc with its kantera and balls (the header):
+    // the judge.
+    if (proc == WWBOSS_PROC_BPW) {
+        bk_bpw(seq);
+        return;
+    }
+#endif
     if (!bk_SearchByName((s16)proc, &a) || !a ||
         *(volatile s16*)((u8*)a + BK_PROC_NAME_OFF) != (s16)proc) {
         bk_ack(seq, WWBOSS_R_NO_ACTOR, 0, 0, 0);
@@ -410,6 +574,10 @@ void bosskill_frame(void) {
     }
     if (proc == WWBOSS_PROC_BTD) {
         bk_btd(seq, a);
+#if WWBOSS_WITH_BWD
+    } else if (proc == WWBOSS_PROC_BWD) {
+        bk_bwd(seq, a);
+#endif
     } else {
         bk_bmd(seq, a);
     }
