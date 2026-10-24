@@ -4,10 +4,11 @@
 // writers with what they do, and decides whether co-op may sync it: only
 // when it has a latching setter and every other writer latches too, that
 // is, sets it and never clears or flips it, writes only while a Game Boy
-// Advance is linked (the Tingle Tuner's, class GBA), is a type-1
-// TAG_EVSW, which only sets it from a synced story bit, or is a start
-// point's event, which only sets it as that event begins (startEvents;
-// two Ganon's Tower intros latch, provisionally). A switch with a
+// Advance is linked (the Tingle Tuner's, class GBA), or is a type-1
+// TAG_EVSW, which only sets it from a synced story bit. A start point's
+// event, which sets it as that event begins (startEvents), keeps it each
+// player's, except two Ganon's Tower intros, which latch provisionally. A
+// switch with a
 // GBA writer syncs only while no GBA is linked (Switch.GBA), which the
 // runtime checks every tick. An AND switch's setter latches only while
 // all its inputs are synced, transitively, except that a one-shot AND
@@ -402,10 +403,12 @@ func (b *builder) place(st *stage.Stage, p stage.Placed, names *stage.ObjectName
 // with it (mods/coop/story Batcher), so a partner who gets the bit gets
 // the switch too and, as on a vanilla retry, loads the time or fight
 // layer without the intro event, whose staff only the intro layer places.
-// Every other start event's switch stays the player's own: each player
-// watches their own cutscene, and the post-fight GanonK to_roof (sw18)
-// and the GTower ending endhr (sw16) must run in every game. Provisional
-// until the GT slice's live check D2(9).
+// Every other start event's switch stays the player's own, even beside a
+// latching setter (synced): each player watches their own cutscene, and
+// the post-fight GanonK to_roof (sw18), the GTower ending endhr (sw16)
+// and kenroom's swing_sword (table 9 sw13, which Hyroom's torches also
+// set) must run in every game. Provisional until the GT slice's live
+// check D2(9).
 var startEventLatches = map[[2]string]string{
 	{"GanonK", "kugutu_ganon"}: "Puppet Ganon's intro, whose kugutu_ganon.stb sets 0x3B02 (d_save_event_flag.inc:455)",
 	{"GTower", "g2before"}:     "Ganondorf's intro, whose g2before.stb sets 0x4002 (d_save_event_flag.inc:491)",
@@ -471,15 +474,17 @@ func (b *builder) startEvents(st *stage.Stage) {
 
 // synced is the verdict on s's writers as they stand: a latching setter,
 // and every other writer latching, GBA (one that writes only while a GBA
-// is linked), a TAG_EVSW of type 1 or a start event's. A type-1 TAG_EVSW
-// only ever sets the switch, and from a story event bit §6.5 carries
+// is linked) or a TAG_EVSW of type 1. A type-1 TAG_EVSW only ever sets
+// the switch, and from a story event bit §6.5 carries
 // (d_a_tag_evsw.cpp:10-48), so next to a latching setter it only pre-sets
 // what the partner's set already stands for: WT r15's tags that grow
-// every Makar tree once 0x4004 is on, ET's on 0x3A02. A start event's
-// writer (startEvents) only ever sets it too; next to a latching setter
-// the switch already syncs, and the receiver skips that event as it would
-// after its own setter (kenroom's swing_sword beside Hyroom's torches,
-// table 9 sw13). A switch only such writers write stays unsynced.
+// every Makar tree once 0x4004 is on, ET's on 0x3A02. A switch only such
+// writers write stays unsynced. A start event's writer (startEvents)
+// blocks the sync like any event writer: synced, the switch would make
+// the receiver skip its own cutscene, and the post-cutscene layer the
+// event's NEXT would have loaded (kenroom's swing_sword beside Hyroom's
+// torches, table 9 sw13). Only startEventLatches' starts, promoted to
+// Latching, sync.
 func synced(s *Switch) bool {
 	latch := false
 	for _, w := range s.Writers {
@@ -495,10 +500,9 @@ func synced(s *Switch) bool {
 }
 
 // preset reports whether w is an event writer that doesn't keep a
-// latching setter's switch from syncing (synced): a type-1 TAG_EVSW's or
-// a start event's.
+// latching setter's switch from syncing (synced): a type-1 TAG_EVSW's.
 func preset(w Writer) bool {
-	return w.Class == Event && (w.Proc == stage.ProcTagEvsw || w.Proc == procPlayer)
+	return w.Class == Event && w.Proc == stage.ProcTagEvsw
 }
 
 // momentary reports whether s is a momentary input: it has a momentary
@@ -765,6 +769,8 @@ func reason(s *Switch) string {
 			if evsw == nil {
 				evsw = &s.Writers[i]
 			}
+		case w.Class == Event && w.Proc == procPlayer:
+			return fmt.Sprintf("start event writer %v keeps it each player's: %s", w.Ref, w.Why)
 		default:
 			return fmt.Sprintf("%s writer %v: %s", w.Class, w.Ref, w.Why)
 		}
@@ -778,12 +784,8 @@ func reason(s *Switch) string {
 	case s.GBA:
 		r = "every setter latches; an AND input syncs only while no GBA is linked, so it does too"
 	}
-	switch {
-	case evsw == nil:
-	case evsw.Proc == stage.ProcTagEvsw:
+	if evsw != nil {
 		r += fmt.Sprintf("; event writer %v only pre-sets it (%s)", evsw.Ref, evsw.Why)
-	default:
-		r += fmt.Sprintf("; start event writer %v only sets it too (%s)", evsw.Ref, evsw.Why)
 	}
 	return r
 }

@@ -289,6 +289,14 @@ func TestPlannerHolds(t *testing.T) {
 			nil, []uint16{evMetKorl, ev0801, ev0808, ev2401}},
 		{"the resume bits go once the receiver met Korl", state{view: []uint16{evMetKorl, ev0801, ev0808, ev2401}, local: []uint16{evMetKorl}},
 			[]uint16{ev0801, ev0808, ev2401}, nil},
+		{"Outset's layer bits wait for MET_KORL", state{view: []uint16{ev0101, ev0E20, ev0520}},
+			nil, []uint16{ev0101, ev0E20, ev0520}},
+		{"and a partner's MET_KORL doesn't release them", state{view: []uint16{evMetKorl, ev0520}},
+			nil, []uint16{evMetKorl, ev0520}},
+		{"Outset's layer bits go once the receiver met Korl", state{view: []uint16{ev0101, ev0E20, ev0520}, local: []uint16{evMetKorl}},
+			[]uint16{ev0101, ev0E20, ev0520}, nil},
+		{"0x1820 waits for the receiver's own rescue", state{view: []uint16{ev1820}}, nil, []uint16{ev1820}},
+		{"0x1820 goes after the rescue", state{view: []uint16{ev1820}, local: []uint16{ev2D01}}, []uint16{ev1820}, nil},
 		{"0x2D10 waits for a Master Sword", state{view: []uint16{ev2D10}, sword: 0x38}, nil, []uint16{ev2D10}},
 		{"0x2D10 with the Master Sword equipped", state{view: []uint16{ev2D10}, sword: 0x39}, []uint16{ev2D10}, nil},
 		{"0x2D10 with the full-power Master Sword", state{view: []uint16{ev2D10}, sword: 0x3E}, []uint16{ev2D10}, nil},
@@ -329,6 +337,20 @@ func TestPlannerHolds(t *testing.T) {
 	}
 }
 
+// TestHoldsMatchClass: the planner holds the bits class.Holds names, in
+// the same order, so /status and the story receiver agree.
+func TestHoldsMatchClass(t *testing.T) {
+	want := class.Holds()
+	if len(Holds) != len(want) {
+		t.Fatalf("%d holds, class has %d", len(Holds), len(want))
+	}
+	for i, h := range Holds {
+		if h.ID != want[i].ID {
+			t.Errorf("hold %d is 0x%04X, class's is 0x%04X", i, h.ID, want[i].ID)
+		}
+	}
+}
+
 // writesImage ORs ws into img.
 func writesImage(ws []Write, img save.Image) save.Image {
 	for _, w := range ws {
@@ -354,7 +376,7 @@ func TestPlannedReachesTheWorld(t *testing.T) {
 		view := fullView()
 		var raw save.Image
 		raw[addr.OffSelectEquip] = 0x39
-		for _, id := range []uint16{evMetKorl, evZeldaAwakened, ev3F80} {
+		for _, id := range []uint16{evMetKorl, ev2D01, evZeldaAwakened, ev3F80} {
 			off, m := eventBit(id)
 			raw[off] |= m
 		}

@@ -113,7 +113,8 @@ type verdict struct {
 //   - behind: the resume milestones the world has and the file lacks
 //     (resumeMilestones). A file with any is far behind;
 //   - held: the world's story bits the file's holds would keep back once
-//     bound.
+//     bound, less those waiting for a LocalOnly bit, which no WORLD
+//     carries.
 //
 // Divergent, ahead and far behind each need --coop-merge on the host.
 //
@@ -136,7 +137,14 @@ func (h *Hub) judge(c *candidate) verdict {
 			v.behind = append(v.behind, id)
 		}
 	}
-	v.held = story.Pending(&cur, &c.image, nil, nil).Held
+	// A WORLD carries no LocalOnly bit, so a hold waiting for one (0x1820
+	// for the file's own rescue, 0x2D01) would always look held here; the
+	// file's replica judges it on its own image (replica.Preflight).
+	for _, x := range story.Pending(&cur, &c.image, nil, nil).Held {
+		if x.Hold.Until != class.UntilLocal || class.EventSyncs(x.Hold.Arg) || x.Hold.Arg == x.Hold.ID {
+			v.held = append(v.held, x)
+		}
+	}
 	return v
 }
 

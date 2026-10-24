@@ -1068,11 +1068,13 @@ func TestSpecs(t *testing.T) {
 }
 
 // TestStartEvents: a start point's event sets its EVNT entry's spawn
-// switch as it begins. The two Ganon's Tower intros latch and sync; every
-// other start event's switch is an event writer and stays unsynced, but
-// doesn't keep a latching setter's switch from syncing. A fixed-event
-// start mode, no event, and an index past the list write nothing; a
-// stage.dzs start routes a zone or room switch in the room it starts in.
+// switch as it begins. The two Ganon's Tower intros latch and sync, also
+// beside a latching setter; every other start event's switch is an event
+// writer and stays unsynced, and keeps a latching setter's switch from
+// syncing too (kenroom's swing_sword beside Hyroom's torches). A
+// fixed-event start mode, no event, and an index past the list write
+// nothing; a stage.dzs start routes a zone or room switch in the room it
+// starts in.
 func TestStartEvents(t *testing.T) {
 	const tb = addr.TableGT
 	start := func(point, mode, evt int, room uint32) stage.Actor {
@@ -1100,16 +1102,28 @@ func TestStartEvents(t *testing.T) {
 			}),
 		},
 	}
-	tbl := Build([]*stage.Stage{gtower, other}, testNames(t))
+	ganonK := &stage.Stage{
+		Name: "GanonK", SaveTable: tb,
+		DZS: &stage.DZx{
+			Actors:  index([]stage.Actor{crystal(0x1E)}),
+			Events:  []stage.Event{{Index: 0, Name: "kugutu_ganon", SpawnSwitch: 0x1E}},
+			Players: index([]stage.Actor{start(0, 0, 0, 0)}),
+		},
+	}
+	tbl := Build([]*stage.Stage{gtower, other, ganonK}, testNames(t))
 	check(t, tbl,
 		want{mem(tb, 0x1F), Latching, OpSet, true},
 		want{mem(tb, 0x10), Event, OpSet, false},
 		want{mem(tb, 0x1C), Event, OpSet, false},
-		want{mem(tb, 0x15), Latching, OpSet, true},
+		want{mem(tb, 0x15), Latching, OpSet, false},
+		want{mem(tb, 0x1E), Latching, OpSet, true},
 		want{roomSw(tb, "GanonM", 2, 0xE0), Event, OpSet, false},
 	)
-	if s, _ := tbl.Lookup(mem(tb, 0x15)); len(s.Writers) != 2 || s.Writers[1].Proc != procPlayer || !strings.Contains(s.Reason, "start event writer") {
+	if s, _ := tbl.Lookup(mem(tb, 0x15)); len(s.Writers) != 2 || s.Writers[1].Proc != procPlayer || !strings.HasPrefix(s.Reason, "start event writer GanonM stage PLYR#1") || !strings.Contains(s.Reason, "each player's") {
 		t.Errorf("sw21 beside its crystal: writers %+v, reason %q", s.Writers, s.Reason)
+	}
+	if s, _ := tbl.Lookup(mem(tb, 0x1E)); len(s.Writers) != 2 || s.Writers[1].Class != Latching || s.Reason != "every setter latches" {
+		t.Errorf("sw30 beside its crystal: writers %+v, reason %q", s.Writers, s.Reason)
 	}
 	if s, ok := tbl.Lookup(mem(tb, 0x1F)); !ok || !strings.Contains(s.Writers[0].Why, `"g2before"`) || s.Writers[0].Ref.Room != 0 || s.Writers[0].Ref.Tag != "PLYR" {
 		t.Errorf("g2before's writer: %+v", s)
