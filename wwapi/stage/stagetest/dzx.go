@@ -76,6 +76,25 @@ func Actors(tag string, actors ...Actor) Chunk {
 	return Chunk{Tag: tag, Count: len(actors), Data: data}
 }
 
+// Event is one EVNT entry (dStage_Event_dt_c): its name at +0x01 and
+// its spawn switch at +0x13; the other bytes are 0.
+type Event struct {
+	Name        string // mName[15]: shorter is NUL-padded, longer is cut
+	SpawnSwitch uint8
+}
+
+// Events returns an EVNT chunk holding events, 0x18 bytes each.
+func Events(events ...Event) Chunk {
+	data := make([]byte, 0, len(events)*0x18)
+	for _, ev := range events {
+		e := make([]byte, 0x18)
+		copy(e[0x01:0x10], ev.Name)
+		e[0x13] = ev.SpawnSwitch
+		data = append(data, e...)
+	}
+	return Chunk{Tag: "EVNT", Count: len(events), Data: data}
+}
+
 // Stag is a STAG entry, field for field (stage_stag_info_class).
 type Stag struct {
 	Near, Far     float32

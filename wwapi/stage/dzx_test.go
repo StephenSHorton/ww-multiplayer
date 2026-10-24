@@ -259,6 +259,30 @@ func TestParseDZxReadsWhatTheGameReads(t *testing.T) {
 	}
 }
 
+// TestParseDZxEvents: the first EVNT chunk's entries are the event list,
+// each with its name from +0x01 and its spawn switch; no chunk is none,
+// and a chunk running past the end is refused.
+func TestParseDZxEvents(t *testing.T) {
+	d, err := ParseDZx(stagetest.DZx(
+		stagetest.Events(stagetest.Event{Name: "kugutu_ganon", SpawnSwitch: 0x1E}, stagetest.Event{Name: "fifteen_chars_x", SpawnSwitch: 0xFF}),
+		stagetest.Events(stagetest.Event{Name: "never", SpawnSwitch: 1}), // never read
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Event{{Index: 0, Name: "kugutu_ganon", SpawnSwitch: 0x1E}, {Index: 1, Name: "fifteen_chars_x", SpawnSwitch: 0xFF}}
+	if !slices.Equal(d.Events, want) || len(d.Actors) != 0 {
+		t.Errorf("events %+v, actors %+v; want %+v", d.Events, d.Actors, want)
+	}
+	none, err := ParseDZx(stagetest.DZx(stagetest.Actors("ACTR", stagetest.Actor{Name: "Bk"})))
+	if err != nil || none.Events != nil {
+		t.Errorf("no EVNT: %+v, %v", none, err)
+	}
+	if _, err := ParseDZx(stagetest.DZx(stagetest.Chunk{Tag: "EVNT", Count: 2, Data: make([]byte, 0x18)})); err == nil || !strings.Contains(err.Error(), "EVNT") {
+		t.Errorf("an EVNT chunk past the end: %v", err)
+	}
+}
+
 // TestParseDZxPlayers: the first PLYR chunk's entries are the player
 // starts, kept out of Actors; a start's point is the low byte of its
 // angle z; an empty chunk is a list (the game asserts on it) and no chunk

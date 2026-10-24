@@ -1066,3 +1066,59 @@ func TestSpecs(t *testing.T) {
 		}
 	}
 }
+
+// TestStartEvents: a start point's event sets its EVNT entry's spawn
+// switch as it begins. The two Ganon's Tower intros latch and sync; every
+// other start event's switch is an event writer and stays unsynced, but
+// doesn't keep a latching setter's switch from syncing. A fixed-event
+// start mode, no event, and an index past the list write nothing; a
+// stage.dzs start routes a zone or room switch in the room it starts in.
+func TestStartEvents(t *testing.T) {
+	const tb = addr.TableGT
+	start := func(point, mode, evt int, room uint32) stage.Actor {
+		return stage.Actor{Tag: "PLYR", Layer: stage.AllLayers, Name: "Link", Params: uint32(evt)<<24 | uint32(mode)<<12 | room, Angle: [3]int16{0, 0, int16(point)}}
+	}
+	gtower := &stage.Stage{
+		Name: "GTower", SaveTable: tb,
+		DZS: &stage.DZx{Events: []stage.Event{{Index: 0, Name: "g2before", SpawnSwitch: 0x1F}, {Index: 1, Name: "endhr", SpawnSwitch: 0x10}}},
+		Rooms: []stage.Room{{No: 0, DZR: &stage.DZx{Players: index([]stage.Actor{
+			start(0, 0, 0, 0), start(2, 0, 1, 0),
+		})}}},
+	}
+	other := &stage.Stage{
+		Name: "GanonM", SaveTable: tb,
+		DZS: &stage.DZx{
+			Actors: index([]stage.Actor{crystal(0x15)}),
+			Events: []stage.Event{
+				{Index: 0, Name: "Look", SpawnSwitch: 0x1C}, {Index: 1, Name: "beside", SpawnSwitch: 0x15},
+				{Index: 2, Name: "fixed", SpawnSwitch: 0x20}, {Index: 3, Name: "inroom", SpawnSwitch: 0xE0},
+				{Index: 4, Name: "none", SpawnSwitch: 0xFF},
+			},
+			Players: index([]stage.Actor{
+				start(0, 0, 0, 1), start(1, 2, 1, 1), start(2, 6, 2, 1), start(3, 0, 3, 2),
+				start(4, 0, 4, 1), start(5, 0, 5, 1), start(6, 0, 0xFF, 1), start(7, 0xF, 2, 1),
+			}),
+		},
+	}
+	tbl := Build([]*stage.Stage{gtower, other}, testNames(t))
+	check(t, tbl,
+		want{mem(tb, 0x1F), Latching, OpSet, true},
+		want{mem(tb, 0x10), Event, OpSet, false},
+		want{mem(tb, 0x1C), Event, OpSet, false},
+		want{mem(tb, 0x15), Latching, OpSet, true},
+		want{roomSw(tb, "GanonM", 2, 0xE0), Event, OpSet, false},
+	)
+	if s, _ := tbl.Lookup(mem(tb, 0x15)); len(s.Writers) != 2 || s.Writers[1].Proc != procPlayer || !strings.Contains(s.Reason, "start event writer") {
+		t.Errorf("sw21 beside its crystal: writers %+v, reason %q", s.Writers, s.Reason)
+	}
+	if s, ok := tbl.Lookup(mem(tb, 0x1F)); !ok || !strings.Contains(s.Writers[0].Why, `"g2before"`) || s.Writers[0].Ref.Room != 0 || s.Writers[0].Ref.Tag != "PLYR" {
+		t.Errorf("g2before's writer: %+v", s)
+	}
+	if _, ok := tbl.Lookup(mem(tb, 0x20)); ok {
+		t.Error("a fixed-event start mode wrote its start event's switch")
+	}
+	if len(tbl.Invalid) != 0 {
+		t.Errorf("invalid %+v", tbl.Invalid)
+	}
+	checkFixedPoint(t, tbl)
+}

@@ -10,10 +10,10 @@ import (
 // (every fopAcM_onSwitch, fopAcM_offSwitch, fopAcM_revSwitch and
 // dComIfGs_onSwitch/offSwitch/revSwitch call under src/d/actor, plus
 // keyInit in d_door.cpp and the enemy_ice death switch in
-// c_damagereaction.cpp), and a few common readers. Not covered: the
-// switch a stage EVNT entry sets as its event starts
-// (dEvent_exception_c::setStartDemo, d_event_manager.cpp:23-48), since
-// wwapi/stage keeps no EVNT entries. A path such as
+// c_damagereaction.cpp), and a few common readers. The switch a stage
+// EVNT entry sets as a start point's event begins
+// (dEvent_exception_c::setStartDemo, d_event_manager.cpp:24-48) is
+// added by Build's startEvents, not here. A path such as
 // "d_a_swhit0.cpp:72-75" is a decomp source line; params is
 // fopAcM_GetParam, the entry's Params, and home.angle is the entry's
 // Angle (dStage_actorCreate, d_stage.cpp:1300-1310). daObj::PrmAbstract
@@ -71,6 +71,7 @@ const (
 	procEskban      stage.Proc = 0x0A2 // fpcNm_Obj_Eskban_e, f_pc_name.h:171; "Eskban" (d_stage.cpp:994)
 	procEkskz       stage.Proc = 0x0A3 // fpcNm_Obj_Ekskz_e, f_pc_name.h:172; "Ekskz" (d_stage.cpp:995)
 	procEbomzo      stage.Proc = 0x0A4 // fpcNm_Obj_Ebomzo_e, f_pc_name.h:173; "Ebomzo" (d_stage.cpp:1118)
+	procPlayer      stage.Proc = 0x0A9 // fpcNm_PLAYER_e, f_pc_name.h:178; Link, created from a PLYR start (dStage_playerInit, d_stage.cpp:1428-1475)
 	procOship       stage.Proc = 0x0B4 // fpcNm_OSHIP_e, f_pc_name.h:189; "Oship" (d_stage.cpp:816)
 	procKui         stage.Proc = 0x0FC // fpcNm_KUI_e, f_pc_name.h:264; "Kui" (d_stage.cpp:645)
 	procSs          stage.Proc = 0x0FD // fpcNm_SS_e, f_pc_name.h:265; door plant "Ss" (d_stage.cpp:892)
