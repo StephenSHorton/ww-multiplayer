@@ -168,9 +168,10 @@ const (
 // so a partner's 0x0520 would leave a player who has not sailed yet with
 // no way off the island, and a partner's 0x0101 or 0x0E20 moves Outset
 // to the kidnapping or departure layer ahead of that player's own story.
-// The three wait for the receiver's own MET_KORL too: vanilla sets them
-// all before it, so from then on they change nothing the receiver's own
-// game would not have.
+// The three wait for the receiver's own MET_KORL too. Vanilla sets them
+// all before it (inferred from their readers: 0x0520's setter is not in
+// the decomp, the overworld slice's C1), so from then on they change
+// nothing the receiver's own game would not have.
 //
 // The same table puts the Forsaken Fortress (sea r1) on layer 3 with
 // 0x1820, and ma2room loads ma3room's files with it (d_resorce.cpp:708).
