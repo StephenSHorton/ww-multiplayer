@@ -1,6 +1,8 @@
 package mailbox
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
@@ -8,6 +10,47 @@ import (
 
 // wwbossHeader is the C source of the boss_kill constants.
 const wwbossHeader = "../../inject/include/wwboss.h"
+
+// bosskillSource is the REL op the header's defines drive.
+const bosskillSource = "../../inject/rel/bosskill.c"
+
+// TestBossKillDispatchBdk: bosskill_frame gives Bdk its own arm, under
+// WWBOSS_WITH_BDK, ahead of the final else: that else runs bk_bmd (Kalle
+// Demos' lethal block) for every proc not named before it, so a 0xF0
+// request that only passed bk_proc_ok would get Bmd's writes on Bdk
+// memory (relay-helmaroc.md check notes, missing case 1). bk_proc_ok and
+// bk_stage_ok take the proc under the same switch, the stage exactly
+// M2tower.
+func TestBossKillDispatchBdk(t *testing.T) {
+	b, err := os.ReadFile(bosskillSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := strings.ReplaceAll(string(b), "\r\n", "\n")
+	i := strings.Index(src, "void bosskill_frame(void) {")
+	if i < 0 {
+		t.Fatal("no bosskill_frame")
+	}
+	body := src[i:]
+	arm := strings.Index(body, "} else if (proc == WWBOSS_PROC_BDK) {")
+	call := strings.Index(body, "bk_bdk(seq, a);")
+	last := strings.LastIndex(body, "} else {\n        bk_bmd(seq, a);")
+	if arm < 0 || call < arm || last < 0 || call > last {
+		t.Fatalf("bosskill_frame: the Bdk arm at %d, its bk_bdk at %d, the final bk_bmd else at %d; want arm < call < else", arm, call, last)
+	}
+	if g := strings.LastIndex(body[:arm], "#if "); g < 0 || !strings.HasPrefix(body[g:], "#if WWBOSS_WITH_BDK\n") {
+		t.Error("bosskill_frame's Bdk arm is not under #if WWBOSS_WITH_BDK")
+	}
+	for _, want := range []string{
+		"#if WWBOSS_WITH_BDK\n    if (proc == WWBOSS_PROC_BDK) return 1;\n#endif",
+		"#if WWBOSS_WITH_BDK\n    } else if (proc == WWBOSS_PROC_BDK) {\n        want = m2_tower;\n#endif",
+		"m2_tower[8] = { 'M', '2', 't', 'o', 'w', 'e', 'r', 0 };",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("bosskill.c lacks %q", want)
+		}
+	}
+}
 
 // TestBossHeaderPins: every Go constant equals its WWBOSS_* define, and
 // every define has a Go constant.

@@ -128,7 +128,7 @@ func bdkVerdict(b *bdkActor) (r uint8, word uint32, why string) {
 	case act == mailbox.BossBdkActEnd || act == mailbox.BossBdkActAfter:
 		r = mailbox.BossRAlready
 	case act < 0 || act > mailbox.BossBdkActFightMax:
-		r, why = mailbox.BossRWaiting, fmt.Sprintf("mAction 0x%X not 0..8 (%s)", act, bdkActName(act))
+		r, why = mailbox.BossRWaiting, fmt.Sprintf("mAction 0x%X not 0..8 (%s)", uint16(act), bdkActName(act))
 	case b.hp() <= 0:
 		r, why = mailbox.BossRAlready, "health <= 0 at a fight action: a pending zero, the next crest hit kills"
 	case b.mask() >= mailbox.BossBdkMaskBroken && b.demo() == 0:
@@ -233,8 +233,32 @@ func linkPosY(m mem.Reader) (float32, bool, error) {
 	return math.Float32frombits(v), true, nil
 }
 
-// bdkProbe is bdk-probe over m.
+// bdkSteady is bs and Link's y with what moves every frame taken out: m2C4
+// (the frame counter, the high half of W2C4), each Bdk's position and
+// Link's y within its threshold band. bdkProbe compares its report, so a
+// sampled run prints on a change of state, not every tick.
+func bdkSteady(bs []bdkActor, linkY float32) ([]bdkActor, float32) {
+	s := append([]bdkActor(nil), bs...)
+	for i := range s {
+		s[i].W2C4 &= 0xFFFF
+		s[i].Pos = [3]float32{}
+	}
+	switch {
+	case linkY >= bdkStartY:
+		linkY = bdkStartY
+	case linkY > bdkLastAttackY:
+		linkY = bdkLastAttackY + 1
+	default:
+		linkY = 0
+	}
+	return s, linkY
+}
+
+// bdkProbe is bdk-probe over m. It hands bossProbe the report it last
+// printed while the steady one (bdkSteady) is unchanged, so a frame counter
+// or a position alone prints nothing; the printed report keeps them.
 func bdkProbe(ctx context.Context, w io.Writer, m mem.Reader, d time.Duration) error {
+	var lastKey, lastRep string
 	return bossProbe(ctx, w, m, d, "P0-BDK wants M2tower 30 0 3", func(aw *actors.Walk) (string, error) {
 		bs, err := readBdk(m, aw)
 		if err != nil {
@@ -244,7 +268,11 @@ func bdkProbe(ctx context.Context, w io.Writer, m mem.Reader, d time.Duration) e
 		if err != nil {
 			return "", err
 		}
-		return bdkReport(bs, y, ok), nil
+		sb, sy := bdkSteady(bs, y)
+		if key := bdkReport(sb, sy, ok); key != lastKey || lastRep == "" {
+			lastKey, lastRep = key, bdkReport(bs, y, ok)
+		}
+		return lastRep, nil
 	})
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
@@ -69,6 +70,20 @@ func TestBdkProbe(t *testing.T) {
 		{"a pending zero", 0x14000000, 0, 0x00000001, 0x04000000, 0, "ALREADY 0x03010400: health <= 0 at a fight action: a pending zero, the next crest hit kills"},
 		{"the death", 0x14000000, 0, 0x0000000A, 0x04000000, 0x00640000, "ALREADY 0x030A0400"},
 		{"after the fight", 0, 0x01000000, 0x0000006E, 0, 0, "ALREADY 0x036E0000"},
+		// The gate's edges, each side: mAction 0 and 8 in, 9 and a negative
+		// one out; m8F8 3 out, 4 and above in; health 1 in, 0 and -1 the
+		// pending zero, which is ALREADY before the mask and demo terms.
+		{"the first fight action", 0x14140000, 0, 0x00000000, 0x04000000, 0, "APPLIED 0x01000414"},
+		{"the last fight action", 0x14140000, 0, 0x00000008, 0x04000000, 0, "APPLIED 0x01080414"},
+		{"KAMEN_DEMO after its camera", 0x14140000, 0, 0x00000009, 0x04000000, 0, "WAITING 0x02090414: mAction 0x9 not 0..8 (KAMEN_DEMO)"},
+		{"a negative mAction", 0x14140000, 0, 0x0000FFFF, 0x04000000, 0, "WAITING 0x02FF0414: mAction 0xFFFF not 0..8 (unknown)"},
+		{"the third mask hit", 0x14140000, 0, 0x00000008, 0x03000000, 0, "WAITING 0x02080314: m8F8 3 < 4 (the mask)"},
+		{"m8F8 above 4", 0x14140000, 0, 0x00000002, 0x05000000, 0, "APPLIED 0x01020514"},
+		{"health 1", 0x14010000, 0, 0x00000007, 0x04000000, 0, "APPLIED 0x01070401"},
+		{"health -1", 0x14FF0000, 0, 0x00000007, 0x04000000, 0, "ALREADY 0x030704FF: health <= 0 at a fight action: a pending zero, the next crest hit kills"},
+		{"health 0 in the mask fight", 0x14000000, 0, 0x00000003, 0x02000000, 0, "ALREADY 0x03030200: health <= 0 at a fight action: a pending zero, the next crest hit kills"},
+		{"health 0 under a demo camera", 0x14000000, 0, 0x00000005, 0x04000000, 0x00960000, "ALREADY 0x03050400: health <= 0 at a fight action: a pending zero, the next crest hit kills"},
+		{"the mask both ways and a camera", 0x14140000, 0, 0x00000004, 0x01000000, 0x00320000, "WAITING 0x02040114: m8F8 1 < 4 (the mask), m25A0 0x32 != 0 (a demo camera)"},
 	} {
 		store(t, m, at+bdkOffHealth, u32b(c.w284))
 		store(t, m, at+bdkOffM2B4, u32b(c.w2b4))
@@ -102,6 +117,64 @@ func TestBdkProbe(t *testing.T) {
 	}{{1700, "below 9250 (the climb)"}, {9800, "at or above 9800 (start() takes it)"}} {
 		if s := bdkReport(nil, c.y, true); !strings.Contains(s, c.want) {
 			t.Errorf("Link y %v: want %q:\n%s", c.y, c.want, s)
+		}
+	}
+}
+
+// tickMem is a FakeMem whose Bdk moves every read of its +0x2C4 word, as
+// the game does every frame: m2C4 counts up and current.pos.y with it.
+// After flip reads it writes mAction 0x67 (T_DOWN), a change of state.
+type tickMem struct {
+	*mem.FakeMem
+	at    uint32
+	n     uint32
+	flip  uint32
+	act   uint32
+	moved bool
+}
+
+func (m *tickMem) Read(a uint32, n int) ([]byte, error) {
+	if a == m.at+bdkOffAct {
+		m.n++
+		if m.flip != 0 && m.n == m.flip {
+			m.act = 0x67
+		}
+		_ = m.Store(a, u32b(m.n<<16|m.act))
+		_ = m.Store(m.at+addr.ActorOffCurPos+4, f32bits(1000+float32(m.n)))
+		_ = m.Store(fakegame.PlayerActor+addr.ActorOffCurPos+4, f32bits(9300+float32(m.n)/10))
+		m.moved = m.moved || m.n > 1
+	}
+	return m.FakeMem.Read(a, n)
+}
+
+// TestBdkProbeSampled: a sampled bdk-probe prints once while only m2C4,
+// the positions and Link's y (inside one threshold band) move, and again
+// on a change of state; the printed lines keep the moving fields.
+func TestBdkProbeSampled(t *testing.T) {
+	for _, c := range []struct {
+		flip uint32
+		want int
+	}{{0, 1}, {3, 2}} {
+		m, es := batchDRoom(t, fakegame.Enemy{SetID: addr.ActorSetIDNone, Proc: stage.ProcBDK})
+		a, _ := es.Of(0)
+		store(t, m, a.Addr+bdkOffMorf, u32b(0x80C20000))
+		tm := &tickMem{FakeMem: m, at: a.Addr, flip: c.flip, act: 0x64}
+		var out bytes.Buffer
+		if err := bdkProbe(context.Background(), &out, tm, 400*time.Millisecond); err != nil {
+			t.Fatal(err)
+		}
+		if !tm.moved {
+			t.Fatalf("flip %d: the probe sampled once only", c.flip)
+		}
+		s := out.String()
+		if n := strings.Count(s, "  bdk at 0x"); n != c.want {
+			t.Errorf("flip %d: %d reports, want %d:\n%s", c.flip, n, c.want, s)
+		}
+		if !strings.Contains(s, "(m2C4 1 mAction 0x64, the tower phase)") {
+			t.Errorf("flip %d: the first report lacks its m2C4:\n%s", c.flip, s)
+		}
+		if c.flip != 0 && !strings.Contains(s, "mAction 0x67, the tower phase)") {
+			t.Errorf("flip %d: no report of T_DOWN:\n%s", c.flip, s)
 		}
 	}
 }
