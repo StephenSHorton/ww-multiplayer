@@ -72,7 +72,7 @@ var syncMask = [addr.EventBitBytes]byte{
 	0x01, // 0x3C: minus 0x3C80 0x3C40 0x3C20 0x3C10 0x3C08 0x3C04 0x3C02
 	0x0F, // 0x3D: minus 0x3D80 0x3D40 0x3D20 0x3D10
 	0xF7, // 0x3E
-	0xF2, // 0x3F: minus 0x3F01
+	0xB2, // 0x3F: minus 0x3F40 0x3F01
 	0x07, // 0x40: minus 0x4080 0x4040 0x4020 0x4008
 	0x80, // 0x41
 }
@@ -270,6 +270,10 @@ var localOnlyBits = []EventBit{
 	{ID: 0x3C80, Name: "UNK_3C80", Cite: "d_kankyo_dayproc.inc:93"},
 	// UNK_3F01, d_save_event_flag.inc:485: cleared by the game
 	{ID: 0x3F01, Name: "UNK_3F01", Cite: "d_a_npc_mt.cpp:401, :570, :963, :1015"},
+	// UNK_3F40, d_save_event_flag.inc:481: set by this player's own ending (endhr.stb); while it is
+	// set Link draws no shield and no sword in hand, in every stage, so a partner's ending would
+	// hide them before this player's own Ganondorf fight
+	{ID: 0x3F40, Name: "UNK_3F40", Cite: "d_save_event_flag.inc:481; d_a_player_sword.inc:249, :259"},
 	// UNK_4008, d_save_event_flag.inc:489: cleared by the game
 	{ID: 0x4008, Name: "UNK_4008", Cite: "d_a_auction.cpp:1432"},
 	// UNK_4020, d_save_event_flag.inc:488: cleared by the game

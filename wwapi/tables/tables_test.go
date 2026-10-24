@@ -758,6 +758,11 @@ var schemaShapes = map[int]string{
 	// type-1 TAG_EVSW beside a latching setter doesn't block the sync (ET
 	// sw43, sw44, sw111; WT's Makar-tree switches and their ANDs).
 	9: "18e463dd4d344be73cbc4e9f0f99bf72f2021d56a876e6db3cd6bc86cddd5014",
+	// 10: the same shape; a start point's event spawn switch (EVNT) is
+	// listed with the PLYR entry as its event writer, which doesn't block
+	// a latching setter, and Ganon's Tower's two intros latch (GT sw30,
+	// sw31).
+	10: "18e463dd4d344be73cbc4e9f0f99bf72f2021d56a876e6db3cd6bc86cddd5014",
 }
 
 func TestSchemaShape(t *testing.T) {

@@ -4,8 +4,10 @@
 // writers with what they do, and decides whether co-op may sync it: only
 // when it has a latching setter and every other writer latches too, that
 // is, sets it and never clears or flips it, writes only while a Game Boy
-// Advance is linked (the Tingle Tuner's, class GBA), or is a type-1
-// TAG_EVSW, which only sets it from a synced story bit. A switch with a
+// Advance is linked (the Tingle Tuner's, class GBA), is a type-1
+// TAG_EVSW, which only sets it from a synced story bit, or is a start
+// point's event, which only sets it as that event begins (startEvents;
+// two Ganon's Tower intros latch, provisionally). A switch with a
 // GBA writer syncs only while no GBA is linked (Switch.GBA), which the
 // runtime checks every tick. An AND switch's setter latches only while
 // all its inputs are synced, transitively, except that a one-shot AND
@@ -298,6 +300,7 @@ func Build(stages []*stage.Stage, names *stage.ObjectNames) *Table {
 		for _, p := range st.All() {
 			b.place(st, p, names)
 		}
+		b.startEvents(st)
 	}
 	b.statueSlots()
 	b.sharedFloorSwitches()
@@ -391,26 +394,111 @@ func (b *builder) place(st *stage.Stage, p stage.Placed, names *stage.ObjectName
 	}
 }
 
+// startEventLatches are the start events whose spawn switch latches, by
+// stage and EVNT name, each with why. Both are a Ganon's Tower intro
+// whose STB sets the story bit that takes the stage off its intro layer
+// (getLayerNo, d_com_inf_game.cpp:255-262). The story batch holds a
+// memory switch that rises while an event runs until the event's bits go
+// with it (mods/coop/story Batcher), so a partner who gets the bit gets
+// the switch too and, as on a vanilla retry, loads the time or fight
+// layer without the intro event, whose staff only the intro layer places.
+// Every other start event's switch stays the player's own: each player
+// watches their own cutscene, and the post-fight GanonK to_roof (sw18)
+// and the GTower ending endhr (sw16) must run in every game. Provisional
+// until the GT slice's live check D2(9).
+var startEventLatches = map[[2]string]string{
+	{"GanonK", "kugutu_ganon"}: "Puppet Ganon's intro, whose kugutu_ganon.stb sets 0x3B02 (d_save_event_flag.inc:455)",
+	{"GTower", "g2before"}:     "Ganondorf's intro, whose g2before.stb sets 0x4002 (d_save_event_flag.inc:491)",
+}
+
+// startEvents adds the switch each of st's start points sets as its event
+// begins. Link's create starts the PLYR entry's event, params >> 24,
+// unless the start mode, (params >> 12) & 0xF, picks one of the fixed
+// events 200 and up (d_a_player_main.cpp:12280-12298;
+// d_a_player_main.h:1879). setStartDemo takes that EVNT entry of the
+// stage's own event list (d_stage.cpp:1798-1802), skips the event if its
+// spawn switch is on and sets the switch otherwise, in the room Link
+// stays in (d_event_manager.cpp:24-51). 0xFF and 200 and up are no entry,
+// and an index past the list reads nothing the stage defines. The writer
+// is the PLYR entry, as proc PLAYER; a stage.dzs start routes in the room
+// it starts Link in (Actor.StartRoom).
+func (b *builder) startEvents(st *stage.Stage) {
+	if st.DZS == nil || len(st.DZS.Events) == 0 {
+		return
+	}
+	add := func(room int, starts []stage.Actor) {
+		for _, p := range starts {
+			switch (p.Params >> 12) & 0xF {
+			case 0x6, 0x9, 0xA, 0xB, 0xC, 0xE, 0xF:
+				continue
+			}
+			idx := int(p.Params >> 24)
+			if idx >= len(st.DZS.Events) {
+				continue
+			}
+			ev := st.DZS.Events[idx]
+			at := room
+			if at < 0 {
+				at = p.StartRoom()
+			}
+			ref := Ref{
+				Stage: st.Name, Room: room, Layer: stage.AllLayers, Tag: p.Tag, Index: p.Index,
+				Name: p.Name, Proc: procPlayer, Params: p.Params, Angle: p.Angle,
+			}
+			k, err := KeyFor(st.SaveTable, st.Name, at, int(ev.SpawnSwitch))
+			if err != nil {
+				if !errors.Is(err, ErrNoSwitch) {
+					b.t.Invalid = append(b.t.Invalid, Invalid{Ref: ref, No: int(ev.SpawnSwitch), Write: true, Why: err.Error()})
+				}
+				continue
+			}
+			w := Writer{Ref: ref, Op: OpSet, Class: Event,
+				Why: fmt.Sprintf("start point %d's event %d %q sets it as it begins, and skips while it is on (setStartDemo, d_event_manager.cpp:41-47)", p.StartPoint(), idx, ev.Name)}
+			if why, ok := startEventLatches[[2]string{st.Name, ev.Name}]; ok {
+				w.Class = Latching
+				w.Why += "; latches: " + why + ", which picks the stage's layer, and the switch travels with that bit (provisional until a live check)"
+			}
+			b.sw(k).Writers = append(b.sw(k).Writers, w)
+		}
+	}
+	add(-1, st.DZS.Players)
+	for _, r := range st.Rooms {
+		if r.DZR != nil {
+			add(r.No, r.DZR.Players)
+		}
+	}
+}
+
 // synced is the verdict on s's writers as they stand: a latching setter,
 // and every other writer latching, GBA (one that writes only while a GBA
-// is linked) or a TAG_EVSW of type 1. That one only ever sets the switch,
-// and from a story event bit §6.5 carries (d_a_tag_evsw.cpp:10-48), so
-// next to a latching setter it only pre-sets what the partner's set
-// already stands for: WT r15's tags that grow every Makar tree once
-// 0x4004 is on, ET's on 0x3A02. A switch it alone writes stays unsynced
-// and follows its event bit.
+// is linked), a TAG_EVSW of type 1 or a start event's. A type-1 TAG_EVSW
+// only ever sets the switch, and from a story event bit §6.5 carries
+// (d_a_tag_evsw.cpp:10-48), so next to a latching setter it only pre-sets
+// what the partner's set already stands for: WT r15's tags that grow
+// every Makar tree once 0x4004 is on, ET's on 0x3A02. A start event's
+// writer (startEvents) only ever sets it too; next to a latching setter
+// the switch already syncs, and the receiver skips that event as it would
+// after its own setter (kenroom's swing_sword beside Hyroom's torches,
+// table 9 sw13). A switch only such writers write stays unsynced.
 func synced(s *Switch) bool {
 	latch := false
 	for _, w := range s.Writers {
 		switch {
 		case w.Class == Latching:
 			latch = true
-		case w.Class == GBA, w.Class == Event && w.Proc == stage.ProcTagEvsw:
+		case w.Class == GBA, preset(w):
 		default:
 			return false
 		}
 	}
 	return latch
+}
+
+// preset reports whether w is an event writer that doesn't keep a
+// latching setter's switch from syncing (synced): a type-1 TAG_EVSW's or
+// a start event's.
+func preset(w Writer) bool {
+	return w.Class == Event && (w.Proc == stage.ProcTagEvsw || w.Proc == procPlayer)
 }
 
 // momentary reports whether s is a momentary input: it has a momentary
@@ -673,7 +761,7 @@ func reason(s *Switch) string {
 			if gba == nil {
 				gba = &s.Writers[i]
 			}
-		case s.Synced && w.Class == Event && w.Proc == stage.ProcTagEvsw:
+		case s.Synced && preset(w):
 			if evsw == nil {
 				evsw = &s.Writers[i]
 			}
@@ -690,8 +778,12 @@ func reason(s *Switch) string {
 	case s.GBA:
 		r = "every setter latches; an AND input syncs only while no GBA is linked, so it does too"
 	}
-	if evsw != nil {
+	switch {
+	case evsw == nil:
+	case evsw.Proc == stage.ProcTagEvsw:
 		r += fmt.Sprintf("; event writer %v only pre-sets it (%s)", evsw.Ref, evsw.Why)
+	default:
+		r += fmt.Sprintf("; start event writer %v only sets it too (%s)", evsw.Ref, evsw.Why)
 	}
 	return r
 }

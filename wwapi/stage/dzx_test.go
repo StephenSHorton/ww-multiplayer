@@ -259,6 +259,40 @@ func TestParseDZxReadsWhatTheGameReads(t *testing.T) {
 	}
 }
 
+// TestParseDZSEvents: stage.dzs's first EVNT chunk's entries are the
+// event list, each with its name from +0x01 and its spawn switch; no
+// chunk is none, and a chunk running past the end is refused. A room's
+// EVNT, which the game never reads, is listed but neither read nor
+// checked.
+func TestParseDZSEvents(t *testing.T) {
+	d, err := ParseDZS(stagetest.DZx(
+		stagetest.Events(stagetest.Event{Name: "kugutu_ganon", SpawnSwitch: 0x1E}, stagetest.Event{Name: "fifteen_chars_x", SpawnSwitch: 0xFF}),
+		stagetest.Events(stagetest.Event{Name: "never", SpawnSwitch: 1}), // never read
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Event{{Index: 0, Name: "kugutu_ganon", SpawnSwitch: 0x1E}, {Index: 1, Name: "fifteen_chars_x", SpawnSwitch: 0xFF}}
+	if !slices.Equal(d.Events, want) || len(d.Actors) != 0 {
+		t.Errorf("events %+v, actors %+v; want %+v", d.Events, d.Actors, want)
+	}
+	none, err := ParseDZS(stagetest.DZx(stagetest.Actors("ACTR", stagetest.Actor{Name: "Bk"})))
+	if err != nil || none.Events != nil {
+		t.Errorf("no EVNT: %+v, %v", none, err)
+	}
+	bad := stagetest.DZx(stagetest.Actors("PLYR", stagetest.Actor{Name: "Link"}), stagetest.Chunk{Tag: "EVNT", Count: 2, Data: make([]byte, 0x18)})
+	if _, err := ParseDZS(bad); err == nil || !strings.Contains(err.Error(), "EVNT") {
+		t.Errorf("an EVNT chunk past the end: %v", err)
+	}
+	room, err := ParseDZx(bad)
+	if err != nil || room.Events != nil || len(room.Players) != 1 || len(room.Chunks) != 2 {
+		t.Errorf("a room's EVNT past the end: %+v, %v", room, err)
+	}
+	if room, err := ParseDZx(stagetest.DZx(stagetest.Events(stagetest.Event{Name: "x"}))); err != nil || room.Events != nil {
+		t.Errorf("a room's EVNT: %+v, %v", room, err)
+	}
+}
+
 // TestParseDZxPlayers: the first PLYR chunk's entries are the player
 // starts, kept out of Actors; a start's point is the low byte of its
 // angle z; an empty chunk is a list (the game asserts on it) and no chunk

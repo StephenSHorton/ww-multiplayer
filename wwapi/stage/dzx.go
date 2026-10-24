@@ -79,14 +79,22 @@ import (
 // (:1479-1480). For stage.dzs's starts that happens before any room is
 // loaded, so the game loads that room (dStage_Create, :2231-2232) and the
 // room the stage change asked for is ignored.
+//
+// EVNT, the stage's event list, has 0x18-byte entries (dStage_Event_dt_c,
+// d_stage.h:329-340) and is read from stage.dzs only: dStage_eventInfoInit
+// (d_stage.cpp:1798-1802) stores it on the stage, and a room's
+// setEventInfo asserts (d_stage.h:757-761). A PLYR entry's start event
+// indexes it (setStartDemo, d_event_manager.cpp:24-51).
 const (
 	dzxHeaderSize     = 4
 	dzxChunkSize      = 0xC
 	actorEntrySize    = 0x20
 	scaledEntrySize   = 0x24
 	stagSize          = 0x20
+	eventEntrySize    = 0x18
 	stagTag           = "STAG"
 	playerTag         = "PLYR"
+	eventTag          = "EVNT"
 	layerTagSuffixes  = "0123456789ab"
 	stagTypeShift     = 16
 	stagTypeMask      = 7
@@ -132,6 +140,22 @@ type DZx struct {
 	// (Layer AllLayers); empty when it has none, nil when there is no PLYR
 	// chunk (HasPlayers).
 	Players []Actor
+	// Events is the first EVNT chunk's entries, the stage's event list;
+	// nil when there is none or b is not parsed as stage.dzs (ParseDZS).
+	Events []Event
+}
+
+// Event is one EVNT entry (dStage_Event_dt_c, d_stage.h:329-340).
+type Event struct {
+	Index int // its index in the chunk, which a start event names
+	// Name is mName[15] up to its first NUL. It starts at +0x01, right
+	// after the u8 at +0x00; d_stage.h's comment says 0x04, but the
+	// disc's names ("kugutu_ganon") start at +0x01.
+	Name string
+	// SpawnSwitch is mSpawnSwitchNo (+0x13): when a start event names
+	// the entry, setStartDemo skips the event if the switch is on and
+	// turns it on otherwise (d_event_manager.cpp:41-47). 0xFF is none.
+	SpawnSwitch uint8
 }
 
 // Chunk is one chunk header.
@@ -225,14 +249,23 @@ func (t StageType) String() string {
 }
 
 // ParseDZx parses the DZS or DZR file b. Every chunk header must lie
-// inside b; for the chunks it reads (STAG and the actor chunks) so must
-// their entries, a nonzero count needs a nonzero offset (the game would
-// follow a null pointer), and a negative count is an error. The entries
-// of all the read chunks together may not hold more bytes than b has: a
-// real file stores each chunk once, and a crafted one whose chunks
-// overlap could otherwise multiply what parsing it allocates. Chunks the
-// game doesn't read for placement are listed in Chunks but not checked.
-func ParseDZx(b []byte) (*DZx, error) {
+// inside b; for the chunks it reads (STAG, the actor chunks and PLYR) so
+// must their entries, a nonzero count needs a nonzero offset
+// (the game would follow a null pointer), and a negative count is an
+// error. The entries of all the read chunks together may not hold more
+// bytes than b has: a real file stores each chunk once, and a crafted one
+// whose chunks overlap could otherwise multiply what parsing it
+// allocates. Chunks the game doesn't read for placement are listed in
+// Chunks but not checked. EVNT is one of those: the game reads it from
+// stage.dzs alone, which ParseDZS parses.
+func ParseDZx(b []byte) (*DZx, error) { return parseDZx(b, false) }
+
+// ParseDZS parses the stage.dzs file b as ParseDZx does, and reads and
+// checks its EVNT chunk too (Events).
+func ParseDZS(b []byte) (*DZx, error) { return parseDZx(b, true) }
+
+// parseDZx is ParseDZx, and ParseDZS when dzs is set.
+func parseDZx(b []byte, dzs bool) (*DZx, error) {
 	be := binary.BigEndian
 	if len(b) < dzxHeaderSize {
 		return nil, fmt.Errorf("dzx: header truncated (%d bytes)", len(b))
@@ -331,6 +364,19 @@ func ParseDZx(b []byte) (*DZx, error) {
 		off := int(d.Chunks[i].Offset)
 		for k := range count {
 			d.Players = append(d.Players, readActor(b, str, off+k*actorEntrySize, playerTag, AllLayers, k, false))
+		}
+	}
+
+	if i, ok := first[eventTag]; ok && dzs {
+		count, err := entries(i, eventEntrySize)
+		if err != nil {
+			return nil, err
+		}
+		d.Events = make([]Event, 0, count)
+		off := int(d.Chunks[i].Offset)
+		for k := range count {
+			e := off + k*eventEntrySize
+			d.Events = append(d.Events, Event{Index: k, Name: cName(str[e+0x01 : e+0x10]), SpawnSwitch: b[e+0x13]})
 		}
 	}
 	return d, nil

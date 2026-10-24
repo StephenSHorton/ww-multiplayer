@@ -48,7 +48,7 @@ import (
 // binary wrote is rebuilt (the cache also records the binary's version,
 // builderID, which catches a release that forgets). TestSchemaShape fails
 // when the JSON shape changes and this has not been bumped.
-const SchemaVersion = 9
+const SchemaVersion = 10
 
 // Source is the disc Build reads: *inject.Disc satisfies it. Build calls
 // Stat and ReadFile from several goroutines at once (disc.FileSource).
