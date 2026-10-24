@@ -54,6 +54,8 @@ var browserMethods = map[string]bool{
 	"SetCoop": true, "CoopWorlds": true, "SetMyCoopDryRun": true, "Answer": true, "SetAutoYes": true,
 	"DismissAdvice": true, "RequestMerge": true, "AllowMerge": true, "DismissRequest": true, "SetMerge": true,
 	"UnbindFile": true, "CoopCommand": true, "CoopStatusText": true,
+	// Each side's relay choices (coop-remaining 1.2 option a).
+	"SetCoopRelays": true,
 	// Sessions on your network (App PR 11).
 	"LanSessions": true,
 	// The Mods page (Phase D D4).

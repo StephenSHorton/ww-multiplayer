@@ -10,6 +10,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
@@ -33,6 +34,19 @@ type CoopRequest struct {
 	Merge        bool   `json:"merge"`
 	LiveSwitches bool   `json:"liveSwitches"`
 	ISO          string `json:"iso"` // the disc for the co-op tables; "" for the one patch last wrote
+}
+
+// CoopRelays are this player's own relay choices, host or joiner: the
+// CLI's --coop-boss-kill and --coop-refresh (internal/session CoopOptions
+// BossKill, Refresh). Neither is a lobby setting: each side asks its own
+// game's REL, so each side picks its own.
+type CoopRelays struct {
+	// BossKill is the boss-dead relay's rows: "" for the default
+	// (gohma,kalle), "none", or replica.BossKillTokens joined by ",".
+	BossKill string `json:"bossKill"`
+	// Refresh is the actor_refresh relay's tokens: "" or "none" for off,
+	// or replica.RefreshTokens joined by ",", with "dry" to log only.
+	Refresh string `json:"refresh"`
 }
 
 // WorldView is one co-op world on disk, for the host's Continue list.
@@ -63,6 +77,9 @@ type CoopView struct {
 	MyDryRun bool `json:"myDryRun"`
 	// AutoYes is "Answer yes to co-op questions" (per session).
 	AutoYes bool `json:"autoYes"`
+	// Relays is this player's saved relay choices (SetCoopRelays), which
+	// the save-file panel's fields start from.
+	Relays CoopRelays `json:"relays"`
 	// Choice is the host's saved choice, which the host panel starts
 	// from.
 	Choice CoopRequest `json:"choice"`
@@ -275,13 +292,36 @@ func (b *Bridge) SetMyCoopDryRun(on bool) {
 	b.emit(EventView{Kind: "state"})
 }
 
+// SetCoopRelays sets this player's own relay choices, host or joiner,
+// and saves them. They are checked as the CLI checks --coop-boss-kill and
+// --coop-refresh (replica.ParseBossKill, ParseRefresh), so the window
+// refuses what the CLI refuses, in the same words. Like the disc, they
+// count from the next co-op start: a session already running keeps the
+// ones it started with.
+func (b *Bridge) SetCoopRelays(r CoopRelays) (err error) {
+	defer b.maskErr(&err)
+	r.BossKill, r.Refresh = strings.TrimSpace(r.BossKill), strings.TrimSpace(r.Refresh)
+	if _, err := replica.ParseBossKill(r.BossKill); err != nil {
+		return err
+	}
+	if _, err := replica.ParseRefresh(r.Refresh); err != nil {
+		return err
+	}
+	b.mu.Lock()
+	b.cfg.Coop.BossKill, b.cfg.Coop.Refresh = r.BossKill, r.Refresh
+	b.mu.Unlock()
+	b.save()
+	b.emit(EventView{Kind: "state"})
+	return nil
+}
+
 // coopOptions is this player's own co-op choices, read when co-op
 // starts (HostOptions.CoopFn). The co-op tables come from the disc the
 // host chose under Advanced, else from the patched disc Dolphin boots
 // (Setup's): the stage files they are built from are the same.
 func (b *Bridge) coopOptions() session.CoopOptions {
 	b.mu.Lock()
-	o := session.CoopOptions{ISO: b.cfg.Coop.ISO, DryRun: b.myDryRun}
+	o := session.CoopOptions{ISO: b.cfg.Coop.ISO, DryRun: b.myDryRun, BossKill: b.cfg.Coop.BossKill, Refresh: b.cfg.Coop.Refresh}
 	b.mu.Unlock()
 	if o.ISO == "" {
 		o.ISO = b.launchOptions().ISO
@@ -437,9 +477,10 @@ func (b *Bridge) coopView(st session.State, running bool, mk masker) *CoopView {
 	}
 	b.mu.Lock()
 	choice, myDry := choiceOf(b.cfg.Coop), b.myDryRun
+	relays := CoopRelays{BossKill: b.cfg.Coop.BossKill, Refresh: b.cfg.Coop.Refresh}
 	b.mu.Unlock()
 	v := &CoopView{Setting: l.Settings.Coop, DryRun: l.Settings.DryRun, Merge: l.Settings.Merge, LiveSwitches: l.Settings.LiveSwitches,
-		On: st.Coop.On, MyDryRun: myDry, AutoYes: st.AutoYes, Choice: choice, Backup: st.CoopBackup}
+		On: st.Coop.On, MyDryRun: myDry, AutoYes: st.AutoYes, Relays: relays, Choice: choice, Backup: st.CoopBackup}
 	if v.Setting == "" {
 		v.Setting = "off"
 	}

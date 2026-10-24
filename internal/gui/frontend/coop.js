@@ -135,6 +135,21 @@ function renderCards(st, show) {
 	const joiner = !(st.lobby && st.lobby.host);
 	$("my-dry-row").hidden = !joiner;
 	if (joiner && document.activeElement !== $("my-dry")) $("my-dry").checked = !!c.myDryRun;
+	// Every player's own relays, from the saved choice (redrawn every
+	// second: a field being typed in keeps what is typed).
+	const r = c.relays || { bossKill: "", refresh: "" };
+	if (document.activeElement !== $("coop-bosskill")) $("coop-bosskill").value = r.bossKill || "";
+	if (document.activeElement !== $("coop-refreshset")) $("coop-refreshset").value = r.refresh || "";
+}
+
+// setRelays saves this player's relays; a set the CLI would refuse is
+// refused here in its words (--coop-boss-kill: ..., --coop-refresh: ...).
+async function setRelays() {
+	try {
+		await call("SetCoopRelays", { bossKill: $("coop-bosskill").value.trim(), refresh: $("coop-refreshset").value.trim() });
+	} catch (e) {
+		toast(e.message, { bad: true });
+	}
 }
 
 // ---------- the co-op panel (in game) ----------
@@ -324,6 +339,7 @@ export function initCoop({ copyText }) {
 		});
 	}
 	$("my-dry").addEventListener("change", () => call("SetMyCoopDryRun", $("my-dry").checked).catch((e) => toast(e.message, { bad: true })));
+	for (const id of ["coop-bosskill", "coop-refreshset"]) $(id).addEventListener("change", setRelays);
 	$("coop-refresh").addEventListener("click", () => command("refresh"));
 	$("coop-warp").addEventListener("click", () => command("warp"));
 	$("coop-pause").addEventListener("click", () => command($("coop-pause").dataset.paused === "true" ? "resume" : "pause"));

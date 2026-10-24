@@ -32,6 +32,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 )
 
@@ -100,7 +101,8 @@ type ISO struct {
 	Vanilla string `json:"vanilla"`
 }
 
-// Coop is the host's last co-op choice (the Lobby's co-op panel).
+// Coop is the host's last co-op choice (the Lobby's co-op panel), and
+// this player's own relay choices whichever side it plays.
 type Coop struct {
 	LastMode  string `json:"lastMode"` // "off", "new" or "continue"
 	LastWorld string `json:"lastWorld"`
@@ -111,6 +113,11 @@ type Coop struct {
 	Merge        bool   `json:"merge,omitempty"`
 	LiveSwitches bool   `json:"liveSwitches,omitempty"`
 	ISO          string `json:"iso,omitempty"`
+	// BossKill and Refresh are the save-file panel's relay choices, each
+	// side's own (host or joiner): --coop-boss-kill ("" for its default,
+	// gohma,kalle) and --coop-refresh ("" for off).
+	BossKill string `json:"bossKill,omitempty"`
+	Refresh  string `json:"refresh,omitempty"`
 }
 
 // UI is window and first-run state.
@@ -335,6 +342,16 @@ func (c *Config) validate() []string {
 	default:
 		warns = append(warns, fmt.Sprintf("co-op mode %q is not off, new or continue; using off", c.Coop.LastMode))
 		c.Coop.LastMode = d.Coop.LastMode
+	}
+	// The relay choices as the CLI takes them (replica's parsers): one it
+	// would refuse would stop co-op at Start.
+	if _, err := replica.ParseBossKill(c.Coop.BossKill); err != nil {
+		warns = append(warns, fmt.Sprintf("co-op boss-kill rows %q are not valid (%v); using the default", c.Coop.BossKill, err))
+		c.Coop.BossKill = d.Coop.BossKill
+	}
+	if _, err := replica.ParseRefresh(c.Coop.Refresh); err != nil {
+		warns = append(warns, fmt.Sprintf("co-op refresh tokens %q are not valid (%v); using none", c.Coop.Refresh, err))
+		c.Coop.Refresh = d.Coop.Refresh
 	}
 	if w := c.UI.Window; w.W < 320 || w.H < 240 || w.W > 16384 || w.H > 16384 {
 		c.UI.Window = d.UI.Window // a lost window size is not worth a warning

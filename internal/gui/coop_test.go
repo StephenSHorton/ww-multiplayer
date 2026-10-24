@@ -142,6 +142,88 @@ func TestCoopSettingsRoundTrip(t *testing.T) {
 	}
 }
 
+// TestCoopRelays: each side's own --coop-boss-kill and --coop-refresh. A
+// set the CLI refuses is refused in the CLI's words and changes nothing;
+// one it takes is saved, shown in the co-op view, and reaches the engine
+// through the CoopFn a host's lobby and a joiner's both start co-op from.
+func TestCoopRelays(t *testing.T) {
+	for _, bad := range []struct {
+		r    CoopRelays
+		want string
+	}{
+		{CoopRelays{BossKill: "gohma,ganon"}, `--coop-boss-kill: "ganon" is no boss (say gohma,kalle,gohdan,molgera,jalhalla, or none)`},
+		{CoopRelays{Refresh: "tbox,pots"}, `--coop-refresh: "pots" is no refresh token (say stone2,leaves,item,tbox,saku, dry, or none)`},
+		{CoopRelays{Refresh: "dry"}, `--coop-refresh: dry names no proc: add the ones to log (stone2,leaves,item,tbox,saku), e.g. stone2,leaves,item,tbox,saku,dry`},
+	} {
+		b, _, path := newCoopBridge(t)
+		if err := b.SetCoopRelays(bad.r); err == nil || err.Error() != bad.want {
+			t.Errorf("SetCoopRelays(%+v) = %v, want %q", bad.r, err, bad.want)
+		}
+		if o := b.coopOptions(); o.BossKill != "" || o.Refresh != "" {
+			t.Errorf("refused %+v reached coopOptions %+v", bad.r, o)
+		}
+		if _, err := os.Stat(path); err == nil {
+			t.Errorf("refused %+v was saved", bad.r)
+		}
+	}
+
+	for _, host := range []bool{true, false} {
+		b, e, path := newCoopBridge(t)
+		if host {
+			if err := b.Host(HostRequest{Name: "Link"}); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := b.Join(JoinRequest{Addr: "127.0.0.1", Name: "Link"}); err != nil {
+			t.Fatal(err)
+		}
+		e.out(t)
+		r := CoopRelays{BossKill: " gohma,kalle,gohdan,molgera,jalhalla ", Refresh: "stone2,tbox,dry"}
+		if err := b.SetCoopRelays(r); err != nil {
+			t.Fatal(err)
+		}
+		want := CoopRelays{BossKill: "gohma,kalle,gohdan,molgera,jalhalla", Refresh: "stone2,tbox,dry"}
+		e.mu.Lock()
+		var fn func() session.CoopOptions
+		if host {
+			fn = e.host[0].CoopFn
+		} else {
+			fn = e.join[0].CoopFn
+		}
+		cmds := len(e.cmds)
+		e.mu.Unlock()
+		if fn == nil {
+			t.Fatalf("host %v: no CoopFn", host)
+		}
+		if o := fn(); o.BossKill != want.BossKill || o.Refresh != want.Refresh {
+			t.Errorf("host %v: CoopFn %+v, want %+v", host, o, want)
+		}
+		// Not a lobby setting: nothing goes to the lobby.
+		if cmds != 0 {
+			t.Errorf("host %v: %d lobby commands", host, cmds)
+		}
+		if v := b.State(); v.Coop == nil || v.Coop.Relays != want {
+			t.Errorf("host %v: view %+v", host, v.Coop)
+		}
+		c, _ := config.Load(path)
+		if c.Coop.BossKill != want.BossKill || c.Coop.Refresh != want.Refresh {
+			t.Errorf("host %v: saved %+v", host, c.Coop)
+		}
+		// none is a choice, and "" goes back to the defaults.
+		if err := b.SetCoopRelays(CoopRelays{BossKill: "none", Refresh: "none"}); err != nil {
+			t.Fatal(err)
+		}
+		if o := b.coopOptions(); o.BossKill != "none" || o.Refresh != "none" {
+			t.Errorf("host %v: none gave %+v", host, o)
+		}
+		if err := b.SetCoopRelays(CoopRelays{}); err != nil {
+			t.Fatal(err)
+		}
+		if o := b.coopOptions(); o.BossKill != "" || o.Refresh != "" {
+			t.Errorf("host %v: defaults gave %+v", host, o)
+		}
+	}
+}
+
 // TestCoopWorldsView: the Continue list from the worlds on disk.
 func TestCoopWorldsView(t *testing.T) {
 	b, e, _ := newCoopBridge(t)
