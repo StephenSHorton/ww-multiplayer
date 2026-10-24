@@ -2,8 +2,10 @@ actors
 auto-recapture
 auto-recapture-pair
 blob-verify-live
+bpw-probe
 broadcast-link
 bst-probe
+bwd-probe
 coop-probe
 coop-watch
 disasm

@@ -56,10 +56,20 @@ typedef void (*emt_clr_hit_t)(void* obj);              // ClrTgHit__12dCcD_GObjI
 #define EMT_RESEED_DIV  5.0f          // rodata 0x70
 #define EMT_AC_POS      0x1F8         // cXyz current.pos: the copy's smoothed head
 // How far the copy's head must move from the ring's last kept entry before
-// the body step lets body_control1 advance the ring: about half the host
-// head's travel per ring advance in MOVE (6.0-6.4 on every advance of a
-// 20 s live sample, archive/enemy-batch-d/live/two/mtA3.txt; it drops to 0
-// at a dive in one frame, with no slow phase).
-#define EMT_RING_STEP_MIN 3.0f
+// the body step lets body_control1 advance the ring. The host head travels
+// 6.0-6.4 per ring advance in MOVE and drops to 0 at a dive in one frame
+// (archive/enemy-batch-d/live/two/mtA3.txt), but the copy's smoothed head
+// eases in and out at 1-5 per frame, and at 3.0 those frames kept entries
+// about 3.5 apart: six-entry segment spacing fell to 21-25 at every stop
+// and restart (LIVE-3, host 30-41). Replaying the hold rule on LIVE-3's
+// copy head trace (two/mtB4.txt, one sample per frame) gives, for the
+// six-entry spacing min / p95 / max and the share outside the host's
+// 30.2-45.7: 3.0 -> 19.2 / 39.4 / 47.3, 7.7%; 4.0 -> 23.6 / 41.6 / 50.7,
+// 4.4%; 5.0 -> 30.7 / 45.0 / 55.1, 4.3%; 5.5 -> 33.8 / 47.6 / 56.8,
+// 10.8%; 6.0 holds the copy's steady 5-6 frames too (kept entries 469 ->
+// 362, 85% above 42). 4.75-5.25 give the same minimum. The spans above 46
+// left at 5.0 are the copy's own 7-10 per frame catch-up steps after a
+// stream gap, which 3.0 shows too, not the hold.
+#define EMT_RING_STEP_MIN 5.0f
 
 #endif

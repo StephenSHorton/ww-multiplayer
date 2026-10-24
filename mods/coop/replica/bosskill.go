@@ -72,13 +72,39 @@ import (
 // 2504-2510); nothing is deleted. Entering SirenB after the bit leaves an
 // inert Bst (:1776), and bossKillWanted stops once the local bit is set.
 //
+// Molgera (design/relay-molgera.md) is the fourth row: in kazeB with Wind
+// Temple's table loaded, the REL hands this game's own Bwd vanilla's last
+// step instead of writing the lethal block. Only once the receiver has
+// pulled the tongue out with its own Hookshot (sita_hit's step 2, m18AE 3
+// and m18B0 2, the tongue timer running, no demo camera) does it write the
+// hit and critical-pull counters (m1BB4 = 3, m1BB5 = 3); Bwd's next
+// move() then counts the fourth critical pull and runs its own lethal
+// block, end(), the heart container, STAGE_BOSS_ENEMY and the warp flower
+// (d_a_bwd.cpp:533-552, 1020-1050, 1700-1705, 1764-1770). The intro, the
+// sand fight, the eat demo and fly answer "waiting"; end() (m18AE 0xC) and
+// the inert post-kill Bwd (0xD) answer "already".
+//
+// Jalhalla (design/relay-jalhalla.md) is the fifth: in M_DaiB with Earth
+// Temple's table loaded, the REL writes health 0 into this game's own Bpw
+// body once the receiver has frozen it with light (ACTION_DAMAGE at the
+// frozen, carried, thrown or spike states), before any Poe exists. The
+// next spike landing then creates no Poe and splits straight into the
+// death demo, which drops the heart, sets the bit and creates the warp
+// flower (d_a_bpw.rel .text 0x6284-0x651C, 0x8690-0x8940). A missed throw
+// fights on with health 0 until the next spike landing, and asks in
+// between answer "already" (logged in its own words: an empty Hero's Charm
+// gauge on a live Jalhalla is expected then). The split with live Poes
+// answers "waiting": a Poe cannot be killed by a write, so the receiver
+// finishes it or regathers and is frozen again.
+//
 // The --coop-boss-kill row set (Config.BossKill, ParseBossKill) picks the
 // rows the relay asks for, each side its own: gohma,kalle by default.
 // Gohdan joins the default once GD-2 and the D4 live check pass (G-D1;
-// docs/TESTING.md "Batch D"); until then it is asked for only with
-// --coop-boss-kill=gohma,kalle,gohdan. A row left out is held as before
-// (bossHold) and logged once; the WriteGuard takes every row's proc
-// whatever the set (bossRules).
+// docs/TESTING.md "Batch D"), and Molgera and Jalhalla once theirs do
+// (docs/TESTING.md "Batch E"); until then each is asked for only when
+// named, e.g. --coop-boss-kill=gohma,kalle,gohdan,molgera,jalhalla. A row
+// left out is held as before (bossHold) and logged once; the WriteGuard
+// takes every row's proc whatever the set (bossRules).
 
 // bossRow is a boss the relay can kill: its arena, the save table loaded
 // there, the proc the REL takes there, and the words the log says.
@@ -97,15 +123,18 @@ var bossKillRows = []bossRow{
 	{key: "gohma", stage: "M_DragB", table: addr.TableDRC, proc: mailbox.BossProcBtd, name: "Gohma", gate: "once its armor is broken"},
 	{key: "kalle", stage: "kinBOSS", table: addr.TableFW, proc: mailbox.BossProcBmd, name: "Kalle Demos", gate: "once its flower is down and open"},
 	{key: "gohdan", stage: "SirenB", table: addr.TableTotG, proc: mailbox.BossProcBst, name: "Gohdan", gate: "once its mouth is open for a bomb"},
+	{key: "molgera", stage: "kazeB", table: addr.TableWT, proc: mailbox.BossProcBwd, name: "Molgera", gate: "once its tongue is pulled out"},
+	{key: "jalhalla", stage: "M_DaiB", table: addr.TableET, proc: mailbox.BossProcBpw, name: "Jalhalla", gate: "once it is frozen by light (this game's own next throw into the spikes then ends the fight)"},
 }
 
 const (
 	// BossKillDefault is the --coop-boss-kill row set when none is given:
 	// Gohma and Kalle Demos. Gohdan joins it after GD-2 and the D4 live
-	// check (enemy-mirror-batch-d.json G-D1).
+	// check (enemy-mirror-batch-d.json G-D1), Molgera and Jalhalla after
+	// their D4 checks (docs/TESTING.md "Batch E").
 	BossKillDefault = "gohma,kalle"
 	// BossKillTokens names every --coop-boss-kill token, for the usage.
-	BossKillTokens = "gohma,kalle,gohdan"
+	BossKillTokens = "gohma,kalle,gohdan,molgera,jalhalla"
 )
 
 // ParseBossKill parses a --coop-boss-kill row set: bossKillRows' keys
@@ -233,8 +262,29 @@ func (r *Replica) bossLog(key, line string) {
 // (its -1 after the intro and after eat included). Gohdan: the result,
 // the head's mActionType with the fight's as one (STAY and FLY 0..1, and
 // 10..14, the hands' attacks, which turn over all fight long, d_a_bst.h:
-// 20-34), mDamage and m2E7C.
+// 20-34), mDamage and m2E7C. Molgera: the result, Bwd's m18AE with the
+// fight's (wait, reset, eat, fly and s_fly: 1, 2, 5, 10, 11, which turn
+// over all fight long) as one, the intro (0) and sita_hit (3) with its
+// m18B0, so a pull waiting at step 2 logs once, and m1BB5, so each
+// critical pull the receiver lands logs once. Jalhalla: the result, a
+// class of mBodyAction and mActionState (bpwClass) and whether health is
+// 0 or less; the health itself is left out.
 func bossAckKey(proc uint16, st mailbox.BossStatus) string {
+	switch proc {
+	case mailbox.BossProcBwd:
+		act := fmt.Sprintf("0x%X", st.Act)
+		switch st.Act {
+		case 1, 2, 5, 10, mailbox.BossBwdActSFly:
+			act = "fight"
+		case mailbox.BossBwdActIntro:
+			act = "intro"
+		case mailbox.BossBwdActTongue:
+			act = fmt.Sprintf("tongue %d", int8(st.State))
+		}
+		return fmt.Sprintf("ack %d bwd act %s m1BB5 %d", st.Result, act, int8(st.Phase))
+	case mailbox.BossProcBpw:
+		return fmt.Sprintf("ack %d bpw %s hp0 %t", st.Result, bpwClass(st.Act, st.State), int8(st.Phase) <= 0)
+	}
 	if proc == mailbox.BossProcBst {
 		act := fmt.Sprintf("0x%X", st.Act)
 		if st.Act <= 1 || st.Act >= 10 && st.Act <= 14 {
@@ -254,6 +304,55 @@ func bossAckKey(proc uint16, st mailbox.BossStatus) string {
 		act = "fight"
 	}
 	return fmt.Sprintf("ack %d phase %d act %s", st.Result, st.Phase, act)
+}
+
+// bpwClass names a Jalhalla result's mBodyAction and mActionState (low
+// bytes) for bossAckKey: the fight (actions 0..2), the light build-up
+// (3 at 0x50..0x51), the gate (3 at 0x52..0x55, 0x64, 0x65), a wall
+// bounce (3 at 0x5A..0x5C), the split (4 at 0x6E..0x75), the death demo
+// (4 at 0x78 and up), the intro (0x14), else the values in hex.
+func bpwClass(act, st uint8) string {
+	switch {
+	case act <= 2:
+		return "fight"
+	case act == mailbox.BossBpwActIntro:
+		return "intro"
+	case act == mailbox.BossBpwActDamage && st >= 0x50 && st <= 0x51:
+		return "light"
+	case act == mailbox.BossBpwActDamage && (st >= mailbox.BossBpwStFrozenLo && st <= mailbox.BossBpwStThrown || st == mailbox.BossBpwStSpike || st == mailbox.BossBpwStSpikeAir):
+		return "gate"
+	case act == mailbox.BossBpwActDamage && st >= 0x5A && st <= 0x5C:
+		return "bounce"
+	case act == mailbox.BossBpwActSeparate && st >= 0x6E && st <= 0x75:
+		return "split"
+	case act == mailbox.BossBpwActSeparate && st >= mailbox.BossBpwStDeath:
+		return "death"
+	}
+	return fmt.Sprintf("0x%X/0x%X", act, st)
+}
+
+// bossAckLine is the log line for an ack of seq. A Jalhalla "already"
+// with health 0 outside the death demo is the zero an earlier "applied"
+// left, waiting for the next spike landing, and says so; Jalhalla's
+// "applied" says it too, since the Hero's Charm gauge empties at the
+// write: the next throw while still frozen or carried (0x52..0x54), the
+// landing already under way once thrown or in the spikes (0x55, 0x64,
+// 0x65).
+func bossAckLine(seq uint32, proc uint16, st mailbox.BossStatus) string {
+	const bpwGauge = " (an empty boss gauge until then is expected)"
+	const bpwPending = "this game's Jalhalla falls on its next throw into the spikes" + bpwGauge
+	if proc == mailbox.BossProcBpw && st.Result == mailbox.BossRAlready && st.Act != mailbox.BossBpwActSeparate && int8(st.Phase) <= 0 {
+		return fmt.Sprintf("co-op: boss_kill %d: applied earlier; %s (mBodyAction %d, mActionState 0x%X)", seq, bpwPending, st.Act, st.State)
+	}
+	line := fmt.Sprintf("co-op: boss_kill %d: %s (%s)", seq, mailbox.BossResultName(st.Result), mailbox.BossDetail(proc, st))
+	if proc == mailbox.BossProcBpw && st.Result == mailbox.BossRApplied {
+		if st.State >= mailbox.BossBpwStThrown {
+			line += "; this game's Jalhalla falls on this landing in the spikes" + bpwGauge
+		} else {
+			line += "; " + bpwPending
+		}
+	}
+	return line
 }
 
 // bossRELWhy says why the REL module cannot take a request for row's
@@ -314,7 +413,7 @@ func (r *Replica) bossTick(o *obs, armed bool) {
 		case st.Ack == b.seq:
 			b.pending = false
 			b.stats.Result = mailbox.BossResultName(st.Result)
-			r.bossLog(bossAckKey(row.proc, st), fmt.Sprintf("co-op: boss_kill %d: %s (%s)", b.seq, b.stats.Result, mailbox.BossDetail(row.proc, st)))
+			r.bossLog(bossAckKey(row.proc, st), bossAckLine(b.seq, row.proc, st))
 			switch st.Result {
 			case mailbox.BossRApplied, mailbox.BossRAlready:
 				if st.Result == mailbox.BossRApplied {

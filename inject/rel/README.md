@@ -357,8 +357,9 @@ and `body_control2`'s first words and both builders' `blr` in the loaded
 frame `em_mt_body_step` writes the streamed head (shape x/y/z, the wiggle
 +0x468 from slot +0x18), clears the latch +0xC01 and the hit cooldown
 +0x460, ticks the sway clock +0x46A and calls `body_control1` (MOVE, with
-+0x48E = 1 while the copy's head is within 3 units of the ring's last kept
-entry, so the ring advances on the copy's own motion) or `body_control2`
++0x48E = 1 while the copy's head is within 5 units of the ring's last kept
+entry, so the ring advances on the copy's own motion; batch E raised it
+from 3, whose eased frames packed the segments to 21-25) or `body_control2`
 (FIGHT, after +0x48E = 0 and +0xC04 = 0); PINNED calls nothing.
 The builders write the eight segment matrices and enter the nine spheres
 themselves; `em_mt_coll_post` then clears the body spheres' At, puts a
@@ -663,6 +664,30 @@ mouth open for a bomb, `m2E7C` 12, `m2E9A` 0, both hands SLEEP), else
 head END_DEMO last, then `bgmStop(30)` and `bgmStreamPrepare(BST_CLEAR)`;
 its own `end_demo` does the rest. The result bytes are the head's
 mActionType, `mDamage`, `m2E7C`.
+
+Molgera (`design/relay-molgera.md`, under `WWBOSS_WITH_BWD`) is the fourth
+proc, 0x00DA (Bwd), taken only in the stage named exactly `kazeB` and found
+by name. A NULL head morf is `no_actor`, `m18AE` 0xC or 0xD `already`. It
+applies only in vanilla's own pre-death window: `m18AE` 3 (`sita_hit`),
+`m18B0` 2 (the tongue pulled out and looped), the tongue timer `m1BB1` not
+0 and the demo camera `m3C1E` 0; else `waiting`. The apply is two s8
+counters, `m1BB4` = 3 and `m1BB5` = 3, so on Bwd's next `move()` its own
+`m1BB5++` makes the fourth critical pull and its own lethal block, `end()`,
+heart container, STAGE_BOSS_ENEMY and warp flower follow. No call, no
+health. The result bytes are `m18AE`, `m18B0`, `m1BB5`.
+
+Jalhalla (`design/relay-jalhalla.md`, under `WWBOSS_WITH_BPW`) is the fifth
+proc, 0x00D4 (Bpw), taken only in the stage named exactly `M_DaiB`. Its
+kantera and damage balls share the proc, so `bk_bpw` finds the body with
+`fopAcIt_Judge` and `bk_bpw_judge` (mType 0, mInitState 2, not creating;
+build.py checks it is `.text` too). No body is `no_actor`; health <= 0 or
+mBodyAction 4 at mActionState >= 0x78 is `already`. It applies at
+mBodyAction 3 with mActionState 0x52..0x55 (frozen, carried, thrown), 0x64
+or 0x65 (the spike hit) and health > 0, before any Poe exists; else
+`waiting`. The apply is one write, health = 0: the next spike landing
+creates no Poe and its own split goes straight to the death demo (BGM
+stop, clear stream, heart, STAGE_BOSS_ENEMY, warp flower). The result
+bytes are mBodyAction, mActionState, health.
 
 ## refresh.c: the actor_refresh op
 

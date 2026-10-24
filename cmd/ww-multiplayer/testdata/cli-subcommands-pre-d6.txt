@@ -3,9 +3,11 @@ actors
 auto-recapture
 auto-recapture-pair
 blob-verify-live
+bpw-probe
 broadcast-link
 broadcast-pose
 bst-probe
+bwd-probe
 coop-probe
 coop-tables
 coop-tag

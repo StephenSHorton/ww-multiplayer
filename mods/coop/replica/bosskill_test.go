@@ -3,6 +3,7 @@ package replica
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,6 +104,20 @@ func TestBossKillWantedRows(t *testing.T) {
 		{"the TotG dungeon", "Siren", addr.TableTotG, held(totgBossItems), -1, 0},
 		{"an X stage on TotG's table", "Xboss2", addr.TableTotG, held(totgBossItems), -1, 0},
 		{"M_DragB with TotG's bit held", "M_DragB", addr.TableDRC, held(totgBossItems), -1, 0},
+		{"Molgera", "kazeB", addr.TableWT, held(wtBossItems), -1, mailbox.BossProcBwd},
+		{"kazeB with TotG's bit held", "kazeB", addr.TableWT, held(totgBossItems), -1, 0},
+		{"kazeB with ET's table", "kazeB", addr.TableET, held(etBossItems), -1, 0},
+		{"kazeB, the local bit set", "kazeB", addr.TableWT, held(wtBossItems), wtBossItems, 0},
+		{"the WT dungeon", "kaze", addr.TableWT, held(wtBossItems), -1, 0},
+		{"the WT miniboss room", "kazeMB", addr.TableWT, held(wtBossItems), -1, 0},
+		{"an X stage on WT's table", "Xboss3", addr.TableWT, held(wtBossItems), -1, 0},
+		{"Jalhalla", "M_DaiB", addr.TableET, held(etBossItems), -1, mailbox.BossProcBpw},
+		{"M_DaiB with WT's bit held", "M_DaiB", addr.TableET, held(wtBossItems), -1, 0},
+		{"M_DaiB with WT's table", "M_DaiB", addr.TableWT, held(wtBossItems), -1, 0},
+		{"M_DaiB, the local bit set", "M_DaiB", addr.TableET, held(etBossItems), etBossItems, 0},
+		{"the ET dungeon", "M_Dai", addr.TableET, held(etBossItems), -1, 0},
+		{"the ET miniboss room", "M_DaiMB", addr.TableET, held(etBossItems), -1, 0},
+		{"an X stage on ET's table", "Xboss2", addr.TableET, held(etBossItems), -1, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -183,12 +198,32 @@ func TestBossGuardRules(t *testing.T) {
 			t.Fatalf("proc low byte 0x%02X: %v, want a value refusal", v, r)
 		}
 	}
-	// Gohdan's proc byte is the boss path's alone: the refresh request's
-	// bytes take none of the boss rows' procs (its proc is the allow-list's).
+	// Molgera's and Jalhalla's: taken; Molgera's larvae (BWDS 0xDB) and
+	// sand floor (BWDG 0xDC) and Jalhalla's Poes (PW 0xD5) are no value.
+	for _, p := range []uint16{mailbox.BossProcBwd, mailbox.BossProcBpw} {
+		f, _ := mailbox.BossRequestFields(p, 1)
+		for i, b := range f {
+			if r := judge(procAt+uint32(i), b); r != 0 {
+				t.Fatalf("%s's proc/tag byte %d 0x%02X refused: %s", mailbox.BossProcName(p), i, b, r)
+			}
+		}
+	}
+	for _, v := range []byte{0xD5, 0xDB, 0xDC} {
+		if r := judge(procAt+1, v); r != RefuseValue {
+			t.Fatalf("proc low byte 0x%02X: %v, want a value refusal", v, r)
+		}
+	}
+	// The boss procs' bytes are the boss path's alone: the refresh
+	// request's bytes take none of the boss rows' procs (its proc is the
+	// allow-list's).
 	if _, br, ok := g.at(mailbox.RefreshAddr + mailbox.RefreshProcOff + 1); !ok || br.paths != pathRefresh {
 		t.Fatalf("the refresh proc byte: ok %v paths %s", ok, br.paths)
-	} else if r, _ := judgeByte(br, 0, 0xF2); r != RefuseValue {
-		t.Fatalf("0xF2 in the refresh request's proc: %v", r)
+	} else {
+		for _, v := range []byte{0xF2, 0xDA, 0xD4} {
+			if r, _ := judgeByte(br, 0, v); r != RefuseValue {
+				t.Fatalf("0x%02X in the refresh request's proc: %v", v, r)
+			}
+		}
 	}
 	if r := judge(procAt+3, 'X'); r != RefuseValue {
 		t.Fatalf("another tag: %s", r)
@@ -591,6 +626,9 @@ func TestParseBossKill(t *testing.T) {
 		{BossKillDefault, []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd}, false},
 		{"gohma, KALLE ,gohdan", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBst}, false},
 		{"gohdan", []uint16{mailbox.BossProcBst}, false},
+		{"molgera", []uint16{mailbox.BossProcBwd}, false},
+		{"jalhalla", []uint16{mailbox.BossProcBpw}, false},
+		{"gohma,kalle,gohdan,Molgera,jalhalla", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBst, mailbox.BossProcBwd, mailbox.BossProcBpw}, false},
 		{"none", nil, false},
 		{"gohma,helmaroc", nil, true},
 	} {
@@ -612,6 +650,13 @@ func TestParseBossKill(t *testing.T) {
 	}
 	if _, err := New(Config{Mem: newRecRig(t, Config{}, proto.FeatureImage).m, BossKill: "ganon"}); err == nil {
 		t.Fatal("New took an unknown --coop-boss-kill row")
+	}
+	// The default leaves the opt-in rows out.
+	def, _ := ParseBossKill("")
+	for _, p := range []uint16{mailbox.BossProcBst, mailbox.BossProcBwd, mailbox.BossProcBpw} {
+		if def[p] {
+			t.Fatalf("the default row set takes %s", mailbox.BossProcName(p))
+		}
 	}
 }
 
@@ -784,6 +829,371 @@ func TestBossAckKeyBst(t *testing.T) {
 	for _, k := range []string{key(5, 0, 1), key(6, 0, 1), key(7, 3, 12), key(0x16, 0, 12), key(0, 0, 12)} {
 		if k == fight {
 			t.Errorf("%q is the fight's key", k)
+		}
+	}
+}
+
+// wtBossItems and etBossItems are Wind Temple's and Earth Temple's
+// mDungeonItem bytes in the image.
+var (
+	wtBossItems = addr.OffMemBit(addr.TableWT) + addr.MemBitOffDungeonItem
+	etBossItems = addr.OffMemBit(addr.TableET) + addr.MemBitOffDungeonItem
+)
+
+// wtBoss and etBoss are the Molgera and Jalhalla arenas, BOSS-type stages
+// of WT's and ET's tables.
+var (
+	wtBoss = fakegame.Stage{Name: "kazeB", Table: addr.TableWT, KeyHUD: true}
+	etBoss = fakegame.Stage{Name: "M_DaiB", Table: addr.TableET, KeyHUD: true}
+)
+
+// batchERows is --coop-boss-kill with Molgera and Jalhalla named.
+const batchERows = "gohma,kalle,molgera,jalhalla"
+
+// partnerKilledAt is the world with the partner's boss of the table at
+// off dead (and its demo seen), and the map and compass.
+func (br *bossRig) partnerKilledAt(off int) {
+	var img save.Image
+	img[off] = 0x2B
+	br.world(img)
+}
+
+// bossAnswers acks every answer in turn with result waiting, checking the
+// relay asks again after bossRetry and not before.
+func (br *bossRig) bossAnswers(t *testing.T, answers [][3]uint8) {
+	t.Helper()
+	for _, a := range answers {
+		s, _, _ := br.request()
+		br.relPhase(s, mailbox.BossRWaiting, a[0], a[1], a[2])
+		br.ticks(1)
+		if n, _, _ := br.request(); n != s {
+			t.Fatalf("asked again (%d) before bossRetry", n)
+		}
+		br.clock.advance(bossRetry)
+		br.ticks(1)
+		if n, _, _ := br.request(); n != s+1 {
+			t.Fatalf("after waiting at % X: seq %d, want %d; log:\n%s", a, n, s+1, br.log)
+		}
+	}
+}
+
+// TestBossKillRelayBwd: with Molgera in the row set, the partner kills it
+// while this game is in kazeB. The request names Bwd's proc; the intro,
+// the fight's states (one key) and a pull still at its one-shot are each
+// logged once while asked again after bossRetry; the pulled tongue's
+// applied is not asked again during the death camera, and the relay stops
+// once the game has set WT's bit itself.
+func TestBossKillRelayBwd(t *testing.T) {
+	br := newBossRigSet(t, wtBoss, true, batchERows)
+	br.partnerKilledAt(wtBossItems)
+	br.ticks(3)
+	seq, proc, tag := br.request()
+	if seq == 0 || proc != mailbox.BossProcBwd || tag != mailbox.BossTag {
+		t.Fatalf("request seq %d proc 0x%X tag 0x%X; log:\n%s", seq, proc, tag, br.log)
+	}
+	if v := br.liveByte(wtBossItems); v&bossEnemy != 0 {
+		t.Fatalf("the boss bit was written live in the arena: 0x%02X", v)
+	}
+	if st := br.r.Status(); !st.BossKill.Wanted || st.BossKill.Boss != "Molgera" || st.BossKill.Requests != 1 {
+		t.Fatalf("status %+v", st.BossKill)
+	}
+	if !br.log.has("the partner killed Molgera") || !br.log.has("once its tongue is pulled out") {
+		t.Fatalf("no Molgera line:\n%s", br.log)
+	}
+	// m18AE, m18B0, m1BB5: the intro, then s_fly and the fight (wait,
+	// reset, eat, fly, all one key), then a pull at its one-shot step 1.
+	br.bossAnswers(t, [][3]uint8{
+		{mailbox.BossBwdActIntro, 0, 0},
+		{mailbox.BossBwdActSFly, 0, 0}, {1, 0, 0}, {2, 1, 0}, {5, 2, 0}, {10, 0, 0}, {1, 0xF6, 0},
+		{mailbox.BossBwdActTongue, 1, 0},
+	})
+	if n := br.log.count(": waiting (m18AE 0x"); n != 3 {
+		t.Fatalf("waiting logged %d times, want 3 (intro, fight, tongue step 1):\n%s", n, br.log)
+	}
+	if !br.log.has("waiting (m18AE 0x0, m18B0 0, m1BB5 0)") || !br.log.has("waiting (m18AE 0x3, m18B0 1, m1BB5 0)") {
+		t.Fatalf("Bwd's fields not logged:\n%s", br.log)
+	}
+
+	// Applied with the tongue looped: not asked again during the demo.
+	s, _, _ := br.request()
+	br.relPhase(s, mailbox.BossRApplied, mailbox.BossBwdActTongue, mailbox.BossBwdStepPulled, 2)
+	br.ticks(1)
+	br.clock.advance(10 * bossRetry)
+	br.ticks(3)
+	if n, _, _ := br.request(); n != s {
+		t.Fatalf("asked again (%d) during the demo", n)
+	}
+	if st := br.r.Status(); st.BossKill.Applied != 1 || st.BossKill.Result != "applied" {
+		t.Fatalf("status %+v", st.BossKill)
+	}
+	if !br.log.has("applied (m18AE 0x3, m18B0 2, m1BB5 2)") {
+		t.Fatalf("no applied line:\n%s", br.log)
+	}
+
+	// The death camera sets WT's bit: the relay ends.
+	br.set(wtBossItems, bossEnemy)
+	br.clock.advance(bossSettle)
+	br.ticks(3)
+	if n, _, _ := br.request(); n != s {
+		t.Fatalf("asked again (%d) once the game has the bit", n)
+	}
+	if st := br.r.Status(); st.BossKill.Wanted {
+		t.Fatalf("still wanted with the bit set: %+v", st.BossKill)
+	}
+}
+
+// TestBossKillRelayBpw: with Jalhalla in the row set, the partner kills it
+// while this game is in M_DaiB. The request names Bpw's proc; the intro,
+// the fight, the light build-up, a wall bounce and the split are each
+// logged once while asked again after bossRetry; applied at the freeze
+// settles; a later already with health 0 off the death demo (a missed
+// throw) logs its own words once and settles too; the relay stops once
+// the game has set ET's bit.
+func TestBossKillRelayBpw(t *testing.T) {
+	br := newBossRigSet(t, etBoss, true, batchERows)
+	br.partnerKilledAt(etBossItems)
+	br.ticks(3)
+	seq, proc, tag := br.request()
+	if seq == 0 || proc != mailbox.BossProcBpw || tag != mailbox.BossTag {
+		t.Fatalf("request seq %d proc 0x%X tag 0x%X; log:\n%s", seq, proc, tag, br.log)
+	}
+	if v := br.liveByte(etBossItems); v&bossEnemy != 0 {
+		t.Fatalf("the boss bit was written live in the arena: 0x%02X", v)
+	}
+	if st := br.r.Status(); !st.BossKill.Wanted || st.BossKill.Boss != "Jalhalla" || st.BossKill.Requests != 1 {
+		t.Fatalf("status %+v", st.BossKill)
+	}
+	if !br.log.has("the partner killed Jalhalla") || !br.log.has("once it is frozen by light") {
+		t.Fatalf("no Jalhalla line:\n%s", br.log)
+	}
+	// mBodyAction, mActionState, health.
+	br.bossAnswers(t, [][3]uint8{
+		{mailbox.BossBpwActIntro, 0xC8, 15},
+		{0, 0, 15}, {1, 3, 15}, {2, 0x28, 15},
+		{mailbox.BossBpwActDamage, 0x50, 15}, {mailbox.BossBpwActDamage, 0x51, 15},
+		{mailbox.BossBpwActDamage, 0x5A, 15},
+		{mailbox.BossBpwActSeparate, 0x6F, 15}, {mailbox.BossBpwActSeparate, 0x72, 14},
+	})
+	if n := br.log.count(": waiting (mBodyAction "); n != 5 {
+		t.Fatalf("waiting logged %d times, want 5 (intro, fight, light, bounce, split):\n%s", n, br.log)
+	}
+	if !br.log.has("waiting (mBodyAction 20, mActionState 0xC8, health 15)") || !br.log.has("waiting (mBodyAction 4, mActionState 0x6F, health 15)") {
+		t.Fatalf("Bpw's fields not logged:\n%s", br.log)
+	}
+
+	// Applied while carried: not asked again for bossSettle.
+	s, _, _ := br.request()
+	br.relPhase(s, mailbox.BossRApplied, mailbox.BossBpwActDamage, 0x54, 15)
+	br.ticks(1)
+	br.clock.advance(10 * bossRetry)
+	br.ticks(3)
+	if n, _, _ := br.request(); n != s {
+		t.Fatalf("asked again (%d) after applied", n)
+	}
+	if !br.log.has("applied (mBodyAction 3, mActionState 0x54, health 15); this game's Jalhalla falls on its next throw into the spikes (an empty boss gauge until then is expected)") {
+		t.Fatalf("no applied line with the gauge note:\n%s", br.log)
+	}
+
+	// The throw missed: the next asks find health 0 in the fight, which
+	// logs once in its own words and settles as already.
+	for range 2 {
+		br.clock.advance(bossSettle)
+		br.ticks(1)
+		s, _, _ = br.request()
+		br.relPhase(s, mailbox.BossRAlready, 0, 0, 0)
+		br.ticks(1)
+		br.clock.advance(10 * bossRetry)
+		br.ticks(3)
+		if n, _, _ := br.request(); n != s {
+			t.Fatalf("asked again (%d) after already", n)
+		}
+	}
+	const pending = "applied earlier; this game's Jalhalla falls on its next throw into the spikes (an empty boss gauge until then is expected) (mBodyAction 0, mActionState 0x0)"
+	if n := br.log.count(pending); n != 1 {
+		t.Fatalf("the pending zero logged %d times:\n%s", n, br.log)
+	}
+	if br.log.has(": already dying (mBodyAction 0") {
+		t.Fatalf("the pending zero read as already dying:\n%s", br.log)
+	}
+
+	// The death demo sets ET's bit: the relay ends.
+	br.set(etBossItems, bossEnemy)
+	br.clock.advance(bossSettle)
+	br.ticks(3)
+	if n, _, _ := br.request(); n != s {
+		t.Fatalf("asked again (%d) once the game has the bit", n)
+	}
+	if st := br.r.Status(); st.BossKill.Wanted || st.BossKill.Applied != 1 {
+		t.Fatalf("status with the bit set: %+v", st.BossKill)
+	}
+}
+
+// TestBossKillBwdDefaultOff and TestBossKillBpwDefaultOff: with the
+// default row set (gohma,kalle), kazeB and M_DaiB get no request; the log
+// says once why the arena keeps its boss.
+func TestBossKillBwdDefaultOff(t *testing.T) { testBossDefaultOff(t, wtBoss, wtBossItems, "Molgera") }
+func TestBossKillBpwDefaultOff(t *testing.T) { testBossDefaultOff(t, etBoss, etBossItems, "Jalhalla") }
+
+func testBossDefaultOff(t *testing.T, stage fakegame.Stage, off int, name string) {
+	t.Helper()
+	br := newBossRig(t, stage, true)
+	br.partnerKilledAt(off)
+	br.ticks(3)
+	br.clock.advance(bossRetry)
+	br.ticks(3)
+	if seq, _, _ := br.request(); seq != 0 {
+		t.Fatalf("%s: a request without the row: seq %d", name, seq)
+	}
+	if st := br.r.Status(); st.BossKill.Wanted || st.Writes.BossKills != 0 {
+		t.Fatalf("%s: status %+v", name, st.BossKill)
+	}
+	if n := br.log.count("the partner killed " + name + ", but --coop-boss-kill (gohma,kalle) leaves it out"); n != 1 {
+		t.Fatalf("%s: logged %d times:\n%s", name, n, br.log)
+	}
+}
+
+// TestBossKillBwdNeverOutsideKazeB: with Molgera named, no other stage of
+// WT's table (the temple, the miniboss room, an X refight stage) gets a
+// request, and --coop-boss-kill=molgera alone leaves Gohma's arena alone.
+func TestBossKillBwdNeverOutsideKazeB(t *testing.T) {
+	testBossNeverOutside(t, wtBossItems, "molgera", fakegame.Stage{Name: "kaze", Table: addr.TableWT, KeyHUD: true},
+		fakegame.Stage{Name: "kazeMB", Table: addr.TableWT, KeyHUD: true}, fakegame.Stage{Name: "Xboss3", Table: addr.TableWT, KeyHUD: true})
+}
+
+// TestBossKillBpwNeverOutsideMDaiB: with Jalhalla named, no other stage of
+// ET's table (the temple, the miniboss room, an X refight stage) gets a
+// request, and --coop-boss-kill=jalhalla alone leaves Gohma's arena alone.
+func TestBossKillBpwNeverOutsideMDaiB(t *testing.T) {
+	testBossNeverOutside(t, etBossItems, "jalhalla", fakegame.Stage{Name: "M_Dai", Table: addr.TableET, KeyHUD: true},
+		fakegame.Stage{Name: "M_DaiMB", Table: addr.TableET, KeyHUD: true}, fakegame.Stage{Name: "Xboss2", Table: addr.TableET, KeyHUD: true})
+}
+
+func testBossNeverOutside(t *testing.T, off int, key string, stages ...fakegame.Stage) {
+	t.Helper()
+	for _, st := range stages {
+		br := newBossRigSet(t, st, true, batchERows)
+		br.partnerKilledAt(off)
+		br.ticks(5)
+		if seq, _, _ := br.request(); seq != 0 {
+			t.Fatalf("%s: a request: seq %d", st.Name, seq)
+		}
+	}
+	br := newBossRigSet(t, drcBoss, true, key)
+	br.partnerKilled()
+	br.ticks(5)
+	if seq, _, _ := br.request(); seq != 0 {
+		t.Fatalf("Gohma asked for with --coop-boss-kill=%s: seq %d", key, seq)
+	}
+}
+
+// TestBossKillBwdNoREL and TestBossKillBpwNoREL: without the REL module
+// the relay writes nothing and names its boss once; a REL of another
+// build likewise.
+func TestBossKillBwdNoREL(t *testing.T) { testBossNoREL(t, wtBoss, wtBossItems, "Molgera") }
+func TestBossKillBpwNoREL(t *testing.T) { testBossNoREL(t, etBoss, etBossItems, "Jalhalla") }
+
+func testBossNoREL(t *testing.T, stage fakegame.Stage, off int, name string) {
+	t.Helper()
+	br := newBossRigSet(t, stage, false, batchERows)
+	br.partnerKilledAt(off)
+	br.ticks(3)
+	br.clock.advance(bossRetry)
+	br.ticks(3)
+	if seq, _, _ := br.request(); seq != 0 {
+		t.Fatalf("%s: a request without the REL: seq %d", name, seq)
+	}
+	if n := br.log.count("the arena keeps " + name + " until it is"); n != 1 {
+		t.Fatalf("%s: logged %d times:\n%s", name, n, br.log)
+	}
+	br.linkREL(inject.RELBuildID ^ 1)
+	br.clock.advance(bossRetry)
+	br.ticks(3)
+	if seq, _, _ := br.request(); seq != 0 {
+		t.Fatalf("%s: a request to another REL build: seq %d", name, seq)
+	}
+	if n := br.log.count(fmt.Sprintf("is build %08X, this build's is %08X; the arena keeps %s", inject.RELBuildID^1, inject.RELBuildID, name)); n != 1 {
+		t.Fatalf("%s: logged %d times:\n%s", name, n, br.log)
+	}
+}
+
+// TestBossAckKeyBwd: the fight's states (wait, reset, eat, fly, s_fly)
+// log as one key; the intro, each sita_hit step, each critical pull and
+// the death differ.
+func TestBossAckKeyBwd(t *testing.T) {
+	key := func(act, step, crit uint8) string {
+		return bossAckKey(mailbox.BossProcBwd, mailbox.BossStatus{Result: mailbox.BossRWaiting, Act: act, State: step, Phase: crit})
+	}
+	fight := key(1, 0, 0)
+	for _, a := range [][2]uint8{{2, 1}, {5, 3}, {10, 0}, {mailbox.BossBwdActSFly, 2}, {1, 0xF6}} {
+		if k := key(a[0], a[1], 0); k != fight {
+			t.Errorf("act %d step %d: %q, want %q", a[0], a[1], k, fight)
+		}
+	}
+	seen := map[string]bool{fight: true}
+	for _, k := range []string{key(0, 0, 0), key(3, 0, 0), key(3, 1, 0), key(3, 2, 0), key(3, 2, 1), key(1, 0, 2), key(0xC, 0, 4), key(0xD, 0, 0)} {
+		if seen[k] {
+			t.Errorf("%q repeats a key", k)
+		}
+		seen[k] = true
+	}
+}
+
+// TestBossAckKeyBpw: each class of mBodyAction and mActionState is one
+// key whatever the health; health 0 is its own key.
+func TestBossAckKeyBpw(t *testing.T) {
+	key := func(r, act, st, hp uint8) string {
+		return bossAckKey(mailbox.BossProcBpw, mailbox.BossStatus{Result: r, Act: act, State: st, Phase: hp})
+	}
+	w := mailbox.BossRWaiting
+	for _, c := range []struct {
+		name string
+		same [][2]uint8
+	}{
+		{"fight", [][2]uint8{{0, 0}, {1, 7}, {2, 0x28}}},
+		{"light", [][2]uint8{{3, 0x50}, {3, 0x51}}},
+		{"gate", [][2]uint8{{3, 0x52}, {3, 0x53}, {3, 0x54}, {3, 0x55}, {3, 0x64}, {3, 0x65}}},
+		{"bounce", [][2]uint8{{3, 0x5A}, {3, 0x5B}, {3, 0x5C}}},
+		{"split", [][2]uint8{{4, 0x6E}, {4, 0x6F}, {4, 0x75}}},
+		{"death", [][2]uint8{{4, 0x78}, {4, 0x86}, {4, 0x88}}},
+		{"intro", [][2]uint8{{0x14, 0xC8}, {0x14, 0xD0}}},
+	} {
+		k0 := key(w, c.same[0][0], c.same[0][1], 15)
+		for _, s := range c.same {
+			for _, hp := range []uint8{1, 9, 15} {
+				if k := key(w, s[0], s[1], hp); k != k0 {
+					t.Errorf("%s: act %d st 0x%X hp %d: %q, want %q", c.name, s[0], s[1], hp, k, k0)
+				}
+			}
+		}
+		if key(w, c.same[0][0], c.same[0][1], 0) == k0 {
+			t.Errorf("%s: health 0 shares the key", c.name)
+		}
+	}
+	if key(w, 0, 0, 15) == key(w, 3, 0x52, 15) || key(w, 3, 0x52, 15) == key(w, 3, 0x5A, 15) || key(w, 4, 0x6F, 15) == key(w, 4, 0x78, 15) {
+		t.Error("two classes share a key")
+	}
+	if got := bpwClass(3, 0x58); got != "0x3/0x58" {
+		t.Errorf("an unclassed state: %q", got)
+	}
+}
+
+// TestBossAckLineBpw: Jalhalla's applied line names the next throw while
+// it is frozen or carried (0x52..0x54) and the landing under way once it
+// is thrown or in the spikes (0x55, 0x64, 0x65).
+func TestBossAckLineBpw(t *testing.T) {
+	for _, c := range []struct {
+		st   uint8
+		want string
+	}{
+		{0x52, "falls on its next throw into the spikes"},
+		{0x54, "falls on its next throw into the spikes"},
+		{0x55, "falls on this landing in the spikes"},
+		{0x64, "falls on this landing in the spikes"},
+		{0x65, "falls on this landing in the spikes"},
+	} {
+		line := bossAckLine(7, mailbox.BossProcBpw, mailbox.BossStatus{Result: mailbox.BossRApplied, Act: mailbox.BossBpwActDamage, State: c.st, Phase: 15})
+		if !strings.Contains(line, "; this game's Jalhalla "+c.want+" (an empty boss gauge until then is expected)") {
+			t.Errorf("state 0x%X: %q, want %q", c.st, line, c.want)
 		}
 	}
 }
