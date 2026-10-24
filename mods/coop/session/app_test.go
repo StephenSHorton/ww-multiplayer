@@ -136,13 +136,16 @@ func TestLobbyCoopNewWorld(t *testing.T) {
 	port := freePort(t)
 	optsB := optsA
 	optsB.UserDir = userB
-	if _, err := ca.HostLobby(context.Background(), session.HostOptions{Name: "Host", Port: port, ListenHost: "127.0.0.1", Launch: optsA}); err != nil {
+	if _, err := ca.HostLobby(context.Background(), session.HostOptions{Name: "Host", Port: port, ListenHost: "127.0.0.1", Launch: optsA,
+		CoopFn: func() session.CoopOptions { return session.CoopOptions{BossKill: "none", Refresh: "tbox,saku"} }}); err != nil {
 		t.Fatal(err)
 	}
 	defer ca.Leave()
 	waitSnap(t, ca, "host in its lobby", func(st session.State) bool { return st.Phase == session.InLobby && st.Lobby.Host })
 	if _, err := cb.JoinLobby(context.Background(), session.JoinOptions{Name: "Joiner", Addr: fmt.Sprintf("127.0.0.1:%d", port), Launch: optsB,
-		CoopFn: func() session.CoopOptions { return session.CoopOptions{DryRun: true} }}); err != nil {
+		CoopFn: func() session.CoopOptions {
+			return session.CoopOptions{DryRun: true, BossKill: "gohma,kalle,gohdan", Refresh: "stone2,dry"}
+		}}); err != nil {
 		t.Fatal(err)
 	}
 	defer cb.Leave()
@@ -189,6 +192,21 @@ func TestLobbyCoopNewWorld(t *testing.T) {
 	sb := waitSnap(t, cb, "the joiner's co-op on", func(st session.State) bool { return st.Phase == session.InGame && st.Coop.On })
 	if sb.Coop.World != wid || !sb.Coop.DryRun {
 		t.Fatalf("joiner coop %+v, want world %s and its own dry run", sb.Coop, wid)
+	}
+	// Each side's own relays (the window's CoopFn) reach its co-op
+	// session's flags, whatever the other side chose.
+	for _, side := range []struct {
+		who               string
+		e                 *engine.Engine
+		bossKill, refresh string
+	}{{"host", ea, "none", "tbox,saku"}, {"joiner", eb, "gohma,kalle,gohdan", "stone2,dry"}} {
+		cs, _ := side.e.CoopSide().(*Session)
+		if cs == nil {
+			t.Fatalf("%s: no co-op session", side.who)
+		}
+		if cs.flags.bossKill != side.bossKill || cs.flags.refresh != side.refresh {
+			t.Fatalf("%s: relays %q %q, want %q %q", side.who, cs.flags.bossKill, cs.flags.refresh, side.bossKill, side.refresh)
+		}
 	}
 	if got := join.starts(); len(got) != 1 || got[0] != "joiner hub=true" {
 		t.Fatalf("joiner co-op starts %v, want one, after the host's hub was set", got)
