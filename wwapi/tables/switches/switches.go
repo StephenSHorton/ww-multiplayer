@@ -3,13 +3,14 @@
 // reads, in the store and scope the game keeps it in, it lists the
 // writers with what they do, and decides whether co-op may sync it: only
 // when it has a latching setter and every other writer latches too, that
-// is, sets it and never clears or flips it, or writes only while a Game
-// Boy Advance is linked (the Tingle Tuner's, class GBA). A switch with a
+// is, sets it and never clears or flips it, writes only while a Game Boy
+// Advance is linked (the Tingle Tuner's, class GBA), or is a type-1
+// TAG_EVSW, which only sets it from a synced story bit. A switch with a
 // GBA writer syncs only while no GBA is linked (Switch.GBA), which the
 // runtime checks every tick. An AND switch's setter latches only while
 // all its inputs are synced, transitively, except that a one-shot AND
-// latches over momentary inputs too (momentary: floor, iron-boots and
-// timed crystal switches), and is GBA-dependent while an input is. Two
+// latches over momentary inputs too (momentary: floor, iron-boots, sun
+// and timed crystal switches), and is GBA-dependent while an input is. Two
 // passes count set-and-clear writers as latching: statueSlots, where the
 // game makes them so (a twin statue holds the slot down), and
 // sharedFloorSwitches, a provisional sync policy where the game does not
@@ -391,15 +392,20 @@ func (b *builder) place(st *stage.Stage, p stage.Placed, names *stage.ObjectName
 }
 
 // synced is the verdict on s's writers as they stand: a latching setter,
-// and every other writer latching or GBA (one that writes only while a
-// GBA is linked).
+// and every other writer latching, GBA (one that writes only while a GBA
+// is linked) or a TAG_EVSW of type 1. That one only ever sets the switch,
+// and from a story event bit §6.5 carries (d_a_tag_evsw.cpp:10-48), so
+// next to a latching setter it only pre-sets what the partner's set
+// already stands for: WT r15's tags that grow every Makar tree once
+// 0x4004 is on, ET's on 0x3A02. A switch it alone writes stays unsynced
+// and follows its event bit.
 func synced(s *Switch) bool {
 	latch := false
 	for _, w := range s.Writers {
-		switch w.Class {
-		case Latching:
+		switch {
+		case w.Class == Latching:
 			latch = true
-		case GBA:
+		case w.Class == GBA, w.Class == Event && w.Proc == stage.ProcTagEvsw:
 		default:
 			return false
 		}
@@ -411,8 +417,9 @@ func synced(s *Switch) bool {
 // writer, and every other writer is momentary too or GBA. A momentary
 // writer sets the switch from a press or hit and clears it again on its
 // own: a floor or iron-boots switch that clears on release (swpush type
-// 1, swheavy types 0 and 1, swflat types 1 and 2; swpush type 2 only
-// clears, so it is decoded OpClear and is no momentary input) or a timed
+// 1, swheavy types 0 and 1, swflat types 1 and 2, a sun switch, swlight
+// type 1, that clears when the light leaves; swpush type 2 only clears,
+// so it is decoded OpClear and is no momentary input) or a timed
 // crystal switch, whose timer clears it (SWHIT0 with a timer,
 // d_a_swhit0.cpp:337-365). A one-shot AND fed by such inputs only ever
 // sets its output (andsw0 behaviours 0 and 3, d_a_andsw0.cpp:40-57,
@@ -421,7 +428,8 @@ func synced(s *Switch) bool {
 // presses and hits never sync (DRC's r16 floor switches feeding sw41, the
 // r14 barricade; FW's r13 five-crystal gate sw7 and kinMB's exit pair
 // sw226; TotG's r0 pair feeding sw12 and r6 triple feeding sw32, type 2
-// swflats that stay down once that AND's output is on). An area switch's
+// swflats that stay down once that AND's output is on; ET's r3 and r16
+// sun-switch pairs feeding sw16, sw19 and sw98). An area switch's
 // per-frame writer (SW_C00 type 0) is not momentary, so an AND it feeds
 // still can't spring the partner's ambush (§6.2); nor is an input another
 // clearer writes: a switch timer (Obj_Timer), a timed AND's clear of its
@@ -435,7 +443,7 @@ func momentary(s *Switch) bool {
 	for _, w := range s.Writers {
 		switch {
 		case w.Class == GBA:
-		case w.Op == OpSetClear && (w.Proc == stage.ProcSwpush || w.Proc == stage.ProcSwheavy || w.Proc == stage.ProcSwhit0 || w.Proc == procSwflat):
+		case w.Op == OpSetClear && (w.Proc == stage.ProcSwpush || w.Proc == stage.ProcSwheavy || w.Proc == stage.ProcSwhit0 || w.Proc == procSwflat || w.Proc == procSwlight):
 			mom = true
 		default:
 			return false
@@ -657,25 +665,33 @@ func reason(s *Switch) string {
 	if len(s.Writers) == 0 {
 		return "no known setter"
 	}
-	var gba *Writer
+	var gba, evsw *Writer
 	for i, w := range s.Writers {
-		switch w.Class {
-		case Latching:
-		case GBA:
+		switch {
+		case w.Class == Latching:
+		case w.Class == GBA:
 			if gba == nil {
 				gba = &s.Writers[i]
+			}
+		case s.Synced && w.Class == Event && w.Proc == stage.ProcTagEvsw:
+			if evsw == nil {
+				evsw = &s.Writers[i]
 			}
 		default:
 			return fmt.Sprintf("%s writer %v: %s", w.Class, w.Ref, w.Why)
 		}
 	}
+	r := "every setter latches"
 	switch {
 	case !s.Synced:
 		return fmt.Sprintf("no latching setter: only gba writers (%v: %s), which write it only while a GBA is linked", gba.Ref, gba.Why)
 	case gba != nil:
-		return fmt.Sprintf("every setter latches; gba writer %v writes it only while a GBA is linked, so it syncs only while none is", gba.Ref)
+		r = fmt.Sprintf("every setter latches; gba writer %v writes it only while a GBA is linked, so it syncs only while none is", gba.Ref)
 	case s.GBA:
-		return "every setter latches; an AND input syncs only while no GBA is linked, so it does too"
+		r = "every setter latches; an AND input syncs only while no GBA is linked, so it does too"
 	}
-	return "every setter latches"
+	if evsw != nil {
+		r += fmt.Sprintf("; event writer %v only pre-sets it (%s)", evsw.Ref, evsw.Why)
+	}
+	return r
 }

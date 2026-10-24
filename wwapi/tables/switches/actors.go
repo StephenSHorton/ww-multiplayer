@@ -448,7 +448,8 @@ var specs = []spec{
 	// and every frame it sets the switch while the event bit is on and,
 	// unless type 1, clears it while it is off (d_a_tag_evsw.cpp:10-48).
 	// Type 1 never clears: the switch follows the event bit, which §6.5's
-	// story batch carries, so it is classed Event.
+	// story batch carries, so it is classed Event. Next to a latching
+	// setter it doesn't stop the switch syncing (synced).
 	{proc: stage.ProcTagEvsw, name: "TAG_EVSW", decode: func(e entry) []use {
 		sw, bit := e.byte(0), e.bits(8, 16)
 		if e.bits(24, 2) == 1 {
