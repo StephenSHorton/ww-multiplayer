@@ -989,8 +989,8 @@ func TestBossKillRelayBpw(t *testing.T) {
 	if n, _, _ := br.request(); n != s {
 		t.Fatalf("asked again (%d) after applied", n)
 	}
-	if !br.log.has("applied (mBodyAction 3, mActionState 0x54, health 15)") {
-		t.Fatalf("no applied line:\n%s", br.log)
+	if !br.log.has("applied (mBodyAction 3, mActionState 0x54, health 15); this game's Jalhalla falls on its next throw into the spikes (an empty boss gauge until then is expected)") {
+		t.Fatalf("no applied line with the gauge note:\n%s", br.log)
 	}
 
 	// The throw missed: the next asks find health 0 in the fight, which

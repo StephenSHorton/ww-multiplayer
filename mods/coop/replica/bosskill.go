@@ -333,12 +333,19 @@ func bpwClass(act, st uint8) string {
 
 // bossAckLine is the log line for an ack of seq. A Jalhalla "already"
 // with health 0 outside the death demo is the zero an earlier "applied"
-// left, waiting for the next spike landing, and says so.
+// left, waiting for the next spike landing, and says so; Jalhalla's
+// "applied" says it too, since the Hero's Charm gauge empties at the
+// write, while Jalhalla is still frozen or carried.
 func bossAckLine(seq uint32, proc uint16, st mailbox.BossStatus) string {
+	const bpwPending = "this game's Jalhalla falls on its next throw into the spikes (an empty boss gauge until then is expected)"
 	if proc == mailbox.BossProcBpw && st.Result == mailbox.BossRAlready && st.Act != mailbox.BossBpwActSeparate && int8(st.Phase) <= 0 {
-		return fmt.Sprintf("co-op: boss_kill %d: applied earlier; this game's Jalhalla falls on its next throw into the spikes (an empty boss gauge until then is expected) (mBodyAction %d, mActionState 0x%X)", seq, st.Act, st.State)
+		return fmt.Sprintf("co-op: boss_kill %d: applied earlier; %s (mBodyAction %d, mActionState 0x%X)", seq, bpwPending, st.Act, st.State)
 	}
-	return fmt.Sprintf("co-op: boss_kill %d: %s (%s)", seq, mailbox.BossResultName(st.Result), mailbox.BossDetail(proc, st))
+	line := fmt.Sprintf("co-op: boss_kill %d: %s (%s)", seq, mailbox.BossResultName(st.Result), mailbox.BossDetail(proc, st))
+	if proc == mailbox.BossProcBpw && st.Result == mailbox.BossRApplied {
+		line += "; " + bpwPending
+	}
+	return line
 }
 
 // bossRELWhy says why the REL module cannot take a request for row's
