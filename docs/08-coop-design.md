@@ -574,8 +574,8 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
 
 ### 6.5 Story event bits
 - **SyncMask:** every named bit in bytes 0x00-0x41, minus:
-  - **LocalOnly:** every bit passed to `offEventBit` (50 call sites in 10 files, excluding `d_save.cpp`; 0x2D01's only clear is the debug map-select menu, `d_s_menu.cpp:244`), plus ENDLESS_NIGHT 0x0A02, RODE_KORL 0x2A08, 0x3820 and 0x3B20;
-  - the 34 game-cleared bits (D8): 0x0E08, 0x1108, 0x1110, 0x1140, 0x1301, 0x1302, 0x1304, 0x2002, 0x2004, 0x2080, 0x2680, 0x2801, 0x2802, 0x2804, 0x2940, 0x2980, 0x2D01, 0x2F01, 0x3080, 0x3410, 0x3820, 0x3B01, 0x3C02-0x3C80, 0x3F01, 0x4008, 0x4020, 0x4040, 0x4080. *Corrected (doc vs decomp, item 86):* in GZLE01 D8 is 31 bits. 0x0E08, 0x1108 and 0x1110 are cleared only by demo-build code, so they sync, and LocalOnly is 34 bits;
+  - **LocalOnly:** every bit passed to `offEventBit` (50 call sites in 10 files, excluding `d_save.cpp`; 0x2D01's only clear is the debug map-select menu, `d_s_menu.cpp:244`), plus ENDLESS_NIGHT 0x0A02, RODE_KORL 0x2A08, 0x3820, 0x3B20 and 0x3F40 (`endhr.stb`, the ending: while it is set Link draws no sword or shield in any stage, `d_a_player_sword.inc:247-264`, so a partner's ending would hide them before this player's own Ganondorf fight);
+  - the 34 game-cleared bits (D8): 0x0E08, 0x1108, 0x1110, 0x1140, 0x1301, 0x1302, 0x1304, 0x2002, 0x2004, 0x2080, 0x2680, 0x2801, 0x2802, 0x2804, 0x2940, 0x2980, 0x2D01, 0x2F01, 0x3080, 0x3410, 0x3820, 0x3B01, 0x3C02-0x3C80, 0x3F01, 0x4008, 0x4020, 0x4040, 0x4080. *Corrected (doc vs decomp, item 86):* in GZLE01 D8 is 31 bits. 0x0E08, 0x1108 and 0x1110 are cleared only by demo-build code, so they sync, and LocalOnly is 34 bits (35 with 0x3F40);
   - the refight snapshot bits 0x3D80, 0x3D40, 0x3D20 and 0x3D10 (`d_meter.cpp:1070-1085`).
 - `scripts/gen_event_masks.py` generates the mask from the decomp, with citations. It is cross-checked against ww-online's 37-bit LocalOnly list (`docs/event-flags.md`, MIT) and committed as Go data.
 - **Holds** (receiver side: the bits stay in the world but are not applied locally yet):
@@ -1561,10 +1561,10 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 86. **D8 is 31 bits in GZLE01, not 34 (doc vs decomp; decomp followed).**
     - `scripts/gen_event_masks.py` (standard library; `--check` compares its output with the committed `mods/coop/class/syncmask_gen.go`) finds the design's 50 `offEventBit` call sites in 10 files outside `d_save.cpp`. 46 of them, in 9 files, are compiled into GZLE01; the script works that out from the `#if`/`VERSION_SELECT` guards, the splits and configure.py's match status.
     - 0x0E08, 0x1110 and 0x1108 are cleared only by demo-build code: `d_a_npc_rsh1.cpp:1703`, `:1709` and `:1715` under `#if VERSION == VERSION_DEMO` (`:1690-1718`), and `d_a_obj_YLzou.cpp:482` (`:480-485`). Both files match GZLE01, so those three bits sync.
-    - LocalOnly is the 31 D8 bits plus 0x0A02, 0x2A08 and 0x3B20: 34 bits. 0x3820 is in both lists, still cleared in GZLE01 at `d_a_obj_YLzou.cpp:143`.
+    - LocalOnly is the 31 D8 bits plus 0x0A02, 0x2A08 and 0x3B20: 34 bits. 0x3820 is in both lists, still cleared in GZLE01 at `d_a_obj_YLzou.cpp:143`. 0x3F40 (the ending) was added later: 35 bits, SyncMask 448.
 87. **0x2D01 stays LocalOnly (a gap).** Its only clear is the debug map-select toggle (`d_s_menu.cpp:244`), but §6.5 keeps it out, and so does the generator.
     - `getLayerNo` reads it for the Windfall sea room and M2tower (`d_com_inf_game.cpp:202`, `:252`). So a partner's milestone does not change the receiver's Windfall or tower layers until the receiver's own game sets the bit.
-    - The story task's cross-check: LocalOnly and the four refight bits are ww-online's 37-bit list plus 0x2D01.
+    - The story task's cross-check: LocalOnly and the four refight bits are ww-online's 37-bit list plus 0x2D01 (and 0x3F40, added with the GT slice).
 88. **Holds as built.**
     - MET_KORL is itself held until the receiver has it (`UntilLocal`), so sync never applies it. It stays in the world and only releases 0x0801, 0x0808 and 0x2401.
     - RODE_KORL (0x2A08) is LocalOnly, so no world ever holds it, and far behind (§5.3; `l_checkData`, `d_com_inf_game.cpp:1304-1311`) rests on MET_KORL, 0x0801, 0x0808 and 0x2401. The design's list of five is corrected.

@@ -78,6 +78,12 @@ LOCAL_EXTRA = [
      [("src/d/actor/d_a_tag_event.cpp", 112, "onEventBit(dSv_event_flag_c::UNK_3B20)"),
       ("src/d/actor/d_a_tag_event.cpp", 114, "setEventReg(dSv_event_flag_c::UNK_BA0F"),
       ("src/d/actor/d_a_knob00.cpp", 610, "onEventBit(dSv_event_flag_c::UNK_3B20)")]),
+    (0x3F40, "set by this player's own ending (endhr.stb); while it is set Link draws no shield "
+             "and no sword in hand, in every stage, so a partner's ending would hide them "
+             "before this player's own Ganondorf fight",
+     [("include/d/d_save_event_flag.inc", 481, "endhr.stb"),
+      ("src/d/actor/d_a_player_sword.inc", 249, "dComIfGs_isEventBit(dSv_event_flag_c::UNK_3F40)"),
+      ("src/d/actor/d_a_player_sword.inc", 259, "dComIfGs_isEventBit(dSv_event_flag_c::UNK_3F40)")]),
 ]
 
 # Notes on calls the GZLE01 build compiles but normal play never reaches:
