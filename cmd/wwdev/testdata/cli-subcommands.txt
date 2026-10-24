@@ -1,6 +1,7 @@
 actors
 auto-recapture
 auto-recapture-pair
+bdk-probe
 blob-verify-live
 bpw-probe
 broadcast-link

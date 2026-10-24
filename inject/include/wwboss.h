@@ -26,8 +26,13 @@
 // thrown or hitting the spikes, the keeper writes health 0, so the next
 // spike landing creates no Poe and splits straight into the death demo
 // (d_a_bpw.rel .text 0x6284-0x651C), which drops the heart container, sets
-// STAGE_BOSS_ENEMY and creates the warp flower. Neither writes a call, an
-// anim or a delete.
+// STAGE_BOSS_ENEMY and creates the warp flower. Helmaroc King (Bdk,
+// M2tower) is the sixth (design/relay-helmaroc.md): once the receiver has
+// broken the mask itself (m8F8 >= 4) and no demo camera runs, the keeper
+// writes health 0, so the receiver's own next sword hit on the crest runs
+// damage_check's lethal step (d_a_bdk.rel .text 0x4F20: the pause, end_set,
+// LAST_DAMAGE), and end() and the death camera set STAGE_BOSS_ENEMY in
+// this game. None of the last three writes a call, an anim or a delete.
 //
 // Shared by the REL and wwapi/mailbox/boss.go (the Go mirror of every
 // #define here, pinned by TestBossHeaderPins, which parses this file the
@@ -47,8 +52,8 @@
 //   Go-written, in two writes, the seq last:
 //   +0x00 u32 seq   (Go bumps it for every request, never 0)
 //   +0x04 u16 proc  (WWBOSS_PROC_BTD, WWBOSS_PROC_BMD, WWBOSS_PROC_BST,
-//                    WWBOSS_PROC_BWD or WWBOSS_PROC_BPW; any other proc
-//                    is refused)
+//                    WWBOSS_PROC_BWD, WWBOSS_PROC_BPW or WWBOSS_PROC_BDK;
+//                    any other proc is refused)
 //   +0x06 u16 tag   (WWBOSS_TAG)
 //   REL-written, the result first:
 //   +0x08 u32 ack   (the seq last consumed)
@@ -64,7 +69,9 @@
 //                     Bwd: byte2 m18AE's low byte, byte1 m18B0's low
 //                     byte, byte0 m1BB5;
 //                     Bpw: byte2 mBodyAction's low byte, byte1
-//                     mActionState's low byte, byte0 health
+//                     mActionState's low byte, byte0 health;
+//                     Bdk: byte2 mAction's low byte, byte1 m8F8, byte0
+//                     health
 //
 // The slack is not zeroed at boot, so the keeper's create consumes
 // whatever seq is there (ack = seq, result WWBOSS_R_NONE) before it ever
@@ -81,7 +88,7 @@
 #define WWBOSS_PROC_OFF          0x04         // u16 the boss's proc (Go)
 #define WWBOSS_TAG_OFF           0x06         // u16 WWBOSS_TAG (Go)
 #define WWBOSS_ACK_OFF           0x08         // u32 the seq last consumed (REL)
-#define WWBOSS_RESULT_OFF        0x0C         // u32 BE: byte3 WWBOSS_R_*, bytes 2..0 per proc: Btd m02E4, mGohmaState, m02E0; Bmd mMode, m302, m304; Bst head mActionType, mDamage, m2E7C; Bwd m18AE, m18B0, m1BB5; Bpw mBodyAction, mActionState, health (REL)
+#define WWBOSS_RESULT_OFF        0x0C         // u32 BE: byte3 WWBOSS_R_*, bytes 2..0 per proc: Btd m02E4, mGohmaState, m02E0; Bmd mMode, m302, m304; Bst head mActionType, mDamage, m2E7C; Bwd m18AE, m18B0, m1BB5; Bpw mBodyAction, mActionState, health; Bdk mAction, m8F8, health (REL)
 #define WWBOSS_GO_SPAN           0x08         // bytes Go writes: seq, proc, tag
 
 #define WWBOSS_TAG               0x424B       // 'BK': with the proc, what a request must carry
@@ -90,13 +97,14 @@
 #define WWBOSS_PROC_BST          0x00F2       // fpcNm_BST_e, Gohdan (f_pc_name.h:254), only in SirenB (batch D R-D1)
 #define WWBOSS_PROC_BWD          0x00DA       // fpcNm_BWD_e, Molgera (f_pc_name.h:230), only in kazeB (retail ko_delete_sub tests 0xDB, BWDS, at d_a_bwd.rel .text 0x274)
 #define WWBOSS_PROC_BPW          0x00D4       // fpcNm_BPW_e, Jalhalla (f_pc_name.h:224), only in M_DaiB
+#define WWBOSS_PROC_BDK          0x00F0       // fpcNm_BDK_e, Helmaroc King (f_pc_name.h:252; retail g_profile_BDK proc at d_a_bdk.rel .data 0x55C), only in M2tower
 
 // Results (byte3 of WWBOSS_RESULT_OFF).
 #define WWBOSS_R_NONE            0            // consumed at the keeper's create (a stale or racing seq): ask again
-#define WWBOSS_R_APPLIED         1            // Btd: m02E4 was 0, 1 or 2 with m02E0 1, m02E4 = 0xB, mGohmaState = 0x32 written; Bmd: the flower down and open, the lethal block written; Bst: the mouth open for a bomb, the hands asleep, the lethal block written; Bwd: the tongue pulled out, two counters written; Bpw: frozen, carried, thrown or on the spikes with health > 0, health = 0 written
-#define WWBOSS_R_WAITING         2            // Btd: m02E4 0xA (hidden or in its intro), the armor intact (m02E0 not 1) or another state; Bmd: not the open flower; Bst: any state but the APPLIED gate's; Bwd: not the pulled tongue; Bpw: the intro, the fight, the light build-up, a wall bounce or the split; nothing written, ask again
-#define WWBOSS_R_ALREADY         3            // m02E4 (Btd) or mMode (Bmd) 0xB, Bst head mActionType 0x16, m2E9A >= 0x32 or m2E7C 100, Bwd m18AE 0xC/0xD, Bpw health <= 0 or mBodyAction 4 with mActionState >= 0x78: already dying or dead, nothing written
-#define WWBOSS_R_NO_ACTOR        4            // no actor of the proc, or one still creating (Bst: any of the three parts, or the head's morf NULL; Bwd: its morf NULL; Bpw: no executing body): nothing written
+#define WWBOSS_R_APPLIED         1            // Btd: m02E4 was 0, 1 or 2 with m02E0 1, m02E4 = 0xB, mGohmaState = 0x32 written; Bmd: the flower down and open, the lethal block written; Bst: the mouth open for a bomb, the hands asleep, the lethal block written; Bwd: the tongue pulled out, two counters written; Bpw: frozen, carried, thrown or on the spikes with health > 0, health = 0 written; Bdk: the mask broken, a fight action, no demo camera, health = 0 written
+#define WWBOSS_R_WAITING         2            // Btd: m02E4 0xA (hidden or in its intro), the armor intact (m02E0 not 1) or another state; Bmd: not the open flower; Bst: any state but the APPLIED gate's; Bwd: not the pulled tongue; Bpw: the intro, the fight, the light build-up, a wall bounce or the split; Bdk: the tower phase, the intro, the mask, its demo, or a demo camera; nothing written, ask again
+#define WWBOSS_R_ALREADY         3            // m02E4 (Btd) or mMode (Bmd) 0xB, Bst head mActionType 0x16, m2E9A >= 0x32 or m2E7C 100, Bwd m18AE 0xC/0xD, Bpw health <= 0 or mBodyAction 4 with mActionState >= 0x78, Bdk mAction 0xA/0x6E, or mAction 0..8 with health <= 0: already dying or dead, nothing written
+#define WWBOSS_R_NO_ACTOR        4            // no actor of the proc, or one still creating (Bst: any of the three parts, or the head's morf NULL; Bwd: its morf NULL; Bpw: no executing body; Bdk: its morf NULL, or no Bdk (M2tower layers 0/1)): nothing written
 #define WWBOSS_R_GATE            5            // a stage change pending, not the proc's stage (an X refight stage included), or a bad proc or tag
 
 // Btd (d_a_btd.h:44-45, btd_class).
@@ -245,5 +253,34 @@
 #define WWBOSS_BPW_ST_SPIKE      0x64         // 100: hit the spikes
 #define WWBOSS_BPW_ST_SPIKE_AIR  0x65         // ACTION_STATE_DAMAGE_HIT: airborne until the landing that splits him
 #define WWBOSS_BPW_ST_DEATH      0x78         // the death demo's first state (.text 0x6518)
+
+// Bdk (d_a_bdk.h:40-179, bdk_class), Helmaroc King: design/relay-helmaroc.md.
+// M2tower places one Bdk, on layer 3 only, so bk_SearchByName finds it
+// (Bdkobj is proc 0xF1). The APPLIED gate, all of: mAction 0..FIGHT_MAX
+// (the arena fight), m8F8 >= MASK_BROKEN (the crest is the hurtbox, so
+// the hammer hit's health = 0x14 at .text 0x4A98 is unreachable), m25A0 0
+// (no demo camera) and health > 0. The one write: health = 0. health is
+// read only by damage_check's crest branch (.text 0x4F20), so the zero is
+// inert until the receiver's own next crest hit, which then runs vanilla's
+// pause, end_set and LAST_DAMAGE; end() and the death camera set
+// STAGE_BOSS_ENEMY (.text 0xA284). ALREADY is mAction END or AFTER, or a
+// fight action with health <= 0 (the pending zero); the tower phase reads
+// health 0 from the zeroed create and answers WAITING before the health
+// test. With the Hero's Charm the boss gauge shows empty from the write
+// until the death.
+#define WWBOSS_WITH_BDK          1            // compile switch: 0 builds the op without Bdk (bk_stage_ok and bosskill_frame refuse proc 0xF0 as any other)
+#define WWBOSS_BDK_MORF_OFF      0x2B8        // mDoExt_McaMorf* mpMorf (d_a_bdk.h:45; retail lwz 0x2b8 at d_a_bdk.rel .text 0xB3E0): NULL is NO_ACTOR
+#define WWBOSS_BDK_ACT_OFF       0x2C6        // s16 mAction, move()'s dispatch (d_a_bdk.h:49; .text 0x703C)
+#define WWBOSS_BDK_MASK_OFF      0x8F8        // u8 m8F8, the mask hits: >= 4 the crest is the hurtbox (d_a_bdk.h:66; .text 0x49F8, 0x8E58)
+#define WWBOSS_BDK_DEMO_OFF      0x25A0       // s16 m25A0, the demo camera (d_a_bdk.h:134; .text 0x8D24)
+#define WWBOSS_BDK_HEALTH_OFF    0x285        // s8 fopAc_ac_c health, read only by damage_check's crest branch (.text 0x4F20)
+#define WWBOSS_BDK_ACT_FIGHT_MAX 8            // ACTION_WIND_ATTACK: 0..8 are the arena fight's actions (d_a_bdk.cpp:26-35)
+#define WWBOSS_BDK_ACT_MASK_DEMO 9            // ACTION_KAMEN_DEMO, the mask breaking (d_a_bdk.cpp:1589-1590)
+#define WWBOSS_BDK_ACT_END       0xA          // ACTION_END, set by end_set (.text 0x492C)
+#define WWBOSS_BDK_ACT_START     0xF          // ACTION_START, the phase-2 intro (t_down .text 0x6FCC)
+#define WWBOSS_BDK_ACT_T_FLY     0x64         // ACTION_T_FLY, the tower phase's first action (create .text 0xCAA0); 0x64..0x67 are the tower phase
+#define WWBOSS_BDK_ACT_T_DOWN    0x67         // ACTION_T_DOWN, the tower phase's last action
+#define WWBOSS_BDK_ACT_AFTER     0x6E         // ACTION_AFTER_FIGHT, the create with STAGE_BOSS_ENEMY set (.text 0xCA60)
+#define WWBOSS_BDK_MASK_BROKEN   4            // m8F8 once the mask demo's camera starts (d_a_bdk.cpp:2806)
 
 #endif

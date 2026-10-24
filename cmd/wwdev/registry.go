@@ -141,6 +141,8 @@ func commandTable() []command {
 		// Batch E's boss_kill probes: Molgera, Jalhalla (enemy_batche_probe.go).
 		{name: "bwd-probe", group: groupDev, run: runBatchEProbe},
 		{name: "bpw-probe", group: groupDev, run: runBatchEProbe},
+		// Batch F's boss_kill probe: Helmaroc King (enemy_batchf_probe.go).
+		{name: "bdk-probe", group: groupDev, run: runBatchFProbe},
 	}
 }
 

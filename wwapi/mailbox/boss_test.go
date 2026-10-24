@@ -1,6 +1,8 @@
 package mailbox
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
@@ -8,6 +10,47 @@ import (
 
 // wwbossHeader is the C source of the boss_kill constants.
 const wwbossHeader = "../../inject/include/wwboss.h"
+
+// bosskillSource is the REL op the header's defines drive.
+const bosskillSource = "../../inject/rel/bosskill.c"
+
+// TestBossKillDispatchBdk: bosskill_frame gives Bdk its own arm, under
+// WWBOSS_WITH_BDK, ahead of the final else: that else runs bk_bmd (Kalle
+// Demos' lethal block) for every proc not named before it, so a 0xF0
+// request that only passed bk_proc_ok would get Bmd's writes on Bdk
+// memory (relay-helmaroc.md check notes, missing case 1). bk_proc_ok and
+// bk_stage_ok take the proc under the same switch, the stage exactly
+// M2tower.
+func TestBossKillDispatchBdk(t *testing.T) {
+	b, err := os.ReadFile(bosskillSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := strings.ReplaceAll(string(b), "\r\n", "\n")
+	i := strings.Index(src, "void bosskill_frame(void) {")
+	if i < 0 {
+		t.Fatal("no bosskill_frame")
+	}
+	body := src[i:]
+	arm := strings.Index(body, "} else if (proc == WWBOSS_PROC_BDK) {")
+	call := strings.Index(body, "bk_bdk(seq, a);")
+	last := strings.LastIndex(body, "} else {\n        bk_bmd(seq, a);")
+	if arm < 0 || call < arm || last < 0 || call > last {
+		t.Fatalf("bosskill_frame: the Bdk arm at %d, its bk_bdk at %d, the final bk_bmd else at %d; want arm < call < else", arm, call, last)
+	}
+	if g := strings.LastIndex(body[:arm], "#if "); g < 0 || !strings.HasPrefix(body[g:], "#if WWBOSS_WITH_BDK\n") {
+		t.Error("bosskill_frame's Bdk arm is not under #if WWBOSS_WITH_BDK")
+	}
+	for _, want := range []string{
+		"#if WWBOSS_WITH_BDK\n    if (proc == WWBOSS_PROC_BDK) return 1;\n#endif",
+		"#if WWBOSS_WITH_BDK\n    } else if (proc == WWBOSS_PROC_BDK) {\n        want = m2_tower;\n#endif",
+		"m2_tower[8] = { 'M', '2', 't', 'o', 'w', 'e', 'r', 0 };",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("bosskill.c lacks %q", want)
+		}
+	}
+}
 
 // TestBossHeaderPins: every Go constant equals its WWBOSS_* define, and
 // every define has a Go constant.
@@ -121,6 +164,22 @@ func TestBossHeaderPins(t *testing.T) {
 		"WWBOSS_BPW_ST_SPIKE":     BossBpwStSpike,
 		"WWBOSS_BPW_ST_SPIKE_AIR": BossBpwStSpikeAir,
 		"WWBOSS_BPW_ST_DEATH":     BossBpwStDeath,
+		// Batch F: Helmaroc King (design/relay-helmaroc.md).
+		"WWBOSS_PROC_BDK":          uint64(BossProcBdk),
+		"WWBOSS_WITH_BDK":          BossWithBdk,
+		"WWBOSS_BDK_MORF_OFF":      BossBdkMorfOff,
+		"WWBOSS_BDK_ACT_OFF":       BossBdkActOff,
+		"WWBOSS_BDK_MASK_OFF":      BossBdkMaskOff,
+		"WWBOSS_BDK_DEMO_OFF":      BossBdkDemoOff,
+		"WWBOSS_BDK_HEALTH_OFF":    BossBdkHealthOff,
+		"WWBOSS_BDK_ACT_FIGHT_MAX": BossBdkActFightMax,
+		"WWBOSS_BDK_ACT_MASK_DEMO": BossBdkActMaskDemo,
+		"WWBOSS_BDK_ACT_END":       BossBdkActEnd,
+		"WWBOSS_BDK_ACT_START":     BossBdkActStart,
+		"WWBOSS_BDK_ACT_T_FLY":     BossBdkActTFly,
+		"WWBOSS_BDK_ACT_T_DOWN":    BossBdkActTDown,
+		"WWBOSS_BDK_ACT_AFTER":     BossBdkActAfter,
+		"WWBOSS_BDK_MASK_BROKEN":   BossBdkMaskBroken,
 	})
 }
 
@@ -173,8 +232,9 @@ func TestBossReadAndFields(t *testing.T) {
 
 // TestBossDetailPerProc: the result's bytes after BossR* read as Btd's
 // m02E4, mGohmaState and m02E0 for Gohma, as Bmd's mMode, m302 and m304
-// for Kalle Demos, as Bwd's m18AE, m18B0 and m1BB5 for Molgera and as
-// Bpw's mBodyAction, mActionState and health for Jalhalla; the request
+// for Kalle Demos, as Bwd's m18AE, m18B0 and m1BB5 for Molgera, as Bpw's
+// mBodyAction, mActionState and health for Jalhalla and as Bdk's mAction,
+// m8F8 and health for Helmaroc King; the request
 // carries the proc it was made for.
 func TestBossDetailPerProc(t *testing.T) {
 	st := BossStatus{Result: BossRApplied, Act: BossBmdModeFallen, State: 3, Phase: 1}
@@ -197,8 +257,11 @@ func TestBossDetailPerProc(t *testing.T) {
 	if got, want := BossDetail(BossProcBpw, BossStatus{Act: BossBpwActDamage, State: BossBpwStSpike, Phase: 15}), "mBodyAction 3, mActionState 0x64, health 15"; got != want {
 		t.Fatalf("Bpw detail %q, want %q", got, want)
 	}
+	if got, want := BossDetail(BossProcBdk, BossStatus{Act: BossBdkActTFly, State: BossBdkMaskBroken, Phase: 0}), "mAction 0x64, m8F8 4, health 0"; got != want {
+		t.Fatalf("Bdk detail %q, want %q", got, want)
+	}
 	if BossProcName(BossProcBmd) != "Kalle Demos (Bmd)" || BossProcName(BossProcBtd) != "Gohma (Btd)" || BossProcName(0xED) != "proc 0x00ED" ||
-		BossProcName(BossProcBwd) != "Molgera (Bwd)" || BossProcName(BossProcBpw) != "Jalhalla (Bpw)" {
+		BossProcName(BossProcBwd) != "Molgera (Bwd)" || BossProcName(BossProcBpw) != "Jalhalla (Bpw)" || BossProcName(BossProcBdk) != "Helmaroc King (Bdk)" {
 		t.Fatal("BossProcName")
 	}
 	m := mem.NewFakeMem()

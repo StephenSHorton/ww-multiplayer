@@ -187,6 +187,32 @@
 //      Big_pow_down_check needs its own death, d_a_pw.rel .text 0x07CC),
 //      so the split is left to the receiver.
 // The result carries mBodyAction, mActionState and health as found.
+//
+// Helmaroc King (WWBOSS_PROC_BDK, the stage exactly "M2tower"; ww-
+// multiplayer-handoff/design/relay-helmaroc.md), under WWBOSS_WITH_BDK.
+// M2tower places one Bdk, on layer 3 only, so bk_SearchByName finds it
+// (layers 0/1, before the rescue, place none: NO_ACTOR). As Jalhalla's, the
+// op writes one byte, health = 0, and the receiver's own next hit runs the
+// death: health is read only by damage_check's crest branch (d_a_bdk.rel
+// .text 0x4F20), whose health <= 0 test then runs the 8-frame pause,
+// end_set (mAction 0xA, the death camera, bgmStop(30)) and LAST_DAMAGE,
+// and end() and the death camera pose Link and set STAGE_BOSS_ENEMY
+// (.text 0xA284) in this game, in vanilla order. Its branches:
+//   1. the morf NULL: WWBOSS_R_NO_ACTOR;
+//   2. mAction 0xA (end_set onward, the whole death) or 0x6E (the inert
+//      create with the bit set, .text 0xCA34-0xCA64): WWBOSS_R_ALREADY;
+//   3. any action outside the arena fight 0..8 (the tower phase 0x64..0x67,
+//      where health reads the create's zeroed 0, START and the intro 0xF,
+//      KAMEN_DEMO 9): WWBOSS_R_WAITING;
+//   4. a fight action with health <= 0: the zero an earlier request left,
+//      not yet taken by a crest hit (vanilla never holds health <= 0 on a
+//      live arena Bdk), WWBOSS_R_ALREADY;
+//   5. the mask broken (m8F8 >= 4, the crest the hurtbox, so the hammer
+//      hit's health = 0x14 at .text 0x4A98 can no longer undo the zero) and
+//      no demo camera (m25A0 0): health = 0, WWBOSS_R_APPLIED;
+//   6. else (the mask fight, a demo camera): WWBOSS_R_WAITING.
+// With the Hero's Charm the boss gauge shows empty from the write until the
+// death. The result carries mAction, m8F8 and health as found.
 #include "mailbox_core.h"
 #include "wwenemy.h"
 #include "wwremote.h"
@@ -225,7 +251,8 @@ typedef void (*bk_bgm_stop_t)(void* self, u32 fade, s32 arg);
 
 // The stage proc's op may run in, NUL-padded to the name's 8 bytes: Btd
 // only in M_DragB, Bmd only in kinBOSS, Bst only in SirenB, Bwd only in
-// kazeB, Bpw only in M_DaiB, never an 'X' refight stage.
+// kazeB, Bpw only in M_DaiB, Bdk only in M2tower, never an 'X' refight
+// stage (the exact compare also keeps out Mjtower and M2ganon).
 static int bk_stage_ok(u16 proc) {
     static const char drag_b[8] = { 'M', '_', 'D', 'r', 'a', 'g', 'B', 0 };
     static const char kin_boss[8] = { 'k', 'i', 'n', 'B', 'O', 'S', 'S', 0 };
@@ -237,6 +264,9 @@ static int bk_stage_ok(u16 proc) {
 #endif
 #if WWBOSS_WITH_BPW
     static const char m_dai_b[8] = { 'M', '_', 'D', 'a', 'i', 'B', 0, 0 };
+#endif
+#if WWBOSS_WITH_BDK
+    static const char m2_tower[8] = { 'M', '2', 't', 'o', 'w', 'e', 'r', 0 };
 #endif
     const char* want;
     int i;
@@ -255,6 +285,10 @@ static int bk_stage_ok(u16 proc) {
 #if WWBOSS_WITH_BPW
     } else if (proc == WWBOSS_PROC_BPW) {
         want = m_dai_b;
+#endif
+#if WWBOSS_WITH_BDK
+    } else if (proc == WWBOSS_PROC_BDK) {
+        want = m2_tower;
 #endif
     } else {
         return 0;
@@ -526,6 +560,43 @@ static void bk_bpw(u32 seq) {
 }
 #endif
 
+#if WWBOSS_WITH_BDK
+// bk_bdk runs a request on Helmaroc King (the header's Bdk branches 1-6).
+// The result carries mAction, m8F8 and health as found.
+static void bk_bdk(u32 seq, fopAc_ac_c* a) {
+    void* morf = *(void* volatile*)((u8*)a + WWBOSS_BDK_MORF_OFF);
+    s16 act = BK_S16(a, WWBOSS_BDK_ACT_OFF);
+    u8 mask = *(volatile u8*)((u8*)a + WWBOSS_BDK_MASK_OFF);
+    s8 hp = *(volatile s8*)((u8*)a + WWBOSS_BDK_HEALTH_OFF);
+
+    if (!morf) {
+        bk_ack(seq, WWBOSS_R_NO_ACTOR, act, mask, (u8)hp);
+        return;
+    }
+    if (act == WWBOSS_BDK_ACT_END || act == WWBOSS_BDK_ACT_AFTER) {
+        bk_ack(seq, WWBOSS_R_ALREADY, act, mask, (u8)hp);
+        return;
+    }
+    // The tower phase (health a zeroed 0 there), START and KAMEN_DEMO.
+    if (act < 0 || act > WWBOSS_BDK_ACT_FIGHT_MAX) {
+        bk_ack(seq, WWBOSS_R_WAITING, act, mask, (u8)hp);
+        return;
+    }
+    // A pending zero in the arena: the next crest hit kills.
+    if (hp <= 0) {
+        bk_ack(seq, WWBOSS_R_ALREADY, act, mask, (u8)hp);
+        return;
+    }
+    if (mask < WWBOSS_BDK_MASK_BROKEN || BK_S16(a, WWBOSS_BDK_DEMO_OFF) != 0) {
+        bk_ack(seq, WWBOSS_R_WAITING, act, mask, (u8)hp);
+        return;
+    }
+    // damage_check's own test ends it on the next crest hit (.text 0x4F20).
+    *(volatile s8*)((u8*)a + WWBOSS_BDK_HEALTH_OFF) = 0;
+    bk_ack(seq, WWBOSS_R_APPLIED, act, mask, (u8)hp);
+}
+#endif
+
 // The procs bosskill_frame takes (each only in its stage, bk_stage_ok).
 static int bk_proc_ok(u16 proc) {
 #if WWBOSS_WITH_BST
@@ -536,6 +607,9 @@ static int bk_proc_ok(u16 proc) {
 #endif
 #if WWBOSS_WITH_BPW
     if (proc == WWBOSS_PROC_BPW) return 1;
+#endif
+#if WWBOSS_WITH_BDK
+    if (proc == WWBOSS_PROC_BDK) return 1;
 #endif
     return proc == WWBOSS_PROC_BTD || proc == WWBOSS_PROC_BMD;
 }
@@ -577,6 +651,11 @@ void bosskill_frame(void) {
 #if WWBOSS_WITH_BWD
     } else if (proc == WWBOSS_PROC_BWD) {
         bk_bwd(seq, a);
+#endif
+#if WWBOSS_WITH_BDK
+    } else if (proc == WWBOSS_PROC_BDK) {
+        // Its own arm: the else below is Kalle Demos' lethal block.
+        bk_bdk(seq, a);
 #endif
     } else {
         bk_bmd(seq, a);

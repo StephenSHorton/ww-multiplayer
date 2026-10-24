@@ -1220,6 +1220,20 @@ If the path is `/Applications/...` instead of `~/Applications/...`,
 LaunchServices is re-routing — the entitlement chain is fine, the
 process is just the wrong binary.
 
+## Link falls through the Helmaroc King's tower top during the mask demo with remote bodies on — OPEN (2026-10-24, F21)
+
+Seen in the batch F live check (`ww-multiplayer-handoff/archive/enemy-batch-f/live/LIVE-1.md`), both games under
+`wwdev mp-local --coop` on `M2tower 30 0 3`, the mask break forced by `hkforce.sh mask` (no Skull Hammer on the
+fixture). As the Bdk's KAMEN_DEMO runs (`m25A0` 1 -> 2, `m8F8` 4), Link's y drops from 9805 through 9225 to -3234, he
+voids out and the stage reloads on layer 3, so the fight restarts in the tower phase. It happened in both games
+(B, the enemy client: the void-out; A, the host: Link left on a lower ledge after the reset). Not seen with
+`mp-local` stopped (y 9808 through the demo), with `WW_ENEMY_SYNC=0`, or with `WW_ENEMY_REMOTE=off` (enemies still
+mirrored; y 9806-9807): the remote Link bodies are the trigger. Unconfirmed lead: `demo_camera` case 1
+(`d_a_bdk.rel` .text 0x8E5C-0x8E64) writes demo fields (+0x304, +0x30C) through a pointer it reads from
+`g_dComIfG_gameInfo` +0x5B44, next to the player pointers that the bodies' `swap` changes; which actor that is under
+the bodies has not been read. Not yet run with a real hammer
+hit, so whether players hit it is unconfirmed; `WW_ENEMY_REMOTE=off` is the workaround.
+
 ## Observations Worth Remembering
 
 - Picking up a rupee triggers a display refresh. Before the pickup, the displayed rupee count may lag behind the stored value.
