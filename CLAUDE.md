@@ -133,8 +133,8 @@ go build -o wwdev.exe ./cmd/wwdev
 ./ww-multiplayer.exe mods [--json] [--dev] [--mods=a,b] [--no-mod=x]   # List the mods built into this version
 ./ww-multiplayer.exe version                            # Print the version (players must match)
 #   with --coop (host, join, wwdev mp-local; each side its own): --coop-boss-kill=gohma,kalle,gohdan,molgera,jalhalla,helmaroc|none
-#   picks the boss-dead relay's rows (default gohma,kalle; gohdan (SirenB), molgera (kazeB), jalhalla (M_DaiB) and helmaroc
-#   (M2tower) are opt-in until their live checks pass, docs/TESTING.md "Batch E" and "Batch F"), and
+#   picks the boss-dead relay's rows (default gohma,kalle,helmaroc; gohdan (SirenB), molgera (kazeB) and jalhalla (M_DaiB)
+#   are opt-in until their live checks pass, docs/TESTING.md "Batch D" and "Batch E"), and
 #   --coop-refresh=stone2,leaves,item,tbox,saku[,dry]|none turns on actor_refresh (default off: nothing asked), which asks the REL
 #   to delete a boulder, bush, pickup, chest or barricade this game placed before the partner's bit landed (mods/coop/replica
 #   refresh_relay.go; dry logs one line per candidate and writes nothing). docs/TESTING.md "Batch D".

@@ -114,12 +114,13 @@ import (
 // before the relay applies.
 //
 // The --coop-boss-kill row set (Config.BossKill, ParseBossKill) picks the
-// rows the relay asks for, each side its own: gohma,kalle by default.
-// Gohdan joins the default once GD-2 and the D4 live check pass (G-D1;
-// docs/TESTING.md "Batch D"), and Molgera and Jalhalla once theirs do
-// (docs/TESTING.md "Batch E") and Helmaroc King once its does (docs/
-// TESTING.md "Batch F"); until then each is asked for only when named,
-// e.g. --coop-boss-kill=gohma,kalle,gohdan,molgera,jalhalla,helmaroc. A row
+// rows the relay asks for, each side its own: gohma,kalle,helmaroc by
+// default (Helmaroc King since HK-1, the two-Dolphin check and a real
+// hammer fight passed, docs/TESTING.md "Batch F"). Gohdan joins the
+// default once GD-2 and the D4 live check pass (G-D1; docs/TESTING.md
+// "Batch D"), and Molgera and Jalhalla once theirs do (docs/TESTING.md
+// "Batch E"); until then each is asked for only when named, e.g.
+// --coop-boss-kill=gohma,kalle,gohdan,molgera,jalhalla,helmaroc. A row
 // left out is held as before (bossHold) and logged once; the WriteGuard
 // takes every row's proc whatever the set (bossRules).
 
@@ -147,11 +148,11 @@ var bossKillRows = []bossRow{
 
 const (
 	// BossKillDefault is the --coop-boss-kill row set when none is given:
-	// Gohma and Kalle Demos. Gohdan joins it after GD-2 and the D4 live
-	// check (enemy-mirror-batch-d.json G-D1), Molgera and Jalhalla after
-	// their D4 checks (docs/TESTING.md "Batch E"), Helmaroc King after
-	// its own (docs/TESTING.md "Batch F").
-	BossKillDefault = "gohma,kalle"
+	// Gohma, Kalle Demos and Helmaroc King (docs/TESTING.md "Batch F").
+	// Gohdan joins it after GD-2 and the D4 live check
+	// (enemy-mirror-batch-d.json G-D1), Molgera and Jalhalla after their
+	// D4 checks (docs/TESTING.md "Batch E").
+	BossKillDefault = "gohma,kalle,helmaroc"
 	// BossKillTokens names every --coop-boss-kill token, for the usage.
 	BossKillTokens = "gohma,kalle,gohdan,molgera,jalhalla,helmaroc"
 )

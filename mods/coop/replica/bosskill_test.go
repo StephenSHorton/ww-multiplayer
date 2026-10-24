@@ -639,8 +639,8 @@ func TestParseBossKill(t *testing.T) {
 		want []uint16
 		err  bool
 	}{
-		{"", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd}, false},
-		{BossKillDefault, []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd}, false},
+		{"", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBdk}, false},
+		{BossKillDefault, []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBdk}, false},
 		{"gohma, KALLE ,gohdan", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBst}, false},
 		{"gohdan", []uint16{mailbox.BossProcBst}, false},
 		{"molgera", []uint16{mailbox.BossProcBwd}, false},
@@ -671,9 +671,9 @@ func TestParseBossKill(t *testing.T) {
 	if _, err := New(Config{Mem: newRecRig(t, Config{}, proto.FeatureImage).m, BossKill: "ganon"}); err == nil {
 		t.Fatal("New took an unknown --coop-boss-kill row")
 	}
-	// The default leaves the opt-in rows out.
+	// The default leaves the opt-in rows out (Helmaroc King is in it since its live checks passed).
 	def, _ := ParseBossKill("")
-	for _, p := range []uint16{mailbox.BossProcBst, mailbox.BossProcBwd, mailbox.BossProcBpw, mailbox.BossProcBdk} {
+	for _, p := range []uint16{mailbox.BossProcBst, mailbox.BossProcBwd, mailbox.BossProcBpw} {
 		if def[p] {
 			t.Fatalf("the default row set takes %s", mailbox.BossProcName(p))
 		}
@@ -760,7 +760,7 @@ func TestBossKillRelayBst(t *testing.T) {
 	}
 }
 
-// TestBossKillBstDefaultOff: with the default row set (gohma,kalle),
+// TestBossKillBstDefaultOff: with the default row set (gohma,kalle,helmaroc),
 // SirenB gets no request; the log says once why the arena keeps Gohdan.
 func TestBossKillBstDefaultOff(t *testing.T) {
 	br := newBossRig(t, totgBoss, true)
@@ -774,7 +774,7 @@ func TestBossKillBstDefaultOff(t *testing.T) {
 	if st := br.r.Status(); st.BossKill.Wanted || st.Writes.BossKills != 0 {
 		t.Fatalf("status %+v", st.BossKill)
 	}
-	if n := br.log.count("--coop-boss-kill (gohma,kalle) leaves it out"); n != 1 {
+	if n := br.log.count("--coop-boss-kill (gohma,kalle,helmaroc) leaves it out"); n != 1 {
 		t.Fatalf("logged %d times:\n%s", n, br.log)
 	}
 	// The other rows stay on: Gohma is still asked for.
@@ -1049,7 +1049,7 @@ func TestBossKillRelayBpw(t *testing.T) {
 }
 
 // TestBossKillBwdDefaultOff and TestBossKillBpwDefaultOff: with the
-// default row set (gohma,kalle), kazeB and M_DaiB get no request; the log
+// default row set (gohma,kalle,helmaroc), kazeB and M_DaiB get no request; the log
 // says once why the arena keeps its boss.
 func TestBossKillBwdDefaultOff(t *testing.T) { testBossDefaultOff(t, wtBoss, wtBossItems, "Molgera") }
 func TestBossKillBpwDefaultOff(t *testing.T) { testBossDefaultOff(t, etBoss, etBossItems, "Jalhalla") }
@@ -1067,7 +1067,7 @@ func testBossDefaultOff(t *testing.T, stage fakegame.Stage, off int, name string
 	if st := br.r.Status(); st.BossKill.Wanted || st.Writes.BossKills != 0 {
 		t.Fatalf("%s: status %+v", name, st.BossKill)
 	}
-	if n := br.log.count("the partner killed " + name + ", but --coop-boss-kill (gohma,kalle) leaves it out"); n != 1 {
+	if n := br.log.count("the partner killed " + name + ", but --coop-boss-kill (gohma,kalle,helmaroc) leaves it out"); n != 1 {
 		t.Fatalf("%s: logged %d times:\n%s", name, n, br.log)
 	}
 }
@@ -1348,10 +1348,20 @@ func TestBossKillBdkNoActor(t *testing.T) {
 	}
 }
 
-// TestBossKillBdkDefaultOff: with the default row set, M2tower gets no
-// request; the log says once why the arena keeps its boss.
-func TestBossKillBdkDefaultOff(t *testing.T) {
-	testBossDefaultOff(t, ffBoss, ffBossItems, "Helmaroc King")
+// TestBossKillBdkDefaultOn: Helmaroc King is in the default row set
+// (after HK-1, the two-Dolphin check and a real hammer fight, docs/TESTING.md
+// "Batch F"), so with no --coop-boss-kill M2tower gets the request.
+func TestBossKillBdkDefaultOn(t *testing.T) {
+	br := newBossRig(t, ffBoss, true)
+	br.partnerKilledAt(ffBossItems)
+	br.ticks(3)
+	seq, proc, _ := br.request()
+	if seq == 0 || proc != mailbox.BossProcBdk {
+		t.Fatalf("request seq %d proc 0x%X, want a Helmaroc King request", seq, proc)
+	}
+	if br.log.count("leaves it out") != 0 {
+		t.Fatalf("the default row set left it out:\n%s", br.log)
+	}
 }
 
 // TestBossKillBdkNeverOutsideM2tower: with Helmaroc King named, no other
