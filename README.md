@@ -204,7 +204,10 @@ Off, New world (founded from the file the host loads after Start) or
 Continue (a world on the host's computer), with dry run, merging, live
 switches and the co-op tables' disc under Advanced. Everyone's window then
 shows the three files on their memory card, whether each is bound to that
-world, and which one to load. After Start a guided dialog walks the host
+world, and which one to load. Under that panel's "Advanced: your game's
+relays" each player, host or joiner, picks their own boss-kill rows and
+stale-actor refresh (as `--coop-boss-kill` and `--coop-refresh`; empty is
+the default: Gohma and Kalle Demos, no refresh). After Start a guided dialog walks the host
 through founding a new world; every co-op question is a dialog (Bind / Not
 now to bind a file, Remove the tag / Leave it for a stale tag), and a file
 bound to another world can have its tag removed from the app (in game

@@ -602,6 +602,10 @@ input.secret { -webkit-text-security: disc; text-security: disc; }
 .cardhint { margin: 0 0 4px; font-weight: 700; }
 .cardhint:empty { display: none; }
 .cardpanel .check { margin-top: 8px; }
+#coop-relays { margin: 8px 0 0; }
+#coop-relays[open] { display: grid; gap: 6px; }
+#coop-relays .field { margin: 4px 0 0; }
+#coop-relays input:not([type]) { max-width: none; font-size: 14px; padding: 5px 10px; }
 
 /* the co-op panel: one card per game, a lamp for its state */
 .cooppanel .pipe, .cooppanel .hub { margin-bottom: 10px; padding: 8px 12px; background: #fffbe0; border: 3px solid var(--slot-dk); border-radius: 10px; }

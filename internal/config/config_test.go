@@ -250,6 +250,16 @@ func TestBadFieldsKeepTheRest(t *testing.T) {
 	if c, warns := Parse([]byte(`{"port": 70000, "name": "a\nb", "color": "red"}`)); len(warns) != 2 || c.Port != DefaultPort || c.Name != "" || c.Color != "red" {
 		t.Errorf("%+v %q", c, warns)
 	}
+	// The relay choices: one the CLI would refuse is dropped with a
+	// warning that quotes the CLI's refusal; the rest of "coop" is kept.
+	c, warns = Parse([]byte(`{"coop": {"lastMode": "new", "bossKill": "gohma,ganon", "refresh": "dry"}}`))
+	if len(warns) != 2 || !strings.Contains(warns[0], `--coop-boss-kill: "ganon" is no boss`) || !strings.Contains(warns[1], "--coop-refresh: dry names no proc") ||
+		c.Coop.LastMode != "new" || c.Coop.BossKill != "" || c.Coop.Refresh != "" {
+		t.Errorf("%+v %q", c.Coop, warns)
+	}
+	if c, warns := Parse([]byte(`{"coop": {"lastMode": "off", "bossKill": "none", "refresh": "tbox,saku,dry"}}`)); len(warns) != 0 || c.Coop.BossKill != "none" || c.Coop.Refresh != "tbox,saku,dry" {
+		t.Errorf("%+v %q", c.Coop, warns)
+	}
 }
 
 func TestSaveOverwritesAtomically(t *testing.T) {

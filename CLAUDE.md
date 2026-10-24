@@ -138,6 +138,9 @@ go build -o wwdev.exe ./cmd/wwdev
 #   --coop-refresh=stone2,leaves,item,tbox,saku[,dry]|none turns on actor_refresh (default off: nothing asked), which asks the REL
 #   to delete a boulder, bush, pickup, chest or barricade this game placed before the partner's bit landed (mods/coop/replica
 #   refresh_relay.go; dry logs one line per candidate and writes nothing). docs/TESTING.md "Batch D".
+#   The app sets both per player too (host and joiner): the save-file panel's "Advanced: your game's relays" fields
+#   (gui.Bridge.SetCoopRelays, checked by the same replica parsers, saved as config.Coop.BossKill/Refresh, read at the next
+#   co-op start through CoopFn); the TUI leaves them CLI-only.
 # Co-op's hidden CLI (mods/coop/cli): coop-world, coop-tables, coop-tag, save-diff, save-merge
 
 # Multiplayer runtime CLIs (the pipelines mp-local runs in one process; they also run as separate processes).

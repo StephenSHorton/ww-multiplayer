@@ -471,7 +471,7 @@ Design: `ww-multiplayer-handoff/design/enemy-mirror-batch-d.json` (D1-D11, R-D1.
 | actor_refresh, Tier 3 of the stale-actor refresh (`mods/coop/replica/refresh_relay.go`, 0x20 bytes at 0x804137B0, `inject/include/wwrefresh.h`) | `WWREFRESH_ENABLE` | `--coop-refresh=stone2,leaves,item,tbox,saku[,dry]\|none` (`replica.ParseRefresh`) | empty: nothing is asked |
 | Magtail, kind 8 (retail body_control1/2 behind a fingerprint) | `EMK_WITH_MT` | `mt+u` in `WW_ENEMY_MIRROR_KINDS` on both sides | off |
 
-`--coop-boss-kill` and `--coop-refresh` are each side's own (host, join and `mp-local` take them with `--coop`). The refresh block takes +0x8B0..+0x8D0, so `CanaryArenaHigh` now starts at 0x804137D0 (size 0x830, 524 words) and `canaryForbidden` lists `mailbox.RefreshRegion`. The kind table hash is 0xB826567A with the MT row, and the network protocol is 5: a batch C build (protocol 4) is refused at the hello instead of losing every enemy to the KindHash disarm.
+`--coop-boss-kill` and `--coop-refresh` are each side's own (host, join and `mp-local` take them with `--coop`; in the app, each player's save-file panel, "Advanced: your game's relays"). The refresh block takes +0x8B0..+0x8D0, so `CanaryArenaHigh` now starts at 0x804137D0 (size 0x830, 524 words) and `canaryForbidden` lists `mailbox.RefreshRegion`. The kind table hash is 0xB826567A with the MT row, and the network protocol is 5: a batch C build (protocol 4) is refused at the hello instead of losing every enemy to the KindHash disarm.
 
 Offline, before any live run (`go test -count=1 ./mods/coop/replica ./mods/coop/session ./wwapi/mailbox ./wwapi/actors ./wwapi/addr ./mods/enemysync ./mods/multiplayer/net ./internal/inject/... ./cmd/wwdev`):
 
