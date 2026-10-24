@@ -753,6 +753,11 @@ var schemaShapes = map[int]string{
 	// (TotG sw0, sw14, sw16, sw17), Obj_Try only reads, and an Obj_Correct
 	// slot with an Obj_Try twin latches (TotG sw5, sw6).
 	8: "18e463dd4d344be73cbc4e9f0f99bf72f2021d56a876e6db3cd6bc86cddd5014",
+	// 9: the same shape; ET's sun switches (Obj_Swlight type 1) are
+	// momentary inputs (ET sw16, sw19, sw98, sw101, sw102, sw118), and a
+	// type-1 TAG_EVSW beside a latching setter doesn't block the sync (ET
+	// sw43, sw44, sw111; WT's Makar-tree switches and their ANDs).
+	9: "18e463dd4d344be73cbc4e9f0f99bf72f2021d56a876e6db3cd6bc86cddd5014",
 }
 
 func TestSchemaShape(t *testing.T) {

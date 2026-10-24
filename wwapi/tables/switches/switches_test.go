@@ -31,7 +31,7 @@ var realNames = []struct {
 	{"MhmrSW0", procSwhammer}, {"Fganon", stage.ProcFganon}, {"Mn", procNpcMn},
 	{"agbA", procAgbsw0}, {"agbMW", procAgbsw0}, {"agbCSW", procAgbsw0},
 	{"Ss", procSs}, {"gmos", stage.ProcGM}, {"CrTrM1", procCorrect}, {"Itnak", procItnak},
-	{"Hfbot1B", procSwflat}, {"Hfbot1C", procSwflat},
+	{"Hfbot1B", procSwflat}, {"Hfbot1C", procSwflat}, {"MsuSW", procSwlight},
 	{"Sitem", stage.ProcItem}, // a proc the table doesn't read
 }
 
@@ -279,6 +279,9 @@ func crystal(no int) stage.Actor { return act("SW_HIT0", 0xFF<<20|uint32(no)) }
 // plate is a momentary floor switch (swpush type 1), as DRC r16's Kbota_B.
 func plate(no int) stage.Actor { return act("Kbota_A", 1<<24|uint32(no)<<8) }
 
+// sun is a sun switch (Obj_Swlight type 1) with no hold switch.
+func sun(no int) stage.Actor { return act("MsuSW", 1<<16|0xFF<<8|uint32(no)) }
+
 // area is a per-frame area switch (SW_C00 type 0).
 func area(no int) stage.Actor { return act("SW_C00", 0<<16|0xFF<<8|uint32(no)) }
 func timedCrystal(no int) stage.Actor {
@@ -368,6 +371,22 @@ func TestANDPropagation(t *testing.T) {
 			[]want{{m(0x10), Unsafe, OpSet, false}}, map[int]string{0x10: "fed by memory t4 0x11"}},
 		{"timed crystal and its AND's clear", []stage.Actor{timedCrystal(0x11), andsw0(2, 0x20, 1, 0x11), andsw0(0, 0x10, 1, 0x11)},
 			[]want{{m(0x10), Unsafe, OpSet, false}}, map[int]string{0x10: "fed by memory t4 0x11"}},
+		// A type-1 TAG_EVSW next to a latching setter only pre-sets it from
+		// a synced story bit (WT r15's Makar-tree tags), so the switch
+		// syncs; next to a clearer it stays unsafe. A TagEv co-writer still
+		// keeps it unsynced.
+		{"Evsw 1 and a crystal", []stage.Actor{act("Evsw", 1<<24|0x4004<<8|0x32), crystal(0x32)}, []want{{m(0x32), Event, OpSet, true}}, nil},
+		{"Evsw 1 and a timer", []stage.Actor{act("Evsw", 1<<24|0x4004<<8|0x33), act("ObjTime", 0x33<<16|5)}, []want{{m(0x33), Event, OpSet, false}}, nil},
+		{"Evsw 0 and a crystal", []stage.Actor{act("Evsw", 0<<24|0x4004<<8|0x34), crystal(0x34)}, []want{{m(0x34), Unsafe, OpSetClear, false}}, nil},
+		{"TagEv and a crystal", []stage.Actor{act("TagEv", 0xFF<<16|0x35<<8), crystal(0x35)}, []want{{m(0x35), Event, OpSet, false}}, nil},
+		// ET's r3 and r16 sun-switch pairs (MsuSW type 1) are momentary
+		// inputs: the light leaving clears them. A moon switch (type 0)
+		// latches and syncs itself.
+		{"one-shot AND of sun switches", []stage.Actor{sun(0x11), sun(0x12), andsw0(0, 0x10, 2, 0x11)},
+			[]want{{m(0x10), Latching, OpSet, true}, {m(0x11), Unsafe, OpSetClear, false}, {m(0x12), Unsafe, OpSetClear, false}}, nil},
+		{"continuous AND of sun switches", []stage.Actor{sun(0x71), sun(0x72), andsw0(1, 0x70, 2, 0)},
+			[]want{{m(0x70), Unsafe, OpSetClear, false}}, nil},
+		{"moon switch", []stage.Actor{act("MsuSW", 0xFF<<8|0x13)}, []want{{m(0x13), Latching, OpSet, true}}, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			tbl := Build([]*stage.Stage{mkStage("W", tb, nil, c.actors)}, testNames(t))
@@ -387,7 +406,8 @@ func TestANDPropagation(t *testing.T) {
 }
 
 // checkFixedPoint checks the verdicts are consistent: Synced is "a
-// latching setter, the rest latching or GBA", a latching AND's inputs are
+// latching setter, the rest latching, GBA or a type-1 TAG_EVSW", a
+// latching AND's inputs are
 // all synced, and GBA is set exactly on the synced switches with a GBA
 // writer or a latching AND writer with a GBA input.
 func checkFixedPoint(t testing.TB, tbl *Table) {
