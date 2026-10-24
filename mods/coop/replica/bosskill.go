@@ -97,12 +97,29 @@ import (
 // answers "waiting": a Poe cannot be killed by a write, so the receiver
 // finishes it or regathers and is frozen again.
 //
+// Helmaroc King (design/relay-helmaroc.md) is the sixth: in M2tower with
+// Forsaken Fortress's table 2 loaded, the REL writes health 0 into this
+// game's own Bdk once the receiver has broken the mask itself (m8F8 >= 4,
+// a fight action 0..8, no demo camera). health is read only by
+// damage_check's crest branch, so the receiver's own next sword hit on the
+// crest runs vanilla's death: the pause, end_set, the death camera and the
+// bit (d_a_bdk.rel .text 0x4F20, 0x491C, 0xA284). The tower climb, the
+// intro, the mask fight and its demo answer "waiting"; M2tower's layers 0
+// and 1 (before the rescue) place no Bdk and answer "no actor". Unlike the
+// other five rows, the bits are held in every table-2 stage (bossStage is
+// true wherever table FF is loaded, and Mjtower is BOSS type too), but the
+// relay asks only in M2tower (the row's stage): a receiver elsewhere in the
+// fortress keeps the bits held until it leaves for the sea, and one that
+// comes back to M2tower layer 3 fights the tower phase and the mask
+// before the relay applies.
+//
 // The --coop-boss-kill row set (Config.BossKill, ParseBossKill) picks the
 // rows the relay asks for, each side its own: gohma,kalle by default.
 // Gohdan joins the default once GD-2 and the D4 live check pass (G-D1;
 // docs/TESTING.md "Batch D"), and Molgera and Jalhalla once theirs do
-// (docs/TESTING.md "Batch E"); until then each is asked for only when
-// named, e.g. --coop-boss-kill=gohma,kalle,gohdan,molgera,jalhalla. A row
+// (docs/TESTING.md "Batch E") and Helmaroc King once its does (docs/
+// TESTING.md "Batch F"); until then each is asked for only when named,
+// e.g. --coop-boss-kill=gohma,kalle,gohdan,molgera,jalhalla,helmaroc. A row
 // left out is held as before (bossHold) and logged once; the WriteGuard
 // takes every row's proc whatever the set (bossRules).
 
@@ -125,16 +142,18 @@ var bossKillRows = []bossRow{
 	{key: "gohdan", stage: "SirenB", table: addr.TableTotG, proc: mailbox.BossProcBst, name: "Gohdan", gate: "once its mouth is open for a bomb"},
 	{key: "molgera", stage: "kazeB", table: addr.TableWT, proc: mailbox.BossProcBwd, name: "Molgera", gate: "once its tongue is pulled out"},
 	{key: "jalhalla", stage: "M_DaiB", table: addr.TableET, proc: mailbox.BossProcBpw, name: "Jalhalla", gate: "once it is frozen by light (this game's own next throw into the spikes then ends the fight)"},
+	{key: "helmaroc", stage: "M2tower", table: addr.TableFF, proc: mailbox.BossProcBdk, name: "Helmaroc King", gate: "once its mask is broken (this game's own next sword hit on the crest then ends the fight)"},
 }
 
 const (
 	// BossKillDefault is the --coop-boss-kill row set when none is given:
 	// Gohma and Kalle Demos. Gohdan joins it after GD-2 and the D4 live
 	// check (enemy-mirror-batch-d.json G-D1), Molgera and Jalhalla after
-	// their D4 checks (docs/TESTING.md "Batch E").
+	// their D4 checks (docs/TESTING.md "Batch E"), Helmaroc King after
+	// its own (docs/TESTING.md "Batch F").
 	BossKillDefault = "gohma,kalle"
 	// BossKillTokens names every --coop-boss-kill token, for the usage.
-	BossKillTokens = "gohma,kalle,gohdan,molgera,jalhalla"
+	BossKillTokens = "gohma,kalle,gohdan,molgera,jalhalla,helmaroc"
 )
 
 // ParseBossKill parses a --coop-boss-kill row set: bossKillRows' keys
@@ -268,7 +287,8 @@ func (r *Replica) bossLog(key, line string) {
 // m18B0, so a pull waiting at step 2 logs once, and m1BB5, so each
 // critical pull the receiver lands logs once. Jalhalla: the result, a
 // class of mBodyAction and mActionState (bpwClass) and whether health is
-// 0 or less; the health itself is left out.
+// 0 or less; the health itself is left out. Helmaroc King: the result, a
+// class of mAction and m8F8 (bdkClass) and whether health is 0 or less.
 func bossAckKey(proc uint16, st mailbox.BossStatus) string {
 	switch proc {
 	case mailbox.BossProcBwd:
@@ -284,6 +304,8 @@ func bossAckKey(proc uint16, st mailbox.BossStatus) string {
 		return fmt.Sprintf("ack %d bwd act %s m1BB5 %d", st.Result, act, int8(st.Phase))
 	case mailbox.BossProcBpw:
 		return fmt.Sprintf("ack %d bpw %s hp0 %t", st.Result, bpwClass(st.Act, st.State), int8(st.Phase) <= 0)
+	case mailbox.BossProcBdk:
+		return fmt.Sprintf("ack %d bdk %s hp0 %t", st.Result, bdkClass(st.Act, st.State), int8(st.Phase) <= 0)
 	}
 	if proc == mailbox.BossProcBst {
 		act := fmt.Sprintf("0x%X", st.Act)
@@ -331,16 +353,47 @@ func bpwClass(act, st uint8) string {
 	return fmt.Sprintf("0x%X/0x%X", act, st)
 }
 
+// bdkClass names a Helmaroc King result's mAction (low byte) and m8F8 for
+// bossAckKey: the tower phase (0x64..0x67, the climb), the intro (0xF),
+// the mask fight (0..8 with m8F8 below 4, "mask k", so each hammer hit on
+// the mask logs once), the mask demo (9), the crest fight (0..8 with m8F8
+// 4), the death (0xA), the inert create (0x6E), else the values in hex.
+func bdkClass(act, mask uint8) string {
+	switch {
+	case act >= mailbox.BossBdkActTFly && act <= mailbox.BossBdkActTDown:
+		return "tower"
+	case act == mailbox.BossBdkActStart:
+		return "intro"
+	case act <= mailbox.BossBdkActFightMax && mask < mailbox.BossBdkMaskBroken:
+		return fmt.Sprintf("mask %d", mask)
+	case act <= mailbox.BossBdkActFightMax:
+		return "crest"
+	case act == mailbox.BossBdkActMaskDemo:
+		return "maskdemo"
+	case act == mailbox.BossBdkActEnd:
+		return "end"
+	case act == mailbox.BossBdkActAfter:
+		return "after"
+	}
+	return fmt.Sprintf("0x%X/%d", act, mask)
+}
+
 // bossAckLine is the log line for an ack of seq. A Jalhalla "already"
 // with health 0 outside the death demo is the zero an earlier "applied"
 // left, waiting for the next spike landing, and says so; Jalhalla's
 // "applied" says it too, since the Hero's Charm gauge empties at the
 // write: the next throw while still frozen or carried (0x52..0x54), the
 // landing already under way once thrown or in the spikes (0x55, 0x64,
-// 0x65).
+// 0x65). Helmaroc King's are the same: its "applied" and an "already" at
+// a fight action with health 0 (the zero not yet taken) say the
+// receiver's next sword hit on the crest ends it.
 func bossAckLine(seq uint32, proc uint16, st mailbox.BossStatus) string {
 	const bpwGauge = " (an empty boss gauge until then is expected)"
 	const bpwPending = "this game's Jalhalla falls on its next throw into the spikes" + bpwGauge
+	const bdkPending = "this game's Helmaroc King falls on its next sword hit on the crest" + bpwGauge
+	if proc == mailbox.BossProcBdk && st.Result == mailbox.BossRAlready && st.Act <= mailbox.BossBdkActFightMax && int8(st.Phase) <= 0 {
+		return fmt.Sprintf("co-op: boss_kill %d: applied earlier; %s (mAction 0x%X, m8F8 %d)", seq, bdkPending, st.Act, st.State)
+	}
 	if proc == mailbox.BossProcBpw && st.Result == mailbox.BossRAlready && st.Act != mailbox.BossBpwActSeparate && int8(st.Phase) <= 0 {
 		return fmt.Sprintf("co-op: boss_kill %d: applied earlier; %s (mBodyAction %d, mActionState 0x%X)", seq, bpwPending, st.Act, st.State)
 	}
@@ -351,6 +404,9 @@ func bossAckLine(seq uint32, proc uint16, st mailbox.BossStatus) string {
 		} else {
 			line += "; " + bpwPending
 		}
+	}
+	if proc == mailbox.BossProcBdk && st.Result == mailbox.BossRApplied {
+		line += "; " + bdkPending
 	}
 	return line
 }

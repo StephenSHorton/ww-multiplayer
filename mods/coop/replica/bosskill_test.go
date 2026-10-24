@@ -118,6 +118,18 @@ func TestBossKillWantedRows(t *testing.T) {
 		{"the ET dungeon", "M_Dai", addr.TableET, held(etBossItems), -1, 0},
 		{"the ET miniboss room", "M_DaiMB", addr.TableET, held(etBossItems), -1, 0},
 		{"an X stage on ET's table", "Xboss2", addr.TableET, held(etBossItems), -1, 0},
+		{"Helmaroc King", "M2tower", addr.TableFF, held(ffBossItems), -1, mailbox.BossProcBdk},
+		{"M2tower with ET's bit held", "M2tower", addr.TableFF, held(etBossItems), -1, 0},
+		{"M2tower with DRC's table", "M2tower", addr.TableDRC, held(ffBossItems), -1, 0},
+		{"M2tower, the local bit set", "M2tower", addr.TableFF, held(ffBossItems), ffBossItems, 0},
+		{"the FF1 tower (BOSS type, table 2)", "Mjtower", addr.TableFF, held(ffBossItems), -1, 0},
+		{"MajyuE", "MajyuE", addr.TableFF, held(ffBossItems), -1, 0},
+		{"majroom", "majroom", addr.TableFF, held(ffBossItems), -1, 0},
+		{"ma2room", "ma2room", addr.TableFF, held(ffBossItems), -1, 0},
+		{"ma3room", "ma3room", addr.TableFF, held(ffBossItems), -1, 0},
+		{"M2ganon", "M2ganon", addr.TableFF, held(ffBossItems), -1, 0},
+		{"the sea with FF's bit held", "sea", 0, held(ffBossItems), -1, 0},
+		{"an X stage on FF's table", "Xboss0", addr.TableFF, held(ffBossItems), -1, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -191,16 +203,21 @@ func TestBossGuardRules(t *testing.T) {
 			t.Fatalf("Gohdan's proc/tag byte %d 0x%02X refused: %s", i, b, r)
 		}
 	}
-	// Between Bmd (0xEC) and Bst (0xF2): BMDHAND, BMDFOOT, Helmaroc King
-	// and the rest are no value of the proc's low byte.
+	// Between Bmd (0xEC) and Bst (0xF2): BMDHAND, BMDFOOT, DK (0xEF),
+	// BDKOBJ (0xF1) and the rest are no value of the proc's low byte;
+	// Helmaroc King's 0xF0 is a row's (below).
 	for v := 0xED; v < 0xF2; v++ {
+		if v == 0xF0 {
+			continue
+		}
 		if r := judge(procAt+1, byte(v)); r != RefuseValue {
 			t.Fatalf("proc low byte 0x%02X: %v, want a value refusal", v, r)
 		}
 	}
-	// Molgera's and Jalhalla's: taken; Molgera's larvae (BWDS 0xDB) and
-	// sand floor (BWDG 0xDC) and Jalhalla's Poes (PW 0xD5) are no value.
-	for _, p := range []uint16{mailbox.BossProcBwd, mailbox.BossProcBpw} {
+	// Molgera's, Jalhalla's and Helmaroc King's: taken; Molgera's larvae
+	// (BWDS 0xDB) and sand floor (BWDG 0xDC), Jalhalla's Poes (PW 0xD5)
+	// and Helmaroc King's DK (0xEF) and BDKOBJ (0xF1) are no value.
+	for _, p := range []uint16{mailbox.BossProcBwd, mailbox.BossProcBpw, mailbox.BossProcBdk} {
 		f, _ := mailbox.BossRequestFields(p, 1)
 		for i, b := range f {
 			if r := judge(procAt+uint32(i), b); r != 0 {
@@ -208,7 +225,7 @@ func TestBossGuardRules(t *testing.T) {
 			}
 		}
 	}
-	for _, v := range []byte{0xD5, 0xDB, 0xDC} {
+	for _, v := range []byte{0xD5, 0xDB, 0xDC, 0xEF, 0xF1} {
 		if r := judge(procAt+1, v); r != RefuseValue {
 			t.Fatalf("proc low byte 0x%02X: %v, want a value refusal", v, r)
 		}
@@ -219,7 +236,7 @@ func TestBossGuardRules(t *testing.T) {
 	if _, br, ok := g.at(mailbox.RefreshAddr + mailbox.RefreshProcOff + 1); !ok || br.paths != pathRefresh {
 		t.Fatalf("the refresh proc byte: ok %v paths %s", ok, br.paths)
 	} else {
-		for _, v := range []byte{0xF2, 0xDA, 0xD4} {
+		for _, v := range []byte{0xF2, 0xDA, 0xD4, 0xF0} {
 			if r, _ := judgeByte(br, 0, v); r != RefuseValue {
 				t.Fatalf("0x%02X in the refresh request's proc: %v", v, r)
 			}
@@ -629,8 +646,11 @@ func TestParseBossKill(t *testing.T) {
 		{"molgera", []uint16{mailbox.BossProcBwd}, false},
 		{"jalhalla", []uint16{mailbox.BossProcBpw}, false},
 		{"gohma,kalle,gohdan,Molgera,jalhalla", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBst, mailbox.BossProcBwd, mailbox.BossProcBpw}, false},
+		{"helmaroc", []uint16{mailbox.BossProcBdk}, false},
+		{"gohma,helmaroc", []uint16{mailbox.BossProcBtd, mailbox.BossProcBdk}, false},
+		{BossKillTokens, []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBst, mailbox.BossProcBwd, mailbox.BossProcBpw, mailbox.BossProcBdk}, false},
 		{"none", nil, false},
-		{"gohma,helmaroc", nil, true},
+		{"gohma,ganon", nil, true},
 	} {
 		on, err := ParseBossKill(c.v)
 		if (err != nil) != c.err {
@@ -653,7 +673,7 @@ func TestParseBossKill(t *testing.T) {
 	}
 	// The default leaves the opt-in rows out.
 	def, _ := ParseBossKill("")
-	for _, p := range []uint16{mailbox.BossProcBst, mailbox.BossProcBwd, mailbox.BossProcBpw} {
+	for _, p := range []uint16{mailbox.BossProcBst, mailbox.BossProcBwd, mailbox.BossProcBpw, mailbox.BossProcBdk} {
 		if def[p] {
 			t.Fatalf("the default row set takes %s", mailbox.BossProcName(p))
 		}
@@ -1056,7 +1076,7 @@ func testBossDefaultOff(t *testing.T, stage fakegame.Stage, off int, name string
 // WT's table (the temple, the miniboss room, an X refight stage) gets a
 // request, and --coop-boss-kill=molgera alone leaves Gohma's arena alone.
 func TestBossKillBwdNeverOutsideKazeB(t *testing.T) {
-	testBossNeverOutside(t, wtBossItems, "molgera", fakegame.Stage{Name: "kaze", Table: addr.TableWT, KeyHUD: true},
+	testBossNeverOutside(t, wtBossItems, "molgera", batchERows, fakegame.Stage{Name: "kaze", Table: addr.TableWT, KeyHUD: true},
 		fakegame.Stage{Name: "kazeMB", Table: addr.TableWT, KeyHUD: true}, fakegame.Stage{Name: "Xboss3", Table: addr.TableWT, KeyHUD: true})
 }
 
@@ -1064,14 +1084,14 @@ func TestBossKillBwdNeverOutsideKazeB(t *testing.T) {
 // ET's table (the temple, the miniboss room, an X refight stage) gets a
 // request, and --coop-boss-kill=jalhalla alone leaves Gohma's arena alone.
 func TestBossKillBpwNeverOutsideMDaiB(t *testing.T) {
-	testBossNeverOutside(t, etBossItems, "jalhalla", fakegame.Stage{Name: "M_Dai", Table: addr.TableET, KeyHUD: true},
+	testBossNeverOutside(t, etBossItems, "jalhalla", batchERows, fakegame.Stage{Name: "M_Dai", Table: addr.TableET, KeyHUD: true},
 		fakegame.Stage{Name: "M_DaiMB", Table: addr.TableET, KeyHUD: true}, fakegame.Stage{Name: "Xboss2", Table: addr.TableET, KeyHUD: true})
 }
 
-func testBossNeverOutside(t *testing.T, off int, key string, stages ...fakegame.Stage) {
+func testBossNeverOutside(t *testing.T, off int, key, rows string, stages ...fakegame.Stage) {
 	t.Helper()
 	for _, st := range stages {
-		br := newBossRigSet(t, st, true, batchERows)
+		br := newBossRigSet(t, st, true, rows)
 		br.partnerKilledAt(off)
 		br.ticks(5)
 		if seq, _, _ := br.request(); seq != 0 {
@@ -1089,12 +1109,16 @@ func testBossNeverOutside(t *testing.T, off int, key string, stages ...fakegame.
 // TestBossKillBwdNoREL and TestBossKillBpwNoREL: without the REL module
 // the relay writes nothing and names its boss once; a REL of another
 // build likewise.
-func TestBossKillBwdNoREL(t *testing.T) { testBossNoREL(t, wtBoss, wtBossItems, "Molgera") }
-func TestBossKillBpwNoREL(t *testing.T) { testBossNoREL(t, etBoss, etBossItems, "Jalhalla") }
+func TestBossKillBwdNoREL(t *testing.T) {
+	testBossNoREL(t, wtBoss, wtBossItems, "Molgera", batchERows)
+}
+func TestBossKillBpwNoREL(t *testing.T) {
+	testBossNoREL(t, etBoss, etBossItems, "Jalhalla", batchERows)
+}
 
-func testBossNoREL(t *testing.T, stage fakegame.Stage, off int, name string) {
+func testBossNoREL(t *testing.T, stage fakegame.Stage, off int, name, rows string) {
 	t.Helper()
-	br := newBossRigSet(t, stage, false, batchERows)
+	br := newBossRigSet(t, stage, false, rows)
 	br.partnerKilledAt(off)
 	br.ticks(3)
 	br.clock.advance(bossRetry)
@@ -1195,5 +1219,226 @@ func TestBossAckLineBpw(t *testing.T) {
 		if !strings.Contains(line, "; this game's Jalhalla "+c.want+" (an empty boss gauge until then is expected)") {
 			t.Errorf("state 0x%X: %q, want %q", c.st, line, c.want)
 		}
+	}
+}
+
+// ffBossItems is Forsaken Fortress's (table 2) mDungeonItem byte in the
+// image, and ffBoss the Helmaroc King arena, M2tower.
+var (
+	ffBossItems = addr.OffMemBit(addr.TableFF) + addr.MemBitOffDungeonItem
+	ffBoss      = fakegame.Stage{Name: "M2tower", Table: addr.TableFF, KeyHUD: true}
+)
+
+// batchFRows is --coop-boss-kill with Helmaroc King named.
+const batchFRows = "gohma,kalle,helmaroc"
+
+// TestBossKillRelayBdk: with Helmaroc King in the row set, the partner
+// kills it while this game is in M2tower. The request names Bdk's proc;
+// the tower phase, the intro, each mask hit count, the mask demo and the
+// crest fight under a demo camera are each logged once while asked again
+// after bossRetry; applied in the crest fight settles; a later already
+// with health 0 at a fight action (the zero not yet taken) logs its own
+// words once and settles too; the relay stops once the game has set
+// table 2's bit.
+func TestBossKillRelayBdk(t *testing.T) {
+	br := newBossRigSet(t, ffBoss, true, batchFRows)
+	br.partnerKilledAt(ffBossItems)
+	br.ticks(3)
+	seq, proc, tag := br.request()
+	if seq == 0 || proc != mailbox.BossProcBdk || tag != mailbox.BossTag {
+		t.Fatalf("request seq %d proc 0x%X tag 0x%X; log:\n%s", seq, proc, tag, br.log)
+	}
+	if v := br.liveByte(ffBossItems); v&bossEnemy != 0 {
+		t.Fatalf("the boss bit was written live in the arena: 0x%02X", v)
+	}
+	if st := br.r.Status(); !st.BossKill.Wanted || st.BossKill.Boss != "Helmaroc King" || st.BossKill.Requests != 1 {
+		t.Fatalf("status %+v", st.BossKill)
+	}
+	if !br.log.has("the partner killed Helmaroc King") || !br.log.has("once its mask is broken") {
+		t.Fatalf("no Helmaroc King line:\n%s", br.log)
+	}
+	// mAction, m8F8, health: the climb (the create's zeroed health), the
+	// intro, the mask fight at each hit count, the mask demo (m8F8 3, then
+	// 4 from its camera's case 1), the crest fight under a demo camera.
+	br.bossAnswers(t, [][3]uint8{
+		{mailbox.BossBdkActTFly, 0, 0}, {0x66, 0, 0},
+		{mailbox.BossBdkActStart, 0, 20},
+		{0, 0, 20}, {3, 0, 20}, {7, 1, 20}, {1, 2, 20}, {8, 3, 20},
+		{mailbox.BossBdkActMaskDemo, 3, 20}, {mailbox.BossBdkActMaskDemo, 4, 20},
+		{5, 4, 20},
+	})
+	if n := br.log.count(": waiting (mAction 0x"); n != 8 {
+		t.Fatalf("waiting logged %d times, want 8 (tower, intro, mask 0..3, maskdemo, crest):\n%s", n, br.log)
+	}
+	if !br.log.has("waiting (mAction 0x64, m8F8 0, health 0)") || !br.log.has("waiting (mAction 0x9, m8F8 3, health 20)") {
+		t.Fatalf("Bdk's fields not logged:\n%s", br.log)
+	}
+
+	// Applied in the crest fight: not asked again for bossSettle.
+	s, _, _ := br.request()
+	br.relPhase(s, mailbox.BossRApplied, 5, mailbox.BossBdkMaskBroken, 20)
+	br.ticks(1)
+	br.clock.advance(10 * bossRetry)
+	br.ticks(3)
+	if n, _, _ := br.request(); n != s {
+		t.Fatalf("asked again (%d) after applied", n)
+	}
+	if !br.log.has("applied (mAction 0x5, m8F8 4, health 20); this game's Helmaroc King falls on its next sword hit on the crest (an empty boss gauge until then is expected)") {
+		t.Fatalf("no applied line with the gauge note:\n%s", br.log)
+	}
+	if st := br.r.Status(); st.BossKill.Applied != 1 || st.BossKill.Result != "applied" {
+		t.Fatalf("status %+v", st.BossKill)
+	}
+
+	// No crest hit yet: the next asks find health 0 in the fight, which
+	// logs once in its own words and settles as already.
+	for range 2 {
+		br.clock.advance(bossSettle)
+		br.ticks(1)
+		s, _, _ = br.request()
+		br.relPhase(s, mailbox.BossRAlready, 1, mailbox.BossBdkMaskBroken, 0)
+		br.ticks(1)
+		br.clock.advance(10 * bossRetry)
+		br.ticks(3)
+		if n, _, _ := br.request(); n != s {
+			t.Fatalf("asked again (%d) after already", n)
+		}
+	}
+	const pending = "applied earlier; this game's Helmaroc King falls on its next sword hit on the crest (an empty boss gauge until then is expected) (mAction 0x1, m8F8 4)"
+	if n := br.log.count(pending); n != 1 {
+		t.Fatalf("the pending zero logged %d times:\n%s", n, br.log)
+	}
+	if br.log.has(": already dying (mAction 0x1") {
+		t.Fatalf("the pending zero read as already dying:\n%s", br.log)
+	}
+
+	// The death camera's case 0x72 sets table 2's bit: the relay ends.
+	br.set(ffBossItems, bossEnemy)
+	br.clock.advance(bossSettle)
+	br.ticks(3)
+	if n, _, _ := br.request(); n != s {
+		t.Fatalf("asked again (%d) once the game has the bit", n)
+	}
+	if st := br.r.Status(); st.BossKill.Wanted || st.BossKill.Applied != 1 {
+		t.Fatalf("status with the bit set: %+v", st.BossKill)
+	}
+}
+
+// TestBossKillBdkNoActor: M2tower's layers 0/1 (before the rescue) place
+// no Bdk; "no actor" is asked again every bossRetry and logged once.
+func TestBossKillBdkNoActor(t *testing.T) {
+	br := newBossRigSet(t, ffBoss, true, batchFRows)
+	br.partnerKilledAt(ffBossItems)
+	br.ticks(3)
+	for range 4 {
+		s, _, _ := br.request()
+		br.relPhase(s, mailbox.BossRNoActor, 0, 0, 0)
+		br.ticks(1)
+		if n, _, _ := br.request(); n != s {
+			t.Fatalf("asked again (%d) before bossRetry", n)
+		}
+		br.clock.advance(bossRetry)
+		br.ticks(1)
+		if n, _, _ := br.request(); n != s+1 {
+			t.Fatalf("after no actor: seq %d, want %d; log:\n%s", n, s+1, br.log)
+		}
+	}
+	if n := br.log.count(": no actor (mAction 0x0, m8F8 0, health 0)"); n != 1 {
+		t.Fatalf("no actor logged %d times:\n%s", n, br.log)
+	}
+}
+
+// TestBossKillBdkDefaultOff: with the default row set, M2tower gets no
+// request; the log says once why the arena keeps its boss.
+func TestBossKillBdkDefaultOff(t *testing.T) {
+	testBossDefaultOff(t, ffBoss, ffBossItems, "Helmaroc King")
+}
+
+// TestBossKillBdkNeverOutsideM2tower: with Helmaroc King named, no other
+// stage of table 2 gets a request, though the bits are held in each
+// (bossStage takes every table-2 stage) and Mjtower is BOSS type too, nor
+// an X stage on table 2; --coop-boss-kill=helmaroc alone leaves Gohma's
+// arena alone.
+func TestBossKillBdkNeverOutsideM2tower(t *testing.T) {
+	var stages []fakegame.Stage
+	for _, n := range []string{"M2ganon", "ma2room", "ma3room", "majroom", "MajyuE", "Mjtower", "Xboss0"} {
+		stages = append(stages, fakegame.Stage{Name: n, Table: addr.TableFF, KeyHUD: true})
+	}
+	testBossNeverOutside(t, ffBossItems, "helmaroc", batchFRows, stages...)
+}
+
+// TestBossKillBdkNoREL: without the REL module, or with one of another
+// build, the relay writes nothing and names Helmaroc King once each.
+func TestBossKillBdkNoREL(t *testing.T) {
+	testBossNoREL(t, ffBoss, ffBossItems, "Helmaroc King", batchFRows)
+}
+
+// TestBossAckKeyBdk: each class of mAction and m8F8 is one key whatever
+// the health; each mask hit count is its own, and health 0 is its own.
+func TestBossAckKeyBdk(t *testing.T) {
+	key := func(r, act, mask, hp uint8) string {
+		return bossAckKey(mailbox.BossProcBdk, mailbox.BossStatus{Result: r, Act: act, State: mask, Phase: hp})
+	}
+	w := mailbox.BossRWaiting
+	for _, c := range []struct {
+		name string
+		same [][2]uint8
+	}{
+		{"tower", [][2]uint8{{0x64, 0}, {0x65, 0}, {0x66, 0}, {0x67, 0}}},
+		{"intro", [][2]uint8{{0xF, 0}, {0xF, 4}}},
+		{"mask 0", [][2]uint8{{0, 0}, {4, 0}, {8, 0}}},
+		{"mask 2", [][2]uint8{{1, 2}, {6, 2}}},
+		{"maskdemo", [][2]uint8{{9, 3}, {9, 4}}},
+		{"crest", [][2]uint8{{0, 4}, {5, 4}, {8, 4}}},
+		{"end", [][2]uint8{{0xA, 4}}},
+		{"after", [][2]uint8{{0x6E, 0}}},
+	} {
+		k0 := key(w, c.same[0][0], c.same[0][1], 20)
+		for _, s := range c.same {
+			for _, hp := range []uint8{1, 9, 20} {
+				if k := key(w, s[0], s[1], hp); k != k0 {
+					t.Errorf("%s: act 0x%X m8F8 %d hp %d: %q, want %q", c.name, s[0], s[1], hp, k, k0)
+				}
+			}
+		}
+		if key(w, c.same[0][0], c.same[0][1], 0) == k0 {
+			t.Errorf("%s: health 0 shares the key", c.name)
+		}
+	}
+	seen := map[string]bool{}
+	for _, k := range []string{key(w, 0x64, 0, 20), key(w, 0xF, 0, 20), key(w, 0, 0, 20), key(w, 0, 1, 20), key(w, 0, 2, 20), key(w, 0, 3, 20),
+		key(w, 9, 3, 20), key(w, 0, 4, 20), key(w, 0xA, 4, 20), key(w, 0x6E, 0, 20)} {
+		if seen[k] {
+			t.Errorf("%q repeats a key", k)
+		}
+		seen[k] = true
+	}
+	if got := bdkClass(0x20, 1); got != "0x20/1" {
+		t.Errorf("an unclassed action: %q", got)
+	}
+}
+
+// TestBossAckLineBdk: Helmaroc King's applied line and an already at a
+// fight action with health 0 name the next crest hit; an already in the
+// death (0xA) or the inert create (0x6E) reads plain.
+func TestBossAckLineBdk(t *testing.T) {
+	const note = "this game's Helmaroc King falls on its next sword hit on the crest (an empty boss gauge until then is expected)"
+	line := bossAckLine(7, mailbox.BossProcBdk, mailbox.BossStatus{Result: mailbox.BossRApplied, Act: 3, State: 4, Phase: 20})
+	if line != "co-op: boss_kill 7: applied (mAction 0x3, m8F8 4, health 20); "+note {
+		t.Errorf("applied: %q", line)
+	}
+	line = bossAckLine(8, mailbox.BossProcBdk, mailbox.BossStatus{Result: mailbox.BossRAlready, Act: 2, State: 4, Phase: 0})
+	if line != "co-op: boss_kill 8: applied earlier; "+note+" (mAction 0x2, m8F8 4)" {
+		t.Errorf("pending: %q", line)
+	}
+	for _, act := range []uint8{mailbox.BossBdkActEnd, mailbox.BossBdkActAfter} {
+		line = bossAckLine(9, mailbox.BossProcBdk, mailbox.BossStatus{Result: mailbox.BossRAlready, Act: act, State: 4, Phase: 0})
+		if strings.Contains(line, "applied earlier") || !strings.Contains(line, ": already dying (mAction 0x") {
+			t.Errorf("act 0x%X: %q", act, line)
+		}
+	}
+	line = bossAckLine(10, mailbox.BossProcBdk, mailbox.BossStatus{Result: mailbox.BossRWaiting, Act: 0x64, State: 0, Phase: 0})
+	if line != "co-op: boss_kill 10: waiting (mAction 0x64, m8F8 0, health 0)" {
+		t.Errorf("tower waiting: %q", line)
 	}
 }

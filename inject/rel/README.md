@@ -689,6 +689,22 @@ creates no Poe and its own split goes straight to the death demo (BGM
 stop, clear stream, heart, STAGE_BOSS_ENEMY, warp flower). The result
 bytes are mBodyAction, mActionState, health.
 
+Helmaroc King (`design/relay-helmaroc.md`, under `WWBOSS_WITH_BDK`) is the
+sixth proc, 0x00F0 (Bdk), taken only in the stage named exactly `M2tower`
+(not `Mjtower` or `M2ganon`). It has its own arm in `bosskill_frame`, ahead
+of the final `else`, which is Kalle Demos' lethal block. One Bdk, on layer
+3 only, found by name; a NULL morf, or no Bdk on layers 0/1, is
+`no_actor`. `mAction` 0xA (the death) or 0x6E (the inert create) is
+`already`, and so is a fight action 0..8 with health <= 0 (the zero an
+earlier request left). Any other action (the tower phase 0x64..0x67, whose
+health is the create's zeroed 0, START 0xF, KAMEN_DEMO 9) is `waiting`. It
+applies at a fight action with the mask broken (`m8F8` >= 4), no demo
+camera (`m25A0` 0) and health > 0; else `waiting`. The apply is one write,
+health = 0: health is read only by `damage_check`'s crest branch, so the
+receiver's own next crest hit runs the pause, `end_set` and LAST_DAMAGE,
+and the death camera sets STAGE_BOSS_ENEMY. The result bytes are
+`mAction`, `m8F8`, health.
+
 ## refresh.c: the actor_refresh op
 
 Batch D's Tier 3 stale-actor refresh (`design/enemy-mirror-batch-d.json`

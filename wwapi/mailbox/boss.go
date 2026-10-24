@@ -17,7 +17,8 @@ import (
 // ww-multiplayer-handoff/design/research/C3-C6-gohma.md, "The relay op
 // (B5, revised)"; Kalle Demos: research/C1-kalle-demos-relay.md; Gohdan:
 // enemy-mirror-batch-d.json R-D1..R-D3, "gohdan"; Molgera: design/
-// relay-molgera.md; Jalhalla: design/relay-jalhalla.md.
+// relay-molgera.md; Jalhalla: design/relay-jalhalla.md; Helmaroc King:
+// design/relay-helmaroc.md.
 //
 // Go writes the proc and tag, then the seq (two writes, the seq last); the
 // REL writes the result, then the ack. The keeper's create consumes any
@@ -31,7 +32,7 @@ const (
 	BossProcOff   = 0x04 // u16 the boss's proc (Go)
 	BossTagOff    = 0x06 // u16 BossTag (Go)
 	BossAckOff    = 0x08 // u32 the seq last consumed (REL)
-	BossResultOff = 0x0C // u32 BE: byte +0 BossR*, +1..+3 per proc: Btd m02E4, mGohmaState, m02E0; Bmd mMode, m302, m304; Bst mActionType, mDamage, m2E7C; Bwd m18AE, m18B0, m1BB5; Bpw mBodyAction, mActionState, health (REL)
+	BossResultOff = 0x0C // u32 BE: byte +0 BossR*, +1..+3 per proc: Btd m02E4, mGohmaState, m02E0; Bmd mMode, m302, m304; Bst mActionType, mDamage, m2E7C; Bwd m18AE, m18B0, m1BB5; Bpw mBodyAction, mActionState, health; Bdk mAction, m8F8, health (REL)
 	BossGoSpan    = 0x08 // bytes Go writes: seq, proc, tag
 
 	BossTag     uint16 = 0x424B // 'BK'
@@ -40,12 +41,13 @@ const (
 	BossProcBst uint16 = 0x00F2 // fpcNm_BST_e, Gohdan, only in SirenB (batch D)
 	BossProcBwd uint16 = 0x00DA // fpcNm_BWD_e, Molgera, only in kazeB (batch E)
 	BossProcBpw uint16 = 0x00D4 // fpcNm_BPW_e, Jalhalla, only in M_DaiB (batch E)
+	BossProcBdk uint16 = 0x00F0 // fpcNm_BDK_e, Helmaroc King, only in M2tower (batch F)
 
 	BossRNone    uint8 = 0 // consumed at the keeper's create: ask again
-	BossRApplied uint8 = 1 // Btd: m02E4 0..2 with the armor broken; Bmd: the open flower; Bst: the mouth open, the hands asleep; Bwd: the tongue pulled out; Bpw: frozen, carried, thrown or on the spikes; the death written (Bwd: two counters, Bpw: health 0)
-	BossRWaiting uint8 = 2 // Btd: the intro, the armor intact or another state; Bmd: not the open flower; Bst: not the mouth-open window; Bwd: not the pulled tongue; Bpw: not frozen to the spikes; ask again
-	BossRAlready uint8 = 3 // m02E4 (Btd) or mMode (Bmd) 0xB, Bst mActionType 0x16, m2E9A >= 0x32 or m2E7C 100, Bwd m18AE 0xC/0xD, Bpw health <= 0 or mBodyAction 4 at >= 0x78: dying or dead
-	BossRNoActor uint8 = 4 // no actor of the proc, or one still creating (Bst: any of its three parts; Bwd: its morf NULL; Bpw: no executing body)
+	BossRApplied uint8 = 1 // Btd: m02E4 0..2 with the armor broken; Bmd: the open flower; Bst: the mouth open, the hands asleep; Bwd: the tongue pulled out; Bpw: frozen, carried, thrown or on the spikes; Bdk: the mask broken, a fight action, no demo camera; the death written (Bwd: two counters, Bpw and Bdk: health 0)
+	BossRWaiting uint8 = 2 // Btd: the intro, the armor intact or another state; Bmd: not the open flower; Bst: not the mouth-open window; Bwd: not the pulled tongue; Bpw: not frozen to the spikes; Bdk: the tower phase, the intro, the mask, its demo or a demo camera; ask again
+	BossRAlready uint8 = 3 // m02E4 (Btd) or mMode (Bmd) 0xB, Bst mActionType 0x16, m2E9A >= 0x32 or m2E7C 100, Bwd m18AE 0xC/0xD, Bpw health <= 0 or mBodyAction 4 at >= 0x78, Bdk mAction 0xA/0x6E or 0..8 with health <= 0: dying or dead
+	BossRNoActor uint8 = 4 // no actor of the proc, or one still creating (Bst: any of its three parts; Bwd: its morf NULL; Bpw: no executing body; Bdk: its morf NULL, or none on M2tower layers 0/1)
 	BossRGate    uint8 = 5 // a stage change pending, not the proc's stage, or a bad proc or tag
 
 	BossBtdM02E0Off  = 0x2E0 // u8 Btd's armor phase (d_a_btd.h:41)
@@ -153,6 +155,25 @@ const (
 	BossBpwStSpike     = 0x64  // hit the spikes
 	BossBpwStSpikeAir  = 0x65  // in the air until the landing
 	BossBpwStDeath     = 0x78  // the death demo's first state
+
+	// Bdk (d_a_bdk.h), Helmaroc King, batch F: one Bdk, on M2tower layer
+	// 3, found by name; the gate is a fight action (0..8) with the mask
+	// broken (m8F8 >= 4), no demo camera and health > 0; the one write is
+	// health = 0, which the receiver's own next crest hit takes.
+	BossWithBdk        = 1      // WWBOSS_WITH_BDK, the compile switch
+	BossBdkMorfOff     = 0x2B8  // mDoExt_McaMorf* mpMorf
+	BossBdkActOff      = 0x2C6  // s16 mAction, move()'s dispatch
+	BossBdkMaskOff     = 0x8F8  // u8 m8F8, the mask hits
+	BossBdkDemoOff     = 0x25A0 // s16 m25A0, the demo camera
+	BossBdkHealthOff   = 0x285  // s8 health
+	BossBdkActFightMax = 8      // ACTION_WIND_ATTACK, the arena fight's last action
+	BossBdkActMaskDemo = 9      // ACTION_KAMEN_DEMO, the mask breaking
+	BossBdkActEnd      = 0xA    // ACTION_END
+	BossBdkActStart    = 0xF    // ACTION_START, the phase-2 intro
+	BossBdkActTFly     = 0x64   // ACTION_T_FLY, the tower phase's first action
+	BossBdkActTDown    = 0x67   // ACTION_T_DOWN, the tower phase's last action
+	BossBdkActAfter    = 0x6E   // ACTION_AFTER_FIGHT, the create with the bit set
+	BossBdkMaskBroken  = 4      // m8F8 once the mask demo's camera starts
 )
 
 // BossAddr is the request's address.
@@ -163,8 +184,8 @@ var BossRequestRegion = addr.Region{Name: "boss_kill request", Start: BossAddr, 
 
 // BossProcName names a request's proc. The REL takes BossProcBtd only in
 // M_DragB, BossProcBmd only in kinBOSS, BossProcBst only in SirenB,
-// BossProcBwd only in kazeB and BossProcBpw only in M_DaiB; any other proc
-// is refused (BossRGate).
+// BossProcBwd only in kazeB, BossProcBpw only in M_DaiB and BossProcBdk
+// only in M2tower; any other proc is refused (BossRGate).
 func BossProcName(proc uint16) string {
 	switch proc {
 	case BossProcBtd:
@@ -177,6 +198,8 @@ func BossProcName(proc uint16) string {
 		return "Molgera (Bwd)"
 	case BossProcBpw:
 		return "Jalhalla (Bpw)"
+	case BossProcBdk:
+		return "Helmaroc King (Bdk)"
 	}
 	return fmt.Sprintf("proc 0x%04X", proc)
 }
@@ -184,8 +207,8 @@ func BossProcName(proc uint16) string {
 // BossDetail is a result's bytes after BossR* for a request of proc, as
 // the REL found them: Btd's m02E4, mGohmaState and m02E0, Bmd's mMode,
 // m302 and m304, Bst's head mActionType, mDamage and m2E7C, Bwd's m18AE,
-// m18B0 and m1BB5, Bpw's mBodyAction, mActionState and health (each its
-// low byte).
+// m18B0 and m1BB5, Bpw's mBodyAction, mActionState and health, Bdk's
+// mAction, m8F8 and health (each its low byte).
 func BossDetail(proc uint16, st BossStatus) string {
 	switch proc {
 	case BossProcBmd:
@@ -196,6 +219,8 @@ func BossDetail(proc uint16, st BossStatus) string {
 		return fmt.Sprintf("m18AE 0x%X, m18B0 %d, m1BB5 %d", st.Act, int8(st.State), int8(st.Phase))
 	case BossProcBpw:
 		return fmt.Sprintf("mBodyAction %d, mActionState 0x%X, health %d", st.Act, st.State, int8(st.Phase))
+	case BossProcBdk:
+		return fmt.Sprintf("mAction 0x%X, m8F8 %d, health %d", st.Act, st.State, int8(st.Phase))
 	}
 	return fmt.Sprintf("m02E4 0x%X, state 0x%X, m02E0 %d", st.Act, st.State, st.Phase)
 }
@@ -223,14 +248,14 @@ func BossResultName(r uint8) string {
 // wrote. Act, State and Phase are per proc (BossDetail): Btd's m02E4,
 // mGohmaState and m02E0, Bmd's mMode, m302 and m304, Bst's head
 // mActionType, mDamage and m2E7C, Bwd's m18AE, m18B0 and m1BB5, Bpw's
-// mBodyAction, mActionState and health.
+// mBodyAction, mActionState and health, Bdk's mAction, m8F8 and health.
 type BossStatus struct {
 	Seq    uint32 // the request's seq as read
 	Ack    uint32 // the seq the REL last consumed
 	Result uint8  // BossR*, for Ack
-	Act    uint8  // Btd's m02E4, Bmd's mMode, Bst's head mActionType, Bwd's m18AE or Bpw's mBodyAction, low byte, as the REL found it
-	State  uint8  // Btd's mGohmaState, Bmd's m302, Bst's mDamage, Bwd's m18B0 or Bpw's mActionState, low byte
-	Phase  uint8  // Btd's m02E0 (0 armored, 1 armor broken, 2 dying), Bmd's m304, Bst's m2E7C, Bwd's m1BB5 or Bpw's health, 0 with no actor
+	Act    uint8  // Btd's m02E4, Bmd's mMode, Bst's head mActionType, Bwd's m18AE, Bpw's mBodyAction or Bdk's mAction, low byte, as the REL found it
+	State  uint8  // Btd's mGohmaState, Bmd's m302, Bst's mDamage, Bwd's m18B0, Bpw's mActionState or Bdk's m8F8, low byte
+	Phase  uint8  // Btd's m02E0 (0 armored, 1 armor broken, 2 dying), Bmd's m304, Bst's m2E7C, Bwd's m1BB5, Bpw's or Bdk's health, 0 with no actor
 }
 
 // ReadBoss reads the request's words.
