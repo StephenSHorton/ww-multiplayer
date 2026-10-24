@@ -23,10 +23,11 @@ import (
 //     on its next stage transition (story.Receiver) anyway, and a
 //     cutscene's register writes (a letter sent, Beedle's points, the
 //     Ghost Ship cleared) are as much its side effects as its bits;
-//   - a memory switch that rises while the game is busy, or while a batch
-//     waits, waits with the batch: a stage event's trigger switch is set
-//     as its event starts (d_event_manager.cpp:42-47) and must not arrive
-//     before the bits the event sets (story.Batcher);
+//   - a memory switch waits with the batch, and one rising with no batch
+//     starts one: a stage event's trigger switch is set as its event
+//     starts (d_event_manager.cpp:42-47), on a tick that can still read
+//     IDLE, and must not arrive before the bits the event sets
+//     (story.Batcher);
 //   - the inventory and collection flags and the capacities wait for the
 //     game to be IDLE (§3: they are "live when idle"; gate.Status.Idle:
 //     no event, pause menu, minigame or boss-refight snapshot), so an
