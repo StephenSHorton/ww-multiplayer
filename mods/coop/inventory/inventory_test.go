@@ -52,6 +52,7 @@ var (
 	offShield    = addr.OffSelectEquip + save.EquipShield
 	offSwordBits = addr.OffCollectFlags + save.EquipSword
 	offEv0801    = addr.OffEvent + addr.EventByte(0x0801).Off
+	offMetKorl   = addr.OffEvent + addr.EventByte(0x0F80).Off
 )
 
 // short renders a write as kind@offset=value for comparisons.
@@ -484,7 +485,8 @@ func TestCapacityNeverLowered(t *testing.T) {
 }
 
 // TestContextRules: the FF1 sword and GTower bow rules hold their writes
-// while they hold, and the same writes come back once they don't.
+// while they hold, and the same writes come back once they don't (in the
+// after context, with afterRaw's bytes set in the receiver's image).
 func TestContextRules(t *testing.T) {
 	inStage := func(name string, typ int, ok bool) Context {
 		c := noButtons()
@@ -498,6 +500,7 @@ func TestContextRules(t *testing.T) {
 		name       string
 		raw, view  save.Image
 		ctx, after Context
+		afterRaw   []int
 		writes     []string
 		held       []string
 		rule       Rule
@@ -523,10 +526,29 @@ func TestContextRules(t *testing.T) {
 			name: "FF1 with 0x0801, STAG unreadable: held",
 			raw:  ff1Raw, view: swordView,
 			ctx:    inStage("MajyuE", 0, false),
-			after:  inStage("MajyuE", 1, true),
+			after:  inStage("sea", 7, true),
 			writes: []string{"flag@0B5=01", "equip@00F=3B"},
 			held:   []string{"flag@0B4=03"},
 			rule:   RuleFF1Sword,
+		},
+		{
+			name: "majroom before MET_KORL: the world's sword is not granted",
+			raw:  ff1Raw, view: swordView,
+			ctx:    inStage("majroom", 1, true),
+			after:  inStage("sea", 7, true),
+			writes: []string{"flag@0B5=01", "equip@00F=3B"},
+			held:   []string{"flag@0B4=03"},
+			rule:   RuleFF1Sword,
+		},
+		{
+			name: "Mjtower before MET_KORL: held until the receiver's own MET_KORL, in the same stage",
+			raw:  ff1Raw, view: swordView,
+			ctx:      inStage("Mjtower", 3, true),
+			after:    inStage("Mjtower", 3, true),
+			afterRaw: []int{offMetKorl, 0x80},
+			writes:   []string{"flag@0B5=01", "equip@00F=3B"},
+			held:     []string{"flag@0B4=03"},
+			rule:     RuleFF1Sword,
 		},
 		{
 			name: "GTower: no bow, no bow slot; the world's arrow capacity still comes",
@@ -600,6 +622,7 @@ func TestContextRules(t *testing.T) {
 			// flags now merge too, a better one), and the equipment the
 			// held flags give with it.
 			img, _ := Apply(&c.raw, c.ctx, p.Writes)
+			img = with(img, c.afterRaw...)
 			q := Pending(&c.view, &img, c.after)
 			if len(q.Held) != 0 {
 				t.Errorf("still held after the rule: %v", heldShorts(q.Held))
@@ -628,7 +651,15 @@ func TestRulesNeedTheirCondition(t *testing.T) {
 		gt   bool
 	}{
 		{"FF1 type without 0x0801", fresh(), Context{StageName: "MajyuE", StageType: stageTypeFF1, StageTypeOK: true}, false, false},
-		{"0x0801 outside FF1", with(fresh(), offEv0801, 0x01), Context{StageName: "MajyuE", StageType: 1, StageTypeOK: true}, false, false},
+		{"0x0801 outside the fortress", with(fresh(), offEv0801, 0x01), Context{StageName: "sea", StageType: 7, StageTypeOK: true}, false, false},
+		{"0x0801 in majroom", with(fresh(), offEv0801, 0x01), Context{StageName: "majroom", StageType: 1, StageTypeOK: true}, true, false},
+		{"0x0801 in Mjtower", with(fresh(), offEv0801, 0x01), Context{StageName: "Mjtower", StageType: 3, StageTypeOK: true}, true, false},
+		{"majroom after MET_KORL", with(fresh(), offEv0801, 0x01, offMetKorl, 0x80), Context{StageName: "majroom", StageType: 1, StageTypeOK: true}, false, false},
+		{"ma2room after MET_KORL", with(fresh(), offEv0801, 0x01, offMetKorl, 0x80), Context{StageName: "ma2room", StageType: 1, StageTypeOK: true}, false, false},
+		{"FF1 type after MET_KORL", with(fresh(), offEv0801, 0x01, offMetKorl, 0x80), Context{StageName: "MajyuE", StageType: stageTypeFF1, StageTypeOK: true}, true, false},
+		{"majroom without 0x0801", fresh(), Context{StageName: "majroom", StageType: 1, StageTypeOK: true}, false, false},
+		{"other bits of MET_KORL's byte", with(fresh(), offEv0801, 0x01, offMetKorl, 0x7F), Context{StageName: "majroom", StageType: 1, StageTypeOK: true}, true, false},
+		{"Majroom is not a disc stage", with(fresh(), offEv0801, 0x01), Context{StageName: "Majroom", StageType: 1, StageTypeOK: true}, false, false},
 		{"0x0801 in FF1", with(fresh(), offEv0801, 0x01), Context{StageName: "MajyuE", StageType: stageTypeFF1, StageTypeOK: true}, true, false},
 		{"0x0801, STAG unread", with(fresh(), offEv0801, 0x01), Context{StageName: "MajyuE"}, true, false},
 		{"other bits of 0x08xx", with(fresh(), offEv0801, 0xFE), Context{StageType: stageTypeFF1, StageTypeOK: true}, false, false},

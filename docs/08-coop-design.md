@@ -602,7 +602,7 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
   - So side effects are applied base first, then upgrade. Capacities are then forced to MAX(local, world) and are never lowered.
   - The same post-fix applies to M7 GRANT.
 - **Context rules.**
-  - No sword while the stage type is FF1 (stagInfo ST type, `d_stage.h:1031-1033`) and 0x0801 is set (`d_s_play.cpp:1369-1374`; `d_a_obj_demo_barrel.cpp:101-104`; the game also does `offCollect(0,0)`).
+  - No sword while 0x0801 is set and either the stage type is FF1 (stagInfo ST type, `d_stage.h:1031-1033`; `d_s_play.cpp:1369-1374`; `d_a_obj_demo_barrel.cpp:101-104`; the game also does `offCollect(0,0)`) or the stage is any Forsaken Fortress stage (MajyuE, majroom, Mjtower, ma2room, ma3room, M2tower, M2ganon: save table 2) while the receiver's own MET_KORL (0x0F80) is clear. Only MajyuE is FF1-type: majroom is a dungeon and Mjtower a boss stage, so without the second part the first majroom entry would hand the world's sword (owned since Outset) back before Link finds the dropped sword in MajyuE (`d_item.cpp:877-881`), and majroom's Moblins jail only a swordless Link (`d_a_mo2.cpp:3468-3472`). Each player picks up the sword in MajyuE; it merges again from Windfall on. The stages are matched by name, since the inventory context holds no save table.
   - No bow, magic arrows or light arrows while the start stage is "GTower" (`d_s_play.cpp:1376-1384`).
 - **HUD refresh.** After a slot changes, refresh `play.mSelectItem[btn]` (0x803CA7DB) for any button bound to that slot (`d_com_inf_game.h:2924-2938`). Whether Link's sword model updates on a live `mSelectEquip` change is inferred; otherwise it updates at the next stage load.
 - **Bottles, bags and the delivery bag** are per player in v1.0. This is a known limit: a bottle only one player found stays theirs.
@@ -1648,7 +1648,7 @@ Also needed from the owner, and not a decision: capture the fixture save states 
 103. **Caps and context rules.**
     - The world's capacities are capped at the most the game ever sets before the MAX: wallet 2, arrows and bombs 99. `getRupeeMax` treats 2 and anything higher as 5000 (`d_save.h:21-30`). The receiver's own higher value is never lowered.
     - The GTower rule matches the exact stage name "GTower", because `dComIfGp_getStartStageName` is `mCurStage` (`d_com_inf_game.h:283`). Other Ganon stages are not covered.
-    - The FF1 rule fails closed when the STAG can't be read, but only while 0x0801 is set.
+    - The FF1 rule fails closed when the STAG can't be read, but only while 0x0801 is set. It also holds in every Forsaken Fortress stage by name until the receiver's own MET_KORL (§6.6).
     - During a Ganon's Tower refight `revPlayerRecollectionData` restores collect, equipment and capacities from its snapshot (`d_com_inf_game.cpp:1579+`). No grant is lost only because IDLE stays closed while the refight stage number is nonzero.
 104. **Compare-and-set.** The FrameWriter's merge path only ORs and MAXes. The slot, equipment and button writes go through `ApplyDerived` with the byte the plan read, and are made only while a fresh read still equals it. Otherwise they could overwrite a byte the game changed since the plan.
 

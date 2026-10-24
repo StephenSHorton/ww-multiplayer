@@ -3,6 +3,7 @@ package inventory
 import (
 	"encoding/binary"
 	"fmt"
+	"slices"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
@@ -45,16 +46,38 @@ const stageGTower = "GTower"
 // (d_a_npc_zl1.cpp:1860) and never cleared.
 var event0801 = addr.EventByte(0x0801)
 
+// eventMetKorl is dSv_event_flag_c::MET_KORL (0x0F80), set as the
+// MEETSHISHIOH event starts on Windfall, where the first Forsaken
+// Fortress visit ends (d_com_inf_game.cpp:1306).
+var eventMetKorl = addr.EventByte(0x0F80)
+
+// ffStages are the Forsaken Fortress stages, every one on save table 2
+// (addr.TableFF; their STAG save table): MajyuE is the only FF1-type one,
+// majroom is a dungeon and Mjtower a boss stage, and the second visit's
+// ma2room (ma3room's files once the fortress is ruined, d_resorce.cpp:708),
+// M2tower and M2ganon come after MET_KORL.
+var ffStages = []string{"MajyuE", "majroom", "Mjtower", "ma2room", "ma3room", "M2tower", "M2ganon"}
+
 // ff1 reports whether the FF1 sword rule holds for raw: event 0x0801 is
-// set and the stage is FF1-type, the stage load that takes the sword away
-// (d_s_play.cpp:1369-1374; the barrel that carries Link there does too,
-// d_a_obj_demo_barrel.cpp:101-104). A STAG that can't be read counts as
-// FF1-type: the sword waits.
+// set, and either the stage is FF1-type, the stage load that takes the
+// sword away (d_s_play.cpp:1369-1374; the barrel that carries Link there
+// does too, d_a_obj_demo_barrel.cpp:101-104), or it is any Forsaken
+// Fortress stage while raw's own MET_KORL is clear: the first visit, in
+// which Link finds the sword in MajyuE (the dropped sword,
+// d_item.cpp:877-881). The world has had the sword since Outset, so
+// without the second part majroom, whose stage load keeps whatever sword
+// Link holds, would grant it back the first time either player went in,
+// and its Moblins jail only a swordless Link (d_a_mo2.cpp:3468-3472). The
+// stage is matched by name, as Context holds no save table. A STAG that
+// can't be read counts as FF1-type: the sword waits.
 func (c Context) ff1(raw *save.Image) bool {
 	if raw[addr.OffEvent+event0801.Off]&event0801.Mask == 0 {
 		return false
 	}
-	return !c.StageTypeOK || c.StageType == stageTypeFF1
+	if !c.StageTypeOK || c.StageType == stageTypeFF1 {
+		return true
+	}
+	return raw[addr.OffEvent+eventMetKorl.Off]&eventMetKorl.Mask == 0 && slices.Contains(ffStages, c.StageName)
 }
 
 // gtower reports whether the GTower bow rule holds: the game empties the
@@ -101,9 +124,10 @@ type Rule uint8
 
 const (
 	// RuleFF1Sword holds the sword (mCollect[0] and mSelectEquip[0])
-	// while the receiver is in an FF1-type stage with event 0x0801 set:
-	// that stage load takes the sword away (d_s_play.cpp:1369-1374), and
-	// Link finds it again inside.
+	// while the receiver has event 0x0801 set and is in an FF1-type stage,
+	// whose load takes the sword away (d_s_play.cpp:1369-1374), or in any
+	// Forsaken Fortress stage before its own MET_KORL: Link finds the
+	// sword again in MajyuE himself.
 	RuleFF1Sword Rule = iota + 1
 	// RuleGTowerBow holds the bow (mGetItem[12], the bow slot and its
 	// buttons) while the receiver is in GTower, where the game takes it
@@ -119,7 +143,7 @@ const (
 func (r Rule) String() string {
 	switch r {
 	case RuleFF1Sword:
-		return "FF1 sword: the Forsaken Fortress takes the sword away (d_s_play.cpp:1369-1374)"
+		return "FF1 sword: the Forsaken Fortress takes the sword away until Link finds it there, before MET_KORL (d_s_play.cpp:1369-1374)"
 	case RuleGTowerBow:
 		return "GTower bow: GTower takes the bow away (d_s_play.cpp:1376-1384)"
 	case RuleAmmoBusy:
