@@ -12,7 +12,7 @@ import (
 // keyInit in d_door.cpp and the enemy_ice death switch in
 // c_damagereaction.cpp), and a few common readers. The switch a stage
 // EVNT entry sets as a start point's event begins
-// (dEvent_exception_c::setStartDemo, d_event_manager.cpp:24-48) is
+// (dEvent_exception_c::setStartDemo, d_event_manager.cpp:24-51) is
 // added by Build's startEvents, not here. A path such as
 // "d_a_swhit0.cpp:72-75" is a decomp source line; params is
 // fopAcM_GetParam, the entry's Params, and home.angle is the entry's

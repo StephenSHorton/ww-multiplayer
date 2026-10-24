@@ -442,7 +442,11 @@ func loadArchive(src disc.FileSource, j loadJob) loadResult {
 	if err != nil {
 		return loadResult{err: fmt.Errorf("stagedata: %s: %w", j.path, err)}
 	}
-	d, err := ParseDZx(data)
+	parse := ParseDZx
+	if j.room < 0 {
+		parse = ParseDZS
+	}
+	d, err := parse(data)
 	if err != nil {
 		return loadResult{err: fmt.Errorf("stagedata: %s: %s: %w", j.path, m.Path, err)}
 	}

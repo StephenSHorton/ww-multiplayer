@@ -418,7 +418,7 @@ var startEventLatches = map[[2]string]string{
 // d_a_player_main.h:1879). setStartDemo takes that EVNT entry of the
 // stage's own event list (d_stage.cpp:1798-1802), skips the event if its
 // spawn switch is on and sets the switch otherwise, in the room Link
-// stays in (d_event_manager.cpp:24-48). 0xFF and 200 and up are no entry,
+// stays in (d_event_manager.cpp:24-51). 0xFF and 200 and up are no entry,
 // and an index past the list reads nothing the stage defines. The writer
 // is the PLYR entry, as proc PLAYER; a stage.dzs start routes in the room
 // it starts Link in (Actor.StartRoom).

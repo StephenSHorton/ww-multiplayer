@@ -84,7 +84,7 @@ import (
 // d_stage.h:329-340) and is read from stage.dzs only: dStage_eventInfoInit
 // (d_stage.cpp:1798-1802) stores it on the stage, and a room's
 // setEventInfo asserts (d_stage.h:757-761). A PLYR entry's start event
-// indexes it (setStartDemo, d_event_manager.cpp:24-48).
+// indexes it (setStartDemo, d_event_manager.cpp:24-51).
 const (
 	dzxHeaderSize     = 4
 	dzxChunkSize      = 0xC
@@ -141,7 +141,7 @@ type DZx struct {
 	// chunk (HasPlayers).
 	Players []Actor
 	// Events is the first EVNT chunk's entries, the stage's event list;
-	// nil when there is none.
+	// nil when there is none or b is not parsed as stage.dzs (ParseDZS).
 	Events []Event
 }
 
@@ -249,15 +249,23 @@ func (t StageType) String() string {
 }
 
 // ParseDZx parses the DZS or DZR file b. Every chunk header must lie
-// inside b; for the chunks it reads (STAG, the actor chunks, PLYR and
-// EVNT) so must their entries, a nonzero count needs a nonzero offset
+// inside b; for the chunks it reads (STAG, the actor chunks and PLYR) so
+// must their entries, a nonzero count needs a nonzero offset
 // (the game would follow a null pointer), and a negative count is an
 // error. The entries of all the read chunks together may not hold more
 // bytes than b has: a real file stores each chunk once, and a crafted one
 // whose chunks overlap could otherwise multiply what parsing it
 // allocates. Chunks the game doesn't read for placement are listed in
-// Chunks but not checked.
-func ParseDZx(b []byte) (*DZx, error) {
+// Chunks but not checked. EVNT is one of those: the game reads it from
+// stage.dzs alone, which ParseDZS parses.
+func ParseDZx(b []byte) (*DZx, error) { return parseDZx(b, false) }
+
+// ParseDZS parses the stage.dzs file b as ParseDZx does, and reads and
+// checks its EVNT chunk too (Events).
+func ParseDZS(b []byte) (*DZx, error) { return parseDZx(b, true) }
+
+// parseDZx is ParseDZx, and ParseDZS when dzs is set.
+func parseDZx(b []byte, dzs bool) (*DZx, error) {
 	be := binary.BigEndian
 	if len(b) < dzxHeaderSize {
 		return nil, fmt.Errorf("dzx: header truncated (%d bytes)", len(b))
@@ -359,7 +367,7 @@ func ParseDZx(b []byte) (*DZx, error) {
 		}
 	}
 
-	if i, ok := first[eventTag]; ok {
+	if i, ok := first[eventTag]; ok && dzs {
 		count, err := entries(i, eventEntrySize)
 		if err != nil {
 			return nil, err
