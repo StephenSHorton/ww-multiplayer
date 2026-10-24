@@ -424,8 +424,8 @@ func NewGuardFor(t Target) *Guard {
 // mailbox.BossTag. Each proc byte is held to the rows' bytes there
 // (ruleIn: 0x00, and 0xD4, 0xDA, 0xEB, 0xEC or 0xF2; TestBossGuardRules
 // checks every byte value), so Bmd's hands and Helmaroc King in between
-// (0xED..0xF1), Jalhalla's Poes (0xD5) and Molgera's larvae (0xDB, 0xDC)
-// are no value.
+// (0xED..0xF1), Jalhalla's Poes (0xD5), Molgera's larvae (BWDS 0xDB) and
+// its sand floor (BWDG 0xDC) are no value.
 func bossRules() []byteRule {
 	procs := make([]uint16, len(bossKillRows))
 	for i, row := range bossKillRows {

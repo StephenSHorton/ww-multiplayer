@@ -3,6 +3,7 @@ package replica
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,8 +198,8 @@ func TestBossGuardRules(t *testing.T) {
 			t.Fatalf("proc low byte 0x%02X: %v, want a value refusal", v, r)
 		}
 	}
-	// Molgera's and Jalhalla's: taken; their larvae (BWDS 0xDB, BWDG 0xDC)
-	// and Poes (PW 0xD5) are no value.
+	// Molgera's and Jalhalla's: taken; Molgera's larvae (BWDS 0xDB) and
+	// sand floor (BWDG 0xDC) and Jalhalla's Poes (PW 0xD5) are no value.
 	for _, p := range []uint16{mailbox.BossProcBwd, mailbox.BossProcBpw} {
 		f, _ := mailbox.BossRequestFields(p, 1)
 		for i, b := range f {
@@ -1173,5 +1174,26 @@ func TestBossAckKeyBpw(t *testing.T) {
 	}
 	if got := bpwClass(3, 0x58); got != "0x3/0x58" {
 		t.Errorf("an unclassed state: %q", got)
+	}
+}
+
+// TestBossAckLineBpw: Jalhalla's applied line names the next throw while
+// it is frozen or carried (0x52..0x54) and the landing under way once it
+// is thrown or in the spikes (0x55, 0x64, 0x65).
+func TestBossAckLineBpw(t *testing.T) {
+	for _, c := range []struct {
+		st   uint8
+		want string
+	}{
+		{0x52, "falls on its next throw into the spikes"},
+		{0x54, "falls on its next throw into the spikes"},
+		{0x55, "falls on this landing in the spikes"},
+		{0x64, "falls on this landing in the spikes"},
+		{0x65, "falls on this landing in the spikes"},
+	} {
+		line := bossAckLine(7, mailbox.BossProcBpw, mailbox.BossStatus{Result: mailbox.BossRApplied, Act: mailbox.BossBpwActDamage, State: c.st, Phase: 15})
+		if !strings.Contains(line, "; this game's Jalhalla "+c.want+" (an empty boss gauge until then is expected)") {
+			t.Errorf("state 0x%X: %q, want %q", c.st, line, c.want)
+		}
 	}
 }
