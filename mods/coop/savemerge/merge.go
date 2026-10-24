@@ -75,8 +75,8 @@ const mergeRounds = 4
 //     bytes take b's value where it is larger, by the class mask
 //     (class.Of); nothing is ever cleared or lowered;
 //   - story bits the holds name stay out while their condition is unmet
-//     in a (replica.Holds): applying them would move a's resume stage or
-//     lock its boat;
+//     in a (replica.Holds): applying them would move a's resume stage,
+//     Outset's or the Forsaken Fortress's layer, or lock its boat;
 //   - DERIVED bytes are Derive's, or a's without one; max life and max
 //     magic never drop below a's whatever Derive says;
 //   - PER_PLAYER, NEVER and TAG bytes, and the bits of merging bytes

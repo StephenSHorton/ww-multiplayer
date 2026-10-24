@@ -124,8 +124,9 @@ func (u HoldUntil) String() string {
 
 // Hold is a story bit the receiver keeps out of its game, although the
 // world has it, until a condition holds in that game (§6.5): applied
-// early, the bit would move where the receiver's file resumes, or keep it
-// from boarding its boat.
+// early, the bit would move where the receiver's file resumes, pick a
+// layer ahead of its own story (Outset, the Forsaken Fortress), or keep
+// it from boarding its boat.
 type Hold struct {
 	EventBit
 	Until HoldUntil

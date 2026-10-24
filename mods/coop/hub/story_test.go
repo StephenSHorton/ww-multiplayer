@@ -21,6 +21,7 @@ const (
 	evRodeKorl  = 0x2A08 // RODE_KORL, :322 (LocalOnly)
 	ev0801      = 0x0801 // :66
 	evCourtyard = 0x3804 // HYRULE_COURTYARD_CUTSCENE, :430
+	ev1820      = 0x1820 // :183, held until the file's own 0x2D01 (LocalOnly)
 )
 
 // evGain is event bit id as a gain.
@@ -375,6 +376,7 @@ func TestStoryBind(t *testing.T) {
 		world   []world.Gain // in the world first (via a bound peer)
 		file    []world.Gain
 		notice  []string // in the preflight's DIVERGENT; nil for none
+		absent  string   // not in it
 		granted bool
 		log     string // in the host's log when granted
 	}{
@@ -405,6 +407,10 @@ func TestStoryBind(t *testing.T) {
 		{name: "the holds named", world: []world.Gain{evGain(evMetKorl), evGain(evCourtyard)}, file: []world.Gain{b},
 			notice: []string{"held until your file catches up: MET_KORL, HYRULE_COURTYARD_CUTSCENE"}},
 		{name: "holds without a refusal", merge: true, world: []world.Gain{evGain(evCourtyard)}, granted: true, log: "a subset of the world, 1 holds"},
+		// A WORLD carries no 0x2D01, so the file's replica judges 0x1820.
+		{name: "a hold on a LocalOnly bit is not named", world: []world.Gain{evGain(ev1820)}, granted: true, log: "a subset of the world)"},
+		{name: "nor in a refusal", world: []world.Gain{evGain(evMetKorl), evGain(ev1820)}, file: []world.Gain{b},
+			notice: []string{"held until your file catches up: MET_KORL"}, absent: "UNK_1820"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -434,6 +440,8 @@ func TestStoryBind(t *testing.T) {
 					texts = append(texts, n.Code.String()+": "+n.Text)
 				}
 				t.Errorf("preflight notices %q, want DIVERGENT with %q", texts, tc.notice)
+			case tc.absent != "" && strings.Contains(ns[0].Text, tc.absent):
+				t.Errorf("preflight notice %q names %s", ns[0].Text, tc.absent)
 			}
 			ask := hello(wire.FileUnbound, world.ID{}, 0)
 			ask.WorldID, ask.BindNonce = wire.ID(testWorld), wire.ID{0x77}
