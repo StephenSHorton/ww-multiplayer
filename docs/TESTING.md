@@ -539,6 +539,8 @@ Rig and pokes as batch D. Hops: `kazeB 0 0` (point 0, the door from kaze; the in
 
 Cut order: the Jalhalla row first (`WWBOSS_WITH_BPW 0`, or after the build leave `jalhalla` out), then Molgera (`WWBOSS_WITH_BWD 0`); the threshold goes back to 3.0 only if MT-L1 regresses.
 
+Live record (REL 0x5A87FE3B, handoff `archive/enemy-batch-e/live/LIVE-1.md`): P0-BWD, P0-BPW, MB-1, MB-2, JH-1, two-Dolphin Molgera and Jalhalla (a), MT-L1 (copy spacing 31.9-46.0 against the host's 31.4-44.1) and the Gohdan regression passed, under `mp-local`. The fixture save has no Hookshot or Mirror Shield, so every tongue pull, freeze and spike throw was poked into the boss (the recipes are in LIVE-1); a pull or freeze by a player's own item, the variants, MT-L2/L3 and the Gohma and Kalle Demos regressions are still to run, and the two rows stay opt-in until they do.
+
 ### Release defaults (pre-release live checklist)
 
 Enemy sync and the remote bodies are on by default (docs/05-known-issues.md "Shared enemies"), and the network protocol is 5 (3 in v0.5.0; batch C bumped it to 4, D13, and batch D to 5 with the Magtail row's KindHash), so this build refuses v0.5.0, batch C builds and older at the hello. Every enemy-layer live pass on record ran under `wwdev mp-local` (one process, two Dolphins, one machine); none has run through the app's GameRunner or the CLI's `host` / `join`, between two processes or two machines, over WAN, or on macOS. The owner runs this list on the release candidate binary before the tag. `mp-local` now runs the enemy pipelines too unless `WW_ENEMY_SYNC=0`, so the smoke and co-op checks above include them by default.
