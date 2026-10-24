@@ -391,6 +391,9 @@ func TestANDPropagation(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			tbl := Build([]*stage.Stage{mkStage("W", tb, nil, c.actors)}, testNames(t))
 			check(t, tbl, c.want...)
+			if s, _ := tbl.Lookup(m(0x32)); c.name == "Evsw 1 and a crystal" && (s == nil || !strings.HasPrefix(s.Reason, "every setter latches; event writer")) {
+				t.Errorf("0x32: reason %q, want the event writer as a pre-set", s.Reason)
+			}
 			for no, sub := range c.fedBy {
 				s, _ := tbl.Lookup(m(no))
 				if s == nil || len(s.Writers) == 0 || !strings.Contains(s.Writers[0].Why, sub) {

@@ -3,13 +3,14 @@
 // reads, in the store and scope the game keeps it in, it lists the
 // writers with what they do, and decides whether co-op may sync it: only
 // when it has a latching setter and every other writer latches too, that
-// is, sets it and never clears or flips it, or writes only while a Game
-// Boy Advance is linked (the Tingle Tuner's, class GBA). A switch with a
+// is, sets it and never clears or flips it, writes only while a Game Boy
+// Advance is linked (the Tingle Tuner's, class GBA), or is a type-1
+// TAG_EVSW, which only sets it from a synced story bit. A switch with a
 // GBA writer syncs only while no GBA is linked (Switch.GBA), which the
 // runtime checks every tick. An AND switch's setter latches only while
 // all its inputs are synced, transitively, except that a one-shot AND
-// latches over momentary inputs too (momentary: floor, iron-boots and
-// timed crystal switches), and is GBA-dependent while an input is. Two
+// latches over momentary inputs too (momentary: floor, iron-boots, sun
+// and timed crystal switches), and is GBA-dependent while an input is. Two
 // passes count set-and-clear writers as latching: statueSlots, where the
 // game makes them so (a twin statue holds the slot down), and
 // sharedFloorSwitches, a provisional sync policy where the game does not
@@ -664,25 +665,33 @@ func reason(s *Switch) string {
 	if len(s.Writers) == 0 {
 		return "no known setter"
 	}
-	var gba *Writer
+	var gba, evsw *Writer
 	for i, w := range s.Writers {
-		switch w.Class {
-		case Latching:
-		case GBA:
+		switch {
+		case w.Class == Latching:
+		case w.Class == GBA:
 			if gba == nil {
 				gba = &s.Writers[i]
+			}
+		case s.Synced && w.Class == Event && w.Proc == stage.ProcTagEvsw:
+			if evsw == nil {
+				evsw = &s.Writers[i]
 			}
 		default:
 			return fmt.Sprintf("%s writer %v: %s", w.Class, w.Ref, w.Why)
 		}
 	}
+	r := "every setter latches"
 	switch {
 	case !s.Synced:
 		return fmt.Sprintf("no latching setter: only gba writers (%v: %s), which write it only while a GBA is linked", gba.Ref, gba.Why)
 	case gba != nil:
-		return fmt.Sprintf("every setter latches; gba writer %v writes it only while a GBA is linked, so it syncs only while none is", gba.Ref)
+		r = fmt.Sprintf("every setter latches; gba writer %v writes it only while a GBA is linked, so it syncs only while none is", gba.Ref)
 	case s.GBA:
-		return "every setter latches; an AND input syncs only while no GBA is linked, so it does too"
+		r = "every setter latches; an AND input syncs only while no GBA is linked, so it does too"
 	}
-	return "every setter latches"
+	if evsw != nil {
+		r += fmt.Sprintf("; event writer %v only pre-sets it (%s)", evsw.Ref, evsw.Why)
+	}
+	return r
 }
