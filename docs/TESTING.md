@@ -582,8 +582,10 @@ A(){ printf %X $((bdk+$1)); }                                         # a Bdk fi
 RMW(){ RMWA $(A $1) $2 $3; }
 # phase 1 -> T_DOWN, as the hammer hit's m2B4==1 branch (.text 0x4AE8-0x4AF4): mState first, mAction last
 down(){ RMW 0x2C8 0x0000FFFF 0x00000000; RMW 0x2C4 0xFFFF0000 0x00000067; }
-# the fourth mask hit, as .text 0x4BB4-0x4BC0: m8F8 3, mState 0, mAction 9 last
-mask(){ RMW 0x8F8 0x00FFFFFF 0x03000000; RMW 0x2C8 0x0000FFFF 0x00000000; RMW 0x2C4 0xFFFF0000 0x00000009; }
+# the fourth mask hit, as .text 0x4BB4-0x4BC0: m8F8 3, mAction 9, then mState 0 last. Not the game's order: a frame between
+# the two pokes runs the bird's current fight action, which moves mState 0 -> 1, and kamen_demo entered at step 1 skips
+# step 0's m25A0 1 and waits at step 2 forever (seen live). mState last restarts kamen_demo at step 0 whatever ran between.
+mask(){ RMW 0x8F8 0x00FFFFFF 0x03000000; RMW 0x2C4 0xFFFF0000 0x00000009; RMW 0x2C8 0x0000FFFF 0x00000000; }
 # P0 only: the pending zero by hand, keeping max_health and the pad
 zero(){ RMW 0x284 0xFF00FFFF 0x00000000; }
 req(){ ack=$(word 80413418); P 80413414 00F0424B; P 80413410 $(printf %08X $((ack+1))); sleep 0.8; ./wwdev.exe peek 80413410 16; }
