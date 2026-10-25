@@ -10,32 +10,33 @@ import (
 // The remote players' visuals block in the mailbox slack (inject/include/
 // wwvis.h, whose WWVIS_* defines these mirror; vis_test.go pins each one
 // to the header): name tags, sword and shield on the mini-Links and the
-// sea chart markers. 0xC0 bytes at Mailbox+VisOff, right after the
+// sea chart markers. 0xF0 bytes at Mailbox+VisOff (0xC0 before WWMB_LAYOUT
+// 3 gave it a third mini-Link slot), right after the
 // actor_refresh request. The REL (inject/rel/visuals.c) publishes the two
 // function words T2 calls and owns the models and counters; Go writes the
 // span VisGoStart..VisGoEnd (multiplayer's vissync), magic included.
 const (
 	VisOff  uint32 = 0x8D0 // block start, from Mailbox (0x804137D0)
-	VisSize uint32 = 0xC0  // ends +0x990, where CanaryArenaHigh starts
+	VisSize uint32 = 0xF0  // ends +0x9C0, where CanaryArenaHigh starts
 
 	VisDrawFnOff     = 0x00 // u32 REL: the draw hook
 	VisSeachartFnOff = 0x04 // u32 REL: the sea chart draw
 	VisMagicOff      = 0x08 // u32 Go: VisMagic, 0 = off
 	VisFlagsOff      = 0x0C // u32 Go: VisFlag*
 	VisNamesOff      = 0x10 // char[VisSlots][VisNameBytes]
-	VisEquipOff      = 0x40 // u8[VisSlots][4]
-	VisSeaOff        = 0x48 // entry[VisSeaMax] x VisSeaSize
-	VisModelsOff     = 0x88 // u32[VisSlots][VisModelKinds] (REL)
-	VisStatTagsOff   = 0xB0 // u32 REL counters
-	VisStatEquipOff  = 0xB4
-	VisStatSeaOff    = 0xB8
-	VisStatErrOff    = 0xBC
+	VisEquipOff      = 0x58 // u8[VisSlots][4]
+	VisSeaOff        = 0x64 // entry[VisSeaMax] x VisSeaSize
+	VisModelsOff     = 0xA4 // u32[VisSlots][VisModelKinds] (REL)
+	VisStatTagsOff   = 0xE0 // u32 REL counters
+	VisStatEquipOff  = 0xE4
+	VisStatSeaOff    = 0xE8
+	VisStatErrOff    = 0xEC
 
 	VisGoStart = VisMagicOff // what Go writes: magic .. the sea entries
 	VisGoEnd   = VisModelsOff
 
 	VisMagic     uint32 = 0x57575653 // 'WWVS'
-	VisSlots            = 2
+	VisSlots            = 3
 	VisNameBytes        = 24
 	VisFlagNames uint32 = 0x01
 	VisFlagEquip uint32 = 0x02

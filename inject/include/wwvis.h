@@ -21,33 +21,36 @@
 //                      mp_draw_post calls it per drawn mini-Link slot
 //   +0x04 seachart fn  REL: &wwvis_seachart_draw, same rules; T2's
 //                      seachart_shim calls it from dDlst_FMAP_c::draw
-//   +0x08..+0x87       Go: magic, flags, names, equip, sea entries
-//   +0x88..+0xAF       REL: the sword and shield J3DModels it made (archive
+//   +0x08..+0xA3       Go: magic, flags, names, equip, sea entries
+//   +0xA4..+0xDF       REL: the sword and shield J3DModels it made (archive
 //                      heap, once per boot, never freed: the F18 rule); T2's
 //                      main01_init zeroes them at boot like WWREL_SHANM_OFF
-//   +0xB0..+0xBF       REL: diagnostics counters
+//   +0xE0..+0xEF       REL: diagnostics counters
+// WWMB_LAYOUT 3 (three mini-Link slots) grew the block from 0xC0 to 0xF0:
+// names, equip and models are per slot, so everything from the equip
+// entries on moved, and the block now ends at +0x9C0.
 // The REL reads Go's part only while the magic is WWVIS_MAGIC.
 #ifndef WW_WWVIS_H
 #define WW_WWVIS_H
 
 #define WWVIS_OFF               0x8D0       // block start, from MAILBOX_ADDR (0x804137D0)
-#define WWVIS_SIZE              0xC0        // ends +0x990
+#define WWVIS_SIZE              0xF0        // ends +0x9C0
 
 #define WWVIS_DRAW_FN_OFF       0x00        // u32 REL: void (*)(int slot, J3DModel* model, void* link, int phase)
 #define WWVIS_SEACHART_FN_OFF   0x04        // u32 REL: void (*)(u8* fmap_dl, void* graf)
 #define WWVIS_MAGIC_OFF         0x08        // u32 Go: WWVIS_MAGIC, 0 = block off
 #define WWVIS_FLAGS_OFF         0x0C        // u32 Go: WWVIS_FLAG_*
 #define WWVIS_NAMES_OFF         0x10        // char[WWVIS_SLOTS][WWVIS_NAME_BYTES], per mini-Link slot, NUL padded
-#define WWVIS_EQUIP_OFF         0x40        // u8[WWVIS_SLOTS][4], per mini-Link slot (WWVIS_EQ_*)
-#define WWVIS_SEA_OFF           0x48        // entry[WWVIS_SEA_MAX] x WWVIS_SEA_SIZE
-#define WWVIS_MODELS_OFF        0x88        // u32 J3DModel*[WWVIS_SLOTS][WWVIS_MODEL_KINDS] (REL)
-#define WWVIS_STAT_TAGS_OFF     0xB0        // u32 REL: name tags queued (wraps)
-#define WWVIS_STAT_EQUIP_OFF    0xB4        // u32 REL: sword/shield models entered (wraps)
-#define WWVIS_STAT_SEA_OFF      0xB8        // u32 REL: sea chart markers drawn (wraps)
-#define WWVIS_STAT_ERR_OFF      0xBC        // u32 REL: last WWVIS_ERR_*
+#define WWVIS_EQUIP_OFF         0x58        // u8[WWVIS_SLOTS][4], per mini-Link slot (WWVIS_EQ_*)
+#define WWVIS_SEA_OFF           0x64        // entry[WWVIS_SEA_MAX] x WWVIS_SEA_SIZE
+#define WWVIS_MODELS_OFF        0xA4        // u32 J3DModel*[WWVIS_SLOTS][WWVIS_MODEL_KINDS] (REL)
+#define WWVIS_STAT_TAGS_OFF     0xE0        // u32 REL: name tags queued (wraps)
+#define WWVIS_STAT_EQUIP_OFF    0xE4        // u32 REL: sword/shield models entered (wraps)
+#define WWVIS_STAT_SEA_OFF      0xE8        // u32 REL: sea chart markers drawn (wraps)
+#define WWVIS_STAT_ERR_OFF      0xEC        // u32 REL: last WWVIS_ERR_*
 
 #define WWVIS_MAGIC             0x57575653  // 'WWVS'
-#define WWVIS_SLOTS             2           // = MAILBOX_POSE_SLOT_CAP (mini-Link slots)
+#define WWVIS_SLOTS             3           // = MAILBOX_POSE_SLOT_CAP (mini-Link slots)
 #define WWVIS_NAME_BYTES        24          // NUL included: 23 printable ASCII characters
 
 #define WWVIS_FLAG_NAMES        0x01        // draw the name tags

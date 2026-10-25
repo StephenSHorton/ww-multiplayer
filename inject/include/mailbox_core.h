@@ -46,7 +46,7 @@
 // check refuses a game whose header differs.
 #define WWMB_MAGIC 0x57574D42
 #define WWMB_ABI 1
-#define WWMB_LAYOUT 2
+#define WWMB_LAYOUT 3
 
 // Features: one bit per service the blob provides (wwapi Features).
 #define WW_FEAT_AVATAR 0x01
@@ -60,6 +60,10 @@
 // The multiplayer mod's counts and its Puppet slot type. The Mailbox
 // struct below uses them, so they come first.
 #include "mailbox_mp.h"
+
+// Tunic images: one per mini-Link slot, then Link #1's
+// (TUNIC_SLOT_LOCAL = MAILBOX_POSE_SLOT_CAP, below the struct).
+#define TUNIC_SLOTS 4
 
 // See "FACE-STATE NETWORK SYNC" block in Mailbox below for context.
 //
@@ -92,6 +96,13 @@ typedef struct {
 // writes a _reserved byte; a new field may take one only with another
 // WWMB_LAYOUT bump.
 //
+// WWMB_LAYOUT 3 (2026-10-25) sized the slot arrays for three remotes
+// (MAILBOX_POSE_SLOT_CAP 3) and the tunic images for four Links
+// (TUNIC_SLOTS): the pose arrays took _reserved2 (+0xB4 onward moved),
+// face_state starts 0x10 earlier in _reserved4's tail, the tunic block
+// grew and its tunic_state / tunic_swaps moved past the features word,
+// which stays at +0x1A0 with the rest of the WWMB header.
+//
 // Owners (Phase E3; the C files that write each region):
 //   +0x000..+0x00F  core  heartbeat, progress (core writes 1 during the
 //                         boot gate, mp_frame the rest), callback slot
@@ -99,12 +110,13 @@ typedef struct {
 //   +0x090..+0x0BF  mp    shadow_mode, the pose-feed slots (minilink.c)
 //   +0x0C0..+0x0C7  core  pose publish (services.c)
 //   +0x0C8..+0x0E4  core  warp (services.c)
-//   +0x130..+0x15F  mp    per-slot face state and the face hook (face.c)
+//   +0x120..+0x15F  mp    per-slot face state and the face hook (face.c)
 //   +0x160..+0x16F  core  face_state_local (services.c)
 //   +0x170..+0x17F  core  input (hooks.c pad_read_shim)
 //   +0x180..+0x187  core  WWMB header (hooks.c main01_init)
 //   +0x188..+0x19F  core  tunic images (services.c)
-//   +0x1A0..+0x1AF  core  features (main01_init), padding
+//   +0x1A0..+0x1A3  core  features (main01_init)
+//   +0x1A4..+0x1AF  core  tunic state and swaps (services.c), padding
 // The _reserved runs inside them belong to nobody.
 typedef struct {
     u32 spawn_trigger;   // +0x00: per-frame heartbeat counter
@@ -128,7 +140,7 @@ typedef struct {
     // real walker never runs on a mini-Link: its joint callbacks write
     // into Link #1 (F19, docs/05).
     //
-    // Pose-feed slots, parallel arrays sized MAX_REMOTE_LINKS:
+    // Pose-feed slots, parallel arrays sized MAILBOX_POSE_SLOT_CAP:
     //   pose_buf_ptrs[i]      — C publishes after JKRHeap_alloc per slot.
     //   pose_joint_counts[i]  — currently always 42 (Link). Per-slot in
     //                           case we ever drive child / fairy rigs.
@@ -139,12 +151,13 @@ typedef struct {
     // Stride keeps arrays naturally aligned (u32 first, then u16, u8, u8).
     // Sized by MAILBOX_POSE_SLOT_CAP (not MAX_REMOTE_LINKS) so the
     // offsets below are frozen against the runtime slot count.
+    // Layout 3: three slots fill +0xA8..+0xBF exactly (layout 2's
+    // _reserved2, the retired dbg_pose_first_word / dbg_node_mtx_first,
+    // was +0xB8..+0xBF).
     u32 pose_buf_ptrs[MAILBOX_POSE_SLOT_CAP];      // +0xA8
-    u16 pose_joint_counts[MAILBOX_POSE_SLOT_CAP];  // +0xB0
-    u8  pose_buf_states[MAILBOX_POSE_SLOT_CAP];    // +0xB4
-    u8  pose_seqs[MAILBOX_POSE_SLOT_CAP];          // +0xB6
-    // Retired in E2 (was dbg_pose_first_word, dbg_node_mtx_first).
-    u32 _reserved2[2];                        // +0xB8
+    u16 pose_joint_counts[MAILBOX_POSE_SLOT_CAP];  // +0xB4
+    u8  pose_buf_states[MAILBOX_POSE_SLOT_CAP];    // +0xBA
+    u8  pose_seqs[MAILBOX_POSE_SLOT_CAP];          // +0xBD
     // --- SENDER SIDE publish buffer (v0.1.3) ---------------------------
     // Go's broadcast-pose reads Link #1's live mpNodeMtx (2016 B) via
     // ReadProcessMemory at 20 Hz while the game runs basicMtxCalc each
@@ -198,10 +211,11 @@ typedef struct {
     // Diagnostic tool — lets us tell whether one-shot warps are being
     // reverted by Link's per-frame execute() vs hitting a deeper reset.
     u8  warp_force;                           // +0xE4
-    // +0xE5..+0x12F: retired in E2 (was warp_force's padding, the
+    // +0xE5..+0x11F: retired in E2 (was warp_force's padding, the
     // eye-fix probe's eye_fix_step, eye_fix_post_chain[10] and its
-    // count, eye_fix_mode, and the mode-1 freeze dbg_* fields).
-    u8  _reserved4[75];                       // +0xE5
+    // count, eye_fix_mode, and the mode-1 freeze dbg_* fields). Layout
+    // 3 gave its last 0x10 bytes to face_state's third slot.
+    u8  _reserved4[59];                       // +0xE5
     // --- FACE-STATE NETWORK SYNC (session 9) ---------------------------
     // Per-slot face animation state that mini-link should render with,
     // independent of the LOCAL Link's animation state.
@@ -231,9 +245,9 @@ typedef struct {
     // FaceState is declared near the top of this file (before Mailbox)
     // so other TUs / tests can include it without unwrapping the Mailbox
     // struct.
-    FaceState face_state[MAILBOX_POSE_SLOT_CAP];  // +0x130 (16 B each, session 15)
+    FaceState face_state[MAILBOX_POSE_SLOT_CAP];  // +0x120 (16 B each, session 15)
     u8  face_seqs[MAILBOX_POSE_SLOT_CAP];         // +0x150 (1 B each)
-    u8  _pad9[2];                                 // +0x152 (align)
+    u8  _pad9[1];                                 // +0x153 (align)
     // Diagnostics for the face-state hook so Go can confirm it fired.
     //   face_hook_state — 0 unset, 1 vtable copied + matpackets patched,
     //                     0xFE J3DMatPacket vtable[draw] mismatch (skipped),
@@ -333,13 +347,16 @@ typedef struct {
     u16 hdr_layout;                               // +0x186 (C) WWMB_LAYOUT
     // --- TUNIC COLORS (docs/09-player-colors.md §5.3) -----------------
     // Per-player recolored copies of Link's hero's-clothes body texture
-    // ("linktexS3TC", CMPR). Slots 0..1 are the mini-Link slots, slot 2
-    // (TUNIC_SLOT_LOCAL) is Link #1 on this Dolphin.
+    // ("linktexS3TC", CMPR). Slots 0..2 are the mini-Link slots, slot 3
+    // (TUNIC_SLOT_LOCAL) is Link #1 on this Dolphin (layout 3; slot 2
+    // was Link #1 in layout 2).
     //
     // Go writes tunic_buf_size (bytes per image) once; the next
-    // multiplayer_update (tunic_alloc) allocates the three images from GameHeap ONCE
-    // and publishes them in tunic_bufs. Nothing ever frees or resets
-    // them (F18 lifetime rule: GameHeap blocks stay valid all session).
+    // multiplayer_update (tunic_alloc) allocates the TUNIC_SLOTS images from GameHeap ONCE
+    // and publishes them in tunic_bufs. Nothing ever frees them (F18
+    // lifetime rule: GameHeap blocks stay valid all session); only
+    // main01_init zeroes the block, once per boot (a soft reset reloads
+    // the DOL and makes a new GameHeap, but nothing clears this RAM).
     // Go then writes each image (internal/tunic Recolor) and sets
     // tunic_enable[slot] = 1. To change a slot's color Go sets enable
     // to 0, waits two frames, rewrites the image, sets enable to 1.
@@ -352,23 +369,25 @@ typedef struct {
     // remote in the casual clothes: C copies the casual header in
     // (mOtherLinktex, when Link #1 wears the hero's clothes) and uses no
     // image buffer.
-    //   tunic_state — 0 not allocated, 1 all three allocated,
+    //   tunic_state — 0 not allocated, 1 all TUNIC_SLOTS allocated,
     //                 0xFD an allocation failed (the ones that worked
     //                 stay published).
     //   tunic_swaps — diagnostic: header swaps done (local + remotes).
-    u32 tunic_bufs[3];                            // +0x188 (C)
-    u32 tunic_buf_size;                           // +0x194 (Go)
-    u8  tunic_enable[3];                          // +0x198 (Go)
-    u8  tunic_state;                              // +0x19B (C)
-    u32 tunic_swaps;                              // +0x19C (C)
+    u32 tunic_bufs[TUNIC_SLOTS];                  // +0x188 (C)
+    u32 tunic_buf_size;                           // +0x198 (Go)
+    u8  tunic_enable[TUNIC_SLOTS];                // +0x19C (Go)
     // WWMB header extension (E1): the WW_FEAT_* bits this blob provides,
     // written by main01_init with the header. Go matches each mod's
-    // "needs" against it (NEEDS_REPATCH).
+    // "needs" against it (NEEDS_REPATCH). It stays at +0x1A0 in every
+    // layout, so an older Go still reads it.
     u32 features;                                 // +0x1A0 (C) WW_FEATURES
-    u8  _pad13[12];                               // +0x1A4 (pad to 0x1B0)
+    u8  tunic_state;                              // +0x1A4 (C)
+    u8  _pad13[3];                                // +0x1A5
+    u32 tunic_swaps;                              // +0x1A8 (C)
+    u8  _pad14[4];                                // +0x1AC (pad to 0x1B0)
 } Mailbox;   // 0x1B0 bytes
 
-#define TUNIC_SLOT_LOCAL 2
+#define TUNIC_SLOT_LOCAL 3
 #define TUNIC_ENABLE_CASUAL 2
 
 #define mailbox ((volatile Mailbox*)MAILBOX_ADDR)

@@ -66,7 +66,7 @@
 
 **Mini-Link shares Link #1's model data.**
 - `multiplayer.c:534-537` resolves `dRes_getRes_byIdx("Link", LINK_BDL_CL)`, which is Link #1's loaded `J3DModelData`.
-- It then creates `MAX_REMOTE_LINKS` (2) `J3DModel`s on it with `mDoExt_J3DModel__create(mini_link_data, 0, 0x37221222)` (`:595-643`).
+- It then creates `MAX_REMOTE_LINKS` (2 when this was written, 3 since WWMB_LAYOUT 3) `J3DModel`s on it with `mDoExt_J3DModel__create(mini_link_data, 0, 0x37221222)` (`:595-643`).
 - Materials, TEV blocks and the texture table are therefore all shared. The same comment block notes that `mDoExt_J3DModel__create` forces the shared material-DL flag for this model type (`:606-612`).
 
 **The submission path.**
@@ -166,11 +166,18 @@ The name memory is capped at 256 entries.
 
 | Off | Field | Writer |
 |---|---|---|
-| +0x188 | `u32 tunic_bufs[3]`: the image of slot 0, slot 1 (the mini-Link slots) and slot 2 (`TUNIC_SLOT_LOCAL`, Link #1); 32-byte aligned, in GameHeap | C |
-| +0x194 | `u32 tunic_buf_size`: bytes per image; nonzero asks C to allocate | Go |
-| +0x198 | `u8 tunic_enable[3]`: 1 = the image holds this slot's texture, swap on | Go |
-| +0x19B | `u8 tunic_state`: 0 not allocated, 1 all allocated, 0xFD an allocation failed | C |
-| +0x19C | `u32 tunic_swaps`: header swaps done (diagnostic) | C |
+| +0x188 | `u32 tunic_bufs[4]`: the image of slots 0-2 (the mini-Link slots) and slot 3 (`TUNIC_SLOT_LOCAL`, Link #1); 32-byte aligned, in GameHeap | C |
+| +0x198 | `u32 tunic_buf_size`: bytes per image; nonzero asks C to allocate | Go |
+| +0x19C | `u8 tunic_enable[4]`: 1 = the image holds this slot's texture, swap on | Go |
+| +0x1A0 | `u32 features`: the WWMB header's, not the tunic block's (it stays at +0x1A0) | C |
+| +0x1A4 | `u8 tunic_state`: 0 not allocated, 1 all allocated, 0xFD an allocation failed | C |
+| +0x1A8 | `u32 tunic_swaps`: header swaps done (diagnostic) | C |
+
+This is WWMB_LAYOUT 3 (three mini-Link slots, 2026-10-25). Layout 2 had three
+slots (two remotes and Link #1 as slot 2) at +0x188..+0x19F, with `tunic_state` at
++0x19B and `tunic_swaps` at +0x19C. `main01_init` zeroes bufs, size, enables and
+state once per boot: a soft reset builds a new GameHeap but leaves this RAM, so the
+old pointers would name the new heap's blocks (docs/05 "Soft reset").
 
 The design's `tunic_used_idx` / `tunic_spare_idx` fields were dropped. C finds the worn header through Link #1's own `mpCurrLinktex`, so it needs no texture indices and no name table.
 
@@ -221,7 +228,7 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
   - `Tick` reads the mailbox tunic block *before* the hero read and checks against the live `tunic_bufs`, over the larger of `tunic_buf_size` and the header's own image size. This matters because enables live in RAM and outlive a Go process: a fresh `tunic-slot` run, a puppet-sync restart or a recalibration can make its first read while a slot is already swapping. A swapped header points exactly at a buffer (`imageOffset = buf - hdr`), so it is always refused (`TestTunicSync_StaleSwapFirstTick`, `TestTunicSync_RecalibrateRefusesSwapped`).
 - The header is read twice and both reads must match, which rejects a torn read.
 - C never writes `mOtherLinktex` or the image.
-- Only CMPR is accepted, at most 64 KiB per image (three are allocated).
+- Only CMPR is accepted, at most 64 KiB per image (four are allocated since layout 3, three before).
 
 **`avatar.Tunics`** (was `tunicSync`). There is one per puppet-sync, so one per Dolphin, and it survives reconnects. It works in these steps:
 1. Read and `Calibrate` the hero image once.

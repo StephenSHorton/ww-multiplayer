@@ -1119,9 +1119,9 @@ func runFaceDlLoop(secs int, forceLsb int) {
 		os.Exit(1)
 	}
 
-	// Find ALL J3DModels with the same modelData. With MAX_REMOTE_LINKS=2,
-	// expect 2-3 candidates: mini_link_models[0], mini_link_models[1],
-	// and Link's own model. The two whose +0x8C is in heap (not in
+	// Find ALL J3DModels with the same modelData. With MAX_REMOTE_LINKS=3,
+	// expect up to 4 candidates: mini_link_models[0..2] and Link's own
+	// model. The two whose +0x8C is in heap (not in
 	// the local-Link's range) are the mini-links.
 	const memLo, memHi = uint32(0x80000000), uint32(0x83000000)
 	const chunk = uint32(2 * 1024 * 1024)

@@ -273,6 +273,7 @@ func TestRemoteHeaderPins(t *testing.T) {
 		"WWREMOTE_AD_BAD_HIT":             uint64(RemoteADBadHit),
 		"WWREMOTE_HAF_ATTRIB_BODY":        uint64(RemoteHAFAttribBody),
 		"WWREMOTE_HAF_SLOT1":              uint64(RemoteHAFSlot1),
+		"WWREMOTE_HAF_ATTRIB_MASK":        uint64(RemoteHAFAttribMask),
 		"WWREMOTE_HD_NO_BODY":             uint64(RemoteHDNoBody),
 		"WWREMOTE_ACTOR_SIZE":             uint64(RemoteActorSize),
 		"WWREMOTE_KEEPER_SWAP_OFF":        uint64(RemoteKeeperSwapOff),
@@ -541,7 +542,7 @@ func TestRemoteContractValues(t *testing.T) {
 	if RemoteFPNew != 0 || RemoteFPParams != 1 || RemoteFPInit != 2 || RemoteFPLive != 3 || RemoteFullCreateFrames != 120 || RemoteFullParams != 0xFF000040 {
 		t.Error("full-body create phases or params moved (stage-4 plan §2.1)")
 	}
-	if RemoteKeeperSwapOff != 0x458 || RemoteActorSize != 0x600 || RemoteBodyEnd > RemoteActorSize ||
+	if RemoteKeeperSwapOff != 0x458 || RemoteActorSize != 0x620 || RemoteBodyEnd > RemoteActorSize ||
 		RemoteBodyVTOff+RemoteBodyVTSize > RemoteBodyCylOff || RemoteBodyCylOff+RemoteBodyCylSize != RemoteBodySttsOff ||
 		RemoteBodySttsOff+RemoteBodySttsSize > RemoteBodyMagicOff || RemoteBodyHandMtxOff+0x30 != RemoteBodyLastPoseSeqOff ||
 		RemoteBodyParkSinceOff+4 != RemoteBodyEnd || RemoteBodyVPtrOff+4 != RemoteBodyVTOff || RemoteBodyHandMtxOff%4 != 0 {
@@ -934,3 +935,39 @@ const remoteGoSpanGoldenFull = "" +
 	"0000000000000000000000000000000000000000000000000000000000000000" +
 	"0000000000000000000000000000000000000000000000000000000000000000" +
 	"00000000000000000a0b0c0d"
+
+// TestRemoteHAFAttrib: the ATTRIB field names every remote Link's body
+// and decodes back to it as remote_attrib_body does (0x08 slot 0, 0x18
+// slot 1, 0x10 slot 2), each code distinct and inside the mask; the
+// enemy bits and no-ATTRIB decode to -1; and the cap fits the field.
+func TestRemoteHAFAttrib(t *testing.T) {
+	if MaxRemoteLinks > RemoteHAFAttribSlots {
+		t.Fatalf("MAX_REMOTE_LINKS %d, the ATTRIB field names %d bodies: add a bit first", MaxRemoteLinks, RemoteHAFAttribSlots)
+	}
+	if RemoteHAFAttribMask != RemoteHAFAttribBody|RemoteHAFSlot1 {
+		t.Errorf("mask 0x%02X", RemoteHAFAttribMask)
+	}
+	seen := map[uint8]int{}
+	for s := range MaxRemoteLinks {
+		f := RemoteHAFAttrib(s)
+		if f == 0 || f&^RemoteHAFAttribMask != 0 {
+			t.Errorf("slot %d: field 0x%02X", s, f)
+		}
+		if o, dup := seen[f]; dup {
+			t.Errorf("slots %d and %d share 0x%02X", o, s, f)
+		}
+		seen[f] = s
+		const enemy = EnemyHAFForceV1 | EnemyHAFFallbackShrink | EnemyHAFNoHitMark | EnemyHAFVerdict | EnemyHAFBack | EnemyHAFCrit
+		if got := RemoteHAFAttribSlot(f | enemy); got != s {
+			t.Errorf("slot %d: 0x%02X decodes to %d", s, f|enemy, got)
+		}
+	}
+	for _, f := range []uint8{0, EnemyHAFForceV1 | EnemyHAFCrit} {
+		if got := RemoteHAFAttribSlot(f); got != -1 {
+			t.Errorf("0x%02X decodes to %d, want -1", f, got)
+		}
+	}
+	if RemoteHAFAttrib(RemoteHAFAttribSlots) != 0 || RemoteHAFAttrib(-1) != 0 {
+		t.Error("a slot past the field has a code")
+	}
+}

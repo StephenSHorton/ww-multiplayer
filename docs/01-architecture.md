@@ -34,7 +34,7 @@ wwapi/emu ── read/write ──► Dolphin              wwapi/emu ── read
 2. It sends them to the server over TCP.
 3. The server relays them to every other player connection.
 4. Each client's puppet-sync writes each remote's pose into the mailbox pose buffers.
-5. The injected C (`inject/src/mp/minilink.c`, shadow_mode 5) draws a mini-Link per slot (2 slots, `MAX_REMOTE_LINKS`). A remote beyond the slots, or one with no usable pose, is drawn as an actor puppet (`inject/src/mp/puppets.c`) after a 2 s wait (docs/05).
+5. The injected C (`inject/src/mp/minilink.c`, shadow_mode 5) draws a mini-Link per slot (3 slots, `MAX_REMOTE_LINKS`, since WWMB_LAYOUT 3; 2 before). A remote beyond the slots, or one with no usable pose, is drawn as an actor puppet (`inject/src/mp/puppets.c`) after a 2 s wait (docs/05).
 
 ## Components
 

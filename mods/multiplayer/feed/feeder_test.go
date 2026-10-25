@@ -36,6 +36,10 @@ func (r *recorder) has(sub string) bool {
 // poseBufBase is where the fake C side allocates pose_bufs (MEM1).
 const poseBufBase = 0x80C00000
 
+// resetData is where the fake game's mDoRstData sits (main takes it
+// from the arena's low end, m_Do_main.cpp:561).
+const resetData = 0x80414000
+
 // cside stands in for the C side of the pose feed: while shadow_mode is
 // 5, every slot without a pose_buf (state != 1) gets a fresh one, as the
 // next mode-5 draw lazy-allocates it.
@@ -78,7 +82,8 @@ func newTestFeeder(t *testing.T) (*Feeder, *cside, *recorder) {
 		t.Setenv(k, "")
 	}
 	c := &cside{ram: avatartest.NewRAM()}
-	c.stage("sea", avatartest.Link, false) // in play, as most tests assume
+	c.stage("sea", avatartest.Link, false)    // in play, as most tests assume
+	c.ram.Put32(addr.ResetDataPtr, resetData) // main's mDoRstData, mReset 0
 	rep := &recorder{}
 	f := NewFeeder(c.ram, "Self", rep)
 	f.after = func(time.Duration) <-chan time.Time {
@@ -208,65 +213,71 @@ func TestFeederSlotAssignment(t *testing.T) {
 	}
 }
 
-// TestFeederActorPuppetFallback: with both link slots taken, a third
-// player stays on its actor puppet (KAMOME / NPC_OB1), and moves to a
-// link slot when one frees up.
+// TestFeederActorPuppetFallback: with every link slot taken (avatar.Cap
+// remotes), the next player stays on its actor puppet (KAMOME / NPC_OB1),
+// and moves to a link slot when one frees up.
 func TestFeederActorPuppetFallback(t *testing.T) {
 	f, c, rep := newTestFeeder(t)
 	ctx := context.Background()
 	now := time.Unix(1000, 0)
+	extra := uint8(avatar.Cap + 1) // the first player beyond the link slots
+	ex := int(extra) - 1           // its actor slot (first come, as its id)
+	exName := fmt.Sprintf("slot %d := player %d (P%d)", ex, extra, extra)
+	players := func(from uint8, exX float32, exPose bool) []network.RemotePlayer {
+		var rs []network.RemotePlayer
+		for id := from; id < extra; id++ {
+			rs = append(rs, remote(id, float32(id)*100, true, now))
+		}
+		return append(rs, remote(extra, exX, exPose, now))
+	}
 
-	// Player 3 is first seen before its first pose (position only), and
-	// stays poseless: its actor puppet comes up after actorGrace, not before.
-	f.Feed(ctx, []network.RemotePlayer{
-		remote(1, 100, true, now), remote(2, 200, true, now), remote(3, 300, false, now),
-	}, now)
-	if c.actorActive(2) {
-		t.Fatal("player 3's actor puppet came up before actorGrace")
+	// The extra player is first seen before its first pose (position only),
+	// and stays poseless: its actor puppet comes up after actorGrace, not before.
+	f.Feed(ctx, players(1, 300, false), now)
+	if c.actorActive(ex) {
+		t.Fatalf("player %d's actor puppet came up before actorGrace", extra)
 	}
 	now = now.Add(actorGrace)
-	f.Feed(ctx, []network.RemotePlayer{
-		remote(1, 100, true, now), remote(2, 200, true, now), remote(3, 300, false, now),
-	}, now)
-	if !c.actorActive(2) || !rep.has("slot 2 := player 3 (P3)") {
-		t.Fatalf("player 3 has no active actor puppet (active=%v)", c.actorActive(2))
+	f.Feed(ctx, players(1, 300, false), now)
+	if !c.actorActive(ex) || !rep.has(exName) {
+		t.Fatalf("player %d has no active actor puppet (active=%v)", extra, c.actorActive(ex))
 	}
 
 	// Its poses arrive: no link slot is free, so the actor puppet stays
 	// up and keeps following it (lerped).
 	for i := 0; i < 3; i++ {
 		now = now.Add(16 * time.Millisecond)
-		f.Feed(ctx, []network.RemotePlayer{
-			remote(1, 100, true, now), remote(2, 200, true, now), remote(3, 400, true, now),
-		}, now)
+		f.Feed(ctx, players(1, 400, true), now)
 	}
-	if _, ok := f.LinkSlots()[3]; ok {
-		t.Fatalf("player 3 got a link slot beyond avatar.Cap: %v", f.LinkSlots())
+	if _, ok := f.LinkSlots()[extra]; ok {
+		t.Fatalf("player %d got a link slot beyond avatar.Cap: %v", extra, f.LinkSlots())
 	}
-	if !c.actorActive(2) {
-		t.Error("player 3's actor puppet went down while it has no link slot")
+	if !c.actorActive(ex) {
+		t.Errorf("player %d's actor puppet went down while it has no link slot", extra)
 	}
-	if x := c.actorX(2); x <= 300 || x >= 400 {
-		t.Errorf("player 3's actor X = %v, want lerped between 300 and 400", x)
+	if x := c.actorX(ex); x <= 300 || x >= 400 {
+		t.Errorf("player %d's actor X = %v, want lerped between 300 and 400", extra, x)
 	}
-	if c.actorActive(0) || c.actorActive(1) {
-		t.Error("an actor puppet is up under a Link-driven remote")
+	for i := 0; i < avatar.Cap; i++ {
+		if c.actorActive(i) {
+			t.Errorf("actor puppet %d is up under a Link-driven remote", i)
+		}
 	}
 
 	// Player 1 leaves: its link slot frees at the end of that tick, and
-	// player 3 takes it over from its actor puppet on the next.
+	// the extra player takes it over from its actor puppet on the next.
 	for i := 0; i < 2; i++ {
 		now = now.Add(16 * time.Millisecond)
-		f.Feed(ctx, []network.RemotePlayer{remote(2, 200, true, now), remote(3, 400, true, now)}, now)
+		f.Feed(ctx, players(2, 400, true), now)
 	}
-	if got := f.LinkSlots()[3]; got != 0 {
-		t.Fatalf("player 3 link slot = %v, want 0 (%v)", got, f.LinkSlots())
+	if got := f.LinkSlots()[extra]; got != 0 {
+		t.Fatalf("player %d link slot = %v, want 0 (%v)", extra, got, f.LinkSlots())
 	}
-	if !c.wrotePoseOf(0, 3) {
-		t.Error("link slot 0 does not hold player 3's pose")
+	if !c.wrotePoseOf(0, extra) {
+		t.Errorf("link slot 0 does not hold player %d's pose", extra)
 	}
-	if c.actorActive(2) {
-		t.Error("player 3's actor puppet is still up beside its Link")
+	if c.actorActive(ex) {
+		t.Errorf("player %d's actor puppet is still up beside its Link", extra)
 	}
 	if _, ok := f.remoteToSlot[1]; ok {
 		t.Error("player 1 kept its actor slot after leaving")
@@ -305,31 +316,37 @@ func TestFeederNoActorWhenPoseFollows(t *testing.T) {
 	}
 }
 
-// TestFeederActorForThirdPoseRemote: a third remote that sends its pose
-// from the start has no link slot to get, so its actorGrace wait runs out
-// and it gets its actor puppet; until then it has none.
+// TestFeederActorForThirdPoseRemote: a remote beyond avatar.Cap that sends
+// its pose from the start has no link slot to get, so its actorGrace wait
+// runs out and it gets its actor puppet; until then it has none.
 func TestFeederActorForThirdPoseRemote(t *testing.T) {
 	f, c, rep := newTestFeeder(t)
 	ctx := context.Background()
 	now := time.Unix(1000, 0)
+	extra := uint8(avatar.Cap + 1)
+	ex := int(extra) - 1
 	tick := func() {
-		f.Feed(ctx, []network.RemotePlayer{
-			remote(1, 100, true, now), remote(2, 200, true, now), remote(3, 300, true, now),
-		}, now)
+		var rs []network.RemotePlayer
+		for id := uint8(1); id <= extra; id++ {
+			rs = append(rs, remote(id, float32(id)*100, true, now))
+		}
+		f.Feed(ctx, rs, now)
 	}
 	tick()
 	now = now.Add(actorGrace - time.Millisecond)
 	tick()
-	if c.actorActive(2) {
-		t.Fatal("player 3's actor puppet came up before actorGrace")
+	if c.actorActive(ex) {
+		t.Fatalf("player %d's actor puppet came up before actorGrace", extra)
 	}
 	now = now.Add(time.Millisecond)
 	tick()
-	if !c.actorActive(2) || !rep.has("slot 2 := player 3 (P3)") {
-		t.Fatal("player 3 (beyond avatar.Cap, pose from the start) has no actor puppet")
+	if !c.actorActive(ex) || !rep.has(fmt.Sprintf("slot %d := player %d (P%d)", ex, extra, extra)) {
+		t.Fatalf("player %d (beyond avatar.Cap, pose from the start) has no actor puppet", extra)
 	}
-	if c.actorActive(0) || c.actorActive(1) {
-		t.Error("an actor puppet is up under a Link-driven remote")
+	for i := 0; i < avatar.Cap; i++ {
+		if c.actorActive(i) {
+			t.Errorf("actor puppet %d is up under a Link-driven remote", i)
+		}
 	}
 }
 

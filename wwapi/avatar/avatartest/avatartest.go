@@ -17,6 +17,9 @@ import (
 type RAM struct {
 	Mem    map[uint32]byte
 	Writes int
+	// Boots counts SoftReset calls; CAllocate places each boot's buffers
+	// 0x10000 further up, as a new GameHeap would hand out other blocks.
+	Boots int
 }
 
 // NewRAM returns an empty RAM.
@@ -130,9 +133,40 @@ func (f *RAM) CAllocate() {
 		return
 	}
 	for s := 0; s < mailbox.LenTunicBufs; s++ {
-		f.Put32(tunicBuf(s), HeapTop+uint32(s)*0x1000)
+		f.Put32(tunicBuf(s), HeapTop+uint32(f.Boots)*0x10000+uint32(s)*0x1000)
 	}
 	f.Mem[mailbox.Mailbox+mailbox.OffTunicState] = 1
+}
+
+// SoftReset plays main01_init's per-boot zeroing (inject/src/core/
+// hooks.c): the pose arrays and pose_publish (+0xA8..+0xC7), the tunic
+// block up to the features word (+0x188..+0x19F) and tunic_state's word
+// (+0x1A4). The old boot's buffers keep their bytes, as RAM does.
+func (f *RAM) SoftReset() {
+	f.Boots++
+	for a := mailbox.Mailbox + mailbox.OffPoseBufPtrs; a < mailbox.Mailbox+mailbox.OffWarpSeq; a++ {
+		f.Mem[a] = 0
+	}
+	for a := mailbox.Mailbox + mailbox.OffTunicBufs; a < mailbox.Mailbox+mailbox.OffFeatures; a++ {
+		f.Mem[a] = 0
+	}
+	for a := mailbox.Mailbox + mailbox.OffTunicState; a < mailbox.Mailbox+mailbox.OffTunicSwaps; a++ {
+		f.Mem[a] = 0
+	}
+}
+
+// RelocateLink is the new boot's Link after a SoftReset: his actor at
+// link, the worn header at worn and the hero image img at image, with
+// mpPlayerPtr and mpCurrLinktex pointing there. The old boot's bytes stay
+// where they were. link 0 is the title screen (no Link yet).
+func (f *RAM) RelocateLink(link, worn, image uint32, img []byte) {
+	f.Put32(addr.PlayerPtr, link)
+	if link == 0 {
+		return
+	}
+	f.Put32(link+addr.PlayerOffCurrLinktex, worn)
+	f.Write(image, img)
+	f.Write(worn, ResTIMG(texture.FormatCMPR, 8, 8, image-worn))
 }
 
 // Frame advances spawn_trigger, the C side's per-frame counter.
@@ -149,8 +183,10 @@ func (f *RAM) SlotImage(s int) []byte {
 }
 
 // ExpectRecolor is TestImage recolored to c, as the tunic slots do it.
-func ExpectRecolor(c texture.Color) []byte {
-	img := TestImage()
+func ExpectRecolor(c texture.Color) []byte { return ExpectRecolorOf(TestImage(), c) }
+
+// ExpectRecolorOf is img recolored to c, calibrated on img itself.
+func ExpectRecolorOf(img []byte, c texture.Color) []byte {
 	m, ref := texture.Calibrate(img, texture.DefaultMask)
 	out, _ := texture.Recolor(img, c, m, ref)
 	return out

@@ -83,21 +83,22 @@ typedef struct {
     u16 flags2;         // +0x1A WWREMOTE_FLAG2_* of the last consume
     f32 dy_max;         // +0x1C
     u8  stage[8];       // +0x20 the stage the create tries belong to
-    rl_body bodies[MAX_REMOTE_LINKS]; // +0x28
+    rl_body bodies[MAX_REMOTE_LINKS]; // +0x28 (3 slots since WWMB_LAYOUT 3; 2 before, so every field below moved +0x14)
     // client apply
-    u32 ap_seq;         // +0x50 the open request's seq
-    u32 ap_ack;         // +0x54 the last seq taken
-    u32 ap_link;        // +0x58 the client Link the request was Set against
-    cXyz ap_rel;        // +0x5C hit point - body pos on the host
-    cXyz ap_rvec;       // +0x68 the host Tg RVec
-    u16 life_before;    // +0x74
-    u8  ap_state;       // +0x76 RL_AP_*
-    u8  ap_frames;      // +0x77 executes from the first Set (saturating)
-    u8  ap_sets;        // +0x78 cCcS::Set calls for the request
-    u8  full_denied;    // +0x79 bit i: slot i spent its full attempt (this stage, epoch and gen)
-    u8  full_wait[2];   // +0x7A keeper frames slot i waited for its allow bit (RL_FULL_WAIT; MAX_REMOTE_LINKS <= 2)
-    rl_latch latch[RL_LATCH_MAX]; // +0x7C
-} remote_swap_state;    // 0x17C
+    u32 ap_seq;         // +0x64 the open request's seq
+    u32 ap_ack;         // +0x68 the last seq taken
+    u32 ap_link;        // +0x6C the client Link the request was Set against
+    cXyz ap_rel;        // +0x70 hit point - body pos on the host
+    cXyz ap_rvec;       // +0x7C the host Tg RVec
+    u16 life_before;    // +0x88
+    u8  ap_state;       // +0x8A RL_AP_*
+    u8  ap_frames;      // +0x8B executes from the first Set (saturating)
+    u8  ap_sets;        // +0x8C cCcS::Set calls for the request
+    u8  full_denied;    // +0x8D bit i: slot i spent its full attempt (this stage, epoch and gen)
+    u8  full_wait[MAX_REMOTE_LINKS]; // +0x8E keeper frames slot i waited for its allow bit (RL_FULL_WAIT)
+    u8  _pad_fw[3];     // +0x91
+    rl_latch latch[RL_LATCH_MAX]; // +0x94
+} remote_swap_state;    // 0x194
 
 // The tail fields both body kinds share, in this order: the lite body's
 // +0x530..+0x578 (remote_body below), the full body's

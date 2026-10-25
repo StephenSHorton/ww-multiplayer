@@ -190,8 +190,8 @@ typedef struct {
 } em_kind_ovr;          // 0x04
 
 // The layout-3 cache the keeper keeps past remote.c's swap state:
-// wwrel_actor.ext at +0x5D4 (rel_main.c pins it), up to
-// WWREMOTE_ACTOR_SIZE 0x600. enemy_mirror_state and em_slot are packed
+// wwrel_actor.ext at +0x5EC (rel_main.c pins it; +0x5D4 before the third
+// remote body slot), inside WWREMOTE_ACTOR_SIZE 0x620. enemy_mirror_state and em_slot are packed
 // (0x1C4 / 0x5C, pinned), so everything layout 3 adds per slot lives
 // here. Every block-derived field is written only in em_consume (the
 // seq-protected read); enemy_mirror_init zeroes it (kinds EMK_KIND_NONE).

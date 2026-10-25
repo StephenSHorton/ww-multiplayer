@@ -115,14 +115,14 @@ func TestBuild(t *testing.T) {
 		{ID: 5, Name: "me", FaceState: trailer(AppSea, 0, 0), Position: &network.PlayerPosition{}},
 		{ID: 9, Name: "Medli", FaceState: trailer(AppSea, 0xFF, 0xFF)}, // no position yet
 	}
-	b := Build(Settings{Names: true, Equip: true, SeaChart: true}, remotes, map[byte]int{7: 1, 3: 0, 5: 1}, "me")
+	b := Build(Settings{Names: true, Equip: true, SeaChart: true}, remotes, map[byte]int{7: 1, 3: 0, 5: 1, 9: 2}, "me")
 	if b.Flags != mailbox.VisFlagNames|mailbox.VisFlagEquip|mailbox.VisFlagSea {
 		t.Errorf("flags %#x", b.Flags)
 	}
-	if b.Names != [2]string{"Aryll", "Tetra"} {
+	if b.Names != [mailbox.VisSlots]string{"Aryll", "Tetra", "Medli"} {
 		t.Errorf("names %q", b.Names)
 	}
-	if b.Equip[0].Valid || !b.Equip[1].Valid || b.Equip[1].Sword != 0x38 {
+	if b.Equip[0].Valid || !b.Equip[1].Valid || b.Equip[1].Sword != 0x38 || !b.Equip[2].Valid || b.Equip[2].Sword != 0xFF {
 		t.Errorf("equip %+v", b.Equip)
 	}
 	if len(b.Sea) != 1 || b.Sea[0] != (mailbox.VisSea{X: 100, Z: -50, Angle: 0x4000, R: 0xE0, G: 0x10, B: 0x20}) {
@@ -146,7 +146,7 @@ func TestSyncWritesOnChangeAndRefresh(t *testing.T) {
 	m := mem.NewFakeMem()
 	m.Record(true)
 	var y Sync
-	b := mailbox.VisBlock{Flags: mailbox.VisFlagNames, Names: [2]string{"a", ""}}
+	b := mailbox.VisBlock{Flags: mailbox.VisFlagNames, Names: [mailbox.VisSlots]string{"a", ""}}
 	if err := y.Write(m, b); err != nil {
 		t.Fatal(err)
 	}

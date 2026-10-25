@@ -816,19 +816,17 @@ func (r *RemoteHost) slotOf(player uint8) int {
 }
 
 // AttribFlags is HitApplier's ATTRIB hook (§8.6): the hit_apply flags
-// that attribute h to its sender's body, RemoteHAFAttribBody plus
-// RemoteHAFSlot1 for slot 1, when the block is on with ATTRIB and the
-// sender owns a slot; else 0 (the host Link's path). The REL falls back to
-// the host Link (HD_NO_BODY) when that body is not LIVE.
+// that attribute h to its sender's body, mailbox.RemoteHAFAttrib of the
+// sender's slot (0x08 slot 0, 0x18 slot 1, 0x10 slot 2), when the block
+// is on with ATTRIB and the sender owns a slot; else 0 (the host Link's
+// path). The REL falls back to the host Link (HD_NO_BODY) when that body
+// is not LIVE.
 func (r *RemoteHost) AttribFlags(h *Hit) uint8 {
 	if !r.cfg.On || r.cfg.Flags&mailbox.RemoteFlagAttrib == 0 {
 		return 0
 	}
-	switch r.slotOf(h.PlayerID) {
-	case 0:
-		return mailbox.RemoteHAFAttribBody
-	case 1:
-		return mailbox.RemoteHAFAttribBody | mailbox.RemoteHAFSlot1
+	if s := r.slotOf(h.PlayerID); s >= 0 {
+		return mailbox.RemoteHAFAttrib(s)
 	}
 	return 0
 }
