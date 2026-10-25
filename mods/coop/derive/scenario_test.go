@@ -965,7 +965,10 @@ func TestMaxLifeAddOnly(t *testing.T) {
 // the partner's STAGE_LIFE lands before the receiver takes its own, the
 // derive credits it and the pickup adds 4 more: the bug the replica's hold
 // (bossLifeBit) keeps out, pinned here. Held until the receiver takes its
-// own, or until Link leaves without it, the container counts once.
+// own, or until Link leaves without it, the container counts once. The
+// last two subtests stand in for the hold by hand; the replica's
+// TestReconcileM4BossContainerOnce runs the real hold and this derive
+// together, the warp flower's cold-table path included.
 func TestBossContainerOnce(t *testing.T) {
 	life := func(r *rig) int { return r.u16(addr.MaxLife) }
 	// pickup is the receiver taking its own container: item_func_utuwa_

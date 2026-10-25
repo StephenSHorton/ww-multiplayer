@@ -549,6 +549,103 @@ func TestReconcileM4MaxLife(t *testing.T) {
 	rr.auditM4(false)
 }
 
+// TestReconcileM4BossContainerOnce joins the planner's boss-stage hold on
+// STAGE_LIFE (bossLifeHold) and the derive's max life, end to end through
+// the reconciler. The partner beat Gohma and took its container (the
+// world's DRC mDungeonItem 0x3B) while this game is in M_DragB, where its
+// own Gohma drops its own container at its death with no test of the bit
+// (d_a_btd.cpp:1082). So the partner's STAGE_LIFE stays out of the live
+// memBit and max life stays put, and the container counts once:
+//
+//   - by this game's own pickup in the arena, which sets the bit live and
+//     counts 4 (item_func_utuwa_heart, d_item.cpp:588-604): no derive
+//     write before or after it, and none when Link then leaves;
+//   - by the derive, once Link leaves without it into the dungeon (the
+//     bit lands live) or by the warp flower out to the sea (the bit goes
+//     to DRC's saved slot only, the cold table, and the derive reads it
+//     there): +4 once.
+func TestReconcileM4BossContainerOnce(t *testing.T) {
+	items := addr.OffMemBit(addr.TableDRC) + addr.MemBitOffDungeonItem
+	liveItems := addr.LiveMemBit + addr.MemBitOffDungeonItem
+	const world = 0x3B // map, compass, boss defeated, container, demo seen
+	cases := []struct {
+		name   string
+		pickup bool           // this game's own Gohma dies and Link takes its container
+		leave  fakegame.Stage // where Link goes after
+		live   bool           // DRC's table stays loaded
+	}{
+		{"its own pickup, then the warp flower", true, outset, false},
+		{"its own pickup, then the dungeon", true, drc, true},
+		{"left without it, into the dungeon", false, drc, true},
+		{"left without it, the warp flower out to the sea", false, outset, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tb := m4Tables(t)
+			rr := newRecRig(t, Config{Apply: true, Tables: tb, Policy: m4Policy(tb)}, proto.FeatureImage|proto.FeatureLife)
+			life := func() int { return int(rr.u16(addr.MaxLife)) }
+			rr.load(drcBoss)
+			rr.stagType(stageTypeBoss)
+			rr.ticks(gate.StableTicks + 2)
+			var img save.Image
+			img[items] = world
+			rr.world(img)
+			rr.ticks(m4Settle)
+			if v := rr.liveByte(items); v&bossLifeBit != 0 || rr.savedByte(items)&bossLifeBit != 0 {
+				t.Fatalf("in the arena: live 0x%02X, saved 0x%02X; the partner's container landed\n%s", v, rr.savedByte(items), rr.log)
+			}
+			if got := life(); got != derive.StartLife {
+				t.Fatalf("in the arena: max life %d, want %d: the partner's container counted\n%s", got, derive.StartLife, rr.log)
+			}
+			held := false
+			for _, h := range rr.r.Status().Held {
+				if int(h.Off) == items && h.Mask&bossLifeBit != 0 && h.Hold.Why == bossLifeHold.Why {
+					held = true
+				}
+			}
+			if !held {
+				t.Fatalf("STAGE_LIFE not held under bossLifeHold: %+v", rr.r.Status().Held)
+			}
+
+			want := derive.StartLife + 4
+			if c.pickup {
+				// Gohma's death sets the boss bits; Link takes the
+				// container Btd drops: the bit live, 4 counted.
+				rr.store(liveItems, []byte{rr.read(liveItems, 1)[0] | 0x28 | bossLifeBit})
+				rr.store(addr.ItemMaxLifeCount, []byte{0, 4})
+				rr.ticks(m4Settle)
+				if got := life(); got != want {
+					t.Fatalf("after its own pickup: max life %d, want %d\n%s", got, want, rr.log)
+				}
+			}
+
+			before := len(rr.bm.written())
+			rr.load(c.leave)
+			rr.stagType(1) // dStageType_DUNGEON_e, or the sea's: no boss stage
+			rr.ticks(m4Settle)
+			rr.ticks(m4Settle) // and long after: nothing more
+			if got := life(); got != want {
+				t.Fatalf("after leaving: max life %d, want %d (one container)\n%s", got, want, rr.log)
+			}
+			if rr.savedByte(items)&bossLifeBit == 0 {
+				t.Fatalf("DRC's saved dungeon items 0x%02X lack STAGE_LIFE", rr.savedByte(items))
+			}
+			if c.live && rr.liveByte(items)&bossLifeBit == 0 {
+				t.Fatalf("DRC's live dungeon items 0x%02X lack STAGE_LIFE", rr.liveByte(items))
+			}
+			for _, w := range rr.bm.written()[before:] {
+				if !c.live && w.a == liveItems {
+					t.Fatalf("a live write of the sea's table: %+v", w)
+				}
+			}
+			if rr.log.has("a duplicate pickup") {
+				t.Fatalf("a duplicate noted:\n%s", rr.log)
+			}
+			rr.auditM4(false)
+		})
+	}
+}
+
 func (r *rig) u16(a uint32) uint16 {
 	b := r.read(a, 2)
 	return uint16(b[0])<<8 | uint16(b[1])
