@@ -3,6 +3,7 @@ package replica
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
@@ -532,14 +533,14 @@ func TestFrameWriterIsADryRun(t *testing.T) {
 
 // TestPlannerBossHold: while the loaded stage is a boss stage, the
 // reconciler's planner holds the loaded table's boss bits (bits 3 and 5
-// of mDungeonItem) and plans the rest of the byte; another table's boss
-// bits, which go to its saved slot only, are not held, and neither is
-// anything in a dry run, M2's planner.
+// of mDungeonItem) and its STAGE_LIFE (bit 4, bossLifeBit), and plans the
+// rest of the byte; another table's boss bits, which go to its saved slot
+// only, are not held, and neither is anything in a dry run, M2's planner.
 func TestPlannerBossHold(t *testing.T) {
 	drcItems := addr.OffMemBit(addr.TableDRC) + addr.MemBitOffDungeonItem
 	fwItems := addr.OffMemBit(addr.TableFW) + addr.MemBitOffDungeonItem
 	var view save.Image
-	view[drcItems], view[fwItems] = 0x2B, 0x08
+	view[drcItems], view[fwItems] = 0x3B, 0x18 // map, compass, boss, container (+ DRC's demo); FW's boss and container
 	cases := []struct {
 		name   string
 		writes bool
@@ -547,9 +548,9 @@ func TestPlannerBossHold(t *testing.T) {
 		drc    byte // what is planned of DRC's byte
 		held   byte
 	}{
-		{"a boss stage", true, true, 0x03, bossBits & 0x2B},
-		{"a dungeon stage of the same table", true, false, 0x2B, 0},
-		{"a dry run", false, true, 0x2B, 0},
+		{"a boss stage", true, true, 0x03, (bossBits | bossLifeBit) & 0x3B},
+		{"a dungeon stage of the same table", true, false, 0x3B, 0},
+		{"a dry run", false, true, 0x3B, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -561,8 +562,8 @@ func TestPlannerBossHold(t *testing.T) {
 			p.observe(o)
 			ws, held := p.Plan(&view, &now, &now, addr.TableDRC)
 			got := writesImage(ws, save.Image{})
-			if got[drcItems] != c.drc || got[fwItems] != 0x08 {
-				t.Fatalf("planned DRC 0x%02X, FW 0x%02X; want DRC 0x%02X and FW's boss bit", got[drcItems], got[fwItems], c.drc)
+			if got[drcItems] != c.drc || got[fwItems] != 0x18 {
+				t.Fatalf("planned DRC 0x%02X, FW 0x%02X; want DRC 0x%02X and FW's boss and container bits", got[drcItems], got[fwItems], c.drc)
 			}
 			var h byte
 			for _, b := range held {
@@ -571,10 +572,52 @@ func TestPlannerBossHold(t *testing.T) {
 					if b.Hold.Why == "" {
 						t.Error("a hold without a reason")
 					}
+					// STAGE_LIFE waits for another reason than the boss
+					// bits, and the boss-dead relay's trigger reads
+					// bossHold's mask alone (bossKillWanted).
+					want := bossHold
+					if b.Mask&bossLifeBit != 0 {
+						want = bossLifeHold
+					}
+					if b.Hold.Why != want.Why || (b.Mask&bossBits != 0 && b.Mask&bossLifeBit != 0) {
+						t.Errorf("held 0x%02X under %q", b.Mask, b.Hold.Why)
+					}
 				}
 			}
 			if h != c.held {
 				t.Fatalf("held 0x%02X of DRC's dungeon items, want 0x%02X", h, c.held)
+			}
+		})
+	}
+}
+
+// TestBossGuardStageLife: in a boss stage the WriteGuard refuses a live
+// mDungeonItem write that changes STAGE_LIFE, as it does one that changes
+// the boss bits; the rest of the byte, and the bit outside a boss stage,
+// pass.
+func TestBossGuardStageLife(t *testing.T) {
+	a := addr.LiveMemBit + addr.MemBitOffDungeonItem
+	cases := []struct {
+		name     string
+		boss     bool
+		old, val byte
+		why      string // "" when it passes
+	}{
+		{"the container in a boss stage", true, 0x0B, 0x1B, "drops its own heart container"},
+		{"the boss bit in a boss stage", true, 0x03, 0x0B, "reads the boss bits every frame"},
+		{"the map in a boss stage", true, 0x18, 0x19, ""},
+		{"the container in a dungeon stage", false, 0x0B, 0x1B, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			wg := NewWriteGuard(GuardConfig{Targets: TargetStage})
+			wg.SetTick(Tick{Gates: gatesOpen, Armed: true, Table: addr.TableDRC, Boss: c.boss})
+			err := wg.Check(a, c.old, c.val)
+			switch {
+			case c.why == "" && err != nil:
+				t.Fatalf("Check = %v, want it let through", err)
+			case c.why != "" && (err == nil || !strings.Contains(err.Error(), c.why)):
+				t.Fatalf("Check = %v, want refused: %q", err, c.why)
 			}
 		})
 	}

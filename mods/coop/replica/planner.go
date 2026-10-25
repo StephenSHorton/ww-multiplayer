@@ -124,6 +124,26 @@ func timingOf(off, cur int) Timing {
 // live in another stage of the same table, else to the saved slot.
 const bossBits = 1<<addr.DungeonItemStageBossEnemy | 1<<addr.DungeonItemStageBossDemo
 
+// bossLifeBit is mDungeonItem's STAGE_LIFE (bit 4, the heart container
+// taken), which waits in a boss stage beside the boss bits for another
+// reason. No boss stage polls it: its one reader is Bitem's create
+// (d_a_boss_item.cpp:33), which drops a container on re-entry only with
+// the boss dead and the bit clear. But the receiver's own boss drops a
+// container at its death with no test of the bit (fopAcM_createItemForBoss,
+// f_op_actor_mng.cpp:956-964; Gohma: d_a_btd.cpp:1082 through
+// d_a_disappear.cpp:28; Kalle Demos: d_a_bmd.cpp:747; Gohdan:
+// d_a_bst.cpp:2504; Molgera: d_a_bwd.cpp:1704; Jalhalla: d_a_bpw.cpp:2856),
+// and so does the death the boss-dead relay hands it (bosskill.go). Were
+// the partner's bit to land mid-fight, the derive would count the
+// partner's container as the receiver's (+4, life.go) and the receiver's
+// own pickup (item_func_utuwa_heart, d_item.cpp:588-604) would add 4 more,
+// which max life, add-only, keeps: one container twice.
+// Held, it waits for the receiver's own pickup, which sets it in the live
+// memBit (the miss then clears on its own, as STAGE_BOSS_ENEMY's does), or
+// lands once Link has left without taking it, and then Bitem, seeing it
+// on the way back, drops no second one.
+const bossLifeBit = 1 << addr.DungeonItemStageLife
+
 // The STAG chunk's stage type: dStage_stagInfo_GetSTType is
 // (mStageTypeAndSchbit >> 16) & 7 (d_stage.h:1031-1033), the u32 at +0x0C
 // (d_stage.h:72), so the low 3 bits of its big-endian second byte.
@@ -161,6 +181,9 @@ func bossStage(typ int, ok bool, table int8) bool {
 
 // bossHold is the hold on a boss stage's boss bits.
 var bossHold = Hold{Why: "the boss stage reads them every frame (d_meter.cpp:1071, d_a_dr2.cpp:561); written once Link leaves it"}
+
+// bossLifeHold is the hold on a boss stage's STAGE_LIFE (bossLifeBit).
+var bossLifeHold = Hold{Why: "this game's own boss drops its own container (d_a_btd.cpp:1082); written once Link leaves the boss stage, unless Link takes it first"}
 
 // Write is one planned write: OR Bits into image byte Off or, for a MAX
 // byte, raise it to Bits.
@@ -593,6 +616,10 @@ func (p *Planner) Plan(view, raw, local *save.Image, cur int) ([]Write, []HeldBi
 		if c := miss[off] & bossBits; c != 0 {
 			miss[off] &^= c
 			held = append(held, HeldBit{Off: uint16(off), Mask: c, Hold: bossHold})
+		}
+		if c := miss[off] & bossLifeBit; c != 0 {
+			miss[off] &^= c
+			held = append(held, HeldBit{Off: uint16(off), Mask: c, Hold: bossLifeHold})
 		}
 	}
 

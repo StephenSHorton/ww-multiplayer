@@ -929,12 +929,19 @@ func (t *Tick) spawnMask(a uint32) byte {
 }
 
 // bossClosed returns why a write of val over old at a, the live memBit's
-// mDungeonItem, may not change its boss bits this tick, or "": the stage
-// loaded polls them every frame (bossStage), so the planner holds them
-// there (bossHold), and a plan with them is a bug.
+// mDungeonItem, may not change its boss bits or its STAGE_LIFE this tick,
+// or "": the stage loaded polls the boss bits every frame (bossStage), and
+// its boss drops its own container (bossLifeBit), so the planner holds
+// them there (bossHold, bossLifeHold), and a plan with them is a bug.
 func (t *Tick) bossClosed(a uint32, old, val byte) string {
-	if t.Boss && a == addr.LiveMemBit+addr.MemBitOffDungeonItem && (old^val)&bossBits != 0 {
+	if !t.Boss || a != addr.LiveMemBit+addr.MemBitOffDungeonItem {
+		return ""
+	}
+	switch {
+	case (old^val)&bossBits != 0:
 		return "the boss stage loaded reads the boss bits every frame (d_meter.cpp:1071, d_a_dr2.cpp:561)"
+	case (old^val)&bossLifeBit != 0:
+		return "the boss stage loaded drops its own heart container (d_a_btd.cpp:1082)"
 	}
 	return ""
 }
