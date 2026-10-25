@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/boatsync"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/fxsync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/tunicsync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
@@ -117,8 +119,8 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 	}()
 
 	// The remote players' visuals (vissync, inject/include/wwvis.h): names,
-	// sword and shield, sea chart markers. WW_NAMETAGS / WW_EQUIP /
-	// WW_SEACHART=off turn each off. Session over: the block goes off.
+	// sword and shield, sea chart markers, casual hair. WW_NAMETAGS /
+	// WW_EQUIP / WW_SEACHART / WW_HAIR=off turn each off. Session over: the block goes off.
 	visSettings := vissync.SettingsFromEnv()
 	var vis vissync.Sync
 	defer func() {
@@ -126,6 +128,39 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 			_ = vis.Off(d)
 		}
 	}()
+
+	// The peer boats (boatsync, inject/include/wwboat.h): each remote's King
+	// of Red Lions where it sails and where it was left. WW_BOATS=off draws
+	// none (nosail / noparts drop the sail cloth / the cannon and crane).
+	// Session over: the block goes off and the REL frees its boats.
+	boatSettings := boatsync.SettingsFromEnv()
+	var boats boatsync.Sync
+	var boatTracker boatsync.Tracker
+	if gate.ok {
+		_ = boats.Off(d)
+	}
+	defer func() {
+		if gate.ok {
+			_ = boats.Off(d)
+		}
+	}()
+
+	// Projectile events (fxsync, inject/include/wwfx.h; WW_PROJECTILES=on,
+	// default off): the peers' bombs, cannonballs and arrows, scoped to
+	// this game's stage and room, into the REL's inbox. Session over: the
+	// recv word goes back to 0 (the REL then discards the inbox).
+	fxSettings := fxsync.SettingsFromEnv()
+	fxRecv := fxsync.NewReceiver()
+	var fxLog fxLogger
+	if fxSettings.On {
+		rep.Log(log.Info, "Projectile events on (WW_PROJECTILES): the other players' bombs, cannonballs and arrows are made in this game.")
+		client.OnFx = func(from byte, e network.FxEvent) { fxRecv.Push(from, e, time.Now()) }
+		defer func() {
+			if gate.ok {
+				_ = fxRecv.Arm(d, false)
+			}
+		}()
+	}
 
 	// connect (re)establishes the session and RE-ARMS the mailbox (#8 + D3).
 	// Runs at startup and after every reconnect. A change in the welcome's
@@ -176,14 +211,29 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 				feeder.Connected(client.ServerEpoch())
 			}
 			feeder.Feed(ctx, remotes, now)
-			roster.Publish(feeder.Views(remotes, now), now)
+			views := feeder.Views(remotes, now)
+			roster.Publish(views, now)
 
-			if tunics != nil {
+			// The tunic images go through GameHeap pointers too: hold
+			// them to the feeder's reset gate (running.go).
+			if tunics != nil && feeder.Running() {
 				mine, haveMine := client.MyColor()
 				tunicsync.SyncTunics(tunics, mine, haveMine, remotes, feeder.LinkSlots(), now)
 			}
 
 			_ = vis.Write(d, vissync.Build(visSettings, remotes, feeder.LinkSlots(), selfFilter))
+			if boatSettings.On {
+				_ = boats.Write(d, boatTracker.Build(boatSettings, boatsync.ReadHere(d), remotes, BoatAnchors(views), selfFilter, now))
+			}
+
+			// Projectile events wait out the reset gate as well: no copy
+			// is due while the game resets or reboots, and anything queued
+			// meanwhile is past fxsync's 2 s age limit when play resumes.
+			if fxSettings.On && feeder.Running() && fxRecv.Arm(d, true) == nil {
+				fxRecv.SetEpoch(client.ServerEpoch())
+				_ = fxRecv.Flush(d, remotes, selfFilter, now)
+				fxLog.every(rep, fxRecv.Summary(), now)
+			}
 
 			feeder.Expire(now)
 
@@ -199,6 +249,9 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 		// must not linger frozen while ReconnectLoop waits to redial.
 		// The next session's first Write turns the block back on.
 		visDropped(d, &vis, gate.ok)
+		if gate.ok {
+			_ = boats.Off(d) // no frozen boats while ReconnectLoop redials
+		}
 		return nil
 	}
 	run := func(ctx context.Context) error {
@@ -216,4 +269,31 @@ func visDropped(w vissync.Writer, vis *vissync.Sync, gateOK bool) {
 	if gateOK {
 		_ = vis.Off(w)
 	}
+}
+
+// BoatAnchors is where each remote's mini-Link is drawn (RemoteView.Pos),
+// the point boatsync places an aboard boat from.
+func BoatAnchors(views []RemoteView) map[byte][3]float32 {
+	out := make(map[byte][3]float32, len(views))
+	for _, v := range views {
+		out[v.ID] = v.Pos
+	}
+	return out
+}
+
+// fxLogger logs the projectile receiver's summary at most every
+// fxLogEvery, and only when it changed.
+type fxLogger struct {
+	last string
+	next time.Time
+}
+
+const fxLogEvery = 10 * time.Second
+
+func (l *fxLogger) every(rep log.Reporter, line string, now time.Time) {
+	if line == "" || line == l.last || now.Before(l.next) {
+		return
+	}
+	l.last, l.next = line, now.Add(fxLogEvery)
+	rep.Log(log.Info, line)
 }

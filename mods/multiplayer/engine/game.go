@@ -582,6 +582,9 @@ func resetMailbox(m mailboxMem, tunic bool) bool {
 	// The visuals block off (vissync): no names, equip or sea chart
 	// markers left from this session, if puppet-sync's own Off was missed.
 	m.Write(mailbox.VisAddr+mailbox.VisMagicOff, make([]byte, 4))
+	// The projectile events off (fxsync): both magic words, so the REL
+	// neither reports nor spawns once the session is gone.
+	m.Write(mailbox.FxAddr+mailbox.FxSendMagicOff, make([]byte, 8))
 	return true
 }
 

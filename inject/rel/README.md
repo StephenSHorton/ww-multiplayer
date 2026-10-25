@@ -16,7 +16,7 @@ calls into, the host hit ring and the client apply; `fullbody.c` and
 `rel_main.c` is an actor module. Its profile, `g_profile_WWREL`
 (`.rodata`, 0x30 bytes, the decomp's `actor_process_profile_definition`),
 describes proc 0xB5 with a five-method table (create, delete, execute,
-is_delete, draw) and an actor of `WWREMOTE_ACTOR_SIZE` (0x600) bytes: the
+is_delete, draw) and an actor of `WWREMOTE_ACTOR_SIZE` (0x620; 0x600 before WWMB_LAYOUT 3) bytes: the
 keeper role (params 0) is `fopAc_ac_c` (0x290 in GZLE01) plus one u32 of
 its own, the Moblin mirror's state (0x1C4, to +0x458) and remote.c's swap
 state (from +0x458); the lite-body role (params `0x52000000 | slot << 8 |
@@ -450,7 +450,8 @@ module does what it did before, except that the exec hook counts its calls
   `FLAG_BOTH_WORDS_ENABLE`; bodies named 0xA9 with `FLAG_NAME_A9`) around
   the one `fpcMtd_Execute` call, restored unconditionally.
 - **ATTRIB** (enemy_mirror.c's v2, `FLAG_ATTRIB` and the request's
-  `WWREMOTE_HAF_ATTRIB_BODY`): with the slot's body LIVE and unparked the
+  ATTRIB field, `WWREMOTE_HAF_ATTRIB_MASK`: 0x08 body 0, 0x18 body 1, 0x10
+  body 2): with the slot's body LIVE and unparked the
   stts names the body, the Moblin's latch is forced onto it for 3 executes
   and, when it was not the current target, the first Set waits one
   execute; otherwise the host-Link path with detail `WWREMOTE_HD_NO_BODY`.
@@ -502,9 +503,11 @@ creates only lite bodies and nothing below runs.
   the attempt: lite for the rest of the stage. Clearing `FULL_BODIES`
   retires a LIVE full body; no upgrade within a stage. body_status +0x0F is
   the kind. The new keeper fields live in the swap state's old pads
-  (`full_allow` +0x19, `flags2` +0x1A, `full_denied` +0x79, `full_wait`
-  +0x7A, `rl_body.kind` +0x13), so its size (0x17C) and every field the
-  probe reads keep their offsets.
+  (`full_allow` +0x19, `flags2` +0x1A, `full_denied`, `full_wait`,
+  `rl_body.kind` +0x13). With the third body slot (WWMB_LAYOUT 3) `bodies[3]`
+  and `full_wait[3]` grew the state from 0x17C to 0x194: `full_denied` is
+  now +0x8D, `full_wait` +0x8E and `latch` +0x94 (`remote.h`, wwdev's
+  `remote_probe.go` pins).
 - **create** (`fullbody_create`, one call per frame in `fpcCt_Handler`):
   FP_NEW checks the params tag, caches slot/gen, allocates the shanm table
   if the boot has none (`BERR_SHANM_ALLOC`), becomes a stage actor and
@@ -729,15 +732,29 @@ the proc's state as found. Stateless; nothing is added to the keeper.
 ## visuals.c: the remote players' visuals
 
 The block is `include/wwvis.h` at `MAILBOX_ADDR + 0x8D0` (0x804137D0,
-0xC0 bytes, right after the actor_refresh request; Go's
-`wwapi/mailbox/vis.go` mirrors it and `CanaryArenaHigh` now starts at its
-end, 0x80413890). Its first word is `&wwvis_draw_hook`, published by
+0x114 bytes, right after the actor_refresh request; it was 0xC0 bytes
+before WWMB_LAYOUT 3's third slot and the second model table at +0xF0,
+the mirror shield, Master Sword scabbard and katsura models). Go's
+`wwapi/mailbox/vis.go` mirrors it. The peer boats block (`include/wwboat.h`,
+`boats.c`) follows it at 0x804138E4..0x8041396C, and `CanaryArenaHigh` runs
+from there to the eye packets. Its first word is `&wwvis_draw_hook`, published by
 `_prolog` just before the exec hook word and cleared by `_epilog` first;
 T2's `main01_init` zeroes it (and the model words) at boot. T2's
 `mp_draw_post` calls it twice per drawn mini-Link slot: phase 0 before the
 slot's body entry, phase 1 after it. Go (`mods/multiplayer/vissync`) writes
 the magic, the flags and the per-slot equip bytes from each remote's pose
 trailer.
+
+The peer boats (`boats.c`, `include/wwboat.h`; docs/05 "Peer boats"): the
+keeper's execute calls `boats_frame` after `fx_frame` and its draw calls
+`boats_draw` (a lite body's draw does nothing). Each of the block's three
+entries gets the hull, head, cannon and crane models and an imitation
+`daGrid_c` for the sail in a GameHeap solid heap of its own, made only while
+"Ship" is resident and destroyed with the entry, the archive, a stage change,
+the magic, the keeper's delete or `_epilog`. `bt_jnt_cb` (the joint callback
+swapped in around each calc) and `bt_sail_draw` (the sail packet's draw) are
+in `REL_TEXT_CALLBACKS`. Adapted from datstarkey/ww-online
+`GameMod/src/puppet_link/puppet_boat.c`, MIT (notice in `boats.c`).
 
 - **Sword, shield, scabbard** (ww-online review idea 15). Phase 0 sets the
   shared `CL_PODA` scabbard shape from the remote's sword (shown with the
@@ -778,3 +795,43 @@ trailer.
   (vtable 0x8039D730) and its state (0x0C..0xB0 and both colours) is
   restored after. Only when the chart was opened on the sea stage, and
   only with `WWVIS_FLAG_SEACHART` (`WW_SEACHART=off` clears it).
+
+## fx.c: the other players' bombs, cannonballs and arrows
+
+ww-online review idea 5, adapted from their `puppet_fx.c` (`fx.c` carries
+their MIT notice); design: handoff `archive/ww-online-review/
+DESIGN-big-items.md` (a), option A. The block is `include/wwfx.h` at
+`MAILBOX_ADDR + 0xE50` (0x80413D50, 0x2B0 bytes, the top of the slack up
+to the arena; Go's `wwapi/mailbox/fx.go` mirrors it; the mini-Links' eye
+packets sit right below it, +0xD00..+0xE50, and `CanaryArenaHigh` ends at
+theirs). `fx_frame` runs last in the keeper's execute. No
+T2 code is involved, and its state (the trackers and the copy table) is
+the module's `.bss`, emptied by `_prolog` (`fx_link`), so a new link
+starts empty; its first frame takes
+Go's read words as its own, so nothing old is sent or spawned.
+
+- **Sender** (send magic set, broadcast-pose): the local Link's hand bombs
+  (`mActorKeepGrab`, STATE_1..3, and a plucked Bomb Flower), the boat's
+  cannonball (the BOMB with the ship's exact params on a
+  `daSFLG_SHOOT_CANNON_e` frame, found with `fopAcIt_Judge` and
+  `fx_cannon_judge`, a `REL_TEXT_CALLBACKS` entry) and the nocked arrow
+  (`mActorKeepEquip`, reported once when it leaves the bow with params 1)
+  go into the outbox as THROW / PICKUP / EXPLODE / REMOVE / CANNON / ARROW.
+- **Viewer** (recv magic set, puppet-sync): the inbox's events become
+  real `daBomb_c` and `daArrow_c` copies, made with `fopAcM_fastCreate`
+  in the local Link's layer (the keeper's is the root layer, which
+  outlives a stage). World-only: a bomb copy has `WWFX_BOMB_PRM_COPY` in
+  its params, `field_0x6F0` cleared, `field_0x6F1` (getBombCheck_Flag)
+  set so no Armos Knight or Gohdan swallows it (the host's real Knight
+  would otherwise kill itself on a copy, d_a_am.cpp:929-955), and
+  VsEnemy | VsPlayer cleared in its At SPrm; an arrow copy has VsEnemy cleared, its Co sphere off, the
+  procMove PTMF and `arrowShooting`, params 0. A thrown copy's fuse is held
+  until the sender's EXPLODE (their state machine), unless this world took
+  it over. A stage change discards the inbox and deletes the live copies.
+  With both magic words 0 the REL writes nothing in the block, except
+  that the frame a session ends it deletes that session's live copies
+  and counts them (the 6th counter).
+- **Enemy mirror**: no copy can hit an enemy, so `em_hits` never sees
+  one, and no copy can be swallowed (`em_am_swallow_client` asks the
+  same BombCheck flag); its `fx_swallowed_copy` call stays as a tripwire
+  (the 5th counter) that should read 0.

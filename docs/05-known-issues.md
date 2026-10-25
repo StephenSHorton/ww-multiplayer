@@ -560,7 +560,7 @@ After about 20 stage loads the game halted on `JUT_ASSERT(buffer)` in
 (`0x80AD2590-0x81523900`) went from 807 KiB free in 223 blocks to 57 KiB in 1637
 blocks. Counting J3DModels in the ArchiveHeap (vtable `0x8039EA50`) whose `+4`
 (`mModelData`) equals Link's `mpCLModelData` gave 12, then 14, then 16 across stage
-loads. It should stay 2 (`MAX_REMOTE_LINKS`).
+loads. It should stay 2 (`MAX_REMOTE_LINKS` then; 3 since WWMB_LAYOUT 3).
 
 ### The cause
 
@@ -831,7 +831,7 @@ every few frames, as before. NPC_OB1 does the same on Outset and in `M_Dai`: it 
 create phase and is then deleted, about every half second, so it shows only now and then. T2 grew from 0x2E28 to 0x2EE8 bytes; 0x18 bytes are left below the mailbox
 (docs/09 §6).
 
-## A third remote freezes both games — OPEN (2026-10-17, F1)
+## A third remote froze both games — FIXED (cleared live 2026-10-25 on cea51fe, F1)
 
 ### The symptom
 
@@ -850,25 +850,171 @@ config (temp user dirs), not the owner's.
 
 ### Status
 
-Not diagnosed. The Go side writes what it always wrote, so the cause is probably on the C side,
-in the actor spawn or in the second mini-Link. The actor puppets now get deleted when their slot goes inactive
-or the stage changes (see "Actor puppets outlived their slot" above). With that change, a
-position-only third remote (`broadcast-link` into an app session of two) did not freeze
-either game, across four stage hops (same section, second round). That is one run, in a
-different setup from the D1b repro (`mp-local` and `fake-client`), so F1 stays open. The
-`pose-fake-loop` case (a second mini-Link, no actor) is not touched by the change. Until it is fixed, nothing shows that the
-KAMOME/NPC_OB1 fallback actually draws players 3 and 4 (design decision 5, E2).
+Fixed for the `pose-fake-loop` case, cleared live on `cea51fe` (PR #194; handoff
+`archive/ww-online-review/live/LIVE-1.md`, V1). The cause was the mini-Link eye fix: it
+entryImm'd the same four static packet copies once per drawn slot, so with two mini-Links each
+packet entered `opa_p1` twice in one frame, the cycle the copies exist to avoid
+(`inject/src/mp/minilink.c`, the comment above `MY_PACKET_SIZE`). The lead came from the
+datstarkey/ww-online review (their rule: each puppet owns its packets). Each slot now owns its
+own four copies. On that build `pose-fake-loop Fake3` into a two-Dolphin `mp-local` session drew
+B and Fake3 together on A, and both heartbeats climbed for over 5 minutes through two stage hops
+of both games; before it, the same run froze both.
 
-A lead for the `pose-fake-loop` case (2026-10-25, from the datstarkey/ww-online review): the
-mini-Link eye fix entryImm'd the same four static packet copies once per drawn slot, so with two
-mini-Links each packet entered `opa_p1` twice in one frame, the cycle the copies exist to avoid
-(`inject/src/mp/minilink.c`, the comment above `MY_PACKET_SIZE`). Each slot now owns its own four
-copies. UNVERIFIED live: docs/TESTING.md V1 is the rerun, and `MAX_REMOTE_LINKS` stays 2 until it
-passes. It cannot explain the NPC_OB1 (`fake-client`) variant.
+The position-only `fake-client` variant (actor slot 1, NPC_OB1) passed on the same build too
+(about 3.5 minutes through two hops). The eye packets cannot explain that variant, so its D1b
+freeze was most likely the actor-puppet lifetime bug fixed in "Actor puppets outlived their
+slot" above; one pass is all the evidence.
+
+After the fix `MAX_REMOTE_LINKS` went to 3 (WWMB_LAYOUT 3, 2026-10-25): three remotes drawn as
+mini-Links, four players in all. The layout change and what it cost are in "Three remote Links"
+below. docs/TESTING.md "Three remotes" is the live check for a third mini-Link; it is not run yet.
 
 Evidence (owner machine): logs in `C:\Users\4step\.claude\jobs\10f6fa34\tmp\pd\d1b\logs`
 (`base-fake3.log`, `base-fake4.log`, `base-mplocal.log`, `fake3.log`, `fake4.log`), screenshots in
 `...\d1b\shots` (`base-A-fake3.png`, `base-A-fake4.png`).
+
+## Three remote Links (WWMB_LAYOUT 3, 2026-10-25)
+
+`MAX_REMOTE_LINKS` and `MAILBOX_POSE_SLOT_CAP` are 3 (`inject/include/mailbox_mp.h`). That is a
+layout revision, not a constant edit: `WWMB_LAYOUT` 2 -> 3, so Go's contract check refuses a
+game patched by an older build, and every save state taken on one (`saves/start.sav` needs a
+recapture).
+
+### What moved
+
+- **Mailbox** (still 0x1B0 bytes): the pose arrays fill +0xA8..+0xBF (the retired
+  `_reserved2` went to them: `pose_joint_counts` +0xB4, `pose_buf_states` +0xBA, `pose_seqs`
+  +0xBD); `face_state[3]` starts at +0x120 (the tail of `_reserved4`); the tunic block holds
+  four images (`TUNIC_SLOTS`; slots 0-2 the remotes, `TUNIC_SLOT_LOCAL` 3 Link #1) at
+  +0x188..+0x19F, `features` stays at +0x1A0, `tunic_state` is at +0x1A4 and `tunic_swaps` at
+  +0x1A8.
+- **Visuals block** (`wwvis.h`): 0xC0 -> 0xF0 bytes, +0x8D0..+0x9C0. Names, equip and models
+  are per slot, so everything from the equip entries on moved. The wave-3 in-game batch then
+  appended the second model table (mirror shield, Master Sword scabbard, katsura) for three
+  slots at +0xF0, so the block is 0x114 bytes, +0x8D0..+0x9E4.
+- **Eye packets**: three slots' copies are 0x150 bytes, more than T2 had free, so they moved
+  out of T2's .bss into the mailbox slack (`MP_EYE_PACKETS_OFF`): first the top,
+  +0xFB0..+0x1100; in the wave-3 in-game batch the projectile events block (`wwfx.h`) took the
+  top (+0xE50..+0x1100) and the packets moved to +0xD00..+0xE50, right below it.
+  T2 shrank by 0xE0 (0x2DE8 -> 0x2D08 bytes; 0x1F8 free below the mailbox, was 0x118).
+  `CanaryArenaHigh` was then +0x9E4..+0xD00 (0x804138E4..0x80413C00). The peer boats block
+  ("Peer boats" below) took +0x9E4..+0xA6C, so it is now +0xA6C..+0xD00 (0x8041396C..0x80413C00).
+- **REL**: the keeper's swap state holds three body records (0x17C -> 0x194 bytes), so the
+  profile's `mSize` (`WWREMOTE_ACTOR_SIZE`) went 0x600 -> 0x620 for the keeper and each lite
+  body (ZeldaHeap). The WWRP block already had 4 slots. The third body's hits cannot be
+  attributed ("Shared enemies", Limits).
+
+### Heap per remote
+
+- **GameHeap:** a 2,016-byte pose buffer (42 joints x 48) and one tunic image (the hero
+  texture, 32 KiB at 256x256 CMPR, capped at 64 KiB) per slot. Both are allocated once per
+  boot. The 48 MB build's GameHeap is 0x6CE800 ("48 MB MEM1" below).
+- **ArchiveHeap:** one `J3DModel` per slot with private material display lists (F18's
+  create), made for every slot when Link first exists, whether a remote is there or not. Not
+  measured: F18's leak lost about 750 KiB of ArchiveHeap to some 14 extra models, so about
+  54 KiB per model is an upper bound (fragmentation inflates it). Add the REL's five sword and
+  shield models per slot (`visuals.c`), made on first draw. The 48 MB build's ArchiveHeap is
+  0xE51400, 4 MiB more than vanilla. docs/TESTING.md "Three remotes" measures it with
+  `wwdev heap-free`.
+- **ZeldaHeap:** a lite body is 0x620 bytes. A full body (0x4C80, plus about 0xCCF00 resident
+  in GameHeap) stays limited to `FullMax` 1 (`mods/enemysync/players.go`); the heap gate falls
+  the others back to lite bodies.
+
+### Players past four (design decision)
+
+Three remotes is where we stop for now. Going past it needs, in order (handoff
+`archive/ww-online-review/DESIGN-big-items.md` (c)):
+
+1. **Relay scoping first.** A pose carries no stage, and the stage gate
+   (`mods/multiplayer/feed/partner.go`) hides a partner in another stage only while the feed
+   draws exactly one remote, from co-op's PRESENCE. With two or three remotes, one in another
+   stage is drawn at its raw coordinates in this one. That is already true with two remotes;
+   a third makes it likelier. The server has to learn each player's stage and room and relay
+   poses and positions only within a stage (it also cuts pose egress, about 40 KB/s per sender
+   per receiver). That is its own track.
+2. **Another layout revision.** The pose arrays fill +0xA8..+0xBF exactly; a fourth slot
+   needs them moved (and `face_state`, the tunic block, the visuals block and the eye packets
+   grow again). `remote.c` pins `MAX_REMOTE_LINKS == 3`.
+3. **ATTRIB's body field.** The hit-apply flags byte has no free bit, so its two ATTRIB bits
+   are one field: 0x08 body 0, 0x18 body 1, 0x10 body 2 (`WWREMOTE_HAF_ATTRIB_MASK`,
+   `wwremote.h`; `mailbox.RemoteHAFAttrib`). It names three bodies and no more (`remote.c`
+   asserts `MAX_REMOTE_LINKS <= 3`): a fourth needs a byte with room (the PHIT / hit-apply
+   record).
+4. **Co-op for three or more** is a separate protocol change (PRESENCE names no sender, one
+   partner per replica, a two-player warp).
+
+Until then the fifth player and up still fall back to the actor puppets (`MAX_PUPPETS` 4), as
+players 3 and 4 did before.
+
+## Soft reset (2026-10-25)
+
+The game has two kinds of reset, and only one reboots (tww decomp):
+
+- **Back to the title, no reboot (the usual one).** A reset press (`mDoRst_resetCallBack`,
+  `m_Do_Reset.cpp:86-119`; Dolphin's Reset is the console's reset switch, which reaches the
+  same callback: inferred, not checked), a game over's or the save menu's quit
+  (`d_gameover.cpp:116,132`, `d_menu_save.cpp:1269`) sets `mDoRst`'s `mReset`. Play is torn
+  down to the opening scene (`dComIfG_resetToOpening`, `d_com_inf_game.cpp:510-521`), whose
+  `phase_00` clears the flag (`d_s_play.cpp:1197-1213`, `:1444`). No DOL reload: T2's statics,
+  the mailbox and every block the mod holds in GameHeap stay as they are, as across a stage
+  hop. Nothing new is needed; the mini-Link path already rebuilds when Link's model data comes
+  back (`mini_link_reset_state`, `inject/src/mp/minilink.c`).
+- **A reboot.** `mDoRst_reset` -> `OSResetSystem` restart (reset 0 is `OS_RESET_RESTART`, which
+  calls `__OSReboot`, `OSReset.c:171-174`) reloads the DOL and boots again through `__start`
+  -> `main` -> `main01` (`m_Do_main.cpp:599`), which builds new heaps in `mDoMch_Create`
+  (`:407`). It runs when a reset reaches the logo scene (`d_s_logo.cpp:501-503`), when the
+  opening scene's heap check fails (`d_s_play.cpp:1197-1198`: any heap under 70% free or
+  fragmented), on a DVD error (`f_pc_manager.cpp:250-256`) and on a reset press with the disc
+  cover open (`m_Do_Reset.cpp:111`). RAM is not cleared. So:
+
+- T2's statics come back zero (its .bss is part of the DOL image: `mini_link_models`,
+  `pose_bufs` and `my_packets_initialized` sit inside T2's 0x80410000 section, build map).
+- The mailbox and the slack past it keep the old boot's bytes. Until 2026-10-25 that broke
+  three C-published GameHeap pointers: `pose_publish_ptr` (state 1, so `pose_publish` copied
+  Link's 2 KB pose into it every frame), `tunic_bufs` (state 1, so `tunic_alloc` never ran
+  again and Go wrote images into them) and `pose_buf_ptrs` (state 1 until T2 republished).
+  After a reset they named blocks of the new heap that belonged to someone else. The REL's
+  own long-lived pointers (`WWREL_SHANM_OFF`, the visuals block's models and function words,
+  the exec hook) were already zeroed by `main01_init`.
+- **Fix:** `main01_init` also zeroes the pose arrays and `pose_publish_*` (+0xA8..+0xC7), the
+  tunic block up to `features`, and `tunic_state` (`inject/src/core/hooks.c`). It is main01's
+  first instruction (0x80006338, `inject/build.py`), before `mDoMch_Create`, so the words are
+  zero before any block of the new heap exists. Go re-reads the states every tick (the pose
+  feeder's `armPoseSlot`, `Tunics.Tick`, the pose publish read), so it disarms and follows the
+  new blocks (`TestTunicSync_SoftReset`); a Link that comes back at another address makes
+  `Tunics` recalibrate within `tunicVerifyEvery` (`TestTunicSync_SoftResetMovesLink`).
+- **The reboot window: Go's reset gate.** From the reset until `main01_init` the states still
+  read 1, so Go would keep writing poses (2,016 B per slot per tick) and tunic images through
+  the old boot's pointers while the reboot loads the apploader and the DOL. Where those land
+  is not known (pose buffers on record sat at 0x816B31E0..0x81BF7140, above the apploader's
+  0x81200000, but nothing pins that). So the pose feeder stops every pose, face and tunic
+  write while any of these holds (`mods/multiplayer/feed/running.go`, `TestFeederResetGate`):
+  - `mReset` is set: `mDoRst::mResetData` (0x803F6968, `symbols.txt`; `getResetData` in
+    `original.dol` is `lwz r3,-0x7778(r13)`, r13 0x803FE0E0) points at the flag block, `mReset`
+    at +0 (`m_Do_Reset.h:12`). It goes 1 when the reset is asked for, frames before the
+    reboot, and stays 1 into the next boot (a restart keeps the block, `m_Do_Reset.cpp:74`,
+    `m_Do_main.cpp:569-574`) until the opening scene clears it;
+  - the pointer is 0 or outside MEM1: the new boot before `main` has set it (its .sbss is
+    cleared);
+  - `spawn_trigger` has stood still for 100 ms after it was seen moving: the frames have
+    stopped (a reboot that skipped the flag, the disc-cover path, or emulation paused).
+
+  It logs `pose feed paused: ...` once (a stall only after 1 s, so a hitch logs nothing) and
+  `pose feed resumed` when the game runs again. The
+  frames of the reboot itself before the flag is set (the disc-cover path) are covered only
+  after those 100 ms.
+- **Why not ww-online's `__OSStartTime` stamp** (`GameMod/CLAUDE.md:68`, MIT): their block
+  pointers sit in scratch words, their REL allocates late (after the heaps exist) and their
+  C# writes on its own clock, so they need a per-boot stamp (`__OSStartTime`, 0x803F79B8,
+  `symbols.txt`; set once per boot by `OSInit`, `OS.c:230`) to tell a live block from an old
+  boot's. Ours are zeroed by T2 code that runs every boot before any heap exists, so the zero
+  is the stamp, and the reset gate covers the writes a stamp could not (before `OSInit`).
+- The armed-slot poll no longer blocks out of play (the title screen after a reset), and one
+  `Feed` waits through at most one timed-out poll whatever the slot count
+  (`TestFeederArmPollBounded`; before, up to 3 s per unarmed slot, 9 s with three).
+- `puppets[].actor_ptr` is left as it was: only `wwdev` reads it, and `puppets.c`'s own state
+  is T2 statics.
+- Not run live: docs/TESTING.md "Soft reset".
 
 ## Shared enemies
 
@@ -891,7 +1037,12 @@ the real ones, every other game mirrors them, and remote bodies run at step6 wit
 
 - Other enemy types (Armos Knights, Armos, Darknuts, Kargarocs, Magtails and the rest) still run
   separately on each player's game, and they ignore the other players' bodies.
-- Only the first two other players get bodies (`MAX_REMOTE_LINKS` 2).
+- Only the first three other players get bodies (`MAX_REMOTE_LINKS` 3 since WWMB_LAYOUT 3; 2
+  before). With ATTRIB on, each one's hits are credited to its own body: the hit-apply flags'
+  two ATTRIB bits name body 0, 1 or 2 (0x08, 0x18, 0x10; `AttribFlags`,
+  `mods/enemysync/players.go`; `remote_attrib_body`, `inject/rel/remote.c`). The third
+  body's code is new with this build and has not run live (docs/TESTING.md R3-3).
+  `FullMax` stays 1, so at most one of the three is a full `daPy_lk_c` body; the rest are lite.
 - Each player mirrors at most 4 enemies at once (the block's 4 slots); the host lists by
   player distance.
 - Shared enemies have not been tested over the internet. Nearly every live pass on record ran
@@ -943,11 +1094,20 @@ example the scabbard `CL_PODA`, hidden with no sword (`:1869-1879`),
 and the `CL_LHANDA`/`CL_RHANDA` hands, which stay hidden when
 `drawShadow` is skipped on the boat (`:1746-1747`, `:2023`).
 
-Known gaps: a casual mini-Link shows the hat in the casual texture
+Known gaps: a casual mini-Link showed the hat in the casual texture
 (`linktexS3TC` is swapped in the shared model data,
 `d_a_player_main.cpp:12340-12357`), not the katsura hair model
-(`mpKatsuraModel`, `:1897-1903`), which mini-Link does not draw; adding
-it is a second model per slot, not a header swap. The remote's own
+(`mpKatsuraModel`, `:1897-1903`). Since the visuals block's second model
+table (gems3, live check V9 in docs/TESTING.md) the REL draws a katsura
+per slot at the head joint for a remote whose appearance byte says
+casual, and hides that slot's hat and belt buckle the way
+`hideHatAndBackle` does (`:1510-1531`). The hide does not use the shared
+shape bit this fix shows again: it sets the `J3DShapePacket` Hidden bit
+(0x10) of the mini-Link's own packets, per model, so Link #1 and the
+other slot never see it (`inject/rel/visuals.c`). The hide is only set
+when the katsura will be drawn (its model made, the node matrices
+there), and `wwvis_unlink` clears every hide it set, so a slot is never
+bald while the REL is unlinked or its hair failed to load. The remote's own
 clothes are drawn since 2026-10-16: the pose trailer's appearance byte
 carries the remote's casual bit and `tunic_swap` puts the casual header
 in for that slot (`TUNIC_ENABLE_CASUAL`, docs/09 §5.6, live-checked in
@@ -957,6 +1117,133 @@ outfit" predates that and was out of date.
 T2 grew by 0x100 to 0x2CE8 bytes (devkitPPC 16.2). It ended at
 `0x80412CE8`, 0x218 bytes below the mailbox at the time. The tunic
 swap (docs/09 §6) later grew T2 to 0x2E08, leaving 0xF8.
+
+## Peer boats — BUILT, live checks owed (2026-10-25, ww-online review)
+
+The other players' King of Red Lions is drawn in your game: under a remote
+that sails it, and where a remote left it (on the sea, and in Tower of the
+Gods). The sail is in the remote's tunic colour, and the cannon or the
+salvage crane shows when the remote has it out. Nothing of it has run in
+Dolphin yet: docs/TESTING.md "Peer boats" (BT-1..BT-10) is owed. It ships in
+the wave-3 in-game batch (PR #199), so it rides that batch's one recapture.
+ww-online draws the same (`GameMod/src/puppet_link/puppet_boat.c`, MIT);
+`inject/rel/boats.c` is adapted from it and carries their notice.
+
+**The hard rule (theirs, and ours).** Never create a second `daShip_c`:
+its create calls `dComIfGp_setShipActor(this)` (`d_a_ship.cpp:4746`),
+which takes over `mpPlayerPtr[2]` (0x803CA75C, `addr.PlayerPtr + 8`), its
+execute writes this player's sail status and audio, and it spawns its own
+Grid, WindArrow and encounter actors. A boat is models the REL keeper
+makes, poses and draws, never an actor.
+
+**Sender (Go, `mods/multiplayer/boatsync`, broadcast-pose).** `Local` reads
+this game's ship every tick: `mpPlayerPtr[2]`, in MEM1, with process name
+`fpcNm_SHIP_e` (0xA7), no stage change under way. Fields are from the
+decomp's `d_a_ship.h`. `d_a_ship.rel` is not in main.dol, so only the two
+fields ho_move reads through `l_ship` (+0x358 at 0x800E9F80, +0x364 at
+0x800E9CF8) are checked in `inject/original.dol`. The fields:
+`current.pos` (+0x1F8), the room (+0x20A), `shape_angle` (+0x20C),
+`mpBodyAnm`/`mpHeadAnm` (+0x298/+0x29C, their frame at morf +0x68), `mPart`
+(+0x34E), `mStateFlag` (+0x358, SAIL_ON 0x200), `mSailAngle` (+0x364), the
+tiller `m0366`, the mast bck `m0392`, the cannon `m0394`/`m0396`, the crane
+`m0398 + m039C`, the head bck `m03B4` and the mast scale `m03E8`. Aboard is
+`daPyStts0_SHIP_RIDE_e` (0x10000) in `mPlayerStatus[0][0]` (0x803CA8D0).
+The ship's position is sent relative to Link's `current.pos` while aboard
+and absolute while parked. It is a 40-byte run appended to the pose trailer
+after the equip bytes (offset 19), with the stage name, so a receiver knows
+where a parked boat lies. The trailer is then 59 bytes, under
+`network.MaxFaceBytes` (64), so there is no protocol bump. The run is sent
+(all zero with no ship) whenever the equip bytes are.
+
+**Receiver (Go, puppet-sync).** `boatsync.Tracker` builds the boats block
+each tick.
+- An aboard boat goes at the remote's mini-Link (the feeder's smoothed
+  `RemoteView.Pos`) plus the streamed offset, so Link and hull move as one
+  with no smoothing of their own. It shows while the remote's pose is live
+  and on this game's stage.
+- A parked boat is held where it was left, on its stage, until the remote
+  boards again, parks elsewhere or leaves the session. Its poses stop when
+  it walks into another stage, and the boat stays.
+- On the sea a boat shows in any room (the rooms are grid squares);
+  elsewhere only in the room this game stands in.
+- At most three boats, in player id order.
+- `WW_BOATS=off` draws none; `WW_BOATS=nosail` or `noparts` drops the sail
+  cloth or the cannon and crane. The default is on: the request asked for
+  an off switch, not an opt-in, which changes this section's earlier plan
+  (off until checked). `WW_BOATS=off` is the fallback while BT-* are open.
+
+**Block (`inject/include/wwboat.h`, `wwapi/mailbox/boat.go`).**
+`MAILBOX_ADDR + 0x9E4` (0x804138E4), 0x88 bytes, right after the visuals
+block: magic `WWBT` and flags (Go), a drawn counter and a last-error word
+(REL, 0x804138EC and 0x804138F0), then three 0x28-byte entries (Go).
+`CanaryArenaHigh` now starts at its end, +0xA6C (0x8041396C, 165 words up to
+the eye packets), and `canaryForbidden` lists `mailbox.BoatRegion`.
+
+**REL (`inject/rel/boats.c`).** It runs from the keeper: `boats_frame`
+after `fx_frame` in execute, `boats_draw` from the keeper's draw (its
+profile has no `fopAcStts_CULL_e`, so it runs every frame outside the
+menus), and the heaps are freed in the keeper's delete and in `_epilog`.
+- Models exist only while this game's "Ship" archive is resident (the sea
+  and the stages with a Ship actor), checked every frame. There is no
+  `dComIfG_resLoad` of our own: a parked boat is only ever on such a stage.
+- Each entry has one solid heap from GameHeap
+  (`mDoExt_createSolidHeapFromGame`, 0x20000, then adjusted). It is
+  destroyed when the entry empties, the archive goes or changes, a stage
+  change starts, the magic drops, the keeper is deleted or the module
+  unlinks. Never the archive heap: Ship.arc unmounts on every
+  sea -> island -> sea trip, so keep-forever models would leak once per
+  trip (F18).
+- The hull (`fn_body`, Ship 0x11) and the head (`fn_head_h`, 0x12) are
+  `mDoExt_McaMorf`s made as `daShip_c::createHeap` makes them. The DOL
+  confirms new(0xB4) and the ctor's complete-object flag in r4
+  (0x800E639C..0x800E63F0, 0x800126A0). The hull has its own
+  `J3DSkinDeform`. The mast bck (`FN_MAST_ON2`/`OFF2`) and the head bck play
+  at the remote's streamed frames.
+- The base matrix is `T(pos) * ZXYrot(shape_angle)` from the remote's own
+  values, not this game's sea: the mini-Link stands at the remote's
+  streamed height, so a hull on our waves would float it or sink it.
+- Around every calc, each joint's callback becomes ours (or none) and each
+  `mMtxCalc` becomes 0; both are put back after (`bt_calc`). daShip_c's
+  callbacks on the shared joints read `getUserArea()`, which is 0 for ours
+  and unchecked in the head, cannon and crane callbacks, and a morf's calc
+  leaves itself in joint 0's `mMtxCalc`. Ours repeat `bodyJointCallBack`
+  (tiller, sail yard, the parts' bases on the mast, the 0.001 mast scale
+  with a part out), `cannonJointCallBack` and `craneJointCallBack`.
+- The sail is a zeroed `daGrid_c` (0x221C bytes) in the heap, with
+  `daHo_packet_c`'s ctor fields and `_create`'s amplitude table (computed
+  from the DOL's `l_pos`, 0x8038B1D8). The game's `ho_move` (0x800E9C0C)
+  moves it, with `l_ship` (0x803F6EC0 in `.sbss`: r13 0x803FE0E0 - 0x7220)
+  pointed for that call at a stub holding the remote's mStateFlag and
+  mSailAngle. The game's `daHo_packet_c::draw` draws it through our vtable
+  (the game's {0, 0, isSame, entry, draw, dtor} at 0x8038BBE0, with our
+  draw).
+- The tunic colour is a recoloured copy of `new_ho1`'s C8 palette (the
+  canvas only; the teal emblem and the orange corners stay),
+  double-buffered. The header's palette offset points at it only around our
+  packet's draw.
+- Each boat is lit with its own `dKy_tevstr_c` for the room this game
+  stands in (`settingTevStruct(TEV_TYPE_ACTOR)`) and entered in the P1
+  lists, as `daShip_c::draw` does.
+
+**Left out, and why.**
+- The head's look angles (`headJointCallBack1`) and its talk mouth:
+  trailer bytes and code for little.
+- The hull recolour: not asked.
+- The crane's rope and grappling hook: `setRopePos`'s per-segment physics
+  and a 3D line packet. The arm alone is drawn.
+- The wake, the shadow, the hull's water-effect texture matrix (shared
+  material state the local ship sets) and any collision.
+- Loading Ship.arc ourselves for a stage without a ship: no parked boat
+  needs it.
+
+**Budget.**
+- REL `.text` 0x15354 -> 0x16F64 (+0x1C10).
+- RELS.arc growth +53,536 -> +58,304 of the 65,536 guard (the patcher
+  golden fixture).
+- No T2 code: T2 still ends at 0x80412D08, 0x1F8 free.
+- 0x88 bytes of mailbox slack.
+- At run time, per boat: one GameHeap solid heap with the models and the
+  0x2640-byte sail block.
 
 ## Dolphin caches INI files at startup
 

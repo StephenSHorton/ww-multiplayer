@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/tunicsync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
@@ -173,14 +174,17 @@ func RemoteOnSea(face []byte) bool {
 }
 
 // Settings picks what the REL draws. The zero value draws nothing.
+// Hair is a casual remote's katsura hair (its hat and buckle hidden).
 type Settings struct {
-	Names, Equip, SeaChart bool
+	Names, Equip, SeaChart, Hair bool
 }
 
 // SettingsFromEnv is every visual on, less those turned off:
-// WW_NAMETAGS=off, WW_EQUIP=off, WW_SEACHART=off (also 0, false, no).
+// WW_NAMETAGS=off, WW_EQUIP=off, WW_SEACHART=off, WW_HAIR=off (also 0,
+// false, no).
 func SettingsFromEnv() Settings {
-	return Settings{Names: !envOff("WW_NAMETAGS"), Equip: !envOff("WW_EQUIP"), SeaChart: !envOff("WW_SEACHART")}
+	return Settings{Names: !envOff("WW_NAMETAGS"), Equip: !envOff("WW_EQUIP"), SeaChart: !envOff("WW_SEACHART"),
+		Hair: !envOff("WW_HAIR")}
 }
 
 func envOff(k string) bool {
@@ -208,6 +212,9 @@ func Build(s Settings, remotes []network.RemotePlayer, linkSlot map[byte]int, se
 	if s.SeaChart {
 		b.Flags |= mailbox.VisFlagSea
 	}
+	if s.Hair {
+		b.Flags |= mailbox.VisFlagHair
+	}
 	sorted := append([]network.RemotePlayer(nil), remotes...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
 	for i := range sorted {
@@ -218,6 +225,7 @@ func Build(s Settings, remotes []network.RemotePlayer, linkSlot map[byte]int, se
 		if slot, ok := linkSlot[rp.ID]; ok && slot >= 0 && slot < mailbox.VisSlots {
 			b.Names[slot] = rp.Name
 			b.Equip[slot] = RemoteEquip(rp.FaceState)
+			b.Equip[slot].Casual = tunicsync.RemoteCasual(rp.FaceState)
 		}
 		if s.SeaChart && rp.Position != nil && remoteOnSea(rp) && len(b.Sea) < mailbox.VisSeaMax {
 			e := mailbox.VisSea{X: rp.Position.PosX, Z: rp.Position.PosZ, Angle: rp.Position.RotY, R: 0xFF, G: 0xFF, B: 0xFF}

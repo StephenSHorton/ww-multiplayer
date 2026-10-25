@@ -74,6 +74,13 @@ The plan:
  0x804132A0   the host's v2 At sphere, a dCcD_Sph image (mailbox +0x3A0..+0x4CC, WWENEMY_SPH_OFF)
  0x804133D0   its dCcD_Stts (mailbox +0x4D0..+0x50C, WWENEMY_STTS_OFF); enemy sync ends at +0x510
  0x80413410   free slack (a co-op region here would start at mailbox +0x510, WWENEMY_REGION_END)
+              (since then: the remote-Link block +0x510..+0x850, the knob table, the refresh request and
+              the visuals block +0x8D0..+0x9E4 (0x990 before WWMB_LAYOUT 3, 0x9C0 before the wave-3 models2
+              table); the peer boats block +0x9E4..+0xA6C (wwboat.h); free slack +0xA6C..+0xD00)
+ 0x80413C00   the mini-Links' eye packets (mailbox +0xD00..+0xE50, MP_EYE_PACKETS_OFF in mailbox_mp.h,
+              WWMB_LAYOUT 3: 3 slots x 4 J3DPacket copies x 0x1C; were T2 .bss, then +0xFB0); never canary-armed
+ 0x80413D50   the projectile events block (mailbox +0xE50..+0x1100, inject/include/wwfx.h WWFX_OFF;
+              Go's magic and ring words, the REL's counters and two event rings); never canary-armed
  0x80414000   patched __ArenaLo (OSInit patched by build.py)
 ```
 
@@ -90,20 +97,20 @@ The plan:
 | +0x10..+0x8F | `puppets[4]` (legacy actor puppets, 0x20 each) | Go | **keep** (players 3+) |
 | +0x90 | `shadow_mode` | Go/C | mode 5 only since E0 (1-4 draw nothing) |
 | +0x91..+0xA7 | `_reserved1[23]` | — | retired in E2 (was `shadow_latched`, `dbg_*`, `echo_delay`, `echo_ring_state`) |
-| +0xA8..+0xB7 | mini-Link pose feed: `pose_buf_ptrs[2]`, `pose_joint_counts[2]`, `pose_buf_states[2]`, `pose_seqs[2]` | Go/C | multiplayer |
-| +0xB8..+0xBF | `_reserved2[2]` | — | retired in E2 (was `dbg_pose_first_word`, `dbg_node_mtx_first`) |
+| +0xA8..+0xBF | mini-Link pose feed: `pose_buf_ptrs[3]` +0xA8, `pose_joint_counts[3]` +0xB4, `pose_buf_states[3]` +0xBA, `pose_seqs[3]` +0xBD (layout 3; layout 2 had two slots at +0xA8..+0xB7 and `_reserved2[2]`, the retired `dbg_pose_first_word` / `dbg_node_mtx_first`, at +0xB8) | Go/C | multiplayer |
 | +0xC0..+0xC7 | `pose_publish_*` (local pose out) | C | core |
 | +0xC8..+0xDB | `warp_seq`, `warp_ack`, `warp_x/y/z` | Go/C | core |
 | +0xDC..+0xE3 | `_reserved3[2]` | — | retired in E2 (was `warp_dbg_*`) |
 | +0xE4 | `warp_force` | Go | core |
-| +0xE5..+0x12F | `_reserved4[75]` | — | retired in E2 (was `warp_force`'s padding, `eye_fix_step`, `eye_fix_post_chain[10]` and its count, `eye_fix_mode`, the mode-1 `dbg_*`) |
-| +0x130..+0x14F | `face_state[2]` (remote faces) | Go | multiplayer |
-| +0x150..+0x15F | `face_seqs[2]`, `face_hook_*` | Go/C | multiplayer |
+| +0xE5..+0x11F | `_reserved4[59]` | — | retired in E2 (was `warp_force`'s padding, `eye_fix_step`, `eye_fix_post_chain[10]` and its count, `eye_fix_mode`, the mode-1 `dbg_*`; 75 bytes to +0x12F until layout 3) |
+| +0x120..+0x14F | `face_state[3]` (remote faces; +0x130 with two slots before layout 3) | Go | multiplayer |
+| +0x150..+0x15F | `face_seqs[3]`, `face_hook_*` | Go/C | multiplayer |
 | +0x160..+0x16F | `face_state_local` | C | core |
 | +0x170..+0x17F | `input_*` override, `input_overrides` | Go/C | core |
-| +0x180..+0x187 | `hdr_magic` `'WWMB'`, `hdr_abi` u16, `hdr_layout` u16 (E1; zero in every blob before; layout 1 in E1, 2 since E2) | C (main01_init) | core |
-| +0x188..+0x19F | `tunic_bufs[3]`, `tunic_buf_size`, `tunic_enable[3]`, `tunic_state`, `tunic_swaps` | Go/C | slots 0-1 multiplayer, slot 2 core |
-| +0x1A0..+0x1AF | `features` u32 (the `WW_FEAT_*` bits), `_pad13[12]` (E1; the mailbox ends at +0x1B0) | C (main01_init) | core |
+| +0x180..+0x187 | `hdr_magic` `'WWMB'`, `hdr_abi` u16, `hdr_layout` u16 (E1; zero in every blob before; layout 1 in E1, 2 since E2, 3 since the three mini-Link slots) | C (main01_init) | core |
+| +0x188..+0x19F | `tunic_bufs[4]`, `tunic_buf_size` +0x198, `tunic_enable[4]` +0x19C (layout 3; `TUNIC_SLOTS`) | Go/C | slots 0-2 multiplayer, slot 3 (`TUNIC_SLOT_LOCAL`) core |
+| +0x1A0..+0x1A3 | `features` u32 (the `WW_FEAT_*` bits; E1, at +0x1A0 in every layout) | C (main01_init) | core |
+| +0x1A4..+0x1AF | `tunic_state` +0x1A4, `tunic_swaps` +0x1A8, padding (layout 3; the mailbox ends at +0x1B0) | C | core |
 
 **Later (co-op M7, Option A):** arenaLo moves to 0x80416000, API RAM sits at 0x80415000, and T2 gets a 20 KB budget. Go reads the mailbox address from `blob.go` and, if no magic is there, probes the old address and reports `BlobMismatch` instead of reading garbage.
 
@@ -411,7 +418,7 @@ Running post-draw callbacks in reverse keeps today's brackets nested. Drawing mo
 | `tunic_sync.go` | `mods/multiplayer/tunicsync`; the core goes to `wwapi/avatar` |
 | `mp_local.go`, `mp_local_shift.go` | `cmd/wwdev` |
 | GUI's use of `network.ValidatePlayerName` | the multiplayer mod's PublicAPI |
-| C: mini-Link, pose-feed slots, face hook, eye fix, remote tunic slots 0-1 | `inject/src/mp/*.c` (local tunic slot 2, pose publish and local face are core) |
+| C: mini-Link, pose-feed slots, face hook, eye fix, remote tunic slots 0-2 | `inject/src/mp/*.c` (local tunic slot 3, pose publish and local face are core) |
 
 **Co-op** (`mods/coop`, requires multiplayer): class, derive, inventory, story, bind, world, wire, hub, replica, and a new `proto/` so `replica` no longer imports `hub`. `k1.go` → `combat/`; savefile `merge.go`/`derive.go` → `savemerge/`; the `Synced*` table accessors → `synctables/`. The root `coop_*.go` files move in, renamed by feature. Its CLI commands come through the `CLI` capability and its table step through `patch.Options.PostPatch`.
 

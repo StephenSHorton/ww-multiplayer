@@ -75,6 +75,8 @@ ww-multiplayer/
 │       ├── engine/              # Session core: Engine (session.Engine: host/join/lobby, NewTUIEngine/NewCLIEngine), lobby.go, game.go (the app's Start: Dolphin + pipelines), LiveState, RunHostSession/RunJoinSession, co-op via the seam in coop.go (Coop, CoopApp, LobbyCoop, CoopSide), RunPipelines, server + fake client, color-pref clients; enginetest/ = fake Dolphins
 │       ├── feed/                # Pose pipelines: BroadcastPose, PuppetSync (Feeder: link/actor slot assignment, lerp, arming over wwapi/avatar), PoseFakeLoop
 │       ├── net/                 # package network: TCP server/client, protocol + handshake, lobby, co-op channel, timing knobs (netconfig.go)
+│       ├── fxsync/              # Projectile events: the REL's outbox -> MsgFx (broadcast-pose), MsgFx -> its inbox, scoped to stage and room (puppet-sync)
+│       ├── boatsync/            # Peer boats: this game's ship as a pose-trailer run (broadcast-pose), the remotes' boats into the REL's boats block (puppet-sync)
 │       ├── playercolor/         # Tunic color palette + --color / WW_COLOR parsing (docs/09)
 │       └── tunicsync/           # Session side of the tunic colors: SyncTunics, the appearance byte, the dump block (docs/09 §5.4)
 ├── inject/                      # C source for the injected PPC code (split into core + the multiplayer mod in Phase E3, docs/api §6.6)
@@ -84,7 +86,7 @@ ww-multiplayer/
 │   ├── src/mp/                  # The multiplayer mod: mp.h (PROC_* list, eye joints), puppets.c (actor puppets), minilink.c (mini-Links, pose feed,
 │   │                            #   eye fix; mp_frame, mp_draw_post), face.c (face hook arm/disarm, per-slot face bracket)
 │   ├── include/                 # wwapi.h (game types/addresses + the core services a C mod calls), mailbox_core.h (MAILBOX_ADDR, WWMB header,
-│   │                            #   the Mailbox struct), mailbox_mp.h (MAX_PUPPETS, MAX_REMOTE_LINKS, MAILBOX_POSE_SLOT_CAP, Puppet)
+│   │                            #   the Mailbox struct), mailbox_mp.h (MAX_PUPPETS, MAX_REMOTE_LINKS, MAILBOX_POSE_SLOT_CAP, MP_EYE_PACKETS_*, Puppet)
 │   └── build.py                 # Freighter wrapper — builds patched.dol from original.dol (C_SOURCES: one add_c_file per unit;
 │                                #   devkitPPC from $DEVKITPPC, default C:\devkitpro\devkitPPC; also writes build/WWMultiplayer.map, T2's Dolphin symbol map)
 ├── cheats/
@@ -145,9 +147,12 @@ go build -o wwdev.exe ./cmd/wwdev
 #   with --coop (host, join, wwdev mp-local; each side its own): --coop-boss-kill=gohma,kalle,gohdan,molgera,jalhalla,helmaroc|none
 #   picks the boss-dead relay's rows (default gohma,kalle,molgera,jalhalla,helmaroc; gohdan (SirenB)
 #   is opt-in until its live checks pass, docs/TESTING.md "Batch D"), and
-#   --coop-refresh=stone2,leaves,item,tbox,saku[,dry]|none turns on actor_refresh (default off: nothing asked), which asks the REL
-#   to delete a boulder, bush, pickup, chest or barricade this game placed before the partner's bit landed (mods/coop/replica
-#   refresh_relay.go; dry logs one line per candidate and writes nothing). docs/TESTING.md "Batch D".
+#   --coop-refresh=stone2,leaves,item,tbox,saku,wall,floor,ice,mjdoor,mkie,mkiek,mknjd,vfan,swhit0,warpt,mflft,kokiie,vmc[,dry]|none
+#   turns on actor_refresh (default off: nothing asked), which asks the REL to bring up to date an actor this game placed before the
+#   partner's bit landed (mods/coop/replica refresh_relay.go): delete a boulder, bush, pickup, barricade, wall, floor, ice block or
+#   statue, or delete and re-create in its set state a chest, crystal switch, warp jar, flame lift, flower house or soil mound
+#   (review idea 11; door10/door12 are refused until the ST1 key-door check). dry logs one line per candidate and writes nothing.
+#   docs/TESTING.md "Batch D" and "actor_refresh re-create".
 #   The app sets both per player too (host and joiner): the save-file panel's "Advanced: your game's relays" fields
 #   (gui.Bridge.SetCoopRelays, checked by the same replica parsers, saved as config.Coop.BossKill/Refresh, read at the next
 #   co-op start through CoopFn); the TUI leaves them CLI-only.
@@ -187,8 +192,15 @@ WW_POSE_RAW=1                               # Skip pose localization (debug)
 WW_LINK2_OFFSET_{X,Y,Z}                     # Loopback render offset (default 0)
 WW_COLOR=<color>                            # Default tunic color when --color isn't given (docs/09)
 WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/join) leaves the tunic slots to the tunic-slot dev command
-WW_NAMETAGS=off / WW_EQUIP=off / WW_SEACHART=off   # puppet-sync (mods/multiplayer/vissync): no name tags over the mini-Links / no remote sword,
-                                            #   shield and scabbard on them / no remotes on the pause menu's sea chart (default all on; the REL draws them, wwvis.h)
+WW_NAMETAGS=off / WW_EQUIP=off / WW_SEACHART=off / WW_HAIR=off   # puppet-sync (mods/multiplayer/vissync): no name tags over the mini-Links / no remote
+                                            #   sword, shield (hero's or mirror) and scabbard (hero's or Master Sword's) on them / no remotes on the pause menu's
+                                            #   sea chart / no katsura hair on a casual remote (default all on; the REL draws them, wwvis.h)
+WW_BOATS=off|nosail|noparts                 # puppet-sync (mods/multiplayer/boatsync): no peer boats / no sail cloth / no cannon or crane on them. Default on:
+                                            #   each remote's King of Red Lions drawn under it while it sails and where it was left (sea, Tower of the Gods), sail
+                                            #   in its tunic colour (inject/rel/boats.c, include/wwboat.h; docs/05 "Peer boats", docs/TESTING.md BT-*)
+WW_PROJECTILES=on                           # broadcast-pose and puppet-sync (mods/multiplayer/fxsync): the other players' bombs, boat-cannon shots and arrows
+                                            #   are made in this game as world-only copies (inject/rel/fx.c, include/wwfx.h; MsgFx, protocol 6). Default off until
+                                            #   docs/TESTING.md "Projectiles" passes; set it on both sides
 WW_ENEMY_SYNC=0                             # Enemy sync off (mods/enemysync, the enemy mirror: Moblins, Bokoblins, ChuChus, Keese; Armos Knights, Armos, Darknuts, Kargarocs, Magtails opt-in).
                                             #   Default on: host/join and the app run enemy-host / enemy-client, mp-local spawns enemy-A (host, Dolphin A) and
                                             #   enemy-B (client, Dolphin B); needs the REL module linked. A fatal enemy error (a reject, a panic) turns enemies off
@@ -451,6 +463,13 @@ SendInput-with-VK, SendInput-with-scancode, and foreground-locked variants
 all silently drop. Some Dolphin forks accept synthetic events — run
 `./wwdev.exe send-shift-f1` while Dolphin's in-game to probe your
 build; if mtime advances, auto-recapture will run fully unattended.
+**It does work when the Dolphin's hotkeys are bound to the keyboard**
+(found 2026-10-25): with `Config/Hotkeys.ini` `Device = DInput/0/Keyboard Mouse`
+in the user dir auto-recapture boots, the synthetic Shift+F1 lands and the
+recapture needs nobody. With hotkeys on a controller (e.g. `Device =
+SDL/0/Steam Controller`) the keystroke is ignored and the owner has to
+press it. Set the hotkey device to the keyboard in the test user dir
+(Controllers > Hotkey Settings) before a recapture.
 
 ### Visual validation (now self-serve)
 

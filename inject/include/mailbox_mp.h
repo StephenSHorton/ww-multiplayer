@@ -13,8 +13,8 @@
 
 // Up to this many remote players can be rendered as full Link puppets
 // via the pose-feed pipeline (shadow_mode 5). Each slot allocates its
-// own J3DModel + 42-joint pose buffer (~2 KB each) from ArchiveHeap +
-// GameHeap.
+// own J3DModel (ArchiveHeap) + 42-joint pose buffer (2,016 B, GameHeap)
+// and its tunic image (TUNIC_SLOTS, mailbox_core.h).
 //
 // Unblocked 2026-04-20: J3DModel create flag 0x80000 was sharing the
 // material display list across instances — every J3DModel::entry()'s
@@ -22,18 +22,38 @@
 // rendered the last-submitted pose. Flipping the flag to 0 in
 // src/mp/minilink.c's mDoExt_J3DModel__create call makes createMatPacket
 // allocate private per-instance DLs (J3DModel.cpp:296-309). N>1 now
-// works. Bump in lockstep with MAILBOX_POSE_SLOT_CAP if needed.
-#define MAX_REMOTE_LINKS 2
+// works.
+//
+// 3 since WWMB_LAYOUT 3 (2026-10-25): F1 (docs/05, a second mini-Link
+// froze both games) was the shared eye-fix packets, and per-slot packets
+// cleared it live on cea51fe (two mini-Links drawn, 5+ minutes, two stage
+// hops). Three remotes is four players. Past 3 needs relay scoping first
+// (docs/05 F1, "Players past four") and another layout revision.
+#define MAX_REMOTE_LINKS 3
 
-// Layout-reserved slot capacity for the per-slot pose arrays in the
-// Mailbox struct below. Keep this FIXED so Go's hardcoded mailbox
-// offsets (main.go: mailboxPoseBufPtr etc.) stay correct regardless of
-// MAX_REMOTE_LINKS. Runtime only iterates the first MAX_REMOTE_LINKS
-// slots; the rest stays zero. Bumping MAX_REMOTE_LINKS to 2 (once the
-// shared-J3DModelData blocker is unlocked) is free; bumping past
-// MAILBOX_POSE_SLOT_CAP needs a coordinated Mailbox-layout + Go-offset
-// revision.
-#define MAILBOX_POSE_SLOT_CAP 2
+// Layout-reserved slot capacity for the per-slot pose and face arrays in
+// the Mailbox struct (mailbox_core.h). The Go offsets are generated from
+// it (wwapi/mailbox/layout_gen.go), but the fields after those arrays sit
+// at fixed offsets, so changing it is a Mailbox-layout revision (a
+// WWMB_LAYOUT bump), not a constant edit. Runtime only iterates the
+// first MAX_REMOTE_LINKS slots. Layout 3 sized it 3: the pose arrays
+// took layout 2's _reserved2, face_state the tail of _reserved4.
+#define MAILBOX_POSE_SLOT_CAP 3
+
+// The mini-Links' own copies of the four eye-decal preset packets, one set
+// per slot (src/mp/minilink.c, docs/05 F1), in the mailbox slack past the
+// Mailbox struct: MAX_REMOTE_LINKS x 4 x 0x1C bytes, high in the slack,
+// right below the projectile events block (wwfx.h WWFX_OFF, +0xE50, the
+// top of the slack), so the blocks that grow up from +0x1B0 (wwrel.h,
+// wwremote.h, wwvis.h, ...) keep their room. src/mp/minilink.c asserts
+// they sit between the visuals block's end and WWFX_OFF. T2 writes them once per boot and the
+// game's J3DDrawBuffer::entryImm their mpNextPacket every frame a slot
+// draws; Go never touches them, and the region probe arms no canary over
+// them (wwapi/mailbox CanaryArenaHigh ends at MP_EYE_PACKETS_OFF).
+// They were T2 .bss until WWMB_LAYOUT 3, then +0xFB0..+0x1100 until the
+// wave-3 in-game batch put the projectile block at the top.
+#define MP_EYE_PACKETS_OFF 0xD00
+#define MP_EYE_PACKETS_SIZE 0x150
 
 // Per-slot state. Size is 0x20 bytes (nice round hex).
 //   active   — Go sets 1 when a remote player owns this slot, 0 to

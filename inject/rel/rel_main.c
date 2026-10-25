@@ -27,7 +27,7 @@
 // by mParameters: 0 is the keeper above (plus remote.c's swap state, body
 // lifecycle and client apply), WWREMOTE_BODY_PARAMS_TAG | slot << 8 | gen
 // is a lite body (remote.c's remote_body_*), created only by the keeper.
-// mSize is WWREMOTE_ACTOR_SIZE (0x600) for both. _prolog also publishes
+// mSize is WWREMOTE_ACTOR_SIZE (0x620) for both. _prolog also publishes
 // wwrel_exec_hook (T2's exec shim target) at WWREL_EXEC_HOOK_OFF, last;
 // _epilog clears it first.
 //
@@ -80,6 +80,17 @@
 // them through two words in the visuals block; _prolog publishes them
 // just before the exec hook word, _epilog clears them first.
 #include "visuals.h"
+
+// Other players' bombs, cannonballs and arrows (fx.c, include/wwfx.h):
+// its tables are the module's .bss, emptied by _prolog (fx_link); it runs
+// from execute last.
+#include "fx.h"
+
+// The other players' King of Red Lions (boats.c, include/wwboat.h): its
+// state is the module's .bss, emptied by _prolog (boats_link); it poses
+// from execute after fx and enters the boats from the keeper's draw. Its
+// heaps go in the keeper's delete and in _epilog.
+#include "boats.h"
 
 // The build id: build.py passes -DWWREL_BUILD_ID=<CRC-32 of inject/rel's
 // sources and the slack headers>, so it changes with the source and never
@@ -179,28 +190,31 @@ extern const u8 g_fopAc_Method[];        // actor_method_class, f_op_actor.cpp
 // before our create runs. The keeper's own fields follow it, as d_a_*.h
 // classes do: the frame count, the enemy mirror's state (enemy_mirror.h),
 // remote-Link's swap state (remote.h) and the enemy mirror's layout-3
-// cache (em_ext, which fills the allocation to 0x600), so nothing lives
+// cache (em_ext, which ends at 0x618 of the 0x620 allocation), so nothing lives
 // in .bss. The lite body (remote.h remote_body) overlays the same
 // allocation; mSize is
 // WWREMOTE_ACTOR_SIZE, the larger of the two roles, so the keeper pays
-// 0x600 - 0x458 = 0x1A8 bytes of ZeldaHeap more than before (section 5.1).
+// 0x600 - 0x458 = 0x1A8 bytes of ZeldaHeap more than before (section 5.1);
+// the third body slot (WWMB_LAYOUT 3: the swap state 0x17C -> 0x194) took
+// it to 0x620, 0x20 more per keeper and per lite body.
 #define FOPAC_AC_C_SIZE 0x290
 typedef struct {
     u8  base[FOPAC_AC_C_SIZE];           // fopAc_ac_c
     u32 frames;                          // +0x290 this actor's execute count
     enemy_mirror_state mirror;           // +0x294 enemy_mirror.c's slots and counters
     remote_swap_state swap;              // +0x458 remote.c's latches, body records, client apply
-    em_ext ext;                          // +0x5D4 the enemy mirror's layout-3 cache (enemy_mirror.h), to 0x600
+    em_ext ext;                          // +0x5EC the enemy mirror's layout-3 cache (enemy_mirror.h), to 0x618
 } wwrel_actor;
 typedef char wwrel_check_actor_layout[(__builtin_offsetof(wwrel_actor, frames) == 0x290 &&
                                        __builtin_offsetof(wwrel_actor, mirror) == 0x294 &&
                                        __builtin_offsetof(wwrel_actor, swap) == 0x294 + sizeof(enemy_mirror_state) &&
                                        __builtin_offsetof(wwrel_actor, swap) == WWREMOTE_KEEPER_SWAP_OFF) ? 1 : -1];
 // em_ext takes the keeper's free tail: right after the swap state (0x458 +
-// 0x17C, remote.c:113,119), 0x2C bytes, ending at WWREMOTE_ACTOR_SIZE. A
-// lite body ends at WWREMOTE_BODY_END (0x574) and never reaches it.
+// 0x194, remote.c's rl_check_state), 0x2C bytes, ending 8 bytes short of
+// WWREMOTE_ACTOR_SIZE. A lite body ends at WWREMOTE_BODY_END (0x574) and
+// never reaches it.
 typedef char wwrel_check_actor_ext[(__builtin_offsetof(wwrel_actor, ext) == WWREMOTE_KEEPER_SWAP_OFF + sizeof(remote_swap_state) &&
-                                    __builtin_offsetof(wwrel_actor, ext) == 0x5D4 &&
+                                    __builtin_offsetof(wwrel_actor, ext) == 0x5EC &&
                                     sizeof(em_ext) == 0x2C &&
                                     __builtin_offsetof(wwrel_actor, ext) + sizeof(em_ext) <= WWREMOTE_ACTOR_SIZE &&
                                     WWREMOTE_BODY_END <= __builtin_offsetof(wwrel_actor, ext)) ? 1 : -1];
@@ -267,6 +281,7 @@ static int wwrel_delete(void* actor) {
     if (remote_is_body(actor)) return remote_body_delete(actor);
     enemy_mirror_delete(&a->mirror, &a->ext);
     remote_keeper_delete(&a->swap);
+    boats_unlink();
     return TRUE;
 }
 
@@ -274,8 +289,8 @@ static int wwrel_delete(void* actor) {
 // then the Moblin mirror's whole per-frame loop, then remote-Link's
 // (after the mirror, so the client apply sees this frame's adopted
 // Moblins), then a new boss_kill request, if any (bosskill.c), then a new
-// actor_refresh request (refresh.c). A body
-// poses itself (remote.c).
+// actor_refresh request (refresh.c), then the projectile events (fx.c).
+// A body poses itself (remote.c).
 static int wwrel_execute(void* actor) {
     wwrel_actor* a = (wwrel_actor*)actor;
     u32 frame;
@@ -287,6 +302,8 @@ static int wwrel_execute(void* actor) {
     remote_keeper_frame(&a->swap, &a->mirror, frame);
     bosskill_frame();
     refresh_frame();
+    fx_frame();
+    boats_frame();
     return TRUE;
 }
 
@@ -295,10 +312,35 @@ static int wwrel_is_delete(void* actor) {
     return TRUE;
 }
 
-// Draws nothing, in either role (the mini-Link keeps rendering the
-// remote player).
+// The keeper draws the peer boats (boats.c); a lite body draws nothing
+// (the mini-Link keeps rendering the remote player). The keeper's profile
+// status has no fopAcStts_CULL_e, so this runs every frame outside the
+// menus wherever the keeper stands.
+//
+// Once per frame, not once per call: T2 creates the keeper from the frame
+// hook, so it sits in the root layer (relload.c), and its draw method is
+// called twice a frame: by fpcM_DrawIterater's walk of the root layer
+// (f_pc_manager.cpp:46-48) and again by the play scene's walk of the actor
+// draw queue (d_s_play.cpp:376-378). Entering a model twice in one frame
+// puts its "changed" J3DMatPackets at the head of bucket 0 twice
+// (J3DDrawBuffer::entryMatSort, J3DDrawBuffer.cpp:62-65; entryZSort does
+// the same for the sail), which closes the bucket's packet chain into a
+// loop: drawHead never ends, the GX FIFO fills, and the game freezes with
+// the main thread parked by the FIFO overflow (2026-10-25, the first frame
+// a peer boat was drawn: Hyrule, and the sea at Outset). The heartbeat
+// (spawn_trigger) moves once per frame in frame_shim, after
+// fpcM_Management, so both calls of one frame see the same value.
+static u32 wwrel_draw_beat;
+static u8 wwrel_draw_seen;
+
 static int wwrel_draw(void* actor) {
-    (void)actor;
+    u32 beat;
+    if (remote_is_body(actor)) return TRUE;
+    beat = mailbox->spawn_trigger;
+    if (wwrel_draw_seen && beat == wwrel_draw_beat) return TRUE;
+    wwrel_draw_beat = beat;
+    wwrel_draw_seen = 1;
+    boats_draw();
     return TRUE;
 }
 
@@ -325,7 +367,7 @@ const actor_process_profile_definition g_profile_WWREL = {
     fpcNm_RECTANGLE_e,                   // mProcName = 0xB5
     { 0, 0 },
     g_fpcLf_Method,                      // sub_method
-    WWREMOTE_ACTOR_SIZE,                 // mSize: keeper or lite body (0x600)
+    WWREMOTE_ACTOR_SIZE,                 // mSize: keeper or lite body (0x620)
     0,                                   // mSizeOther
     0,                                   // mParameters
     g_fopAc_Method,                      // leaf_sub_method
@@ -388,6 +430,9 @@ void _prolog(void) {
     WWREL_WORD(WWREL_BUILD_ID_OFF) = g_wwrel_build_id;
     WWREL_WORD(WWREL_SWAP_STATE_OFF) = 0;
     WWREL_WORD(WWREL_MAGIC_OFF) = WWREL_MAGIC;
+    wwrel_draw_seen = 0;
+    fx_link();
+    boats_link();
     wwvis_link();
     WWREL_WORD(WWREL_EXEC_HOOK_OFF) = (u32)wwrel_exec_hook;
 }
@@ -399,6 +444,7 @@ void _prolog(void) {
 // the next link reuses it).
 void _epilog(void) {
     wwvis_unlink();
+    boats_unlink();
     WWREL_WORD(WWREL_EXEC_HOOK_OFF) = 0;
     remote_unlink();                     // clears WWREL_SWAP_STATE_OFF
     enemy_mirror_unlink();               // release_all if delete never ran

@@ -115,9 +115,9 @@ typedef void (*fb_set_stage_layer_t)(void* proc);                       // fopAc
 typedef char fb_check_sizes[(WWREMOTE_FULL_TAIL_OFF + sizeof(rl_full_tail) <= WWREMOTE_FULL_SIZE &&
                              WWREMOTE_FULL_CYL_OFF + 0x130 <= WWREMOTE_FULL_DAPY_SIZE &&
                              __builtin_offsetof(Mailbox, pose_buf_ptrs) == 0xA8 &&
-                             __builtin_offsetof(Mailbox, pose_joint_counts) == 0xB0 &&
-                             __builtin_offsetof(Mailbox, pose_buf_states) == 0xB4 &&
-                             __builtin_offsetof(Mailbox, pose_seqs) == 0xB6) ? 1 : -1];
+                             __builtin_offsetof(Mailbox, pose_joint_counts) == 0xB4 &&
+                             __builtin_offsetof(Mailbox, pose_buf_states) == 0xBA &&
+                             __builtin_offsetof(Mailbox, pose_seqs) == 0xBD) ? 1 : -1];
 
 static int fb_mem1(u32 p) {
     return p - 0x80000000u < 0x03000000u && (p & 3) == 0;

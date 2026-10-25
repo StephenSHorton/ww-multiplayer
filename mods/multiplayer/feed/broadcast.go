@@ -6,6 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/boatsync"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/fxsync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/tunicsync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
@@ -35,6 +37,23 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 	client.OnLog = func(msg string) { rep.Log(log.Net, msg) }
 	link := player.NewLink(d)
 
+	// Projectile events (fxsync, inject/include/wwfx.h; WW_PROJECTILES=on,
+	// default off): the REL's outbox of this Link's bombs, cannonballs and
+	// arrows, sent as MsgFx. Its words are written only into a game the
+	// contract check allows (quietly: puppet-sync reports the verdict),
+	// and the send word goes back to 0 when the broadcast ends.
+	fxSettings := fxsync.SettingsFromEnv()
+	var fx fxsync.Sender
+	fxGate := newContractGate(d, log.Discard{})
+	if fxSettings.On {
+		rep.Log(log.Info, "Projectile events on (WW_PROJECTILES): this Link's bombs, cannonballs and arrows are sent.")
+		defer func() {
+			if fxGate.ok {
+				_ = fx.Arm(d, false)
+			}
+		}()
+	}
+
 	// Session 14: face-state capture reads from mailbox.face_state_local,
 	// which the C side publishes once per frame at the top of
 	// daPy_draw_hook BEFORE any face_emit_swap_for_slot fires. Eliminates
@@ -60,6 +79,7 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 	sessionLoop := func(ctx context.Context) error {
 		posErrs, poseErrs := 0, 0
 		var equip vissync.EquipSampler // the shield bit, debounced (two samples)
+		boatsOn := boatsync.SettingsFromEnv().On
 		// capture reads one sample of this Dolphin's Link: nil while Link
 		// is not loaded.
 		capture := func() *poseSample {
@@ -133,6 +153,13 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 					// equip bytes (19 bytes in all).
 					if extra, eq, ok := equip.Sample(d); ok {
 						s.face = append(s.face, app|extra, eq[0], eq[1])
+						// boatsync: this game's ship, 40 bytes
+						// more (59 in all), always once the
+						// equip bytes are there.
+						if boatsOn {
+							b, ok := boatsync.Local(d, [3]float32{pos.PosX, pos.PosY, pos.PosZ})
+							s.face = append(s.face, boatsync.Encode(b, ok)...)
+						}
 					} else {
 						s.face = append(s.face, app)
 					}
@@ -170,6 +197,13 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 			if s := capture(); s != nil {
 				if err := send(s); err != nil {
 					return err
+				}
+			}
+
+			// Projectile events: drain the REL's outbox (fxsync).
+			if fxSettings.On {
+				if ok, _ := fxGate.check(time.Now()); ok && fx.Arm(d, true) == nil {
+					_, _ = fx.Drain(d, client.SendFx)
 				}
 			}
 

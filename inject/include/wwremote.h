@@ -30,8 +30,13 @@
 //   +0x520..+0x850  this block (WWREMOTE_OFF, WWREMOTE_SIZE)
 //   +0x850..+0x8B0  the enemy knob table (wwenemy.h WWENEMY_KNOB_OFF, layout 4)
 //   +0x8B0..+0x8D0  the actor_refresh request (wwrefresh.h WWRF_OFF; batch D)
-//   +0x8D0..+0x990  the remote players' visuals block (wwvis.h WWVIS_OFF)
-//   +0x990..+0x1100 free (wwapi/mailbox CanaryArenaHigh)
+//   +0x8D0..+0x9E4  the remote players' visuals block (wwvis.h WWVIS_OFF,
+//                   WWVIS_SIZE 0x114)
+//   +0x9E4..+0xA6C  the peer boats block (wwboat.h WWBOAT_OFF, WWBOAT_SIZE 0x88)
+//   +0xA6C..+0xD00 free (wwapi/mailbox CanaryArenaHigh)
+//   +0xD00..+0xE50  the mini-Links' eye packets (mailbox_mp.h
+//                   MP_EYE_PACKETS_OFF; T2 writes them; never canary-armed)
+//   +0xE50..+0x1100 the projectile events block (wwfx.h WWFX_OFF)
 //
 // The block (offsets from WWREMOTE_OFF; absolute = 0x80413420 + off):
 //
@@ -48,7 +53,7 @@
 //   +0x01C u8 full_allow (bit i: slot i may begin one full create)
 //   +0x01D u8 heap_reason (WWREMOTE_HG_*)  +0x01E u16 flags2 (WWREMOTE_FLAG2_*)
 //              (the word was reserved, 0; 0 in all three is today's behaviour)
-//   +0x020 slot[4] x 0x30 (runtime uses MAX_REMOTE_LINKS = 2)
+//   +0x020 slot[4] x 0x30 (runtime uses MAX_REMOTE_LINKS = 3)
 //   +0x0E0 client apply record, 0x28
 //   +0x108 char[8] x 4 FF stage denylist
 //   +0x128 PROC_POLICY[48] x 4: s16 proc, u8 WWREMOTE_PF_*, u8 pad
@@ -422,13 +427,17 @@
 #define WWREMOTE_AD_BAD_HIT         7            // Go: the PHIT has fields no hit has, phitSane (never reaches the REL)
 
 // ATTRIB extensions of the enemy block's hit_apply (wwenemy.h), section 8.6
+// The two bits are one field naming the body: 0x08 slot 0, 0x18 slot 1, 0x10 (SLOT1
+// without ATTRIB_BODY) slot 2, 0 none. Two bits name at most three bodies
+// (MAX_REMOTE_LINKS <= 3, remote.c).
 #define WWREMOTE_HAF_ATTRIB_BODY    0x08         // bit in WWENEMY_HA_FLAGS_OFF: attribute to the slot's body
-#define WWREMOTE_HAF_SLOT1          0x10         // bit in WWENEMY_HA_FLAGS_OFF: body slot 1 (clear = slot 0)
+#define WWREMOTE_HAF_SLOT1          0x10         // bit in WWENEMY_HA_FLAGS_OFF: body slot 1 with ATTRIB_BODY, slot 2 without
+#define WWREMOTE_HAF_ATTRIB_MASK    0x18         // ATTRIB_BODY | SLOT1: the field; nonzero = ATTRIB asked
 #define WWREMOTE_HD_NO_BODY         16           // WWENEMY_HIT_RESULT detail: ATTRIB asked, the body not LIVE (host-Link path ran)
 
 // --- the actor (both roles of the 0xB5 profile) -----------------------------
-#define WWREMOTE_ACTOR_SIZE         0x600        // profile mSize, max(keeper, lite body)
-#define WWREMOTE_KEEPER_SWAP_OFF    0x458        // keeper swap state start (after enemy_mirror_state), ends <= 0x600
+#define WWREMOTE_ACTOR_SIZE         0x620        // profile mSize, max(keeper, lite body); 0x600 before the third body slot (WWMB_LAYOUT 3)
+#define WWREMOTE_KEEPER_SWAP_OFF    0x458        // keeper swap state start (after enemy_mirror_state), ends <= 0x620
 #define WWREMOTE_BODY_PARAMS_TAG    0x52000000   // body mParameters = tag | slot << 8 | gen; keeper = 0
 #define WWREMOTE_BODY_PARAMS_MASK   0xFF000000
 #define WWREMOTE_BODY_MAGIC         0x57575242   // 'WWRB' at WWREMOTE_BODY_MAGIC_OFF

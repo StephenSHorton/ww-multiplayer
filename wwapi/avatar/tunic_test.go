@@ -2,6 +2,8 @@ package avatar
 
 import (
 	"bytes"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,7 +46,7 @@ func TestTunicSync_AllocatesAndFillsSlots(t *testing.T) {
 	if got, _ := f.ReadU32(mailbox.Mailbox + mailbox.OffTunicBufSize); got != uint32(len(avatartest.TestImage())) {
 		t.Fatalf("buf_size = %d, want %d", got, len(avatartest.TestImage()))
 	}
-	for s, want := range [][]byte{avatartest.ExpectRecolor(red), avatartest.TestImage(), avatartest.ExpectRecolor(blue)} {
+	for s, want := range map[int][]byte{0: avatartest.ExpectRecolor(red), 1: avatartest.TestImage(), TunicSlotLocal: avatartest.ExpectRecolor(blue)} {
 		if f.U8(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s)) != 1 {
 			t.Errorf("slot %d not enabled", s)
 		}
@@ -54,6 +56,97 @@ func TestTunicSync_AllocatesAndFillsSlots(t *testing.T) {
 	}
 	if bytes.Equal(avatartest.ExpectRecolor(red), avatartest.TestImage()) {
 		t.Fatal("test image has no green to recolor")
+	}
+}
+
+// TestTunicSync_SoftReset: a soft reset zeroes the tunic block (main01_init)
+// and the next boot's C side allocates other buffers; Tunics follows them,
+// writes every image again and never writes the old boot's buffers.
+func TestTunicSync_SoftReset(t *testing.T) {
+	f := avatartest.NewLinkRAM(false)
+	ts := NewTunics(f, t.Logf)
+	ts.Set(0, true, tRed)
+	ts.Set(2, true, tPurple)
+	ts.SetLocal(tBlue)
+	now := time.Unix(0, 0)
+	run(ts, f, &now, 8)
+	var old [TunicSlots]uint32
+	for s := range old {
+		old[s], _ = f.ReadU32(mailbox.Mailbox + OffTunicBuf(s))
+	}
+	stale := f.SlotImage(0)
+
+	f.SoftReset()
+	// The old buffer now belongs to someone else in the new boot's heap.
+	f.Write(old[0], make([]byte, len(stale)))
+	run(ts, f, &now, 8)
+
+	for s, want := range map[int][]byte{0: avatartest.ExpectRecolor(tRed), 2: avatartest.ExpectRecolor(tPurple), TunicSlotLocal: avatartest.ExpectRecolor(tBlue)} {
+		buf, _ := f.ReadU32(mailbox.Mailbox + OffTunicBuf(s))
+		if buf == old[s] || buf == 0 {
+			t.Errorf("slot %d buffer 0x%08X after the reset, was 0x%08X", s, buf, old[s])
+		}
+		if f.U8(mailbox.Mailbox+mailbox.OffTunicEnable+uint32(s)) != 1 {
+			t.Errorf("slot %d not enabled after the reset", s)
+		}
+		if got := f.SlotImage(s); !bytes.Equal(got, want) {
+			t.Errorf("slot %d image after the reset = %x, want %x", s, got, want)
+		}
+	}
+	if got, _ := f.Read(old[0], len(stale)); !bytes.Equal(got, make([]byte, len(stale))) {
+		t.Errorf("the old boot's slot 0 buffer was written after the reset: %x", got)
+	}
+}
+
+// TestTunicSync_SoftResetMovesLink: after a reset the new boot's Link
+// (and his worn header) sit elsewhere, past a stretch with no Link. The
+// cached hero texture names the old header, so within tunicVerifyEvery of
+// the new Link Tunics recalibrates on the new one: the slots then hold the
+// new image's recolors, and the old header and image are never written.
+func TestTunicSync_SoftResetMovesLink(t *testing.T) {
+	f := avatartest.NewLinkRAM(false)
+	var lines []string
+	ts := NewTunics(f, func(format string, a ...any) { lines = append(lines, fmt.Sprintf(format, a...)) })
+	ts.Set(0, true, tRed)
+	ts.Set(2, true, tPurple)
+	ts.SetLocal(tBlue)
+	now := time.Unix(0, 0)
+	run(ts, f, &now, 8)
+	oldWorn, _ := f.Read(avatartest.Worn, texture.ResTIMGSize)
+	oldImage, _ := f.Read(avatartest.Image, len(avatartest.TestImage()))
+
+	// The new image: the skin and white blocks swapped, the same greens.
+	img := avatartest.TestImage()
+	tmp := append([]byte(nil), img[16:24]...)
+	copy(img[16:24], img[24:32])
+	copy(img[24:32], tmp)
+	const link, worn, image = 0x80D00000, 0x80D10000, 0x80D20000
+
+	f.SoftReset()
+	f.RelocateLink(0, 0, 0, nil) // the title screen
+	run(ts, f, &now, 30)
+	f.RelocateLink(link, worn, image, img)
+	run(ts, f, &now, int(tunicVerifyEvery/(16*time.Millisecond))+8)
+
+	for s, c := range map[int]texture.Color{0: tRed, 2: tPurple, TunicSlotLocal: tBlue} {
+		if got, want := f.SlotImage(s), avatartest.ExpectRecolorOf(img, c); !bytes.Equal(got, want) {
+			t.Errorf("slot %d after the move = %x, want the new image's recolor %x", s, got, want)
+		}
+	}
+	if got, _ := f.Read(avatartest.Worn, texture.ResTIMGSize); !bytes.Equal(got, oldWorn) {
+		t.Error("the old boot's worn header was written")
+	}
+	if got, _ := f.Read(avatartest.Image, len(oldImage)); !bytes.Equal(got, oldImage) {
+		t.Error("the old boot's hero image was written")
+	}
+	n := 0
+	for _, l := range lines {
+		if strings.Contains(l, "hero texture") && strings.Contains(l, fmt.Sprintf("at 0x%08X", image)) {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d calibrations on the new header, want 1: %q", n, lines)
 	}
 }
 

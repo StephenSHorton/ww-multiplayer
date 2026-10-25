@@ -77,8 +77,11 @@ var (
 	// batch C layout4.knob_table.canaries) and batch D's actor_refresh
 	// request after that (refresh.go, RefreshRegion, +0x8B0..+0x8D0, G-D5;
 	// P0-L5 proved it free before the move) and the remote players'
-	// visuals block after that (vis.go, VisRegion, +0x8D0..+0x990: T2
-	// branches through its first two words). Go writes the blocks every
+	// visuals block after that (vis.go, VisRegion, +0x8D0..+0x9E4: T2
+	// branches through its first two words) and the peer boats block after
+	// that (boat.go, BoatRegion, +0x9E4..+0xA6C), and CanaryArenaHigh stops at
+	// the mini-Links' eye packets, below the projectile events block (fx.go,
+	// FxRegion, +0xE50..+0x1100, the top of the slack). Go writes the blocks every
 	// tick and the REL every frame while they run, so a canary armed over
 	// them would be reported changed by the mod's own traffic, and arming
 	// would tear a block the REL is reading. The region probe arms and
@@ -87,9 +90,17 @@ var (
 	// to the enemy block (+0x1C8..+0x200), are the enemy block's annex
 	// (layout 3), inside EnemyBlockRegion.
 	// CanaryArena still holds the REL module's first three words
-	// (OffRELMagic..), which only a linked module writes.
+	// (OffRELMagic..), which only a linked module writes. CanaryArenaHigh
+	// stops at the mini-Links' eye packets (EyePacketsRegion, +0xD00..
+	// +0xE50 since the wave-3 in-game batch), which T2 writes at boot and
+	// the game's draw lists every frame.
 	CanaryArena     = addr.Region{Name: "below arena", Start: Mailbox + MailboxSize, End: Mailbox + OffRELExecHook}
-	CanaryArenaHigh = addr.Region{Name: "below arena (past the visuals block)", Start: Mailbox + VisOff + VisSize, End: PatchedArenaLo}
+	CanaryArenaHigh = addr.Region{Name: "below arena (past the boats block)", Start: Mailbox + BoatOff + BoatSize, End: Mailbox + MpEyePacketsOff}
+
+	// EyePacketsRegion is the mini-Links' copies of the eye-decal preset
+	// packets, MAX_REMOTE_LINKS sets of four J3DPackets (mailbox_mp.h
+	// MP_EYE_PACKETS_*, inject/src/mp/minilink.c), right below FxRegion.
+	EyePacketsRegion = addr.Region{Name: "mini-Link eye packets", Start: Mailbox + MpEyePacketsOff, End: Mailbox + MpEyePacketsOff + MpEyePacketsSize}
 )
 
 const (

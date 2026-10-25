@@ -1049,8 +1049,11 @@ const canaryChunk = 0x400
 // enemy-mirror block (mailbox.EnemyBlockRegion), the remote-Link block
 // (mailbox.RemoteBlockRegion), the enemy knob table after it
 // (mailbox.EnemyKnobRegion, layout 4) and batch D's actor_refresh request
-// after that (mailbox.RefreshRegion), which Go and the REL write while
-// they run and which the probe therefore never arms or checks.
+// after that (mailbox.RefreshRegion), the visuals block after that
+// (mailbox.VisRegion), which Go and the REL write while they run and which
+// the probe therefore never arms or checks, and the mini-Links' eye
+// packets at the top of the slack (mailbox.EyePacketsRegion), which T2 and
+// the game's draw lists write.
 var canaryRegions = []addr.Region{mailbox.CanaryTRK, mailbox.CanaryArena, mailbox.CanaryArenaHigh}
 
 // canaryForbidden is what a canary must never cover: the main stack and
@@ -1067,6 +1070,9 @@ func canaryForbidden() []addr.Region {
 		mailbox.EnemyKnobRegion,
 		mailbox.RefreshRegion,
 		mailbox.VisRegion,
+		mailbox.BoatRegion,
+		mailbox.EyePacketsRegion,
+		mailbox.FxRegion,
 		{Name: "the arena", Start: mailbox.PatchedArenaLo, End: addr.MEM1End},
 	}
 }

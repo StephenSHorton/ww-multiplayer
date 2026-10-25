@@ -54,6 +54,13 @@
 
 static int frame_count = 0;
 
+// main01_init's per-boot zeroing (below) clears these runs by word count.
+_Static_assert(__builtin_offsetof(Mailbox, pose_publish_seq) + 1 == __builtin_offsetof(Mailbox, pose_buf_ptrs) + 8 * 4 &&
+               __builtin_offsetof(Mailbox, features) == __builtin_offsetof(Mailbox, tunic_bufs) + 6 * 4 &&
+               __builtin_offsetof(Mailbox, tunic_state) % 4 == 0 &&
+               __builtin_offsetof(Mailbox, tunic_swaps) == __builtin_offsetof(Mailbox, tunic_state) + 4,
+               "mailbox_core.h moved a run main01_init zeroes");
+
 // Hooked to main01 (0x80006338) via hook_branchlink. Runs once.
 // Publishes multiplayer_update's address for frame_shim to find.
 void main01_init(void) {
@@ -71,14 +78,35 @@ void main01_init(void) {
     // names a heap that no longer exists.
     *(volatile u32*)(MAILBOX_ADDR + WWREL_SHANM_OFF) = 0;
     // The visuals block's REL words (wwvis.h): the two function words T2
-    // calls through, and the sword/shield models the REL made on a heap
-    // of an earlier boot.
+    // calls through, and the models the REL made on a heap of an earlier
+    // boot (both model tables, with the counters between and after them).
     {
         int w;
         for (w = 0; w < 2; w++)
             *(volatile u32*)(MAILBOX_ADDR + WWVIS_OFF + WWVIS_DRAW_FN_OFF + 4 * w) = 0;
-        for (w = 0; w < WWVIS_SLOTS * WWVIS_MODEL_KINDS; w++)
+        for (w = 0; w < WWVIS_ZERO_WORDS; w++)
             *(volatile u32*)(MAILBOX_ADDR + WWVIS_OFF + WWVIS_MODELS_OFF + 4 * w) = 0;
+        // The Mailbox's own GameHeap pointers, for the same reason (docs/05
+        // "Soft reset"): a soft reset (mDoRst_reset -> OSResetSystem
+        // restart, d_s_logo.cpp:503, m_Do_Reset.cpp:76) reloads the DOL,
+        // which zeroes T2's statics, and builds a new GameHeap in main01's
+        // mDoMch_Create, but leaves this RAM as it was. pose_publish and
+        // tunic_alloc trust their state bytes, so the old boot's
+        // pose_publish_ptr (2 KB copied into it every frame) and tunic_bufs
+        // would name blocks of the new heap that belong to someone else.
+        // This hook is main01's first instruction, before mDoMch_Create, so
+        // the words are zero before any block of the new heap exists. Go
+        // follows: it re-reads the states (and tunic_bufs) every tick.
+        //   +0xA8..+0xC7  pose_buf_ptrs .. pose_publish_seq (C allocates
+        //                 again; the pose seqs read "no pose yet")
+        //   +0x188..+0x19F tunic_bufs, tunic_buf_size, tunic_enable (Go
+        //                 writes the size again, C allocates, Go the images)
+        //   +0x1A4        tunic_state's word (and its padding)
+        for (w = 0; w < 8; w++)
+            ((volatile u32*)&mailbox->pose_buf_ptrs[0])[w] = 0;
+        for (w = 0; w < 6; w++)
+            ((volatile u32*)&mailbox->tunic_bufs[0])[w] = 0;
+        *(volatile u32*)&mailbox->tunic_state = 0;
     }
     // WWMB header (Phase E1): magic, ABI, layout version and the
     // features word, for Go's contract check (wwapi.CheckContract).

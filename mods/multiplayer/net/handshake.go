@@ -98,6 +98,12 @@ import (
 // to the KindHash disarm. The Magtail row is off by default (mt+u), but
 // the hash covers the whole table, so the default kinds disarm too.
 
+// Projectile events (fx.go, ww-online review idea 5) bumped it to 6. An
+// older server ignores MsgFx (no default case in handlePlayer) and an
+// older client too, so nothing breaks, but a mixed pair would silently
+// share no projectiles, and the REL contract changed with the block; under
+// 6 the pair is refused at the hello instead.
+
 // ProtocolVersion is the wire protocol this build speaks. Bump it on any
 // change an older build can't handle: client and server must match.
 //
@@ -110,7 +116,9 @@ import (
 //	5  enemy mirror batch D: the MT kind row back (a new KindHash; off by
 //	   default, mt+u), Gohdan's boss_kill and the actor_refresh request
 //	   (WireVersion stays 4)
-const ProtocolVersion uint16 = 5
+//	6  projectile events: MsgFx on the player connection (fx.go) and the
+//	   REL's projectile block (inject/include/wwfx.h)
+const ProtocolVersion uint16 = 6
 
 // Connection roles, the hello's role byte.
 const (

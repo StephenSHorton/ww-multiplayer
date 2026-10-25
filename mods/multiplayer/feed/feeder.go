@@ -131,6 +131,11 @@ type Feeder struct {
 	// the partner (nil: no gate); away is the gate's last decision.
 	partner *PartnerPlace
 	away    bool
+
+	// The reset gate (running.go).
+	run gameRun
+	// pollSpent: an arming poll timed out in this Feed call (arm.go).
+	pollSpent bool
 	// placeAway[id] is the per-remote stage gate's last decision for a
 	// remote whose positions carry a place (place.go, gateFor).
 	placeAway map[byte]bool
@@ -241,6 +246,14 @@ func (f *Feeder) Connected(serverEpoch uint64) {
 // holding a link slot. It then releases the slots of remotes that have
 // left. ctx bounds a link slot's arming poll.
 func (f *Feeder) Feed(ctx context.Context, remotes []network.RemotePlayer, now time.Time) {
+	// The reset gate: while a reset is under way, or the game's frames
+	// have stopped, the pose buffers' pointers may name the old boot's
+	// heap. Write nothing this tick; liveness runs on the remotes'
+	// timestamps, so the next running tick picks up where this left off.
+	if !f.running(now) {
+		return
+	}
+	f.pollSpent = false
 	seen := map[byte]bool{}
 	gate := f.gateFor(remotes, now)
 	for i := range remotes {
