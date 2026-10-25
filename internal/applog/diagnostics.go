@@ -21,6 +21,10 @@ type Diagnostics struct {
 	Status []string
 	// Log is the session's newest log lines (File.Tail), oldest first.
 	Log []string
+	// LogFiles says the log goes with the text as files of its own (a bug
+	// report's about.txt, internal/bugreport): Text then leaves the log
+	// section out.
+	LogFiles bool
 }
 
 // Text renders d as plain text, every line redacted with r and its IP
@@ -49,6 +53,9 @@ func (d Diagnostics) Text(r Redactor) string {
 		for _, s := range d.Status {
 			b.WriteString(clean(s) + "\n")
 		}
+	}
+	if d.LogFiles {
+		return b.String()
 	}
 	logs := d.Log
 	if len(logs) > TailLines {

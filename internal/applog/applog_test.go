@@ -221,6 +221,11 @@ func TestDiagnosticsText(t *testing.T) {
 	if got := (Diagnostics{}).Text(Redactor{}); strings.Contains(got, "co-op status") || !strings.Contains(got, "last 0 log lines") {
 		t.Errorf("empty:\n%s", got)
 	}
+	// A bug report's about.txt: the log is in the zip as files.
+	d.LogFiles = true
+	if got := d.Text(Redactor{}); strings.Contains(got, "log lines") || strings.Contains(got, "l4") || !strings.Contains(got, "co-op status") {
+		t.Errorf("LogFiles:\n%s", got)
+	}
 }
 
 func TestDefaultDir(t *testing.T) {
