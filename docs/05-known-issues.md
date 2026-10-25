@@ -889,11 +889,15 @@ recapture).
   +0x188..+0x19F, `features` stays at +0x1A0, `tunic_state` is at +0x1A4 and `tunic_swaps` at
   +0x1A8.
 - **Visuals block** (`wwvis.h`): 0xC0 -> 0xF0 bytes, +0x8D0..+0x9C0. Names, equip and models
-  are per slot, so everything from the equip entries on moved.
+  are per slot, so everything from the equip entries on moved. The wave-3 in-game batch then
+  appended the second model table (mirror shield, Master Sword scabbard, katsura) for three
+  slots at +0xF0, so the block is 0x114 bytes, +0x8D0..+0x9E4.
 - **Eye packets**: three slots' copies are 0x150 bytes, more than T2 had free, so they moved
-  out of T2's .bss to the top of the mailbox slack, +0xFB0..+0x1100 (`MP_EYE_PACKETS_OFF`).
+  out of T2's .bss into the mailbox slack (`MP_EYE_PACKETS_OFF`): first the top,
+  +0xFB0..+0x1100; in the wave-3 in-game batch the projectile events block (`wwfx.h`) took the
+  top (+0xE50..+0x1100) and the packets moved to +0xD00..+0xE50, right below it.
   T2 shrank by 0xE0 (0x2DE8 -> 0x2D08 bytes; 0x1F8 free below the mailbox, was 0x118).
-  `CanaryArenaHigh` is now +0x9C0..+0xFB0.
+  `CanaryArenaHigh` is now +0x9E4..+0xD00 (0x804138E4..0x80413C00).
 - **REL**: the keeper's swap state holds three body records (0x17C -> 0x194 bytes), so the
   profile's `mSize` (`WWREMOTE_ACTOR_SIZE`) went 0x600 -> 0x620 for the keeper and each lite
   body (ZeldaHeap). The WWRP block already had 4 slots. The third body's hits cannot be
@@ -1178,9 +1182,9 @@ an actor.
 2. *Go, receiver.* vissync writes one boat entry per remote on the same
    stage as this game (and, for a parked boat, the remote's last-known
    entry, kept until it boards again or leaves that stage): a new boat
-   array in the visuals block (or a block of its own past it; +0x9A8 is
-   where the visuals block ends now, and the slack runs to the arena at
-   0x80414000), position, angles, sail angle, mast frame, RGB, flags.
+   array in the visuals block (or a block of its own past it; +0x9E4 is
+   where the visuals block ends now, and the free slack runs to the eye
+   packets at +0xD00, 0x80413C00), position, angles, sail angle, mast frame, RGB, flags.
    Gated by a `WW_BOATS` knob: off by default until the live checks
    pass, then on, with `WW_BOATS=off` like the other visuals knobs.
 3. *REL, hull and head.* Two models per boat slot, made once per boot on

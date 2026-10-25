@@ -790,8 +790,9 @@ ww-online review idea 5, adapted from their `puppet_fx.c` (`fx.c` carries
 their MIT notice); design: handoff `archive/ww-online-review/
 DESIGN-big-items.md` (a), option A. The block is `include/wwfx.h` at
 `MAILBOX_ADDR + 0xE50` (0x80413D50, 0x2B0 bytes, the top of the slack up
-to the arena; Go's `wwapi/mailbox/fx.go` mirrors it and `CanaryArenaHigh`
-now ends at its start). `fx_frame` runs last in the keeper's execute. No
+to the arena; Go's `wwapi/mailbox/fx.go` mirrors it; the mini-Links' eye
+packets sit right below it, +0xD00..+0xE50, and `CanaryArenaHigh` ends at
+theirs). `fx_frame` runs last in the keeper's execute. No
 T2 code is involved, and its state (the trackers and the copy table) is
 the module's `.bss`, emptied by `_prolog` (`fx_link`), so a new link
 starts empty; its first frame takes
