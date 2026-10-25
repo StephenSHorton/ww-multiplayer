@@ -14,6 +14,7 @@ coop-tables
 coop-tag
 coop-watch
 coop-world
+crash-context
 debug
 disasm
 dolphin2
