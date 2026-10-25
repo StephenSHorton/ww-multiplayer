@@ -1,6 +1,7 @@
 package network
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -40,6 +41,32 @@ import (
 //	               client did with a PHIT)
 //	PSTATE (sub 6) enemy client -> the host, stamped like a HIT (the
 //	               client Link's stage, room and combat state)
+//
+// Relay scoping (place.go): the server keeps each enemy client's last
+// PSTATE place. A client whose fresh PSTATE (EnemyPStateStale) is not
+// loading and names another stage or room than a STATE gets that STATE
+// thinned: its 52-byte header alone, count 0, with EnemyStateFlagThin set.
+// The header is what such a client's gate reads (the host's stage and
+// room, epoch, seq, flags, kind hash: mods/enemysync Mirror.Tick disarms
+// on the mismatch exactly as before); the slots, up to 1 KB at 60 Hz, are
+// what it never uses. Withholding the STATE instead would read as a stall
+// on the client (its StaleHold freezes the copies). A client with no
+// fresh PSTATE, a loading one or the STATE's own place gets it whole, and
+// so does everyone a STATE without EnemyStateFlagInScope (a keepalive)
+// goes to. A client that still gets a thinned STATE naming its own place
+// (its PSTATE lags its arrival) waits for the whole one (Mirror.Tick).
+// The thin bit is the server's: it is cleared on what the host sends.
+//
+// Origin binding: the player id stamped into a HIT and a PSTATE names the
+// player of the connection's name, so only one enemy client per name
+// (lobbyKey) gets it: the earliest-connected one that is live (a PSTATE
+// within EnemyPStateStale), or this one when no other is. Another client
+// under the same name stamps 0 (the host attributes to its own Link and
+// sends no PHIT), as an ambiguous name always did. After an unclean drop
+// the old connection lingers until the read timeout but sends no PSTATE,
+// so the reconnected one takes the name over once the old PSTATE is stale
+// (datstarkey/ww-online's ClaimOrigin rule, WWOnline.Server/Hubs/
+// PlayerEventRelay.cs:55-109).
 //
 // Since wire version 3 (the remote-Link design,
 // ww-multiplayer-handoff/design/remote-link-design.md §8.4) the server
@@ -99,7 +126,32 @@ const (
 	// unmapped).
 	EnemyHitPlayerIDOff    = 48
 	EnemyPStatePlayerIDOff = 19
+
+	// The STATE and PSTATE fields relay scoping reads (mods/enemysync
+	// wire.go encodes them; TestScopeOffsetsPinned there pins these):
+	// a STATE's flags, count, stage[8] and room; a PSTATE's flags,
+	// stage[8] and room.
+	EnemyStateFlagsOff  = 2
+	EnemyStateCountOff  = 3
+	EnemyStateStageOff  = 20
+	EnemyStateRoomOff   = 28
+	EnemyPStateFlagsOff = 3
+	EnemyPStateStageOff = 8
+	EnemyPStateRoomOff  = 16
+	EnemyStageLen       = 8
+	// EnemyStateFlagInScope is enemysync.StateFlagInScope: the host is in
+	// play in a room (else a count-0 keepalive). EnemyStateFlagThin is
+	// the server's: this STATE was thinned to its header. EnemyPSLoading
+	// is enemysync.PSLoading: the client's game is not in play.
+	EnemyStateFlagInScope byte = 1 << 2
+	EnemyStateFlagThin    byte = 1 << 3
+	EnemyPSLoading        byte = 0x80
 )
+
+// EnemyPStateStale is how long the server believes an enemy client's
+// PSTATE place: enemysync.PStateStale, the host's own bound. A client
+// sends one every 50 ms.
+const EnemyPStateStale = 3 * time.Second
 
 // EnemyStateLen is the length of a STATE with count slots.
 func EnemyStateLen(count int) int { return EnemyStateHeaderLen + EnemySlotLen*count }
@@ -164,6 +216,35 @@ type enemyConn struct {
 	sendMu    sync.Mutex // serializes writes: relays, heartbeat pings, pongs
 	done      chan struct{}
 	closeOnce sync.Once
+
+	// seq orders enemy connections by when they registered (origin
+	// binding). Set before the connection is visible, then read-only.
+	seq uint64
+	// The last PSTATE's place (relay scoping), under placeMu: relayEnemy
+	// records it while holding s.mu only for reading.
+	placeMu sync.Mutex
+	place   enemyPlace
+}
+
+// enemyPlace is an enemy client's last PSTATE place.
+type enemyPlace struct {
+	stage   [EnemyStageLen]byte
+	room    byte
+	loading bool
+	at      time.Time // zero: no PSTATE yet
+}
+
+// lastPlace returns c's last PSTATE place.
+func (c *enemyConn) lastPlace() enemyPlace {
+	c.placeMu.Lock()
+	defer c.placeMu.Unlock()
+	return c.place
+}
+
+// live reports whether c sent a PSTATE within EnemyPStateStale of now.
+func (c *enemyConn) live(now time.Time) bool {
+	p := c.lastPlace()
+	return !p.at.IsZero() && now.Sub(p.at) <= EnemyPStateStale
 }
 
 // write sends one frame under sendMu, bounded by the server's write
@@ -219,6 +300,8 @@ func (s *Server) allocEnemyIDLocked() (id byte, ok bool) {
 func (s *Server) handleEnemy(conn net.Conn, name string, role byte) {
 	c := &enemyConn{name: name, role: role, conn: conn, srv: s, done: make(chan struct{})}
 	s.mu.Lock()
+	s.enemySeq++
+	c.seq = s.enemySeq
 	stopping := s.stopping()
 	var id byte
 	var ok, taken bool
@@ -308,12 +391,26 @@ func (s *Server) handleEnemy(conn net.Conn, name string, role byte) {
 }
 
 // relayEnemy forwards one well-shaped MsgEnemy payload from c by role:
-// a STATE to every enemy client; a HIT, PACK or PSTATE to the host,
-// stamped with c's ID (and a HIT and PSTATE with c's player id); an ACK or
-// PHIT to the client it names. A recipient whose write fails is closed,
-// which ends its handleEnemy.
+// a STATE to every enemy client (thinned for one in another place: relay
+// scoping, above); a HIT, PACK or PSTATE to the host, stamped with c's ID
+// (and a HIT and PSTATE with c's player id while c holds its name: origin
+// binding, above); an ACK or PHIT to the client it names. A recipient
+// whose write fails is closed, which ends its handleEnemy.
 func (s *Server) relayEnemy(c *enemyConn, data []byte) {
-	var to []*enemyConn
+	type out struct {
+		ec   *enemyConn
+		data []byte
+	}
+	var to []out
+	now := s.now()
+	if data[0] == EnemySubPState {
+		var p enemyPlace
+		copy(p.stage[:], data[EnemyPStateStageOff:EnemyPStateStageOff+EnemyStageLen])
+		p.room, p.loading, p.at = data[EnemyPStateRoomOff], data[EnemyPStateFlagsOff]&EnemyPSLoading != 0, now
+		c.placeMu.Lock()
+		c.place = p
+		c.placeMu.Unlock()
+	}
 	s.mu.RLock()
 	if c.role == RoleEnemyHost && s.enemyHost != c {
 		s.mu.RUnlock()
@@ -321,31 +418,83 @@ func (s *Server) relayEnemy(c *enemyConn, data []byte) {
 	}
 	switch data[0] {
 	case EnemySubState:
+		data[EnemyStateFlagsOff] &^= EnemyStateFlagThin
+		var thin []byte
+		full, thinned := 0, 0
 		for _, ec := range s.enemyClients {
-			to = append(to, ec)
+			if !s.scope || !stateOutOfPlace(data, ec.lastPlace(), now) {
+				to = append(to, out{ec, data})
+				full++
+				continue
+			}
+			if thin == nil {
+				thin = append([]byte(nil), data[:EnemyStateHeaderLen]...)
+				thin[EnemyStateCountOff] = 0
+				thin[EnemyStateFlagsOff] |= EnemyStateFlagThin
+			}
+			to = append(to, out{ec, thin})
+			thinned++
 		}
+		s.countScope(func(st *ScopeStats) {
+			st.StatesFull += full
+			st.StatesThinned += thinned
+			st.StateBytesSent += int64(full*(len(data)+3) + thinned*(EnemyStateHeaderLen+3))
+			st.StateBytesSaved += int64(thinned * (len(data) - EnemyStateHeaderLen))
+		})
 	case EnemySubHit, EnemySubPAck, EnemySubPState:
 		if s.enemyHost != nil {
 			data[EnemyClientIDOff] = c.id
+			var pid byte
+			if data[0] != EnemySubPAck && s.enemyHoldsNameLocked(c, now) {
+				pid = s.enemyPlayerIDLocked(c.name)
+			}
 			switch data[0] {
 			case EnemySubHit:
-				data[EnemyHitPlayerIDOff] = s.enemyPlayerIDLocked(c.name)
+				data[EnemyHitPlayerIDOff] = pid
 			case EnemySubPState:
-				data[EnemyPStatePlayerIDOff] = s.enemyPlayerIDLocked(c.name)
+				data[EnemyPStatePlayerIDOff] = pid
 			}
-			to = append(to, s.enemyHost)
+			to = append(to, out{s.enemyHost, data})
 		}
 	case EnemySubAck, EnemySubPHit:
 		if ec, ok := s.enemyClients[data[EnemyClientIDOff]]; ok {
-			to = append(to, ec)
+			to = append(to, out{ec, data})
 		}
 	}
 	s.mu.RUnlock()
-	for _, ec := range to {
-		if err := ec.write(MsgEnemy, data); err != nil {
-			ec.close()
+	for _, o := range to {
+		if err := o.ec.write(MsgEnemy, o.data); err != nil {
+			o.ec.close()
 		}
 	}
+}
+
+// stateOutOfPlace reports whether a STATE (data, well-shaped) goes thinned
+// to an enemy client last at p: the STATE is in scope (not a keepalive)
+// and has slots, and p is a fresh, not-loading PSTATE place naming another
+// stage or room.
+func stateOutOfPlace(data []byte, p enemyPlace, now time.Time) bool {
+	if data[EnemyStateFlagsOff]&EnemyStateFlagInScope == 0 || len(data) == EnemyStateHeaderLen {
+		return false // a keepalive, or nothing to save
+	}
+	if p.at.IsZero() || now.Sub(p.at) > EnemyPStateStale || p.loading {
+		return false
+	}
+	return !bytes.Equal(p.stage[:], data[EnemyStateStageOff:EnemyStateStageOff+EnemyStageLen]) || p.room != data[EnemyStateRoomOff]
+}
+
+// enemyHoldsNameLocked reports whether enemy client c holds its name for
+// the player-id stamp (origin binding, above): no other enemy client under
+// the same lobbyKey registered before it and is live. The caller holds
+// s.mu.
+func (s *Server) enemyHoldsNameLocked(c *enemyConn, now time.Time) bool {
+	key := lobbyKey(c.name)
+	for _, o := range s.enemyClients {
+		if o != c && o.seq < c.seq && lobbyKey(o.name) == key && o.live(now) {
+			return false
+		}
+	}
+	return true
 }
 
 // enemyPlayerIDLocked is the id of the player connection an enemy

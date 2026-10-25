@@ -41,6 +41,19 @@ type RemotePlayer struct {
 	// playercolor.ForID.
 	Color    playercolor.Color
 	HasColor bool
+	// Place is where the remote's game is, from the place trailer of its
+	// last position (place.go), as of PlaceAt. HasPlace is false while
+	// its positions carry none (a sender or server from before the
+	// trailer, or a sender whose game is between stages).
+	Place    Place
+	HasPlace bool
+	PlaceAt  time.Time
+}
+
+// PlaceFresh reports whether the remote's place is known at now: a place
+// is believed for PlaceStale, as the server believes it.
+func (rp *RemotePlayer) PlaceFresh(now time.Time) bool {
+	return rp.HasPlace && !rp.PlaceAt.IsZero() && now.Sub(rp.PlaceAt) <= PlaceStale && rp.Place.Stage != ""
 }
 
 // TunicColor is the color to draw this remote's tunic in: the server's
@@ -370,6 +383,13 @@ func (c *Client) SendPosition(pos *PlayerPosition) error {
 	return c.send(MsgPosition, pos.Serialize())
 }
 
+// SendPositionAt sends the local player's position with its place
+// trailer (place.go): the server scopes this player's pose relays by it
+// and relays it with the position.
+func (c *Client) SendPositionAt(pos *PlayerPosition, p Place) error {
+	return c.send(MsgPosition, AppendPlace(pos.Serialize(), p))
+}
+
 // SendChat sends a chat message to the server. Text over MaxChatLen bytes is
 // refused here, since the server would drop it.
 func (c *Client) SendChat(message string) error {
@@ -470,14 +490,18 @@ func (c *Client) readLoop(conn net.Conn) {
 		case MsgPosition:
 			playerID, pos := ParsePositionMessage(msg.Data)
 			if pos != nil {
+				place, hasPlace := ParsePositionPlace(msg.Data)
+				now := time.Now()
 				c.mu.Lock()
-				if rp, ok := c.remotes[playerID]; ok {
-					rp.Position = pos
-				} else {
-					c.remotes[playerID] = &RemotePlayer{
-						ID:       playerID,
-						Position: pos,
-					}
+				rp, ok := c.remotes[playerID]
+				if !ok {
+					rp = &RemotePlayer{ID: playerID}
+					c.remotes[playerID] = rp
+				}
+				rp.Position = pos
+				rp.Place, rp.HasPlace = place, hasPlace
+				if hasPlace {
+					rp.PlaceAt = now
 				}
 				c.mu.Unlock()
 			}

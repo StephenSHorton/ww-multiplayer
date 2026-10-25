@@ -38,7 +38,8 @@ func (b *enemyInbox) snapshot() [][]byte {
 	return append([][]byte(nil), b.got...)
 }
 
-// enemyState is a well-shaped STATE with count zero slots.
+// enemyState is a well-shaped STATE with count zero slots; tag rides in
+// the flags byte, so it must leave EnemyStateFlagThin (the server's) clear.
 func enemyState(count int, tag byte) []byte {
 	b := make([]byte, EnemyStateLen(count))
 	b[0], b[1], b[2], b[3] = EnemySubState, 4, tag, byte(count)
@@ -408,13 +409,13 @@ func TestEnemyHostSameNameReplaces(t *testing.T) {
 	if waitFor(300*time.Millisecond, func() bool { return !srv.EnemyHostConnected() }) {
 		t.Fatal("the old host's teardown cleared the new host")
 	}
-	if err := second.SendEnemy(enemyState(1, 42)); err != nil {
+	if err := second.SendEnemy(enemyState(1, 50)); err != nil {
 		t.Fatal(err)
 	}
 	if !waitFor(2*time.Second, func() bool { return in.len() == 1 }) {
 		t.Fatalf("STATE from the new host not relayed: client got %d", in.len())
 	}
-	if got := in.snapshot()[0]; got[0] != EnemySubState || got[2] != 42 {
+	if got := in.snapshot()[0]; got[0] != EnemySubState || got[2] != 50 {
 		t.Errorf("client got %x, want the new host's STATE", got)
 	}
 }
@@ -501,11 +502,11 @@ func TestEnemyFramesDroppedOnPlayerConnection(t *testing.T) {
 	go drain(h)
 	h.Write(frame(MsgEnemy, enemyState(3, 0)[:10]))
 	h.Write(frame(MsgEnemy, enemyHit(0)))
-	h.Write(frame(MsgEnemy, enemyState(1, 42)))
+	h.Write(frame(MsgEnemy, enemyState(1, 50)))
 	if !waitFor(2*time.Second, func() bool { return in.len() == 1 }) {
 		t.Fatal("the good STATE after the bad frames never arrived")
 	}
-	if got := in.snapshot()[0]; got[2] != 42 {
+	if got := in.snapshot()[0]; got[2] != 50 {
 		t.Errorf("relayed %x", got)
 	}
 	if n := strings.Count(logs.joined(), "dropping bad enemy-sync frames from host"); n != 1 {

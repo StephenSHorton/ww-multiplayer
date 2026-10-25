@@ -251,6 +251,9 @@ WW_LISTEN_HOST=<addr>                       # App only: a hosted lobby's server 
                                             #   and LAN discovery stays on it (127.0.0.1: beacons sent to, and heard on, loopback only)
 WW_LAN_PORT=<n>                             # App only: LAN discovery's UDP beacon port (default 25565; docs/10-lobby.md §10)
 WW_LAN=off                                  # App only: no LAN discovery (no beacon, no listening)
+WW_RELAY_SCOPE=off                          # Server (host, server, mp-local): no relay scoping (mods/multiplayer/net/place.go). Default on: a pose goes only to the
+                                            #   puppet-sync connections in the sender's stage (by the place trailer on its positions), never to a broadcaster; an enemy
+                                            #   STATE goes as its header alone to an enemy client whose PSTATE names another stage or room. Unknown places fail open
 WW_OWNER_KEY=<key>                          # `server` only: the lobby owner key (16-256 bytes, trimmed; --owner-key wins; with neither, `server` makes a 128-bit one and prints it once). Only a member that sends the key
                                             #   (the app's Join form, "Advanced: dedicated server owner key") can host, loopback no longer does (docs/10-lobby.md §3)
 WW_UPDATE_URL=<url>                         # Release API every update check asks (default: GitHub's latest release); tests use a fake server on 127.0.0.1

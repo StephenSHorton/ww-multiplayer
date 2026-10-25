@@ -131,6 +131,9 @@ type Feeder struct {
 	// the partner (nil: no gate); away is the gate's last decision.
 	partner *PartnerPlace
 	away    bool
+	// placeAway[id] is the per-remote stage gate's last decision for a
+	// remote whose positions carry a place (place.go, gateFor).
+	placeAway map[byte]bool
 }
 
 // NewFeeder returns a Feeder drawing into m. Remotes named selfFilter
@@ -150,6 +153,7 @@ func NewFeeder(m Mem, selfFilter string, rep log.Reporter) *Feeder {
 		announced:        map[byte]bool{},
 		parked:           map[byte]bool{},
 		badRig:           map[byte]bool{},
+		placeAway:        map[byte]bool{},
 	}
 	binary.BigEndian.PutUint32(f.one, 1)
 	for i := range f.armedEpoch {
@@ -218,6 +222,7 @@ func (f *Feeder) Connected(serverEpoch uint64) {
 		f.announced = map[byte]bool{}
 		f.parked = map[byte]bool{}
 		f.badRig = map[byte]bool{}
+		f.placeAway = map[byte]bool{}
 		f.rep.Log(log.Warn, "server restarted (epoch changed): full puppet reset")
 	}
 	log.Logf(f.rep, log.OK, "puppet-sync session %d armed (server epoch %d)", f.sessionEpoch, ep)
@@ -229,7 +234,7 @@ func (f *Feeder) Connected(serverEpoch uint64) {
 // left. ctx bounds a link slot's arming poll.
 func (f *Feeder) Feed(ctx context.Context, remotes []network.RemotePlayer, now time.Time) {
 	seen := map[byte]bool{}
-	away := f.partnerAway(remotes, now)
+	gate := f.gateFor(remotes, now)
 	for i := range remotes {
 		rp := &remotes[i]
 		if rp.Position == nil {
@@ -248,6 +253,7 @@ func (f *Feeder) Feed(ctx context.Context, remotes []network.RemotePlayer, now t
 			log.Logf(f.rep, log.Warn, "player %d (%s) sent a %d-joint pose (%d B); Link has %d joints, so it won't drive a Link slot",
 				rp.ID, rp.Name, rp.PoseJoints, len(rp.PoseMatrices), avatar.JointCount)
 		}
+		away := gate(rp)
 		idx, ok := f.actorSlot(rp, hasPose, away, now)
 		if !ok {
 			// All slots full; drop this remote for now.
@@ -429,6 +435,7 @@ func (f *Feeder) releaseGone(seen map[byte]bool) {
 			delete(f.announced, id)
 			delete(f.parked, id)
 			delete(f.badRig, id)
+			delete(f.placeAway, id)
 		}
 	}
 }

@@ -1435,6 +1435,13 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		return nil, GateSleep, c.disarm(now, fmt.Sprintf("the host's enemy kind table is another build's (hash %08X, this build's %08X)", st.KindHash, KindHash()))
 	case st.Stage != scope.Stage || st.Room != scope.Room:
 		return nil, GateSleep, c.disarm(now, fmt.Sprintf("the host is in %s room %d, this game in %s room %d", st.Stage, st.Room, scope.Stage, scope.Room))
+	case st.Flags&StateFlagThin != 0:
+		// The server thinned this STATE to its header (relay scoping:
+		// our last PSTATE named another place): it is not the host's
+		// list. We just arrived in the host's room; the next PSTATE (every
+		// PStateEvery) brings the whole STATE back. Wait for it at the
+		// normal cadence, changing nothing.
+		return nil, 0, nil
 	}
 	if len(st.Slots) == 0 && c.reloading(st) {
 		if c.emptySince.IsZero() {

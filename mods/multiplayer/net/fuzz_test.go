@@ -32,6 +32,7 @@ func seedStream() []byte {
 	s = append(s, frame(MsgWelcome, WelcomeMessage(1, 42))...)
 	s = append(s, frame(MsgPlayerList, list)...)
 	s = append(s, frame(MsgPosition, pos)...)
+	s = append(s, frame(MsgPosition, PositionPlaceMessage(2, &PlayerPosition{PosX: 1}, Place{Stage: "sea", Room: 26, InPlay: true}))...)
 	s = append(s, frame(MsgPose, PoseRelayMessage(2, 42, make([]byte, 42*48), make([]byte, 16)))...)
 	s = append(s, frame(MsgChat, ChatRelayMessage("other", "hi"))...)
 	s = append(s, frame(MsgPing, PingPayload(7))...)
@@ -272,6 +273,7 @@ func FuzzServerHandlePlayer(f *testing.F) {
 	pose := SerializePose(42, make([]byte, 42*48), make([]byte, 16))
 	var stream []byte
 	stream = append(stream, frame(MsgPosition, (&PlayerPosition{PosX: 1}).Serialize())...)
+	stream = append(stream, frame(MsgPosition, AppendPlace((&PlayerPosition{PosX: 2}).Serialize(), Place{Stage: "M_NewD2", Room: 1, InPlay: true}))...)
 	stream = append(stream, frame(MsgPose, pose)...)
 	stream = append(stream, frame(MsgChat, []byte("hi"))...)
 	stream = append(stream, frame(MsgPing, PingPayload(1))...)
