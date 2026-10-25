@@ -44,9 +44,12 @@
 // angXZero 17 and version 31, d_a_bomb.h:149-160, and change_state keeps
 // every other bit, d_a_bomb_static.cpp:103-108), field_0x6F0 cleared (else
 // its explode and delete call the local Link's decrementBombCnt,
-// d_a_bomb3.inc:846-848, :1274) and VsEnemy | VsPlayer cleared in its At
-// SPrm (option A: it breaks walls, lights torches, hits switches and sets
-// off bombs, never hurts an enemy or a player; enemy damage stays on the
+// d_a_bomb3.inc:846-848, :1274), field_0x6F1 (getBombCheck_Flag) set (no
+// Armos Knight or Gohdan swallows it: d_a_am.cpp:395, d_a_bst.cpp:1087;
+// a Knight's swallow is a Co check that kills it with no damage roll,
+// d_a_am.cpp:929-955) and VsEnemy | VsPlayer cleared in its At SPrm
+// (option A: it breaks walls, lights torches, hits switches and sets off
+// bombs, never hurts an enemy or a player; enemy damage stays on the
 // host-authoritative relay, so no hit counts twice). An arrow copy is a
 // real daArrow_c, detached (no parent), found only by the REL's own pid
 // table: an arrow's params are its state (d_a_arrow.cpp:602), so it has
@@ -66,8 +69,8 @@
 #define WWFX_STAT_SPAWNED_OFF   0x18        // u32 REL: copies made (bombs, cannonballs, arrows)
 #define WWFX_STAT_REJECTED_OFF  0x1C        // u32 REL: inbox events refused (bad values, no free entry, create failed)
 #define WWFX_STAT_DROPPED_OFF   0x20        // u32 REL: outbox events lost (Go not draining)
-#define WWFX_STAT_LOCAL_OFF     0x24        // u32 REL: copies this world took over (carried, swallowed, fuse set lower)
-#define WWFX_STAT_SWALLOW_OFF   0x28        // u32 REL: copies an Armos Knight mirror swallowed, not reported (enemy_mirror.c)
+#define WWFX_STAT_LOCAL_OFF     0x24        // u32 REL: copies this world took over during the hold (carried, caught, fuse set lower)
+#define WWFX_STAT_SWALLOW_OFF   0x28        // u32 REL: copies an Armos Knight mirror swallowed (a tripwire: 0, a copy's BombCheck flag refuses it)
 #define WWFX_STAT_CLEARED_OFF   0x2C        // u32 REL: copies deleted at a stage change
 #define WWFX_OUT_RING_OFF       0x30        // outbox events
 #define WWFX_IN_RING_OFF        0x170       // inbox events

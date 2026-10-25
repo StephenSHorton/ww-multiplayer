@@ -39,7 +39,12 @@
 //     and fuse, the ship's STATE_4 cannonball with its no-gravity frames,
 //     or a STATE_0 bomb (it explodes at create, ATTR_STATE_1) for an
 //     EXPLODE with no copy. Each has WWFX_BOMB_PRM_COPY in its params
-//     (wwfx.h: never reported back), field_0x6F0 cleared and VsEnemy |
+//     (wwfx.h: never reported back), field_0x6F0 cleared, field_0x6F1
+//     (getBombCheck_Flag) set so no Armos Knight (bomb_nomi_check,
+//     d_a_am.cpp:395) or Gohdan hand (d_a_bst.cpp:1087) swallows it (the
+//     swallow is a Co check that kills the Knight with no damage roll,
+//     d_a_am.cpp:929-955: the real bomb's swallow, in its sender's world,
+//     is the one that counts), and VsEnemy |
 //     VsPlayer cleared in its At SPrm (+0x5A0, mSph's cCcD_ObjAt; the
 //     source is GrpAll, d_a_bomb3.inc:1384, and procExplode_init only sets
 //     the Set bit, :853, so the cleared bits hold through the explosion).
@@ -49,9 +54,9 @@
 //     for FX_EXPLODE_GRACE frames past the sender's, so it explodes when
 //     the sender's EXPLODE arrives, snapped to the sender's position
 //     (procExplode_init, as theirs). Only while it is as spawned: once
-//     something here carries it, changes its state (an Armos Knight's
-//     swallow) or sets its fuse lower, it is this world's bomb and its own
-//     fuse ends it. It keeps the copy bit then (their rule; the design's
+//     something here carries it, changes its state or sets its fuse lower
+//     during the hold, it is this world's bomb and its own fuse ends it
+//     (past the hold its own fuse runs out anyway, and is not counted). It keeps the copy bit then (their rule; the design's
 //     note to clear it would make this world's tracker send it back to its
 //     sender as a new bomb), so it never hurts an enemy here either.
 //   - Arrows: a real daArrow_c, detached (no parent, so checkCreater finds
@@ -74,8 +79,10 @@
 // live bomb copies once; the copies die with the stage layer anyway.
 //
 // Enemy damage stays on the host-authoritative relay: no copy has VsEnemy,
-// so em_hits never sees a copy's hit, and the Armos Knight swallow skips
-// the report for a copy (fx_swallowed_copy).
+// so em_hits never sees a copy's hit, and no copy can be swallowed (its
+// BombCheck flag, above), neither by the host's real Armos Knight nor by
+// a client mirror (em_am_swallow_client asks the same flag);
+// fx_swallowed_copy stays as a tripwire that should never count.
 
 #include "mailbox_core.h"
 #include "wwfx.h"
@@ -139,6 +146,7 @@ typedef void (*fx_rot_t)(void* m, s16 x, s16 y, s16 z);
 #define SHIP_SHOOT_CANNON    0x00020000 // daSFLG_SHOOT_CANNON_e (d_a_ship.h:38)
 #define BOMB_AT_SPRM         0x5A0   // daBomb_c mSph (d_a_bomb.h:205) cCcD_ObjAt.mSPrm
 #define BOMB_OWNED_BY_LINK   0x6F0   // u8 field_0x6F0 (:214)
+#define BOMB_CHECK_FLAG      0x6F1   // u8 field_0x6F1 = getBombCheck_Flag (:215, d_a_bomb_static.cpp:22-33)
 #define BOMB_REST_TIME       0x6FC   // s16 mRestTime (:223)
 #define BOMB_NO_GRAVITY      0x700   // s16 mNoGravityTime (:225)
 #define BOMB2_STATE          0x694   // int daBomb2::Act_c mState (d_a_bomb2.h:203)
@@ -219,7 +227,7 @@ typedef struct {
 static fx_track l_fx_track[FX_TRACK_MAX];
 static fx_copy l_fx_copy[FX_COPY_MAX];
 static u32 l_fx_arrow;      // the local Link's nocked arrow, 0 = none
-static u8 l_fx_linked;      // the read words were adopted
+static u8 l_fx_linked;      // armed: the read words were adopted
 static u8 l_fx_stage;       // this stage change was handled
 
 static int fx_mem1(u32 p) {
@@ -458,6 +466,7 @@ static u32 fx_spawn(u32 prm, cXyz* pos, csXyz* angle) {
     u32 a = fx_create(PROC_BOMB, prm | WWFX_BOMB_PRM_COPY, pos, angle);
     if (!a) return 0;
     FX_AF(a, u8, BOMB_OWNED_BY_LINK) = 0;
+    FX_AF(a, u8, BOMB_CHECK_FLAG) = 1;  // swallowed by nothing (see the top)
     FX_AF(a, u32, BOMB_AT_SPRM) &= ~(u32)CC_AT_VS_ENEMY_PLAYER;
     FX_W(WWFX_STAT_SPAWNED_OFF)++;
     return a;
@@ -489,7 +498,10 @@ static int fx_spawn_arrow(const fx_event* e) {
     FX_ARROW_KEEP_TYPE = keep;
     if (!a) return 0;
     model = FX_AF(a, u32, ARROW_MODEL);
-    if (!fx_mem1(model)) return 0;
+    if (!fx_mem1(model)) {
+        fopAcM_deleteByID(FX_AF(a, u32, AC_PROC_ID));  // not left in the local Link's hand
+        return 0;
+    }
     FX_AF(a, cXyz, AC_CUR_POS) = pos;
     FX_AF(a, cXyz, AC_OLD_POS) = pos;
     FX_AF(a, s16, AC_CUR_ANGLE) = e->angle.x;  // up is +x here, as setKeepMatrix sets it (d_a_arrow.cpp:552)
@@ -673,9 +685,11 @@ static void fx_update_copies(void) {
             c->age = 0;
             continue;
         }
-        if (c->cannon || c->local) continue;
-        // Taken over here: carried, swallowed or caught (an enemy changes
-        // its state), or its fuse set lower than the hold leaves it.
+        // Past the hold its own fuse runs out (3, 2, 1): not a takeover.
+        // A carry that late is not counted either.
+        if (c->cannon || c->local || (s32)c->age >= c->hold) continue;
+        // Taken over here: carried or caught (an enemy changes its
+        // state), or its fuse set lower than the hold leaves it.
         rest = FX_AF(a, s16, BOMB_REST_TIME);
         if ((FX_AF(a, u32, AC_STATUS) & AC_STTS_CARRY) ||
             (FX_AF(a, u32, AC_PARAMS) & BOMB_PRM_STATE_MASK) != BOMB_STATE_LIT || rest < FX_HOLD_FUSE - 1) {
@@ -684,7 +698,7 @@ static void fx_update_copies(void) {
             continue;
         }
         // Wait for the sender's explosion.
-        if ((s32)c->age < c->hold && rest < FX_HOLD_FUSE) FX_AF(a, s16, BOMB_REST_TIME) = FX_HOLD_FUSE;
+        if (rest < FX_HOLD_FUSE) FX_AF(a, s16, BOMB_REST_TIME) = FX_HOLD_FUSE;
     }
 }
 
@@ -719,10 +733,22 @@ void fx_link(void) {
 void fx_frame(void) {
     u32 link = FX_LINK;
     u32 r, w;
-    int n;
+    int n, send, recv;
+    send = FX_W(WWFX_SEND_MAGIC_OFF) == WWFX_MAGIC;
+    recv = FX_W(WWFX_RECV_MAGIC_OFF) == WWFX_MAGIC;
+    if (!send && !recv) {
+        // Off: the block is not written at all (P0 off is vanilla). A
+        // session that just ended takes its copies with it, and the next
+        // arm adopts the read words again.
+        if (l_fx_linked) {
+            fx_stage_clear();
+            l_fx_linked = 0;
+        }
+        return;
+    }
     if (!l_fx_linked) {
-        // The slack outlives the module: nothing written before this link
-        // is sent or spawned.
+        // The slack outlives the module and the last session: nothing
+        // written before this arm is sent or spawned.
         FX_W(WWFX_OUT_WRITE_OFF) = FX_W(WWFX_OUT_READ_OFF);
         FX_W(WWFX_IN_READ_OFF) = FX_W(WWFX_IN_WRITE_OFF);
         l_fx_linked = 1;
@@ -744,7 +770,7 @@ void fx_frame(void) {
 
     r = FX_W(WWFX_IN_READ_OFF);
     w = FX_W(WWFX_IN_WRITE_OFF);
-    if (FX_W(WWFX_RECV_MAGIC_OFF) != WWFX_MAGIC) {
+    if (!recv) {
         r = w;
     } else {
         if (w - r > WWFX_RING) r = w - WWFX_RING;  // (Go never overruns the ring; if it did, the oldest are lost)
@@ -753,7 +779,7 @@ void fx_frame(void) {
     }
     FX_W(WWFX_IN_READ_OFF) = r;
 
-    if (FX_W(WWFX_SEND_MAGIC_OFF) == WWFX_MAGIC)
+    if (send)
         fx_track_local(link);
     else
         fx_track_clear();

@@ -204,6 +204,7 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 			_ = vis.Write(d, vissync.Build(visSettings, remotes, feeder.LinkSlots(), selfFilter))
 
 			if fxSettings.On && fxRecv.Arm(d, true) == nil {
+				fxRecv.SetEpoch(client.ServerEpoch())
 				_ = fxRecv.Flush(d, remotes, selfFilter, now)
 				fxLog.every(rep, fxRecv.Summary(), now)
 			}

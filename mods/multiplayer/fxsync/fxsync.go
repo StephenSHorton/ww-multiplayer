@@ -298,6 +298,7 @@ type Receiver struct {
 	queue []queued
 	seen  map[byte]uint32 // per sender ID: the last seq taken
 	names map[byte]string // per sender ID: the name its seq belongs to
+	epoch uint64          // the server epoch seen and names belong to
 
 	Written int
 	Dropped map[string]int // by reason, plus "repeat", "self", "stale", "queue full"
@@ -319,6 +320,23 @@ func (r *Receiver) Push(sender byte, e network.FxEvent, now time.Time) {
 	r.queue = append(r.queue, queued{from: sender, e: e, at: now})
 }
 
+// SetEpoch forgets every sender's seq (and the queue) when the server's
+// epoch changes: a restarted server hands out its IDs from 1 again, and a
+// sender whose app restarted with it counts its seq from 1 again under
+// the same ID and name, so its events would all read as repeats. Called
+// with client.ServerEpoch() before each Flush.
+func (r *Receiver) SetEpoch(epoch uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if epoch == r.epoch {
+		return
+	}
+	r.epoch = epoch
+	r.queue = r.queue[:0]
+	clear(r.seen)
+	clear(r.names)
+}
+
 // Arm writes the recv word: FxMagic when on, else 0 (then the REL
 // discards the inbox).
 func (r *Receiver) Arm(m mem.Mem, on bool) error {
@@ -334,17 +352,25 @@ func (r *Receiver) Arm(m mem.Mem, on bool) error {
 
 // Flush writes the queued events that pass into the inbox, as far as it
 // has room; the rest wait (until MaxAge). remotes names each sender ID
-// (a sender's seq starts over when its ID names someone else), self is
-// puppet-sync's self-filter name (its twin's events are its own game's).
+// (a sender's seq starts over when its ID names someone else, or once
+// its ID has left remotes: a sender that leaves and comes back, under the
+// same ID and name, counts from 1 again), self is puppet-sync's
+// self-filter name (its twin's events are its own game's).
 func (r *Receiver) Flush(m mem.Mem, remotes []network.RemotePlayer, self string, now time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if len(r.queue) == 0 {
-		return nil
-	}
 	names := make(map[byte]string, len(remotes))
 	for _, rp := range remotes {
 		names[rp.ID] = rp.Name
+	}
+	for id := range r.seen {
+		if _, ok := names[id]; !ok {
+			delete(r.seen, id)
+			delete(r.names, id)
+		}
+	}
+	if len(r.queue) == 0 {
+		return nil
 	}
 	if !relLinked(m) {
 		r.drop(len(r.queue), DropNotReady)

@@ -260,6 +260,91 @@ func TestReceiverFlush(t *testing.T) {
 	}
 }
 
+// TestReceiverSenderRestart: a sender that starts its seq over under the
+// same ID and name is not dropped as a repeat once the server's epoch
+// changed (the host restarted the app, and with it the server and its
+// broadcast-pose), or once its ID left the remotes and came back; with
+// the same epoch and the ID present throughout, a repeat still is one.
+func TestReceiverSenderRestart(t *testing.T) {
+	m := game(t, "M_NewD2", 3)
+	r := NewReceiver()
+	if err := r.Arm(m, true); err != nil {
+		t.Fatal(err)
+	}
+	host := []network.RemotePlayer{{ID: 1, Name: "host"}}
+	now := time.Unix(100, 0)
+	ev := func(seq uint32) network.FxEvent {
+		return network.FxEvent{Seq: seq, Kind: mailbox.FxKindBombThrow, Room: 3, Stage: "M_NewD2", ID: 100 + seq, Timer: 60}
+	}
+	flush := func(remotes []network.RemotePlayer) {
+		t.Helper()
+		if err := r.Flush(m, remotes, "me", now); err != nil {
+			t.Fatal(err)
+		}
+		// The REL takes every event at once.
+		if err := m.Store(mailbox.FxAddr+mailbox.FxInReadOff, u32(word(t, m, mailbox.FxInWriteOff))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run := func(from, to uint32) { // in ring-sized batches
+		t.Helper()
+		for seq := from; seq <= to; seq++ {
+			r.Push(1, ev(seq), now)
+			if (seq-from+1)%mailbox.FxRing == 0 || seq == to {
+				flush(host)
+			}
+		}
+	}
+
+	r.SetEpoch(7)
+	run(1, 30)
+	if r.Written != 30 {
+		t.Fatalf("%d written, want 30", r.Written)
+	}
+
+	// (c) same epoch, ID 1 present throughout: seq 5 again is a repeat.
+	r.Push(1, ev(5), now)
+	flush(host)
+	if r.Written != 30 || r.Dropped["repeat"] != 1 {
+		t.Fatalf("a repeat in the same session: %d written, %v", r.Written, r.Dropped)
+	}
+
+	// (a) the server restarted (a new epoch): ID 1 is "host" again and
+	// its seq starts at 1.
+	r.SetEpoch(8)
+	r.Push(1, ev(1), now)
+	flush(host)
+	if r.Written != 31 || r.Dropped["repeat"] != 1 {
+		t.Errorf("after a new epoch: %d written, %v (the restarted sender's seq 1 was dropped)", r.Written, r.Dropped)
+	}
+	r.SetEpoch(8) // the same epoch again forgets nothing
+	r.Push(1, ev(1), now)
+	flush(host)
+	if r.Dropped["repeat"] != 2 {
+		t.Errorf("the same epoch again forgot the seq: %v", r.Dropped)
+	}
+
+	// (b) same epoch: ID 1 leaves the remotes for a Flush with nothing
+	// queued, then comes back under the same name counting from 1.
+	run(2, 20)
+	flush(nil)
+	written := r.Written
+	r.Push(1, ev(1), now)
+	flush(host)
+	if r.Written != written+1 || r.Dropped["repeat"] != 2 {
+		t.Errorf("a sender that left and came back: %d written (want %d), %v", r.Written, written+1, r.Dropped)
+	}
+
+	// A new epoch drops what was queued for the old one.
+	r.Push(1, ev(2), now)
+	r.SetEpoch(9)
+	flush(host)
+	if r.Written != written+1 {
+		t.Errorf("an old epoch's queued event was written: %d", r.Written)
+	}
+}
+
 // TestReceiverQueueCap: a flood past QueueMax is dropped at Push.
 func TestReceiverQueueCap(t *testing.T) {
 	r := NewReceiver()
