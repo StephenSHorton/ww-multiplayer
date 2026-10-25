@@ -107,6 +107,12 @@ func (rr *relayRig) retry() {
 // TestParseRefresh: the token set, dry, none and the default; dry with no
 // proc is refused (it would leave the relay off and log nothing).
 func TestParseRefresh(t *testing.T) {
+	var all []uint16
+	for _, p := range refreshProcs {
+		if p.pending == "" {
+			all = append(all, p.proc)
+		}
+	}
 	for _, c := range []struct {
 		v     string
 		procs []uint16
@@ -115,8 +121,12 @@ func TestParseRefresh(t *testing.T) {
 	}{
 		{"", nil, false, false},
 		{"none", nil, false, false},
-		{RefreshTokens, []uint16{mailbox.RefreshProcStone2, mailbox.RefreshProcLeaves, mailbox.RefreshProcItem, mailbox.RefreshProcTbox, mailbox.RefreshProcSaku}, false, false},
+		{RefreshTokens, all, false, false},
+		{"stone2,leaves,item,tbox,saku", []uint16{mailbox.RefreshProcStone2, mailbox.RefreshProcLeaves, mailbox.RefreshProcItem, mailbox.RefreshProcTbox, mailbox.RefreshProcSaku}, false, false},
 		{" Stone2 ,dry", []uint16{mailbox.RefreshProcStone2}, true, false},
+		{"swhit0,WARPT,vmc", []uint16{mailbox.RefreshProcSwhit0, mailbox.RefreshProcWarpt, mailbox.RefreshProcVmc}, false, false},
+		{"tbox,door10", nil, false, true}, // pending ST1
+		{"door12,dry", nil, false, true},
 		{"dry", nil, false, true},
 		{" DRY ", nil, false, true},
 		{"stone2,door", nil, false, true},
@@ -209,9 +219,10 @@ func TestRefreshRelayStone2(t *testing.T) {
 }
 
 // TestRefreshRelayFinal: each final answer ends the asking for its actor
-// (bit not set, mismatch, refused, fingerprint miss).
+// (bit not set, mismatch, refused, fingerprint miss, already in its set
+// state).
 func TestRefreshRelayFinal(t *testing.T) {
-	for _, r := range []uint8{mailbox.RefreshRNotSet, mailbox.RefreshRMismatch, mailbox.RefreshRRefused, mailbox.RefreshRFpMiss} {
+	for _, r := range []uint8{mailbox.RefreshRNotSet, mailbox.RefreshRMismatch, mailbox.RefreshRRefused, mailbox.RefreshRFpMiss, mailbox.RefreshRInState} {
 		t.Run(mailbox.RefreshResultName(r), func(t *testing.T) {
 			rr := newRelayRig(t, "stone2", -1, true, refreshStone2())
 			rr.landSwitch(refreshSw)
@@ -229,6 +240,125 @@ func TestRefreshRelayFinal(t *testing.T) {
 				t.Fatalf("status %+v", st)
 			}
 		})
+	}
+}
+
+// refreshSwhit0 is an untimed crystal switch of room 1 whose switch is
+// refreshSw (getSwNo (u8)params, getTimer (u8)(params >> 20) 0xFF = 0,
+// d_a_swhit0.cpp:73-96).
+func refreshSwhit0() fakegame.Enemy {
+	return fakegame.Enemy{Stage: drc.Name, Room: 1, SetID: addr.ActorSetIDNone, Proc: stage.Proc(mailbox.RefreshProcSwhit0),
+		Params: 0x0FF0FF00 | refreshSw, Pos: far}
+}
+
+// TestRefreshRelayRecreate: a row whose create builds its set state (the
+// crystal switch) is asked for by its token, logged as a re-create, and a
+// RECREATED answer ends the asking for that pid, counts as applied and
+// re-created, and logs the new pid; CREATE_FAILED counts as applied only.
+func TestRefreshRelayRecreate(t *testing.T) {
+	for _, c := range []struct {
+		r         uint8
+		recreated int
+		line      string
+	}{
+		{mailbox.RefreshRRecreated, 1, "new pid 4660"},
+		{mailbox.RefreshRCreateFailed, 0, "gone until its room reloads"},
+	} {
+		t.Run(mailbox.RefreshResultName(c.r), func(t *testing.T) {
+			rr := newRelayRig(t, "swhit0", -1, true, refreshSwhit0())
+			rr.landSwitch(refreshSw)
+			rr.ticks(2)
+			q := rr.request()
+			b, _ := rr.es.Of(0)
+			want := mailbox.RefreshRequest{Seq: q.Seq, Proc: mailbox.RefreshProcSwhit0, PID: b.PID, Params: refreshSwhit0().Params, Room: 1,
+				BitKind: mailbox.RefreshBitSw, BitNo: refreshSw}
+			if q.Seq == 0 || q != want {
+				t.Fatalf("request %+v, want %+v; log:\n%s", q, want, rr.log)
+			}
+			if n := rr.log.count("asking the REL to re-create the stale Swhit0"); n != 1 {
+				t.Fatalf("ask logged %d times:\n%s", n, rr.log)
+			}
+			var pid [4]byte
+			binary.BigEndian.PutUint32(pid[:], 0x1234)
+			rr.store(mailbox.RefreshAddr+mailbox.RefreshNewPIDOff, pid[:])
+			rr.rel(q.Seq, c.r, 0)
+			rr.ticks(1)
+			for range 4 {
+				rr.retry()
+			}
+			if s := rr.request().Seq; s != q.Seq {
+				t.Fatalf("asked again (%d) after %s", s, mailbox.RefreshResultName(c.r))
+			}
+			st := rr.r.Status().Refresh.Actors
+			if st.Applied != 1 || st.Recreated != c.recreated || st.Result != mailbox.RefreshResultName(c.r) {
+				t.Fatalf("status %+v", st)
+			}
+			if !rr.log.has(c.line) {
+				t.Fatalf("no %q:\n%s", c.line, rr.log)
+			}
+		})
+	}
+}
+
+// TestRefreshRowDecode: each row's switch as refresh.c rf_derive_row
+// derives it, and what the REL refuses is no candidate (a timed crystal
+// switch, a warp jar of type 1 or 2..4 or with a zone switch, a DOOR12 of
+// arg1 8, no switch); the key-door rows are no candidates while pending.
+func TestRefreshRowDecode(t *testing.T) {
+	m := mem.NewFakeMem()
+	for _, c := range []struct {
+		name   string
+		a      actors.Actor
+		ok     bool
+		no     uint16
+		redo   bool
+		doorRm bool
+	}{
+		{"wall", actors.Actor{Proc: int16(mailbox.RefreshProcWall), Params: 0x0000012A, HomeRoom: 3}, true, 0x2A, false, false},
+		{"wall none", actors.Actor{Proc: int16(mailbox.RefreshProcWall), Params: 0x000001FF, HomeRoom: 3}, false, 0, false, false},
+		{"mkie", actors.Actor{Proc: int16(mailbox.RefreshProcMkie), Params: 0x00451000, HomeRoom: 3}, true, 0x45, false, false},
+		{"vmc", actors.Actor{Proc: int16(mailbox.RefreshProcVmc), Params: 0xFFFF33FF, HomeRoom: 3}, true, 0x33, true, false},
+		{"mflft", actors.Actor{Proc: int16(mailbox.RefreshProcMflft), Params: 0x21FFFF01, HomeRoom: 3}, true, 0x21, true, false},
+		{"kokiie", actors.Actor{Proc: int16(mailbox.RefreshProcKokiie), Params: 0x2FFFFF00, HomeRoom: 5}, true, 0x2F, true, false},
+		{"swhit0 untimed 0", actors.Actor{Proc: int16(mailbox.RefreshProcSwhit0), Params: 0x00000010, HomeRoom: 3}, true, 0x10, true, false},
+		{"swhit0 timed", actors.Actor{Proc: int16(mailbox.RefreshProcSwhit0), Params: 0x00500010, HomeRoom: 3}, false, 0, false, false},
+		{"warpt", actors.Actor{Proc: int16(mailbox.RefreshProcWarpt), Params: 0x00000000, HomeAngle: [3]int16{0x0718, 0, 0}, HomeRoom: 3}, true, 0x18, true, false},
+		{"warpt type 1", actors.Actor{Proc: int16(mailbox.RefreshProcWarpt), Params: 0x00000001, HomeAngle: [3]int16{0x0718, 0, 0}, HomeRoom: 3}, false, 0, false, false},
+		{"warpt sp", actors.Actor{Proc: int16(mailbox.RefreshProcWarpt), Params: 0x00000003, HomeAngle: [3]int16{0x0718, 0, 0}, HomeRoom: 3}, false, 0, false, false},
+		{"warpt zone", actors.Actor{Proc: int16(mailbox.RefreshProcWarpt), Params: 0x00000000, HomeAngle: [3]int16{0x07C5, 0, 0}, HomeRoom: 3}, false, 0, false, false},
+		{"door10 pending", actors.Actor{Proc: int16(mailbox.RefreshProcDoor10), Params: 0x00000020, HomeRoom: -1}, false, 0, false, false},
+		{"tbox", actors.Actor{Proc: int16(mailbox.RefreshProcTbox), Params: 3 << mailbox.RefreshTboxBitShift, HomeRoom: 3}, true, 3, true, false},
+		{"stone2", actors.Actor{Proc: int16(mailbox.RefreshProcStone2), Params: 0x00001100, HomeRoom: 3}, true, 0x11, false, false},
+	} {
+		got, ok, err := refreshDecode(m, &c.a, 0)
+		if err != nil || ok != c.ok {
+			t.Fatalf("%s: ok %v err %v, want %v", c.name, ok, err, c.ok)
+		}
+		if !ok {
+			continue
+		}
+		if got.bitKind != mailbox.RefreshBitSw && got.bitKind != mailbox.RefreshBitTbox || got.bitNo != c.no || got.recreate != c.redo || got.doorRooms != c.doorRm {
+			t.Fatalf("%s: %+v, want bit 0x%02X recreate %v", c.name, got, c.no, c.redo)
+		}
+		if v := got.verb(); (v == "re-create") != c.redo {
+			t.Fatalf("%s: verb %q", c.name, v)
+		}
+	}
+	// The door rows decode once the define is flipped (refreshRowBit):
+	// memory switches only, DOOR12's arg1 8 refused.
+	d10 := refreshProcOf(mailbox.RefreshProcDoor10)
+	if no, ok := refreshRowBit(d10, &actors.Actor{Proc: int16(mailbox.RefreshProcDoor10), Params: 0x20}); !ok || no != 0x20 {
+		t.Fatalf("door10 sw 0x20: %d %v", no, ok)
+	}
+	if _, ok := refreshRowBit(d10, &actors.Actor{Proc: int16(mailbox.RefreshProcDoor10), Params: 0x85}); ok {
+		t.Fatal("door10 took a dan switch")
+	}
+	d12 := refreshProcOf(mailbox.RefreshProcDoor12)
+	if _, ok := refreshRowBit(d12, &actors.Actor{Proc: int16(mailbox.RefreshProcDoor12), Params: 0x20, HomeAngle: [3]int16{0, 0, 0x0800}}); ok {
+		t.Fatal("door12 took arg1 8")
+	}
+	if mailbox.RefreshDoorRows != 0 || d10.pending == "" || d12.pending == "" || strings.Contains(RefreshTokens, "door1") {
+		t.Fatal("the key-door rows are on while ST1 is pending")
 	}
 }
 
@@ -624,6 +754,9 @@ func TestRefreshGuardRules(t *testing.T) {
 		return r
 	}
 	for _, p := range refreshProcs {
+		if p.pending != "" {
+			continue
+		}
 		req := mailbox.RefreshRequest{Seq: 7, Proc: p.proc, PID: 0xDEADBEEF, Params: 0xFFFFFFFF, Room: -1, BitKind: mailbox.RefreshBitItem, BitNo: 0xFFFF}
 		body, seq := req.Fields()
 		for i, b := range body {
@@ -646,6 +779,8 @@ func TestRefreshGuardRules(t *testing.T) {
 		{"Link's proc low byte 0xA9", mailbox.RefreshProcOff + 1, 0xA9},
 		{"the keeper's 0xB5", mailbox.RefreshProcOff + 1, 0xB5},
 		{"Gohdan's 0xF2", mailbox.RefreshProcOff + 1, 0xF2},
+		{"DOOR10's 0x2E (pending ST1)", mailbox.RefreshProcOff + 1, byte(mailbox.RefreshProcDoor10 & 0xFF)},
+		{"DOOR12's 0x2F (pending ST1)", mailbox.RefreshProcOff + 1, byte(mailbox.RefreshProcDoor12 & 0xFF)},
 		{"proc high byte 0x02", mailbox.RefreshProcOff, 0x02},
 		{"another tag", mailbox.RefreshTagOff + 1, 'X'},
 		{"bit kind 0", mailbox.RefreshBitKindOff, 0},
@@ -655,7 +790,7 @@ func TestRefreshGuardRules(t *testing.T) {
 			t.Errorf("%s: %v, want a value refusal", c.name, r)
 		}
 	}
-	if g.Allows(at+mailbox.RefreshAckOff, 8) || g.Mask(at+mailbox.RefreshAckOff) != 0 || g.Mask(at+mailbox.RefreshReservedOff) != 0 {
+	if g.Allows(at+mailbox.RefreshAckOff, 8) || g.Mask(at+mailbox.RefreshAckOff) != 0 || g.Mask(at+mailbox.RefreshNewPIDOff) != 0 {
 		t.Fatal("the REL's ack, result or reserved word is in the allowlist")
 	}
 	if NewGuardFor(M3Targets|M4Targets|M5Targets|M6Targets|RefreshTargets|TargetEscape|TargetBoss).Allows(at, 4) {

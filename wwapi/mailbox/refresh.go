@@ -14,7 +14,8 @@ import (
 // partner set has landed here and this game still runs the actor it
 // placed before the bit; the REL module (inject/rel/refresh.c) re-derives
 // and re-reads the bit, runs the generic and per-proc gates, and deletes
-// the actor. 0x20 bytes at Mailbox+RefreshOff, right after the enemy knob
+// the actor, or for a class whose create builds it in its set state
+// deletes it and creates it again (RefreshRRecreated, review idea 11). 0x20 bytes at Mailbox+RefreshOff, right after the enemy knob
 // table; P0-L5 proved no game code writes them. Design:
 // ww-multiplayer-handoff/design/enemy-mirror-batch-d.json R-D4, R-D5,
 // D4-D7, "actor_refresh"; research/stale-actor-refresh.md Tier 3.
@@ -25,21 +26,21 @@ import (
 const (
 	RefreshEnable = 1 // WWREFRESH_ENABLE, the REL's compile switch
 
-	RefreshOff         uint32 = 0x8B0  // request start, from Mailbox (0x804137B0)
-	RefreshSize        uint32 = 0x20   // ends at +0x8D0, where the visuals block starts (vis.go VisOff)
-	RefreshSlackEnd    uint32 = 0x1100 // the free slack's end (wwremote.h)
-	RefreshSeqOff             = 0x00   // u32 request seq, never 0 (Go)
-	RefreshProcOff            = 0x04   // u16 the actor's proc (Go)
-	RefreshTagOff             = 0x06   // u16 RefreshTag (Go)
-	RefreshPIDOff             = 0x08   // u32 the actor's process id (Go)
-	RefreshParamsOff          = 0x0C   // u32 its params +0xB0 (Go)
-	RefreshRoomOff            = 0x10   // s8 its home room +0x1E2 (Go)
-	RefreshBitKindOff         = 0x11   // u8 RefreshBit* (Go)
-	RefreshBitNoOff           = 0x12   // u16 the bit's number (Go)
-	RefreshAckOff             = 0x14   // u32 the seq last consumed (REL)
-	RefreshResultOff          = 0x18   // u32 BE: byte +0 RefreshR*, +1 RefreshGate* (GATE only), +2..+3 the proc's state (REL)
-	RefreshReservedOff        = 0x1C   // u32 0
-	RefreshGoSpan             = 0x14   // bytes Go writes: seq .. bit no
+	RefreshOff        uint32 = 0x8B0  // request start, from Mailbox (0x804137B0)
+	RefreshSize       uint32 = 0x20   // ends at +0x8D0, where the visuals block starts (vis.go VisOff)
+	RefreshSlackEnd   uint32 = 0x1100 // the free slack's end (wwremote.h)
+	RefreshSeqOff            = 0x00   // u32 request seq, never 0 (Go)
+	RefreshProcOff           = 0x04   // u16 the actor's proc (Go)
+	RefreshTagOff            = 0x06   // u16 RefreshTag (Go)
+	RefreshPIDOff            = 0x08   // u32 the actor's process id (Go)
+	RefreshParamsOff         = 0x0C   // u32 its params +0xB0 (Go)
+	RefreshRoomOff           = 0x10   // s8 its home room +0x1E2 (Go)
+	RefreshBitKindOff        = 0x11   // u8 RefreshBit* (Go)
+	RefreshBitNoOff          = 0x12   // u16 the bit's number (Go)
+	RefreshAckOff            = 0x14   // u32 the seq last consumed (REL)
+	RefreshResultOff         = 0x18   // u32 BE: byte +0 RefreshR*, +1 RefreshGate* (GATE only), +2..+3 the proc's state (REL)
+	RefreshNewPIDOff         = 0x1C   // u32 the re-created actor's pid (RECREATED), 0xFFFFFFFF (CREATE_FAILED), else 0 (REL)
+	RefreshGoSpan            = 0x14   // bytes Go writes: seq .. bit no
 
 	RefreshTag uint16 = 0x5246 // 'RF'
 
@@ -56,6 +57,10 @@ const (
 	RefreshRRefused  uint8 = 6 // bad tag, a proc off the allow-list, or a kind never deleted
 	RefreshRFpMiss   uint8 = 7 // Tbox: the Execute fingerprint missed
 
+	RefreshRRecreated    uint8 = 8  // every check passed: deleted and created again in its own layer (NewPID)
+	RefreshRInState      uint8 = 9  // the actor already shows its bit: nothing to do
+	RefreshRCreateFailed uint8 = 10 // deleted, but fopAcM_create refused: gone until its room reloads
+
 	RefreshGateStageChange uint8 = 1  // a stage change pending
 	RefreshGateBossStage   uint8 = 2  // M_DragB, kinBOSS, SirenB or an X stage
 	RefreshGateInit        uint8 = 3  // mInitState not 2
@@ -66,12 +71,46 @@ const (
 	RefreshGateLinkNear    uint8 = 8  // Link within RefreshLinkFar
 	RefreshGateProc        uint8 = 9  // the per-proc gate
 	RefreshGateEventMode   uint8 = 10 // an event runs
+	RefreshGateEventOrder  uint8 = 11 // an event order is queued
 
 	RefreshProcLeaves uint16 = 0x0092 // fpcNm_Obj_Leaves_e, "Vochi"
 	RefreshProcItem   uint16 = 0x0101 // fpcNm_ITEM_e
 	RefreshProcTbox   uint16 = 0x0126 // fpcNm_TBOX_e
 	RefreshProcSaku   uint16 = 0x0191 // fpcNm_SAKU_e, "Ksaku", "Dsaku"
 	RefreshProcStone2 uint16 = 0x01CD // fpcNm_Stone2_e, "Ebrock2"
+
+	// The table rows (refresh.c rf_rows): a switch each, (params >> shift)
+	// & 0xFF (WARPT: home.angle.x & 0xFF). Deleted: WALL .. VFAN; deleted
+	// and created again: SWHIT0, WARPT, MFLFT, KOKIIE, VMC, DOOR10/12.
+	RefreshProcVmc    uint16 = 0x0036 // fpcNm_Obj_Vmc_e, the soil mound: re-created
+	RefreshProcVfan   uint16 = 0x0038 // fpcNm_Obj_Vfan_e, GT's Phantom Ganon door: deleted
+	RefreshProcWarpt  uint16 = 0x0043 // fpcNm_OBJ_WARPT_e, the warp jar: re-created
+	RefreshProcMjdoor uint16 = 0x0047 // fpcNm_OBJ_MJDOOR_e: deleted
+	RefreshProcMkie   uint16 = 0x004D // fpcNm_Obj_Mkie_e, ET's light statue: deleted
+	RefreshProcMkiek  uint16 = 0x004E // fpcNm_Obj_Mkiek_e, ET's light wall: deleted
+	RefreshProcMknjd  uint16 = 0x004F // fpcNm_Obj_MknjD_e, the ET/WT song statue: deleted
+	RefreshProcMflft  uint16 = 0x005D // fpcNm_MFLFT_e, DRC's flame lift: re-created
+	RefreshProcFloor  uint16 = 0x0062 // fpcNm_FLOOR_e, WT's breakable floor: deleted
+	RefreshProcKokiie uint16 = 0x0064 // fpcNm_KOKIIE_e, FW's hanging flower house: re-created, its hands deleted
+	RefreshProcDoor10 uint16 = 0x012E // fpcNm_DOOR10_e: re-created, compiled out (RefreshDoorRows)
+	RefreshProcDoor12 uint16 = 0x012F // fpcNm_DOOR12_e: re-created, compiled out (RefreshDoorRows)
+	RefreshProcWall   uint16 = 0x01B1 // fpcNm_WALL_e, the bombable wall: deleted
+	RefreshProcSwhit0 uint16 = 0x01C9 // fpcNm_SWHIT0_e, the crystal switch: re-created, untimed only
+	RefreshProcIce    uint16 = 0x01D2 // fpcNm_Obj_Ice_e, the ice block: deleted
+
+	RefreshDoorRows      = 0    // WWRF_DOOR_ROWS: the REL refuses DOOR10/DOOR12 (pending the ST1 key-door check)
+	RefreshRowSwMask     = 0xFF // every row's switch byte
+	RefreshMkieSwShift   = 16   // MKIE: (params >> 16) & 0xFF
+	RefreshVmcSwShift    = 8    // VMC: (params >> 8) & 0xFF
+	RefreshMflftSwShift  = 24   // MFLFT: params >> 24
+	RefreshKokiieSwShift = 24   // KOKIIE: params >> 24
+	RefreshMemSwEnd      = 0x80 // DOOR10/DOOR12: memory switches only
+	RefreshSwhit0TimerSh = 20   // SWHIT0: (params >> 20) & 0xFF must be 0 or 0xFF (untimed)
+	RefreshWarptTypeMask = 0xF  // WARPT: type = params & 0xF
+	RefreshWarptTypeOn   = 1    // type 1: refused (sets its own lid switch)
+	RefreshWarptTypeSpLo = 2    // types 2..4: refused (a warp event register, not a switch)
+	RefreshWarptTypeSpHi = 4    // (inclusive)
+	RefreshDoor12Arg1Tmp = 8    // DOOR12: (home.angle.z >> 8) & 0xFF == 8 refused
 
 	RefreshAcProcOff     = 0x08  // s16 mProcName
 	RefreshAcPauseOff    = 0x0B  // u8 mPauseFlag
@@ -87,6 +126,7 @@ const (
 	RefreshIsItemFn   uint32 = 0x8005E324 // isItem__10dSv_info_cFii
 	RefreshZoneSwMin         = 0xC0       // zone switch bits start here (need a room >= 0)
 	RefreshEvtMode    uint32 = 0x803C9EA2 // u8 the global event mode
+	RefreshEvtOrders  uint32 = 0x803C9EA0 // s8 the queued event orders (addr.EvtOrderCount)
 	RefreshLinkFar           = 300        // units
 
 	RefreshStone2SwShift = 8     // bit = (params >> 8) & 0xFF
@@ -159,6 +199,36 @@ func RefreshProcName(proc uint16) string {
 		return "Tbox"
 	case RefreshProcSaku:
 		return "Saku"
+	case RefreshProcVmc:
+		return "Obj_Vmc"
+	case RefreshProcVfan:
+		return "Obj_Vfan"
+	case RefreshProcWarpt:
+		return "Obj_Warpt"
+	case RefreshProcMjdoor:
+		return "Obj_MjDoor"
+	case RefreshProcMkie:
+		return "Obj_Mkie"
+	case RefreshProcMkiek:
+		return "Obj_Mkiek"
+	case RefreshProcMknjd:
+		return "Obj_MknjD"
+	case RefreshProcMflft:
+		return "Mflft"
+	case RefreshProcFloor:
+		return "Floor"
+	case RefreshProcKokiie:
+		return "Kokiie"
+	case RefreshProcDoor10:
+		return "Door10"
+	case RefreshProcDoor12:
+		return "Door12"
+	case RefreshProcWall:
+		return "Wall"
+	case RefreshProcSwhit0:
+		return "Swhit0"
+	case RefreshProcIce:
+		return "Obj_Ice"
 	}
 	return fmt.Sprintf("proc 0x%04X", proc)
 }
@@ -182,6 +252,12 @@ func RefreshResultName(r uint8) string {
 		return "refused"
 	case RefreshRFpMiss:
 		return "fingerprint miss"
+	case RefreshRRecreated:
+		return "re-created"
+	case RefreshRInState:
+		return "already in its set state"
+	case RefreshRCreateFailed:
+		return "deleted, create refused"
 	}
 	return fmt.Sprintf("result %d", r)
 }
@@ -209,6 +285,8 @@ func RefreshGateName(g uint8) string {
 		return "proc gate"
 	case RefreshGateEventMode:
 		return "event running"
+	case RefreshGateEventOrder:
+		return "event order queued"
 	}
 	return fmt.Sprintf("gate %d", g)
 }
@@ -249,6 +327,7 @@ type RefreshStatus struct {
 	Result    uint8  // RefreshR*, for Ack
 	Gate      uint8  // RefreshGate* with RefreshRGate, else 0
 	ProcState uint16 // the proc's state as the REL found it (wwrefresh.h)
+	NewPID    uint32 // the re-created actor's pid (RefreshRRecreated), else 0 or 0xFFFFFFFF
 }
 
 // ReadRefresh reads the request's words.
@@ -267,5 +346,6 @@ func ReadRefresh(m Reader) (RefreshStatus, error) {
 		Result:    b[RefreshResultOff],
 		Gate:      b[RefreshResultOff+1],
 		ProcState: be.Uint16(b[RefreshResultOff+4-refreshResultProcStateLen:]),
+		NewPID:    be.Uint32(b[RefreshNewPIDOff:]),
 	}, nil
 }

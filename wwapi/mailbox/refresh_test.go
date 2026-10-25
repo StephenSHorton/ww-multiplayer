@@ -28,7 +28,7 @@ func TestRefreshHeaderPins(t *testing.T) {
 		"WWRF_BIT_NO_OFF":           RefreshBitNoOff,
 		"WWRF_ACK_OFF":              RefreshAckOff,
 		"WWRF_RESULT_OFF":           RefreshResultOff,
-		"WWRF_RESERVED_OFF":         RefreshReservedOff,
+		"WWRF_NEW_PID_OFF":          RefreshNewPIDOff,
 		"WWRF_GO_SPAN":              RefreshGoSpan,
 		"WWRF_TAG":                  uint64(RefreshTag),
 		"WWRF_BIT_SW":               uint64(RefreshBitSw),
@@ -42,6 +42,9 @@ func TestRefreshHeaderPins(t *testing.T) {
 		"WWRF_R_NOT_SET":            uint64(RefreshRNotSet),
 		"WWRF_R_REFUSED":            uint64(RefreshRRefused),
 		"WWRF_R_FP_MISS":            uint64(RefreshRFpMiss),
+		"WWRF_R_RECREATED":          uint64(RefreshRRecreated),
+		"WWRF_R_IN_STATE":           uint64(RefreshRInState),
+		"WWRF_R_CREATE_FAILED":      uint64(RefreshRCreateFailed),
 		"WWRF_GATE_STAGE_CHANGE":    uint64(RefreshGateStageChange),
 		"WWRF_GATE_BOSS_STAGE":      uint64(RefreshGateBossStage),
 		"WWRF_GATE_INIT":            uint64(RefreshGateInit),
@@ -52,11 +55,40 @@ func TestRefreshHeaderPins(t *testing.T) {
 		"WWRF_GATE_LINK_NEAR":       uint64(RefreshGateLinkNear),
 		"WWRF_GATE_PROC":            uint64(RefreshGateProc),
 		"WWRF_GATE_EVENT_MODE":      uint64(RefreshGateEventMode),
+		"WWRF_GATE_EVENT_ORDER":     uint64(RefreshGateEventOrder),
 		"WWRF_PROC_LEAVES":          uint64(RefreshProcLeaves),
 		"WWRF_PROC_ITEM":            uint64(RefreshProcItem),
 		"WWRF_PROC_TBOX":            uint64(RefreshProcTbox),
 		"WWRF_PROC_SAKU":            uint64(RefreshProcSaku),
 		"WWRF_PROC_STONE2":          uint64(RefreshProcStone2),
+		"WWRF_PROC_VMC":             uint64(RefreshProcVmc),
+		"WWRF_PROC_VFAN":            uint64(RefreshProcVfan),
+		"WWRF_PROC_WARPT":           uint64(RefreshProcWarpt),
+		"WWRF_PROC_MJDOOR":          uint64(RefreshProcMjdoor),
+		"WWRF_PROC_MKIE":            uint64(RefreshProcMkie),
+		"WWRF_PROC_MKIEK":           uint64(RefreshProcMkiek),
+		"WWRF_PROC_MKNJD":           uint64(RefreshProcMknjd),
+		"WWRF_PROC_MFLFT":           uint64(RefreshProcMflft),
+		"WWRF_PROC_FLOOR":           uint64(RefreshProcFloor),
+		"WWRF_PROC_KOKIIE":          uint64(RefreshProcKokiie),
+		"WWRF_PROC_DOOR10":          uint64(RefreshProcDoor10),
+		"WWRF_PROC_DOOR12":          uint64(RefreshProcDoor12),
+		"WWRF_PROC_WALL":            uint64(RefreshProcWall),
+		"WWRF_PROC_SWHIT0":          uint64(RefreshProcSwhit0),
+		"WWRF_PROC_ICE":             uint64(RefreshProcIce),
+		"WWRF_DOOR_ROWS":            RefreshDoorRows,
+		"WWRF_ROW_SW_MASK":          RefreshRowSwMask,
+		"WWRF_MKIE_SW_SHIFT":        RefreshMkieSwShift,
+		"WWRF_VMC_SW_SHIFT":         RefreshVmcSwShift,
+		"WWRF_MFLFT_SW_SHIFT":       RefreshMflftSwShift,
+		"WWRF_KOKIIE_SW_SHIFT":      RefreshKokiieSwShift,
+		"WWRF_MEM_SW_END":           RefreshMemSwEnd,
+		"WWRF_SWHIT0_TIMER_SHIFT":   RefreshSwhit0TimerSh,
+		"WWRF_WARPT_TYPE_MASK":      RefreshWarptTypeMask,
+		"WWRF_WARPT_TYPE_ON":        RefreshWarptTypeOn,
+		"WWRF_WARPT_TYPE_SP_LO":     RefreshWarptTypeSpLo,
+		"WWRF_WARPT_TYPE_SP_HI":     RefreshWarptTypeSpHi,
+		"WWRF_DOOR12_ARG1_TMP":      RefreshDoor12Arg1Tmp,
 		"WWRF_AC_PROC_OFF":          RefreshAcProcOff,
 		"WWRF_AC_PAUSE_OFF":         RefreshAcPauseOff,
 		"WWRF_AC_INIT_OFF":          RefreshAcInitOff,
@@ -70,6 +102,7 @@ func TestRefreshHeaderPins(t *testing.T) {
 		"WWRF_IS_ITEM_FN":           uint64(RefreshIsItemFn),
 		"WWRF_ZONE_SW_MIN":          RefreshZoneSwMin,
 		"WWRF_EVT_MODE":             uint64(RefreshEvtMode),
+		"WWRF_EVT_ORDER_COUNT":      uint64(RefreshEvtOrders),
 		"WWRF_LINK_FAR":             RefreshLinkFar,
 		"WWRF_STONE2_SW_SHIFT":      RefreshStone2SwShift,
 		"WWRF_STONE2_SW_MASK":       RefreshStone2SwMask,
@@ -133,7 +166,7 @@ func TestRefreshPlace(t *testing.T) {
 			t.Fatalf("actor_refresh overlaps a canary arena %#x..%#x", c.s, c.e)
 		}
 	}
-	if RefreshAckOff != RefreshGoSpan || RefreshResultOff+4 != RefreshReservedOff || RefreshReservedOff+4 != int(RefreshSize) {
+	if RefreshAckOff != RefreshGoSpan || RefreshResultOff+4 != RefreshNewPIDOff || RefreshNewPIDOff+4 != int(RefreshSize) {
 		t.Error("the REL-written words do not follow the Go span")
 	}
 }
@@ -163,5 +196,12 @@ func TestRefreshFieldsAndRead(t *testing.T) {
 	}
 	if RefreshResultName(st.Result) != "gated" || RefreshGateName(st.Gate) != "Link near" || RefreshProcName(r.Proc) != "Stone2" {
 		t.Error("names")
+	}
+	// A re-create's answer carries the new actor's pid at +0x1C.
+	if err := m.Write(RefreshAddr+RefreshAckOff, []byte{0, 0, 0, 7, RefreshRRecreated, 0, 0, 0, 0, 0, 0x56, 0x78}); err != nil {
+		t.Fatal(err)
+	}
+	if st, err = ReadRefresh(m); err != nil || st.Result != RefreshRRecreated || st.NewPID != 0x5678 || RefreshResultName(st.Result) != "re-created" {
+		t.Fatalf("ReadRefresh = %+v, %v", st, err)
 	}
 }
