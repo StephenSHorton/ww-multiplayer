@@ -167,8 +167,9 @@ func (p SalvagePoint) Usable() bool { return p.Flag&addr.SalvageFlagUnusable == 
 
 // SalvageNearMargin is how much further than its reach mR Link must be
 // from a point (mDistance) for the catch-up to mark it. The crane hangs
-// from the ship beside him; at full sail the ship covers this in well
-// over a second, and the write lands within a frame of its gates' read.
+// from the ship beside him, and the write lands within a frame of its
+// gates' read: 2000 units past mR is many frames of sailing (the ship's
+// top speed was not read here; the margin is a judgement, not a measure).
 const SalvageNearMargin = 2000
 
 // near reports whether Link may be close enough to p for the crane to
@@ -512,6 +513,7 @@ func (r *Replica) reconcileSalvage(o *obs, armed bool) {
 		cands = append(cands, p)
 	}
 	if len(cands) == 0 {
+		sv.told = "" // a table-level wait logs again after a pass that cleared it
 		if len(sv.held) == 0 {
 			sv.quiet, sv.quietAt = true, n
 		}
