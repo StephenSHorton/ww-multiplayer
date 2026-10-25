@@ -84,6 +84,70 @@ const (
 	RemoteLogEvery = 5 * time.Second
 )
 
+// The PHIT sanity gates (phitSane, RemoteHost.phit, RemoteClient.Tick):
+// a hit that can no longer be right is dropped once, never retried. The
+// shape is datstarkey/ww-online's PvpHitGate (WWOnline.Server/Hubs/
+// PvpHitGate.cs, MIT: a field check, a stage check, a distance check and
+// a burst bucket), rewritten for our PHIT, which the host makes from its
+// own REL's hit ring rather than trusting an attacker's game.
+const (
+	// PHitStaleFrames: a ring entry this many host REL frames older than
+	// the REL's frame counter when Tick reads it is stale (the host's Go
+	// stalled: the attacker and the body have moved on). 30 frames is one
+	// second at 30 Hz.
+	PHitStaleFrames = 30
+	// PHitMaxRel bounds |RelHit| (the Tg hit position minus the body
+	// position). A judgment, not a game number: the body's Tg cylinder is
+	// 30 x 120 by default (WW_ENEMY_REMOTE_CYL_R/_H) and a full body's is
+	// Link's own, so a hit point further than this from the body's origin
+	// is garbage, not a hit.
+	PHitMaxRel = 500
+	// PHitMaxSpl is the highest At SPL: dCcG_At_Spl ends at UNKB = 0xB
+	// (tww include/d/d_cc_d.h:106-120; 8 and up cannot be guarded).
+	PHitMaxSpl = 0xB
+	// PHitBurst and PHitPerSec are the per-target-client bucket, on top
+	// of the per-(client, attacker) PHitRateFrames: room for a crowd's
+	// hits at once (twice the client's applyQueueDepth) and a few a
+	// second after that. The client's Link has i-frames after a hit
+	// (vanilla 30 frames), so more than that cannot land anyway.
+	PHitBurst  = 8
+	PHitPerSec = 4
+	// PHitClientStale is how long a client holds a PHIT between the read
+	// loop and its Tick before it drops it (the client's Go stalled).
+	PHitClientStale = 500 * time.Millisecond
+)
+
+// phitSane reports whether a PHIT's (or ring entry's) fields can be a
+// hit: an SPL the game has, a finite and near hit point and vector.
+func phitSane(spl uint8, rel, rvec [3]float32) bool {
+	if spl > PHitMaxSpl || finite(rel[0], rel[1], rel[2], rvec[0], rvec[1], rvec[2]) != nil {
+		return false
+	}
+	return rel[0]*rel[0]+rel[1]*rel[1]+rel[2]*rel[2] <= PHitMaxRel*PHitMaxRel
+}
+
+// phitBucket is a token bucket over wall time; not safe for concurrent
+// use (RemoteHost.Tick's goroutine only).
+type phitBucket struct {
+	tokens float64
+	last   time.Time
+}
+
+func (b *phitBucket) take(now time.Time) bool {
+	if b.last.IsZero() {
+		b.tokens, b.last = PHitBurst, now
+	}
+	if d := now.Sub(b.last); d > 0 {
+		b.tokens = min(PHitBurst, b.tokens+d.Seconds()*PHitPerSec)
+		b.last = now
+	}
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
 // --- config -------------------------------------------------------------------
 
 // RemoteConfig is the remote-Link block's Go-written settings.
@@ -622,8 +686,9 @@ type RemoteHost struct {
 	owners        [mailbox.RemoteMaxSlots]slotOwner
 	haveHead      bool
 	lastHead      uint32
-	lastPHit      map[phitKey]uint32 // (client, attacker pid) -> host REL frame of the last PHIT
-	phitSeq       map[uint8]uint16   // per target client
+	lastPHit      map[phitKey]uint32    // (client, attacker pid) -> host REL frame of the last PHIT
+	phitSeq       map[uint8]uint16      // per target client
+	phitBurst     map[uint8]*phitBucket // per target client (PHitBurst)
 	logNext       time.Time
 	dropWarned    map[string]bool
 	gate          *heapGate // the full-body heap gate, under FULL_BODIES with HeapGate
@@ -683,6 +748,11 @@ type RemoteHostStats struct {
 	// Ring hits dropped by why: not a Moblin, not keyed, no owner, no
 	// client id for the owner, rate limited.
 	DropNotAllowed, DropNoOwner, DropNoClient, DropRate uint64
+	// The sanity gates': fields no hit has (SPL, hit point), older than
+	// PHitStaleFrames, the owner not in the host's stage and room (or
+	// loading, or its PSTATE stale), the body trailing the player past
+	// SettleDist, over the per-client burst.
+	DropBad, DropStale, DropStage, DropRange, DropBurst uint64
 	// StandIn counts the sent PHITs from an attacker the host does not
 	// list (with NoMirrorHandle).
 	StandIn    uint64
@@ -694,7 +764,7 @@ type RemoteHostStats struct {
 func NewRemoteHost(m mem.Mem, rep log.Reporter, cfg RemoteConfig, epoch uint32) *RemoteHost {
 	return &RemoteHost{m: m, rep: rep, cfg: cfg, epoch: epoch, blockEpoch: epoch << 8,
 		pstates: map[uint8]pstateEntry{}, hitCuts: map[uint8]hitCut{}, arrive: map[uint8]arrival{}, lastPHit: map[phitKey]uint32{},
-		phitSeq: map[uint8]uint16{}, dropWarned: map[string]bool{}, gate: newHeapGate(cfg.HeapSizes, int(cfg.FullMax))}
+		phitSeq: map[uint8]uint16{}, phitBurst: map[uint8]*phitBucket{}, dropWarned: map[string]bool{}, gate: newHeapGate(cfg.HeapSizes, int(cfg.FullMax))}
 }
 
 // Config is the host's settings.
@@ -945,9 +1015,20 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 		}
 	}
 	var out []*PHit
-	for _, h := range st.HitsSince(r.lastHead) {
-		if p := r.phit(&h, b, scope, listing); p != nil {
-			out = append(out, p)
+	if hits := st.HitsSince(r.lastHead); len(hits) > 0 {
+		// The REL's frame now, for the stale gate (the ring entries carry
+		// the frame they were detected at, the same counter). Not
+		// AckFrame: after a Go stall that is the frame of the consume
+		// before it, which would make stale hits look fresh.
+		rel, err := mailbox.ReadREL(r.m)
+		if err != nil {
+			return nil, err
+		}
+		g := phitGate{now: now, relFrame: rel.Frames, settling: settling}
+		for _, h := range hits {
+			if p := r.phit(&h, b, scope, listing, &g); p != nil {
+				out = append(out, p)
+			}
 		}
 	}
 	r.lastHead = st.HitRingHead
@@ -966,6 +1047,13 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 	return out, nil
 }
 
+// phitGate is what one Tick's ring entries are judged against.
+type phitGate struct {
+	now      time.Time
+	relFrame uint32                       // the REL's frame counter at the read
+	settling [mailbox.RemoteMaxSlots]bool // slots() verdict: the body trails its player
+}
+
 // phit turns a ring entry into the PHIT for its body's player, or nil
 // (dropped and counted): an attacker of no enabled kind and not ALLOW in
 // the policy (the host's bombs, world hazards, denied or unswapped
@@ -980,7 +1068,24 @@ func (r *RemoteHost) Tick(now time.Time, scope Scope, relOK bool, views []posefe
 // NoMirrorHandle, and the client REL replays it with its keeper as the
 // stand-in At owner (the REL's HF_NOT_MIRROR/HF_NOT_KEYED bits no longer
 // decide it).
-func (r *RemoteHost) phit(h *mailbox.RemoteHit, b *mailbox.RemoteBlock, scope Scope, listing *Listing) *PHit {
+//
+// The sanity gates (PHitStaleFrames and the rest) drop, too: fields no
+// hit has, an entry older than PHitStaleFrames, an owner whose PSTATE is
+// stale, loading or names another stage or room than the host's, a body
+// that trails its player past SettleDist (the player is not where it was
+// hit), and a client over its burst. None is retried.
+func (r *RemoteHost) phit(h *mailbox.RemoteHit, b *mailbox.RemoteBlock, scope Scope, listing *Listing, g *phitGate) *PHit {
+	if !phitSane(h.Spl, h.RelHit, h.RVec) {
+		r.Stats.DropBad++
+		r.warnDrop("bad", fmt.Sprintf("a ring hit with SPL %d, hit point %v: not a hit, dropped", h.Spl, h.RelHit))
+		return nil
+	}
+	if age := int32(g.relFrame - h.Frame); age > PHitStaleFrames {
+		// A negative age (an entry stamped after the frame read) is a
+		// race of one frame, not stale. A relink restarts both counters.
+		r.Stats.DropStale++
+		return nil
+	}
 	if h.PID == 0 || (!r.Kinds.Enabled(uint16(h.Proc)) && !r.allowed(h.Proc)) {
 		r.Stats.DropNotAllowed++
 		r.warnDrop("not_allowed", fmt.Sprintf("a proc 0x%X attacker hit a remote body; only the mirrored kinds and ALLOW procs are sent", uint16(h.Proc)))
@@ -1000,10 +1105,30 @@ func (r *RemoteHost) phit(h *mailbox.RemoteHit, b *mailbox.RemoteBlock, scope Sc
 		r.Stats.DropNoClient++
 		return nil
 	}
+	if g.now.Sub(ps.at) > PStateStale || ps.p.Flags&PSLoading != 0 || ps.p.Stage != scope.Stage || ps.p.Room != scope.Room {
+		// The client would drop it at its own stage and room gate; this
+		// saves the round trip and keeps it out of the client's queue.
+		r.Stats.DropStage++
+		return nil
+	}
+	if g.settling[h.Slot] {
+		r.Stats.DropRange++
+		return nil
+	}
 	client := ps.p.Client
 	key := phitKey{client, h.PID}
 	if last, ok := r.lastPHit[key]; ok && h.Frame-last < PHitRateFrames {
 		r.Stats.DropRate++
+		return nil
+	}
+	bk := r.phitBurst[client]
+	if bk == nil {
+		bk = &phitBucket{}
+		r.phitBurst[client] = bk
+	}
+	if !bk.take(g.now) {
+		r.Stats.DropBurst++
+		r.warnDrop("burst", fmt.Sprintf("over %d PHITs at once (%d a second) to one client; the excess is dropped", PHitBurst, PHitPerSec))
 		return nil
 	}
 	r.lastPHit[key] = h.Frame
@@ -1110,7 +1235,7 @@ type RemoteClient struct {
 	cfg RemoteConfig
 
 	mu    sync.Mutex
-	inbox []*PHit
+	inbox []inboxPHit
 
 	pstateAt   time.Time
 	pstateLast []byte
@@ -1131,6 +1256,12 @@ type RemoteClient struct {
 	Stats RemoteClientStats
 }
 
+// inboxPHit is a PHIT from the read loop and when it arrived.
+type inboxPHit struct {
+	p  *PHit
+	at time.Time
+}
+
 type pendingApply struct {
 	p      PHit
 	owner  uint16 // the translated attacker (RemoteClient.Owner), set at the write
@@ -1145,7 +1276,12 @@ type pendingApply struct {
 // RemoteClientStats are counters a probe or test reads.
 type RemoteClientStats struct {
 	PStates, PHits, Applied, Dropped uint64
-	LastStatus                       mailbox.RemoteStatus
+	// DroppedStale and DroppedBad are the sanity gates' share of Dropped:
+	// held past PHitClientStale before a Tick took them, and fields no hit
+	// has (phitSane). Both answer PADGoGate: wwremote.h has no detail
+	// code of their own yet.
+	DroppedStale, DroppedBad uint64
+	LastStatus               mailbox.RemoteStatus
 }
 
 // NewRemoteClient returns a joiner's side over m with cfg; brk is the
@@ -1156,10 +1292,13 @@ func NewRemoteClient(m mem.Mem, rep log.Reporter, brk *write.Breaker, cfg Remote
 	return &RemoteClient{m: m, rep: rep, brk: brk, cfg: cfg, applySeq: uint32(start.Unix()&0xFFFF) << 16}
 }
 
-// OnPHit queues a PHIT for the next Tick.
-func (r *RemoteClient) OnPHit(p *PHit) {
+// OnPHit queues a PHIT for the next Tick, arrived now.
+func (r *RemoteClient) OnPHit(p *PHit) { r.OnPHitAt(p, time.Now()) }
+
+// OnPHitAt queues a PHIT that arrived at at.
+func (r *RemoteClient) OnPHitAt(p *PHit, at time.Time) {
 	r.mu.Lock()
-	r.inbox = append(r.inbox, p)
+	r.inbox = append(r.inbox, inboxPHit{p: p, at: at})
 	r.mu.Unlock()
 }
 
@@ -1194,8 +1333,21 @@ func (r *RemoteClient) Tick(now time.Time, scope Scope, g ClientGate) ([][]byte,
 	inbox := r.inbox
 	r.inbox = nil
 	r.mu.Unlock()
-	for _, p := range inbox {
+	for _, in := range inbox {
+		p := in.p
 		r.Stats.PHits++
+		// The sanity gates first (a host of an older build has none of its
+		// own): held too long, or fields no hit has. Dropped, not retried.
+		if now.Sub(in.at) > PHitClientStale {
+			r.Stats.DroppedStale++
+			out = append(out, r.drop(p, PADGoGate, g.Frame))
+			continue
+		}
+		if !phitSane(p.Spl, p.RelHit, p.RVec) {
+			r.Stats.DroppedBad++
+			out = append(out, r.drop(p, PADGoGate, g.Frame))
+			continue
+		}
 		if detail, ok := r.gate(p, scope, g); !ok {
 			out = append(out, r.drop(p, detail, g.Frame))
 			continue

@@ -305,12 +305,12 @@ func TestRemoteHostPHitDefaultPolicy(t *testing.T) {
 	r.cfg.Policy = DefaultPolicy(r.Kinds)
 	tn := ringHit(0, 0, 1, 200)
 	tn.Proc = addr.ProcTN
-	if p := r.phit(&tn, &mailbox.RemoteBlock{}, Scope{}, &Listing{}); p != nil || r.Stats.DropNotAllowed != 1 {
+	if p := r.phit(&tn, &mailbox.RemoteBlock{}, Scope{}, &Listing{}, &phitGate{relFrame: 200}); p != nil || r.Stats.DropNotAllowed != 1 {
 		t.Errorf("a Darknut's hit: %+v, drops %d", p, r.Stats.DropNotAllowed)
 	}
 	bk := ringHit(0, 0, 2, 200)
 	bk.Proc = addr.ProcBK
-	r.phit(&bk, &mailbox.RemoteBlock{}, Scope{}, &Listing{})
+	r.phit(&bk, &mailbox.RemoteBlock{}, Scope{}, &Listing{}, &phitGate{relFrame: 200})
 	if r.Stats.DropNotAllowed != 1 {
 		t.Errorf("a Bokoblin's hit was not allowed: drops %d", r.Stats.DropNotAllowed)
 	}
@@ -790,7 +790,9 @@ func TestRemoteHostPHit(t *testing.T) {
 	if out, _ = r.Tick(now, scope, true, nil, now, l); len(out) != 0 || r.Stats.DropNoOwner != 1 {
 		t.Errorf("unowned: %+v %+v", out, r.Stats)
 	}
-	// The REL relinked: the head starts over and the new hit is sent.
+	// The REL relinked: the head starts over and the new hit is sent. Its
+	// frame counter starts over too (the stale gate compares the two).
+	hostRELFrame(t, m, 12)
 	st = mailbox.RemoteStatus{}
 	push(t, m, &st, ringHit(0, 0, 5, 10))
 	if out, _ = r.Tick(now, scope, true, views, now, l); len(out) != 1 || out[0].SetID != 11 {
@@ -1054,7 +1056,7 @@ func TestMirrorRoutesPHit(t *testing.T) {
 	c.OnEnemy(b, time.Unix(2, 0)) // no Remote: ignored
 	c.Remote = NewRemoteClient(m, log.Discard{}, nil, DefaultRemoteConfig(), time.Unix(1, 0))
 	c.OnEnemy(b, time.Unix(2, 0))
-	if len(c.Remote.inbox) != 1 || c.Remote.inbox[0].Seq != 1 {
+	if len(c.Remote.inbox) != 1 || c.Remote.inbox[0].p.Seq != 1 {
 		t.Errorf("inbox %+v", c.Remote.inbox)
 	}
 	if g := c.RemoteGate(); g.HaveHost || g.RELOK {

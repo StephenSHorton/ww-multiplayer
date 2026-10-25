@@ -41,6 +41,10 @@ type JoinRequest struct {
 	Addr  string `json:"addr"`
 	Name  string `json:"name"`
 	Color string `json:"color"`
+	// OwnerKey is a dedicated server's lobby owner key, from the join
+	// form's Advanced box (session.JoinOptions.OwnerKey). Kept for Retry
+	// in memory only: never saved, logged or shown.
+	OwnerKey string `json:"ownerKey,omitempty"`
 }
 
 // Bridge is the Go side of the frontend: every exported method is callable
@@ -330,12 +334,13 @@ func (b *Bridge) Join(r JoinRequest) (err error) {
 	b.myDryRun = false
 	b.mu.Unlock()
 	b.stopLanListen()
-	id, err := b.ctrl.JoinLobby(b.ctx, session.JoinOptions{Addr: addr, Name: name, Color: col, LaunchFn: b.launchOptions, CoopFn: b.coopOptions})
+	id, err := b.ctrl.JoinLobby(b.ctx, session.JoinOptions{Addr: addr, Name: name, Color: col, LaunchFn: b.launchOptions, CoopFn: b.coopOptions,
+		OwnerKey: strings.TrimSpace(r.OwnerKey)})
 	if err != nil {
 		return err
 	}
 	b.sessMu.Lock()
-	b.lastJoin = &JoinRequest{Addr: addr, Name: name, Color: r.Color}
+	b.lastJoin = &JoinRequest{Addr: addr, Name: name, Color: r.Color, OwnerKey: r.OwnerKey}
 	b.joining = &pendingHost{session: id, addr: addr}
 	b.sessMu.Unlock()
 	b.remember(name, col, "", 0)

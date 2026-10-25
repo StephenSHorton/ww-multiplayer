@@ -99,6 +99,12 @@ type Server struct {
 	// (stopping).
 	stopped  chan struct{}
 	stopOnce sync.Once
+
+	// AppVersion is this build's app version, for the status probe's
+	// answer (status.go). Set it before Start.
+	AppVersion string
+	// started is when Start began listening (guarded by mu).
+	started time.Time
 }
 
 // NewServer creates a server on the given port.
@@ -142,6 +148,9 @@ func (s *Server) Start() error {
 		return fmt.Errorf("listen: %w", err)
 	}
 	s.listener = ln
+	s.mu.Lock()
+	s.started = time.Now()
+	s.mu.Unlock()
 	s.log(fmt.Sprintf("Server listening on port %d", s.port))
 
 	go s.acceptLoop()
@@ -224,6 +233,11 @@ func (s *Server) handlePlayer(conn net.Conn) {
 		conn.SetReadDeadline(time.Now().Add(readTimeout))
 	}
 	msg, err := ReadMessage(conn)
+	if err == nil && msg.Type == MsgStatus {
+		// A status probe (status.go): answered, closed, not logged.
+		s.answerStatus(conn)
+		return
+	}
 	if err != nil || msg.Type != MsgJoin {
 		return
 	}

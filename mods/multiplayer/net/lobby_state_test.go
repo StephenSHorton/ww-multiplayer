@@ -551,8 +551,12 @@ func FuzzLobbyMachine(f *testing.F) {
 		[]byte(`{"member":1}`), []byte(`{"member":2}`), []byte(`{"kind":"merge"}`), []byte(`[`), []byte(`{"color":"green"}`),
 		[]byte(`{"file":"` + strings.Repeat("é\"\\", 60) + `"}`),
 	}
+	f.Add([]byte{0x80, 1, 0x20, 0, 2, 0x60, 3, 0, 0, 4, 61, 0, 0, 3, 0xA0})
 	f.Fuzz(func(t *testing.T, ops []byte) {
 		m := testMachine(time.Minute)
+		// The first byte's top bit keys the lobby (an owner key): then a
+		// host must be a member that presented it.
+		m.keyed = len(ops) > 0 && ops[0]&0x80 != 0
 		now := time.Unix(0, 0)
 		nextConn := 0
 		var conns []int
@@ -599,6 +603,9 @@ func FuzzLobbyMachine(f *testing.F) {
 				keys[mb.key] = true
 				if mb.host {
 					hosts++
+					if m.keyed && !mb.owner {
+						t.Fatalf("%s: host %q never presented the owner key", op, mb.name)
+					}
 				}
 			}
 			if hosts > 1 {
@@ -657,8 +664,8 @@ func FuzzLobbyMachine(f *testing.F) {
 				}
 				name := names[a%len(names)]
 				var mb *lobbyMember
-				mb, outs = m.hello(nextConn, name, b&0x40 != 0, h, now)
-				desc = fmt.Sprintf("hello %d %q %+v", nextConn, name, h)
+				mb, outs = m.helloAs(nextConn, name, b&0x40 != 0, b&0x20 != 0, h, now)
+				desc = fmt.Sprintf("hello %d %q loopback %v owner %v %+v", nextConn, name, b&0x40 != 0, b&0x20 != 0, h)
 				if mb != nil && mb.token != h.Token && mb.color != asked(h.Color) {
 					t.Fatalf("%s: new member wears %v, want %v", desc, mb.color, asked(h.Color))
 				}

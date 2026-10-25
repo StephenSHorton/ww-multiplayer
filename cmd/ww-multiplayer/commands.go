@@ -21,6 +21,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject/rels"
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 )
 
 // cmdGroup is the printHelp section a command is listed under.
@@ -97,9 +98,16 @@ func commandTable() []command {
 		{
 			name:    "server",
 			group:   groupLower,
-			usage:   "server [--port N]",
-			summary: "Start headless server (port 25565 unless --port)",
+			usage:   serverUsage,
+			summary: "Start headless server (port 25565 unless --port; docs/11-self-hosting.md)",
 			run:     cmdServer,
+		},
+		{
+			name:    "status",
+			group:   groupLower,
+			usage:   statusUsage,
+			summary: "Ask a server if it is up and its version (exit 0: up)",
+			run:     cmdStatus,
 		},
 		{
 			name:    "broadcast-pose",
@@ -302,12 +310,15 @@ next:
 }
 
 func cmdServer(string, []string) {
-	port, err := parseServerArgs(os.Args[2:])
+	o, err := parseServerArgs(os.Args[2:], os.Getenv, network.GenerateOwnerKey)
 	if err != nil {
-		exitUsage(err, "server [--port N]")
+		exitUsage(err, serverUsage)
 	}
-	engine.RunServer(port)
+	o.Version = version
+	engine.RunServer(o)
 }
+
+const serverUsage = "server [--port N] [--owner-key K]"
 
 func cmdBroadcastPose(string, []string) {
 	name := "Player"

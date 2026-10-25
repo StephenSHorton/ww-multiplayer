@@ -61,12 +61,17 @@ type lobbyMember struct {
 	ready bool
 	host  bool
 	// loopback: its connection came from the host's machine, so it can
-	// become host (at HELLO, or when the host's slot is gone).
+	// become host (at HELLO, or when the host's slot is gone) while the
+	// lobby has no owner key.
 	loopback bool
-	dolphin  string
-	file     string
-	app, os  string
-	rttMs    int
+	// owner: a HELLO of this member carried the lobby's owner key
+	// (owner_key.go), so it can become host when the lobby has one. Kept
+	// under the token: a reclaim keeps it.
+	owner   bool
+	dolphin string
+	file    string
+	app, os string
+	rttMs   int
 
 	conn      int       // the live lobby connection's handle; 0 while away
 	awayUntil time.Time // while away: when the slot is dropped
@@ -113,6 +118,14 @@ type lobbyMachine struct {
 	// kicked are the lobbyKeys the host kicked: refused (lobby, player
 	// and co-op connections) until the lobby empties.
 	kicked map[string]bool
+	// keyed: the server has an owner key (Server.SetOwnerKey). Then only
+	// a member that presented it can be host, and loopback counts for
+	// nothing (canHost).
+	keyed bool
+	// noCoop, when set, refuses co-op in SETTINGS with this reason: a
+	// dedicated server has no co-op hub to give the host
+	// (Server.DenyCoop).
+	noCoop string
 }
 
 func newLobbyMachine(hold time.Duration) *lobbyMachine {
@@ -165,6 +178,23 @@ func (m *lobbyMachine) memberByKey(key string) *lobbyMember {
 		}
 	}
 	return nil
+}
+
+// canHost reports whether mb may hold the host role: with an owner key,
+// only a member that presented it; without one, a member from this
+// machine (docs/10 §3).
+func (m *lobbyMachine) canHost(mb *lobbyMember) bool {
+	if m.keyed {
+		return mb.owner
+	}
+	return mb.loopback
+}
+
+// isReclaim reports whether a HELLO under name with token would reclaim a
+// member's slot (hello's reclaim case).
+func (m *lobbyMachine) isReclaim(name, token string) bool {
+	mb := m.memberByKey(lobbyKey(name))
+	return mb != nil && token != "" && token == mb.token && mb.name == name
 }
 
 func (m *lobbyMachine) hasHost() bool {
@@ -255,6 +285,14 @@ func (m *lobbyMachine) suggestName(name string) string {
 // member becomes the host. It returns the member (nil when refused) and
 // the frames to send.
 func (m *lobbyMachine) hello(conn int, name string, loopback bool, h LobbyHelloBody, now time.Time) (*lobbyMember, []lobbyOut) {
+	return m.helloAs(conn, name, loopback, false, h, now)
+}
+
+// helloAs is hello with owner: the hub accepted the HELLO's owner key
+// (judgeOwnerKeyLocked). With the lobby keyed, the first such member
+// becomes the host instead of the first from this machine. A reclaim
+// keeps the member's owner flag (owner false never clears it).
+func (m *lobbyMachine) helloAs(conn int, name string, loopback, owner bool, h LobbyHelloBody, now time.Time) (*lobbyMember, []lobbyOut) {
 	key := lobbyKey(name)
 	var outs []lobbyOut
 	mb := m.memberByKey(key)
@@ -274,12 +312,13 @@ func (m *lobbyMachine) hello(conn int, name string, loopback bool, h LobbyHelloB
 		}
 		mb.conn, mb.awayUntil = conn, time.Time{}
 		mb.loopback = loopback
+		mb.owner = mb.owner || owner
 		if h.Dolphin != "" {
 			// Its Dolphin may have changed while the link was down (the
 			// LOBBY_SET was lost): the HELLO carries the current state.
 			mb.dolphin = clampField(h.Dolphin, maxLobbyDolphin)
 		}
-		if loopback && !m.hasHost() {
+		if m.canHost(mb) && !m.hasHost() {
 			mb.host = true // the host's slot expired while this one was away
 		}
 	case mb != nil:
@@ -292,7 +331,8 @@ func (m *lobbyMachine) hello(conn int, name string, loopback bool, h LobbyHelloB
 	default:
 		m.nextID++
 		mb = &lobbyMember{id: m.nextID, name: name, key: key, token: m.newToken(), conn: conn,
-			host: loopback && !m.hasHost(), loopback: loopback, dolphin: clampField(h.Dolphin, maxLobbyDolphin)}
+			loopback: loopback, owner: owner, dolphin: clampField(h.Dolphin, maxLobbyDolphin)}
+		mb.host = m.canHost(mb) && !m.hasHost()
 		// The color asked for, whoever else wears it; classic green
 		// without one (docs/10 §4).
 		mb.color = playercolor.Vanilla()
@@ -467,6 +507,9 @@ func (m *lobbyMachine) setSettings(mb *lobbyMember, b LobbySettingsBody) []lobby
 	if b.Coop != CoopOff && b.Coop != CoopNew && !coopWorldIDRe.MatchString(b.Coop) {
 		return []lobbyOut{notice(mb.conn, NoticeBadMessage, fmt.Sprintf("SETTINGS: co-op %.20q is not off, new or a world ID", b.Coop))}
 	}
+	if b.Coop != CoopOff && m.noCoop != "" {
+		return []lobbyOut{notice(mb.conn, NoticeNoCoop, m.noCoop)}
+	}
 	if len(b.Worlds) > maxLobbyWorlds {
 		b.Worlds = b.Worlds[:maxLobbyWorlds]
 	}
@@ -537,10 +580,11 @@ func (m *lobbyMachine) remove(mb *lobbyMember) {
 		return
 	}
 	if mb.host {
-		// The host's slot is gone: the first live member from the
-		// host's machine takes over, else the next one to say HELLO.
+		// The host's slot is gone: the first live member that can host
+		// (from the host's machine, or with the owner key) takes over,
+		// else the next one to say HELLO.
 		for _, o := range m.members {
-			if o.loopback && o.conn != 0 {
+			if m.canHost(o) && o.conn != 0 {
 				o.host = true
 				break
 			}

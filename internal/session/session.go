@@ -202,6 +202,11 @@ type JoinOptions struct {
 	LaunchFn func() LaunchOptions
 	// CoopFn: see HostOptions.CoopFn.
 	CoopFn func() CoopOptions
+	// OwnerKey is a dedicated server's lobby owner key (JoinLobby only;
+	// docs/10-lobby.md §3 "Owner key"): the right one makes this player
+	// the lobby's host. Sent in the lobby HELLO to o.Addr alone; never
+	// logged or saved.
+	OwnerKey string
 }
 
 // Output is what a session writes to while it runs: its log lines, and the

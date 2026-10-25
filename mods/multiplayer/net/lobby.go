@@ -3,6 +3,7 @@ package network
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -197,12 +198,35 @@ type LobbyHub struct {
 	// machine (the first such member becomes the host). isLoopback in
 	// production; tests, whose clients are all on loopback, pick by name.
 	local func(addr net.Addr, name string) bool
+
+	// ownerKey is the SHA-256 of the lobby's owner key, nil for none
+	// (Server.SetOwnerKey; h.mu). keyFails throttles wrong keys per
+	// source address, which remoteIP gives (tests, all on loopback, pick
+	// their own). keyWait sleeps a HELLO's throttle, outside every lock,
+	// and reports false when done closed first (tests record it instead).
+	ownerKey *[32]byte
+	keyFails *ownerKeyLimiter
+	remoteIP func(addr net.Addr) netip.Addr
+	keyWait  func(d time.Duration, done <-chan struct{}) bool
 }
 
 func newLobbyHub(s *Server, hold time.Duration) *LobbyHub {
 	return &LobbyHub{srv: s, m: newLobbyMachine(hold), conns: map[int]*lobbyConn{}, nextID: 1,
 		colorTab: map[string]playercolor.Color{}, kickTab: map[string]bool{}, now: time.Now,
-		local: func(addr net.Addr, _ string) bool { return isLoopback(addr) }}
+		local:    func(addr net.Addr, _ string) bool { return isLoopback(addr) },
+		keyFails: newOwnerKeyLimiter(), remoteIP: remoteIP, keyWait: sleepOrDone}
+}
+
+// sleepOrDone waits d, or until done closes (false).
+func sleepOrDone(d time.Duration, done <-chan struct{}) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-done:
+		return false
+	}
 }
 
 // Lobby returns the server's lobby.
@@ -526,11 +550,47 @@ func (s *Server) handleLobby(conn net.Conn, name string, caps uint16) {
 				if DecodeLobby(body, &hb) != nil {
 					hb = LobbyHelloBody{}
 				}
+				// Wrong keys from this address slow the next key down
+				// (ownerKeyLimiter.wait): never a refusal, so the real
+				// owner sharing the address still gets in. The wait is
+				// outside the hub's lock; frames that arrive meanwhile
+				// queue in the socket.
+				h.mu.Lock()
+				wait := h.ownerKeyWaitLocked(conn.RemoteAddr(), name, hb)
+				h.mu.Unlock()
+				if wait > 0 && !h.keyWait(wait, c.done) {
+					break
+				}
+				v := keyNone
 				h.runWithPlayers(func(m *lobbyMachine) []lobbyOut {
-					mb, outs := m.hello(c.handle, name, c.loopback, hb, h.now())
+					v = h.judgeOwnerKeyLocked(name, hb)
+					mb, outs := m.helloAs(c.handle, name, c.loopback, v == keyAccepted, hb, h.now())
 					member = mb != nil
+					if mb == nil {
+						// Refused: the key is not recorded either way.
+						return outs
+					}
+					h.recordOwnerKeyLocked(conn.RemoteAddr(), v)
+					if text := ownerKeyNoticeText(v); text != "" {
+						outs = append(outs, notice(c.handle, NoticeOwnerKey, text))
+					}
 					return outs
 				})
+				// What the key did, by name only: never the key, and the
+				// address stays out of the log too. Logged here, outside
+				// the hub's and the server's locks (OnLog may be the app's
+				// session output).
+				if member {
+					switch v {
+					case keyAccepted:
+						s.log(fmt.Sprintf("%s (lobby %d): owner key accepted", name, id))
+					case keyWrong, keyUnset:
+						s.log(fmt.Sprintf("%s (lobby %d): owner key not accepted", name, id))
+					}
+					if wait > 0 && v != keyNone {
+						s.log(fmt.Sprintf("%s (lobby %d): its key waited %v (earlier wrong keys from that address)", name, id, wait.Round(time.Millisecond)))
+					}
+				}
 				continue
 			}
 			if sub == LobbySet {

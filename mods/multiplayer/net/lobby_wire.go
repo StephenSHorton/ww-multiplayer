@@ -111,6 +111,7 @@ const (
 	NoticeHelloFirst     = "hello_first"     // anything before HELLO
 	NoticeSlowDown       = "slow_down"       // over the lobby's message rate; the excess was dropped
 	NoticeModsDiffer     = "mods_differ"     // the HELLO's ModsHash is not the host's; the connection closes
+	NoticeNoCoop         = "no_coop"         // SETTINGS asked for co-op on a server with no co-op hub (a dedicated server)
 )
 
 // Co-op modes, LobbySettingsBody.Coop: "off", "new", or a world ID.
@@ -151,6 +152,12 @@ type LobbyHelloBody struct {
 	// Empty from a build before mods, which is admitted as before; a host
 	// from before mods ignores it.
 	ModsHash string `json:"modsHash,omitempty"`
+	// OwnerKey is the lobby's owner key, from a player who was given it
+	// (a dedicated server's `--owner-key`; owner_key.go). The right one
+	// lets this member hold the host role; a wrong one gets the
+	// NoticeOwnerKey notice and joins without it. Empty from everyone
+	// else; a server from before owner keys ignores it. Never logged.
+	OwnerKey string `json:"ownerKey,omitempty"`
 }
 
 // LobbyWelcomeBody is WELCOME.

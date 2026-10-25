@@ -1,0 +1,26 @@
+# An allowlist: the server image builds from the Go sources alone. Disc
+# images, save states, memory cards and the vanilla DOL must never reach a
+# build context, so everything else stays out.
+*
+!go.mod
+!go.sum
+!cheats/
+!cmd/
+!internal/
+!mods/
+!wwapi/
+
+# Belt and braces inside the allowed trees (the patterns .gitignore keeps
+# out of the repo).
+**/*.iso
+**/*.ciso
+**/*.rvz
+**/*.gcz
+**/*.wia
+**/*.nkit*
+**/*.dol
+**/*.sav
+**/*.s0[0-9]
+**/*.gci
+**/*.raw
+**/*.exe

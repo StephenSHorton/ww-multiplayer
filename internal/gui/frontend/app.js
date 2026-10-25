@@ -512,7 +512,7 @@ async function dialogAction(id, d, st, arg = "") {
 			break;
 		case "join-suggested":
 			$("name").value = d.suggest;
-			start(() => call("Join", { addr: st.addr, name: d.suggest, color: homeColor }));
+			start(() => call("Join", { addr: st.addr, name: d.suggest, color: homeColor, ownerKey: $("owner-key").value }));
 			break;
 		case "change-name": {
 			show("home");
@@ -731,7 +731,7 @@ function wire() {
 	});
 	$("join-form").addEventListener("submit", (e) => {
 		e.preventDefault();
-		start(() => call("Join", { addr: $("addr").value, name: $("name").value, color: homeColor }));
+		start(() => call("Join", { addr: $("addr").value, name: $("name").value, color: homeColor, ownerKey: $("owner-key").value }));
 	});
 	$("addr").addEventListener("input", renderRecent);
 	$("addr-eye").addEventListener("click", () => setAddrShown($("addr").classList.contains("secret")));

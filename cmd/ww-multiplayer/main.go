@@ -331,16 +331,61 @@ func parseHostArgs(args []string) (name string, port int, err error) {
 	return name, port, nil
 }
 
-// parseServerArgs parses `server [--port N]` into the port to listen on.
-func parseServerArgs(args []string) (port int, err error) {
-	port, rest, err := extractPortFlag(args, defaultPort)
+// parseServerArgs parses `server [--port N] [--owner-key K]` (getenv
+// gives WW_OWNER_KEY) into the server's options; the caller adds the
+// version. With no key from either, newKey makes one (KeyGenerated: the
+// server prints it once at start).
+func parseServerArgs(args []string, getenv func(string) string, newKey func() (string, error)) (o engine.ServerOptions, err error) {
+	// --owner-key K / --owner-key=K, else WW_OWNER_KEY (preferred: a
+	// flag shows in the process list). Both are trimmed, as the app trims
+	// the key it sends. Taken out before the port flags, which refuse any
+	// other option.
+	key, keyFlag := "", false
+	var others []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			others = append(others, args[i:]...)
+			i = len(args)
+		case a == "--owner-key" || a == "-owner-key":
+			if i+1 >= len(args) {
+				return o, errors.New("--owner-key needs a value (or set WW_OWNER_KEY instead)")
+			}
+			i++
+			key, keyFlag = args[i], true
+		case strings.HasPrefix(a, "--owner-key=") || strings.HasPrefix(a, "-owner-key="):
+			key, keyFlag = a[strings.Index(a, "=")+1:], true
+		default:
+			others = append(others, a)
+		}
+	}
+	if keyFlag {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return o, errors.New("--owner-key is empty (leave it out and the server makes a key, or set WW_OWNER_KEY)")
+		}
+	} else {
+		key = strings.TrimSpace(getenv("WW_OWNER_KEY"))
+	}
+	port, rest, err := extractPortFlag(others, defaultPort)
 	if err != nil {
-		return 0, err
+		return o, err
 	}
 	if err := rejectExtraArgs(rest, 0); err != nil {
-		return 0, err
+		return o, err
 	}
-	return port, nil
+	generated := false
+	if key == "" {
+		if key, err = newKey(); err != nil {
+			return o, err
+		}
+		generated = true
+	}
+	if err := network.ValidateOwnerKey(key); err != nil {
+		return o, err
+	}
+	return engine.ServerOptions{Port: port, OwnerKey: key, KeyGenerated: generated}, nil
 }
 
 // parseJoinArgs parses `join <host-ip[:port]> [name] [--port N]` into the

@@ -56,6 +56,13 @@ const (
 	// the host to the client it names, and drops one that arrives on a
 	// player connection.
 	MsgEnemy byte = 'E' // Both: enemy-sync sub-message
+
+	// The status probe (status.go). A connection whose first frame is
+	// MsgStatus, sent instead of MsgJoin with an empty payload, gets one
+	// MsgStatus back (a JSON StatusBody) and is closed. Never sent on a
+	// player connection; a server from before it closes the connection
+	// unanswered.
+	MsgStatus byte = 'S' // Client -> Server -> Client: status probe and answer
 )
 
 // Payload caps. The server enforces them at ingress so that every frame it
