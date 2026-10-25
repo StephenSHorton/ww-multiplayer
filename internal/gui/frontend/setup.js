@@ -187,6 +187,12 @@ async function startPatch(patched) {
 	}
 }
 
+// patchRunning says a disc is being patched now (leaving Setup asks;
+// Host, Join and Start wait for it in Go).
+export function patchRunning() {
+	return !!(patch && patch.running);
+}
+
 // onPatch shows a patch's progress (a "patch" event, or PatchStatus).
 // Events and PatchStatus replies can arrive out of order, so a view no
 // newer than the one shown (same patch, lower or equal seq) is dropped.

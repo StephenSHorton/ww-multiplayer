@@ -183,10 +183,38 @@ type CoopStatus struct {
 	// guard ("" for none).
 	Progression           []string
 	Puzzle, Combat, Tuner string
+	// Shares, HeldStory, Keys, Life and LifeWhy are the Progression
+	// lines' facts, structured for the app's progress card: the session
+	// features the host granted by name ("story", "keys", ...; none in a
+	// dry run), the story bits held back with why ("label (why)"), each
+	// key table, and whether max hearts are derived (LifeWhy: why not).
+	// NoKeyTable: no small keys are derived at all, as /status's "small
+	// keys: not derived (no co-op stage tables)" says.
+	Shares     []string
+	HeldStory  []string
+	Keys       []CoopKeys
+	NoKeyTable bool
+	Life       bool
+	LifeWhy    string
 	// Partner is where the partner is (its last PRESENCE): Stage "" for
 	// unknown, Room -1 at a stage start.
 	PartnerStage string
 	PartnerRoom  int
+}
+
+// CoopKeys is one key table's small keys as the replica's Deriver last
+// saw them (derive.KeyStatus, flattened): Dungeon its short name ("DRC";
+// "" for none), On whether its keys are derived (Why: why not), Seen
+// whether the loaded file has been measured; the counts mean nothing
+// before. Target is the count the table should hold, Pending a key write
+// in flight.
+type CoopKeys struct {
+	Table                     int
+	Dungeon                   string
+	On, Seen, Pending         bool
+	Why                       string
+	Have, Taken, Sources      int
+	Open, Doors, Held, Target int
 }
 
 // CoopHubStatus is a host's hub: the world it serves and its peers.

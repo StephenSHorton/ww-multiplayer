@@ -991,3 +991,35 @@ func TestBridgePrepareRefusesRunningCopy(t *testing.T) {
 		t.Fatalf("lookalike running: %+v, prepare ran %d", v, ran)
 	}
 }
+
+// TestBridgeRefusesSessionsWhilePatching: Host, Join and Start wait for
+// a running patch (Start would open Dolphin on a disc not yet written;
+// the sidebar reaches Home from Setup mid-patch), and work once it ends.
+func TestBridgeRefusesSessionsWhilePatching(t *testing.T) {
+	f := &fakePatcher{hold: make(chan struct{}), started: make(chan struct{})}
+	b, _, _ := patchBridge(t, f)
+	in := touch(t, filepath.Join(t.TempDir(), "ww.iso"))
+	if err := b.StartPatch(PatchRequest{Path: in}); err != nil {
+		t.Fatal(err)
+	}
+	<-f.started
+	if err := b.Host(HostRequest{Name: "Link"}); !errors.Is(err, errPatching) {
+		t.Fatalf("Host while patching: %v", err)
+	}
+	if err := b.Join(JoinRequest{Addr: "127.0.0.1", Name: "Link"}); !errors.Is(err, errPatching) {
+		t.Fatalf("Join while patching: %v", err)
+	}
+	if err := b.Start(true); !errors.Is(err, errPatching) {
+		t.Fatalf("Start while patching: %v", err)
+	}
+	if b.running() {
+		t.Fatal("a session started while patching")
+	}
+	close(f.hold)
+	if v := waitPatchDone(t, b); v.Stage != "done" {
+		t.Fatalf("%+v", v)
+	}
+	if err := b.Host(HostRequest{Name: "Link"}); err != nil {
+		t.Fatalf("Host after the patch: %v", err)
+	}
+}

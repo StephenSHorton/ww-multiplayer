@@ -83,7 +83,7 @@ function row(m) {
 // toggle is the mod's on/off switch, a slot like the header's switch.
 function toggle(m) {
 	return el("button", {
-		type: "button", class: "badge ipswitch modtoggle", role: "switch", "aria-checked": String(m.enabled),
+		type: "button", class: "switch modtoggle", role: "switch", "aria-checked": String(m.enabled),
 		"aria-label": (m.enabled ? "Turn off " : "Turn on ") + (m.name || m.id),
 		title: m.enabled ? "On from the next start: click to turn it off" : "Off from the next start: click to turn it on",
 		onclick: () => setEnabled(m, !m.enabled),

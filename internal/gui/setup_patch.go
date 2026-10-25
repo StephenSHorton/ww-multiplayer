@@ -302,8 +302,13 @@ func (b *Bridge) CancelPatch() {
 	}
 }
 
-// patching says whether a patch is running (closing the window asks).
+// patching says whether a patch is running (closing the window asks;
+// Host, Join and Start wait, see errPatching).
 func (b *Bridge) patching() bool { return b.PatchStatus().Running }
+
+// errPatching refuses a session while a disc is being patched: Start
+// would open Dolphin on a patched disc that isn't written yet.
+var errPatching = errors.New("your disc is still being patched: wait until Setup says it's done (or stop it there), then host or join")
 
 // waitPatch waits for a running patch to end. There is no time limit:
 // the patch is bounded (one disc read and written) and can't be

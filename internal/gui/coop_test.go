@@ -513,6 +513,34 @@ func TestCoopPanelView(t *testing.T) {
 	if v := pipeView(off); !v.Paused || v.Tone != "warn" || !strings.Contains(v.Headline, "you typed /coop off") {
 		t.Fatalf("writes off %+v", v)
 	}
+	// The progress card's facts, with each dungeon's name.
+	prog := cs
+	prog.Shares = []string{"image", "story", "keys"}
+	prog.HeldStory = []string{"Tetra's ship departs (MET_KORL moves the resume stage)"}
+	prog.Keys = []session.CoopKeys{{Table: 3, Dungeon: "DRC", On: true, Seen: true, Have: 1, Taken: 2, Sources: 4, Open: 1, Doors: 4, Target: 1},
+		{Table: 4, Dungeon: "FW", Why: "no key table"}, {Table: 9, Why: "odd"}}
+	prog.Life, prog.LifeWhy = false, "no heart table"
+	pv := pipeView(prog)
+	if len(pv.Shares) != 3 || len(pv.Held) != 1 || pv.Life || pv.LifeWhy != "no heart table" || len(pv.Keys) != 3 || pv.NoKeyTable {
+		t.Fatalf("progress %+v", pv)
+	}
+	nk := cs
+	nk.NoKeyTable = true
+	if pv := pipeView(nk); !pv.NoKeyTable {
+		t.Fatalf("NoKeyTable is dropped: %+v", pv)
+	}
+	if k := pv.Keys[0]; k.Name != "Dragon Roost Cavern" || k.Dungeon != "DRC" || !k.On || !k.Seen || k.Have != 1 || k.Taken != 2 || k.Sources != 4 || k.Open != 1 || k.Doors != 4 {
+		t.Fatalf("DRC %+v", k)
+	}
+	if k := pv.Keys[1]; k.Name != "Forbidden Woods" || k.On || k.Why != "no key table" {
+		t.Fatalf("FW %+v", k)
+	}
+	if k := pv.Keys[2]; k.Name != "table 9" {
+		t.Fatalf("a table with no dungeon %+v", k)
+	}
+	if v := pipeView(session.CoopStatus{}); v.Keys == nil || v.Shares == nil || v.Held == nil {
+		t.Fatalf("empty lists must be [] for the page, not null: %+v", v)
+	}
 	unb := session.CoopStatus{StateCode: "unbound", Why: "no tag"}
 	if v := pipeView(unb); v.Headline != "File not bound: no tag" {
 		t.Fatalf("unbound %+v", v)

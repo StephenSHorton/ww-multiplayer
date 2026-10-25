@@ -13,6 +13,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/keys"
 )
 
 // Co-op in the window (App PR 9, design §2.5, §2.7, §2.8): the host's
@@ -124,6 +125,40 @@ type CoopPipeView struct {
 	Tuner       string   `json:"tuner,omitempty"`
 	// Partner is where the partner is ("" while unknown).
 	Partner string `json:"partner,omitempty"`
+	// Shares, Held, Keys, Life and LifeWhy are Progression's facts for
+	// the progress card (session.CoopStatus): the features the host
+	// granted by name ("story", "keys", ...; empty in a dry run), the
+	// story bits held back ("label (why)"), each dungeon's small keys,
+	// and whether max hearts are derived (LifeWhy: why not). NoKeyTable:
+	// no small keys are derived at all (no co-op stage tables).
+	Shares     []string      `json:"shares"`
+	Held       []string      `json:"held"`
+	Keys       []CoopKeyView `json:"keys"`
+	NoKeyTable bool          `json:"noKeyTable,omitempty"`
+	Life       bool          `json:"life"`
+	LifeWhy    string        `json:"lifeWhy,omitempty"`
+}
+
+// CoopKeyView is one dungeon's small keys on the progress card.
+type CoopKeyView struct {
+	Dungeon string `json:"dungeon"` // short name ("DRC"), "" for a table with none
+	Name    string `json:"name"`    // the dungeon's name ("Dragon Roost Cavern"), else Dungeon, else "table N"
+	// On: its keys are derived (Why: why not); Seen: the loaded file has
+	// been measured, so the counts mean something.
+	On   bool   `json:"on"`
+	Seen bool   `json:"seen"`
+	Why  string `json:"why,omitempty"`
+	// Have is the keys the game holds; Taken of Sources the key sources
+	// whose flag is set, Open of Doors the key doors open; Target the
+	// count it should hold (a write is Pending, or waits for IDLE).
+	Have    int  `json:"have"`
+	Taken   int  `json:"taken"`
+	Sources int  `json:"sources"`
+	Open    int  `json:"open"`
+	Doors   int  `json:"doors"`
+	Held    int  `json:"held"`
+	Target  int  `json:"target"`
+	Pending bool `json:"pending"`
 }
 
 // CoopHubView is the host's hub.
@@ -544,7 +579,13 @@ func coopPanel(st session.State, mk masker) *CoopPanelView {
 func pipeView(cs session.CoopStatus) CoopPipeView {
 	v := CoopPipeView{Player: cs.Player, State: cs.StateCode, World: cs.World, Seq: cs.Seq, Written: cs.Written,
 		Escapes: cs.Escapes, Failed: cs.Failed, DryRun: cs.DryRun, Paused: cs.WritesOff != "" && !cs.DryRun,
-		Progression: append([]string{}, cs.Progression...), Puzzle: cs.Puzzle, Combat: cs.Combat, Tuner: cs.Tuner}
+		Progression: append([]string{}, cs.Progression...), Puzzle: cs.Puzzle, Combat: cs.Combat, Tuner: cs.Tuner,
+		Shares: append([]string{}, cs.Shares...), Held: append([]string{}, cs.HeldStory...), Keys: []CoopKeyView{},
+		NoKeyTable: cs.NoKeyTable, Life: cs.Life, LifeWhy: cs.LifeWhy}
+	for _, k := range cs.Keys {
+		v.Keys = append(v.Keys, CoopKeyView{Dungeon: k.Dungeon, Name: dungeonName(k.Table, k.Dungeon), On: k.On, Seen: k.Seen, Why: k.Why,
+			Have: k.Have, Taken: k.Taken, Sources: k.Sources, Open: k.Open, Doors: k.Doors, Held: k.Held, Target: k.Target, Pending: k.Pending})
+	}
 	if cs.PartnerStage != "" {
 		v.Partner = fmt.Sprintf("%s, room %d", cs.PartnerStage, cs.PartnerRoom)
 	}
@@ -574,6 +615,20 @@ func pipeView(cs session.CoopStatus) CoopPipeView {
 		v.Headline, v.Tone = "Not connected"+why, "wait"
 	}
 	return v
+}
+
+// dungeonName is a key table's name on the progress card: the dungeon's
+// (wwapi/tables/keys.Dungeons), else its short name, else "table N".
+func dungeonName(table int, short string) string {
+	for _, d := range keys.Dungeons {
+		if d.Table == table || (short != "" && d.Short == short) {
+			return d.Name
+		}
+	}
+	if short != "" {
+		return short
+	}
+	return fmt.Sprintf("table %d", table)
 }
 
 // coopBanner is the co-op banner the state calls for (design §2.7): the

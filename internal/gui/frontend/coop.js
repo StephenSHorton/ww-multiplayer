@@ -1,7 +1,8 @@
 // coop.js: co-op in the window (App PR 9, design §2.5, §2.7, §2.8): the
 // host's world choice (Off, New world, Continue with the worlds on this
-// computer, and Advanced), every player's save-file preview, the
-// Session screen's co-op panel with its buttons, and the parts of the
+// computer, and Advanced), every player's save-file preview with the
+// host's rules, the Session screen's co-op panel with its buttons, the
+// progress card (what co-op shares, each dungeon's small keys), and the parts of the
 // co-op dialogs Go describes (lists, option cards, a live check, the
 // "Answer yes to co-op questions" box). Go decides what to show
 // (internal/gui/coop.go); this draws it and sends the clicks.
@@ -115,12 +116,25 @@ function choiceText(st) {
 	return who + " " + what + (extra.length ? " (" + extra.join(", ") + ")" : "") + ".";
 }
 
+// rules are the host's co-op choice as rows a joiner can read at a
+// glance (the host sets them in its own panel).
+function rules(c) {
+	const row = (label, value, on) => el("li", { class: on ? "on" : "" }, label, el("b", {}, value));
+	return [
+		row("World", c.mode === "new" ? "New, from the host's file" : (c.world || "").slice(0, 8), true),
+		row("Dry run", c.dryRun ? "On" : "Off", c.dryRun),
+		row("Merging", c.merge ? "Allowed" : "Off", c.merge),
+		row("Live switches", c.liveSwitches ? "On" : "Off", c.liveSwitches),
+	];
+}
+
 function renderCards(st, show) {
 	const panel = $("card-panel");
 	panel.hidden = !show;
 	if (!show) return;
 	const c = st.coop;
 	$("card-choice").textContent = choiceText(st);
+	$("card-rules").replaceChildren(...rules(c));
 	const v = c.cards || { files: [], hint: "" };
 	$("card-files").replaceChildren(...v.files.map((f) => {
 		const [label, cls] = BIND_CHIPS[f.bind] || ["", ""];
@@ -150,6 +164,95 @@ async function setRelays() {
 	} catch (e) {
 		toast(e.message, { bad: true });
 	}
+}
+
+// ---------- the progress card (in game) ----------
+
+// SHARES are the session features the progress card lists, in the order
+// players think of them, with what each shares (proto.Feature names;
+// "image" is the chests, pickups, visited rooms, dungeon items, charts and
+// the rest of the shared image, docs/08 §3).
+const SHARES = [
+	["image", "World", "Chests, pickups, dungeon maps and compasses, charts and visited rooms"],
+	["story", "Story", "Story progress, held back where a game isn't ready for it"],
+	["inventory", "Items", "Items, songs, Triforce shards, pearls and bag sizes"],
+	["switches", "Switches", "Switches that stay set: doors, gates, bridges"],
+	["puzzle", "Puzzles", "Room and dungeon puzzles solved"],
+	["combat", "Kills", "Enemies that stay defeated once one of you beats them"],
+	["keys", "Small keys", "Each dungeon's small keys, counted from the chests and doors"],
+	["life", "Hearts", "Max hearts, from every Heart Container and Piece of Heart the world has taken"],
+	["magic", "Magic", "The magic meter"],
+	["live-switches", "Live switches", "Switches of the room you stand in, while you are idle"],
+];
+
+const KEY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="9" r="5" fill="#ffd83a" stroke="#6b4b00" stroke-width="2"/><circle cx="8" cy="9" r="1.8" fill="#6b4b00"/><path d="M12 12l8 8M16 16l2-2M18.5 18.5l2-2" stroke="#6b4b00" stroke-width="2.4" stroke-linecap="round"/></svg>';
+
+// pips draws n of total as small squares (total capped for room).
+function pips(n, total) {
+	const t = Math.min(total, 12);
+	return el("span", { class: "bar2", "aria-hidden": "true" }, ...Array.from({ length: t }, (_, i) => el("i", { class: i < n ? "on" : "" })));
+}
+
+function keyRow(k) {
+	const name = el("span", { class: "kname", title: k.dungeon ? k.dungeon : null }, k.name);
+	if (!k.on) {
+		return el("li", { class: "off" }, name, el("span", { class: "chip" }, "Not derived"),
+			el("div", { class: "kmeta" }, k.why || "Its keys aren't derived."));
+	}
+	if (!k.seen) {
+		return el("li", { class: "off" }, name, el("span", { class: "chip" }, "Not seen yet"),
+			el("div", { class: "kmeta" }, "Counted once your file is in game."));
+	}
+	const count = el("span", { class: "kcount", title: "Small keys your game holds" }, k.have + (k.have === 1 ? " key" : " keys"));
+	count.insertAdjacentHTML("afterbegin", KEY_ICON);
+	const meta = [
+		el("span", {}, pips(k.taken, k.sources), " " + k.taken + " of " + k.sources + " found"),
+		el("span", {}, pips(k.open, k.doors), " " + k.open + " of " + k.doors + " doors open"),
+	];
+	if (k.pending) meta.push(el("span", {}, "→ " + k.target + " on its way"));
+	else if (k.target !== k.have) meta.push(el("span", {}, "→ " + k.target + " once you're idle"));
+	if (k.held) meta.push(el("span", { title: "Opened by your partner: the lock goes at your next room change" }, k.held + " held until your next room change"));
+	return el("li", {}, name, count, el("div", { class: "kmeta" }, ...meta));
+}
+
+// renderProgress draws the progress card from the first pipeline's facts
+// (this player's game): what the host shares, the story bits held back,
+// each dungeon's small keys and max hearts. A dry run derives nothing.
+function renderProgress(st, show) {
+	const panel = $("progress-panel");
+	const v = show && st.coop.panel.pipes.length ? st.coop.panel.pipes[0] : null;
+	panel.hidden = !v;
+	if (!v) return;
+	const kids = [];
+	if (v.dryRun) {
+		kids.push(el("p", { class: "dim" }, "A dry run: co-op plans its writes and logs them, but shares nothing into your game."));
+	} else if (!(v.shares || []).length) {
+		kids.push(el("p", { class: "dim" }, "Nothing yet: the host grants what's shared once your file is bound to the world."));
+	} else {
+		const on = new Set(v.shares);
+		kids.push(el("ul", { class: "shares" }, ...SHARES.filter(([id]) => id !== "live-switches" || on.has(id)).map(([id, label, what]) =>
+			el("li", { class: on.has(id) ? "on" : "", title: what + (on.has(id) ? "" : " (not shared in this session)") }, el("i"), label))));
+	}
+	const keys = (v.keys || []).filter((k) => k.dungeon);
+	if (keys.length) {
+		kids.push(el("div", { class: "subhead" }, "Dungeon keys"), el("ul", { class: "keys" }, ...keys.map(keyRow)));
+	} else if (v.noKeyTable && !v.dryRun) {
+		// As /status: "small keys: not derived (no co-op stage tables)".
+		kids.push(el("div", { class: "subhead" }, "Dungeon keys"),
+			el("p", { class: "okline no", id: "progress-nokeys" }, "Small keys aren't derived: there are no co-op stage tables for this disc"));
+	}
+	if (!v.dryRun) {
+		kids.push(el("div", { class: "subhead" }, "Story and hearts"));
+		const held = v.held || [];
+		const shares = v.shares || [];
+		kids.push(held.length
+			? el("ul", { class: "heldlist", title: "Story bits your partner has that your game gets once it catches up" }, ...held.map((h) => el("li", {}, "Held back: " + h)))
+			: shares.includes("story")
+				? el("p", { class: "okline" }, "No story held back: your game has all of it")
+				: el("p", { class: "okline no" }, shares.length ? "Story isn't shared in this session" : "Story isn't shared yet"));
+		kids.push(el("p", { class: "okline" + (v.life ? "" : " no") }, v.life ? "Max hearts follow the hearts the world has taken" : "Max hearts aren't shared: " + (v.lifeWhy || "not granted")));
+	}
+	$("progress").replaceChildren(...kids);
 }
 
 // ---------- the co-op panel (in game) ----------
@@ -214,6 +317,7 @@ export function renderCoop(st, { hosting, playing, ended }) {
 	if (hosting && c) renderHost(st);
 	renderCards(st, !!(c && c.mode !== "off" && !ended && !playing));
 	renderPanel(st, !!(c && c.panel && playing && !ended));
+	renderProgress(st, !!(c && c.panel && playing && !ended));
 	$("tab-sync").hidden = !(c && c.mode !== "off");
 }
 

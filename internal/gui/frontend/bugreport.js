@@ -1,6 +1,7 @@
-// bugreport.js: the header's "Bug report" button. Bridge.SaveBugReport
-// writes one zip with the session logs, Dolphin's log and the
-// diagnostics, every file redacted and no game files or saves
+// bugreport.js: the "Bug report" button in Settings' Help card
+// (#help-actions). Bridge.SaveBugReport writes one zip with the session
+// logs, Dolphin's log and the diagnostics, every file redacted and no
+// game files or saves
 // (internal/bugreport); this says where it is and, in the window, opens
 // its folder. Nothing is uploaded. Self-contained (its own <script> in
 // index.html), so the rest of the frontend doesn't know it is there.

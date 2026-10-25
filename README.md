@@ -239,7 +239,7 @@ To turn it off, every player starts the app with `WW_ENEMY_SYNC=0` (the
 whole enemy layer) or `WW_ENEMY_REMOTE=off` (bodies only); all players
 set the same value. Known limits: [05-known-issues.md](docs/05-known-issues.md#shared-enemies).
 
-**Reporting a bug.** The header's **Bug report** button saves one zip
+**Reporting a bug.** The **Bug report** button in Settings' Help card saves one zip
 with your newest session logs, Dolphin's own log (when Dolphin's logger
 writes to a file) and the app's diagnostics; **Show folder** opens where it is. Every
 file in it is redacted first: your home folder becomes `~`, IP addresses

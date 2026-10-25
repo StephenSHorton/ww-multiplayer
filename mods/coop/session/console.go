@@ -379,7 +379,9 @@ func coopStatusOf(player string, st replica.Status) session.CoopStatus {
 		Combat:      combatStatus(st),
 		Tuner:       gbaStatus(st),
 		PartnerRoom: -1,
+		HeldStory:   heldStory(st),
 	}
+	progressionFacts(&cs, st)
 	if st.World.IsZero() {
 		cs.World = ""
 	}
@@ -466,17 +468,7 @@ func gbaStatus(st replica.Status) string {
 // with writes each key table's small keys and max life as the Deriver
 // last saw them. A dry run, M2's replica, derives nothing.
 func progressionStatus(st replica.Status) []string {
-	var held []string
-	for _, h := range st.Held {
-		if replica.CategoryOf(int(h.Off)) != replica.CatStory {
-			continue
-		}
-		for b := range 8 {
-			if h.Mask&(1<<b) != 0 {
-				held = append(held, fmt.Sprintf("%s (%s)", replica.DefaultLabel(int(h.Off), b), h.Hold.Why))
-			}
-		}
-	}
+	held := heldStory(st)
 	story := "story bits held back: none"
 	if len(held) > 0 {
 		story = "story bits held back until this game catches up: " + strings.Join(held, ", ")
@@ -500,6 +492,46 @@ func progressionStatus(st replica.Status) []string {
 		out = append(out, "max hearts: not derived: "+d.LifeWhy)
 	}
 	return out
+}
+
+// heldStory is the story bits st's holds keep out of the game, each as
+// "label (why)"; a held bit of another class (a boss bit) is left out.
+func heldStory(st replica.Status) []string {
+	var held []string
+	for _, h := range st.Held {
+		if replica.CategoryOf(int(h.Off)) != replica.CatStory {
+			continue
+		}
+		for b := range 8 {
+			if h.Mask&(1<<b) != 0 {
+				held = append(held, fmt.Sprintf("%s (%s)", replica.DefaultLabel(int(h.Off), b), h.Hold.Why))
+			}
+		}
+	}
+	return held
+}
+
+// progressionFacts fills cs's structured progression from st, as
+// progressionStatus words it: the session features granted (none in a
+// dry run, which derives nothing), the key tables that are derived or
+// name a dungeon, and max hearts.
+func progressionFacts(cs *session.CoopStatus, st replica.Status) {
+	if st.DryRun {
+		return
+	}
+	if f := st.Features & hub.SessionFeatures; f != 0 {
+		cs.Shares = strings.Split(f.String(), "|")
+	}
+	for _, k := range st.Derive.Keys {
+		if !k.On && k.Dungeon == "" {
+			continue
+		}
+		f := k.Facts
+		cs.Keys = append(cs.Keys, session.CoopKeys{Table: k.Table, Dungeon: k.Dungeon, On: k.On, Seen: k.Seen, Pending: k.Pending, Why: k.Why,
+			Have: f.Have, Taken: f.Taken, Sources: f.Sources, Open: f.Open, Doors: f.Doors, Held: f.Held, Target: k.Target})
+	}
+	cs.NoKeyTable = st.Derive.NoKeyTable
+	cs.Life, cs.LifeWhy = st.Derive.Life, st.Derive.LifeWhy
 }
 
 // writesState says whether st's replica writes.

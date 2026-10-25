@@ -4,45 +4,69 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wind Waker Multiplayer</title>
+<!-- the theme before the first paint (a module script runs after it):
+     the Settings page's choice, else the system's (theme.js) -->
+<script>
+	try {
+		const t = localStorage.getItem("ww-theme");
+		if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+	} catch {}
+</script>
 <link rel="stylesheet" href="app.css">
 <script type="module" src="app.js"></script>
 <script type="module" src="bugreport.js"></script>
 </head>
 <body>
-<header class="top">
+<div class="shell">
+<!-- the sidebar: the app's pages, and who you are -->
+<aside class="side">
 	<div class="brand">
-		<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 1 31 16 16 31 1 16Z" fill="#d8262e" stroke="#101a33" stroke-width="2"/><path d="M7 18c5 0 9-2 9-6 0-3-4-3-4 0 0 2 3 2 3 0" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round"/></svg>
-		<span class="hud">Wind Waker Multiplayer</span>
+		<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 1 31 16 16 31 1 16Z" fill="#d8262e" stroke="#06223f" stroke-width="2"/><path d="M7 18c5 0 9-2 9-6 0-3-4-3-4 0 0 2 3 2 3 0" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round"/></svg>
+		<span class="brandname">Wind Waker<b>Multiplayer</b></span>
 	</div>
-	<!-- the session's phase and where, in the header to leave the screen to the lobby -->
-	<div class="bar" id="bar" hidden>
-		<span class="phase" id="phase"></span>
-		<span class="where" id="where"></span>
-	</div>
-	<div class="badges">
+	<nav class="nav" aria-label="Pages">
+		<!-- Play: Home, or the running session -->
+		<button type="button" class="navbtn" id="nav-play" data-nav="play">
+			<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15c2.5 0 2.5 2 5 2s2.5-2 5-2 2.5 2 5 2M12 3v9M12 3l6 7h-6M4 20c2.5 0 2.5 1.5 5 1.5s2.5-1.5 5-1.5 2.5 1.5 5 1.5"/></svg>
+			<span id="nav-play-label">Play</span><i class="live" id="nav-live" hidden></i>
+		</button>
+		<button type="button" class="navbtn" id="setup-btn" data-nav="setup">
+			<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 4v5.5M12 14.5V20M4 12h5.5M14.5 12H20"/></svg>
+			<span>Setup</span>
+		</button>
+		<button type="button" class="navbtn" id="mods-btn" data-nav="mods">
+			<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8l8-4 8 4-8 4zM4 12l8 4 8-4M4 16l8 4 8-4"/></svg>
+			<span>Mods</span>
+		</button>
+		<button type="button" class="navbtn" id="nav-settings" data-nav="settings">
+			<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h9M18 6h1M5 12h3M12 12h7M5 18h9M18 18h1"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></svg>
+			<span>Settings</span>
+		</button>
+	</nav>
+	<div class="sidefoot">
+		<!-- you: your name and tunic, and where you are -->
+		<div class="me-card">
+			<i class="diamond" id="me-dot" aria-hidden="true"></i>
+			<div class="me-text"><b id="me-name">You</b><small id="me-status">Not in a session</small></div>
+		</div>
 		<!-- IP addresses are masked unless this is on (config ui.showIPs) -->
-		<button class="badge ipswitch" type="button" id="showips" role="switch" aria-checked="false"><i class="knob" aria-hidden="true"></i>Show IP addresses</button>
-		<button class="badge" type="button" id="setup-btn" hidden>Setup</button>
-		<button class="badge" type="button" id="mods-btn" hidden>Mods</button>
-		<!-- one redacted zip of the logs, for an issue (bugreport.js) -->
-		<button class="badge" type="button" id="bugreport-btn" title="Save the logs as one zip to attach to a bug report (addresses hidden, no game files)">Bug report</button>
-		<button class="btn back" type="button" id="leave-btn" hidden>Leave</button>
-		<!-- the version: opens the update settings (update.js) -->
+		<button class="switch ipswitch" type="button" id="showips" role="switch" aria-checked="false"><i class="knob" aria-hidden="true"></i>Show IP addresses</button>
+		<!-- the version: the Settings page's updates -->
 		<button class="ver" type="button" id="version" title="Version and updates"></button>
 	</div>
-</header>
+</aside>
 
 <main>
-	<!-- a newer release: the update banner (update.js), on Home and Mods only -->
-	<div class="panel updbar" id="updbar" role="status" hidden>
-		<h2>New version</h2>
+	<!-- a newer release: the update banner (update.js), on Home, Mods and Settings -->
+	<div class="card updbar" id="updbar" role="status" hidden>
 		<div class="updrow">
+			<svg class="updicon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 20h14"/></svg>
 			<p class="updtext"><b id="upd-title"></b> <span id="upd-text"></span></p>
 			<div class="updbtns" id="upd-btns">
 				<button class="btn primary" type="button" id="upd-go">Update</button>
 				<button class="btn primary" type="button" id="upd-restart" hidden>Restart</button>
 				<button class="btn" type="button" id="upd-notes">Release notes</button>
-				<button class="btn" type="button" id="upd-later">Later</button>
+				<button class="btn ghost" type="button" id="upd-later">Later</button>
 			</div>
 		</div>
 		<div class="meterrow" id="upd-progress" hidden>
@@ -55,31 +79,28 @@
 
 	<!-- Home: who you are, then Host or Join -->
 	<section id="home" class="screen" hidden>
-		<h1 class="hud">Set sail together</h1>
-		<div class="panel you">
-			<h2>You</h2>
-			<label class="field">
-				<span>Name</span>
-				<input id="name" autocomplete="off" spellcheck="false" placeholder="Link" aria-describedby="name-error">
-				<small class="fielderr" id="name-error" role="alert"></small>
-			</label>
-			<div class="field">
-				<span>Tunic color</span>
-				<div class="swatches" id="home-swatches" role="radiogroup" aria-label="Tunic color"></div>
-				<small class="hint">Your Link wears this tunic color in game. When the host presses Start, this window starts Dolphin with your patched disc.</small>
+		<header class="pagehead">
+			<h1>Set sail together</h1>
+			<p class="dim">Host a session for your friends, or join one. When the host presses Start, the app opens Dolphin with your patched disc.</p>
+		</header>
+		<div class="card you">
+			<figure class="minilink" id="home-link" aria-hidden="true"></figure>
+			<div class="youform">
+				<h2>You</h2>
+				<label class="field">
+					<span>Name</span>
+					<input id="name" autocomplete="off" spellcheck="false" placeholder="Link" aria-describedby="name-error">
+					<small class="fielderr" id="name-error" role="alert"></small>
+				</label>
+				<div class="field">
+					<span>Tunic color</span>
+					<div class="swatches" id="home-swatches" role="radiogroup" aria-label="Tunic color"></div>
+					<small class="hint">Everyone sees your Link in this tunic.</small>
+				</div>
 			</div>
 		</div>
 		<div class="pair">
-			<form class="panel" id="host-form">
-				<h2>Host</h2>
-				<p class="dim">Start a session on this computer and share its address with your friends.</p>
-				<label class="field">
-					<span>Port</span>
-					<input id="port" type="number" min="1" max="65535" inputmode="numeric">
-				</label>
-				<button class="btn primary" type="submit" id="host-btn">Host a session</button>
-			</form>
-			<form class="panel" id="join-form">
+			<form class="card" id="join-form">
 				<h2>Join</h2>
 				<!-- hosts on this network, heard by their beacons (App PR 11) -->
 				<div class="lanbox" id="lan" hidden>
@@ -87,13 +108,13 @@
 					<ul class="lan-list" id="lan-list"></ul>
 					<small class="hint" id="lan-note"></small>
 				</div>
-				<p class="dim">Or type what your host shared: a join code like <code>WW-30AG-09AX</code>, an IP, <code>ip:port</code> or <code>[v6]:port</code>.</p>
 				<label class="field">
 					<span>Join code or host address</span>
 					<span class="row secretrow">
 						<input id="addr" class="secret" autocomplete="off" spellcheck="false" placeholder="WW-30AG-09AX or 192.168.1.42">
 						<button type="button" class="btn small" id="addr-eye" aria-pressed="false" aria-controls="addr" title="Show or hide the code or address (hidden so a stream never shows it)">Show</button>
 					</span>
+					<small class="hint">What your host shared: a join code like <code>WW-30AG-09AX</code>, an IP, <code>ip:port</code> or <code>[v6]:port</code>.</small>
 				</label>
 				<div class="recent" id="recent" hidden>
 					<span class="label">Recent hosts</span>
@@ -108,15 +129,27 @@
 					</label>
 					<small class="hint">Sent to the address above only, with this Join; never saved.</small>
 				</details>
-				<button class="btn primary" type="submit" id="join-btn">Join</button>
+				<div class="cardfoot"><button class="btn primary" type="submit" id="join-btn">Join</button></div>
+			</form>
+			<form class="card" id="host-form">
+				<h2>Host</h2>
+				<p class="dim">Start a session on this computer and share its join code with your friends.</p>
+				<label class="field">
+					<span>Port</span>
+					<input id="port" type="number" min="1" max="65535" inputmode="numeric">
+				</label>
+				<div class="cardfoot"><button class="btn primary" type="submit" id="host-btn">Host a session</button></div>
 			</form>
 		</div>
 		<p class="error" id="home-error" role="alert"></p>
 	</section>
 
-	<!-- Setup: the first run, and Home's Setup button (setup.js) -->
+	<!-- Setup: the first run, and the Setup page (setup.js) -->
 	<section id="setup" class="screen" hidden>
-		<h1 class="hud" id="setup-title">Welcome aboard</h1>
+		<header class="pagehead">
+			<h1 id="setup-title">Welcome aboard</h1>
+			<p class="dim">Three steps: who you are, your game, and Dolphin. Each can wait.</p>
+		</header>
 		<nav class="steps" id="steps" aria-label="Setup steps">
 			<button type="button" data-step="profile"><b>1</b><span>You</span></button>
 			<button type="button" data-step="game"><b>2</b><span>Game</span></button>
@@ -124,7 +157,7 @@
 			<button type="button" data-step="done"><b>&#9733;</b><span>Done</span></button>
 		</nav>
 
-		<form class="panel step" data-step="profile" id="s-profile-form">
+		<form class="card step" data-step="profile" id="s-profile-form">
 			<h2>Your name</h2>
 			<div class="profile">
 				<div>
@@ -189,7 +222,7 @@
 			<div class="actions"><button class="btn primary" type="submit">Save</button></div>
 		</form>
 
-		<div class="panel step" data-step="game" hidden>
+		<div class="card step" data-step="game" hidden>
 			<h2>Your game</h2>
 			<p class="dim">Choose your own Wind Waker disc image: <code>.iso</code> or <code>.ciso</code>, the USA version (GZLE01). A compressed <code>.rvz</code>, <code>.wia</code> or <code>.gcz</code> works too: the app converts it to an ISO first with the DolphinTool that comes with your Dolphin. The app writes a patched copy next to it, named <code>&hellip;-multiplayer.iso</code>; your original is never changed.</p>
 			<ul class="checks" id="s-game-current"></ul>
@@ -217,7 +250,7 @@
 			<div class="actions"><button class="btn primary" type="button" id="s-game-next">Next</button></div>
 		</div>
 
-		<div class="panel step" data-step="dolphin" hidden>
+		<div class="card step" data-step="dolphin" hidden>
 			<h2>Dolphin</h2>
 			<p class="dim">The app starts Dolphin for you with your patched disc. Pick the Dolphin to use:</p>
 			<ul class="cands" id="s-cands" role="radiogroup" aria-label="Dolphin"></ul>
@@ -243,7 +276,7 @@
 			<div class="actions"><button class="btn primary" type="button" id="s-dolphin-save">Use this Dolphin</button></div>
 		</div>
 
-		<div class="panel step" data-step="done" hidden>
+		<div class="card step" data-step="done" hidden>
 			<h2 id="s-done-plaque">You're set</h2>
 			<p id="s-done-text"></p>
 			<ul class="checks" id="s-summary"></ul>
@@ -251,41 +284,105 @@
 		</div>
 
 		<div class="stepnav">
-			<button type="button" class="btn" id="step-back">Back</button>
-			<button type="button" class="btn right" id="step-skip">Skip this step</button>
+			<button type="button" class="btn ghost" id="step-back">Back</button>
+			<button type="button" class="btn ghost right" id="step-skip">Skip this step</button>
 		</div>
 	</section>
 
 	<!-- Mods: the app's mods, their status, on or off from the next start (mods.js) -->
 	<section id="mods" class="screen" hidden>
-		<h1 class="hud">Mods</h1>
-		<div class="panel modspanel">
-			<h2>Mods in this app</h2>
-			<p class="dim">Turning a mod on or off takes effect the next time you open the app.</p>
+		<header class="pagehead">
+			<h1>Mods</h1>
+			<p class="dim">What this app runs. Turning a mod on or off takes effect the next time you open the app.</p>
+		</header>
+		<div class="card modspanel">
 			<ul class="modlist" id="mod-list"></ul>
 			<small class="hint" id="mods-note"></small>
-			<div class="actions"><button class="btn primary" type="button" id="mods-back">Back</button></div>
+			<div class="actions"><button class="btn ghost" type="button" id="mods-back">Back</button></div>
+		</div>
+	</section>
+
+	<!-- Settings: the theme, IP addresses, updates, help (settings.js) -->
+	<section id="settings" class="screen" hidden>
+		<header class="pagehead">
+			<h1>Settings</h1>
+			<p class="dim">How the app looks and behaves on this computer.</p>
+		</header>
+		<div class="settings">
+			<div class="card">
+				<h2>Look</h2>
+				<div class="setrow">
+					<div class="settext"><b>Theme</b><small>Daylight or night sea; System follows your computer's setting.</small></div>
+					<div class="seg" role="radiogroup" aria-label="Theme" id="theme-seg">
+						<button type="button" role="radio" data-theme="system" aria-checked="true">System</button>
+						<button type="button" role="radio" data-theme="light" aria-checked="false">Light</button>
+						<button type="button" role="radio" data-theme="dark" aria-checked="false">Dark</button>
+					</div>
+				</div>
+			</div>
+			<div class="card">
+				<h2>Privacy</h2>
+				<div class="setrow">
+					<div class="settext"><b>Show IP addresses</b><small>Off, every address is masked (•••.•••.•••.42), so a stream or a screenshot never shows one. The switch is also at the bottom of the sidebar.</small></div>
+					<button class="switch" type="button" id="set-showips" role="switch" aria-checked="false" aria-label="Show IP addresses"><i class="knob" aria-hidden="true"></i><span>Off</span></button>
+				</div>
+			</div>
+			<div class="card">
+				<h2>Updates</h2>
+				<div class="setrow">
+					<div class="settext"><b id="set-vertitle">Version</b><small id="set-vertext"></small></div>
+					<div class="row">
+						<button class="btn" type="button" id="set-notes">Release notes</button>
+						<button class="btn primary" type="button" id="set-checknow">Check now</button>
+					</div>
+				</div>
+				<label class="check setcheck" title="Ask GitHub for a newer release when the app opens (at most every few hours)">
+					<input type="checkbox" id="set-checkupd">
+					<span>Check for updates when the app opens</span>
+				</label>
+				<p class="error" id="set-upderr" role="alert"></p>
+			</div>
+			<div class="card">
+				<h2>Help</h2>
+				<div class="setrow">
+					<div class="settext"><b>Something went wrong?</b><small>Each session writes a log the app keeps; IP addresses in it are masked. In a co-op session, the co-op panel's Copy status copies what a bug report needs.</small></div>
+				</div>
+				<!-- the bug-report slot: one redacted zip of the logs, for an issue (bugreport.js) -->
+				<div class="actions left" id="help-actions"><button class="btn" type="button" id="bugreport-btn" title="Save the logs as one zip to attach to a bug report (addresses hidden, no game files)">Bug report</button></div>
+			</div>
 		</div>
 	</section>
 
 	<!-- Session: the lobby (or a direct session): members, your tunic and
-	     Ready, chat, and the host's panel (share card, co-op, Start) -->
+	     Ready, chat, and the host's panel (share card, co-op, Start); in
+	     game the players, the map, co-op's status and what it shares -->
 	<section id="session" class="screen" hidden>
+		<header class="pagehead roomhead">
+			<div>
+				<!-- the session's phase and where -->
+				<div class="bar" id="bar" hidden>
+					<span class="phase" id="phase"></span>
+					<span class="where" id="where"></span>
+				</div>
+				<h1 id="room-title">Session</h1>
+			</div>
+			<button class="btn danger-ghost" type="button" id="leave-btn" hidden>Leave</button>
+		</header>
 		<div class="banner" id="banner" role="status" hidden>
 			<span class="spin" aria-hidden="true"></span>
 			<div><b id="banner-title"></b> <span id="banner-text"></span></div>
 			<small id="banner-n"></small>
 			<button class="btn small" type="button" id="banner-act" hidden></button>
 		</div>
-		<div class="ended panel" id="ended" hidden>
+		<div class="ended card" id="ended" hidden>
 			<h2>Session ended</h2>
 			<p id="end-reason"></p>
 			<button class="btn primary" id="back-btn">Back</button>
 		</div>
 		<div class="cols" id="cols">
 			<div class="stack" id="stack-left">
-				<div class="panel lobby">
-					<h2 id="members-title">Lobby</h2>
+				<div class="card lobby">
+					<div class="cardhead"><h2 id="members-title">Players</h2><span class="count" id="members-count"></span></div>
 					<ul class="members" id="members"></ul>
 					<div class="mine" id="mine" hidden>
 						<div class="field">
@@ -308,10 +405,16 @@
 						</label>
 					</div>
 				</div>
+				<!-- in game: what co-op shares, from the pipeline's facts (coop.js) -->
+				<div class="card progresspanel" id="progress-panel" hidden>
+					<h2>What co-op shares</h2>
+					<div id="progress"></div>
+				</div>
 				<!-- co-op: the host's choice and your memory card's files (coop.js) -->
-				<div class="panel cardpanel" id="card-panel" hidden>
+				<div class="card cardpanel" id="card-panel" hidden>
 					<h2>Save files</h2>
 					<p class="dim" id="card-choice"></p>
+					<ul class="rules" id="card-rules"></ul>
 					<ul class="files" id="card-files"></ul>
 					<p class="cardhint" id="card-hint"></p>
 					<small class="hint" id="card-note"></small>
@@ -331,17 +434,16 @@
 					</details>
 				</div>
 				<!-- in game: where everyone is, around you (the TUI's minimap) -->
-				<div class="panel mappanel" id="map-panel" hidden>
-					<h2>Map</h2>
+				<div class="card mappanel" id="map-panel" hidden>
+					<h2>Sea chart</h2>
 					<svg class="map" id="map" viewBox="-110 -110 220 220" role="img" aria-label="Where the other players are, around you"></svg>
 					<small class="hint" id="map-note"></small>
 				</div>
 			</div>
 			<div class="stack" id="stack-right">
-				<div class="panel hostpanel" id="host-panel" hidden>
-					<h2>Host</h2>
+				<div class="card hostpanel" id="host-panel" hidden>
+					<h2>Invite</h2>
 					<div class="share">
-						<span class="label">Share a join code or an address with your friends</span>
 						<ul class="addrs" id="addrs"></ul>
 						<small class="hint" id="share-hint"></small>
 					</div>
@@ -367,13 +469,13 @@
 						</details>
 					</div>
 					<div class="hostrow">
-						<button class="btn primary" type="button" id="start-btn" disabled aria-describedby="start-note">Start</button>
+						<small class="hint" id="start-note"></small>
+						<button class="btn primary big" type="button" id="start-btn" disabled aria-describedby="start-note">Start</button>
 					</div>
-					<small class="hint" id="start-note"></small>
 					<button class="linkbtn" type="button" id="start-anyway" hidden>Start anyway</button>
 				</div>
 				<!-- in game: the co-op panel, from the pipelines' status (coop.js) -->
-				<div class="panel cooppanel" id="coop-panel" hidden>
+				<div class="card cooppanel" id="coop-panel" hidden>
 					<h2>Co-op</h2>
 					<div id="coop-pipes"></div>
 					<div id="coop-hub"></div>
@@ -388,12 +490,14 @@
 					<label class="check autoyes"><input type="checkbox" id="coop-autoyes"><span>Answer yes to co-op questions</span></label>
 				</div>
 				<!-- chat: beside the lobby, or under it while the host's panel takes the right -->
-				<div class="panel feed" id="feed">
-					<h2 id="feed-title">Chat</h2>
-					<div class="tabs" id="feed-tabs" role="tablist" aria-label="What the log shows">
-						<button type="button" role="tab" data-tab="chat" aria-selected="true">Chat</button>
-						<button type="button" role="tab" data-tab="sync" aria-selected="false" id="tab-sync" hidden>Co-op sync</button>
-						<button type="button" role="tab" data-tab="all" aria-selected="false">All logs</button>
+				<div class="card feed" id="feed">
+					<div class="cardhead">
+						<h2 id="feed-title">Chat</h2>
+						<div class="tabs" id="feed-tabs" role="tablist" aria-label="What the log shows">
+							<button type="button" role="tab" data-tab="chat" aria-selected="true">Chat</button>
+							<button type="button" role="tab" data-tab="sync" aria-selected="false" id="tab-sync" hidden>Co-op sync</button>
+							<button type="button" role="tab" data-tab="all" aria-selected="false">All logs</button>
+						</div>
 					</div>
 					<ol class="log chatonly" id="log"></ol>
 					<form class="chat" id="chat-form">
@@ -405,9 +509,10 @@
 		</div>
 	</section>
 </main>
+</div>
 
 <dialog class="dialog" id="dlg" aria-labelledby="dlg-title" tabindex="-1">
-	<div class="panel">
+	<div class="card">
 		<h2 id="dlg-title"></h2>
 		<p id="dlg-text"></p>
 		<p class="detail" id="dlg-detail"></p>
