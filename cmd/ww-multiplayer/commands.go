@@ -271,16 +271,22 @@ func cmdPatch(string, []string) {
 }
 
 // patchFlags takes patch's optional REL fixes out of args, wherever they
-// stand (--fix-sea-heap: rels.SeaHeapFix) and returns the rest in order.
+// stand (each rels.Optional fix's Flag: --fix-sea-heap is
+// rels.SeaHeapFix), and returns the rest in order.
 func patchFlags(args []string) ([]string, []rels.BytePatch) {
 	var rest []string
 	var fixes []rels.BytePatch
+	have := map[string]bool{}
+next:
 	for _, a := range args {
-		if a == "--fix-sea-heap" {
-			if len(fixes) == 0 {
-				fixes = append(fixes, rels.SeaHeapFix)
+		for _, p := range rels.Optional {
+			if a == p.Flag {
+				if !have[p.Name] {
+					have[p.Name] = true
+					fixes = append(fixes, p)
+				}
+				continue next
 			}
-			continue
 		}
 		rest = append(rest, a)
 	}

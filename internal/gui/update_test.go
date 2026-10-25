@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -438,6 +439,12 @@ func TestUpdateFirstStartRepatches(t *testing.T) {
 	}
 	if v := b.UpdateStatus(); v.Repatch != "" {
 		t.Fatalf("the re-patch is offered again: %+v", v)
+	}
+	// The re-patch keeps an optional fix (`patch --fix-sea-heap`) on the
+	// disc it replaces or on the last patched one: the app has no switch
+	// for it (patch.Options.KeepFixes; patch's TestRunKeepsFixes).
+	if !fp.opts.KeepFixes || !slices.Contains(fp.opts.KeepFrom, patched) {
+		t.Errorf("re-patch options: keep %v from %q, want the fixes kept from %s", fp.opts.KeepFixes, fp.opts.KeepFrom, patched)
 	}
 	// A second start of the same version: nothing to do.
 	b2, _, _, _ := updBridge(t, "v0.5.0", nil, func(p string) {

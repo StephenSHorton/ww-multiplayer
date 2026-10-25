@@ -37,6 +37,22 @@ func readArcFile(t *testing.T, arc []byte, path string) []byte {
 	return b
 }
 
+// The vanilla words at the decomp's call sites (.text offsets), as the
+// disc's d_a_lod_bg.rel holds them: li r5, 0 before the bl
+// fopAcM_entrySolidHeap, and deleteModelData's six bl JKRHeap::free,
+// unlinked (branches to _unresolved at .text 0x58). Written out here,
+// not computed, so a wrong encoder in the fix or the stand-in shows.
+var lodBgVanillaWords = map[uint32]uint32{
+	0xCE8: 0x38A00000,
+	0xCEC: 0x4BFFF36D,
+	0x394: 0x4BFFFCC5, 0x3B0: 0x4BFFFCA9, 0x3CC: 0x4BFFFC8D,
+	0x3EC: 0x4BFFFC6D, 0x408: 0x4BFFFC51, 0x424: 0x4BFFFC35,
+}
+
+func word(b []byte) uint32 {
+	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
+}
+
 // checkSeaHeapApplied: the archive's d_a_lod_bg.rel is the stand-in with
 // li r5, 0xEF0 and the two nops written, the relocations of those two
 // bls disabled and every other byte as it was, and every other file's
@@ -53,23 +69,33 @@ func checkSeaHeapApplied(t *testing.T, vanilla, arc []byte) {
 		t.Fatal(err)
 	}
 	text := g.Sections[1].Data
-	if w := text[0xCF8:0xCFC]; !bytes.Equal(w, []byte{0x38, 0xA0, 0x0E, 0xF0}) {
-		t.Errorf("0xCF8 holds %x, want li r5, 0xEF0", w)
+	// The file offset betterww patches, through the stand-in's own
+	// 19-entry table (.text at 0xE4), is .text 0xCE8.
+	if w := got[0xDCC:0xDD0]; !bytes.Equal(w, []byte{0x38, 0xA0, 0x0E, 0xF0}) {
+		t.Errorf("file 0xDCC holds %x, want li r5, 0xEF0", w)
+	}
+	if w := text[0xCE8:0xCEC]; !bytes.Equal(w, []byte{0x38, 0xA0, 0x0E, 0xF0}) {
+		t.Errorf(".text 0xCE8 holds %x, want li r5, 0xEF0", w)
+	}
+	if w := word(text[0xCEC:]); w != lodBgVanillaWords[0xCEC] {
+		t.Errorf("the bl fopAcM_entrySolidHeap is %08x, want %08x", w, lodBgVanillaWords[0xCEC])
 	}
 	for i, off := range relstest.LodBgFrees {
-		want, live := []byte{0x48, 0x00, 0x00, 0x01}, true
+		want, live := lodBgVanillaWords[off], true
 		if i == 0 || i == 3 {
-			want, live = []byte{0x60, 0x00, 0x00, 0x00}, false
+			want, live = 0x60000000, false
 		}
-		if w := text[off : off+4]; !bytes.Equal(w, want) {
-			t.Errorf("free call %d at 0x%x holds %x, want %x", i, off, w, want)
+		if w := word(text[off:]); w != want {
+			t.Errorf("free call %d at 0x%x holds %08x, want %08x", i, off, w, want)
 		}
 		if _, idx := g.RelocAt(1, off); (idx >= 0) != live {
 			t.Errorf("free call %d at 0x%x: relocation live %v, want %v", i, off, idx >= 0, live)
 		}
 	}
-	if _, idx := g.RelocAt(1, 0xCFC); idx < 0 {
-		t.Error("the bl fopAcM_entrySolidHeap lost its relocation")
+	for _, off := range []uint32{0xCE2, 0xCE6, 0xCEC} {
+		if _, idx := g.RelocAt(1, off); idx < 0 {
+			t.Errorf("the relocation at .text 0x%x is gone", off)
+		}
 	}
 	n := 0
 	for i := range was {
@@ -77,10 +103,10 @@ func checkSeaHeapApplied(t *testing.T, vanilla, arc []byte) {
 			n++
 		}
 	}
-	// 2 bytes of the li's immediate, 2 x 2 of the nops (0x48..01 to
-	// 0x60..00), 2 relocation type bytes.
-	if len(got) != len(was) || n != 2+4+2 {
-		t.Errorf("%d bytes differ (sizes %d, %d), want 8", n, len(got), len(was))
+	// 2 bytes of the li's immediate, 2 x 4 of the nops (4bfffcc5 and
+	// 4bfffc6d to 60000000), 2 relocation type bytes.
+	if len(got) != len(was) || n != 2+8+2 {
+		t.Errorf("%d bytes differ (sizes %d, %d), want 12", n, len(got), len(was))
 	}
 	if f.Sections[1].Offset != g.Sections[1].Offset {
 		t.Error(".text moved")

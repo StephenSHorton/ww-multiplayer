@@ -18,6 +18,27 @@ type Write struct {
 	New     []byte
 }
 
+// SectionAt locates n bytes at file offset off of the expanded REL f
+// was parsed from: the section with data holding all of them, and the
+// offset in it. A REL patch given as file offsets (wwrando's and
+// betterww's `.org` in a REL is one: its RELs are patched through
+// convert_rel_offset_to_section_index_and_relative_offset) is resolved
+// with this against the REL's own section table, so a REL whose table
+// has a different number of entries moves .text and the patch with it.
+// It is false for bytes in the header, the section table, the import
+// table or the relocations, or across a section's end.
+func (f *File) SectionAt(off uint32, n int) (section uint8, offset uint32, ok bool) {
+	for i, s := range f.Sections {
+		if s.Offset == 0 || i > 0xFF {
+			continue
+		}
+		if uint64(off) >= uint64(s.Offset) && uint64(off)+uint64(n) <= uint64(s.Offset)+uint64(len(s.Data)) {
+			return uint8(i), off - s.Offset, true
+		}
+	}
+	return 0, 0, false
+}
+
 // PatchStats is what PatchBytes did.
 type PatchStats struct {
 	// Already says every write's bytes were New already (a REL this

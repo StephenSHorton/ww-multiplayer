@@ -118,39 +118,89 @@ func Arc() []byte { return stagetest.RARC("rels", Files()...) }
 // LodBgFile is the archive path of LodBg's REL, as on the disc.
 const LodBgFile = "mmem/d_a_lod_bg.rel"
 
-// LodBgModule is LodBg's module ID (any actor module's will do: the
-// sea-heap fix finds its REL by path).
-const LodBgModule = 0x91
+// LodBgModule is LodBg's module ID, the disc's d_a_lod_bg.rel's (the
+// sea-heap fix finds its REL by path, not by ID).
+const LodBgModule = 0x26
 
-// LodBg is a stand-in for d_a_lod_bg.rel with what rels.SeaHeapFix
-// looks for and nothing of the game's: a .text of 0x133C bytes of
-// pseudo-random filler holding `li r5, 0` at 0xCF8 and a `bl` at 0xCFC
-// and at each of deleteModelData's six JKRHeap::free calls (0x3A4,
-// 0x3B8, 0x3D4, 0x3FC, 0x410, 0x42C), REL24 relocations against
-// main.dol on those bls, a relocation against itself in .text and one
-// in .data.
-func LodBg() []byte {
-	text := REL(LodBgModule, 0x133C) // filler only: its .text is used
-	f, err := rel.Parse(text)
-	if err != nil {
-		panic(err)
+// LodBgEntries is how many section entries the disc's d_a_lod_bg.rel
+// has: the null one, the six of the decomp's splits.txt (.text, .ctors,
+// .dtors, .rodata, .data, .bss) and twelve empty ones, so its .text
+// starts at file 0x4C + 19*8 = 0xE4.
+const LodBgEntries = 19
+
+// LodBg is a stand-in for d_a_lod_bg.rel with the disc REL's layout and
+// what rels.SeaHeapFix looks for, and none of its bytes: LodBgLayout
+// with LodBgEntries section entries.
+func LodBg() []byte { return LodBgLayout(LodBgEntries) }
+
+// LodBgLayout is the stand-in with n section entries (at least 7): the
+// header and section table of the disc's REL (version 3, align 8; .text
+// 0x133C bytes, .ctors and .dtors 4, .rodata 0x1DD, .data 0xC8, a .bss
+// of 0x20, the rest empty), each section's data 4-aligned after the
+// table as the disc's are. Its .text is pseudo-random filler holding,
+// at the decomp's offsets, `lis r4` / `addi r4` (createHeapCallBack,
+// relocated against itself) at 0xCE0, `li r5, 0` at 0xCE8 and a bl
+// fopAcM_entrySolidHeap at 0xCEC in execReadWait, the six bl
+// JKRHeap::free of deleteModelData (LodBgFrees) with two other calls
+// among them, and two more JKRHeap::free calls past it. Every bl into
+// main.dol is unlinked, a branch to _unresolved (.text 0x58), with a
+// REL24 relocation on it, as the disc stores them. With n other than 19
+// .text moves and file offsets worked out for 19 entries land in the
+// wrong words.
+func LodBgLayout(n int) []byte {
+	filler := func(seed uint64, size int) []byte {
+		b := make([]byte, size)
+		x := 0x9E3779B97F4A7C15 ^ seed
+		for i := range b {
+			x ^= x << 13
+			x ^= x >> 7
+			x ^= x << 17
+			b[i] = byte(x)
+		}
+		return b
 	}
-	t := f.Sections[1].Data
-	put := func(off int, w ...byte) { copy(t[off:], w) }
-	put(0xCF8, 0x38, 0xA0, 0x00, 0x00)
-	main := []rel.Reloc{{Section: 1, Offset: 0xCFC, Type: rel.RelocRel24, Addend: 0x80024D24}}
+	t := filler(1, 0x133C)
+	put := func(off uint32, w uint32) {
+		t[off], t[off+1], t[off+2], t[off+3] = byte(w>>24), byte(w>>16), byte(w>>8), byte(w)
+	}
+	const unresolved = 0x58
+	var main []rel.Reloc
+	bl := func(off, target uint32) {
+		put(off, 0x48000001|((unresolved-off)&0x03FFFFFC))
+		main = append(main, rel.Reloc{Section: 1, Offset: off, Type: rel.RelocRel24, Addend: target})
+	}
+	put(0xCE0, 0x3C800000) // lis r4, createHeapCallBack@ha
+	put(0xCE4, 0x38840000) // addi r4, r4, createHeapCallBack@l
+	put(0xCE8, 0x38A00000) // li r5, 0
+	bl(0xCEC, 0x80024D24)  // bl fopAcM_entrySolidHeap
 	for _, off := range LodBgFrees {
-		put(int(off), 0x48, 0x00, 0x00, 0x01)
-		main = append(main, rel.Reloc{Section: 1, Offset: off, Type: rel.RelocRel24, Addend: 0x802B0518})
+		bl(off, 0x802B0518) // bl JKRHeap::free
 	}
-	put(0xCFC, 0x48, 0x00, 0x00, 0x01)
-	main = append(main, rel.Reloc{Section: 2, Offset: 0x10, Type: rel.RelocAddr32, Addend: 0x80005678})
-	f.Imports = []rel.Import{
-		{Module: LodBgModule, Relocs: []rel.Reloc{
-			{Section: 1, Offset: 0xCF2, Type: rel.RelocAddr16Lo, TargetSection: 1, Addend: 0xA38},
-			{Section: 2, Offset: 0x20, Type: rel.RelocAddr32, TargetSection: 1, Addend: 0x12EC},
-		}},
-		{Module: 0, Relocs: main},
+	bl(0x3C0, 0x802B1234) // other calls in deleteModelData
+	bl(0x418, 0x802B1234)
+	bl(0x5D8, 0x802B0518) // JKRHeap::free outside deleteModelData
+	bl(0x6B8, 0x802B0518)
+	main = append(main, rel.Reloc{Section: 5, Offset: 0x10, Type: rel.RelocAddr32, Addend: 0x80005678})
+
+	secs := make([]rel.Section, n)
+	secs[1] = rel.Section{Offset: 1, Exec: true, Data: t}
+	secs[2] = rel.Section{Offset: 1, Data: filler(2, 4)}
+	secs[3] = rel.Section{Offset: 1, Data: filler(3, 4)}
+	secs[4] = rel.Section{Offset: 1, Data: filler(4, 0x1DD)}
+	secs[5] = rel.Section{Offset: 1, Data: filler(5, 0xC8)}
+	secs[6] = rel.Section{Size: 0x20}
+	f := &rel.File{
+		ID: LodBgModule, Version: 3, Align: 8, BSSAlign: 8, BSSSize: 0x20,
+		Prolog: rel.Symbol{Section: 1}, Epilog: rel.Symbol{Section: 1, Offset: 0x2C}, Unresolved: rel.Symbol{Section: 1, Offset: unresolved},
+		Sections: secs,
+		Imports: []rel.Import{
+			{Module: LodBgModule, Relocs: []rel.Reloc{
+				{Section: 1, Offset: 0xCE2, Type: rel.RelocAddr16Ha, TargetSection: 1, Addend: 0xA38},
+				{Section: 1, Offset: 0xCE6, Type: rel.RelocAddr16Lo, TargetSection: 1, Addend: 0xA38},
+				{Section: 5, Offset: 0x20, Type: rel.RelocAddr32, TargetSection: 1, Addend: 0x12EC},
+			}},
+			{Module: 0, Relocs: main},
+		},
 	}
 	b, err := f.Bytes(false)
 	if err != nil {
@@ -159,8 +209,9 @@ func LodBg() []byte {
 	return b
 }
 
-// LodBgFrees are the .text offsets of LodBg's JKRHeap::free calls.
-var LodBgFrees = []uint32{0x3A4, 0x3B8, 0x3D4, 0x3FC, 0x410, 0x42C}
+// LodBgFrees are the .text offsets of deleteModelData's six JKRHeap::free
+// calls in LodBg, the decomp's: the fix takes the first and the fourth.
+var LodBgFrees = []uint32{0x394, 0x3B0, 0x3CC, 0x3EC, 0x408, 0x424}
 
 // ArcWithLodBg is Arc with LodBg in it too.
 func ArcWithLodBg() []byte {
