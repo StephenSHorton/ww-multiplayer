@@ -101,6 +101,13 @@ type refreshProc struct {
 	// setKey), so only a memory switch; noZone: with the stay room (a warp
 	// jar), so a memory or dan switch. The REL refuses any other.
 	memOnly, noZone bool
+	// curRoom: the create reads the switch with fopAcM_GetRoomNo (the
+	// current room), not fopAcM_isSwitch's home room, so the REL refuses a
+	// zone switch while current.roomNo differs from the home room
+	// (RF_ROW_CUR_ROOM). The actors list has no current room, so this side
+	// does not mirror that refusal: it is final, and right, since vanilla's
+	// create would read another room's bit. Only mjdoor, swhit0 and mflft.
+	curRoom bool
 	// pending, when set, is why ParseRefresh refuses the token: the REL
 	// has the row compiled out (mailbox.RefreshDoorRows).
 	pending string
@@ -121,14 +128,14 @@ var refreshProcs = []refreshProc{
 	{key: "wall", proc: mailbox.RefreshProcWall, row: true},
 	{key: "floor", proc: mailbox.RefreshProcFloor, row: true},
 	{key: "ice", proc: mailbox.RefreshProcIce, row: true},
-	{key: "mjdoor", proc: mailbox.RefreshProcMjdoor, row: true},
+	{key: "mjdoor", proc: mailbox.RefreshProcMjdoor, row: true, curRoom: true},
 	{key: "mkie", proc: mailbox.RefreshProcMkie, row: true, shift: mailbox.RefreshMkieSwShift},
 	{key: "mkiek", proc: mailbox.RefreshProcMkiek, row: true},
 	{key: "mknjd", proc: mailbox.RefreshProcMknjd, row: true},
 	{key: "vfan", proc: mailbox.RefreshProcVfan, row: true},
-	{key: "swhit0", proc: mailbox.RefreshProcSwhit0, row: true, recreate: true},
+	{key: "swhit0", proc: mailbox.RefreshProcSwhit0, row: true, curRoom: true, recreate: true},
 	{key: "warpt", proc: mailbox.RefreshProcWarpt, row: true, recreate: true, angleX: true, noZone: true},
-	{key: "mflft", proc: mailbox.RefreshProcMflft, row: true, recreate: true, shift: mailbox.RefreshMflftSwShift},
+	{key: "mflft", proc: mailbox.RefreshProcMflft, row: true, curRoom: true, recreate: true, shift: mailbox.RefreshMflftSwShift},
 	{key: "kokiie", proc: mailbox.RefreshProcKokiie, row: true, recreate: true, shift: mailbox.RefreshKokiieSwShift},
 	{key: "vmc", proc: mailbox.RefreshProcVmc, row: true, recreate: true, shift: mailbox.RefreshVmcSwShift},
 	{key: "door10", proc: mailbox.RefreshProcDoor10, row: true, recreate: true, memOnly: true, pending: refreshPendingST1},

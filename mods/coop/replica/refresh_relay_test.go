@@ -3,6 +3,8 @@ package replica
 import (
 	"encoding/binary"
 	"fmt"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -817,4 +819,78 @@ func setSnapByte(t *testing.T, s *state.Snapshot, a uint32, mask byte) {
 		}
 	}
 	t.Fatalf("0x%08X is in no snapshot region", a)
+}
+
+// relRefreshC is the REL source whose rf_rows the Go table mirrors.
+const relRefreshC = "../../../inject/rel/refresh.c"
+
+// TestRefreshRowsMatchREL: every refresh.c rf_rows entry has a Go row
+// with the same shift and flags (recreate, angleX, noZone, memOnly,
+// curRoom), and back. The current-room flag is pinned on its own: only
+// MJDOOR (d_a_obj_majyuu_door.cpp:146-148), SWHIT0 (d_a_swhit0.cpp:166)
+// and MFLFT (d_a_mflft.cpp:650) read their switch with fopAcM_GetRoomNo;
+// the rest use fopAcM_isSwitch, the home room (f_op_actor_mng.h:374-375),
+// and a current-room check on them would refuse a valid request.
+func TestRefreshRowsMatchREL(t *testing.T) {
+	src, err := os.ReadFile(relRefreshC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	re := regexp.MustCompile(`\{ WWRF_PROC_(\w+), [^,]+, [^,]+, (\w+), ([\w |]+),`)
+	shifts := map[string]int{
+		"0":                    0,
+		"WWRF_MKIE_SW_SHIFT":   mailbox.RefreshMkieSwShift,
+		"WWRF_MFLFT_SW_SHIFT":  mailbox.RefreshMflftSwShift,
+		"WWRF_KOKIIE_SW_SHIFT": mailbox.RefreshKokiieSwShift,
+		"WWRF_VMC_SW_SHIFT":    mailbox.RefreshVmcSwShift,
+	}
+	seen := map[string]bool{}
+	for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+		key := strings.ToLower(m[1])
+		seen[key] = true
+		var rp *refreshProc
+		for i := range refreshProcs {
+			if refreshProcs[i].key == key {
+				rp = &refreshProcs[i]
+			}
+		}
+		if rp == nil || !rp.row {
+			t.Errorf("rf_rows %s: no Go row", m[1])
+			continue
+		}
+		sh, ok := shifts[m[2]]
+		if !ok || sh != rp.shift {
+			t.Errorf("%s: C shift %s, Go %d", key, m[2], rp.shift)
+		}
+		flags := map[string]bool{}
+		for _, f := range strings.Split(m[3], "|") {
+			flags[strings.TrimSpace(f)] = true
+		}
+		for _, c := range []struct {
+			flag   string
+			goSide bool
+		}{
+			{"RF_ROW_RECREATE", rp.recreate},
+			{"RF_ROW_ANGLE_X", rp.angleX},
+			{"RF_ROW_NO_ZONE", rp.noZone},
+			{"RF_ROW_MEM_ONLY", rp.memOnly},
+			{"RF_ROW_CUR_ROOM", rp.curRoom},
+		} {
+			if flags[c.flag] != c.goSide {
+				t.Errorf("%s: C %s %v, Go %v", key, c.flag, flags[c.flag], c.goSide)
+			}
+		}
+	}
+	for _, rp := range refreshProcs {
+		if rp.row && !seen[rp.key] {
+			t.Errorf("Go row %s: not in rf_rows", rp.key)
+		}
+		want := rp.key == "mjdoor" || rp.key == "swhit0" || rp.key == "mflft"
+		if rp.curRoom != want {
+			t.Errorf("%s: curRoom %v, want %v", rp.key, rp.curRoom, want)
+		}
+	}
+	if len(seen) != 15 {
+		t.Errorf("parsed %d rf_rows entries, want 15", len(seen))
+	}
 }
