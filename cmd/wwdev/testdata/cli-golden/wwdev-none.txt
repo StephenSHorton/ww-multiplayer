@@ -4,6 +4,8 @@ wwdev: Wind Waker Multiplayer developer tools (not shipped)
 Local two-Dolphin testing (everything in-process):
   <exe> dolphin2 [--reset]           Bootstrap & launch a 2nd Dolphin instance
   <exe> mp-local [nameA] [nameB]     Run server + broadcast/puppet pairs for both Dolphins
+  <exe> smoke [opts] [-- mp-local args] Scripted two-Dolphin smoke: boot/attach, mp-local, sync checks; exit 0/1/2
+  <exe> smooth-steps [secs=5] [A|B]  Per-frame step log of a remote under WW_POSE_TEST_RATE jitter
   <exe> help                         Show this help
 
 Diagnostics and research probes (Dolphin picked by WW_DOLPHIN_INDEX / WW_DOLPHIN_PID):

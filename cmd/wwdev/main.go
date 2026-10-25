@@ -8,6 +8,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/cliutil"
@@ -24,6 +25,9 @@ var exeCmd = cliutil.ExeCmd("wwdev")
 // wwdev, as from ww-multiplayer: cliutil.OpenDolphin, and player
 // connections with the session's color preference.
 var feedEnv = feed.Env{Open: cliutil.OpenDolphin, NewClient: engine.NewPlayerClientCtx}
+
+// envPoseTestRate is the pose test rate knob (main, smooth-steps).
+const envPoseTestRate = "WW_POSE_TEST_RATE"
 
 // coopEnv is what co-op (mods/coop/session) takes from wwdev (mp-local
 // --coop): cliutil.OpenDolphin.
@@ -48,6 +52,16 @@ func exitUsage(err error, usage string) {
 
 func main() {
 	cliutil.ApplyColorPrefFromArgs() // --color / WW_COLOR, as ww-multiplayer reads them
+	// WW_POSE_TEST_RATE=<hz>[:<jitter ms>[:<latency ms>]]: the broadcasts
+	// this process runs (mp-local's, broadcast-pose's) send late on
+	// purpose, for smooth-steps (feed.TestRate). wwdev only: the shipped
+	// binary has no such knob.
+	r, err := feed.ParseTestRate(os.Getenv(envPoseTestRate))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", envPoseTestRate, err)
+		os.Exit(2)
+	}
+	feedEnv.TestRate = r
 	if len(os.Args) < 2 {
 		printHelp()
 		return

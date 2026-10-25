@@ -33,7 +33,7 @@ ww-multiplayer/
 │   │   ├── ww_windows.syso      #   Icon + application manifest (go generate ./cmd/ww-multiplayer); the linker only takes a .syso from the main package's directory
 │   │   └── testdata/            #   CLI and help goldens (cli-golden/), the subcommand lists
 │   └── wwdev/                   # wwdev, the developer tools (Phase D6; CI builds it, releases don't ship it): registry.go (its command registry + help),
-│                                #   commands.go (the command bodies), mp_local*.go (dolphin2, mp-local), coop_diag.go (co-op diagnostics), auto_recapture.go,
+│                                #   commands.go (the command bodies), mp_local*.go (dolphin2, mp-local), smoke*.go + smooth_steps.go (the scripted smoke, the step log), coop_diag.go (co-op diagnostics), auto_recapture.go,
 │                                #   tunic_diag.go (tunic dev commands), probes.go (the research probes: peek/poke, disasm, eye/face, input, screenshot, dump, ...)
 ├── internal/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
@@ -265,6 +265,15 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
 # Local two-Dolphin harness
 ./wwdev.exe dolphin2 [--reset]              # Bootstrap & launch a 2nd Dolphin instance
 ./wwdev.exe mp-local [A] [B]                # Server + 2x broadcast-pose + 2x puppet-sync (one process)
+./wwdev.exe smoke [--no-boot] [--hop "<stage> <point> [room]"|none] [--tol 50] [--switch N] [--smooth <rate>] [-- mp-local args]
+                                            # The scripted smoke (review idea 23, cmd/wwdev/smoke.go): boots two fixture Dolphins (SAVE_STATE + explicit
+                                            #   test USER_DIR_1/2, WW_DOLPHIN_DEVLOG's rules) or attaches to two on test dirs, runs mp-local as a child, checks
+                                            #   heartbeats, REL, crash, pose seqs, remote tracking after scripted walks, a stage hop, optional co-op bind/switch;
+                                            #   logs/latest/smoke.json + smoke.log; exit 0 pass, 1 a check failed, 2 could not run (docs/TESTING.md SM1-SM4)
+./wwdev.exe smooth-steps [secs=5] [A|B]     # Per-frame step log of a remote against the walking Link (stalls, jumps, cv, ratio); logs/latest/smooth-steps.json
+#   WW_POSE_TEST_RATE=<hz>[:<jitter ms>[:<latency ms>]]  wwdev's broadcasts (mp-local, broadcast-pose) sample at hz and send each sample late
+#                 by latency + up to jitter, in order (feed.TestRate; the shipped exe has no such knob); smoke --smooth sets it on its mp-local
+#   MP_LOCAL_STOP_FILE=<path>  mp-local stops, with its normal teardown, once that file exists (smoke's child run)
 # Env knobs honored by `dolphin2` and `auto-recapture` (defaults: wwapi/emu/launch Defaults;
 # DOLPHIN_EXE, ISO_PATH and USER_DIR_1 also override the app's saved settings, as WW_COLOR does):
 #   DOLPHIN_EXE   path to Dolphin (Windows default: %USERPROFILE%\Desktop\Dolphin-x64\Dolphin.exe;

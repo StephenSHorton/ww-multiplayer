@@ -60,34 +60,36 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 	sessionLoop := func(ctx context.Context) error {
 		posErrs, poseErrs := 0, 0
 		var equip vissync.EquipSampler // the shield bit, debounced (two samples)
-		for client.IsConnected() {
+		// capture reads one sample of this Dolphin's Link: nil while Link
+		// is not loaded.
+		capture := func() *poseSample {
 			// Position (cheap; same as broadcast-link).
 			pos, err := link.Position()
-			if err == nil && pos != nil {
-				netPos := &network.PlayerPosition{
-					PosX: pos.PosX, PosY: pos.PosY, PosZ: pos.PosZ,
-					RotY: pos.RotY,
-				}
-				// The place trailer (network place.go): where this
-				// game is, for the server's pose scoping and the
-				// receivers' stage gate. Without it (a failed read) the
-				// server relays this player's poses to everyone.
-				send := client.SendPosition
-				if place, ok := ReadPlace(d); ok {
-					send = func(p *network.PlayerPosition) error { return client.SendPositionAt(p, place) }
-				}
-				if err := send(netPos); err != nil {
-					posErrs++
-					if posErrs > 5 {
-						return fmt.Errorf("send position: %w", err)
-					}
-				}
-				// #22 minimap: publish this Dolphin's own position into
-				// liveState (TUI path only — onPos is nil on every CLI
-				// entry point).
-				if onPos != nil {
-					onPos(pos.PosX, pos.PosY, pos.PosZ)
-				}
+			if err != nil || pos == nil {
+				// pos can be nil during a brief reload window where Link's
+				// actor pointer is 0 (player on the main menu / save loading).
+				// We used to print a per-tick `link+pose -> X:Y:Z\r` heartbeat
+				// here; the TUI dashboard now polls Dolphin position directly
+				// for that field, so the heartbeat just spammed the log panel.
+				// CLI users still see the [net] connect line as proof of life.
+				return nil
+			}
+			s := &poseSample{pos: &network.PlayerPosition{
+				PosX: pos.PosX, PosY: pos.PosY, PosZ: pos.PosZ,
+				RotY: pos.RotY,
+			}}
+			// The place trailer (network place.go): where this game is,
+			// for the server's pose scoping and the receivers' stage
+			// gate. Read with the position, so a sample a TestRate holds
+			// back still carries the place it was taken in. Without it
+			// (a failed read) the server relays this player's poses to
+			// everyone.
+			s.place, s.placeOK = ReadPlace(d)
+			// #22 minimap: publish this Dolphin's own position into
+			// liveState (TUI path only — onPos is nil on every CLI
+			// entry point).
+			if onPos != nil {
+				onPos(pos.PosX, pos.PosY, pos.PosZ)
 			}
 
 			// Pose. Read from the sender-side publish buffer rather than
@@ -104,52 +106,72 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 			// the pose is relative to Link's origin (rotation parts
 			// unchanged). Receiver re-adds the remote's world position to
 			// land Link #2 at the right world coords.
-			if pos != nil {
-				data, err := link.Pose()
-				if err == nil && data != nil {
-					if os.Getenv("WW_POSE_RAW") == "" {
-						avatar.Localize(data, avatar.JointCount, pos.PosX, pos.PosY, pos.PosZ)
-					}
-					// Capture the LOCAL Link's eye texno bytes from
-					// the mailbox slot the C side publishes at the
-					// top of daPy_draw_hook (before any face_emit
-					// swap fires). Race-free vs reading tev_block
-					// directly from emu RAM. Wire layout matches
-					// FaceState: 8 B = (mat1_tex0:u16 BE)
-					// (mat1_tex1:u16 BE)(mat4_tex0:u16 BE)
-					// (mat4_tex1:u16 BE).
-					var face []byte
-					if fb, err := link.Face(); err == nil && len(fb) == player.FaceBytes {
-						face = fb
-						// docs/09 §5.4: a 17th byte, the appearance
-						// flags (bit 0 = casual clothes). Receivers
-						// before it copy only the first 16 bytes.
-						if app, ok := tunicsync.LocalAppearance(d); ok {
-							// vissync: the sea, sword-out and
-							// shield-in-hand bits, then the two
-							// equip bytes (19 bytes in all).
-							if extra, eq, ok := equip.Sample(d); ok {
-								face = append(face, app|extra, eq[0], eq[1])
-							} else {
-								face = append(face, app)
-							}
-						}
-					}
-					if err := client.SendPose(avatar.JointCount, data, face); err != nil {
-						poseErrs++
-						if poseErrs > 5 {
-							return fmt.Errorf("send pose: %w", err)
-						}
+			data, err := link.Pose()
+			if err != nil || data == nil {
+				return s
+			}
+			if os.Getenv("WW_POSE_RAW") == "" {
+				avatar.Localize(data, avatar.JointCount, pos.PosX, pos.PosY, pos.PosZ)
+			}
+			s.pose = data
+			// Capture the LOCAL Link's eye texno bytes from
+			// the mailbox slot the C side publishes at the
+			// top of daPy_draw_hook (before any face_emit
+			// swap fires). Race-free vs reading tev_block
+			// directly from emu RAM. Wire layout matches
+			// FaceState: 8 B = (mat1_tex0:u16 BE)
+			// (mat1_tex1:u16 BE)(mat4_tex0:u16 BE)
+			// (mat4_tex1:u16 BE).
+			if fb, err := link.Face(); err == nil && len(fb) == player.FaceBytes {
+				s.face = fb
+				// docs/09 §5.4: a 17th byte, the appearance
+				// flags (bit 0 = casual clothes). Receivers
+				// before it copy only the first 16 bytes.
+				if app, ok := tunicsync.LocalAppearance(d); ok {
+					// vissync: the sea, sword-out and
+					// shield-in-hand bits, then the two
+					// equip bytes (19 bytes in all).
+					if extra, eq, ok := equip.Sample(d); ok {
+						s.face = append(s.face, app|extra, eq[0], eq[1])
+					} else {
+						s.face = append(s.face, app)
 					}
 				}
 			}
-
-			// pos can be nil during a brief reload window where Link's
-			// actor pointer is 0 (player on the main menu / save loading).
-			// We used to print a per-tick `link+pose -> X:Y:Z\r` heartbeat
-			// here; the TUI dashboard now polls Dolphin position directly
-			// for that field, so the heartbeat just spammed the log panel.
-			// CLI users still see the [net] connect line as proof of life.
+			return s
+		}
+		// send ships one sample: the position, then the pose.
+		send := func(s *poseSample) error {
+			sendPos := client.SendPosition
+			if s.placeOK {
+				sendPos = func(p *network.PlayerPosition) error { return client.SendPositionAt(p, s.place) }
+			}
+			if err := sendPos(s.pos); err != nil {
+				posErrs++
+				if posErrs > 5 {
+					return fmt.Errorf("send position: %w", err)
+				}
+			}
+			if s.pose == nil {
+				return nil
+			}
+			if err := client.SendPose(avatar.JointCount, s.pose, s.face); err != nil {
+				poseErrs++
+				if poseErrs > 5 {
+					return fmt.Errorf("send pose: %w", err)
+				}
+			}
+			return nil
+		}
+		if env.TestRate != nil {
+			return testRateLoop(ctx, env.TestRate, client.IsConnected, capture, send, rep)
+		}
+		for client.IsConnected() {
+			if s := capture(); s != nil {
+				if err := send(s); err != nil {
+					return err
+				}
+			}
 
 			// 16 ms ≈ 60 Hz, matching Dolphin's render rate so the receiver
 			// gets a fresh pose every game frame. ~120 KB/s of pose data —
@@ -171,6 +193,43 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 	}
 
 	return network.ReconnectLoop(ctx, connect, run, network.NewBackoff(), network.SleepCtx)
+}
+
+// poseSample is one BroadcastPose sample: the position, and the localized
+// pose with its face trailer when Link's pose was published, and the
+// place for the position's trailer when it was read.
+type poseSample struct {
+	pos        *network.PlayerPosition
+	place      network.Place
+	placeOK    bool
+	pose, face []byte
+}
+
+// testRateLoop is BroadcastPose's send loop under a TestRate: every
+// millisecond it takes a sample when one is due and sends the samples
+// whose delay has passed, in order, until the connection drops.
+func testRateLoop(ctx context.Context, r *TestRate, connected func() bool, capture func() *poseSample, send func(*poseSample) error, rep log.Reporter) error {
+	log.Logf(rep, log.Warn, "pose test rate %s (Hz:jitter ms:latency ms): this Link is sent late on purpose", r)
+	q := newTestQueue[*poseSample](r)
+	for connected() {
+		now := time.Now()
+		if q.sampleDue(now) {
+			if s := capture(); s != nil {
+				q.push(now, s)
+			}
+		}
+		for _, s := range q.pop(now) {
+			if err := send(s); err != nil {
+				return err
+			}
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Millisecond):
+		}
+	}
+	rep.Log(log.Info, "Disconnected.")
+	return nil
 }
 
 // NewConnectLog returns a network.ConnectLog that reports connect failures

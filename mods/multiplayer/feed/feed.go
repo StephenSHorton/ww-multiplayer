@@ -26,4 +26,8 @@ type Env struct {
 	// NewClient makes a player connection for name, with the color
 	// preference of the session ctx belongs to.
 	NewClient func(ctx context.Context, name string) *network.Client
+	// TestRate, when non-nil, makes BroadcastPose sample at its rate and
+	// send each sample late by its latency and jitter (testrate.go). Only
+	// wwdev sets it (WW_POSE_TEST_RATE); nil is the normal 16 ms stream.
+	TestRate *TestRate
 }

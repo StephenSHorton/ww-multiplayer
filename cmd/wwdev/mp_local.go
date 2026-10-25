@@ -260,6 +260,10 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	teed, sess := startMpLocalSession(out.get(), os.Args[1:]) // the inner Stdout: out must not tee into itself
 	out.set(teed)
 	interrupted := watchForceQuit(rep, sess)
+	// MP_LOCAL_STOP_FILE (smoke's child run): that file appearing ends
+	// the run as one Ctrl+C does, teardown included, with no console
+	// signal (which a parent can't send a child on Windows).
+	go watchStopFile(ctx, rep, os.Getenv(envStopFile), 250*time.Millisecond, cancel)
 	defer func() {
 		cancel() // the Dolphin log tails stop with ctx
 		outcome := "ok"
@@ -469,6 +473,29 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 		d.Close()
 	}
 	rep.Log(log.OK, "Done.")
+}
+
+// envStopFile names the file whose appearance stops mp-local (smoke).
+const envStopFile = "MP_LOCAL_STOP_FILE"
+
+// watchStopFile calls stop once path exists, polling every poll, until
+// ctx ends. An empty path watches nothing.
+func watchStopFile(ctx context.Context, rep log.Reporter, path string, poll time.Duration, stop func()) {
+	if path == "" {
+		return
+	}
+	for {
+		if _, err := os.Stat(path); err == nil {
+			log.Logf(rep, log.Info, "Stop file %s is there: shutting down...", path)
+			stop()
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(poll):
+		}
+	}
 }
 
 // mpLocalClaims are mp-local's enemy claim sets, one per Dolphin

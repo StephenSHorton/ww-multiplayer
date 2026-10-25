@@ -65,6 +65,8 @@ scan-pos
 screenshot
 send-shift-f1
 shadow-mode
+smoke
+smooth-steps
 stage-hop
 track-pos
 tunic-probe
