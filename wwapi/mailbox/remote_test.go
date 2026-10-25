@@ -541,7 +541,7 @@ func TestRemoteContractValues(t *testing.T) {
 	if RemoteFPNew != 0 || RemoteFPParams != 1 || RemoteFPInit != 2 || RemoteFPLive != 3 || RemoteFullCreateFrames != 120 || RemoteFullParams != 0xFF000040 {
 		t.Error("full-body create phases or params moved (stage-4 plan §2.1)")
 	}
-	if RemoteKeeperSwapOff != 0x458 || RemoteActorSize != 0x600 || RemoteBodyEnd > RemoteActorSize ||
+	if RemoteKeeperSwapOff != 0x458 || RemoteActorSize != 0x620 || RemoteBodyEnd > RemoteActorSize ||
 		RemoteBodyVTOff+RemoteBodyVTSize > RemoteBodyCylOff || RemoteBodyCylOff+RemoteBodyCylSize != RemoteBodySttsOff ||
 		RemoteBodySttsOff+RemoteBodySttsSize > RemoteBodyMagicOff || RemoteBodyHandMtxOff+0x30 != RemoteBodyLastPoseSeqOff ||
 		RemoteBodyParkSinceOff+4 != RemoteBodyEnd || RemoteBodyVPtrOff+4 != RemoteBodyVTOff || RemoteBodyHandMtxOff%4 != 0 {

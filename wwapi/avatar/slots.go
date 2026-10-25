@@ -10,7 +10,8 @@ import (
 // per-slot arrays. Bumped to 2 on 2026-04-20 after the
 // shared-J3DModelData blocker was unblocked (J3DModel create flag
 // 0x80000 → 0, so each mini-Link gets a private material DL instead of
-// sharing one with every other instance).
+// sharing one with every other instance), and to 3 with WWMB_LAYOUT 3
+// once per-slot eye packets cleared F1 live (docs/05).
 const Cap = mailbox.MaxRemoteLinks
 
 // shadow_mode values (mailbox_core.h). ModeOff is the kill switch: nothing

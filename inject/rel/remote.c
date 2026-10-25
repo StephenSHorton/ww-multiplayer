@@ -109,11 +109,11 @@ typedef char rl_check_state[(sizeof(rl_latch) == 0x10 && sizeof(rl_body) == 0x14
                              __builtin_offsetof(remote_swap_state, full_allow) == 0x19 &&
                              __builtin_offsetof(remote_swap_state, flags2) == 0x1A &&
                              __builtin_offsetof(remote_swap_state, dy_max) == 0x1C &&
-                             __builtin_offsetof(remote_swap_state, full_denied) == 0x79 &&
-                             __builtin_offsetof(remote_swap_state, full_wait) == 0x7A &&
-                             __builtin_offsetof(remote_swap_state, latch) == 0x7C &&
-                             sizeof(remote_swap_state) == 0x17C &&
-                             MAX_REMOTE_LINKS <= 2 && MAX_REMOTE_LINKS <= 8 &&
+                             __builtin_offsetof(remote_swap_state, full_denied) == 0x8D &&
+                             __builtin_offsetof(remote_swap_state, full_wait) == 0x8E &&
+                             __builtin_offsetof(remote_swap_state, latch) == 0x94 &&
+                             sizeof(remote_swap_state) == 0x194 &&
+                             MAX_REMOTE_LINKS == 3 && MAX_REMOTE_LINKS <= 8 &&
                              __builtin_offsetof(remote_swap_state, stage) == 0x20 &&
                              __builtin_offsetof(remote_swap_state, bodies) == 0x28 &&
                              __builtin_offsetof(remote_swap_state, ap_seq) == 0x28 + MAX_REMOTE_LINKS * 0x14 &&
@@ -165,9 +165,10 @@ typedef char rl_check_full_tail[(RL_FT(magic, WWREMOTE_FULL_MAGIC_OFF) && RL_FT(
                                  WWREMOTE_FULL_TAIL_OFF + sizeof(rl_full_tail) <= WWREMOTE_FULL_SIZE &&
                                  (WWREMOTE_FULL_SIZE & 0x1F) == 0 && sizeof(rl_full_tail) == 0x58) ? 1 : -1];
 #undef RL_FT
-// The pose-feed arrays the park check reads (mailbox_core.h: +0xB4, +0xB6).
-typedef char rl_check_pose[(__builtin_offsetof(Mailbox, pose_buf_states) == 0xB4 &&
-                            __builtin_offsetof(Mailbox, pose_seqs) == 0xB6) ? 1 : -1];
+// The pose-feed arrays the park check reads (mailbox_core.h, WWMB_LAYOUT 3:
+// +0xBA, +0xBD; layout 2 had them at +0xB4, +0xB6).
+typedef char rl_check_pose[(__builtin_offsetof(Mailbox, pose_buf_states) == 0xBA &&
+                            __builtin_offsetof(Mailbox, pose_seqs) == 0xBD) ? 1 : -1];
 
 // --- Game data and functions (symbols.txt; absolute, no relocations) -----
 // play.mPlayerInfo[0].mpPlayer = dComIfGp_getPlayer(0), the word every
@@ -1795,6 +1796,9 @@ int wwrel_exec_hook(void* mtd, void* a) {
 }
 
 // --- ATTRIB (section 8.6), called from enemy_mirror.c's v2 path ----------------------------
+// ha_flags has one slot bit (WWREMOTE_HAF_SLOT1) and no free bit beside it, so
+// only bodies 0 and 1 can be named: Go never asks ATTRIB for slot 2 (mods/
+// enemysync players.go), and its hits stay the host Link's (HD_NO_BODY path).
 u32 remote_attrib_body(u8 ha_flags) {
     remote_swap_state* st = rl_state();
     int i = (ha_flags & WWREMOTE_HAF_SLOT1) ? 1 : 0;

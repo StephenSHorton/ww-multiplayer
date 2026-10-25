@@ -355,9 +355,18 @@ void mp_frame(fopAc_ac_c* link) {
 // same cycle the paragraph above describes, between our own slots. The
 // rule (each puppet owns its packets) is datstarkey/ww-online's
 // (GameMod/CLAUDE.md, puppet_draw.c), MIT; no code was taken.
+//
+// The copies live in the mailbox slack (MP_EYE_PACKETS_OFF, mailbox_mp.h),
+// not in T2's .bss: three slots are 0x150 bytes, more than T2 had free
+// (WWMB_LAYOUT 3). Only this file writes them, and the game's entryImm
+// their mpNextPacket; init_my_eye_packets copies them again every boot
+// (my_packets_initialized is a T2 static, zeroed by the DOL load).
 #define MY_PACKET_SIZE 0x1C
 enum { MY_PKT_ON_CUP_OFF1, MY_PKT_ON_CUP_OFF2, MY_PKT_OFF_CUP_ON1, MY_PKT_OFF_CUP_ON2, MY_PKT_COUNT };
-static u32 my_packets[MAX_REMOTE_LINKS][MY_PKT_COUNT][MY_PACKET_SIZE / 4];
+#define my_packets ((u32 (*)[MY_PKT_COUNT][MY_PACKET_SIZE / 4])(MAILBOX_ADDR + MP_EYE_PACKETS_OFF))
+_Static_assert(MAX_REMOTE_LINKS * MY_PKT_COUNT * MY_PACKET_SIZE <= MP_EYE_PACKETS_SIZE &&
+               (MP_EYE_PACKETS_OFF & 3) == 0 && MAILBOX_ADDR + MP_EYE_PACKETS_OFF + MP_EYE_PACKETS_SIZE <= 0x80414000,
+               "mailbox_mp.h MP_EYE_PACKETS_* must hold every slot's eye packets below __OSArenaLo");
 static int my_packets_initialized = 0;
 
 static void init_my_eye_packets(void) {

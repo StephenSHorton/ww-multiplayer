@@ -45,7 +45,9 @@ func TestMailboxLayout(t *testing.T) {
 	}
 	// Phase E2 (WWMB layout 2) retired the fields E0 left unused into
 	// these _reserved runs at their old offsets, so every live field
-	// kept its offset.
+	// kept its offset. Layout 3 (three mini-Link slots) gave _reserved2
+	// (+0xB8, 8 bytes) to the pose arrays and _reserved4's last 0x10 bytes
+	// to face_state.
 	for _, r := range []struct {
 		name      string
 		off, size uint64
@@ -54,16 +56,21 @@ func TestMailboxLayout(t *testing.T) {
 	}{
 		{"_reserved0", OffReserved0, 4, 0x0C, 4},
 		{"_reserved1", OffReserved1, LenReserved1, 0x91, 0xA8 - 0x91},
-		{"_reserved2", OffReserved2, 4 * LenReserved2, 0xB8, 8},
 		{"_reserved3", OffReserved3, 4 * LenReserved3, 0xDC, 8},
-		{"_reserved4", OffReserved4, LenReserved4, 0xE5, 0x130 - 0xE5},
+		{"_reserved4", OffReserved4, LenReserved4, 0xE5, 0x120 - 0xE5},
 	} {
 		if r.off != r.wantOff || r.size != r.wantSize {
 			t.Errorf("%s at +0x%X, 0x%X bytes; want +0x%X, 0x%X bytes", r.name, r.off, r.size, r.wantOff, r.wantSize)
 		}
 	}
-	if WwmbLayout < 2 {
-		t.Errorf("WWMB_LAYOUT %d; E2's retired fields made it at least 2", WwmbLayout)
+	if WwmbLayout < 3 {
+		t.Errorf("WWMB_LAYOUT %d; the three-slot arrays made it at least 3", WwmbLayout)
+	}
+	// Three slots fill the pose arrays' +0xA8..+0xC0 exactly, up to
+	// pose_publish, and face_state's +0x120..+0x150 up to face_seqs.
+	if OffPoseSeqs+LenPoseSeqs != OffPosePublishPtr || OffFaceState+LenFaceState*FaceStateSize != OffFaceSeqs {
+		t.Errorf("pose arrays end at +0x%X (pose_publish +0x%X), face_state at +0x%X (face_seqs +0x%X)",
+			OffPoseSeqs+LenPoseSeqs, OffPosePublishPtr, OffFaceState+LenFaceState*FaceStateSize, OffFaceSeqs)
 	}
 	// The mailbox (0x80412F00) must end below the docs/08 co-op region
 	// at +0x200 and below __OSArenaLo (0x80414000).
@@ -71,17 +78,20 @@ func TestMailboxLayout(t *testing.T) {
 		t.Errorf("Mailbox is 0x%X bytes at 0x%08X: past +0x200 or the arena", MailboxSize, Mailbox)
 	}
 	// The tunic block (wwapi/avatar's Tunics reads OffTunicBufs..the end
-	// of tunic_swaps as one block) is followed by the WWMB features word
-	// and the padding that ends the mailbox at 0x1B0 (Phase E1).
-	if OffTunicSwaps+4 != OffFeatures || OffFeatures+4+LenPad13 != MailboxSize || MailboxSize != 0x1B0 {
-		t.Errorf("tunic_swaps ends at +0x%X, features at +0x%X, the mailbox at +0x%X; want +0x1A0, +0x1A0, +0x1B0",
-			OffTunicSwaps+4, OffFeatures, MailboxSize)
+	// of tunic_swaps as one block) holds the WWMB features word, which
+	// stays at +0x1A0 (Phase E1), since layout 3's four slots: bufs, size
+	// and enables before it, state and swaps after, then the padding that
+	// ends the mailbox at 0x1B0.
+	if OffTunicEnable+LenTunicEnable != OffFeatures || OffFeatures != 0x1A0 || OffTunicState != OffFeatures+4 ||
+		OffTunicSwaps+4+LenPad14 != MailboxSize || MailboxSize != 0x1B0 {
+		t.Errorf("tunic_enable ends at +0x%X, features at +0x%X, tunic_state +0x%X, the mailbox at +0x%X; want +0x1A0, +0x1A0, +0x1A4, +0x1B0",
+			OffTunicEnable+LenTunicEnable, OffFeatures, OffTunicState, MailboxSize)
 	}
 	// The WWMB header sits in the 8 bytes design §3 reserved for it.
 	if OffHdrMagic != 0x180 || OffHdrAbi != 0x184 || OffHdrLayout != 0x186 || OffTunicBufs != 0x188 {
 		t.Errorf("WWMB header at +0x%X/+0x%X/+0x%X, tunic_bufs at +0x%X", OffHdrMagic, OffHdrAbi, OffHdrLayout, OffTunicBufs)
 	}
-	if TunicSlotLocal >= LenTunicBufs || LenTunicEnable != LenTunicBufs {
+	if TunicSlotLocal >= LenTunicBufs || LenTunicEnable != LenTunicBufs || TunicSlotLocal != MailboxPoseSlotCap {
 		t.Errorf("TUNIC_SLOT_LOCAL %d outside tunic_bufs[%d] / tunic_enable[%d]", TunicSlotLocal, LenTunicBufs, LenTunicEnable)
 	}
 	if MaxRemoteLinks > MailboxPoseSlotCap {
@@ -98,7 +108,9 @@ func TestMailboxLayout(t *testing.T) {
 // E1 grew the mailbox from 0x1A0 to 0x1B0 bytes (the WWMB features word
 // and its padding after the tunic block); Phase E2 dropped the retired
 // diagnostic fields (shadow_latched, dbg_*, echo_*, warp_dbg_*,
-// eye_fix_*), whose bytes are now _reserved (TestMailboxLayout).
+// eye_fix_*), whose bytes are now _reserved (TestMailboxLayout). Layout
+// 3 (three mini-Link slots) moved the rows marked "layout 3"; "was" there
+// is the layout-3 value.
 func TestLayoutMatchesHandWritten(t *testing.T) {
 	for _, c := range []struct {
 		old       string
@@ -119,11 +131,11 @@ func TestLayoutMatchesHandWritten(t *testing.T) {
 		{"slotOffPosZ", 0x10, PuppetOffPosZ},
 		{"slotOffRotX", 0x14, PuppetOffRotX},
 		{"mailboxShadowMode", 0x90, OffShadowMode},
-		{"maxRemoteLinks", 2, MaxRemoteLinks},
+		{"maxRemoteLinks", 3, MaxRemoteLinks}, // layout 3
 		{"mailboxPoseBufPtr(0)", 0xA8, OffPoseBufPtrs},
-		{"mailboxPoseJointCount(0)", 0xB0, OffPoseJointCounts},
-		{"mailboxPoseBufState(0)", 0xB4, OffPoseBufStates},
-		{"mailboxPoseSeq(0)", 0xB6, OffPoseSeqs},
+		{"mailboxPoseJointCount(0)", 0xB4, OffPoseJointCounts}, // layout 3
+		{"mailboxPoseBufState(0)", 0xBA, OffPoseBufStates},     // layout 3
+		{"mailboxPoseSeq(0)", 0xBD, OffPoseSeqs},               // layout 3
 		{"mailboxPosePublishPtr", 0xC0, OffPosePublishPtr},
 		{"mailboxPosePublishJointCount", 0xC4, OffPosePublishJointCount},
 		{"mailboxPosePublishState", 0xC6, OffPosePublishState},
@@ -134,7 +146,7 @@ func TestLayoutMatchesHandWritten(t *testing.T) {
 		{"mailboxWarpY", 0xD4, OffWarpY},
 		{"mailboxWarpZ", 0xD8, OffWarpZ},
 		{"mailboxWarpForce", 0xE4, OffWarpForce},
-		{"mailboxFaceStateBase", 0x130, OffFaceState},
+		{"mailboxFaceStateBase", 0x120, OffFaceState}, // layout 3
 		{"mailboxFaceStateStride", 16, FaceStateSize},
 		{"mailboxFaceSeqsBase", 0x150, OffFaceSeqs},
 		{"mailboxFaceHookState", 0x154, OffFaceHookState},
@@ -155,13 +167,13 @@ func TestLayoutMatchesHandWritten(t *testing.T) {
 		{"mailboxInputAnalogB", 0x17B, OffInputAnalogB},
 		{"mailboxInputOverrides", 0x17C, OffInputOverrides},
 		{"mailboxTunicBufs", 0x188, OffTunicBufs},
-		{"mailboxTunicBufSize", 0x194, OffTunicBufSize},
-		{"mailboxTunicEnable", 0x198, OffTunicEnable},
-		{"mailboxTunicState", 0x19B, OffTunicState},
-		{"mailboxTunicSwaps", 0x19C, OffTunicSwaps},
-		{"mailboxTunicEnd", 0x1A0, OffTunicSwaps + 4},
-		{"tunicSlots", 3, LenTunicBufs},
-		{"tunicSlotLocal", 2, TunicSlotLocal},
+		{"mailboxTunicBufSize", 0x198, OffTunicBufSize}, // layout 3
+		{"mailboxTunicEnable", 0x19C, OffTunicEnable},   // layout 3
+		{"mailboxTunicState", 0x1A4, OffTunicState},     // layout 3
+		{"mailboxTunicSwaps", 0x1A8, OffTunicSwaps},     // layout 3
+		{"mailboxTunicEnd", 0x1AC, OffTunicSwaps + 4},   // layout 3
+		{"tunicSlots", 4, LenTunicBufs},                 // layout 3
+		{"tunicSlotLocal", 3, TunicSlotLocal},           // layout 3
 		{"tunicEnableCasual", 2, TunicEnableCasual},
 	} {
 		if c.have != c.was {

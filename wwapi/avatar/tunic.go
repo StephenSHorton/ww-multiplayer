@@ -18,19 +18,25 @@ import (
 // repoints Link's worn "linktexS3TC" header at a per-slot image around
 // each Link's draw. This file is the Go half: it reads the hero's-clothes
 // image once, recolors it per slot with wwapi/gfx/texture, writes the images
-// into the three GameHeap buffers the C side allocates once, and flips
-// the per-slot enables.
+// into the TunicSlots GameHeap buffers the C side allocates once per boot,
+// and flips the per-slot enables.
 
 // The mailbox's tunic block (inject/include/mailbox_core.h, "TUNIC COLORS";
 // offsets generated into wwapi/mailbox) runs from mailbox.OffTunicBufs
-// to the end of tunic_swaps (the features word of the WWMB header
-// follows it since Phase E1):
+// to the end of tunic_swaps, with the WWMB header's features word inside
+// it since WWMB_LAYOUT 3 (features stays at +0x1A0; the four slots pushed
+// tunic_state and tunic_swaps past it):
 //
-//	tunic_bufs     u32[3], C: image per slot
+//	tunic_bufs     u32[TunicSlots], C: image per slot (0..2 remotes, 3 Link #1)
 //	tunic_buf_size u32, Go: bytes per image; nonzero asks C to allocate
-//	tunic_enable   u8[3], Go: 1 = slot image valid, swap on; 2 = casual clothes
+//	tunic_enable   u8[TunicSlots], Go: 1 = slot image valid, swap on; 2 = casual clothes
+//	features       u32, C: the WWMB header's (not the tunic block's)
 //	tunic_state    u8, C: 0 none, 1 allocated, 0xFD alloc failed
 //	tunic_swaps    u32, C: header swaps done
+//
+// main01_init zeroes bufs, size, enables and state once per boot (a soft
+// reset leaves this RAM but makes a new GameHeap), so Tick sees the
+// buffers change, forgets what it wrote and starts over.
 const (
 	TunicSlots     = mailbox.LenTunicBufs
 	TunicSlotLocal = mailbox.TunicSlotLocal // TUNIC_SLOT_LOCAL: Link #1 on this Dolphin
@@ -42,7 +48,8 @@ const (
 	TunicEnableCasual = mailbox.TunicEnableCasual
 
 	// tunicMaxImage caps the image size Go asks the C side to allocate
-	// three of from GameHeap (docs/09 §6: ~245 KB free on Outset). A
+	// TunicSlots of from GameHeap (docs/09 §6: ~245 KB free on Outset on a
+	// 24 MB disc; the 48 MB build's GameHeap is 4 MiB larger, docs/05). A
 	// 256x256 CMPR image is 32 KiB.
 	tunicMaxImage = 64 << 10
 
@@ -151,7 +158,7 @@ type tunicSlotState struct {
 	img     []byte        // the written image (a cache entry, never mutated), for verify
 }
 
-// Tunics drives the three tunic slots of one Dolphin. (It was tunicSync
+// Tunics drives the TunicSlots tunic slots of one Dolphin. (It was tunicSync
 // in package main; the session side, which picks each slot's color,
 // stays with the caller.)
 type Tunics struct {
