@@ -217,6 +217,10 @@ type sessionManifest struct {
 	Dolphins []sessionDolphin  `json:"dolphins"`
 	Env      map[string]string `json:"env"` // the dev and session knobs set for this run
 	Archived string            `json:"previous_run,omitempty"`
+	// UnmatchedLogs are the dolphin-1/2.log copies of USER_DIR_1 and
+	// USER_DIR_2's logs when dolphin2 recorded neither PID (which is A is
+	// unknown).
+	UnmatchedLogs []string `json:"unmatched_logs,omitempty"`
 }
 
 // sessionEnv picks the knobs worth keeping from environ: WW_*,

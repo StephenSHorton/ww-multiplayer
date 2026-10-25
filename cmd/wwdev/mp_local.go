@@ -211,10 +211,7 @@ func ensureCheatsIni(rep log.Reporter, userDir string) {
 // (startupShift, mp_local_shift.go). Without it none of the co-op pieces
 // run, and the startup shift moves B only when the two Links overlap.
 func runMpLocal(nameA, nameB string, co coopsession.Flags) {
-	// logs/latest (WW_DEV_LOGS, mp_local_session.go): this run's output,
-	// session manifest and Dolphin logs; the run before is archived.
-	rep, sess := startMpLocalSession(log.Stdout{}, os.Args[1:])
-	defer sess.finish()
+	var rep log.Reporter = log.Stdout{}
 	ctx, cancel := engine.CLIMultiplayerContext(rep)
 	defer cancel()
 
@@ -236,6 +233,16 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	if a, b, ok := pinnedPIDs(os.Getenv("MP_LOCAL_PIDS"), pids); ok {
 		pidA, pidB = a, b
 	}
+	// logs/latest (WW_DEV_LOGS, mp_local_session.go): this run's output,
+	// session manifest and Dolphin logs. Only once two Dolphins are
+	// there, so a mis-start leaves the last run in latest; one that
+	// times out waiting for the games below has archived it already.
+	var sess *mpLocalSession
+	rep, sess = startMpLocalSession(rep, os.Args[1:])
+	defer func() {
+		cancel() // the Dolphin log tails stop with ctx
+		sess.finish()
+	}()
 	log.Logf(rep, log.OK, "Found Dolphin A (pid %d) and B (pid %d).", pidA, pidB)
 
 	// Wait until both Dolphins have a save loaded — player.Link.Ready returns

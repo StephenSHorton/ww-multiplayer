@@ -140,8 +140,16 @@ func (s *mpLocalSession) describe(ctx context.Context, rep log.Reporter, pidA, p
 			}
 		}
 	}
-	if len(srcs) > 0 && srcs[0].label == "1" {
+	switch {
+	case len(srcs) > 0 && srcs[0].label == "1":
 		log.Logf(rep, log.Info, "Dolphin logs: no dolphin2 record for pids %d and %d, following USER_DIR_1 and USER_DIR_2's logs as dolphin-1 and dolphin-2.", pidA, pidB)
+		if s != nil {
+			for _, src := range srcs {
+				s.manifest.UnmatchedLogs = append(s.manifest.UnmatchedLogs, filepath.Join(s.dir, "dolphin-"+src.label+".log"))
+			}
+		}
+	case len(srcs) == 0:
+		rep.Log(log.Info, "Dolphin logs: none followed (launch with WW_DOLPHIN_DEVLOG=1 ./wwdev.exe dolphin2 to log to file).")
 	}
 	if s == nil {
 		return
