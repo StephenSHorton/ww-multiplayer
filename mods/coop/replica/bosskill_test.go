@@ -639,8 +639,8 @@ func TestParseBossKill(t *testing.T) {
 		want []uint16
 		err  bool
 	}{
-		{"", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBdk}, false},
-		{BossKillDefault, []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBdk}, false},
+		{"", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBwd, mailbox.BossProcBpw, mailbox.BossProcBdk}, false},
+		{BossKillDefault, []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBwd, mailbox.BossProcBpw, mailbox.BossProcBdk}, false},
 		{"gohma, KALLE ,gohdan", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBst}, false},
 		{"gohdan", []uint16{mailbox.BossProcBst}, false},
 		{"molgera", []uint16{mailbox.BossProcBwd}, false},
@@ -671,9 +671,9 @@ func TestParseBossKill(t *testing.T) {
 	if _, err := New(Config{Mem: newRecRig(t, Config{}, proto.FeatureImage).m, BossKill: "ganon"}); err == nil {
 		t.Fatal("New took an unknown --coop-boss-kill row")
 	}
-	// The default leaves the opt-in rows out (Helmaroc King is in it since its live checks passed).
+	// The default leaves the opt-in row out (Molgera, Jalhalla and Helmaroc King are in it since their live checks passed).
 	def, _ := ParseBossKill("")
-	for _, p := range []uint16{mailbox.BossProcBst, mailbox.BossProcBwd, mailbox.BossProcBpw} {
+	for _, p := range []uint16{mailbox.BossProcBst} {
 		if def[p] {
 			t.Fatalf("the default row set takes %s", mailbox.BossProcName(p))
 		}
@@ -760,7 +760,7 @@ func TestBossKillRelayBst(t *testing.T) {
 	}
 }
 
-// TestBossKillBstDefaultOff: with the default row set (gohma,kalle,helmaroc),
+// TestBossKillBstDefaultOff: with the default row set (gohma,kalle,molgera,jalhalla,helmaroc),
 // SirenB gets no request; the log says once why the arena keeps Gohdan.
 func TestBossKillBstDefaultOff(t *testing.T) {
 	br := newBossRig(t, totgBoss, true)
@@ -774,7 +774,7 @@ func TestBossKillBstDefaultOff(t *testing.T) {
 	if st := br.r.Status(); st.BossKill.Wanted || st.Writes.BossKills != 0 {
 		t.Fatalf("status %+v", st.BossKill)
 	}
-	if n := br.log.count("--coop-boss-kill (gohma,kalle,helmaroc) leaves it out"); n != 1 {
+	if n := br.log.count("--coop-boss-kill (gohma,kalle,molgera,jalhalla,helmaroc) leaves it out"); n != 1 {
 		t.Fatalf("logged %d times:\n%s", n, br.log)
 	}
 	// The other rows stay on: Gohma is still asked for.
@@ -1048,27 +1048,29 @@ func TestBossKillRelayBpw(t *testing.T) {
 	}
 }
 
-// TestBossKillBwdDefaultOff and TestBossKillBpwDefaultOff: with the
-// default row set (gohma,kalle,helmaroc), kazeB and M_DaiB get no request; the log
-// says once why the arena keeps its boss.
-func TestBossKillBwdDefaultOff(t *testing.T) { testBossDefaultOff(t, wtBoss, wtBossItems, "Molgera") }
-func TestBossKillBpwDefaultOff(t *testing.T) { testBossDefaultOff(t, etBoss, etBossItems, "Jalhalla") }
+// TestBossKillBwdDefaultOn and TestBossKillBpwDefaultOn: Molgera and
+// Jalhalla are in the default row set (after MB-2, JH-1 and the
+// two-Dolphin checks with a real Hookshot pull and a real light freeze,
+// docs/TESTING.md "Batch E"), so with no --coop-boss-kill kazeB and M_DaiB
+// get the request.
+func TestBossKillBwdDefaultOn(t *testing.T) {
+	testBossDefaultOn(t, wtBoss, wtBossItems, mailbox.BossProcBwd, "Molgera")
+}
+func TestBossKillBpwDefaultOn(t *testing.T) {
+	testBossDefaultOn(t, etBoss, etBossItems, mailbox.BossProcBpw, "Jalhalla")
+}
 
-func testBossDefaultOff(t *testing.T, stage fakegame.Stage, off int, name string) {
+func testBossDefaultOn(t *testing.T, stage fakegame.Stage, off int, proc uint16, name string) {
 	t.Helper()
 	br := newBossRig(t, stage, true)
 	br.partnerKilledAt(off)
 	br.ticks(3)
-	br.clock.advance(bossRetry)
-	br.ticks(3)
-	if seq, _, _ := br.request(); seq != 0 {
-		t.Fatalf("%s: a request without the row: seq %d", name, seq)
+	seq, got, _ := br.request()
+	if seq == 0 || got != proc {
+		t.Fatalf("%s: request seq %d proc 0x%X, want proc 0x%X", name, seq, got, proc)
 	}
-	if st := br.r.Status(); st.BossKill.Wanted || st.Writes.BossKills != 0 {
-		t.Fatalf("%s: status %+v", name, st.BossKill)
-	}
-	if n := br.log.count("the partner killed " + name + ", but --coop-boss-kill (gohma,kalle,helmaroc) leaves it out"); n != 1 {
-		t.Fatalf("%s: logged %d times:\n%s", name, n, br.log)
+	if br.log.count("leaves it out") != 0 {
+		t.Fatalf("%s: the default row set left it out:\n%s", name, br.log)
 	}
 }
 

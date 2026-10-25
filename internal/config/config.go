@@ -115,7 +115,7 @@ type Coop struct {
 	ISO          string `json:"iso,omitempty"`
 	// BossKill and Refresh are the save-file panel's relay choices, each
 	// side's own (host or joiner): --coop-boss-kill ("" for its default,
-	// gohma,kalle,helmaroc) and --coop-refresh ("" for off).
+	// gohma,kalle,molgera,jalhalla,helmaroc) and --coop-refresh ("" for off).
 	BossKill string `json:"bossKill,omitempty"`
 	Refresh  string `json:"refresh,omitempty"`
 }
