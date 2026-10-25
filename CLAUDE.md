@@ -463,6 +463,13 @@ SendInput-with-VK, SendInput-with-scancode, and foreground-locked variants
 all silently drop. Some Dolphin forks accept synthetic events — run
 `./wwdev.exe send-shift-f1` while Dolphin's in-game to probe your
 build; if mtime advances, auto-recapture will run fully unattended.
+**It does work when the Dolphin's hotkeys are bound to the keyboard**
+(found 2026-10-25): with `Config/Hotkeys.ini` `Device = DInput/0/Keyboard Mouse`
+in the user dir auto-recapture boots, the synthetic Shift+F1 lands and the
+recapture needs nobody. With hotkeys on a controller (e.g. `Device =
+SDL/0/Steam Controller`) the keystroke is ignored and the owner has to
+press it. Set the hotkey device to the keyboard in the test user dir
+(Controllers > Hotkey Settings) before a recapture.
 
 ### Visual validation (now self-serve)
 
