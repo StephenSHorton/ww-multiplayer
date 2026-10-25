@@ -536,15 +536,24 @@ func (s *Server) handleLobby(conn net.Conn, name string, caps uint16) {
 				if DecodeLobby(body, &hb) != nil {
 					hb = LobbyHelloBody{}
 				}
+				v := keyNone
 				h.runWithPlayers(func(m *lobbyMachine) []lobbyOut {
-					v := h.checkOwnerKeyLocked(conn.RemoteAddr(), name, hb)
+					v = h.checkOwnerKeyLocked(conn.RemoteAddr(), name, hb)
 					mb, outs := m.helloAs(c.handle, name, c.loopback, v == keyAccepted, hb, h.now())
 					member = mb != nil
 					if mb == nil {
 						return outs
 					}
-					// What the key did, by name only: never the key, and
-					// the address stays out of the log too.
+					if text := ownerKeyNoticeText(v); text != "" {
+						outs = append(outs, notice(c.handle, NoticeOwnerKey, text))
+					}
+					return outs
+				})
+				// What the key did, by name only: never the key, and the
+				// address stays out of the log too. Logged here, outside
+				// the hub's and the server's locks (OnLog may be the app's
+				// session output).
+				if member {
 					switch v {
 					case keyAccepted:
 						s.log(fmt.Sprintf("%s (lobby %d): owner key accepted", name, id))
@@ -554,11 +563,7 @@ func (s *Server) handleLobby(conn net.Conn, name string, caps uint16) {
 						s.log(fmt.Sprintf("%s (lobby %d): owner key not accepted; %d wrong keys from that address, its keys are ignored for %v",
 							name, id, ownerKeyMaxFails, ownerKeyLockout))
 					}
-					if text := ownerKeyNoticeText(v); text != "" {
-						outs = append(outs, notice(c.handle, NoticeOwnerKey, text))
-					}
-					return outs
-				})
+				}
 				continue
 			}
 			if sub == LobbySet {

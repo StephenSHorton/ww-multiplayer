@@ -512,7 +512,7 @@ async function dialogAction(id, d, st, arg = "") {
 			break;
 		case "join-suggested":
 			$("name").value = d.suggest;
-			start(() => call("Join", { addr: st.addr, name: d.suggest, color: homeColor }));
+			start(() => call("Join", { addr: st.addr, name: d.suggest, color: homeColor, ownerKey: $("owner-key").value }));
 			break;
 		case "change-name": {
 			show("home");
