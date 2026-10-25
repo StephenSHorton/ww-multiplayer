@@ -1370,6 +1370,7 @@ func (r *Replica) plan(o *obs, armed bool) {
 	if !r.writer.DryRun() {
 		view = r.desired()
 	}
+	r.planner.noSwitches = r.features&proto.FeatureSwitches == 0 && !r.writer.DryRun()
 	ws, held := r.planner.Plan(&view, &o.raw, &o.local, int(o.s.Table))
 	for _, w := range ws {
 		for _, a := range w.Addrs() {

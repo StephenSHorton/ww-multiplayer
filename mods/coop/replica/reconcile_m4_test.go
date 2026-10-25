@@ -165,7 +165,20 @@ func auditM4Writes(t *testing.T, ws []auditWrite, reps []Report, places []gamePl
 			at("writes outside the counters are bytes")
 		}
 		switch tg {
-		case TargetStage, TargetOcean:
+		case TargetStage:
+			sm := spawnByteMask(w.a, w.table)
+			if !rep.Gates.OnTransition || sm == 0 {
+				m3 = append(m3, w)
+				break
+			}
+			// A start event's spawn switch, written with its story bit.
+			if first := places[w.tick].pending && (w.tick == 0 || !places[w.tick-1].pending); !first {
+				at("a spawn switch off a stage change's first tick")
+			}
+			if (w.old^w.val)&^sm != 0 || w.old&^w.val != 0 || w.old == w.val {
+				at("a transition write of other bits than the spawn switch's, a clear, or nothing")
+			}
+		case TargetOcean:
 			m3 = append(m3, w)
 		case TargetStory:
 			if first := places[w.tick].pending && (w.tick == 0 || !places[w.tick-1].pending); !first || !rep.Gates.OnTransition {
@@ -216,6 +229,18 @@ func auditM4Writes(t *testing.T, ws []auditWrite, reps []Report, places []gamePl
 		t.Fatalf("%d writes at the derive targets, %d made by the derive path", viaDerive, derived)
 	}
 	auditWrites(t, m3, reps, places, liveSwitches)
+}
+
+// spawnByteMask is the spawn switch bits of the byte at a, saved or the
+// live copy of table t.
+func spawnByteMask(a uint32, t int8) byte {
+	switch {
+	case a >= addr.SaveImage && a < addr.SaveImage+addr.SaveImageSize:
+		return spawnMask(int(a - addr.SaveImage))
+	case a >= addr.LiveMemBit && a < addr.LiveMemBit+addr.MemBitSize && addr.ValidTable(int(t)):
+		return spawnMask(addr.OffMemBit(int(t)) + int(a-addr.LiveMemBit))
+	}
+	return 0
 }
 
 // TestReconcileM4StoryOnTransition: the world's story bit and register

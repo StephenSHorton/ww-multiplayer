@@ -144,7 +144,7 @@ func Preflight(file, worldImg *save.Image, opt PreflightOptions) PreflightReport
 	for _, h := range held {
 		for b := range 8 {
 			if m := byte(1) << b; h.Mask&m != 0 {
-				r.Held = append(r.Held, Bit{Off: h.Off, Val: m, Category: CatStory, Label: label(int(h.Off), b) + " (held: " + h.Hold.Why + ")"})
+				r.Held = append(r.Held, Bit{Off: h.Off, Val: m, Category: CategoryOf(int(h.Off)), Label: label(int(h.Off), b) + " (held: " + h.Hold.Why + ")"})
 			}
 		}
 	}

@@ -398,9 +398,11 @@ func (b *builder) place(st *stage.Stage, p stage.Placed, names *stage.ObjectName
 // startEventLatches are the start events whose spawn switch latches, by
 // stage and EVNT name, each with why. Both are a Ganon's Tower intro
 // whose STB sets the story bit that takes the stage off its intro layer
-// (getLayerNo, d_com_inf_game.cpp:255-262). The story batch holds a
-// memory switch that rises while an event runs until the event's bits go
-// with it (mods/coop/story Batcher), so a partner who gets the bit gets
+// (getLayerNo, d_com_inf_game.cpp:255-262). The partner's game holds the
+// switch until it has the bit, and the stage change that writes the bit
+// writes the switch (mods/coop/replica spawnSwitch, which lists these two
+// pairs; the sender's story batch couples them by timing only, which the
+// GT D2(9) rerun showed is not enough), so a partner who gets the bit gets
 // the switch too and, as on a vanilla retry, loads the time or fight
 // layer without the intro event, whose staff only the intro layer places.
 // Every other start event's switch stays the player's own, even beside a

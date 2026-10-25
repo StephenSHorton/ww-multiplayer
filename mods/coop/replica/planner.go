@@ -299,6 +299,76 @@ var Holds = []Hold{
 	}},
 }
 
+// The story bits the two Ganon's Tower intros set (d_save_event_flag.inc).
+const (
+	ev3B02 = 0x3B02 // UNK_3B02, :455: kugutu_ganon.stb
+	ev4002 = 0x4002 // UNK_4002, :491: g2before.stb
+)
+
+// spawnSwitch is a start event's spawn switch that syncs, and the story
+// bit the same event sets: the two Ganon's Tower intros the stage tables
+// let latch (startEventLatches, wwapi/tables/switches). setStartDemo skips
+// the event while the switch is on (d_event_manager.cpp:41-47), and the
+// stage keeps its intro layer while the bit is off (getLayerNo,
+// d_com_inf_game.cpp:255-262), whose staff the intro needs. The switch
+// alone (the intro layer, no intro: Zelda's bed and no fight) is a state
+// vanilla never reaches, so the receiver never has it without the bit:
+//
+//   - the planner holds the switch while the receiver's own image lacks
+//     the bit (Plan): a switch of another table is otherwise written on
+//     any STABLE tick (OnLoad), while the bit waits for a stage change
+//     (OnTransition), and the sender's story batch, which holds the switch
+//     only until a quiet second, can send it ahead of the bit (GT D2(9) on
+//     #175: sw30 reached B about 4 s into A's intro, 0x3B02 only after the
+//     intro ended, although A had it from the start);
+//   - the stage change that writes the bit writes the switch, if the world
+//     has it, on the same tick, after the bit (spawnWrites; the WriteGuard
+//     opens exactly these switch bits on that tick, Tick.spawnMask), so the
+//     receiver enters with both, the vanilla retry state, and never with
+//     the bit alone, where the intro event would start on the time or
+//     fight layer without its staff.
+//
+// The stage tables name the pair only in startEventLatches' reasons, so
+// it is listed here; the switch numbers are the EVNT entries' +0x13
+// (GanonK EVNT#2, GTower EVNT#0).
+type spawnSwitch struct {
+	table, no int
+	event     uint16 // the story bit the event sets
+	what      string // the stage and event, for the log
+}
+
+var spawnSwitches = []spawnSwitch{
+	{addr.TableGT, 0x1E, ev3B02, "GanonK's kugutu_ganon"},
+	{addr.TableGT, 0x1F, ev4002, "GTower's g2before"},
+}
+
+// bit is s's image byte and mask.
+func (s spawnSwitch) bit() (off int, mask byte) {
+	_, b, _ := addr.SwitchBit(s.no)
+	return addr.OffMemBit(s.table) + b.Off, b.Mask
+}
+
+// hold is the hold the planner reports s's switch under.
+func (s spawnSwitch) hold() Hold {
+	return Hold{ID: s.event, Why: fmt.Sprintf("it is %s spawn switch: it goes with 0x%04X, at the stage change that writes that bit, never ahead of it (with the switch alone the stage keeps its intro layer and skips the intro)", s.what, s.event)}
+}
+
+// bitHold is the hold the planner reports s's story bit under.
+func (s spawnSwitch) bitHold() Hold {
+	return Hold{ID: s.event, Why: fmt.Sprintf("%s sets it to take the stage off its intro layer, and its spawn switch, t%02d switch 0x%02X, cannot be written with it (the world lacks it, it does not sync or this game had it, or switches are not granted): alone it would start the intro without its staff, so this game plays its own intro", s.what, s.table, s.no)}
+}
+
+// spawnMask is the spawn switch bits of image byte off.
+func spawnMask(off int) byte {
+	var m byte
+	for _, s := range spawnSwitches {
+		if o, b := s.bit(); o == off {
+			m |= b
+		}
+	}
+	return m
+}
+
 // HeldBit is a bit of the world a hold keeps out of the receiver's game.
 type HeldBit struct {
 	Off  uint16
@@ -348,6 +418,10 @@ type Planner struct {
 	ever    world.BitSet
 	everMax save.Image
 	boss    bool // the last tick's stage holds the boss bits (bossStage)
+	// noSwitches: the hub does not grant memory switches, so no spawn
+	// switch can go with its story bit (spawnSwitch), which waits. The
+	// replica sets it every tick; the zero Planner plans as if granted.
+	noSwitches bool
 }
 
 // NewPlanner returns a Planner for policy (nil: world.DefaultPolicy).
@@ -489,6 +563,28 @@ func (p *Planner) Plan(view, raw, local *save.Image, cur int) ([]Write, []HeldBi
 				miss[off] &^= c
 				held = append(held, HeldBit{Off: uint16(off), Mask: c, Hold: h})
 			}
+		}
+	}
+
+	// A start event's spawn switch and its story bit go together
+	// (spawnSwitch). The switch waits for the bit in the receiver's own
+	// image: not in the plan's, which a stage change that never comes may
+	// still have to write. The bit waits while the receiver lacks the
+	// switch and the plan cannot write it with the bit: the world lacks
+	// it, the policy does not open it, the receiver once had it, or the
+	// hub does not grant switches (noSwitches).
+	for _, s := range spawnSwitches {
+		off, m := s.bit()
+		b := addr.EventByte(s.event)
+		eoff := addr.OffEvent + b.Off
+		coming := miss[off]&m == m && !p.noSwitches
+		if c := miss[eoff] & b.Mask; c != 0 && raw[off]&m != m && !coming {
+			miss[eoff] &^= c
+			held = append(held, HeldBit{Off: uint16(eoff), Mask: c, Hold: s.bitHold()})
+		}
+		if c := miss[off] & m; c != 0 && !eventSet(raw, s.event) {
+			miss[off] &^= c
+			held = append(held, HeldBit{Off: uint16(off), Mask: c, Hold: s.hold()})
 		}
 	}
 

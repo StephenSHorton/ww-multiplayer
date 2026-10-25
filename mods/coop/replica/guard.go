@@ -908,6 +908,26 @@ func (t *Tick) opens(tg Target, a uint32) string {
 	return ""
 }
 
+// spawnMask returns the start-event spawn switch bits (spawnSwitch) of the
+// byte at a, saved or, with its table loaded, live, on a TRANSITION tick
+// of an armed file (CanWriteOnTransition), and 0 otherwise. On that tick,
+// whose STABLE is closed, the story write's stage change may write these
+// bits, and only these, with the story bit their event sets
+// (Replica.spawnWrites), so the receiver never enters the stage with the
+// bit and not its switch.
+func (t *Tick) spawnMask(a uint32) byte {
+	if !t.Armed || !t.Gates.CanWriteOnTransition() {
+		return 0
+	}
+	switch {
+	case a >= addr.SaveImage && a < addr.SaveImage+addr.SaveImageSize:
+		return spawnMask(int(a - addr.SaveImage))
+	case a >= addr.LiveMemBit && a < addr.LiveMemBit+addr.MemBitSize && addr.ValidTable(int(t.Table)):
+		return spawnMask(addr.OffMemBit(int(t.Table)) + int(a-addr.LiveMemBit))
+	}
+	return 0
+}
+
 // bossClosed returns why a write of val over old at a, the live memBit's
 // mDungeonItem, may not change its boss bits this tick, or "": the stage
 // loaded polls them every frame (bossStage), so the planner holds them
@@ -1180,7 +1200,14 @@ func (w *WriteGuard) judge(a uint32, old, val byte, p path) (string, Refusal, st
 		return what, RefuseGate, w.closed
 	}
 	if why := w.tick.opens(br.target, a); why != "" {
-		return what, RefuseGate, why
+		m := byte(0)
+		if br.target == TargetStage {
+			m = w.tick.spawnMask(a)
+		}
+		if m == 0 {
+			return what, RefuseGate, why
+		}
+		br.mask &= m // a stage change's spawn switch: those bits alone
 	}
 	if why := w.tick.bossClosed(a, old, val); why != "" {
 		return what, RefuseGate, why
@@ -1446,6 +1473,27 @@ func (w *WriteGuard) ready(a uint32) error {
 		return fmt.Errorf("%w: %s", ErrClosed, why)
 	}
 	return nil
+}
+
+// readyBits is ready for a merge-path byte that would set bits at a: it
+// returns the bits that may be written this tick. Where ready closes the
+// byte, a stage change's first tick still opens its start-event spawn
+// switch bits (Tick.spawnMask), and only those: the rest of bits stays
+// closed (ErrClosed, no fault), so a batch that merged a spawn bit with
+// another bit of its byte still writes the spawn bit alone.
+func (w *WriteGuard) readyBits(a uint32, bits byte) (byte, error) {
+	err := w.ready(a)
+	if err == nil || !errors.Is(err, ErrClosed) {
+		return bits, err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if _, br, ok := w.allow.at(a); ok && br.target == TargetStage && w.have && w.closed == "" {
+		if m := w.tick.spawnMask(a) & bits; m != 0 {
+			return m, nil
+		}
+	}
+	return 0, err
 }
 
 // GuardStats are a WriteGuard's counts.
