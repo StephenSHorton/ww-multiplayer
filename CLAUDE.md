@@ -47,7 +47,8 @@ ww-multiplayer/
 │   │   ├── dol.go               # DOL header editor + T2 splice + in-DOL patches
 │   │   ├── iso.go               # ISO patcher with FST relocation (+ a replacement RELS.arc placed in free space, PatchISOWith)
 │   │   ├── ciso.go              # CISO decompressor
-│   │   └── rels/                # RELS.arc patcher: the mod's REL in an actor module's place, the profile list repointed, the 64 KB ARAM growth guard
+│   │   └── rels/                # RELS.arc patcher: the mod's REL in an actor module's place, the profile list repointed, the 64 KB ARAM growth guard;
+│   │                            #   optional in-place byte patches to vanilla RELs (seaheap.go: BytePatch, SeaHeapFix over rel.PatchBytes, checked by inject.CheckOverlaps)
 │   ├── netutil/                 # Address parsing shared by host/join/server; join codes (WW-XXXX-XXXX, joincode.go)
 │   ├── dolphintool/             # Dolphin's DolphinTool beside its Dolphin: probe `convert --help`, RVZ/WIA/GCZ -> temporary ISO (patch's Converter), free space
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors; convert.go: an RVZ/WIA/GCZ input converted first)
@@ -127,6 +128,7 @@ go build -o wwdev.exe ./cmd/wwdev
 ./ww-multiplayer.exe ui --browser [--port N] [--no-open] # Serve the app's UI on 127.0.0.1 to a browser (dev/tests; Ctrl+C stops)
 #   tui and ui also take --mods=a,b / --no-mod=x / --dev (the app's mods this run; `mods` takes them to show the effect)
 ./ww-multiplayer.exe patch <iso|ciso|rvz> [out.iso]     # Splice mod into user's own vanilla WW ISO (RVZ/WIA/GCZ: converted first with the first usable DolphinTool beside a found Dolphin, running ones first)
+#   --fix-sea-heap also gives d_a_lod_bg.rel the sea heap fix (rels.SeaHeapFix; off by default, local only, docs/TESTING.md)
 
 # Play: one process per player
 ./ww-multiplayer.exe host [name] [--port N] [--color C] [--coop[=new|<world-id>]] ...  # Host a session (server + this player's pipelines)

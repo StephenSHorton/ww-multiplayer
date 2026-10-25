@@ -32,6 +32,11 @@ type Options struct {
 	// (convert.go). Nil leaves those inputs an error with the
 	// convert-in-Dolphin advice, as before.
 	Converter *Converter
+	// RELPatches are optional byte patches to vanilla RELs that go into
+	// RELS.arc with the mod (rels.SeaHeapFix, `patch --fix-sea-heap`).
+	// None by default. They are local: players with and without them
+	// play together. A converted input gets them too.
+	RELPatches []rels.BytePatch
 }
 
 // Result is what Run did.
@@ -111,7 +116,9 @@ func Run(ctx context.Context, in, out string, w io.Writer, o Options) (Result, e
 		return res, err
 	}
 	res.ConvertedFrom = format
-	r, err := rels.PatchISOWithREL(src, out)
+	m := rels.Blob()
+	m.Patches = o.RELPatches
+	r, err := m.PatchISO(src, out)
 	fst := r.Result
 	if err != nil {
 		switch {
@@ -157,6 +164,9 @@ func Run(ctx context.Context, in, out string, w io.Writer, o Options) (Result, e
 			r.ModuleID, path.Base(r.File), r.BuildID, fst.RELSArcOffset, r.Growth)
 	} else {
 		fmt.Fprintf(w, "  REL   : none (this build has no REL module)\n")
+	}
+	for _, name := range r.Patches {
+		fmt.Fprintf(w, "  fix   : %s (local only)\n", name)
 	}
 	// The post-patch steps on the disc just written (co-op's stage
 	// tables, for --coop sessions): read-only on it, a warning at worst.

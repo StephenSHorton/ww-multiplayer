@@ -18,6 +18,7 @@ import (
 	"strconv"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject/rels"
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 )
@@ -89,7 +90,7 @@ func commandTable() []command {
 		{
 			name:    "patch",
 			group:   groupPatch,
-			usage:   "patch <vanilla.iso|.ciso|.rvz> [out.iso]",
+			usage:   "patch <vanilla.iso|.ciso|.rvz> [out.iso] [--fix-sea-heap]",
 			summary: "Splice the multiplayer mod into your own legitimate copy of Wind Waker (GZLE01)",
 			run:     cmdPatch,
 		},
@@ -253,18 +254,37 @@ func cmdJoin(string, []string) {
 }
 
 func cmdPatch(string, []string) {
-	if len(os.Args) < 3 {
-		fmt.Printf("Usage: %s patch <input.iso|input.ciso|input.rvz> [output.iso]\n", exeCmd)
+	args, fixes := patchFlags(os.Args[2:])
+	if len(args) < 1 {
+		fmt.Printf("Usage: %s patch <input.iso|input.ciso|input.rvz> [output.iso] [--fix-sea-heap]\n", exeCmd)
 		fmt.Println("  Default output: <input>-multiplayer.iso (next to the input)")
 		fmt.Println("  An .rvz, .wia or .gcz is converted to a temporary ISO first, with the DolphinTool")
 		fmt.Println("  next to your Dolphin (a running Dolphin's first, then DOLPHIN_EXE's, then the usual places)")
+		fmt.Println("  --fix-sea-heap: also give d_a_lod_bg.rel the sea heap fix (local only; off by default)")
 		os.Exit(1)
 	}
 	out := ""
-	if len(os.Args) > 3 {
-		out = os.Args[3]
+	if len(args) > 1 {
+		out = args[1]
 	}
-	runPatch(os.Args[2], out)
+	runPatch(args[0], out, fixes)
+}
+
+// patchFlags takes patch's optional REL fixes out of args, wherever they
+// stand (--fix-sea-heap: rels.SeaHeapFix) and returns the rest in order.
+func patchFlags(args []string) ([]string, []rels.BytePatch) {
+	var rest []string
+	var fixes []rels.BytePatch
+	for _, a := range args {
+		if a == "--fix-sea-heap" {
+			if len(fixes) == 0 {
+				fixes = append(fixes, rels.SeaHeapFix)
+			}
+			continue
+		}
+		rest = append(rest, a)
+	}
+	return rest, fixes
 }
 
 func cmdServer(string, []string) {

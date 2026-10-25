@@ -1,5 +1,6 @@
 exit 1
-Usage: <exe> patch <input.iso|input.ciso|input.rvz> [output.iso]
+Usage: <exe> patch <input.iso|input.ciso|input.rvz> [output.iso] [--fix-sea-heap]
   Default output: <input>-multiplayer.iso (next to the input)
   An .rvz, .wia or .gcz is converted to a temporary ISO first, with the DolphinTool
   next to your Dolphin (a running Dolphin's first, then DOLPHIN_EXE's, then the usual places)
+  --fix-sea-heap: also give d_a_lod_bg.rel the sea heap fix (local only; off by default)
