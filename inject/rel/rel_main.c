@@ -82,7 +82,8 @@
 #include "visuals.h"
 
 // Other players' bombs, cannonballs and arrows (fx.c, include/wwfx.h):
-// stateless across links (its tables are .bss), run from execute last.
+// its tables are the module's .bss, emptied by _prolog (fx_link); it runs
+// from execute last.
 #include "fx.h"
 
 // The build id: build.py passes -DWWREL_BUILD_ID=<CRC-32 of inject/rel's
@@ -393,6 +394,7 @@ void _prolog(void) {
     WWREL_WORD(WWREL_BUILD_ID_OFF) = g_wwrel_build_id;
     WWREL_WORD(WWREL_SWAP_STATE_OFF) = 0;
     WWREL_WORD(WWREL_MAGIC_OFF) = WWREL_MAGIC;
+    fx_link();
     wwvis_link();
     WWREL_WORD(WWREL_EXEC_HOOK_OFF) = (u32)wwrel_exec_hook;
 }

@@ -788,7 +788,8 @@ DESIGN-big-items.md` (a), option A. The block is `include/wwfx.h` at
 to the arena; Go's `wwapi/mailbox/fx.go` mirrors it and `CanaryArenaHigh`
 now ends at its start). `fx_frame` runs last in the keeper's execute. No
 T2 code is involved, and its state (the trackers and the copy table) is
-the module's `.bss`, so a new link starts empty; its first frame takes
+the module's `.bss`, emptied by `_prolog` (`fx_link`), so a new link
+starts empty; its first frame takes
 Go's read words as its own, so nothing old is sent or spawned.
 
 - **Sender** (send magic set, broadcast-pose): the local Link's hand bombs

@@ -214,7 +214,8 @@ typedef struct {
     u8 kind, slot, variant;
 } fx_event;
 
-// REL data: a new link starts empty (old copies finish as plain bombs).
+// REL data: a new link starts empty (fx_link; old copies finish as plain
+// bombs).
 static fx_track l_fx_track[FX_TRACK_MAX];
 static fx_copy l_fx_copy[FX_COPY_MAX];
 static u32 l_fx_arrow;      // the local Link's nocked arrow, 0 = none
@@ -700,6 +701,19 @@ static void fx_stage_clear(void) {
         }
         c->state = FX_COPY_FREE;
     }
+}
+
+// _prolog: start the link with empty tables (the module's .bss is not
+// relied on to come up zeroed), so fx_frame adopts the read words once.
+void fx_link(void) {
+    u8* b = (u8*)l_fx_track;
+    u32 i;
+    for (i = 0; i < sizeof(l_fx_track); i++) b[i] = 0;
+    b = (u8*)l_fx_copy;
+    for (i = 0; i < sizeof(l_fx_copy); i++) b[i] = 0;
+    l_fx_arrow = 0;
+    l_fx_linked = 0;
+    l_fx_stage = 0;
 }
 
 void fx_frame(void) {
