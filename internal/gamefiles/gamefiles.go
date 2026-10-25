@@ -10,7 +10,10 @@
 // extension (.iso .ciso .rvz .dol .rel .arc .sav .gci .raw .s01, ...) or
 // its first bytes (a RARC archive, Yaz0 data, a J3D model, a disc image),
 // so a renamed file is caught too; a zip is opened and each entry checked
-// the same way (Scan).
+// the same way, nested zips too whatever their size (Result.File). A file
+// (or entry) that passes is then read whole for game data inside it
+// (Embedded): a game archive or a disc built into our exe's data, up to
+// MaxEmbeddedScan, past which the scan fails rather than pass unread.
 //
 // Nothing is allowed by path: no file of ours has a game file's shape.
 // Our REL is built on the player's machine at patch time from the bytes in

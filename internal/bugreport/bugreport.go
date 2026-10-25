@@ -6,8 +6,11 @@
 //
 // Every file is redacted as the diagnostics are: the home directory
 // becomes ~, token values <redacted> (applog.Redactor), IP addresses and
-// join codes masked (redact.Text), since the zip is made to be posted in
-// public. Game files and saves never go in: a file internal/gamefiles
+// join codes masked (redact.Text), and the host names a player types or
+// hosts on, a dotted name with a port or one under a dynamic-DNS, tunnel,
+// tailnet or LAN suffix (MaskHosts), since the zip is made to be posted in
+// public. A bare name with no dot ("my-pc:25565") is not masked, and
+// contents.txt says so. Game files and saves never go in: a file internal/gamefiles
 // flags (a disc, a DOL or REL, a .sav state, a .gci or card image) is left
 // out by name and content, as is any file that isn't text. Co-op worlds
 // (world.wwco and its journal) are save data, so they are not collected
@@ -28,6 +31,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -135,9 +139,22 @@ func collect(o Options) (es []entry, skipped []string) {
 		}
 		es = append(es, entry{dir + "/dolphin.log", p})
 	}
+	if n == 0 && len(seen) > 0 {
+		// Said once, so a player with Dolphin's log on but another
+		// folder (a portable install the CLI didn't find) knows to pass
+		// --user-dir; a second folder without one is no news.
+		var looked []string
+		for _, d := range o.DolphinUserDirs {
+			if d != "" && !slices.Contains(looked, d) {
+				looked = append(looked, d)
+			}
+		}
+		skipped = append(skipped, "dolphin.log: none in "+strings.Join(looked, ", ")+
+			" (Dolphin writes it only with its logger's \"Write to File\" on)")
+	}
 	names := map[string]int{}
 	for _, p := range o.Extra {
-		base := filepath.Base(p)
+		base := zipName(filepath.Base(p))
 		names[base]++
 		if k := names[base]; k > 1 {
 			ext := filepath.Ext(base)
@@ -159,7 +176,7 @@ func Write(dir string, o Options) (Result, error) {
 		now = time.Now
 	}
 	red := applog.Redactor{Home: o.Home}
-	clean := func(s string) string { return redact.Text(red.Redact(s)) }
+	clean := func(s string) string { return MaskHosts(redact.Text(red.Redact(s))) }
 
 	es, skipped := collect(o)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -216,7 +233,9 @@ func Write(dir string, o Options) (Result, error) {
 	}
 	var c strings.Builder
 	fmt.Fprintf(&c, "WW Multiplayer bug report, made %s\n", now().UTC().Format(time.RFC3339))
-	c.WriteString("Every file is redacted: your home folder is ~, IP addresses and join codes are masked, tokens removed.\n")
+	c.WriteString("Every file is redacted: your home folder is ~, tokens are removed, and IP addresses, join codes and host names\n")
+	c.WriteString("with a port or under a dynamic-DNS, tunnel, tailnet or LAN name (duckdns, playit, ts.net, ...) are masked.\n")
+	c.WriteString("A computer name with no dot (\"my-pc:25565\") is not masked: check for one before posting.\n")
 	c.WriteString("No game files, saves or co-op worlds are included.\n\nFiles:\n")
 	for _, n := range res.Files {
 		c.WriteString("  " + n + "\n")
@@ -285,6 +304,25 @@ func readText(p string) (string, string) {
 		b = append([]byte(fmt.Sprintf("[the first %d bytes of this file are left out]\n", st.Size()-int64(len(b)))), b...)
 	}
 	return string(b), ""
+}
+
+// zipName is an --include file's base name as its zip entry: redacted as
+// the text is (a capture named after a host, "26.1.2.3.log" or
+// "me.duckdns.org:25570.txt"), with what a zip name can't hold made "_".
+func zipName(base string) string {
+	// Without its extension first: "me.duckdns.org.txt" is a host name
+	// only up to ".txt".
+	ext := filepath.Ext(base)
+	if len(ext) > 1 && len(ext) <= 6 {
+		base = MaskHosts(redact.Text(strings.TrimSuffix(base, ext))) + ext
+	}
+	base = MaskHosts(redact.Text(base))
+	return strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ':' || r < 0x20 {
+			return '_'
+		}
+		return r
+	}, base)
 }
 
 // cleanLines redacts text one line at a time (a mask never spans lines).

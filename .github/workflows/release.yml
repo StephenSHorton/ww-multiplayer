@@ -40,7 +40,11 @@ name: Release
 # Game files: tools/check_game_files runs on the repo, on each asset after
 # it is built and on the release job's downloaded assets before anything
 # is published, and fails the release if any holds a Nintendo file or a
-# save (internal/gamefiles).
+# save (internal/gamefiles: names, headers, zip entries, and every file
+# read whole for game data inside it, so a game archive built into the
+# exe's data fails the exe's step). On workflow_dispatch the notes step
+# and the release job (with its artifacts guard) don't run: only the repo,
+# exe and macOS zip guards do.
 #
 # We don't ship patched.dol — that would be a derivative of the entire
 # Wind Waker DOL (copyrighted). The shipped binaries contain only our IP

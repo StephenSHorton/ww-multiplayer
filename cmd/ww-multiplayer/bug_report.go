@@ -59,16 +59,15 @@ func parseBugReportArgs(args []string) (bugReportArgs, error) {
 // writes (internal/bugreport): the app's newest session logs, Dolphin's
 // log, the --include files and about.txt, every file redacted, no game
 // files or saves. The CLI reads no saved settings (owner decision 11), so
-// Dolphin's user folders are --user-dir's, else USER_DIR_1 and USER_DIR_2
-// (or their defaults, wwapi/emu/launch FromEnv).
+// Dolphin's user folders are --user-dir's, else bugReportDolphin's.
 func cmdBugReport(_ string, args []string) {
 	a, err := parseBugReportArgs(args)
 	if err != nil {
 		exitUsage(err, bugReportUsage)
 	}
-	paths := launch.FromEnv()
+	exe, dirs := bugReportDolphin(launch.Host(), launch.FromEnv())
 	if len(a.userDirs) == 0 {
-		a.userDirs = []string{paths.UserDir1, paths.UserDir2}
+		a.userDirs = dirs
 	}
 	if a.out == "" {
 		if a.out, err = bugreport.DefaultDir(); err != nil {
@@ -79,7 +78,7 @@ func cmdBugReport(_ string, args []string) {
 	logs, _ := applog.DefaultDir() // none: a report without the app's logs
 	home, _ := os.UserHomeDir()
 	about := applog.Diagnostics{
-		App: versionLine(), OS: runtime.GOOS + "/" + runtime.GOARCH, Dolphin: paths.Exe,
+		App: versionLine(), OS: runtime.GOOS + "/" + runtime.GOARCH, Dolphin: exe,
 		UserDir: strings.Join(a.userDirs, ", "), LogFile: logs, LogFiles: true,
 	}.Text(applog.Redactor{Home: home})
 	res, err := bugreport.Write(a.out, bugreport.Options{
@@ -90,6 +89,26 @@ func cmdBugReport(_ string, args []string) {
 		os.Exit(1)
 	}
 	printBugReport(res)
+}
+
+// bugReportDolphin is the Dolphin the CLI's bug-report describes and the
+// user folders it reads dolphin.log from when no --user-dir is given,
+// found as the GUI finds them: DOLPHIN_EXE, else a running or installed
+// Dolphin (launch.Detect), and USER_DIR_1 when it is set, else the folder
+// that Dolphin plays on (launch.UserDir: a portable install's User folder,
+// else Dolphin's usual one), then USER_DIR_2 (or its default) for a second
+// instance.
+func bugReportDolphin(e launch.Env, paths launch.Paths) (exe string, userDirs []string) {
+	exe = paths.Exe
+	if e.Getenv == nil || e.Getenv(launch.EnvExe) == "" {
+		c, _ := launch.Detect(e)
+		exe = c.Exe
+	}
+	first := paths.UserDir1
+	if e.Getenv == nil || e.Getenv(launch.EnvUserDir1) == "" {
+		first, _ = launch.UserDir(e, exe)
+	}
+	return exe, []string{first, paths.UserDir2}
 }
 
 // printBugReport prints what a report holds. The path is printed whole:

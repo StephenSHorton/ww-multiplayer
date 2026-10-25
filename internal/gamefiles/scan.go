@@ -22,9 +22,10 @@ type Finding struct {
 
 func (f Finding) String() string { return f.Path + ": " + f.Reason }
 
-// maxNested is the largest zip entry Scan opens as a zip of its own (it is
-// read into memory); a bigger one is checked by name and header only.
-const maxNested = 256 << 20
+// memNested is the largest nested zip read into memory; a bigger one is
+// copied to a temporary file first (up to MaxEmbeddedScan, past which the
+// scan fails), so every nested zip is opened whatever its size.
+var memNested uint64 = 64 << 20 // a var: a test makes it small
 
 // maxDepth is how many zips deep Scan looks.
 const maxDepth = 4
@@ -47,11 +48,27 @@ type Result struct {
 	Checked  int
 }
 
-func (r *Result) add(display string, h []byte) {
+// add checks one file by name and header; it says whether it was flagged.
+func (r *Result) add(display string, h []byte) bool {
 	r.Checked++
-	for _, w := range Check(display, h) {
+	why := Check(display, h)
+	for _, w := range why {
 		r.Findings = append(r.Findings, Finding{display, w})
 	}
+	return len(why) > 0
+}
+
+// embedded checks the whole of a file that passed by name and header
+// (Embedded): game data inside it, such as an archive in our exe's data.
+func (r *Result) embedded(display string, rd io.Reader) error {
+	w, err := Embedded(rd)
+	if err != nil {
+		return fmt.Errorf("%s: %w", display, err)
+	}
+	if w != "" {
+		r.Findings = append(r.Findings, Finding{display, w})
+	}
+	return nil
 }
 
 // File checks the file at fsPath, shown as display, and every entry of it
@@ -80,9 +97,15 @@ func (r *Result) File(fsPath, display string) error {
 		return fmt.Errorf("%s: %w", display, err)
 	}
 	h = h[:n]
-	r.add(display, h)
+	flagged := r.add(display, h)
 	if !isZip(display, h) {
-		return nil
+		if flagged {
+			return nil
+		}
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("%s: %w", display, err)
+		}
+		return r.embedded(display, f)
 	}
 	zr, err := zip.NewReader(f, st.Size())
 	if err != nil {
@@ -94,40 +117,85 @@ func (r *Result) File(fsPath, display string) error {
 	return r.zip(zr, display, 1)
 }
 
-// zip checks every entry of zr, a zip shown as display.
+// zip checks every entry of zr, a zip shown as display: by name and
+// header, then a nested zip's entries, or else the whole entry
+// (Embedded).
 func (r *Result) zip(zr *zip.Reader, display string, depth int) error {
 	for _, e := range zr.File {
 		if strings.HasSuffix(e.Name, "/") {
 			continue
 		}
 		name := display + "!" + strings.ReplaceAll(e.Name, `\`, "/")
-		rc, err := e.Open()
-		if err != nil {
-			return fmt.Errorf("%s: %w", name, err)
+		if err := r.entry(e, name, depth); err != nil {
+			return err
 		}
-		h := make([]byte, HeaderLen)
-		n, err := io.ReadFull(rc, h)
-		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-			rc.Close()
-			return fmt.Errorf("%s: %w", name, err)
-		}
-		h = h[:n]
-		r.add(name, h)
-		if depth < maxDepth && isZip(e.Name, h) && e.UncompressedSize64 <= maxNested {
-			rest, err := io.ReadAll(io.LimitReader(rc, maxNested))
-			if err == nil {
-				b := append(h, rest...)
-				if inner, err := zip.NewReader(bytes.NewReader(b), int64(len(b))); err == nil {
-					if err := r.zip(inner, name, depth+1); err != nil {
-						rc.Close()
-						return err
-					}
-				}
-			}
-		}
-		rc.Close()
 	}
 	return nil
+}
+
+func (r *Result) entry(e *zip.File, name string, depth int) error {
+	rc, err := e.Open()
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	defer rc.Close()
+	h := make([]byte, HeaderLen)
+	n, err := io.ReadFull(rc, h)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	h = h[:n]
+	if r.add(name, h) {
+		return nil
+	}
+	rest := io.MultiReader(bytes.NewReader(h), rc)
+	if !isZip(e.Name, h) || depth >= maxDepth {
+		return r.embedded(name, rest)
+	}
+	inner, done, err := openNested(rest, e.UncompressedSize64)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	defer done()
+	if inner == nil {
+		return nil // named .zip but not one: its name and header were checked
+	}
+	return r.zip(inner, name, depth+1)
+}
+
+// openNested opens a nested zip read from rd: in memory up to memNested,
+// else from a temporary file that done removes. A zip that can't be read
+// is nil.
+func openNested(rd io.Reader, size uint64) (_ *zip.Reader, done func(), err error) {
+	done = func() {}
+	if size <= memNested {
+		b, err := io.ReadAll(io.LimitReader(rd, int64(memNested)+1))
+		if err != nil {
+			return nil, done, err
+		}
+		zr, err := zip.NewReader(bytes.NewReader(b), int64(len(b)))
+		if err != nil {
+			return nil, done, nil
+		}
+		return zr, done, nil
+	}
+	tmp, err := os.CreateTemp("", "check_game_files-*.zip")
+	if err != nil {
+		return nil, done, err
+	}
+	done = func() { tmp.Close(); os.Remove(tmp.Name()) }
+	n, err := io.Copy(tmp, io.LimitReader(rd, MaxEmbeddedScan+1))
+	if err != nil {
+		return nil, done, err
+	}
+	if n > MaxEmbeddedScan {
+		return nil, done, fmt.Errorf("a nested zip %w (more than %d MiB)", ErrTooBig, MaxEmbeddedScan>>20)
+	}
+	zr, err := zip.NewReader(tmp, n)
+	if err != nil {
+		return nil, done, nil
+	}
+	return zr, done, nil
 }
 
 // Tree checks every file under root (a file or a directory), each shown as

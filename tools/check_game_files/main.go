@@ -16,6 +16,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,37 +25,42 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/gamefiles"
 )
 
-func main() {
+func main() { os.Exit(run(".", os.Args[1:], os.Stdout, os.Stderr)) }
+
+// run is the command in dir (the git tree's place when args is empty):
+// its exit code, 0 clean, 1 findings, 2 a failed scan.
+func run(dir string, args []string, stdout, stderr io.Writer) int {
 	var r gamefiles.Result
 	var err error
-	if len(os.Args) > 1 {
-		for _, p := range os.Args[1:] {
+	if len(args) > 0 {
+		for _, p := range args {
 			if err = r.Tree(p); err != nil {
 				break
 			}
 		}
 	} else {
-		err = gitTree(&r)
+		err = gitTree(dir, &r)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "check_game_files:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "check_game_files:", err)
+		return 2
 	}
 	if len(r.Findings) > 0 {
-		fmt.Printf("Game files found (%d):\n", len(r.Findings))
+		fmt.Fprintf(stdout, "Game files found (%d):\n", len(r.Findings))
 		for _, f := range r.Findings {
-			fmt.Println("  " + f.String())
+			fmt.Fprintln(stdout, "  "+f.String())
 		}
-		fmt.Println("Never commit or ship Nintendo game files or saves: remove them (and check .gitignore).")
-		os.Exit(1)
+		fmt.Fprintln(stdout, "Never commit or ship Nintendo game files or saves: remove them (and check .gitignore).")
+		return 1
 	}
-	fmt.Printf("No game files: %d file(s) checked.\n", r.Checked)
+	fmt.Fprintf(stdout, "No game files: %d file(s) checked.\n", r.Checked)
+	return 0
 }
 
 // gitTree checks the files of the working tree git lists: tracked, and
 // untracked but not ignored.
-func gitTree(r *gamefiles.Result) error {
-	top, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+func gitTree(dir string, r *gamefiles.Result) error {
+	top, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		return fmt.Errorf("not in a git work tree (pass paths instead): %w", err)
 	}

@@ -137,7 +137,7 @@ go build -o wwdev.exe ./cmd/wwdev
 # Play: one process per player
 ./ww-multiplayer.exe host [name] [--port N] [--color C] [--coop[=new|<world-id>]] ...  # Host a session (server + this player's pipelines)
 ./ww-multiplayer.exe join <host-ip[:port]|join-code> [name] [--color C] [--coop] ...   # Join a host's session (join code: WW-XXXX-XXXX[-XXXX])
-./ww-multiplayer.exe bug-report [--include FILE]... [--user-dir DIR]... [--out DIR]   # One redacted zip of the app's session logs + dolphin.log (USER_DIR_1/2) for an issue
+./ww-multiplayer.exe bug-report [--include FILE]... [--user-dir DIR]... [--out DIR]   # One redacted zip of the app's session logs + dolphin.log (the GUI's Dolphin folder: launch.Detect + UserDir, then USER_DIR_2) for an issue
 ./ww-multiplayer.exe mods [--json] [--dev] [--mods=a,b] [--no-mod=x]   # List the mods built into this version
 ./ww-multiplayer.exe version                            # Print the version (players must match)
 #   with --coop (host, join, wwdev mp-local; each side its own): --coop-boss-kill=gohma,kalle,gohdan,molgera,jalhalla,helmaroc|none
