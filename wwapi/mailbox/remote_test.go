@@ -269,6 +269,8 @@ func TestRemoteHeaderPins(t *testing.T) {
 		"WWREMOTE_AD_NOT_IN_PLAY":         uint64(RemoteADNotInPlay),
 		"WWREMOTE_AD_STALE_EPOCH":         uint64(RemoteADStaleEpoch),
 		"WWREMOTE_AD_ABORTED":             uint64(RemoteADAborted),
+		"WWREMOTE_AD_CLIENT_STALE":        uint64(RemoteADClientStale),
+		"WWREMOTE_AD_BAD_HIT":             uint64(RemoteADBadHit),
 		"WWREMOTE_HAF_ATTRIB_BODY":        uint64(RemoteHAFAttribBody),
 		"WWREMOTE_HAF_SLOT1":              uint64(RemoteHAFSlot1),
 		"WWREMOTE_HD_NO_BODY":             uint64(RemoteHDNoBody),

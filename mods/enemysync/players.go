@@ -1278,8 +1278,7 @@ type RemoteClientStats struct {
 	PStates, PHits, Applied, Dropped uint64
 	// DroppedStale and DroppedBad are the sanity gates' share of Dropped:
 	// held past PHitClientStale before a Tick took them, and fields no hit
-	// has (phitSane). Both answer PADGoGate: wwremote.h has no detail
-	// code of their own yet.
+	// has (phitSane). They answer PADClientStale and PADBadHit.
 	DroppedStale, DroppedBad uint64
 	LastStatus               mailbox.RemoteStatus
 }
@@ -1340,12 +1339,12 @@ func (r *RemoteClient) Tick(now time.Time, scope Scope, g ClientGate) ([][]byte,
 		// own): held too long, or fields no hit has. Dropped, not retried.
 		if now.Sub(in.at) > PHitClientStale {
 			r.Stats.DroppedStale++
-			out = append(out, r.drop(p, PADGoGate, g.Frame))
+			out = append(out, r.drop(p, PADClientStale, g.Frame))
 			continue
 		}
 		if !phitSane(p.Spl, p.RelHit, p.RVec) {
 			r.Stats.DroppedBad++
-			out = append(out, r.drop(p, PADGoGate, g.Frame))
+			out = append(out, r.drop(p, PADBadHit, g.Frame))
 			continue
 		}
 		if detail, ok := r.gate(p, scope, g); !ok {

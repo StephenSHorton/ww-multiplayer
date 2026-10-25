@@ -418,6 +418,8 @@
 #define WWREMOTE_AD_NOT_IN_PLAY     3            // Go: Link not in play
 #define WWREMOTE_AD_STALE_EPOCH     4            // Go: the PHIT's epoch is older than the block's
 #define WWREMOTE_AD_ABORTED         5            // REL: delete, epilog or magic 0 mid-request
+#define WWREMOTE_AD_CLIENT_STALE    6            // Go: the client held the PHIT past PHitClientStale (never reaches the REL)
+#define WWREMOTE_AD_BAD_HIT         7            // Go: the PHIT has fields no hit has, phitSane (never reaches the REL)
 
 // ATTRIB extensions of the enemy block's hit_apply (wwenemy.h), section 8.6
 #define WWREMOTE_HAF_ATTRIB_BODY    0x08         // bit in WWENEMY_HA_FLAGS_OFF: attribute to the slot's body

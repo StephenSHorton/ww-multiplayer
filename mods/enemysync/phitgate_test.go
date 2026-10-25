@@ -173,18 +173,19 @@ func TestRemoteHostPHitBurst(t *testing.T) {
 
 // TestRemoteClientPHitSanity: a PHIT held past PHitClientStale before
 // the Tick, or with fields no hit has, is answered PACK dropped
-// (PADGoGate) at once and never reaches the apply record.
+// (PADClientStale, PADBadHit) at once and never reaches the apply record.
 func TestRemoteClientPHitSanity(t *testing.T) {
 	now := time.Unix(100, 0)
 	for _, c := range []struct {
-		name  string
-		edit  func(*PHit)
-		at    time.Time
-		stale bool
+		name   string
+		edit   func(*PHit)
+		at     time.Time
+		stale  bool
+		detail uint8
 	}{
-		{"held too long", nil, now.Add(-PHitClientStale - time.Millisecond), true},
-		{"bad SPL", func(p *PHit) { p.Spl = PHitMaxSpl + 1 }, now, false},
-		{"far hit point", func(p *PHit) { p.RelHit = [3]float32{PHitMaxRel, PHitMaxRel, 0} }, now, false},
+		{"held too long", nil, now.Add(-PHitClientStale - time.Millisecond), true, PADClientStale},
+		{"bad SPL", func(p *PHit) { p.Spl = PHitMaxSpl + 1 }, now, false, PADBadHit},
+		{"far hit point", func(p *PHit) { p.RelHit = [3]float32{PHitMaxRel, PHitMaxRel, 0} }, now, false, PADBadHit},
 	} {
 		m, scope, r, g := remoteClientGame(t, true, mailbox.RemoteFlagApply)
 		p := phitFor(5)
@@ -194,7 +195,7 @@ func TestRemoteClientPHitSanity(t *testing.T) {
 		r.OnPHitAt(p, c.at)
 		out, err := r.Tick(now, scope, g)
 		_, packs := splitOut(t, out)
-		if err != nil || len(packs) != 1 || packs[0].Result != PAckDropped || packs[0].Detail != PADGoGate || packs[0].Seq != 5 {
+		if err != nil || len(packs) != 1 || packs[0].Result != PAckDropped || packs[0].Detail != c.detail || packs[0].Seq != 5 {
 			t.Errorf("%s: %+v %v", c.name, packs, err)
 		}
 		if c.stale && r.Stats.DroppedStale != 1 || !c.stale && r.Stats.DroppedBad != 1 {

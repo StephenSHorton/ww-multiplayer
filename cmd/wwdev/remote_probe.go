@@ -225,7 +225,7 @@ var (
 	remoteHGNames   = []string{"none", "open", "no_sample", "walk_problem", "game_largest", "game_free", "zelda_largest",
 		"counter_rose", "inflight", "stage_settle", "sticky", "archive_largest", "full_max", "queued"}
 	remoteARNames = []string{"NONE", "DROPPED", "APPLIED", "GUARDED", "NO_CROSS", "NO_MIRROR", "LINK_ABSENT", "EARLY_OUT"}
-	remoteADNames = []string{"none", "iframes", "go_gate", "not_in_play", "stale_epoch", "aborted"}
+	remoteADNames = []string{"none", "iframes", "go_gate", "not_in_play", "stale_epoch", "aborted", "client_stale", "bad_hit"}
 )
 
 // enumName is names[v], or the number when out of range.
