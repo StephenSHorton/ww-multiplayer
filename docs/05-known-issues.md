@@ -859,6 +859,13 @@ different setup from the D1b repro (`mp-local` and `fake-client`), so F1 stays o
 `pose-fake-loop` case (a second mini-Link, no actor) is not touched by the change. Until it is fixed, nothing shows that the
 KAMOME/NPC_OB1 fallback actually draws players 3 and 4 (design decision 5, E2).
 
+A lead for the `pose-fake-loop` case (2026-10-25, from the datstarkey/ww-online review): the
+mini-Link eye fix entryImm'd the same four static packet copies once per drawn slot, so with two
+mini-Links each packet entered `opa_p1` twice in one frame, the cycle the copies exist to avoid
+(`inject/src/mp/minilink.c`, the comment above `MY_PACKET_SIZE`). Each slot now owns its own four
+copies. UNVERIFIED live: docs/TESTING.md V1 is the rerun, and `MAX_REMOTE_LINKS` stays 2 until it
+passes. It cannot explain the NPC_OB1 (`fake-client`) variant.
+
 Evidence (owner machine): logs in `C:\Users\4step\.claude\jobs\10f6fa34\tmp\pd\d1b\logs`
 (`base-fake3.log`, `base-fake4.log`, `base-mplocal.log`, `fake3.log`, `fake4.log`), screenshots in
 `...\d1b\shots` (`base-A-fake3.png`, `base-A-fake4.png`).
