@@ -17,7 +17,8 @@ void fx_frame(void);
 // bomb it is about to delete: 1 when it is a copy of a peer's bomb (its
 // params carry WWFX_BOMB_PRM_COPY), which is then counted and must not be
 // reported to the host (that bomb was the sender's, and its own world
-// relays whatever it hit there).
+// relays whatever it hit there). A tripwire: a copy's BombCheck flag
+// (fx.c) already makes the swallow refuse it, so this should never count.
 int fx_swallowed_copy(void* bomb);
 
 #endif

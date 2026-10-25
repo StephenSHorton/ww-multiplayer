@@ -803,11 +803,16 @@ Go's read words as its own, so nothing old is sent or spawned.
   real `daBomb_c` and `daArrow_c` copies, made with `fopAcM_fastCreate`
   in the local Link's layer (the keeper's is the root layer, which
   outlives a stage). World-only: a bomb copy has `WWFX_BOMB_PRM_COPY` in
-  its params, `field_0x6F0` cleared and VsEnemy | VsPlayer cleared in its
-  At SPrm; an arrow copy has VsEnemy cleared, its Co sphere off, the
+  its params, `field_0x6F0` cleared, `field_0x6F1` (getBombCheck_Flag)
+  set so no Armos Knight or Gohdan swallows it (the host's real Knight
+  would otherwise kill itself on a copy, d_a_am.cpp:929-955), and
+  VsEnemy | VsPlayer cleared in its At SPrm; an arrow copy has VsEnemy cleared, its Co sphere off, the
   procMove PTMF and `arrowShooting`, params 0. A thrown copy's fuse is held
   until the sender's EXPLODE (their state machine), unless this world took
   it over. A stage change discards the inbox and deletes the live copies.
+  With both magic words 0 the REL writes nothing in the block (a session
+  that ends takes its live copies with it).
 - **Enemy mirror**: no copy can hit an enemy, so `em_hits` never sees
-  one; `em_am_swallow_client` still deletes a swallowed copy but asks
-  `fx_swallowed_copy` first and reports nothing for one.
+  one, and no copy can be swallowed (`em_am_swallow_client` asks the
+  same BombCheck flag); its `fx_swallowed_copy` call stays as a tripwire
+  (the 5th counter) that should read 0.

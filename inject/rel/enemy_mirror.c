@@ -2675,8 +2675,9 @@ void em_colliders_post(const em_slot* sl, const em_ext* x, const em_kind* k, voi
 // The bomb is then deleted here (the host's
 // own swallow eats its bomb, d_a_am.cpp:400-405; the client's bomb never
 // reaches the host) and 1 is returned: em_hits reports EMK_HIT_SPECIAL.
-// A peer's bomb copy (fx.c, include/wwfx.h) is deleted too but returns 0
-// (fx_swallowed_copy counts it): its sender's world relays what it hit.
+// A peer's bomb copy (fx.c, include/wwfx.h) has its BombCheck flag set,
+// so it never qualifies; fx_swallowed_copy is a tripwire that would count
+// one and keep it unreported (its sender's world relays what it hit).
 int em_am_swallow_client(em_slot* sl, const em_kind* k, void* a) {
     u8* mouth = (u8*)a + EMK_AM_MOUTH_SPH;
     u8 b = sl->tgt_bck;
