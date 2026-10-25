@@ -289,7 +289,7 @@ func (m *lobbyMachine) hello(conn int, name string, loopback bool, h LobbyHelloB
 }
 
 // helloAs is hello with owner: the hub accepted the HELLO's owner key
-// (checkOwnerKeyLocked). With the lobby keyed, the first such member
+// (judgeOwnerKeyLocked). With the lobby keyed, the first such member
 // becomes the host instead of the first from this machine. A reclaim
 // keeps the member's owner flag (owner false never clears it).
 func (m *lobbyMachine) helloAs(conn int, name string, loopback, owner bool, h LobbyHelloBody, now time.Time) (*lobbyMember, []lobbyOut) {

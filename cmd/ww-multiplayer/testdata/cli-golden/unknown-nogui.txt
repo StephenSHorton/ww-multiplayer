@@ -14,7 +14,7 @@ Patch an ISO:
 
 Lower-level CLIs:
   <exe> server [--port N] [--owner-key K] Start headless server (port 25565 unless --port; docs/11-self-hosting.md)
-  <exe> status <host[:port]> [--json]   Ask a server if it is up and its version (exit 0: up)
+  <exe> status <host[:port]|code> [--json] [--timeout D] Ask a server if it is up and its version (exit 0: up)
   <exe> broadcast-pose [name] [addr]    Stream local Link pose+pos to server
   <exe> puppet-sync [name] [addr]       Receive remotes; render as Link #2 / actor puppets
   <exe> fake-client [name] [addr]       Connect a fake client that walks in circles

@@ -21,6 +21,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject/rels"
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 )
 
 // cmdGroup is the printHelp section a command is listed under.
@@ -309,7 +310,7 @@ next:
 }
 
 func cmdServer(string, []string) {
-	o, err := parseServerArgs(os.Args[2:], os.Getenv)
+	o, err := parseServerArgs(os.Args[2:], os.Getenv, network.GenerateOwnerKey)
 	if err != nil {
 		exitUsage(err, serverUsage)
 	}

@@ -1,8 +1,10 @@
 package network
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -24,8 +26,10 @@ import (
 // of both sides compared in fixed time, so neither the key's content nor
 // its length shows in the timing, and an over-long key refused before it
 // is hashed. Their attempt cap is per connection and resets on reconnect;
-// ours counts wrong keys per source address (an IPv4 address, or an IPv6
-// /64) and survives reconnects. The role it grants is held under the
+// ours throttles per source address (an IPv4 address, or an IPv6 /64)
+// across reconnects and never refuses the right key: the real owner may
+// share that address with whoever is guessing. The key's entropy is the
+// defense (MinOwnerKeyLen; `server` makes a 128-bit one by default). The role it grants is held under the
 // member's token like any host slot, so a reclaim keeps it without the
 // key being checked (or counted) again.
 
@@ -34,45 +38,66 @@ const (
 	// MaxOwnerKeyLen caps an owner key in bytes, on the command line and
 	// in a HELLO (refused before hashing).
 	MaxOwnerKeyLen = 256
-	// MinOwnerKeyLen is the shortest key `server` takes: the per-address
-	// limit slows guessing, it doesn't make a short key safe.
-	MinOwnerKeyLen = 8
-	// ownerKeyMaxFails wrong keys from one address within
-	// ownerKeyLockout of each other lock it out: its keys are ignored,
-	// not compared, until ownerKeyLockout after the last wrong one.
-	ownerKeyMaxFails = 5
-	ownerKeyLockout  = 10 * time.Minute
+	// MinOwnerKeyLen is the shortest key `server` takes. The key's
+	// entropy is the defense; the per-address throttle below only slows
+	// guessing. `server` with no key makes a random one
+	// (GenerateOwnerKey, 128 bits).
+	MinOwnerKeyLen = 16
+	// generatedOwnerKeyBytes is GenerateOwnerKey's randomness: 128 bits,
+	// 32 hex digits.
+	generatedOwnerKeyBytes = 16
+	// A wrong key slows the next ones from its address: after n wrong
+	// keys, a HELLO with a key waits until ownerKeyDelay(n) after the
+	// last wrong one before its key is compared. The wait never refuses
+	// a key and is capped at ownerKeyDelayMax (well under the client's
+	// 15 s HELLO deadline, clientReadTimeout), so the real owner behind
+	// an address shared with whoever is guessing (a NAT, a Docker
+	// gateway, a local proxy) still gets in. An address with no wrong
+	// key for ownerKeyForget starts over.
+	ownerKeyDelayBase = 250 * time.Millisecond
+	ownerKeyDelayMax  = 8 * time.Second
+	ownerKeyForget    = 10 * time.Minute
 	// ownerKeyMaxAddrs caps the addresses the limiter remembers; past it
-	// the stale ones go, then the oldest.
+	// the forgotten ones go, then the one with the fewest wrong keys
+	// (the oldest of those), so a spray of fresh addresses doesn't push
+	// out a throttle that is doing its job.
 	ownerKeyMaxAddrs = 1024
 )
 
-// NoticeOwnerKey answers a HELLO whose ownerKey was not taken (wrong,
-// locked out, or the server has none). It is not fatal: the member joined
-// without the host role.
+// NoticeOwnerKey answers a HELLO whose ownerKey was not taken (wrong, or
+// the server has none). It is not fatal: the member joined without the
+// host role.
 const NoticeOwnerKey = "owner_key"
 
 // ownerKeyVerdict is what the hub made of a HELLO's ownerKey.
 type ownerKeyVerdict int
 
 const (
-	keyNone      ownerKeyVerdict = iota // no ownerKey in the HELLO, or a reclaim
-	keyAccepted                         // the server's key
-	keyWrong                            // another key (or one over MaxOwnerKeyLen)
-	keyLocked                           // this address is locked out; not compared
-	keyLockedNow                        // wrong, and that locked this address out
-	keyUnset                            // the server has no owner key
+	keyNone     ownerKeyVerdict = iota // no ownerKey in the HELLO, or a reclaim
+	keyAccepted                        // the server's key
+	keyWrong                           // another key (or one over MaxOwnerKeyLen)
+	keyUnset                           // the server has no owner key
 )
 
 // ValidateOwnerKey checks a key for `server --owner-key` / WW_OWNER_KEY.
 func ValidateOwnerKey(key string) error {
 	switch {
 	case len(key) < MinOwnerKeyLen:
-		return fmt.Errorf("the owner key is %d bytes; use at least %d (a long random one, e.g. openssl rand -hex 16)", len(key), MinOwnerKeyLen)
+		return fmt.Errorf("the owner key is %d bytes; use at least %d (a long random one, e.g. openssl rand -hex 16, or set none and the server makes one)", len(key), MinOwnerKeyLen)
 	case len(key) > MaxOwnerKeyLen:
 		return fmt.Errorf("the owner key is %d bytes; at most %d", len(key), MaxOwnerKeyLen)
 	}
 	return nil
+}
+
+// GenerateOwnerKey returns a random owner key: 128 bits from crypto/rand
+// as 32 hex digits. `server` uses it when no key is configured.
+func GenerateOwnerKey() (string, error) {
+	b := make([]byte, generatedOwnerKeyBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("making an owner key: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // ownerKeyMatches compares key with the hash of the server's key in fixed
@@ -86,13 +111,41 @@ func ownerKeyMatches(want *[sha256.Size]byte, key string) bool {
 	return subtle.ConstantTimeCompare(got[:], want[:]) == 1
 }
 
+// judgeOwnerKey is the verdict on key against want (nil: the server has
+// no key). It records nothing: the hub records it (ownerKeyLimiter.record)
+// only once the HELLO is admitted.
+func judgeOwnerKey(want *[sha256.Size]byte, key string) ownerKeyVerdict {
+	switch {
+	case key == "":
+		return keyNone
+	case want == nil:
+		return keyUnset
+	case ownerKeyMatches(want, key):
+		return keyAccepted
+	}
+	return keyWrong
+}
+
+// ownerKeyDelay is the throttle after n wrong keys: 0 for none, then
+// ownerKeyDelayBase doubling per wrong key, capped at ownerKeyDelayMax.
+func ownerKeyDelay(n int) time.Duration {
+	if n <= 0 {
+		return 0
+	}
+	d := ownerKeyDelayBase
+	for i := 1; i < n && d < ownerKeyDelayMax; i++ {
+		d *= 2
+	}
+	return min(d, ownerKeyDelayMax)
+}
+
 // keyFails is one address's run of wrong keys.
 type keyFails struct {
 	n    int
 	last time.Time
 }
 
-// ownerKeyLimiter counts wrong owner keys per source prefix. Pure (the
+// ownerKeyLimiter throttles owner keys per source prefix. Pure (the
 // caller passes the clock); not safe for concurrent use: LobbyHub holds
 // its mu around it.
 type ownerKeyLimiter struct {
@@ -119,63 +172,68 @@ func ownerKeyPrefix(ip netip.Addr) netip.Prefix {
 	return p
 }
 
-// check judges key from ip at now against want (nil: the server has no
-// key) and records a wrong one.
-func (l *ownerKeyLimiter) check(want *[sha256.Size]byte, ip netip.Addr, key string, now time.Time) ownerKeyVerdict {
-	if key == "" {
-		return keyNone
-	}
-	if want == nil {
-		// Nothing to guess: not counted.
-		return keyUnset
-	}
+// entry is ip's live run of wrong keys at now (nil: none, or forgotten).
+func (l *ownerKeyLimiter) entry(ip netip.Addr, now time.Time) *keyFails {
 	p := ownerKeyPrefix(ip)
 	f := l.fails[p]
-	if f != nil && now.Sub(f.last) >= ownerKeyLockout {
+	if f != nil && now.Sub(f.last) >= ownerKeyForget {
 		delete(l.fails, p)
-		f = nil
+		return nil
 	}
-	if f != nil && f.n >= ownerKeyMaxFails {
-		return keyLocked
-	}
-	if ownerKeyMatches(want, key) {
-		delete(l.fails, p)
-		return keyAccepted
-	}
-	if f == nil {
-		l.makeRoom(now)
-		f = &keyFails{}
-		l.fails[p] = f
-	}
-	f.n++
-	f.last = now
-	if f.n >= ownerKeyMaxFails {
-		return keyLockedNow
-	}
-	return keyWrong
+	return f
 }
 
-// makeRoom drops the stale entries, then the oldest, while the map is at
+// wait is how long a key from ip arriving at now waits before it is
+// compared: until ownerKeyDelay(n) after the address's last wrong key.
+// It is never more than ownerKeyDelayMax and never a refusal.
+func (l *ownerKeyLimiter) wait(ip netip.Addr, now time.Time) time.Duration {
+	f := l.entry(ip, now)
+	if f == nil {
+		return 0
+	}
+	return min(ownerKeyDelayMax, max(0, f.last.Add(ownerKeyDelay(f.n)).Sub(now)))
+}
+
+// record notes the verdict on an admitted HELLO's key from ip: a wrong
+// key counts, the right one clears the address. Others count for
+// nothing (no key, a reclaim, a server with none: nothing to guess).
+func (l *ownerKeyLimiter) record(ip netip.Addr, v ownerKeyVerdict, now time.Time) {
+	switch v {
+	case keyAccepted:
+		delete(l.fails, ownerKeyPrefix(ip))
+	case keyWrong:
+		f := l.entry(ip, now)
+		if f == nil {
+			l.makeRoom(now)
+			f = &keyFails{}
+			l.fails[ownerKeyPrefix(ip)] = f
+		}
+		f.n++
+		f.last = now
+	}
+}
+
+// makeRoom drops the forgotten entries, then the ones with the fewest
+// wrong keys (the oldest first among those), while the map is at
 // ownerKeyMaxAddrs.
 func (l *ownerKeyLimiter) makeRoom(now time.Time) {
 	if len(l.fails) < ownerKeyMaxAddrs {
 		return
 	}
 	for p, f := range l.fails {
-		if now.Sub(f.last) >= ownerKeyLockout {
+		if now.Sub(f.last) >= ownerKeyForget {
 			delete(l.fails, p)
 		}
 	}
 	for len(l.fails) >= ownerKeyMaxAddrs {
-		var oldest netip.Prefix
-		var at time.Time
-		first := true
+		var victim netip.Prefix
+		var vf *keyFails
 		for p, f := range l.fails {
-			if first || f.last.Before(at) {
-				oldest, at, first = p, f.last, false
+			if vf == nil || f.n < vf.n || (f.n == vf.n && f.last.Before(vf.last)) {
+				victim, vf = p, f
 			}
 		}
-		delete(l.fails, oldest)
+		delete(l.fails, victim)
 	}
 }
 
@@ -200,8 +258,6 @@ func ownerKeyNoticeText(v ownerKeyVerdict) string {
 	switch v {
 	case keyWrong:
 		return "the owner key was not accepted; you joined as a player"
-	case keyLocked, keyLockedNow:
-		return fmt.Sprintf("too many wrong owner keys from your address; you joined as a player (try again in %d minutes)", int(ownerKeyLockout/time.Minute))
 	case keyUnset:
 		return "this server has no owner key; you joined as a player"
 	}
@@ -247,16 +303,36 @@ func (s *Server) HasOwnerKey() bool {
 	return h.ownerKey != nil
 }
 
-// checkOwnerKeyLocked judges a HELLO's ownerKey for the connection from
-// addr named name. A reclaim of a held slot (its token and name) is not
-// checked: the token is the member's proof, and the app sends its HELLO,
+// ownerKeyWaitLocked is how long the HELLO hb under name from addr waits
+// before its key is judged (ownerKeyLimiter.wait). A HELLO with no key,
+// a lobby with none, and a reclaim of a held slot (its token and name)
+// don't wait. The caller holds h.mu.
+func (h *LobbyHub) ownerKeyWaitLocked(addr net.Addr, name string, hb LobbyHelloBody) time.Duration {
+	if hb.OwnerKey == "" || h.ownerKey == nil || h.m.isReclaim(name, hb.Token) {
+		return 0
+	}
+	return h.keyFails.wait(h.remoteIP(addr), h.now())
+}
+
+// judgeOwnerKeyLocked judges a HELLO's ownerKey for the connection named
+// name, recording nothing (recordOwnerKeyLocked does, once helloAs has
+// admitted it). A reclaim of a held slot (its token and name) is not
+// judged: the token is the member's proof, and the app sends its HELLO,
 // key and all, again on every reconnect, so a mistyped key would
-// otherwise cost an attempt per blip. The caller holds h.mu.
-func (h *LobbyHub) checkOwnerKeyLocked(addr net.Addr, name string, hb LobbyHelloBody) ownerKeyVerdict {
+// otherwise count per blip. The caller holds h.mu.
+func (h *LobbyHub) judgeOwnerKeyLocked(name string, hb LobbyHelloBody) ownerKeyVerdict {
 	if hb.OwnerKey == "" || h.m.isReclaim(name, hb.Token) {
 		return keyNone
 	}
-	return h.keyFails.check(h.ownerKey, h.remoteIP(addr), hb.OwnerKey, h.now())
+	return judgeOwnerKey(h.ownerKey, hb.OwnerKey)
+}
+
+// recordOwnerKeyLocked records the verdict on an admitted HELLO's key
+// from addr. A refused HELLO (name_taken, full, kicked, mods_differ) is
+// never recorded, so the app's name_taken retry, which sends the same
+// key again, counts once. The caller holds h.mu.
+func (h *LobbyHub) recordOwnerKeyLocked(addr net.Addr, v ownerKeyVerdict) {
+	h.keyFails.record(h.remoteIP(addr), v, h.now())
 }
 
 // DenyCoop makes the lobby refuse co-op in SETTINGS (NoticeNoCoop) with

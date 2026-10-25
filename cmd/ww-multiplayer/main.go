@@ -333,11 +333,13 @@ func parseHostArgs(args []string) (name string, port int, err error) {
 
 // parseServerArgs parses `server [--port N] [--owner-key K]` (getenv
 // gives WW_OWNER_KEY) into the server's options; the caller adds the
-// version.
-func parseServerArgs(args []string, getenv func(string) string) (o engine.ServerOptions, err error) {
+// version. With no key from either, newKey makes one (KeyGenerated: the
+// server prints it once at start).
+func parseServerArgs(args []string, getenv func(string) string, newKey func() (string, error)) (o engine.ServerOptions, err error) {
 	// --owner-key K / --owner-key=K, else WW_OWNER_KEY (preferred: a
-	// flag shows in the process list). Taken out before the port flags,
-	// which refuse any other option.
+	// flag shows in the process list). Both are trimmed, as the app trims
+	// the key it sends. Taken out before the port flags, which refuse any
+	// other option.
 	key, keyFlag := "", false
 	var others []string
 	for i := 0; i < len(args); i++ {
@@ -358,13 +360,13 @@ func parseServerArgs(args []string, getenv func(string) string) (o engine.Server
 			others = append(others, a)
 		}
 	}
-	if !keyFlag {
-		key = strings.TrimSpace(getenv("WW_OWNER_KEY"))
-	}
-	if key != "" {
-		if err := network.ValidateOwnerKey(key); err != nil {
-			return o, err
+	if keyFlag {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return o, errors.New("--owner-key is empty (leave it out and the server makes a key, or set WW_OWNER_KEY)")
 		}
+	} else {
+		key = strings.TrimSpace(getenv("WW_OWNER_KEY"))
 	}
 	port, rest, err := extractPortFlag(others, defaultPort)
 	if err != nil {
@@ -373,7 +375,17 @@ func parseServerArgs(args []string, getenv func(string) string) (o engine.Server
 	if err := rejectExtraArgs(rest, 0); err != nil {
 		return o, err
 	}
-	return engine.ServerOptions{Port: port, OwnerKey: key}, nil
+	generated := false
+	if key == "" {
+		if key, err = newKey(); err != nil {
+			return o, err
+		}
+		generated = true
+	}
+	if err := network.ValidateOwnerKey(key); err != nil {
+		return o, err
+	}
+	return engine.ServerOptions{Port: port, OwnerKey: key, KeyGenerated: generated}, nil
 }
 
 // parseJoinArgs parses `join <host-ip[:port]> [name] [--port N]` into the

@@ -19,7 +19,7 @@ import (
 // container's HEALTHCHECK runs it against its own server; a player runs it
 // to tell "nothing there" from "a server of another version".
 
-const statusUsage = "status <host[:port]> [--json]"
+const statusUsage = "status <host[:port]|code> [--json] [--timeout D]"
 
 // The status command's exit codes. A usage error exits 1, as every
 // command's does (cliutil.ExitUsage).

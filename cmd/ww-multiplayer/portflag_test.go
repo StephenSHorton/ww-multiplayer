@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 )
 
 // TestExtractPortFlag covers every flag spelling in any position, and that
@@ -161,9 +162,13 @@ func TestParseHostArgs(t *testing.T) {
 }
 
 // TestParseServerArgs: `server` takes no positional args at all; the
-// owner key comes from --owner-key, else WW_OWNER_KEY, and is checked.
+// owner key comes from --owner-key, else WW_OWNER_KEY, both trimmed (the
+// app trims the key it sends), and is checked; with neither, the server
+// makes one (KeyGenerated). An empty --owner-key is an error, never a
+// silent "no key" over WW_OWNER_KEY.
 func TestParseServerArgs(t *testing.T) {
 	const key = "0123456789abcdef"
+	const made = "generated-0123456789abcdef"
 	cases := []struct {
 		name     string
 		args     []string
@@ -172,20 +177,26 @@ func TestParseServerArgs(t *testing.T) {
 		wantKey  string
 		wantErr  string // substring; "" = no error
 	}{
-		{"no args", nil, "", defaultPort, "", ""},
-		{"--port", []string{"--port", "25566"}, "", 25566, "", ""},
-		{"--port=", []string{"--port=25566"}, "", 25566, "", ""},
-		{"-port", []string{"-port", "25566"}, "", 25566, "", ""},
+		{"no args", nil, "", defaultPort, made, ""},
+		{"--port", []string{"--port", "25566"}, "", 25566, made, ""},
+		{"--port=", []string{"--port=25566"}, "", 25566, made, ""},
+		{"-port", []string{"-port", "25566"}, "", 25566, made, ""},
 		{"bare port", []string{"25566"}, "", 0, "", `unexpected argument "25566" (did you mean --port 25566?)`},
 		{"stray word", []string{"now"}, "", 0, "", `unexpected argument "now"`},
 		{"bad value", []string{"--port", "99999"}, "", 0, "", "invalid port"},
 		{"--owner-key", []string{"--owner-key", key, "--port", "25570"}, "", 25570, key, ""},
 		{"--owner-key=", []string{"--owner-key=" + key}, "", defaultPort, key, ""},
+		{"flag trimmed", []string{"--owner-key", "  " + key + "\n"}, "", defaultPort, key, ""},
+		{"flag= trimmed", []string{"--owner-key=" + key + " "}, "", defaultPort, key, ""},
 		{"env", nil, "  " + key + "\n", defaultPort, key, ""},
-		{"flag over env", []string{"--owner-key", key}, "other-key-xyz", defaultPort, key, ""},
+		{"blank env", nil, " \n", defaultPort, made, ""},
+		{"flag over env", []string{"--owner-key", key}, "other-key-xyz-0123", defaultPort, key, ""},
 		{"no value", []string{"--owner-key"}, "", 0, "", "--owner-key needs a value"},
-		{"short", []string{"--owner-key", "abc"}, "", 0, "", "use at least 8"},
-		{"short env", nil, "abc", 0, "", "use at least 8"},
+		{"empty =", []string{"--owner-key="}, key, 0, "", "--owner-key is empty"},
+		{"empty arg", []string{"--owner-key", ""}, key, 0, "", "--owner-key is empty"},
+		{"blank arg", []string{"--owner-key", "  "}, key, 0, "", "--owner-key is empty"},
+		{"short", []string{"--owner-key", "abcdefgh"}, "", 0, "", "use at least 16"},
+		{"short env", nil, "abcdefgh", 0, "", "use at least 16"},
 		{"long", []string{"--owner-key", strings.Repeat("k", 257)}, "", 0, "", "at most 256"},
 	}
 	for _, c := range cases {
@@ -195,7 +206,7 @@ func TestParseServerArgs(t *testing.T) {
 					return c.env
 				}
 				return ""
-			})
+			}, func() (string, error) { return made, nil })
 			if c.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
 					t.Fatalf("parseServerArgs(%q) error = %v, want one containing %q", c.args, err, c.wantErr)
@@ -205,10 +216,16 @@ func TestParseServerArgs(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseServerArgs(%q) error = %v", c.args, err)
 			}
-			if o.Port != c.wantPort || o.OwnerKey != c.wantKey {
-				t.Errorf("parseServerArgs(%q) = port %d key %q, want %d %q", c.args, o.Port, o.OwnerKey, c.wantPort, c.wantKey)
+			if o.Port != c.wantPort || o.OwnerKey != c.wantKey || o.KeyGenerated != (c.wantKey == made) {
+				t.Errorf("parseServerArgs(%q) = port %d key %q generated %v, want %d %q", c.args, o.Port, o.OwnerKey, o.KeyGenerated, c.wantPort, c.wantKey)
 			}
 		})
+	}
+	// The real generator: a fresh 128-bit key per start.
+	o1, err := parseServerArgs(nil, func(string) string { return "" }, network.GenerateOwnerKey)
+	o2, _ := parseServerArgs(nil, func(string) string { return "" }, network.GenerateOwnerKey)
+	if err != nil || len(o1.OwnerKey) != 32 || !o1.KeyGenerated || o1.OwnerKey == o2.OwnerKey {
+		t.Fatalf("generated keys %q %q (%v)", o1.OwnerKey, o2.OwnerKey, err)
 	}
 }
 

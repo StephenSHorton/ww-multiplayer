@@ -15,10 +15,14 @@ import (
 // ServerOptions are a dedicated server's settings (the `server` command).
 type ServerOptions struct {
 	Port int
-	// OwnerKey is the lobby owner key (`--owner-key`, WW_OWNER_KEY; ""
-	// none): a lobby member who joins with it becomes the host
-	// (docs/10-lobby.md §3 "Owner key").
+	// OwnerKey is the lobby owner key (`--owner-key`, WW_OWNER_KEY, or
+	// one parseServerArgs made; "" none, which `server` never passes): a
+	// lobby member who joins with it becomes the host (docs/10-lobby.md
+	// §3 "Owner key").
 	OwnerKey string
+	// KeyGenerated: OwnerKey was made for this run (none was configured);
+	// RunServer prints it once.
+	KeyGenerated bool
 	// Version is this build's version, for the status probe's answer.
 	Version string
 }
@@ -54,12 +58,16 @@ func RunServer(o ServerOptions) {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
 	}
-	if o.OwnerKey != "" {
+	switch {
+	case o.KeyGenerated:
+		// Printed once, here only (the log lines never carry it). A
+		// restart makes a new one; WW_OWNER_KEY keeps one.
+		fmt.Println("Owner key (made for this run; set WW_OWNER_KEY to keep one across restarts):")
+		fmt.Println("  " + o.OwnerKey)
+		fmt.Println("The app player who joins with it (Join, Advanced: dedicated server owner key) becomes the lobby's host.")
+	case o.OwnerKey != "":
 		fmt.Println("Owner key set: the app player who joins with it becomes the lobby's host.")
-	} else {
-		fmt.Println("No owner key: CLI players play as usual; an app lobby here has no host to press Start (see --owner-key).")
 	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	fmt.Println("Press Ctrl+C to stop")

@@ -2,6 +2,7 @@ package network
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -50,9 +51,10 @@ func TestValidateOwnerKey(t *testing.T) {
 		key string
 		err string
 	}{
-		{"12345678", ""},
+		{"0123456789abcdef", ""},
 		{strings.Repeat("k", MaxOwnerKeyLen), ""},
-		{"1234567", "at least 8"},
+		{"12345678", "at least 16"}, // the old minimum is too short now
+		{"0123456789abcde", "at least 16"},
 		{strings.Repeat("k", MaxOwnerKeyLen+1), "at most 256"},
 	} {
 		err := ValidateOwnerKey(c.key)
@@ -81,84 +83,150 @@ func TestOwnerKeyPrefix(t *testing.T) {
 	}
 }
 
-// TestOwnerKeyLimiter: wrong keys count per address, not per connection;
-// the fifth locks the address out, and then even the right key is not
-// compared until ownerKeyLockout after the last wrong one. Another
-// address is not affected, the right key clears the count, and a run of
-// wrong keys spread wider than the lockout never locks.
+// TestGenerateOwnerKey: a generated key is 128 random bits as 32 hex
+// digits, passes ValidateOwnerKey, and two are never the same.
+func TestGenerateOwnerKey(t *testing.T) {
+	a, err := GenerateOwnerKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := GenerateOwnerKey()
+	if len(a) != 32 || strings.Trim(a, "0123456789abcdef") != "" {
+		t.Fatalf("generated key %q is not 32 hex digits", a)
+	}
+	if err := ValidateOwnerKey(a); err != nil {
+		t.Fatalf("a generated key fails validation: %v", err)
+	}
+	if a == b {
+		t.Fatal("two generated keys are the same")
+	}
+}
+
+// TestOwnerKeyDelay: the throttle doubles from ownerKeyDelayBase and stops
+// at ownerKeyDelayMax, which stays under the client's HELLO deadline.
+func TestOwnerKeyDelay(t *testing.T) {
+	for _, c := range []struct {
+		n    int
+		want time.Duration
+	}{
+		{0, 0}, {1, 250 * time.Millisecond}, {2, 500 * time.Millisecond}, {3, time.Second},
+		{6, 8 * time.Second}, {7, 8 * time.Second}, {1000, 8 * time.Second},
+	} {
+		if got := ownerKeyDelay(c.n); got != c.want {
+			t.Errorf("ownerKeyDelay(%d) = %v, want %v", c.n, got, c.want)
+		}
+	}
+	if ownerKeyDelayMax >= 15*time.Second {
+		t.Fatalf("ownerKeyDelayMax %v reaches the client's 15 s HELLO deadline", ownerKeyDelayMax)
+	}
+}
+
+// TestOwnerKeyLimiter: wrong keys throttle per address, not per
+// connection, and never lock the right key out: after any number of
+// wrong keys from an address, the right key from it is still accepted
+// once its (capped) wait has passed, and clears the address. Another
+// address is not slowed, and wrong keys further apart than
+// ownerKeyForget start over.
 func TestOwnerKeyLimiter(t *testing.T) {
 	want := testKeyHash()
 	a, b := netip.MustParseAddr("203.0.113.7"), netip.MustParseAddr("198.51.100.2")
 	t0 := time.Unix(1000, 0)
 	l := newOwnerKeyLimiter()
 
-	if v := l.check(want, a, "", t0); v != keyNone {
+	if v := judgeOwnerKey(want, ""); v != keyNone {
 		t.Fatalf("no key: %v", v)
 	}
-	if v := l.check(nil, a, "guess", t0); v != keyUnset || len(l.fails) != 0 {
-		t.Fatalf("no server key: %v, %d counted", v, len(l.fails))
+	if v := judgeOwnerKey(nil, "guess"); v != keyUnset {
+		t.Fatalf("no server key: %v", v)
 	}
-	for i := 1; i < ownerKeyMaxFails; i++ {
-		if v := l.check(want, a, fmt.Sprintf("guess%d", i), t0.Add(time.Duration(i)*time.Second)); v != keyWrong {
+	l.record(a, keyUnset, t0)
+	l.record(a, keyNone, t0)
+	if len(l.fails) != 0 {
+		t.Fatalf("a key with nothing to guess was counted: %d", len(l.fails))
+	}
+	// 50 wrong keys, far past the old lockout's five.
+	now := t0
+	for i := 1; i <= 50; i++ {
+		w := l.wait(a, now)
+		if w > ownerKeyDelayMax {
+			t.Fatalf("wrong key %d waited %v, over the cap", i, w)
+		}
+		now = now.Add(w)
+		if v := judgeOwnerKey(want, fmt.Sprintf("guess%d", i)); v != keyWrong {
 			t.Fatalf("wrong key %d: %v", i, v)
 		}
+		l.record(a, keyWrong, now)
 	}
-	if v := l.check(want, a, "guess5", t0.Add(5*time.Second)); v != keyLockedNow {
-		t.Fatalf("fifth wrong key: %v", v)
+	if w := l.wait(a, now); w != ownerKeyDelayMax {
+		t.Fatalf("after 50 wrong keys the wait is %v, want the cap %v", w, ownerKeyDelayMax)
 	}
-	if v := l.check(want, a, testOwnerKey, t0.Add(6*time.Second)); v != keyLocked {
-		t.Fatalf("the right key while locked out: %v (must not be compared)", v)
+	if w := l.wait(b, now); w != 0 {
+		t.Fatalf("another address waits %v", w)
 	}
-	if v := l.check(want, b, testOwnerKey, t0.Add(6*time.Second)); v != keyAccepted {
-		t.Fatalf("another address: %v", v)
+	// The right key from the throttled address: it waits, then is
+	// accepted (judging never looks at the count), and clears it.
+	if v := judgeOwnerKey(want, testOwnerKey); v != keyAccepted {
+		t.Fatalf("the right key from a throttled address: %v", v)
 	}
-	// Locked attempts don't extend the lockout: it runs from the last
-	// wrong key (t0+5s).
-	if v := l.check(want, a, testOwnerKey, t0.Add(5*time.Second+ownerKeyLockout-time.Second)); v != keyLocked {
-		t.Fatalf("just before the lockout ends: %v", v)
-	}
-	if v := l.check(want, a, testOwnerKey, t0.Add(5*time.Second+ownerKeyLockout)); v != keyAccepted {
-		t.Fatalf("after the lockout: %v", v)
-	}
-	if len(l.fails) != 0 {
+	l.record(a, keyAccepted, now.Add(ownerKeyDelayMax))
+	if len(l.fails) != 0 || l.wait(a, now) != 0 {
 		t.Fatalf("the right key left %d entries", len(l.fails))
 	}
-
-	// Wrong keys further apart than the lockout start over each time.
-	now := t0
-	for i := 0; i < 3*ownerKeyMaxFails; i++ {
-		now = now.Add(ownerKeyLockout)
-		if v := l.check(want, a, "slow guess", now); v != keyWrong {
-			t.Fatalf("slow guess %d: %v", i, v)
+	// The wait runs from the last wrong key: one that long ago costs
+	// nothing now.
+	l.record(a, keyWrong, now)
+	if w := l.wait(a, now.Add(time.Second)); w != 0 {
+		t.Fatalf("a wrong key a second ago (delay %v) still waits %v", ownerKeyDelay(1), w)
+	}
+	// Wrong keys further apart than ownerKeyForget start over each time.
+	for i := 0; i < 10; i++ {
+		now = now.Add(ownerKeyForget)
+		l.record(a, keyWrong, now)
+		if f := l.fails[ownerKeyPrefix(a)]; f == nil || f.n != 1 {
+			t.Fatalf("slow guess %d: %+v", i, f)
 		}
+	}
+	// One /64 is one bucket.
+	l2 := newOwnerKeyLimiter()
+	l2.record(netip.MustParseAddr("2001:db8:1:2::1"), keyWrong, t0)
+	if w := l2.wait(netip.MustParseAddr("2001:db8:1:2:ffff::9"), t0); w != ownerKeyDelay(1) {
+		t.Fatalf("same /64 waits %v", w)
+	}
+	if w := l2.wait(netip.MustParseAddr("2001:db8:1:3::1"), t0); w != 0 {
+		t.Fatalf("another /64 waits %v", w)
 	}
 }
 
 // TestOwnerKeyLimiterBounded: the limiter remembers at most
-// ownerKeyMaxAddrs addresses, dropping stale ones first, then the oldest.
+// ownerKeyMaxAddrs addresses; past it the forgotten ones go first, then
+// the ones with the fewest wrong keys, so a spray of fresh addresses
+// (an IPv6 /48 rotating /64s) never pushes out an active throttle.
 func TestOwnerKeyLimiterBounded(t *testing.T) {
-	want := testKeyHash()
 	l := newOwnerKeyLimiter()
 	t0 := time.Unix(1000, 0)
 	addr := func(i int) netip.Addr { return netip.AddrFrom4([4]byte{10, byte(i >> 16), byte(i >> 8), byte(i)}) }
-	for i := 0; i < ownerKeyMaxAddrs; i++ {
-		l.check(want, addr(i), "x", t0.Add(time.Duration(i)*time.Millisecond))
+	hot := netip.MustParseAddr("203.0.113.7")
+	for i := 0; i < 6; i++ {
+		l.record(hot, keyWrong, t0) // the oldest entry, and the hottest
 	}
-	if len(l.fails) != ownerKeyMaxAddrs {
-		t.Fatalf("%d entries", len(l.fails))
+	for i := 0; i < 3*ownerKeyMaxAddrs; i++ {
+		l.record(addr(i), keyWrong, t0.Add(time.Duration(i+1)*time.Millisecond))
+		if len(l.fails) > ownerKeyMaxAddrs {
+			t.Fatalf("over the cap: %d entries", len(l.fails))
+		}
 	}
-	l.check(want, addr(ownerKeyMaxAddrs), "x", t0.Add(5*time.Second)) // none stale yet
-	if len(l.fails) != ownerKeyMaxAddrs {
-		t.Fatalf("over the cap: %d entries", len(l.fails))
+	if f := l.fails[ownerKeyPrefix(hot)]; f == nil || f.n != 6 {
+		t.Fatalf("the active throttle was evicted by a spray: %+v", f)
 	}
-	if _, ok := l.fails[ownerKeyPrefix(addr(0))]; ok {
-		t.Fatal("the oldest entry was kept")
+	if w := l.wait(hot, t0.Add(4*time.Second)); w == 0 {
+		t.Fatal("the hot address is no longer slowed")
 	}
-	// Past the lockout every old entry is stale: one sweep drops them all.
-	l.check(want, addr(ownerKeyMaxAddrs+1), "x", t0.Add(time.Hour))
-	l.check(want, addr(ownerKeyMaxAddrs+2), "x", t0.Add(2*time.Hour))
+	// Past ownerKeyForget every old entry is forgotten: one sweep drops
+	// them all.
+	l.record(addr(9_000_001), keyWrong, t0.Add(time.Hour))
+	l.record(addr(9_000_002), keyWrong, t0.Add(2*time.Hour))
 	if len(l.fails) > 3 {
-		t.Fatalf("stale entries kept: %d", len(l.fails))
+		t.Fatalf("forgotten entries kept: %d", len(l.fails))
 	}
 }
 
@@ -332,15 +400,28 @@ func TestLobbyOwnerKeyLoopback(t *testing.T) {
 	}
 }
 
-// TestLobbyOwnerKeyPerAddress: the lockout follows the address across
-// connections (each wrong-key HELLO is a new connection and member).
+// TestLobbyOwnerKeyPerAddress: wrong keys slow that address across
+// connections (each wrong-key HELLO is a new connection and member), and
+// the right key from the same address, after many wrong ones, still
+// makes its member host: someone sharing the owner's address (a NAT, a
+// Docker gateway, a local proxy) can't lock the owner out.
 func TestLobbyOwnerKeyPerAddress(t *testing.T) {
 	srv, addr := listenLobby(t, 2*time.Second)
 	if err := srv.SetOwnerKey(testOwnerKey); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < ownerKeyMaxFails; i++ {
-		l := NewLobbyClient(fmt.Sprintf("G%d", i), LobbyHelloBody{OwnerKey: "wrong key"})
+	var mu = make(chan struct{}, 1)
+	mu <- struct{}{}
+	var waits []time.Duration
+	srv.lobby.keyWait = func(d time.Duration, _ <-chan struct{}) bool {
+		<-mu
+		waits = append(waits, d)
+		mu <- struct{}{}
+		return true // recorded, not slept: the test stays fast
+	}
+	const guesses = 8 // past the old lockout's five
+	for i := 0; i < guesses; i++ {
+		l := NewLobbyClient(fmt.Sprintf("G%d", i), LobbyHelloBody{OwnerKey: "wrong key, wrong key"})
 		w := watchLobby(l)
 		if err := l.Connect(t.Context(), addr); err != nil {
 			t.Fatal(err)
@@ -348,22 +429,133 @@ func TestLobbyOwnerKeyPerAddress(t *testing.T) {
 		if !waitFor(5*time.Second, func() bool { n, _, _, _, _ := w.lens(); return n > 0 }) {
 			t.Fatalf("guess %d: no notice", i)
 		}
+		if n := w.lastNotice(); n.Code != NoticeOwnerKey {
+			t.Fatalf("guess %d notice %+v", i, n)
+		}
 		l.Disconnect()
 	}
-	l := NewLobbyClient("Late", LobbyHelloBody{OwnerKey: testOwnerKey})
-	w := watchLobby(l)
+	l := NewLobbyClient("Owner", LobbyHelloBody{OwnerKey: testOwnerKey})
 	if err := l.Connect(t.Context(), addr); err != nil {
 		t.Fatal(err)
 	}
 	defer l.Disconnect()
-	if !waitFor(5*time.Second, func() bool { n, _, _, _, _ := w.lens(); return n > 0 }) {
-		t.Fatal("no notice for the locked-out right key")
+	if !waitFor(5*time.Second, func() bool { st, ok := l.State(); r, _ := rowOf(st, "Owner"); return ok && r.Host }) {
+		t.Fatal("the right key from an address with many wrong keys did not make a host")
 	}
-	if n := w.lastNotice(); n.Code != NoticeOwnerKey || !strings.Contains(n.Text, "too many") {
-		t.Fatalf("locked-out notice %+v", n)
+	<-mu
+	got := append([]time.Duration(nil), waits...)
+	mu <- struct{}{}
+	// Guesses 2..8 and the owner's key were slowed (the first guess had
+	// no wrong key before it); none past the cap.
+	if len(got) != guesses {
+		t.Fatalf("%d slowed HELLOs, want %d: %v", len(got), guesses, got)
 	}
-	if wl, _ := l.Welcome(); wl.Host {
-		t.Fatal("a locked-out address got the host role")
+	for _, d := range got {
+		if d <= 0 || d > ownerKeyDelayMax {
+			t.Fatalf("a wait of %v (cap %v): %v", d, ownerKeyDelayMax, got)
+		}
+	}
+	srv.lobby.mu.Lock()
+	n := len(srv.lobby.keyFails.fails)
+	srv.lobby.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("the accepted key left %d throttles", n)
+	}
+}
+
+// TestLobbyOwnerKeyRefusedHelloNotCounted: a HELLO the lobby refuses
+// (here name_taken, as the app's suggested-name retry meets it) is not
+// counted, so a mistyped key costs one count per admitted join, not one
+// per refused try.
+func TestLobbyOwnerKeyRefusedHelloNotCounted(t *testing.T) {
+	srv, addr := listenLobby(t, 2*time.Second)
+	if err := srv.SetOwnerKey(testOwnerKey); err != nil {
+		t.Fatal(err)
+	}
+	first := NewLobbyClient("Taken", LobbyHelloBody{})
+	runLobby(t, first, addr)
+	waitState(t, first, "taken", func(st LobbyStateBody) bool { _, ok := rowOf(st, "Taken"); return ok })
+
+	dup := NewLobbyClient("Taken", LobbyHelloBody{OwnerKey: "a mistyped owner key"})
+	err := dup.Connect(t.Context(), addr)
+	var ne *LobbyNoticeError
+	if !errors.As(err, &ne) || ne.Notice.Code != NoticeNameTaken {
+		t.Fatalf("duplicate name: %v, want name_taken", err)
+	}
+	srv.lobby.mu.Lock()
+	n := len(srv.lobby.keyFails.fails)
+	srv.lobby.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("a refused HELLO's key was counted (%d entries)", n)
+	}
+	// The retry under the suggested name is admitted and counts once.
+	retry := NewLobbyClient(ne.Notice.Suggest, LobbyHelloBody{OwnerKey: "a mistyped owner key"})
+	if err := retry.Connect(t.Context(), addr); err != nil {
+		t.Fatal(err)
+	}
+	defer retry.Disconnect()
+	srv.lobby.mu.Lock()
+	var count int
+	for _, f := range srv.lobby.keyFails.fails {
+		count += f.n
+	}
+	srv.lobby.mu.Unlock()
+	if count != 1 {
+		t.Fatalf("one mistyped key over a refusal and a retry counted %d times, want 1", count)
+	}
+}
+
+// TestLobbyOwnerKeyRealWait: the throttle's real sleep (sleepOrDone, not a
+// stub). With wrong keys already counted from loopback, the right key
+// from loopback still makes a host, only after the wait; and during the
+// wait the hub's lock is free: another member joins and gets its STATE
+// while the keyed HELLO sleeps.
+func TestLobbyOwnerKeyRealWait(t *testing.T) {
+	srv, addr := listenLobby(t, 2*time.Second)
+	if err := srv.SetOwnerKey(testOwnerKey); err != nil {
+		t.Fatal(err)
+	}
+	const wrong = 3 // ownerKeyDelay(3) = 1 s, under the tests' 2 s read timeouts
+	start := time.Now()
+	srv.lobby.mu.Lock()
+	for i := 0; i < wrong; i++ {
+		srv.lobby.keyFails.record(netip.MustParseAddr("127.0.0.1"), keyWrong, srv.lobby.now())
+	}
+	srv.lobby.mu.Unlock()
+
+	owner := NewLobbyClient("Owner", LobbyHelloBody{OwnerKey: testOwnerKey})
+	connected := make(chan error, 1)
+	go func() { connected <- owner.Connect(t.Context(), addr) }()
+	defer owner.Disconnect()
+
+	// While Owner sleeps, a plain member (no key: no wait) joins at once.
+	time.Sleep(100 * time.Millisecond)
+	plain := NewLobbyClient("Plain", LobbyHelloBody{})
+	runLobby(t, plain, addr)
+	waitState(t, plain, "plain joined", func(st LobbyStateBody) bool { _, ok := rowOf(st, "Plain"); return ok })
+	if el := time.Since(start); el >= ownerKeyDelay(wrong) {
+		t.Fatalf("a member with no key waited %v behind a throttled HELLO (the hub lock held across the sleep?)", el)
+	}
+
+	if err := <-connected; err != nil {
+		t.Fatal(err)
+	}
+	if el := time.Since(start); el < ownerKeyDelay(wrong) {
+		t.Fatalf("the keyed HELLO was judged after %v, before its %v wait", el, ownerKeyDelay(wrong))
+	}
+	waitState(t, plain, "owner is host", func(st LobbyStateBody) bool { r, ok := rowOf(st, "Owner"); return ok && r.Host })
+}
+
+// TestSleepOrDone: the wait ends early (false) when the connection closes.
+func TestSleepOrDone(t *testing.T) {
+	if !sleepOrDone(time.Millisecond, make(chan struct{})) {
+		t.Fatal("a finished wait reported closed")
+	}
+	done := make(chan struct{})
+	close(done)
+	t0 := time.Now()
+	if sleepOrDone(time.Hour, done) || time.Since(t0) > time.Second {
+		t.Fatal("a closed connection didn't end the wait")
 	}
 }
 

@@ -3,12 +3,17 @@
 # no disc image, and the build context holds none (.dockerignore is an
 # allowlist of the Go sources).
 #
+#   git checkout v0.5.0      # the players' release
 #   docker build -t ww-multiplayer-server --build-arg VERSION=v0.5.0 .
+#   echo "WW_OWNER_KEY=$(openssl rand -hex 16)" > ww-mp.env   # keep it: the key
 #   docker run -d --name ww-mp --restart unless-stopped -p 25565:25565 \
-#     -e WW_OWNER_KEY="$(openssl rand -hex 16)" ww-multiplayer-server
+#     --env-file ww-mp.env ww-multiplayer-server
 #
-# VERSION must be the players' release tag: the status probe reports it,
-# and every player needs the same protocol (docs/10-lobby.md §6). The
+# VERSION is only a label (the status probe and `version` report it): the
+# protocol comes from the source checked out, so build from the players'
+# release tag and pass that tag as VERSION (docs/10-lobby.md §6). With no
+# WW_OWNER_KEY the server makes a key and prints it once (docker logs);
+# each restart makes a new one. The
 # server listens on 25565 inside the container and the health check asks
 # there; to use another port outside, change only the left side of -p
 # (-p 7000:25565).

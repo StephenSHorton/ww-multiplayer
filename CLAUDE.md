@@ -154,7 +154,7 @@ go build -o wwdev.exe ./cmd/wwdev
 # Multiplayer runtime CLIs (the pipelines mp-local runs in one process; they also run as separate processes).
 # wwdev is the developer tools (cmd/wwdev); `./wwdev.exe help` lists its commands.
 ./ww-multiplayer.exe server [--port N] [--owner-key K]  # Headless TCP server on :25565 (docs/11-self-hosting.md); the key (better WW_OWNER_KEY) lets an app joiner host its lobby; no co-op there
-./ww-multiplayer.exe status <host[:port]|code> [--json] [--timeout D]  # The status probe: is a server up, its version (exit 0 up, 1 unreachable, 3 other); the Dockerfile's HEALTHCHECK
+./ww-multiplayer.exe status <host[:port]|code> [--json] [--timeout D]  # The status probe: is a server up, its version (exit 0 up, 1 unreachable or not a status answer, 3 an older ww-multiplayer or another protocol); the Dockerfile's HEALTHCHECK
 ./ww-multiplayer.exe broadcast-pose <name> <addr>       # Stream this Dolphin's Link pose+pos to server
 ./ww-multiplayer.exe puppet-sync <name> <addr>          # Receive remotes; render them as Link #2 / actor puppets
 ./wwdev.exe broadcast-link <name> <addr>                # Position-only broadcast (cheaper; no pose)
@@ -248,7 +248,7 @@ WW_LISTEN_HOST=<addr>                       # App only: a hosted lobby's server 
                                             #   and LAN discovery stays on it (127.0.0.1: beacons sent to, and heard on, loopback only)
 WW_LAN_PORT=<n>                             # App only: LAN discovery's UDP beacon port (default 25565; docs/10-lobby.md §10)
 WW_LAN=off                                  # App only: no LAN discovery (no beacon, no listening)
-WW_OWNER_KEY=<key>                          # `server` only: the lobby owner key (8-256 bytes; --owner-key wins). With it only a member that sends the key
+WW_OWNER_KEY=<key>                          # `server` only: the lobby owner key (16-256 bytes, trimmed; --owner-key wins; with neither, `server` makes a 128-bit one and prints it once). Only a member that sends the key
                                             #   (the app's Join form, "Advanced: dedicated server owner key") can host, loopback no longer does (docs/10-lobby.md §3)
 WW_UPDATE_URL=<url>                         # Release API every update check asks (default: GitHub's latest release); tests use a fake server on 127.0.0.1
 WW_NO_UPDATE_CHECK=1                        # CLI (host/join/version) and TUI: no update check (the app has its "Check for updates" switch, which the TUI follows too)
