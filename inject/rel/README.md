@@ -750,3 +750,15 @@ trailer.
   the parts take their bind pose. Not drawn: the mirror shield (it needs a
   J3DSkinDeform), the Master Sword's own scabbard, glow and blur. The full
   bodies (fullbody.c) never draw, so this is mini-Links only.
+- **Name tags** (ww-online review idea 6, adapted from their
+  `puppet_nametag.c`; `visuals.c` carries their MIT notice). Phase 1 also
+  projects a point 135 units above the slot's streamed root joint
+  (`mDoLib_project`, 640x480) and enters a per-slot `dDlst_base_c` packet
+  into the HUD's 2D opaque list (`dDlst_list_c::set` on `mp2DOpa`); its
+  draw prints the slot's name (`WWVIS_NAMES`, Go writes the roster names)
+  with `mDoExt_font0`, white over a black shadow, sized and faded by
+  camera depth. Hidden when the HUD is (2D off, an event, the pause menu,
+  the telescope or Picto Box view) and when `WWVIS_FLAG_NAMES` is clear
+  (`WW_NAMETAGS=off`). The packet is drawn by the next frame's painter,
+  which runs before process deletes (`fpcM_Management`), so the module is
+  still linked when its draw runs.

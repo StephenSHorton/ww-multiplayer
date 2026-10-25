@@ -32,6 +32,11 @@
 // around calcMaterial. The lighting is set from Link #1's tevStr, as his
 // entryDLSetLight does for his own. j3dSys is snapshotted and restored
 // around all of it.
+//
+// Name tags (ww-online review idea 6): each drawn mini-Link slot's name
+// (WWVIS_NAMES, from the roster) over the remote's head in the HUD's 2D
+// list, hidden with the HUD; see vis_tag_queue. Adapted from ww-online's
+// puppet_nametag.c, whose MIT notice is at the end of this file.
 
 #include "mailbox_core.h"
 #include "wwvis.h"
@@ -289,6 +294,180 @@ static void vis_equip_post(int slot, J3DModel* model, void* link) {
     for (k = 0; k < (int)(J3D_SYS_SIZE / 4); k++) sys[k] = snap[k];
 }
 
+// --- name tags (ww-online review idea 6) -----------------------------------
+// Adapted from datstarkey/ww-online GameMod/src/puppet_link/puppet_nametag.c
+// (MIT, notice at the end of this file): the pattern the game's own
+// world-anchored 2D uses (dMeter_zakoEnemyMove's HP bar, d_meter.cpp:3704).
+// A point above the remote's head is projected with mDoLib_project
+// (640x480 2D-port coordinates) and a per-slot dDlst_base_c packet is
+// entered into the 2D opaque list (dComIfGd_set2DOpa, the HUD's list); the
+// painter draws that list with its J2DOrthoGraph as the current graf port
+// and calls the packet's draw, which prints the name with the message font
+// (mDoExt_font0) as JUTDbPrint::flush does. Changed for us: the anchor is
+// the remote's streamed root joint (a mini-Link's base matrix is not the
+// remote's position), the names come from WWVIS_NAMES, and the gate is
+// WWVIS_FLAG_NAMES. Lifetime: the painter runs at the start of the next
+// frame, before process deletes (fpcM_Management: cAPIGph_Painter, then
+// fpcDt_Handler, f_pc_manager.cpp:277-280), so this module (and the
+// packet in its .bss) is still linked when it is drawn.
+typedef void (*vis_vec2_t)(cXyz* src, cXyz* dst);
+typedef int (*vis_dlst_set_t)(void* list, void*** top, void*** end, void* item);
+typedef void (*vis_port_t)(void* graf);
+typedef f32 (*vis_drawstr_t)(void* font, f32 x, f32 y, f32 w, f32 h, const char* str, u32 len, int visible);
+typedef int (*vis_font_int_t)(void* font);
+typedef void (*vis_font_void_t)(void* font);
+typedef void (*vis_font_width_t)(void* font, int code, u8* width);
+#define mDoLib_project          ((vis_vec2_t)0x80017748)    // mDoLib_project__FP3VecP3Vec
+#define mDoLib_pos2camera       ((vis_vec2_t)0x80017924)    // mDoLib_pos2camera__FP3VecP3Vec
+#define dDlst_list_set          ((vis_dlst_set_t)0x80086540) // set__12dDlst_list_cFRPP12dDlst_base_cRPP12dDlst_base_cP12dDlst_base_c
+#define J2DOrthoGraph_setPort   ((vis_port_t)0x802CDCB4)    // setPort__13J2DOrthoGraphFv
+#define JUTFont_drawString_size_scale ((vis_drawstr_t)0x802C1F24) // drawString_size_scale__7JUTFontFffffPCcUlb
+#define MDOEXT_FONT0            0x803F6944                   // JUTFont* mDoExt_font0
+#define DMENU_PAUSE             0x803F7097                   // u8 dMenu_pause
+#define GAMEINFO                0x803C4C08                   // g_dComIfG_gameInfo
+#define GI_2D_SHOW              (GAMEINFO + 0x5C19)          // play (+0x12A0) .m2dShow (+0x4979)
+#define GI_EVT_MODE             (GAMEINFO + 0x529A)          // play .mEvtCtrl (+0x3F38) .mMode (+0xC2)
+#define GI_PLAYER_STATUS0       (GAMEINFO + 0x5CC8)          // play .mPlayerStatus[0][0] (+0x4A28)
+#define GI_PLAYER_STATUS1       (GAMEINFO + 0x5CCC)          // [0][1]
+#define GI_GRAF_PORT            (GAMEINFO + 0x5D00)          // play .mCurrentGrafPort (+0x4A60)
+#define GI_DRAWLIST             (GAMEINFO + 0x5D1C)          // drawlist (dDlst_list_c)
+#define DL_2DOPA                0x19C                        // dDlst_list_c::mp2DOpa
+#define DL_2DOPA_END            0x1A0                        // mp2DOpaEnd
+#define DL_VIEWPORT             0x230                        // mpViewPort
+#define DL_VIEW                 0x234                        // mpView
+#define STTS0_TELESCOPE_LOOK    0x00200000                   // daPyStts0_TELESCOPE_LOOK_e
+#define STTS1_PICTO_BOX_AIM     0x00000008                   // daPyStts1_PICTO_BOX_AIM_e
+#define JUTFONT_VALID           0x04                         // JUTFont::mValid
+#define JUTFONT_COLORS          0x0C                         // mColor1..4
+#define JUTFONT_VT_SET_GX       (0x0C / 4)
+#define JUTFONT_VT_WIDTH_ENTRY  (0x2C / 4)
+#define JUTFONT_VT_CELL_W       (0x30 / 4)
+#define JUTFONT_VT_CELL_H       (0x34 / 4)
+
+#define TAG_HEAD_Y       135.0f   // above the root: Link's attention point (92.5) plus his cap
+#define TAG_BASELINE_UP  4.0f
+#define TAG_DEPTH_MIN    60.0f
+#define TAG_DEPTH_NEAR   400.0f
+#define TAG_DEPTH_SMALL  4000.0f
+#define TAG_DEPTH_FADE   4500.0f
+#define TAG_DEPTH_MAX    6000.0f
+#define TAG_PX_NEAR      22.0f
+#define TAG_PX_FAR       13.0f
+#define TAG_MARGIN       80.0f
+#define TAG_SHADOW       1.5f
+
+typedef struct {
+    const void* vtbl;          // dDlst_base_c: dDlst_list_c::draw calls vtable[3]
+    f32 x, y, px;
+    u32 alpha;
+    char name[WWVIS_NAME_BYTES];
+} VisTag;
+
+void vis_tag_draw(VisTag* tag);
+void vis_tag_noop(VisTag* tag);
+void vis_tag_noop(VisTag* tag) { (void)tag; }
+// CodeWarrior vtable: {RTTI, this-offset, dtor, draw} (__vt__12dDlst_base_c 0x80375900, 0x10 bytes).
+static const void* const vis_tag_vtbl[4] = {0, 0, (const void*)vis_tag_noop, (const void*)vis_tag_draw};
+static VisTag vis_tags[WWVIS_SLOTS];
+
+// What dMeter_statusCheck hides the HUD for (d_meter.cpp:746-824): 2D
+// off, an event, the pause menu, the telescope or Picto Box view.
+static int vis_hud_visible(void) {
+    if (*(volatile u8*)GI_2D_SHOW == 0 || *(volatile u8*)GI_EVT_MODE != 0) return 0;
+    if (*(volatile u8*)DMENU_PAUSE != 0) return 0;
+    if ((*(volatile u32*)GI_PLAYER_STATUS0 & STTS0_TELESCOPE_LOOK) ||
+        (*(volatile u32*)GI_PLAYER_STATUS1 & STTS1_PICTO_BOX_AIM)) return 0;
+    return 1;
+}
+
+static void vis_tag_queue(int slot, J3DModel* model) {
+    if (!vis_on(WWVIS_FLAG_NAMES) || !vis_hud_visible()) return;
+    VisTag* tag = &vis_tags[slot];
+    int n = 0, i;
+    for (i = 0; i < WWVIS_NAME_BYTES - 1; i++) {
+        char c = (char)VIS_BYTE(WWVIS_NAMES_OFF + (u32)slot * WWVIS_NAME_BYTES + (u32)i);
+        if (c == 0) break;
+        if (c >= 0x20 && c <= 0x7E) tag->name[n++] = c;
+    }
+    tag->name[n] = 0;
+    if (n == 0) return;
+
+    u8* dl = (u8*)GI_DRAWLIST;
+    if (!*(volatile u32*)(dl + DL_VIEW) || !*(volatile u32*)(dl + DL_VIEWPORT)) return;
+    f32* root = vis_joint(model, 0);
+    if (!root) return;
+    cXyz anchor, cam, screen;
+    anchor.x = root[3];
+    anchor.y = root[7] + TAG_HEAD_Y;
+    anchor.z = root[11];
+
+    mDoLib_pos2camera(&anchor, &cam);
+    f32 depth = -cam.z;
+    if (!(depth > TAG_DEPTH_MIN && depth < TAG_DEPTH_MAX)) return;
+    mDoLib_project(&anchor, &screen);
+    if (screen.x < -TAG_MARGIN || screen.x > 640.0f + TAG_MARGIN ||
+        screen.y < -TAG_MARGIN || screen.y > 480.0f + TAG_MARGIN) return;
+
+    f32 t = (depth - TAG_DEPTH_NEAR) / (TAG_DEPTH_SMALL - TAG_DEPTH_NEAR);
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    f32 alpha = 255.0f;
+    if (depth > TAG_DEPTH_FADE) alpha = 255.0f * (TAG_DEPTH_MAX - depth) / (TAG_DEPTH_MAX - TAG_DEPTH_FADE);
+    tag->vtbl = vis_tag_vtbl;
+    tag->x = screen.x;
+    tag->y = screen.y - TAG_BASELINE_UP;
+    tag->px = TAG_PX_NEAR + (TAG_PX_FAR - TAG_PX_NEAR) * t;
+    tag->alpha = (u32)alpha;
+    if (tag->alpha == 0) return;
+    // false (ignored) when the list is full
+    dDlst_list_set(dl, (void***)(dl + DL_2DOPA), (void***)(dl + DL_2DOPA_END), tag);
+    VIS_WORD(WWVIS_STAT_TAGS_OFF)++;
+}
+
+static void vis_font_color(u8* font, u32 rgba) {
+    u32* c = (u32*)(font + JUTFONT_COLORS);
+    c[0] = c[1] = c[2] = c[3] = rgba;
+}
+
+// dDlst_base_c::draw, in the painter's 2D pass.
+void vis_tag_draw(VisTag* tag) {
+    u8* font = *(u8**)MDOEXT_FONT0;
+    void* graf = *(void**)GI_GRAF_PORT;
+    if (!vis_in_mem1((u32)font) || !vis_in_mem1((u32)graf) || !font[JUTFONT_VALID]) {
+        vis_err(WWVIS_ERR_FONT);
+        return;
+    }
+    void** vt = *(void***)font;
+    if (!vis_in_mem1((u32)vt)) return;
+    int cw = ((vis_font_int_t)vt[JUTFONT_VT_CELL_W])(font);
+    int ch = ((vis_font_int_t)vt[JUTFONT_VT_CELL_H])(font);
+    if (cw <= 0 || ch <= 0) return;
+    // drawChar_scale advances a glyph by TWidth.width * (scaleX / cellWidth) (JUTResFont.cpp:244-251).
+    f32 scale = tag->px / (f32)ch;
+    f32 width = 0.0f;
+    u32 len;
+    for (len = 0; tag->name[len] != 0; len++) {
+        u8 w[2];
+        ((vis_font_width_t)vt[JUTFONT_VT_WIDTH_ENTRY])(font, (u8)tag->name[len], w);
+        width += (f32)w[1] * scale;
+    }
+    f32 x = tag->x - width * 0.5f;
+    f32 gw = (f32)cw * scale;
+    f32 gh = (f32)ch * scale;
+
+    J2DOrthoGraph_setPort(graf);
+    ((vis_font_void_t)vt[JUTFONT_VT_SET_GX])(font);
+    u32 saved[4];
+    int i;
+    for (i = 0; i < 4; i++) saved[i] = ((u32*)(font + JUTFONT_COLORS))[i];
+    vis_font_color(font, (tag->alpha * 3) / 4);            // black shadow
+    JUTFont_drawString_size_scale(font, x + TAG_SHADOW, tag->y + TAG_SHADOW, gw, gh, tag->name, len, 1);
+    vis_font_color(font, 0xFFFFFF00u | tag->alpha);         // white
+    JUTFont_drawString_size_scale(font, x, tag->y, gw, gh, tag->name, len, 1);
+    for (i = 0; i < 4; i++) ((u32*)(font + JUTFONT_COLORS))[i] = saved[i];
+    // drawChar_scale leaves POS as F32 (JUTResFont.cpp:264): give the next 2D drawer the port's state.
+    J2DOrthoGraph_setPort(graf);
+}
+
 // --- the hook T2 calls ------------------------------------------------------
 void wwvis_draw_hook(int slot, J3DModel* model, void* link, int phase) {
     if (slot < 0 || slot >= WWVIS_SLOTS || !model || !link) return;
@@ -297,6 +476,7 @@ void wwvis_draw_hook(int slot, J3DModel* model, void* link, int phase) {
         return;
     }
     vis_equip_post(slot, model, link);
+    vis_tag_queue(slot, model);
 }
 
 void wwvis_link(void) {
@@ -306,3 +486,28 @@ void wwvis_link(void) {
 void wwvis_unlink(void) {
     VIS_WORD(WWVIS_DRAW_FN_OFF) = 0;
 }
+
+// The name tags (vis_tag_*) are adapted from datstarkey/ww-online
+// GameMod/src/puppet_link/puppet_nametag.c, under this notice:
+//
+// MIT License
+//
+// Copyright (c) 2026 datstarkey
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.

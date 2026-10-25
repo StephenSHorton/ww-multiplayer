@@ -1,5 +1,5 @@
 // visuals.h: the remote players' visuals drawn from the REL (visuals.c):
-// sword, shield and scabbard on the mini-Links. The slack contract is
+// sword, shield and scabbard on the mini-Links, and their name tags. The slack contract is
 // include/wwvis.h.
 #ifndef WW_REL_VISUALS_H
 #define WW_REL_VISUALS_H
