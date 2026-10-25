@@ -373,6 +373,8 @@ func (s *Server) handlePlayer(conn net.Conn) {
 	poseWarned := false  // log a stream of bad pose frames once, not per frame
 	coopWarned := false  // and co-op frames on this player connection
 	enemyWarned := false // and enemy-sync frames on this player connection
+	fxWarned := false    // and bad or over-rate projectile events (fx.go)
+	var fxRate fxBucket  // this connection's projectile events (FxBurst, FxRatePerSec)
 	for {
 		// Reset the read deadline each iteration. A net.Error Timeout from
 		// an ungracefully-gone peer surfaces as an ordinary read error →
@@ -451,6 +453,25 @@ func (s *Server) handlePlayer(conn net.Conn) {
 			if !player.posed.Swap(true) {
 				s.lobby.playersChanged()
 			}
+
+		case MsgFx:
+			// A projectile event (fx.go): checked, rate-limited per
+			// connection, stamped with the sender's ID and relayed to
+			// every other player connection, as a pose is. Receivers
+			// scope it to their own stage and room (a pose carries no
+			// stage, so the server can't).
+			if _, err := ParseFx(msg.Data); err != nil || !fxRate.take(time.Now()) {
+				if !fxWarned {
+					fxWarned = true
+					reason := "over the rate limit"
+					if err != nil {
+						reason = err.Error()
+					}
+					s.log(fmt.Sprintf("dropping projectile events from %s: %s", name, reason))
+				}
+				break
+			}
+			s.broadcastExcept(id, MsgFx, FxRelayMessage(id, msg.Data))
 
 		case MsgPing:
 			// Echo the timestamp straight back so the client can compute

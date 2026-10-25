@@ -489,7 +489,8 @@ func TestResetMailbox(t *testing.T) {
 	patched := &mailRAM{mod: true}
 	if !resetMailbox(patched, true) || !slices.Contains(patched.writes, mailbox.Mailbox+mailbox.OffShadowMode) ||
 		!slices.Contains(patched.writes, mailbox.Mailbox+mailbox.OffTunicEnable) ||
-		!slices.Contains(patched.writes, mailbox.VisAddr+mailbox.VisMagicOff) {
+		!slices.Contains(patched.writes, mailbox.VisAddr+mailbox.VisMagicOff) ||
+		!slices.Contains(patched.writes, mailbox.FxAddr+mailbox.FxSendMagicOff) {
 		t.Fatalf("patched: writes %x", patched.writes)
 	}
 	noTunic := &mailRAM{mod: true}

@@ -778,3 +778,35 @@ trailer.
   (vtable 0x8039D730) and its state (0x0C..0xB0 and both colours) is
   restored after. Only when the chart was opened on the sea stage, and
   only with `WWVIS_FLAG_SEACHART` (`WW_SEACHART=off` clears it).
+
+## fx.c: the other players' bombs, cannonballs and arrows
+
+ww-online review idea 5, adapted from their `puppet_fx.c` (`fx.c` carries
+their MIT notice); design: handoff `archive/ww-online-review/
+DESIGN-big-items.md` (a), option A. The block is `include/wwfx.h` at
+`MAILBOX_ADDR + 0xE50` (0x80413D50, 0x2B0 bytes, the top of the slack up
+to the arena; Go's `wwapi/mailbox/fx.go` mirrors it and `CanaryArenaHigh`
+now ends at its start). `fx_frame` runs last in the keeper's execute. No
+T2 code is involved, and its state (the trackers and the copy table) is
+the module's `.bss`, so a new link starts empty; its first frame takes
+Go's read words as its own, so nothing old is sent or spawned.
+
+- **Sender** (send magic set, broadcast-pose): the local Link's hand bombs
+  (`mActorKeepGrab`, STATE_1..3, and a plucked Bomb Flower), the boat's
+  cannonball (the BOMB with the ship's exact params on a
+  `daSFLG_SHOOT_CANNON_e` frame, found with `fopAcIt_Judge` and
+  `fx_cannon_judge`, a `REL_TEXT_CALLBACKS` entry) and the nocked arrow
+  (`mActorKeepEquip`, reported once when it leaves the bow with params 1)
+  go into the outbox as THROW / PICKUP / EXPLODE / REMOVE / CANNON / ARROW.
+- **Viewer** (recv magic set, puppet-sync): the inbox's events become
+  real `daBomb_c` and `daArrow_c` copies, made with `fopAcM_fastCreate`
+  in the local Link's layer (the keeper's is the root layer, which
+  outlives a stage). World-only: a bomb copy has `WWFX_BOMB_PRM_COPY` in
+  its params, `field_0x6F0` cleared and VsEnemy | VsPlayer cleared in its
+  At SPrm; an arrow copy has VsEnemy cleared, its Co sphere off, the
+  procMove PTMF and `arrowShooting`, params 0. A thrown copy's fuse is held
+  until the sender's EXPLODE (their state machine), unless this world took
+  it over. A stage change discards the inbox and deletes the live copies.
+- **Enemy mirror**: no copy can hit an enemy, so `em_hits` never sees
+  one; `em_am_swallow_client` still deletes a swallowed copy but asks
+  `fx_swallowed_copy` first and reports nothing for one.

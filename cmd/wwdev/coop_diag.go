@@ -1067,6 +1067,7 @@ func canaryForbidden() []addr.Region {
 		mailbox.EnemyKnobRegion,
 		mailbox.RefreshRegion,
 		mailbox.VisRegion,
+		mailbox.FxRegion,
 		{Name: "the arena", Start: mailbox.PatchedArenaLo, End: addr.MEM1End},
 	}
 }

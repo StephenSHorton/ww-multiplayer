@@ -215,7 +215,7 @@ func TestHelloGoldenBytes(t *testing.T) {
 	if err := writeJoin(&player, "Link"); err != nil {
 		t.Fatalf("writeJoin: %v", err)
 	}
-	want := []byte{'J', 0, 4, 'L', 'i', 'n', 'k', 'H', 0, 2, 0x00, 0x05}
+	want := []byte{'J', 0, 4, 'L', 'i', 'n', 'k', 'H', 0, 2, 0x00, 0x06}
 	if !bytes.Equal(player.Bytes(), want) {
 		t.Errorf("player join = %x, want %x", player.Bytes(), want)
 	}
@@ -224,7 +224,7 @@ func TestHelloGoldenBytes(t *testing.T) {
 	if err := writeJoinRole(&coop, "Link", RoleCoop, 0x8001, nil, nil); err != nil {
 		t.Fatalf("writeJoinRole: %v", err)
 	}
-	want = []byte{'J', 0, 4, 'L', 'i', 'n', 'k', 'H', 0, 5, 0x00, 0x05, 0x01, 0x80, 0x01}
+	want = []byte{'J', 0, 4, 'L', 'i', 'n', 'k', 'H', 0, 5, 0x00, 0x06, 0x01, 0x80, 0x01}
 	if !bytes.Equal(coop.Bytes(), want) {
 		t.Errorf("co-op join = %x, want %x", coop.Bytes(), want)
 	}

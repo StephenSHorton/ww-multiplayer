@@ -78,7 +78,9 @@ var (
 	// request after that (refresh.go, RefreshRegion, +0x8B0..+0x8D0, G-D5;
 	// P0-L5 proved it free before the move) and the remote players'
 	// visuals block after that (vis.go, VisRegion, +0x8D0..+0x990: T2
-	// branches through its first two words). Go writes the blocks every
+	// branches through its first two words), and CanaryArenaHigh stops at
+	// the projectile events block (fx.go, FxRegion, +0xE50..+0x1100, the
+	// top of the slack). Go writes the blocks every
 	// tick and the REL every frame while they run, so a canary armed over
 	// them would be reported changed by the mod's own traffic, and arming
 	// would tear a block the REL is reading. The region probe arms and
@@ -89,7 +91,7 @@ var (
 	// CanaryArena still holds the REL module's first three words
 	// (OffRELMagic..), which only a linked module writes.
 	CanaryArena     = addr.Region{Name: "below arena", Start: Mailbox + MailboxSize, End: Mailbox + OffRELExecHook}
-	CanaryArenaHigh = addr.Region{Name: "below arena (past the visuals block)", Start: Mailbox + VisOff + VisSize, End: PatchedArenaLo}
+	CanaryArenaHigh = addr.Region{Name: "below arena (past the visuals block)", Start: Mailbox + VisOff + VisSize, End: Mailbox + FxOff}
 )
 
 const (

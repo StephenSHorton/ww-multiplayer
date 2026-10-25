@@ -516,7 +516,7 @@ func TestCompareBlob(t *testing.T) {
 func TestCanaryRegions(t *testing.T) {
 	if mailbox.CanaryTRK.Start != 0x8040CFB0 || mailbox.CanaryTRK.End != 0x80410000 ||
 		mailbox.CanaryArena.Start != 0x804130B0 || mailbox.CanaryArena.End != 0x804130BC ||
-		mailbox.CanaryArenaHigh.Start != 0x80413890 || mailbox.CanaryArenaHigh.End != 0x80414000 {
+		mailbox.CanaryArenaHigh.Start != 0x80413890 || mailbox.CanaryArenaHigh.End != 0x80413D50 {
 		t.Fatalf("canary ranges moved: %+v %+v %+v", mailbox.CanaryTRK, mailbox.CanaryArena, mailbox.CanaryArenaHigh)
 	}
 	for _, r := range canaryRegions {
@@ -601,7 +601,7 @@ func TestArmAndCheckCanaries(t *testing.T) {
 	}
 	for _, want := range []string{"4 changed (3 now zero, 1 other)", "0x8040D0B0-0x8040D0BC (3 words)",
 		"below arena  0x804130B0-0x804130BC (3 words): all intact",
-		"below arena (past the visuals block) 0x80413890-0x80414000 (476 words): all intact"} {
+		"below arena (past the visuals block) 0x80413890-0x80413D50 (304 words): all intact"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("region-probe check lacks %q:\n%s", want, out.String())
 		}
