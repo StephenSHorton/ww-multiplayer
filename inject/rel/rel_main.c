@@ -81,6 +81,10 @@
 // just before the exec hook word, _epilog clears them first.
 #include "visuals.h"
 
+// Other players' bombs, cannonballs and arrows (fx.c, include/wwfx.h):
+// stateless across links (its tables are .bss), run from execute last.
+#include "fx.h"
+
 // The build id: build.py passes -DWWREL_BUILD_ID=<CRC-32 of inject/rel's
 // sources and the slack headers>, so it changes with the source and never
 // with the clock (the ELF stays byte-identical across rebuilds of the
@@ -274,8 +278,8 @@ static int wwrel_delete(void* actor) {
 // then the Moblin mirror's whole per-frame loop, then remote-Link's
 // (after the mirror, so the client apply sees this frame's adopted
 // Moblins), then a new boss_kill request, if any (bosskill.c), then a new
-// actor_refresh request (refresh.c). A body
-// poses itself (remote.c).
+// actor_refresh request (refresh.c), then the projectile events (fx.c).
+// A body poses itself (remote.c).
 static int wwrel_execute(void* actor) {
     wwrel_actor* a = (wwrel_actor*)actor;
     u32 frame;
@@ -287,6 +291,7 @@ static int wwrel_execute(void* actor) {
     remote_keeper_frame(&a->swap, &a->mirror, frame);
     bosskill_frame();
     refresh_frame();
+    fx_frame();
     return TRUE;
 }
 

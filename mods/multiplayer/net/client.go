@@ -129,6 +129,12 @@ type Client struct {
 	// callback's to keep. Any other client drops MsgEnemy. Like OnCoop,
 	// it runs on the read loop, so it must hand slow work off.
 	OnEnemy func(payload []byte)
+
+	// OnFx is invoked from the read loop with each relayed projectile
+	// event (fx.go) a player client receives: the sender's ID and the
+	// checked event. A malformed relay is dropped before it. Like OnChat,
+	// it runs on the read loop, so it must hand slow work off.
+	OnFx func(senderID byte, e FxEvent)
 }
 
 // NewClient creates a client with the given player name.
@@ -580,6 +586,14 @@ func (c *Client) readLoop(conn net.Conn) {
 			// Only an enemy-sync connection takes them (enemy.go).
 			if isEnemyRole(c.role) && c.OnEnemy != nil {
 				c.OnEnemy(msg.Data)
+			}
+
+		case MsgFx:
+			// Only a player connection takes them (fx.go).
+			if c.role == RolePlayer && c.OnFx != nil {
+				if from, e, err := ParseFxRelay(msg.Data); err == nil {
+					c.OnFx(from, e)
+				}
 			}
 		}
 	}

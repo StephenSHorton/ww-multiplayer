@@ -293,3 +293,22 @@ func FuzzServerHandlePlayer(f *testing.F) {
 		}
 	})
 }
+
+// FuzzParseFx: ParseFx and ParseFxRelay never panic, and whatever ParseFx
+// accepts re-encodes to the same first FxWireSize bytes.
+func FuzzParseFx(f *testing.F) {
+	e := FxEvent{Seq: 1, Kind: 1, Stage: "sea", Pos: [3]float32{1, 2, 3}, Gravity: -2.9, Timer: 90}
+	f.Add(e.Bytes())
+	f.Add([]byte{})
+	f.Add([]byte{FxWireVersion})
+	f.Fuzz(func(t *testing.T, b []byte) {
+		_, _, _ = ParseFxRelay(b)
+		got, err := ParseFx(b)
+		if err != nil {
+			return
+		}
+		if again := got.Bytes(); string(again) != string(b[:FxWireSize]) {
+			t.Fatalf("re-encode % x, want % x", again, b[:FxWireSize])
+		}
+	})
+}

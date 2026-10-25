@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/fxsync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/tunicsync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
@@ -34,6 +35,23 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 	client := env.NewClient(ctx, name)
 	client.OnLog = func(msg string) { rep.Log(log.Net, msg) }
 	link := player.NewLink(d)
+
+	// Projectile events (fxsync, inject/include/wwfx.h; WW_PROJECTILES=on,
+	// default off): the REL's outbox of this Link's bombs, cannonballs and
+	// arrows, sent as MsgFx. Its words are written only into a game the
+	// contract check allows (quietly: puppet-sync reports the verdict),
+	// and the send word goes back to 0 when the broadcast ends.
+	fxSettings := fxsync.SettingsFromEnv()
+	var fx fxsync.Sender
+	fxGate := newContractGate(d, log.Discard{})
+	if fxSettings.On {
+		rep.Log(log.Info, "Projectile events on (WW_PROJECTILES): this Link's bombs, cannonballs and arrows are sent.")
+		defer func() {
+			if fxGate.ok {
+				_ = fx.Arm(d, false)
+			}
+		}()
+	}
 
 	// Session 14: face-state capture reads from mailbox.face_state_local,
 	// which the C side publishes once per frame at the top of
@@ -133,6 +151,13 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 							return fmt.Errorf("send pose: %w", err)
 						}
 					}
+				}
+			}
+
+			// Projectile events: drain the REL's outbox (fxsync).
+			if fxSettings.On {
+				if ok, _ := fxGate.check(time.Now()); ok && fx.Arm(d, true) == nil {
+					_, _ = fx.Drain(d, client.SendFx)
 				}
 			}
 
