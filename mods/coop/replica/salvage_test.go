@@ -2,6 +2,7 @@ package replica
 
 import (
 	"encoding/binary"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,8 @@ func salvageTable(ps ...SalvagePoint) []byte {
 		for k, v := range p.Pos {
 			binary.BigEndian.PutUint32(b[at+4*k:], v)
 		}
+		binary.BigEndian.PutUint32(b[at+addr.SalvageInfoOffR:], math.Float32bits(p.R))
+		binary.BigEndian.PutUint32(b[at+addr.SalvageInfoOffDist:], math.Float32bits(p.Dist))
 		b[at+addr.SalvageInfoOffRoomNo] = byte(p.Room)
 		b[at+addr.SalvageInfoOffSaveNo] = p.Save
 		b[at+addr.SalvageInfoOffKind] = p.Kind
@@ -45,33 +48,46 @@ func salvageTable(ps ...SalvagePoint) []byte {
 	return b
 }
 
-// The fixture's points, in Outset's square (44) and the one beside it:
-// a Big Octo's point (kind 2), a chart's (kind 0), a moonlight point (kind
-// 6, an event bit), a plain one (kind 3) and one with no save bit (31).
+// The fixture's points, as entry lays them out (d_salvage.cpp:53-60):
+// Outset's square (room 44) in the room slots from mInfo[128], in the
+// order its daSalvage_c actors register: a Big Octo's point (kind 2), a
+// chart's (kind 0), a moonlight point (kind 6, an event bit), a plain one
+// (kind 3) and one with no save bit (31). ptSea is a sea-level chart
+// point (room 0, mInfo[0]). Link is far from all of them (mDistance past
+// mR and the margin), as calcDistanceXZ leaves it.
+const (
+	farDist = 30000
+	reach   = 400 // mR of kinds 2-4 at scale 1 (entry, d_salvage.cpp:136)
+)
+
 var (
-	ptOcto  = SalvagePoint{Index: 0, Pos: [3]uint32{0x45000000, 0, 0x45000000}, Room: 44, Save: 3, Kind: 2}
-	ptChart = SalvagePoint{Index: 1, Pos: [3]uint32{0x46000000, 0, 0}, Room: 44, Save: 5, Kind: 0}
-	ptMoon  = SalvagePoint{Index: 2, Pos: [3]uint32{0, 0, 0x46000000}, Room: 44, Save: 1, Kind: 6}
-	ptPlain = SalvagePoint{Index: 3, Pos: [3]uint32{0x44000000, 0, 0x44000000}, Room: 45, Save: 2, Kind: 3}
-	ptNone  = SalvagePoint{Index: 4, Pos: [3]uint32{0x43000000, 0, 0}, Room: 44, Save: addr.SalvageNoSave, Kind: 4}
+	ptOcto  = SalvagePoint{Index: 128, Pos: [3]uint32{0x45000000, 0, 0x45000000}, R: reach, Dist: farDist, Room: 44, Save: 3, Kind: 2}
+	ptChart = SalvagePoint{Index: 129, Pos: [3]uint32{0x46000000, 0, 0}, R: 700, Dist: farDist, Room: 44, Save: 5, Kind: 0}
+	ptMoon  = SalvagePoint{Index: 130, Pos: [3]uint32{0, 0, 0x46000000}, R: reach, Dist: farDist, Room: 44, Save: 1, Kind: 6}
+	ptPlain = SalvagePoint{Index: 131, Pos: [3]uint32{0x44000000, 0, 0x44000000}, R: reach, Dist: farDist, Room: 44, Save: 2, Kind: 3}
+	ptNone  = SalvagePoint{Index: 132, Pos: [3]uint32{0x43000000, 0, 0}, R: reach, Dist: farDist, Room: 44, Save: addr.SalvageNoSave, Kind: 4}
+	ptSea   = SalvagePoint{Index: 0, Pos: [3]uint32{0x47000000, 0, 0}, R: 700, Dist: farDist, Room: 0, Save: 7, Kind: 0}
 )
 
 func TestParseSalvage(t *testing.T) {
-	ps, why := ParseSalvage(salvageTable(ptOcto, ptChart, ptMoon))
-	if why != "" || len(ps) != 3 || ps[0] != ptOcto || ps[1] != ptChart || ps[2] != ptMoon {
+	ps, why := ParseSalvage(salvageTable(ptSea, ptOcto, ptChart, ptMoon))
+	if why != "" || len(ps) != 4 || ps[0] != ptSea || ps[1] != ptOcto || ps[2] != ptChart || ps[3] != ptMoon {
 		t.Fatalf("ParseSalvage = %+v, %q", ps, why)
 	}
+	at := func(i, off int) int { return addr.SalvageOffInfo + i*addr.SalvageInfoSize + off }
 	for _, c := range []struct {
 		name string
 		edit func(b []byte)
 	}{
 		{"mSeaNum past MAX_SEA", func(b []byte) { b[addr.SalvageOffSeaNum] = addr.SalvageSeaMax + 1 }},
 		{"mRoomNum past MAX_ROOM", func(b []byte) { b[addr.SalvageOffRoomNum] = addr.SalvageRoomMax + 1 }},
-		{"mRoomNo past 63", func(b []byte) { b[addr.SalvageOffInfo+addr.SalvageInfoOffRoomNo] = 64 }},
-		{"mRoomNo below -1", func(b []byte) { b[addr.SalvageOffInfo+addr.SalvageInfoOffRoomNo] = 0xFE }},
-		{"mKind past 6", func(b []byte) { b[addr.SalvageOffInfo+addr.SalvageInfoOffKind] = 7 }},
+		{"mRoomNo past 63", func(b []byte) { b[at(128, addr.SalvageInfoOffRoomNo)] = 64 }},
+		{"mRoomNo below -1", func(b []byte) { b[at(128, addr.SalvageInfoOffRoomNo)] = 0xFE }},
+		{"a sea-level slot with a room", func(b []byte) { b[at(0, addr.SalvageInfoOffRoomNo)] = 44 }},
+		{"a room slot with room 0", func(b []byte) { b[at(128, addr.SalvageInfoOffRoomNo)] = 0 }},
+		{"two rooms in the room slots", func(b []byte) { b[at(131, addr.SalvageInfoOffRoomNo)] = 45 }},
 	} {
-		b := salvageTable(ptOcto)
+		b := salvageTable(ptSea, ptOcto, ptPlain)
 		c.edit(b)
 		if _, why := ParseSalvage(b); why == "" {
 			t.Errorf("%s: taken", c.name)
@@ -79,6 +95,39 @@ func TestParseSalvage(t *testing.T) {
 	}
 	if _, why := ParseSalvage(make([]byte, 16)); why == "" {
 		t.Error("a short read was taken")
+	}
+	// A kind past 6 (getKind is param >> 28) is that entry left out, not
+	// the table.
+	odd := ptPlain
+	odd.Kind = 9
+	ps, skipped, why := parseSalvage(salvageTable(ptOcto, odd))
+	if why != "" || skipped != 1 || len(ps) != 1 || ps[0] != ptOcto {
+		t.Errorf("a kind 9 entry: %+v, %d skipped, %q", ps, skipped, why)
+	}
+}
+
+// TestSalvageNear: a point Link is within its reach and the margin of,
+// or whose distance is no distance, is near.
+func TestSalvageNear(t *testing.T) {
+	for _, c := range []struct {
+		dist, r float32
+		near    bool
+	}{
+		{farDist, reach, false},
+		{reach + SalvageNearMargin, reach, false},
+		{reach + SalvageNearMargin - 1, reach, true},
+		{0, reach, true},
+		{float32(math.NaN()), reach, true},
+		{float32(math.Inf(1)), reach, true},
+		{-5, reach, true},
+		{farDist, float32(math.NaN()), true},
+		{farDist, 2e6, true},
+	} {
+		p := ptOcto
+		p.Dist, p.R = c.dist, c.r
+		if p.near() != c.near {
+			t.Errorf("mDistance %v, mR %v: near %v", c.dist, c.r, p.near())
+		}
 	}
 }
 
@@ -94,7 +143,8 @@ func TestSalvageKey(t *testing.T) {
 	}{
 		{ptOcto, OceanKey(tb, 44, 3), true},
 		{ptChart, ChartKey(tb, 5), true},
-		{ptPlain, OceanKey(tb, 45, 2), true},
+		{ptPlain, OceanKey(tb, 44, 2), true},
+		{ptSea, ChartKey(tb, 7), true},
 		{SalvagePoint{Room: 7, Save: 15, Kind: 4}, OceanKey(tb, 7, 15), true},
 		{ptMoon, LandedBit{}, false},
 		{ptNone, LandedBit{}, false},
@@ -239,17 +289,26 @@ func salvageRig(t *testing.T, owner bool, ps ...SalvagePoint) *recRig {
 	var p [4]byte
 	binary.BigEndian.PutUint32(p[:], salvageBase)
 	rr.store(addr.SalvageTagDataPtr, p[:])
+	rr.crane(-1)
 	if n := rr.ticks(gate.StableTicks + 4); n != 0 {
 		t.Fatalf("%d bytes written before any bit came\n%s", n, rr.log)
 	}
 	return rr
 }
 
+// crane stores id as mSalvageId: -1 the crane over no point (the play
+// scene's create, phase_4), a point's index the one it is over.
+func (rr *recRig) crane(id int32) {
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], uint32(id))
+	rr.store(addr.SalvageIDAddr, b[:])
+}
+
 // salvageImage is the partner's world: the Big Octo's point (grid 44 bit
-// 3) and the plain one (45, 2) salvaged, and chart 5.
+// 3) and the plain one (44, 2) salvaged, and chart 5.
 func salvageImage() save.Image {
 	var img save.Image
-	for _, k := range []LandedBit{OceanKey(addr.TableSea, 44, 3), OceanKey(addr.TableSea, 45, 2), ChartKey(addr.TableSea, 5)} {
+	for _, k := range []LandedBit{OceanKey(addr.TableSea, 44, 3), OceanKey(addr.TableSea, 44, 2), ChartKey(addr.TableSea, 5)} {
 		off, mask, _ := salvageBitOff(k)
 		img[off] |= mask
 	}
@@ -265,7 +324,7 @@ func (rr *recRig) salvageFlag(p SalvagePoint) byte {
 // marked unusable on the ticks after; a moonlight point, a point with no
 // save bit and one whose bit this game set itself are not touched.
 func TestSalvageCatchUp(t *testing.T) {
-	local := SalvagePoint{Index: 130, Pos: [3]uint32{1, 2, 3}, Room: 44, Save: 9, Kind: 3}
+	local := SalvagePoint{Index: 133, Pos: [3]uint32{1, 2, 3}, R: reach, Dist: farDist, Room: 44, Save: 9, Kind: 3}
 	rr := salvageRig(t, true, ptOcto, ptChart, ptMoon, ptPlain, ptNone, local)
 	// This game's own salvage of local's bit: read set, never landed.
 	off, mask, _ := salvageBitOff(OceanKey(addr.TableSea, 44, 9))
@@ -294,7 +353,7 @@ func TestSalvageCatchUp(t *testing.T) {
 			t.Errorf("%s: flag 0x%02X, not left 0x%02X", p, f, p.Flag)
 		}
 	}
-	if !rr.log.has("salvage: marked salvage point 0 (sea grid 44 bit 3, kind 2) emptied") {
+	if !rr.log.has("salvage: marked salvage point 128 (sea grid 44 bit 3, kind 2) emptied") {
 		t.Errorf("no log line\n%s", rr.log)
 	}
 	if n := rr.ticks(4); n != 0 {
@@ -377,5 +436,161 @@ func TestSalvageVerify(t *testing.T) {
 		if rep.Verify.Failed != want || rr.r.writer.WriteGuard().Breaker().Faults() != want {
 			t.Errorf("gone %v: verify %+v\n%s", gone, rep.Verify, rr.log)
 		}
+	}
+}
+
+// landSalvage gives rr the partner's salvageImage and lands it with a room
+// change, as OnRoomChange does.
+func (rr *recRig) landSalvage() {
+	rr.t.Helper()
+	rr.world(salvageImage())
+	rr.ticks(2)
+	rr.enter(45, 44)
+}
+
+// untilMarked ticks until n points are marked, at most a settle's worth.
+func (rr *recRig) untilMarked(n int) bool {
+	rr.t.Helper()
+	for range gate.StableTicks + 12 {
+		if rr.tick(); rr.r.Status().Salvage.Marked >= n {
+			return true
+		}
+	}
+	return false
+}
+
+// TestSalvageCraneBusy: while mSalvageId is not -1 (the crane over a
+// point: the salvage's order may be out and its event not started) no
+// point is marked, the one it is over or another; at -1 they are.
+func TestSalvageCraneBusy(t *testing.T) {
+	for _, id := range []int32{int32(ptOcto.Index), int32(ptPlain.Index)} {
+		rr := salvageRig(t, true, ptOcto, ptPlain)
+		rr.crane(id)
+		rr.landSalvage()
+		rr.ticks(gate.StableTicks + 12) // the ocean bits land; no point is marked
+		if st := rr.r.Status(); st.Salvage.Marked != 0 || st.Writes.Salvage != 0 || rr.salvageFlag(ptOcto) != 0 || rr.salvageFlag(ptPlain) != 0 {
+			t.Fatalf("crane over %d: marked %d\n%s", id, st.Salvage.Marked, rr.log)
+		}
+		if !rr.log.has("the crane is over salvage point") {
+			t.Errorf("crane over %d: no waiting line\n%s", id, rr.log)
+		}
+		rr.crane(-1)
+		if !rr.untilMarked(2) {
+			t.Errorf("crane gone from %d: marked %d\n%s", id, rr.r.Status().Salvage.Marked, rr.log)
+		}
+	}
+}
+
+// TestSalvageCraneBusyAtWrite: mSalvageId going from -1 to the planned
+// point between the plan (the snapshot's heartbeat) and the write holds
+// it: ApplySalvage reads it again after the heartbeat.
+func TestSalvageCraneBusyAtWrite(t *testing.T) {
+	rr := salvageRig(t, true, ptOcto)
+	rr.landSalvage()
+	held := false
+	for range gate.StableTicks + 12 {
+		// -1 at the snapshot (heartbeat read 1), so the plan is made; the
+		// crane over the point from the writer's wait on.
+		rr.bm.onHeartbeat(func(n int) {
+			if n == 1 {
+				rr.crane(-1)
+			} else {
+				rr.crane(int32(ptOcto.Index))
+			}
+		})
+		rr.tick()
+		if rr.salvageFlag(ptOcto) != 0 || rr.r.Status().Writes.Salvage != 0 {
+			t.Fatalf("marked with the crane over the point\n%s", rr.log)
+		}
+		if st := rr.r.Status().Salvage; st.Held > 0 && strings.Contains(st.LastHeld, "the crane is over salvage point 128") {
+			held = true
+			break
+		}
+	}
+	rr.bm.onHeartbeat(nil)
+	if !held || rr.salvageFlag(ptOcto) != 0 {
+		t.Fatalf("held %v, flag 0x%02X\n%s", held, rr.salvageFlag(ptOcto), rr.log)
+	}
+}
+
+// f32 is v's big-endian bytes.
+func f32(v float32) []byte {
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], math.Float32bits(v))
+	return b[:]
+}
+
+// TestSalvageNearHeld: a point Link is near is held, at the plan and when
+// he comes near between the plan and the write, and marked once he is
+// away.
+func TestSalvageNearHeld(t *testing.T) {
+	near := ptOcto
+	near.Dist = 100
+	rr := salvageRig(t, true, near)
+	rr.landSalvage()
+	rr.ticks(gate.StableTicks + 12) // the ocean bits land; the point is not marked
+	if rr.salvageFlag(near) != 0 || rr.r.Status().Writes.Salvage != 0 {
+		t.Fatalf("marked with Link beside the point\n%s", rr.log)
+	}
+	if st := rr.r.Status().Salvage; st.Held != 1 || !strings.Contains(st.LastHeld, "within its reach") {
+		t.Errorf("status %+v", st)
+	}
+	dist := addr.SalvageInfoAddr(salvageBase, near.Index) + addr.SalvageInfoOffDist
+	// Away at the plan, back at the write.
+	rr.store(dist, f32(farDist))
+	rr.bm.onHeartbeat(func(n int) {
+		if n == 2 {
+			rr.store(dist, f32(50))
+		}
+	})
+	rr.tick()
+	rr.bm.onHeartbeat(nil)
+	if rr.salvageFlag(near) != 0 || rr.r.Status().Writes.Salvage != 0 {
+		t.Fatalf("marked with Link back beside it\n%s", rr.log)
+	}
+	if st := rr.r.Status().Salvage; !strings.Contains(st.LastHeld, "now, within its reach") {
+		t.Errorf("not held at the write: %+v\n%s", st, rr.log)
+	}
+	rr.store(dist, f32(farDist))
+	if !rr.untilMarked(1) || rr.salvageFlag(near)&addr.SalvageFlagUnusable == 0 {
+		t.Errorf("not marked once away\n%s", rr.log)
+	}
+}
+
+// TestSalvageQuiet: once a pass has nothing to mark and nothing held, the
+// table is not read again until the landed set changes: a table gone bad
+// after the marks is not even seen.
+func TestSalvageQuiet(t *testing.T) {
+	rr := salvageRig(t, true, ptOcto)
+	rr.landSalvage()
+	if !rr.untilMarked(1) {
+		t.Fatalf("not marked\n%s", rr.log)
+	}
+	rr.ticks(3) // the verify, and a pass that finds the point marked
+	if !rr.r.sv.quiet {
+		t.Fatalf("not quiet: %+v\n%s", rr.r.Status().Salvage, rr.log)
+	}
+	rr.store(salvageBase+addr.SalvageOffSeaNum, []byte{0xEE})
+	rr.ticks(6)
+	if rr.log.has("past MAX_SEA") {
+		t.Errorf("the table was read on a quiet tick\n%s", rr.log)
+	}
+}
+
+// TestSalvageHeldReset: the held points and reasons are the visit's: a
+// stage change forgets them.
+func TestSalvageHeldReset(t *testing.T) {
+	near := ptOcto
+	near.Dist = 100
+	rr := salvageRig(t, true, near)
+	rr.landSalvage()
+	rr.ticks(gate.StableTicks + 12)
+	if rr.r.Status().Salvage.Held != 1 {
+		t.Fatalf("held %d\n%s", rr.r.Status().Salvage.Held, rr.log)
+	}
+	rr.changeStage(woods)
+	rr.ticks(gate.StableTicks + 4)
+	if st := rr.r.Status().Salvage; st.Held != 0 || st.LastHeld != "" {
+		t.Errorf("after the stage change: %+v", st)
 	}
 }

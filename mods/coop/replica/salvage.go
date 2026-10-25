@@ -37,6 +37,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
@@ -58,9 +59,25 @@ import (
 // every-frame pass never sets a point unusable from them: it only clears
 // the flag while the bit is unset (kinds 0, 2, 4) or follows the time of
 // day and the moon (4, 6) (daSalvage_c::proc_wait, d_a_salvage.cpp:
-// 286-337). At sea a square's rooms stay loaded as Link sails into the
-// next, so a point registered before the bit landed stays salvageable,
-// and pulling it up pays its item a second time. This sets that point's
+// 286-337). So a point registered before its bit landed stays
+// salvageable until it leaves the table, and pulling it up pays its item
+// a second time. A point leaves the table only by end_salvage's init_one,
+// by init_room (when a daSalvage_c of another room is created, every room
+// point, mInfo[128..159], goes: d_a_salvage.cpp:101-114, d_salvage.cpp:
+// 146-151) or with the owner's delete. The table holds the sea level's
+// points (room 0, mInfo[0..127]) and one room's (mInfo[128..159], entry,
+// d_salvage.cpp:53-60). The two ways a stale point can be there:
+//
+//   - B sails into the square the partner salvaged in: its points are
+//     entered as its room's actors are created, and if that is before
+//     B's stay room changes, before the bit lands;
+//   - both in one square, B leaves into a square with no salvage light
+//     (no daSalvage_c created there, so no init_room) and the old
+//     square's points stay.
+//
+// When the actors of a sea room are created against the stay-room change
+// is not read from the decomp here: either way a point with nothing to
+// mark costs no write. This sets that point's
 // mFlag bit 0x01 (SalvageFlagUnusable), as proc_salvage_init's setFlag(id,
 // 1) does (d_a_salvage.cpp:376-379): the light and the crane prompt go
 // (calcAlpha, checkDistance and the draw all ask checkUsed, :414, :552,
@@ -72,8 +89,25 @@ import (
 //   - co-op armed in the view's world, not a dry run, co-op on;
 //   - IDLE and STABLE, no stage change pending: no event runs, so the
 //     receiver's own crane is not pulling the point up (the salvage is an
-//     event, eventOrder, d_a_salvage.cpp:150-157), and the pause menu,
+//     event, eventOrder, d_a_salvage.cpp:241-256), and the pause menu,
 //     under which the sea chart writes the charts, is closed;
+//   - mSalvageId -1 (addr.SalvageIDAddr): the crane is over no point. IDLE
+//     does not cover the frames between proc_wait choosing a point and
+//     its event starting: proc_wait sets mSalvageId and m2E9, eventOrder
+//     orders the event, and only checkOrder's start runs
+//     proc_salvage_init's setFlag(mSalvageId, 1) (d_a_salvage.cpp:166-
+//     204, 352-379). Marked in between, the point drops out of
+//     checkDistance (:552), the next proc_wait puts -1 there while m2E9
+//     keeps the order, and the event's start and end act on point -1:
+//     setFlag(-1) writes 3 bytes below the table, end_salvage an
+//     onOceanSvBit of a garbage grid and init_one(-1) 0x38 bytes below
+//     it. So every point is held while mSalvageId reads anything but -1;
+//   - Link's XZ distance to the point (mDistance, which calcDistanceXZ
+//     sets every frame) past its reach mR and SalvageNearMargin: the
+//     crane, which hangs from the ship Link rides, cannot come over the
+//     point in the frames between the read of mSalvageId and the write
+//     (checkArea, d_a_salvage.cpp:441-463). A point Link is near is held
+//     until he sails off or pulls it up himself;
 //   - the point's key in the landed set (landed.go: the bits this
 //     replica's own verified writes set, for RefreshSettle), never a bit
 //     that merely reads set, and reading set now;
@@ -81,7 +115,10 @@ import (
 //     executing in the tick's walk (the owner of the table's heap: only
 //     the scene's create nulls the pointer, so it dangles after the
 //     owner's delete), and the table sane (mSeaNum and mRoomNum within
-//     their MAX, every mRoomNo -1 or a room, every mKind 0-6);
+//     their MAX, every mRoomNo -1 or 1..63 in mInfo[128..159] and -1 or
+//     0 in mInfo[0..127], one room in mInfo[128..159]; an entry of a
+//     kind past 6, which getKind's param >> 28 can give and entry stores,
+//     is skipped, not the table);
 //   - the point registered (mRoomNo not -1), its flag bit clear, and its
 //     position, room, save number and kind unchanged since the plan;
 //   - kind 0 with a chart 1..128, or kind 2, 3 or 4 with a grid 0..49 and
@@ -90,6 +127,10 @@ import (
 //     game-cleared and stay each player's, class syncmask.go) are never
 //     touched.
 //
+// The table is read on a tick only while there is something to judge:
+// once a pass found no point to mark and none held, it is read again when
+// the landed set changes (salvageState.quiet).
+//
 // The write is one byte, old | 0x01, judged by WriteGuard.checkSalvage
 // (TargetSalvage), and the next Observe reads the entry again: a point
 // whose flag reads clear on the same entry is a verify failure; one gone
@@ -97,7 +138,13 @@ import (
 //
 // Left as it is: the bits themselves keep their timing. With CatOcean at
 // OnRoomChange, two players in the same square race until the receiver
-// leaves it; the catch-up closes the window from then on. Writing the
+// leaves it; the catch-up closes the window from then on, for a point
+// still in the table. The mSalvageId gate narrows the order-to-start gap
+// to the time between its read, just after the heartbeat, and the write
+// (sub-frame), and the distance gate keeps the crane away for that long;
+// closing it fully needs code in the game, and so does a gate on the
+// ship's crane mode (daShip_c::checkCraneMode), whose daShip_c offset
+// this repo has not checked. Writing the
 // ocean bits live would reach the Tingle Tuner's per-frame read of bit 15
 // (daAgbsw0_c, d_a_agbsw0.cpp:490) too, a planner policy left for a
 // separate change.
@@ -106,6 +153,8 @@ import (
 type SalvagePoint struct {
 	Index int       // its mInfo index, 0..159
 	Pos   [3]uint32 // mPos, the f32 bits
+	R     float32   // mR, the crane's reach
+	Dist  float32   // mDistance, Link's XZ distance as of the last frame
 	Room  int8      // mRoomNo
 	Save  uint8     // mSaveNo
 	Kind  uint8     // mKind
@@ -116,8 +165,25 @@ type SalvagePoint struct {
 // d_salvage.cpp:265-270).
 func (p SalvagePoint) Usable() bool { return p.Flag&addr.SalvageFlagUnusable == 0 }
 
+// SalvageNearMargin is how much further than its reach mR Link must be
+// from a point (mDistance) for the catch-up to mark it. The crane hangs
+// from the ship beside him; at full sail the ship covers this in well
+// over a second, and the write lands within a frame of its gates' read.
+const SalvageNearMargin = 2000
+
+// near reports whether Link may be close enough to p for the crane to
+// come over it before a write lands (an mDistance or mR that is no
+// distance counts as near).
+func (p SalvagePoint) near() bool {
+	d, r := float64(p.Dist), float64(p.R)
+	if math.IsNaN(d) || math.IsNaN(r) || math.IsInf(d, 0) || d < 0 || r < 0 || r > 1e6 {
+		return true
+	}
+	return d < r+SalvageNearMargin
+}
+
 // same reports whether q is the point p is: the same entry, place, room,
-// save number and kind.
+// save number and kind (mDistance changes every frame and is not taken).
 func (p SalvagePoint) same(q SalvagePoint) bool {
 	return p.Index == q.Index && p.Pos == q.Pos && p.Room == q.Room && p.Save == q.Save && p.Kind == q.Kind
 }
@@ -159,7 +225,9 @@ func (p SalvagePoint) Key(table int8) (LandedBit, bool) {
 // decodeSalvageInfo decodes mInfo[i] from its 0x38 bytes.
 func decodeSalvageInfo(i int, b []byte) SalvagePoint {
 	p := SalvagePoint{Index: i, Room: int8(b[addr.SalvageInfoOffRoomNo]), Save: b[addr.SalvageInfoOffSaveNo],
-		Kind: b[addr.SalvageInfoOffKind], Flag: b[addr.SalvageInfoOffFlag]}
+		Kind: b[addr.SalvageInfoOffKind], Flag: b[addr.SalvageInfoOffFlag],
+		R:    math.Float32frombits(binary.BigEndian.Uint32(b[addr.SalvageInfoOffR:])),
+		Dist: math.Float32frombits(binary.BigEndian.Uint32(b[addr.SalvageInfoOffDist:]))}
 	for k := range p.Pos {
 		p.Pos[k] = binary.BigEndian.Uint32(b[addr.SalvageInfoOffPos+4*k:])
 	}
@@ -169,54 +237,92 @@ func decodeSalvageInfo(i int, b []byte) SalvagePoint {
 // ParseSalvage decodes a dSalvage_control_c's SalvageSize bytes into its
 // registered points, or returns why the table does not look like one:
 // mSeaNum or mRoomNum past their MAX, an mRoomNo below -1 or past room 63,
-// an mKind past 6 (entry's ranges, d_salvage.cpp:46-160; init,
-// :20-27).
+// a sea-level slot (mInfo[0..127]) with a room other than 0, a room slot
+// (mInfo[128..159]) with room 0, or two rooms in the room slots (entry
+// puts a point of room 0 in mSeaNum's slot and any other in mRoomNum +
+// 128's, d_salvage.cpp:53-60, and a daSalvage_c of another room runs
+// init_room first, d_a_salvage.cpp:101-114; init, d_salvage.cpp:20-27).
+// An entry of a kind past 6 (getKind is param >> 28, and entry stores any)
+// is left out, not the table.
 func ParseSalvage(b []byte) ([]SalvagePoint, string) {
+	ps, _, why := parseSalvage(b)
+	return ps, why
+}
+
+// parseSalvage is ParseSalvage, with the count of entries of a kind past
+// 6 it left out.
+func parseSalvage(b []byte) (out []SalvagePoint, skipped int, why string) {
 	if len(b) < addr.SalvageSize {
-		return nil, fmt.Sprintf("%d bytes, not the table's 0x%X", len(b), addr.SalvageSize)
+		return nil, 0, fmt.Sprintf("%d bytes, not the table's 0x%X", len(b), addr.SalvageSize)
 	}
 	if sea, room := b[addr.SalvageOffSeaNum], b[addr.SalvageOffRoomNum]; sea > addr.SalvageSeaMax || room > addr.SalvageRoomMax {
-		return nil, fmt.Sprintf("mSeaNum %d, mRoomNum %d: past MAX_SEA %d or MAX_ROOM %d", sea, room, addr.SalvageSeaMax, addr.SalvageRoomMax)
+		return nil, 0, fmt.Sprintf("mSeaNum %d, mRoomNum %d: past MAX_SEA %d or MAX_ROOM %d", sea, room, addr.SalvageSeaMax, addr.SalvageRoomMax)
 	}
-	var out []SalvagePoint
+	roomOf := int8(-1) // the room slots' one room
 	for i := range addr.SalvageInfoCount {
 		at := addr.SalvageOffInfo + i*addr.SalvageInfoSize
 		p := decodeSalvageInfo(i, b[at:at+addr.SalvageInfoSize])
+		inRoom := i >= addr.SalvageSeaMax
 		switch {
 		case p.Room == -1:
 			continue
 		case p.Room < -1 || p.Room > 63:
-			return nil, fmt.Sprintf("entry %d: mRoomNo %d is no room", i, p.Room)
-		case p.Kind > 6:
-			return nil, fmt.Sprintf("entry %d: mKind %d is no salvage kind", i, p.Kind)
+			return nil, 0, fmt.Sprintf("entry %d: mRoomNo %d is no room", i, p.Room)
+		case !inRoom && p.Room != 0:
+			return nil, 0, fmt.Sprintf("entry %d: a sea-level slot holds room %d", i, p.Room)
+		case inRoom && p.Room == 0:
+			return nil, 0, fmt.Sprintf("entry %d: a room slot holds room 0", i)
+		case inRoom && roomOf != -1 && p.Room != roomOf:
+			return nil, 0, fmt.Sprintf("entry %d: room %d in the room slots beside room %d", i, p.Room, roomOf)
+		}
+		if inRoom {
+			roomOf = p.Room
+		}
+		if p.Kind > 6 {
+			skipped++
+			continue
 		}
 		out = append(out, p)
 	}
-	return out, ""
+	return out, skipped, ""
 }
 
 // readSalvageTable reads mTagData_p and the table it points at. why says
 // why there is no table to act on (none this scene, or one that does not
 // look like one); err is a read error.
-func readSalvageTable(m mem.Reader) (base uint32, ps []SalvagePoint, why string, err error) {
+func readSalvageTable(m mem.Reader) (base uint32, ps []SalvagePoint, skipped int, why string, err error) {
 	base, err = mem.ReadU32(m, addr.SalvageTagDataPtr)
 	switch {
 	case err != nil:
-		return 0, nil, "", err
+		return 0, nil, 0, "", err
 	case base == 0:
-		return 0, nil, "no salvage table this scene (mTagData_p is null)", nil
+		return 0, nil, 0, "no salvage table this scene (mTagData_p is null)", nil
 	case base%4 != 0 || mem.CheckRange(base, addr.SalvageSize) != nil:
-		return 0, nil, fmt.Sprintf("mTagData_p 0x%08X is not a table in MEM1", base), nil
+		return 0, nil, 0, fmt.Sprintf("mTagData_p 0x%08X is not a table in MEM1", base), nil
 	}
 	b, err := m.Read(base, addr.SalvageSize)
 	if err != nil {
-		return 0, nil, "", err
+		return 0, nil, 0, "", err
 	}
-	ps, why = ParseSalvage(b)
+	ps, skipped, why = parseSalvage(b)
 	if why != "" {
 		why = fmt.Sprintf("the table at 0x%08X: %s", base, why)
 	}
-	return base, ps, why, nil
+	return base, ps, skipped, why, nil
+}
+
+// craneBusy returns why the catch-up holds every point while the crane is
+// over one (mSalvageId not -1, salvage.go's gates), or "" when it is over
+// none; err is a read error.
+func craneBusy(m mem.Reader) (string, error) {
+	v, err := mem.ReadU32(m, addr.SalvageIDAddr)
+	if err != nil {
+		return "", err
+	}
+	if id := int32(v); id != -1 {
+		return fmt.Sprintf("the crane is over salvage point %d (mSalvageId), its event may be ordered", id), nil
+	}
+	return "", nil
 }
 
 // salvageOwner reports whether walk w holds an executing daSalvage_c: the
@@ -261,9 +367,40 @@ const maxSalvageHeld = addr.SalvageInfoCount
 type salvageState struct {
 	plan     *SalvagePlan
 	marked   int
-	held     map[LandedBit]string // a point's key -> the last reason it was held
+	held     map[LandedBit]string // the last pass's held points: key -> why
 	lastHeld string
 	told     string // the last table-level reason logged
+	// visit is the stage and table the state is of: another resets it.
+	visit salvageVisit
+	// quiet is set when a pass read the table and found no point to mark
+	// and none held; quietAt is the landed salvage bits it saw. The table
+	// is not read again until they change.
+	quiet   bool
+	quietAt salvageLandedSig
+	// skipped is the last logged count of entries of a kind past 6.
+	skipped int
+}
+
+// reset forgets the catch-up's per-visit state (held points, reasons,
+// quiet) once nothing of the loaded table has landed: the landed set is
+// cleared when the stage, the table or the file changes, or a save state
+// is loaded.
+func (s *salvageState) reset() {
+	s.held, s.lastHeld, s.told = nil, "", ""
+	s.quiet, s.quietAt, s.skipped = false, salvageLandedSig{}, 0
+}
+
+// salvageVisit is a stage visit's key for the catch-up's state.
+type salvageVisit struct {
+	stage string
+	table int8
+}
+
+// salvageLandedSig is the landed salvage bits of the loaded table as the
+// quiet check compares them: how many, and when the last one landed.
+type salvageLandedSig struct {
+	n    int
+	last time.Time
 }
 
 func (s *salvageState) hold(k LandedBit, why string) {
@@ -274,15 +411,19 @@ func (s *salvageState) hold(k LandedBit, why string) {
 	s.lastHeld = why
 }
 
-// salvageLanded reports whether some salvage bit or salvaged chart of the
-// loaded table landed this visit.
-func salvageLanded(l Landed, table int8) bool {
-	for b := range l.At {
+// salvageLanded counts the salvage bits and salvaged charts of the loaded
+// table that landed this visit, with the time of the last.
+func salvageLanded(l Landed, table int8) salvageLandedSig {
+	var g salvageLandedSig
+	for b, at := range l.At {
 		if (b.Kind == LandOcean || b.Kind == LandChart) && b.Table == table {
-			return true
+			g.n++
+			if at.After(g.last) {
+				g.last = at
+			}
 		}
 	}
-	return false
+	return g
 }
 
 // reconcileSalvage plans this tick's salvage catch-up from o (the gates
@@ -301,11 +442,32 @@ func (r *Replica) reconcileSalvage(o *obs, armed bool) {
 		return
 	}
 	s := o.s
+	if v := (salvageVisit{s.StageName, s.Table}); v != sv.visit {
+		sv.reset() // a new visit
+		sv.visit = v
+	}
 	l := r.writer.Landed()
-	if l.Stage != s.StageName || !salvageLanded(l, s.Table) {
+	var n salvageLandedSig
+	if l.Stage == s.StageName {
+		n = salvageLanded(l, s.Table)
+	}
+	if n.n == 0 {
+		sv.reset() // the landed set cleared (a file or save state), or nothing landed yet
 		return
 	}
-	base, ps, why, err := readSalvageTable(r.m)
+	if sv.quiet && sv.quietAt == n {
+		return // nothing to judge since the last read
+	}
+	sv.quiet = false
+	why, err := craneBusy(r.m)
+	if err != nil {
+		why = "mSalvageId is unreadable: " + err.Error()
+	}
+	if why != "" {
+		r.salvageTold(why)
+		return
+	}
+	base, ps, skipped, why, err := readSalvageTable(r.m)
 	if err != nil {
 		why = "the salvage table is unreadable: " + err.Error()
 	}
@@ -313,6 +475,13 @@ func (r *Replica) reconcileSalvage(o *obs, armed bool) {
 		r.salvageTold(why)
 		return
 	}
+	if skipped != sv.skipped {
+		sv.skipped = skipped
+		if skipped > 0 {
+			r.logf("co-op: salvage: %d entries of the table at 0x%08X have a kind past 6: left alone", skipped, base)
+		}
+	}
+	sv.held = nil // the held set is this pass's
 	settle := r.cfg.RefreshSettle
 	if settle == 0 {
 		settle = RefreshSettle
@@ -336,9 +505,16 @@ func (r *Replica) reconcileSalvage(o *obs, armed bool) {
 			sv.hold(k, fmt.Sprintf("%s reads clear now", k))
 			continue
 		}
+		if p.near() {
+			sv.hold(k, fmt.Sprintf("Link is %.0f from %s, within its reach %.0f and %d", p.Dist, p, p.R, SalvageNearMargin))
+			continue
+		}
 		cands = append(cands, p)
 	}
 	if len(cands) == 0 {
+		if len(sv.held) == 0 {
+			sv.quiet, sv.quietAt = true, n
+		}
 		return
 	}
 	w, err := actors.Read(r.m, 0)

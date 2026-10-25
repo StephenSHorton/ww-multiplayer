@@ -117,10 +117,14 @@ func (w *FrameWriter) readySalvage() error {
 //  2. the heartbeat is followed from the snapshot's (waitBeat), then the
 //     stage, mNextStage.mEnable, the loaded table and file (recheck) and
 //     IDLE's inputs (recheckIdle) are read again: a change is ErrAborted;
-//  3. mTagData_p is read again: another table holds every point;
+//  3. mTagData_p is read again: another table holds every point; then
+//     mSalvageId: the crane over any point holds every point (the gap
+//     between a salvage's order and its event, salvage.go);
 //  4. for each point: its entry read again, held if it changed (another
 //     point in its slot, or none) and skipped if its flag is set already;
-//     its save bit read again in the live save, held if clear. Else
+//     held if Link is near it now (SalvagePoint.near, this read's
+//     mDistance); its save bit read again in the live save, held if
+//     clear. Else
 //     WriteGuard.checkSalvage, a 1-byte write of old | 0x01 and a read
 //     back;
 //  5. the next Observe reads each entry again (verifySalvage).
@@ -186,6 +190,16 @@ func (w *FrameWriter) ApplySalvage(ctx context.Context, plan SalvagePlan) (res S
 		}
 		return res, nil
 	}
+	busy, err := craneBusy(w.Mem)
+	if err != nil {
+		return res, err
+	}
+	if busy != "" {
+		for _, p := range plan.Points {
+			hold(p, busy)
+		}
+		return res, nil
+	}
 	var first error
 	note := func(err error) {
 		if first == nil {
@@ -214,6 +228,10 @@ func (w *FrameWriter) ApplySalvage(ctx context.Context, plan SalvagePlan) (res S
 		}
 		if !now.Usable() {
 			continue // the game set it since the plan: nothing to do
+		}
+		if now.near() {
+			hold(p, fmt.Sprintf("Link is %.0f from %s now, within its reach %.0f and %d", now.Dist, p, now.R, SalvageNearMargin))
+			continue
 		}
 		k, ok := now.Key(plan.Table)
 		off, mask, okOff := salvageBitOff(k)

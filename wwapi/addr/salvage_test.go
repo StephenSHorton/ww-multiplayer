@@ -19,6 +19,9 @@ func TestSalvageLayout(t *testing.T) {
 		{"mKind", SalvageOffInfo + SalvageInfoOffKind, 0x33},     // getKind lbz +0x33
 		{"mFlag", SalvageOffInfo + SalvageInfoOffFlag, 0x35},     // checkUsed / setFlag +0x35
 		{"proc", uint32(ProcSalvage), 0x194},                     // fpcNm_Salvage_e
+		{"mSalvageId", SalvageIDAddr, 0x803FE0E0 - 30100},        // symbols.txt:18746; phase_4 stw r0,-30100(r13)
+		{"mR", SalvageOffInfo + SalvageInfoOffR, 0x1C},           // getR lfs +0x1C
+		{"mDistance", SalvageOffInfo + SalvageInfoOffDist, 0x2C}, // getDistance lfs +0x2C
 		{"mInfo[159].mFlag", SalvageInfoAddr(0x80C00000, 159) + SalvageInfoOffFlag, 0x80C00000 + 4 + 159*0x38 + 0x31},
 	} {
 		if c.got != c.want {

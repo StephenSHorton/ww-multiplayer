@@ -36,6 +36,17 @@ const (
 	// freed heap until the next scene.
 	SalvageTagDataPtr uint32 = 0x803F6B44
 
+	// SalvageIDAddr is daSalvage_c::mSalvageId (s32, .sbss 0x803F6B4C,
+	// symbols.txt:18746): the point the crane is over, or -1. proc_wait
+	// sets it every frame from checkDistance (d_a_salvage.cpp:352), the
+	// salvage event's order follows it (m2E9, :353-370, eventOrder,
+	// :241-256), and proc_salvage_init, end_salvage and init_one act on it
+	// once the event starts (:376-379, :503-529); end_salvage puts -1 back.
+	// The play scene's create stores -1 there next to mTagData_p's null
+	// (dScnPly phase_4, 0x80235E30-0x80235E3C: li r0,-1; stw r3,
+	// -30108(r13); stw r0,-30100(r13), r13 0x803FE0E0).
+	SalvageIDAddr uint32 = 0x803F6B4C
+
 	SalvageOffSeaNum  = 0x00 // u8 mSeaNum
 	SalvageOffRoomNum = 0x01 // u8 mRoomNum
 	SalvageOffInfo    = 0x04 // dSalvage_info_c mInfo[MAX_TOTAL]
@@ -47,6 +58,8 @@ const (
 
 	// dSalvage_info_c (d_salvage.h:17-36), relative to the entry.
 	SalvageInfoOffPos    = 0x00 // cXyz mPos
+	SalvageInfoOffR      = 0x18 // f32 mR, the crane's reach (getR 0x800CCE08: lfs +0x1C of the entry's 0x04 base)
+	SalvageInfoOffDist   = 0x28 // f32 mDistance, Link's XZ distance, every frame (calcDistanceXZ; getDistance 0x800CCE88: lfs +0x2C)
 	SalvageInfoOffRoomNo = 0x2C // s8 mRoomNo: -1 not registered (checkRegist, d_salvage.cpp:259-263)
 	SalvageInfoOffSaveNo = 0x2D // u8 mSaveNo
 	SalvageInfoOffKind   = 0x2F // u8 mKind
