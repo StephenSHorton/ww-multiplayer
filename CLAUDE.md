@@ -49,7 +49,8 @@ ww-multiplayer/
 │   │   ├── ciso.go              # CISO decompressor
 │   │   └── rels/                # RELS.arc patcher: the mod's REL in an actor module's place, the profile list repointed, the 64 KB ARAM growth guard
 │   ├── netutil/                 # Address parsing shared by host/join/server; join codes (WW-XXXX-XXXX, joincode.go)
-│   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors)
+│   ├── dolphintool/             # Dolphin's DolphinTool beside its Dolphin: probe `convert --help`, RVZ/WIA/GCZ -> temporary ISO (patch's Converter), free space
+│   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors; convert.go: an RVZ/WIA/GCZ input converted first)
 │   ├── redact/                  # IP masking for what the GUI and TUI draw (fixed-width •••.•••.•••.42); the CLI prints addresses unmasked
 │   ├── session/                 # UI-free session controller the CLI host/join, the TUI and the GUI drive (docs/01-architecture.md)
 │   │   └── session.go, controller.go, event.go, coop.go, coopapp.go (the app's co-op state), lobby.go, launch.go, mods.go (EventMod: the adapter over the mod runtime's bus)
@@ -125,7 +126,7 @@ go build -o wwdev.exe ./cmd/wwdev
 ./ww-multiplayer.exe tui                                # Launch TUI (host or join)
 ./ww-multiplayer.exe ui --browser [--port N] [--no-open] # Serve the app's UI on 127.0.0.1 to a browser (dev/tests; Ctrl+C stops)
 #   tui and ui also take --mods=a,b / --no-mod=x / --dev (the app's mods this run; `mods` takes them to show the effect)
-./ww-multiplayer.exe patch <iso|ciso> [out.iso]         # Splice mod into user's own vanilla WW ISO
+./ww-multiplayer.exe patch <iso|ciso|rvz> [out.iso]     # Splice mod into user's own vanilla WW ISO (RVZ/WIA/GCZ: converted first with the first usable DolphinTool beside a found Dolphin, running ones first)
 
 # Play: one process per player
 ./ww-multiplayer.exe host [name] [--port N] [--color C] [--coop[=new|<world-id>]] ...  # Host a session (server + this player's pipelines)

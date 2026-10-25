@@ -3,7 +3,10 @@ package inject
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
+	"os"
 )
 
 // Disc-image formats Dolphin can play but the patcher can't edit. Users
@@ -53,4 +56,35 @@ func detectUnsupportedFormat(b []byte) error {
 		return nil
 	}
 	return &UnsupportedFormatError{Format: format}
+}
+
+// Convertible says Dolphin's own DolphinTool can turn this format into a
+// plain ISO the patcher reads (internal/dolphintool): RVZ, WIA and GCZ.
+// NKit is not, until proven: an NKit image is a trimmed dump, and whether
+// DolphinTool restores it to the full disc is untested (it is left on the
+// advice path, convert with the NKit tool).
+func (e *UnsupportedFormatError) Convertible() bool {
+	return e.Format == "RVZ" || e.Format == "WIA" || e.Format == "GCZ"
+}
+
+// ImageFormat reads the start of the file at path and returns the
+// *UnsupportedFormatError naming its format when it is an RVZ, WIA, GCZ
+// or NKit image, else nil (an ISO, a CISO, or no disc at all: OpenDisc
+// says which). err is for a file that can't be read.
+func ImageFormat(path string) (*UnsupportedFormatError, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	head := make([]byte, nkitOffset+4)
+	n, err := io.ReadFull(f, head)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	var u *UnsupportedFormatError
+	if errors.As(detectUnsupportedFormat(head[:n]), &u) {
+		return u, nil
+	}
+	return nil, nil
 }

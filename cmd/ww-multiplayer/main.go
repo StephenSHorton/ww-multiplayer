@@ -34,6 +34,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
@@ -88,10 +89,35 @@ func versionLine() string {
 // patcher's lines on stdout, with the loaded mods' post-patch steps (the
 // co-op stage tables), and a
 // failure exits 1. An already-patched input exits 0, as it always has.
+// An RVZ, WIA or GCZ input is converted first with a DolphinTool beside
+// one of the Dolphins launch finds (patchConverter).
 func runPatch(in, out string) {
-	if _, err := patch.Run(context.Background(), in, out, os.Stdout, patch.Options{PostPatch: postPatchSteps()}); err != nil {
+	o := patch.Options{PostPatch: postPatchSteps()}
+	if patch.NeedsConvert(in) {
+		o.Converter = patchConverter()
+	}
+	if _, err := patch.Run(context.Background(), in, out, os.Stdout, o); err != nil {
 		os.Exit(1)
 	}
+}
+
+// patchConverter is the CLI patch's DolphinTool: beside each Dolphin
+// launch finds, in its order (running Dolphins, then DOLPHIN_EXE, then the
+// install places), the first usable one; no Dolphin is named when none is
+// found.
+func patchConverter() *patch.Converter {
+	return patch.ConverterFor(foundDolphins(launch.Candidates(launch.Host()))...)
+}
+
+// foundDolphins is the Dolphin programs of cs that exist, in order.
+func foundDolphins(cs []launch.Candidate) []string {
+	var out []string
+	for _, c := range cs {
+		if c.Found {
+			out = append(out, c.Exe)
+		}
+	}
+	return out
 }
 
 // Same as broadcast-link but ALSO sends Link's full skeletal pose every

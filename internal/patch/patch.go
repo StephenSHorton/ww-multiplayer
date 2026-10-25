@@ -11,7 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-
+	"os"
 	"path"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
@@ -27,14 +27,24 @@ type Options struct {
 	// steps (wwapi.PostPatcher): co-op's builds, caches and records the
 	// co-op stage tables (stagetables.CacheForPatch). None skips them.
 	PostPatch []func(w io.Writer, image string)
+	// Converter, when set, turns an RVZ, WIA or GCZ input into a
+	// temporary plain ISO with Dolphin's DolphinTool before the splice
+	// (convert.go). Nil leaves those inputs an error with the
+	// convert-in-Dolphin advice, as before.
+	Converter *Converter
 }
 
 // Result is what Run did.
 type Result struct {
 	In, Out string
 	// AlreadyPatched says the input already holds this build's mod: nothing
-	// was written, and Out was not created. The input is the disc to boot.
+	// was written, and Out was not created. The input is the disc to boot,
+	// unless it was converted (ConvertedFrom): then the converted ISO was
+	// kept at Out, and that is.
 	AlreadyPatched bool
+	// ConvertedFrom is the input's format ("RVZ", "WIA" or "GCZ") when
+	// Options.Converter turned it into a plain ISO first, else "".
+	ConvertedFrom string
 	// FST is the image patcher's result, zero when AlreadyPatched.
 	FST inject.Result
 	// REL is the REL module's (rels.PatchISOWithREL: FST and what went
@@ -43,9 +53,9 @@ type Result struct {
 }
 
 // Image is the disc to boot after a successful Run: Out, or In when it was
-// already patched.
+// already patched (and not converted).
 func (r Result) Image() string {
-	if r.AlreadyPatched {
+	if r.AlreadyPatched && r.ConvertedFrom == "" {
 		return r.In
 	}
 	return r.Out
@@ -74,8 +84,8 @@ func DefaultOut(in string) string {
 // an error (Result.AlreadyPatched). Every failure is written on w as the CLI
 // prints it and returned too: one made by a different build wraps
 // inject.ErrPatchedByOtherVersion, and the rest are inject.PatchISO's
-// errors. ctx is checked before the disc is read; the patch itself is not
-// interruptible.
+// errors. ctx is checked before the disc is read and stops a conversion
+// (Options.Converter); the patch itself is not interruptible.
 func Run(ctx context.Context, in, out string, w io.Writer, o Options) (Result, error) {
 	if out == "" {
 		out = DefaultOut(in)
@@ -92,10 +102,37 @@ func Run(ctx context.Context, in, out string, w io.Writer, o Options) (Result, e
 			step(w, image)
 		}
 	}
-	r, err := rels.PatchISOWithREL(in, out)
+	src, format, cleanup, err := convertInput(ctx, in, out, w, o.Converter)
+	defer cleanup()
+	if err != nil {
+		if ctx.Err() == nil {
+			fmt.Fprintf(w, "\nERROR: %v\n", err)
+		}
+		return res, err
+	}
+	res.ConvertedFrom = format
+	r, err := rels.PatchISOWithREL(src, out)
 	fst := r.Result
 	if err != nil {
 		switch {
+		case errors.Is(err, inject.ErrAlreadyPatched) && format != "":
+			// A converted disc that already holds this build's mod: the
+			// ISO DolphinTool wrote is the disc to boot (Dolphin plays the
+			// input too, but the tables step can't read it), so it is kept
+			// at out.
+			if err := ctx.Err(); err != nil {
+				return res, err
+			}
+			if err := os.Rename(src, out); err != nil {
+				fmt.Fprintf(w, "\nERROR: keep the converted ISO: %v\n", err)
+				return res, err
+			}
+			fmt.Fprintf(w, "\nThis ISO already contains this version of the multiplayer mod — nothing to do.\n")
+			fmt.Fprintf(w, "(Detected an existing T2 section at 0x%08X.)\n", inject.T2Address)
+			fmt.Fprintf(w, "Kept the converted ISO as %s.\n", out)
+			res.AlreadyPatched = true
+			post(out)
+			return res, nil
 		case errors.Is(err, inject.ErrAlreadyPatched):
 			fmt.Fprintf(w, "\nThis ISO already contains this version of the multiplayer mod — nothing to do.\n")
 			fmt.Fprintf(w, "(Detected an existing T2 section at 0x%08X.)\n", inject.T2Address)
