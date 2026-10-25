@@ -41,7 +41,7 @@ ww-multiplayer/
 │   ├── cliutil/                 # What both binaries' command lines share: FindDolphin/OpenDolphin (WW_DOLPHIN_INDEX/PID), ExeCmd, ExitUsage, --color/WW_COLOR; clitest/ = the CLI golden harness
 │   ├── gamefiles/               # Spots Nintendo game files and saves (names, extensions, magic, zip entries): tools/check_game_files, bugreport
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
-│   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); the Mods page (mods.go); the update banner + re-patch after an update (update.go); Bridge = the JS API; `ui --browser` server
+│   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend (sidebar pages Play/Session, Setup, Mods, Settings; light/dark theme.js); first-run Setup (setup.go); the Mods page (mods.go); the update banner + re-patch after an update (update.go); Bridge = the JS API; `ui --browser` server
 │   ├── lan/                     # LAN discovery: the host's UDP beacon, broadcast addresses, the joiner's table (docs/10-lobby.md §10)
 │   ├── mailboxgen/              # mailbox header parser (mailbox_core.h + the mailbox_mp.h it includes) + layout_gen.go emitter (used by tools/gen_mailbox and wwapi/mailbox TestMailboxLayout)
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
@@ -100,7 +100,8 @@ ww-multiplayer/
 │   ├── gen_mailbox/             # inject/include/mailbox_core.h (+ mailbox_mp.h) -> wwapi/mailbox/layout_gen.go (go generate ./wwapi/mailbox)
 │   ├── mkicns/                  # docs/img/icon.ico -> docs/img/icon.icns (macOS app icon; go generate ./cmd/ww-multiplayer)
 │   ├── validate_manifests/      # Checks the mods' mod.json manifests (CI runs it)
-│   └── check_game_files/        # Fails on a tracked game file or save (CI) and on any release asset holding one (release.yml)
+│   ├── check_game_files/        # Fails on a tracked game file or save (CI) and on any release asset holding one (release.yml)
+│   └── uipreview/               # The app's frontend with a fake Bridge (fake.js scenarios, ?s=home|lobby-host|ingame|..., ?theme=light|dark) for looking and headless-Chrome screenshots (docs/img/app-ui; docs/TESTING.md "The app window")
 ├── site/                        # The website (index.html), deployed by pages.yml
 ├── .github/workflows/
 │   ├── build.yml                # CI: go vet + cross-build on push/PR; macOS job also builds + zips the .app (smoke, no publish)
