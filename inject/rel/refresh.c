@@ -302,7 +302,11 @@ static const rf_row rf_rows[] = {
       RF_V(1), RF_V(0) },
     // MFLFT: m2A1 = params >> 24, current room (d_a_mflft.cpp:604, 650-666:
     // set, all ropes cut and the lift on the lava's ground); s16 m29A
-    // +0x29A 1 once the last rope is cut (:199-200). Their near 50.
+    // +0x29A 1 once the last rope is cut (:199-200), which the re-created
+    // lift reaches in its create: the create ends with daMflft_Execute
+    // (:669), whose unconditional mflft_move (:456) sees all three m2D4
+    // set in case 0 (:182-200), so the new one answers IN_STATE. Their
+    // near 50.
     { WWRF_PROC_MFLFT, 0x29A, 0, WWRF_MFLFT_SW_SHIFT, RF_ROW_RECREATE | RF_ROW_CUR_ROOM, 2, 50, RF_V(0), RF_V(1) },
     // KOKIIE: m2A2 = params >> 24, fopAcM_isSwitch (d_a_kokiie.cpp:393,
     // 438-441: set, it comes up fallen, m29A 1, no hands); s16 m29A +0x29A
