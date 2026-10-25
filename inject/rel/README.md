@@ -732,10 +732,11 @@ the proc's state as found. Stateless; nothing is added to the keeper.
 ## visuals.c: the remote players' visuals
 
 The block is `include/wwvis.h` at `MAILBOX_ADDR + 0x8D0` (0x804137D0,
-0xF0 bytes since WWMB_LAYOUT 3's third slot (0xC0 before), right after the
-actor_refresh request; Go's `wwapi/mailbox/vis.go` mirrors it and
-`CanaryArenaHigh` now runs from its end to the eye packets,
-0x804138C0..0x80413EB0). Its first word is `&wwvis_draw_hook`, published by
+0x114 bytes, right after the actor_refresh request; it was 0xC0 bytes
+before WWMB_LAYOUT 3's third slot and the second model table at +0xF0,
+the mirror shield, Master Sword scabbard and katsura models). Go's
+`wwapi/mailbox/vis.go` mirrors it and `CanaryArenaHigh` runs from its
+end, 0x804138E4, to the eye packets. Its first word is `&wwvis_draw_hook`, published by
 `_prolog` just before the exec hook word and cleared by `_epilog` first;
 T2's `main01_init` zeroes it (and the model words) at boot. T2's
 `mp_draw_post` calls it twice per drawn mini-Link slot: phase 0 before the

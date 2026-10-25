@@ -24,8 +24,8 @@
 // the slack that was free (+0x8B0..+0x1100, wwremote.h's slack map).
 // P0-L5 armed canaries over it across ten stage hops and found every word
 // intact (archive/enemy-batch-d/P0.md), so no game code writes it. The
-// visuals block (wwvis.h, +0x8D0..+0x990) follows it, and the region
-// probe's CanaryArenaHigh starts past that (+0x990).
+// visuals block (wwvis.h, +0x8D0..+0x9E4) follows it, and the region
+// probe's CanaryArenaHigh starts past that (+0x9E4).
 //
 //   Go-written, the seq last (two writes: +0x04..+0x14, then the seq):
 //   +0x00 u32 seq     (Go bumps it for every request, never 0)

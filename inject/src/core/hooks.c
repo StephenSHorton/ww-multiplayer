@@ -78,13 +78,13 @@ void main01_init(void) {
     // names a heap that no longer exists.
     *(volatile u32*)(MAILBOX_ADDR + WWREL_SHANM_OFF) = 0;
     // The visuals block's REL words (wwvis.h): the two function words T2
-    // calls through, and the sword/shield models the REL made on a heap
-    // of an earlier boot.
+    // calls through, and the models the REL made on a heap of an earlier
+    // boot (both model tables, with the counters between and after them).
     {
         int w;
         for (w = 0; w < 2; w++)
             *(volatile u32*)(MAILBOX_ADDR + WWVIS_OFF + WWVIS_DRAW_FN_OFF + 4 * w) = 0;
-        for (w = 0; w < WWVIS_SLOTS * WWVIS_MODEL_KINDS; w++)
+        for (w = 0; w < WWVIS_ZERO_WORDS; w++)
             *(volatile u32*)(MAILBOX_ADDR + WWVIS_OFF + WWVIS_MODELS_OFF + 4 * w) = 0;
         // The Mailbox's own GameHeap pointers, for the same reason (docs/05
         // "Soft reset"): a soft reset (mDoRst_reset -> OSResetSystem

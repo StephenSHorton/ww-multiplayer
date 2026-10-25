@@ -77,7 +77,7 @@ var (
 	// batch C layout4.knob_table.canaries) and batch D's actor_refresh
 	// request after that (refresh.go, RefreshRegion, +0x8B0..+0x8D0, G-D5;
 	// P0-L5 proved it free before the move) and the remote players'
-	// visuals block after that (vis.go, VisRegion, +0x8D0..+0x990: T2
+	// visuals block after that (vis.go, VisRegion, +0x8D0..+0x9A8: T2
 	// branches through its first two words). Go writes the blocks every
 	// tick and the REL every frame while they run, so a canary armed over
 	// them would be reported changed by the mod's own traffic, and arming

@@ -111,18 +111,18 @@ func TestBuild(t *testing.T) {
 	red := playercolor.Color{R: 0xE0, G: 0x10, B: 0x20}
 	remotes := []network.RemotePlayer{
 		{ID: 7, Name: "Tetra", FaceState: trailer(AppSea, 0x38, 0x3B), Position: &network.PlayerPosition{PosX: 100, PosZ: -50, RotY: 0x4000}, Color: red, HasColor: true},
-		{ID: 3, Name: "Aryll", FaceState: make([]byte, player.FaceBytes+1), Position: &network.PlayerPosition{}},
+		{ID: 3, Name: "Aryll", FaceState: append(make([]byte, player.FaceBytes), 0x01), Position: &network.PlayerPosition{}}, // casual, no equip bytes
 		{ID: 5, Name: "me", FaceState: trailer(AppSea, 0, 0), Position: &network.PlayerPosition{}},
 		{ID: 9, Name: "Medli", FaceState: trailer(AppSea, 0xFF, 0xFF)}, // no position yet
 	}
-	b := Build(Settings{Names: true, Equip: true, SeaChart: true}, remotes, map[byte]int{7: 1, 3: 0, 5: 1, 9: 2}, "me")
-	if b.Flags != mailbox.VisFlagNames|mailbox.VisFlagEquip|mailbox.VisFlagSea {
+	b := Build(Settings{Names: true, Equip: true, SeaChart: true, Hair: true}, remotes, map[byte]int{7: 1, 3: 0, 5: 1, 9: 2}, "me")
+	if b.Flags != mailbox.VisFlagNames|mailbox.VisFlagEquip|mailbox.VisFlagSea|mailbox.VisFlagHair {
 		t.Errorf("flags %#x", b.Flags)
 	}
 	if b.Names != [mailbox.VisSlots]string{"Aryll", "Tetra", "Medli"} {
 		t.Errorf("names %q", b.Names)
 	}
-	if b.Equip[0].Valid || !b.Equip[1].Valid || b.Equip[1].Sword != 0x38 || !b.Equip[2].Valid || b.Equip[2].Sword != 0xFF {
+	if b.Equip[0].Valid || !b.Equip[0].Casual || !b.Equip[1].Valid || b.Equip[1].Casual || b.Equip[1].Sword != 0x38 || !b.Equip[2].Valid || b.Equip[2].Sword != 0xFF {
 		t.Errorf("equip %+v", b.Equip)
 	}
 	if len(b.Sea) != 1 || b.Sea[0] != (mailbox.VisSea{X: 100, Z: -50, Angle: 0x4000, R: 0xE0, G: 0x10, B: 0x20}) {
@@ -137,6 +137,11 @@ func TestSettingsFromEnv(t *testing.T) {
 	t.Setenv("WW_NAMETAGS", "off")
 	t.Setenv("WW_EQUIP", "")
 	t.Setenv("WW_SEACHART", "0")
+	t.Setenv("WW_HAIR", "")
+	if s := SettingsFromEnv(); s != (Settings{Equip: true, Hair: true}) {
+		t.Errorf("SettingsFromEnv = %+v", s)
+	}
+	t.Setenv("WW_HAIR", "off")
 	if s := SettingsFromEnv(); s != (Settings{Equip: true}) {
 		t.Errorf("SettingsFromEnv = %+v", s)
 	}
