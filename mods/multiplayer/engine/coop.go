@@ -110,6 +110,9 @@ type LobbyCoop interface {
 	// UnbindFile zeroes the co-op tag of the file loaded in this
 	// player's game (session.CoopFileEngine).
 	UnbindFile(world string) error
+	// SetShares changes what the host's hub allows while it runs
+	// (session.CoopShareEngine): on is every session feature by name.
+	SetShares(on []string) error
 	// Stop ends it, after the game side and the host's server stopped.
 	Stop()
 }
@@ -132,6 +135,7 @@ func (noLobbyCoop) OnStart(network.LobbySettingsBody)      {}
 func (noLobbyCoop) OnGo(network.LobbySettingsBody, string) {}
 func (noLobbyCoop) OnSettings(network.LobbySettingsBody)   {}
 func (noLobbyCoop) UnbindFile(string) error                { return session.ErrNoCoop }
+func (noLobbyCoop) SetShares([]string) error               { return session.ErrNoCoop }
 func (noLobbyCoop) Stop()                                  {}
 
 // lobbyCoop is a lobby session's co-op side, and whether it has one (a
@@ -155,6 +159,18 @@ func (e *Engine) UnbindFile(world string) error {
 		return session.ErrNoCoop
 	}
 	return ac.UnbindFile(world)
+}
+
+// SetCoopShares changes what co-op shares while the session runs, on the
+// host (session.CoopShareEngine).
+func (e *Engine) SetCoopShares(on []string) error {
+	e.mu.Lock()
+	ac := e.coop1
+	e.mu.Unlock()
+	if ac == nil {
+		return session.ErrNoCoop
+	}
+	return ac.SetShares(on)
 }
 
 // CoopOn says the lobby settings s ask for co-op.

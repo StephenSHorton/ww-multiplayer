@@ -32,6 +32,9 @@ type coopEngine struct {
 	unbound string
 	live    session.Live
 	worlds  []session.CoopWorld
+	// shares records SetCoopShares (room_test.go); sharesErr refuses it.
+	shares    [][]string
+	sharesErr error
 }
 
 func (e *coopEngine) Command(c session.Command) error {

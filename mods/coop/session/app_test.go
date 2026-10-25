@@ -137,7 +137,9 @@ func TestLobbyCoopNewWorld(t *testing.T) {
 	optsB := optsA
 	optsB.UserDir = userB
 	if _, err := ca.HostLobby(context.Background(), session.HostOptions{Name: "Host", Port: port, ListenHost: "127.0.0.1", Launch: optsA,
-		CoopFn: func() session.CoopOptions { return session.CoopOptions{BossKill: "none", Refresh: "tbox,saku"} }}); err != nil {
+		CoopFn: func() session.CoopOptions {
+			return session.CoopOptions{BossKill: "none", Refresh: "tbox,saku", SharesOff: "magic"}
+		}}); err != nil {
 		t.Fatal(err)
 	}
 	defer ca.Leave()
@@ -223,6 +225,24 @@ func TestLobbyCoopNewWorld(t *testing.T) {
 	}
 	waitSnap(t, ca, "host merge", func(st session.State) bool { return st.Coop.Merge && st.CoopHub != nil && st.CoopHub.Merge })
 	waitSnap(t, cb, "joiner merge", func(st session.State) bool { return st.Coop.Merge })
+
+	// The host's saved rules started its hub without magic; the Session
+	// page's rules change what it allows while it runs. A joiner can't.
+	if h := ca.Snapshot().CoopHub; h == nil || strings.Contains(h.Features, "magic") || !strings.Contains(h.Features, "story") {
+		t.Fatalf("host hub at start %+v, want story and no magic", h)
+	}
+	if err := ca.SetCoopShares([]string{"story", "inventory"}); err != nil {
+		t.Fatal(err)
+	}
+	waitSnap(t, ca, "the host's new rules", func(st session.State) bool {
+		return st.CoopHub != nil && st.CoopHub.Features == "image|story|inventory"
+	})
+	if err := ca.SetCoopShares([]string{"image"}); err == nil {
+		t.Error("SetCoopShares took the World, which isn't the host's to change")
+	}
+	if err := cb.SetCoopShares([]string{"story"}); err == nil || !strings.Contains(err.Error(), "only the host") {
+		t.Errorf("joiner SetCoopShares = %v, want only the host", err)
+	}
 
 	ca.Leave()
 	fa.Event("left")

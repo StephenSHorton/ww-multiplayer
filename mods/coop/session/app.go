@@ -12,6 +12,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
@@ -191,7 +192,7 @@ func (ac *appCoop) OnStart(s network.LobbySettingsBody) {
 	}
 	own := ac.own()
 	f := Flags{on: true, world: s.Coop, merge: s.Merge, dryRun: s.DryRun, liveSwitches: s.LiveSwitches, iso: own.ISO, yes: own.Yes,
-		bossKill: own.BossKill, refresh: own.Refresh}
+		bossKill: own.BossKill, refresh: own.Refresh, sharesOff: own.SharesOff}
 	ac.wg.Add(1)
 	go func() {
 		defer ac.wg.Done()
@@ -541,6 +542,29 @@ func (ac *appCoop) UnbindFile(want string) error {
 		return errors.New("co-op isn't looking at your game yet: try again once Dolphin runs it")
 	}
 	return clearLoadedTag(ac.out, m, ac.deps.tick, want, own)
+}
+
+// SetShares changes what the host's hub allows while it runs (the app's
+// owner-editable rules, session.CoopShareEngine): on is every session
+// feature shared from now on but the world itself, which stays (it is
+// what the others hang on: proto.Shareable). The hub tells every peer
+// its new features and asks one that gets bytes back for a fresh WORLD
+// (hub.SetFeatures); each replica follows at its next tick.
+func (ac *appCoop) SetShares(on []string) error {
+	f, err := proto.ParseShares(on)
+	if err != nil {
+		return err
+	}
+	ac.mu.Lock()
+	h, host := ac.hub, ac.setHub != nil
+	ac.mu.Unlock()
+	switch {
+	case !host:
+		return errors.New("only the host changes what co-op shares")
+	case h == nil:
+		return errors.New("co-op doesn't serve the world yet: try again once the host's game founded or opened it")
+	}
+	return h.SetFeatures(hub.FeatureImage | f)
 }
 
 // errFileChanged is a "Remove the tag" refused because the loaded file's

@@ -532,6 +532,46 @@ details.more summary { font-size: 12.5px; }
 .okline { display: flex; align-items: center; gap: 8px; margin: 0; font: 700 13px var(--body); color: var(--text-dim); }
 .okline::before { content: "\2713"; display: grid; place-items: center; width: 18px; height: 18px; font-size: 11px; color: var(--green-ink); background: var(--green-soft); border-radius: 50%; }
 .okline.no::before { content: "\2013"; color: var(--grey-ink); background: var(--grey-soft); }
+.shares li.part { border-style: dashed; }
+.progresspanel .warnline { margin: 0 0 10px; font: 700 12.5px var(--body); color: var(--yellow-ink); }
+.dim.small { font-size: 12.5px; margin-top: -4px; }
+
+/* the host's rules: Edit turns the share chips into switches */
+.progresspanel.editing { border-color: var(--orange); box-shadow: 0 0 0 2px color-mix(in srgb, var(--orange) 30%, transparent), var(--shadow); }
+.editbar { margin: -2px 0 12px; padding: 8px 12px; font: 500 13px var(--body); color: var(--yellow-ink); background: var(--yellow-soft); border: 1px solid color-mix(in srgb, var(--orange) 45%, transparent); border-radius: 10px; }
+.editbar b { font-weight: 700; }
+.rulelist { display: grid; gap: 6px; margin: 0 0 12px; padding: 0; list-style: none; }
+.rulelist li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; }
+.rulelist li.fixed { background: none; border-style: dashed; }
+.rulelist .rtext { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.rulelist .rtext b { font: 400 14px var(--display); color: var(--heading); }
+.rulelist .rtext small { font: 500 12px var(--body); color: var(--text-dim); }
+.rulelist .rtext small.why { font-style: italic; }
+.rulelist .rtext small.warn { font-style: normal; font-weight: 700; color: var(--yellow-ink); }
+.rulelist .switch, .rulelist .chip { flex: none; }
+.rulelist .switch:disabled { opacity: 0.6; cursor: progress; }
+
+/* the Room items card: what the co-op world holds */
+.equip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; }
+.equip .eq { display: grid; gap: 1px; padding: 7px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.equip .eq small { font: 700 11px var(--body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
+.equip .eq b { font: 700 13.5px var(--body); color: var(--heading); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.equip .eq.none b { color: var(--text-dim); font-weight: 500; }
+.heartrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12.5px; }
+.heartrow .dim { margin: 0; }
+.hearts { display: inline-flex; flex-wrap: wrap; gap: 2px; }
+.hearts i { width: 14px; height: 13px; background: #e5383b; clip-path: path("M7 13 L1.2 6.6 A3.4 3.4 0 0 1 7 2.2 A3.4 3.4 0 0 1 12.8 6.6 Z"); }
+.hearts i.part { background: linear-gradient(90deg, #e5383b 25%, var(--grey-soft) 25%); }
+.slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 5px; margin: 0; padding: 0; list-style: none; }
+.slots li { padding: 6px; text-align: center; font: 700 12px var(--body); line-height: 1.25; color: var(--text-dim); background: none; border: 1px dashed var(--line-strong); border-radius: 9px; }
+.slots li.have { color: var(--green-ink); background: var(--green-soft); border: 1px solid color-mix(in srgb, var(--green) 45%, transparent); }
+.roompanel .shares { margin-bottom: 4px; }
+
+/* the Players card's per-player actions */
+.rowacts { display: inline-flex; gap: 6px; flex: none; }
+.rowact { flex: none; padding: 1px 10px 2px; cursor: pointer; font: 700 12px var(--body); color: var(--blue-ink); background: var(--blue-soft); border: 1px solid color-mix(in srgb, var(--blue) 40%, transparent); border-radius: 999px; }
+.rowact:hover { color: #fff; background: var(--blue); }
+.chip.coop { color: var(--green-ink); background: var(--green-soft); }
 
 /* the feed: chat and logs */
 .feed { display: flex; flex-direction: column; height: calc(100vh - 170px); min-height: 340px; }

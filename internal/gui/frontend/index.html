@@ -405,10 +405,21 @@
 						</label>
 					</div>
 				</div>
-				<!-- in game: what co-op shares, from the pipeline's facts (coop.js) -->
+				<!-- in game: what co-op shares, from the pipeline's facts; the host edits it (coop.js) -->
 				<div class="card progresspanel" id="progress-panel" hidden>
-					<h2>What co-op shares</h2>
+					<div class="cardhead">
+						<h2>What co-op shares</h2>
+						<button class="btn small" type="button" id="rules-edit" hidden>Edit</button>
+					</div>
+					<div class="editbar" id="rules-editbar" role="status" hidden>
+						<b>Editing what co-op shares.</b> Each change reaches every player's game at its next tick.
+					</div>
 					<div id="progress"></div>
+				</div>
+				<!-- in game: what the co-op world holds, from this game's view of it (coop.js) -->
+				<div class="card roompanel" id="room-panel" hidden>
+					<div class="cardhead"><h2>Room items</h2><span class="count" id="room-count"></span></div>
+					<div id="room"></div>
 				</div>
 				<!-- co-op: the host's choice and your memory card's files (coop.js) -->
 				<div class="card cardpanel" id="card-panel" hidden>

@@ -32,6 +32,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/roomitems"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
@@ -400,7 +401,41 @@ func coopStatusOf(player string, st replica.Status) session.CoopStatus {
 	if p := st.Partner; p != nil && !p.Stage.IsEmpty() {
 		cs.PartnerStage, cs.PartnerRoom = p.Stage.String(), int(p.Room)
 	}
+	cs.Room = coopRoomOf(st.Room)
 	return cs
+}
+
+// coopRoomOf is what the world holds as the app's Room items card shows
+// it; nil for nil.
+func coopRoomOf(it *roomitems.Items) *session.CoopRoom {
+	if it == nil {
+		return nil
+	}
+	items := func(xs []roomitems.Item) []session.CoopRoomItem {
+		out := make([]session.CoopRoomItem, len(xs))
+		for i, x := range xs {
+			out[i] = session.CoopRoomItem{Slot: x.Slot, Name: x.Name, Have: x.Have}
+		}
+		return out
+	}
+	named := func(xs []roomitems.Named) []session.CoopRoomItem {
+		out := make([]session.CoopRoomItem, len(xs))
+		for i, x := range xs {
+			out[i] = session.CoopRoomItem{Name: x.Name, Have: x.Have}
+		}
+		return out
+	}
+	r := &session.CoopRoom{
+		Items: items(it.Items), Equip: items(it.Equip), Songs: named(it.Songs), Pearls: named(it.Pearls),
+		Shards: it.Shards, TriforceCharts: it.TriforceCharts, Charts: it.Charts, ChartsTotal: roomitems.ChartsTotal, Salvaged: it.Salvaged,
+		Wallet: it.Wallet, Quiver: it.Quiver, BombBag: it.BombBag, Magic: it.Magic, HeartsWhy: it.HeartsWhy,
+	}
+	if h := it.Hearts; h != nil {
+		r.Hearts = true
+		r.Containers, r.ContainersTaken, r.Pieces, r.PiecesTaken = h.Containers, h.ContainersTaken, h.Pieces, h.PiecesTaken
+		r.Rewards, r.Given, r.Untracked, r.MaxLife = h.Rewards, h.Given, h.Untracked, h.Max
+	}
+	return r
 }
 
 // stateCode is a replica state as session.CoopStatus.StateCode names it.
@@ -423,7 +458,8 @@ func coopHubStatus(status func() (hub.Status, error)) *session.CoopHubStatus {
 	out := &session.CoopHubStatus{World: hs.World.String(), Seq: hs.Seq, Features: hs.Features.String(), Merge: hs.Merge}
 	out.Lines = append(hubPuzzleStatus(hs), hubCombatStatus(hs)...)
 	for _, p := range hs.Peers {
-		cp := session.CoopPeer{Name: p.Name, Host: p.Host, State: p.State.String(), File: p.File.String(), Stage: p.Place.Stage, Room: p.Place.Room}
+		cp := session.CoopPeer{Name: p.Name, Host: p.Host, State: p.State.String(), File: p.File.String(), Stage: p.Place.Stage, Room: p.Place.Room,
+			Features: (p.Features & hub.SessionFeatures).String()}
 		if p.Reason != 0 {
 			cp.Reason = p.Reason.String()
 		}

@@ -14,6 +14,8 @@ let state = null;
 let worlds = { session: 0, list: null, loading: false }; // the host's Continue list, read once per session
 let advSession = 0; // the session whose Advanced fields were filled from the saved choice
 const openDetails = new Set(); // the panel's open "Details" (redrawn every second)
+let editing = false; // the host edits what co-op shares (the rules card's Edit)
+let busy = false; // a rules change is on its way
 
 // ---------- the host's world choice ----------
 
@@ -185,6 +187,9 @@ const SHARES = [
 	["live-switches", "Live switches", "Switches of the room you stand in, while you are idle"],
 ];
 
+// SHARES_NOTE is room.go's sharesNote, said at once while the host edits.
+const SHARES_NOTE = "Small keys are counted from the doors the switches share: with Switches off, one key can open a door in each game.";
+
 const KEY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="9" r="5" fill="#ffd83a" stroke="#6b4b00" stroke-width="2"/><circle cx="8" cy="9" r="1.8" fill="#6b4b00"/><path d="M12 12l8 8M16 16l2-2M18.5 18.5l2-2" stroke="#6b4b00" stroke-width="2.4" stroke-linecap="round"/></svg>';
 
 // pips draws n of total as small squares (total capped for room).
@@ -223,15 +228,36 @@ function renderProgress(st, show) {
 	const v = show && st.coop.panel.pipes.length ? st.coop.panel.pipes[0] : null;
 	panel.hidden = !v;
 	if (!v) return;
+	const rules = st.coop.panel.rules;
+	if (!(rules && rules.edit)) editing = false;
+	const eb = $("rules-edit");
+	eb.hidden = !(rules && rules.edit);
+	eb.textContent = editing ? "Done" : "Edit";
+	eb.classList.toggle("primary", editing);
+	eb.title = editing ? "Lock what co-op shares again" : "Change what co-op shares, for every player, while you play";
+	$("rules-editbar").hidden = !editing;
+	panel.classList.toggle("editing", editing);
 	const kids = [];
 	if (v.dryRun) {
 		kids.push(el("p", { class: "dim" }, "A dry run: co-op plans its writes and logs them, but shares nothing into your game."));
-	} else if (!(v.shares || []).length) {
+	} else if (editing && rules && rules.edit) {
+		kids.push(ruleRows(rules));
+		const on = new Set(rules.rows.filter((r) => r.on).map((r) => r.id));
+		if (on.has("keys") && !on.has("switches")) kids.push(el("p", { class: "warnline" }, SHARES_NOTE));
+	} else if (!(v.shares || []).length && !(rules && rules.host)) {
 		kids.push(el("p", { class: "dim" }, "Nothing yet: the host grants what's shared once your file is bound to the world."));
 	} else {
-		const on = new Set(v.shares);
-		kids.push(el("ul", { class: "shares" }, ...SHARES.filter(([id]) => id !== "live-switches" || on.has(id)).map(([id, label, what]) =>
-			el("li", { class: on.has(id) ? "on" : "", title: what + (on.has(id) ? "" : " (not shared in this session)") }, el("i"), label))));
+		// The host's chips are what its hub allows; a joiner's what its
+		// game is granted.
+		const rows = rules ? new Map(rules.rows.map((r) => [r.id, r])) : null;
+		const on = rows ? new Set(rules.rows.filter((r) => r.on).map((r) => r.id)) : new Set(v.shares);
+		kids.push(el("ul", { class: "shares" }, ...SHARES.filter(([id]) => id !== "live-switches" || on.has(id)).map(([id, label, what]) => {
+			const miss = rows && rows.get(id) ? rows.get(id).missing || [] : [];
+			const title = what + (on.has(id) ? "" : " (not shared in this session)") + (miss.length ? ". Not for " + miss.join(", ") + ": their stage tables differ from yours" : "");
+			return el("li", { class: (on.has(id) ? "on" : "") + (miss.length ? " part" : ""), title }, el("i"), label);
+		})));
+		if (rules && !rules.host) kids.push(el("p", { class: "dim small" }, "The host chooses what co-op shares, and may change it while you play."));
+		if (rules && rules.note) kids.push(el("p", { class: "warnline" }, rules.note));
 	}
 	const keys = (v.keys || []).filter((k) => k.dungeon);
 	if (keys.length) {
@@ -253,6 +279,111 @@ function renderProgress(st, show) {
 		kids.push(el("p", { class: "okline" + (v.life ? "" : " no") }, v.life ? "Max hearts follow the hearts the world has taken" : "Max hearts aren't shared: " + (v.lifeWhy || "not granted")));
 	}
 	$("progress").replaceChildren(...kids);
+}
+
+// ruleRows is the rules in edit mode (the host's): a switch for each rule
+// co-op can change while it runs, the others read-only with why.
+function ruleRows(rules) {
+	const feats = rules.rows.filter((r) => r.id !== "merge" && r.id !== "dry-run");
+	return el("ul", { class: "rulelist" }, ...rules.rows.map((r) => {
+		let ctl;
+		if (r.edit) {
+			ctl = el("button", {
+				type: "button", class: "switch", id: "rule-" + r.id, role: "switch", "aria-checked": String(r.on), "aria-label": r.label, disabled: busy ? true : null,
+				// The row turns at once: a second click before the next state
+				// builds on this one, not on the state from before.
+				onclick: () => {
+					r.on = !r.on;
+					if (state) renderProgress(state, true);
+					return r.id === "merge" ? setMerge(r.on) : setShares(feats.filter((x) => x.on).map((x) => x.id));
+				},
+			}, el("i", { class: "knob", "aria-hidden": "true" }), el("span", {}, r.on ? "On" : "Off"));
+		} else {
+			ctl = el("span", { class: "chip", title: r.why || null }, r.id === "image" ? "Always on" : r.on ? "On · set at Start" : "Off · set at Start");
+		}
+		return el("li", { class: (r.on ? "on" : "") + (r.edit ? "" : " fixed") },
+			el("div", { class: "rtext" },
+				el("b", {}, r.label),
+				el("small", {}, r.what),
+				r.edit ? null : el("small", { class: "why" }, r.why),
+				r.missing && r.missing.length ? el("small", { class: "why warn" }, "Not for " + r.missing.join(", ") + ": their stage tables differ from yours") : null),
+			ctl);
+	}));
+}
+
+async function setShares(on) {
+	busy = true;
+	try {
+		await call("SetCoopShares", on);
+	} catch (e) {
+		toast(e.message, { bad: true });
+	}
+	busy = false;
+}
+
+async function setMerge(on) {
+	busy = true;
+	try {
+		await call("SetMerge", on);
+	} catch (e) {
+		toast(e.message, { bad: true });
+	}
+	busy = false;
+}
+
+// ---------- the Room items card (in game) ----------
+
+const MAGIC = { 0: "none", 16: "normal", 32: "double" };
+
+// tile is one item slot: the world's best variant, or the slot dimmed.
+function tile(x) {
+	const name = x.have ? x.name.replace(/^the /, "") : x.slot;
+	return el("li", { class: x.have ? "have" : "", title: x.have ? "The world has " + x.name : "Not in the world yet" }, name.charAt(0).toUpperCase() + name.slice(1));
+}
+
+// heartRow draws the world's max hearts, a quarter-filled last one for
+// the pieces past them.
+function heartRow(r) {
+	const n = Math.min(r.maxHearts, 20);
+	return el("span", { class: "hearts", "aria-hidden": "true" }, ...Array.from({ length: n }, () => el("i")), r.maxQuarters ? el("i", { class: "part" }) : null);
+}
+
+// renderRoom draws the Room items card from this game's view of the
+// world (the first pipeline's): what every player's game takes from it.
+function renderRoom(st, show) {
+	const panel = $("room-panel");
+	const r = show && st.coop.panel.pipes.length ? st.coop.panel.pipes[0].room : null;
+	panel.hidden = !r;
+	if (!r) return;
+	const have = r.items.filter((x) => x.have).length;
+	$("room-count").textContent = have + " of " + r.items.length + " items";
+	const fact = (label, value) => el("span", { class: "fact" }, el("small", {}, label), value);
+	const named = (xs) => xs.map((x) => el("li", { class: x.have ? "on" : "", title: x.have ? "The world has it" : "Not yet" }, el("i"), x.name));
+	const kids = [];
+	kids.push(el("div", { class: "equip" }, ...r.equip.map((x) => el("div", { class: "eq" + (x.have ? "" : " none") },
+		el("small", {}, x.slot), el("b", {}, x.have ? x.name.replace(/^the /, "") : "None")))));
+	if (r.hearts) {
+		const max = r.maxHearts + ["", "¼", "½", "¾"][r.maxQuarters];
+		kids.push(el("div", { class: "heartrow" }, heartRow(r),
+			el("span", { class: "dim" }, max + " hearts max · " + r.containersTaken + " of " + r.containers + " containers · " + r.piecesTaken + " of " + r.pieces + " pieces" +
+				(r.rewards ? " · " + r.given + " of " + r.rewards + " rewards" : ""))));
+	} else {
+		kids.push(el("p", { class: "okline no" }, "Hearts aren't counted: " + (r.heartsWhy || "no heart table")));
+	}
+	kids.push(el("div", { class: "subhead" }, "Item menu"), el("ul", { class: "slots" }, ...r.items.map(tile)));
+	kids.push(el("div", { class: "subhead" }, "Songs and pearls"),
+		el("ul", { class: "shares" }, ...named(r.songs), ...named(r.pearls)),
+		el("div", { class: "facts" },
+			fact("Triforce shards", r.shards + " of 8"),
+			fact("Charts", r.charts + " of " + r.chartsTotal),
+			r.salvaged ? fact("Treasure salvaged", String(r.salvaged)) : null,
+			r.triforceCharts ? fact("Triforce charts deciphered", r.triforceCharts + " of 8") : null,
+			fact("Wallet", r.wallet + " rupees"),
+			fact("Quiver", r.quiver ? String(r.quiver) : "none"),
+			fact("Bomb bag", r.bombBag ? String(r.bombBag) : "none"),
+			fact("Magic", MAGIC[r.magic] || String(r.magic))),
+		el("small", { class: "hint" }, "Read from the co-op world: every player's game takes these from it. Bottles, ammo, rupees, health and what the bait, spoils and delivery bags hold are each player's own."));
+	$("room").replaceChildren(...kids);
 }
 
 // ---------- the co-op panel (in game) ----------
@@ -318,6 +449,7 @@ export function renderCoop(st, { hosting, playing, ended }) {
 	renderCards(st, !!(c && c.mode !== "off" && !ended && !playing));
 	renderPanel(st, !!(c && c.panel && playing && !ended));
 	renderProgress(st, !!(c && c.panel && playing && !ended));
+	renderRoom(st, !!(c && c.panel && playing && !ended));
 	$("tab-sync").hidden = !(c && c.mode !== "off");
 }
 
@@ -444,6 +576,10 @@ export function initCoop({ copyText }) {
 	}
 	$("my-dry").addEventListener("change", () => call("SetMyCoopDryRun", $("my-dry").checked).catch((e) => toast(e.message, { bad: true })));
 	for (const id of ["coop-bosskill", "coop-refreshset"]) $(id).addEventListener("change", setRelays);
+	$("rules-edit").addEventListener("click", () => {
+		editing = !editing;
+		if (state) renderProgress(state, true);
+	});
 	$("coop-refresh").addEventListener("click", () => command("refresh"));
 	$("coop-warp").addEventListener("click", () => command("warp"));
 	$("coop-pause").addEventListener("click", () => command($("coop-pause").dataset.paused === "true" ? "resume" : "pause"));

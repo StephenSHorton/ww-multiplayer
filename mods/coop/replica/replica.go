@@ -72,6 +72,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/roomitems"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/synctables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
@@ -81,6 +82,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/hearts"
 )
 
 const (
@@ -335,6 +337,10 @@ type Status struct {
 	// Salvage is how the salvage catch-up stands (salvage.go): the points
 	// marked emptied, and those held.
 	Salvage SalvageStatus
+	// Room is what the session's world holds, read from this replica's
+	// view of it (roomitems.Of, the app's Room items card); nil before
+	// the hub's world came in.
+	Room *roomitems.Items
 }
 
 // helloKey is what a CO_HELLO describes: when it changes, the replica
@@ -707,6 +713,14 @@ func (r *Replica) Status() Status {
 		BossKill: r.bossKillStatus(),
 		Refresh:  r.refreshStatus(),
 		Salvage:  r.salvageStatus(),
+	}
+	if r.haveView && r.viewWorld == r.sessionWorld {
+		var h *hearts.Result
+		if r.cfg.Tables != nil {
+			h = r.cfg.Tables.Hearts
+		}
+		room := roomitems.Of(&r.view, h)
+		st.Room = &room
 	}
 	_, st.WritesOff = r.writer.Disabled()
 	if r.preflight != nil {

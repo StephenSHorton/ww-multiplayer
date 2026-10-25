@@ -245,15 +245,23 @@ function memberRow(m, lobby) {
 		m.rttMs > 0 && !m.away ? chip(m.rttMs + " ms", "rtt", "Round trip to the host") : null,
 		m.dolphinLabel ? chip(m.dolphinLabel, "dolphin " + m.dolphin, "Their Dolphin") : null,
 		playing && m.area ? chip(AREAS[m.area] || m.area, "area " + m.area, "About " + m.dist + " units from you") : null,
-		// Co-op: the save file they'll play (their card's preview).
+		// Co-op: the save file they'll play (their card's preview), then,
+		// in game, where their co-op stands.
 		!playing && m.file ? chip(m.file, "file", "Their save file for the co-op world") : null,
+		playing && m.coop ? chip(m.coop, "coop", "Their co-op file and where they are") : null,
 		// The host's Start says they're ready: their row has no ready chip.
 		playing || m.host ? null : chip(m.ready ? "Ready ✓" : "Not ready", m.ready ? "ready" : "notready"),
 	);
 	const kick = m.canKick
 		? el("button", { type: "button", class: "kick", title: "Remove " + m.name, onclick: () => confirmKick(m) }, "Kick")
 		: null;
-	return el("li", { class: (m.self ? "self" : "") + (m.away ? " away" : "") }, swatch, who, crown, chips, kick);
+	// Warp to: co-op's warp goes to the one other player (v1.0 is two
+	// players), so only that row has it.
+	const warp = m.canWarp
+		? el("button", { type: "button", class: "rowact", title: "Go to " + m.name + ": the same room at once, else their stage's entrance", onclick: () => warpTo(m) }, "Warp to")
+		: null;
+	const acts = warp || kick ? el("span", { class: "rowacts" }, warp, kick) : null;
+	return el("li", { class: (m.self ? "self" : "") + (m.away ? " away" : "") }, swatch, who, crown, chips, acts);
 }
 
 function render() {
@@ -626,6 +634,15 @@ async function dialogAction(id, d, st, arg = "") {
 				toast(e.message, { bad: true });
 			}
 			break;
+	}
+}
+
+async function warpTo(m) {
+	try {
+		await call("CoopCommand", "warp");
+		toast("Warping to " + m.name + ": the log says how it went.");
+	} catch (e) {
+		toast(e.message, { bad: true });
 	}
 }
 

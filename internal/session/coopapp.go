@@ -289,3 +289,21 @@ func (c *Controller) UnbindFile(world string) error {
 	}
 	return fe.UnbindFile(world)
 }
+
+// SetCoopShares changes what co-op shares while the session runs: on is
+// every session feature the host's hub allows from now on (the app's
+// owner-editable rules; CoopShareEngine). Host only: a joiner's engine
+// refuses it.
+func (c *Controller) SetCoopShares(on []string) error {
+	c.mu.Lock()
+	running := c.cur != nil
+	c.mu.Unlock()
+	if !running {
+		return ErrNoSession
+	}
+	se, ok := c.engine.(CoopShareEngine)
+	if !ok {
+		return ErrNoCoop
+	}
+	return se.SetCoopShares(on)
+}

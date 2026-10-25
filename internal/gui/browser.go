@@ -56,6 +56,8 @@ var browserMethods = map[string]bool{
 	"UnbindFile": true, "CoopCommand": true, "CoopStatusText": true,
 	// Each side's relay choices (coop-remaining 1.2 option a).
 	"SetCoopRelays": true,
+	// The host's rules while co-op runs (the ww-online review's app ideas).
+	"SetCoopShares": true,
 	// Sessions on your network (App PR 11).
 	"LanSessions": true,
 	// The Mods page (Phase D D4).

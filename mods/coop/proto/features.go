@@ -136,6 +136,47 @@ const DefaultFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureSw
 // capacities, §3) and max magic need no table.
 const TableFeatures = FeatureSwitches | FeatureLiveSwitches | FeaturePuzzle | FeatureCombat | FeatureKeys | FeatureLife
 
+// Shareable are the session features a host may turn on and off while
+// its hub runs (the app's owner-editable rules, the ww-online review's
+// app ideas): every one but FeatureImage, the world itself, which the
+// others hang on (without it a replica writes nothing: turning it off is
+// co-op off, which each player has as Pause co-op writes). A replica reads
+// each of them from its granted features on every tick, not only at the
+// welcome (Replica.plan and pick for the switches and live switches,
+// m4Granted for story, inventory, keys, life and magic, the scoped stores
+// for puzzles and kills), and the hub regrants every peer and asks one
+// that gets bytes back for a fresh WORLD (hub.SetFeatures), so a change
+// takes effect at the next tick.
+const Shareable = SessionFeatures &^ FeatureImage
+
+// ParseShares reads feature names (String's) into features: only names of
+// Shareable features, each at most once.
+func ParseShares(names []string) (Feature, error) {
+	var f Feature
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		var got Feature
+		for _, n := range featureNames {
+			if n.name == name {
+				got = n.f
+			}
+		}
+		switch {
+		case got == 0:
+			return 0, fmt.Errorf("no co-op feature %q", name)
+		case got&Shareable == 0:
+			return 0, fmt.Errorf("co-op feature %q can't be turned on or off while the session runs", name)
+		case f&got != 0:
+			return 0, fmt.Errorf("co-op feature %q named twice", name)
+		}
+		f |= got
+	}
+	return f, nil
+}
+
 var featureNames = []struct {
 	f    Feature
 	name string

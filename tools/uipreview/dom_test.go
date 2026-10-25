@@ -133,6 +133,57 @@ func TestFrontendDOM(t *testing.T) {
 			}
 			return ""
 		}},
+		{"the host edits what co-op shares", "s=ingame-host&click=rules-edit,rule-story,rule-switches", func(d string) string {
+			switch {
+			case !regexp.MustCompile(`id="rule-story"[^>]*aria-checked="false"`).MatchString(d):
+				return "Story didn't turn off"
+			case !regexp.MustCompile(`id="rule-switches"[^>]*aria-checked="false"`).MatchString(d):
+				return "the second click undid the first"
+			case !strings.Contains(d, "Always on") || !strings.Contains(d, "Off · set at Start"):
+				return "World and Dry run aren't read-only"
+			case !strings.Contains(d, "one key can open a door in each game"):
+				return "no note for keys without switches"
+			case text(d, "rules-edit") != "Done":
+				return "the Edit button reads " + text(d, "rules-edit")
+			}
+			return ""
+		}},
+		{"a joiner's rules are the host's", "s=ingame", func(d string) string {
+			if !regexp.MustCompile(`id="rules-edit"[^>]*hidden`).MatchString(d) || !strings.Contains(d, "The host chooses what co-op shares") {
+				return "a joiner can edit, or isn't told who chooses"
+			}
+			return ""
+		}},
+		{"a peer without the host's tables", "s=ingame-host&tables=differ", func(d string) string {
+			if !strings.Contains(d, `class="on part"`) {
+				return "no part chip for a rule Blake isn't granted"
+			}
+			return ""
+		}},
+		{"the Room items card", "s=ingame", func(d string) string {
+			if got := text(d, "room-count"); got != "10 of 17 items" || !strings.Contains(d, "5½ hearts max") || !strings.Contains(d, "Din's Pearl") {
+				return "room card " + got
+			}
+			return ""
+		}},
+		{"no Room items before the world", "s=ingame&room=none", func(d string) string {
+			if !regexp.MustCompile(`id="room-panel"[^>]*hidden`).MatchString(d) {
+				return "the room card shows with no world"
+			}
+			return ""
+		}},
+		{"Warp to on the partner's row", "s=ingame&two=1", func(d string) string {
+			if strings.Count(d, `class="rowact"`) != 1 || !strings.Contains(d, ">DRC room 3<") {
+				return "no single Warp to, or no partner chip, with two players"
+			}
+			return ""
+		}},
+		{"no Warp to with three players", "s=ingame", func(d string) string {
+			if strings.Contains(d, `class="rowact"`) {
+				return "Warp to with two others"
+			}
+			return ""
+		}},
 		{"Settings in a session", "s=ingame&upd=1&click=nav-settings", func(d string) string {
 			if got := text(d, "set-vertext"); !strings.Contains(got, "once you leave the session") {
 				return "version line " + got
