@@ -435,6 +435,7 @@ func TestGameFilesGuard(t *testing.T) {
 	}
 	for _, c := range []struct{ file, job, args string }{
 		{".github/workflows/build.yml", "windows", ""},
+		{".github/workflows/build.yml", "macos", "dist/ww-multiplayer-macos.zip"},
 		{".github/workflows/release.yml", "windows", ""},
 		{".github/workflows/release.yml", "windows", "ww-multiplayer.exe"},
 		{".github/workflows/release.yml", "macos", "dist/ww-multiplayer-macos.zip"},

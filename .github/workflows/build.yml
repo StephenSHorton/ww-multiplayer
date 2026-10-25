@@ -134,6 +134,11 @@ jobs:
       - name: Build and zip WW Multiplayer.app
         run: ./scripts/build-mac.sh "ci-${GITHUB_SHA:0:7}"
 
+      # The zip a release would publish holds no game file (release.yml
+      # runs the same on the real one).
+      - name: No game files in the macOS zip
+        run: go run ./tools/check_game_files dist/ww-multiplayer-macos.zip
+
       - name: Keep the zip (workflow artifact, not a release)
         uses: actions/upload-artifact@v4
         with:
