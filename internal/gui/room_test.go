@@ -3,6 +3,7 @@ package gui
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
@@ -53,8 +54,11 @@ func TestRulesViewHost(t *testing.T) {
 	if r := ruleByID(t, v, "story"); !r.On || !r.Edit || len(r.Missing) != 0 {
 		t.Errorf("Story %+v", r)
 	}
-	if r := ruleByID(t, v, "switches"); !r.On || !r.Edit || !slices.Equal(r.Missing, []string{"Blake"}) {
-		t.Errorf("Switches %+v: want Blake missing (the host and the unbound Sam are not listed)", r)
+	if r := ruleByID(t, v, "switches"); !r.On || !r.Edit || !slices.Equal(r.Missing, []string{"Blake"}) || !strings.Contains(r.MissingWhy, "stage tables") {
+		t.Errorf("Switches %+v: want Blake missing, for his tables (the host and the unbound Sam are not listed)", r)
+	}
+	if r := ruleByID(t, v, "life"); !slices.Equal(r.Missing, []string{"Blake"}) {
+		t.Errorf("Hearts %+v: want Blake missing", r)
 	}
 	if r := ruleByID(t, v, "inventory"); r.On || !r.Edit || len(r.Missing) != 0 {
 		t.Errorf("Items %+v: want off, editable", r)
@@ -64,6 +68,10 @@ func TestRulesViewHost(t *testing.T) {
 	}
 	if r := ruleByID(t, v, "dry-run"); r.On || r.Edit || r.Why == "" {
 		t.Errorf("Dry run %+v: want read-only with why", r)
+	}
+	st.CoopHub.Peers[1].Features = "image"
+	if r := ruleByID(t, rulesView(st, hideIPs), "story"); !slices.Equal(r.Missing, []string{"Blake"}) || r.MissingWhy != "their game runs a dry run" {
+		t.Errorf("Story for a dry-run Blake: %+v", r)
 	}
 	st.CoopHub.Features = "image|keys"
 	if v := rulesView(st, hideIPs); v.Note != sharesNote {

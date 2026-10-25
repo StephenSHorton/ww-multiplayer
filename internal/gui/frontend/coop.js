@@ -252,8 +252,9 @@ function renderProgress(st, show) {
 		const rows = rules ? new Map(rules.rows.map((r) => [r.id, r])) : null;
 		const on = rows ? new Set(rules.rows.filter((r) => r.on).map((r) => r.id)) : new Set(v.shares);
 		kids.push(el("ul", { class: "shares" }, ...SHARES.filter(([id]) => id !== "live-switches" || on.has(id)).map(([id, label, what]) => {
-			const miss = rows && rows.get(id) ? rows.get(id).missing || [] : [];
-			const title = what + (on.has(id) ? "" : " (not shared in this session)") + (miss.length ? ". Not for " + miss.join(", ") + ": their stage tables differ from yours" : "");
+			const row = rows ? rows.get(id) : null;
+			const miss = row ? row.missing || [] : [];
+			const title = what + (on.has(id) ? "" : " (not shared in this session)") + (miss.length ? ". Not for " + miss.join(", ") + ": " + row.missingWhy : "");
 			return el("li", { class: (on.has(id) ? "on" : "") + (miss.length ? " part" : ""), title }, el("i"), label);
 		})));
 		if (rules && !rules.host) kids.push(el("p", { class: "dim small" }, "The host chooses what co-op shares, and may change it while you play."));
@@ -306,7 +307,7 @@ function ruleRows(rules) {
 				el("b", {}, r.label),
 				el("small", {}, r.what),
 				r.edit ? null : el("small", { class: "why" }, r.why),
-				r.missing && r.missing.length ? el("small", { class: "why warn" }, "Not for " + r.missing.join(", ") + ": their stage tables differ from yours") : null),
+				r.missing && r.missing.length ? el("small", { class: "why warn" }, "Not for " + r.missing.join(", ") + ": " + r.missingWhy) : null),
 			ctl);
 	}));
 }

@@ -35,9 +35,12 @@ type CoopRuleView struct {
 	Edit bool   `json:"edit"`
 	Why  string `json:"why,omitempty"`
 	// Missing names the players the hub doesn't grant it although the
-	// host allows it (their stage tables differ from the host's, or
-	// their build asks for less): the host's view only.
-	Missing []string `json:"missing,omitempty"`
+	// host allows it, MissingWhy why (hub grant: a peer gets what it asks
+	// for, which a dry run keeps to the World, and no rule that reads
+	// the stage tables unless its tables are the host's): the host's
+	// view only.
+	Missing    []string `json:"missing,omitempty"`
+	MissingWhy string   `json:"missingWhy,omitempty"`
 }
 
 // CoopRulesView is the rules card.
@@ -124,6 +127,13 @@ func rulesView(st session.State, mk masker) *CoopRulesView {
 				if !nameSet(p.Features)[r.id] {
 					row.Missing = append(row.Missing, mk.text(p.Name))
 				}
+			}
+			switch {
+			case len(row.Missing) == 0:
+			case r.f&proto.TableFeatures != 0:
+				row.MissingWhy = "their stage tables differ from yours, or their game runs a dry run"
+			default:
+				row.MissingWhy = "their game runs a dry run"
 			}
 		}
 		v.Rows = append(v.Rows, row)

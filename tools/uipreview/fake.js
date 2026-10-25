@@ -148,6 +148,7 @@
 		const rows = RULES.map(([id, label, what, why]) => ({
 			id, label, what, on: on.has(id), edit: host && !why, why: host ? why || "" : "",
 			missing: host && tablesDiffer && on.has(id) && tableFeats.has(id) ? ["Blake"] : [],
+			missingWhy: "their stage tables differ from yours, or their game runs a dry run",
 		}));
 		return { host, edit: host, rows, note: on.has("keys") && !on.has("switches") ? "Small keys are counted from the doors the switches share: with Switches off, one key can open a door in each game." : "" };
 	}
