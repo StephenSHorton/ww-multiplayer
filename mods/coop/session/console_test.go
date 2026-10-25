@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/derive"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
@@ -259,6 +260,45 @@ func TestCoopPartnerPos(t *testing.T) {
 			t.Fatal("a partner position with two others")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// TestProgressionFacts: the app's progress card reads the same facts as
+// /status's lines, structured: the features granted by name, the held
+// story bits, the key tables that are derived or name a dungeon, and max
+// hearts; a dry run derives nothing and shares no feature list.
+func TestProgressionFacts(t *testing.T) {
+	metKorl := addr.EventByte(0x0F80)
+	held := []replica.HeldBit{
+		{Off: uint16(addr.OffEvent + metKorl.Off), Mask: metKorl.Mask, Hold: replica.Hold{ID: 0x0F80, Why: "MET_KORL moves the resume stage"}},
+		{Off: uint16(addr.OffMemBit(addr.TableDRC) + addr.MemBitOffDungeonItem), Mask: 0x08, Hold: replica.Hold{Why: "the boss stage"}},
+	}
+	drc := derive.KeyStatus{Table: addr.TableDRC, Dungeon: "DRC", On: true, Seen: true, Target: 2, Pending: true,
+		Facts: derive.KeyFacts{Table: addr.TableDRC, Sources: 4, Taken: 2, Doors: 4, Open: 1, Held: 1, Have: 1}}
+	fw := derive.KeyStatus{Table: addr.TableFW, Dungeon: "FW", Why: "its M1 key invariant fails (coop-tables)"}
+	none := derive.KeyStatus{Table: addr.TableSea, Why: "it is no dungeon with small keys"}
+	st := replica.Status{Features: hub.DefaultFeatures | hub.FeatureMerge, Held: held,
+		Derive: derive.Status{Keys: []derive.KeyStatus{none, drc, fw}, LifeWhy: "no heart table (coop-tables)"}}
+	cs := coopStatusOf("Link", st)
+	if want := strings.Split((hub.DefaultFeatures & hub.SessionFeatures).String(), "|"); !slices.Equal(cs.Shares, want) {
+		t.Errorf("shares %v, want %v (merge is no session feature)", cs.Shares, want)
+	}
+	if want := []string{replica.DefaultLabel(addr.OffEvent+metKorl.Off, 7) + " (MET_KORL moves the resume stage)"}; !slices.Equal(cs.HeldStory, want) {
+		t.Errorf("held story %v, want %v", cs.HeldStory, want)
+	}
+	wantKeys := []session.CoopKeys{
+		{Table: addr.TableDRC, Dungeon: "DRC", On: true, Seen: true, Pending: true, Have: 1, Taken: 2, Sources: 4, Open: 1, Doors: 4, Held: 1, Target: 2},
+		{Table: addr.TableFW, Dungeon: "FW", Why: "its M1 key invariant fails (coop-tables)"},
+	}
+	if !slices.Equal(cs.Keys, wantKeys) {
+		t.Errorf("keys %+v, want %+v", cs.Keys, wantKeys)
+	}
+	if cs.Life || cs.LifeWhy != "no heart table (coop-tables)" {
+		t.Errorf("life %v %q", cs.Life, cs.LifeWhy)
+	}
+	dry := coopStatusOf("Link", replica.Status{DryRun: true, Features: hub.FeatureImage, Held: held, Derive: derive.Status{Keys: []derive.KeyStatus{drc}, Life: true}})
+	if dry.Shares != nil || dry.Keys != nil || dry.Life || len(dry.HeldStory) != 1 {
+		t.Errorf("dry run %+v", dry)
 	}
 }
 
