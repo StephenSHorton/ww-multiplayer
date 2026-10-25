@@ -166,7 +166,9 @@ func TestDOLSiteChecksCatchAClobber(t *testing.T) {
 }
 
 func TestCheckOverlaps(t *testing.T) {
-	w := func(file string, s, e uint64, owner string) Span { return Span{File: file, Start: s, End: e, Owner: owner} }
+	w := func(file string, s, e uint64, owner string) Span {
+		return Span{File: file, Start: s, End: e, Owner: owner}
+	}
 	for _, c := range []struct {
 		name            string
 		writes, protect []Span

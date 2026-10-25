@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/rel"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
@@ -48,7 +49,7 @@ var ErrRELSArcGrowth = errors.New("RELS.arc would grow past the ARAM guard")
 // by more than maxGrowth bytes (RELSArcMaxGrowth, see there) is refused
 // with ErrRELSArcGrowth.
 func PatchRELSArc(arc []byte, moduleID uint32, newREL []byte, profileSection uint8, profileOffset uint32, maxGrowth int) ([]byte, error) {
-	out, _, err := patchRELSArc(arc, moduleID, newREL, ProfileTarget{Section: profileSection, Offset: profileOffset}, nil, maxGrowth)
+	out, _, _, err := patchRELSArc(arc, moduleID, newREL, ProfileTarget{Section: profileSection, Offset: profileOffset}, nil, nil, maxGrowth)
 	return out, err
 }
 
@@ -73,7 +74,7 @@ type ProfileTarget struct {
 // result is a fixed point: patching it again with the same inputs gives
 // it back.
 func PatchRELSArcProfiles(arc []byte, moduleID uint32, newREL []byte, main ProfileTarget, extra []ProfileTarget, maxGrowth int) ([]byte, error) {
-	out, _, err := patchRELSArc(arc, moduleID, newREL, main, extra, maxGrowth)
+	out, _, _, err := patchRELSArc(arc, moduleID, newREL, main, extra, nil, maxGrowth)
 	return out, err
 }
 
@@ -89,65 +90,67 @@ func checkProfile(f *rel.File, p ProfileTarget) error {
 	return nil
 }
 
-// patchRELSArc is PatchRELSArcProfiles, also returning the archive entry
-// the new REL took (its path names the module's file).
-func patchRELSArc(arc []byte, moduleID uint32, newREL []byte, main ProfileTarget, extra []ProfileTarget, maxGrowth int) ([]byte, stage.ArchiveFile, error) {
+// patchRELSArc is PatchRELSArcProfiles with the byte patches too
+// (applyBytePatches, after the module and the profile list, inside the
+// growth guard), also returning the archive entry the new REL took (its
+// path names the module's file) and the byte patches on the archive.
+func patchRELSArc(arc []byte, moduleID uint32, newREL []byte, main ProfileTarget, extra []ProfileTarget, patches []BytePatch, maxGrowth int) ([]byte, stage.ArchiveFile, []string, error) {
 	var none stage.ArchiveFile
 	if moduleID == 0 || moduleID == ProfileListModule {
-		return nil, none, fmt.Errorf("rels: module 0x%x can't be replaced", moduleID)
+		return nil, none, nil, fmt.Errorf("rels: module 0x%x can't be replaced", moduleID)
 	}
 	if stage.IsYaz0(newREL) {
-		return nil, none, errors.New("rels: the new REL must be given uncompressed")
+		return nil, none, nil, errors.New("rels: the new REL must be given uncompressed")
 	}
 	f, err := rel.Parse(newREL)
 	if err != nil {
-		return nil, none, fmt.Errorf("rels: new REL: %w", err)
+		return nil, none, nil, fmt.Errorf("rels: new REL: %w", err)
 	}
 	if f.ID != moduleID {
-		return nil, none, fmt.Errorf("rels: the new REL is module 0x%x, not 0x%x", f.ID, moduleID)
+		return nil, none, nil, fmt.Errorf("rels: the new REL is module 0x%x, not 0x%x", f.ID, moduleID)
 	}
 	if err := checkProfile(f, main); err != nil {
-		return nil, none, err
+		return nil, none, nil, err
 	}
 	seen := map[uint16]bool{main.Proc: true}
 	for _, p := range extra {
 		if p.Proc == 0 || seen[p.Proc] {
-			return nil, none, fmt.Errorf("rels: process 0x%x given twice (or 0)", p.Proc)
+			return nil, none, nil, fmt.Errorf("rels: process 0x%x given twice (or 0)", p.Proc)
 		}
 		seen[p.Proc] = true
 		if err := checkProfile(f, p); err != nil {
-			return nil, none, err
+			return nil, none, nil, err
 		}
 	}
 
 	a, err := stage.ParseArchive(arc)
 	if err != nil {
-		return nil, none, fmt.Errorf("rels: %w", err)
+		return nil, none, nil, fmt.Errorf("rels: %w", err)
 	}
 	e, err := a.Edit()
 	if err != nil {
-		return nil, none, fmt.Errorf("rels: %w", err)
+		return nil, none, nil, fmt.Errorf("rels: %w", err)
 	}
 	modFile, err := e.ReplaceByFirstWord(moduleID, newREL)
 	if err != nil {
-		return nil, none, fmt.Errorf("rels: module 0x%x: %w", moduleID, err)
+		return nil, none, nil, fmt.Errorf("rels: module 0x%x: %w", moduleID, err)
 	}
 
 	// The profile list: its one relocation against the module.
 	lstFile, lst, err := findByFirstWord(e, ProfileListModule)
 	if err != nil {
-		return nil, none, err
+		return nil, none, nil, err
 	}
 	lf, err := rel.Parse(lst)
 	if err != nil {
-		return nil, none, fmt.Errorf("rels: %s: %w", lstFile.Path, err)
+		return nil, none, nil, fmt.Errorf("rels: %s: %w", lstFile.Path, err)
 	}
 	r, err := mainReloc(lf, moduleID, main.Proc)
 	if err != nil {
-		return nil, none, fmt.Errorf("rels: %s: %w", lstFile.Path, err)
+		return nil, none, nil, fmt.Errorf("rels: %s: %w", lstFile.Path, err)
 	}
 	if r.Type != rel.RelocAddr32 {
-		return nil, none, fmt.Errorf("rels: %s: the relocation against module 0x%x is type 0x%x, not ADDR32", lstFile.Path, moduleID, r.Type)
+		return nil, none, nil, fmt.Errorf("rels: %s: the relocation against module 0x%x is type 0x%x, not ADDR32", lstFile.Path, moduleID, r.Type)
 	}
 	r.TargetSection, r.Addend = main.Section, main.Offset
 	listSection := r.Section
@@ -155,37 +158,48 @@ func patchRELSArc(arc []byte, moduleID uint32, newREL []byte, main ProfileTarget
 		at := 4 * uint32(p.Proc)
 		imp, idx := lf.RelocAt(listSection, at)
 		if imp == nil {
-			return nil, none, fmt.Errorf("rels: %s: no relocation at process 0x%x's entry (section %d offset 0x%x)", lstFile.Path, p.Proc, listSection, at)
+			return nil, none, nil, fmt.Errorf("rels: %s: no relocation at process 0x%x's entry (section %d offset 0x%x)", lstFile.Path, p.Proc, listSection, at)
 		}
 		if t := imp.Relocs[idx].Type; t != rel.RelocAddr32 {
-			return nil, none, fmt.Errorf("rels: %s: process 0x%x's entry is type 0x%x, not ADDR32", lstFile.Path, p.Proc, t)
+			return nil, none, nil, fmt.Errorf("rels: %s: process 0x%x's entry is type 0x%x, not ADDR32", lstFile.Path, p.Proc, t)
 		}
 		if imp.Module == 0 || imp.Module == lf.ID {
-			return nil, none, fmt.Errorf("rels: %s: process 0x%x's entry points into module 0x%x, not an actor module", lstFile.Path, p.Proc, imp.Module)
+			return nil, none, nil, fmt.Errorf("rels: %s: process 0x%x's entry points into module 0x%x, not an actor module", lstFile.Path, p.Proc, imp.Module)
 		}
 		moved, err := lf.MoveReloc(imp, idx, moduleID)
 		if err != nil {
-			return nil, none, fmt.Errorf("rels: %s: %w", lstFile.Path, err)
+			return nil, none, nil, fmt.Errorf("rels: %s: %w", lstFile.Path, err)
 		}
 		moved.TargetSection, moved.Addend = p.Section, p.Offset
 	}
 	patched, err := lf.Bytes(true)
 	if err != nil {
-		return nil, none, fmt.Errorf("rels: %s: %w", lstFile.Path, err)
+		return nil, none, nil, fmt.Errorf("rels: %s: %w", lstFile.Path, err)
 	}
 	if err := e.Replace(lstFile, patched); err != nil {
-		return nil, none, fmt.Errorf("rels: %w", err)
+		return nil, none, nil, fmt.Errorf("rels: %w", err)
+	}
+	var applied []string
+	if len(patches) != 0 {
+		// The module's REL and the profile list are rewritten whole.
+		mod := []inject.Span{
+			{File: modFile.Path, End: inject.WholeFile, Owner: "the mod's REL"},
+			{File: lstFile.Path, End: inject.WholeFile, Owner: "the mod's profile list edit"},
+		}
+		if applied, err = applyBytePatches(e, patches, mod); err != nil {
+			return nil, none, nil, err
+		}
 	}
 
 	if g := e.Growth(); g > maxGrowth {
-		return nil, none, fmt.Errorf("rels: %w: %d bytes (%d -> %d), limit %d; shrink the REL",
+		return nil, none, nil, fmt.Errorf("rels: %w: %d bytes (%d -> %d), limit %d; shrink the REL",
 			ErrRELSArcGrowth, g, len(arc), len(arc)+g, maxGrowth)
 	}
 	out, err := e.Bytes()
 	if err != nil {
-		return nil, none, fmt.Errorf("rels: %w", err)
+		return nil, none, nil, fmt.Errorf("rels: %w", err)
 	}
-	return out, modFile, nil
+	return out, modFile, applied, nil
 }
 
 // mainReloc is the module's own entry in the profile list lf: the sole

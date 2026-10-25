@@ -114,3 +114,55 @@ func Files() []stagetest.File {
 
 // Arc is the archive of Files.
 func Arc() []byte { return stagetest.RARC("rels", Files()...) }
+
+// LodBgFile is the archive path of LodBg's REL, as on the disc.
+const LodBgFile = "mmem/d_a_lod_bg.rel"
+
+// LodBgModule is LodBg's module ID (any actor module's will do: the
+// sea-heap fix finds its REL by path).
+const LodBgModule = 0x91
+
+// LodBg is a stand-in for d_a_lod_bg.rel with what rels.SeaHeapFix
+// looks for and nothing of the game's: a .text of 0x133C bytes of
+// pseudo-random filler holding `li r5, 0` at 0xCF8 and a `bl` at 0xCFC
+// and at each of deleteModelData's six JKRHeap::free calls (0x3A4,
+// 0x3B8, 0x3D4, 0x3FC, 0x410, 0x42C), REL24 relocations against
+// main.dol on those bls, a relocation against itself in .text and one
+// in .data.
+func LodBg() []byte {
+	text := REL(LodBgModule, 0x133C) // filler only: its .text is used
+	f, err := rel.Parse(text)
+	if err != nil {
+		panic(err)
+	}
+	t := f.Sections[1].Data
+	put := func(off int, w ...byte) { copy(t[off:], w) }
+	put(0xCF8, 0x38, 0xA0, 0x00, 0x00)
+	main := []rel.Reloc{{Section: 1, Offset: 0xCFC, Type: rel.RelocRel24, Addend: 0x80024D24}}
+	for _, off := range LodBgFrees {
+		put(int(off), 0x48, 0x00, 0x00, 0x01)
+		main = append(main, rel.Reloc{Section: 1, Offset: off, Type: rel.RelocRel24, Addend: 0x802B0518})
+	}
+	put(0xCFC, 0x48, 0x00, 0x00, 0x01)
+	main = append(main, rel.Reloc{Section: 2, Offset: 0x10, Type: rel.RelocAddr32, Addend: 0x80005678})
+	f.Imports = []rel.Import{
+		{Module: LodBgModule, Relocs: []rel.Reloc{
+			{Section: 1, Offset: 0xCF2, Type: rel.RelocAddr16Lo, TargetSection: 1, Addend: 0xA38},
+			{Section: 2, Offset: 0x20, Type: rel.RelocAddr32, TargetSection: 1, Addend: 0x12EC},
+		}},
+		{Module: 0, Relocs: main},
+	}
+	b, err := f.Bytes(false)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+// LodBgFrees are the .text offsets of LodBg's JKRHeap::free calls.
+var LodBgFrees = []uint32{0x3A4, 0x3B8, 0x3D4, 0x3FC, 0x410, 0x42C}
+
+// ArcWithLodBg is Arc with LodBg in it too.
+func ArcWithLodBg() []byte {
+	return stagetest.RARC("rels", append(Files(), stagetest.File{Path: LodBgFile, Data: LodBg(), Yaz0: true})...)
+}
