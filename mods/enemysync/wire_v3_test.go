@@ -162,8 +162,8 @@ func TestPAckNames(t *testing.T) {
 		}
 	}
 	details := map[uint8]string{PADNone: "none", PADIFrames: "iframes", PADGoGate: "go_gate", PADNotInPlay: "not_in_play",
-		PADStaleEpoch: "stale_epoch", PADAborted: "aborted"}
-	if len(details) != int(mailbox.RemoteADAborted)+1 {
+		PADStaleEpoch: "stale_epoch", PADAborted: "aborted", PADClientStale: "client_stale", PADBadHit: "bad_hit"}
+	if len(details) != int(mailbox.RemoteADBadHit)+1 {
 		t.Fatalf("%d details", len(details))
 	}
 	for d, want := range details {
@@ -171,7 +171,7 @@ func TestPAckNames(t *testing.T) {
 			t.Errorf("PAckDetailName(%d) = %q, want %q", d, got, want)
 		}
 	}
-	if PAckResultName(8) != "result_8" || PAckDetailName(6) != "detail_6" {
+	if PAckResultName(8) != "result_8" || PAckDetailName(8) != "detail_8" {
 		t.Error("unknown names")
 	}
 }

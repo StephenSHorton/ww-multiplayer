@@ -9,6 +9,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/tunicsync"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
@@ -115,6 +116,17 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 		}
 	}()
 
+	// The remote players' visuals (vissync, inject/include/wwvis.h): names,
+	// sword and shield, sea chart markers. WW_NAMETAGS / WW_EQUIP /
+	// WW_SEACHART=off turn each off. Session over: the block goes off.
+	visSettings := vissync.SettingsFromEnv()
+	var vis vissync.Sync
+	defer func() {
+		if gate.ok {
+			_ = vis.Off(d)
+		}
+	}()
+
 	// connect (re)establishes the session and RE-ARMS the mailbox (#8 + D3).
 	// Runs at startup and after every reconnect. A change in the welcome's
 	// server epoch means the server restarted → full puppet reset.
@@ -171,6 +183,8 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 				tunicsync.SyncTunics(tunics, mine, haveMine, remotes, feeder.LinkSlots(), now)
 			}
 
+			_ = vis.Write(d, vissync.Build(visSettings, remotes, feeder.LinkSlots(), selfFilter))
+
 			feeder.Expire(now)
 
 			select {
@@ -181,6 +195,10 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 			}
 		}
 		rep.Log(log.Info, "Disconnected.")
+		// The session dropped: its names, equip and sea chart markers
+		// must not linger frozen while ReconnectLoop waits to redial.
+		// The next session's first Write turns the block back on.
+		visDropped(d, &vis, gate.ok)
 		return nil
 	}
 	run := func(ctx context.Context) error {
@@ -188,4 +206,14 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 	}
 
 	return network.ReconnectLoop(ctx, connect, run, network.NewBackoff(), network.SleepCtx)
+}
+
+// visDropped turns the visuals block off when a session ends (a dropped
+// connection or ctx done), only into a game the contract check allows.
+// Sync.Off forgets the last block, so the reconnected session's first
+// Write rewrites the whole Go span, magic included.
+func visDropped(w vissync.Writer, vis *vissync.Sync, gateOK bool) {
+	if gateOK {
+		_ = vis.Off(w)
+	}
 }

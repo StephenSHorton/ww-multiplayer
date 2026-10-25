@@ -6,12 +6,15 @@
 // for it when a bit the partner set has landed in this game while an
 // actor this game placed before it still stands: a boulder (Stone2), a
 // bush (Obj_Leaves), an item (daItem), a chest (Tbox) or a barricade
-// (Saku). The op deletes that one actor, which a reload would then never
-// create (each create reads its own bit: d_a_stone2.cpp, chk_appear in
-// d_a_obj_leaves.cpp:158-165, d_a_item.cpp:227-233, d_a_tbox.cpp:314-320,
-// d_a_saku.cpp:709-724), so the stage ends as vanilla's would after the
-// same progress. It never trusts Go's candidate: the REL re-derives the
-// bit from the actor's own params and fields, re-reads it through the
+// (Saku). The op deletes that one actor. Each create reads its own bit, so
+// a reload never creates the boulder, bush, item or barricade again
+// (d_a_stone2.cpp, chk_appear in d_a_obj_leaves.cpp:158-165,
+// d_a_item.cpp:227-233, d_a_saku.cpp:709-724) and creates the chest
+// already open (checkOpen, d_a_tbox.cpp:314-320, in CreateInit at
+// :453-457, and its open BG at :342-344), so the stage ends as vanilla's
+// would after the same progress. It never trusts Go's candidate: the REL
+// re-derives the bit from the actor's own params and fields, re-reads it
+// through the
 // DOL's own save queries, and runs every gate below itself, so a wrong
 // candidate can cost NOT_SET, MISMATCH, GATE or REFUSED, never a wrong
 // delete (actor_refresh "safety_rule"). The one case it cannot tell apart

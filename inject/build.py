@@ -47,19 +47,19 @@ SYMBOL_MAP = os.path.join("build", "WWMultiplayer.map")
 # T2 (plain gcc + `ld --relocatable`, no Freighter); extract_blob.py
 # embeds REL_ELF as is and the Go converter (wwapi/rel) makes the REL.
 REL_SOURCES = ["rel/rel_main.c", "rel/enemy_mirror.c", "rel/remote.c", "rel/fullbody.c", "rel/shanm.c", "rel/bosskill.c",
-               "rel/refresh.c", "rel/em_mt.c"]
+               "rel/refresh.c", "rel/em_mt.c", "rel/visuals.c"]
 # The headers the module's build id also covers (rel_build_id): its own
 # and the five slack layouts it reads and writes.
 REL_HEADERS = ["rel/enemy_mirror.h", "rel/remote.h", "rel/fullbody.h", "rel/shanm.h", "rel/dapy.h", "rel/bosskill.h",
-               "rel/refresh.h", "rel/em_mt.h",
+               "rel/refresh.h", "rel/em_mt.h", "rel/visuals.h",
                "include/wwrel.h", "include/wwenemy.h", "include/wwenemy_kinds.h", "include/wwremote.h", "include/wwboss.h",
-               "include/wwrefresh.h"]
+               "include/wwrefresh.h", "include/wwvis.h"]
 # The module's functions DOL code calls back through a pointer the module
 # hands it at run time (not the profile tables, which ww_rel.ld places):
 # each, when compiled in, must be a .text symbol of the linked ELF (batch D
 # R-D2: bosskill.c's fopAcIt_Judge callbacks, bk_bst_judge under
 # WWBOSS_WITH_BST and bk_bpw_judge under WWBOSS_WITH_BPW).
-REL_TEXT_CALLBACKS = ["bk_bst_judge", "bk_bpw_judge"]
+REL_TEXT_CALLBACKS = ["bk_bst_judge", "bk_bpw_judge", "wwvis_draw_hook", "wwvis_seachart_draw", "vis_tag_draw"]
 REL_LD = os.path.join("rel", "ww_rel.ld")
 REL_OBJ_DIR = os.path.join("build", "temp", "rel")
 REL_ELF = os.path.join("build", "wwrel.elf")
@@ -435,6 +435,16 @@ def main():
     # vanilla fpcMtd_Execute, with r3/r4 and LR (0x80023960) untouched,
     # so the callee returns straight to fopAc_Execute. T2 holds no policy.
     proj.hook_branchlink("exec_shim", 0x8002395C)
+
+    # Sea chart hook (ww-online review idea 14). dDlst_FMAP_c::draw
+    # (0x801BB024) calls `bl J2DScreen::draw` (0x802D0F2C) at 0x801BB06C
+    # with this in r30 and the graf port in r31. seachart_shim (naked)
+    # makes that call itself, then calls the REL's wwvis_seachart_draw
+    # (this, port) through the visuals block's word at mailbox+0x8D4
+    # (wwvis.h WWVIS_SEACHART_FN_OFF) when it is published, and returns to
+    # 0x801BB070. ww-online branches at 0x801BB070 for the same call
+    # (seachart_players.asm); nothing else of ours patches this function.
+    proj.hook_branchlink("seachart_shim", 0x801BB06C)
 
     # Set entry function (required for linker)
     proj.set_entry_function("main01_init")

@@ -26,7 +26,7 @@ const (
 	RefreshEnable = 1 // WWREFRESH_ENABLE, the REL's compile switch
 
 	RefreshOff         uint32 = 0x8B0  // request start, from Mailbox (0x804137B0)
-	RefreshSize        uint32 = 0x20   // ends at +0x8D0, where CanaryArenaHigh starts
+	RefreshSize        uint32 = 0x20   // ends at +0x8D0, where the visuals block starts (vis.go VisOff)
 	RefreshSlackEnd    uint32 = 0x1100 // the free slack's end (wwremote.h)
 	RefreshSeqOff             = 0x00   // u32 request seq, never 0 (Go)
 	RefreshProcOff            = 0x04   // u16 the actor's proc (Go)
@@ -141,7 +141,8 @@ const (
 const RefreshAddr = Mailbox + RefreshOff
 
 // RefreshRegion is the request's 0x20 bytes: Go and the REL write it, so
-// the region probe never arms it (CanaryArenaHigh starts at its end).
+// the region probe never arms it (the visuals block follows it, and
+// CanaryArenaHigh starts past that).
 var RefreshRegion = addr.Region{Name: "actor_refresh request", Start: RefreshAddr, End: RefreshAddr + RefreshSize}
 
 // RefreshProcName names an allow-listed proc, "proc 0x%04X" for any other

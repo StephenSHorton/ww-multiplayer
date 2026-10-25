@@ -7,6 +7,7 @@
 
 #include "wwapi.h"
 #include "mailbox_core.h"
+#include "wwvis.h"
 #include "../core/mods.h"
 
 // Actor procs the actor puppets spawn (puppets.c) or tried to.

@@ -542,7 +542,9 @@ creates only lite bodies and nothing below runs.
   when it closes, so outside the windows the shared data is the local
   Link's. Its tables and variables live in one archive-heap block
   (`WWREMOTE_SHANM_BYTES`, header `WWREMOTE_SA_*`), allocated at the first
-  full create of a boot and never freed; the module still has no `.bss`.
+  full create of a boot and never freed, so shanm keeps nothing in `.bss`
+  (the module's `.bss` is visuals.c's per-frame scratch: the j3dSys
+  snapshot and the name tag packets, which no unlink needs to survive).
   `fullbody.c`, `fullbody.h`, `shanm.c` and `shanm.h` carry ww-online's
   MIT notice.
 
@@ -723,3 +725,56 @@ lying normally, Tbox closed and waiting behind its `daTbox_Execute`
 fingerprint, Saku not burning with every standing half's switch set).
 The delete is `fopAcM_delete__FUi`. The result is `R_*`, the gate id and
 the proc's state as found. Stateless; nothing is added to the keeper.
+
+## visuals.c: the remote players' visuals
+
+The block is `include/wwvis.h` at `MAILBOX_ADDR + 0x8D0` (0x804137D0,
+0xC0 bytes, right after the actor_refresh request; Go's
+`wwapi/mailbox/vis.go` mirrors it and `CanaryArenaHigh` now starts at its
+end, 0x80413890). Its first word is `&wwvis_draw_hook`, published by
+`_prolog` just before the exec hook word and cleared by `_epilog` first;
+T2's `main01_init` zeroes it (and the model words) at boot. T2's
+`mp_draw_post` calls it twice per drawn mini-Link slot: phase 0 before the
+slot's body entry, phase 1 after it. Go (`mods/multiplayer/vissync`) writes
+the magic, the flags and the per-slot equip bytes from each remote's pose
+trailer.
+
+- **Sword, shield, scabbard** (ww-online review idea 15). Phase 0 sets the
+  shared `CL_PODA` scabbard shape from the remote's sword (shown with the
+  hero's sword only, as Link does), phase 1 puts Link #1's value back and
+  enters the remote's hilt (and blade when the sword is out) and hero's
+  shield at the hand or scabbard joint of the remote's streamed pose,
+  placed by Link's own matrices (d_a_player_main.cpp:1270-1340). The
+  models (SWGRIPA, SWGRIPMS, SWA, SWMS, SHA from Link.arc) are made once
+  per boot on the archive heap and kept in the block's model words. Link's
+  joint and material animators on the shared model data are cleared around
+  our calc and calcMaterial (they point into his actor and item heap), so
+  the parts take their bind pose. Not drawn: the mirror shield (it needs a
+  J3DSkinDeform), the Master Sword's own scabbard, glow and blur. The full
+  bodies (fullbody.c) never draw, so this is mini-Links only.
+- **Name tags** (ww-online review idea 6, adapted from their
+  `puppet_nametag.c`; `visuals.c` carries their MIT notice). Phase 1 also
+  projects a point 135 units above the slot's streamed root joint
+  (`mDoLib_project`, 640x480) and enters a per-slot `dDlst_base_c` packet
+  into the HUD's 2D opaque list (`dDlst_list_c::set` on `mp2DOpa`); its
+  draw prints the slot's name (`WWVIS_NAMES`, Go writes the roster names)
+  with `mDoExt_font0`, white over a black shadow, sized and faded by
+  camera depth. Hidden when the HUD is (2D off, an event, the pause menu,
+  the telescope or Picto Box view) and when `WWVIS_FLAG_NAMES` is clear
+  (`WW_NAMETAGS=off`). The packet is drawn by the next frame's painter,
+  which runs before process deletes (`fpcM_Management`), so the module is
+  still linked when its draw runs.
+- **Sea chart markers** (ww-online review idea 14, adapted from their
+  `puppet_seachart.c` and `seachart_players.asm`, MIT). The block's second
+  word is `&wwvis_seachart_draw`; T2's `seachart_shim` replaces
+  `dDlst_FMAP_c::draw`'s `bl J2DScreen::draw` (0x801BB06C), makes that call
+  and then calls the word with the menu's `fmapDl` (r30) and graf port
+  (r31) while it is published. On the world map Link's own `lnk1` picture
+  is redrawn once per `WWVIS_SEA` entry (Go: each remote whose pose
+  trailer says it is on the sea stage, in its tunic colour), offset from
+  Link by `(pos - Link's) * 56 / 100000`, turned to its heading; on a
+  zoomed square (steady) `lnk2` is redrawn for that square's remotes as
+  `setDspLargeMapLink` places Link. The pane must be a `J2DPicture`
+  (vtable 0x8039D730) and its state (0x0C..0xB0 and both colours) is
+  restored after. Only when the chart was opened on the sea stage, and
+  only with `WWVIS_FLAG_SEACHART` (`WW_SEACHART=off` clears it).

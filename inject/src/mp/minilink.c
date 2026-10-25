@@ -345,29 +345,38 @@ void mp_frame(fopAc_ac_c* link) {
 // (display-list pointer, GX command stream, etc.) read uninitialized
 // BSS = zeros = GPU hangs at first chain walk through our packet.
 // init_my_eye_packets now memcpys the FULL 0x1C bytes from each original.
+//
+// F1 (docs/05 "A third remote freezes both games"): ONE PER SLOT. The
+// copies used to be four statics shared by every mini-Link, and
+// run_eye_fix runs once per drawn slot, so with two remote Links each
+// packet was entryImm'd into opa_p1 twice in one frame: the second
+// entry rewrites the packet's mpNextPacket to the bucket head, which by
+// then is a chain that already contains the same packet. That is the
+// same cycle the paragraph above describes, between our own slots. The
+// rule (each puppet owns its packets) is datstarkey/ww-online's
+// (GameMod/CLAUDE.md, puppet_draw.c), MIT; no code was taken.
 #define MY_PACKET_SIZE 0x1C
-static u32 my_packet_onCupOff1[MY_PACKET_SIZE / 4];
-static u32 my_packet_onCupOff2[MY_PACKET_SIZE / 4];
-static u32 my_packet_offCupOn1[MY_PACKET_SIZE / 4];
-static u32 my_packet_offCupOn2[MY_PACKET_SIZE / 4];
+enum { MY_PKT_ON_CUP_OFF1, MY_PKT_ON_CUP_OFF2, MY_PKT_OFF_CUP_ON1, MY_PKT_OFF_CUP_ON2, MY_PKT_COUNT };
+static u32 my_packets[MAX_REMOTE_LINKS][MY_PKT_COUNT][MY_PACKET_SIZE / 4];
 static int my_packets_initialized = 0;
 
 static void init_my_eye_packets(void) {
     if (my_packets_initialized) return;
     // Copy the FULL packet (vtable + display-list pointer + any other
-    // inner fields) from each original. mpNextPacket (+0x04) gets reset
-    // every time entryImm runs on the packet, so it doesn't matter
-    // what's in there at copy time.
-    volatile u32* src;
-    int k;
-    src = (volatile u32*)L_ON_CUP_OFF_AUP_PACKET1;
-    for (k = 0; k < (int)(MY_PACKET_SIZE / 4); k++) my_packet_onCupOff1[k] = src[k];
-    src = (volatile u32*)L_ON_CUP_OFF_AUP_PACKET2;
-    for (k = 0; k < (int)(MY_PACKET_SIZE / 4); k++) my_packet_onCupOff2[k] = src[k];
-    src = (volatile u32*)L_OFF_CUP_ON_AUP_PACKET1;
-    for (k = 0; k < (int)(MY_PACKET_SIZE / 4); k++) my_packet_offCupOn1[k] = src[k];
-    src = (volatile u32*)L_OFF_CUP_ON_AUP_PACKET2;
-    for (k = 0; k < (int)(MY_PACKET_SIZE / 4); k++) my_packet_offCupOn2[k] = src[k];
+    // inner fields) from each original, once per slot. mpNextPacket
+    // (+0x04) gets reset every time entryImm runs on the packet, so it
+    // doesn't matter what's in there at copy time.
+    static J3DPacket* const originals[MY_PKT_COUNT] = {
+        L_ON_CUP_OFF_AUP_PACKET1, L_ON_CUP_OFF_AUP_PACKET2,
+        L_OFF_CUP_ON_AUP_PACKET1, L_OFF_CUP_ON_AUP_PACKET2,
+    };
+    int s, p, k;
+    for (s = 0; s < MAX_REMOTE_LINKS; s++) {
+        for (p = 0; p < MY_PKT_COUNT; p++) {
+            volatile u32* src = (volatile u32*)originals[p];
+            for (k = 0; k < (int)(MY_PACKET_SIZE / 4); k++) my_packets[s][p][k] = src[k];
+        }
+    }
     my_packets_initialized = 1;
 }
 
@@ -406,9 +415,11 @@ static void init_my_eye_packets(void) {
 //   - mini-Link's calc has already run (mpDrawMtx is current for
 //     entryIn's GX submission).
 static void run_eye_fix(J3DModel* model, void* link1_actor,
-                        J3DModelData* model_data) {
+                        J3DModelData* model_data, int slot) {
     if (!model || !link1_actor || !model_data) return;
+    if (slot < 0 || slot >= MAX_REMOTE_LINKS) return;
     init_my_eye_packets();
+    u32 (*pk)[MY_PACKET_SIZE / 4] = my_packets[slot];
 
     // j3dSys field slots.
     volatile u32* j3d_model_slot   = (volatile u32*)(J3D_SYS_ADDR + 0x38);
@@ -484,7 +495,7 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
 
     // Pass 1: packet 2 with cup-on/aup-off; hide zOffBlend and zOn, show
     // zOffNone; enter the eye and brow joints.
-    J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_onCupOff2, 0);
+    J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)pk[MY_PKT_ON_CUP_OFF2], 0);
     for (i = 0; i < 4; i++) {
         if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
         if (zon[i])        *(volatile u32*)((u8*)zon[i]        + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
@@ -494,7 +505,7 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
     J3DJoint_entryIn(cl_mayu);
 
     // Pass 2: packet 2 with cup-off/aup-on, swap to zOffBlendShape.
-    J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_offCupOn2, 0);
+    J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)pk[MY_PKT_OFF_CUP_ON2], 0);
     for (i = 0; i < 4; i++) {
         if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
         if (zoff_none[i])  *(volatile u32*)((u8*)zoff_none[i]  + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
@@ -511,7 +522,7 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
     // chain position instead of recipe-middle.
 
     // Pass 4: packet 1 with cup-on/aup-off, swap to zOnShape.
-    J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_onCupOff1, 0);
+    J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)pk[MY_PKT_ON_CUP_OFF1], 0);
     for (i = 0; i < 4; i++) {
         if (zoff_blend[i]) *(volatile u32*)((u8*)zoff_blend[i] + J3DSHAPE_FLAGS_OFFSET) |=  J3DSHAPE_FLAG_HIDE;
         if (zon[i])        *(volatile u32*)((u8*)zon[i]        + J3DSHAPE_FLAGS_OFFSET) &= ~J3DSHAPE_FLAG_HIDE;
@@ -523,7 +534,7 @@ static void run_eye_fix(J3DModel* model, void* link1_actor,
     // Pass 5: packet 1 with cup-off/aup-on, then hide zOn so the
     // shape-vis state at exit matches Link #1's post-recipe state
     // (everything hidden, ready for next frame's first toggle).
-    J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)my_packet_offCupOn1, 0);
+    J3DDrawBuffer_entryImm((J3DDrawBuffer*)opa_p1, (J3DPacket*)pk[MY_PKT_OFF_CUP_ON1], 0);
     for (i = 0; i < 4; i++) {
         if (zon[i]) *(volatile u32*)((u8*)zon[i] + J3DSHAPE_FLAGS_OFFSET) |= J3DSHAPE_FLAG_HIDE;
     }
@@ -677,6 +688,21 @@ static void mDoExt_skip_recipe_joints(J3DModel* model, J3DModelData* model_data,
 
     if (cl_eye)  *(volatile u32*)((u8*)cl_eye  + J3DJOINT_MESH_OFFSET) = saved_eye;
     if (cl_mayu) *(volatile u32*)((u8*)cl_mayu + J3DJOINT_MESH_OFFSET) = saved_mayu;
+}
+
+// The REL's visuals hook (include/wwvis.h, inject/rel/visuals.c): the
+// remote's scabbard shape before the body entry (phase 0), its sword and
+// shield and name tag after it (phase 1). The word is the REL's while it
+// is linked (_prolog writes it, _epilog clears it first; main01_init
+// zeroes it at boot), so T2 only branches. noinline + Os: T2 budget.
+typedef void (*mp_vis_fn)(int slot, J3DModel* model, void* link, int phase);
+// Every slot T2 hands the hook must have its names, equip and models row
+// (the REL drops slot >= WWVIS_SLOTS; TestVisSlotsCoverRemoteLinks is the Go side).
+_Static_assert(WWVIS_SLOTS >= MAX_REMOTE_LINKS, "wwvis.h WWVIS_SLOTS must cover every mini-Link slot");
+__attribute__((noinline, optimize("Os")))
+static void mp_vis_hook(int slot, void* link, int phase) {
+    mp_vis_fn fn = (mp_vis_fn)*(volatile u32*)(MAILBOX_ADDR + WWVIS_OFF + WWVIS_DRAW_FN_OFF);
+    if (fn) fn(slot, mini_link_models[slot], link, phase);
 }
 
 // --- Draw phase (mods post) ------------------------------------------
@@ -863,10 +889,12 @@ void mp_draw_post(void* this_) {
     // are locked, so entryIn only chains them), so they may run first.
     for (slot = 0; slot < MAX_REMOTE_LINKS; slot++) {
         if (!mini_link_models[slot] || !pose_bufs[slot] || mailbox->pose_seqs[slot] == 0) continue;
+        mp_vis_hook(slot, this_, WWVIS_PHASE_PRE);
         tunic_swap(this_, slot);
-        run_eye_fix(mini_link_models[slot], this_, mini_link_data);
+        run_eye_fix(mini_link_models[slot], this_, mini_link_data, slot);
         mDoExt_skip_recipe_joints(mini_link_models[slot], mini_link_data, slot);
         tunic_restore();
+        mp_vis_hook(slot, this_, WWVIS_PHASE_POST);
     }
 
 }

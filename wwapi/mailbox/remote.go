@@ -307,12 +307,14 @@ const (
 	RemoteAREarlyOut   uint8 = 7 // crossed, but changeDamageProc took an early out
 
 	// apply details (byte2 of RemoteApplyResultOff; PACK [6])
-	RemoteADNone       uint8 = 0
-	RemoteADIFrames    uint8 = 1 // Link's Tg Set bit clear (mDamageWaitTimer)
-	RemoteADGoGate     uint8 = 2 // Go: epoch/stage/room mismatch (never reaches the REL)
-	RemoteADNotInPlay  uint8 = 3 // Go: Link not in play
-	RemoteADStaleEpoch uint8 = 4 // Go: the PHIT's epoch is older than the block's
-	RemoteADAborted    uint8 = 5 // REL: delete, epilog or magic 0 mid-request
+	RemoteADNone        uint8 = 0
+	RemoteADIFrames     uint8 = 1 // Link's Tg Set bit clear (mDamageWaitTimer)
+	RemoteADGoGate      uint8 = 2 // Go: epoch/stage/room mismatch (never reaches the REL)
+	RemoteADNotInPlay   uint8 = 3 // Go: Link not in play
+	RemoteADStaleEpoch  uint8 = 4 // Go: the PHIT's epoch is older than the block's
+	RemoteADAborted     uint8 = 5 // REL: delete, epilog or magic 0 mid-request
+	RemoteADClientStale uint8 = 6 // Go: the client held the PHIT past PHitClientStale (never reaches the REL)
+	RemoteADBadHit      uint8 = 7 // Go: the PHIT has fields no hit has, phitSane (never reaches the REL)
 
 	// ATTRIB extensions of the enemy block's hit_apply (wwenemy.h), section 8.6
 	RemoteHAFAttribBody uint8 = 0x08 // bit in EnemyHAFlagsOff: attribute to the slot's body

@@ -683,12 +683,14 @@ const (
 	PAckLinkAbsent = mailbox.RemoteARLinkAbsent
 	PAckEarlyOut   = mailbox.RemoteAREarlyOut
 
-	PADNone       = mailbox.RemoteADNone
-	PADIFrames    = mailbox.RemoteADIFrames
-	PADGoGate     = mailbox.RemoteADGoGate
-	PADNotInPlay  = mailbox.RemoteADNotInPlay
-	PADStaleEpoch = mailbox.RemoteADStaleEpoch
-	PADAborted    = mailbox.RemoteADAborted
+	PADNone        = mailbox.RemoteADNone
+	PADIFrames     = mailbox.RemoteADIFrames
+	PADGoGate      = mailbox.RemoteADGoGate
+	PADNotInPlay   = mailbox.RemoteADNotInPlay
+	PADStaleEpoch  = mailbox.RemoteADStaleEpoch
+	PADAborted     = mailbox.RemoteADAborted
+	PADClientStale = mailbox.RemoteADClientStale
+	PADBadHit      = mailbox.RemoteADBadHit
 )
 
 // PAckResultName and PAckDetailName name a PACK's result and detail for
@@ -702,7 +704,7 @@ func PAckResultName(r uint8) string {
 }
 
 func PAckDetailName(d uint8) string {
-	names := [...]string{"none", "iframes", "go_gate", "not_in_play", "stale_epoch", "aborted"}
+	names := [...]string{"none", "iframes", "go_gate", "not_in_play", "stale_epoch", "aborted", "client_stale", "bad_hit"}
 	if int(d) < len(names) {
 		return names[d]
 	}

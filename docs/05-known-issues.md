@@ -859,6 +859,13 @@ different setup from the D1b repro (`mp-local` and `fake-client`), so F1 stays o
 `pose-fake-loop` case (a second mini-Link, no actor) is not touched by the change. Until it is fixed, nothing shows that the
 KAMOME/NPC_OB1 fallback actually draws players 3 and 4 (design decision 5, E2).
 
+A lead for the `pose-fake-loop` case (2026-10-25, from the datstarkey/ww-online review): the
+mini-Link eye fix entryImm'd the same four static packet copies once per drawn slot, so with two
+mini-Links each packet entered `opa_p1` twice in one frame, the cycle the copies exist to avoid
+(`inject/src/mp/minilink.c`, the comment above `MY_PACKET_SIZE`). Each slot now owns its own four
+copies. UNVERIFIED live: docs/TESTING.md V1 is the rerun, and `MAX_REMOTE_LINKS` stays 2 until it
+passes. It cannot explain the NPC_OB1 (`fake-client`) variant.
+
 Evidence (owner machine): logs in `C:\Users\4step\.claude\jobs\10f6fa34\tmp\pd\d1b\logs`
 (`base-fake3.log`, `base-fake4.log`, `base-mplocal.log`, `fake3.log`, `fake4.log`), screenshots in
 `...\d1b\shots` (`base-A-fake3.png`, `base-A-fake4.png`).
@@ -936,11 +943,16 @@ example the scabbard `CL_PODA`, hidden with no sword (`:1869-1879`),
 and the `CL_LHANDA`/`CL_RHANDA` hands, which stay hidden when
 `drawShadow` is skipped on the boat (`:1746-1747`, `:2023`).
 
-Known gaps: mini-Link shows the hat with the local Link's casual
-texture (`linktexS3TC` is swapped in the shared model data,
-`d_a_player_main.cpp:12340-12357`), not katsura hair, and it follows
-the local outfit, not the remote's. Matching the remote's clothes
-needs outfit sync (epic #24).
+Known gaps: a casual mini-Link shows the hat in the casual texture
+(`linktexS3TC` is swapped in the shared model data,
+`d_a_player_main.cpp:12340-12357`), not the katsura hair model
+(`mpKatsuraModel`, `:1897-1903`), which mini-Link does not draw; adding
+it is a second model per slot, not a header swap. The remote's own
+clothes are drawn since 2026-10-16: the pose trailer's appearance byte
+carries the remote's casual bit and `tunic_swap` puts the casual header
+in for that slot (`TUNIC_ENABLE_CASUAL`, docs/09 §5.6, live-checked in
+four viewer/remote cases). The note here that it "follows the local
+outfit" predates that and was out of date.
 
 T2 grew by 0x100 to 0x2CE8 bytes (devkitPPC 16.2). It ended at
 `0x80412CE8`, 0x218 bytes below the mailbox at the time. The tunic
