@@ -205,7 +205,10 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 
 			_ = vis.Write(d, vissync.Build(visSettings, remotes, feeder.LinkSlots(), selfFilter))
 
-			if fxSettings.On && fxRecv.Arm(d, true) == nil {
+			// Projectile events wait out the reset gate as well: no copy
+			// is due while the game resets or reboots, and anything queued
+			// meanwhile is past fxsync's 2 s age limit when play resumes.
+			if fxSettings.On && feeder.Running() && fxRecv.Arm(d, true) == nil {
 				fxRecv.SetEpoch(client.ServerEpoch())
 				_ = fxRecv.Flush(d, remotes, selfFilter, now)
 				fxLog.every(rep, fxRecv.Summary(), now)
