@@ -347,7 +347,7 @@ typedef void (*vis_font_width_t)(void* font, int code, u8* width);
 #define JUTFONT_VT_CELL_W       (0x30 / 4)
 #define JUTFONT_VT_CELL_H       (0x34 / 4)
 
-#define TAG_HEAD_Y       135.0f   // above the root: Link's attention point (92.5) plus his cap
+#define TAG_HEAD_Y        90.0f   // above the root joint (Link's hips): just over the cap; 135 floated a head too high live (V4, 2026-10-25)
 #define TAG_BASELINE_UP  4.0f
 #define TAG_DEPTH_MIN    60.0f
 #define TAG_DEPTH_NEAR   400.0f
