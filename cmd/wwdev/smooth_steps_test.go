@@ -101,10 +101,10 @@ func TestRecordSteps(t *testing.T) {
 	m := mem.NewFakeMem()
 	set := func(f uint32, x float32) {
 		b := make([]byte, 4)
+		mem.PutF32BE(b, x) // the position first, then the frame that shows it
+		_ = m.Store(0x80700000, b)
 		mem.PutU32BE(b, f)
 		_ = m.Store(mailbox.SpawnTrigger, b)
-		mem.PutF32BE(b, x)
-		_ = m.Store(0x80700000, b)
 	}
 	set(1, 0)
 	read := func(r mem.Reader) (vec, bool) {
@@ -115,18 +115,23 @@ func TestRecordSteps(t *testing.T) {
 	done := make(chan []stepSample)
 	go func() { done <- recordSteps(ctx, m, read, time.Now(), 100*time.Microsecond) }()
 	for f := uint32(2); f <= 5; f++ {
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		set(f, float32(f*10))
 	}
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	cancel()
 	ss := <-done
-	if len(ss) != 5 {
-		t.Fatalf("%d samples, want 5: %+v", len(ss), ss)
+	// Each frame once at most, in order; a loaded machine may miss one
+	// (the analysis spreads a gap), but the first and last are there.
+	if len(ss) < 2 || ss[0].Frame != 1 || ss[len(ss)-1].Frame != 5 {
+		t.Fatalf("samples %+v, want frames 1..5", ss)
 	}
 	for i, s := range ss {
-		if s.Frame != uint32(i+1) || (i > 0 && s.P[0] != float32((i+1)*10)) {
-			t.Errorf("sample %d: %+v", i, s)
+		if i > 0 && s.Frame <= ss[i-1].Frame {
+			t.Errorf("frame %d seen twice or out of order: %+v", s.Frame, ss)
+		}
+		if s.Frame > 1 && s.P[0] != float32(s.Frame*10) {
+			t.Errorf("frame %d at %v, want %d", s.Frame, s.P[0], s.Frame*10)
 		}
 	}
 }

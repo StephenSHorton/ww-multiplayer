@@ -408,6 +408,7 @@ func (r *smokeRun) setup() bool {
 		ss, secs := sampleGame(r.ctx, d, 2*time.Second, 100*time.Millisecond)
 		for _, c := range livenessChecks(label, ss, secs, smokeLimits{MinFPS: 10}) {
 			if strings.HasPrefix(c.Name, "heartbeat") || strings.HasPrefix(c.Name, "no crash") || strings.HasPrefix(c.Name, "read") {
+				c.Name += " (pre)"
 				r.add(c)
 				ok = ok && c.Pass
 			}
@@ -557,6 +558,12 @@ func (r *smokeRun) hop() {
 	origin, err := state.Read(r.a, state.Options{})
 	if err != nil {
 		r.add(passIf(false, "hop", "reading A's stage: "+err.Error(), nil))
+		return
+	}
+	// A hop into the stage A is in proves nothing: the stage-hop wait
+	// can see the name it asked for at once (Outset is sea room 44).
+	if origin.StageName == h.Name {
+		r.add(passIf(false, "hop out", fmt.Sprintf("the hop target %s is the stage A is in: set --hop to another stage", h.Name), nil))
 		return
 	}
 	w := &reporterWriter{rep: r.rep}
