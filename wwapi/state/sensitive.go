@@ -123,8 +123,8 @@ var (
 	// 2 -> READ 3, d_letter.cpp:10-62), Beedle points (d_a_npc_bs1.cpp:
 	// 939-941), GHOST_SHIP (d_a_tag_ghostship.cpp:31-39), Orca's record
 	// level with its unmasked level 4 (d_a_npc_ji1.cpp:409-422), Koboli's
-	// level (d_a_npc_bmsw.cpp:430-451) and, unverified (not decompiled),
-	// Sploosh Kaboom's and barrel shooting's prizes won
+	// level (d_a_npc_bmsw.cpp:430-451). Sploosh Kaboom's and barrel
+	// shooting's prizes won (0xFE07, 0xB703) stay out on purpose
 	// (mods/coop/class/events.go says why).
 	maxRegs = []uint16{
 		0x7A03, 0x7B03, 0x7C03, 0x7D03, 0x8B03, 0x9D03, 0xAC03, 0xAE03,
@@ -132,7 +132,6 @@ var (
 		0x86FF,
 		0x8803,
 		0xD007, 0xC203,
-		0xFE07, 0xB703,
 	}
 
 	// orRegs only ever gain bits in their field: the pigs in Outset's pen

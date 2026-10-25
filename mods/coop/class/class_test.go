@@ -32,15 +32,15 @@ func TestGoldenCoverage(t *testing.T) {
 		// 16 x 16 memory-switch bytes, 66 event-bit bytes.
 		ORMasked: 322,
 		// wallet, arrow max, bomb max, 12 letters, Beedle points, ghost ship,
-		// Orca's and Koboli's levels, Sploosh Kaboom, barrel shooting.
-		Max: 21,
+		// Orca's and Koboli's levels.
+		Max: 19,
 		// mMaxLife 2, mSelectEquip 4, mMaxMagic 1, 17 item slots, 16 keyNum.
 		Derived: 40,
 		// padding, unused map bytes, event bytes 0x42-0x78.
 		Never: 140,
 		Tag:   addr.ReserveSize,
 		// everything else.
-		PerPlayer: 784,
+		PerPlayer: 786,
 	}
 	total := 0
 	for c, n := range want {
@@ -182,8 +182,8 @@ func TestSpotClasses(t *testing.T) {
 		"LETTER_KOMALIS":      {ev(0xB503), want{Max, 0x03}},
 		"Orca's level":        {ev(0xD007), want{Max, 0x07}},
 		"Koboli's level":      {ev(0xC203), want{Max, 0x03}},
-		"Sploosh Kaboom":      {ev(0xFE07), want{Max, 0x07}},
-		"barrel shooting":     {ev(0xB703), want{Max, 0x03}},
+		"Sploosh Kaboom":      {ev(0xFE07), want{PerPlayer, 0}},
+		"barrel shooting":     {ev(0xB703), want{PerPlayer, 0}},
 		"pig pen":             {ev(0xBF0F), want{OR, 0x0F}},
 		"Joy Pendants 0xC0FF": {ev(0xC0FF), want{PerPlayer, 0}},
 		"0x89FF (2nd quest)":  {ev(0x89FF), want{PerPlayer, 0}},

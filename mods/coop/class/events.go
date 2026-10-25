@@ -95,19 +95,6 @@ var (
 		// rate (setGameGetRupee, :813-854) and at 3 brings Baito in as Btsw
 		// (:1144-1150), and Btsw2 stays away (d_a_npc_btsw2.cpp:545-547).
 		0xC203,
-
-		// UNVERIFIED: Sploosh Kaboom's and barrel shooting's prizes won.
-		// d_a_npc_kg1 and d_a_npc_kg2 are not decompiled (symbols only), so
-		// this is datstarkey/ww-online's reading of the vanilla RELs
-		// (WWOnline.Shared/Models/StoryFlags.cs:96-99, docs/hearts.md §3.3,
-		// MIT): each counts first prizes won, capped at 3, and indexes the
-		// prize table {heart piece, chart, rupees}, so a partner who has not
-		// won could take the first prize's heart piece again. Both ids are
-		// in the enum (UNK_FE07, UNK_B703, d_save_event_flag.inc:627, :558);
-		// their writers are not. Drop these two lines if a live run or a
-		// disassembly disagrees.
-		0xFE07,
-		0xB703,
 	}
 
 	// orRegs are side-quest registers whose bits the game only ever sets
@@ -124,9 +111,23 @@ var (
 		0xBF0F,
 	}
 
-	// Left per player on purpose: 0xC0FF, the Joy Pendants given to Mrs.
-	// Marie. receivePendant takes them out of the giver's own spoils bag
-	// (d_a_npc_ho.cpp:70-82), and bag contents are each player's (§1),
-	// so the count she keeps goes with it: her first talk at 0 (:398-405)
-	// and the Hero's Charm at 40 (:329).
+	// Left per player on purpose: 0xFE07 and 0xB703, Sploosh Kaboom's and
+	// barrel shooting's prizes won (UNK_FE07, UNK_B703, d_save_event_flag.
+	// inc:627, :558). d_a_npc_kg1 and d_a_npc_kg2 are not decompiled
+	// (symbols only); datstarkey/ww-online reads them (StoryFlags.cs:96-99,
+	// docs/hearts.md §3.3, MIT) as first prizes won, capped at 3, indexing
+	// {heart piece, chart, rupees}. Sharing them by MAX would cost the
+	// partner a heart piece for good: neither minigame's piece has a save
+	// record tables.RecordOf can read, so derive.CountLife counts them as
+	// Untracked and never credits the winner's piece to the partner, while
+	// the raised index hands the partner the chart when they win. Their
+	// field widths, and whether they only rise, are unchecked too. They join maxRegs
+	// only once both minigame pieces get a record the life derive credits
+	// and a disassembly or a live readback confirms the reading.
+	//
+	// Also 0xC0FF, the Joy Pendants given to Mrs. Marie. receivePendant
+	// takes them out of the giver's own spoils bag (d_a_npc_ho.cpp:70-82),
+	// and bag contents are each player's (§1), so the count she keeps goes
+	// with it: her first talk at 0 (:398-405) and the Hero's Charm at 40
+	// (:329).
 )

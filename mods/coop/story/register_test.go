@@ -34,6 +34,8 @@ func TestApplyRegister(t *testing.T) {
 		{"Koboli's level raised", 0xC2, 0x01, 0x03, 0x03, "0xC203"},
 		{"the pig pen ORs its field only", 0xBF, 0x01, 0xF4, 0x05, "0xBF0F"},
 		{"Joy Pendants stay local", 0xC0, 0x02, 0x14, 0x02, "0xC0FF"},
+		{"Sploosh Kaboom's prizes stay local", 0xFE, 0x00, 0x01, 0x00, "0xFE07: the partner's own first prize is still a heart piece"},
+		{"barrel shooting's prizes stay local", 0xB7, 0x00, 0x01, 0x00, "0xB703"},
 		{"a per-player register", regLocal, 0x01, 0xFF, 0x01, ""},
 		{"a story byte", 0x05, 0x00, 0xFF, 0x00, ""},
 		{"below the bytes", -1, 0x00, 0xFF, 0x00, ""},
@@ -77,10 +79,10 @@ func TestApplyRegisters(t *testing.T) {
 			t.Errorf("byte 0x%X outside the registers changed to 0x%02X", off, img[off])
 		}
 	}
-	// 17 figurines, 6 warp pots, the pig pen, and the 18 MAX registers but
+	// 17 figurines, 6 warp pots, the pig pen, and the 16 MAX registers but
 	// Beedle points.
-	if n != changed || n != 17+6+1+17 {
-		t.Errorf("ApplyRegisters changed %d bytes, counted %d, want 41", n, changed)
+	if n != changed || n != 17+6+1+15 {
+		t.Errorf("ApplyRegisters changed %d bytes, counted %d, want 39", n, changed)
 	}
 }
 

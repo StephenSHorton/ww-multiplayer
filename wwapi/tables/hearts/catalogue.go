@@ -107,9 +107,11 @@ var Catalogue = []Reward{
 	{
 		ID: "traveling-merchant", Giver: "the Goron traveling merchant (the trading quest)", Where: "the Great Sea", Kind: NPC, Item: itemsrc.ItemHeartPiece,
 		Site:     "l_get_item_no[0], d_a_npc_roten.cpp:1373-1375; daNpcRoten_c::eventGetItemInit :2359-2381 (event integer \"ItemNo\" :2362-2365)",
-		Record:   "event bit 0x3E04 (UNK_3E04; set at d_a_npc_roten.cpp:2500-2503 as merchant 1 takes the Shop Guru Statue, isGetMap :2827-2833)",
 		ItemSeen: true,
-		Note:     "the table's only entry, so any ItemNo cut hands over the piece; that the last trade's event runs one is the event data's (inferred)",
+		// No Record on purpose: the decomp does not show 0x3E04 gating the
+		// piece, and max life is add-only, so a wrong record would raise
+		// both players' max life for good once the bit syncs.
+		Note: "no record in code. UNVERIFIED candidate: event bit 0x3E04 (UNK_3E04), set at d_a_npc_roten.cpp:2500-2503 in the XY-talk branch as merchant 1 is shown the Shop Guru Statue (isGetMap :2827-2833, message l_msg_try_force); whether that talk's event runs the ItemNo cut that hands over the table's only entry, the piece, is event data",
 	},
 	// The three NPC_PEOPLE rewards: each record is set as the resident
 	// picks the reward talk, the piece comes from the event's ItemNo cut
@@ -120,6 +122,15 @@ var Catalogue = []Reward{
 	// d_a_npc_people.rel offsets 0xC54B, 0xC557, 0xC55B). The count does
 	// not depend on them. ww-online's records agree on the bits
 	// (datstarkey/ww-online docs/hearts.md §1, rows 38, 40 and 42, MIT).
+	//
+	// GZLE01 only: in the Japanese release (VERSION <= VERSION_JPN)
+	// l_get_item_no[0] is an orange rupee, not a heart piece
+	// (d_a_npc_people.cpp:3855-3860), so whichever resident uses index 0
+	// (Sam, by the Randomizer's pairing) pays no piece there and its record
+	// would credit max life wrongly. tables.Build accepts only the GZLE01
+	// DOL (its l_objectName check) and the game hook only GZLE01
+	// (wwapi.GameID); revisit these three records before any other disc is
+	// accepted.
 	{
 		ID: "kreeb", Giver: "Kreeb (light up the lighthouse)", Where: "Windfall Island", Kind: NPC, Item: itemsrc.ItemHeartPiece,
 		Site:     "NPC_UM1, l_msg_um1_get_item, d_a_npc_people.cpp:7061-7063; l_get_item_no[4] :3864 (the index unverified)",

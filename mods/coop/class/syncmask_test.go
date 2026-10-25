@@ -270,7 +270,7 @@ func TestHolds(t *testing.T) {
 
 // TestRegisterAllowlistUntouched pins the register bytes' classes: the
 // story sync adds nothing to them, so only l_figure_comp's 17 bitfields,
-// the 6 warp pot fields and the pig pen merge by OR and the 18 registers
+// the 6 warp pot fields and the pig pen merge by OR and the 16 registers
 // of maxRegs by MAX within their field.
 func TestRegisterAllowlistUntouched(t *testing.T) {
 	type rule struct {
@@ -292,8 +292,6 @@ func TestRegisterAllowlistUntouched(t *testing.T) {
 	want[0xBF] = rule{OR, 0x0F}  // the pig pen
 	want[0xD0] = rule{Max, 0x07} // Orca's level, with its unmasked 4
 	want[0xC2] = rule{Max, 0x03} // Koboli's level
-	want[0xFE] = rule{Max, 0x07} // Sploosh Kaboom (unverified)
-	want[0xB7] = rule{Max, 0x03} // barrel shooting (unverified)
 	for i := addr.EventRegFirst; i < addr.EventSize; i++ {
 		r := Of(addr.OffEvent + i)
 		w, ok := want[i]

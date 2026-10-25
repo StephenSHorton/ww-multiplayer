@@ -180,10 +180,11 @@ func TestCountLife(t *testing.T) {
 	if f != want {
 		t.Errorf("CountLife = %+v, want %+v", f, want)
 	}
-	// Eleven Catalogue records name a save bit: eight event bits and three
-	// letter registers (tables.RecordOf).
-	if f.Rewards != 11 || f.Rewards+f.Untracked != len(hearts.Catalogue) {
-		t.Errorf("rewards: %d recorded + %d untracked, want 11 of %d", f.Rewards, f.Untracked, len(hearts.Catalogue))
+	// Ten Catalogue records name a save bit: seven event bits and three
+	// letter registers (tables.RecordOf). The Goron trade's 0x3E04 is
+	// unverified, so it stays untracked.
+	if f.Rewards != 10 || f.Rewards+f.Untracked != len(hearts.Catalogue) {
+		t.Errorf("rewards: %d recorded + %d untracked, want 10 of %d", f.Rewards, f.Untracked, len(hearts.Catalogue))
 	}
 	if got := f.Derived(); got != StartLife+1+2+4 {
 		t.Errorf("Derived = %d, want %d", got, StartLife+1+2+4)

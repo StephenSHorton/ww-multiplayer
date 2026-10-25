@@ -768,8 +768,9 @@ var schemaShapes = map[int]string{
 	// swing_sword beside Hyroom's torches, table 9 sw13, no longer syncs).
 	11: "18e463dd4d344be73cbc4e9f0f99bf72f2021d56a876e6db3cd6bc86cddd5014",
 	// 12: hearts gained "unreachable" (Cave06 and I_SubAN left out), the
-	// Catalogue Maggie and the withered trees, and records for Kreeb, Sam,
-	// Linda and Anton and the Goron trade.
+	// Catalogue Maggie and the withered trees, and records for Kreeb, Sam
+	// and Linda and Anton (the Goron trade's 0x3E04 stays unrecorded,
+	// unverified).
 	12: "3b61961949b9db51caa795bc203cbf5eb68c5f4637e680b078329434393c537e",
 }
 
