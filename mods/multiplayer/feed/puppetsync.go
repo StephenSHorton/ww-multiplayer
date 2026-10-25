@@ -117,8 +117,8 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 	}()
 
 	// The remote players' visuals (vissync, inject/include/wwvis.h): names,
-	// sword and shield, sea chart markers. WW_NAMETAGS / WW_EQUIP /
-	// WW_SEACHART=off turn each off. Session over: the block goes off.
+	// sword and shield, sea chart markers, casual hair. WW_NAMETAGS /
+	// WW_EQUIP / WW_SEACHART / WW_HAIR=off turn each off. Session over: the block goes off.
 	visSettings := vissync.SettingsFromEnv()
 	var vis vissync.Sync
 	defer func() {

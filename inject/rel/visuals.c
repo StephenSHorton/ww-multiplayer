@@ -289,8 +289,14 @@ static volatile u32* vis_poda_flags(J3DModel* model) {
     return (volatile u32*)(shape + J3DSHAPE_FLAGS_OFFSET);
 }
 
+// The hat and buckle packet flag words each slot last hid, for
+// wwvis_unlink: they sit in the mini-Link's own packet array, which lives
+// on the archive heap with the model and is never freed (F18 rule), so
+// the words stay valid even after a re-mount leaks that model.
+static volatile u32* vis_hidden[WWVIS_SLOTS][2];
+
 // The mini-Link's own shape packet for shape (the header: Hidden).
-static void vis_packet_hide(J3DModel* model, u8* data, u32 shape, int hide) {
+static void vis_packet_hide(J3DModel* model, u8* data, u32 shape, int hide, volatile u32** keep) {
     u32 pk = *(volatile u32*)((u8*)model + J3DMODEL_SHAPE_PACKET_OFF);
     if (!vis_in_mem1(shape) || !vis_in_mem1(pk)) return;
     u16 idx = *(volatile u16*)(shape + J3DSHAPE_INDEX_OFF);
@@ -298,26 +304,32 @@ static void vis_packet_hide(J3DModel* model, u8* data, u32 shape, int hide) {
     volatile u32* f = (volatile u32*)(pk + (u32)idx * J3DSHAPEPACKET_SIZE + J3DPACKET_FLAGS_OFF);
     if (hide) *f |= J3DPACKET_HIDDEN;
     else      *f &= ~J3DPACKET_HIDDEN;
+    *keep = hide ? f : 0;
 }
 
 // A casual remote: no hat and no buckle on this slot's model (else both back).
-static void vis_casual_pre(J3DModel* model, int casual) {
+static void vis_casual_pre(int slot, J3DModel* model, int casual) {
     u8* data = *(u8**)((u8*)model + J3DMODEL_DATA_OFF);
     u8** joints = *(u8***)(data + J3DMODELDATA_JOINT_NODE_PTR_OFFSET);
     if (!vis_in_mem1((u32)joints) || *(volatile u16*)(data + J3DMODELDATA_JOINT_NUM_OFFSET) <= CL_JNT_BACK) return;
     u32 mtl = joints[0] ? *(volatile u32*)(joints[0] + J3DJOINT_MESH_OFFSET) : 0;
     int i;
     for (i = 0; i < CL_MAT_HAT && vis_in_mem1(mtl); i++) mtl = *(volatile u32*)(mtl + J3DMATERIAL_NEXT_OFFSET);
-    if (vis_in_mem1(mtl)) vis_packet_hide(model, data, *(volatile u32*)(mtl + J3DMATERIAL_SHAPE_OFFSET), casual);
+    if (vis_in_mem1(mtl)) vis_packet_hide(model, data, *(volatile u32*)(mtl + J3DMATERIAL_SHAPE_OFFSET), casual, &vis_hidden[slot][0]);
     mtl = joints[CL_JNT_BACK] ? *(volatile u32*)(joints[CL_JNT_BACK] + J3DJOINT_MESH_OFFSET) : 0;
-    if (vis_in_mem1(mtl)) vis_packet_hide(model, data, *(volatile u32*)(mtl + J3DMATERIAL_SHAPE_OFFSET), casual);
+    if (vis_in_mem1(mtl)) vis_packet_hide(model, data, *(volatile u32*)(mtl + J3DMATERIAL_SHAPE_OFFSET), casual, &vis_hidden[slot][1]);
 }
 
 static void vis_equip_pre(int slot, J3DModel* model) {
     vis_poda_saved = -1;
     u32 eq = WWVIS_EQUIP_OFF + (u32)slot * 4;
     u8 ef = VIS_BYTE(eq + WWVIS_EQ_FLAGS);
-    vis_casual_pre(model, vis_on(WWVIS_FLAG_HAIR) && (ef & WWVIS_EQF_CASUAL));
+    // Hide the hat only when the hair will be drawn in POST: its model
+    // exists and the node matrices are there (vis_equip_post), else a
+    // casual remote keeps its hat rather than going bald.
+    int hair = vis_on(WWVIS_FLAG_HAIR) && (ef & WWVIS_EQF_CASUAL);
+    if (hair && (!vis_joint(model, CL_JNT_HEAD) || !vis_model(slot, WWVIS_MK_KATSURA))) hair = 0;
+    vis_casual_pre(slot, model, hair);
     if (!vis_on(WWVIS_FLAG_EQUIP) || !(ef & WWVIS_EQF_VALID)) return;
     volatile u32* flags = vis_poda_flags(model);
     if (!flags) return;
@@ -844,6 +856,13 @@ void wwvis_link(void) {
 void wwvis_unlink(void) {
     VIS_WORD(WWVIS_SEACHART_FN_OFF) = 0;
     VIS_WORD(WWVIS_DRAW_FN_OFF) = 0;
+    // No REL, no katsura: give the hats and buckles back until the next PRE.
+    int i;
+    for (i = 0; i < WWVIS_SLOTS * 2; i++) {
+        volatile u32** w = &vis_hidden[i / 2][i % 2];
+        if (*w) **w &= ~J3DPACKET_HIDDEN;
+        *w = 0;
+    }
 }
 
 // The name tags (vis_tag_*) and the sea chart markers (vis_sea_*,

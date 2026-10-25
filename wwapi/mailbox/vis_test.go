@@ -2,6 +2,9 @@ package mailbox
 
 import (
 	"encoding/binary"
+	"fmt"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -111,5 +114,27 @@ func TestVisSlotsCoverRemoteLinks(t *testing.T) {
 	}
 	if VisSlots < MailboxPoseSlotCap {
 		t.Fatalf("VisSlots %d < MailboxPoseSlotCap %d", VisSlots, MailboxPoseSlotCap)
+	}
+}
+
+// TestVisSlackMapComments: the slack maps in wwremote.h and wwrefresh.h
+// name the visuals block's real end, so nobody reads its tail as free
+// (gems3 grew it to +0x9A8 and both headers still said +0x990).
+func TestVisSlackMapComments(t *testing.T) {
+	end := fmt.Sprintf("+0x%X", VisOff+VisSize)
+	block := fmt.Sprintf("+0x%X..%s", VisOff, end)
+	for _, c := range []struct{ path, want string }{
+		{"../../inject/include/wwremote.h", block},
+		{"../../inject/include/wwremote.h", end + "..+0x1100 free"},
+		{"../../inject/include/wwrefresh.h", block},
+		{"../../inject/include/wwrefresh.h", "CanaryArenaHigh starts past that (" + end + ")"},
+	} {
+		b, err := os.ReadFile(c.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(b), c.want) {
+			t.Errorf("%s: slack map does not say %q", c.path, c.want)
+		}
 	}
 }
