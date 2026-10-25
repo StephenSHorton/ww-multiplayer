@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/boatsync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/fxsync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/tunicsync"
@@ -78,6 +79,7 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 	sessionLoop := func(ctx context.Context) error {
 		posErrs, poseErrs := 0, 0
 		var equip vissync.EquipSampler // the shield bit, debounced (two samples)
+		boatsOn := boatsync.SettingsFromEnv().On
 		// capture reads one sample of this Dolphin's Link: nil while Link
 		// is not loaded.
 		capture := func() *poseSample {
@@ -151,6 +153,13 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 					// equip bytes (19 bytes in all).
 					if extra, eq, ok := equip.Sample(d); ok {
 						s.face = append(s.face, app|extra, eq[0], eq[1])
+						// boatsync: this game's ship, 40 bytes
+						// more (59 in all), always once the
+						// equip bytes are there.
+						if boatsOn {
+							b, ok := boatsync.Local(d, [3]float32{pos.PosX, pos.PosY, pos.PosZ})
+							s.face = append(s.face, boatsync.Encode(b, ok)...)
+						}
 					} else {
 						s.face = append(s.face, app)
 					}

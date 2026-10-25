@@ -2,7 +2,7 @@ exit 0
 Wind Waker Multiplayer patcher
   input : <TMP>/in/Wind Waker.iso
   output: <TMP>/out/patched.iso
-  REL   : module 0x58 (d_a_rectangle.rel) -> wwrel build 0xE48E76D2, RELS.arc at 0x358000 (+53536 bytes)
+  REL   : module 0x58 (d_a_rectangle.rel) -> wwrel build 0x2CD290C6, RELS.arc at 0x358000 (+58272 bytes)
   co-op : stage tables built and cached in N s, for --coop sessions
 
 Done. Boot <TMP>/out/patched.iso in Dolphin to play multiplayer.

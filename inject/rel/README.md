@@ -735,14 +735,26 @@ The block is `include/wwvis.h` at `MAILBOX_ADDR + 0x8D0` (0x804137D0,
 0x114 bytes, right after the actor_refresh request; it was 0xC0 bytes
 before WWMB_LAYOUT 3's third slot and the second model table at +0xF0,
 the mirror shield, Master Sword scabbard and katsura models). Go's
-`wwapi/mailbox/vis.go` mirrors it and `CanaryArenaHigh` runs from its
-end, 0x804138E4, to the eye packets. Its first word is `&wwvis_draw_hook`, published by
+`wwapi/mailbox/vis.go` mirrors it. The peer boats block (`include/wwboat.h`,
+`boats.c`) follows it at 0x804138E4..0x8041396C, and `CanaryArenaHigh` runs
+from there to the eye packets. Its first word is `&wwvis_draw_hook`, published by
 `_prolog` just before the exec hook word and cleared by `_epilog` first;
 T2's `main01_init` zeroes it (and the model words) at boot. T2's
 `mp_draw_post` calls it twice per drawn mini-Link slot: phase 0 before the
 slot's body entry, phase 1 after it. Go (`mods/multiplayer/vissync`) writes
 the magic, the flags and the per-slot equip bytes from each remote's pose
 trailer.
+
+The peer boats (`boats.c`, `include/wwboat.h`; docs/05 "Peer boats"): the
+keeper's execute calls `boats_frame` after `fx_frame` and its draw calls
+`boats_draw` (a lite body's draw does nothing). Each of the block's three
+entries gets the hull, head, cannon and crane models and an imitation
+`daGrid_c` for the sail in a GameHeap solid heap of its own, made only while
+"Ship" is resident and destroyed with the entry, the archive, a stage change,
+the magic, the keeper's delete or `_epilog`. `bt_jnt_cb` (the joint callback
+swapped in around each calc) and `bt_sail_draw` (the sail packet's draw) are
+in `REL_TEXT_CALLBACKS`. Adapted from datstarkey/ww-online
+`GameMod/src/puppet_link/puppet_boat.c`, MIT (notice in `boats.c`).
 
 - **Sword, shield, scabbard** (ww-online review idea 15). Phase 0 sets the
   shared `CL_PODA` scabbard shape from the remote's sword (shown with the

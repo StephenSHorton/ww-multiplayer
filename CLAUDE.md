@@ -76,6 +76,7 @@ ww-multiplayer/
 │       ├── feed/                # Pose pipelines: BroadcastPose, PuppetSync (Feeder: link/actor slot assignment, lerp, arming over wwapi/avatar), PoseFakeLoop
 │       ├── net/                 # package network: TCP server/client, protocol + handshake, lobby, co-op channel, timing knobs (netconfig.go)
 │       ├── fxsync/              # Projectile events: the REL's outbox -> MsgFx (broadcast-pose), MsgFx -> its inbox, scoped to stage and room (puppet-sync)
+│       ├── boatsync/            # Peer boats: this game's ship as a pose-trailer run (broadcast-pose), the remotes' boats into the REL's boats block (puppet-sync)
 │       ├── playercolor/         # Tunic color palette + --color / WW_COLOR parsing (docs/09)
 │       └── tunicsync/           # Session side of the tunic colors: SyncTunics, the appearance byte, the dump block (docs/09 §5.4)
 ├── inject/                      # C source for the injected PPC code (split into core + the multiplayer mod in Phase E3, docs/api §6.6)
@@ -194,6 +195,9 @@ WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/j
 WW_NAMETAGS=off / WW_EQUIP=off / WW_SEACHART=off / WW_HAIR=off   # puppet-sync (mods/multiplayer/vissync): no name tags over the mini-Links / no remote
                                             #   sword, shield (hero's or mirror) and scabbard (hero's or Master Sword's) on them / no remotes on the pause menu's
                                             #   sea chart / no katsura hair on a casual remote (default all on; the REL draws them, wwvis.h)
+WW_BOATS=off|nosail|noparts                 # puppet-sync (mods/multiplayer/boatsync): no peer boats / no sail cloth / no cannon or crane on them. Default on:
+                                            #   each remote's King of Red Lions drawn under it while it sails and where it was left (sea, Tower of the Gods), sail
+                                            #   in its tunic colour (inject/rel/boats.c, include/wwboat.h; docs/05 "Peer boats", docs/TESTING.md BT-*)
 WW_PROJECTILES=on                           # broadcast-pose and puppet-sync (mods/multiplayer/fxsync): the other players' bombs, boat-cannon shots and arrows
                                             #   are made in this game as world-only copies (inject/rel/fx.c, include/wwfx.h; MsgFx, protocol 6). Default off until
                                             #   docs/TESTING.md "Projectiles" passes; set it on both sides

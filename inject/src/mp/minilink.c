@@ -6,6 +6,7 @@
 
 #include "mp.h"
 #include "wwfx.h"
+#include "wwboat.h"
 
 // --- Mini-Link state (Option B from roadmap 06) ------------------------
 // Render N independent Link models from OUR code, all sharing Link #1's
@@ -368,11 +369,12 @@ enum { MY_PKT_ON_CUP_OFF1, MY_PKT_ON_CUP_OFF2, MY_PKT_OFF_CUP_ON1, MY_PKT_OFF_CU
 _Static_assert(MAX_REMOTE_LINKS * MY_PKT_COUNT * MY_PACKET_SIZE <= MP_EYE_PACKETS_SIZE &&
                (MP_EYE_PACKETS_OFF & 3) == 0 && MAILBOX_ADDR + MP_EYE_PACKETS_OFF + MP_EYE_PACKETS_SIZE <= 0x80414000,
                "mailbox_mp.h MP_EYE_PACKETS_* must hold every slot's eye packets below __OSArenaLo");
-// ... and between the visuals block and the projectile events block, which
-// the REL and Go write (wwvis.h, wwfx.h), so no two blocks share a byte.
-_Static_assert(MP_EYE_PACKETS_OFF >= WWVIS_OFF + WWVIS_SIZE && MP_EYE_PACKETS_OFF + MP_EYE_PACKETS_SIZE <= WWFX_OFF &&
+// ... and between the visuals and peer boats blocks and the projectile
+// events block, which the REL and Go write (wwvis.h, wwboat.h, wwfx.h), so
+// no two blocks share a byte.
+_Static_assert(WWBOAT_OFF >= WWVIS_OFF + WWVIS_SIZE && MP_EYE_PACKETS_OFF >= WWBOAT_OFF + WWBOAT_SIZE && MP_EYE_PACKETS_OFF + MP_EYE_PACKETS_SIZE <= WWFX_OFF &&
                WWFX_OFF + WWFX_SIZE <= 0x1100,
-               "mailbox slack: the visuals block, the eye packets and the projectile block overlap");
+               "mailbox slack: the visuals block, the boats block, the eye packets and the projectile block overlap");
 static int my_packets_initialized = 0;
 
 static void init_my_eye_packets(void) {

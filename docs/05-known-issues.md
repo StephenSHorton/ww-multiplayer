@@ -897,7 +897,8 @@ recapture).
   +0xFB0..+0x1100; in the wave-3 in-game batch the projectile events block (`wwfx.h`) took the
   top (+0xE50..+0x1100) and the packets moved to +0xD00..+0xE50, right below it.
   T2 shrank by 0xE0 (0x2DE8 -> 0x2D08 bytes; 0x1F8 free below the mailbox, was 0x118).
-  `CanaryArenaHigh` is now +0x9E4..+0xD00 (0x804138E4..0x80413C00).
+  `CanaryArenaHigh` was then +0x9E4..+0xD00 (0x804138E4..0x80413C00). The peer boats block
+  ("Peer boats" below) took +0x9E4..+0xA6C, so it is now +0xA6C..+0xD00 (0x8041396C..0x80413C00).
 - **REL**: the keeper's swap state holds three body records (0x17C -> 0x194 bytes), so the
   profile's `mSize` (`WWREMOTE_ACTOR_SIZE`) went 0x600 -> 0x620 for the keeper and each lite
   body (ZeldaHeap). The WWRP block already had 4 slots. The third body's hits cannot be
@@ -1117,104 +1118,132 @@ T2 grew by 0x100 to 0x2CE8 bytes (devkitPPC 16.2). It ended at
 `0x80412CE8`, 0x218 bytes below the mailbox at the time. The tunic
 swap (docs/09 §6) later grew T2 to 0x2E08, leaving 0xF8.
 
-## Peer boats: not drawn yet — PLAN (2026-10-25, ww-online review)
+## Peer boats — BUILT, live checks owed (2026-10-25, ww-online review)
 
-A remote on the Great Sea is a mini-Link in its sailing pose with no King
-of Red Lions under it, and a parked boat is not shown at all. ww-online
-draws both (`GameMod/src/puppet_link/puppet_boat.c`, `puppet_boat.h`,
-`puppet_boatlook.c`, MIT). This section is the plan; it was left out of the
-gems3 visuals build (mirror shield, Master Sword scabbard, casual hair)
-for budget, not for a blocker.
-
-**Why it waited.** That build's in-game track had about 4 KB of REL for
-its part of the shared one-recapture batch (the RELS.arc growth guard is
-64 KB, and four tracks shared what was left). The three looks took 0x3C4
-bytes of REL `.text` and no T2 (T2 even shrank by 0x20). A boat worth
-shipping is several times that, because the hull alone is the small part:
-
-- `Ship.arc` is only resident while this game's own ship exists (the
-  `sea` stage and the stages that carry a `Ship` actor). A parked boat on
-  a stage without one needs the archive loaded through
-  `dComIfG_resLoad` and held with a phase per viewer, as ww-online does.
-- The hull (`fn_body.bdl`, Ship.arc 0x11) and the head (`fn_head_h.bdl`,
-  0x12) carry daShip_c's joint callbacks on the SHARED model data
-  (`d_a_ship.cpp:4573`, `:4601` set the user area they read; the callbacks
-  at `:139-241` cast `model->getUserArea()` to `daShip_c*`). A copy has
-  user area 0, so every one of those callbacks must be swapped out around
-  our calc, as `vis_enter` already clears `mMtxCalc` (`inject/rel/visuals.c`).
-- The hull is CPU-skinned (`daShip_c::draw` turns `J3DSysFlag_SkinPosCpu`
-  on, `d_a_ship.cpp:259-260`), so each copy needs its own `J3DSkinDeform`,
-  the same recipe as the mirror shield in `visuals.c` (`vis_skin`).
-- The sail is not on the hull: daShip_c spawns a `daGrid_c`
-  (`fopAcM_create(fpcNm_GRID_e, ...)`, `d_a_ship.cpp:4693`) whose own
-  packet draws an 85-vertex cloth with `new_ho1.bti` (0x17), moved by
-  `ho_move` from the wind and the ship's `mSailAngle` (+0x364). ww-online
-  imitates a `daGrid_c` in a per-boat heap and runs the game's own
-  `ho_move` and packet draw on it. "Sail in the player's tunic colour" is
-  a recoloured copy of that texture's C8 palette per boat (their
-  `puppet_boatlook.c`), loaded around the packet's draw.
-- Height and tilt come from this game's sea (`daSea_calcWave`, as
-  `daShip_c::setYPos`/`setWaveAngle` do), since the remote's waves do not
-  line up with ours.
+The other players' King of Red Lions is drawn in your game: under a remote
+that sails it, and where a remote left it (on the sea, and in Tower of the
+Gods). The sail is in the remote's tunic colour, and the cannon or the
+salvage crane shows when the remote has it out. Nothing of it has run in
+Dolphin yet: docs/TESTING.md "Peer boats" (BT-1..BT-10) is owed. It ships in
+the wave-3 in-game batch (PR #199), so it rides that batch's one recapture.
+ww-online draws the same (`GameMod/src/puppet_link/puppet_boat.c`, MIT);
+`inject/rel/boats.c` is adapted from it and carries their notice.
 
 **The hard rule (theirs, and ours).** Never create a second `daShip_c`:
 its create calls `dComIfGp_setShipActor(this)` (`d_a_ship.cpp:4746`),
-which takes over `mpPlayerPtr[2]` (0x803CA75C, `addr.PlayerPtr + 8`), and
-its execute writes this player's sail status and audio, and it spawns its
-own Grid, WindArrow and encounter actors. A boat is a model we draw, never
-an actor.
+which takes over `mpPlayerPtr[2]` (0x803CA75C, `addr.PlayerPtr + 8`), its
+execute writes this player's sail status and audio, and it spawns its own
+Grid, WindArrow and encounter actors. A boat is models the REL keeper
+makes, poses and draws, never an actor.
 
-**The plan, in the order to build it.**
+**Sender (Go, `mods/multiplayer/boatsync`, broadcast-pose).** `Local` reads
+this game's ship every tick: `mpPlayerPtr[2]`, in MEM1, with process name
+`fpcNm_SHIP_e` (0xA7), no stage change under way. Fields are from the
+decomp's `d_a_ship.h`. `d_a_ship.rel` is not in main.dol, so only the two
+fields ho_move reads through `l_ship` (+0x358 at 0x800E9F80, +0x364 at
+0x800E9CF8) are checked in `inject/original.dol`. The fields:
+`current.pos` (+0x1F8), the room (+0x20A), `shape_angle` (+0x20C),
+`mpBodyAnm`/`mpHeadAnm` (+0x298/+0x29C, their frame at morf +0x68), `mPart`
+(+0x34E), `mStateFlag` (+0x358, SAIL_ON 0x200), `mSailAngle` (+0x364), the
+tiller `m0366`, the mast bck `m0392`, the cannon `m0394`/`m0396`, the crane
+`m0398 + m039C`, the head bck `m03B4` and the mast scale `m03E8`. Aboard is
+`daPyStts0_SHIP_RIDE_e` (0x10000) in `mPlayerStatus[0][0]` (0x803CA8D0).
+The ship's position is sent relative to Link's `current.pos` while aboard
+and absolute while parked. It is a 40-byte run appended to the pose trailer
+after the equip bytes (offset 19), with the stage name, so a receiver knows
+where a parked boat lies. The trailer is then 59 bytes, under
+`network.MaxFaceBytes` (64), so there is no protocol bump. The run is sent
+(all zero with no ship) whenever the equip bytes are.
 
-1. *Go, sender.* broadcast-pose reads this game's ship (`mpPlayerPtr[2]`,
-   in MEM1 and non-zero) each tick: `current.pos` (fopAc +0x1F8),
-   `shape_angle` (+0x20C, f_op_actor.h:289-290), `mSailAngle` (+0x364), the mast bck index
-   `m0392` and its frame, and whether Link is aboard
-   (`daPyStts0_SHIP_RIDE_e`, 0x10000, in `mPlayerStatus[0][0]` at
-   g_dComIfG_gameInfo + 0x5CC8, the word the REL's name tags read). Every offset to be checked in `d_a_ship.h` and against
-   `inject/original.dol` before use. It goes after the pose trailer's
-   equip bytes as a new optional run (about 24 bytes: 3 f32, 4 s16, a
-   frame byte, a flags byte: aboard, parked, sail up), under the trailer
-   rule: older receivers ignore it, the server relays up to
-   `network.MaxFaceBytes` (64; the trailer is 19 bytes today), so no
-   protocol bump. If another track has taken trailer bytes by then, this
-   run goes after theirs.
-2. *Go, receiver.* vissync writes one boat entry per remote on the same
-   stage as this game (and, for a parked boat, the remote's last-known
-   entry, kept until it boards again or leaves that stage): a new boat
-   array in the visuals block (or a block of its own past it; +0x9E4 is
-   where the visuals block ends now, and the free slack runs to the eye
-   packets at +0xD00, 0x80413C00), position, angles, sail angle, mast frame, RGB, flags.
-   Gated by a `WW_BOATS` knob: off by default until the live checks
-   pass, then on, with `WW_BOATS=off` like the other visuals knobs.
-3. *REL, hull and head.* Two models per boat slot, made once per boot on
-   the archive heap from Ship.arc's data (only while the archive is
-   resident: the data pointer is re-checked every frame, as `vis_model`
-   does, and nothing is drawn while it is absent), each with its own
-   `J3DSkinDeform`; base matrix T(pos) * ZXY(shape_angle), the head on the
-   hull's `J_FN_GATTAI` joint (0x04). Calc with every joint callback and
-   `mMtxCalc` cleared (bind pose: the mast up, the sail yard square). Lit
-   with a `dKy_tevstr_c` of our own from `settingTevStruct(TEV_TYPE_ACTOR,
-   &pos, ...)`, as `daShip_c::draw` does (`:253-255`). Drawn from the
-   REL's actor draw (proc 0xB5, which runs every frame while linked), not
-   from T2's mini-Link hook, so a parked boat draws with no remote nearby.
-   This step alone is the "boat under the remote" look and is the first
-   live check.
-4. *REL, mast pose.* Play the remote's mast bck (`FN_MAST_ON2`/`OFF2`) at
-   its streamed frame on our hull through a `J3DFrameCtrl` + the bck from
-   Ship.arc, so a parked boat's mast is folded (`J_FN_MAST` scale 0.001,
-   `d_a_ship.cpp` setPartOffAnime) and a sailing one's is up.
-5. *REL, the sail.* The imitation `daGrid_c` and its packet, as
-   ww-online's "Sail" section, on a per-boat heap (theirs reserves
-   0x20000 then shrinks it). This is the biggest step and the riskiest:
-   it calls game code (`ho_move`, the packet draw) on a struct that is not
-   a real actor, so it needs its own live checks, and its own budget line.
-6. *REL, the tunic sail colour.* The palette copy and swap around the
-   sail's draw (their `puppet_boatlook.c`), keyed by the entry's RGB.
+**Receiver (Go, puppet-sync).** `boatsync.Tracker` builds the boats block
+each tick.
+- An aboard boat goes at the remote's mini-Link (the feeder's smoothed
+  `RemoteView.Pos`) plus the streamed offset, so Link and hull move as one
+  with no smoothing of their own. It shows while the remote's pose is live
+  and on this game's stage.
+- A parked boat is held where it was left, on its stage, until the remote
+  boards again, parks elsewhere or leaves the session. Its poses stop when
+  it walks into another stage, and the boat stays.
+- On the sea a boat shows in any room (the rooms are grid squares);
+  elsewhere only in the room this game stands in.
+- At most three boats, in player id order.
+- `WW_BOATS=off` draws none; `WW_BOATS=nosail` or `noparts` drops the sail
+  cloth or the cannon and crane. The default is on: the request asked for
+  an off switch, not an opt-in, which changes this section's earlier plan
+  (off until checked). `WW_BOATS=off` is the fallback while BT-* are open.
 
-Steps 1-4 are one in-game change and one recapture; 5-6 a second. Each
-game address and offset above is to be verified in the decomp and the DOL
-first, and each step stays off by default until its live checks pass.
+**Block (`inject/include/wwboat.h`, `wwapi/mailbox/boat.go`).**
+`MAILBOX_ADDR + 0x9E4` (0x804138E4), 0x88 bytes, right after the visuals
+block: magic `WWBT` and flags (Go), a drawn counter and a last-error word
+(REL, 0x804138EC and 0x804138F0), then three 0x28-byte entries (Go).
+`CanaryArenaHigh` now starts at its end, +0xA6C (0x8041396C, 165 words up to
+the eye packets), and `canaryForbidden` lists `mailbox.BoatRegion`.
+
+**REL (`inject/rel/boats.c`).** It runs from the keeper: `boats_frame`
+after `fx_frame` in execute, `boats_draw` from the keeper's draw (its
+profile has no `fopAcStts_CULL_e`, so it runs every frame outside the
+menus), and the heaps are freed in the keeper's delete and in `_epilog`.
+- Models exist only while this game's "Ship" archive is resident (the sea
+  and the stages with a Ship actor), checked every frame. There is no
+  `dComIfG_resLoad` of our own: a parked boat is only ever on such a stage.
+- Each entry has one solid heap from GameHeap
+  (`mDoExt_createSolidHeapFromGame`, 0x20000, then adjusted). It is
+  destroyed when the entry empties, the archive goes or changes, a stage
+  change starts, the magic drops, the keeper is deleted or the module
+  unlinks. Never the archive heap: Ship.arc unmounts on every
+  sea -> island -> sea trip, so keep-forever models would leak once per
+  trip (F18).
+- The hull (`fn_body`, Ship 0x11) and the head (`fn_head_h`, 0x12) are
+  `mDoExt_McaMorf`s made as `daShip_c::createHeap` makes them. The DOL
+  confirms new(0xB4) and the ctor's complete-object flag in r4
+  (0x800E639C..0x800E63F0, 0x800126A0). The hull has its own
+  `J3DSkinDeform`. The mast bck (`FN_MAST_ON2`/`OFF2`) and the head bck play
+  at the remote's streamed frames.
+- The base matrix is `T(pos) * ZXYrot(shape_angle)` from the remote's own
+  values, not this game's sea: the mini-Link stands at the remote's
+  streamed height, so a hull on our waves would float it or sink it.
+- Around every calc, each joint's callback becomes ours (or none) and each
+  `mMtxCalc` becomes 0; both are put back after (`bt_calc`). daShip_c's
+  callbacks on the shared joints read `getUserArea()`, which is 0 for ours
+  and unchecked in the head, cannon and crane callbacks, and a morf's calc
+  leaves itself in joint 0's `mMtxCalc`. Ours repeat `bodyJointCallBack`
+  (tiller, sail yard, the parts' bases on the mast, the 0.001 mast scale
+  with a part out), `cannonJointCallBack` and `craneJointCallBack`.
+- The sail is a zeroed `daGrid_c` (0x221C bytes) in the heap, with
+  `daHo_packet_c`'s ctor fields and `_create`'s amplitude table (computed
+  from the DOL's `l_pos`, 0x8038B1D8). The game's `ho_move` (0x800E9C0C)
+  moves it, with `l_ship` (0x803F6EC0 in `.sbss`: r13 0x803FE0E0 - 0x7220)
+  pointed for that call at a stub holding the remote's mStateFlag and
+  mSailAngle. The game's `daHo_packet_c::draw` draws it through our vtable
+  (the game's {0, 0, isSame, entry, draw, dtor} at 0x8038BBE0, with our
+  draw).
+- The tunic colour is a recoloured copy of `new_ho1`'s C8 palette (the
+  canvas only; the teal emblem and the orange corners stay),
+  double-buffered. The header's palette offset points at it only around our
+  packet's draw.
+- Each boat is lit with its own `dKy_tevstr_c` for the room this game
+  stands in (`settingTevStruct(TEV_TYPE_ACTOR)`) and entered in the P1
+  lists, as `daShip_c::draw` does.
+
+**Left out, and why.**
+- The head's look angles (`headJointCallBack1`) and its talk mouth:
+  trailer bytes and code for little.
+- The hull recolour: not asked.
+- The crane's rope and grappling hook: `setRopePos`'s per-segment physics
+  and a 3D line packet. The arm alone is drawn.
+- The wake, the shadow, the hull's water-effect texture matrix (shared
+  material state the local ship sets) and any collision.
+- Loading Ship.arc ourselves for a stage without a ship: no parked boat
+  needs it.
+
+**Budget.**
+- REL `.text` 0x15354 -> 0x16F38 (+0x1BE4).
+- RELS.arc growth +53,536 -> +58,272 of the 65,536 guard (the patcher
+  golden fixture).
+- No T2 code: T2 still ends at 0x80412D08, 0x1F8 free.
+- 0x88 bytes of mailbox slack.
+- At run time, per boat: one GameHeap solid heap with the models and the
+  0x2640-byte sail block.
 
 ## Dolphin caches INI files at startup
 

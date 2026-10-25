@@ -76,7 +76,7 @@ The plan:
  0x80413410   free slack (a co-op region here would start at mailbox +0x510, WWENEMY_REGION_END)
               (since then: the remote-Link block +0x510..+0x850, the knob table, the refresh request and
               the visuals block +0x8D0..+0x9E4 (0x990 before WWMB_LAYOUT 3, 0x9C0 before the wave-3 models2
-              table); free slack +0x9E4..+0xD00)
+              table); the peer boats block +0x9E4..+0xA6C (wwboat.h); free slack +0xA6C..+0xD00)
  0x80413C00   the mini-Links' eye packets (mailbox +0xD00..+0xE50, MP_EYE_PACKETS_OFF in mailbox_mp.h,
               WWMB_LAYOUT 3: 3 slots x 4 J3DPacket copies x 0x1C; were T2 .bss, then +0xFB0); never canary-armed
  0x80413D50   the projectile events block (mailbox +0xE50..+0x1100, inject/include/wwfx.h WWFX_OFF;

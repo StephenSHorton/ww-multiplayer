@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/boatsync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/fxsync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/tunicsync"
@@ -128,6 +129,22 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 		}
 	}()
 
+	// The peer boats (boatsync, inject/include/wwboat.h): each remote's King
+	// of Red Lions where it sails and where it was left. WW_BOATS=off draws
+	// none (nosail / noparts drop the sail cloth / the cannon and crane).
+	// Session over: the block goes off and the REL frees its boats.
+	boatSettings := boatsync.SettingsFromEnv()
+	var boats boatsync.Sync
+	var boatTracker boatsync.Tracker
+	if gate.ok {
+		_ = boats.Off(d)
+	}
+	defer func() {
+		if gate.ok {
+			_ = boats.Off(d)
+		}
+	}()
+
 	// Projectile events (fxsync, inject/include/wwfx.h; WW_PROJECTILES=on,
 	// default off): the peers' bombs, cannonballs and arrows, scoped to
 	// this game's stage and room, into the REL's inbox. Session over: the
@@ -194,7 +211,8 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 				feeder.Connected(client.ServerEpoch())
 			}
 			feeder.Feed(ctx, remotes, now)
-			roster.Publish(feeder.Views(remotes, now), now)
+			views := feeder.Views(remotes, now)
+			roster.Publish(views, now)
 
 			// The tunic images go through GameHeap pointers too: hold
 			// them to the feeder's reset gate (running.go).
@@ -204,6 +222,9 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 			}
 
 			_ = vis.Write(d, vissync.Build(visSettings, remotes, feeder.LinkSlots(), selfFilter))
+			if boatSettings.On {
+				_ = boats.Write(d, boatTracker.Build(boatSettings, boatsync.ReadHere(d), remotes, BoatAnchors(views), selfFilter, now))
+			}
 
 			// Projectile events wait out the reset gate as well: no copy
 			// is due while the game resets or reboots, and anything queued
@@ -228,6 +249,9 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 		// must not linger frozen while ReconnectLoop waits to redial.
 		// The next session's first Write turns the block back on.
 		visDropped(d, &vis, gate.ok)
+		if gate.ok {
+			_ = boats.Off(d) // no frozen boats while ReconnectLoop redials
+		}
 		return nil
 	}
 	run := func(ctx context.Context) error {
@@ -245,6 +269,16 @@ func visDropped(w vissync.Writer, vis *vissync.Sync, gateOK bool) {
 	if gateOK {
 		_ = vis.Off(w)
 	}
+}
+
+// BoatAnchors is where each remote's mini-Link is drawn (RemoteView.Pos),
+// the point boatsync places an aboard boat from.
+func BoatAnchors(views []RemoteView) map[byte][3]float32 {
+	out := make(map[byte][3]float32, len(views))
+	for _, v := range views {
+		out[v.ID] = v.Pos
+	}
+	return out
 }
 
 // fxLogger logs the projectile receiver's summary at most every

@@ -55,7 +55,7 @@ func TestVisLayout(t *testing.T) {
 	if VisSlots != MailboxPoseSlotCap {
 		t.Errorf("VisSlots %d, mini-Link slots %d", VisSlots, MailboxPoseSlotCap)
 	}
-	if CanaryArenaHigh.Start != VisRegion.End || CanaryArena.Contains(VisAddr, 4) || CanaryArenaHigh.Contains(VisAddr+VisSize-4, 4) {
+	if BoatRegion.Start != VisRegion.End || CanaryArenaHigh.Contains(VisAddr, 4) || CanaryArena.Contains(VisAddr, 4) || CanaryArenaHigh.Contains(VisAddr+VisSize-4, 4) {
 		t.Errorf("canaries cover the visuals block: high %+v, block %+v", CanaryArenaHigh, VisRegion)
 	}
 	// T2's seachart_shim reaches the sea chart word with lis 0x8041 and a
@@ -124,11 +124,12 @@ func TestVisSlotsCoverRemoteLinks(t *testing.T) {
 func TestVisSlackMapComments(t *testing.T) {
 	end := fmt.Sprintf("+0x%X", VisOff+VisSize)
 	block := fmt.Sprintf("+0x%X..%s", VisOff, end)
+	free := fmt.Sprintf("+0x%X", BoatOff+BoatSize) // the peer boats block follows the visuals block
 	for _, c := range []struct{ path, want string }{
 		{"../../inject/include/wwremote.h", block},
-		{"../../inject/include/wwremote.h", fmt.Sprintf("%s..+0x%X free", end, CanaryArenaHigh.End-Mailbox)},
+		{"../../inject/include/wwremote.h", fmt.Sprintf("%s..+0x%X free", free, CanaryArenaHigh.End-Mailbox)},
 		{"../../inject/include/wwrefresh.h", block},
-		{"../../inject/include/wwrefresh.h", "CanaryArenaHigh starts past that (" + end + ")"},
+		{"../../inject/include/wwrefresh.h", "starts past that (" + free + ")"},
 	} {
 		b, err := os.ReadFile(c.path)
 		if err != nil {

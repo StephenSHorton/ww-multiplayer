@@ -86,6 +86,12 @@
 // from execute last.
 #include "fx.h"
 
+// The other players' King of Red Lions (boats.c, include/wwboat.h): its
+// state is the module's .bss, emptied by _prolog (boats_link); it poses
+// from execute after fx and enters the boats from the keeper's draw. Its
+// heaps go in the keeper's delete and in _epilog.
+#include "boats.h"
+
 // The build id: build.py passes -DWWREL_BUILD_ID=<CRC-32 of inject/rel's
 // sources and the slack headers>, so it changes with the source and never
 // with the clock (the ELF stays byte-identical across rebuilds of the
@@ -275,6 +281,7 @@ static int wwrel_delete(void* actor) {
     if (remote_is_body(actor)) return remote_body_delete(actor);
     enemy_mirror_delete(&a->mirror, &a->ext);
     remote_keeper_delete(&a->swap);
+    boats_unlink();
     return TRUE;
 }
 
@@ -296,6 +303,7 @@ static int wwrel_execute(void* actor) {
     bosskill_frame();
     refresh_frame();
     fx_frame();
+    boats_frame();
     return TRUE;
 }
 
@@ -304,10 +312,12 @@ static int wwrel_is_delete(void* actor) {
     return TRUE;
 }
 
-// Draws nothing, in either role (the mini-Link keeps rendering the
-// remote player).
+// The keeper draws the peer boats (boats.c); a lite body draws nothing
+// (the mini-Link keeps rendering the remote player). The keeper's profile
+// status has no fopAcStts_CULL_e, so this runs every frame outside the
+// menus wherever the keeper stands.
 static int wwrel_draw(void* actor) {
-    (void)actor;
+    if (!remote_is_body(actor)) boats_draw();
     return TRUE;
 }
 
@@ -398,6 +408,7 @@ void _prolog(void) {
     WWREL_WORD(WWREL_SWAP_STATE_OFF) = 0;
     WWREL_WORD(WWREL_MAGIC_OFF) = WWREL_MAGIC;
     fx_link();
+    boats_link();
     wwvis_link();
     WWREL_WORD(WWREL_EXEC_HOOK_OFF) = (u32)wwrel_exec_hook;
 }
@@ -409,6 +420,7 @@ void _prolog(void) {
 // the next link reuses it).
 void _epilog(void) {
     wwvis_unlink();
+    boats_unlink();
     WWREL_WORD(WWREL_EXEC_HOOK_OFF) = 0;
     remote_unlink();                     // clears WWREL_SWAP_STATE_OFF
     enemy_mirror_unlink();               // release_all if delete never ran
