@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -362,7 +363,7 @@ func TestModulePatchISOFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(out)
-	if err != nil || !bytes.Equal(got, want) || res != wres {
+	if err != nil || !bytes.Equal(got, want) || !reflect.DeepEqual(res, wres) {
 		t.Errorf("the file differs from the in-memory patch: %v, %+v vs %+v", err, res, wres)
 	}
 	if b, err := os.ReadFile(in); err != nil || !bytes.Equal(b, img) {

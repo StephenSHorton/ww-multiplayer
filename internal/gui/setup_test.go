@@ -288,10 +288,12 @@ type fakePatcher struct {
 	hold    chan struct{}
 	started chan struct{}
 	calls   int
+	opts    patch.Options // the last run's
 }
 
 func (f *fakePatcher) run(ctx context.Context, in, out string, w io.Writer, o patch.Options) (patch.Result, error) {
 	f.calls++
+	f.opts = o
 	res := patch.Result{In: in, Out: out, AlreadyPatched: f.already}
 	fmt.Fprintf(w, "Wind Waker Multiplayer patcher\n  input : %s\n  output: %s\n", in, out)
 	if f.started != nil {

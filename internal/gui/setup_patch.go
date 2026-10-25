@@ -371,7 +371,13 @@ func (b *Bridge) runPatch(ctx context.Context, j *patchJob, in, out string, exis
 		}
 	}()
 
-	opts := patch.Options{}
+	// Keep an optional REL fix (`patch --fix-sea-heap`) the disc being
+	// replaced has: the one at out, or the last patched disc. The app has
+	// no switch for it, so its re-patch after an update must not drop it.
+	b.mu.Lock()
+	last := b.cfg.ISO.Patched
+	b.mu.Unlock()
+	opts := patch.Options{KeepFixes: true, KeepFrom: []string{last}}
 	if patch.NeedsConvert(in) {
 		opts.Converter = b.patchConverter() // looks for Dolphin only when needed
 	}

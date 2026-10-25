@@ -26,6 +26,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/cliutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject/rels"
 	"github.com/StephenSHorton/ww-multiplayer/internal/netutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
@@ -90,9 +91,10 @@ func versionLine() string {
 // co-op stage tables), and a
 // failure exits 1. An already-patched input exits 0, as it always has.
 // An RVZ, WIA or GCZ input is converted first with a DolphinTool beside
-// one of the Dolphins launch finds (patchConverter).
-func runPatch(in, out string) {
-	o := patch.Options{PostPatch: postPatchSteps()}
+// one of the Dolphins launch finds (patchConverter). fixes are the opt-in
+// REL byte patches (--fix-sea-heap).
+func runPatch(in, out string, fixes []rels.BytePatch) {
+	o := patch.Options{PostPatch: postPatchSteps(), RELPatches: fixes}
 	if patch.NeedsConvert(in) {
 		o.Converter = patchConverter()
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/rel"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // Module is a REL module to ship on the disc: a relocatable ELF
@@ -38,6 +39,10 @@ type Module struct {
 	// MaxGrowth bounds how much the archive may grow, in stored bytes;
 	// 0 means RELSArcMaxGrowth.
 	MaxGrowth int
+	// Patches are optional byte patches to vanilla RELs that go into the
+	// archive with the module (SeaHeapFix; `patch --fix-sea-heap`). None
+	// by default. They are local: no player check compares them.
+	Patches []BytePatch
 }
 
 // BodyProfile is a module's second profile: process Proc's entry points
@@ -121,6 +126,8 @@ type Built struct {
 	// Growth is how many bytes bigger than the archive given the patched
 	// one is (negative when smaller).
 	Growth int
+	// Patches names the byte patches on the archive (Module.Patches).
+	Patches []string
 }
 
 // Build converts the ELF to a REL (rel.FromELF) and returns vanilla,
@@ -158,7 +165,7 @@ func (m Module) Build(vanilla []byte) (Built, error) {
 	if maxGrowth == 0 {
 		maxGrowth = RELSArcMaxGrowth
 	}
-	arc, file, err := patchRELSArc(vanilla, m.ID, relBytes, ProfileTarget{Proc: m.Proc, Section: section, Offset: offset}, extra, maxGrowth)
+	arc, file, applied, err := patchRELSArc(vanilla, m.ID, relBytes, ProfileTarget{Proc: m.Proc, Section: section, Offset: offset}, extra, m.Patches, maxGrowth)
 	if err != nil {
 		return Built{}, fmt.Errorf("patch RELS.arc: %w", err)
 	}
@@ -166,7 +173,8 @@ func (m Module) Build(vanilla []byte) (Built, error) {
 		Arc: arc, File: file.Path, REL: relBytes,
 		Profile:     rel.Symbol{Section: section, Offset: offset},
 		BodyProfile: body, HasBody: m.Body != nil,
-		Growth: len(arc) - len(vanilla),
+		Growth:  len(arc) - len(vanilla),
+		Patches: applied,
 	}, nil
 }
 
@@ -198,6 +206,9 @@ type Result struct {
 	// BodyProc is the second process whose entry now points into the
 	// module (the full body's 0x27), 0 for none.
 	BodyProc uint16
+	// Patches names the byte patches on the disc's RELS.arc
+	// (Module.Patches), with or without a module.
+	Patches []string
 }
 
 // PatchISOWithREL patches the disc image at inPath into outPath as
@@ -229,10 +240,18 @@ func (m Module) PatchISOInMemory(iso []byte) ([]byte, Result, error) {
 }
 
 // patch is the inject.Patch for the module: a builder that records
-// what it built in b, or nothing for an Empty module.
+// what it built in b, or for an Empty module nothing, or its Patches
+// alone.
 func (m Module) patch(b *Built) inject.Patch {
-	if m.Empty() {
+	if m.Empty() && len(m.Patches) == 0 {
 		return inject.Patch{}
+	}
+	if m.Empty() {
+		return inject.Patch{RELSArcFrom: func(disc []byte) ([]byte, error) {
+			arc, applied, err := PatchesOnly(disc, m.Patches, m.MaxGrowth)
+			b.Arc, b.Patches = arc, applied
+			return arc, err
+		}}
 	}
 	return inject.Patch{RELSArcFrom: func(disc []byte) ([]byte, error) {
 		built, err := m.Build(disc)
@@ -246,6 +265,9 @@ func (m Module) patch(b *Built) inject.Patch {
 
 func (m Module) result(res inject.Result, b Built) Result {
 	r := Result{Result: res}
+	if res.RELSArcReplaced() {
+		r.Patches = b.Patches
+	}
 	if !m.Empty() && res.RELSArcReplaced() {
 		r.HasREL, r.ModuleID, r.File, r.BuildID = true, m.ID, b.File, m.BuildID
 		r.RELSize, r.Growth = len(b.REL), b.Growth
@@ -254,4 +276,33 @@ func (m Module) result(res inject.Result, b Built) Result {
 		}
 	}
 	return r
+}
+
+// PatchesOnly returns arc, the disc's RELS.arc, with patches applied and
+// nothing else changed (a build without a REL module), under the growth
+// guard (0: RELSArcMaxGrowth), and the names of the patches on it.
+func PatchesOnly(arc []byte, patches []BytePatch, maxGrowth int) ([]byte, []string, error) {
+	if maxGrowth == 0 {
+		maxGrowth = RELSArcMaxGrowth
+	}
+	a, err := stage.ParseArchive(arc)
+	if err != nil {
+		return nil, nil, fmt.Errorf("rels: %w", err)
+	}
+	e, err := a.Edit()
+	if err != nil {
+		return nil, nil, fmt.Errorf("rels: %w", err)
+	}
+	applied, err := applyBytePatches(e, patches, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	if g := e.Growth(); g > maxGrowth {
+		return nil, nil, fmt.Errorf("rels: %w: %d bytes, limit %d", ErrRELSArcGrowth, g, maxGrowth)
+	}
+	out, err := e.Bytes()
+	if err != nil {
+		return nil, nil, fmt.Errorf("rels: %w", err)
+	}
+	return out, applied, nil
 }

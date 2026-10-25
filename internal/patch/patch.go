@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"slices"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject/rels"
@@ -32,6 +33,82 @@ type Options struct {
 	// (convert.go). Nil leaves those inputs an error with the
 	// convert-in-Dolphin advice, as before.
 	Converter *Converter
+	// RELPatches are optional byte patches to vanilla RELs that go into
+	// RELS.arc with the mod (rels.SeaHeapFix, `patch --fix-sea-heap`).
+	// None by default. They are local: players with and without them
+	// play together. A converted input gets them too.
+	RELPatches []rels.BytePatch
+	// KeepFixes keeps the optional REL fixes (rels.Optional) found on
+	// the disc this patch writes over (out, when it exists) and on
+	// KeepFrom: they are added to RELPatches and named on a "  keep  : "
+	// line. The app sets it, so its re-patch after an update keeps a fix
+	// put on with the CLI. Without it (the CLI) such a fix is left off and
+	// a "  note  : " line names the flag that keeps it.
+	KeepFixes bool
+	// KeepFrom are more discs whose fixes are kept or named as above
+	// (the app's last patched disc, which may not be out).
+	KeepFrom []string
+}
+
+// knownFixes are the optional fixes Run looks for on the discs it
+// replaces (rels.Optional; tests swap in fixes for their stand-in REL).
+var knownFixes = rels.Optional
+
+// FixesOn returns the optional REL fixes (rels.Optional) on the disc
+// image at path (ISO or CISO, read through inject.OpenDisc: its
+// RELS.arc only).
+func FixesOn(path string) ([]rels.BytePatch, error) {
+	return fixesOn(path, knownFixes)
+}
+
+func fixesOn(path string, known []rels.BytePatch) ([]rels.BytePatch, error) {
+	d, err := inject.OpenDisc(path)
+	if err != nil {
+		return nil, err
+	}
+	defer d.Close()
+	arc, err := d.ReadFile("RELS.arc")
+	if err != nil {
+		return nil, err
+	}
+	return rels.PatchesOn(arc, known)
+}
+
+// carryFixes handles the fixes on the discs being replaced (out and
+// o.KeepFrom, those that exist and aren't in): added to o.RELPatches
+// with a keep line when o.KeepFixes, a note line otherwise. A disc that
+// can't be read is skipped: it is being replaced either way.
+func carryFixes(w io.Writer, in, out string, o *Options) {
+	have := map[string]bool{}
+	for _, p := range o.RELPatches {
+		have[p.Name] = true
+	}
+	seen := map[string]bool{in: true}
+	for _, disc := range append([]string{out}, o.KeepFrom...) {
+		if disc == "" || seen[disc] {
+			continue
+		}
+		seen[disc] = true
+		if st, err := os.Stat(disc); err != nil || !st.Mode().IsRegular() {
+			continue
+		}
+		on, err := fixesOn(disc, knownFixes)
+		if err != nil {
+			continue
+		}
+		for _, p := range on {
+			if have[p.Name] {
+				continue
+			}
+			have[p.Name] = true
+			if o.KeepFixes {
+				o.RELPatches = append(o.RELPatches, p)
+				fmt.Fprintf(w, "  keep  : %s, which %s has\n", p.Name, disc)
+			} else {
+				fmt.Fprintf(w, "  note  : %s has the %s; this patch leaves it off (add %s to keep it)\n", disc, p.Name, p.Flag)
+			}
+		}
+	}
 }
 
 // Result is what Run did.
@@ -79,6 +156,22 @@ func DefaultOut(in string) string {
 	return base + "-multiplayer.iso"
 }
 
+// missingFixes are those of fixes not on the disc at in (all of them
+// when it can't be read).
+func missingFixes(in string, fixes []rels.BytePatch) []rels.BytePatch {
+	if len(fixes) == 0 {
+		return nil
+	}
+	on, _ := fixesOn(in, fixes)
+	var out []rels.BytePatch
+	for _, p := range fixes {
+		if !slices.ContainsFunc(on, func(q rels.BytePatch) bool { return q.Name == p.Name }) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // Run patches in into out (DefaultOut(in) when out is ""), writing the
 // patcher's lines on w. An input that already holds this build's mod is not
 // an error (Result.AlreadyPatched). Every failure is written on w as the CLI
@@ -111,7 +204,10 @@ func Run(ctx context.Context, in, out string, w io.Writer, o Options) (Result, e
 		return res, err
 	}
 	res.ConvertedFrom = format
-	r, err := rels.PatchISOWithREL(src, out)
+	carryFixes(w, in, out, &o)
+	m := rels.Blob()
+	m.Patches = o.RELPatches
+	r, err := m.PatchISO(src, out)
 	fst := r.Result
 	if err != nil {
 		switch {
@@ -142,6 +238,11 @@ func Run(ctx context.Context, in, out string, w io.Writer, o Options) (Result, e
 		case errors.Is(err, inject.ErrPatchedByOtherVersion):
 			fmt.Fprintf(w, "\nThis ISO was patched by a different ww-multiplayer version.\n")
 			fmt.Fprintf(w, "Patch your vanilla (unmodified) Wind Waker ISO with this version instead.\n")
+			for _, p := range missingFixes(in, o.RELPatches) {
+				// A disc this build patched without the fix differs
+				// from what it would write with it only there.
+				fmt.Fprintf(w, "If this disc was patched by this version without %s: the %s can't be added to a patched disc. Patch your vanilla disc with %s.\n", p.Flag, p.Name, p.Flag)
+			}
 			return res, err
 		}
 		fmt.Fprintf(w, "\nERROR: %v\n", err)
@@ -157,6 +258,9 @@ func Run(ctx context.Context, in, out string, w io.Writer, o Options) (Result, e
 			r.ModuleID, path.Base(r.File), r.BuildID, fst.RELSArcOffset, r.Growth)
 	} else {
 		fmt.Fprintf(w, "  REL   : none (this build has no REL module)\n")
+	}
+	for _, name := range r.Patches {
+		fmt.Fprintf(w, "  fix   : %s (local only)\n", name)
 	}
 	// The post-patch steps on the disc just written (co-op's stage
 	// tables, for --coop sessions): read-only on it, a warning at worst.

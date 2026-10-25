@@ -9,7 +9,7 @@ Play multiplayer:
   <exe> ui [--browser [--port N] [--no-open]] Open the app window (--browser: in your browser)
 
 Patch an ISO:
-  <exe> patch <vanilla.iso|.ciso|.rvz> [out.iso]
+  <exe> patch <vanilla.iso|.ciso|.rvz> [out.iso] [--fix-sea-heap]
     Splice the multiplayer mod into your own legitimate copy of Wind Waker (GZLE01)
 
 Lower-level CLIs:
