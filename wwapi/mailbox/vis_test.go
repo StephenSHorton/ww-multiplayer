@@ -17,9 +17,10 @@ func TestVisHeaderPins(t *testing.T) {
 		"WWVIS_MAGIC_OFF": VisMagicOff, "WWVIS_FLAGS_OFF": VisFlagsOff, "WWVIS_NAMES_OFF": VisNamesOff,
 		"WWVIS_EQUIP_OFF": VisEquipOff, "WWVIS_SEA_OFF": VisSeaOff, "WWVIS_MODELS_OFF": VisModelsOff,
 		"WWVIS_STAT_TAGS_OFF": VisStatTagsOff, "WWVIS_STAT_EQUIP_OFF": VisStatEquipOff,
-		"WWVIS_STAT_SEA_OFF": VisStatSeaOff, "WWVIS_STAT_ERR_OFF": VisStatErrOff,
+		"WWVIS_STAT_SEA_OFF": VisStatSeaOff, "WWVIS_STAT_ERR_OFF": VisStatErrOff, "WWVIS_MODELS2_OFF": VisModels2Off,
 		"WWVIS_MAGIC": uint64(VisMagic), "WWVIS_SLOTS": VisSlots, "WWVIS_NAME_BYTES": VisNameBytes,
 		"WWVIS_FLAG_NAMES": uint64(VisFlagNames), "WWVIS_FLAG_EQUIP": uint64(VisFlagEquip), "WWVIS_FLAG_SEACHART": uint64(VisFlagSea),
+		"WWVIS_FLAG_HAIR": uint64(VisFlagHair), "WWVIS_EQF_CASUAL": VisEqfCasual,
 		"WWVIS_EQ_SWORD": VisEqSword, "WWVIS_EQ_SHIELD": VisEqShield, "WWVIS_EQ_FLAGS": VisEqFlags,
 		"WWVIS_EQF_VALID": VisEqfValid, "WWVIS_EQF_SWORD_HAND": VisEqfSwordHand, "WWVIS_EQF_SHIELD_HAND": VisEqfShieldHand,
 		"WWVIS_SEA_MAX": VisSeaMax, "WWVIS_SEA_SIZE": VisSeaSize,
@@ -28,6 +29,8 @@ func TestVisHeaderPins(t *testing.T) {
 		"WWVIS_MODEL_KINDS": VisModelKinds,
 		"WWVIS_MK_GRIP_A":   VisMkGripA, "WWVIS_MK_GRIP_MS": VisMkGripMS, "WWVIS_MK_BLADE_A": VisMkBladeA,
 		"WWVIS_MK_BLADE_MS": VisMkBladeMS, "WWVIS_MK_SHIELD_A": VisMkShieldA,
+		"WWVIS_MODEL2_KINDS": VisModel2Kinds, "WWVIS_MK_SHIELD_MS": VisMkShieldMS, "WWVIS_MK_POD_MS": VisMkPodMS,
+		"WWVIS_MK_KATSURA": VisMkKatsura, "WWVIS_ERR_SKIN": VisErrSkin,
 		"WWVIS_ERR_NONE": VisErrNone, "WWVIS_ERR_RES": VisErrRes, "WWVIS_ERR_CREATE": VisErrCreate, "WWVIS_ERR_FONT": VisErrFont,
 		"WWVIS_PHASE_PRE": VisPhasePre, "WWVIS_PHASE_POST": VisPhasePost,
 	})
@@ -42,7 +45,8 @@ func TestVisLayout(t *testing.T) {
 	}
 	if VisNamesOff+VisSlots*VisNameBytes != VisEquipOff || VisEquipOff+VisSlots*4 != VisSeaOff ||
 		VisSeaOff+VisSeaMax*VisSeaSize != VisModelsOff || VisModelsOff+VisSlots*VisModelKinds*4 != VisStatTagsOff ||
-		VisStatErrOff+4 != int(VisSize) {
+		VisStatErrOff+4 != VisModels2Off || VisModels2Off+VisSlots*VisModel2Kinds*4 != int(VisSize) ||
+		VisMkKatsura+1 != VisModelKinds+VisModel2Kinds {
 		t.Error("visuals block parts do not tile it")
 	}
 	if VisSlots != MailboxPoseSlotCap {
@@ -63,7 +67,7 @@ func TestVisBlockBytes(t *testing.T) {
 	b := VisBlock{
 		Flags: VisFlagNames | VisFlagEquip,
 		Names: [VisSlots]string{"Link", "Tetra\x01é is a very long name here"},
-		Equip: [VisSlots]VisEquip{{Valid: true, Sword: 0x38, Shield: 0x3B, SwordHand: true}, {}},
+		Equip: [VisSlots]VisEquip{{Valid: true, Sword: 0x38, Shield: 0x3B, SwordHand: true}, {Casual: true}},
 		Sea:   []VisSea{{X: 1, Z: -2, Angle: -1, R: 1, G: 2, B: 3}, {}, {}, {}, {X: 9}},
 	}
 	out := b.Bytes()
@@ -84,7 +88,7 @@ func TestVisBlockBytes(t *testing.T) {
 	if e := at(VisEquipOff)[:4]; e[0] != 0x38 || e[1] != 0x3B || e[2] != VisEqfValid|VisEqfSwordHand {
 		t.Errorf("equip 0 % x", e)
 	}
-	if e := at(VisEquipOff + 4)[:4]; e[0] != 0xFF || e[1] != 0xFF || e[2] != 0 {
+	if e := at(VisEquipOff + 4)[:4]; e[0] != 0xFF || e[1] != 0xFF || e[2] != VisEqfCasual {
 		t.Errorf("equip 1 % x", e)
 	}
 	s := at(VisSeaOff)

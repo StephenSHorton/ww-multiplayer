@@ -12,13 +12,41 @@
 //   sword out (mEquipItem == daPyItem_SWORD_e): hilt and blade at CL_LHANDA;
 //   sheathed: hilt at podA * T(-11.25, 4.5, 0.45) * Rz(-0x1C71), no blade;
 //   shield in hand: CL_RHANDA; else podA * T(15.5, 4.75, 0) * Rz(-0x4000).
-// The hero's sword and the Master Sword (hilt + blade) and the hero's
-// shield are drawn. Not drawn: the mirror shield (Link gives it a
-// J3DSkinDeform, :11924-11928), the Master Sword's own scabbard model
-// (mpPodmsModel), the sword glow and blur. The idea (each peer's own
-// equipment from its slot bytes) is datstarkey/ww-online's
-// (GameMod/src/puppet_link/puppet_draw.c, MIT); their puppets are real
-// daPy_lk_c actors, so no code of theirs applies here.
+// The hero's sword and the Master Sword (hilt + blade), the hero's
+// shield and the mirror shield are drawn, and with the Master Sword its
+// own scabbard. Not drawn: the sword glow and blur (below). The idea
+// (each peer's own equipment from its slot bytes) is datstarkey/
+// ww-online's (GameMod/src/puppet_link/puppet_draw.c, MIT); their
+// puppets are real daPy_lk_c actors, so no code of theirs applies here.
+//
+// Mirror shield, Master Sword scabbard, casual hair (after #194):
+//   mirror shield (mSelectEquip[1] == 0x3C): mpShmsModel, Link.arc 0x43,
+//     placed as the hero's shield but T(15.5, 4.75, -0.2) on the back
+//     (:1320-1324; the walk sway at :1328-1343 is left out). Link gives
+//     it a J3DSkinDeform (createHeap, :11924-11928; new(0x18) + ctor at
+//     0x80123A8C-0x80123A9C in the DOL) and so do we, once per model:
+//     setSkinDeform may rewrite the SHARED model data's display lists
+//     for CPU skinning (changeFastSkinDL, J3DModel.cpp:452-456), so a
+//     copy without its own deform could draw from lists made for one.
+//     A model whose deform failed keeps mpSkinDeform 0 and is not drawn.
+//   Master Sword scabbard (mSelectEquip[0] 0x39/0x3A/0x3E): mpPodmsModel,
+//     Link.arc 0x22, at the podA joint itself (:1129), whenever that
+//     sword is equipped (:1909-1916); the hero's scabbard shape CL_PODA
+//     is already hidden for it (vis_equip_pre).
+//   casual hair (WWVIS_EQF_CASUAL, appearance bit 0): mpKatsuraModel,
+//     Link.arc 0x20, at CL_JNT_HEAD_JNT (0x0F, :11569; drawn :1896-1903),
+//     and what hideHatAndBackle (:1510-1531) hides in casual clothes:
+//     the hat, link_root's material 4 "ear(3)", and the buckle, CL_BACK's
+//     (0x29) first material. Not with the shared shape hide bit (T2's
+//     mini_link_entry_dl shows every hidden link_root shape, docs/05
+//     "Shared shape hide flags") but with the Hidden bit (0x10 at +0x10)
+//     of the mini-Link's OWN J3DShapePackets, which only
+//     J3DShapePacket::draw/drawFast read (J3DPacket.cpp:353, :365;
+//     0x802DB90C-0x802DB914 in the DOL), set or cleared every PRE.
+//   Not drawn: the sword glow (mpSwordModel1, d_a_player_sword.inc:83:
+//     YMSLI00, whose btk/brk Link loads from LkAnm.arc into his item heap
+//     each time he draws the sword, so a copy has no animation of its
+//     own) and the blur (mSwBlur, his own sword trail positions).
 //
 // Our models (WWVIS_MODELS) are made once per boot on the archive heap
 // from Link.arc's resident model data, like the mini-Links (F18 rule:
@@ -60,15 +88,22 @@ typedef void (*vis_light_t)(void* env_light, J3DModel* model, void* tevstr);
 #define LINK_BDL_SWGRIPA  0x26
 #define LINK_BDL_SWGRIPMS 0x45
 #define LINK_BDL_SWMS     0x46
+#define LINK_BDL_KATSURA  0x20
+#define LINK_BDL_PODMS    0x22
+#define LINK_BDL_SHMS     0x43
 #define CL_JNT_LHANDA     0x08
 #define CL_JNT_RHANDA     0x0C
 #define CL_JNT_PODA       0x0D
+#define CL_JNT_HEAD       0x0F
+#define CL_JNT_BACK       0x29
+#define CL_MAT_HAT        4       // link_root's mesh: the 5th material, "ear(3)" (:1749-1754)
 
 // dItemNo_* (d_item_data.h:63-69).
 #define ITEM_SWORD        0x38
 #define ITEM_MASTER_1     0x39
 #define ITEM_MASTER_2     0x3A
 #define ITEM_SHIELD       0x3B
+#define ITEM_MIRROR       0x3C
 #define ITEM_MASTER_3     0x3E
 
 // Layouts (decomp offsets).
@@ -78,10 +113,27 @@ typedef void (*vis_light_t)(void* env_light, J3DModel* model, void* tevstr);
 #define J3DMODELDATA_MAT_PTR_OFF 0x60   // mMaterialTable .mMaterialNodePointer (+0x08)
 #define J3DMATERIAL_ANM_OFF      0x3C   // J3DMaterial::mMaterialAnm (J3DMaterial.h:147)
 #define VIS_SAVE_MAX             16     // joints / materials cleared at most (the five models have fewer)
+#define J3DMODEL_SHAPE_PACKET_OFF 0xB8  // J3DModel::mpShapePacket (J3DModel.h:161; createShapePacket 0x802EDC14)
+#define J3DMODEL_SKIN_OFF        0xC0   // J3DModel::mpSkinDeform (J3DModel.h:163)
+#define J3DMODELDATA_SHAPE_NUM_OFF 0x7C // J3DModelData::mShapeNum (J3DModelData.h:120)
+#define J3DSHAPE_INDEX_OFF       0x08   // J3DShape::mIndex (J3DShape.h:150)
+#define J3DSHAPEPACKET_SIZE      0x44   // new J3DShapePacket[n] stride (createShapePacket 0x802EDC08)
+#define J3DPACKET_FLAGS_OFF      0x10   // J3DDrawPacket::mFlags (J3DPacket.h:156)
+#define J3DPACKET_HIDDEN         0x10   // J3DShpFlag_Hidden (J3DShape.h:68)
+#define J3DSKIN_SIZE             0x18   // J3DSkinDeform (J3DSkinDeform.h; li r3,0x18 at 0x80123A8C)
+#define J3DSKIN_POS_USE_OFF      0x04   // mPosUseMtx: NULL if initMtxIndexArray ran out of memory
+#define J3DSKIN_NRM_MTX_OFF      0x0C   // mNrmMtx
+typedef void* (*vis_new_t)(u32 size);
+typedef void* (*vis_ctor_t)(void* self);
+typedef s32 (*vis_set_skin_t)(J3DModel* model, void* skin, u32 flags);
+#define vis_op_new              ((vis_new_t)0x802B0C38)      // __nw__FUl (the current heap)
+#define J3DSkinDeform_ct        ((vis_ctor_t)0x802F40C0)     // __ct__13J3DSkinDeformFv
+#define J3DModel_setSkinDeform  ((vis_set_skin_t)0x802EE4BC) // setSkinDeform__8J3DModelFP13J3DSkinDeformUl
 
 static const char vis_arc[] = "Link";
-static const u16 vis_model_idx[WWVIS_MODEL_KINDS] = {
+static const u16 vis_model_idx[WWVIS_MK_ALL] = {
     LINK_BDL_SWGRIPA, LINK_BDL_SWGRIPMS, LINK_BDL_SWA, LINK_BDL_SWMS, LINK_BDL_SHA,
+    LINK_BDL_SHMS, LINK_BDL_PODMS, LINK_BDL_KATSURA,
 };
 
 static int vis_on(u32 flag) {
@@ -124,8 +176,22 @@ static void vis_mtx_place(f32* dst, const f32* a, f32 c, f32 s, f32 tx, f32 ty, 
 }
 
 // --- models ---------------------------------------------------------------
+// The mirror shield's J3DSkinDeform, as Link's createHeap gives his
+// (new J3DSkinDeform; setSkinDeform(deform, 1)), on the current heap.
+static void vis_skin(J3DModel* m) {
+    u8* skin = (u8*)vis_op_new(J3DSKIN_SIZE);
+    if (skin) J3DSkinDeform_ct(skin);
+    if (!skin || J3DModel_setSkinDeform(m, skin, 1) != 0 ||
+        !*(volatile u32*)(skin + J3DSKIN_POS_USE_OFF) || !*(volatile u32*)(skin + J3DSKIN_NRM_MTX_OFF)) {
+        *(volatile u32*)((u8*)m + J3DMODEL_SKIN_OFF) = 0;   // never drawn (vis_equip_post)
+        vis_err(WWVIS_ERR_SKIN);
+    }
+}
+
 static J3DModel* vis_model(int slot, int kind) {
-    volatile u32* word = &VIS_WORD(WWVIS_MODELS_OFF + (u32)(slot * WWVIS_MODEL_KINDS + kind) * 4);
+    volatile u32* word = (kind < WWVIS_MODEL_KINDS)
+        ? &VIS_WORD(WWVIS_MODELS_OFF + (u32)(slot * WWVIS_MODEL_KINDS + kind) * 4)
+        : &VIS_WORD(WWVIS_MODELS2_OFF + (u32)(slot * WWVIS_MODEL2_KINDS + kind - WWVIS_MODEL_KINDS) * 4);
     J3DModelData* data = (J3DModelData*)dRes_getRes_byIdx(vis_arc, vis_model_idx[kind], MOBJECT_INFO, OBJECT_INFO_COUNT);
     if (!data) {
         vis_err(WWVIS_ERR_RES);
@@ -139,6 +205,7 @@ static J3DModel* vis_model(int slot, int kind) {
     // re-mount; the old model is leaked, as minilink.c does).
     JKRHeap* old = JKRHeap_becomeCurrentHeap(mDoExt_getArchiveHeap());
     J3DModel* m = mDoExt_J3DModel__create(data, 0, 0x37221222);
+    if (m && kind == WWVIS_MK_SHIELD_MS) vis_skin(m);
     JKRHeap_becomeCurrentHeap(old);
     if (!m) {
         vis_err(WWVIS_ERR_CREATE);
@@ -222,11 +289,36 @@ static volatile u32* vis_poda_flags(J3DModel* model) {
     return (volatile u32*)(shape + J3DSHAPE_FLAGS_OFFSET);
 }
 
+// The mini-Link's own shape packet for shape (the header: Hidden).
+static void vis_packet_hide(J3DModel* model, u8* data, u32 shape, int hide) {
+    u32 pk = *(volatile u32*)((u8*)model + J3DMODEL_SHAPE_PACKET_OFF);
+    if (!vis_in_mem1(shape) || !vis_in_mem1(pk)) return;
+    u16 idx = *(volatile u16*)(shape + J3DSHAPE_INDEX_OFF);
+    if (idx >= *(volatile u16*)(data + J3DMODELDATA_SHAPE_NUM_OFF)) return;
+    volatile u32* f = (volatile u32*)(pk + (u32)idx * J3DSHAPEPACKET_SIZE + J3DPACKET_FLAGS_OFF);
+    if (hide) *f |= J3DPACKET_HIDDEN;
+    else      *f &= ~J3DPACKET_HIDDEN;
+}
+
+// A casual remote: no hat and no buckle on this slot's model (else both back).
+static void vis_casual_pre(J3DModel* model, int casual) {
+    u8* data = *(u8**)((u8*)model + J3DMODEL_DATA_OFF);
+    u8** joints = *(u8***)(data + J3DMODELDATA_JOINT_NODE_PTR_OFFSET);
+    if (!vis_in_mem1((u32)joints) || *(volatile u16*)(data + J3DMODELDATA_JOINT_NUM_OFFSET) <= CL_JNT_BACK) return;
+    u32 mtl = joints[0] ? *(volatile u32*)(joints[0] + J3DJOINT_MESH_OFFSET) : 0;
+    int i;
+    for (i = 0; i < CL_MAT_HAT && vis_in_mem1(mtl); i++) mtl = *(volatile u32*)(mtl + J3DMATERIAL_NEXT_OFFSET);
+    if (vis_in_mem1(mtl)) vis_packet_hide(model, data, *(volatile u32*)(mtl + J3DMATERIAL_SHAPE_OFFSET), casual);
+    mtl = joints[CL_JNT_BACK] ? *(volatile u32*)(joints[CL_JNT_BACK] + J3DJOINT_MESH_OFFSET) : 0;
+    if (vis_in_mem1(mtl)) vis_packet_hide(model, data, *(volatile u32*)(mtl + J3DMATERIAL_SHAPE_OFFSET), casual);
+}
+
 static void vis_equip_pre(int slot, J3DModel* model) {
     vis_poda_saved = -1;
-    if (!vis_on(WWVIS_FLAG_EQUIP)) return;
     u32 eq = WWVIS_EQUIP_OFF + (u32)slot * 4;
-    if (!(VIS_BYTE(eq + WWVIS_EQ_FLAGS) & WWVIS_EQF_VALID)) return;
+    u8 ef = VIS_BYTE(eq + WWVIS_EQ_FLAGS);
+    vis_casual_pre(model, vis_on(WWVIS_FLAG_HAIR) && (ef & WWVIS_EQF_CASUAL));
+    if (!vis_on(WWVIS_FLAG_EQUIP) || !(ef & WWVIS_EQF_VALID)) return;
     volatile u32* flags = vis_poda_flags(model);
     if (!flags) return;
     vis_poda_saved = (*flags & J3DSHAPE_FLAG_HIDE) ? 1 : 0;
@@ -243,16 +335,19 @@ static void vis_equip_post(int slot, J3DModel* model, void* link) {
         }
         vis_poda_saved = -1;
     }
-    if (!vis_on(WWVIS_FLAG_EQUIP)) return;
     u32 eq = WWVIS_EQUIP_OFF + (u32)slot * 4;
     u8 ef = VIS_BYTE(eq + WWVIS_EQ_FLAGS);
-    if (!(ef & WWVIS_EQF_VALID)) return;
-    u8 sword = VIS_BYTE(eq + WWVIS_EQ_SWORD);
-    u8 shield = VIS_BYTE(eq + WWVIS_EQ_SHIELD);
+    int gear = vis_on(WWVIS_FLAG_EQUIP) && (ef & WWVIS_EQF_VALID);
+    int hair = vis_on(WWVIS_FLAG_HAIR) && (ef & WWVIS_EQF_CASUAL);
+    if (!gear && !hair) return;
+    u8 sword = gear ? VIS_BYTE(eq + WWVIS_EQ_SWORD) : 0xFF;
+    u8 shield = gear ? VIS_BYTE(eq + WWVIS_EQ_SHIELD) : 0xFF;
+    // One node matrix block: every joint is base + j * 0x30, so all or none.
     f32* lhand = vis_joint(model, CL_JNT_LHANDA);
+    if (!lhand) return;
     f32* rhand = vis_joint(model, CL_JNT_RHANDA);
     f32* poda = vis_joint(model, CL_JNT_PODA);
-    if (!lhand || !rhand || !poda) return;
+    f32* head = vis_joint(model, CL_JNT_HEAD);
 
     // j3dSys around everything below (calc / calcMaterial / entry write it).
     static u32 snap[J3D_SYS_SIZE / 4];
@@ -261,13 +356,16 @@ static void vis_equip_post(int slot, J3DModel* model, void* link) {
     for (k = 0; k < (int)(J3D_SYS_SIZE / 4); k++) snap[k] = sys[k];
 
     f32 m[12];
-    int grip = -1, blade = -1;
+    int grip = -1, blade = -1, sk = -1;
     if (sword == ITEM_SWORD) {
         grip = WWVIS_MK_GRIP_A;
         blade = WWVIS_MK_BLADE_A;
     } else if (sword == ITEM_MASTER_1 || sword == ITEM_MASTER_2 || sword == ITEM_MASTER_3) {
         grip = WWVIS_MK_GRIP_MS;
         blade = WWVIS_MK_BLADE_MS;
+        // Its own scabbard at the podA joint (:1129), sword out or not (:1909-1916).
+        J3DModel* pod = vis_model(slot, WWVIS_MK_POD_MS);
+        if (pod) vis_enter(pod, poda, link);
     }
     if (grip >= 0) {
         J3DModel* g = vis_model(slot, grip);
@@ -281,17 +379,25 @@ static void vis_equip_post(int slot, J3DModel* model, void* link) {
             vis_enter(g, m, link);
         }
     }
-    if (shield == ITEM_SHIELD) {
-        J3DModel* s = vis_model(slot, WWVIS_MK_SHIELD_A);
+    if (shield == ITEM_SHIELD) sk = WWVIS_MK_SHIELD_A;
+    if (shield == ITEM_MIRROR) sk = WWVIS_MK_SHIELD_MS;
+    if (sk >= 0) {
+        J3DModel* s = vis_model(slot, sk);
+        // A mirror shield whose deform failed is not drawn (vis_skin).
+        if (s && sk == WWVIS_MK_SHIELD_MS && !*(volatile u32*)((u8*)s + J3DMODEL_SKIN_OFF)) s = 0;
         if (s) {
             if (ef & WWVIS_EQF_SHIELD_HAND) {
                 vis_enter(s, rhand, link);
             } else {
-                // ZrotM(-0x4000): -90 degrees.
-                vis_mtx_place(m, poda, 0.0f, -1.0f, 15.5f, 4.75f, 0.0f);
+                // ZrotM(-0x4000): -90 degrees; the mirror shield sits at z -0.2 (:1320-1324).
+                vis_mtx_place(m, poda, 0.0f, -1.0f, 15.5f, 4.75f, sk == WWVIS_MK_SHIELD_MS ? -0.2f : 0.0f);
                 vis_enter(s, m, link);
             }
         }
+    }
+    if (hair) {
+        J3DModel* h = vis_model(slot, WWVIS_MK_KATSURA);
+        if (h) vis_enter(h, head, link);
     }
 
     for (k = 0; k < (int)(J3D_SYS_SIZE / 4); k++) sys[k] = snap[k];

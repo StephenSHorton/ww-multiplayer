@@ -186,8 +186,9 @@ WW_POSE_RAW=1                               # Skip pose localization (debug)
 WW_LINK2_OFFSET_{X,Y,Z}                     # Loopback render offset (default 0)
 WW_COLOR=<color>                            # Default tunic color when --color isn't given (docs/09)
 WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/join) leaves the tunic slots to the tunic-slot dev command
-WW_NAMETAGS=off / WW_EQUIP=off / WW_SEACHART=off   # puppet-sync (mods/multiplayer/vissync): no name tags over the mini-Links / no remote sword,
-                                            #   shield and scabbard on them / no remotes on the pause menu's sea chart (default all on; the REL draws them, wwvis.h)
+WW_NAMETAGS=off / WW_EQUIP=off / WW_SEACHART=off / WW_HAIR=off   # puppet-sync (mods/multiplayer/vissync): no name tags over the mini-Links / no remote
+                                            #   sword, shield (hero's or mirror) and scabbard (hero's or Master Sword's) on them / no remotes on the pause menu's
+                                            #   sea chart / no katsura hair on a casual remote (default all on; the REL draws them, wwvis.h)
 WW_ENEMY_SYNC=0                             # Enemy sync off (mods/enemysync, the enemy mirror: Moblins, Bokoblins, ChuChus, Keese; Armos Knights, Armos, Darknuts, Kargarocs, Magtails opt-in).
                                             #   Default on: host/join and the app run enemy-host / enemy-client, mp-local spawns enemy-A (host, Dolphin A) and
                                             #   enemy-B (client, Dolphin B); needs the REL module linked. A fatal enemy error (a reject, a panic) turns enemies off
