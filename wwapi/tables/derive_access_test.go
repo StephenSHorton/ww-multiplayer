@@ -44,6 +44,9 @@ func TestCatalogueRecords(t *testing.T) {
 		"letter-baitos-mom":         {RecordLetterRead, 0xAC03},
 		"letter-komalis-father":     {RecordLetterRead, 0xB503},
 		"letter-hoskits-girlfriend": {RecordLetterRead, 0xAE03},
+		"kreeb":                     {RecordEventBit, 0x1B20},
+		"sam":                       {RecordEventBit, 0x1B10},
+		"linda-and-anton":           {RecordEventBit, 0x2280},
 	}
 	seen := 0
 	for _, r := range hearts.Catalogue {
@@ -65,6 +68,30 @@ func TestCatalogueRecords(t *testing.T) {
 	}
 	if seen != len(want) {
 		t.Errorf("found %d of the %d expected rewards in the Catalogue", seen, len(want))
+	}
+}
+
+// TestRecordsVerified keeps a guess out of the life derive: max life is
+// add-only, so a reward whose record RecordOf reads must not be one its
+// own entry calls inferred or unverified. The Goron trade's 0x3E04 was
+// such a record (the bit is set in a talk branch; whether that event
+// hands over the piece is event data).
+func TestRecordsVerified(t *testing.T) {
+	for _, r := range hearts.Catalogue {
+		if RecordOf(r).Kind == RecordNone {
+			continue
+		}
+		for _, field := range []string{r.Record, r.Note} {
+			l := strings.ToLower(field)
+			if strings.Contains(l, "unverified") || strings.Contains(l, "inferred") {
+				t.Errorf("%s: record %q is live in the derive, but its entry says %q", r.ID, r.Record, field)
+			}
+		}
+	}
+	for _, r := range hearts.Catalogue {
+		if r.ID == "traveling-merchant" && RecordOf(r).Kind != RecordNone {
+			t.Errorf("traveling-merchant: RecordOf = %+v, want none until the event data is checked", RecordOf(r))
+		}
 	}
 }
 

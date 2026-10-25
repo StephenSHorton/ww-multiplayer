@@ -71,5 +71,63 @@ var (
 		// GHOST_SHIP: set to 3 once the ship is cleared, its only writer
 		// (daTag_Gship_c::modeClearEventInit, d_a_tag_ghostship.cpp:31-39).
 		0x8803,
+
+		// Orca's record level, 0-4 (UNK_D003, d_save_event_flag.inc:581):
+		// setClearRecord (d_a_npc_ji1.cpp:409-422) writes a new level only
+		// above the old one, 4 with 0x0F20 at 1000 hits. setEventReg clears
+		// the id's 0x03 and ORs the value in unmasked (d_save.cpp:1202-1205),
+		// so level 4 is bit 0x04, which the field carries: 0xD007, not the
+		// enum's 0xD003. Once 0x0F20 is set, isClearRecord refuses (:395-406)
+		// and the other caller runs only at 1000 hits (:4033-4051), which
+		// writes 4 again, so the field never falls. createItem pays a purple
+		// and an orange rupee at levels 1 and 2 (:1508-1512), which a
+		// partner still at a lower level could otherwise earn again; the
+		// heart piece is 0x0F10's (story bits, synced). Adapted from the idea
+		// in datstarkey/ww-online WWOnline.Shared/Models/StoryFlags.cs:91-93
+		// (MIT); checked here against the decomp.
+		0xD007,
+
+		// Koboli's mail-sorting level, 0-3 (UNK_C203, d_save_event_flag.inc:
+		// 568): each level's winning end message steps to the next level's
+		// write, 0x1A37 -> 0x1A38 sets 1, 0x1A4C -> 0x1A4D sets 2, 0x1A57 ->
+		// 0x1A58 sets 3 (daNpc_Bmsw_getGameEndMsg, d_a_npc_bmsw.cpp:192-248;
+		// :365-380, :430-451), its only writers. The level picks the pay
+		// rate (setGameGetRupee, :813-854) and at 3 brings Baito in as Btsw
+		// (:1144-1150), and Btsw2 stays away (d_a_npc_btsw2.cpp:545-547).
+		0xC203,
 	}
+
+	// orRegs are side-quest registers whose bits the game only ever sets
+	// within the field; they merge by OR, the byte's other bits stay
+	// local.
+	orRegs = []uint16{
+		// The pigs put in Outset's pig pen (UNK_BFFF, d_save_event_flag.inc:
+		// 565): a pig landing in the pen ORs in 1 << (shape & 3) (d_a_kb.cpp:
+		// 2170-2175), so the field is 0x0F, not the enum's 0xFF. The only
+		// clear is behind REG8_S(8), a debug HIO register (:2496-2501).
+		// Once 0x0520 is set, the bits pick which pig Outset keeps
+		// (:2504-2530). No reward reads it; shared so both games keep the
+		// same pig. From datstarkey/ww-online StoryFlags.cs:102-103 (MIT).
+		0xBF0F,
+	}
+
+	// Left per player on purpose: 0xFE07 and 0xB703, Sploosh Kaboom's and
+	// barrel shooting's prizes won (UNK_FE07, UNK_B703, d_save_event_flag.
+	// inc:627, :558). d_a_npc_kg1 and d_a_npc_kg2 are not decompiled
+	// (symbols only); datstarkey/ww-online reads them (StoryFlags.cs:96-99,
+	// docs/hearts.md §3.3, MIT) as first prizes won, capped at 3, indexing
+	// {heart piece, chart, rupees}. Sharing them by MAX would cost the
+	// partner a heart piece for good: neither minigame's piece has a save
+	// record tables.RecordOf can read, so derive.CountLife counts them as
+	// Untracked and never credits the winner's piece to the partner, while
+	// the raised index hands the partner the chart when they win. Their
+	// field widths, and whether they only rise, are unchecked too. They join maxRegs
+	// only once both minigame pieces get a record the life derive credits
+	// and a disassembly or a live readback confirms the reading.
+	//
+	// Also 0xC0FF, the Joy Pendants given to Mrs. Marie. receivePendant
+	// takes them out of the giver's own spoils bag (d_a_npc_ho.cpp:70-82),
+	// and bag contents are each player's (§1), so the count she keeps goes
+	// with it: her first talk at 0 (:398-405) and the Hero's Charm at 40
+	// (:329).
 )

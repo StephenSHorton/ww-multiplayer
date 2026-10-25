@@ -74,7 +74,7 @@ func TestByteKinds(t *testing.T) {
 			t.Errorf("byte 0x%X is of %d kinds", off, k)
 		}
 	}
-	if story != addr.EventBitBytes || regs != 17+6+14 || sws != addr.TableCount*16 {
+	if story != addr.EventBitBytes || regs != 17+6+1+16 || sws != addr.TableCount*16 {
 		t.Errorf("story %d registers %d switches %d", story, regs, sws)
 	}
 	for _, off := range []int{-1, world.ImageSize, world.ImageSize + 100} {

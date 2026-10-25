@@ -82,6 +82,24 @@ const (
 	tableMax = 0x10
 )
 
+// unreachable are the stages Build leaves out, by name, with why: each
+// holds a heart chest no player can reach, which would otherwise stand in
+// the count for a real reward. Hearts only: the other sections keep them,
+// as their switches and enemies cost nothing (docs/08-coop-design.md
+// Appendix C item 168).
+//
+// UNVERIFIED here: this tree reads no SCLS exits, so the reachability is
+// datstarkey/ww-online's (WWOnline.Patcher/WorldData/HeartCatalog.cs:97,
+// docs/hearts.md §3.4, MIT; facts, no code). It agrees with the Wind
+// Waker Randomizer's logic/item_locations.txt, whose 12 heart chests name
+// neither stage, and with the totals: without these two the owner's disc
+// has those 12 chests, and the Catalogue's 16 rewards make 44. Their third
+// stage, DmSpot0, holds no heart (item 137), so it is not listed.
+var unreachable = map[string]string{
+	"Cave06":  "a heart chest (save table 12, tbox 18) whose only entrance is in sea_E, the unused E3-demo sea (unverified)",
+	"I_SubAN": "a heart chest (save table 12, tbox 7) in a developer sub-dungeon no location list has (unverified)",
+}
+
 // refight reports whether s is a stage where a boss warps out instead of
 // dropping its container: its name starts with 'X', the bosses' own test
 // (see bosses). Gohdan (d_a_bst.cpp) has no such test, and no X stage
@@ -118,8 +136,10 @@ type Result struct {
 	Containers []itemsrc.Source `json:"containers"` // one per STAGE_LIFE table
 	Rewards    []Reward         `json:"rewards"`    // the Catalogue
 	Totals     Totals           `json:"totals"`
-	Pass       bool             `json:"pass"`
-	Problems   []string         `json:"problems,omitempty"`
+	// Unreachable are the stages left out (unreachable), in order.
+	Unreachable []stage.Skipped `json:"unreachable,omitempty"`
+	Pass        bool            `json:"pass"`
+	Problems    []string        `json:"problems,omitempty"`
 }
 
 // Build reads stages, as stage.Load returns them, with names, the
@@ -132,6 +152,10 @@ func Build(stages []*stage.Stage, names *stage.ObjectNames) *Result {
 	isContainer := func(i uint8) bool { return i == itemsrc.ItemHeartContainer }
 	for _, s := range stages {
 		if s == nil || names == nil {
+			continue
+		}
+		if why, ok := unreachable[s.Name]; ok {
+			r.Unreachable = append(r.Unreachable, stage.Skipped{Name: s.Name, Why: why})
 			continue
 		}
 		one := []*stage.Stage{s}
@@ -273,6 +297,9 @@ func (r *Result) Report() string {
 		t.Pieces, t.ExpectedPieces, t.StagePieces, list(byKind(stage)), t.RewardPieces, list(byKind(seen)),
 		t.UnverifiedPieces, list(byKind(unseen)))
 	fmt.Fprintf(&b, "  heart containers: %d, vanilla %d%s\n", t.Containers, t.ExpectedContainers, list(byKind(t.ContainersByKind)))
+	for _, u := range r.Unreachable {
+		fmt.Fprintf(&b, "  left out %s: %s\n", u.Name, u.Why)
+	}
 	section := func(title string, srcs []itemsrc.Source) {
 		fmt.Fprintf(&b, "\n%s:\n", title)
 		if len(srcs) == 0 {
