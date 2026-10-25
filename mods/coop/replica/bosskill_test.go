@@ -964,8 +964,8 @@ func TestBossKillRelayBwd(t *testing.T) {
 
 // TestBossKillRelayBpw: with Jalhalla in the row set, the partner kills it
 // while this game is in M_DaiB. The request names Bpw's proc; the intro,
-// the fight, the light build-up, a wall bounce and the split are each
-// logged once while asked again after bossRetry; applied at the freeze
+// the fight (the light build-up as one with it), a wall bounce and the
+// split are each logged once while asked again after bossRetry; applied at the freeze
 // settles; a later already with health 0 off the death demo (a missed
 // throw) logs its own words once and settles too; the relay stops once
 // the game has set ET's bit.
@@ -994,8 +994,11 @@ func TestBossKillRelayBpw(t *testing.T) {
 		{mailbox.BossBpwActDamage, 0x5A, 15},
 		{mailbox.BossBpwActSeparate, 0x6F, 15}, {mailbox.BossBpwActSeparate, 0x72, 14},
 	})
-	if n := br.log.count(": waiting (mBodyAction "); n != 5 {
-		t.Fatalf("waiting logged %d times, want 5 (intro, fight, light, bounce, split):\n%s", n, br.log)
+	if n := br.log.count(": waiting (mBodyAction "); n != 4 {
+		t.Fatalf("waiting logged %d times, want 4 (intro, fight with the light build-up, bounce, split):\n%s", n, br.log)
+	}
+	if br.log.has("waiting (mBodyAction 3, mActionState 0x50") || br.log.has("waiting (mBodyAction 3, mActionState 0x51") {
+		t.Fatalf("the light build-up logged apart from the fight:\n%s", br.log)
 	}
 	if !br.log.has("waiting (mBodyAction 20, mActionState 0xC8, health 15)") || !br.log.has("waiting (mBodyAction 4, mActionState 0x6F, health 15)") {
 		t.Fatalf("Bpw's fields not logged:\n%s", br.log)
@@ -1045,6 +1048,48 @@ func TestBossKillRelayBpw(t *testing.T) {
 	}
 	if st := br.r.Status(); st.BossKill.Wanted || st.BossKill.Applied != 1 {
 		t.Fatalf("status with the bit set: %+v", st.BossKill)
+	}
+}
+
+// TestBossKillRelayBpwLightFold: a receiver standing in a lit shaft flips
+// its Jalhalla between the fight's attack (1 / 0x14) and the light
+// build-up (3 / 0x51) every few seconds (handoff
+// archive/enemy-batch-e/live/real-items/LIVE-2.md: 130 waiting lines).
+// The flips log one waiting line, the request is still asked again after
+// each bossRetry (bossAnswers checks the cadence), and a real change (a
+// wall bounce) and the return to the fight each log once.
+func TestBossKillRelayBpwLightFold(t *testing.T) {
+	br := newBossRigSet(t, etBoss, true, batchERows)
+	br.partnerKilledAt(etBossItems)
+	br.ticks(3)
+	seq0, proc, _ := br.request()
+	if seq0 == 0 || proc != mailbox.BossProcBpw {
+		t.Fatalf("request seq %d proc 0x%X; log:\n%s", seq0, proc, br.log)
+	}
+	var flips [][3]uint8
+	for range 10 {
+		flips = append(flips, [3]uint8{1, 0x14, 15}, [3]uint8{mailbox.BossBpwActDamage, 0x51, 15})
+	}
+	br.bossAnswers(t, flips)
+	if n := br.log.count(": waiting (mBodyAction "); n != 1 {
+		t.Fatalf("20 fight/light flips logged %d waiting lines, want 1:\n%s", n, br.log)
+	}
+	if !br.log.has("waiting (mBodyAction 1, mActionState 0x14, health 15)") {
+		t.Fatalf("the first flip not logged with its fields:\n%s", br.log)
+	}
+	if n, _, _ := br.request(); n != seq0+uint32(len(flips)) {
+		t.Fatalf("seq %d after %d waits from %d: the cadence changed", n, len(flips), seq0)
+	}
+
+	br.bossAnswers(t, [][3]uint8{
+		{mailbox.BossBpwActDamage, 0x5A, 15},
+		{mailbox.BossBpwActDamage, 0x50, 15}, {1, 0x14, 15}, {mailbox.BossBpwActDamage, 0x51, 15},
+	})
+	if n := br.log.count(": waiting (mBodyAction "); n != 3 {
+		t.Fatalf("waiting logged %d times, want 3 (fight, bounce, fight again):\n%s", n, br.log)
+	}
+	if !br.log.has("waiting (mBodyAction 3, mActionState 0x5A, health 15)") || !br.log.has("waiting (mBodyAction 3, mActionState 0x50, health 15)") {
+		t.Fatalf("the bounce or the return to the fight not logged:\n%s", br.log)
 	}
 }
 
@@ -1165,7 +1210,8 @@ func TestBossAckKeyBwd(t *testing.T) {
 }
 
 // TestBossAckKeyBpw: each class of mBodyAction and mActionState is one
-// key whatever the health; health 0 is its own key.
+// key whatever the health (the light build-up, 3 at 0x50..0x51, is in
+// the fight's); health 0 is its own key.
 func TestBossAckKeyBpw(t *testing.T) {
 	key := func(r, act, st, hp uint8) string {
 		return bossAckKey(mailbox.BossProcBpw, mailbox.BossStatus{Result: r, Act: act, State: st, Phase: hp})
@@ -1175,8 +1221,7 @@ func TestBossAckKeyBpw(t *testing.T) {
 		name string
 		same [][2]uint8
 	}{
-		{"fight", [][2]uint8{{0, 0}, {1, 7}, {2, 0x28}}},
-		{"light", [][2]uint8{{3, 0x50}, {3, 0x51}}},
+		{"fight", [][2]uint8{{0, 0}, {1, 7}, {1, 0x14}, {2, 0x28}, {3, 0x50}, {3, 0x51}}},
 		{"gate", [][2]uint8{{3, 0x52}, {3, 0x53}, {3, 0x54}, {3, 0x55}, {3, 0x64}, {3, 0x65}}},
 		{"bounce", [][2]uint8{{3, 0x5A}, {3, 0x5B}, {3, 0x5C}}},
 		{"split", [][2]uint8{{4, 0x6E}, {4, 0x6F}, {4, 0x75}}},
@@ -1194,6 +1239,9 @@ func TestBossAckKeyBpw(t *testing.T) {
 		if key(w, c.same[0][0], c.same[0][1], 0) == k0 {
 			t.Errorf("%s: health 0 shares the key", c.name)
 		}
+	}
+	if key(w, 3, 0x51, 15) == key(w, 3, 0x52, 15) || key(w, 3, 0x51, 15) == key(w, 3, 0x5A, 15) {
+		t.Error("the light build-up shares the gate's or the bounce's key")
 	}
 	if key(w, 0, 0, 15) == key(w, 3, 0x52, 15) || key(w, 3, 0x52, 15) == key(w, 3, 0x5A, 15) || key(w, 4, 0x6F, 15) == key(w, 4, 0x78, 15) {
 		t.Error("two classes share a key")

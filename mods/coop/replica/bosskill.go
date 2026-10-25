@@ -330,18 +330,19 @@ func bossAckKey(proc uint16, st mailbox.BossStatus) string {
 }
 
 // bpwClass names a Jalhalla result's mBodyAction and mActionState (low
-// bytes) for bossAckKey: the fight (actions 0..2), the light build-up
-// (3 at 0x50..0x51), the gate (3 at 0x52..0x55, 0x64, 0x65), a wall
-// bounce (3 at 0x5A..0x5C), the split (4 at 0x6E..0x75), the death demo
-// (4 at 0x78 and up), the intro (0x14), else the values in hex.
+// bytes) for bossAckKey: the fight (actions 0..2, and the light build-up,
+// 3 at 0x50..0x51, as one with it: a player standing in a lit shaft
+// flips between the two every few seconds, handoff
+// archive/enemy-batch-e/live/real-items/LIVE-2.md), the gate (3 at
+// 0x52..0x55, 0x64, 0x65), a wall bounce (3 at 0x5A..0x5C), the split (4
+// at 0x6E..0x75), the death demo (4 at 0x78 and up), the intro (0x14),
+// else the values in hex.
 func bpwClass(act, st uint8) string {
 	switch {
-	case act <= 2:
+	case act <= 2, act == mailbox.BossBpwActDamage && st >= 0x50 && st <= 0x51:
 		return "fight"
 	case act == mailbox.BossBpwActIntro:
 		return "intro"
-	case act == mailbox.BossBpwActDamage && st >= 0x50 && st <= 0x51:
-		return "light"
 	case act == mailbox.BossBpwActDamage && (st >= mailbox.BossBpwStFrozenLo && st <= mailbox.BossBpwStThrown || st == mailbox.BossBpwStSpike || st == mailbox.BossBpwStSpikeAir):
 		return "gate"
 	case act == mailbox.BossBpwActDamage && st >= 0x5A && st <= 0x5C:
