@@ -632,6 +632,35 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
 
 ---
 
+### 6.8 The salvage catch-up, and what ww-online shares that we do not
+
+**The catch-up (as built, Go only).** A salvage point checks its save bit only when its `daSalvage_c` is created (`dSalvage_control_c::entry`, `d_salvage.cpp:85-110`), and the crane's every-frame pass never makes a point unusable from it (`daSalvage_c::proc_wait`, `d_a_salvage.cpp:286-337`). So a point registered before the partner's salvage bit landed stays salvageable, and pays its item twice, until it leaves the table: by its own salvage (`init_one`), by `init_room` when a `daSalvage_c` of another room is created (every room point, `mInfo[128..159]`, goes: `d_a_salvage.cpp:101-114`), or with the owner's delete. The table holds the sea level's points (room 0, `mInfo[0..127]`) and one room's (`entry`, `d_salvage.cpp:53-60`). A stale point is there when B sails into the square the partner salvaged in and its points registered before B's stay-room change landed the bit, or when both were in one square and B left it for a square with no salvage light. When a sea room's actors are created relative to the stay-room change was not read from the decomp: a pass with nothing to mark writes nothing. Now, once the bit has landed (the landed set: the replica's own verified writes) and the receiver is IDLE, the replica sets the point's `mFlag` bit 0x01, what `proc_salvage_init` does (`d_a_salvage.cpp:376-379`); with the save bit set nothing clears it again (`:288`, `:306`, `:325`). The table is `daSalvage_c::mTagData_p` (0x803F6B44), each entry 0x38 bytes from +0x04, `mRoomNo` +0x2C, `mSaveNo` +0x2D, `mKind` +0x2F, `mFlag` +0x31: the decomp's layout (`d_salvage.h:17-79`), checked in the GZLE01 main.dol's getters and `init_room`'s r13 load (`wwapi/addr/salvage.go`). Kinds 0 (a chart) and 2-4 (a grid's bit) are taken; kind 5 and the moonlight kind 6 (game-cleared event bits, per player) never are. It holds every point while `daSalvage_c::mSalvageId` (0x803F6B4C, -1 at the play scene's create, `dScnPly` phase_4 0x80235E3C) is not -1: IDLE does not cover the frames between `proc_wait` choosing a point and its event starting, and a point marked then leaves `mSalvageId` -1 under a pending order, so the event's `setFlag`, `onOceanSvBit` and `init_one` would act on point -1, below the table. It also holds a point while Link is within its reach `mR` plus 2000 (`mDistance`, set every frame by `calcDistanceXZ`), so the crane cannot come over it between that read and the write. Together they narrow the gap to sub-frame; closing it fully needs code in the game. It writes only with a `daSalvage_c` executing (the owner of the table's heap: the pointer outlives its delete until the next scene) and a sane table (sea-level slots room 0, room slots one room; an entry of a kind past 6 is skipped, not the table), through `TargetSalvage` (`WriteGuard.checkSalvage`), and the next tick verifies it. Once a pass finds nothing to mark and nothing held, the table is not read again until the landed set changes. The idea and the matching rule come from datstarkey/ww-online (`WorldFlagSyncService.cs:303-339`, MIT; `mods/coop/replica/salvage.go` keeps the notice). Left as it is: the ocean bits themselves keep their OnRoomChange timing, so two players in one square still race until the receiver leaves it. ww-online writes them every stable tick; here that would also reach the Tingle Tuner's per-frame read of bit 15 (`d_a_agbsw0.cpp:490`), a planner choice for its own change. Live checks: docs/TESTING.md "Co-op: the salvage catch-up".
+
+**Shared progress, ww-online against ours** (their `StoryFlags.cs`, `WorldFlagSyncService.cs`, `docs/event-flags.md`, `side-quests.md`, `figurines.md`, `delivery-bag.md`, `small-keys.md`, `live-world.md`, read 2026-10-25; each of ours checked in the decomp where the row cites it):
+
+| What | ww-online | Ours | Why |
+|---|---|---|---|
+| Story bits 0x00-0x41 | OR under their Full-sync mask, 2 holds | OR under the generated SyncMask, many holds (§6.5) | Same bits; ours stricter |
+| Nintendo Gallery figurines (17 registers) | OR | OR (`figurineRegs`, `class/events.go`) | Same |
+| Warp jars 0x9F-0xA4 (0x07) | OR | OR (`warpPotRegs`) | Same |
+| Beedle's points 0x86FF | MAX | MAX (`maxRegs`) | Same |
+| The 12 postbox letters (0x03) | MAX | MAX (`maxRegs`) | Same |
+| Ghost Ship 0x8803, Orca 0xD007, Koboli 0xC203 | MAX | MAX | Same |
+| Rose's pig pen 0xBF0F | OR | OR (`orRegs`) | Same |
+| Sploosh Kaboom 0xFE07, barrel shooting 0xB703 | MAX | **per player** | Deliberate: `d_a_npc_kg1` and `kg2` are not decompiled, so the field and whether it only rises are unverified, and their heart pieces have no record the life derive credits; sharing would cost the partner a piece (`class/events.go`, item 169) |
+| Mrs. Marie's pendants 0xC0FF | MAX | **per player** | Deliberate: the pendants come out of the giver's own spoils bag (`d_a_npc_ho.cpp:70-82`), and bags are each player's (§1) |
+| Windfall's pedestals 0xD1FF-0xF8FF | in their shared delivery bag | **per player** | Deliberate: a pedestal's item leaves its player's own bag (`d_a_dai.cpp:198-203`); bags are each player's |
+| Delivery, spoils and bait bags; rupees | optional shared stores | **per player** (`mine(OffBagItem)`, `mine(OffReserveFlags)`, `mine(OffRupee)`; the beast and bait "ever had" flags OR) | Deliberate (§1, §10 question 2) |
+| Chests, memory switches, pickups, visited rooms, dungeon items | OR live, every memory switch | OR; latching memory switches only (§6.2); boss bits held in boss stages (§3) | Ours stricter |
+| Dan, zone and room switches | per room or dungeon visit | per stage, table and room (M5, §6.3) | Same idea |
+| Ocean salvage bits, salvaged charts | OR every stable tick, then FlagDone on registered points | OR at the next room change, then the catch-up above | Their live point fix taken; timing kept |
+| Small keys | derived | derived (§6.4) | Same |
+| A boss Heart Container still waiting after the partner took theirs | the REL deletes it once STAGE_LIFE is set | STAGE_LIFE held in a boss stage beside the boss bits (`bossLifeBit`, `planner.go`) | Different fix, same goal |
+| Carlov's figurine in progress, the picture count, daily resets, photos | never | never (game-cleared or per player) | Same |
+| The Tingle Tuner's salvage-square bit (`isOceanSvBit(room, 0xF)`, `d_a_agbsw0.cpp:490`) | rides in the ocean OR | rides in the ocean OR | Same; it latches |
+
+Nothing else they share is missing here.
+
 ## 7. Combat sync plan
 
 ### 7.1 Facts

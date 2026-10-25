@@ -123,6 +123,7 @@ type FrameWriter struct {
 	kiAt    seen // the tick the dead-actor bytes were written in
 	shrinks []pendingShrink
 	locks   []pendingLock
+	salvage []pendingSalvage
 	// landed is the bits written and verified this visit (landed.go).
 	landed landedSet
 	stats  WriterStats
@@ -259,6 +260,7 @@ func (w *FrameWriter) observe(s *state.Snapshot, st gate.Status, armed bool, f b
 	w.verifyKills(s, st, f, &rep)
 	w.verifyShrinks(s, st, &rep)
 	w.verifyLocks(s, st, &rep)
+	w.verifySalvage(s, st, &rep)
 	w.watchDrains(s, st, f)
 	if st.Regressed {
 		w.wg.brk.Regressed()
@@ -299,6 +301,7 @@ func (w *FrameWriter) verify(s *state.Snapshot, st gate.Status, f bind.File) Ver
 			rep.Verified++
 			if !p.max && !p.set {
 				w.landMemBit(p.a, w.pendAt.table, p.val&^p.old, now)
+				w.landOcean(p.a, w.pendAt.table, p.val&^p.old, now)
 			}
 			continue
 		}
@@ -351,6 +354,7 @@ type WriterStats struct {
 	Released   int // weapons let go after their carrier's timer (ApplyActors)
 	Held       int // light-shrinks and lock clears not written: the actor changed or a gate closed after the beat
 	Locks      int // key door locks cleared (ApplyLocks)
+	Salvage    int // salvage points marked emptied (ApplySalvage)
 	// CombatFailed counts the verify failures of the kill path and the
 	// light-shrink (in Failed too).
 	CombatFailed int

@@ -348,6 +348,9 @@ func formatStatus(player string, st replica.Status) []string {
 	if l := refreshStatus(st); l != "" {
 		lines = append(lines, l)
 	}
+	if l := salvageStatus(st); l != "" {
+		lines = append(lines, l)
+	}
 	if l := gbaStatus(st); l != "" {
 		lines = append(lines, l)
 	}

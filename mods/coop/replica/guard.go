@@ -117,10 +117,17 @@ const (
 	// (the design's safety rule). No save data: FrameWriter.ApplyRefresh
 	// writes it, when IDLE.
 	TargetRefresh
+	// TargetSalvage is a registered salvage point's mFlag in the loaded
+	// sea's dSalvage_control_c (addr.SalvageTagDataPtr, d_salvage.h:17-36):
+	// one byte on the heap, its bit 0x01 set, of a point the tick's plan
+	// takes, whose save bit the replica's own verified writes set (the
+	// salvage catch-up, salvage.go). WriteGuard.checkSalvage lets through
+	// exactly that write (FrameWriter.ApplySalvage).
+	TargetSalvage
 
 	// AllTargets is the most any milestone writes: NewGuard's allowlist.
 	AllTargets = TargetStage | TargetOcean | TargetStory | TargetInventory | TargetDerived |
-		TargetCounters | TargetSelectItem | TargetScoped | TargetKills | TargetTag | TargetEscape | TargetK1 | TargetBoss | TargetLock | TargetRefresh
+		TargetCounters | TargetSelectItem | TargetScoped | TargetKills | TargetTag | TargetEscape | TargetK1 | TargetBoss | TargetLock | TargetRefresh | TargetSalvage
 	// M3Targets is what M3's reconciler writes (§9 M3): the stage
 	// progress bits and memory switches, the ocean, the charts and the
 	// sea map. A replica's WriteGuard adds TargetEscape for the escape
@@ -149,7 +156,7 @@ const (
 
 var targetNames = [...]string{
 	"stage", "ocean", "story", "inventory", "derived",
-	"counters", "select-item", "scoped", "kills", "tag", "escape", "k1", "boss", "lock", "refresh",
+	"counters", "select-item", "scoped", "kills", "tag", "escape", "k1", "boss", "lock", "refresh", "salvage",
 }
 
 func (t Target) String() string {
@@ -1044,10 +1051,14 @@ type WriteGuard struct {
 	combat   CombatTick
 	combatOK bool
 	shrunk   map[uint32]uint32 // carrier address -> its pid
-	closed   string            // why the guard is shut until the next SetTick
-	checked  int
-	refused  [numRefusals]int
-	logged   int
+	// salvage is the tick's salvage catch-up plan (SetSalvage), which
+	// starts over at SetTick too.
+	salvage   SalvageTick
+	salvageOK bool
+	closed    string // why the guard is shut until the next SetTick
+	checked   int
+	refused   [numRefusals]int
+	logged    int
 }
 
 // NewWriteGuard returns a WriteGuard, shut until the first SetTick.
@@ -1090,6 +1101,7 @@ func (w *WriteGuard) SetTick(t Tick) {
 	defer w.mu.Unlock()
 	w.tick, w.have, w.closed = t, true, ""
 	w.combat, w.combatOK, w.shrunk = CombatTick{}, false, nil
+	w.salvage, w.salvageOK = SalvageTick{}, false
 }
 
 // Close shuts the guard until the next SetTick: the game moved on since
