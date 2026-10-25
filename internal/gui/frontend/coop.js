@@ -15,7 +15,10 @@ let worlds = { session: 0, list: null, loading: false }; // the host's Continue 
 let advSession = 0; // the session whose Advanced fields were filled from the saved choice
 const openDetails = new Set(); // the panel's open "Details" (redrawn every second)
 let editing = false; // the host edits what co-op shares (the rules card's Edit)
-let busy = false; // a rules change is on its way
+// The host's rule changes go one at a time, newest last (sendLatest): two
+// bridge calls on their way at once may reach the hub out of order.
+const sharesOut = sendLatest((on) => call("SetCoopShares", on));
+const mergeOut = sendLatest((on) => call("SetMerge", on));
 
 // ---------- the host's world choice ----------
 
@@ -229,6 +232,15 @@ function renderProgress(st, show) {
 	panel.hidden = !v;
 	if (!v) return;
 	const rules = st.coop.panel.rules;
+	if (rules) {
+		// A poll can land before the hub has the clicks still on their way:
+		// the switches show what was clicked, not that older state.
+		const want = sharesOut.want(), merge = mergeOut.want();
+		for (const r of rules.rows) {
+			if (r.id === "merge") { if (merge !== undefined) r.on = merge; }
+			else if (r.edit && want) r.on = want.includes(r.id);
+		}
+	}
 	if (!(rules && rules.edit)) editing = false;
 	const eb = $("rules-edit");
 	eb.hidden = !(rules && rules.edit);
@@ -238,12 +250,16 @@ function renderProgress(st, show) {
 	$("rules-editbar").hidden = !editing;
 	panel.classList.toggle("editing", editing);
 	const kids = [];
-	if (v.dryRun) {
-		kids.push(el("p", { class: "dim" }, "A dry run: co-op plans its writes and logs them, but shares nothing into your game."));
-	} else if (editing && rules && rules.edit) {
+	const dryLine = () => el("p", { class: "dim" }, "A dry run: co-op plans its writes and logs them, but shares nothing into your game.");
+	// Editing comes first: a host whose own game runs a dry run still
+	// chooses what the hub shares with everyone else.
+	if (editing && rules && rules.edit) {
+		if (v.dryRun) kids.push(dryLine());
 		kids.push(ruleRows(rules));
 		const on = new Set(rules.rows.filter((r) => r.on).map((r) => r.id));
 		if (on.has("keys") && !on.has("switches")) kids.push(el("p", { class: "warnline" }, SHARES_NOTE));
+	} else if (v.dryRun) {
+		kids.push(dryLine());
 	} else if (!(v.shares || []).length && !(rules && rules.host)) {
 		kids.push(el("p", { class: "dim" }, "Nothing yet: the host grants what's shared once your file is bound to the world."));
 	} else {
@@ -290,13 +306,15 @@ function ruleRows(rules) {
 		let ctl;
 		if (r.edit) {
 			ctl = el("button", {
-				type: "button", class: "switch", id: "rule-" + r.id, role: "switch", "aria-checked": String(r.on), "aria-label": r.label, disabled: busy ? true : null,
+				type: "button", class: "switch", id: "rule-" + r.id, role: "switch", "aria-checked": String(r.on), "aria-label": r.label,
 				// The row turns at once: a second click before the next state
-				// builds on this one, not on the state from before.
+				// builds on this one, not on the state from before, and is
+				// sent after the first one is in.
 				onclick: () => {
 					r.on = !r.on;
+					if (r.id === "merge") mergeOut.send(r.on);
+					else sharesOut.send(feats.filter((x) => x.on).map((x) => x.id));
 					if (state) renderProgress(state, true);
-					return r.id === "merge" ? setMerge(r.on) : setShares(feats.filter((x) => x.on).map((x) => x.id));
 				},
 			}, el("i", { class: "knob", "aria-hidden": "true" }), el("span", {}, r.on ? "On" : "Off"));
 		} else {
@@ -312,24 +330,35 @@ function ruleRows(rules) {
 	}));
 }
 
-async function setShares(on) {
-	busy = true;
-	try {
-		await call("SetCoopShares", on);
-	} catch (e) {
-		toast(e.message, { bad: true });
+// sendLatest makes a bridge call one at a time: a value sent while one is
+// on its way waits for it, and only the newest of those waiting goes, so
+// the hub always ends on the last click. want() is the value not yet in
+// (undefined once all are).
+function sendLatest(send) {
+	let next, waiting = false, last, out = false;
+	async function run() {
+		out = true;
+		while (waiting) {
+			const v = next;
+			waiting = false;
+			try {
+				await send(v);
+			} catch (e) {
+				toast(e.message, { bad: true });
+			}
+		}
+		out = false;
+		last = undefined;
 	}
-	busy = false;
-}
-
-async function setMerge(on) {
-	busy = true;
-	try {
-		await call("SetMerge", on);
-	} catch (e) {
-		toast(e.message, { bad: true });
-	}
-	busy = false;
+	return {
+		send(v) {
+			next = v;
+			last = v;
+			waiting = true;
+			if (!out) run();
+		},
+		want: () => (out ? last : undefined),
+	};
 }
 
 // ---------- the Room items card (in game) ----------

@@ -178,6 +178,15 @@ func TestMemberCoop(t *testing.T) {
 	if chip, warp := memberCoop(st, "Blake", false, 1); chip != "M_NewD2 room 3" || !warp {
 		t.Errorf("joiner's partner: %q, %v", chip, warp)
 	}
+	// At a stage start the room isn't known yet (-1): the stage alone.
+	st.CoopStatus[0].PartnerRoom = -1
+	if chip, _ := memberCoop(st, "Blake", false, 1); chip != "M_NewD2" {
+		t.Errorf("joiner's partner at a stage start: %q", chip)
+	}
+	st.CoopHub = &session.CoopHubStatus{Peers: []session.CoopPeer{{Name: "Blake", State: "bound", Stage: "M_NewD2", Room: -1}}}
+	if chip, _ := memberCoop(st, "Blake", false, 1); chip != "Bound · M_NewD2" {
+		t.Errorf("host's Blake at a stage start: %q", chip)
+	}
 	st.Coop.On = false
 	if chip, warp := memberCoop(st, "Blake", false, 1); chip != "" || warp {
 		t.Errorf("co-op off: %q, %v", chip, warp)

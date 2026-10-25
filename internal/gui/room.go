@@ -270,12 +270,21 @@ func memberCoop(st session.State, name string, self bool, others int) (chip stri
 			p := h.Peers[i]
 			chip = strings.ToUpper(p.State[:1]) + p.State[1:]
 			if p.Stage != "" {
-				chip += fmt.Sprintf(" · %s room %d", p.Stage, p.Room)
+				chip += " · " + placeChip(p.Stage, p.Room)
 			}
 		}
 	} else if !self && others == 1 && len(st.CoopStatus) > 0 && st.CoopStatus[0].PartnerStage != "" {
 		cs := st.CoopStatus[0]
-		chip = fmt.Sprintf("%s room %d", cs.PartnerStage, cs.PartnerRoom)
+		chip = placeChip(cs.PartnerStage, cs.PartnerRoom)
 	}
 	return chip, !self && others == 1 && len(st.CoopStatus) > 0
+}
+
+// placeChip is a stage and its room, or the stage alone while the room is
+// not known yet (-1 at a stage start, CoopStatus.PartnerRoom).
+func placeChip(stage string, room int) string {
+	if room < 0 {
+		return stage
+	}
+	return fmt.Sprintf("%s room %d", stage, room)
 }

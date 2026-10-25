@@ -14,6 +14,8 @@
 //	&tables=differ   ingame-host: Blake's stage tables differ (no switches, puzzles, kills, keys, hearts for him)
 //	&room=none       the Room items card before the hub's world came in
 //	&two=1           two players (no Sam): Warp to on the partner's row
+//	&dry=1           this player's game runs a dry run (the host can still edit the rules)
+//	&slow=1          SetCoopShares answers out of order: the first call takes 800 ms, the rest none
 //	&upd=1           a newer release is out, in any scenario
 //	&click=a,b       click these element ids in turn once the page is up
 (function () {
@@ -26,6 +28,9 @@
 	const tablesDiffer = q.get("tables") === "differ";
 	const noRoom = q.get("room") === "none";
 	const two = q.get("two") === "1";
+	const dry = q.get("dry") === "1";
+	const slow = q.get("slow") === "1";
+	let shareCalls = 0;
 	const updOut = S === "home-update" || q.get("upd") === "1";
 	try {
 		if (theme) localStorage.setItem("ww-theme", theme);
@@ -170,7 +175,7 @@
 	const coopMode = S === "lobby-join" ? "continue" : "new";
 	const coop = {
 		setting: coopMode === "new" ? "new" : worlds[0].id, mode: coopMode, world: coopMode === "continue" ? worlds[0].id : "",
-		dryRun: false, merge: false, liveSwitches: false, on: playing, myDryRun: false, autoYes: false,
+		dryRun: false, merge: false, liveSwitches: false, on: playing, myDryRun: dry, autoYes: false,
 		relays: { bossKill: "", refresh: "" },
 		choice: { mode: coopMode, world: worlds[0].id, dryRun: false, merge: false, liveSwitches: false, iso: "" },
 		cards: playing ? null : {
@@ -185,7 +190,7 @@
 			partners: ["Blake"],
 			pipes: [{
 				player: "Stephen", state: "bound", headline: "Bound and writing: your game follows world 7f3a91c2", tone: "ok",
-				world: worlds[0].id, seq: 412, written: 1832, escapes: 0, failed: 0, paused: false, dryRun: false,
+				world: worlds[0].id, seq: 412, written: 1832, escapes: 0, failed: 0, paused: false, dryRun: dry,
 				progression: [
 					"progression granted: story|inventory|keys|life|magic",
 					"story bits held back until this game catches up: Tetra's ship departs (needs Outset done)",
@@ -262,14 +267,18 @@
 		LanSessions: () => lan, ShareAddrs: () => share, CoopWorlds: () => worlds,
 		CoopStatusText: () => "co-op: Stephen: bound", SendChat: (t) => ({ kind: "chat", from: "Stephen", text: t }),
 		CheckColor: (t) => ({ hex: t.toUpperCase(), name: "" }),
-		SetCoopShares: (on) => { setShares(on); return null; },
+		// The hub applies each call as it lands: with &slow=1 the first one
+		// lands last, as two bridge calls on their way at once may.
+		SetCoopShares: (on) => (slow && shareCalls++ === 0
+			? new Promise((done) => setTimeout(() => { setShares(on); done(null); }, 800))
+			: (setShares(on), null)),
 		SetMerge: (on) => { coop.merge = on; if (coop.panel) coop.panel.rules.rows.find((r) => r.id === "merge").on = on; return null; },
 	};
 	const listeners = [];
 	window.go = { gui: { Bridge: new Proxy({}, {
 		get: (_, name) => async (...args) => {
 			const f = answers[name];
-			return f ? JSON.parse(JSON.stringify(f(...args))) : null;
+			return f ? JSON.parse(JSON.stringify(await f(...args))) : null;
 		},
 	}) } };
 	window.runtime = { EventsOn: (_, fn) => { listeners.push(fn); return () => {}; } };

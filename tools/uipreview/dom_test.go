@@ -148,6 +148,24 @@ func TestFrontendDOM(t *testing.T) {
 			}
 			return ""
 		}},
+		{"two quick toggles whose calls land out of order", "s=ingame-host&slow=1&click=rules-edit,rule-story,rule-inventory", func(d string) string {
+			switch {
+			case !regexp.MustCompile(`id="rule-story"[^>]*aria-checked="false"`).MatchString(d):
+				return "Story didn't stay off"
+			case !regexp.MustCompile(`id="rule-inventory"[^>]*aria-checked="false"`).MatchString(d):
+				return "the hub ended on the first call: Items came back on"
+			}
+			return ""
+		}},
+		{"a dry-run host edits the rules", "s=ingame-host&dry=1&click=rules-edit,rule-story", func(d string) string {
+			switch {
+			case !regexp.MustCompile(`id="rule-story"[^>]*aria-checked="false"`).MatchString(d):
+				return "no rule switches for a host whose game runs a dry run"
+			case !strings.Contains(d, "A dry run: co-op plans its writes"):
+				return "the dry-run line is gone while editing"
+			}
+			return ""
+		}},
 		{"a joiner's rules are the host's", "s=ingame", func(d string) string {
 			if !regexp.MustCompile(`id="rules-edit"[^>]*hidden`).MatchString(d) || !strings.Contains(d, "The host chooses what co-op shares") {
 				return "a joiner can edit, or isn't told who chooses"
