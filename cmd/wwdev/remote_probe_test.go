@@ -402,7 +402,7 @@ func TestRemoteSlotArgs(t *testing.T) {
 		{[]string{"0"}, map[string]string{"at": "1,nan,3"}},
 		{[]string{"0"}, map[string]string{"stage": "TooLongName"}},
 		{[]string{"0"}, map[string]string{"role": "both"}},
-		{[]string{"0"}, map[string]string{"pose-slot": "2"}},
+		{[]string{"0"}, map[string]string{"pose-slot": "3"}},
 		{[]string{"0"}, map[string]string{"sflags": "1FF"}},
 		{[]string{"0"}, map[string]string{"cyl-r": "-1"}},
 		{[]string{"0"}, map[string]string{"flags": "warp"}},

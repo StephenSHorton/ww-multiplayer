@@ -322,8 +322,8 @@ const (
 	RemoteHDNoBody      uint8 = 16   // EnemyHitResultOff detail: ATTRIB asked, the body not LIVE (host-Link path ran)
 
 	// the actor (both roles of the 0xB5 profile)
-	RemoteActorSize      uint32 = 0x600      // profile mSize, max(keeper, lite body)
-	RemoteKeeperSwapOff         = 0x458      // keeper swap state start (after enemy_mirror_state), ends <= 0x600
+	RemoteActorSize      uint32 = 0x620      // profile mSize, max(keeper, lite body); 0x600 before the third body slot
+	RemoteKeeperSwapOff         = 0x458      // keeper swap state start (after enemy_mirror_state), ends <= 0x620
 	RemoteBodyParamsTag  uint32 = 0x52000000 // body mParameters = tag | slot << 8 | gen; keeper = 0
 	RemoteBodyParamsMask uint32 = 0xFF000000
 	RemoteBodyMagic      uint32 = 0x57575242 // 'WWRB' at RemoteBodyMagicOff

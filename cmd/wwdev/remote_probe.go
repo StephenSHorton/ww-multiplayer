@@ -114,8 +114,8 @@ const (
 	swLiveMask    = 0x15 // u8 bit i: body i a latch candidate
 	swFullAllow   = 0x19 // u8 FULL_ALLOW latched at consume (Stage 4)
 	swFlags2      = 0x1A // u16 FLAGS2 of the last consume
-	swFullDenied  = 0x79 // u8 bit i: slot i spent its full attempt this stage
-	swFullWait    = 0x7A // u8[MAX_REMOTE_LINKS] frames slot i waited for its allow bit
+	swFullDenied  = 0x8D // u8 bit i: slot i spent its full attempt this stage
+	swFullWait    = 0x8E // u8[MAX_REMOTE_LINKS] frames slot i waited for its allow bit
 	swBodies      = 0x28 // rl_body[MAX_REMOTE_LINKS]
 	swBodySize    = 0x14
 	swBodyGen     = 0x0B // u8
@@ -123,8 +123,8 @@ const (
 	swBodyDelSent = 0x11 // u8
 	swBodyParked  = 0x12 // u8
 	swBodyKind    = 0x13 // u8 WWREMOTE_KIND_* of the last create
-	swLatch       = 0x7C // rl_latch[RL_LATCH_MAX]
-	swSize        = 0x17C
+	swLatch       = 0x94 // rl_latch[RL_LATCH_MAX]
+	swSize        = 0x194
 	latchEntry    = 0x10
 	latchCount    = 16 // RL_LATCH_MAX
 	latchEnemyPID = 0x00

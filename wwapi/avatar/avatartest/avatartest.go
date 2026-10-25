@@ -17,6 +17,9 @@ import (
 type RAM struct {
 	Mem    map[uint32]byte
 	Writes int
+	// Boots counts SoftReset calls; CAllocate places each boot's buffers
+	// 0x10000 further up, as a new GameHeap would hand out other blocks.
+	Boots int
 }
 
 // NewRAM returns an empty RAM.
@@ -130,9 +133,26 @@ func (f *RAM) CAllocate() {
 		return
 	}
 	for s := 0; s < mailbox.LenTunicBufs; s++ {
-		f.Put32(tunicBuf(s), HeapTop+uint32(s)*0x1000)
+		f.Put32(tunicBuf(s), HeapTop+uint32(f.Boots)*0x10000+uint32(s)*0x1000)
 	}
 	f.Mem[mailbox.Mailbox+mailbox.OffTunicState] = 1
+}
+
+// SoftReset plays main01_init's per-boot zeroing (inject/src/core/
+// hooks.c): the pose arrays and pose_publish (+0xA8..+0xC7), the tunic
+// block up to the features word (+0x188..+0x19F) and tunic_state's word
+// (+0x1A4). The old boot's buffers keep their bytes, as RAM does.
+func (f *RAM) SoftReset() {
+	f.Boots++
+	for a := mailbox.Mailbox + mailbox.OffPoseBufPtrs; a < mailbox.Mailbox+mailbox.OffWarpSeq; a++ {
+		f.Mem[a] = 0
+	}
+	for a := mailbox.Mailbox + mailbox.OffTunicBufs; a < mailbox.Mailbox+mailbox.OffFeatures; a++ {
+		f.Mem[a] = 0
+	}
+	for a := mailbox.Mailbox + mailbox.OffTunicState; a < mailbox.Mailbox+mailbox.OffTunicSwaps; a++ {
+		f.Mem[a] = 0
+	}
 }
 
 // Frame advances spawn_trigger, the C side's per-frame counter.

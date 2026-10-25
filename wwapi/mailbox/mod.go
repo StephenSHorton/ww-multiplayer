@@ -87,9 +87,17 @@ var (
 	// to the enemy block (+0x1C8..+0x200), are the enemy block's annex
 	// (layout 3), inside EnemyBlockRegion.
 	// CanaryArena still holds the REL module's first three words
-	// (OffRELMagic..), which only a linked module writes.
+	// (OffRELMagic..), which only a linked module writes. CanaryArenaHigh
+	// stops at the mini-Links' eye packets (EyePacketsRegion, the top of
+	// the slack since WWMB_LAYOUT 3), which T2 writes at boot and the
+	// game's draw lists every frame.
 	CanaryArena     = addr.Region{Name: "below arena", Start: Mailbox + MailboxSize, End: Mailbox + OffRELExecHook}
-	CanaryArenaHigh = addr.Region{Name: "below arena (past the visuals block)", Start: Mailbox + VisOff + VisSize, End: PatchedArenaLo}
+	CanaryArenaHigh = addr.Region{Name: "below arena (past the visuals block)", Start: Mailbox + VisOff + VisSize, End: Mailbox + MpEyePacketsOff}
+
+	// EyePacketsRegion is the mini-Links' copies of the eye-decal preset
+	// packets, MAX_REMOTE_LINKS sets of four J3DPackets (mailbox_mp.h
+	// MP_EYE_PACKETS_*, inject/src/mp/minilink.c), up to the patched arena.
+	EyePacketsRegion = addr.Region{Name: "mini-Link eye packets", Start: Mailbox + MpEyePacketsOff, End: Mailbox + MpEyePacketsOff + MpEyePacketsSize}
 )
 
 const (

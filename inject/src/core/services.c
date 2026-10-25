@@ -84,13 +84,14 @@ void warp_frame(fopAc_ac_c* link) {
 
 // --- Tunic images ----------------------------------------------------
 void tunic_alloc(void) {
-    // Tunic colors (docs/09 §5.3): allocate the three per-slot images
-    // ONCE, after Go has published their size. tunic_state never goes
-    // back to 0, so a stage load or save reload never re-allocates (F18).
+    // Tunic colors (docs/09 §5.3): allocate the TUNIC_SLOTS per-slot
+    // images ONCE, after Go has published their size. tunic_state never
+    // goes back to 0 within a boot, so a stage load or save reload never
+    // re-allocates (F18); main01_init zeroes it once per boot.
     if (mailbox->tunic_state == 0 && mailbox->tunic_buf_size != 0) {
         u8 st = 1;
         int t;
-        for (t = 0; t < 3; t++) {
+        for (t = 0; t < TUNIC_SLOTS; t++) {
             if (!mailbox->tunic_bufs[t]) {
                 void* p = JKRHeap_alloc(mailbox->tunic_buf_size, 0x20, mDoExt_getGameHeap());
                 if (p) mailbox->tunic_bufs[t] = (u32)p;
@@ -231,8 +232,9 @@ void pose_publish(void* link) {
     // frame, so the joint walker has finished writing mpNodeMtx and the
     // buffer is stable until the next frame's calc. Lazy-alloc the
     // 2016 B publish buffer on the first frame, then memcpy every frame.
-    // Allocated once per session: nothing resets pose_publish_state, so
-    // the GameHeap block is never dropped and re-allocated (F18).
+    // Allocated once per boot: only main01_init resets pose_publish_state
+    // (a soft reset makes a new GameHeap), so within a boot the GameHeap
+    // block is never dropped and re-allocated (F18).
     // Runs unconditionally (not gated on shadow_mode) so Go can always
     // read a stable pose whether or not multiplayer is engaged — the
     // copy is a ~5 µs linear memcpy, trivial vs the 16 ms frame budget.
