@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/fxsync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/tunicsync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
@@ -127,6 +128,23 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 		}
 	}()
 
+	// Projectile events (fxsync, inject/include/wwfx.h; WW_PROJECTILES=on,
+	// default off): the peers' bombs, cannonballs and arrows, scoped to
+	// this game's stage and room, into the REL's inbox. Session over: the
+	// recv word goes back to 0 (the REL then discards the inbox).
+	fxSettings := fxsync.SettingsFromEnv()
+	fxRecv := fxsync.NewReceiver()
+	var fxLog fxLogger
+	if fxSettings.On {
+		rep.Log(log.Info, "Projectile events on (WW_PROJECTILES): the other players' bombs, cannonballs and arrows are made in this game.")
+		client.OnFx = func(from byte, e network.FxEvent) { fxRecv.Push(from, e, time.Now()) }
+		defer func() {
+			if gate.ok {
+				_ = fxRecv.Arm(d, false)
+			}
+		}()
+	}
+
 	// connect (re)establishes the session and RE-ARMS the mailbox (#8 + D3).
 	// Runs at startup and after every reconnect. A change in the welcome's
 	// server epoch means the server restarted → full puppet reset.
@@ -187,6 +205,12 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 
 			_ = vis.Write(d, vissync.Build(visSettings, remotes, feeder.LinkSlots(), selfFilter))
 
+			if fxSettings.On && fxRecv.Arm(d, true) == nil {
+				fxRecv.SetEpoch(client.ServerEpoch())
+				_ = fxRecv.Flush(d, remotes, selfFilter, now)
+				fxLog.every(rep, fxRecv.Summary(), now)
+			}
+
 			feeder.Expire(now)
 
 			select {
@@ -218,4 +242,21 @@ func visDropped(w vissync.Writer, vis *vissync.Sync, gateOK bool) {
 	if gateOK {
 		_ = vis.Off(w)
 	}
+}
+
+// fxLogger logs the projectile receiver's summary at most every
+// fxLogEvery, and only when it changed.
+type fxLogger struct {
+	last string
+	next time.Time
+}
+
+const fxLogEvery = 10 * time.Second
+
+func (l *fxLogger) every(rep log.Reporter, line string, now time.Time) {
+	if line == "" || line == l.last || now.Before(l.next) {
+		return
+	}
+	l.last, l.next = line, now.Add(fxLogEvery)
+	rep.Log(log.Info, line)
 }

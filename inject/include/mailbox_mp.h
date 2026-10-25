@@ -42,14 +42,17 @@
 
 // The mini-Links' own copies of the four eye-decal preset packets, one set
 // per slot (src/mp/minilink.c, docs/05 F1), in the mailbox slack past the
-// Mailbox struct: MAX_REMOTE_LINKS x 4 x 0x1C bytes, at the top of the
-// slack so the blocks that grow up from +0x1B0 (wwrel.h, wwremote.h,
-// wwvis.h, ...) keep their room. T2 writes them once per boot and the
+// Mailbox struct: MAX_REMOTE_LINKS x 4 x 0x1C bytes, high in the slack,
+// right below the projectile events block (wwfx.h WWFX_OFF, +0xE50, the
+// top of the slack), so the blocks that grow up from +0x1B0 (wwrel.h,
+// wwremote.h, wwvis.h, ...) keep their room. src/mp/minilink.c asserts
+// they sit between the visuals block's end and WWFX_OFF. T2 writes them once per boot and the
 // game's J3DDrawBuffer::entryImm their mpNextPacket every frame a slot
 // draws; Go never touches them, and the region probe arms no canary over
 // them (wwapi/mailbox CanaryArenaHigh ends at MP_EYE_PACKETS_OFF).
-// They were T2 .bss until WWMB_LAYOUT 3.
-#define MP_EYE_PACKETS_OFF 0xFB0
+// They were T2 .bss until WWMB_LAYOUT 3, then +0xFB0..+0x1100 until the
+// wave-3 in-game batch put the projectile block at the top.
+#define MP_EYE_PACKETS_OFF 0xD00
 #define MP_EYE_PACKETS_SIZE 0x150
 
 // Per-slot state. Size is 0x20 bytes (nice round hex).

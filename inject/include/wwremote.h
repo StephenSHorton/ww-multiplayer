@@ -32,9 +32,10 @@
 //   +0x8B0..+0x8D0  the actor_refresh request (wwrefresh.h WWRF_OFF; batch D)
 //   +0x8D0..+0x9E4  the remote players' visuals block (wwvis.h WWVIS_OFF,
 //                   WWVIS_SIZE 0x114)
-//   +0x9E4..+0xFB0 free (wwapi/mailbox CanaryArenaHigh)
-//   +0xFB0..+0x1100 the mini-Links' eye packets (mailbox_mp.h
+//   +0x9E4..+0xD00 free (wwapi/mailbox CanaryArenaHigh)
+//   +0xD00..+0xE50  the mini-Links' eye packets (mailbox_mp.h
 //                   MP_EYE_PACKETS_OFF; T2 writes them; never canary-armed)
+//   +0xE50..+0x1100 the projectile events block (wwfx.h WWFX_OFF)
 //
 // The block (offsets from WWREMOTE_OFF; absolute = 0x80413420 + off):
 //

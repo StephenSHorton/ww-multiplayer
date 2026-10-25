@@ -19,7 +19,7 @@ const (
 	MaxPuppets                = 4          // MAX_PUPPETS
 	MaxRemoteLinks            = 3          // MAX_REMOTE_LINKS
 	MailboxPoseSlotCap        = 3          // MAILBOX_POSE_SLOT_CAP
-	MpEyePacketsOff           = 0xFB0      // MP_EYE_PACKETS_OFF
+	MpEyePacketsOff           = 0xD00      // MP_EYE_PACKETS_OFF
 	MpEyePacketsSize          = 0x150      // MP_EYE_PACKETS_SIZE
 	TunicSlots                = 4          // TUNIC_SLOTS
 	TunicSlotLocal            = 3          // TUNIC_SLOT_LOCAL

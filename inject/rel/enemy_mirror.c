@@ -105,6 +105,7 @@
 #include "wwrel.h"
 #include "enemy_mirror.h"
 #include "remote.h"
+#include "fx.h"            // fx_swallowed_copy: a peer's bomb copy in the Armos Knight swallow
 
 // --- The block ------------------------------------------------------------
 #define EB_ADDR      (MAILBOX_ADDR + WWENEMY_OFF)
@@ -2674,6 +2675,9 @@ void em_colliders_post(const em_slot* sl, const em_ext* x, const em_kind* k, voi
 // The bomb is then deleted here (the host's
 // own swallow eats its bomb, d_a_am.cpp:400-405; the client's bomb never
 // reaches the host) and 1 is returned: em_hits reports EMK_HIT_SPECIAL.
+// A peer's bomb copy (fx.c, include/wwfx.h) has its BombCheck flag set,
+// so it never qualifies; fx_swallowed_copy is a tripwire that would count
+// one and keep it unreported (its sender's world relays what it hit).
 int em_am_swallow_client(em_slot* sl, const em_kind* k, void* a) {
     u8* mouth = (u8*)a + EMK_AM_MOUTH_SPH;
     u8 b = sl->tgt_bck;
@@ -2692,8 +2696,10 @@ int em_am_swallow_client(em_slot* sl, const em_kind* k, void* a) {
             if (fuse_ok && (u32)em_actor_of(pid) == bomb &&
                 cLib_distanceAngleS(AF(a, s16, AC_SHAPE_ANGLE_Y), fopAcM_searchPlayerAngleY(a)) <= EMK_AM_SWALLOW_FACING &&
                 AF(bomb, f32, AC_CUR_POS + 4) > AF(a, f32, EMK_AM_MOUTH_POS + 4) - (f32)EMK_AM_SWALLOW_DY) {
+                // A peer's bomb copy (fx.c) is deleted the same way but
+                // never reported: it was the sender's bomb.
+                hit = !fx_swallowed_copy((void*)bomb);
                 fopAcM_delete_id(pid);
-                hit = 1;
             }
         }
     }
