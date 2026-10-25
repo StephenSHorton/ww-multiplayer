@@ -994,7 +994,8 @@ The game has two kinds of reset, and only one reboots (tww decomp):
   - `spawn_trigger` has stood still for 100 ms after it was seen moving: the frames have
     stopped (a reboot that skipped the flag, the disc-cover path, or emulation paused).
 
-  It logs `pose feed paused: ...` once and `pose feed resumed` when the game runs again. The
+  It logs `pose feed paused: ...` once (a stall only after 1 s, so a hitch logs nothing) and
+  `pose feed resumed` when the game runs again. The
   frames of the reboot itself before the flag is set (the disc-cover path) are covered only
   after those 100 ms.
 - **Why not ww-online's `__OSStartTime` stamp** (`GameMod/CLAUDE.md:68`, MIT): their block
