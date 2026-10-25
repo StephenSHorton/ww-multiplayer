@@ -810,8 +810,9 @@ Go's read words as its own, so nothing old is sent or spawned.
   procMove PTMF and `arrowShooting`, params 0. A thrown copy's fuse is held
   until the sender's EXPLODE (their state machine), unless this world took
   it over. A stage change discards the inbox and deletes the live copies.
-  With both magic words 0 the REL writes nothing in the block (a session
-  that ends takes its live copies with it).
+  With both magic words 0 the REL writes nothing in the block, except
+  that the frame a session ends it deletes that session's live copies
+  and counts them (the 6th counter).
 - **Enemy mirror**: no copy can hit an enemy, so `em_hits` never sees
   one, and no copy can be swallowed (`em_am_swallow_client` asks the
   same BombCheck flag); its `fx_swallowed_copy` call stays as a tripwire
