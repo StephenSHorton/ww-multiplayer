@@ -338,3 +338,114 @@ func TestMacBundle(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// TestReleaseNotesFiles: the release body is the tag's
+// docs/release-notes file (scripts/release-notes.sh), not text inline in
+// release.yml, whose "New in" line went stale with every release; each
+// file is one release's player-facing notes, without GitHub's generated
+// list (appended at publish time).
+func TestReleaseNotesFiles(t *testing.T) {
+	wf := readRepoFile(t, ".github/workflows/release.yml")
+	steps := workflowSteps(t, wf)
+	var publish *wfStep
+	notes := map[string]bool{} // job -> runs release-notes.sh
+	for _, s := range steps {
+		s := s
+		if strings.Contains(s.text, "softprops/action-gh-release") {
+			publish = &s
+		}
+		if strings.Contains(s.text, `./scripts/release-notes.sh "${GITHUB_REF_NAME}"`) {
+			notes[s.job] = true
+		}
+	}
+	if publish == nil {
+		t.Fatal("release.yml: no release step")
+	}
+	if strings.Contains(publish.text, "body: ") || !strings.Contains(publish.text, "body_path: ${{ steps.notes.outputs.file }}") {
+		t.Error("the release step must take its body from the notes file (body_path: ${{ steps.notes.outputs.file }}), not inline")
+	}
+	if !strings.Contains(publish.text, "generate_release_notes: true") {
+		t.Error("the release step no longer appends GitHub's generated notes")
+	}
+	if !notes["windows"] || !notes["release"] {
+		t.Errorf("release-notes.sh runs in jobs %v, want windows (fail early) and release (the body)", notes)
+	}
+	sh := readRepoFile(t, "scripts/release-notes.sh")
+	if !strings.Contains(sh, "<!-- draft") {
+		t.Error("release-notes.sh no longer refuses a draft")
+	}
+
+	ents, err := os.ReadDir(repoPath("docs/release-notes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := regexp.MustCompile(`^(v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?)\.md$`)
+	have := map[string]bool{}
+	for _, e := range ents {
+		if e.Name() == "README.md" {
+			continue
+		}
+		m := name.FindStringSubmatch(e.Name())
+		if m == nil {
+			t.Errorf("docs/release-notes/%s is not v<semver>.md", e.Name())
+			continue
+		}
+		have[m[1]] = true
+		text := readRepoFile(t, "docs/release-notes/"+e.Name())
+		if strings.Contains(text, "\r") {
+			t.Errorf("%s has CRLF line ends", e.Name())
+		}
+		lines := strings.Split(text, "\n")
+		if strings.HasPrefix(lines[0], "<!-- draft") {
+			lines = lines[1:]
+		}
+		if want := "## Wind Waker Multiplayer " + m[1]; lines[0] != want {
+			t.Errorf("%s starts %q, want %q", e.Name(), lines[0], want)
+		}
+		for _, gen := range []string{"## What's Changed", "**Full Changelog**", "${{"} {
+			if strings.Contains(text, gen) {
+				t.Errorf("%s holds %q: GitHub adds the generated notes itself, and the file is not a workflow expression", e.Name(), gen)
+			}
+		}
+	}
+	// The releases published before the files existed were seeded from
+	// their GitHub bodies.
+	for _, v := range []string{"v0.1.0", "v0.1.9", "v0.2.0", "v0.2.1", "v0.3.0", "v0.3.1", "v0.4.0", "v0.4.1", "v0.5.0"} {
+		if !have[v] {
+			t.Errorf("docs/release-notes/%s.md is missing", v)
+		}
+	}
+}
+
+// TestGameFilesGuard: tools/check_game_files runs on the repo on every PR
+// (build.yml), and in release.yml on the repo, on each asset as it is
+// built, and on the downloaded assets before the release step publishes
+// them.
+func TestGameFilesGuard(t *testing.T) {
+	const guard = "go run ./tools/check_game_files"
+	found := func(file, job, args string) bool {
+		for _, s := range workflowSteps(t, readRepoFile(t, file)) {
+			for _, l := range strings.Split(s.text, "\n") {
+				if s.job == job && strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "run:")) == strings.TrimSpace(guard+" "+args) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, c := range []struct{ file, job, args string }{
+		{".github/workflows/build.yml", "windows", ""},
+		{".github/workflows/release.yml", "windows", ""},
+		{".github/workflows/release.yml", "windows", "ww-multiplayer.exe"},
+		{".github/workflows/release.yml", "macos", "dist/ww-multiplayer-macos.zip"},
+		{".github/workflows/release.yml", "release", "artifacts"},
+	} {
+		if !found(c.file, c.job, c.args) {
+			t.Errorf("%s job %s doesn't run %q", c.file, c.job, strings.TrimSpace(guard+" "+c.args))
+		}
+	}
+	wf := readRepoFile(t, ".github/workflows/release.yml")
+	if g, p := strings.Index(wf, guard+" artifacts"), strings.Index(wf, "softprops/action-gh-release"); g < 0 || g > p {
+		t.Error("release.yml checks the assets after publishing them, or not at all")
+	}
+}
