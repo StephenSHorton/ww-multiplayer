@@ -801,32 +801,43 @@ func TestRemoteHostPHit(t *testing.T) {
 }
 
 // TestRemoteAttrib: with ATTRIB on, a HIT from a slot's owner carries
-// HAF_ATTRIB_BODY (plus HAF_SLOT1 for slot 1) in its hit_apply; player 0,
-// a player without a slot, or ATTRIB off carry none. The HIT's cut type
-// and count override the PSTATE's in that slot for HitCutHold.
+// HAF_ATTRIB_BODY (plus HAF_SLOT1 for slot 1; HAF_SLOT1 alone for slot 2,
+// the third remote) in its hit_apply, each decoding back to its slot as
+// the REL reads it; player 0, a player without a slot, or ATTRIB off
+// carry none. The HIT's cut type and count override the PSTATE's in that
+// slot for HitCutHold.
 func TestRemoteAttrib(t *testing.T) {
 	m, scope, r := remoteHostGame(t, mailbox.RemoteFlagAttrib)
 	now := time.Unix(100, 0)
-	views := []posefeed.RemoteView{{ID: 4, LinkSlot: 0, Live: true}, {ID: 6, LinkSlot: 1, Live: true}}
+	views := []posefeed.RemoteView{{ID: 4, LinkSlot: 0, Live: true}, {ID: 6, LinkSlot: 1, Live: true}, {ID: 7, LinkSlot: 2, Live: true}}
 	r.OnPState(&PState{Client: 2, PlayerID: 6, Stage: "M_Dai", Room: 1, CutType: 1, CutCount: 1}, now)
 	r.Tick(now, scope, true, views, now, nil)
 	for _, c := range []struct {
 		player uint8
 		want   uint8
+		slot   int
 	}{
-		{4, mailbox.RemoteHAFAttribBody},
-		{6, mailbox.RemoteHAFAttribBody | mailbox.RemoteHAFSlot1},
-		{0, 0},
-		{9, 0},
+		{4, mailbox.RemoteHAFAttribBody, 0},
+		{6, mailbox.RemoteHAFAttribBody | mailbox.RemoteHAFSlot1, 1},
+		{7, mailbox.RemoteHAFSlot1, 2},
+		{0, 0, -1},
+		{9, 0, -1},
 	} {
-		if got := r.AttribFlags(&Hit{PlayerID: c.player}); got != c.want {
+		got := r.AttribFlags(&Hit{PlayerID: c.player})
+		if got != c.want {
 			t.Errorf("player %d: 0x%02X, want 0x%02X", c.player, got, c.want)
+		}
+		if s := mailbox.RemoteHAFAttribSlot(got); s != c.slot {
+			t.Errorf("player %d: 0x%02X names body %d, want %d", c.player, got, s, c.slot)
 		}
 	}
 	a := newHitApplier(m, log.Discard{}, 9)
 	a.Attrib = r.AttribFlags
 	if ha := a.hitApply(&pendingHit{hit: Hit{PlayerID: 6, SetID: 1}, seq: 1}); ha.Flags != mailbox.RemoteHAFAttribBody|mailbox.RemoteHAFSlot1 {
 		t.Errorf("hit_apply flags 0x%02X", ha.Flags)
+	}
+	if ha := a.hitApply(&pendingHit{hit: Hit{PlayerID: 7, SetID: 1}, seq: 2}); ha.Flags != mailbox.RemoteHAFSlot1 {
+		t.Errorf("slot 2 hit_apply flags 0x%02X, want 0x%02X", ha.Flags, mailbox.RemoteHAFSlot1)
 	}
 	r.NoteHit(&Hit{PlayerID: 6, CutType: 0x0B, CutCount: 4}, now)
 	r.Tick(now, scope, true, views, now, nil)

@@ -132,7 +132,8 @@
 #define WWENEMY_HAF_FORCE_V1     0x01         // the v1 shrink branch (WW_ENEMY_HIT_V1=1)
 #define WWENEMY_HAF_FALLBACK_SHRINK 0x02      // shrink after two Sets crossed nothing (WW_ENEMY_HIT_FALLBACK=shrink)
 #define WWENEMY_HAF_NO_HITMARK   0x04         // dCcG_AtSPrm_NoHitMark on the sphere
-// 0x08 and 0x10 are WWREMOTE_HAF_ATTRIB_BODY / _SLOT1 (wwremote.h). The TN
+// 0x08 and 0x10 are WWREMOTE_HAF_ATTRIB_BODY / _SLOT1, one 2-bit body field
+// (wwremote.h). The TN
 // batch's AM2 direct apply (enemy-mirror-tn.json R-15, D10, hit_path): the
 // client REL's verdict, carried by Go from the hit entry's pending byte
 // (WWENEMY_HP_*) through HIT byte 54. The host REL reads them only for AM2

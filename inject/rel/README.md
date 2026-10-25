@@ -16,7 +16,7 @@ calls into, the host hit ring and the client apply; `fullbody.c` and
 `rel_main.c` is an actor module. Its profile, `g_profile_WWREL`
 (`.rodata`, 0x30 bytes, the decomp's `actor_process_profile_definition`),
 describes proc 0xB5 with a five-method table (create, delete, execute,
-is_delete, draw) and an actor of `WWREMOTE_ACTOR_SIZE` (0x600) bytes: the
+is_delete, draw) and an actor of `WWREMOTE_ACTOR_SIZE` (0x620; 0x600 before WWMB_LAYOUT 3) bytes: the
 keeper role (params 0) is `fopAc_ac_c` (0x290 in GZLE01) plus one u32 of
 its own, the Moblin mirror's state (0x1C4, to +0x458) and remote.c's swap
 state (from +0x458); the lite-body role (params `0x52000000 | slot << 8 |
@@ -450,7 +450,8 @@ module does what it did before, except that the exec hook counts its calls
   `FLAG_BOTH_WORDS_ENABLE`; bodies named 0xA9 with `FLAG_NAME_A9`) around
   the one `fpcMtd_Execute` call, restored unconditionally.
 - **ATTRIB** (enemy_mirror.c's v2, `FLAG_ATTRIB` and the request's
-  `WWREMOTE_HAF_ATTRIB_BODY`): with the slot's body LIVE and unparked the
+  ATTRIB field, `WWREMOTE_HAF_ATTRIB_MASK`: 0x08 body 0, 0x18 body 1, 0x10
+  body 2): with the slot's body LIVE and unparked the
   stts names the body, the Moblin's latch is forced onto it for 3 executes
   and, when it was not the current target, the first Set waits one
   execute; otherwise the host-Link path with detail `WWREMOTE_HD_NO_BODY`.
@@ -502,9 +503,11 @@ creates only lite bodies and nothing below runs.
   the attempt: lite for the rest of the stage. Clearing `FULL_BODIES`
   retires a LIVE full body; no upgrade within a stage. body_status +0x0F is
   the kind. The new keeper fields live in the swap state's old pads
-  (`full_allow` +0x19, `flags2` +0x1A, `full_denied` +0x79, `full_wait`
-  +0x7A, `rl_body.kind` +0x13), so its size (0x17C) and every field the
-  probe reads keep their offsets.
+  (`full_allow` +0x19, `flags2` +0x1A, `full_denied`, `full_wait`,
+  `rl_body.kind` +0x13). With the third body slot (WWMB_LAYOUT 3) `bodies[3]`
+  and `full_wait[3]` grew the state from 0x17C to 0x194: `full_denied` is
+  now +0x8D, `full_wait` +0x8E and `latch` +0x94 (`remote.h`, wwdev's
+  `remote_probe.go` pins).
 - **create** (`fullbody_create`, one call per frame in `fpcCt_Handler`):
   FP_NEW checks the params tag, caches slot/gen, allocates the shanm table
   if the boot has none (`BERR_SHANM_ALLOC`), becomes a stage actor and
@@ -729,9 +732,10 @@ the proc's state as found. Stateless; nothing is added to the keeper.
 ## visuals.c: the remote players' visuals
 
 The block is `include/wwvis.h` at `MAILBOX_ADDR + 0x8D0` (0x804137D0,
-0xC0 bytes, right after the actor_refresh request; Go's
-`wwapi/mailbox/vis.go` mirrors it and `CanaryArenaHigh` now starts at its
-end, 0x80413890). Its first word is `&wwvis_draw_hook`, published by
+0xF0 bytes since WWMB_LAYOUT 3's third slot (0xC0 before), right after the
+actor_refresh request; Go's `wwapi/mailbox/vis.go` mirrors it and
+`CanaryArenaHigh` now runs from its end to the eye packets,
+0x804138C0..0x80413EB0). Its first word is `&wwvis_draw_hook`, published by
 `_prolog` just before the exec hook word and cleared by `_epilog` first;
 T2's `main01_init` zeroes it (and the model words) at boot. T2's
 `mp_draw_post` calls it twice per drawn mini-Link slot: phase 0 before the

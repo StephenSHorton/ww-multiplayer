@@ -155,6 +155,20 @@ func (f *RAM) SoftReset() {
 	}
 }
 
+// RelocateLink is the new boot's Link after a SoftReset: his actor at
+// link, the worn header at worn and the hero image img at image, with
+// mpPlayerPtr and mpCurrLinktex pointing there. The old boot's bytes stay
+// where they were. link 0 is the title screen (no Link yet).
+func (f *RAM) RelocateLink(link, worn, image uint32, img []byte) {
+	f.Put32(addr.PlayerPtr, link)
+	if link == 0 {
+		return
+	}
+	f.Put32(link+addr.PlayerOffCurrLinktex, worn)
+	f.Write(image, img)
+	f.Write(worn, ResTIMG(texture.FormatCMPR, 8, 8, image-worn))
+}
+
 // Frame advances spawn_trigger, the C side's per-frame counter.
 func (f *RAM) Frame() {
 	v, _ := f.ReadU32(mailbox.Mailbox)
@@ -169,8 +183,10 @@ func (f *RAM) SlotImage(s int) []byte {
 }
 
 // ExpectRecolor is TestImage recolored to c, as the tunic slots do it.
-func ExpectRecolor(c texture.Color) []byte {
-	img := TestImage()
+func ExpectRecolor(c texture.Color) []byte { return ExpectRecolorOf(TestImage(), c) }
+
+// ExpectRecolorOf is img recolored to c, calibrated on img itself.
+func ExpectRecolorOf(img []byte, c texture.Color) []byte {
 	m, ref := texture.Calibrate(img, texture.DefaultMask)
 	out, _ := texture.Recolor(img, c, m, ref)
 	return out

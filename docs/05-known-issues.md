@@ -930,8 +930,11 @@ Three remotes is where we stop for now. Going past it needs, in order (handoff
 2. **Another layout revision.** The pose arrays fill +0xA8..+0xBF exactly; a fourth slot
    needs them moved (and `face_state`, the tunic block, the visuals block and the eye packets
    grow again). `remote.c` pins `MAX_REMOTE_LINKS == 3`.
-3. **ATTRIB's slot bit.** Naming slot 2 and up in a hit needs a byte with room (the PHIT /
-   hit-apply record), not the full flags byte.
+3. **ATTRIB's body field.** The hit-apply flags byte has no free bit, so its two ATTRIB bits
+   are one field: 0x08 body 0, 0x18 body 1, 0x10 body 2 (`WWREMOTE_HAF_ATTRIB_MASK`,
+   `wwremote.h`; `mailbox.RemoteHAFAttrib`). It names three bodies and no more (`remote.c`
+   asserts `MAX_REMOTE_LINKS <= 3`): a fourth needs a byte with room (the PHIT / hit-apply
+   record).
 4. **Co-op for three or more** is a separate protocol change (PRESENCE names no sender, one
    partner per replica, a two-player warp).
 
@@ -940,11 +943,24 @@ players 3 and 4 did before.
 
 ## Soft reset (2026-10-25)
 
-A soft reset (`mDoRst_reset(0, 0x80000000, 0)` -> `OSResetSystem` restart,
-`d_s_logo.cpp:503`, `m_Do_Reset.cpp:76`; reset 0 is `OS_RESET_RESTART`, which calls
-`__OSReboot`, `OSReset.c:171-174`) reloads the DOL and boots again through `__start` ->
-`main` -> `main01` (`m_Do_main.cpp:599`), which builds new heaps in `mDoMch_Create` (`:407`).
-RAM is not cleared. So:
+The game has two kinds of reset, and only one reboots (tww decomp):
+
+- **Back to the title, no reboot (the usual one).** A reset press (`mDoRst_resetCallBack`,
+  `m_Do_Reset.cpp:86-119`; Dolphin's Reset is the console's reset switch, which reaches the
+  same callback: inferred, not checked), a game over's or the save menu's quit
+  (`d_gameover.cpp:116,132`, `d_menu_save.cpp:1269`) sets `mDoRst`'s `mReset`. Play is torn
+  down to the opening scene (`dComIfG_resetToOpening`, `d_com_inf_game.cpp:510-521`), whose
+  `phase_00` clears the flag (`d_s_play.cpp:1197-1213`, `:1444`). No DOL reload: T2's statics,
+  the mailbox and every block the mod holds in GameHeap stay as they are, as across a stage
+  hop. Nothing new is needed; the mini-Link path already rebuilds when Link's model data comes
+  back (`mini_link_reset_state`, `inject/src/mp/minilink.c`).
+- **A reboot.** `mDoRst_reset` -> `OSResetSystem` restart (reset 0 is `OS_RESET_RESTART`, which
+  calls `__OSReboot`, `OSReset.c:171-174`) reloads the DOL and boots again through `__start`
+  -> `main` -> `main01` (`m_Do_main.cpp:599`), which builds new heaps in `mDoMch_Create`
+  (`:407`). It runs when a reset reaches the logo scene (`d_s_logo.cpp:501-503`), when the
+  opening scene's heap check fails (`d_s_play.cpp:1197-1198`: any heap under 70% free or
+  fragmented), on a DVD error (`f_pc_manager.cpp:250-256`) and on a reset press with the disc
+  cover open (`m_Do_Reset.cpp:111`). RAM is not cleared. So:
 
 - T2's statics come back zero (its .bss is part of the DOL image: `mini_link_models`,
   `pose_bufs` and `my_packets_initialized` sit inside T2's 0x80410000 section, build map).
@@ -960,15 +976,36 @@ RAM is not cleared. So:
   first instruction (0x80006338, `inject/build.py`), before `mDoMch_Create`, so the words are
   zero before any block of the new heap exists. Go re-reads the states every tick (the pose
   feeder's `armPoseSlot`, `Tunics.Tick`, the pose publish read), so it disarms and follows the
-  new blocks (`TestTunicSync_SoftReset`).
+  new blocks (`TestTunicSync_SoftReset`); a Link that comes back at another address makes
+  `Tunics` recalibrate within `tunicVerifyEvery` (`TestTunicSync_SoftResetMovesLink`).
+- **The reboot window: Go's reset gate.** From the reset until `main01_init` the states still
+  read 1, so Go would keep writing poses (2,016 B per slot per tick) and tunic images through
+  the old boot's pointers while the reboot loads the apploader and the DOL. Where those land
+  is not known (pose buffers on record sat at 0x816B31E0..0x81BF7140, above the apploader's
+  0x81200000, but nothing pins that). So the pose feeder stops every pose, face and tunic
+  write while any of these holds (`mods/multiplayer/feed/running.go`, `TestFeederResetGate`):
+  - `mReset` is set: `mDoRst::mResetData` (0x803F6968, `symbols.txt`; `getResetData` in
+    `original.dol` is `lwz r3,-0x7778(r13)`, r13 0x803FE0E0) points at the flag block, `mReset`
+    at +0 (`m_Do_Reset.h:12`). It goes 1 when the reset is asked for, frames before the
+    reboot, and stays 1 into the next boot (a restart keeps the block, `m_Do_Reset.cpp:74`,
+    `m_Do_main.cpp:569-574`) until the opening scene clears it;
+  - the pointer is 0 or outside MEM1: the new boot before `main` has set it (its .sbss is
+    cleared);
+  - `spawn_trigger` has stood still for 100 ms after it was seen moving: the frames have
+    stopped (a reboot that skipped the flag, the disc-cover path, or emulation paused).
+
+  It logs `pose feed paused: ...` once and `pose feed resumed` when the game runs again. The
+  frames of the reboot itself before the flag is set (the disc-cover path) are covered only
+  after those 100 ms.
 - **Why not ww-online's `__OSStartTime` stamp** (`GameMod/CLAUDE.md:68`, MIT): their block
   pointers sit in scratch words, their REL allocates late (after the heaps exist) and their
   C# writes on its own clock, so they need a per-boot stamp (`__OSStartTime`, 0x803F79B8,
   `symbols.txt`; set once per boot by `OSInit`, `OS.c:230`) to tell a live block from an old
   boot's. Ours are zeroed by T2 code that runs every boot before any heap exists, so the zero
-  is the stamp. A stamp would also stop writes Go makes between the reboot and `main01_init`,
-  but no heap exists then: those writes land in arena RAM the new heap sets up later. While
-  the reboot itself loads, before `OSInit`, neither scheme helps.
+  is the stamp, and the reset gate covers the writes a stamp could not (before `OSInit`).
+- The armed-slot poll no longer blocks out of play (the title screen after a reset), and one
+  `Feed` waits through at most one timed-out poll whatever the slot count
+  (`TestFeederArmPollBounded`; before, up to 3 s per unarmed slot, 9 s with three).
 - `puppets[].actor_ptr` is left as it was: only `wwdev` reads it, and `puppets.c`'s own state
   is T2 statics.
 - Not run live: docs/TESTING.md "Soft reset".
@@ -995,9 +1032,10 @@ the real ones, every other game mirrors them, and remote bodies run at step6 wit
 - Other enemy types (Armos Knights, Armos, Darknuts, Kargarocs, Magtails and the rest) still run
   separately on each player's game, and they ignore the other players' bodies.
 - Only the first three other players get bodies (`MAX_REMOTE_LINKS` 3 since WWMB_LAYOUT 3; 2
-  before). The third one's hits always count as the host's own Link's: the hit-apply flags
-  byte has one slot bit and no free bit beside it, so slot 2's body cannot be named
-  (`AttribFlags`, `mods/enemysync/players.go`; `remote_attrib_body`, `inject/rel/remote.c`).
+  before). With ATTRIB on, each one's hits are credited to its own body: the hit-apply flags'
+  two ATTRIB bits name body 0, 1 or 2 (0x08, 0x18, 0x10; `AttribFlags`,
+  `mods/enemysync/players.go`; `remote_attrib_body`, `inject/rel/remote.c`). The third
+  body's code is new with this build and has not run live (docs/TESTING.md R3-3).
   `FullMax` stays 1, so at most one of the three is a full `daPy_lk_c` body; the rest are lite.
 - Each player mirrors at most 4 enemies at once (the block's 4 slots); the host lists by
   player distance.

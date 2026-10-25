@@ -36,6 +36,10 @@ func (r *recorder) has(sub string) bool {
 // poseBufBase is where the fake C side allocates pose_bufs (MEM1).
 const poseBufBase = 0x80C00000
 
+// resetData is where the fake game's mDoRstData sits (main takes it
+// from the arena's low end, m_Do_main.cpp:561).
+const resetData = 0x80414000
+
 // cside stands in for the C side of the pose feed: while shadow_mode is
 // 5, every slot without a pose_buf (state != 1) gets a fresh one, as the
 // next mode-5 draw lazy-allocates it.
@@ -78,7 +82,8 @@ func newTestFeeder(t *testing.T) (*Feeder, *cside, *recorder) {
 		t.Setenv(k, "")
 	}
 	c := &cside{ram: avatartest.NewRAM()}
-	c.stage("sea", avatartest.Link, false) // in play, as most tests assume
+	c.stage("sea", avatartest.Link, false)    // in play, as most tests assume
+	c.ram.Put32(addr.ResetDataPtr, resetData) // main's mDoRstData, mReset 0
 	rep := &recorder{}
 	f := NewFeeder(c.ram, "Self", rep)
 	f.after = func(time.Duration) <-chan time.Time {

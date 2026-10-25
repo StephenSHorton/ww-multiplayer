@@ -178,7 +178,9 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 			feeder.Feed(ctx, remotes, now)
 			roster.Publish(feeder.Views(remotes, now), now)
 
-			if tunics != nil {
+			// The tunic images go through GameHeap pointers too: hold
+			// them to the feeder's reset gate (running.go).
+			if tunics != nil && feeder.Running() {
 				mine, haveMine := client.MyColor()
 				tunicsync.SyncTunics(tunics, mine, haveMine, remotes, feeder.LinkSlots(), now)
 			}

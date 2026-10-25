@@ -101,7 +101,11 @@ typedef char rl_check_fields[(WWREMOTE_SL_STAGE_OFF + WWREMOTE_STAGE_LEN <= WWRE
 typedef char rl_check_attrib[(((WWENEMY_HAF_FORCE_V1 | WWENEMY_HAF_FALLBACK_SHRINK | WWENEMY_HAF_NO_HITMARK |
                                 WWENEMY_HAF_VERDICT | WWENEMY_HAF_BACK | WWENEMY_HAF_CRIT) &
                                (WWREMOTE_HAF_ATTRIB_BODY | WWREMOTE_HAF_SLOT1)) == 0 &&
+                              WWREMOTE_HAF_ATTRIB_MASK == (WWREMOTE_HAF_ATTRIB_BODY | WWREMOTE_HAF_SLOT1) &&
                               WWREMOTE_HD_NO_BODY > WWENEMY_HD_DEMO) ? 1 : -1];
+// The ATTRIB field's three body codes (remote_attrib_body) name at most
+// three bodies: a fourth remote Link needs another bit first.
+typedef char rl_check_attrib_slots[(MAX_REMOTE_LINKS <= 3) ? 1 : -1];
 // The keeper's swap state and the body overlay.
 typedef char rl_check_state[(sizeof(rl_latch) == 0x10 && sizeof(rl_body) == 0x14 &&
                              __builtin_offsetof(rl_body, kind) == 0x13 &&
@@ -1796,14 +1800,16 @@ int wwrel_exec_hook(void* mtd, void* a) {
 }
 
 // --- ATTRIB (section 8.6), called from enemy_mirror.c's v2 path ----------------------------
-// ha_flags has one slot bit (WWREMOTE_HAF_SLOT1) and no free bit beside it, so
-// only bodies 0 and 1 can be named: Go never asks ATTRIB for slot 2 (mods/
-// enemysync players.go), and its hits stay the host Link's (HD_NO_BODY path).
+// ha_flags has no free bit, so the two ATTRIB bits are one field
+// (wwremote.h): 0x08 body 0, 0x18 body 1, 0x10 body 2 (SLOT1 alone, a value
+// nothing sent before the third slot), 0 none (Go's AttribFlags, mods/
+// enemysync players.go).
 u32 remote_attrib_body(u8 ha_flags) {
     remote_swap_state* st = rl_state();
-    int i = (ha_flags & WWREMOTE_HAF_SLOT1) ? 1 : 0;
+    u8 f = ha_flags & WWREMOTE_HAF_ATTRIB_MASK;
+    int i = f == WWREMOTE_HAF_ATTRIB_BODY ? 0 : f == WWREMOTE_HAF_ATTRIB_MASK ? 1 : 2;
     u32 b;
-    if (!(ha_flags & WWREMOTE_HAF_ATTRIB_BODY)) return 0;
+    if (!f) return 0;
     if (!st || !rl_in_mem1((u32)st) || !st->valid || st->role != WWREMOTE_ROLE_HOST ||
         !(st->flags & WWREMOTE_FLAG_ATTRIB) || i >= MAX_REMOTE_LINKS) return 0;
     b = rl_body_actor(st, i);
