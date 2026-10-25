@@ -210,8 +210,18 @@ function renderPatch() {
 	const rows = $("s-checks");
 	rows.replaceChildren();
 	const writing = p.stage === "start" || p.stage === "patch";
-	if (p.alreadyPatched) {
-		rows.append(check("ok", "Already patched: used as it is", p.in));
+	// A compressed disc (RVZ, WIA, GCZ) is converted to an ISO first
+	// (PatchView.converted); the patch rows follow once that is written.
+	const converting = p.stage === "convert";
+	if (converting) {
+		rows.append(check("pending", "Converting your " + p.converted + " disc to an ISO with DolphinTool…", p.in));
+	} else if (p.converted && !p.alreadyPatched && ["patch", "coop", "done"].includes(p.stage)) {
+		rows.append(check("ok", "Converted your " + p.converted + " disc to an ISO (a temporary copy, removed once patched)", null));
+	}
+	if (converting) {
+		// nothing more until the ISO is written
+	} else if (p.alreadyPatched) {
+		rows.append(check("ok", "Already patched: used as it is", p.converted ? p.out : p.in));
 	} else if (p.stage === "failed" && !p.coop.state) {
 		rows.append(check("fail", "Patching the disc failed", p.error));
 	} else if (p.stage === "canceled") {

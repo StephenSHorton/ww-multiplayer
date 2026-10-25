@@ -121,7 +121,7 @@ func (d wailsDialogs) Open(kind, title, dir string) (string, error) {
 		return wruntime.OpenDirectoryDialog(d.ctx, o)
 	case "iso":
 		o.Filters = []wruntime.FileFilter{
-			{DisplayName: "Wind Waker disc image (*.iso, *.ciso)", Pattern: "*.iso;*.ciso;*.gcm"},
+			{DisplayName: "Wind Waker disc image (*.iso, *.ciso, *.rvz, *.wia, *.gcz)", Pattern: "*.iso;*.ciso;*.gcm;*.rvz;*.wia;*.gcz"},
 			{DisplayName: "All files", Pattern: "*.*"},
 		}
 	case "dolphin":

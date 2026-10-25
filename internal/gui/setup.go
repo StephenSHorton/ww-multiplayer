@@ -265,7 +265,7 @@ func (b *Bridge) PickFile(kind string) (_ string, err error) {
 	var title, dir string
 	switch kind {
 	case "iso":
-		title = "Choose your Wind Waker disc image (.iso or .ciso, GZLE01)"
+		title = "Choose your Wind Waker disc image (.iso, .ciso or .rvz, GZLE01)"
 		dir = firstDir(c.ISO.Vanilla, c.ISO.Patched)
 	case "dolphin":
 		title = "Find Dolphin"

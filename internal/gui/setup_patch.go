@@ -13,6 +13,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 )
 
 // The setup's patch (design §2.1 step 2): patch.Run in a goroutine, its
@@ -26,6 +27,13 @@ import (
 // PatchISO writes a temp file and renames it, and closing the app waits for
 // the patch to end with no time limit (Bridge.close, Bridge.beforeClose), so
 // no half-written file is left behind.
+//
+// An RVZ, WIA or GCZ disc is first converted to a temporary ISO by the
+// DolphinTool beside the player's Dolphin (patch.Converter, review idea
+// 16): the saved Dolphin, else the one the Dolphin step would detect,
+// since that step comes after this one. That is the "convert" stage, with
+// its own creep; cancelling then kills DolphinTool and removes the
+// temporary ISO, and nothing is left ("nothing").
 
 // PatchRequest starts a patch.
 type PatchRequest struct {
@@ -49,9 +57,12 @@ type PatchView struct {
 	// a snapshot older than one it already shows (events and PatchStatus
 	// replies may arrive out of order).
 	Seq int `json:"seq"`
-	// Stage is "idle", "start", "patch", "coop", "done", "failed",
-	// "canceling" or "canceled".
-	Stage          string      `json:"stage"`
+	// Stage is "idle", "start", "convert", "patch", "coop", "done",
+	// "failed", "canceling" or "canceled".
+	Stage string `json:"stage"`
+	// Converted is the input's format ("RVZ", "WIA", "GCZ") once a
+	// conversion to ISO started, else "".
+	Converted      string      `json:"converted"`
 	Running        bool        `json:"running"`
 	Percent        int         `json:"percent"`
 	In             string      `json:"in"`
@@ -102,6 +113,14 @@ func applyPatchLine(v *PatchView, line string) {
 	case strings.HasPrefix(line, "  output: "):
 		v.Stage = "patch"
 		bump(5)
+	case strings.HasPrefix(line, "  convert: done"):
+		v.Stage = "patch"
+		bump(convertTo)
+	case strings.HasPrefix(line, "  convert: "):
+		// "  convert: RVZ image -> plain ISO with <tool>" starts it.
+		if f, _, ok := strings.Cut(strings.TrimPrefix(line, "  convert: "), " image -> "); ok {
+			v.Stage, v.Converted = "convert", f
+		}
 	case strings.HasPrefix(line, "  FST   : "):
 		bump(85)
 	case strings.HasPrefix(line, "  REL   : "):
@@ -126,7 +145,20 @@ func applyPatchLine(v *PatchView, line string) {
 
 // creep is the bar while the disc is being patched: from 5% toward 85%.
 func creep(elapsed time.Duration) int {
-	return 5 + int(80*(1-math.Exp(-float64(elapsed)/float64(patchCreep))))
+	return creepFrom(5, 85, elapsed, patchCreep)
+}
+
+// convertCreep is the bar's time constant while DolphinTool converts the
+// disc (an RVZ decompresses at a few hundred MB/s, inferred: untimed here),
+// from 5% toward convertTo; the patch then creeps on from there.
+const (
+	convertCreep = 15 * time.Second
+	convertTo    = 45
+)
+
+// creepFrom nears to from from with time constant tc.
+func creepFrom(from, to int, elapsed, tc time.Duration) int {
+	return from + int(float64(to-from)*(1-math.Exp(-float64(elapsed)/float64(tc))))
 }
 
 // lineWriter calls fn with each line written to it.
@@ -210,10 +242,14 @@ func (b *Bridge) StartPatch(r PatchRequest) (err error) {
 		return fmt.Errorf("can't open %s: %w", in, errors.Unwrap(err))
 	}
 	if fi.IsDir() {
-		return fmt.Errorf("%s is a folder; choose the disc image (.iso or .ciso) in it", in)
+		return fmt.Errorf("%s is a folder; choose the disc image (.iso, .ciso or .rvz) in it", in)
 	}
 	if r.Patched {
 		st, err := b.inspect(in)
+		var u *inject.UnsupportedFormatError
+		if errors.As(err, &u) && u.Convertible() {
+			return fmt.Errorf("that is a compressed %s image: choose it with “Choose your disc” and the app converts and patches it", u.Format)
+		}
 		if err != nil {
 			return fmt.Errorf("that isn't a Wind Waker disc image this app can read (%v)", err)
 		}
@@ -300,22 +336,35 @@ func (b *Bridge) runPatch(ctx context.Context, j *patchJob, in, out string, exis
 	}
 	w := &lineWriter{fn: func(l string) { update(func(v *PatchView) { applyPatchLine(v, l) }) }}
 
-	// The bar creeps while the disc is read, patched and written.
+	// The bar creeps while the disc is converted, and while it is read,
+	// patched and written: after a conversion the patch's creep starts
+	// when it does, from convertTo.
 	stop := make(chan struct{})
 	start := time.Now()
 	go func() {
 		t := time.NewTicker(250 * time.Millisecond)
 		defer t.Stop()
+		stage, since := "", start
 		for {
 			select {
 			case <-stop:
 				return
 			case <-t.C:
 				update(func(v *PatchView) {
-					if v.Stage == "patch" {
-						if p := creep(time.Since(start)); p > v.Percent {
-							v.Percent = p
-						}
+					if v.Stage != stage {
+						stage, since = v.Stage, time.Now()
+					}
+					p := 0
+					switch {
+					case v.Stage == "convert":
+						p = creepFrom(5, convertTo, time.Since(since), convertCreep)
+					case v.Stage == "patch" && v.Converted != "":
+						p = creepFrom(convertTo, 85, time.Since(since), patchCreep)
+					case v.Stage == "patch":
+						p = creep(time.Since(start))
+					}
+					if p > v.Percent {
+						v.Percent = p
 					}
 				})
 			}
@@ -323,6 +372,9 @@ func (b *Bridge) runPatch(ctx context.Context, j *patchJob, in, out string, exis
 	}()
 
 	opts := patch.Options{}
+	if patch.NeedsConvert(in) {
+		opts.Converter = b.patchConverter() // looks for Dolphin only when needed
+	}
 	for _, step := range b.postPatch {
 		opts.PostPatch = append(opts.PostPatch, func(cw io.Writer, image string) {
 			if ctx.Err() != nil {
@@ -392,9 +444,37 @@ func (b *Bridge) runPatch(ctx context.Context, j *patchJob, in, out string, exis
 	})
 }
 
+// patchConverter is the setup's DolphinTool (patch.Converter): beside the
+// saved Dolphin, else beside the one the Dolphin step would detect (that
+// step comes after the disc), else none.
+func (b *Bridge) patchConverter() *patch.Converter {
+	c, _ := b.effective()
+	exe := c.Dolphin.Exe
+	if exe == "" || !isFile(exe) {
+		exe = ""
+		if best, _ := launch.Detect(b.denv()); best.Found {
+			exe = best.Exe
+		}
+	}
+	return patch.ConverterFor(exe)
+}
+
 // patchError is a failed patch in the setup's words.
 func patchError(err error) string {
+	var nt *patch.NoDolphinToolError
+	if errors.As(err, &nt) {
+		where := "no Dolphin was found yet"
+		if nt.Dolphin != "" {
+			where = "there is none beside " + nt.Dolphin
+		}
+		return fmt.Sprintf("Your disc is a compressed %s image. The app turns those into an ISO with the DolphinTool that comes with Dolphin, but %s. "+
+			"Set up Dolphin in the next step and patch again, or in Dolphin right-click the game > Convert File... > Format: ISO and choose the .iso it writes.",
+			nt.Format.Format, where)
+	}
 	switch {
+	case errors.Is(err, patch.ErrLowSpace):
+		detail := strings.TrimPrefix(err.Error(), patch.ErrLowSpace.Error()+": ")
+		return "There isn't enough free space next to your disc to convert it (" + detail + "). Free some space there, or move the disc image to a drive with more, and try again."
 	case errors.Is(err, inject.ErrPatchedByOtherVersion):
 		return "This disc was patched by a different ww-multiplayer version. Patch your vanilla (unmodified) Wind Waker disc with this version instead."
 	case errors.Is(err, inject.ErrOutputIsInput):
