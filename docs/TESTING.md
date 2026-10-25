@@ -649,6 +649,22 @@ Offline (`go test -count=1 ./mods/coop/class ./mods/coop/story ./wwapi/state ./w
 - [ ] **A recorded reward**: A gets Kreeb's piece (or Sam's, or Linda and Anton's). B's max life rises by one quarter heart once 0x1B20 (0x1B10, 0x2280) lands, and B's Kreeb gives the after-talk, no second piece.
 - [ ] **The Goron trade** (unrecorded): A hands merchant 1 the Shop Guru Statue. Note whether 0x3E04 is set in the same talk that hands over the heart piece, and that B's max life does not move. If the bit and the piece go together on every path, 0x3E04 can become the Record.
 
+### Setup: an RVZ, WIA or GCZ disc (review idea 16)
+
+`patch` and the app's Setup convert a compressed disc to a temporary ISO with the DolphinTool beside the player's Dolphin (`internal/dolphintool`, `internal/patch/convert.go`): `DolphinTool convert [-u <temp user dir>] -i <disc> -o <out>.converting-*.iso -f iso`, then the usual splice, then the temporary ISO is removed. The flags were read from the Desktop Dolphin-x64's `DolphinTool.exe convert --help` and the `iso` format name from that exe's strings; no conversion has been run. The CLI looks for Dolphin with `launch.Detect` (DOLPHIN_EXE first among the set paths); the app uses the saved Dolphin, else the detected one. Before converting, the output's drive must have 2 x 0x57058000 bytes + 64 MB free.
+
+Offline (`go test -count=1 ./internal/dolphintool ./internal/patch ./internal/gui`): `TestParseHelp` (the real help text), `TestToISO*` and `TestExecRunnerFakeTool` (the test binary as a fake DolphinTool.exe), `TestRunConvertsRVZ`, `TestRunConvertErrors` (no tool, low space, a failing tool, NKit and plain ISOs never converted), `TestRunConvertCancelled`, `TestBridgePatchConverter`.
+
+Use a copy of your vanilla disc made for the check, never the only one you have.
+
+- [ ] **CLI, RVZ**: in Dolphin, Convert File... the vanilla ISO to RVZ (zstd, Remove Junk Data on), then `ww-multiplayer patch <copy>.rvz`. It prints `convert: RVZ image -> plain ISO with ...DolphinTool.exe`, then the FST/REL lines and `Done.`; `<copy>-multiplayer.iso` boots to the title in Dolphin, no `*.converting-*.iso` is left beside it, and a two-Dolphin smoke check passes on it.
+- [ ] **Same disc, ISO vs RVZ**: the `-multiplayer.iso` patched from the RVZ and the one patched from the plain ISO are byte-identical (`cmp`), or the difference is explained (junk data restored differently).
+- [ ] **App, RVZ**: Setup > Choose your disc... on the RVZ: the bar shows "Converting your RVZ disc to an ISO with DolphinTool…", then the patch rows; Saved names the `-multiplayer.iso`. No console window flashes up while DolphinTool runs.
+- [ ] **App, cancel while converting**: Stop during the conversion: "Stopped" with nothing left, DolphinTool.exe is gone from Task Manager, and no `*.converting-*.iso` is left.
+- [ ] **WIA and GCZ**: the same CLI check with a WIA and a GCZ made by Convert File....
+- [ ] **No DolphinTool**: with `DOLPHIN_EXE` pointing at a copy of Dolphin.exe in a folder without DolphinTool.exe, `patch <copy>.rvz` fails with `no DolphinTool found (looked beside ...)` and the convert-in-Dolphin advice; the app says the same in its words.
+- [ ] **Dolphin's user folder untouched**: after a conversion, the player's Dolphin user folder (`%APPDATA%\Dolphin Emulator` or the portable `User`) has no new files from DolphinTool (it was given a temporary `-u`).
+
 ### Release defaults (pre-release live checklist)
 
 Enemy sync and the remote bodies are on by default (docs/05-known-issues.md "Shared enemies"), and the network protocol is 5 (3 in v0.5.0; batch C bumped it to 4, D13, and batch D to 5 with the Magtail row's KindHash), so this build refuses v0.5.0, batch C builds and older at the hello. Nearly every enemy-layer live pass on record ran under `wwdev mp-local` (one process, two Dolphins, one machine). The one exception is a CLI loopback before the v0.5.0 tag: `host` and `join 127.0.0.1` as two processes on one machine (REL 0xFB8986C3), where the joiner adopted the host's two Bokoblins in M_NewD2 room 0 (`adopted 0011`, handoff `archive/release-gate/gate-join.log`:30-36). None has run through the app's GameRunner, between two machines, over WAN, or on macOS. The owner runs this list on the release candidate binary before the tag. `mp-local` now runs the enemy pipelines too unless `WW_ENEMY_SYNC=0`, so the smoke and co-op checks above include them by default.
