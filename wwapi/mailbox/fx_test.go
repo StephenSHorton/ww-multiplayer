@@ -49,7 +49,8 @@ func TestFxLayout(t *testing.T) {
 	if FxRing&(FxRing-1) != 0 {
 		t.Errorf("FxRing %d is not a power of two (the u32 counters wrap)", FxRing)
 	}
-	if CanaryArenaHigh.End != FxRegion.Start || CanaryArenaHigh.Contains(FxAddr, 4) || CanaryArenaHigh.Contains(FxRegion.End-4, 4) {
+	// The eye packets sit between CanaryArenaHigh and the block (wave-3).
+	if CanaryArenaHigh.End != EyePacketsRegion.Start || EyePacketsRegion.End != FxRegion.Start || CanaryArenaHigh.Contains(FxAddr, 4) || CanaryArenaHigh.Contains(FxRegion.End-4, 4) {
 		t.Errorf("canaries cover the projectile block: high %+v, block %+v", CanaryArenaHigh, FxRegion)
 	}
 	if FxBombPrmCopy&0x800300FF != 0 {
