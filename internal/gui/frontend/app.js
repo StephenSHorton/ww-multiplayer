@@ -731,7 +731,7 @@ function wire() {
 	});
 	$("join-form").addEventListener("submit", (e) => {
 		e.preventDefault();
-		start(() => call("Join", { addr: $("addr").value, name: $("name").value, color: homeColor }));
+		start(() => call("Join", { addr: $("addr").value, name: $("name").value, color: homeColor, ownerKey: $("owner-key").value }));
 	});
 	$("addr").addEventListener("input", renderRecent);
 	$("addr-eye").addEventListener("click", () => setAddrShown($("addr").classList.contains("secret")));

@@ -264,3 +264,57 @@ func TestHostDialAddr(t *testing.T) {
 		}
 	}
 }
+
+// TestSessionEngine_JoinLobbyOwnerKey: the app's join with a dedicated
+// server's owner key (JoinOptions.OwnerKey) becomes the lobby's host over
+// a member that joined first without it, and can start the session.
+func TestSessionEngine_JoinLobbyOwnerKey(t *testing.T) {
+	srv := network.NewServer(0) // loopback only, which a keyed lobby ignores
+	if err := srv.SetOwnerKey("engine-test-owner-key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+	addr := srv.Addr().String()
+
+	first := network.NewLobbyClient("First", network.LobbyHelloBody{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- first.Run(ctx, addr, nil) }()
+	defer func() { cancel(); <-firstDone }()
+	if !waitForCond(func() bool { st, ok := first.State(); return ok && len(st.Members) == 1 }) {
+		t.Fatal("the first member never joined")
+	}
+	if w, _ := first.Welcome(); w.Host {
+		t.Fatal("a loopback member without the key is host on a keyed lobby")
+	}
+
+	e := New(Config{Live: &LiveState{}})
+	c := session.New(e, session.Options{})
+	if _, err := c.JoinLobby(context.Background(), session.JoinOptions{Name: "Admin", Addr: addr, OwnerKey: "engine-test-owner-key"}); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Leave()
+	waitSnap(t, c, "host", func(st session.State) bool { return st.Phase == session.InLobby && st.Lobby != nil && st.Lobby.Host })
+	first.SetReady(true)
+	if err := c.SetReady(true); err != nil {
+		t.Fatal(err)
+	}
+	waitSnap(t, c, "all ready", func(st session.State) bool {
+		for _, m := range st.Lobby.Members {
+			if !m.Ready {
+				return false
+			}
+		}
+		return len(st.Lobby.Members) == 2
+	})
+	if err := c.Start(); err != nil {
+		t.Fatalf("the keyed host's Start: %v", err)
+	}
+	if !waitForCond(func() bool { st, _ := first.State(); return st.Phase == network.PhaseStarting }) {
+		t.Fatal("START from the keyed host never reached the lobby")
+	}
+}

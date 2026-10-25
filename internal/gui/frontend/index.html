@@ -99,6 +99,15 @@
 					<span class="label">Recent hosts</span>
 					<ul class="recent-list" id="recent-list"></ul>
 				</div>
+				<!-- a dedicated server's lobby owner key (docs/10-lobby.md §3 "Owner key") -->
+				<details id="owner-key-box">
+					<summary>Advanced: dedicated server owner key</summary>
+					<label class="field" title="Only if the server's admin gave you one (server --owner-key). The right key makes you this lobby's host; a wrong one joins you as a player">
+						<span>Owner key</span>
+						<input id="owner-key" type="password" autocomplete="off" spellcheck="false" placeholder="leave empty to join as a player">
+					</label>
+					<small class="hint">Sent to the address above only, with this Join; never saved.</small>
+				</details>
 				<button class="btn primary" type="submit" id="join-btn">Join</button>
 			</form>
 		</div>

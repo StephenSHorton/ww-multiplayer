@@ -3,6 +3,7 @@ package network
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -197,12 +198,21 @@ type LobbyHub struct {
 	// machine (the first such member becomes the host). isLoopback in
 	// production; tests, whose clients are all on loopback, pick by name.
 	local func(addr net.Addr, name string) bool
+
+	// ownerKey is the SHA-256 of the lobby's owner key, nil for none
+	// (Server.SetOwnerKey; h.mu). keyFails counts wrong keys per source
+	// address, which remoteIP gives (tests, all on loopback, pick their
+	// own).
+	ownerKey *[32]byte
+	keyFails *ownerKeyLimiter
+	remoteIP func(addr net.Addr) netip.Addr
 }
 
 func newLobbyHub(s *Server, hold time.Duration) *LobbyHub {
 	return &LobbyHub{srv: s, m: newLobbyMachine(hold), conns: map[int]*lobbyConn{}, nextID: 1,
 		colorTab: map[string]playercolor.Color{}, kickTab: map[string]bool{}, now: time.Now,
-		local: func(addr net.Addr, _ string) bool { return isLoopback(addr) }}
+		local:    func(addr net.Addr, _ string) bool { return isLoopback(addr) },
+		keyFails: newOwnerKeyLimiter(), remoteIP: remoteIP}
 }
 
 // Lobby returns the server's lobby.
@@ -527,8 +537,26 @@ func (s *Server) handleLobby(conn net.Conn, name string, caps uint16) {
 					hb = LobbyHelloBody{}
 				}
 				h.runWithPlayers(func(m *lobbyMachine) []lobbyOut {
-					mb, outs := m.hello(c.handle, name, c.loopback, hb, h.now())
+					v := h.checkOwnerKeyLocked(conn.RemoteAddr(), name, hb)
+					mb, outs := m.helloAs(c.handle, name, c.loopback, v == keyAccepted, hb, h.now())
 					member = mb != nil
+					if mb == nil {
+						return outs
+					}
+					// What the key did, by name only: never the key, and
+					// the address stays out of the log too.
+					switch v {
+					case keyAccepted:
+						s.log(fmt.Sprintf("%s (lobby %d): owner key accepted", name, id))
+					case keyWrong, keyUnset:
+						s.log(fmt.Sprintf("%s (lobby %d): owner key not accepted", name, id))
+					case keyLockedNow:
+						s.log(fmt.Sprintf("%s (lobby %d): owner key not accepted; %d wrong keys from that address, its keys are ignored for %v",
+							name, id, ownerKeyMaxFails, ownerKeyLockout))
+					}
+					if text := ownerKeyNoticeText(v); text != "" {
+						outs = append(outs, notice(c.handle, NoticeOwnerKey, text))
+					}
 					return outs
 				})
 				continue
