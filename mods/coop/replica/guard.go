@@ -468,15 +468,18 @@ func procTagRules(procs []uint16, tag uint16, tg Target, p path) []byteRule {
 
 // refreshRules is the actor_refresh request's body, +0x04..+0x14
 // (wwapi/mailbox refresh.go, mailbox.RefreshRequest.Fields): the proc's
-// bytes each one of the allow-list's bytes there (refreshProcs; the REL
-// refuses any other proc, so a cross of the bytes, 0x0126 with 0x0192 say,
-// costs a refusal), the tag exactly mailbox.RefreshTag, the bit kind a
+// bytes each one of the allow-list's bytes there (refreshProcs but the
+// pending key-door rows, which no request names; the REL refuses any other
+// proc, so a cross of the bytes, 0x0126 with 0x0192 say, costs a
+// refusal), the tag exactly mailbox.RefreshTag, the bit kind a
 // mailbox.RefreshBit*, and the pid, params, room and bit number any value
 // (the REL compares each with the actor it looks up itself, MISMATCH).
 func refreshRules() []byteRule {
 	procs := make([]uint16, 0, len(refreshProcs))
 	for _, p := range refreshProcs {
-		procs = append(procs, p.proc)
+		if p.pending == "" {
+			procs = append(procs, p.proc)
+		}
 	}
 	rs := procTagRules(procs, mailbox.RefreshTag, TargetRefresh, pathRefresh)
 	set := byteRule{mask: 0xFF, rule: ruleSet, target: TargetRefresh, paths: pathRefresh}

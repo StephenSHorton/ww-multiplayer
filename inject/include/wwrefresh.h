@@ -5,11 +5,17 @@
 // research/stale-actor-refresh.md Tier 3. When the partner's progress has
 // set a bit this game had not (a broken boulder, a cut bush, a collected
 // item, an opened chest, a burnt barricade), the actor this game placed
-// before the bit landed is stale. Go asks the keeper to delete it; the
-// REL re-derives the bit from the actor's own params or fields, re-reads
-// it through the DOL's own save queries, runs the generic and per-proc
-// gates, and only then calls fopAcM_delete. A reload then never creates
-// it, as vanilla. Stateless: everything is this request's ack and result.
+// before the bit landed is stale. Go asks the keeper to bring it up to
+// date; the REL re-derives the bit from the actor's own params or fields,
+// re-reads it through the DOL's own save queries, runs the generic and
+// per-proc gates, and only then acts: a class whose create refuses to come
+// up once its bit is set is deleted (a reload never creates it, as
+// vanilla), and a class whose create builds it in its set state (an open
+// chest, a lit crystal switch, an open warp jar, a dropped flame lift, a
+// grown soil tree, a fallen flower house) is deleted and created again
+// from its own create params, in its own layer, so it comes up as a
+// reload would build it (refresh.c "Re-create"; review idea 11, design
+// (b)). Stateless: everything is this request's ack and result.
 // Off by default (Go's --coop-refresh token set is empty), and the whole
 // op compiles out with WWREFRESH_ENABLE 0.
 //
@@ -44,7 +50,8 @@
 //                     proc's state as found: Stone2 m648, Obj_Leaves 0,
 //                     daItem mItemStatus << 8 | mFlag, Tbox mFlags, Saku
 //                     state[0] << 8 | state[1] (each low byte)
-//   +0x1C u32 reserved (0)
+//   +0x1C u32 new pid: the re-created actor's fopAcM_create result for
+//                     RECREATED (0xFFFFFFFF with CREATE_FAILED), else 0
 //
 // The slack is not zeroed at boot, so the keeper's create consumes
 // whatever seq is there (ack = seq, result WWRF_R_NONE) before it runs a
@@ -68,7 +75,7 @@
 #define WWRF_BIT_NO_OFF          0x12         // u16 the bit's number (Go)
 #define WWRF_ACK_OFF             0x14         // u32 the seq last consumed (REL)
 #define WWRF_RESULT_OFF          0x18         // u32 BE: byte3 WWRF_R_*, byte2 WWRF_GATE_* (GATE only), bytes 1..0 the proc's state (REL)
-#define WWRF_RESERVED_OFF        0x1C         // u32 0
+#define WWRF_NEW_PID_OFF         0x1C         // u32 the re-created actor's pid (RECREATED), 0xFFFFFFFF (CREATE_FAILED), else 0 (REL)
 #define WWRF_GO_SPAN             0x14         // bytes Go writes: seq .. bit no
 
 #define WWRF_TAG                 0x5246       // 'RF': with an allow-listed proc, what a request must carry
@@ -87,6 +94,9 @@
 #define WWRF_R_NOT_SET           5            // the DOL re-read the bit clear in this game: nothing done
 #define WWRF_R_REFUSED           6            // a bad tag, a proc off the allow-list, or a kind this op never deletes (zone bit with no room, Tbox funcType 6..8, daItem bit 0x7F or Blue Jelly)
 #define WWRF_R_FP_MISS           7            // Tbox: the Execute fingerprint did not match the retail d_a_tbox.rel
+#define WWRF_R_RECREATED         8            // every check passed: fopAcM_delete queued and the actor created again in its own layer (+0x1C its pid)
+#define WWRF_R_IN_STATE          9            // the actor already shows its bit (an open chest, a lit switch, a lidless jar, a cut lift, a grown tree, a fallen house, an unlocked door): nothing to do
+#define WWRF_R_CREATE_FAILED     10           // fopAcM_delete queued, but fopAcM_create returned 0xFFFFFFFF: gone until its room reloads, which builds it in its set state
 
 // Gate ids (byte2 with WWRF_R_GATE), in the order the REL checks them.
 #define WWRF_GATE_STAGE_CHANGE   1            // NEXT_STAGE_ENABLE (wwapi.h)
@@ -99,14 +109,53 @@
 #define WWRF_GATE_LINK_NEAR      8            // Link within WWRF_LINK_FAR of the actor's pos
 #define WWRF_GATE_PROC           9            // the per-proc gate (below)
 #define WWRF_GATE_EVENT_MODE     10           // the global event mode WWRF_EVT_MODE != 0
+#define WWRF_GATE_EVENT_ORDER    11           // an event order is queued (WWRF_EVT_ORDER_COUNT != 0): orders hold raw actor pointers (d_event.h:51-52)
 
 // The allow-list (f_pc_name.h). Nothing else is ever deleted: not Link
-// 0xA9, the keeper/bodies 0xB5, a boss, a door, switch logic.
+// 0xA9, the keeper/bodies 0xB5, a boss, switch logic beyond SWHIT0's
+// untimed crystal switch, a door beyond the two key-door rows (compiled
+// out: WWRF_DOOR_ROWS).
 #define WWRF_PROC_LEAVES         0x0092       // fpcNm_Obj_Leaves_e (f_pc_name.h:155), "Vochi"
 #define WWRF_PROC_ITEM           0x0101       // fpcNm_ITEM_e (f_pc_name.h:269), daItem_c
 #define WWRF_PROC_TBOX           0x0126       // fpcNm_TBOX_e (f_pc_name.h:306), daTbox_c
 #define WWRF_PROC_SAKU           0x0191       // fpcNm_SAKU_e (f_pc_name.h:413), "Ksaku", "Dsaku"
 #define WWRF_PROC_STONE2         0x01CD       // fpcNm_Stone2_e (f_pc_name.h:473), "Ebrock2"
+
+// The table rows (refresh.c rf_rows; review idea 11, design (b)). Each
+// one's bit is a switch, (params >> its shift) & 0xFF (WARPT: home.angle.x
+// & 0xFF), 0xFF none. Gone once the bit is set (deleted): WALL, FLOOR,
+// Obj_Ice, MJDOOR, MKIE, MKIEK, MKNJD, VFAN. Built in the set state
+// (deleted and created again): SWHIT0, WARPT, MFLFT, KOKIIE, VMC, DOOR10,
+// DOOR12 (and Tbox, above).
+#define WWRF_PROC_VMC            0x0036       // fpcNm_Obj_Vmc_e (f_pc_name.h:63), the soil mound (d_a_obj_vmc.cpp CreateInit :145): re-created
+#define WWRF_PROC_VFAN           0x0038       // fpcNm_Obj_Vfan_e (:65), GT's Phantom Ganon door (d_a_obj_vfan.cpp:90 STOP): deleted
+#define WWRF_PROC_WARPT          0x0043       // fpcNm_OBJ_WARPT_e (:76), the warp jar (d_a_obj_warpt.cpp getArg :719-725): re-created
+#define WWRF_PROC_MJDOOR         0x0047       // fpcNm_OBJ_MJDOOR_e (:80), the Moblin-wood door (d_a_obj_majyuu_door.cpp:146-148 ERROR): deleted
+#define WWRF_PROC_MKIE           0x004D       // fpcNm_Obj_Mkie_e (:86), ET's light statue (d_a_obj_mkie.cpp:208-209 ERROR): deleted
+#define WWRF_PROC_MKIEK          0x004E       // fpcNm_Obj_Mkiek_e (:87), ET's light wall (d_a_obj_mkiek.cpp:89-91 STOP): deleted
+#define WWRF_PROC_MKNJD          0x004F       // fpcNm_Obj_MknjD_e (:88), the ET/WT song statue (d_a_obj_mknjd.cpp:303-307 STOP): deleted
+#define WWRF_PROC_MFLFT          0x005D       // fpcNm_MFLFT_e (:102), DRC's flame lift (d_a_mflft.cpp:650-666): re-created
+#define WWRF_PROC_FLOOR          0x0062       // fpcNm_FLOOR_e (:107), WT's breakable floor (d_a_floor.cpp:59-61 ERROR): deleted
+#define WWRF_PROC_KOKIIE         0x0064       // fpcNm_KOKIIE_e (:109), FW's hanging flower house (d_a_kokiie.cpp:438-441): re-created, its SHAND hands deleted
+#define WWRF_PROC_DOOR10         0x012E       // fpcNm_DOOR10_e (:314), the key and boss door (d_a_door10.cpp setKey :27-51): re-created, compiled out (WWRF_DOOR_ROWS)
+#define WWRF_PROC_DOOR12         0x012F       // fpcNm_DOOR12_e (:315), the double key door (d_a_door12.cpp setKey :52-72): re-created, compiled out (WWRF_DOOR_ROWS)
+#define WWRF_PROC_WALL           0x01B1       // fpcNm_WALL_e (:445), the bombable wall (d_a_wall.cpp:141-145 ERROR): deleted
+#define WWRF_PROC_SWHIT0         0x01C9       // fpcNm_SWHIT0_e (:469), the crystal switch (d_a_swhit0.cpp CreateInit :166-172): re-created, untimed only
+#define WWRF_PROC_ICE            0x01D2       // fpcNm_Obj_Ice_e (:479), the ice block (d_a_obj_ice.cpp chk_appear :105-115): deleted
+
+#define WWRF_DOOR_ROWS           0            // compile switch: 1 builds the DOOR10/DOOR12 rows in; 0 (pending the ST1 key-door live check) REFUSES both procs
+#define WWRF_ROW_SW_MASK         0xFF         // every row's switch byte
+#define WWRF_MKIE_SW_SHIFT       16           // prm_get_swSave: PRM_SWSAVE_S 0x10 (d_a_obj_mkie.h:42-43)
+#define WWRF_VMC_SW_SHIFT        8            // prm_get_swSave: PRM_SWSAVE_S 8 (d_a_obj_vmc.h:17-18)
+#define WWRF_MFLFT_SW_SHIFT      24           // m2A1 = params >> 0x18 (d_a_mflft.cpp:604)
+#define WWRF_KOKIIE_SW_SHIFT     24           // m2A2 = params >> 0x18 (d_a_kokiie.cpp:393)
+#define WWRF_MEM_SW_END          0x80         // DOOR10/DOOR12 read their swbit with room -1 (setKey): only a memory switch below this; any other REFUSED
+#define WWRF_SWHIT0_TIMER_SHIFT  20           // getTimer = (u8)(params >> 0x14), 0xFF = 0 (d_a_swhit0.cpp:88-96): any other value but 0 REFUSED (actionOnTimer clears the switch here, :362)
+#define WWRF_WARPT_TYPE_MASK     0xF          // m2B4 = params & 0xF (d_a_obj_warpt.cpp:709)
+#define WWRF_WARPT_TYPE_ON       1            // type 1 sets its own lid switch at create (:715-717): REFUSED
+#define WWRF_WARPT_TYPE_SP_LO    2            // isSp: types 2..4 (:759-761), whose lid is a warp event register: REFUSED
+#define WWRF_WARPT_TYPE_SP_HI    4
+#define WWRF_DOOR12_ARG1_TMP     8            // getArg1 = (home.angle.z >> 8) & 0xFF (d_door.cpp:59-61): 8 clears a temp event bit at create (d_a_door12.cpp:580): REFUSED
 
 // Generic actor fields the gates read (f_op_actor.h, f_pc_base.h); params
 // +0xB0, home room +0x1E2 and actor_status +0x1C4 are wwenemy_kinds.h's
@@ -126,6 +175,7 @@
 #define WWRF_IS_ITEM_FN          0x8005E324   // isItem__10dSv_info_cFii
 #define WWRF_ZONE_SW_MIN         0xC0         // isSwitch: bits >= this are zone bits, which need a room >= 0 (d_save.cpp:1585-1604); with room < 0 REFUSED
 #define WWRF_EVT_MODE            0x803C9EA2   // u8 dEvt mMode: 0x803C4C08 + 0x12A0 + 0x3F38 + 0xC2 (d_com_inf_game.h:728,915; d_event.h:154)
+#define WWRF_EVT_ORDER_COUNT     0x803C9EA0   // s8 dEvt mOrderCount: the same dEvt_control_c + 0xC0 (d_event.h:152; wwapi/addr EvtOrderCount)
 #define WWRF_LINK_FAR            300          // units: Link must be farther than this from the actor (D4; Saku and Tbox release BG on delete)
 
 // Stone2 (d_a_stone2.h): bit = (params >> 8) & 0xFF (:50-51); gate s32
