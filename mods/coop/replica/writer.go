@@ -503,7 +503,8 @@ func (w *FrameWriter) ApplyContext(ctx context.Context, ws []Write) (res Result,
 			}
 			continue
 		}
-		if err := w.wg.ready(b.a); err != nil {
+		ok, err := w.wg.readyBits(b.a, b.bits)
+		if err != nil {
 			if errors.Is(err, ErrOff) {
 				return res, err
 			}
@@ -512,6 +513,15 @@ func (w *FrameWriter) ApplyContext(ctx context.Context, ws []Write) (res Result,
 				closed = err
 			}
 			continue
+		}
+		if ok != b.bits && !b.max {
+			// A stage change's spawn switch bits go; the rest of the
+			// byte waits for its own gate (WriteGuard.readyBits).
+			res.Closed++
+			if closed == nil {
+				closed = fmt.Errorf("%w: bits 0x%02X of 0x%08X wait for STABLE", ErrClosed, b.bits&^ok, b.a)
+			}
+			b.bits = ok
 		}
 		open = append(open, b)
 	}

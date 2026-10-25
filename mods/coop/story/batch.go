@@ -31,9 +31,16 @@ const BatchIdle = time.Second
 //     event's spawn switch is set as its event starts
 //     (dEvent_exception_c::setStartDemo, d_event_manager.cpp:42-47), on a
 //     tick that can still read IDLE, and a receiver given it skips that
-//     event (the same lines), so it must not arrive before the bits the
+//     event (the same lines), so it should not arrive before the bits the
 //     event sets (GT's sw30 went ahead of 0x3B02 live, D2(9)). A switch
-//     rising while a batch waits does not put it off;
+//     rising while a batch waits does not put it off. This coupling is
+//     timing only, so best effort: a batch goes at the first quiet IDLE
+//     second, and the GT D2(9) reruns on #175 saw sw30 leave in one
+//     while A's intro still played and 0x3B02, already in A's save, only
+//     after it ended. The receiver's hold is the guarantee
+//     (mods/coop/replica spawnSwitch: the switch waits for its bit in the
+//     receiver's own game, and the stage change that writes the bit writes
+//     it);
 //   - every other byte that merges goes at once, and one that does not (the
 //     Differ reports none) is dropped.
 //

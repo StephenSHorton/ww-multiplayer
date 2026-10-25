@@ -376,7 +376,7 @@ func TestPlannedReachesTheWorld(t *testing.T) {
 		view := fullView()
 		var raw save.Image
 		raw[addr.OffSelectEquip] = 0x39
-		for _, id := range []uint16{evMetKorl, ev2D01, evZeldaAwakened, ev3F80} {
+		for _, id := range []uint16{evMetKorl, ev2D01, evZeldaAwakened, ev3F80, ev3B02, ev4002} {
 			off, m := eventBit(id)
 			raw[off] |= m
 		}

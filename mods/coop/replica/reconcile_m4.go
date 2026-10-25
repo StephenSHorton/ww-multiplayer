@@ -175,7 +175,7 @@ func (r *Replica) reconcileM4(o *obs, armed bool, rep *Report) {
 	// them.
 	ok := ready && o.consistent() && r.m4Granted(proto.FeatureStory, "story")
 	gains, _ := m.story.Tick(st, s.NextEnable, ok, &view, &o.raw, &r.planner.ever, &r.planner.everMax)
-	if len(gains) > 0 {
+	if gains = r.spawnBitsHeld(gains); len(gains) > 0 {
 		r.storyWrites(o, gains, dry)
 	}
 
@@ -242,6 +242,7 @@ func (r *Replica) reconcileM4(o *obs, armed bool, rep *Report) {
 func (r *Replica) storyWrites(o *obs, gains []world.Gain, dry bool) {
 	var lines []string
 	nBits, nRegs := 0, 0
+	var wrote save.Image // the story bits written
 	for _, g := range gains {
 		off := int(g.Off)
 		w := newWrite(off, g.Val, int(o.s.Table))
@@ -253,6 +254,7 @@ func (r *Replica) storyWrites(o *obs, gains []world.Gain, dry bool) {
 			nRegs++
 		} else {
 			nBits += bits.OnesCount8(g.Val)
+			wrote[off] |= g.Val
 		}
 		if dry {
 			if w.Max {
@@ -266,12 +268,82 @@ func (r *Replica) storyWrites(o *obs, gains []world.Gain, dry bool) {
 		}
 		r.toWrite = append(r.toWrite, w)
 	}
+	spawn := r.spawnWrites(o, &wrote)
 	if dry {
 		r.logf("co-op: dry-run: a stage change starts: %d story bits and %d registers of the world would be written now", nBits, nRegs)
+		for _, w := range spawn {
+			lines = append(lines, fmt.Sprintf("dry-run: would set %s with its story bit", r.label(int(w.Off), bits.TrailingZeros8(w.Bits))))
+		}
 		r.logLines(lines)
 		return
 	}
 	r.logf("co-op: a stage change starts: writing %d story bits and %d registers of the world", nBits, nRegs)
+	for _, w := range spawn {
+		r.logf("co-op: and with its story bit, %s", r.label(int(w.Off), bits.TrailingZeros8(w.Bits)))
+	}
+	r.toWrite = append(r.toWrite, spawn...)
+}
+
+// spawnBitsHeld takes out of a stage change's story writes gs the story
+// bits the planner holds because their spawn switch cannot go with them
+// (spawnSwitch.bitHold; the reconciler logs the hold once): the receiver
+// then enters with neither and plays its own intro. gs is reused.
+func (r *Replica) spawnBitsHeld(gs []world.Gain) []world.Gain {
+	out := gs[:0]
+	for _, g := range gs {
+		for _, h := range r.held {
+			if h.Off == g.Off && spawnEvent(h.Hold.ID) {
+				g.Val &^= h.Mask
+			}
+		}
+		if g.Val != 0 {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// spawnEvent reports whether id is a spawn switch's story bit.
+func spawnEvent(id uint16) bool {
+	for _, s := range spawnSwitches {
+		if s.event == id {
+			return true
+		}
+	}
+	return false
+}
+
+// spawnWrites are the start-event spawn switches (spawnSwitch) to write
+// on this stage change's first tick with the story bits wrote it writes:
+// each whose event bit is among them and which the planner holds for it,
+// that is, the world has it and this game lacks it (and never had it). They
+// go after the story bytes in the batch, so a batch cut short never leaves
+// the switch without its bit. It can leave the bit without its switch (a
+// memory error, co-op turned off or the switch's byte refused between the
+// two writes): accepted, as the stage loads with the intro event on the
+// time or fight layer only in that case, and the switch follows at its
+// own timing once the bit is local (Plan releases it). The hub must grant
+// the switches; the WriteGuard opens these bits alone on this tick
+// (Tick.spawnMask, WriteGuard.readyBits). A bit whose switch cannot come
+// at all is held instead (spawnBitsHeld).
+func (r *Replica) spawnWrites(o *obs, wrote *save.Image) []Write {
+	if r.features&proto.FeatureSwitches == 0 && !r.writer.DryRun() {
+		return nil
+	}
+	var ws []Write
+	for _, s := range spawnSwitches {
+		b := addr.EventByte(s.event)
+		if wrote[addr.OffEvent+b.Off]&b.Mask != b.Mask {
+			continue
+		}
+		off, m := s.bit()
+		for _, h := range r.held {
+			if int(h.Off) == off && h.Mask&m != 0 && h.Hold.ID == s.event {
+				ws = append(ws, newWrite(off, h.Mask&m, int(o.s.Table)))
+			}
+		}
+	}
+	return ws
 }
 
 // m4View is the world's image as the receiver may take it: the view

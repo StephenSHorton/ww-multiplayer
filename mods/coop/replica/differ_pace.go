@@ -26,8 +26,9 @@ import (
 //   - a memory switch waits with the batch, and one rising with no batch
 //     starts one: a stage event's trigger switch is set as its event
 //     starts (d_event_manager.cpp:42-47), on a tick that can still read
-//     IDLE, and must not arrive before the bits the event sets
-//     (story.Batcher);
+//     IDLE, and should not arrive before the bits the event sets
+//     (story.Batcher). That is timing only; for the start events whose
+//     switch syncs, the receiver's hold makes it sure (spawnSwitch);
 //   - the inventory and collection flags and the capacities wait for the
 //     game to be IDLE (§3: they are "live when idle"; gate.Status.Idle:
 //     no event, pause menu, minigame or boss-refight snapshot), so an
