@@ -36,6 +36,10 @@ dolphin-*.png
 # regenerate locally rather than commit.
 saves/
 
+# wwdev's run logs (WW_DEV_LOGS): dolphin2's launch record, mp-local's
+# logs/latest/ and logs/sessions/.
+/logs/
+
 # OS / IDE
 .DS_Store
 .vscode/

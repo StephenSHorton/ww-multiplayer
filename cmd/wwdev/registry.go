@@ -143,6 +143,8 @@ func commandTable() []command {
 		{name: "bpw-probe", group: groupDev, run: runBatchEProbe},
 		// Batch F's boss_kill probe: Helmaroc King (enemy_batchf_probe.go).
 		{name: "bdk-probe", group: groupDev, run: runBatchFProbe},
+		// The crash JUTException caught: registers, stack, REL modules (crash_context.go).
+		{name: "crash-context", group: groupDev, run: runCrashContext},
 	}
 }
 

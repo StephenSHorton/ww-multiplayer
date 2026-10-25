@@ -32,3 +32,5 @@ func runningExes() []string {
 }
 
 func installLocations() []string { return nil }
+
+func userConfigPaths() []string { return nil }

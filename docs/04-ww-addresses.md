@@ -33,6 +33,8 @@ is line N of `symbols.txt`. Decomp line numbers drift, so re-check them against 
 | `0x803CA75C` | `mpPlayerPtr[2]` | Pointer to ship (King of Red Lions) |
 | `0x803F6A68` | `g_fpcPf_ProfileList_p` | Pointer to actor profile list |
 | `0x8038FD8C` | `g_profile_PLAYER` | Player actor profile definition |
+| `0x803ED988` | `exCallbackObject` | JUTException's crash record (size 0x14: +4 u16 OSError, +8 `OSContext*`, +0xC DSISR, +0x10 DAR; JUTException.cpp:21-27, :209-213). Context is 0 until the first caught exception. Read by `wwdev crash-context` (wwapi/addr crash.go) |
+| `0x800030C8` | `__OSModuleList` | `OSModuleQueue {head, tail}` of linked REL modules (OSLink.h:27); `OSModuleInfo` id +0, next +4, numSections +0xC, sectionInfo +0x10; section offset bit 0 = exec (OSLink.h:81-82) |
 
 ## Actor Struct Offsets (from `fopAc_ac_c` base)
 

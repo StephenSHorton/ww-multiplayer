@@ -12,6 +12,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/cheats"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/procstate"
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/enemysync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
@@ -65,6 +66,18 @@ func runDolphin2(reset bool) {
 	// pair via `./wwdev.exe auto-recapture-pair`.
 	saveState := os.Getenv("SAVE_STATE")
 	saveState2 := os.Getenv("SAVE_STATE_2")
+
+	// WW_DOLPHIN_DEVLOG=1 never logs into a player's profile: both user
+	// dirs must be set explicitly to test dirs (devLogRefusal), checked
+	// before --reset, the bootstrap or any launch touches anything.
+	if launch.DevLogEnabled(os.Getenv) {
+		for _, u := range []struct{ dir, key string }{{userDir1, launch.EnvUserDir1}, {userDir2, launch.EnvUserDir2}} {
+			if err := devLogRefusal(launch.Host(), os.Getenv, dolphinExe, u.dir, u.key); err != nil {
+				rep.Log(log.Err, err.Error())
+				os.Exit(1)
+			}
+		}
+	}
 
 	if reset {
 		log.Logf(rep, log.Info, "Removing %s ...", userDir2)
@@ -148,13 +161,38 @@ func runDolphin2(reset bool) {
 		return
 	}
 
+	// WW_DOLPHIN_DEVLOG=1: each Dolphin also logs to <user dir>/Logs/dolphin.log
+	// and never stops on a panic popup (launch.DevLogArgs, session-only -C).
+	devLog := launch.DevLogEnabled(os.Getenv)
+	var recs []launchRecord
 	for _, p := range plan {
-		pid, err := launch.Launch(dolphinExe, p.userDir, isoPath, p.saveState)
+		logPath := launch.LogFile(p.userDir)
+		offset := fileSize(logPath) // Dolphin appends: this one's lines start here
+		pid, err := launch.LaunchTest(dolphinExe, p.userDir, isoPath, p.saveState, devLog)
 		if err != nil {
 			log.Logf(rep, log.Err, "launch %s: %v", p.label, err)
 			os.Exit(1)
 		}
+		_, start, _ := procstate.State(pid) // tells this Dolphin from a later one on its PID
 		log.Logf(rep, log.OK, "Launched %s (pid %d, user dir %s)", p.label, pid, p.userDir)
+		if devLog {
+			log.Logf(rep, log.Info, "  %s logs to %s (OSReport, MI, MASTER; panic popups off)", p.label, logPath)
+		}
+		recs = append(recs, launchRecord{
+			Label: p.label, PID: pid, UserDir: p.userDir, SaveState: p.saveState, DevLog: devLog,
+			LogPath: logPath, LogOffset: offset, Launched: time.Now(), Start: start,
+		})
+	}
+	// The record mp-local reads to tell which PID runs on which user dir
+	// (WW_DEV_LOGS; off writes nothing).
+	if root := devLogsRoot(os.Getenv); root != "" {
+		running := slices.Clone(pids)
+		for _, r := range recs {
+			running = append(running, uint32(r.PID))
+		}
+		if err := saveLaunchRecords(root, running, recs); err != nil {
+			log.Logf(rep, log.Warn, "couldn't record the launch in %s: %v", root, err)
+		}
 	}
 	if saveState != "" {
 		if saveState2 != "" && saveState2 != saveState {
@@ -187,7 +225,11 @@ func ensureCheatsIni(rep log.Reporter, userDir string) {
 // (startupShift, mp_local_shift.go). Without it none of the co-op pieces
 // run, and the startup shift moves B only when the two Links overlap.
 func runMpLocal(nameA, nameB string, co coopsession.Flags) {
-	rep := log.Stdout{}
+	// out is swapped to the reporter teed into logs/latest/mp-local.log
+	// once the session starts, so CLIMultiplayerContext's "Shutting
+	// down..." line reaches the file too.
+	out := &swapReporter{r: log.Stdout{}}
+	var rep log.Reporter = out
 	ctx, cancel := engine.CLIMultiplayerContext(rep)
 	defer cancel()
 
@@ -209,6 +251,33 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	if a, b, ok := pinnedPIDs(os.Getenv("MP_LOCAL_PIDS"), pids); ok {
 		pidA, pidB = a, b
 	}
+	// logs/latest (WW_DEV_LOGS, mp_local_session.go): this run's output,
+	// session manifest and Dolphin logs. Only once two Dolphins are
+	// there, so a mis-start leaves the last run in latest. From here on
+	// every exit stamps the manifest's ended and outcome: the deferred
+	// finish below, fail for an early error exit, and the force-quit
+	// watcher for a second Ctrl+C.
+	teed, sess := startMpLocalSession(out.get(), os.Args[1:]) // the inner Stdout: out must not tee into itself
+	out.set(teed)
+	interrupted := watchForceQuit(rep, sess)
+	defer func() {
+		cancel() // the Dolphin log tails stop with ctx
+		outcome := "ok"
+		if interrupted() {
+			outcome = "interrupted"
+		}
+		sess.finish(outcome, 0)
+	}()
+	fail := func(msg string) {
+		rep.Log(log.Err, msg)
+		cancel()
+		outcome := "error: " + msg
+		if interrupted() {
+			outcome = "interrupted: " + msg
+		}
+		sess.finish(outcome, 2*time.Second)
+		os.Exit(1)
+	}
 	log.Logf(rep, log.OK, "Found Dolphin A (pid %d) and B (pid %d).", pidA, pidB)
 
 	// Wait until both Dolphins have a save loaded — player.Link.Ready returns
@@ -217,23 +286,25 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	// loading a save; 1 s poll interval is responsive without
 	// hammering the process snapshots.
 	if err := waitForReady(ctx, rep, pidA, pidB, 60*time.Second); err != nil {
-		rep.Log(log.Err, err.Error())
-		os.Exit(1)
+		fail(err.Error())
 	}
+	sess.describe(ctx, rep, pidA, pidB, nameA, nameB, co.On())
 
 	// --coop writes the world into both games (bind, replica, warps), so
 	// it starts only when both run this version's patch (strict contract
 	// check, Phase E1); coopsession.RunSync re-checks while it plays.
 	if co.On() {
-		refused := false
+		var refused []string
 		for i, pid := range []uint32{pidA, pidB} {
 			if why := contractRefused(pid); why != "" {
-				log.Logf(rep, log.Err, "Not starting co-op: Dolphin %c (pid %d)'s game is not this version's patch: %s. %s", 'A'+rune(i), pid, why, wwapi.RepatchAdvice)
-				refused = true
+				refused = append(refused, fmt.Sprintf("Not starting co-op: Dolphin %c (pid %d)'s game is not this version's patch: %s. %s", 'A'+rune(i), pid, why, wwapi.RepatchAdvice))
 			}
 		}
-		if refused {
-			os.Exit(1)
+		if len(refused) > 0 {
+			for _, msg := range refused[:len(refused)-1] {
+				rep.Log(log.Err, msg)
+			}
+			fail(refused[len(refused)-1])
 		}
 	}
 
@@ -290,15 +361,13 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 			if ctx.Err() != nil {
 				return // Ctrl+C while founding waited for the game
 			}
-			rep.Log(log.Err, err.Error())
-			os.Exit(1)
+			fail(err.Error())
 		}
 		srv.Coop = coop.Hub()
 	}
 	if err := srv.Start(); err != nil {
-		log.Logf(rep, log.Err, "server start: %v", err)
 		coop.Stop()
-		os.Exit(1)
+		fail(fmt.Sprintf("server start: %v", err))
 	}
 	rep.Log(log.OK, "Server listening on :25565")
 

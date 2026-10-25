@@ -9,6 +9,7 @@ bst-probe
 bwd-probe
 coop-probe
 coop-watch
+crash-context
 disasm
 dolphin2
 dump

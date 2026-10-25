@@ -74,7 +74,9 @@ func TestCLIGoldenDolphin2(t *testing.T) {
 	sav := filepath.Join(root, "start.sav")
 	base := func(extra map[string]string) map[string]string {
 		env := configEnv(filepath.Join(root, "config"))
-		for k, v := range map[string]string{"DOLPHIN_EXE": exe, "ISO_PATH": iso, "USER_DIR_1": ud1, "USER_DIR_2": ud2} {
+		for k, v := range map[string]string{"DOLPHIN_EXE": exe, "ISO_PATH": iso, "USER_DIR_1": ud1, "USER_DIR_2": ud2,
+			// dolphin2 records its launches there; nothing under cmd/wwdev.
+			"WW_DEV_LOGS": filepath.Join(root, "logs")} {
 			env[k] = v
 		}
 		for k, v := range extra {

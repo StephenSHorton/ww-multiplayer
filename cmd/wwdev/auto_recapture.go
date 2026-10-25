@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
@@ -19,6 +20,20 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
+
+// launchRecaptureDolphin launches auto-recapture's Dolphin, logging to
+// <user dir>/Logs/dolphin.log with the panic popups off when
+// WW_DOLPHIN_DEVLOG is on (launch.DevLogArgs).
+func launchRecaptureDolphin(rep log.Reporter, exe, userDir, iso string) (int, error) {
+	devLog := launch.DevLogEnabled(os.Getenv)
+	if devLog {
+		if err := devLogRefusal(launch.Host(), os.Getenv, exe, userDir, launch.EnvUserDir1); err != nil {
+			return 0, err
+		}
+		log.Logf(rep, log.Info, "  Log:     %s (WW_DOLPHIN_DEVLOG)", launch.LogFile(userDir))
+	}
+	return launch.LaunchTest(exe, userDir, iso, "", devLog)
+}
 
 // runAutoRecapture cold-boots Dolphin from the patched ISO, drives
 // title → intro → file select → in-game with scripted input injection,
@@ -38,6 +53,7 @@ func runAutoRecapture(outPath string) {
 		outPath = filepath.Join("saves", "start.sav")
 	}
 	rep := log.Stdout{}
+	refuseDevLogEarly(rep)
 
 	if runtime.GOOS != "windows" {
 		log.Logf(rep, log.Err, "auto-recapture requires Windows (Shift+F1 send uses PostMessageW); got %s", runtime.GOOS)
@@ -72,7 +88,7 @@ func runAutoRecapture(outPath string) {
 	log.Logf(rep, log.Info, "  ISO:     %s", isoPath)
 	log.Logf(rep, log.Info, "  UserDir: %s", userDir)
 
-	pid, err := launch.Launch(dolphinExe, userDir, isoPath, "")
+	pid, err := launchRecaptureDolphin(rep, dolphinExe, userDir, isoPath)
 	if err != nil {
 		log.Logf(rep, log.Err, "launch Dolphin: %v", err)
 		os.Exit(1)
@@ -336,6 +352,7 @@ func runAutoRecapturePair(out1, out2 string, delay time.Duration) {
 		delay = 5 * time.Second
 	}
 	rep := log.Stdout{}
+	refuseDevLogEarly(rep)
 
 	if runtime.GOOS != "windows" {
 		log.Logf(rep, log.Err, "auto-recapture-pair requires Windows; got %s", runtime.GOOS)
@@ -367,7 +384,7 @@ func runAutoRecapturePair(out1, out2 string, delay time.Duration) {
 	log.Logf(rep, log.Info, "  out1: %s", out1)
 	log.Logf(rep, log.Info, "  out2: %s", out2)
 
-	pid, err := launch.Launch(dolphinExe, userDir, isoPath, "")
+	pid, err := launchRecaptureDolphin(rep, dolphinExe, userDir, isoPath)
 	if err != nil {
 		log.Logf(rep, log.Err, "launch Dolphin: %v", err)
 		os.Exit(1)
@@ -443,4 +460,26 @@ func captureOneShiftF1(rep log.Reporter, hwnd uintptr, pid int, saveFile, outPat
 	}
 	log.Logf(rep, log.OK, "%s save copied to %s", label, outPath)
 	return nil
+}
+
+// refuseDevLogEarly exits before auto-recapture kills the running
+// Dolphins when WW_DOLPHIN_DEVLOG is on and USER_DIR_1 is not a test
+// user dir (devLogRefusal); launchRecaptureDolphin checks again.
+func refuseDevLogEarly(rep log.Reporter) {
+	if !launch.DevLogEnabled(os.Getenv) {
+		return
+	}
+	p := launch.FromEnv()
+	if err := devLogRefusal(launch.Host(), os.Getenv, p.Exe, p.UserDir1, launch.EnvUserDir1); err != nil {
+		rep.Log(log.Err, err.Error())
+		os.Exit(1)
+	}
+}
+
+// devLogRefusal is launch.DevLogUserDirError with "set explicitly" read
+// from getenv's envKey (USER_DIR_1 / USER_DIR_2): a WW_DOLPHIN_DEVLOG
+// launch only runs on a user dir the environment names and that is no
+// player's profile.
+func devLogRefusal(e launch.Env, getenv func(string) string, exe, userDir, envKey string) error {
+	return launch.DevLogUserDirError(e, exe, userDir, envKey, strings.TrimSpace(getenv(envKey)) != "")
 }

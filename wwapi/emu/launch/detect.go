@@ -25,6 +25,10 @@ type Env struct {
 	// InstallLocations returns the folders Dolphin's installer recorded
 	// (Windows: the uninstall registry keys' InstallLocation); nil elsewhere.
 	InstallLocations func() []string
+	// UserConfigPaths returns the user folders the Windows registry
+	// points Dolphin at (HKCU\Software\Dolphin Emulator's
+	// UserConfigPath); nil elsewhere.
+	UserConfigPaths func() []string
 	// LookPath finds a program on PATH (exec.LookPath).
 	LookPath func(string) (string, error)
 }
@@ -37,7 +41,8 @@ func Host() Env {
 		GOOS: runtime.GOOS, Home: home, ConfigDir: cfg,
 		Getenv: os.Getenv, Exists: statExists,
 		Running: runningExes, InstallLocations: installLocations,
-		LookPath: exec.LookPath,
+		UserConfigPaths: userConfigPaths,
+		LookPath:        exec.LookPath,
 	}
 }
 
