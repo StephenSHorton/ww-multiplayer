@@ -20,6 +20,17 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
 
+// launchRecaptureDolphin launches auto-recapture's Dolphin, logging to
+// <user dir>/Logs/dolphin.log with the panic popups off when
+// WW_DOLPHIN_DEVLOG is on (launch.DevLogArgs).
+func launchRecaptureDolphin(rep log.Reporter, exe, userDir, iso string) (int, error) {
+	devLog := launch.DevLogEnabled(os.Getenv)
+	if devLog {
+		log.Logf(rep, log.Info, "  Log:     %s (WW_DOLPHIN_DEVLOG)", launch.LogFile(userDir))
+	}
+	return launch.LaunchTest(exe, userDir, iso, "", devLog)
+}
+
 // runAutoRecapture cold-boots Dolphin from the patched ISO, drives
 // title → intro → file select → in-game with scripted input injection,
 // then triggers Dolphin's Shift+F1 save-state hotkey via Win32
@@ -72,7 +83,7 @@ func runAutoRecapture(outPath string) {
 	log.Logf(rep, log.Info, "  ISO:     %s", isoPath)
 	log.Logf(rep, log.Info, "  UserDir: %s", userDir)
 
-	pid, err := launch.Launch(dolphinExe, userDir, isoPath, "")
+	pid, err := launchRecaptureDolphin(rep, dolphinExe, userDir, isoPath)
 	if err != nil {
 		log.Logf(rep, log.Err, "launch Dolphin: %v", err)
 		os.Exit(1)
@@ -367,7 +378,7 @@ func runAutoRecapturePair(out1, out2 string, delay time.Duration) {
 	log.Logf(rep, log.Info, "  out1: %s", out1)
 	log.Logf(rep, log.Info, "  out2: %s", out2)
 
-	pid, err := launch.Launch(dolphinExe, userDir, isoPath, "")
+	pid, err := launchRecaptureDolphin(rep, dolphinExe, userDir, isoPath)
 	if err != nil {
 		log.Logf(rep, log.Err, "launch Dolphin: %v", err)
 		os.Exit(1)
