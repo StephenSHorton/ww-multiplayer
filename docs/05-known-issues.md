@@ -882,14 +882,15 @@ the real ones, every other game mirrors them, and remote bodies run at step6 wit
 
 ### Limits
 
-- Other enemy types (Keese, Armos Knights, Armos, Darknuts, Kargarocs and the rest) still run
+- Other enemy types (Armos Knights, Armos, Darknuts, Kargarocs, Magtails and the rest) still run
   separately on each player's game, and they ignore the other players' bodies.
 - Only the first two other players get bodies (`MAX_REMOTE_LINKS` 2).
 - Each player mirrors at most 4 enemies at once (the block's 4 slots); the host lists by
   player distance.
-- Shared enemies have not been tested over the internet. Every live pass on record ran under
-  `wwdev mp-local` (one process, two Dolphins); docs/TESTING.md "Release defaults" is the
-  checklist that covers the app, two machines and WAN.
+- Shared enemies have not been tested over the internet. Nearly every live pass on record ran
+  under `wwdev mp-local` (one process, two Dolphins); the one exception is a CLI `host` and
+  `join 127.0.0.1` loopback on one machine before v0.5.0. docs/TESTING.md "Release defaults"
+  is the checklist that covers the app, two machines and WAN.
 
 ### When it fails
 

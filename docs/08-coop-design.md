@@ -7,7 +7,7 @@
 2. combat sync (enemies die for both players),
 3. puzzle and dungeon state (doors, switches and so on propagate).
 
-v0.3.0 (Go-only hardening) has already shipped, as tag v0.3.0 on d6850b0. **Current status (2026-10-17):** v0.4.0 ships M0-M6.0, in the CLI and in the desktop app's co-op worlds; M6.1, M7 and M8 remain. This document supersedes the "Post-1.0: co-op" line in the finish plan.
+v0.3.0 (Go-only hardening) has already shipped, as tag v0.3.0 on d6850b0. **Current status (2026-10-24, main f9e1fe6):** v0.4.0 shipped M0-M6.0, in the CLI and in the desktop app's co-op worlds. v0.5.0 (2026-10-22) added shared enemies and the remote players' bodies, on by default, and the Gohma kill relay. Main since v0.5.0 (protocol 5, unreleased) adds the Kalle Demos, Molgera, Jalhalla and Helmaroc King relays (`--coop-boss-kill`, default `gohma,kalle,molgera,jalhalla,helmaroc`; Gohdan's row opt-in), the stale-actor refresh (Tiers 1-2 on with combat, Tier 3 behind `--coop-refresh`), mirrored Keese, and the per-dungeon co-op table changes; the app sets the relay options per player (#176). M6.1, M7 and M8 remain. This document supersedes the "Post-1.0: co-op" line in the finish plan.
 
 **Conventions**
 - `tww/` means the zeldaret/tww decomp at commit 4d78c994. References use `file:line`.
