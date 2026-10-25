@@ -31,7 +31,7 @@ type CoopOptions struct {
 	// Yes answers every question yes at once (--yes).
 	Yes bool
 	// BossKill is --coop-boss-kill, the boss-dead relay's row set; "" is
-	// its default (gohma,kalle,helmaroc). Refresh is --coop-refresh, the
+	// its default (gohma,kalle,molgera,jalhalla,helmaroc). Refresh is --coop-refresh, the
 	// actor_refresh relay's token set; "" is off. Each side's own.
 	BossKill string
 	Refresh  string

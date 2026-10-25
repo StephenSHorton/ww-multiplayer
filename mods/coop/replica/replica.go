@@ -194,7 +194,7 @@ type Config struct {
 	RefreshSettle time.Duration
 	// BossKill is the boss-dead relay's row set (--coop-boss-kill,
 	// ParseBossKill; bosskill.go): bossKillRows' keys joined by ",", or
-	// "none"; "" is BossKillDefault (gohma,kalle,helmaroc). The WriteGuard takes
+	// "none"; "" is BossKillDefault (gohma,kalle,molgera,jalhalla,helmaroc). The WriteGuard takes
 	// every row's proc whatever it is; a row left out is never asked for.
 	BossKill string
 	// Refresh is the actor_refresh relay's token set (--coop-refresh,

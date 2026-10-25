@@ -42,7 +42,7 @@ type CoopRequest struct {
 // game's REL, so each side picks its own.
 type CoopRelays struct {
 	// BossKill is the boss-dead relay's rows: "" for the default
-	// (gohma,kalle,helmaroc), "none", or replica.BossKillTokens joined by ",".
+	// (gohma,kalle,molgera,jalhalla,helmaroc), "none", or replica.BossKillTokens joined by ",".
 	BossKill string `json:"bossKill"`
 	// Refresh is the actor_refresh relay's tokens: "" or "none" for off,
 	// or replica.RefreshTokens joined by ",", with "dry" to log only.
