@@ -29,7 +29,7 @@ func TestAcceptanceVanilla(t *testing.T) {
 		"keys PASS keys ET: 3/3 (sources/doors), vanilla 3/3",
 		"keys PASS keys WT: 2/2 (sources/doors), vanilla 2/2",
 		"keys PASS key doors outside tables 3-7: none",
-		"hearts PASS heart pieces: 44, vanilla 44: 30 in stage files, 11 rewards, 3 unverified rewards",
+		"hearts PASS heart pieces: 44, vanilla 44: 28 in stage files, 11 rewards, 5 unverified rewards",
 		"hearts PASS heart containers: 6, vanilla 6",
 		"switches PASS push-block exclusion list: 1 push block(s) storing a path in 2 switch use(s), never synced",
 		"enemies INFO enemy setID share: 10 enemy entries: 3 (30.0%) with a setID, 3 (30.0%) keyed (0 of them never dead-checked); K1 classes not BOSS: 3 (75.0%) keyed of 4",
@@ -52,7 +52,7 @@ func TestAcceptanceFails(t *testing.T) {
 		return d
 	}
 	var pieces []stagetest.Actor
-	for bit := range uint32(29) {
+	for bit := range uint32(27) {
 		pieces = append(pieces, tablestest.PieceChest(bit))
 	}
 	for _, c := range []struct {
@@ -67,11 +67,11 @@ func TestAcceptanceFails(t *testing.T) {
 			"keys DRC", "3/4 (sources/doors), vanilla 4/4; 2 problem(s) in the keys section"},
 		{"a key door on the sea",
 			replace(v, tablestest.Stage("sea", 0, stage.StageSea, nil, []stagetest.Actor{tablestest.KeyDoor(0x05, 1, 2)},
-				tablestest.Room(1, append(slices.Clone(pieces), tablestest.PieceChest(29), tablestest.Bitem(2))...))),
+				tablestest.Room(1, append(slices.Clone(pieces), tablestest.PieceChest(27), tablestest.Bitem(2))...))),
 			"key doors outside tables 3-7", "1 (table 0: 1)"},
 		{"a heart piece short",
 			replace(v, tablestest.Stage("sea", 0, stage.StageSea, nil, nil, tablestest.Room(1, append(slices.Clone(pieces), tablestest.Bitem(2))...))),
-			"heart pieces", "43, vanilla 44: 29 in stage files, 11 rewards, 3 unverified rewards"},
+			"heart pieces", "43, vanilla 44: 27 in stage files, 11 rewards, 5 unverified rewards"},
 		{"Molgera missing",
 			replace(v, tablestest.Stage("kazeB", keys.TableWT, stage.StageDungeon, nil, nil)),
 			"heart containers", "5, vanilla 6; 1 problem(s) in the hearts section"},

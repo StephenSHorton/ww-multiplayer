@@ -44,6 +44,10 @@ func TestCatalogueRecords(t *testing.T) {
 		"letter-baitos-mom":         {RecordLetterRead, 0xAC03},
 		"letter-komalis-father":     {RecordLetterRead, 0xB503},
 		"letter-hoskits-girlfriend": {RecordLetterRead, 0xAE03},
+		"traveling-merchant":        {RecordEventBit, 0x3E04},
+		"kreeb":                     {RecordEventBit, 0x1B20},
+		"sam":                       {RecordEventBit, 0x1B10},
+		"linda-and-anton":           {RecordEventBit, 0x2280},
 	}
 	seen := 0
 	for _, r := range hearts.Catalogue {

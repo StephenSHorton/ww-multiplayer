@@ -11,10 +11,14 @@ const (
 	Letter   RewardKind = "letter"
 	Shop     RewardKind = "shop"
 	Auction  RewardKind = "auction"
+	// Drop is an object that drops the piece in code, as a field item
+	// with no stage-file placement (the withered trees).
+	Drop RewardKind = "drop"
 )
 
 // Reward is a heart piece that no stage file places: an NPC, a minigame,
-// a letter, a shop or the auction hands it over in code or event data.
+// a letter, a shop, the auction or an object hands it over in code or
+// event data.
 type Reward struct {
 	ID    string     `json:"id"`
 	Giver string     `json:"giver"`
@@ -35,8 +39,13 @@ type Reward struct {
 // Catalogue is, written by hand, every heart piece reward the decomp's
 // NPC, letter, shop and auction code hands over, each item number and
 // record cited to the file:line that shows it (see the package comment),
-// plus three minigames whose grant code is not decompiled (ItemSeen
-// false), which Build counts separately.
+// plus five rewards whose grant code is not decompiled (ItemSeen false),
+// which Build counts separately: the three minigames, Maggie and the
+// withered trees. The last two came from comparing with
+// datstarkey/ww-online's catalogue (docs/hearts.md §1, rows 37 and 47,
+// MIT; facts, no code) and the Wind Waker Randomizer's item list, which
+// both count them; their records there are REL readings, so they stay
+// unrecorded here (Appendix C item 168 of docs/08-coop-design.md).
 //
 // Looked at and left out: no other decompiled file names HEART_PIECE,
 // and the only literal 7s given as items are Carlov's and Old Man Ho
@@ -44,10 +53,10 @@ type Reward struct {
 // (m749, field_0x748) that nothing in the decomp sets, only clears. The
 // mail sorting game (d_a_npc_bmsw.cpp, d_a_npc_btsw.cpp, both
 // decompiled) pays only rupees (d_a_npc_bmsw.cpp:743). Not decompiled,
-// so unchecked beyond the three minigames below: d_a_npc_ds1,
-// d_a_npc_gp1, d_a_npc_kf1, d_a_npc_p2, d_a_npc_uk and d_a_npc_sarace
-// (the boating course's own items are race items and barrels, which
-// Build reads from the stage files).
+// so unchecked beyond the five below: d_a_npc_ds1, d_a_npc_gp1,
+// d_a_npc_kf1, d_a_npc_p2, d_a_npc_uk and d_a_npc_sarace (the boating
+// course's own items are race items and barrels, which Build reads from
+// the stage files).
 var Catalogue = []Reward{
 	{
 		ID: "ivan", Giver: "Ivan (Killer Bees)", Where: "Windfall Island", Kind: NPC, Item: itemsrc.ItemHeartPiece,
@@ -96,40 +105,63 @@ var Catalogue = []Reward{
 		Note:     "both table entries share the sold-out bit (d_a_npc_bs1.cpp:1508): one reward",
 	},
 	{
-		ID: "traveling-merchant", Giver: "the traveling merchants", Where: "event data", Kind: NPC, Item: itemsrc.ItemHeartPiece,
+		ID: "traveling-merchant", Giver: "the Goron traveling merchant (the trading quest)", Where: "the Great Sea", Kind: NPC, Item: itemsrc.ItemHeartPiece,
 		Site:     "l_get_item_no[0], d_a_npc_roten.cpp:1373-1375; daNpcRoten_c::eventGetItemInit :2359-2381 (event integer \"ItemNo\" :2362-2365)",
+		Record:   "event bit 0x3E04 (UNK_3E04; set at d_a_npc_roten.cpp:2500-2503 as merchant 1 takes the Shop Guru Statue, isGetMap :2827-2833)",
 		ItemSeen: true,
-		Note:     "the event data says which cut hands it over; no record in code",
+		Note:     "the table's only entry, so any ItemNo cut hands over the piece; that the last trade's event runs one is the event data's (inferred)",
+	},
+	// The three NPC_PEOPLE rewards: each record is set as the resident
+	// picks the reward talk, the piece comes from the event's ItemNo cut
+	// (eventGetItemInit, d_a_npc_people.cpp:6043-6056), and l_get_item_no
+	// [0], [3] and [4] are its three heart pieces (:3855-3866). Which index
+	// each event names is event data, not checked here: the indexes below
+	// are the Wind Waker Randomizer's (logic/item_locations.txt, its
+	// d_a_npc_people.rel offsets 0xC54B, 0xC557, 0xC55B). The count does
+	// not depend on them. ww-online's records agree on the bits
+	// (datstarkey/ww-online docs/hearts.md §1, rows 38, 40 and 42, MIT).
+	{
+		ID: "kreeb", Giver: "Kreeb (light up the lighthouse)", Where: "Windfall Island", Kind: NPC, Item: itemsrc.ItemHeartPiece,
+		Site:     "NPC_UM1, l_msg_um1_get_item, d_a_npc_people.cpp:7061-7063; l_get_item_no[4] :3864 (the index unverified)",
+		Record:   "event bit 0x1B20 (UNK_1B20; set with the reward talk at d_a_npc_people.cpp:7061-7063)",
+		ItemSeen: true,
 	},
 	{
-		ID: "windfall-people-0", Giver: "a Windfall resident (NPC_PEOPLE)", Where: "Windfall Island", Kind: NPC, Item: itemsrc.ItemHeartPiece,
-		Site:     "l_get_item_no[0], d_a_npc_people.cpp:3855-3866; daNpcPeople_c::eventGetItemInit :6043-6056",
+		ID: "sam", Giver: "Sam (decorate the town)", Where: "Windfall Island", Kind: NPC, Item: itemsrc.ItemHeartPiece,
+		Site:     "NPC_UO1, l_msg_uo1_1st_talk_fdai, d_a_npc_people.cpp:6880-6883; l_get_item_no[0] :3855-3860 (the index unverified)",
+		Record:   "event bit 0x1B10 (UNK_1B10; set with the reward talk once every flower stand is done, d_a_npc_people.cpp:6880-6883)",
 		ItemSeen: true,
-		Note:     "an orange rupee in the Japanese release (:3856-3860); the event data names the resident and its record",
+		Note:     "index 0 is an orange rupee in the Japanese release (:3856-3860)",
 	},
 	{
-		ID: "windfall-people-3", Giver: "a Windfall resident (NPC_PEOPLE)", Where: "Windfall Island", Kind: NPC, Item: itemsrc.ItemHeartPiece,
-		Site:     "l_get_item_no[3], d_a_npc_people.cpp:3863; daNpcPeople_c::eventGetItemInit :6043-6056",
+		ID: "linda-and-anton", Giver: "Linda and Anton", Where: "Windfall Island", Kind: NPC, Item: itemsrc.ItemHeartPiece,
+		Site:     "NPC_UW2, l_msg_uw2_1st_talk2, d_a_npc_people.cpp:7033-7035; l_get_item_no[3] :3863 (the index unverified)",
+		Record:   "event bit 0x2280 (UNK_2280; set with the reward talk at d_a_npc_people.cpp:7033-7035)",
 		ItemSeen: true,
-		Note:     "the event data names the resident and its record",
 	},
 	{
-		ID: "windfall-people-4", Giver: "a Windfall resident (NPC_PEOPLE)", Where: "Windfall Island", Kind: NPC, Item: itemsrc.ItemHeartPiece,
-		Site:     "l_get_item_no[4], d_a_npc_people.cpp:3864; daNpcPeople_c::eventGetItemInit :6043-6056",
-		ItemSeen: true,
-		Note:     "the event data names the resident and its record",
+		ID: "maggie", Giver: "Maggie (Moblin's Letter)", Where: "Windfall Island", Kind: NPC, Item: itemsrc.ItemHeartPiece,
+		Site: "daNpc_Kp1_c, d_a_npc_kp1.cpp (not decompiled)",
+		Note: "UNVERIFIED, from datstarkey/ww-online's reading of the vanilla REL (docs/hearts.md §3.3, MIT): GET_KAKERA_HRT as she takes Moblin's Letter (0x9B); its only mark is mReserveFlags bit 15 with the letter gone from the bag, no save bit RecordOf reads",
+	},
+	{
+		ID: "withered-trees", Giver: "the withered trees", Where: "the Great Sea", Kind: Drop, Item: itemsrc.ItemHeartPiece,
+		Site: "daObjFtree::Act_c::search_heart_part, d_a_obj_ftree.cpp (not decompiled)",
+		Note: "UNVERIFIED, from datstarkey/ww-online's reading of the vanilla REL (docs/hearts.md §3.3, MIT): the last watered tree drops a field piece with no item bit, and 0x2E20 is set once it is gone; the Randomizer patches it at d_a_obj_ftree.rel 0x0237 and 0x03F3",
 	},
 	{
 		ID: "sploosh-kaboom", Giver: "Salvatore (Sploosh Kaboom)", Where: "Windfall Island", Kind: Minigame, Item: itemsrc.ItemHeartPiece,
 		Site: "daNpc_Kg1_c, d_a_npc_kg1.cpp (25 of 27 functions not decompiled); board d_a_mgameboard.cpp",
-		Note: "no grant site in the decomp",
+		Note: "no grant site in the decomp; ww-online reads register 0xFE07 >= 1 as its record (UNVERIFIED, REL only)",
 	},
 	{
 		ID: "barrel-shooting", Giver: "Salvatore (cannon minigame)", Where: "Spectacle Island", Kind: Minigame, Item: itemsrc.ItemHeartPiece,
 		Site: "daNpc_Kg2_c::evn_createItem_init, d_a_npc_kg2.cpp:167-170 (not decompiled)",
+		Note: "ww-online reads register 0xB703 >= 1 as its record (UNVERIFIED, REL only)",
 	},
 	{
 		ID: "bird-man-contest", Giver: "Willi and Obli (Bird-Man Contest)", Where: "Flight Control Platform", Kind: Minigame, Item: itemsrc.ItemHeartPiece,
 		Site: "daNpcBmcon_c::eventGetItemInit, d_a_npc_bmcon1.cpp:159-162 (not decompiled)",
+		Note: "ww-online reads event bit 0x2B40 as its record (UNVERIFIED, REL only)",
 	},
 }

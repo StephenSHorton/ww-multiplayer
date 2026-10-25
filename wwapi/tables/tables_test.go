@@ -767,6 +767,10 @@ var schemaShapes = map[int]string{
 	// player's beside a latching setter unless the start latches (kenroom's
 	// swing_sword beside Hyroom's torches, table 9 sw13, no longer syncs).
 	11: "18e463dd4d344be73cbc4e9f0f99bf72f2021d56a876e6db3cd6bc86cddd5014",
+	// 12: hearts gained "unreachable" (Cave06 and I_SubAN left out), the
+	// Catalogue Maggie and the withered trees, and records for Kreeb, Sam,
+	// Linda and Anton and the Goron trade.
+	12: "3b61961949b9db51caa795bc203cbf5eb68c5f4637e680b078329434393c537e",
 }
 
 func TestSchemaShape(t *testing.T) {

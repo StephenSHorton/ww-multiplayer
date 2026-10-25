@@ -180,10 +180,10 @@ func TestCountLife(t *testing.T) {
 	if f != want {
 		t.Errorf("CountLife = %+v, want %+v", f, want)
 	}
-	// Seven Catalogue records name a save bit: four event bits and three
+	// Eleven Catalogue records name a save bit: eight event bits and three
 	// letter registers (tables.RecordOf).
-	if f.Rewards != 7 || f.Rewards+f.Untracked != len(hearts.Catalogue) {
-		t.Errorf("rewards: %d recorded + %d untracked, want 7 of %d", f.Rewards, f.Untracked, len(hearts.Catalogue))
+	if f.Rewards != 11 || f.Rewards+f.Untracked != len(hearts.Catalogue) {
+		t.Errorf("rewards: %d recorded + %d untracked, want 11 of %d", f.Rewards, f.Untracked, len(hearts.Catalogue))
 	}
 	if got := f.Derived(); got != StartLife+1+2+4 {
 		t.Errorf("Derived = %d, want %d", got, StartLife+1+2+4)

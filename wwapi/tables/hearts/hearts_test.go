@@ -101,6 +101,9 @@ func vanilla() []stagetest.Stage {
 		mkStage("Xboss1", tableGT, []a{boss("Bkm")}),
 		mkStage("Xboss2", tableGT, nil, room(0, stagetest.Actors("ACTR", boss("big_pow")))),
 		mkStage("Xboss3", tableGT, []a{boss("Bwd")}),
+		// The two unreachable heart chests (unreachable), left out.
+		mkStage("Cave06", 12, []a{chest(18, hp)}),
+		mkStage("I_SubAN", 12, []a{chest(7, hp)}),
 	}
 }
 
@@ -145,7 +148,7 @@ func TestBuildVanilla(t *testing.T) {
 		Pieces: 44, StagePieces: 44 - len(Catalogue), RewardPieces: seen, UnverifiedPieces: len(Catalogue) - seen,
 		PiecesByKind: map[string]int{
 			"chest": 2 + 44 - len(Catalogue) - 9, "dig": 1, "item": 1, "race_item": 1, "pot": 1, "barrel": 1, "salvage": 2,
-			"npc": 6, "letter": 3, "shop": 1, "auction": 1, "minigame": 3,
+			"npc": 7, "letter": 3, "shop": 1, "auction": 1, "minigame": 3, "drop": 1,
 		},
 		Containers:         6,
 		ContainersByKind:   map[string]int{"boss": 5, "boss_item": 1},
@@ -193,12 +196,24 @@ func TestBuildVanilla(t *testing.T) {
 	if !reflect.DeepEqual(r.Rewards, Catalogue) {
 		t.Error("rewards are not the catalogue")
 	}
+	if got := r.Unreachable; len(got) != 2 || got[0].Name != "Cave06" || got[1].Name != "I_SubAN" ||
+		got[0].Why != unreachable["Cave06"] || got[1].Why != unreachable["I_SubAN"] {
+		t.Errorf("unreachable %+v, want Cave06 and I_SubAN", got)
+	}
+	for _, p := range r.Pieces {
+		for _, w := range p.At {
+			if _, ok := unreachable[w.Stage]; ok {
+				t.Errorf("piece in an unreachable stage: %+v", p)
+			}
+		}
+	}
 
 	rep := r.Report()
 	for _, s := range []string{
 		"hearts: PASS\n",
-		"  heart pieces: 44, vanilla 44: 30 in stage files (barrel 1, chest 23, dig 1, item 1, pot 1, race_item 1, salvage 2), 11 rewards (auction 1, letter 3, npc 6, shop 1), 3 unverified (minigame 3)\n",
-		"  heart containers: 6, vanilla 6 (boss 5, boss_item 1)\n",
+		"  heart pieces: 44, vanilla 44: 28 in stage files (barrel 1, chest 21, dig 1, item 1, pot 1, race_item 1, salvage 2), 11 rewards (auction 1, letter 3, npc 6, shop 1), 5 unverified (drop 1, minigame 3, npc 1)\n",
+		"  heart containers: 6, vanilla 6 (boss 5, boss_item 1)\n  left out Cave06: a heart chest (save table 12, tbox 18)",
+		"  left out I_SubAN: a heart chest (save table 12, tbox 7)",
 		"  7: salvage, item 0x07, chart 5\n    sea room 1, all layers, ACTR#6 \"Salvage\" setID 0x0000\n    sea room 1, all layers, ACTR#7",
 		"  2: boss, item 0x08, stage life 3\n    M_DragB stage file, all layers, ACTR#0 \"Btd\" setID 0x0000\n    M_DragB room 0",
 		"  ivan: Ivan (Killer Bees), Windfall Island, npc, item 0x07\n    site: daNpc_Mk_c, d_a_npc_mk.cpp:820-825\n    record: event bit 0x1340",
@@ -223,7 +238,7 @@ func TestBuildVanilla(t *testing.T) {
 	if !reflect.DeepEqual(&back, r) {
 		t.Errorf("JSON round trip changed the result:\n%s", b)
 	}
-	for _, s := range []string{`"pieces":[`, `"containers":[`, `"rewards":[`, `"stage_pieces":30`, `"expected_pieces":44`, `"item_seen":true`, `"pass":true`} {
+	for _, s := range []string{`"pieces":[`, `"containers":[`, `"rewards":[`, `"stage_pieces":28`, `"expected_pieces":44`, `"item_seen":true`, `"unreachable":[{"name":"Cave06"`, `"pass":true`} {
 		if !strings.Contains(string(b), s) {
 			t.Errorf("JSON lacks %s", s)
 		}
@@ -241,7 +256,7 @@ func TestBuildFailures(t *testing.T) {
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
 				return append(s, mkStage("Omori", 0xB, nil, room(0, stagetest.Actors("ACTR", fieldItem(1, itemsrc.ItemHeartPiece)))))
 			},
-			want: []string{"45 heart pieces (31 in stage files, 11 rewards, 3 unverified rewards); vanilla has 44"},
+			want: []string{"45 heart pieces (29 in stage files, 11 rewards, 5 unverified rewards); vanilla has 44"},
 		},
 		{
 			// The refight rule goes by the stage's name, as the bosses'
@@ -266,7 +281,7 @@ func TestBuildFailures(t *testing.T) {
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
 				return xboss0(s, room(0, stagetest.Actors("ACTR", fieldItem(1, itemsrc.ItemHeartPiece))))
 			},
-			want: []string{"45 heart pieces (31 in stage files, 11 rewards, 3 unverified rewards); vanilla has 44"},
+			want: []string{"45 heart pieces (29 in stage files, 11 rewards, 5 unverified rewards); vanilla has 44"},
 		},
 		{
 			name: "missing boss",
@@ -280,14 +295,14 @@ func TestBuildFailures(t *testing.T) {
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
 				return append(s, mkStage("Omori", 0xB, nil, room(0, stagetest.Actors("ACTR", fieldItem(0x7F, itemsrc.ItemHeartPiece)))))
 			},
-			want: []string{"piece 31: unsaved: nothing saved records the pickup"},
+			want: []string{"piece 29: unsaved: nothing saved records the pickup"},
 		},
 		{
 			name: "zone-bit piece",
 			edit: func(s []stagetest.Stage) []stagetest.Stage {
 				return append(s, mkStage("Omori", 0xB, nil, room(4, stagetest.Actors("ACTR", fieldItem(0x41, itemsrc.ItemHeartPiece)))))
 			},
-			want: []string{"piece 31: zone item room 4:0x41 (unsaved): nothing saved"},
+			want: []string{"piece 29: zone item room 4:0x41 (unsaved): nothing saved"},
 		},
 		{
 			// d_save.cpp:1164-1173 asserts on grid 50.
@@ -296,7 +311,7 @@ func TestBuildFailures(t *testing.T) {
 				return append(s, mkStage("Omori", 0, nil, room(50, stagetest.Actors("ACTR",
 					a{Name: "Salvage", Params: 3<<28 | 4<<20 | uint32(itemsrc.ItemHeartPiece)<<4}))))
 			},
-			want: []string{"piece 31: ocean grid 50:4 (halts): the game halts on that save bit"},
+			want: []string{"piece 29: ocean grid 50:4 (halts): the game halts on that save bit"},
 		},
 		{
 			name: "container on a bit the game halts on",
@@ -380,7 +395,7 @@ func TestCatalogue(t *testing.T) {
 		}
 		ids[rw.ID] = true
 		switch rw.Kind {
-		case NPC, Minigame, Letter, Shop, Auction:
+		case NPC, Minigame, Letter, Shop, Auction, Drop:
 		default:
 			t.Errorf("%s: kind %q", rw.ID, rw.Kind)
 		}
