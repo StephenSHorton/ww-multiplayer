@@ -959,6 +959,62 @@ func TestMaxLifeAddOnly(t *testing.T) {
 	}
 }
 
+// TestBossContainerOnce: a boss's container is counted once in each game.
+// Both games fight their own Gohma, and each one's Btd drops its own
+// container at its death (d_a_btd.cpp:1082), whoever killed first. When
+// the partner's STAGE_LIFE lands before the receiver takes its own, the
+// derive credits it and the pickup adds 4 more: the bug the replica's hold
+// (bossLifeBit) keeps out, pinned here. Held until the receiver takes its
+// own, or until Link leaves without it, the container counts once. The
+// last two subtests stand in for the hold by hand; the replica's
+// TestReconcileM4BossContainerOnce runs the real hold and this derive
+// together, the warp flower's cold-table path included.
+func TestBossContainerOnce(t *testing.T) {
+	life := func(r *rig) int { return r.u16(addr.MaxLife) }
+	// pickup is the receiver taking its own container: item_func_utuwa_
+	// heart sets STAGE_LIFE in the live memBit and counts 4
+	// (d_item.cpp:588-604).
+	pickup := func(r *rig) {
+		r.or(addr.LiveMemBit+addr.MemBitOffDungeonItem, stageLife.Mask)
+		r.count(addr.ItemMaxLifeCount, 4)
+	}
+	t.Run("landed mid-fight", func(t *testing.T) {
+		r := newRig(t, vanillaTables(t), drcBoss)
+		r.run(time.Second)
+		r.land(addr.TableDRC, stageLife)
+		r.settle()
+		if life(r) != derive.StartLife+4 {
+			t.Fatalf("max life = %d after the partner's container", life(r))
+		}
+		pickup(r)
+		r.settle()
+		if life(r) != derive.StartLife+8 || !r.noted("a duplicate pickup") {
+			t.Fatalf("max life = %d, notes %q: want the container twice, kept", life(r), r.notes)
+		}
+	})
+	t.Run("held until the receiver's pickup", func(t *testing.T) {
+		r := newRig(t, vanillaTables(t), drcBoss)
+		r.run(time.Second)
+		pickup(r)
+		r.settle()
+		r.land(addr.TableDRC, stageLife) // the partner's, once the hold's miss is gone: a no-op
+		r.settle()
+		if life(r) != derive.StartLife+4 || len(r.made) != 0 || len(r.notes) != 0 {
+			t.Fatalf("max life = %d, writes %v, notes %q: want its own container once", life(r), r.made, r.notes)
+		}
+	})
+	t.Run("left without it", func(t *testing.T) {
+		r := newRig(t, vanillaTables(t), drcBoss)
+		r.run(time.Second)
+		r.load(drc)
+		r.land(addr.TableDRC, stageLife) // written once Link has left the boss stage
+		r.settle()
+		if life(r) != derive.StartLife+4 || len(r.made) != 1 {
+			t.Fatalf("max life = %d, writes %v: want the partner's container once", life(r), r.made)
+		}
+	})
+}
+
 func TestMaxLifeBaseline(t *testing.T) {
 	// A file with a minigame's piece, which no save bit records.
 	r := newRig(t, vanillaTables(t), outerSea, func(r *rig) {
