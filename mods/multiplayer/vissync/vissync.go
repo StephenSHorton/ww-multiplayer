@@ -65,7 +65,7 @@ func LocalEquip(m mem.Reader) (app byte, equip [TrailerEquipBytes]byte, ok bool)
 		return 0, equip, false
 	}
 	copy(equip[:], sel)
-	if st, err := m.Read(addr.CurStageName, addr.StageNameLen); err == nil && stageName(st) == "sea" {
+	if st, err := m.Read(addr.CurStageName, addr.StageNameLen); err == nil && stageName(st) == seaStage {
 		app |= AppSea
 	}
 	if it, err := mem.ReadU16(m, link+offEquipItem); err == nil && it == itemSword {
@@ -150,6 +150,23 @@ func RemoteEquip(face []byte) mailbox.VisEquip {
 	}
 }
 
+// remoteOnSea reports whether rp is on the sea stage: by the place its
+// last position carried (network place.go), else by its pose trailer's
+// sea bit. The place comes first because relay scoping stops a remote's
+// poses while it is in another stage than this game, so the trailer then
+// keeps the bit of the last pose seen here; the position, which the
+// server relays to everyone, keeps the marker live while this game is
+// indoors and the remote sails.
+func remoteOnSea(rp *network.RemotePlayer) bool {
+	if rp.HasPlace {
+		return rp.Place.Stage == seaStage
+	}
+	return RemoteOnSea(rp.FaceState)
+}
+
+// seaStage is the Great Sea's stage name (LocalEquip's AppSea test).
+const seaStage = "sea"
+
 // RemoteOnSea reports the trailer's sea bit.
 func RemoteOnSea(face []byte) bool {
 	return len(face) > player.FaceBytes && face[player.FaceBytes]&AppSea != 0
@@ -202,7 +219,7 @@ func Build(s Settings, remotes []network.RemotePlayer, linkSlot map[byte]int, se
 			b.Names[slot] = rp.Name
 			b.Equip[slot] = RemoteEquip(rp.FaceState)
 		}
-		if s.SeaChart && rp.Position != nil && RemoteOnSea(rp.FaceState) && len(b.Sea) < mailbox.VisSeaMax {
+		if s.SeaChart && rp.Position != nil && remoteOnSea(rp) && len(b.Sea) < mailbox.VisSeaMax {
 			e := mailbox.VisSea{X: rp.Position.PosX, Z: rp.Position.PosZ, Angle: rp.Position.RotY, R: 0xFF, G: 0xFF, B: 0xFF}
 			if rp.HasColor {
 				e.R, e.G, e.B = rp.Color.R, rp.Color.G, rp.Color.B

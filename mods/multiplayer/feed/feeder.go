@@ -131,6 +131,15 @@ type Feeder struct {
 	// the partner (nil: no gate); away is the gate's last decision.
 	partner *PartnerPlace
 	away    bool
+	// placeAway[id] is the per-remote stage gate's last decision for a
+	// remote whose positions carry a place (place.go, gateFor).
+	placeAway map[byte]bool
+	// gatedAt[id] marks a remote the stage gate hides (the zero time) and,
+	// once it is shown again, holds when: the scoped server relays no pose
+	// of a remote in another stage, so its LastPose is as old as the time
+	// apart, and poseSeen measures liveness from here until a pose newer
+	// than it comes.
+	gatedAt map[byte]time.Time
 }
 
 // NewFeeder returns a Feeder drawing into m. Remotes named selfFilter
@@ -150,6 +159,8 @@ func NewFeeder(m Mem, selfFilter string, rep log.Reporter) *Feeder {
 		announced:        map[byte]bool{},
 		parked:           map[byte]bool{},
 		badRig:           map[byte]bool{},
+		placeAway:        map[byte]bool{},
+		gatedAt:          map[byte]time.Time{},
 	}
 	binary.BigEndian.PutUint32(f.one, 1)
 	for i := range f.armedEpoch {
@@ -218,6 +229,8 @@ func (f *Feeder) Connected(serverEpoch uint64) {
 		f.announced = map[byte]bool{}
 		f.parked = map[byte]bool{}
 		f.badRig = map[byte]bool{}
+		f.placeAway = map[byte]bool{}
+		f.gatedAt = map[byte]time.Time{}
 		f.rep.Log(log.Warn, "server restarted (epoch changed): full puppet reset")
 	}
 	log.Logf(f.rep, log.OK, "puppet-sync session %d armed (server epoch %d)", f.sessionEpoch, ep)
@@ -229,7 +242,7 @@ func (f *Feeder) Connected(serverEpoch uint64) {
 // left. ctx bounds a link slot's arming poll.
 func (f *Feeder) Feed(ctx context.Context, remotes []network.RemotePlayer, now time.Time) {
 	seen := map[byte]bool{}
-	away := f.partnerAway(remotes, now)
+	gate := f.gateFor(remotes, now)
 	for i := range remotes {
 		rp := &remotes[i]
 		if rp.Position == nil {
@@ -248,6 +261,7 @@ func (f *Feeder) Feed(ctx context.Context, remotes []network.RemotePlayer, now t
 			log.Logf(f.rep, log.Warn, "player %d (%s) sent a %d-joint pose (%d B); Link has %d joints, so it won't drive a Link slot",
 				rp.ID, rp.Name, rp.PoseJoints, len(rp.PoseMatrices), avatar.JointCount)
 		}
+		away := gate(rp)
 		idx, ok := f.actorSlot(rp, hasPose, away, now)
 		if !ok {
 			// All slots full; drop this remote for now.
@@ -283,8 +297,10 @@ func (f *Feeder) feedPose(ctx context.Context, rp *network.RemotePlayer, idx int
 	// Vanished-sender classification (#10). LastPose stops
 	// advancing the moment the remote's pose stream goes silent
 	// (crash / cable pull), well before the server's MsgLeave at
-	// serverReadTimeout.
-	frozenNow, despawnedNow := network.PoseLiveness(rp.LastPose, now, f.freezeAfter, f.despawnAfter)
+	// serverReadTimeout. While the stage gate hides it, and until its
+	// first pose after, it is measured from when it was shown (poseSeen).
+	f.noteGate(rp.ID, away, now)
+	frozenNow, despawnedNow := network.PoseLiveness(f.poseSeen(rp), now, f.freezeAfter, f.despawnAfter)
 
 	// A parked remote (reservation expired, slot freed) stays
 	// skipped until a fresh pose un-parks it.
@@ -407,6 +423,31 @@ func (f *Feeder) feedPose(ctx context.Context, rp *network.RemotePlayer, idx int
 	}
 }
 
+// noteGate records the stage gate's decision for remote id at now (see
+// gatedAt): hidden, or shown again after being hidden.
+func (f *Feeder) noteGate(id byte, away bool, now time.Time) {
+	at, gated := f.gatedAt[id]
+	switch {
+	case away:
+		f.gatedAt[id] = time.Time{}
+	case gated && at.IsZero():
+		f.gatedAt[id] = now
+	}
+}
+
+// poseSeen is when rp's pose stream was last known live: its LastPose,
+// or when the stage gate last showed it again if that is later. A remote
+// in another stage sends poses the scoped server does not relay here
+// (network place.go), so on its return its LastPose is as old as the time
+// apart; until its next pose arrives (a round trip and its next send), it
+// is not a silent sender, and neither freezes nor despawns.
+func (f *Feeder) poseSeen(rp *network.RemotePlayer) time.Time {
+	if at := f.gatedAt[rp.ID]; at.After(rp.LastPose) {
+		return at
+	}
+	return rp.LastPose
+}
+
 // releaseGone releases the slots of remotes not in seen: they have
 // disconnected (MsgLeave, or the server's read-timeout teardown removed
 // them from the player list).
@@ -429,6 +470,8 @@ func (f *Feeder) releaseGone(seen map[byte]bool) {
 			delete(f.announced, id)
 			delete(f.parked, id)
 			delete(f.badRig, id)
+			delete(f.placeAway, id)
+			delete(f.gatedAt, id)
 		}
 	}
 }

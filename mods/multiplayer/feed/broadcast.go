@@ -68,7 +68,15 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 					PosX: pos.PosX, PosY: pos.PosY, PosZ: pos.PosZ,
 					RotY: pos.RotY,
 				}
-				if err := client.SendPosition(netPos); err != nil {
+				// The place trailer (network place.go): where this
+				// game is, for the server's pose scoping and the
+				// receivers' stage gate. Without it (a failed read) the
+				// server relays this player's poses to everyone.
+				send := client.SendPosition
+				if place, ok := ReadPlace(d); ok {
+					send = func(p *network.PlayerPosition) error { return client.SendPositionAt(p, place) }
+				}
+				if err := send(netPos); err != nil {
 					posErrs++
 					if posErrs > 5 {
 						return fmt.Errorf("send position: %w", err)

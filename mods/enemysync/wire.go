@@ -113,6 +113,10 @@ const (
 	StateFlagAnim      uint8 = 1 << 0 // the slots' action/mode/attack/morf fields are valid (S2)
 	StateFlagColliders uint8 = 1 << 1 // the host wants the mirrors' colliders re-submitted (S3)
 	StateFlagInScope   uint8 = 1 << 2 // the host is in play with Link in a room (else a count-0 keepalive)
+	// StateFlagThin is the server's, never the host's: the STATE went to a
+	// client whose PSTATE puts it in another stage or room, so it carries
+	// the header alone (count 0; network enemy.go "Relay scoping").
+	StateFlagThin uint8 = network.EnemyStateFlagThin
 )
 
 // Slot flags (wire and block share them: wwapi/mailbox.EnemySF*).

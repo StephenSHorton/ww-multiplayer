@@ -33,6 +33,9 @@ type Player struct {
 	// posed is set by the first valid pose on the connection: the lobby
 	// lists a CLI player's Dolphin as in game from then on.
 	posed atomic.Bool
+	// where is the place its last position carried (place.go; guarded by
+	// the server's mu, as Position is).
+	where placeState
 }
 
 // Server manages player connections and relays position data.
@@ -52,6 +55,7 @@ type Server struct {
 	enemyHost    *enemyConn
 	enemyClients map[byte]*enemyConn
 	nextEnemyID  byte
+	enemySeq     uint64 // enemyConn.seq's counter (guarded by mu)
 	mu           sync.RWMutex
 	port         int
 	// epoch is constant for the life of this Server instance (its boot-time
@@ -105,6 +109,15 @@ type Server struct {
 	AppVersion string
 	// started is when Start began listening (guarded by mu).
 	started time.Time
+
+	// scope turns relay scoping on (place.go; WW_RELAY_SCOPE, read at
+	// NewServer). now is the clock scoping reads (time.Now; tests replace
+	// it before Start). scopeStats counts what scoping did (guarded by
+	// scopeMu, so the relay paths that hold mu only for reading can count).
+	scope      bool
+	now        func() time.Time
+	scopeMu    sync.Mutex
+	scopeStats ScopeStats
 }
 
 // NewServer creates a server on the given port.
@@ -126,6 +139,8 @@ func NewServer(port int) *Server {
 		coopHold:       coopHoldTimeout,
 		coopSet:        make(chan struct{}),
 		stopped:        make(chan struct{}),
+		scope:          relayScopeFromEnv(),
+		now:            time.Now,
 	}
 	s.lobby = newLobbyHub(s, LobbyHoldTimeout)
 	return s
@@ -374,12 +389,29 @@ func (s *Server) handlePlayer(conn net.Conn) {
 		case MsgPosition:
 			pos := DeserializePosition(msg.Data)
 			if pos != nil {
+				// The optional place trailer (place.go). A malformed
+				// one is dropped, not the position: the relay then
+				// carries none, and receivers fall back as for an old
+				// sender.
+				place, hasPlace := Place{}, false
+				if len(msg.Data) > 18 {
+					if place, hasPlace = ParsePlace(msg.Data[18:]); !hasPlace {
+						s.countScope(func(st *ScopeStats) { st.PlacesRejected++ })
+					}
+				}
 				s.mu.Lock()
 				player.Position = pos
+				if hasPlace {
+					player.where = placeState{place: place, at: s.now()}
+				}
 				s.mu.Unlock()
 
-				// Relay to all other players
+				// Relay to all other players, with the place: positions
+				// are never scoped (place.go).
 				relayData := PositionMessage(id, pos)
+				if hasPlace {
+					relayData = AppendPlace(relayData, place)
+				}
 				s.broadcastExcept(id, MsgPosition, relayData)
 			}
 
@@ -414,7 +446,7 @@ func (s *Server) handlePlayer(conn net.Conn) {
 				break
 			}
 			if relay := PoseRelayMessage(id, joints, matrices, face); relay != nil {
-				s.broadcastExcept(id, MsgPose, relay)
+				s.relayPose(player, relay)
 			}
 			if !player.posed.Swap(true) {
 				s.lobby.playersChanged()
@@ -572,6 +604,12 @@ func allocFrom(next *byte, taken func(byte) bool) (id byte, ok bool) {
 }
 
 func (s *Server) broadcastExcept(excludeID byte, msgType byte, data []byte) {
+	s.broadcastWhere(excludeID, msgType, data, nil)
+}
+
+// broadcastWhere is broadcastExcept to the players keep accepts (nil: all
+// of them). keep runs under s.mu (read).
+func (s *Server) broadcastWhere(excludeID byte, msgType byte, data []byte, keep func(p *Player) bool) {
 	// Ingress caps (handlePlayer) keep every relay far below MaxPayload.
 	// Should one ever exceed it anyway, drop it here: WriteMessage would
 	// fail for every recipient, and failed writers are retired below, so
@@ -583,7 +621,7 @@ func (s *Server) broadcastExcept(excludeID byte, msgType byte, data []byte) {
 	s.mu.RLock()
 	var failed []*Player
 	for _, p := range s.players {
-		if p.ID != excludeID {
+		if p.ID != excludeID && (keep == nil || keep(p)) {
 			if err := s.writePlayer(p, msgType, data); err != nil {
 				failed = append(failed, p)
 			}
@@ -592,6 +630,56 @@ func (s *Server) broadcastExcept(excludeID byte, msgType byte, data []byte) {
 	s.mu.RUnlock()
 
 	s.retirePlayers(failed)
+}
+
+// relayPose relays one pose frame from sender to the other players in its
+// stage that draw remotes (place.go: poseInScope, and no connection that
+// sends poses itself; everyone while scoping is off), counting what it
+// sent and held back.
+func (s *Server) relayPose(sender *Player, relay []byte) {
+	if !s.scope {
+		s.broadcastExcept(sender.ID, MsgPose, relay)
+		return
+	}
+	frame := int64(len(relay) + 3)
+	var sent, scoped int
+	s.broadcastWhere(sender.ID, MsgPose, relay, func(p *Player) bool {
+		if p.posed.Load() {
+			// A pose sender (broadcast-pose) never draws remotes:
+			// only puppet-sync does (place.go).
+			scoped++
+			return false
+		}
+		now := s.now()
+		from, fromOK := s.placeOfLocked(sender, now)
+		to, toOK := s.placeOfLocked(p, now)
+		if poseInScope(from, fromOK, to, toOK) {
+			sent++
+			return true
+		}
+		scoped++
+		return false
+	})
+	s.countScope(func(st *ScopeStats) {
+		st.PosesSent += sent
+		st.PosesScoped += scoped
+		st.PoseBytesSent += int64(sent) * frame
+		st.PoseBytesScoped += int64(scoped) * frame
+	})
+}
+
+// countScope updates the scoping counters under scopeMu.
+func (s *Server) countScope(f func(*ScopeStats)) {
+	s.scopeMu.Lock()
+	f(&s.scopeStats)
+	s.scopeMu.Unlock()
+}
+
+// ScopeStats returns a copy of the relay scoping counters (place.go).
+func (s *Server) ScopeStats() ScopeStats {
+	s.scopeMu.Lock()
+	defer s.scopeMu.Unlock()
+	return s.scopeStats
 }
 
 func (s *Server) broadcastPlayerList() {

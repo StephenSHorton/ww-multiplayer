@@ -223,6 +223,11 @@ type Mirror struct {
 	// emptySince is when the host's in-scope STATEs started listing no
 	// enemy while the copies were held over it (zero: not so).
 	emptySince time.Time
+	// thinSince is when a run of thinned STATEs naming this game's own
+	// stage and room began (zero: not in one); thinWarned marks its
+	// warning logged.
+	thinSince  time.Time
+	thinWarned bool
 
 	// Remote, when set, is this joiner's remote-Link side (players.go):
 	// OnEnemy hands it the PHITs and RunMirror ticks it after the mirror.
@@ -758,6 +763,7 @@ func (c *Mirror) resetScope() {
 	clear(c.local)
 	c.lastKeys, c.matchNext = nil, time.Time{}
 	c.holdSt, c.holdSince, c.emptySince = nil, time.Time{}, time.Time{}
+	c.thinSince, c.thinWarned = time.Time{}, false
 }
 
 // match walks this game's enemies of (stage, room) when the scope changed,
@@ -1406,6 +1412,9 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		c.localStage, c.localRoom = scope.Stage, scope.Room
 	}
 	st, at := c.Latest()
+	if st == nil || st.Flags&StateFlagThin == 0 {
+		c.thinSince, c.thinWarned = time.Time{}, false
+	}
 	switch {
 	case st == nil:
 		return nil, GateSleep, c.disarm(now, "no STATE from the host yet")
@@ -1435,6 +1444,33 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		return nil, GateSleep, c.disarm(now, fmt.Sprintf("the host's enemy kind table is another build's (hash %08X, this build's %08X)", st.KindHash, KindHash()))
 	case st.Stage != scope.Stage || st.Room != scope.Room:
 		return nil, GateSleep, c.disarm(now, fmt.Sprintf("the host is in %s room %d, this game in %s room %d", st.Stage, st.Room, scope.Stage, scope.Room))
+	case st.Flags&StateFlagThin != 0:
+		// The server thinned this STATE to its header (relay scoping:
+		// our last PSTATE named another place): it is not the host's
+		// list. We just arrived in the host's room; the next PSTATE (sent at
+		// once on the scope change, else every PStateEvery) brings the
+		// whole STATE back within a round trip. Wait for it at the normal
+		// cadence, changing nothing, for up to StaleAfter: past
+		// that the server's view of this game is out of step with
+		// ReadScope (no PSTATE getting through?), and the thin run is a
+		// stale STATE (warned once, held StaleHold, then released).
+		if c.thinSince.IsZero() {
+			c.thinSince = now
+		}
+		thin := now.Sub(c.thinSince)
+		if thin <= StaleAfter {
+			return nil, 0, nil
+		}
+		if !c.thinWarned {
+			c.thinWarned = true
+			log.Logf(c.rep, log.Warn, "enemy client: the server has sent only thinned STATEs for %s room %d (this game's) for %v: is our PSTATE getting through?", scope.Stage, scope.Room, thin.Round(time.Millisecond))
+		}
+		if thin <= StaleAfter+c.StaleHold {
+			if held, err := c.hold(now, "the host's STATE stays thinned (a stall?)", c.StaleHold); held || err != nil {
+				return nil, GateSleep, err
+			}
+		}
+		return nil, GateSleep, c.disarm(now, "the host's STATE stays thinned")
 	}
 	if len(st.Slots) == 0 && c.reloading(st) {
 		if c.emptySince.IsZero() {

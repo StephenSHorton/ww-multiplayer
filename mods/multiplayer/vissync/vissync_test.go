@@ -171,3 +171,22 @@ func TestSyncWritesOnChangeAndRefresh(t *testing.T) {
 		t.Errorf("magic after Off %#x", mg)
 	}
 }
+
+// TestBuildSeaByPlace (relay scoping): a remote's position place decides
+// its sea chart marker over its pose trailer's sea bit, which goes stale
+// once the server stops relaying its poses (another stage than ours).
+// Without a place the trailer still decides.
+func TestBuildSeaByPlace(t *testing.T) {
+	remotes := []network.RemotePlayer{
+		// Sailing now; its last pose seen here was indoors (no sea bit).
+		{ID: 2, Name: "Tetra", FaceState: make([]byte, player.FaceBytes+1), Position: &network.PlayerPosition{PosX: 1}, Place: network.Place{Stage: "sea", Room: 26, InPlay: true}, HasPlace: true},
+		// Gone indoors; its last pose seen here was at sea.
+		{ID: 3, Name: "Aryll", FaceState: trailer(AppSea, 0, 0), Position: &network.PlayerPosition{PosX: 2}, Place: network.Place{Stage: "Abesso", InPlay: true}, HasPlace: true},
+		// An old sender: the trailer bit.
+		{ID: 4, Name: "Medli", FaceState: trailer(AppSea, 0, 0), Position: &network.PlayerPosition{PosX: 3}},
+	}
+	b := Build(Settings{SeaChart: true}, remotes, nil, "")
+	if len(b.Sea) != 2 || b.Sea[0].X != 1 || b.Sea[1].X != 3 {
+		t.Errorf("sea %+v, want Tetra (place) and Medli (trailer)", b.Sea)
+	}
+}
