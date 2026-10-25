@@ -15,6 +15,11 @@ import (
 // frames.
 const heartbeatStall = 100 * time.Millisecond
 
+// heartbeatLogAfter is how long a stall must last before it is logged:
+// a shader compile or disc read can hold a frame past heartbeatStall,
+// and the gate closing for it is right but not worth a log line.
+const heartbeatLogAfter = time.Second
+
 // gameRun is the feeder's view of whether the game is running its frames:
 // the reset gate (docs/05 "Soft reset"). Every pose and face write lands
 // in a GameHeap block named by a mailbox pointer, and the tunic images do
@@ -27,7 +32,8 @@ type gameRun struct {
 	read   bool      // last is a real read
 	moving bool      // the counter has changed since the first read
 	open   bool      // the last verdict
-	why    string    // the closed verdict's reason, logged once per close
+	why    string    // the closed verdict's reason
+	logged bool      // a pause line is out for this close
 }
 
 // running reports whether pose, face and tunic writes may be made now:
@@ -36,11 +42,11 @@ type gameRun struct {
 // heartbeat has not stood still for heartbeatStall (the game's frames have
 // stopped: a reboot, or emulation paused). Until the heartbeat has been
 // seen moving at all it does not close the gate: the contract check
-// already proved this build's mod is loaded. It logs each close and
-// reopen once.
+// already proved this build's mod is loaded. It logs each close once (a
+// stall only past heartbeatLogAfter) and the reopen after a logged close.
 func (f *Feeder) running(now time.Time) bool {
 	g := &f.run
-	why := ""
+	why, stalled := "", false
 	if hb, err := f.m.ReadU32(mailbox.SpawnTrigger); err != nil {
 		why = "the game cannot be read"
 	} else {
@@ -51,7 +57,7 @@ func (f *Feeder) running(now time.Time) bool {
 			g.moving, g.last, g.at = true, hb, now
 		}
 		if g.moving && now.Sub(g.at) >= heartbeatStall {
-			why = "the game's frames have stopped (a reboot, or emulation paused)"
+			why, stalled = "the game's frames have stopped (a reboot, or emulation paused)", true
 		}
 	}
 	if why == "" {
@@ -69,10 +75,17 @@ func (f *Feeder) running(now time.Time) bool {
 	}
 	open := why == ""
 	switch {
-	case !open && why != g.why:
-		log.Logf(f.rep, log.Warn, "pose feed paused: %s; no pose, face or tunic writes until it runs again", why)
-	case open && !g.open && g.why != "":
+	case !open:
+		if why != g.why {
+			g.logged = false
+		}
+		if !g.logged && (!stalled || now.Sub(g.at) >= heartbeatLogAfter) {
+			log.Logf(f.rep, log.Warn, "pose feed paused: %s; no pose, face or tunic writes until it runs again", why)
+			g.logged = true
+		}
+	case g.logged:
 		log.Logf(f.rep, log.OK, "pose feed resumed: the game is running again")
+		g.logged = false
 	}
 	g.open, g.why = open, why
 	return open

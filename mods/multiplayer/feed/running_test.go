@@ -12,8 +12,9 @@ import (
 // TestFeederResetGate: with the heartbeat moving, poses are written; it
 // standing still for heartbeatStall, mDoRst's mReset set, or the reset
 // block's pointer 0 (the reboot, before main sets it) stops every pose
-// write, each logged once; the game running again resumes them. Puppet-
-// sync holds the tunic images to Running.
+// write, each logged once (a stall only past heartbeatLogAfter, so a
+// hitch logs nothing); the game running again resumes them. Puppet-sync
+// holds the tunic images to Running.
 func TestFeederResetGate(t *testing.T) {
 	f, c, rep := newTestFeeder(t)
 	ctx := context.Background()
@@ -37,6 +38,16 @@ func TestFeederResetGate(t *testing.T) {
 	if !moving(true, 4) || !f.Running() {
 		t.Fatal("running game: no poses written")
 	}
+	// A hitch (8 frames' worth): closed, but nothing logged.
+	for i := 0; i < 8; i++ {
+		tick(false)
+	}
+	if f.Running() {
+		t.Error("open through an 8-tick stall")
+	}
+	if !moving(true, 3) || rep.has("pose feed paused") || rep.has("pose feed resumed") {
+		t.Error("a hitch was logged, or poses did not come back after it")
+	}
 	// The frames stop (a reboot): writes go on for heartbeatStall, then stop.
 	tick(false)
 	if !f.Running() {
@@ -48,8 +59,11 @@ func TestFeederResetGate(t *testing.T) {
 	if f.Running() || moving(false, 5) {
 		t.Error("poses still written with the heartbeat stopped")
 	}
+	for i := 0; i < int(heartbeatLogAfter/(16*time.Millisecond)); i++ {
+		tick(false)
+	}
 	if !rep.has("frames have stopped") {
-		t.Error("no pause line")
+		t.Error("no pause line past heartbeatLogAfter")
 	}
 	if !moving(true, 3) || !f.Running() || !rep.has("pose feed resumed") {
 		t.Error("frames back: poses not written again")
