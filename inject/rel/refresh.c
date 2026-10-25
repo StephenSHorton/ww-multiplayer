@@ -103,7 +103,12 @@
 //     fpcLyTg_QueueTo, which sets mLyTg.mpLayer (+0x2C: mLyTg +0x18 plus
 //     create_tag_class's 0x14) to NULL (f_pc_layer_tag.cpp:36-44, DOL
 //     0x8003E044), and a create into NULL writes through NULL. So are the
-//     home pos, angle and room, the scale and the argument;
+//     home pos, angle and room, the scale and the argument. gbaName
+//     (+0x1C2, set by dStage_actorCreate from the stage name table) is not
+//     carried: fopAcM_create has no parameter for it, and the new actor is
+//     only queued when it returns. A re-created Tbox so passes gbaName 0 to
+//     dMap_drawPoint (d_a_tbox.cpp:1067): the Tingle Tuner's map point for
+//     it differs from a reload's until the room reloads (cosmetic);
 //   - the create runs only if the delete was accepted (fopAcM_delete__FUi
 //     refuses a process still creating or already deleting): otherwise two
 //     actors would stand, two chests with one item each;
@@ -225,7 +230,9 @@ typedef BOOL (*rf_is_bit_t)(void* membit, int no);
 // the generic 3D WWRF_LINK_FAR.
 #define RF_ROW_RECREATE 0x01  // delete, then create again (else delete only)
 #define RF_ROW_ANGLE_X  0x02  // the bit is home.angle.x's, not the params'
-#define RF_ROW_CUR_ROOM 0x04  // create reads it with fopAcM_GetRoomNo: a zone bit needs current.roomNo == the home room
+#define RF_ROW_CUR_ROOM 0x04  // create reads it with fopAcM_GetRoomNo (current.roomNo), not fopAcM_isSwitch's
+                              // home room (f_op_actor_mng.h:374-375): a zone bit needs current.roomNo == the home
+                              // room. Only MJDOOR, SWHIT0 and MFLFT; the rest read the home room.
 #define RF_ROW_NO_ZONE  0x08  // create reads it with the stay room: memory or dan only (< WWRF_ZONE_SW_MIN)
 #define RF_ROW_MEM_ONLY 0x10  // create reads it with room -1: memory only (< WWRF_MEM_SW_END)
 #define RF_ROW_NEED32   0x20  // need_off is a u32 (else a u8)
@@ -265,28 +272,32 @@ static const rf_row rf_rows[] = {
     // FLOOR: home room (d_a_floor.cpp:59-61); u8 +0x2D8 set when the
     // Iron Boots break starts (rideCallBack :21-24, d_a_floor.h:22).
     { WWRF_PROC_FLOOR, 0x2D8, 0, 0, 0, 1, 0, RF_V(0), 0 },
-    // Obj_Ice: chk_appear via fopAcM_isSwitch (d_a_obj_ice.cpp:105-115,
+    // Obj_Ice: chk_appear via fopAcM_isSwitch, home room (d_a_obj_ice.cpp:105-115,
     // PRM_SWSAVE 8 at 0, d_a_obj_ice.h:15-16); s32 m458 +0x458 is the
     // melt countdown, 0 until a fire hit sets 0x5A (:333).
-    { WWRF_PROC_ICE, 0x458, 0, 0, RF_ROW_CUR_ROOM, 4, 0, RF_V(0), 0 },
+    { WWRF_PROC_ICE, 0x458, 0, 0, 0, 4, 0, RF_V(0), 0 },
     // MJDOOR: field_0x2CC = (u8)params, current room
     // (d_a_obj_majyuu_door.cpp:114-116, 146-148); int mMode +0x290 0 WAIT,
     // 1 DELETE (breaking; d_a_obj_majyuu_door.h:13-14, 40).
     { WWRF_PROC_MJDOOR, 0x290, 0, 0, RF_ROW_CUR_ROOM, 4, 0, RF_V(0), 0 },
-    // MKIE: prm_get_swSave (params >> 16) (d_a_obj_mkie.cpp:208); int
+    // MKIE: prm_get_swSave (params >> 16), fopAcM_isSwitch home room
+    // (d_a_obj_mkie.cpp:208); int
     // mModeProc +0xF50 0 mode_wait, 1 demoWait, 2 demo (:390-394,
     // d_a_obj_mkie.h:95).
-    { WWRF_PROC_MKIE, 0xF50, 0, WWRF_MKIE_SW_SHIFT, RF_ROW_CUR_ROOM, 4, 0, RF_V(0), 0 },
-    // MKIEK: PRM_SWSAVE 8 at 0 (d_a_obj_mkiek.cpp:89-91); mState +0x45C
+    { WWRF_PROC_MKIE, 0xF50, 0, WWRF_MKIE_SW_SHIFT, 0, 4, 0, RF_V(0), 0 },
+    // MKIEK: PRM_SWSAVE 8 at 0, fopAcM_isSwitch home room
+    // (d_a_obj_mkiek.cpp:89-91); mState +0x45C
     // STATE_0 until lit (:139, d_a_obj_mkiek.h:9-13, 56).
-    { WWRF_PROC_MKIEK, 0x45C, 0, 0, RF_ROW_CUR_ROOM, 4, 0, RF_V(0), 0 },
-    // MKNJD: PRM_SWITCH 8 at 0 (d_a_obj_mknjd.cpp:303, d_a_obj_mknjd.h:17-24);
+    { WWRF_PROC_MKIEK, 0x45C, 0, 0, 0, 4, 0, RF_V(0), 0 },
+    // MKNJD: PRM_SWITCH 8 at 0, fopAcM_isSwitch home room (d_a_obj_mknjd.cpp:303,
+    // d_a_obj_mknjd.h:17-24);
     // u8 m043F +0x43F 0 (idle, talkable) or 8 (idle with the song-lesson
     // callbacks, :281-287); 1..7 and 9..12 are its events (Execute :719-).
-    { WWRF_PROC_MKNJD, 0x43F, 0, 0, RF_ROW_CUR_ROOM, 1, 0, RF_V(0) | RF_V(8), 0 },
-    // VFAN: PRM_SWSAVE 8 at 0 (d_a_obj_vfan.cpp:90, d_a_obj_vfan.h:16-17);
+    { WWRF_PROC_MKNJD, 0x43F, 0, 0, 0, 1, 0, RF_V(0) | RF_V(8), 0 },
+    // VFAN: PRM_SWSAVE 8 at 0, fopAcM_isSwitch home room (d_a_obj_vfan.cpp:90,
+    // d_a_obj_vfan.h:16-17);
     // int mState +0x440 0 until hit (:153-163).
-    { WWRF_PROC_VFAN, 0x440, 0, 0, RF_ROW_CUR_ROOM, 4, 0, RF_V(0), 0 },
+    { WWRF_PROC_VFAN, 0x440, 0, 0, 0, 4, 0, RF_V(0), 0 },
     // Built in the set state: re-create.
     // SWHIT0: getSwNo (u8)params, current room (d_a_swhit0.cpp:73-75,
     // 166-172); u8 mState +0x551: 0 off (the stale state), 1..3 being lit
@@ -308,17 +319,18 @@ static const rf_row rf_rows[] = {
     // set in case 0 (:182-200), so the new one answers IN_STATE. Their
     // near 50.
     { WWRF_PROC_MFLFT, 0x29A, 0, WWRF_MFLFT_SW_SHIFT, RF_ROW_RECREATE | RF_ROW_CUR_ROOM, 2, 50, RF_V(0), RF_V(1) },
-    // KOKIIE: m2A2 = params >> 24, fopAcM_isSwitch (d_a_kokiie.cpp:393,
+    // KOKIIE: m2A2 = params >> 24, fopAcM_isSwitch home room (d_a_kokiie.cpp:393,
     // 438-441: set, it comes up fallen, m29A 1, no hands); s16 m29A +0x29A
     // (d_a_kokiie.h:12). Their near 100 (cull box 1000).
-    { WWRF_PROC_KOKIIE, 0x29A, 0, WWRF_KOKIIE_SW_SHIFT, RF_ROW_RECREATE | RF_ROW_CUR_ROOM | RF_ROW_KIDS, 2, 100, RF_V(0),
+    { WWRF_PROC_KOKIIE, 0x29A, 0, WWRF_KOKIIE_SW_SHIFT, RF_ROW_RECREATE | RF_ROW_KIDS, 2, 100, RF_V(0),
       RF_V(1) },
-    // VMC: prm_get_swSave (params >> 8) (d_a_obj_vmc.h:17-22; CreateInit
+    // VMC: prm_get_swSave (params >> 8), fopAcM_isSwitch home room
+    // (d_a_obj_vmc.h:17-22; CreateInit
     // d_a_obj_vmc.cpp:145-157: set, the tree grown with its BG); s32
     // mState +0x4B8 (the sizes chain from mCyl +0x304: the header's two
     // "0x434" comments are a typo) 0 BASE_MAIN, 1..2 the grow demo, 3
     // TREE_MAIN (:11-16). Their near 30 (cull box 300).
-    { WWRF_PROC_VMC, 0x4B8, 0, WWRF_VMC_SW_SHIFT, RF_ROW_RECREATE | RF_ROW_CUR_ROOM, 4, 30, RF_V(0), RF_V(3) },
+    { WWRF_PROC_VMC, 0x4B8, 0, WWRF_VMC_SW_SHIFT, RF_ROW_RECREATE, 4, 30, RF_V(0), RF_V(3) },
 #if WWRF_DOOR_ROWS
     // Pending ST1 (archive/coop-batch2/live/LIVE-3-doors.md): ww-online
     // froze on its live lock write and moved to this re-create; ours keeps
