@@ -206,7 +206,7 @@ typedef struct {
     cXyz pos;
     s16 ax, ay, az, sail_angle, tiller, part_a, part_b;
     u16 retry;
-    u8 mast_bck, head_bck, flags, part, posed, sail_show, sail_cur, pad;
+    u8 mast_bck, head_bck, flags, part, posed, sail_show, sail_cur, sail_want;
     u32 tev[TEV_SIZE / 4];
 } bt_boat;
 
@@ -296,8 +296,10 @@ static const u16 bt_sail_amp[GRID_VTX] = {
     0,
 };
 
-static u8* bt_sail_make(void) {
-    u8* s = (u8*)bt_op_new(SAIL_BYTES);
+static u8* bt_sail_make(void* heap) {
+    // 32-aligned: the palettes are GX TLUTs (and ho_move flushes the
+    // vertex arrays in the same block); new would give 4.
+    u8* s = (u8*)JKRHeap_alloc(SAIL_BYTES, 32, heap);
     u8* t;
     int i;
     if (!s) return 0;
@@ -323,6 +325,7 @@ static int bt_build(bt_boat* b, u32 data, int sail) {
     old = JKRHeap_becomeCurrentHeap(heap);
     b->heap = heap;
     b->data = data;
+    b->sail_want = (u8)(sail != 0);
     b->body_anm = bt_morf(SHIP_BDL_BODY, SHIP_BCK_MAST_OFF, BT_BODY_DIFF);
     if (b->body_anm && !bt_skin(BT_AT(b->body_anm, J3DModel*, MORF_MODEL))) b->body_anm = 0;
     if (b->body_anm) b->head_anm = bt_morf(SHIP_BDL_HEAD, SHIP_BCK_LOOK_L, BT_PART_DIFF);
@@ -330,7 +333,7 @@ static int bt_build(bt_boat* b, u32 data, int sail) {
         b->cannon = bt_part(SHIP_BDL_CANNON);
         b->crane = bt_part(SHIP_BDL_CRANE);
         if (sail) {
-            b->sail = bt_sail_make();
+            b->sail = bt_sail_make(heap);
             if (!b->sail || !BT_AT(b->sail, u8*, SAIL_TIMG)) bt_err(WWBOAT_ERR_SAIL);
         }
     }
@@ -447,7 +450,8 @@ static void bt_calc(bt_boat* b, J3DModel* model, u8* morf, u8 which) {
     }
 }
 
-// The remote's bck at its frame (speed 0, no blend: the frames stream in).
+// The remote's bck at its frame (speed 0, no blend: the frames stream in),
+// below the end as a finished bck sits (play() leaves it at end - 0.001).
 static void bt_bck(u8* morf, u8* cur, u32 bck, u8 frame) {
     s16 end;
     if (bck != *cur) {
@@ -457,7 +461,7 @@ static void bt_bck(u8* morf, u8* cur, u32 bck, u8 frame) {
         *cur = (u8)bck;
     }
     end = BT_AT(morf, s16, MORF_FRAME_END);
-    BT_AT(morf, f32, MORF_FRAME) = (f32)(frame < end ? frame : end);
+    BT_AT(morf, f32, MORF_FRAME) = frame < end ? (f32)frame : (f32)end - 0.001f;
 }
 
 static f32 bt_col_len(const f32* m, int c) {
@@ -558,7 +562,7 @@ void boats_frame(void) {
         u32 e = WWBOAT_ENTRIES_OFF + i * WWBOAT_E_SIZE;
         b->posed = 0;
         if (!data || !(BT_BYTE(e + WWBOAT_E_FLAGS) & WWBOAT_EF_SHOW) || (b->heap && b->data != data) ||
-            (b->heap && ((flags & WWBOAT_F_SAIL) != 0) != (b->sail != 0))) {
+            (b->heap && ((flags & WWBOAT_F_SAIL) != 0) != b->sail_want)) {
             if (b->heap) bt_free(b);
             if (!data || !(BT_BYTE(e + WWBOAT_E_FLAGS) & WWBOAT_EF_SHOW)) continue;
         }
@@ -610,6 +614,7 @@ void boats_draw(void) {
         u32 opa, xlu;
         u8* tev = (u8*)b->tev;
         if (!b->heap || !b->posed) continue;
+        if (BT_STAY_NO < 0) continue;     // a stage's first frames: no room to light it for yet
         // Lit for the room this game stands in (on the sea the remote's
         // square may not be loaded here), as daShip_c::draw (d_a_ship.cpp:253-255).
         tev[TEV_ROOM] = (u8)BT_STAY_NO;
