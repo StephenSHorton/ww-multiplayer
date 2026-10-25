@@ -941,7 +941,8 @@ players 3 and 4 did before.
 ## Soft reset (2026-10-25)
 
 A soft reset (`mDoRst_reset(0, 0x80000000, 0)` -> `OSResetSystem` restart,
-`d_s_logo.cpp:503`, `m_Do_Reset.cpp:76`) reloads the DOL and boots again through `__start` ->
+`d_s_logo.cpp:503`, `m_Do_Reset.cpp:76`; reset 0 is `OS_RESET_RESTART`, which calls
+`__OSReboot`, `OSReset.c:171-174`) reloads the DOL and boots again through `__start` ->
 `main` -> `main01` (`m_Do_main.cpp:599`), which builds new heaps in `mDoMch_Create` (`:407`).
 RAM is not cleared. So:
 
