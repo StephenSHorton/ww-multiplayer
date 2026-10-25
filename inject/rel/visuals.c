@@ -491,6 +491,25 @@ typedef void (*vis_pane_draw_t)(void* pane, f32 x, f32 y, void* graf, int clip);
 #define J2DPane_calcMtx   ((vis_pane_fn_t)0x8002D088)    // calcMtx__7J2DPaneFv
 #define J2DPane_draw      ((vis_pane_draw_t)0x802D0078)  // draw__7J2DPaneFffPC14J2DGrafContextb
 #define J2DPICTURE_VTBL   0x8039D730                     // __vt__10J2DPicture
+// J2DScreen::draw's clean-up after its panes (J2DScreen.cpp:161-166), repeated
+// after ours: see vis_sea_cleanup.
+typedef void (*vis_gx_u8_t)(u32 v);
+typedef void (*vis_gx_2_t)(u32 a, u32 b);
+typedef void (*vis_gx_order_t)(u32 stage, u32 coord, u32 map, u32 color);
+#define GXSetNumTevStages ((vis_gx_u8_t)0x80326578)     // GXSetNumTevStages
+#define GXSetTevOp        ((vis_gx_2_t)0x80325DC4)      // GXSetTevOp
+#define GXSetTevOrder     ((vis_gx_order_t)0x803263A0)  // GXSetTevOrder
+#define GXSetVtxDesc      ((vis_gx_2_t)0x80321608)      // GXSetVtxDesc
+#define GXSetCullMode     ((vis_gx_u8_t)0x80323328)     // GXSetCullMode
+#define GXSetNumTexGens   ((vis_gx_u8_t)0x803228D4)     // GXSetNumTexGens
+#define GX_TEVSTAGE0      0
+#define GX_PASSCLR        4
+#define GX_TEXCOORD_NULL  0xFF
+#define GX_TEXMAP_NULL    0xFF
+#define GX_COLOR0A0       4
+#define GX_VA_TEX0        13
+#define GX_NONE           0
+#define GX_CULL_NONE      0
 
 // dMenu_Fmap_c (d_menu_fmap.h; offsets from the decomp's member comments).
 #define FMAP_OFF_DL        0x001C   // dDlst_FMAP_c fmapDl: dDlst_FMAP_c::draw's this
@@ -502,12 +521,16 @@ typedef void (*vis_pane_draw_t)(void* pane, f32 x, f32 y, void* graf, int clip);
 #define FMAP_CLB_PANE      0x30A4   // mClbPane.pane: the zoomed square (lnk2's parent)
 #define FMAP_CLB_SIZE_X    0x30C8   // mClbPane.mSizeOrig
 #define FMAP_CLB_SIZE_Y    0x30CC
+#define FMAP_MAIN_PROC     0x5113   // u8 mMainProcIdx (MainProcIdx, d_menu_fmap.cpp:281-284)
 #define FMAP_PROC_IDX      0x5114   // u8 mFmapProcIdx (ZoomProcIdx, d_menu_fmap.cpp:271)
+#define FMAP_MODE          0x516B   // u8 mFmapMode (d_menu_fmap.h:431; FMAP_MODE_* :34-37)
 #define FMAP_PLAYER_X      0x511C   // mPlayerPos.x = Link's current.pos.x (:623)
 #define FMAP_PLAYER_Z      0x5120   // mPlayerPos.y = Link's current.pos.z (:624)
 #define FMAP_ON_SEA        0x517F   // bool mFishmanActive: opened on the "sea" stage (:637-638)
 #define FMAPSV_CUR_X       0x04     // s8 dMenu_FmapSv_c::curX (d_menu_fmapSv.h)
 #define FMAPSV_CUR_Y       0x05
+#define FMAP_MAIN_PROC_FMAP   0     // MAIN_PROC_FMAP (MAIN_PROC_HIKAKU = 1: chart comparison, mFmap2 draws over it)
+#define FMAP_MODE_FISHMAN     3     // FMAP_MODE_FISHMAN: the Fishman's chart drawing and zooms
 #define FMAP_PROC_SELECT_GRID 0     // FMAP_ZOOM_PROC_SELECT_GRID: the world map, steady
 #define FMAP_PROC_LV1         2     // FMAP_ZOOM_PROC_LV1: a zoomed square, steady
 #define FMAP_GRID_MAX      3        // squares -3..3 (dMap_point2Grid)
@@ -545,12 +568,34 @@ static int vis_pane_shown(u8* pane) {
     return 1;
 }
 
-// floor(v / 100000 + 0.5), unclamped (dMap_point2Grid's square).
+// floor(v / 100000 + 0.5) clamped to -3..3, as dMap_c::point2Grid
+// (d_map.cpp:1750-1769) puts a point past the chart's edge on its edge square.
 static int vis_sea_grid(f32 v) {
     f32 s = v / FMAP_SQUARE + 0.5f;
     int g = (int)s;
     if ((f32)g > s) g--;
+    if (g < -FMAP_GRID_MAX) g = -FMAP_GRID_MAX;
+    if (g > FMAP_GRID_MAX) g = FMAP_GRID_MAX;
     return g;
+}
+
+// J2DScreen::draw ran its panes, then reset this GX state for whatever
+// draws next (J2DScreen.cpp:161-166). J2DPicture::drawTexCoord and
+// setTevMode (J2DPicture.cpp:455-546) change exactly these again (TEV
+// stages and orders, tex gens, the TEX0 vertex attribute) and J2DPane::draw
+// sets the pane's cull mode (J2DPane.cpp:198), so the same six calls hand
+// dDlst_FMAP_c::draw's caller the state vanilla does. J2DOrthoGraph::setPort
+// is not used here: it is what a 2D drawer runs before it draws (setup2D,
+// J2DGrafContext.cpp:20-63, plus the viewport and projection), which also
+// rewrites the Z mode, alpha compare, channel controls, vertex formats and
+// PNMTX0 that vanilla leaves as the chart's panes left them.
+static void vis_sea_cleanup(void) {
+    GXSetNumTevStages(1);
+    GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+    GXSetVtxDesc(GX_VA_TEX0, GX_NONE);
+    GXSetCullMode(GX_CULL_NONE);
+    GXSetNumTexGens(0);
 }
 
 static void vis_sea_draw_on(u8* pane, const VisSeaPlace* pl, void* graf) {
@@ -558,7 +603,7 @@ static void vis_sea_draw_on(u8* pane, const VisSeaPlace* pl, void* graf) {
     u8 white[4], black[4];
     f32* b = (f32*)(pane + PANE_BOUNDS);
     f32* pivot = (f32*)(pane + PANE_BASE_POS);
-    int i, j;
+    int i, j, drew = 0;
     for (j = 0; j < (int)sizeof(saved); j++) saved[j] = pane[PANE_SAVE_START + j];
     for (j = 0; j < 4; j++) {
         white[j] = pane[PICTURE_WHITE + j];
@@ -597,7 +642,9 @@ static void vis_sea_draw_on(u8* pane, const VisSeaPlace* pl, void* graf) {
         pane[PICTURE_BLACK + 2] = bl >> 2;
         J2DPane_draw(pane, 0.0f, 0.0f, graf, 0);
         VIS_WORD(WWVIS_STAT_SEA_OFF)++;
+        drew = 1;
     }
+    if (drew) vis_sea_cleanup();
     for (j = 0; j < (int)sizeof(saved); j++) pane[PANE_SAVE_START + j] = saved[j];
     for (j = 0; j < 4; j++) {
         pane[PICTURE_WHITE + j] = white[j];
@@ -614,6 +661,17 @@ void wwvis_seachart_draw(u8* fmap_dl, void* graf) {
     u8* menu = fmap_dl - FMAP_OFF_DL;
     // Link's marker only shows on the sea stage (setDspNormalMapLink), and ours go with it.
     if (!menu[FMAP_ON_SEA]) return;
+    // Not over chart comparison (_draw's mFmap2._draw, :1864-1869; the
+    // second chart is dMenu_Fmap2_c's own dDlst_FMAP2_c, whose draw at
+    // 0x801C7844 is not hooked, so fmap_dl is always this menu's) nor
+    // while the Fishman draws a square and zooms to it: his steps move the
+    // chart's panes but leave mFmapProcIdx as it was. The mode, not
+    // mFishmanProcIdx (0x5177), is the gate: only _open_fishManMode (:3181),
+    // init_fishManMode (:3246) and his steps set that index, so outside his
+    // mode it is never initialised, and each of its values is a step of his
+    // draw-and-zoom, none of them idle. init_fishManMode sets the mode on
+    // the open's first frame (:3170-3172, :3201).
+    if (menu[FMAP_MAIN_PROC] != FMAP_MAIN_PROC_FMAP || menu[FMAP_MODE] == FMAP_MODE_FISHMAN) return;
     u8 proc = menu[FMAP_PROC_IDX];
     VisSeaPlace pl;
 

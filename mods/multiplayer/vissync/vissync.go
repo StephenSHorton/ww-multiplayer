@@ -51,9 +51,10 @@ const (
 	mtxBytes               = 0x30
 )
 
-// LocalEquip is what broadcast-pose adds to its trailer: the appearance
-// bits AppSea / AppSwordHand / AppShieldHand and the two equip bytes.
-// ok is false while Link isn't loaded.
+// LocalEquip is one raw sample of what broadcast-pose adds to its
+// trailer: the appearance bits AppSea / AppSwordHand / AppShieldHand and
+// the two equip bytes. ok is false while Link isn't loaded. broadcast-pose
+// sends it through an EquipSampler, which debounces AppShieldHand.
 func LocalEquip(m mem.Reader) (app byte, equip [TrailerEquipBytes]byte, ok bool) {
 	link, err := mem.ReadU32(m, addr.PlayerPtr)
 	if err != nil || !addr.InMEM1(link) {
@@ -74,6 +75,35 @@ func LocalEquip(m mem.Reader) (app byte, equip [TrailerEquipBytes]byte, ok bool)
 		app |= AppShieldHand
 	}
 	return app, equip, true
+}
+
+// EquipSampler is LocalEquip with AppShieldHand debounced: the shield's
+// matrix is read while the game may be mid-calc, so one sample can catch
+// the base matrix and the hand joint equal (or apart) for a frame they are
+// not. The bit changes only when two consecutive samples agree on the new
+// value, so a single torn read never flips the remote's shield. The zero
+// value is ready; a sample without Link (ok false) starts it over.
+type EquipSampler struct {
+	last, shield, primed bool
+}
+
+// Sample is LocalEquip with the shield bit debounced.
+func (e *EquipSampler) Sample(m mem.Reader) (app byte, equip [TrailerEquipBytes]byte, ok bool) {
+	app, equip, ok = LocalEquip(m)
+	if !ok {
+		*e = EquipSampler{}
+		return app, equip, ok
+	}
+	raw := app&AppShieldHand != 0
+	if e.primed && raw == e.last {
+		e.shield = raw
+	}
+	e.last, e.primed = raw, true
+	app &^= AppShieldHand
+	if e.shield {
+		app |= AppShieldHand
+	}
+	return app, equip, ok
 }
 
 // shieldInHand: Link puts the shield's base matrix at the right hand's

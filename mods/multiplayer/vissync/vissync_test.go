@@ -58,6 +58,38 @@ func TestLocalEquip(t *testing.T) {
 	}
 }
 
+// TestEquipSamplerDebouncesShield: AppShieldHand turns on only after two
+// consecutive in-hand samples and off only after two consecutive
+// on-the-back ones; a single torn sample either way changes nothing, the
+// other bits pass through every sample, and losing Link starts it over.
+func TestEquipSamplerDebouncesShield(t *testing.T) {
+	in, out := fakeLink(t, true), fakeLink(t, false)
+	var e EquipSampler
+	step := func(m *mem.FakeMem, want bool) {
+		t.Helper()
+		app, eq, ok := e.Sample(m)
+		if !ok || eq != [2]byte{0x38, 0x3B} || app&(AppSea|AppSwordHand) != AppSea|AppSwordHand {
+			t.Fatalf("Sample = %#x %v %v", app, eq, ok)
+		}
+		if got := app&AppShieldHand != 0; got != want {
+			t.Fatalf("shield bit %v, want %v (app %#x)", got, want, app)
+		}
+	}
+	step(in, false)  // first sample: nothing to agree with
+	step(in, true)   // two in a row
+	step(out, true)  // one torn sample keeps it
+	step(in, true)   //
+	step(out, true)  // first of two
+	step(out, false) // two in a row clear it
+	step(in, false)  // one sample does not set it
+	step(out, false)
+	if _, _, ok := e.Sample(mem.NewFakeMem()); ok {
+		t.Fatal("Sample without Link reported ok")
+	}
+	step(in, false) // started over: needs two again
+	step(in, true)
+}
+
 func trailer(app, sword, shield byte) []byte {
 	return append(make([]byte, player.FaceBytes), app, sword, shield)
 }

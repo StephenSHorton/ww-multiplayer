@@ -96,3 +96,16 @@ func TestVisBlockBytes(t *testing.T) {
 		t.Error("a fifth sea entry was written")
 	}
 }
+
+// TestVisSlotsCoverRemoteLinks: every mini-Link slot T2 hands the REL's
+// hook has a names, equip and models row, the Go side of minilink.c's
+// _Static_assert(WWVIS_SLOTS >= MAX_REMOTE_LINKS); vissync writes rows up
+// to VisSlots for the remotes the feeder puts in those slots.
+func TestVisSlotsCoverRemoteLinks(t *testing.T) {
+	if VisSlots < MaxRemoteLinks {
+		t.Fatalf("VisSlots %d < MaxRemoteLinks %d: a remote Link would draw without its row", VisSlots, MaxRemoteLinks)
+	}
+	if VisSlots < MailboxPoseSlotCap {
+		t.Fatalf("VisSlots %d < MailboxPoseSlotCap %d", VisSlots, MailboxPoseSlotCap)
+	}
+}

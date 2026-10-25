@@ -696,6 +696,9 @@ static void mDoExt_skip_recipe_joints(J3DModel* model, J3DModelData* model_data,
 // is linked (_prolog writes it, _epilog clears it first; main01_init
 // zeroes it at boot), so T2 only branches. noinline + Os: T2 budget.
 typedef void (*mp_vis_fn)(int slot, J3DModel* model, void* link, int phase);
+// Every slot T2 hands the hook must have its names, equip and models row
+// (the REL drops slot >= WWVIS_SLOTS; TestVisSlotsCoverRemoteLinks is the Go side).
+_Static_assert(WWVIS_SLOTS >= MAX_REMOTE_LINKS, "wwvis.h WWVIS_SLOTS must cover every mini-Link slot");
 __attribute__((noinline, optimize("Os")))
 static void mp_vis_hook(int slot, void* link, int phase) {
     mp_vis_fn fn = (mp_vis_fn)*(volatile u32*)(MAILBOX_ADDR + WWVIS_OFF + WWVIS_DRAW_FN_OFF);

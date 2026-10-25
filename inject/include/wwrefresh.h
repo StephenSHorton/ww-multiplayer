@@ -23,8 +23,9 @@
 // the enemy knob table (wwenemy.h WWENEMY_KNOB_OFF + WWENEMY_KNOB_SIZE), in
 // the slack that was free (+0x8B0..+0x1100, wwremote.h's slack map).
 // P0-L5 armed canaries over it across ten stage hops and found every word
-// intact (archive/enemy-batch-d/P0.md), so no game code writes it; the
-// region probe's CanaryArenaHigh now starts past it (+0x8D0).
+// intact (archive/enemy-batch-d/P0.md), so no game code writes it. The
+// visuals block (wwvis.h, +0x8D0..+0x990) follows it, and the region
+// probe's CanaryArenaHigh starts past that (+0x990).
 //
 //   Go-written, the seq last (two writes: +0x04..+0x14, then the seq):
 //   +0x00 u32 seq     (Go bumps it for every request, never 0)
@@ -54,7 +55,7 @@
 #define WWREFRESH_ENABLE         1            // compile switch (D10): 0 leaves refresh_link/refresh_frame empty (the block stays reserved)
 
 #define WWRF_OFF                 0x8B0        // request start, from MAILBOX_ADDR (0x804137B0): WWENEMY_KNOB_OFF + WWENEMY_KNOB_SIZE
-#define WWRF_SIZE                0x20         // ends at +0x8D0, where CanaryArenaHigh starts
+#define WWRF_SIZE                0x20         // ends at +0x8D0, where the visuals block starts (wwvis.h WWVIS_OFF)
 #define WWRF_SLACK_END           0x1100       // the free slack's end (wwremote.h); the block must end at or below it
 
 #define WWRF_SEQ_OFF             0x00         // u32 request seq, never 0 (Go)

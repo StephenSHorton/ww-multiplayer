@@ -59,6 +59,7 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 	// here also drives the select below, so a parent cancel exits promptly.
 	sessionLoop := func(ctx context.Context) error {
 		posErrs, poseErrs := 0, 0
+		var equip vissync.EquipSampler // the shield bit, debounced (two samples)
 		for client.IsConnected() {
 			// Position (cheap; same as broadcast-link).
 			pos, err := link.Position()
@@ -119,7 +120,7 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 							// vissync: the sea, sword-out and
 							// shield-in-hand bits, then the two
 							// equip bytes (19 bytes in all).
-							if extra, eq, ok := vissync.LocalEquip(d); ok {
+							if extra, eq, ok := equip.Sample(d); ok {
 								face = append(face, app|extra, eq[0], eq[1])
 							} else {
 								face = append(face, app)

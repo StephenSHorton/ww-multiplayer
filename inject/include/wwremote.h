@@ -30,7 +30,8 @@
 //   +0x520..+0x850  this block (WWREMOTE_OFF, WWREMOTE_SIZE)
 //   +0x850..+0x8B0  the enemy knob table (wwenemy.h WWENEMY_KNOB_OFF, layout 4)
 //   +0x8B0..+0x8D0  the actor_refresh request (wwrefresh.h WWRF_OFF; batch D)
-//   +0x8D0..+0x1100 free (wwapi/mailbox CanaryArenaHigh)
+//   +0x8D0..+0x990  the remote players' visuals block (wwvis.h WWVIS_OFF)
+//   +0x990..+0x1100 free (wwapi/mailbox CanaryArenaHigh)
 //
 // The block (offsets from WWREMOTE_OFF; absolute = 0x80413420 + off):
 //

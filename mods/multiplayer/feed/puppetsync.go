@@ -195,6 +195,10 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 			}
 		}
 		rep.Log(log.Info, "Disconnected.")
+		// The session dropped: its names, equip and sea chart markers
+		// must not linger frozen while ReconnectLoop waits to redial.
+		// The next session's first Write turns the block back on.
+		visDropped(d, &vis, gate.ok)
 		return nil
 	}
 	run := func(ctx context.Context) error {
@@ -202,4 +206,14 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 	}
 
 	return network.ReconnectLoop(ctx, connect, run, network.NewBackoff(), network.SleepCtx)
+}
+
+// visDropped turns the visuals block off when a session ends (a dropped
+// connection or ctx done), only into a game the contract check allows.
+// Sync.Off forgets the last block, so the reconnected session's first
+// Write rewrites the whole Go span, magic included.
+func visDropped(w vissync.Writer, vis *vissync.Sync, gateOK bool) {
+	if gateOK {
+		_ = vis.Off(w)
+	}
 }
