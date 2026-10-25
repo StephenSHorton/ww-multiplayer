@@ -32,6 +32,25 @@ func Read(m mem.Reader) (Report, error) {
 	return rep, nil
 }
 
+// writeHeader prints exCallbackObject's fields: the error, the context
+// pointer, DSISR and DAR.
+func writeHeader(w io.Writer, e Exception) {
+	fmt.Fprintf(w, "%s EXCEPTION (OSError %d)  context 0x%08X  dsisr 0x%08X  dar 0x%08X\n",
+		ErrorName(e.Error), e.Error, e.ContextPtr, e.DSISR, e.DAR)
+}
+
+// WritePartial prints what Read got from exCallbackObject before it
+// failed (a context pointer outside MEM1, or a context it could not
+// read): the error code, DSISR and DAR are still worth having. Nothing
+// when the callback object held no context.
+func (rep Report) WritePartial(w io.Writer) {
+	if rep.Exception.ContextPtr == 0 {
+		return
+	}
+	fmt.Fprintln(w, "exCallbackObject (the context it points at could not be read):")
+	writeHeader(w, rep.Exception)
+}
+
 // Write prints rep, naming addresses through r (whose Modules, when
 // empty, are taken from rep).
 func (rep Report) Write(w io.Writer, r Resolver) {
@@ -43,8 +62,7 @@ func (rep Report) Write(w io.Writer, r Resolver) {
 	if len(r.Modules) == 0 {
 		r.Modules = rep.Modules
 	}
-	fmt.Fprintf(w, "%s EXCEPTION (OSError %d)  context 0x%08X  dsisr 0x%08X  dar 0x%08X\n",
-		ErrorName(e.Error), e.Error, e.ContextPtr, e.DSISR, e.DAR)
+	writeHeader(w, e)
 	fmt.Fprintf(w, "PC   0x%08X  %s\n", e.SRR0, r.Name(e.SRR0))
 	fmt.Fprintf(w, "LR   0x%08X  %s\n", e.LR, r.Name(e.LR))
 	fmt.Fprintf(w, "CTR  0x%08X  %s\n", e.CTR, r.Name(e.CTR))

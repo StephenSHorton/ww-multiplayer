@@ -93,9 +93,36 @@ func TestReadExceptionNoCrash(t *testing.T) {
 
 func TestReadExceptionBadContext(t *testing.T) {
 	m := mem.NewFakeMem()
+	var b [2]byte
+	binary.BigEndian.PutUint16(b[:], 2) // DSI
+	if err := m.Store(addr.ExCallbackObject+addr.ExCallbackOffError, b[:]); err != nil {
+		t.Fatal(err)
+	}
 	put32(t, m, addr.ExCallbackObject+addr.ExCallbackOffContext, 0x00001234)
-	if _, err := ReadException(m); err == nil {
+	put32(t, m, addr.ExCallbackObject+addr.ExCallbackOffDSISR, 0x40000000)
+	put32(t, m, addr.ExCallbackObject+addr.ExCallbackOffDAR, 0x00000010)
+	rep, err := Read(m)
+	if err == nil {
 		t.Fatal("no error for a context outside MEM1")
+	}
+	// What exCallbackObject said is kept for the report.
+	e := rep.Exception
+	if e.Caught || e.Error != 2 || e.ContextPtr != 0x1234 || e.DSISR != 0x40000000 || e.DAR != 0x10 {
+		t.Errorf("partial exception %+v", e)
+	}
+	var out bytes.Buffer
+	rep.WritePartial(&out)
+	for _, want := range []string{"DSI EXCEPTION (OSError 2)", "context 0x00001234", "dsisr 0x40000000", "dar 0x00000010"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("partial output %q lacks %q", out.String(), want)
+		}
+	}
+	// An empty callback object prints nothing partial.
+	out.Reset()
+	empty, _ := Read(mem.NewFakeMem())
+	empty.WritePartial(&out)
+	if out.Len() != 0 {
+		t.Errorf("partial output for no crash: %q", out.String())
 	}
 }
 

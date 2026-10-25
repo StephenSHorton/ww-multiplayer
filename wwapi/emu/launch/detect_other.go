@@ -7,3 +7,5 @@ package launch
 func runningExes() []string { return nil }
 
 func installLocations() []string { return nil }
+
+func userConfigPaths() []string { return nil }

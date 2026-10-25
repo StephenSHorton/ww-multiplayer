@@ -29,9 +29,11 @@ func DevLogEnabled(getenv func(string) string) bool {
 // panic is a log line and not a frozen instance.
 //
 // All -C, as MEM1Override: a session-only config layer over the user
-// dir's, so nothing is written to any profile's ini files and a player's
-// Dolphin is untouched once the test Dolphin quits. Dolphin appends to
-// dolphin.log (it is never truncated here).
+// dir's, so nothing is written to the user dir's ini files. Dolphin does
+// append to <user dir>/Logs/dolphin.log at Info and nothing truncates it,
+// so the dev tools only pass these for a user dir set explicitly
+// (USER_DIR_1 / USER_DIR_2) that is no player's profile
+// (DevLogUserDirError, devlog_guard.go).
 //
 // The [Logs] keys are Dolphin's short log names, not the LogType enum
 // names: MI, not MEMMAP, and MASTER, not MASTER_LOG (read from the

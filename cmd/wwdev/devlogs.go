@@ -60,6 +60,19 @@ type launchRecord struct {
 	LogPath   string    `json:"log_path,omitempty"`
 	LogOffset int64     `json:"log_offset"` // dolphin.log's size at launch: this Dolphin's lines start there
 	Launched  time.Time `json:"launched"`
+	// Start is the process's start token (procstate.State: its creation
+	// time on Windows and Linux, "" where it can't be read). A record
+	// names a running Dolphin only when its PID and this both match: a
+	// later Dolphin that got the PID again is not this one.
+	Start string `json:"start,omitempty"`
+}
+
+// sameProcess says whether rec's Dolphin is the process that now has its
+// PID, whose start token is live: a record without a token (an OS that
+// gives none, or a dolphins.json from before tokens) matches by PID, as
+// does a process whose token can't be read now.
+func (rec launchRecord) sameProcess(live string) bool {
+	return rec.Start == "" || live == "" || rec.Start == live
 }
 
 const launchRecordFile = "dolphins.json"
@@ -217,6 +230,11 @@ type sessionManifest struct {
 	Dolphins []sessionDolphin  `json:"dolphins"`
 	Env      map[string]string `json:"env"` // the dev and session knobs set for this run
 	Archived string            `json:"previous_run,omitempty"`
+	// Outcome is how the run ended: "ok", "interrupted" (Ctrl+C, then a
+	// full teardown), "force quit" (a second Ctrl+C: the Dolphin log
+	// copies may stop short), or "error: ..." for a run that exited
+	// early. "" with no Ended is a run whose process was killed.
+	Outcome string `json:"outcome,omitempty"`
 	// UnmatchedLogs are the dolphin-1/2.log copies of USER_DIR_1 and
 	// USER_DIR_2's logs when dolphin2 recorded neither PID (which is A is
 	// unknown).

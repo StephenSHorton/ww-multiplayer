@@ -89,3 +89,18 @@ func installLocations() []string {
 	}
 	return installLocationsOf(entries)
 }
+
+// userConfigPaths returns HKCU\Software\Dolphin Emulator's
+// UserConfigPath, where an installed Dolphin may keep its user folder
+// (Dolphin's UICommon::SetUserDirectory), when it is set.
+func userConfigPaths() []string {
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Dolphin Emulator`, registry.QUERY_VALUE)
+	if err != nil {
+		return nil
+	}
+	defer k.Close()
+	if v, _, err := k.GetStringValue("UserConfigPath"); err == nil && v != "" {
+		return []string{v}
+	}
+	return nil
+}

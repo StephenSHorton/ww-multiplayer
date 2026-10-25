@@ -27,6 +27,7 @@ func runCrashContext(string, []string) {
 	defer d.Close()
 	rep, err := crash.Read(d)
 	if err != nil {
+		rep.WritePartial(os.Stdout) // the error code, DSISR and DAR it did read
 		fmt.Println(err)
 		os.Exit(1)
 	}

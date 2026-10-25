@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -225,11 +226,13 @@ func TestResolveDolphins(t *testing.T) {
 		{PID: 8, UserDir: "ud2", SaveState: "b.sav", DevLog: false, LogPath: "ud2/Logs/dolphin.log"},
 	}
 	// MP_LOCAL_PIDS made 8 A.
-	ds, srcs := resolveDolphins(recs, 8, 7, env(nil), launch.Paths{})
+	ds, srcs := resolveDolphins(recs, 8, 7, env(nil), launch.Paths{}, nil)
 	if ds[0].PID != 8 || ds[0].UserDir != "ud2" || ds[0].SaveState != "b.sav" || !ds[0].FromRecord || ds[1].UserDir != "ud1" {
 		t.Errorf("dolphins %+v", ds)
 	}
-	if len(srcs) != 2 || srcs[0].label != "A" || srcs[0].enabled || srcs[1].label != "B" || !srcs[1].enabled || srcs[1].offset != 99 {
+	// Only B (pid 7) was launched with the dev log: A's log is not
+	// followed, since nothing writes it.
+	if len(srcs) != 1 || srcs[0].label != "B" || srcs[0].offset != 99 {
 		t.Errorf("sources %+v", srcs)
 	}
 
@@ -242,7 +245,7 @@ func TestResolveDolphins(t *testing.T) {
 	}
 	appendFile(t, launch.LogFile(ud1), "old\n")
 	ds, srcs = resolveDolphins(nil, 1, 2, env(map[string]string{"SAVE_STATE": "s.sav", "SAVE_STATE_2": "s2.sav"}),
-		launch.Paths{UserDir1: ud1, UserDir2: filepath.Join(dir, "ud2")})
+		launch.Paths{UserDir1: ud1, UserDir2: filepath.Join(dir, "ud2")}, nil)
 	if ds[0].SaveState != "s.sav" || ds[1].SaveState != "s2.sav" || ds[0].FromRecord {
 		t.Errorf("dolphins %+v", ds)
 	}
@@ -269,5 +272,202 @@ func TestSessionManifestJSON(t *testing.T) {
 	var back sessionManifest
 	if err := json.Unmarshal(b, &back); err != nil || back.Dolphins[0].PID != 3 {
 		t.Errorf("round trip: %+v %v", back, err)
+	}
+}
+
+// A record names a PID only while the process on it is the one dolphin2
+// launched: a later Dolphin that Windows gave the same PID is not.
+func TestResolveDolphinsReusedPID(t *testing.T) {
+	recs := []launchRecord{
+		{PID: 1234, UserDir: "old-ud", SaveState: "old.sav", DevLog: true, LogPath: "old-ud/Logs/dolphin.log", LogOffset: 50, Start: "t1"},
+		{PID: 5678, UserDir: "ud2", SaveState: "b.sav", DevLog: true, LogPath: "ud2/Logs/dolphin.log", LogOffset: 7, Start: "t2"},
+	}
+	live := map[uint32]string{1234: "t9", 5678: "t2"} // 1234 is a new process
+	ds, srcs := resolveDolphins(recs, 1234, 5678, env(map[string]string{"SAVE_STATE": "env.sav"}), launch.Paths{},
+		func(pid uint32) string { return live[pid] })
+	if ds[0].FromRecord || ds[0].UserDir != "" || ds[0].SaveState != "env.sav" {
+		t.Errorf("re-used pid took the stale record: %+v", ds[0])
+	}
+	if !ds[1].FromRecord || ds[1].UserDir != "ud2" {
+		t.Errorf("live record not matched: %+v", ds[1])
+	}
+	if len(srcs) != 1 || srcs[0].label != "B" || srcs[0].path != "ud2/Logs/dolphin.log" {
+		t.Errorf("sources %+v (the stale record's log must not be followed)", srcs)
+	}
+}
+
+func TestLaunchRecordSameProcess(t *testing.T) {
+	for _, tt := range []struct {
+		rec, live string
+		want      bool
+	}{
+		{"t1", "t1", true},
+		{"t1", "t2", false},
+		{"", "t2", true}, // a record from before start tokens
+		{"t1", "", true}, // the token can't be read now
+	} {
+		if got := (launchRecord{Start: tt.rec}).sameProcess(tt.live); got != tt.want {
+			t.Errorf("sameProcess(rec %q, live %q) = %v, want %v", tt.rec, tt.live, got, tt.want)
+		}
+	}
+}
+
+// A plain dolphin2 launch (no WW_DOLPHIN_DEVLOG) is recorded, follows no
+// log, and the hint says how to turn the log on.
+func TestDolphinLogHint(t *testing.T) {
+	recs := []launchRecord{
+		{PID: 7, UserDir: "ud1", LogPath: "ud1/Logs/dolphin.log"},
+		{PID: 8, UserDir: "ud2", LogPath: "ud2/Logs/dolphin.log"},
+	}
+	ds, srcs := resolveDolphins(recs, 7, 8, env(nil), launch.Paths{}, nil)
+	if len(srcs) != 0 {
+		t.Fatalf("sources %+v for Dolphins launched without the dev log", srcs)
+	}
+	h := dolphinLogHint(ds, srcs)
+	for _, want := range []string{"none followed", "A (pid 7)", "B (pid 8)", "without WW_DOLPHIN_DEVLOG", "WW_DOLPHIN_DEVLOG=1"} {
+		if !strings.Contains(h, want) {
+			t.Errorf("hint %q lacks %q", h, want)
+		}
+	}
+	// Following the recorded logs: no hint.
+	if h := dolphinLogHint(ds, []dolphinLogSource{{label: "A"}}); h != "" {
+		t.Errorf("hint %q while following A", h)
+	}
+	if h := dolphinLogHint(ds, []dolphinLogSource{{label: "1"}, {label: "2"}}); !strings.Contains(h, "USER_DIR_1") {
+		t.Errorf("unrecorded hint %q", h)
+	}
+}
+
+func newTestSession(t *testing.T) (*mpLocalSession, string) {
+	t.Helper()
+	dir := t.TempDir()
+	f, err := os.Create(filepath.Join(dir, "mp-local.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+	return &mpLocalSession{root: dir, dir: dir, file: f, manifest: sessionManifest{Started: time.Unix(1, 0)}}, dir
+}
+
+func readManifest(t *testing.T, dir string) sessionManifest {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "session.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m sessionManifest
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// An early exit stamps ended and its outcome; the deferred finish that
+// would follow (or a force quit's) changes nothing after it.
+func TestSessionFinishOnce(t *testing.T) {
+	s, dir := newTestSession(t)
+	s.finish("error: timed out waiting for both games", 0)
+	s.finish("ok", 0)
+	m := readManifest(t, dir)
+	if m.Ended == nil || m.Outcome != "error: timed out waiting for both games" {
+		t.Errorf("manifest ended %v outcome %q", m.Ended, m.Outcome)
+	}
+}
+
+// A force quit does not wait forever for a Dolphin log copy that is
+// still running.
+func TestSessionFinishWaitCutsShort(t *testing.T) {
+	s, dir := newTestSession(t)
+	s.tails.Add(1) // a tail that never ends
+	done := make(chan struct{})
+	go func() { s.finish("force quit", 20*time.Millisecond); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("finish did not return")
+	}
+	if m := readManifest(t, dir); m.Ended == nil || !strings.HasPrefix(m.Outcome, "force quit") || !strings.Contains(m.Outcome, "cut short") {
+		t.Errorf("manifest ended %v outcome %q", m.Ended, m.Outcome)
+	}
+}
+
+// The first signal only marks the run interrupted (the engine cancels
+// it); the second is a force quit.
+func TestForceQuitLoop(t *testing.T) {
+	sigs := make(chan os.Signal, 2)
+	var got atomic.Bool
+	forced := make(chan struct{})
+	go forceQuitLoop(sigs, &got, func() { close(forced) })
+	sigs <- os.Interrupt
+	deadline := time.Now().Add(5 * time.Second)
+	for !got.Load() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !got.Load() {
+		t.Fatal("first signal not marked")
+	}
+	select {
+	case <-forced:
+		t.Fatal("force quit on the first signal")
+	case <-time.After(20 * time.Millisecond):
+	}
+	sigs <- os.Interrupt
+	select {
+	case <-forced:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no force quit on the second signal")
+	}
+}
+
+type recordSink struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (r *recordSink) Log(_ log.Level, msg string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lines = append(r.lines, msg)
+}
+
+// What was handed the reporter before the session started (the engine's
+// "Shutting down..." line) reaches mp-local.log once the session tees it.
+func TestSwapReporterReachesTee(t *testing.T) {
+	before, file := &recordSink{}, &recordSink{}
+	out := &swapReporter{r: before}
+	var engineRep log.Reporter = out // what CLIMultiplayerContext keeps
+	out.set(log.Multi(out.get(), file))
+	engineRep.Log(log.Info, "Shutting down... (press Ctrl+C again to force quit)")
+	if len(file.lines) != 1 || len(before.lines) != 1 {
+		t.Errorf("file %q, terminal %q", file.lines, before.lines)
+	}
+}
+
+// dolphin2 / auto-recapture refuse WW_DOLPHIN_DEVLOG unless the user dir
+// comes from its own variable and is no player's profile.
+func TestDevLogRefusal(t *testing.T) {
+	root := t.TempDir()
+	cfg := filepath.Join(root, "AppData", "Roaming")
+	e := launch.Env{GOOS: "windows", Home: root, ConfigDir: cfg}
+	main := filepath.Join(cfg, "Dolphin Emulator")
+	second := filepath.Join(cfg, "Dolphin Emulator 2")
+	test := filepath.Join(root, "ww-test", "u2")
+	for _, tt := range []struct {
+		name, dir string
+		vars      map[string]string
+		refused   bool
+	}{
+		{"defaults, nothing set", second, nil, true},
+		{"only the other variable set", second, map[string]string{launch.EnvUserDir1: test}, true},
+		{"explicit main profile", main, map[string]string{launch.EnvUserDir2: main}, true},
+		{"explicit test dir", test, map[string]string{launch.EnvUserDir2: test}, false},
+	} {
+		err := devLogRefusal(e, env(tt.vars), "", tt.dir, launch.EnvUserDir2)
+		if (err != nil) != tt.refused {
+			t.Errorf("%s: err %v, refused want %v", tt.name, err, tt.refused)
+		}
+		if err != nil && !strings.Contains(err.Error(), launch.EnvUserDir2) {
+			t.Errorf("%s: %q does not name %s", tt.name, err, launch.EnvUserDir2)
+		}
 	}
 }

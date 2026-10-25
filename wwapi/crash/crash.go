@@ -65,7 +65,10 @@ func ErrorName(err uint16) string {
 }
 
 // ReadException reads exCallbackObject and, when it holds a context, the
-// context's integer state. A context pointer outside MEM1 is an error.
+// context's integer state. A context pointer outside MEM1, or a context
+// that can't be read, is an error; the Exception returned with it still
+// holds what exCallbackObject said (Error, ContextPtr, DSISR, DAR), with
+// Caught false.
 func ReadException(m mem.Reader) (Exception, error) {
 	cb, err := m.Read(addr.ExCallbackObject, addr.ExCallbackObjectSize)
 	if err != nil {
@@ -81,11 +84,11 @@ func ReadException(m mem.Reader) (Exception, error) {
 		return Exception{}, nil
 	}
 	if !addr.InMEM1(e.ContextPtr) || !addr.InMEM1(e.ContextPtr+addr.OSContextIntSize-1) {
-		return Exception{}, fmt.Errorf("crash: context pointer 0x%08X is outside MEM1", e.ContextPtr)
+		return e, fmt.Errorf("crash: context pointer 0x%08X is outside MEM1", e.ContextPtr)
 	}
 	c, err := m.Read(e.ContextPtr, addr.OSContextIntSize)
 	if err != nil {
-		return Exception{}, fmt.Errorf("crash: OSContext at 0x%08X: %w", e.ContextPtr, err)
+		return e, fmt.Errorf("crash: OSContext at 0x%08X: %w", e.ContextPtr, err)
 	}
 	for i := range e.GPR {
 		e.GPR[i] = mem.U32BE(c[addr.OSContextOffGPR+4*i:])
