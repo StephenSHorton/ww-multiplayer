@@ -113,10 +113,13 @@ func parseSmokeArgs(args []string) (smokeOpts, error) {
 		return o, fmt.Errorf("unexpected arguments %q (mp-local's go after --)", fs.Args())
 	}
 	n := strings.Split(*names, ",")
+	for i := range n {
+		n[i] = strings.TrimSpace(n[i])
+	}
 	if len(n) != 2 || n[0] == "" || n[1] == "" || n[0] == n[1] {
 		return o, fmt.Errorf("--names wants two different names, A,B, not %q", *names)
 	}
-	o.nameA, o.nameB = strings.TrimSpace(n[0]), strings.TrimSpace(n[1])
+	o.nameA, o.nameB = n[0], n[1]
 	if strings.EqualFold(strings.TrimSpace(o.hop), "none") {
 		o.hop = ""
 	}
@@ -175,6 +178,11 @@ type smokeRun struct {
 	phase   string
 	cannot  string // why the smoke could not run
 	started bool   // mp-local started (it made logs/latest)
+	// pre is each game's last sample before mp-local started: the
+	// pose_seqs a killed earlier session may have left (waitArmed wants
+	// one to change) and the visuals block's sticky last error, which
+	// only a change from fails (smokeLimits.VisErrBase).
+	pre [2]gameSample
 }
 
 func (r *smokeRun) add(cs ...smokeCheck) {
@@ -368,7 +376,7 @@ func (r *smokeRun) setup() bool {
 	r.report.PIDs = [2]uint32{pidA, pidB}
 	if !r.report.Booted {
 		recs := readLaunchRecords(devLogsRootOr(os.Getenv))
-		if why := attachRefusal([2]uint32{pidA, pidB}, recs, os.Getenv, launch.PlayerUserDirs(launch.Host(), paths.Exe), processStart); why != "" {
+		if why := attachRefusal([2]uint32{pidA, pidB}, recs, os.Getenv, smokeGuardDirs(launch.Host(), paths.Exe), processStart); why != "" {
 			r.cannot = why
 			return false
 		}
@@ -406,12 +414,19 @@ func (r *smokeRun) setup() bool {
 	for i, d := range []*emu.Dolphin{r.a, r.b} {
 		label := string(rune('A' + i))
 		ss, secs := sampleGame(r.ctx, d, 2*time.Second, 100*time.Millisecond)
+		if len(ss) > 0 {
+			r.pre[i] = ss[len(ss)-1]
+		}
 		for _, c := range livenessChecks(label, ss, secs, smokeLimits{MinFPS: 10}) {
 			if strings.HasPrefix(c.Name, "heartbeat") || strings.HasPrefix(c.Name, "no crash") || strings.HasPrefix(c.Name, "read") {
 				c.Name += " (pre)"
 				r.add(c)
 				ok = ok && c.Pass
 			}
+		}
+		if e := r.pre[i].VisErr; e != 0 {
+			r.add(smokeCheck{Name: "rel last error " + label + " (pre)", Skipped: true,
+				Detail: fmt.Sprintf("visuals block last error %d from before this run (sticky: the REL never clears it; only a change from it fails)", e)})
 		}
 	}
 	if !ok {
@@ -441,7 +456,8 @@ func (r *smokeRun) setup() bool {
 }
 
 // waitArmed waits until mp-local armed both games: shadow_mode 5 and a
-// pose_seqs byte written on each.
+// pose_seqs byte written on each since the pre samples, so a game left
+// armed by a killed earlier session does not pass before mp-local feeds.
 func (r *smokeRun) waitArmed(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -449,9 +465,8 @@ func (r *smokeRun) waitArmed(timeout time.Duration) error {
 			return fmt.Errorf("mp-local exited before arming (%s)", r.child.exitNote())
 		}
 		armed := true
-		for _, d := range []*emu.Dolphin{r.a, r.b} {
-			s := readGameSample(d)
-			armed = armed && s.ShadowMode == avatar.ModePoseFeed && slices.ContainsFunc(s.PoseSeqs[:], func(b uint8) bool { return b != 0 })
+		for i, d := range []*emu.Dolphin{r.a, r.b} {
+			armed = armed && poseFeedArmed(r.pre[i], readGameSample(d))
 		}
 		if armed {
 			return nil
@@ -462,6 +477,20 @@ func (r *smokeRun) waitArmed(timeout time.Duration) error {
 		sleepCtx(r.ctx, 250*time.Millisecond)
 	}
 	return fmt.Errorf("mp-local did not arm both games within %s", timeout)
+}
+
+// poseFeedArmed says whether now shows a pose feed mp-local armed after
+// pre: shadow_mode 5 and a pose_seqs byte that is non-zero and changed.
+func poseFeedArmed(pre, now gameSample) bool {
+	if now.Err != "" || now.ShadowMode != avatar.ModePoseFeed {
+		return false
+	}
+	for s, b := range now.PoseSeqs {
+		if b != 0 && b != pre.PoseSeqs[s] {
+			return true
+		}
+	}
+	return false
 }
 
 // sampleGame reads m every every for d; secs is the time the samples span.
@@ -490,7 +519,9 @@ func (r *smokeRun) steady(tag string) {
 			defer wg.Done()
 			label := string(rune('A' + i))
 			ss, secs := sampleGame(r.ctx, d, 3*time.Second, 100*time.Millisecond)
-			res[i] = append(livenessChecks(label, ss, secs, lim), poseFlowChecks(label, ss, lim)...)
+			l := lim
+			l.VisErrBase = r.pre[i].VisErr
+			res[i] = append(livenessChecks(label, ss, secs, l), poseFlowChecks(label, ss, l)...)
 		}()
 	}
 	wg.Wait()
@@ -695,7 +726,7 @@ func (r *smokeRun) smoothing() {
 		r.add(passIf(false, "smoothing", err.Error(), nil))
 		return
 	}
-	run.Walker, run.Summary.Rate = "A", r.o.smooth
+	run.Walker, run.Summary.Rate, run.Summary.RateFrom = "A", r.o.smooth, "smoke --smooth"
 	r.report.Smooth = &run
 	s := run.Summary
 	ok := s.Remote.Steps > 0 && (r.o.smoothMaxCV == 0 || s.Remote.CV <= r.o.smoothMaxCV)
@@ -893,44 +924,81 @@ func smokePIDsFrom(pids []uint32, getenv func(string) string, recs []launchRecor
 // bootRefusal is why smoke may not boot two Dolphins: it needs a save
 // state (title-screen Dolphins never get in-game) and both user dirs set
 // explicitly to test dirs that are no player's profile, the rule
-// WW_DOLPHIN_DEVLOG launches already follow (launch.DevLogUserDirError).
+// WW_DOLPHIN_DEVLOG launches already follow (launch.DevLogUserDirError),
+// nor the tool's own second default (smokeGuardDirs).
 func bootRefusal(e launch.Env, getenv func(string) string, p launch.Paths) string {
 	if s := getenv("SAVE_STATE"); s == "" {
 		return "booting needs SAVE_STATE=<a .sav> (or start two Dolphins in-game and smoke attaches)"
 	} else if _, err := os.Stat(s); err != nil {
 		return fmt.Sprintf("SAVE_STATE=%s: %v", s, err)
 	}
+	guard := smokeGuardDirs(e, p.Exe)
 	for _, u := range []struct{ dir, key string }{{p.UserDir1, launch.EnvUserDir1}, {p.UserDir2, launch.EnvUserDir2}} {
 		if err := launch.DevLogUserDirError(e, p.Exe, u.dir, u.key, strings.TrimSpace(getenv(u.key)) != ""); err != nil {
 			return err.Error()
+		}
+		for _, g := range guard {
+			if sameDir(g, u.dir) {
+				return fmt.Sprintf("%s=%s is a player's Dolphin profile (dolphin2's own second default holds real cards): smoke boots only on test user dirs", u.key, u.dir)
+			}
 		}
 	}
 	return ""
 }
 
+// smokeGuardDirs are the user dirs smoke never drives a Dolphin on: the
+// player profiles (launch.PlayerUserDirs) and dolphin2's second default
+// (launch.DefaultUserDirs: %APPDATA%\Dolphin Emulator 2 on Windows), the
+// bootstrapped second profile a developer plays co-op on with real cards.
+func smokeGuardDirs(e launch.Env, exe string) []string {
+	dirs := launch.PlayerUserDirs(e, exe)
+	if e.ConfigDir != "" {
+		_, second := launch.DefaultUserDirs(e.GOOS, e.ConfigDir)
+		dirs = append(dirs, second)
+	}
+	return dirs
+}
+
 // attachRefusal is why smoke may not drive two running Dolphins (it
-// walks their Links and hops their stages): each must run on a user dir
-// that is no player's profile, known from dolphin2's record of it or,
-// for a Dolphin it has no record of, declared by USER_DIR_1 (A) and
-// USER_DIR_2 (B), set explicitly. players are the player profile dirs
-// (launch.PlayerUserDirs).
-func attachRefusal(pids [2]uint32, recs []launchRecord, getenv func(string) string, players []string, start func(uint32) string) string {
+// walks their Links, hops their stages and sets switches): each must run
+// on a test user dir set explicitly, the rule booting follows. A
+// dolphins.json record vouches for its Dolphin only when it was a
+// WW_DOLPHIN_DEVLOG launch (which refused anything but an explicit test
+// dir, launch.DevLogUserDirError) of this very process (its start token
+// matches; a record without one, or a process whose token can't be read,
+// proves nothing, as the PID may have been reused). Otherwise USER_DIR_1
+// (A) or USER_DIR_2 (B) must be set explicitly to the dir, and agree
+// with the record when there is one. guard are the dirs never driven
+// (smokeGuardDirs).
+func attachRefusal(pids [2]uint32, recs []launchRecord, getenv func(string) string, guard []string, start func(uint32) string) string {
 	for i, pid := range pids {
 		label := string(rune('A' + i))
 		key := []string{launch.EnvUserDir1, launch.EnvUserDir2}[i]
+		live := ""
+		if start != nil {
+			live = start(pid)
+		}
+		var rec *launchRecord
+		for j := range recs {
+			if uint32(recs[j].PID) == pid && recs[j].sameProcess(live) {
+				rec = &recs[j]
+			}
+		}
 		dir, from := "", ""
-		for _, rec := range recs {
-			if uint32(rec.PID) == pid && (start == nil || rec.sameProcess(start(pid))) {
-				dir, from = rec.UserDir, "dolphins.json"
-			}
+		declared := strings.TrimSpace(getenv(key))
+		switch {
+		case rec != nil && rec.DevLog && rec.Start != "" && rec.Start == live:
+			dir, from = rec.UserDir, "dolphins.json, a WW_DOLPHIN_DEVLOG launch"
+		case declared == "" && rec != nil:
+			return fmt.Sprintf("Dolphin %s (pid %d) runs on %s by dolphins.json, but not as a WW_DOLPHIN_DEVLOG launch this record can prove is this process: smoke drives only test Dolphins; relaunch them with WW_DOLPHIN_DEVLOG=1 on test USER_DIR_1/2, or set %s to its test user dir (never a player's profile)", label, pid, rec.UserDir, key)
+		case declared == "":
+			return fmt.Sprintf("Dolphin %s (pid %d) was not started by dolphin2 and %s is not set: smoke drives only test Dolphins; set %s to its test user dir (never a player's profile), or let smoke boot them", label, pid, key, key)
+		case rec != nil && !sameDir(rec.UserDir, declared):
+			return fmt.Sprintf("Dolphin %s (pid %d) runs on %s by dolphins.json, not on %s=%s: smoke drives only the test dir it is told of", label, pid, rec.UserDir, key, declared)
+		default:
+			dir, from = declared, key
 		}
-		if dir == "" {
-			dir, from = strings.TrimSpace(getenv(key)), key
-			if dir == "" {
-				return fmt.Sprintf("Dolphin %s (pid %d) was not started by dolphin2 and %s is not set: smoke drives only test Dolphins; set %s to its test user dir (never a player's profile), or let smoke boot them", label, pid, key, key)
-			}
-		}
-		for _, p := range players {
+		for _, p := range guard {
 			if sameDir(p, dir) {
 				return fmt.Sprintf("Dolphin %s (pid %d) runs on %s (%s), a player's Dolphin profile: smoke drives only test user dirs", label, pid, dir, from)
 			}

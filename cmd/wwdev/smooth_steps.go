@@ -25,14 +25,18 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
@@ -63,9 +67,12 @@ type stepStats struct {
 
 // stepSummary is smooth-steps' verdict.
 type stepSummary struct {
-	Rate   string    `json:"rate,omitempty"` // WW_POSE_TEST_RATE the run's mp-local had, as given
-	Walker stepStats `json:"walker"`
-	Remote stepStats `json:"remote"`
+	Rate string `json:"rate,omitempty"` // WW_POSE_TEST_RATE the run's mp-local had, as given
+	// RateFrom says where Rate was read: smoke's --smooth, or the running
+	// mp-local's session.json ("unknown" when neither could say).
+	RateFrom string    `json:"rate_from,omitempty"`
+	Walker   stepStats `json:"walker"`
+	Remote   stepStats `json:"remote"`
 	// Ratio is the remote's mean step over the walker's: 1 when it keeps
 	// up at speed.
 	Ratio float64 `json:"ratio"`
@@ -79,13 +86,18 @@ type stepSummary struct {
 // out: Link speeding up and slowing down.
 const stepTrim = 8
 
+// maxStepGap is the most frames one sample gap may spread over; a longer
+// one (a save state loaded forward, a long hitch) is a discontinuity and
+// is left out, not expanded frame by frame.
+const maxStepGap = 30
+
 // framedSteps turns ss into per-frame steps (a gap of n frames spreads
 // its motion over n) and counts the frames it missed.
 func framedSteps(ss []stepSample) (steps []float64, missed int) {
 	for i := 1; i < len(ss); i++ {
 		n := ss[i].Frame - ss[i-1].Frame
-		if n == 0 || n > 1<<31 {
-			continue // the same frame again, or a counter that went back (a save state)
+		if n == 0 || n > maxStepGap {
+			continue // the same frame again, or a jump either way (a save state)
 		}
 		d := vdist(ss[i].P, ss[i-1].P) / float64(n)
 		for range n {
@@ -316,10 +328,13 @@ func measureSmoothing(ctx context.Context, walker, observer mem.Mem, d time.Dura
 		return run, fmt.Errorf("input: %w", err)
 	}
 	sleepCtx(ctx, d)
-	_ = player.Release(walker)
+	relErr := player.Release(walker) // also when ctx ended early (Ctrl+C)
 	sleepCtx(ctx, time.Second)
 	cancel()
 	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return run, fmt.Errorf("interrupted (stick released: %v)", relErr == nil)
+	}
 	run.Secs = d.Seconds()
 	run.Summary = analyzeSteps(run.Traces[0], run.Traces[1])
 	return run, nil
@@ -357,6 +372,13 @@ func runSmoothSteps(_ string, args []string) {
 		fmt.Println("ERROR:", err)
 		os.Exit(2)
 	}
+	// It walks a Link, so it drives only test Dolphins, as smoke does.
+	paths := launch.FromEnv()
+	if why := attachRefusal([2]uint32{pidA, pidB}, readLaunchRecords(devLogsRootOr(os.Getenv)), os.Getenv, smokeGuardDirs(launch.Host(), paths.Exe), processStart); why != "" {
+		fmt.Println("ERROR:", why)
+		os.Exit(2)
+	}
+	rate, rateFrom := mpLocalTestRate(devLogsRoot(os.Getenv))
 	dA, err := emu.FindByPID(pidA, "GZLE01")
 	if err != nil {
 		fmt.Println("ERROR:", err)
@@ -373,14 +395,17 @@ func runSmoothSteps(_ string, args []string) {
 	if walker == "B" {
 		w, o = o, w
 	}
-	fmt.Printf("Walking %s's Link for %.0f s and sampling both games every frame (WW_POSE_TEST_RATE on mp-local: %q)...\n", walker, secs, os.Getenv(envPoseTestRate))
-	run, err := measureSmoothing(context.Background(), w, o, time.Duration(secs*float64(time.Second)))
+	fmt.Printf("Walking %s's Link for %.0f s and sampling both games every frame (WW_POSE_TEST_RATE on mp-local: %q, from %s)...\n", walker, secs, rate, rateFrom)
+	// Ctrl+C ends the walk early and still releases the stick.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	run, err := measureSmoothing(ctx, w, o, time.Duration(secs*float64(time.Second)))
 	if err != nil {
 		fmt.Println("ERROR:", err)
 		os.Exit(1)
 	}
 	run.Walker = walker
-	run.Summary.Rate = os.Getenv(envPoseTestRate)
+	run.Summary.Rate, run.Summary.RateFrom = rate, rateFrom
 	fmt.Println(run.Summary)
 	dir := "."
 	if root := devLogsRoot(os.Getenv); root != "" {
@@ -392,6 +417,34 @@ func runSmoothSteps(_ string, args []string) {
 		os.Exit(1)
 	}
 	fmt.Println("Step log:", path)
+}
+
+// mpLocalTestRate is the WW_POSE_TEST_RATE of the mp-local now running,
+// from root/latest/session.json (which keeps its WW_* env), and where it
+// came from: "" with "unknown ..." when there is no such session (logs
+// off, or the latest session has ended). smooth-steps' own environment
+// says nothing about mp-local's.
+func mpLocalTestRate(root string) (rate, from string) {
+	if root == "" {
+		return "", "unknown (WW_DEV_LOGS off: no session.json)"
+	}
+	b, err := os.ReadFile(filepath.Join(root, "latest", "session.json"))
+	if err != nil {
+		return "", "unknown (no logs/latest/session.json)"
+	}
+	var m sessionManifest
+	if err := json.Unmarshal(b, &m); err != nil {
+		return "", "unknown (session.json: " + err.Error() + ")"
+	}
+	if m.Ended != nil {
+		return "", "unknown (the latest mp-local session has ended)"
+	}
+	for k, v := range m.Env {
+		if strings.EqualFold(k, envPoseTestRate) {
+			return v, "mp-local's session.json"
+		}
+	}
+	return "", "mp-local's session.json"
 }
 
 // writeJSON writes v indented to path, making its directory.

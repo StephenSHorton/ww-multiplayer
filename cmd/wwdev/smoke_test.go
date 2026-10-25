@@ -289,12 +289,14 @@ func TestAttachRefusal(t *testing.T) {
 	players := []string{`C:\Users\p\AppData\Roaming\Dolphin Emulator`}
 	env := map[string]string{}
 	getenv := func(k string) string { return env[k] }
-	recs := []launchRecord{{PID: 1, UserDir: `D:\fixtures\user-4`}, {PID: 2, UserDir: `D:\fixtures\user-3`}}
-	if why := attachRefusal([2]uint32{1, 2}, recs, getenv, players, nil); why != "" {
+	// Dev-log records of these very processes (start tokens match).
+	start := func(pid uint32) string { return map[uint32]string{1: "t1", 2: "t2"}[pid] }
+	recs := []launchRecord{{PID: 1, UserDir: `D:\fixtures\user-4`, DevLog: true, Start: "t1"}, {PID: 2, UserDir: `D:\fixtures\user-3`, DevLog: true, Start: "t2"}}
+	if why := attachRefusal([2]uint32{1, 2}, recs, getenv, players, start); why != "" {
 		t.Errorf("recorded test dirs refused: %s", why)
 	}
 	recs[1].UserDir = `c:/users/P/AppData/Roaming/Dolphin Emulator/`
-	if why := attachRefusal([2]uint32{1, 2}, recs, getenv, players, nil); !strings.Contains(why, "player's Dolphin profile") {
+	if why := attachRefusal([2]uint32{1, 2}, recs, getenv, players, start); !strings.Contains(why, "player's Dolphin profile") {
 		t.Errorf("a recorded player profile: %q", why)
 	}
 	if why := attachRefusal([2]uint32{3, 4}, nil, getenv, players, nil); !strings.Contains(why, "USER_DIR_1 is not set") {

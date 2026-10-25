@@ -89,11 +89,17 @@ func readGameSample(m mem.Reader) gameSample {
 type smokeLimits struct {
 	MinFPS     float64 // spawn_trigger frames a second at least
 	SeqChanges int     // a pose seq must change at least this often over the window
+	// VisErrBase is the visuals block's last error before mp-local
+	// started (smokeRun.pre). The REL only ever sets that word and Go
+	// never writes it, so an error from an earlier session stays; only
+	// a value other than 0 and this fails.
+	VisErrBase uint32
 }
 
 // livenessChecks judges one game's samples, taken secs apart in all:
 // the heartbeat advanced at MinFPS, the REL is this build's and runs,
-// JUTException caught nothing, and the visuals block's last error is 0.
+// JUTException caught nothing, and the visuals block's last error is 0
+// or the one it already had before the run (lim.VisErrBase).
 // label names the game ("A", "B"); every check is named "<what> <label>".
 func livenessChecks(label string, ss []gameSample, secs float64, lim smokeLimits) []smokeCheck {
 	var out []smokeCheck
@@ -143,11 +149,14 @@ func livenessChecks(label string, ss []gameSample, secs float64, lim smokeLimits
 
 	var errs []uint32
 	for _, s := range ss {
-		if s.VisErr != mailbox.VisErrNone && !containsU32(errs, s.VisErr) {
+		if s.VisErr != mailbox.VisErrNone && s.VisErr != lim.VisErrBase && !containsU32(errs, s.VisErr) {
 			errs = append(errs, s.VisErr)
 		}
 	}
 	detail = fmt.Sprintf("visuals block last error 0 (magic 0x%08X)", last.VisMagic)
+	if lim.VisErrBase != mailbox.VisErrNone {
+		detail = fmt.Sprintf("visuals block last error unchanged from before the run (%d, sticky: not this run's; magic 0x%08X)", lim.VisErrBase, last.VisMagic)
+	}
 	if len(errs) > 0 {
 		detail = fmt.Sprintf("visuals block last error %v (1 res, 2 create, 3 font; wwvis.h)", errs)
 	}
