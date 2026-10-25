@@ -4,15 +4,18 @@
 // off); a newer one shows the banner "vX.Y.Z is out" with Update, Release
 // notes and Later. Update downloads it, checks it against SHA256SUMS and
 // swaps it in (Go: internal/update); the app then closes and opens again
-// on the new version. The banner shows on Home and the Mods page only:
-// never during a session (it is back after Leave) or the Setup. A session
+// on the new version. The banner shows on Home, the Mods page and
+// Settings only: never during a session (it is back after Leave) or the
+// Setup. A session
 // or patch that started meanwhile leaves the update "ready": the app
 // restarts after Leave (or Restart). Every start re-patches a disc that
 // another version patched, the new version's first start above all
-// (afterUpdate). The version pill opens the update settings.
+// (afterUpdate). The Settings page's Updates card (renderSettings; the
+// sidebar's version pill opens it) has the version, the "Check for
+// updates" switch, Check now and the release notes.
 
 import { call, mode } from "./transport.js";
-import { $, el, toast, openDialog, setDialogText } from "./ui.js";
+import { $, toast } from "./ui.js";
 
 let ctx = null; // {view, running, openSetup, onPatch}
 let upd = null; // Bridge.UpdateStatus
@@ -35,7 +38,17 @@ export function initUpdate(c) {
 			$("upd-error").textContent = e.message;
 		}
 	});
-	$("version").addEventListener("click", settings);
+	$("set-notes").addEventListener("click", notes);
+	$("set-checknow").addEventListener("click", checkNow);
+	$("set-checkupd").addEventListener("change", async () => {
+		const box = $("set-checkupd");
+		try {
+			await call("SetCheckUpdates", box.checked);
+		} catch (e) {
+			toast(e.message, { bad: true });
+			box.checked = !box.checked;
+		}
+	});
 }
 
 // startUpdate runs once the first screen shows: finish an update this
@@ -86,6 +99,7 @@ export function onUpdate(u) {
 	if (!u || (upd && u.seq < upd.seq)) return;
 	upd = u;
 	render();
+	if (ctx && ctx.view() === "settings") renderSettings(false);
 }
 
 // render draws the banner for the screen showing now.
@@ -96,7 +110,7 @@ export function render() {
 	const inSession = !!(ctx && ctx.running && ctx.running());
 	const busy = u && (u.stage === "downloading" || u.stage === "installing" || u.stage === "restarting");
 	const ready = u && u.stage === "ready";
-	const show = !!u && (v === "home" || v === "mods") && !inSession &&
+	const show = !!u && (v === "home" || v === "mods" || v === "settings") && !inSession &&
 		(busy || ready || u.stage === "done" || ((u.stage === "failed" || u.available) && dismissed !== u.latest));
 	bar.hidden = !show;
 	if (!show) return;
@@ -161,51 +175,45 @@ async function notes() {
 	window.open(u.notesURL || "https://github.com/StephenSHorton/ww-multiplayer/releases", "_blank", "noopener");
 }
 
-// settings is the version pill's dialog: the version, the "Check for
-// updates" switch and Check now.
-async function settings() {
-	try {
-		upd = await call("UpdateStatus");
-	} catch {
-		return;
-	}
-	const box = el("input", { type: "checkbox", id: "upd-check" });
-	box.checked = upd.enabled;
-	box.disabled = upd.dev;
-	box.addEventListener("change", async () => {
+// renderSettings fills the Settings page's Updates card from the newest
+// UpdateStatus (read again when the page opens).
+export async function renderSettings(fresh = true) {
+	if (fresh) {
 		try {
-			await call("SetCheckUpdates", box.checked);
-		} catch (e) {
-			toast(e.message, { bad: true });
+			upd = await call("UpdateStatus");
+		} catch {
+			return;
 		}
-	});
-	const extra = el("label", { class: "check", title: "Ask GitHub for a newer release when the app opens (at most every few hours)" },
-		box, el("span", {}, "Check for updates when the app opens"));
-	openDialog({
-		title: "Version",
-		text: versionText(upd),
-		extra,
-		actions: [
-			{ label: "Check now", primary: true, keep: true, run: checkNow },
-			{ label: "Close" },
-		],
-	});
+	}
+	const u = upd;
+	if (!u) return;
+	$("set-vertitle").textContent = "Version " + u.current;
+	$("set-vertext").textContent = versionText(u);
+	const box = $("set-checkupd");
+	box.checked = u.enabled;
+	box.disabled = u.dev;
+	$("set-checknow").disabled = u.dev;
 }
 
 function versionText(u) {
 	if (u.dev) return "This is a development build (" + u.current + "): it doesn't check for updates.";
-	if (u.available) return "You have " + u.current + ". " + u.latest + " is out: Update is on the Home screen.";
+	if (u.available) return "You have " + u.current + ". " + u.latest + " is out: Update is on the banner above.";
 	return "You have " + u.current + (u.latest && u.latest === u.current ? ", the newest version." : ".");
 }
 
 async function checkNow() {
-	setDialogText("Checking…", "");
+	$("set-upderr").textContent = "";
+	$("set-vertext").textContent = "Checking…";
+	$("set-checknow").disabled = true;
 	try {
 		const u = await call("CheckUpdate", true);
-		onUpdate(u);
 		dismissed = "";
-		setDialogText(u.dev ? versionText(u) : u.available ? versionText(u) : "You have " + u.current + ", the newest version.", "");
+		onUpdate(u);
+		$("set-vertext").textContent = u.dev || u.available ? versionText(u) : "You have " + u.current + ", the newest version.";
 	} catch (e) {
-		setDialogText(versionText(upd), e.message);
+		if (upd) $("set-vertext").textContent = versionText(upd);
+		$("set-upderr").textContent = e.message;
+	} finally {
+		$("set-checknow").disabled = !!(upd && upd.dev);
 	}
 }

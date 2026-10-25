@@ -11,17 +11,18 @@
 // banner come in the state too (Go decides them: internal/gui/lobby.go).
 
 import { call, onEvent, mode } from "./transport.js";
-import { $, el, toast, swatches, openDialog, closeDialog, dialogKey, setDialogText, initDialog } from "./ui.js";
+import { $, el, toast, swatches, shade, openDialog, closeDialog, dialogKey, setDialogText, initDialog } from "./ui.js";
 import { initSetup, openSetup, onPatch } from "./setup.js";
 import { renderCoop, dialogExtra, coopAction, initCoop } from "./coop.js";
 import { initMods, refreshMods } from "./mods.js";
-import { initUpdate, startUpdate, onUpdate, render as renderUpdate } from "./update.js";
+import { initUpdate, startUpdate, onUpdate, render as renderUpdate, renderSettings as renderUpdateSettings } from "./update.js";
+import { initTheme } from "./theme.js";
 
 const LOG_MAX = 500;
 
 let info = null; // Bridge.Info
 let state = null; // Bridge.State
-let view = "home"; // "home", "session", "setup" (setup.js) or "mods" (mods.js)
+let view = "home"; // "home", "session", "setup" (setup.js), "mods" (mods.js) or "settings"
 let beforeMods = "home"; // the screen the Mods page's Back returns to
 let session = 0; // the session the Session screen shows
 let homeColor = ""; // the Home form's color, a "#RRGGBB"
@@ -57,6 +58,47 @@ const CROWN = '<svg viewBox="0 0 24 18" aria-hidden="true"><path d="M2 16 1 4l6 
 
 function renderHomeSwatches() {
 	swatches($("home-swatches"), info.palette, homeColor, (hex) => { homeColor = hex; renderHomeSwatches(); });
+	tintLink($("home-link").firstElementChild, homeColor);
+	renderSide();
+}
+
+// tintLink dresses a copy of the Setup's Link figure in color.
+function tintLink(fig, color) {
+	if (!fig || !color) return;
+	fig.style.setProperty("--tunic", color);
+	fig.style.setProperty("--tunic-dk", shade(color, 0.62));
+	fig.style.setProperty("--tunic-hi", shade(color, 1.25));
+}
+
+// ---------- the sidebar ----------
+
+// renderSide draws the sidebar: the page you are on, Play (Home, or the
+// running session with its live dot), Setup (not during a session: it
+// patches the disc the game runs) and your card: your name and tunic,
+// and where you are.
+function renderSide() {
+	const running = !!(state && state.running);
+	const page = view === "session" || view === "home" ? "play" : view;
+	for (const b of document.querySelectorAll(".nav [data-nav]")) {
+		if (b.dataset.nav === page) b.setAttribute("aria-current", "page");
+		else b.removeAttribute("aria-current");
+	}
+	$("nav-play-label").textContent = running ? "Session" : "Play";
+	$("nav-live").hidden = !running;
+	const setup = $("setup-btn");
+	setup.disabled = running;
+	setup.title = running ? "Setup waits until you leave the session" : "";
+	const lobby = state && state.lobby;
+	const self = lobby && lobby.members ? lobby.members.find((m) => m.self) : null;
+	const name = running && state.name ? state.name : $("name").value.trim() || info.name || "You";
+	$("me-name").textContent = name;
+	$("me-dot").style.setProperty("--c", (self && self.color) || (running && state.color) || homeColor || "#3C9A2E");
+	let status = "Not in a session";
+	if (running) {
+		const n = lobby ? lobby.members.length : state.players.length + 1;
+		status = (PHASES[state.phase] || state.phase) + " · " + n + (n === 1 ? " player" : " players");
+	}
+	$("me-status").textContent = status;
 }
 
 // ---------- screens ----------
@@ -67,14 +109,11 @@ function show(v) {
 		setAddrShown(info.showIPs);
 	}
 	view = v;
-	$("home").hidden = v !== "home";
-	$("session").hidden = v !== "session";
-	$("setup").hidden = v !== "setup";
-	$("mods").hidden = v !== "mods";
-	$("setup-btn").hidden = v === "session" || v === "mods";
-	$("mods-btn").hidden = v === "setup" || v === "mods";
+	for (const id of ["home", "session", "setup", "mods", "settings"]) $(id).hidden = v !== id;
 	if (v === "mods") refreshMods();
-	renderUpdate(); // the update banner: Home and Mods only, never in a session
+	if (v === "settings") renderUpdateSettings();
+	renderUpdate(); // the update banner: Home, Mods and Settings only, never in a session
+	renderSide();
 	$("bar").hidden = v !== "session";
 	if (v !== "session") $("leave-btn").hidden = true;
 	if (v === "home") {
@@ -90,6 +129,12 @@ function show(v) {
 // fillHome puts the saved name and color into the Home form (at start, and
 // after the setup saved them).
 function fillHome() {
+	if (!$("home-link").firstElementChild) {
+		const fig = $("s-link").cloneNode(true);
+		fig.removeAttribute("id");
+		fig.setAttribute("role", "presentation");
+		$("home-link").append(fig);
+	}
 	$("name").value = info.name || "";
 	// Players may share a color, and one who never chose wears classic
 	// green (owner decision, 2026-10-16): no "automatic" choice.
@@ -118,11 +163,13 @@ function renderRecent() {
 // came unmasked.
 function applyShowIPs() {
 	const on = !!info.showIPs;
-	const sw = $("showips");
-	sw.setAttribute("aria-checked", String(on));
-	sw.title = on
-		? "IP addresses are shown everywhere. Turn this off before you stream or share your screen."
-		: "IP addresses are masked, so a stream never shows one. Turn this on to show them all.";
+	for (const sw of [$("showips"), $("set-showips")]) {
+		sw.setAttribute("aria-checked", String(on));
+		sw.title = on
+			? "IP addresses are shown everywhere. Turn this off before you stream or share your screen."
+			: "IP addresses are masked, so a stream never shows one. Turn this on to show them all.";
+	}
+	$("set-showips").lastElementChild.textContent = on ? "On" : "Off";
 	$("addr-eye").hidden = on;
 	setAddrShown(on);
 	if (!on) {
@@ -202,11 +249,13 @@ function render() {
 	const lobby = st.lobby && !st.lobby.legacy ? st.lobby : null;
 	const ended = !st.running;
 
+	renderSide();
 	const ph = $("phase");
 	ph.textContent = PHASES[st.phase] ?? st.phase;
-	ph.className = "phase" + (st.phase === "lobby" ? " lobby" : st.phase === "in game" ? " ingame" : "");
+	ph.className = "phase" + (st.phase === "lobby" ? " lobby" : st.phase === "in game" ? " ingame" : st.phase === "ended" ? " ended" : "");
 	const playing = !!(lobby && lobby.phase !== "lobby");
 	renderWhere(st, playing);
+	$("room-title").textContent = roomTitle(st, lobby, playing);
 	$("leave-btn").hidden = ended;
 
 	$("ended").hidden = !(ended && !left) || !!(st.dialog && st.dialog.home);
@@ -230,7 +279,9 @@ function render() {
 	const list = $("members");
 	list.replaceChildren();
 	if (lobby) {
-		$("members-title").textContent = playing ? "Players" : "Lobby";
+		$("members-title").textContent = "Players";
+		const n = lobby.members.length;
+		$("members-count").textContent = n ? n + (n === 1 ? " player" : " players") : "";
 		for (const m of lobby.members) list.append(memberRow(m, lobby));
 		if (!lobby.members.length) {
 			const n = lobby.link.attempts;
@@ -240,6 +291,7 @@ function render() {
 		}
 	} else {
 		$("members-title").textContent = "Players";
+		$("members-count").textContent = "";
 		list.append(el("li", {}, el("span", { class: "dot unknown" }), el("span", { class: "who" }, st.name, el("small", {}, " (you)"))));
 		for (const p of st.players) {
 			list.append(el("li", {},
@@ -292,6 +344,17 @@ function render() {
 	}
 
 	syncDialog(st);
+}
+
+// roomTitle is the Session page's title: whose session, and what it is
+// (the phase pill and the line above it say the rest).
+function roomTitle(st, lobby, playing) {
+	if (!st.running) return "Session ended";
+	if (!lobby) return st.role === "Host" ? "Your session" : "Joined session";
+	if (lobby.host) return playing ? "Your session" : "Your lobby";
+	const h = lobby.members.find((m) => m.host);
+	if (!h) return st.phase === "connecting" ? "Reaching the host…" : "Lobby";
+	return h.name + (/s$/i.test(h.name) ? "’ " : "’s ") + (playing ? "session" : "lobby");
 }
 
 // renderWhere is the header's line: who you are and where. In game:
@@ -740,20 +803,27 @@ function wire() {
 	$("back-btn").addEventListener("click", () => show("home"));
 	$("setup-btn").addEventListener("click", () => openSetup());
 	$("mods-btn").addEventListener("click", () => {
-		if (view !== "mods") beforeMods = view;
+		if (view !== "mods" && view !== "settings") beforeMods = view;
 		show("mods");
 	});
 	$("mods-back").addEventListener("click", () => show(beforeMods === "session" && !(state && state.running) ? "home" : beforeMods));
 	initMods({ openSetup });
 	initUpdate({ view: () => view, running: () => !!(state && state.running), openSetup, onPatch });
-	$("showips").addEventListener("click", async () => {
+	initTheme();
+	const toggleIPs = async () => {
 		try {
 			await call("SetShowIPs", !info.showIPs);
 			await onSettings(); // the "settings" event redraws too; this is for a late one
 		} catch (e) {
 			toast(e.message, { bad: true });
 		}
-	});
+	};
+	$("showips").addEventListener("click", toggleIPs);
+	$("set-showips").addEventListener("click", toggleIPs);
+	$("nav-play").addEventListener("click", () => show(state && state.running ? "session" : "home"));
+	$("nav-settings").addEventListener("click", () => show("settings"));
+	$("version").addEventListener("click", () => show("settings"));
+	$("name").addEventListener("input", renderSide);
 	const startGame = async (anyway) => {
 		$("start-btn").disabled = true;
 		try {
