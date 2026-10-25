@@ -953,9 +953,10 @@ casual, and hides that slot's hat and belt buckle the way
 `hideHatAndBackle` does (`:1510-1531`). The hide does not use the shared
 shape bit this fix shows again: it sets the `J3DShapePacket` Hidden bit
 (0x10) of the mini-Link's own packets, per model, so Link #1 and the
-other slot never see it (`inject/rel/visuals.c`). While the REL is
-unlinked (a stage hop that loses it) a slot keeps the last hide it was
-given until the REL's next PRE call. The remote's own
+other slot never see it (`inject/rel/visuals.c`). The hide is only set
+when the katsura will be drawn (its model made, the node matrices
+there), and `wwvis_unlink` clears every hide it set, so a slot is never
+bald while the REL is unlinked or its hair failed to load. The remote's own
 clothes are drawn since 2026-10-16: the pose trailer's appearance byte
 carries the remote's casual bit and `tunic_swap` puts the casual header
 in for that slot (`TUNIC_ENABLE_CASUAL`, docs/09 §5.6, live-checked in
