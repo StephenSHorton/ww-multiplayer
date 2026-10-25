@@ -1447,9 +1447,10 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 	case st.Flags&StateFlagThin != 0:
 		// The server thinned this STATE to its header (relay scoping:
 		// our last PSTATE named another place): it is not the host's
-		// list. We just arrived in the host's room; the next PSTATE (every
-		// PStateEvery) brings the whole STATE back. Wait for it at the
-		// normal cadence, changing nothing, for up to StaleAfter: past
+		// list. We just arrived in the host's room; the next PSTATE (sent at
+		// once on the scope change, else every PStateEvery) brings the
+		// whole STATE back within a round trip. Wait for it at the normal
+		// cadence, changing nothing, for up to StaleAfter: past
 		// that the server's view of this game is out of step with
 		// ReadScope (no PSTATE getting through?), and the thin run is a
 		// stale STATE (warned once, held StaleHold, then released).
