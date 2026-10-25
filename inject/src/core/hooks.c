@@ -31,6 +31,7 @@
 #include "wwapi.h"
 #include "mailbox_core.h"
 #include "wwrel.h"
+#include "wwvis.h"
 #include "core.h"
 #include "mods.h"
 
@@ -66,6 +67,16 @@ void main01_init(void) {
     // once per boot and never frees): a pointer left from before this boot
     // names a heap that no longer exists.
     *(volatile u32*)(MAILBOX_ADDR + WWREL_SHANM_OFF) = 0;
+    // The visuals block's REL words (wwvis.h): the two function words T2
+    // calls through, and the sword/shield models the REL made on a heap
+    // of an earlier boot.
+    {
+        int w;
+        for (w = 0; w < 2; w++)
+            *(volatile u32*)(MAILBOX_ADDR + WWVIS_OFF + WWVIS_DRAW_FN_OFF + 4 * w) = 0;
+        for (w = 0; w < WWVIS_SLOTS * WWVIS_MODEL_KINDS; w++)
+            *(volatile u32*)(MAILBOX_ADDR + WWVIS_OFF + WWVIS_MODELS_OFF + 4 * w) = 0;
+    }
     // WWMB header (Phase E1): magic, ABI, layout version and the
     // features word, for Go's contract check (wwapi.CheckContract).
     mailbox->hdr_magic = WWMB_MAGIC;

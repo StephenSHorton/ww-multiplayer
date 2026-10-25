@@ -76,7 +76,9 @@ var (
 	// table right after it (enemy.go, EnemyKnobRegion, +0x850..+0x8B0;
 	// batch C layout4.knob_table.canaries) and batch D's actor_refresh
 	// request after that (refresh.go, RefreshRegion, +0x8B0..+0x8D0, G-D5;
-	// P0-L5 proved it free before the move). Go writes the blocks every
+	// P0-L5 proved it free before the move) and the remote players'
+	// visuals block after that (vis.go, VisRegion, +0x8D0..+0x990: T2
+	// branches through its first two words). Go writes the blocks every
 	// tick and the REL every frame while they run, so a canary armed over
 	// them would be reported changed by the mod's own traffic, and arming
 	// would tear a block the REL is reading. The region probe arms and
@@ -87,7 +89,7 @@ var (
 	// CanaryArena still holds the REL module's first three words
 	// (OffRELMagic..), which only a linked module writes.
 	CanaryArena     = addr.Region{Name: "below arena", Start: Mailbox + MailboxSize, End: Mailbox + OffRELExecHook}
-	CanaryArenaHigh = addr.Region{Name: "below arena (past the refresh block)", Start: Mailbox + RefreshOff + RefreshSize, End: PatchedArenaLo}
+	CanaryArenaHigh = addr.Region{Name: "below arena (past the visuals block)", Start: Mailbox + VisOff + VisSize, End: PatchedArenaLo}
 )
 
 const (

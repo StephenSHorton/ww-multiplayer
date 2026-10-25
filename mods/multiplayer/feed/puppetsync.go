@@ -9,6 +9,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/tunicsync"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
@@ -115,6 +116,17 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 		}
 	}()
 
+	// The remote players' visuals (vissync, inject/include/wwvis.h): names,
+	// sword and shield, sea chart markers. WW_NAMETAGS / WW_EQUIP /
+	// WW_SEACHART=off turn each off. Session over: the block goes off.
+	visSettings := vissync.SettingsFromEnv()
+	var vis vissync.Sync
+	defer func() {
+		if gate.ok {
+			_ = vis.Off(d)
+		}
+	}()
+
 	// connect (re)establishes the session and RE-ARMS the mailbox (#8 + D3).
 	// Runs at startup and after every reconnect. A change in the welcome's
 	// server epoch means the server restarted → full puppet reset.
@@ -170,6 +182,8 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 				mine, haveMine := client.MyColor()
 				tunicsync.SyncTunics(tunics, mine, haveMine, remotes, feeder.LinkSlots(), now)
 			}
+
+			_ = vis.Write(d, vissync.Build(visSettings, remotes, feeder.LinkSlots(), selfFilter))
 
 			feeder.Expire(now)
 

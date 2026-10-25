@@ -75,6 +75,12 @@
 // request, execute runs a new one after boss_kill's.
 #include "refresh.h"
 
+// The remote players' visuals (visuals.c, include/wwvis.h): sword, shield
+// and scabbard on the mini-Links, name tags, sea chart markers. T2 calls
+// them through two words in the visuals block; _prolog publishes them
+// just before the exec hook word, _epilog clears them first.
+#include "visuals.h"
+
 // The build id: build.py passes -DWWREL_BUILD_ID=<CRC-32 of inject/rel's
 // sources and the slack headers>, so it changes with the source and never
 // with the clock (the ELF stays byte-identical across rebuilds of the
@@ -382,6 +388,7 @@ void _prolog(void) {
     WWREL_WORD(WWREL_BUILD_ID_OFF) = g_wwrel_build_id;
     WWREL_WORD(WWREL_SWAP_STATE_OFF) = 0;
     WWREL_WORD(WWREL_MAGIC_OFF) = WWREL_MAGIC;
+    wwvis_link();
     WWREL_WORD(WWREL_EXEC_HOOK_OFF) = (u32)wwrel_exec_hook;
 }
 
@@ -391,6 +398,7 @@ void _prolog(void) {
 // the module (full bodies deleted at a stage teardown still need it, and
 // the next link reuses it).
 void _epilog(void) {
+    wwvis_unlink();
     WWREL_WORD(WWREL_EXEC_HOOK_OFF) = 0;
     remote_unlink();                     // clears WWREL_SWAP_STATE_OFF
     enemy_mirror_unlink();               // release_all if delete never ran

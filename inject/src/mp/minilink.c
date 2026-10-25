@@ -690,6 +690,18 @@ static void mDoExt_skip_recipe_joints(J3DModel* model, J3DModelData* model_data,
     if (cl_mayu) *(volatile u32*)((u8*)cl_mayu + J3DJOINT_MESH_OFFSET) = saved_mayu;
 }
 
+// The REL's visuals hook (include/wwvis.h, inject/rel/visuals.c): the
+// remote's scabbard shape before the body entry (phase 0), its sword and
+// shield and name tag after it (phase 1). The word is the REL's while it
+// is linked (_prolog writes it, _epilog clears it first; main01_init
+// zeroes it at boot), so T2 only branches. noinline + Os: T2 budget.
+typedef void (*mp_vis_fn)(int slot, J3DModel* model, void* link, int phase);
+__attribute__((noinline, optimize("Os")))
+static void mp_vis_hook(int slot, void* link, int phase) {
+    mp_vis_fn fn = (mp_vis_fn)*(volatile u32*)(MAILBOX_ADDR + WWVIS_OFF + WWVIS_DRAW_FN_OFF);
+    if (fn) fn(slot, mini_link_models[slot], link, phase);
+}
+
 // --- Draw phase (mods post) ------------------------------------------
 // mods.h: called by daPy_draw_hook after Link #1's draw and the core's
 // post-draw steps; `this_` is Link #1. In shadow_mode 5 (pose feed),
@@ -874,10 +886,12 @@ void mp_draw_post(void* this_) {
     // are locked, so entryIn only chains them), so they may run first.
     for (slot = 0; slot < MAX_REMOTE_LINKS; slot++) {
         if (!mini_link_models[slot] || !pose_bufs[slot] || mailbox->pose_seqs[slot] == 0) continue;
+        mp_vis_hook(slot, this_, WWVIS_PHASE_PRE);
         tunic_swap(this_, slot);
         run_eye_fix(mini_link_models[slot], this_, mini_link_data, slot);
         mDoExt_skip_recipe_joints(mini_link_models[slot], mini_link_data, slot);
         tunic_restore();
+        mp_vis_hook(slot, this_, WWVIS_PHASE_POST);
     }
 
 }

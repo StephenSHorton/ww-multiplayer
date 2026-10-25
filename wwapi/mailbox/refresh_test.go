@@ -117,15 +117,16 @@ func TestRefreshHeaderPins(t *testing.T) {
 }
 
 // TestRefreshPlace: the request sits right after the enemy knob table, is
-// word-aligned, ends inside the free slack, and CanaryArenaHigh starts at
-// its end (the canary move, batch D G-D5); the Go span ends at the ack.
+// word-aligned, ends inside the free slack, and the visuals block starts at
+// its end (CanaryArenaHigh did until the visuals block took the space,
+// vis_test.go); the Go span ends at the ack.
 func TestRefreshPlace(t *testing.T) {
 	if RefreshOff != EnemyKnobOff+EnemyKnobSize || RefreshOff%4 != 0 || RefreshOff+RefreshSize > RefreshSlackEnd {
 		t.Fatalf("actor_refresh +0x%X..+0x%X, want right after the knob table (+0x%X) and below +0x%X",
 			RefreshOff, RefreshOff+RefreshSize, EnemyKnobOff+EnemyKnobSize, RefreshSlackEnd)
 	}
-	if RefreshAddr != 0x804137B0 || RefreshRegion.End != 0x804137D0 || CanaryArenaHigh.Start != RefreshRegion.End {
-		t.Fatalf("actor_refresh %#x..%#x, CanaryArenaHigh from %#x", RefreshRegion.Start, RefreshRegion.End, CanaryArenaHigh.Start)
+	if RefreshAddr != 0x804137B0 || RefreshRegion.End != 0x804137D0 || VisRegion.Start != RefreshRegion.End {
+		t.Fatalf("actor_refresh %#x..%#x, visuals block from %#x", RefreshRegion.Start, RefreshRegion.End, VisRegion.Start)
 	}
 	for _, c := range []struct{ s, e uint32 }{{CanaryArena.Start, CanaryArena.End}, {CanaryArenaHigh.Start, CanaryArenaHigh.End}, {CanaryTRK.Start, CanaryTRK.End}} {
 		if RefreshRegion.Start < c.e && c.s < RefreshRegion.End {

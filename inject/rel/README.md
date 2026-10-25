@@ -723,3 +723,30 @@ lying normally, Tbox closed and waiting behind its `daTbox_Execute`
 fingerprint, Saku not burning with every standing half's switch set).
 The delete is `fopAcM_delete__FUi`. The result is `R_*`, the gate id and
 the proc's state as found. Stateless; nothing is added to the keeper.
+
+## visuals.c: the remote players' visuals
+
+The block is `include/wwvis.h` at `MAILBOX_ADDR + 0x8D0` (0x804137D0,
+0xC0 bytes, right after the actor_refresh request; Go's
+`wwapi/mailbox/vis.go` mirrors it and `CanaryArenaHigh` now starts at its
+end, 0x80413890). Its first word is `&wwvis_draw_hook`, published by
+`_prolog` just before the exec hook word and cleared by `_epilog` first;
+T2's `main01_init` zeroes it (and the model words) at boot. T2's
+`mp_draw_post` calls it twice per drawn mini-Link slot: phase 0 before the
+slot's body entry, phase 1 after it. Go (`mods/multiplayer/vissync`) writes
+the magic, the flags and the per-slot equip bytes from each remote's pose
+trailer.
+
+- **Sword, shield, scabbard** (ww-online review idea 15). Phase 0 sets the
+  shared `CL_PODA` scabbard shape from the remote's sword (shown with the
+  hero's sword only, as Link does), phase 1 puts Link #1's value back and
+  enters the remote's hilt (and blade when the sword is out) and hero's
+  shield at the hand or scabbard joint of the remote's streamed pose,
+  placed by Link's own matrices (d_a_player_main.cpp:1270-1340). The
+  models (SWGRIPA, SWGRIPMS, SWA, SWMS, SHA from Link.arc) are made once
+  per boot on the archive heap and kept in the block's model words. Link's
+  joint and material animators on the shared model data are cleared around
+  our calc and calcMaterial (they point into his actor and item heap), so
+  the parts take their bind pose. Not drawn: the mirror shield (it needs a
+  J3DSkinDeform), the Master Sword's own scabbard, glow and blur. The full
+  bodies (fullbody.c) never draw, so this is mini-Links only.
