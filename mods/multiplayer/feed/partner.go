@@ -29,7 +29,8 @@ import (
 // stops relaying the poses of a remote in another stage, and without the
 // gate the mini-Link would freeze at its last pose and then despawn, as
 // a vanished sender does. PRESENCE is the fallback for a remote without
-// a place (a build from before the trailer), under its own rule above.
+// a place (a build from before the trailer), under its own rule above:
+// only while that remote is the one remote drawn.
 
 // PartnerStale is how long a published place is believed: a replica
 // repeats PRESENCE every second (replica.PresenceEvery), so a place older
@@ -97,18 +98,31 @@ func PartnerFor(name string, pid uint32) *PartnerPlace {
 
 // gateFor decides the stage gate for one Feed of remotes at now and
 // returns it per remote: the place gate for a remote with a fresh place,
-// the PRESENCE gate (partnerAway, over the remotes without one) for the
-// rest.
+// the PRESENCE gate (partnerAway) for the rest. PRESENCE names no sender,
+// so it is believed only while the feed draws one remote and that one has
+// no place: with two drawn, a PRESENCE may be the other's, placed or not.
 func (f *Feeder) gateFor(remotes []network.RemotePlayer, now time.Time) func(rp *network.RemotePlayer) bool {
-	var unplaced []network.RemotePlayer
+	drawn, unplaced, placed := 0, 0, false
 	for i := range remotes {
-		if !remotes[i].PlaceFresh(now) {
-			unplaced = append(unplaced, remotes[i])
+		rp := &remotes[i]
+		fresh := rp.PlaceFresh(now)
+		placed = placed || fresh
+		if rp.Position == nil || f.selfFilter != "" && rp.Name == f.selfFilter {
+			continue
+		}
+		drawn++
+		if !fresh {
+			unplaced++
 		}
 	}
-	presence := f.partnerAway(unplaced, now)
+	var presence bool
+	if unplaced == drawn {
+		presence = f.partnerAway(remotes, now) // stands down itself at two
+	} else {
+		presence = f.setAway(false, nil, "", "")
+	}
 	here, inPlay := "", false
-	if len(unplaced) != len(remotes) {
+	if placed {
 		here, inPlay = f.stageHere()
 	}
 	return func(rp *network.RemotePlayer) bool {

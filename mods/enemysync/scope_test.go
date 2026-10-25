@@ -117,6 +117,79 @@ func TestMirrorWaitsOnThinState(t *testing.T) {
 	}
 }
 
+// TestMirrorThinStateBounded (review fix): a run of thinned STATEs
+// naming this game's own room (the server's view of this game out of step
+// with ReadScope) waits StaleAfter, changing nothing; past that it is
+// warned once and treated as a stale STATE: the copies are held for
+// StaleHold, then released. A whole STATE ends the run and arms again.
+func TestMirrorThinStateBounded(t *testing.T) {
+	start := time.Unix(3000, 0)
+	_, m, _, tick := clientRoom(t)
+	rep := &recReporter{}
+	c := NewMirror(m, rep, nil, false, start)
+	c.StaleHold = StaleHoldMax
+	now := start
+	for seq := uint32(1); seq <= 3; seq++ {
+		pushState(t, c, hostState(seq, 16*seq), now)
+		tick()
+		if _, _, err := c.Tick(now); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(16 * time.Millisecond)
+	}
+	if !c.mirroring || !c.armed {
+		t.Fatalf("not armed on whole STATEs (mirroring %v armed %v):\n%s", c.mirroring, c.armed, rep.String())
+	}
+
+	thinStart := now
+	seq := uint32(4)
+	step := func() time.Duration {
+		t.Helper()
+		c.OnEnemy(thinState(t, hostState(seq, 16*seq)), now)
+		seq++
+		tick()
+		_, sleep, err := c.Tick(now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(100 * time.Millisecond)
+		return sleep
+	}
+	for now.Sub(thinStart) <= StaleAfter {
+		if sleep := step(); sleep != 0 {
+			t.Fatalf("%v into the thin run: sleep %v", now.Sub(thinStart), sleep)
+		}
+	}
+	if strings.Contains(rep.String(), "only thinned") || !c.mirroring {
+		t.Fatalf("a short thin run changed the mirror (mirroring %v):\n%s", c.mirroring, rep.String())
+	}
+	for now.Sub(thinStart) <= StaleAfter+c.StaleHold {
+		step()
+	}
+	step()
+	if c.armed {
+		t.Error("still armed past StaleAfter+StaleHold of thin STATEs")
+	}
+	got := rep.String()
+	if n := strings.Count(got, "only thinned STATEs for M_Dai room 1"); n != 1 {
+		t.Errorf("thin-run warning logged %d times:\n%s", n, got)
+	}
+	for _, want := range []string{"the host's STATE stays thinned (a stall?); holding the copies frozen", "not mirroring: the host's STATE stays thinned"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q:\n%s", want, got)
+		}
+	}
+
+	pushState(t, c, hostState(seq, 16*seq), now)
+	tick()
+	if _, _, err := c.Tick(now); err != nil {
+		t.Fatal(err)
+	}
+	if !c.mirroring || c.thinSince != (time.Time{}) {
+		t.Errorf("a whole STATE after the run did not arm (mirroring %v, thinSince %v)", c.mirroring, c.thinSince)
+	}
+}
+
 // TestReadPlaceMatchesScope: feed.ReadPlace (broadcast-pose's place
 // trailer) and ReadScope (the enemy client's PSTATE) read the same stage,
 // room and in-play state through a room in play, a load and a stage

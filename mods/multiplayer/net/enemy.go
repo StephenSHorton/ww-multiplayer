@@ -54,7 +54,12 @@ import (
 // fresh PSTATE, a loading one or the STATE's own place gets it whole, and
 // so does everyone a STATE without EnemyStateFlagInScope (a keepalive)
 // goes to. A client that still gets a thinned STATE naming its own place
-// (its PSTATE lags its arrival) waits for the whole one (Mirror.Tick).
+// (its PSTATE lags its arrival) waits for the whole one (Mirror.Tick),
+// up to StaleAfter, then reads the run as a stale STATE. An enemy client
+// of a build from before the bit (no ProtocolVersion bump) reads such a
+// STATE as the host listing nothing: for that tick or two it arms on an
+// empty list ("lists 0"), and the next whole STATE corrects it; the dead
+// bits ride the header, so catch-up kills stay right.
 // The thin bit is the server's: it is cleared on what the host sends.
 //
 // Origin binding: the player id stamped into a HIT and a PSTATE names the

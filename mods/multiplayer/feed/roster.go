@@ -108,7 +108,7 @@ func (f *Feeder) Views(remotes []network.RemotePlayer, now time.Time) []RemoteVi
 			Target: [3]float32{rp.Position.PosX + f.offX, rp.Position.PosY + f.offY, rp.Position.PosZ + f.offZ}}
 		if ls, ok := f.remoteToLinkSlot[rp.ID]; ok {
 			v.LinkSlot = ls
-			frozen, despawned := network.PoseLiveness(rp.LastPose, now, f.freezeAfter, f.despawnAfter)
+			frozen, despawned := network.PoseLiveness(f.poseSeen(rp), now, f.freezeAfter, f.despawnAfter)
 			sl := &f.linkSlots[ls]
 			v.Live = !frozen && !despawned && !sl.frozen && !sl.despawned && !sl.hidden
 		}
