@@ -167,3 +167,19 @@ func landedKinds(by map[replica.LandKind]int) string {
 	}
 	return " (" + strings.Join(parts, ", ") + ")"
 }
+
+// salvageStatus is /status's line for the salvage catch-up
+// (mods/coop/replica/salvage.go), "" while it has nothing to say: the
+// salvage points marked emptied after the partner's salvage bits landed,
+// and those held, with the last reason.
+func salvageStatus(st replica.Status) string {
+	sv := st.Salvage
+	if st.DryRun || sv.Marked == 0 && sv.Held == 0 && sv.LastHeld == "" {
+		return ""
+	}
+	line := fmt.Sprintf("salvage: %d point(s) marked emptied, %d held", sv.Marked, sv.Held)
+	if sv.LastHeld != "" {
+		line += " (last: " + sv.LastHeld + ")"
+	}
+	return line
+}

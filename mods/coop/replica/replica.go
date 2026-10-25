@@ -332,6 +332,9 @@ type Status struct {
 	// landed set, the key door locks cleared and the death-switch
 	// light-shrinks.
 	Refresh RefreshStatus
+	// Salvage is how the salvage catch-up stands (salvage.go): the points
+	// marked emptied, and those held.
+	Salvage SalvageStatus
 }
 
 // helloKey is what a CO_HELLO describes: when it changes, the replica
@@ -431,7 +434,9 @@ type Replica struct {
 
 	// The actor_refresh relay (refresh_relay.go), likewise; rfOn is
 	// Config.Refresh's tokens.
-	ar    actorRefresh
+	ar actorRefresh
+	// sv is the salvage catch-up (salvage.go).
+	sv    salvageState
 	arNow *refreshReq
 	rfOn  refreshSet
 
@@ -511,7 +516,7 @@ func New(cfg Config) (*Replica, error) {
 	}
 	w, err := NewFrameWriter(WriterConfig{Mem: r.m, DryRun: true})
 	if cfg.Apply {
-		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | M6Targets | RefreshTargets | TargetEscape | TargetBoss | TargetRefresh, Policy: r.policy, GBA: &r.gba.mask, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
+		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | M6Targets | RefreshTargets | TargetEscape | TargetBoss | TargetRefresh | TargetSalvage, Policy: r.policy, GBA: &r.gba.mask, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
 		w, err = NewFrameWriter(WriterConfig{Mem: r.m, Guard: wg, BeatTimeout: cfg.BeatTimeout, Logf: r.logf, Label: r.label, GBA: r.gba.switches > 0})
 	}
 	if err != nil {
@@ -701,6 +706,7 @@ func (r *Replica) Status() Status {
 		Combat:   r.combatStatus(),
 		BossKill: r.bossKillStatus(),
 		Refresh:  r.refreshStatus(),
+		Salvage:  r.salvageStatus(),
 	}
 	_, st.WritesOff = r.writer.Disabled()
 	if r.preflight != nil {
@@ -766,6 +772,8 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 	ds := r.m4.take()
 	sc := r.m5.take()
 	cm := r.m6.take()
+	sp := r.sv.plan
+	r.sv.plan = nil
 	r.toWrite, r.window, r.escNow, r.bossNow, r.arNow = nil, windows{}, nil, nil, nil
 	r.unlockAndFlush(&out)
 	var werr error
@@ -792,6 +800,7 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 	}
 	r.applyBossKill(ctx, bq, &rep)
 	r.applyRefresh(ctx, aq, &rep)
+	r.applySalvage(ctx, sp, &rep)
 	return rep
 }
 
@@ -900,6 +909,7 @@ func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
 	r.reconcileM4(o, armed, &rep)
 	r.reconcileM5(o, armed)
 	r.reconcileM6(o, armed)
+	r.reconcileSalvage(o, armed)
 	r.escapeTick(o, armed)
 	r.bossTick(o, armed)
 	r.actorRefreshTick(armed)

@@ -33,6 +33,11 @@ import (
 //     note 1: DRC r7's ambusher Bokoblins die on zone switches);
 //   - the kill path (ApplyKills, writer_kill.go:132): a zone's dead setIDs.
 //
+// The merge path's ocean writes land too (landOcean): a sea grid's salvage
+// bit and a chart salvaged, the keys end_salvage writes (d_a_salvage.cpp:
+// 503-527). The salvage catch-up (salvage.go) marks the registered salvage
+// points they empty.
+//
 // The set is the stage visit's: it is cleared when the stage, the loaded
 // table or the file changes, and when a save state is loaded, as the zones
 // are wiped at a stage entry and M6's own state is per visit
@@ -55,6 +60,15 @@ const (
 	LandItem
 	// LandKill is a dead setID in a room's zone.
 	LandKill
+	// LandOcean is a sunken treasure's salvage bit: Room is the sea grid
+	// (0..49) and No the bit (0..15) of dSv_ocean_c's u16 for it
+	// (onOceanSvBit, d_save.cpp:1164-1168).
+	LandOcean
+	// LandChart is a treasure chart salvaged: No is the point's mSaveNo,
+	// 1..128, as dComIfGs_onCompleteCollectMap takes it (bit No-1 of the
+	// map's "complete" u32[4], d_com_inf_game.h:1212-1214, which the
+	// replica's labels call chart No-1).
+	LandChart
 )
 
 func (k LandKind) String() string {
@@ -67,6 +81,10 @@ func (k LandKind) String() string {
 		return "item"
 	case LandKill:
 		return "dead setID"
+	case LandOcean:
+		return "salvage bit"
+	case LandChart:
+		return "chart salvaged"
 	}
 	return fmt.Sprintf("LandKind(%d)", uint8(k))
 }
@@ -102,6 +120,10 @@ func (b LandedBit) String() string {
 		return fmt.Sprintf("%s switch 0x%02X", addr.ClassifySwitch(b.No), b.No)
 	case b.Kind == LandKill:
 		return fmt.Sprintf("dead setID %d of room %d", b.No, b.Room)
+	case b.Kind == LandOcean:
+		return fmt.Sprintf("salvage bit %d of sea grid %d", b.No, b.Room)
+	case b.Kind == LandChart:
+		return fmt.Sprintf("chart %d salvaged (mSaveNo %d)", b.No-1, b.No)
 	}
 	return fmt.Sprintf("%s %d of %s", b.Kind, b.No, TableName(int(b.Table)))
 }
@@ -210,6 +232,46 @@ func (w *FrameWriter) landMemBit(a uint32, table int8, set byte, now time.Time) 
 	}
 	for _, no := range beBits(rel, set) {
 		w.land(LandedBit{Kind: kind, Table: table, Room: -1, No: no}, now)
+	}
+}
+
+// OceanKey is the LandedBit of salvage bit bit of sea grid, with table
+// loaded.
+func OceanKey(table int8, grid, bit int) LandedBit {
+	return LandedBit{Kind: LandOcean, Table: table, Room: int8(grid), No: bit}
+}
+
+// ChartKey is the LandedBit of chart no (1..128) salvaged, with table
+// loaded.
+func ChartKey(table int8, no int) LandedBit {
+	return LandedBit{Kind: LandChart, Table: table, Room: -1, No: no}
+}
+
+// landOcean records the salvage bits and salvaged charts set, newly
+// written and verified, at a: a byte of dSv_ocean_c (a big-endian u16 per
+// grid, addr.OceanBit) or of the map's "complete" u32[4]
+// (addr.MapComplete; chart n is bit n-1). Another byte is not one. w.mu
+// is held.
+func (w *FrameWriter) landOcean(a uint32, table int8, set byte, now time.Time) {
+	switch {
+	case set == 0:
+	case a >= addr.Ocean && a < addr.Ocean+addr.OceanSize:
+		rel := int(a - addr.Ocean)
+		grid, hi := rel/2, rel%2 == 0
+		for b := range 8 {
+			if set&(1<<b) == 0 {
+				continue
+			}
+			bit := b
+			if hi {
+				bit += 8
+			}
+			w.land(OceanKey(table, grid, bit), now)
+		}
+	case a >= addr.MapComplete && a < addr.MapComplete+16:
+		for _, n := range beBits(int(a-addr.MapComplete), set) {
+			w.land(ChartKey(table, n+1), now)
+		}
 	}
 }
 
