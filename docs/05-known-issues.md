@@ -1237,8 +1237,8 @@ menus), and the heaps are freed in the keeper's delete and in `_epilog`.
   needs it.
 
 **Budget.**
-- REL `.text` 0x15354 -> 0x16F38 (+0x1BE4).
-- RELS.arc growth +53,536 -> +58,272 of the 65,536 guard (the patcher
+- REL `.text` 0x15354 -> 0x16F64 (+0x1C10).
+- RELS.arc growth +53,536 -> +58,304 of the 65,536 guard (the patcher
   golden fixture).
 - No T2 code: T2 still ends at 0x80412D08, 0x1F8 free.
 - 0x88 bytes of mailbox slack.
