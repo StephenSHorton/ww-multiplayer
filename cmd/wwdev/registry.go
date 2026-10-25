@@ -52,6 +52,20 @@ func commandTable() []command {
 			run:     cmdMpLocal,
 		},
 		{
+			name:    "smoke",
+			group:   groupLocal,
+			usage:   "smoke [opts] [-- mp-local args]",
+			summary: "Scripted two-Dolphin smoke: boot/attach, mp-local, sync checks; exit 0/1/2",
+			run:     runSmoke,
+		},
+		{
+			name:    "smooth-steps",
+			group:   groupLocal,
+			usage:   "smooth-steps [secs=5] [A|B]",
+			summary: "Per-frame step log of a remote under WW_POSE_TEST_RATE jitter",
+			run:     runSmoothSteps,
+		},
+		{
 			name:    "help",
 			group:   groupLocal,
 			usage:   "help",
