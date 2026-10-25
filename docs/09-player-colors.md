@@ -247,6 +247,8 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
 - receivers before it copy only the first 16 bytes (`rp.FaceState[:faceStateWireBytes]`);
 - `MaxFaceBytes` is 64.
 
+**Equip bytes (2026-10-25, `mods/multiplayer/vissync`).** The appearance byte gains bit 1 = on the `sea` stage, bit 2 = the sword is out (`mEquipItem` 0x103), bit 3 = the shield is in the right hand, and two bytes follow it: `mSelectEquip[0]` (sword) and `[1]` (shield), 19 bytes in all. Still no protocol change, by the same rule: a receiver reads only the bytes it knows (`RemoteCasual` masks bit 0, so the new bits never read as casual), an older receiver ignores the bytes past the 17th, and the server relays up to `MaxFaceBytes`. A sender before them sends 17 bytes, and `vissync.RemoteEquip` reports no equip for it (the mini-Link then draws no sword or shield). The receiver writes them, with the roster names and the sea positions, into the visuals block (`inject/include/wwvis.h`) that the REL draws from.
+
 **Dev and diagnostics:**
 - `WW_TUNIC=off` turns the wiring off in puppet-sync, mp-local, host and join.
 - `tunic-slot <0|1|local> <color|#RRGGBB|off|casual>` sets one slot (`casual`: slots 0 and 1 only) on the selected Dolphin and waits until it is in RAM. It touches no other slot. Run the pipeline with `WW_TUNIC=off` while using it, or puppet-sync puts the session colors back.

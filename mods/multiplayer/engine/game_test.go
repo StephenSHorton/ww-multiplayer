@@ -488,7 +488,8 @@ func (m *mailRAM) Write(addr uint32, data []byte) error {
 func TestResetMailbox(t *testing.T) {
 	patched := &mailRAM{mod: true}
 	if !resetMailbox(patched, true) || !slices.Contains(patched.writes, mailbox.Mailbox+mailbox.OffShadowMode) ||
-		!slices.Contains(patched.writes, mailbox.Mailbox+mailbox.OffTunicEnable) {
+		!slices.Contains(patched.writes, mailbox.Mailbox+mailbox.OffTunicEnable) ||
+		!slices.Contains(patched.writes, mailbox.VisAddr+mailbox.VisMagicOff) {
 		t.Fatalf("patched: writes %x", patched.writes)
 	}
 	noTunic := &mailRAM{mod: true}

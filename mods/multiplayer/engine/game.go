@@ -579,6 +579,9 @@ func resetMailbox(m mailboxMem, tunic bool) bool {
 	if tunic {
 		m.Write(mailbox.Mailbox+mailbox.OffTunicEnable, make([]byte, avatar.TunicSlots))
 	}
+	// The visuals block off (vissync): no names, equip or sea chart
+	// markers left from this session, if puppet-sync's own Off was missed.
+	m.Write(mailbox.VisAddr+mailbox.VisMagicOff, make([]byte, 4))
 	return true
 }
 
