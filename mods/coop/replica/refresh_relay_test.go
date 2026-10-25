@@ -296,6 +296,9 @@ func TestRefreshRelayRecreate(t *testing.T) {
 			if !rr.log.has(c.line) {
 				t.Fatalf("no %q:\n%s", c.line, rr.log)
 			}
+			if c.r == mailbox.RefreshRRecreated && len(rr.r.ar.redone) != 1 {
+				t.Fatal("the re-created identity is not remembered")
+			}
 		})
 	}
 }

@@ -495,7 +495,7 @@ func (r *Replica) planRefresh(t *refreshTick, w *actors.Walk, demo bool, demoWhy
 	}
 	for i := range w.Actors {
 		a := &w.Actors[i]
-		if !r.rfOn.procs[uint16(a.Proc)] || f.done[a.PID] != "" {
+		if !r.rfOn.procs[uint16(a.Proc)] || f.done[a.PID] != "" || f.redone[identityOf(a)] {
 			continue
 		}
 		c, ok, err := refreshDecode(r.m, a, t.s.Table)
@@ -563,11 +563,30 @@ type actorRefresh struct {
 	last    string               // the last hold's reason
 	dry     map[uint32]bool      // pids a dry run logged
 	logged  map[string]bool      // log keys said this visit
-	stats   ActorRefreshStatus
+	// redone are the identities (refreshIdentity) the REL re-created this
+	// visit: the new actor has another pid, and is never asked about. Its
+	// create builds the set state, so the REL would answer IN_STATE; this
+	// caps a row whose new actor did not at one re-create per visit.
+	redone map[refreshIdentity]bool
+	stats  ActorRefreshStatus
+}
+
+// refreshIdentity is what a re-created actor keeps of the old one: its
+// create params (the REL creates it from them).
+type refreshIdentity struct {
+	proc    int16
+	params  uint32
+	room    int8
+	homePos [3]uint32
+}
+
+func identityOf(a *actors.Actor) refreshIdentity {
+	return refreshIdentity{proc: a.Proc, params: a.Params, room: a.HomeRoom, homePos: a.HomePos}
 }
 
 func newActorRefresh() actorRefresh {
-	return actorRefresh{next: map[uint32]time.Time{}, gated: map[uint32]int{}, done: map[uint32]string{}, held: map[uint32]string{}, dry: map[uint32]bool{}, logged: map[string]bool{}}
+	return actorRefresh{next: map[uint32]time.Time{}, gated: map[uint32]int{}, done: map[uint32]string{}, held: map[uint32]string{}, dry: map[uint32]bool{}, logged: map[string]bool{},
+		redone: map[refreshIdentity]bool{}}
 }
 
 // forget drops what the relay remembers of process IDs and the visit: a
@@ -580,6 +599,7 @@ func (f *actorRefresh) forget() {
 	clear(f.held)
 	clear(f.dry)
 	clear(f.logged)
+	clear(f.redone)
 	f.last = ""
 }
 
@@ -734,6 +754,10 @@ func (r *Replica) actorRefreshTick(armed bool) {
 				case mailbox.RefreshRRecreated:
 					f.stats.Recreated++
 					f.stats.Applied++
+					if len(f.redone) >= maxRefreshKeys {
+						clear(f.redone)
+					}
+					f.redone[identityOf(&c.a)] = true
 				case mailbox.RefreshRApplied, mailbox.RefreshRCreateFailed:
 					f.stats.Applied++
 				}
