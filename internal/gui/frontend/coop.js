@@ -236,13 +236,20 @@ function renderProgress(st, show) {
 	const keys = (v.keys || []).filter((k) => k.dungeon);
 	if (keys.length) {
 		kids.push(el("div", { class: "subhead" }, "Dungeon keys"), el("ul", { class: "keys" }, ...keys.map(keyRow)));
+	} else if (v.noKeyTable && !v.dryRun) {
+		// As /status: "small keys: not derived (no co-op stage tables)".
+		kids.push(el("div", { class: "subhead" }, "Dungeon keys"),
+			el("p", { class: "okline no", id: "progress-nokeys" }, "Small keys aren't derived: there are no co-op stage tables for this disc"));
 	}
 	if (!v.dryRun) {
 		kids.push(el("div", { class: "subhead" }, "Story and hearts"));
 		const held = v.held || [];
+		const shares = v.shares || [];
 		kids.push(held.length
 			? el("ul", { class: "heldlist", title: "Story bits your partner has that your game gets once it catches up" }, ...held.map((h) => el("li", {}, "Held back: " + h)))
-			: el("p", { class: "okline" }, "No story held back: your game has all of it"));
+			: shares.includes("story")
+				? el("p", { class: "okline" }, "No story held back: your game has all of it")
+				: el("p", { class: "okline no" }, shares.length ? "Story isn't shared in this session" : "Story isn't shared yet"));
 		kids.push(el("p", { class: "okline" + (v.life ? "" : " no") }, v.life ? "Max hearts follow the hearts the world has taken" : "Max hearts aren't shared: " + (v.lifeWhy || "not granted")));
 	}
 	$("progress").replaceChildren(...kids);

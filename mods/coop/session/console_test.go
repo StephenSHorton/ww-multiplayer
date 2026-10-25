@@ -296,6 +296,16 @@ func TestProgressionFacts(t *testing.T) {
 	if cs.Life || cs.LifeWhy != "no heart table (coop-tables)" {
 		t.Errorf("life %v %q", cs.Life, cs.LifeWhy)
 	}
+	if cs.NoKeyTable {
+		t.Error("NoKeyTable with key tables")
+	}
+	// No co-op stage tables: /status says small keys aren't derived, and
+	// the card's facts carry the same.
+	bare := replica.Status{Features: hub.DefaultFeatures, Derive: derive.Status{NoKeyTable: true, LifeWhy: "no heart table"}}
+	if nk := coopStatusOf("Link", bare); !nk.NoKeyTable || nk.Keys != nil ||
+		!slices.Contains(progressionStatus(bare), "small keys: not derived (no co-op stage tables)") {
+		t.Errorf("no key table: %+v, /status %q", nk, progressionStatus(bare))
+	}
 	dry := coopStatusOf("Link", replica.Status{DryRun: true, Features: hub.FeatureImage, Held: held, Derive: derive.Status{Keys: []derive.KeyStatus{drc}, Life: true}})
 	if dry.Shares != nil || dry.Keys != nil || dry.Life || len(dry.HeldStory) != 1 {
 		t.Errorf("dry run %+v", dry)

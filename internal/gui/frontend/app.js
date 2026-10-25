@@ -12,7 +12,7 @@
 
 import { call, onEvent, mode } from "./transport.js";
 import { $, el, toast, swatches, shade, openDialog, closeDialog, dialogKey, setDialogText, initDialog } from "./ui.js";
-import { initSetup, openSetup, onPatch } from "./setup.js";
+import { initSetup, openSetup, onPatch, patchRunning } from "./setup.js";
 import { renderCoop, dialogExtra, coopAction, initCoop } from "./coop.js";
 import { initMods, refreshMods } from "./mods.js";
 import { initUpdate, startUpdate, onUpdate, render as renderUpdate, renderSettings as renderUpdateSettings } from "./update.js";
@@ -95,7 +95,8 @@ function renderSide() {
 	$("me-dot").style.setProperty("--c", (self && self.color) || (running && state.color) || homeColor || "#3C9A2E");
 	let status = "Not in a session";
 	if (running) {
-		const n = lobby ? lobby.members.length : state.players.length + 1;
+		// A pre-lobby host's lobby is legacy and lists no members (as render()).
+		const n = lobby && !lobby.legacy ? lobby.members.length : state.players.length + 1;
 		status = (PHASES[state.phase] || state.phase) + " · " + n + (n === 1 ? " player" : " players");
 	}
 	$("me-status").textContent = status;
@@ -103,7 +104,19 @@ function renderSide() {
 
 // ---------- screens ----------
 
-function show(v) {
+// show opens screen v. Leaving Setup while a disc is being patched asks
+// first: the patch goes on, but Host and Join wait for it (Go refuses
+// them, errPatching), so Setup is where its progress and Stop are.
+function show(v, force = false) {
+	if (!force && view === "setup" && v !== "setup" && patchRunning()) {
+		openDialog({
+			key: "leave-setup",
+			title: "Your disc is still being patched",
+			text: "It keeps going if you leave Setup, but hosting and joining wait until it's done. Setup shows its progress and can stop it.",
+			actions: [{ label: "Stay in Setup", primary: true }, { label: "Leave Setup", run: () => show(v, true) }],
+		});
+		return;
+	}
 	if (v !== view) {
 		revealed = new Set();
 		setAddrShown(info.showIPs);

@@ -521,8 +521,13 @@ func TestCoopPanelView(t *testing.T) {
 		{Table: 4, Dungeon: "FW", Why: "no key table"}, {Table: 9, Why: "odd"}}
 	prog.Life, prog.LifeWhy = false, "no heart table"
 	pv := pipeView(prog)
-	if len(pv.Shares) != 3 || len(pv.Held) != 1 || pv.Life || pv.LifeWhy != "no heart table" || len(pv.Keys) != 3 {
+	if len(pv.Shares) != 3 || len(pv.Held) != 1 || pv.Life || pv.LifeWhy != "no heart table" || len(pv.Keys) != 3 || pv.NoKeyTable {
 		t.Fatalf("progress %+v", pv)
+	}
+	nk := cs
+	nk.NoKeyTable = true
+	if pv := pipeView(nk); !pv.NoKeyTable {
+		t.Fatalf("NoKeyTable is dropped: %+v", pv)
 	}
 	if k := pv.Keys[0]; k.Name != "Dragon Roost Cavern" || k.Dungeon != "DRC" || !k.On || !k.Seen || k.Have != 1 || k.Taken != 2 || k.Sources != 4 || k.Open != 1 || k.Doors != 4 {
 		t.Fatalf("DRC %+v", k)

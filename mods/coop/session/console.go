@@ -530,6 +530,7 @@ func progressionFacts(cs *session.CoopStatus, st replica.Status) {
 		cs.Keys = append(cs.Keys, session.CoopKeys{Table: k.Table, Dungeon: k.Dungeon, On: k.On, Seen: k.Seen, Pending: k.Pending, Why: k.Why,
 			Have: f.Have, Taken: f.Taken, Sources: f.Sources, Open: f.Open, Doors: f.Doors, Held: f.Held, Target: k.Target})
 	}
+	cs.NoKeyTable = st.Derive.NoKeyTable
 	cs.Life, cs.LifeWhy = st.Derive.Life, st.Derive.LifeWhy
 }
 

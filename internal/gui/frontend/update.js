@@ -20,6 +20,7 @@ import { $, toast } from "./ui.js";
 let ctx = null; // {view, running, openSetup, onPatch}
 let upd = null; // Bridge.UpdateStatus
 let dismissed = ""; // the version Later hid, this run
+let checking = false; // Settings' Check now is waiting for its reply
 
 export function initUpdate(c) {
 	ctx = c;
@@ -102,8 +103,10 @@ export function onUpdate(u) {
 	if (ctx && ctx.view() === "settings") renderSettings(false);
 }
 
-// render draws the banner for the screen showing now.
+// render draws the banner for the screen showing now (and Settings'
+// version line, which points at the banner only while there is one).
 export function render() {
+	if (upd && ctx && ctx.view() === "settings" && !checking) $("set-vertext").textContent = versionText(upd);
 	const bar = $("updbar");
 	const u = upd;
 	const v = ctx ? ctx.view() : "home";
@@ -195,9 +198,16 @@ export async function renderSettings(fresh = true) {
 	$("set-checknow").disabled = u.dev;
 }
 
+// versionText is Settings' version line. The banner never shows in a
+// session, so there it says where Update will be.
 function versionText(u) {
 	if (u.dev) return "This is a development build (" + u.current + "): it doesn't check for updates.";
-	if (u.available) return "You have " + u.current + ". " + u.latest + " is out: Update is on the banner above.";
+	if (u.available) {
+		const where = ctx && ctx.running && ctx.running()
+			? "Update is on the banner once you leave the session."
+			: "Update is on the banner above.";
+		return "You have " + u.current + ". " + u.latest + " is out: " + where;
+	}
 	return "You have " + u.current + (u.latest && u.latest === u.current ? ", the newest version." : ".");
 }
 
@@ -205,6 +215,7 @@ async function checkNow() {
 	$("set-upderr").textContent = "";
 	$("set-vertext").textContent = "Checking…";
 	$("set-checknow").disabled = true;
+	checking = true;
 	try {
 		const u = await call("CheckUpdate", true);
 		dismissed = "";
@@ -214,6 +225,7 @@ async function checkNow() {
 		if (upd) $("set-vertext").textContent = versionText(upd);
 		$("set-upderr").textContent = e.message;
 	} finally {
+		checking = false;
 		$("set-checknow").disabled = !!(upd && upd.dev);
 	}
 }

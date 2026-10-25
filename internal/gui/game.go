@@ -209,6 +209,9 @@ func (b *Bridge) Start(anyway bool) (err error) {
 	if b.updating() {
 		return errUpdating
 	}
+	if b.patching() {
+		return errPatching
+	}
 	if o := b.launchOptions(); !o.Manual && (o.Exe == "" || o.ISO == "") && b.wouldLaunch(o) {
 		return errors.New("choose your Dolphin and your patched disc in Setup first, or tick \"I'll start Dolphin myself\"")
 	}

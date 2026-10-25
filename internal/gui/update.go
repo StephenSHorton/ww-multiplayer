@@ -327,7 +327,8 @@ func checkError(err error) string {
 var errUpdating = errors.New("an update is downloading: wait until the app restarts on the new version, or cancel it on the Home screen")
 
 // updating says an update is downloading or closing the app for the new
-// version: Host, Join, Start and StartPatch wait.
+// version: Host, Join, Start and StartPatch wait (and Host, Join and
+// Start wait for a running patch too, errPatching).
 func (b *Bridge) updating() bool {
 	b.upd.mu.Lock()
 	defer b.upd.mu.Unlock()

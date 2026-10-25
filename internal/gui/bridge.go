@@ -265,6 +265,9 @@ func (b *Bridge) Host(r HostRequest) (err error) {
 	if b.updating() {
 		return errUpdating
 	}
+	if b.patching() {
+		return errPatching
+	}
 	name, err := checkName(r.Name)
 	if err != nil {
 		return err
@@ -304,6 +307,9 @@ func (b *Bridge) Join(r JoinRequest) (err error) {
 	defer b.maskErr(&err)
 	if b.updating() {
 		return errUpdating
+	}
+	if b.patching() {
+		return errPatching
 	}
 	addr := strings.TrimSpace(r.Addr)
 	if addr == "" {

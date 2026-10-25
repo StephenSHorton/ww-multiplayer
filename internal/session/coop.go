@@ -188,11 +188,14 @@ type CoopStatus struct {
 	// features the host granted by name ("story", "keys", ...; none in a
 	// dry run), the story bits held back with why ("label (why)"), each
 	// key table, and whether max hearts are derived (LifeWhy: why not).
-	Shares    []string
-	HeldStory []string
-	Keys      []CoopKeys
-	Life      bool
-	LifeWhy   string
+	// NoKeyTable: no small keys are derived at all, as /status's "small
+	// keys: not derived (no co-op stage tables)" says.
+	Shares     []string
+	HeldStory  []string
+	Keys       []CoopKeys
+	NoKeyTable bool
+	Life       bool
+	LifeWhy    string
 	// Partner is where the partner is (its last PRESENCE): Stage "" for
 	// unknown, Room -1 at a stage start.
 	PartnerStage string

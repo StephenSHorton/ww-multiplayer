@@ -129,12 +129,14 @@ type CoopPipeView struct {
 	// the progress card (session.CoopStatus): the features the host
 	// granted by name ("story", "keys", ...; empty in a dry run), the
 	// story bits held back ("label (why)"), each dungeon's small keys,
-	// and whether max hearts are derived (LifeWhy: why not).
-	Shares  []string      `json:"shares"`
-	Held    []string      `json:"held"`
-	Keys    []CoopKeyView `json:"keys"`
-	Life    bool          `json:"life"`
-	LifeWhy string        `json:"lifeWhy,omitempty"`
+	// and whether max hearts are derived (LifeWhy: why not). NoKeyTable:
+	// no small keys are derived at all (no co-op stage tables).
+	Shares     []string      `json:"shares"`
+	Held       []string      `json:"held"`
+	Keys       []CoopKeyView `json:"keys"`
+	NoKeyTable bool          `json:"noKeyTable,omitempty"`
+	Life       bool          `json:"life"`
+	LifeWhy    string        `json:"lifeWhy,omitempty"`
 }
 
 // CoopKeyView is one dungeon's small keys on the progress card.
@@ -579,7 +581,7 @@ func pipeView(cs session.CoopStatus) CoopPipeView {
 		Escapes: cs.Escapes, Failed: cs.Failed, DryRun: cs.DryRun, Paused: cs.WritesOff != "" && !cs.DryRun,
 		Progression: append([]string{}, cs.Progression...), Puzzle: cs.Puzzle, Combat: cs.Combat, Tuner: cs.Tuner,
 		Shares: append([]string{}, cs.Shares...), Held: append([]string{}, cs.HeldStory...), Keys: []CoopKeyView{},
-		Life: cs.Life, LifeWhy: cs.LifeWhy}
+		NoKeyTable: cs.NoKeyTable, Life: cs.Life, LifeWhy: cs.LifeWhy}
 	for _, k := range cs.Keys {
 		v.Keys = append(v.Keys, CoopKeyView{Dungeon: k.Dungeon, Name: dungeonName(k.Table, k.Dungeon), On: k.On, Seen: k.Seen, Why: k.Why,
 			Have: k.Have, Taken: k.Taken, Sources: k.Sources, Open: k.Open, Doors: k.Doors, Held: k.Held, Target: k.Target, Pending: k.Pending})

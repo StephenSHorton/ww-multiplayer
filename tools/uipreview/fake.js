@@ -5,10 +5,22 @@
 // Scenarios: home, home-update, home-empty, setup, setup-game,
 // setup-dolphin, mods, lobby-host, lobby-join, ingame, ingame-host,
 // reconnecting, dialog, ended. ?theme=dark|light sets the theme.
+// Variants (main_test.go's DOM checks use them):
+//
+//	&legacy=1        a pre-lobby host: a legacy lobby, no members, players
+//	&shares=none     the progress card before any feature is granted
+//	&shares=nostory  a host that shares no story
+//	&nokeys=1        no co-op stage tables (NoKeyTable)
+//	&upd=1           a newer release is out, in any scenario
+//	&click=a,b       click these element ids in turn once the page is up
 (function () {
 	const q = new URLSearchParams(location.search);
 	const S = q.get("s") || "home";
 	const theme = q.get("theme");
+	const legacy = q.get("legacy") === "1";
+	const shareMode = q.get("shares") || "";
+	const noKeys = q.get("nokeys") === "1";
+	const updOut = S === "home-update" || q.get("upd") === "1";
 	try {
 		if (theme) localStorage.setItem("ww-theme", theme);
 		else localStorage.removeItem("ww-theme");
@@ -64,8 +76,8 @@
 	};
 
 	const update = {
-		seq: 1, enabled: true, dev: false, current: "v0.5.2", latest: S === "home-update" ? "v0.6.0" : "v0.5.2",
-		available: S === "home-update", notesURL: "", canInstall: true, stage: S === "home-update" ? "available" : "idle", percent: 0, error: "", installed: "", repatch: "",
+		seq: 1, enabled: true, dev: false, current: "v0.5.2", latest: updOut ? "v0.6.0" : "v0.5.2",
+		available: updOut, notesURL: "", canInstall: true, stage: updOut ? "available" : "idle", percent: 0, error: "", installed: "", repatch: "",
 	};
 
 	const lan = S === "home-empty" ? { on: true, sessions: [], showIPs: false } : {
@@ -145,6 +157,12 @@
 		} : null,
 		backup: "",
 	};
+	if (coop.panel) {
+		const pipe = coop.panel.pipes[0];
+		if (shareMode === "none") Object.assign(pipe, { shares: [], held: [] });
+		if (shareMode === "nostory") Object.assign(pipe, { shares: pipe.shares.filter((f) => f !== "story"), held: [] });
+		if (noKeys) Object.assign(pipe, { keys: [], noKeyTable: true });
+	}
 
 	function state() {
 		if (S.startsWith("home") || S.startsWith("setup") || S === "mods" || S === "settings") {
@@ -154,10 +172,10 @@
 			session: 1, phase: over() ? "ended" : phase, running: !over(), role: host ? "Host" : "Join", name: "Stephen",
 			addr: "192.168.1.42", addrMasked: "•••.•••.•••.42", endReason: "The host closed the session.", failed: over(),
 			lobby: {
-				member: 2, host, phase: lobbyPhase, legacy: false, members, coop: coopMode, link: { state: S === "reconnecting" ? "reconnecting" : "up", attempts: 0 },
+				member: legacy ? 0 : 2, host, phase: lobbyPhase, legacy, members: legacy ? [] : members, coop: coopMode, link: { state: S === "reconnecting" ? "reconnecting" : "up", attempts: 0 },
 				canStart: host && !playing, notReady: host && !playing ? ["Sam"] : [],
 			},
-			players: [], playerCount: 3, hostAddrs: [], latencyMs: playing ? 24 : 0,
+			players: legacy ? [{ name: "Blake", color: "#F08C1E" }] : [], playerCount: legacy ? 2 : 3, hostAddrs: [], latencyMs: playing ? 24 : 0,
 			dialog: S === "dialog" ? {
 				key: "bind:1", kind: "bind", title: "Bind this file?", text: "File 2 “Stephen” isn't bound to a co-op world. Bind it to world 7f3a91c2? Its progress joins the world.",
 				actions: [{ id: "answer-yes", label: "Bind", primary: true, arg: "q1" }, { id: "answer-no", label: "Not now", arg: "q1" }], cancel: "answer-no:q1", autoYes: true,
@@ -227,5 +245,13 @@
 	}
 	if (S === "setup-game" || S === "setup-dolphin") {
 		window.addEventListener("load", () => setTimeout(() => { const b = document.getElementById("setup-btn") || document.querySelector('[data-nav="setup"]'); if (b) b.click(); }, 200));
+	}
+	// &click=a,b: each id clicked in turn, after the scenarios' own clicks.
+	const clicks = (q.get("click") || "").split(",").filter((c) => c);
+	if (clicks.length) {
+		window.addEventListener("load", () => clicks.forEach((id, i) => setTimeout(() => {
+			const b = document.getElementById(id);
+			if (b) b.click();
+		}, 900 + 300 * i)));
 	}
 })();
