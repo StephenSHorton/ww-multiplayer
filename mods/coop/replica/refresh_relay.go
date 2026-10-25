@@ -21,10 +21,21 @@ import (
 // (refresh.go) write an actor's own bytes; Tier 3 is for the actors whose
 // create alone reads their bit, where no byte of the live actor would make
 // it right: a boulder (Stone2), a bush (Obj_Leaves), a pickup (daItem), a
-// chest (Tbox) or a barricade (Saku) this game placed before the
+// chest (Tbox), a barricade (Saku), or one of the table rows (review idea
+// 11, design (b): a bombable wall, a breakable floor, an ice block, a
+// Moblin-wood door, ET's light statue and light wall, a song statue, GT's
+// Phantom Ganon door, a crystal switch, a warp jar's lid, DRC's flame lift,
+// FW's flower house, WT's soil mound) this game placed before the
 // partner's bit landed here stays until its room reloads. The relay asks
-// the REL to delete it (wwapi/mailbox refresh.go, inject/rel/refresh.c),
-// and a reload then never creates it, as vanilla.
+// the REL to bring it up to date (wwapi/mailbox refresh.go,
+// inject/rel/refresh.c): a class whose create refuses to come up once the
+// bit is set is deleted, and a reload then never creates it, as vanilla;
+// a class whose create builds it in its set state (refreshProc.recreate:
+// the chest, the crystal switch, the jar, the lift, the house, the mound)
+// is deleted and created again in its own layer, so it comes up open,
+// lit, lidless, dropped, fallen or grown as a reload would build it. A
+// re-created actor answers IN_STATE when the walk names it again, which
+// ends the asking for its pid.
 //
 // It acts only on an actor whose bit is in the landed set (landed.go, the
 // G-D2 set #169 built for Tiers 1 and 2, D11: the bits this replica's own
@@ -55,6 +66,11 @@ import (
 // actor is read again, its params with it (actors.RereadParams), just
 // before it is named. The REL checks its own (D4) besides.
 //
+// The key-door rows (door10, door12) are built in the REL behind
+// WWRF_DOOR_ROWS 0 and refused here (refreshProc.pending) until the ST1
+// key-door live check (archive/coop-batch2/live/LIVE-3-doors.md) decides
+// between Tier 1's live lock write (refresh.go) and their re-create.
+//
 // The relay copies bossTick (bosskill.go): one request in flight, written
 // body first and the seq last (mailbox.RefreshRequest.Fields) through the
 // WriteGuard (TargetRefresh, pathRefresh); a refreshAckWait for the ack;
@@ -62,7 +78,8 @@ import (
 // actor" or "none"; nothing asked of a REL module of another build
 // (bossRELWhy's gate); each actor applied at most once, and given up after
 // a final answer ("bit not set", "mismatch", "refused", "fingerprint
-// miss") until the stage visit or a save state ends; and each log line
+// miss", "already in its set state", "re-created", "deleted, create
+// refused") until the stage visit or a save state ends; and each log line
 // once per key and visit. Off by default: the --coop-refresh token set
 // (Config.Refresh) is empty. Its "dry" token logs one line per candidate
 // and writes nothing; a --coop-dry-run replica has no landed set (it
@@ -72,21 +89,66 @@ import (
 type refreshProc struct {
 	key  string // its --coop-refresh token
 	proc uint16 // mailbox.RefreshProc*
+	// recreate: the REL deletes the actor and creates it again (its create
+	// builds the set state), else it only deletes it.
+	recreate bool
+	// row: a table row of refresh.c rf_rows, whose bit is a switch,
+	// (params >> shift) & 0xFF, or home.angle.x & 0xFF with angleX.
+	row    bool
+	shift  int
+	angleX bool
+	// memOnly: the create reads the switch with room -1 (a door's
+	// setKey), so only a memory switch; noZone: with the stay room (a warp
+	// jar), so a memory or dan switch. The REL refuses any other.
+	memOnly, noZone bool
+	// pending, when set, is why ParseRefresh refuses the token: the REL
+	// has the row compiled out (mailbox.RefreshDoorRows).
+	pending string
 }
 
+// refreshPendingST1 is why the key-door rows are refused.
+const refreshPendingST1 = "pending the ST1 key-door live check (Tier 1's lock write stays the door's refresh; WWRF_DOOR_ROWS 0)"
+
 // refreshProcs is the allow-list (wwrefresh.h WWRF_PROC_*), the design's
-// cut_order backwards: a cut drops the last first.
+// cut_order backwards: a cut drops the last first. The rows after tbox are
+// review idea 11's (refresh.c rf_rows), each opt-in by its token.
 var refreshProcs = []refreshProc{
-	{"stone2", mailbox.RefreshProcStone2},
-	{"leaves", mailbox.RefreshProcLeaves},
-	{"item", mailbox.RefreshProcItem},
-	{"saku", mailbox.RefreshProcSaku},
-	{"tbox", mailbox.RefreshProcTbox},
+	{key: "stone2", proc: mailbox.RefreshProcStone2},
+	{key: "leaves", proc: mailbox.RefreshProcLeaves},
+	{key: "item", proc: mailbox.RefreshProcItem},
+	{key: "saku", proc: mailbox.RefreshProcSaku},
+	{key: "tbox", proc: mailbox.RefreshProcTbox, recreate: true},
+	{key: "wall", proc: mailbox.RefreshProcWall, row: true},
+	{key: "floor", proc: mailbox.RefreshProcFloor, row: true},
+	{key: "ice", proc: mailbox.RefreshProcIce, row: true},
+	{key: "mjdoor", proc: mailbox.RefreshProcMjdoor, row: true},
+	{key: "mkie", proc: mailbox.RefreshProcMkie, row: true, shift: mailbox.RefreshMkieSwShift},
+	{key: "mkiek", proc: mailbox.RefreshProcMkiek, row: true},
+	{key: "mknjd", proc: mailbox.RefreshProcMknjd, row: true},
+	{key: "vfan", proc: mailbox.RefreshProcVfan, row: true},
+	{key: "swhit0", proc: mailbox.RefreshProcSwhit0, row: true, recreate: true},
+	{key: "warpt", proc: mailbox.RefreshProcWarpt, row: true, recreate: true, angleX: true, noZone: true},
+	{key: "mflft", proc: mailbox.RefreshProcMflft, row: true, recreate: true, shift: mailbox.RefreshMflftSwShift},
+	{key: "kokiie", proc: mailbox.RefreshProcKokiie, row: true, recreate: true, shift: mailbox.RefreshKokiieSwShift},
+	{key: "vmc", proc: mailbox.RefreshProcVmc, row: true, recreate: true, shift: mailbox.RefreshVmcSwShift},
+	{key: "door10", proc: mailbox.RefreshProcDoor10, row: true, recreate: true, memOnly: true, pending: refreshPendingST1},
+	{key: "door12", proc: mailbox.RefreshProcDoor12, row: true, recreate: true, memOnly: true, pending: refreshPendingST1},
+}
+
+// refreshProcOf is proc's allow-list entry, nil for none.
+func refreshProcOf(proc uint16) *refreshProc {
+	for i := range refreshProcs {
+		if refreshProcs[i].proc == proc {
+			return &refreshProcs[i]
+		}
+	}
+	return nil
 }
 
 const (
-	// RefreshTokens names every --coop-refresh proc token, for the usage.
-	RefreshTokens = "stone2,leaves,item,tbox,saku"
+	// RefreshTokens names every --coop-refresh proc token the relay takes,
+	// for the usage (refreshProcs' keys but the pending ones, in order).
+	RefreshTokens = "stone2,leaves,item,tbox,saku,wall,floor,ice,mjdoor,mkie,mkiek,mknjd,vfan,swhit0,warpt,mflft,kokiie,vmc"
 	// refreshDryToken is the --coop-refresh token that logs the candidates
 	// and writes nothing.
 	refreshDryToken = "dry"
@@ -120,6 +182,9 @@ func ParseRefresh(v string) (refreshSet, error) {
 		i := slices.IndexFunc(refreshProcs, func(p refreshProc) bool { return p.key == tok })
 		if i < 0 {
 			return refreshSet{}, fmt.Errorf("--coop-refresh: %q is no refresh token (say %s, dry, or none)", tok, RefreshTokens)
+		}
+		if why := refreshProcs[i].pending; why != "" {
+			return refreshSet{}, fmt.Errorf("--coop-refresh: %q is not taken yet: %s", tok, why)
 		}
 		s.procs[refreshProcs[i].proc] = true
 	}
@@ -171,10 +236,23 @@ type refreshCand struct {
 	// skips the gate; any other proc of room -1 is held, as before. The
 	// request still names the home room: the REL compares +0x1E2.
 	room int
+	// doorRooms: a door of the stage file (home room -1) waits on either of
+	// its rooms instead (doorRoomsWhy, as Tier 1's).
+	doorRooms bool
+	// recreate is its proc's refreshProc.recreate.
+	recreate bool
 }
 
 func (c *refreshCand) String() string {
 	return fmt.Sprintf("%s %s", mailbox.RefreshProcName(uint16(c.a.Proc)), c.a.String())
+}
+
+// verb is what the REL is asked to do with c.
+func (c *refreshCand) verb() string {
+	if c.recreate {
+		return "re-create"
+	}
+	return "delete"
 }
 
 // refreshDecode derives a's bit as the REL does (wwrefresh.h, the
@@ -184,6 +262,9 @@ func (c *refreshCand) String() string {
 // are read from the actor (mItemBitNo +0x630, m_itemNo +0x63A).
 func refreshDecode(m mem.Reader, a *actors.Actor, table int8) (c refreshCand, ok bool, err error) {
 	c.a, c.room = *a, int(a.HomeRoom)
+	if rp := refreshProcOf(uint16(a.Proc)); rp != nil {
+		c.recreate = rp.recreate
+	}
 	sw := func(no int) (LandedBit, bool) {
 		switch st := addr.ClassifySwitch(no); {
 		case st == addr.SwitchNone || st == addr.SwitchInvalid:
@@ -253,9 +334,58 @@ func refreshDecode(m mem.Reader, a *actors.Actor, table int8) (c refreshCand, ok
 		}
 		c.bitKind, c.bitNo = mailbox.RefreshBitSw, uint16(sw1)
 	default:
-		return c, false, nil
+		rp := refreshProcOf(uint16(a.Proc))
+		if rp == nil || !rp.row || rp.pending != "" {
+			return c, false, nil
+		}
+		no, ok := refreshRowBit(rp, a)
+		if !ok {
+			return c, false, nil
+		}
+		k, ok := sw(no)
+		if !ok {
+			return c, false, nil
+		}
+		c.bitKind, c.bitNo, c.keys = mailbox.RefreshBitSw, uint16(no), []LandedBit{k}
+		if rp.memOnly && a.HomeRoom < 0 {
+			c.doorRooms = true
+		}
 	}
 	return c, true, nil
+}
+
+// refreshRowBit derives a table row's switch as refresh.c rf_derive_row
+// does: ok is false for no switch (0xFF) and for what the REL refuses (a
+// timed crystal switch, a warp jar of type 1 or 2..4, a DOOR12 of arg1 8,
+// a switch out of the row's room space).
+func refreshRowBit(rp *refreshProc, a *actors.Actor) (no int, ok bool) {
+	src := a.Params
+	if rp.angleX {
+		src = uint32(uint16(a.HomeAngle[0]))
+	}
+	no = int(src>>rp.shift) & mailbox.RefreshRowSwMask
+	p := a.Params
+	switch rp.proc {
+	case mailbox.RefreshProcSwhit0:
+		if t := p >> mailbox.RefreshSwhit0TimerSh & 0xFF; t != 0 && t != 0xFF {
+			return 0, false // actionOnTimer would clear the switch here (d_a_swhit0.cpp:362)
+		}
+	case mailbox.RefreshProcWarpt:
+		if t := int(p & mailbox.RefreshWarptTypeMask); t == mailbox.RefreshWarptTypeOn || t >= mailbox.RefreshWarptTypeSpLo && t <= mailbox.RefreshWarptTypeSpHi {
+			return 0, false
+		}
+	case mailbox.RefreshProcDoor12:
+		if int(uint16(a.HomeAngle[2]))>>8&0xFF == mailbox.RefreshDoor12Arg1Tmp {
+			return 0, false
+		}
+	}
+	switch {
+	case no == mailbox.RefreshRowSwMask:
+		return 0, false
+	case rp.memOnly && no >= mailbox.RefreshMemSwEnd, rp.noZone && no >= mailbox.RefreshZoneSwMin:
+		return 0, false
+	}
+	return no, true
 }
 
 // bitSetIn reads landed bit b in t's snapshot, as the actor of room reads
@@ -314,8 +444,10 @@ func (t *refreshTick) anyRefresh(on refreshSet) bool {
 		}
 		switch b.Kind {
 		case LandSwitch:
-			if p[mailbox.RefreshProcStone2] || p[mailbox.RefreshProcLeaves] || p[mailbox.RefreshProcSaku] {
-				return true
+			for proc := range p {
+				if proc != mailbox.RefreshProcTbox && proc != mailbox.RefreshProcItem {
+					return true // every other proc reads a switch
+				}
 			}
 		case LandTbox:
 			if p[mailbox.RefreshProcTbox] {
@@ -390,7 +522,11 @@ func (r *Replica) planRefresh(t *refreshTick, w *actors.Walk, demo bool, demoWhy
 			// partner's not yet (Saku: every half's must).
 			continue
 		}
-		if why == "" && (c.room >= 0 || uint16(a.Proc) != mailbox.RefreshProcTbox) {
+		switch {
+		case why != "":
+		case c.doorRooms:
+			why = doorRoomsWhy(t, a)
+		case c.room >= 0 || uint16(a.Proc) != mailbox.RefreshProcTbox:
 			why = t.roomSettled(c.room)
 		}
 		if why == "" {
@@ -487,11 +623,12 @@ type ActorRefreshStatus struct {
 	LastHeld         string
 	// Seq is the last request's, Result the REL's last answer ("" before
 	// one), Requests the requests written, Applied the deletes the REL
-	// queued.
-	Seq      uint32
-	Result   string
-	Requests int
-	Applied  int
+	// queued (a re-create's among them), Recreated the re-creates.
+	Seq       uint32
+	Result    string
+	Requests  int
+	Applied   int
+	Recreated int
 }
 
 // refreshReq is a request the tick asks the writer to make once the lock
@@ -531,7 +668,8 @@ func refreshRELWhy(m mailbox.Reader) string {
 // refreshFinal reports whether result r ends the asking for its actor.
 func refreshFinal(r uint8) bool {
 	switch r {
-	case mailbox.RefreshRApplied, mailbox.RefreshRNotSet, mailbox.RefreshRMismatch, mailbox.RefreshRRefused, mailbox.RefreshRFpMiss:
+	case mailbox.RefreshRApplied, mailbox.RefreshRNotSet, mailbox.RefreshRMismatch, mailbox.RefreshRRefused, mailbox.RefreshRFpMiss,
+		mailbox.RefreshRRecreated, mailbox.RefreshRInState, mailbox.RefreshRCreateFailed:
 		return true
 	}
 	return false
@@ -561,7 +699,7 @@ func (r *Replica) actorRefreshTick(armed bool) {
 		for _, c := range f.cands {
 			if !f.dry[c.a.PID] && len(f.dry) < maxRefreshKeys {
 				f.dry[c.a.PID] = true
-				r.logf("co-op: actor_refresh dry run: would ask the REL to delete the stale %s (bit kind %d, bit 0x%02X); nothing is written", c.String(), c.bitKind, c.bitNo)
+				r.logf("co-op: actor_refresh dry run: would ask the REL to %s the stale %s (bit kind %d, bit 0x%02X); nothing is written", c.verb(), c.String(), c.bitKind, c.bitNo)
 			}
 		}
 		return
@@ -581,13 +719,22 @@ func (r *Replica) actorRefreshTick(armed bool) {
 			f.pending = nil
 			f.stats.Result = mailbox.RefreshResultName(st.Result)
 			detail := fmt.Sprintf("state 0x%04X", st.ProcState)
-			if st.Result == mailbox.RefreshRGate {
+			switch st.Result {
+			case mailbox.RefreshRGate:
 				detail = fmt.Sprintf("%s, %s", mailbox.RefreshGateName(st.Gate), detail)
+			case mailbox.RefreshRRecreated:
+				detail = fmt.Sprintf("%s, new pid %d", detail, st.NewPID)
+			case mailbox.RefreshRCreateFailed:
+				detail += ", gone until its room reloads"
 			}
 			r.arLog(fmt.Sprintf("ack pid %d result %d gate %d", c.a.PID, st.Result, st.Gate),
 				fmt.Sprintf("co-op: actor_refresh %d: %s for the stale %s (%s)", f.seq, f.stats.Result, c.String(), detail))
 			if refreshFinal(st.Result) {
-				if st.Result == mailbox.RefreshRApplied {
+				switch st.Result {
+				case mailbox.RefreshRRecreated:
+					f.stats.Recreated++
+					f.stats.Applied++
+				case mailbox.RefreshRApplied, mailbox.RefreshRCreateFailed:
 					f.stats.Applied++
 				}
 				if len(f.done) >= maxRefreshKeys {
@@ -668,7 +815,7 @@ func (r *Replica) refreshSent(q *refreshReq, err error, rep *Report) {
 	f.seq, f.pending, f.sentAt = q.seq, &c, now
 	f.stats.Requests++
 	f.stats.Seq = q.seq
-	r.arLog(fmt.Sprintf("ask pid %d", c.a.PID), fmt.Sprintf("co-op: the partner's bit landed: asking the REL to delete the stale %s (actor_refresh %d)", c.String(), q.seq))
+	r.arLog(fmt.Sprintf("ask pid %d", c.a.PID), fmt.Sprintf("co-op: the partner's bit landed: asking the REL to %s the stale %s (actor_refresh %d)", c.verb(), c.String(), q.seq))
 }
 
 // applyRefresh makes the tick's actor_refresh request, if any, once mu is

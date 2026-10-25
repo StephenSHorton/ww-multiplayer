@@ -144,9 +144,12 @@ go build -o wwdev.exe ./cmd/wwdev
 #   with --coop (host, join, wwdev mp-local; each side its own): --coop-boss-kill=gohma,kalle,gohdan,molgera,jalhalla,helmaroc|none
 #   picks the boss-dead relay's rows (default gohma,kalle,molgera,jalhalla,helmaroc; gohdan (SirenB)
 #   is opt-in until its live checks pass, docs/TESTING.md "Batch D"), and
-#   --coop-refresh=stone2,leaves,item,tbox,saku[,dry]|none turns on actor_refresh (default off: nothing asked), which asks the REL
-#   to delete a boulder, bush, pickup, chest or barricade this game placed before the partner's bit landed (mods/coop/replica
-#   refresh_relay.go; dry logs one line per candidate and writes nothing). docs/TESTING.md "Batch D".
+#   --coop-refresh=stone2,leaves,item,tbox,saku,wall,floor,ice,mjdoor,mkie,mkiek,mknjd,vfan,swhit0,warpt,mflft,kokiie,vmc[,dry]|none
+#   turns on actor_refresh (default off: nothing asked), which asks the REL to bring up to date an actor this game placed before the
+#   partner's bit landed (mods/coop/replica refresh_relay.go): delete a boulder, bush, pickup, barricade, wall, floor, ice block or
+#   statue, or delete and re-create in its set state a chest, crystal switch, warp jar, flame lift, flower house or soil mound
+#   (review idea 11; door10/door12 are refused until the ST1 key-door check). dry logs one line per candidate and writes nothing.
+#   docs/TESTING.md "Batch D" and "actor_refresh re-create".
 #   The app sets both per player too (host and joiner): the save-file panel's "Advanced: your game's relays" fields
 #   (gui.Bridge.SetCoopRelays, checked by the same replica parsers, saved as config.Coop.BossKill/Refresh, read at the next
 #   co-op start through CoopFn); the TUI leaves them CLI-only.

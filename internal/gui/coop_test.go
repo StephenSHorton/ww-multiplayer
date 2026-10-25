@@ -14,6 +14,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
@@ -152,8 +153,8 @@ func TestCoopRelays(t *testing.T) {
 		want string
 	}{
 		{CoopRelays{BossKill: "gohma,ganon"}, `--coop-boss-kill: "ganon" is no boss (say gohma,kalle,gohdan,molgera,jalhalla,helmaroc, or none)`},
-		{CoopRelays{Refresh: "tbox,pots"}, `--coop-refresh: "pots" is no refresh token (say stone2,leaves,item,tbox,saku, dry, or none)`},
-		{CoopRelays{Refresh: "dry"}, `--coop-refresh: dry names no proc: add the ones to log (stone2,leaves,item,tbox,saku), e.g. stone2,leaves,item,tbox,saku,dry`},
+		{CoopRelays{Refresh: "tbox,pots"}, `--coop-refresh: "pots" is no refresh token (say `+replica.RefreshTokens+`, dry, or none)`},
+		{CoopRelays{Refresh: "dry"}, `--coop-refresh: dry names no proc: add the ones to log (`+replica.RefreshTokens+`), e.g. `+replica.RefreshTokens+`,dry`},
 	} {
 		b, _, path := newCoopBridge(t)
 		if err := b.SetCoopRelays(bad.r); err == nil || err.Error() != bad.want {

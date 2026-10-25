@@ -19,7 +19,8 @@ void refresh_link(void);
 // Once per keeper frame, after bosskill_frame: run a new request, if there
 // is one (steps 1-10 of R-D5: stage, boss stage, tag and allow-list,
 // lookup, identity, re-derived bit, DOL re-read, generic gates, per-proc
-// gate, fopAcM_deleteByID), then write the result and ack = seq.
+// gate, fopAcM_deleteByID, and for a re-create class fopAcM_create in the
+// actor's own layer), then write the result, the new pid and ack = seq.
 void refresh_frame(void);
 
 #endif
