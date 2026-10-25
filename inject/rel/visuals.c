@@ -37,6 +37,9 @@
 // (WWVIS_NAMES, from the roster) over the remote's head in the HUD's 2D
 // list, hidden with the HUD; see vis_tag_queue. Adapted from ww-online's
 // puppet_nametag.c, whose MIT notice is at the end of this file.
+//
+// Sea chart markers (ww-online review idea 14): the remotes on the sea
+// drawn on the pause menu's sea chart; see wwvis_seachart_draw.
 
 #include "mailbox_core.h"
 #include "wwvis.h"
@@ -468,6 +471,196 @@ void vis_tag_draw(VisTag* tag) {
     J2DOrthoGraph_setPort(graf);
 }
 
+// --- sea chart markers (ww-online review idea 14) ----------------------------
+// Adapted from datstarkey/ww-online GameMod/src/puppet_link/
+// puppet_seachart.c and GameMod/src/patches/seachart_players.asm (MIT,
+// notice at the end of this file). While the pause menu's sea chart
+// (dMenu_Fmap_c, d_menu_fmap.cpp) is up no actor runs, so T2's
+// seachart_shim (src/core/hooks.c) calls this through WWVIS_SEACHART_FN
+// from dDlst_FMAP_c::draw (0x801BB024) right after the chart's J2DScreen
+// has drawn, with the menu's fmapDl and the graf port it drew with. Link's
+// own marker picture is redrawn once per remote on the sea (WWVIS_SEA,
+// from Go), moved by the remote's offset from Link, turned to its heading
+// and tinted its tunic colour; every byte of the pane we touch is put
+// back. Changed for us: the entries are Go's (wwvis.h), the pane must be
+// a J2DPicture (vtable check) before its colours are written, and the
+// whole pane state J2DPane::draw and calcMtx write (0x0C..0xB0) is
+// snapshotted and restored, not only the fields we set.
+typedef void (*vis_pane_fn_t)(void* pane);
+typedef void (*vis_pane_draw_t)(void* pane, f32 x, f32 y, void* graf, int clip);
+#define J2DPane_calcMtx   ((vis_pane_fn_t)0x8002D088)    // calcMtx__7J2DPaneFv
+#define J2DPane_draw      ((vis_pane_draw_t)0x802D0078)  // draw__7J2DPaneFffPC14J2DGrafContextb
+#define J2DPICTURE_VTBL   0x8039D730                     // __vt__10J2DPicture
+
+// dMenu_Fmap_c (d_menu_fmap.h; offsets from the decomp's member comments).
+#define FMAP_OFF_DL        0x001C   // dDlst_FMAP_c fmapDl: dDlst_FMAP_c::draw's this
+#define FMAP_SV            0x2878   // dMenu_FmapSv_c* fmapSv
+#define FMAP_LNK1_PANE     0x2E04   // mLnk1Pane.pane: Link on the world map
+#define FMAP_LNK2_PANE     0x2EE4   // mLnk2Pane.pane: Link on a zoomed square
+#define FMAP_LNK2_SIZE_X   0x2F08   // mLnk2Pane.mSizeOrig (fopMsgM_pane_class +0x24)
+#define FMAP_LNK2_SIZE_Y   0x2F0C
+#define FMAP_CLB_PANE      0x30A4   // mClbPane.pane: the zoomed square (lnk2's parent)
+#define FMAP_CLB_SIZE_X    0x30C8   // mClbPane.mSizeOrig
+#define FMAP_CLB_SIZE_Y    0x30CC
+#define FMAP_PROC_IDX      0x5114   // u8 mFmapProcIdx (ZoomProcIdx, d_menu_fmap.cpp:271)
+#define FMAP_PLAYER_X      0x511C   // mPlayerPos.x = Link's current.pos.x (:623)
+#define FMAP_PLAYER_Z      0x5120   // mPlayerPos.y = Link's current.pos.z (:624)
+#define FMAP_ON_SEA        0x517F   // bool mFishmanActive: opened on the "sea" stage (:637-638)
+#define FMAPSV_CUR_X       0x04     // s8 dMenu_FmapSv_c::curX (d_menu_fmapSv.h)
+#define FMAPSV_CUR_Y       0x05
+#define FMAP_PROC_SELECT_GRID 0     // FMAP_ZOOM_PROC_SELECT_GRID: the world map, steady
+#define FMAP_PROC_LV1         2     // FMAP_ZOOM_PROC_LV1: a zoomed square, steady
+#define FMAP_GRID_MAX      3        // squares -3..3 (dMap_point2Grid)
+#define FMAP_NORMAL_SCALE  (56.0f / 100000.0f)  // setDspNormalMapLink (:1529-1530)
+#define FMAP_LARGE_MARGIN  50.0f                // setDspLargeMapLink (:1566-1569)
+#define FMAP_SQUARE        100000.0f
+#define SEA_MAX_COORD      400000.0f
+
+// J2DPane / J2DPicture (J2DPane.h:106-123, J2DPicture.h:144-145).
+#define PANE_BOUNDS        0x0C     // TBox2<f32> mBounds
+#define PANE_BASE_POS      0x9C     // TVec2<f32> mBasePosition (the rotation pivot)
+#define PANE_ROTATION      0xA4     // f32 mRotation (degrees)
+#define PANE_VISIBLE       0xAA     // bool mVisible
+#define PANE_PARENT_TREE   0xC0     // mPaneTree (+0xB0) link's mList: the parent's mPaneTree
+#define TREE_PANE          0x0C     // a JSUTree's link mObject: its pane
+#define PANE_SAVE_START    0x0C     // mBounds .. mPaneTree: what draw / calcMtx write
+#define PANE_SAVE_END      0xB0
+#define PICTURE_WHITE      0x104    // TColor mColorWhite
+#define PICTURE_BLACK      0x108    // TColor mColorBlack
+#define ANY_SQUARE         0x7F
+
+typedef struct {
+    f32 origin_x, origin_z, base_x, base_y, scale_x, scale_y, half_w, half_h;
+    int square_x, square_y;         // only the remotes on this square, unless square_x is ANY_SQUARE
+} VisSeaPlace;
+
+// The pane and every parent visible (J2DPane::draw stops at a hidden pane).
+static int vis_pane_shown(u8* pane) {
+    int depth;
+    for (depth = 0; pane && depth < 16; depth++) {
+        if (!vis_in_mem1((u32)pane) || !pane[PANE_VISIBLE]) return 0;
+        u8* tree = *(u8**)(pane + PANE_PARENT_TREE);
+        pane = (tree && vis_in_mem1((u32)tree)) ? *(u8**)(tree + TREE_PANE) : 0;
+    }
+    return 1;
+}
+
+// floor(v / 100000 + 0.5), unclamped (dMap_point2Grid's square).
+static int vis_sea_grid(f32 v) {
+    f32 s = v / FMAP_SQUARE + 0.5f;
+    int g = (int)s;
+    if ((f32)g > s) g--;
+    return g;
+}
+
+static void vis_sea_draw_on(u8* pane, const VisSeaPlace* pl, void* graf) {
+    u8 saved[PANE_SAVE_END - PANE_SAVE_START];
+    u8 white[4], black[4];
+    f32* b = (f32*)(pane + PANE_BOUNDS);
+    f32* pivot = (f32*)(pane + PANE_BASE_POS);
+    int i, j;
+    for (j = 0; j < (int)sizeof(saved); j++) saved[j] = pane[PANE_SAVE_START + j];
+    for (j = 0; j < 4; j++) {
+        white[j] = pane[PICTURE_WHITE + j];
+        black[j] = pane[PICTURE_BLACK + j];
+    }
+    // Turned about its centre, as the chart's rotate(mSize * 0.5) does.
+    pivot[0] = pl->half_w;
+    pivot[1] = pl->half_h;
+    pane[PANE_VISIBLE] = 1;          // lnk2 is hidden off Link's own square
+    for (i = 0; i < WWVIS_SEA_MAX; i++) {
+        u32 e = WWVIS_SEA_OFF + (u32)i * WWVIS_SEA_SIZE;
+        if (!(VIS_BYTE(e + WWVIS_SE_FLAGS) & WWVIS_SEF_SHOW)) continue;
+        union { u32 u; f32 f; } xv, zv;
+        xv.u = VIS_WORD(e + WWVIS_SE_X);
+        zv.u = VIS_WORD(e + WWVIS_SE_Z);
+        f32 x = xv.f, z = zv.f;
+        if (!(x == x) || !(z == z) || x < -SEA_MAX_COORD || x > SEA_MAX_COORD ||
+            z < -SEA_MAX_COORD || z > SEA_MAX_COORD) continue;
+        if (pl->square_x != ANY_SQUARE && (vis_sea_grid(x) != pl->square_x || vis_sea_grid(z) != pl->square_y)) continue;
+        f32 cx = pl->base_x + (x - pl->origin_x) * pl->scale_x;
+        f32 cy = pl->base_y + (z - pl->origin_z) * pl->scale_y;
+        b[0] = cx - pl->half_w;
+        b[1] = cy - pl->half_h;
+        b[2] = cx + pl->half_w;
+        b[3] = cy + pl->half_h;
+        // As the menu turns Link's: (s16)(shape_angle.y + 0x8000) * 180 / 32768 degrees (:625).
+        s16 ang = *(volatile s16*)(MAILBOX_ADDR + WWVIS_OFF + e + WWVIS_SE_ANGLE);
+        *(f32*)(pane + PANE_ROTATION) = (f32)(s16)(ang + 0x8000) * 180.0f / 32768.0f;
+        J2DPane_calcMtx(pane);
+        u8 r = VIS_BYTE(e + WWVIS_SE_R), g = VIS_BYTE(e + WWVIS_SE_G), bl = VIS_BYTE(e + WWVIS_SE_B);
+        pane[PICTURE_WHITE + 0] = r;
+        pane[PICTURE_WHITE + 1] = g;
+        pane[PICTURE_WHITE + 2] = bl;
+        pane[PICTURE_BLACK + 0] = r >> 2;
+        pane[PICTURE_BLACK + 1] = g >> 2;
+        pane[PICTURE_BLACK + 2] = bl >> 2;
+        J2DPane_draw(pane, 0.0f, 0.0f, graf, 0);
+        VIS_WORD(WWVIS_STAT_SEA_OFF)++;
+    }
+    for (j = 0; j < (int)sizeof(saved); j++) pane[PANE_SAVE_START + j] = saved[j];
+    for (j = 0; j < 4; j++) {
+        pane[PICTURE_WHITE + j] = white[j];
+        pane[PICTURE_BLACK + j] = black[j];
+    }
+}
+
+static int vis_is_picture(u8* pane) {
+    return pane && vis_in_mem1((u32)pane) && *(volatile u32*)pane == J2DPICTURE_VTBL;
+}
+
+void wwvis_seachart_draw(u8* fmap_dl, void* graf) {
+    if (!vis_on(WWVIS_FLAG_SEACHART) || !vis_in_mem1((u32)fmap_dl) || !vis_in_mem1((u32)graf)) return;
+    u8* menu = fmap_dl - FMAP_OFF_DL;
+    // Link's marker only shows on the sea stage (setDspNormalMapLink), and ours go with it.
+    if (!menu[FMAP_ON_SEA]) return;
+    u8 proc = menu[FMAP_PROC_IDX];
+    VisSeaPlace pl;
+
+    // The world map: Link at the area pane's centre + pos * 56 / 100000,
+    // so the others are placed from his marker.
+    u8* pane = *(u8**)(menu + FMAP_LNK1_PANE);
+    if (proc == FMAP_PROC_SELECT_GRID) {
+        if (!vis_is_picture(pane) || !vis_pane_shown(pane)) return;
+        f32* b = (f32*)(pane + PANE_BOUNDS);
+        pl.origin_x = *(f32*)(menu + FMAP_PLAYER_X);
+        pl.origin_z = *(f32*)(menu + FMAP_PLAYER_Z);
+        pl.base_x = (b[0] + b[2]) * 0.5f;
+        pl.base_y = (b[1] + b[3]) * 0.5f;
+        pl.scale_x = pl.scale_y = FMAP_NORMAL_SCALE;
+        pl.half_w = (b[2] - b[0]) * 0.5f;
+        pl.half_h = (b[3] - b[1]) * 0.5f;
+        pl.square_x = ANY_SQUARE;
+        pl.square_y = 0;
+        vis_sea_draw_on(pane, &pl, graf);
+        return;
+    }
+
+    // A zoomed square, steady: lnk2 is Link only on his own square, so
+    // the others are placed from the square itself, as setDspLargeMapLink
+    // places Link: size / 2 + (pos - the square's centre) * (size - 50) /
+    // 100000. Only that square's remotes.
+    pane = *(u8**)(menu + FMAP_LNK2_PANE);
+    u8* clb = *(u8**)(menu + FMAP_CLB_PANE);
+    u8* sv = *(u8**)(menu + FMAP_SV);
+    if (proc != FMAP_PROC_LV1 || !vis_is_picture(pane) || !vis_in_mem1((u32)clb) || !vis_in_mem1((u32)sv) ||
+        !vis_pane_shown(clb)) return;
+    pl.square_x = (s8)sv[FMAPSV_CUR_X];
+    pl.square_y = (s8)sv[FMAPSV_CUR_Y];
+    if (pl.square_x < -FMAP_GRID_MAX || pl.square_x > FMAP_GRID_MAX ||
+        pl.square_y < -FMAP_GRID_MAX || pl.square_y > FMAP_GRID_MAX) return;
+    f32 sx = *(f32*)(menu + FMAP_CLB_SIZE_X), sy = *(f32*)(menu + FMAP_CLB_SIZE_Y);
+    pl.origin_x = FMAP_SQUARE * (f32)pl.square_x;
+    pl.origin_z = FMAP_SQUARE * (f32)pl.square_y;
+    pl.base_x = sx * 0.5f;
+    pl.base_y = sy * 0.5f;
+    pl.scale_x = (sx - FMAP_LARGE_MARGIN) / FMAP_SQUARE;
+    pl.scale_y = (sy - FMAP_LARGE_MARGIN) / FMAP_SQUARE;
+    pl.half_w = *(f32*)(menu + FMAP_LNK2_SIZE_X) * 0.5f;
+    pl.half_h = *(f32*)(menu + FMAP_LNK2_SIZE_Y) * 0.5f;
+    vis_sea_draw_on(pane, &pl, graf);
+}
+
 // --- the hook T2 calls ------------------------------------------------------
 void wwvis_draw_hook(int slot, J3DModel* model, void* link, int phase) {
     if (slot < 0 || slot >= WWVIS_SLOTS || !model || !link) return;
@@ -481,14 +674,18 @@ void wwvis_draw_hook(int slot, J3DModel* model, void* link, int phase) {
 
 void wwvis_link(void) {
     VIS_WORD(WWVIS_DRAW_FN_OFF) = (u32)wwvis_draw_hook;
+    VIS_WORD(WWVIS_SEACHART_FN_OFF) = (u32)wwvis_seachart_draw;
 }
 
 void wwvis_unlink(void) {
+    VIS_WORD(WWVIS_SEACHART_FN_OFF) = 0;
     VIS_WORD(WWVIS_DRAW_FN_OFF) = 0;
 }
 
-// The name tags (vis_tag_*) are adapted from datstarkey/ww-online
-// GameMod/src/puppet_link/puppet_nametag.c, under this notice:
+// The name tags (vis_tag_*) and the sea chart markers (vis_sea_*,
+// wwvis_seachart_draw) are adapted from datstarkey/ww-online
+// GameMod/src/puppet_link/puppet_nametag.c and puppet_seachart.c, under
+// this notice:
 //
 // MIT License
 //

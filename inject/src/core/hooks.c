@@ -1,6 +1,6 @@
 // Wind Waker Multiplayer — the core's hooks (src/core; Phase E3 split
 // multiplayer.c into src/core and src/mp, docs/api/00-design.md §6.6).
-// Five entry points, all hooked via Freighter's hook_branchlink
+// Six entry points, all hooked via Freighter's hook_branchlink
 // (inject/build.py):
 //   main01_init — fires once from main01 (one-shot). Installs the address of
 //     multiplayer_update at CALLBACK_PTR_ADDR so the per-frame shim can find
@@ -16,6 +16,9 @@
 //   exec_shim   — naked asm. Fires per actor execute from fopAc_Execute's
 //     `bl fpcMtd_Execute`; branches to the REL's exec hook (mailbox+0x1BC)
 //     when it is published, else to the vanilla fpcMtd_Execute.
+//   seachart_shim — naked asm. Fires from dDlst_FMAP_c::draw's `bl
+//     J2DScreen::draw` (the pause menu's sea chart); runs it, then the
+//     REL's sea chart draw (visuals block +0x04) when it is published.
 //
 // Why the indirection? Freighter's hook_branchlink overwrites the target
 // instruction outright — if we hook fapGm_Execute's first instruction the
@@ -186,6 +189,56 @@ void exec_shim(void) {
         "ori   12, 12, 0xEF38   \n"  // = FPCMTD_EXECUTE_ADDR, the vanilla callee
         "mtctr 12               \n"
         "bctr                   \n"  // fpcMtd_Execute(r3, r4); returns to 0x80023960
+    );
+}
+
+// --- Sea chart hook (ww-online review idea 14) ------------------------
+// Hooked at 0x801BB06C inside dDlst_FMAP_c::draw (0x801BB024, size 0x64,
+// d_menu_fmap.cpp:3481-3485), replacing `bl draw__9J2DScreenFffPC14J2D
+// GrafContext` (0x802D0F2C) with r3 = scrn, f1 = f2 = 0.0, r4 = the graf
+// port; r30 = this (the menu's fmapDl) and r31 = the port, both
+// callee-saved. DOL words at 0x801BB068: 7FE4FB78 48115EC1 83E1000C.
+// The shim calls the real J2DScreen::draw with those arguments untouched,
+// then the REL's wwvis_seachart_draw(r30, r31) through the visuals
+// block's sea chart word (wwvis.h WWVIS_SEACHART_FN_OFF) when it is
+// published, and returns to 0x801BB070. The menu runs while no actor
+// does; _epilog clears the word before the module can unlink (in
+// fpcDt_Handler, after the painter), and main01_init zeroes it at boot.
+// ww-online patches 0x801BB070 (the lwz after this bl) with a branch to
+// the same kind of call (GameMod/src/patches/seachart_players.asm, MIT);
+// we replace the bl instead, as our other hooks do. 15 instructions.
+//
+// MUST match the `lwz 12, 0x37D4(12)` offset in seachart_shim asm below.
+#define SEACHART_FN_PTR_ADDR 0x804137D4
+_Static_assert(SEACHART_FN_PTR_ADDR == MAILBOX_ADDR + WWVIS_OFF + WWVIS_SEACHART_FN_OFF,
+               "seachart_shim's lwz offset must load the visuals block's sea chart word");
+_Static_assert((SEACHART_FN_PTR_ADDR >> 16) == 0x8041 && (SEACHART_FN_PTR_ADDR & 0x8000) == 0,
+               "seachart_shim's lis 12,0x8041 + positive lwz offset must reach SEACHART_FN_PTR_ADDR");
+#define J2DSCREEN_DRAW_ADDR 0x802D0F2C   // draw__9J2DScreenFffPC14J2DGrafContext (symbols.txt:11534)
+
+__attribute__((naked))
+void seachart_shim(void) {
+    asm volatile(
+        "mflr  0                \n"  // 0x801BB070
+        "stwu  1, -0x10(1)      \n"
+        "stw   0, 0x14(1)       \n"
+        "lis   12, 0x802D       \n"
+        "ori   12, 12, 0x0F2C   \n"  // = J2DSCREEN_DRAW_ADDR
+        "mtctr 12               \n"
+        "bctrl                  \n"  // scrn->draw(0, 0, port): r3/f1/f2/r4 as the caller set them
+        "lis   12, 0x8041       \n"
+        "lwz   12, 0x37D4(12)   \n"  // = SEACHART_FN_PTR_ADDR (mailbox+0x8D4) = 0x804137D4
+        "cmpwi 12, 0            \n"
+        "beq-  1f               \n"
+        "mr    3, 30            \n"  // dDlst_FMAP_c* this
+        "mr    4, 31            \n"  // the graf port
+        "mtctr 12               \n"
+        "bctrl                  \n"  // wwvis_seachart_draw(this, port)
+        "1:                     \n"
+        "lwz   0, 0x14(1)       \n"
+        "addi  1, 1, 0x10       \n"
+        "mtlr  0                \n"
+        "blr                    \n"
     );
 }
 

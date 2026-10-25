@@ -542,7 +542,9 @@ creates only lite bodies and nothing below runs.
   when it closes, so outside the windows the shared data is the local
   Link's. Its tables and variables live in one archive-heap block
   (`WWREMOTE_SHANM_BYTES`, header `WWREMOTE_SA_*`), allocated at the first
-  full create of a boot and never freed; the module still has no `.bss`.
+  full create of a boot and never freed, so shanm keeps nothing in `.bss`
+  (the module's `.bss` is visuals.c's per-frame scratch: the j3dSys
+  snapshot and the name tag packets, which no unlink needs to survive).
   `fullbody.c`, `fullbody.h`, `shanm.c` and `shanm.h` carry ww-online's
   MIT notice.
 
@@ -762,3 +764,17 @@ trailer.
   (`WW_NAMETAGS=off`). The packet is drawn by the next frame's painter,
   which runs before process deletes (`fpcM_Management`), so the module is
   still linked when its draw runs.
+- **Sea chart markers** (ww-online review idea 14, adapted from their
+  `puppet_seachart.c` and `seachart_players.asm`, MIT). The block's second
+  word is `&wwvis_seachart_draw`; T2's `seachart_shim` replaces
+  `dDlst_FMAP_c::draw`'s `bl J2DScreen::draw` (0x801BB06C), makes that call
+  and then calls the word with the menu's `fmapDl` (r30) and graf port
+  (r31) while it is published. On the world map Link's own `lnk1` picture
+  is redrawn once per `WWVIS_SEA` entry (Go: each remote whose pose
+  trailer says it is on the sea stage, in its tunic colour), offset from
+  Link by `(pos - Link's) * 56 / 100000`, turned to its heading; on a
+  zoomed square (steady) `lnk2` is redrawn for that square's remotes as
+  `setDspLargeMapLink` places Link. The pane must be a `J2DPicture`
+  (vtable 0x8039D730) and its state (0x0C..0xB0 and both colours) is
+  restored after. Only when the chart was opened on the sea stage, and
+  only with `WWVIS_FLAG_SEACHART` (`WW_SEACHART=off` clears it).

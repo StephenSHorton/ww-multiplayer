@@ -21,6 +21,7 @@ is line N of `symbols.txt`. Decomp line numbers drift, so re-check them against 
 | `0x800241C0` | `fopAcM_SearchByID` | Find actor by process ID |
 | `0x80024230` | `fopAcM_SearchByName` | Find actor by profile name |
 | `0x80006338` | `main01` | Main game loop function (we hook this) |
+| `0x801BB024` | `dDlst_FMAP_c::draw` | The sea chart's draw: we hook its `bl J2DScreen::draw` (`0x802D0F2C`) at `0x801BB06C` (`seachart_shim`, `inject/src/core/hooks.c`); r30 = this, r31 = the graf port |
 | `0x800F1034` | `dComIfGp_getPlayer(int idx)` | Get player pointer by index |
 
 ## Globals

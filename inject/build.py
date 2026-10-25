@@ -59,7 +59,7 @@ REL_HEADERS = ["rel/enemy_mirror.h", "rel/remote.h", "rel/fullbody.h", "rel/shan
 # each, when compiled in, must be a .text symbol of the linked ELF (batch D
 # R-D2: bosskill.c's fopAcIt_Judge callbacks, bk_bst_judge under
 # WWBOSS_WITH_BST and bk_bpw_judge under WWBOSS_WITH_BPW).
-REL_TEXT_CALLBACKS = ["bk_bst_judge", "bk_bpw_judge", "wwvis_draw_hook"]
+REL_TEXT_CALLBACKS = ["bk_bst_judge", "bk_bpw_judge", "wwvis_draw_hook", "wwvis_seachart_draw", "vis_tag_draw"]
 REL_LD = os.path.join("rel", "ww_rel.ld")
 REL_OBJ_DIR = os.path.join("build", "temp", "rel")
 REL_ELF = os.path.join("build", "wwrel.elf")
@@ -435,6 +435,16 @@ def main():
     # vanilla fpcMtd_Execute, with r3/r4 and LR (0x80023960) untouched,
     # so the callee returns straight to fopAc_Execute. T2 holds no policy.
     proj.hook_branchlink("exec_shim", 0x8002395C)
+
+    # Sea chart hook (ww-online review idea 14). dDlst_FMAP_c::draw
+    # (0x801BB024) calls `bl J2DScreen::draw` (0x802D0F2C) at 0x801BB06C
+    # with this in r30 and the graf port in r31. seachart_shim (naked)
+    # makes that call itself, then calls the REL's wwvis_seachart_draw
+    # (this, port) through the visuals block's word at mailbox+0x8D4
+    # (wwvis.h WWVIS_SEACHART_FN_OFF) when it is published, and returns to
+    # 0x801BB070. ww-online branches at 0x801BB070 for the same call
+    # (seachart_players.asm); nothing else of ours patches this function.
+    proj.hook_branchlink("seachart_shim", 0x801BB06C)
 
     # Set entry function (required for linker)
     proj.set_entry_function("main01_init")

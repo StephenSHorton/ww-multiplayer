@@ -77,7 +77,7 @@ ww-multiplayer/
 │       ├── playercolor/         # Tunic color palette + --color / WW_COLOR parsing (docs/09)
 │       └── tunicsync/           # Session side of the tunic colors: SyncTunics, the appearance byte, the dump block (docs/09 §5.4)
 ├── inject/                      # C source for the injected PPC code (split into core + the multiplayer mod in Phase E3, docs/api §6.6)
-│   ├── src/core/                # The core: hooks.c (main01_init, frame_shim + multiplayer_update, daPy_draw_hook, pad_read_shim; the fixed call
+│   ├── src/core/                # The core: hooks.c (main01_init, frame_shim + multiplayer_update, daPy_draw_hook, pad_read_shim, exec_shim, seachart_shim; the fixed call
 │   │                            #   order written as a dispatcher), services.c (warp, tunic images + swap, face tev blocks + snapshot, pose publish),
 │   │                            #   core.h (core-only decls), mods.h (the mod entry points the hooks call)
 │   ├── src/mp/                  # The multiplayer mod: mp.h (PROC_* list, eye joints), puppets.c (actor puppets), minilink.c (mini-Links, pose feed,
@@ -186,6 +186,8 @@ WW_POSE_RAW=1                               # Skip pose localization (debug)
 WW_LINK2_OFFSET_{X,Y,Z}                     # Loopback render offset (default 0)
 WW_COLOR=<color>                            # Default tunic color when --color isn't given (docs/09)
 WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/join) leaves the tunic slots to the tunic-slot dev command
+WW_NAMETAGS=off / WW_EQUIP=off / WW_SEACHART=off   # puppet-sync (mods/multiplayer/vissync): no name tags over the mini-Links / no remote sword,
+                                            #   shield and scabbard on them / no remotes on the pause menu's sea chart (default all on; the REL draws them, wwvis.h)
 WW_ENEMY_SYNC=0                             # Enemy sync off (mods/enemysync, the enemy mirror: Moblins, Bokoblins, ChuChus, Keese; Armos Knights, Armos, Darknuts, Kargarocs, Magtails opt-in).
                                             #   Default on: host/join and the app run enemy-host / enemy-client, mp-local spawns enemy-A (host, Dolphin A) and
                                             #   enemy-B (client, Dolphin B); needs the REL module linked. A fatal enemy error (a reject, a panic) turns enemies off

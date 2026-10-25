@@ -308,3 +308,53 @@ func TestExecShimLoadsHookSlot(t *testing.T) {
 		t.Error("blob.go T2Bytes has no exec_shim run (lis/lwz 0x30BC, cmpwi, beq, bctr, fpcMtd_Execute fallback): the blob is stale against hooks.c")
 	}
 }
+
+// TestSeachartShimLoadsVisWord: seachart_shim (hooks.c, the ww-online
+// review's idea 14) calls J2DScreen::draw 0x802D0F2C, then loads the
+// visuals block's sea chart word, mailbox+WWVIS_OFF+WWVIS_SEACHART_FN_OFF
+// (inject/include/wwvis.h), and calls it with r30/r31; build.py hooks it
+// at 0x801BB06C; and the committed blob carries the run.
+func TestSeachartShimLoadsVisWord(t *testing.T) {
+	const wwvisH = "../../inject/include/wwvis.h"
+	mailbox := define(t, mailboxH, "MAILBOX_ADDR")
+	word := mailbox + define(t, wwvisH, "WWVIS_OFF") + define(t, wwvisH, "WWVIS_SEACHART_FN_OFF")
+	if got := define(t, hooksC, "SEACHART_FN_PTR_ADDR"); got != word {
+		t.Fatalf("SEACHART_FN_PTR_ADDR 0x%08X, want MAILBOX_ADDR+WWVIS_OFF+WWVIS_SEACHART_FN_OFF = 0x%08X", got, word)
+	}
+	if word&0x8000 != 0 || word>>16 != lisR12_8041&0xFFFF {
+		t.Fatalf("the sea chart word 0x%08X is not reachable as lis 12,0x8041 + a positive lwz offset; seachart_shim needs rewriting", word)
+	}
+	py, err := os.ReadFile(buildPy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^\s*proj\.hook_branchlink\("seachart_shim",\s*0x801BB06C\)`).Match(py) {
+		t.Error(`build.py does not hook seachart_shim at 0x801BB06C (dDlst_FMAP_c::draw's bl J2DScreen::draw)`)
+	}
+	want := []uint32{
+		0x3D80802D, // lis r12, 0x802D
+		0x618C0F2C, // ori r12, r12, 0x0F2C: J2DScreen::draw
+		0x7D8903A6, // mtctr r12
+		0x4E800421, // bctrl
+		lisR12_8041, lwzR12R12Base | word&0xFFFF,
+		0x2C0C0000, // cmpwi r12, 0
+		0x41820014, // beq- +0x14
+		0x7FC3F378, // mr r3, r30
+		0x7FE4FB78, // mr r4, r31
+		0x7D8903A6, // mtctr r12
+		0x4E800421, // bctrl: wwvis_seachart_draw
+	}
+	found := false
+	for i := 0; i+4*len(want) <= len(T2Bytes) && !found; i += 4 {
+		found = true
+		for k, w := range want {
+			if binary.BigEndian.Uint32(T2Bytes[i+4*k:]) != w {
+				found = false
+				break
+			}
+		}
+	}
+	if !found {
+		t.Error("blob.go T2Bytes has no seachart_shim run (J2DScreen::draw, lis/lwz of the sea chart word, cmpwi, beq, r30/r31, bctrl): the blob is stale against hooks.c")
+	}
+}
