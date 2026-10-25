@@ -1,5 +1,6 @@
 --version
 broadcast-pose
+bug-report
 coop-tables
 coop-tag
 coop-world

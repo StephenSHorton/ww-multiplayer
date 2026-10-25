@@ -130,6 +130,9 @@ type Bridge struct {
 	// One-click updates (update.go): the banner's state and its seams.
 	upd     updState
 	updSeam updSeams
+
+	// Save bug report (bugreport.go): where the logs and the zip are.
+	bug bugSeams
 }
 
 // pendingHost is a join's address, waiting to reach its host.
@@ -165,6 +168,7 @@ func NewBridge(o Options) *Bridge {
 		b.cfg = config.Defaults()
 	}
 	b.updSeam.init(o, b.getenv)
+	b.bug.init()
 	b.afterUpdate()
 	return b
 }

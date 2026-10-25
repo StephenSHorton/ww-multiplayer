@@ -33,6 +33,10 @@ const (
 	preD6SubcommandsFile = "testdata/cli-subcommands-pre-d6.txt"
 )
 
+// addedSinceD6 are the subcommands new since the pre-D6 list, in neither
+// binary before it: bug-report (bug_report.go).
+var addedSinceD6 = []string{"bug-report"}
+
 // registrySubcommands returns every name and alias in the command
 // registry, sorted. A name used twice is an error.
 func registrySubcommands(t *testing.T) []string {
@@ -60,7 +64,8 @@ func registrySubcommands(t *testing.T) []string {
 // build. No name but help is in both binaries' lists, and the union of
 // the two lists is the pre-D6 list, less the five wwdev probes Phase E0
 // deleted with the C code they drove (echo-delay, eye-fix-mode,
-// eye-fix-mode-probe, eye-fix-post-chain, eye-fix-step).
+// eye-fix-mode-probe, eye-fix-post-chain, eye-fix-step), plus the ones
+// added since (addedSinceD6).
 func TestCLISubcommandsUnchanged(t *testing.T) {
 	got := registrySubcommands(t)
 	if *updateSubcommands {
@@ -93,6 +98,7 @@ func TestCLISubcommandsUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	union := append(slices.Clone(got), strings.Fields(string(dev))...)
+	union = slices.DeleteFunc(union, func(n string) bool { return slices.Contains(addedSinceD6, n) })
 	slices.Sort(union)
 	union = slices.Compact(union)
 	if u, p := strings.Join(union, "\n"), strings.Join(strings.Fields(string(pre)), "\n"); u != p {
@@ -141,8 +147,8 @@ func TestCommandRegistryHelp(t *testing.T) {
 			t.Errorf("%s: usage %q does not start with the name", c.name, c.usage)
 		}
 	}
-	if listed != 12 {
-		t.Errorf("printHelp lists %d commands, want 12", listed)
+	if listed != 13 { // bug-report is the 13th
+		t.Errorf("printHelp lists %d commands, want 13", listed)
 	}
 }
 

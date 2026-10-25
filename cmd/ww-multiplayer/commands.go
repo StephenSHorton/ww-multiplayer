@@ -145,6 +145,14 @@ func commandTable() []command {
 			run:     func(_ string, args []string) { runMods(args) },
 		},
 		{
+			// One redacted zip of the logs for an issue (bug_report.go).
+			name:    "bug-report",
+			group:   groupLower,
+			usage:   bugReportUsage,
+			summary: "Save the logs as one redacted zip to attach to a bug report",
+			run:     cmdBugReport,
+		},
+		{
 			name:    "version",
 			aliases: []string{"--version"},
 			group:   groupLower,

@@ -433,7 +433,8 @@ func (b *Bridge) CoopStatusText() string {
 }
 
 // OpenFolder opens a folder in the file manager: "backups" (the card
-// backups) or "userdir" (this player's Dolphin user folder).
+// backups), "userdir" (this player's Dolphin user folder) or "bugreports"
+// (where SaveBugReport writes).
 func (b *Bridge) OpenFolder(which string) (err error) {
 	defer b.maskErr(&err)
 	var dir string
@@ -447,6 +448,10 @@ func (b *Bridge) OpenFolder(which string) (err error) {
 	case "userdir":
 		if dir = b.launchOptions().UserDir; dir == "" {
 			return errors.New("no Dolphin user folder is set: choose it in Setup")
+		}
+	case "bugreports":
+		if dir, err = b.bug.reportDir(); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("no folder %q", which)

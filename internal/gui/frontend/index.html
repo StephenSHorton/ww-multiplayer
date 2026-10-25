@@ -6,6 +6,7 @@
 <title>Wind Waker Multiplayer</title>
 <link rel="stylesheet" href="app.css">
 <script type="module" src="app.js"></script>
+<script type="module" src="bugreport.js"></script>
 </head>
 <body>
 <header class="top">
@@ -23,6 +24,8 @@
 		<button class="badge ipswitch" type="button" id="showips" role="switch" aria-checked="false"><i class="knob" aria-hidden="true"></i>Show IP addresses</button>
 		<button class="badge" type="button" id="setup-btn" hidden>Setup</button>
 		<button class="badge" type="button" id="mods-btn" hidden>Mods</button>
+		<!-- one redacted zip of the logs, for an issue (bugreport.js) -->
+		<button class="badge" type="button" id="bugreport-btn" title="Save the logs as one zip to attach to a bug report (addresses hidden, no game files)">Bug report</button>
 		<button class="btn back" type="button" id="leave-btn" hidden>Leave</button>
 		<!-- the version: opens the update settings (update.js) -->
 		<button class="ver" type="button" id="version" title="Version and updates"></button>
