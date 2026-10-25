@@ -5,6 +5,9 @@
 
 #include "mailbox_core.h"
 
+// _prolog: empty the trackers and the copy table for this link.
+void fx_link(void);
+
 // The keeper's execute, once per frame after refresh_frame: report the
 // local Link's projectiles (send magic set), spawn and hold the peers'
 // (recv magic set).
