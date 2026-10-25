@@ -74,7 +74,7 @@ func DefaultSensitive() []Span {
 	for i, mask := range namedEventBits {
 		bits(addr.OffEvent+i, 1, mask)
 	}
-	for _, list := range [][]uint16{figurineRegs, warpPotRegs} {
+	for _, list := range [][]uint16{figurineRegs, warpPotRegs, orRegs} {
 		for _, id := range list {
 			b := addr.EventByte(id)
 			bits(addr.OffEvent+b.Off, 1, b.Mask)
@@ -121,11 +121,21 @@ var (
 
 	// maxRegs only move forward: the letters (NOSEND 0 -> SEND 1 -> STOCK
 	// 2 -> READ 3, d_letter.cpp:10-62), Beedle points (d_a_npc_bs1.cpp:
-	// 939-941) and GHOST_SHIP (d_a_tag_ghostship.cpp:31-39).
+	// 939-941), GHOST_SHIP (d_a_tag_ghostship.cpp:31-39), Orca's record
+	// level with its unmasked level 4 (d_a_npc_ji1.cpp:409-422), Koboli's
+	// level (d_a_npc_bmsw.cpp:430-451) and, unverified (not decompiled),
+	// Sploosh Kaboom's and barrel shooting's prizes won
+	// (mods/coop/class/events.go says why).
 	maxRegs = []uint16{
 		0x7A03, 0x7B03, 0x7C03, 0x7D03, 0x8B03, 0x9D03, 0xAC03, 0xAE03,
 		0xAF03, 0xB003, 0xB203, 0xB503,
 		0x86FF,
 		0x8803,
+		0xD007, 0xC203,
+		0xFE07, 0xB703,
 	}
+
+	// orRegs only ever gain bits in their field: the pigs in Outset's pen
+	// (d_a_kb.cpp:2170-2175).
+	orRegs = []uint16{0xBF0F}
 )

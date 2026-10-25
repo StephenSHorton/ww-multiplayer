@@ -27,19 +27,20 @@ func TestGoldenCoverage(t *testing.T) {
 		// mGetItem 21, beast and bait 2, mCollect 5, songs/shards/pearls 3,
 		// charts 0x30, mFmapBits 49, Triforce charts 1, 16 x (tbox 4,
 		// item 4, visited 8, dungeonItem 1), ocean 0x64, figurines 17,
-		// warp pots 6.
-		OR: 524,
+		// warp pots 6, the pig pen 1.
+		OR: 525,
 		// 16 x 16 memory-switch bytes, 66 event-bit bytes.
 		ORMasked: 322,
-		// wallet, arrow max, bomb max, 12 letters, Beedle points, ghost ship.
-		Max: 17,
+		// wallet, arrow max, bomb max, 12 letters, Beedle points, ghost ship,
+		// Orca's and Koboli's levels, Sploosh Kaboom, barrel shooting.
+		Max: 21,
 		// mMaxLife 2, mSelectEquip 4, mMaxMagic 1, 17 item slots, 16 keyNum.
 		Derived: 40,
 		// padding, unused map bytes, event bytes 0x42-0x78.
 		Never: 140,
 		Tag:   addr.ReserveSize,
 		// everything else.
-		PerPlayer: 789,
+		PerPlayer: 784,
 	}
 	total := 0
 	for c, n := range want {
@@ -179,6 +180,12 @@ func TestSpotClasses(t *testing.T) {
 		"GHOST_SHIP":          {ev(0x8803), want{Max, 0x03}},
 		"LETTER_ARYLL":        {ev(0x8B03), want{Max, 0x03}},
 		"LETTER_KOMALIS":      {ev(0xB503), want{Max, 0x03}},
+		"Orca's level":        {ev(0xD007), want{Max, 0x07}},
+		"Koboli's level":      {ev(0xC203), want{Max, 0x03}},
+		"Sploosh Kaboom":      {ev(0xFE07), want{Max, 0x07}},
+		"barrel shooting":     {ev(0xB703), want{Max, 0x03}},
+		"pig pen":             {ev(0xBF0F), want{OR, 0x0F}},
+		"Joy Pendants 0xC0FF": {ev(0xC0FF), want{PerPlayer, 0}},
 		"0x89FF (2nd quest)":  {ev(0x89FF), want{PerPlayer, 0}},
 		"unnamed reg 0xB3":    {addr.OffEvent + 0xB3, want{PerPlayer, 0}},
 		"register 0xFF07":     {ev(0xFF07), want{PerPlayer, 0}},
@@ -234,7 +241,7 @@ func TestRegisterAllowlist(t *testing.T) {
 		t.Errorf("%d warp pot registers, want m_event_reg's 6", len(warpPotRegs))
 	}
 	seen := map[int]uint16{}
-	for _, list := range [][]uint16{figurineRegs, warpPotRegs, maxRegs} {
+	for _, list := range [][]uint16{figurineRegs, warpPotRegs, orRegs, maxRegs} {
 		for _, id := range list {
 			b := addr.EventByte(id)
 			if b.Off < addr.EventRegFirst || b.Mask == 0 {
