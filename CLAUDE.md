@@ -262,6 +262,11 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
 #                 (co-op's card backups read USER_DIR_1/2 too)
 #   SAVE_STATE    .sav loaded into both Dolphins (skips menus). If unset, both boot to title screen.
 #   SAVE_STATE_2  .sav loaded into Dolphin 2 only (requires SAVE_STATE). Produces distinct btp phases for face-sync visual proof (#5).
+#   WW_DOLPHIN_DEVLOG=1  dolphin2 / auto-recapture: each Dolphin logs OSReport, MI and MASTER to <user dir>/Logs/dolphin.log and never
+#                 stops on a panic popup (launch.DevLogArgs: session-only -C, no ini written; the app never sets it)
+#   WW_DEV_LOGS   dolphin2's launch record (dolphins.json) and mp-local's run logs root (default logs; off = none): mp-local writes
+#                 logs/latest/ (mp-local.log, session.json manifest, dolphin-A/B.log) and moves the run before to logs/sessions/<start>/
+#   MP_LOCAL_DOLPHIN_LOG=1  mp-local also prints each Dolphin's new dolphin.log lines as [dolphin-A] / [dolphin-B]
 ```
 
 ## Build pipeline (C side → ww-multiplayer.exe)

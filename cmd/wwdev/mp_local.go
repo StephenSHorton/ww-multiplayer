@@ -148,13 +148,37 @@ func runDolphin2(reset bool) {
 		return
 	}
 
+	// WW_DOLPHIN_DEVLOG=1: each Dolphin also logs to <user dir>/Logs/dolphin.log
+	// and never stops on a panic popup (launch.DevLogArgs, session-only -C).
+	devLog := launch.DevLogEnabled(os.Getenv)
+	var recs []launchRecord
 	for _, p := range plan {
-		pid, err := launch.Launch(dolphinExe, p.userDir, isoPath, p.saveState)
+		logPath := launch.LogFile(p.userDir)
+		offset := fileSize(logPath) // Dolphin appends: this one's lines start here
+		pid, err := launch.LaunchTest(dolphinExe, p.userDir, isoPath, p.saveState, devLog)
 		if err != nil {
 			log.Logf(rep, log.Err, "launch %s: %v", p.label, err)
 			os.Exit(1)
 		}
 		log.Logf(rep, log.OK, "Launched %s (pid %d, user dir %s)", p.label, pid, p.userDir)
+		if devLog {
+			log.Logf(rep, log.Info, "  %s logs to %s (OSReport, MI, MASTER; panic popups off)", p.label, logPath)
+		}
+		recs = append(recs, launchRecord{
+			Label: p.label, PID: pid, UserDir: p.userDir, SaveState: p.saveState, DevLog: devLog,
+			LogPath: logPath, LogOffset: offset, Launched: time.Now(),
+		})
+	}
+	// The record mp-local reads to tell which PID runs on which user dir
+	// (WW_DEV_LOGS; off writes nothing).
+	if root := devLogsRoot(os.Getenv); root != "" {
+		running := slices.Clone(pids)
+		for _, r := range recs {
+			running = append(running, uint32(r.PID))
+		}
+		if err := saveLaunchRecords(root, running, recs); err != nil {
+			log.Logf(rep, log.Warn, "couldn't record the launch in %s: %v", root, err)
+		}
 	}
 	if saveState != "" {
 		if saveState2 != "" && saveState2 != saveState {
@@ -187,7 +211,10 @@ func ensureCheatsIni(rep log.Reporter, userDir string) {
 // (startupShift, mp_local_shift.go). Without it none of the co-op pieces
 // run, and the startup shift moves B only when the two Links overlap.
 func runMpLocal(nameA, nameB string, co coopsession.Flags) {
-	rep := log.Stdout{}
+	// logs/latest (WW_DEV_LOGS, mp_local_session.go): this run's output,
+	// session manifest and Dolphin logs; the run before is archived.
+	rep, sess := startMpLocalSession(log.Stdout{}, os.Args[1:])
+	defer sess.finish()
 	ctx, cancel := engine.CLIMultiplayerContext(rep)
 	defer cancel()
 
@@ -220,6 +247,7 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 		rep.Log(log.Err, err.Error())
 		os.Exit(1)
 	}
+	sess.describe(ctx, rep, pidA, pidB, nameA, nameB, co.On())
 
 	// --coop writes the world into both games (bind, replica, warps), so
 	// it starts only when both run this version's patch (strict contract

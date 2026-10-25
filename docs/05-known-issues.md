@@ -1156,6 +1156,13 @@ logging BEFORE writing injected diagnostic code:
 
 Much cheaper than hooking `OSPanic` ourselves.
 
+The dev tools do this from the command line now: `WW_DOLPHIN_DEVLOG=1` on
+`wwdev dolphin2` / `auto-recapture` logs OSReport, MI and MASTER to
+`<user dir>/Logs/dolphin.log` with the panic popups off (session-only `-C`,
+no ini written; docs/TESTING.md "Dev tooling"), `mp-local` copies each
+Dolphin's log into `logs/latest/`, and after a JUTException screen
+`wwdev crash-context` prints the faulting context and stack.
+
 ## macOS: User-Copy Dolphin Silently Replaced by /Applications/ — SOLVED
 
 ### The symptom
