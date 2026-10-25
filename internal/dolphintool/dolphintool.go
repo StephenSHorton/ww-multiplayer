@@ -28,6 +28,13 @@
 // rvz", were read from the strings in that DolphinTool.exe, not from a
 // conversion (none was run). We never pass --scrub: the patcher wants the
 // whole disc.
+//
+// A DolphinTool is only run to convert when its help offers -u: it then
+// gets a throwaway user folder, so the player's own Dolphin user folder
+// (portable User, or %APPDATA%\Dolphin Emulator) is never initialised or
+// written by it. One without -u is refused (ErrNoUserFlag) and the caller
+// falls back to the convert-in-Dolphin advice. The paths it is given are
+// made absolute first, because it runs in its own folder.
 package dolphintool
 
 import (
@@ -95,15 +102,21 @@ const DefaultHelpTimeout = 10 * time.Second
 
 // Caps is what a DolphinTool's `convert --help` offers.
 type Caps struct {
-	// User says it takes -u USER: Convert then gives it a fresh temporary
+	// User says it takes -u USER: ToISO then gives it a fresh temporary
 	// folder, so the player's own Dolphin user folder is never created or
-	// touched by the conversion.
+	// touched by the conversion. ToISO refuses a tool without it
+	// (ErrNoUserFlag).
 	User bool
 }
 
 // ErrNoConvert is Probe's error for a DolphinTool whose help shows no
 // `convert -i FILE -o FILE -f FORMAT`.
 var ErrNoConvert = errors.New("this DolphinTool has no convert command with -i, -o and -f")
+
+// ErrNoUserFlag is Ready's (and ToISO's) error for a DolphinTool whose
+// `convert --help` offers no -u USER: without one it would set up and
+// use the player's own Dolphin user folder, so it is not run.
+var ErrNoUserFlag = errors.New("this DolphinTool's convert has no -u USER option, so it can't be kept out of your Dolphin user folder")
 
 // HelpArgs is what Probe runs.
 var HelpArgs = []string{"convert", "--help"}
@@ -153,6 +166,19 @@ func (t Tool) Probe(ctx context.Context) (Caps, error) {
 	return caps, nil
 }
 
+// Ready says the tool can be used to convert: Probe succeeds and it takes
+// -u (else ErrNoUserFlag).
+func (t Tool) Ready(ctx context.Context) error {
+	caps, err := t.Probe(ctx)
+	if err != nil {
+		return err
+	}
+	if !caps.User {
+		return fmt.Errorf("%s: %w", t.Path, ErrNoUserFlag)
+	}
+	return nil
+}
+
 // ConvertArgs is what Convert runs: convert -i in -o out -f iso, with -u
 // userDir first when userDir is not "".
 func ConvertArgs(in, out, userDir string) []string {
@@ -163,28 +189,31 @@ func ConvertArgs(in, out, userDir string) []string {
 	return append(args, "-i", in, "-o", out, "-f", "iso")
 }
 
-// ToISO probes the tool, then converts the disc image in to a plain ISO
-// at out (which must not exist yet), handing each line the tool prints to
-// line. When the tool takes -u it gets a temporary user folder, removed
-// afterwards. On any failure, or when ctx stops it (the tool is killed),
-// whatever it wrote at out is removed.
+// ToISO checks the tool (Ready: it must take -u), then converts the disc
+// image in to a plain ISO at out (which must not exist yet), handing each
+// line the tool prints to line. in and out are made absolute first (the
+// tool runs in its own folder, where relative paths would point
+// elsewhere). The tool gets a temporary user folder, removed afterwards.
+// On any failure, or when ctx stops it (the tool is killed), whatever it
+// wrote at out is removed.
 func (t Tool) ToISO(ctx context.Context, in, out string, line func(string)) (err error) {
-	caps, err := t.Probe(ctx)
-	if err != nil {
+	if in, err = filepath.Abs(in); err != nil {
+		return err
+	}
+	if out, err = filepath.Abs(out); err != nil {
+		return err
+	}
+	if err := t.Ready(ctx); err != nil {
 		return err
 	}
 	if _, err := os.Stat(out); err == nil {
 		return fmt.Errorf("%s already exists", out)
 	}
-	userDir := ""
-	if caps.User {
-		d, err := os.MkdirTemp("", "ww-multiplayer-dolphintool-")
-		if err != nil {
-			return fmt.Errorf("can't make DolphinTool's temporary user folder: %w", err)
-		}
-		defer os.RemoveAll(d)
-		userDir = d
+	userDir, err := os.MkdirTemp("", "ww-multiplayer-dolphintool-")
+	if err != nil {
+		return fmt.Errorf("can't make DolphinTool's temporary user folder: %w", err)
 	}
+	defer os.RemoveAll(userDir)
 	defer func() {
 		if err != nil {
 			os.Remove(out)
@@ -225,10 +254,14 @@ func (t Tool) ToISO(ctx context.Context, in, out string, line func(string)) (err
 }
 
 // ExecRunner runs real programs with os/exec, with no console window on
-// Windows (hideWindow).
+// Windows (hideWindow), in the program's own folder. A relative exe is
+// made absolute first so it isn't looked up again from inside that folder.
 type ExecRunner struct{}
 
 func (ExecRunner) Run(ctx context.Context, exe string, args []string, line func(string)) (int, string, error) {
+	if a, err := filepath.Abs(exe); err == nil {
+		exe = a
+	}
 	cmd := exec.CommandContext(ctx, exe, args...)
 	cmd.Dir = filepath.Dir(exe)
 	hideWindow(cmd)

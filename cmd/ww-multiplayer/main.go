@@ -89,8 +89,8 @@ func versionLine() string {
 // patcher's lines on stdout, with the loaded mods' post-patch steps (the
 // co-op stage tables), and a
 // failure exits 1. An already-patched input exits 0, as it always has.
-// An RVZ, WIA or GCZ input is converted first with the DolphinTool beside
-// the Dolphin launch.Detect finds (DOLPHIN_EXE picks one; patchConverter).
+// An RVZ, WIA or GCZ input is converted first with a DolphinTool beside
+// one of the Dolphins launch finds (patchConverter).
 func runPatch(in, out string) {
 	o := patch.Options{PostPatch: postPatchSteps()}
 	if patch.NeedsConvert(in) {
@@ -101,15 +101,23 @@ func runPatch(in, out string) {
 	}
 }
 
-// patchConverter is the CLI patch's DolphinTool: beside the Dolphin
-// launch.Detect finds (a running one, DOLPHIN_EXE, the install places),
-// with no Dolphin named when none is found.
+// patchConverter is the CLI patch's DolphinTool: beside each Dolphin
+// launch finds, in its order (running Dolphins, then DOLPHIN_EXE, then the
+// install places), the first usable one; no Dolphin is named when none is
+// found.
 func patchConverter() *patch.Converter {
-	best, _ := launch.Detect(launch.Host())
-	if !best.Found {
-		return patch.ConverterFor("")
+	return patch.ConverterFor(foundDolphins(launch.Candidates(launch.Host()))...)
+}
+
+// foundDolphins is the Dolphin programs of cs that exist, in order.
+func foundDolphins(cs []launch.Candidate) []string {
+	var out []string
+	for _, c := range cs {
+		if c.Found {
+			out = append(out, c.Exe)
+		}
 	}
-	return patch.ConverterFor(best.Exe)
+	return out
 }
 
 // Same as broadcast-link but ALSO sends Link's full skeletal pose every

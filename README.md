@@ -168,8 +168,10 @@ can each skip and come back to with the **Setup** button:
    patched ISO" picks one directly. A compressed `.rvz`, `.wia` or `.gcz`
    disc works too: the app first converts it to a temporary ISO with the
    DolphinTool that ships with your Dolphin, and removes that copy once
-   the patched disc is written (NKit images still need converting back to
-   a full ISO with the NKit tool first).
+   the patched disc is written; when the compressed disc was already
+   patched, the converted ISO is kept as the `…-multiplayer.iso`. (NKit
+   images still need converting back to a full ISO with the NKit tool
+   first.)
 3. **Dolphin:** the app finds it (a running Dolphin first, then
    `DOLPHIN_EXE`, the usual install folders and `Desktop\Dolphin-x64`);
    Browse… if it didn't. On macOS a **Prepare Dolphin** button does what

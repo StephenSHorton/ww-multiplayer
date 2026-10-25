@@ -257,7 +257,7 @@ func cmdPatch(string, []string) {
 		fmt.Printf("Usage: %s patch <input.iso|input.ciso|input.rvz> [output.iso]\n", exeCmd)
 		fmt.Println("  Default output: <input>-multiplayer.iso (next to the input)")
 		fmt.Println("  An .rvz, .wia or .gcz is converted to a temporary ISO first, with the DolphinTool")
-		fmt.Println("  next to your Dolphin (set DOLPHIN_EXE to pick the Dolphin)")
+		fmt.Println("  next to your Dolphin (a running Dolphin's first, then DOLPHIN_EXE's, then the usual places)")
 		os.Exit(1)
 	}
 	out := ""

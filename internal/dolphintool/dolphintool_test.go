@@ -194,14 +194,26 @@ func TestToISO(t *testing.T) {
 	}
 }
 
+// TestToISONoUserFlag: a DolphinTool that can't be given -u would use the
+// player's own Dolphin user folder, so it is never run to convert.
 func TestToISONoUserFlag(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out.iso")
 	f := &fakeTool{help: strings.Replace(RealConvertHelp, "-u USER, --user=USER", "", 1), iso: []byte("x")}
-	if err := (Tool{Path: "t", Runner: f}).ToISO(context.Background(), "in.rvz", out, nil); err != nil {
-		t.Fatal(err)
+	tl := Tool{Path: "t", Runner: f}
+	if err := tl.ToISO(context.Background(), "in.rvz", out, nil); !errors.Is(err, ErrNoUserFlag) {
+		t.Fatalf("ToISO: %v", err)
 	}
-	if len(f.userDirs) != 0 || slices.Contains(f.calls[1], "-u") {
-		t.Errorf("passed -u: %q", f.calls)
+	if len(f.calls) != 1 || !slices.Equal(f.calls[0], HelpArgs) {
+		t.Errorf("ran more than the help: %q", f.calls)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Errorf("wrote %s: %v", out, err)
+	}
+	if err := tl.Ready(context.Background()); !errors.Is(err, ErrNoUserFlag) {
+		t.Errorf("Ready: %v", err)
+	}
+	if err := (Tool{Path: "t", Runner: &fakeTool{help: RealConvertHelp}}).Ready(context.Background()); err != nil {
+		t.Errorf("Ready, real help: %v", err)
 	}
 }
 

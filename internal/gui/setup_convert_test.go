@@ -113,13 +113,60 @@ func TestBridgePatchConverter(t *testing.T) {
 	if c := patchOnce(rvz); c == nil || c.Dolphin != desk || c.Tool.Path != deskTool {
 		t.Errorf("detected: %+v", c)
 	}
-	// The saved Dolphin wins, even with no DolphinTool beside it.
+	// A running Dolphin with no DolphinTool beside it comes first but
+	// doesn't hide the Desktop one that has it.
+	running := touch(t, filepath.Join(t.TempDir(), "Dolphin.exe"))
+	b.denv = fakeEnv(home, cfgDir, running)
+	if c := patchOnce(rvz); c == nil || c.Dolphin != running || c.Tool.Path != "" ||
+		len(c.More) != 1 || c.More[0].Dolphin != desk || c.More[0].Tool.Path != deskTool {
+		t.Errorf("running without a tool: %+v", c)
+	}
+	// The saved Dolphin is tried first, even with no DolphinTool beside
+	// it; the detected ones follow.
 	saved := touch(t, filepath.Join(t.TempDir(), "Dolphin.exe"))
 	b.mu.Lock()
 	b.cfg.Dolphin.Exe = saved
 	b.mu.Unlock()
-	if c := patchOnce(rvz); c == nil || c.Dolphin != saved || c.Tool.Path != "" {
+	if c := patchOnce(rvz); c == nil || c.Dolphin != saved || c.Tool.Path != "" ||
+		len(c.More) != 2 || c.More[0].Dolphin != running || c.More[1].Tool.Path != deskTool {
 		t.Errorf("saved: %+v", c)
+	}
+}
+
+// TestBridgePatchCancelConvertedPatched: Stop as an already-patched RVZ
+// finishes converting. Its converted ISO was kept at out, so the view
+// must not say nothing was left: it is removed like any cancelled disc.
+func TestBridgePatchCancelConvertedPatched(t *testing.T) {
+	started, hold := make(chan struct{}), make(chan struct{})
+	b, path, _ := patchBridge(t, &fakePatcher{})
+	b.patchRun = func(ctx context.Context, in, out string, w io.Writer, o patch.Options) (patch.Result, error) {
+		if err := os.WriteFile(out, []byte("converted"), 0o644); err != nil {
+			return patch.Result{}, err
+		}
+		close(started)
+		<-hold
+		return patch.Result{In: in, Out: out, AlreadyPatched: true, ConvertedFrom: "RVZ"}, nil
+	}
+	dir := t.TempDir()
+	rvz := filepath.Join(dir, "ww.rvz")
+	if err := os.WriteFile(rvz, append([]byte("RVZ"), make([]byte, 0x400)...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.StartPatch(PatchRequest{Path: rvz}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	b.CancelPatch()
+	close(hold)
+	v := waitPatchDone(t, b)
+	if v.Stage != "canceled" || v.Stopped != "removed" {
+		t.Errorf("canceled: %+v", v)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ww-multiplayer.iso")); !os.IsNotExist(err) {
+		t.Errorf("the converted ISO was left: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("a cancelled patch saved settings")
 	}
 }
 

@@ -402,8 +402,10 @@ func (b *Bridge) runPatch(ctx context.Context, j *patchJob, in, out string, exis
 	stopped := ""
 	if cancelled {
 		switch {
-		case err != nil || res.AlreadyPatched:
+		case err != nil || (res.AlreadyPatched && res.ConvertedFrom == ""):
 			stopped = "nothing" // stopped before the disc was read, or nothing to write
+			// (A converted disc that was already patched has its converted
+			// ISO kept at res.Out: that is a written disc, handled below.)
 		case existed:
 			// PatchISO has already renamed the new disc over the earlier
 			// one: removing it would leave the player with neither.
@@ -445,18 +447,21 @@ func (b *Bridge) runPatch(ctx context.Context, j *patchJob, in, out string, exis
 }
 
 // patchConverter is the setup's DolphinTool (patch.Converter): beside the
-// saved Dolphin, else beside the one the Dolphin step would detect (that
-// step comes after the disc), else none.
+// saved Dolphin first, then beside each Dolphin the Dolphin step would
+// detect (that step comes after the disc), in its order; the first usable
+// one converts.
 func (b *Bridge) patchConverter() *patch.Converter {
 	c, _ := b.effective()
-	exe := c.Dolphin.Exe
-	if exe == "" || !isFile(exe) {
-		exe = ""
-		if best, _ := launch.Detect(b.denv()); best.Found {
-			exe = best.Exe
+	var exes []string
+	if exe := c.Dolphin.Exe; exe != "" && isFile(exe) {
+		exes = append(exes, exe)
+	}
+	for _, d := range launch.Candidates(b.denv()) {
+		if d.Found {
+			exes = append(exes, d.Exe)
 		}
 	}
-	return patch.ConverterFor(exe)
+	return patch.ConverterFor(exes...)
 }
 
 // patchError is a failed patch in the setup's words.
@@ -464,8 +469,15 @@ func patchError(err error) string {
 	var nt *patch.NoDolphinToolError
 	if errors.As(err, &nt) {
 		where := "no Dolphin was found yet"
-		if nt.Dolphin != "" {
-			where = "there is none beside " + nt.Dolphin
+		if looked := nt.Looked(); len(looked) > 0 {
+			where = "there is none beside " + strings.Join(looked, " or ")
+		}
+		if len(nt.Unusable) > 0 {
+			why := make([]string, len(nt.Unusable))
+			for i, e := range nt.Unusable {
+				why[i] = e.Error()
+			}
+			where = "the one it found can't be used (" + strings.Join(why, "; ") + ")"
 		}
 		return fmt.Sprintf("Your disc is a compressed %s image. The app turns those into an ISO with the DolphinTool that comes with Dolphin, but %s. "+
 			"Set up Dolphin in the next step and patch again, or in Dolphin right-click the game > Convert File... > Format: ISO and choose the .iso it writes.",
