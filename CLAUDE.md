@@ -126,7 +126,7 @@ go build -o wwdev.exe ./cmd/wwdev
 ./ww-multiplayer.exe tui                                # Launch TUI (host or join)
 ./ww-multiplayer.exe ui --browser [--port N] [--no-open] # Serve the app's UI on 127.0.0.1 to a browser (dev/tests; Ctrl+C stops)
 #   tui and ui also take --mods=a,b / --no-mod=x / --dev (the app's mods this run; `mods` takes them to show the effect)
-./ww-multiplayer.exe patch <iso|ciso|rvz> [out.iso]     # Splice mod into user's own vanilla WW ISO (RVZ/WIA/GCZ: converted first with the DolphinTool beside the detected Dolphin)
+./ww-multiplayer.exe patch <iso|ciso|rvz> [out.iso]     # Splice mod into user's own vanilla WW ISO (RVZ/WIA/GCZ: converted first with the first usable DolphinTool beside a found Dolphin, running ones first)
 
 # Play: one process per player
 ./ww-multiplayer.exe host [name] [--port N] [--color C] [--coop[=new|<world-id>]] ...  # Host a session (server + this player's pipelines)
