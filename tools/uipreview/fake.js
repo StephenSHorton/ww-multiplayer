@@ -11,6 +11,11 @@
 //	&shares=none     the progress card before any feature is granted
 //	&shares=nostory  a host that shares no story
 //	&nokeys=1        no co-op stage tables (NoKeyTable)
+//	&tables=differ   ingame-host: Blake's stage tables differ (no switches, puzzles, kills, keys, hearts for him)
+//	&room=none       the Room items card before the hub's world came in
+//	&two=1           two players (no Sam): Warp to on the partner's row
+//	&dry=1           this player's game runs a dry run (the host can still edit the rules)
+//	&slow=1          SetCoopShares answers out of order: the first call takes 800 ms, the rest none
 //	&upd=1           a newer release is out, in any scenario
 //	&click=a,b       click these element ids in turn once the page is up
 (function () {
@@ -20,6 +25,12 @@
 	const legacy = q.get("legacy") === "1";
 	const shareMode = q.get("shares") || "";
 	const noKeys = q.get("nokeys") === "1";
+	const tablesDiffer = q.get("tables") === "differ";
+	const noRoom = q.get("room") === "none";
+	const two = q.get("two") === "1";
+	const dry = q.get("dry") === "1";
+	const slow = q.get("slow") === "1";
+	let shareCalls = 0;
 	const updOut = S === "home-update" || q.get("upd") === "1";
 	try {
 		if (theme) localStorage.setItem("ww-theme", theme);
@@ -108,15 +119,63 @@
 	const over = () => isOver;
 	const lobbyPhase = playing ? "in game" : "lobby";
 	const dolphinChip = playing ? { dolphin: "in_game", dolphinLabel: "In game" } : { dolphin: "", dolphinLabel: "" };
+	// In game, co-op's row facts (room.go memberCoop): the host's hub knows
+	// every peer, a joiner only where its partner is (with one other
+	// player); Warp to is on the one other player's row (&two=1: no Sam).
+	const coopRow = (name) => !playing ? {} : host
+		? { coop: name === "Sam" ? "" : "Bound · DRC room 3" }
+		: { coop: two && name === "Blake" ? "DRC room 3" : "" };
 	const members = [
 		{ id: 1, name: host ? "Stephen" : "Blake", color: host ? "#2C5CE0" : "#F08C1E", colorName: host ? "blue" : "orange", ready: true, host: true, self: host, via: "app", away: false, ...dolphinChip, area: playing && !host ? "near" : "", dist: 140, rttMs: 0, file: playing ? "" : "File 1 “Link”: bound", canKick: false },
 		{ id: 2, name: host ? "Blake" : "Stephen", color: host ? "#F08C1E" : "#2C5CE0", colorName: host ? "orange" : "blue", ready: !host, host: false, self: !host, via: "app", away: S === "reconnecting", ...dolphinChip, area: playing && host ? "near" : "", dist: 140, rttMs: 24, file: playing ? "" : "File 2 “Stephen”: unbound", canKick: host },
 		{ id: 3, name: "Sam", color: "#3C9A2E", colorName: "green", ready: false, host: false, self: false, via: "cli", away: false, dolphin: playing ? "title" : "", dolphinLabel: playing ? "Title screen" : "", area: playing ? "far" : "", dist: 5400, rttMs: 61, file: "", canKick: host },
 	];
+	if (two) members.pop();
+	for (const m of members) Object.assign(m, coopRow(m.name), { canWarp: playing && two && !m.self });
+
+	// The rules (room.go rulesView) and the Room items card (roomView).
+	const RULES = [
+		["image", "World", "Chests, pickups, dungeon maps and compasses, charts and visited rooms", "It is the shared world itself, and every other rule hangs on it. Each player's Pause co-op writes stops it for their game."],
+		["story", "Story", "Story progress, held back where a game isn't ready for it"],
+		["inventory", "Items", "Items, songs, Triforce shards, pearls and bag sizes"],
+		["switches", "Switches", "Switches that stay set: doors, gates, bridges"],
+		["puzzle", "Puzzles", "Room and dungeon puzzles solved"],
+		["combat", "Kills", "Enemies that stay defeated once one of you beats them"],
+		["keys", "Small keys", "Each dungeon's small keys, counted from the chests and doors"],
+		["life", "Hearts", "Max hearts, from every Heart Container and Piece of Heart the world has taken"],
+		["magic", "Magic", "The magic meter"],
+		["live-switches", "Live switches", "Switches of the room you stand in, while you are idle"],
+		["merge", "Merging", "A file with progress the world lacks may still bind, and its progress joins the world"],
+		["dry-run", "Dry run", "Co-op plans its writes and logs them, but writes nothing into the games", "Each game's co-op writer is set up when co-op starts: choose it before Start."],
+	];
+	const tableFeats = new Set(["switches", "live-switches", "puzzle", "combat", "keys", "life"]);
+	function rulesOf(on) {
+		const rows = RULES.map(([id, label, what, why]) => ({
+			id, label, what, on: on.has(id), edit: host && !why, why: host ? why || "" : "",
+			missing: host && tablesDiffer && on.has(id) && tableFeats.has(id) ? ["Blake"] : [],
+			missingWhy: "their stage tables differ from yours, or their game runs a dry run",
+		}));
+		return { host, edit: host, rows, note: on.has("keys") && !on.has("switches") ? "Small keys are counted from the doors the switches share: with Switches off, one key can open a door in each game." : "" };
+	}
+	const slots = [
+		["telescope", "the telescope"], ["sail", "the sail"], ["Wind Waker", "the Wind Waker"], ["grappling hook", "the grappling hook"],
+		["spoils bag", "the spoils bag"], ["boomerang", "the boomerang"], ["Deku Leaf", "the Deku Leaf"], ["Tingle Tuner", ""],
+		["picto box", "the picto box"], ["iron boots", ""], ["magic armor", ""], ["bait bag", "the bait bag"],
+		["bow", ""], ["bombs", ""], ["delivery bag", "the delivery bag"], ["hookshot", ""], ["Skull Hammer", ""],
+	];
+	const room = {
+		items: slots.map(([slot, name]) => ({ slot, name, have: !!name })),
+		equip: [{ slot: "sword", name: "the Hero's Sword", have: true }, { slot: "shield", name: "the Hero's Shield", have: true }, { slot: "bracelets", name: "", have: false }],
+		songs: [["Wind's Requiem", true], ["Ballad of Gales", true], ["Command Melody", true], ["Earth God's Lyric", false], ["Wind God's Aria", false], ["Song of Passing", false]].map(([name, have]) => ({ name, have })),
+		pearls: [["Nayru's Pearl", false], ["Din's Pearl", true], ["Farore's Pearl", false]].map(([name, have]) => ({ name, have })),
+		shards: 0, charts: 7, chartsTotal: 49, salvaged: 2, triforceCharts: 0,
+		wallet: 1000, quiver: 0, bombBag: 0, magic: 16,
+		hearts: true, containers: 6, containersTaken: 1, pieces: 44, piecesTaken: 5, rewards: 10, given: 1, untracked: 6, maxHearts: 5, maxQuarters: 2,
+	};
 	const coopMode = S === "lobby-join" ? "continue" : "new";
 	const coop = {
 		setting: coopMode === "new" ? "new" : worlds[0].id, mode: coopMode, world: coopMode === "continue" ? worlds[0].id : "",
-		dryRun: false, merge: false, liveSwitches: false, on: playing, myDryRun: false, autoYes: false,
+		dryRun: false, merge: false, liveSwitches: false, on: playing, myDryRun: dry, autoYes: false,
 		relays: { bossKill: "", refresh: "" },
 		choice: { mode: coopMode, world: worlds[0].id, dryRun: false, merge: false, liveSwitches: false, iso: "" },
 		cards: playing ? null : {
@@ -131,7 +190,7 @@
 			partners: ["Blake"],
 			pipes: [{
 				player: "Stephen", state: "bound", headline: "Bound and writing: your game follows world 7f3a91c2", tone: "ok",
-				world: worlds[0].id, seq: 412, written: 1832, escapes: 0, failed: 0, paused: false, dryRun: false,
+				world: worlds[0].id, seq: 412, written: 1832, escapes: 0, failed: 0, paused: false, dryRun: dry,
 				progression: [
 					"progression granted: story|inventory|keys|life|magic",
 					"story bits held back until this game catches up: Tetra's ship departs (needs Outset done)",
@@ -148,7 +207,7 @@
 					{ dungeon: "FW", name: "Forbidden Woods", on: true, seen: false, have: 0, taken: 0, sources: 0, open: 0, doors: 0, target: 0, pending: false },
 					{ dungeon: "TotG", name: "Tower of the Gods", on: false, why: "no key table for it", seen: false, have: 0, taken: 0, sources: 0, open: 0, doors: 0, target: 0, pending: false },
 				],
-				life: true, lifeWhy: "",
+				life: true, lifeWhy: "", room: noRoom ? null : room,
 			}],
 			hub: S === "ingame-host" ? {
 				world: "7f3a91c2", seq: 412, features: "image|puzzle|combat|switches|story|inventory|keys|life|magic", merge: false,
@@ -162,6 +221,18 @@
 		if (shareMode === "none") Object.assign(pipe, { shares: [], held: [] });
 		if (shareMode === "nostory") Object.assign(pipe, { shares: pipe.shares.filter((f) => f !== "story"), held: [] });
 		if (noKeys) Object.assign(pipe, { keys: [], noKeyTable: true });
+		coop.panel.rules = rulesOf(new Set(pipe.shares));
+	}
+	// The host's Edit: a change reaches the hub (its features) and, a tick
+	// later, every pipeline's grant.
+	function setShares(on) {
+		const set = new Set(["image", ...on]);
+		const pipe = coop.panel.pipes[0];
+		pipe.shares = ["image", "puzzle", "combat", "live-switches", "switches", "story", "inventory", "keys", "life", "magic"].filter((f) => set.has(f));
+		if (coop.panel.hub) coop.panel.hub.features = pipe.shares.join("|");
+		const merge = coop.panel.rules.rows.find((r) => r.id === "merge").on;
+		coop.panel.rules = rulesOf(set);
+		coop.panel.rules.rows.find((r) => r.id === "merge").on = merge;
 	}
 
 	function state() {
@@ -196,12 +267,18 @@
 		LanSessions: () => lan, ShareAddrs: () => share, CoopWorlds: () => worlds,
 		CoopStatusText: () => "co-op: Stephen: bound", SendChat: (t) => ({ kind: "chat", from: "Stephen", text: t }),
 		CheckColor: (t) => ({ hex: t.toUpperCase(), name: "" }),
+		// The hub applies each call as it lands: with &slow=1 the first one
+		// lands last, as two bridge calls on their way at once may.
+		SetCoopShares: (on) => (slow && shareCalls++ === 0
+			? new Promise((done) => setTimeout(() => { setShares(on); done(null); }, 800))
+			: (setShares(on), null)),
+		SetMerge: (on) => { coop.merge = on; if (coop.panel) coop.panel.rules.rows.find((r) => r.id === "merge").on = on; return null; },
 	};
 	const listeners = [];
 	window.go = { gui: { Bridge: new Proxy({}, {
 		get: (_, name) => async (...args) => {
 			const f = answers[name];
-			return f ? JSON.parse(JSON.stringify(f(...args))) : null;
+			return f ? JSON.parse(JSON.stringify(await f(...args))) : null;
 		},
 	}) } };
 	window.runtime = { EventsOn: (_, fn) => { listeners.push(fn); return () => {}; } };

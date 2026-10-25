@@ -35,6 +35,13 @@ type CoopOptions struct {
 	// actor_refresh relay's token set; "" is off. Each side's own.
 	BossKill string
 	Refresh  string
+	// SharesOff is what a host turns off of what co-op shares, the
+	// session feature names (proto: "story", "inventory", "switches",
+	// "puzzle", "combat", "keys", "life", "magic") joined by ","; "" shares
+	// them all. The host's own: its hub starts with them off, and the
+	// app's Session page changes them while the session runs
+	// (Controller.SetCoopShares).
+	SharesOff string
 }
 
 // QuestionKind says what a yes would write.
@@ -200,6 +207,36 @@ type CoopStatus struct {
 	// unknown, Room -1 at a stage start.
 	PartnerStage string
 	PartnerRoom  int
+	// Room is what the session's world holds, from this pipeline's view
+	// of it (the app's Room items card); nil before the hub's world came
+	// in.
+	Room *CoopRoom
+}
+
+// CoopRoom is what a co-op world holds (mods/coop/roomitems.Items): the
+// items and equipment by the best variant the world's flags give ("" for
+// none), songs and pearls, Triforce shards, the game's chart count, bag
+// sizes, max magic and the heart sources (Hearts false without a heart
+// table: HeartsWhy says why).
+type CoopRoom struct {
+	Items, Equip                   []CoopRoomItem
+	Songs, Pearls                  []CoopRoomItem
+	Shards, TriforceCharts         int
+	Charts, ChartsTotal, Salvaged  int
+	Wallet, Quiver, BombBag, Magic int
+	Hearts                         bool
+	HeartsWhy                      string
+	Containers, ContainersTaken    int
+	Pieces, PiecesTaken            int
+	Rewards, Given, Untracked      int
+	MaxLife                        int // quarter hearts
+}
+
+// CoopRoomItem is one slot, song or pearl: Name the world's best variant
+// (a slot) or its name (a song, a pearl), Have whether the world has it.
+type CoopRoomItem struct {
+	Slot, Name string
+	Have       bool
 }
 
 // CoopKeys is one key table's small keys as the replica's Deriver last
@@ -237,6 +274,10 @@ type CoopPeer struct {
 	Reason string // why it is refused or unbound
 	Stage  string // where it is ("" for unknown)
 	Room   int
+	// Features is what the hub grants it ("image|story|..."): less than
+	// the host allows when its stage tables differ from the host's (no
+	// switches, puzzles, kills, keys or hearts) or it asked for less.
+	Features string
 }
 
 // CoopEngine is what an Engine with co-op adds: the console, and the
@@ -256,6 +297,16 @@ type CoopEngine interface {
 	CommandLine(line string) error
 	// CoopWorlds lists the co-op worlds on disk, newest first.
 	CoopWorlds() ([]CoopWorld, error)
+}
+
+// CoopShareEngine is what an engine whose host can change what co-op
+// shares while the session runs adds (the app's owner-editable rules):
+// on is every session feature the host's hub allows from now on, by
+// proto name, the world itself ("image") always. It returns ErrNoCoop
+// without co-op, and an error on a joiner, before the hub serves the
+// world, or for a name that is no feature the host may change.
+type CoopShareEngine interface {
+	SetCoopShares(on []string) error
 }
 
 var (

@@ -100,6 +100,9 @@ type CoopPanelView struct {
 	// Partners are the other players: Warp to partner needs one (v1.0
 	// is two players, so the warp goes to the one other player).
 	Partners []string `json:"partners"`
+	// Rules is what co-op shares, as rules the host changes while the
+	// session runs (room.go); nil before a pipeline or the hub reports.
+	Rules *CoopRulesView `json:"rules"`
 }
 
 // CoopPipeView is one coop-sync pipeline (this player's game).
@@ -137,6 +140,9 @@ type CoopPipeView struct {
 	NoKeyTable bool          `json:"noKeyTable,omitempty"`
 	Life       bool          `json:"life"`
 	LifeWhy    string        `json:"lifeWhy,omitempty"`
+	// Room is what the world holds, the Room items card (room.go); nil
+	// before the hub's world came in.
+	Room *CoopRoomView `json:"room"`
 }
 
 // CoopKeyView is one dungeon's small keys on the progress card.
@@ -356,7 +362,7 @@ func (b *Bridge) SetCoopRelays(r CoopRelays) (err error) {
 // (Setup's): the stage files they are built from are the same.
 func (b *Bridge) coopOptions() session.CoopOptions {
 	b.mu.Lock()
-	o := session.CoopOptions{ISO: b.cfg.Coop.ISO, DryRun: b.myDryRun, BossKill: b.cfg.Coop.BossKill, Refresh: b.cfg.Coop.Refresh}
+	o := session.CoopOptions{ISO: b.cfg.Coop.ISO, DryRun: b.myDryRun, BossKill: b.cfg.Coop.BossKill, Refresh: b.cfg.Coop.Refresh, SharesOff: b.cfg.Coop.SharesOff}
 	b.mu.Unlock()
 	if o.ISO == "" {
 		o.ISO = b.launchOptions().ISO
@@ -572,6 +578,7 @@ func coopPanel(st session.State, mk masker) *CoopPanelView {
 			}
 		}
 	}
+	p.Rules = rulesView(st, mk)
 	return p
 }
 
@@ -581,7 +588,7 @@ func pipeView(cs session.CoopStatus) CoopPipeView {
 		Escapes: cs.Escapes, Failed: cs.Failed, DryRun: cs.DryRun, Paused: cs.WritesOff != "" && !cs.DryRun,
 		Progression: append([]string{}, cs.Progression...), Puzzle: cs.Puzzle, Combat: cs.Combat, Tuner: cs.Tuner,
 		Shares: append([]string{}, cs.Shares...), Held: append([]string{}, cs.HeldStory...), Keys: []CoopKeyView{},
-		NoKeyTable: cs.NoKeyTable, Life: cs.Life, LifeWhy: cs.LifeWhy}
+		NoKeyTable: cs.NoKeyTable, Life: cs.Life, LifeWhy: cs.LifeWhy, Room: roomView(cs.Room)}
 	for _, k := range cs.Keys {
 		v.Keys = append(v.Keys, CoopKeyView{Dungeon: k.Dungeon, Name: dungeonName(k.Table, k.Dungeon), On: k.On, Seen: k.Seen, Why: k.Why,
 			Have: k.Have, Taken: k.Taken, Sources: k.Sources, Open: k.Open, Doors: k.Doors, Held: k.Held, Target: k.Target, Pending: k.Pending})

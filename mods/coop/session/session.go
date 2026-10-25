@@ -64,6 +64,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/procstate"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/stagetables"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
@@ -108,6 +109,11 @@ type Flags struct {
 	// procs the actor_refresh relay asks this game's REL to delete once
 	// stale; "" is none. Each side's own.
 	refresh string
+	// sharesOff is the app host's saved "what co-op shares"
+	// (session.CoopOptions.SharesOff): the session features its hub
+	// starts without, by name joined by ","; "" is none. The CLI has no
+	// flag for it.
+	sharesOff string
 }
 
 // On says whether f turns co-op on (--coop).
@@ -550,6 +556,14 @@ func (cs *Session) startHub(rep log.Reporter, srvLog func(string), f Flags, st *
 	features := hub.DefaultFeatures
 	if f.liveSwitches {
 		features |= hub.FeatureLiveSwitches
+	}
+	if f.sharesOff != "" {
+		if off, err := proto.ParseShares(strings.Split(f.sharesOff, ",")); err != nil {
+			log.Logf(rep, log.Warn, "co-op: the saved choice of what co-op shares is ignored: %v", err)
+		} else if off != 0 {
+			features &^= off
+			log.Logf(rep, log.Info, "co-op: this session does not share %s (the host's choice)", off)
+		}
 	}
 	h, err := hub.New(hub.Config{
 		Store:        st,

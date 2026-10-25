@@ -118,6 +118,11 @@ type Coop struct {
 	// gohma,kalle,molgera,jalhalla,helmaroc) and --coop-refresh ("" for off).
 	BossKill string `json:"bossKill,omitempty"`
 	Refresh  string `json:"refresh,omitempty"`
+	// SharesOff is what the host last turned off of what co-op shares
+	// (the Session page's rules: session.CoopOptions.SharesOff), feature
+	// names joined by ","; "" shares everything. The next hosted co-op
+	// session starts with it.
+	SharesOff string `json:"sharesOff,omitempty"`
 }
 
 // UI is window and first-run state.

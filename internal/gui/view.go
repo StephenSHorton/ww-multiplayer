@@ -74,6 +74,11 @@ type MemberView struct {
 	File string `json:"file,omitempty"`
 	// CanKick: we host, and the row isn't ours.
 	CanKick bool `json:"canKick"`
+	// Coop is the row's co-op chip once co-op runs (room.go memberCoop:
+	// "Bound · DRC room 3"; "" for none); CanWarp: the row's Warp to
+	// works (co-op runs and it is the one other player).
+	Coop    string `json:"coop,omitempty"`
+	CanWarp bool   `json:"canWarp"`
 }
 
 // LobbyView is State.Lobby.
@@ -273,6 +278,10 @@ func stateView(st session.State, running bool, version string, now time.Time, mk
 				}
 			} else {
 				mv.Area, mv.Dist = area(st, m.Name)
+			}
+			if running && l.Phase != session.LobbyPhaseLobby {
+				mv.Coop, mv.CanWarp = memberCoop(st, m.Name, self, len(l.Members)-1)
+				mv.Coop = mk.text(mv.Coop)
 			}
 			lv.Members = append(lv.Members, mv)
 		}
