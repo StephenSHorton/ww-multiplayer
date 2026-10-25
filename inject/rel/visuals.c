@@ -327,6 +327,9 @@ static void vis_equip_pre(int slot, J3DModel* model) {
     // Hide the hat only when the hair will be drawn in POST: its model
     // exists and the node matrices are there (vis_equip_post), else a
     // casual remote keeps its hat rather than going bald.
+    // A first vis_model here (outside POST's j3dSys snapshot) is safe:
+    // mDoExt_J3DModel__create / entryModelData / newDifferedDisplayList
+    // write no j3dSys (J3DModel.cpp; only calc, calcMaterial and entry do).
     int hair = vis_on(WWVIS_FLAG_HAIR) && (ef & WWVIS_EQF_CASUAL);
     if (hair && (!vis_joint(model, CL_JNT_HEAD) || !vis_model(slot, WWVIS_MK_KATSURA))) hair = 0;
     vis_casual_pre(slot, model, hair);
