@@ -3645,7 +3645,7 @@ static void em_hit_apply(enemy_mirror_state* s, em_ext* x) {
     // consuming execute's damage_check bearing (MO2 m05D6) is computed
     // toward the body (d_a_mo2.cpp:3112-3163, 2903-2911). No LIVE body:
     // today's host-Link path, detail WWREMOTE_HD_NO_BODY.
-    if (s->ha_flags & WWREMOTE_HAF_ATTRIB_BODY) {
+    if (s->ha_flags & WWREMOTE_HAF_ATTRIB_MASK) {
         u32 body = remote_attrib_body(s->ha_flags);
         s->ha_attrib = body ? 1 : 2;
         if (body) delay = remote_attrib_force((u32)a, body);

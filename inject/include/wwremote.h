@@ -422,8 +422,12 @@
 #define WWREMOTE_AD_BAD_HIT         7            // Go: the PHIT has fields no hit has, phitSane (never reaches the REL)
 
 // ATTRIB extensions of the enemy block's hit_apply (wwenemy.h), section 8.6
+// The two bits are one field naming the body: 0x08 slot 0, 0x18 slot 1, 0x10 (SLOT1
+// without ATTRIB_BODY) slot 2, 0 none. Two bits name at most three bodies
+// (MAX_REMOTE_LINKS <= 3, remote.c).
 #define WWREMOTE_HAF_ATTRIB_BODY    0x08         // bit in WWENEMY_HA_FLAGS_OFF: attribute to the slot's body
-#define WWREMOTE_HAF_SLOT1          0x10         // bit in WWENEMY_HA_FLAGS_OFF: body slot 1 (clear = slot 0)
+#define WWREMOTE_HAF_SLOT1          0x10         // bit in WWENEMY_HA_FLAGS_OFF: body slot 1 with ATTRIB_BODY, slot 2 without
+#define WWREMOTE_HAF_ATTRIB_MASK    0x18         // ATTRIB_BODY | SLOT1: the field; nonzero = ATTRIB asked
 #define WWREMOTE_HD_NO_BODY         16           // WWENEMY_HIT_RESULT detail: ATTRIB asked, the body not LIVE (host-Link path ran)
 
 // --- the actor (both roles of the 0xB5 profile) -----------------------------

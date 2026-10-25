@@ -317,8 +317,11 @@ const (
 	RemoteADBadHit      uint8 = 7 // Go: the PHIT has fields no hit has, phitSane (never reaches the REL)
 
 	// ATTRIB extensions of the enemy block's hit_apply (wwenemy.h), section 8.6
+	// The two bits are one field naming the body (RemoteHAFAttrib): 0x08
+	// slot 0, 0x18 slot 1, 0x10 (Slot1 without AttribBody) slot 2, 0 none.
 	RemoteHAFAttribBody uint8 = 0x08 // bit in EnemyHAFlagsOff: attribute to the slot's body
-	RemoteHAFSlot1      uint8 = 0x10 // bit in EnemyHAFlagsOff: body slot 1 (clear = slot 0)
+	RemoteHAFSlot1      uint8 = 0x10 // bit in EnemyHAFlagsOff: body slot 1 with AttribBody, slot 2 without
+	RemoteHAFAttribMask uint8 = 0x18 // AttribBody | Slot1: the field; nonzero = ATTRIB asked
 	RemoteHDNoBody      uint8 = 16   // EnemyHitResultOff detail: ATTRIB asked, the body not LIVE (host-Link path ran)
 
 	// the actor (both roles of the 0xB5 profile)
@@ -956,4 +959,36 @@ func ReadRELHook(m Reader) (RELHook, error) {
 		return RELHook{}, fmt.Errorf("mailbox: REL hook words: %d bytes, want %d", len(b), relHookWordsLen)
 	}
 	return RELHook{ExecHook: binary.BigEndian.Uint32(b), SwapState: binary.BigEndian.Uint32(b[OffRELSwapState-OffRELExecHook:])}, nil
+}
+
+// RemoteHAFAttribSlots is how many bodies the ATTRIB field can name.
+const RemoteHAFAttribSlots = 3
+
+// RemoteHAFAttrib is the hit_apply ATTRIB field that names slot's body
+// (remote_attrib_body, inject/rel/remote.c), or 0 for a slot it cannot
+// name.
+func RemoteHAFAttrib(slot int) uint8 {
+	switch slot {
+	case 0:
+		return RemoteHAFAttribBody
+	case 1:
+		return RemoteHAFAttribBody | RemoteHAFSlot1
+	case 2:
+		return RemoteHAFSlot1
+	}
+	return 0
+}
+
+// RemoteHAFAttribSlot is the body slot a hit_apply flags byte names, as
+// remote_attrib_body decodes it, or -1 when ATTRIB is not asked.
+func RemoteHAFAttribSlot(flags uint8) int {
+	switch flags & RemoteHAFAttribMask {
+	case RemoteHAFAttribBody:
+		return 0
+	case RemoteHAFAttribMask:
+		return 1
+	case RemoteHAFSlot1:
+		return 2
+	}
+	return -1
 }
