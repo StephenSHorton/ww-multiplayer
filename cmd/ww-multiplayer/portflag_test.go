@@ -160,25 +160,42 @@ func TestParseHostArgs(t *testing.T) {
 	}
 }
 
-// TestParseServerArgs: `server` takes no positional args at all.
+// TestParseServerArgs: `server` takes no positional args at all; the
+// owner key comes from --owner-key, else WW_OWNER_KEY, and is checked.
 func TestParseServerArgs(t *testing.T) {
+	const key = "0123456789abcdef"
 	cases := []struct {
 		name     string
 		args     []string
+		env      string // WW_OWNER_KEY
 		wantPort int
+		wantKey  string
 		wantErr  string // substring; "" = no error
 	}{
-		{"no args", nil, defaultPort, ""},
-		{"--port", []string{"--port", "25566"}, 25566, ""},
-		{"--port=", []string{"--port=25566"}, 25566, ""},
-		{"-port", []string{"-port", "25566"}, 25566, ""},
-		{"bare port", []string{"25566"}, 0, `unexpected argument "25566" (did you mean --port 25566?)`},
-		{"stray word", []string{"now"}, 0, `unexpected argument "now"`},
-		{"bad value", []string{"--port", "99999"}, 0, "invalid port"},
+		{"no args", nil, "", defaultPort, "", ""},
+		{"--port", []string{"--port", "25566"}, "", 25566, "", ""},
+		{"--port=", []string{"--port=25566"}, "", 25566, "", ""},
+		{"-port", []string{"-port", "25566"}, "", 25566, "", ""},
+		{"bare port", []string{"25566"}, "", 0, "", `unexpected argument "25566" (did you mean --port 25566?)`},
+		{"stray word", []string{"now"}, "", 0, "", `unexpected argument "now"`},
+		{"bad value", []string{"--port", "99999"}, "", 0, "", "invalid port"},
+		{"--owner-key", []string{"--owner-key", key, "--port", "25570"}, "", 25570, key, ""},
+		{"--owner-key=", []string{"--owner-key=" + key}, "", defaultPort, key, ""},
+		{"env", nil, "  " + key + "\n", defaultPort, key, ""},
+		{"flag over env", []string{"--owner-key", key}, "other-key-xyz", defaultPort, key, ""},
+		{"no value", []string{"--owner-key"}, "", 0, "", "--owner-key needs a value"},
+		{"short", []string{"--owner-key", "abc"}, "", 0, "", "use at least 8"},
+		{"short env", nil, "abc", 0, "", "use at least 8"},
+		{"long", []string{"--owner-key", strings.Repeat("k", 257)}, "", 0, "", "at most 256"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			port, err := parseServerArgs(c.args)
+			o, err := parseServerArgs(c.args, func(k string) string {
+				if k == "WW_OWNER_KEY" {
+					return c.env
+				}
+				return ""
+			})
 			if c.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
 					t.Fatalf("parseServerArgs(%q) error = %v, want one containing %q", c.args, err, c.wantErr)
@@ -188,8 +205,8 @@ func TestParseServerArgs(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseServerArgs(%q) error = %v", c.args, err)
 			}
-			if port != c.wantPort {
-				t.Errorf("parseServerArgs(%q) = %d, want %d", c.args, port, c.wantPort)
+			if o.Port != c.wantPort || o.OwnerKey != c.wantKey {
+				t.Errorf("parseServerArgs(%q) = port %d key %q, want %d %q", c.args, o.Port, o.OwnerKey, c.wantPort, c.wantKey)
 			}
 		})
 	}

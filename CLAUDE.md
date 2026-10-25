@@ -110,7 +110,7 @@ ww-multiplayer/
     ├── 01-architecture.md, 02-dolphin-memory.md, 03-code-injection.md
     ├── 04-ww-addresses.md, 05-known-issues.md, 06-history.md
     ├── 07-bettersunshine-research.md (Kuribo/BetterSunshineEngine notes, input to docs/api Phase E)
-    ├── 08-coop-design.md, 09-player-colors.md, 10-lobby.md
+    ├── 08-coop-design.md, 09-player-colors.md, 10-lobby.md, 11-self-hosting.md (the dedicated server: Tailscale, port forwarding, owner key, status, Docker)
     ├── api/                     # the modding API: 00-design, 01-events, 02-mods, 03-writing-a-mod
     ├── release-notes/           # v<version>.md per release (the release body); README.md = how; a "<!-- draft" first line blocks the tag
     └── TESTING.md               # the pre-push check matrix, goldens, flakes, live checks
@@ -153,7 +153,8 @@ go build -o wwdev.exe ./cmd/wwdev
 
 # Multiplayer runtime CLIs (the pipelines mp-local runs in one process; they also run as separate processes).
 # wwdev is the developer tools (cmd/wwdev); `./wwdev.exe help` lists its commands.
-./ww-multiplayer.exe server [--port N]                  # Headless TCP server on :25565
+./ww-multiplayer.exe server [--port N] [--owner-key K]  # Headless TCP server on :25565 (docs/11-self-hosting.md); the key (better WW_OWNER_KEY) lets an app joiner host its lobby; no co-op there
+./ww-multiplayer.exe status <host[:port]|code> [--json] [--timeout D]  # The status probe: is a server up, its version (exit 0 up, 1 unreachable, 3 other); the Dockerfile's HEALTHCHECK
 ./ww-multiplayer.exe broadcast-pose <name> <addr>       # Stream this Dolphin's Link pose+pos to server
 ./ww-multiplayer.exe puppet-sync <name> <addr>          # Receive remotes; render them as Link #2 / actor puppets
 ./wwdev.exe broadcast-link <name> <addr>                # Position-only broadcast (cheaper; no pose)
@@ -247,6 +248,8 @@ WW_LISTEN_HOST=<addr>                       # App only: a hosted lobby's server 
                                             #   and LAN discovery stays on it (127.0.0.1: beacons sent to, and heard on, loopback only)
 WW_LAN_PORT=<n>                             # App only: LAN discovery's UDP beacon port (default 25565; docs/10-lobby.md §10)
 WW_LAN=off                                  # App only: no LAN discovery (no beacon, no listening)
+WW_OWNER_KEY=<key>                          # `server` only: the lobby owner key (8-256 bytes; --owner-key wins). With it only a member that sends the key
+                                            #   (the app's Join form, "Advanced: dedicated server owner key") can host, loopback no longer does (docs/10-lobby.md §3)
 WW_UPDATE_URL=<url>                         # Release API every update check asks (default: GitHub's latest release); tests use a fake server on 127.0.0.1
 WW_NO_UPDATE_CHECK=1                        # CLI (host/join/version) and TUI: no update check (the app has its "Check for updates" switch, which the TUI follows too)
 WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT_SECS /
@@ -340,7 +343,8 @@ confirms the `blob` payload line in blob.stamp is unchanged (only the
 - **docs/05-known-issues.md** — Solved walls (the JIT cache wall, ...) plus open bugs (F-numbers, e.g. F1 third-remote freeze)
 - **docs/08-coop-design.md** — Co-op worlds: design, milestones, as-built notes
 - **docs/09-player-colors.md** — Per-player tunic colors and the casual shirt
-- **docs/10-lobby.md** — The app lobby, LAN discovery, join codes
+- **docs/10-lobby.md** — The app lobby, LAN discovery, join codes, the owner key
+- **docs/11-self-hosting.md** — The dedicated server: Tailscale, port forwarding, `status`, Docker
 - **docs/TESTING.md** — The pre-push check matrix, goldens, flakes and live checks
 - **docs/04-ww-addresses.md** — Wind Waker GZLE01 addresses we've mapped
 - **docs/api/00-design.md** — Approved modding API plan (wwapi/, mods, phases A-E) and the T2/mailbox RAM map

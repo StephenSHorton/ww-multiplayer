@@ -147,8 +147,8 @@ func TestCommandRegistryHelp(t *testing.T) {
 			t.Errorf("%s: usage %q does not start with the name", c.name, c.usage)
 		}
 	}
-	if listed != 13 { // bug-report is the 13th
-		t.Errorf("printHelp lists %d commands, want 13", listed)
+	if listed != 14 { // bug-report and status are the 13th and 14th
+		t.Errorf("printHelp lists %d commands, want 14", listed)
 	}
 }
 

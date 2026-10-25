@@ -97,9 +97,16 @@ func commandTable() []command {
 		{
 			name:    "server",
 			group:   groupLower,
-			usage:   "server [--port N]",
-			summary: "Start headless server (port 25565 unless --port)",
+			usage:   serverUsage,
+			summary: "Start headless server (port 25565 unless --port; docs/11-self-hosting.md)",
 			run:     cmdServer,
+		},
+		{
+			name:    "status",
+			group:   groupLower,
+			usage:   statusUsage,
+			summary: "Ask a server if it is up and its version (exit 0: up)",
+			run:     cmdStatus,
 		},
 		{
 			name:    "broadcast-pose",
@@ -302,12 +309,15 @@ next:
 }
 
 func cmdServer(string, []string) {
-	port, err := parseServerArgs(os.Args[2:])
+	o, err := parseServerArgs(os.Args[2:], os.Getenv)
 	if err != nil {
-		exitUsage(err, "server [--port N]")
+		exitUsage(err, serverUsage)
 	}
-	engine.RunServer(port)
+	o.Version = version
+	engine.RunServer(o)
 }
+
+const serverUsage = "server [--port N] [--owner-key K]"
 
 func cmdBroadcastPose(string, []string) {
 	name := "Player"

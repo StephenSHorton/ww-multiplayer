@@ -15,5 +15,6 @@ puppet-sync
 save-diff
 save-merge
 server
+status
 version
 warp

@@ -1,31 +1,71 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 )
 
-func RunServer(port int) {
+// ServerOptions are a dedicated server's settings (the `server` command).
+type ServerOptions struct {
+	Port int
+	// OwnerKey is the lobby owner key (`--owner-key`, WW_OWNER_KEY; ""
+	// none): a lobby member who joins with it becomes the host
+	// (docs/10-lobby.md §3 "Owner key").
+	OwnerKey string
+	// Version is this build's version, for the status probe's answer.
+	Version string
+}
+
+// dedicatedNoCoop is the no_coop notice of a dedicated server: the co-op
+// hub runs in the hosting app's own server process (Server.SetCoop),
+// which a `server` has none of.
+const dedicatedNoCoop = "this is a dedicated server: co-op needs the host's own app to host the session; plain multiplayer works here"
+
+// RunServer runs a dedicated server (docs/11-self-hosting.md) until
+// Ctrl+C or SIGTERM (a container stop), then stops it cleanly, which
+// closes every connection so the clients reconnect to the next one. Its
+// lobby takes no co-op settings (dedicatedNoCoop). A bad owner key or a
+// port that can't be bound exits 1.
+func RunServer(o ServerOptions) {
 	fmt.Println("=== WW Multiplayer Server ===")
 	fmt.Println()
 
-	srv := network.NewServer(port)
+	srv := network.NewServer(o.Port)
+	srv.AppVersion = o.Version
 	srv.OnLog = func(msg string) {
 		fmt.Printf("[%s] %s\n", time.Now().Format("15:04:05"), msg)
+	}
+	srv.DenyCoop(dedicatedNoCoop)
+	if o.OwnerKey != "" {
+		if err := srv.SetOwnerKey(o.OwnerKey); err != nil {
+			fmt.Printf("ERROR: owner key: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	if err := srv.Start(); err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
 	}
+	if o.OwnerKey != "" {
+		fmt.Println("Owner key set: the app player who joins with it becomes the lobby's host.")
+	} else {
+		fmt.Println("No owner key: CLI players play as usual; an app lobby here has no host to press Start (see --owner-key).")
+	}
 
-	// Run until interrupted
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	fmt.Println("Press Ctrl+C to stop")
-	select {}
+	<-ctx.Done()
+	srv.Stop()
+	fmt.Println("Server stopped.")
 }
 
 func RunFakeClient(name, addr string, centerX, centerZ float32) {

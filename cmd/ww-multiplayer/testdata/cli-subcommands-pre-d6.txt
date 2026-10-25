@@ -81,6 +81,7 @@ send-shift-f1
 server
 shadow-mode
 stage-hop
+status
 track-pos
 tunic-probe
 tunic-recolor
