@@ -9,14 +9,14 @@ import (
 
 // The remote players' visuals block in the mailbox slack (inject/include/
 // wwvis.h, whose WWVIS_* defines these mirror; vis_test.go pins each one
-// to the header): name tags, sword and shield on the mini-Links and the
-// sea chart markers. 0xC0 bytes at Mailbox+VisOff, right after the
+// to the header): name tags, sword, shield, scabbard and casual hair on
+// the mini-Links and the sea chart markers. 0xD8 bytes at Mailbox+VisOff, right after the
 // actor_refresh request. The REL (inject/rel/visuals.c) publishes the two
 // function words T2 calls and owns the models and counters; Go writes the
 // span VisGoStart..VisGoEnd (multiplayer's vissync), magic included.
 const (
 	VisOff  uint32 = 0x8D0 // block start, from Mailbox (0x804137D0)
-	VisSize uint32 = 0xC0  // ends +0x990, where CanaryArenaHigh starts
+	VisSize uint32 = 0xD8  // ends +0x9A8 (0x804138A8), where CanaryArenaHigh starts
 
 	VisDrawFnOff     = 0x00 // u32 REL: the draw hook
 	VisSeachartFnOff = 0x04 // u32 REL: the sea chart draw
@@ -30,6 +30,7 @@ const (
 	VisStatEquipOff  = 0xB4
 	VisStatSeaOff    = 0xB8
 	VisStatErrOff    = 0xBC
+	VisModels2Off    = 0xC0 // u32[VisSlots][VisModel2Kinds] (REL): mirror shield, Master Sword scabbard, katsura
 
 	VisGoStart = VisMagicOff // what Go writes: magic .. the sea entries
 	VisGoEnd   = VisModelsOff
@@ -40,6 +41,7 @@ const (
 	VisFlagNames uint32 = 0x01
 	VisFlagEquip uint32 = 0x02
 	VisFlagSea   uint32 = 0x04
+	VisFlagHair  uint32 = 0x08
 
 	VisEqSword  = 0x00
 	VisEqShield = 0x01
@@ -48,6 +50,7 @@ const (
 	VisEqfValid      = 0x01
 	VisEqfSwordHand  = 0x02
 	VisEqfShieldHand = 0x04
+	VisEqfCasual     = 0x08
 
 	VisSeaMax     = 4
 	VisSeaSize    = 0x10
@@ -67,10 +70,16 @@ const (
 	VisMkBladeMS = 3
 	VisMkShieldA = 4
 
+	VisModel2Kinds = 3
+	VisMkShieldMS  = 5
+	VisMkPodMS     = 6
+	VisMkKatsura   = 7
+
 	VisErrNone   = 0
 	VisErrRes    = 1
 	VisErrCreate = 2
 	VisErrFont   = 3
+	VisErrSkin   = 4
 
 	VisPhasePre  = 0
 	VisPhasePost = 1
@@ -84,13 +93,16 @@ const VisAddr = Mailbox + VisOff
 // (CanaryArenaHigh starts at its end).
 var VisRegion = addr.Region{Name: "visuals block", Start: VisAddr, End: VisAddr + VisSize}
 
-// VisEquip is one mini-Link slot's equip entry.
+// VisEquip is one mini-Link slot's equip entry. Casual (the remote wears
+// the casual clothes) is written with or without Valid: a sender before
+// the equip bytes still sends the appearance byte.
 type VisEquip struct {
 	Valid      bool
 	Sword      uint8 // mSelectEquip[0], 0xFF none
 	Shield     uint8 // mSelectEquip[1], 0xFF none
 	SwordHand  bool
 	ShieldHand bool
+	Casual     bool
 }
 
 // VisSea is one sea chart marker.
@@ -145,6 +157,9 @@ func (b VisBlock) Bytes() []byte {
 			eq[VisEqFlags] = f
 		} else {
 			eq[VisEqSword], eq[VisEqShield] = 0xFF, 0xFF
+		}
+		if e.Casual {
+			eq[VisEqFlags] |= VisEqfCasual
 		}
 	}
 	for i, s := range b.Sea {

@@ -262,7 +262,7 @@ tunic_hdr = hdr; mailbox->tunic_swaps++;
 **Help text.** `--color` is still not in `printHelp`. Add it when colors are confirmed live (§7.3).
 
 ### 5.5 Known limitations (by design, v1)
-- **A casual remote is never recolored.** It is drawn in the casual shirt (§5.6), which has no color. Its hair is the hero's-clothes head with the hat-cap from #66, drawn in the casual texture; the casual look's own hair model (katsura) is not drawn.
+- **A casual remote is never recolored.** It is drawn in the casual shirt (§5.6), which has no color. Its hair is the casual look's own hair model (katsura), drawn by the REL at the head joint with the hat and buckle hidden on that slot (`inject/rel/visuals.c`, `WWVIS_EQF_CASUAL`; `WW_HAIR=off` brings back the hero's-clothes head with the hat-cap from #66 in the casual texture).
 - **The hero's second set of clothes.** On a second quest (clear count ≠ 0) the game forces the casual clothes (`:12345`), so there is no green to recolor.
 - **Hands are not recolored.** `hands.bdl` is a separate model (`d_a_player_main.cpp:11903`). It holds skin only (inferred).
 
