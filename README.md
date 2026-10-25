@@ -239,6 +239,19 @@ To turn it off, every player starts the app with `WW_ENEMY_SYNC=0` (the
 whole enemy layer) or `WW_ENEMY_REMOTE=off` (bodies only); all players
 set the same value. Known limits: [05-known-issues.md](docs/05-known-issues.md#shared-enemies).
 
+**Reporting a bug.** The header's **Bug report** button saves one zip
+with your newest session logs, Dolphin's own log (when Dolphin's logger
+writes to a file) and the app's diagnostics; **Show folder** opens where it is. Every
+file in it is redacted first: your home folder becomes `~`, IP addresses
+and join codes are masked, and so are host names you joined or hosted on
+when they carry a port or a dynamic-DNS, tunnel or tailnet name
+(`•••.duckdns.org:25570`, `•••.ts.net`); tokens are removed. A plain
+computer name with no dot (`my-pc:25565`) is not masked, so look before
+posting. It never holds your disc,
+your saves, save states or co-op worlds, and nothing is uploaded: attach
+the zip to your issue. From a terminal, `ww-multiplayer bug-report`
+writes the same zip (`--include FILE` adds a log you captured).
+
 **The terminal menu.** `ww-multiplayer tui` opens the menu that no
 arguments used to open. Pick Host or Join, enter a player name (and the
 host's address, to join), and the dashboard shows who's connected, the
@@ -373,7 +386,16 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`: it builds
 `WW Multiplayer.app` with an `Info.plist` carrying the tag's version,
 the icon, and `LSMinimumSystemVersion` 12.0, zipped with `ditto` so the
 bundle and its signature survive), writes `SHA256SUMS` over both, and
-publishes one GitHub Release (a tag with a `-` is a prerelease). Running
+publishes one GitHub Release (a tag with a `-` is a prerelease). The
+release's body is `docs/release-notes/<tag>.md` with GitHub's generated
+"What's Changed" list after it; write and merge that file before tagging
+(a tag without one, or with a draft, fails before anything is built;
+`docs/release-notes/README.md`). `tools/check_game_files` runs on the
+repo and on every asset before it is published, and fails the release
+if any holds a Nintendo game file or a save: by name, by header, and by
+scanning each file whole (the exe and the app binary in the macOS zip
+too) for an archive, compressed data, a model, a disc or save header
+inside it. Running
 the workflow by hand (workflow_dispatch) is a dry run: it builds both and
 keeps them as workflow artifacts, but publishes nothing. `build.yml` also
 builds and zips the macOS app on every push and PR, as a packaging smoke
@@ -417,6 +439,7 @@ sooner.
 ./ww-multiplayer.exe server        # Run a TCP server on :25565 with no UI
 ./ww-multiplayer.exe fake-client   # Connect a bot that walks in circles
 ./ww-multiplayer.exe mods          # List the built-in mods and their status
+./ww-multiplayer.exe bug-report    # Save the logs as one redacted zip for an issue (--include FILE, --user-dir DIR, --out DIR)
 ./ww-multiplayer.exe help          # Full command list
 ```
 

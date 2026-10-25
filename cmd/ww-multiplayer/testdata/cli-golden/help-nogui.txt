@@ -19,5 +19,6 @@ Lower-level CLIs:
   <exe> debug                           Test Dolphin memory access
   <exe> warp <x> <y> <z>                Teleport Link to world coords (uses C warp handler)
   <exe> mods [--json] [--dev] [--mods=a,b] [--no-mod=x] List the mods built into this version
+  <exe> bug-report [--include FILE]... [--user-dir DIR]... [--out DIR] Save the logs as one redacted zip to attach to a bug report
   <exe> version                         Print the version (both players should match)
   <exe> help                            Show this help

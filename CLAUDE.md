@@ -37,7 +37,9 @@ ww-multiplayer/
 │                                #   tunic_diag.go (tunic dev commands), probes.go (the research probes: peek/poke, disasm, eye/face, input, screenshot, dump, ...)
 ├── internal/
 │   ├── applog/                  # Per-session log files (TUI/GUI), redaction, Copy-diagnostics text
+│   ├── bugreport/               # The bug-report zip (the app's Bug report button, `bug-report`): newest session logs, dolphin.log, about.txt; all redacted, no game files/saves
 │   ├── cliutil/                 # What both binaries' command lines share: FindDolphin/OpenDolphin (WW_DOLPHIN_INDEX/PID), ExeCmd, ExitUsage, --color/WW_COLOR; clitest/ = the CLI golden harness
+│   ├── gamefiles/               # Spots Nintendo game files and saves (names, extensions, magic, zip entries): tools/check_game_files, bugreport
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
 │   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend; first-run Setup (setup.go); the Mods page (mods.go); the update banner + re-patch after an update (update.go); Bridge = the JS API; `ui --browser` server
 │   ├── lan/                     # LAN discovery: the host's UDP beacon, broadcast addresses, the joiner's table (docs/10-lobby.md §10)
@@ -97,11 +99,12 @@ ww-multiplayer/
 │   ├── blobstamp/               # Writes/checks internal/inject/blob.stamp
 │   ├── gen_mailbox/             # inject/include/mailbox_core.h (+ mailbox_mp.h) -> wwapi/mailbox/layout_gen.go (go generate ./wwapi/mailbox)
 │   ├── mkicns/                  # docs/img/icon.ico -> docs/img/icon.icns (macOS app icon; go generate ./cmd/ww-multiplayer)
-│   └── validate_manifests/      # Checks the mods' mod.json manifests (CI runs it)
+│   ├── validate_manifests/      # Checks the mods' mod.json manifests (CI runs it)
+│   └── check_game_files/        # Fails on a tracked game file or save (CI) and on any release asset holding one (release.yml)
 ├── site/                        # The website (index.html), deployed by pages.yml
 ├── .github/workflows/
 │   ├── build.yml                # CI: go vet + cross-build on push/PR; macOS job also builds + zips the .app (smoke, no publish)
-│   ├── release.yml              # CI: build + release on tag push (exe, macOS zip, SHA256SUMS; secrets-gated signing); dispatch = dry run
+│   ├── release.yml              # CI: build + release on tag push (exe, macOS zip, SHA256SUMS; secrets-gated signing; body = docs/release-notes/<tag>.md via scripts/release-notes.sh); dispatch = dry run
 │   └── pages.yml                # Website (site/) deploy: on release published / dispatch, from the latest release's tag
 └── docs/                        # IMPORTANT - read before debugging
     ├── 01-architecture.md, 02-dolphin-memory.md, 03-code-injection.md
@@ -109,6 +112,7 @@ ww-multiplayer/
     ├── 07-bettersunshine-research.md (Kuribo/BetterSunshineEngine notes, input to docs/api Phase E)
     ├── 08-coop-design.md, 09-player-colors.md, 10-lobby.md
     ├── api/                     # the modding API: 00-design, 01-events, 02-mods, 03-writing-a-mod
+    ├── release-notes/           # v<version>.md per release (the release body); README.md = how; a "<!-- draft" first line blocks the tag
     └── TESTING.md               # the pre-push check matrix, goldens, flakes, live checks
 ```
 
@@ -133,6 +137,7 @@ go build -o wwdev.exe ./cmd/wwdev
 # Play: one process per player
 ./ww-multiplayer.exe host [name] [--port N] [--color C] [--coop[=new|<world-id>]] ...  # Host a session (server + this player's pipelines)
 ./ww-multiplayer.exe join <host-ip[:port]|join-code> [name] [--color C] [--coop] ...   # Join a host's session (join code: WW-XXXX-XXXX[-XXXX])
+./ww-multiplayer.exe bug-report [--include FILE]... [--user-dir DIR]... [--out DIR]   # One redacted zip of the app's session logs + dolphin.log (the GUI's Dolphin folder: launch.Detect + UserDir, then USER_DIR_2) for an issue
 ./ww-multiplayer.exe mods [--json] [--dev] [--mods=a,b] [--no-mod=x]   # List the mods built into this version
 ./ww-multiplayer.exe version                            # Print the version (players must match)
 #   with --coop (host, join, wwdev mp-local; each side its own): --coop-boss-kill=gohma,kalle,gohdan,molgera,jalhalla,helmaroc|none

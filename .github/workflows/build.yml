@@ -72,6 +72,13 @@ jobs:
           -run 'TestBlobFresh|TestStampRoundTrip|TestT2EndsBelowMailbox|TestCheckBudget|TestBuildPyMatchesBlob|TestFrameShimLoadsCallbackSlot|TestMailboxLayout|TestModRegions'
           ./cmd/ww-multiplayer ./internal/inject/... ./wwapi/mailbox
 
+      # No Nintendo game file or save is tracked: names, extensions and
+      # file magic, zips opened (internal/gamefiles). release.yml runs it
+      # again on the release assets. A prevention check: .gitignore keeps
+      # discs, saves/ and inject/original.dol out, but a force-add skips it.
+      - name: No game files in the repo
+        run: go run ./tools/check_game_files
+
       # Mod manifests (wwapi v0, docs/api/02-mods.md): every mods/**/mod.json
       # against wwapi/schema/mod.schema.json, ids equal to folder names,
       # and each broken fixture refused for its invalid.txt reason. The
@@ -126,6 +133,11 @@ jobs:
       # on a real Mac before a release.
       - name: Build and zip WW Multiplayer.app
         run: ./scripts/build-mac.sh "ci-${GITHUB_SHA:0:7}"
+
+      # The zip a release would publish holds no game file (release.yml
+      # runs the same on the real one).
+      - name: No game files in the macOS zip
+        run: go run ./tools/check_game_files dist/ww-multiplayer-macos.zip
 
       - name: Keep the zip (workflow artifact, not a release)
         uses: actions/upload-artifact@v4

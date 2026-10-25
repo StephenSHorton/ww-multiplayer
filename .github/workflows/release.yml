@@ -32,6 +32,20 @@ name: Release
 #   macOS notarization (needs the three above too):
 #     APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD (an app-specific password)
 #
+# The release's body is docs/release-notes/<tag>.md (scripts/release-notes.sh
+# picks it; a prerelease tag without its own file uses its version's), with
+# GitHub's generated "What's Changed" list after it. A tag without a
+# finished notes file fails in the windows job, before anything is built.
+#
+# Game files: tools/check_game_files runs on the repo, on each asset after
+# it is built and on the release job's downloaded assets before anything
+# is published, and fails the release if any holds a Nintendo file or a
+# save (internal/gamefiles: names, headers, zip entries, and every file
+# read whole for game data inside it, so a game archive built into the
+# exe's data fails the exe's step). On workflow_dispatch the notes step
+# and the release job (with its artifacts guard) don't run: only the repo,
+# exe and macOS zip guards do.
+#
 # We don't ship patched.dol — that would be a derivative of the entire
 # Wind Waker DOL (copyrighted). The shipped binaries contain only our IP
 # (the new code section + a list of in-DOL patch records); end users
@@ -66,6 +80,17 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+
+      # A tag needs its finished release notes (the release job's body):
+      # fail now, not after both builds.
+      - name: Release notes for this tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: ./scripts/release-notes.sh "${GITHUB_REF_NAME}"
+
+      # No Nintendo file or save is tracked (internal/gamefiles; build.yml
+      # runs the same on every PR).
+      - name: No game files in the repo
+        run: go run ./tools/check_game_files
 
       # Verify committed blob hasn't accidentally been emptied. We don't
       # rebuild the C side here (needs devkitPPC + the user's vanilla
@@ -161,6 +186,9 @@ jobs:
           mv ww-multiplayer-signed.exe ww-multiplayer.exe
           ls -la ww-multiplayer.exe
 
+      - name: No game files in ww-multiplayer.exe
+        run: go run ./tools/check_game_files ww-multiplayer.exe
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -237,6 +265,10 @@ jobs:
         if: always() && env.HAS_MAC_SIGNING == 'true'
         run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
 
+      # Opens the zip and checks every entry of the bundle.
+      - name: No game files in the macOS zip
+        run: go run ./tools/check_game_files dist/ww-multiplayer-macos.zip
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -252,6 +284,15 @@ jobs:
       # To start pages.yml (the site) once the release exists.
       actions: write
     steps:
+      # The notes file, the release-notes script and the game-files
+      # guard come from the tagged commit.
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
       - uses: actions/download-artifact@v4
         with:
           name: ww-windows-amd64
@@ -269,6 +310,17 @@ jobs:
           sha256sum ww-multiplayer.exe ww-multiplayer-macos.zip > SHA256SUMS
           cat SHA256SUMS
 
+      # The assets exactly as they are published, zip entries included.
+      - name: No game files in the release assets
+        run: go run ./tools/check_game_files artifacts
+
+      - name: Release notes
+        id: notes
+        run: |
+          f=$(./scripts/release-notes.sh "${GITHUB_REF_NAME}") || { echo "$f"; exit 1; }
+          echo "Release body: $f"
+          echo "file=$f" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -278,50 +330,7 @@ jobs:
             artifacts/ww-multiplayer-macos.zip
             artifacts/SHA256SUMS
           generate_release_notes: true
-          body: |
-            ## Wind Waker Multiplayer ${{ github.ref_name }}
-
-            See your friend's Link in your game, live. Download the app, double-click it, and it walks you through the rest.
-
-            **New in v0.5.0: shared enemies.** The host's game runs the Moblins, Bokoblins and ChuChus, and everyone else sees and fights those same enemies; your hits land on the host's enemy and a kill counts for everyone. Each remote player also has a real body in the host's game that these enemies chase and hit. Other enemy types still run separately on each player's game for now. It is on by default; `WW_ENEMY_SYNC=0` turns it off. The patched disc now runs with 48 MB of Dolphin memory, which the app sets for you on every launch (booting from Dolphin's own game list needs Dolphin 2609 or newer, or that override turned on by hand).
-
-            **You need** [Dolphin](https://dolphin-emu.org/) (a recent stable build) and **your own legitimate copy of The Legend of Zelda: The Wind Waker (NTSC-U, GZLE01)** as a `.iso` or `.ciso` file.
-
-            **Everyone must run the same version.** A host turns away a player on an incompatible version with a message saying to update (v0.5.0 can't play with v0.4.x or older), and a player whose built-in mods differ from the host's.
-
-            **Upgrading?** Patch your vanilla (unmodified) disc again with this version (Setup in the app does it) and boot it from Dolphin's game list. Dolphin save states taken on an older version are refused: load your in-game save and take a new state.
-
-            ### Windows
-
-            1. Download `ww-multiplayer.exe` and double-click it. A console window may flash for a moment; the app window then opens.
-            2. If Windows shows "Windows protected your PC" (SmartScreen; the exe isn't code-signed), click **More info**, then **Run anyway**.
-            3. The first time, the app opens on **Setup**: your name and tunic color, your Wind Waker disc (the app writes a patched copy next to it and never changes your original) and Dolphin (found for you, or Browse…).
-            4. **Host**, or **Join**: pick the host's session from the list when you're on the same network, or paste the join code (`WW-XXXX-XXXX`) or address the host shares. Everyone meets in the lobby; when the others are Ready, the host presses **Start** and each player's Dolphin starts with the patched game.
-
-            The window needs Microsoft's WebView2 runtime, which Windows 11 and current Windows 10 have; without it the app offers to install it. If Windows asks, allow `ww-multiplayer.exe` through the firewall.
-
-            ### macOS (Apple Silicon + Intel, macOS 12 or later)
-
-            1. Download `ww-multiplayer-macos.zip` and open it (Safari usually unzips it for you). Move the `WW Multiplayer` folder somewhere permanent, such as Applications.
-            2. Double-click `WW Multiplayer.app`. If macOS says it can't verify the app (it isn't notarized by Apple): Control-click (right-click) the app, choose **Open**, then **Open** again. On macOS 15 or later, after the first warning go to System Settings → Privacy & Security and click **Open Anyway**.
-            3. The first time, the app opens on **Setup**: your name and tunic color, your Wind Waker disc, and Dolphin. Press **Prepare Dolphin** once (and again after each Dolphin update): it makes a copy at `~/Applications/Dolphin.app` that the app is allowed to read, and leaves your original Dolphin alone. No password needed.
-            4. **Host** or **Join**, then **Start** from the lobby, as on Windows.
-
-            ### Co-op (optional)
-
-            Shared progress is off unless the host turns it on: in the lobby the host picks **New world** or **Continue**, and the app guides everyone through binding a save file. Plain multiplayer needs none of it.
-
-            IP addresses are hidden on screen by default (`•••.•••.•••.42`), so you can stream the app; the host's share card has Show and Copy.
-
-            ### Advanced: terminal menu and command line
-
-            The same program has a terminal menu and a command line. Windows: `.\ww-multiplayer.exe tui`, `.\ww-multiplayer.exe patch <iso>`, `.\ww-multiplayer.exe host [name]`, `.\ww-multiplayer.exe join <host-ip|join-code> [name]`. macOS: in Terminal, `cd` into the unzipped `WW Multiplayer` folder, run `xattr -cr .` once to clear the download quarantine, then `./ww-multiplayer tui` (or `patch`, `host`, `join`); `./scripts/setup-mac-dolphin.sh` does what Prepare Dolphin does. `ww-multiplayer version` prints the version.
-
-            ### Verify your download
-
-            `SHA256SUMS` lists the SHA-256 of every file above. macOS / Linux: `shasum -a 256 -c SHA256SUMS --ignore-missing`. Windows (PowerShell): `Get-FileHash ww-multiplayer.exe` and compare with the matching line.
-
-            See the README for internet play, building from source and known issues.
+          body_path: ${{ steps.notes.outputs.file }}
 
       # The site describes the latest release, so it deploys now (pages.yml
       # picks the latest release's tag). A release created with

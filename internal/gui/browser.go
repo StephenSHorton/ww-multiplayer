@@ -62,6 +62,9 @@ var browserMethods = map[string]bool{
 	"Mods": true, "SetModEnabled": true, "CallMod": true,
 	// One-click updates (update.go).
 	"UpdateStatus": true, "CheckUpdate": true, "SetCheckUpdates": true, "InstallUpdate": true, "CancelUpdate": true, "Repatch": true, "RestartUpdate": true,
+	// Save bug report (bugreport.go): the zip is written on this machine,
+	// and the page shows its path (opening its folder is OpenFolder's).
+	"SaveBugReport": true,
 }
 
 // windowOnly are the Bridge methods only the window has: PickFile opens a
