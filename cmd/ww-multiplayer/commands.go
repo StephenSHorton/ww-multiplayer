@@ -89,7 +89,7 @@ func commandTable() []command {
 		{
 			name:    "patch",
 			group:   groupPatch,
-			usage:   "patch <vanilla.iso|.ciso> [out.iso]",
+			usage:   "patch <vanilla.iso|.ciso|.rvz> [out.iso]",
 			summary: "Splice the multiplayer mod into your own legitimate copy of Wind Waker (GZLE01)",
 			run:     cmdPatch,
 		},
@@ -254,8 +254,10 @@ func cmdJoin(string, []string) {
 
 func cmdPatch(string, []string) {
 	if len(os.Args) < 3 {
-		fmt.Printf("Usage: %s patch <input.iso|input.ciso> [output.iso]\n", exeCmd)
+		fmt.Printf("Usage: %s patch <input.iso|input.ciso|input.rvz> [output.iso]\n", exeCmd)
 		fmt.Println("  Default output: <input>-multiplayer.iso (next to the input)")
+		fmt.Println("  An .rvz, .wia or .gcz is converted to a temporary ISO first, with the DolphinTool")
+		fmt.Println("  next to your Dolphin (set DOLPHIN_EXE to pick the Dolphin)")
 		os.Exit(1)
 	}
 	out := ""
