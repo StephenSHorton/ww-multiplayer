@@ -316,8 +316,31 @@ static int wwrel_is_delete(void* actor) {
 // (the mini-Link keeps rendering the remote player). The keeper's profile
 // status has no fopAcStts_CULL_e, so this runs every frame outside the
 // menus wherever the keeper stands.
+//
+// Once per frame, not once per call: T2 creates the keeper from the frame
+// hook, so it sits in the root layer (relload.c), and its draw method is
+// called twice a frame: by fpcM_DrawIterater's walk of the root layer
+// (f_pc_manager.cpp:46-48) and again by the play scene's walk of the actor
+// draw queue (d_s_play.cpp:376-378). Entering a model twice in one frame
+// puts its "changed" J3DMatPackets at the head of bucket 0 twice
+// (J3DDrawBuffer::entryMatSort, J3DDrawBuffer.cpp:62-65; entryZSort does
+// the same for the sail), which closes the bucket's packet chain into a
+// loop: drawHead never ends, the GX FIFO fills, and the game freezes with
+// the main thread parked by the FIFO overflow (2026-10-25, the first frame
+// a peer boat was drawn: Hyrule, and the sea at Outset). The heartbeat
+// (spawn_trigger) moves once per frame in frame_shim, after
+// fpcM_Management, so both calls of one frame see the same value.
+static u32 wwrel_draw_beat;
+static u8 wwrel_draw_seen;
+
 static int wwrel_draw(void* actor) {
-    if (!remote_is_body(actor)) boats_draw();
+    u32 beat;
+    if (remote_is_body(actor)) return TRUE;
+    beat = mailbox->spawn_trigger;
+    if (wwrel_draw_seen && beat == wwrel_draw_beat) return TRUE;
+    wwrel_draw_beat = beat;
+    wwrel_draw_seen = 1;
+    boats_draw();
     return TRUE;
 }
 
@@ -407,6 +430,7 @@ void _prolog(void) {
     WWREL_WORD(WWREL_BUILD_ID_OFF) = g_wwrel_build_id;
     WWREL_WORD(WWREL_SWAP_STATE_OFF) = 0;
     WWREL_WORD(WWREL_MAGIC_OFF) = WWREL_MAGIC;
+    wwrel_draw_seen = 0;
     fx_link();
     boats_link();
     wwvis_link();

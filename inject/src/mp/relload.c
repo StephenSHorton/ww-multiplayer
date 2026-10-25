@@ -16,7 +16,10 @@
 // tear down (inferred: the game's root layer), and the module stayed
 // linked straight through the load with its frame counter running. The
 // stage-change handling below is the fallback for a game that does
-// delete it; it costs nothing when the magic stays put.
+// delete it; it costs nothing when the magic stays put. A root-layer
+// actor's draw method runs twice a frame (the root layer's draw walk and
+// the play scene's draw queue), so the keeper's draw guards itself to
+// once per frame (rel_main.c wwrel_draw).
 //
 // It is safe on a disc whose RELS.arc was not patched: the vanilla
 // d_a_rectangle actor is created instead, allocates nothing, draws
