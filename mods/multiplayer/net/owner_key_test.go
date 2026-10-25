@@ -413,12 +413,16 @@ func TestLobbyOwnerKeyPerAddress(t *testing.T) {
 	var mu = make(chan struct{}, 1)
 	mu <- struct{}{}
 	var waits []time.Duration
+	// Set under the hub's lock: the server is already running, and the
+	// handler reads keyWait after taking that lock (no race under -race).
+	srv.lobby.mu.Lock()
 	srv.lobby.keyWait = func(d time.Duration, _ <-chan struct{}) bool {
 		<-mu
 		waits = append(waits, d)
 		mu <- struct{}{}
 		return true // recorded, not slept: the test stays fast
 	}
+	srv.lobby.mu.Unlock()
 	const guesses = 8 // past the old lockout's five
 	for i := 0; i < guesses; i++ {
 		l := NewLobbyClient(fmt.Sprintf("G%d", i), LobbyHelloBody{OwnerKey: "wrong key, wrong key"})
