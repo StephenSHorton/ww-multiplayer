@@ -182,6 +182,47 @@ func TestRedact(t *testing.T) {
 	}
 }
 
+// TestRedactOwnerKey: a dedicated server's owner key in the forms a log, a
+// saved server console or a pasted config carries it (docs/10 §3).
+func TestRedactOwnerKey(t *testing.T) {
+	const key = "c3cc8c0123456789abcdef0123bdba94"
+	cases := map[string]string{
+		"  owner key: " + key:                         "  owner key: <redacted>",
+		"WW_OWNER_KEY=" + key + " ./ww-multiplayer":   "WW_OWNER_KEY=<redacted> ./ww-multiplayer",
+		`{"name":"Ann","ownerKey":"` + key + `"}`:     `{"name":"Ann","ownerKey":"<redacted>"}`,
+		"--owner-key=" + key:                          "--owner-key=<redacted>",
+		"owner_key: " + key:                           "owner_key: <redacted>",
+		"Owner key set: the app player who joins ...": "Owner key set: the app player who joins ...",
+		"set WW_OWNER_KEY to keep one":                "set WW_OWNER_KEY to keep one",
+	}
+	for in, want := range cases {
+		if got := (Redactor{}).Redact(in); got != want {
+			t.Errorf("Redact(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestRedactMSYSHome: a Windows home in its MSYS form (Git Bash, MSYS2), on
+// any OS: msysPath converts the separators itself.
+func TestRedactMSYSHome(t *testing.T) {
+	r := Redactor{Home: `C:\Users\Ann`}
+	cases := map[string]string{
+		"cd /c/Users/Ann/projects/x": "cd ~/projects/x",
+		"$ ls /c/Users/Ann":          "$ ls ~",
+		"/d/Users/Ann/x":             "/d/Users/Ann/x", // another drive is another path
+	}
+	for in, want := range cases {
+		if got := r.Redact(in); got != want {
+			t.Errorf("Redact(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for in, want := range map[string]string{`C:\Users\Ann`: "/c/Users/Ann", "D:/x": "/d/x", "/home/ann": "", `\\srv\share`: "", "C:": ""} {
+		if got := msysPath(in); got != want {
+			t.Errorf("msysPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestLogRedacts(t *testing.T) {
 	f, err := Open(t.TempDir(), "host", clock(time.Unix(0, 0)))
 	if err != nil {

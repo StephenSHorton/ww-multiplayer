@@ -94,10 +94,17 @@ func (s *Server) answerStatus(conn net.Conn) {
 // something else listening on that port.
 var ErrStatusLegacy = errors.New("the server closed the connection without a status: a ww-multiplayer from before the status probe, or another program on that port")
 
+// ErrStatusNotAnswer wraps ProbeStatus's answer from something that
+// replied, but not with a status frame: another program on that port (an
+// HTTP or game server's reply read as a frame header ends mid-frame).
+var ErrStatusNotAnswer = errors.New("the reply is not a ww-multiplayer status answer")
+
 // ProbeStatus asks the server at addr (host:port) for its status, within
 // timeout (0: 5 s) or ctx. A dial error comes back as it is (nothing
 // listening, a firewall that drops, a bad name); ErrStatusLegacy is a
-// server that answered the connection but not the probe.
+// server that closed the connection without sending a byte; any reply
+// that isn't a status frame (an HTTP server's, a frame cut off) is
+// another error (docs/11-self-hosting.md §5: exit 1, not 3).
 func ProbeStatus(ctx context.Context, addr string, timeout time.Duration) (StatusBody, error) {
 	if timeout <= 0 {
 		timeout = 5 * time.Second
@@ -117,12 +124,18 @@ func ProbeStatus(ctx context.Context, addr string, timeout time.Duration) (Statu
 	}
 	msg, err := ReadMessage(conn)
 	switch {
-	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+	case err == io.EOF:
+		// ReadMessage returns the header's io.ReadFull error unwrapped,
+		// and that is io.EOF only when not one byte came: a closed
+		// connection. A partial header (io.ErrUnexpectedEOF) or a short
+		// body ("read data: ...") means something replied.
 		return StatusBody{}, ErrStatusLegacy
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return StatusBody{}, fmt.Errorf("%w (it ended mid-frame): another program on that port", ErrStatusNotAnswer)
 	case err != nil:
 		return StatusBody{}, err
 	case msg.Type != MsgStatus:
-		return StatusBody{}, fmt.Errorf("the server answered the status probe with a %q frame, not a status", msg.Type)
+		return StatusBody{}, fmt.Errorf("%w: the server answered the probe with a %q frame", ErrStatusNotAnswer, msg.Type)
 	case len(msg.Data) > maxStatusBody:
 		return StatusBody{}, fmt.Errorf("status answer of %d bytes (max %d)", len(msg.Data), maxStatusBody)
 	}
