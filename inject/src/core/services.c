@@ -93,7 +93,8 @@ void tunic_alloc(void) {
         int t;
         for (t = 0; t < TUNIC_SLOTS; t++) {
             if (!mailbox->tunic_bufs[t]) {
-                void* p = JKRHeap_alloc(mailbox->tunic_buf_size, 0x20, mDoExt_getGameHeap());
+                // From the heap's tail, as pose_publish (below).
+                void* p = JKRHeap_alloc(mailbox->tunic_buf_size, -0x20, mDoExt_getGameHeap());
                 if (p) mailbox->tunic_bufs[t] = (u32)p;
                 else   st = 0xFD;
             }
@@ -232,9 +233,13 @@ void pose_publish(void* link) {
     // frame, so the joint walker has finished writing mpNodeMtx and the
     // buffer is stable until the next frame's calc. Lazy-alloc the
     // 2016 B publish buffer on the first frame, then memcpy every frame.
-    // Allocated once per boot: only main01_init resets pose_publish_state
-    // (a soft reset makes a new GameHeap), so within a boot the GameHeap
-    // block is never dropped and re-allocated (F18).
+    // Allocated once per boot: only main01_init resets pose_publish_state,
+    // so within a boot the GameHeap block is never dropped and
+    // re-allocated (F18). It comes from the heap's tail (negative
+    // alignment, JKRExpHeap.cpp:110): a soft reset keeps the heap, and the
+    // title's heapSizeCheck (d_s_play.cpp:1143-1177) wants the largest
+    // free GameHeap block >= 0.7 of all free. A head block left among the
+    // stage's freed ones split it (0.68 live) and the game rebooted.
     // Runs unconditionally (not gated on shadow_mode) so Go can always
     // read a stable pose whether or not multiplayer is engaged — the
     // copy is a ~5 µs linear memcpy, trivial vs the 16 ms frame budget.
@@ -246,7 +251,7 @@ void pose_publish(void* link) {
             if (jn > 0 && jn <= 128) {
                 if (mailbox->pose_publish_state == 0) {
                     u32 nbytes = (u32)jn * 48;
-                    u8* buf = (u8*)JKRHeap_alloc(nbytes, 0x20, mDoExt_getGameHeap());
+                    u8* buf = (u8*)JKRHeap_alloc(nbytes, -0x20, mDoExt_getGameHeap());
                     if (buf) {
                         mailbox->pose_publish_ptr = (u32)buf;
                         mailbox->pose_publish_joint_count = jn;
