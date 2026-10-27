@@ -959,7 +959,9 @@ The game has two kinds of reset, and only one reboots (tww decomp):
   `phase_00` clears the flag (`d_s_play.cpp:1197-1213`, `:1444`). No DOL reload: T2's statics,
   the mailbox and every block the mod holds in GameHeap stay as they are, as across a stage
   hop. Nothing new is needed; the mini-Link path already rebuilds when Link's model data comes
-  back (`mini_link_reset_state`, `inject/src/mp/minilink.c`).
+  back (`mini_link_reset_state`, `inject/src/mp/minilink.c`). One thing is needed: the
+  opening scene's heap check (below) has to pass, see "The title's heap check" at the end of
+  this section.
 - **A reboot.** `mDoRst_reset` -> `OSResetSystem` restart (reset 0 is `OS_RESET_RESTART`, which
   calls `__OSReboot`, `OSReset.c:171-174`) reloads the DOL and boots again through `__start`
   -> `main` -> `main01` (`m_Do_main.cpp:599`), which builds new heaps in `mDoMch_Create`
@@ -1015,7 +1017,22 @@ The game has two kinds of reset, and only one reboots (tww decomp):
   (`TestFeederArmPollBounded`; before, up to 3 s per unarmed slot, 9 s with three).
 - `puppets[].actor_ptr` is left as it was: only `wwdev` reads it, and `puppets.c`'s own state
   is T2 statics.
-- Not run live: docs/TESTING.md "Three remotes and the soft reset" (SR-1, SR-1b, SR-2).
+- **The title's heap check (2026-10-27).** Live, every reset on the patched disc rebooted,
+  with or without `mp-local`, while vanilla went back to the title. The opening scene's
+  `heapSizeCheck` (`d_s_play.cpp:1143-1177`) failed on GameHeap contiguity: right after the
+  reset freed the stage, the largest free block was 4516 KiB of 6658 KiB free (0.678; 0.682 in
+  a session), under its 0.7. T2's own GameHeap blocks came from the head of the heap, among the
+  stage's: `pose_publish`'s 2 KB buffer (allocated on the first in-game frame, session or not)
+  and, in a session, `pose_bufs` and `tunic_bufs`. Once the stage was freed they sat mid-heap
+  and split it. The archive and Zelda heaps passed, so the REL's models on the archive heap
+  are not a factor. **Fix:** the three allocations pass alignment -0x20, which JKRExpHeap takes
+  from the tail (`JKRExpHeap.cpp:110-115`). Live after the fix: 6658/6658 (1.00) without
+  `mp-local` and 6622/6622 with it, no reboot, the title, and after the file loaded both
+  mini-Links back and 5 minutes with no heap errors; a second reset straight after also went
+  to the title. So the first reset no longer reboots, and the reboot path is reached only from
+  a cold boot's logo (or the disc-cover and DVD-error paths).
+- Not run live: SR-1 with a third remote, SR-1b (Dolphin's Reset) on the fixed build, SR-2
+  (a reset at a cold boot's logo).
 
 ## Shared enemies
 
