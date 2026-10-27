@@ -918,6 +918,15 @@ recapture).
   shield models per slot (`visuals.c`), made on first draw. The 48 MB build's ArchiveHeap is
   0xE51400, 4 MiB more than vanilla. docs/TESTING.md "Three remotes" measures it with
   `wwdev heap-free`.
+- **Measured (R3-2, 2026-10-27, main 3de6e6b, REL 0xE280C6F0):** A at the Windfall pier,
+  `heap-free` with 1, 2 and 3 remotes: GameHeap free 4813, 4809 and 4809 KiB (largest 4768
+  each time), ArchiveHeap free 7018 KiB (largest 6832) each time, the heap counters
+  unchanged. The third slot costs nothing measurable here, because every slot's model and
+  pose buffer is made at session start. After five sea -> M_NewD2 -> sea trips with three
+  remotes: GameHeap 4813/4813, ArchiveHeap 7018/6832, all three slots live. The `solid`
+  counter rose by one per trip (5 -> 10) and the other six stayed 0. That matches one bump
+  per stage load, but it is not yet checked against vanilla for this hop (TESTING BT-6).
+  Handoff `archive/ww-online-review/live/LIVE-4.md`.
 - **ZeldaHeap:** a lite body is 0x620 bytes. A full body (0x4C80, plus about 0xCCF00 resident
   in GameHeap) stays limited to `FullMax` 1 (`mods/enemysync/players.go`); the heap gate falls
   the others back to lite bodies.
@@ -952,8 +961,10 @@ players 3 and 4 did before.
 The game has two kinds of reset, and only one reboots (tww decomp):
 
 - **Back to the title, no reboot (the usual one).** A reset press (`mDoRst_resetCallBack`,
-  `m_Do_Reset.cpp:86-119`; Dolphin's Reset is the console's reset switch, which reaches the
-  same callback: inferred, not checked), a game over's or the save menu's quit
+  `m_Do_Reset.cpp:86-119`; Dolphin's Reset takes this same title path as the controller
+  reset: checked live as SR-1b on 2026-10-27, mReset 1 for about 2 s, no `OSReboot`, the pose
+  buffers at the same addresses at the title; handoff
+  `archive/ww-online-review/live/LIVE-4.md`), a game over's or the save menu's quit
   (`d_gameover.cpp:116,132`, `d_menu_save.cpp:1269`) sets `mDoRst`'s `mReset`. Play is torn
   down to the opening scene (`dComIfG_resetToOpening`, `d_com_inf_game.cpp:510-521`), whose
   `phase_00` clears the flag (`d_s_play.cpp:1197-1213`, `:1444`). No DOL reload: T2's statics,
@@ -1031,8 +1042,9 @@ The game has two kinds of reset, and only one reboots (tww decomp):
   mini-Links back and 5 minutes with no heap errors; a second reset straight after also went
   to the title. So the first reset no longer reboots, and the reboot path is reached only from
   a cold boot's logo (or the disc-cover and DVD-error paths).
-- Not run live: SR-1 with a third remote, SR-1b (Dolphin's Reset) on the fixed build, SR-2
-  (a reset at a cold boot's logo).
+- SR-1 with a third remote and SR-1b (Dolphin's Reset) passed on 2026-10-27 (main 3de6e6b,
+  REL 0xE280C6F0; handoff `archive/ww-online-review/live/LIVE-4.md`). Not run live: SR-2 (a
+  reset at a cold boot's logo; the rig cannot land one).
 
 ## Shared enemies
 
@@ -1136,7 +1148,7 @@ T2 grew by 0x100 to 0x2CE8 bytes (devkitPPC 16.2). It ended at
 `0x80412CE8`, 0x218 bytes below the mailbox at the time. The tunic
 swap (docs/09 §6) later grew T2 to 0x2E08, leaving 0xF8.
 
-## Peer boats — BUILT, BT-1..BT-3 passed in part (2026-10-25, ww-online review)
+## Peer boats — BUILT, BT-1..BT-3, BT-5, BT-6, BT-8 and BT-9 passed, some in part (2026-10-25, ww-online review)
 
 The other players' King of Red Lions is drawn in your game: under a remote
 that sails it, and where a remote left it (on the sea, and in Tower of the
@@ -1144,7 +1156,9 @@ Gods). The sail is in the remote's tunic colour, and the cannon or the
 salvage crane shows when the remote has it out. It shipped in the wave-3
 in-game batch (PR #199). On its REL 0xE95241C5 BT-1..BT-3 passed in part (a
 sailing remote seated with its sail in its colour, a parked boat drawn where
-it was left; handoff `archive/ww-online-review/live/LIVE-2.md`); BT-4..BT-10
+it was left; handoff `archive/ww-online-review/live/LIVE-2.md`). On main
+3de6e6b (REL 0xE280C6F0) BT-5 passed and BT-6, BT-8 and BT-9 passed in part
+(`archive/ww-online-review/live/LIVE-4.md`). BT-4, BT-7 and BT-10
 (docs/TESTING.md "Peer boats") are owed.
 ww-online draws the same (`GameMod/src/puppet_link/puppet_boat.c`, MIT);
 `inject/rel/boats.c` is adapted from it and carries their notice.
@@ -1190,7 +1204,7 @@ each tick.
 - `WW_BOATS=off` draws none; `WW_BOATS=nosail` or `noparts` drops the sail
   cloth or the cannon and crane. The default is on: the request asked for
   an off switch, not an opt-in, which changes this section's earlier plan
-  (off until checked). `WW_BOATS=off` is the fallback while BT-4..BT-10 are open.
+  (off until checked). `WW_BOATS=off` is the fallback while BT-4, BT-7 and BT-10 are open.
 
 **The keeper's double draw froze both games (fixed, a0605c5).** On the batch's
 first build both games froze on the first frame a peer boat was drawn. The
