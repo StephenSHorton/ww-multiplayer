@@ -1094,7 +1094,16 @@ enemy sync off for this session: <reason>; multiplayer is unaffected
 Pose sync, co-op and the lobby keep running. "For this session" means until the pipelines next
 start (a pose failure or a Dolphin change), which gives enemies a fresh try. A host that
 reconnects under the same name takes the enemy-host slot over from its stale connection
-instead of being refused. While the host's REL module is not linked (or is another build),
+instead of being refused. A tick that fails on every tick (the game can't be read: a Dolphin
+that died, stalled or was paused) does not end the enemy session: the loop pauses with one
+`enemy host paused: <reason>; no enemy STATE and no hits until it runs again` (the client's
+`enemy client paused: ...`), a `still paused: N more in the last 30s` count every 30 s, and one
+`resumed: running again after N failed ticks over <d>` OK at the first good tick
+(`mods/enemysync/repeatwarn.go`, the pose feed's paused/resumed shape). The other per-tick
+errors of the two loops (the hit applier's poll and keepalive, the remote-Link side) log each
+new text once and then only that count. A Dolphin gone for good is a Dolphin change: the app
+runs the pipelines again on the new one; a CLI `host` or `join` does not re-attach and must be
+restarted. While the host's REL module is not linked (or is another build),
 host hits wait and the host logs one Warn naming the reason, then one OK line once it is.
 
 ## Shared shape hide flags: mini-Link's head under casual clothes
