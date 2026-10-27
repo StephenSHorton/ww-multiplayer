@@ -7,7 +7,7 @@
 2. combat sync (enemies die for both players),
 3. puzzle and dungeon state (doors, switches and so on propagate).
 
-v0.3.0 (Go-only hardening) has already shipped, as tag v0.3.0 on d6850b0. **Current status (2026-10-24, main f9e1fe6):** v0.4.0 shipped M0-M6.0, in the CLI and in the desktop app's co-op worlds. v0.5.0 (2026-10-22) added shared enemies and the remote players' bodies, on by default, and the Gohma kill relay. Main since v0.5.0 (protocol 5, unreleased) adds the Kalle Demos, Molgera, Jalhalla and Helmaroc King relays (`--coop-boss-kill`, default `gohma,kalle,molgera,jalhalla,helmaroc`; Gohdan's row opt-in), the stale-actor refresh (Tiers 1-2 on with combat, Tier 3 behind `--coop-refresh`), mirrored Keese, and the per-dungeon co-op table changes; the app sets the relay options per player (#176). M6.1, M7 and M8 remain. This document supersedes the "Post-1.0: co-op" line in the finish plan.
+v0.3.0 (Go-only hardening) has already shipped, as tag v0.3.0 on d6850b0. **Current status (2026-10-26, main e1b9086):** v0.4.0 shipped M0-M6.0, in the CLI and in the desktop app's co-op worlds. v0.5.0 (2026-10-22) added shared enemies and the remote players' bodies, on by default, and the Gohma kill relay. Main since v0.5.0 (protocol 6, unreleased) adds the Kalle Demos, Molgera, Jalhalla and Helmaroc King relays (`--coop-boss-kill`, default `gohma,kalle,molgera,jalhalla,helmaroc`; Gohdan's row opt-in), the stale-actor refresh (Tiers 1-2 on with combat, Tier 3 behind `--coop-refresh`, and since #199 its re-create rows, opt-in, with the door rows compiled out), mirrored Keese, and the per-dungeon co-op table changes; the app sets the relay options per player (#176). Since #183 it also adds the GT spawn-switch fix (#185), a boss's Heart Container counted once (#186), the side-quest registers (#191), the salvage catch-up (#195) and the host's rules mid-session in the app (#198). M6.1, M7 and M8 remain. This document supersedes the "Post-1.0: co-op" line in the finish plan.
 
 **Conventions**
 - `tww/` means the zeldaret/tww decomp at commit 4d78c994. References use `file:line`.
@@ -56,7 +56,7 @@ v0.4.0 ships co-op M0-M6.0 from the Go process (the re-patch v0.4.0 needs is for
 - Host-simulated enemy AI, syncing enemy health, or the remote Link as a hitbox or target.
 - Syncing a boss fight in progress, or minigame state.
 - Shared current life, magic, rupees, ammo, bottles, bag contents, time of day or position.
-- Live refresh of actors that only read their state when they are created (chests, freestanding items, bombable walls) in the receiver's current room. That is post-1.0 (M9).
+- Live refresh of actors that only read their state when they are created (chests, freestanding items, bombable walls) in the receiver's current room. That is post-1.0 (M9). Since then the stale-actor refresh's Tier 3 (#171, delete) and its re-create rows (#199) do part of it, opt-in through `--coop-refresh` (docs/TESTING.md "actor_refresh re-create").
 - More than 2 players. The protocol supports N, but only 2 are tested.
 - Second-quest files, and randomizer or Archipelago ISOs (game ID GZLE99).
 - Writing memory-card files directly. Only the game's own save menu writes the card.
@@ -619,7 +619,7 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
   - World capacities are capped at the most the game sets (wallet 2, arrows and bombs 99) before the MAX. The GTower rule matches the exact name "GTower". The FF1 rule fails closed when the STAG can't be read (item 103).
 
 ### 6.7 Create-only staleness and escape hatches
-- **Until M9:** chests, freestanding items, bombable walls and other create-only actors in the receiver's *current* room stay stale until a room reload. Effects of a duplicate pickup:
+- **Until M9:** chests, freestanding items, bombable walls and other create-only actors in the receiver's *current* room stay stale until a room reload, unless the opt-in `--coop-refresh` rows cover them (Tier 3 deletes them, and since #199 the re-create rows bring a chest, crystal switch, warp jar and the like back up in their set state; the door rows stay compiled out). Effects of a duplicate pickup:
   - unique items are idempotent;
   - keys self-correct (§6.4);
   - heart pieces may add one extra quarter (max life is add-only; logged);
@@ -1100,7 +1100,7 @@ WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803F773C 4             # JKRHeap::mCodeEnd
 | M6.1 Placement-matched kills of unkeyed enemies | after v0.4.0 (planned) | no | cloud; owner acceptance |
 | M7 C co-op pump | before v1.0 (planned) | **yes** | C build, recapture and acceptance on owner; Go and invariants in cloud |
 | M8 v1.0 release hardening | v1.0.0 | no | both |
-| M9 (post-1.0) Create-only refresh, chest-claim arbitration | v1.1 | yes | owner |
+| M9 (post-1.0) Create-only refresh, chest-claim arbitration | v1.1 (the refresh is in part on main, opt-in: Tier 3 and the re-create rows) | yes | owner |
 
 **Dependencies**
 - M0 → M1 → M2 → M3 → M4.

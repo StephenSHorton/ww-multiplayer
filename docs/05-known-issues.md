@@ -867,7 +867,9 @@ slot" above; one pass is all the evidence.
 
 After the fix `MAX_REMOTE_LINKS` went to 3 (WWMB_LAYOUT 3, 2026-10-25): three remotes drawn as
 mini-Links, four players in all. The layout change and what it cost are in "Three remote Links"
-below. docs/TESTING.md "Three remotes" is the live check for a third mini-Link; it is not run yet.
+below. docs/TESTING.md "Three remotes and the soft reset" is the live check for a third mini-Link:
+R3-1 passed in part on 0x154B9670 (B and two pose-fake remotes drawn, no freeze over a minute and a
+stage hop; handoff `archive/ww-online-review/live/LIVE-2.md`).
 
 Evidence (owner machine): logs in `C:\Users\4step\.claude\jobs\10f6fa34\tmp\pd\d1b\logs`
 (`base-fake3.log`, `base-fake4.log`, `base-mplocal.log`, `fake3.log`, `fake4.log`), screenshots in
@@ -925,13 +927,12 @@ recapture).
 Three remotes is where we stop for now. Going past it needs, in order (handoff
 `archive/ww-online-review/DESIGN-big-items.md` (c)):
 
-1. **Relay scoping first.** A pose carries no stage, and the stage gate
-   (`mods/multiplayer/feed/partner.go`) hides a partner in another stage only while the feed
-   draws exactly one remote, from co-op's PRESENCE. With two or three remotes, one in another
-   stage is drawn at its raw coordinates in this one. That is already true with two remotes;
-   a third makes it likelier. The server has to learn each player's stage and room and relay
-   poses and positions only within a stage (it also cuts pose egress, about 40 KB/s per sender
-   per receiver). That is its own track.
+1. **Relay scoping first.** Built in #197 (ca06f77, `mods/multiplayer/net/place.go`): the
+   positions carry a place trailer, the server relays a pose only within the sender's stage,
+   and the place gate hides a remote in another stage whatever the remote count. Before it a
+   pose carried no stage, and with two or three remotes one in another stage was drawn at its
+   raw coordinates in this one. Its live checks (docs/TESTING.md "Relay scoping", RS1-RS7) have
+   not run.
 2. **Another layout revision.** The pose arrays fill +0xA8..+0xBF exactly; a fourth slot
    needs them moved (and `face_state`, the tunic block, the visuals block and the eye packets
    grow again). `remote.c` pins `MAX_REMOTE_LINKS == 3`.
@@ -1014,7 +1015,7 @@ The game has two kinds of reset, and only one reboots (tww decomp):
   (`TestFeederArmPollBounded`; before, up to 3 s per unarmed slot, 9 s with three).
 - `puppets[].actor_ptr` is left as it was: only `wwdev` reads it, and `puppets.c`'s own state
   is T2 statics.
-- Not run live: docs/TESTING.md "Soft reset".
+- Not run live: docs/TESTING.md "Three remotes and the soft reset" (SR-1, SR-1b, SR-2).
 
 ## Shared enemies
 
@@ -1118,14 +1119,16 @@ T2 grew by 0x100 to 0x2CE8 bytes (devkitPPC 16.2). It ended at
 `0x80412CE8`, 0x218 bytes below the mailbox at the time. The tunic
 swap (docs/09 §6) later grew T2 to 0x2E08, leaving 0xF8.
 
-## Peer boats — BUILT, live checks owed (2026-10-25, ww-online review)
+## Peer boats — BUILT, BT-1..BT-3 passed in part (2026-10-25, ww-online review)
 
 The other players' King of Red Lions is drawn in your game: under a remote
 that sails it, and where a remote left it (on the sea, and in Tower of the
 Gods). The sail is in the remote's tunic colour, and the cannon or the
-salvage crane shows when the remote has it out. Nothing of it has run in
-Dolphin yet: docs/TESTING.md "Peer boats" (BT-1..BT-10) is owed. It ships in
-the wave-3 in-game batch (PR #199), so it rides that batch's one recapture.
+salvage crane shows when the remote has it out. It shipped in the wave-3
+in-game batch (PR #199). On its REL 0xE95241C5 BT-1..BT-3 passed in part (a
+sailing remote seated with its sail in its colour, a parked boat drawn where
+it was left; handoff `archive/ww-online-review/live/LIVE-2.md`); BT-4..BT-10
+(docs/TESTING.md "Peer boats") are owed.
 ww-online draws the same (`GameMod/src/puppet_link/puppet_boat.c`, MIT);
 `inject/rel/boats.c` is adapted from it and carries their notice.
 
@@ -1170,7 +1173,18 @@ each tick.
 - `WW_BOATS=off` draws none; `WW_BOATS=nosail` or `noparts` drops the sail
   cloth or the cannon and crane. The default is on: the request asked for
   an off switch, not an opt-in, which changes this section's earlier plan
-  (off until checked). `WW_BOATS=off` is the fallback while BT-* are open.
+  (off until checked). `WW_BOATS=off` is the fallback while BT-4..BT-10 are open.
+
+**The keeper's double draw froze both games (fixed, a0605c5).** On the batch's
+first build both games froze on the first frame a peer boat was drawn. The
+keeper is created from T2's frame hook and lands in the root layer, so its
+draw ran twice a frame (the root layer's draw walk and the play scene's
+draw queue). The second `mDoExt_modelEntryDL` of the hull and head put
+their packets into bucket 0 again and closed its chain into a loop, so
+`drawHead` never returned and the GX FIFO filled. The keeper's draw now
+runs `boats_draw` at most once per heartbeat (`wwrel_draw`,
+`inject/rel/rel_main.c`). A model drawn from the keeper must be entered
+once per frame.
 
 **Block (`inject/include/wwboat.h`, `wwapi/mailbox/boat.go`).**
 `MAILBOX_ADDR + 0x9E4` (0x804138E4), 0x88 bytes, right after the visuals
@@ -1437,6 +1451,11 @@ Chasing `dComIfGp`-singleton asserts is a dead end for this failure. A
 second full Link instance is memory-bound, not invariant-bound.
 
 ### Path forward
+
+Superseded (kept as history): 48 MB MEM1 (above) made room, and the remote
+players are now the REL's lite bodies and, behind the heap gate, the Stage 4
+full daPy_lk_c bodies ("Three remote Links", "Heap per remote"). The plan
+at the time:
 
 Proxy actor. `multiplayer.c` now spawns `PROC_Obj_Barrel` (~2 KB) to confirm
 the queued-spawn infrastructure itself is sound independent of heap size.
