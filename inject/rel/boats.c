@@ -17,6 +17,11 @@
 //     streamed ship-to-Link offset), not this game's sea: the mini-Link is
 //     drawn at the remote's streamed height, so a hull on our waves would
 //     leave it floating or sunk. No dead reckoning, no wave sampling.
+//   - Except a parked boat off the sea: it floats on this game's water at
+//     its XZ (fopAcM_getWaterY), because a stage's water can move on its
+//     own clock (Tower of the Gods' first room rises and falls by ~460),
+//     so the remote's height is right only in the remote's phase. A miss
+//     (the water more than 500 from the remote's height) keeps that height.
 //   - Models only while this game's "Ship" archive is resident (the sea
 //     and the stages that carry a Ship actor), checked every frame (bt_res,
 //     without getRes's log); no dComIfG_resLoad of our own. Parked boats are
@@ -69,6 +74,7 @@ typedef void (*bt_tev_light_t)(void* env, J3DModel* model, void* tev);
 typedef void (*bt_tev_init_t)(void* tev, s8 room, u8 override);
 typedef int (*bt_zsort_t)(void* buf, void* packet);
 typedef void (*bt_store_t)(void* p, u32 n);
+typedef BOOL (*bt_water_t)(const cXyz* pos, f32* y);
 #define bt_heap_from_game   ((bt_heap_new_t)0x80011B54)   // mDoExt_createSolidHeapFromGame__FUlUl
 #define bt_heap_adjust      ((bt_heap_fn_t)0x80011D0C)    // mDoExt_adjustSolidHeap__FP12JKRSolidHeap
 #define bt_heap_destroy     ((bt_heap_void_t)0x80011D48)  // mDoExt_destroySolidHeap__FP12JKRSolidHeap
@@ -94,6 +100,8 @@ typedef void (*bt_store_t)(void* p, u32 n);
 #define bt_matpk_entry      0x800EB328                    // entry__12J3DMatPacketFP13J3DDrawBuffer (vtable[3])
 #define bt_zsort            ((bt_zsort_t)0x802ECAF0)      // entryZSort__13J3DDrawBufferFP12J3DMatPacket (reads mpZMtx +0x1C)
 #define bt_store            ((bt_store_t)0x80303108)      // DCStoreRange
+#define bt_water_y          ((bt_water_t)0x80028448)      // fopAcM_getWaterY__FPC4cXyzPf: water within +/-500 of pos.y, the sea's wave too
+#define BT_STAGE_WORD0      (*(volatile u32*)0x803C9D3C)  // mCurStage.mName's first word ("sea" and a NUL = 0x73656100)
 #define BT_L_SHIP           (*(volatile u32*)0x803F6EC0)  // d_a_grid.cpp's l_ship (.sbss; ho_move: lwz r3,-0x7220(r13), r13 0x803FE0E0)
 #define BT_ENV_LIGHT        ((void*)0x803E4AB4)           // g_env_light
 #define BT_J3DSYS           0x803EDA58                    // j3dSys: mViewMtx at +0, the opa/xlu draw buffers at +0x48/+0x4C
@@ -524,6 +532,10 @@ static void bt_pose(bt_boat* b, u32 e, u32 bflags) {
     b->pos.y = y.f;
     b->pos.z = z.f;
     b->flags = BT_BYTE(e + WWBOAT_E_FLAGS);
+    if ((b->flags & WWBOAT_EF_PARKED) && BT_STAGE_WORD0 != 0x73656100) {
+        f32 wy;
+        if (bt_water_y(&b->pos, &wy)) b->pos.y = wy;
+    }
     b->part = (bflags & WWBOAT_F_PARTS) ? BT_BYTE(e + WWBOAT_E_PART) : 0;
     b->ax = *(volatile s16*)(MAILBOX_ADDR + WWBOAT_OFF + e + WWBOAT_E_ANGLE);
     b->ay = *(volatile s16*)(MAILBOX_ADDR + WWBOAT_OFF + e + WWBOAT_E_ANGLE + 2);
