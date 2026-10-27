@@ -73,7 +73,7 @@
 #define WWBOAT_EF_MAST_ON     0x02        // the mast bck is FN_MAST_ON2 (m0392 == 0x0B), else FN_MAST_OFF2
 #define WWBOAT_EF_MAST_HIDE   0x04        // m03E8 < 0.5: the mast scaled to 0.001 (the cannon or crane in its place)
 #define WWBOAT_EF_SAIL_ON     0x08        // mStateFlag daSFLG_SAIL_ON_e (0x200): the sail is set (ho_move's wind)
-#define WWBOAT_EF_PARKED      0x10        // nobody aboard (informational; the REL draws it the same)
+#define WWBOAT_EF_PARKED      0x10        // nobody aboard: off the sea the REL floats it on this game's water at its XZ
 
 #define WWBOAT_ERR_NONE       0
 #define WWBOAT_ERR_HEAP       1           // mDoExt_createSolidHeapFromGame returned NULL
