@@ -92,7 +92,7 @@ const (
 	TargetK1
 	// TargetBoss is the mailbox's boss_kill request (wwapi/mailbox
 	// boss.go, inject/include/wwboss.h): its proc and tag, held to the
-	// procs of bosskill.go's bossKillRows (Gohma, Kalle Demos) and the
+	// procs of bosskill.go's bossKillRows (every boss row) and the
 	// request's tag, and its seq (Gohdan's too, batch D G-D1). The REL gives this game's own boss the
 	// death a lethal hit gives it, so the boss bits the planner holds in
 	// a boss stage (bossHold) are set by the game itself (bosskill.go;
