@@ -849,7 +849,8 @@ void mp_draw_post(void* this_) {
                 mailbox->pose_buf_states[slot] = 0xFE;
                 continue;
             }
-            pose_bufs[slot] = (u8*)JKRHeap_alloc((u32)(pose_buf_u32s * 4), 0x20, mDoExt_getGameHeap());
+            // From the heap's tail, as pose_publish (core/services.c).
+            pose_bufs[slot] = (u8*)JKRHeap_alloc((u32)(pose_buf_u32s * 4), -0x20, mDoExt_getGameHeap());
             if (!pose_bufs[slot]) {
                 mailbox->pose_buf_states[slot] = 0xFD;
                 continue;
