@@ -6,7 +6,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/boatsync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
@@ -17,6 +19,11 @@ import (
 // Link position + 1000 X offset so the fake walks alongside the real
 // player, frozen in the captured pose. Receiver sees this as a remote
 // distinct from broadcast-pose's player and assigns it a new link slot.
+// The face trailer (eyes, appearance, equip and, unless WW_BOATS=off, the
+// ship) is captured with the pose as broadcast-pose builds it and sent
+// with every frame, so a capture taken aboard replays its boat under the
+// fake (an aboard ship is relative to Link); the place trailer is read
+// live with the position.
 func PoseFakeLoop(env Env, name, addr string) {
 	fmt.Printf("=== Fake Pose Broadcaster: %s -> %s ===\n\n", name, addr)
 	d, err := env.Open(0)
@@ -38,7 +45,7 @@ func PoseFakeLoop(env Env, name, addr string) {
 	const poseBytes = avatar.JointCount * 48
 
 	// One-shot capture: read Link's current world pose, then localize.
-	var captured []byte
+	var captured, face []byte
 	for try := 0; try < 30 && captured == nil; try++ {
 		linkPtr, err := player.NewLink(d).Ptr()
 		if err != nil || linkPtr == 0 {
@@ -67,7 +74,9 @@ func PoseFakeLoop(env Env, name, addr string) {
 		}
 		avatar.Localize(data, avatar.JointCount, pos.PosX, pos.PosY, pos.PosZ)
 		captured = data
-		fmt.Printf("captured fake pose at (%.0f, %.0f, %.0f)\n", pos.PosX, pos.PosY, pos.PosZ)
+		var equip vissync.EquipSampler
+		face = faceTrailer(d, player.NewLink(d), [3]float32{pos.PosX, pos.PosY, pos.PosZ}, &equip, boatsync.SettingsFromEnv().On)
+		fmt.Printf("captured fake pose at (%.0f, %.0f, %.0f), face trailer %d bytes\n", pos.PosX, pos.PosY, pos.PosZ, len(face))
 	}
 	if captured == nil {
 		fmt.Println("could not capture initial pose; is Link loaded?")
@@ -75,26 +84,49 @@ func PoseFakeLoop(env Env, name, addr string) {
 	}
 
 	// Stream loop: position tracks live Link with +1000 X so the fake
-	// walks beside the real player. Pose stays frozen at the capture.
+	// walks beside the real player. Pose and face stay frozen at the capture.
 	for client.IsConnected() {
 		pos, err := player.NewLink(d).Position()
 		if err == nil && pos != nil {
-			netPos := &network.PlayerPosition{
-				PosX: pos.PosX + 1000,
-				PosY: pos.PosY,
-				PosZ: pos.PosZ,
-				RotY: pos.RotY,
-			}
-			if err := client.SendPosition(netPos); err != nil {
-				fmt.Printf("send position: %v\n", err)
-				break
-			}
-			if err := client.SendPose(avatar.JointCount, captured, nil); err != nil {
-				fmt.Printf("send pose: %v\n", err)
+			place, placeOK := ReadPlace(d)
+			if err := fakeSend(client, pos, place, placeOK, captured, face); err != nil {
+				fmt.Printf("%v\n", err)
 				break
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	fmt.Println("\nDisconnected.")
+}
+
+// fakeSender is what PoseFakeLoop sends through (*network.Client).
+type fakeSender interface {
+	SendPosition(pos *network.PlayerPosition) error
+	SendPositionAt(pos *network.PlayerPosition, p network.Place) error
+	SendPose(joints int, matrices []byte, face []byte) error
+}
+
+// fakeSend sends one PoseFakeLoop frame: live, the real Link's position,
+// moved 1000 X, with the place trailer when it was read (as
+// broadcast-pose does), then the captured pose and face trailer.
+func fakeSend(c fakeSender, live *player.Position, place network.Place, placeOK bool, pose, face []byte) error {
+	netPos := &network.PlayerPosition{
+		PosX: live.PosX + 1000,
+		PosY: live.PosY,
+		PosZ: live.PosZ,
+		RotY: live.RotY,
+	}
+	var err error
+	if placeOK {
+		err = c.SendPositionAt(netPos, place)
+	} else {
+		err = c.SendPosition(netPos)
+	}
+	if err != nil {
+		return fmt.Errorf("send position: %w", err)
+	}
+	if err := c.SendPose(avatar.JointCount, pose, face); err != nil {
+		return fmt.Errorf("send pose: %w", err)
+	}
+	return nil
 }
