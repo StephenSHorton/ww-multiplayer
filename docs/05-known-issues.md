@@ -1148,7 +1148,7 @@ T2 grew by 0x100 to 0x2CE8 bytes (devkitPPC 16.2). It ended at
 `0x80412CE8`, 0x218 bytes below the mailbox at the time. The tunic
 swap (docs/09 §6) later grew T2 to 0x2E08, leaving 0xF8.
 
-## Peer boats — BUILT, BT-1..BT-3 and BT-5..BT-9 passed, some in part (2026-10-25, ww-online review)
+## Peer boats — BUILT, BT-1..BT-9 passed, some in part (2026-10-25, ww-online review)
 
 The other players' King of Red Lions is drawn in your game: under a remote
 that sails it, and where a remote left it (on the sea, and in Tower of the
@@ -1159,9 +1159,13 @@ sailing remote seated with its sail in its colour, a parked boat drawn where
 it was left; handoff `archive/ww-online-review/live/LIVE-2.md`). On main
 3de6e6b (REL 0xE280C6F0) BT-5 and BT-6 passed and BT-7, BT-8 and BT-9 passed in part
 (`archive/ww-online-review/live/LIVE-4.md`). BT-4 and BT-10 (docs/TESTING.md "Peer boats")
-are owed. BT-4 is open: in Tower of the Gods a remote's parked ship reads about 460 units
-below the water (y about -2110 against -1650), so A draws it out of sight; whether the game
-itself lowers the parked ship there or boatsync reads the wrong field is not known yet.
+are owed. Tower of the Gods' first room raises and lowers its water by itself (y -2112 to
+-1652, every 15-20 s), and each game runs its own phase, so a parked boat drawn at the
+remote's height floated or sank on this game's water. Since 2026-10-27 a parked boat off the
+sea is drawn on this game's water at its XZ (`fopAcM_getWaterY` within 500 of the remote's
+height; a miss keeps that height; `inject/rel/boats.c` bt_pose). BT-4's parked path passed
+live on that build. A remote aboard in that room still follows its own water phase (its pose
+feed's height).
 ww-online draws the same (`GameMod/src/puppet_link/puppet_boat.c`, MIT);
 `inject/rel/boats.c` is adapted from it and carries their notice.
 
