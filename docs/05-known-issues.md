@@ -924,8 +924,8 @@ recapture).
   unchanged. The third slot costs nothing measurable here, because every slot's model and
   pose buffer is made at session start. After five sea -> M_NewD2 -> sea trips with three
   remotes: GameHeap 4813/4813, ArchiveHeap 7018/6832, all three slots live. The `solid`
-  counter rose by one per trip (5 -> 10) and the other six stayed 0. That matches one bump
-  per stage load, but it is not yet checked against vanilla for this hop (TESTING BT-6).
+  counter rose by one per trip (5 -> 10) and the other six stayed 0. The vanilla disc does the
+  same (0 -> 5 over five trips, +1 per M_NewD2 load), so it is the game's own (TESTING BT-6).
   Handoff `archive/ww-online-review/live/LIVE-4.md`.
 - **ZeldaHeap:** a lite body is 0x620 bytes. A full body (0x4C80, plus about 0xCCF00 resident
   in GameHeap) stays limited to `FullMax` 1 (`mods/enemysync/players.go`); the heap gate falls
@@ -1148,7 +1148,7 @@ T2 grew by 0x100 to 0x2CE8 bytes (devkitPPC 16.2). It ended at
 `0x80412CE8`, 0x218 bytes below the mailbox at the time. The tunic
 swap (docs/09 §6) later grew T2 to 0x2E08, leaving 0xF8.
 
-## Peer boats — BUILT, BT-1..BT-3, BT-5, BT-6, BT-8 and BT-9 passed, some in part (2026-10-25, ww-online review)
+## Peer boats — BUILT, BT-1..BT-3 and BT-5..BT-9 passed, some in part (2026-10-25, ww-online review)
 
 The other players' King of Red Lions is drawn in your game: under a remote
 that sails it, and where a remote left it (on the sea, and in Tower of the
@@ -1157,9 +1157,11 @@ salvage crane shows when the remote has it out. It shipped in the wave-3
 in-game batch (PR #199). On its REL 0xE95241C5 BT-1..BT-3 passed in part (a
 sailing remote seated with its sail in its colour, a parked boat drawn where
 it was left; handoff `archive/ww-online-review/live/LIVE-2.md`). On main
-3de6e6b (REL 0xE280C6F0) BT-5 passed and BT-6, BT-8 and BT-9 passed in part
-(`archive/ww-online-review/live/LIVE-4.md`). BT-4, BT-7 and BT-10
-(docs/TESTING.md "Peer boats") are owed.
+3de6e6b (REL 0xE280C6F0) BT-5 and BT-6 passed and BT-7, BT-8 and BT-9 passed in part
+(`archive/ww-online-review/live/LIVE-4.md`). BT-4 and BT-10 (docs/TESTING.md "Peer boats")
+are owed. BT-4 is open: in Tower of the Gods a remote's parked ship reads about 460 units
+below the water (y about -2110 against -1650), so A draws it out of sight; whether the game
+itself lowers the parked ship there or boatsync reads the wrong field is not known yet.
 ww-online draws the same (`GameMod/src/puppet_link/puppet_boat.c`, MIT);
 `inject/rel/boats.c` is adapted from it and carries their notice.
 

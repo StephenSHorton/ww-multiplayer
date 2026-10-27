@@ -142,29 +142,7 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 			// FaceState: 8 B = (mat1_tex0:u16 BE)
 			// (mat1_tex1:u16 BE)(mat4_tex0:u16 BE)
 			// (mat4_tex1:u16 BE).
-			if fb, err := link.Face(); err == nil && len(fb) == player.FaceBytes {
-				s.face = fb
-				// docs/09 §5.4: a 17th byte, the appearance
-				// flags (bit 0 = casual clothes). Receivers
-				// before it copy only the first 16 bytes.
-				if app, ok := tunicsync.LocalAppearance(d); ok {
-					// vissync: the sea, sword-out and
-					// shield-in-hand bits, then the two
-					// equip bytes (19 bytes in all).
-					if extra, eq, ok := equip.Sample(d); ok {
-						s.face = append(s.face, app|extra, eq[0], eq[1])
-						// boatsync: this game's ship, 40 bytes
-						// more (59 in all), always once the
-						// equip bytes are there.
-						if boatsOn {
-							b, ok := boatsync.Local(d, [3]float32{pos.PosX, pos.PosY, pos.PosZ})
-							s.face = append(s.face, boatsync.Encode(b, ok)...)
-						}
-					} else {
-						s.face = append(s.face, app)
-					}
-				}
-			}
+			s.face = faceTrailer(d, link, [3]float32{pos.PosX, pos.PosY, pos.PosZ}, &equip, boatsOn)
 			return s
 		}
 		// send ships one sample: the position, then the pose.
@@ -227,6 +205,36 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 	}
 
 	return network.ReconnectLoop(ctx, connect, run, network.NewBackoff(), network.SleepCtx)
+}
+
+// faceTrailer is the face trailer BroadcastPose sends with a pose (and
+// PoseFakeLoop replays): Link's eye bytes, then (docs/09 §5.4) a 17th
+// byte, the appearance flags (bit 0 = casual clothes; receivers before it
+// copy only the first 16 bytes); then vissync's sea, sword-out and
+// shield-in-hand bits ORed into it and the two equip bytes (19 bytes in
+// all); then, with boats on, boatsync's ship, 40 bytes more (59 in all),
+// always once the equip bytes are there. linkPos is the position sent
+// with this pose (an aboard ship goes relative to it). nil when the eye
+// bytes cannot be read.
+func faceTrailer(d avatar.TunicMem, link *player.Link, linkPos [3]float32, equip *vissync.EquipSampler, boatsOn bool) []byte {
+	fb, err := link.Face()
+	if err != nil || len(fb) != player.FaceBytes {
+		return nil
+	}
+	app, ok := tunicsync.LocalAppearance(d)
+	if !ok {
+		return fb
+	}
+	extra, eq, ok := equip.Sample(d)
+	if !ok {
+		return append(fb, app)
+	}
+	fb = append(fb, app|extra, eq[0], eq[1])
+	if boatsOn {
+		b, ok := boatsync.Local(d, linkPos)
+		fb = append(fb, boatsync.Encode(b, ok)...)
+	}
+	return fb
 }
 
 // poseSample is one BroadcastPose sample: the position, and the localized
