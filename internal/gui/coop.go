@@ -43,7 +43,7 @@ type CoopRequest struct {
 // game's REL, so each side picks its own.
 type CoopRelays struct {
 	// BossKill is the boss-dead relay's rows: "" for the default
-	// (gohma,kalle,molgera,jalhalla,helmaroc), "none", or replica.BossKillTokens joined by ",".
+	// (gohma,kalle,gohdan,molgera,jalhalla,helmaroc), "none", or replica.BossKillTokens joined by ",".
 	BossKill string `json:"bossKill"`
 	// Refresh is the actor_refresh relay's tokens: "" or "none" for off,
 	// or replica.RefreshTokens joined by ",", with "dry" to log only.
@@ -260,7 +260,7 @@ func requestOf(s session.LobbySettings, iso string) CoopRequest {
 
 // choiceOf is the host's saved choice.
 func choiceOf(c config.Coop) CoopRequest {
-	return CoopRequest{Mode: c.LastMode, World: c.LastWorld, DryRun: c.DryRun, Merge: c.Merge, LiveSwitches: c.LiveSwitches, ISO: c.ISO}
+	return CoopRequest{Mode: c.LastMode, World: c.LastWorld, DryRun: c.DryRun, Merge: c.Merge, LiveSwitches: !c.LiveSwitchesOff, ISO: c.ISO}
 }
 
 // SetCoop sets the host's co-op choice: saved for next time, and sent to
@@ -284,7 +284,7 @@ func (b *Bridge) SetCoop(r CoopRequest) (err error) {
 	if r.Mode == "continue" {
 		b.cfg.Coop.LastWorld = s.Coop
 	}
-	b.cfg.Coop.DryRun, b.cfg.Coop.Merge, b.cfg.Coop.LiveSwitches = r.DryRun, r.Merge, r.LiveSwitches
+	b.cfg.Coop.DryRun, b.cfg.Coop.Merge, b.cfg.Coop.LiveSwitchesOff = r.DryRun, r.Merge, !r.LiveSwitches
 	b.cfg.Coop.ISO = strings.TrimSpace(r.ISO)
 	b.mu.Unlock()
 	b.save()

@@ -2,6 +2,7 @@ package fxsync
 
 import (
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -64,12 +65,19 @@ func relEmits(t *testing.T, m *mem.FakeMem, evs ...mailbox.FxEvent) {
 	}
 }
 
+// TestSettingsFromEnv: on by default since v0.6.1 (unset, empty, on or
+// any other value); off only for an off spelling, in any case, trimmed.
 func TestSettingsFromEnv(t *testing.T) {
-	for v, want := range map[string]bool{"": false, "off": false, "0": false, "on": true, "1": true, "TRUE": true, " yes ": true, "maybe": false} {
+	for v, want := range map[string]bool{"": true, "on": true, "1": true, "TRUE": true, " yes ": true, "maybe": true,
+		"off": false, "OFF": false, "0": false, "false": false, "False": false, "no": false, " no ": false} {
 		t.Setenv("WW_PROJECTILES", v)
 		if got := SettingsFromEnv().On; got != want {
 			t.Errorf("WW_PROJECTILES=%q: on %v, want %v", v, got, want)
 		}
+	}
+	os.Unsetenv("WW_PROJECTILES")
+	if !SettingsFromEnv().On {
+		t.Error("off with WW_PROJECTILES unset")
 	}
 }
 

@@ -150,10 +150,11 @@ var bossKillRows = []bossRow{
 
 const (
 	// BossKillDefault is the --coop-boss-kill row set when none is given:
-	// Gohma, Kalle Demos, Molgera, Jalhalla and Helmaroc King
-	// (docs/TESTING.md "Batch E" and "Batch F"). Gohdan joins it after
-	// GD-4 and the D4 live check (enemy-mirror-batch-d.json G-D1).
-	BossKillDefault = "gohma,kalle,molgera,jalhalla,helmaroc"
+	// every row, Gohma, Kalle Demos, Gohdan, Molgera, Jalhalla and
+	// Helmaroc King (docs/TESTING.md "Batch D", "Batch E" and "Batch F").
+	// Gohdan joined it in v0.6.1 (the owner's call; GD-4's natural fight
+	// is still owed by the rig).
+	BossKillDefault = "gohma,kalle,gohdan,molgera,jalhalla,helmaroc"
 	// BossKillTokens names every --coop-boss-kill token, for the usage.
 	BossKillTokens = "gohma,kalle,gohdan,molgera,jalhalla,helmaroc"
 )

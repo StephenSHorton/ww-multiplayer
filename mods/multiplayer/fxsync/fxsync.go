@@ -57,19 +57,24 @@ const SeaRange = 10000
 // QueueMax caps the receiver's queue (events waiting for inbox room).
 const QueueMax = 32
 
-// Settings turns the feature on. The zero value is off.
+// Settings turns the feature on. The zero value is off (SettingsFromEnv's
+// default is on).
 type Settings struct {
 	On bool
 }
 
-// SettingsFromEnv is WW_PROJECTILES: on, 1, true or yes turns the
-// projectile events on (default off until the live checks pass).
-func SettingsFromEnv() Settings {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("WW_PROJECTILES"))) {
-	case "on", "1", "true", "yes":
-		return Settings{On: true}
+// SettingsFromEnv is WW_PROJECTILES: on by default since v0.6.1; off, 0,
+// false or no turns the projectile events off (ParseSettings).
+func SettingsFromEnv() Settings { return ParseSettings(os.Getenv("WW_PROJECTILES")) }
+
+// ParseSettings is SettingsFromEnv's parser: only an off spelling (any
+// case, spaces trimmed) turns it off; unset, on or anything else is on.
+func ParseSettings(v string) Settings {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "off", "0", "false", "no":
+		return Settings{}
 	}
-	return Settings{}
+	return Settings{On: true}
 }
 
 // actor_place current.pos in fopAc_ac_c (f_op_actor.h:288).

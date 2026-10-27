@@ -145,8 +145,10 @@ go build -o wwdev.exe ./cmd/wwdev
 ./ww-multiplayer.exe mods [--json] [--dev] [--mods=a,b] [--no-mod=x]   # List the mods built into this version
 ./ww-multiplayer.exe version                            # Print the version (players must match)
 #   with --coop (host, join, wwdev mp-local; each side its own): --coop-boss-kill=gohma,kalle,gohdan,molgera,jalhalla,helmaroc|none
-#   picks the boss-dead relay's rows (default gohma,kalle,molgera,jalhalla,helmaroc; gohdan (SirenB)
-#   is opt-in until its live checks pass, docs/TESTING.md "Batch D"), and
+#   picks the boss-dead relay's rows (default all six, gohdan (SirenB) included since v0.6.1;
+#   docs/TESTING.md "Batch D"), the host's --coop-live-switches[=off] (live switches, on by default
+#   since v0.6.1: the current table's switches apply when idle; =off (false, no, 0) waits for the next
+#   room change; a joiner may not name it), and
 #   --coop-refresh=stone2,leaves,item,tbox,saku,wall,floor,ice,mjdoor,mkie,mkiek,mknjd,vfan,swhit0,warpt,mflft,kokiie,vmc[,dry]|none
 #   turns on actor_refresh (default off: nothing asked), which asks the REL to bring up to date an actor this game placed before the
 #   partner's bit landed (mods/coop/replica refresh_relay.go): delete a boulder, bush, pickup, barricade, wall, floor, ice block or
@@ -198,9 +200,9 @@ WW_NAMETAGS=off / WW_EQUIP=off / WW_SEACHART=off / WW_HAIR=off   # puppet-sync (
 WW_BOATS=off|nosail|noparts                 # puppet-sync (mods/multiplayer/boatsync): no peer boats / no sail cloth / no cannon or crane on them. Default on:
                                             #   each remote's King of Red Lions drawn under it while it sails and where it was left (sea, Tower of the Gods), sail
                                             #   in its tunic colour (inject/rel/boats.c, include/wwboat.h; docs/05 "Peer boats", docs/TESTING.md BT-*)
-WW_PROJECTILES=on                           # broadcast-pose and puppet-sync (mods/multiplayer/fxsync): the other players' bombs, boat-cannon shots and arrows
-                                            #   are made in this game as world-only copies (inject/rel/fx.c, include/wwfx.h; MsgFx, protocol 6). Default off until
-                                            #   docs/TESTING.md "Projectiles" passes; set it on both sides
+WW_PROJECTILES=off                          # broadcast-pose and puppet-sync (mods/multiplayer/fxsync): no projectile events. Default on since v0.6.1: the other
+                                            #   players' bombs, boat-cannon shots and arrows are made in this game as world-only copies (inject/rel/fx.c,
+                                            #   include/wwfx.h; MsgFx, protocol 6); off, 0, false or no turns them off (docs/TESTING.md "Projectiles")
 WW_ENEMY_SYNC=0                             # Enemy sync off (mods/enemysync, the enemy mirror: Moblins, Bokoblins, ChuChus, Keese; Armos Knights, Armos, Darknuts, Kargarocs, Magtails opt-in).
                                             #   Default on: host/join and the app run enemy-host / enemy-client, mp-local spawns enemy-A (host, Dolphin A) and
                                             #   enemy-B (client, Dolphin B); needs the REL module linked. A fatal enemy error (a reject, a panic) turns enemies off

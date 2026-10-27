@@ -17,21 +17,24 @@ import (
 const CoopWorldNew = "new"
 
 // CoopOptions are a session's co-op choices, the CLI's --coop flags. The
-// zero value is co-op off. A joiner leaves World, Merge and LiveSwitches
-// unset: they are the host's to choose.
+// zero value is co-op off. A joiner leaves World, Merge and
+// LiveSwitchesOff unset: they are the host's to choose.
 type CoopOptions struct {
 	On bool
 	// World is the world a host serves: "" for the only one on disk,
 	// CoopWorldNew, or a world ID (16 hex digits).
-	World        string
-	Merge        bool   // --coop-merge
-	LiveSwitches bool   // --coop-live-switches
-	DryRun       bool   // --coop-dry-run
-	ISO          string // --coop-iso; "" for the disc patch last wrote
+	World string
+	Merge bool // --coop-merge
+	// LiveSwitchesOff is --coop-live-switches=off: live switches are on
+	// by default since v0.6.1, so the zero value (the TUI's choices, a
+	// CLI host without the flag) has them on.
+	LiveSwitchesOff bool
+	DryRun          bool   // --coop-dry-run
+	ISO             string // --coop-iso; "" for the disc patch last wrote
 	// Yes answers every question yes at once (--yes).
 	Yes bool
 	// BossKill is --coop-boss-kill, the boss-dead relay's row set; "" is
-	// its default (gohma,kalle,molgera,jalhalla,helmaroc). Refresh is --coop-refresh, the
+	// its default (gohma,kalle,gohdan,molgera,jalhalla,helmaroc). Refresh is --coop-refresh, the
 	// actor_refresh relay's token set; "" is off. Each side's own.
 	BossKill string
 	Refresh  string

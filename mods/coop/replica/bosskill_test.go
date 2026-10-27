@@ -639,8 +639,9 @@ func TestParseBossKill(t *testing.T) {
 		want []uint16
 		err  bool
 	}{
-		{"", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBwd, mailbox.BossProcBpw, mailbox.BossProcBdk}, false},
-		{BossKillDefault, []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBwd, mailbox.BossProcBpw, mailbox.BossProcBdk}, false},
+		{"", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBst, mailbox.BossProcBwd, mailbox.BossProcBpw, mailbox.BossProcBdk}, false},
+		{"gohma,kalle,molgera,jalhalla,helmaroc", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBwd, mailbox.BossProcBpw, mailbox.BossProcBdk}, false}, // v0.6.0's default
+		{BossKillDefault, []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBst, mailbox.BossProcBwd, mailbox.BossProcBpw, mailbox.BossProcBdk}, false},
 		{"gohma, KALLE ,gohdan", []uint16{mailbox.BossProcBtd, mailbox.BossProcBmd, mailbox.BossProcBst}, false},
 		{"gohdan", []uint16{mailbox.BossProcBst}, false},
 		{"molgera", []uint16{mailbox.BossProcBwd}, false},
@@ -671,12 +672,12 @@ func TestParseBossKill(t *testing.T) {
 	if _, err := New(Config{Mem: newRecRig(t, Config{}, proto.FeatureImage).m, BossKill: "ganon"}); err == nil {
 		t.Fatal("New took an unknown --coop-boss-kill row")
 	}
-	// The default leaves the opt-in row out (Molgera, Jalhalla and Helmaroc King are in it since their live checks passed).
+	// The default takes every row: Gohdan joined Gohma, Kalle Demos,
+	// Molgera, Jalhalla and Helmaroc King in v0.6.1.
 	def, _ := ParseBossKill("")
-	for _, p := range []uint16{mailbox.BossProcBst} {
-		if def[p] {
-			t.Fatalf("the default row set takes %s", mailbox.BossProcName(p))
-		}
+	all, _ := ParseBossKill(BossKillTokens)
+	if len(def) != len(all) || !def[mailbox.BossProcBst] {
+		t.Fatalf("the default row set %v, want every row %v", def, all)
 	}
 }
 
@@ -760,10 +761,23 @@ func TestBossKillRelayBst(t *testing.T) {
 	}
 }
 
-// TestBossKillBstDefaultOff: with the default row set (gohma,kalle,molgera,jalhalla,helmaroc),
-// SirenB gets no request; the log says once why the arena keeps Gohdan.
-func TestBossKillBstDefaultOff(t *testing.T) {
-	br := newBossRig(t, totgBoss, true)
+// TestBossKillBstDefaultOn: Gohdan is in the default row set since
+// v0.6.1, so SirenB gets a request with --coop-boss-kill unset; a row set
+// that leaves it out (the old default) gives no request, and the log says
+// once why the arena keeps Gohdan.
+func TestBossKillBstDefaultOn(t *testing.T) {
+	if !strings.Contains(BossKillDefault, "gohdan") {
+		t.Fatalf("BossKillDefault %q has no gohdan", BossKillDefault)
+	}
+	on := newBossRig(t, totgBoss, true)
+	on.partnerKilledTotG()
+	on.ticks(3)
+	if seq, proc, _ := on.request(); seq == 0 || proc != mailbox.BossProcBst {
+		t.Fatalf("Gohdan not asked for by default: seq %d proc 0x%X", seq, proc)
+	}
+
+	const old = "gohma,kalle,molgera,jalhalla,helmaroc"
+	br := newBossRigSet(t, totgBoss, true, old)
 	br.partnerKilledTotG()
 	br.ticks(3)
 	br.clock.advance(bossRetry)
@@ -774,15 +788,15 @@ func TestBossKillBstDefaultOff(t *testing.T) {
 	if st := br.r.Status(); st.BossKill.Wanted || st.Writes.BossKills != 0 {
 		t.Fatalf("status %+v", st.BossKill)
 	}
-	if n := br.log.count("--coop-boss-kill (gohma,kalle,molgera,jalhalla,helmaroc) leaves it out"); n != 1 {
+	if n := br.log.count("--coop-boss-kill (" + old + ") leaves it out"); n != 1 {
 		t.Fatalf("logged %d times:\n%s", n, br.log)
 	}
 	// The other rows stay on: Gohma is still asked for.
-	g := newBossRig(t, drcBoss, true)
+	g := newBossRigSet(t, drcBoss, true, old)
 	g.partnerKilled()
 	g.ticks(3)
 	if seq, proc, _ := g.request(); seq == 0 || proc != mailbox.BossProcBtd {
-		t.Fatalf("Gohma not asked for by default: seq %d proc 0x%X", seq, proc)
+		t.Fatalf("Gohma not asked for: seq %d proc 0x%X", seq, proc)
 	}
 }
 

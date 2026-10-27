@@ -433,9 +433,9 @@
 					<!-- each side's own relays (--coop-boss-kill, --coop-refresh): host and joiners alike -->
 					<details id="coop-relays">
 						<summary>Advanced: your game's relays</summary>
-						<label class="field" title="Bosses your game is told were killed when your partner kills them: gohma, kalle, gohdan, molgera, jalhalla, helmaroc, or none (as --coop-boss-kill). Empty is the default, gohma,kalle,molgera,jalhalla,helmaroc; gohdan is opt-in until its live checks pass. A list replaces the default, so to add gohdan name all six">
+						<label class="field" title="Bosses your game is told were killed when your partner kills them: gohma, kalle, gohdan, molgera, jalhalla, helmaroc, or none (as --coop-boss-kill). Empty is the default, all six: gohma,kalle,gohdan,molgera,jalhalla,helmaroc. A list replaces the default, so to leave one out name the others">
 							<span>Boss kills</span>
-							<input id="coop-bosskill" autocomplete="off" spellcheck="false" placeholder="gohma,kalle,molgera,jalhalla,helmaroc">
+							<input id="coop-bosskill" autocomplete="off" spellcheck="false" placeholder="gohma,kalle,gohdan,molgera,jalhalla,helmaroc">
 						</label>
 						<label class="field" title="What your game brings up to date once your partner's bit lands: stone2, leaves, item, tbox, saku, wall, floor, ice, mjdoor, mkie, mkiek, mknjd, vfan, swhit0, warpt, mflft, kokiie, vmc, with dry to log only, or none (as --coop-refresh). Empty is off">
 							<span>Refresh stale actors</span>
@@ -472,7 +472,7 @@
 							<summary>Advanced</summary>
 							<label class="check" title="Plan the writes and log them, but write nothing but the binding tag (everyone's games)"><input type="checkbox" id="coop-dry"><span>Dry run: write nothing but the binding tag</span></label>
 							<label class="check" title="A file with progress the world lacks, or far behind it, may bind, and its progress joins the world"><input type="checkbox" id="coop-merge"><span>Allow merging divergent files</span></label>
-							<label class="check" title="Switches of the room you stand in apply once you're idle, not at the next room change"><input type="checkbox" id="coop-live"><span>Live switches in your room</span></label>
+							<label class="check" title="Switches of the room you stand in apply once you're idle, not at the next room change. On by default; off waits for the next room change (as --coop-live-switches=off)"><input type="checkbox" id="coop-live"><span>Live switches in your room</span></label>
 							<label class="field">
 								<span>Disc for co-op tables</span>
 								<input id="coop-iso" autocomplete="off" spellcheck="false" placeholder="Your patched disc (Setup)">
