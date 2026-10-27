@@ -145,15 +145,15 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 		}
 	}()
 
-	// Projectile events (fxsync, inject/include/wwfx.h; WW_PROJECTILES=on,
-	// default off): the peers' bombs, cannonballs and arrows, scoped to
+	// Projectile events (fxsync, inject/include/wwfx.h; on by default,
+	// WW_PROJECTILES=off turns them off): the peers' bombs, cannonballs and arrows, scoped to
 	// this game's stage and room, into the REL's inbox. Session over: the
 	// recv word goes back to 0 (the REL then discards the inbox).
 	fxSettings := fxsync.SettingsFromEnv()
 	fxRecv := fxsync.NewReceiver()
 	var fxLog fxLogger
 	if fxSettings.On {
-		rep.Log(log.Info, "Projectile events on (WW_PROJECTILES): the other players' bombs, cannonballs and arrows are made in this game.")
+		rep.Log(log.Info, "Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.")
 		client.OnFx = func(from byte, e network.FxEvent) { fxRecv.Push(from, e, time.Now()) }
 		defer func() {
 			if gate.ok {

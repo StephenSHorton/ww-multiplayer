@@ -45,20 +45,27 @@ func TestExtractCoopFlags(t *testing.T) {
 		{name: "after --", args: []string{"Link", "--", "--coop"}, rest: []string{"Link", "--", "--coop"}},
 		{name: "M3's options alone", args: []string{"--coop-dry-run", "--coop-live-switches", "--coop-iso", "ww.iso"}, rest: []string{"--coop-dry-run", "--coop-live-switches", "--coop-iso", "ww.iso"}},
 
-		{name: "--coop", args: []string{"--coop"}, want: Flags{on: true}, rest: []string{}},
-		{name: "anywhere", args: []string{"Link", "--coop", "--port", "9000"}, want: Flags{on: true}, rest: []string{"Link", "--port", "9000"}},
-		{name: "all", args: []string{"--coop=new", "--coop-merge", "Link", "--yes"}, want: Flags{on: true, world: coopWorldNew, merge: true, yes: true}, rest: []string{"Link"}},
-		{name: "NEW", args: []string{"--coop=NEW"}, want: Flags{on: true, world: coopWorldNew}, rest: []string{}},
-		{name: "world ID", args: []string{"--coop=" + strings.ToUpper(id)}, want: Flags{on: true, world: id}, rest: []string{}},
-		{name: "twice the same", args: []string{"--coop", "--coop=new", "--coop=new"}, want: Flags{on: true, world: coopWorldNew}, rest: []string{}},
-		{name: "-- ends the options", args: []string{"--coop", "Link", "--", "--yes"}, want: Flags{on: true}, rest: []string{"Link", "--", "--yes"}},
-		{name: "M3", args: []string{"Link", "--coop", "--coop-dry-run", "--coop-live-switches", "--coop-iso", "ww.iso"}, want: Flags{on: true, dryRun: true, liveSwitches: true, iso: "ww.iso"}, rest: []string{"Link"}},
-		{name: "--coop-iso=", args: []string{"--coop-iso=C:/Roms/ww.iso", "--coop"}, want: Flags{on: true, iso: "C:/Roms/ww.iso"}, rest: []string{}},
-		{name: "--coop-iso after --", args: []string{"--coop", "--", "--coop-iso", "x"}, want: Flags{on: true}, rest: []string{"--", "--coop-iso", "x"}},
+		{name: "--coop", args: []string{"--coop"}, want: Flags{on: true, liveSwitches: true}, rest: []string{}},
+		{name: "anywhere", args: []string{"Link", "--coop", "--port", "9000"}, want: Flags{on: true, liveSwitches: true}, rest: []string{"Link", "--port", "9000"}},
+		{name: "all", args: []string{"--coop=new", "--coop-merge", "Link", "--yes"}, want: Flags{on: true, liveSwitches: true, world: coopWorldNew, merge: true, yes: true}, rest: []string{"Link"}},
+		{name: "NEW", args: []string{"--coop=NEW"}, want: Flags{on: true, liveSwitches: true, world: coopWorldNew}, rest: []string{}},
+		{name: "world ID", args: []string{"--coop=" + strings.ToUpper(id)}, want: Flags{on: true, liveSwitches: true, world: id}, rest: []string{}},
+		{name: "twice the same", args: []string{"--coop", "--coop=new", "--coop=new"}, want: Flags{on: true, liveSwitches: true, world: coopWorldNew}, rest: []string{}},
+		{name: "-- ends the options", args: []string{"--coop", "Link", "--", "--yes"}, want: Flags{on: true, liveSwitches: true}, rest: []string{"Link", "--", "--yes"}},
+		{name: "M3", args: []string{"Link", "--coop", "--coop-dry-run", "--coop-live-switches", "--coop-iso", "ww.iso"}, want: Flags{on: true, dryRun: true, liveSwitches: true, liveSet: true, iso: "ww.iso"}, rest: []string{"Link"}},
+		{name: "--coop-iso=", args: []string{"--coop-iso=C:/Roms/ww.iso", "--coop"}, want: Flags{on: true, liveSwitches: true, iso: "C:/Roms/ww.iso"}, rest: []string{}},
+		{name: "--coop-iso after --", args: []string{"--coop", "--", "--coop-iso", "x"}, want: Flags{on: true, liveSwitches: true}, rest: []string{"--", "--coop-iso", "x"}},
 		// Batch D (enemy-mirror-batch-d.json G-D1, G-D5): each side's own.
-		{name: "--coop-boss-kill", args: []string{"--coop", "--coop-boss-kill=gohma,kalle,gohdan"}, want: Flags{on: true, bossKill: "gohma,kalle,gohdan"}, rest: []string{}},
-		{name: "--coop-refresh", args: []string{"--coop-refresh=stone2,tbox,dry", "--coop"}, want: Flags{on: true, refresh: "stone2,tbox,dry"}, rest: []string{}},
+		{name: "--coop-boss-kill", args: []string{"--coop", "--coop-boss-kill=gohma,kalle,gohdan"}, want: Flags{on: true, liveSwitches: true, bossKill: "gohma,kalle,gohdan"}, rest: []string{}},
+		{name: "--coop-refresh", args: []string{"--coop-refresh=stone2,tbox,dry", "--coop"}, want: Flags{on: true, liveSwitches: true, refresh: "stone2,tbox,dry"}, rest: []string{}},
 
+		// Live switches are on by default since v0.6.1: the flag alone
+		// changes nothing, =off (or false, no, 0) turns them off.
+		{name: "live switches off", args: []string{"--coop", "--coop-live-switches=off"}, want: Flags{on: true, liveSet: true}, rest: []string{}},
+		{name: "live switches false", args: []string{"--coop", "--coop-live-switches=FALSE"}, want: Flags{on: true, liveSet: true}, rest: []string{}},
+		{name: "live switches no", args: []string{"--coop", "--coop-live-switches=no"}, want: Flags{on: true, liveSet: true}, rest: []string{}},
+		{name: "live switches 0", args: []string{"--coop", "--coop-live-switches=0"}, want: Flags{on: true, liveSet: true}, rest: []string{}},
+		{name: "live switches =on", args: []string{"--coop", "--coop-live-switches=on"}, want: Flags{on: true, liveSwitches: true, liveSet: true}, rest: []string{}},
 		{name: "bad world", args: []string{"--coop=xyz"}, wantErr: "--coop=new, or a world ID"},
 		{name: "zero world", args: []string{"--coop=0000000000000000"}, wantErr: "--coop=new, or a world ID"},
 		{name: "empty world", args: []string{"--coop="}, wantErr: "--coop=new, or a world ID"},
@@ -67,6 +74,7 @@ func TestExtractCoopFlags(t *testing.T) {
 		{name: "two discs", args: []string{"--coop", "--coop-iso=a", "--coop-iso=b"}, wantErr: "give one disc image"},
 		{name: "an unknown boss", args: []string{"--coop", "--coop-boss-kill=ganon"}, wantErr: "is no boss"},
 		{name: "an unknown refresh token", args: []string{"--coop", "--coop-refresh=door"}, wantErr: "is no refresh token"},
+		{name: "a live switches typo", args: []string{"--coop", "--coop-live-switches=maybe"}, wantErr: "--coop-live-switches=on or --coop-live-switches=off"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -98,7 +106,9 @@ func TestCoopFlagsForJoin(t *testing.T) {
 		{Flags{on: true, world: coopWorldNew}, "the host picks the world"},
 		{Flags{on: true, world: "0123456789abcdef"}, "the host picks the world"},
 		{Flags{on: true, merge: true}, "the host's choice"},
-		{Flags{on: true, liveSwitches: true}, "--coop-live-switches is the host's choice"},
+		{Flags{on: true, liveSwitches: true}, ""}, // the default, not the joiner's choice
+		{Flags{on: true, liveSwitches: true, liveSet: true}, "--coop-live-switches is the host's choice"},
+		{Flags{on: true, liveSet: true}, "--coop-live-switches is the host's choice"}, // =off too
 		{Flags{on: true, dryRun: true, iso: "ww.iso"}, ""},
 	}
 	for _, tt := range tests {

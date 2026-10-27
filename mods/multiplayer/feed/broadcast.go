@@ -37,8 +37,8 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 	client.OnLog = func(msg string) { rep.Log(log.Net, msg) }
 	link := player.NewLink(d)
 
-	// Projectile events (fxsync, inject/include/wwfx.h; WW_PROJECTILES=on,
-	// default off): the REL's outbox of this Link's bombs, cannonballs and
+	// Projectile events (fxsync, inject/include/wwfx.h; on by default,
+	// WW_PROJECTILES=off turns them off): the REL's outbox of this Link's bombs, cannonballs and
 	// arrows, sent as MsgFx. Its words are written only into a game the
 	// contract check allows (quietly: puppet-sync reports the verdict),
 	// and the send word goes back to 0 when the broadcast ends.
@@ -46,7 +46,7 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 	var fx fxsync.Sender
 	fxGate := newContractGate(d, log.Discard{})
 	if fxSettings.On {
-		rep.Log(log.Info, "Projectile events on (WW_PROJECTILES): this Link's bombs, cannonballs and arrows are sent.")
+		rep.Log(log.Info, "Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.")
 		defer func() {
 			if fxGate.ok {
 				_ = fx.Arm(d, false)

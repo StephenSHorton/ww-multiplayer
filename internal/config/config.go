@@ -107,15 +107,18 @@ type Coop struct {
 	LastMode  string `json:"lastMode"` // "off", "new" or "continue"
 	LastWorld string `json:"lastWorld"`
 	DryRun    bool   `json:"dryRun"`
-	// Merge, LiveSwitches and ISO are the panel's Advanced choices:
-	// --coop-merge, --coop-live-switches and --coop-iso ("" for the disc
-	// patch last wrote).
-	Merge        bool   `json:"merge,omitempty"`
-	LiveSwitches bool   `json:"liveSwitches,omitempty"`
-	ISO          string `json:"iso,omitempty"`
+	// Merge, LiveSwitchesOff and ISO are the panel's Advanced choices:
+	// --coop-merge, --coop-live-switches=off and --coop-iso ("" for the
+	// disc patch last wrote). Live switches are on by default since
+	// v0.6.1, so the saved choice is the off one: a config from before,
+	// whose "liveSwitches" was saved only when on (omitempty), reads as
+	// on either way, and no old setting turns them off.
+	Merge           bool   `json:"merge,omitempty"`
+	LiveSwitchesOff bool   `json:"liveSwitchesOff,omitempty"`
+	ISO             string `json:"iso,omitempty"`
 	// BossKill and Refresh are the save-file panel's relay choices, each
 	// side's own (host or joiner): --coop-boss-kill ("" for its default,
-	// gohma,kalle,molgera,jalhalla,helmaroc) and --coop-refresh ("" for off).
+	// gohma,kalle,gohdan,molgera,jalhalla,helmaroc) and --coop-refresh ("" for off).
 	BossKill string `json:"bossKill,omitempty"`
 	Refresh  string `json:"refresh,omitempty"`
 	// SharesOff is what the host last turned off of what co-op shares

@@ -96,8 +96,12 @@ type Flags struct {
 	dryRun bool
 	// liveSwitches is --coop-live-switches (§6.3), the host's choice: the
 	// current table's memory switches apply when IDLE, once the room hold
-	// has passed, not at the next room change.
+	// has passed, not at the next room change. On by default since
+	// v0.6.1 (ExtractFlags); --coop-live-switches=off turns it off.
 	liveSwitches bool
+	// liveSet says --coop-live-switches[=...] was given: a joiner that
+	// names it is refused (ForJoin), the default is not.
+	liveSet bool
 	// iso is --coop-iso: the disc image whose M1 stage tables the session
 	// uses; "" for the disc patch last wrote.
 	iso string
@@ -126,7 +130,7 @@ const coopWorldNew = "new"
 // JoinFlagsUsage is join's, which leaves the world and the host's
 // choices out.
 const (
-	FlagsUsage     = "[--coop[=new|<world-id>]] [--coop-merge] [--coop-live-switches] [--coop-dry-run] [--coop-iso <iso>] [--coop-boss-kill=" + replica.BossKillTokens + "|none] [--coop-refresh=" + replica.RefreshTokens + ",dry] [--yes]"
+	FlagsUsage     = "[--coop[=new|<world-id>]] [--coop-merge] [--coop-live-switches[=off]] [--coop-dry-run] [--coop-iso <iso>] [--coop-boss-kill=" + replica.BossKillTokens + "|none] [--coop-refresh=" + replica.RefreshTokens + ",dry] [--yes]"
 	JoinFlagsUsage = "[--coop] [--coop-dry-run] [--coop-iso <iso>] [--coop-boss-kill=" + replica.BossKillTokens + "|none] [--coop-refresh=" + replica.RefreshTokens + ",dry] [--yes]"
 )
 
@@ -138,11 +142,11 @@ const (
 // --coop-live-switches, --coop-iso or --yes alone stay in rest, where the
 // command's parser treats them as it always has.
 func ExtractFlags(args []string) (Flags, []string, error) {
-	var f Flags
+	f := Flags{liveSwitches: true} // live switches are on unless turned off (v0.6.1)
 	if !slices.ContainsFunc(coopOptionArgs(args), func(a string) bool {
 		return a == "--coop" || strings.HasPrefix(a, "--coop=")
 	}) {
-		return f, args, nil
+		return Flags{}, args, nil
 	}
 	iso, args, err := stagetables.TakeISO(args)
 	if err != nil {
@@ -171,8 +175,12 @@ func ExtractFlags(args []string) (Flags, []string, error) {
 			f.merge = true
 		case a == "--coop-dry-run":
 			f.dryRun = true
-		case a == "--coop-live-switches":
-			f.liveSwitches = true
+		case a == "--coop-live-switches" || strings.HasPrefix(a, "--coop-live-switches="):
+			on, err := parseOnOff(a, "--coop-live-switches")
+			if err != nil {
+				return Flags{}, nil, err
+			}
+			f.liveSwitches, f.liveSet = on, true
 		case strings.HasPrefix(a, "--coop-boss-kill="):
 			v := strings.TrimPrefix(a, "--coop-boss-kill=")
 			if _, err := replica.ParseBossKill(v); err != nil {
@@ -194,6 +202,21 @@ func ExtractFlags(args []string) (Flags, []string, error) {
 	return f, rest, nil
 }
 
+// parseOnOff reads a boolean flag given bare (on) or as name=<value>:
+// on, true, yes or 1, and off, false, no or 0.
+func parseOnOff(a, name string) (bool, error) {
+	if a == name {
+		return true, nil
+	}
+	switch strings.ToLower(strings.TrimPrefix(a, name+"=")) {
+	case "on", "true", "yes", "1":
+		return true, nil
+	case "off", "false", "no", "0":
+		return false, nil
+	}
+	return false, fmt.Errorf("%s: say %s=on or %s=off", a, name, name)
+}
+
 // coopOptionArgs is args up to a bare "--".
 func coopOptionArgs(args []string) []string {
 	if i := slices.Index(args, "--"); i >= 0 {
@@ -211,7 +234,7 @@ func (f Flags) ForJoin() error {
 		return fmt.Errorf("--coop=%s: the host picks the world; join with --coop", f.world)
 	case f.merge:
 		return errors.New("--coop-merge is the host's choice, not the joiner's")
-	case f.liveSwitches:
+	case f.liveSet:
 		return errors.New("--coop-live-switches is the host's choice, not the joiner's")
 	}
 	return nil
@@ -610,7 +633,7 @@ func (cs *Session) startHub(rep log.Reporter, srvLog func(string), f Flags, st *
 	}
 	live := ""
 	if f.liveSwitches {
-		live = "; --coop-live-switches: the current table's switches apply when idle, once every shown room's actors have run 2 s"
+		live = "; live switches: the current table's switches apply when idle, once every shown room's actors have run 2 s (--coop-live-switches=off waits for the next room change)"
 	}
 	log.Logf(rep, log.OK, "Co-op world %s at seq %d: the world's chests, pickups, rooms, dungeon items, latching switches, ocean, charts, story bits and items are written into each bound game, and its small keys, max hearts and max magic derived (--coop-dry-run only logs them%s%s).", cs.world, st.Seq(), merge, live)
 	cs.console.help()
