@@ -224,18 +224,40 @@ type Redactor struct {
 
 // tokenRe matches a value labelled as a token, secret, password or key:
 // "token=abc", "token: abc", `"token":"abc"`. The lobby's reconnect token
-// (docs/01) is the first secret the app has.
-var tokenRe = regexp.MustCompile(`(?i)("?(?:token|secret|password|passwd|api[_-]?key)"?\s*[:=]\s*"?)([^\s",}]+)`)
+// (docs/01) is the first secret the app has. A dedicated server's owner
+// key ("owner key: abc", WW_OWNER_KEY=abc, `"ownerKey":"abc"`, docs/10 §3)
+// is the other: `server` prints a generated one labelled, so a saved
+// console added to a bug report loses it.
+var tokenRe = regexp.MustCompile(`(?i)("?(?:token|secret|password|passwd|api[_-]?key|owner[ _-]?key|ownerKey|WW_OWNER_KEY)"?\s*[:=]\s*"?)([^\s",}]+)`)
 
 // Redact returns line with the home directory as ~ and token values as
-// <redacted>.
+// <redacted>. A Windows home is matched in its MSYS form too (Git Bash,
+// MSYS2: C:\Users\Ann is /c/Users/Ann), as a pasted shell capture has it.
 func (r Redactor) Redact(line string) string {
 	if h := strings.TrimRight(r.Home, `\/`); len(h) > 1 {
-		for _, form := range []string{h, filepath.ToSlash(h), strings.ReplaceAll(h, `\`, `\\`)} {
+		forms := []string{h, filepath.ToSlash(h), strings.ReplaceAll(h, `\`, `\\`)}
+		if m := msysPath(h); m != "" {
+			forms = append(forms, m)
+		}
+		for _, form := range forms {
 			line = replaceFold(line, form, "~")
 		}
 	}
 	return tokenRe.ReplaceAllString(line, "${1}<redacted>")
+}
+
+// msysPath is a Windows drive path in its MSYS form (C:\Users\Ann ->
+// /c/Users/Ann), "" for a path with no drive letter. It converts the
+// separators itself: filepath.ToSlash only does on Windows.
+func msysPath(p string) string {
+	if len(p) < 3 || p[1] != ':' || (p[2] != '\\' && p[2] != '/') {
+		return ""
+	}
+	d := p[0] | 0x20 // lower case
+	if d < 'a' || d > 'z' {
+		return ""
+	}
+	return "/" + string(d) + strings.ReplaceAll(p[2:], `\`, "/")
 }
 
 // replaceFold replaces old in s, ignoring case on Windows (where paths do).

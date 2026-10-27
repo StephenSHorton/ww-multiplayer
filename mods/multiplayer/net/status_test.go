@@ -146,3 +146,43 @@ func TestStatusProbeOtherAnswer(t *testing.T) {
 		ln.Close()
 	}
 }
+
+// TestStatusProbeNotAnswer: another program that replies (an HTTP server, a
+// frame cut off after its header or mid-header) is ErrStatusNotAnswer, not
+// ErrStatusLegacy; only a close with not one byte sent is legacy
+// (docs/11-self-hosting.md §5: exit 1 and exit 3).
+func TestStatusProbeNotAnswer(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		reply  string
+		legacy bool
+	}{
+		{"http", "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n", false},
+		{"header only", "S\x00\x10", false},
+		{"half a header", "S\x00", false},
+		{"nothing", "", true},
+	} {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func(reply string) {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer c.Close()
+			c.Read(make([]byte, 3))
+			c.Write([]byte(reply))
+		}(c.reply)
+		_, err = ProbeStatus(context.Background(), ln.Addr().String(), 2*time.Second)
+		if c.legacy {
+			if !errors.Is(err, ErrStatusLegacy) {
+				t.Errorf("%s: %v, want ErrStatusLegacy", c.name, err)
+			}
+		} else if !errors.Is(err, ErrStatusNotAnswer) || errors.Is(err, ErrStatusLegacy) {
+			t.Errorf("%s: %v, want ErrStatusNotAnswer", c.name, err)
+		}
+		ln.Close()
+	}
+}

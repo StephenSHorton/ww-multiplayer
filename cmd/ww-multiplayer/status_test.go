@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -91,5 +93,46 @@ func TestStatusAgainstServer(t *testing.T) {
 	var w bytes.Buffer
 	if code := reportStatus(&w, a, b, err); code != statusUp {
 		t.Fatalf("exit %d: %s", code, w.String())
+	}
+}
+
+// TestStatusExitCodes: the exit codes against fake listeners, as
+// docs/11-self-hosting.md §5 has them: another program's reply (HTTP) is 1,
+// a close with no reply (a server from before the probe) 3, a status
+// answer with another protocol 3.
+func TestStatusExitCodes(t *testing.T) {
+	other, _ := json.Marshal(network.StatusBody{App: network.StatusApp, Version: "v0.4.9", Protocol: network.ProtocolVersion - 1, Phase: "lobby"})
+	frame := append([]byte{network.MsgStatus, 0, 0}, other...)
+	binary.BigEndian.PutUint16(frame[1:3], uint16(len(other)))
+	for _, c := range []struct {
+		name  string
+		reply []byte
+		code  int
+		text  string
+	}{
+		{"http", []byte("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n"), statusUnreachable, "not ww-multiplayer"},
+		{"closes", nil, statusOther, "older ww-multiplayer"},
+		{"protocol 5", frame, statusOther, "both need the same version"},
+	} {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func(reply []byte) {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer c.Close()
+			c.Read(make([]byte, 3))
+			c.Write(reply)
+		}(c.reply)
+		a := statusArgs{addr: ln.Addr().String(), timeout: 2 * time.Second}
+		b, err := network.ProbeStatus(context.Background(), a.addr, a.timeout)
+		var w bytes.Buffer
+		if code := reportStatus(&w, a, b, err); code != c.code || !strings.Contains(w.String(), c.text) {
+			t.Errorf("%s: exit %d %q, want %d %q", c.name, code, w.String(), c.code, c.text)
+		}
+		ln.Close()
 	}
 }

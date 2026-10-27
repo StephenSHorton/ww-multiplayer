@@ -61,9 +61,11 @@ func RunServer(o ServerOptions) {
 	switch {
 	case o.KeyGenerated:
 		// Printed once, here only (the log lines never carry it). A
-		// restart makes a new one; WW_OWNER_KEY keeps one.
-		fmt.Println("Owner key (made for this run; set WW_OWNER_KEY to keep one across restarts):")
-		fmt.Println("  " + o.OwnerKey)
+		// restart makes a new one; WW_OWNER_KEY keeps one. Labelled on its
+		// own line, so a saved console added to a bug report loses it
+		// (applog's token redaction).
+		fmt.Println("Owner key made for this run (set WW_OWNER_KEY to keep one across restarts):")
+		fmt.Println("  owner key: " + o.OwnerKey)
 		fmt.Println("The app player who joins with it (Join, Advanced: dedicated server owner key) becomes the lobby's host.")
 	case o.OwnerKey != "":
 		fmt.Println("Owner key set: the app player who joins with it becomes the lobby's host.")

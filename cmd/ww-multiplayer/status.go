@@ -25,7 +25,7 @@ const statusUsage = "status <host[:port]|code> [--json] [--timeout D]"
 // command's does (cliutil.ExitUsage).
 const (
 	statusUp          = 0 // a server of this protocol answered
-	statusUnreachable = 1 // the dial or the probe failed
+	statusUnreachable = 1 // the dial or the probe failed, or the reply was not a status
 	statusOther       = 3 // something answered, but no server this build can play with
 )
 
@@ -95,6 +95,8 @@ func reportStatus(w io.Writer, a statusArgs, b network.StatusBody, err error) in
 	switch {
 	case errors.Is(err, network.ErrStatusLegacy):
 		code, verdict = statusOther, "no status: an older ww-multiplayer or another program"
+	case errors.Is(err, network.ErrStatusNotAnswer):
+		code, verdict = statusUnreachable, "not ww-multiplayer: "+err.Error()
 	case err != nil && b.App != "":
 		code, verdict = statusOther, err.Error()
 	case err != nil:
