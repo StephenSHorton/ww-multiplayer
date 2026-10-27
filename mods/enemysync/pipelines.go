@@ -129,9 +129,9 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 	if connLog == nil {
 		connLog = network.NewConnectLog(addr, func(s string) { rep.Log(log.Warn, s) }, func(s string) { rep.Log(log.OK, s) })
 	}
-	gate := hostGate{rep: rep}
+	loop := newHostLoop(d, rep, host, applier, remote, roster.Snapshot, hits)
 	session := func(ctx context.Context, send func([]byte) error) error {
-		var last *State
+		loop.last = nil // a new connection's ACKs answer this connection's STATEs
 		t := time.NewTicker(Tick)
 		defer t.Stop()
 		for {
@@ -140,77 +140,120 @@ func HostPipeline(ctx context.Context, env Env, name, addr string, dolphinPID ui
 				return nil
 			case <-t.C:
 			}
-			now := time.Now()
-			relOK := gate.check(d, now)
-			applier.SetREL(relOK)
-			// The remote players' positions order the host's candidates
-			// (with the host Link's own): those drawn here as a live
-			// mini-Link, the ones in this stage (the roster carries no room).
-			views, viewsAt := roster.Snapshot()
-			var players [][3]float32
-			if !viewsAt.IsZero() && now.Sub(viewsAt) <= RosterStale {
-				for _, v := range views {
-					if v.LinkSlot >= 0 && v.Live {
-						players = append(players, v.Pos)
-					}
-				}
-			}
-			host.SetPlayers(players)
-			st, err := host.Tick(now)
-			if err != nil {
-				log.Logf(rep, log.Warn, "enemy host: %v", err)
-				continue
-			}
-			if st != nil {
-				last = st
-				b, err := EncodeState(st)
-				if err != nil {
-					log.Logf(rep, log.Warn, "enemy host: %v", err)
-					continue
-				}
-				if err := send(b); err != nil {
-					return fmt.Errorf("send STATE: %w", err)
-				}
-			}
-			for drained := false; !drained; {
-				select {
-				case h := <-hits:
-					if ack := applier.Offer(h, last, host.Listing(), now); ack != nil {
-						send(EncodeAck(ack))
-					} else {
-						host.NoteEngaged(h.Handle, now) // a hit that landed and was queued
-					}
-				default:
-					drained = true
-				}
-			}
-			// The hits held over the host Link's demo: applied once it
-			// ends, or dropped (aged out, the target gone).
-			for _, ack := range applier.ReleaseHeld(last, host.Listing(), now) {
-				send(EncodeAck(ack))
-			}
-			ack, err := applier.Poll(last, now)
-			if err != nil {
-				log.Logf(rep, log.Warn, "enemy host: %v", err)
-			} else if ack != nil {
-				send(EncodeAck(ack))
-			}
-			if err := applier.Keepalive(host.Scope(), now); err != nil {
-				log.Logf(rep, log.Warn, "enemy host: keepalive: %v", err)
-			}
-			phits, err := remote.Tick(now, host.Scope(), relOK, views, viewsAt, host.Listing())
-			if err != nil {
-				log.Logf(rep, log.Warn, "enemy remote: %v", err)
-			}
-			for _, p := range phits {
-				host.NoteEngaged(p.SetID, now) // the attacker's handle
-				if b, err := EncodePHit(p); err == nil {
-					send(b)
-				}
+			if err := loop.step(time.Now(), send); err != nil {
+				return err
 			}
 		}
 	}
 	return network.RunEnemy(ctx, client, addr, connLog, session)
+}
+
+// hostLoop is one enemy host's tick (HostPipeline's session runs step
+// every Tick): sample, send the STATE, apply the clients' hits, keep the
+// block alive, run the remote-Link side. Each site that can fail on every
+// tick logs through a repeatWarn: a Dolphin that died or stopped answering
+// fails host.Tick 60 times a second, and that is one "paused" Warn, a
+// count every RepeatEvery and one "resumed" OK at the next good tick,
+// never a line per tick. The loop pauses rather than ending the enemy
+// session: a stall that clears (a hitch, a debugger, a Dolphin paused)
+// resumes with nothing restarted, and a Dolphin that is gone for good is
+// a Dolphin change, which the app's GameRunner answers by running the
+// pipelines again (docs/05 "Shared enemies").
+type hostLoop struct {
+	rep     log.Reporter
+	m       mem.Reader // the gate's reads
+	host    *Host
+	applier *HitApplier
+	remote  *RemoteHost
+	roster  func() ([]posefeed.RemoteView, time.Time)
+	hits    <-chan *Hit
+	gate    hostGate
+	last    *State // the last STATE sent on this connection
+
+	tickWarn, encodeWarn, pollWarn, keepWarn, remoteWarn *repeatWarn
+}
+
+func newHostLoop(m mem.Reader, rep log.Reporter, host *Host, applier *HitApplier, remote *RemoteHost, roster func() ([]posefeed.RemoteView, time.Time), hits <-chan *Hit) *hostLoop {
+	return &hostLoop{
+		rep: rep, m: m, host: host, applier: applier, remote: remote, roster: roster, hits: hits,
+		gate:       hostGate{rep: rep},
+		tickWarn:   pausedWarn(rep, "enemy host", "no enemy STATE and no hits"),
+		encodeWarn: plainWarn(rep, "enemy host"),
+		pollWarn:   plainWarn(rep, "enemy host"),
+		keepWarn:   plainWarn(rep, "enemy host: keepalive"),
+		remoteWarn: plainWarn(rep, "enemy remote"),
+	}
+}
+
+// step runs one tick at now; an error is send's (the connection is gone).
+func (l *hostLoop) step(now time.Time, send func([]byte) error) error {
+	relOK := l.gate.check(l.m, now)
+	l.applier.SetREL(relOK)
+	// The remote players' positions order the host's candidates (with the
+	// host Link's own): those drawn here as a live mini-Link, the ones in
+	// this stage (the roster carries no room).
+	var views []posefeed.RemoteView
+	var viewsAt time.Time
+	if l.roster != nil {
+		views, viewsAt = l.roster()
+	}
+	var players [][3]float32
+	if !viewsAt.IsZero() && now.Sub(viewsAt) <= RosterStale {
+		for _, v := range views {
+			if v.LinkSlot >= 0 && v.Live {
+				players = append(players, v.Pos)
+			}
+		}
+	}
+	l.host.SetPlayers(players)
+	st, err := l.host.Tick(now)
+	l.tickWarn.Note(err, now)
+	if err != nil {
+		return nil
+	}
+	if st != nil {
+		l.last = st
+		b, err := EncodeState(st)
+		l.encodeWarn.Note(err, now)
+		if err != nil {
+			return nil
+		}
+		if err := send(b); err != nil {
+			return fmt.Errorf("send STATE: %w", err)
+		}
+	}
+	for drained := false; !drained; {
+		select {
+		case h := <-l.hits:
+			if ack := l.applier.Offer(h, l.last, l.host.Listing(), now); ack != nil {
+				send(EncodeAck(ack))
+			} else {
+				l.host.NoteEngaged(h.Handle, now) // a hit that landed and was queued
+			}
+		default:
+			drained = true
+		}
+	}
+	// The hits held over the host Link's demo: applied once it ends, or
+	// dropped (aged out, the target gone).
+	for _, ack := range l.applier.ReleaseHeld(l.last, l.host.Listing(), now) {
+		send(EncodeAck(ack))
+	}
+	ack, err := l.applier.Poll(l.last, now)
+	l.pollWarn.Note(err, now)
+	if err == nil && ack != nil {
+		send(EncodeAck(ack))
+	}
+	l.keepWarn.Note(l.applier.Keepalive(l.host.Scope(), now), now)
+	phits, err := l.remote.Tick(now, l.host.Scope(), relOK, views, viewsAt, l.host.Listing())
+	l.remoteWarn.Note(err, now)
+	for _, p := range phits {
+		l.host.NoteEngaged(p.SetID, now) // the attacker's handle
+		if b, err := EncodePHit(p); err == nil {
+			send(b)
+		}
+	}
+	return nil
 }
 
 // hostGate is the host's contract and REL gate, checked every
@@ -322,17 +365,22 @@ func RunMirror(ctx context.Context, mirror *Mirror, name, addr string, rep log.R
 	if connLog == nil {
 		connLog = network.NewConnectLog(addr, func(s string) { rep.Log(log.Warn, s) }, func(s string) { rep.Log(log.OK, s) })
 	}
+	// As the host's loop (hostLoop): a tick that fails on every tick (a
+	// dead Dolphin, every GateSleep) is one paused Warn, a count every
+	// RepeatEvery and one resumed OK, never a line per tick.
+	tickWarn := pausedWarn(rep, "enemy client", "no copies moved and no hits sent")
+	remoteWarn := plainWarn(rep, "enemy remote")
 	session := func(ctx context.Context, send func([]byte) error) error {
 		for {
 			now := time.Now()
 			hits, sleep, err := mirror.Tick(now)
+			if err != nil && errors.Is(err, write.ErrOff) {
+				rep.Log(log.Err, "enemy client: "+err.Error())
+				<-ctx.Done()
+				return nil
+			}
+			tickWarn.Note(err, now)
 			if err != nil {
-				if errors.Is(err, write.ErrOff) {
-					rep.Log(log.Err, "enemy client: "+err.Error())
-					<-ctx.Done()
-					return nil
-				}
-				log.Logf(rep, log.Warn, "enemy client: %v", err)
 				sleep = GateSleep
 			}
 			for _, h := range hits {
@@ -344,9 +392,7 @@ func RunMirror(ctx context.Context, mirror *Mirror, name, addr string, rep log.R
 			if mirror.Remote != nil && err == nil {
 				if scope, serr := ReadScope(mirror.m); serr == nil {
 					out, rerr := mirror.Remote.Tick(now, scope, mirror.RemoteGate())
-					if rerr != nil {
-						log.Logf(rep, log.Warn, "enemy remote: %v", rerr)
-					}
+					remoteWarn.Note(rerr, now)
 					for _, b := range out {
 						send(b)
 					}
