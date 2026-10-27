@@ -30,12 +30,12 @@ What works today:
   (`ww-multiplayer mods` lists them)
 
 Known limits:
-- Only Outset Island has been heavily tested. Stage / room transitions
-  aren't gracefully handled yet: without co-op, your friend's Link just
-  renders at the last known coords if they cross to a different stage
-  (in a two-player co-op world it is hidden while they are elsewhere).
+- Only Outset Island has been heavily tested. A friend in another stage
+  is hidden in your game until they are back in yours; that stage check
+  for every player (relay scoping) is new and has not been tested live
+  yet.
 - Other enemy types still run separately on each player's game. Only the
-  first two other players get bodies, and each player mirrors at most 4
+  first three other players get bodies, and each player mirrors at most 4
   enemies at once. Shared enemies have not yet been tested over the
   internet.
 - Internet play needs a port-forward or a VPN such as Tailscale (see
@@ -54,8 +54,8 @@ Active work is tracked in [GitHub issues](../../issues) — epics group related 
 
 You need a recent [Dolphin](https://dolphin-emu.org/) (the patched disc
 needs 48 MB of memory, and the app sets this itself every time it starts
-Dolphin) and your own legitimate copy of Wind Waker (NTSC-U, game ID `GZLE01`, `.iso`
-or `.ciso`). **Download the app, double-click it**, and it walks you
+Dolphin) and your own legitimate copy of Wind Waker (NTSC-U, game ID `GZLE01`, `.iso`,
+`.ciso`, `.rvz`, `.wia` or `.gcz`). **Download the app, double-click it**, and it walks you
 through the rest.
 
 ### Windows
@@ -140,7 +140,7 @@ original game-code bytes.
 ## Playing
 
 **Both players must run the same version.** `ww-multiplayer version`
-prints it. This version can't play with v0.4.1 or older, so upgrade
+prints it. This version can't play with v0.5.0 or older, so upgrade
 together. The host also turns away a player whose built-in mods differ
 from its own.
 

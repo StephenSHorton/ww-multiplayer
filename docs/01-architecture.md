@@ -50,7 +50,7 @@ Cross-platform process memory access: `kernel32.dll` (ReadProcessMemory / WriteP
 
 Simple TCP-based protocol with message framing (`[type:1][length:2][data]`). Message types:
 - `J` (Join) — client announces name
-- `H` (Hello) — protocol version, and from protocol 2 the connection role and caps (`handshake.go`); protocol 3 (enemy sync) adds the enemy-host and enemy-client roles
+- `H` (Hello) — protocol version, and from protocol 2 the connection role and caps (`handshake.go`); protocol 3 (enemy sync) adds the enemy-host and enemy-client roles. This build speaks protocol 6 (`ProtocolVersion`; the list of versions is in `handshake.go`)
 - `W` (Welcome) — server assigns an ID; `R` (Reject) — the server refuses the connection, with a code and a reason
 - `P` (Position) — 18-byte position update (3 floats + 3 int16s); `M` (Pose) — the skeletal pose
 - `L` (PlayerList) — server announces who's connected (with the tunic-color trailer, docs/09); `D` (Leave)
@@ -58,8 +58,11 @@ Simple TCP-based protocol with message framing (`[type:1][length:2][data]`). Mes
 - `K` / `Q` (Ping / Pong) — heartbeat and RTT
 - `O` (Coop) — co-op sub-messages, on a co-op connection only (docs/08)
 - `B` (Lobby) — lobby sub-messages with JSON bodies, on a lobby connection only (docs/10-lobby.md)
+- `E` (Enemy) — enemy-sync sub-messages (STATE, HIT, ACK, ...), on an enemy connection only (`enemy.go`)
+- `X` (Fx) — one projectile event, on a player connection; the server relays it with the sender's ID (`fx.go`, protocol 6)
+- `S` (Status) — the status probe: sent instead of `J`, answered with one JSON status and a close (`status.go`, docs/11-self-hosting.md)
 
-A connection has one of three roles, set in its hello: a **player** (pose, position, chat and the roster; every CLI connection), a **co-op** connection (`RoleCoop`, the co-op pipeline), or a **lobby** connection (`RoleLobby`, the desktop app's pre-game lobby: members, colors, ready flags, the host's co-op settings, Start). Co-op and lobby connections are never players: not in the roster, the player count or the relays. Every server has a lobby (`LobbyHub`), inert until a lobby connection arrives; a server from before the lobby refuses the role with `RejectRole`, and the app then joins directly, so the protocol version stayed 2. The server's `CoopHandler` can be set after `Start` (`Server.SetCoop`); while the lobby's host has chosen co-op and the session isn't in game yet, a co-op hello is held for it instead of refused, and `Stop` releases a held one (docs/10-lobby.md §7). A name the lobby's host kicked gets `MsgReject` (`RejectBadName`) on player and co-op connections until the lobby empties, so a reconnecting CLI join stops. Lobby connections are rate-limited and STATE is merged per connection, so a member can't make the server flood the others (docs/10-lobby.md §3).
+A connection has one of five roles, set in its hello: a **player** (pose, position, chat and the roster; every CLI connection), a **co-op** connection (`RoleCoop`, the co-op pipeline), a **lobby** connection (`RoleLobby`, the desktop app's pre-game lobby: members, colors, ready flags, the host's co-op settings, Start), or an **enemy host** or **enemy client** connection (`RoleEnemyHost`, one per server, and `RoleEnemyClient`: the enemy pipelines, `MsgEnemy` and the heartbeat alone). Co-op, lobby and enemy connections are never players: not in the roster, the player count or the relays. Every server has a lobby (`LobbyHub`), inert until a lobby connection arrives; a server from before the lobby refuses the role with `RejectRole`, and the app then joins directly, so the protocol version stayed 2. The server's `CoopHandler` can be set after `Start` (`Server.SetCoop`); while the lobby's host has chosen co-op and the session isn't in game yet, a co-op hello is held for it instead of refused, and `Stop` releases a held one (docs/10-lobby.md §7). A name the lobby's host kicked gets `MsgReject` (`RejectBadName`) on player and co-op connections until the lobby empties, so a reconnecting CLI join stops. Lobby connections are rate-limited and STATE is merged per connection, so a member can't make the server flood the others (docs/10-lobby.md §3).
 
 Server runs on port `25565`. UDP would be lower-latency for position data, but TCP works for LAN, VPN and port-forwarded internet play.
 

@@ -119,7 +119,7 @@ import (
 // check and a real hammer fight passed, docs/TESTING.md "Batch F";
 // Molgera and Jalhalla since MB-2, JH-1 and the two-Dolphin checks passed
 // with a real Hookshot pull and a real light freeze and spike throw,
-// "Batch E"). Gohdan joins the default once GD-2 and the D4 live check
+// "Batch E"). Gohdan joins the default once GD-4 and the D4 live check
 // pass (G-D1; docs/TESTING.md "Batch D"); until then it is asked for only
 // when named, e.g. --coop-boss-kill=gohma,kalle,gohdan. A row
 // left out is held as before (bossHold) and logged once; the WriteGuard
@@ -151,7 +151,7 @@ const (
 	// BossKillDefault is the --coop-boss-kill row set when none is given:
 	// Gohma, Kalle Demos, Molgera, Jalhalla and Helmaroc King
 	// (docs/TESTING.md "Batch E" and "Batch F"). Gohdan joins it after
-	// GD-2 and the D4 live check (enemy-mirror-batch-d.json G-D1).
+	// GD-4 and the D4 live check (enemy-mirror-batch-d.json G-D1).
 	BossKillDefault = "gohma,kalle,molgera,jalhalla,helmaroc"
 	// BossKillTokens names every --coop-boss-kill token, for the usage.
 	BossKillTokens = "gohma,kalle,gohdan,molgera,jalhalla,helmaroc"

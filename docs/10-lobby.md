@@ -87,7 +87,7 @@ The dialog's first button, "Open Mods", opens the Mods page, where a compiled-in
 | Lobby client (the app) | lobby hello → `RejectRole` → `network.IsLegacyHost(err)` → the controller joins directly | full lobby |
 | Mods hash (this build) | ignored: HELLO's `modsHash`, and a player hello's `CapModsHash` and hash, are unknown to it | checked: another hash is refused (`mods_differ`, `RejectMods`); none is admitted |
 
-The table is protocol 2's. Since enemy sync, `ProtocolVersion` is 3: a protocol-2 build (v0.4.1 or older) and this one refuse each other at the hello with `RejectVersion` (the version dialog), whatever the role, and the LAN list greys the other build (`TestVersion2PeersRefused`, `TestClientsStopOnVersion2Welcome`; the LAN list: `TestLanSessionViewMasked`). The doubles below now model a protocol-3 server.
+The table is protocol 2's. `ProtocolVersion` has moved on since: 3 with enemy sync (v0.5.0), then 4 and 5 with the enemy mirror's batches C and D, and 6 with the projectile events (`handshake.go`). An older build (v0.5.0 or older, and the unreleased batch C and D builds) and this one refuse each other at the hello with `RejectVersion` (the version dialog), whatever the role, and the LAN list greys the other build (`TestVersion2PeersRefused`, `TestClientsStopOnVersion2Welcome`; the LAN list: `TestLanSessionViewMasked`). The doubles below model a server at this build's `ProtocolVersion`.
 
 `TestLobbyMixedVersions` runs a pre-lobby player client's exact bytes (at this build's protocol) against a server with a live lobby; `TestLobbyLegacyHostFallback` runs the lobby client against a stub of the pre-lobby server (and a protocol-1 one, which stays a version error).
 
