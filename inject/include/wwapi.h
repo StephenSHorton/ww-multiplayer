@@ -265,6 +265,12 @@ typedef void* (*dRes_getRes_byIdx_t)(
 #define dRes_getRes_byIdx ((dRes_getRes_byIdx_t)0x8006F208)
 #define MOBJECT_INFO      ((void*)0x803E0BC8)
 #define OBJECT_INFO_COUNT 64
+// dRes_control_c::getResInfo (static, d_resorce.h:59): the named archive's
+// dRes_info_c or NULL, without getResInfoLoaded's per-call OSReport_Error
+// (d_resorce.cpp:630,633). mpArchive (+0x14) stays NULL while it is read.
+typedef void* (*dRes_getResInfo_t)(const char* arcName, void* pInfo, int infoNum);
+#define dRes_getResInfo   ((dRes_getResInfo_t)0x8006F0E8)
+#define RES_INFO_ARCHIVE_OFF 0x14
 #define LINK_BDL_CL       0x18
 
 typedef J3DModel* (*mDoExt_J3DModel_create_t)(
@@ -433,6 +439,10 @@ typedef void (*J3DJoint_entryIn_t)(J3DJoint* self);
 #define DRAWLIST_OPA_LIST_P0_PTR  0x803CA92C
 #define DRAWLIST_OPA_LIST_P1_PTR  0x803CA930
 #define DRAWLIST_XLU_LIST_P1_PTR  0x803CA934
+// dDlst_list_c::mpView (+0x234, d_drawlist.h:694): NULL in a stage's first
+// frames; setLightTevColorType_sub reads its mNear/mFar (+0xC8/+0xCC,
+// f_op_view.h:46) for every fogged material (d_kankyo.cpp:1840-1841).
+#define DRAWLIST_VIEW_PTR         0x803CAB58
 
 // j3dSys offsets (per JSystem/J3DGraphBase/J3DSys.h).
 #define J3D_SYS_DRAWBUFFER_OPA_OFFSET 0x48

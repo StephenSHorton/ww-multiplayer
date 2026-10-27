@@ -18,8 +18,8 @@
 //     drawn at the remote's streamed height, so a hull on our waves would
 //     leave it floating or sunk. No dead reckoning, no wave sampling.
 //   - Models only while this game's "Ship" archive is resident (the sea
-//     and the stages that carry a Ship actor), checked every frame against
-//     dRes_getRes_byIdx; no dComIfG_resLoad of our own. Parked boats are
+//     and the stages that carry a Ship actor), checked every frame (bt_res,
+//     without getRes's log); no dComIfG_resLoad of our own. Parked boats are
 //     only ever on such a stage (the remote's ship was there).
 //   - One solid heap per entry from GameHeap (as daShip_c::createHeap's
 //     own actor heap), destroyed when the entry empties, the archive goes
@@ -220,7 +220,12 @@ static void bt_err(u32 e) {
     BT_WORD(WWBOAT_STAT_ERR_OFF) = e;
 }
 
+// Asked quietly first: getRes logs an error per call while the archive is
+// not mounted or still reading, and boats_frame and bt_sail_entry ask
+// every frame (the title and every stage without a ship).
 static void* bt_res(const char* arc, u32 idx) {
+    u8* info = (u8*)dRes_getResInfo(arc, MOBJECT_INFO, OBJECT_INFO_COUNT);
+    if (!info || !*(volatile u32*)(info + RES_INFO_ARCHIVE_OFF)) return 0;
     return dRes_getRes_byIdx(arc, (s32)idx, MOBJECT_INFO, OBJECT_INFO_COUNT);
 }
 
@@ -615,6 +620,7 @@ void boats_draw(void) {
         u8* tev = (u8*)b->tev;
         if (!b->heap || !b->posed) continue;
         if (BT_STAY_NO < 0) continue;     // a stage's first frames: no room to light it for yet
+        if (!bt_mem1(*(volatile u32*)DRAWLIST_VIEW_PTR)) continue;   // nor a view for the hull's fog
         // Lit for the room this game stands in (on the sea the remote's
         // square may not be loaded here), as daShip_c::draw (d_a_ship.cpp:253-255).
         tev[TEV_ROOM] = (u8)BT_STAY_NO;
