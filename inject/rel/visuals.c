@@ -221,6 +221,7 @@ static void vis_enter(J3DModel* model, const f32* mtx, void* link) {
     u8* data = *(u8**)((u8*)model + J3DMODEL_DATA_OFF);
     u32 saved[VIS_SAVE_MAX];
     int n, i;
+    if (!vis_in_mem1(*(volatile u32*)DRAWLIST_VIEW_PTR)) return;   // a stage's first frames: no view to light with
 
     vis_mtx_copy((f32*)((u8*)model + J3DMODEL_BASE_TR_MTX_OFFSET), mtx);
 
