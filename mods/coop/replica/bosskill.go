@@ -121,7 +121,8 @@ import (
 // with a real Hookshot pull and a real light freeze and spike throw,
 // "Batch E"). Gohdan joins the default once GD-4 and the D4 live check
 // pass (G-D1; docs/TESTING.md "Batch D"); until then it is asked for only
-// when named, e.g. --coop-boss-kill=gohma,kalle,gohdan. A row
+// when named, and a list replaces the default, so all six are named:
+// --coop-boss-kill=gohma,kalle,gohdan,molgera,jalhalla,helmaroc. A row
 // left out is held as before (bossHold) and logged once; the WriteGuard
 // takes every row's proc whatever the set (bossRules).
 
