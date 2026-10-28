@@ -19,7 +19,13 @@ import (
 // game, for the armed line.
 func writtenClasses(f proto.Feature) string {
 	parts := []string{"the world's chests, pickups, rooms, dungeon items, ocean and charts"}
-	if f&proto.FeatureSwitches != 0 {
+	switch {
+	case f&proto.FeatureSwitches == 0:
+	case f&proto.FeatureLiveSwitches != 0:
+		// The loaded table's switches apply when idle once the room hold
+		// has passed (§6.3), the default since v0.6.1.
+		parts = append(parts, "its latching switches (live: in the room you stand in, once idle)")
+	default:
 		parts = append(parts, "its latching switches (at room changes)")
 	}
 	if f&proto.FeatureStory != 0 {

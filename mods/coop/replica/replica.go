@@ -1271,15 +1271,18 @@ func (r *Replica) onCtrl(m *wire.Ctrl, out *outbox) {
 
 // worldMsg is the file's WORLD: its shared bits (and the DERIVED bytes the
 // hub's preflight reads) within the policy, without tombstoned bits.
-func (r *Replica) worldMsg(o *obs) *wire.World {
+func (r *Replica) worldMsg(o *obs) *wire.World { return r.worldMsgWithin(o, r.policy) }
+
+// worldMsgWithin is worldMsg within pol.
+func (r *Replica) worldMsgWithin(o *obs, pol *world.Policy) *wire.World {
 	img := o.raw
 	wire.StripLocal(&img)
 	for off := range img {
 		if world.SharedMask(off) == 0 {
 			continue
 		}
-		v := img[off] & r.policy[off]
-		if class.Of(off).Class == class.Max && (img[off]&^r.policy[off] != 0 || v&r.tomb[off] != 0) {
+		v := img[off] & pol[off]
+		if class.Of(off).Class == class.Max && (img[off]&^pol[off] != 0 || v&r.tomb[off] != 0) {
 			v = 0
 		}
 		img[off] = v &^ r.tomb[off]
@@ -1291,8 +1294,23 @@ func (r *Replica) worldMsg(o *obs) *wire.World {
 	return m
 }
 
-// candidateMsg is an unbound file's WORLD for a bind ask.
-func (r *Replica) candidateMsg(o *obs) *wire.World { return r.worldMsg(o) }
+// candidateMsg is an unbound file's WORLD for a bind ask: worldMsg, with
+// the story bits of proto.DefaultPolicy added to this replica's policy.
+// The hub judges a bind on every byte the world takes, the story bits
+// included, whatever this session grants (hub.judge, docs/08 item 111):
+// a file bound now is merged whole by any later session that grants more.
+// A --coop-dry-run replica runs without the session policy (its policy is
+// world.DefaultPolicy, which shares no OR_MASKED byte), so without them
+// its WORLD showed no story at all, and the hub judged every file with
+// story far behind, the very file the world was founded from too (LIVE-6
+// block 4). A writing replica's policy has them already.
+func (r *Replica) candidateMsg(o *obs) *wire.World {
+	pol := *r.policy
+	for off, v := range proto.DefaultPolicy() {
+		pol[off] |= v
+	}
+	return r.worldMsgWithin(o, &pol)
+}
 
 func (r *Replica) gainsMsg(gs []world.Gain) *wire.GainsUp {
 	r.batch++

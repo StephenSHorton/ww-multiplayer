@@ -179,17 +179,24 @@ func (b *Bridge) UpdateStatus() UpdateView {
 	}
 	v.CanInstall = !v.Dev && update.AssetName(b.updSeam.goos) != "" && b.canInstallHere()
 	v.Installed = b.upd.installed
+	v.Repatch = b.diskPlan()
+	return v
+}
+
+// diskPlan is this start's discPlan (UpdateView.Repatch), decided at the
+// first call, UpdateStatus's or Setup's, and cleared once a re-patch
+// starts or a patch leaves the disc this build's.
+func (b *Bridge) diskPlan() string {
 	b.upd.planOnce.Do(func() {
 		eff, _ := b.effective()
-		plan := discPlan(eff, b.inspect, isFile, v.Installed != "")
+		plan := discPlan(eff, b.inspect, isFile, b.upd.installed != "")
 		b.upd.mu.Lock()
 		b.upd.plan = plan
 		b.upd.mu.Unlock()
 	})
 	b.upd.mu.Lock()
-	v.Repatch = b.upd.plan
-	b.upd.mu.Unlock()
-	return v
+	defer b.upd.mu.Unlock()
+	return b.upd.plan
 }
 
 // discPlan is what this start does with the disc c says the player boots:

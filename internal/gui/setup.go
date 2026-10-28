@@ -54,16 +54,21 @@ type SetupView struct {
 	Needed bool           `json:"needed"`
 	Gaps   []SetupGapView `json:"gaps"`
 	// Done is the config's setupDone: the setup was finished once.
-	Done       bool   `json:"done"`
-	Name       string `json:"name"`
-	Color      string `json:"color"` // "#RRGGBB", or "" when none was chosen (classic green)
-	Patched    string `json:"patched"`
-	PatchedOK  bool   `json:"patchedOK"`
-	Vanilla    string `json:"vanilla"`
-	VanillaOK  bool   `json:"vanillaOK"`
-	DolphinExe string `json:"dolphinExe"`
-	DolphinOK  bool   `json:"dolphinOK"`
-	UserDir    string `json:"userDir"`
+	Done      bool   `json:"done"`
+	Name      string `json:"name"`
+	Color     string `json:"color"` // "#RRGGBB", or "" when none was chosen (classic green)
+	Patched   string `json:"patched"`
+	PatchedOK bool   `json:"patchedOK"`
+	// PatchedStale says the patched disc is there but was patched by
+	// another version: the update plan (diskPlan) is "repatch" or "pick",
+	// so it is not OK, and Setup says it needs patching again rather than
+	// that it is gone.
+	PatchedStale bool   `json:"patchedStale"`
+	Vanilla      string `json:"vanilla"`
+	VanillaOK    bool   `json:"vanillaOK"`
+	DolphinExe   string `json:"dolphinExe"`
+	DolphinOK    bool   `json:"dolphinOK"`
+	UserDir      string `json:"userDir"`
 	// FileDialog says PickFile works (the window); in a browser the
 	// frontend asks for a typed path instead.
 	FileDialog bool `json:"fileDialog"`
@@ -209,6 +214,11 @@ func (b *Bridge) Setup() SetupView {
 		DolphinExe: c.Dolphin.Exe, DolphinOK: c.Dolphin.Exe != "" && isFile(c.Dolphin.Exe), UserDir: c.Dolphin.UserDir,
 		FileDialog: b.dialogs() != nil, Env: append([]string{}, env...),
 		Patch: b.PatchStatus(), Mac: b.macViewOf(st, macErr),
+	}
+	if v.PatchedOK {
+		if plan := b.diskPlan(); plan == "repatch" || plan == "pick" {
+			v.PatchedOK, v.PatchedStale = false, true
+		}
 	}
 	if col, err := playercolor.Parse(c.Color); err == nil && c.Color != "" {
 		v.Color = col.Hex()
