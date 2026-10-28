@@ -152,7 +152,9 @@ function fillGame() {
 	cur.replaceChildren();
 	const shown = patch && patch.stage !== "idle";
 	if (setup.patched && !shown) {
-		cur.append(check(setup.patchedOK ? "ok" : "fail", setup.patchedOK ? "Your patched disc" : "Your patched disc is gone", setup.patched));
+		cur.append(setup.patchedOK ? check("ok", "Your patched disc", setup.patched)
+			: setup.patchedStale ? check("warn", "Your patched disc needs patching again", "It was patched by another version: " + setup.patched)
+			: check("fail", "Your patched disc is gone", setup.patched));
 	}
 	$("s-game-error").textContent = "";
 	if (patch) renderPatch();
@@ -385,7 +387,9 @@ function fillDone() {
 	rows.append(setup.name
 		? check("ok", "You: " + setup.name, setup.color ? (sw ? cap(sw.name) : setup.color) + " tunic" : "Classic green tunic")
 		: check("warn", "No name yet", "Pick one in step 1, or on Home."));
-	rows.append(setup.patchedOK ? check("ok", "Your patched disc", setup.patched) : check("warn", "No patched disc yet", "Step 2 patches your disc."));
+	rows.append(setup.patchedOK ? check("ok", "Your patched disc", setup.patched)
+		: setup.patchedStale ? check("warn", "Your patched disc needs patching again", "Step 2 patches your disc for this version.")
+		: check("warn", "No patched disc yet", "Step 2 patches your disc."));
 	rows.append(setup.dolphinOK ? check("ok", "Dolphin", setup.dolphinExe) : check("warn", "No Dolphin yet", "Step 3 finds it."));
 	$("s-done-plaque").textContent = setup.needed ? "Almost there" : "You're set";
 	$("s-done-text").textContent = setup.needed

@@ -788,3 +788,45 @@ func TestUpdateRelaunchFallback(t *testing.T) {
 		t.Fatalf("alert %q", alert)
 	}
 }
+
+// TestSetupPatchedStale: the R9 "pick" start (a disc another version
+// patched, no vanilla disc saved) and its "repatch" twin. Setup shows the
+// patched disc as needing a re-patch, not as OK, whichever of Setup and
+// UpdateStatus asks first; a disc of this build stays OK.
+func TestSetupPatchedStale(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		vanilla bool
+		st      patch.DiscState
+		plan    string
+		ok      bool
+	}{
+		{"pick", false, patch.OtherVersion, "pick", false},
+		{"repatch", true, patch.OtherVersion, "repatch", false},
+		{"this build's", false, patch.Patched, "", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			patched := touch(t, filepath.Join(dir, "Wind Waker-multiplayer.iso"))
+			vanilla := ""
+			if c.vanilla {
+				vanilla = touch(t, filepath.Join(dir, "Wind Waker.iso"))
+			}
+			b, _, _, _ := updBridge(t, "v0.6.1", nil, func(p string) {
+				cfg := config.Defaults()
+				cfg.ISO.Patched, cfg.ISO.Vanilla = patched, vanilla
+				if err := cfg.Save(p); err != nil {
+					t.Fatal(err)
+				}
+			})
+			b.inspect = func(string) (patch.DiscState, error) { return c.st, nil }
+			s := b.Setup() // before UpdateStatus: Setup decides the plan
+			if s.PatchedOK != c.ok || s.PatchedStale == c.ok {
+				t.Errorf("Setup: patchedOK %v patchedStale %v, want OK %v", s.PatchedOK, s.PatchedStale, c.ok)
+			}
+			if v := b.UpdateStatus(); v.Repatch != c.plan {
+				t.Errorf("plan %q, want %q", v.Repatch, c.plan)
+			}
+		})
+	}
+}

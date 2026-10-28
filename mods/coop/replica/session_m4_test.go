@@ -17,6 +17,8 @@ func TestWrittenClasses(t *testing.T) {
 		{proto.FeatureImage, "the world's chests, pickups, rooms, dungeon items, ocean and charts"},
 		{proto.FeatureImage | proto.FeatureSwitches | proto.FeatureStory, "the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (at room changes); its story bits and event registers (at stage changes)"},
 		{proto.FeatureImage | proto.FeatureInventory | proto.FeatureMagic, "the world's chests, pickups, rooms, dungeon items, ocean and charts; its items, songs and capacities (when idle); the max magic this game's own flags give"},
+		{proto.FeatureImage | proto.FeatureSwitches | proto.FeatureLiveSwitches, "the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (live: in the room you stand in, once idle)"},
+		{proto.FeatureImage | proto.FeatureLiveSwitches, "the world's chests, pickups, rooms, dungeon items, ocean and charts"}, // no switches granted: none written
 		{proto.DefaultFeatures, "the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (at room changes); its story bits and event registers (at stage changes); its items, songs and capacities (when idle); the small keys, max hearts and max magic this game's own flags give"},
 	} {
 		if got := writtenClasses(c.f); got != c.want {
