@@ -9,7 +9,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 )
 
-// TestNoGUIStub is the build without the window: the native Linux CI job,
+// TestNoGUIStub is the build without the window: a native Linux build,
 // and any build without -tags desktop,production. Run must refuse at once
 // with ErrNoGUI (main then opens the TUI) without touching the controller.
 func TestNoGUIStub(t *testing.T) {

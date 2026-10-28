@@ -2,7 +2,8 @@
 // two-Dolphin harness (dolphin2, mp-local), the co-op diagnostics,
 // auto-recapture, the tunic tools and the research probes, moved out of
 // ww-multiplayer in Phase D6 so the shipped binary carries only what
-// players use. CI builds and vets it; releases do not ship it.
+// players use. The local check matrix (docs/TESTING.md) builds and vets it;
+// releases do not ship it.
 //
 //	go build -o wwdev.exe ./cmd/wwdev
 package main

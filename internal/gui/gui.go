@@ -12,8 +12,8 @@
 //
 // Build tags: the Wails window is compiled only for windows or darwin with
 // both `desktop` and `production` set (`go build -tags desktop,production`,
-// what release.yml, build.yml and scripts/build-mac.sh pass). Any other
-// build (a plain `go build`, Linux, the native Linux CI job) gets a stub
+// what release.yml and scripts/build-mac.sh pass). Any other
+// build (a plain `go build`, Linux) gets a stub
 // whose Run returns ErrNoGUI, so the binary still works as the CLI and the
 // TUI, never imports Wails, and needs no webkit or cgo for it. Wails v2
 // itself refuses to start a window without `production` (its default build

@@ -157,12 +157,8 @@ func TestReleaseAssets(t *testing.T) {
 
 // TestSigningIsOptional: every step that uses a secret runs only when the
 // job's HAS_* flag says all the secrets it uses exist, so a fork without
-// secrets builds unsigned assets instead of failing. CI (build.yml) uses
-// no secrets at all.
+// secrets builds unsigned assets instead of failing.
 func TestSigningIsOptional(t *testing.T) {
-	if s := readRepoFile(t, ".github/workflows/build.yml"); strings.Contains(s, "secrets.") {
-		t.Error("build.yml uses secrets; PR builds (forks included) must not need any")
-	}
 	wf := readRepoFile(t, ".github/workflows/release.yml")
 	// The build jobs hold the secrets; they get a read-only token. Only
 	// the release job declares write access for itself.
@@ -302,7 +298,7 @@ func TestWindowsManifest(t *testing.T) {
 		t.Error("main.go's go:generate line must build ww_windows.syso from the manifest and the icon")
 	}
 	// One exe: never the GUI subsystem (it would break CLI stdout/stdin).
-	for _, f := range []string{".github/workflows/release.yml", ".github/workflows/build.yml", "scripts/build-mac.sh"} {
+	for _, f := range []string{".github/workflows/release.yml", "scripts/build-mac.sh"} {
 		if strings.Contains(readRepoFile(t, f), "windowsgui") {
 			t.Errorf("%s builds with -H windowsgui; the exe stays console-subsystem", f)
 		}
@@ -417,8 +413,7 @@ func TestReleaseNotesFiles(t *testing.T) {
 	}
 }
 
-// TestGameFilesGuard: tools/check_game_files runs on the repo on every PR
-// (build.yml), and in release.yml on the repo, on each asset as it is
+// TestGameFilesGuard: tools/check_game_files runs in release.yml on the repo, on each asset as it is
 // built, and on the downloaded assets before the release step publishes
 // them.
 func TestGameFilesGuard(t *testing.T) {
@@ -434,8 +429,6 @@ func TestGameFilesGuard(t *testing.T) {
 		return false
 	}
 	for _, c := range []struct{ file, job, args string }{
-		{".github/workflows/build.yml", "windows", ""},
-		{".github/workflows/build.yml", "macos", "dist/ww-multiplayer-macos.zip"},
 		{".github/workflows/release.yml", "windows", ""},
 		{".github/workflows/release.yml", "windows", "ww-multiplayer.exe"},
 		{".github/workflows/release.yml", "macos", "dist/ww-multiplayer-macos.zip"},

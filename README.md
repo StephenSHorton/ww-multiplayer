@@ -397,9 +397,9 @@ scanning each file whole (the exe and the app binary in the macOS zip
 too) for an archive, compressed data, a model, a disc or save header
 inside it. Running
 the workflow by hand (workflow_dispatch) is a dry run: it builds both and
-keeps them as workflow artifacts, but publishes nothing. `build.yml` also
-builds and zips the macOS app on every push and PR, as a packaging smoke
-test.
+keeps them as workflow artifacts, but publishes nothing. There is no CI
+on PRs or pushes: run the checks in `docs/TESTING.md` locally before
+pushing (on a Mac, `./scripts/build-mac.sh local` is the packaging smoke test).
 
 The Windows exe embeds `cmd/ww-multiplayer/ww_windows.syso`: the icon (`docs/img/icon.ico`)
 and an application manifest (`packaging/ww-multiplayer.exe.manifest`:

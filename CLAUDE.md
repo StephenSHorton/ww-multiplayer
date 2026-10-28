@@ -32,7 +32,7 @@ ww-multiplayer/
 │   │   │                        #   app_face.go also runs the app's mods: --mods/--no-mod/--dev, appModConfig (flags over config.Mods via gui.ModConfig), startApp (wwapi.Runtime + session controller over its NetProvider's engine)
 │   │   ├── ww_windows.syso      #   Icon + application manifest (go generate ./cmd/ww-multiplayer); the linker only takes a .syso from the main package's directory
 │   │   └── testdata/            #   CLI and help goldens (cli-golden/), the subcommand lists
-│   └── wwdev/                   # wwdev, the developer tools (Phase D6; CI builds it, releases don't ship it): registry.go (its command registry + help),
+│   └── wwdev/                   # wwdev, the developer tools (Phase D6; the local checks build it, releases don't ship it): registry.go (its command registry + help),
 │                                #   commands.go (the command bodies), mp_local*.go (dolphin2, mp-local), smoke*.go + smooth_steps.go (the scripted smoke, the step log), coop_diag.go (co-op diagnostics), auto_recapture.go,
 │                                #   tunic_diag.go (tunic dev commands), probes.go (the research probes: peek/poke, disasm, eye/face, input, screenshot, dump, ...)
 ├── internal/
@@ -102,12 +102,11 @@ ww-multiplayer/
 │   ├── blobstamp/               # Writes/checks internal/inject/blob.stamp
 │   ├── gen_mailbox/             # inject/include/mailbox_core.h (+ mailbox_mp.h) -> wwapi/mailbox/layout_gen.go (go generate ./wwapi/mailbox)
 │   ├── mkicns/                  # docs/img/icon.ico -> docs/img/icon.icns (macOS app icon; go generate ./cmd/ww-multiplayer)
-│   ├── validate_manifests/      # Checks the mods' mod.json manifests (CI runs it)
-│   ├── check_game_files/        # Fails on a tracked game file or save (CI) and on any release asset holding one (release.yml)
+│   ├── validate_manifests/      # Checks the mods' mod.json manifests (local checks run it)
+│   ├── check_game_files/        # Fails on a tracked game file or save (local checks) and on any release asset holding one (release.yml)
 │   └── uipreview/               # The app's frontend with a fake Bridge (fake.js scenarios, ?s=home|lobby-host|ingame|..., ?theme=light|dark) for looking and headless-Chrome screenshots (docs/img/app-ui; docs/TESTING.md "The app window")
 ├── site/                        # The website (index.html), deployed by pages.yml
 ├── .github/workflows/
-│   ├── build.yml                # CI: go vet + cross-build on push/PR; macOS job also builds + zips the .app (smoke, no publish)
 │   ├── release.yml              # CI: build + release on tag push (exe, macOS zip, SHA256SUMS; secrets-gated signing; body = docs/release-notes/<tag>.md via scripts/release-notes.sh); dispatch = dry run
 │   └── pages.yml                # Website (site/) deploy: on release published / dispatch, from the latest release's tag
 └── docs/                        # IMPORTANT - read before debugging
@@ -308,6 +307,28 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
 #   MP_LOCAL_DOLPHIN_LOG=1  mp-local also prints each Dolphin's new dolphin.log lines as [dolphin-A] / [dolphin-B]
 ```
 
+## Checks (run locally - no CI)
+
+There is no CI on PRs or pushes (removed to save GitHub Actions minutes;
+only release.yml on `v*` tags and pages.yml run). Before opening or merging
+a PR, or pushing to main, run these locally and they must pass. The full
+matrix (gofmt, cross-OS vets, fuzz smoke) is in docs/TESTING.md.
+
+```bash
+GOOS=windows GOARCH=amd64 go vet ./... && GOOS=windows GOARCH=amd64 go vet -tags desktop,production ./...
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags desktop,production -o /tmp/ww-multiplayer.exe ./cmd/ww-multiplayer
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/ww-multiplayer-cli.exe ./cmd/ww-multiplayer
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/wwdev.exe ./cmd/wwdev
+grep -q 'requestedExecutionLevel level="asInvoker"' /tmp/ww-multiplayer.exe && grep -q 'permonitorv2' /tmp/ww-multiplayer.exe
+go test -count=1 -run 'TestBlobFresh|TestStampRoundTrip|TestT2EndsBelowMailbox|TestCheckBudget|TestBuildPyMatchesBlob|TestFrameShimLoadsCallbackSlot|TestMailboxLayout|TestModRegions' ./cmd/ww-multiplayer ./internal/inject/... ./wwapi/mailbox
+go run ./tools/check_game_files
+go run ./tools/validate_manifests && go vet ./mods/_fixtures/
+go vet ./... && go build -o /tmp/wwdev ./cmd/wwdev && go test -race -count=1 ./...   # native (race needs cgo)
+# macOS only (changes touching wwapi/emu, internal/gui, packaging):
+#   go vet ./... && go vet -tags desktop,production ./... && go test -count=1 ./... && go build -o /tmp/wwdev ./cmd/wwdev
+#   ./scripts/build-mac.sh local && go run ./tools/check_game_files dist/ww-multiplayer-macos.zip
+```
+
 ## Build pipeline (C side → ww-multiplayer.exe)
 
 ```bash
@@ -343,15 +364,15 @@ run `go generate ./cmd/ww-multiplayer` (needs `rsrc`) to rebuild
 `docs/img/icon.icns`.
 
 `internal/inject/blob.go` is committed and treated as source for build
-purposes. CI on push/PR doesn't rebuild the C side; tag releases include
+purposes. The local checks don't rebuild the C side; tag releases include
 the latest committed blob, so **regenerate blob.go before tagging** if
 the C side (inject/src, inject/include) has changed since the last release.
 
-CI checks the committed blob against the committed C sources on every PR
+The checks (go test) compare the committed blob with the committed C sources
 (`internal/inject/blobstamp`, `internal/inject/t2_budget_test.go`,
 `wwapi/mailbox/layout_test.go`): `blob.stamp` records the hashes of
 `inject/src`, `inject/include` and `inject/build.py` that blob.go was built
-from, so any edit there, comments included, fails CI until the blob is
+from, so any edit there, comments included, fails the tests until the blob is
 rebuilt and restamped; T2 must end below `MAILBOX_ADDR`; build.py's
 inject address and OSInit patch must match blob.go; the Go mailbox
 offsets (`wwapi/mailbox/layout_gen.go`, generated from mailbox_core.h and

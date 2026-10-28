@@ -4,7 +4,8 @@
 // shipped binaries hold only our code and patch records; each player
 // patches their own disc, release.yml's header), and a bug report must
 // never pack one (internal/bugreport). tools/check_game_files runs it over
-// the tracked files in CI and over the release assets in release.yml.
+// the tracked files (docs/TESTING.md, before every push) and over the
+// release assets in release.yml.
 //
 // A file is flagged by its name (main.dol, RELS.arc, bi2.bin, ...), its
 // extension (.iso .ciso .rvz .dol .rel .arc .sav .gci .raw .s01, ...) or

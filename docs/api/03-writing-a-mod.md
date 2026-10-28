@@ -61,7 +61,7 @@ var manifestJSON []byte
 func (*Mod) Manifest() wwapi.Manifest { return wwapi.ManifestFrom(manifestJSON) }
 ```
 
-`go run ./tools/validate_manifests` checks every `mods/**/mod.json` against the schema; CI runs it.
+`go run ./tools/validate_manifests` checks every `mods/**/mod.json` against the schema; run it before pushing (there is no CI).
 
 ## 3. The Mod
 

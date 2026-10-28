@@ -255,7 +255,7 @@ func TestTUIFace(t *testing.T) {
 
 // TestGUIBuildTags: Wails v2 starts a window only with the production tag,
 // and internal/gui compiles the window only with desktop and production
-// (gui_nogui.go), so every release and CI build of the Windows exe and the
+// (gui_nogui.go), so every release build of the Windows exe and the
 // macOS binary must pass both, or it silently ships without the window.
 // Each of those builds names ./cmd/ww-multiplayer, package main's
 // directory since Phase D7 (the .syso with the icon is only linked from
@@ -266,7 +266,6 @@ func TestGUIBuildTags(t *testing.T) {
 		min  int // go build lines that must carry the tags
 	}{
 		{".github/workflows/release.yml", 1},
-		{".github/workflows/build.yml", 1}, // Windows; macOS runs build-mac.sh (below)
 		{"scripts/build-mac.sh", 2},
 	} {
 		b, err := os.ReadFile(repoPath(c.file))
@@ -288,7 +287,7 @@ func TestGUIBuildTags(t *testing.T) {
 			t.Errorf("%s: %d go build lines with -tags desktop,production, want at least %d", c.file, n, c.min)
 		}
 		// The macOS builds link Wails' UTType use only with this (wails
-		// build adds it; plain go build doesn't). Both workflows build the
+		// build adds it; plain go build doesn't). The release workflow builds the
 		// macOS app through build-mac.sh, so that is where it must be.
 		if c.file != "scripts/build-mac.sh" {
 			if !strings.Contains(string(b), "./scripts/build-mac.sh") {

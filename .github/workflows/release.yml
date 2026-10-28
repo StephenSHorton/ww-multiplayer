@@ -87,8 +87,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: ./scripts/release-notes.sh "${GITHUB_REF_NAME}"
 
-      # No Nintendo file or save is tracked (internal/gamefiles; build.yml
-      # runs the same on every PR).
+      # No Nintendo file or save is tracked (internal/gamefiles; the local
+      # check matrix in docs/TESTING.md runs the same before every push).
       - name: No game files in the repo
         run: go run ./tools/check_game_files
 
@@ -107,7 +107,7 @@ jobs:
             exit 1
           fi
 
-      # Same checks build.yml runs on every PR: blob.go against blob.stamp
+      # Same checks docs/TESTING.md runs locally: blob.go against blob.stamp
       # and the committed C sources, the T2 budget, the mailbox layout.
       - name: Blob, code-space budget and mailbox layout checks
         run: >-

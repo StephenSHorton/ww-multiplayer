@@ -5,7 +5,7 @@ This repo holds the Go app and tools and the injected C source (`inject/`). To r
 ## Required external pieces
 
 ### 0. Go
-- Go 1.26.2 or newer (the `go` line in `go.mod`; CI uses the same file). macOS builds also need the Xcode command-line tools (cgo).
+- Go 1.26.2 or newer (the `go` line in `go.mod`; release.yml uses the same file). macOS builds also need the Xcode command-line tools (cgo).
 
 ### 1. Dolphin emulator
 - Install or extract a Dolphin build (this project was developed against Dolphin 2603 and 2609, x64).

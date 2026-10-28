@@ -1,24 +1,29 @@
 # Testing
 
-How changes to this repo are checked: the automated matrix every pull request must pass, the golden files that pin what users see, the tests known to flake, and the checks that need two real Dolphins. Writing tests for a mod is in [api/03-writing-a-mod.md](api/03-writing-a-mod.md#6-testing-with-fakegame).
+How changes to this repo are checked: the local matrix every pull request must pass, the golden files that pin what users see, the tests known to flake, and the checks that need two real Dolphins. Writing tests for a mod is in [api/03-writing-a-mod.md](api/03-writing-a-mod.md#6-testing-with-fakegame).
 
 ## The check matrix
 
-Run all of it before pushing. CI (`.github/workflows/build.yml`) runs the same checks: a Linux runner vets and cross-builds the Windows target and runs vet and `go test -race` natively, and a macOS runner vets, tests and packages natively. The maintainers' pre-push script runs the table below in one go on Windows.
+There is no CI on pull requests or pushes (the Build workflow was removed to save GitHub Actions minutes; only `release.yml` on `v*` tags and `pages.yml` run). So run all of it locally before opening or merging a PR or pushing to main, and it must pass. The maintainers' pre-push script runs the table below in one go on Windows.
 
 | Check | Command | Why |
 |---|---|---|
 | gofmt | `gofmt -l <changed .go files>` | Format the files you changed only. `internal/inject/dol.go` and `mods/multiplayer/net/backoff_test.go` are not gofmt-clean on main today: never run `gofmt -w` over them (or the module) wholesale, as it would bury your change in a reformat. |
 | vet, Windows | `GOOS=windows GOARCH=amd64 go vet ./...` | `wwapi/emu` has a Win32 memory reader. |
 | vet, Linux | `GOOS=linux GOARCH=amd64 go vet ./...` | |
-| vet, macOS | `GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go vet ./...` | The cgo memory reader (`wwapi/emu/memory_darwin.go`) is left out of a cgo-off cross-vet; the macOS CI job vets it natively. |
-| vet, app window | `GOOS=windows GOARCH=amd64 go vet -tags desktop,production ./...` (and natively on macOS) | The release build compiles the Wails window (`internal/gui`); without the tags `internal/gui` is a stub. CI's `go-vet` action runs both vets on each target. |
+| vet, macOS | `GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go vet ./...` | The cgo memory reader (`wwapi/emu/memory_darwin.go`) is left out of a cgo-off cross-vet; the macOS job below vets it natively. |
+| vet, app window | `GOOS=windows GOARCH=amd64 go vet -tags desktop,production ./...` (and natively on macOS) | The release build compiles the Wails window (`internal/gui`); without the tags `internal/gui` is a stub. Run both vets on each target. |
 | build | `go build ./cmd/ww-multiplayer` and `go build -tags desktop,production ./cmd/ww-multiplayer` | The CLI-only and the release build must both compile. |
+| build, Windows cross | `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags desktop,production -o <tmp>/ww-multiplayer.exe ./cmd/ww-multiplayer`, the same without the tags, and `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o <tmp>/wwdev.exe ./cmd/wwdev` | The release exe, the CLI-only exe and wwdev must cross-build with cgo off. |
+| exe manifest | `grep -q 'requestedExecutionLevel level="asInvoker"' <tmp>/ww-multiplayer.exe && grep -q 'permonitorv2' <tmp>/ww-multiplayer.exe` | `ww_windows.syso` was linked in (icon + application manifest). |
+| blob, budget, layout | `go test -count=1 -run 'TestBlobFresh\|TestStampRoundTrip\|TestT2EndsBelowMailbox\|TestCheckBudget\|TestBuildPyMatchesBlob\|TestFrameShimLoadsCallbackSlot\|TestMailboxLayout\|TestModRegions' ./cmd/ww-multiplayer ./internal/inject/... ./wwapi/mailbox` | Also inside `go test ./...`; named here so a failure reads as what it is. |
 | tests | `go test -count=1 ./...` | Everything, including the goldens below. |
-| tests, race | `go test -race -count=1 ./...` | Needs cgo (a C compiler); the Linux CI job runs it on every push. |
+| tests, race | `go test -race -count=1 ./...` | Needs cgo (a C compiler). |
 | fuzz smoke | `go test -run '^$' -fuzz '^FuzzX$' -fuzztime 30s ./pkg` | For each fuzz target in a package you touched, e.g. `./wwapi:FuzzWatcherStep`. List them with `grep -rn "func Fuzz" --include=*_test.go`. |
-| manifests | `go run ./tools/validate_manifests` and `go vet ./mods/_fixtures/` | Every `mods/**/mod.json` against the schema (CI's Build workflow). |
-| game files | `go run ./tools/check_game_files` | No Nintendo file or save is tracked, or untracked and not ignored (`internal/gamefiles`: names, extensions, file magic, zip entries). CI runs it on every PR, and `release.yml` on the repo and on every release asset. |
+| manifests | `go run ./tools/validate_manifests` and `go vet ./mods/_fixtures/` | Every `mods/**/mod.json` against the schema. |
+| game files | `go run ./tools/check_game_files` | No Nintendo file or save is tracked, or untracked and not ignored (`internal/gamefiles`: names, extensions, file magic, zip entries). `release.yml` also runs it on the repo and on every release asset. |
+
+macOS-only job (on a Mac, for changes that touch the macOS side: `wwapi/emu`, `internal/gui`, `scripts/build-mac.sh`, packaging): `go vet ./... && go vet -tags desktop,production ./...`, `go test -count=1 ./...`, `go build -o <tmp>/wwdev ./cmd/wwdev`, `./scripts/build-mac.sh local` (builds and zips `dist/ww-multiplayer-macos.zip`, ad-hoc signed), then `go run ./tools/check_game_files dist/ww-multiplayer-macos.zip`.
 
 C changes (`inject/src`, `inject/include`, `inject/build.py`) also need a rebuilt and restamped blob; `go test ./internal/inject/... ./wwapi/mailbox/...` checks the stamp, the T2 budget and the mailbox layout (CLAUDE.md, "Build pipeline"). `inject/build.py` takes devkitPPC from `DEVKITPPC` (default `C:\devkitpro\devkitPPC`). For a live check of a rebuilt blob, patch a disc with `./ww-multiplayer.exe patch <vanilla> <out.iso>` (the old `inject/patch_iso.py` splicer is gone) and recapture the save states: a state taken on the old blob fails the strict contract check.
 
