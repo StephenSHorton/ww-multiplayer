@@ -24,9 +24,9 @@
 //     cannonball crosses), in a boss stage or during this game's
 //     minigame, and writes the rest into the inbox with the sender's ID.
 //
-// Off by default (Settings, WW_PROJECTILES): nothing here has run live,
-// and a copy sets switches in this game directly, past co-op's holds
-// (docs/TESTING.md "Projectiles" decides).
+// On by default since v0.6.1 (Settings, WW_PROJECTILES=off turns it off).
+// A copy sets switches in this game directly, past co-op's holds
+// (docs/TESTING.md "Projectiles": P4 passed in part).
 package fxsync
 
 import (
