@@ -265,6 +265,8 @@ else:
         while time.time() - t1 < 2.0:
             hp = (peek_words(kui + 0x284, 1)[0] >> 16) & 0xFF
             seen.add(hp)
-            if hp == 3:
+            if hp in (1, 3):
                 break
-        print(f"kui health seen {sorted(seen)}: {'HOOKED' if 3 in seen else 'no catch'}")
+        # himo2 sets the KUI's health to 1 when the hook wraps it, 3 while Link
+        # hangs (d_a_himo2.cpp:1151/1157); 0 = no catch.
+        print(f"kui health seen {sorted(seen)}: {'HOOKED' if seen & {1, 3} else 'no catch'}")
